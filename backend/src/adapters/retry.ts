@@ -4,7 +4,10 @@ import { DeviceTimeoutError } from './errors';
 export interface RetryOptions {
   retries?: number;
   timeoutMs?: number;
+  /** 基础重试间隔, 默认 1000ms (Sprint-04 spec Task-009 要求 retryDelayMs=1000) */
   baseDelayMs?: number;
+  /** 退避策略: 'fixed' 固定间隔; 'exponential' 指数退避 (baseDelay * 2^(attempt-1)); 默认 fixed */
+  backoff?: 'fixed' | 'exponential';
   signal?: AbortSignal;
   onAttemptFail?: (attempt: number, err: unknown) => void;
 }
@@ -37,7 +40,8 @@ export async function withRetry<T>(
 ): Promise<T> {
   const retries = opts.retries ?? 3;
   const timeoutMs = opts.timeoutMs ?? 3000;
-  const baseDelay = opts.baseDelayMs ?? 200;
+  const baseDelay = opts.baseDelayMs ?? 1000;
+  const backoffMode = opts.backoff ?? 'fixed';
   const signal = opts.signal;
   let lastError: unknown;
 
@@ -52,9 +56,12 @@ export async function withRetry<T>(
         throw err;
       }
       if (attempt >= retries) break;
-      const backoff = baseDelay * 2 ** (attempt - 1);
+      const delay =
+        backoffMode === 'exponential'
+          ? baseDelay * 2 ** (attempt - 1)
+          : baseDelay;
       try {
-        await sleep(backoff, signal);
+        await sleep(delay, signal);
       } catch {
         throw lastError;
       }

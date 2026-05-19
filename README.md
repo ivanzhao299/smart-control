@@ -16,6 +16,96 @@
 - 测试中心：https://cnjinhu.top/control/#/admin/test-center
 - UAT 验收：https://cnjinhu.top/control/#/admin/uat
 
+## Sprint-04 真实设备接入配置 (现场)
+
+### MOCK_MODE 切换
+
+| 值 | 行为 | 适用 |
+|---|---|---|
+| `MOCK_MODE=true` | Adapter facade 选 mock 实现，零设备依赖 | 开发 / 演示 / 现场未接设备前 |
+| `MOCK_MODE=false` | facade 选真实 Adapter (DALI HTTP / Nova TCP / DSP HTTP / Modbus TCP) | 现场设备就绪后 |
+
+切换：
+```powershell
+# 编辑 backend\.env
+MOCK_MODE=false
+
+# Windows
+.\scripts\restart.ps1
+
+# Linux
+pm2 reload smart-control-backend --update-env
+```
+
+### 设备配置 (在 `backend\.env`)
+
+**全局**
+```
+DEVICE_TIMEOUT_MS=3000      # 默认超时 (Sprint-04 spec Task-008)
+DEVICE_RETRIES=3            # 默认重试次数 (Sprint-04 spec Task-009)
+# 重试默认 1000ms 固定间隔; 改 exponential 退避: DEVICE_RETRY_BACKOFF=exponential
+HEALTH_CHECK_ENABLED=true
+HEALTH_CHECK_INTERVAL_MS=30000   # 网关健康检查 (Sprint-04 spec Task-011)
+```
+
+**DALI 灯光 (西顿 + 英飞特 + DALI IoT Gateway)** ← `real-dali.adapter.ts`
+```
+DALI_GATEWAY_HOST=192.168.50.20
+DALI_GATEWAY_PORT=80
+DALI_API_PATH=/control
+# DALI_API_KEY=<厂家 API Key>
+```
+- 寻址：SceneAction.params 用 `{"zone":1}` / `{"group":N}` / `{"address":N}` 三种 scope
+- 一/二层公共区域、接待区、会议区 → 各自分配 zone 号
+
+**LED 大屏 (诺瓦 VX1000 + Intel NUC 播控)** ← `real-led.adapter.ts` (= `nova-led.adapter.ts`)
+```
+LED_HOST=192.168.50.30
+LED_PORT=5200
+LED_TRANSPORT=tcp           # 或 http
+```
+- 输入切换：`switchInput({ input: 'HDMI1' | 'HDMI2' | 'welcome' | 'video' })`
+- 播放视频：`playMedia({ media: 'welcome.mp4' })`
+
+**音响 DSP (DSPPA / ITC)** ← `real-audio.adapter.ts`
+```
+AUDIO_HOST=192.168.50.40
+AUDIO_PORT=80
+AUDIO_DEFAULT_ZONE=1f_bg
+# AUDIO_API_KEY=
+```
+- 分区映射：`audio_1f → 1f_bg`、`audio_2f → 2f_bg`、`audio_meeting → meeting`、`audio_roadshow → roadshow`
+
+**奥克斯空调 (Modbus TCP)** ← `real-hvac.adapter.ts` (= `modbus-hvac.adapter.ts`)
+```
+HVAC_HOST=192.168.50.50
+HVAC_PORT=502
+HVAC_DEFAULT_SLAVE_ID=1
+```
+- 多台空调：SceneAction.deviceId 用 JSON `{"slaveId":2}` 指定不同从机
+- 寄存器映射详见 [`backend/src/adapters/hvac/modbus-hvac.adapter.ts`](./backend/src/adapters/hvac/modbus-hvac.adapter.ts)（power/mode/setTemp/fan/roomTemp）
+
+### 验证真实模式
+```bash
+# 1) 切到真实模式启动后
+curl http://localhost:3000/api/system/runtime/gateways
+# 期望: 4 个网关返回 online (设备已通) / offline (未通) / reconnecting (重连中)
+
+# 2) 触发场景
+curl -X POST http://localhost:3000/api/scenes/opening/execute
+
+# 3) WS 监听细粒度状态推送 (PowerShell)
+$ws = New-Object Net.WebSockets.ClientWebSocket
+# 或用 wscat: npm i -g wscat; wscat -c ws://localhost:3000/ws/status
+```
+
+### 设备故障排查
+- 后台 `/admin/monitor` → 看 4 个网关状态
+- 后台 `/admin/test-center` → 网络 Ping + TCP 端口测试 + 单设备测试
+- 后台 `/admin/alerts` → 看 `gateway_offline` 报警明细
+- 系统日志：`pm2 logs smart-control-backend` 看 `reconnect` 与 `withRetry` 行
+- 网关掉线流程：1 次失败立即重试 → 5s 再试 → 15s 再试 → 仍失败创建 `critical` 报警 → 网关恢复后自动 resolve
+
 ## Sprint-03 场景引擎使用 (核心)
 
 ### 创建场景 + 动作

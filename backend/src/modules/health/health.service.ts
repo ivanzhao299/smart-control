@@ -5,6 +5,7 @@ import * as os from 'os';
 import { execSync } from 'child_process';
 import { Device } from '../../entities/device.entity';
 import { DeviceStatusService } from '../../services/device-status.service';
+import { AdapterConnectionRegistry } from '../../adapters/connection-registry';
 
 export interface ResourceSnapshot {
   cpuUsagePercent: number;
@@ -27,6 +28,8 @@ export interface HealthReport {
   schedulerStatus: 'up' | 'down';
   deviceOnlineCount: number;
   deviceOfflineCount: number;
+  /** Sprint-04 spec Task-017: 正在重连中的网关数 */
+  reconnectingCount: number;
   uptime: number;
   memoryUsagePercent: number;
   cpuUsagePercent: number;
@@ -45,6 +48,7 @@ export class HealthService {
     @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(Device) private readonly deviceRepo: Repository<Device>,
     private readonly deviceStatus: DeviceStatusService,
+    private readonly registry: AdapterConnectionRegistry,
   ) {}
 
   setWebsocketStatus(up: boolean): void {
@@ -64,6 +68,9 @@ export class HealthService {
     const apiStatus: 'up' | 'down' = 'up';
     const status: HealthReport['status'] =
       db === 'down' ? 'down' : (this.wsUp && this.schedulerUp ? 'ok' : 'degraded');
+    const reconnectingCount = this.registry
+      .list()
+      .filter((g) => g.state === 'reconnecting').length;
     return {
       status,
       apiStatus,
@@ -72,6 +79,7 @@ export class HealthService {
       schedulerStatus: this.schedulerUp ? 'up' : 'down',
       deviceOnlineCount: dev.online,
       deviceOfflineCount: dev.offline,
+      reconnectingCount,
       uptime: res.nodeUptimeSec,
       memoryUsagePercent: res.memoryUsagePercent,
       cpuUsagePercent: res.cpuUsagePercent,
