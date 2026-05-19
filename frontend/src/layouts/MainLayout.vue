@@ -44,7 +44,7 @@ function go(name: string): void {
           @click="go(t.name)"
         >
           <span class="ico">
-            <component :is="navIconFor(t.name)" :size="24" :stroke-width="1.75" />
+            <component :is="navIconFor(t.name)" :size="30" :stroke-width="1.75" />
           </span>
           <span class="lbl">{{ t.label }}</span>
         </button>
@@ -77,14 +77,14 @@ function go(name: string): void {
 .body {
   flex: 1;
   display: grid;
-  grid-template-columns: 116px 1fr;
+  grid-template-columns: 144px 1fr;
   overflow: hidden;
 }
 .side-nav {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 16px 10px;
+  gap: 8px;
+  padding: 18px 12px;
   background:
     linear-gradient(180deg, rgba(99, 102, 241, 0.06) 0%, transparent 40%),
     var(--bg-panel);
@@ -99,11 +99,11 @@ function go(name: string): void {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 12px 6px;
-  min-height: 76px;
-  font-size: 13px;
-  border-radius: 14px;
+  gap: 10px;
+  padding: 16px 8px;
+  min-height: 96px;
+  font-size: 16px;
+  border-radius: 16px;
   position: relative;
   transition: background 0.18s ease, color 0.18s ease, transform 0.12s ease;
 }
@@ -136,15 +136,15 @@ function go(name: string): void {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
   background: transparent;
 }
 .nav-item.is-active .ico {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.1);
 }
-.nav-item .lbl { font-size: 13px; letter-spacing: 1.5px; font-weight: 500; }
+.nav-item .lbl { font-size: 16px; letter-spacing: 2px; font-weight: 600; }
 
 .content {
   overflow: auto;
