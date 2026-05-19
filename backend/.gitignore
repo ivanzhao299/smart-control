@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Build
+dist/
+build/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Database
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# PM2
+.pm2/

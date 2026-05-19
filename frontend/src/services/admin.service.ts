@@ -1,0 +1,135 @@
+import { api } from './http';
+import type {
+  Device,
+  OperationLogEntry,
+  Paged,
+  SchedulerTask,
+  Scene,
+  SceneAction,
+  SceneSummary,
+  User,
+  UserRole,
+} from '@/types/api';
+
+/* ---------- Devices ---------- */
+export interface DeviceCreatePayload {
+  name: string;
+  category: 'lighting' | 'led' | 'audio' | 'hvac' | 'power' | 'system';
+  protocol?: string;
+  adapter?: string;
+  ip?: string;
+  address?: string;
+  floor?: string;
+  zone?: string;
+  enabled?: boolean;
+  status?: 'online' | 'offline' | 'reconnecting' | 'running' | 'error' | 'disabled';
+}
+
+export const adminDeviceService = {
+  list: (params?: { keyword?: string; category?: string; pageSize?: number; page?: number }) =>
+    api.get<Paged<Device>>('/devices', { params: { pageSize: 200, ...params } }),
+  detail: (id: number) => api.get<Device>(`/devices/${id}`),
+  create: (body: DeviceCreatePayload) => api.post<Device>('/devices', body),
+  update: (id: number, body: Partial<DeviceCreatePayload>) =>
+    api.put<Device>(`/devices/${id}`, body),
+  remove: (id: number) => api.del<null>(`/devices/${id}`),
+};
+
+/* ---------- Scenes & Actions ---------- */
+export interface SceneCreatePayload {
+  code: string;
+  name: string;
+  description?: string;
+  enabled?: boolean;
+}
+
+export interface SceneActionPayload {
+  deviceType: string;
+  deviceId: string;
+  command: string;
+  params?: Record<string, unknown>;
+  delayMs?: number;
+  sortOrder?: number;
+  enabled?: boolean;
+}
+
+export const adminSceneService = {
+  list: () => api.get<Paged<SceneSummary>>('/scenes', { params: { pageSize: 200 } }),
+  detail: (id: number) => api.get<Scene>(`/scenes/${id}`),
+  create: (body: SceneCreatePayload) => api.post<Scene>('/scenes', body),
+  update: (id: number, body: Partial<SceneCreatePayload>) =>
+    api.put<Scene>(`/scenes/${id}`, body),
+  remove: (id: number) => api.del<null>(`/scenes/${id}`),
+  execute: (code: string) => api.post(`/scenes/${code}/execute`),
+};
+
+export const adminSceneActionService = {
+  listForScene: (sceneId: number) =>
+    api.get<SceneAction[]>(`/scenes/${sceneId}/actions`),
+  create: (sceneId: number, body: SceneActionPayload) =>
+    api.post<SceneAction>(`/scenes/${sceneId}/actions`, body),
+  update: (actionId: number, body: Partial<SceneActionPayload>) =>
+    api.put<SceneAction>(`/scene-actions/${actionId}`, body),
+  remove: (actionId: number) => api.del<null>(`/scene-actions/${actionId}`),
+};
+
+/* ---------- Scheduler ---------- */
+export interface SchedulerPayload {
+  name: string;
+  cron: string;
+  sceneCode: string;
+  description?: string;
+  enabled?: boolean;
+}
+
+export const adminSchedulerService = {
+  list: (params?: { keyword?: string; enabled?: boolean }) =>
+    api.get<Paged<SchedulerTask>>('/scheduler', { params: { pageSize: 200, ...params } }),
+  detail: (id: number) => api.get<SchedulerTask>(`/scheduler/${id}`),
+  create: (body: SchedulerPayload) => api.post<SchedulerTask>('/scheduler', body),
+  update: (id: number, body: Partial<SchedulerPayload>) =>
+    api.put<SchedulerTask>(`/scheduler/${id}`, body),
+  remove: (id: number) => api.del<null>(`/scheduler/${id}`),
+  runNow: (id: number) => api.post<null>(`/scheduler/${id}/run`),
+};
+
+/* ---------- Users ---------- */
+export interface UserCreatePayload {
+  username: string;
+  password: string;
+  role: UserRole;
+  enabled?: boolean;
+}
+export interface UserUpdatePayload {
+  username?: string;
+  password?: string;
+  role?: UserRole;
+  enabled?: boolean;
+}
+
+export const adminUserService = {
+  list: (params?: { keyword?: string; role?: UserRole; enabled?: boolean }) =>
+    api.get<Paged<User>>('/users', { params: { pageSize: 200, ...params } }),
+  detail: (id: number) => api.get<User>(`/users/${id}`),
+  create: (body: UserCreatePayload) => api.post<User>('/users', body),
+  update: (id: number, body: UserUpdatePayload) => api.put<User>(`/users/${id}`, body),
+  remove: (id: number) => api.del<null>(`/users/${id}`),
+};
+
+/* ---------- Logs ---------- */
+export interface LogsQuery {
+  operator?: string;
+  action?: string;
+  targetType?: string;
+  targetId?: string;
+  result?: 'success' | 'failure';
+  startTime?: string;
+  endTime?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export const adminLogService = {
+  list: (params: LogsQuery = {}) =>
+    api.get<Paged<OperationLogEntry>>('/logs', { params: { pageSize: 100, ...params } }),
+};
