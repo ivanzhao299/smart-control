@@ -33,6 +33,8 @@ export class SystemController {
         mockLatencyMs: adapter.mockLatencyMs,
         websocketPath: ws.path,
         apiPrefix: app.apiPrefix,
+        platform: app.platform,
+        host: app.hostMachine || 'unknown',
       },
     };
   }

@@ -8,9 +8,42 @@
 
 新增：测试中心 (`/admin/test-center`) 支持单设备 / 子系统 / 场景 / 网络 (ping + TCP 端口) 测试；测试日志独立表与正式 OperationLog 隔离；测试报告聚合；UAT 验收模块（16 项默认种子：6 场景 + 6 设备 + 4 稳定性）+ 通过率统计 + WS 实时同步；Device 实体扩展 `debugRemark / lastTestAt / lastTestResult`；联调清单导出；WS 新事件 `test_started/progress/success/failed / uat_updated`。
 
+**部署目标**：
+- 现场中控主机：**Advantech ARK-1220L-S6A2** / Windows 11 (路径 `D:\smart-control\`)
+- 云端开发演示：cnjinhu.top (Linux, 仅用于 demo)
+
 线上演示：
 - 测试中心：https://cnjinhu.top/control/#/admin/test-center
 - UAT 验收：https://cnjinhu.top/control/#/admin/uat
+
+## 现场部署 (Windows 11 / ARK-1220L)
+
+完整步骤见 [`docs/Sprint-01-Windows-部署.md`](./docs/Sprint-01-Windows-部署.md)。
+
+一句话流程：
+```powershell
+# 一次性安装 (Node 20 + pnpm + PM2 + pm2-windows-startup)
+npm install -g pnpm pm2 pm2-windows-startup
+pm2-startup install
+
+# 拉代码到 D:\smart-control\
+git clone https://github.com/ivanzhao299/smart-control.git D:\smart-control
+cd D:\smart-control
+Copy-Item backend\.env.example.windows backend\.env
+notepad backend\.env     # 编辑 DB_PATH / LOG_DIR / HOST_MACHINE / 网关 IP
+
+# 启动
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1
+```
+
+5 个运维脚本：
+- `scripts\start.ps1` — 启动 (含 build + PM2 + 健康检查)
+- `scripts\stop.ps1` — 停止
+- `scripts\restart.ps1` `[-Build] [-Hard]` — 重启
+- `scripts\logs.ps1` `[-Err] [-Tail N] [-App]` — 查日志
+- `scripts\backup.ps1` `[-Keep 14] [-Dest path]` — 备份数据库 + .env + UAT 快照
+
+健康检查返回含 `platform: "windows"` + `host: "Advantech ARK-1220L-S6A2"`，便于运维识别主机。
 
 ## 现场联调与上线流程 (Sprint-09)
 

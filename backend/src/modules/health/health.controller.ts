@@ -10,7 +10,7 @@ export class HealthController {
     private readonly health: HealthService,
   ) {}
 
-  /** Sprint-08 增强健康检查 */
+  /** Sprint-08 增强健康检查 + Sprint-01 现场主机标识 */
   @Get('health')
   async healthCheck() {
     const report = await this.health.report();
@@ -21,6 +21,8 @@ export class HealthController {
         ...report,
         app: app.appName,
         env: app.nodeEnv,
+        platform: app.platform,
+        host: app.hostMachine || 'unknown',
       },
     };
   }
@@ -40,7 +42,9 @@ export class HealthController {
         sprint: 'Sprint-09',
         testMode: (process.env.TEST_MODE ?? 'false').toLowerCase() === 'true',
         nodeVersion: process.version,
-        platform: process.platform,
+        platform: app.platform,
+        platformRaw: process.platform,
+        host: app.hostMachine || 'unknown',
         arch: process.arch,
         pid: process.pid,
         mockMode: adapter.mock,
