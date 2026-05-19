@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, inject } from 'vue';
+import { Maximize2, Minimize2 } from 'lucide-vue-next';
+import BrandLogo from '@/components/BrandLogo.vue';
 import { useSystemStore } from '@/stores/system';
 import { useSceneStore } from '@/stores/scene';
 import { useDeviceStore } from '@/stores/device';
@@ -52,7 +54,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? true);
 <template>
   <header class="status-bar">
     <div class="brand">
-      <div class="logo">●</div>
+      <BrandLogo :size="44" />
       <div>
         <div class="title">展贸中心智能中控</div>
         <div class="sub">{{ dateLabel }}</div>
@@ -93,8 +95,8 @@ const mockTag = computed(() => sys.info?.mockMode ?? true);
         :title="fs.isActive.value ? '退出全屏 (Esc)' : '进入终端模式 (全屏)'"
         @click="fs.toggle()"
       >
-        <span v-if="fs.isActive.value">⤓</span>
-        <span v-else>⤢</span>
+        <Minimize2 v-if="fs.isActive.value" :size="18" :stroke-width="2" />
+        <Maximize2 v-else :size="18" :stroke-width="2" />
       </button>
       <div class="clock">{{ timeLabel }}</div>
     </div>
@@ -108,21 +110,24 @@ const mockTag = computed(() => sys.info?.mockMode ?? true);
   align-items: center;
   gap: 20px;
   padding: 14px 24px;
-  background: var(--bg-panel);
+  background:
+    linear-gradient(180deg, rgba(99, 102, 241, 0.05) 0%, transparent 70%),
+    var(--bg-panel);
   border-bottom: 1px solid var(--border-soft);
   flex-shrink: 0;
+  backdrop-filter: blur(8px);
 }
 .brand { display: flex; align-items: center; gap: 14px; }
-.logo {
-  width: 42px; height: 42px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 26px;
-  background: var(--color-primary);
-  color: #fff;
-  border-radius: 12px;
+.title {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  background: linear-gradient(90deg, #f8fafc 0%, #cbd5e1 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
-.title { font-size: 18px; font-weight: 600; letter-spacing: 0.5px; }
-.sub { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.sub { font-size: 12px; color: var(--text-secondary); margin-top: 3px; letter-spacing: 1px; }
 
 .metrics { display: flex; align-items: center; gap: 28px; justify-content: center; }
 .metric { text-align: center; }
@@ -139,10 +144,15 @@ const mockTag = computed(() => sys.info?.mockMode ?? true);
   display: flex; align-items: center; justify-content: center;
   background: var(--bg-elevated); color: var(--text-primary);
   border: 1px solid var(--border-soft); border-radius: 10px;
-  font-size: 18px; cursor: pointer;
-  transition: all 0.12s;
+  cursor: pointer;
+  transition: all 0.15s ease;
 }
-.fs-toggle:hover { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+.fs-toggle:hover {
+  background: linear-gradient(135deg, #3b82f6, #7c3aed);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 8px 18px -6px rgba(99, 102, 241, 0.55);
+}
 .fs-toggle:active { transform: scale(0.95); }
 .clock {
   font-size: 28px;
@@ -150,5 +160,6 @@ const mockTag = computed(() => sys.info?.mockMode ?? true);
   font-variant-numeric: tabular-nums;
   letter-spacing: 2px;
   color: var(--text-primary);
+  font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
 }
 </style>

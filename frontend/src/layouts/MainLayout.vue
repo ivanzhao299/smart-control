@@ -6,6 +6,7 @@ import AlertBanner from '@/components/AlertBanner.vue';
 import ExecutionStatusBar from '@/components/ExecutionStatusBar.vue';
 import FullscreenPrompt from '@/components/FullscreenPrompt.vue';
 import { useFullscreen } from '@/composables/useFullscreen';
+import { navIconFor } from '@/composables/useIcons';
 
 const route = useRoute();
 const router = useRouter();
@@ -14,14 +15,14 @@ const router = useRouter();
 const fs = useFullscreen({ autoEnter: true });
 provide('fullscreen', fs);
 
-const tabs: Array<{ name: string; label: string; icon: string }> = [
-  { name: 'dashboard', label: '首页', icon: '🏠' },
-  { name: 'lighting', label: '灯光', icon: '💡' },
-  { name: 'led', label: 'LED', icon: '🖥' },
-  { name: 'audio', label: '音响', icon: '🔊' },
-  { name: 'hvac', label: '空调', icon: '❄️' },
-  { name: 'status', label: '状态', icon: '📡' },
-  { name: 'admin-devices', label: '后台', icon: '⚙' },
+const tabs: Array<{ name: string; label: string }> = [
+  { name: 'dashboard', label: '首页' },
+  { name: 'lighting', label: '灯光' },
+  { name: 'led', label: 'LED' },
+  { name: 'audio', label: '音响' },
+  { name: 'hvac', label: '空调' },
+  { name: 'status', label: '状态' },
+  { name: 'admin-devices', label: '后台' },
 ];
 
 function go(name: string): void {
@@ -42,7 +43,9 @@ function go(name: string): void {
           :class="{ 'is-active': route.name === t.name }"
           @click="go(t.name)"
         >
-          <span class="ico">{{ t.icon }}</span>
+          <span class="ico">
+            <component :is="navIconFor(t.name)" :size="24" :stroke-width="1.75" />
+          </span>
           <span class="lbl">{{ t.label }}</span>
         </button>
       </nav>
@@ -74,15 +77,17 @@ function go(name: string): void {
 .body {
   flex: 1;
   display: grid;
-  grid-template-columns: 132px 1fr;
+  grid-template-columns: 116px 1fr;
   overflow: hidden;
 }
 .side-nav {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 16px 12px;
-  background: var(--bg-panel);
+  gap: 6px;
+  padding: 16px 10px;
+  background:
+    linear-gradient(180deg, rgba(99, 102, 241, 0.06) 0%, transparent 40%),
+    var(--bg-panel);
   border-right: 1px solid var(--border-soft);
   overflow-y: auto;
 }
@@ -95,25 +100,55 @@ function go(name: string): void {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 14px 6px;
-  min-height: 84px;
-  font-size: 16px;
+  padding: 12px 6px;
+  min-height: 76px;
+  font-size: 13px;
+  border-radius: 14px;
+  position: relative;
+  transition: background 0.18s ease, color 0.18s ease, transform 0.12s ease;
+}
+.nav-item::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 18%;
+  bottom: 18%;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(180deg, #3b82f6, #7c3aed);
+  opacity: 0;
+  transition: opacity 0.18s ease;
 }
 .nav-item:hover {
   background: var(--bg-elevated);
   color: var(--text-primary);
 }
+.nav-item:active { transform: scale(0.96); }
 .nav-item.is-active {
-  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-press) 100%);
-  color: #fff;
-  box-shadow: var(--shadow-button);
+  background:
+    linear-gradient(135deg, rgba(59, 130, 246, 0.18) 0%, rgba(124, 58, 237, 0.18) 100%);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  box-shadow: 0 8px 18px -8px rgba(99, 102, 241, 0.45);
 }
-.nav-item .ico { font-size: 26px; line-height: 1; }
-.nav-item .lbl { font-size: 14px; letter-spacing: 1px; }
+.nav-item.is-active::before { opacity: 1; }
+.nav-item .ico {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: transparent;
+}
+.nav-item.is-active .ico {
+  background: rgba(255, 255, 255, 0.08);
+}
+.nav-item .lbl { font-size: 13px; letter-spacing: 1.5px; font-weight: 500; }
 
 .content {
   overflow: auto;
-  padding: 20px 24px;
+  padding: 22px 26px;
 }
 
 .page-enter-from, .page-leave-to { opacity: 0; transform: translateY(6px); }

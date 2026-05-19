@@ -1,0 +1,227 @@
+# =====================================================================
+# Deploy - 自动部署到 cnjinhu.top
+# 触发:
+#   1) push main           → 自动部署当前 commit
+#   2) workflow_dispatch   → 手动触发 (可指定 ref + rollback)
+# 流程:
+#   build → upload tarballs (artifact) → ssh + scp deploy → health check → 失败回滚
+# 服务器路径:
+#   前端: /srv/www/cnjinhu.top/control/current/ (release.sh 管理)
+#   后端: /srv/app/smart-control/releases/<TS>/  + current 软链
+# =====================================================================
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: '要部署的 git ref (commit / branch / tag), 默认当前分支'
+        required: false
+        default: ''
+      rollback:
+        description: '回滚而非部署 (true = 切到 current 之前的最近一个 release)'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-cnjinhu-top
+  cancel-in-progress: false
+
+jobs:
+  # ---------- 构建 (skip on rollback) ----------
+  build:
+    if: ${{ github.event.inputs.rollback != 'true' }}
+    name: Build artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Frontend - install + typecheck + build
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run typecheck
+          pnpm run build
+
+      - name: Frontend - tar dist
+        run: tar czf /tmp/control-dist.tgz -C frontend/dist .
+
+      - name: Backend - tar source (npm ci 在服务器执行)
+        run: |
+          tar czf /tmp/backend-src.tgz \
+            --exclude='backend/node_modules' \
+            --exclude='backend/dist' \
+            --exclude='backend/.env' \
+            --exclude='backend/.env.local' \
+            --exclude='backend/database' \
+            --exclude='backend/coverage' \
+            backend
+
+      - name: Compose version.json
+        run: |
+          mkdir -p /tmp/deploy-meta/deploy/configs
+          jq -n \
+            --arg version "$(jq -r .version frontend/package.json)" \
+            --arg sprint "Sprint-10" \
+            --arg buildTime "$(date -Iseconds)" \
+            --arg commit "${{ github.sha }}" \
+            --arg ref "${{ github.ref_name }}" \
+            '{
+              version: $version,
+              sprint: $sprint,
+              buildTime: $buildTime,
+              commit: $commit,
+              ref: $ref,
+              platform: "linux",
+              host: "cnjinhu.top (demo)"
+            }' > /tmp/deploy-meta/deploy/configs/version.json
+          tar czf /tmp/deploy-meta.tgz -C /tmp/deploy-meta .
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-bundle
+          path: |
+            /tmp/control-dist.tgz
+            /tmp/backend-src.tgz
+            /tmp/deploy-meta.tgz
+          retention-days: 14
+
+  # ---------- 部署 / 回滚 ----------
+  deploy:
+    name: Deploy to cnjinhu.top
+    needs: [ build ]
+    if: ${{ always() && (needs.build.result == 'success' || github.event.inputs.rollback == 'true') }}
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://cnjinhu.top/control/
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          sparse-checkout: |
+            scripts
+
+      - name: Download artifacts
+        if: ${{ github.event.inputs.rollback != 'true' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: deploy-bundle
+          path: /tmp/
+
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Trust server host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      # ---------- 部署路径 ----------
+      - name: Upload artifacts to server
+        if: ${{ github.event.inputs.rollback != 'true' }}
+        run: |
+          scp /tmp/control-dist.tgz \
+              /tmp/backend-src.tgz \
+              /tmp/deploy-meta.tgz \
+              scripts/deploy-backend-remote.sh \
+              root@${{ secrets.DEPLOY_HOST }}:/tmp/
+
+      - name: Deploy frontend (release.sh)
+        if: ${{ github.event.inputs.rollback != 'true' }}
+        run: |
+          ssh root@${{ secrets.DEPLOY_HOST }} '
+            set -e
+            rm -rf /tmp/stage && mkdir /tmp/stage
+            tar xzf /tmp/control-dist.tgz -C /tmp/stage
+            /srv/www/cnjinhu.top/bin/release.sh control /tmp/stage
+          '
+
+      - name: Deploy backend
+        if: ${{ github.event.inputs.rollback != 'true' }}
+        run: |
+          ssh root@${{ secrets.DEPLOY_HOST }} '
+            set -e
+            chmod +x /tmp/deploy-backend-remote.sh
+            /tmp/deploy-backend-remote.sh \
+              --backend-tarball /tmp/backend-src.tgz \
+              --meta-tarball /tmp/deploy-meta.tgz \
+              --app-root /srv/app/smart-control \
+              --pm2-name smart-control-backend \
+              --keep 5
+          '
+
+      # ---------- 回滚路径 ----------
+      - name: Rollback (switch current symlink to previous release)
+        if: ${{ github.event.inputs.rollback == 'true' }}
+        run: |
+          ssh root@${{ secrets.DEPLOY_HOST }} '
+            set -e
+            cd /srv/app/smart-control
+            CURRENT=$(readlink current)
+            PREV=$(ls -1t releases | grep -v "^$(basename $CURRENT)\$" | head -1)
+            if [ -z "$PREV" ]; then
+              echo "没有可回滚的旧 release" >&2
+              exit 1
+            fi
+            echo "回滚: $(basename $CURRENT) → $PREV"
+            ln -sfn releases/$PREV current.tmp
+            mv -T current.tmp current
+            pm2 reload smart-control-backend --update-env
+          '
+
+      # ---------- 健康验收 + 失败回滚 ----------
+      - name: Health check (with auto-rollback on failure)
+        run: |
+          set +e
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            sleep 3
+            BODY=$(curl -fsS --max-time 5 https://cnjinhu.top/control/api/system/health || true)
+            STATUS=$(echo "$BODY" | jq -r .data.apiStatus 2>/dev/null)
+            if [ "$STATUS" = "up" ]; then
+              echo "✅ Health OK (attempt $i)"
+              echo "$BODY" | jq .data
+              exit 0
+            fi
+            echo "⏳ health attempt $i: $STATUS"
+          done
+          echo "❌ Health check 失败, 自动回滚..."
+          ssh root@${{ secrets.DEPLOY_HOST }} '
+            set -e
+            cd /srv/app/smart-control
+            CURRENT=$(readlink current)
+            PREV=$(ls -1t releases | grep -v "^$(basename $CURRENT)\$" | head -1)
+            if [ -n "$PREV" ]; then
+              ln -sfn releases/$PREV current.tmp
+              mv -T current.tmp current
+              pm2 reload smart-control-backend --update-env
+              echo "已回滚到 $PREV"
+            fi
+          '
+          exit 1
+
+      - name: Verify deployed version
+        run: |
+          curl -sS https://cnjinhu.top/control/api/system/info | jq '.data | {version, sprint, buildTime, commit: .host, nodeVersion}'

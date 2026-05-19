@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
-import { computed, ref } from 'vue';
+import { computed, ref, type Component } from 'vue';
 import { sceneService } from '@/services/scene.service';
+import { sceneIconFor } from '@/composables/useIcons';
 import type {
   ExecutionStatus,
   SceneExecution,
@@ -10,14 +11,6 @@ import type {
 } from '@/types/api';
 
 const SCENE_ORDER = ['opening', 'reception', 'meeting', 'roadshow', 'cleaning', 'closing'];
-const SCENE_ICON: Record<string, string> = {
-  opening: '🎉',
-  reception: '🤝',
-  meeting: '🧑‍💼',
-  roadshow: '🎬',
-  cleaning: '🧹',
-  closing: '🌙',
-};
 
 /** 当前执行/最近一次执行的展示态 — 用于平板顶部/底部状态条 */
 export interface ActiveExecutionView {
@@ -77,8 +70,8 @@ export const useSceneStore = defineStore('scene', () => {
       (activeExecution.value.status === 'running' || activeExecution.value.status === 'pending'),
   );
 
-  function iconFor(code: string): string {
-    return SCENE_ICON[code] ?? '⚙️';
+  function iconFor(code: string): Component {
+    return sceneIconFor(code);
   }
 
   async function fetchScenes(): Promise<void> {

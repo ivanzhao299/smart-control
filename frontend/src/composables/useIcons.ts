@@ -1,0 +1,61 @@
+/**
+ * 统一图标映射 (Sprint-10 视觉升级)
+ * 用 lucide-vue-next 取代旧 emoji, 跨浏览器渲染一致, 现代 stroke 风格
+ */
+import {
+  Home,
+  Lightbulb,
+  MonitorPlay,
+  Volume2,
+  Snowflake,
+  Radio,
+  Settings,
+  PartyPopper,
+  Handshake,
+  Users,
+  Clapperboard,
+  Sparkles,
+  Moon,
+  Zap,
+  type LucideIcon,
+} from 'lucide-vue-next';
+
+/** 平板侧边导航 */
+export const NAV_ICON: Record<string, LucideIcon> = {
+  dashboard: Home,
+  lighting: Lightbulb,
+  led: MonitorPlay,
+  audio: Volume2,
+  hvac: Snowflake,
+  status: Radio,
+  'admin-devices': Settings,
+};
+
+/** 场景 icon (按 sceneCode) */
+export const SCENE_ICON: Record<string, LucideIcon> = {
+  opening: PartyPopper,
+  reception: Handshake,
+  meeting: Users,
+  roadshow: Clapperboard,
+  cleaning: Sparkles,
+  closing: Moon,
+};
+
+/** 子系统类别 icon */
+export const CATEGORY_ICON: Record<string, LucideIcon> = {
+  lighting: Lightbulb,
+  led: MonitorPlay,
+  audio: Volume2,
+  hvac: Snowflake,
+  power: Zap,
+};
+
+export function navIconFor(name: string): LucideIcon {
+  return NAV_ICON[name] ?? Settings;
+}
+export function sceneIconFor(code: string): LucideIcon {
+  return SCENE_ICON[code] ?? Settings;
+}
+export function categoryIconFor(key: string): LucideIcon {
+  return CATEGORY_ICON[key] ?? Zap;
+}

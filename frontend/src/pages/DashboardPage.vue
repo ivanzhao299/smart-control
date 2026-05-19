@@ -2,10 +2,12 @@
 import { computed } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useRouter } from 'vue-router';
+import { Zap } from 'lucide-vue-next';
 import SceneButton from '@/components/SceneButton.vue';
 import StatusCard from '@/components/StatusCard.vue';
 import { useSceneStore } from '@/stores/scene';
 import { useDeviceStore } from '@/stores/device';
+import { categoryIconFor } from '@/composables/useIcons';
 import type { DeviceStatus } from '@/types/api';
 
 const sceneStore = useSceneStore();
@@ -43,10 +45,10 @@ function summary(category: 'lighting' | 'led' | 'audio' | 'hvac'): string {
 }
 
 const categories = computed(() => [
-  { key: 'lighting' as const, title: '灯光系统', icon: '💡', to: '/lighting' },
-  { key: 'led' as const, title: 'LED 大屏', icon: '🖥', to: '/led' },
-  { key: 'audio' as const, title: '音响系统', icon: '🔊', to: '/audio' },
-  { key: 'hvac' as const, title: '中央空调', icon: '❄️', to: '/hvac' },
+  { key: 'lighting' as const, title: '灯光系统', icon: categoryIconFor('lighting'), to: '/lighting' },
+  { key: 'led' as const, title: 'LED 大屏', icon: categoryIconFor('led'), to: '/led' },
+  { key: 'audio' as const, title: '音响系统', icon: categoryIconFor('audio'), to: '/audio' },
+  { key: 'hvac' as const, title: '中央空调', icon: categoryIconFor('hvac'), to: '/hvac' },
 ]);
 
 const powerStatus = computed<DeviceStatus>(() => {
@@ -135,7 +137,7 @@ function goTo(to: string): void {
       />
       <StatusCard
         title="电源/系统"
-        icon="⚡️"
+        :icon="Zap"
         :status="powerStatus"
         :subtitle="`故障 ${deviceStore.errorDevices.length} · 离线 ${deviceStore.offlineDevices.length}`"
         to="/status"
