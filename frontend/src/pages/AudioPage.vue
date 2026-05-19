@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { ElMessage } from 'element-plus';
+import { Volume2, VolumeX, Mic, MicOff, Play, Square, AlertCircle } from 'lucide-vue-next';
 import { audioService } from '@/services/audio.service';
 
 interface AudioRow {
@@ -69,8 +70,11 @@ async function toggleMic(z: AudioRow): Promise<void> {
 <template>
   <section class="page">
     <header class="page-head">
-      <h2 class="sc-title">🔊 音响控制</h2>
-      <div class="sc-subtle">DSPPA/ITC DSP · 分区音量 / 背景音 / 麦克风</div>
+      <div class="sc-head-ico"><Volume2 :size="22" :stroke-width="1.75" /></div>
+      <div>
+        <h2 class="sc-title">音响控制</h2>
+        <div class="sc-subtle">DSPPA/ITC DSP · 分区音量 / 背景音 / 麦克风</div>
+      </div>
     </header>
 
     <div class="grid">
@@ -80,7 +84,8 @@ async function toggleMic(z: AudioRow): Promise<void> {
             <div class="name">{{ z.name }}</div>
             <div class="meta">{{ z.id }} · 分区 {{ z.zone }}</div>
           </div>
-          <span class="sc-pill" :class="z.error ? 'is-error' : z.muted ? 'is-warning' : 'is-success'">
+          <span class="sc-status" :class="z.error ? 'is-error' : z.muted ? 'is-warning' : 'is-on'">
+            <span class="sc-status-dot" />
             {{ z.error ? '故障' : z.muted ? '静音' : '工作中' }}
           </span>
         </div>
@@ -93,10 +98,22 @@ async function toggleMic(z: AudioRow): Promise<void> {
         <el-slider v-model="z.volume" :min="0" :max="100" :step="5" :disabled="z.busy" @change="applyVolume(z)" />
 
         <div class="rows">
-          <button class="sc-touch act" :class="z.muted ? 'on' : 'off'" :disabled="z.busy" @click="toggleMute(z)">
+          <button
+            class="sc-touch sc-act"
+            :class="z.muted ? 'sc-act-warning' : 'sc-act-neutral'"
+            :disabled="z.busy"
+            @click="toggleMute(z)"
+          >
+            <component :is="z.muted ? VolumeX : Volume2" :size="20" :stroke-width="2" />
             {{ z.muted ? '取消静音' : '静音' }}
           </button>
-          <button class="sc-touch act" :class="z.mic ? 'on' : 'mic'" :disabled="z.busy" @click="toggleMic(z)">
+          <button
+            class="sc-touch sc-act"
+            :class="z.mic ? 'sc-act-purple' : 'sc-act-neutral'"
+            :disabled="z.busy"
+            @click="toggleMic(z)"
+          >
+            <component :is="z.mic ? Mic : MicOff" :size="20" :stroke-width="2" />
             {{ z.mic ? '麦克风开' : '麦克风关' }}
           </button>
         </div>
@@ -104,11 +121,17 @@ async function toggleMic(z: AudioRow): Promise<void> {
         <div class="section-label">背景音乐</div>
         <div class="bgm">
           <el-input v-model="z.bgm" placeholder="曲目名 (如 welcome)" size="large" />
-          <button class="sc-touch act play" :disabled="z.busy" @click="playBgm(z)">播放</button>
-          <button class="sc-touch act stop" :disabled="z.busy" @click="stopBgm(z)">停止</button>
+          <button class="sc-touch sc-act sc-act-primary" :disabled="z.busy" @click="playBgm(z)">
+            <Play :size="20" :stroke-width="2" /> 播放
+          </button>
+          <button class="sc-touch sc-act sc-act-danger" :disabled="z.busy" @click="stopBgm(z)">
+            <Square :size="20" :stroke-width="2" /> 停止
+          </button>
         </div>
 
-        <div v-if="z.error" class="err-msg">{{ z.error }}</div>
+        <div v-if="z.error" class="sc-err">
+          <AlertCircle :size="16" :stroke-width="2" /> {{ z.error }}
+        </div>
       </div>
     </div>
   </section>
@@ -116,39 +139,52 @@ async function toggleMic(z: AudioRow): Promise<void> {
 
 <style scoped>
 .page { display: flex; flex-direction: column; gap: 18px; }
-.page-head { display: flex; align-items: baseline; gap: 14px; }
+.page-head { display: flex; align-items: center; gap: 14px; }
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
-.ch-card { display: flex; flex-direction: column; gap: 14px; }
-.ch-card.is-muted { border-color: var(--color-warning); }
-.ch-card.is-error { border-color: var(--color-error); }
+.ch-card {
+  display: flex; flex-direction: column; gap: 14px;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.ch-card.is-muted {
+  border-color: rgba(245, 158, 11, 0.55);
+  box-shadow: 0 12px 32px -10px rgba(245, 158, 11, 0.28);
+}
+.ch-card.is-error { border-color: rgba(239, 68, 68, 0.55); }
 
-.head { display: flex; justify-content: space-between; }
+.head { display: flex; justify-content: space-between; align-items: flex-start; }
 .name { font-size: 20px; font-weight: 600; }
-.meta { font-size: 12px; color: var(--text-secondary); margin-top: 4px; letter-spacing: 1px; }
+.meta {
+  font-size: 12px; color: var(--text-secondary); margin-top: 4px;
+  letter-spacing: 1px; font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
 
 .vol { display: flex; align-items: center; gap: 14px; }
 .vol-num {
-  font-size: 36px; font-weight: 700; color: var(--color-primary); min-width: 80px;
+  font-size: 40px; font-weight: 700; min-width: 80px;
+  background: linear-gradient(135deg, #10b981 0%, #3b82f6 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-variant-numeric: tabular-nums;
 }
 .vol-bar { flex: 1; height: 8px; background: var(--bg-elevated); border-radius: 4px; overflow: hidden; }
 .vol-fill {
-  height: 100%; background: linear-gradient(90deg, #10b981 0%, #2563eb 100%);
+  height: 100%;
+  background: linear-gradient(90deg, #10b981 0%, #3b82f6 100%);
   transition: width 0.18s;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.5);
 }
-.vol-fill.muted { background: var(--color-warning); }
+.vol-fill.muted {
+  background: linear-gradient(90deg, #f59e0b 0%, #d97706 100%);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.5);
+}
 
 .rows { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.section-label { font-size: 12px; color: var(--text-secondary); letter-spacing: 1px; }
-.bgm { display: grid; grid-template-columns: 1fr 100px 100px; gap: 10px; }
-.act { color: #fff; background: var(--bg-elevated); }
-.act.on { background: var(--color-warning); color: #1f2937; }
-.act.off { background: var(--color-success); }
-.act.mic { background: var(--bg-elevated); color: var(--text-primary); }
-.act.play { background: var(--color-primary); }
-.act.stop { background: var(--color-error); }
-.act:disabled { opacity: 0.55; cursor: not-allowed; }
-
-.err-msg { font-size: 13px; color: var(--color-error); background: rgba(239,68,68,0.08); padding: 6px 10px; border-radius: 8px; }
+.section-label {
+  font-size: 12px; color: var(--text-secondary);
+  letter-spacing: 1.5px; text-transform: uppercase;
+}
+.bgm { display: grid; grid-template-columns: 1fr 110px 110px; gap: 10px; }
 
 @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
 </style>

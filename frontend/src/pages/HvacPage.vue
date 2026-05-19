@@ -1,6 +1,10 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, type Component } from 'vue';
 import { ElMessage } from 'element-plus';
+import {
+  Snowflake, Flame, Wind, Sparkles, Droplet,
+  Power, PowerOff, Minus, Plus, AlertCircle,
+} from 'lucide-vue-next';
 import { hvacService, type HvacFan, type HvacMode } from '@/services/hvac.service';
 
 interface HvacRow {
@@ -20,12 +24,12 @@ const units = ref<HvacRow[]>([
   { id: 'hvac_2f', name: '二层中央空调', floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
 ]);
 
-const modes: Array<{ value: HvacMode; label: string; icon: string }> = [
-  { value: 'cool', label: '制冷', icon: '❄️' },
-  { value: 'heat', label: '制热', icon: '🔥' },
-  { value: 'fan', label: '送风', icon: '🌬' },
-  { value: 'auto', label: '自动', icon: '✨' },
-  { value: 'dry', label: '除湿', icon: '💧' },
+const modes: Array<{ value: HvacMode; label: string; icon: Component }> = [
+  { value: 'cool', label: '制冷', icon: Snowflake },
+  { value: 'heat', label: '制热', icon: Flame },
+  { value: 'fan', label: '送风', icon: Wind },
+  { value: 'auto', label: '自动', icon: Sparkles },
+  { value: 'dry', label: '除湿', icon: Droplet },
 ];
 const fans: Array<{ value: HvacFan; label: string }> = [
   { value: 'auto', label: '自动' },
@@ -78,8 +82,11 @@ async function setFan(z: HvacRow, fan: HvacFan): Promise<void> {
 <template>
   <section class="page">
     <header class="page-head">
-      <h2 class="sc-title">❄️ 中央空调控制</h2>
-      <div class="sc-subtle">Modbus TCP · 温度 16-30°C · 5 种运行模式</div>
+      <div class="sc-head-ico"><Snowflake :size="22" :stroke-width="1.75" /></div>
+      <div>
+        <h2 class="sc-title">中央空调控制</h2>
+        <div class="sc-subtle">Modbus TCP · 温度 16-30°C · 5 种运行模式</div>
+      </div>
     </header>
 
     <div class="grid">
@@ -89,18 +96,23 @@ async function setFan(z: HvacRow, fan: HvacFan): Promise<void> {
             <div class="name">{{ z.name }}</div>
             <div class="meta">{{ z.id }} · {{ z.floor }}</div>
           </div>
-          <span class="sc-pill" :class="z.error ? 'is-error' : z.on ? 'is-success' : 'is-default'">
-            {{ z.error ? '故障' : z.on ? '运行中' : '关机' }}
+          <span class="sc-status" :class="z.error ? 'is-error' : z.on ? 'is-on' : 'is-off'">
+            <span class="sc-status-dot" />
+            {{ z.error ? '故障' : z.on ? '运行中' : '已关机' }}
           </span>
         </div>
 
         <div class="big-temp">
-          <button class="step" :disabled="z.busy || !z.on" @click="adjust(z, -1)">−</button>
+          <button class="step" :disabled="z.busy || !z.on" @click="adjust(z, -1)">
+            <Minus :size="28" :stroke-width="2.5" />
+          </button>
           <div class="temp-display">
             <div class="num">{{ z.temperature }}</div>
             <div class="unit">°C</div>
           </div>
-          <button class="step" :disabled="z.busy || !z.on" @click="adjust(z, 1)">＋</button>
+          <button class="step" :disabled="z.busy || !z.on" @click="adjust(z, 1)">
+            <Plus :size="28" :stroke-width="2.5" />
+          </button>
         </div>
 
         <el-slider v-model="z.temperature" :min="16" :max="30" :step="1" :disabled="z.busy || !z.on" @change="applyTemp(z)" />
@@ -110,12 +122,12 @@ async function setFan(z: HvacRow, fan: HvacFan): Promise<void> {
           <button
             v-for="m in modes"
             :key="m.value"
-            class="sc-touch mode-btn"
+            class="sc-touch sc-toggle mode-btn"
             :class="{ 'is-active': z.mode === m.value }"
             :disabled="z.busy"
             @click="setMode(z, m.value)"
           >
-            <span class="mode-ico">{{ m.icon }}</span>
+            <component :is="m.icon" :size="22" :stroke-width="1.75" />
             <span>{{ m.label }}</span>
           </button>
         </div>
@@ -125,19 +137,26 @@ async function setFan(z: HvacRow, fan: HvacFan): Promise<void> {
           <button
             v-for="f in fans"
             :key="f.value"
-            class="sc-touch fan-btn"
+            class="sc-touch sc-toggle"
             :class="{ 'is-active': z.fan === f.value }"
             :disabled="z.busy"
+            style="min-height: 54px;"
             @click="setFan(z, f.value)"
           >{{ f.label }}</button>
         </div>
 
         <div class="power-row">
-          <button class="sc-touch act on" :disabled="z.busy" @click="power(z, true)">开机</button>
-          <button class="sc-touch act off" :disabled="z.busy" @click="power(z, false)">关机</button>
+          <button class="sc-touch sc-act sc-act-success" :disabled="z.busy || z.on" @click="power(z, true)">
+            <Power :size="20" :stroke-width="2" /> 开机
+          </button>
+          <button class="sc-touch sc-act sc-act-danger" :disabled="z.busy || !z.on" @click="power(z, false)">
+            <PowerOff :size="20" :stroke-width="2" /> 关机
+          </button>
         </div>
 
-        <div v-if="z.error" class="err-msg">{{ z.error }}</div>
+        <div v-if="z.error" class="sc-err">
+          <AlertCircle :size="16" :stroke-width="2" /> {{ z.error }}
+        </div>
       </div>
     </div>
   </section>
@@ -145,59 +164,71 @@ async function setFan(z: HvacRow, fan: HvacFan): Promise<void> {
 
 <style scoped>
 .page { display: flex; flex-direction: column; gap: 18px; }
-.page-head { display: flex; align-items: baseline; gap: 14px; }
+.page-head { display: flex; align-items: center; gap: 14px; }
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
-.hvac-card { display: flex; flex-direction: column; gap: 12px; }
-.hvac-card.is-on { border-color: var(--color-primary); }
-.hvac-card.is-error { border-color: var(--color-error); }
-.head { display: flex; justify-content: space-between; }
+.hvac-card {
+  display: flex; flex-direction: column; gap: 14px;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.hvac-card.is-on {
+  border-color: rgba(59, 130, 246, 0.55);
+  box-shadow: 0 12px 32px -10px rgba(59, 130, 246, 0.3);
+}
+.hvac-card.is-error { border-color: rgba(239, 68, 68, 0.55); }
+.head { display: flex; justify-content: space-between; align-items: flex-start; }
 .name { font-size: 20px; font-weight: 600; }
-.meta { font-size: 12px; color: var(--text-secondary); margin-top: 4px; letter-spacing: 1px; }
+.meta {
+  font-size: 12px; color: var(--text-secondary); margin-top: 4px;
+  letter-spacing: 1px; font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
 
 .big-temp {
   display: flex; align-items: center; justify-content: space-between;
-  background: var(--bg-elevated);
-  border-radius: var(--radius-md);
-  padding: 16px 24px;
+  background:
+    linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(124, 58, 237, 0.12) 100%),
+    var(--bg-elevated);
+  border-radius: 16px;
+  border: 1px solid rgba(99, 102, 241, 0.18);
+  padding: 18px 26px;
 }
 .step {
   width: 56px; height: 56px; border-radius: 50%;
-  background: var(--color-primary); color: #fff;
-  font-size: 30px; font-weight: 600; border: none; cursor: pointer;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: #fff;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; cursor: pointer;
+  box-shadow: 0 6px 18px -4px rgba(59, 130, 246, 0.5);
+  transition: filter 0.15s ease, transform 0.12s ease;
 }
-.step:disabled { opacity: 0.4; cursor: not-allowed; }
+.step:hover:not(:disabled) { filter: brightness(1.1); }
+.step:active:not(:disabled) { transform: scale(0.95); }
+.step:disabled { opacity: 0.3; cursor: not-allowed; filter: grayscale(0.5); }
 .temp-display { display: flex; align-items: baseline; gap: 6px; }
-.num { font-size: 64px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.num {
+  font-size: 64px; font-weight: 700;
+  background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -1px;
+}
 .unit { font-size: 24px; color: var(--text-secondary); }
 
-.section-label { font-size: 12px; color: var(--text-secondary); letter-spacing: 1px; }
+.section-label {
+  font-size: 12px; color: var(--text-secondary);
+  letter-spacing: 1.5px; text-transform: uppercase;
+}
 .mode-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
 .mode-btn {
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
-  min-height: 70px; font-size: 13px;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  min-height: 76px; font-size: 13px;
+  padding: 8px;
 }
-.mode-btn .mode-ico { font-size: 22px; }
-.mode-btn.is-active { background: var(--color-primary); color: #fff; }
-.mode-btn:disabled { opacity: 0.55; }
 
 .fan-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.fan-btn {
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-  min-height: 52px; font-size: 15px;
-}
-.fan-btn.is-active { background: var(--color-info); color: #1f2937; }
-.fan-btn:disabled { opacity: 0.55; }
 
 .power-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.act { color: #fff; }
-.act.on { background: var(--color-success); }
-.act.off { background: var(--color-error); }
-.act:disabled { opacity: 0.55; cursor: not-allowed; }
-
-.err-msg { font-size: 13px; color: var(--color-error); background: rgba(239,68,68,0.08); padding: 6px 10px; border-radius: 8px; }
 
 @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
 </style>

@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { ElMessage } from 'element-plus';
+import {
+  MonitorPlay,
+  Power,
+  PowerOff,
+  Sparkles,
+  Play,
+  Tv2,
+  AlertCircle,
+} from 'lucide-vue-next';
 import { ledService, type LedInput } from '@/services/led.service';
 
 interface LedRow {
@@ -59,8 +68,11 @@ async function welcome(z: LedRow): Promise<void> {
 <template>
   <section class="page">
     <header class="page-head">
-      <h2 class="sc-title">🖥 LED 大屏控制</h2>
-      <div class="sc-subtle">诺瓦 VX1000 + NUC 播控 · 开关 / 输入 / 播放</div>
+      <div class="sc-head-ico"><MonitorPlay :size="22" :stroke-width="1.75" /></div>
+      <div>
+        <h2 class="sc-title">LED 大屏控制</h2>
+        <div class="sc-subtle">诺瓦 VX1000 + NUC 播控 · 开关 / 输入 / 播放</div>
+      </div>
     </header>
 
     <div class="grid">
@@ -70,23 +82,35 @@ async function welcome(z: LedRow): Promise<void> {
             <div class="name">{{ z.name }}</div>
             <div class="meta">{{ z.id }} · {{ z.floor }}</div>
           </div>
-          <span class="sc-pill" :class="z.error ? 'is-error' : z.power ? 'is-success' : 'is-default'">
-            {{ z.error ? '故障' : z.power ? '开屏' : '关屏' }}
+          <span class="sc-status" :class="z.error ? 'is-error' : z.power ? 'is-on' : 'is-off'">
+            <span class="sc-status-dot" />
+            {{ z.error ? '故障' : z.power ? '运行中' : '已关闭' }}
           </span>
         </div>
 
         <div class="screen-display" :class="{ 'is-on': z.power }">
-          <div v-if="!z.power" class="off-mask">屏幕已关闭</div>
+          <template v-if="!z.power">
+            <Tv2 class="screen-icon" :size="44" :stroke-width="1.5" />
+            <div class="off-mask">屏幕已关闭</div>
+          </template>
           <div v-else class="on-content">
             <div class="screen-input">{{ z.input }}</div>
-            <div v-if="z.media" class="screen-media">▶ {{ z.media }}</div>
+            <div v-if="z.media" class="screen-media">
+              <Play :size="14" :stroke-width="2.5" /> {{ z.media }}
+            </div>
           </div>
         </div>
 
         <div class="power-row">
-          <button class="sc-touch act on" :disabled="z.busy" @click="power(z, true)">开屏</button>
-          <button class="sc-touch act off" :disabled="z.busy" @click="power(z, false)">关屏</button>
-          <button class="sc-touch act welcome" :disabled="z.busy" @click="welcome(z)">欢迎页</button>
+          <button class="sc-touch sc-act sc-act-success" :disabled="z.busy || z.power" @click="power(z, true)">
+            <Power :size="20" :stroke-width="2" /> 开屏
+          </button>
+          <button class="sc-touch sc-act sc-act-danger" :disabled="z.busy || !z.power" @click="power(z, false)">
+            <PowerOff :size="20" :stroke-width="2" /> 关屏
+          </button>
+          <button class="sc-touch sc-act sc-act-warning" :disabled="z.busy" @click="welcome(z)">
+            <Sparkles :size="20" :stroke-width="2" /> 欢迎页
+          </button>
         </div>
 
         <div class="section-label">输入源</div>
@@ -94,9 +118,10 @@ async function welcome(z: LedRow): Promise<void> {
           <button
             v-for="i in inputs"
             :key="i"
-            class="sc-touch input-btn"
+            class="sc-touch sc-toggle"
             :class="{ 'is-active': z.input === i }"
             :disabled="z.busy"
+            style="min-height: 54px; font-size: 15px;"
             @click="changeInput(z, i)"
           >{{ i }}</button>
         </div>
@@ -104,10 +129,14 @@ async function welcome(z: LedRow): Promise<void> {
         <div class="section-label">播放视频</div>
         <div class="play-row">
           <el-input v-model="z.media" placeholder="文件名 / 频道 (如 welcome.mp4)" size="large" />
-          <button class="sc-touch act play" :disabled="z.busy" @click="play(z)">播放</button>
+          <button class="sc-touch sc-act sc-act-primary" :disabled="z.busy" @click="play(z)">
+            <Play :size="20" :stroke-width="2" /> 播放
+          </button>
         </div>
 
-        <div v-if="z.error" class="err-msg">{{ z.error }}</div>
+        <div v-if="z.error" class="sc-err">
+          <AlertCircle :size="16" :stroke-width="2" /> {{ z.error }}
+        </div>
       </div>
     </div>
   </section>
@@ -115,62 +144,69 @@ async function welcome(z: LedRow): Promise<void> {
 
 <style scoped>
 .page { display: flex; flex-direction: column; gap: 18px; }
-.page-head { display: flex; align-items: baseline; gap: 14px; }
+.page-head { display: flex; align-items: center; gap: 14px; }
 .grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
 }
 .led-card { display: flex; flex-direction: column; gap: 14px; }
-.led-card.is-on { border-color: var(--color-primary); }
-.led-card.is-error { border-color: var(--color-error); }
-.head { display: flex; justify-content: space-between; }
+.led-card.is-on {
+  border-color: rgba(59, 130, 246, 0.55);
+  box-shadow: 0 12px 32px -10px rgba(59, 130, 246, 0.3);
+}
+.led-card.is-error { border-color: rgba(239, 68, 68, 0.55); }
+.head { display: flex; justify-content: space-between; align-items: flex-start; }
 .name { font-size: 20px; font-weight: 600; }
-.meta { font-size: 12px; color: var(--text-secondary); margin-top: 4px; letter-spacing: 1px; }
+.meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  letter-spacing: 1px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
 
+/* 屏幕预览区 */
 .screen-display {
-  height: 130px;
-  background: #0a1020;
-  border-radius: var(--radius-md);
+  height: 140px;
+  background:
+    radial-gradient(circle at center, rgba(15, 23, 42, 0.4) 0%, rgba(2, 6, 23, 0.95) 100%);
+  border-radius: 14px;
   border: 1px solid var(--border-soft);
-  display: flex; align-items: center; justify-content: center;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
   overflow: hidden;
   position: relative;
+  gap: 10px;
 }
-.off-mask { color: var(--text-secondary); font-size: 16px; }
+.screen-display.is-on {
+  background:
+    radial-gradient(circle at 30% 30%, rgba(37, 99, 235, 0.35) 0%, transparent 65%),
+    radial-gradient(circle at 70% 70%, rgba(124, 58, 237, 0.25) 0%, transparent 65%),
+    #020617;
+  border-color: rgba(59, 130, 246, 0.5);
+}
+.screen-icon { color: rgba(148, 163, 184, 0.5); }
+.off-mask { color: var(--text-secondary); font-size: 14px; letter-spacing: 2px; }
 .on-content {
-  background: radial-gradient(circle at 30% 30%, rgba(37,99,235,0.45) 0%, transparent 70%);
   width: 100%; height: 100%;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 8px;
 }
 .screen-input {
-  font-size: 28px; font-weight: 700; color: #fff;
-  letter-spacing: 4px;
+  font-size: 30px; font-weight: 700; color: #fff;
+  letter-spacing: 5px;
+  text-shadow: 0 2px 12px rgba(59, 130, 246, 0.4);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
 }
-.screen-media { color: var(--text-secondary); font-size: 14px; }
+.screen-media {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: #cbd5e1; font-size: 13px;
+}
 
 .power-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-.section-label { font-size: 12px; color: var(--text-secondary); letter-spacing: 1px; margin-top: 4px; }
+.section-label { font-size: 12px; color: var(--text-secondary); letter-spacing: 1.5px; margin-top: 4px; text-transform: uppercase; }
 .input-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-.input-btn {
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-  min-height: 56px;
-  font-size: 15px;
-}
-.input-btn.is-active { background: var(--color-primary); color: #fff; box-shadow: var(--shadow-button); }
-.input-btn:disabled { opacity: 0.55; }
-
-.act { color: #fff; }
-.act.on { background: var(--color-success); }
-.act.off { background: var(--color-error); }
-.act.welcome { background: var(--color-warning); color: #1f2937; }
-.act.play { background: var(--color-primary); }
-.act:disabled { opacity: 0.55; cursor: not-allowed; }
-
-.play-row { display: grid; grid-template-columns: 1fr 130px; gap: 10px; }
-.err-msg { font-size: 13px; color: var(--color-error); background: rgba(239,68,68,0.08); padding: 6px 10px; border-radius: 8px; }
+.play-row { display: grid; grid-template-columns: 1fr 140px; gap: 10px; }
 
 @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
 </style>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { ElMessage } from 'element-plus';
+import { Lightbulb, Power, PowerOff, AlertCircle } from 'lucide-vue-next';
 import { lightingService } from '@/services/lighting.service';
 
 interface ZoneRow {
@@ -64,8 +65,11 @@ async function applyBrightness(z: ZoneRow): Promise<void> {
 <template>
   <section class="page">
     <header class="page-head">
-      <h2 class="sc-title">💡 灯光控制</h2>
-      <div class="sc-subtle">DALI 分区控制 · 支持 0-100% 亮度调节</div>
+      <div class="sc-head-ico"><Lightbulb :size="22" :stroke-width="1.75" /></div>
+      <div>
+        <h2 class="sc-title">灯光控制</h2>
+        <div class="sc-subtle">DALI 分区控制 · 支持 0-100% 亮度调节</div>
+      </div>
     </header>
 
     <div class="zones">
@@ -75,8 +79,9 @@ async function applyBrightness(z: ZoneRow): Promise<void> {
             <div class="zone-name">{{ z.name }}</div>
             <div class="zone-meta">Zone {{ z.id }} · {{ z.floor }}</div>
           </div>
-          <span class="sc-pill" :class="z.error ? 'is-error' : z.on ? 'is-success' : 'is-default'">
-            {{ z.error ? '故障' : z.on ? '开' : '关' }}
+          <span class="sc-status" :class="z.error ? 'is-error' : z.on ? 'is-on' : 'is-off'">
+            <span class="sc-status-dot" />
+            {{ z.error ? '故障' : z.on ? '已开启' : '已关闭' }}
           </span>
         </div>
 
@@ -96,11 +101,17 @@ async function applyBrightness(z: ZoneRow): Promise<void> {
         />
 
         <div class="actions">
-          <button class="sc-touch act on" :disabled="z.busy" @click="setOn(z)">开</button>
-          <button class="sc-touch act off" :disabled="z.busy" @click="setOff(z)">关</button>
+          <button class="sc-touch sc-act sc-act-success" :disabled="z.busy || z.on" @click="setOn(z)">
+            <Power :size="20" :stroke-width="2" /> 开启
+          </button>
+          <button class="sc-touch sc-act sc-act-danger" :disabled="z.busy || !z.on" @click="setOff(z)">
+            <PowerOff :size="20" :stroke-width="2" /> 关闭
+          </button>
         </div>
 
-        <div v-if="z.error" class="err-msg">{{ z.error }}</div>
+        <div v-if="z.error" class="sc-err">
+          <AlertCircle :size="16" :stroke-width="2" /> {{ z.error }}
+        </div>
       </div>
     </div>
   </section>
@@ -108,7 +119,7 @@ async function applyBrightness(z: ZoneRow): Promise<void> {
 
 <style scoped>
 .page { display: flex; flex-direction: column; gap: 20px; }
-.page-head { display: flex; align-items: baseline; gap: 14px; }
+.page-head { display: flex; align-items: center; gap: 14px; }
 .zones {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -116,36 +127,42 @@ async function applyBrightness(z: ZoneRow): Promise<void> {
 }
 .zone-card {
   display: flex; flex-direction: column; gap: 14px;
-  border-color: var(--border-soft);
-  transition: border-color 0.18s ease;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
-.zone-card.is-on { border-color: var(--color-primary); }
-.zone-card.is-error { border-color: var(--color-error); }
+.zone-card.is-on {
+  border-color: rgba(245, 158, 11, 0.55);
+  box-shadow: 0 12px 32px -10px rgba(245, 158, 11, 0.28);
+}
+.zone-card.is-error { border-color: rgba(239, 68, 68, 0.55); }
 .zone-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .zone-name { font-size: 20px; font-weight: 600; }
-.zone-meta { font-size: 12px; color: var(--text-secondary); margin-top: 4px; letter-spacing: 1px; }
+.zone-meta {
+  font-size: 12px; color: var(--text-secondary); margin-top: 4px;
+  letter-spacing: 1px; font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
 
 .brightness-display {
   display: flex; flex-direction: column; gap: 10px;
 }
-.value { font-size: 36px; font-weight: 700; color: var(--color-primary); }
-.value span { font-size: 18px; color: var(--text-secondary); margin-left: 4px; }
+.value {
+  font-size: 40px; font-weight: 700;
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 50%, #60a5fa 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  letter-spacing: 1px;
+  font-variant-numeric: tabular-nums;
+}
+.value span { font-size: 18px; color: var(--text-secondary); margin-left: 4px; -webkit-text-fill-color: var(--text-secondary); }
 .bar { height: 8px; background: var(--bg-elevated); border-radius: 4px; overflow: hidden; }
-.fill { height: 100%; background: linear-gradient(90deg, #f59e0b 0%, #2563eb 100%); transition: width 0.2s; }
+.fill {
+  height: 100%;
+  background: linear-gradient(90deg, #fbbf24 0%, #f59e0b 50%, #60a5fa 100%);
+  transition: width 0.25s ease;
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.5);
+}
 
 .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.act {
-  color: #fff;
-  background: var(--bg-elevated);
-}
-.act.on { background: var(--color-success); }
-.act.off { background: var(--color-error); }
-.act:disabled { opacity: 0.55; cursor: not-allowed; }
-
-.err-msg {
-  font-size: 13px; color: var(--color-error);
-  background: rgba(239,68,68,0.08); padding: 6px 10px; border-radius: 8px;
-}
 
 @media (max-width: 1100px) {
   .zones { grid-template-columns: 1fr; }
