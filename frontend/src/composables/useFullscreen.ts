@@ -42,6 +42,16 @@ export function useFullscreen(opts: { autoEnter?: boolean } = {}) {
     return Boolean(navAny.standalone);
   }
 
+  function detectIOS(): boolean {
+    if (typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent;
+    // iPad iOS 13+ 默认 UA 含 'Macintosh', 需用 maxTouchPoints 区分
+    const navAny = navigator as Navigator & { maxTouchPoints?: number };
+    const isIPad = /iPad/.test(ua) || (/Macintosh/.test(ua) && (navAny.maxTouchPoints ?? 0) > 1);
+    const isIPhone = /iPhone|iPod/.test(ua);
+    return isIPad || isIPhone;
+  }
+
   function refreshState(): void {
     const d = document as DocAny;
     const el = d.fullscreenElement ?? d.webkitFullscreenElement ?? null;
@@ -68,8 +78,15 @@ export function useFullscreen(opts: { autoEnter?: boolean } = {}) {
   }
 
   async function enter(): Promise<void> {
-    if (!isSupported.value) return;
-    if (isActive.value || isStandalone.value) return;
+    if (!isSupported.value) {
+      // 不支持时直接关 prompt, 避免 iPad / iPhone Safari 上 mask 永久盖屏
+      showPrompt.value = false;
+      return;
+    }
+    if (isActive.value || isStandalone.value) {
+      showPrompt.value = false;
+      return;
+    }
     const root = document.documentElement as ElAny;
     try {
       if (typeof root.requestFullscreen === 'function') {
@@ -77,9 +94,11 @@ export function useFullscreen(opts: { autoEnter?: boolean } = {}) {
       } else if (typeof root.webkitRequestFullscreen === 'function') {
         await root.webkitRequestFullscreen();
       }
-      showPrompt.value = false;
     } catch {
-      // 用户拒绝/浏览器不允许; 保留 prompt 让用户重试
+      // 用户拒绝/浏览器不允许 (iPad Safari 常见情况)
+    } finally {
+      // 无论成功失败都关掉提示, 不能挡住后续操作
+      showPrompt.value = false;
     }
     refreshState();
   }
@@ -147,8 +166,9 @@ export function useFullscreen(opts: { autoEnter?: boolean } = {}) {
       if (removeAutoEnter) removeAutoEnter();
     });
 
-    // 决策: 已 PWA / 已退出过 / 不支持 → 不弹
-    if (isStandalone.value || optedOut.value || !isSupported.value) {
+    // 决策: 已 PWA / 已退出过 / 不支持 / iOS (fullscreen 体验差) → 不弹
+    // iOS Safari 上 requestFullscreen 经常静默失败, 弹了反而挡住操作, 跳过即可
+    if (isStandalone.value || optedOut.value || !isSupported.value || detectIOS()) {
       showPrompt.value = false;
     } else {
       showPrompt.value = true;

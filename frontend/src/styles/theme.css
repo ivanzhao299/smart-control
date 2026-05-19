@@ -152,10 +152,23 @@ html {
   border: none;
   outline: none;
   cursor: pointer;
+  /* iOS Safari 修复: 关闭 300ms 延迟 + 关闭浏览器默认按钮渲染 + 允许 tap 事件直达 */
+  touch-action: manipulation;
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-user-select: none;
+  user-select: none;
+  font-family: inherit;
   transition: transform 0.12s ease, box-shadow 0.18s ease, background 0.18s ease;
 }
 .sc-touch:active {
   transform: scale(0.97);
+}
+
+/* 全局 button reset (兜底, 即使没加 sc-touch 的 <button> 在 iPad 也要响应) */
+button {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* ============================================================
