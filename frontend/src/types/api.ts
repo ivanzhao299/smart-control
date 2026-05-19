@@ -199,12 +199,16 @@ export interface HealthReport {
   schedulerStatus: 'up' | 'down';
   deviceOnlineCount: number;
   deviceOfflineCount: number;
+  reconnectingCount?: number;
   uptime: number;
   memoryUsagePercent: number;
   cpuUsagePercent: number;
   timestamp: string;
   app: string;
   env: string;
+  /** Sprint-01 Windows: 现场主机标识 */
+  platform?: string;
+  host?: string;
 }
 
 export interface SystemResources {

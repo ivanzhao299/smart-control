@@ -16,6 +16,85 @@
 - 测试中心：https://cnjinhu.top/control/#/admin/test-center
 - UAT 验收：https://cnjinhu.top/control/#/admin/uat
 
+## Sprint-05 平板端 PWA 部署 (Windows 11 中控主机)
+
+### 1. 在 ARK 主机上构建前端
+```powershell
+cd D:\smart-control\frontend
+
+# 一次性安装依赖
+pnpm install
+# 或 npm ci
+
+# 构建生产产物
+pnpm build
+# 产物在 D:\smart-control\frontend\dist\
+```
+
+### 2. 让后端直接 Serve 前端（最简单，无需 Nginx）
+
+`backend\.env` 加：
+```
+SERVE_FRONTEND=true
+FRONTEND_DIST_DIR=D:\smart-control\frontend\dist
+```
+
+> 当前后端默认通过 `@nestjs/serve-static`（如已启用）或可通过 Nginx for Windows 部署。
+
+### 3. 用 IIS 或 Nginx for Windows 独立托管 (推荐生产)
+
+```
+http://<ark-ip>/        → 静态托管 D:\smart-control\frontend\dist
+http://<ark-ip>/api/*   → 反代到 http://127.0.0.1:3000
+http://<ark-ip>/ws/*    → 反代到 ws://127.0.0.1:3000  (Upgrade: websocket)
+```
+
+最简单：直接 `vite preview` 暴露 4173 端口，配合 PM2 守护：
+```powershell
+# 也可注册为 PM2 进程
+pm2 start "pnpm preview -- --host 0.0.0.0 --port 4173" `
+  --name smart-control-frontend `
+  --cwd D:\smart-control\frontend
+pm2 save
+```
+
+### 4. 平板 (HOTWAV R9 Ultra) PWA 安装
+
+1. 平板连接展厅 WiFi (与中控主机同网段)
+2. Chrome 打开 `http://<ark-ip>:4173/` (或 80 端口)
+3. 浏览器菜单 → **添加到主屏幕** (Add to Home Screen)
+4. 主屏图标点击 → 自动 PWA 全屏启动 (manifest 配置了 `display: fullscreen, orientation: landscape`)
+5. 如果是普通浏览器访问，页面会自动弹「进入终端模式」遮罩，点任意位置进入全屏
+
+### 5. 平板分辨率适配
+- 设计基准：11 寸 1920×1200 横屏
+- 主页 6 个场景按钮 3×2 网格，每个 ≥ 180px 高，专为触控
+- 顶部 StatusBar 实时显示：时间 / 当前场景 / 设备在线数 / WS 状态 / 报警计数
+- 底部 ExecutionStatusBar 显示场景执行进度（pending → running → success/failed）
+
+### 6. WebSocket / API 地址配置
+
+前端默认走相对路径 `/api` 和 `/ws/status`，由 Nginx / vite proxy 反代到后端。开发时：
+```bash
+# frontend/.env.local (开发)
+VITE_PROXY_API=http://localhost:3000
+```
+
+生产环境 (PWA) 不需要 env，因为前端与后端通过反代在同一域名下。
+
+### 7. 路由清单
+
+| 路由 | 页面 |
+|---|---|
+| `/` | Dashboard (6 个场景按钮 + 5 个子系统状态卡) |
+| `/lighting` | 灯光 (4 个 DALI 区域 + 调光) |
+| `/led` | LED (2 屏 + 4 输入源 + 播放) |
+| `/audio` | 音响 (4 分区 + 音量/静音/BGM/麦克风) |
+| `/hvac` | 空调 (2 台 + 温度/模式/风速) |
+| `/status` | 系统状态 (CPU/内存/在线率/网关/报警/设备列表) |
+
+后台路由 `/admin/*` 见 [`frontend/README.md`](./frontend/README.md)。
+
 ## Sprint-04 真实设备接入配置 (现场)
 
 ### MOCK_MODE 切换

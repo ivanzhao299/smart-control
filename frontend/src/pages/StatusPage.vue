@@ -1,14 +1,55 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useDeviceStore } from '@/stores/device';
 import { useSceneStore } from '@/stores/scene';
 import { useSystemStore } from '@/stores/system';
 import { deviceService } from '@/services/device.service';
+import { adminMonitorService } from '@/services/admin.service';
+import type { HealthReport, SystemResources } from '@/types/api';
 
 const deviceStore = useDeviceStore();
 const sceneStore = useSceneStore();
 const sys = useSystemStore();
+
+const health = ref<HealthReport | null>(null);
+const res = ref<SystemResources | null>(null);
+let pollTimer: number | undefined;
+
+async function refreshResource(): Promise<void> {
+  try {
+    const [h, r] = await Promise.all([
+      adminMonitorService.health(),
+      adminMonitorService.status(),
+    ]);
+    health.value = h;
+    res.value = r;
+  } catch {
+    // 后端未起或权限不足时容错
+  }
+}
+
+onMounted(() => {
+  void refreshResource();
+  pollTimer = window.setInterval(refreshResource, 10_000);
+});
+
+onBeforeUnmount(() => {
+  if (pollTimer) window.clearInterval(pollTimer);
+});
+
+const deviceOnlineRatio = computed(() => {
+  if (!health.value) return 0;
+  const total = health.value.deviceOnlineCount + health.value.deviceOfflineCount;
+  if (total === 0) return 0;
+  return Math.round((health.value.deviceOnlineCount / total) * 100);
+});
+
+function gaugeColor(percent: number): string {
+  if (percent >= 90) return 'var(--color-error)';
+  if (percent >= 70) return 'var(--color-warning)';
+  return 'var(--color-success)';
+}
 
 const refreshing = ref(false);
 async function refresh(): Promise<void> {
@@ -16,6 +57,7 @@ async function refresh(): Promise<void> {
   try {
     await deviceStore.refreshAll();
     await sceneStore.refreshRunning();
+    await refreshResource();
     ElMessage.success('已刷新');
   } catch (err) {
     ElMessage.error(`刷新失败: ${(err as Error).message}`);
@@ -71,6 +113,41 @@ function gatewayLabel(name: string): string {
         <button class="sc-touch act primary" :disabled="refreshing" @click="refresh">{{ refreshing ? '刷新中…' : '刷新' }}</button>
       </div>
     </header>
+
+    <!-- Sprint-05 spec Task-010: 设备在线率 + CPU + 内存 顶部指标 -->
+    <div class="metrics-row">
+      <div class="metric-card">
+        <div class="metric-label">设备在线率</div>
+        <div class="metric-num" :style="{ color: deviceOnlineRatio >= 80 ? 'var(--color-success)' : 'var(--color-warning)' }">
+          {{ deviceOnlineRatio }}<span>%</span>
+        </div>
+        <div class="metric-sub">
+          在线 {{ health?.deviceOnlineCount ?? 0 }} / 离线 {{ health?.deviceOfflineCount ?? 0 }}
+          <span v-if="(health?.reconnectingCount ?? 0) > 0" class="recon">· 重连 {{ health?.reconnectingCount }}</span>
+        </div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">CPU</div>
+        <div class="metric-num" :style="{ color: gaugeColor(res?.cpu.usagePercent ?? 0) }">
+          {{ res?.cpu.usagePercent ?? 0 }}<span>%</span>
+        </div>
+        <div class="metric-sub">负载 {{ res?.cpu.loadAvg1m ?? '—' }} · {{ res?.cpu.cores ?? '—' }} 核</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">内存</div>
+        <div class="metric-num" :style="{ color: gaugeColor(res?.memory.usagePercent ?? 0) }">
+          {{ res?.memory.usagePercent ?? 0 }}<span>%</span>
+        </div>
+        <div class="metric-sub">{{ res?.memory.usedMb ?? '—' }} / {{ res?.memory.totalMb ?? '—' }} MB</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">当前报警</div>
+        <div class="metric-num" :style="{ color: sys.alerts.length > 0 ? 'var(--color-error)' : 'var(--color-success)' }">
+          {{ sys.alerts.length }}
+        </div>
+        <div class="metric-sub">WS {{ sys.wsState }}</div>
+      </div>
+    </div>
 
     <div class="grid grid-2">
       <div class="sc-panel">
@@ -171,6 +248,23 @@ function gatewayLabel(name: string): string {
 .act { background: var(--bg-elevated); color: var(--text-primary); padding: 0 20px; min-height: 44px; font-size: 14px; }
 .act.primary { background: var(--color-primary); color: #fff; }
 .act:disabled { opacity: 0.55; }
+
+.metrics-row {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
+}
+.metric-card {
+  background: var(--bg-panel); border: 1px solid var(--border-soft);
+  border-radius: 14px; padding: 14px 18px;
+}
+.metric-label { font-size: 12px; color: var(--text-secondary); letter-spacing: 1px; }
+.metric-num { font-size: 32px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; margin-top: 2px; }
+.metric-num span { font-size: 18px; color: var(--text-secondary); margin-left: 2px; }
+.metric-sub { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+.metric-sub .recon { color: var(--color-warning); margin-left: 4px; }
+
+@media (max-width: 1100px) {
+  .metrics-row { grid-template-columns: repeat(2, 1fr); }
+}
 
 .grid { display: grid; gap: 16px; }
 .grid-2 { grid-template-columns: 1fr 1fr; }
