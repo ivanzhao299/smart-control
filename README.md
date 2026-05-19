@@ -16,6 +16,76 @@
 - 测试中心：https://cnjinhu.top/control/#/admin/test-center
 - UAT 验收：https://cnjinhu.top/control/#/admin/uat
 
+## Sprint-06 后台管理系统使用
+
+后台与平板物理隔离: **平板 `/`** vs **后台 `/admin`**, 互不串扰。
+
+### 进入后台
+- 与平板同源, 浏览器打开 `http://<ARK-IP>:4173/#/admin`
+- 默认重定向到 `/admin/monitor` (运维监控)
+- 顶部右上角下拉切换角色 (admin / operator / viewer), 选择持久化到 localStorage
+
+### 11 个管理页面 (左侧菜单)
+
+| 路径 | 页面 | 功能 |
+|---|---|---|
+| `/admin/monitor` | 运维监控 | CPU/内存/磁盘 3 仪表盘 + 4 网关状态 + 服务状态 + 今日运行 + 8s 自动刷新 |
+| `/admin/alerts` | 报警中心 | 报警 CRUD + 解除/忽略 + WS 实时刷新 |
+| `/admin/devices` | 设备管理 | CRUD + IP/类别筛选 + 实时状态 (Sprint-06 spec Task-003) |
+| `/admin/scenes` | 场景管理 | CRUD + 测试执行 + 跳转动作配置 |
+| `/admin/scenes/:id/actions` | 场景动作 | CRUD + ↑↓ 排序 + JSON 参数校验 + 按 sortOrder 启停 |
+| `/admin/scheduler` | 定时任务 | CRUD + Cron 预设 + nextRunAt + 立即执行 |
+| `/admin/scene-executions` | 执行记录 | 6 维筛选 + 失败明细 popover + WS 实时刷新 |
+| `/admin/test-center` ≡ `/admin/debug` | 测试 / 调试 | 单设备测试 / 子系统 / 场景 dryRun / Ping / TCP 端口 / 日志 / 报告 |
+| `/admin/uat` | UAT 验收 | 16 项默认验收 + 录入实际结果 + 通过/失败/需调整 + 通过率 |
+| `/admin/logs` | 日志中心 | OperationLog 6 维筛选 + 时间区间 + JSON 详情 popover |
+| `/admin/users` | 用户管理 | CRUD + 3 角色 (admin/operator/viewer) + 密码 scrypt 哈希 |
+| `/admin/settings` | 系统设置 | 显示版本/Sprint/MOCK_MODE/网络/网关健康/API 端点一览 |
+
+### 权限矩阵 (前端基础)
+
+| 角色 | 查看 | 执行场景 / 立即触发 | 编辑配置 |
+|---|---|---|---|
+| **admin** | ✓ | ✓ | ✓ |
+| **operator** | ✓ | ✓ | ✗ |
+| **viewer** | ✓ | ✗ | ✗ |
+
+切换角色：后台顶部右上角下拉。当前是**前端控制**，后续 Sprint 接入 JWT 后端鉴权。
+
+### 设备管理 (Task-003 spec)
+- 新增/编辑：填 name (必填) / category / protocol / adapter / ip (IPv4 格式校验) / address (DALI zone/group 编码) / floor / zone
+- 启用 switch 切换 enabled，可直接停用
+- 实时状态：右列显示 runtime status (online / offline / reconnecting / error / running / disabled)
+- 设备的 `lastTestAt / lastTestResult / debugRemark` 由测试中心填入，可在编辑对话框查看
+
+### SceneAction 配置 (Task-005 spec)
+
+进入 **场景管理 → 任一场景的「动作配置」**：
+
+```
+顺序号 | 设备类型 | 设备ID            | 命令          | 参数 (JSON)     | 延时 | 启用
+1      | lighting | light_1f_main    | setBrightness | {"value":80}    | 0ms  | ☑
+2      | hvac     | hvac_1f          | setTemperature| {"value":24}    | 500  | ☑
+3      | led      | led_1f_main      | showWelcome   | {}              | 1000 | ☑
+```
+
+- **设备类型** 下拉选择后，**命令** 字段自动列出该类型的可用命令 (智能提示)
+- **参数** 必须是合法 JSON 对象 (前端实时校验，错误时不让保存)
+- **延时** 在 fire 该动作前等待 N ms
+- **顺序** ↑↓ 调整；相同 sortOrder 的动作 SceneEngine 会并行执行（Sprint-07 队列模型）
+- 顶部 **▶ 测试执行整个场景** 按钮直接走 SceneEngine（不污染 OperationLog 与 SceneExecution）
+
+### 后台 WebSocket 实时刷新
+
+各页订阅以下事件触发自动刷新：
+
+| 页面 | 订阅事件 |
+|---|---|
+| 报警中心 | `alert_created` / `alert_resolved` |
+| 执行记录 | `scene_execution_*` (started/progress/success/partial_failed/failed/cancelled) |
+| UAT 验收 | `uat_updated` |
+| 运维监控 | 8s 轮询 + WS 状态 |
+
 ## Sprint-05 平板端 PWA 部署 (Windows 11 中控主机)
 
 ### 1. 在 ARK 主机上构建前端

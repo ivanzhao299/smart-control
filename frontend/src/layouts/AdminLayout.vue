@@ -17,7 +17,8 @@ const items: Array<{ name: string; label: string; icon: string }> = [
   { name: 'admin-scenes', label: '场景管理', icon: '🎬' },
   { name: 'admin-scheduler', label: '定时任务', icon: '⏰' },
   { name: 'admin-scene-executions', label: '执行记录', icon: '📊' },
-  { name: 'admin-test-center', label: '测试中心', icon: '🧪' },
+  // Sprint-09 测试中心 / Sprint-06 spec 「设备调试」(同一页面, /admin/test-center 与 /admin/debug 等价)
+  { name: 'admin-test-center', label: '测试 / 调试', icon: '🧪' },
   { name: 'admin-uat', label: 'UAT 验收', icon: '✅' },
   { name: 'admin-logs', label: '日志中心', icon: '📑' },
   { name: 'admin-users', label: '用户管理', icon: '👥' },
@@ -33,6 +34,8 @@ const timeLabel = computed(() => {
 const currentName = computed(() => {
   const cur = route.name?.toString() ?? '';
   if (cur.startsWith('admin-scene-actions')) return 'admin-scenes';
+  // Sprint-06 spec: /admin/debug 与 /admin/test-center 同一页, 菜单都激活测试中心
+  if (cur === 'admin-debug') return 'admin-test-center';
   return cur;
 });
 
