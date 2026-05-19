@@ -4,9 +4,24 @@
 
 ## 当前版本
 
-**Sprint-09：现场联调 / 测试体系 / UAT 验收** *(累计交付 Sprint-01 ~ 09)*
+**Sprint-10：Windows 生产部署与正式上线** *(累计交付 Sprint-01 ~ 10)*
 
-新增：测试中心 (`/admin/test-center`) 支持单设备 / 子系统 / 场景 / 网络 (ping + TCP 端口) 测试；测试日志独立表与正式 OperationLog 隔离；测试报告聚合；UAT 验收模块（16 项默认种子：6 场景 + 6 设备 + 4 稳定性）+ 通过率统计 + WS 实时同步；Device 实体扩展 `debugRemark / lastTestAt / lastTestResult`；联调清单导出；WS 新事件 `test_started/progress/success/failed / uat_updated`。
+新增：完整 Windows 11 现场部署体系 — `deploy/{nginx,scripts,configs,backups,windows-startup}/` 标准化目录；Nginx Windows 反代配置（`/api` + `/ws` + Vue PWA + gzip + 长缓存）；PowerShell 全套运维脚本（`init.ps1` 首次初始化、`health.ps1` 6 项全栈健康检测含 PM2/Node/SQLite/WebSocket/Nginx/Network、`restore.ps1` SQLite 安全恢复带 pre-restore 自备份）；`version.json` 构建标识 + `/api/system/info` 暴露 `version/buildTime/nodeVersion/host`；`POST /api/system/backup` 在线备份 API；`POST /api/system/restore` 恢复模拟接口；PM2 Windows Startup + Task Scheduler 双方案开机自启 + `boot.ps1`；正式交付文档 `DEPLOY_WINDOWS.md` / `PRODUCTION_CHECKLIST.md` (44 项) / `WINDOWS_MAINTENANCE.md`。
+
+历史 Sprint-09：测试中心 (`/admin/test-center`) 支持单设备 / 子系统 / 场景 / 网络 (ping + TCP 端口) 测试；测试日志独立表与正式 OperationLog 隔离；测试报告聚合；UAT 验收模块（16 项默认种子：6 场景 + 6 设备 + 4 稳定性）+ 通过率统计 + WS 实时同步；Device 实体扩展 `debugRemark / lastTestAt / lastTestResult`；联调清单导出；WS 新事件 `test_started/progress/success/failed / uat_updated`。
+
+### Sprint-10 快速入口
+
+| 场景 | 命令 / 文件 |
+| --- | --- |
+| 首次部署到 Windows 现场 | [`DEPLOY_WINDOWS.md`](DEPLOY_WINDOWS.md) → `deploy\scripts\init.ps1` |
+| 上线交付前最终核对 | [`PRODUCTION_CHECKLIST.md`](PRODUCTION_CHECKLIST.md) (44 项) |
+| 日常运维 (PM2/Nginx/日志/备份) | [`WINDOWS_MAINTENANCE.md`](WINDOWS_MAINTENANCE.md) |
+| 全栈健康检测 | `deploy\scripts\health.ps1` (退出码 0=OK / 1=关键失败 / 2=非关键失败) |
+| 数据库备份 / 恢复 | `scripts\backup.ps1` / `deploy\scripts\restore.ps1` |
+| 开机自启 (PM2 / Task Scheduler) | [`deploy\windows-startup\README.md`](deploy/windows-startup/README.md) |
+| Nginx 反代配置 | [`deploy\nginx\smart-control.conf`](deploy/nginx/smart-control.conf) |
+| 系统版本 / 构建时间 | `GET /api/system/info` (含 version/buildTime/nodeVersion/host) |
 
 **部署目标**：
 - 现场中控主机：**Advantech ARK-1220L-S6A2** / Windows 11 (路径 `D:\smart-control\`)

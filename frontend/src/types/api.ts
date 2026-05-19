@@ -105,6 +105,18 @@ export interface SystemInfo {
   env: string;
   version: string;
   sprint: string;
+  /** Sprint-10 新增: ISO 时间戳, 从 deploy/configs/version.json 读取 */
+  buildTime?: string;
+  /** Sprint-10 新增: 运行时 Node.js 版本 (process.version) */
+  nodeVersion?: string;
+  /** Sprint-10 新增: 平台标识 (windows/linux/darwin) */
+  platform?: string;
+  /** Sprint-10 新增: 主机标识 (Advantech ARK-1220L-S6A2 等) */
+  host?: string;
+  hostMachine?: string;
+  uptimeSec?: number;
+  testMode?: boolean;
+  debug?: boolean;
   mockMode: boolean;
   mockLatencyMs: number;
   websocketPath: string;
