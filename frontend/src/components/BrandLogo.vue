@@ -83,7 +83,11 @@ const showImage = props.useImage && !imageBroken.value;
   max-width: 100%;
   object-fit: contain;
   display: block;
-  filter: drop-shadow(0 2px 6px rgba(15, 23, 42, 0.18));
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  padding: 4px 6px;
+  box-shadow: 0 4px 12px -4px rgba(15, 23, 42, 0.28),
+              0 0 0 1px rgba(255, 255, 255, 0.05);
 }
 
 .logo-svg {
