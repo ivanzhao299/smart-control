@@ -143,9 +143,12 @@ jobs:
           [ -n "${DEPLOY_HOST:-}" ] || fail "secret DEPLOY_HOST 为空"
           echo "✅ secrets present (KEY ${#DEPLOY_KEY}B / HOST '$DEPLOY_HOST')"
 
-          # 2) 写入 key 文件: 去 CRLF + 强制 trailing newline (常见粘贴问题)
+          # 2) 写入 key 文件: 去 CRLF + 剥尾部空行 + 强制 trailing newline
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$DEPLOY_KEY" | tr -d '\r' > ~/.ssh/deploy_key
+          # awk: 跟踪最后一个非空行号, 只输出到那一行, 然后补 \n
+          printf '%s\n' "$DEPLOY_KEY" | tr -d '\r' \
+            | awk 'NF{p=NR} {a[NR]=$0} END{for(i=1;i<=p;i++) print a[i]}' \
+            > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
 
           # 3) Key 格式校验 (脱敏: 只看头尾行 + 行数)
