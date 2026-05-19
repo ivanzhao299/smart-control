@@ -13,8 +13,9 @@ build/
 .env.local
 .env.*.local
 
-# Logs
-logs/
+# Logs (注意: 'logs/' 不带前导斜杠会匹配任意层级的 logs/ 目录,
+# 误伤源码 backend/src/modules/logs/)
+/logs/
 *.log
 
 # IDE

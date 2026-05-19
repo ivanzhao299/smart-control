@@ -12,8 +12,13 @@ frontend/dev-dist/
 *.tsbuildinfo
 
 # ============ 运行时数据 (本地) ============
-database/
-logs/
+# 注意: 不带前导 '/' 的目录名会匹配任意层级 — 例如裸 'logs/' 会误伤
+# backend/src/modules/logs/ 这种源码目录, 导致 CI checkout 后缺文件。
+# 这里全部锁到具体路径。
+/database/
+backend/database/
+/logs/
+backend/logs/
 *.db
 *.db-journal
 *.sqlite
