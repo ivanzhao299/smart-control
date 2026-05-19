@@ -3,6 +3,7 @@ import type {
   Device,
   OperationLogEntry,
   Paged,
+  SceneExecutionRecord,
   SchedulerTask,
   Scene,
   SceneAction,
@@ -76,6 +77,7 @@ export const adminSceneActionService = {
 /* ---------- Scheduler ---------- */
 export interface SchedulerPayload {
   name: string;
+  code?: string;
   cron: string;
   sceneCode: string;
   description?: string;
@@ -91,6 +93,28 @@ export const adminSchedulerService = {
     api.put<SchedulerTask>(`/scheduler/${id}`, body),
   remove: (id: number) => api.del<null>(`/scheduler/${id}`),
   runNow: (id: number) => api.post<null>(`/scheduler/${id}/run`),
+  enable: (id: number) => api.post<SchedulerTask>(`/scheduler/${id}/enable`),
+  disable: (id: number) => api.post<SchedulerTask>(`/scheduler/${id}/disable`),
+};
+
+/* ---------- Scene Executions ---------- */
+export interface ExecutionsQuery {
+  sceneCode?: string;
+  status?: 'pending' | 'running' | 'success' | 'partial_failed' | 'failed' | 'cancelled';
+  triggerType?: 'manual' | 'schedule' | 'system';
+  startTime?: string;
+  endTime?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export const adminExecutionService = {
+  list: (params: ExecutionsQuery = {}) =>
+    api.get<Paged<SceneExecutionRecord>>('/scene-executions', {
+      params: { pageSize: 100, ...params },
+    }),
+  detail: (id: number) => api.get<SceneExecutionRecord>(`/scene-executions/${id}`),
+  cancel: (code: string) => api.post(`/scenes/${code}/cancel`),
 };
 
 /* ---------- Users ---------- */

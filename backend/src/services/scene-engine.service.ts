@@ -11,119 +11,298 @@ import { Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { Scene } from '../entities/scene.entity';
 import { SceneAction } from '../entities/scene-action.entity';
+import {
+  ExecutionStatusValue,
+  SceneExecution,
+  TriggerType,
+} from '../entities/scene-execution.entity';
 import { CommandDispatcherService, DispatchInput } from './command-dispatcher.service';
 import { OperationLogService } from '../modules/logs/operation-log.service';
-import { ControlBus } from './control-bus';
+import { ControlBus, SceneExecutionEventName } from './control-bus';
 import { AbortedError, sleep } from '../adapters/adapter.types';
-
-export type ExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'stopped';
 
 export interface ExecutionFailure {
   deviceType: string;
   deviceId: string;
   command: string;
   error: string;
+  attempts: number;
 }
 
-export interface SceneExecution {
+export interface SceneExecutionSnapshot {
   executionId: string;
   sceneId: number;
   sceneCode: string;
   sceneName: string;
-  operator: string;
-  status: ExecutionStatus;
-  startedAt: string;
+  triggerType: TriggerType;
+  triggerSource: string;
+  status: ExecutionStatusValue;
+  startedAt?: string;
   finishedAt?: string;
   totalActions: number;
   succeeded: number;
   failed: number;
   failures: ExecutionFailure[];
+  durationMs: number;
 }
 
-interface RunningHandle extends SceneExecution {
-  controller: AbortController;
+export interface ExecuteOptions {
+  triggerType?: TriggerType;
+  triggerSource?: string;
+  force?: boolean;
 }
+
+interface RunningHandle {
+  snapshot: SceneExecutionSnapshot;
+  record: SceneExecution;
+  controller: AbortController;
+  scene: Scene;
+}
+
+interface QueueItem {
+  scene: Scene;
+  record: SceneExecution;
+  controller: AbortController;
+  resolve: (snap: SceneExecutionSnapshot) => void;
+  reject: (err: Error) => void;
+}
+
+const MAX_ACTION_RETRIES = 3;
+const RETRY_DELAY_MS = 1000;
 
 @Injectable()
 export class SceneEngineService {
+  /** 正在执行的场景 (key=sceneCode) — 并发锁 */
   private readonly running = new Map<string, RunningHandle>();
+  /** FIFO 队列 — 避免设备命令并发冲突 */
+  private readonly queue: QueueItem[] = [];
+  private queueWorkerActive = false;
 
   constructor(
     @InjectRepository(Scene) private readonly sceneRepo: Repository<Scene>,
+    @InjectRepository(SceneExecution)
+    private readonly executionRepo: Repository<SceneExecution>,
     private readonly dispatcher: CommandDispatcherService,
     private readonly logService: OperationLogService,
     private readonly bus: ControlBus,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
-  listRunning(): SceneExecution[] {
-    return Array.from(this.running.values()).map(this.toPublic);
+  // ---------- 公共查询 ----------
+
+  listRunning(): SceneExecutionSnapshot[] {
+    return Array.from(this.running.values()).map((h) => h.snapshot);
   }
 
-  getRunning(sceneCode: string): SceneExecution | undefined {
-    const h = this.running.get(sceneCode);
-    return h ? this.toPublic(h) : undefined;
+  getRunning(sceneCode: string): SceneExecutionSnapshot | undefined {
+    return this.running.get(sceneCode)?.snapshot;
   }
 
-  async execute(sceneCode: string, operator = 'system'): Promise<SceneExecution> {
+  listQueued(): Array<{ executionId: string; sceneCode: string; sceneName: string; triggerSource: string }> {
+    return this.queue.map((q) => ({
+      executionId: q.record.executionId,
+      sceneCode: q.scene.code,
+      sceneName: q.scene.name,
+      triggerSource: q.record.triggerSource,
+    }));
+  }
+
+  // ---------- 触发执行 ----------
+
+  async execute(sceneCode: string, operator = 'system', opts: ExecuteOptions = {}): Promise<SceneExecutionSnapshot> {
+    const triggerType = opts.triggerType ?? 'manual';
+    const triggerSource = opts.triggerSource ?? operator;
+
     const scene = await this.sceneRepo.findOne({ where: { code: sceneCode } });
     if (!scene) throw new NotFoundException(`场景不存在: ${sceneCode}`);
     if (!scene.enabled) throw new ConflictException(`场景已禁用: ${sceneCode}`);
-    if (this.running.has(sceneCode)) {
-      throw new ConflictException(`场景正在执行中: ${sceneCode}`);
+
+    if (!opts.force) {
+      if (this.running.has(sceneCode)) {
+        throw new ConflictException(`该场景正在执行中: ${sceneCode}`);
+      }
+      if (this.queue.some((q) => q.scene.code === sceneCode)) {
+        throw new ConflictException(`该场景已在执行队列中: ${sceneCode}`);
+      }
     }
 
-    const enabledActions = (scene.actions ?? []).filter((a) => a.enabled);
-    const handle: RunningHandle = {
-      executionId: randomUUID(),
+    const executionId = randomUUID();
+    const totalActions = (scene.actions ?? []).filter((a) => a.enabled).length;
+    const record = this.executionRepo.create({
+      executionId,
+      sceneCode: scene.code,
+      sceneName: scene.name,
+      triggerType,
+      triggerSource,
+      status: 'pending',
+      totalActions,
+      successCount: 0,
+      failedCount: 0,
+      durationMs: 0,
+    });
+    await this.executionRepo.save(record);
+
+    const controller = new AbortController();
+    const snap: SceneExecutionSnapshot = {
+      executionId,
       sceneId: scene.id,
       sceneCode: scene.code,
       sceneName: scene.name,
-      operator,
+      triggerType,
+      triggerSource,
+      status: 'pending',
+      totalActions,
+      succeeded: 0,
+      failed: 0,
+      failures: [],
+      durationMs: 0,
+    };
+
+    this.queue.push({
+      scene,
+      record,
+      controller,
+      resolve: () => undefined,
+      reject: () => undefined,
+    });
+    void this.kickQueue();
+    return snap;
+  }
+
+  // ---------- 取消 ----------
+
+  async cancel(sceneCode: string, operator = 'system'): Promise<SceneExecutionSnapshot> {
+    const handle = this.running.get(sceneCode);
+    if (handle) {
+      handle.controller.abort();
+      handle.snapshot.status = 'cancelled';
+      this.logger.info(`Scene cancel: ${sceneCode} (running)`, { context: 'SceneEngine' });
+      await this.logService.record({
+        operator,
+        action: 'scene.cancel',
+        targetType: 'scene',
+        targetId: String(handle.scene.id),
+        result: 'success',
+        message: handle.scene.code,
+      });
+      return handle.snapshot;
+    }
+    const idx = this.queue.findIndex((q) => q.scene.code === sceneCode);
+    if (idx >= 0) {
+      const item = this.queue.splice(idx, 1)[0];
+      item.record.status = 'cancelled';
+      item.record.finishedAt = new Date();
+      await this.executionRepo.save(item.record);
+      this.publishExecutionEvent('scene_execution_cancelled', item.scene, item.record, {
+        totalActions: item.record.totalActions,
+        successCount: 0,
+        failedCount: 0,
+      });
+      await this.logService.record({
+        operator,
+        action: 'scene.cancel',
+        targetType: 'scene',
+        targetId: String(item.scene.id),
+        result: 'success',
+        message: `${item.scene.code} (queued)`,
+      });
+      this.logger.info(`Scene cancel: ${sceneCode} (queued)`, { context: 'SceneEngine' });
+      return {
+        executionId: item.record.executionId,
+        sceneId: item.scene.id,
+        sceneCode: item.scene.code,
+        sceneName: item.scene.name,
+        triggerType: item.record.triggerType,
+        triggerSource: item.record.triggerSource,
+        status: 'cancelled',
+        totalActions: item.record.totalActions,
+        succeeded: 0,
+        failed: 0,
+        failures: [],
+        durationMs: 0,
+      };
+    }
+    throw new NotFoundException(`场景未在执行或队列中: ${sceneCode}`);
+  }
+
+  /** 兼容 Sprint-03 接口名 */
+  stop(sceneCode: string, operator = 'system'): Promise<SceneExecutionSnapshot> {
+    return this.cancel(sceneCode, operator);
+  }
+
+  // ---------- 队列 worker ----------
+
+  private async kickQueue(): Promise<void> {
+    if (this.queueWorkerActive) return;
+    this.queueWorkerActive = true;
+    try {
+      while (this.queue.length > 0) {
+        const item = this.queue.shift();
+        if (!item) break;
+        try {
+          await this.runOne(item);
+        } catch (err) {
+          this.logger.error(`Queue worker error: ${(err as Error).message}`, {
+            context: 'SceneEngine',
+          });
+        }
+      }
+    } finally {
+      this.queueWorkerActive = false;
+    }
+  }
+
+  private async runOne(item: QueueItem): Promise<void> {
+    const { scene, record, controller } = item;
+    if (controller.signal.aborted) return;
+
+    const enabledActions = (scene.actions ?? []).filter((a) => a.enabled);
+    record.startedAt = new Date();
+    record.status = 'running';
+    record.totalActions = enabledActions.length;
+    await this.executionRepo.save(record);
+
+    const snapshot: SceneExecutionSnapshot = {
+      executionId: record.executionId,
+      sceneId: scene.id,
+      sceneCode: scene.code,
+      sceneName: scene.name,
+      triggerType: record.triggerType,
+      triggerSource: record.triggerSource,
       status: 'running',
-      startedAt: new Date().toISOString(),
+      startedAt: record.startedAt.toISOString(),
       totalActions: enabledActions.length,
       succeeded: 0,
       failed: 0,
       failures: [],
-      controller: new AbortController(),
+      durationMs: 0,
     };
-    this.running.set(sceneCode, handle);
+    const handle: RunningHandle = { snapshot, record, controller, scene };
+    this.running.set(scene.code, handle);
 
-    this.publishScene(handle, 'running');
+    this.bus.publish({
+      type: 'scene',
+      scene: scene.code,
+      executionId: record.executionId,
+      status: 'running',
+      failures: 0,
+      at: new Date().toISOString(),
+    });
+    this.publishExecutionEvent('scene_execution_started', scene, record, {
+      totalActions: enabledActions.length,
+      successCount: 0,
+      failedCount: 0,
+    });
+
     this.logger.info(
-      `Scene execute begin: ${sceneCode} executionId=${handle.executionId} actions=${enabledActions.length}`,
+      `Scene execute begin: ${scene.code} executionId=${record.executionId} actions=${enabledActions.length} trigger=${record.triggerType}:${record.triggerSource}`,
       { context: 'SceneEngine' },
     );
 
-    void this.runActions(handle, enabledActions);
-
-    return this.toPublic(handle);
-  }
-
-  async stop(sceneCode: string, operator = 'system'): Promise<SceneExecution> {
-    const handle = this.running.get(sceneCode);
-    if (!handle) throw new NotFoundException(`场景未在执行: ${sceneCode}`);
-    handle.controller.abort();
-    handle.status = 'stopped';
-    this.logger.info(`Scene stop requested: ${sceneCode}`, { context: 'SceneEngine' });
-    await this.logService.record({
-      operator,
-      action: 'scene.stop',
-      targetType: 'scene',
-      targetId: String(handle.sceneId),
-      result: 'success',
-      message: handle.sceneCode,
-    });
-    return this.toPublic(handle);
-  }
-
-  private async runActions(handle: RunningHandle, actions: SceneAction[]): Promise<void> {
-    const groups = this.groupBySortOrder(actions);
-
     try {
+      const groups = this.groupBySortOrder(enabledActions);
       for (const group of groups) {
-        if (handle.controller.signal.aborted) break;
+        if (controller.signal.aborted) break;
         await this.runGroup(handle, group);
       }
     } catch (err) {
@@ -133,38 +312,94 @@ export class SceneEngineService {
       );
     }
 
-    if (handle.status !== 'stopped') {
-      handle.status = handle.failed > 0 ? 'failed' : 'completed';
+    const finishedAt = new Date();
+    const durationMs = finishedAt.getTime() - record.startedAt.getTime();
+    let finalStatus: ExecutionStatusValue;
+    if (controller.signal.aborted) {
+      finalStatus = 'cancelled';
+    } else if (snapshot.failed === 0 && snapshot.succeeded === enabledActions.length) {
+      finalStatus = 'success';
+    } else if (snapshot.succeeded === 0 && snapshot.failed > 0) {
+      finalStatus = 'failed';
+    } else if (snapshot.failed > 0) {
+      finalStatus = 'partial_failed';
+    } else {
+      // 都是 0 (空动作集) 视为 success
+      finalStatus = 'success';
     }
-    handle.finishedAt = new Date().toISOString();
 
-    this.publishScene(handle, handle.status);
+    snapshot.status = finalStatus;
+    snapshot.finishedAt = finishedAt.toISOString();
+    snapshot.durationMs = durationMs;
+
+    record.status = finalStatus;
+    record.finishedAt = finishedAt;
+    record.durationMs = durationMs;
+    record.successCount = snapshot.succeeded;
+    record.failedCount = snapshot.failed;
+    record.resultSummary = JSON.stringify({
+      failures: snapshot.failures,
+      sceneCode: scene.code,
+    });
+    try {
+      await this.executionRepo.save(record);
+    } catch (err) {
+      this.logger.error(`Failed to persist SceneExecution: ${(err as Error).message}`, {
+        context: 'SceneEngine',
+      });
+    }
+
+    const endEvent: SceneExecutionEventName = (() => {
+      switch (finalStatus) {
+        case 'success': return 'scene_execution_success';
+        case 'partial_failed': return 'scene_execution_partial_failed';
+        case 'failed': return 'scene_execution_failed';
+        case 'cancelled': return 'scene_execution_cancelled';
+        default: return 'scene_execution_failed';
+      }
+    })();
+    this.publishExecutionEvent(endEvent, scene, record, {
+      totalActions: snapshot.totalActions,
+      successCount: snapshot.succeeded,
+      failedCount: snapshot.failed,
+      durationMs,
+    });
+    this.bus.publish({
+      type: 'scene',
+      scene: scene.code,
+      executionId: record.executionId,
+      status: finalStatus === 'success' ? 'completed' : finalStatus === 'cancelled' ? 'stopped' : 'failed',
+      failures: snapshot.failed,
+      at: finishedAt.toISOString(),
+    });
 
     await this.logService.record({
-      operator: handle.operator,
-      action: 'scene.execute',
+      operator: record.triggerSource || 'system',
+      action: record.triggerType === 'schedule' ? 'scene.execute.scheduled' : 'scene.execute',
       targetType: 'scene',
-      targetId: String(handle.sceneId),
-      result: handle.failed > 0 || handle.status === 'stopped' ? 'failure' : 'success',
+      targetId: String(scene.id),
+      result: finalStatus === 'success' ? 'success' : 'failure',
       message: JSON.stringify({
-        executionId: handle.executionId,
-        sceneCode: handle.sceneCode,
-        status: handle.status,
-        total: handle.totalActions,
-        succeeded: handle.succeeded,
-        failed: handle.failed,
-        startedAt: handle.startedAt,
-        finishedAt: handle.finishedAt,
-        failures: handle.failures,
+        executionId: record.executionId,
+        sceneCode: scene.code,
+        status: finalStatus,
+        total: snapshot.totalActions,
+        succeeded: snapshot.succeeded,
+        failed: snapshot.failed,
+        durationMs,
+        triggerType: record.triggerType,
+        triggerSource: record.triggerSource,
+        failures: snapshot.failures,
       }),
     });
 
     this.logger.info(
-      `Scene execute end: ${handle.sceneCode} status=${handle.status} ok=${handle.succeeded} fail=${handle.failed}`,
+      `Scene execute end: ${scene.code} status=${finalStatus} ok=${snapshot.succeeded} fail=${snapshot.failed} duration=${durationMs}ms`,
       { context: 'SceneEngine' },
     );
 
-    this.running.delete(handle.sceneCode);
+    this.running.delete(scene.code);
+    item.resolve(snapshot);
   }
 
   private async runGroup(handle: RunningHandle, group: SceneAction[]): Promise<void> {
@@ -181,35 +416,85 @@ export class SceneEngineService {
       if (handle.controller.signal.aborted) return;
 
       const params = this.parseParams(action.params);
+      const result = await this.dispatchWithRetry(action, params, handle);
+
+      if (result.ok) {
+        handle.snapshot.succeeded += 1;
+      } else {
+        handle.snapshot.failed += 1;
+        handle.snapshot.failures.push({
+          deviceType: action.deviceType,
+          deviceId: action.deviceId,
+          command: action.command,
+          error: result.error ?? 'unknown',
+          attempts: result.attempts,
+        });
+      }
+
+      this.publishExecutionEvent('scene_execution_progress', handle.scene, handle.record, {
+        totalActions: handle.snapshot.totalActions,
+        successCount: handle.snapshot.succeeded,
+        failedCount: handle.snapshot.failed,
+        step: `${action.deviceType}.${action.command} on ${action.deviceId} -> ${result.ok ? 'ok' : 'fail'}`,
+      });
+      this.bus.publish({
+        type: 'scene',
+        scene: handle.scene.code,
+        executionId: handle.record.executionId,
+        status: 'action',
+        step: `${action.deviceType}.${action.command} on ${action.deviceId} -> ${result.ok ? 'ok' : 'fail'}${result.error ? ': ' + result.error : ''}`,
+        at: new Date().toISOString(),
+      });
+    });
+
+    await Promise.allSettled(tasks);
+  }
+
+  private async dispatchWithRetry(
+    action: SceneAction,
+    params: Record<string, unknown>,
+    handle: RunningHandle,
+  ): Promise<{ ok: boolean; error?: string; attempts: number }> {
+    let lastError: string | undefined;
+    for (let attempt = 1; attempt <= MAX_ACTION_RETRIES; attempt += 1) {
+      if (handle.controller.signal.aborted) {
+        return { ok: false, error: 'cancelled', attempts: attempt };
+      }
       const input: DispatchInput = {
         deviceType: action.deviceType,
         deviceId: action.deviceId,
         command: action.command,
         params,
       };
-
-      const result = await this.dispatcher.dispatch(input, {
-        signal: handle.controller.signal,
-        operator: handle.operator,
-        executionId: handle.executionId,
-      });
-
-      if (result.ok) {
-        handle.succeeded += 1;
-      } else {
-        handle.failed += 1;
-        handle.failures.push({
-          deviceType: action.deviceType,
-          deviceId: action.deviceId,
-          command: action.command,
-          error: result.error ?? 'unknown',
+      try {
+        const result = await this.dispatcher.dispatch(input, {
+          signal: handle.controller.signal,
+          operator: handle.record.triggerSource,
+          executionId: handle.record.executionId,
         });
+        if (result.ok) {
+          return { ok: true, attempts: attempt };
+        }
+        lastError = result.error ?? 'unknown';
+      } catch (err) {
+        lastError = (err as Error).message;
       }
-      this.publishAction(handle, action, result.ok, result.error);
-    });
-
-    await Promise.allSettled(tasks);
+      if (attempt < MAX_ACTION_RETRIES) {
+        this.logger.warn(
+          `Action retry ${attempt + 1}/${MAX_ACTION_RETRIES}: ${action.deviceType}.${action.command} on ${action.deviceId} -> ${lastError}`,
+          { context: 'SceneEngine' },
+        );
+        try {
+          await sleep(RETRY_DELAY_MS, handle.controller.signal);
+        } catch {
+          return { ok: false, error: 'cancelled', attempts: attempt };
+        }
+      }
+    }
+    return { ok: false, error: lastError ?? 'unknown', attempts: MAX_ACTION_RETRIES };
   }
+
+  // ---------- 工具 ----------
 
   private groupBySortOrder(actions: SceneAction[]): SceneAction[][] {
     const sorted = [...actions].sort((a, b) => a.sortOrder - b.sortOrder);
@@ -241,38 +526,40 @@ export class SceneEngineService {
     }
   }
 
-  private publishScene(
-    handle: RunningHandle,
-    status: ExecutionStatus,
+  private publishExecutionEvent(
+    type: SceneExecutionEventName,
+    scene: Scene,
+    record: SceneExecution,
+    extra: {
+      totalActions: number;
+      successCount: number;
+      failedCount: number;
+      durationMs?: number;
+      step?: string;
+    },
   ): void {
+    const statusMap: Record<SceneExecutionEventName, ExecutionStatusValue> = {
+      scene_execution_started: 'running',
+      scene_execution_progress: 'running',
+      scene_execution_success: 'success',
+      scene_execution_partial_failed: 'partial_failed',
+      scene_execution_failed: 'failed',
+      scene_execution_cancelled: 'cancelled',
+    };
     this.bus.publish({
-      type: 'scene',
-      scene: handle.sceneCode,
-      executionId: handle.executionId,
-      status: status as Exclude<ExecutionStatus, 'pending'>,
-      failures: handle.failed,
+      type,
+      executionId: record.executionId,
+      sceneCode: scene.code,
+      sceneName: scene.name,
+      triggerType: record.triggerType,
+      triggerSource: record.triggerSource,
+      status: statusMap[type],
+      totalActions: extra.totalActions,
+      successCount: extra.successCount,
+      failedCount: extra.failedCount,
+      durationMs: extra.durationMs,
+      step: extra.step,
       at: new Date().toISOString(),
     });
-  }
-
-  private publishAction(
-    handle: RunningHandle,
-    action: SceneAction,
-    ok: boolean,
-    error?: string,
-  ): void {
-    this.bus.publish({
-      type: 'scene',
-      scene: handle.sceneCode,
-      executionId: handle.executionId,
-      status: 'action',
-      step: `${action.deviceType}.${action.command} on ${action.deviceId} -> ${ok ? 'ok' : 'fail'}${error ? ': ' + error : ''}`,
-      at: new Date().toISOString(),
-    });
-  }
-
-  private toPublic(h: RunningHandle): SceneExecution {
-    const { controller: _controller, ...rest } = h;
-    return rest;
   }
 }

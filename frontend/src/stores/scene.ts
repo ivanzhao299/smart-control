@@ -1,7 +1,13 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { sceneService } from '@/services/scene.service';
-import type { SceneExecution, SceneSummary, WsEvent } from '@/types/api';
+import type {
+  ExecutionStatus,
+  SceneExecution,
+  SceneExecutionWsEvent,
+  SceneSummary,
+  WsEvent,
+} from '@/types/api';
 
 const SCENE_ORDER = ['opening', 'reception', 'meeting', 'roadshow', 'cleaning', 'closing'];
 const SCENE_ICON: Record<string, string> = {
@@ -13,12 +19,31 @@ const SCENE_ICON: Record<string, string> = {
   closing: '🌙',
 };
 
+/** 当前执行/最近一次执行的展示态 — 用于平板顶部/底部状态条 */
+export interface ActiveExecutionView {
+  executionId: string;
+  sceneCode: string;
+  sceneName: string;
+  triggerType: 'manual' | 'schedule' | 'system';
+  triggerSource: string;
+  status: ExecutionStatus;
+  totalActions: number;
+  successCount: number;
+  failedCount: number;
+  durationMs?: number;
+  step?: string;
+  at: string;
+}
+
 export const useSceneStore = defineStore('scene', () => {
   const scenes = ref<SceneSummary[]>([]);
   const running = ref<SceneExecution[]>([]);
   const lastExecution = ref<SceneExecution | null>(null);
   const pendingCode = ref<string | null>(null);
   const error = ref<string | null>(null);
+
+  /** Sprint-07: 当前执行 / 最近一次执行的完整状态 (来自 WS scene_execution_* 事件) */
+  const activeExecution = ref<ActiveExecutionView | null>(null);
 
   const orderedScenes = computed<SceneSummary[]>(() => {
     if (scenes.value.length === 0) return [];
@@ -37,11 +62,20 @@ export const useSceneStore = defineStore('scene', () => {
 
   const activeSceneCode = computed(() => {
     if (running.value.length > 0) return running.value[0].sceneCode;
+    if (activeExecution.value && activeExecution.value.status === 'success') {
+      return activeExecution.value.sceneCode;
+    }
     if (lastExecution.value && lastExecution.value.status === 'completed') {
       return lastExecution.value.sceneCode;
     }
     return null;
   });
+
+  const isExecutionRunning = computed(
+    () =>
+      activeExecution.value !== null &&
+      (activeExecution.value.status === 'running' || activeExecution.value.status === 'pending'),
+  );
 
   function iconFor(code: string): string {
     return SCENE_ICON[code] ?? '⚙️';
@@ -78,28 +112,62 @@ export const useSceneStore = defineStore('scene', () => {
   }
 
   function handleWs(event: WsEvent): void {
-    if (event.type !== 'scene') return;
-    if (event.status === 'running') {
-      void refreshRunning();
-    } else if (
-      event.status === 'completed' ||
-      event.status === 'failed' ||
-      event.status === 'stopped'
-    ) {
-      lastExecution.value = {
-        executionId: event.executionId,
-        sceneId: 0,
-        sceneCode: event.scene,
-        sceneName: event.scene,
-        operator: 'system',
-        status: event.status,
-        startedAt: event.at,
-        finishedAt: event.at,
-        totalActions: 0,
-        succeeded: 0,
-        failed: event.failures ?? 0,
-        failures: [],
-      };
+    if (event.type === 'scene') {
+      if (event.status === 'running') {
+        void refreshRunning();
+      } else if (
+        event.status === 'completed' ||
+        event.status === 'failed' ||
+        event.status === 'stopped'
+      ) {
+        lastExecution.value = {
+          executionId: event.executionId,
+          sceneId: 0,
+          sceneCode: event.scene,
+          sceneName: event.scene,
+          operator: 'system',
+          status: event.status,
+          startedAt: event.at,
+          finishedAt: event.at,
+          totalActions: 0,
+          succeeded: 0,
+          failed: event.failures ?? 0,
+          failures: [],
+        };
+        void refreshRunning();
+      }
+      return;
+    }
+
+    // Sprint-07 新事件
+    const TERMINAL: Array<SceneExecutionWsEvent['type']> = [
+      'scene_execution_success',
+      'scene_execution_partial_failed',
+      'scene_execution_failed',
+      'scene_execution_cancelled',
+    ];
+    const ALL: Array<SceneExecutionWsEvent['type']> = [
+      'scene_execution_started',
+      'scene_execution_progress',
+      ...TERMINAL,
+    ];
+    if (!ALL.includes(event.type as SceneExecutionWsEvent['type'])) return;
+    const ev = event as SceneExecutionWsEvent;
+    activeExecution.value = {
+      executionId: ev.executionId,
+      sceneCode: ev.sceneCode,
+      sceneName: ev.sceneName,
+      triggerType: ev.triggerType,
+      triggerSource: ev.triggerSource,
+      status: ev.status,
+      totalActions: ev.totalActions,
+      successCount: ev.successCount,
+      failedCount: ev.failedCount,
+      durationMs: ev.durationMs,
+      step: ev.step,
+      at: ev.at,
+    };
+    if (TERMINAL.includes(ev.type)) {
       void refreshRunning();
     }
   }
@@ -108,11 +176,13 @@ export const useSceneStore = defineStore('scene', () => {
     scenes,
     running,
     lastExecution,
+    activeExecution,
     pendingCode,
     error,
     orderedScenes,
     runningByCode,
     activeSceneCode,
+    isExecutionRunning,
     iconFor,
     fetchScenes,
     refreshRunning,

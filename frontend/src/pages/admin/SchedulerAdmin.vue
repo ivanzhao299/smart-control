@@ -112,7 +112,12 @@ async function submit(): Promise<void> {
 async function toggleEnabled(row: SchedulerTask): Promise<void> {
   if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
   try {
-    await adminSchedulerService.update(row.id, { enabled: !row.enabled });
+    if (row.enabled) {
+      await adminSchedulerService.disable(row.id);
+    } else {
+      await adminSchedulerService.enable(row.id);
+    }
+    ElMessage.success(`已${row.enabled ? '停用' : '启用'} ${row.name}`);
     await refresh();
   } catch (err) {
     ElMessage.error('操作失败: ' + (err as Error).message);
@@ -176,6 +181,12 @@ onMounted(refresh);
       </el-table-column>
       <el-table-column label="最近执行" width="170">
         <template #default="{ row }">{{ formatDate(row.lastRunAt) }}</template>
+      </el-table-column>
+      <el-table-column label="下次执行" width="170">
+        <template #default="{ row }">
+          <span v-if="row.enabled && row.nextRunAt">{{ formatDate(row.nextRunAt) }}</span>
+          <span v-else class="sc-subtle">—</span>
+        </template>
       </el-table-column>
       <el-table-column label="最近结果" width="100">
         <template #default="{ row }">

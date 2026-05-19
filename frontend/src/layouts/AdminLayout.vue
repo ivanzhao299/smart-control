@@ -14,6 +14,7 @@ const items: Array<{ name: string; label: string; icon: string }> = [
   { name: 'admin-devices', label: '设备管理', icon: '🛠' },
   { name: 'admin-scenes', label: '场景管理', icon: '🎬' },
   { name: 'admin-scheduler', label: '定时任务', icon: '⏰' },
+  { name: 'admin-scene-executions', label: '执行记录', icon: '📊' },
   { name: 'admin-logs', label: '日志中心', icon: '📑' },
   { name: 'admin-users', label: '用户管理', icon: '👥' },
   { name: 'admin-settings', label: '系统设置', icon: '⚙️' },

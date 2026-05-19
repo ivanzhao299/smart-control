@@ -35,7 +35,7 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
   async onApplicationBootstrap(): Promise<void> {
     const tasks = await this.repo.find();
     for (const t of tasks) {
-      if (t.enabled) this.spawn(t);
+      if (t.enabled) await this.spawn(t);
     }
     this.logger.info(`Scheduler ready (${tasks.filter((t) => t.enabled).length} enabled)`, {
       context: 'SchedulerService',
@@ -82,13 +82,15 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
 
     const entity = this.repo.create({
       name: dto.name,
+      code: dto.code ?? null,
       description: dto.description ?? null,
       cron: dto.cron,
       sceneCode: dto.sceneCode,
       enabled: dto.enabled ?? true,
+      nextRunAt: this.calcNextRun(dto.cron),
     });
     const saved = await this.repo.save(entity);
-    if (saved.enabled) this.spawn(saved);
+    if (saved.enabled) await this.spawn(saved);
     await this.logService.record({
       operator: 'admin',
       action: 'scheduler.create',
@@ -109,14 +111,36 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
     if (dto.cron) this.assertCron(dto.cron);
 
     Object.assign(task, dto);
+    if (dto.cron) task.nextRunAt = this.calcNextRun(dto.cron);
     const saved = await this.repo.save(task);
-    this.respawn(saved);
+    await this.respawn(saved);
     await this.logService.record({
       operator: 'admin',
       action: 'scheduler.update',
       targetType: 'scheduler',
       targetId: String(id),
       message: `${saved.name} enabled=${saved.enabled}`,
+    });
+    return saved;
+  }
+
+  async setEnabled(id: number, enabled: boolean, operator = 'admin'): Promise<SchedulerTask> {
+    const task = await this.findOne(id);
+    if (task.enabled === enabled) return task;
+    task.enabled = enabled;
+    if (enabled) task.nextRunAt = this.calcNextRun(task.cron);
+    else task.nextRunAt = null;
+    const saved = await this.repo.save(task);
+    await this.respawn(saved);
+    await this.logService.record({
+      operator,
+      action: enabled ? 'scheduler.enable' : 'scheduler.disable',
+      targetType: 'scheduler',
+      targetId: String(id),
+      message: saved.name,
+    });
+    this.logger.info(`Scheduler ${enabled ? 'enabled' : 'disabled'}: #${id} ${saved.name}`, {
+      context: 'SchedulerService',
     });
     return saved;
   }
@@ -134,36 +158,49 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
     });
   }
 
-  /**
-   * 立即触发一次 (调试用), 不影响 cron 计划
-   */
-  async runNow(id: number): Promise<void> {
+  /** 立即触发一次 (调试用), 不影响 cron 计划 */
+  async runNow(id: number, operator = 'admin'): Promise<void> {
     const task = await this.findOne(id);
-    await this.fire(task);
+    await this.fire(task, operator, 'runNow');
   }
 
   private assertCron(expr: string): void {
     try {
-      // CronJob 接受表达式或解析失败抛错
       new CronJob(expr, () => undefined, null, false);
     } catch (err) {
       throw new ConflictException(`cron 表达式无效: ${(err as Error).message}`);
     }
   }
 
-  private spawn(task: SchedulerTask): void {
+  private calcNextRun(expr: string): Date | null {
+    try {
+      const job = new CronJob(expr, () => undefined, null, false, 'Asia/Shanghai');
+      const next = job.nextDate();
+      return next ? next.toJSDate() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async spawn(task: SchedulerTask): Promise<void> {
     this.kill(task.id);
     try {
       const job = new CronJob(
         task.cron,
-        () => void this.fire(task),
+        () => void this.fire(task, `scheduler:${task.name}`, 'cron'),
         null,
         true,
         'Asia/Shanghai',
       );
       this.jobs.set(task.id, job);
+      // 持久化下次执行时间
+      const next = job.nextDate()?.toJSDate() ?? null;
+      if (next && (!task.nextRunAt || task.nextRunAt.getTime() !== next.getTime())) {
+        await this.repo.update(task.id, { nextRunAt: next });
+        task.nextRunAt = next;
+      }
       this.logger.info(
-        `Scheduled: #${task.id} ${task.name} cron=${task.cron} -> ${task.sceneCode}`,
+        `Scheduled: #${task.id} ${task.name} cron=${task.cron} -> ${task.sceneCode} next=${next?.toISOString() ?? 'unknown'}`,
         { context: 'SchedulerService' },
       );
     } catch (err) {
@@ -174,9 +211,9 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
     }
   }
 
-  private respawn(task: SchedulerTask): void {
+  private async respawn(task: SchedulerTask): Promise<void> {
     this.kill(task.id);
-    if (task.enabled) this.spawn(task);
+    if (task.enabled) await this.spawn(task);
   }
 
   private kill(id: number): void {
@@ -191,11 +228,14 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
     }
   }
 
-  private async fire(task: SchedulerTask): Promise<void> {
+  private async fire(task: SchedulerTask, operator: string, _source: string): Promise<void> {
     let status: 'success' | 'failure' = 'success';
     let message = '';
     try {
-      const exec = await this.engine.execute(task.sceneCode, `scheduler:${task.name}`);
+      const exec = await this.engine.execute(task.sceneCode, operator, {
+        triggerType: 'schedule',
+        triggerSource: operator,
+      });
       message = `executionId=${exec.executionId}`;
       this.logger.info(
         `Scheduler fired: #${task.id} ${task.name} -> scene ${task.sceneCode} ${message}`,
@@ -209,13 +249,22 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
         { context: 'SchedulerService' },
       );
     }
-    await this.repo.update(task.id, {
-      lastRunAt: new Date(),
-      lastRunStatus: status,
-      lastRunMessage: message,
-    });
+    // 更新 lastRunAt + nextRunAt
+    const nextRunAt = this.calcNextRun(task.cron);
+    try {
+      await this.repo.update(task.id, {
+        lastRunAt: new Date(),
+        lastRunStatus: status,
+        lastRunMessage: message,
+        nextRunAt,
+      });
+    } catch (err) {
+      this.logger.error(`Failed to update task ${task.id}: ${(err as Error).message}`, {
+        context: 'SchedulerService',
+      });
+    }
     await this.logService.record({
-      operator: `scheduler:${task.name}`,
+      operator,
       action: 'scheduler.fire',
       targetType: 'scheduler',
       targetId: String(task.id),

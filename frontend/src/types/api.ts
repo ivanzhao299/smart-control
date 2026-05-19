@@ -125,15 +125,45 @@ export interface User {
 export interface SchedulerTask {
   id: number;
   name: string;
+  code: string | null;
   description: string | null;
   cron: string;
   sceneCode: string;
   enabled: boolean;
   lastRunAt: string | null;
+  nextRunAt: string | null;
   lastRunStatus: string | null;
   lastRunMessage: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type ExecutionStatus =
+  | 'pending'
+  | 'running'
+  | 'success'
+  | 'partial_failed'
+  | 'failed'
+  | 'cancelled';
+
+export type TriggerType = 'manual' | 'schedule' | 'system';
+
+export interface SceneExecutionRecord {
+  id: number;
+  executionId: string;
+  sceneCode: string;
+  sceneName: string;
+  triggerType: TriggerType;
+  triggerSource: string;
+  status: ExecutionStatus;
+  startedAt: string | null;
+  finishedAt: string | null;
+  durationMs: number;
+  totalActions: number;
+  successCount: number;
+  failedCount: number;
+  resultSummary: string | null;
+  createdAt: string;
 }
 
 export interface OperationLogEntry {
@@ -148,9 +178,34 @@ export interface OperationLogEntry {
   createdAt: string;
 }
 
+export type SceneExecutionEventName =
+  | 'scene_execution_started'
+  | 'scene_execution_progress'
+  | 'scene_execution_success'
+  | 'scene_execution_partial_failed'
+  | 'scene_execution_failed'
+  | 'scene_execution_cancelled';
+
+export interface SceneExecutionWsEvent {
+  type: SceneExecutionEventName;
+  executionId: string;
+  sceneCode: string;
+  sceneName: string;
+  triggerType: TriggerType;
+  triggerSource: string;
+  status: ExecutionStatus;
+  totalActions: number;
+  successCount: number;
+  failedCount: number;
+  durationMs?: number;
+  step?: string;
+  at: string;
+}
+
 export type WsEvent =
   | { type: 'hello'; message: string; serverTime: string }
   | { type: 'device_status'; device: string; status: string; state?: Record<string, unknown>; at: string }
   | { type: 'scene'; scene: string; executionId: string; status: 'running' | 'action' | 'completed' | 'failed' | 'stopped'; step?: string; failures?: number; at: string }
+  | SceneExecutionWsEvent
   | { type: 'alarm'; source: string; level: 'info' | 'warning' | 'error'; message: string; at: string }
   | { type: 'pong'; at: string };

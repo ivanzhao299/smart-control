@@ -26,8 +26,8 @@ export class SystemController {
       data: {
         app: app.appName,
         env: app.nodeEnv,
-        version: '0.6.0',
-        sprint: 'Sprint-06',
+        version: '0.7.0',
+        sprint: 'Sprint-07',
         mockMode: adapter.mock,
         mockLatencyMs: adapter.mockLatencyMs,
         websocketPath: ws.path,

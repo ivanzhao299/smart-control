@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Device } from '../entities/device.entity';
 import { Scene } from '../entities/scene.entity';
 import { SceneAction } from '../entities/scene-action.entity';
+import { SceneExecution } from '../entities/scene-execution.entity';
 import { AdaptersModule } from '../adapters/adapters.module';
 import { LogsModule } from '../modules/logs/logs.module';
 import { ServicesPrimitivesModule } from './services-primitives.module';
@@ -13,7 +14,7 @@ import { DeviceHealthService } from './device-health.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Device, Scene, SceneAction]),
+    TypeOrmModule.forFeature([Device, Scene, SceneAction, SceneExecution]),
     ServicesPrimitivesModule,
     AdaptersModule,
     LogsModule,

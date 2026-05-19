@@ -2,6 +2,7 @@
 import { useRoute, useRouter } from 'vue-router';
 import StatusBar from '@/components/StatusBar.vue';
 import AlertBanner from '@/components/AlertBanner.vue';
+import ExecutionStatusBar from '@/components/ExecutionStatusBar.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -46,6 +47,7 @@ function go(name: string): void {
         </router-view>
       </main>
     </div>
+    <ExecutionStatusBar />
   </div>
 </template>
 

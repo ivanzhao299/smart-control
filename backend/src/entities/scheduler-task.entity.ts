@@ -16,6 +16,11 @@ export class SchedulerTask {
   @Column({ type: 'varchar', length: 128 })
   name!: string;
 
+  /** 业务编码 (可选, 用于按 code 寻址) */
+  @Index()
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  code!: string | null;
+
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
@@ -30,6 +35,9 @@ export class SchedulerTask {
 
   @Column({ name: 'last_run_at', type: 'datetime', nullable: true })
   lastRunAt!: Date | null;
+
+  @Column({ name: 'next_run_at', type: 'datetime', nullable: true })
+  nextRunAt!: Date | null;
 
   @Column({ name: 'last_run_status', type: 'varchar', length: 32, nullable: true })
   lastRunStatus!: string | null;

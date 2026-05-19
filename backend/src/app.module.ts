@@ -19,6 +19,7 @@ import { LedModule } from './modules/led/led.module';
 import { AudioModule } from './modules/audio/audio.module';
 import { HvacModule } from './modules/hvac/hvac.module';
 import { SchedulerModule } from './modules/scheduler/scheduler.module';
+import { SceneExecutionsModule } from './modules/scene-executions/scene-executions.module';
 import { AdaptersModule } from './adapters/adapters.module';
 import { ServicesModule } from './services/services.module';
 
@@ -45,6 +46,7 @@ import { ServicesModule } from './services/services.module';
     AudioModule,
     HvacModule,
     SchedulerModule,
+    SceneExecutionsModule,
     WebsocketModule,
   ],
   providers: [

@@ -68,9 +68,22 @@ export class ScenesController {
     return { message: '场景已请求停止', data };
   }
 
+  @Post(':code/cancel')
+  @HttpCode(200)
+  async cancel(@Param('code') code: string) {
+    const data = await this.engine.cancel(code);
+    return { message: '场景已取消', data };
+  }
+
   @Get('runtime/running')
   async running() {
     const data = this.engine.listRunning();
+    return { message: '查询成功', data };
+  }
+
+  @Get('runtime/queued')
+  async queued() {
+    const data = this.engine.listQueued();
     return { message: '查询成功', data };
   }
 }

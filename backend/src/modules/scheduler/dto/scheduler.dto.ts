@@ -12,6 +12,11 @@ export class CreateSchedulerTaskDto {
 
   @IsOptional()
   @IsString()
+  @Length(1, 64)
+  code?: string;
+
+  @IsOptional()
+  @IsString()
   description?: string;
 
   @IsString()

@@ -58,4 +58,18 @@ export class SchedulerController {
     await this.service.runNow(id);
     return { message: '已触发执行', data: null };
   }
+
+  @Post(':id/enable')
+  @HttpCode(200)
+  async enable(@Param('id', ParseIntPipe) id: number) {
+    const data = await this.service.setEnabled(id, true);
+    return { message: '已启用', data };
+  }
+
+  @Post(':id/disable')
+  @HttpCode(200)
+  async disable(@Param('id', ParseIntPipe) id: number) {
+    const data = await this.service.setEnabled(id, false);
+    return { message: '已停用', data };
+  }
 }
