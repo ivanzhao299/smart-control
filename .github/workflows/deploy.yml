@@ -133,7 +133,7 @@ jobs:
       - name: Setup SSH (with diagnostics)
         env:
           DEPLOY_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || vars.DEPLOY_HOST || '47.236.122.224' }}
         run: |
           set -u
           fail() { echo "::error::$1" >&2; exit 1; }
@@ -197,7 +197,7 @@ jobs:
       - name: Upload artifacts to server
         if: ${{ github.event.inputs.rollback != 'true' }}
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || vars.DEPLOY_HOST || '47.236.122.224' }}
         run: |
           scp -o IdentitiesOnly=yes -i ~/.ssh/deploy_key \
               /tmp/control-dist.tgz \
@@ -209,7 +209,7 @@ jobs:
       - name: Deploy frontend (release.sh)
         if: ${{ github.event.inputs.rollback != 'true' }}
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || vars.DEPLOY_HOST || '47.236.122.224' }}
         run: |
           ssh -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "root@$DEPLOY_HOST" '
             set -e
@@ -221,7 +221,7 @@ jobs:
       - name: Deploy backend
         if: ${{ github.event.inputs.rollback != 'true' }}
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || vars.DEPLOY_HOST || '47.236.122.224' }}
         run: |
           ssh -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "root@$DEPLOY_HOST" '
             set -e
@@ -238,7 +238,7 @@ jobs:
       - name: Rollback (switch current symlink to previous release)
         if: ${{ github.event.inputs.rollback == 'true' }}
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || vars.DEPLOY_HOST || '47.236.122.224' }}
         run: |
           ssh -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "root@$DEPLOY_HOST" '
             set -e
@@ -258,7 +258,7 @@ jobs:
       # ---------- 健康验收 + 失败回滚 ----------
       - name: Health check (with auto-rollback on failure)
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || vars.DEPLOY_HOST || '47.236.122.224' }}
         run: |
           set +e
           for i in 1 2 3 4 5 6 7 8 9 10; do
