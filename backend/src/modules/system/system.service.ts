@@ -11,6 +11,8 @@ interface VersionMeta {
   buildTime: string;
   platform: string;
   host: string;
+  commit?: string;
+  ref?: string;
 }
 
 export interface BackupItem {
@@ -51,6 +53,8 @@ export class SystemService implements OnModuleInit {
             buildTime: parsed.buildTime ?? this.versionMeta.buildTime,
             platform: parsed.platform ?? this.versionMeta.platform,
             host: parsed.host ?? this.versionMeta.host,
+            commit: parsed.commit,
+            ref: parsed.ref,
           };
           this.logger.log(`version.json 已加载: ${p}`);
           return;

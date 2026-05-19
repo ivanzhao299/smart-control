@@ -33,6 +33,8 @@ export class SystemController {
         version: meta.version,
         sprint: meta.sprint,
         buildTime: meta.buildTime,
+        commit: meta.commit ?? null,
+        ref: meta.ref ?? null,
         nodeVersion: process.version,
         platform: meta.platform || app.platform,
         host: meta.host || app.hostMachine || 'unknown',

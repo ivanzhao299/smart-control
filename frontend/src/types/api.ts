@@ -107,6 +107,10 @@ export interface SystemInfo {
   sprint: string;
   /** Sprint-10 新增: ISO 时间戳, 从 deploy/configs/version.json 读取 */
   buildTime?: string;
+  /** Sprint-10 新增: CI 注入的 git commit hash (40 位) */
+  commit?: string | null;
+  /** Sprint-10 新增: CI 注入的 ref (branch/tag) */
+  ref?: string | null;
   /** Sprint-10 新增: 运行时 Node.js 版本 (process.version) */
   nodeVersion?: string;
   /** Sprint-10 新增: 平台标识 (windows/linux/darwin) */
