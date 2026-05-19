@@ -1,11 +1,18 @@
 <script setup lang="ts">
+import { provide } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import StatusBar from '@/components/StatusBar.vue';
 import AlertBanner from '@/components/AlertBanner.vue';
 import ExecutionStatusBar from '@/components/ExecutionStatusBar.vue';
+import FullscreenPrompt from '@/components/FullscreenPrompt.vue';
+import { useFullscreen } from '@/composables/useFullscreen';
 
 const route = useRoute();
 const router = useRouter();
+
+// 终端全屏 (Sprint-08 终端模式)
+const fs = useFullscreen({ autoEnter: true });
+provide('fullscreen', fs);
 
 const tabs: Array<{ name: string; label: string; icon: string }> = [
   { name: 'dashboard', label: '首页', icon: '🏠' },
@@ -48,6 +55,11 @@ function go(name: string): void {
       </main>
     </div>
     <ExecutionStatusBar />
+    <FullscreenPrompt
+      :visible="fs.showPrompt.value"
+      @enter="fs.enter()"
+      @dismiss="fs.dismissPrompt()"
+    />
   </div>
 </template>
 

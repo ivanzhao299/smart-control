@@ -1,12 +1,16 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, inject } from 'vue';
 import { useSystemStore } from '@/stores/system';
 import { useSceneStore } from '@/stores/scene';
 import { useDeviceStore } from '@/stores/device';
+import type { useFullscreen } from '@/composables/useFullscreen';
 
 const sys = useSystemStore();
 const sceneStore = useSceneStore();
 const deviceStore = useDeviceStore();
+
+// 由 MainLayout 注入 (admin 不注入则为 undefined)
+const fs = inject<ReturnType<typeof useFullscreen> | null>('fullscreen', null);
 
 const timeLabel = computed(() => {
   const d = new Date(sys.now);
@@ -83,6 +87,15 @@ const mockTag = computed(() => sys.info?.mockMode ?? true);
 
     <div class="right">
       <span v-if="mockTag" class="sc-pill is-info" title="MOCK_MODE=true: 当前使用模拟设备">模拟</span>
+      <button
+        v-if="fs && fs.isSupported.value && !fs.isStandalone.value"
+        class="fs-toggle"
+        :title="fs.isActive.value ? '退出全屏 (Esc)' : '进入终端模式 (全屏)'"
+        @click="fs.toggle()"
+      >
+        <span v-if="fs.isActive.value">⤓</span>
+        <span v-else>⤢</span>
+      </button>
       <div class="clock">{{ timeLabel }}</div>
     </div>
   </header>
@@ -121,6 +134,16 @@ const mockTag = computed(() => sys.info?.mockMode ?? true);
 .right {
   display: flex; align-items: center; gap: 12px; justify-content: flex-end;
 }
+.fs-toggle {
+  width: 38px; height: 38px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-elevated); color: var(--text-primary);
+  border: 1px solid var(--border-soft); border-radius: 10px;
+  font-size: 18px; cursor: pointer;
+  transition: all 0.12s;
+}
+.fs-toggle:hover { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+.fs-toggle:active { transform: scale(0.95); }
 .clock {
   font-size: 28px;
   font-weight: 600;
