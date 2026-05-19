@@ -54,9 +54,9 @@ const mockTag = computed(() => sys.info?.mockMode ?? true);
 <template>
   <header class="status-bar">
     <div class="brand">
-      <BrandLogo :size="44" />
+      <BrandLogo :height="48" />
       <div>
-        <div class="title">展贸中心智能中控</div>
+        <div class="title">金湖展贸中心智能控制系统</div>
         <div class="sub">{{ dateLabel }}</div>
       </div>
     </div>
@@ -106,7 +106,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? true);
 <style scoped>
 .status-bar {
   display: grid;
-  grid-template-columns: 320px 1fr 220px;
+  grid-template-columns: 380px 1fr 220px;
   align-items: center;
   gap: 20px;
   padding: 14px 24px;

@@ -39,9 +39,9 @@ export default defineConfig(({ mode }) => {
         registerType: 'autoUpdate',
         includeAssets: ['icons/pwa-192x192.png', 'icons/pwa-512x512.png', 'icons/app.svg'],
         manifest: {
-          name: '展贸中心智能中控',
-          short_name: '中控',
-          description: '展厅自动化中控平板界面',
+          name: '金湖展贸中心智能控制系统',
+          short_name: '金湖中控',
+          description: '金湖展贸中心 — 展厅自动化中控平板界面',
           theme_color: '#111827',
           background_color: '#111827',
           display: 'fullscreen',

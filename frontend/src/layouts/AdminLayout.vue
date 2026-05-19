@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import BrandLogo from '@/components/BrandLogo.vue';
 import { useSystemStore } from '@/stores/system';
 import { usePermissionStore } from '@/stores/permission';
 import type { UserRole } from '@/types/api';
@@ -56,10 +57,10 @@ function onRoleChange(v: UserRole): void {
   <div class="admin">
     <aside class="side">
       <div class="brand">
-        <div class="logo">⚙</div>
+        <BrandLogo :height="40" />
         <div>
-          <div class="title">中控后台</div>
-          <div class="sub">Smart Control Admin</div>
+          <div class="title">金湖展贸中心</div>
+          <div class="sub">后台管理 · Admin</div>
         </div>
       </div>
       <nav class="menu">
