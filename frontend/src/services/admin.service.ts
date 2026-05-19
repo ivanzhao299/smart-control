@@ -1,6 +1,12 @@
 import { api } from './http';
 import type {
+  Alert,
+  AlertLevel,
+  AlertStatus,
+  AlertSummary,
   Device,
+  HealthReport,
+  LogsSummary,
   OperationLogEntry,
   Paged,
   SceneExecutionRecord,
@@ -8,6 +14,7 @@ import type {
   Scene,
   SceneAction,
   SceneSummary,
+  SystemResources,
   User,
   UserRole,
 } from '@/types/api';
@@ -115,6 +122,36 @@ export const adminExecutionService = {
     }),
   detail: (id: number) => api.get<SceneExecutionRecord>(`/scene-executions/${id}`),
   cancel: (code: string) => api.post(`/scenes/${code}/cancel`),
+};
+
+/* ---------- Alerts (Sprint-08) ---------- */
+export interface AlertsQuery {
+  level?: AlertLevel;
+  status?: AlertStatus;
+  sourceType?: string;
+  type?: string;
+  startTime?: string;
+  endTime?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export const adminAlertService = {
+  list: (params: AlertsQuery = {}) =>
+    api.get<Paged<Alert>>('/alerts', { params: { pageSize: 100, ...params } }),
+  summary: () => api.get<AlertSummary>('/alerts/summary'),
+  detail: (id: number) => api.get<Alert>(`/alerts/${id}`),
+  resolve: (id: number, resolvedBy?: string) =>
+    api.post<Alert>(`/alerts/${id}/resolve`, { resolvedBy }),
+  ignore: (id: number, resolvedBy?: string) =>
+    api.post<Alert>(`/alerts/${id}/ignore`, { resolvedBy }),
+};
+
+/* ---------- Monitor (Sprint-08) ---------- */
+export const adminMonitorService = {
+  health: () => api.get<HealthReport>('/system/health'),
+  status: () => api.get<SystemResources>('/system/status'),
+  logsSummary: () => api.get<LogsSummary>('/logs/summary'),
 };
 
 /* ---------- Users ---------- */

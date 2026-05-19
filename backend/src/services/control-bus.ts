@@ -55,11 +55,77 @@ export interface SceneExecutionEvent {
   at: string;
 }
 
+/** Sprint-08: 设备在线/下线、报警生命周期、健康状态、服务状态 */
+export interface DeviceOnlineEvent {
+  type: 'device_online';
+  device: string;
+  category?: string;
+  at: string;
+}
+
+export interface DeviceOfflineEvent {
+  type: 'device_offline';
+  device: string;
+  category?: string;
+  reason?: string;
+  at: string;
+}
+
+export interface AlertCreatedEvent {
+  type: 'alert_created';
+  alertId: number;
+  level: 'info' | 'warning' | 'critical' | 'emergency';
+  alertType: string;
+  sourceType: string;
+  sourceId: string | null;
+  title: string;
+  message: string | null;
+  at: string;
+}
+
+export interface AlertResolvedEvent {
+  type: 'alert_resolved';
+  alertId: number;
+  sourceType: string;
+  sourceId: string | null;
+  resolvedBy: string;
+  at: string;
+}
+
+export interface SystemHealthEvent {
+  type: 'system_health';
+  status: 'ok' | 'degraded' | 'down';
+  apiStatus: 'up' | 'down';
+  databaseStatus: 'up' | 'down';
+  websocketStatus: 'up' | 'down';
+  schedulerStatus: 'up' | 'down';
+  deviceOnlineCount: number;
+  deviceOfflineCount: number;
+  uptime: number;
+  memoryUsagePercent: number;
+  cpuUsagePercent: number;
+  at: string;
+}
+
+export interface ServiceStatusEvent {
+  type: 'service_status';
+  service: 'scheduler' | 'health-check' | 'websocket' | 'engine';
+  status: 'up' | 'down' | 'degraded';
+  message?: string;
+  at: string;
+}
+
 export type ControlEvent =
   | DeviceStatusEvent
   | SceneEvent
   | AlarmEvent
-  | SceneExecutionEvent;
+  | SceneExecutionEvent
+  | DeviceOnlineEvent
+  | DeviceOfflineEvent
+  | AlertCreatedEvent
+  | AlertResolvedEvent
+  | SystemHealthEvent
+  | ServiceStatusEvent;
 
 @Injectable()
 export class ControlBus {

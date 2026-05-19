@@ -6,6 +6,7 @@ import { SceneAction } from '../entities/scene-action.entity';
 import { SceneExecution } from '../entities/scene-execution.entity';
 import { AdaptersModule } from '../adapters/adapters.module';
 import { LogsModule } from '../modules/logs/logs.module';
+import { AlertModule } from '../modules/alerts/alert.module';
 import { ServicesPrimitivesModule } from './services-primitives.module';
 import { DeviceStatusService } from './device-status.service';
 import { CommandDispatcherService } from './command-dispatcher.service';
@@ -18,6 +19,7 @@ import { DeviceHealthService } from './device-health.service';
     ServicesPrimitivesModule,
     AdaptersModule,
     LogsModule,
+    AlertModule,
   ],
   providers: [
     DeviceStatusService,
@@ -27,6 +29,7 @@ import { DeviceHealthService } from './device-health.service';
   ],
   exports: [
     ServicesPrimitivesModule,
+    AlertModule,
     DeviceStatusService,
     CommandDispatcherService,
     SceneEngineService,

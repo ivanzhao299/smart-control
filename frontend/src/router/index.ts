@@ -19,7 +19,9 @@ const routes: RouteRecordRaw[] = [
     path: '/admin',
     component: () => import('@/layouts/AdminLayout.vue'),
     children: [
-      { path: '', redirect: { name: 'admin-devices' } },
+      { path: '', redirect: { name: 'admin-monitor' } },
+      { path: 'monitor', name: 'admin-monitor', component: () => import('@/pages/admin/MonitorAdmin.vue') },
+      { path: 'alerts', name: 'admin-alerts', component: () => import('@/pages/admin/AlertsAdmin.vue') },
       { path: 'devices', name: 'admin-devices', component: () => import('@/pages/admin/DevicesAdmin.vue') },
       { path: 'scenes', name: 'admin-scenes', component: () => import('@/pages/admin/ScenesAdmin.vue') },
       { path: 'scenes/:id/actions', name: 'admin-scene-actions', component: () => import('@/pages/admin/SceneActionsAdmin.vue'), props: true },

@@ -4,11 +4,79 @@
 
 ## 当前版本
 
-**Sprint-05：平板端 Web UI / PWA** *(累计交付 Sprint-01 ~ 05)*
+**Sprint-08：稳定性 / 健康检查 / 报警 / 运维监控** *(累计交付 Sprint-01 ~ 08)*
 
-新增：Vue3 + Vite + TS 平板前端 (6 页) · PWA fullscreen+landscape · 9 个设备控制端点 · WS 实时推送绑定。
+新增：Alert 模块（持久化报警 + 解除/忽略）· 增强 `/api/system/health` 含 CPU/内存/磁盘 + 服务状态聚合 · `/api/system/status` 系统资源 · `/api/logs/summary` 今日运行汇总 · 设备网关 0/5s/15s 三次重连退避 + 自动建报警 · 后台「运维监控」「报警中心」页 · 平板顶部持久化报警条 · PM2 ecosystem 完善（max_memory_restart 512M + exp_backoff_restart + 8s graceful kill）· 6 类新 WS 事件（device_online/offline · alert_created/resolved · system_health · service_status）
 
-详见 [`frontend/README.md`](./frontend/README.md) · [`docs/Sprint-05-交付清单.md`](./docs/Sprint-05-交付清单.md)
+线上演示：
+- 平板：https://cnjinhu.top/control/
+- 后台监控：https://cnjinhu.top/control/#/admin/monitor
+- 报警中心：https://cnjinhu.top/control/#/admin/alerts
+
+## 运维操作速查 (Sprint-08)
+
+### 查看系统状态
+```bash
+# 通过 API
+curl https://cnjinhu.top/control/api/system/health           # 总体健康 + 资源摘要
+curl https://cnjinhu.top/control/api/system/status           # CPU/内存/磁盘/版本/uptime 详情
+curl https://cnjinhu.top/control/api/system/runtime/gateways # 4 个网关连接状态
+curl https://cnjinhu.top/control/api/logs/summary            # 今日运行汇总
+```
+
+或直接浏览器打开后台 https://cnjinhu.top/control/#/admin/monitor
+
+### 查看报警
+```bash
+curl 'https://cnjinhu.top/control/api/alerts?status=active'  # 当前激活报警
+curl https://cnjinhu.top/control/api/alerts/summary          # 报警计数 + byLevel
+```
+
+或浏览器后台 https://cnjinhu.top/control/#/admin/alerts （可解除 / 忽略）
+
+### 服务管理 (PM2)
+```bash
+# SSH 到服务器后
+ssh -o BindInterface=en0 root@47.236.122.224
+
+pm2 status                                          # 进程状态总览
+pm2 logs smart-control-backend --lines 100          # 最近 100 行日志
+pm2 logs smart-control-backend --err                # 只看 error
+pm2 reload smart-control-backend --update-env       # 平滑重启 (优先, 不丢请求)
+pm2 restart smart-control-backend --update-env      # 强制重启
+pm2 stop smart-control-backend                      # 停止
+pm2 describe smart-control-backend                  # 详细信息: cwd / 内存 / 重启次数
+
+# 持久化 (开机自启)
+pm2 startup
+pm2 save
+```
+
+### 排查设备离线
+```bash
+# 1. 查 gateway 状态
+curl https://cnjinhu.top/control/api/system/runtime/gateways
+
+# 2. 触发立即健康探活
+curl -X POST https://cnjinhu.top/control/api/system/runtime/health/probe
+
+# 3. 查最近报警
+curl 'https://cnjinhu.top/control/api/alerts?status=active&sourceType=gateway'
+
+# 4. 看后端日志中的 reconnect 行
+ssh root@47.236.122.224 'tail -200 /srv/data/smart-control/logs/app-$(date +%Y-%m-%d).log | grep -i "reconnect\|offline\|alert"'
+
+# 5. 修复后, 后端会自动 reconnect; 也可点后台「立即探活」按钮
+```
+
+### 服务异常自恢复
+- 进程崩溃 → PM2 自动重启（指数退避，min_uptime=15s）
+- 内存超 512M → PM2 自动重启
+- 设备网关掉线 → DeviceHealthService 立即/5s/15s 三次重连；失败后创建 critical alert
+- 重连成功后 → 自动 resolve 对应 active alerts
+- 数据库连接断 → /api/system/health 显示 `databaseStatus: down`；下次请求 TypeORM 自动重连
+
+详见 [`frontend/README.md`](./frontend/README.md) · [`docs/Sprint-08-交付清单.md`](./docs/Sprint-08-交付清单.md)
 
 ## 历史版本
 

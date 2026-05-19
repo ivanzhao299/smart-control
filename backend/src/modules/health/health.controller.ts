@@ -1,59 +1,69 @@
-import { Controller, Get, Inject } from '@nestjs/common';
+import { Controller, Get } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DataSource } from 'typeorm';
-import { InjectDataSource } from '@nestjs/typeorm';
-import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
-import { Logger } from 'winston';
-import { AppConfig } from '../../common/config/configuration';
-
-interface HealthResponse {
-  success: true;
-  status: 'running';
-  app: string;
-  env: string;
-  uptime: number;
-  database: 'connected' | 'disconnected';
-  timestamp: string;
-}
+import { AdapterConfig, AppConfig } from '../../common/config/configuration';
+import { HealthService } from './health.service';
 
 @Controller('system')
 export class HealthController {
-  private readonly startedAt = Date.now();
-
   constructor(
     private readonly config: ConfigService,
-    @InjectDataSource() private readonly dataSource: DataSource,
-    @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
+    private readonly health: HealthService,
   ) {}
 
+  /** Sprint-08 增强健康检查 */
   @Get('health')
-  async health(): Promise<HealthResponse> {
+  async healthCheck() {
+    const report = await this.health.report();
     const app = this.config.getOrThrow<AppConfig>('app');
-    const dbStatus = await this.checkDatabase();
-
-    this.logger.debug('Health check requested', { context: 'HealthController' });
-
     return {
-      success: true,
-      status: 'running',
-      app: app.appName,
-      env: app.nodeEnv,
-      uptime: Math.floor((Date.now() - this.startedAt) / 1000),
-      database: dbStatus,
-      timestamp: new Date().toISOString(),
+      message: '查询成功',
+      data: {
+        ...report,
+        app: app.appName,
+        env: app.nodeEnv,
+      },
     };
   }
 
-  private async checkDatabase(): Promise<'connected' | 'disconnected'> {
-    try {
-      if (!this.dataSource.isInitialized) return 'disconnected';
-      await this.dataSource.query('SELECT 1');
-      return 'connected';
-    } catch (err) {
-      this.logger.warn(`Database health probe failed: ${(err as Error).message}`, {
-        context: 'HealthController',
-      });
-      return 'disconnected';
-    }
+  /** 系统资源 / 版本 / 环境 详情 */
+  @Get('status')
+  systemStatus() {
+    const app = this.config.getOrThrow<AppConfig>('app');
+    const adapter = this.config.getOrThrow<AdapterConfig>('adapter');
+    const r = this.health.resources();
+    return {
+      message: '查询成功',
+      data: {
+        app: app.appName,
+        env: app.nodeEnv,
+        version: '0.8.0',
+        sprint: 'Sprint-08',
+        nodeVersion: process.version,
+        platform: process.platform,
+        arch: process.arch,
+        pid: process.pid,
+        mockMode: adapter.mock,
+        cpu: {
+          usagePercent: r.cpuUsagePercent,
+          loadAvg1m: r.cpuLoadAvg1m,
+          cores: require('os').cpus().length,
+        },
+        memory: {
+          usagePercent: r.memoryUsagePercent,
+          usedMb: r.memoryUsedMb,
+          totalMb: r.memoryTotalMb,
+        },
+        disk: {
+          usagePercent: r.diskUsagePercent,
+          usedGb: r.diskUsedGb,
+          totalGb: r.diskTotalGb,
+        },
+        uptime: {
+          osSec: r.uptimeSec,
+          processSec: r.nodeUptimeSec,
+        },
+        timestamp: new Date().toISOString(),
+      },
+    };
   }
 }

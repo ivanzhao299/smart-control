@@ -11,6 +11,8 @@ const sys = useSystemStore();
 const perm = usePermissionStore();
 
 const items: Array<{ name: string; label: string; icon: string }> = [
+  { name: 'admin-monitor', label: '运维监控', icon: '📈' },
+  { name: 'admin-alerts', label: '报警中心', icon: '🚨' },
   { name: 'admin-devices', label: '设备管理', icon: '🛠' },
   { name: 'admin-scenes', label: '场景管理', icon: '🎬' },
   { name: 'admin-scheduler', label: '定时任务', icon: '⏰' },

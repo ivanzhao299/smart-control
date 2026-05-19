@@ -20,6 +20,7 @@ import { AudioModule } from './modules/audio/audio.module';
 import { HvacModule } from './modules/hvac/hvac.module';
 import { SchedulerModule } from './modules/scheduler/scheduler.module';
 import { SceneExecutionsModule } from './modules/scene-executions/scene-executions.module';
+import { AlertModule } from './modules/alerts/alert.module';
 import { AdaptersModule } from './adapters/adapters.module';
 import { ServicesModule } from './services/services.module';
 
@@ -47,6 +48,7 @@ import { ServicesModule } from './services/services.module';
     HvacModule,
     SchedulerModule,
     SceneExecutionsModule,
+    AlertModule,
     WebsocketModule,
   ],
   providers: [

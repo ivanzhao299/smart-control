@@ -166,6 +166,78 @@ export interface SceneExecutionRecord {
   createdAt: string;
 }
 
+export type AlertLevel = 'info' | 'warning' | 'critical' | 'emergency';
+export type AlertStatus = 'active' | 'resolved' | 'ignored';
+
+export interface Alert {
+  id: number;
+  level: AlertLevel;
+  type: string;
+  sourceType: string;
+  sourceId: string | null;
+  title: string;
+  message: string | null;
+  status: AlertStatus;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AlertSummary {
+  active: number;
+  byLevel: Record<AlertLevel, number>;
+  last24h: number;
+  latest: Alert | null;
+}
+
+export interface HealthReport {
+  status: 'ok' | 'degraded' | 'down';
+  apiStatus: 'up' | 'down';
+  databaseStatus: 'up' | 'down';
+  websocketStatus: 'up' | 'down';
+  schedulerStatus: 'up' | 'down';
+  deviceOnlineCount: number;
+  deviceOfflineCount: number;
+  uptime: number;
+  memoryUsagePercent: number;
+  cpuUsagePercent: number;
+  timestamp: string;
+  app: string;
+  env: string;
+}
+
+export interface SystemResources {
+  app: string;
+  env: string;
+  version: string;
+  sprint: string;
+  nodeVersion: string;
+  platform: string;
+  arch: string;
+  pid: number;
+  mockMode: boolean;
+  cpu: { usagePercent: number; loadAvg1m: number; cores: number };
+  memory: { usagePercent: number; usedMb: number; totalMb: number };
+  disk: { usagePercent: number; usedGb: number; totalGb: number };
+  uptime: { osSec: number; processSec: number };
+  timestamp: string;
+}
+
+export interface LogsSummary {
+  operations: number;
+  sceneExecutions: number;
+  sceneFailures: number;
+  deviceOffline: number;
+  alerts: {
+    active: number;
+    last24h: number;
+    byLevel: Record<AlertLevel, number>;
+  };
+  rangeStart: string;
+  rangeEnd: string;
+}
+
 export interface OperationLogEntry {
   id: number;
   operator: string;
@@ -202,10 +274,70 @@ export interface SceneExecutionWsEvent {
   at: string;
 }
 
+export interface AlertCreatedWsEvent {
+  type: 'alert_created';
+  alertId: number;
+  level: AlertLevel;
+  alertType: string;
+  sourceType: string;
+  sourceId: string | null;
+  title: string;
+  message: string | null;
+  at: string;
+}
+export interface AlertResolvedWsEvent {
+  type: 'alert_resolved';
+  alertId: number;
+  sourceType: string;
+  sourceId: string | null;
+  resolvedBy: string;
+  at: string;
+}
+export interface DeviceOnlineWsEvent {
+  type: 'device_online';
+  device: string;
+  category?: string;
+  at: string;
+}
+export interface DeviceOfflineWsEvent {
+  type: 'device_offline';
+  device: string;
+  category?: string;
+  reason?: string;
+  at: string;
+}
+export interface SystemHealthWsEvent {
+  type: 'system_health';
+  status: 'ok' | 'degraded' | 'down';
+  apiStatus: 'up' | 'down';
+  databaseStatus: 'up' | 'down';
+  websocketStatus: 'up' | 'down';
+  schedulerStatus: 'up' | 'down';
+  deviceOnlineCount: number;
+  deviceOfflineCount: number;
+  uptime: number;
+  memoryUsagePercent: number;
+  cpuUsagePercent: number;
+  at: string;
+}
+export interface ServiceStatusWsEvent {
+  type: 'service_status';
+  service: 'scheduler' | 'health-check' | 'websocket' | 'engine';
+  status: 'up' | 'down' | 'degraded';
+  message?: string;
+  at: string;
+}
+
 export type WsEvent =
   | { type: 'hello'; message: string; serverTime: string }
   | { type: 'device_status'; device: string; status: string; state?: Record<string, unknown>; at: string }
   | { type: 'scene'; scene: string; executionId: string; status: 'running' | 'action' | 'completed' | 'failed' | 'stopped'; step?: string; failures?: number; at: string }
   | SceneExecutionWsEvent
   | { type: 'alarm'; source: string; level: 'info' | 'warning' | 'error'; message: string; at: string }
+  | AlertCreatedWsEvent
+  | AlertResolvedWsEvent
+  | DeviceOnlineWsEvent
+  | DeviceOfflineWsEvent
+  | SystemHealthWsEvent
+  | ServiceStatusWsEvent
   | { type: 'pong'; at: string };
