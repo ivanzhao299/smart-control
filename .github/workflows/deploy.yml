@@ -129,30 +129,89 @@ jobs:
           name: deploy-bundle
           path: /tmp/
 
-      - name: Setup SSH agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
-
-      - name: Trust server host key
+      # ---------- SSH 自诊断准备 ----------
+      - name: Setup SSH (with diagnostics)
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
         run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          set -u
+          fail() { echo "::error::$1" >&2; exit 1; }
+
+          # 1) Secret presence
+          [ -n "${DEPLOY_KEY:-}" ] || fail "secret DEPLOY_SSH_KEY 为空 (未设置或值为空字符串)"
+          [ -n "${DEPLOY_HOST:-}" ] || fail "secret DEPLOY_HOST 为空"
+          echo "✅ secrets present (KEY ${#DEPLOY_KEY}B / HOST '$DEPLOY_HOST')"
+
+          # 2) 写入 key 文件: 去 CRLF + 强制 trailing newline (常见粘贴问题)
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" | tr -d '\r' > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          # 3) Key 格式校验 (脱敏: 只看头尾行 + 行数)
+          HEAD=$(head -1 ~/.ssh/deploy_key)
+          TAIL=$(tail -1 ~/.ssh/deploy_key)
+          LINES=$(wc -l < ~/.ssh/deploy_key)
+          echo "key head: $HEAD"
+          echo "key tail: $TAIL"
+          echo "key lines: $LINES"
+          case "$HEAD" in
+            "-----BEGIN OPENSSH PRIVATE KEY-----") : ;;
+            "-----BEGIN RSA PRIVATE KEY-----") : ;;
+            "-----BEGIN EC PRIVATE KEY-----") : ;;
+            *) fail "key 首行不是 PEM 头 → secret 粘贴时丢了 BEGIN 行。重新粘贴, 含 -----BEGIN ... PRIVATE KEY----- 这行。" ;;
+          esac
+          case "$TAIL" in
+            "-----END OPENSSH PRIVATE KEY-----"*) : ;;
+            "-----END RSA PRIVATE KEY-----"*) : ;;
+            "-----END EC PRIVATE KEY-----"*) : ;;
+            *) fail "key 末行不是 PEM 尾 → secret 粘贴时丢了 END 行。重新粘贴包括 -----END ... PRIVATE KEY----- 行。" ;;
+          esac
+
+          # 4) ssh-keygen 解析检查 (不会输出私钥内容)
+          if ! ssh-keygen -y -f ~/.ssh/deploy_key > ~/.ssh/deploy_key.pub 2>/tmp/keygen.err; then
+            cat /tmp/keygen.err
+            fail "ssh-keygen 解析私钥失败, 看上面 stderr (常见: 中间有空行 / Windows CRLF / 多余字符)"
+          fi
+          echo "✅ key parses OK, public key fingerprint:"
+          ssh-keygen -lf ~/.ssh/deploy_key.pub
+
+          # 5) Host key 写入 known_hosts
+          ssh-keyscan -H -t ed25519,rsa "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/tmp/keyscan.err
+          if [ ! -s ~/.ssh/known_hosts ]; then
+            cat /tmp/keyscan.err
+            fail "ssh-keyscan 抓不到 host key (主机不通 / SSH 端口被防火墙挡)"
+          fi
+          echo "✅ ssh-keyscan got $(wc -l < ~/.ssh/known_hosts) entries for $DEPLOY_HOST"
+
+          # 6) 实际连通性测试
+          if ! ssh -o IdentitiesOnly=yes \
+                  -o BatchMode=yes \
+                  -o ConnectTimeout=10 \
+                  -i ~/.ssh/deploy_key \
+                  "root@$DEPLOY_HOST" 'echo "connected from $(hostname) at $(date -Iseconds)"'; then
+            fail "SSH 连接失败 (常见: pubkey 没写入 server authorized_keys / IP 写错 / 服务器 sshd 拒绝该 key)"
+          fi
 
       # ---------- 部署路径 ----------
       - name: Upload artifacts to server
         if: ${{ github.event.inputs.rollback != 'true' }}
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
         run: |
-          scp /tmp/control-dist.tgz \
+          scp -o IdentitiesOnly=yes -i ~/.ssh/deploy_key \
+              /tmp/control-dist.tgz \
               /tmp/backend-src.tgz \
               /tmp/deploy-meta.tgz \
               scripts/deploy-backend-remote.sh \
-              root@${{ secrets.DEPLOY_HOST }}:/tmp/
+              "root@$DEPLOY_HOST:/tmp/"
 
       - name: Deploy frontend (release.sh)
         if: ${{ github.event.inputs.rollback != 'true' }}
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
         run: |
-          ssh root@${{ secrets.DEPLOY_HOST }} '
+          ssh -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "root@$DEPLOY_HOST" '
             set -e
             rm -rf /tmp/stage && mkdir /tmp/stage
             tar xzf /tmp/control-dist.tgz -C /tmp/stage
@@ -161,8 +220,10 @@ jobs:
 
       - name: Deploy backend
         if: ${{ github.event.inputs.rollback != 'true' }}
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
         run: |
-          ssh root@${{ secrets.DEPLOY_HOST }} '
+          ssh -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "root@$DEPLOY_HOST" '
             set -e
             chmod +x /tmp/deploy-backend-remote.sh
             /tmp/deploy-backend-remote.sh \
@@ -176,8 +237,10 @@ jobs:
       # ---------- 回滚路径 ----------
       - name: Rollback (switch current symlink to previous release)
         if: ${{ github.event.inputs.rollback == 'true' }}
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
         run: |
-          ssh root@${{ secrets.DEPLOY_HOST }} '
+          ssh -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "root@$DEPLOY_HOST" '
             set -e
             cd /srv/app/smart-control
             CURRENT=$(readlink current)
@@ -194,6 +257,8 @@ jobs:
 
       # ---------- 健康验收 + 失败回滚 ----------
       - name: Health check (with auto-rollback on failure)
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
         run: |
           set +e
           for i in 1 2 3 4 5 6 7 8 9 10; do
@@ -208,7 +273,7 @@ jobs:
             echo "⏳ health attempt $i: $STATUS"
           done
           echo "❌ Health check 失败, 自动回滚..."
-          ssh root@${{ secrets.DEPLOY_HOST }} '
+          ssh -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "root@$DEPLOY_HOST" '
             set -e
             cd /srv/app/smart-control
             CURRENT=$(readlink current)
