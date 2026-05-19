@@ -8,6 +8,30 @@ export interface AdapterResult<T = unknown> {
   durationMs: number;
 }
 
+/**
+ * Sprint-03 spec Task-017 统一执行结果类型
+ * 与内部 AdapterResult 一一映射, 用于 service/controller 边界返回。
+ */
+export interface DeviceCommandResult<T = unknown> {
+  success: boolean;
+  deviceId: string;
+  command: string;
+  message: string;
+  durationMs: number;
+  rawResponse?: T;
+}
+
+export function toDeviceCommandResult<T>(r: AdapterResult<T>): DeviceCommandResult<T> {
+  return {
+    success: r.ok,
+    deviceId: r.deviceId,
+    command: r.command,
+    message: r.error ?? 'ok',
+    durationMs: r.durationMs,
+    rawResponse: r.data,
+  };
+}
+
 export interface AdapterContext {
   signal?: AbortSignal;
   operator?: string;

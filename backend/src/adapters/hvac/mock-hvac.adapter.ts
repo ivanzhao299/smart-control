@@ -45,9 +45,10 @@ export class MockHvacAdapter extends BaseAdapter {
     });
   }
 
-  async setTemperature(deviceId: string, params: { value?: number } = {}, ctx?: AdapterContext): Promise<AdapterResult<HvacState>> {
+  async setTemperature(deviceId: string, params: { value?: number; temperature?: number } = {}, ctx?: AdapterContext): Promise<AdapterResult<HvacState>> {
     return this.run(deviceId, 'setTemperature', ctx, async () => {
-      const v = Number(params.value);
+      // 兼容 spec 命名 ({temperature}) 与历史命名 ({value})
+      const v = Number(params.value ?? params.temperature);
       if (!Number.isFinite(v) || v < 16 || v > 30) {
         throw new Error(`temperature out of range: ${v}`);
       }

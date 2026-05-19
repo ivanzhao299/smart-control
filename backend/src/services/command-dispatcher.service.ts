@@ -158,7 +158,7 @@ export class CommandDispatcherService {
       case 'turnOff':
         return this.hvac.turnOff(id, p, ctx);
       case 'setTemperature':
-        return this.hvac.setTemperature(id, p as { value?: number }, ctx);
+        return this.hvac.setTemperature(id, p as { value?: number; temperature?: number }, ctx);
       case 'setMode':
         return this.hvac.setMode(id, p as { mode?: 'cool' | 'heat' | 'fan' | 'auto' | 'dry' }, ctx);
       case 'setFanSpeed':

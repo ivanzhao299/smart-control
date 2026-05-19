@@ -106,9 +106,9 @@ export class ModbusHvacAdapter extends BaseAdapter {
     });
   }
 
-  async setTemperature(deviceId: string, params: { value?: number } = {}, ctx?: AdapterContext): Promise<AdapterResult<HvacState>> {
+  async setTemperature(deviceId: string, params: { value?: number; temperature?: number } = {}, ctx?: AdapterContext): Promise<AdapterResult<HvacState>> {
     return this.run(deviceId, 'setTemperature', ctx, async () => {
-      const v = Number(params.value);
+      const v = Number(params.value ?? params.temperature);
       if (!Number.isFinite(v) || v < 16 || v > 30) {
         throw new DeviceProtocolError('hvac', `temperature out of range: ${v}`);
       }

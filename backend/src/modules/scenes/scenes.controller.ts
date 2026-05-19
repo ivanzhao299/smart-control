@@ -75,6 +75,21 @@ export class ScenesController {
     return { message: '场景已取消', data };
   }
 
+  /**
+   * Sprint-03 spec Task-010: 测试执行场景
+   * 与正式 execute 共享 SceneEngine, 但 triggerType=system / triggerSource=test
+   * MOCK_MODE=true 时不影响真实设备 (mock adapter)
+   */
+  @Post(':code/test')
+  @HttpCode(202)
+  async testExecute(@Param('code') code: string) {
+    const data = await this.engine.execute(code, 'test', {
+      triggerType: 'system',
+      triggerSource: 'test',
+    });
+    return { message: '场景已开始测试执行', data };
+  }
+
   @Get('runtime/running')
   async running() {
     const data = this.engine.listRunning();

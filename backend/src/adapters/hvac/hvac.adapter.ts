@@ -37,7 +37,7 @@ export class HvacAdapter extends BaseAdapter {
     return this.impl().turnOff(deviceId, params, ctx);
   }
 
-  setTemperature(deviceId: string, params: { value?: number } = {}, ctx?: AdapterContext): Promise<AdapterResult<HvacState>> {
+  setTemperature(deviceId: string, params: { value?: number; temperature?: number } = {}, ctx?: AdapterContext): Promise<AdapterResult<HvacState>> {
     return this.impl().setTemperature(deviceId, params, ctx);
   }
 

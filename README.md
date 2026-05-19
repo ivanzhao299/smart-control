@@ -16,6 +16,78 @@
 - 测试中心：https://cnjinhu.top/control/#/admin/test-center
 - UAT 验收：https://cnjinhu.top/control/#/admin/uat
 
+## Sprint-03 场景引擎使用 (核心)
+
+### 创建场景 + 动作
+```bash
+# 1. 建场景
+curl -X POST http://localhost:3000/api/scenes \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "code": "meeting_demo",
+    "name": "会议模式演示",
+    "actions": [
+      {"deviceType":"lighting","deviceId":"light_1f_main","command":"setBrightness","params":{"value":80},"sortOrder":1},
+      {"deviceType":"hvac","deviceId":"hvac_1f","command":"setTemperature","params":{"temperature":24},"sortOrder":2,"delayMs":500},
+      {"deviceType":"led","deviceId":"led_1f_main","command":"showWelcome","sortOrder":3,"delayMs":1000}
+    ]
+  }'
+
+# 2. 也可通过后台 /admin/scenes 用图形界面建
+```
+
+### 执行场景 (正式)
+```bash
+POST /api/scenes/:code/execute
+curl -X POST http://localhost:3000/api/scenes/meeting_demo/execute
+```
+- 立即返回 `pending` 快照，后台 FIFO 队列异步执行
+- 同场景重复执行 → 409
+- 通过 WS `ws://host/ws/status` 订阅 `scene_execution_*` 事件看实时进度
+- 完成后 GET `/api/scene-executions` 查看完整记录
+
+### 测试执行场景 (Sprint-03 spec Task-010)
+```bash
+POST /api/scenes/:code/test
+curl -X POST http://localhost:3000/api/scenes/meeting_demo/test
+```
+- 与 execute 共享 SceneEngine，但标记 `triggerType=system / triggerSource=test`
+- MOCK_MODE=true 时不触发真实设备
+- 在 `/admin/test-center` 也可图形界面调用 + dryRun 空跑模式
+
+### MOCK_MODE 作用
+- `MOCK_MODE=true` (默认)：所有 Adapter 走 mock 实现，不连真实设备，适合开发与现场未接设备前测试
+- `MOCK_MODE=false`：lighting/led/audio/hvac 走真实协议 (DALI HTTP / Nova TCP / DSP HTTP / Modbus TCP)
+
+切换：
+```powershell
+# 编辑 backend\.env
+MOCK_MODE=false
+DALI_GATEWAY_HOST=192.168.50.20
+LED_HOST=192.168.50.30
+AUDIO_HOST=192.168.50.40
+HVAC_HOST=192.168.50.50
+
+# 重启 (Windows)
+.\scripts\restart.ps1
+```
+
+### 场景执行最终状态
+- `success` — 全部动作成功
+- `partial_failed` — 部分成功部分失败（不中断机制）
+- `failed` — 全部失败
+- `cancelled` — 用户取消 (`POST /api/scenes/:code/cancel`)
+
+### 取消执行中的场景
+```bash
+curl -X POST http://localhost:3000/api/scenes/meeting_demo/cancel
+```
+
+### 关键日志位置
+- OperationLog (action=`scene.execute` / `scene.execute.scheduled`) — DB 中查询 `/api/logs`
+- SceneExecution (持久化完整执行记录) — `/api/scene-executions`
+- winston 文件日志 — `D:\smart-control\logs\app-YYYY-MM-DD.log` (Windows)
+
 ## 现场部署 (Windows 11 / ARK-1220L)
 
 完整步骤见 [`docs/Sprint-01-Windows-部署.md`](./docs/Sprint-01-Windows-部署.md)。
