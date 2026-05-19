@@ -36,8 +36,9 @@ export class HealthController {
       data: {
         app: app.appName,
         env: app.nodeEnv,
-        version: '0.8.0',
-        sprint: 'Sprint-08',
+        version: '0.9.0',
+        sprint: 'Sprint-09',
+        testMode: (process.env.TEST_MODE ?? 'false').toLowerCase() === 'true',
         nodeVersion: process.version,
         platform: process.platform,
         arch: process.arch,

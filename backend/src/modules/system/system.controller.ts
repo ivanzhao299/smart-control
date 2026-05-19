@@ -26,9 +26,10 @@ export class SystemController {
       data: {
         app: app.appName,
         env: app.nodeEnv,
-        version: '0.7.0',
-        sprint: 'Sprint-07',
+        version: '0.9.0',
+        sprint: 'Sprint-09',
         mockMode: adapter.mock,
+        testMode: (process.env.TEST_MODE ?? 'false').toLowerCase() === 'true',
         mockLatencyMs: adapter.mockLatencyMs,
         websocketPath: ws.path,
         apiPrefix: app.apiPrefix,

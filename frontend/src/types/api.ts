@@ -238,6 +238,127 @@ export interface LogsSummary {
   rangeEnd: string;
 }
 
+/* ---------- Sprint-09: 测试中心 ---------- */
+export type TestType = 'device' | 'subsystem' | 'scene' | 'network_ping' | 'network_port';
+
+export interface TestLog {
+  id: number;
+  testType: TestType;
+  targetType: string;
+  targetId: string;
+  command: string | null;
+  params: string | null;
+  result: string | null;
+  success: boolean;
+  durationMs: number;
+  operator: string;
+  createdAt: string;
+}
+
+export interface DeviceTestResult {
+  success: boolean;
+  deviceId: string;
+  deviceType: string;
+  command: string;
+  result?: unknown;
+  error?: string;
+  durationMs: number;
+}
+
+export interface SubsystemTestResult {
+  success: boolean;
+  type: string;
+  totalDevices: number;
+  succeededCount: number;
+  failedCount: number;
+  devices: DeviceTestResult[];
+  durationMs: number;
+}
+
+export interface SceneTestResult {
+  success: boolean;
+  sceneCode: string;
+  sceneName: string;
+  dryRun: boolean;
+  totalActions: number;
+  succeededCount: number;
+  failedCount: number;
+  actionResults: Array<{
+    deviceType: string;
+    deviceId: string;
+    command: string;
+    params: Record<string, unknown>;
+    success: boolean;
+    error?: string;
+    durationMs: number;
+  }>;
+  durationMs: number;
+}
+
+export interface PingResult {
+  success: boolean;
+  ip: string;
+  reachable: boolean;
+  latencyMs: number | null;
+  error?: string;
+}
+
+export interface PortResult {
+  success: boolean;
+  ip: string;
+  port: number;
+  open: boolean;
+  latencyMs: number | null;
+  error?: string;
+}
+
+export interface TestReport {
+  startTime: string;
+  endTime: string;
+  totalTests: number;
+  succeededCount: number;
+  failedCount: number;
+  avgDurationMs: number;
+  byTestType: Record<string, { total: number; succeeded: number; failed: number }>;
+  failures: Array<{
+    id: number;
+    testType: string;
+    targetType: string;
+    targetId: string;
+    error: string;
+    createdAt: string;
+  }>;
+}
+
+/* ---------- Sprint-09: UAT ---------- */
+export type UatStatus = 'pending' | 'passed' | 'failed' | 'need_adjustment';
+export type UatCategory = 'scene' | 'device' | 'stability' | 'other';
+
+export interface UatRecord {
+  id: number;
+  itemName: string;
+  category: UatCategory;
+  testStep: string | null;
+  expectedResult: string | null;
+  actualResult: string | null;
+  status: UatStatus;
+  tester: string | null;
+  remark: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UatSummary {
+  total: number;
+  passed: number;
+  failed: number;
+  needAdjustment: number;
+  pending: number;
+  passRate: number;
+  byCategory: Record<UatCategory, { total: number; passed: number; failed: number; needAdjustment: number; pending: number }>;
+}
+
 export interface OperationLogEntry {
   id: number;
   operator: string;
@@ -328,8 +449,36 @@ export interface ServiceStatusWsEvent {
   at: string;
 }
 
+export interface TestWsEvent {
+  type: 'test_started' | 'test_progress' | 'test_success' | 'test_failed';
+  testType?: string;
+  targetId?: string;
+  command?: string;
+  index?: number;
+  total?: number;
+  current?: string;
+  success?: boolean;
+  result?: unknown;
+  totalDevices?: number;
+  succeededCount?: number;
+  failedCount?: number;
+  dryRun?: boolean;
+  at: string;
+}
+
+export interface UatUpdatedWsEvent {
+  type: 'uat_updated';
+  uatId: number;
+  status: UatStatus;
+  itemName: string;
+  tester?: string;
+  at: string;
+}
+
 export type WsEvent =
   | { type: 'hello'; message: string; serverTime: string }
+  | TestWsEvent
+  | UatUpdatedWsEvent
   | { type: 'device_status'; device: string; status: string; state?: Record<string, unknown>; at: string }
   | { type: 'scene'; scene: string; executionId: string; status: 'running' | 'action' | 'completed' | 'failed' | 'stopped'; step?: string; failures?: number; at: string }
   | SceneExecutionWsEvent

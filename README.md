@@ -4,6 +4,50 @@
 
 ## 当前版本
 
+**Sprint-09：现场联调 / 测试体系 / UAT 验收** *(累计交付 Sprint-01 ~ 09)*
+
+新增：测试中心 (`/admin/test-center`) 支持单设备 / 子系统 / 场景 / 网络 (ping + TCP 端口) 测试；测试日志独立表与正式 OperationLog 隔离；测试报告聚合；UAT 验收模块（16 项默认种子：6 场景 + 6 设备 + 4 稳定性）+ 通过率统计 + WS 实时同步；Device 实体扩展 `debugRemark / lastTestAt / lastTestResult`；联调清单导出；WS 新事件 `test_started/progress/success/failed / uat_updated`。
+
+线上演示：
+- 测试中心：https://cnjinhu.top/control/#/admin/test-center
+- UAT 验收：https://cnjinhu.top/control/#/admin/uat
+
+## 现场联调与上线流程 (Sprint-09)
+
+### 1. 单设备测试
+进入 **后台 → 测试中心 → 单设备测试**：选设备 → 选命令（按类型自动联想：lighting=turnOn/setBrightness... led=powerOn/playMedia... 等）→ 填 JSON 参数 → 点 "测试"。结果即时显示成功/失败 + 耗时 + 完整 adapter 返回数据。
+
+### 2. 子系统测试
+**测试中心 → 子系统测试**：选 lighting/led/audio/hvac/power 之一 → 留空命令则用默认 `getStatus` → 一键批量测试该子系统下所有设备。表格逐行显示每个设备结果，失败原因可见。
+
+### 3. 场景测试
+**测试中心 → 场景测试**：选场景 → 勾选 **dryRun** 仅校验配置不下发设备；不勾则真实执行（但走测试通道，写 `test_logs` 不污染正式 `operation_logs`）。
+
+### 4. 网络连通测试
+**测试中心 → 网络连通**：填 IP + 端口
+- `▶ Ping`：调用系统 `ping -c 1`，显示是否可达与延迟
+- `▶ TCP 端口`：用 Node `net.Socket` 连接探测，常用于检查 80/502/5200 等控制端口
+
+### 5. 记录 UAT
+**后台 → UAT 验收**：左上角填入测试人姓名（自动保存到 localStorage）→ 列表中点 "录入" → 填写实际结果与备注 → 点 **✓ 通过** / **✖ 失败** / **需调整**。顶部 6 张卡实时显示总数 / 已通过 / 失败 / 需调整 / 待测 / 通过率。
+
+### 6. 判断系统可上线
+当以下条件全部满足时可以正式上线：
+
+- ✅ UAT **通过率 ≥ 95%**，剩余项需明确"延后/不阻塞上线"备注
+- ✅ 测试中心生成最近 24h 报告：失败数 = 0 或失败项已全部解决
+- ✅ 后台 → 运维监控页：4 个网关全部 `online`，无 active critical 报警
+- ✅ 后台 → 场景执行记录：6 个核心场景全部至少有 1 次 `success` 记录
+- ✅ 联调清单接口 `GET /api/test/checklist` 返回 `failingItems: []`
+
+### 7. 排查问题
+- 设备不通 → 测试中心做 Ping → 失败则查物理网线 → 通了但设备没反应 → 看 `/admin/test-center` 单设备测试错误详情
+- 报警不消除 → `/admin/alerts` 看 `lastError` 字段 → 修复后点 "解除"
+- 场景执行失败 → `/admin/scene-executions` 看 failures 弹窗里的 attempts 与 error
+- PM2 日志 → SSH 后 `pm2 logs smart-control-backend --lines 200`
+
+## 历史版本
+
 **Sprint-08：稳定性 / 健康检查 / 报警 / 运维监控** *(累计交付 Sprint-01 ~ 08)*
 
 新增：Alert 模块（持久化报警 + 解除/忽略）· 增强 `/api/system/health` 含 CPU/内存/磁盘 + 服务状态聚合 · `/api/system/status` 系统资源 · `/api/logs/summary` 今日运行汇总 · 设备网关 0/5s/15s 三次重连退避 + 自动建报警 · 后台「运维监控」「报警中心」页 · 平板顶部持久化报警条 · PM2 ecosystem 完善（max_memory_restart 512M + exp_backoff_restart + 8s graceful kill）· 6 类新 WS 事件（device_online/offline · alert_created/resolved · system_health · service_status）

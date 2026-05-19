@@ -9,6 +9,7 @@ import { Scene } from '../entities/scene.entity';
 import { SceneAction } from '../entities/scene-action.entity';
 import { User } from '../entities/user.entity';
 import { OperationLog } from '../entities/operation-log.entity';
+import { UatRecord } from '../entities/uat-record.entity';
 import { SeedService } from './seed.service';
 
 @Module({
@@ -21,7 +22,7 @@ import { SeedService } from './seed.service';
     }),
     LoggerModule,
     TypeOrmModule.forRootAsync({ useClass: TypeOrmConfigService }),
-    TypeOrmModule.forFeature([Device, Scene, SceneAction, User, OperationLog]),
+    TypeOrmModule.forFeature([Device, Scene, SceneAction, User, OperationLog, UatRecord]),
   ],
   providers: [SeedService],
 })

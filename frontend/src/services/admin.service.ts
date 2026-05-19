@@ -5,16 +5,27 @@ import type {
   AlertStatus,
   AlertSummary,
   Device,
+  DeviceTestResult,
   HealthReport,
   LogsSummary,
   OperationLogEntry,
   Paged,
+  PingResult,
+  PortResult,
   SceneExecutionRecord,
+  SceneTestResult,
   SchedulerTask,
   Scene,
   SceneAction,
   SceneSummary,
+  SubsystemTestResult,
   SystemResources,
+  TestLog,
+  TestReport,
+  UatCategory,
+  UatRecord,
+  UatStatus,
+  UatSummary,
   User,
   UserRole,
 } from '@/types/api';
@@ -152,6 +163,56 @@ export const adminMonitorService = {
   health: () => api.get<HealthReport>('/system/health'),
   status: () => api.get<SystemResources>('/system/status'),
   logsSummary: () => api.get<LogsSummary>('/logs/summary'),
+};
+
+/* ---------- Sprint-09: Test Center ---------- */
+export const adminTestService = {
+  device: (deviceId: string, command: string, params: Record<string, unknown> = {}) =>
+    api.post<DeviceTestResult>(`/test/device/${deviceId}`, { command, params }),
+  subsystem: (type: string, command?: string, params: Record<string, unknown> = {}) =>
+    api.post<SubsystemTestResult>(`/test/subsystem/${type}`, { command, params }),
+  scene: (sceneCode: string, dryRun = false) =>
+    api.post<SceneTestResult>(`/test/scene/${sceneCode}`, { dryRun }),
+  ping: (ip: string, timeoutMs = 2000) =>
+    api.post<PingResult>('/test/network/ping', { ip, timeoutMs }),
+  port: (ip: string, port: number, timeoutMs = 2000) =>
+    api.post<PortResult>('/test/network/port', { ip, port, timeoutMs }),
+  logs: (params: { testType?: string; targetType?: string; targetId?: string; success?: boolean; page?: number; pageSize?: number } = {}) =>
+    api.get<Paged<TestLog>>('/test/logs', { params: { pageSize: 100, ...params } }),
+  report: (body: { startTime?: string; endTime?: string; testType?: string } = {}) =>
+    api.post<TestReport>('/test/report', body),
+  checklist: () => api.get<unknown>('/test/checklist'),
+};
+
+/* ---------- Sprint-09: UAT ---------- */
+export interface UatCreatePayload {
+  itemName: string;
+  category: UatCategory;
+  testStep?: string;
+  expectedResult?: string;
+  actualResult?: string;
+  status?: UatStatus;
+  tester?: string;
+  remark?: string;
+  sortOrder?: number;
+}
+
+export const adminUatService = {
+  list: (params: { category?: UatCategory; status?: UatStatus; keyword?: string } = {}) =>
+    api.get<Paged<UatRecord>>('/uat', { params: { pageSize: 500, ...params } }),
+  summary: () => api.get<UatSummary>('/uat/summary'),
+  detail: (id: number) => api.get<UatRecord>(`/uat/${id}`),
+  create: (body: UatCreatePayload) => api.post<UatRecord>('/uat', body),
+  update: (id: number, body: Partial<UatCreatePayload>) => api.put<UatRecord>(`/uat/${id}`, body),
+  remove: (id: number) => api.del<null>(`/uat/${id}`),
+  pass: (id: number, body: { tester?: string; actualResult?: string; remark?: string } = {}) =>
+    api.post<UatRecord>(`/uat/${id}/pass`, body),
+  fail: (id: number, body: { tester?: string; actualResult?: string; remark?: string } = {}) =>
+    api.post<UatRecord>(`/uat/${id}/fail`, body),
+  needAdjustment: (id: number, body: { tester?: string; actualResult?: string; remark?: string } = {}) =>
+    api.post<UatRecord>(`/uat/${id}/need-adjustment`, body),
+  reset: (id: number, body: { tester?: string } = {}) =>
+    api.post<UatRecord>(`/uat/${id}/reset`, body),
 };
 
 /* ---------- Users ---------- */

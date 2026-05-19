@@ -21,6 +21,8 @@ import { HvacModule } from './modules/hvac/hvac.module';
 import { SchedulerModule } from './modules/scheduler/scheduler.module';
 import { SceneExecutionsModule } from './modules/scene-executions/scene-executions.module';
 import { AlertModule } from './modules/alerts/alert.module';
+import { TestCenterModule } from './modules/test-center/test-center.module';
+import { UatModule } from './modules/uat/uat.module';
 import { AdaptersModule } from './adapters/adapters.module';
 import { ServicesModule } from './services/services.module';
 
@@ -49,6 +51,8 @@ import { ServicesModule } from './services/services.module';
     SchedulerModule,
     SceneExecutionsModule,
     AlertModule,
+    TestCenterModule,
+    UatModule,
     WebsocketModule,
   ],
   providers: [

@@ -115,6 +115,40 @@ export interface ServiceStatusEvent {
   at: string;
 }
 
+/** Sprint-09: 测试中心事件 */
+export type TestEventName =
+  | 'test_started'
+  | 'test_progress'
+  | 'test_success'
+  | 'test_failed';
+
+export interface TestEvent {
+  type: TestEventName;
+  testType?: string;
+  targetId?: string;
+  command?: string;
+  index?: number;
+  total?: number;
+  current?: string;
+  success?: boolean;
+  result?: unknown;
+  totalDevices?: number;
+  succeededCount?: number;
+  failedCount?: number;
+  dryRun?: boolean;
+  at: string;
+}
+
+/** Sprint-09: UAT 更新事件 */
+export interface UatUpdatedEvent {
+  type: 'uat_updated';
+  uatId: number;
+  status: 'pending' | 'passed' | 'failed' | 'need_adjustment';
+  itemName: string;
+  tester?: string;
+  at: string;
+}
+
 export type ControlEvent =
   | DeviceStatusEvent
   | SceneEvent
@@ -125,7 +159,9 @@ export type ControlEvent =
   | AlertCreatedEvent
   | AlertResolvedEvent
   | SystemHealthEvent
-  | ServiceStatusEvent;
+  | ServiceStatusEvent
+  | TestEvent
+  | UatUpdatedEvent;
 
 @Injectable()
 export class ControlBus {

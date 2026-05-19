@@ -58,6 +58,17 @@ export class Device {
   @Column({ type: 'varchar', length: 32, default: 'offline' })
   status!: DeviceStatus;
 
+  /** Sprint-09: 调试备注 (工程师手填, 排查时存放厂家版本/接线说明等) */
+  @Column({ name: 'debug_remark', type: 'text', nullable: true })
+  debugRemark!: string | null;
+
+  @Column({ name: 'last_test_at', type: 'datetime', nullable: true })
+  lastTestAt!: Date | null;
+
+  /** Sprint-09: 最近一次测试结果 (success / failure / 错误描述截断) */
+  @Column({ name: 'last_test_result', type: 'varchar', length: 256, nullable: true })
+  lastTestResult!: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
