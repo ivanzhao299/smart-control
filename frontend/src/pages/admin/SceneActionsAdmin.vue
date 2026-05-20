@@ -8,6 +8,10 @@ import {
   type SceneActionPayload,
 } from '@/services/admin.service';
 import { usePermissionStore } from '@/stores/permission';
+import {
+  Settings2, ChevronLeft, RefreshCw, Plus, Play, Pencil, Trash2,
+  ChevronUp, ChevronDown, Loader,
+} from 'lucide-vue-next';
 import type { Scene, SceneAction } from '@/types/api';
 
 const props = defineProps<{ id: string | number }>();
@@ -204,43 +208,72 @@ onMounted(refresh);
 
 <template>
   <section class="page">
-    <header class="bar">
-      <div class="left">
-        <el-button link @click="goBack">← 返回场景列表</el-button>
-        <div v-if="scene" class="title">
-          <strong>{{ scene.name }}</strong>
-          <span class="sc-subtle">code: {{ scene.code }} · 共 {{ rows.length }} 个动作</span>
+    <header class="hero">
+      <div class="hero-left">
+        <button class="row-btn back-btn" @click="goBack">
+          <ChevronLeft :size="14" :stroke-width="2" /> 返回
+        </button>
+        <div class="sc-head-ico"><Settings2 :size="22" :stroke-width="1.75" /></div>
+        <div v-if="scene">
+          <h2 class="sc-title">{{ scene.name }} <span class="hero-tag">动作配置</span></h2>
+          <div class="sc-subtle">code: <code class="code-cell" style="margin-left:4px;">{{ scene.code }}</code> · 共 {{ rows.length }} 个动作</div>
         </div>
       </div>
-      <div class="right">
-        <el-button @click="refresh">刷新</el-button>
-        <el-button type="success" :disabled="!perm.canExecute || !scene" @click="testExecute">▶ 测试执行整个场景</el-button>
-        <el-button type="primary" :disabled="!perm.canEdit" @click="openCreate">+ 新增动作</el-button>
+      <div class="hero-right">
+        <button class="sc-touch sc-act sc-act-neutral hero-btn" :disabled="loading" @click="refresh">
+          <Loader v-if="loading" :size="16" class="spin" :stroke-width="2" />
+          <RefreshCw v-else :size="16" :stroke-width="2" />
+          刷新
+        </button>
+        <button class="sc-touch sc-act sc-act-success hero-btn" :disabled="!perm.canExecute || !scene" @click="testExecute">
+          <Play :size="16" :stroke-width="2" /> 测试执行
+        </button>
+        <button class="sc-touch sc-act sc-act-primary hero-btn" :disabled="!perm.canEdit" @click="openCreate">
+          <Plus :size="16" :stroke-width="2" /> 新增动作
+        </button>
       </div>
     </header>
 
-    <el-table v-loading="loading" :data="rows" stripe row-key="id">
+    <el-table v-loading="loading" :data="rows" stripe size="default" row-key="id">
       <el-table-column prop="sortOrder" label="顺序" width="80" sortable :sort-method="sortBySort" />
-      <el-table-column prop="deviceType" label="设备类型" width="100" />
-      <el-table-column prop="deviceId" label="设备ID" min-width="160" />
-      <el-table-column prop="command" label="命令" width="140" />
+      <el-table-column label="设备类型" width="110">
+        <template #default="{ row }">
+          <code class="code-cell">{{ row.deviceType }}</code>
+        </template>
+      </el-table-column>
+      <el-table-column prop="deviceId" label="设备ID" min-width="180" />
+      <el-table-column label="命令" width="160">
+        <template #default="{ row }">
+          <code class="code-cell">{{ row.command }}</code>
+        </template>
+      </el-table-column>
       <el-table-column prop="params" label="参数" min-width="200">
         <template #default="{ row }">
           <code class="params">{{ row.params }}</code>
         </template>
       </el-table-column>
-      <el-table-column prop="delayMs" label="延时(ms)" width="100" />
+      <el-table-column prop="delayMs" label="延时" width="90">
+        <template #default="{ row }"><span class="sub-mono">{{ row.delayMs }}ms</span></template>
+      </el-table-column>
       <el-table-column label="启用" width="80">
         <template #default="{ row }">
           <el-switch :model-value="row.enabled" :disabled="!perm.canEdit" @change="toggleEnabled(row)" />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="240" fixed="right">
+      <el-table-column label="操作" width="260" fixed="right" align="right">
         <template #default="{ row }">
-          <el-button size="small" link @click="move(row, -1)" :disabled="!perm.canEdit">↑</el-button>
-          <el-button size="small" link @click="move(row, 1)" :disabled="!perm.canEdit">↓</el-button>
-          <el-button size="small" link @click="openEdit(row)" :disabled="!perm.canEdit">编辑</el-button>
-          <el-button size="small" link type="danger" @click="remove(row)" :disabled="!perm.canEdit">删除</el-button>
+          <button class="row-btn" @click="move(row, -1)" :disabled="!perm.canEdit">
+            <ChevronUp :size="13" :stroke-width="2" />
+          </button>
+          <button class="row-btn" @click="move(row, 1)" :disabled="!perm.canEdit">
+            <ChevronDown :size="13" :stroke-width="2" />
+          </button>
+          <button class="row-btn" @click="openEdit(row)" :disabled="!perm.canEdit">
+            <Pencil :size="13" :stroke-width="2" /> 编辑
+          </button>
+          <button class="row-btn row-btn-danger" @click="remove(row)" :disabled="!perm.canEdit">
+            <Trash2 :size="13" :stroke-width="2" /> 删除
+          </button>
         </template>
       </el-table-column>
     </el-table>
@@ -291,12 +324,54 @@ onMounted(refresh);
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 14px; }
-.bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-.bar .left { display: flex; gap: 12px; align-items: center; }
-.bar .right { display: flex; gap: 10px; }
-.title { display: flex; flex-direction: column; }
-.title .sc-subtle { font-size: 12px; }
-.params { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; color: var(--text-secondary); }
+.page { display: flex; flex-direction: column; gap: 16px; }
+.hero { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.hero-left { display: flex; align-items: center; gap: 12px; }
+.hero-right { display: flex; gap: 10px; }
+.hero-btn { min-height: 42px; padding: 0 16px; }
+.hero-tag {
+  font-size: 12px;
+  padding: 2px 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  margin-left: 6px;
+  font-weight: 500;
+  vertical-align: middle;
+}
+.back-btn { margin-right: 4px; padding: 6px 10px; }
+
+.code-cell {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.sub-mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11.5px; color: var(--text-secondary); }
+.params { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11.5px; color: var(--text-secondary); }
 .hint { font-size: 12px; margin-top: 4px; }
+
+.row-btn {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin-left: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: inherit;
+  touch-action: manipulation;
+  transition: all 0.15s;
+}
+.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: rgba(99, 102, 241, 0.5); }
+.row-btn-danger:hover:not(:disabled) { color: #f87171; border-color: rgba(239, 68, 68, 0.5); }
+.row-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.spin { animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
+import { Users as UsersIcon, RefreshCw, Plus, Pencil, Trash2, Loader } from 'lucide-vue-next';
 import {
   adminUserService,
   type UserCreatePayload,
@@ -18,10 +19,6 @@ const roleOptions: Array<{ value: UserRole; label: string; type: string }> = [
   { value: 'operator', label: '操作员', type: 'primary' },
   { value: 'viewer', label: '观察者', type: 'info' },
 ];
-
-function roleType(r: UserRole): string {
-  return roleOptions.find((o) => o.value === r)?.type ?? 'info';
-}
 
 const dialogVisible = ref(false);
 const dialogMode = ref<'create' | 'edit'>('create');
@@ -165,20 +162,34 @@ onMounted(refresh);
 
 <template>
   <section class="page">
-    <header class="bar">
-      <div class="left sc-subtle">共 {{ rows.length }} 个账户</div>
-      <div class="right">
-        <el-button @click="refresh">刷新</el-button>
-        <el-button type="primary" :disabled="!perm.canEdit" @click="openCreate">+ 新增用户</el-button>
+    <header class="hero">
+      <div class="hero-left">
+        <div class="sc-head-ico"><UsersIcon :size="22" :stroke-width="1.75" /></div>
+        <div>
+          <h2 class="sc-title">用户管理</h2>
+          <div class="sc-subtle">共 {{ rows.length }} 个账户 · 角色权限 · 启停</div>
+        </div>
+      </div>
+      <div class="hero-right">
+        <button class="sc-touch sc-act sc-act-neutral hero-btn" :disabled="loading" @click="refresh">
+          <Loader v-if="loading" :size="16" class="spin" :stroke-width="2" />
+          <RefreshCw v-else :size="16" :stroke-width="2" />
+          刷新
+        </button>
+        <button class="sc-touch sc-act sc-act-primary hero-btn" :disabled="!perm.canEdit" @click="openCreate">
+          <Plus :size="16" :stroke-width="2" /> 新增用户
+        </button>
       </div>
     </header>
 
-    <el-table v-loading="loading" :data="rows" stripe row-key="id">
+    <el-table v-loading="loading" :data="rows" stripe size="default" row-key="id">
       <el-table-column prop="id" label="ID" width="60" />
       <el-table-column prop="username" label="用户名" min-width="180" />
       <el-table-column label="角色" width="140">
         <template #default="{ row }">
-          <el-tag :type="roleType(row.role)" size="small">{{ roleOptions.find((o) => o.value === row.role)?.label }}</el-tag>
+          <span class="sc-status" :class="row.role === 'admin' ? 'is-error' : row.role === 'operator' ? 'is-on' : 'is-off'">
+            <span class="sc-status-dot" /> {{ roleOptions.find((o) => o.value === row.role)?.label }}
+          </span>
         </template>
       </el-table-column>
       <el-table-column label="启用" width="80">
@@ -187,12 +198,16 @@ onMounted(refresh);
         </template>
       </el-table-column>
       <el-table-column label="创建时间" width="180">
-        <template #default="{ row }">{{ new Date(row.createdAt).toLocaleString() }}</template>
+        <template #default="{ row }"><span class="sub-mono">{{ new Date(row.createdAt).toLocaleString('zh-CN', { hour12: false }) }}</span></template>
       </el-table-column>
-      <el-table-column label="操作" width="180" fixed="right">
+      <el-table-column label="操作" width="180" fixed="right" align="right">
         <template #default="{ row }">
-          <el-button size="small" link @click="openEdit(row)" :disabled="!perm.canEdit">编辑</el-button>
-          <el-button size="small" link type="danger" @click="remove(row)" :disabled="!perm.canEdit || row.username === 'admin'">删除</el-button>
+          <button class="row-btn" @click="openEdit(row)" :disabled="!perm.canEdit">
+            <Pencil :size="13" :stroke-width="2" /> 编辑
+          </button>
+          <button class="row-btn row-btn-danger" @click="remove(row)" :disabled="!perm.canEdit || row.username === 'admin'">
+            <Trash2 :size="13" :stroke-width="2" /> 删除
+          </button>
         </template>
       </el-table-column>
     </el-table>
@@ -232,7 +247,32 @@ onMounted(refresh);
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 14px; }
-.bar { display: flex; justify-content: space-between; align-items: center; }
-.bar .right { display: flex; gap: 10px; }
+.page { display: flex; flex-direction: column; gap: 16px; }
+.hero { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.hero-left { display: flex; align-items: center; gap: 14px; }
+.hero-right { display: flex; gap: 10px; }
+.hero-btn { min-height: 42px; padding: 0 16px; }
+
+.sub-mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11.5px; color: var(--text-secondary); }
+
+.row-btn {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 4px 10px;
+  margin-left: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: inherit;
+  touch-action: manipulation;
+  transition: all 0.15s;
+}
+.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: rgba(99, 102, 241, 0.5); }
+.row-btn-danger:hover:not(:disabled) { color: #f87171; border-color: rgba(239, 68, 68, 0.5); }
+.row-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.spin { animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>

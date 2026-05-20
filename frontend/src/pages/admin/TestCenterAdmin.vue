@@ -6,6 +6,7 @@ import {
   adminSceneService,
   adminTestService,
 } from '@/services/admin.service';
+import { TestTube2, CheckCircle2, XCircle } from 'lucide-vue-next';
 import type { Device, SceneSummary, TestLog } from '@/types/api';
 
 const activeTab = ref<'device' | 'subsystem' | 'scene' | 'network' | 'logs' | 'report'>('device');
@@ -233,6 +234,16 @@ function shortParams(s: string | null): string {
 
 <template>
   <section class="page">
+    <header class="hero">
+      <div class="hero-left">
+        <div class="sc-head-ico"><TestTube2 :size="22" :stroke-width="1.75" /></div>
+        <div>
+          <h2 class="sc-title">测试中心</h2>
+          <div class="sc-subtle">单设备 / 子系统 / 场景 dryRun / 网络 ping / TCP 端口 / 测试日志</div>
+        </div>
+      </div>
+    </header>
+
     <el-tabs v-model="activeTab" class="tabs">
       <!-- ============= 单设备 ============= -->
       <el-tab-pane label="单设备测试" name="device">
@@ -302,7 +313,10 @@ function shortParams(s: string | null): string {
             <el-table-column prop="deviceId" label="设备" />
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
-                <el-tag :type="row.success ? 'success' : 'danger'" size="small">{{ row.success ? '✓' : '✖' }}</el-tag>
+                <span class="sc-status" :class="row.success ? 'is-on' : 'is-error'">
+                  <component :is="row.success ? CheckCircle2 : XCircle" :size="12" :stroke-width="2" />
+                  {{ row.success ? '成功' : '失败' }}
+                </span>
               </template>
             </el-table-column>
             <el-table-column prop="durationMs" label="耗时(ms)" width="100" />
@@ -349,7 +363,10 @@ function shortParams(s: string | null): string {
             </el-table-column>
             <el-table-column label="结果" width="80">
               <template #default="{ row }">
-                <el-tag :type="row.success ? 'success' : 'danger'" size="small">{{ row.success ? '✓' : '✖' }}</el-tag>
+                <span class="sc-status" :class="row.success ? 'is-on' : 'is-error'">
+                  <component :is="row.success ? CheckCircle2 : XCircle" :size="12" :stroke-width="2" />
+                  {{ row.success ? '成功' : '失败' }}
+                </span>
               </template>
             </el-table-column>
             <el-table-column prop="durationMs" label="耗时" width="100" />
@@ -472,8 +489,10 @@ function shortParams(s: string | null): string {
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 14px; }
-.tabs { background: var(--bg-panel); border-radius: 12px; padding: 12px 18px; border: 1px solid var(--border-soft); }
+.page { display: flex; flex-direction: column; gap: 16px; }
+.hero { display: flex; align-items: center; gap: 14px; }
+.hero-left { display: flex; align-items: center; gap: 14px; }
+.tabs { background: var(--bg-panel); border-radius: 14px; padding: 12px 18px; border: 1px solid var(--border-soft); }
 .form-grid {
   display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
   background: var(--bg-elevated); border-radius: 10px; padding: 16px; margin-bottom: 14px;

@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import {
+  CheckCircle2, RefreshCw, Filter, Trash2, RotateCcw, CheckCircle, XCircle, AlertTriangle, Pencil, Loader,
+} from 'lucide-vue-next';
 import { adminUatService } from '@/services/admin.service';
 import { wsClient } from '@/services/websocket.service';
 import { usePermissionStore } from '@/stores/permission';
@@ -26,6 +29,13 @@ const statusOptions: Array<{ value: UatStatus; label: string; type: string }> = 
   { value: 'need_adjustment', label: '需调整', type: 'warning' },
 ];
 
+const statusCls: Record<UatStatus, string> = {
+  pending:         'is-off',
+  passed:          'is-on',
+  failed:          'is-error',
+  need_adjustment: 'is-warning',
+};
+
 const categoryOptions: Array<{ value: UatCategory; label: string; icon: string }> = [
   { value: 'scene', label: '场景', icon: '🎬' },
   { value: 'device', label: '设备', icon: '🛠' },
@@ -33,9 +43,6 @@ const categoryOptions: Array<{ value: UatCategory; label: string; icon: string }
   { value: 'other', label: '其他', icon: '·' },
 ];
 
-function statusType(s: UatStatus): string {
-  return statusOptions.find((o) => o.value === s)?.type ?? 'info';
-}
 function statusLabel(s: UatStatus): string {
   return statusOptions.find((o) => o.value === s)?.label ?? s;
 }
@@ -141,35 +148,57 @@ function fmtTime(s: string): string {
 
 <template>
   <section class="page">
-    <!-- 顶部统计 -->
-    <div class="summary-row" v-if="summary">
-      <div class="stat-card">
-        <div class="num">{{ summary.total }}</div>
-        <div class="lbl">总项数</div>
+    <header class="hero">
+      <div class="hero-left">
+        <div class="sc-head-ico"><CheckCircle2 :size="22" :stroke-width="1.75" /></div>
+        <div>
+          <h2 class="sc-title">UAT 验收</h2>
+          <div class="sc-subtle">用户验收测试 · 通过率 {{ summary?.passRate ?? 0 }}% · 共 {{ summary?.total ?? 0 }} 项</div>
+        </div>
       </div>
-      <div class="stat-card ok">
-        <div class="num">{{ summary.passed }}</div>
-        <div class="lbl">已通过</div>
+      <div class="hero-right">
+        <span class="sc-subtle">测试人:</span>
+        <el-input v-model="tester" placeholder="您的姓名" style="width: 140px;" size="default" @change="saveTester" />
+        <button class="sc-touch sc-act sc-act-neutral hero-btn" :disabled="loading" @click="refresh">
+          <Loader v-if="loading" :size="16" class="spin" :stroke-width="2" />
+          <RefreshCw v-else :size="16" :stroke-width="2" />
+          刷新
+        </button>
       </div>
-      <div class="stat-card fail">
-        <div class="num">{{ summary.failed }}</div>
-        <div class="lbl">失败</div>
+    </header>
+
+    <!-- 顶部统计 (用 SettingsAdmin info-card 风格) -->
+    <div v-if="summary" class="info-grid">
+      <div class="info-card">
+        <div class="info-label">总项数</div>
+        <div class="info-value"><span class="ver-num">{{ summary.total }}</span></div>
+        <div class="info-foot"><span class="info-mono">待测 {{ summary.pending }}</span></div>
       </div>
-      <div class="stat-card warn">
-        <div class="num">{{ summary.needAdjustment }}</div>
-        <div class="lbl">需调整</div>
+      <div class="info-card ok-card">
+        <div class="info-label">已通过</div>
+        <div class="info-value"><span class="ver-num is-good">{{ summary.passed }}</span></div>
+        <div class="info-foot"><span class="info-mono">{{ summary.total ? Math.round(summary.passed/summary.total*100) : 0 }}%</span></div>
       </div>
-      <div class="stat-card info">
-        <div class="num">{{ summary.pending }}</div>
-        <div class="lbl">待测</div>
+      <div class="info-card" :class="summary.failed > 0 ? 'alert-card' : ''">
+        <div class="info-label">失败</div>
+        <div class="info-value"><span class="ver-num" :class="summary.failed > 0 ? 'is-bad' : ''">{{ summary.failed }}</span></div>
+        <div class="info-foot"><span class="info-mono">需调整 {{ summary.needAdjustment }}</span></div>
       </div>
-      <div class="stat-card pct" :class="summary.passRate >= 80 ? 'ok' : summary.passRate >= 50 ? 'warn' : 'fail'">
-        <div class="num">{{ summary.passRate }}<span>%</span></div>
-        <div class="lbl">通过率</div>
+      <div class="info-card pct-card" :class="summary.passRate >= 80 ? 'ok-card' : summary.passRate >= 50 ? 'warn-card' : 'alert-card'">
+        <div class="info-label">通过率</div>
+        <div class="info-value">
+          <span class="ver-num" :class="summary.passRate >= 80 ? 'is-good' : summary.passRate >= 50 ? '' : 'is-bad'">
+            {{ summary.passRate }}<small>%</small>
+          </span>
+        </div>
+        <div class="info-foot">
+          <span class="info-mono">{{ summary.passRate >= 95 ? '可上线' : summary.passRate >= 80 ? '基本可上线' : '需继续测试' }}</span>
+        </div>
       </div>
     </div>
 
-    <header class="bar">
+    <div class="sc-panel filter-panel">
+      <div class="section-title"><Filter :size="16" :stroke-width="1.75" /> 筛选</div>
       <div class="filters">
         <el-select v-model="filter.category" placeholder="分类" clearable style="width: 140px;">
           <el-option v-for="c in categoryOptions" :key="c.value" :label="c.icon + ' ' + c.label" :value="c.value" />
@@ -177,14 +206,12 @@ function fmtTime(s: string): string {
         <el-select v-model="filter.status" placeholder="状态" clearable style="width: 140px;">
           <el-option v-for="s in statusOptions" :key="s.value" :label="s.label" :value="s.value" />
         </el-select>
-        <el-input v-model="filter.keyword" placeholder="搜索验收项" clearable style="width: 220px;" @change="refresh" />
-        <el-button type="primary" @click="refresh">查询</el-button>
+        <el-input v-model="filter.keyword" placeholder="搜索验收项" clearable style="width: 240px;" @change="refresh" />
+        <button class="sc-touch sc-act sc-act-primary section-btn" @click="refresh">
+          <Filter :size="14" :stroke-width="2" /> 查询
+        </button>
       </div>
-      <div class="actions">
-        <span class="sc-subtle">测试人:</span>
-        <el-input v-model="tester" placeholder="您的姓名" style="width: 140px;" @change="saveTester" />
-      </div>
-    </header>
+    </div>
 
     <el-table v-loading="loading" :data="records" stripe size="default" row-key="id">
       <el-table-column label="序号" width="64">
@@ -231,9 +258,11 @@ function fmtTime(s: string): string {
           <span v-else class="sc-subtle">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="状态" width="100">
+      <el-table-column label="状态" width="110">
         <template #default="{ row }">
-          <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+          <span class="sc-status" :class="statusCls[row.status as UatStatus]">
+            <span class="sc-status-dot" /> {{ statusLabel(row.status) }}
+          </span>
         </template>
       </el-table-column>
       <el-table-column label="测试人" width="100">
@@ -248,19 +277,35 @@ function fmtTime(s: string): string {
           <span v-else class="sc-subtle">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="290" fixed="right">
+      <el-table-column label="操作" width="340" fixed="right" align="right">
         <template #default="{ row }">
           <template v-if="editing[row.id] !== undefined">
-            <el-button size="small" type="success" :disabled="!perm.canEdit" @click="transit(row, 'passed')">✓ 通过</el-button>
-            <el-button size="small" type="danger" :disabled="!perm.canEdit" @click="transit(row, 'failed')">✖ 失败</el-button>
-            <el-button size="small" type="warning" :disabled="!perm.canEdit" @click="transit(row, 'need_adjustment')">需调整</el-button>
+            <button class="row-btn row-btn-ok" :disabled="!perm.canEdit" @click="transit(row, 'passed')">
+              <CheckCircle :size="13" :stroke-width="2" /> 通过
+            </button>
+            <button class="row-btn row-btn-danger" :disabled="!perm.canEdit" @click="transit(row, 'failed')">
+              <XCircle :size="13" :stroke-width="2" /> 失败
+            </button>
+            <button class="row-btn row-btn-warn" :disabled="!perm.canEdit" @click="transit(row, 'need_adjustment')">
+              <AlertTriangle :size="13" :stroke-width="2" /> 需调整
+            </button>
           </template>
           <template v-else>
-            <el-button size="small" link @click="startEdit(row)" :disabled="!perm.canEdit">录入</el-button>
-            <el-button size="small" link type="success" :disabled="!perm.canEdit" @click="transit(row, 'passed')">通过</el-button>
-            <el-button size="small" link type="danger" :disabled="!perm.canEdit" @click="transit(row, 'failed')">失败</el-button>
-            <el-button v-if="row.status !== 'pending'" size="small" link :disabled="!perm.canEdit" @click="transit(row, 'pending')">重置</el-button>
-            <el-button size="small" link type="danger" :disabled="!perm.canEdit" @click="remove(row)">删除</el-button>
+            <button class="row-btn" @click="startEdit(row)" :disabled="!perm.canEdit">
+              <Pencil :size="13" :stroke-width="2" /> 录入
+            </button>
+            <button class="row-btn row-btn-ok" :disabled="!perm.canEdit" @click="transit(row, 'passed')">
+              <CheckCircle :size="13" :stroke-width="2" /> 通过
+            </button>
+            <button class="row-btn row-btn-danger" :disabled="!perm.canEdit" @click="transit(row, 'failed')">
+              <XCircle :size="13" :stroke-width="2" /> 失败
+            </button>
+            <button v-if="row.status !== 'pending'" class="row-btn" :disabled="!perm.canEdit" @click="transit(row, 'pending')">
+              <RotateCcw :size="13" :stroke-width="2" /> 重置
+            </button>
+            <button class="row-btn row-btn-danger" :disabled="!perm.canEdit" @click="remove(row)">
+              <Trash2 :size="13" :stroke-width="2" /> 删除
+            </button>
           </template>
         </template>
       </el-table-column>
@@ -269,28 +314,77 @@ function fmtTime(s: string): string {
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 14px; }
-.summary-row { display: flex; gap: 12px; flex-wrap: wrap; }
-.stat-card {
-  flex: 0 0 130px; background: var(--bg-panel); border: 1px solid var(--border-soft);
-  border-radius: 12px; padding: 12px 16px;
-}
-.stat-card .num { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.stat-card .num span { font-size: 16px; color: var(--text-secondary); margin-left: 2px; }
-.stat-card .lbl { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
-.stat-card.ok { border-color: var(--color-success); }
-.stat-card.ok .num { color: var(--color-success); }
-.stat-card.fail { border-color: var(--color-error); }
-.stat-card.fail .num { color: var(--color-error); }
-.stat-card.warn { border-color: var(--color-warning); }
-.stat-card.warn .num { color: var(--color-warning); }
-.stat-card.info .num { color: var(--color-info); }
+.page { display: flex; flex-direction: column; gap: 16px; }
+.hero { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.hero-left { display: flex; align-items: center; gap: 14px; }
+.hero-right { display: flex; gap: 10px; align-items: center; }
+.hero-btn { min-height: 42px; padding: 0 16px; }
 
-.bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.info-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.info-card {
+  background: var(--bg-panel); border: 1px solid var(--border-soft);
+  border-radius: 14px; padding: 16px 18px 14px;
+  position: relative; overflow: hidden;
+}
+.info-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, #3b82f6 0%, #7c3aed 80%, transparent 100%);
+}
+.info-card.ok-card::before { background: linear-gradient(90deg, #10b981 0%, #059669 100%); }
+.info-card.warn-card::before { background: linear-gradient(90deg, #f59e0b 0%, #d97706 100%); }
+.info-card.alert-card::before { background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%); }
+.info-card.alert-card { border-color: rgba(239, 68, 68, 0.32); }
+.info-label { font-size: 11px; color: var(--text-secondary); letter-spacing: 1.5px; text-transform: uppercase; }
+.info-value { margin: 6px 0 4px; font-size: 22px; font-weight: 700; }
+.ver-num {
+  font-size: 32px;
+  background: linear-gradient(135deg, #60a5fa, #a78bfa);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-variant-numeric: tabular-nums;
+}
+.ver-num.is-good { background: linear-gradient(135deg, #34d399, #10b981); -webkit-background-clip: text; background-clip: text; }
+.ver-num.is-bad  { background: linear-gradient(135deg, #f87171, #ef4444); -webkit-background-clip: text; background-clip: text; }
+.ver-num small { font-size: 18px; }
+.info-foot { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.info-mono {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.filter-panel { display: flex; flex-direction: column; gap: 10px; }
+.section-title { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; }
+.section-btn { min-height: 36px; padding: 0 14px; font-size: 13px; }
 .filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.actions { display: flex; gap: 10px; align-items: center; }
 
 .item-name { font-weight: 600; }
-.item-step { font-size: 12px; margin-top: 4px; }
+.item-step { font-size: 12px; margin-top: 4px; color: var(--text-secondary); }
 .actual { color: var(--text-primary); }
+
+.row-btn {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 4px 10px;
+  margin-left: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: inherit;
+  touch-action: manipulation;
+  transition: all 0.15s;
+}
+.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: rgba(99, 102, 241, 0.5); }
+.row-btn-ok:hover:not(:disabled) { color: #34d399; border-color: rgba(16, 185, 129, 0.5); }
+.row-btn-warn:hover:not(:disabled) { color: #fbbf24; border-color: rgba(245, 158, 11, 0.5); }
+.row-btn-danger:hover:not(:disabled) { color: #f87171; border-color: rgba(239, 68, 68, 0.5); }
+.row-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.spin { animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 1280px) { .info-grid { grid-template-columns: repeat(2, 1fr); } }
 </style>
