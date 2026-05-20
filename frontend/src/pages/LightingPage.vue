@@ -14,11 +14,23 @@ interface ZoneRow {
   error: string | null;
 }
 
+// id = DALI 组号 (1-16), 对应 CY-DALI64A 网关的 16 组。
+// 物理映射来自《金湖照明灯具、插座数量、功率测算统计表》:
 const zones = ref<ZoneRow[]>([
-  { id: 1, name: '一层主灯光', floor: '1F', brightness: 80, on: false, busy: false, error: null },
-  { id: 2, name: '二层主灯光', floor: '2F', brightness: 80, on: false, busy: false, error: null },
-  { id: 3, name: '会议区灯光', floor: '1F', brightness: 70, on: false, busy: false, error: null },
-  { id: 4, name: '路演区灯光', floor: '1F', brightness: 60, on: false, busy: false, error: null },
+  // ---- 1 楼 ----
+  { id: 1, name: '一层前厅 / 园区展示', floor: '1F', brightness: 80, on: false, busy: false, error: null },
+  { id: 2, name: '一层路演 / 洽谈区', floor: '1F', brightness: 70, on: false, busy: false, error: null },
+  { id: 3, name: '一层走廊',            floor: '1F', brightness: 60, on: false, busy: false, error: null },
+  { id: 4, name: '一层重点照明 / 灯箱', floor: '1F', brightness: 80, on: false, busy: false, error: null },
+  { id: 5, name: '一层企业展位区',      floor: '1F', brightness: 70, on: false, busy: false, error: null },
+  { id: 6, name: '一层综合展销区',      floor: '1F', brightness: 70, on: false, busy: false, error: null },
+  { id: 7, name: '一层物贸交易展示区',  floor: '1F', brightness: 70, on: false, busy: false, error: null },
+  // ---- 2 楼 ----
+  { id: 8,  name: '二层前厅 / 走廊',    floor: '2F', brightness: 80, on: false, busy: false, error: null },
+  { id: 9,  name: '二层企业服务中心',   floor: '2F', brightness: 80, on: false, busy: false, error: null },
+  { id: 10, name: '二层共享办公',       floor: '2F', brightness: 70, on: false, busy: false, error: null },
+  { id: 11, name: '二层产业研究 / 接待', floor: '2F', brightness: 80, on: false, busy: false, error: null },
+  { id: 12, name: '二层运营指挥中心',   floor: '2F', brightness: 80, on: false, busy: false, error: null },
 ]);
 
 async function setOn(z: ZoneRow): Promise<void> {

@@ -45,6 +45,8 @@ interface DeviceSeed {
   adapter: string;
   floor: string;
   zone: string;
+  /** JSON 字符串, 示例 '{"slaveId":1,"group":3}', adapter 解析后用作寻址 */
+  address?: string;
 }
 
 interface SceneSeed {
@@ -62,9 +64,23 @@ const SCENES: SceneSeed[] = [
   { code: 'closing', name: '闭馆模式', description: '闭馆后基础安防与节能照明' },
 ];
 
+// 灯光设备 = DALI 组. id 后缀 = DALI 组号 (与 LightingPage 前端 zone.id 对齐)
+// 走 CY-DALI64A 网关 (Modbus RTU over TCP). LIGHTING_ADAPTER_KIND=cy-dali64a (默认)
 const DEVICES: DeviceSeed[] = [
-  { name: 'light_1f_main', category: 'lighting', protocol: 'dali', adapter: 'mock', floor: '1F', zone: 'main' },
-  { name: 'light_2f_main', category: 'lighting', protocol: 'dali', adapter: 'mock', floor: '2F', zone: 'main' },
+  // ---- 1F (DALI 组 1-7) ----
+  { name: 'light_1f_lobby',      category: 'lighting', protocol: 'dali-modbus-rtu', adapter: 'cy-dali64a', floor: '1F', zone: 'lobby',         address: '{"slaveId":1,"group":1}' },
+  { name: 'light_1f_roadshow',   category: 'lighting', protocol: 'dali-modbus-rtu', adapter: 'cy-dali64a', floor: '1F', zone: 'roadshow',      address: '{"slaveId":1,"group":2}' },
+  { name: 'light_1f_corridor',   category: 'lighting', protocol: 'dali-modbus-rtu', adapter: 'cy-dali64a', floor: '1F', zone: 'corridor',      address: '{"slaveId":1,"group":3}' },
+  { name: 'light_1f_accent',     category: 'lighting', protocol: 'dali-modbus-rtu', adapter: 'cy-dali64a', floor: '1F', zone: 'accent',        address: '{"slaveId":1,"group":4}' },
+  { name: 'light_1f_exhibit',    category: 'lighting', protocol: 'dali-modbus-rtu', adapter: 'cy-dali64a', floor: '1F', zone: 'f102_exhibit',  address: '{"slaveId":1,"group":5}' },
+  { name: 'light_1f_showroom',   category: 'lighting', protocol: 'dali-modbus-rtu', adapter: 'cy-dali64a', floor: '1F', zone: 'f103_showroom', address: '{"slaveId":1,"group":6}' },
+  { name: 'light_1f_trade',      category: 'lighting', protocol: 'dali-modbus-rtu', adapter: 'cy-dali64a', floor: '1F', zone: 'f104_trade',    address: '{"slaveId":1,"group":7}' },
+  // ---- 2F (DALI 组 8-12) ----
+  { name: 'light_2f_lobby',      category: 'lighting', protocol: 'dali-modbus-rtu', adapter: 'cy-dali64a', floor: '2F', zone: 'lobby_corridor', address: '{"slaveId":1,"group":8}'  },
+  { name: 'light_2f_service',    category: 'lighting', protocol: 'dali-modbus-rtu', adapter: 'cy-dali64a', floor: '2F', zone: 'service_center', address: '{"slaveId":1,"group":9}'  },
+  { name: 'light_2f_office',     category: 'lighting', protocol: 'dali-modbus-rtu', adapter: 'cy-dali64a', floor: '2F', zone: 'shared_office',  address: '{"slaveId":1,"group":10}' },
+  { name: 'light_2f_research',   category: 'lighting', protocol: 'dali-modbus-rtu', adapter: 'cy-dali64a', floor: '2F', zone: 'research_center',address: '{"slaveId":1,"group":11}' },
+  { name: 'light_2f_command',    category: 'lighting', protocol: 'dali-modbus-rtu', adapter: 'cy-dali64a', floor: '2F', zone: 'command_center', address: '{"slaveId":1,"group":12}' },
   { name: 'led_1f_main', category: 'led', protocol: 'tcp', adapter: 'mock', floor: '1F', zone: 'main' },
   { name: 'led_2f_main', category: 'led', protocol: 'tcp', adapter: 'mock', floor: '2F', zone: 'main' },
   { name: 'audio_1f', category: 'audio', protocol: 'tcp', adapter: 'mock', floor: '1F', zone: 'main' },
@@ -154,7 +170,7 @@ export class SeedService {
         protocol: d.protocol,
         adapter: d.adapter,
         ip: null,
-        address: null,
+        address: d.address ?? null,
         floor: d.floor,
         zone: d.zone,
         enabled: true,
