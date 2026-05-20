@@ -155,6 +155,10 @@ function goTo(to: string): void {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 18px;
 }
+/* 1920×1200 Android 平板等大屏: 场景按钮升 4 列, 7 个场景 → 4+3 不空行 */
+@media (min-width: 1600px) {
+  .scene-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
 .cards-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
