@@ -72,9 +72,6 @@ cd D:\smart-control
 **Q: 卡在 git pull, 提示 conflict?**
 A: 现场不应该有本地修改. 排查 `git status`. 如果是构建产物没被 .gitignore 掉, 跑 `git stash` 暂存, 再 pull. 实在不行 → 看 §4 回滚 / 重置.
 
-**Q: build 失败, 提示 OOM 内存不足?**
-A: GK9000 默认内存可能跑大 frontend 吃紧. 编辑 `frontend\package.json` 的 build 命令, 加 `--max-old-space-size=2048`. 或在 build 前先 `pm2 stop` 释放内存.
-
 **Q: pm2 reload 后健康检查 5xx?**
 A: 看日志 `pm2 logs smart-control-backend --lines 100`. 数据库 schema 变化时第一次起会做 typeorm 同步, 可能慢, 多等 30s 再 curl. 仍不行 → §4 回滚.
 

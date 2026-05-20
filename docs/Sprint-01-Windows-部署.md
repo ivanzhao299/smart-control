@@ -1,7 +1,11 @@
 # Sprint-01 现场部署 — Windows 10 / GIADA GK9000
 
 > 本文档针对**现场中控主机**部署，区别于云端开发演示环境 (`cnjinhu.top`)。
-> 适用机型：**GIADA GK9000** + **Windows 10**
+> 适用机型：**占美 GIADA GK9000 工控机** + **Windows 10 专业版**
+>
+> 规格: i7-10750H (6C12T) · 16GB · 1TB SSD · 6×COM · 2×RJ45
+>
+> ⚠ **系统首次配置** (网络/防火墙/自启/Tailscale 等) 请先看 [GK9000_FIELD_SETUP.md](GK9000_FIELD_SETUP.md), 本文档假设系统已配好.
 
 ## 一、准备 (一次性)
 

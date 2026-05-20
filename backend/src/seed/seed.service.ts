@@ -218,7 +218,15 @@ export class SeedService {
         model: 'GK9000',
         floor: '1F',
         location: '1F 主控室 / 弱电机柜',
-        remark: 'Windows 10 + Node.js + PM2 + Nginx, D:\\smart-control\\',
+        addressing: JSON.stringify({
+          cpu: 'Intel i7-10750H (6C12T)',
+          ram: '16GB DDR4',
+          ssd: '1TB',
+          serialPorts: 6,
+          nics: 2,
+          os: 'Windows 10 Pro',
+        }),
+        remark: 'Windows 10 + Node.js 20 + PM2 + Nginx, D:\\smart-control\\; NIC1=DeviceLAN 192.168.50.10, NIC2=MgmtLAN(DHCP), 6 COM 闲置备用',
       },
       // ---- DALI 灯光 ----
       {
