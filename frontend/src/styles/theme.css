@@ -190,21 +190,88 @@ html {
 .el-dialog__body { color: var(--text-primary) !important; padding: 22px; }
 .el-dialog__footer { padding: 14px 22px; border-top: 1px solid var(--border-soft); }
 
-/* el-select 下拉 */
-.el-select-dropdown {
+/* el-select 下拉 (el-select 内部还嵌了 el-popper > el-select-dropdown
+ * > el-scrollbar > ul.el-select-dropdown__list 多层, 都得显式压暗) */
+.el-select-dropdown,
+.el-select__popper.el-popper,
+.el-select-v2__popper.el-popper {
   background: var(--bg-panel) !important;
   border: 1px solid var(--border-soft) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 12px 28px -8px rgba(0, 0, 0, 0.45) !important;
+}
+.el-select-dropdown .el-scrollbar,
+.el-select-dropdown .el-select-dropdown__wrap,
+.el-select-dropdown__list {
+  background: var(--bg-panel) !important;
 }
 .el-select-dropdown__item {
   color: var(--text-primary) !important;
+  background: transparent !important;
 }
+.el-select-dropdown__item.hover,
 .el-select-dropdown__item:hover,
 .el-select-dropdown__item.is-hovering {
   background: var(--bg-elevated) !important;
 }
-.el-select-dropdown__item.is-selected {
-  color: var(--color-primary) !important;
+.el-select-dropdown__item.is-selected,
+.el-select-dropdown__item.selected {
+  color: #93c5fd !important;
+  background: rgba(59, 130, 246, 0.12) !important;
+  font-weight: 600;
 }
+.el-select-dropdown__item.is-disabled {
+  color: var(--text-muted) !important;
+}
+.el-select-dropdown__empty {
+  color: var(--text-secondary) !important;
+  background: var(--bg-panel) !important;
+}
+/* el-select 的输入框本体 (有些版本用 el-select__wrapper) */
+.el-select .el-select__wrapper,
+.el-select__wrapper {
+  background: var(--bg-elevated) !important;
+  box-shadow: 0 0 0 1px var(--border-soft) inset !important;
+  color: var(--text-primary) !important;
+}
+.el-select .el-select__wrapper:hover,
+.el-select__wrapper:hover {
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.4) inset !important;
+}
+.el-select .el-select__wrapper.is-focused,
+.el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--color-primary) inset !important;
+}
+.el-select__placeholder,
+.el-select__caret { color: var(--text-secondary) !important; }
+.el-select__selected-item { color: var(--text-primary) !important; }
+
+/* el-autocomplete / el-cascader 同 popper 一族 */
+.el-autocomplete-suggestion,
+.el-cascader__dropdown,
+.el-cascader-panel,
+.el-dropdown-menu,
+.el-time-panel {
+  background: var(--bg-panel) !important;
+  border: 1px solid var(--border-soft) !important;
+  color: var(--text-primary) !important;
+}
+.el-autocomplete-suggestion li:hover,
+.el-cascader-node:hover,
+.el-dropdown-menu__item:hover {
+  background: var(--bg-elevated) !important;
+}
+.el-cascader-node {
+  color: var(--text-primary) !important;
+}
+.el-cascader-node.is-active,
+.el-cascader-node.in-active-path {
+  color: #93c5fd !important;
+}
+
+/* el-scrollbar 通用滚动条容器在弹层里也得暗 */
+.el-popper .el-scrollbar__view,
+.el-popper .el-scrollbar__bar { background: transparent !important; }
 
 /* el-input / el-textarea 输入框 */
 .el-input__wrapper,
