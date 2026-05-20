@@ -2,6 +2,9 @@
 import { onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
 import { useRouter } from 'vue-router';
+import {
+  Clapperboard, RefreshCw, Plus, Pencil, Trash2, Play, Settings2, Loader,
+} from 'lucide-vue-next';
 import { adminSceneService, type SceneCreatePayload } from '@/services/admin.service';
 import { usePermissionStore } from '@/stores/permission';
 import type { SceneSummary } from '@/types/api';
@@ -123,32 +126,57 @@ onMounted(refresh);
 
 <template>
   <section class="page">
-    <header class="bar">
-      <div class="left sc-subtle">共 {{ rows.length }} 个场景</div>
-      <div class="right">
-        <el-button @click="refresh">刷新</el-button>
-        <el-button type="primary" :disabled="!perm.canEdit" @click="openCreate">+ 新增场景</el-button>
+    <header class="hero">
+      <div class="hero-left">
+        <div class="sc-head-ico"><Clapperboard :size="22" :stroke-width="1.75" /></div>
+        <div>
+          <h2 class="sc-title">场景管理</h2>
+          <div class="sc-subtle">共 {{ rows.length }} 个场景 · 编辑动作 / 测试执行 / 启停</div>
+        </div>
+      </div>
+      <div class="hero-right">
+        <button class="sc-touch sc-act sc-act-neutral hero-btn" :disabled="loading" @click="refresh">
+          <Loader v-if="loading" :size="16" class="spin" :stroke-width="2" />
+          <RefreshCw v-else :size="16" :stroke-width="2" />
+          刷新
+        </button>
+        <button class="sc-touch sc-act sc-act-primary hero-btn" :disabled="!perm.canEdit" @click="openCreate">
+          <Plus :size="16" :stroke-width="2" /> 新增场景
+        </button>
       </div>
     </header>
 
-    <el-table v-loading="loading" :data="rows" stripe style="width: 100%;" row-key="id">
+    <el-table v-loading="loading" :data="rows" stripe size="default" style="width: 100%;" row-key="id">
       <el-table-column prop="id" label="ID" width="60" />
-      <el-table-column prop="code" label="编码" width="160" />
-      <el-table-column prop="name" label="名称" width="200" />
+      <el-table-column label="编码" width="180">
+        <template #default="{ row }"><code class="code-cell">{{ row.code }}</code></template>
+      </el-table-column>
+      <el-table-column prop="name" label="名称" width="220" />
       <el-table-column prop="description" label="说明" min-width="220">
-        <template #default="{ row }">{{ row.description || '—' }}</template>
+        <template #default="{ row }">
+          <span v-if="row.description">{{ row.description }}</span>
+          <span v-else class="sub-mono">—</span>
+        </template>
       </el-table-column>
       <el-table-column label="启用" width="80">
         <template #default="{ row }">
           <el-switch :model-value="row.enabled" :disabled="!perm.canEdit" @change="toggleEnabled(row)" />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="260" fixed="right">
+      <el-table-column label="操作" width="320" fixed="right" align="right">
         <template #default="{ row }">
-          <el-button size="small" link @click="gotoActions(row)">动作配置</el-button>
-          <el-button size="small" link type="success" @click="testExecute(row)" :disabled="!perm.canExecute">测试</el-button>
-          <el-button size="small" link @click="openEdit(row)" :disabled="!perm.canEdit">编辑</el-button>
-          <el-button size="small" link type="danger" @click="remove(row)" :disabled="!perm.canEdit">删除</el-button>
+          <button class="row-btn" @click="gotoActions(row)">
+            <Settings2 :size="13" :stroke-width="2" /> 动作
+          </button>
+          <button class="row-btn row-btn-ok" @click="testExecute(row)" :disabled="!perm.canExecute">
+            <Play :size="13" :stroke-width="2" /> 测试
+          </button>
+          <button class="row-btn" @click="openEdit(row)" :disabled="!perm.canEdit">
+            <Pencil :size="13" :stroke-width="2" /> 编辑
+          </button>
+          <button class="row-btn row-btn-danger" @click="remove(row)" :disabled="!perm.canEdit">
+            <Trash2 :size="13" :stroke-width="2" /> 删除
+          </button>
         </template>
       </el-table-column>
     </el-table>
@@ -182,7 +210,45 @@ onMounted(refresh);
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 14px; }
-.bar { display: flex; justify-content: space-between; align-items: center; }
-.bar .right { display: flex; gap: 10px; }
+.page { display: flex; flex-direction: column; gap: 16px; }
+.hero { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.hero-left { display: flex; align-items: center; gap: 14px; }
+.hero-right { display: flex; gap: 10px; }
+.hero-btn { min-height: 42px; padding: 0 16px; }
+
+.code-cell {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12.5px;
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.1);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.sub-mono {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.row-btn {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 4px 10px;
+  margin-left: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: inherit;
+  touch-action: manipulation;
+  transition: all 0.15s;
+}
+.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: rgba(99, 102, 241, 0.5); }
+.row-btn-ok:hover:not(:disabled) { color: #34d399; border-color: rgba(16, 185, 129, 0.5); }
+.row-btn-danger:hover:not(:disabled) { color: #f87171; border-color: rgba(239, 68, 68, 0.5); }
+.row-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.spin { animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>

@@ -14,6 +14,7 @@ import type {
   TriggerType,
 } from '@/types/api';
 import { useSceneStore } from '@/stores/scene';
+import { BarChart3, Filter, XCircle, Loader } from 'lucide-vue-next';
 
 const perm = usePermissionStore();
 const sceneStore = useSceneStore();
@@ -44,15 +45,21 @@ const statusOptions: Array<{ value: ExecutionStatus; label: string; type: string
   { value: 'failed', label: '失败', type: 'danger' },
   { value: 'cancelled', label: '已取消', type: 'info' },
 ];
+
+const statusCls: Record<ExecutionStatus, string> = {
+  pending:        'is-warning',
+  running:        'is-warning',
+  success:        'is-on',
+  partial_failed: 'is-warning',
+  failed:         'is-error',
+  cancelled:      'is-off',
+};
 const triggerOptions: Array<{ value: TriggerType; label: string }> = [
   { value: 'manual', label: '手动' },
   { value: 'schedule', label: '定时' },
   { value: 'system', label: '系统' },
 ];
 
-function statusType(s: ExecutionStatus): string {
-  return statusOptions.find((o) => o.value === s)?.type ?? 'info';
-}
 function statusLabel(s: ExecutionStatus): string {
   return statusOptions.find((o) => o.value === s)?.label ?? s;
 }
@@ -154,7 +161,25 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="page">
-    <header class="bar">
+    <header class="hero">
+      <div class="hero-left">
+        <div class="sc-head-ico"><BarChart3 :size="22" :stroke-width="1.75" /></div>
+        <div>
+          <h2 class="sc-title">执行记录</h2>
+          <div class="sc-subtle">场景执行历史 · 实时进度 · 失败回溯</div>
+        </div>
+      </div>
+      <div class="hero-right">
+        <button class="sc-touch sc-act sc-act-neutral hero-btn" :disabled="loading" @click="refresh">
+          <Loader v-if="loading" :size="16" class="spin" :stroke-width="2" />
+          <Filter v-else :size="16" :stroke-width="2" />
+          刷新
+        </button>
+      </div>
+    </header>
+
+    <div class="sc-panel filter-panel">
+      <div class="section-title"><Filter :size="16" :stroke-width="1.75" /> 筛选</div>
       <div class="filters">
         <el-select v-model="filter.sceneCode" placeholder="场景" clearable filterable style="width: 200px;">
           <el-option v-for="s in sceneOptions" :key="s.code" :label="`${s.name} (${s.code})`" :value="s.code" />
@@ -171,58 +196,59 @@ onBeforeUnmount(() => {
           range-separator="—"
           start-placeholder="开始时间"
           end-placeholder="结束时间"
-          style="width: 380px;"
+          style="width: 360px;"
         />
-        <el-button type="primary" @click="refresh">查询</el-button>
-        <el-button @click="reset">重置</el-button>
+        <button class="sc-touch sc-act sc-act-primary section-btn" @click="refresh">
+          <Filter :size="14" :stroke-width="2" /> 查询
+        </button>
+        <button class="row-btn" @click="reset">重置</button>
       </div>
-    </header>
+    </div>
 
-    <el-table v-loading="loading" :data="rows" stripe size="small">
+    <el-table v-loading="loading" :data="rows" stripe size="default">
       <el-table-column prop="id" label="ID" width="64" />
-      <el-table-column label="场景" min-width="180">
+      <el-table-column label="场景" min-width="200">
         <template #default="{ row }">
-          <div class="scene-cell">
-            <div class="scene-name">{{ row.sceneName }}</div>
-            <code class="scene-code">{{ row.sceneCode }}</code>
-          </div>
+          <div>{{ row.sceneName }}</div>
+          <code class="code-cell">{{ row.sceneCode }}</code>
         </template>
       </el-table-column>
-      <el-table-column label="触发" width="140">
+      <el-table-column label="触发" width="150">
         <template #default="{ row }">
           <div>{{ triggerLabel(row.triggerType) }}</div>
-          <div class="sc-subtle">{{ row.triggerSource }}</div>
+          <div class="sub-mono">{{ row.triggerSource }}</div>
         </template>
       </el-table-column>
-      <el-table-column label="状态" width="110">
+      <el-table-column label="状态" width="120">
         <template #default="{ row }">
-          <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+          <span class="sc-status" :class="statusCls[row.status as ExecutionStatus]">
+            <span class="sc-status-dot" /> {{ statusLabel(row.status) }}
+          </span>
         </template>
       </el-table-column>
-      <el-table-column label="动作 (成功/失败/总)" width="160">
+      <el-table-column label="动作 (成功/失败/总)" width="170">
         <template #default="{ row }">
           <span class="ok">{{ row.successCount }}</span>
-          /
-          <span :class="row.failedCount > 0 ? 'fail' : ''">{{ row.failedCount }}</span>
-          /
-          <span class="total">{{ row.totalActions }}</span>
+          <span class="sub-mono"> / </span>
+          <span :class="row.failedCount > 0 ? 'fail' : 'sub-mono'">{{ row.failedCount }}</span>
+          <span class="sub-mono"> / {{ row.totalActions }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="耗时" width="100">
-        <template #default="{ row }">{{ formatDuration(row.durationMs) }}</template>
+      <el-table-column label="耗时" width="90">
+        <template #default="{ row }"><span class="sub-mono">{{ formatDuration(row.durationMs) }}</span></template>
       </el-table-column>
-      <el-table-column label="开始时间" width="170">
-        <template #default="{ row }">{{ formatDate(row.startedAt) }}</template>
+      <el-table-column label="开始" width="170">
+        <template #default="{ row }"><span class="sub-mono">{{ formatDate(row.startedAt) }}</span></template>
       </el-table-column>
-      <el-table-column label="结束时间" width="170">
-        <template #default="{ row }">{{ formatDate(row.finishedAt) }}</template>
+      <el-table-column label="结束" width="170">
+        <template #default="{ row }"><span class="sub-mono">{{ formatDate(row.finishedAt) }}</span></template>
       </el-table-column>
-      <el-table-column label="摘要" min-width="180">
+      <el-table-column label="摘要" min-width="160">
         <template #default="{ row }">
           <el-popover v-if="row.failedCount > 0" :width="520" trigger="hover" placement="left-start">
             <template #reference>
-              <span class="failures-trigger">
-                <el-tag type="warning" size="small">失败 {{ row.failedCount }}</el-tag>
+              <span class="sc-status is-warning" style="cursor:pointer;">
+                <span class="sc-status-dot" /> 失败 {{ row.failedCount }}
               </span>
             </template>
             <div class="failures-pop">
@@ -234,18 +260,20 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </el-popover>
-          <span v-else class="sc-subtle">—</span>
+          <span v-else class="sub-mono">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="100" fixed="right">
+      <el-table-column label="操作" width="100" fixed="right" align="right">
         <template #default="{ row }">
-          <el-button
+          <button
             v-if="row.status === 'running' || row.status === 'pending'"
-            size="small" link type="danger"
+            class="row-btn row-btn-danger"
             :disabled="!perm.canExecute"
             @click="cancel(row)"
-          >取消</el-button>
-          <span v-else class="sc-subtle">—</span>
+          >
+            <XCircle :size="13" :stroke-width="2" /> 取消
+          </button>
+          <span v-else class="sub-mono">—</span>
         </template>
       </el-table-column>
     </el-table>
@@ -262,24 +290,60 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 14px; }
-.bar { display: flex; }
+.page { display: flex; flex-direction: column; gap: 16px; }
+.hero { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.hero-left { display: flex; align-items: center; gap: 14px; }
+.hero-right { display: flex; gap: 10px; }
+.hero-btn { min-height: 42px; padding: 0 16px; }
+
+.filter-panel { display: flex; flex-direction: column; gap: 10px; }
+.section-title { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; }
+.section-btn { min-height: 36px; padding: 0 14px; font-size: 13px; }
 .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-.scene-cell { display: flex; flex-direction: column; }
-.scene-name { font-weight: 600; }
-.scene-code { font-size: 11px; color: var(--text-secondary); }
-.ok { color: var(--color-success); font-weight: 600; }
-.fail { color: var(--color-error); font-weight: 600; }
-.total { color: var(--text-secondary); }
-.failures-trigger { cursor: pointer; }
+
+.code-cell {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11.5px;
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-block;
+  margin-top: 2px;
+}
+.sub-mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11.5px; color: var(--text-secondary); }
+.ok { color: #34d399; font-weight: 700; font-family: 'JetBrains Mono', ui-monospace, monospace; }
+.fail { color: #f87171; font-weight: 700; font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+.row-btn {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 4px 10px;
+  margin-left: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: inherit;
+  touch-action: manipulation;
+  transition: all 0.15s;
+}
+.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: rgba(99, 102, 241, 0.5); }
+.row-btn-danger:hover:not(:disabled) { color: #f87171; border-color: rgba(239, 68, 68, 0.5); }
+.row-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .failures-pop { display: flex; flex-direction: column; gap: 10px; }
 .failure-item { font-size: 12px; padding: 6px 0; border-bottom: 1px solid var(--border-soft); }
 .failure-item:last-child { border-bottom: none; }
 .failure-item code {
   background: var(--bg-elevated); padding: 1px 6px; border-radius: 4px;
-  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-family: ui-monospace, monospace;
 }
 .failure-item .attempts { color: var(--text-secondary); margin-left: 6px; }
-.failure-item .error { color: var(--color-error); margin-top: 4px; font-family: ui-monospace, SFMono-Regular, monospace; }
+.failure-item .error { color: #f87171; margin-top: 4px; font-family: ui-monospace, monospace; }
 .pager { display: flex; justify-content: flex-end; }
+
+.spin { animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>
