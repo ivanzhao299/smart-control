@@ -27,7 +27,8 @@ export const HARDWARE_CATEGORIES = [
   'led-controller',   // LED 大屏控制器 (诺瓦 VX1000)
   'led-player',       // LED 播控主机 (Intel NUC)
   'audio-dsp',        // 音响 DSP (DSPPA / ITC)
-  'hvac-gateway',     // 中央空调通讯网关
+  'hvac-outdoor',     // 中央空调外机 (商用 VRF, 例如 奥克斯 DLR-735W5)
+  'hvac-gateway',     // 中央空调通讯网关 (例如 奥克斯 CCM-270B)
   'power-relay',      // 强电继电器模块
   'tablet',           // 控制平板
   'switch',           // 网络交换机

@@ -19,9 +19,21 @@ interface HvacRow {
   error: string | null;
 }
 
+// id = CCM-270B 网关的内机序号 (1-10), 对应寄存器基地址 (id-1)×16
+// 物理映射: 奥克斯商用 VRF (DLR-735W5/DCM-ARVX7) 一拖多, 各区域内机一一对应
 const units = ref<HvacRow[]>([
-  { id: 'hvac_1f', name: '一层中央空调', floor: '1F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
-  { id: 'hvac_2f', name: '二层中央空调', floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  // ---- 1F (内机 1-5) ----
+  { id: '1',  name: '一层前厅 / 园区展示',     floor: '1F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '2',  name: '一层路演 / 洽谈区',       floor: '1F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '3',  name: '一层企业展位区 (F102)',   floor: '1F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '4',  name: '一层综合展销区 (F103)',   floor: '1F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '5',  name: '一层物贸交易展示区 (F104)', floor: '1F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  // ---- 2F (内机 6-10) ----
+  { id: '6',  name: '二层前厅 / 走廊',         floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '7',  name: '二层企业服务中心',        floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '8',  name: '二层共享办公',            floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '9',  name: '二层产业研究 / 接待',     floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '10', name: '二层运营指挥中心',        floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
 ]);
 
 const modes: Array<{ value: HvacMode; label: string; icon: Component }> = [
@@ -85,7 +97,7 @@ async function setFan(z: HvacRow, fan: HvacFan): Promise<void> {
       <div class="sc-head-ico"><Snowflake :size="22" :stroke-width="1.75" /></div>
       <div>
         <h2 class="sc-title">中央空调控制</h2>
-        <div class="sc-subtle">Modbus TCP · 温度 16-30°C · 5 种运行模式</div>
+        <div class="sc-subtle">奥克斯商用 VRF · CCM-270B 网关 · {{ units.length }} 台内机 · 温度 16-30°C</div>
       </div>
     </header>
 
@@ -94,7 +106,7 @@ async function setFan(z: HvacRow, fan: HvacFan): Promise<void> {
         <div class="head">
           <div>
             <div class="name">{{ z.name }}</div>
-            <div class="meta">{{ z.id }} · {{ z.floor }}</div>
+            <div class="meta">内机 #{{ z.id }} · {{ z.floor }}</div>
           </div>
           <span class="sc-status" :class="z.error ? 'is-error' : z.on ? 'is-on' : 'is-off'">
             <span class="sc-status-dot" />

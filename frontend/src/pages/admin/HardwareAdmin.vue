@@ -30,6 +30,7 @@ const categoryMeta: Record<HardwareCategory, { label: string; icon: unknown; col
   'led-controller':     { label: 'LED 控制器',    icon: MonitorPlay, color: '#8b5cf6' },
   'led-player':         { label: 'LED 播控主机',  icon: Cpu,         color: '#a855f7' },
   'audio-dsp':          { label: '音响 DSP',      icon: Speaker,     color: '#ec4899' },
+  'hvac-outdoor':       { label: '空调外机',      icon: Snowflake,   color: '#0891b2' },
   'hvac-gateway':       { label: '空调网关',      icon: Snowflake,   color: '#06b6d4' },
   'power-relay':        { label: '强电继电器',    icon: Zap,         color: '#eab308' },
   'tablet':             { label: '控制平板',      icon: Tablet,      color: '#64748b' },

@@ -519,6 +519,7 @@ export const HARDWARE_CATEGORIES = [
   'led-controller',
   'led-player',
   'audio-dsp',
+  'hvac-outdoor',
   'hvac-gateway',
   'power-relay',
   'tablet',

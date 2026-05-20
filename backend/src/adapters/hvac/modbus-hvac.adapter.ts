@@ -10,33 +10,28 @@ import { withRetry } from '../retry';
 import { TcpClient } from '../transports/tcp-client';
 import { ModbusTcpClient } from '../transports/modbus-tcp';
 import type { FanSpeed, HvacMode, HvacState } from './mock-hvac.adapter';
+import {
+  AUX_FAN_MAP,
+  AUX_MODE_MAP,
+  fanFromRaw,
+  HVAC_REG,
+  INDOOR_BLOCK_SIZE,
+  indoorBaseAddr,
+  modeFromRaw,
+} from './aux-ccm270b-registers';
 
 const GATEWAY_KEY = 'hvac-modbus';
 
-const REG_POWER = 0x00; // 0/1
-const REG_MODE = 0x01; // 0..4
-const REG_SET_TEMP = 0x02; // x10
-const REG_FAN = 0x03; // 0..3
-const REG_ROOM_TEMP = 0x10; // x10 (read-only)
-
-const MODE_MAP: Record<HvacMode, number> = { cool: 0, heat: 1, fan: 2, auto: 3, dry: 4 };
-const MODE_REVERSE: HvacMode[] = ['cool', 'heat', 'fan', 'auto', 'dry'];
-
-const FAN_MAP: Record<FanSpeed, number> = { auto: 0, low: 1, mid: 2, high: 3 };
-const FAN_REVERSE: FanSpeed[] = ['auto', 'low', 'mid', 'high'];
-
 /**
- * 真实 HVAC 适配器 - 奥克斯中央空调 + Modbus/BACnet 网关。
+ * 真实 HVAC 适配器 - 奥克斯商用 VRF (ARV-X 系列) + CCM-270B 网关
  *
- * 使用 Modbus TCP (默认 502 端口)。
- * 设备 address 字段可编码 slaveId, 例如 {"slaveId":2}；缺省使用 HVAC_DEFAULT_SLAVE_ID。
+ * Modbus TCP, 默认端口 502.
+ * 单 slave_id (网关本身, 默认 1), 内机通过寄存器偏移寻址:
+ *   设备 address 字段 (JSON): {"indoorIdx": 1..10}  ← 推荐方式
+ *   或 (向后兼容):              {"slaveId": N}      ← 老格式: 视为 indoorIdx=1, slaveId=N
  *
- * 寄存器映射 (Holding Registers):
- *   0x00 power     0=off 1=on
- *   0x01 mode      0=cool 1=heat 2=fan 3=auto 4=dry
- *   0x02 set temp  ×10 (例: 250 = 25.0°C)
- *   0x03 fan       0=auto 1=low 2=mid 3=high
- *   0x10 room temp ×10  (read-only)
+ * 每台内机占用一块 16-寄存器 区域, 偏移见 HVAC_REG.
+ * 寄存器细节见 aux-ccm270b-registers.ts.
  */
 @Injectable()
 export class ModbusHvacAdapter extends BaseAdapter {
@@ -74,7 +69,7 @@ export class ModbusHvacAdapter extends BaseAdapter {
 
   async ping(ctx?: AdapterContext): Promise<void> {
     try {
-      await this.modbus.readHoldingRegisters(REG_POWER, 1, this.defaultUnit, ctx?.signal);
+      await this.modbus.readHoldingRegisters(HVAC_REG.POWER, 1, this.defaultUnit, ctx?.signal);
       this.registry.markOnline(GATEWAY_KEY);
     } catch (err) {
       const dErr = classifyError('hvac', err);
@@ -92,17 +87,17 @@ export class ModbusHvacAdapter extends BaseAdapter {
 
   async turnOn(deviceId: string, _p: Record<string, unknown> = {}, ctx?: AdapterContext): Promise<AdapterResult<HvacState>> {
     return this.run(deviceId, 'turnOn', ctx, async () => {
-      const unit = this.unitFor(deviceId);
-      await this.writeReg(REG_POWER, 1, unit, ctx?.signal);
-      return this.readState(unit, ctx?.signal);
+      const tgt = this.targetFor(deviceId);
+      await this.writeReg(tgt.base + HVAC_REG.POWER, 1, tgt.unit, ctx?.signal);
+      return this.readState(tgt, ctx?.signal);
     });
   }
 
   async turnOff(deviceId: string, _p: Record<string, unknown> = {}, ctx?: AdapterContext): Promise<AdapterResult<HvacState>> {
     return this.run(deviceId, 'turnOff', ctx, async () => {
-      const unit = this.unitFor(deviceId);
-      await this.writeReg(REG_POWER, 0, unit, ctx?.signal);
-      return this.readState(unit, ctx?.signal);
+      const tgt = this.targetFor(deviceId);
+      await this.writeReg(tgt.base + HVAC_REG.POWER, 0, tgt.unit, ctx?.signal);
+      return this.readState(tgt, ctx?.signal);
     });
   }
 
@@ -112,51 +107,69 @@ export class ModbusHvacAdapter extends BaseAdapter {
       if (!Number.isFinite(v) || v < 16 || v > 30) {
         throw new DeviceProtocolError('hvac', `temperature out of range: ${v}`);
       }
-      const unit = this.unitFor(deviceId);
-      await this.writeReg(REG_SET_TEMP, Math.round(v * 10), unit, ctx?.signal);
-      return this.readState(unit, ctx?.signal);
+      const tgt = this.targetFor(deviceId);
+      await this.writeReg(tgt.base + HVAC_REG.SET_TEMP, Math.round(v * 10), tgt.unit, ctx?.signal);
+      return this.readState(tgt, ctx?.signal);
     });
   }
 
   async setMode(deviceId: string, params: { mode?: HvacMode } = {}, ctx?: AdapterContext): Promise<AdapterResult<HvacState>> {
     return this.run(deviceId, 'setMode', ctx, async () => {
       const mode = params.mode ?? 'auto';
-      if (!(mode in MODE_MAP)) {
+      if (!(mode in AUX_MODE_MAP)) {
         throw new DeviceProtocolError('hvac', `invalid hvac mode: ${mode}`);
       }
-      const unit = this.unitFor(deviceId);
-      await this.writeReg(REG_MODE, MODE_MAP[mode], unit, ctx?.signal);
-      return this.readState(unit, ctx?.signal);
+      const tgt = this.targetFor(deviceId);
+      await this.writeReg(tgt.base + HVAC_REG.MODE, AUX_MODE_MAP[mode], tgt.unit, ctx?.signal);
+      return this.readState(tgt, ctx?.signal);
     });
   }
 
   async setFanSpeed(deviceId: string, params: { speed?: FanSpeed } = {}, ctx?: AdapterContext): Promise<AdapterResult<HvacState>> {
     return this.run(deviceId, 'setFanSpeed', ctx, async () => {
       const speed = params.speed ?? 'auto';
-      if (!(speed in FAN_MAP)) {
+      if (!(speed in AUX_FAN_MAP)) {
         throw new DeviceProtocolError('hvac', `invalid fan speed: ${speed}`);
       }
-      const unit = this.unitFor(deviceId);
-      await this.writeReg(REG_FAN, FAN_MAP[speed], unit, ctx?.signal);
-      return this.readState(unit, ctx?.signal);
+      const tgt = this.targetFor(deviceId);
+      await this.writeReg(tgt.base + HVAC_REG.FAN, AUX_FAN_MAP[speed], tgt.unit, ctx?.signal);
+      return this.readState(tgt, ctx?.signal);
     });
   }
 
   async getStatus(deviceId: string, ctx?: AdapterContext): Promise<AdapterResult<HvacState>> {
     return this.run(deviceId, 'getStatus', ctx, async () => {
-      const unit = this.unitFor(deviceId);
-      return this.readState(unit, ctx?.signal);
+      return this.readState(this.targetFor(deviceId), ctx?.signal);
     });
   }
 
-  private unitFor(deviceId: string): number {
-    try {
-      const j = JSON.parse(deviceId) as { slaveId?: number };
-      if (typeof j.slaveId === 'number') return j.slaveId;
-    } catch {
-      // not JSON, fallthrough
+  /**
+   * 从 deviceId 解析出实际访问目标:
+   *   "1".."64"         → indoorIdx=N, slaveId=default, base = (N-1) × 16  ← REST API 主推
+   *   {"indoorIdx": N}  → 同上 (JSON 形式, 给 device.address 字段用)
+   *   {"slaveId":  N}   → 兼容老格式, base=0, slaveId=N
+   *   非数字 / 非 JSON  → slaveId=default, base=0 (默认指向 1 号内机)
+   */
+  private targetFor(deviceId: string): { unit: number; base: number } {
+    const asNum = Number.parseInt(deviceId, 10);
+    if (Number.isFinite(asNum) && String(asNum) === deviceId && asNum >= 1 && asNum <= 64) {
+      return { unit: this.defaultUnit, base: indoorBaseAddr(asNum) };
     }
-    return this.defaultUnit;
+    try {
+      const j = JSON.parse(deviceId) as { indoorIdx?: number; slaveId?: number };
+      if (typeof j.indoorIdx === 'number') {
+        return {
+          unit: typeof j.slaveId === 'number' ? j.slaveId : this.defaultUnit,
+          base: indoorBaseAddr(j.indoorIdx),
+        };
+      }
+      if (typeof j.slaveId === 'number') {
+        return { unit: j.slaveId, base: 0 };
+      }
+    } catch {
+      // not JSON
+    }
+    return { unit: this.defaultUnit, base: 0 };
   }
 
   private async writeReg(addr: number, value: number, unit: number, signal?: AbortSignal): Promise<void> {
@@ -173,11 +186,11 @@ export class ModbusHvacAdapter extends BaseAdapter {
     }
   }
 
-  private async readState(unit: number, signal?: AbortSignal): Promise<HvacState> {
+  private async readState(tgt: { unit: number; base: number }, signal?: AbortSignal): Promise<HvacState> {
     let regs: number[];
     try {
       regs = await withRetry(
-        () => this.modbus.readHoldingRegisters(REG_POWER, 4, unit, signal),
+        () => this.modbus.readHoldingRegisters(tgt.base + HVAC_REG.POWER, INDOOR_BLOCK_SIZE, tgt.unit, signal),
         { retries: this.retries, timeoutMs: this.timeoutMs, signal },
       );
       this.registry.markOnline(GATEWAY_KEY);
@@ -187,19 +200,14 @@ export class ModbusHvacAdapter extends BaseAdapter {
       throw dErr;
     }
 
-    let roomTemp: number | undefined;
-    try {
-      const t = await this.modbus.readHoldingRegisters(REG_ROOM_TEMP, 1, unit, signal);
-      roomTemp = t[0] / 10;
-    } catch {
-      // room temp 可选, 失败忽略
-    }
+    const roomTempRaw = regs[HVAC_REG.ROOM_TEMP];
+    const roomTemp = roomTempRaw && roomTempRaw !== 0xffff ? roomTempRaw / 10 : undefined;
 
     return {
-      on: regs[0] === 1,
-      mode: MODE_REVERSE[regs[1]] ?? 'auto',
-      temperature: regs[2] / 10,
-      fan: FAN_REVERSE[regs[3]] ?? 'auto',
+      on: regs[HVAC_REG.POWER] === 1,
+      mode: modeFromRaw(regs[HVAC_REG.MODE]) as HvacMode,
+      temperature: regs[HVAC_REG.SET_TEMP] / 10,
+      fan: fanFromRaw(regs[HVAC_REG.FAN]) as FanSpeed,
       roomTemp,
     };
   }
