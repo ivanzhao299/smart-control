@@ -211,14 +211,14 @@ export class SeedService {
     const HARDWARE: HardwareSeed[] = [
       // ---- 中控核心 ----
       {
-        code: 'HOST-ARK-1220L',
-        name: '中控主机 (ARK-1220L)',
+        code: 'HOST-GK9000',
+        name: '中控主机 (GK9000)',
         category: 'other',
-        vendor: '研华 Advantech',
-        model: 'ARK-1220L-S6A2',
+        vendor: '占美 GIADA',
+        model: 'GK9000',
         floor: '1F',
         location: '1F 主控室 / 弱电机柜',
-        remark: 'Windows 11 + Node.js + PM2 + Nginx, D:\\smart-control\\',
+        remark: 'Windows 10 + Node.js + PM2 + Nginx, D:\\smart-control\\',
       },
       // ---- DALI 灯光 ----
       {

@@ -6,7 +6,7 @@ export interface AppConfig {
   appName: string;
   apiPrefix: string;
   apiTimeout: number;
-  /** Sprint-01 现场部署: 主机型号 (例 Advantech ARK-1220L-S6A2) */
+  /** Sprint-01 现场部署: 主机型号 (例 GIADA GK9000) */
   hostMachine: string;
   /** 平台标识 (windows / linux / darwin), 优先取 env, 默认 process.platform */
   platform: string;

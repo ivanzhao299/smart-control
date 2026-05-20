@@ -10,7 +10,7 @@
 | 节点 | 角色 | MOCK_MODE | 接真实硬件 | 重要性 |
 | --- | --- | --- | --- | --- |
 | `cnjinhu.top` (云端) | 演示 / 异地查看后台 | **true** | 否 (公网无法访问 192.168.50.x) | 中 |
-| 展厅主控机 (ARK-1220L) | **真生产** | **false** | 是 (DALI/LED/HVAC/Audio) | **关键, 命脉** |
+| 展厅主控机 (GK9000) | **真生产** | **false** | 是 (DALI/LED/HVAC/Audio) | **关键, 命脉** |
 
 **云端 push → GitHub Actions 自动部 cnjinhu.top** (现有流程, 60-90s 完成).
 **主控机不会自动跟着更新**, 因为内网在 192.168.50.x, 公网不可达 — 需要手动触发同步.
@@ -73,7 +73,7 @@ cd D:\smart-control
 A: 现场不应该有本地修改. 排查 `git status`. 如果是构建产物没被 .gitignore 掉, 跑 `git stash` 暂存, 再 pull. 实在不行 → 看 §4 回滚 / 重置.
 
 **Q: build 失败, 提示 OOM 内存不足?**
-A: ARK-1220L 默认内存可能跑大 frontend 吃紧. 编辑 `frontend\package.json` 的 build 命令, 加 `--max-old-space-size=2048`. 或在 build 前先 `pm2 stop` 释放内存.
+A: GK9000 默认内存可能跑大 frontend 吃紧. 编辑 `frontend\package.json` 的 build 命令, 加 `--max-old-space-size=2048`. 或在 build 前先 `pm2 stop` 释放内存.
 
 **Q: pm2 reload 后健康检查 5xx?**
 A: 看日志 `pm2 logs smart-control-backend --lines 100`. 数据库 schema 变化时第一次起会做 typeorm 同步, 可能慢, 多等 30s 再 curl. 仍不行 → §4 回滚.

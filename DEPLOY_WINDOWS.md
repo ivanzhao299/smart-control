@@ -1,6 +1,6 @@
-# 展贸中心智能化中控系统 — Windows 11 生产部署手册
+# 展贸中心智能化中控系统 — Windows 10 生产部署手册
 
-> 适用主机：**Advantech ARK-1220L-S6A2 / Windows 11 IoT Enterprise**
+> 适用主机：**GIADA GK9000 / Windows 10**
 > 目标部署根：`D:\smart-control\`
 > 不使用 Docker，所有进程以 Node + PM2 + Nginx 原生方式运行。
 
@@ -10,7 +10,7 @@
 
 | 项目 | 要求 |
 | --- | --- |
-| 操作系统 | Windows 11 (推荐 IoT Enterprise LTSC)，已激活 |
+| 操作系统 | Windows 10 (推荐 IoT Enterprise LTSC)，已激活 |
 | 磁盘 | D: 盘剩余 ≥ 10 GB，独立于系统盘 |
 | 网络 | 固定有线 IP（建议 192.168.50.10/24），可达所有设备网关 |
 | 远程维护 | RDP 已开启 + Tailscale 已加入运维网 |
@@ -111,7 +111,7 @@ LOG_DIR=D:\\smart-control\\logs
 MOCK_MODE=false
 
 # 主机标识 (出现在 /api/system/health 中, 便于运维识别)
-HOST_MACHINE=Advantech ARK-1220L-S6A2
+HOST_MACHINE=GIADA GK9000
 PLATFORM=windows
 
 # 备份目录 (POST /api/system/backup 会落到这里)

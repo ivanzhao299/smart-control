@@ -1,7 +1,7 @@
-# Sprint-01 现场部署 — Windows 11 / Advantech ARK-1220L
+# Sprint-01 现场部署 — Windows 10 / GIADA GK9000
 
 > 本文档针对**现场中控主机**部署，区别于云端开发演示环境 (`cnjinhu.top`)。
-> 适用机型：**Advantech ARK-1220L-S6A2** + **Windows 11**
+> 适用机型：**GIADA GK9000** + **Windows 10**
 
 ## 一、准备 (一次性)
 
@@ -67,7 +67,7 @@ notepad backend\.env
 - `PORT` (默认 3000，与平板端口一致)
 - `DB_PATH=D:\smart-control\database\smart-control.db`
 - `LOG_DIR=D:\smart-control\logs`
-- `HOST_MACHINE=Advantech ARK-1220L-S6A2`
+- `HOST_MACHINE=GIADA GK9000`
 - `PLATFORM=windows`
 - `MOCK_MODE=true`（首次跑通；现场对接真实设备后改 `false`）
 - 各网关 `*_HOST` 按现场实际填写
@@ -80,7 +80,7 @@ cd D:\smart-control
 # 编译 + PM2 启动 + 健康检查 (一气呵成)
 powershell -ExecutionPolicy Bypass -File scripts\start.ps1
 
-# 看到 "status: running, host: Advantech ARK-1220L-S6A2" 即成功
+# 看到 "status: running, host: GIADA GK9000" 即成功
 ```
 
 ### 数据种子（首次部署需要）
@@ -123,7 +123,7 @@ Invoke-RestMethod http://localhost:3000/api/system/health | ConvertTo-Json
     "app": "smart-control-backend",
     "env": "production",
     "platform": "windows",
-    "host": "Advantech ARK-1220L-S6A2"
+    "host": "GIADA GK9000"
   }
 }
 ```
@@ -268,7 +268,7 @@ cd ..
 
 - [x] PowerShell `pm2 list` 显示 `smart-control-backend online`
 - [x] `Invoke-RestMethod http://localhost:3000/api/system/health` 返回 success
-- [x] 返回字段含 `platform: "windows"` + `host: "Advantech ARK-1220L-S6A2"`
+- [x] 返回字段含 `platform: "windows"` + `host: "GIADA GK9000"`
 - [x] `D:\smart-control\database\smart-control.db` 文件存在
 - [x] `D:\smart-control\logs\app-<today>.log` 持续写入
 - [x] 重启计算机后 PM2 自动恢复

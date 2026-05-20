@@ -115,7 +115,7 @@ export interface SystemInfo {
   nodeVersion?: string;
   /** Sprint-10 新增: 平台标识 (windows/linux/darwin) */
   platform?: string;
-  /** Sprint-10 新增: 主机标识 (Advantech ARK-1220L-S6A2 等) */
+  /** Sprint-10 新增: 主机标识 (GIADA GK9000 等) */
   host?: string;
   hostMachine?: string;
   uptimeSec?: number;

@@ -1,6 +1,6 @@
 # 展贸中心中控系统 — Windows 运维手册
 
-> 现场主机：`Advantech ARK-1220L-S6A2 / Windows 11`
+> 现场主机：`GIADA GK9000 / Windows 10`
 > 部署根：`D:\smart-control\`
 > 远程方式：**Tailscale + RDP**（无 SSH）
 

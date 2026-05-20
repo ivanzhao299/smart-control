@@ -6,7 +6,7 @@
 
 **Sprint-10：Windows 生产部署与正式上线** *(累计交付 Sprint-01 ~ 10)*
 
-新增：完整 Windows 11 现场部署体系 — `deploy/{nginx,scripts,configs,backups,windows-startup}/` 标准化目录；Nginx Windows 反代配置（`/api` + `/ws` + Vue PWA + gzip + 长缓存）；PowerShell 全套运维脚本（`init.ps1` 首次初始化、`health.ps1` 6 项全栈健康检测含 PM2/Node/SQLite/WebSocket/Nginx/Network、`restore.ps1` SQLite 安全恢复带 pre-restore 自备份）；`version.json` 构建标识 + `/api/system/info` 暴露 `version/buildTime/nodeVersion/host`；`POST /api/system/backup` 在线备份 API；`POST /api/system/restore` 恢复模拟接口；PM2 Windows Startup + Task Scheduler 双方案开机自启 + `boot.ps1`；正式交付文档 `DEPLOY_WINDOWS.md` / `PRODUCTION_CHECKLIST.md` (44 项) / `WINDOWS_MAINTENANCE.md`。
+新增：完整 Windows 10 现场部署体系 — `deploy/{nginx,scripts,configs,backups,windows-startup}/` 标准化目录；Nginx Windows 反代配置（`/api` + `/ws` + Vue PWA + gzip + 长缓存）；PowerShell 全套运维脚本（`init.ps1` 首次初始化、`health.ps1` 6 项全栈健康检测含 PM2/Node/SQLite/WebSocket/Nginx/Network、`restore.ps1` SQLite 安全恢复带 pre-restore 自备份）；`version.json` 构建标识 + `/api/system/info` 暴露 `version/buildTime/nodeVersion/host`；`POST /api/system/backup` 在线备份 API；`POST /api/system/restore` 恢复模拟接口；PM2 Windows Startup + Task Scheduler 双方案开机自启 + `boot.ps1`；正式交付文档 `DEPLOY_WINDOWS.md` / `PRODUCTION_CHECKLIST.md` (44 项) / `WINDOWS_MAINTENANCE.md`。
 
 历史 Sprint-09：测试中心 (`/admin/test-center`) 支持单设备 / 子系统 / 场景 / 网络 (ping + TCP 端口) 测试；测试日志独立表与正式 OperationLog 隔离；测试报告聚合；UAT 验收模块（16 项默认种子：6 场景 + 6 设备 + 4 稳定性）+ 通过率统计 + WS 实时同步；Device 实体扩展 `debugRemark / lastTestAt / lastTestResult`；联调清单导出；WS 新事件 `test_started/progress/success/failed / uat_updated`。
 
@@ -24,7 +24,7 @@
 | 系统版本 / 构建时间 | `GET /api/system/info` (含 version/buildTime/nodeVersion/host) |
 
 **部署目标**：
-- 现场中控主机：**Advantech ARK-1220L-S6A2** / Windows 11 (路径 `D:\smart-control\`)
+- 现场中控主机：**GIADA GK9000** / Windows 10 (路径 `D:\smart-control\`)
 - 云端开发演示：cnjinhu.top (Linux, 仅用于 demo)
 
 线上演示：
@@ -101,7 +101,7 @@
 | UAT 验收 | `uat_updated` |
 | 运维监控 | 8s 轮询 + WS 状态 |
 
-## Sprint-05 平板端 PWA 部署 (Windows 11 中控主机)
+## Sprint-05 平板端 PWA 部署 (Windows 10 中控主机)
 
 ### 1. 在 ARK 主机上构建前端
 ```powershell
@@ -342,7 +342,7 @@ curl -X POST http://localhost:3000/api/scenes/meeting_demo/cancel
 - SceneExecution (持久化完整执行记录) — `/api/scene-executions`
 - winston 文件日志 — `D:\smart-control\logs\app-YYYY-MM-DD.log` (Windows)
 
-## 现场部署 (Windows 11 / ARK-1220L)
+## 现场部署 (Windows 10 / GK9000)
 
 完整步骤见 [`docs/Sprint-01-Windows-部署.md`](./docs/Sprint-01-Windows-部署.md)。
 
@@ -369,7 +369,7 @@ powershell -ExecutionPolicy Bypass -File scripts\start.ps1
 - `scripts\logs.ps1` `[-Err] [-Tail N] [-App]` — 查日志
 - `scripts\backup.ps1` `[-Keep 14] [-Dest path]` — 备份数据库 + .env + UAT 快照
 
-健康检查返回含 `platform: "windows"` + `host: "Advantech ARK-1220L-S6A2"`，便于运维识别主机。
+健康检查返回含 `platform: "windows"` + `host: "GIADA GK9000"`，便于运维识别主机。
 
 ## 现场联调与上线流程 (Sprint-09)
 

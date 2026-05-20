@@ -1,6 +1,6 @@
 # 上线检查清单 — 展贸中心智能化中控系统
 
-> 现场主机：`Advantech ARK-1220L-S6A2 / Windows 11`
+> 现场主机：`GIADA GK9000 / Windows 10`
 > 部署根：`D:\smart-control\`
 > 上线判定：本清单 **全部 ✅** 方可正式交付运维。
 

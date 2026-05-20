@@ -1,7 +1,7 @@
 # =====================================================================
 # 展贸中心智能化中控系统 - 系统初始化脚本 (Sprint-10 Task-19)
 # 文件: deploy\scripts\init.ps1
-# 用途: 首次部署到 Windows 11 现场主机时执行
+# 用途: 首次部署到 Windows 10 现场主机时执行
 # 内容:
 #   1) 创建标准目录: D:\smart-control\{backend,frontend,database,logs,backups,deploy}
 #   2) 校验前置软件: Node 20+ / pnpm / pm2 / nginx

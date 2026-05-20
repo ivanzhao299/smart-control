@@ -171,7 +171,7 @@ DALI_RTU_DEFAULT_FADE_SEC=0.7
 **Entity**: `hardware_units` 表，13 类别 (dali-gateway/dali-dimmer/rtu-tcp-converter/led-*/audio-dsp/hvac-gateway/tablet/...)
 
 **Seed 预填**：13 台金湖现场硬件
-- HOST-ARK-1220L (中控主机) × 1
+- HOST-GK9000 (中控主机, 占美 GK9000 / Win10) × 1
 - CONV-RTU-1 (USR-TCP232-410s) × 1
 - GW-DALI-1 (CY-DALI64A) × 1
 - DIMMER-DA4D-01~05 (CTLEDTECH DA4-D × 5) — 每台 channels JSON 描述 4 个通道接哪些灯
