@@ -69,16 +69,25 @@ function go(name: string): void {
 <style scoped>
 .layout {
   width: 100vw;
+  /* iPad Safari fix: 100vh 包含 Safari 底部 tab bar 区域, 会盖住内容
+     用 dynamic viewport height (iOS 15.4+ / Safari 15.4+) */
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   background: var(--bg-base);
+  /* Home Indicator / 安全区 */
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  box-sizing: border-box;
 }
 .body {
   flex: 1;
   display: grid;
   grid-template-columns: 144px 1fr;
   overflow: hidden;
+  min-height: 0; /* 防止子项 overflow 撑爆容器 */
 }
 .side-nav {
   display: flex;
@@ -90,6 +99,9 @@ function go(name: string): void {
     var(--bg-panel);
   border-right: 1px solid var(--border-soft);
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  /* iPad Safari: 给底部留空, 防止最后一个菜单项贴近 Home Indicator */
+  padding-bottom: max(18px, env(safe-area-inset-bottom));
 }
 .nav-item {
   width: 100%;

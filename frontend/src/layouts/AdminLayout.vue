@@ -120,16 +120,23 @@ function onRoleChange(v: UserRole): void {
   display: grid;
   grid-template-columns: 220px 1fr;
   width: 100vw;
+  /* iPad Safari fix: 用 dvh 兼容动态 viewport, 避免 100vh 被底部 tab bar 截掉 */
   height: 100vh;
+  height: 100dvh;
   background: var(--bg-base);
   color: var(--text-primary);
   overflow: hidden;
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  box-sizing: border-box;
 }
 .side {
   display: flex;
   flex-direction: column;
   background: var(--bg-panel);
   border-right: 1px solid var(--border-soft);
+  min-height: 0;
 }
 .brand {
   display: flex; align-items: center; gap: 12px;
