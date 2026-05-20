@@ -255,3 +255,38 @@ export const adminLogService = {
   list: (params: LogsQuery = {}) =>
     api.get<Paged<OperationLogEntry>>('/logs', { params: { pageSize: 100, ...params } }),
 };
+
+/* ---------- Hardware Inventory (Sprint-10) ---------- */
+import type { HardwareUnit, HardwareCategory, HardwareStatus, HardwareSummary } from '@/types/api';
+
+export interface HardwareCreatePayload {
+  code: string;
+  name: string;
+  category: HardwareCategory;
+  vendor: string;
+  model: string;
+  serialNo?: string;
+  firmwareVersion?: string;
+  location?: string;
+  floor?: string;
+  ip?: string;
+  macAddress?: string;
+  addressing?: string;
+  channels?: string;
+  status?: HardwareStatus;
+  enabled?: boolean;
+  remark?: string;
+  installedAt?: string;
+}
+
+export type HardwareUpdatePayload = Partial<HardwareCreatePayload>;
+
+export const adminHardwareService = {
+  list: (params?: { category?: HardwareCategory; floor?: string; status?: HardwareStatus; keyword?: string; enabled?: boolean }) =>
+    api.get<Paged<HardwareUnit>>('/hardware', { params: { pageSize: 200, ...params } }),
+  summary: () => api.get<HardwareSummary>('/hardware/summary'),
+  detail: (id: number) => api.get<HardwareUnit>(`/hardware/${id}`),
+  create: (body: HardwareCreatePayload) => api.post<HardwareUnit>('/hardware', body),
+  update: (id: number, body: HardwareUpdatePayload) => api.put<HardwareUnit>(`/hardware/${id}`, body),
+  remove: (id: number) => api.del<null>(`/hardware/${id}`),
+};

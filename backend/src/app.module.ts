@@ -23,6 +23,7 @@ import { SceneExecutionsModule } from './modules/scene-executions/scene-executio
 import { AlertModule } from './modules/alerts/alert.module';
 import { TestCenterModule } from './modules/test-center/test-center.module';
 import { UatModule } from './modules/uat/uat.module';
+import { HardwareModule } from './modules/hardware/hardware.module';
 import { AdaptersModule } from './adapters/adapters.module';
 import { ServicesModule } from './services/services.module';
 
@@ -53,6 +54,7 @@ import { ServicesModule } from './services/services.module';
     AlertModule,
     TestCenterModule,
     UatModule,
+    HardwareModule,
     WebsocketModule,
   ],
   providers: [

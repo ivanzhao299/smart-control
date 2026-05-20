@@ -22,6 +22,7 @@ const items: Array<{ name: string; label: string; icon: string }> = [
   { name: 'admin-test-center', label: '测试 / 调试', icon: '🧪' },
   { name: 'admin-uat', label: 'UAT 验收', icon: '✅' },
   { name: 'admin-logs', label: '日志中心', icon: '📑' },
+  { name: 'admin-hardware', label: '硬件清单', icon: '🔌' },
   { name: 'admin-users', label: '用户管理', icon: '👥' },
   { name: 'admin-settings', label: '系统设置', icon: '⚙️' },
 ];

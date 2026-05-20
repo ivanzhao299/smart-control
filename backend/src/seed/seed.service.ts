@@ -7,6 +7,7 @@ import { Device, DeviceCategory } from '../entities/device.entity';
 import { Scene } from '../entities/scene.entity';
 import { User } from '../entities/user.entity';
 import { UatCategory, UatRecord } from '../entities/uat-record.entity';
+import { HardwareCategory, HardwareUnit } from '../entities/hardware-unit.entity';
 import { hashPassword } from '../common/utils/password.util';
 
 interface UatSeed {
@@ -96,6 +97,7 @@ export class SeedService {
     @InjectRepository(Scene) private readonly sceneRepo: Repository<Scene>,
     @InjectRepository(Device) private readonly deviceRepo: Repository<Device>,
     @InjectRepository(UatRecord) private readonly uatRepo: Repository<UatRecord>,
+    @InjectRepository(HardwareUnit) private readonly hwRepo: Repository<HardwareUnit>,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
@@ -103,6 +105,7 @@ export class SeedService {
     await this.seedAdmin();
     await this.seedScenes();
     await this.seedDevices();
+    await this.seedHardware();
     await this.seedUat();
     this.logger.info('Seed completed', { context: 'SeedService' });
   }
@@ -178,6 +181,228 @@ export class SeedService {
       });
       await this.deviceRepo.save(device);
       this.logger.info(`Seeded device: ${d.name} (${d.category})`, { context: 'SeedService' });
+    }
+  }
+
+  private async seedHardware(): Promise<void> {
+    interface HardwareSeed {
+      code: string;
+      name: string;
+      category: HardwareCategory;
+      vendor: string;
+      model: string;
+      location?: string;
+      floor?: string;
+      ip?: string;
+      addressing?: string;
+      channels?: string;
+      remark?: string;
+    }
+
+    const HARDWARE: HardwareSeed[] = [
+      // ---- 中控核心 ----
+      {
+        code: 'HOST-ARK-1220L',
+        name: '中控主机 (ARK-1220L)',
+        category: 'other',
+        vendor: '研华 Advantech',
+        model: 'ARK-1220L-S6A2',
+        floor: '1F',
+        location: '1F 主控室 / 弱电机柜',
+        remark: 'Windows 11 + Node.js + PM2 + Nginx, D:\\smart-control\\',
+      },
+      // ---- DALI 灯光 ----
+      {
+        code: 'CONV-RTU-1',
+        name: 'RS485 RTU↔TCP 转换器',
+        category: 'rtu-tcp-converter',
+        vendor: '有人 USR',
+        model: 'USR-TCP232-410S',
+        ip: '192.168.50.20',
+        floor: '1F',
+        location: '1F 弱电机柜 / 公共电箱 F101 附近',
+        addressing: JSON.stringify({ port: 502, baud: 9600, parity: 'N', stop: 1 }),
+        remark: 'RS485 端接 CY-DALI64A 控制串口 (非调试串口)',
+      },
+      {
+        code: 'GW-DALI-1',
+        name: 'DALI 网关 #1',
+        category: 'dali-gateway',
+        vendor: '元创智控',
+        model: 'CY-DALI64A',
+        floor: '1F',
+        location: '1F 弱电机柜',
+        addressing: JSON.stringify({ slaveId: 1, baud: 9600, frameIntervalMs: 200 }),
+        remark: 'DALI 总线 16V/250mA, 拨码盘地址 1, RS485 控制串口接 CONV-RTU-1',
+      },
+      {
+        code: 'DIMMER-DA4D-01',
+        name: '1F 调光器 #1 (前厅 / 园区展示)',
+        category: 'dali-dimmer',
+        vendor: 'CTLEDTECH',
+        model: 'DA4-D',
+        floor: '1F',
+        location: '1F 公共电箱 F101 内',
+        addressing: JSON.stringify({ daliStart: 1, daliCount: 4, mode: '4CH' }),
+        channels: JSON.stringify([
+          { ch: 1, daliShort: 1, label: '前厅灯带', powerW: 300, daliGroup: 1 },
+          { ch: 2, daliShort: 2, label: '前厅筒灯+射灯', powerW: 600, daliGroup: 1 },
+          { ch: 3, daliShort: 3, label: '园区展示筒灯+灯带+灯箱', powerW: 1600, daliGroup: 1 },
+          { ch: 4, daliShort: 4, label: '走廊灯带', powerW: 1300, daliGroup: 3 },
+        ]),
+      },
+      {
+        code: 'DIMMER-DA4D-02',
+        name: '1F 调光器 #2 (走廊 + 重点)',
+        category: 'dali-dimmer',
+        vendor: 'CTLEDTECH',
+        model: 'DA4-D',
+        floor: '1F',
+        location: '1F 公共电箱 F101 内',
+        addressing: JSON.stringify({ daliStart: 5, daliCount: 4, mode: '4CH' }),
+        channels: JSON.stringify([
+          { ch: 1, daliShort: 5, label: '走廊筒灯+射灯', powerW: 800, daliGroup: 3 },
+          { ch: 2, daliShort: 6, label: '吸顶灯', powerW: 60, daliGroup: 3 },
+          { ch: 3, daliShort: 7, label: '格栅长条灯', powerW: 800, daliGroup: 4 },
+          { ch: 4, daliShort: 8, label: '重点照明灯带', powerW: 700, daliGroup: 4 },
+        ]),
+      },
+      {
+        code: 'DIMMER-DA4D-03',
+        name: '1F 调光器 #3 (F102/F103/F104)',
+        category: 'dali-dimmer',
+        vendor: 'CTLEDTECH',
+        model: 'DA4-D',
+        floor: '1F',
+        location: '1F 企业展位区电箱 (F102)',
+        addressing: JSON.stringify({ daliStart: 9, daliCount: 4, mode: '4CH' }),
+        channels: JSON.stringify([
+          { ch: 1, daliShort: 9, label: 'F102 灯带', powerW: 200, daliGroup: 5 },
+          { ch: 2, daliShort: 10, label: 'F102 预留', powerW: 600, daliGroup: 5 },
+          { ch: 3, daliShort: 11, label: 'F103 筒灯+射灯', powerW: 400, daliGroup: 6 },
+          { ch: 4, daliShort: 12, label: 'F104 灯带', powerW: 200, daliGroup: 7 },
+        ]),
+      },
+      {
+        code: 'DIMMER-DA4D-04',
+        name: '2F 调光器 #1 (前厅 + 服务中心)',
+        category: 'dali-dimmer',
+        vendor: 'CTLEDTECH',
+        model: 'DA4-D',
+        floor: '2F',
+        location: '2F 公共电箱 F201 内',
+        addressing: JSON.stringify({ daliStart: 13, daliCount: 4, mode: '4CH' }),
+        channels: JSON.stringify([
+          { ch: 1, daliShort: 13, label: '2F 前厅筒灯', powerW: 600, daliGroup: 8 },
+          { ch: 2, daliShort: 14, label: '2F 走廊灯带', powerW: 900, daliGroup: 8 },
+          { ch: 3, daliShort: 15, label: '服务中心筒灯', powerW: 1200, daliGroup: 9 },
+          { ch: 4, daliShort: 16, label: '配房筒灯+射灯', powerW: 1000, daliGroup: 9 },
+        ]),
+      },
+      {
+        code: 'DIMMER-DA4D-05',
+        name: '2F 调光器 #2 (办公 + 研究 + 指挥)',
+        category: 'dali-dimmer',
+        vendor: 'CTLEDTECH',
+        model: 'DA4-D',
+        floor: '2F',
+        location: '2F 共享办公电箱 (F202)',
+        addressing: JSON.stringify({ daliStart: 17, daliCount: 3, mode: '3CH' }),
+        channels: JSON.stringify([
+          { ch: 1, daliShort: 17, label: 'F202 共享办公吸顶灯', powerW: 800, daliGroup: 10 },
+          { ch: 2, daliShort: 18, label: 'F203 产业研究吸顶灯', powerW: 1000, daliGroup: 11 },
+          { ch: 3, daliShort: 19, label: 'F204 指挥中心吸顶灯', powerW: 900, daliGroup: 12 },
+        ]),
+      },
+      // ---- LED 大屏 ----
+      {
+        code: 'LED-NOVA-1',
+        name: '1F LED 大屏控制器',
+        category: 'led-controller',
+        vendor: '诺瓦 NovaStar',
+        model: 'VX1000',
+        ip: '192.168.50.30',
+        floor: '1F',
+        location: '1F 主控室机柜',
+        addressing: JSON.stringify({ box: '1', port: 5200 }),
+        remark: '一层主 LED 大屏播控; 通过 NUC HDMI 输入',
+      },
+      {
+        code: 'LED-NUC-1',
+        name: '1F LED 播控主机',
+        category: 'led-player',
+        vendor: 'Intel',
+        model: 'NUC11',
+        ip: '192.168.50.31',
+        floor: '1F',
+        location: '1F 主控室机柜',
+        remark: 'Windows + ViPlex Express, 输出 HDMI 到 VX1000',
+      },
+      // ---- 音响 ----
+      {
+        code: 'AUDIO-DSP-1',
+        name: '音响 DSP 处理器',
+        category: 'audio-dsp',
+        vendor: 'DSPPA',
+        model: 'MAG6816',
+        ip: '192.168.50.40',
+        floor: '1F',
+        location: '1F 主控室机柜',
+        addressing: JSON.stringify({ zones: ['1f_bg', '2f_bg', 'meeting', 'roadshow'] }),
+        remark: '4 路分区背景音 + 麦克风输入',
+      },
+      // ---- 空调 ----
+      {
+        code: 'HVAC-GW-1',
+        name: '中央空调通讯网关',
+        category: 'hvac-gateway',
+        vendor: '奥克斯',
+        model: 'Modbus-TCP 接口板',
+        ip: '192.168.50.50',
+        floor: '1F',
+        location: '1F 弱电机柜',
+        addressing: JSON.stringify({ slaveId: 1, port: 502 }),
+        remark: '一/二层中央空调统一接入',
+      },
+      // ---- 控制平板 ----
+      {
+        code: 'TABLET-1F',
+        name: '1F 控制平板',
+        category: 'tablet',
+        vendor: '通用',
+        model: 'iPad Pro 12.9 / Android 平板',
+        floor: '1F',
+        location: '1F 前厅控制台',
+        remark: 'PWA 网址 https://cnjinhu.top/control/ 添加到主屏',
+      },
+    ];
+
+    for (const h of HARDWARE) {
+      const exists = await this.hwRepo.findOne({ where: { code: h.code } });
+      if (exists) continue;
+      const entity = this.hwRepo.create({
+        code: h.code,
+        name: h.name,
+        category: h.category,
+        vendor: h.vendor,
+        model: h.model,
+        serialNo: null,
+        firmwareVersion: null,
+        location: h.location ?? null,
+        floor: h.floor ?? null,
+        ip: h.ip ?? null,
+        macAddress: null,
+        addressing: h.addressing ?? null,
+        channels: h.channels ?? null,
+        status: 'normal',
+        enabled: true,
+        remark: h.remark ?? null,
+        installedAt: null,
+      });
+      await this.hwRepo.save(entity);
+      this.logger.info(`Seeded hardware: ${h.code} (${h.vendor} ${h.model})`, {
+        context: 'SeedService',
+      });
     }
   }
 }

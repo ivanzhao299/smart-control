@@ -510,3 +510,54 @@ export type WsEvent =
   | SystemHealthWsEvent
   | ServiceStatusWsEvent
   | { type: 'pong'; at: string };
+
+/* ---------- Sprint-10: 硬件清单 ---------- */
+export const HARDWARE_CATEGORIES = [
+  'dali-gateway',
+  'dali-dimmer',
+  'rtu-tcp-converter',
+  'led-controller',
+  'led-player',
+  'audio-dsp',
+  'hvac-gateway',
+  'power-relay',
+  'tablet',
+  'switch',
+  'router',
+  'ups',
+  'other',
+] as const;
+export type HardwareCategory = (typeof HARDWARE_CATEGORIES)[number];
+
+export type HardwareStatus = 'normal' | 'fault' | 'offline' | 'maintenance' | 'retired';
+
+export interface HardwareUnit {
+  id: number;
+  code: string;
+  name: string;
+  category: HardwareCategory;
+  vendor: string;
+  model: string;
+  serialNo: string | null;
+  firmwareVersion: string | null;
+  location: string | null;
+  floor: string | null;
+  ip: string | null;
+  macAddress: string | null;
+  addressing: string | null;
+  channels: string | null;
+  status: HardwareStatus;
+  enabled: boolean;
+  remark: string | null;
+  installedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HardwareSummary {
+  total: number;
+  enabled: number;
+  fault: number;
+  offline: number;
+  byCategory: Record<string, number>;
+}
