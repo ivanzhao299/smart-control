@@ -290,3 +290,32 @@ export const adminHardwareService = {
   update: (id: number, body: HardwareUpdatePayload) => api.put<HardwareUnit>(`/hardware/${id}`, body),
   remove: (id: number) => api.del<null>(`/hardware/${id}`),
 };
+
+/* ---------- System Backup / Restore (Sprint-10) ---------- */
+export interface BackupItem {
+  name: string;
+  path: string;
+  sizeBytes: number;
+  createdAt: string;
+}
+export interface BackupCreateResult {
+  snapshot: string;
+  sizeBytes: number;
+  createdAt: string;
+  sourceDbPath: string;
+}
+export interface RestoreSimulationResult {
+  simulated: true;
+  selected: string | null;
+  wouldRestoreFrom: string | null;
+  wouldRestoreTo: string;
+  available: BackupItem[];
+  note: string;
+}
+
+export const adminBackupService = {
+  list: () => api.get<BackupItem[]>('/system/backups'),
+  create: () => api.post<BackupCreateResult>('/system/backup'),
+  restore: (snapshot?: string) =>
+    api.post<RestoreSimulationResult>('/system/restore', { snapshot }),
+};
