@@ -17,6 +17,15 @@ import {
   Sparkles,
   Moon,
   Zap,
+  Activity,
+  BellRing,
+  Wrench,
+  Clock,
+  BarChart3,
+  TestTube2,
+  CheckCircle2,
+  FileText,
+  Cable,
   type LucideIcon,
 } from 'lucide-vue-next';
 
@@ -29,6 +38,22 @@ export const NAV_ICON: Record<string, LucideIcon> = {
   hvac: Snowflake,
   status: Radio,
   'admin-devices': Settings,
+};
+
+/** 后台 AdminLayout 侧边导航 */
+export const ADMIN_NAV_ICON: Record<string, LucideIcon> = {
+  'admin-monitor': Activity,
+  'admin-alerts': BellRing,
+  'admin-devices': Wrench,
+  'admin-scenes': Clapperboard,
+  'admin-scheduler': Clock,
+  'admin-scene-executions': BarChart3,
+  'admin-test-center': TestTube2,
+  'admin-uat': CheckCircle2,
+  'admin-logs': FileText,
+  'admin-hardware': Cable,
+  'admin-users': Users,
+  'admin-settings': Settings,
 };
 
 /** 场景 icon (按 sceneCode) */
@@ -52,6 +77,9 @@ export const CATEGORY_ICON: Record<string, LucideIcon> = {
 
 export function navIconFor(name: string): LucideIcon {
   return NAV_ICON[name] ?? Settings;
+}
+export function adminNavIconFor(name: string): LucideIcon {
+  return ADMIN_NAV_ICON[name] ?? Settings;
 }
 export function sceneIconFor(code: string): LucideIcon {
   return SCENE_ICON[code] ?? Settings;
