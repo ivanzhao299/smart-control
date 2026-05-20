@@ -27,7 +27,8 @@
 - 现场中控主机：**占美 GIADA GK9000** 工控机 / Windows 10 专业版 (路径 `D:\smart-control\`)
   - CPU: Intel **i7-10750H** (6 核 12 线程) · 内存: **16 GB** · 存储: **1 TB SSD**
   - 接口: **6 × COM** (RS232/RS485, 当前闲置备用) + **2 × 千兆 RJ45** (设备网 + 管理网)
-  - 现场配置详见 [docs/GK9000_FIELD_SETUP.md](docs/GK9000_FIELD_SETUP.md)
+  - **📖 日常运维入口**: [docs/HOST_OPERATIONS.md](docs/HOST_OPERATIONS.md)
+  - 系统首次配置: [docs/GK9000_FIELD_SETUP.md](docs/GK9000_FIELD_SETUP.md)
 - 云端开发演示：cnjinhu.top (Linux, 仅用于 demo)
 
 线上演示：
