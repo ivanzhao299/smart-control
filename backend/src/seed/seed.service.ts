@@ -661,19 +661,11 @@ export class SeedService {
         floor: '1F',
         location: '1F 主控室机柜',
         addressing: JSON.stringify({ box: '1', port: 5200 }),
-        remark: '一层主 LED 大屏播控; 通过 NUC HDMI 输入',
+        remark: 'HDMI1 输入接 GK9000 中控主机 HDMI 输出 (视频源直接来自中控主机, 不需要额外 NUC 播控)',
       },
-      {
-        code: 'LED-NUC-1',
-        name: '1F LED 播控主机',
-        category: 'led-player',
-        vendor: 'Intel',
-        model: 'NUC11',
-        ip: '192.168.50.31',
-        floor: '1F',
-        location: '1F 主控室机柜',
-        remark: 'Windows + ViPlex Express, 输出 HDMI 到 VX1000',
-      },
+      // 注: 原计划的"独立 LED 播控主机 (Intel NUC11)" 已取消
+      // 视频文件和播放统一交给 GK9000 中控主机 (GK9000 有 2 个 HDMI 输出, HDMI1 → VX1000)
+      // 视频存储路径见 D:\smart-control\media\ 或自定义, ViPlex Express 跑在 GK9000 上
       // ---- 音响 ----
       {
         code: 'AUDIO-DSP-1',
