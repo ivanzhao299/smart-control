@@ -66,6 +66,8 @@ export class CommandDispatcherService {
         return this.callAudio(command, deviceId, params, ctx);
       case 'hvac':
         return this.callHvac(command, deviceId, params, ctx);
+      case 'hvac-zone':
+        return this.callHvacZone(command, deviceId, params, ctx);
       case 'power':
         return this.callPower(command, deviceId, params, ctx);
       default:
@@ -168,6 +170,39 @@ export class CommandDispatcherService {
       default:
         return this.unsupported('hvac', cmd, id);
     }
+  }
+
+  /**
+   * 场景动作 hvac-zone: 把单个 zone 操作扇出到该区所有内机.
+   * deviceId = zone code (例: "roadshow", "meeting_room").
+   * 命令同 hvac (turnOn / turnOff / setTemperature / setMode / setFanSpeed).
+   * 任一内机失败 → 整个 zone action 标 ok=false (与单机一致, scene engine 会重试整组).
+   */
+  private async callHvacZone(
+    cmd: string,
+    zoneCode: string,
+    p: Record<string, unknown>,
+    ctx?: AdapterContext,
+  ): Promise<AdapterResult> {
+    // 动态 import 避免循环依赖
+    const { findZone } = await import('../adapters/hvac/hvac-zones');
+    const zone = findZone(zoneCode);
+    if (!zone) {
+      return this.unsupported('hvac-zone', cmd, zoneCode);
+    }
+    const started = Date.now();
+    const results = await Promise.all(zone.indoors.map(idx => this.callHvac(cmd, String(idx), p, ctx)));
+    const okCount = results.filter(r => r.ok).length;
+    const ok = okCount === results.length;
+    return {
+      ok,
+      deviceId: zoneCode,
+      command: cmd,
+      mock: results.every(r => r.mock),
+      durationMs: Date.now() - started,
+      data: { zoneCode, zoneName: zone.name, total: results.length, okCount, results },
+      error: ok ? undefined : `${results.length - okCount}/${results.length} 内机失败`,
+    };
   }
 
   private callPower(

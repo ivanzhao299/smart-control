@@ -1,8 +1,9 @@
-import { Body, Controller, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Param, Post } from '@nestjs/common';
 import { HvacAdapter } from '../../adapters/hvac/hvac.adapter';
 import { OperationLogService } from '../logs/operation-log.service';
 import { HvacFanDto, HvacModeDto, HvacTempDto } from './dto/hvac.dto';
 import { AdapterResult } from '../../adapters/adapter.types';
+import { findZone, HVAC_ZONES, HvacZoneConfig } from '../../adapters/hvac/hvac-zones';
 
 @Controller('hvac')
 export class HvacController {
@@ -11,6 +12,16 @@ export class HvacController {
     private readonly logService: OperationLogService,
   ) {}
 
+  // ============ 列出所有功能区 (前端 UI / 场景配置用) ============
+  @Get('zones')
+  listZones() {
+    return {
+      message: 'OK',
+      data: HVAC_ZONES,
+    };
+  }
+
+  // ============ 单内机控制 (id 是 indoorIdx 字符串, 例 "1".."22") ============
   @Post(':id/on')
   on(@Param('id') id: string) {
     return this.wrap(id, 'on', () => this.hvac.turnOn(id));
@@ -40,6 +51,87 @@ export class HvacController {
     return this.wrap(id, 'fan-speed',
       () => this.hvac.setFanSpeed(id, { speed: dto.speed }),
       { speed: dto.speed });
+  }
+
+  // ============ 功能区批量控制 (扇出到该区所有内机) ============
+  @Post('zone/:code/on')
+  zoneOn(@Param('code') code: string) {
+    return this.zoneFanOut(code, 'on', (id) => this.hvac.turnOn(id));
+  }
+
+  @Post('zone/:code/off')
+  zoneOff(@Param('code') code: string) {
+    return this.zoneFanOut(code, 'off', (id) => this.hvac.turnOff(id));
+  }
+
+  @Post('zone/:code/temperature')
+  zoneTemperature(@Param('code') code: string, @Body() dto: HvacTempDto) {
+    return this.zoneFanOut(code, 'temperature',
+      (id) => this.hvac.setTemperature(id, { value: dto.value }),
+      { value: dto.value });
+  }
+
+  @Post('zone/:code/mode')
+  zoneMode(@Param('code') code: string, @Body() dto: HvacModeDto) {
+    return this.zoneFanOut(code, 'mode',
+      (id) => this.hvac.setMode(id, { mode: dto.mode }),
+      { mode: dto.mode });
+  }
+
+  @Post('zone/:code/fan-speed')
+  zoneFan(@Param('code') code: string, @Body() dto: HvacFanDto) {
+    return this.zoneFanOut(code, 'fan-speed',
+      (id) => this.hvac.setFanSpeed(id, { speed: dto.speed }),
+      { speed: dto.speed });
+  }
+
+  // ============ 内部: 扇出 + 聚合日志 ============
+  private async zoneFanOut(
+    code: string,
+    cmd: string,
+    fn: (indoorId: string) => Promise<AdapterResult>,
+    extra: Record<string, unknown> = {},
+  ) {
+    const zone = findZone(code);
+    if (!zone) throw new NotFoundException(`hvac zone "${code}" 不存在`);
+
+    const results = await Promise.all(
+      zone.indoors.map(async (idx) => {
+        const id = String(idx);
+        try {
+          const r = await fn(id);
+          return { indoorIdx: idx, ok: r.ok, error: r.error, durationMs: r.durationMs };
+        } catch (err) {
+          return { indoorIdx: idx, ok: false, error: (err as Error).message, durationMs: 0 };
+        }
+      }),
+    );
+
+    const okCount = results.filter(r => r.ok).length;
+    const failCount = results.length - okCount;
+    const ok = failCount === 0;
+
+    await this.logService.record({
+      operator: 'system',
+      action: `hvac.zone.${cmd}`,
+      targetType: 'hvac-zone',
+      targetId: code,
+      result: ok ? 'success' : 'failure',
+      message: JSON.stringify({ zone: code, cmd, ...extra, okCount, failCount, partial: okCount > 0 && failCount > 0, results }),
+    });
+
+    return {
+      message: ok ? '执行成功' : (okCount > 0 ? `部分成功 (${okCount}/${results.length})` : '执行失败'),
+      data: {
+        zone: code,
+        zoneName: zone.name,
+        floor: zone.floor,
+        total: results.length,
+        okCount,
+        failCount,
+        results,
+      },
+    };
   }
 
   private async wrap(

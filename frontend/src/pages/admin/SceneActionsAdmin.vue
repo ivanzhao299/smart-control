@@ -23,12 +23,14 @@ const scene = ref<Scene | null>(null);
 const rows = ref<SceneAction[]>([]);
 const loading = ref(false);
 
-const deviceTypeOptions = ['lighting', 'led', 'audio', 'hvac', 'power'];
+const deviceTypeOptions = ['lighting', 'led', 'audio', 'hvac', 'hvac-zone', 'power'];
 const commandsByType: Record<string, string[]> = {
   lighting: ['turnOn', 'turnOff', 'setBrightness', 'recallScene'],
   led: ['powerOn', 'powerOff', 'switchInput', 'playMedia', 'showWelcome'],
   audio: ['setVolume', 'mute', 'unmute', 'playBgm', 'stopBgm', 'enableMic'],
   hvac: ['turnOn', 'turnOff', 'setTemperature', 'setMode', 'setFanSpeed'],
+  // hvac-zone: deviceId 填 zone code (例 "roadshow", "meeting_room", "lobby_2f", 见 docs/HVAC_ZONES.md)
+  'hvac-zone': ['turnOn', 'turnOff', 'setTemperature', 'setMode', 'setFanSpeed'],
   power: ['turnOn', 'turnOff'],
 };
 
