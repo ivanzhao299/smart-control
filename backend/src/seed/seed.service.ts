@@ -524,7 +524,7 @@ export class SeedService {
         remark: 'DALI 总线 16V/250mA, 拨码盘地址 1, RS485 控制串口接 CONV-RTU-1',
       },
       // ==================== DALI 调光设备 (按《金湖照明灯具明细 v3》2026-05-21 重新选型) ====================
-      // 方案 B: 灯带走 MEANWELL HLG 恒压 DALI 电源, 灯具走 0-10V (DALI 转换器 DA4-V10)
+      // 方案 B: 灯带走 MEANWELL HLG 恒压 DALI 电源, 灯具走 0-10V (DALI 转换器 LT-84A)
       // 选型详见 docs/LIGHTING_FINAL_SELECTION.md
       // ---------- 灯带恒压 DALI 电源 (12 台 HLG + 1 台 HLG-600 灯箱) ----------
       {
@@ -614,7 +614,7 @@ export class SeedService {
       // ---------- DALI→0-10V 转换器 (3 台, 11 路 AC 220V 灯具调光) ----------
       {
         code: 'CONV-DA4V10-1', name: '1F DALI→0-10V 转换器 #1', category: 'dali-dimmer',
-        vendor: 'CTLEDTECH', model: 'DA4-V10', floor: '1F', location: '1F 公共电箱 F101',
+        vendor: 'LTECH 雷特', model: 'LT-84A', floor: '1F', location: '1F 公共电箱 F101',
         addressing: JSON.stringify({ daliStart: 15, daliCount: 4, mode: '4×0-10V' }),
         channels: JSON.stringify([
           { ch: 1, daliShort: 15, label: 'F101-R2 筒+射 (9+13)', powerW: 450, daliGroup: 4 },
@@ -626,7 +626,7 @@ export class SeedService {
       },
       {
         code: 'CONV-DA4V10-2', name: '1F DALI→0-10V 转换器 #2', category: 'dali-dimmer',
-        vendor: 'CTLEDTECH', model: 'DA4-V10', floor: '1F', location: '1F 综合展销电箱 F103',
+        vendor: 'LTECH 雷特', model: 'LT-84A', floor: '1F', location: '1F 综合展销电箱 F103',
         addressing: JSON.stringify({ daliStart: 19, daliCount: 4, mode: '4×0-10V' }),
         channels: JSON.stringify([
           { ch: 1, daliShort: 19, label: 'F101-R7 格栅长条灯 35m', powerW: 700, daliGroup: 4 },
@@ -638,7 +638,7 @@ export class SeedService {
       },
       {
         code: 'CONV-DA4V10-3', name: '2F DALI→0-10V 转换器 #3', category: 'dali-dimmer',
-        vendor: 'CTLEDTECH', model: 'DA4-V10', floor: '2F', location: '2F 公共电箱 F201',
+        vendor: 'LTECH 雷特', model: 'LT-84A', floor: '2F', location: '2F 公共电箱 F201',
         addressing: JSON.stringify({ daliStart: 23, daliCount: 4, mode: '4×0-10V' }),
         channels: JSON.stringify([
           { ch: 1, daliShort: 23, label: 'F201-R3 筒+射 (16+3)', powerW: 1000, daliGroup: 9 },
