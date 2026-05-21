@@ -24,6 +24,7 @@ import { SeedService } from './seed.service';
     LoggerModule,
     TypeOrmModule.forRootAsync({ useClass: TypeOrmConfigService }),
     TypeOrmModule.forFeature([Device, Scene, SceneAction, User, OperationLog, UatRecord, HardwareUnit]),
+    // ↑ SceneAction 已在原列表内, seed.service.ts 通过 actionRepo 写入
   ],
   providers: [SeedService],
 })

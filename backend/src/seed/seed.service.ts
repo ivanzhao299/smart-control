@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { Device, DeviceCategory } from '../entities/device.entity';
 import { Scene } from '../entities/scene.entity';
+import { SceneAction } from '../entities/scene-action.entity';
 import { User } from '../entities/user.entity';
 import { UatCategory, UatRecord } from '../entities/uat-record.entity';
 import { HardwareCategory, HardwareUnit } from '../entities/hardware-unit.entity';
@@ -115,11 +116,230 @@ const DEVICES: DeviceSeed[] = [
   { name: 'hvac_2f_research',      category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '2F', zone: 'research_center',    address: '{"indoorIdx":22,"model":"DLR-100F","kw":2.2}' },
 ];
 
+// ============ 场景动作种子 ============
+// 6 个标准场景的预设动作清单 — 首次启动自动种入, 现场可随时在后台调整
+// 设计原则:
+//   - 灯光: deviceType=lighting, deviceId 用 DALI 组号 (1-12, 见 LightingPage.vue)
+//   - LED:  deviceType=led, deviceId='led_1f_main' / 'led_2f_main' (设备表 name)
+//   - 音响: deviceType=audio, deviceId='audio_1f' / 'audio_2f'
+//   - 空调: deviceType=hvac-zone, deviceId=区代号 (见 hvac-zones.ts)
+//   - sortOrder: 升序执行; 同 sortOrder 并发执行 (scene engine 分组规则)
+
+interface SceneActionSeed {
+  deviceType: string;
+  deviceId: string;
+  command: string;
+  params?: Record<string, unknown>;
+  delayMs?: number;
+}
+
+const SCENE_ACTIONS: Record<string, SceneActionSeed[]> = {
+  // ==================== 开馆模式 ====================
+  // 全部展示区灯光开 + LED 显示欢迎页 + 背景音乐 + 主要展示区空调
+  opening: [
+    // -- 灯光 (1F 主区 80%, 2F 公共区 80%, 办公区 70%) --
+    { deviceType: 'lighting', deviceId: '1', command: 'setBrightness', params: { value: 80 } },   // 1F 前厅
+    { deviceType: 'lighting', deviceId: '2', command: 'setBrightness', params: { value: 70 } },   // 1F 路演 (开馆未路演, 给适中)
+    { deviceType: 'lighting', deviceId: '3', command: 'setBrightness', params: { value: 60 } },   // 1F 走廊
+    { deviceType: 'lighting', deviceId: '4', command: 'setBrightness', params: { value: 80 } },   // 1F 重点照明
+    { deviceType: 'lighting', deviceId: '5', command: 'setBrightness', params: { value: 75 } },   // 1F 企业展位
+    { deviceType: 'lighting', deviceId: '6', command: 'setBrightness', params: { value: 75 } },   // 1F 综合展销
+    { deviceType: 'lighting', deviceId: '7', command: 'setBrightness', params: { value: 75 } },   // 1F 物贸交易
+    { deviceType: 'lighting', deviceId: '8', command: 'setBrightness', params: { value: 80 } },   // 2F 前厅
+    { deviceType: 'lighting', deviceId: '9', command: 'setBrightness', params: { value: 80 } },   // 2F 服务中心
+    { deviceType: 'lighting', deviceId: '10', command: 'setBrightness', params: { value: 70 } },  // 2F 共享办公
+    { deviceType: 'lighting', deviceId: '11', command: 'setBrightness', params: { value: 80 } },  // 2F 研究/接待
+    { deviceType: 'lighting', deviceId: '12', command: 'setBrightness', params: { value: 80 } },  // 2F 指挥中心
+    // -- LED 显示欢迎页 --
+    { deviceType: 'led', deviceId: 'led_1f_main', command: 'powerOn' },
+    { deviceType: 'led', deviceId: 'led_1f_main', command: 'showWelcome', delayMs: 500 },
+    { deviceType: 'led', deviceId: 'led_2f_main', command: 'powerOn' },
+    { deviceType: 'led', deviceId: 'led_2f_main', command: 'showWelcome', delayMs: 500 },
+    // -- 音响背景音乐 --
+    { deviceType: 'audio', deviceId: 'audio_1f', command: 'unmute' },
+    { deviceType: 'audio', deviceId: 'audio_1f', command: 'setVolume', params: { value: 40 } },
+    { deviceType: 'audio', deviceId: 'audio_1f', command: 'playBgm', params: { track: 'welcome', channel: 'bgm' } },
+    { deviceType: 'audio', deviceId: 'audio_2f', command: 'unmute' },
+    { deviceType: 'audio', deviceId: 'audio_2f', command: 'setVolume', params: { value: 35 } },
+    { deviceType: 'audio', deviceId: 'audio_2f', command: 'playBgm', params: { track: 'welcome', channel: 'bgm' } },
+    // -- 空调: 主要展示区 + 公共区开机, 制冷 24°C --
+    { deviceType: 'hvac-zone', deviceId: 'park_display',    command: 'turnOn' },
+    { deviceType: 'hvac-zone', deviceId: 'park_display',    command: 'setMode',        params: { mode: 'cool' } },
+    { deviceType: 'hvac-zone', deviceId: 'park_display',    command: 'setTemperature', params: { value: 24 } },
+    { deviceType: 'hvac-zone', deviceId: 'enterprise_booth', command: 'turnOn' },
+    { deviceType: 'hvac-zone', deviceId: 'enterprise_booth', command: 'setTemperature', params: { value: 24 } },
+    { deviceType: 'hvac-zone', deviceId: 'foreign_trade',   command: 'turnOn' },
+    { deviceType: 'hvac-zone', deviceId: 'foreign_trade',   command: 'setTemperature', params: { value: 24 } },
+    { deviceType: 'hvac-zone', deviceId: 'showcase',        command: 'turnOn' },
+    { deviceType: 'hvac-zone', deviceId: 'showcase',        command: 'setTemperature', params: { value: 24 } },
+    { deviceType: 'hvac-zone', deviceId: 'lobby_2f',        command: 'turnOn' },
+    { deviceType: 'hvac-zone', deviceId: 'lobby_2f',        command: 'setTemperature', params: { value: 24 } },
+    { deviceType: 'hvac-zone', deviceId: 'service_center',  command: 'turnOn' },
+    { deviceType: 'hvac-zone', deviceId: 'service_center',  command: 'setTemperature', params: { value: 24 } },
+  ],
+
+  // ==================== 接待模式 ====================
+  // 主接待区灯光柔和 + LED 切企业宣传 + 音响适中 + 接待区空调舒适
+  reception: [
+    // -- 灯光: 前厅亮, 路演适中, 接待区亮, 办公暗 --
+    { deviceType: 'lighting', deviceId: '1', command: 'setBrightness', params: { value: 70 } },
+    { deviceType: 'lighting', deviceId: '2', command: 'setBrightness', params: { value: 50 } },
+    { deviceType: 'lighting', deviceId: '4', command: 'setBrightness', params: { value: 90 } },   // 重点照明加亮
+    { deviceType: 'lighting', deviceId: '8', command: 'setBrightness', params: { value: 80 } },   // 2F 前厅
+    { deviceType: 'lighting', deviceId: '11', command: 'setBrightness', params: { value: 85 } },  // 2F 接待
+    { deviceType: 'lighting', deviceId: '10', command: 'setBrightness', params: { value: 30 } },  // 2F 办公暗下来
+    // -- LED --
+    { deviceType: 'led', deviceId: 'led_1f_main', command: 'powerOn' },
+    { deviceType: 'led', deviceId: 'led_1f_main', command: 'switchInput', params: { input: 'HDMI1' } },
+    { deviceType: 'led', deviceId: 'led_2f_main', command: 'powerOn' },
+    { deviceType: 'led', deviceId: 'led_2f_main', command: 'switchInput', params: { input: 'HDMI1' } },
+    // -- 音响适中 --
+    { deviceType: 'audio', deviceId: 'audio_1f', command: 'setVolume', params: { value: 45 } },
+    { deviceType: 'audio', deviceId: 'audio_2f', command: 'setVolume', params: { value: 45 } },
+    // -- 空调: 接待区 + 决策中心 + 前厅, 24°C --
+    { deviceType: 'hvac-zone', deviceId: 'lobby_2f',        command: 'turnOn' },
+    { deviceType: 'hvac-zone', deviceId: 'lobby_2f',        command: 'setMode',        params: { mode: 'cool' } },
+    { deviceType: 'hvac-zone', deviceId: 'lobby_2f',        command: 'setTemperature', params: { value: 24 } },
+    { deviceType: 'hvac-zone', deviceId: 'decision_center', command: 'turnOn' },
+    { deviceType: 'hvac-zone', deviceId: 'decision_center', command: 'setTemperature', params: { value: 23 } },
+    { deviceType: 'hvac-zone', deviceId: 'group_mgmt',      command: 'turnOn' },
+    { deviceType: 'hvac-zone', deviceId: 'group_mgmt',      command: 'setTemperature', params: { value: 23 } },
+    { deviceType: 'hvac-zone', deviceId: 'research_center', command: 'turnOn' },
+    { deviceType: 'hvac-zone', deviceId: 'research_center', command: 'setTemperature', params: { value: 23 } },
+  ],
+
+  // ==================== 会议模式 ====================
+  // 会议室灯亮 + LED HDMI 输入 + 音响 + 麦克风 + 会议室空调
+  meeting: [
+    // -- 灯光: 会议室亮, 其他保持原状 --
+    { deviceType: 'lighting', deviceId: '11', command: 'setBrightness', params: { value: 80 } },  // 2F 研究/接待 (含会议)
+    { deviceType: 'lighting', deviceId: '12', command: 'setBrightness', params: { value: 70 } },  // 2F 指挥中心
+    // -- LED 切 HDMI (会议笔记本接入) --
+    { deviceType: 'led', deviceId: 'led_2f_main', command: 'powerOn' },
+    { deviceType: 'led', deviceId: 'led_2f_main', command: 'switchInput', params: { input: 'HDMI1' } },
+    // -- 音响 + MIC --
+    { deviceType: 'audio', deviceId: 'audio_2f', command: 'setVolume', params: { value: 50 } },
+    { deviceType: 'audio', deviceId: 'audio_2f', command: 'enableMic', params: { mic: 'wireless_1' } },
+    // -- 空调: 会议室低风 23°C --
+    { deviceType: 'hvac-zone', deviceId: 'meeting_room',    command: 'turnOn' },
+    { deviceType: 'hvac-zone', deviceId: 'meeting_room',    command: 'setMode',     params: { mode: 'cool' } },
+    { deviceType: 'hvac-zone', deviceId: 'meeting_room',    command: 'setTemperature', params: { value: 23 } },
+    { deviceType: 'hvac-zone', deviceId: 'meeting_room',    command: 'setFanSpeed', params: { speed: 'low' } },
+  ],
+
+  // ==================== 路演模式 ====================
+  // 路演区灯亮 + LED 播放预设视频 + 音响大音量 + 路演区空调凉爽 (人多发热)
+  roadshow: [
+    // -- 灯光: 路演区超亮, 直播间亮, 其他普通 --
+    { deviceType: 'lighting', deviceId: '2', command: 'setBrightness', params: { value: 90 } },   // 1F 路演主灯
+    { deviceType: 'lighting', deviceId: '4', command: 'setBrightness', params: { value: 100 } },  // 重点照明全开
+    { deviceType: 'lighting', deviceId: '1', command: 'setBrightness', params: { value: 60 } },   // 1F 前厅适中
+    { deviceType: 'lighting', deviceId: '5', command: 'setBrightness', params: { value: 50 } },   // 1F 展位暗下来
+    // -- LED 播放预设视频 --
+    { deviceType: 'led', deviceId: 'led_1f_main', command: 'powerOn' },
+    { deviceType: 'led', deviceId: 'led_1f_main', command: 'playMedia', params: { media: 'roadshow_default' } },
+    // -- 音响大音量 --
+    { deviceType: 'audio', deviceId: 'audio_1f', command: 'unmute' },
+    { deviceType: 'audio', deviceId: 'audio_1f', command: 'setVolume', params: { value: 65 } },
+    { deviceType: 'audio', deviceId: 'audio_1f', command: 'enableMic', params: { mic: 'wireless_1' } },
+    // -- 空调: 路演 + 直播间 22°C 中风 (人多发热) --
+    { deviceType: 'hvac-zone', deviceId: 'roadshow',   command: 'turnOn' },
+    { deviceType: 'hvac-zone', deviceId: 'roadshow',   command: 'setMode',        params: { mode: 'cool' } },
+    { deviceType: 'hvac-zone', deviceId: 'roadshow',   command: 'setTemperature', params: { value: 22 } },
+    { deviceType: 'hvac-zone', deviceId: 'roadshow',   command: 'setFanSpeed',    params: { speed: 'mid' } },
+    { deviceType: 'hvac-zone', deviceId: 'livestream', command: 'turnOn' },
+    { deviceType: 'hvac-zone', deviceId: 'livestream', command: 'setMode',        params: { mode: 'cool' } },
+    { deviceType: 'hvac-zone', deviceId: 'livestream', command: 'setTemperature', params: { value: 22 } },
+  ],
+
+  // ==================== 清洁模式 ====================
+  // 全部灯 100% (照清楚) + LED/音响关 + 空调大部分关 (省电, 仅前厅保留低温)
+  cleaning: [
+    // -- 全部灯 100% --
+    { deviceType: 'lighting', deviceId: '1',  command: 'setBrightness', params: { value: 100 } },
+    { deviceType: 'lighting', deviceId: '2',  command: 'setBrightness', params: { value: 100 } },
+    { deviceType: 'lighting', deviceId: '3',  command: 'setBrightness', params: { value: 100 } },
+    { deviceType: 'lighting', deviceId: '4',  command: 'setBrightness', params: { value: 100 } },
+    { deviceType: 'lighting', deviceId: '5',  command: 'setBrightness', params: { value: 100 } },
+    { deviceType: 'lighting', deviceId: '6',  command: 'setBrightness', params: { value: 100 } },
+    { deviceType: 'lighting', deviceId: '7',  command: 'setBrightness', params: { value: 100 } },
+    { deviceType: 'lighting', deviceId: '8',  command: 'setBrightness', params: { value: 100 } },
+    { deviceType: 'lighting', deviceId: '9',  command: 'setBrightness', params: { value: 100 } },
+    { deviceType: 'lighting', deviceId: '10', command: 'setBrightness', params: { value: 100 } },
+    { deviceType: 'lighting', deviceId: '11', command: 'setBrightness', params: { value: 100 } },
+    { deviceType: 'lighting', deviceId: '12', command: 'setBrightness', params: { value: 100 } },
+    // -- LED / 音响关 --
+    { deviceType: 'led',   deviceId: 'led_1f_main', command: 'powerOff' },
+    { deviceType: 'led',   deviceId: 'led_2f_main', command: 'powerOff' },
+    { deviceType: 'audio', deviceId: 'audio_1f',    command: 'stopBgm' },
+    { deviceType: 'audio', deviceId: 'audio_2f',    command: 'stopBgm' },
+    { deviceType: 'audio', deviceId: 'audio_1f',    command: 'mute' },
+    { deviceType: 'audio', deviceId: 'audio_2f',    command: 'mute' },
+    // -- 空调: 大部分关 (省电), 前厅保留 26°C --
+    { deviceType: 'hvac-zone', deviceId: 'enterprise_booth', command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'livestream',       command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'foreign_trade',    command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'roadshow',         command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'showcase',         command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'meeting_room',     command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'shared_office',    command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'service_center',   command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'command_center',   command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'group_mgmt',       command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'decision_center',  command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'research_center',  command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'park_display',     command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'lobby_2f',         command: 'setTemperature', params: { value: 26 } },
+  ],
+
+  // ==================== 闭馆模式 ====================
+  // 全部灯关 + LED/音响关 + 空调全关
+  closing: [
+    // -- 灯光全关 --
+    { deviceType: 'lighting', deviceId: '1',  command: 'turnOff' },
+    { deviceType: 'lighting', deviceId: '2',  command: 'turnOff' },
+    { deviceType: 'lighting', deviceId: '3',  command: 'turnOff' },
+    { deviceType: 'lighting', deviceId: '4',  command: 'turnOff' },
+    { deviceType: 'lighting', deviceId: '5',  command: 'turnOff' },
+    { deviceType: 'lighting', deviceId: '6',  command: 'turnOff' },
+    { deviceType: 'lighting', deviceId: '7',  command: 'turnOff' },
+    { deviceType: 'lighting', deviceId: '8',  command: 'turnOff' },
+    { deviceType: 'lighting', deviceId: '9',  command: 'turnOff' },
+    { deviceType: 'lighting', deviceId: '10', command: 'turnOff' },
+    { deviceType: 'lighting', deviceId: '11', command: 'turnOff' },
+    { deviceType: 'lighting', deviceId: '12', command: 'turnOff' },
+    // -- LED 全关 --
+    { deviceType: 'led', deviceId: 'led_1f_main', command: 'powerOff' },
+    { deviceType: 'led', deviceId: 'led_2f_main', command: 'powerOff' },
+    // -- 音响全关 --
+    { deviceType: 'audio', deviceId: 'audio_1f', command: 'stopBgm' },
+    { deviceType: 'audio', deviceId: 'audio_2f', command: 'stopBgm' },
+    { deviceType: 'audio', deviceId: 'audio_1f', command: 'mute' },
+    { deviceType: 'audio', deviceId: 'audio_2f', command: 'mute' },
+    // -- 空调全关 (14 个区) --
+    { deviceType: 'hvac-zone', deviceId: 'enterprise_booth', command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'livestream',       command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'foreign_trade',    command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'park_display',     command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'roadshow',         command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'showcase',         command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'group_mgmt',       command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'decision_center',  command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'meeting_room',     command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'shared_office',    command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'service_center',   command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'command_center',   command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'lobby_2f',         command: 'turnOff' },
+    { deviceType: 'hvac-zone', deviceId: 'research_center',  command: 'turnOff' },
+  ],
+};
+
 @Injectable()
 export class SeedService {
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(Scene) private readonly sceneRepo: Repository<Scene>,
+    @InjectRepository(SceneAction) private readonly actionRepo: Repository<SceneAction>,
     @InjectRepository(Device) private readonly deviceRepo: Repository<Device>,
     @InjectRepository(UatRecord) private readonly uatRepo: Repository<UatRecord>,
     @InjectRepository(HardwareUnit) private readonly hwRepo: Repository<HardwareUnit>,
@@ -129,10 +349,45 @@ export class SeedService {
   async run(): Promise<void> {
     await this.seedAdmin();
     await this.seedScenes();
+    await this.seedSceneActions();
     await this.seedDevices();
     await this.seedHardware();
     await this.seedUat();
     this.logger.info('Seed completed', { context: 'SeedService' });
+  }
+
+  /**
+   * 给 6 个标准场景注入预设动作清单.
+   * 幂等: 已有任何 action 的场景跳过 (避免覆盖现场手动调整).
+   */
+  private async seedSceneActions(): Promise<void> {
+    for (const [code, actions] of Object.entries(SCENE_ACTIONS)) {
+      const scene = await this.sceneRepo.findOne({ where: { code } });
+      if (!scene) {
+        this.logger.warn(`seedSceneActions: scene "${code}" not found, skip`, { context: 'SeedService' });
+        continue;
+      }
+      const existing = await this.actionRepo.count({ where: { sceneId: scene.id } });
+      if (existing > 0) {
+        this.logger.info(`Scene ${code} already has ${existing} actions, skip seed`, { context: 'SeedService' });
+        continue;
+      }
+      for (let i = 0; i < actions.length; i += 1) {
+        const a = actions[i];
+        const action = this.actionRepo.create({
+          sceneId: scene.id,
+          deviceType: a.deviceType,
+          deviceId: a.deviceId,
+          command: a.command,
+          params: JSON.stringify(a.params ?? {}),
+          delayMs: a.delayMs ?? 0,
+          sortOrder: i + 1,
+          enabled: true,
+        });
+        await this.actionRepo.save(action);
+      }
+      this.logger.info(`Seeded ${actions.length} actions for scene ${code}`, { context: 'SeedService' });
+    }
   }
 
   private async seedUat(): Promise<void> {
