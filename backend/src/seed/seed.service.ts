@@ -86,17 +86,33 @@ const DEVICES: DeviceSeed[] = [
   { name: 'led_2f_main', category: 'led', protocol: 'tcp', adapter: 'mock', floor: '2F', zone: 'main' },
   { name: 'audio_1f', category: 'audio', protocol: 'tcp', adapter: 'mock', floor: '1F', zone: 'main' },
   { name: 'audio_2f', category: 'audio', protocol: 'tcp', adapter: 'mock', floor: '2F', zone: 'main' },
-  // ---- 中央空调内机 (奥克斯 ARV-X / CCM-270B 网关, indoorIdx=1..10) ----
-  { name: 'hvac_1f_lobby',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '1F', zone: 'lobby',           address: '{"indoorIdx":1}'  },
-  { name: 'hvac_1f_roadshow',  category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '1F', zone: 'roadshow',        address: '{"indoorIdx":2}'  },
-  { name: 'hvac_1f_exhibit',   category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '1F', zone: 'f102_exhibit',    address: '{"indoorIdx":3}'  },
-  { name: 'hvac_1f_showroom',  category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '1F', zone: 'f103_showroom',   address: '{"indoorIdx":4}'  },
-  { name: 'hvac_1f_trade',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '1F', zone: 'f104_trade',      address: '{"indoorIdx":5}'  },
-  { name: 'hvac_2f_lobby',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '2F', zone: 'lobby_corridor',  address: '{"indoorIdx":6}'  },
-  { name: 'hvac_2f_service',   category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '2F', zone: 'service_center',  address: '{"indoorIdx":7}'  },
-  { name: 'hvac_2f_office',    category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '2F', zone: 'shared_office',   address: '{"indoorIdx":8}'  },
-  { name: 'hvac_2f_research',  category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '2F', zone: 'research_center', address: '{"indoorIdx":9}'  },
-  { name: 'hvac_2f_command',   category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '2F', zone: 'command_center',  address: '{"indoorIdx":10}' },
+  // ---- 中央空调内机 (奥克斯 ARV-X9 / 2 台外机 / CCM-270B 网关, indoorIdx=1..22) ----
+  // 1F: 10 台 (外机 DLR-785W5/DCM-ARVX9 35.5kW); 2F: 12 台 (外机 DLR-1015W5/DCM-ARVX9 40.8kW)
+  // 数据来源: 《F1楼-一层二层空调位置明细》2026-05-21
+  // 1F
+  { name: 'hvac_1f_exhibit_1',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '1F', zone: 'enterprise_booth_1', address: '{"indoorIdx":1,"model":"DLR-63F","kw":1.8}'  },
+  { name: 'hvac_1f_exhibit_2',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '1F', zone: 'enterprise_booth_2', address: '{"indoorIdx":2,"model":"DLR-63F","kw":1.8}'  },
+  { name: 'hvac_1f_exhibit_3',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '1F', zone: 'enterprise_booth_3', address: '{"indoorIdx":3,"model":"DLR-63F","kw":1.8}'  },
+  { name: 'hvac_1f_livestream',    category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '1F', zone: 'livestream',         address: '{"indoorIdx":4,"model":"DLR-71F","kw":2.0}'  },
+  { name: 'hvac_1f_trade_1',       category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '1F', zone: 'foreign_trade_1',    address: '{"indoorIdx":5,"model":"DLR-71F","kw":2.0}'  },
+  { name: 'hvac_1f_trade_2',       category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '1F', zone: 'foreign_trade_2',    address: '{"indoorIdx":6,"model":"DLR-80F","kw":2.0}'  },
+  { name: 'hvac_1f_park_display',  category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '1F', zone: 'park_display',       address: '{"indoorIdx":7,"model":"DLR-90F","kw":2.2}'  },
+  { name: 'hvac_1f_roadshow_1',    category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '1F', zone: 'roadshow_1',         address: '{"indoorIdx":8,"model":"DLR-100F","kw":2.2}' },
+  { name: 'hvac_1f_roadshow_2',    category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '1F', zone: 'roadshow_2',         address: '{"indoorIdx":9,"model":"DLR-112F","kw":2.2}' },
+  { name: 'hvac_1f_showcase',      category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '1F', zone: 'enterprise_showcase',address: '{"indoorIdx":10,"model":"DLR-125F","kw":2.2}' },
+  // 2F
+  { name: 'hvac_2f_group_mgmt',    category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '2F', zone: 'group_mgmt',         address: '{"indoorIdx":11,"model":"DLR-90F","kw":2.2}' },
+  { name: 'hvac_2f_decision',      category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '2F', zone: 'decision_center',    address: '{"indoorIdx":12,"model":"DLR-90F","kw":2.2}' },
+  { name: 'hvac_2f_meeting',       category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '2F', zone: 'meeting_room',       address: '{"indoorIdx":13,"model":"DLR-90F","kw":2.2}' },
+  { name: 'hvac_2f_shared_1',      category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '2F', zone: 'shared_office_1',    address: '{"indoorIdx":14,"model":"DLR-90F","kw":2.2}' },
+  { name: 'hvac_2f_shared_2',      category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '2F', zone: 'shared_office_2',    address: '{"indoorIdx":15,"model":"DLR-90F","kw":2.2}' },
+  { name: 'hvac_2f_service_1',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '2F', zone: 'service_center_1',   address: '{"indoorIdx":16,"model":"DLR-90F","kw":2.2}' },
+  { name: 'hvac_2f_service_2',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '2F', zone: 'service_center_2',   address: '{"indoorIdx":17,"model":"DLR-90F","kw":2.2}' },
+  { name: 'hvac_2f_command_1',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '2F', zone: 'command_center_1',   address: '{"indoorIdx":18,"model":"DLR-90F","kw":2.2}' },
+  { name: 'hvac_2f_command_2',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '2F', zone: 'command_center_2',   address: '{"indoorIdx":19,"model":"DLR-90F","kw":2.2}' },
+  { name: 'hvac_2f_lobby_1',       category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '2F', zone: 'lobby_1',            address: '{"indoorIdx":20,"model":"DLR-100F","kw":2.2}' },
+  { name: 'hvac_2f_lobby_2',       category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '2F', zone: 'lobby_2',            address: '{"indoorIdx":21,"model":"DLR-100F","kw":2.2}' },
+  { name: 'hvac_2f_research',      category: 'hvac', protocol: 'modbus-tcp', adapter: 'aux-ccm270b', floor: '2F', zone: 'research_center',    address: '{"indoorIdx":22,"model":"DLR-100F","kw":2.2}' },
 ];
 
 @Injectable()
@@ -370,15 +386,26 @@ export class SeedService {
       },
       // ---- 空调 ----
       {
-        code: 'HVAC-ODU-1',
-        name: '中央空调外机 (商用 VRF)',
+        code: 'HVAC-ODU-1F',
+        name: '1F 中央空调外机 (商用 VRF)',
         category: 'hvac-outdoor',
         vendor: '奥克斯',
-        model: 'DLR-735W5/DCM-ARVX7(II)',
+        model: 'DLR-785W5/DCM-ARVX9',
         floor: '1F',
         location: '楼顶设备平台',
-        addressing: JSON.stringify({ capacityKw: 73.5, hp: 26, series: 'ARV-X' }),
-        remark: '商用 VRF 一拖多, 制冷量 73.5kW, R410A 冷媒, 一拖 10 台内机',
+        addressing: JSON.stringify({ capacityKw: 35.5, currentA: 57, series: 'ARV-X9', subType: '超低温全直流变频' }),
+        remark: '一层专用外机, 制冷量 35.5kW, 57A, R410A, 带 10 台内机 (indoorIdx 1-10)',
+      },
+      {
+        code: 'HVAC-ODU-2F',
+        name: '2F 中央空调外机 (商用 VRF)',
+        category: 'hvac-outdoor',
+        vendor: '奥克斯',
+        model: 'DLR-1015W5/DCM-ARVX9',
+        floor: '2F',
+        location: '楼顶设备平台',
+        addressing: JSON.stringify({ capacityKw: 40.8, currentA: 64, series: 'ARV-X9', subType: '超低温全直流变频' }),
+        remark: '二层专用外机, 制冷量 40.8kW, 64A, R410A, 带 12 台内机 (indoorIdx 11-22)',
       },
       {
         code: 'HVAC-GW-1',
@@ -389,8 +416,8 @@ export class SeedService {
         ip: '192.168.50.50',
         floor: '1F',
         location: '1F 弱电机柜',
-        addressing: JSON.stringify({ slaveId: 1, port: 502, maxIndoor: 64, indoorBlockSize: 16 }),
-        remark: 'Modbus TCP 网关, 单 slave_id 多内机 (寄存器偏移寻址), 一/二层 10 台内机统一接入',
+        addressing: JSON.stringify({ slaveId: 1, port: 502, maxIndoor: 64, indoorBlockSize: 16, supportsArvX9: 'TBD' }),
+        remark: 'Modbus TCP 网关; 单 slaveId+寄存器偏移寻址 22 台内机. ARV-X9 系列是否兼容需厂家确认 (可能需升级到 CCM-280/CCM-310)',
       },
       // ---- 控制平板 ----
       {

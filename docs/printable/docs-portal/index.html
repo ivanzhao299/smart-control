@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<base href="/jinhu/docs/">
+<title>金湖展贸中心智能控制系统 · 技术文档中心</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>📘</text></svg>">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5.5.1/github-markdown-light.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github.min.css">
+<style>
+  :root {
+    --primary: #1e40af;
+    --primary-2: #2563eb;
+    --bg: #f8fafc;
+    --sidebar-bg: #ffffff;
+    --border: #e2e8f0;
+    --text: #1e293b;
+    --text-light: #64748b;
+    --accent: #3b82f6;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+                 "Hiragino Sans GB", "Helvetica Neue", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100%;
+  }
+
+  /* ============ Header ============ */
+  .topbar {
+    background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%);
+    color: #fff;
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 10px rgba(30, 64, 175, 0.2);
+  }
+  .topbar h1 {
+    font-size: 18px;
+    margin: 0;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+  .topbar h1 .subtitle {
+    font-size: 13px;
+    opacity: 0.85;
+    font-weight: normal;
+    margin-left: 10px;
+  }
+  .topbar .actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  .topbar .actions a {
+    color: #fff;
+    text-decoration: none;
+    padding: 6px 14px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    font-size: 13px;
+    transition: background 0.2s;
+  }
+  .topbar .actions a:hover { background: rgba(255, 255, 255, 0.28); }
+
+  /* ============ 搜索框 ============ */
+  .search-wrap {
+    position: relative;
+    flex: 1;
+    max-width: 360px;
+    margin: 0 16px;
+  }
+  .search-input {
+    width: 100%;
+    padding: 8px 12px 8px 36px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+    border-radius: 6px;
+    font-size: 14px;
+    outline: none;
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .search-input::placeholder { color: rgba(255, 255, 255, 0.7); }
+  .search-input:focus {
+    background: rgba(255, 255, 255, 0.95);
+    color: var(--text);
+    border-color: rgba(255, 255, 255, 0.6);
+  }
+  .search-input:focus::placeholder { color: var(--text-light); }
+  .search-icon {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 14px;
+    pointer-events: none;
+    transition: color 0.2s;
+  }
+  .search-input:focus + .search-icon { color: var(--text-light); }
+  .search-results {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+    max-height: 70vh;
+    overflow-y: auto;
+    z-index: 200;
+  }
+  .search-results.show { display: block; }
+  .search-results .sr-empty {
+    padding: 20px;
+    text-align: center;
+    color: var(--text-light);
+    font-size: 13px;
+  }
+  .search-results .sr-loading {
+    padding: 16px 20px;
+    color: var(--text-light);
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .search-results .sr-loading .spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  .search-results .sr-item {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    color: var(--text);
+    text-decoration: none;
+    display: block;
+    transition: background 0.12s;
+  }
+  .search-results .sr-item:last-child { border-bottom: none; }
+  .search-results .sr-item:hover { background: #eff6ff; }
+  .search-results .sr-doc {
+    font-weight: 600;
+    color: var(--primary);
+    font-size: 13px;
+    margin-bottom: 4px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .search-results .sr-count {
+    font-weight: normal;
+    color: var(--text-light);
+    font-size: 11px;
+  }
+  .search-results .sr-snippet {
+    font-size: 12px;
+    color: var(--text-light);
+    line-height: 1.5;
+    margin: 2px 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .search-results .sr-snippet mark {
+    background: #fef08a;
+    color: var(--text);
+    padding: 0 1px;
+    border-radius: 2px;
+  }
+  /* 渲染后的内容中高亮 */
+  .markdown-body mark.search-hit {
+    background: #fef08a;
+    color: var(--text);
+    padding: 0 2px;
+    border-radius: 2px;
+  }
+  .markdown-body mark.search-hit.current {
+    background: #fbbf24;
+    box-shadow: 0 0 0 2px #f59e0b;
+  }
+
+  /* ============ Layout ============ */
+  .layout {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    min-height: calc(100vh - 60px);
+  }
+  .sidebar {
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--border);
+    padding: 20px 0;
+    overflow-y: auto;
+    max-height: calc(100vh - 60px);
+    position: sticky;
+    top: 60px;
+  }
+  .main {
+    padding: 32px 48px 80px;
+    max-width: 980px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  /* ============ Sidebar ============ */
+  .sidebar-group {
+    padding: 8px 16px;
+  }
+  .sidebar-group-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-light);
+    padding: 12px 12px 6px;
+    font-weight: 600;
+  }
+  .sidebar a {
+    display: block;
+    padding: 8px 12px;
+    color: var(--text);
+    text-decoration: none;
+    border-radius: 6px;
+    font-size: 14px;
+    line-height: 1.5;
+    transition: all 0.15s;
+  }
+  .sidebar a:hover {
+    background: #eff6ff;
+    color: var(--primary);
+  }
+  .sidebar a.active {
+    background: linear-gradient(90deg, var(--primary), var(--primary-2));
+    color: #fff;
+    font-weight: 500;
+  }
+  .sidebar a .icon {
+    display: inline-block;
+    width: 20px;
+    margin-right: 6px;
+  }
+
+  /* ============ Home (no doc selected) ============ */
+  .home {
+    text-align: center;
+    padding: 60px 20px;
+  }
+  .home h2 {
+    font-size: 28px;
+    color: var(--primary);
+    margin-bottom: 8px;
+  }
+  .home p { color: var(--text-light); font-size: 15px; }
+  .home .cards {
+    margin-top: 40px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 18px;
+    text-align: left;
+  }
+  .home .card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    transition: transform 0.15s, box-shadow 0.15s;
+    cursor: pointer;
+    text-decoration: none;
+    color: var(--text);
+    display: block;
+  }
+  .home .card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
+    border-color: var(--accent);
+  }
+  .home .card .ico { font-size: 24px; margin-bottom: 8px; }
+  .home .card .ttl { font-weight: 600; font-size: 15px; color: var(--primary); margin-bottom: 4px; }
+  .home .card .desc { font-size: 13px; color: var(--text-light); line-height: 1.5; }
+
+  /* ============ Markdown content ============ */
+  .markdown-body {
+    box-sizing: border-box;
+    max-width: 100%;
+    background: #fff;
+    padding: 36px 48px;
+    border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  }
+  .markdown-body pre {
+    background: #f6f8fa;
+    padding: 14px 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 13px;
+  }
+  .markdown-body code {
+    background: rgba(175, 184, 193, 0.2);
+    padding: 0.2em 0.4em;
+    border-radius: 3px;
+    font-size: 85%;
+    font-family: "JetBrains Mono", "SF Mono", Consolas, monospace;
+  }
+  .markdown-body pre code {
+    background: transparent;
+    padding: 0;
+  }
+  .markdown-body table {
+    border-collapse: collapse;
+    margin: 16px 0;
+    width: auto;
+  }
+  .markdown-body table th, .markdown-body table td {
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    text-align: left;
+  }
+  .markdown-body table th {
+    background: #f1f5f9;
+    font-weight: 600;
+  }
+  .markdown-body table tr:nth-child(even) { background: #fafafa; }
+  .markdown-body h1, .markdown-body h2, .markdown-body h3 {
+    color: var(--primary);
+  }
+  .markdown-body h1 {
+    border-bottom: 3px solid var(--primary-2);
+    padding-bottom: 8px;
+  }
+  .markdown-body blockquote {
+    border-left: 4px solid var(--accent);
+    background: #eff6ff;
+    padding: 10px 16px;
+    color: var(--text);
+  }
+
+  /* ============ Mobile ============ */
+  .menu-toggle {
+    display: none;
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 22px;
+    cursor: pointer;
+    padding: 0 8px;
+  }
+  @media (max-width: 780px) {
+    .menu-toggle { display: inline-block; }
+    .topbar h1 .subtitle { display: none; }
+    .layout { grid-template-columns: 1fr; }
+    .sidebar {
+      position: fixed;
+      top: 60px;
+      left: 0;
+      bottom: 0;
+      width: 80%;
+      max-width: 320px;
+      transform: translateX(-100%);
+      transition: transform 0.25s ease;
+      z-index: 50;
+      box-shadow: 4px 0 16px rgba(0, 0, 0, 0.15);
+    }
+    .sidebar.open { transform: translateX(0); }
+    .main { padding: 16px; }
+    .markdown-body { padding: 20px; }
+  }
+
+  /* ============ Loading / Error ============ */
+  .status {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-light);
+  }
+  .status .spinner {
+    display: inline-block;
+    width: 36px;
+    height: 36px;
+    border: 3px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .status.err {
+    color: #b91c1c;
+    background: #fef2f2;
+    border-radius: 8px;
+    margin: 20px;
+  }
+
+  /* ============ Print ============ */
+  @media print {
+    .topbar, .sidebar, .menu-toggle { display: none; }
+    .layout { grid-template-columns: 1fr; }
+    .main { padding: 0; }
+    .markdown-body { box-shadow: none; padding: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>
+    <button class="menu-toggle" id="menuToggle" aria-label="菜单">☰</button>
+    📘 金湖展贸中心 技术文档
+    <span class="subtitle">智能控制系统 · 在线手册</span>
+  </h1>
+  <div class="search-wrap">
+    <input type="search" id="searchInput" class="search-input" placeholder="搜索关键字 (例: DALI / 应急 / Modbus)..." autocomplete="off" />
+    <span class="search-icon">🔍</span>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="actions">
+    <a href="/emergency-card.html" target="_blank">应急卡</a>
+    <a href="/control/" target="_blank">控制台</a>
+    <a href="https://github.com/ivanzhao299/smart-control" target="_blank">GitHub</a>
+  </div>
+</div>
+
+<div class="layout">
+
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar-group">
+      <div class="sidebar-group-title">⭐ 日常运维</div>
+      <a href="#HOST_OPERATIONS" data-doc="HOST_OPERATIONS.md">主机日常运维 (总入口)</a>
+      <a href="#WINDOWS_MAINTENANCE" data-doc="WINDOWS_MAINTENANCE.md">周巡检流程</a>
+      <a href="#ONSITE_UPDATE" data-doc="ONSITE_UPDATE.md">代码更新流程</a>
+    </div>
+
+    <div class="sidebar-group">
+      <div class="sidebar-group-title">📦 设备与采购</div>
+      <a href="#EQUIPMENT_LIST" data-doc="EQUIPMENT_LIST.md">设备清单 + 采购建议</a>
+      <a href="#WIRELESS_NETWORK" data-doc="WIRELESS_NETWORK.md">无线网络 + 无线话筒</a>
+    </div>
+
+    <div class="sidebar-group">
+      <div class="sidebar-group-title">🔧 首次部署</div>
+      <a href="#GK9000_FIELD_SETUP" data-doc="GK9000_FIELD_SETUP.md">GK9000 主机系统配置</a>
+      <a href="#Sprint-01-Windows" data-doc="Sprint-01-Windows-部署.md">应用部署 (Sprint-01)</a>
+      <a href="#DEPLOY_WINDOWS" data-doc="DEPLOY_WINDOWS.md">完整部署手册</a>
+      <a href="#PRODUCTION_CHECKLIST" data-doc="PRODUCTION_CHECKLIST.md">上线 44 项检查</a>
+    </div>
+
+    <div class="sidebar-group">
+      <div class="sidebar-group-title">🛠 现场施工 SOP</div>
+      <a href="#DALI_FIELD_INSTALL" data-doc="DALI_FIELD_INSTALL.md">DALI 灯光</a>
+      <a href="#HVAC_FIELD_INSTALL" data-doc="HVAC_FIELD_INSTALL.md">中央空调</a>
+      <a href="#AUDIO_FIELD_INSTALL" data-doc="AUDIO_FIELD_INSTALL.md">音响系统</a>
+    </div>
+
+    <div class="sidebar-group">
+      <div class="sidebar-group-title">📋 项目信息</div>
+      <a href="#README" data-doc="README.md">项目总览 (README)</a>
+      <a href="#CI_CD" data-doc="CI_CD.md">CI/CD 配置</a>
+      <a href="#SESSION-RECAP" data-doc="SESSION-2026-05-20-RECAP.md">工作纪要 2026-05-20</a>
+    </div>
+
+    <div class="sidebar-group">
+      <div class="sidebar-group-title">📦 Sprint 交付清单</div>
+      <a href="#Sprint-09" data-doc="Sprint-09-交付清单.md">Sprint-09</a>
+      <a href="#Sprint-08" data-doc="Sprint-08-交付清单.md">Sprint-08</a>
+      <a href="#Sprint-07" data-doc="Sprint-07-交付清单.md">Sprint-07</a>
+      <a href="#Sprint-06" data-doc="Sprint-06-交付清单.md">Sprint-06</a>
+      <a href="#Sprint-05" data-doc="Sprint-05-交付清单.md">Sprint-05</a>
+      <a href="#Sprint-04" data-doc="Sprint-04-交付清单.md">Sprint-04</a>
+      <a href="#Sprint-03" data-doc="Sprint-03-交付清单.md">Sprint-03</a>
+      <a href="#Sprint-02" data-doc="Sprint-02-交付清单.md">Sprint-02</a>
+      <a href="#Sprint-01" data-doc="Sprint-01-交付清单.md">Sprint-01</a>
+    </div>
+  </nav>
+
+  <main class="main" id="main">
+    <!-- 内容由 JS 注入 -->
+  </main>
+
+</div>
+
+<!-- Markdown 渲染 -->
+<script src="https://cdn.jsdelivr.net/npm/marked@13.0.3/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"></script>
+<script>
+  // ============ 配置 marked (代码高亮通过后处理实现, 兼容 v13+) ============
+  marked.setOptions({
+    gfm: true,
+    breaks: false,
+  });
+
+  const main = document.getElementById('main');
+  const sidebar = document.getElementById('sidebar');
+  const menuToggle = document.getElementById('menuToggle');
+
+  // ============ 首页 ============
+  function renderHome() {
+    document.title = '金湖展贸中心智能控制系统 · 技术文档中心';
+    main.innerHTML = `
+      <div class="home">
+        <h2>📘 技术文档中心</h2>
+        <p>金湖展贸中心智能控制系统 · 在线手册随时查阅</p>
+        <div class="cards">
+          <a class="card" href="#HOST_OPERATIONS" data-doc="HOST_OPERATIONS.md">
+            <div class="ico">⭐</div>
+            <div class="ttl">主机日常运维</div>
+            <div class="desc">日常运维总入口 · 接入方式 / 后台 / 应急 / 三类人三个动作</div>
+          </a>
+          <a class="card" href="#EQUIPMENT_LIST" data-doc="EQUIPMENT_LIST.md">
+            <div class="ico">📦</div>
+            <div class="ttl">设备清单 + 采购建议</div>
+            <div class="desc">核心设备 + 网络配套 + 线缆耗材 + 采购总览 + 优先级建议</div>
+          </a>
+          <a class="card" href="#WIRELESS_NETWORK" data-doc="WIRELESS_NETWORK.md">
+            <div class="ico">📡</div>
+            <div class="ttl">无线网络 + 无线话筒</div>
+            <div class="desc">WiFi AP/VLAN/SSID 设计 · UHF 麦克风选型 · 频段冲突规避</div>
+          </a>
+          <a class="card" href="#GK9000_FIELD_SETUP" data-doc="GK9000_FIELD_SETUP.md">
+            <div class="ico">🔧</div>
+            <div class="ttl">GK9000 系统配置</div>
+            <div class="desc">主机首次配置 · 双网卡 / 防火墙 / 远程桌面 / 自启 / 验收</div>
+          </a>
+          <a class="card" href="#DALI_FIELD_INSTALL" data-doc="DALI_FIELD_INSTALL.md">
+            <div class="ico">💡</div>
+            <div class="ttl">DALI 灯光施工</div>
+            <div class="desc">CY-DALI64A 网关 + DA4-D 调光器 现场安装</div>
+          </a>
+          <a class="card" href="#HVAC_FIELD_INSTALL" data-doc="HVAC_FIELD_INSTALL.md">
+            <div class="ico">❄️</div>
+            <div class="ttl">中央空调施工</div>
+            <div class="desc">奥克斯 VRF + CCM-270B 网关 + 10 内机寻址</div>
+          </a>
+          <a class="card" href="#AUDIO_FIELD_INSTALL" data-doc="AUDIO_FIELD_INSTALL.md">
+            <div class="ico">🔊</div>
+            <div class="ttl">音响系统施工</div>
+            <div class="desc">DSPPA MAG6816 DSP 矩阵 · 4 路分区 · MIC 优先压低</div>
+          </a>
+          <a class="card" href="#ONSITE_UPDATE" data-doc="ONSITE_UPDATE.md">
+            <div class="ico">🔄</div>
+            <div class="ttl">代码更新流程</div>
+            <div class="desc">云端 → 现场 三种策略 · update.ps1 / Tailscale / U 盘</div>
+          </a>
+          <a class="card" href="/emergency-card.html">
+            <div class="ico">🆘</div>
+            <div class="ttl">应急操作卡</div>
+            <div class="desc">现场打印贴墙版 · 故障排查 + 紧急联系人</div>
+          </a>
+          <a class="card" href="/control/">
+            <div class="ico">🎛️</div>
+            <div class="ttl">控制台 PWA</div>
+            <div class="desc">业务平板入口 / 管理后台 (云端 mock 演示)</div>
+          </a>
+        </div>
+        <p style="margin-top: 40px; color: #888; font-size: 13px;">
+          ← 左侧菜单包含全部文档 · 这里只列常用入口
+        </p>
+      </div>
+    `;
+    main.querySelectorAll('a[data-doc]').forEach(bindNav);
+    setActiveNav('');
+  }
+
+  // ============ 加载 markdown 文档 ============
+  // 缓存 .md 原文 (搜索用 + 重复加载用)
+  const docCache = new Map(); // filename -> { md, html }
+
+  async function fetchDoc(filename) {
+    if (docCache.has(filename)) return docCache.get(filename);
+    const res = await fetch(filename + '?v=' + Date.now());
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const md = await res.text();
+    const entry = { md, html: null };
+    docCache.set(filename, entry);
+    return entry;
+  }
+
+  async function loadDoc(filename, anchor, highlightQuery) {
+    main.innerHTML = '<div class="status"><div class="spinner"></div><p>加载中...</p></div>';
+    try {
+      const entry = await fetchDoc(filename);
+      if (!entry.html) entry.html = marked.parse(entry.md);
+      main.innerHTML = `<article class="markdown-body">${entry.html}</article>`;
+      // 代码块高亮
+      main.querySelectorAll('pre code').forEach((block) => {
+        try { hljs.highlightElement(block); } catch (e) { /* ignore */ }
+      });
+      // 命中词高亮 + 滚到首个
+      if (highlightQuery) {
+        highlightMatches(main, highlightQuery);
+        const first = main.querySelector('mark.search-hit');
+        if (first) {
+          first.classList.add('current');
+          first.scrollIntoView({ block: 'center', behavior: 'instant' });
+        } else {
+          window.scrollTo({ top: 0, behavior: 'instant' });
+        }
+      } else {
+        window.scrollTo({ top: 0, behavior: 'instant' });
+      }
+      document.title = (anchor || filename.replace('.md', '')) + ' · 金湖技术文档';
+      setActiveNav(anchor);
+    } catch (err) {
+      main.innerHTML = `<div class="status err">
+        <h3>加载失败</h3>
+        <p>${err.message}</p>
+        <p style="font-size: 12px;">尝试访问 ${filename}</p>
+      </div>`;
+    }
+  }
+
+  // 在已渲染 DOM 中查找文本节点, 将匹配的 query 包成 <mark class="search-hit">
+  function highlightMatches(root, query) {
+    if (!query) return 0;
+    const q = query.toLowerCase();
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!node.nodeValue.toLowerCase().includes(q)) return NodeFilter.FILTER_REJECT;
+        const p = node.parentElement;
+        if (!p) return NodeFilter.FILTER_REJECT;
+        // 跳过代码块 (避免破坏高亮结构)
+        if (p.closest('pre code')) return NodeFilter.FILTER_REJECT;
+        if (p.tagName === 'SCRIPT' || p.tagName === 'STYLE') return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    const toReplace = [];
+    let n;
+    while ((n = walker.nextNode())) toReplace.push(n);
+    let count = 0;
+    for (const node of toReplace) {
+      const txt = node.nodeValue;
+      const frag = document.createDocumentFragment();
+      let i = 0;
+      while (i < txt.length) {
+        const idx = txt.toLowerCase().indexOf(q, i);
+        if (idx < 0) {
+          frag.appendChild(document.createTextNode(txt.slice(i)));
+          break;
+        }
+        if (idx > i) frag.appendChild(document.createTextNode(txt.slice(i, idx)));
+        const mark = document.createElement('mark');
+        mark.className = 'search-hit';
+        mark.textContent = txt.slice(idx, idx + q.length);
+        frag.appendChild(mark);
+        count++;
+        i = idx + q.length;
+      }
+      node.parentNode.replaceChild(frag, node);
+    }
+    return count;
+  }
+
+  function setActiveNav(anchor) {
+    sidebar.querySelectorAll('a').forEach(a => {
+      a.classList.toggle('active', a.getAttribute('href') === '#' + anchor);
+    });
+  }
+
+  function bindNav(link) {
+    link.addEventListener('click', (e) => {
+      const doc = link.dataset.doc;
+      if (!doc) return; // external link
+      e.preventDefault();
+      const anchor = link.getAttribute('href').slice(1);
+      location.hash = anchor;
+      sidebar.classList.remove('open');
+    });
+  }
+
+  // 绑定所有 nav
+  sidebar.querySelectorAll('a[data-doc]').forEach(bindNav);
+
+  // 移动端菜单
+  menuToggle.addEventListener('click', () => sidebar.classList.toggle('open'));
+
+  // hash 路由 — 支持 #anchor 和 #anchor?q=keyword (搜索命中跳转用)
+  function onHashChange() {
+    const raw = location.hash.slice(1);
+    if (!raw) {
+      renderHome();
+      return;
+    }
+    let anchor = raw, query = '';
+    const qIdx = raw.indexOf('?');
+    if (qIdx >= 0) {
+      anchor = raw.slice(0, qIdx);
+      const params = new URLSearchParams(raw.slice(qIdx + 1));
+      query = params.get('q') || '';
+    }
+    const link = sidebar.querySelector(`a[href="#${anchor}"]`);
+    if (link) {
+      loadDoc(link.dataset.doc, anchor, query);
+    } else {
+      renderHome();
+    }
+  }
+  window.addEventListener('hashchange', onHashChange);
+  onHashChange();
+
+  // ============ 全文搜索 ============
+  const searchInput = document.getElementById('searchInput');
+  const searchResults = document.getElementById('searchResults');
+
+  // 文档清单: filename → 显示名 (从 sidebar 提取)
+  const docRegistry = [];
+  sidebar.querySelectorAll('a[data-doc]').forEach(a => {
+    docRegistry.push({
+      file: a.dataset.doc,
+      title: a.textContent.trim(),
+      anchor: a.getAttribute('href').slice(1),
+    });
+  });
+
+  let docsLoaded = false;
+  let docsLoading = null;
+
+  // 一次性并发预拉所有 .md 进缓存
+  async function preloadAllDocs() {
+    if (docsLoaded) return;
+    if (docsLoading) return docsLoading;
+    docsLoading = Promise.all(docRegistry.map(d =>
+      fetchDoc(d.file).catch(err => {
+        console.warn('预加载失败', d.file, err);
+        return null;
+      })
+    )).then(() => { docsLoaded = true; });
+    return docsLoading;
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  }
+  function escapeRegex(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  // 在原文 .md 里搜, 返回每文档命中位置 + 片段
+  function searchAll(query) {
+    const q = query.toLowerCase();
+    const results = [];
+    for (const d of docRegistry) {
+      const entry = docCache.get(d.file);
+      if (!entry) continue;
+      const md = entry.md;
+      const mdLower = md.toLowerCase();
+      const positions = [];
+      let i = 0;
+      while ((i = mdLower.indexOf(q, i)) >= 0) {
+        positions.push(i);
+        i += q.length;
+        if (positions.length >= 50) break; // 单文档最多 50 个
+      }
+      if (positions.length === 0) continue;
+      // 取前 3 个片段
+      const snippets = positions.slice(0, 3).map(pos => {
+        const start = Math.max(0, pos - 25);
+        const end = Math.min(md.length, pos + query.length + 50);
+        let snippet = md.slice(start, end).replace(/[\r\n]+/g, ' ');
+        if (start > 0) snippet = '…' + snippet;
+        if (end < md.length) snippet = snippet + '…';
+        // 高亮 (转义后再 replace)
+        const escaped = escapeHtml(snippet);
+        const re = new RegExp(escapeRegex(escapeHtml(query)), 'gi');
+        return escaped.replace(re, m => `<mark>${m}</mark>`);
+      });
+      results.push({
+        ...d,
+        count: positions.length,
+        snippets,
+      });
+    }
+    // 按命中数降序
+    results.sort((a, b) => b.count - a.count);
+    return results;
+  }
+
+  function renderSearchResults(query, results) {
+    if (!query) {
+      searchResults.classList.remove('show');
+      return;
+    }
+    if (results.length === 0) {
+      searchResults.innerHTML = `<div class="sr-empty">没找到包含 "${escapeHtml(query)}" 的文档</div>`;
+      searchResults.classList.add('show');
+      return;
+    }
+    const html = results.map(r => `
+      <a class="sr-item" href="#${r.anchor}?q=${encodeURIComponent(query)}" data-doc="${r.file}" data-anchor="${r.anchor}" data-q="${escapeHtml(query)}">
+        <div class="sr-doc">
+          <span>${escapeHtml(r.title)}</span>
+          <span class="sr-count">${r.count} 处命中</span>
+        </div>
+        ${r.snippets.map(s => `<div class="sr-snippet">${s}</div>`).join('')}
+      </a>
+    `).join('');
+    searchResults.innerHTML = html;
+    searchResults.classList.add('show');
+  }
+
+  let searchDebounce = null;
+  async function onSearchInput() {
+    const q = searchInput.value.trim();
+    if (!q) {
+      searchResults.classList.remove('show');
+      return;
+    }
+    if (!docsLoaded) {
+      searchResults.innerHTML = `<div class="sr-loading"><div class="spinner"></div>正在加载文档索引 (${docRegistry.length} 份, 首次约 1-2s)...</div>`;
+      searchResults.classList.add('show');
+      await preloadAllDocs();
+      // 加载完成后, 检查输入框是否还有内容
+      if (searchInput.value.trim() !== q) return;
+    }
+    const results = searchAll(q);
+    renderSearchResults(q, results);
+  }
+
+  searchInput.addEventListener('input', () => {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(onSearchInput, 180);
+  });
+
+  // 聚焦时预热索引 (不等输入)
+  searchInput.addEventListener('focus', () => { preloadAllDocs(); });
+
+  // 点击结果: 直接 hash 跳转 (loadDoc 会用 query 高亮)
+  searchResults.addEventListener('click', (e) => {
+    const item = e.target.closest('.sr-item');
+    if (!item) return;
+    e.preventDefault();
+    location.hash = `${item.dataset.anchor}?q=${encodeURIComponent(item.dataset.q)}`;
+    searchResults.classList.remove('show');
+    searchInput.blur();
+  });
+
+  // Esc 关闭, Enter 跳转第一个
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      searchInput.value = '';
+      searchResults.classList.remove('show');
+      searchInput.blur();
+    } else if (e.key === 'Enter') {
+      const first = searchResults.querySelector('.sr-item');
+      if (first) first.click();
+    }
+  });
+
+  // 点搜索框外面关闭结果面板
+  document.addEventListener('click', (e) => {
+    if (!searchInput.parentElement.contains(e.target)) {
+      searchResults.classList.remove('show');
+    }
+  });
+</script>
+
+</body>
+</html>

@@ -19,21 +19,34 @@ interface HvacRow {
   error: string | null;
 }
 
-// id = CCM-270B 网关的内机序号 (1-10), 对应寄存器基地址 (id-1)×16
-// 物理映射: 奥克斯商用 VRF (DLR-735W5/DCM-ARVX7) 一拖多, 各区域内机一一对应
+// id = CCM-270B 网关的内机序号 (1-22), 对应寄存器基地址 (id-1)×16
+// 物理映射: 奥克斯商用 VRF ARV-X9 系列, 2 台外机 (DLR-785W5 一层 + DLR-1015W5 二层) + 22 台内机
+// 数据来源: 《F1楼-一层二层空调位置明细》2026-05-21
 const units = ref<HvacRow[]>([
-  // ---- 1F (内机 1-5) ----
-  { id: '1',  name: '一层前厅 / 园区展示',     floor: '1F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
-  { id: '2',  name: '一层路演 / 洽谈区',       floor: '1F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
-  { id: '3',  name: '一层企业展位区 (F102)',   floor: '1F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
-  { id: '4',  name: '一层综合展销区 (F103)',   floor: '1F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
-  { id: '5',  name: '一层物贸交易展示区 (F104)', floor: '1F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
-  // ---- 2F (内机 6-10) ----
-  { id: '6',  name: '二层前厅 / 走廊',         floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
-  { id: '7',  name: '二层企业服务中心',        floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
-  { id: '8',  name: '二层共享办公',            floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
-  { id: '9',  name: '二层产业研究 / 接待',     floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
-  { id: '10', name: '二层运营指挥中心',        floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  // ==================== 1F (内机 1-10, 外机 DLR-785W5 35.5kW) ====================
+  { id: '1',  name: '一层企业展位 #1 (DLR-63F)',          floor: '1F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '2',  name: '一层企业展位 #2 (DLR-63F)',          floor: '1F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '3',  name: '一层企业展位 #3 (DLR-63F)',          floor: '1F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '4',  name: '一层直播间 (DLR-71F)',               floor: '1F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '5',  name: '一层外贸交易展示区 #1 (DLR-71F)',    floor: '1F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '6',  name: '一层外贸交易展示区 #2 (DLR-80F)',    floor: '1F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '7',  name: '一层园区展示 (DLR-90F)',             floor: '1F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '8',  name: '一层路演发布洽谈区 #1 (DLR-100F)',   floor: '1F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '9',  name: '一层路演发布洽谈区 #2 (DLR-112F)',   floor: '1F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '10', name: '一层企业综合展销区 (DLR-125F)',      floor: '1F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  // ==================== 2F (内机 11-22, 外机 DLR-1015W5 40.8kW) ====================
+  { id: '11', name: '二层集团产业管理中心 (DLR-90F)',     floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '12', name: '二层投资决策中心 (DLR-90F)',         floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '13', name: '二层会议室 (DLR-90F)',               floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '14', name: '二层共享办公 #1 (DLR-90F)',          floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '15', name: '二层共享办公 #2 (DLR-90F)',          floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '16', name: '二层企业服务中心 #1 (DLR-90F)',      floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '17', name: '二层企业服务中心 #2 (DLR-90F)',      floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '18', name: '二层运营指挥中心 #1 (DLR-90F)',      floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '19', name: '二层运营指挥中心 #2 (DLR-90F)',      floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '20', name: '二层前厅 #1 (DLR-100F)',             floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '21', name: '二层前厅 #2 (DLR-100F)',             floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
+  { id: '22', name: '二层产业研究中心 (DLR-100F)',        floor: '2F', on: false, temperature: 24, mode: 'auto', fan: 'auto', busy: false, error: null },
 ]);
 
 const modes: Array<{ value: HvacMode; label: string; icon: Component }> = [
@@ -97,7 +110,7 @@ async function setFan(z: HvacRow, fan: HvacFan): Promise<void> {
       <div class="sc-head-ico"><Snowflake :size="22" :stroke-width="1.75" /></div>
       <div>
         <h2 class="sc-title">中央空调控制</h2>
-        <div class="sc-subtle">奥克斯商用 VRF · CCM-270B 网关 · {{ units.length }} 台内机 · 温度 16-30°C</div>
+        <div class="sc-subtle">奥克斯商用 VRF ARV-X9 · 2 台外机 · CCM-270B 网关 · {{ units.length }} 台内机</div>
       </div>
     </header>
 
@@ -177,7 +190,8 @@ async function setFan(z: HvacRow, fan: HvacFan): Promise<void> {
 <style scoped>
 .page { display: flex; flex-direction: column; gap: 18px; }
 .page-head { display: flex; align-items: center; gap: 14px; }
-.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+@media (max-width: 1400px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .hvac-card {
   display: flex; flex-direction: column; gap: 14px;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
@@ -242,5 +256,5 @@ async function setFan(z: HvacRow, fan: HvacFan): Promise<void> {
 
 .power-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
-@media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
 </style>
