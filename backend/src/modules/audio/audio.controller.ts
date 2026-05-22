@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Post } from '@nestjs/common';
 import { AudioAdapter } from '../../adapters/audio/audio.adapter';
 import { OperationLogService } from '../logs/operation-log.service';
 import { AudioBgmDto, AudioMicDto, AudioMuteDto, AudioVolumeDto } from './dto/audio.dto';
@@ -10,6 +10,23 @@ export class AudioController {
     private readonly audio: AudioAdapter,
     private readonly logService: OperationLogService,
   ) {}
+
+  // ============ EKX-808 场景预设 ============
+
+  /** 一键场景切换 (调用 DSP 用户预设 U01-U12) */
+  @Post('scene/recall/:preset')
+  recallScene(@Param('preset', ParseIntPipe) preset: number) {
+    return this.wrap('audio-dsp', `scene.recall.U${preset}`,
+      () => this.audio.recallScene(preset),
+      { preset });
+  }
+
+  /** 读取当前激活的场景号 */
+  @Get('scene/current')
+  async currentScene() {
+    const result = await this.audio.readCurrentScene();
+    return { message: result.ok ? 'ok' : 'failed', data: result };
+  }
 
   @Post(':id/volume')
   volume(@Param('id') id: string, @Body() dto: AudioVolumeDto) {

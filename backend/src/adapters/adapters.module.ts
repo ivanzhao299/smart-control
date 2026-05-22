@@ -10,6 +10,7 @@ import { NovaLedAdapter } from './led/nova-led.adapter';
 import { AudioAdapter } from './audio/audio.adapter';
 import { MockAudioAdapter } from './audio/mock-audio.adapter';
 import { RealAudioAdapter } from './audio/real-audio.adapter';
+import { EkxDspAdapter } from './audio/ekx808.adapter';
 import { HvacAdapter } from './hvac/hvac.adapter';
 import { MockHvacAdapter } from './hvac/mock-hvac.adapter';
 import { ModbusHvacAdapter } from './hvac/modbus-hvac.adapter';
@@ -30,6 +31,7 @@ const PROVIDERS = [
   // Audio
   MockAudioAdapter,
   RealAudioAdapter,
+  EkxDspAdapter,
   AudioAdapter,
   // HVAC
   MockHvacAdapter,

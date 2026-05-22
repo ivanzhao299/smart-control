@@ -15,6 +15,7 @@
     "start:prod": "node dist/main.js",
     "seed": "node dist/seed/seed.js",
     "seed:dev": "ts-node -r tsconfig-paths/register src/seed/seed.ts",
+    "test:ekx": "ts-node -r tsconfig-paths/register scripts/test-ekx808-protocol.ts",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
     "pm2:start": "pm2 start ../deploy/ecosystem.config.js",

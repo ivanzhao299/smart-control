@@ -14,4 +14,10 @@ export const audioService = {
     api.post<AdapterResult>(`/audio/${id}/stop-bgm`, { zone }),
   mic: (id: string, enable: boolean, zone?: string) =>
     api.post<AdapterResult>(`/audio/${id}/mic`, { enable, zone }),
+
+  // EKX-808 一键场景预设 (U01-U12)
+  recallScene: (preset: number) =>
+    api.post<AdapterResult<{ preset: number }>>(`/audio/scene/recall/${preset}`, {}),
+  currentScene: () =>
+    api.get<{ message: string; data: AdapterResult<{ preset: number }> }>(`/audio/scene/current`),
 };

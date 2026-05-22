@@ -1,8 +1,56 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
-import { Volume2, VolumeX, Mic, MicOff, Play, Square, AlertCircle } from 'lucide-vue-next';
+import { Volume2, VolumeX, Mic, MicOff, Play, Square, AlertCircle, Zap } from 'lucide-vue-next';
 import { audioService } from '@/services/audio.service';
+
+// ============ EKX-808 一键场景 (12 个用户预设, 由厂家工程师录入 U01-U12) ============
+interface Scene {
+  id: number;
+  name: string;
+  hint: string;
+}
+const SCENES: Scene[] = [
+  { id: 1,  name: '早班接待',       hint: '8-10 点全场低音量 BGM' },
+  { id: 2,  name: '日常运营',       hint: '10-17 点标准音量 + 讲解' },
+  { id: 3,  name: '路演演讲',       hint: 'LED 大屏区主声道' },
+  { id: 4,  name: '大型发布会',     hint: '全场开 + 大屏突出' },
+  { id: 5,  name: '会议室独立',     hint: 'ZONE 8 独立 + AEC' },
+  { id: 6,  name: '跟随讲解',       hint: 'WTG-800 RSSI 自动激活' },
+  { id: 7,  name: '政府接待 VIP',   hint: '高规格全场 +0dB' },
+  { id: 8,  name: '夜间静音',       hint: '18-8 点全场静音' },
+  { id: 9,  name: '应急广播',       hint: '消防/疏散最大声强插' },
+  { id: 10, name: '大屏视频',       hint: 'ZONE 1 全频 + SUB12' },
+  { id: 11, name: '自定义 1',       hint: '备用' },
+  { id: 12, name: '自定义 2',       hint: '备用' },
+];
+const currentScene = ref<number | null>(null);
+const sceneBusy = ref(false);
+
+async function recallScene(s: Scene): Promise<void> {
+  sceneBusy.value = true;
+  try {
+    const res = await audioService.recallScene(s.id);
+    if (!res.ok) throw new Error(res.error || '场景切换失败');
+    currentScene.value = s.id;
+    ElMessage.success(`场景已切换: ${s.name} (U${String(s.id).padStart(2,'0')})`);
+  } catch (err) {
+    ElMessage.error(`切换 ${s.name} 失败: ${(err as Error).message}`);
+  } finally {
+    sceneBusy.value = false;
+  }
+}
+
+async function refreshCurrentScene(): Promise<void> {
+  try {
+    const wrapped = await audioService.currentScene();
+    const preset = wrapped?.data?.data?.preset;
+    if (typeof preset === 'number' && preset >= 1 && preset <= 12) {
+      currentScene.value = preset;
+    }
+  } catch { /* 静默 */ }
+}
+onMounted(() => { refreshCurrentScene(); });
 
 interface AudioRow {
   id: string;
@@ -73,9 +121,38 @@ async function toggleMic(z: AudioRow): Promise<void> {
       <div class="sc-head-ico"><Volume2 :size="22" :stroke-width="1.75" /></div>
       <div>
         <h2 class="sc-title">音响控制</h2>
-        <div class="sc-subtle">DSPPA/ITC DSP · 分区音量 / 背景音 / 麦克风</div>
+        <div class="sc-subtle">得胜 EKX-808 8×8 矩阵 + WTG-800 跟随讲解 · 分区音量 / 麦克风 / 场景预设</div>
       </div>
     </header>
+
+    <!-- ============ EKX-808 一键场景 ============ -->
+    <section class="sc-panel scene-section">
+      <div class="scene-head">
+        <div class="scene-title">
+          <Zap :size="20" :stroke-width="2" />
+          <span>一键场景预设</span>
+          <span class="scene-tag">U01-U12 由厂家工程师在 PC 软件预先录入, 切换 1 条命令搞定全部 8 路</span>
+        </div>
+        <div v-if="currentScene" class="scene-current">
+          当前: <strong>{{ SCENES[currentScene-1]?.name }}</strong>
+          <code>U{{ String(currentScene).padStart(2,'0') }}</code>
+        </div>
+      </div>
+      <div class="scene-grid">
+        <button
+          v-for="s in SCENES"
+          :key="s.id"
+          class="scene-btn"
+          :class="{ active: currentScene === s.id }"
+          :disabled="sceneBusy"
+          @click="recallScene(s)"
+        >
+          <div class="scene-id">U{{ String(s.id).padStart(2,'0') }}</div>
+          <div class="scene-name">{{ s.name }}</div>
+          <div class="scene-hint">{{ s.hint }}</div>
+        </button>
+      </div>
+    </section>
 
     <div class="grid">
       <div v-for="z in channels" :key="z.id" class="sc-panel ch-card" :class="{ 'is-error': !!z.error, 'is-muted': z.muted }">
@@ -186,5 +263,66 @@ async function toggleMic(z: AudioRow): Promise<void> {
 }
 .bgm { display: grid; grid-template-columns: 1fr 110px 110px; gap: 10px; }
 
-@media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
+/* ============ 场景预设 ============ */
+.scene-section { display: flex; flex-direction: column; gap: 14px; padding: 18px; }
+.scene-head { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 10px; }
+.scene-title {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 16px; font-weight: 600;
+}
+.scene-tag {
+  font-size: 11px; color: var(--text-secondary); font-weight: 400;
+  margin-left: 4px;
+}
+.scene-current {
+  font-size: 13px; color: var(--text-secondary);
+  display: flex; align-items: center; gap: 8px;
+}
+.scene-current code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  background: var(--bg-elevated); padding: 2px 8px; border-radius: 4px;
+  letter-spacing: 1px;
+}
+.scene-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.scene-btn {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 14px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+  color: var(--text-primary);
+}
+.scene-btn:hover:not(:disabled) {
+  border-color: #3b82f6;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px -8px rgba(59, 130, 246, 0.45);
+}
+.scene-btn.active {
+  border-color: #10b981;
+  background: linear-gradient(135deg, rgba(16,185,129,0.12) 0%, rgba(59,130,246,0.08) 100%);
+  box-shadow: 0 6px 18px -8px rgba(16, 185, 129, 0.4);
+}
+.scene-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.scene-id {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px; color: var(--text-secondary);
+  letter-spacing: 1px;
+}
+.scene-name { font-size: 15px; font-weight: 600; }
+.scene-hint { font-size: 11px; color: var(--text-secondary); }
+
+@media (max-width: 1100px) {
+  .grid { grid-template-columns: 1fr; }
+  .scene-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .scene-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 </style>

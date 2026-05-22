@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>cnjinhu.top · 子项目</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f7f8fa; margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .container { max-width: 640px; width: 100%; }
+    h1 { font-size: 28px; color: #1a1a1a; margin: 0 0 8px; font-weight: 700; }
+    .subtitle { color: #666; margin: 0 0 32px; font-size: 14px; }
+    .grid { display: grid; gap: 12px; }
+    a.card { display: block; padding: 20px 24px; background: white; border-radius: 12px; text-decoration: none; color: inherit; border: 1px solid #eaeaea; transition: all .15s ease; }
+    a.card:hover { border-color: #3b82f6; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.06); }
+    a.card.highlight { border-color: #3b82f6; background: linear-gradient(135deg, #eff6ff 0%, #f0f9ff 100%); }
+    a.card.highlight:hover { box-shadow: 0 4px 16px rgba(59,130,246,.15); }
+    a.card.vendor { border-color: #f59e0b; background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%); }
+    a.card.vendor:hover { box-shadow: 0 4px 16px rgba(245,158,11,.2); }
+    .name { font-weight: 600; font-size: 16px; color: #1a1a1a; }
+    .desc { color: #888; font-size: 13px; margin-top: 4px; }
+    .badge { display: inline-block; padding: 2px 8px; background: #3b82f6; color: white; font-size: 10px; border-radius: 4px; margin-left: 6px; vertical-align: middle; }
+    .badge.vendor { background: #f59e0b; }
+    footer { margin-top: 32px; color: #aaa; font-size: 12px; text-align: center; }
+    footer a { color: #888; text-decoration: none; }
+    footer a:hover { color: #3b82f6; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>cnjinhu.top</h1>
+    <p class="subtitle">子项目入口</p>
+    <div class="grid">
+      <a class="card highlight" href="/jinhu/docs/">
+        <div class="name">📘 金湖展贸中心 · 技术文档中心<span class="badge">推荐</span></div>
+        <div class="desc">25 份在线文档 · 主机运维 / DALI / 空调 / 音响 / LED / 设备清单 · BOM Excel 下载</div>
+      </a>
+      <a class="card vendor" href="/jinhu/docs/AUDIO_VENDOR_CHECKLIST.md">
+        <div class="name">🎵 音响厂家工程师 · 交付清单<span class="badge vendor">供应商</span></div>
+        <div class="desc">EKX-808 + WTG-800 现场安装/预设/标定/验收 · 4 天交付计划 · 11 章 + 6 条 Deal-breaker</div>
+      </a>
+      <a class="card" href="/control/">
+        <div class="name">🎛️ 智慧展厅中控 · 平板端</div>
+        <div class="desc">Vue3 PWA 控制台 (灯光 / LED / 音响 / 空调 / 场景)</div>
+      </a>
+      <a class="card" href="/control/#/admin">
+        <div class="name">⚙️ 智慧展厅中控 · 管理后台</div>
+        <div class="desc">设备 / 场景 / 调度 / 日志 / 用户 / 硬件清单 / 测试中心</div>
+      </a>
+      <a class="card" href="/emergency-card.html">
+        <div class="name">🆘 应急操作卡 (可打印 A4)</div>
+        <div class="desc">现场故障排查 + 紧急联系人 · 打印贴主控室</div>
+      </a>
+      <a class="card" href="/ai/">
+        <div class="name">🤖 AI 项目导航</div>
+        <div class="desc">AI 开发资源 / 文档 / 工具导航页</div>
+      </a>
+      <a class="card" href="/finance/loan/">
+        <div class="name">💰 金湖财务 · 融资还款台账</div>
+        <div class="desc">企业贷款 / 房贷 · 钉钉报警 (内部)</div>
+      </a>
+    </div>
+    <footer>PHOENIX ERP 已迁至 <a href="https://eggslao.com">eggslao.com</a></footer>
+  </div>
+</body>
+</html>
