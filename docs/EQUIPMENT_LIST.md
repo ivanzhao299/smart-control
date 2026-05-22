@@ -31,24 +31,24 @@
 | CONV-RTU-1 | RS485↔TCP 转换器 | 有人 USR | **USR-TCP232-410S** | 1 | DC 12V · 1×RS485 · 1×RJ45 · 修改 Modbus 地址 | ¥120-180 | 1F 弱电机柜 |
 | GW-DALI-1 | DALI 网关 | 元创智控 | **CY-DALI64A** | 1 | 单路 DALI 64 地址 · Modbus RTU · DC 12V · DIN 35mm | ¥800-1,200 | 1F 弱电机柜 |
 
-> **2026-05-21 重新选型** (按《金湖照明灯具明细 v3》): 原 DA4-D × 5 改为 **MEANWELL HLG 系列大功率 DALI 恒压电源** (灯带) + **LTECH 雷特 LT-84A** (灯具 0-10V 调光). 选型理由见 [LIGHTING_FINAL_SELECTION.md](LIGHTING_FINAL_SELECTION.md).
+> **2026-05-21 重新选型** (按《金湖照明灯具明细 v3》): 原 DA4-D × 5 改为 **明纬 MEANWELL HLG 系列大功率 DALI 恒压电源** (灯带) + **雷特 LTECH LT-84A** (灯具 0-10V 调光). 选型理由见 [LIGHTING_FINAL_SELECTION.md](LIGHTING_FINAL_SELECTION.md).
 
-**A. LED 灯带回路 (8 路, 恒压 DC 24V DALI)** — 共 12 台 MEANWELL HLG:
+**A. LED 灯带回路 (8 路, 恒压 DC 24V DALI)** — 共 12 台 明纬 MEANWELL HLG:
 
-| 编号 | 型号 | 数量 | 单价 | 用途 |
-| --- | --- | --- | --- | --- |
-| DRV-HLG-120 | MEANWELL **HLG-120H-24DA** | 1 | ¥250 | F101-R3 灯带 12m (120W) |
-| DRV-HLG-185 | MEANWELL **HLG-185H-24DA** | 1 | ¥280 | F101-R2 灯带 15m (150W) |
-| DRV-HLG-240 | MEANWELL **HLG-240H-24DA** | 2 | ¥320 | F102-R1 / F104-R1 灯带 20m × 2 (200W) |
-| DRV-HLG-320 | MEANWELL **HLG-320H-24DA** | 1 | ¥450 | F101-R1 前厅灯带 30m (300W) |
-| DRV-HLG-480 | MEANWELL **HLG-480H-24DA** | 7 | ¥400 | F101-R4 走廊 130m × 3 并联 + F101-R7 灯带 80m × 2 + F201-R4 灯带 85m × 2 |
-| DRV-HLG-600 | MEANWELL **HLG-600H-24DA** | 1 | ¥520 | F101-R3 灯箱 12㎡ (600W) |
+| 编号 | 厂家 (中/英) | 型号 | 数量 | 单价 | 用途 |
+| --- | --- | --- | --- | --- | --- |
+| DRV-HLG-120 | 明纬 MEANWELL | **HLG-120H-24DA** | 1 | ¥250 | F101-R3 灯带 12m (120W) |
+| DRV-HLG-185 | 明纬 MEANWELL | **HLG-185H-24DA** | 1 | ¥280 | F101-R2 灯带 15m (150W) |
+| DRV-HLG-240 | 明纬 MEANWELL | **HLG-240H-24DA** | 2 | ¥320 | F102-R1 / F104-R1 灯带 20m × 2 (200W) |
+| DRV-HLG-320 | 明纬 MEANWELL | **HLG-320H-24DA** | 1 | ¥450 | F101-R1 前厅灯带 30m (300W) |
+| DRV-HLG-480 | 明纬 MEANWELL | **HLG-480H-24DA** | 7 | ¥400 | F101-R4 走廊 130m × 3 并联 + F101-R7 灯带 80m × 2 + F201-R4 灯带 85m × 2 |
+| DRV-HLG-600 | 明纬 MEANWELL | **HLG-600H-24DA** | 1 | ¥520 | F101-R3 灯箱 12㎡ (600W) |
 
 **B. LED 灯具回路 (11 路, AC 220V + 0-10V 调光)** — 共 3 台 DALI→0-10V 转换器 + 灯具采购需 0-10V 调光款:
 
-| 编号 | 型号 | 数量 | 单价 | 用途 |
-| --- | --- | --- | --- | --- |
-| DRV-LT84A | LTECH 雷特 **LT-84A** | 3 | ¥600 | 4 路 DALI→0-10V, 共 12 通道覆盖 11 路灯具 · AC 220V 直供 · 5 年保修 |
+| 编号 | 厂家 (中/英) | 型号 | 数量 | 单价 | 用途 |
+| --- | --- | --- | --- | --- | --- |
+| DRV-LT84A | 雷特 LTECH | **LT-84A** | 3 | ¥600 | 4 路 DALI→0-10V, 共 12 通道覆盖 11 路灯具 · AC 220V 直供 · 5 年保修 |
 
 **灯具采购要求** (土建/装修预算覆盖, 此处提醒):
 - 筒灯/射灯/吸顶灯**必须 0-10V 调光款**, 单价 +10-15%
@@ -58,9 +58,9 @@
 
 | 项 | 数量 | 金额 |
 | --- | --- | --- |
-| MEANWELL HLG 系列大功率电源 | 12 | ¥4,940 |
-| HLG-600H-24DA (灯箱) | 1 | ¥520 |
-| LTECH 雷特 LT-84A (灯具 0-10V) | 3 | ¥1,800 |
+| 明纬 MEANWELL HLG 系列大功率电源 | 12 | ¥4,940 |
+| 明纬 MEANWELL HLG-600H-24DA (灯箱) | 1 | ¥520 |
+| 雷特 LTECH LT-84A (灯具 0-10V) | 3 | ¥1,800 |
 | **合计 (调光部分)** | **16** | **¥7,260** |
 
 **DALI 寻址** (31 个地址 / 12 个 DALI 组) 详见 [LIGHTING_FINAL_SELECTION.md](LIGHTING_FINAL_SELECTION.md) §5.
