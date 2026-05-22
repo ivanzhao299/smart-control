@@ -24,12 +24,16 @@ const rows = ref<HardwareUnit[]>([]);
 const summary = ref<HardwareSummary | null>(null);
 
 const categoryMeta: Record<HardwareCategory, { label: string; icon: unknown; color: string }> = {
-  'dali-gateway':       { label: 'DALI 网关',     icon: Cable,       color: '#3b82f6' },
-  'dali-dimmer':        { label: 'DALI 调光器',   icon: Lightbulb,   color: '#f59e0b' },
+  'dali-gateway':       { label: 'DALI 网关/调光控制器', icon: Cable,       color: '#3b82f6' },
+  'led-driver':         { label: 'LED 灯具驱动器', icon: Lightbulb,   color: '#fbbf24' },
+  'dali-converter':     { label: 'DALI→0-10V 转换器', icon: Cable,    color: '#facc15' },
+  'dali-dimmer':        { label: '[废弃] DALI 调光器模块', icon: Lightbulb, color: '#94a3b8' },
   'rtu-tcp-converter':  { label: 'RTU↔TCP 转换器', icon: Network,     color: '#10b981' },
   'led-controller':     { label: 'LED 控制器',    icon: MonitorPlay, color: '#8b5cf6' },
   'led-player':         { label: 'LED 播控主机',  icon: Cpu,         color: '#a855f7' },
   'audio-dsp':          { label: '音响 DSP',      icon: Speaker,     color: '#ec4899' },
+  'audio-guide':        { label: '分区跟随导览',  icon: Speaker,     color: '#f472b6' },
+  'audio-power':        { label: '音响时序器',    icon: Zap,         color: '#fb923c' },
   'hvac-outdoor':       { label: '空调外机',      icon: Snowflake,   color: '#0891b2' },
   'hvac-gateway':       { label: '空调网关',      icon: Snowflake,   color: '#06b6d4' },
   'power-relay':        { label: '强电继电器',    icon: Zap,         color: '#eab308' },

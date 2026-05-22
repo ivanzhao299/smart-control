@@ -1,8 +1,12 @@
 # DALI 灯光系统现场施工 SOP
 
 > 金湖展贸中心智能控制系统 · 灯光子系统现场安装与调试指引
-> 适用于：CY-DALI64A 网关 + USR-TCP232-410s 转换器 + DA4-D 调光器
-> 估时：单人 4-6 小时（含灯具地址搜索 + DALI 组分配 + 联调）
+> 适用于: CY-DALI64A 网关/调光控制器 + USR-TCP232-410s 转换器 + 明纬 HLG-XXH-24DA LED 驱动器 + 雷特 LT-84A 转换器
+> 估时: 单人 4-6 小时 (含灯具地址搜索 + DALI 组分配 + 联调)
+>
+> ⚠ **架构澄清**: CY-DALI64A 本身就是 DALI 调光器 (它发 dim 命令), 总线下游**直接接到灯具的驱动器** (明纬 HLG / 雷特 LT-84A 都自带 DALI 接收), **不存在"中间 DALI 调光器模块"**。
+> 旧的 DA4-D 方案已废弃 (见 [LIGHTING_FINAL_SELECTION.md](LIGHTING_FINAL_SELECTION.md) 2026-05-21 重新选型)。
+> 本 SOP 第 3 章及以下保留"DA4-D"字样仅作旧文档参考, 实际接线参考 [LIGHTING_DRIVER_DETAILS.md](LIGHTING_DRIVER_DETAILS.md) §3-4。
 
 ---
 

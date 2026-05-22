@@ -530,92 +530,92 @@ export class SeedService {
       // 选型详见 docs/LIGHTING_FINAL_SELECTION.md
       // ---------- 灯带恒压 DALI 电源 (12 台 HLG + 1 台 HLG-600 灯箱) ----------
       {
-        code: 'DRV-HLG-1', name: '1F F101-R1 前厅灯带电源', category: 'dali-dimmer',
+        code: 'DRV-HLG-1', name: '1F F101-R1 前厅灯带电源', category: 'led-driver',
         vendor: 'MEANWELL 明纬', model: 'HLG-480H-24DA', floor: '1F', location: '1F 公共电箱 F101',
         addressing: JSON.stringify({ daliShort: 1, daliGroup: 1, output: 'DC 24V 480W', load: '300W', headroom: '38%' }),
         remark: '前厅灯带 30m / 300W, DALI 2.0 (480H 选型保 38% 余量)',
       },
       {
-        code: 'DRV-HLG-2', name: '1F F101-R2 灯带电源', category: 'dali-dimmer',
+        code: 'DRV-HLG-2', name: '1F F101-R2 灯带电源', category: 'led-driver',
         vendor: 'MEANWELL 明纬', model: 'HLG-185H-24DA', floor: '1F', location: '1F 公共电箱 F101',
         addressing: JSON.stringify({ daliShort: 2, daliGroup: 4, output: 'DC 24V 185W' }),
         remark: '重点照明灯带 15m / 150W (同回路含筒灯, 独立 DALI 地址)',
       },
       {
-        code: 'DRV-HLG-3', name: '1F F101-R3 灯带电源', category: 'dali-dimmer',
+        code: 'DRV-HLG-3', name: '1F F101-R3 灯带电源', category: 'led-driver',
         vendor: 'MEANWELL 明纬', model: 'HLG-150H-24DA', floor: '1F', location: '1F 公共电箱 F101',
         addressing: JSON.stringify({ daliShort: 3, daliGroup: 4, output: 'DC 24V 150W', load: '120W', headroom: '20%' }),
         remark: '园区展示灯带 12m / 120W (升 150H 留 20% 余量)',
       },
       {
-        code: 'DRV-HLG-4', name: '1F F101-R4 走廊灯带电源 #1/3', category: 'dali-dimmer',
+        code: 'DRV-HLG-4', name: '1F F101-R4 走廊灯带电源 #1/3', category: 'led-driver',
         vendor: 'MEANWELL 明纬', model: 'HLG-480H-24DA', floor: '1F', location: '1F 公共电箱 F101',
         addressing: JSON.stringify({ daliShort: 4, daliGroup: 3, output: 'DC 24V 480W', parallelGroup: 'F101-R4' }),
         remark: '走廊 130m 灯带分 3 台并联中段注入, 同 Group 3 同步调光',
       },
       {
-        code: 'DRV-HLG-5', name: '1F F101-R4 走廊灯带电源 #2/3', category: 'dali-dimmer',
+        code: 'DRV-HLG-5', name: '1F F101-R4 走廊灯带电源 #2/3', category: 'led-driver',
         vendor: 'MEANWELL 明纬', model: 'HLG-480H-24DA', floor: '1F', location: '1F 走廊中段电箱',
         addressing: JSON.stringify({ daliShort: 5, daliGroup: 3, output: 'DC 24V 480W', parallelGroup: 'F101-R4' }),
         remark: '走廊 130m 灯带 #2, 中段 65m 处注入',
       },
       {
-        code: 'DRV-HLG-6', name: '1F F101-R4 走廊灯带电源 #3/3', category: 'dali-dimmer',
+        code: 'DRV-HLG-6', name: '1F F101-R4 走廊灯带电源 #3/3', category: 'led-driver',
         vendor: 'MEANWELL 明纬', model: 'HLG-480H-24DA', floor: '1F', location: '1F 走廊尾端电箱',
         addressing: JSON.stringify({ daliShort: 6, daliGroup: 3, output: 'DC 24V 480W', parallelGroup: 'F101-R4' }),
         remark: '走廊 130m 灯带 #3, 尾端注入',
       },
       {
-        code: 'DRV-HLG-7', name: '1F F101-R7 灯带电源 #1/2', category: 'dali-dimmer',
+        code: 'DRV-HLG-7', name: '1F F101-R7 灯带电源 #1/2', category: 'led-driver',
         vendor: 'MEANWELL 明纬', model: 'HLG-480H-24DA', floor: '1F', location: '1F 公共电箱 F101',
         addressing: JSON.stringify({ daliShort: 7, daliGroup: 4, output: 'DC 24V 480W', parallelGroup: 'F101-R7' }),
         remark: '重点照明灯带 80m / 800W 拆 2 台并联',
       },
       {
-        code: 'DRV-HLG-8', name: '1F F101-R7 灯带电源 #2/2', category: 'dali-dimmer',
+        code: 'DRV-HLG-8', name: '1F F101-R7 灯带电源 #2/2', category: 'led-driver',
         vendor: 'MEANWELL 明纬', model: 'HLG-480H-24DA', floor: '1F', location: '1F 公共电箱 F101',
         addressing: JSON.stringify({ daliShort: 8, daliGroup: 4, output: 'DC 24V 480W', parallelGroup: 'F101-R7' }),
         remark: '重点照明灯带 #2',
       },
       {
-        code: 'DRV-HLG-9', name: '1F F102-R1 灯带电源', category: 'dali-dimmer',
+        code: 'DRV-HLG-9', name: '1F F102-R1 灯带电源', category: 'led-driver',
         vendor: 'MEANWELL 明纬', model: 'HLG-240H-24DA', floor: '1F', location: '1F 企业展位区电箱 F102',
         addressing: JSON.stringify({ daliShort: 9, daliGroup: 5, output: 'DC 24V 240W' }),
         remark: '企业展位灯带 20m / 200W',
       },
       {
-        code: 'DRV-HLG-10', name: '1F F104-R1 灯带电源', category: 'dali-dimmer',
+        code: 'DRV-HLG-10', name: '1F F104-R1 灯带电源', category: 'led-driver',
         vendor: 'MEANWELL 明纬', model: 'HLG-240H-24DA', floor: '1F', location: '1F 物贸交易电箱 F104',
         addressing: JSON.stringify({ daliShort: 10, daliGroup: 7, output: 'DC 24V 240W' }),
         remark: '物贸交易展示区灯带 20m / 200W',
       },
       {
-        code: 'DRV-HLG-11', name: '2F F201-R4 灯带电源 #1/2', category: 'dali-dimmer',
+        code: 'DRV-HLG-11', name: '2F F201-R4 灯带电源 #1/2', category: 'led-driver',
         vendor: 'MEANWELL 明纬', model: 'HLG-480H-24DA', floor: '2F', location: '2F 公共电箱 F201',
         addressing: JSON.stringify({ daliShort: 11, daliGroup: 8, output: 'DC 24V 480W', parallelGroup: 'F201-R4' }),
         remark: '2F 走廊灯带 85m / 900W 拆 2 台并联',
       },
       {
-        code: 'DRV-HLG-12', name: '2F F201-R4 灯带电源 #2/2', category: 'dali-dimmer',
+        code: 'DRV-HLG-12', name: '2F F201-R4 灯带电源 #2/2', category: 'led-driver',
         vendor: 'MEANWELL 明纬', model: 'HLG-480H-24DA', floor: '2F', location: '2F 公共电箱 F201',
         addressing: JSON.stringify({ daliShort: 12, daliGroup: 8, output: 'DC 24V 480W', parallelGroup: 'F201-R4' }),
         remark: '2F 走廊灯带 #2',
       },
       {
-        code: 'DRV-HLG-13a', name: '1F F101-R3 灯箱电源 #1/2', category: 'dali-dimmer',
+        code: 'DRV-HLG-13a', name: '1F F101-R3 灯箱电源 #1/2', category: 'led-driver',
         vendor: 'MEANWELL 明纬', model: 'HLG-320H-24DA', floor: '1F', location: '1F 公共电箱 F101',
         addressing: JSON.stringify({ daliShort: 13, daliGroup: 4, output: 'DC 24V 320W', parallelGroup: 'F101-R3-灯箱' }),
         remark: '灯箱 12㎡ / 600W 拆 2 台并联 (640W 总, 余 6%)',
       },
       {
-        code: 'DRV-HLG-13b', name: '1F F101-R3 灯箱电源 #2/2', category: 'dali-dimmer',
+        code: 'DRV-HLG-13b', name: '1F F101-R3 灯箱电源 #2/2', category: 'led-driver',
         vendor: 'MEANWELL 明纬', model: 'HLG-320H-24DA', floor: '1F', location: '1F 公共电箱 F101',
         addressing: JSON.stringify({ daliShort: 14, daliGroup: 4, output: 'DC 24V 320W', parallelGroup: 'F101-R3-灯箱' }),
         remark: '灯箱 #2, 与 #1 并联同 Group 4 同步',
       },
       // ---------- DALI→0-10V 转换器 (3 台, 11 路 AC 220V 灯具调光) ----------
       {
-        code: 'CONV-DA4V10-1', name: '1F DALI→0-10V 转换器 #1', category: 'dali-dimmer',
+        code: 'CONV-DA4V10-1', name: '1F DALI→0-10V 转换器 #1', category: 'dali-converter',
         vendor: 'LTECH 雷特', model: 'LT-84A', floor: '1F', location: '1F 公共电箱 F101',
         addressing: JSON.stringify({ daliStart: 15, daliCount: 4, mode: '4×0-10V' }),
         channels: JSON.stringify([
@@ -627,7 +627,7 @@ export class SeedService {
         remark: '灯具需 0-10V 调光款',
       },
       {
-        code: 'CONV-DA4V10-2', name: '1F DALI→0-10V 转换器 #2', category: 'dali-dimmer',
+        code: 'CONV-DA4V10-2', name: '1F DALI→0-10V 转换器 #2', category: 'dali-converter',
         vendor: 'LTECH 雷特', model: 'LT-84A', floor: '1F', location: '1F 综合展销电箱 F103',
         addressing: JSON.stringify({ daliStart: 19, daliCount: 4, mode: '4×0-10V' }),
         channels: JSON.stringify([
@@ -639,7 +639,7 @@ export class SeedService {
         remark: '灯具需 0-10V 调光款',
       },
       {
-        code: 'CONV-DA4V10-3', name: '2F DALI→0-10V 转换器 #3', category: 'dali-dimmer',
+        code: 'CONV-DA4V10-3', name: '2F DALI→0-10V 转换器 #3', category: 'dali-converter',
         vendor: 'LTECH 雷特', model: 'LT-84A', floor: '2F', location: '2F 公共电箱 F201',
         addressing: JSON.stringify({ daliStart: 23, daliCount: 4, mode: '4×0-10V' }),
         channels: JSON.stringify([

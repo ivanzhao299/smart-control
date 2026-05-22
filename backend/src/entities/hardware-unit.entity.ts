@@ -15,14 +15,24 @@ import {
  *   - `hardware_unit` = 现场物理硬件 (DALI 网关, 调光器, NUC 播控主机, RTU/TCP 转换器),
  *                       记录型号 / 序列号 / 安装位置 / 接线, 给运维定位故障用
  *
- * 同一台 DA4-D 调光器可能对应多个 device (4 个通道接 4 路灯, 每路一个 zone),
- * 反过来同一个 device (e.g. "1F 前厅灯光" zone) 也可能由多台调光器共同驱动.
+ * 同一台 led-driver / dali-converter (4 通道) 可能对应多个 device (一通道一个 zone),
+ * 反过来同一个 device (e.g. "1F 前厅灯带" zone) 也可能由多台并联驱动器共同驱动 (走廊 130m 拆 3 台).
  * 所以两者是多对多关系, 这里只保存 hardware 自身信息, 关联在 channels JSON 里描述.
+ *
+ * DALI 架构 (2026-05-21 方案 B):
+ *   PC backend → RS485↔TCP (USR-TCP232) → DALI 网关/调光控制器 (CY-DALI64A)
+ *     → DALI 总线 (2 线)
+ *       ├── LED 灯具驱动器 (明纬 HLG-XXH-24DA × 14, led-driver) → LED 灯带
+ *       └── DALI→0-10V 转换器 (雷特 LT-84A × 3, dali-converter) → 灯具自带 0-10V 驱动 → 筒灯/射灯
+ *   网关本身就是调光器 (发 DALI dim 命令), 下游驱动器是 DALI-addressable 的 LED 电源.
+ *   不存在"中间 DALI 调光器模块" (旧方案的 DA4-D 已废弃).
  */
 
 export const HARDWARE_CATEGORIES = [
-  'dali-gateway',     // DALI 网关 (CY-DALI64A 等)
-  'dali-dimmer',      // DALI 调光器 (DA4-D 等)
+  'dali-gateway',     // DALI 网关/调光控制器 (CY-DALI64A — 发 DALI 命令, 它本身就是调光器)
+  'led-driver',       // LED 灯具驱动器 (明纬 HLG-XXH-24DA 自带 DALI 接收, 直接挂 DALI 总线驱动灯带)
+  'dali-converter',   // DALI ↔ 0-10V 信号转换器 (雷特 LT-84A — DALI 总线信号转 0-10V 给下游灯具)
+  'dali-dimmer',      // [废弃] DALI 调光器模块 (DA4-D 等中间模块, 2026-05-21 方案 B 后不再使用; 保留枚举防数据库报错)
   'rtu-tcp-converter',// RS-485 RTU ↔ TCP 转换器 (USR-TCP232, Moxa MGate)
   'led-controller',   // LED 大屏控制器 (诺瓦 VX1000)
   'led-player',       // LED 播控主机 (Intel NUC)
@@ -64,7 +74,7 @@ export class HardwareUnit {
   @Column({ type: 'varchar', length: 64 })
   vendor!: string;
 
-  /** 型号 (e.g. "CY-DALI64A", "DA4-D") */
+  /** 型号 (e.g. "CY-DALI64A", "HLG-480H-24DA", "LT-84A") */
   @Column({ type: 'varchar', length: 64 })
   model!: string;
 
@@ -95,7 +105,8 @@ export class HardwareUnit {
   /**
    * 协议寻址 JSON, 由 category 决定字段:
    *   dali-gateway:   {"slaveId":1}  (Modbus RTU 拨码盘地址)
-   *   dali-dimmer:    {"daliStart":1,"daliCount":4}  (起始短地址 + 通道数)
+   *   led-driver:     {"daliShort":1,"watt":480,"voltage":24}  (DALI 短地址 + 额定功率 + 输出电压)
+   *   dali-converter: {"daliStart":14,"channels":4}  (起始短地址 + 4 路 0-10V 输出)
    *   rtu-tcp-converter: {"port":502,"baud":9600}
    *   led-controller: {"box":"1","port":1}
    *   audio-dsp:      {"zones":["1f_bg","2f_bg"]}
@@ -105,7 +116,7 @@ export class HardwareUnit {
   addressing!: string | null;
 
   /**
-   * 通道清单 JSON (主要给 DA4-D 类多通道调光器), 描述每个通道接什么:
+   * 通道清单 JSON (主要给 LT-84A 类多通道 0-10V 转换器), 描述每个通道接什么:
    *   [
    *     { "ch":1, "daliShort":1, "label":"前厅筒灯",   "powerW":80,  "linkDeviceId":12 },
    *     { "ch":2, "daliShort":2, "label":"前厅射灯",   "powerW":100, "linkDeviceId":12 },

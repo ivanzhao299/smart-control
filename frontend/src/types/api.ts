@@ -514,11 +514,15 @@ export type WsEvent =
 /* ---------- Sprint-10: 硬件清单 ---------- */
 export const HARDWARE_CATEGORIES = [
   'dali-gateway',
+  'led-driver',
+  'dali-converter',
   'dali-dimmer',
   'rtu-tcp-converter',
   'led-controller',
   'led-player',
   'audio-dsp',
+  'audio-guide',
+  'audio-power',
   'hvac-outdoor',
   'hvac-gateway',
   'power-relay',
