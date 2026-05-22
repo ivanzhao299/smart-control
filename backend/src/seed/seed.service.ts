@@ -666,18 +666,54 @@ export class SeedService {
       // 注: 原计划的"独立 LED 播控主机 (Intel NUC11)" 已取消
       // 视频文件和播放统一交给 GK9000 中控主机 (GK9000 有 2 个 HDMI 输出, HDMI1 → VX1000)
       // 视频存储路径见 D:\smart-control\media\ 或自定义, ViPlex Express 跑在 GK9000 上
-      // ---- 音响 ----
+      // ---- 音响 (得胜方案 2 + WTG-800 跟随讲解) ----
+      // 协议参考: docs/AUDIO_PROTOCOL_EKX808.md
+      // 实现: backend/src/adapters/audio/ekx808-protocol.ts (编解码就绪, 待联调)
       {
         code: 'AUDIO-DSP-1',
-        name: '音响 DSP 处理器',
+        name: '音响 DSP 处理器 (8×8 矩阵)',
         category: 'audio-dsp',
-        vendor: 'DSPPA',
-        model: 'MAG6816',
-        ip: '192.168.50.40',
+        vendor: '得胜 TAKSTAR',
+        model: 'EKX-808',
+        ip: '192.168.50.61',
         floor: '1F',
         location: '1F 主控室机柜',
-        addressing: JSON.stringify({ zones: ['1f_bg', '2f_bg', 'meeting', 'roadshow'] }),
-        remark: '4 路分区背景音 + 麦克风输入',
+        addressing: JSON.stringify({
+          devAddr: 1,
+          tcpPort: null,             // 厂家固件默认 IP/端口, 现场标定
+          inputs: 8,
+          outputs: 8,
+          presets: { factory: 13, user: 12 },
+        }),
+        remark: '32位DSP/96kHz · 以太网 TCP 控制 · 8 路 In + 8 路 Out 任意矩阵 · 4 群组 · F00-F12 + U01-U12 预设',
+      },
+      {
+        code: 'AUDIO-WTG-1',
+        name: '智能分区导览 (跟随讲解员)',
+        category: 'audio-guide',
+        vendor: '得胜 TAKSTAR',
+        model: 'WTG-800 (1T + 8R)',
+        floor: '1F-2F',
+        location: '8 个分区天花/墙面',
+        addressing: JSON.stringify({
+          transmitter: 1,
+          receivers: 8,
+          channels: 23,
+          rangePerZone: '0.5-18m (0-9 档功率)',
+          builtInAmp: '60W per receiver',
+        }),
+        remark: 'UHF 数字加密, RSSI 自动连接, 接收器内置 60W 数字功放可直推喇叭',
+      },
+      {
+        code: 'AUDIO-PWR-SEQ-1',
+        name: '音响电源时序器',
+        category: 'audio-power',
+        vendor: '得胜 TAKSTAR',
+        model: 'EPO-802P',
+        floor: '1F',
+        location: '1F 主控室机柜',
+        addressing: JSON.stringify({ channels: 8, control: 'RS232/485' }),
+        remark: '8 路时序上电, 保护功放设备 · 支持 RS232/485 远程通断',
       },
       // ---- 空调 ----
       {

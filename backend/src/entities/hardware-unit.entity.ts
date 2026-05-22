@@ -26,7 +26,9 @@ export const HARDWARE_CATEGORIES = [
   'rtu-tcp-converter',// RS-485 RTU ↔ TCP 转换器 (USR-TCP232, Moxa MGate)
   'led-controller',   // LED 大屏控制器 (诺瓦 VX1000)
   'led-player',       // LED 播控主机 (Intel NUC)
-  'audio-dsp',        // 音响 DSP (DSPPA / ITC)
+  'audio-dsp',        // 音响 DSP (得胜 EKX-808 / DSPPA / ITC)
+  'audio-guide',      // 智能分区导览 / 跟随讲解 (得胜 WTG-800 等)
+  'audio-power',      // 音响电源时序器 (得胜 EPO-802P 等)
   'hvac-outdoor',     // 中央空调外机 (商用 VRF, 例如 奥克斯 DLR-735W5)
   'hvac-gateway',     // 中央空调通讯网关 (例如 奥克斯 CCM-270B)
   'power-relay',      // 强电继电器模块
