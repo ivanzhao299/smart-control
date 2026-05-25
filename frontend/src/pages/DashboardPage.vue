@@ -148,12 +148,12 @@ function goTo(to: string): void {
 </template>
 
 <style scoped>
-.dashboard { display: flex; flex-direction: column; gap: 16px; }
+.dashboard { display: flex; flex-direction: column; gap: 12px; }
 .section-head { display: flex; align-items: baseline; gap: 14px; }
 .scene-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
+  gap: 12px;
 }
 /* 1920×1200 Android 平板等大屏: 场景按钮升 4 列, 7 个场景 → 4+3 不空行 */
 @media (min-width: 1600px) {
@@ -162,7 +162,7 @@ function goTo(to: string): void {
 .cards-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 16px;
+  gap: 12px;
 }
 .running-row {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
@@ -182,11 +182,18 @@ function goTo(to: string): void {
   padding: 3px 10px; border-radius: 999px; cursor: pointer; font-size: 12px;
 }
 
-@media (max-width: 1280px) {
+/* 中尺寸平板 (1280px 主流横屏) */
+@media (max-width: 1400px) {
   .cards-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
-@media (max-width: 900px) {
-  .scene-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .cards-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* 小尺寸平板 (1024-1280) */
+@media (max-width: 1100px) {
+  .scene-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .cards-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+}
+/* 极小屏 (7-8" 平板) */
+@media (max-width: 720px) {
+  .scene-grid { grid-template-columns: 1fr; }
+  .cards-grid { grid-template-columns: 1fr; }
 }
 </style>

@@ -44,7 +44,7 @@ function go(name: string): void {
           @click="go(t.name)"
         >
           <span class="ico">
-            <component :is="navIconFor(t.name)" :size="30" :stroke-width="1.75" />
+            <component :is="navIconFor(t.name)" :size="22" :stroke-width="1.75" />
           </span>
           <span class="lbl">{{ t.label }}</span>
         </button>
@@ -81,19 +81,22 @@ function go(name: string): void {
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
   box-sizing: border-box;
+  /* 防止任意元素横向溢出 (StatusBar 380px 列 / 表格 / 卡片等) 引起左右滑 */
+  overflow: hidden;
 }
 .body {
   flex: 1;
   display: grid;
-  grid-template-columns: 144px 1fr;
+  grid-template-columns: 100px 1fr;
   overflow: hidden;
   min-height: 0; /* 防止子项 overflow 撑爆容器 */
 }
+@media (max-width: 1100px) { .body { grid-template-columns: 84px 1fr; } }
 .side-nav {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 18px 12px;
+  gap: 4px;
+  padding: 10px 6px;
   background:
     linear-gradient(180deg, rgba(99, 102, 241, 0.06) 0%, transparent 40%),
     var(--bg-panel);
@@ -101,7 +104,7 @@ function go(name: string): void {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   /* iPad Safari: 给底部留空, 防止最后一个菜单项贴近 Home Indicator */
-  padding-bottom: max(18px, env(safe-area-inset-bottom));
+  padding-bottom: max(10px, env(safe-area-inset-bottom));
 }
 .nav-item {
   width: 100%;
@@ -111,11 +114,12 @@ function go(name: string): void {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 16px 8px;
-  min-height: 96px;
-  font-size: 16px;
-  border-radius: 16px;
+  gap: 4px;
+  padding: 8px 4px;
+  /* 6 个主菜单 + 1 后台 = 7 × ~70px = 490px, 800px 平板装下 */
+  min-height: 64px;
+  font-size: 13px;
+  border-radius: 12px;
   position: relative;
   transition: background 0.18s ease, color 0.18s ease, transform 0.12s ease;
 }
@@ -148,20 +152,21 @@ function go(name: string): void {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 46px;
-  height: 46px;
-  border-radius: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   background: transparent;
 }
 .nav-item.is-active .ico {
   background: rgba(255, 255, 255, 0.1);
 }
-.nav-item .lbl { font-size: 16px; letter-spacing: 2px; font-weight: 600; }
+.nav-item .lbl { font-size: 13px; letter-spacing: 1px; font-weight: 600; line-height: 1.1; }
 
 .content {
   overflow: auto;
-  padding: 22px 26px;
+  padding: 14px 16px;
 }
+@media (max-width: 1100px) { .content { padding: 10px 12px; } }
 
 .page-enter-from, .page-leave-to { opacity: 0; transform: translateY(6px); }
 .page-enter-active, .page-leave-active { transition: all 0.2s ease; }

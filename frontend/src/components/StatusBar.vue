@@ -54,7 +54,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? true);
 <template>
   <header class="status-bar">
     <div class="brand">
-      <BrandLogo :height="48" />
+      <BrandLogo :height="32" />
       <div>
         <div class="title">金湖展贸中心智能控制系统</div>
         <div class="sub">{{ dateLabel }}</div>
@@ -106,44 +106,48 @@ const mockTag = computed(() => sys.info?.mockMode ?? true);
 <style scoped>
 .status-bar {
   display: grid;
-  grid-template-columns: 380px 1fr 220px;
+  grid-template-columns: minmax(220px, 320px) 1fr minmax(180px, 220px);
   align-items: center;
-  gap: 20px;
-  padding: 14px 24px;
+  gap: 16px;
+  padding: 8px 16px;
   background:
     linear-gradient(180deg, rgba(99, 102, 241, 0.05) 0%, transparent 70%),
     var(--bg-panel);
   border-bottom: 1px solid var(--border-soft);
   flex-shrink: 0;
   backdrop-filter: blur(8px);
+  min-width: 0; /* 允许子项收缩, 不触发横向滚动 */
 }
-.brand { display: flex; align-items: center; gap: 14px; }
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .title {
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.5px;
   background: linear-gradient(90deg, #f8fafc 0%, #cbd5e1 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.sub { font-size: 12px; color: var(--text-secondary); margin-top: 3px; letter-spacing: 1px; }
+.sub { font-size: 11px; color: var(--text-secondary); margin-top: 2px; letter-spacing: 1px; white-space: nowrap; }
 
-.metrics { display: flex; align-items: center; gap: 28px; justify-content: center; }
+.metrics { display: flex; align-items: center; gap: 18px; justify-content: center; }
 .metric { text-align: center; }
-.metric-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; letter-spacing: 1px; }
-.metric-value { font-size: 18px; font-weight: 600; min-width: 90px; }
-.metric-value .big { font-size: 22px; color: var(--color-success); }
-.metric-value .dim { color: var(--text-secondary); font-size: 14px; margin-left: 2px; }
+.metric-label { font-size: 11px; color: var(--text-secondary); margin-bottom: 2px; letter-spacing: 1px; }
+.metric-value { font-size: 15px; font-weight: 600; min-width: 70px; }
+.metric-value .big { font-size: 18px; color: var(--color-success); }
+.metric-value .dim { color: var(--text-secondary); font-size: 12px; margin-left: 2px; }
 
 .right {
   display: flex; align-items: center; gap: 12px; justify-content: flex-end;
 }
 .fs-toggle {
-  width: 38px; height: 38px;
+  width: 30px; height: 30px;
   display: flex; align-items: center; justify-content: center;
   background: var(--bg-elevated); color: var(--text-primary);
-  border: 1px solid var(--border-soft); border-radius: 10px;
+  border: 1px solid var(--border-soft); border-radius: 8px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -155,7 +159,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? true);
 }
 .fs-toggle:active { transform: scale(0.95); }
 .clock {
-  font-size: 28px;
+  font-size: 20px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   letter-spacing: 2px;
