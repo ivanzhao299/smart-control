@@ -41,110 +41,128 @@ function onClick(): void {
     @click="onClick"
   >
     <span class="accent-bar" />
-    <div class="head">
-      <div class="icon-wrap">
-        <component :is="icon" v-if="!isStringIcon" :size="22" :stroke-width="1.75" />
-        <span v-else class="icon-fallback">{{ icon }}</span>
-      </div>
-      <div class="title-col">
-        <div class="title">{{ title }}</div>
-        <div class="status-row">
-          <span class="dot" />
-          <span class="status-label">{{ cfg.label }}</span>
-        </div>
+    <div class="icon-wrap">
+      <component :is="icon" v-if="!isStringIcon" :size="20" :stroke-width="2" />
+      <span v-else class="icon-fallback">{{ icon }}</span>
+    </div>
+    <div class="title-col">
+      <div class="title">{{ title }}</div>
+      <div class="status-row">
+        <span class="dot" />
+        <span class="status-label">{{ cfg.label }}</span>
+        <span v-if="subtitle" class="sub-inline">· {{ subtitle }}</span>
       </div>
     </div>
-    <div v-if="subtitle" class="subtitle">{{ subtitle }}</div>
-    <div v-if="detail" class="detail">{{ detail }}</div>
-    <div v-if="to" class="cta">
-      进入控制 <ChevronRight :size="14" :stroke-width="2" />
-    </div>
+    <ChevronRight v-if="to" class="cta-arrow" :size="16" :stroke-width="2" />
   </div>
 </template>
 
 <style scoped>
+/* 紧凑横排版: 图标左 / 标题+状态+子标题右 / CTA 角落隐式 */
 .status-card {
   position: relative;
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--card-accent) 10%, transparent) 0%, transparent 65%),
-    var(--bg-panel);
-  border-radius: 16px;
-  padding: 20px 20px 16px;
-  border: 1px solid var(--border-soft);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 162px;
+    linear-gradient(135deg, color-mix(in srgb, var(--card-accent) 12%, transparent) 0%, transparent 70%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02) 0%, transparent 50%),
+    rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 12px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--card-accent) 22%, rgba(99, 102, 241, 0.12));
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 76px;
   overflow: hidden;
-  transition: transform 0.14s ease, border-color 0.2s ease, box-shadow 0.22s ease;
+  transition: transform 0.16s ease, border-color 0.2s ease, box-shadow 0.22s ease;
 }
 .accent-bar {
   position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--card-accent) 0%, transparent 90%);
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--card-accent) 0%, color-mix(in srgb, var(--card-accent) 40%, transparent) 100%);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--card-accent) 60%, transparent);
+}
+/* 右上 corner glow */
+.status-card::after {
+  content: '';
+  position: absolute;
+  top: -20%; right: -10%;
+  width: 50%; height: 120%;
+  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--card-accent) 30%, transparent) 0%, transparent 65%);
+  opacity: 0.4;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
 }
 .status-card.clickable { cursor: pointer; }
 .status-card.clickable:hover {
-  border-color: color-mix(in srgb, var(--card-accent) 55%, transparent);
-  box-shadow: 0 12px 28px -10px color-mix(in srgb, var(--card-accent) 45%, transparent);
-  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--card-accent) 60%, transparent);
+  box-shadow:
+    0 10px 24px -10px color-mix(in srgb, var(--card-accent) 55%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--card-accent) 25%, transparent);
+  transform: translateY(-1px);
 }
-.status-card.clickable:active { transform: scale(0.985); }
+.status-card.clickable:hover::after { opacity: 0.7; }
+.status-card.clickable:active { transform: scale(0.98); }
 
-.head { display: flex; align-items: center; gap: 12px; }
 .icon-wrap {
   width: 44px; height: 44px;
   display: flex; align-items: center; justify-content: center;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--card-accent) 16%, transparent);
-  border: 1px solid color-mix(in srgb, var(--card-accent) 28%, transparent);
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--card-accent) 25%, transparent) 0%, color-mix(in srgb, var(--card-accent) 12%, transparent) 100%);
+  border: 1px solid color-mix(in srgb, var(--card-accent) 30%, transparent);
   color: var(--card-accent);
   flex-shrink: 0;
+  box-shadow:
+    0 4px 10px -3px color-mix(in srgb, var(--card-accent) 35%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
-.icon-fallback { font-size: 22px; line-height: 1; }
-.title-col { flex: 1; min-width: 0; }
-.title { font-size: 16px; font-weight: 600; letter-spacing: 0.2px; }
+.icon-fallback { font-size: 20px; line-height: 1; }
+.title-col { min-width: 0; }
+.title { font-size: 14px; font-weight: 600; letter-spacing: 0.2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .status-row {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-top: 4px;
-  font-size: 12px;
+  margin-top: 2px;
+  font-size: 11px;
   color: var(--card-accent);
 }
+.status-label { letter-spacing: 0.5px; }
 .dot {
   width: 6px; height: 6px;
   border-radius: 50%;
   background: var(--card-accent);
-  box-shadow: 0 0 0 0 var(--card-accent);
+  box-shadow: 0 0 0 0 var(--card-accent), 0 0 6px var(--card-accent);
   animation: card-pulse 1.8s ease-out infinite;
 }
-.status-card.is-default .dot { animation: none; }
+.status-card.is-default .dot { animation: none; box-shadow: none; }
 @keyframes card-pulse {
-  0%   { box-shadow: 0 0 0 0   var(--card-accent); }
-  70%  { box-shadow: 0 0 0 7px transparent; }
-  100% { box-shadow: 0 0 0 0   transparent; }
+  0%   { box-shadow: 0 0 0 0   var(--card-accent), 0 0 6px var(--card-accent); }
+  70%  { box-shadow: 0 0 0 6px transparent,         0 0 8px var(--card-accent); }
+  100% { box-shadow: 0 0 0 0   transparent,         0 0 6px var(--card-accent); }
 }
 
-.subtitle { font-size: 13px; color: var(--text-secondary); }
-.detail { font-size: 13px; color: var(--text-primary); }
-.cta {
-  margin-top: auto;
-  align-self: flex-end;
-  font-size: 12px;
-  color: var(--color-primary);
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  letter-spacing: 0.5px;
-  opacity: 0.8;
-  transition: opacity 0.15s ease, transform 0.15s ease;
+.sub-inline { color: var(--text-secondary); margin-left: 2px; }
+.cta-arrow {
+  color: var(--card-accent);
+  opacity: 0.55;
+  transition: opacity 0.18s ease, transform 0.18s ease;
 }
-.status-card.clickable:hover .cta { opacity: 1; transform: translateX(2px); }
+.status-card.clickable:hover .cta-arrow { opacity: 1; transform: translateX(3px); }
 
 .is-default {
-  background: var(--bg-elevated);
+  background: rgba(30, 41, 59, 0.4);
   color: var(--text-secondary);
+}
+.is-default .icon-wrap { color: var(--text-secondary); }
+
+@media (max-width: 1100px) {
+  .status-card { padding: 8px 10px; gap: 8px; grid-template-columns: 36px 1fr auto; min-height: 64px; }
+  .icon-wrap { width: 36px; height: 36px; border-radius: 8px; }
+  .title { font-size: 13px; }
 }
 </style>

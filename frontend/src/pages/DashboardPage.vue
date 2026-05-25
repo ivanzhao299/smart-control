@@ -88,112 +88,219 @@ function goTo(to: string): void {
 
 <template>
   <section class="dashboard">
-    <div class="section-head">
-      <h2 class="sc-title">场景一键切换</h2>
-      <div class="sc-subtle">点击下方场景按钮即可执行对应联动</div>
+    <!-- 背景装饰: 网格 + 4 角落辉光 -->
+    <div class="bg-grid" aria-hidden="true"></div>
+    <div class="bg-glow glow-tl" aria-hidden="true"></div>
+    <div class="bg-glow glow-br" aria-hidden="true"></div>
+
+    <!-- 场景区 (上半) -->
+    <div class="block scene-block">
+      <div class="block-head">
+        <h2 class="block-title">
+          <span class="title-bar"></span>
+          场景一键切换
+        </h2>
+        <div class="block-sub">点击场景按钮执行联动 · 当前 {{ sceneStore.runningByCode.size }} 个运行中</div>
+      </div>
+
+      <div class="scene-grid">
+        <SceneButton
+          v-for="s in sceneStore.orderedScenes"
+          :key="s.code"
+          :code="s.code"
+          :name="s.name"
+          :icon="sceneStore.iconFor(s.code)"
+          :active="sceneStore.runningByCode.get(s.code) != null"
+          :loading="sceneStore.pendingCode === s.code"
+          :error="sceneStore.lastExecution?.sceneCode === s.code && sceneStore.lastExecution?.status === 'failed'"
+          @click="runScene(s.code)"
+        />
+      </div>
+
+      <div v-if="sceneStore.runningByCode.size > 0" class="running-row">
+        <span class="sc-subtle">运行中:</span>
+        <span v-for="r in sceneStore.running" :key="r.executionId" class="run-chip">
+          {{ r.sceneName }}
+          <button class="stop-btn" @click="stopScene(r.sceneCode)">停止</button>
+        </span>
+      </div>
     </div>
 
-    <div class="scene-grid">
-      <SceneButton
-        v-for="s in sceneStore.orderedScenes"
-        :key="s.code"
-        :code="s.code"
-        :name="s.name"
-        :icon="sceneStore.iconFor(s.code)"
-        :active="sceneStore.runningByCode.get(s.code) != null"
-        :loading="sceneStore.pendingCode === s.code"
-        :error="sceneStore.lastExecution?.sceneCode === s.code && sceneStore.lastExecution?.status === 'failed'"
-        @click="runScene(s.code)"
-      />
-    </div>
+    <!-- 子系统区 (下半, 紧凑横排 5 卡) -->
+    <div class="block subsystem-block">
+      <div class="block-head">
+        <h2 class="block-title">
+          <span class="title-bar"></span>
+          子系统状态
+        </h2>
+        <div class="block-sub">点击卡片进入对应控制页</div>
+      </div>
 
-    <div v-if="sceneStore.runningByCode.size > 0" class="running-row">
-      <span class="sc-subtle">运行中:</span>
-      <span
-        v-for="r in sceneStore.running"
-        :key="r.executionId"
-        class="run-chip"
-      >
-        {{ r.sceneName }}
-        <button class="stop-btn" @click="stopScene(r.sceneCode)">停止</button>
-      </span>
-    </div>
-
-    <div class="section-head" style="margin-top: 24px;">
-      <h2 class="sc-title">子系统状态</h2>
-      <div class="sc-subtle">点击卡片进入对应控制页</div>
-    </div>
-
-    <div class="cards-grid">
-      <StatusCard
-        v-for="c in categories"
-        :key="c.key"
-        :title="c.title"
-        :icon="c.icon"
-        :status="deriveCategoryStatus(c.key)"
-        :subtitle="summary(c.key)"
-        :to="c.to"
-        @go="goTo"
-      />
-      <StatusCard
-        title="电源/系统"
-        :icon="Zap"
-        :status="powerStatus"
-        :subtitle="`故障 ${deviceStore.errorDevices.length} · 离线 ${deviceStore.offlineDevices.length}`"
-        to="/status"
-        @go="goTo"
-      />
+      <div class="cards-grid">
+        <StatusCard
+          v-for="c in categories"
+          :key="c.key"
+          :title="c.title"
+          :icon="c.icon"
+          :status="deriveCategoryStatus(c.key)"
+          :subtitle="summary(c.key)"
+          :to="c.to"
+          @go="goTo"
+        />
+        <StatusCard
+          title="电源/系统"
+          :icon="Zap"
+          :status="powerStatus"
+          :subtitle="`故障 ${deviceStore.errorDevices.length} · 离线 ${deviceStore.offlineDevices.length}`"
+          to="/status"
+          @go="goTo"
+        />
+      </div>
     </div>
   </section>
 </template>
 
 <style scoped>
-.dashboard { display: flex; flex-direction: column; gap: 12px; }
-.section-head { display: flex; align-items: baseline; gap: 14px; }
+/* 顶层容器: 撑满 content 区, 不滚 */
+.dashboard {
+  position: relative;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: 14px;
+  height: 100%;
+  min-height: 0;
+}
+
+/* ============ 背景科技感装饰 ============ */
+.bg-grid {
+  position: absolute;
+  inset: -20px;
+  background-image:
+    linear-gradient(rgba(99, 102, 241, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99, 102, 241, 0.05) 1px, transparent 1px);
+  background-size: 40px 40px;
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 50%, black 50%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 50%, black 50%, transparent 100%);
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.5;
+}
+.bg-glow {
+  position: absolute;
+  width: 480px; height: 480px;
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.35;
+}
+.glow-tl {
+  top: -180px; left: -180px;
+  background: radial-gradient(circle, #06b6d4 0%, transparent 70%);
+}
+.glow-br {
+  bottom: -180px; right: -180px;
+  background: radial-gradient(circle, #a855f7 0%, transparent 70%);
+}
+
+/* ============ 区块 ============ */
+.block {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+.block-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.block-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 1px;
+}
+.title-bar {
+  width: 4px;
+  height: 16px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #06b6d4 0%, #a855f7 100%);
+  box-shadow: 0 0 8px rgba(124, 58, 237, 0.6);
+}
+.block-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  letter-spacing: 0.5px;
+}
+
+/* ============ 场景网格 (4 列 × 2 行, 7 个场景 占 4+3) ============ */
 .scene-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
-/* 1920×1200 Android 平板等大屏: 场景按钮升 4 列, 7 个场景 → 4+3 不空行 */
-@media (min-width: 1600px) {
-  .scene-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+/* 中等屏 1200-1400 */
+@media (max-width: 1400px) {
+  .scene-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+/* 小平板 ≤ 1100 */
+@media (max-width: 1100px) {
+  .scene-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+}
+/* 7-8" 极小屏 */
+@media (max-width: 720px) {
+  .scene-grid { grid-template-columns: 1fr; }
+}
+
+/* ============ 子系统状态卡 (5 卡横排, 紧凑) ============ */
 .cards-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
-.running-row {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding: 10px 14px; background: var(--bg-panel); border-radius: var(--radius-md);
-  border: 1px solid var(--border-soft);
-}
-.run-chip {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 6px 10px;
-  background: rgba(37, 99, 235, 0.18);
-  color: var(--text-primary);
-  border-radius: 999px;
-  font-size: 14px;
-}
-.stop-btn {
-  border: none; background: var(--color-error); color: #fff;
-  padding: 3px 10px; border-radius: 999px; cursor: pointer; font-size: 12px;
-}
-
-/* 中尺寸平板 (1280px 主流横屏) */
 @media (max-width: 1400px) {
   .cards-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
-/* 小尺寸平板 (1024-1280) */
 @media (max-width: 1100px) {
-  .scene-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .cards-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .cards-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 }
-/* 极小屏 (7-8" 平板) */
 @media (max-width: 720px) {
-  .scene-grid { grid-template-columns: 1fr; }
   .cards-grid { grid-template-columns: 1fr; }
 }
+
+/* ============ 运行中 chip ============ */
+.running-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 12px;
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.08) 0%, transparent 100%);
+  border-radius: 10px;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+.run-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 9px;
+  background: rgba(16, 185, 129, 0.18);
+  color: var(--text-primary);
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+.stop-btn {
+  border: none;
+  background: var(--color-error);
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.stop-btn:hover { background: #dc2626; box-shadow: 0 0 8px rgba(239, 68, 68, 0.5); }
 </style>
