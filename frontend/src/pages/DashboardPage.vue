@@ -161,16 +161,19 @@ function goTo(to: string): void {
 </template>
 
 <style scoped>
-/* 顶层容器: 撑满 content 区. overflow: auto = 只有真正溢出才有滚动条 */
+/* 顶层容器: 撑满 content 区, 按内容自然堆叠 + 自身滚动
+   注意: 不用 grid 1fr auto. 之前用过, 在 .block { min-height: 0 } 配合下,
+   1fr 轨道允许被压到比 scene-grid 内容更小, 第 3 行场景 (清洁 + 闭馆)
+   溢出 scene-block 边界, 被后续 subsystem 卡片背景盖住 — 看上去就是 "卡片交叠". */
 .dashboard {
   position: relative;
-  display: grid;
-  grid-template-rows: 1fr auto; /* scene 拿剩余空间, subsystem 固定高度 */
-  gap: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   height: 100%;
   min-height: 0;
   overflow-y: auto;
-  overflow-x: hidden; /* 永远不允许左右滑 */
+  overflow-x: hidden;
 }
 
 /* ============ 背景科技感装饰 ============ */
