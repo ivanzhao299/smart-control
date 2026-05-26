@@ -22,7 +22,8 @@ import { MediaService } from './media.service';
 import { MediaUploadMetaDto } from './dto/media.dto';
 import { OperationLogService } from '../logs/operation-log.service';
 
-const MAX_UPLOAD_BYTES = Number(process.env.MEDIA_MAX_BYTES ?? 500 * 1024 * 1024); // 500MB
+/** 高清视频 4K 60fps 30 分钟 ≈ 10GB, 默认放到 10GB. env MEDIA_MAX_BYTES 可调 */
+const MAX_UPLOAD_BYTES = Number(process.env.MEDIA_MAX_BYTES ?? 10 * 1024 * 1024 * 1024);
 
 @Controller('media')
 export class MediaController {

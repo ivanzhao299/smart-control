@@ -18,6 +18,7 @@ const loading = ref(false);
 const uploading = ref(false);
 const uploadPct = ref(0);
 const uploadName = ref('');
+const uploadStartAt = ref(0);
 const filter = ref<'all' | 'video' | 'image'>('all');
 const previewItem = ref<MediaItem | null>(null);
 const isDragging = ref(false);
@@ -32,6 +33,17 @@ const stats = computed(() => {
   const i = items.value.filter((m) => m.kind === 'image').length;
   const totalBytes = items.value.reduce((s, m) => s + m.sizeBytes, 0);
   return { v, i, totalBytes };
+});
+
+const uploadEta = computed(() => {
+  if (!uploading.value || uploadPct.value === 0 || !uploadStartAt.value) return '';
+  const elapsedMs = Date.now() - uploadStartAt.value;
+  const remainPct = 100 - uploadPct.value;
+  if (remainPct <= 0) return '收尾...';
+  const totalMs = elapsedMs / uploadPct.value * 100;
+  const remainMs = totalMs - elapsedMs;
+  if (remainMs < 60_000) return `剩约 ${Math.ceil(remainMs / 1000)}秒`;
+  return `剩约 ${Math.ceil(remainMs / 60_000)}分钟`;
 });
 
 function fmtSize(b: number): string {
@@ -60,22 +72,37 @@ async function refresh(): Promise<void> {
   }
 }
 
+const UPLOAD_MAX_GB = 10;
+
 async function doUpload(file: File): Promise<void> {
   if (uploading.value) {
     ElMessage.warning('正在上传, 请等待当前任务完成');
     return;
   }
-  if (file.size > 500 * 1024 * 1024) {
-    ElMessage.error('文件超过 500MB 上限');
+  if (file.size > UPLOAD_MAX_GB * 1024 * 1024 * 1024) {
+    ElMessage.error(`文件超过 ${UPLOAD_MAX_GB}GB 上限 (现 ${fmtSize(file.size)})`);
     return;
   }
   if (!file.type.startsWith('video/') && !file.type.startsWith('image/')) {
     ElMessage.error(`不支持的文件类型: ${file.type}`);
     return;
   }
+  // 大文件友好提示 (>500MB)
+  if (file.size > 500 * 1024 * 1024) {
+    const sizeStr = fmtSize(file.size);
+    const estMin = Math.ceil(file.size / (10 * 1024 * 1024) / 60); // 估 80Mbps 实际
+    try {
+      await ElMessageBox.confirm(
+        `文件 ${file.name} (${sizeStr}) 是大文件, 预估 ${estMin} 分钟左右上传完成 (实际取决于网速). 上传期间请保持页面打开. 继续?`,
+        '大文件上传',
+        { type: 'info', confirmButtonText: '开始上传', cancelButtonText: '取消' },
+      );
+    } catch { return; }
+  }
   uploading.value = true;
   uploadPct.value = 0;
   uploadName.value = file.name;
+  uploadStartAt.value = Date.now();
   try {
     await mediaService.upload(file, {
       onProgress: (p) => { uploadPct.value = p; },
@@ -88,6 +115,7 @@ async function doUpload(file: File): Promise<void> {
     uploading.value = false;
     uploadPct.value = 0;
     uploadName.value = '';
+    uploadStartAt.value = 0;
   }
 }
 
@@ -189,13 +217,16 @@ onMounted(() => { void refresh(); });
       </div>
     </header>
 
-    <!-- 上传进度 -->
+    <!-- 上传进度 (大文件含速率 + ETA) -->
     <div v-if="uploading" class="upload-bar">
-      <div class="upload-name">{{ uploadName }}</div>
+      <div class="upload-name" :title="uploadName">{{ uploadName }}</div>
       <div class="upload-track">
         <div class="upload-fill" :style="{ width: uploadPct + '%' }"></div>
       </div>
-      <div class="upload-pct">{{ uploadPct }}%</div>
+      <div class="upload-meta">
+        <span class="upload-pct">{{ uploadPct }}%</span>
+        <span v-if="uploadEta" class="upload-eta">{{ uploadEta }}</span>
+      </div>
     </div>
 
     <!-- 拖放区 + 网格 -->
@@ -308,7 +339,9 @@ onMounted(() => { void refresh(); });
 .upload-name { color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .upload-track { height: 6px; background: rgba(15, 23, 42, 0.5); border-radius: 3px; overflow: hidden; }
 .upload-fill { height: 100%; background: linear-gradient(90deg, #06b6d4 0%, #a855f7 100%); transition: width 0.2s; box-shadow: 0 0 8px rgba(6, 182, 212, 0.6); }
+.upload-meta { display: flex; align-items: center; gap: 10px; }
 .upload-pct { font-family: 'JetBrains Mono', ui-monospace, monospace; color: #06b6d4; font-weight: 600; }
+.upload-eta { font-size: 11px; color: var(--text-secondary); font-family: 'JetBrains Mono', ui-monospace, monospace; }
 
 .grid-wrap { position: relative; flex: 1; min-height: 0; overflow: auto; padding: 4px; border-radius: 12px; }
 .grid-wrap.is-drag { background: rgba(6, 182, 212, 0.08); outline: 2px dashed rgba(6, 182, 212, 0.5); outline-offset: -2px; }

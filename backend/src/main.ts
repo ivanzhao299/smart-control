@@ -29,7 +29,14 @@ async function bootstrap(): Promise<void> {
   app.useWebSocketAdapter(new WsAdapter(app));
   app.enableShutdownHooks();
 
-  await app.listen(appCfg.port, '0.0.0.0');
+  const httpServer = await app.listen(appCfg.port, '0.0.0.0');
+
+  // 大文件上传 (媒体模块) 需要长 timeout, 默认 2 分钟. 改 30 分钟.
+  // requestTimeout=0 表示不限 (Node 18+)
+  // headersTimeout 60s 防慢速攻击; keepAliveTimeout 5s 默认
+  httpServer.requestTimeout = 0;
+  httpServer.headersTimeout = 60_000;
+  httpServer.setTimeout(30 * 60 * 1000);
 
   logger.log(
     `🚀 ${appCfg.appName} started on http://0.0.0.0:${appCfg.port}${appCfg.apiPrefix} (ws: ${wsCfg.path}) [${appCfg.nodeEnv}]`,
