@@ -1,4 +1,4 @@
-# 现场主控机自动追主分支 (GK9000 等)
+﻿# 现场主控机自动追主分支 (GK9000 等)
 # 每次跑: git fetch + 比较 HEAD vs origin/main, 落后就调 update.ps1
 #
 # 用法 (手动调试):

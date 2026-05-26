@@ -1,4 +1,4 @@
-# 注册 Windows 计划任务: 每 90 秒检查一次 main, 有新 commit 就自动 update
+﻿# 注册 Windows 计划任务: 每 90 秒检查一次 main, 有新 commit 就自动 update
 # 在 GK9000 RDP 进去后 *管理员 PowerShell* 跑一次, 之后永远自治
 #
 # 用法:
