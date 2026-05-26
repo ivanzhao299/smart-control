@@ -71,12 +71,22 @@ if (Test-Path $lockFile) {
 }
 
 try {
-  # 工作区不干净 → 拒绝 (现场不应有本地改动)
+  # 工作区脏检查: 区分 untracked (??) 和 tracked-modified
+  # - 现场常有本地脚本 / .env / .bak 文件 (untracked), 不影响 pull → 放行
+  # - tracked-modified (M/D/A/R) 才可能跟远端冲突 → 警告但仍尝试
+  #   (用 update.ps1 里的 git pull --ff-only 顶住, 真冲突它会自己 fail)
   $dirty = git status --porcelain
   if ($dirty -and -not $Force) {
-    Log "skip: 工作区有未提交改动, 跳过 (加 -Force 强制覆盖):" 'Red'
-    $dirty | ForEach-Object { Log "  $_" 'Red' }
-    exit 0
+    $tracked = $dirty | Where-Object { $_ -notmatch '^\?\?' }
+    $untracked = $dirty | Where-Object { $_ -match '^\?\?' }
+    if ($untracked) {
+      Write-Verbose "ignore untracked: $($untracked.Count) 个 (不阻塞 pull)"
+    }
+    if ($tracked) {
+      Log "warn: 有 tracked 文件被现场改过, 尝试 pull (--ff-only 会自己处理冲突):" 'Yellow'
+      $tracked | ForEach-Object { Log "  $_" 'Yellow' }
+      Log "tip: 配置类文件 (.env*) 应该跑一次 git update-index --skip-worktree 永久豁免" 'DarkGray'
+    }
   }
 
   # 1) 拉远端最新引用 (不动工作区)

@@ -98,6 +98,31 @@ Write-Host "立即跑一次:      Start-ScheduledTask -TaskName $taskName" -Fore
 Write-Host "卸载:            .\scripts\install-auto-update-task.ps1 -Uninstall" -ForegroundColor Gray
 Write-Host ""
 
+# 一次性: 把现场分叉的配置文件标记成 skip-worktree, 防止 git pull 把现场真实 IP 覆盖回 mock
+# (untracked 文件不需要处理 - 它们本来就不在 git 跟踪里)
+$skipWorktreeTargets = @(
+  'frontend/.env.production',
+  'backend/.env',
+  'backend/.env.production'
+)
+Write-Host "标记现场分叉文件为 skip-worktree (本地改动不会被 pull 覆盖):" -ForegroundColor Cyan
+Push-Location $projectRoot
+try {
+  foreach ($target in $skipWorktreeTargets) {
+    if (Test-Path $target) {
+      git update-index --skip-worktree $target 2>$null
+      if ($LASTEXITCODE -eq 0) {
+        Write-Host "  ok  $target" -ForegroundColor Gray
+      } else {
+        Write-Host "  skip $target (不在 git 跟踪里, 忽略)" -ForegroundColor DarkGray
+      }
+    }
+  }
+} finally {
+  Pop-Location
+}
+Write-Host ""
+
 # 立即跑一次验证
 Write-Host "正在立即触发一次以验证..." -ForegroundColor Cyan
 Start-ScheduledTask -TaskName $taskName

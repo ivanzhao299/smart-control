@@ -57,3 +57,12 @@ Thumbs.db
 # ============ 测试覆盖率 ============
 coverage/
 .nyc_output/
+
+# ============ 现场主控机本地文件 (GK9000) ============
+# 现场会自己生成的脚本/备份/npmrc, 不进仓库
+/start-backend.ps1
+/start-frontend.ps1
+backend/.env.bak*
+backend/.npmrc
+/tmp/
+/logs/auto-update-*.log
