@@ -1,4 +1,4 @@
-# 数据库 + 配置备份
+﻿# 数据库 + 配置备份
 # 用法:
 #   scripts\backup.ps1                            备份到 backups\YYYYMMDD-HHMMSS\
 #   scripts\backup.ps1 -Dest 'E:\sc-backups'      指定根目录

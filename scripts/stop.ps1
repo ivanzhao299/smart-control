@@ -1,4 +1,4 @@
-# 停止中控系统 (PM2 stop, 不卸载)
+﻿# 停止中控系统 (PM2 stop, 不卸载)
 # 用法: powershell -ExecutionPolicy Bypass -File scripts\stop.ps1 [-All]
 [CmdletBinding()]
 param(

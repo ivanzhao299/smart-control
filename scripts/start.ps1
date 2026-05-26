@@ -1,4 +1,4 @@
-# 启动中控系统 (Windows 10 / GK9000)
+﻿# 启动中控系统 (Windows 10 / GK9000)
 # 用法: powershell -ExecutionPolicy Bypass -File scripts\start.ps1 [-Env production|development]
 [CmdletBinding()]
 param(

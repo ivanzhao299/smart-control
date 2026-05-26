@@ -1,4 +1,4 @@
-# 查看日志
+﻿# 查看日志
 # 用法:
 #   scripts\logs.ps1                跟随 PM2 流 (Ctrl+C 退出)
 #   scripts\logs.ps1 -Err           只看 error.log

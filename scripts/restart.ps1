@@ -1,4 +1,4 @@
-# 重启中控系统
+﻿# 重启中控系统
 # 用法:
 #   scripts\restart.ps1                   平滑重启 (PM2 reload)
 #   scripts\restart.ps1 -Hard             强制重启
