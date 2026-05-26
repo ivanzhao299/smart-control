@@ -34,8 +34,29 @@ $lockFile = Join-Path $tmpDir 'auto-update.lock'
 function Log($msg, $color = 'Gray') {
   $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
   $line = "[$ts] $msg"
-  Add-Content -Path $logFile -Value $line
+  Add-Content -Path $logFile -Value $line -Encoding UTF8
   Write-Host $line -ForegroundColor $color
+}
+
+# 计划任务跑出来的 PowerShell 有时 PATH 不带 git/node/pnpm, 主动补一遍
+$extraPaths = @(
+  "$env:ProgramFiles\Git\cmd",
+  "$env:ProgramFiles\Git\bin",
+  "${env:ProgramFiles(x86)}\Git\cmd",
+  "$env:LOCALAPPDATA\Programs\Git\cmd",
+  "$env:ProgramFiles\nodejs",
+  "$env:APPDATA\npm",
+  "$env:LOCALAPPDATA\pnpm"
+)
+foreach ($p in $extraPaths) {
+  if ($p -and (Test-Path $p) -and ($env:PATH -notlike "*$p*")) {
+    $env:PATH = "$p;$env:PATH"
+  }
+}
+
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+  Log "git 不在 PATH 也不在标准位置 (Program Files\Git, LocalAppData\Programs\Git). 装一下 Git for Windows 再重试" 'Red'
+  exit 2
 }
 
 # 锁: 上一次 update 可能还在跑 (build 几十秒), 不要叠加

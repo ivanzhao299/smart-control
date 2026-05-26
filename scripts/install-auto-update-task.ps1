@@ -55,11 +55,12 @@ $action = New-ScheduledTaskAction `
   -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$watcher`"" `
   -WorkingDirectory $projectRoot
 
-# Trigger: 登录后立即跑, 之后每 N 秒一次 (无限重复 24h)
-$trigger = New-ScheduledTaskTrigger -AtLogOn
-$trigger.Repetition = (New-ScheduledTaskTrigger -Once -At (Get-Date) `
-    -RepetitionInterval (New-TimeSpan -Seconds $IntervalSec) `
-    -RepetitionDuration ([TimeSpan]::FromDays(365 * 10))).Repetition
+# Trigger: 30s 后开始, 之后每 N 秒一次, 持续 10 年
+# (不用 AtLogOn — 已登录用户装任务时 AtLogOn 不会立即触发, 用户得登出再登才生效)
+$trigger = New-ScheduledTaskTrigger `
+  -Once -At (Get-Date).AddSeconds(30) `
+  -RepetitionInterval (New-TimeSpan -Seconds $IntervalSec) `
+  -RepetitionDuration ([TimeSpan]::FromDays(365 * 10))
 
 # 用当前登录用户身份, 而非 SYSTEM (git 凭据要从用户家目录读)
 $principal = New-ScheduledTaskPrincipal `
