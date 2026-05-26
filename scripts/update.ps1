@@ -56,18 +56,11 @@ if ($dirty -and (-not $Force)) {
 }
 Write-Host "  工作区干净 OK" -ForegroundColor Green
 
-# 2) 备份 (数据库 + .env + UAT 快照)
-Write-Host "`n[2/6] 更新前备份..." -ForegroundColor Yellow
-$backupScript = Join-Path $projectRoot 'scripts\backup.ps1'
-if (Test-Path $backupScript) {
-  if (-not $DryRun) { & $backupScript -Keep 14 }
-} else {
-  Write-Host "  backup.ps1 不存在, 跳过备份 (风险自担)" -ForegroundColor Yellow
-}
-
-# 3) git pull
+# 2) git pull (顺序重要: 先 pull 再 backup, 这样 backup.ps1 等子脚本永远是最新版.
+#    之前先 backup 后 pull, 一旦 backup.ps1 本身有问题 (e.g. BOM 缺失 parse 错),
+#    update 就死在第一步, pull 永远跑不到 — 出过现场鸡生蛋死锁, 别再倒回去)
 if (-not $SkipPull) {
-  Write-Host "`n[3/6] 拉取最新代码..." -ForegroundColor Yellow
+  Write-Host "`n[2/6] 拉取最新代码..." -ForegroundColor Yellow
   Run "git fetch origin main"
   Run "git pull --ff-only origin main"
   $afterCommit = if ($DryRun) { 'N/A' } else { (git rev-parse HEAD) }
@@ -77,7 +70,24 @@ if (-not $SkipPull) {
   }
   Write-Host "  $beforeCommit -> $afterCommit" -ForegroundColor Green
 } else {
-  Write-Host "`n[3/6] 跳过 git pull (-SkipPull)" -ForegroundColor Gray
+  Write-Host "`n[2/6] 跳过 git pull (-SkipPull)" -ForegroundColor Gray
+}
+
+# 3) 备份 (数据库 + .env + UAT 快照). 失败只警告不阻塞 — backup 不是 update 的硬依赖,
+#    update 失败可以靠 git reset --hard $beforeCommit 回滚源码, 数据库本身 build/pm2
+#    reload 不会动. backup 价值是 "万一你想恢复到 update 前的数据库快照".
+Write-Host "`n[3/6] 更新前备份..." -ForegroundColor Yellow
+$backupScript = Join-Path $projectRoot 'scripts\backup.ps1'
+if (Test-Path $backupScript) {
+  if (-not $DryRun) {
+    try {
+      & $backupScript -Keep 14
+    } catch {
+      Write-Host "  ! backup.ps1 失败 (继续 update, 不阻塞): $_" -ForegroundColor Yellow
+    }
+  }
+} else {
+  Write-Host "  backup.ps1 不存在, 跳过备份" -ForegroundColor Yellow
 }
 
 # 4) 安装/更新依赖 (只在 package.json 变化时)
