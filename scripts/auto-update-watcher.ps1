@@ -18,8 +18,14 @@ param(
   [switch]$Force
 )
 
-$ErrorActionPreference = 'Stop'
-$projectRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
+# 关键: 不要用 'Stop' — 这会让 native command (git) 的 stderr 把整个脚本掀掉,
+# 自己用 $LASTEXITCODE 显式判断更可控. 致命情况下层用 throw + 顶层 try/catch 兜.
+$ErrorActionPreference = 'Continue'
+
+# 路径解析: $PSScriptRoot 在某些 PS 配置 / Task Scheduler 下可能为空, 兜底用
+# MyInvocation. 计算错了会把 logs 写到 D:\logs\ 而不是 D:\smart-control\logs\.
+$scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
+$projectRoot = (Resolve-Path (Join-Path $scriptDir '..')).Path
 Set-Location $projectRoot
 
 $logsDir = Join-Path $projectRoot 'logs'
@@ -34,9 +40,12 @@ $lockFile = Join-Path $tmpDir 'auto-update.lock'
 function Log($msg, $color = 'Gray') {
   $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
   $line = "[$ts] $msg"
-  Add-Content -Path $logFile -Value $line -Encoding UTF8
-  Write-Host $line -ForegroundColor $color
+  try { Add-Content -Path $logFile -Value $line -Encoding UTF8 -ErrorAction Stop } catch { }
+  try { Write-Host $line -ForegroundColor $color } catch { }
 }
+
+# 启动哨兵 — 任何情况下先证明 "我跑起来了, projectRoot 是 X"
+Log ("=== watcher 启动 (pid=$PID, projectRoot=$projectRoot, user=$env:USERNAME) ===") 'Cyan'
 
 # 计划任务跑出来的 PowerShell 有时 PATH 不带 git/node/pnpm, 主动补一遍
 $extraPaths = @(
@@ -75,7 +84,12 @@ try {
   # - 现场常有本地脚本 / .env / .bak 文件 (untracked), 不影响 pull → 放行
   # - tracked-modified (M/D/A/R) 才可能跟远端冲突 → 警告但仍尝试
   #   (用 update.ps1 里的 git pull --ff-only 顶住, 真冲突它会自己 fail)
-  $dirty = git status --porcelain
+  $dirty = git status --porcelain 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    Log "git status 失败 (exit=$LASTEXITCODE): $dirty" 'Red'
+    Log "cwd=$((Get-Location).Path), 这里可能不是 git repo. 检查 projectRoot 算对了没" 'Red'
+    exit 3
+  }
   if ($dirty -and -not $Force) {
     $tracked = $dirty | Where-Object { $_ -notmatch '^\?\?' }
     $untracked = $dirty | Where-Object { $_ -match '^\?\?' }
@@ -90,23 +104,27 @@ try {
   }
 
   # 1) 拉远端最新引用 (不动工作区)
-  $fetchOut = git fetch origin main 2>&1
+  $fetchOut = (git fetch origin main 2>&1) -join "`n"
   if ($LASTEXITCODE -ne 0) {
-    Log "fetch failed: $fetchOut" 'Red'
+    Log "fetch failed (exit=$LASTEXITCODE): $fetchOut" 'Red'
     exit 1
   }
 
   # 2) 比较本地 vs 远端
-  $local = (git rev-parse HEAD).Trim()
-  $remote = (git rev-parse origin/main).Trim()
+  $local = (git rev-parse HEAD 2>&1)
+  if ($LASTEXITCODE -ne 0 -or -not $local) { Log "rev-parse HEAD 失败: $local" 'Red'; exit 4 }
+  $local = ($local | Out-String).Trim()
+
+  $remote = (git rev-parse origin/main 2>&1)
+  if ($LASTEXITCODE -ne 0 -or -not $remote) { Log "rev-parse origin/main 失败: $remote" 'Red'; exit 4 }
+  $remote = ($remote | Out-String).Trim()
 
   if ($local -eq $remote) {
-    # 静默 OK 路径不写文件日志 (太吵), 但 -Verbose 时打到控制台
-    Write-Verbose "up-to-date @ $($local.Substring(0,7))"
+    Log "up-to-date @ $($local.Substring(0,7))" 'DarkGray'
     exit 0
   }
 
-  $behind = (git rev-list --count "$local..$remote").Trim()
+  $behind = ((git rev-list --count "$local..$remote") | Out-String).Trim()
   Log "new commit(s): 本地 $($local.Substring(0,7)) → 远端 $($remote.Substring(0,7)) (落后 $behind 个)" 'Cyan'
 
   if ($DryRun) {
@@ -129,8 +147,12 @@ try {
     exit $LASTEXITCODE
   }
 
-  $after = (git rev-parse HEAD).Trim()
+  $after = ((git rev-parse HEAD) | Out-String).Trim()
   Log "OK: 已更新到 $($after.Substring(0,7))" 'Green'
+} catch {
+  Log "UNCAUGHT EXCEPTION: $($_.Exception.GetType().Name): $($_.Exception.Message)" 'Red'
+  Log "  at: $($_.InvocationInfo.PositionMessage -replace '\r?\n','  ')" 'Red'
+  exit 99
 } finally {
   if (Test-Path $lockFile) { Remove-Item $lockFile -Force -ErrorAction SilentlyContinue }
 }
