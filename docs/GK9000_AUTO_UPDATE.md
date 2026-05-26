@@ -2,7 +2,7 @@
 
 > 让现场主控机自动跟着 GitHub `main` 走, 不用每次推完手动 RDP 进去跑 `update.ps1`.
 >
-> **状态**: ✅ 2026-05-26 现场首次端到端打通 (watcher → git fetch → up-to-date).
+> **状态**: ✅ 2026-05-27 现场端到端打通 — watcher 自治轮询, push 后 ~2 min 自动 update.
 
 ## 工作原理
 
