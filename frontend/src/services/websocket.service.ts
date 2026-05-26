@@ -40,8 +40,16 @@ class WsClient {
     if (this.destroyed) return;
     this.setState('connecting');
 
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const url = `${proto}://${window.location.host}${this.path}`;
+    // 1) 优先用 VITE_WS_URL 绝对地址 (GK9000 直连场景: ws://192.168.124.11:3200/ws/status)
+    // 2) fallback 用 page host + path (cnjinhu.top nginx 反代场景)
+    const absUrl = import.meta.env.VITE_WS_URL as string | undefined;
+    let url: string;
+    if (absUrl && /^wss?:\/\//.test(absUrl)) {
+      url = absUrl;
+    } else {
+      const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      url = `${proto}://${window.location.host}${this.path}`;
+    }
 
     try {
       const ws = new WebSocket(url);
