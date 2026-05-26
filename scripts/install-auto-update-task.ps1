@@ -99,7 +99,7 @@ Write-Host "卸载:            .\scripts\install-auto-update-task.ps1 -Uninstall
 Write-Host ""
 
 # 一次性: 把现场分叉的配置文件标记成 skip-worktree, 防止 git pull 把现场真实 IP 覆盖回 mock
-# (untracked 文件不需要处理 - 它们本来就不在 git 跟踪里)
+# 只对 *git 真在跟踪* 的文件做 — .gitignore 排掉的文件 (backend/.env) skip-worktree 会 fatal
 $skipWorktreeTargets = @(
   'frontend/.env.production',
   'backend/.env',
@@ -109,13 +109,18 @@ Write-Host "标记现场分叉文件为 skip-worktree (本地改动不会被 pul
 Push-Location $projectRoot
 try {
   foreach ($target in $skipWorktreeTargets) {
-    if (Test-Path $target) {
-      git update-index --skip-worktree $target 2>$null
-      if ($LASTEXITCODE -eq 0) {
-        Write-Host "  ok  $target" -ForegroundColor Gray
-      } else {
-        Write-Host "  skip $target (不在 git 跟踪里, 忽略)" -ForegroundColor DarkGray
-      }
+    if (-not (Test-Path $target)) { continue }
+    # git ls-files 输出非空 = 该文件在 index 里 (被跟踪)
+    $tracked = git ls-files -- $target 2>$null
+    if (-not $tracked) {
+      Write-Host "  skip $target (.gitignore 排掉了, 不在跟踪里, 本来就不会被 pull 动)" -ForegroundColor DarkGray
+      continue
+    }
+    git update-index --skip-worktree -- $target | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+      Write-Host "  ok  $target" -ForegroundColor Gray
+    } else {
+      Write-Host "  warn $target (update-index 返回 $LASTEXITCODE, 跳过)" -ForegroundColor Yellow
     }
   }
 } finally {
