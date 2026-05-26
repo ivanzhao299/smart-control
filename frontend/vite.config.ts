@@ -87,17 +87,17 @@ export default defineConfig(({ mode }) => {
       chunkSizeWarningLimit: 1500,
       cssCodeSplit: true,
       minify: 'esbuild',
-      // 按依赖来源分 chunk: 并行下载 + 独立缓存 (业务代码迭代不影响 vendor 缓存)
+      // 不要手动 chunk Element Plus — 它的 auto-import 已 tree-shaking 到组件级 lazy load
+      // 只切核心 vendor + lucide 让缓存复用 (业务改不影响这些)
       rollupOptions: {
         output: {
           manualChunks(id: string) {
             if (id.includes('node_modules')) {
-              if (id.includes('element-plus')) return 'el-plus';
               if (id.includes('lucide-vue-next')) return 'lucide';
-              if (id.includes('dayjs')) return 'dayjs';
               if (/[\\/](vue|vue-router|pinia|@vue)[\\/]/.test(id)) return 'vue-core';
               if (id.includes('axios')) return 'axios';
-              return 'vendor';
+              // 其余 (包括 Element Plus) 走默认: 按组件懒加载, 自动 tree-shake
+              return undefined;
             }
             return undefined;
           },
