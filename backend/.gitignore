@@ -40,3 +40,7 @@ coverage/
 
 # PM2
 .pm2/
+
+
+# 强制使用 pnpm, npm install 误生成的 lock 不入库
+package-lock.json

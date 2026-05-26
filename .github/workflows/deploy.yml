@@ -65,7 +65,7 @@ jobs:
       - name: Frontend - tar dist
         run: tar czf /tmp/control-dist.tgz -C frontend/dist .
 
-      - name: Backend - tar source (npm ci 在服务器执行)
+      - name: Backend - tar source (服务器跑 pnpm install --frozen-lockfile)
         run: |
           tar czf /tmp/backend-src.tgz \
             --exclude='backend/node_modules' \

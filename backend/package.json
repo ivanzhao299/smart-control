@@ -21,7 +21,8 @@
     "pm2:start": "pm2 start ../deploy/ecosystem.config.js",
     "pm2:stop": "pm2 stop smart-control-backend",
     "pm2:restart": "pm2 restart smart-control-backend",
-    "pm2:logs": "pm2 logs smart-control-backend"
+    "pm2:logs": "pm2 logs smart-control-backend",
+    "preinstall": "npx only-allow pnpm"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.10",
@@ -71,6 +72,8 @@
     "typescript": "^5.5.3"
   },
   "engines": {
-    "node": ">=20.0.0"
-  }
+    "node": ">=20.0.0",
+    "pnpm": ">=8"
+  },
+  "packageManager": "pnpm@10.33.4"
 }

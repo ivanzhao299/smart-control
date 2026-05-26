@@ -9,7 +9,7 @@
 #   1) 解压 backend-src.tgz 到新 release 目录
 #   2) 复用旧 .env (不覆盖生产配置)
 #   3) 落地 version.json (CI 生成, 含 commit/buildTime)
-#   4) npm ci + npm run build
+#   4) pnpm install --frozen-lockfile + pnpm run build
 #   5) 原子切换 current 软链
 #   6) pm2 reload smart-control-backend --update-env
 #   7) 清理超出 --keep 数量的旧 release
@@ -66,11 +66,11 @@ else
   echo "[3/7] 无 version.json (跳过)"
 fi
 
-# 4) npm ci + build
-echo "[4/7] npm ci + build"
+# 4) pnpm install + build (统一用 pnpm, 不再混 npm 导致 lock 不同步)
+echo "[4/7] pnpm install --frozen-lockfile + build"
 cd "$NEW/backend"
-npm ci --no-audit --no-fund --loglevel=error
-npm run build
+pnpm install --frozen-lockfile --reporter=append-only
+pnpm run build
 
 # 5) 切 current 软链
 echo "[5/7] 原子切换 current 软链"
