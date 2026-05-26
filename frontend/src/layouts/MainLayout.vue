@@ -117,8 +117,8 @@ function go(name: string): void {
   justify-content: center;
   gap: 2px;
   padding: 6px 4px;
-  /* 8 主菜单 × 50px = 400px, 600-800px 平板全装下 */
-  min-height: 50px;
+  /* 8 主菜单 × 56px = 448px, 600-800px 平板全装下 + 文字看得清 */
+  min-height: 56px;
   font-size: 12px;
   border-radius: 10px;
   position: relative;
@@ -163,11 +163,11 @@ function go(name: string): void {
 .nav-item.is-active .ico {
   background: rgba(255, 255, 255, 0.1);
 }
-.nav-item .lbl { font-size: 11px; letter-spacing: 0.5px; font-weight: 600; line-height: 1; }
-/* 极小高 (≤ 600px) 只显图标省空间 */
-@media (max-height: 600px) {
+.nav-item .lbl { font-size: 12px; letter-spacing: 0.5px; font-weight: 600; line-height: 1.1; white-space: nowrap; }
+/* 极小高 (≤ 480px, 极少见) 才退化为纯图标 — 绝大多数平板高 ≥ 600px */
+@media (max-height: 480px) {
   .nav-item .lbl { display: none; }
-  .nav-item { min-height: 44px; }
+  .nav-item { min-height: 40px; }
 }
 
 /* 默认 auto: 内容超了才出现滚动条; Dashboard 自己 overflow:hidden 锁死 */
