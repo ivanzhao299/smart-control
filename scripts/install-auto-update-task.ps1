@@ -98,6 +98,25 @@ Write-Host "立即跑一次:      Start-ScheduledTask -TaskName $taskName" -Fore
 Write-Host "卸载:            .\scripts\install-auto-update-task.ps1 -Uninstall" -ForegroundColor Gray
 Write-Host ""
 
+# 一次性: git safe.directory — 目录 owner 通常是 Administrators (admin 部署时建的),
+# watcher 跑在普通 user 身份 (Limited token), git 2.35+ 默认拒绝, 报 dubious ownership.
+# 用 --system 写进 git 系统配置 (C:\Program Files\Git\etc\gitconfig), 全用户生效.
+Write-Host "登记 git safe.directory (跨身份允许):" -ForegroundColor Cyan
+$safePath = $projectRoot -replace '\\', '/'
+$existing = (git config --system --get-all safe.directory 2>$null)
+if ($existing -contains $safePath -or $existing -contains '*') {
+  Write-Host "  skip $safePath (已登记)" -ForegroundColor DarkGray
+} else {
+  git config --system --add safe.directory $safePath
+  if ($LASTEXITCODE -eq 0) {
+    Write-Host "  ok  $safePath" -ForegroundColor Gray
+  } else {
+    Write-Host "  warn 写 --system 失败 (exit=$LASTEXITCODE), 改写 --global:" -ForegroundColor Yellow
+    git config --global --add safe.directory $safePath
+  }
+}
+Write-Host ""
+
 # 一次性: 把现场分叉的配置文件标记成 skip-worktree, 防止 git pull 把现场真实 IP 覆盖回 mock
 # 只对 *git 真在跟踪* 的文件做 — .gitignore 排掉的文件 (backend/.env) skip-worktree 会 fatal
 $skipWorktreeTargets = @(

@@ -86,9 +86,18 @@ try {
   #   (用 update.ps1 里的 git pull --ff-only 顶住, 真冲突它会自己 fail)
   $dirty = git status --porcelain 2>&1
   if ($LASTEXITCODE -ne 0) {
-    Log "git status 失败 (exit=$LASTEXITCODE): $dirty" 'Red'
-    Log "cwd=$((Get-Location).Path), 这里可能不是 git repo. 检查 projectRoot 算对了没" 'Red'
-    exit 3
+    # 自愈: dubious ownership 是常见现场问题 — 试着给当前用户加 safe.directory 再重试一次
+    if ("$dirty" -match 'dubious ownership') {
+      $safePath = $projectRoot -replace '\\', '/'
+      Log "检测到 dubious ownership, 自动加 user-level safe.directory: $safePath" 'Yellow'
+      git config --global --add safe.directory $safePath 2>&1 | Out-Null
+      $dirty = git status --porcelain 2>&1
+    }
+    if ($LASTEXITCODE -ne 0) {
+      Log "git status 失败 (exit=$LASTEXITCODE): $dirty" 'Red'
+      Log "cwd=$((Get-Location).Path), 检查 projectRoot 或重跑 install (admin)" 'Red'
+      exit 3
+    }
   }
   if ($dirty -and -not $Force) {
     $tracked = $dirty | Where-Object { $_ -notmatch '^\?\?' }
