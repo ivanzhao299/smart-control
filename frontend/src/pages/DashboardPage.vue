@@ -187,22 +187,21 @@ function goTo(to: string): void {
   z-index: 0;
   opacity: 0.5;
 }
+/* 用纯 radial-gradient 模拟辉光 (省 filter blur 的 GPU 开销) */
 .bg-glow {
   position: absolute;
   width: 480px; height: 480px;
-  border-radius: 50%;
-  filter: blur(80px);
   pointer-events: none;
   z-index: 0;
-  opacity: 0.35;
+  opacity: 0.32;
 }
 .glow-tl {
-  top: -180px; left: -180px;
-  background: radial-gradient(circle, #06b6d4 0%, transparent 70%);
+  top: -200px; left: -200px;
+  background: radial-gradient(circle at 50% 50%, #06b6d4 0%, transparent 60%);
 }
 .glow-br {
-  bottom: -180px; right: -180px;
-  background: radial-gradient(circle, #a855f7 0%, transparent 70%);
+  bottom: -200px; right: -200px;
+  background: radial-gradient(circle at 50% 50%, #a855f7 0%, transparent 60%);
 }
 
 /* ============ 区块 ============ */

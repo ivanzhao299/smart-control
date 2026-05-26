@@ -77,12 +77,11 @@ function onClick(): void {
 .scene-btn {
   position: relative;
   height: 110px;
+  /* 用纯色 + 渐变模拟"玻璃质感", 不用 backdrop-filter (平板 GPU 不堪重负) */
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--scene-a) 14%, transparent) 0%, color-mix(in srgb, var(--scene-b) 8%, transparent) 100%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, transparent 70%),
-    rgba(15, 23, 42, 0.55);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+    linear-gradient(135deg, color-mix(in srgb, var(--scene-a) 18%, transparent) 0%, color-mix(in srgb, var(--scene-b) 12%, transparent) 100%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, transparent 70%),
+    #1a2030;
   border: 1px solid color-mix(in srgb, var(--scene-a) 30%, rgba(99, 102, 241, 0.15));
   border-radius: 14px;
   color: var(--text-primary);
@@ -171,7 +170,6 @@ function onClick(): void {
   background: rgba(255, 255, 255, 0.22);
   border-color: rgba(255, 255, 255, 0.35);
   color: #fff;
-  backdrop-filter: blur(6px);
 }
 .ico { stroke: currentColor; filter: drop-shadow(0 0 6px var(--scene-glow)); }
 .scene-btn.is-active .ico { filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.5)); }
@@ -214,7 +212,6 @@ function onClick(): void {
   color: #34d399;
   border: 1px solid rgba(16, 185, 129, 0.4);
   letter-spacing: 1px;
-  backdrop-filter: blur(4px);
 }
 .scene-btn.is-active .badge {
   background: rgba(255, 255, 255, 0.22);

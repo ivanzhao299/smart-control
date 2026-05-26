@@ -19,6 +19,16 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: { '@': resolve(__dirname, 'src') },
     },
+    // preview (生产 serve) 加缓存头让 PWA 资源走浏览器缓存
+    preview: {
+      host: '0.0.0.0',
+      port: 5173,
+      strictPort: true,
+      headers: {
+        // hash 化的 assets 永久缓存 (vite 文件名带 hash, 改动会换名)
+        'Cache-Control': 'public, max-age=31536000, immutable',
+      },
+    },
     server: {
       host: '0.0.0.0',
       port: 5173,
@@ -75,6 +85,24 @@ export default defineConfig(({ mode }) => {
       target: 'es2022',
       sourcemap: false,
       chunkSizeWarningLimit: 1500,
+      cssCodeSplit: true,
+      minify: 'esbuild',
+      // 按依赖来源分 chunk: 并行下载 + 独立缓存 (业务代码迭代不影响 vendor 缓存)
+      rollupOptions: {
+        output: {
+          manualChunks(id: string) {
+            if (id.includes('node_modules')) {
+              if (id.includes('element-plus')) return 'el-plus';
+              if (id.includes('lucide-vue-next')) return 'lucide';
+              if (id.includes('dayjs')) return 'dayjs';
+              if (/[\\/](vue|vue-router|pinia|@vue)[\\/]/.test(id)) return 'vue-core';
+              if (id.includes('axios')) return 'axios';
+              return 'vendor';
+            }
+            return undefined;
+          },
+        },
+      },
     },
   };
 });

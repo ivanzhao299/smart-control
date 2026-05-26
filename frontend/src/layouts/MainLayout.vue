@@ -51,10 +51,11 @@ function go(name: string): void {
         </button>
       </nav>
       <main class="content">
+        <!-- KeepAlive 缓存挂载过的页面, 重访问瞬间 (不重 fetch). 删 transition 省 200ms -->
         <router-view v-slot="{ Component }">
-          <transition name="page" mode="out-in">
+          <keep-alive :max="6">
             <component :is="Component" />
-          </transition>
+          </keep-alive>
         </router-view>
       </main>
     </div>
@@ -180,6 +181,5 @@ function go(name: string): void {
 }
 @media (max-width: 1100px) { .content { padding: 8px 10px; } }
 
-.page-enter-from, .page-leave-to { opacity: 0; transform: translateY(6px); }
-.page-enter-active, .page-leave-active { transition: all 0.2s ease; }
+/* page transition 已删 — keep-alive 缓存 + 无动画 = 切页面瞬间, 无 200ms 卡顿 */
 </style>

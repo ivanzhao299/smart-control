@@ -62,11 +62,10 @@ function onClick(): void {
 .status-card {
   position: relative;
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--card-accent) 12%, transparent) 0%, transparent 70%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02) 0%, transparent 50%),
-    rgba(15, 23, 42, 0.55);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+    linear-gradient(135deg, color-mix(in srgb, var(--card-accent) 14%, transparent) 0%, transparent 70%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, transparent 50%),
+    #1a2030;
+  /* 删 backdrop-filter — 12 个卡片同时 blur GPU 撑不住, 用纯色替代 */
   border-radius: 12px;
   padding: 10px 14px;
   border: 1px solid color-mix(in srgb, var(--card-accent) 22%, rgba(99, 102, 241, 0.12));
