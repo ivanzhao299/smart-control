@@ -22,6 +22,23 @@ export interface BackupItem {
   createdAt: string;
 }
 
+export interface SiteHeartbeat {
+  /** 主控机标识 (hostname / 工位号, 现场端报上来) */
+  host: string;
+  /** 现场当前 git HEAD commit (现场报) */
+  commit?: string;
+  /** 分支名 (现场报) */
+  ref?: string;
+  /** 现场 package.json version (现场报) */
+  version?: string;
+  /** 现场构建时间 / version.json buildTime (现场报) */
+  buildAt?: string;
+  /** 现场 update.ps1 完成时刻 (现场报, ISO) */
+  updatedAt?: string;
+  /** 后端接收时刻 (服务端打) */
+  receivedAt?: string;
+}
+
 @Injectable()
 export class SystemService implements OnModuleInit {
   private readonly logger = new Logger(SystemService.name);
@@ -161,6 +178,32 @@ export class SystemService implements OnModuleInit {
       });
     }
     return items.sort((a, b) => (a.name < b.name ? 1 : -1));
+  }
+
+  // 现场主控机心跳 — update.ps1 跑成功后回报, 让远程能看到现场当前 commit / 时间
+  private readonly siteHeartbeats = new Map<string, SiteHeartbeat>();
+
+  recordSiteHeartbeat(input: Partial<SiteHeartbeat> & { host: string }): SiteHeartbeat {
+    const now = new Date().toISOString();
+    const prev = this.siteHeartbeats.get(input.host);
+    const entry: SiteHeartbeat = {
+      host: input.host,
+      commit: input.commit ?? prev?.commit,
+      ref: input.ref ?? prev?.ref,
+      version: input.version ?? prev?.version,
+      buildAt: input.buildAt ?? prev?.buildAt,
+      updatedAt: input.updatedAt ?? now,
+      receivedAt: now,
+    };
+    this.siteHeartbeats.set(input.host, entry);
+    this.logger.log(`site heartbeat: ${entry.host} @ ${entry.commit?.slice(0, 7) ?? '?'} (updated ${entry.updatedAt})`);
+    return entry;
+  }
+
+  listSiteHeartbeats(): SiteHeartbeat[] {
+    return [...this.siteHeartbeats.values()].sort((a, b) =>
+      (a.receivedAt ?? '') < (b.receivedAt ?? '') ? 1 : -1,
+    );
   }
 
   productionFlags(): {

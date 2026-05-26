@@ -92,4 +92,27 @@ export class SystemController {
     const res = await this.system.restore(body?.snapshot);
     return { message: '恢复 (模拟) 已计算', data: res };
   }
+
+  // 现场主控机心跳: update.ps1 跑成功后回拨, 报当前 commit / 时间. 远程靠这个看 GK9000 状态.
+  @Post('site-heartbeat')
+  siteHeartbeat(@Body() body: {
+    host?: string;
+    commit?: string;
+    ref?: string;
+    version?: string;
+    buildAt?: string;
+    updatedAt?: string;
+  }) {
+    const host = (body?.host || '').trim();
+    if (!host) {
+      return { message: 'host 不能为空', data: null };
+    }
+    const entry = this.system.recordSiteHeartbeat({ ...body, host });
+    return { message: 'heartbeat 已记录', data: entry };
+  }
+
+  @Get('site-heartbeat')
+  listSiteHeartbeat() {
+    return { message: '查询成功', data: this.system.listSiteHeartbeats() };
+  }
 }
