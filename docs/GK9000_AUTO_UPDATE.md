@@ -1,6 +1,8 @@
 # GK9000 自动追主分支
 
 > 让现场主控机自动跟着 GitHub `main` 走, 不用每次推完手动 RDP 进去跑 `update.ps1`.
+>
+> **状态**: ✅ 2026-05-26 现场首次端到端打通 (watcher → git fetch → up-to-date).
 
 ## 工作原理
 
