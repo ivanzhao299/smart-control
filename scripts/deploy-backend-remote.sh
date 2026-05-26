@@ -67,9 +67,11 @@ else
 fi
 
 # 4) pnpm install + build (统一用 pnpm, 不再混 npm 导致 lock 不同步)
-echo "[4/7] pnpm install --frozen-lockfile + build"
+echo "[4/7] pnpm install --frozen-lockfile + rebuild native + build"
 cd "$NEW/backend"
 pnpm install --frozen-lockfile --reporter=append-only
+# pnpm 10 默认禁 install 脚本, 显式 rebuild 原生模块兜底 (即便 onlyBuiltDependencies 已配)
+pnpm rebuild better-sqlite3
 pnpm run build
 
 # 5) 切 current 软链
