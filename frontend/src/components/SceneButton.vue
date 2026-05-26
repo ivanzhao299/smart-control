@@ -128,8 +128,9 @@ function onClick(): void {
   transform: translateY(-2px);
   border-color: color-mix(in srgb, var(--scene-a) 55%, transparent);
   box-shadow:
-    0 12px 30px -10px var(--scene-glow),
+    0 8px 16px -8px var(--scene-glow),
     0 0 0 1px color-mix(in srgb, var(--scene-a) 25%, transparent);
+  z-index: 2; /* hover 时盖过相邻卡片, 避免阴影互相叠加视觉混乱 */
 }
 .scene-btn:hover::after { opacity: 0.7; }
 .scene-btn:hover .ribbon { width: 4px; }
@@ -141,9 +142,10 @@ function onClick(): void {
     linear-gradient(135deg, var(--scene-a) 0%, var(--scene-b) 100%);
   border-color: color-mix(in srgb, var(--scene-a) 80%, white);
   box-shadow:
-    0 18px 36px -10px var(--scene-glow),
+    0 10px 20px -8px var(--scene-glow),
     0 0 0 2px color-mix(in srgb, var(--scene-a) 60%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  z-index: 2;
 }
 .scene-btn.is-active::after { opacity: 0; }
 .scene-btn.is-active .ribbon { background: rgba(255, 255, 255, 0.6); box-shadow: 0 0 12px rgba(255, 255, 255, 0.5); }

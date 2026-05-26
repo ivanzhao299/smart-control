@@ -100,9 +100,10 @@ function onClick(): void {
 .status-card.clickable:hover {
   border-color: color-mix(in srgb, var(--card-accent) 60%, transparent);
   box-shadow:
-    0 10px 24px -10px color-mix(in srgb, var(--card-accent) 55%, transparent),
+    0 6px 14px -8px color-mix(in srgb, var(--card-accent) 55%, transparent),
     0 0 0 1px color-mix(in srgb, var(--card-accent) 25%, transparent);
   transform: translateY(-1px);
+  z-index: 2; /* 避免阴影叠加邻卡 */
 }
 .status-card.clickable:hover::after { opacity: 0.7; }
 .status-card.clickable:active { transform: scale(0.98); }

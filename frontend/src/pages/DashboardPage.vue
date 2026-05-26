@@ -161,14 +161,16 @@ function goTo(to: string): void {
 </template>
 
 <style scoped>
-/* 顶层容器: 撑满 content 区, 不滚 */
+/* 顶层容器: 撑满 content 区. overflow: auto = 只有真正溢出才有滚动条 */
 .dashboard {
   position: relative;
   display: grid;
-  grid-template-rows: 1fr auto;
-  gap: 14px;
+  grid-template-rows: 1fr auto; /* scene 拿剩余空间, subsystem 固定高度 */
+  gap: 10px;
   height: 100%;
   min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden; /* 永远不允许左右滑 */
 }
 
 /* ============ 背景科技感装饰 ============ */
@@ -209,34 +211,35 @@ function goTo(to: string): void {
   z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   min-height: 0;
+  min-width: 0;
 }
 .block-head {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   flex-wrap: wrap;
 }
 .block-title {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   margin: 0;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
   letter-spacing: 1px;
 }
 .title-bar {
-  width: 4px;
-  height: 16px;
+  width: 3px;
+  height: 14px;
   border-radius: 2px;
   background: linear-gradient(180deg, #06b6d4 0%, #a855f7 100%);
-  box-shadow: 0 0 8px rgba(124, 58, 237, 0.6);
+  box-shadow: 0 0 6px rgba(124, 58, 237, 0.6);
 }
 .block-sub {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
   letter-spacing: 0.5px;
 }

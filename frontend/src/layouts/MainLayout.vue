@@ -45,7 +45,7 @@ function go(name: string): void {
           @click="go(t.name)"
         >
           <span class="ico">
-            <component :is="navIconFor(t.name)" :size="22" :stroke-width="1.75" />
+            <component :is="navIconFor(t.name)" :size="20" :stroke-width="1.8" />
           </span>
           <span class="lbl">{{ t.label }}</span>
         </button>
@@ -115,14 +115,15 @@ function go(name: string): void {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 8px 4px;
-  /* 6 个主菜单 + 1 后台 = 7 × ~70px = 490px, 800px 平板装下 */
-  min-height: 64px;
-  font-size: 13px;
-  border-radius: 12px;
+  gap: 2px;
+  padding: 6px 4px;
+  /* 8 主菜单 × 50px = 400px, 600-800px 平板全装下 */
+  min-height: 50px;
+  font-size: 12px;
+  border-radius: 10px;
   position: relative;
   transition: background 0.18s ease, color 0.18s ease, transform 0.12s ease;
+  flex-shrink: 0; /* 防 flex 容器压缩 */
 }
 .nav-item::before {
   content: '';
@@ -153,21 +154,31 @@ function go(name: string): void {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
   background: transparent;
+  flex-shrink: 0;
 }
 .nav-item.is-active .ico {
   background: rgba(255, 255, 255, 0.1);
 }
-.nav-item .lbl { font-size: 13px; letter-spacing: 1px; font-weight: 600; line-height: 1.1; }
-
-.content {
-  overflow: auto;
-  padding: 14px 16px;
+.nav-item .lbl { font-size: 11px; letter-spacing: 0.5px; font-weight: 600; line-height: 1; }
+/* 极小高 (≤ 600px) 只显图标省空间 */
+@media (max-height: 600px) {
+  .nav-item .lbl { display: none; }
+  .nav-item { min-height: 44px; }
 }
-@media (max-width: 1100px) { .content { padding: 10px 12px; } }
+
+/* 默认 auto: 内容超了才出现滚动条; Dashboard 自己 overflow:hidden 锁死 */
+.content {
+  overflow-y: auto;
+  overflow-x: hidden; /* 永远不允许左右滑 */
+  padding: 12px 14px;
+  min-width: 0;
+  min-height: 0;
+}
+@media (max-width: 1100px) { .content { padding: 8px 10px; } }
 
 .page-enter-from, .page-leave-to { opacity: 0; transform: translateY(6px); }
 .page-enter-active, .page-leave-active { transition: all 0.2s ease; }
