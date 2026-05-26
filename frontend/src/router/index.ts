@@ -11,6 +11,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'led', name: 'led', component: () => import('@/pages/LedPage.vue') },
       { path: 'audio', name: 'audio', component: () => import('@/pages/AudioPage.vue') },
       { path: 'hvac', name: 'hvac', component: () => import('@/pages/HvacPage.vue') },
+      { path: 'media', name: 'media', component: () => import('@/pages/MediaPage.vue') },
       { path: 'status', name: 'status', component: () => import('@/pages/StatusPage.vue') },
     ],
   },

@@ -26,6 +26,7 @@ import {
   CheckCircle2,
   FileText,
   Cable,
+  FolderOpen,
   type LucideIcon,
 } from 'lucide-vue-next';
 
@@ -36,6 +37,7 @@ export const NAV_ICON: Record<string, LucideIcon> = {
   led: MonitorPlay,
   audio: Volume2,
   hvac: Snowflake,
+  media: FolderOpen,
   status: Radio,
   'admin-devices': Settings,
 };

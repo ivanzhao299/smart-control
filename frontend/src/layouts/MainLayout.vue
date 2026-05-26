@@ -21,6 +21,7 @@ const tabs: Array<{ name: string; label: string }> = [
   { name: 'led', label: 'LED' },
   { name: 'audio', label: '音响' },
   { name: 'hvac', label: '空调' },
+  { name: 'media', label: '媒体' },
   { name: 'status', label: '状态' },
   { name: 'admin-devices', label: '后台' },
 ];
