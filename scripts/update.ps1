@@ -165,30 +165,5 @@ Write-Host "`n================================================" -ForegroundColor
 Write-Host " 更新完成" -ForegroundColor Green
 Write-Host "================================================" -ForegroundColor Cyan
 
-# 心跳上报: 让远端 (cnjinhu.top) 看到本机当前 commit / 时间, 远程运维不用 RDP 也能看到状态
-if (-not $DryRun) {
-  try {
-    $headCommit = (git rev-parse HEAD).Trim()
-    $pkgPath = Join-Path $projectRoot 'backend\package.json'
-    $localVersion = if (Test-Path $pkgPath) { (Get-Content $pkgPath -Raw | ConvertFrom-Json).version } else { $null }
-    $payload = @{
-      host = $env:COMPUTERNAME
-      commit = $headCommit
-      ref = 'main'
-      version = $localVersion
-      updatedAt = (Get-Date).ToUniversalTime().ToString("o")
-    } | ConvertTo-Json -Compress
-
-    # cnjinhu.top 有 nginx Basic Auth
-    $authHeader = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("jinhu:jinhu2026"))
-    $headers = @{
-      Authorization = $authHeader
-      'Content-Type' = 'application/json'
-    }
-    Invoke-RestMethod -Uri 'https://cnjinhu.top/control/api/system/site-heartbeat' `
-      -Method Post -Headers $headers -Body $payload -TimeoutSec 8 | Out-Null
-    Write-Host "  ✓ 心跳已报 ($($headCommit.Substring(0,7)))" -ForegroundColor Gray
-  } catch {
-    Write-Host "  ! 心跳上报失败 (不影响更新): $_" -ForegroundColor DarkGray
-  }
-}
+# 心跳已移到 watcher 里 (finally 块), 每次轮询都报, 不只 update 成功时
+# update.ps1 本身不再单独报 — 避免重复

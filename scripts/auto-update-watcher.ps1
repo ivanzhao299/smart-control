@@ -161,7 +161,36 @@ try {
 } catch {
   Log "UNCAUGHT EXCEPTION: $($_.Exception.GetType().Name): $($_.Exception.Message)" 'Red'
   Log "  at: $($_.InvocationInfo.PositionMessage -replace '\r?\n','  ')" 'Red'
+  $watcherError = "$($_.Exception.GetType().Name): $($_.Exception.Message)"
   exit 99
 } finally {
   if (Test-Path $lockFile) { Remove-Item $lockFile -Force -ErrorAction SilentlyContinue }
+
+  # 心跳: 不管 update 成不成, 每次跑完都向云端报一次. 这样远程能看到 watcher 活着,
+  # 即使 update 链路挂了也能定位是哪一步.
+  try {
+    # PS 5.x 默认 TLS 1.0/1.1, cnjinhu 走 HTTPS 要 1.2+ — 强制一下
+    [System.Net.ServicePointManager]::SecurityProtocol = `
+      [System.Net.ServicePointManager]::SecurityProtocol -bor `
+      [System.Net.SecurityProtocolType]::Tls12
+
+    $hbHead = try { (git rev-parse HEAD 2>$null | Out-String).Trim() } catch { 'unknown' }
+    $hbStatus = if ($watcherError) { "error: $watcherError" } else { "ok" }
+    $hbPayload = @{
+      host = $env:COMPUTERNAME
+      commit = $hbHead
+      ref = 'main'
+      updatedAt = (Get-Date).ToUniversalTime().ToString("o")
+      version = $hbStatus  # 借用 version 字段携带 watcher 状态 (够诊断用)
+    } | ConvertTo-Json -Compress
+
+    $hbAuth = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("jinhu:jinhu2026"))
+    Invoke-RestMethod -Uri 'https://cnjinhu.top/control/api/system/site-heartbeat' `
+      -Method Post `
+      -Headers @{ Authorization = $hbAuth; 'Content-Type' = 'application/json' } `
+      -Body $hbPayload -TimeoutSec 8 | Out-Null
+    Log "heartbeat → cnjinhu (commit=$($hbHead.Substring(0,[Math]::Min(7,$hbHead.Length))), status=$hbStatus)" 'DarkGray'
+  } catch {
+    Log "heartbeat 上报失败: $($_.Exception.Message)" 'Yellow'
+  }
 }
