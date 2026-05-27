@@ -189,30 +189,26 @@ try {
 
   # 探 backend 健康状态: 试常见端口 (3000 prod / 3200 cnjinhu), 每个先 /system/info
   # 验活 (返回 mockMode + port), 然后再调 /dali-selftest. 全部用 ASCII 报告避免中文乱码.
-  # 顺手收集进程层面信息 — pm2 跑的是哪个文件 / dist 是不是新的, 帮判断"代码到了但进程没换"
-  $procInfo = @{ pm2list = $null; distMain = $null; distMainMtime = $null }
+  # 顺手收集 dist/main.js mtime, 帮判断"代码到了但进程没换".
+  # pm2 jlist 之前也带过, 但深嵌套对象经 ConvertTo-Json -Depth 6 偶发产出非法 JSON
+  # (cnjinhu backend 报 "Expected ',' or '}' after property value in JSON at position 439"),
+  # 心跳整体被拒 400 → 远端永远看不到状态. 简化掉, 改成只发关键标量.
+  $procInfo = @{ distMain = $null; distMainMtime = $null; distMainAgeSec = $null; pm2Status = $null; pm2Restarts = $null }
   try {
+    # pm2 jlist 输出 → 只挑标量字段, 避免嵌套深度
     $pm2raw = & pm2 jlist 2>&1 | Out-String
-    $pm2arr = $pm2raw | ConvertFrom-Json
-    $procInfo.pm2list = @($pm2arr | ForEach-Object {
-      @{
-        name = $_.name
-        pid = $_.pid
-        status = $_.pm2_env.status
-        restarts = $_.pm2_env.restart_time
-        uptimeMs = if ($_.pm2_env.pm_uptime) { [int64]((Get-Date).ToUniversalTime() - ([datetime]'1970-01-01').AddMilliseconds([int64]$_.pm2_env.pm_uptime)).TotalMilliseconds } else { $null }
-        cwd = $_.pm2_env.pm_cwd
-        execPath = $_.pm2_env.pm_exec_path
-      }
-    })
-  } catch {
-    $procInfo.pm2list = @{ failed = $true; msg = $_.Exception.Message }
-  }
+    $pm2arr = $pm2raw | ConvertFrom-Json -ErrorAction Stop
+    $sc = $pm2arr | Where-Object { $_.name -eq 'smart-control-backend' } | Select-Object -First 1
+    if ($sc) {
+      $procInfo.pm2Status = [string]$sc.pm2_env.status
+      $procInfo.pm2Restarts = [int]$sc.pm2_env.restart_time
+    }
+  } catch { $procInfo.pm2Status = 'pm2-error' }
   try {
     $distMain = Join-Path $projectRoot 'backend\dist\main.js'
     if (Test-Path $distMain) {
       $f = Get-Item $distMain
-      $procInfo.distMain = $distMain
+      $procInfo.distMain = $distMain.Replace('\','/')
       $procInfo.distMainMtime = $f.LastWriteTimeUtc.ToString('o')
       $procInfo.distMainAgeSec = [int]((Get-Date).ToUniversalTime() - $f.LastWriteTimeUtc).TotalSeconds
     }
