@@ -48,16 +48,29 @@ Write-Host "================================================" -ForegroundColor C
 $beforeCommit = (git rev-parse HEAD 2>$null)
 Write-Host "`n[0/6] 当前版本: $beforeCommit" -ForegroundColor Gray
 
-# 1) 检查工作区干净
+# 1) 检查工作区干净 — 只阻塞 tracked-modified, untracked 无害放行
+# (现场会有 backend/dist / logs / tmp / *.bak / npmrc 等本地产物, 一刀切 throw 会
+# 让自治链路死锁: update.ps1 抛 dirty → watcher 抓 → 拉不到新 update.ps1.)
 Write-Host "`n[1/6] 检查工作区状态..." -ForegroundColor Yellow
 $dirty = git status --porcelain
-if ($dirty -and (-not $Force)) {
-  Write-Host "  工作区有未提交修改:" -ForegroundColor Red
-  $dirty | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
-  Write-Host "  本地不应该有修改, 现场只接收云端代码. 如确认要继续, 加 -Force 参数" -ForegroundColor Red
-  throw "工作区不干净, 拒绝更新"
+if ($dirty) {
+  $tracked = @($dirty | Where-Object { $_ -notmatch '^\?\?' })
+  $untracked = @($dirty | Where-Object { $_ -match '^\?\?' })
+  if ($untracked.Count -gt 0) {
+    Write-Host "  忽略 $($untracked.Count) 个 untracked 文件 (pull 不会动它们)" -ForegroundColor DarkGray
+  }
+  if ($tracked.Count -gt 0 -and -not $Force) {
+    Write-Host "  tracked 文件被改过:" -ForegroundColor Red
+    $tracked | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+    Write-Host "  pull 可能冲突. 加 -Force 强制覆盖, 或先 git stash" -ForegroundColor Yellow
+    throw "工作区 tracked 文件不干净, 拒绝更新"
+  }
+  if ($tracked.Count -gt 0) {
+    Write-Host "  -Force 模式: 忽略 $($tracked.Count) 个 tracked-modified 文件, 强行 pull" -ForegroundColor Yellow
+  }
+} else {
+  Write-Host "  工作区干净 OK" -ForegroundColor Green
 }
-Write-Host "  工作区干净 OK" -ForegroundColor Green
 
 # 2) git pull (顺序重要: 先 pull 再 backup, 这样 backup.ps1 等子脚本永远是最新版.
 #    之前先 backup 后 pull, 一旦 backup.ps1 本身有问题 (e.g. BOM 缺失 parse 错),
