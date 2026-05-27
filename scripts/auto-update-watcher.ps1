@@ -189,6 +189,35 @@ try {
 
   # 探 backend 健康状态: 试常见端口 (3000 prod / 3200 cnjinhu), 每个先 /system/info
   # 验活 (返回 mockMode + port), 然后再调 /dali-selftest. 全部用 ASCII 报告避免中文乱码.
+  # 顺手收集进程层面信息 — pm2 跑的是哪个文件 / dist 是不是新的, 帮判断"代码到了但进程没换"
+  $procInfo = @{ pm2list = $null; distMain = $null; distMainMtime = $null }
+  try {
+    $pm2raw = & pm2 jlist 2>&1 | Out-String
+    $pm2arr = $pm2raw | ConvertFrom-Json
+    $procInfo.pm2list = @($pm2arr | ForEach-Object {
+      @{
+        name = $_.name
+        pid = $_.pid
+        status = $_.pm2_env.status
+        restarts = $_.pm2_env.restart_time
+        uptimeMs = if ($_.pm2_env.pm_uptime) { [int64]((Get-Date).ToUniversalTime() - ([datetime]'1970-01-01').AddMilliseconds([int64]$_.pm2_env.pm_uptime)).TotalMilliseconds } else { $null }
+        cwd = $_.pm2_env.pm_cwd
+        execPath = $_.pm2_env.pm_exec_path
+      }
+    })
+  } catch {
+    $procInfo.pm2list = @{ failed = $true; msg = $_.Exception.Message }
+  }
+  try {
+    $distMain = Join-Path $projectRoot 'backend\dist\main.js'
+    if (Test-Path $distMain) {
+      $f = Get-Item $distMain
+      $procInfo.distMain = $distMain
+      $procInfo.distMainMtime = $f.LastWriteTimeUtc.ToString('o')
+      $procInfo.distMainAgeSec = [int]((Get-Date).ToUniversalTime() - $f.LastWriteTimeUtc).TotalSeconds
+    }
+  } catch {}
+
   $probes = @()
   $diag = $null
   foreach ($port in @(3000, 3200)) {
@@ -236,6 +265,7 @@ try {
   if (-not $diag) {
     $diag = @{ failed = $true; probes = $probes; note = "no backend port responded on 3000/3200" }
   }
+  $diag.proc = $procInfo
 
   $hbPayload = @{
     host = $env:COMPUTERNAME

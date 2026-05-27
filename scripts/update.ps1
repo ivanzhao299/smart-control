@@ -141,13 +141,12 @@ Run "npm run build"
 Pop-Location
 Write-Host "  构建完成" -ForegroundColor Green
 
-# 6) PM2 reload / restart
-Write-Host "`n[6/6] 重启服务..." -ForegroundColor Yellow
-if ($Hard) {
-  Run "pm2 restart smart-control-backend --update-env"
-} else {
-  Run "pm2 reload smart-control-backend --update-env"
-}
+# 6) PM2 restart — 强制 hard restart, 而非 reload.
+# 之前用 reload 发现过 backend 跑的是几小时前的旧 dist (新 endpoint 全 404),
+# 怀疑 reload 在某些情形下保留旧进程 / 旧 require 缓存. restart 是最干净的:
+# 杀掉旧进程, 重新 require dist/main.js, 不可能保留任何旧状态.
+Write-Host "`n[6/6] 重启服务 (pm2 restart, 强制全新进程)..." -ForegroundColor Yellow
+Run "pm2 restart smart-control-backend --update-env"
 
 # 健康检查 — 多端口探测 (生产 3200 / 开发 3000), 不再硬编码
 Write-Host "`n等待服务起来 (5s)..." -ForegroundColor Gray
