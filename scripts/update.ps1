@@ -156,6 +156,14 @@ Run "npm run build"
 Pop-Location
 Write-Host "  构建完成" -ForegroundColor Green
 
+# 5.5) seed — 应用 entity / 硬件 / 场景的更新.
+# seed 本身是幂等的 (record 已存在就跳过), 安全多跑.
+# 例外: 末尾的 HW_IP_FIXES 段会把错的 IP 主动更新成正确值 (一次性自愈).
+Write-Host "`n[5.5/6] 应用 seed (硬件/场景/设备 idempotent 更新)..." -ForegroundColor Yellow
+Push-Location (Join-Path $projectRoot 'backend')
+Run "npm run seed"
+Pop-Location
+
 # 6) PM2 restart — 强制 hard restart, 而非 reload.
 # 之前用 reload 发现过 backend 跑的是几小时前的旧 dist (新 endpoint 全 404),
 # 怀疑 reload 在某些情形下保留旧进程 / 旧 require 缓存. restart 是最干净的:
