@@ -202,14 +202,20 @@ try {
         version = $info.data.version
         env = $info.data.env
       }
-      # info 通了, 再试 selftest
+      # info 通了, 再试 selftest. 给 15s — DALI 网关不通时 Modbus connect
+      # 自身要 ~10s 才返回错误, 5s 直接 timeout 看不到底层原因.
       try {
         $st = Invoke-RestMethod -Uri "http://localhost:$port/api/system/dali-selftest" `
-          -Method Get -TimeoutSec 5 -ErrorAction Stop
+          -Method Get -TimeoutSec 18 -ErrorAction Stop
         $probe.selftest = $st.data
       } catch {
         # 别处中文 Exception.Message 乱码, 用 status code / type 报
-        $probe.selftest = @{ failed = $true; type = $_.Exception.GetType().Name }
+        # 但 selftest 的英文 message 是安全的, 也带上
+        $probe.selftest = @{
+          failed = $true
+          type = $_.Exception.GetType().Name
+          status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { $null }
+        }
       }
       $diag = $probe  # 第一个 info 通的端口胜出, 当作 backend 真实地址
       break
