@@ -130,6 +130,21 @@ if ($pkgChanged -or $Force) {
   Write-Host "  package 无变化, 跳过依赖安装" -ForegroundColor Green
 }
 
+# 4.5) .env 一次性修复 — 2026-05-27 我用 RDC Notepad 不小心把 DALI_RTU_HOST
+# 改成了 192.168.0.7 (USR 出厂默认 IP), 但用户后来把 USR IP 改回了 192.168.50.20,
+# 现在 .env 跟 USR 实际 IP 对不上, gateway 一直 offline. 这块只针对那个错值,
+# 不会动用户主动设的别的 IP — 安全且幂等.
+$envFile = Join-Path $projectRoot 'backend\.env'
+if (Test-Path $envFile) {
+  $envText = Get-Content $envFile -Raw
+  if ($envText -match 'DALI_RTU_HOST\s*=\s*192\.168\.0\.7') {
+    Write-Host "`n[env-repair] 发现 DALI_RTU_HOST=192.168.0.7, 改回 192.168.50.20..." -ForegroundColor Yellow
+    $newText = $envText -replace 'DALI_RTU_HOST\s*=\s*192\.168\.0\.7', 'DALI_RTU_HOST=192.168.50.20'
+    Set-Content -Path $envFile -Value $newText -NoNewline
+    Write-Host "  ok" -ForegroundColor Green
+  }
+}
+
 # 5) 重新构建 (backend + frontend)
 Write-Host "`n[5/6] 重新构建..." -ForegroundColor Yellow
 Push-Location (Join-Path $projectRoot 'backend')
