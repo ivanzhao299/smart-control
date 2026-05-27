@@ -129,21 +129,28 @@ export class LightingAdapter extends BaseAdapter {
       slaveId: Number(process.env.DALI_RTU_SLAVE_ID ?? 1),
     };
 
+    // 2.5s 硬超时 — 网关挂了 / IP 错 / 网线断, Modbus client 内部默认 3s 单步, 但
+    // selfDiagnose 是诊断接口必须快速返回, 用 AbortSignal 兜底.
+    const makeCtx = (ms: number): AdapterContext => {
+      const ac = new AbortController();
+      setTimeout(() => ac.abort(), ms).unref?.();
+      return { signal: ac.signal } as AdapterContext;
+    };
+
     try {
-      await this.daliImpl.ping(ctx);
+      await this.daliImpl.ping(makeCtx(2500));
       out.gatewayPing = { ok: true };
     } catch (err) {
       out.gatewayPing = { ok: false, error: (err as Error).message };
-      // 网关都连不上, 矩阵没意义, 直接返回
       return out;
     }
 
     try {
+      const matrixCtx = makeCtx(2500);
       const [online, fault] = await Promise.all([
-        this.daliImpl.readOnlineMatrix(undefined, ctx?.signal),
-        this.daliImpl.readFaultMatrix(undefined, ctx?.signal),
+        this.daliImpl.readOnlineMatrix(undefined, matrixCtx.signal),
+        this.daliImpl.readFaultMatrix(undefined, matrixCtx.signal),
       ]);
-      // 矩阵下标 0..63 → DALI 短地址 0..63 (按厂家文档)
       out.onlineShorts = online.flatMap((on, i) => (on ? [i] : []));
       out.faultShorts = fault.flatMap((f, i) => (f ? [i] : []));
     } catch (err) {

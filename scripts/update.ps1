@@ -149,32 +149,37 @@ if ($Hard) {
   Run "pm2 reload smart-control-backend --update-env"
 }
 
-# 健康检查
+# 健康检查 — 多端口探测 (生产 3200 / 开发 3000), 不再硬编码
 Write-Host "`n等待服务起来 (5s)..." -ForegroundColor Gray
 if (-not $DryRun) { Start-Sleep -Seconds 5 }
 
 Write-Host "`n健康检查..." -ForegroundColor Yellow
-try {
-  if (-not $DryRun) {
-    $health = Invoke-RestMethod 'http://localhost:3000/api/system/health' -TimeoutSec 10
+$healthOk = $false
+$lastErr = $null
+foreach ($port in @(3200, 3000)) {
+  if ($DryRun) { $healthOk = $true; break }
+  try {
+    $health = Invoke-RestMethod "http://localhost:$port/api/system/health" -TimeoutSec 10 -ErrorAction Stop
     if ($health.data.status -eq 'ok') {
-      Write-Host "  ✓ 服务健康, 更新成功" -ForegroundColor Green
+      Write-Host "  ✓ 服务健康 @ :$port, 更新成功" -ForegroundColor Green
       Write-Host "    apiStatus    = $($health.data.apiStatus)"
       Write-Host "    dbStatus     = $($health.data.databaseStatus)"
       Write-Host "    deviceOnline = $($health.data.deviceOnlineCount)"
+      $healthOk = $true
+      break
     } else {
-      throw "健康检查返回非 ok 状态: $($health | ConvertTo-Json -Compress)"
+      $lastErr = "返回非 ok: $($health | ConvertTo-Json -Compress)"
     }
+  } catch {
+    $lastErr = "端口 $port 不可达: $($_.Exception.Message)"
   }
 }
-catch {
-  Write-Host "  ✗ 健康检查失败: $_" -ForegroundColor Red
+if (-not $healthOk) {
+  Write-Host "  ✗ 健康检查全部端口失败: $lastErr" -ForegroundColor Red
   Write-Host "`n回滚命令:" -ForegroundColor Yellow
   Write-Host "  git reset --hard $beforeCommit" -ForegroundColor Yellow
-  Write-Host "  cd backend && npm run build" -ForegroundColor Yellow
-  Write-Host "  cd .. && cd frontend && npm run build" -ForegroundColor Yellow
   Write-Host "  pm2 restart smart-control-backend" -ForegroundColor Yellow
-  throw
+  throw "健康检查失败: $lastErr"
 }
 
 Write-Host "`n================================================" -ForegroundColor Cyan
