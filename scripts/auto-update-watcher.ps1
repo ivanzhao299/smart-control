@@ -176,13 +176,26 @@ try {
 
     $hbHead = try { (git rev-parse HEAD 2>$null | Out-String).Trim() } catch { 'unknown' }
     $hbStatus = if ($watcherError) { "error: $watcherError" } else { "ok" }
+
+    # 顺手查一下本机 backend 的 DALI 自检 (新 endpoint, 旧版本会 404, 静默忽略)
+    $diag = $null
+    try {
+      $diag = Invoke-RestMethod -Uri 'http://localhost:3000/api/system/dali-selftest' `
+        -Method Get -TimeoutSec 5 -ErrorAction Stop
+      $diag = $diag.data
+    } catch {
+      # backend 未起 / 旧版本没这个 endpoint / 网络挂 — 都不影响心跳本身
+      $diag = @{ error = "selftest 不可达: $($_.Exception.Message)" }
+    }
+
     $hbPayload = @{
       host = $env:COMPUTERNAME
       commit = $hbHead
       ref = 'main'
       updatedAt = (Get-Date).ToUniversalTime().ToString("o")
       version = $hbStatus  # 借用 version 字段携带 watcher 状态 (够诊断用)
-    } | ConvertTo-Json -Compress
+      diagnostics = $diag
+    } | ConvertTo-Json -Compress -Depth 6
 
     $hbAuth = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("jinhu:jinhu2026"))
     Invoke-RestMethod -Uri 'https://cnjinhu.top/control/api/system/site-heartbeat' `

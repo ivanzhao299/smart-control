@@ -37,6 +37,8 @@ export interface SiteHeartbeat {
   updatedAt?: string;
   /** 后端接收时刻 (服务端打) */
   receivedAt?: string;
+  /** 现场自检诊断 (e.g. dali-selftest 结果). 不解析, 透传 */
+  diagnostics?: unknown;
 }
 
 @Injectable()
@@ -194,6 +196,7 @@ export class SystemService implements OnModuleInit {
       buildAt: input.buildAt ?? prev?.buildAt,
       updatedAt: input.updatedAt ?? now,
       receivedAt: now,
+      diagnostics: input.diagnostics ?? prev?.diagnostics,
     };
     this.siteHeartbeats.set(input.host, entry);
     this.logger.log(`site heartbeat: ${entry.host} @ ${entry.commit?.slice(0, 7) ?? '?'} (updated ${entry.updatedAt})`);

@@ -5,6 +5,7 @@ import { DeviceStatusService } from '../../services/device-status.service';
 import { SceneEngineService } from '../../services/scene-engine.service';
 import { DeviceHealthService } from '../../services/device-health.service';
 import { AdapterConnectionRegistry } from '../../adapters/connection-registry';
+import { LightingAdapter } from '../../adapters/lighting/lighting.adapter';
 import { SystemService } from './system.service';
 
 @Controller('system')
@@ -15,6 +16,7 @@ export class SystemController {
     private readonly engine: SceneEngineService,
     private readonly health: DeviceHealthService,
     private readonly registry: AdapterConnectionRegistry,
+    private readonly lighting: LightingAdapter,
     private readonly system: SystemService,
   ) {}
 
@@ -102,6 +104,7 @@ export class SystemController {
     version?: string;
     buildAt?: string;
     updatedAt?: string;
+    diagnostics?: unknown;
   }) {
     const host = (body?.host || '').trim();
     if (!host) {
@@ -114,5 +117,19 @@ export class SystemController {
   @Get('site-heartbeat')
   listSiteHeartbeat() {
     return { message: '查询成功', data: this.system.listSiteHeartbeats() };
+  }
+
+  /**
+   * 现场 DALI 自检 — 在 GK9000 本机调这个 endpoint, 返回:
+   *   - 当前 adapter 模式 (mock / cy-dali64a / iot-gateway) + MOCK_MODE 状态
+   *   - 真实模式下: 网关能不能 ping 通, 总线上探到的 64 个驱动地址哪些在线 / 故障
+   *
+   * 用例: 远端 (cnjinhu.top 或本机) 都可调. cnjinhu.top 上跑只会拿到云端 mock 结果,
+   * 因为 cnjinhu 后端的 LIGHTING_ADAPTER_KIND 是 mock; GK9000 本机才是真实 cy-dali64a.
+   */
+  @Get('dali-selftest')
+  async daliSelftest() {
+    const result = await this.lighting.selfDiagnose();
+    return { message: '查询成功', data: result };
   }
 }
