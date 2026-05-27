@@ -150,7 +150,10 @@ try {
         Log "running update.ps1..." 'Green'
 
         $updateScript = Join-Path $projectRoot 'scripts\update.ps1'
-        & $updateScript 2>&1 | ForEach-Object {
+        # -Force: watcher 已经分别处理过 untracked / tracked-modified, update.ps1 的
+        # dirty 守卫会因 pnpm-lock / npm 缓存等小修改 throw "工作区不干净, 拒绝更新",
+        # 现场场景下没意义, 跳过.
+        & $updateScript -Force 2>&1 | ForEach-Object {
           Log "  $_" 'DarkGray'
         }
 
