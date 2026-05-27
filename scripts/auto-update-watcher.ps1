@@ -162,48 +162,49 @@ try {
   Log "UNCAUGHT EXCEPTION: $($_.Exception.GetType().Name): $($_.Exception.Message)" 'Red'
   Log "  at: $($_.InvocationInfo.PositionMessage -replace '\r?\n','  ')" 'Red'
   $watcherError = "$($_.Exception.GetType().Name): $($_.Exception.Message)"
-  exit 99
-} finally {
-  if (Test-Path $lockFile) { Remove-Item $lockFile -Force -ErrorAction SilentlyContinue }
-
-  # 心跳: 不管 update 成不成, 每次跑完都向云端报一次. 这样远程能看到 watcher 活着,
-  # 即使 update 链路挂了也能定位是哪一步.
-  try {
-    # PS 5.x 默认 TLS 1.0/1.1, cnjinhu 走 HTTPS 要 1.2+ — 强制一下
-    [System.Net.ServicePointManager]::SecurityProtocol = `
-      [System.Net.ServicePointManager]::SecurityProtocol -bor `
-      [System.Net.SecurityProtocolType]::Tls12
-
-    $hbHead = try { (git rev-parse HEAD 2>$null | Out-String).Trim() } catch { 'unknown' }
-    $hbStatus = if ($watcherError) { "error: $watcherError" } else { "ok" }
-
-    # 顺手查一下本机 backend 的 DALI 自检 (新 endpoint, 旧版本会 404, 静默忽略)
-    $diag = $null
-    try {
-      $diag = Invoke-RestMethod -Uri 'http://localhost:3000/api/system/dali-selftest' `
-        -Method Get -TimeoutSec 5 -ErrorAction Stop
-      $diag = $diag.data
-    } catch {
-      # backend 未起 / 旧版本没这个 endpoint / 网络挂 — 都不影响心跳本身
-      $diag = @{ error = "selftest 不可达: $($_.Exception.Message)" }
-    }
-
-    $hbPayload = @{
-      host = $env:COMPUTERNAME
-      commit = $hbHead
-      ref = 'main'
-      updatedAt = (Get-Date).ToUniversalTime().ToString("o")
-      version = $hbStatus  # 借用 version 字段携带 watcher 状态 (够诊断用)
-      diagnostics = $diag
-    } | ConvertTo-Json -Compress -Depth 6
-
-    $hbAuth = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("jinhu:jinhu2026"))
-    Invoke-RestMethod -Uri 'https://cnjinhu.top/control/api/system/site-heartbeat' `
-      -Method Post `
-      -Headers @{ Authorization = $hbAuth; 'Content-Type' = 'application/json' } `
-      -Body $hbPayload -TimeoutSec 8 | Out-Null
-    Log "heartbeat → cnjinhu (commit=$($hbHead.Substring(0,[Math]::Min(7,$hbHead.Length))), status=$hbStatus)" 'DarkGray'
-  } catch {
-    Log "heartbeat 上报失败: $($_.Exception.Message)" 'Yellow'
-  }
+  $script:exitCode = 99
 }
+
+# 锁清理 + 心跳上报 — 不放在 finally 里, 因为 PS 5.x 的 'exit' 会跳过 finally,
+# 把它移到 try/catch 之后的常规代码, 保证不管成败都跑完心跳再退出.
+if (Test-Path $lockFile) { Remove-Item $lockFile -Force -ErrorAction SilentlyContinue }
+
+try {
+  # PS 5.x 默认 TLS 1.0/1.1, cnjinhu 走 HTTPS 要 1.2+ — 强制一下
+  [System.Net.ServicePointManager]::SecurityProtocol = `
+    [System.Net.ServicePointManager]::SecurityProtocol -bor `
+    [System.Net.SecurityProtocolType]::Tls12
+
+  $hbHead = try { (git rev-parse HEAD 2>$null | Out-String).Trim() } catch { 'unknown' }
+  $hbStatus = if ($watcherError) { "error: $watcherError" } else { "ok" }
+
+  # 顺手查一下本机 backend 的 DALI 自检 (新 endpoint, 旧版本会 404, 静默忽略)
+  $diag = $null
+  try {
+    $diag = Invoke-RestMethod -Uri 'http://localhost:3000/api/system/dali-selftest' `
+      -Method Get -TimeoutSec 5 -ErrorAction Stop
+    $diag = $diag.data
+  } catch {
+    $diag = @{ error = "selftest 不可达: $($_.Exception.Message)" }
+  }
+
+  $hbPayload = @{
+    host = $env:COMPUTERNAME
+    commit = $hbHead
+    ref = 'main'
+    updatedAt = (Get-Date).ToUniversalTime().ToString("o")
+    version = $hbStatus
+    diagnostics = $diag
+  } | ConvertTo-Json -Compress -Depth 6
+
+  $hbAuth = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("jinhu:jinhu2026"))
+  Invoke-RestMethod -Uri 'https://cnjinhu.top/control/api/system/site-heartbeat' `
+    -Method Post `
+    -Headers @{ Authorization = $hbAuth; 'Content-Type' = 'application/json' } `
+    -Body $hbPayload -TimeoutSec 8 | Out-Null
+  Log "heartbeat → cnjinhu (commit=$($hbHead.Substring(0,[Math]::Min(7,$hbHead.Length))), status=$hbStatus)" 'DarkGray'
+} catch {
+  Log "heartbeat 上报失败: $($_.Exception.Message)" 'Yellow'
+}
+
+if ($script:exitCode) { exit $script:exitCode }

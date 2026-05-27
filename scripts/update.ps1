@@ -21,14 +21,17 @@ param(
   [switch]$Force
 )
 
-$ErrorActionPreference = 'Stop'
+# 注意: 不要用 'Stop' — git 等 native command 会把正常 stderr ("From github.com:...")
+# 也算 error, PS 直接抛 RemoteException 把脚本掀掉. 改 Continue 后只看 $LASTEXITCODE.
+$ErrorActionPreference = 'Continue'
 $projectRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 Set-Location $projectRoot
 
 function Run($cmd) {
   Write-Host "  > $cmd" -ForegroundColor DarkGray
   if (-not $DryRun) {
-    Invoke-Expression $cmd
+    # 把 stderr 合并到 stdout — 即使 native command 在 stderr 写正常进度也不会被当 error 抛
+    Invoke-Expression "$cmd 2>&1" | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
     if ($LASTEXITCODE -ne 0) {
       throw "命令失败 (exit=$LASTEXITCODE): $cmd"
     }
