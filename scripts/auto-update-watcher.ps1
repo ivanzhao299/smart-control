@@ -184,14 +184,39 @@ try {
   $hbHead = try { (git rev-parse HEAD 2>$null | Out-String).Trim() } catch { 'unknown' }
   $hbStatus = if ($watcherError) { "error: $watcherError" } else { "ok" }
 
-  # 顺手查一下本机 backend 的 DALI 自检 (新 endpoint, 旧版本会 404, 静默忽略)
+  # 探 backend 健康状态: 试常见端口 (3000 prod / 3200 cnjinhu), 每个先 /system/info
+  # 验活 (返回 mockMode + port), 然后再调 /dali-selftest. 全部用 ASCII 报告避免中文乱码.
+  $probes = @()
   $diag = $null
-  try {
-    $diag = Invoke-RestMethod -Uri 'http://localhost:3000/api/system/dali-selftest' `
-      -Method Get -TimeoutSec 5 -ErrorAction Stop
-    $diag = $diag.data
-  } catch {
-    $diag = @{ error = "selftest 不可达: $($_.Exception.Message)" }
+  foreach ($port in @(3000, 3200)) {
+    $probe = @{ port = $port; info = $null; selftest = $null }
+    try {
+      $info = Invoke-RestMethod -Uri "http://localhost:$port/api/system/info" `
+        -Method Get -TimeoutSec 3 -ErrorAction Stop
+      $probe.info = @{
+        commit = $info.data.commit
+        mockMode = $info.data.mockMode
+        version = $info.data.version
+        env = $info.data.env
+      }
+      # info 通了, 再试 selftest
+      try {
+        $st = Invoke-RestMethod -Uri "http://localhost:$port/api/system/dali-selftest" `
+          -Method Get -TimeoutSec 5 -ErrorAction Stop
+        $probe.selftest = $st.data
+      } catch {
+        # 别处中文 Exception.Message 乱码, 用 status code / type 报
+        $probe.selftest = @{ failed = $true; type = $_.Exception.GetType().Name }
+      }
+      $diag = $probe  # 第一个 info 通的端口胜出, 当作 backend 真实地址
+      break
+    } catch {
+      $probe.info = @{ failed = $true; type = $_.Exception.GetType().Name }
+    }
+    $probes += $probe
+  }
+  if (-not $diag) {
+    $diag = @{ failed = $true; probes = $probes; note = "no backend port responded on 3000/3200" }
   }
 
   $hbPayload = @{
