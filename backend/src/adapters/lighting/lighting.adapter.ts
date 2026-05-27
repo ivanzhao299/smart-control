@@ -86,8 +86,112 @@ export class LightingAdapter extends BaseAdapter {
   }
 
   /**
-   * 现场自检: 返回当前 adapter 模式 + (cy-dali64a 真实模式下) DALI 总线上探到的设备列表.
-   * 用于"我在 Mac 上能不能知道 GK9000 接的 DALI 灯通不通". 不抛错, 失败信息进 result.error.
+   * 分层诊断 (2026-05-27): TCP → Modbus → DALI 总线一层层独立测.
+   * 每层短硬超时, 失败不阻塞下一层. 远端看 backend 卡哪层一目了然.
+   */
+  async diagnoseLayered(): Promise<{
+    diagVersion: number;
+    timestamp: string;
+    mode: { adapterKind: string; mockMode: boolean; effectiveImpl: string };
+    config: { host: string; port: number; slaveId: number } | null;
+    l1_tcp: { ok: boolean; elapsedMs: number; error?: string };
+    l2_modbus: { ok: boolean; elapsedMs: number; error?: string };
+    l3_dali: { ok: boolean; elapsedMs: number; onlineShorts: number[]; faultShorts: number[]; error?: string };
+  }> {
+    const out = {
+      diagVersion: 1,
+      timestamp: new Date().toISOString(),
+      mode: {
+        adapterKind: this.kind,
+        mockMode: this.isMock(),
+        effectiveImpl: this.isMock() || this.kind === 'mock' ? 'mock'
+          : this.kind === 'iot-gateway' ? 'iot-gateway'
+          : 'cy-dali64a',
+      },
+      config: null as { host: string; port: number; slaveId: number } | null,
+      l1_tcp: { ok: false, elapsedMs: 0, error: 'not-attempted' as string | undefined },
+      l2_modbus: { ok: false, elapsedMs: 0, error: 'not-attempted' as string | undefined },
+      l3_dali: { ok: false, elapsedMs: 0, onlineShorts: [] as number[], faultShorts: [] as number[], error: 'not-attempted' as string | undefined },
+    };
+
+    if (out.mode.effectiveImpl !== 'cy-dali64a') {
+      out.l1_tcp.error = 'skipped (not cy-dali64a)';
+      out.l2_modbus.error = 'skipped (not cy-dali64a)';
+      out.l3_dali.error = 'skipped (not cy-dali64a)';
+      return out;
+    }
+
+    const host = process.env.DALI_RTU_HOST ?? '192.168.50.20';
+    const port = Number(process.env.DALI_RTU_PORT ?? 502);
+    const slaveId = Number(process.env.DALI_RTU_SLAVE_ID ?? 1);
+    out.config = { host, port, slaveId };
+
+    // L1: 原生 net.Socket connect, 1.5s 硬超时
+    const l1Start = Date.now();
+    try {
+      const { Socket } = await import('net');
+      await new Promise<void>((resolve, reject) => {
+        const sock = new Socket();
+        const timer = setTimeout(() => { sock.destroy(); reject(new Error('TCP connect timed out after 1500ms')); }, 1500);
+        sock.once('connect', () => { clearTimeout(timer); sock.end(); resolve(); });
+        sock.once('error', (err) => { clearTimeout(timer); reject(err); });
+        sock.connect(port, host);
+      });
+      out.l1_tcp = { ok: true, elapsedMs: Date.now() - l1Start, error: undefined };
+    } catch (err) {
+      out.l1_tcp = { ok: false, elapsedMs: Date.now() - l1Start, error: (err as Error).message };
+      out.l2_modbus.error = 'skipped (L1 failed)';
+      out.l3_dali.error = 'skipped (L1 failed)';
+      return out;
+    }
+
+    // L2: Modbus ping (读 group 1 寄存器), 2s 硬超时
+    const l2Start = Date.now();
+    try {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 2000);
+      try { await this.daliImpl.ping({ signal: ac.signal }); } finally { clearTimeout(t); }
+      out.l2_modbus = { ok: true, elapsedMs: Date.now() - l2Start, error: undefined };
+    } catch (err) {
+      out.l2_modbus = { ok: false, elapsedMs: Date.now() - l2Start, error: (err as Error).message };
+      out.l3_dali.error = 'skipped (L2 failed)';
+      return out;
+    }
+
+    // L3: DALI 总线扫描 64 短地址, 3s 硬超时
+    const l3Start = Date.now();
+    try {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 3000);
+      let online: boolean[]; let fault: boolean[];
+      try {
+        [online, fault] = await Promise.all([
+          this.daliImpl.readOnlineMatrix(undefined, ac.signal),
+          this.daliImpl.readFaultMatrix(undefined, ac.signal),
+        ]);
+      } finally { clearTimeout(t); }
+      out.l3_dali = {
+        ok: true,
+        elapsedMs: Date.now() - l3Start,
+        onlineShorts: online.flatMap((on, i) => (on ? [i] : [])),
+        faultShorts: fault.flatMap((f, i) => (f ? [i] : [])),
+        error: undefined,
+      };
+    } catch (err) {
+      out.l3_dali = {
+        ok: false,
+        elapsedMs: Date.now() - l3Start,
+        onlineShorts: [],
+        faultShorts: [],
+        error: (err as Error).message,
+      };
+    }
+
+    return out;
+  }
+
+  /**
+   * 现场自检 (旧接口, 保留兼容): 单层探测.
    */
   async selfDiagnose(ctx?: AdapterContext): Promise<{
     adapterKind: LightingKind;
@@ -119,7 +223,6 @@ export class LightingAdapter extends BaseAdapter {
     };
 
     if (effective !== 'cy-dali64a') {
-      // mock 或 iot-gateway: 不做实际硬件探测
       return out;
     }
 
@@ -129,8 +232,6 @@ export class LightingAdapter extends BaseAdapter {
       slaveId: Number(process.env.DALI_RTU_SLAVE_ID ?? 1),
     };
 
-    // 2.5s 硬超时 — 网关挂了 / IP 错 / 网线断, Modbus client 内部默认 3s 单步, 但
-    // selfDiagnose 是诊断接口必须快速返回, 用 AbortSignal 兜底.
     const makeCtx = (ms: number): AdapterContext => {
       const ac = new AbortController();
       setTimeout(() => ac.abort(), ms).unref?.();

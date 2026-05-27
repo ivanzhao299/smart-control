@@ -132,4 +132,28 @@ export class SystemController {
     const result = await this.lighting.selfDiagnose();
     return { message: '查询成功', data: result };
   }
+
+  /**
+   * 分层 DALI 诊断 (2026-05-27): 路径用 `diag` 避开 `-selftest` 命名,
+   * 排除路由解析问题. 每层独立超时, 失败不阻塞下一层.
+   */
+  @Get('diag')
+  async diag() {
+    const result = await this.lighting.diagnoseLayered();
+    return { message: '查询成功', data: result };
+  }
+
+  /** 验证 backend 跑的是最新 build — 返回硬编码 marker 字符串 */
+  @Get('build-marker')
+  buildMarker() {
+    return {
+      message: 'build-marker',
+      data: {
+        marker: '2026-05-27-layered-diag',
+        nodeVersion: process.version,
+        startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString(),
+        uptimeSec: Math.round(process.uptime()),
+      },
+    };
+  }
 }

@@ -192,7 +192,7 @@ try {
   $probes = @()
   $diag = $null
   foreach ($port in @(3000, 3200)) {
-    $probe = @{ port = $port; info = $null; selftest = $null }
+    $probe = @{ port = $port; info = $null; buildMarker = $null; diag = $null; selftest = $null }
     try {
       $info = Invoke-RestMethod -Uri "http://localhost:$port/api/system/info" `
         -Method Get -TimeoutSec 3 -ErrorAction Stop
@@ -202,16 +202,25 @@ try {
         version = $info.data.version
         env = $info.data.env
       }
-      # info 通了, 再试 selftest. 给 15s — DALI 网关不通时 Modbus connect
-      # 自身要 ~10s 才返回错误, 5s 直接 timeout 看不到底层原因.
+      # 先拿 build-marker 确认 backend 跑的是最新代码 (新 endpoint 加这个版本)
       try {
-        $st = Invoke-RestMethod -Uri "http://localhost:$port/api/system/dali-selftest" `
-          -Method Get -TimeoutSec 18 -ErrorAction Stop
-        $probe.selftest = $st.data
+        $bm = Invoke-RestMethod -Uri "http://localhost:$port/api/system/build-marker" `
+          -Method Get -TimeoutSec 3 -ErrorAction Stop
+        $probe.buildMarker = $bm.data
       } catch {
-        # 别处中文 Exception.Message 乱码, 用 status code / type 报
-        # 但 selftest 的英文 message 是安全的, 也带上
-        $probe.selftest = @{
+        $probe.buildMarker = @{
+          failed = $true
+          status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { $null }
+        }
+      }
+
+      # 新分层诊断: 每层独立超时 (1.5s + 2s + 3s 总 < 7s), client 10s 富余
+      try {
+        $diag = Invoke-RestMethod -Uri "http://localhost:$port/api/system/diag" `
+          -Method Get -TimeoutSec 12 -ErrorAction Stop
+        $probe.diag = $diag.data
+      } catch {
+        $probe.diag = @{
           failed = $true
           type = $_.Exception.GetType().Name
           status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { $null }
