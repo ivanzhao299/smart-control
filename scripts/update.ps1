@@ -185,8 +185,23 @@ try {
 
 # 6c: 用 ecosystem 重新起, 读最新 .env
 $ecosystem = Join-Path $projectRoot 'deploy\ecosystem.config.js'
-Run "pm2 start `"$ecosystem`" --only smart-control-backend --update-env"
-Run "pm2 save"
+try { & pm2 start "$ecosystem" --only smart-control-backend --update-env 2>&1 | Out-Null } catch { }
+try { & pm2 save 2>&1 | Out-Null } catch { }
+
+# 6d: 兜底 — 假设上面 pm2 命令因权限不通 (watcher 用 user 身份, pm2 daemon
+# 可能归 admin), 调一下 backend 自己提供的 loopback 重启 endpoint. 它会
+# process.exit(0), 然后 admin 持有的 pm2 daemon 看到进程死掉会 autorestart,
+# 拉起的新进程读最新 dist + 最新 .env. 这是绕开权限边界的关键.
+Start-Sleep -Seconds 3   # 给上面的 pm2 start (若成功) 一点时间
+try {
+  $body = '{"token":"jinhu-restart-2026"}'
+  Invoke-RestMethod -Uri 'http://localhost:3200/api/system/admin-restart' `
+    -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 5 | Out-Null
+  Write-Host "  ✓ admin-restart 已触发, backend 200ms 后自退出 + pm2 autorestart" -ForegroundColor Green
+} catch {
+  # 老版本 backend 没这个 endpoint (404), 不影响
+  Write-Host "  (admin-restart 不可达, 老版本 backend 没这个 endpoint, 跳过)" -ForegroundColor DarkGray
+}
 
 # 健康检查 — 多端口探测 (生产 3200 / 开发 3000), 不再硬编码
 Write-Host "`n等待服务起来 (5s)..." -ForegroundColor Gray

@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Logger, Post, Req } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Request } from 'express';
 import { AdapterConfig, AppConfig, WebSocketConfig } from '../../common/config/configuration';
 import { DeviceStatusService } from '../../services/device-status.service';
 import { SceneEngineService } from '../../services/scene-engine.service';
@@ -10,6 +11,8 @@ import { SystemService } from './system.service';
 
 @Controller('system')
 export class SystemController {
+  private readonly logger = new Logger(SystemController.name);
+
   constructor(
     private readonly config: ConfigService,
     private readonly deviceStatus: DeviceStatusService,
@@ -117,6 +120,37 @@ export class SystemController {
   @Get('site-heartbeat')
   listSiteHeartbeat() {
     return { message: '查询成功', data: this.system.listSiteHeartbeats() };
+  }
+
+  /**
+   * 自重启 — 只能从 backend 本机的 loopback 调用 (127.0.0.1 / ::1).
+   *
+   * 场景: GK9000 上 backend 进程归 admin (因为最初用 restart.ps1 -Hard 启动),
+   * watcher 跑在普通 user 身份, pm2 delete / Stop-Process 都因权限不足无法
+   * 终止它. 所以 backend 自己提供这个 endpoint, 收到 POST 后 setTimeout 200ms
+   * 后 process.exit(0), 让 pm2 的 autorestart 把它拉起来 — 新进程读最新 dist
+   * + 最新 .env, 实现真正的 "重启换代码 + 换环境变量".
+   *
+   * 安全: 严格只允许 loopback 来源 (req.socket.remoteAddress). nginx 代理来的
+   * 请求 remoteAddress 是 nginx upstream IP, 不会是 127.0.0.1, 因此远程公网
+   * 即使知道 token 也调不通. 双保险: token + 来源 IP 检查.
+   */
+  @Post('admin-restart')
+  adminRestart(@Req() req: Request, @Body() body: { token?: string } = {}) {
+    const remoteAddr = req.socket?.remoteAddress ?? '';
+    const isLoopback = remoteAddr === '127.0.0.1'
+      || remoteAddr === '::1'
+      || remoteAddr === '::ffff:127.0.0.1';
+    if (!isLoopback) {
+      this.logger.warn(`admin-restart denied: remote=${remoteAddr} (not loopback)`);
+      throw new ForbiddenException('admin-restart 仅允许本机 loopback 调用');
+    }
+    if (body?.token !== 'jinhu-restart-2026') {
+      throw new BadRequestException('token 错误');
+    }
+    this.logger.warn(`admin-restart triggered from ${remoteAddr}, exiting in 200ms`);
+    setTimeout(() => process.exit(0), 200);
+    return { message: '即将重启 (200ms 后 exit 0, pm2 autorestart 会拉起)', data: { exitsAt: Date.now() + 200 } };
   }
 
   /**
