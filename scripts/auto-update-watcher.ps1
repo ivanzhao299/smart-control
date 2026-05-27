@@ -116,48 +116,54 @@ try {
   $fetchOut = (git fetch origin main 2>&1) -join "`n"
   if ($LASTEXITCODE -ne 0) {
     Log "fetch failed (exit=$LASTEXITCODE): $fetchOut" 'Red'
-    exit 1
+    $script:exitCode = 1
+    # 不 exit, 让控制流落到下面的 heartbeat 段, 不然 PS 5.1 会把 heartbeat 跳过
   }
 
-  # 2) 比较本地 vs 远端
-  $local = (git rev-parse HEAD 2>&1)
-  if ($LASTEXITCODE -ne 0 -or -not $local) { Log "rev-parse HEAD 失败: $local" 'Red'; exit 4 }
-  $local = ($local | Out-String).Trim()
-
-  $remote = (git rev-parse origin/main 2>&1)
-  if ($LASTEXITCODE -ne 0 -or -not $remote) { Log "rev-parse origin/main 失败: $remote" 'Red'; exit 4 }
-  $remote = ($remote | Out-String).Trim()
-
-  if ($local -eq $remote) {
-    Log "up-to-date @ $($local.Substring(0,7))" 'DarkGray'
-    exit 0
+  if (-not $script:exitCode) {
+    # 2) 比较本地 vs 远端
+    $local = (git rev-parse HEAD 2>&1)
+    if ($LASTEXITCODE -ne 0 -or -not $local) { Log "rev-parse HEAD 失败: $local" 'Red'; $script:exitCode = 4 }
+    else { $local = ($local | Out-String).Trim() }
   }
 
-  $behind = ((git rev-list --count "$local..$remote") | Out-String).Trim()
-  Log "new commit(s): 本地 $($local.Substring(0,7)) → 远端 $($remote.Substring(0,7)) (落后 $behind 个)" 'Cyan'
-
-  if ($DryRun) {
-    Log "dry-run: 不实际调 update.ps1" 'Yellow'
-    git log --oneline "$local..$remote" | ForEach-Object { Log "  $_" 'Gray' }
-    exit 0
+  if (-not $script:exitCode) {
+    $remote = (git rev-parse origin/main 2>&1)
+    if ($LASTEXITCODE -ne 0 -or -not $remote) { Log "rev-parse origin/main 失败: $remote" 'Red'; $script:exitCode = 4 }
+    else { $remote = ($remote | Out-String).Trim() }
   }
 
-  # 3) 上锁后调 update.ps1
-  Set-Content -Path $lockFile -Value (Get-Date -Format 'o')
-  Log "running update.ps1..." 'Green'
+  if (-not $script:exitCode) {
+    if ($local -eq $remote) {
+      Log "up-to-date @ $($local.Substring(0,7))" 'DarkGray'
+      # 不 exit — 落到 heartbeat 段把状态报上去
+    } else {
+      $behind = ((git rev-list --count "$local..$remote") | Out-String).Trim()
+      Log "new commit(s): 本地 $($local.Substring(0,7)) → 远端 $($remote.Substring(0,7)) (落后 $behind 个)" 'Cyan'
 
-  $updateScript = Join-Path $projectRoot 'scripts\update.ps1'
-  & $updateScript 2>&1 | ForEach-Object {
-    Log "  $_" 'DarkGray'
+      if ($DryRun) {
+        Log "dry-run: 不实际调 update.ps1" 'Yellow'
+        git log --oneline "$local..$remote" | ForEach-Object { Log "  $_" 'Gray' }
+      } else {
+        # 3) 上锁后调 update.ps1
+        Set-Content -Path $lockFile -Value (Get-Date -Format 'o')
+        Log "running update.ps1..." 'Green'
+
+        $updateScript = Join-Path $projectRoot 'scripts\update.ps1'
+        & $updateScript 2>&1 | ForEach-Object {
+          Log "  $_" 'DarkGray'
+        }
+
+        if ($LASTEXITCODE -ne 0) {
+          Log "update.ps1 failed (exit=$LASTEXITCODE)" 'Red'
+          $script:exitCode = $LASTEXITCODE
+        } else {
+          $after = ((git rev-parse HEAD) | Out-String).Trim()
+          Log "OK: 已更新到 $($after.Substring(0,7))" 'Green'
+        }
+      }
+    }
   }
-
-  if ($LASTEXITCODE -ne 0) {
-    Log "update.ps1 failed (exit=$LASTEXITCODE)" 'Red'
-    exit $LASTEXITCODE
-  }
-
-  $after = ((git rev-parse HEAD) | Out-String).Trim()
-  Log "OK: 已更新到 $($after.Substring(0,7))" 'Green'
 } catch {
   Log "UNCAUGHT EXCEPTION: $($_.Exception.GetType().Name): $($_.Exception.Message)" 'Red'
   Log "  at: $($_.InvocationInfo.PositionMessage -replace '\r?\n','  ')" 'Red'
