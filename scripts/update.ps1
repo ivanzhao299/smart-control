@@ -164,12 +164,29 @@ Push-Location (Join-Path $projectRoot 'backend')
 Run "npm run seed"
 Pop-Location
 
-# 6) PM2 restart — 强制 hard restart, 而非 reload.
-# 之前用 reload 发现过 backend 跑的是几小时前的旧 dist (新 endpoint 全 404),
-# 怀疑 reload 在某些情形下保留旧进程 / 旧 require 缓存. restart 是最干净的:
-# 杀掉旧进程, 重新 require dist/main.js, 不可能保留任何旧状态.
-Write-Host "`n[6/6] 重启服务 (pm2 restart, 强制全新进程)..." -ForegroundColor Yellow
-Run "pm2 restart smart-control-backend --update-env"
+# 6) 强制重启 backend: pm2 delete + 杀残留 + pm2 start
+# 之前用 pm2 restart 实测在某些情形 (pm2 daemon 卡 / 进程脱钩) 下不真换进程,
+# dist/main.js 是新的, 但 backend 进程是几小时前的, 跑老 .env. 用 delete+start
+# 强制清干净, 加上端口残留进程显式 kill.
+Write-Host "`n[6/6] 强制重启服务 (pm2 delete + kill :3200 + pm2 start)..." -ForegroundColor Yellow
+
+# 6a: pm2 delete 把记录清掉 (即使进程没了也无害)
+try { & pm2 delete smart-control-backend 2>&1 | Out-Null } catch { }
+
+# 6b: 杀掉任何还占着 3200 端口的 node (脱钩遗留进程)
+try {
+  $conns = Get-NetTCPConnection -LocalPort 3200 -State Listen -ErrorAction SilentlyContinue
+  foreach ($c in $conns) {
+    Write-Host "  -> 杀掉占用 :3200 的 PID $($c.OwningProcess)" -ForegroundColor Yellow
+    Stop-Process -Id $c.OwningProcess -Force -ErrorAction SilentlyContinue
+  }
+  Start-Sleep -Milliseconds 500
+} catch { }
+
+# 6c: 用 ecosystem 重新起, 读最新 .env
+$ecosystem = Join-Path $projectRoot 'deploy\ecosystem.config.js'
+Run "pm2 start `"$ecosystem`" --only smart-control-backend --update-env"
+Run "pm2 save"
 
 # 健康检查 — 多端口探测 (生产 3200 / 开发 3000), 不再硬编码
 Write-Host "`n等待服务起来 (5s)..." -ForegroundColor Gray
