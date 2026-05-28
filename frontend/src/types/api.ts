@@ -543,6 +543,7 @@ export interface HardwareUnit {
   category: HardwareCategory;
   vendor: string;
   model: string;
+  driverKind: string | null;
   serialNo: string | null;
   firmwareVersion: string | null;
   location: string | null;

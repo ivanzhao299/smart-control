@@ -78,6 +78,17 @@ export class HardwareUnit {
   @Column({ type: 'varchar', length: 64 })
   model!: string;
 
+  /**
+   * 驱动模板 kind (软引用 driver_templates.kind). nullable 是为了让纯被动设备
+   * (灯具驱动 / 强电继电器 / 转换器壳子等没有 IO 接口的) 能不填.
+   *
+   * 把 IP/addressing/capabilities 都交给 driver 模板, 这样换设备只要改 driverKind
+   * 就行, 同协议族下不用动 hardware_unit 表结构.
+   */
+  @Index()
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  driverKind!: string | null;
+
   /** 序列号 / SN */
   @Column({ type: 'varchar', length: 128, nullable: true })
   serialNo!: string | null;

@@ -265,6 +265,7 @@ export interface HardwareCreatePayload {
   category: HardwareCategory;
   vendor: string;
   model: string;
+  driverKind?: string;
   serialNo?: string;
   firmwareVersion?: string;
   location?: string;

@@ -9,6 +9,7 @@ import {
   adminHardwareService,
   type HardwareCreatePayload,
 } from '@/services/admin.service';
+import { driverService, type DriverTemplate } from '@/services/driver.service';
 import { usePermissionStore } from '@/stores/permission';
 import {
   HARDWARE_CATEGORIES,
@@ -90,6 +91,7 @@ const form = reactive<HardwareCreatePayload & { id?: number }>({
   category: 'other',
   vendor: '',
   model: '',
+  driverKind: '',
   serialNo: '',
   firmwareVersion: '',
   location: '',
@@ -103,6 +105,63 @@ const form = reactive<HardwareCreatePayload & { id?: number }>({
   remark: '',
   installedAt: '',
 });
+
+// P3: 驱动模板下拉数据 (从 /api/drivers 拉)
+const drivers = ref<DriverTemplate[]>([]);
+const driversLoaded = ref(false);
+async function ensureDriversLoaded(): Promise<void> {
+  if (driversLoaded.value) return;
+  try {
+    drivers.value = await driverService.list();
+  } catch (err) {
+    // 后台没起或表还没建, 不阻塞表单
+    // eslint-disable-next-line no-console
+    console.warn('加载驱动模板列表失败:', (err as Error).message);
+  } finally {
+    driversLoaded.value = true;
+  }
+}
+
+/** 当前选中的驱动模板对象 (用于显示能力 / 备注 / 自动填默认 addressing) */
+const selectedDriver = computed<DriverTemplate | null>(() => {
+  if (!form.driverKind) return null;
+  return drivers.value.find((d) => d.kind === form.driverKind) ?? null;
+});
+
+/** 用户选了一个驱动模板 → 把默认 addressing 字段填进去 (只覆盖空白字段, 不覆盖用户已填的) */
+function onDriverPick(kind: string): void {
+  form.driverKind = kind;
+  const drv = drivers.value.find((d) => d.kind === kind);
+  if (!drv) return;
+  // 自动填 vendor / category, 用户也可以改
+  if (!form.vendor && drv.vendor) form.vendor = drv.vendor;
+  if (drv.category && form.category === 'other') {
+    form.category = drv.category as typeof form.category;
+  }
+  // 默认 addressing 字段填空白处
+  const def = drv.defaultAddressing ?? {};
+  if (typeof def.slaveId === 'number' && addressingFields.slaveId == null) {
+    addressingFields.slaveId = def.slaveId;
+  }
+  if (typeof def.port === 'number' && addressingFields.port == null) {
+    addressingFields.port = def.port;
+  }
+  if (typeof def.tcpPort === 'number' && addressingFields.port == null) {
+    addressingFields.port = def.tcpPort as number;
+  }
+  if (typeof def.baud === 'number' && addressingFields.baud == null) {
+    addressingFields.baud = def.baud;
+  }
+  if (typeof def.frameIntervalMs === 'number' && addressingFields.frameIntervalMs == null) {
+    addressingFields.frameIntervalMs = def.frameIntervalMs;
+  }
+  if (typeof def.daliStart === 'number' && addressingFields.daliStart == null) {
+    addressingFields.daliStart = def.daliStart;
+  }
+  if (typeof def.daliCount === 'number' && addressingFields.daliCount == null) {
+    addressingFields.daliCount = def.daliCount;
+  }
+}
 
 // 结构化的"寻址"字段, 替代裸 JSON. 提交前序列化回 form.addressing.
 interface AddressingFields {
@@ -210,9 +269,10 @@ function syncStructuredFromForm(): void {
 
 function openCreate(): void {
   if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  void ensureDriversLoaded();
   dialogMode.value = 'create';
   Object.assign(form, {
-    id: undefined, code: '', name: '', category: 'other', vendor: '', model: '',
+    id: undefined, code: '', name: '', category: 'other', vendor: '', model: '', driverKind: '',
     serialNo: '', firmwareVersion: '', location: '', floor: '', ip: '', macAddress: '',
     addressing: '', channels: '', status: 'normal', enabled: true, remark: '', installedAt: '',
   });
@@ -222,11 +282,13 @@ function openCreate(): void {
 
 function openEdit(row: HardwareUnit): void {
   if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  void ensureDriversLoaded();
   dialogMode.value = 'edit';
   Object.assign(form, {
     id: row.id,
     code: row.code, name: row.name, category: row.category,
     vendor: row.vendor, model: row.model,
+    driverKind: row.driverKind ?? '',
     serialNo: row.serialNo ?? '', firmwareVersion: row.firmwareVersion ?? '',
     location: row.location ?? '', floor: row.floor ?? '',
     ip: row.ip ?? '', macAddress: row.macAddress ?? '',
@@ -249,6 +311,7 @@ async function submit(): Promise<void> {
       const payload: HardwareCreatePayload = {
         code: form.code, name: form.name, category: form.category,
         vendor: form.vendor, model: form.model,
+        driverKind: form.driverKind || undefined,
         serialNo: form.serialNo || undefined,
         firmwareVersion: form.firmwareVersion || undefined,
         location: form.location || undefined,
@@ -472,6 +535,38 @@ onMounted(refresh);
               :label="categoryMeta[cat].label"
             />
           </el-select>
+        </el-form-item>
+        <el-form-item label="驱动模板">
+          <el-select
+            :model-value="form.driverKind"
+            placeholder="选择 → 自动填默认寻址 / 厂商"
+            clearable
+            filterable
+            style="width:100%;"
+            @update:model-value="(v: string | null) => (v ? onDriverPick(v) : (form.driverKind = ''))"
+          >
+            <el-option
+              v-for="d in drivers"
+              :key="d.kind"
+              :value="d.kind"
+              :label="d.displayName"
+            >
+              <span>{{ d.displayName }}</span>
+              <span class="opt-hint">{{ d.protocol }} · {{ d.category }}</span>
+            </el-option>
+          </el-select>
+          <div v-if="selectedDriver" class="driver-hint">
+            <el-tag size="small" type="info">能力</el-tag>
+            <el-tag
+              v-for="cap in selectedDriver.capabilities.slice(0, 6)"
+              :key="cap"
+              size="small"
+              class="cap-tag-inline"
+            >{{ cap }}</el-tag>
+            <span v-if="selectedDriver.capabilities.length > 6" class="muted">
+              +{{ selectedDriver.capabilities.length - 6 }}
+            </span>
+          </div>
         </el-form-item>
         <div class="form-row">
           <el-form-item label="厂商" prop="vendor" style="flex:1;">
@@ -722,6 +817,10 @@ onMounted(refresh);
 .muted { color: var(--text-secondary); font-weight: 400; font-size: 12px; margin-left: 6px; }
 .channels-editor { margin-bottom: 16px; }
 .add-ch-btn { margin-top: 8px; width: 100%; }
+
+.opt-hint { color: var(--el-text-color-secondary); font-size: 12px; margin-left: 8px; }
+.driver-hint { margin-top: 6px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cap-tag-inline { margin: 0; }
 
 @media (max-width: 1280px) {
   .stat-grid { grid-template-columns: repeat(2, 1fr); }

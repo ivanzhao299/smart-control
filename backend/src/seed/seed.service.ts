@@ -473,6 +473,7 @@ export class SeedService {
       category: HardwareCategory;
       vendor: string;
       model: string;
+      driverKind?: string;
       location?: string;
       floor?: string;
       ip?: string;
@@ -508,6 +509,7 @@ export class SeedService {
         category: 'rtu-tcp-converter',
         vendor: '有人 USR',
         model: 'USR-TCP232-410S',
+        driverKind: 'cy-dali64a',
         ip: '192.168.50.20',
         floor: '1F',
         location: '1F 弱电机柜 / 公共电箱 F101 附近',
@@ -660,6 +662,7 @@ export class SeedService {
         category: 'led-controller',
         vendor: '诺瓦 NovaStar',
         model: 'V2460',
+        driverKind: 'nova-vx',
         ip: '192.168.50.30',
         floor: '1F',
         location: '1F 主控室机柜',
@@ -678,6 +681,7 @@ export class SeedService {
         category: 'audio-dsp',
         vendor: '得胜 TAKSTAR',
         model: 'EKX-808',
+        driverKind: 'ekx-808',
         ip: '192.168.50.61',
         floor: '1F',
         location: '1F 主控室机柜',
@@ -747,6 +751,7 @@ export class SeedService {
         category: 'hvac-gateway',
         vendor: '中弘 ZHONGHONG',
         model: 'B 集控网关 TCP 款',
+        driverKind: 'zhonghong-mbt',
         ip: '192.168.1.66',
         floor: '1F',
         location: '1F 弱电机柜',
@@ -759,11 +764,12 @@ export class SeedService {
         category: 'hvac-gateway',
         vendor: '中弘 ZHONGHONG',
         model: 'B 集控网关 TCP 款',
+        driverKind: 'zhonghong-mbt',
         ip: '192.168.1.67',
         floor: '2F',
         location: '2F 公共电箱 F201 或 1F 主控室 (二选一, XYE 总线就近)',
         addressing: JSON.stringify({ slaveId: 1, port: 502, maxIndoor: 64, protocol: 'MODBUS-TCP (MBT v3.2)', auxBrandCode: 15 }),
-        remark: '挂 2F 外机, 12 内机 (n=0..11). 单价 ~¥1,200. 跟 1F 网关同型号, 不同 IP',
+        remark: '挂 2F 外机, 12 内机 (n=0..11). 跟 1F 网关同型号, 不同 IP',
       },
       // ---- 控制平板 ----
       {
@@ -787,6 +793,7 @@ export class SeedService {
         category: h.category,
         vendor: h.vendor,
         model: h.model,
+        driverKind: h.driverKind ?? null,
         serialNo: null,
         firmwareVersion: null,
         location: h.location ?? null,
@@ -835,6 +842,26 @@ export class SeedService {
         row.model = fix.newModel;
         await this.hwRepo.save(row);
         this.logger.info(`Hardware model fix: ${fix.code} ${fix.oldModel} → ${fix.newModel}`, {
+          context: 'SeedService',
+        });
+      }
+    }
+
+    // ---------- 一次性自愈: 回填 driverKind (P3) ----------
+    // driverKind 是 P3 才加的列, 旧 DB 行没有这个字段. 给已知 code 回填.
+    const HW_DRIVER_FIXES: Array<{ code: string; driverKind: string }> = [
+      { code: 'CONV-RTU-1', driverKind: 'cy-dali64a' },
+      { code: 'LED-NOVA-1', driverKind: 'nova-vx' },
+      { code: 'AUDIO-DSP-1', driverKind: 'ekx-808' },
+      { code: 'HVAC-GW-1F', driverKind: 'zhonghong-mbt' },
+      { code: 'HVAC-GW-2F', driverKind: 'zhonghong-mbt' },
+    ];
+    for (const fix of HW_DRIVER_FIXES) {
+      const row = await this.hwRepo.findOne({ where: { code: fix.code } });
+      if (row && !row.driverKind) {
+        row.driverKind = fix.driverKind;
+        await this.hwRepo.save(row);
+        this.logger.info(`Hardware driver backfill: ${fix.code} → ${fix.driverKind}`, {
           context: 'SeedService',
         });
       }

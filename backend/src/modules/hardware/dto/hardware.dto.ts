@@ -19,6 +19,7 @@ export class CreateHardwareDto {
   @IsString() category!: HardwareCategory;
   @IsString() @Length(1, 64) vendor!: string;
   @IsString() @Length(1, 64) model!: string;
+  @IsOptional() @IsString() @Length(1, 64) driverKind?: string;
   @IsOptional() @IsString() serialNo?: string;
   @IsOptional() @IsString() firmwareVersion?: string;
   @IsOptional() @IsString() location?: string;
@@ -39,6 +40,7 @@ export class UpdateHardwareDto {
   @IsOptional() @IsString() category?: HardwareCategory;
   @IsOptional() @IsString() @Length(1, 64) vendor?: string;
   @IsOptional() @IsString() @Length(1, 64) model?: string;
+  @IsOptional() @IsString() @Length(1, 64) driverKind?: string;
   @IsOptional() @IsString() serialNo?: string;
   @IsOptional() @IsString() firmwareVersion?: string;
   @IsOptional() @IsString() location?: string;
