@@ -1,9 +1,12 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
+import { Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { BaseAdapter } from '../base.adapter';
 import { AdapterContext, AdapterResult } from '../adapter.types';
+import { HardwareUnit } from '../../entities/hardware-unit.entity';
 import { AdapterConnectionRegistry } from '../connection-registry';
 import { classifyError, DeviceProtocolError } from '../errors';
 import { withRetry } from '../retry';
@@ -46,14 +49,61 @@ export class ModbusHvacAdapter extends BaseAdapter {
   private readonly timeoutMs: number;
   private readonly retries: number;
 
+  /** DB 配置缓存 — 所有 hvac-gateway category 的 hardware_unit 的 ip 列表, 用于 ping 默认网关 */
+  private dbCache: { gateways: Array<{ code: string; ip: string; port: number }>; at: number } = {
+    gateways: [],
+    at: 0,
+  };
+  private readonly DB_CACHE_TTL_MS = 5000;
+
   constructor(
     config: ConfigService,
     @Inject(WINSTON_MODULE_PROVIDER) logger: Logger,
     private readonly registry: AdapterConnectionRegistry,
+    @Optional() @InjectRepository(HardwareUnit) private readonly hwRepo?: Repository<HardwareUnit>,
   ) {
     super(config, logger);
     this.timeoutMs = Number.parseInt(process.env.DEVICE_TIMEOUT_MS ?? '3000', 10);
     this.retries = Number.parseInt(process.env.DEVICE_RETRIES ?? '3', 10);
+  }
+
+  /** 查 DB 里所有 hvac-gateway category 记录, 拿到当前实际 IP/Port. 5s TTL. */
+  private async getGatewaysFromDb(): Promise<Array<{ code: string; ip: string; port: number }>> {
+    if (!this.hwRepo) return [];
+    const now = Date.now();
+    if (now - this.dbCache.at < this.DB_CACHE_TTL_MS) {
+      return this.dbCache.gateways;
+    }
+    try {
+      const rows = await this.hwRepo.find({ where: { category: 'hvac-gateway' } });
+      const gateways = rows
+        .filter((r) => !!r.ip)
+        .map((r) => {
+          let port = 502;
+          if (r.addressing) {
+            try {
+              const parsed = JSON.parse(r.addressing) as { port?: number };
+              if (typeof parsed.port === 'number') port = parsed.port;
+            } catch { /* 忽略非 JSON */ }
+          }
+          return { code: r.code, ip: r.ip as string, port };
+        });
+      this.dbCache = { gateways, at: now };
+      return gateways;
+    } catch (err) {
+      this.logger.warn(`getGatewaysFromDb 失败: ${(err as Error).message}`, { context: 'ModbusHvacAdapter' });
+      this.dbCache = { gateways: [], at: now };
+      return [];
+    }
+  }
+
+  /** PUT /api/hardware/:id 成功后调, 让 ping 用最新 DB 配置, 同时清掉所有 TCP 客户端缓存. */
+  invalidateConfigCache(): void {
+    this.dbCache = { gateways: [], at: 0 };
+    // 清掉所有 TCP 客户端, 让下次调用按最新 IP 重建.
+    // 注意: device 表里的 gwHost 字段也需要后台同步改, 否则即使重建了 TCP 也是连旧 IP.
+    // P3 会通过 hardware_unit.code 替换 IP 直挂的耦合.
+    this.clients.clear();
   }
 
   /** 拿到 deviceId 对应内机的网关客户端 + 网关 key */
@@ -80,9 +130,11 @@ export class ModbusHvacAdapter extends BaseAdapter {
   }
 
   async ping(ctx?: AdapterContext): Promise<void> {
-    // 默认 ping 1F 网关 (用 HVAC_HOST env 指定, 老配置兼容)
-    const host = process.env.HVAC_HOST ?? '192.168.50.51';
-    const port = Number.parseInt(process.env.HVAC_PORT ?? '502', 10);
+    // DB > env > default 三级取默认网关地址
+    const dbGateways = await this.getGatewaysFromDb();
+    const dbFirst = dbGateways[0];
+    const host = dbFirst?.ip ?? process.env.HVAC_HOST ?? '192.168.50.51';
+    const port = dbFirst?.port ?? Number.parseInt(process.env.HVAC_PORT ?? '502', 10);
     const slaveId = Number.parseInt(process.env.HVAC_DEFAULT_SLAVE_ID ?? '1', 10);
     const key = `hvac-zh-${host}:${port}`;
     let entry = this.clients.get(key);

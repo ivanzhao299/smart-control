@@ -1,9 +1,12 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
+import { Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { BaseAdapter } from '../base.adapter';
 import { AdapterContext, AdapterResult } from '../adapter.types';
+import { HardwareUnit } from '../../entities/hardware-unit.entity';
 import { TcpClient } from '../transports/tcp-client';
 import { AdapterConnectionRegistry } from '../connection-registry';
 import { classifyError } from '../errors';
@@ -62,12 +65,16 @@ export class EkxDspAdapter extends BaseAdapter {
     return 'audio';
   }
 
-  private readonly tcp: TcpClient;
-  private readonly host: string;
-  private readonly port: number;
+  private tcp: TcpClient;
+  private host: string;
+  private port: number;
   private readonly devAddr: number;
   private readonly timeoutMs: number;
   private readonly retries: number;
+
+  /** DB 配置缓存 — 5s TTL */
+  private dbCache: { host?: string; port?: number; at: number } = { at: 0 };
+  private readonly DB_CACHE_TTL_MS = 5000;
 
   /** zone 名 → DSP 输出通道索引 (0-7) */
   private static readonly ZONE_TO_OUT: Record<string, ChannelIndex> = {
@@ -81,6 +88,7 @@ export class EkxDspAdapter extends BaseAdapter {
     config: ConfigService,
     @Inject(WINSTON_MODULE_PROVIDER) logger: Logger,
     private readonly registry: AdapterConnectionRegistry,
+    @Optional() @InjectRepository(HardwareUnit) private readonly hwRepo?: Repository<HardwareUnit>,
   ) {
     super(config, logger);
     this.host = process.env.AUDIO_EKX_HOST ?? '192.168.50.61';
@@ -99,6 +107,66 @@ export class EkxDspAdapter extends BaseAdapter {
       `EkxDspAdapter ready (host=${this.host}:${this.port} devAddr=${this.devAddr} mode=${this.isMock() ? 'mock' : 'live'})`,
       { context: 'EkxDspAdapter' },
     );
+  }
+
+  /** 查 DB 里 AUDIO-DSP-1 那条硬件记录, 提取 ip + addressing.tcpPort/port. 5s TTL. */
+  private async getConfigFromDb(): Promise<{ host?: string; port?: number } | null> {
+    if (!this.hwRepo) return null;
+    const now = Date.now();
+    if (now - this.dbCache.at < this.DB_CACHE_TTL_MS) {
+      return { host: this.dbCache.host, port: this.dbCache.port };
+    }
+    try {
+      const row = await this.hwRepo.findOne({ where: { code: 'AUDIO-DSP-1' } });
+      if (!row) {
+        this.dbCache = { at: now };
+        return null;
+      }
+      let port: number | undefined;
+      if (row.addressing) {
+        try {
+          const parsed = JSON.parse(row.addressing) as { tcpPort?: number; port?: number };
+          // 兼容历史 seed 的 tcpPort 字段名 + 通用 port 字段
+          if (typeof parsed.tcpPort === 'number') port = parsed.tcpPort;
+          else if (typeof parsed.port === 'number') port = parsed.port;
+        } catch { /* addressing 不是 JSON 也 OK */ }
+      }
+      this.dbCache = { host: row.ip ?? undefined, port, at: now };
+      return { host: row.ip ?? undefined, port };
+    } catch (err) {
+      this.logger.warn(`getConfigFromDb 失败: ${(err as Error).message}`, { context: 'EkxDspAdapter' });
+      this.dbCache = { at: now };
+      return null;
+    }
+  }
+
+  /** PUT /api/hardware/:id 成功后调, 让下次 TCP 调用立刻取最新 IP. */
+  invalidateConfigCache(): void {
+    this.dbCache = { at: 0 };
+  }
+
+  /** 每次 TCP 调用前: DB > env > default 三级取 host:port, 不同就重建 TcpClient. */
+  private async syncRuntime(): Promise<void> {
+    const db = await this.getConfigFromDb();
+    const envHost = process.env.AUDIO_EKX_HOST;
+    const envPort = process.env.AUDIO_EKX_PORT ? Number.parseInt(process.env.AUDIO_EKX_PORT, 10) : undefined;
+    const host = db?.host ?? envHost ?? '192.168.50.61';
+    const port = db?.port ?? envPort ?? 5000;
+    if (host === this.host && port === this.port) return;
+    const source = db?.host ? 'db' : envHost ? 'env' : 'default';
+    this.logger.warn(
+      `EkxDspAdapter rewiring: ${this.host}:${this.port} → ${host}:${port} (source=${source})`,
+      { context: 'EkxDspAdapter' },
+    );
+    this.tcp = new TcpClient({
+      host,
+      port,
+      deviceType: 'audio',
+      timeoutMs: this.timeoutMs,
+    });
+    this.host = host;
+    this.port = port;
+    if (!this.isMock()) this.registry.register(GATEWAY_KEY, `tcp://${host}:${port}`);
   }
 
   // ============ 基础: ping + 健康检查 ============
@@ -315,6 +383,7 @@ export class EkxDspAdapter extends BaseAdapter {
 
   /** 单条命令发送 (带重试). expectResponse=true 时等待 9 字节响应帧 */
   private async send(payload: Buffer, signal?: AbortSignal, expectResponse = false): Promise<Buffer> {
+    await this.syncRuntime();
     try {
       const result = await withRetry(
         async () => {

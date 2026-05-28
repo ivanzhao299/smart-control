@@ -1,9 +1,12 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
+import { Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { BaseAdapter } from '../base.adapter';
 import { AdapterContext, AdapterResult } from '../adapter.types';
+import { HardwareUnit } from '../../entities/hardware-unit.entity';
 import { TcpClient } from '../transports/tcp-client';
 import { HttpClient } from '../transports/http-client';
 import { classifyError, DeviceProtocolError } from '../errors';
@@ -61,9 +64,9 @@ export class NovaLedAdapter extends BaseAdapter {
     return 'led';
   }
 
-  private readonly tcp: TcpClient;
+  private tcp: TcpClient;
   private readonly nucHttp?: HttpClient;
-  private readonly endpoint: string;
+  private endpoint: string;
   private readonly cfg: {
     host: string;
     port: number;
@@ -78,13 +81,22 @@ export class NovaLedAdapter extends BaseAdapter {
     nucPort?: number;
   };
 
-  /** 进程内状态缓存 (VX1000 协议没有原生 getStatus 等价 API, 用缓存回填) */
+  /** 当前 TcpClient 在用的 host/port — 跟 DB > env > default 三级取值比较, 决定要不要 rewire */
+  private tcpHost: string;
+  private tcpPort: number;
+
+  /** 进程内状态缓存 (V/VX 系列协议没有原生 getStatus, 用缓存回填) */
   private readonly state = new Map<string, LedState>();
+
+  /** DB 配置缓存 — 5s TTL, 避免每次发命令都查 */
+  private dbCache: { host?: string; port?: number; at: number } = { at: 0 };
+  private readonly DB_CACHE_TTL_MS = 5000;
 
   constructor(
     config: ConfigService,
     @Inject(WINSTON_MODULE_PROVIDER) logger: Logger,
     private readonly registry: AdapterConnectionRegistry,
+    @Optional() @InjectRepository(HardwareUnit) private readonly hwRepo?: Repository<HardwareUnit>,
   ) {
     super(config, logger);
     const host = process.env.LED_HOST ?? '192.168.50.30';
@@ -105,6 +117,8 @@ export class NovaLedAdapter extends BaseAdapter {
       nucPort,
     };
     this.endpoint = `tcp://${host}:${port}`;
+    this.tcpHost = host;
+    this.tcpPort = port;
 
     this.tcp = new TcpClient({
       host,
@@ -125,16 +139,84 @@ export class NovaLedAdapter extends BaseAdapter {
     if (!this.isMock()) this.registry.register(GATEWAY_KEY, this.endpoint);
 
     this.logger.info(
-      `NovaLedAdapter ready (VX1000=${host}:${port}` +
+      `NovaLedAdapter ready (Nova V/VX=${host}:${port}` +
         (nucHost ? `, NUC=${nucHost}:${nucPort}` : ', no NUC') +
         `, ${this.cfg.width}x${this.cfg.height})`,
       { context: 'NovaLedAdapter' },
     );
   }
 
+  /**
+   * 查 DB 里 LED-NOVA-1 那条硬件记录, 提取 ip 和 addressing.port. 5s TTL.
+   * 返回 null 表示 DB 不可用 / 没找到 → 调用方回退 env.
+   */
+  private async getConfigFromDb(): Promise<{ host?: string; port?: number } | null> {
+    if (!this.hwRepo) return null;
+    const now = Date.now();
+    if (now - this.dbCache.at < this.DB_CACHE_TTL_MS) {
+      return { host: this.dbCache.host, port: this.dbCache.port };
+    }
+    try {
+      const row = await this.hwRepo.findOne({ where: { code: 'LED-NOVA-1' } });
+      if (!row) {
+        this.dbCache = { at: now };
+        return null;
+      }
+      let port: number | undefined;
+      if (row.addressing) {
+        try {
+          const parsed = JSON.parse(row.addressing) as { port?: number };
+          if (typeof parsed.port === 'number') port = parsed.port;
+        } catch { /* addressing 不是 JSON 也 OK */ }
+      }
+      this.dbCache = { host: row.ip ?? undefined, port, at: now };
+      return { host: row.ip ?? undefined, port };
+    } catch (err) {
+      this.logger.warn(`getConfigFromDb 失败: ${(err as Error).message}`, { context: 'NovaLedAdapter' });
+      this.dbCache = { at: now };
+      return null;
+    }
+  }
+
+  /** PUT /api/hardware/:id 成功后调, 让下次 TCP 调用立刻取最新 IP. */
+  invalidateConfigCache(): void {
+    this.dbCache = { at: 0 };
+  }
+
+  /**
+   * 每次 TCP 调用前: DB > env > default 三级取 host:port, 跟实际 TcpClient 当前 host/port
+   * 比较, 不同就重建 TcpClient + re-register registry endpoint.
+   */
+  private async syncRuntime(): Promise<void> {
+    const db = await this.getConfigFromDb();
+    const envHost = process.env.LED_HOST;
+    const envPort = process.env.LED_PORT ? Number.parseInt(process.env.LED_PORT, 10) : undefined;
+    const host = db?.host ?? envHost ?? '192.168.50.30';
+    const port = db?.port ?? envPort ?? 5200;
+    if (host === this.tcpHost && port === this.tcpPort) return;
+    const source = db?.host ? 'db' : envHost ? 'env' : 'default';
+    this.logger.warn(
+      `NovaLedAdapter rewiring: ${this.tcpHost}:${this.tcpPort} → ${host}:${port} (source=${source})`,
+      { context: 'NovaLedAdapter' },
+    );
+    this.tcp = new TcpClient({
+      host,
+      port,
+      deviceType: 'led',
+      timeoutMs: this.cfg.timeoutMs,
+    });
+    this.tcpHost = host;
+    this.tcpPort = port;
+    this.cfg.host = host;
+    this.cfg.port = port;
+    this.endpoint = `tcp://${host}:${port}`;
+    if (!this.isMock()) this.registry.register(GATEWAY_KEY, this.endpoint);
+  }
+
   // ============ 公共 API ============
 
   async ping(ctx?: AdapterContext): Promise<void> {
+    await this.syncRuntime();
     try {
       const frame = frameReadDeviceId();
       // ReadDeviceID 响应 VX1000=22 字节 / V2460=20 字节, 用宽松模式收到 ≥4 就算 OK
@@ -316,6 +398,7 @@ export class NovaLedAdapter extends BaseAdapter {
 
   /** 发送一帧给 V/VX 系列, 验证响应; 失败计入 registry */
   private async sendVx(frame: Buffer, signal?: AbortSignal): Promise<Buffer> {
+    await this.syncRuntime();
     try {
       // 不同型号响应长度不同 (VX1000 ReadDeviceID 22 字节, V2460 20 字节, 亮度/显示模式
       // 命令 17-21 字节不等), 用 minBytes=4 容忍提前 EOF, 只要响应头 + 校验和能凑齐就算成功.
