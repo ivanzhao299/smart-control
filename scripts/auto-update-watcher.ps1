@@ -134,12 +134,36 @@ try {
   }
 
   if (-not $script:exitCode) {
-    if ($local -eq $remote) {
+    # 防陷阱: 即使 git up-to-date, 也得检查 dist/main.js 是不是从最新 commit 编出来的.
+    # 现场遇到过: 用户手动重启 GK9000, pm2 用老 dist 拉起 backend, watcher 后续轮询
+    # 看到 git up-to-date 就不再 build, 结果代码到位但 backend 跑老 dist (新 endpoint 全 404).
+    $distMain = Join-Path $projectRoot 'backend\dist\main.js'
+    $needForceRebuild = $false
+    if ($local -eq $remote -and (Test-Path $distMain)) {
+      try {
+        $distMtimeUtc = (Get-Item $distMain).LastWriteTimeUtc
+        # 最新 commit 的提交时间 (UTC, ISO-8601)
+        $commitTimeStr = (git show -s --format=%cI HEAD 2>$null | Out-String).Trim()
+        if ($commitTimeStr) {
+          $commitTime = [DateTime]::Parse($commitTimeStr).ToUniversalTime()
+          if ($distMtimeUtc -lt $commitTime) {
+            Log "dist 比最新 commit 旧 (dist=$($distMtimeUtc.ToString('o')) commit=$($commitTime.ToString('o'))), 强制 rebuild" 'Yellow'
+            $needForceRebuild = $true
+          }
+        }
+      } catch { }
+    }
+
+    if ($local -eq $remote -and -not $needForceRebuild) {
       Log "up-to-date @ $($local.Substring(0,7))" 'DarkGray'
       # 不 exit — 落到 heartbeat 段把状态报上去
     } else {
-      $behind = ((git rev-list --count "$local..$remote") | Out-String).Trim()
-      Log "new commit(s): 本地 $($local.Substring(0,7)) → 远端 $($remote.Substring(0,7)) (落后 $behind 个)" 'Cyan'
+      if ($needForceRebuild) {
+        Log "force-rebuild: dist 落后于 commit $($local.Substring(0,7))" 'Cyan'
+      } else {
+        $behind = ((git rev-list --count "$local..$remote") | Out-String).Trim()
+        Log "new commit(s): 本地 $($local.Substring(0,7)) → 远端 $($remote.Substring(0,7)) (落后 $behind 个)" 'Cyan'
+      }
 
       if ($DryRun) {
         Log "dry-run: 不实际调 update.ps1" 'Yellow'
