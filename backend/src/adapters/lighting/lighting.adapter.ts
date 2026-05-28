@@ -93,7 +93,7 @@ export class LightingAdapter extends BaseAdapter {
     diagVersion: number;
     timestamp: string;
     mode: { adapterKind: string; mockMode: boolean; effectiveImpl: string };
-    config: { host: string; port: number; slaveId: number } | null;
+    config: { host: string; port: number; slaveId: number; adapterHost?: string | null; adapterPort?: number | null; hostMismatch?: boolean } | null;
     l1_tcp: { ok: boolean; elapsedMs: number; error?: string };
     l2_modbus: { ok: boolean; elapsedMs: number; error?: string };
     l3_dali: { ok: boolean; elapsedMs: number; onlineShorts: number[]; faultShorts: number[]; error?: string };
@@ -124,7 +124,18 @@ export class LightingAdapter extends BaseAdapter {
     const host = process.env.DALI_RTU_HOST ?? '192.168.50.20';
     const port = Number(process.env.DALI_RTU_PORT ?? 502);
     const slaveId = Number(process.env.DALI_RTU_SLAVE_ID ?? 1);
-    out.config = { host, port, slaveId };
+    // 关键对比: process.env 现状 (live) vs CyDali64aAdapter 实际用的 host (起进程时锁定).
+    // 如果两者不同 → backend 用着旧 IP 没刷新, 解决方案是再 admin-restart 一次.
+    const adapterHost = (this.daliImpl as unknown as { getRuntimeHost?: () => string }).getRuntimeHost?.() ?? null;
+    const adapterPort = (this.daliImpl as unknown as { getRuntimePort?: () => number }).getRuntimePort?.() ?? null;
+    out.config = {
+      host,
+      port,
+      slaveId,
+      adapterHost,
+      adapterPort,
+      hostMismatch: adapterHost !== null && adapterHost !== host,
+    } as { host: string; port: number; slaveId: number; adapterHost?: string | null; adapterPort?: number | null; hostMismatch?: boolean };
 
     // L1: 原生 net.Socket connect, 1.5s 硬超时
     const l1Start = Date.now();

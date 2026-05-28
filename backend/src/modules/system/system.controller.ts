@@ -145,12 +145,16 @@ export class SystemController {
       return { message: 'value 必须 0-100', data: null };
     }
     const deviceId = JSON.stringify({ slaveId: 1, short });
-    this.logger.warn(`dali-poke: short=${short} value=${value}%`);
+    this.logger.warn(`dali-poke: short=${short} value=${value}% envHost=${process.env.DALI_RTU_HOST ?? '(default)'}`);
     try {
       const result = await this.lighting.setBrightness(deviceId, { value });
+      if (result && (result as { ok?: boolean }).ok === false) {
+        const errMsg = (result as { error?: string }).error ?? '未知错误';
+        return { message: `命令失败 (ok=false): ${errMsg}`, data: result };
+      }
       return { message: `已对短地址 ${short} 设亮度 ${value}%`, data: result };
     } catch (err) {
-      return { message: `命令失败: ${(err as Error).message}`, data: null };
+      return { message: `命令异常: ${(err as Error).message}`, data: null };
     }
   }
 

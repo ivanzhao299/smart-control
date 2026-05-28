@@ -219,6 +219,14 @@ export class CyDali64aAdapter extends BaseAdapter {
     });
   }
 
+  /** 暴露给诊断 — 看 backend 启动时 cfg.host 是否落到了对的值, 跟 process.env 现状作对比 */
+  getRuntimeHost(): string {
+    return this.cfg.host;
+  }
+  getRuntimePort(): number {
+    return this.cfg.port;
+  }
+
   /** Sprint-08 设备健康检查使用; 现在简化为读 1 个寄存器 */
   async ping(ctx?: AdapterContext): Promise<void> {
     try {
