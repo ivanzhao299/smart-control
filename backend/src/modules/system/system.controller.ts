@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Logger, Post, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Logger, Post, Query, Req } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
 import { AdapterConfig, AppConfig, WebSocketConfig } from '../../common/config/configuration';
@@ -120,6 +120,38 @@ export class SystemController {
   @Get('site-heartbeat')
   listSiteHeartbeat() {
     return { message: '查询成功', data: this.system.listSiteHeartbeats() };
+  }
+
+  /**
+   * DALI 短地址直控 — 绕开 group 分配, 直接对单个驱动器调亮度.
+   * 用于排查 "网关通 / 灯具识别到 / group 命令没响应" 时的快速验证.
+   *
+   * GET /api/system/dali-poke?short=1&value=80   将短地址 1 调到 80% 亮度
+   * GET /api/system/dali-poke?short=2&value=0    将短地址 2 关掉
+   *
+   * 没认证, 因为只 LAN 内可达 (生产 nginx 全局加 Basic Auth 已经够安全)
+   */
+  @Get('dali-poke')
+  async daliPoke(
+    @Query('short') shortStr?: string,
+    @Query('value') valueStr?: string,
+  ): Promise<unknown> {
+    const short = Number(shortStr ?? 1);
+    const value = Number(valueStr ?? 50);
+    if (!Number.isInteger(short) || short < 1 || short > 64) {
+      return { message: 'short 必须 1-64', data: null };
+    }
+    if (!Number.isFinite(value) || value < 0 || value > 100) {
+      return { message: 'value 必须 0-100', data: null };
+    }
+    const deviceId = JSON.stringify({ slaveId: 1, short });
+    this.logger.warn(`dali-poke: short=${short} value=${value}%`);
+    try {
+      const result = await this.lighting.setBrightness(deviceId, { value });
+      return { message: `已对短地址 ${short} 设亮度 ${value}%`, data: result };
+    } catch (err) {
+      return { message: `命令失败: ${(err as Error).message}`, data: null };
+    }
   }
 
   /**
