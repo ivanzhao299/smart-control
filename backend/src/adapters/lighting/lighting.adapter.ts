@@ -170,11 +170,12 @@ export class LightingAdapter extends BaseAdapter {
           this.daliImpl.readFaultMatrix(undefined, ac.signal),
         ]);
       } finally { clearTimeout(t); }
+      // out[i] = 短地址 (i+1) 的状态 — DALI 短地址 1-indexed
       out.l3_dali = {
         ok: true,
         elapsedMs: Date.now() - l3Start,
-        onlineShorts: online.flatMap((on, i) => (on ? [i] : [])),
-        faultShorts: fault.flatMap((f, i) => (f ? [i] : [])),
+        onlineShorts: online.flatMap((on, i) => (on ? [i + 1] : [])),
+        faultShorts: fault.flatMap((f, i) => (f ? [i + 1] : [])),
         error: undefined,
       };
     } catch (err) {
@@ -252,8 +253,9 @@ export class LightingAdapter extends BaseAdapter {
         this.daliImpl.readOnlineMatrix(undefined, matrixCtx.signal),
         this.daliImpl.readFaultMatrix(undefined, matrixCtx.signal),
       ]);
-      out.onlineShorts = online.flatMap((on, i) => (on ? [i] : []));
-      out.faultShorts = fault.flatMap((f, i) => (f ? [i] : []));
+      // DALI 短地址是 1-indexed (parseOnlineMatrix: out[i] = 短地址 i+1)
+      out.onlineShorts = online.flatMap((on, i) => (on ? [i + 1] : []));
+      out.faultShorts = fault.flatMap((f, i) => (f ? [i + 1] : []));
     } catch (err) {
       out.matrixError = (err as Error).message;
     }
