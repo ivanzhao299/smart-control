@@ -231,10 +231,125 @@ export class SystemController {
     return {
       message: 'build-marker',
       data: {
-        marker: '2026-05-27-layered-diag',
+        marker: '2026-05-29-novastar-scan',
         nodeVersion: process.version,
         startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString(),
         uptimeSec: Math.round(process.uptime()),
+      },
+    };
+  }
+
+  /**
+   * 诺瓦 NovaStar 设备发现 — UDP 广播 + TCP 候选 IP 探测.
+   *
+   * 用 V/VX 系列自带的 UDP 搜索协议: 向 .255:3800 广播 "rqProMI:",
+   * 任何在线的 NovaStar 设备会回 "rpProMI:App,0161" (16 字节固定值).
+   * 同时并行 TCP 探一些常见默认 IP (诺瓦出厂常用 192.168.0.10 / .1.10 等).
+   *
+   * GET /api/system/scan-novastar?subnet=192.168.50&timeoutMs=3000
+   * 默认 subnet 取 NIC 当前的 LAN 段.
+   */
+  @Get('scan-novastar')
+  async scanNovastar(
+    @Query('subnet') subnetStr?: string,
+    @Query('timeoutMs') timeoutMsStr?: string,
+  ): Promise<unknown> {
+    const dgram = await import('dgram');
+    const net = await import('net');
+    const os = await import('os');
+
+    const timeoutMs = Math.max(500, Math.min(8000, Number(timeoutMsStr ?? 3000)));
+
+    // 自动推断 subnet (取 192.168.x.0/24 的第一个 IPv4 NIC), 也支持手动指定
+    function inferSubnets(): string[] {
+      const subs: string[] = [];
+      const ifs = os.networkInterfaces();
+      for (const list of Object.values(ifs)) {
+        if (!list) continue;
+        for (const it of list) {
+          if (it.family !== 'IPv4' || it.internal) continue;
+          const parts = it.address.split('.');
+          if (parts.length === 4) subs.push(`${parts[0]}.${parts[1]}.${parts[2]}`);
+        }
+      }
+      return Array.from(new Set(subs));
+    }
+    const subnets = subnetStr ? [subnetStr.replace(/\.\d+$/, '')] : inferSubnets();
+
+    // UDP 广播 + 收应答
+    const found: Array<{ ip: string; raw: string; via: 'udp' | 'tcp' }> = [];
+    const udpResults = await Promise.all(
+      subnets.map(
+        (sub) =>
+          new Promise<void>((resolve) => {
+            const sock = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+            const broadcast = `${sub}.255`;
+            sock.on('message', (msg, rinfo) => {
+              const txt = msg.toString('ascii');
+              if (txt.startsWith('rpProMI:')) {
+                found.push({ ip: rinfo.address, raw: txt, via: 'udp' });
+              }
+            });
+            sock.on('error', () => resolve());
+            sock.bind(0, () => {
+              sock.setBroadcast(true);
+              const payload = Buffer.from('rqProMI:', 'ascii');
+              sock.send(payload, 3800, broadcast, () => {});
+            });
+            setTimeout(() => {
+              try { sock.close(); } catch { /* ignore */ }
+              resolve();
+            }, timeoutMs);
+          }),
+      ),
+    );
+    void udpResults;
+
+    // TCP 候选探测 — 出厂默认 + 当前配置 + 常见自助分配
+    const tcpCandidates = new Set<string>();
+    for (const sub of subnets) {
+      tcpCandidates.add(`${sub}.30`); // 我们记的 IP
+      tcpCandidates.add(`${sub}.10`); // 诺瓦工厂默认之一
+    }
+    tcpCandidates.add('192.168.0.10');
+    tcpCandidates.add('192.168.1.10');
+
+    async function tcpProbe(ip: string): Promise<boolean> {
+      return new Promise<boolean>((resolve) => {
+        const s = new net.Socket();
+        let done = false;
+        const finish = (ok: boolean) => {
+          if (done) return;
+          done = true;
+          try { s.destroy(); } catch { /* ignore */ }
+          resolve(ok);
+        };
+        s.setTimeout(1200);
+        s.once('connect', () => finish(true));
+        s.once('timeout', () => finish(false));
+        s.once('error', () => finish(false));
+        s.connect(5200, ip);
+      });
+    }
+    const tcpResults = await Promise.all(
+      Array.from(tcpCandidates).map(async (ip) => ({ ip, ok: await tcpProbe(ip) })),
+    );
+    for (const r of tcpResults) {
+      if (r.ok && !found.some((f) => f.ip === r.ip)) {
+        found.push({ ip: r.ip, raw: 'tcp 5200 open', via: 'tcp' });
+      }
+    }
+
+    return {
+      message: '扫描完成',
+      data: {
+        subnetsScanned: subnets,
+        tcpCandidates: Array.from(tcpCandidates),
+        timeoutMs,
+        found,
+        hint: found.length === 0
+          ? '未发现 NovaStar 设备 — 看 V2460 前面板菜单的 IP, 或确认它接在跟 GK9000 同一台交换机'
+          : `发现 ${found.length} 台设备, 改 DB 里 LED-NOVA-1.ip 即可`,
       },
     };
   }
