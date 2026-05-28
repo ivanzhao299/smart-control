@@ -165,13 +165,16 @@ DALI 已经做了(commit 9e612d4),推广到其它三个 adapter。
 
 ## 六、当前进度
 
-- ✅ Phase 1 之 DALI 部分(commit 9e612d4):CyDali64aAdapter 从 DB 读 CONV-RTU-1 配置,后台改 IP 5s 内 rewire,不重启
-- ✅ 硬件清单 UI(commit cca0cef):addressing / channels 两个 JSON textarea 改成结构化表单(Modbus 从机地址 / 波特率 / 帧间隔 / DALI 起始 / 通道清单表格)
-- ⏳ Phase 1 剩余:LED / Audio / HVAC 三个 adapter 还在硬编码 env
-- ⏳ Phase 2 / 3 / 4 / 5 待启动
+- ✅ Phase 1(完整) — DALI(9e612d4) + LED/Audio/HVAC(a169598):所有 adapter 都从 DB 读 IP+端口,5s TTL,后台改 IP 立即 rewire 不重启
+- ✅ 硬件清单 UI(cca0cef):addressing / channels 结构化表单
+- ✅ Phase 2(f83dfd8):driver_template 表 + 4 个 builtin describe() + DriverRegistryService.onModuleInit upsert + /api/drivers + /admin/drivers 浏览页(表格 + 详情抽屉, 列 paramSchema)
+- ✅ Phase 3(5e85a82):hardware_unit.driverKind 外键(软引用) + HW_DRIVER_FIXES 自愈 + HardwareAdmin 表单加驱动模板下拉 → 选完自动填默认 addressing / vendor / category
+- ✅ Phase 4(1a54dad):/admin/drivers 加"新建驱动"表单 — UI 自助创建非 builtin 模板(已有协议族下挂壳, 不允许凭空生成代码)
+- ✅ Phase 5:audit_log 表 + AuditService(record / list / detail / rollback) + /api/audit-log + /admin/audit 历史页 + 回滚按钮(仅 hardware_unit, 写回前自动清 adapter cache)
 
 ---
 
 ## 七、决策记录
 
-- 2026-05-28 用户确认架构方向,等后续指令决定开始 Phase 1 剩余 / Phase 3 / 都做
+- 2026-05-28 用户确认架构方向, 决定整套 P1-P5 全做
+- 2026-05-29 P1-P5 全部交付, 最后一个 commit 记 P5 完成

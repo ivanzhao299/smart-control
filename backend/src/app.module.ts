@@ -26,6 +26,7 @@ import { UatModule } from './modules/uat/uat.module';
 import { HardwareModule } from './modules/hardware/hardware.module';
 import { MediaModule } from './modules/media/media.module';
 import { DriversModule } from './modules/drivers/drivers.module';
+import { AuditModule } from './modules/audit/audit.module';
 import { AdaptersModule } from './adapters/adapters.module';
 import { ServicesModule } from './services/services.module';
 
@@ -59,6 +60,7 @@ import { ServicesModule } from './services/services.module';
     HardwareModule,
     MediaModule,
     DriversModule,
+    AuditModule,
     WebsocketModule,
   ],
   providers: [
