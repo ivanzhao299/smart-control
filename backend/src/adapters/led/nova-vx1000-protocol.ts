@@ -1,9 +1,14 @@
 /**
- * 诺瓦 NovaStar VX1000 / VX400 系列 LED 视频处理器控制协议
+ * 诺瓦 NovaStar V 系列 / VX 系列 LED 视频控制器控制协议
  *
  * 数据来源: VX400 Control Protocol V1.0 (Xi'an NovaStar Tech Co., Ltd. 2022-12-22)
  *   - https://www.ezledvisual.com/storage/file/20240926/1727345617795142.pdf
- * VX1000 / VX1000 Pro / VX600 Pro / VX2000 Pro 与 VX400 同一协议族.
+ *
+ * 兼容设备 (同一协议族, 帧头/校验和/命令字节一致):
+ *   - VX 系列: VX400 / VX600 Pro / VX1000 / VX1000 Pro / VX2000 Pro
+ *   - V 系列 (2-in-1 控制器): V700 / V760 / V900 / V960 / V1060 / V1260 / V2460
+ *
+ * 文件名沿用 nova-vx1000-protocol 是历史原因, 实现并不限于 VX1000 型号.
  *
  * 通讯:
  *   - TCP 端口: 5200

@@ -651,20 +651,23 @@ export class SeedService {
         remark: '灯具需 0-10V 调光款',
       },
       // ---- LED 大屏 ----
+      // V2460 是诺瓦 V 系列 2-in-1 控制器 (V960/V1060/V1260/V2460 同族),
+      // 跟 VX 系列共用一份控制协议 (TCP 5200, 0x55 0xAA 帧头, 校验和=sum+0x5555).
+      // 协议实现在 nova-vx1000-protocol.ts, 文件名沿用历史, 不再迁移.
       {
         code: 'LED-NOVA-1',
         name: '1F LED 大屏控制器',
         category: 'led-controller',
         vendor: '诺瓦 NovaStar',
-        model: 'VX1000',
+        model: 'V2460',
         ip: '192.168.50.30',
         floor: '1F',
         location: '1F 主控室机柜',
         addressing: JSON.stringify({ box: '1', port: 5200 }),
-        remark: 'HDMI1 输入接 GK9000 中控主机 HDMI 输出 (视频源直接来自中控主机, 不需要额外 NUC 播控)',
+        remark: 'V 系列 2-in-1 控制器. HDMI1 输入接 GK9000 中控主机 HDMI 输出 (视频源直接来自中控主机)',
       },
       // 注: 原计划的"独立 LED 播控主机 (Intel NUC11)" 已取消
-      // 视频文件和播放统一交给 GK9000 中控主机 (GK9000 有 2 个 HDMI 输出, HDMI1 → VX1000)
+      // 视频文件和播放统一交给 GK9000 中控主机 (GK9000 有 2 个 HDMI 输出, HDMI1 → V2460)
       // 视频存储路径见 D:\smart-control\media\ 或自定义, ViPlex Express 跑在 GK9000 上
       // ---- 音响 (得胜方案 2 + WTG-800 跟随讲解) ----
       // 协议参考: docs/AUDIO_PROTOCOL_EKX808.md
@@ -816,6 +819,22 @@ export class SeedService {
         row.ip = fix.newIp;
         await this.hwRepo.save(row);
         this.logger.info(`Hardware IP fix: ${fix.code} ${fix.oldIp} → ${fix.newIp}`, {
+          context: 'SeedService',
+        });
+      }
+    }
+
+    // ---------- 一次性自愈: 修正旧的硬件型号 ----------
+    // LED-NOVA-1 现场换了 V2460 (同 V/VX 协议族, adapter 兼容). 旧 DB 还是 VX1000.
+    const HW_MODEL_FIXES: Array<{ code: string; oldModel: string; newModel: string }> = [
+      { code: 'LED-NOVA-1', oldModel: 'VX1000', newModel: 'V2460' },
+    ];
+    for (const fix of HW_MODEL_FIXES) {
+      const row = await this.hwRepo.findOne({ where: { code: fix.code } });
+      if (row && row.model === fix.oldModel) {
+        row.model = fix.newModel;
+        await this.hwRepo.save(row);
+        this.logger.info(`Hardware model fix: ${fix.code} ${fix.oldModel} → ${fix.newModel}`, {
           context: 'SeedService',
         });
       }

@@ -71,7 +71,7 @@ async function welcome(z: LedRow): Promise<void> {
       <div class="sc-head-ico"><MonitorPlay :size="22" :stroke-width="1.75" /></div>
       <div>
         <h2 class="sc-title">LED 大屏控制</h2>
-        <div class="sc-subtle">诺瓦 VX1000 + NUC 播控 · 开关 / 输入 / 播放</div>
+        <div class="sc-subtle">诺瓦 V2460 (V/VX 协议族) · 开关 / 输入 / 播放</div>
       </div>
     </header>
 
