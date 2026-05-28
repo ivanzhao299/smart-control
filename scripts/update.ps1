@@ -173,15 +173,22 @@ Write-Host "`n[6/6] 强制重启服务 (pm2 delete + kill :3200 + pm2 start)..."
 # 6a: pm2 delete 把记录清掉 (即使进程没了也无害)
 try { & pm2 delete smart-control-backend 2>&1 | Out-Null } catch { }
 
-# 6b: 杀掉任何还占着 3200 端口的 node (脱钩遗留进程)
-try {
-  $conns = Get-NetTCPConnection -LocalPort 3200 -State Listen -ErrorAction SilentlyContinue
-  foreach ($c in $conns) {
-    Write-Host "  -> 杀掉占用 :3200 的 PID $($c.OwningProcess)" -ForegroundColor Yellow
-    Stop-Process -Id $c.OwningProcess -Force -ErrorAction SilentlyContinue
-  }
-  Start-Sleep -Milliseconds 500
-} catch { }
+# 6b: 杀掉任何还占着 3200 / 3000 端口的 node (脱钩遗留进程)
+# Stop-Process -Force 在 cross-user 场景下会失败 (watcher=user, 老 backend=admin),
+# 改用 taskkill /F 双保险, 它在用户有 SeDebugPrivilege 时能强杀.
+foreach ($targetPort in @(3200, 3000)) {
+  try {
+    $conns = Get-NetTCPConnection -LocalPort $targetPort -State Listen -ErrorAction SilentlyContinue
+    foreach ($c in $conns) {
+      $tpid = $c.OwningProcess
+      Write-Host "  -> 杀掉占用 :$targetPort 的 PID $tpid" -ForegroundColor Yellow
+      Stop-Process -Id $tpid -Force -ErrorAction SilentlyContinue
+      # 兜底: taskkill 在某些 cross-user 场景下成功率更高
+      & taskkill /F /PID $tpid 2>&1 | Out-Null
+    }
+  } catch { }
+}
+Start-Sleep -Milliseconds 800
 
 # 6c: 用 ecosystem 重新起, 读最新 .env
 $ecosystem = Join-Path $projectRoot 'deploy\ecosystem.config.js'

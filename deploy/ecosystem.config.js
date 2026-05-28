@@ -54,13 +54,15 @@ module.exports = {
       // 环境变量 (优先级低于服务器 .env)
       env: {
         NODE_ENV: 'production',
-        PORT: 3000,
+        PORT: 3200,
       },
       env_production: {
+        // 生产用 3200 — frontend bundle 里硬编码了
+        // baseURL=http://192.168.124.11:3200/api (.env.local 覆盖 .env.production
+        // 的 /control/api), PWA 直连此端口, 不能再用 3000.
         NODE_ENV: 'production',
-        PORT: 3000,
+        PORT: 3200,
         // Windows 现场推荐 (在 backend/.env 中覆盖):
-        //   PORT=3000
         //   DB_PATH=D:\\smart-control\\database\\smart-control.db
         //   LOG_DIR=D:\\smart-control\\logs
         //   MOCK_MODE=false      (现场接入真实设备后改)
