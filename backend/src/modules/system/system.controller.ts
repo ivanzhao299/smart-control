@@ -274,7 +274,14 @@ export class SystemController {
       }
       return Array.from(new Set(subs));
     }
-    const subnets = subnetStr ? [subnetStr.replace(/\.\d+$/, '')] : inferSubnets();
+    // 接受 "192.168.50" / "192.168.50.30" / "192.168.50.0/24" 都正确截成 "192.168.50"
+    function normalizeSubnet(s: string): string | null {
+      const m = s.match(/^(\d+)\.(\d+)\.(\d+)/);
+      return m ? `${m[1]}.${m[2]}.${m[3]}` : null;
+    }
+    const subnets = subnetStr
+      ? [normalizeSubnet(subnetStr)].filter((x): x is string => !!x)
+      : inferSubnets();
 
     // UDP 广播 + 收应答
     const found: Array<{ ip: string; raw: string; via: 'udp' | 'tcp' }> = [];
