@@ -301,17 +301,36 @@ try {
         }
       }
 
-      # 探 dali-poke endpoint 存在性 — value=0 + short=1 实际就是关灯, 短地址有效
-      # 用 try-catch + 拿到 status code 来证明 backend 哪个版本的代码在跑
-      $probe.daliPokeProbe = @{}
+      # 真发命令: 短地址 1 调 80%, 看 backend 返回 + 灯应该亮
+      $probe.lightTest = @{}
       try {
-        $dp = Invoke-WebRequest -Uri "http://localhost:$port/api/system/dali-poke?short=99&value=0" `
-          -Method Get -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
-        $probe.daliPokeProbe.status = [int]$dp.StatusCode
-        $probe.daliPokeProbe.body = try { ($dp.Content | ConvertFrom-Json).message } catch { $dp.Content.Substring(0, [Math]::Min(120, $dp.Content.Length)) }
+        $dp = Invoke-RestMethod -Uri "http://localhost:$port/api/system/dali-poke?short=1&value=80" `
+          -Method Get -TimeoutSec 8 -ErrorAction Stop
+        $probe.lightTest.short1 = @{
+          success = $dp.success
+          message = $dp.message
+          data    = $dp.data
+        }
       } catch {
-        $probe.daliPokeProbe.status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { -1 }
-        $probe.daliPokeProbe.err = $_.Exception.GetType().Name
+        $probe.lightTest.short1 = @{
+          err = $_.Exception.Message
+          status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { -1 }
+        }
+      }
+      Start-Sleep -Milliseconds 800
+      try {
+        $dp2 = Invoke-RestMethod -Uri "http://localhost:$port/api/system/dali-poke?short=2&value=80" `
+          -Method Get -TimeoutSec 8 -ErrorAction Stop
+        $probe.lightTest.short2 = @{
+          success = $dp2.success
+          message = $dp2.message
+          data    = $dp2.data
+        }
+      } catch {
+        $probe.lightTest.short2 = @{
+          err = $_.Exception.Message
+          status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { -1 }
+        }
       }
 
       # 同时从外部网卡 IP 探一下, 看跟 localhost 是不是同一个 backend
