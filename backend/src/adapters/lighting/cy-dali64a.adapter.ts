@@ -1,12 +1,15 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
+import { Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { BaseAdapter } from '../base.adapter';
 import { AdapterContext, AdapterResult } from '../adapter.types';
 import { TcpClient } from '../transports/tcp-client';
 import { ModbusRtuClient } from '../transports/modbus-rtu';
 import { AdapterConnectionRegistry } from '../connection-registry';
+import { HardwareUnit } from '../../entities/hardware-unit.entity';
 import { classifyError } from '../errors';
 import type { BrightnessState } from './mock-dali.adapter';
 import {
@@ -80,10 +83,15 @@ export class CyDali64aAdapter extends BaseAdapter {
   };
   private endpoint: string;
 
+  /** DB 配置缓存 — 5s TTL, 避免每次 modbus 都查 */
+  private dbCache: { host?: string; port?: number; at: number } = { at: 0 };
+  private readonly DB_CACHE_TTL_MS = 5000;
+
   constructor(
     config: ConfigService,
     @Inject(WINSTON_MODULE_PROVIDER) logger: Logger,
     private readonly registry: AdapterConnectionRegistry,
+    @Optional() @InjectRepository(HardwareUnit) private readonly hwRepo?: Repository<HardwareUnit>,
   ) {
     super(config, logger);
     this.cfg = {
@@ -233,36 +241,78 @@ export class CyDali64aAdapter extends BaseAdapter {
   }
 
   /**
-   * 每次 modbus 调用前调 — 检测 process.env 现状跟实际 client 的 host/port 是否一致.
-   * 不一致就重建 TcpClient + ModbusRtuClient, 实现 env 改了立即生效, 不需要重启进程.
-   * 这是 "backend 启动后 .env 被 update.ps1 改了, 但 backend 还在用旧 host" 那个 bug 的根治.
+   * 查 DB 里 CONV-RTU-1 那条硬件记录, 提取 ip 和 addressing.port. 5s TTL 缓存.
+   * 返回 null 表示 DB 不可用或没找到 — 调用方应回退到 env.
    */
-  private syncRuntimeHostIfChanged(): void {
-    const envHost = process.env.DALI_RTU_HOST ?? '192.168.50.20';
-    const envPort = Number.parseInt(process.env.DALI_RTU_PORT ?? '502', 10);
-    if (envHost === this.modbusHost && envPort === this.modbusPort) return;
+  private async getConfigFromDb(): Promise<{ host?: string; port?: number } | null> {
+    if (!this.hwRepo) return null;
+    const now = Date.now();
+    if (now - this.dbCache.at < this.DB_CACHE_TTL_MS) {
+      return { host: this.dbCache.host, port: this.dbCache.port };
+    }
+    try {
+      const row = await this.hwRepo.findOne({ where: { code: 'CONV-RTU-1' } });
+      if (!row) {
+        this.dbCache = { at: now };
+        return null;
+      }
+      let port: number | undefined;
+      if (row.addressing) {
+        try {
+          const parsed = JSON.parse(row.addressing) as { port?: number };
+          if (typeof parsed.port === 'number') port = parsed.port;
+        } catch {/* addressing 不是 JSON 也 OK */}
+      }
+      this.dbCache = { host: row.ip ?? undefined, port, at: now };
+      return { host: row.ip ?? undefined, port };
+    } catch (err) {
+      this.logger.warn(`getConfigFromDb 失败: ${(err as Error).message}`, { context: 'CyDali64aAdapter' });
+      this.dbCache = { at: now };
+      return null;
+    }
+  }
+
+  /**
+   * 让后台 / 测试代码能主动清空缓存 (e.g. PUT /api/hardware/:id 成功后).
+   */
+  invalidateConfigCache(): void {
+    this.dbCache = { at: 0 };
+  }
+
+  /**
+   * 每次 modbus 调用前: DB > env > default 三级取 host:port, 跟实际 client 当前 host/port
+   * 比较, 不同就重建 TcpClient + ModbusRtuClient, 实现"后台改 IP 即时生效, 不需要重启".
+   */
+  private async syncRuntime(): Promise<void> {
+    const db = await this.getConfigFromDb();
+    const envHost = process.env.DALI_RTU_HOST;
+    const envPort = process.env.DALI_RTU_PORT ? Number.parseInt(process.env.DALI_RTU_PORT, 10) : undefined;
+    const host = db?.host ?? envHost ?? '192.168.50.20';
+    const port = db?.port ?? envPort ?? 502;
+    if (host === this.modbusHost && port === this.modbusPort) return;
+    const source = db?.host ? 'db' : envHost ? 'env' : 'default';
     this.logger.warn(
-      `CyDali64aAdapter rewiring: ${this.modbusHost}:${this.modbusPort} → ${envHost}:${envPort}`,
+      `CyDali64aAdapter rewiring: ${this.modbusHost}:${this.modbusPort} → ${host}:${port} (source=${source})`,
       { context: 'CyDali64aAdapter' },
     );
     const tcp = new TcpClient({
-      host: envHost,
-      port: envPort,
+      host,
+      port,
       timeoutMs: this.cfg.timeoutMs,
       deviceType: 'lighting',
     });
     this.modbus = new ModbusRtuClient(tcp, this.cfg.defaultSlaveId, this.cfg.frameIntervalMs);
-    this.modbusHost = envHost;
-    this.modbusPort = envPort;
-    this.cfg.host = envHost;
-    this.cfg.port = envPort;
-    this.endpoint = `tcp://${envHost}:${envPort}`;
+    this.modbusHost = host;
+    this.modbusPort = port;
+    this.cfg.host = host;
+    this.cfg.port = port;
+    this.endpoint = `tcp://${host}:${port}`;
     if (!this.isMock()) this.registry.register(GATEWAY_KEY, this.endpoint);
   }
 
   /** Sprint-08 设备健康检查使用; 现在简化为读 1 个寄存器 */
   async ping(ctx?: AdapterContext): Promise<void> {
-    this.syncRuntimeHostIfChanged();
+    await this.syncRuntime();
     try {
       await this.modbus.readHoldingRegisters(
         groupBaseReg(1) + 1,
@@ -349,7 +399,7 @@ export class CyDali64aAdapter extends BaseAdapter {
     qty: number,
     signal?: AbortSignal,
   ): Promise<number[]> {
-    this.syncRuntimeHostIfChanged();
+    await this.syncRuntime();
     try {
       const out = await this.modbus.readHoldingRegisters(address, qty, slaveId, signal);
       this.registry.markOnline(GATEWAY_KEY);
@@ -367,7 +417,7 @@ export class CyDali64aAdapter extends BaseAdapter {
     value: number,
     signal?: AbortSignal,
   ): Promise<void> {
-    this.syncRuntimeHostIfChanged();
+    await this.syncRuntime();
     try {
       await this.modbus.writeSingleRegister(address, value, slaveId, signal);
       this.registry.markOnline(GATEWAY_KEY);
@@ -384,7 +434,7 @@ export class CyDali64aAdapter extends BaseAdapter {
     values: number[],
     signal?: AbortSignal,
   ): Promise<void> {
-    this.syncRuntimeHostIfChanged();
+    await this.syncRuntime();
     try {
       await this.modbus.writeMultipleRegisters(address, values, slaveId, signal);
       this.registry.markOnline(GATEWAY_KEY);

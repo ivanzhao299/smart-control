@@ -1,12 +1,18 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AdaptersModule } from '../../adapters/adapters.module';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
 import { LogsModule } from '../logs/logs.module';
 import { HardwareController } from './hardware.controller';
 import { HardwareService } from './hardware.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([HardwareUnit]), LogsModule],
+  imports: [
+    TypeOrmModule.forFeature([HardwareUnit]),
+    LogsModule,
+    // 让 controller 能 invalidate CyDali64aAdapter 的 DB 缓存
+    AdaptersModule,
+  ],
   controllers: [HardwareController],
   providers: [HardwareService],
   exports: [TypeOrmModule, HardwareService],
