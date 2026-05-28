@@ -230,22 +230,29 @@ try {
   } catch { $procInfo.pm2Status = 'pm2-error' }
 
   # 直接枚举所有 node.exe 进程 — 不依赖 pm2 daemon 是否健康
+  $procInfo.nodeProcs = @()
   try {
-    $procInfo.nodeProcs = @(Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction Stop | ForEach-Object {
-      @{
-        pid = $_.ProcessId
-        owner = (try { ($_.GetOwner()).User } catch { 'unknown' })
-        cmd = if ($_.CommandLine) { $_.CommandLine.Substring(0, [Math]::Min(140, $_.CommandLine.Length)) } else { $null }
+    $allNodes = Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction Stop
+    foreach ($n in $allNodes) {
+      $ownerName = 'unknown'
+      try { $ownerName = $n.GetOwner().User } catch { }
+      $cmdLine = $null
+      if ($n.CommandLine) {
+        $maxLen = [Math]::Min(140, $n.CommandLine.Length)
+        $cmdLine = $n.CommandLine.Substring(0, $maxLen)
       }
-    })
-  } catch { $procInfo.nodeProcs = @{ err = $_.Exception.Message } }
+      $procInfo.nodeProcs += @{ pid = $n.ProcessId; owner = $ownerName; cmd = $cmdLine }
+    }
+  } catch { $procInfo.nodeProcsErr = $_.Exception.Message }
 
   # 看实际谁在监听 :3200 (PID + 状态)
+  $procInfo.port3200 = @()
   try {
-    $procInfo.port3200 = @(Get-NetTCPConnection -LocalPort 3200 -ErrorAction Stop | ForEach-Object {
-      @{ pid = $_.OwningProcess; state = $_.State.ToString(); localAddr = $_.LocalAddress }
-    })
-  } catch { $procInfo.port3200 = @{ err = $_.Exception.Message } }
+    $conns = Get-NetTCPConnection -LocalPort 3200 -ErrorAction Stop
+    foreach ($c in $conns) {
+      $procInfo.port3200 += @{ pid = $c.OwningProcess; state = $c.State.ToString(); localAddr = $c.LocalAddress }
+    }
+  } catch { $procInfo.port3200Err = $_.Exception.Message }
   try {
     $distMain = Join-Path $projectRoot 'backend\dist\main.js'
     if (Test-Path $distMain) {
@@ -308,14 +315,17 @@ try {
       }
 
       # 同时从外部网卡 IP 探一下, 看跟 localhost 是不是同一个 backend
+      $probe.pokeViaExt = @{}
       foreach ($extIp in @('192.168.124.11', '192.168.50.10')) {
+        $st = -1
         try {
           $r = Invoke-WebRequest -Uri "http://${extIp}:$port/api/system/dali-poke?short=99&value=0" `
             -Method Get -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
-          $probe["pokeVia_$extIp"] = [int]$r.StatusCode
+          $st = [int]$r.StatusCode
         } catch {
-          $probe["pokeVia_$extIp"] = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { -1 }
+          if ($_.Exception.Response) { $st = [int]$_.Exception.Response.StatusCode }
         }
+        $probe.pokeViaExt[$extIp] = $st
       }
       $diag = $probe  # 第一个 info 通的端口胜出, 当作 backend 真实地址
       break
