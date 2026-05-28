@@ -14,6 +14,7 @@ let pollTimer: number | undefined;
 
 onMounted(async () => {
   systemStore.startClock();
+  systemStore.startAlertTtlSweep();
   systemStore.bindWsState();
 
   try {
@@ -46,6 +47,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   systemStore.stopClock();
+  systemStore.stopAlertTtlSweep();
   if (pollTimer) window.clearInterval(pollTimer);
   if (unsubscribeWs) unsubscribeWs();
   wsClient.disconnect();
