@@ -228,6 +228,24 @@ try {
       $procInfo.pm2Restarts = [int]$sc.pm2_env.restart_time
     }
   } catch { $procInfo.pm2Status = 'pm2-error' }
+
+  # 直接枚举所有 node.exe 进程 — 不依赖 pm2 daemon 是否健康
+  try {
+    $procInfo.nodeProcs = @(Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction Stop | ForEach-Object {
+      @{
+        pid = $_.ProcessId
+        owner = (try { ($_.GetOwner()).User } catch { 'unknown' })
+        cmd = if ($_.CommandLine) { $_.CommandLine.Substring(0, [Math]::Min(140, $_.CommandLine.Length)) } else { $null }
+      }
+    })
+  } catch { $procInfo.nodeProcs = @{ err = $_.Exception.Message } }
+
+  # 看实际谁在监听 :3200 (PID + 状态)
+  try {
+    $procInfo.port3200 = @(Get-NetTCPConnection -LocalPort 3200 -ErrorAction Stop | ForEach-Object {
+      @{ pid = $_.OwningProcess; state = $_.State.ToString(); localAddr = $_.LocalAddress }
+    })
+  } catch { $procInfo.port3200 = @{ err = $_.Exception.Message } }
   try {
     $distMain = Join-Path $projectRoot 'backend\dist\main.js'
     if (Test-Path $distMain) {
@@ -273,6 +291,30 @@ try {
           failed = $true
           type = $_.Exception.GetType().Name
           status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { $null }
+        }
+      }
+
+      # 探 dali-poke endpoint 存在性 — value=0 + short=1 实际就是关灯, 短地址有效
+      # 用 try-catch + 拿到 status code 来证明 backend 哪个版本的代码在跑
+      $probe.daliPokeProbe = @{}
+      try {
+        $dp = Invoke-WebRequest -Uri "http://localhost:$port/api/system/dali-poke?short=99&value=0" `
+          -Method Get -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
+        $probe.daliPokeProbe.status = [int]$dp.StatusCode
+        $probe.daliPokeProbe.body = try { ($dp.Content | ConvertFrom-Json).message } catch { $dp.Content.Substring(0, [Math]::Min(120, $dp.Content.Length)) }
+      } catch {
+        $probe.daliPokeProbe.status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { -1 }
+        $probe.daliPokeProbe.err = $_.Exception.GetType().Name
+      }
+
+      # 同时从外部网卡 IP 探一下, 看跟 localhost 是不是同一个 backend
+      foreach ($extIp in @('192.168.124.11', '192.168.50.10')) {
+        try {
+          $r = Invoke-WebRequest -Uri "http://${extIp}:$port/api/system/dali-poke?short=99&value=0" `
+            -Method Get -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
+          $probe["pokeVia_$extIp"] = [int]$r.StatusCode
+        } catch {
+          $probe["pokeVia_$extIp"] = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { -1 }
         }
       }
       $diag = $probe  # 第一个 info 通的端口胜出, 当作 backend 真实地址
