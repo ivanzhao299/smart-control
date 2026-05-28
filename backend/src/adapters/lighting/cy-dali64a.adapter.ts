@@ -66,7 +66,9 @@ export class CyDali64aAdapter extends BaseAdapter {
     return 'lighting';
   }
 
-  private readonly modbus: ModbusRtuClient;
+  private modbus: ModbusRtuClient;
+  private modbusHost!: string;
+  private modbusPort!: number;
   private readonly cfg: {
     host: string;
     port: number;
@@ -76,7 +78,7 @@ export class CyDali64aAdapter extends BaseAdapter {
     frameIntervalMs: number;
     defaultFadeSec: number;
   };
-  private readonly endpoint: string;
+  private endpoint: string;
 
   constructor(
     config: ConfigService,
@@ -102,6 +104,9 @@ export class CyDali64aAdapter extends BaseAdapter {
       deviceType: 'lighting',
     });
     this.modbus = new ModbusRtuClient(tcp, this.cfg.defaultSlaveId, this.cfg.frameIntervalMs);
+    // 用来在 modbus 调用前检测 env 是否变化, 变了就重建 TcpClient
+    this.modbusHost = this.cfg.host;
+    this.modbusPort = this.cfg.port;
 
     if (!this.isMock()) this.registry.register(GATEWAY_KEY, this.endpoint);
 
@@ -219,16 +224,45 @@ export class CyDali64aAdapter extends BaseAdapter {
     });
   }
 
-  /** 暴露给诊断 — 看 backend 启动时 cfg.host 是否落到了对的值, 跟 process.env 现状作对比 */
+  /** 暴露给诊断 — 看实际 modbus client 在跑哪个 host */
   getRuntimeHost(): string {
-    return this.cfg.host;
+    return this.modbusHost;
   }
   getRuntimePort(): number {
-    return this.cfg.port;
+    return this.modbusPort;
+  }
+
+  /**
+   * 每次 modbus 调用前调 — 检测 process.env 现状跟实际 client 的 host/port 是否一致.
+   * 不一致就重建 TcpClient + ModbusRtuClient, 实现 env 改了立即生效, 不需要重启进程.
+   * 这是 "backend 启动后 .env 被 update.ps1 改了, 但 backend 还在用旧 host" 那个 bug 的根治.
+   */
+  private syncRuntimeHostIfChanged(): void {
+    const envHost = process.env.DALI_RTU_HOST ?? '192.168.50.20';
+    const envPort = Number.parseInt(process.env.DALI_RTU_PORT ?? '502', 10);
+    if (envHost === this.modbusHost && envPort === this.modbusPort) return;
+    this.logger.warn(
+      `CyDali64aAdapter rewiring: ${this.modbusHost}:${this.modbusPort} → ${envHost}:${envPort}`,
+      { context: 'CyDali64aAdapter' },
+    );
+    const tcp = new TcpClient({
+      host: envHost,
+      port: envPort,
+      timeoutMs: this.cfg.timeoutMs,
+      deviceType: 'lighting',
+    });
+    this.modbus = new ModbusRtuClient(tcp, this.cfg.defaultSlaveId, this.cfg.frameIntervalMs);
+    this.modbusHost = envHost;
+    this.modbusPort = envPort;
+    this.cfg.host = envHost;
+    this.cfg.port = envPort;
+    this.endpoint = `tcp://${envHost}:${envPort}`;
+    if (!this.isMock()) this.registry.register(GATEWAY_KEY, this.endpoint);
   }
 
   /** Sprint-08 设备健康检查使用; 现在简化为读 1 个寄存器 */
   async ping(ctx?: AdapterContext): Promise<void> {
+    this.syncRuntimeHostIfChanged();
     try {
       await this.modbus.readHoldingRegisters(
         groupBaseReg(1) + 1,
@@ -315,6 +349,7 @@ export class CyDali64aAdapter extends BaseAdapter {
     qty: number,
     signal?: AbortSignal,
   ): Promise<number[]> {
+    this.syncRuntimeHostIfChanged();
     try {
       const out = await this.modbus.readHoldingRegisters(address, qty, slaveId, signal);
       this.registry.markOnline(GATEWAY_KEY);
@@ -332,6 +367,7 @@ export class CyDali64aAdapter extends BaseAdapter {
     value: number,
     signal?: AbortSignal,
   ): Promise<void> {
+    this.syncRuntimeHostIfChanged();
     try {
       await this.modbus.writeSingleRegister(address, value, slaveId, signal);
       this.registry.markOnline(GATEWAY_KEY);
@@ -348,6 +384,7 @@ export class CyDali64aAdapter extends BaseAdapter {
     values: number[],
     signal?: AbortSignal,
   ): Promise<void> {
+    this.syncRuntimeHostIfChanged();
     try {
       await this.modbus.writeMultipleRegisters(address, values, slaveId, signal);
       this.registry.markOnline(GATEWAY_KEY);
