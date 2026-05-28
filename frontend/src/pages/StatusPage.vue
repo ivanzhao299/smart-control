@@ -76,6 +76,18 @@ async function probe(): Promise<void> {
   } finally { probing.value = false; }
 }
 
+const clearing = ref(false);
+async function clearFaults(): Promise<void> {
+  clearing.value = true;
+  try {
+    const res = await deviceService.clearGatewayFaults();
+    await deviceStore.fetchGateways();
+    ElMessage.success(res?.message ?? '已清空旧告警');
+  } catch (err) {
+    ElMessage.error(`清空失败: ${(err as Error).message}`);
+  } finally { clearing.value = false; }
+}
+
 const rows = computed(() =>
   deviceStore.devices.map((d) => ({
     ...d,
@@ -109,6 +121,7 @@ function gatewayLabel(name: string): string {
       <h2 class="sc-title">📡 系统状态</h2>
       <div class="sc-subtle">设备在线列表 · 网关连接状态 · 报警 / 中控信息</div>
       <div class="actions">
+        <button class="sc-touch act" :disabled="clearing" @click="clearFaults">{{ clearing ? '清空中…' : '清空旧告警' }}</button>
         <button class="sc-touch act" :disabled="probing" @click="probe">立即探活</button>
         <button class="sc-touch act primary" :disabled="refreshing" @click="refresh">{{ refreshing ? '刷新中…' : '刷新' }}</button>
       </div>

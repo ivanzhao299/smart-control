@@ -16,4 +16,5 @@ export const deviceService = {
   runtimeDevices: () => api.get<DeviceRuntimeSnapshot[]>('/system/runtime/devices'),
   runtimeGateways: () => api.get<GatewayInfo[]>('/system/runtime/gateways'),
   triggerHealthProbe: () => api.post('/system/runtime/health/probe'),
+  clearGatewayFaults: () => api.post<{ message: string }>('/system/runtime/gateways/clear-faults'),
 };

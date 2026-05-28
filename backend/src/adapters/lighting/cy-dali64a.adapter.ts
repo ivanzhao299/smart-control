@@ -307,7 +307,10 @@ export class CyDali64aAdapter extends BaseAdapter {
     this.cfg.host = host;
     this.cfg.port = port;
     this.endpoint = `tcp://${host}:${port}`;
-    if (!this.isMock()) this.registry.register(GATEWAY_KEY, this.endpoint);
+    if (!this.isMock()) {
+      // register 现在是幂等的, 已存在会更新 endpoint + 清旧 lastError
+      this.registry.register(GATEWAY_KEY, this.endpoint);
+    }
   }
 
   /** Sprint-08 设备健康检查使用; 现在简化为读 1 个寄存器 */

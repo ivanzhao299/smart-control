@@ -70,6 +70,18 @@ export class SystemController {
     return { message: '查询成功', data: this.registry.list() };
   }
 
+  /** 清空所有网关的 lastError + 失败计数, 重新探活一次. 后台"清空告警"按钮调. */
+  @Post('runtime/gateways/clear-faults')
+  async clearGatewayFaults() {
+    const cleared = this.registry.clearAllFaults();
+    // 立即重新探活, 把真实状态填回去
+    await this.health.probeAll();
+    return {
+      message: `清空 ${cleared} 个网关的旧告警, 已重新探活`,
+      data: this.registry.list(),
+    };
+  }
+
   @Get('runtime/health')
   healthInfo() {
     return { message: '查询成功', data: this.health.summary() };

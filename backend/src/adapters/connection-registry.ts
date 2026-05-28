@@ -24,7 +24,23 @@ export class AdapterConnectionRegistry {
   ) {}
 
   register(gateway: string, endpoint: string): void {
-    if (this.state.has(gateway)) return;
+    const cur = this.state.get(gateway);
+    if (cur) {
+      // 已注册 — 如果 endpoint 变了 (后台改 IP 触发 adapter rewire), 更新 + 清旧错误
+      if (cur.endpoint !== endpoint) {
+        this.logger.info(
+          `Gateway endpoint updated: ${gateway} ${cur.endpoint} → ${endpoint}, 清旧 lastError`,
+          { context: 'ConnectionRegistry' },
+        );
+        cur.endpoint = endpoint;
+        cur.lastError = undefined;
+        cur.attempts = 0;
+        // 状态保持原值, 等下一次 markOnline / markFailure 决定
+        cur.updatedAt = new Date().toISOString();
+        this.publish(cur);
+      }
+      return;
+    }
     this.state.set(gateway, {
       gateway,
       state: 'offline',
@@ -32,6 +48,24 @@ export class AdapterConnectionRegistry {
       attempts: 0,
       updatedAt: new Date().toISOString(),
     });
+  }
+
+  /** 强制清空所有网关的 lastError + 重置 attempts (后台"清空告警"按钮调). 状态保持. */
+  clearAllFaults(): number {
+    let cleared = 0;
+    for (const info of this.state.values()) {
+      if (info.lastError || info.attempts > 0) {
+        info.lastError = undefined;
+        info.attempts = 0;
+        info.updatedAt = new Date().toISOString();
+        this.publish(info);
+        cleared += 1;
+      }
+    }
+    if (cleared > 0) {
+      this.logger.info(`Cleared lastError on ${cleared} gateways`, { context: 'ConnectionRegistry' });
+    }
+    return cleared;
   }
 
   list(): ConnectionInfo[] {
