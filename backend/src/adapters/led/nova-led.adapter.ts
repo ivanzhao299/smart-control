@@ -137,8 +137,8 @@ export class NovaLedAdapter extends BaseAdapter {
   async ping(ctx?: AdapterContext): Promise<void> {
     try {
       const frame = frameReadDeviceId();
-      // VX1000 ReadDeviceID 响应大约 22 字节
-      await this.tcp.sendAndExpect(frame, 22, ctx?.signal);
+      // ReadDeviceID 响应 VX1000=22 字节 / V2460=20 字节, 用宽松模式收到 ≥4 就算 OK
+      await this.tcp.sendAndExpect(frame, 64, ctx?.signal, { minBytes: 4 });
       this.registry.markOnline(GATEWAY_KEY);
     } catch (err) {
       const dErr = classifyError('led', err);
@@ -314,18 +314,19 @@ export class NovaLedAdapter extends BaseAdapter {
 
   // ============ 内部工具 ============
 
-  /** 发送一帧给 VX1000, 验证响应; 失败计入 registry */
+  /** 发送一帧给 V/VX 系列, 验证响应; 失败计入 registry */
   private async sendVx(frame: Buffer, signal?: AbortSignal): Promise<Buffer> {
     try {
-      // VX1000 响应一般在 20-200 字节之间, 设 256 上限读到 timeout 即可
-      const resp = await this.tcp.sendAndExpect(frame, 22, signal);
+      // 不同型号响应长度不同 (VX1000 ReadDeviceID 22 字节, V2460 20 字节, 亮度/显示模式
+      // 命令 17-21 字节不等), 用 minBytes=4 容忍提前 EOF, 只要响应头 + 校验和能凑齐就算成功.
+      const resp = await this.tcp.sendAndExpect(frame, 64, signal, { minBytes: 4 });
       const verify = verifyResponse(resp);
       if (!verify.ok) {
-        this.logger.warn(`VX1000 响应校验失败: ${verify.error}`, { context: 'NovaLedAdapter' });
-        // 校验失败不直接抛, 因为 VX1000 某些命令响应长度不固定;
-        // 若响应头是 AA 55 就认为接收到了, 协议层面 OK
+        this.logger.warn(`Nova V/VX 响应校验失败: ${verify.error}`, { context: 'NovaLedAdapter' });
+        // 校验失败不直接抛, 因为不同型号响应字节有差异;
+        // 只要响应头是 AA 55 就认为通了, 上层逻辑 OK
         if (resp.length < 2 || resp[0] !== 0xaa || resp[1] !== 0x55) {
-          throw new DeviceProtocolError('led', `bad VX1000 response: ${resp.toString('hex')}`);
+          throw new DeviceProtocolError('led', `bad Nova response: ${resp.toString('hex')}`);
         }
       }
       this.registry.markOnline(GATEWAY_KEY);

@@ -34,12 +34,13 @@ export class TcpClient {
     payload: Buffer | string,
     expectBytes: number,
     signal?: AbortSignal,
+    opts: { minBytes?: number } = {},
   ): Promise<Buffer> {
     const timeoutMs = this.opts.timeoutMs ?? 3000;
     const sock = await this.connectOnce(timeoutMs, signal);
     try {
       await this.writeAsync(sock, payload);
-      return await this.readBytes(sock, expectBytes, timeoutMs, signal);
+      return await this.readBytes(sock, expectBytes, timeoutMs, signal, opts.minBytes);
     } finally {
       sock.destroy();
     }
@@ -116,7 +117,12 @@ export class TcpClient {
     expectBytes: number,
     timeoutMs: number,
     signal?: AbortSignal,
+    minBytes?: number,
   ): Promise<Buffer> {
+    // minBytes: 接受 "对端关连接 + 已收到 ≥ minBytes" 为成功 (返回实际拿到的内容).
+    // 用于响应长度不固定的协议 (如 NovaStar V/VX 系列, 同一命令在不同型号上响应长度
+    // 差几字节). 默认 minBytes = expectBytes (严格模式).
+    const minOk = Math.max(0, minBytes ?? expectBytes);
     return new Promise<Buffer>((resolve, reject) => {
       const chunks: Buffer[] = [];
       let received = 0;
@@ -128,10 +134,15 @@ export class TcpClient {
         sock.removeAllListeners('data');
         sock.removeAllListeners('error');
         sock.removeAllListeners('end');
+        // 超时时如果已经收到 ≥ minBytes 也算成功 (有些设备一直保持连接)
+        if (received >= minOk && minOk < expectBytes) {
+          resolve(Buffer.concat(chunks));
+          return;
+        }
         reject(
           new DeviceTimeoutError(
             this.opts.deviceType,
-            `tcp read timed out after ${timeoutMs}ms (expect ${expectBytes} bytes)`,
+            `tcp read timed out after ${timeoutMs}ms (expect ${expectBytes} bytes, got ${received})`,
           ),
         );
       }, timeoutMs);
@@ -168,6 +179,11 @@ export class TcpClient {
         settled = true;
         clearTimeout(timer);
         if (signal) signal.removeEventListener('abort', onAbort);
+        // 对端关连接前已经收到 ≥ minBytes: 视为完整响应 (设备的响应比我们预期短)
+        if (received >= minOk && minOk < expectBytes) {
+          resolve(Buffer.concat(chunks));
+          return;
+        }
         reject(
           new DeviceConnectionError(
             this.opts.deviceType,
