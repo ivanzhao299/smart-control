@@ -104,31 +104,109 @@ const form = reactive<HardwareCreatePayload & { id?: number }>({
   installedAt: '',
 });
 
+// 结构化的"寻址"字段, 替代裸 JSON. 提交前序列化回 form.addressing.
+interface AddressingFields {
+  slaveId?: number;        // Modbus 从机地址 1-247
+  baud?: number;           // 波特率
+  frameIntervalMs?: number;
+  port?: number;           // TCP 端口
+  daliStart?: number;      // 多通道驱动器起始短地址
+  daliCount?: number;      // 占用短地址数
+}
+const addressingFields = reactive<AddressingFields>({});
+const BAUD_OPTIONS = [4800, 9600, 19200, 38400, 57600, 115200];
+
+// 结构化的"通道"字段, 数组形式
+interface ChannelRow {
+  ch?: number;
+  daliShort?: number;
+  daliGroup?: number;
+  label?: string;
+  powerW?: number;
+}
+const channelsArr = reactive<ChannelRow[]>([]);
+
+function parseAddressing(json: string | null | undefined): AddressingFields {
+  if (!json) return {};
+  try {
+    const o = JSON.parse(json);
+    return {
+      slaveId: typeof o.slaveId === 'number' ? o.slaveId : undefined,
+      baud: typeof o.baud === 'number' ? o.baud : undefined,
+      frameIntervalMs: typeof o.frameIntervalMs === 'number' ? o.frameIntervalMs : undefined,
+      port: typeof o.port === 'number' ? o.port : undefined,
+      daliStart: typeof o.daliStart === 'number' ? o.daliStart : undefined,
+      daliCount: typeof o.daliCount === 'number' ? o.daliCount : undefined,
+    };
+  } catch { return {}; }
+}
+function serializeAddressing(f: AddressingFields): string | undefined {
+  const o: Record<string, number> = {};
+  if (f.slaveId != null) o.slaveId = f.slaveId;
+  if (f.baud != null) o.baud = f.baud;
+  if (f.frameIntervalMs != null) o.frameIntervalMs = f.frameIntervalMs;
+  if (f.port != null) o.port = f.port;
+  if (f.daliStart != null) o.daliStart = f.daliStart;
+  if (f.daliCount != null) o.daliCount = f.daliCount;
+  return Object.keys(o).length === 0 ? undefined : JSON.stringify(o);
+}
+
+function parseChannels(json: string | null | undefined): ChannelRow[] {
+  if (!json) return [];
+  try {
+    const arr = JSON.parse(json);
+    if (!Array.isArray(arr)) return [];
+    return arr.map((r: Record<string, unknown>) => ({
+      ch: typeof r.ch === 'number' ? r.ch : undefined,
+      daliShort: typeof r.daliShort === 'number' ? r.daliShort : undefined,
+      daliGroup: typeof r.daliGroup === 'number' ? r.daliGroup : undefined,
+      label: typeof r.label === 'string' ? r.label : undefined,
+      powerW: typeof r.powerW === 'number' ? r.powerW : undefined,
+    }));
+  } catch { return []; }
+}
+function serializeChannels(rows: ChannelRow[]): string | undefined {
+  const clean = rows
+    .filter((r) => r.ch != null || r.daliShort != null || r.daliGroup != null || r.label || r.powerW != null)
+    .map((r) => {
+      const o: Record<string, unknown> = {};
+      if (r.ch != null) o.ch = r.ch;
+      if (r.daliShort != null) o.daliShort = r.daliShort;
+      if (r.daliGroup != null) o.daliGroup = r.daliGroup;
+      if (r.label) o.label = r.label;
+      if (r.powerW != null) o.powerW = r.powerW;
+      return o;
+    });
+  return clean.length === 0 ? undefined : JSON.stringify(clean);
+}
+
+function addChannelRow(): void {
+  const nextCh = channelsArr.length === 0 ? 1 : Math.max(...channelsArr.map((r) => r.ch ?? 0)) + 1;
+  channelsArr.push({ ch: nextCh });
+}
+function removeChannelRow(idx: number): void {
+  channelsArr.splice(idx, 1);
+}
+
 const rules: FormRules = {
   code: [{ required: true, message: '编号不能为空', trigger: 'blur' }],
   name: [{ required: true, message: '名称不能为空', trigger: 'blur' }],
   category: [{ required: true, message: '必选类别', trigger: 'change' }],
   vendor: [{ required: true, message: '厂商必填', trigger: 'blur' }],
   model: [{ required: true, message: '型号必填', trigger: 'blur' }],
-  addressing: [
-    {
-      validator: (_r, v, cb) => {
-        if (!v) return cb();
-        try { JSON.parse(v); cb(); } catch { cb(new Error('addressing 必须是合法 JSON')); }
-      },
-      trigger: 'blur',
-    },
-  ],
-  channels: [
-    {
-      validator: (_r, v, cb) => {
-        if (!v) return cb();
-        try { JSON.parse(v); cb(); } catch { cb(new Error('channels 必须是合法 JSON')); }
-      },
-      trigger: 'blur',
-    },
-  ],
 };
+
+function syncStructuredFromForm(): void {
+  // 把 form.addressing / form.channels (JSON) 同步到结构化 state
+  const a = parseAddressing(form.addressing);
+  addressingFields.slaveId = a.slaveId;
+  addressingFields.baud = a.baud;
+  addressingFields.frameIntervalMs = a.frameIntervalMs;
+  addressingFields.port = a.port;
+  addressingFields.daliStart = a.daliStart;
+  addressingFields.daliCount = a.daliCount;
+  channelsArr.splice(0, channelsArr.length, ...parseChannels(form.channels));
+}
 
 function openCreate(): void {
   if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
@@ -138,6 +216,7 @@ function openCreate(): void {
     serialNo: '', firmwareVersion: '', location: '', floor: '', ip: '', macAddress: '',
     addressing: '', channels: '', status: 'normal', enabled: true, remark: '', installedAt: '',
   });
+  syncStructuredFromForm();
   dialogVisible.value = true;
 }
 
@@ -155,6 +234,7 @@ function openEdit(row: HardwareUnit): void {
     status: row.status, enabled: row.enabled,
     remark: row.remark ?? '', installedAt: row.installedAt ?? '',
   });
+  syncStructuredFromForm();
   dialogVisible.value = true;
 }
 
@@ -163,6 +243,9 @@ async function submit(): Promise<void> {
   await formRef.value.validate(async (valid) => {
     if (!valid) return;
     try {
+      // 提交前把结构化 state 序列化回 JSON
+      const addressingJson = serializeAddressing(addressingFields);
+      const channelsJson = serializeChannels(channelsArr);
       const payload: HardwareCreatePayload = {
         code: form.code, name: form.name, category: form.category,
         vendor: form.vendor, model: form.model,
@@ -172,8 +255,8 @@ async function submit(): Promise<void> {
         floor: form.floor || undefined,
         ip: form.ip || undefined,
         macAddress: form.macAddress || undefined,
-        addressing: form.addressing || undefined,
-        channels: form.channels || undefined,
+        addressing: addressingJson,
+        channels: channelsJson,
         status: form.status, enabled: form.enabled,
         remark: form.remark || undefined,
         installedAt: form.installedAt || undefined,
@@ -210,6 +293,18 @@ async function remove(row: HardwareUnit): Promise<void> {
 function prettyJson(s: string | null): string {
   if (!s) return '—';
   try { return JSON.stringify(JSON.parse(s), null, 2); } catch { return s; }
+}
+
+function formatAddressing(s: string | null): string {
+  if (!s) return '';
+  const a = parseAddressing(s);
+  const parts: string[] = [];
+  if (a.slaveId != null) parts.push(`从机=${a.slaveId}`);
+  if (a.baud != null) parts.push(`${a.baud}bps`);
+  if (a.port != null) parts.push(`端口=${a.port}`);
+  if (a.frameIntervalMs != null) parts.push(`帧${a.frameIntervalMs}ms`);
+  if (a.daliStart != null && a.daliCount != null) parts.push(`DALI ${a.daliStart}-${a.daliStart + a.daliCount - 1}`);
+  return parts.length > 0 ? parts.join(' · ') : s;
 }
 
 function channelCount(s: string | null): number {
@@ -330,7 +425,7 @@ onMounted(refresh);
       <el-table-column label="寻址 / 通道" min-width="220">
         <template #default="{ row }">
           <div v-if="row.addressing" class="addr-cell" :title="prettyJson(row.addressing)">
-            {{ row.addressing }}
+            {{ formatAddressing(row.addressing) }}
           </div>
           <div v-if="row.channels" class="sub">{{ channelCount(row.channels) }} 通道</div>
         </template>
@@ -410,20 +505,70 @@ onMounted(refresh);
             <el-input v-model="form.macAddress" />
           </el-form-item>
         </div>
-        <el-form-item label="寻址 (JSON)" prop="addressing">
-          <el-input
-            v-model="form.addressing"
-            type="textarea" :rows="2"
-            placeholder='{"slaveId":1,"baud":9600} 或 {"daliStart":1,"daliCount":4}'
-          />
-        </el-form-item>
-        <el-form-item label="通道 (JSON)" prop="channels">
-          <el-input
-            v-model="form.channels"
-            type="textarea" :rows="4"
-            placeholder='[{"ch":1,"daliShort":1,"label":"前厅灯带","powerW":300,"daliGroup":1}]'
-          />
-        </el-form-item>
+        <el-divider content-position="left">寻址参数 <span class="muted">(只填用得到的, 其它留空)</span></el-divider>
+        <div class="form-row">
+          <el-form-item label="Modbus 从机地址" style="flex:1;">
+            <el-input-number v-model="addressingFields.slaveId" :min="1" :max="247" placeholder="1" controls-position="right" style="width:100%" />
+          </el-form-item>
+          <el-form-item label="TCP 端口" style="flex:1;">
+            <el-input-number v-model="addressingFields.port" :min="1" :max="65535" placeholder="502" controls-position="right" style="width:100%" />
+          </el-form-item>
+        </div>
+        <div class="form-row">
+          <el-form-item label="串口波特率" style="flex:1;">
+            <el-select v-model="addressingFields.baud" placeholder="选择" clearable style="width:100%">
+              <el-option v-for="b in BAUD_OPTIONS" :key="b" :value="b" :label="String(b)" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="帧间隔 (ms)" style="flex:1;">
+            <el-input-number v-model="addressingFields.frameIntervalMs" :min="50" :max="2000" placeholder="200" controls-position="right" style="width:100%" />
+          </el-form-item>
+        </div>
+        <div class="form-row">
+          <el-form-item label="DALI 起始短地址" style="flex:1;">
+            <el-input-number v-model="addressingFields.daliStart" :min="1" :max="64" placeholder="多通道驱动器用" controls-position="right" style="width:100%" />
+          </el-form-item>
+          <el-form-item label="占用短地址数" style="flex:1;">
+            <el-input-number v-model="addressingFields.daliCount" :min="1" :max="64" placeholder="多通道驱动器用" controls-position="right" style="width:100%" />
+          </el-form-item>
+        </div>
+
+        <el-divider content-position="left">通道清单 <span class="muted">(多通道驱动器 / 多回路控制器用, 没有就留空)</span></el-divider>
+        <div class="channels-editor">
+          <el-table :data="channelsArr" size="small" style="width:100%;">
+            <el-table-column label="通道 #" width="80">
+              <template #default="{ row }">
+                <el-input-number v-model="row.ch" :min="1" :max="64" controls-position="right" size="small" style="width:100%" />
+              </template>
+            </el-table-column>
+            <el-table-column label="DALI 短地址" width="120">
+              <template #default="{ row }">
+                <el-input-number v-model="row.daliShort" :min="1" :max="64" controls-position="right" size="small" style="width:100%" />
+              </template>
+            </el-table-column>
+            <el-table-column label="DALI 组" width="100">
+              <template #default="{ row }">
+                <el-input-number v-model="row.daliGroup" :min="1" :max="16" controls-position="right" size="small" style="width:100%" />
+              </template>
+            </el-table-column>
+            <el-table-column label="名称">
+              <template #default="{ row }">
+                <el-input v-model="row.label" size="small" placeholder="前厅灯带 / 重点照明 ..." />
+              </template>
+            </el-table-column>
+            <el-table-column label="功率 (W)" width="100">
+              <template #default="{ row }">
+                <el-input-number v-model="row.powerW" :min="0" :max="10000" controls-position="right" size="small" style="width:100%" />
+              </template>
+            </el-table-column>
+            <el-table-column label="" width="70">
+              <template #default="{ $index }">
+                <el-button size="small" type="danger" text @click="removeChannelRow($index)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-button class="add-ch-btn" size="small" plain @click="addChannelRow">+ 新增通道</el-button>
+        </div>
         <div class="form-row">
           <el-form-item label="状态" style="flex:1;">
             <el-select v-model="form.status" style="width:100%;">
@@ -573,6 +718,10 @@ onMounted(refresh);
 .row-btn-danger:hover { color: #f87171; border-color: rgba(239, 68, 68, 0.5); }
 
 .form-row { display: flex; gap: 12px; }
+
+.muted { color: var(--text-secondary); font-weight: 400; font-size: 12px; margin-left: 6px; }
+.channels-editor { margin-bottom: 16px; }
+.add-ch-btn { margin-top: 8px; width: 100%; }
 
 @media (max-width: 1280px) {
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
