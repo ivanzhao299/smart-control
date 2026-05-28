@@ -145,6 +145,28 @@ export class EkxDspAdapter extends BaseAdapter {
     this.dbCache = { at: 0 };
   }
 
+  /** P2 — 给 DriverRegistryService 注册用 */
+  static describe(): import('../driver-descriptor').DriverDescriptor {
+    return {
+      kind: 'ekx-808',
+      displayName: '得胜 TAKSTAR EKX-808 (8×8 数字矩阵 DSP)',
+      vendor: '得胜 TAKSTAR',
+      category: 'audio-dsp',
+      protocol: 'takstar-ekx-tcp',
+      capabilities: [
+        'set_volume', 'mute', 'recall_scene', 'read_current_scene',
+        'set_matrix', 'aux_switch', 'read_level', 'health_check',
+      ],
+      defaultAddressing: { devAddr: 1, tcpPort: 5000, inputs: 8, outputs: 8 },
+      paramSchema: {
+        ip:      { type: 'string', label: 'DSP IP', required: true, placeholder: '192.168.x.x' },
+        tcpPort: { type: 'number', label: 'TCP 端口', default: 5000, min: 1, max: 65535 },
+        devAddr: { type: 'number', label: '设备地址', default: 1, min: 1, max: 254 },
+      },
+      remark: '8 输入 8 输出数字音频矩阵 + DSP, 支持用户预设 U01-U12, AEC/NR/摄像跟踪/自动混音开关.',
+    };
+  }
+
   /** 每次 TCP 调用前: DB > env > default 三级取 host:port, 不同就重建 TcpClient. */
   private async syncRuntime(): Promise<void> {
     const db = await this.getConfigFromDb();

@@ -240,6 +240,30 @@ export class CyDali64aAdapter extends BaseAdapter {
     return this.modbusPort;
   }
 
+  /** P2 — 给 DriverRegistryService 注册用 */
+  static describe(): import('../driver-descriptor').DriverDescriptor {
+    return {
+      kind: 'cy-dali64a',
+      displayName: '元创智控 CY-DALI64A (DALI 网关)',
+      vendor: '元创智控',
+      category: 'dali-gateway',
+      protocol: 'modbus-rtu-over-tcp',
+      capabilities: [
+        'turn_on', 'turn_off', 'set_brightness', 'set_color_temp',
+        'recall_scene', 'get_status', 'set_zone_brightness', 'health_check',
+      ],
+      defaultAddressing: { slaveId: 1, port: 502, frameIntervalMs: 200, daliStart: 1, daliCount: 64 },
+      paramSchema: {
+        ip:               { type: 'string', label: 'RTU↔TCP 转换器 IP', required: true, placeholder: '192.168.x.x' },
+        port:             { type: 'number', label: 'TCP 端口', default: 502, min: 1, max: 65535 },
+        slaveId:          { type: 'number', label: 'Modbus 从机号', default: 1, min: 1, max: 247 },
+        frameIntervalMs:  { type: 'number', label: '帧间隔 (ms)', default: 200, min: 50, max: 2000 },
+        defaultFadeSec:   { type: 'number', label: '默认渐变秒数', default: 0.7, min: 0, max: 90 },
+      },
+      remark: 'DALI 2.0 总线网关, 64 个短地址, 16 个 group, 16 个 scene. 走 Modbus RTU 帧, 通过 USR-TCP232 转 TCP 接入.',
+    };
+  }
+
   /**
    * 查 DB 里 CONV-RTU-1 那条硬件记录, 提取 ip 和 addressing.port. 5s TTL 缓存.
    * 返回 null 表示 DB 不可用或没找到 — 调用方应回退到 env.

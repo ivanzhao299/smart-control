@@ -106,6 +106,28 @@ export class ModbusHvacAdapter extends BaseAdapter {
     this.clients.clear();
   }
 
+  /** P2 — 给 DriverRegistryService 注册用 */
+  static describe(): import('../driver-descriptor').DriverDescriptor {
+    return {
+      kind: 'zhonghong-mbt',
+      displayName: '中弘 ZHONGHONG B 集控网关 (TCP / VRF 空调)',
+      vendor: '中弘 ZHONGHONG',
+      category: 'hvac-gateway',
+      protocol: 'modbus-tcp',
+      capabilities: [
+        'turn_on', 'turn_off', 'set_temperature', 'set_mode', 'set_fan_speed', 'get_status', 'health_check',
+      ],
+      defaultAddressing: { slaveId: 1, port: 502, maxIndoor: 64, protocol: 'MODBUS-TCP (MBT v3.2)' },
+      paramSchema: {
+        ip:        { type: 'string', label: '网关 IP', required: true, placeholder: '192.168.x.x' },
+        port:      { type: 'number', label: 'TCP 端口', default: 502, min: 1, max: 65535 },
+        slaveId:   { type: 'number', label: 'Modbus 从机号', default: 1, min: 1, max: 247 },
+        maxIndoor: { type: 'number', label: '最大内机数', default: 64, min: 1, max: 64 },
+      },
+      remark: '一台网关挂 1-64 台 VRF 内机, 走 Modbus TCP. 跟商用奥克斯/大金/美的等品牌 VRF 主机配对.',
+    };
+  }
+
   /** 拿到 deviceId 对应内机的网关客户端 + 网关 key */
   private resolve(deviceId: string): { addr: IndoorAddress; modbus: ModbusTcpClient; key: string } {
     const addr = parseIndoorAddress(deviceId);

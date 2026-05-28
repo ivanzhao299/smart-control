@@ -25,6 +25,7 @@ import { TestCenterModule } from './modules/test-center/test-center.module';
 import { UatModule } from './modules/uat/uat.module';
 import { HardwareModule } from './modules/hardware/hardware.module';
 import { MediaModule } from './modules/media/media.module';
+import { DriversModule } from './modules/drivers/drivers.module';
 import { AdaptersModule } from './adapters/adapters.module';
 import { ServicesModule } from './services/services.module';
 
@@ -57,6 +58,7 @@ import { ServicesModule } from './services/services.module';
     UatModule,
     HardwareModule,
     MediaModule,
+    DriversModule,
     WebsocketModule,
   ],
   providers: [

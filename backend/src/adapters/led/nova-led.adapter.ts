@@ -183,6 +183,32 @@ export class NovaLedAdapter extends BaseAdapter {
     this.dbCache = { at: 0 };
   }
 
+  /** P2 — 给 DriverRegistryService 注册用 */
+  static describe(): import('../driver-descriptor').DriverDescriptor {
+    return {
+      kind: 'nova-vx',
+      displayName: '诺瓦 NovaStar V/VX 系列 (LED 视频控制器)',
+      vendor: '诺瓦 NovaStar',
+      category: 'led-controller',
+      protocol: 'nova-vx-tcp',
+      capabilities: [
+        'power_on', 'power_off', 'switch_input', 'set_brightness',
+        'load_preset', 'play_media', 'show_welcome', 'get_status', 'health_check',
+      ],
+      defaultAddressing: { box: '1', port: 5200 },
+      paramSchema: {
+        ip:                   { type: 'string', label: '控制器 IP', required: true, placeholder: '192.168.x.x' },
+        port:                 { type: 'number', label: 'TCP 端口', default: 5200, min: 1, max: 65535 },
+        resolutionWidth:      { type: 'number', label: '全屏图层宽 (px)', default: 1920 },
+        resolutionHeight:     { type: 'number', label: '全屏图层高 (px)', default: 1080 },
+        presetWelcome:        { type: 'number', label: '欢迎页预设号', default: 1, min: 1, max: 10 },
+        presetVideo:          { type: 'number', label: '视频预设号', default: 2, min: 1, max: 10 },
+        defaultBrightnessPct: { type: 'number', label: '开屏默认亮度 %', default: 80, min: 0, max: 100 },
+      },
+      remark: '兼容 V700/V760/V900/V960/V1060/V1260/V2460 + VX400/VX1000/VX1000 Pro/VX600 Pro/VX2000 Pro. TCP 5200, 帧头 0x55 0xAA, 校验和 = sum(body)+0x5555.',
+    };
+  }
+
   /**
    * 每次 TCP 调用前: DB > env > default 三级取 host:port, 跟实际 TcpClient 当前 host/port
    * 比较, 不同就重建 TcpClient + re-register registry endpoint.

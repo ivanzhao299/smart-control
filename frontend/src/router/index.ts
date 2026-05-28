@@ -34,6 +34,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'uat', name: 'admin-uat', component: () => import('@/pages/admin/UatAdmin.vue') },
       { path: 'logs', name: 'admin-logs', component: () => import('@/pages/admin/LogsAdmin.vue') },
       { path: 'hardware', name: 'admin-hardware', component: () => import('@/pages/admin/HardwareAdmin.vue') },
+      { path: 'drivers', name: 'admin-drivers', component: () => import('@/pages/admin/DriversAdmin.vue') },
       { path: 'users', name: 'admin-users', component: () => import('@/pages/admin/UsersAdmin.vue') },
       { path: 'settings', name: 'admin-settings', component: () => import('@/pages/admin/SettingsAdmin.vue') },
     ],
