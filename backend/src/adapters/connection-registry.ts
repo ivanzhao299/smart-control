@@ -106,19 +106,24 @@ export class AdapterConnectionRegistry {
         { context: 'ConnectionRegistry' },
       );
       this.publish(cur);
-      this.bus.publish({
-        type: 'alarm',
-        source: gateway,
-        level: 'warning',
-        message: `${gateway} ${cur.state}: ${error}`,
-        at: new Date().toISOString(),
-      });
+      // 只在从 online 掉下来时推顶部 alarm — 持久离线设备 (从没上线过 / 一直
+      // 在 offline ↔ reconnecting 之间打转) 不再刷红条, 状态栏里看就行
+      if (prev === 'online') {
+        this.bus.publish({
+          type: 'alarm',
+          source: gateway,
+          level: 'warning',
+          message: `${gateway} ${cur.state}: ${error}`,
+          at: new Date().toISOString(),
+        });
+      }
     }
   }
 
   markError(gateway: string, error: string): void {
     const cur = this.state.get(gateway);
     if (!cur) return;
+    const prev = cur.state;
     cur.state = 'error';
     cur.lastError = error;
     cur.updatedAt = new Date().toISOString();
@@ -126,13 +131,16 @@ export class AdapterConnectionRegistry {
       context: 'ConnectionRegistry',
     });
     this.publish(cur);
-    this.bus.publish({
-      type: 'alarm',
-      source: gateway,
-      level: 'error',
-      message: `${gateway} error: ${error}`,
-      at: new Date().toISOString(),
-    });
+    // 同 markFailure: 只在第一次从 online 掉到 error 时推顶部 alarm
+    if (prev === 'online') {
+      this.bus.publish({
+        type: 'alarm',
+        source: gateway,
+        level: 'error',
+        message: `${gateway} error: ${error}`,
+        at: new Date().toISOString(),
+      });
+    }
   }
 
   private publish(info: ConnectionInfo): void {

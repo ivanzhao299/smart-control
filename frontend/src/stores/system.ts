@@ -33,7 +33,9 @@ export const useSystemStore = defineStore('system', () => {
 
   function pushAlert(item: Omit<AlertItem, 'id'>): void {
     const id = `${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
-    alerts.value = [{ id, ...item }, ...alerts.value].slice(0, MAX_ALERTS);
+    // 同一 source 只保留最新一条, 避免一个掉线设备刷成几十条同样的红条
+    const deduped = alerts.value.filter((a) => a.source !== item.source);
+    alerts.value = [{ id, ...item }, ...deduped].slice(0, MAX_ALERTS);
   }
 
   function clearAlerts(): void {
