@@ -187,13 +187,13 @@ function goTo(name: string): void {
 
 <style scoped>
 .v2-dash {
-  height: 100%;
-  padding: var(--v2-sp-5);
+  min-height: 100%;
+  padding: var(--v2-sp-4) var(--v2-sp-5);
   display: grid;
   grid-template-rows: auto 1fr auto;
-  gap: var(--v2-sp-4);
-  min-height: 0;
-  overflow: hidden;
+  gap: var(--v2-sp-3);
+  /* 优先按 iPad 1180×820 不滚装下; 窗口过窄/过矮时允许纵向滚, 不再让子系统盖住场景 */
+  overflow-y: auto;
 }
 
 /* ============ KPI 行 ============ */
@@ -203,7 +203,7 @@ function goTo(name: string): void {
   gap: var(--v2-sp-3);
 }
 .v2-kpi {
-  padding: var(--v2-sp-3) var(--v2-sp-4);
+  padding: 10px 14px;
   background: var(--v2-surf-1);
   border: 1px solid var(--v2-border-soft);
   border-radius: var(--v2-r-md);
@@ -212,9 +212,10 @@ function goTo(name: string): void {
   gap: var(--v2-sp-3);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+  min-width: 0;
 }
 .v2-kpi-ico {
-  width: 36px; height: 36px;
+  width: 32px; height: 32px;
   border-radius: var(--v2-r-sm);
   display: grid; place-items: center;
   background: var(--v2-primary-soft);
@@ -277,7 +278,7 @@ function goTo(name: string): void {
 
 .v2-scene {
   position: relative;
-  padding: var(--v2-sp-4);
+  padding: var(--v2-sp-3) var(--v2-sp-4);
   background: var(--v2-surf-1);
   border: 1px solid var(--v2-border-soft);
   border-radius: var(--v2-r-lg);
@@ -291,7 +292,7 @@ function goTo(name: string): void {
   -webkit-backdrop-filter: blur(10px);
   text-align: left;
   color: var(--v2-text-1);
-  min-height: 130px;
+  min-height: 105px;
 }
 .v2-scene::before {
   content: '';
@@ -350,9 +351,9 @@ function goTo(name: string): void {
 }
 .v2-scene.active .v2-scene-code { color: rgba(255, 255, 255, 0.65); }
 .v2-scene-name {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 600;
-  margin-top: var(--v2-sp-4);
+  margin-top: var(--v2-sp-3);
   letter-spacing: 0.5px;
 }
 .v2-scene-desc {
@@ -476,11 +477,28 @@ function goTo(name: string): void {
 .v2-sub[data-kind="hvac"]   { --sub-fg: #60a5fa; --sub-bg: rgba(96, 165, 250, 0.12); }
 .v2-sub[data-kind="power"]  { --sub-fg: #c084fc; --sub-bg: rgba(192, 132, 252, 0.12); }
 
-/* ============ 窄屏 ============ */
-@media (max-width: 1024px) {
+/* ============ 中宽屏 (≤960): 子系统行能横向滚, 保持单行不换 ============ */
+@media (max-width: 960px) {
   .v2-dash { padding: var(--v2-sp-3); }
+  .v2-subsystems {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .v2-sub { flex-shrink: 0; min-width: 130px; }
+}
+
+/* ============ 窄屏 (≤720, 手机/小窗): KPI 2×2, 场景 2×3 ============ */
+@media (max-width: 720px) {
   .v2-kpi-row { grid-template-columns: repeat(2, 1fr); }
-  .v2-scene-grid { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(3, 1fr); }
-  .v2-subsystems { grid-template-columns: auto repeat(2, 1fr); grid-auto-flow: row; }
+  .v2-scene-grid {
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+  }
+  .v2-subsystems {
+    grid-template-columns: auto repeat(2, 1fr);
+    grid-auto-flow: row;
+    overflow-x: visible;
+  }
+  .v2-sub { min-width: 0; }
 }
 </style>
