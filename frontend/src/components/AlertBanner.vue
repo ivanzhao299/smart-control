@@ -113,22 +113,21 @@ function gotoAlerts(): void {
 </template>
 
 <style scoped>
-/* v2 玻璃风格: 半透明背景 + 暖色描边 + 内阴影 */
+/* v2 内联玻璃条 - 嵌在 56px header 中, 没告警不渲染 */
 .alert-banner {
   position: relative;
   display: flex;
   align-items: center;
-  gap: var(--v2-sp-3);
-  padding: 10px 18px;
-  margin: var(--v2-sp-3) var(--v2-sp-5) 0;
-  border-radius: var(--v2-r-md);
+  gap: var(--v2-sp-2);
+  padding: 5px 10px 5px 6px;
+  border-radius: var(--v2-r-sm);
   font-weight: 500;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   background: rgba(239, 68, 68, 0.12);
   border: 1px solid rgba(239, 68, 68, 0.3);
   color: var(--v2-text-1);
-  box-shadow: 0 8px 24px -10px rgba(239, 68, 68, 0.4);
+  overflow: hidden;
+  height: 34px;
+  box-sizing: border-box;
 }
 .alert-banner.is-error {
   background: rgba(239, 68, 68, 0.12);
@@ -137,75 +136,99 @@ function gotoAlerts(): void {
 .alert-banner.is-warning {
   background: rgba(245, 158, 11, 0.12);
   border-color: rgba(245, 158, 11, 0.3);
-  box-shadow: 0 8px 24px -10px rgba(245, 158, 11, 0.4);
 }
 .alert-banner.is-info {
   background: rgba(59, 130, 246, 0.12);
   border-color: rgba(59, 130, 246, 0.3);
-  box-shadow: 0 8px 24px -10px rgba(59, 130, 246, 0.4);
 }
 .alert-banner.persisted { cursor: pointer; }
-.alert-banner.persisted:hover {
-  background: rgba(239, 68, 68, 0.18);
-}
+.alert-banner.persisted:hover { filter: brightness(1.15); }
+
 .alert-icon {
-  width: 28px; height: 28px;
+  width: 22px; height: 22px;
   border-radius: 50%;
   display: grid; place-items: center;
-  font-size: 16px;
+  font-size: 12px;
   font-weight: 700;
   flex-shrink: 0;
 }
 .alert-banner.is-error .alert-icon {
-  background: rgba(239, 68, 68, 0.2);
+  background: rgba(239, 68, 68, 0.25);
   color: var(--v2-danger);
 }
 .alert-banner.is-warning .alert-icon {
-  background: rgba(245, 158, 11, 0.2);
+  background: rgba(245, 158, 11, 0.25);
   color: var(--v2-warning);
 }
 .alert-banner.is-info .alert-icon {
-  background: rgba(59, 130, 246, 0.2);
+  background: rgba(59, 130, 246, 0.25);
   color: var(--v2-info);
 }
-.alert-body { flex: 1; line-height: 1.3; min-width: 0; }
+
+.alert-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
 .alert-source {
   font-size: 11px;
   color: var(--v2-text-3);
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.alert-source::after {
+  content: '·';
+  margin-left: 6px;
+  color: var(--v2-text-3);
 }
 .alert-msg {
-  font-size: 14px;
+  font-size: 12px;
   color: var(--v2-text-1);
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
+
 .alert-count {
-  font-size: 11px;
-  padding: 4px 10px;
-  background: var(--v2-surf-2);
+  font-size: 10px;
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.1);
   color: var(--v2-text-2);
   border-radius: 999px;
   flex-shrink: 0;
+  letter-spacing: 0.5px;
 }
 .alert-close {
-  background: var(--v2-surf-2);
+  background: transparent;
   border: none;
   color: var(--v2-text-2);
-  font-size: 20px;
+  font-size: 16px;
   cursor: pointer;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--v2-r-sm);
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
   transition: all 0.18s ease;
   flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  padding: 0;
 }
 .alert-close:hover {
-  background: var(--v2-surf-1-hover);
+  background: rgba(255, 255, 255, 0.1);
   color: var(--v2-text-1);
 }
-.banner-enter-from, .banner-leave-to { opacity: 0; transform: translateY(-10px); }
-.banner-enter-active, .banner-leave-active { transition: all 0.22s ease; }
+
+.banner-enter-from, .banner-leave-to { opacity: 0; transform: scale(0.96); }
+.banner-enter-active, .banner-leave-active { transition: all 0.18s ease; }
 </style>

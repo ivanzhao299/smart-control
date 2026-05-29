@@ -66,13 +66,7 @@ const wsPillText = computed(() => {
   return '网络离线';
 });
 
-const alertPill = computed(() => {
-  const errCount = sys.alerts.filter((a) => a.level === 'error').length;
-  const warnCount = sys.alerts.filter((a) => a.level === 'warning').length;
-  if (errCount > 0) return { text: `${errCount} 项报警`, cls: 'danger' };
-  if (warnCount > 0) return { text: `${warnCount} 项警告`, cls: 'warn' };
-  return { text: '无告警', cls: 'idle' };
-});
+// 告警状态已经移到 header 中段的 AlertBanner 内联条 (有告警时才显示)
 
 const mockTag = computed(() => sys.info?.mockMode ?? false);
 </script>
@@ -80,7 +74,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 <template>
   <div class="v2-shell">
 
-    <!-- 侧导航 (72px, icon-only, 顶到底) -->
+    <!-- 侧导航 (80px, icon + 小字号文字, 顶到底, 不滚) -->
     <aside class="v2-nav">
       <button
         v-for="item in mainNavs"
@@ -90,7 +84,8 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
         :title="item.label"
         @click="go(item.name)"
       >
-        <component :is="navIconFor(item.name)" :size="22" :stroke-width="1.8" />
+        <component :is="navIconFor(item.name)" :size="20" :stroke-width="1.8" />
+        <span class="v2-nav-label">{{ item.label }}</span>
       </button>
       <div class="v2-nav-divider"></div>
       <button
@@ -101,11 +96,12 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
         :title="item.label"
         @click="go(item.name)"
       >
-        <component :is="navIconFor(item.name)" :size="22" :stroke-width="1.8" />
+        <component :is="navIconFor(item.name)" :size="20" :stroke-width="1.8" />
+        <span class="v2-nav-label">{{ item.label }}</span>
       </button>
     </aside>
 
-    <!-- 顶 Header (56px) -->
+    <!-- 顶 Header (56px) - 集成 Alert 内联条 -->
     <header class="v2-header">
       <div class="v2-brand">
         <div class="v2-logo">金</div>
@@ -114,16 +110,17 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
           <div class="v2-brand-sub">{{ dateLabel }}</div>
         </div>
       </div>
+
+      <!-- Alert 内联条 (没告警时不渲染, 不占空间) -->
+      <AlertBanner class="v2-header-alert" />
+
       <div class="v2-header-right">
         <span class="v2-pill" :class="{ idle: activeScene === '无运行' }">
           <span class="v2-dot"></span>
-          当前场景: {{ activeScene }}
+          {{ activeScene }}
         </span>
         <span class="v2-pill" :class="wsPillCls">
           <span class="v2-dot"></span>{{ wsPillText }}
-        </span>
-        <span class="v2-pill" :class="alertPill.cls">
-          <span class="v2-dot"></span>{{ alertPill.text }}
         </span>
         <span v-if="mockTag" class="v2-pill" style="background: rgba(59,130,246,.12); color: var(--v2-info); border-color: rgba(59,130,246,.3)">
           MOCK
@@ -143,9 +140,8 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
       </div>
     </header>
 
-    <!-- 主区 (顶部 alert + 路由出口) -->
+    <!-- 主区 -->
     <main class="v2-main">
-      <AlertBanner />
       <router-view v-slot="{ Component }">
         <keep-alive :max="6">
           <component :is="Component" />
@@ -165,7 +161,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 <style scoped>
 .v2-shell {
   display: grid;
-  grid-template-columns: 72px 1fr;
+  grid-template-columns: 80px 1fr;
   grid-template-rows: 56px 1fr;
   grid-template-areas:
     "nav header"
@@ -180,33 +176,37 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   overflow: hidden;
 }
 
-/* ============ 侧导航 ============ */
+/* ============ 侧导航 (icon + 文字, 8 项装一屏不滚) ============ */
 .v2-nav {
   grid-area: nav;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: var(--v2-sp-3) 0;
-  gap: var(--v2-sp-2);
+  padding: 10px 6px;
+  gap: 4px;
   border-right: 1px solid var(--v2-border-soft);
   background: rgba(10, 14, 26, 0.4);
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+  overflow: hidden;
+  /* 8 项需要总高 ≈ 8×52 + 1×9 (divider) + 20 (padding) = 445px, iPad 820 富裕 */
 }
 .v2-nav-item {
-  width: 48px;
-  height: 48px;
+  width: 64px;
+  min-height: 50px;
   border-radius: var(--v2-r-md);
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   color: var(--v2-text-3);
   cursor: pointer;
   transition: all 0.18s ease;
   position: relative;
   background: transparent;
   border: none;
-  padding: 0;
+  padding: 6px 2px;
   flex-shrink: 0;
+  font-family: inherit;
 }
 .v2-nav-item:hover {
   background: var(--v2-surf-1);
@@ -219,7 +219,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 .v2-nav-item.is-active::before {
   content: '';
   position: absolute;
-  left: -16px;
+  left: -8px;
   top: 50%;
   transform: translateY(-50%);
   width: 3px;
@@ -228,11 +228,19 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   border-radius: 0 3px 3px 0;
   box-shadow: 0 0 8px var(--v2-primary);
 }
+.v2-nav-label {
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
 .v2-nav-divider {
-  width: 24px;
+  width: 28px;
   height: 1px;
   background: var(--v2-border-soft);
-  margin: var(--v2-sp-2) 0;
+  margin: 4px 0;
+  flex-shrink: 0;
 }
 
 /* ============ Header ============ */
@@ -275,10 +283,18 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   color: var(--v2-text-3);
   margin-top: 2px;
 }
+.v2-header-alert {
+  /* 内嵌到 header 中段, 没告警时 AlertBanner 自身不渲染 */
+  flex: 1;
+  min-width: 0;
+  margin: 0 var(--v2-sp-4);
+  max-width: 520px;
+}
 .v2-header-right {
   display: flex;
   align-items: center;
-  gap: var(--v2-sp-4);
+  gap: var(--v2-sp-3);
+  flex-shrink: 0;
 }
 .v2-clock {
   font-size: 18px;
@@ -318,15 +334,24 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 
 /* ============ 窄屏适配 ============ */
 @media (max-width: 900px) {
-  .v2-shell { grid-template-columns: 60px 1fr; }
-  .v2-nav-item { width: 40px; height: 40px; }
+  .v2-shell { grid-template-columns: 72px 1fr; }
+  .v2-nav-item { width: 60px; min-height: 46px; }
+  .v2-nav-label { font-size: 10px; }
   .v2-brand-title { font-size: 13px; }
   .v2-brand-sub { font-size: 10px; }
   .v2-header { padding: 0 var(--v2-sp-3); }
-  .v2-header-right { gap: var(--v2-sp-3); }
+  .v2-header-right { gap: var(--v2-sp-2); }
+  .v2-header-alert { margin: 0 var(--v2-sp-2); max-width: 360px; }
 }
 @media (max-width: 720px) {
   .v2-pill { display: none; }
   .v2-pill.danger { display: inline-flex; }
+  .v2-header-alert { max-width: 220px; }
+}
+/* 矮屏 (<700px): 字标变小, 间距压缩, 仍然装下 */
+@media (max-height: 700px) {
+  .v2-nav { padding: 6px 4px; gap: 2px; }
+  .v2-nav-item { min-height: 44px; gap: 2px; padding: 4px 2px; }
+  .v2-nav-label { font-size: 10px; }
 }
 </style>
