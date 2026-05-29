@@ -2,310 +2,485 @@
 import { computed } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useRouter } from 'vue-router';
-import { Zap } from 'lucide-vue-next';
-import SceneButton from '@/components/SceneButton.vue';
-import StatusCard from '@/components/StatusCard.vue';
+import {
+  CheckCircle2, BarChart3, Clock, TriangleAlert,
+  Sparkles, Calendar, Users, Presentation, Wrench, Moon,
+  Lightbulb, MonitorPlay, Speaker, Snowflake, Zap,
+} from 'lucide-vue-next';
 import { useSceneStore } from '@/stores/scene';
 import { useDeviceStore } from '@/stores/device';
-import { categoryIconFor } from '@/composables/useIcons';
-import type { DeviceStatus } from '@/types/api';
+import { useSystemStore } from '@/stores/system';
 
 const sceneStore = useSceneStore();
 const deviceStore = useDeviceStore();
+const sys = useSystemStore();
 const router = useRouter();
 
-function deviceList(category: 'lighting' | 'led' | 'audio' | 'hvac') {
-  return category === 'lighting' ? deviceStore.lightingDevices
-    : category === 'led' ? deviceStore.ledDevices
-    : category === 'audio' ? deviceStore.audioDevices
-    : deviceStore.hvacDevices;
+// ============ KPI ============
+const onlineCount = computed(() => deviceStore.onlineCount);
+const totalCount = computed(() => deviceStore.totalCount);
+const runningCount = computed(() => sceneStore.running.length);
+const uptimeHours = computed(() => {
+  const s = sys.info?.uptimeSec ?? 0;
+  return (s / 3600).toFixed(1);
+});
+const alertCount = computed(() => sys.alerts.length);
+
+// ============ 场景磁贴 ============
+type SceneColor = 'opening' | 'reception' | 'meeting' | 'roadshow' | 'cleaning' | 'closing';
+const SCENE_META: Record<SceneColor, { ico: unknown }> = {
+  opening:   { ico: Sparkles },
+  reception: { ico: Calendar },
+  meeting:   { ico: Users },
+  roadshow:  { ico: Presentation },
+  cleaning:  { ico: Wrench },
+  closing:   { ico: Moon },
+};
+const FALLBACK_CYCLE: SceneColor[] = ['opening', 'reception', 'meeting', 'roadshow', 'cleaning', 'closing'];
+
+function colorForScene(code: string, idx: number): SceneColor {
+  const lower = code.toLowerCase();
+  const match = (Object.keys(SCENE_META) as SceneColor[]).find((k) => lower.includes(k));
+  return match ?? FALLBACK_CYCLE[idx % FALLBACK_CYCLE.length];
 }
 
-function deriveCategoryStatus(category: 'lighting' | 'led' | 'audio' | 'hvac'): DeviceStatus {
-  const list = deviceList(category);
-  if (list.length === 0) {
-    const gw = deviceStore.gatewayBySource.get(category);
-    return (gw?.state as DeviceStatus) ?? 'offline';
-  }
-  const statuses = list.map((d) => deviceStore.statusOf(d.name));
-  if (statuses.some((s) => s === 'error')) return 'error';
-  if (statuses.some((s) => s === 'reconnecting')) return 'reconnecting';
-  if (statuses.some((s) => s === 'running')) return 'running';
-  if (statuses.some((s) => s === 'online')) return 'online';
-  return 'offline';
-}
-
-function summary(category: 'lighting' | 'led' | 'audio' | 'hvac'): string {
-  const list = deviceList(category);
-  const online = list.filter((d) => {
-    const s = deviceStore.statusOf(d.name);
-    return s === 'online' || s === 'running';
-  }).length;
-  return `${online} / ${list.length} 在线`;
-}
-
-const categories = computed(() => [
-  { key: 'lighting' as const, title: '灯光系统', icon: categoryIconFor('lighting'), to: '/lighting' },
-  { key: 'led' as const, title: 'LED 大屏', icon: categoryIconFor('led'), to: '/led' },
-  { key: 'audio' as const, title: '音响系统', icon: categoryIconFor('audio'), to: '/audio' },
-  { key: 'hvac' as const, title: '中央空调', icon: categoryIconFor('hvac'), to: '/hvac' },
-]);
-
-const powerStatus = computed<DeviceStatus>(() => {
-  if (deviceStore.errorDevices.length > 0) return 'error';
-  if (deviceStore.offlineDevices.length > 0) return 'reconnecting';
-  return 'online';
+const scenesView = computed(() => {
+  return sceneStore.scenes
+    .filter((s) => s.enabled)
+    .slice(0, 6)
+    .map((s, idx) => ({
+      ...s,
+      color: colorForScene(s.code, idx),
+      active: sceneStore.activeSceneCode === s.code,
+    }));
 });
 
-async function runScene(code: string): Promise<void> {
-  const scene = sceneStore.scenes.find((s) => s.code === code);
-  const name = scene?.name ?? code;
+async function fireScene(code: string): Promise<void> {
+  const name = sceneStore.scenes.find((s) => s.code === code)?.name ?? code;
   try {
-    const exec = await sceneStore.execute(code);
-    ElMessage({
-      type: 'success',
-      message: `场景【${name}】已启动 (executionId=${exec.executionId.slice(0, 8)})`,
-      duration: 2200,
-    });
+    await sceneStore.execute(code);
+    ElMessage.success(`场景【${name}】已启动`);
   } catch (err) {
     ElMessage.error(`场景【${name}】启动失败: ${(err as Error).message}`);
   }
 }
 
-async function stopScene(code: string): Promise<void> {
-  try {
-    await sceneStore.stop(code);
-    ElMessage.warning(`场景【${code}】已请求停止`);
-  } catch (err) {
-    ElMessage.error(`停止失败: ${(err as Error).message}`);
+// ============ 子系统状态 ============
+const subsystems = computed(() => {
+  function summary(category: 'lighting' | 'led' | 'audio' | 'hvac') {
+    const list = category === 'lighting' ? deviceStore.lightingDevices
+      : category === 'led' ? deviceStore.ledDevices
+      : category === 'audio' ? deviceStore.audioDevices
+      : deviceStore.hvacDevices;
+    const online = list.filter((d) => {
+      const s = deviceStore.statusOf(d.name);
+      return s === 'online' || s === 'running';
+    }).length;
+    return { online, total: list.length, hasFault: online < list.length };
   }
-}
+  const lighting = summary('lighting');
+  const led = summary('led');
+  const audio = summary('audio');
+  const hvac = summary('hvac');
+  const power = { online: 0, total: 0, hasFault: false };
+  return [
+    { kind: 'light' as const, name: '灯光', ico: Lightbulb, route: 'lighting', ...lighting },
+    { kind: 'led' as const, name: 'LED 大屏', ico: MonitorPlay, route: 'led', ...led },
+    { kind: 'audio' as const, name: '音响', ico: Speaker, route: 'audio', ...audio },
+    { kind: 'hvac' as const, name: '中央空调', ico: Snowflake, route: 'hvac', ...hvac },
+    { kind: 'power' as const, name: '电源系统', ico: Zap, route: 'status', ...power },
+  ];
+});
 
-function goTo(to: string): void {
-  router.push(to);
+function goTo(name: string): void {
+  router.push({ name });
 }
 </script>
 
 <template>
-  <section class="dashboard">
-    <!-- 背景装饰: 网格 + 4 角落辉光 -->
-    <div class="bg-grid" aria-hidden="true"></div>
-    <div class="bg-glow glow-tl" aria-hidden="true"></div>
-    <div class="bg-glow glow-br" aria-hidden="true"></div>
-
-    <!-- 场景区 (上半) -->
-    <div class="block scene-block">
-      <div class="block-head">
-        <h2 class="block-title">
-          <span class="title-bar"></span>
-          场景一键切换
-        </h2>
-        <div class="block-sub">点击场景按钮执行联动 · 当前 {{ sceneStore.runningByCode.size }} 个运行中</div>
+  <section class="v2-dash">
+    <!-- KPI 行 -->
+    <div class="v2-kpi-row">
+      <div class="v2-kpi success">
+        <div class="v2-kpi-ico"><CheckCircle2 :size="18" :stroke-width="2" /></div>
+        <div class="v2-kpi-body">
+          <div class="v2-kpi-label">设备在线</div>
+          <div class="v2-kpi-value v2-inter">{{ onlineCount }}<span class="unit">/ {{ totalCount }}</span></div>
+        </div>
       </div>
-
-      <div class="scene-grid">
-        <SceneButton
-          v-for="s in sceneStore.orderedScenes"
-          :key="s.code"
-          :code="s.code"
-          :name="s.name"
-          :icon="sceneStore.iconFor(s.code)"
-          :active="sceneStore.runningByCode.get(s.code) != null"
-          :loading="sceneStore.pendingCode === s.code"
-          :error="sceneStore.lastExecution?.sceneCode === s.code && sceneStore.lastExecution?.status === 'failed'"
-          @click="runScene(s.code)"
-        />
+      <div class="v2-kpi">
+        <div class="v2-kpi-ico"><BarChart3 :size="18" :stroke-width="2" /></div>
+        <div class="v2-kpi-body">
+          <div class="v2-kpi-label">运行中场景</div>
+          <div class="v2-kpi-value v2-inter">{{ runningCount }}<span class="unit">个</span></div>
+        </div>
       </div>
-
-      <div v-if="sceneStore.runningByCode.size > 0" class="running-row">
-        <span class="sc-subtle">运行中:</span>
-        <span v-for="r in sceneStore.running" :key="r.executionId" class="run-chip">
-          {{ r.sceneName }}
-          <button class="stop-btn" @click="stopScene(r.sceneCode)">停止</button>
-        </span>
+      <div class="v2-kpi info">
+        <div class="v2-kpi-ico"><Clock :size="18" :stroke-width="2" /></div>
+        <div class="v2-kpi-body">
+          <div class="v2-kpi-label">系统运行</div>
+          <div class="v2-kpi-value v2-inter">{{ uptimeHours }}<span class="unit">小时</span></div>
+        </div>
+      </div>
+      <div class="v2-kpi amber">
+        <div class="v2-kpi-ico"><TriangleAlert :size="18" :stroke-width="2" /></div>
+        <div class="v2-kpi-body">
+          <div class="v2-kpi-label">告警</div>
+          <div class="v2-kpi-value v2-inter">{{ alertCount }}<span class="unit">条</span></div>
+        </div>
       </div>
     </div>
 
-    <!-- 子系统区 (下半, 紧凑横排 5 卡) -->
-    <div class="block subsystem-block">
-      <div class="block-head">
-        <h2 class="block-title">
-          <span class="title-bar"></span>
-          子系统状态
-        </h2>
-        <div class="block-sub">点击卡片进入对应控制页</div>
+    <!-- 场景磁贴 -->
+    <section class="v2-scene-block">
+      <header class="v2-block-head">
+        <h2 class="v2-block-title"><span class="accent">●</span>场景一键切换</h2>
+        <div class="v2-block-sub">点击执行联动 · 当前 {{ runningCount }} 个运行中</div>
+      </header>
+      <div class="v2-scene-grid">
+        <button
+          v-for="(s) in scenesView"
+          :key="s.code"
+          class="v2-scene"
+          :class="{ active: s.active }"
+          :data-color="s.color"
+          @click="fireScene(s.code)"
+        >
+          <div class="v2-scene-top">
+            <div class="v2-scene-ico">
+              <component :is="SCENE_META[s.color].ico" :size="22" :stroke-width="1.8" />
+            </div>
+            <div class="v2-scene-meta">
+              <div class="v2-scene-code v2-inter">{{ s.code.toUpperCase() }}</div>
+            </div>
+          </div>
+          <div>
+            <div class="v2-scene-name">{{ s.name }}</div>
+            <div class="v2-scene-desc">{{ s.description || '点击执行' }}</div>
+          </div>
+        </button>
       </div>
+    </section>
 
-      <div class="cards-grid">
-        <StatusCard
-          v-for="c in categories"
-          :key="c.key"
-          :title="c.title"
-          :icon="c.icon"
-          :status="deriveCategoryStatus(c.key)"
-          :subtitle="summary(c.key)"
-          :to="c.to"
-          @go="goTo"
-        />
-        <StatusCard
-          title="电源/系统"
-          :icon="Zap"
-          :status="powerStatus"
-          :subtitle="`故障 ${deviceStore.errorDevices.length} · 离线 ${deviceStore.offlineDevices.length}`"
-          to="/status"
-          @go="goTo"
-        />
-      </div>
+    <!-- 子系统状态条 -->
+    <div class="v2-subsystems">
+      <div class="v2-subsystems-label">子系统</div>
+      <button
+        v-for="sub in subsystems"
+        :key="sub.kind"
+        class="v2-sub"
+        :data-kind="sub.kind"
+        :data-status="sub.hasFault ? 'warn' : 'ok'"
+        @click="goTo(sub.route)"
+      >
+        <div class="v2-sub-ico"><component :is="sub.ico" :size="16" :stroke-width="2" /></div>
+        <div class="v2-sub-body">
+          <div class="v2-sub-name">{{ sub.name }}</div>
+          <div class="v2-sub-stats v2-inter">
+            <span class="online">{{ sub.online }}</span><span class="total"> / {{ sub.total }} 在线</span>
+          </div>
+        </div>
+      </button>
     </div>
   </section>
 </template>
 
 <style scoped>
-/* 顶层容器: 撑满 content 区, 按内容自然堆叠 + 自身滚动
-   注意: 不用 grid 1fr auto. 之前用过, 在 .block { min-height: 0 } 配合下,
-   1fr 轨道允许被压到比 scene-grid 内容更小, 第 3 行场景 (清洁 + 闭馆)
-   溢出 scene-block 边界, 被后续 subsystem 卡片背景盖住 — 看上去就是 "卡片交叠". */
-.dashboard {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+.v2-dash {
   height: 100%;
+  padding: var(--v2-sp-5);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: var(--v2-sp-4);
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
-/* ============ 背景科技感装饰 ============ */
-.bg-grid {
-  position: absolute;
-  inset: -20px;
-  background-image:
-    linear-gradient(rgba(99, 102, 241, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(99, 102, 241, 0.05) 1px, transparent 1px);
-  background-size: 40px 40px;
-  mask-image: radial-gradient(ellipse 80% 70% at 50% 50%, black 50%, transparent 100%);
-  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 50%, black 50%, transparent 100%);
-  pointer-events: none;
-  z-index: 0;
-  opacity: 0.5;
+/* ============ KPI 行 ============ */
+.v2-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--v2-sp-3);
 }
-/* 用纯 radial-gradient 模拟辉光 (省 filter blur 的 GPU 开销) */
-.bg-glow {
-  position: absolute;
-  width: 480px; height: 480px;
-  pointer-events: none;
-  z-index: 0;
-  opacity: 0.32;
-}
-.glow-tl {
-  top: -200px; left: -200px;
-  background: radial-gradient(circle at 50% 50%, #06b6d4 0%, transparent 60%);
-}
-.glow-br {
-  bottom: -200px; right: -200px;
-  background: radial-gradient(circle at 50% 50%, #a855f7 0%, transparent 60%);
-}
-
-/* ============ 区块 ============ */
-.block {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 0;
-  min-width: 0;
-}
-.block-head {
+.v2-kpi {
+  padding: var(--v2-sp-3) var(--v2-sp-4);
+  background: var(--v2-surf-1);
+  border: 1px solid var(--v2-border-soft);
+  border-radius: var(--v2-r-md);
   display: flex;
   align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
+  gap: var(--v2-sp-3);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
-.block-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
+.v2-kpi-ico {
+  width: 36px; height: 36px;
+  border-radius: var(--v2-r-sm);
+  display: grid; place-items: center;
+  background: var(--v2-primary-soft);
+  color: var(--v2-primary);
+  flex-shrink: 0;
+}
+.v2-kpi.amber .v2-kpi-ico { background: var(--v2-amber-soft); color: var(--v2-amber); }
+.v2-kpi.success .v2-kpi-ico { background: rgba(16, 185, 129, 0.14); color: var(--v2-success); }
+.v2-kpi.info .v2-kpi-ico { background: rgba(59, 130, 246, 0.14); color: var(--v2-info); }
+.v2-kpi-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.v2-kpi-label {
+  font-size: var(--v2-fs-xs);
+  color: var(--v2-text-3);
   letter-spacing: 1px;
 }
-.title-bar {
-  width: 3px;
-  height: 14px;
-  border-radius: 2px;
-  background: linear-gradient(180deg, #06b6d4 0%, #a855f7 100%);
-  box-shadow: 0 0 6px rgba(124, 58, 237, 0.6);
+.v2-kpi-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--v2-text-1);
 }
-.block-sub {
+.v2-kpi-value .unit {
   font-size: 11px;
-  color: var(--text-secondary);
+  color: var(--v2-text-3);
+  margin-left: 4px;
+  font-weight: 400;
+}
+
+/* ============ 场景区 ============ */
+.v2-scene-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--v2-sp-3);
+  min-height: 0;
+}
+.v2-block-head {
+  display: flex; align-items: center; justify-content: space-between;
+}
+.v2-block-title {
+  font-size: var(--v2-fs-md);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  margin: 0;
+}
+.v2-block-title .accent {
+  color: var(--v2-primary);
+  margin-right: var(--v2-sp-2);
+}
+.v2-block-sub {
+  font-size: var(--v2-fs-xs);
+  color: var(--v2-text-3);
+}
+
+.v2-scene-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: var(--v2-sp-3);
+  min-height: 0;
+}
+
+.v2-scene {
+  position: relative;
+  padding: var(--v2-sp-4);
+  background: var(--v2-surf-1);
+  border: 1px solid var(--v2-border-soft);
+  border-radius: var(--v2-r-lg);
+  cursor: pointer;
+  overflow: hidden;
+  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  text-align: left;
+  color: var(--v2-text-1);
+  min-height: 130px;
+}
+.v2-scene::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 100% 0%, var(--scene-glow), transparent 70%);
+  opacity: 0.5;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+}
+.v2-scene:hover {
+  transform: translateY(-2px);
+  border-color: var(--v2-border-strong);
+  background: var(--v2-surf-1-hover);
+}
+.v2-scene:hover::before { opacity: 0.8; }
+
+.v2-scene.active {
+  background: linear-gradient(135deg, var(--scene-bg-1), var(--scene-bg-2));
+  border-color: var(--scene-border);
+  box-shadow: 0 8px 32px -10px var(--scene-glow);
+}
+.v2-scene.active::after {
+  content: '';
+  position: absolute;
+  top: var(--v2-sp-3); right: var(--v2-sp-3);
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 0 12px white, 0 0 24px var(--scene-fg);
+  animation: v2-pulse 2s ease-out infinite;
+}
+
+.v2-scene-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.v2-scene-ico {
+  width: 40px; height: 40px;
+  border-radius: var(--v2-r-md);
+  display: grid; place-items: center;
+  background: var(--scene-icon-bg);
+  color: var(--scene-fg);
+  transition: all 0.22s ease;
+}
+.v2-scene.active .v2-scene-ico {
+  background: rgba(255, 255, 255, 0.18);
+  color: white;
+}
+.v2-scene-meta { text-align: right; }
+.v2-scene-code {
+  font-size: 10px;
+  color: var(--v2-text-3);
+  letter-spacing: 1.5px;
+}
+.v2-scene.active .v2-scene-code { color: rgba(255, 255, 255, 0.65); }
+.v2-scene-name {
+  font-size: 18px;
+  font-weight: 600;
+  margin-top: var(--v2-sp-4);
   letter-spacing: 0.5px;
 }
+.v2-scene-desc {
+  font-size: var(--v2-fs-xs);
+  color: var(--v2-text-3);
+  margin-top: 4px;
+  letter-spacing: 0.5px;
+}
+.v2-scene.active .v2-scene-desc { color: rgba(255, 255, 255, 0.75); }
 
-/* ============ 场景网格 (4 列 × 2 行, 7 个场景 占 4+3) ============ */
-.scene-grid {
+/* 场景配色 */
+.v2-scene[data-color="opening"] {
+  --scene-fg: #f59e0b;
+  --scene-glow: rgba(245, 158, 11, 0.18);
+  --scene-icon-bg: rgba(245, 158, 11, 0.12);
+  --scene-bg-1: #f59e0b; --scene-bg-2: #ea580c;
+  --scene-border: rgba(245, 158, 11, 0.65);
+}
+.v2-scene[data-color="reception"] {
+  --scene-fg: #818cf8;
+  --scene-glow: rgba(129, 140, 248, 0.18);
+  --scene-icon-bg: rgba(129, 140, 248, 0.12);
+  --scene-bg-1: #6366f1; --scene-bg-2: #8b5cf6;
+  --scene-border: rgba(129, 140, 248, 0.65);
+}
+.v2-scene[data-color="meeting"] {
+  --scene-fg: #2dd4bf;
+  --scene-glow: rgba(45, 212, 191, 0.18);
+  --scene-icon-bg: rgba(45, 212, 191, 0.12);
+  --scene-bg-1: #14b8a6; --scene-bg-2: #0891b2;
+  --scene-border: rgba(45, 212, 191, 0.65);
+}
+.v2-scene[data-color="roadshow"] {
+  --scene-fg: #f472b6;
+  --scene-glow: rgba(244, 114, 182, 0.18);
+  --scene-icon-bg: rgba(244, 114, 182, 0.12);
+  --scene-bg-1: #ec4899; --scene-bg-2: #f97316;
+  --scene-border: rgba(244, 114, 182, 0.65);
+}
+.v2-scene[data-color="cleaning"] {
+  --scene-fg: #38bdf8;
+  --scene-glow: rgba(56, 189, 248, 0.18);
+  --scene-icon-bg: rgba(56, 189, 248, 0.12);
+  --scene-bg-1: #0ea5e9; --scene-bg-2: #06b6d4;
+  --scene-border: rgba(56, 189, 248, 0.65);
+}
+.v2-scene[data-color="closing"] {
+  --scene-fg: #a78bfa;
+  --scene-glow: rgba(167, 139, 250, 0.18);
+  --scene-icon-bg: rgba(167, 139, 250, 0.12);
+  --scene-bg-1: #6366f1; --scene-bg-2: #1e293b;
+  --scene-border: rgba(167, 139, 250, 0.5);
+}
+
+/* ============ 子系统状态 ============ */
+.v2-subsystems {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: auto repeat(5, 1fr);
+  gap: var(--v2-sp-3);
+  align-items: center;
+  padding: var(--v2-sp-3) var(--v2-sp-4);
+  background: var(--v2-surf-1);
+  border: 1px solid var(--v2-border-soft);
+  border-radius: var(--v2-r-md);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
-/* 中等屏 1200-1400 */
-@media (max-width: 1400px) {
-  .scene-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.v2-subsystems-label {
+  font-size: var(--v2-fs-sm);
+  color: var(--v2-text-2);
+  padding-right: var(--v2-sp-3);
+  border-right: 1px solid var(--v2-border-soft);
 }
-/* 小平板 ≤ 1100 */
-@media (max-width: 1100px) {
-  .scene-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-}
-/* 7-8" 极小屏 */
-@media (max-width: 720px) {
-  .scene-grid { grid-template-columns: 1fr; }
-}
-
-/* ============ 子系统状态卡 (5 卡横排, 紧凑) ============ */
-.cards-grid {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
-}
-@media (max-width: 1400px) {
-  .cards-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-@media (max-width: 1100px) {
-  .cards-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-}
-@media (max-width: 720px) {
-  .cards-grid { grid-template-columns: 1fr; }
-}
-
-/* ============ 运行中 chip ============ */
-.running-row {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  padding: 8px 12px;
-  background: linear-gradient(90deg, rgba(16, 185, 129, 0.08) 0%, transparent 100%);
-  border-radius: 10px;
-  border: 1px solid rgba(16, 185, 129, 0.25);
-}
-.run-chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 4px 9px;
-  background: rgba(16, 185, 129, 0.18);
-  color: var(--text-primary);
-  border-radius: 999px;
-  font-size: 12px;
-  border: 1px solid rgba(16, 185, 129, 0.35);
-}
-.stop-btn {
-  border: none;
-  background: var(--color-error);
-  color: #fff;
-  padding: 2px 8px;
-  border-radius: 999px;
+.v2-sub {
+  display: flex;
+  align-items: center;
+  gap: var(--v2-sp-3);
+  padding: var(--v2-sp-2) var(--v2-sp-3);
   cursor: pointer;
-  font-size: 11px;
+  border-radius: var(--v2-r-sm);
+  transition: background 0.18s ease;
+  background: transparent;
+  border: none;
+  color: inherit;
+  text-align: left;
 }
-.stop-btn:hover { background: #dc2626; box-shadow: 0 0 8px rgba(239, 68, 68, 0.5); }
+.v2-sub:hover { background: var(--v2-surf-1); }
+.v2-sub-ico {
+  width: 32px; height: 32px;
+  border-radius: var(--v2-r-sm);
+  display: grid; place-items: center;
+  background: var(--sub-bg);
+  color: var(--sub-fg);
+  flex-shrink: 0;
+}
+.v2-sub-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.v2-sub-name {
+  font-size: var(--v2-fs-sm);
+  font-weight: 500;
+  color: var(--v2-text-1);
+}
+.v2-sub-stats {
+  font-size: var(--v2-fs-xs);
+  color: var(--v2-text-3);
+}
+.v2-sub-stats .online { color: var(--v2-success); font-weight: 500; }
+.v2-sub[data-status="warn"] .v2-sub-stats .online { color: var(--v2-warning); }
+.v2-sub[data-status="warn"] .v2-sub-name::after {
+  content: '';
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--v2-warning);
+  margin-left: 6px;
+  box-shadow: 0 0 6px var(--v2-warning);
+}
+
+.v2-sub[data-kind="light"]  { --sub-fg: #fbbf24; --sub-bg: rgba(251, 191, 36, 0.12); }
+.v2-sub[data-kind="led"]    { --sub-fg: #38bdf8; --sub-bg: rgba(56, 189, 248, 0.12); }
+.v2-sub[data-kind="audio"]  { --sub-fg: #34d399; --sub-bg: rgba(52, 211, 153, 0.12); }
+.v2-sub[data-kind="hvac"]   { --sub-fg: #60a5fa; --sub-bg: rgba(96, 165, 250, 0.12); }
+.v2-sub[data-kind="power"]  { --sub-fg: #c084fc; --sub-bg: rgba(192, 132, 252, 0.12); }
+
+/* ============ 窄屏 ============ */
+@media (max-width: 1024px) {
+  .v2-dash { padding: var(--v2-sp-3); }
+  .v2-kpi-row { grid-template-columns: repeat(2, 1fr); }
+  .v2-scene-grid { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(3, 1fr); }
+  .v2-subsystems { grid-template-columns: auto repeat(2, 1fr); grid-auto-flow: row; }
+}
 </style>

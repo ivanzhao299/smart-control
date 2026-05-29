@@ -1,0 +1,168 @@
+/* ============================================================
+ * 金湖中控 v2 · 现代化设计 token
+ * 跟 docs/design-mockups/01-dashboard.html / 02-lighting.html 对齐
+ * 加载顺序: theme.css → design-tokens.css (这里覆盖)
+ * ============================================================ */
+
+:root {
+  /* ---------- 中性 / 表面 ---------- */
+  --v2-bg-0: #0A0E1A;
+  --v2-bg-1: #11151F;
+  --v2-surf-1: rgba(255, 255, 255, 0.025);
+  --v2-surf-1-hover: rgba(255, 255, 255, 0.045);
+  --v2-surf-2: rgba(255, 255, 255, 0.06);
+
+  --v2-border-soft: rgba(255, 255, 255, 0.06);
+  --v2-border-strong: rgba(255, 255, 255, 0.10);
+
+  --v2-text-1: rgba(255, 255, 255, 0.95);
+  --v2-text-2: rgba(255, 255, 255, 0.65);
+  --v2-text-3: rgba(255, 255, 255, 0.42);
+
+  /* ---------- 品牌 + 语义 ---------- */
+  --v2-primary: #06b6d4;
+  --v2-primary-hover: #22d3ee;
+  --v2-primary-soft: rgba(6, 182, 212, 0.16);
+  --v2-amber: #f59e0b;
+  --v2-amber-soft: rgba(245, 158, 11, 0.14);
+  --v2-success: #10b981;
+  --v2-warning: #f59e0b;
+  --v2-danger: #ef4444;
+  --v2-info: #3b82f6;
+
+  /* 灯光暖色 (亮度滑条 / 灯光卡 active) */
+  --v2-light-warm: #fbbf24;
+  --v2-light-warm-glow: rgba(251, 191, 36, 0.5);
+
+  /* ---------- 圆角 ---------- */
+  --v2-r-sm: 8px;
+  --v2-r-md: 12px;
+  --v2-r-lg: 16px;
+  --v2-r-xl: 22px;
+
+  /* ---------- 间距 ---------- */
+  --v2-sp-1: 4px;
+  --v2-sp-2: 8px;
+  --v2-sp-3: 12px;
+  --v2-sp-4: 16px;
+  --v2-sp-5: 24px;
+  --v2-sp-6: 32px;
+
+  /* ---------- 字号 ---------- */
+  --v2-fs-xs: 11px;
+  --v2-fs-sm: 13px;
+  --v2-fs-base: 14px;
+  --v2-fs-md: 16px;
+  --v2-fs-lg: 20px;
+  --v2-fs-xl: 26px;
+  --v2-fs-display: 36px;
+
+  /* ---------- 阴影 ---------- */
+  --v2-elev-1: 0 1px 2px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04) inset;
+  --v2-elev-2: 0 8px 24px -8px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06) inset;
+  --v2-elev-3: 0 16px 48px -12px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.08) inset;
+
+  /* ---------- 兼容旧 token (theme.css 里的) → v2 映射, 让老页面渐进迁移 ---------- */
+  --bg-base: var(--v2-bg-0);
+  --bg-panel: var(--v2-surf-1);
+  --bg-panel-soft: var(--v2-bg-1);
+  --bg-elevated: var(--v2-surf-2);
+  --color-primary: var(--v2-primary);
+  --color-primary-hover: var(--v2-primary-hover);
+  --color-success: var(--v2-success);
+  --color-warning: var(--v2-warning);
+  --color-error: var(--v2-danger);
+  --color-info: var(--v2-info);
+  --text-primary: var(--v2-text-1);
+  --text-secondary: var(--v2-text-2);
+  --text-muted: var(--v2-text-3);
+  --border-soft: var(--v2-border-soft);
+  --border-strong: var(--v2-border-strong);
+}
+
+/* ============ 全局 body 背景: 深蓝 + 双 radial 光晕 ============ */
+html, body, #app {
+  background: var(--v2-bg-0) !important;
+}
+
+body {
+  background:
+    radial-gradient(ellipse 60% 50% at 20% 0%, rgba(6, 182, 212, 0.06) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 90% 100%, rgba(245, 158, 11, 0.05) 0%, transparent 55%),
+    linear-gradient(180deg, var(--v2-bg-0) 0%, var(--v2-bg-1) 100%) !important;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  letter-spacing: 0.02em;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============ 玻璃面板 mixin (借助 class) ============ */
+.v2-glass {
+  background: var(--v2-surf-1);
+  border: 1px solid var(--v2-border-soft);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: var(--v2-r-md);
+}
+.v2-glass-hover:hover {
+  background: var(--v2-surf-1-hover);
+  border-color: var(--v2-border-strong);
+}
+
+/* ============ 状态药丸 ============ */
+.v2-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--v2-sp-2);
+  padding: 5px 10px;
+  background: var(--v2-surf-1);
+  border: 1px solid var(--v2-border-soft);
+  border-radius: 999px;
+  font-size: var(--v2-fs-xs);
+  color: var(--v2-text-2);
+}
+.v2-pill .v2-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--v2-success);
+  box-shadow: 0 0 8px var(--v2-success);
+}
+.v2-pill.warn .v2-dot { background: var(--v2-warning); box-shadow: 0 0 8px var(--v2-warning); }
+.v2-pill.danger .v2-dot { background: var(--v2-danger); box-shadow: 0 0 8px var(--v2-danger); }
+.v2-pill.idle .v2-dot { background: var(--v2-text-3); box-shadow: none; }
+
+/* ============ Inter 数字字体 (时钟/KPI/亮度 等表盘) ============ */
+.v2-inter {
+  font-family: "Inter", "SF Pro Display", system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+}
+
+/* ============ 触控目标最小 44×44 ============ */
+.v2-touch {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ============ Element Plus 暗黑适配 (复用 v2 token) ============ */
+html {
+  --el-color-primary: var(--v2-primary);
+  --el-color-primary-light-3: rgba(6, 182, 212, 0.45);
+  --el-color-primary-light-5: rgba(6, 182, 212, 0.30);
+  --el-color-primary-light-7: rgba(6, 182, 212, 0.16);
+  --el-color-primary-light-8: rgba(6, 182, 212, 0.12);
+  --el-color-primary-light-9: rgba(6, 182, 212, 0.08);
+  --el-color-primary-dark-2: #0891b2;
+}
+
+/* ============ 动画 ============ */
+@keyframes v2-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.65; transform: scale(1.2); }
+}
+@keyframes v2-glow-breathe {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
