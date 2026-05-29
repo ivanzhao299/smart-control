@@ -142,6 +142,10 @@ export class ModbusHvacAdapter extends BaseAdapter {
         port: addr.gwPort ?? 502,
         deviceType: 'hvac',
         timeoutMs: this.timeoutMs,
+        // 中弘 B 集控走 Modbus TCP, 持久会话; 复用 socket 省每命令 30-60ms
+        // (PERFORMANCE_AUDIT P0-#1)
+        keepAlive: true,
+        idleTimeoutMs: 30_000,
       });
       const modbus = new ModbusTcpClient(tcp, addr.slaveId ?? 1);
       this.clients.set(key, { modbus, key });
@@ -161,7 +165,10 @@ export class ModbusHvacAdapter extends BaseAdapter {
     const key = `hvac-zh-${host}:${port}`;
     let entry = this.clients.get(key);
     if (!entry) {
-      const tcp = new TcpClient({ host, port, deviceType: 'hvac', timeoutMs: this.timeoutMs });
+      const tcp = new TcpClient({
+        host, port, deviceType: 'hvac', timeoutMs: this.timeoutMs,
+        keepAlive: true, idleTimeoutMs: 30_000,
+      });
       const modbus = new ModbusTcpClient(tcp, slaveId);
       this.clients.set(key, { modbus, key });
       if (!this.isMock()) this.registry.register(key, `modbus-tcp://${host}:${port}`);

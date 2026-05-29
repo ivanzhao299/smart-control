@@ -143,7 +143,9 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
     <!-- 主区 -->
     <main class="v2-main">
       <router-view v-slot="{ Component }">
-        <keep-alive :max="6">
+        <!-- PERFORMANCE_AUDIT P1-#7: max 6 → 10 覆盖 8 项主菜单 +
+             admin 入口缓冲, 切页 100% 命中缓存 (60-100ms vs 重 mount 200-400ms) -->
+        <keep-alive :max="10">
           <component :is="Component" />
         </keep-alive>
       </router-view>

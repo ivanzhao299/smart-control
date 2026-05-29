@@ -11,6 +11,7 @@ import { useSceneStore } from '@/stores/scene';
 import { useSystemStore } from '@/stores/system';
 import { deviceService } from '@/services/device.service';
 import { adminMonitorService } from '@/services/admin.service';
+import { polling } from '@/services/polling.service';
 import type { HealthReport, SystemResources } from '@/types/api';
 
 const router = useRouter();
@@ -20,7 +21,6 @@ const sys = useSystemStore();
 
 const health = ref<HealthReport | null>(null);
 const res = ref<SystemResources | null>(null);
-let pollTimer: number | undefined;
 
 async function refreshResource(): Promise<void> {
   try {
@@ -33,12 +33,14 @@ async function refreshResource(): Promise<void> {
   } catch { /* 后端未起或权限不足时容错 */ }
 }
 
+// PERFORMANCE_AUDIT P0-#3: 走统一 polling 调度器, WS 在线时自动降速
+let unsubscribePoll: (() => void) | null = null;
 onMounted(() => {
   void refreshResource();
-  pollTimer = window.setInterval(refreshResource, 10_000);
+  unsubscribePoll = polling.subscribe('status:resource', 10_000, refreshResource);
 });
 onBeforeUnmount(() => {
-  if (pollTimer) window.clearInterval(pollTimer);
+  if (unsubscribePoll) unsubscribePoll();
 });
 
 const deviceOnlineRatio = computed(() => {

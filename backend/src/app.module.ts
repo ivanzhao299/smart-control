@@ -7,6 +7,7 @@ import { TypeOrmConfigService } from './common/config/typeorm.config';
 import { LoggerModule } from './common/logger/logger.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+import { LatencyInterceptor } from './common/interceptors/latency.interceptor';
 import { HealthModule } from './modules/health/health.module';
 import { DevicesModule } from './modules/devices/devices.module';
 import { ScenesModule } from './modules/scenes/scenes.module';
@@ -65,6 +66,7 @@ import { ServicesModule } from './services/services.module';
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
+    { provide: APP_INTERCEPTOR, useClass: LatencyInterceptor },
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
   ],
 })

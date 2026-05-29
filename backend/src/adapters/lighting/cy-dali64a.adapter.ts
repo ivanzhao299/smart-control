@@ -110,6 +110,10 @@ export class CyDali64aAdapter extends BaseAdapter {
       port: this.cfg.port,
       timeoutMs: this.cfg.timeoutMs,
       deviceType: 'lighting',
+      // Modbus RTU over TCP 是长会话, 复用 socket 省每次重建的 20-40ms
+      // (PERFORMANCE_AUDIT P0-#1)
+      keepAlive: true,
+      idleTimeoutMs: 30_000,
     });
     this.modbus = new ModbusRtuClient(tcp, this.cfg.defaultSlaveId, this.cfg.frameIntervalMs);
     // 用来在 modbus 调用前检测 env 是否变化, 变了就重建 TcpClient
@@ -324,6 +328,8 @@ export class CyDali64aAdapter extends BaseAdapter {
       port,
       timeoutMs: this.cfg.timeoutMs,
       deviceType: 'lighting',
+      keepAlive: true,
+      idleTimeoutMs: 30_000,
     });
     this.modbus = new ModbusRtuClient(tcp, this.cfg.defaultSlaveId, this.cfg.frameIntervalMs);
     this.modbusHost = host;

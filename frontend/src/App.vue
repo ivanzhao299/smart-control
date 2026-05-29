@@ -4,31 +4,37 @@ import { useSceneStore } from '@/stores/scene';
 import { useDeviceStore } from '@/stores/device';
 import { useSystemStore } from '@/stores/system';
 import { wsClient } from '@/services/websocket.service';
+import { polling } from '@/services/polling.service';
 
 const sceneStore = useSceneStore();
 const deviceStore = useDeviceStore();
 const systemStore = useSystemStore();
 
 let unsubscribeWs: (() => void) | null = null;
-let pollTimer: number | undefined;
 
 onMounted(async () => {
   systemStore.startClock();
   systemStore.startAlertTtlSweep();
   systemStore.bindWsState();
 
+  // PERFORMANCE_AUDIT P0-#2:
+  // 启动期 fetch 拆关键路径 (await) + 非关键 (fire-and-forget):
+  //   关键 = system info + devices 列表 + scenes 元数据 → 影响 Dashboard 首屏
+  //   非关键 = runtime gateways + running scenes → 显示在后台/状态页, 不必同步等
   try {
     await Promise.all([
       systemStore.fetchInfo(),
       sceneStore.fetchScenes(),
-      deviceStore.refreshAll(),
-      sceneStore.refreshRunning(),
+      deviceStore.fetchDevices(),
     ]);
   } catch (err) {
-    // 启动期任一接口失败不阻塞 UI
     // eslint-disable-next-line no-console
-    console.warn('bootstrap fetch failed:', (err as Error).message);
+    console.warn('bootstrap critical fetch failed:', (err as Error).message);
   }
+  // 非关键: fire-and-forget, 不阻塞首屏渲染
+  void deviceStore.fetchRuntime();
+  void deviceStore.fetchGateways();
+  void sceneStore.refreshRunning();
 
   unsubscribeWs = wsClient.on((event) => {
     sceneStore.handleWs(event);
@@ -37,18 +43,31 @@ onMounted(async () => {
   });
   wsClient.connect();
 
-  // 兜底轮询: 即使 WS 暂时断开也定期刷新一次
-  pollTimer = window.setInterval(() => {
-    void deviceStore.fetchRuntime();
-    void deviceStore.fetchGateways();
-    void sceneStore.refreshRunning();
-  }, 20000);
+  // PERFORMANCE_AUDIT P0-#3: 统一轮询调度器, 替代散落 setInterval
+  // WS 在线时整体放大到 ≥30s, WS 断时回到 declared 间隔
+  polling.start();
+  polling.subscribe('app:devices-runtime', 20_000, () => deviceStore.fetchRuntime());
+  polling.subscribe('app:devices-gateways', 20_000, () => deviceStore.fetchGateways());
+  polling.subscribe('app:scenes-running', 30_000, () => sceneStore.refreshRunning());
+
+  // PERFORMANCE_AUDIT P1-#8: idle 时预取所有主菜单 chunk, 切页瞬开
+  const ric =
+    (window as Window & { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback ??
+    ((cb: () => void) => window.setTimeout(cb, 1500));
+  ric(() => {
+    void import('@/pages/LightingPage.vue');
+    void import('@/pages/LedPage.vue');
+    void import('@/pages/AudioPage.vue');
+    void import('@/pages/HvacPage.vue');
+    void import('@/pages/MediaPage.vue');
+    void import('@/pages/StatusPage.vue');
+  });
 });
 
 onBeforeUnmount(() => {
   systemStore.stopClock();
   systemStore.stopAlertTtlSweep();
-  if (pollTimer) window.clearInterval(pollTimer);
+  polling.stop();
   if (unsubscribeWs) unsubscribeWs();
   wsClient.disconnect();
 });

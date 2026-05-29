@@ -77,6 +77,32 @@ export default defineConfig(({ mode }) => {
           globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
           navigateFallback: `${SCOPE_PREFIX}/index.html`,
           navigateFallbackDenylist: [/\/api(\/|$)/, /\/ws(\/|$)/],
+          // PERFORMANCE_AUDIT P0-#5: API GET 走 NetworkFirst, 弱网时 3s 内
+          // 没返回就降级用 60s 内的 cache, 后台 silent revalidate.
+          // POST/PUT/DELETE 默认不缓存 (workbox 行为), 不会影响命令.
+          runtimeCaching: [
+            {
+              urlPattern: /\/api\/.*\/(devices|scenes|hardware|drivers|system\/info|system\/runtime)/,
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'api-read',
+                networkTimeoutSeconds: 3,
+                expiration: {
+                  maxEntries: 50,
+                  maxAgeSeconds: 60,
+                },
+              },
+            },
+            {
+              // 媒体缩略图 / 静态资源 stale-while-revalidate
+              urlPattern: /\/(media|assets|icons)\/.*\.(?:png|jpg|jpeg|webp|svg|woff2?)$/,
+              handler: 'StaleWhileRevalidate',
+              options: {
+                cacheName: 'static-assets',
+                expiration: { maxEntries: 100, maxAgeSeconds: 30 * 24 * 3600 },
+              },
+            },
+          ],
         },
         devOptions: { enabled: false },
       }),
@@ -96,7 +122,8 @@ export default defineConfig(({ mode }) => {
               if (id.includes('lucide-vue-next')) return 'lucide';
               if (/[\\/](vue|vue-router|pinia|@vue)[\\/]/.test(id)) return 'vue-core';
               if (id.includes('axios')) return 'axios';
-              // 其余 (包括 Element Plus) 走默认: 按组件懒加载, 自动 tree-shake
+              // Element Plus 走默认 (Vite auto chunk 已经按组件 tree-shake) —
+              // 实测手动 manualChunks 把 EP 全合一会爆 682 KB, 比自动差.
               return undefined;
             }
             return undefined;

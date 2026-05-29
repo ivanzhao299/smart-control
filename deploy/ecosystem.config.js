@@ -40,6 +40,9 @@ module.exports = {
 
       // 资源限制
       max_memory_restart: '512M',
+      // 显式收紧 Node heap, 让 GC 提前清理而不是涨到 OOM kill
+      // 比 max_memory_restart 早触发, 避免硬重启 (PERFORMANCE_AUDIT P2-#17)
+      node_args: ['--max-old-space-size=400'],
 
       // 优雅关闭
       kill_timeout: 8000,

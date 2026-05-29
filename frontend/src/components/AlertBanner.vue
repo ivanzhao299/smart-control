@@ -5,6 +5,7 @@ import { useSystemStore } from '@/stores/system';
 import { adminAlertService } from '@/services/admin.service';
 import type { Alert, WsEvent } from '@/types/api';
 import { wsClient } from '@/services/websocket.service';
+import { polling } from '@/services/polling.service';
 
 const sys = useSystemStore();
 const router = useRouter();
@@ -41,7 +42,7 @@ const persistedLevelClass = computed(() => {
 });
 
 let unsubscribeWs: (() => void) | null = null;
-let pollTimer: number | undefined;
+let unsubscribePoll: (() => void) | null = null;
 
 async function refresh(): Promise<void> {
   try {
@@ -65,12 +66,13 @@ function handleWs(event: WsEvent): void {
 onMounted(() => {
   void refresh();
   unsubscribeWs = wsClient.on(handleWs);
-  pollTimer = window.setInterval(refresh, 30_000);
+  // PERFORMANCE_AUDIT P0-#3: 走统一 polling
+  unsubscribePoll = polling.subscribe('alert:refresh', 30_000, refresh);
 });
 
 onBeforeUnmount(() => {
   if (unsubscribeWs) unsubscribeWs();
-  if (pollTimer) window.clearInterval(pollTimer);
+  if (unsubscribePoll) unsubscribePoll();
 });
 
 function dismiss(): void {

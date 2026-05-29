@@ -27,11 +27,17 @@ class WsClient {
   private eventHandlers = new Set<WsHandler>();
   private stateHandlers = new Set<WsStateHandler>();
 
+  // PERFORMANCE_AUDIT P2-#15:
+  //   25s 心跳 → 10s, 加 pong 等待超时 (12s 没收 pong 就主动 close 重连),
+  //   死连接检测从 25-50s → 10-12s.
+  private lastPongAt = 0;
+  private pongCheckTimer?: number;
+
   constructor(opts: WsClientOptions = {}) {
     this.path = opts.path ?? '/ws/status';
     this.reconnectMin = opts.reconnectMinMs ?? 1000;
     this.reconnectMax = opts.reconnectMaxMs ?? 15000;
-    this.heartbeatMs = opts.heartbeatMs ?? 25000;
+    this.heartbeatMs = opts.heartbeatMs ?? 10_000;
     this.reconnectDelay = this.reconnectMin;
   }
 
@@ -64,6 +70,8 @@ class WsClient {
       ws.onmessage = (msg) => {
         try {
           const event = JSON.parse(msg.data) as WsEvent;
+          // pong 也走这条 — 收到任何消息都视为对端活着
+          this.lastPongAt = Date.now();
           this.eventHandlers.forEach((h) => {
             try {
               h(event);
@@ -130,6 +138,7 @@ class WsClient {
 
   private startHeartbeat(): void {
     this.stopHeartbeat();
+    this.lastPongAt = Date.now();
     this.heartbeatTimer = window.setInterval(() => {
       if (this.socket && this.socket.readyState === WebSocket.OPEN) {
         try {
@@ -139,12 +148,26 @@ class WsClient {
         }
       }
     }, this.heartbeatMs);
+    // pong 检测: 2× 心跳间隔没收到任何消息就认为死连接, 主动 close 触发重连
+    this.pongCheckTimer = window.setInterval(() => {
+      const since = Date.now() - this.lastPongAt;
+      const limit = this.heartbeatMs * 2 + 2_000; // 默认 22s
+      if (since > limit && this.socket && this.socket.readyState === WebSocket.OPEN) {
+        // eslint-disable-next-line no-console
+        console.warn(`ws no pong for ${since}ms, force reconnect`);
+        try { this.socket.close(); } catch { /* ignore */ }
+      }
+    }, this.heartbeatMs);
   }
 
   private stopHeartbeat(): void {
     if (this.heartbeatTimer) {
       window.clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = undefined;
+    }
+    if (this.pongCheckTimer) {
+      window.clearInterval(this.pongCheckTimer);
+      this.pongCheckTimer = undefined;
     }
   }
 }

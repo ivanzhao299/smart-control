@@ -6,13 +6,27 @@ export interface TcpClientOptions {
   port: number;
   deviceType: string;
   timeoutMs?: number;
+  /**
+   * 长连接模式 (PERFORMANCE_AUDIT P0-#1):
+   *   true  = 复用同一 socket, 空闲 idleTimeoutMs 后断开. 用于 Modbus/中弘等
+   *           长会话协议, 单次命令省 20-40ms TCP 重建开销.
+   *   false = 每次新建+销毁 socket (默认). 用于 Nova VX/V 等"对端发完就关"
+   *           的协议.
+   */
+  keepAlive?: boolean;
+  /** keepAlive=true 时, socket 空闲多久断开. 默认 30s. */
+  idleTimeoutMs?: number;
 }
 
 /**
- * 短连接 TCP: 每次 sendAndExpect 新建 socket 发送数据并等待响应。
- * 适合大多数厂商 TCP 控制协议 (一问一答, 无持久会话)。
+ * TCP 客户端 - 支持短连接 (默认) 和长连接 (keepAlive=true).
+ * 长连接模式下用 socketMutex 串行化, 防止 read 流交叠.
  */
 export class TcpClient {
+  private persistentSocket: Socket | null = null;
+  private socketMutex: Promise<unknown> = Promise.resolve();
+  private idleTimer?: NodeJS.Timeout;
+
   constructor(private readonly opts: TcpClientOptions) {}
 
   async ping(timeoutMs?: number, signal?: AbortSignal): Promise<void> {
@@ -22,6 +36,19 @@ export class TcpClient {
   }
 
   async send(payload: Buffer | string, signal?: AbortSignal): Promise<void> {
+    if (this.opts.keepAlive) {
+      return this.serialized(async () => {
+        const sock = await this.acquirePersistent(signal);
+        try {
+          await this.writeAsync(sock, payload);
+        } catch (err) {
+          this.killPersistent();
+          throw err;
+        } finally {
+          this.resetIdleTimer();
+        }
+      });
+    }
     const sock = await this.connectOnce(this.opts.timeoutMs ?? 3000, signal);
     try {
       await this.writeAsync(sock, payload);
@@ -37,6 +64,23 @@ export class TcpClient {
     opts: { minBytes?: number } = {},
   ): Promise<Buffer> {
     const timeoutMs = this.opts.timeoutMs ?? 3000;
+
+    if (this.opts.keepAlive) {
+      return this.serialized(async () => {
+        const sock = await this.acquirePersistent(signal);
+        try {
+          await this.writeAsync(sock, payload);
+          return await this.readBytes(sock, expectBytes, timeoutMs, signal, opts.minBytes, true);
+        } catch (err) {
+          // 写/读失败认为 socket 状态坏掉, 杀掉强制下次重连
+          this.killPersistent();
+          throw err;
+        } finally {
+          this.resetIdleTimer();
+        }
+      });
+    }
+
     const sock = await this.connectOnce(timeoutMs, signal);
     try {
       await this.writeAsync(sock, payload);
@@ -44,6 +88,54 @@ export class TcpClient {
     } finally {
       sock.destroy();
     }
+  }
+
+  /** 手动关闭长连接 (host/port 变更 / shutdown 时调) */
+  dispose(): void {
+    this.killPersistent();
+  }
+
+  // ============ keepAlive 内部 ============
+
+  private async acquirePersistent(signal?: AbortSignal): Promise<Socket> {
+    if (this.persistentSocket && !this.persistentSocket.destroyed && this.persistentSocket.writable) {
+      return this.persistentSocket;
+    }
+    const sock = await this.connectOnce(this.opts.timeoutMs ?? 3000, signal);
+    sock.setKeepAlive(true, 10_000);
+    sock.on('error', () => this.killPersistent());
+    sock.on('close', () => { this.persistentSocket = null; });
+    sock.on('end', () => this.killPersistent());
+    this.persistentSocket = sock;
+    return sock;
+  }
+
+  private resetIdleTimer(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    const idleMs = this.opts.idleTimeoutMs ?? 30_000;
+    this.idleTimer = setTimeout(() => this.killPersistent(), idleMs);
+  }
+
+  private killPersistent(): void {
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = undefined;
+    }
+    if (this.persistentSocket) {
+      try {
+        this.persistentSocket.removeAllListeners();
+        this.persistentSocket.destroy();
+      } catch { /* ignore */ }
+      this.persistentSocket = null;
+    }
+  }
+
+  /** 串行队列: 防止多个 sendAndExpect 在同一 socket 上 read 流交叠 */
+  private serialized<T>(fn: () => Promise<T>): Promise<T> {
+    const prev = this.socketMutex;
+    const next: Promise<T> = prev.then(fn, fn);
+    this.socketMutex = next.catch(() => undefined);
+    return next;
   }
 
   private connectOnce(timeoutMs: number, signal?: AbortSignal): Promise<Socket> {
@@ -118,6 +210,7 @@ export class TcpClient {
     timeoutMs: number,
     signal?: AbortSignal,
     minBytes?: number,
+    persistent = false,  // true 时退出前彻底清 listener, 不能让残留干扰下次 read
   ): Promise<Buffer> {
     // minBytes: 接受 "对端关连接 + 已收到 ≥ minBytes" 为成功 (返回实际拿到的内容).
     // 用于响应长度不固定的协议 (如 NovaStar V/VX 系列, 同一命令在不同型号上响应长度
@@ -128,13 +221,51 @@ export class TcpClient {
       let received = 0;
       let settled = false;
 
+      // 清掉只属于这次 read 的 listener (用具名 ref, 不动 socket 上其它 listener)
+      const onData = (chunk: Buffer): void => {
+        chunks.push(chunk);
+        received += chunk.length;
+        if (received >= expectBytes && !settled) {
+          settled = true;
+          cleanup();
+          resolve(Buffer.concat(chunks).subarray(0, expectBytes));
+        }
+      };
+      const onError = (err: Error): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(classifyError(this.opts.deviceType, err));
+      };
+      const onEnd = (): void => {
+        if (settled) return;
+        if (received >= expectBytes) return;
+        settled = true;
+        cleanup();
+        if (received >= minOk && minOk < expectBytes) {
+          resolve(Buffer.concat(chunks));
+          return;
+        }
+        reject(
+          new DeviceConnectionError(
+            this.opts.deviceType,
+            `tcp closed before ${expectBytes} bytes received (got ${received})`,
+          ),
+        );
+      };
+
+      const cleanup = (): void => {
+        clearTimeout(timer);
+        sock.off('data', onData);
+        sock.off('error', onError);
+        sock.off('end', onEnd);
+        if (signal) signal.removeEventListener('abort', onAbort);
+      };
+
       const timer = setTimeout(() => {
         if (settled) return;
         settled = true;
-        sock.removeAllListeners('data');
-        sock.removeAllListeners('error');
-        sock.removeAllListeners('end');
-        // 超时时如果已经收到 ≥ minBytes 也算成功 (有些设备一直保持连接)
+        cleanup();
         if (received >= minOk && minOk < expectBytes) {
           resolve(Buffer.concat(chunks));
           return;
@@ -150,47 +281,17 @@ export class TcpClient {
       const onAbort = (): void => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        cleanup();
         reject(new DeviceConnectionError(this.opts.deviceType, 'aborted'));
       };
       if (signal) signal.addEventListener('abort', onAbort, { once: true });
 
-      sock.on('data', (chunk) => {
-        chunks.push(chunk);
-        received += chunk.length;
-        if (received >= expectBytes) {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          if (signal) signal.removeEventListener('abort', onAbort);
-          resolve(Buffer.concat(chunks).subarray(0, expectBytes));
-        }
-      });
-      sock.on('error', (err) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        if (signal) signal.removeEventListener('abort', onAbort);
-        reject(classifyError(this.opts.deviceType, err));
-      });
-      sock.on('end', () => {
-        if (settled) return;
-        if (received >= expectBytes) return;
-        settled = true;
-        clearTimeout(timer);
-        if (signal) signal.removeEventListener('abort', onAbort);
-        // 对端关连接前已经收到 ≥ minBytes: 视为完整响应 (设备的响应比我们预期短)
-        if (received >= minOk && minOk < expectBytes) {
-          resolve(Buffer.concat(chunks));
-          return;
-        }
-        reject(
-          new DeviceConnectionError(
-            this.opts.deviceType,
-            `tcp closed before ${expectBytes} bytes received (got ${received})`,
-          ),
-        );
-      });
+      sock.on('data', onData);
+      sock.on('error', onError);
+      sock.on('end', onEnd);
+
+      // persistent 是个 hint, 真正决定要不要清是 cleanup() 自带
+      void persistent;
     });
   }
 }

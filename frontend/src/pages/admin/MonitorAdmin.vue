@@ -18,7 +18,9 @@ const health = ref<HealthReport | null>(null);
 const res = ref<SystemResources | null>(null);
 const logs = ref<LogsSummary | null>(null);
 const loading = ref(false);
-let pollTimer: number | undefined;
+// PERFORMANCE_AUDIT P0-#3: 统一 polling 调度器
+import { polling } from '@/services/polling.service';
+let unsubscribePoll: (() => void) | null = null;
 
 async function refresh(): Promise<void> {
   loading.value = true;
@@ -94,11 +96,11 @@ const GATEWAYS = [
 
 onMounted(() => {
   void refresh();
-  pollTimer = window.setInterval(refresh, 8000);
+  unsubscribePoll = polling.subscribe('admin:monitor', 8_000, refresh);
 });
 
 onBeforeUnmount(() => {
-  if (pollTimer) window.clearInterval(pollTimer);
+  if (unsubscribePoll) unsubscribePoll();
 });
 </script>
 
