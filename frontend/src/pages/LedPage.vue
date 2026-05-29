@@ -1,14 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { ElMessage } from 'element-plus';
+import { useRouter } from 'vue-router';
 import {
-  MonitorPlay,
-  Power,
-  PowerOff,
-  Sparkles,
-  Play,
-  Tv2,
-  AlertCircle,
+  ArrowLeft, MonitorPlay, Power, X, Sparkles, Play, Tv2, Sun,
 } from 'lucide-vue-next';
 import { ledService, type LedInput } from '@/services/led.service';
 
@@ -18,17 +13,23 @@ interface LedRow {
   floor: string;
   power: boolean;
   input: LedInput;
+  brightness: number;
   media: string;
   busy: boolean;
   error: string | null;
 }
 
 const screens = ref<LedRow[]>([
-  { id: 'led_1f_main', name: '一层主 LED', floor: '1F', power: false, input: 'HDMI1', media: '', busy: false, error: null },
-  { id: 'led_2f_main', name: '二层主 LED', floor: '2F', power: false, input: 'HDMI1', media: '', busy: false, error: null },
+  { id: 'led_1f_main', name: '一层主 LED', floor: '1F', power: false, input: 'HDMI1', brightness: 80, media: '', busy: false, error: null },
+  { id: 'led_2f_main', name: '二层主 LED', floor: '2F', power: false, input: 'HDMI1', brightness: 80, media: '', busy: false, error: null },
 ]);
 
-const inputs: LedInput[] = ['HDMI1', 'HDMI2', 'welcome', 'video'];
+const INPUTS: Array<{ value: LedInput; label: string }> = [
+  { value: 'HDMI1', label: 'HDMI 1' },
+  { value: 'HDMI2', label: 'HDMI 2' },
+  { value: 'welcome', label: '欢迎页' },
+  { value: 'video', label: '视频' },
+];
 
 async function call(z: LedRow, label: string, fn: () => Promise<{ ok: boolean; error?: string }>): Promise<boolean> {
   z.busy = true; z.error = null;
@@ -44,9 +45,10 @@ async function call(z: LedRow, label: string, fn: () => Promise<{ ok: boolean; e
   } finally { z.busy = false; }
 }
 
-async function power(z: LedRow, on: boolean): Promise<void> {
-  const ok = await call(z, on ? '开屏' : '关屏', () => (on ? ledService.on(z.id) : ledService.off(z.id)));
-  if (ok) z.power = on;
+async function togglePower(z: LedRow): Promise<void> {
+  const want = !z.power;
+  const ok = await call(z, want ? '开屏' : '关屏', () => (want ? ledService.on(z.id) : ledService.off(z.id)));
+  if (ok) z.power = want;
 }
 
 async function changeInput(z: LedRow, input: LedInput): Promise<void> {
@@ -54,88 +56,136 @@ async function changeInput(z: LedRow, input: LedInput): Promise<void> {
   if (ok) { z.input = input; z.power = true; }
 }
 
+async function welcome(z: LedRow): Promise<void> {
+  const ok = await call(z, '欢迎页', () => ledService.welcome(z.id));
+  if (ok) { z.power = true; z.input = 'welcome'; }
+}
+
 async function play(z: LedRow): Promise<void> {
   const ok = await call(z, '播放', () => ledService.play(z.id, z.media || undefined));
   if (ok) z.power = true;
 }
 
-async function welcome(z: LedRow): Promise<void> {
-  const ok = await call(z, '欢迎页', () => ledService.welcome(z.id));
-  if (ok) { z.power = true; z.input = 'welcome'; }
+// ============ 总览 ============
+const overview = computed(() => {
+  const total = screens.value.length;
+  const onCount = screens.value.filter((z) => z.power).length;
+  return { total, onCount };
+});
+
+const router = useRouter();
+function goBack(): void { router.push({ name: 'dashboard' }); }
+async function allOn(): Promise<void> {
+  for (const z of screens.value) { if (!z.power) await togglePower(z); }
+}
+async function allOff(): Promise<void> {
+  for (const z of screens.value) { if (z.power) await togglePower(z); }
 }
 </script>
 
 <template>
-  <section class="page">
-    <header class="page-head">
-      <div class="sc-head-ico"><MonitorPlay :size="22" :stroke-width="1.75" /></div>
-      <div>
-        <h2 class="sc-title">LED 大屏控制</h2>
-        <div class="sc-subtle">诺瓦 V2460 (V/VX 协议族) · 开关 / 输入 / 播放</div>
+  <section class="v2-page">
+    <header class="v2-page-head">
+      <div class="back-row">
+        <button class="v2-back-btn" @click="goBack" title="返回首页">
+          <ArrowLeft :size="18" :stroke-width="2" />
+        </button>
+        <div class="title-block">
+          <div class="title"><MonitorPlay :size="18" :stroke-width="1.8" /> LED 大屏控制</div>
+          <div class="sub">诺瓦 V2460 · V/VX 协议族 · {{ overview.total }} 屏</div>
+        </div>
+      </div>
+      <div class="quick-actions">
+        <button class="v2-quick primary" @click="allOn">
+          <Power :size="14" :stroke-width="2" /> 全部开
+        </button>
+        <button class="v2-quick danger" @click="allOff">
+          <X :size="14" :stroke-width="2" /> 全部关
+        </button>
       </div>
     </header>
 
-    <div class="grid">
-      <div v-for="z in screens" :key="z.id" class="sc-panel led-card" :class="{ 'is-on': z.power, 'is-error': !!z.error }">
-        <div class="head">
-          <div>
-            <div class="name">{{ z.name }}</div>
-            <div class="meta">{{ z.id }} · {{ z.floor }}</div>
+    <!-- 总览 -->
+    <div class="v2-overview led">
+      <div class="ov-item">
+        <div class="ov-ico"><MonitorPlay :size="18" :stroke-width="2" /></div>
+        <div class="ov-body">
+          <div class="ov-label">开屏中</div>
+          <div class="ov-value v2-inter">{{ overview.onCount }}<span class="unit">/ {{ overview.total }}</span></div>
+        </div>
+      </div>
+      <div class="ov-item">
+        <div class="ov-ico"><Tv2 :size="18" :stroke-width="2" /></div>
+        <div class="ov-body">
+          <div class="ov-label">控制器</div>
+          <div class="ov-value v2-inter" style="font-size: 16px;">诺瓦 V2460</div>
+        </div>
+      </div>
+      <div class="ov-item">
+        <div class="ov-ico"><Sparkles :size="18" :stroke-width="2" /></div>
+        <div class="ov-body">
+          <div class="ov-label">协议</div>
+          <div class="ov-value v2-inter" style="font-size: 16px;">TCP 5200</div>
+        </div>
+      </div>
+      <div class="ov-item">
+        <div class="ov-ico"><Power :size="18" :stroke-width="2" /></div>
+        <div class="ov-body">
+          <div class="ov-label">网关状态</div>
+          <div class="ov-value v2-inter" style="font-size: 16px; color: var(--v2-success);">在线</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 屏卡 -->
+    <div class="v2-screen-grid">
+      <div
+        v-for="z in screens"
+        :key="z.id"
+        class="v2-screen"
+        :class="{ on: z.power, offline: !!z.error }"
+      >
+        <div class="screen-top">
+          <div class="screen-meta">
+            <div class="screen-name">{{ z.name }}</div>
+            <div class="screen-addr v2-inter">{{ z.id.toUpperCase() }} · {{ z.floor }}</div>
           </div>
-          <span class="sc-status" :class="z.error ? 'is-error' : z.power ? 'is-on' : 'is-off'">
-            <span class="sc-status-dot" />
-            {{ z.error ? '故障' : z.power ? '运行中' : '已关闭' }}
-          </span>
+          <button
+            class="v2-toggle"
+            :class="{ on: z.power }"
+            :disabled="z.busy"
+            @click="togglePower(z)"
+            :title="z.power ? '关屏' : '开屏'"
+          ></button>
         </div>
 
-        <div class="screen-display" :class="{ 'is-on': z.power }">
-          <template v-if="!z.power">
-            <Tv2 class="screen-icon" :size="44" :stroke-width="1.5" />
-            <div class="off-mask">屏幕已关闭</div>
-          </template>
-          <div v-else class="on-content">
-            <div class="screen-input">{{ z.input }}</div>
-            <div v-if="z.media" class="screen-media">
-              <Play :size="14" :stroke-width="2.5" /> {{ z.media }}
-            </div>
-          </div>
+        <!-- 当前输入 -->
+        <div class="screen-state">
+          <div class="state-label">当前输入</div>
+          <div class="state-value v2-inter">{{ INPUTS.find(i => i.value === z.input)?.label ?? z.input }}</div>
         </div>
 
-        <div class="power-row">
-          <button class="sc-touch sc-act sc-act-success" :disabled="z.busy || z.power" @click="power(z, true)">
-            <Power :size="20" :stroke-width="2" /> 开屏
-          </button>
-          <button class="sc-touch sc-act sc-act-danger" :disabled="z.busy || !z.power" @click="power(z, false)">
-            <PowerOff :size="20" :stroke-width="2" /> 关屏
-          </button>
-          <button class="sc-touch sc-act sc-act-warning" :disabled="z.busy" @click="welcome(z)">
-            <Sparkles :size="20" :stroke-width="2" /> 欢迎页
-          </button>
-        </div>
-
-        <div class="section-label">输入源</div>
+        <!-- 输入切换 -->
         <div class="input-row">
           <button
-            v-for="i in inputs"
-            :key="i"
-            class="sc-touch sc-toggle"
-            :class="{ 'is-active': z.input === i }"
+            v-for="i in INPUTS"
+            :key="i.value"
+            class="input-chip"
+            :class="{ active: z.input === i.value }"
             :disabled="z.busy"
-            style="min-height: 54px; font-size: 15px;"
-            @click="changeInput(z, i)"
-          >{{ i }}</button>
+            @click="changeInput(z, i.value)"
+          >{{ i.label }}</button>
         </div>
 
-        <div class="section-label">播放视频</div>
-        <div class="play-row">
-          <el-input v-model="z.media" placeholder="文件名 / 频道 (如 welcome.mp4)" size="large" />
-          <button class="sc-touch sc-act sc-act-primary" :disabled="z.busy" @click="play(z)">
-            <Play :size="20" :stroke-width="2" /> 播放
+        <!-- 媒体操作 -->
+        <div class="media-row">
+          <input v-model="z.media" placeholder="文件名 (e.g. welcome.mp4)" class="media-input" />
+          <button class="v2-quick" :disabled="z.busy" @click="play(z)">
+            <Play :size="14" :stroke-width="2" /> 播放
           </button>
-        </div>
-
-        <div v-if="z.error" class="sc-err">
-          <AlertCircle :size="16" :stroke-width="2" /> {{ z.error }}
+          <button class="v2-quick primary" :disabled="z.busy" @click="welcome(z)">
+            <Sun :size="14" :stroke-width="2" /> 欢迎页
+          </button>
         </div>
       </div>
     </div>
@@ -143,70 +193,143 @@ async function welcome(z: LedRow): Promise<void> {
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 18px; }
-.page-head { display: flex; align-items: center; gap: 14px; }
-.grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
-}
-.led-card { display: flex; flex-direction: column; gap: 14px; }
-.led-card.is-on {
-  border-color: rgba(59, 130, 246, 0.55);
-  box-shadow: 0 12px 32px -10px rgba(59, 130, 246, 0.3);
-}
-.led-card.is-error { border-color: rgba(239, 68, 68, 0.55); }
-.head { display: flex; justify-content: space-between; align-items: flex-start; }
-.name { font-size: 20px; font-weight: 600; }
-.meta {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-top: 4px;
-  letter-spacing: 1px;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-}
+.v2-page { padding: var(--v2-sp-5); display: flex; flex-direction: column; gap: var(--v2-sp-4); }
 
-/* 屏幕预览区 */
-.screen-display {
-  height: 140px;
-  background:
-    radial-gradient(circle at center, rgba(15, 23, 42, 0.4) 0%, rgba(2, 6, 23, 0.95) 100%);
-  border-radius: 14px;
-  border: 1px solid var(--border-soft);
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  overflow: hidden;
-  position: relative;
-  gap: 10px;
+.v2-page-head { display: flex; justify-content: space-between; align-items: center; gap: var(--v2-sp-4); flex-wrap: wrap; }
+.back-row { display: flex; align-items: center; gap: var(--v2-sp-4); }
+.v2-back-btn {
+  width: 36px; height: 36px; border-radius: var(--v2-r-sm);
+  background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft);
+  display: grid; place-items: center; cursor: pointer; color: var(--v2-text-2);
+  transition: all 0.18s ease;
 }
-.screen-display.is-on {
-  background:
-    radial-gradient(circle at 30% 30%, rgba(37, 99, 235, 0.35) 0%, transparent 65%),
-    radial-gradient(circle at 70% 70%, rgba(124, 58, 237, 0.25) 0%, transparent 65%),
-    #020617;
-  border-color: rgba(59, 130, 246, 0.5);
+.v2-back-btn:hover { background: var(--v2-surf-1-hover); color: var(--v2-text-1); }
+.title-block { display: flex; flex-direction: column; }
+.title {
+  font-size: 15px; font-weight: 600; color: var(--v2-text-1);
+  display: inline-flex; align-items: center; gap: var(--v2-sp-2); letter-spacing: 0.5px;
 }
-.screen-icon { color: rgba(148, 163, 184, 0.5); }
-.off-mask { color: var(--text-secondary); font-size: 14px; letter-spacing: 2px; }
-.on-content {
-  width: 100%; height: 100%;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 8px;
-}
-.screen-input {
-  font-size: 30px; font-weight: 700; color: #fff;
-  letter-spacing: 5px;
-  text-shadow: 0 2px 12px rgba(59, 130, 246, 0.4);
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-}
-.screen-media {
+.sub { font-size: var(--v2-fs-xs); color: var(--v2-text-3); margin-top: 2px; }
+
+.quick-actions { display: flex; gap: var(--v2-sp-2); }
+.v2-quick {
+  padding: 8px 14px; border-radius: var(--v2-r-sm); font-size: var(--v2-fs-sm);
+  background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft);
+  color: var(--v2-text-2); cursor: pointer;
   display: inline-flex; align-items: center; gap: 6px;
-  color: #cbd5e1; font-size: 13px;
+  transition: all 0.18s ease; min-height: 36px;
+}
+.v2-quick:hover { background: var(--v2-surf-1-hover); color: var(--v2-text-1); }
+.v2-quick.primary {
+  background: var(--v2-primary-soft); color: var(--v2-primary);
+  border-color: rgba(6, 182, 212, 0.3);
+}
+.v2-quick.danger {
+  background: rgba(239, 68, 68, 0.1); color: var(--v2-danger);
+  border-color: rgba(239, 68, 68, 0.3);
 }
 
-.power-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-.section-label { font-size: 12px; color: var(--text-secondary); letter-spacing: 1.5px; margin-top: 4px; text-transform: uppercase; }
-.input-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-.play-row { display: grid; grid-template-columns: 1fr 140px; gap: 10px; }
+/* 总览 (LED 用青色调) */
+.v2-overview.led {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--v2-sp-3);
+  padding: var(--v2-sp-4);
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.05), rgba(6, 182, 212, 0.01));
+  border: 1px solid rgba(6, 182, 212, 0.12);
+  border-radius: var(--v2-r-lg);
+}
+.ov-item { display: flex; align-items: center; gap: var(--v2-sp-3); }
+.ov-ico {
+  width: 40px; height: 40px; border-radius: var(--v2-r-sm);
+  background: var(--v2-primary-soft); color: var(--v2-primary);
+  display: grid; place-items: center; flex-shrink: 0;
+}
+.ov-body { display: flex; flex-direction: column; min-width: 0; }
+.ov-label { font-size: var(--v2-fs-xs); color: var(--v2-text-3); letter-spacing: 1px; }
+.ov-value { font-size: 20px; font-weight: 600; line-height: 1.1; margin-top: 2px; color: var(--v2-text-1); }
+.ov-value .unit { font-size: 12px; color: var(--v2-text-3); margin-left: 2px; font-weight: 400; }
 
-@media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
+/* 屏卡 */
+.v2-screen-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--v2-sp-4);
+}
+@media (max-width: 900px) { .v2-screen-grid { grid-template-columns: 1fr; } }
+
+.v2-screen {
+  position: relative; padding: var(--v2-sp-4);
+  background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft);
+  border-radius: var(--v2-r-lg);
+  display: flex; flex-direction: column; gap: var(--v2-sp-4);
+  overflow: hidden;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  transition: all 0.22s ease;
+}
+.v2-screen.on {
+  border-color: rgba(6, 182, 212, 0.22);
+  box-shadow: 0 8px 24px -10px rgba(6, 182, 212, 0.3);
+}
+.v2-screen.offline { opacity: 0.5; }
+
+.screen-top { display: flex; align-items: center; justify-content: space-between; }
+.screen-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.screen-name { font-size: 17px; font-weight: 600; color: var(--v2-text-1); letter-spacing: 0.5px; }
+.screen-addr { font-size: 10px; color: var(--v2-text-3); letter-spacing: 1px; }
+
+.v2-toggle {
+  position: relative; width: 42px; height: 24px;
+  border-radius: 12px; background: var(--v2-surf-2);
+  cursor: pointer; transition: background 0.22s ease;
+  flex-shrink: 0; border: none; padding: 0;
+}
+.v2-toggle::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: white; box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.v2-toggle.on {
+  background: linear-gradient(135deg, var(--v2-primary), #22d3ee);
+  box-shadow: 0 0 10px rgba(6, 182, 212, 0.45);
+}
+.v2-toggle.on::after { transform: translateX(18px); }
+.v2-toggle:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.screen-state {
+  display: flex; flex-direction: column; gap: var(--v2-sp-1);
+  padding: var(--v2-sp-3);
+  background: var(--v2-surf-2);
+  border-radius: var(--v2-r-md);
+}
+.state-label { font-size: var(--v2-fs-xs); color: var(--v2-text-3); letter-spacing: 1px; }
+.state-value { font-size: 18px; font-weight: 600; color: var(--v2-text-1); }
+
+.input-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.input-chip {
+  padding: 10px 0; border-radius: 6px;
+  font-size: var(--v2-fs-sm); background: var(--v2-surf-2);
+  color: var(--v2-text-2); text-align: center; cursor: pointer;
+  transition: all 0.18s ease; border: 1px solid transparent;
+  min-height: 40px;
+}
+.input-chip:hover { background: var(--v2-surf-1-hover); color: var(--v2-text-1); }
+.input-chip.active {
+  background: var(--v2-primary-soft); color: var(--v2-primary);
+  border-color: rgba(6, 182, 212, 0.3);
+}
+.input-chip:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.media-row {
+  display: grid; grid-template-columns: 1fr auto auto;
+  gap: var(--v2-sp-2); align-items: center;
+}
+.media-input {
+  padding: 10px 14px;
+  background: var(--v2-surf-2);
+  border: 1px solid var(--v2-border-soft);
+  border-radius: var(--v2-r-sm);
+  color: var(--v2-text-1);
+  font-size: var(--v2-fs-sm);
+  outline: none;
+  min-height: 40px;
+}
+.media-input:focus { border-color: var(--v2-primary); }
 </style>
