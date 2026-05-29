@@ -113,52 +113,99 @@ function gotoAlerts(): void {
 </template>
 
 <style scoped>
+/* v2 玻璃风格: 半透明背景 + 暖色描边 + 内阴影 */
 .alert-banner {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--v2-sp-3);
   padding: 10px 18px;
-  background: rgba(239, 68, 68, 0.92);
-  color: #fff;
+  margin: var(--v2-sp-3) var(--v2-sp-5) 0;
+  border-radius: var(--v2-r-md);
   font-weight: 500;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: var(--v2-text-1);
+  box-shadow: 0 8px 24px -10px rgba(239, 68, 68, 0.4);
+}
+.alert-banner.is-error {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.3);
 }
 .alert-banner.is-warning {
-  background: rgba(245, 158, 11, 0.92);
-  color: #1f2937;
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.3);
+  box-shadow: 0 8px 24px -10px rgba(245, 158, 11, 0.4);
 }
 .alert-banner.is-info {
-  background: rgba(96, 165, 250, 0.92);
-  color: #1f2937;
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 8px 24px -10px rgba(59, 130, 246, 0.4);
 }
 .alert-banner.persisted { cursor: pointer; }
-.alert-banner.persisted:active { filter: brightness(0.92); }
-.alert-icon {
-  font-size: 20px;
-  font-weight: 700;
+.alert-banner.persisted:hover {
+  background: rgba(239, 68, 68, 0.18);
 }
-.alert-body { flex: 1; line-height: 1.3; }
-.alert-source { font-size: 12px; opacity: 0.85; }
-.alert-msg { font-size: 15px; }
+.alert-icon {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 16px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.alert-banner.is-error .alert-icon {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--v2-danger);
+}
+.alert-banner.is-warning .alert-icon {
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--v2-warning);
+}
+.alert-banner.is-info .alert-icon {
+  background: rgba(59, 130, 246, 0.2);
+  color: var(--v2-info);
+}
+.alert-body { flex: 1; line-height: 1.3; min-width: 0; }
+.alert-source {
+  font-size: 11px;
+  color: var(--v2-text-3);
+  letter-spacing: 0.5px;
+}
+.alert-msg {
+  font-size: 14px;
+  color: var(--v2-text-1);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .alert-count {
-  font-size: 12px;
-  padding: 2px 8px;
-  background: rgba(0, 0, 0, 0.25);
+  font-size: 11px;
+  padding: 4px 10px;
+  background: var(--v2-surf-2);
+  color: var(--v2-text-2);
   border-radius: 999px;
+  flex-shrink: 0;
 }
 .alert-close {
-  background: transparent;
+  background: var(--v2-surf-2);
   border: none;
-  color: inherit;
-  font-size: 24px;
+  color: var(--v2-text-2);
+  font-size: 20px;
   cursor: pointer;
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--v2-r-sm);
+  transition: all 0.18s ease;
+  flex-shrink: 0;
 }
-.alert-close:active {
-  background: rgba(0, 0, 0, 0.2);
+.alert-close:hover {
+  background: var(--v2-surf-1-hover);
+  color: var(--v2-text-1);
 }
 .banner-enter-from, .banner-leave-to { opacity: 0; transform: translateY(-10px); }
-.banner-enter-active, .banner-leave-active { transition: all 0.2s ease; }
+.banner-enter-active, .banner-leave-active { transition: all 0.22s ease; }
 </style>

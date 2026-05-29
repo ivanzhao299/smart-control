@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import { useRouter } from 'vue-router';
 import {
   Upload,
   Trash2,
@@ -10,8 +11,12 @@ import {
   FolderOpen,
   RefreshCcw,
   Send,
+  ArrowLeft,
 } from 'lucide-vue-next';
 import { mediaService, type MediaItem } from '@/services/media.service';
+
+const router = useRouter();
+function goBack(): void { router.push({ name: 'dashboard' }); }
 
 const items = ref<MediaItem[]>([]);
 const loading = ref(false);
@@ -184,32 +189,27 @@ onMounted(() => { void refresh(); });
 
 <template>
   <section class="media-page">
-    <!-- 头部: 标题 + 过滤 + 上传 -->
-    <header class="head">
-      <div class="title-row">
-        <FolderOpen :size="24" :stroke-width="2" class="t-icon" />
-        <div>
-          <h2 class="sc-title">媒体库</h2>
-          <div class="sc-subtle">
-            视频 {{ stats.v }} · 图片 {{ stats.i }} · 占 {{ fmtSize(stats.totalBytes) }}
-          </div>
+    <!-- v2 page-head -->
+    <header class="v2-page-head">
+      <div class="back-row">
+        <button class="v2-back-btn" @click="goBack" title="返回首页">
+          <ArrowLeft :size="18" :stroke-width="2" />
+        </button>
+        <div class="title-block">
+          <div class="title"><FolderOpen :size="18" :stroke-width="1.8" /> 媒体库</div>
+          <div class="sub">视频 {{ stats.v }} · 图片 {{ stats.i }} · 占 {{ fmtSize(stats.totalBytes) }}</div>
+        </div>
+        <div class="v2-tabs">
+          <button class="v2-tab" :class="{ active: filter === 'all' }" @click="filter = 'all'">全部</button>
+          <button class="v2-tab" :class="{ active: filter === 'video' }" @click="filter = 'video'">视频</button>
+          <button class="v2-tab" :class="{ active: filter === 'image' }" @click="filter = 'image'">图片</button>
         </div>
       </div>
-
-      <div class="actions">
-        <div class="filter-pills">
-          <button class="pill" :class="{ active: filter === 'all' }" @click="filter = 'all'">全部</button>
-          <button class="pill" :class="{ active: filter === 'video' }" @click="filter = 'video'">
-            <Film :size="13" :stroke-width="2" /> 视频
-          </button>
-          <button class="pill" :class="{ active: filter === 'image' }" @click="filter = 'image'">
-            <ImageIcon :size="13" :stroke-width="2" /> 图片
-          </button>
-        </div>
-        <button class="btn-ghost" :disabled="loading" @click="refresh">
+      <div class="quick-actions">
+        <button class="v2-quick" :disabled="loading" @click="refresh">
           <RefreshCcw :size="14" :stroke-width="2" /> 刷新
         </button>
-        <label class="btn-primary" :class="{ disabled: uploading }">
+        <label class="v2-quick primary" :class="{ disabled: uploading }">
           <Upload :size="14" :stroke-width="2" />
           {{ uploading ? `上传中 ${uploadPct}%` : '上传文件' }}
           <input type="file" accept="video/*,image/*" :disabled="uploading" @change="onFileInput" hidden />
@@ -301,10 +301,10 @@ onMounted(() => { void refresh(); });
           </div>
           <div v-if="previewItem.remark" class="remark">{{ previewItem.remark }}</div>
           <div class="preview-actions">
-            <button class="btn-primary" @click="pushToScreen(previewItem)">
+            <button class="v2-quick primary" @click="pushToScreen(previewItem)">
               <Send :size="14" :stroke-width="2" /> 推送到 LED 大屏
             </button>
-            <button class="btn-ghost danger" @click="confirmDelete(previewItem)">
+            <button class="v2-quick danger" @click="confirmDelete(previewItem)">
               <Trash2 :size="14" :stroke-width="2" /> 删除
             </button>
           </div>
@@ -315,25 +315,63 @@ onMounted(() => { void refresh(); });
 </template>
 
 <style scoped>
-.media-page { display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; }
-.head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
-.title-row { display: flex; align-items: center; gap: 10px; }
-.t-icon { color: #06b6d4; filter: drop-shadow(0 0 6px rgba(6, 182, 212, 0.5)); }
-.actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.media-page {
+  padding: var(--v2-sp-5);
+  display: flex; flex-direction: column; gap: var(--v2-sp-4);
+  height: 100%; min-height: 0;
+}
 
-.filter-pills { display: flex; gap: 4px; padding: 3px; background: rgba(15, 23, 42, 0.5); border: 1px solid var(--border-soft); border-radius: 8px; backdrop-filter: blur(8px); }
-.pill { display: inline-flex; align-items: center; gap: 4px; padding: 5px 12px; font-size: 12px; background: transparent; color: var(--text-secondary); border: none; border-radius: 6px; cursor: pointer; transition: all 0.15s; }
-.pill:hover { color: var(--text-primary); }
-.pill.active { background: linear-gradient(135deg, #06b6d4 0%, #a855f7 100%); color: #fff; box-shadow: 0 4px 12px -3px rgba(124, 58, 237, 0.45); }
+/* v2 page head */
+.v2-page-head { display: flex; justify-content: space-between; align-items: center; gap: var(--v2-sp-4); flex-wrap: wrap; }
+.back-row { display: flex; align-items: center; gap: var(--v2-sp-4); }
+.v2-back-btn {
+  width: 36px; height: 36px; border-radius: var(--v2-r-sm);
+  background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft);
+  display: grid; place-items: center; cursor: pointer; color: var(--v2-text-2);
+  transition: all 0.18s ease;
+}
+.v2-back-btn:hover { background: var(--v2-surf-1-hover); color: var(--v2-text-1); }
+.title-block { display: flex; flex-direction: column; }
+.title { font-size: 15px; font-weight: 600; color: var(--v2-text-1); display: inline-flex; align-items: center; gap: var(--v2-sp-2); }
+.sub { font-size: var(--v2-fs-xs); color: var(--v2-text-3); margin-top: 2px; }
 
-.btn-primary, .btn-ghost { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; font-size: 13px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; transition: all 0.18s; }
-.btn-primary { background: linear-gradient(135deg, #06b6d4 0%, #a855f7 100%); color: #fff; box-shadow: 0 4px 12px -3px rgba(124, 58, 237, 0.45); }
-.btn-primary:hover:not(.disabled) { box-shadow: 0 8px 18px -4px rgba(124, 58, 237, 0.6); transform: translateY(-1px); }
-.btn-primary.disabled { opacity: 0.6; cursor: progress; }
-.btn-ghost { background: rgba(15, 23, 42, 0.55); color: var(--text-primary); border-color: var(--border-soft); }
-.btn-ghost:hover { background: rgba(99, 102, 241, 0.1); border-color: rgba(99, 102, 241, 0.4); }
-.btn-ghost.danger { color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
-.btn-ghost.danger:hover { background: rgba(239, 68, 68, 0.1); }
+.v2-tabs {
+  display: inline-flex;
+  background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft);
+  border-radius: var(--v2-r-sm); padding: 3px;
+  margin-left: var(--v2-sp-3);
+}
+.v2-tab {
+  padding: 5px 14px; border-radius: 6px;
+  font-size: var(--v2-fs-sm); color: var(--v2-text-2);
+  cursor: pointer; background: transparent; border: none;
+  transition: all 0.18s ease;
+}
+.v2-tab.active {
+  background: var(--v2-primary-soft); color: var(--v2-primary);
+  box-shadow: 0 0 0 1px rgba(6, 182, 212, 0.2);
+}
+
+.quick-actions { display: flex; gap: var(--v2-sp-2); }
+.v2-quick {
+  padding: 8px 14px; border-radius: var(--v2-r-sm); font-size: var(--v2-fs-sm);
+  background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft);
+  color: var(--v2-text-2); cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: all 0.18s ease; min-height: 36px;
+}
+.v2-quick:hover { background: var(--v2-surf-1-hover); color: var(--v2-text-1); }
+.v2-quick.primary {
+  background: var(--v2-primary-soft); color: var(--v2-primary);
+  border-color: rgba(6, 182, 212, 0.3);
+}
+.v2-quick.danger {
+  background: rgba(239, 68, 68, 0.1); color: var(--v2-danger);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+.v2-quick.disabled { opacity: 0.6; cursor: progress; }
+.v2-quick:disabled { opacity: 0.6; cursor: not-allowed; }
+.v2-tab:hover { color: var(--v2-text-1); }
 
 .upload-bar { display: grid; grid-template-columns: 1fr 1fr auto; align-items: center; gap: 12px; padding: 8px 14px; background: rgba(6, 182, 212, 0.1); border: 1px solid rgba(6, 182, 212, 0.3); border-radius: 10px; font-size: 12px; }
 .upload-name { color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
