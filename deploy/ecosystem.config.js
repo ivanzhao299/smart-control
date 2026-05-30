@@ -84,5 +84,45 @@ module.exports = {
       merge_logs: true,
       time: true,
     },
+    // smart-control-frontend — Vite preview 静态服务 (PWA 入口 :5173)
+    // 之前是手动 npm run preview 起的孤儿进程, PS 一关就死, 重启不自启 →
+    // 现场每次出问题都得 RDC 进去重新跑. 收编到 pm2 后:
+    //   - autorestart=true: 崩了 pm2 自动拉
+    //   - max_restarts=50 + min_uptime=15s: 防 crash-loop 死循环
+    //   - pm2 save + boot.ps1 resurrect: 开机自启
+    //   - watcher npm run build 写完新 dist 后, vite preview 静态文件 server
+    //     每次请求 fs.read, 自然就吃新文件, 无需重启 vite (零停机更新)
+    {
+      name: 'smart-control-frontend',
+      cwd: path.resolve(__dirname, '..', 'frontend'),
+      // 直接调 vite 二进制 (Node script, pm2 fork 模式稳)
+      script: path.resolve(__dirname, '..', 'frontend', 'node_modules', 'vite', 'bin', 'vite.js'),
+      args: 'preview --host 0.0.0.0 --port 5173 --strictPort',
+      instances: 1,
+      exec_mode: 'fork',
+
+      autorestart: true,
+      max_restarts: 50,
+      min_uptime: '15s',
+      restart_delay: 2000,
+      exp_backoff_restart_delay: 200,
+
+      max_memory_restart: '400M',
+
+      kill_timeout: 5000,
+      wait_ready: false,
+      listen_timeout: 8000,
+
+      watch: false,
+
+      env: { NODE_ENV: 'production' },
+      env_production: { NODE_ENV: 'production' },
+
+      error_file: path.join(defaultLogDir, 'pm2-frontend-error.log'),
+      out_file: path.join(defaultLogDir, 'pm2-frontend-out.log'),
+      log_date_format: 'YYYY-MM-DD HH:mm:ss.SSS',
+      merge_logs: true,
+      time: true,
+    },
   ],
 };
