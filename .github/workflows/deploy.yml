@@ -121,6 +121,7 @@ jobs:
           ref: ${{ github.event.inputs.ref || github.ref }}
           sparse-checkout: |
             scripts
+            deploy
 
       - name: Download artifacts
         if: ${{ github.event.inputs.rollback != 'true' }}
@@ -207,6 +208,7 @@ jobs:
               /tmp/backend-src.tgz \
               /tmp/deploy-meta.tgz \
               scripts/deploy-backend-remote.sh \
+              deploy/nginx-cnjinhu.conf \
               "root@$DEPLOY_HOST:/tmp/"
 
       - name: Deploy frontend (release.sh)
@@ -235,6 +237,54 @@ jobs:
               --app-root /srv/app/smart-control \
               --pm2-name smart-control-backend \
               --keep 5
+          '
+
+      # ---------- Nginx 配置: 自动 diff + reload (有改动才 reload, 防误炸) ----------
+      - name: Deploy nginx config (with diff + test + reload)
+        if: ${{ github.event.inputs.rollback != 'true' }}
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || vars.DEPLOY_HOST || '47.236.122.224' }}
+        run: |
+          ssh -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "root@$DEPLOY_HOST" '
+            set -e
+            # 1) 找到当前生效的 cnjinhu.top nginx 配置文件 (适配 Debian/Ubuntu sites-enabled 或 CentOS conf.d)
+            TARGET=$(grep -l "server_name cnjinhu.top" \
+              /etc/nginx/sites-enabled/* /etc/nginx/sites-available/* /etc/nginx/conf.d/*.conf \
+              2>/dev/null | head -1)
+            if [ -z "$TARGET" ]; then
+              echo "::warning::找不到 cnjinhu.top nginx 现有配置, 默认写到 /etc/nginx/sites-available/cnjinhu.top"
+              TARGET=/etc/nginx/sites-available/cnjinhu.top
+              # 如果 sites-enabled 目录存在, 加 symlink
+              [ -d /etc/nginx/sites-enabled ] && ln -sfn "$TARGET" /etc/nginx/sites-enabled/cnjinhu.top
+            fi
+            echo "→ nginx 配置目标: $TARGET"
+
+            # 2) diff: 没改动就跳过 reload (避免每次 push 都 reload 服务)
+            if cmp -s /tmp/nginx-cnjinhu.conf "$TARGET"; then
+              echo "✓ nginx 配置无变化, 跳过 reload"
+              exit 0
+            fi
+            echo "→ nginx 配置有变化:"
+            diff "$TARGET" /tmp/nginx-cnjinhu.conf | head -40 || true
+
+            # 3) 备份当前配置 (失败回滚用)
+            BACKUP="${TARGET}.bak.$(date +%s)"
+            cp "$TARGET" "$BACKUP"
+            echo "→ 旧配置备份到 $BACKUP"
+
+            # 4) 写入新配置 + 语法验证 + reload, 任何一步失败立即回滚
+            cp /tmp/nginx-cnjinhu.conf "$TARGET"
+            if ! nginx -t 2>&1; then
+              echo "::error::nginx -t 失败, 回滚 $TARGET"
+              cp "$BACKUP" "$TARGET"
+              nginx -t && nginx -s reload  # 回滚后必须验旧的还能跑
+              exit 1
+            fi
+            nginx -s reload
+            echo "✓ nginx 已 reload, 新配置生效"
+
+            # 5) 清理 1 周前的备份 (保留最近的, 方便手动回滚)
+            find "$(dirname "$TARGET")" -name "$(basename "$TARGET").bak.*" -mtime +7 -delete 2>/dev/null || true
           '
 
       # ---------- 回滚路径 ----------

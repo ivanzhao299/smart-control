@@ -193,6 +193,48 @@ Start-Sleep -Milliseconds 800
 # 6c: 用 ecosystem 重新起, 读最新 .env
 $ecosystem = Join-Path $projectRoot 'deploy\ecosystem.config.js'
 try { & pm2 start "$ecosystem" --only smart-control-backend --update-env 2>&1 | Out-Null } catch { }
+
+# 6c.1: smart-control-frontend (vite preview) 自动注册到 pm2 (一次性 + 幂等)
+# 之前 vite preview 是手动 npm run preview 起的孤儿, PS 一关就死, 无人值守不可能.
+# 这里逻辑:
+#   - 已经在 pm2 里: 跳过 (pm2 已经在守, autorestart 自己处理 crash, 不用插手)
+#   - 不在 pm2 里: 杀掉占着 :5173 的手动起的进程, 用 ecosystem 起, save 到 dump.pm2
+# 这样 watcher 任意一次轮询都能自愈, 不需要 RDC 进去人工注册.
+Write-Host "  -> 检查 smart-control-frontend 是否在 pm2..." -ForegroundColor Yellow
+$fePresent = $false
+try {
+  & pm2 describe smart-control-frontend *>$null
+  if ($LASTEXITCODE -eq 0) { $fePresent = $true }
+} catch { }
+if ($fePresent) {
+  Write-Host "    smart-control-frontend 已在 pm2 守护中, 跳过 (autorestart 会处理 crash)" -ForegroundColor Green
+} else {
+  Write-Host "    smart-control-frontend 不在 pm2, 注册中..." -ForegroundColor Cyan
+  # 清掉占着 5173 的手动起的 vite preview (历史孤儿). watcher 用户身份杀不动
+  # SYSTEM/admin 进程是正常的, 不阻塞 — pm2 start 拿不到端口会 retry 退避.
+  try {
+    $conns5173 = Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue
+    foreach ($c in $conns5173) {
+      $tpid = $c.OwningProcess
+      Write-Host "    -> 尝试杀占着 :5173 的 PID $tpid (孤儿 vite preview)" -ForegroundColor Yellow
+      Stop-Process -Id $tpid -Force -ErrorAction SilentlyContinue
+      & taskkill /F /PID $tpid 2>&1 | Out-Null
+    }
+  } catch { }
+  Start-Sleep -Milliseconds 800
+  try { & pm2 start "$ecosystem" --only smart-control-frontend --update-env 2>&1 | Out-Null } catch { }
+  Start-Sleep -Seconds 2
+  # 验证: pm2 list 里能看到才算 OK
+  try {
+    & pm2 describe smart-control-frontend *>$null
+    if ($LASTEXITCODE -eq 0) {
+      Write-Host "    ✓ smart-control-frontend 已注册到 pm2" -ForegroundColor Green
+    } else {
+      Write-Host "    !! pm2 start --only smart-control-frontend 没成功 (可能 :5173 占着 / 权限). 下次 watcher 再试." -ForegroundColor Yellow
+    }
+  } catch { }
+}
+
 try { & pm2 save 2>&1 | Out-Null } catch { }
 
 # 6d: 兜底 — 假设上面 pm2 命令因权限不通 (watcher 用 user 身份, pm2 daemon
