@@ -87,6 +87,13 @@ export class CyDali64aAdapter extends BaseAdapter {
   private dbCache: { host?: string; port?: number; at: number } = { at: 0 };
   private readonly DB_CACHE_TTL_MS = 5000;
 
+  /** DALI 组号 → 网关 slaveId 路由表 (多网关场景, 5s TTL).
+   *  从所有 hardware_unit category='dali-gateway' 的 addressing.groups 字段汇总. */
+  private gatewayMapCache: { groupToSlave: Map<number, number>; at: number } = {
+    groupToSlave: new Map(),
+    at: 0,
+  };
+
   constructor(
     config: ConfigService,
     @Inject(WINSTON_MODULE_PROVIDER) logger: Logger,
@@ -144,7 +151,7 @@ export class CyDali64aAdapter extends BaseAdapter {
     ctx?: AdapterContext,
   ): Promise<AdapterResult<BrightnessState>> {
     return this.run(deviceId, 'turnOn', ctx, async () => {
-      const addr = this.parseAddressing(params, deviceId);
+      const addr = await this.parseAddressing(params, deviceId);
       const pct = params.value ?? 100;
       await this.writeFadeBrightness(addr, params.fadeSec, brightnessPctToRaw(pct), ctx?.signal);
       return { brightness: pct, on: true };
@@ -157,7 +164,7 @@ export class CyDali64aAdapter extends BaseAdapter {
     ctx?: AdapterContext,
   ): Promise<AdapterResult<BrightnessState>> {
     return this.run(deviceId, 'turnOff', ctx, async () => {
-      const addr = this.parseAddressing(params, deviceId);
+      const addr = await this.parseAddressing(params, deviceId);
       await this.writeFadeBrightness(addr, params.fadeSec, 0, ctx?.signal);
       return { brightness: 0, on: false };
     });
@@ -169,7 +176,7 @@ export class CyDali64aAdapter extends BaseAdapter {
     ctx?: AdapterContext,
   ): Promise<AdapterResult<BrightnessState>> {
     return this.run(deviceId, 'setBrightness', ctx, async () => {
-      const addr = this.parseAddressing(params, deviceId);
+      const addr = await this.parseAddressing(params, deviceId);
       const pct = Math.max(0, Math.min(100, Number(params.value ?? 0)));
       const raw = brightnessPctToRaw(pct);
       if (typeof params.kelvin === 'number') {
@@ -193,7 +200,7 @@ export class CyDali64aAdapter extends BaseAdapter {
     ctx?: AdapterContext,
   ): Promise<AdapterResult<{ scene: number }>> {
     return this.run(deviceId, 'recallScene', ctx, async () => {
-      const addr = this.parseAddressing(params, deviceId);
+      const addr = await this.parseAddressing(params, deviceId);
       const sceneNo = Number(params.scene);
       if (!Number.isInteger(sceneNo) || sceneNo < 1 || sceneNo > 16) {
         throw new Error(`scene 必须是 1-16, got ${params.scene}`);
@@ -210,7 +217,7 @@ export class CyDali64aAdapter extends BaseAdapter {
     ctx?: AdapterContext,
   ): Promise<AdapterResult<BrightnessState>> {
     return this.run(deviceId, 'getStatus', ctx, async () => {
-      const addr = this.parseAddressing({}, deviceId);
+      const addr = await this.parseAddressing({}, deviceId);
       const base = this.baseRegisterOf(addr);
       // 读 2 个寄存器: 亮度 (base+1) + 色温 (base+2) — 文档第 9 页示例
       const words = await this.readWithFault(addr.slaveId, base + 1, 2, ctx?.signal);
@@ -225,8 +232,9 @@ export class CyDali64aAdapter extends BaseAdapter {
     ctx?: AdapterContext,
   ): Promise<AdapterResult<BrightnessState & { zone: number }>> {
     return this.run(`zone-${zoneId}`, 'setZoneBrightness', ctx, async () => {
+      const slaveId = await this.resolveSlaveIdForGroup(zoneId);
       const addr: Required<DaliAddressing> = {
-        slaveId: this.cfg.defaultSlaveId,
+        slaveId,
         group: zoneId,
         short: 0,
       };
@@ -305,6 +313,54 @@ export class CyDali64aAdapter extends BaseAdapter {
    */
   invalidateConfigCache(): void {
     this.dbCache = { at: 0 };
+    this.gatewayMapCache = { groupToSlave: new Map(), at: 0 };
+  }
+
+  /**
+   * 多网关支持: 读所有 hardware_unit category='dali-gateway' 行, 把它们的
+   * addressing.groups (number[]) 跟 addressing.slaveId 拼成 Map<group, slaveId>.
+   *
+   * 现场 (2026-05-30 后): 2 台 CY-DALI64A 共用一根 RS485 (CONV-RTU-1),
+   *   GW-DALI-1 slaveId=1 负责 1F group 1-7
+   *   GW-DALI-2 slaveId=2 负责 2F group 8-12
+   *
+   * 没配置 groups 字段的网关 (或老数据) 默认用其 slaveId 作 fallback,
+   * 不会破坏单网关现场.
+   */
+  private async getGatewayGroupMap(): Promise<Map<number, number>> {
+    if (!this.hwRepo) return new Map();
+    const now = Date.now();
+    if (now - this.gatewayMapCache.at < this.DB_CACHE_TTL_MS) {
+      return this.gatewayMapCache.groupToSlave;
+    }
+    const map = new Map<number, number>();
+    try {
+      const rows = await this.hwRepo.find({ where: { category: 'dali-gateway' } });
+      for (const row of rows) {
+        if (!row.addressing) continue;
+        try {
+          const a = JSON.parse(row.addressing) as { slaveId?: number; groups?: number[] };
+          if (typeof a.slaveId !== 'number' || !Array.isArray(a.groups)) continue;
+          for (const g of a.groups) {
+            if (Number.isInteger(g) && g >= 1 && g <= 16) {
+              map.set(g, a.slaveId);
+            }
+          }
+        } catch { /* 非 JSON 也 OK, 跳过 */ }
+      }
+      this.gatewayMapCache = { groupToSlave: map, at: now };
+      return map;
+    } catch (err) {
+      this.logger.warn(`getGatewayGroupMap 失败: ${(err as Error).message}`, { context: 'CyDali64aAdapter' });
+      this.gatewayMapCache = { groupToSlave: new Map(), at: now };
+      return new Map();
+    }
+  }
+
+  /** 给一个 DALI 组号选 slaveId; DB 里没声明就用 defaultSlaveId (兼容老单网关) */
+  private async resolveSlaveIdForGroup(groupNo: number): Promise<number> {
+    const map = await this.getGatewayGroupMap();
+    return map.get(groupNo) ?? this.cfg.defaultSlaveId;
   }
 
   /**
@@ -375,19 +431,28 @@ export class CyDali64aAdapter extends BaseAdapter {
 
   // ============ 内部工具 ============
 
-  /** 解析寻址: 优先 params (CommandParams 没有寻址字段, 兜底), 其次 deviceId (JSON), 最后退化到 group=1 */
-  private parseAddressing(_params: CommandParams, deviceId: string): Required<DaliAddressing> {
+  /**
+   * 解析寻址: 优先 deviceId (JSON), 其次默认 group=1.
+   *
+   * 多网关路由 (2026-05-30 起):
+   *   - 显式带 slaveId 的最高优先 (用户知道自己在干嘛, e.g. dali-poke 端口)
+   *   - 只给 group → 查 DB gateway map 找 slaveId, 没命中 fallback 到默认
+   *   - 只给 short → 沿用默认 slaveId (短地址直控通常在调试)
+   */
+  private async parseAddressing(_params: CommandParams, deviceId: string): Promise<Required<DaliAddressing>> {
     let merged: DaliAddressing = {};
     try {
       merged = JSON.parse(deviceId) as DaliAddressing;
     } catch {
       // deviceId 不是 JSON, 用默认
     }
-    const slaveId = merged.slaveId ?? this.cfg.defaultSlaveId;
     if (typeof merged.short === 'number') {
+      const slaveId = merged.slaveId ?? this.cfg.defaultSlaveId;
       return { slaveId, group: 0, short: merged.short };
     }
-    return { slaveId, group: merged.group ?? 1, short: 0 };
+    const group = merged.group ?? 1;
+    const slaveId = merged.slaveId ?? await this.resolveSlaveIdForGroup(group);
+    return { slaveId, group, short: 0 };
   }
 
   private baseRegisterOf(addr: Required<DaliAddressing>): number {

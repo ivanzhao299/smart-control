@@ -518,14 +518,26 @@ export class SeedService {
       },
       {
         code: 'GW-DALI-1',
-        name: 'DALI 网关 #1',
+        name: 'DALI 网关 #1 (1F)',
         category: 'dali-gateway',
         vendor: '元创智控',
         model: 'CY-DALI64A',
         floor: '1F',
         location: '1F 弱电机柜',
-        addressing: JSON.stringify({ slaveId: 1, baud: 9600, frameIntervalMs: 200 }),
-        remark: 'DALI 总线 16V/250mA, 拨码盘地址 1, RS485 控制串口接 CONV-RTU-1',
+        // addressing.groups: 这台网关负责的 DALI 组号清单, adapter 按 zone → slaveId 路由
+        addressing: JSON.stringify({ slaveId: 1, baud: 9600, frameIntervalMs: 200, groups: [1, 2, 3, 4, 5, 6, 7] }),
+        remark: 'DALI 总线 16V/250mA, 拨码盘地址 1, RS485 控制串口接 CONV-RTU-1. 负责 1F 分区 (group 1-7).',
+      },
+      {
+        code: 'GW-DALI-2',
+        name: 'DALI 网关 #2 (2F)',
+        category: 'dali-gateway',
+        vendor: '元创智控',
+        model: 'CY-DALI64A',
+        floor: '2F',
+        location: '2F 弱电机柜',
+        addressing: JSON.stringify({ slaveId: 2, baud: 9600, frameIntervalMs: 200, groups: [8, 9, 10, 11, 12] }),
+        remark: '2 楼增配 — 1F 那台带不动全栋 12 组, 2F 走独立总线. 拨码盘地址 2, 跟 #1 共用 CONV-RTU-1 RS485 串口. 负责 2F 分区 (group 8-12).',
       },
       // ==================== DALI 调光设备 (按《金湖照明灯具明细 v3》2026-05-21 重新选型) ====================
       // 方案 B: 灯带走 MEANWELL HLG 恒压 DALI 电源, 灯具走 0-10V (DALI 转换器 LT-84A)
@@ -865,6 +877,27 @@ export class SeedService {
           context: 'SeedService',
         });
       }
+    }
+
+    // ---------- 一次性自愈: 回填 DALI 网关 addressing.groups (2026-05-30) ----------
+    // 2 台 DALI 网关后, addressing.groups 字段决定 group → slaveId 路由.
+    // 旧 GW-DALI-1 没 groups 字段, 给它补上 1-7. (GW-DALI-2 是新 seed, 不用补)
+    const DALI_GROUP_FIXES: Array<{ code: string; groups: number[] }> = [
+      { code: 'GW-DALI-1', groups: [1, 2, 3, 4, 5, 6, 7] },
+      { code: 'GW-DALI-2', groups: [8, 9, 10, 11, 12] },
+    ];
+    for (const fix of DALI_GROUP_FIXES) {
+      const row = await this.hwRepo.findOne({ where: { code: fix.code } });
+      if (!row || !row.addressing) continue;
+      let parsed: Record<string, unknown> = {};
+      try { parsed = JSON.parse(row.addressing) as Record<string, unknown>; } catch { continue; }
+      if (Array.isArray(parsed.groups) && parsed.groups.length > 0) continue;
+      parsed.groups = fix.groups;
+      row.addressing = JSON.stringify(parsed);
+      await this.hwRepo.save(row);
+      this.logger.info(`DALI gateway groups backfill: ${fix.code} → [${fix.groups.join(',')}]`, {
+        context: 'SeedService',
+      });
     }
   }
 }
