@@ -74,8 +74,12 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 <template>
   <div class="v2-shell">
 
-    <!-- 侧导航 (80px, icon + 小字号文字, 顶到底, 不滚) -->
+    <!-- 侧导航 (80px, 顶部品牌 logo + icon/文字 nav, 不滚) -->
     <aside class="v2-nav">
+      <!-- 品牌 logo: 占侧栏顶部, header 不再重复显示 -->
+      <button class="v2-nav-brand" title="金湖展贸中心" @click="go('dashboard')">
+        <div class="v2-logo">金</div>
+      </button>
       <button
         v-for="item in mainNavs"
         :key="item.name"
@@ -101,14 +105,11 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
       </button>
     </aside>
 
-    <!-- 顶 Header (56px) - 集成 Alert 内联条 -->
+    <!-- 顶 Header (56px) - 集成 Alert 内联条; logo 已挪到侧栏 -->
     <header class="v2-header">
       <div class="v2-brand">
-        <div class="v2-logo">金</div>
-        <div>
-          <div class="v2-brand-title">金湖展贸中心 · 智能控制</div>
-          <div class="v2-brand-sub">{{ dateLabel }}</div>
-        </div>
+        <div class="v2-brand-title">金湖展贸中心 · 智能控制</div>
+        <div class="v2-brand-sub">{{ dateLabel }}</div>
       </div>
 
       <!-- Alert 内联条 (没告警时不渲染, 不占空间) -->
@@ -178,35 +179,77 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   overflow: hidden;
 }
 
-/* ============ 侧导航 (icon + 文字, 8 项装一屏不滚) ============ */
+/* ============ 侧导航 (顶 brand + icon/文字 nav, 8 项装一屏不滚) ============ */
 .v2-nav {
   grid-area: nav;
+  /* 侧栏从顶到底 (grid 高度 = header 56 + main 1fr), 自带覆盖 header 高度 */
+  grid-row: 1 / 3;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 10px 6px;
-  gap: 4px;
+  padding: 8px 6px 10px;
+  gap: 3px;
   border-right: 1px solid var(--v2-border-soft);
-  background: rgba(10, 14, 26, 0.4);
+  background: rgba(10, 14, 26, 0.5);
   overflow: hidden;
-  /* 8 项需要总高 ≈ 8×52 + 1×9 (divider) + 20 (padding) = 445px, iPad 820 富裕 */
 }
+
+/* 品牌 logo 块: 占侧栏顶部, 在 nav item 之上, 视觉上接管 header 56px 高 */
+.v2-nav-brand {
+  width: 64px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin-bottom: 8px;
+  position: relative;
+  flex-shrink: 0;
+  transition: transform 0.18s ease;
+}
+.v2-nav-brand::after {
+  /* 跟主 header 底部 border 对齐, 视觉连成一线 */
+  content: '';
+  position: absolute;
+  left: -6px;
+  right: -6px;
+  bottom: -6px;
+  height: 1px;
+  background: var(--v2-border-soft);
+}
+.v2-nav-brand:hover { transform: scale(1.04); }
+.v2-nav-brand .v2-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--v2-primary) 0%, var(--v2-info) 100%);
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 18px;
+  color: white;
+  letter-spacing: 0;
+  box-shadow: 0 4px 14px -4px rgba(6, 182, 212, 0.6);
+}
+
 .v2-nav-item {
   width: 64px;
-  min-height: 50px;
+  min-height: 52px;
   border-radius: var(--v2-r-md);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 5px;
   color: var(--v2-text-3);
   cursor: pointer;
   transition: all 0.18s ease;
   position: relative;
   background: transparent;
   border: none;
-  padding: 6px 2px;
+  padding: 7px 2px;
   flex-shrink: 0;
   font-family: inherit;
 }
@@ -258,19 +301,19 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   -webkit-backdrop-filter: blur(20px);
 }
 .v2-brand {
+  /* logo 已挪到侧栏, 这里就是纵向 title + sub 块 */
   display: flex;
-  align-items: center;
-  gap: var(--v2-sp-3);
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
 }
+/* .v2-logo 留着, 现在只被 .v2-nav-brand .v2-logo 用 (已覆盖尺寸) */
 .v2-logo {
-  width: 30px;
-  height: 30px;
   border-radius: var(--v2-r-sm);
   background: linear-gradient(135deg, var(--v2-primary) 0%, var(--v2-info) 100%);
   display: grid;
   place-items: center;
   font-weight: 700;
-  font-size: 14px;
   color: white;
   letter-spacing: 0;
 }
