@@ -5,6 +5,7 @@ import { ChevronLeft } from 'lucide-vue-next';
 import BrandLogo from '@/components/BrandLogo.vue';
 import { useSystemStore } from '@/stores/system';
 import { usePermissionStore } from '@/stores/permission';
+import { useSystemBrandingStore } from '@/stores/system-branding';
 import { adminNavIconFor } from '@/composables/useIcons';
 import type { UserRole } from '@/types/api';
 
@@ -12,6 +13,8 @@ const route = useRoute();
 const router = useRouter();
 const sys = useSystemStore();
 const perm = usePermissionStore();
+const brandingStore = useSystemBrandingStore();
+const branding = computed(() => brandingStore.branding);
 
 const items: Array<{ name: string; label: string }> = [
   { name: 'admin-monitor', label: '运维监控' },
@@ -26,7 +29,8 @@ const items: Array<{ name: string; label: string }> = [
   { name: 'admin-logs', label: '日志中心' },
   { name: 'admin-hardware', label: '硬件清单' },
   { name: 'admin-drivers', label: '驱动模板' },
-  { name: 'admin-brands', label: '品牌维护' },
+  { name: 'admin-brands', label: '硬件品牌' },
+  { name: 'admin-system-branding', label: '系统品牌' },
   { name: 'admin-audit', label: '变更历史' },
   { name: 'admin-users', label: '用户管理' },
   { name: 'admin-settings', label: '系统设置' },
@@ -65,7 +69,7 @@ function onRoleChange(v: UserRole): void {
       <div class="brand">
         <BrandLogo :height="40" />
         <div>
-          <div class="title">金湖展贸中心</div>
+          <div class="title">{{ branding.systemName }}</div>
           <div class="sub">后台管理 · Admin</div>
         </div>
       </div>

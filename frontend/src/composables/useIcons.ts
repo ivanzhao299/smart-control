@@ -30,6 +30,7 @@ import {
   Cpu,
   History,
   Tag,
+  Palette,
   type LucideIcon,
 } from 'lucide-vue-next';
 
@@ -59,6 +60,7 @@ export const ADMIN_NAV_ICON: Record<string, LucideIcon> = {
   'admin-hardware': Cable,
   'admin-drivers': Cpu,
   'admin-brands': Tag,
+  'admin-system-branding': Palette,
   'admin-audit': History,
   'admin-users': Users,
   'admin-settings': Settings,

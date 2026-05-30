@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted } from 'vue';
 import { useSceneStore } from '@/stores/scene';
 import { useDeviceStore } from '@/stores/device';
 import { useSystemStore } from '@/stores/system';
+import { useSystemBrandingStore } from '@/stores/system-branding';
 import { wsClient } from '@/services/websocket.service';
 import { polling } from '@/services/polling.service';
 import { markBootComplete } from '@/services/rum.service';
@@ -10,6 +11,7 @@ import { markBootComplete } from '@/services/rum.service';
 const sceneStore = useSceneStore();
 const deviceStore = useDeviceStore();
 const systemStore = useSystemStore();
+const brandingStore = useSystemBrandingStore();
 
 let unsubscribeWs: (() => void) | null = null;
 
@@ -27,6 +29,7 @@ onMounted(async () => {
       systemStore.fetchInfo(),
       sceneStore.fetchScenes(),
       deviceStore.fetchDevices(),
+      brandingStore.load(),
     ]);
   } catch (err) {
     // eslint-disable-next-line no-console

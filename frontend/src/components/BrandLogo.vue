@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
+import { useSystemBrandingStore } from '@/stores/system-branding';
 
 const props = withDefaults(
   defineProps<{
@@ -9,7 +10,10 @@ const props = withDefaults(
     width?: number;
     /** 使用真实公司 LOGO 图片 (默认 true). 设 false 强制使用 SVG 几何标识 */
     useImage?: boolean;
-    /** 图片路径; 默认 BASE_URL + 'brand-logo.png' (放 frontend/public/) */
+    /**
+     * 图片路径 (优先级最高 — 显式传就用这个).
+     * 不传时按顺序回退: SystemBranding.logoUrl → BASE_URL + 'brand-logo.png'
+     */
     src?: string;
     alt?: string;
     active?: boolean;
@@ -19,14 +23,23 @@ const props = withDefaults(
     width: undefined,
     useImage: true,
     src: undefined,
-    alt: '金湖科创产业园',
+    alt: undefined,
     active: true,
   },
 );
 
+const brandingStore = useSystemBrandingStore();
 const imageBroken = ref(false);
-const imageSrc = props.src ?? `${import.meta.env.BASE_URL}brand-logo.png`;
-const showImage = props.useImage && !imageBroken.value;
+
+// 优先级: 显式 props.src → SystemBranding.logoUrl → 默认 brand-logo.png
+const imageSrc = computed<string>(() => {
+  if (props.src) return props.src;
+  const fromBranding = brandingStore.branding.logoUrl;
+  if (fromBranding) return fromBranding;
+  return `${import.meta.env.BASE_URL}brand-logo.png`;
+});
+const altText = computed<string>(() => props.alt ?? brandingStore.branding.systemName);
+const showImage = computed<boolean>(() => props.useImage && !imageBroken.value);
 </script>
 
 <template>
@@ -43,7 +56,7 @@ const showImage = props.useImage && !imageBroken.value;
     <img
       v-if="showImage"
       :src="imageSrc"
-      :alt="alt"
+      :alt="altText"
       class="logo-img"
       @error="imageBroken = true"
     />

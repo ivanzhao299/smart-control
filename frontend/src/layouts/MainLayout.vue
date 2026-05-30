@@ -9,11 +9,14 @@ import { useFullscreen } from '@/composables/useFullscreen';
 import { navIconFor } from '@/composables/useIcons';
 import { useSystemStore } from '@/stores/system';
 import { useSceneStore } from '@/stores/scene';
+import { useSystemBrandingStore } from '@/stores/system-branding';
 
 const route = useRoute();
 const router = useRouter();
 const sys = useSystemStore();
 const sceneStore = useSceneStore();
+const brandingStore = useSystemBrandingStore();
+const branding = computed(() => brandingStore.branding);
 
 // 终端全屏 (Sprint-08 终端模式)
 const fs = useFullscreen({ autoEnter: true });
@@ -76,9 +79,12 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 
     <!-- 侧导航 (80px, 顶部品牌 logo + icon/文字 nav, 不滚) -->
     <aside class="v2-nav">
-      <!-- 品牌 logo: 占侧栏顶部, header 不再重复显示 -->
-      <button class="v2-nav-brand" title="金湖展贸中心" @click="go('dashboard')">
-        <div class="v2-logo">金</div>
+      <!-- 品牌 logo: 占侧栏顶部, header 不再重复显示. 文字 / 图片由 SystemBranding 配置 -->
+      <button class="v2-nav-brand" :title="branding.systemName" @click="go('dashboard')">
+        <div class="v2-logo">
+          <img v-if="branding.logoUrl" :src="branding.logoUrl" :alt="branding.logoText" />
+          <template v-else>{{ branding.logoText }}</template>
+        </div>
       </button>
       <button
         v-for="item in mainNavs"
@@ -108,7 +114,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
     <!-- 顶 Header (56px) - 集成 Alert 内联条; logo 已挪到侧栏 -->
     <header class="v2-header">
       <div class="v2-brand">
-        <div class="v2-brand-title">金湖展贸中心 · 智能控制</div>
+        <div class="v2-brand-title">{{ branding.systemName }}</div>
         <div class="v2-brand-sub">{{ dateLabel }}</div>
       </div>
 
@@ -232,6 +238,13 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   color: white;
   letter-spacing: 0;
   box-shadow: 0 4px 14px -4px rgba(6, 182, 212, 0.6);
+  overflow: hidden;
+}
+.v2-nav-brand .v2-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .v2-nav-item {
