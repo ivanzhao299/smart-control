@@ -3,7 +3,7 @@ import { computed, provide } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { Maximize2, Minimize2 } from 'lucide-vue-next';
 import AlertBanner from '@/components/AlertBanner.vue';
-import ExecutionStatusBar from '@/components/ExecutionStatusBar.vue';
+// ExecutionStatusBar 已下架 — 用户反馈"提示条赖着不走", 错误改进后台日志
 import FullscreenPrompt from '@/components/FullscreenPrompt.vue';
 import { useFullscreen } from '@/composables/useFullscreen';
 import { navIconFor } from '@/composables/useIcons';
@@ -152,7 +152,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
       </router-view>
     </main>
 
-    <ExecutionStatusBar />
+    <!-- ExecutionStatusBar 已下架 (用户反馈占屏幕没用); 场景执行结果走顶部 toast 一闪而过 -->
     <FullscreenPrompt
       :visible="fs.showPrompt.value"
       @enter="fs.enter()"
