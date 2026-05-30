@@ -248,27 +248,57 @@ export class SystemController {
     //    backend 自己跑在 LocalSystem 下 (pm2 windows service), 有 SeDebugPrivilege, 能杀 SYSTEM 进程.
     //    watcher (user 身份) 杀不动, 所以历史上一直卡死. 这是关键修复.
     let netstatOut = '';
+    let whoamiOut = '';
+    let tasklistOut = '';
+    const killMethodsTried: Record<string, string> = {};
     if (process.platform === 'win32') {
+      // 先看自己是谁
+      try {
+        const { stdout: w } = await execAsync('whoami /upn 2>nul || whoami', { windowsHide: true } as any).catch(() => ({ stdout: '' }));
+        whoamiOut = w.trim();
+      } catch { }
       try {
         // netstat -ano | findstr :5173 → 拿 PID
         const { stdout } = await execAsync('netstat -ano | findstr :5173').catch(() => ({ stdout: '' }));
         netstatOut = stdout;
         const pids = new Set<number>();
         for (const line of stdout.split('\n')) {
-          // 行格式: "  TCP    0.0.0.0:5173    0.0.0.0:0    LISTENING    3312"
           if (/LISTENING/i.test(line)) {
             const m = line.match(/\s+(\d+)\s*$/);
             if (m) pids.add(parseInt(m[1], 10));
           }
         }
         for (const pid of pids) {
+          // 先看这个 PID 的进程信息 (用户 + 命令行)
           try {
-            await execAsync(`taskkill /F /PID ${pid}`);
-            killed.push(pid);
-            this.logger.warn(`admin-rebuild-frontend killed vite preview pid=${pid}`);
-          } catch (e: any) {
-            killErrors.push(`pid=${pid}: ${e.message}`);
+            const { stdout: tlOut } = await execAsync(`tasklist /FI "PID eq ${pid}" /V /FO CSV`).catch(() => ({ stdout: '' }));
+            tasklistOut += `\n--- PID ${pid} ---\n` + tlOut.slice(0, 600);
+          } catch { }
+          // 多种 kill 方法兜底, 哪个成功就停
+          const methods: Array<[string, string]> = [
+            [`taskkill /F /PID ${pid}`, 'taskkill'],
+            [`taskkill /F /T /PID ${pid}`, 'taskkill-tree'],
+            [`wmic process where ProcessId=${pid} delete`, 'wmic'],
+            [`powershell -NoProfile -Command "Stop-Process -Id ${pid} -Force"`, 'ps-stop'],
+          ];
+          let succeeded = false;
+          for (const [cmd, label] of methods) {
+            try {
+              const { stdout: o, stderr: e } = await execAsync(cmd);
+              killMethodsTried[`${pid}.${label}`] = `OK: ${(o || e).trim().slice(0, 200)}`;
+              // 验证: 等 200ms 再 netstat 看 PID 是否还在
+              await new Promise((r) => setTimeout(r, 200));
+              const { stdout: verify } = await execAsync(`netstat -ano | findstr ":5173"`).catch(() => ({ stdout: '' }));
+              if (!verify.includes(` ${pid}\r\n`) && !verify.includes(` ${pid}\n`) && !verify.endsWith(` ${pid}`)) {
+                killed.push(pid);
+                succeeded = true;
+                break;
+              }
+            } catch (e: any) {
+              killMethodsTried[`${pid}.${label}`] = `FAIL: ${e.message.trim().slice(0, 300)}`;
+            }
           }
+          if (!succeeded) killErrors.push(`pid=${pid}: 所有 kill 方法都失败 (见 killMethodsTried)`);
         }
       } catch (e: any) {
         killErrors.push(`netstat: ${e.message}`);
@@ -276,7 +306,12 @@ export class SystemController {
       // 给 OS 释放文件句柄留点时间
       await new Promise((r) => setTimeout(r, 800));
     }
-    await writeState({ phase: 'after-kill', killed, killErrors, netstatOut: netstatOut.slice(0, 800) });
+    await writeState({
+      phase: 'after-kill', killed, killErrors,
+      whoamiOut, netstatOut: netstatOut.slice(0, 800),
+      tasklistOut: tasklistOut.slice(0, 1500),
+      killMethodsTried,
+    });
 
     // 2) spawn npm run build (异步, 不阻塞响应). 完成后调 pm2 start smart-control-frontend.
     //    用 shell:true + && 串联 (build && pm2 delete && pm2 start) 确保 pm2 在 build 之后跑.
@@ -364,7 +399,7 @@ export class SystemController {
     return {
       message: 'build-marker',
       data: {
-        marker: '2026-05-30-vite-pm2-managed',
+        marker: '2026-05-30-vite-pm2-managed-v3',
         nodeVersion: process.version,
         startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString(),
         uptimeSec: Math.round(process.uptime()),
