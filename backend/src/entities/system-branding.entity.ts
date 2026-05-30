@@ -11,7 +11,11 @@ import { Column, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeor
  * 读取, 不再硬编码 "金湖展贸中心". 这样不同项目 / 不同业主只换数据库一条
  * 记录就完事, 不用动代码.
  */
-@Entity({ name: 'system_branding' })
+// 表名: 上一版用 system_branding, 83f2806 deploy 把 logoUrl 改 type:text 后 schema
+// 留在 SQLite 里, 回退到 varchar 默认值的 entity 跟它对不上, typeorm synchronize
+// 卡在 ALTER COLUMN 重建表流程, backend 启动崩. 换新表名一次性绕过迁移, 老表
+// 留着无害 (没人读).
+@Entity({ name: 'system_branding_v2' })
 export class SystemBranding {
   @PrimaryGeneratedColumn()
   id!: number;
