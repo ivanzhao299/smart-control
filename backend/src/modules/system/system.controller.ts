@@ -202,6 +202,42 @@ export class SystemController {
   }
 
   /**
+   * 远程触发 frontend 重 build (2026-05-30 加).
+   * 同 admin-restart 一样, 严格 loopback + token. 用 child_process spawn
+   * `npm run build` 在 frontend 目录, 异步执行不阻塞响应. 失败的话看
+   * scripts/update.ps1 那条链路的日志.
+   *
+   * 场景: watcher 卡住 / 上次 build 中途挂了导致 dist/assets/ 为空, 不想
+   * RDC 进 GK9000 又想远程恢复.
+   */
+  @Post('admin-rebuild-frontend')
+  async adminRebuildFrontend(@Req() req: Request, @Body() body: { token?: string } = {}): Promise<unknown> {
+    const remoteAddr = req.socket?.remoteAddress ?? '';
+    const isLoopback = remoteAddr === '127.0.0.1'
+      || remoteAddr === '::1'
+      || remoteAddr === '::ffff:127.0.0.1';
+    if (!isLoopback) throw new ForbiddenException('仅本机 loopback');
+    if (body?.token !== 'jinhu-restart-2026') throw new BadRequestException('token 错误');
+
+    const { spawn } = await import('child_process');
+    const { resolve } = await import('path');
+    const frontendDir = resolve(process.cwd(), '..', 'frontend');
+    const cmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const child = spawn(cmd, ['run', 'build'], {
+      cwd: frontendDir,
+      stdio: 'ignore',
+      detached: true,
+      windowsHide: true,
+    });
+    child.unref();
+    this.logger.warn(`admin-rebuild-frontend started (pid=${child.pid}, cwd=${frontendDir})`);
+    return {
+      message: `已启动后台 npm run build (pid=${child.pid}), 2-3 分钟后看 ${frontendDir}/dist 是否更新`,
+      data: { pid: child.pid, cwd: frontendDir, startedAt: new Date().toISOString() },
+    };
+  }
+
+  /**
    * 现场 DALI 自检 — 在 GK9000 本机调这个 endpoint, 返回:
    *   - 当前 adapter 模式 (mock / cy-dali64a / iot-gateway) + MOCK_MODE 状态
    *   - 真实模式下: 网关能不能 ping 通, 总线上探到的 64 个驱动地址哪些在线 / 故障
