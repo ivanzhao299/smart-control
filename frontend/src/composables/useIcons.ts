@@ -27,6 +27,9 @@ import {
   FileText,
   Cable,
   FolderOpen,
+  Cpu,
+  History,
+  Tag,
   type LucideIcon,
 } from 'lucide-vue-next';
 
@@ -54,6 +57,9 @@ export const ADMIN_NAV_ICON: Record<string, LucideIcon> = {
   'admin-uat': CheckCircle2,
   'admin-logs': FileText,
   'admin-hardware': Cable,
+  'admin-drivers': Cpu,
+  'admin-brands': Tag,
+  'admin-audit': History,
   'admin-users': Users,
   'admin-settings': Settings,
 };

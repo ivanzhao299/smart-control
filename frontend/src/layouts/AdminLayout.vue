@@ -26,6 +26,7 @@ const items: Array<{ name: string; label: string }> = [
   { name: 'admin-logs', label: '日志中心' },
   { name: 'admin-hardware', label: '硬件清单' },
   { name: 'admin-drivers', label: '驱动模板' },
+  { name: 'admin-brands', label: '品牌维护' },
   { name: 'admin-audit', label: '变更历史' },
   { name: 'admin-users', label: '用户管理' },
   { name: 'admin-settings', label: '系统设置' },
