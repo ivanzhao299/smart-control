@@ -253,6 +253,51 @@ try {
       $procInfo.port3200 += @{ pid = $c.OwningProcess; state = $c.State.ToString(); localAddr = $c.LocalAddress }
     }
   } catch { $procInfo.port3200Err = $_.Exception.Message }
+
+  # 看实际谁在监听 :5173 (vite preview / PWA), 同时探 pm2 是否管着 smart-control-frontend
+  $procInfo.port5173 = @()
+  try {
+    $conns5173 = Get-NetTCPConnection -LocalPort 5173 -ErrorAction Stop
+    foreach ($c in $conns5173) {
+      $procInfo.port5173 += @{ pid = $c.OwningProcess; state = $c.State.ToString(); localAddr = $c.LocalAddress }
+    }
+  } catch { $procInfo.port5173Err = $_.Exception.Message }
+
+  # pm2 describe smart-control-frontend → 看 pm2 是否真的接管了 vite preview
+  try {
+    $feDesc = & pm2 describe smart-control-frontend 2>&1 | Out-String
+    if ($LASTEXITCODE -eq 0) {
+      $procInfo.frontendPm2 = 'present'
+      # 提取关键字段, 别整段塞 (太长)
+      if ($feDesc -match 'status\s*│\s*(\S+)') { $procInfo.frontendPm2Status = $matches[1] }
+      if ($feDesc -match 'pid\s*│\s*(\d+)')    { $procInfo.frontendPm2Pid = [int]$matches[1] }
+      if ($feDesc -match 'restarts\s*│\s*(\d+)') { $procInfo.frontendPm2Restarts = [int]$matches[1] }
+    } else {
+      $procInfo.frontendPm2 = 'absent'
+      # describe 在不存在时 stderr 输出 "doesn't exist", 截短带上来
+      $procInfo.frontendPm2Err = ($feDesc.Trim() -replace '\r?\n', ' ')
+      if ($procInfo.frontendPm2Err.Length -gt 200) {
+        $procInfo.frontendPm2Err = $procInfo.frontendPm2Err.Substring(0, 200)
+      }
+    }
+  } catch { $procInfo.frontendPm2 = 'probe-error: ' + $_.Exception.Message }
+
+  # frontend dist 状态: index.html 存在 + 大小 + 几个 assets 文件数
+  try {
+    $frontendDist = Join-Path $projectRoot 'frontend\dist'
+    if (Test-Path (Join-Path $frontendDist 'index.html')) {
+      $procInfo.frontendIndex = 'exists'
+      $procInfo.frontendIndexSize = (Get-Item (Join-Path $frontendDist 'index.html')).Length
+      $assetsDir = Join-Path $frontendDist 'assets'
+      if (Test-Path $assetsDir) {
+        $procInfo.frontendAssetsCount = (Get-ChildItem $assetsDir -File -ErrorAction SilentlyContinue).Count
+      } else {
+        $procInfo.frontendAssetsCount = 0
+      }
+    } else {
+      $procInfo.frontendIndex = 'missing'
+    }
+  } catch { $procInfo.frontendDistErr = $_.Exception.Message }
   try {
     $distMain = Join-Path $projectRoot 'backend\dist\main.js'
     if (Test-Path $distMain) {
