@@ -1,12 +1,17 @@
-import { BadRequestException, Body, Controller, Get, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, ParseIntPipe, Post } from '@nestjs/common';
 import { PlaybackService } from './playback.service';
-import { AdminGuard } from '../admin-auth/admin-auth.guard';
 
+/**
+ * 鉴权策略 (Sprint-A 修正):
+ *   推送 / 停止媒体属于"日常操作", 跟切灯切场景一个级别, 操作员在平板上随时
+ *   要做. 不卡 admin token (admin token 是给"改系统配置"那种用的, 比如改 logo /
+ *   改密码 / 改用户). 现场进入展厅 = 物理接触, 已经过了安全边界.
+ */
 @Controller('playback')
 export class PlaybackController {
   constructor(private readonly service: PlaybackService) {}
 
-  /** 拿所有通道状态. 公开 — PlayerPage 起来时第一次拉 + 后台监控也读 */
+  /** 拿所有通道状态. PlayerPage 起来时第一次拉 + 后台监控也读 */
   @Get('channels')
   async list() {
     return { message: '查询成功', data: await this.service.list() };
@@ -19,13 +24,10 @@ export class PlaybackController {
   }
 
   /**
-   * 把媒体推到 slot. 要 admin token (避免任意人推内容).
-   *
-   * MediaPage / LedPage 用. 调用后 service 写库 + WS 广播, PlayerPage 收到
-   * 事件就切 video / image.
+   * 把媒体推到 slot. MediaPage / LedPage 用. 调用后 service 写库 + WS 广播,
+   * PlayerPage 收到事件就切 video / image.
    */
   @Post('channels/:slot/publish')
-  @UseGuards(AdminGuard)
   async publish(
     @Param('slot', ParseIntPipe) slot: number,
     @Body() body: { mediaId?: number; loopMode?: 'once' | 'loop' } = {},
@@ -37,9 +39,8 @@ export class PlaybackController {
     return { message: '已推送', data: view };
   }
 
-  /** 清掉当前播, 回待机. 要 admin token */
+  /** 清掉当前播, 回待机 */
   @Post('channels/:slot/stop')
-  @UseGuards(AdminGuard)
   async stop(@Param('slot', ParseIntPipe) slot: number) {
     const view = await this.service.stop(slot);
     return { message: '已停止, 切回待机', data: view };
