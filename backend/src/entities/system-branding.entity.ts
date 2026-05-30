@@ -10,29 +10,31 @@ import { Column, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeor
  * (MainLayout 平板 / AdminLayout 后台 / BrandLogo 组件) 都从 /api/system-branding
  * 读取, 不再硬编码 "金湖展贸中心". 这样不同项目 / 不同业主只换数据库一条
  * 记录就完事, 不用动代码.
+ *
+ * 重要 (踩坑): 所有 nullable 字段必须显式写 type: 'varchar', 因为 ts-emit 把
+ *   propertyDecorator 的 design:type 对 string|null 这种联合类型编成 Object,
+ *   typeorm 拿不到具体类型就抛 DataTypeNotSupportedError: Data type "Object"
+ *   is not supported by better-sqlite3. 不写 type 的非 nullable string 字段
+ *   typeorm 能从单一 design:type=String 推出 varchar, 没问题.
  */
-// 表名: 上一版用 system_branding, 83f2806 deploy 把 logoUrl 改 type:text 后 schema
-// 留在 SQLite 里, 回退到 varchar 默认值的 entity 跟它对不上, typeorm synchronize
-// 卡在 ALTER COLUMN 重建表流程, backend 启动崩. 换新表名一次性绕过迁移, 老表
-// 留着无害 (没人读).
 @Entity({ name: 'system_branding_v2' })
 export class SystemBranding {
   @PrimaryGeneratedColumn()
   id!: number;
 
   /** 系统主标题, 平板顶栏 + 后台侧栏顶部. 默认 "金湖展贸中心 · 智能控制" */
-  @Column({ length: 80 })
+  @Column({ type: 'varchar', length: 80 })
   systemName!: string;
 
   /** 系统副标题 / 简称, 后台侧栏第二行. 默认 "智慧展厅中控" */
-  @Column({ length: 60, nullable: true })
+  @Column({ type: 'varchar', length: 60, nullable: true })
   systemSubtitle!: string | null;
 
   /**
    * Logo 文字 — 左上角圆形 logo 里的 1-2 个汉字 (因为很多业主没有正式 logo 文件).
    * 默认 "金". 显示规则: 有 logoUrl 优先用图片, 没有就用这个文字.
    */
-  @Column({ length: 4, default: '金' })
+  @Column({ type: 'varchar', length: 4, default: '金' })
   logoText!: string;
 
   /**
@@ -42,19 +44,17 @@ export class SystemBranding {
    *   - http(s) URL: 老路径兼容, 比如外部 CDN
    *   - null: 用 logoText 渲染圆形文字 logo
    *
-   * SQLite 实际存储是动态类型, varchar(255) 只是 hint 不强制长度 (跟 PG/MySQL
-   * 不同), 30KB 也能塞. 不指定 type: 'text' 是为了避开 typeorm synchronize 在
-   * SQLite 上做 ALTER COLUMN 时的"重建表"复杂迁移, 历史上多次崩溃 backend.
+   * SQLite 实际存储是动态类型, varchar 长度只是 hint 不强制, 30KB 也能塞.
    */
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   logoUrl!: string | null;
 
   /** 浏览器标签页 title 用. 默认 "金湖展贸中心 控制系统" */
-  @Column({ length: 80, nullable: true })
+  @Column({ type: 'varchar', length: 80, nullable: true })
   browserTitle!: string | null;
 
   /** 平板首页右下角小字版权信息. 可空. */
-  @Column({ length: 120, nullable: true })
+  @Column({ type: 'varchar', length: 120, nullable: true })
   copyright!: string | null;
 
   @UpdateDateColumn()
