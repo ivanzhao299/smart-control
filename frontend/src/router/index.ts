@@ -1,4 +1,4 @@
-import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router';
+import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import { trackRouteChange } from '@/services/rum.service';
 
 const routes: RouteRecordRaw[] = [
@@ -46,7 +46,10 @@ const routes: RouteRecordRaw[] = [
 ];
 
 export const router = createRouter({
-  history: createWebHashHistory(),
+  // 用 HTML5 history mode → 干净 URL (/control/status 而不是 /control/#/status)
+  // nginx + Vite preview 都已经配 SPA fallback (try_files → index.html), 不会 404.
+  // BASE_URL 来自 vite.config 的 base 配置 (生产是 /control/, dev 是 /)
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes,
 });
 
