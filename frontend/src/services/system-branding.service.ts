@@ -5,12 +5,19 @@ import { api } from './http';
  *
  * GET /api/system-branding 公开, 所有 layout 启动时拉一次, 写到 Pinia store 缓存.
  * PUT /api/system-branding 后台才用, 改完前台不用刷新, 通过 store reactive 立即生效.
+ *
+ * api.get/put 已经 unwrap 了 ApiOk<T> 外壳, 直接返 data 字段. 不要再 `.data` 一次.
  */
 
 export interface SystemBranding {
   systemName: string;
   systemSubtitle: string | null;
   logoText: string;
+  /**
+   * Logo 可以是 http(s) URL 或 data URL (base64 内嵌, e.g. data:image/webp;base64,...).
+   * 推荐 data URL — 用户上传图片后, 前端 canvas 压缩到 256x256 + WebP 编码内嵌,
+   * 不依赖文件系统 / nginx 静态服务, 一条 DB 记录管全套.
+   */
   logoUrl: string | null;
   browserTitle: string | null;
   copyright: string | null;
@@ -19,11 +26,9 @@ export interface SystemBranding {
 export type SystemBrandingPatch = Partial<SystemBranding>;
 
 export async function fetchSystemBranding(): Promise<SystemBranding> {
-  const resp = await api.get<{ data: SystemBranding }>('/system-branding');
-  return resp.data;
+  return api.get<SystemBranding>('/system-branding');
 }
 
 export async function saveSystemBranding(patch: SystemBrandingPatch): Promise<SystemBranding> {
-  const resp = await api.put<{ data: SystemBranding }>('/system-branding', patch);
-  return resp.data;
+  return api.put<SystemBranding>('/system-branding', patch);
 }

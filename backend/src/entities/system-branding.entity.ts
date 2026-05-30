@@ -32,10 +32,14 @@ export class SystemBranding {
   logoText!: string;
 
   /**
-   * Logo 图片 URL — 可选, 业主上传后填这里 (e.g. /api/media/<id>/file).
-   * null 表示不用图片, 用 logoText.
+   * Logo 图片 — 可以是:
+   *   - data URL: 用户后台上传的图片, 前端 canvas 压缩到 256x256 + WebP 后内嵌
+   *     (e.g. data:image/webp;base64,UklGRiQAAABXRUJQVlA4...), 典型 8-30 KB
+   *   - http(s) URL: 老路径兼容, 比如外部 CDN
+   *   - null: 用 logoText 渲染圆形文字 logo
+   * 用 text 类型而不是默认 varchar(255), 因为 base64 数据 URL 会很长.
    */
-  @Column({ nullable: true })
+  @Column({ type: 'text', nullable: true })
   logoUrl!: string | null;
 
   /** 浏览器标签页 title 用. 默认 "金湖展贸中心 控制系统" */

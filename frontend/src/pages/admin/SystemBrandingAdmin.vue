@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus';
+import { Upload, Trash2 } from 'lucide-vue-next';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 
 /**
@@ -24,6 +25,7 @@ const form = reactive({
   copyright: '',
 });
 
+// logoUrl 不放 rules — 它是上传出来的 data URL, 不归用户管. 校验只看其他字段.
 const rules: FormRules = {
   systemName: [
     { required: true, message: '系统名称必填', trigger: 'blur' },
@@ -36,6 +38,84 @@ const rules: FormRules = {
   systemSubtitle: [{ max: 60, message: '副标题不能超过 60 字符', trigger: 'blur' }],
   browserTitle: [{ max: 80, message: '浏览器标题不能超过 80 字符', trigger: 'blur' }],
 };
+
+// ============ Logo 图片上传 + 客户端 canvas 压缩 ============
+// 设计目标:
+//   - 用户上传任意 JPG/PNG/SVG (≤5MB), 浏览器端 canvas resize 到 256×256, WebP 压缩
+//   - 结果 ~10-30 KB data URL 内嵌 logoUrl 字段, 不依赖文件系统 / nginx 静态
+//   - 加载快: 跟 layout chunk 一起来, 不用单独 fetch 一次
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+const TARGET_SIZE_PX = 256;     // logo 通常 40-80px 显示, 256×256 足够 retina
+const WEBP_QUALITY = 0.85;
+const ACCEPT_TYPES = 'image/png,image/jpeg,image/webp,image/svg+xml,image/gif';
+const uploading = ref(false);
+
+/** 读 File → HTMLImageElement (走 object URL, 用完释放) */
+function loadImage(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('图片解析失败')); };
+    img.src = url;
+  });
+}
+
+/** canvas resize + WebP 编码 → data URL */
+function resizeToWebP(img: HTMLImageElement): string {
+  const ratio = img.naturalWidth / img.naturalHeight;
+  let w = TARGET_SIZE_PX;
+  let h = TARGET_SIZE_PX;
+  // 保持宽高比, 长边 = 256
+  if (ratio >= 1) {
+    h = Math.round(TARGET_SIZE_PX / ratio);
+  } else {
+    w = Math.round(TARGET_SIZE_PX * ratio);
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('canvas context 拿不到, 浏览器太老');
+  // 高质量缩放
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, 0, 0, w, h);
+  // 优先 WebP, 不支持时浏览器自动 fallback PNG
+  const dataUrl = canvas.toDataURL('image/webp', WEBP_QUALITY);
+  if (dataUrl.startsWith('data:image/webp')) return dataUrl;
+  // 兼容: 老 Safari/IE 不支持 toDataURL('image/webp'), 落 PNG
+  return canvas.toDataURL('image/png');
+}
+
+/** el-upload 的 :before-upload 拦截 — 不真去 POST, 而是本地处理后塞到 form */
+async function handleFileSelected(file: File): Promise<boolean> {
+  if (!file.type.startsWith('image/')) {
+    ElMessage.error('只支持图片格式 (PNG / JPG / WebP / SVG)');
+    return false;
+  }
+  if (file.size > MAX_UPLOAD_BYTES) {
+    ElMessage.error(`图片不能超过 ${MAX_UPLOAD_BYTES / 1024 / 1024} MB (当前 ${(file.size / 1024 / 1024).toFixed(1)} MB)`);
+    return false;
+  }
+  uploading.value = true;
+  try {
+    const img = await loadImage(file);
+    const dataUrl = resizeToWebP(img);
+    form.logoUrl = dataUrl;
+    const kb = Math.round(dataUrl.length * 0.75 / 1024); // base64 → 字节 = len*0.75
+    ElMessage.success(`图片已压缩到 ${TARGET_SIZE_PX}px, 约 ${kb} KB, 保存后生效`);
+  } catch (e) {
+    ElMessage.error(`图片处理失败: ${(e as Error).message}`);
+  } finally {
+    uploading.value = false;
+  }
+  return false; // false → 阻止 el-upload 真去 POST, 我们走 save() 统一提交
+}
+
+function clearLogoImage(): void {
+  form.logoUrl = '';
+}
 
 function loadFormFromStore(): void {
   const b = brandingStore.branding;
@@ -137,12 +217,41 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
             <div class="form-help">圆形 logo 里显示的字 (没传 logoUrl 时用)</div>
           </el-form-item>
 
-          <el-form-item label="Logo 图片 URL" prop="logoUrl">
-            <el-input
-              v-model="form.logoUrl"
-              placeholder="留空用文字 logo. 想用图片就填 URL (绝对路径或 /api/media/<id>/file)"
-            />
-            <div class="form-help">图片优先于文字. 推荐 1:1 方图, 透明 PNG / SVG. 暂未集成上传, 先用现有 URL.</div>
+          <el-form-item label="Logo 图片">
+            <div class="logo-upload-block">
+              <!-- 已上传 / 当前图片预览 -->
+              <div v-if="form.logoUrl" class="logo-current">
+                <img :src="form.logoUrl" alt="logo" class="logo-current-img" />
+                <div class="logo-current-meta">
+                  <div class="logo-current-size">
+                    已压缩到 {{ TARGET_SIZE_PX }}px · 约 {{ Math.round(form.logoUrl.length * 0.75 / 1024) }} KB
+                  </div>
+                  <el-button size="small" link type="danger" @click="clearLogoImage">
+                    <Trash2 :size="14" /> 删除, 回退文字 logo
+                  </el-button>
+                </div>
+              </div>
+
+              <!-- 上传 -->
+              <el-upload
+                :accept="ACCEPT_TYPES"
+                :before-upload="handleFileSelected"
+                :show-file-list="false"
+                drag
+                class="logo-uploader"
+              >
+                <div class="logo-uploader-inner">
+                  <Upload :size="22" :stroke-width="1.6" />
+                  <div class="logo-uploader-text">
+                    {{ form.logoUrl ? '换张图片' : '点击或拖拽上传' }}
+                  </div>
+                  <div class="logo-uploader-hint">
+                    支持 PNG / JPG / WebP / SVG, ≤ 5MB. 自动压缩到 {{ TARGET_SIZE_PX }}px WebP, 不用管原图大小.
+                  </div>
+                </div>
+              </el-upload>
+              <div v-if="uploading" class="logo-uploader-loading">处理中...</div>
+            </div>
           </el-form-item>
 
           <el-divider content-position="left">其他</el-divider>
@@ -394,5 +503,75 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ---- Logo 上传 ---- */
+.logo-upload-block {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+.logo-current {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  background: rgba(6, 182, 212, 0.06);
+  border: 1px solid rgba(6, 182, 212, 0.25);
+  border-radius: 10px;
+}
+.logo-current-img {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 10px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.05);
+}
+.logo-current-meta {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.logo-current-size {
+  font-size: 12px;
+  color: var(--v2-text-2);
+}
+.logo-uploader :deep(.el-upload-dragger) {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px dashed var(--v2-border-soft);
+  border-radius: 10px;
+  padding: 18px 16px;
+  transition: border-color 0.18s, background 0.18s;
+}
+.logo-uploader :deep(.el-upload-dragger:hover) {
+  border-color: var(--v2-primary);
+  background: rgba(6, 182, 212, 0.05);
+}
+.logo-uploader-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--v2-text-2);
+}
+.logo-uploader-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--v2-text-1);
+}
+.logo-uploader-hint {
+  font-size: 11px;
+  color: var(--v2-text-3);
+  text-align: center;
+  line-height: 1.5;
+}
+.logo-uploader-loading {
+  font-size: 12px;
+  color: var(--v2-primary);
+  text-align: center;
+  margin-top: 6px;
 }
 </style>
