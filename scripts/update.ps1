@@ -145,35 +145,15 @@ if (Test-Path $envFile) {
   }
 }
 
-# 5) 重新构建 (backend + frontend)
-Write-Host "`n[5/6] 重新构建..." -ForegroundColor Yellow
+# 5) 重新构建 backend (frontend 移到 step 7, 交给 admin-rebuild-frontend 处理)
+# 历史经验: watcher 是 user 身份, 杀不动 SYSTEM 持有的 :5173 vite preview, frontend build
+# 一直 EPERM. 把 frontend 这一摊全部委托给 backend 的 admin-rebuild-frontend endpoint,
+# backend 跑在 pm2 windows service 下 (LocalSystem 身份), 有 SeDebugPrivilege, 能杀 SYSTEM.
+Write-Host "`n[5/6] 重新构建 backend (frontend 由 admin-rebuild-frontend 接管)..." -ForegroundColor Yellow
 Push-Location (Join-Path $projectRoot 'backend')
 Run "npm run build"
 Pop-Location
-
-# 5.0) 杀掉 vite preview (端口 5173) — vite build 会 emptyDir, 但 vite preview
-# 持有 dist/assets/*.css 文件句柄 → EPERM on lstat → build 失败. 必须先杀.
-# (历史现场: 5173 vite preview 是手动 npm run preview 起的孤儿, 没人收 → build 卡死.
-# 解决: 先 stop, 让 frontend build 干净跑完, 再 6c.1 用 pm2 拉起.)
-Write-Host "  -> 杀掉占着 :5173 的 vite preview (防 build EPERM)" -ForegroundColor Yellow
-try {
-  $conns5173 = Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue
-  foreach ($c in $conns5173) {
-    $tpid = $c.OwningProcess
-    Write-Host "    -> kill PID $tpid (听 :5173)" -ForegroundColor Yellow
-    Stop-Process -Id $tpid -Force -ErrorAction SilentlyContinue
-    & taskkill /F /PID $tpid 2>&1 | Out-Null
-    & wmic process where "ProcessId=$tpid" delete 2>&1 | Out-Null
-  }
-} catch {
-  Write-Host "    !! 杀 5173 失败: $($_.Exception.Message)" -ForegroundColor Red
-}
-Start-Sleep -Milliseconds 800
-
-Push-Location (Join-Path $projectRoot 'frontend')
-Run "npm run build"
-Pop-Location
-Write-Host "  构建完成" -ForegroundColor Green
+Write-Host "  backend 构建完成" -ForegroundColor Green
 
 # 5.5) seed — 应用 entity / 硬件 / 场景的更新.
 # seed 本身是幂等的 (record 已存在就跳过), 安全多跑.
@@ -212,24 +192,6 @@ Start-Sleep -Milliseconds 800
 # 6c: 用 ecosystem 重新起, 读最新 .env
 $ecosystem = Join-Path $projectRoot 'deploy\ecosystem.config.js'
 try { & pm2 start "$ecosystem" --only smart-control-backend --update-env 2>&1 | Out-Null } catch { }
-
-# 6c.1: vite preview (PWA 静态服务, 端口 5173) 同样靠 pm2 拉起
-# 历史上 vite preview 是 RDC 里手动 npm run preview 起的孤儿进程, 一次重启就死.
-# 现在收编到 pm2: 先杀掉占着 5173 的老孤儿 + pm2 delete 旧记录, 然后用新 ecosystem 起.
-Write-Host "  -> 整理 vite preview (端口 5173)" -ForegroundColor Yellow
-try {
-  $conns5173 = Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue
-  foreach ($c in $conns5173) {
-    $tpid = $c.OwningProcess
-    Write-Host "  -> 杀掉占用 :5173 的 PID $tpid (孤儿 vite preview)" -ForegroundColor Yellow
-    Stop-Process -Id $tpid -Force -ErrorAction SilentlyContinue
-    & taskkill /F /PID $tpid 2>&1 | Out-Null
-  }
-} catch { }
-try { & pm2 delete smart-control-frontend 2>&1 | Out-Null } catch { }
-Start-Sleep -Milliseconds 500
-try { & pm2 start "$ecosystem" --only smart-control-frontend --update-env 2>&1 | Out-Null } catch { }
-
 try { & pm2 save 2>&1 | Out-Null } catch { }
 
 # 6d: 兜底 — 假设上面 pm2 命令因权限不通 (watcher 用 user 身份, pm2 daemon
@@ -278,6 +240,30 @@ if (-not $healthOk) {
   Write-Host "  git reset --hard $beforeCommit" -ForegroundColor Yellow
   Write-Host "  pm2 restart smart-control-backend" -ForegroundColor Yellow
   throw "健康检查失败: $lastErr"
+}
+
+# 7) frontend 重 build (走 backend 的 admin-rebuild-frontend, backend 用 SYSTEM 权限杀 :5173)
+# 这一步在 backend 已经重启 + 健康检查通过之后, 确保新版 backend (带杀 :5173 + 串联 pm2 start
+# 的 admin endpoint) 已经在跑.
+# 不阻塞 update.ps1 完成 — endpoint 是异步 spawn npm run build, 2-3 分钟后 dist 就绪.
+Write-Host "`n[7/7] frontend 重 build (委托给 admin-rebuild-frontend)..." -ForegroundColor Yellow
+if (-not $DryRun) {
+  try {
+    $rbBody = '{"token":"jinhu-restart-2026"}'
+    $rbResp = Invoke-RestMethod -Uri 'http://localhost:3200/api/system/admin-rebuild-frontend' `
+      -Method Post -ContentType 'application/json' -Body $rbBody -TimeoutSec 10 -ErrorAction Stop
+    Write-Host "  ✓ admin-rebuild-frontend 已触发" -ForegroundColor Green
+    if ($rbResp.data.killedPids -and $rbResp.data.killedPids.Count -gt 0) {
+      Write-Host "    杀掉占 :5173 的 PID: $($rbResp.data.killedPids -join ', ')" -ForegroundColor Gray
+    }
+    if ($rbResp.data.killErrors -and $rbResp.data.killErrors.Count -gt 0) {
+      Write-Host "    kill 错误 (但 build 仍会继续): $($rbResp.data.killErrors -join '; ')" -ForegroundColor Yellow
+    }
+    Write-Host "    spawnPid=$($rbResp.data.spawnPid), 2-3 分钟后 dist 就绪 + vite pm2 启动" -ForegroundColor Gray
+  } catch {
+    # 老版 backend 没这个 endpoint (404) 或 backend 没起来, 不阻塞 update 完成 — 心跳里能看到 dist 状态
+    Write-Host "  (admin-rebuild-frontend 失败, 可能老版 backend 没这个 endpoint: $($_.Exception.Message))" -ForegroundColor DarkGray
+  }
 }
 
 Write-Host "`n================================================" -ForegroundColor Cyan

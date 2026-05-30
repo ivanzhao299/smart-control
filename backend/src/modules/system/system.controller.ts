@@ -219,21 +219,83 @@ export class SystemController {
     if (!isLoopback) throw new ForbiddenException('仅本机 loopback');
     if (body?.token !== 'jinhu-restart-2026') throw new BadRequestException('token 错误');
 
-    const { spawn } = await import('child_process');
+    const { spawn, exec } = await import('child_process');
     const { resolve } = await import('path');
+    const { promisify } = await import('util');
+    const execAsync = promisify(exec);
     const frontendDir = resolve(process.cwd(), '..', 'frontend');
-    const cmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    const child = spawn(cmd, ['run', 'build'], {
+    const killed: number[] = [];
+    const killErrors: string[] = [];
+
+    // 1) 先杀掉占着 :5173 的 vite preview — 它持有 dist/assets/*.css 句柄, 不杀 build EPERM.
+    //    backend 自己跑在 LocalSystem 下 (pm2 windows service), 有 SeDebugPrivilege, 能杀 SYSTEM 进程.
+    //    watcher (user 身份) 杀不动, 所以历史上一直卡死. 这是关键修复.
+    if (process.platform === 'win32') {
+      try {
+        // netstat -ano | findstr :5173 → 拿 PID
+        const { stdout } = await execAsync('netstat -ano | findstr :5173').catch(() => ({ stdout: '' }));
+        const pids = new Set<number>();
+        for (const line of stdout.split('\n')) {
+          // 行格式: "  TCP    0.0.0.0:5173    0.0.0.0:0    LISTENING    3312"
+          if (/LISTENING/i.test(line)) {
+            const m = line.match(/\s+(\d+)\s*$/);
+            if (m) pids.add(parseInt(m[1], 10));
+          }
+        }
+        for (const pid of pids) {
+          try {
+            await execAsync(`taskkill /F /PID ${pid}`);
+            killed.push(pid);
+            this.logger.warn(`admin-rebuild-frontend killed vite preview pid=${pid}`);
+          } catch (e: any) {
+            killErrors.push(`pid=${pid}: ${e.message}`);
+          }
+        }
+      } catch (e: any) {
+        killErrors.push(`netstat: ${e.message}`);
+      }
+      // 给 OS 释放文件句柄留点时间
+      await new Promise((r) => setTimeout(r, 800));
+    }
+
+    // 2) spawn npm run build (异步, 不阻塞响应). 完成后调 pm2 start smart-control-frontend.
+    //    用 shell:true + && 串联 (build && pm2 delete && pm2 start) 确保 pm2 在 build 之后跑.
+    //    pm2 delete 在前面: 历史上 ecosystem 加了新 app 但 pm2 不更新 (--only 对未注册 app 表现迷),
+    //    显式 delete (即使不存在也无害, 错误吞掉) 再 start, 确保用新的 ecosystem 配置.
+    const ecosystemPath = resolve(process.cwd(), '..', 'deploy', 'ecosystem.config.js');
+    const cmdLine = process.platform === 'win32'
+      ? `npm run build && (pm2 delete smart-control-frontend & pm2 start "${ecosystemPath}" --only smart-control-frontend --update-env && pm2 save)`
+      : `npm run build && (pm2 delete smart-control-frontend; pm2 start "${ecosystemPath}" --only smart-control-frontend --update-env && pm2 save)`;
+    // 显式注入 user 的 npm 全局目录到 PATH — pm2 安装在用户 AppData\Roaming\npm,
+    // backend 由 pm2 daemon (LocalSystem 或 user) fork, env 不保证带这个路径.
+    const childEnv: NodeJS.ProcessEnv = { ...process.env };
+    if (process.platform === 'win32') {
+      const extraPaths = [
+        'C:\\Program Files\\nodejs',
+        process.env.APPDATA ? `${process.env.APPDATA}\\npm` : 'C:\\Users\\user\\AppData\\Roaming\\npm',
+      ];
+      childEnv.PATH = `${extraPaths.join(';')};${childEnv.PATH || childEnv.Path || ''}`;
+    }
+    const child = spawn(cmdLine, {
       cwd: frontendDir,
       stdio: 'ignore',
       detached: true,
       windowsHide: true,
+      shell: true,
+      env: childEnv,
     });
     child.unref();
-    this.logger.warn(`admin-rebuild-frontend started (pid=${child.pid}, cwd=${frontendDir})`);
+    this.logger.warn(`admin-rebuild-frontend spawned build+pm2-start (pid=${child.pid}, cwd=${frontendDir})`);
     return {
-      message: `已启动后台 npm run build (pid=${child.pid}), 2-3 分钟后看 ${frontendDir}/dist 是否更新`,
-      data: { pid: child.pid, cwd: frontendDir, startedAt: new Date().toISOString() },
+      message: `已杀 :5173 ${killed.length} 个 + 启动 build+pm2-start (pid=${child.pid}), 2-3 分钟后 dist 应该更新, vite preview 由 pm2 接管.`,
+      data: {
+        killedPids: killed,
+        killErrors,
+        spawnPid: child.pid,
+        cwd: frontendDir,
+        ecosystemPath,
+        startedAt: new Date().toISOString(),
+      },
     };
   }
 
