@@ -298,6 +298,26 @@ try {
       $procInfo.frontendIndex = 'missing'
     }
   } catch { $procInfo.frontendDistErr = $_.Exception.Message }
+
+  # admin-rebuild-frontend 的状态文件 (V2 加: backend 写过则有, 包含 killed PIDs / phase)
+  try {
+    $statePath = Join-Path $projectRoot 'logs\admin-rebuild-frontend-state.json'
+    if (Test-Path $statePath) {
+      $stateRaw = Get-Content $statePath -Raw -ErrorAction SilentlyContinue
+      $procInfo.adminRbState = $stateRaw | ConvertFrom-Json -ErrorAction SilentlyContinue
+    } else {
+      $procInfo.adminRbState = 'no-state-file'
+    }
+  } catch { $procInfo.adminRbStateErr = $_.Exception.Message }
+
+  # build log 尾巴 (10 行) — admin-rebuild-frontend 的 spawn 写到这, 失败的话能看到
+  try {
+    $buildLogPath = Join-Path $projectRoot 'logs\admin-rebuild-frontend-build.log'
+    if (Test-Path $buildLogPath) {
+      $tail = Get-Content $buildLogPath -Tail 15 -ErrorAction SilentlyContinue
+      if ($tail) { $procInfo.adminRbBuildTail = ($tail -join "`n").Substring(0, [Math]::Min(1500, ($tail -join "`n").Length)) }
+    }
+  } catch { }
   try {
     $distMain = Join-Path $projectRoot 'backend\dist\main.js'
     if (Test-Path $distMain) {

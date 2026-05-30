@@ -221,19 +221,38 @@ export class SystemController {
 
     const { spawn, exec } = await import('child_process');
     const { resolve } = await import('path');
+    const { writeFile, mkdir } = await import('fs/promises');
     const { promisify } = await import('util');
     const execAsync = promisify(exec);
     const frontendDir = resolve(process.cwd(), '..', 'frontend');
+    const logDir = process.env.LOG_DIR || resolve(process.cwd(), '..', 'logs');
+    const statePath = resolve(logDir, 'admin-rebuild-frontend-state.json');
+    const buildLogPath = resolve(logDir, 'admin-rebuild-frontend-build.log');
+    await mkdir(logDir, { recursive: true }).catch(() => {});
     const killed: number[] = [];
     const killErrors: string[] = [];
+
+    // 立即写一次状态: invoked + 时间
+    const writeState = async (extra: Record<string, unknown>) => {
+      try {
+        await writeFile(statePath, JSON.stringify({
+          revision: 'V2-2026-05-30-vite-pm2',
+          invokedAt: new Date().toISOString(),
+          ...extra,
+        }, null, 2), 'utf8');
+      } catch { /* swallow */ }
+    };
+    await writeState({ phase: 'started', killed: [], killErrors: [] });
 
     // 1) 先杀掉占着 :5173 的 vite preview — 它持有 dist/assets/*.css 句柄, 不杀 build EPERM.
     //    backend 自己跑在 LocalSystem 下 (pm2 windows service), 有 SeDebugPrivilege, 能杀 SYSTEM 进程.
     //    watcher (user 身份) 杀不动, 所以历史上一直卡死. 这是关键修复.
+    let netstatOut = '';
     if (process.platform === 'win32') {
       try {
         // netstat -ano | findstr :5173 → 拿 PID
         const { stdout } = await execAsync('netstat -ano | findstr :5173').catch(() => ({ stdout: '' }));
+        netstatOut = stdout;
         const pids = new Set<number>();
         for (const line of stdout.split('\n')) {
           // 行格式: "  TCP    0.0.0.0:5173    0.0.0.0:0    LISTENING    3312"
@@ -257,15 +276,17 @@ export class SystemController {
       // 给 OS 释放文件句柄留点时间
       await new Promise((r) => setTimeout(r, 800));
     }
+    await writeState({ phase: 'after-kill', killed, killErrors, netstatOut: netstatOut.slice(0, 800) });
 
     // 2) spawn npm run build (异步, 不阻塞响应). 完成后调 pm2 start smart-control-frontend.
     //    用 shell:true + && 串联 (build && pm2 delete && pm2 start) 确保 pm2 在 build 之后跑.
     //    pm2 delete 在前面: 历史上 ecosystem 加了新 app 但 pm2 不更新 (--only 对未注册 app 表现迷),
     //    显式 delete (即使不存在也无害, 错误吞掉) 再 start, 确保用新的 ecosystem 配置.
     const ecosystemPath = resolve(process.cwd(), '..', 'deploy', 'ecosystem.config.js');
+    // build log 完整捕获到 file 方便排错 (stdio: 'ignore' 之前丢了所有输出)
     const cmdLine = process.platform === 'win32'
-      ? `npm run build && (pm2 delete smart-control-frontend & pm2 start "${ecosystemPath}" --only smart-control-frontend --update-env && pm2 save)`
-      : `npm run build && (pm2 delete smart-control-frontend; pm2 start "${ecosystemPath}" --only smart-control-frontend --update-env && pm2 save)`;
+      ? `(npm run build && (pm2 delete smart-control-frontend & pm2 start "${ecosystemPath}" --only smart-control-frontend --update-env && pm2 save)) > "${buildLogPath}" 2>&1`
+      : `(npm run build && (pm2 delete smart-control-frontend; pm2 start "${ecosystemPath}" --only smart-control-frontend --update-env && pm2 save)) > "${buildLogPath}" 2>&1`;
     // 显式注入 user 的 npm 全局目录到 PATH — pm2 安装在用户 AppData\Roaming\npm,
     // backend 由 pm2 daemon (LocalSystem 或 user) fork, env 不保证带这个路径.
     const childEnv: NodeJS.ProcessEnv = { ...process.env };
@@ -273,6 +294,7 @@ export class SystemController {
       const extraPaths = [
         'C:\\Program Files\\nodejs',
         process.env.APPDATA ? `${process.env.APPDATA}\\npm` : 'C:\\Users\\user\\AppData\\Roaming\\npm',
+        'C:\\Users\\user\\AppData\\Roaming\\npm',
       ];
       childEnv.PATH = `${extraPaths.join(';')};${childEnv.PATH || childEnv.Path || ''}`;
     }
@@ -285,15 +307,28 @@ export class SystemController {
       env: childEnv,
     });
     child.unref();
-    this.logger.warn(`admin-rebuild-frontend spawned build+pm2-start (pid=${child.pid}, cwd=${frontendDir})`);
+    this.logger.warn(`admin-rebuild-frontend spawned build+pm2-start (pid=${child.pid}, cwd=${frontendDir}, log=${buildLogPath})`);
+    await writeState({
+      phase: 'build-spawned',
+      killed,
+      killErrors,
+      spawnPid: child.pid ?? null,
+      cwd: frontendDir,
+      ecosystemPath,
+      buildLogPath,
+      cmdLine: cmdLine.slice(0, 500),
+    });
     return {
       message: `已杀 :5173 ${killed.length} 个 + 启动 build+pm2-start (pid=${child.pid}), 2-3 分钟后 dist 应该更新, vite preview 由 pm2 接管.`,
       data: {
+        revision: 'V2-2026-05-30-vite-pm2',
         killedPids: killed,
         killErrors,
         spawnPid: child.pid,
         cwd: frontendDir,
         ecosystemPath,
+        buildLogPath,
+        statePath,
         startedAt: new Date().toISOString(),
       },
     };
@@ -329,7 +364,7 @@ export class SystemController {
     return {
       message: 'build-marker',
       data: {
-        marker: '2026-05-29-novastar-scan',
+        marker: '2026-05-30-vite-pm2-managed',
         nodeVersion: process.version,
         startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString(),
         uptimeSec: Math.round(process.uptime()),
