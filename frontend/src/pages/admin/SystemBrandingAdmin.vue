@@ -61,30 +61,43 @@ function loadImage(file: File): Promise<HTMLImageElement> {
   });
 }
 
-/** canvas resize + WebP 编码 → data URL */
+/** canvas resize + WebP 编码 → data URL
+ *
+ * 输出统一是 256×256 正方形 (跟前台 .v2-nav-brand 容器形状一致).
+ * 原图按宽高比缩放后居中绘制, 短边方向留透明 padding (object-fit: contain 风格),
+ * 这样长方形 logo 也不会被前台 object-fit: cover 裁掉关键部分.
+ * 透明区域走 WebP/PNG 自带 alpha 通道, 显示时透出 v2-logo 的青色渐变背景,
+ * 跟原来纯文字 logo 的视觉风格自然衔接.
+ */
 function resizeToWebP(img: HTMLImageElement): string {
-  const ratio = img.naturalWidth / img.naturalHeight;
-  let w = TARGET_SIZE_PX;
-  let h = TARGET_SIZE_PX;
-  // 保持宽高比, 长边 = 256
-  if (ratio >= 1) {
-    h = Math.round(TARGET_SIZE_PX / ratio);
+  const SIZE = TARGET_SIZE_PX;
+  const srcRatio = img.naturalWidth / img.naturalHeight;
+  let drawW = SIZE;
+  let drawH = SIZE;
+  if (srcRatio >= 1) {
+    // wide: 撑满宽度, 高度等比缩
+    drawH = SIZE / srcRatio;
   } else {
-    w = Math.round(TARGET_SIZE_PX * ratio);
+    // tall: 撑满高度, 宽度等比缩
+    drawW = SIZE * srcRatio;
   }
+  const dx = (SIZE - drawW) / 2;
+  const dy = (SIZE - drawH) / 2;
+
   const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
+  canvas.width = SIZE;
+  canvas.height = SIZE;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('canvas context 拿不到, 浏览器太老');
+  // 不画背景, 留透明
+  ctx.clearRect(0, 0, SIZE, SIZE);
   // 高质量缩放
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(img, 0, 0, w, h);
-  // 优先 WebP, 不支持时浏览器自动 fallback PNG
+  ctx.drawImage(img, dx, dy, drawW, drawH);
+  // 优先 WebP (支持 alpha), 不支持时浏览器自动 fallback PNG (也支持 alpha)
   const dataUrl = canvas.toDataURL('image/webp', WEBP_QUALITY);
   if (dataUrl.startsWith('data:image/webp')) return dataUrl;
-  // 兼容: 老 Safari/IE 不支持 toDataURL('image/webp'), 落 PNG
   return canvas.toDataURL('image/png');
 }
 
