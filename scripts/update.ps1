@@ -1,5 +1,6 @@
 ﻿# 现场更新脚本 (Windows 10 / GK9000)
 # 把 cnjinhu.top 上已部署的最新代码同步到展厅本地主控机
+# 2026-05-30: 触发 cycle, 让新版 update.ps1 + 新版 admin-rebuild-frontend 接管
 #
 # 用法:
 #   .\scripts\update.ps1            # 标准: pull + build + reload
