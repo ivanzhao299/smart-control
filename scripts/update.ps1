@@ -193,6 +193,24 @@ Start-Sleep -Milliseconds 800
 # 6c: 用 ecosystem 重新起, 读最新 .env
 $ecosystem = Join-Path $projectRoot 'deploy\ecosystem.config.js'
 try { & pm2 start "$ecosystem" --only smart-control-backend --update-env 2>&1 | Out-Null } catch { }
+
+# 6c.1: vite preview (PWA 静态服务, 端口 5173) 同样靠 pm2 拉起
+# 历史上 vite preview 是 RDC 里手动 npm run preview 起的孤儿进程, 一次重启就死.
+# 现在收编到 pm2: 先杀掉占着 5173 的老孤儿 + pm2 delete 旧记录, 然后用新 ecosystem 起.
+Write-Host "  -> 整理 vite preview (端口 5173)" -ForegroundColor Yellow
+try {
+  $conns5173 = Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue
+  foreach ($c in $conns5173) {
+    $tpid = $c.OwningProcess
+    Write-Host "  -> 杀掉占用 :5173 的 PID $tpid (孤儿 vite preview)" -ForegroundColor Yellow
+    Stop-Process -Id $tpid -Force -ErrorAction SilentlyContinue
+    & taskkill /F /PID $tpid 2>&1 | Out-Null
+  }
+} catch { }
+try { & pm2 delete smart-control-frontend 2>&1 | Out-Null } catch { }
+Start-Sleep -Milliseconds 500
+try { & pm2 start "$ecosystem" --only smart-control-frontend --update-env 2>&1 | Out-Null } catch { }
+
 try { & pm2 save 2>&1 | Out-Null } catch { }
 
 # 6d: 兜底 — 假设上面 pm2 命令因权限不通 (watcher 用 user 身份, pm2 daemon
