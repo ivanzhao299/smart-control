@@ -12,16 +12,17 @@
  * ============================================================ */
 
 :root {
-  /* ---------- 中性 / 表面 (4 档层级, 色阶拉开 ×2) ---------- */
-  --v2-bg-0: #0A0E1A;
-  --v2-bg-1: #0F1320;                       /* 11151F → 0F1320 略柔 */
-  --v2-surf-1: rgba(255, 255, 255, 0.055);  /* 主卡片 (2.5% → 5.5%) */
-  --v2-surf-1-hover: rgba(255, 255, 255, 0.085);
-  --v2-surf-2: rgba(255, 255, 255, 0.10);   /* 卡内嵌 (表格行 / 输入框) */
-  --v2-surf-3: rgba(255, 255, 255, 0.14);   /* 抽屉 / dialog (新增) */
+  /* ---------- 中性 / 表面 (4 档, 再升一档 + 微青色调) ---------- */
+  --v2-bg-0: #070B17;                       /* 略再深一档, 让前景跳更明显 */
+  --v2-bg-1: #0C1124;                       /* 渐变低点 */
+  --v2-surf-1: rgba(120, 200, 220, 0.085);  /* 5.5% → 8.5%, 微青底, 不再"散沙" */
+  --v2-surf-1-hover: rgba(120, 200, 220, 0.13);
+  --v2-surf-2: rgba(255, 255, 255, 0.12);   /* 卡内嵌 (表格行 / 输入框) */
+  --v2-surf-3: rgba(255, 255, 255, 0.16);   /* 抽屉 / dialog */
 
-  --v2-border-soft: rgba(255, 255, 255, 0.12);    /* 卡边 (6% → 12%) */
-  --v2-border-strong: rgba(255, 255, 255, 0.18);  /* hover/focus 边 */
+  /* 边框: 纯白 → 微青, 给所有卡边带科技感 */
+  --v2-border-soft: rgba(110, 200, 220, 0.18);     /* 12% 白 → 18% 微青 */
+  --v2-border-strong: rgba(110, 200, 220, 0.32);   /* hover/focus 边, 强 */
 
   --v2-text-1: rgba(255, 255, 255, 0.96);
   --v2-text-2: rgba(255, 255, 255, 0.68);
@@ -31,23 +32,25 @@
   --v2-primary: #06b6d4;
   --v2-primary-dark: #0891b2;
   --v2-primary-hover: #22d3ee;
-  /* primary-soft 16% → 22%, 按钮 chip 更明显 */
-  --v2-primary-soft: rgba(6, 182, 212, 0.22);
+  /* 状态软色 ×1.3 — 22% → 28%, 更鲜亮, 摆脱"灰扑扑"感 */
+  --v2-primary-soft: rgba(6, 182, 212, 0.28);
 
   --v2-amber: #f59e0b;
-  --v2-amber-soft: rgba(245, 158, 11, 0.22);   /* 14% → 22% */
+  --v2-amber-soft: rgba(245, 158, 11, 0.28);
 
   --v2-success: #10b981;
   --v2-warning: #f59e0b;
   --v2-danger: #ef4444;
   --v2-info: #3b82f6;
 
-  /* 统一 22% 软色 (KPI / 状态 chip / 类别按钮) — 老 14% 在卡片底色升级后
-     对比度变差, 提到 22% 让 chip 跟卡明显区分 */
-  --v2-success-soft: rgba(16, 185, 129, 0.22);
-  --v2-warning-soft: rgba(245, 158, 11, 0.22);
-  --v2-danger-soft:  rgba(239, 68, 68, 0.22);
-  --v2-info-soft:    rgba(59, 130, 246, 0.22);
+  --v2-success-soft: rgba(16, 185, 129, 0.28);
+  --v2-warning-soft: rgba(245, 158, 11, 0.28);
+  --v2-danger-soft:  rgba(239, 68, 68, 0.28);
+  --v2-info-soft:    rgba(59, 130, 246, 0.28);
+
+  /* "数字发光" 用 — KPI/亮度/温度 大字号加 text-shadow */
+  --v2-text-glow-primary: 0 0 16px rgba(6, 182, 212, 0.55), 0 0 4px rgba(6, 182, 212, 0.35);
+  --v2-text-glow-amber:   0 0 16px rgba(251, 191, 36, 0.55), 0 0 4px rgba(245, 158, 11, 0.35);
 
   /* 灯光暖色 (亮度滑条 / 灯光卡 active) */
   --v2-light-warm: #fbbf24;
@@ -103,23 +106,42 @@
   --border-strong: var(--v2-border-strong);
 }
 
-/* ============ 全局 body 背景 ============ */
+/* ============ 全局 body 背景 — 网格 + 双 radial 光晕 + 渐变底 ============ */
 html, body, #app {
   background: var(--v2-bg-0) !important;
 }
 
 body {
+  position: relative;
   background:
-    radial-gradient(ellipse 60% 50% at 20% 0%, rgba(6, 182, 212, 0.07) 0%, transparent 60%),
-    radial-gradient(ellipse 50% 40% at 90% 100%, rgba(245, 158, 11, 0.06) 0%, transparent 55%),
+    /* radial 光晕加强: 0.07 → 0.13 (青) / 0.06 → 0.11 (琥珀) */
+    radial-gradient(ellipse 60% 50% at 20% 0%, rgba(6, 182, 212, 0.13) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 90% 100%, rgba(245, 158, 11, 0.11) 0%, transparent 55%),
     linear-gradient(180deg, var(--v2-bg-0) 0%, var(--v2-bg-1) 100%) !important;
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
   letter-spacing: 0.02em;
   -webkit-font-smoothing: antialiased;
 }
+/* 科技感细网格层 — 30px × 30px, 4% 微青线条, 全局不滚一起的固定背景 */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(110, 200, 220, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(110, 200, 220, 0.045) 1px, transparent 1px);
+  background-size: 30px 30px;
+  background-position: -1px -1px;
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 30%, black 0%, rgba(0,0,0,0.4) 80%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 30%, black 0%, rgba(0,0,0,0.4) 80%);
+}
+#app { position: relative; z-index: 1; }
 
 /* ============ 玻璃面板 mixin ============ */
 .v2-glass {
+  position: relative;
   background: var(--v2-surf-1);
   border: 1px solid var(--v2-border-soft);
   backdrop-filter: blur(20px);
@@ -127,10 +149,30 @@ body {
   border-radius: var(--v2-r-md);
   box-shadow: var(--v2-elev-1);
 }
+/* 顶部 1px 青色 hairline — 科技产品的"上沿发光" */
+.v2-glass::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 8%; right: 8%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(6, 182, 212, 0.7) 50%, transparent);
+  border-radius: 1px;
+  pointer-events: none;
+}
 .v2-glass-hover:hover {
   background: var(--v2-surf-1-hover);
   border-color: var(--v2-border-strong);
-  box-shadow: var(--v2-elev-2);
+  box-shadow: var(--v2-elev-2), inset 0 0 24px -8px rgba(6, 182, 212, 0.25);
+}
+
+/* ============ 数字发光 utility (KPI / 亮度 / 温度) ============ */
+.v2-num-glow {
+  text-shadow: var(--v2-text-glow-primary);
+  color: var(--v2-text-1);
+}
+.v2-num-glow-amber {
+  text-shadow: var(--v2-text-glow-amber);
+  color: var(--v2-text-1);
 }
 
 /* ============ .v2-btn-primary — 实色 CTA 按钮 (主操作: 保存 / 新增 / 立即执行)
@@ -165,6 +207,46 @@ body {
   opacity: 0.45;
   cursor: not-allowed;
   filter: grayscale(0.4);
+}
+
+/* ============ 全局卡片顶边青色发光 (科技感 hairline) ============
+ * 用 inset box-shadow 加, 不动各页面 ::before/::after, 不踩冲突.
+ * 这是核心"卡片通电"感的来源.
+ */
+.v2-kpi,
+.v2-scene,
+.v2-zone,
+.v2-screen,
+.v2-hvac-zone,
+.ch-card,
+.metric,
+.v2-card,
+.v2-subsystems,
+.v2-overview {
+  box-shadow:
+    inset 0 1px 0 rgba(6, 182, 212, 0.35),
+    var(--v2-elev-1) !important;
+}
+.v2-scene.active,
+.v2-zone.on,
+.ch-card:not(.muted),
+.v2-screen.on,
+.v2-hvac-zone.on {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 8px 28px -8px var(--scene-glow, rgba(6, 182, 212, 0.5)) !important;
+}
+
+/* ============ KPI / 亮度 / 温度 等"大数字"自动发光 ============
+ * 命中所有页面用到的关键数字 class, 不挨页面改.
+ */
+.v2-kpi-value,
+.metric-num,
+.bri-value,
+.temp-num,
+.ov-value,
+.vol-value {
+  text-shadow: var(--v2-text-glow-primary);
 }
 
 /* ============ 状态药丸 (.v2-pill) — 用新 surf-1 自然变明显 ============ */
