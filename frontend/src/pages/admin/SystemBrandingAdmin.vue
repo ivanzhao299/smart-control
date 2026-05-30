@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus';
-import { Upload, Trash2 } from 'lucide-vue-next';
+import { Upload, Trash2, Lock } from 'lucide-vue-next';
 import { useSystemBrandingStore } from '@/stores/system-branding';
+import { adminChangePassword } from '@/services/admin-auth.service';
+import { useAdminAuthStore } from '@/stores/admin-auth';
+import { useRouter } from 'vue-router';
 
 /**
  * 系统品牌后台 — 编辑当前系统的 logo / 名称 / 副标题 / 浏览器 title.
@@ -130,6 +133,42 @@ function clearLogoImage(): void {
   form.logoUrl = '';
 }
 
+// ============ 改后台密码 ============
+const router = useRouter();
+const authStore = useAdminAuthStore();
+const pwForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' });
+const pwSubmitting = ref(false);
+
+async function changePassword(): Promise<void> {
+  if (!pwForm.oldPassword || !pwForm.newPassword) {
+    ElMessage.warning('请填旧密码 + 新密码');
+    return;
+  }
+  if (pwForm.newPassword.length < 6) {
+    ElMessage.warning('新密码至少 6 位');
+    return;
+  }
+  if (pwForm.newPassword !== pwForm.confirmPassword) {
+    ElMessage.warning('两次输入的新密码不一致');
+    return;
+  }
+  pwSubmitting.value = true;
+  try {
+    await adminChangePassword(pwForm.oldPassword, pwForm.newPassword);
+    ElMessage.success('密码已修改, 所有 session 失效, 请重新登录');
+    pwForm.oldPassword = '';
+    pwForm.newPassword = '';
+    pwForm.confirmPassword = '';
+    // 改完密码当前 token 也失效了, 主动登出 + 跳登录页
+    await authStore.logout();
+    router.replace({ name: 'admin-login' });
+  } catch (e) {
+    ElMessage.error(`改密失败: ${(e as Error).message}`);
+  } finally {
+    pwSubmitting.value = false;
+  }
+}
+
 function loadFormFromStore(): void {
   const b = brandingStore.branding;
   form.systemName = b.systemName;
@@ -188,7 +227,8 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
     </header>
 
     <div class="layout">
-      <!-- 左: 表单 -->
+      <!-- 左: 表单 + 改密码 -->
+      <div class="left-col">
       <el-card class="form-card" shadow="never">
         <el-form
           ref="formRef"
@@ -298,6 +338,34 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
         </el-form>
       </el-card>
 
+      <!-- 改后台密码 (放在左列底部, 跟系统品牌一组"系统配置") -->
+      <el-card class="pw-card" shadow="never">
+        <template #header>
+          <div class="pw-head">
+            <Lock :size="16" :stroke-width="1.8" />
+            <span>修改后台密码</span>
+          </div>
+        </template>
+        <el-form label-position="top" @submit.prevent="changePassword">
+          <el-form-item label="旧密码">
+            <el-input v-model="pwForm.oldPassword" type="password" show-password placeholder="当前登录用的密码" />
+          </el-form-item>
+          <el-form-item label="新密码">
+            <el-input v-model="pwForm.newPassword" type="password" show-password placeholder="至少 6 位" />
+          </el-form-item>
+          <el-form-item label="再输一次新密码">
+            <el-input v-model="pwForm.confirmPassword" type="password" show-password placeholder="跟上面一致" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" :loading="pwSubmitting" @click="changePassword">改密码</el-button>
+          </el-form-item>
+          <div class="pw-hint">
+            ⚠️ 改完密码后, 所有正在用的登录 session 都会失效, 你自己也要重登一次.
+          </div>
+        </el-form>
+      </el-card>
+      </div>
+
       <!-- 右: 实时预览 -->
       <el-card class="preview-card" shadow="never">
         <template #header>
@@ -380,15 +448,38 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
   gap: 18px;
   align-items: start;
 }
+.left-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
 @media (max-width: 1100px) {
   .layout { grid-template-columns: 1fr; }
 }
 
 .form-card,
-.preview-card {
+.preview-card,
+.pw-card {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--v2-border-soft);
   border-radius: var(--v2-r-md);
+}
+.pw-card {
+  margin-top: 14px;
+}
+.pw-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  color: var(--v2-text-1);
+}
+.pw-hint {
+  font-size: 12px;
+  color: var(--v2-text-3);
+  line-height: 1.6;
+  margin-top: 4px;
 }
 .form-card :deep(.el-card__body) {
   padding: 18px 20px 8px;

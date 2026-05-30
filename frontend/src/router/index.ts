@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import { trackRouteChange } from '@/services/rum.service';
+import { useAdminAuthStore } from '@/stores/admin-auth';
 
 const routes: RouteRecordRaw[] = [
   // 平板布局 (Sprint-05)
@@ -16,10 +17,18 @@ const routes: RouteRecordRaw[] = [
       { path: 'status', name: 'status', component: () => import('@/pages/StatusPage.vue') },
     ],
   },
-  // 后台管理布局 (Sprint-06)
+  // 后台登录页 (独立布局, 不进 AdminLayout)
+  {
+    path: '/admin/login',
+    name: 'admin-login',
+    component: () => import('@/pages/admin/AdminLogin.vue'),
+    meta: { adminPublic: true },
+  },
+  // 后台管理布局 (Sprint-06) — 全部需要 admin token
   {
     path: '/admin',
     component: () => import('@/layouts/AdminLayout.vue'),
+    meta: { adminRequired: true },
     children: [
       { path: '', redirect: { name: 'admin-monitor' } },
       { path: 'monitor', name: 'admin-monitor', component: () => import('@/pages/admin/MonitorAdmin.vue') },
@@ -52,6 +61,18 @@ export const router = createRouter({
   // BASE_URL 来自 vite.config 的 base 配置 (生产是 /control/, dev 是 /)
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
+});
+
+// Admin auth guard: 进任何 meta.adminRequired 的路由前确保已登录
+router.beforeEach(async (to) => {
+  if (to.meta?.adminRequired) {
+    const authStore = useAdminAuthStore();
+    const ok = await authStore.ensureChecked();
+    if (!ok) {
+      return { name: 'admin-login', query: { redirect: to.fullPath } };
+    }
+  }
+  return true;
 });
 
 // PERFORMANCE_AUDIT P3-#20: 路由切换耗时埋点

@@ -1,11 +1,12 @@
-import { BadRequestException, Body, Controller, Get, Put } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Put, UseGuards } from '@nestjs/common';
 import { SystemBrandingDto, SystemBrandingService } from './system-branding.service';
+import { AdminGuard } from '../admin-auth/admin-auth.guard';
 
 /**
  * /api/system-branding
  *
  * - GET: 公开 (前台所有 layout 都要读, 不能走鉴权), 返回当前品牌配置
- * - PUT: 后台调用 (现阶段没有 admin auth 中间件, 跟其他 admin 接口一个粒度)
+ * - PUT: 需 AdminGuard, 只有登录后台拿了 token 的人能改
  *
  * 路径选了 `/system-branding` 不是 `/system/branding`, 避免跟 SystemController
  * 的 /api/system/* 一堆 endpoint 撞 (那边已经塞了 heartbeat / health / diag /
@@ -21,6 +22,7 @@ export class SystemBrandingController {
   }
 
   @Put()
+  @UseGuards(AdminGuard)
   async update(@Body() body: Partial<SystemBrandingDto>): Promise<unknown> {
     if (!body || typeof body !== 'object') {
       throw new BadRequestException('请求体必须是 JSON 对象');

@@ -6,6 +6,9 @@ import BrandLogo from '@/components/BrandLogo.vue';
 import { useSystemStore } from '@/stores/system';
 import { usePermissionStore } from '@/stores/permission';
 import { useSystemBrandingStore } from '@/stores/system-branding';
+import { useAdminAuthStore } from '@/stores/admin-auth';
+import { LogOut } from 'lucide-vue-next';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { adminNavIconFor } from '@/composables/useIcons';
 import type { UserRole } from '@/types/api';
 
@@ -15,7 +18,11 @@ const sys = useSystemStore();
 const perm = usePermissionStore();
 const brandingStore = useSystemBrandingStore();
 const branding = computed(() => brandingStore.branding);
+const authStore = useAdminAuthStore();
 
+// 2026-05-30 生产模式菜单审计: 删 4 项不日常用的, 保留 12 项. 删的菜单不删路由,
+// 应急可以直接 URL 访问 (/admin/uat / /admin/drivers / /admin/brands / /admin/audit).
+// 删: UAT 验收 (一次性现场交付) / 驱动模板 (开发集成用) / 硬件品牌 (低价值) / 变更历史 (取证用)
 const items: Array<{ name: string; label: string }> = [
   { name: 'admin-monitor', label: '运维监控' },
   { name: 'admin-alerts', label: '报警中心' },
@@ -24,14 +31,11 @@ const items: Array<{ name: string; label: string }> = [
   { name: 'admin-scheduler', label: '定时任务' },
   { name: 'admin-scene-executions', label: '执行记录' },
   // Sprint-09 测试中心 / Sprint-06 spec 「设备调试」(同一页面, /admin/test-center 与 /admin/debug 等价)
+  // 保留: 现场维护应急时需要 (DALI 直接 poke / Ping / 端口 / rawResponse)
   { name: 'admin-test-center', label: '测试 / 调试' },
-  { name: 'admin-uat', label: 'UAT 验收' },
   { name: 'admin-logs', label: '日志中心' },
   { name: 'admin-hardware', label: '硬件清单' },
-  { name: 'admin-drivers', label: '驱动模板' },
-  { name: 'admin-brands', label: '硬件品牌' },
   { name: 'admin-system-branding', label: '系统品牌' },
-  { name: 'admin-audit', label: '变更历史' },
   { name: 'admin-users', label: '用户管理' },
   { name: 'admin-settings', label: '系统设置' },
 ];
@@ -60,6 +64,21 @@ function gotoPad(): void {
 
 function onRoleChange(v: UserRole): void {
   perm.setRole(v);
+}
+
+async function logout(): Promise<void> {
+  try {
+    await ElMessageBox.confirm('确定退出后台?', '退出登录', {
+      confirmButtonText: '退出',
+      cancelButtonText: '取消',
+      type: 'warning',
+    });
+    await authStore.logout();
+    ElMessage.success('已退出');
+    router.replace({ name: 'admin-login' });
+  } catch {
+    // 用户点了"取消"或关闭, 走 reject, 啥也不干
+  }
 }
 </script>
 
@@ -91,6 +110,9 @@ function onRoleChange(v: UserRole): void {
       <div class="footer">
         <button type="button" class="back" @click="gotoPad">
           <ChevronLeft :size="16" :stroke-width="2" /> 返回平板首页
+        </button>
+        <button type="button" class="back logout-btn" @click="logout">
+          <LogOut :size="16" :stroke-width="2" /> 退出后台
         </button>
       </div>
     </aside>

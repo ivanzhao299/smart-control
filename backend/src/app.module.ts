@@ -30,6 +30,7 @@ import { MediaModule } from './modules/media/media.module';
 import { DriversModule } from './modules/drivers/drivers.module';
 import { BrandsModule } from './modules/brands/brands.module';
 import { SystemBrandingModule } from './modules/system-branding/system-branding.module';
+import { AdminAuthModule } from './modules/admin-auth/admin-auth.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AdaptersModule } from './adapters/adapters.module';
 import { ServicesModule } from './services/services.module';
@@ -66,6 +67,7 @@ import { ServicesModule } from './services/services.module';
     DriversModule,
     BrandsModule,
     SystemBrandingModule,
+    AdminAuthModule,
     AuditModule,
     WebsocketModule,
   ],

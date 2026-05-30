@@ -15,6 +15,16 @@ import { trackApiCall } from './rum.service';
 const baseURL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '/api';
 const DEFAULT_TIMEOUT_MS = 15_000;
 
+/**
+ * Admin Bearer token — 由 adminAuth Pinia store 在 login 后调 setAdminToken 注入,
+ * logout 时调 clearAdminToken 清掉. 所有 PUT/POST/DELETE 自动带 Authorization 头.
+ * GET 不带也行 (后端 GET 都公开), 带了也无害.
+ * 用模块级变量而不是从 localStorage 读, 是为了避免 http.ts 反向依赖 Pinia.
+ */
+let adminToken: string | null = null;
+export function setAdminToken(t: string | null): void { adminToken = t; }
+export function getAdminToken(): string | null { return adminToken; }
+
 export interface HttpRequestConfig {
   /** URL query params, 自动 encode 拼到 url 后. 接受任何 typed interface, 运行时再过滤 nullish. */
   params?: Record<string, unknown>;
@@ -62,6 +72,10 @@ async function request<T>(
     Accept: 'application/json',
     ...(cfg?.headers ?? {}),
   };
+  // 自动注入 admin token (登录后存在 adminAuth store, 同步到这里的模块变量)
+  if (adminToken && !headers['Authorization']) {
+    headers['Authorization'] = `Bearer ${adminToken}`;
+  }
   const init: RequestInit = {
     method,
     headers,
