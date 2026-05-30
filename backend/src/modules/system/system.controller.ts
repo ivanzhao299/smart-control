@@ -219,153 +219,21 @@ export class SystemController {
     if (!isLoopback) throw new ForbiddenException('仅本机 loopback');
     if (body?.token !== 'jinhu-restart-2026') throw new BadRequestException('token 错误');
 
-    const { spawn, exec } = await import('child_process');
+    const { spawn } = await import('child_process');
     const { resolve } = await import('path');
-    const { writeFile, mkdir } = await import('fs/promises');
-    const { promisify } = await import('util');
-    const execAsync = promisify(exec);
     const frontendDir = resolve(process.cwd(), '..', 'frontend');
-    const logDir = process.env.LOG_DIR || resolve(process.cwd(), '..', 'logs');
-    const statePath = resolve(logDir, 'admin-rebuild-frontend-state.json');
-    const buildLogPath = resolve(logDir, 'admin-rebuild-frontend-build.log');
-    await mkdir(logDir, { recursive: true }).catch(() => {});
-    const killed: number[] = [];
-    const killErrors: string[] = [];
-
-    // 立即写一次状态: invoked + 时间
-    const writeState = async (extra: Record<string, unknown>) => {
-      try {
-        await writeFile(statePath, JSON.stringify({
-          revision: 'V2-2026-05-30-vite-pm2',
-          invokedAt: new Date().toISOString(),
-          ...extra,
-        }, null, 2), 'utf8');
-      } catch { /* swallow */ }
-    };
-    await writeState({ phase: 'started', killed: [], killErrors: [] });
-
-    // 1) 先杀掉占着 :5173 的 vite preview — 它持有 dist/assets/*.css 句柄, 不杀 build EPERM.
-    //    backend 自己跑在 LocalSystem 下 (pm2 windows service), 有 SeDebugPrivilege, 能杀 SYSTEM 进程.
-    //    watcher (user 身份) 杀不动, 所以历史上一直卡死. 这是关键修复.
-    let netstatOut = '';
-    let whoamiOut = '';
-    let tasklistOut = '';
-    const killMethodsTried: Record<string, string> = {};
-    if (process.platform === 'win32') {
-      // 先看自己是谁
-      try {
-        const result = await execAsync('whoami /upn 2>nul || whoami', { windowsHide: true } as any).catch(() => ({ stdout: '' as string | Buffer }));
-        whoamiOut = String((result as any).stdout || '').trim();
-      } catch { }
-      try {
-        // netstat -ano | findstr :5173 → 拿 PID
-        const { stdout } = await execAsync('netstat -ano | findstr :5173').catch(() => ({ stdout: '' }));
-        netstatOut = stdout;
-        const pids = new Set<number>();
-        for (const line of stdout.split('\n')) {
-          if (/LISTENING/i.test(line)) {
-            const m = line.match(/\s+(\d+)\s*$/);
-            if (m) pids.add(parseInt(m[1], 10));
-          }
-        }
-        for (const pid of pids) {
-          // 先看这个 PID 的进程信息 (用户 + 命令行)
-          try {
-            const { stdout: tlOut } = await execAsync(`tasklist /FI "PID eq ${pid}" /V /FO CSV`).catch(() => ({ stdout: '' }));
-            tasklistOut += `\n--- PID ${pid} ---\n` + tlOut.slice(0, 600);
-          } catch { }
-          // 多种 kill 方法兜底, 哪个成功就停
-          const methods: Array<[string, string]> = [
-            [`taskkill /F /PID ${pid}`, 'taskkill'],
-            [`taskkill /F /T /PID ${pid}`, 'taskkill-tree'],
-            [`wmic process where ProcessId=${pid} delete`, 'wmic'],
-            [`powershell -NoProfile -Command "Stop-Process -Id ${pid} -Force"`, 'ps-stop'],
-          ];
-          let succeeded = false;
-          for (const [cmd, label] of methods) {
-            try {
-              const { stdout: o, stderr: e } = await execAsync(cmd);
-              killMethodsTried[`${pid}.${label}`] = `OK: ${(o || e).trim().slice(0, 200)}`;
-              // 验证: 等 200ms 再 netstat 看 PID 是否还在
-              await new Promise((r) => setTimeout(r, 200));
-              const { stdout: verify } = await execAsync(`netstat -ano | findstr ":5173"`).catch(() => ({ stdout: '' }));
-              if (!verify.includes(` ${pid}\r\n`) && !verify.includes(` ${pid}\n`) && !verify.endsWith(` ${pid}`)) {
-                killed.push(pid);
-                succeeded = true;
-                break;
-              }
-            } catch (e: any) {
-              killMethodsTried[`${pid}.${label}`] = `FAIL: ${e.message.trim().slice(0, 300)}`;
-            }
-          }
-          if (!succeeded) killErrors.push(`pid=${pid}: 所有 kill 方法都失败 (见 killMethodsTried)`);
-        }
-      } catch (e: any) {
-        killErrors.push(`netstat: ${e.message}`);
-      }
-      // 给 OS 释放文件句柄留点时间
-      await new Promise((r) => setTimeout(r, 800));
-    }
-    await writeState({
-      phase: 'after-kill', killed, killErrors,
-      whoamiOut, netstatOut: netstatOut.slice(0, 800),
-      tasklistOut: tasklistOut.slice(0, 1500),
-      killMethodsTried,
-    });
-
-    // 2) spawn npm run build (异步, 不阻塞响应). 完成后调 pm2 start smart-control-frontend.
-    //    用 shell:true + && 串联 (build && pm2 delete && pm2 start) 确保 pm2 在 build 之后跑.
-    //    pm2 delete 在前面: 历史上 ecosystem 加了新 app 但 pm2 不更新 (--only 对未注册 app 表现迷),
-    //    显式 delete (即使不存在也无害, 错误吞掉) 再 start, 确保用新的 ecosystem 配置.
-    const ecosystemPath = resolve(process.cwd(), '..', 'deploy', 'ecosystem.config.js');
-    // build log 完整捕获到 file 方便排错 (stdio: 'ignore' 之前丢了所有输出)
-    const cmdLine = process.platform === 'win32'
-      ? `(npm run build && (pm2 delete smart-control-frontend & pm2 start "${ecosystemPath}" --only smart-control-frontend --update-env && pm2 save)) > "${buildLogPath}" 2>&1`
-      : `(npm run build && (pm2 delete smart-control-frontend; pm2 start "${ecosystemPath}" --only smart-control-frontend --update-env && pm2 save)) > "${buildLogPath}" 2>&1`;
-    // 显式注入 user 的 npm 全局目录到 PATH — pm2 安装在用户 AppData\Roaming\npm,
-    // backend 由 pm2 daemon (LocalSystem 或 user) fork, env 不保证带这个路径.
-    const childEnv: NodeJS.ProcessEnv = { ...process.env };
-    if (process.platform === 'win32') {
-      const extraPaths = [
-        'C:\\Program Files\\nodejs',
-        process.env.APPDATA ? `${process.env.APPDATA}\\npm` : 'C:\\Users\\user\\AppData\\Roaming\\npm',
-        'C:\\Users\\user\\AppData\\Roaming\\npm',
-      ];
-      childEnv.PATH = `${extraPaths.join(';')};${childEnv.PATH || childEnv.Path || ''}`;
-    }
-    const child = spawn(cmdLine, {
+    const cmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const child = spawn(cmd, ['run', 'build'], {
       cwd: frontendDir,
       stdio: 'ignore',
       detached: true,
       windowsHide: true,
-      shell: true,
-      env: childEnv,
     });
     child.unref();
-    this.logger.warn(`admin-rebuild-frontend spawned build+pm2-start (pid=${child.pid}, cwd=${frontendDir}, log=${buildLogPath})`);
-    await writeState({
-      phase: 'build-spawned',
-      killed,
-      killErrors,
-      spawnPid: child.pid ?? null,
-      cwd: frontendDir,
-      ecosystemPath,
-      buildLogPath,
-      cmdLine: cmdLine.slice(0, 500),
-    });
+    this.logger.warn(`admin-rebuild-frontend started (pid=${child.pid}, cwd=${frontendDir})`);
     return {
-      message: `已杀 :5173 ${killed.length} 个 + 启动 build+pm2-start (pid=${child.pid}), 2-3 分钟后 dist 应该更新, vite preview 由 pm2 接管.`,
-      data: {
-        revision: 'V2-2026-05-30-vite-pm2',
-        killedPids: killed,
-        killErrors,
-        spawnPid: child.pid,
-        cwd: frontendDir,
-        ecosystemPath,
-        buildLogPath,
-        statePath,
-        startedAt: new Date().toISOString(),
-      },
+      message: `已启动后台 npm run build (pid=${child.pid}), 2-3 分钟后看 ${frontendDir}/dist 是否更新`,
+      data: { pid: child.pid, cwd: frontendDir, startedAt: new Date().toISOString() },
     };
   }
 
@@ -399,7 +267,7 @@ export class SystemController {
     return {
       message: 'build-marker',
       data: {
-        marker: '2026-05-30-vite-pm2-managed-v3',
+        marker: '2026-05-29-novastar-scan',
         nodeVersion: process.version,
         startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString(),
         uptimeSec: Math.round(process.uptime()),

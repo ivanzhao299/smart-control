@@ -84,47 +84,5 @@ module.exports = {
       merge_logs: true,
       time: true,
     },
-    // Vite preview — PWA 静态服务 (端口 5173)
-    // 之前是手动起的孤儿进程, 一旦 build 失败或重启就停, 然后没人把它再拉起 → 白屏.
-    // 收编到 pm2: 开机 boot.ps1 resurrect 会拉起, watcher update.ps1 reload 也能换新 dist.
-    {
-      name: 'smart-control-frontend',
-      cwd: path.resolve(__dirname, '..', 'frontend'),
-      // 直接调 vite 二进制, 不走 npm run preview (npm.cmd 在 pm2 下 fork 模式不稳)
-      script: path.resolve(__dirname, '..', 'frontend', 'node_modules', 'vite', 'bin', 'vite.js'),
-      args: 'preview --host 0.0.0.0 --port 5173 --strictPort',
-      instances: 1,
-      exec_mode: 'fork',
-
-      // 自愈
-      autorestart: true,
-      max_restarts: 50,
-      min_uptime: '15s',
-      restart_delay: 2000,
-      exp_backoff_restart_delay: 200,
-
-      // vite preview 是静态文件 server, 内存占用低
-      max_memory_restart: '300M',
-
-      // 优雅关闭
-      kill_timeout: 5000,
-      wait_ready: false,
-      listen_timeout: 8000,
-
-      watch: false,
-
-      env: {
-        NODE_ENV: 'production',
-      },
-      env_production: {
-        NODE_ENV: 'production',
-      },
-
-      error_file: path.join(defaultLogDir, 'pm2-frontend-error.log'),
-      out_file: path.join(defaultLogDir, 'pm2-frontend-out.log'),
-      log_date_format: 'YYYY-MM-DD HH:mm:ss.SSS',
-      merge_logs: true,
-      time: true,
-    },
   ],
 };
