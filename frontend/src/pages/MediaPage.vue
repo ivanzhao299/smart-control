@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import {
   Upload,
   Trash2,
@@ -19,7 +19,44 @@ import { usePlaybackStore } from '@/stores/playback';
 const playbackStore = usePlaybackStore();
 
 const router = useRouter();
-function goBack(): void { router.push({ name: 'dashboard' }); }
+const route = useRoute();
+
+/**
+ * 挑选模式 — 从 LedPage 跳过来时 URL 带 ?pick_for_slot=1 / 2.
+ * 此时:
+ *   - 顶部 banner 提示"为 XX 选媒体"
+ *   - 点卡片就直接推到那个 slot, 不弹 "推到哪" 菜单
+ *   - 推完自动返回 LedPage
+ *   - 顶部 "返回" 按钮也回 LedPage 而不是 dashboard
+ */
+const pickForSlot = computed<1 | 2 | null>(() => {
+  const v = Array.isArray(route.query.pick_for_slot) ? route.query.pick_for_slot[0] : route.query.pick_for_slot;
+  const n = Number(v);
+  return n === 1 || n === 2 ? n : null;
+});
+const pickModeLabel = computed<string>(() => {
+  if (pickForSlot.value === 1) return 'LED 大屏 (HDMI1)';
+  if (pickForSlot.value === 2) return '投影仪 (HDMI2)';
+  return '';
+});
+
+function goBack(): void {
+  if (pickForSlot.value) router.push({ name: 'led' });
+  else router.push({ name: 'dashboard' });
+}
+
+/** 挑选模式下点卡片: 直接推 + 回 LED 页 */
+async function pickAndPush(m: MediaItem): Promise<void> {
+  const slot = pickForSlot.value;
+  if (!slot) return;
+  try {
+    await playbackStore.publish(slot, m.id, 'once');
+    ElMessage.success(`已推「${m.originalName}」到 ${pickModeLabel.value}`);
+    router.push({ name: 'led' });
+  } catch (e) {
+    ElMessage.error(`推送失败: ${(e as Error).message}`);
+  }
+}
 
 const items = ref<MediaItem[]>([]);
 const loading = ref(false);
@@ -240,6 +277,13 @@ onMounted(() => { void refresh(); });
       </div>
     </header>
 
+    <!-- pick 模式 banner: 提示当前是"为 XX 选媒体", 点取消回 LED 页 -->
+    <div v-if="pickForSlot" class="pick-banner">
+      <Send :size="16" :stroke-width="1.8" />
+      <span class="pb-text">为 <b>{{ pickModeLabel }}</b> 挑选一个媒体, 点击就推送</span>
+      <button class="pb-cancel" @click="router.push({ name: 'led' })">取消</button>
+    </div>
+
     <!-- 上传进度 (大文件含速率 + ETA) -->
     <div v-if="uploading" class="upload-bar">
       <div class="upload-name" :title="uploadName">{{ uploadName }}</div>
@@ -273,7 +317,13 @@ onMounted(() => { void refresh(); });
       </div>
 
       <div class="grid">
-        <div v-for="m in filtered" :key="m.id" class="card" @click="openPreview(m)">
+        <div
+          v-for="m in filtered"
+          :key="m.id"
+          class="card"
+          :class="{ 'pick-mode': pickForSlot }"
+          @click="pickForSlot ? pickAndPush(m) : openPreview(m)"
+        >
           <div class="thumb">
             <video v-if="m.kind === 'video'" :src="m.fileUrl" preload="metadata" muted playsinline />
             <img v-else :src="m.fileUrl" :alt="m.originalName" />
@@ -436,6 +486,50 @@ onMounted(() => { void refresh(); });
 
 .card { position: relative; background: linear-gradient(135deg, rgba(99,102,241,0.08), transparent), rgba(15, 23, 42, 0.55); backdrop-filter: blur(10px); border: 1px solid var(--border-soft); border-radius: 12px; overflow: hidden; cursor: pointer; transition: all 0.18s; }
 .card:hover { transform: translateY(-2px); border-color: rgba(6, 182, 212, 0.55); box-shadow: 0 10px 24px -8px rgba(6, 182, 212, 0.35); }
+.card.pick-mode { cursor: pointer; }
+.card.pick-mode:hover { border-color: var(--v2-primary); box-shadow: 0 12px 30px -10px rgba(6, 182, 212, 0.55), inset 0 0 0 1px var(--v2-primary); }
+.card.pick-mode:hover::after {
+  content: '点击直接推送';
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--v2-primary);
+  color: white;
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  pointer-events: none;
+  box-shadow: 0 6px 16px -4px rgba(6, 182, 212, 0.5);
+  z-index: 3;
+}
+
+/* Pick 模式 banner */
+.pick-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: linear-gradient(90deg, rgba(6, 182, 212, 0.18), rgba(6, 182, 212, 0.06));
+  border: 1px solid rgba(6, 182, 212, 0.4);
+  border-radius: var(--v2-r-md);
+  color: var(--v2-text-1);
+  font-size: 14px;
+}
+.pick-banner .pb-text { flex: 1; }
+.pick-banner b { color: var(--v2-primary-hover); font-weight: 600; margin: 0 2px; }
+.pick-banner .pb-cancel {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--v2-border-soft);
+  color: var(--v2-text-2);
+  padding: 6px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.pick-banner .pb-cancel:hover { background: rgba(255, 255, 255, 0.14); color: var(--v2-text-1); }
 .thumb { position: relative; aspect-ratio: 16/10; background: #0b1220; overflow: hidden; display: flex; align-items: center; justify-content: center; }
 .thumb video, .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .kind-tag { position: absolute; top: 8px; left: 8px; display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; font-size: 10px; font-weight: 600; border-radius: 999px; backdrop-filter: blur(6px); }

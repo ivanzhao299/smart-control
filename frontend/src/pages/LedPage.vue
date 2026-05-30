@@ -76,7 +76,14 @@ const overview = computed(() => {
 
 const router = useRouter();
 function goBack(): void { router.push({ name: 'dashboard' }); }
-function gotoMedia(): void { router.push({ name: 'media' }); }
+/**
+ * 跳媒体页"选一个推到 slot" — 带 ?pick_for_slot=N 参数, MediaPage 检测到这个
+ * 模式就变成"选一张就推 + 回 LED 页", 用户不用再手动回来.
+ */
+function gotoMedia(slot?: 1 | 2): void {
+  if (slot) router.push({ name: 'media', query: { pick_for_slot: String(slot) } });
+  else router.push({ name: 'media' });
+}
 
 async function stopPlayback(slot: 1 | 2): Promise<void> {
   try {
@@ -166,7 +173,7 @@ async function allOff(): Promise<void> {
           <span class="pb-loop">{{ playbackStore.slot1.loopMode === 'loop' ? '· 循环' : '· 单次' }}</span>
         </div>
         <div class="pb-actions">
-          <button class="v2-quick" @click="gotoMedia">选媒体</button>
+          <button class="v2-quick" @click="gotoMedia(1)">选媒体</button>
           <button v-if="playbackStore.slot1?.currentMediaId" class="v2-quick danger" @click="stopPlayback(1)">停止 / 回待机</button>
         </div>
       </div>
@@ -187,7 +194,7 @@ async function allOff(): Promise<void> {
           <span class="pb-loop">{{ playbackStore.slot2.loopMode === 'loop' ? '· 循环' : '· 单次' }}</span>
         </div>
         <div class="pb-actions">
-          <button class="v2-quick" @click="gotoMedia">选媒体</button>
+          <button class="v2-quick" @click="gotoMedia(2)">选媒体</button>
           <button v-if="playbackStore.slot2?.currentMediaId" class="v2-quick danger" @click="stopPlayback(2)">停止 / 回待机</button>
         </div>
       </div>
@@ -235,7 +242,7 @@ async function allOff(): Promise<void> {
 
         <!-- 媒体操作: 旧手输文件名行已下架, 改成"去媒体页选" 链接 + 当前播放 -->
         <div class="media-row">
-          <button class="v2-quick primary" @click="gotoMedia">
+          <button class="v2-quick primary" @click="gotoMedia(1)">
             <Play :size="14" :stroke-width="2" /> 选媒体推送
           </button>
           <button class="v2-quick" :disabled="z.busy" @click="welcome(z)">
