@@ -149,6 +149,14 @@ export interface UatUpdatedEvent {
   at: string;
 }
 
+/** Sprint-10: 播控通道变化 — slot=1/2 当前播啥变了, PlayerPage / MediaPage / LedPage 都订阅 */
+export interface PlaybackChannelChangedEvent {
+  type: 'playback_channel_changed';
+  slot: number;
+  view: unknown;  // 完整 PlaybackChannelView, 接收端转 cast
+  at: string;
+}
+
 export type ControlEvent =
   | DeviceStatusEvent
   | SceneEvent
@@ -161,7 +169,8 @@ export type ControlEvent =
   | SystemHealthEvent
   | ServiceStatusEvent
   | TestEvent
-  | UatUpdatedEvent;
+  | UatUpdatedEvent
+  | PlaybackChannelChangedEvent;
 
 @Injectable()
 export class ControlBus {

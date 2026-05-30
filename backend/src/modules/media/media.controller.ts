@@ -17,7 +17,7 @@ import type { Response } from 'express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
 import { mkdirSync } from 'fs';
-import { spawn } from 'child_process';
+// (Sprint-10: spawn 用于旧 publish 路径, 已下架)
 import { MediaService } from './media.service';
 import { MediaUploadMetaDto } from './dto/media.dto';
 import { OperationLogService } from '../logs/operation-log.service';
@@ -129,62 +129,9 @@ export class MediaController {
     return { message: '已删除', data: r };
   }
 
-  /**
-   * 推送到 LED 大屏 — 在 GK9000 本机用全屏播放器打开
-   *
-   * 走法 (现场): GK9000 HDMI1 → 诺瓦 VX1000 → LED 大屏
-   * 播放器优先级: env MEDIA_PLAYER > PotPlayer > VLC > 系统默认 (start)
-   *
-   * 仅 Windows + 同主机有效. 远程主机要播放需要 RDP/HDMI 实体接显示器.
-   */
-  @Post(':id/publish')
-  async publish(@Param('id', ParseIntPipe) id: number) {
-    const m = await this.media.get(id);
-    const playerEnv = process.env.MEDIA_PLAYER;
-    let cmd: string;
-    let args: string[];
-
-    if (playerEnv) {
-      cmd = playerEnv;
-      args = ['/fullscreen', m.path];
-    } else if (process.platform === 'win32') {
-      // 默认: 用 Windows 自带 start 调系统关联程序 (Photos / Movies & TV)
-      // 后续可装 PotPlayer 切到它. start 是 cmd 内建, 必须 shell:true
-      cmd = 'cmd';
-      args = ['/c', 'start', '""', m.path];
-    } else {
-      cmd = 'xdg-open';
-      args = [m.path];
-    }
-
-    try {
-      const child = spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: false });
-      child.unref();
-      await this.media.markPlayed(id);
-      await this.opLog.record({
-        operator: 'system',
-        action: 'media.publish',
-        targetType: 'media',
-        targetId: String(id),
-        result: 'success',
-        message: JSON.stringify({ name: m.originalName, cmd, args }),
-      });
-      this.log.log(`Published media id=${id} via ${cmd} ${args.join(' ')}`);
-      return {
-        message: '已发起播放',
-        data: { id, name: m.originalName, player: cmd, args },
-      };
-    } catch (e) {
-      const err = e as Error;
-      await this.opLog.record({
-        operator: 'system',
-        action: 'media.publish',
-        targetType: 'media',
-        targetId: String(id),
-        result: 'failure',
-        message: err.message,
-      });
-      return { message: `播放失败: ${err.message}`, data: null };
-    }
-  }
+  // 注: 旧的 POST /api/media/:id/publish (spawn 系统播放器) 在 Sprint-10 已下架.
+  // 新链路: 前端调 POST /api/playback/channels/:slot/publish { mediaId },
+  //   PlaybackService 写 channel 状态 + WS 广播, PlayerPage (Chromium kiosk
+  //   全屏占住 HDMI1/HDMI2) 收到 WS 事件直接 <video src=/api/media/N/file>.
+  // 整套不再依赖 Windows 默认关联程序, 切换无延迟, 双路独立.
 }

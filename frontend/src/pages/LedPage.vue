@@ -6,6 +6,9 @@ import {
   ArrowLeft, MonitorPlay, Power, X, Sparkles, Play, Tv2, Sun,
 } from 'lucide-vue-next';
 import { ledService, type LedInput } from '@/services/led.service';
+import { usePlaybackStore } from '@/stores/playback';
+
+const playbackStore = usePlaybackStore();
 
 interface LedRow {
   id: string;
@@ -61,10 +64,8 @@ async function welcome(z: LedRow): Promise<void> {
   if (ok) { z.power = true; z.input = 'welcome'; }
 }
 
-async function play(z: LedRow): Promise<void> {
-  const ok = await call(z, '播放', () => ledService.play(z.id, z.media || undefined));
-  if (ok) z.power = true;
-}
+// Sprint-10 后: 不再用旧 ledService.play(media=字符串) 这条路径, 媒体走 playbackStore.publish.
+// 留 ledService.play() 的 API 给场景引擎用 (LED 切到 "video" 预设, 不传文件名).
 
 // ============ 总览 ============
 const overview = computed(() => {
@@ -75,6 +76,16 @@ const overview = computed(() => {
 
 const router = useRouter();
 function goBack(): void { router.push({ name: 'dashboard' }); }
+function gotoMedia(): void { router.push({ name: 'media' }); }
+
+async function stopPlayback(slot: 1 | 2): Promise<void> {
+  try {
+    await playbackStore.stop(slot);
+    ElMessage.success(`已停止 ${slot === 1 ? 'LED' : '投影'} 播放, 回到待机`);
+  } catch (e) {
+    ElMessage.error(`停止失败: ${(e as Error).message}`);
+  }
+}
 async function allOn(): Promise<void> {
   for (const z of screens.value) { if (!z.power) await togglePower(z); }
 }
@@ -137,6 +148,51 @@ async function allOff(): Promise<void> {
       </div>
     </div>
 
+    <!-- 双路播控当前状态 (HDMI1 → LED, HDMI2 → 投影) -->
+    <div class="playback-row">
+      <div class="playback-card" :class="{ idle: !playbackStore.slot1?.currentMediaId, dead: playbackStore.slot1 && !playbackStore.slot1.alive }">
+        <div class="pb-head">
+          <div>
+            <div class="pb-name">{{ playbackStore.slot1?.name ?? 'HDMI1 → LED' }}</div>
+            <div class="pb-sub">{{ playbackStore.slot1?.alive ? '播控在线' : 'kiosk 离线 / 未启动' }}</div>
+          </div>
+          <div class="pb-tag" :class="playbackStore.slot1?.currentMediaId ? 'on' : 'off'">
+            {{ playbackStore.slot1?.currentMediaId ? '播放中' : '待机' }}
+          </div>
+        </div>
+        <div v-if="playbackStore.slot1?.currentMediaName" class="pb-media">
+          {{ playbackStore.slot1.currentMediaKind === 'video' ? '🎬' : '🖼' }}
+          {{ playbackStore.slot1.currentMediaName }}
+          <span class="pb-loop">{{ playbackStore.slot1.loopMode === 'loop' ? '· 循环' : '· 单次' }}</span>
+        </div>
+        <div class="pb-actions">
+          <button class="v2-quick" @click="gotoMedia">选媒体</button>
+          <button v-if="playbackStore.slot1?.currentMediaId" class="v2-quick danger" @click="stopPlayback(1)">停止 / 回待机</button>
+        </div>
+      </div>
+
+      <div class="playback-card" :class="{ idle: !playbackStore.slot2?.currentMediaId, dead: playbackStore.slot2 && !playbackStore.slot2.alive }">
+        <div class="pb-head">
+          <div>
+            <div class="pb-name">{{ playbackStore.slot2?.name ?? 'HDMI2 → 投影' }}</div>
+            <div class="pb-sub">{{ playbackStore.slot2?.alive ? '播控在线' : 'kiosk 离线 / 未启动' }}</div>
+          </div>
+          <div class="pb-tag" :class="playbackStore.slot2?.currentMediaId ? 'on' : 'off'">
+            {{ playbackStore.slot2?.currentMediaId ? '播放中' : '待机' }}
+          </div>
+        </div>
+        <div v-if="playbackStore.slot2?.currentMediaName" class="pb-media">
+          {{ playbackStore.slot2.currentMediaKind === 'video' ? '🎬' : '🖼' }}
+          {{ playbackStore.slot2.currentMediaName }}
+          <span class="pb-loop">{{ playbackStore.slot2.loopMode === 'loop' ? '· 循环' : '· 单次' }}</span>
+        </div>
+        <div class="pb-actions">
+          <button class="v2-quick" @click="gotoMedia">选媒体</button>
+          <button v-if="playbackStore.slot2?.currentMediaId" class="v2-quick danger" @click="stopPlayback(2)">停止 / 回待机</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 屏卡 -->
     <div class="v2-screen-grid">
       <div
@@ -177,13 +233,12 @@ async function allOff(): Promise<void> {
           >{{ i.label }}</button>
         </div>
 
-        <!-- 媒体操作 -->
+        <!-- 媒体操作: 旧手输文件名行已下架, 改成"去媒体页选" 链接 + 当前播放 -->
         <div class="media-row">
-          <input v-model="z.media" placeholder="文件名 (e.g. welcome.mp4)" class="media-input" />
-          <button class="v2-quick" :disabled="z.busy" @click="play(z)">
-            <Play :size="14" :stroke-width="2" /> 播放
+          <button class="v2-quick primary" @click="gotoMedia">
+            <Play :size="14" :stroke-width="2" /> 选媒体推送
           </button>
-          <button class="v2-quick primary" :disabled="z.busy" @click="welcome(z)">
+          <button class="v2-quick" :disabled="z.busy" @click="welcome(z)">
             <Sun :size="14" :stroke-width="2" /> 欢迎页
           </button>
         </div>
@@ -247,6 +302,53 @@ async function allOff(): Promise<void> {
 .ov-label { font-size: var(--v2-fs-xs); color: var(--v2-text-3); letter-spacing: 1px; }
 .ov-value { font-size: 20px; font-weight: 600; line-height: 1.1; margin-top: 2px; color: var(--v2-text-1); }
 .ov-value .unit { font-size: 12px; color: var(--v2-text-3); margin-left: 2px; font-weight: 400; }
+
+/* 双路播控当前状态卡 */
+.playback-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--v2-sp-4);
+}
+@media (max-width: 900px) { .playback-row { grid-template-columns: 1fr; } }
+.playback-card {
+  background: var(--v2-surf-1);
+  border: 1px solid var(--v2-border-soft);
+  border-radius: var(--v2-r-md);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow:
+    inset 0 1px 0 rgba(6, 182, 212, 0.35),
+    var(--v2-elev-1);
+}
+.playback-card.idle { opacity: 0.78; }
+.playback-card.dead { border-color: rgba(239, 68, 68, 0.5); }
+.pb-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.pb-name { font-size: 15px; font-weight: 500; color: var(--v2-text-1); }
+.pb-sub { font-size: 11px; color: var(--v2-text-3); margin-top: 3px; letter-spacing: 0.04em; }
+.pb-tag {
+  display: inline-flex; align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+}
+.pb-tag.on  { background: rgba(6, 182, 212, 0.25); color: var(--v2-primary-hover); }
+.pb-tag.off { background: rgba(255, 255, 255, 0.08); color: var(--v2-text-3); }
+.pb-media {
+  font-size: 13px;
+  color: var(--v2-text-2);
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 8px;
+  padding: 8px 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pb-loop { color: var(--v2-text-3); font-size: 11px; margin-left: 4px; }
+.pb-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 /* 屏卡 */
 .v2-screen-grid {

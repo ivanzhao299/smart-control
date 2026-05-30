@@ -495,6 +495,32 @@ export interface UatUpdatedWsEvent {
   at: string;
 }
 
+/** Sprint-10: 播控通道变化 (HDMI1=LED / HDMI2=投影 当前播啥变了) */
+export interface PlaybackChannelView {
+  id: number;
+  slot: number;
+  name: string;
+  outputKind: 'led' | 'projector' | 'monitor';
+  currentMediaId: number | null;
+  currentMediaName: string | null;
+  currentMediaKind: 'video' | 'image' | null;
+  currentMediaUrl: string | null;
+  currentMediaDurationSec: number | null;
+  currentPlaylistId: number | null;
+  playlistIndex: number;
+  startedAt: string | null;
+  loopMode: 'once' | 'loop';
+  lastHeartbeatAt: string | null;
+  alive: boolean;
+  updatedAt: string;
+}
+export interface PlaybackChannelChangedWsEvent {
+  type: 'playback_channel_changed';
+  slot: number;
+  view: PlaybackChannelView;
+  at: string;
+}
+
 export type WsEvent =
   | { type: 'hello'; message: string; serverTime: string }
   | TestWsEvent
@@ -509,6 +535,7 @@ export type WsEvent =
   | DeviceOfflineWsEvent
   | SystemHealthWsEvent
   | ServiceStatusWsEvent
+  | PlaybackChannelChangedWsEvent
   | { type: 'pong'; at: string };
 
 /* ---------- Sprint-10: 硬件清单 ---------- */

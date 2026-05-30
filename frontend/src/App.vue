@@ -4,6 +4,7 @@ import { useSceneStore } from '@/stores/scene';
 import { useDeviceStore } from '@/stores/device';
 import { useSystemStore } from '@/stores/system';
 import { useSystemBrandingStore } from '@/stores/system-branding';
+import { usePlaybackStore } from '@/stores/playback';
 import { wsClient } from '@/services/websocket.service';
 import { polling } from '@/services/polling.service';
 import { markBootComplete } from '@/services/rum.service';
@@ -12,6 +13,7 @@ const sceneStore = useSceneStore();
 const deviceStore = useDeviceStore();
 const systemStore = useSystemStore();
 const brandingStore = useSystemBrandingStore();
+const playbackStore = usePlaybackStore();
 
 let unsubscribeWs: (() => void) | null = null;
 
@@ -39,6 +41,7 @@ onMounted(async () => {
   void deviceStore.fetchRuntime();
   void deviceStore.fetchGateways();
   void sceneStore.refreshRunning();
+  void playbackStore.load();  // 播控通道初始状态, 不卡首屏
 
   // PERFORMANCE_AUDIT P3-#20: 首屏可用时刻
   markBootComplete();
@@ -47,6 +50,7 @@ onMounted(async () => {
     sceneStore.handleWs(event);
     deviceStore.handleWs(event);
     systemStore.handleWs(event);
+    playbackStore.handleWs(event);
   });
   wsClient.connect();
 

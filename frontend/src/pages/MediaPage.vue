@@ -14,6 +14,9 @@ import {
   ArrowLeft,
 } from 'lucide-vue-next';
 import { mediaService, type MediaItem } from '@/services/media.service';
+import { usePlaybackStore } from '@/stores/playback';
+
+const playbackStore = usePlaybackStore();
 
 const router = useRouter();
 function goBack(): void { router.push({ name: 'dashboard' }); }
@@ -175,13 +178,33 @@ function closePreview(): void {
   previewItem.value = null;
 }
 
-async function pushToScreen(m: MediaItem): Promise<void> {
+/**
+ * 推送到指定播控通道.
+ * slot=1: HDMI1 → V2460 → LED 大屏
+ * slot=2: HDMI2 → 投影仪
+ * 同时推 both: 两个 slot 一起切到同一素材
+ */
+async function pushTo(m: MediaItem, slot: 1 | 2 | 'both', loopMode: 'once' | 'loop' = 'once'): Promise<void> {
   try {
-    const r = await mediaService.publish(m.id);
-    ElMessage.success(`已推送「${m.originalName}」到大屏 (${r.player})`);
+    if (slot === 'both') {
+      await Promise.all([playbackStore.publish(1, m.id, loopMode), playbackStore.publish(2, m.id, loopMode)]);
+      ElMessage.success(`已推「${m.originalName}」到 LED + 投影 (loop=${loopMode})`);
+    } else {
+      await playbackStore.publish(slot, m.id, loopMode);
+      const slotName = slot === 1 ? 'LED 大屏' : '投影仪';
+      ElMessage.success(`已推「${m.originalName}」到 ${slotName} (loop=${loopMode})`);
+    }
   } catch (e) {
     ElMessage.error(`推送失败: ${(e as Error).message}`);
   }
+}
+
+/** 查媒体当前是不是在某个 slot 上播 — 给卡片加角标用 */
+function currentSlotFor(mediaId: number): string {
+  const slots: string[] = [];
+  if (playbackStore.slot1?.currentMediaId === mediaId) slots.push('LED');
+  if (playbackStore.slot2?.currentMediaId === mediaId) slots.push('投影');
+  return slots.join(' + ');
 }
 
 onMounted(() => { void refresh(); });
@@ -268,10 +291,22 @@ onMounted(() => { void refresh(); });
               <span v-if="m.resolution">· {{ m.resolution }}</span>
             </div>
           </div>
+          <div v-if="currentSlotFor(m.id)" class="playing-tag">
+            <Send :size="11" :stroke-width="2" /> 播放中: {{ currentSlotFor(m.id) }}
+          </div>
           <div class="card-actions" @click.stop>
-            <button class="card-btn" title="推送到大屏" @click="pushToScreen(m)">
-              <Send :size="14" :stroke-width="2" />
-            </button>
+            <el-dropdown trigger="click" @command="(s: 1|2|'both') => pushTo(m, s)">
+              <button class="card-btn" title="推送到">
+                <Send :size="14" :stroke-width="2" />
+              </button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item :command="1">推到 LED 大屏 (HDMI1)</el-dropdown-item>
+                  <el-dropdown-item :command="2">推到投影仪 (HDMI2)</el-dropdown-item>
+                  <el-dropdown-item :command="'both'" divided>同时推两路</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
             <button class="card-btn danger" title="删除" @click="confirmDelete(m)">
               <Trash2 :size="14" :stroke-width="2" />
             </button>
@@ -301,8 +336,14 @@ onMounted(() => { void refresh(); });
           </div>
           <div v-if="previewItem.remark" class="remark">{{ previewItem.remark }}</div>
           <div class="preview-actions">
-            <button class="v2-quick primary" @click="pushToScreen(previewItem)">
-              <Send :size="14" :stroke-width="2" /> 推送到 LED 大屏
+            <button class="v2-quick primary" @click="pushTo(previewItem, 1)">
+              <Send :size="14" :stroke-width="2" /> 推到 LED 大屏 (HDMI1)
+            </button>
+            <button class="v2-quick primary" @click="pushTo(previewItem, 2)">
+              <Send :size="14" :stroke-width="2" /> 推到投影仪 (HDMI2)
+            </button>
+            <button class="v2-quick" @click="pushTo(previewItem, 'both')">
+              <Send :size="14" :stroke-width="2" /> 同时推两路
             </button>
             <button class="v2-quick danger" @click="confirmDelete(previewItem)">
               <Trash2 :size="14" :stroke-width="2" /> 删除
@@ -407,6 +448,23 @@ onMounted(() => { void refresh(); });
 
 .card-actions { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; opacity: 0; transition: opacity 0.18s; }
 .card:hover .card-actions { opacity: 1; }
+.playing-tag {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(6, 182, 212, 0.85);
+  color: white;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  box-shadow: 0 4px 10px -2px rgba(6, 182, 212, 0.4);
+  z-index: 2;
+}
 .card-btn { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; background: rgba(15, 23, 42, 0.8); color: #fff; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; cursor: pointer; backdrop-filter: blur(6px); transition: all 0.15s; }
 .card-btn:hover { background: rgba(6, 182, 212, 0.5); border-color: rgba(6, 182, 212, 0.8); }
 .card-btn.danger:hover { background: rgba(239, 68, 68, 0.5); border-color: rgba(239, 68, 68, 0.8); }

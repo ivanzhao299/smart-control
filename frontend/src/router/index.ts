@@ -24,6 +24,13 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/pages/admin/AdminLogin.vue'),
     meta: { adminPublic: true },
   },
+  // Kiosk 播控页 — GK9000 上的 Chromium 全屏窗口加载这个 (?slot=1 / ?slot=2)
+  // 没鉴权, 直接进, 不进 MainLayout (要纯黑全屏)
+  {
+    path: '/player',
+    name: 'player',
+    component: () => import('@/pages/PlayerPage.vue'),
+  },
   // 后台管理布局 (Sprint-06) — 全部需要 admin token
   {
     path: '/admin',
