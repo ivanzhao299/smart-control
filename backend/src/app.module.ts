@@ -8,6 +8,7 @@ import { LoggerModule } from './common/logger/logger.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { LatencyInterceptor } from './common/interceptors/latency.interceptor';
+import { EtagInterceptor } from './common/interceptors/etag.interceptor';
 import { HealthModule } from './modules/health/health.module';
 import { DevicesModule } from './modules/devices/devices.module';
 import { ScenesModule } from './modules/scenes/scenes.module';
@@ -66,7 +67,9 @@ import { ServicesModule } from './services/services.module';
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
+    // 顺序: Latency (最外, 测真总耗时) → Etag (304 短路) → Response (包 success)
     { provide: APP_INTERCEPTOR, useClass: LatencyInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: EtagInterceptor },
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
   ],
 })

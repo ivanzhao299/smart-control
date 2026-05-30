@@ -14,14 +14,14 @@ export interface AuditEntry {
   createdAt: string;
 }
 
-export interface AuditListParams {
+export type AuditListParams = {
   entityType?: string;
   entityId?: string;
   action?: AuditAction;
   operator?: string;
   page?: number;
   pageSize?: number;
-}
+};
 
 export interface AuditList {
   list: AuditEntry[];

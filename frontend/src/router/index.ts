@@ -1,4 +1,5 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router';
+import { trackRouteChange } from '@/services/rum.service';
 
 const routes: RouteRecordRaw[] = [
   // 平板布局 (Sprint-05)
@@ -46,4 +47,19 @@ const routes: RouteRecordRaw[] = [
 export const router = createRouter({
   history: createWebHashHistory(),
   routes,
+});
+
+// PERFORMANCE_AUDIT P3-#20: 路由切换耗时埋点
+let routeStartMs = 0;
+let routeFromName = '';
+router.beforeEach((_to, from) => {
+  routeStartMs = performance.now();
+  routeFromName = String(from.name ?? '');
+  // 没显式 return → 继续导航
+});
+router.afterEach((to) => {
+  if (routeStartMs > 0) {
+    trackRouteChange(routeFromName, String(to.name ?? ''), Math.round(performance.now() - routeStartMs));
+    routeStartMs = 0;
+  }
 });

@@ -1,37 +1,156 @@
-import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios';
 import type { ApiOk } from '@/types/api';
+import { trackApiCall } from './rum.service';
 
-const baseURL = import.meta.env.VITE_API_BASE_URL ?? '/api';
+/**
+ * 原生 fetch + AbortController 替代 axios (PERFORMANCE_AUDIT P1-#10).
+ *
+ * 收益:
+ *   - 主 bundle 减 17 KB gzip
+ *   - 浏览器原生 connection keep-alive, 不再每请求新连接
+ *   - AbortController 标准方式取消请求 (axios 自己一套 CancelToken 已弃用)
+ *
+ * 接口跟旧 api 完全兼容: api.get / post / put / del 用法不变.
+ */
 
-export const http: AxiosInstance = axios.create({
-  baseURL,
-  timeout: 15000,
-  withCredentials: false,
-});
+const baseURL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '/api';
+const DEFAULT_TIMEOUT_MS = 15_000;
 
-http.interceptors.response.use(
-  (resp) => resp,
-  (err) => {
-    if (err.response?.data?.message) {
-      err.message = err.response.data.message;
+export interface HttpRequestConfig {
+  /** URL query params, 自动 encode 拼到 url 后. 接受任何 typed interface, 运行时再过滤 nullish. */
+  params?: Record<string, unknown>;
+  /** 请求 headers (会被合并) */
+  headers?: Record<string, string>;
+  /** 超时, 默认 15s */
+  timeout?: number;
+  /** 取消信号 (由调用方控制) */
+  signal?: AbortSignal;
+}
+
+export class HttpError<T = unknown> extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly response?: T,
+  ) {
+    super(message);
+    this.name = 'HttpError';
+  }
+}
+
+function buildUrl(url: string, params?: HttpRequestConfig['params']): string {
+  // url 可以是 "/system/info" 或 "https://..."
+  const full = /^https?:\/\//.test(url) ? url : `${baseURL}${url.startsWith('/') ? url : `/${url}`}`;
+  if (!params) return full;
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined || v === null || v === '') continue;
+    qs.set(k, String(v));
+  }
+  const q = qs.toString();
+  if (!q) return full;
+  return full + (full.includes('?') ? '&' : '?') + q;
+}
+
+async function request<T>(
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  url: string,
+  body?: unknown,
+  cfg?: HttpRequestConfig,
+): Promise<{ data: T }> {
+  const finalUrl = buildUrl(url, cfg?.params);
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    ...(cfg?.headers ?? {}),
+  };
+  const init: RequestInit = {
+    method,
+    headers,
+    credentials: 'omit',
+  };
+  if (body !== undefined && body !== null) {
+    headers['Content-Type'] = 'application/json';
+    init.body = JSON.stringify(body);
+  }
+
+  // 超时控制 — 用 AbortController 组合 timeout + 外部 signal
+  const timeoutMs = cfg?.timeout ?? DEFAULT_TIMEOUT_MS;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(new Error(`timeout after ${timeoutMs}ms`)), timeoutMs);
+  if (cfg?.signal) {
+    if (cfg.signal.aborted) ctrl.abort(cfg.signal.reason);
+    else cfg.signal.addEventListener('abort', () => ctrl.abort(cfg.signal!.reason), { once: true });
+  }
+  init.signal = ctrl.signal;
+
+  const startMs = performance.now();
+  let resp: Response;
+  try {
+    resp = await fetch(finalUrl, init);
+  } catch (err) {
+    clearTimeout(timer);
+    trackApiCall(url, Math.round(performance.now() - startMs), 0);
+    if (ctrl.signal.aborted) {
+      const reason = ctrl.signal.reason as Error | string | undefined;
+      throw new HttpError(
+        typeof reason === 'string' ? reason : reason?.message ?? '请求已取消',
+        0,
+      );
     }
-    return Promise.reject(err);
-  },
-);
+    throw new HttpError((err as Error).message ?? 'fetch failed', 0);
+  }
+  clearTimeout(timer);
+  trackApiCall(url, Math.round(performance.now() - startMs), resp.status);
 
-async function unwrap<T>(p: Promise<{ data: ApiOk<T> | { success: false; message: string } }>): Promise<T> {
+  // 304: 让上层用缓存 (useQuery 会用); 直接抛特殊 status
+  if (resp.status === 304) {
+    return { data: undefined as unknown as T };
+  }
+
+  let payload: T | undefined;
+  const ct = resp.headers.get('content-type') ?? '';
+  if (ct.includes('application/json')) {
+    try { payload = await resp.json() as T; } catch { /* 空 body */ }
+  } else if (resp.status !== 204) {
+    try { payload = await resp.text() as unknown as T; } catch { /* ignore */ }
+  }
+
+  if (!resp.ok) {
+    const msg =
+      (payload as { message?: string } | undefined)?.message ??
+      `Request failed with status ${resp.status}`;
+    throw new HttpError(msg, resp.status, payload);
+  }
+  return { data: payload as T };
+}
+
+async function unwrap<T>(
+  p: Promise<{ data: ApiOk<T> | { success: false; message: string } | undefined }>,
+): Promise<T> {
   const { data } = await p;
-  if (!data || data.success === false) {
-    throw new Error((data && 'message' in data && data.message) || '请求失败');
+  if (!data || (data as { success?: boolean }).success === false) {
+    throw new Error(
+      (data && 'message' in data && typeof data.message === 'string' && data.message) || '请求失败',
+    );
   }
   return (data as ApiOk<T>).data;
 }
 
 export const api = {
-  get: <T>(url: string, cfg?: AxiosRequestConfig) => unwrap<T>(http.get(url, cfg)),
-  post: <T>(url: string, body?: unknown, cfg?: AxiosRequestConfig) =>
-    unwrap<T>(http.post(url, body, cfg)),
-  put: <T>(url: string, body?: unknown, cfg?: AxiosRequestConfig) =>
-    unwrap<T>(http.put(url, body, cfg)),
-  del: <T>(url: string, cfg?: AxiosRequestConfig) => unwrap<T>(http.delete(url, cfg)),
+  get: <T>(url: string, cfg?: HttpRequestConfig) =>
+    unwrap<T>(request<ApiOk<T> | { success: false; message: string }>('GET', url, undefined, cfg)),
+  post: <T>(url: string, body?: unknown, cfg?: HttpRequestConfig) =>
+    unwrap<T>(request<ApiOk<T> | { success: false; message: string }>('POST', url, body, cfg)),
+  put: <T>(url: string, body?: unknown, cfg?: HttpRequestConfig) =>
+    unwrap<T>(request<ApiOk<T> | { success: false; message: string }>('PUT', url, body, cfg)),
+  del: <T>(url: string, cfg?: HttpRequestConfig) =>
+    unwrap<T>(request<ApiOk<T> | { success: false; message: string }>('DELETE', url, undefined, cfg)),
 };
+
+// 给少数需要 status / headers 的调用方暴露底层 request (e.g. ETag / 大文件下载)
+export const http = {
+  request,
+  baseURL,
+};
+
+// 旧 axios.AxiosRequestConfig 类型兼容 alias —— 上层 service.ts 都 import type 用了
+export type AxiosRequestConfig = HttpRequestConfig;

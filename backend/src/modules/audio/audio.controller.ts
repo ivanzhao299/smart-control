@@ -1,10 +1,14 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
 import { AudioAdapter } from '../../adapters/audio/audio.adapter';
 import { OperationLogService } from '../logs/operation-log.service';
+import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { AudioBgmDto, AudioMicDto, AudioMuteDto, AudioVolumeDto } from './dto/audio.dto';
 import { AdapterResult } from '../../adapters/adapter.types';
 
+// 音量滑条会拖出连续命令, 6 次/秒/客户端给点余量
 @Controller('audio')
+@UseGuards(RateLimitGuard)
+@RateLimit({ max: 6, windowMs: 1000 })
 export class AudioController {
   constructor(
     private readonly audio: AudioAdapter,

@@ -1,10 +1,14 @@
-import { Body, Controller, Param, Post } from '@nestjs/common';
+import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common';
 import { LedAdapter } from '../../adapters/led/led.adapter';
 import { OperationLogService } from '../logs/operation-log.service';
+import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { LedInputDto, LedPlayDto } from './dto/led.dto';
 import { AdapterResult } from '../../adapters/adapter.types';
 
+// LED 命令偏重 (开屏 / 切输入 / 推送视频), 限速 4 次/秒/客户端
 @Controller('led')
+@UseGuards(RateLimitGuard)
+@RateLimit({ max: 4, windowMs: 1000 })
 export class LedController {
   constructor(
     private readonly led: LedAdapter,

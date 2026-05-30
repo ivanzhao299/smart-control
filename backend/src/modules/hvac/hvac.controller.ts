@@ -1,11 +1,15 @@
-import { Body, Controller, Get, NotFoundException, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Param, Post, UseGuards } from '@nestjs/common';
 import { HvacAdapter } from '../../adapters/hvac/hvac.adapter';
 import { OperationLogService } from '../logs/operation-log.service';
+import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { HvacFanDto, HvacModeDto, HvacTempDto } from './dto/hvac.dto';
 import { AdapterResult } from '../../adapters/adapter.types';
 import { findZone, HVAC_ZONES, HvacZoneConfig } from '../../adapters/hvac/hvac-zones';
 
+// 温度按 +/- 步进调, 6 次/秒/客户端
 @Controller('hvac')
+@UseGuards(RateLimitGuard)
+@RateLimit({ max: 6, windowMs: 1000 })
 export class HvacController {
   constructor(
     private readonly hvac: HvacAdapter,

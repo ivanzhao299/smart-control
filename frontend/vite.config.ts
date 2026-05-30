@@ -121,7 +121,8 @@ export default defineConfig(({ mode }) => {
             if (id.includes('node_modules')) {
               if (id.includes('lucide-vue-next')) return 'lucide';
               if (/[\\/](vue|vue-router|pinia|@vue)[\\/]/.test(id)) return 'vue-core';
-              if (id.includes('axios')) return 'axios';
+              // axios 现在只 MediaPage 用 (P1-#10 主路径已迁 fetch),
+              // 不再 manualChunk, 走 MediaPage 的 lazy chunk 一起延后加载.
               // Element Plus 走默认 (Vite auto chunk 已经按组件 tree-shake) —
               // 实测手动 manualChunks 把 EP 全合一会爆 682 KB, 比自动差.
               return undefined;

@@ -5,6 +5,7 @@ import { useDeviceStore } from '@/stores/device';
 import { useSystemStore } from '@/stores/system';
 import { wsClient } from '@/services/websocket.service';
 import { polling } from '@/services/polling.service';
+import { markBootComplete } from '@/services/rum.service';
 
 const sceneStore = useSceneStore();
 const deviceStore = useDeviceStore();
@@ -35,6 +36,9 @@ onMounted(async () => {
   void deviceStore.fetchRuntime();
   void deviceStore.fetchGateways();
   void sceneStore.refreshRunning();
+
+  // PERFORMANCE_AUDIT P3-#20: 首屏可用时刻
+  markBootComplete();
 
   unsubscribeWs = wsClient.on((event) => {
     sceneStore.handleWs(event);
