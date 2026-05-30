@@ -37,9 +37,12 @@ export class SystemBranding {
    *     (e.g. data:image/webp;base64,UklGRiQAAABXRUJQVlA4...), 典型 8-30 KB
    *   - http(s) URL: 老路径兼容, 比如外部 CDN
    *   - null: 用 logoText 渲染圆形文字 logo
-   * 用 text 类型而不是默认 varchar(255), 因为 base64 数据 URL 会很长.
+   *
+   * SQLite 实际存储是动态类型, varchar(255) 只是 hint 不强制长度 (跟 PG/MySQL
+   * 不同), 30KB 也能塞. 不指定 type: 'text' 是为了避开 typeorm synchronize 在
+   * SQLite 上做 ALTER COLUMN 时的"重建表"复杂迁移, 历史上多次崩溃 backend.
    */
-  @Column({ type: 'text', nullable: true })
+  @Column({ nullable: true })
   logoUrl!: string | null;
 
   /** 浏览器标签页 title 用. 默认 "金湖展贸中心 控制系统" */

@@ -80,9 +80,25 @@ cd "$APP_ROOT"
 ln -sfn "$NEW" current.tmp
 mv -T current.tmp current
 
-# 6) PM2 reload
-echo "[6/7] pm2 reload $PM2_NAME"
-pm2 reload "$PM2_NAME" --update-env
+# 6) PM2: 强制 delete + start, 不再用 pm2 reload
+# 之前用 pm2 reload 在以下场景会变成 no-op, 导致 deploy 看似成功但代码没换:
+#   1) 上一次 deploy 后 backend 启动失败, pm2 把进程标 "errored", reload 不动 errored
+#   2) max_restarts (50) 用完后 pm2 不再尝试拉, reload 也不会重新计数
+#   3) min_uptime 未达, pm2 把短命进程标 "errored" 同样卡死
+# delete + start 是更彻底的方式: 不管前状态, 都清掉重起, 拿到的肯定是新 dist/main.js.
+# 代价: 进程会断 ~2-3s (vs reload 的 graceful 0 downtime), 但在生产链路上"可靠"优先于"零 downtime".
+echo "[6/7] pm2 delete + start $PM2_NAME (确保拿到新代码)"
+pm2 delete "$PM2_NAME" 2>&1 | tail -3 || true
+sleep 1
+ECOSYSTEM="$APP_ROOT/current/deploy/ecosystem.config.js"
+if [ -f "$ECOSYSTEM" ]; then
+  pm2 start "$ECOSYSTEM" --only "$PM2_NAME" --update-env
+else
+  echo "  ecosystem.config.js 不在, 走 dist/main.js 直接启动 (兜底)"
+  cd "$APP_ROOT/current/backend"
+  pm2 start dist/main.js --name "$PM2_NAME" --update-env
+fi
+pm2 save
 
 # 7) 清理过期 release (保留 --keep 个)
 echo "[7/7] 清理过期 release (保留 $KEEP)"
