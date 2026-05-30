@@ -151,6 +151,25 @@ Push-Location (Join-Path $projectRoot 'backend')
 Run "npm run build"
 Pop-Location
 
+# 5.0) 杀掉 vite preview (端口 5173) — vite build 会 emptyDir, 但 vite preview
+# 持有 dist/assets/*.css 文件句柄 → EPERM on lstat → build 失败. 必须先杀.
+# (历史现场: 5173 vite preview 是手动 npm run preview 起的孤儿, 没人收 → build 卡死.
+# 解决: 先 stop, 让 frontend build 干净跑完, 再 6c.1 用 pm2 拉起.)
+Write-Host "  -> 杀掉占着 :5173 的 vite preview (防 build EPERM)" -ForegroundColor Yellow
+try {
+  $conns5173 = Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue
+  foreach ($c in $conns5173) {
+    $tpid = $c.OwningProcess
+    Write-Host "    -> kill PID $tpid (听 :5173)" -ForegroundColor Yellow
+    Stop-Process -Id $tpid -Force -ErrorAction SilentlyContinue
+    & taskkill /F /PID $tpid 2>&1 | Out-Null
+    & wmic process where "ProcessId=$tpid" delete 2>&1 | Out-Null
+  }
+} catch {
+  Write-Host "    !! 杀 5173 失败: $($_.Exception.Message)" -ForegroundColor Red
+}
+Start-Sleep -Milliseconds 800
+
 Push-Location (Join-Path $projectRoot 'frontend')
 Run "npm run build"
 Pop-Location
