@@ -1,34 +1,53 @@
 /* ============================================================
- * 金湖中控 v2 · 现代化设计 token
- * 跟 docs/design-mockups/01-dashboard.html / 02-lighting.html 对齐
+ * 金湖中控 v2 · 现代化设计 token (2026-05-30 层级强化版)
+ *
+ * 调整: 卡片底色 2.5% → 5.5% / border 6% → 12% / 加 surf-3 抽屉层 /
+ * 状态软色 14% → 22% (按钮更明显) / 加 elevation 阴影 + focus-visible /
+ * 提供 .v2-btn-primary CTA 实色按钮.
+ *
+ * 不动 .v2-quick.primary, 保留各页面品类色 (灯光琥珀 / HVAC 蓝 / 音响绿).
+ * 真正 CTA 想要"实色发光"用 .v2-btn-primary 类显式 opt-in.
+ *
  * 加载顺序: theme.css → design-tokens.css (这里覆盖)
  * ============================================================ */
 
 :root {
-  /* ---------- 中性 / 表面 ---------- */
+  /* ---------- 中性 / 表面 (4 档层级, 色阶拉开 ×2) ---------- */
   --v2-bg-0: #0A0E1A;
-  --v2-bg-1: #11151F;
-  --v2-surf-1: rgba(255, 255, 255, 0.025);
-  --v2-surf-1-hover: rgba(255, 255, 255, 0.045);
-  --v2-surf-2: rgba(255, 255, 255, 0.06);
+  --v2-bg-1: #0F1320;                       /* 11151F → 0F1320 略柔 */
+  --v2-surf-1: rgba(255, 255, 255, 0.055);  /* 主卡片 (2.5% → 5.5%) */
+  --v2-surf-1-hover: rgba(255, 255, 255, 0.085);
+  --v2-surf-2: rgba(255, 255, 255, 0.10);   /* 卡内嵌 (表格行 / 输入框) */
+  --v2-surf-3: rgba(255, 255, 255, 0.14);   /* 抽屉 / dialog (新增) */
 
-  --v2-border-soft: rgba(255, 255, 255, 0.06);
-  --v2-border-strong: rgba(255, 255, 255, 0.10);
+  --v2-border-soft: rgba(255, 255, 255, 0.12);    /* 卡边 (6% → 12%) */
+  --v2-border-strong: rgba(255, 255, 255, 0.18);  /* hover/focus 边 */
 
-  --v2-text-1: rgba(255, 255, 255, 0.95);
-  --v2-text-2: rgba(255, 255, 255, 0.65);
-  --v2-text-3: rgba(255, 255, 255, 0.42);
+  --v2-text-1: rgba(255, 255, 255, 0.96);
+  --v2-text-2: rgba(255, 255, 255, 0.68);
+  --v2-text-3: rgba(255, 255, 255, 0.46);
 
   /* ---------- 品牌 + 语义 ---------- */
   --v2-primary: #06b6d4;
+  --v2-primary-dark: #0891b2;
   --v2-primary-hover: #22d3ee;
-  --v2-primary-soft: rgba(6, 182, 212, 0.16);
+  /* primary-soft 16% → 22%, 按钮 chip 更明显 */
+  --v2-primary-soft: rgba(6, 182, 212, 0.22);
+
   --v2-amber: #f59e0b;
-  --v2-amber-soft: rgba(245, 158, 11, 0.14);
+  --v2-amber-soft: rgba(245, 158, 11, 0.22);   /* 14% → 22% */
+
   --v2-success: #10b981;
   --v2-warning: #f59e0b;
   --v2-danger: #ef4444;
   --v2-info: #3b82f6;
+
+  /* 统一 22% 软色 (KPI / 状态 chip / 类别按钮) — 老 14% 在卡片底色升级后
+     对比度变差, 提到 22% 让 chip 跟卡明显区分 */
+  --v2-success-soft: rgba(16, 185, 129, 0.22);
+  --v2-warning-soft: rgba(245, 158, 11, 0.22);
+  --v2-danger-soft:  rgba(239, 68, 68, 0.22);
+  --v2-info-soft:    rgba(59, 130, 246, 0.22);
 
   /* 灯光暖色 (亮度滑条 / 灯光卡 active) */
   --v2-light-warm: #fbbf24;
@@ -57,12 +76,16 @@
   --v2-fs-xl: 26px;
   --v2-fs-display: 36px;
 
-  /* ---------- 阴影 ---------- */
-  --v2-elev-1: 0 1px 2px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04) inset;
-  --v2-elev-2: 0 8px 24px -8px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06) inset;
-  --v2-elev-3: 0 16px 48px -12px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.08) inset;
+  /* ---------- 阴影 elevation (4 档) ---------- */
+  --v2-elev-0: none;
+  --v2-elev-1: 0 2px 8px -2px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+  --v2-elev-2: 0 8px 24px -8px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+  --v2-elev-3: 0 24px 56px -16px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.10) inset;
 
-  /* ---------- 兼容旧 token (theme.css 里的) → v2 映射, 让老页面渐进迁移 ---------- */
+  --v2-glow-primary: 0 4px 16px -4px rgba(6, 182, 212, 0.5);
+  --v2-glow-primary-strong: 0 6px 24px -6px rgba(6, 182, 212, 0.7);
+
+  /* ---------- 兼容旧 token (theme.css 里的) → v2 映射 ---------- */
   --bg-base: var(--v2-bg-0);
   --bg-panel: var(--v2-surf-1);
   --bg-panel-soft: var(--v2-bg-1);
@@ -80,35 +103,71 @@
   --border-strong: var(--v2-border-strong);
 }
 
-/* ============ 全局 body 背景: 深蓝 + 双 radial 光晕 ============ */
+/* ============ 全局 body 背景 ============ */
 html, body, #app {
   background: var(--v2-bg-0) !important;
 }
 
 body {
   background:
-    radial-gradient(ellipse 60% 50% at 20% 0%, rgba(6, 182, 212, 0.06) 0%, transparent 60%),
-    radial-gradient(ellipse 50% 40% at 90% 100%, rgba(245, 158, 11, 0.05) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 50% at 20% 0%, rgba(6, 182, 212, 0.07) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 90% 100%, rgba(245, 158, 11, 0.06) 0%, transparent 55%),
     linear-gradient(180deg, var(--v2-bg-0) 0%, var(--v2-bg-1) 100%) !important;
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
   letter-spacing: 0.02em;
   -webkit-font-smoothing: antialiased;
 }
 
-/* ============ 玻璃面板 mixin (借助 class) ============ */
+/* ============ 玻璃面板 mixin ============ */
 .v2-glass {
   background: var(--v2-surf-1);
   border: 1px solid var(--v2-border-soft);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-radius: var(--v2-r-md);
+  box-shadow: var(--v2-elev-1);
 }
 .v2-glass-hover:hover {
   background: var(--v2-surf-1-hover);
   border-color: var(--v2-border-strong);
+  box-shadow: var(--v2-elev-2);
 }
 
-/* ============ 状态药丸 ============ */
+/* ============ .v2-btn-primary — 实色 CTA 按钮 (主操作: 保存 / 新增 / 立即执行)
+ * 跟 .v2-quick.primary 不冲突 (后者保留各页面品类色). 显式用这个类换成实色发光.
+ */
+.v2-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  min-height: 36px;
+  border-radius: var(--v2-r-sm);
+  font-size: var(--v2-fs-sm);
+  font-weight: 500;
+  background: linear-gradient(135deg, var(--v2-primary) 0%, var(--v2-primary-dark) 100%);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: var(--v2-glow-primary);
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.18s ease, filter 0.18s ease;
+}
+.v2-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+  box-shadow: var(--v2-glow-primary-strong);
+  transform: translateY(-1px);
+}
+.v2-btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+  filter: brightness(0.95);
+}
+.v2-btn-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.4);
+}
+
+/* ============ 状态药丸 (.v2-pill) — 用新 surf-1 自然变明显 ============ */
 .v2-pill {
   display: inline-flex;
   align-items: center;
@@ -130,7 +189,7 @@ body {
 .v2-pill.danger .v2-dot { background: var(--v2-danger); box-shadow: 0 0 8px var(--v2-danger); }
 .v2-pill.idle .v2-dot { background: var(--v2-text-3); box-shadow: none; }
 
-/* ============ Inter 数字字体 (时钟/KPI/亮度 等表盘) ============ */
+/* ============ Inter 数字字体 ============ */
 .v2-inter {
   font-family: "Inter", "SF Pro Display", system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
@@ -146,6 +205,21 @@ body {
   justify-content: center;
 }
 
+/* ============ Focus ring (键盘可达性) ============ */
+*:focus-visible {
+  outline: 2px solid var(--v2-primary);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.35);
+}
+
 /* ============ Element Plus 暗黑适配 (复用 v2 token) ============ */
 html {
   --el-color-primary: var(--v2-primary);
@@ -154,7 +228,31 @@ html {
   --el-color-primary-light-7: rgba(6, 182, 212, 0.16);
   --el-color-primary-light-8: rgba(6, 182, 212, 0.12);
   --el-color-primary-light-9: rgba(6, 182, 212, 0.08);
-  --el-color-primary-dark-2: #0891b2;
+  --el-color-primary-dark-2: var(--v2-primary-dark);
+
+  /* Element Plus 表面色映射 — 让 el-button / el-input / el-table 跟着升级 */
+  --el-bg-color: var(--v2-surf-2);
+  --el-bg-color-overlay: var(--v2-surf-3);
+  --el-fill-color: var(--v2-surf-2);
+  --el-fill-color-light: var(--v2-surf-1-hover);
+  --el-fill-color-blank: var(--v2-surf-1);
+  --el-border-color: var(--v2-border-soft);
+  --el-border-color-light: var(--v2-border-soft);
+  --el-border-color-lighter: var(--v2-border-soft);
+}
+
+/* Element Plus el-button[type=primary] 也升级成实色发光, 跟 .v2-btn-primary 一致 */
+.el-button--primary {
+  background: linear-gradient(135deg, var(--v2-primary) 0%, var(--v2-primary-dark) 100%) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  box-shadow: var(--v2-glow-primary);
+}
+.el-button--primary:hover:not(.is-disabled) {
+  filter: brightness(1.1);
+  box-shadow: var(--v2-glow-primary-strong);
+}
+.el-button--primary:active:not(.is-disabled) {
+  filter: brightness(0.95);
 }
 
 /* ============ 动画 ============ */
