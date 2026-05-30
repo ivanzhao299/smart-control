@@ -254,8 +254,8 @@ export class SystemController {
     if (process.platform === 'win32') {
       // 先看自己是谁
       try {
-        const { stdout: w } = await execAsync('whoami /upn 2>nul || whoami', { windowsHide: true } as any).catch(() => ({ stdout: '' }));
-        whoamiOut = w.trim();
+        const result = await execAsync('whoami /upn 2>nul || whoami', { windowsHide: true } as any).catch(() => ({ stdout: '' as string | Buffer }));
+        whoamiOut = String((result as any).stdout || '').trim();
       } catch { }
       try {
         // netstat -ano | findstr :5173 → 拿 PID
