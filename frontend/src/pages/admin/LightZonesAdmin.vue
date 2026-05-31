@@ -5,6 +5,7 @@ import {
   lightZonesService,
   type LightZoneView,
   type LightZoneUpsertDto,
+  type LightZoneTestResult,
 } from '@/services/light-zones.service';
 import { adminHardwareService } from '@/services/admin.service';
 import type { HardwareUnit } from '@/types/api';
@@ -189,6 +190,25 @@ async function toggleEnabled(row: LightZoneView): Promise<void> {
   }
 }
 
+// ============ 测试此分区 ============
+const testingId = ref<number | null>(null);
+const testResult = ref<LightZoneTestResult | null>(null);
+const testDialogOpen = ref(false);
+
+async function testZone(row: LightZoneView): Promise<void> {
+  testingId.value = row.id;
+  testResult.value = null;
+  try {
+    const result = await lightZonesService.test(row.id);
+    testResult.value = result;
+    testDialogOpen.value = true;
+  } catch (err) {
+    ElMessage.error(`测试失败: ${(err as Error).message}`);
+  } finally {
+    testingId.value = null;
+  }
+}
+
 onMounted(refresh);
 </script>
 
@@ -258,13 +278,82 @@ onMounted(refresh);
           />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="140" fixed="right">
+      <el-table-column label="操作" width="220" fixed="right">
         <template #default="{ row }">
+          <el-button
+            link
+            type="success"
+            :loading="testingId === row.id"
+            @click="testZone(row)"
+            title="发 50% 亮度 → 等 1.2s → 关. 看灯有没有亮"
+          >测试</el-button>
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button link type="danger" @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
+
+    <!-- 测试结果对话框 -->
+    <el-dialog v-model="testDialogOpen" title="分区测试结果" width="640px">
+      <div v-if="testResult" class="test-result">
+        <div class="kv-grid">
+          <div class="kv-label">分区</div>
+          <div class="kv-value">{{ testResult.zone.name }} <code class="muted">({{ testResult.zone.code }} #{{ testResult.zone.id }})</code></div>
+
+          <div class="kv-label">关联网关</div>
+          <div class="kv-value">{{ testResult.gateway.displayName }} <code class="muted">({{ testResult.gateway.code }})</code></div>
+
+          <div class="kv-label">slaveId</div>
+          <div class="kv-value">
+            <code v-if="testResult.gateway.slaveId !== null" class="strong">{{ testResult.gateway.slaveId }}</code>
+            <span v-else class="err">未解析出 — 检查硬件清单的 addressing JSON</span>
+          </div>
+
+          <div class="kv-label">DALI 组号</div>
+          <div class="kv-value"><code class="strong">GROUP {{ testResult.daliGroup }}</code></div>
+
+          <div class="kv-label">路由阶段</div>
+          <div class="kv-value">
+            <el-tag v-if="testResult.routing.ok" type="success" size="small">通过</el-tag>
+            <el-tag v-else type="danger" size="small">失败: {{ testResult.routing.error }}</el-tag>
+          </div>
+
+          <template v-if="testResult.dispatch">
+            <div class="kv-label">下发 50% on</div>
+            <div class="kv-value">
+              <el-tag v-if="testResult.dispatch.on.ok" type="success" size="small">{{ testResult.dispatch.on.durationMs }}ms</el-tag>
+              <el-tag v-else type="danger" size="small">失败: {{ testResult.dispatch.on.error }}</el-tag>
+              <el-tag v-if="testResult.dispatch.on.mock" type="warning" size="small" style="margin-left: 6px;">MOCK</el-tag>
+            </div>
+
+            <div class="kv-label">下发 0 off</div>
+            <div class="kv-value">
+              <el-tag v-if="testResult.dispatch.off.ok" type="success" size="small">{{ testResult.dispatch.off.durationMs }}ms</el-tag>
+              <el-tag v-else type="danger" size="small">失败: {{ testResult.dispatch.off.error }}</el-tag>
+              <el-tag v-if="testResult.dispatch.off.mock" type="warning" size="small" style="margin-left: 6px;">MOCK</el-tag>
+            </div>
+          </template>
+        </div>
+        <el-alert
+          v-if="testResult.dispatch && (testResult.dispatch.on.mock || testResult.dispatch.off.mock)"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="后端跑在 MOCK 模式"
+          description="命令没真打到 modbus / DALI 网关. 灯不会亮. 检查 GK9000 后端 .env 的 MOCK_MODE 和 LIGHTING_ADAPTER_KIND."
+          style="margin-top: 12px;"
+        />
+        <el-alert
+          v-else-if="testResult.dispatch && testResult.dispatch.on.ok && testResult.dispatch.off.ok"
+          type="success"
+          :closable="false"
+          show-icon
+          title="命令已下发到硬件"
+          description="如果灯仍未亮, 可能是: (1) DALI 短地址没加入这个 group  (2) 灯电源未供电  (3) gateway 与现场实际 slaveId 不一致"
+          style="margin-top: 12px;"
+        />
+      </div>
+    </el-dialog>
 
     <el-drawer
       v-model="editVisible"
@@ -354,4 +443,21 @@ onMounted(refresh);
 .form { padding: 16px 0; }
 .hint { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 4px; }
 .hint.inline { margin-left: 8px; }
+
+/* 测试结果对话框 */
+.test-result { padding: 4px 0; }
+.kv-grid {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  row-gap: 10px;
+  column-gap: 16px;
+  font-size: 13px;
+  align-items: center;
+}
+.kv-label { color: var(--el-text-color-secondary); }
+.kv-value { color: var(--el-text-color-primary); }
+.kv-value code { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+.kv-value code.strong { color: var(--el-color-primary); font-weight: 600; }
+.kv-value code.muted { color: var(--el-text-color-secondary); margin-left: 6px; font-size: 11px; }
+.kv-value .err { color: var(--el-color-danger); font-size: 12px; }
 </style>

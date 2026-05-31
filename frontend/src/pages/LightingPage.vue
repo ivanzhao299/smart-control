@@ -144,6 +144,9 @@ function applyPreset(z: ZoneRow, value: number): void {
 //         "整馆全开/全关", 不是 "当前看的 tab 的 zone 全开/全关".
 //         如果只想控当前楼层, 用下面的 floorOn / floorOff.
 async function dispatchMany(targets: ZoneRow[], op: 'on' | 'off'): Promise<void> {
+  let okCount = 0;
+  let failCount = 0;
+  let mockCount = 0;
   for (const z of targets) {
     z.busy = true; z.error = null;
     try {
@@ -151,6 +154,8 @@ async function dispatchMany(targets: ZoneRow[], op: 'on' | 'off'): Promise<void>
         ? await lightingService.zoneOn(z.id)
         : await lightingService.zoneOff(z.id);
       if (!res.ok) throw new Error(res.error || '执行失败');
+      okCount += 1;
+      if (res.mock) mockCount += 1;
       if (op === 'on') {
         z.on = true;
         if (z.brightness === 0) z.brightness = 80;
@@ -158,9 +163,19 @@ async function dispatchMany(targets: ZoneRow[], op: 'on' | 'off'): Promise<void>
         z.on = false;
       }
     } catch (err) {
+      failCount += 1;
       z.error = (err as Error).message;
       ElMessage.error(`${z.name} ${op === 'on' ? '开启' : '关闭'}失败: ${z.error}`);
     } finally { z.busy = false; }
+  }
+  // 全 mock → 用户看到"成功 toast"但灯没动, 必须高亮警告
+  if (mockCount > 0 && mockCount === okCount) {
+    ElMessage.warning(
+      `命令成功送出, 但后端在 MOCK 模式 (${mockCount}/${targets.length} 区), 灯不会真的动. ` +
+      `去 GK9000 后端 .env 改 MOCK_MODE=false 并重启 pm2.`,
+    );
+  } else if (failCount === 0 && okCount > 0) {
+    ElMessage.success(`${okCount} 区命令已送出. 若灯未动, 到后台 → 灯光分区 → 测试 看细节.`);
   }
 }
 

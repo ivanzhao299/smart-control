@@ -36,6 +36,18 @@ export interface LightZoneUpsertDto {
   enabled?: boolean;
 }
 
+/** 后台 "测试此分区" 返回 — 把全链路诊断信息给操作员 */
+export interface LightZoneTestResult {
+  zone: { id: number; code: string; name: string };
+  gateway: { code: string; displayName: string; slaveId: number | null };
+  daliGroup: number;
+  routing: { ok: boolean; error?: string };
+  dispatch: null | {
+    on:  { ok: boolean; error: string | null; durationMs: number; mock: boolean };
+    off: { ok: boolean; error: string | null; durationMs: number; mock: boolean };
+  };
+}
+
 export const lightZonesService = {
   list: (includeDisabled = false) =>
     api.get<LightZoneView[]>('/light-zones', {
@@ -46,4 +58,5 @@ export const lightZonesService = {
   update: (id: number, dto: Partial<LightZoneUpsertDto>) =>
     api.put<LightZoneView>(`/light-zones/${id}`, dto),
   remove: (id: number) => api.del<null>(`/light-zones/${id}`),
+  test: (id: number) => api.post<LightZoneTestResult>(`/light-zones/${id}/test`),
 };
