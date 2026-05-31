@@ -263,25 +263,24 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   display: block;
 }
 
-/* nav 按钮 — 宽固定 64, 高度弹性 (44-64 之间), 屏幕高就接近正方形, 屏幕矮就自动压扁
- * 不再 height: 64 + flex-shrink: 0 — 否则 9 个 + brand 总高 > 屏幕时溢出. */
+/* nav 按钮 — 宽固定 64, 高度弹性 (44-64), 默认透明无框, hover/active 才显 */
 .v2-nav-item {
   width: 64px;
-  flex: 1 1 0;             /* grow+shrink 都允许, basis 0 → 跟兄弟项均分剩余高度 */
-  max-height: 64px;        /* 但单项不超过 64, 大屏时停在 64 (近似正方形) */
-  min-height: 44px;        /* 也不缩小于 44 (触控目标最小) */
+  flex: 1 1 0;
+  max-height: 64px;
+  min-height: 44px;
   border-radius: var(--v2-r-md);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 4px;
-  color: var(--v2-text-2);
+  color: var(--v2-text-3);
   cursor: pointer;
   transition: all 0.18s ease;
   position: relative;
-  background: var(--v2-surf-1);
-  border: 1px solid var(--v2-border-soft);
+  background: transparent;
+  border: none;
   padding: 4px 0;
   font-family: inherit;
 }
