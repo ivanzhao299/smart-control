@@ -202,16 +202,16 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   background: rgba(10, 14, 26, 0.5);
   overflow: hidden;
 }
-/* 项容器 — flex-grow 占满 brand 之下的所有剩余高度, items 平均分布 */
+/* 项容器 — flex-grow 占满 brand 之下的所有剩余高度, 项可缩可伸 */
 .v2-nav-list {
   flex: 1;
   width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: space-around;
-  gap: 6px;
-  padding: 8px 0;
+  justify-content: center;     /* 屏幕高度大时上下留白; 小时被 items 撑满 */
+  gap: 4px;
+  padding: 4px 0;
   min-height: 0;
   overflow: hidden;
 }
@@ -263,24 +263,26 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   display: block;
 }
 
-/* nav 按钮 — 正方形 (宽=高=64px), space-around 让它们均匀撑满侧栏高度 */
+/* nav 按钮 — 宽固定 64, 高度弹性 (44-64 之间), 屏幕高就接近正方形, 屏幕矮就自动压扁
+ * 不再 height: 64 + flex-shrink: 0 — 否则 9 个 + brand 总高 > 屏幕时溢出. */
 .v2-nav-item {
   width: 64px;
-  height: 64px;
+  flex: 1 1 0;             /* grow+shrink 都允许, basis 0 → 跟兄弟项均分剩余高度 */
+  max-height: 64px;        /* 但单项不超过 64, 大屏时停在 64 (近似正方形) */
+  min-height: 44px;        /* 也不缩小于 44 (触控目标最小) */
   border-radius: var(--v2-r-md);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
   color: var(--v2-text-2);
   cursor: pointer;
   transition: all 0.18s ease;
   position: relative;
   background: var(--v2-surf-1);
   border: 1px solid var(--v2-border-soft);
-  padding: 0;
-  flex-shrink: 0;
+  padding: 4px 0;
   font-family: inherit;
 }
 .v2-nav-item:hover {
