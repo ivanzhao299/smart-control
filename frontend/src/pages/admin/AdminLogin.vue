@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { Lock } from 'lucide-vue-next';
+import { Lock, ArrowLeft } from 'lucide-vue-next';
 import { useAdminAuthStore } from '@/stores/admin-auth';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 
@@ -35,6 +35,11 @@ function redirectToTarget(): void {
   router.replace(target);
 }
 
+function goBack(): void {
+  // 优先回 redirect 来源页, 没有就回前台首页
+  router.replace({ name: 'dashboard' });
+}
+
 async function submit(): Promise<void> {
   if (!password.value) {
     ElMessage.warning('请输入密码');
@@ -59,6 +64,10 @@ async function submit(): Promise<void> {
   <div class="admin-login">
     <div class="login-bg"></div>
     <div class="login-card">
+      <button class="back-btn" @click="goBack" title="返回前台首页">
+        <ArrowLeft :size="16" :stroke-width="2" />
+        <span>返回首页</span>
+      </button>
       <div class="brand">
         <div class="brand-logo">
           <img v-if="brandingStore.branding.logoUrl" :src="brandingStore.branding.logoUrl" alt="logo" />
@@ -130,6 +139,28 @@ async function submit(): Promise<void> {
   border-radius: var(--v2-r-lg);
   box-shadow: var(--v2-elev-3);
   backdrop-filter: blur(20px);
+}
+/* 左上角返回按钮 — 让业主进了登录页能退出去 */
+.back-btn {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px 6px 10px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid var(--v2-border-soft);
+  color: var(--v2-text-2);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.back-btn:hover {
+  background: var(--v2-surf-1-hover);
+  color: var(--v2-text-1);
+  border-color: var(--v2-primary);
 }
 .login-card::before {
   content: '';
