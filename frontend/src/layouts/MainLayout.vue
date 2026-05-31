@@ -29,6 +29,7 @@ const navItems: Array<{ name: string; label: string; section?: 'main' | 'tools' 
   { name: 'led', label: 'LED 大屏', section: 'main' },
   { name: 'audio', label: '音响', section: 'main' },
   { name: 'hvac', label: '空调', section: 'main' },
+  { name: 'power', label: '电源', section: 'main' },
   { name: 'media', label: '媒体', section: 'tools' },
   { name: 'status', label: '状态', section: 'tools' },
   { name: 'admin-devices', label: '后台', section: 'tools' },
