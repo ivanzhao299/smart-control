@@ -2,7 +2,8 @@
 import { computed, provide } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { Maximize2, Minimize2 } from 'lucide-vue-next';
-import AlertBanner from '@/components/AlertBanner.vue';
+// AlertBanner 已从前台 header 移除 (2026-05-31 用户反馈业主不想看 noise).
+// 告警仍正常产生 + 存数据库, 后台 → 报警中心 (/admin/alerts) 看.
 // ExecutionStatusBar 已下架 — 用户反馈"提示条赖着不走", 错误改进后台日志
 import FullscreenPrompt from '@/components/FullscreenPrompt.vue';
 import { useFullscreen } from '@/composables/useFullscreen';
@@ -122,8 +123,8 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
         <div class="v2-brand-sub">{{ dateLabel }}</div>
       </div>
 
-      <!-- Alert 内联条 (没告警时不渲染, 不占空间) -->
-      <AlertBanner class="v2-header-alert" />
+      <!-- 之前这里有 AlertBanner, 已移除. 告警在后台 → 报警中心查看 -->
+      <div class="v2-header-spacer"></div>
 
       <div class="v2-header-right">
         <span class="v2-pill" :class="{ idle: activeScene === '无运行' }">
@@ -369,12 +370,10 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   margin-top: 3px;
   letter-spacing: 0.6px;
 }
-.v2-header-alert {
-  /* 内嵌到 header 中段, 没告警时 AlertBanner 自身不渲染 */
+/* 顶 header 中段占位 — 之前是 AlertBanner, 现在留白 */
+.v2-header-spacer {
   flex: 1;
   min-width: 0;
-  margin: 0 var(--v2-sp-4);
-  max-width: 520px;
 }
 .v2-header-right {
   display: flex;
