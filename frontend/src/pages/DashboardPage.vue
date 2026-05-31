@@ -625,17 +625,17 @@ function goTo(name: string): void {
   .v2-kpi-value { font-size: 18px; }
   .v2-kpi-label { font-size: 10px; }
 
-  /* 场景磁贴 1 列大块 */
+  /* 场景磁贴 2 列 (业主反馈: 便于一只手指快速点) */
   .v2-scene-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
     grid-template-rows: auto;
-    gap: var(--v2-sp-3);
+    gap: var(--v2-sp-2);
   }
-  .v2-scene { min-height: 96px; padding: 14px 16px; }
-  .v2-scene-ico { width: 40px; height: 40px; }
-  .v2-scene-name { font-size: 16px; margin-top: 8px; }
-  .v2-scene-desc { font-size: 11px; }
-  .v2-scene-code { font-size: 10px; letter-spacing: 1.2px; }
+  .v2-scene { min-height: 102px; padding: 12px; gap: 4px; }
+  .v2-scene-ico { width: 36px; height: 36px; }
+  .v2-scene-name { font-size: 14px; margin-top: 6px; letter-spacing: 0.3px; }
+  .v2-scene-desc { font-size: 10px; margin-top: 3px; line-height: 1.3; }
+  .v2-scene-code { font-size: 9px; letter-spacing: 1px; }
 
   /* 子系统状态条变 2 列网格 */
   .v2-subsystems {
