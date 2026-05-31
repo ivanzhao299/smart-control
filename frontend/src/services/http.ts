@@ -12,7 +12,39 @@ import { trackApiCall } from './rum.service';
  * 接口跟旧 api 完全兼容: api.get / post / put / del 用法不变.
  */
 
-const baseURL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '/api';
+/**
+ * baseURL — 改成可动态 setter. 业主从 ClientLogin 页输入服务器地址 (含 :port),
+ * 走 setApiBaseURL 注入. 让 PWA 装到任意位置都能连任意 backend, 不再 build-time
+ * 写死. 业主原话"为后续生成 APP 作准备".
+ *
+ * 初值: localStorage 存的 → vite env (VITE_API_BASE_URL) → '/api' (web 默认)
+ * APP 化时, 业主第一次启动会被路由 guard 推到 ClientLogin, 输入地址 → 测试 →
+ * 登录, 整个过程 baseURL 都设好.
+ *
+ * 业主输入的是 "http://192.168.124.11:3200" 这种 origin, 我们自动拼 /api.
+ */
+const STORAGE_KEY_BASE = 'sc.client.baseURL';
+function readInitialBaseURL(): string {
+  try {
+    const stored = window.localStorage.getItem(STORAGE_KEY_BASE);
+    if (stored) return stored;
+  } catch { /* localStorage 不可用 (隐私模式) */ }
+  const fromEnv = import.meta.env.VITE_API_BASE_URL as string | undefined;
+  return fromEnv ?? '/api';
+}
+let baseURL: string = readInitialBaseURL();
+/** 设置 baseURL, 同时持久化到 localStorage. 传入裸 origin 自动补 /api. */
+export function setApiBaseURL(input: string): void {
+  let normalized = input.trim().replace(/\/+$/, '');
+  if (normalized && !/\/api(\/.*)?$/.test(normalized) && /^https?:\/\//.test(normalized)) {
+    normalized = `${normalized}/api`;
+  }
+  if (!normalized) normalized = '/api';
+  baseURL = normalized;
+  try { window.localStorage.setItem(STORAGE_KEY_BASE, normalized); } catch {/* ignore */}
+}
+export function getApiBaseURL(): string { return baseURL; }
+
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 /**
@@ -24,6 +56,11 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 let adminToken: string | null = null;
 export function setAdminToken(t: string | null): void { adminToken = t; }
 export function getAdminToken(): string | null { return adminToken; }
+
+/** 客户端 token (业主级别). 走 X-Client-Token header, 跟 admin token 并列. */
+let clientToken: string | null = null;
+export function setClientToken(t: string | null): void { clientToken = t; }
+export function getClientToken(): string | null { return clientToken; }
 
 export interface HttpRequestConfig {
   /** URL query params, 自动 encode 拼到 url 后. 接受任何 typed interface, 运行时再过滤 nullish. */
@@ -75,6 +112,10 @@ async function request<T>(
   // 自动注入 admin token (登录后存在 adminAuth store, 同步到这里的模块变量)
   if (adminToken && !headers['Authorization']) {
     headers['Authorization'] = `Bearer ${adminToken}`;
+  }
+  // 客户端 token 走专用 header (X-Client-Token), 不跟 admin 抢 Authorization
+  if (clientToken && !headers['X-Client-Token']) {
+    headers['X-Client-Token'] = clientToken;
   }
   const init: RequestInit = {
     method,

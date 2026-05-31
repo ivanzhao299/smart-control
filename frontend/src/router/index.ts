@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import { trackRouteChange } from '@/services/rum.service';
 import { useAdminAuthStore } from '@/stores/admin-auth';
+import { useClientAuthStore } from '@/stores/client-auth';
 
 const routes: RouteRecordRaw[] = [
   // 平板布局 (Sprint-05)
@@ -18,12 +19,19 @@ const routes: RouteRecordRaw[] = [
       { path: 'status', name: 'status', component: () => import('@/pages/StatusPage.vue') },
     ],
   },
-  // 后台登录页 (独立布局, 不进 AdminLayout)
+  // 客户端登录页 (业主级别访问门禁 + 服务器地址配置)
+  {
+    path: '/client-login',
+    name: 'client-login',
+    component: () => import('@/pages/ClientLogin.vue'),
+    meta: { clientPublic: true, adminPublic: true },
+  },
+  // 后台登录页 (管理员级别, 独立布局, 不进 AdminLayout)
   {
     path: '/admin/login',
     name: 'admin-login',
     component: () => import('@/pages/admin/AdminLogin.vue'),
-    meta: { adminPublic: true },
+    meta: { adminPublic: true, clientRequired: true },
   },
   // Kiosk 播控页 — GK9000 上的 Chromium 全屏窗口加载这个 (?slot=1 / ?slot=2)
   // 没鉴权, 直接进, 不进 MainLayout (要纯黑全屏)
@@ -71,6 +79,18 @@ export const router = createRouter({
   // BASE_URL 来自 vite.config 的 base 配置 (生产是 /control/, dev 是 /)
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
+});
+
+// Client auth guard: 业主级别. 除 /client-login 和 player 这种特殊页, 其他都要 token.
+// PWA / APP 启动后第一件事走这里 → 没 token 跳 /client-login.
+router.beforeEach((to) => {
+  // 显式公开页: client-login (输密码 + 配地址), player (kiosk 全屏播放, 无 UI)
+  if (to.meta?.clientPublic || to.name === 'player') return true;
+  const client = useClientAuthStore();
+  if (!client.isAuthed) {
+    return { name: 'client-login', query: { redirect: to.fullPath } };
+  }
+  return true;
 });
 
 // Admin auth guard: 进任何 meta.adminRequired 的路由前确保已登录
