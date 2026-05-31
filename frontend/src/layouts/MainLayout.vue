@@ -302,19 +302,26 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   background: rgba(10, 14, 26, 0.5);
   overflow: hidden;
 }
-/* 项容器 — flex-grow 占满 brand 之下的所有剩余高度, 项可缩可伸 */
+/* 项容器 — flex-grow 占满 brand 之下的所有剩余高度
+   高度够: 按钮均分撑满, 居中分布
+   高度不够 (手机横屏 ~360px viewport): 按 min-height 44 自然撑出, overflow-y: auto 可滚
+   注: justify-content: safe center 在 overflow 时退化成 flex-start, 不再裁切两端 */
 .v2-nav-list {
   flex: 1;
   width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;     /* 屏幕高度大时上下留白; 小时被 items 撑满 */
+  justify-content: safe center;
   gap: 4px;
   padding: 4px 0;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* 隐藏滚动条 — 视觉干净, 手指/滚轮仍能滚 */
+  scrollbar-width: none;
 }
+.v2-nav-list::-webkit-scrollbar { display: none; }
 
 /* 品牌 logo 块: 占侧栏顶部, 在 nav item 之上, 视觉上接管 header 56px 高 */
 .v2-nav-brand {
