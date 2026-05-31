@@ -119,16 +119,36 @@ function applyPreset(z: ZoneRow, value: number): void {
 }
 
 // ============ 全部开/关 ============
+// 注意: 不要看本地 z.on 状态判断要不要发! 本地 z.on 是页面打开时硬编码的初始值,
+// 跟现场灯真实状态没关系 (没有 fetchZoneStatus 拉真实状态). 之前用 if (!z.on) 跳
+// 已开的区, 导致大部分点击 "没反应". DALI 命令幂等, 全部一律发就完了.
 async function allOn(): Promise<void> {
-  ElMessage.info('全部开启 — 逐区下发');
+  ElMessage.info(`全部开启 — 逐区下发 (${filteredZones.value.length} 区)`);
   for (const z of filteredZones.value) {
-    if (!z.on) await toggleZone(z);
+    z.busy = true; z.error = null;
+    try {
+      const res = await lightingService.zoneOn(z.id);
+      if (!res.ok) throw new Error(res.error || '执行失败');
+      z.on = true;
+      if (z.brightness === 0) z.brightness = 80;
+    } catch (err) {
+      z.error = (err as Error).message;
+      ElMessage.error(`${z.name} 开启失败: ${z.error}`);
+    } finally { z.busy = false; }
   }
 }
 async function allOff(): Promise<void> {
-  ElMessage.warning('全部关闭 — 逐区下发');
+  ElMessage.warning(`全部关闭 — 逐区下发 (${filteredZones.value.length} 区)`);
   for (const z of filteredZones.value) {
-    if (z.on) await toggleZone(z);
+    z.busy = true; z.error = null;
+    try {
+      const res = await lightingService.zoneOff(z.id);
+      if (!res.ok) throw new Error(res.error || '执行失败');
+      z.on = false;
+    } catch (err) {
+      z.error = (err as Error).message;
+      ElMessage.error(`${z.name} 关闭失败: ${z.error}`);
+    } finally { z.busy = false; }
   }
 }
 
