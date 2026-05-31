@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-// 2026-05-31: 全屏按钮 + FullscreenPrompt 已去掉 — 用户反馈"让系统更像原生".
-// 默认靠 PWA standalone manifest 自动全屏; 手动浏览器访问就接受浏览器 UI.
-// AlertBanner 已从前台 header 移除 — 告警仅在后台 /admin/alerts 看.
-// ExecutionStatusBar 也下架 — 错误改进后台日志, 场景反馈走 toast.
+// 2026-05-31:
+// - 全屏按钮 + FullscreenPrompt 弹层已去掉 (用户嫌)
+// - useFullscreen 保留, 静默模式: 用户首次任意点击/触摸/按键 → 自动请求
+//   Fullscreen API, 平板浏览器一进就全屏, kiosk-like 体验
+// - PWA standalone 启动也仍然全屏 (manifest display: fullscreen 接管)
+// - AlertBanner 已移除, 告警走后台 /admin/alerts
+// - 场景反馈走顶部 inline toast
+import { useFullscreen } from '@/composables/useFullscreen';
 import { navIconFor } from '@/composables/useIcons';
 import { useSystemStore } from '@/stores/system';
 import { useSceneStore } from '@/stores/scene';
@@ -71,6 +75,11 @@ function prefetchRoute(name: string): void {
   prefetched.add(name);
   fn().catch(() => { prefetched.delete(name); /* 失败下次重试 */ });
 }
+
+// Auto-enter 全屏: 用户首次 click/touch/keydown 后自动 request fullscreen.
+// 不暴露按钮也不弹 prompt — composable 的 showPrompt 不被任何模板消费.
+// 已在 PWA standalone 模式时跳过 (浏览器本身已经全屏).
+useFullscreen({ autoEnter: true });
 
 // v2 侧导航 - 只 icon (跟 mockup 一致), title 给 hover tooltip
 const navItems: Array<{ name: string; label: string; section?: 'main' | 'tools' }> = [
