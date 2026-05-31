@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/configRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:background="@color/bg_0">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center_vertical"
+        android:padding="24dp"
+        android:minHeight="640dp">
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <!-- 标题 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:text="@string/config_title"
+            android:textColor="@color/text_1"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.05"
+            android:layout_marginBottom="6dp" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:text="@string/config_subtitle"
+            android:textColor="@color/text_3"
+            android:textSize="13sp"
+            android:layout_marginBottom="28dp" />
+
+        <!-- URL 输入 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/config_url_label"
+            android:textColor="@color/text_2"
+            android:textSize="12sp"
+            android:letterSpacing="0.08"
+            android:layout_marginBottom="8dp" />
+        <EditText
+            android:id="@+id/etUrl"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:background="@drawable/bg_input"
+            android:hint="@string/config_url_hint"
+            android:textColorHint="@color/text_3"
+            android:textColor="@color/text_1"
+            android:textSize="14sp"
+            android:fontFamily="monospace"
+            android:paddingHorizontal="14dp"
+            android:inputType="textUri"
+            android:imeOptions="actionDone"
+            android:singleLine="true"
+            android:autofillHints="username" />
+
+        <!-- 测试结果 -->
+        <TextView
+            android:id="@+id/tvTestStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:layout_marginTop="8dp"
+            android:visibility="gone" />
+
+        <!-- 测试按钮 -->
+        <Button
+            android:id="@+id/btnTest"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="14dp"
+            android:text="@string/config_test"
+            android:textColor="@color/text_1"
+            android:background="@drawable/bg_btn_secondary"
+            android:textSize="14sp"
+            android:letterSpacing="0.1" />
+
+        <!-- 保存按钮 -->
+        <Button
+            android:id="@+id/btnSave"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="10dp"
+            android:text="@string/config_save"
+            android:textColor="@android:color/white"
+            android:background="@drawable/bg_btn_primary"
+            android:textSize="15sp"
+            android:letterSpacing="0.2"
+            android:textStyle="bold" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="2" />
+
+        <!-- 底部版本号 -->
+        <TextView
+            android:id="@+id/tvVersion"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:textColor="@color/text_3"
+            android:textSize="10sp"
+            android:letterSpacing="0.1"
+            android:fontFamily="monospace"
+            android:alpha="0.5"
+            android:layout_marginTop="20dp" />
+    </LinearLayout>
+</ScrollView>

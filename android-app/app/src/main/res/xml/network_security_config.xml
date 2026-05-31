@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  允许任意 HTTP (业主可能输 http://192.168.x.x:3200, 不是 https).
+  Android 9+ 默认禁明文 HTTP, 必须显式 cleartextTrafficPermitted=true.
+  生产 APP 上线 Play Store 应该限定到具体域名, 这里 base="all" 是给业主测试用.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

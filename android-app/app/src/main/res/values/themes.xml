@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.JinhuControl" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorPrimaryDark">@color/primary_dark</item>
+        <item name="colorAccent">@color/purple</item>
+        <item name="android:windowBackground">@color/bg_0</item>
+        <item name="android:textColor">@color/text_1</item>
+        <item name="android:textColorPrimary">@color/text_1</item>
+        <item name="android:textColorSecondary">@color/text_2</item>
+        <item name="android:statusBarColor">@color/bg_0</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:navigationBarColor">@color/bg_0</item>
+    </style>
+
+    <style name="Theme.JinhuControl.NoActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowContentTransitions">true</item>
+    </style>
+</resources>

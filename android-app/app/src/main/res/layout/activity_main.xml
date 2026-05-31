@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg_0">
+
+    <!-- 配置页 -->
+    <include
+        android:id="@+id/configPanel"
+        layout="@layout/panel_config" />
+
+    <!-- WebView 容器 -->
+    <FrameLayout
+        android:id="@+id/webPanel"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <WebView
+            android:id="@+id/webView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <!-- 错误覆盖层 -->
+        <LinearLayout
+            android:id="@+id/errorOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="@color/bg_0"
+            android:padding="24dp"
+            android:visibility="gone">
+            <TextView
+                android:id="@+id/errorText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@color/danger"
+                android:textSize="14sp"
+                android:gravity="center"
+                android:lineSpacingExtra="4dp" />
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="20dp">
+                <Button
+                    android:id="@+id/btnRetry"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:text="@string/webview_retry"
+                    android:textColor="@android:color/white"
+                    android:background="@drawable/bg_btn_primary"
+                    android:paddingHorizontal="20dp"
+                    android:layout_marginEnd="12dp" />
+                <Button
+                    android:id="@+id/btnChangeServer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:text="@string/webview_change_server"
+                    android:textColor="@color/text_1"
+                    android:background="@drawable/bg_btn_secondary"
+                    android:paddingHorizontal="20dp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- 右上角"切换服务器"小按钮 (业主切回配置页用) -->
+        <ImageButton
+            android:id="@+id/btnGear"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_gravity="top|end"
+            android:layout_marginTop="24dp"
+            android:layout_marginEnd="12dp"
+            android:background="@drawable/bg_btn_secondary"
+            android:src="@android:drawable/ic_menu_manage"
+            android:tint="@color/primary"
+            android:contentDescription="@string/settings"
+            android:scaleType="centerInside"
+            android:alpha="0.6" />
+    </FrameLayout>
+</FrameLayout>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">金湖中控</string>
+
+    <!-- Config 页 -->
+    <string name="config_title">服务器配置</string>
+    <string name="config_subtitle">输入金湖中控服务器地址</string>
+    <string name="config_url_hint">e.g. http://192.168.124.11:5173/control/</string>
+    <string name="config_url_label">服务器地址</string>
+    <string name="config_test">测试连接</string>
+    <string name="config_save">保存并启动</string>
+    <string name="config_testing">正在测试…</string>
+    <string name="config_test_ok">连接成功 · %1$s</string>
+    <string name="config_test_fail">连接失败 · %1$s</string>
+    <string name="config_invalid_url">请输入合法的 URL (含 http:// 或 https://)</string>
+    <string name="config_no_url">请先输入服务器地址</string>
+
+    <!-- WebView 页 -->
+    <string name="settings">切换服务器</string>
+    <string name="reload">刷新</string>
+    <string name="webview_error">页面加载失败: %1$s\n\n请检查服务器地址或网络</string>
+    <string name="webview_retry">重试</string>
+    <string name="webview_change_server">切换服务器</string>
+</resources>
