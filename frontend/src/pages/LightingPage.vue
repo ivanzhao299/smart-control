@@ -323,7 +323,8 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
         <div class="zone-top">
           <div class="zone-meta">
             <div class="zone-name">{{ z.name }}</div>
-            <div class="zone-addr v2-inter">{{ z.gatewayDisplayName }} · GROUP {{ z.daliGroup }} · {{ z.floor }}</div>
+            <!-- 业主不看 gateway/group 这种调试信息, 只显示楼层. 调试详情在后台 → 灯光分区. -->
+            <div class="zone-addr">{{ z.floor }}</div>
           </div>
           <button
             class="v2-toggle"
@@ -561,9 +562,10 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   color: var(--v2-text-1);
 }
 .zone-addr {
-  font-size: 10px;
-  color: var(--v2-text-3);
-  letter-spacing: 1px;
+  font-size: 11px;
+  color: var(--v2-text-2);
+  letter-spacing: 1.2px;
+  font-weight: 500;
 }
 
 /* 开关 toggle */
