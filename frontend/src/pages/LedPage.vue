@@ -369,13 +369,39 @@ async function allOff(): Promise<void> {
   border-radius: var(--v2-r-lg);
   display: flex; flex-direction: column; gap: var(--v2-sp-4);
   overflow: hidden;
-  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-  transition: all 0.22s ease;
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
+/* 顶部 1px 电光青光带 — LED 主色 */
+.v2-screen::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 12%; right: 12%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--v2-primary) 50%, transparent);
+  box-shadow: 0 0 8px var(--v2-primary);
+  opacity: 0.4;
+  pointer-events: none;
+  transition: opacity 0.28s ease;
+}
+.v2-screen:hover {
+  transform: translateY(-3px);
+  border-color: rgba(0, 229, 255, 0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(0, 229, 255, 0.55),
+    0 0 0 1px rgba(0, 229, 255, 0.15),
+    0 14px 32px -10px rgba(0, 229, 255, 0.3);
+}
+.v2-screen:hover::after { opacity: 0.85; }
 .v2-screen.on {
-  border-color: rgba(6, 182, 212, 0.22);
-  box-shadow: 0 8px 24px -10px rgba(6, 182, 212, 0.3);
+  border-color: rgba(0, 229, 255, 0.55);
+  background: linear-gradient(135deg, rgba(0, 229, 255, 0.10), rgba(0, 184, 212, 0.04));
+  box-shadow:
+    inset 0 1px 0 rgba(0, 229, 255, 0.65),
+    0 8px 32px -8px rgba(0, 229, 255, 0.45),
+    0 0 40px -10px rgba(0, 229, 255, 0.35) !important;
 }
+.v2-screen.on::after { opacity: 1; }
 .v2-screen.offline { opacity: 0.5; }
 
 .screen-top { display: flex; align-items: center; justify-content: space-between; }
@@ -396,8 +422,16 @@ async function allOff(): Promise<void> {
   transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .v2-toggle.on {
-  background: linear-gradient(135deg, var(--v2-primary), #22d3ee);
-  box-shadow: 0 0 10px rgba(6, 182, 212, 0.45);
+  background: linear-gradient(135deg, #00B8D4, #00E5FF);
+  box-shadow:
+    0 0 14px rgba(0, 229, 255, 0.6),
+    0 0 28px rgba(0, 229, 255, 0.35);
+}
+.v2-toggle.on::after {
+  background: white;
+  box-shadow:
+    0 1px 4px rgba(0,0,0,0.4),
+    0 0 8px rgba(255, 255, 255, 0.6);
 }
 .v2-toggle.on::after { transform: translateX(18px); }
 .v2-toggle:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -409,7 +443,8 @@ async function allOff(): Promise<void> {
   border-radius: var(--v2-r-md);
 }
 .state-label { font-size: var(--v2-fs-xs); color: var(--v2-text-3); letter-spacing: 1px; }
-.state-value { font-size: 18px; font-weight: 600; color: var(--v2-text-1); }
+.state-value { font-size: 20px; font-weight: 700; color: var(--v2-text-1); letter-spacing: 0.4px; }
+.v2-screen.on .state-value { color: #67FFFF; text-shadow: var(--v2-text-glow-primary); }
 
 .input-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .input-chip {
@@ -421,8 +456,11 @@ async function allOff(): Promise<void> {
 }
 .input-chip:hover { background: var(--v2-surf-1-hover); color: var(--v2-text-1); }
 .input-chip.active {
-  background: var(--v2-primary-soft); color: var(--v2-primary);
-  border-color: rgba(6, 182, 212, 0.3);
+  background: var(--v2-primary-soft);
+  color: var(--v2-primary-hover);
+  border-color: rgba(0, 229, 255, 0.5);
+  text-shadow: 0 0 8px var(--v2-primary);
+  font-weight: 600;
 }
 .input-chip:disabled { opacity: 0.4; cursor: not-allowed; }
 

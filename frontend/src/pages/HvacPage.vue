@@ -374,14 +374,41 @@ async function allOff(): Promise<void> {
   border: 1px solid var(--v2-border-soft);
   border-radius: var(--v2-r-lg);
   display: flex; flex-direction: column; gap: var(--v2-sp-3);
-  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-  transition: all 0.22s ease;
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
 }
+/* 顶部 1px 深空蓝光带 — HVAC 主色 */
+.v2-hvac-zone::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 12%; right: 12%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--v2-info) 50%, transparent);
+  box-shadow: 0 0 8px var(--v2-info);
+  opacity: 0.35;
+  pointer-events: none;
+  transition: opacity 0.28s ease;
+}
+.v2-hvac-zone:hover {
+  transform: translateY(-3px);
+  border-color: rgba(91, 143, 255, 0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(91, 143, 255, 0.55),
+    0 0 0 1px rgba(91, 143, 255, 0.15),
+    0 14px 32px -10px rgba(91, 143, 255, 0.3);
+}
+.v2-hvac-zone:hover::after { opacity: 0.85; }
 .v2-hvac-zone.on {
-  border-color: rgba(96, 165, 250, 0.22);
-  box-shadow: 0 8px 24px -10px rgba(96, 165, 250, 0.3);
+  border-color: rgba(91, 143, 255, 0.55);
+  background: linear-gradient(135deg, rgba(91, 143, 255, 0.10), rgba(67, 56, 202, 0.04));
+  box-shadow:
+    inset 0 1px 0 rgba(91, 143, 255, 0.65),
+    0 8px 32px -8px rgba(91, 143, 255, 0.45),
+    0 0 40px -10px rgba(91, 143, 255, 0.30) !important;
 }
-.v2-hvac-zone.offline { opacity: 0.5; border-color: rgba(239, 68, 68, 0.4); }
+.v2-hvac-zone.on::after { opacity: 1; }
+.v2-hvac-zone.offline { opacity: 0.5; border-color: rgba(255, 71, 87, 0.55); }
 
 .zone-top { display: flex; align-items: center; justify-content: space-between; }
 .zone-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -401,8 +428,14 @@ async function allOff(): Promise<void> {
   transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .v2-toggle.on {
-  background: linear-gradient(135deg, #3b82f6, #60a5fa);
-  box-shadow: 0 0 10px rgba(96, 165, 250, 0.45);
+  background: linear-gradient(135deg, #4F46E5, #5B8FFF);
+  box-shadow:
+    0 0 14px rgba(91, 143, 255, 0.6),
+    0 0 28px rgba(91, 143, 255, 0.35);
+}
+.v2-toggle.on::after {
+  background: white;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4), 0 0 8px rgba(255, 255, 255, 0.6);
 }
 .v2-toggle.on::after { transform: translateX(18px); }
 
@@ -441,10 +474,11 @@ async function allOff(): Promise<void> {
   line-height: 1;
 }
 .v2-hvac-zone.on .temp-num {
-  background: linear-gradient(135deg, #60a5fa 0%, #818cf8 100%);
+  background: linear-gradient(135deg, #5B8FFF 0%, #A855F7 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  filter: drop-shadow(0 0 12px rgba(91, 143, 255, 0.55));
 }
 .temp-unit { font-size: 18px; color: var(--v2-text-3); }
 

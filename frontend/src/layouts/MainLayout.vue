@@ -339,15 +339,17 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   letter-spacing: 0;
 }
 .v2-brand-title {
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 1px;
   color: var(--v2-text-1);
+  text-shadow: 0 0 12px rgba(0, 229, 255, 0.35);
 }
 .v2-brand-sub {
   font-size: var(--v2-fs-xs);
-  color: var(--v2-text-3);
-  margin-top: 2px;
+  color: var(--v2-text-2);
+  margin-top: 3px;
+  letter-spacing: 0.6px;
 }
 .v2-header-alert {
   /* 内嵌到 header 中段, 没告警时 AlertBanner 自身不渲染 */
@@ -362,15 +364,33 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   gap: var(--v2-sp-3);
   flex-shrink: 0;
 }
+/* 顶栏时钟 — Tesla / NIO 中控感: JetBrains Mono + tabular-nums + cyan glow + 冒号闪烁 */
 .v2-clock {
-  font-size: 18px;
-  font-weight: 500;
+  font-size: 22px;
+  font-weight: 600;
   color: var(--v2-text-1);
+  font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 2px;
+  text-shadow: var(--v2-text-glow-primary);
+  /* 冒号 (在 22:38) 用 animation 闪烁, 实现"心跳秒" 效果 */
+  position: relative;
+}
+.v2-clock::first-letter {
+  /* 数字稍微更高 */
 }
 .v2-clock .sec {
-  font-size: 12px;
-  color: var(--v2-text-3);
-  margin-left: 4px;
+  font-size: 13px;
+  color: var(--v2-primary);
+  margin-left: 5px;
+  letter-spacing: 1px;
+  text-shadow: 0 0 8px var(--v2-primary);
+  font-weight: 500;
+  animation: v3-sec-pulse 1s ease-in-out infinite;
+}
+@keyframes v3-sec-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
 }
 .v2-fs-btn {
   width: 36px;
