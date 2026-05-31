@@ -11,8 +11,8 @@ android {
         applicationId = "com.jinhu.smartcontrol"
         minSdk = 24                  // Android 7.0+ — 覆盖 ≥99% 在用机型
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.0.1"
         // 默认服务器地址 (可在 BuildConfig 用 — APP 启动时如果 SharedPreferences 没保存就用这个作 placeholder)
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"http://192.168.124.11:5173/control/\"")
     }

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">金湖中控</string>
+    <string name="app_name">展厅中控</string>
 
     <!-- Config 页 -->
     <string name="config_title">服务器配置</string>
