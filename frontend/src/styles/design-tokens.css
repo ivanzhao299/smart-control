@@ -12,45 +12,66 @@
  * ============================================================ */
 
 :root {
-  /* ---------- 中性 / 表面 (4 档, 再升一档 + 微青色调) ---------- */
-  --v2-bg-0: #070B17;                       /* 略再深一档, 让前景跳更明显 */
-  --v2-bg-1: #0C1124;                       /* 渐变低点 */
-  --v2-surf-1: rgba(120, 200, 220, 0.085);  /* 5.5% → 8.5%, 微青底, 不再"散沙" */
-  --v2-surf-1-hover: rgba(120, 200, 220, 0.13);
-  --v2-surf-2: rgba(255, 255, 255, 0.12);   /* 卡内嵌 (表格行 / 输入框) */
-  --v2-surf-3: rgba(255, 255, 255, 0.16);   /* 抽屉 / dialog */
+  /* ============================================================
+   * v3 (2026-05-31): "蔚来/小鹏车机风" 视觉重构
+   *
+   * 旧 v2 偏'专业克制', 业主反馈"性冷淡 / 蓝色脏 / 暗陈无趣 / 没科技感".
+   * v3 换方向: 深空蓝 + 极光紫 + 电光青 + 多色霓虹强调, 大量 glow + 玻璃
+   * 拟态 + 慢漂浮 aurora. 参考 NIO ET7 / 小鹏 X9 / NIO Phone.
+   * ============================================================ */
 
-  /* 边框: 纯白 → 微青, 给所有卡边带科技感 */
-  --v2-border-soft: rgba(110, 200, 220, 0.18);     /* 12% 白 → 18% 微青 */
-  --v2-border-strong: rgba(110, 200, 220, 0.32);   /* hover/focus 边, 强 */
+  /* ---------- 中性 / 表面 (深空蓝 + 微紫调) ---------- */
+  --v2-bg-0: #060818;                       /* 深空蓝底 (比纯黑暖一点, 比 navy 紫一点) */
+  --v2-bg-1: #0E0F2A;                       /* 渐变低点, 加紫调 */
+  --v2-surf-1: rgba(140, 180, 255, 0.10);   /* 卡片底: 微紫白, 比旧版亮 + 暖 */
+  --v2-surf-1-hover: rgba(140, 180, 255, 0.16);
+  --v2-surf-2: rgba(255, 255, 255, 0.10);   /* 卡内嵌 */
+  --v2-surf-3: rgba(140, 180, 255, 0.18);   /* 抽屉 / dialog */
 
-  --v2-text-1: rgba(255, 255, 255, 0.96);
-  --v2-text-2: rgba(255, 255, 255, 0.68);
-  --v2-text-3: rgba(255, 255, 255, 0.46);
+  /* 边框: 紫青双色光带感 */
+  --v2-border-soft: rgba(120, 180, 255, 0.22);
+  --v2-border-strong: rgba(0, 229, 255, 0.45);
 
-  /* ---------- 品牌 + 语义 ---------- */
-  --v2-primary: #06b6d4;
-  --v2-primary-dark: #0891b2;
-  --v2-primary-hover: #22d3ee;
-  /* 状态软色 ×1.3 — 22% → 28%, 更鲜亮, 摆脱"灰扑扑"感 */
-  --v2-primary-soft: rgba(6, 182, 212, 0.28);
+  --v2-text-1: rgba(255, 255, 255, 0.98);
+  --v2-text-2: rgba(220, 230, 255, 0.72);   /* 二级带一点紫调, 不再灰 */
+  --v2-text-3: rgba(180, 200, 240, 0.52);
 
-  --v2-amber: #f59e0b;
-  --v2-amber-soft: rgba(245, 158, 11, 0.28);
+  /* ---------- 品牌主色: 电光青 (Cyan Electric) ---------- */
+  --v2-primary: #00E5FF;                    /* 电光青, 比旧 #06b6d4 更鲜更亮 */
+  --v2-primary-dark: #00B8D4;
+  --v2-primary-hover: #67FFFF;              /* hover 更亮 */
+  --v2-primary-soft: rgba(0, 229, 255, 0.32);
 
-  --v2-success: #10b981;
-  --v2-warning: #f59e0b;
-  --v2-danger: #ef4444;
-  --v2-info: #3b82f6;
+  /* ---------- 副色: 极光紫 (Aurora Purple) ---------- */
+  --v2-purple: #A855F7;
+  --v2-purple-soft: rgba(168, 85, 247, 0.32);
+  --v2-purple-glow: rgba(168, 85, 247, 0.55);
 
-  --v2-success-soft: rgba(16, 185, 129, 0.28);
-  --v2-warning-soft: rgba(245, 158, 11, 0.28);
-  --v2-danger-soft:  rgba(239, 68, 68, 0.28);
-  --v2-info-soft:    rgba(59, 130, 246, 0.28);
+  /* ---------- 强调色: 霓虹粉 (告警/重点) ---------- */
+  --v2-pink: #F472B6;
+  --v2-pink-soft: rgba(244, 114, 182, 0.30);
 
-  /* "数字发光" 用 — KPI/亮度/温度 大字号加 text-shadow */
-  --v2-text-glow-primary: 0 0 16px rgba(6, 182, 212, 0.55), 0 0 4px rgba(6, 182, 212, 0.35);
-  --v2-text-glow-amber:   0 0 16px rgba(251, 191, 36, 0.55), 0 0 4px rgba(245, 158, 11, 0.35);
+  /* 琥珀: 灯光场景 / 警告 */
+  --v2-amber: #FFB800;                      /* 略提亮, 比 #f59e0b 更"汽车仪表"感 */
+  --v2-amber-soft: rgba(255, 184, 0, 0.32);
+
+  --v2-success: #00E78A;                    /* 更鲜的霓虹绿 */
+  --v2-warning: #FFB800;
+  --v2-danger: #FF4757;                     /* 更鲜的红, 不闷 */
+  --v2-info: #5B8FFF;                       /* 信息蓝, 带紫调 */
+
+  --v2-success-soft: rgba(0, 231, 138, 0.32);
+  --v2-warning-soft: rgba(255, 184, 0, 0.32);
+  --v2-danger-soft:  rgba(255, 71, 87, 0.32);
+  --v2-info-soft:    rgba(91, 143, 255, 0.32);
+
+  /* "数字发光" — 多色 glow 池, 给 KPI/亮度/温度等大字号用 */
+  --v2-text-glow-primary: 0 0 20px rgba(0, 229, 255, 0.7), 0 0 6px rgba(0, 229, 255, 0.45);
+  --v2-text-glow-amber:   0 0 20px rgba(255, 184, 0, 0.7), 0 0 6px rgba(255, 184, 0, 0.45);
+  --v2-text-glow-purple:  0 0 20px rgba(168, 85, 247, 0.7), 0 0 6px rgba(168, 85, 247, 0.45);
+  --v2-text-glow-success: 0 0 20px rgba(0, 231, 138, 0.7), 0 0 6px rgba(0, 231, 138, 0.45);
+  --v2-text-glow-danger:  0 0 20px rgba(255, 71, 87, 0.7), 0 0 6px rgba(255, 71, 87, 0.45);
+  --v2-text-glow-pink:    0 0 20px rgba(244, 114, 182, 0.7), 0 0 6px rgba(244, 114, 182, 0.45);
 
   /* 灯光暖色 (亮度滑条 / 灯光卡 active) */
   --v2-light-warm: #fbbf24;
@@ -106,36 +127,55 @@
   --border-strong: var(--v2-border-strong);
 }
 
-/* ============ 全局 body 背景 — 网格 + 双 radial 光晕 + 渐变底 ============ */
+/* ============ 全局 body 背景 — Aurora (极光) + 慢漂浮 + 网格 ============
+ * v3: 深空蓝 + 3 个 radial gradient (青/紫/粉) + 60s 缓慢漂浮
+ * 不会晕眩 (60s 一圈才动一次), 但有"宇宙在呼吸"的感觉
+ */
 html, body, #app {
   background: var(--v2-bg-0) !important;
 }
 
 body {
   position: relative;
-  background:
-    /* radial 光晕加强: 0.07 → 0.13 (青) / 0.06 → 0.11 (琥珀) */
-    radial-gradient(ellipse 60% 50% at 20% 0%, rgba(6, 182, 212, 0.13) 0%, transparent 60%),
-    radial-gradient(ellipse 50% 40% at 90% 100%, rgba(245, 158, 11, 0.11) 0%, transparent 55%),
-    linear-gradient(180deg, var(--v2-bg-0) 0%, var(--v2-bg-1) 100%) !important;
+  background: linear-gradient(180deg, var(--v2-bg-0) 0%, var(--v2-bg-1) 100%) !important;
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
   letter-spacing: 0.02em;
   -webkit-font-smoothing: antialiased;
 }
-/* 科技感细网格层 — 30px × 30px, 4% 微青线条, 全局不滚一起的固定背景 */
+/* Aurora layer 1: 青 + 紫 + 粉 三色 radial 慢漂 */
 body::before {
   content: '';
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
+  background:
+    radial-gradient(ellipse 50% 45% at 15% 10%, rgba(0, 229, 255, 0.22) 0%, transparent 55%),
+    radial-gradient(ellipse 55% 40% at 85% 25%, rgba(168, 85, 247, 0.20) 0%, transparent 60%),
+    radial-gradient(ellipse 45% 35% at 70% 95%, rgba(244, 114, 182, 0.16) 0%, transparent 55%),
+    radial-gradient(ellipse 40% 30% at 10% 90%, rgba(255, 184, 0, 0.10) 0%, transparent 50%);
+  animation: v2-aurora-drift 60s ease-in-out infinite;
+}
+/* Aurora layer 2: 细科技网格 (35×35, 4% 青线), 静态 */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
   background-image:
-    linear-gradient(rgba(110, 200, 220, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(110, 200, 220, 0.045) 1px, transparent 1px);
-  background-size: 30px 30px;
+    linear-gradient(rgba(120, 200, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(120, 200, 255, 0.045) 1px, transparent 1px);
+  background-size: 35px 35px;
   background-position: -1px -1px;
   mask-image: radial-gradient(ellipse 80% 70% at 50% 30%, black 0%, rgba(0,0,0,0.4) 80%);
   -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 30%, black 0%, rgba(0,0,0,0.4) 80%);
+}
+@keyframes v2-aurora-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(-3%, 2%) scale(1.05); }
+  50% { transform: translate(2%, -2%) scale(0.98); }
+  75% { transform: translate(-2%, -3%) scale(1.03); }
 }
 #app { position: relative; z-index: 1; }
 
@@ -209,9 +249,9 @@ body::before {
   filter: grayscale(0.4);
 }
 
-/* ============ 全局卡片顶边青色发光 (科技感 hairline) ============
- * 用 inset box-shadow 加, 不动各页面 ::before/::after, 不踩冲突.
- * 这是核心"卡片通电"感的来源.
+/* ============ 全局卡片顶边电光青发光 (科技感 hairline) ============
+ * v3: 顶部光带从青色单线升级成"渐变光带" (青→紫→透明), 更未来感
+ * + 卡片整体加微紫 halo
  */
 .v2-kpi,
 .v2-scene,
@@ -224,8 +264,24 @@ body::before {
 .v2-subsystems,
 .v2-overview {
   box-shadow:
-    inset 0 1px 0 rgba(6, 182, 212, 0.35),
+    inset 0 1px 0 rgba(0, 229, 255, 0.5),
+    0 0 0 1px rgba(120, 180, 255, 0.08),
     var(--v2-elev-1) !important;
+  transition: box-shadow 0.32s cubic-bezier(0.4, 0, 0.2, 1), transform 0.22s ease, border-color 0.22s ease;
+}
+.v2-kpi:hover,
+.v2-zone:hover,
+.v2-screen:hover,
+.v2-hvac-zone:hover,
+.ch-card:hover,
+.metric:hover,
+.v2-card:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(0, 229, 255, 0.75),
+    0 0 0 1px rgba(0, 229, 255, 0.18),
+    0 12px 32px -10px rgba(0, 229, 255, 0.35),
+    var(--v2-elev-2) !important;
+  transform: translateY(-2px);
 }
 .v2-scene.active,
 .v2-zone.on,
@@ -233,8 +289,9 @@ body::before {
 .v2-screen.on,
 .v2-hvac-zone.on {
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.4),
-    0 8px 28px -8px var(--scene-glow, rgba(6, 182, 212, 0.5)) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 8px 32px -6px var(--scene-glow, rgba(0, 229, 255, 0.6)),
+    0 0 36px -8px var(--scene-glow, rgba(0, 229, 255, 0.4)) !important;
 }
 
 /* ============ KPI / 亮度 / 温度 等"大数字"自动发光 ============

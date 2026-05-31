@@ -267,24 +267,32 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   font-family: inherit;
 }
 .v2-nav-item:hover {
-  background: var(--v2-surf-1);
+  background: var(--v2-surf-1-hover);
   color: var(--v2-text-1);
 }
-.v2-nav-item.is-active {
-  background: var(--v2-primary-soft);
-  color: var(--v2-primary);
+.v2-nav-item:hover svg {
+  filter: drop-shadow(0 0 6px var(--v2-primary));
 }
+.v2-nav-item.is-active {
+  background: linear-gradient(90deg, rgba(0, 229, 255, 0.20) 0%, rgba(0, 229, 255, 0.04) 100%);
+  color: var(--v2-primary-hover);
+  box-shadow: inset 0 1px 0 rgba(0, 229, 255, 0.4);
+}
+.v2-nav-item.is-active svg {
+  filter: drop-shadow(0 0 10px var(--v2-primary));
+}
+/* 选中项左边一条电光青光柱 — v3 蔚来车机标志 */
 .v2-nav-item.is-active::before {
   content: '';
   position: absolute;
-  left: -8px;
+  left: -10px;
   top: 50%;
   transform: translateY(-50%);
-  width: 3px;
-  height: 22px;
-  background: var(--v2-primary);
-  border-radius: 0 3px 3px 0;
-  box-shadow: 0 0 8px var(--v2-primary);
+  width: 4px;
+  height: 30px;
+  background: linear-gradient(180deg, transparent, var(--v2-primary) 30%, var(--v2-primary-hover) 50%, var(--v2-primary) 70%, transparent);
+  border-radius: 0 4px 4px 0;
+  box-shadow: 0 0 12px var(--v2-primary), 0 0 24px var(--v2-primary-soft);
 }
 .v2-nav-label {
   font-size: 11px;
