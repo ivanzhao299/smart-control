@@ -58,9 +58,14 @@ export class SystemBrandingController {
   async manifest(@Res() res: Response): Promise<void> {
     const b = await this.service.get();
     const logoUrl = b.logoUrl ?? '/control/icons/pwa-512x512.png';
+    // short_name 是主屏图标下面的名字, manifest 标准要求 ≤12 字符. logoText
+    // 是给"圆形 logo"里显示的占位单字 (业主可能填 1 / 金 这种), 语义完全不同,
+    // 不能拿来当 short_name. 这里从 systemName 截 8 个字, 不行就 fallback.
+    const fullName = b.systemName ?? '金湖展贸中心智能控制系统';
+    const shortName = fullName.length > 8 ? fullName.slice(0, 8) : fullName;
     const manifest = {
-      name: b.systemName ?? '金湖展贸中心智能控制系统',
-      short_name: b.logoText ?? b.systemName ?? '金湖中控',
+      name: fullName,
+      short_name: shortName,
       description: b.systemSubtitle ?? '智慧展厅中控',
       theme_color: '#0A0E1F',
       background_color: '#060818',
