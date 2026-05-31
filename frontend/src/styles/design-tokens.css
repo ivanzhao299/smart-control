@@ -717,6 +717,82 @@ html {
   color: var(--v2-text-2) !important;
 }
 
+/* ============================================================
+ * 手机响应式 (≤600px) — Sprint H2 2026-05-31
+ * Element Plus 在手机上的默认尺寸偏小 (drawer 40%, dialog 50%),
+ * 这里统一改成全屏 / 接近全屏 sheet, 同时压缩内部 padding
+ * ============================================================ */
+@media (max-width: 600px) {
+  /* el-drawer 手机全屏 sheet */
+  .el-drawer.rtl,
+  .el-drawer.ltr,
+  .el-drawer.ttb,
+  .el-drawer.btt {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100vw;
+    max-height: 100dvh;
+  }
+  .el-drawer__header {
+    padding: 14px 16px !important;
+    margin-bottom: 0 !important;
+    border-bottom: 1px solid var(--v2-border-soft);
+  }
+  .el-drawer__body { padding: 12px 16px !important; }
+  .el-drawer__footer { padding: 12px 16px !important; }
+
+  /* el-dialog 手机几乎占满 */
+  .el-dialog {
+    width: calc(100% - 16px) !important;
+    max-width: calc(100% - 16px) !important;
+    margin: 8px auto !important;
+  }
+  .el-dialog__header { padding: 14px 16px !important; }
+  .el-dialog__body { padding: 12px 16px !important; }
+  .el-dialog__footer { padding: 12px 16px !important; }
+
+  /* el-message-box (confirm) 占接近全宽 */
+  .el-message-box {
+    width: calc(100% - 24px) !important;
+    max-width: 420px;
+  }
+
+  /* el-table 手机横向滚 + 最小宽度防挤变形 */
+  .el-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .el-table__inner-wrapper { min-width: 600px; }
+
+  /* el-form-item 标签换行避免太挤 */
+  .el-form-item__label {
+    width: auto !important;
+    text-align: left !important;
+    padding-bottom: 4px;
+  }
+  .el-form-item__content {
+    margin-left: 0 !important;
+  }
+  .el-form--label-right .el-form-item__label {
+    text-align: left !important;
+  }
+
+  /* el-input / el-select 充满宽度 */
+  .el-form-item .el-input,
+  .el-form-item .el-select {
+    width: 100% !important;
+  }
+
+  /* el-input-number 默认 130px 太宽, 给手机收一下 */
+  .el-input-number { width: 140px !important; }
+
+  /* el-message (顶部 toast) 收窄, 不撑屏 */
+  .el-message { min-width: 280px !important; max-width: calc(100% - 24px); }
+
+  /* el-tag 紧凑 */
+  .el-tag { padding: 0 8px !important; height: 22px !important; line-height: 20px !important; }
+}
+
 /* ============ 动画 ============ */
 @keyframes v2-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }

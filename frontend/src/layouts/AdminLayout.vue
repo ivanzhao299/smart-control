@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ChevronLeft } from 'lucide-vue-next';
+import { ChevronLeft, Menu, X } from 'lucide-vue-next';
 import BrandLogo from '@/components/BrandLogo.vue';
 import { useSystemStore } from '@/stores/system';
 import { usePermissionStore } from '@/stores/permission';
@@ -56,8 +56,16 @@ const currentName = computed(() => {
   return cur;
 });
 
+/** 手机抽屉开关状态 (≤600px 才生效) */
+const sidebarOpen = ref(false);
+function toggleSidebar(): void { sidebarOpen.value = !sidebarOpen.value; }
+function closeSidebar(): void { sidebarOpen.value = false; }
+// 切换路由后自动收起抽屉 (业主在手机上点菜单 → 跳页面 → 抽屉关掉)
+watch(() => route.name, () => { sidebarOpen.value = false; });
+
 function go(name: string): void {
   router.push({ name });
+  sidebarOpen.value = false;
 }
 
 function gotoPad(): void {
@@ -85,7 +93,9 @@ async function logout(): Promise<void> {
 </script>
 
 <template>
-  <div class="admin">
+  <div class="admin" :class="{ 'sidebar-open': sidebarOpen }">
+    <!-- 手机抽屉遮罩 -->
+    <div class="sidebar-mask" @click="closeSidebar"></div>
     <aside class="side">
       <div class="brand">
         <BrandLogo :height="40" />
@@ -121,6 +131,10 @@ async function logout(): Promise<void> {
 
     <div class="main">
       <header class="top">
+        <button class="hamburger" @click="toggleSidebar" :aria-label="sidebarOpen ? '关闭菜单' : '打开菜单'">
+          <X v-if="sidebarOpen" :size="20" :stroke-width="2" />
+          <Menu v-else :size="20" :stroke-width="2" />
+        </button>
         <div class="crumb">{{ items.find((i) => i.name === currentName)?.label ?? '后台管理' }}</div>
         <div class="meta">
           <span class="version">{{ sys.info?.sprint ?? '—' }} · v{{ sys.info?.version ?? '—' }}</span>
@@ -159,6 +173,30 @@ async function logout(): Promise<void> {
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
   box-sizing: border-box;
+  position: relative;
+}
+/* 手机抽屉遮罩 — 默认不显示, 手机抽屉打开时盖上 */
+.sidebar-mask {
+  display: none;
+}
+/* 顶部汉堡按钮 — 桌面隐藏, 手机才显示 */
+.hamburger {
+  display: none;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--v2-border-soft);
+  background: var(--v2-surf-1);
+  color: var(--v2-text-1);
+  border-radius: 8px;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.18s ease;
+}
+.hamburger:hover {
+  background: var(--v2-surf-1-hover);
+  border-color: var(--v2-primary);
 }
 .side {
   display: flex;
@@ -290,4 +328,82 @@ async function logout(): Promise<void> {
 
 .page-enter-from, .page-leave-to { opacity: 0; transform: translateY(6px); }
 .page-enter-active, .page-leave-active { transition: all 0.2s ease; }
+
+/* ============ 平板竖屏 (≤900px): 侧栏缩窄 ============ */
+@media (max-width: 900px) and (min-width: 601px) {
+  .admin { grid-template-columns: 180px 1fr; }
+  .menu-item { padding: 8px 10px; font-size: 13px; }
+  .top { padding: 10px 16px; }
+  .crumb { font-size: 14px; }
+  .meta { gap: var(--v2-sp-2); }
+  .version { display: none; }
+}
+
+/* ============ 手机 (≤600px): 侧栏变抽屉 ============
+ * Sprint H2 2026-05-31: 业主可能用手机进后台
+ * 模式: 默认隐藏 → 点汉堡按钮唤出 → 点 mask 或菜单项关闭
+ */
+@media (max-width: 600px) {
+  .admin {
+    grid-template-columns: 1fr;
+  }
+  .hamburger {
+    display: inline-flex;
+    margin-right: 12px;
+  }
+  /* 侧栏 → fixed 抽屉, 默认 translateX(-100%) 藏左边 */
+  .side {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 280px;
+    max-width: 80vw;
+    z-index: 100;
+    transform: translateX(-100%);
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 8px 0 32px -8px rgba(0, 0, 0, 0.7);
+    background: rgba(6, 8, 24, 0.92);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    padding-top: env(safe-area-inset-top);
+  }
+  .admin.sidebar-open .side {
+    transform: translateX(0);
+  }
+  /* 遮罩 — 抽屉打开时盖在 main 区上, 点击关闭 */
+  .sidebar-mask {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(2px);
+    z-index: 99;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s ease;
+  }
+  .admin.sidebar-open .sidebar-mask {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* 顶 header 紧凑 */
+  .top {
+    padding: 10px 14px;
+    gap: 8px;
+  }
+  .crumb { font-size: 15px; }
+  .meta { gap: var(--v2-sp-2); }
+  .version { display: none; }
+  .v2-pill { display: none; }
+  /* 角色 select 收窄 */
+  .meta :deep(.el-select) { width: 84px !important; }
+  .clock { font-size: 13px; }
+
+  /* 内容 padding 减小 */
+  .content {
+    padding: var(--v2-sp-3);
+  }
+}
 </style>
