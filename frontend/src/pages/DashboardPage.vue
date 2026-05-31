@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { ElMessage } from 'element-plus';
+import { useToastStore } from '@/stores/toast';
 import { useRouter } from 'vue-router';
 import {
   CheckCircle2, BarChart3, Clock, TriangleAlert,
@@ -55,13 +55,15 @@ const scenesView = computed(() => {
     }));
 });
 
+const toast = useToastStore();
+
 async function fireScene(code: string): Promise<void> {
   const name = sceneStore.scenes.find((s) => s.code === code)?.name ?? code;
   try {
     await sceneStore.execute(code);
-    ElMessage.success(`场景【${name}】已启动`);
+    toast.success(`场景【${name}】已启动`);
   } catch (err) {
-    ElMessage.error(`场景【${name}】启动失败: ${(err as Error).message}`);
+    toast.error(`场景【${name}】启动失败: ${(err as Error).message}`);
   }
 }
 

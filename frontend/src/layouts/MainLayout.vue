@@ -11,6 +11,7 @@ import { navIconFor } from '@/composables/useIcons';
 import { useSystemStore } from '@/stores/system';
 import { useSceneStore } from '@/stores/scene';
 import { useSystemBrandingStore } from '@/stores/system-branding';
+import { useToastStore } from '@/stores/toast';
 
 const route = useRoute();
 const router = useRouter();
@@ -18,6 +19,8 @@ const sys = useSystemStore();
 const sceneStore = useSceneStore();
 const brandingStore = useSystemBrandingStore();
 const branding = computed(() => brandingStore.branding);
+const toast = useToastStore();
+const toastMsg = computed(() => toast.current);
 
 // 终端全屏 (Sprint-08 终端模式)
 const fs = useFullscreen({ autoEnter: true });
@@ -123,8 +126,18 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
         <div class="v2-brand-sub">{{ dateLabel }}</div>
       </div>
 
-      <!-- 之前这里有 AlertBanner, 已移除. 告警在后台 → 报警中心查看 -->
-      <div class="v2-header-spacer"></div>
+      <!-- inline toast — 5s 自动消失, 纯文字无框, 不挡左右两端 -->
+      <div class="v2-header-spacer">
+        <transition name="toast-fade">
+          <div
+            v-if="toastMsg"
+            class="v2-inline-toast"
+            :class="`is-${toastMsg.type}`"
+            @click="toast.clear()"
+            :title="'点击关闭'"
+          >{{ toastMsg.text }}</div>
+        </transition>
+      </div>
 
       <div class="v2-header-right">
         <span class="v2-pill" :class="{ idle: activeScene === '无运行' }">
@@ -370,10 +383,56 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   margin-top: 3px;
   letter-spacing: 0.6px;
 }
-/* 顶 header 中段占位 — 之前是 AlertBanner, 现在留白 */
+/* 顶 header 中段 — 容纳 inline toast (没有时空着) */
 .v2-header-spacer {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--v2-sp-4);
+  overflow: hidden;
+}
+
+/* inline toast — 纯文字, 无框, 各 type 一种色, 单行截断 */
+.v2-inline-toast {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  line-height: 1.4;
+}
+.v2-inline-toast.is-error {
+  color: #FCA5A5;
+  text-shadow: 0 0 8px rgba(255, 71, 87, 0.55);
+}
+.v2-inline-toast.is-warning {
+  color: #FCD34D;
+  text-shadow: 0 0 8px rgba(255, 184, 0, 0.55);
+}
+.v2-inline-toast.is-success {
+  color: #6EE7B7;
+  text-shadow: 0 0 8px rgba(0, 231, 138, 0.55);
+}
+.v2-inline-toast.is-info {
+  color: #BFD7FF;
+  text-shadow: 0 0 8px rgba(91, 143, 255, 0.45);
+}
+
+/* 渐显 / 渐隐 */
+.toast-fade-enter-active,
+.toast-fade-leave-active {
+  transition: opacity 0.24s ease, transform 0.24s ease;
+}
+.toast-fade-enter-from,
+.toast-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 .v2-header-right {
   display: flex;
