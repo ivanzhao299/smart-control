@@ -79,14 +79,15 @@ export function useFullscreen(opts: { autoEnter?: boolean } = {}) {
 
   async function enter(): Promise<void> {
     if (!isSupported.value) {
-      // 不支持时直接关 prompt, 避免 iPad / iPhone Safari 上 mask 永久盖屏
       showPrompt.value = false;
       return;
     }
-    if (isActive.value || isStandalone.value) {
+    if (isActive.value) {
       showPrompt.value = false;
       return;
     }
+    // 即使 PWA standalone 也仍然请求 Fullscreen API — PWA 默认会留状态栏/
+    // home indicator, requestFullscreen 才能 deep fullscreen.
     const root = document.documentElement as ElAny;
     try {
       if (typeof root.requestFullscreen === 'function') {
@@ -166,15 +167,18 @@ export function useFullscreen(opts: { autoEnter?: boolean } = {}) {
       if (removeAutoEnter) removeAutoEnter();
     });
 
-    // 决策: 已 PWA / 已退出过 / 不支持 / iOS (fullscreen 体验差) → 不弹
-    // iOS Safari 上 requestFullscreen 经常静默失败, 弹了反而挡住操作, 跳过即可
-    if (isStandalone.value || optedOut.value || !isSupported.value || detectIOS()) {
-      showPrompt.value = false;
-    } else {
-      showPrompt.value = true;
-      if (opts.autoEnter !== false) {
-        removeAutoEnter = setupAutoEnter();
-      }
+    // 不弹 prompt (业主嫌). 决定要不要 autoEnter:
+    //   - iOS / 已退出 / 不支持 → 不动 (iOS Safari 即使 PWA standalone, Fullscreen
+    //     API 也经常静默失败, 不强求, 用 PWA 自身的全屏就够了)
+    //   - 其他情况 (包括 PWA standalone 模式): 都 setupAutoEnter
+    //     - 浏览器访问 → 首次点击进 Fullscreen API
+    //     - PWA standalone → 首次交互再加一层 Fullscreen API, 进入 "deep
+    //       fullscreen" — 状态栏 / 导航栏全部隐藏, 完全无 UI
+    showPrompt.value = false;
+    if (optedOut.value || !isSupported.value || detectIOS()) {
+      // 跳过 autoEnter
+    } else if (opts.autoEnter !== false) {
+      removeAutoEnter = setupAutoEnter();
     }
   });
 
