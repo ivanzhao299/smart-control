@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus';
-import { Smartphone, AlertCircle } from 'lucide-vue-next';
+import { Smartphone, AlertCircle, Download, ChevronDown } from 'lucide-vue-next';
 import {
   appReleaseService,
   type AppReleaseView,
@@ -9,8 +9,14 @@ import {
 } from '@/services/app-release.service';
 
 /**
- * APP 版本管理 — 业主在这里改 latest 版本号 + 下载链接, APP 启动时拉这个比对.
- * 见 docs/DESIGN_SYSTEM.md 第 6 章模式, 见 backend AppReleaseService.
+ * APP 版本管理 — 默认业主只能改运营开关 (启停 / 强制更新 / 最低兼容 / 更新说明),
+ * 版本号 + 下载链接由 GitHub Actions build → 我自动 UPDATE 后台表写入, 业主一般不动.
+ *
+ * 业主反馈 2026-05-31:
+ *   "为什么里面的版本号之类的都是可以编辑的? 用户需要编辑这些东西吗?"
+ *   → 把 versionCode/versionName/downloadUrl 折叠进"高级"块默认收起.
+ *   "现在必须复制到浏览器里下载吗"
+ *   → 顶部加"下载 APK"大按钮, 直接 a href download.
  */
 
 type Platform = 'android' | 'ios';
@@ -21,6 +27,7 @@ const loading = ref(false);
 const saving = ref(false);
 const formRef = ref<FormInstance>();
 const allReleases = ref<AppReleaseView[]>([]);
+const advancedOpen = ref(false);
 
 interface FormState extends AppReleaseUpsertDto {}
 const form = reactive<FormState>({
@@ -68,7 +75,6 @@ function syncFormFromRelease(): void {
       enabled: r.enabled,
     });
   } else {
-    // 该平台还没数据 — 给默认值
     Object.assign(form, {
       versionCode: 1,
       versionName: '1.0.0',
@@ -80,6 +86,8 @@ function syncFormFromRelease(): void {
       minSupportedVersionCode: 1,
       enabled: true,
     });
+    // 没数据 → 必须填表创建, 强制展开高级
+    advancedOpen.value = true;
   }
 }
 
@@ -113,6 +121,14 @@ async function submit(): Promise<void> {
   });
 }
 
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString('zh-CN', { hour12: false });
+  } catch {
+    return iso;
+  }
+}
+
 onMounted(refresh);
 </script>
 
@@ -122,9 +138,8 @@ onMounted(refresh);
       <div>
         <h2><Smartphone :size="20" :stroke-width="2" /> APP 版本管理</h2>
         <p class="sub">
-          填这里, APP 启动时会拉到, 比对本地 versionCode 不一致就弹"新版本"对话框 →
-          点击跳浏览器下载新 APK. 业主只需 GitHub Actions 发新 release 后, 来这里把
-          versionCode / versionName / 下载链接 改成新的即可.
+          GitHub Actions 自动构建并发布新版后, 后台版本信息会自动同步, 业主一般只需要
+          管理下面的运营开关 (启停 / 强制更新 / 更新说明). 版本号和下载链接默认不显示.
         </p>
       </div>
       <div class="actions">
@@ -143,58 +158,65 @@ onMounted(refresh);
       >{{ p === 'android' ? 'Android' : 'iOS' }}</button>
     </div>
 
-    <!-- 当前状态卡 -->
-    <div v-if="currentRelease" class="status-card">
-      <div class="kv">
-        <span class="k">当前发布版本</span>
-        <span class="v">
-          v{{ currentRelease.versionName }}
-          <code class="code-pill">code {{ currentRelease.versionCode }}</code>
-        </span>
+    <!-- 当前版本卡 — 突出版本号 + 下载按钮 + 更新说明 -->
+    <div v-if="currentRelease" class="release-card">
+      <div class="release-head">
+        <div class="release-info">
+          <div class="version-line">
+            <span class="version-name">v{{ currentRelease.versionName }}</span>
+            <code class="code-pill">code {{ currentRelease.versionCode }}</code>
+            <el-tag v-if="!currentRelease.enabled" type="info" size="small">已停用</el-tag>
+            <el-tag v-else-if="currentRelease.forceUpdate" type="warning" size="small">强制更新</el-tag>
+            <el-tag v-else type="success" size="small">正常推送</el-tag>
+          </div>
+          <div class="release-meta">最后更新: {{ formatDate(currentRelease.updatedAt) }}</div>
+        </div>
+        <a
+          class="dl-btn"
+          :href="currentRelease.downloadUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+          download
+          :title="currentRelease.downloadUrl"
+        >
+          <Download :size="18" :stroke-width="2" />
+          <span>下载 APK</span>
+        </a>
       </div>
-      <div class="kv">
-        <span class="k">下载链接</span>
-        <a class="link" :href="currentRelease.downloadUrl" target="_blank" rel="noopener">{{ currentRelease.downloadUrl }}</a>
-      </div>
-      <div class="kv">
-        <span class="k">更新时间</span>
-        <span class="v">{{ new Date(currentRelease.updatedAt).toLocaleString() }}</span>
-      </div>
-      <div class="kv">
-        <span class="k">状态</span>
-        <span class="v">
-          <el-tag v-if="!currentRelease.enabled" type="info" size="small">已停用</el-tag>
-          <el-tag v-else-if="currentRelease.forceUpdate" type="warning" size="small">强制更新</el-tag>
-          <el-tag v-else type="success" size="small">正常推送</el-tag>
-        </span>
-      </div>
+      <pre v-if="currentRelease.notes" class="release-notes">{{ currentRelease.notes }}</pre>
     </div>
-    <div v-else class="status-card empty">
+    <div v-else class="release-card empty">
       <AlertCircle :size="20" :stroke-width="2" />
-      <span>{{ tab }} 还没有发布信息, 在下面填表保存</span>
+      <span>{{ tab }} 还没有发布信息, 展开下面"高级"块填表创建</span>
     </div>
 
-    <!-- 编辑表单 -->
-    <el-form ref="formRef" :model="form" :rules="rules" label-width="160px" label-position="right" class="form">
-      <el-form-item label="versionCode" prop="versionCode">
-        <el-input-number v-model="form.versionCode" :min="1" :max="999999" controls-position="right" />
-        <span class="hint">整数, 每次发新版必须比上一版大 (1 → 2 → 3...). Android BuildConfig.VERSION_CODE 一致.</span>
+    <!-- 运营字段表单 (业主常改) -->
+    <el-form
+      ref="formRef"
+      :model="form"
+      :rules="rules"
+      label-width="160px"
+      label-position="right"
+      class="form"
+    >
+      <h3 class="form-section">运营管理</h3>
+
+      <el-form-item label="启用推送">
+        <el-switch v-model="form.enabled" />
+        <span class="hint">关掉后 APP 不会弹任何更新提示 (想暂停推送时用)</span>
       </el-form-item>
 
-      <el-form-item label="versionName" prop="versionName">
-        <el-input v-model="form.versionName" placeholder="1.0.1" style="width: 200px;" />
-        <span class="hint">用户看的版本号, e.g. 1.0.1. 跟 build.gradle.kts 的 versionName 一致.</span>
-      </el-form-item>
-
-      <el-form-item label="下载链接" prop="downloadUrl">
-        <el-input
-          v-model="form.downloadUrl"
-          type="textarea"
-          :rows="2"
-          placeholder="https://github.com/.../app-debug.apk"
-        />
+      <el-form-item label="强制更新">
+        <el-switch v-model="form.forceUpdate" />
         <span class="hint">
-          APK / IPA 下载链接 (业主能用浏览器直接下到的). 通常是 GitHub release asset URL.
+          打开后业主不能"稍后", 必须升级才能继续用 APP. 谨慎用 (老 APP 出严重 bug 才开)
+        </span>
+      </el-form-item>
+
+      <el-form-item label="最低兼容版本">
+        <el-input-number v-model="form.minSupportedVersionCode" :min="1" :max="999999" controls-position="right" />
+        <span class="hint">
+          APP 本地 versionCode 低于这个值 → 强制升级 (即使上面 forceUpdate=false). 协议变化时升上来踢老 APP.
         </span>
       </el-form-item>
 
@@ -202,30 +224,41 @@ onMounted(refresh);
         <el-input
           v-model="form.notes"
           type="textarea"
-          :rows="4"
-          placeholder="本次更新内容, e.g.&#10;- 应用名改为'展厅中控'&#10;- 修复全屏 bug"
+          :rows="5"
+          placeholder="本次更新内容, e.g.&#10;- 换 logo&#10;- 修复全屏 bug"
         />
         <span class="hint">业主升级时显示在对话框里, 一行一条简单写就行</span>
       </el-form-item>
 
-      <el-form-item label="强制更新">
-        <el-switch v-model="form.forceUpdate" />
-        <span class="hint">
-          打开后业主不能"稍后", 必须升级才能继续用 APP. 谨慎用 (e.g. 老 APP 出严重 bug)
-        </span>
-      </el-form-item>
+      <!-- 高级 — 默认折叠, 版本号 + 下载链接 一般不要手动改 (部署自动写入) -->
+      <div class="adv-toggle" @click="advancedOpen = !advancedOpen">
+        <ChevronDown :size="14" :class="{ rotated: advancedOpen }" />
+        <span>高级 — 手动编辑版本号 + 下载链接 (部署流程会自动写入, 一般不要动)</span>
+      </div>
 
-      <el-form-item label="最低兼容版本">
-        <el-input-number v-model="form.minSupportedVersionCode" :min="1" :max="999999" controls-position="right" />
-        <span class="hint">
-          APP 本地 versionCode 低于这个值 → 强制升级 (即使 forceUpdate=false). 协议变化时升上来踢老 APP.
-        </span>
-      </el-form-item>
+      <div v-show="advancedOpen" class="adv-block">
+        <el-form-item label="versionCode" prop="versionCode">
+          <el-input-number v-model="form.versionCode" :min="1" :max="999999" controls-position="right" />
+          <span class="hint">整数, 每次发新版必须比上一版大 (1 → 2 → 3...). 跟 Android BuildConfig.VERSION_CODE 一致.</span>
+        </el-form-item>
 
-      <el-form-item label="启用推送">
-        <el-switch v-model="form.enabled" />
-        <span class="hint">关掉后 APP 不会弹任何更新提示 (业主想暂停推送时用)</span>
-      </el-form-item>
+        <el-form-item label="versionName" prop="versionName">
+          <el-input v-model="form.versionName" placeholder="1.0.1" style="width: 200px;" />
+          <span class="hint">用户看的版本号, e.g. 1.0.1. 跟 build.gradle.kts 的 versionName 一致.</span>
+        </el-form-item>
+
+        <el-form-item label="下载链接" prop="downloadUrl">
+          <el-input
+            v-model="form.downloadUrl"
+            type="textarea"
+            :rows="2"
+            placeholder="https://github.com/.../app-debug.apk"
+          />
+          <span class="hint">
+            APK / IPA 下载链接 (业主能用浏览器直接下到的). 通常是 GitHub release asset URL.
+          </span>
+        </el-form-item>
+      </div>
 
       <el-form-item>
         <el-button type="primary" :loading="saving" @click="submit">保存</el-button>
@@ -286,59 +319,110 @@ onMounted(refresh);
   box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.3);
 }
 
-.status-card {
-  padding: 14px 18px;
-  background: var(--v2-surf-1);
+/* 当前版本卡 — 主视觉, 版本号大字 + 下载按钮高亮 */
+.release-card {
+  padding: 18px 22px;
+  background: linear-gradient(135deg, rgba(0, 229, 255, 0.04) 0%, rgba(168, 85, 247, 0.04) 100%);
   border: 1px solid var(--v2-border-soft);
   border-radius: var(--v2-r-md);
   margin-bottom: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  box-shadow: 0 4px 16px -8px rgba(0, 229, 255, 0.18);
 }
-.status-card.empty {
-  flex-direction: row;
+.release-card.empty {
+  display: flex;
   align-items: center;
   gap: 10px;
   color: var(--v2-warning);
+  background: var(--v2-surf-1);
 }
-.kv {
+.release-head {
   display: flex;
-  gap: 14px;
-  font-size: 13px;
-  align-items: baseline;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
 }
-.kv .k {
-  color: var(--v2-text-2);
-  min-width: 100px;
+.release-info { flex: 1; min-width: 0; }
+.version-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
-.kv .v {
-  color: var(--v2-text-1);
-  word-break: break-all;
+.version-name {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--v2-primary-hover);
+  text-shadow: 0 0 12px rgba(0, 229, 255, 0.4);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  letter-spacing: 0.5px;
 }
 .code-pill {
   background: rgba(0, 229, 255, 0.15);
   color: #67E8F9;
-  padding: 1px 8px;
+  padding: 2px 10px;
   border-radius: 4px;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 11px;
-  margin-left: 6px;
 }
-.link {
-  color: var(--v2-primary-hover);
-  text-decoration: none;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+.release-meta {
+  color: var(--v2-text-2);
   font-size: 12px;
-  word-break: break-all;
+  margin-top: 6px;
 }
-.link:hover { text-decoration: underline; }
 
+/* 大下载按钮 — a 用 button 样式, download 属性触发浏览器原生下载 */
+.dl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 22px;
+  background: linear-gradient(135deg, var(--v2-primary) 0%, var(--v2-info) 100%);
+  color: #fff;
+  text-decoration: none;
+  border-radius: var(--v2-r-md);
+  font-weight: 600;
+  font-size: 14px;
+  box-shadow: 0 4px 14px -4px rgba(0, 229, 255, 0.5);
+  transition: all 0.18s ease;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.dl-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px -4px rgba(0, 229, 255, 0.7);
+}
+.dl-btn:active { transform: translateY(0); }
+
+.release-notes {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  background: rgba(10, 14, 26, 0.5);
+  border: 1px solid var(--v2-border-soft);
+  border-radius: var(--v2-r-sm);
+  color: var(--v2-text-1);
+  font-family: 'PingFang SC', -apple-system, system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* 表单 */
 .form {
   background: var(--v2-surf-1);
   border: 1px solid var(--v2-border-soft);
   border-radius: var(--v2-r-md);
   padding: 20px 24px;
+}
+.form-section {
+  margin: 0 0 16px;
+  font-size: 14px;
+  color: var(--v2-text-1);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--v2-border-soft);
 }
 .hint {
   display: block;
@@ -346,5 +430,39 @@ onMounted(refresh);
   color: var(--v2-text-2);
   margin-top: 4px;
   line-height: 1.5;
+}
+
+/* 高级折叠头 */
+.adv-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  margin: 8px 0 12px;
+  background: rgba(10, 14, 26, 0.4);
+  border: 1px dashed var(--v2-border-soft);
+  border-radius: var(--v2-r-sm);
+  color: var(--v2-text-2);
+  font-size: 12.5px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.18s ease;
+}
+.adv-toggle:hover { color: var(--v2-text-1); border-color: var(--v2-primary); }
+.adv-toggle svg { transition: transform 0.2s ease; }
+.adv-toggle svg.rotated { transform: rotate(180deg); }
+
+.adv-block {
+  padding: 12px 0 4px;
+  border-left: 2px solid rgba(168, 85, 247, 0.3);
+  padding-left: 16px;
+  margin: 0 0 12px;
+}
+
+@media (max-width: 600px) {
+  .app-release-admin { padding: 12px 14px; }
+  .release-head { flex-direction: column; align-items: stretch; }
+  .dl-btn { justify-content: center; }
+  .form { padding: 14px 16px; }
 }
 </style>
