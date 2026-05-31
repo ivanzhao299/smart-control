@@ -362,6 +362,15 @@ async function allOff(): Promise<void> {
   display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--v2-sp-4);
 }
 @media (max-width: 900px) { .v2-screen-grid { grid-template-columns: 1fr; } }
+@media (max-width: 600px) {
+  .v2-screen { padding: var(--v2-sp-3); gap: var(--v2-sp-3); }
+  .screen-name { font-size: 15px; }
+  .state-value { font-size: 18px; }
+  .input-row { grid-template-columns: repeat(2, 1fr); }
+  .v2-toggle { width: 48px; height: 28px; }
+  .v2-toggle::after { width: 24px; height: 24px; }
+  .v2-toggle.on::after { transform: translateX(20px); }
+}
 
 .v2-screen {
   position: relative; padding: var(--v2-sp-4);

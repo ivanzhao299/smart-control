@@ -596,7 +596,7 @@ function goTo(name: string): void {
   .v2-sub { flex-shrink: 0; min-width: 130px; }
 }
 
-/* ============ 窄屏 (≤720, 手机/小窗): KPI 2×2, 场景 2×3 ============ */
+/* ============ 窄屏 (≤720, 平板竖屏): KPI 2×2, 场景 2×3 ============ */
 @media (max-width: 720px) {
   .v2-kpi-row { grid-template-columns: repeat(2, 1fr); }
   .v2-scene-grid {
@@ -609,5 +609,49 @@ function goTo(name: string): void {
     overflow-x: visible;
   }
   .v2-sub { min-width: 0; }
+}
+
+/* ============ 手机 (≤480, iPhone / Android 竖屏): 场景 1 列大磁贴 ============
+ * Sprint H 2026-05-31: 手机优化, 业主可能用手机操作.
+ */
+@media (max-width: 480px) {
+  .v2-dash {
+    padding: var(--v2-sp-3);
+    gap: var(--v2-sp-3);
+  }
+  /* KPI 紧凑: 2×2 + 字号小 */
+  .v2-kpi { padding: 10px 12px; gap: 10px; }
+  .v2-kpi-ico { width: 32px; height: 32px; }
+  .v2-kpi-value { font-size: 18px; }
+  .v2-kpi-label { font-size: 10px; }
+
+  /* 场景磁贴 1 列大块 */
+  .v2-scene-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    gap: var(--v2-sp-3);
+  }
+  .v2-scene { min-height: 96px; padding: 14px 16px; }
+  .v2-scene-ico { width: 40px; height: 40px; }
+  .v2-scene-name { font-size: 16px; margin-top: 8px; }
+  .v2-scene-desc { font-size: 11px; }
+  .v2-scene-code { font-size: 10px; letter-spacing: 1.2px; }
+
+  /* 子系统状态条变 2 列网格 */
+  .v2-subsystems {
+    grid-template-columns: 1fr 1fr;
+    grid-auto-flow: row;
+    padding: var(--v2-sp-3);
+    gap: var(--v2-sp-2);
+  }
+  .v2-subsystems-label {
+    grid-column: 1 / -1;
+    border-right: none;
+    border-bottom: 1px solid var(--v2-border-soft);
+    padding: 0 0 8px;
+  }
+  .v2-sub { padding: 8px 10px; }
+  .v2-sub-ico { width: 30px; height: 30px; }
+  .v2-sub-name { font-size: 12px; }
 }
 </style>

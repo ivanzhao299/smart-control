@@ -581,8 +581,111 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 }
 /* 矮屏 (<700px): 字标变小, 间距压缩, 仍然装下 */
 @media (max-height: 700px) {
-  .v2-nav { padding: 6px 4px; gap: 2px; }
+  .v2-nav { padding: 6px 4px; }
   .v2-nav-item { min-height: 44px; gap: 2px; padding: 4px 2px; }
   .v2-nav-label { font-size: 10px; }
+}
+
+/* ============ 手机竖屏 (≤600px) — 侧栏变底栏 ============
+ * Sprint H 2026-05-31: 业主可能用手机操作.
+ * 布局: header 48px + main 1fr + bottom-nav 56px
+ * 侧栏内部 nav-list 旋成横排, 跟原生 iOS / Android tabbar 一样
+ */
+@media (max-width: 600px) {
+  .v2-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: 48px 1fr 60px;
+    grid-template-areas:
+      'header'
+      'main'
+      'nav';
+    /* 防底栏被键盘抬起遮挡 */
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  /* 侧栏 → 底栏 */
+  .v2-nav {
+    grid-area: nav;
+    grid-row: auto;
+    flex-direction: row;
+    align-items: stretch;
+    padding: 4px 4px;
+    height: 60px;
+    border-top: 1px solid var(--v2-border-soft);
+    border-right: none;
+    background: rgba(10, 14, 26, 0.92);
+    backdrop-filter: blur(16px);
+    /* safe area 底部 (iOS home indicator) */
+    padding-bottom: max(4px, env(safe-area-inset-bottom));
+    height: calc(60px + env(safe-area-inset-bottom));
+  }
+
+  /* logo 块挪走 — 手机底栏没空间 */
+  .v2-nav-brand,
+  .v2-nav-divider {
+    display: none;
+  }
+
+  /* nav 项变水平 */
+  .v2-nav-list {
+    flex-direction: row;
+    padding: 0;
+    gap: 0;
+    justify-content: space-around;
+    width: 100%;
+  }
+  .v2-nav-item {
+    width: auto;
+    flex: 1 1 0;
+    max-height: none;
+    min-height: 0;
+    height: 100%;
+    border-radius: 8px;
+    padding: 4px 2px;
+    gap: 2px;
+  }
+  .v2-nav-item .lucide,
+  .v2-nav-item svg { width: 22px !important; height: 22px !important; }
+  .v2-nav-label {
+    font-size: 10px;
+    letter-spacing: 0;
+  }
+
+  /* 选中态光柱 — 从左边竖条挪到上沿横条 */
+  .v2-nav-item.is-active::before {
+    left: 50%;
+    top: -4px;
+    bottom: auto;
+    transform: translateX(-50%);
+    width: 32px;
+    height: 4px;
+    background: linear-gradient(90deg,
+      transparent,
+      var(--v2-primary) 30%,
+      var(--v2-primary-hover) 50%,
+      var(--v2-primary) 70%,
+      transparent);
+    border-radius: 4px 4px 0 0;
+    box-shadow: 0 -2px 12px var(--v2-primary), 0 -2px 24px var(--v2-primary-soft);
+  }
+
+  /* header 极简: 只剩品牌 + 时钟 */
+  .v2-header { padding: 0 12px; height: 48px; }
+  .v2-brand-title { font-size: 14px; letter-spacing: 0.4px; }
+  .v2-brand-sub { display: none; }
+  .v2-header-spacer { display: none; }
+  .v2-header-alert { display: none; }
+  .v2-header-right .v2-pill { display: none; }
+  .v2-clock {
+    font-size: 16px;
+    letter-spacing: 1px;
+  }
+  .v2-clock .sec { font-size: 11px; }
+
+  /* main 减 padding */
+  .v2-main {
+    /* 避免主区被底栏挡 — grid 行布局已经预留, 这里不用 padding-bottom */
+  }
 }
 </style>

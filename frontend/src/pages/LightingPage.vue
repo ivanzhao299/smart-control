@@ -507,6 +507,20 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 }
 @media (max-width: 1280px) { .v2-zone-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 900px)  { .v2-zone-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 600px)  {
+  .v2-zone-grid { grid-template-columns: 1fr; }
+  .v2-page { padding: var(--v2-sp-3); gap: var(--v2-sp-3); }
+  .v2-zone { padding: var(--v2-sp-3); }
+  .bri-value { font-size: 22px; }
+  /* 滑条触控区加大: 14px → 18px, 拇指更容易精准 */
+  .slider { height: 18px; }
+  .slider-input { min-height: 32px; }
+  .v2-toggle { width: 48px; height: 28px; }
+  .v2-toggle::after { width: 24px; height: 24px; }
+  .v2-toggle.on::after { transform: translateX(20px); }
+  /* 顶部 quick-actions 横向滚动避免溢出 */
+  .quick-actions { flex-wrap: wrap; }
+}
 
 .v2-zone {
   position: relative;

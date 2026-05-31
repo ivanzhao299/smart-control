@@ -366,6 +366,15 @@ async function allOff(): Promise<void> {
 }
 @media (max-width: 1280px) { .v2-zone-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 720px)  { .v2-zone-grid { grid-template-columns: 1fr; } }
+@media (max-width: 600px)  {
+  .v2-hvac-zone { padding: var(--v2-sp-3); gap: var(--v2-sp-3); }
+  .zone-name { font-size: 14px; }
+  .temp-num { font-size: 32px; }
+  .step { width: 40px; height: 40px; }
+  .v2-toggle { width: 48px; height: 28px; }
+  .v2-toggle::after { width: 24px; height: 24px; }
+  .v2-toggle.on::after { transform: translateX(20px); }
+}
 
 .v2-hvac-zone {
   position: relative;

@@ -434,6 +434,19 @@ onUnmounted(() => { stopRefresh(); });
 }
 @media (max-width: 1280px) { .circuit-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 720px)  { .circuit-grid { grid-template-columns: 1fr; } }
+@media (max-width: 600px)  {
+  .v2-page { padding: var(--v2-sp-3); gap: var(--v2-sp-3); }
+  .v2-overview { padding: var(--v2-sp-3); gap: var(--v2-sp-2); grid-template-columns: 1fr 1fr; }
+  .ov-value { font-size: 18px; }
+  .ov-ico { width: 32px; height: 32px; }
+  .circuit-card { padding: var(--v2-sp-3); }
+  .metrics { grid-template-columns: 1fr 1fr; gap: var(--v2-sp-2); }
+  .metric-value { font-size: 16px; }
+  .quick-actions { flex-wrap: wrap; }
+  .v2-toggle { width: 48px; height: 28px; }
+  .v2-toggle::after { width: 24px; height: 24px; }
+  .v2-toggle.on::after { transform: translateX(20px); }
+}
 
 .circuit-card {
   position: relative;

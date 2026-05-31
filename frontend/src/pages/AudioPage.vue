@@ -370,6 +370,15 @@ async function muteAll(): Promise<void> {
   display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--v2-sp-3);
 }
 @media (max-width: 900px) { .ch-grid { grid-template-columns: 1fr; } }
+@media (max-width: 600px) {
+  .ch-card { padding: var(--v2-sp-3); gap: var(--v2-sp-3); }
+  .ch-name { font-size: 15px; }
+  .vol-value { font-size: 22px; }
+  .slider { height: 18px; }
+  .v2-toggle { width: 48px; height: 28px; }
+  .v2-toggle::after { width: 24px; height: 24px; }
+  .v2-toggle.on::after { transform: translateX(20px); }
+}
 
 .ch-card {
   padding: var(--v2-sp-4);
