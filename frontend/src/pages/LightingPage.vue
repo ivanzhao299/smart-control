@@ -518,35 +518,65 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   flex-direction: column;
   gap: var(--v2-sp-3);
   overflow: hidden;
-  transition: all 0.22s ease;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+/* 顶部 1px 琥珀色发光光带 — 默认弱, on 时强 */
+.v2-zone::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 12%; right: 12%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--v2-amber) 50%, transparent);
+  box-shadow: 0 0 6px var(--v2-amber);
+  opacity: 0.35;
+  pointer-events: none;
+  transition: opacity 0.28s ease;
 }
 .v2-zone::before {
   content: '';
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at 50% 0%, var(--zone-glow, transparent), transparent 60%);
+  background: radial-gradient(circle at 50% 0%, var(--zone-glow, transparent), transparent 65%);
   opacity: 0;
-  transition: opacity 0.3s ease;
+  transition: opacity 0.32s ease;
   pointer-events: none;
 }
+.v2-zone:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255, 184, 0, 0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 184, 0, 0.5),
+    0 0 0 1px rgba(255, 184, 0, 0.15),
+    0 14px 32px -10px rgba(255, 184, 0, 0.25);
+}
+.v2-zone:hover::after { opacity: 0.8; }
 .v2-zone.on {
-  --zone-glow: rgba(251, 191, 36, 0.15);
-  border-color: rgba(251, 191, 36, 0.22);
+  --zone-glow: rgba(255, 184, 0, 0.35);
+  border-color: rgba(255, 184, 0, 0.55);
+  background: linear-gradient(135deg, rgba(255, 184, 0, 0.10), rgba(255, 100, 0, 0.04));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 184, 0, 0.65),
+    0 8px 32px -8px rgba(255, 184, 0, 0.45),
+    0 0 40px -10px rgba(255, 184, 0, 0.35) !important;
 }
 .v2-zone.on::before { opacity: 1; }
+.v2-zone.on::after { opacity: 1; }
 .v2-zone.offline { opacity: 0.5; }
 .v2-zone.offline::after {
   content: '故障';
   position: absolute;
   top: var(--v2-sp-3); right: var(--v2-sp-3);
   font-size: 10px;
-  padding: 2px 8px;
-  background: rgba(239, 68, 68, 0.12);
+  padding: 3px 10px;
+  background: var(--v2-danger-soft);
   color: var(--v2-danger);
+  border: 1px solid var(--v2-danger);
   border-radius: 999px;
   letter-spacing: 0.5px;
+  font-weight: 600;
+  box-shadow: 0 0 12px rgba(255, 71, 87, 0.35);
 }
 
 .zone-top {
@@ -591,8 +621,16 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .v2-toggle.on {
-  background: linear-gradient(135deg, #f59e0b, #fbbf24);
-  box-shadow: 0 0 10px rgba(251, 191, 36, 0.35);
+  background: linear-gradient(135deg, #FF8800, #FFB800);
+  box-shadow:
+    0 0 14px rgba(255, 184, 0, 0.6),
+    0 0 28px rgba(255, 184, 0, 0.35);
+}
+.v2-toggle.on::after {
+  background: white;
+  box-shadow:
+    0 1px 4px rgba(0,0,0,0.4),
+    0 0 8px rgba(255, 255, 255, 0.6);
 }
 .v2-toggle.on::after { transform: translateX(18px); }
 .v2-toggle:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -614,25 +652,33 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   letter-spacing: 0.5px;
 }
 .bri-value {
-  font-size: 22px;
-  font-weight: 600;
+  font-size: 26px;
+  font-weight: 700;
   color: var(--v2-text-1);
+  letter-spacing: 0.5px;
 }
-.bri-value .pct { font-size: 12px; color: var(--v2-text-3); margin-left: 2px; font-weight: 400; }
+.v2-zone.on .bri-value {
+  color: #FFD060;
+  text-shadow: var(--v2-text-glow-amber);
+}
+.bri-value .pct { font-size: 13px; color: var(--v2-text-3); margin-left: 3px; font-weight: 500; text-shadow: none; }
 
 .slider-wrap { position: relative; }
 .slider {
   position: relative;
-  height: 12px;
+  height: 14px;
   background: var(--v2-surf-2);
-  border-radius: 6px;
+  border-radius: 7px;
   overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 .slider-fill {
   height: 100%;
-  background: linear-gradient(90deg, rgba(245, 158, 11, 0.45), rgba(251, 191, 36, 0.9));
-  border-radius: 6px;
-  box-shadow: 0 0 12px rgba(251, 191, 36, 0.35);
+  background: linear-gradient(90deg, #FF8800 0%, #FFB800 50%, #FFD060 100%);
+  border-radius: 7px;
+  box-shadow:
+    0 0 16px rgba(255, 184, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
   transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .v2-zone.off .slider-fill { background: var(--v2-surf-2); box-shadow: none; }

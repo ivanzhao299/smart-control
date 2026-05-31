@@ -209,19 +209,26 @@ async function logout(): Promise<void> {
   background: var(--v2-surf-1-hover);
   color: var(--v2-text-1);
 }
+.menu-item:hover .ico {
+  filter: drop-shadow(0 0 6px var(--v2-primary));
+}
 .menu-item.is-active {
-  background: var(--v2-primary-soft);
-  color: var(--v2-primary);
+  background: linear-gradient(90deg, rgba(0, 229, 255, 0.20) 0%, rgba(0, 229, 255, 0.04) 100%);
+  color: var(--v2-primary-hover);
+  box-shadow: inset 0 1px 0 rgba(0, 229, 255, 0.4);
+}
+.menu-item.is-active .ico {
+  filter: drop-shadow(0 0 10px var(--v2-primary));
 }
 .menu-item.is-active::before {
   content: '';
   position: absolute;
-  left: -2px; top: 50%;
+  left: -10px; top: 50%;
   transform: translateY(-50%);
-  width: 3px; height: 22px;
-  background: var(--v2-primary);
-  border-radius: 0 3px 3px 0;
-  box-shadow: 0 0 8px var(--v2-primary);
+  width: 4px; height: 30px;
+  background: linear-gradient(180deg, transparent, var(--v2-primary) 30%, var(--v2-primary-hover) 50%, var(--v2-primary) 70%, transparent);
+  border-radius: 0 4px 4px 0;
+  box-shadow: 0 0 12px var(--v2-primary), 0 0 24px var(--v2-primary-soft);
 }
 .menu-item .ico {
   display: flex; align-items: center; justify-content: center;

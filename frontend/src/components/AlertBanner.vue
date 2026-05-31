@@ -138,7 +138,7 @@ async function dismissPersisted(ev: MouseEvent): Promise<void> {
 </template>
 
 <style scoped>
-/* v2 内联玻璃条 - 嵌在 56px header 中, 没告警不渲染 */
+/* v3 告警条 — 红色渐变 + 边框 glow + 慢脉动 + 流光扫描 */
 .alert-banner {
   position: relative;
   display: flex;
@@ -147,47 +147,85 @@ async function dismissPersisted(ev: MouseEvent): Promise<void> {
   padding: 5px 10px 5px 6px;
   border-radius: var(--v2-r-sm);
   font-weight: 500;
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: linear-gradient(90deg, rgba(255, 71, 87, 0.22) 0%, rgba(255, 71, 87, 0.10) 100%);
+  border: 1px solid rgba(255, 71, 87, 0.55);
   color: var(--v2-text-1);
   overflow: hidden;
   height: 34px;
   box-sizing: border-box;
+  box-shadow:
+    0 0 16px -2px rgba(255, 71, 87, 0.4),
+    inset 0 1px 0 rgba(255, 71, 87, 0.55);
+  animation: v3-alert-pulse 2.4s ease-in-out infinite;
 }
+/* 流光扫描条 — 从左到右每 3 秒扫一次, 像故障告警光带 */
+.alert-banner::before {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0; left: -40%;
+  width: 30%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
+  animation: v3-alert-sweep 3s linear infinite;
+  pointer-events: none;
+}
+@keyframes v3-alert-pulse {
+  0%, 100% { box-shadow: 0 0 16px -2px rgba(255, 71, 87, 0.4), inset 0 1px 0 rgba(255, 71, 87, 0.55); }
+  50% { box-shadow: 0 0 28px -2px rgba(255, 71, 87, 0.7), inset 0 1px 0 rgba(255, 71, 87, 0.8); }
+}
+@keyframes v3-alert-sweep {
+  0% { left: -40%; }
+  100% { left: 110%; }
+}
+
 .alert-banner.is-error {
-  background: rgba(239, 68, 68, 0.12);
-  border-color: rgba(239, 68, 68, 0.3);
+  background: linear-gradient(90deg, rgba(255, 71, 87, 0.22) 0%, rgba(255, 71, 87, 0.10) 100%);
+  border-color: rgba(255, 71, 87, 0.55);
 }
 .alert-banner.is-warning {
-  background: rgba(245, 158, 11, 0.12);
-  border-color: rgba(245, 158, 11, 0.3);
+  background: linear-gradient(90deg, rgba(255, 184, 0, 0.22) 0%, rgba(255, 184, 0, 0.10) 100%);
+  border-color: rgba(255, 184, 0, 0.55);
+  box-shadow:
+    0 0 16px -2px rgba(255, 184, 0, 0.4),
+    inset 0 1px 0 rgba(255, 184, 0, 0.55);
+  animation: v3-alert-pulse-amber 2.4s ease-in-out infinite;
+}
+@keyframes v3-alert-pulse-amber {
+  0%, 100% { box-shadow: 0 0 16px -2px rgba(255, 184, 0, 0.4), inset 0 1px 0 rgba(255, 184, 0, 0.55); }
+  50% { box-shadow: 0 0 28px -2px rgba(255, 184, 0, 0.7), inset 0 1px 0 rgba(255, 184, 0, 0.8); }
 }
 .alert-banner.is-info {
-  background: rgba(59, 130, 246, 0.12);
-  border-color: rgba(59, 130, 246, 0.3);
+  background: linear-gradient(90deg, rgba(91, 143, 255, 0.22) 0%, rgba(91, 143, 255, 0.10) 100%);
+  border-color: rgba(91, 143, 255, 0.55);
+  box-shadow: 0 0 14px -2px rgba(91, 143, 255, 0.35);
+  animation: none;
 }
 .alert-banner.persisted { cursor: pointer; }
-.alert-banner.persisted:hover { filter: brightness(1.15); }
+.alert-banner.persisted:hover { filter: brightness(1.2); }
 
 .alert-icon {
   width: 22px; height: 22px;
-  border-radius: 50%;
+  border-radius: 4px;
   display: grid; place-items: center;
   font-size: 12px;
   font-weight: 700;
   flex-shrink: 0;
+  position: relative;
+  z-index: 1;
 }
 .alert-banner.is-error .alert-icon {
-  background: rgba(239, 68, 68, 0.25);
-  color: var(--v2-danger);
+  background: rgba(255, 71, 87, 0.35);
+  color: #FFB4B4;
+  filter: drop-shadow(0 0 6px rgba(255, 71, 87, 0.7));
 }
 .alert-banner.is-warning .alert-icon {
-  background: rgba(245, 158, 11, 0.25);
-  color: var(--v2-warning);
+  background: rgba(255, 184, 0, 0.35);
+  color: #FFE082;
+  filter: drop-shadow(0 0 6px rgba(255, 184, 0, 0.7));
 }
 .alert-banner.is-info .alert-icon {
-  background: rgba(59, 130, 246, 0.25);
-  color: var(--v2-info);
+  background: rgba(91, 143, 255, 0.35);
+  color: #BFD7FF;
+  filter: drop-shadow(0 0 6px rgba(91, 143, 255, 0.5));
 }
 
 .alert-body {
