@@ -138,37 +138,47 @@ function applyPreset(z: ZoneRow, value: number): void {
 }
 
 // ============ 全部开/关 ============
-// 注意: 不要看本地 z.on 状态判断要不要发! 本地 z.on 是页面打开时硬编码的初始值,
-// 跟现场灯真实状态没关系 (没有 fetchZoneStatus 拉真实状态). 之前用 if (!z.on) 跳
-// 已开的区, 导致大部分点击 "没反应". DALI 命令幂等, 全部一律发就完了.
-async function allOn(): Promise<void> {
-  ElMessage.info(`全部开启 — 逐区下发 (${filteredZones.value.length} 区)`);
-  for (const z of filteredZones.value) {
+// 注意 1: 不要看本地 z.on 状态判断要不要发! z.on 是页面打开时的初始值, 跟现场
+//         灯真实状态没关系. DALI 命令幂等, 全部一律发就完了.
+// 注意 2: "全部开/全部关" 操作 **所有** zone, 不分楼层 — 操作员预期的是
+//         "整馆全开/全关", 不是 "当前看的 tab 的 zone 全开/全关".
+//         如果只想控当前楼层, 用下面的 floorOn / floorOff.
+async function dispatchMany(targets: ZoneRow[], op: 'on' | 'off'): Promise<void> {
+  for (const z of targets) {
     z.busy = true; z.error = null;
     try {
-      const res = await lightingService.zoneOn(z.id);
+      const res = op === 'on'
+        ? await lightingService.zoneOn(z.id)
+        : await lightingService.zoneOff(z.id);
       if (!res.ok) throw new Error(res.error || '执行失败');
-      z.on = true;
-      if (z.brightness === 0) z.brightness = 80;
+      if (op === 'on') {
+        z.on = true;
+        if (z.brightness === 0) z.brightness = 80;
+      } else {
+        z.on = false;
+      }
     } catch (err) {
       z.error = (err as Error).message;
-      ElMessage.error(`${z.name} 开启失败: ${z.error}`);
+      ElMessage.error(`${z.name} ${op === 'on' ? '开启' : '关闭'}失败: ${z.error}`);
     } finally { z.busy = false; }
   }
 }
+
+async function allOn(): Promise<void> {
+  ElMessage.info(`全部开启 — 逐区下发 (${zones.value.length} 区, 跨所有楼层)`);
+  await dispatchMany(zones.value, 'on');
+}
 async function allOff(): Promise<void> {
-  ElMessage.warning(`全部关闭 — 逐区下发 (${filteredZones.value.length} 区)`);
-  for (const z of filteredZones.value) {
-    z.busy = true; z.error = null;
-    try {
-      const res = await lightingService.zoneOff(z.id);
-      if (!res.ok) throw new Error(res.error || '执行失败');
-      z.on = false;
-    } catch (err) {
-      z.error = (err as Error).message;
-      ElMessage.error(`${z.name} 关闭失败: ${z.error}`);
-    } finally { z.busy = false; }
-  }
+  ElMessage.warning(`全部关闭 — 逐区下发 (${zones.value.length} 区, 跨所有楼层)`);
+  await dispatchMany(zones.value, 'off');
+}
+async function floorOn(): Promise<void> {
+  ElMessage.info(`${floorTab.value} 全开 — 逐区下发 (${filteredZones.value.length} 区)`);
+  await dispatchMany(filteredZones.value, 'on');
+}
+async function floorOff(): Promise<void> {
+  ElMessage.warning(`${floorTab.value} 全关 — 逐区下发 (${filteredZones.value.length} 区)`);
+  await dispatchMany(filteredZones.value, 'off');
 }
 
 const router = useRouter();
@@ -203,10 +213,28 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
         <button class="v2-quick" @click="loadZones" :disabled="loading" title="重新加载分区列表">
           <RefreshCw :size="14" :stroke-width="2" />
         </button>
-        <button class="v2-quick primary" @click="allOn" :disabled="loading">
+        <button
+          v-if="floorTab !== 'all'"
+          class="v2-quick"
+          @click="floorOn"
+          :disabled="loading || filteredZones.length === 0"
+          :title="`只开当前 ${floorTab} 楼层 (${filteredZones.length} 区)`"
+        >
+          <Power :size="14" :stroke-width="2" /> {{ floorTab }} 开
+        </button>
+        <button
+          v-if="floorTab !== 'all'"
+          class="v2-quick"
+          @click="floorOff"
+          :disabled="loading || filteredZones.length === 0"
+          :title="`只关当前 ${floorTab} 楼层 (${filteredZones.length} 区)`"
+        >
+          <X :size="14" :stroke-width="2" /> {{ floorTab }} 关
+        </button>
+        <button class="v2-quick primary" @click="allOn" :disabled="loading || zones.length === 0" title="整馆全开 (跨所有楼层)">
           <Power :size="14" :stroke-width="2" /> 全部开
         </button>
-        <button class="v2-quick danger" @click="allOff" :disabled="loading">
+        <button class="v2-quick danger" @click="allOff" :disabled="loading || zones.length === 0" title="整馆全关 (跨所有楼层)">
           <X :size="14" :stroke-width="2" /> 全部关
         </button>
         <button class="v2-quick" @click="gotoScene">
