@@ -113,6 +113,10 @@ export class SystemBrandingController {
       theme_color: '#0A0E1F',
       background_color: '#060818',
       display: 'fullscreen',
+      // display_override: 显式指定 fullscreen 优先级最高, fallback 到 standalone
+      // Android Chrome 上配这个能减少"边缘左滑"误触退出 (但 OS 系统手势仍无法
+      // 完全屏蔽, 需业主把"手势导航"切成"三键导航")
+      display_override: ['fullscreen', 'standalone'],
       orientation: 'landscape',
       start_url: '/control/',
       scope: '/control/',

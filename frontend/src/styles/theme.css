@@ -51,12 +51,15 @@ body,
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
   user-select: none;
-  /* 禁缩放 + 双击放大 — 'manipulation' 允许 pan/zoom 但去掉双击延迟和双击 zoom.
-     配合 viewport meta + main.ts 的 gesturestart preventDefault 三重保险. */
-  touch-action: manipulation;
+  /* 禁缩放 + 双击 + 横向 swipe — 'pan-y' 只允许垂直滑动. 防 Android 边缘左滑误触.
+     注意: Android 系统手势 (返回 / 退出 PWA) 是 OS 级别, web 无法拦截. 这里只
+     是禁掉 web 内部的横向手势, 配合 viewport meta + main.ts 的 gesturestart
+     preventDefault 多重保险. */
+  touch-action: pan-y;
   /* Safari 历史遗留: 内容超出时仍会被 -webkit-overflow-scrolling 触发橡皮筋,
-     overscroll-behavior 关掉所有滚动连锁 */
+     overscroll-behavior 关掉所有滚动连锁 — 包括 swipe 返回 */
   overscroll-behavior: none;
+  overscroll-behavior-x: none;
 }
 
 button,

@@ -53,7 +53,30 @@ function prefetchMainPages(): void {
   setTimeout(runNext, 800);
 }
 
-onMounted(() => { prefetchMainPages(); });
+/**
+ * 数据层预热: chunk 下完了但页面进去仍要拉 API 一遭, 是用户感知卡顿的真凶.
+ * 这里在 idle 时偷偷把各子系统的 list API 也拉一遍, 走 workbox NetworkFirst
+ * cache (60s). 之后切菜单, 拉 API 命中 cache 即时返回, 不再 200-400ms 网络等待.
+ */
+async function prefetchData(): Promise<void> {
+  // 关键 list API, 放进 cache. 用裸 fetch + GET, 不经业务 service (失败也无所谓)
+  const apis = [
+    '/control/api/light-zones',
+    '/control/api/power-circuits',
+    '/control/api/devices?pageSize=200',
+    '/control/api/scenes?pageSize=200',
+    '/control/api/system/info',
+  ];
+  for (const url of apis) {
+    fetch(url).catch(() => { /* 失败无所谓 */ });
+    await new Promise<void>((r) => setTimeout(r, 80));
+  }
+}
+
+onMounted(() => {
+  prefetchMainPages();
+  setTimeout(() => { void prefetchData(); }, 1200);
+});
 
 /** hover/touch 时立刻 prefetch 对应路由 chunk — 比 click 早 ~200ms */
 const ROUTE_PREFETCH: Record<string, () => Promise<unknown>> = {
@@ -68,12 +91,27 @@ const ROUTE_PREFETCH: Record<string, () => Promise<unknown>> = {
   'admin-devices': () => import('@/layouts/AdminLayout.vue'),
 };
 const prefetched = new Set<string>();
+/** hover/touch 时同时 prefetch chunk + 数据 — 等 click 时两者都已 ready */
+const NAV_API_PREFETCH: Record<string, string[]> = {
+  lighting: ['/control/api/light-zones'],
+  power: ['/control/api/power-circuits'],
+  hvac: ['/control/api/devices?category=hvac-zone'],
+  led: ['/control/api/devices?category=led'],
+  audio: ['/control/api/devices?category=audio-zone'],
+  media: ['/control/api/media?pageSize=50'],
+  status: ['/control/api/system/info'],
+};
 function prefetchRoute(name: string): void {
   if (prefetched.has(name)) return;
   const fn = ROUTE_PREFETCH[name];
   if (!fn) return;
   prefetched.add(name);
-  fn().catch(() => { prefetched.delete(name); /* 失败下次重试 */ });
+  fn().catch(() => { prefetched.delete(name); });
+  // 同时 prefetch 该页用到的 API
+  const apis = NAV_API_PREFETCH[name];
+  if (apis) {
+    for (const url of apis) fetch(url).catch(() => {});
+  }
 }
 
 // Auto-enter 全屏: 用户首次 click/touch/keydown 后自动 request fullscreen.
