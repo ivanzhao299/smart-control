@@ -429,6 +429,158 @@ html {
   filter: brightness(0.95);
 }
 
+/* ============================================================
+ * 全局对比度强化 (2026-05-31)
+ *
+ * 症状: 后台 LightZonesAdmin 等表格里 "一层前厅 / 园区展示" 一类中文名
+ *       看起来 30-40% 灰, 几乎看不清. 操作按钮也淡.
+ *
+ * 根因: 部分 scoped 样式用 var(--el-text-color-primary), 而 Element Plus
+ *       某些子组件内部 fallback 到默认浅色主题色 (#303133 灰), 没读到我们
+ *       覆盖的 var. 同时旧 theme.css 跟 design-tokens.css 互相覆盖 .el-table
+ *       td 的 color, 实际生效色不可预测.
+ *
+ * 修法: 给所有 admin 页 + 表格 + drawer + dialog 强制最低对比度. 不动各页
+ *       面 scoped CSS, 直接全局 cover. 跟 Element Plus 默认值打架, 一律用
+ *       !important + 高 specificity 选择器赢.
+ * ============================================================ */
+
+/* 表格单元格内所有"叶子文本节点"强制亮白. 不影响 button/tag/switch (它们有自己的 color) */
+.el-table td.el-table__cell .cell,
+.el-table td.el-table__cell .cell > span,
+.el-table td.el-table__cell .cell > div,
+.el-table td.el-table__cell .cell > p {
+  color: var(--v2-text-1) !important;
+}
+/* 表格内 <code> 元素 (业务 code 字段) — 亮色 + monospace */
+.el-table td.el-table__cell code {
+  color: rgba(255, 255, 255, 0.82) !important;
+  font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11.5px;
+}
+/* 表格内 "secondary / muted" class 至少 v2-text-2 (68%), 不再有看不见的灰 */
+.el-table td.el-table__cell .muted,
+.el-table td.el-table__cell .sub,
+.el-table td.el-table__cell .hint,
+.el-table td.el-table__cell .secondary {
+  color: var(--v2-text-2) !important;
+}
+
+/* el-button[link] / text-button — 默认 type 时给可读对比度 */
+.el-button.is-link {
+  color: var(--v2-text-1) !important;
+  font-weight: 500;
+}
+.el-button.is-link.el-button--primary {
+  color: var(--v2-primary-hover) !important;
+}
+.el-button.is-link.el-button--success {
+  color: var(--v2-success) !important;
+}
+.el-button.is-link.el-button--danger {
+  color: #f87171 !important;  /* 亮一点的红, 默认 ef4444 在深底上有点闷 */
+}
+.el-button.is-link.el-button--warning {
+  color: var(--v2-warning) !important;
+}
+.el-button.is-link:hover {
+  filter: brightness(1.25);
+  text-decoration: underline;
+}
+.el-button.is-link.is-disabled {
+  color: var(--v2-text-3) !important;
+  filter: none;
+}
+
+/* el-drawer / el-dialog 内 form label 强制亮白 — 否则 EP 默认 #606266 灰 */
+.el-drawer__body .el-form-item__label,
+.el-dialog__body .el-form-item__label {
+  color: var(--v2-text-1) !important;
+  font-weight: 500;
+}
+/* drawer / dialog 内辅助说明文本 (.hint / .help / em / small) */
+.el-drawer__body .hint,
+.el-drawer__body .help,
+.el-drawer__body small,
+.el-dialog__body .hint,
+.el-dialog__body .help,
+.el-dialog__body small {
+  color: var(--v2-text-2) !important;
+}
+/* drawer / dialog 内 disabled input 也要看得见 (默认会变灰到看不清) */
+.el-drawer__body .el-input.is-disabled .el-input__inner,
+.el-drawer__body .el-input.is-disabled .el-input__wrapper,
+.el-dialog__body .el-input.is-disabled .el-input__inner,
+.el-dialog__body .el-input.is-disabled .el-input__wrapper {
+  color: var(--v2-text-2) !important;
+  -webkit-text-fill-color: var(--v2-text-2) !important;
+}
+
+/* el-input / el-textarea / el-select-input 全局 input 强制 v2-text-1, 不再被
+ * EP 默认 #606266 浅灰偷走 */
+.el-input__inner,
+.el-textarea__inner,
+.el-select__placeholder {
+  color: var(--v2-text-1) !important;
+}
+.el-input__inner::placeholder,
+.el-textarea__inner::placeholder {
+  color: var(--v2-text-3) !important;
+}
+
+/* el-tag (各色) — 文字色升级到 0.92 透明度, 默认 EP 在某些 type 下灰 */
+.el-tag {
+  font-weight: 500;
+  border-width: 1px;
+}
+.el-tag.el-tag--info { color: var(--v2-text-1) !important; }
+
+/* el-select 下拉项 hover/selected 文本对比度 */
+.el-select-dropdown__item {
+  color: var(--v2-text-1) !important;
+}
+.el-select-dropdown__item.is-hovering {
+  background-color: rgba(110, 200, 220, 0.12) !important;
+  color: var(--v2-primary-hover) !important;
+}
+.el-select-dropdown__item.is-selected {
+  color: var(--v2-primary-hover) !important;
+  font-weight: 600;
+}
+
+/* el-switch 显式色 — 默认状态条 + 文字 */
+.el-switch__label {
+  color: var(--v2-text-2);
+}
+.el-switch.is-checked .el-switch__label--right {
+  color: var(--v2-primary-hover) !important;
+}
+
+/* el-message-box (.confirm/.alert) 内文本 */
+.el-message-box__message,
+.el-message-box__message p {
+  color: var(--v2-text-1) !important;
+}
+
+/* el-alert — 标题 + 描述都升级对比度 */
+.el-alert__title {
+  color: var(--v2-text-1) !important;
+  font-weight: 600;
+}
+.el-alert__description {
+  color: var(--v2-text-2) !important;
+}
+
+/* 后台 admin 页 (.zones-admin, .brands-admin 等通用容器) 默认文本色 */
+[class$="-admin"], [class*="-admin "] {
+  color: var(--v2-text-1);
+}
+/* admin 页头 .sub 描述文字至少 v2-text-2 */
+[class$="-admin"] .sub,
+[class$="-admin"] .description {
+  color: var(--v2-text-2) !important;
+}
+
 /* ============ 动画 ============ */
 @keyframes v2-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }

@@ -412,36 +412,45 @@ onMounted(refresh);
 </template>
 
 <style scoped>
-.zones-admin { padding: 16px 24px; }
+.zones-admin { padding: 16px 24px; color: var(--v2-text-1); }
 .page-head {
   display: flex; justify-content: space-between; align-items: flex-end;
   margin-bottom: 16px; gap: 16px;
 }
-.page-head h2 { margin: 0; font-size: 20px; }
-.sub { color: var(--el-text-color-secondary); margin: 4px 0 0; font-size: 13px; max-width: 720px; line-height: 1.6; }
+.page-head h2 { margin: 0; font-size: 20px; color: var(--v2-text-1); }
+.sub { color: var(--v2-text-2); margin: 4px 0 0; font-size: 13px; max-width: 720px; line-height: 1.6; }
 .actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 
-.name-cell { display: flex; flex-direction: column; gap: 2px; }
-.zone-name { font-weight: 500; color: var(--el-text-color-primary); }
+.name-cell { display: flex; flex-direction: column; gap: 3px; }
+.zone-name {
+  font-weight: 600;
+  color: var(--v2-text-1);
+  font-size: 14px;
+  letter-spacing: 0.3px;
+}
 .zone-code {
-  font-size: 11px;
-  color: var(--el-text-color-secondary);
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.62);
+  font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  letter-spacing: 0.4px;
 }
 .zone-desc {
   margin-top: 2px;
-  font-size: 11px;
-  color: var(--el-text-color-secondary);
+  font-size: 11.5px;
+  color: var(--v2-text-2);
   font-style: italic;
 }
 .gw-code {
-  font-size: 11px;
-  color: var(--el-text-color-secondary);
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.62);
+  font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  letter-spacing: 0.4px;
+  display: block;
+  margin-top: 2px;
 }
 
 .form { padding: 16px 0; }
-.hint { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 4px; }
+.hint { font-size: 12px; color: var(--v2-text-2); margin-top: 4px; line-height: 1.5; }
 .hint.inline { margin-left: 8px; }
 
 /* 测试结果对话框 */
