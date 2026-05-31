@@ -35,6 +35,7 @@ const items: Array<{ name: string; label: string }> = [
   { name: 'admin-test-center', label: '测试 / 调试' },
   { name: 'admin-logs', label: '日志中心' },
   { name: 'admin-hardware', label: '硬件清单' },
+  { name: 'admin-light-zones', label: '灯光分区' },
   { name: 'admin-system-branding', label: '系统品牌' },
   { name: 'admin-users', label: '用户管理' },
   { name: 'admin-settings', label: '系统设置' },

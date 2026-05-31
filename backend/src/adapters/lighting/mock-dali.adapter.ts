@@ -92,6 +92,21 @@ export class MockDaliAdapter extends BaseAdapter {
     });
   }
 
+  /** Sprint E (2026-05-31): 显式给定 gateway slaveId, 不走 group → slaveId 推导. */
+  async setBrightnessOnGateway(
+    slaveId: number,
+    group: number,
+    value: number,
+    ctx?: AdapterContext,
+  ): Promise<AdapterResult<BrightnessState & { slaveId: number; group: number }>> {
+    return this.run(`gw${slaveId}-g${group}`, 'setBrightnessOnGateway', ctx, async () => {
+      const v = Math.max(0, Math.min(100, Number(value)));
+      const cur: BrightnessState = { brightness: v, on: v > 0 };
+      this.state.set(`gw${slaveId}-g${group}`, cur);
+      return { ...cur, slaveId, group };
+    });
+  }
+
   async healthCheck(ctx?: AdapterContext): Promise<AdapterResult<{ ok: true }>> {
     return this.run('lighting-mock-gateway', 'healthCheck', ctx, async () => ({ ok: true }));
   }

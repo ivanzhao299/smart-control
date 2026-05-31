@@ -1,56 +1,75 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useRouter } from 'vue-router';
-import { ArrowLeft, Lightbulb, Power, X, Sparkles, Layers } from 'lucide-vue-next';
+import { ArrowLeft, Lightbulb, Power, X, Sparkles, Layers, RefreshCw } from 'lucide-vue-next';
 import { lightingService } from '@/services/lighting.service';
+import { lightZonesService, type LightZoneView } from '@/services/light-zones.service';
 
 interface ZoneRow {
   id: number;
+  code: string;
   name: string;
-  floor: '1F' | '2F';
+  floor: string;
+  /** DALI 组号 (1-16), 只在网关上是 group, 在 UI 里只做副标题展示 */
+  daliGroup: number;
+  /** 关联的网关 code, 用于显示 */
+  gatewayDisplayName: string;
   brightness: number;
   on: boolean;
   busy: boolean;
   error: string | null;
-  drivers: Array<{ addr: number; status: 'online' | 'fault' | 'offline' }>;
 }
 
-// id = DALI 组号 (1-16). 物理映射来自《金湖照明灯具、插座数量、功率测算统计表》.
-const zones = ref<ZoneRow[]>([
-  { id: 1, name: '一层前厅 / 园区展示', floor: '1F', brightness: 80, on: true, busy: false, error: null,
-    drivers: [{ addr: 1, status: 'online' }, { addr: 2, status: 'online' }] },
-  { id: 2, name: '一层路演 / 洽谈区', floor: '1F', brightness: 70, on: true, busy: false, error: null,
-    drivers: [{ addr: 3, status: 'online' }] },
-  { id: 3, name: '一层走廊', floor: '1F', brightness: 60, on: false, busy: false, error: null,
-    drivers: [{ addr: 4, status: 'online' }] },
-  { id: 4, name: '一层重点照明 / 灯箱', floor: '1F', brightness: 80, on: true, busy: false, error: null,
-    drivers: [{ addr: 5, status: 'online' }] },
-  { id: 5, name: '一层企业展位区', floor: '1F', brightness: 70, on: true, busy: false, error: null,
-    drivers: [{ addr: 6, status: 'online' }, { addr: 7, status: 'online' }] },
-  { id: 6, name: '一层综合展销区', floor: '1F', brightness: 70, on: false, busy: false, error: null,
-    drivers: [{ addr: 8, status: 'online' }] },
-  { id: 7, name: '一层物贸交易展示区', floor: '1F', brightness: 70, on: true, busy: false, error: null,
-    drivers: [{ addr: 9, status: 'online' }] },
-  { id: 8, name: '二层前厅 / 走廊', floor: '2F', brightness: 80, on: false, busy: false, error: null,
-    drivers: [{ addr: 10, status: 'online' }, { addr: 11, status: 'online' }] },
-  { id: 9, name: '二层企业服务中心', floor: '2F', brightness: 80, on: false, busy: false, error: null,
-    drivers: [{ addr: 12, status: 'online' }, { addr: 13, status: 'online' }] },
-  { id: 10, name: '二层共享办公', floor: '2F', brightness: 70, on: false, busy: false, error: null,
-    drivers: [{ addr: 14, status: 'online' }, { addr: 15, status: 'online' }] },
-  { id: 11, name: '二层产业研究 / 接待', floor: '2F', brightness: 80, on: false, busy: false, error: null,
-    drivers: [{ addr: 16, status: 'online' }] },
-  { id: 12, name: '二层运营指挥中心', floor: '2F', brightness: 80, on: false, busy: false, error: null,
-    drivers: [{ addr: 17, status: 'online' }, { addr: 18, status: 'online' }, { addr: 19, status: 'online' }] },
-]);
+// ============ 数据源 — Sprint E (2026-05-31): 从 /api/light-zones 拉, 不再硬编码 ============
+const zones = ref<ZoneRow[]>([]);
+const loading = ref<boolean>(false);
+const loadError = ref<string | null>(null);
+
+async function loadZones(): Promise<void> {
+  loading.value = true;
+  loadError.value = null;
+  try {
+    const list = await lightZonesService.list();
+    zones.value = list.map((z: LightZoneView): ZoneRow => ({
+      id: z.id,
+      code: z.code,
+      name: z.name,
+      floor: z.floor,
+      daliGroup: z.daliGroup,
+      gatewayDisplayName: z.gatewayDisplayName,
+      brightness: 80,        // 后端没存运行时亮度, 默认 80, 用户操作后更新
+      on: false,             // 默认关 — 不再硬编码"假装亮着"
+      busy: false,
+      error: null,
+    }));
+    // 初次进页面默认 1F tab; 若 1F 没数据自动切到第一个有数据的楼层
+    const floors = floorOptions.value;
+    if (!floors.includes(floorTab.value) && floors.length > 0) {
+      floorTab.value = floors[0];
+    }
+  } catch (err) {
+    loadError.value = (err as Error).message;
+    ElMessage.error(`加载灯光分区失败: ${loadError.value}`);
+  } finally {
+    loading.value = false;
+  }
+}
 
 // ============ 楼层 Tab ============
-type FloorTab = '1F' | '2F' | 'all';
-const floorTab = ref<FloorTab>('1F');
+const floorTab = ref<string>('1F');
+const floorOptions = computed<string[]>(() => {
+  const set = new Set<string>();
+  for (const z of zones.value) set.add(z.floor);
+  // 按字母升序 ('1F', '2F', '3F'... 'all' 单独追加)
+  return Array.from(set).sort();
+});
 const filteredZones = computed(() => {
   if (floorTab.value === 'all') return zones.value;
   return zones.value.filter((z) => z.floor === floorTab.value);
 });
+
+onMounted(() => { void loadZones(); });
 
 // ============ 总览 ============
 const overview = computed(() => {
@@ -59,9 +78,9 @@ const overview = computed(() => {
   const avgBri = onCount === 0 ? 0 : Math.round(
     zones.value.filter((z) => z.on).reduce((s, z) => s + z.brightness, 0) / onCount,
   );
-  const driverTotal = zones.value.reduce((s, z) => s + z.drivers.length, 0);
-  const driverOnline = zones.value.reduce((s, z) => s + z.drivers.filter((d) => d.status === 'online').length, 0);
-  return { total, onCount, avgBri, driverTotal, driverOnline };
+  // 涉及的 gateway 个数 (作为"驱动器/网关"统计的替代)
+  const gateways = new Set(zones.value.map((z) => z.gatewayDisplayName));
+  return { total, onCount, avgBri, gatewayCount: gateways.size };
 });
 
 // ============ 操作 ============
@@ -167,19 +186,27 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
         </button>
         <div class="title-block">
           <div class="title"><Lightbulb :size="18" :stroke-width="1.8" /> 灯光控制</div>
-          <div class="sub">{{ overview.total }} 个分区 · {{ overview.driverTotal }} 个驱动器</div>
+          <div class="sub">{{ overview.total }} 个分区 · {{ overview.gatewayCount }} 个 DALI 网关</div>
         </div>
         <div class="v2-tabs">
-          <button class="v2-tab" :class="{ active: floorTab === '1F' }" @click="floorTab = '1F'">一楼</button>
-          <button class="v2-tab" :class="{ active: floorTab === '2F' }" @click="floorTab = '2F'">二楼</button>
+          <button
+            v-for="f in floorOptions"
+            :key="f"
+            class="v2-tab"
+            :class="{ active: floorTab === f }"
+            @click="floorTab = f"
+          >{{ f }}</button>
           <button class="v2-tab" :class="{ active: floorTab === 'all' }" @click="floorTab = 'all'">全部</button>
         </div>
       </div>
       <div class="quick-actions">
-        <button class="v2-quick primary" @click="allOn">
+        <button class="v2-quick" @click="loadZones" :disabled="loading" title="重新加载分区列表">
+          <RefreshCw :size="14" :stroke-width="2" />
+        </button>
+        <button class="v2-quick primary" @click="allOn" :disabled="loading">
           <Power :size="14" :stroke-width="2" /> 全部开
         </button>
-        <button class="v2-quick danger" @click="allOff">
+        <button class="v2-quick danger" @click="allOff" :disabled="loading">
           <X :size="14" :stroke-width="2" /> 全部关
         </button>
         <button class="v2-quick" @click="gotoScene">
@@ -207,8 +234,8 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
       <div class="ov-item">
         <div class="ov-ico"><Layers :size="18" :stroke-width="2" /></div>
         <div class="ov-body">
-          <div class="ov-label">驱动器</div>
-          <div class="ov-value v2-inter">{{ overview.driverOnline }}<span class="unit">/ {{ overview.driverTotal }}</span></div>
+          <div class="ov-label">DALI 网关</div>
+          <div class="ov-value v2-inter">{{ overview.gatewayCount }}<span class="unit"> 台</span></div>
         </div>
       </div>
       <div class="ov-item">
@@ -220,8 +247,30 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
       </div>
     </div>
 
+    <!-- 加载 / 错误 / 空态 -->
+    <div v-if="loading && zones.length === 0" class="state-card">
+      <Lightbulb :size="32" :stroke-width="1.5" />
+      <div class="state-title">加载灯光分区中…</div>
+    </div>
+    <div v-else-if="loadError" class="state-card error">
+      <X :size="32" :stroke-width="2" />
+      <div class="state-title">加载失败</div>
+      <div class="state-sub">{{ loadError }}</div>
+      <button class="v2-quick primary" @click="loadZones"><RefreshCw :size="14" :stroke-width="2" /> 重试</button>
+    </div>
+    <div v-else-if="zones.length === 0" class="state-card">
+      <Lightbulb :size="32" :stroke-width="1.5" />
+      <div class="state-title">还没有配置灯光分区</div>
+      <div class="state-sub">到 后台 → 灯光分区管理 添加</div>
+    </div>
+    <div v-else-if="filteredZones.length === 0" class="state-card">
+      <Lightbulb :size="32" :stroke-width="1.5" />
+      <div class="state-title">{{ floorTab }} 楼层没有分区</div>
+      <div class="state-sub">切换到其他楼层 tab, 或在后台添加</div>
+    </div>
+
     <!-- 区卡网格 -->
-    <div class="v2-zone-grid">
+    <div v-else class="v2-zone-grid">
       <div
         v-for="z in filteredZones"
         :key="z.id"
@@ -231,7 +280,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
         <div class="zone-top">
           <div class="zone-meta">
             <div class="zone-name">{{ z.name }}</div>
-            <div class="zone-addr v2-inter">ZONE {{ z.id }} · {{ z.floor }}</div>
+            <div class="zone-addr v2-inter">{{ z.gatewayDisplayName }} · GROUP {{ z.daliGroup }} · {{ z.floor }}</div>
           </div>
           <button
             class="v2-toggle"
@@ -276,14 +325,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
           >{{ p.label }}</button>
         </div>
 
-        <div class="drivers">
-          <span
-            v-for="d in z.drivers"
-            :key="d.addr"
-            class="driver"
-            :class="d.status"
-          >A{{ String(d.addr).padStart(2, '0') }}</span>
-        </div>
+        <div v-if="z.error" class="zone-err">{{ z.error }}</div>
       </div>
     </div>
   </section>
@@ -587,29 +629,30 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 }
 .preset:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* 驱动器 chip 行 */
-.drivers {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-  padding-top: var(--v2-sp-2);
-  border-top: 1px dashed var(--v2-border-soft);
-}
-.driver {
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-family: "Inter", monospace;
-  background: var(--v2-surf-2);
-  color: var(--v2-text-3);
-  letter-spacing: 0.5px;
-}
-.driver.online {
-  background: rgba(16, 185, 129, 0.1);
-  color: var(--v2-success);
-}
-.driver.fault {
+/* 单 zone 错误提示 */
+.zone-err {
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 11px;
   background: rgba(239, 68, 68, 0.12);
   color: var(--v2-danger);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  word-break: break-all;
 }
+
+/* 加载 / 错误 / 空态 */
+.state-card {
+  padding: var(--v2-sp-5);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--v2-sp-3);
+  background: var(--v2-surf-1);
+  border: 1px dashed var(--v2-border-soft);
+  border-radius: var(--v2-r-lg);
+  color: var(--v2-text-3);
+}
+.state-card.error { border-color: rgba(239, 68, 68, 0.3); color: var(--v2-danger); }
+.state-title { font-size: 14px; color: var(--v2-text-1); }
+.state-sub { font-size: 12px; color: var(--v2-text-3); }
 </style>

@@ -9,6 +9,7 @@ import { SceneAction } from '../entities/scene-action.entity';
 import { User } from '../entities/user.entity';
 import { UatCategory, UatRecord } from '../entities/uat-record.entity';
 import { HardwareCategory, HardwareUnit } from '../entities/hardware-unit.entity';
+import { LightZone } from '../entities/light-zone.entity';
 import { hashPassword } from '../common/utils/password.util';
 
 interface UatSeed {
@@ -345,6 +346,7 @@ export class SeedService {
     @InjectRepository(Device) private readonly deviceRepo: Repository<Device>,
     @InjectRepository(UatRecord) private readonly uatRepo: Repository<UatRecord>,
     @InjectRepository(HardwareUnit) private readonly hwRepo: Repository<HardwareUnit>,
+    @InjectRepository(LightZone) private readonly lightZoneRepo: Repository<LightZone>,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
@@ -354,8 +356,78 @@ export class SeedService {
     await this.seedSceneActions();
     await this.seedDevices();
     await this.seedHardware();
+    await this.seedLightZones();
     await this.seedUat();
     this.logger.info('Seed completed', { context: 'SeedService' });
+  }
+
+  /**
+   * Sprint E (2026-05-31): 灌入灯光分区数据.
+   *
+   * 历史: 前端 LightingPage.vue 把 12 个 zone 硬编码在文件里, 每个 zone id
+   * 当 DALI group 号直传 backend. Sprint E 把 zone 升格成 DB 一等公民, 这里
+   * 是初始化数据, 跟旧硬编码保持视觉一致.
+   *
+   * 新增 (2F GW-DALI-2 group 3/4): 现场实际接的 2 盏调试灯, 之前 hardcode 没
+   * 这俩 (group 8-12 的灯其实没接, 只是占位). 把它们加进来, 用户在 LightingPage
+   * 2F tab 上能直接看到并控制.
+   *
+   * 幂等: 按 code 唯一, 已存在跳过 — 业主在后台改过的不被覆盖.
+   */
+  private async seedLightZones(): Promise<void> {
+    interface ZoneSeed {
+      code: string;
+      name: string;
+      floor: string;
+      gatewayCode: string;
+      daliGroup: number;
+      sortOrder: number;
+      icon?: string;
+      description?: string;
+    }
+    const ZONES: ZoneSeed[] = [
+      // ---------- 1F (GW-DALI-1, slaveId=1) ----------
+      { code: '1f-front-hall',    name: '一层前厅 / 园区展示', floor: '1F', gatewayCode: 'GW-DALI-1', daliGroup: 1, sortOrder: 10, icon: 'Lightbulb' },
+      { code: '1f-roadshow',      name: '一层路演 / 洽谈区',   floor: '1F', gatewayCode: 'GW-DALI-1', daliGroup: 2, sortOrder: 20, icon: 'Lightbulb' },
+      { code: '1f-corridor',      name: '一层走廊',           floor: '1F', gatewayCode: 'GW-DALI-1', daliGroup: 3, sortOrder: 30, icon: 'Lightbulb' },
+      { code: '1f-accent',        name: '一层重点照明 / 灯箱', floor: '1F', gatewayCode: 'GW-DALI-1', daliGroup: 4, sortOrder: 40, icon: 'Sparkles' },
+      { code: '1f-enterprise',    name: '一层企业展位区',     floor: '1F', gatewayCode: 'GW-DALI-1', daliGroup: 5, sortOrder: 50, icon: 'Lightbulb' },
+      { code: '1f-general',       name: '一层综合展销区',     floor: '1F', gatewayCode: 'GW-DALI-1', daliGroup: 6, sortOrder: 60, icon: 'Lightbulb' },
+      { code: '1f-trade',         name: '一层物贸交易展示区', floor: '1F', gatewayCode: 'GW-DALI-1', daliGroup: 7, sortOrder: 70, icon: 'Lightbulb' },
+      // ---------- 2F (GW-DALI-2, slaveId=2) ----------
+      // group 3/4 是用户现场实际接的两盏测试灯 (USB 直连模式找到), 排在最前.
+      // group 8-12 是 v3 设计文档规划的 2F 5 个分区, 灯具尚未到货时占位.
+      { code: '2f-test-a',        name: '二层测试灯 A',       floor: '2F', gatewayCode: 'GW-DALI-2', daliGroup: 3, sortOrder: 5,  icon: 'Lightbulb', description: '2026-05-31 现场调试, USB 直连找到, group 3' },
+      { code: '2f-test-b',        name: '二层测试灯 B',       floor: '2F', gatewayCode: 'GW-DALI-2', daliGroup: 4, sortOrder: 6,  icon: 'Lightbulb', description: '2026-05-31 现场调试, USB 直连找到, group 4' },
+      { code: '2f-front-hall',    name: '二层前厅 / 走廊',     floor: '2F', gatewayCode: 'GW-DALI-2', daliGroup: 8, sortOrder: 10, icon: 'Lightbulb', description: '灯具未安装, 占位' },
+      { code: '2f-enterprise-svc',name: '二层企业服务中心',   floor: '2F', gatewayCode: 'GW-DALI-2', daliGroup: 9, sortOrder: 20, icon: 'Lightbulb', description: '灯具未安装, 占位' },
+      { code: '2f-coworking',     name: '二层共享办公',       floor: '2F', gatewayCode: 'GW-DALI-2', daliGroup: 10, sortOrder: 30, icon: 'Lightbulb', description: '灯具未安装, 占位' },
+      { code: '2f-research',      name: '二层产业研究 / 接待', floor: '2F', gatewayCode: 'GW-DALI-2', daliGroup: 11, sortOrder: 40, icon: 'Lightbulb', description: '灯具未安装, 占位' },
+      { code: '2f-control',       name: '二层运营指挥中心',   floor: '2F', gatewayCode: 'GW-DALI-2', daliGroup: 12, sortOrder: 50, icon: 'Sparkles', description: '灯具未安装, 占位' },
+    ];
+    let created = 0;
+    for (const z of ZONES) {
+      const exists = await this.lightZoneRepo.findOne({ where: { code: z.code } });
+      if (exists) continue;
+      const row = this.lightZoneRepo.create({
+        code: z.code,
+        name: z.name,
+        floor: z.floor,
+        gatewayCode: z.gatewayCode,
+        daliGroup: z.daliGroup,
+        sortOrder: z.sortOrder,
+        icon: z.icon ?? 'Lightbulb',
+        description: z.description ?? null,
+        enabled: true,
+      });
+      await this.lightZoneRepo.save(row);
+      created += 1;
+    }
+    if (created > 0) {
+      this.logger.info(`Seeded ${created}/${ZONES.length} light zones`, { context: 'SeedService' });
+    } else {
+      this.logger.info(`All ${ZONES.length} light zones already exist, skip`, { context: 'SeedService' });
+    }
   }
 
   /**

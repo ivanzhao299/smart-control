@@ -17,6 +17,7 @@ import { UsersModule } from './modules/users/users.module';
 import { SystemModule } from './modules/system/system.module';
 import { WebsocketModule } from './modules/websocket/websocket.module';
 import { LightingModule } from './modules/lighting/lighting.module';
+import { LightZonesModule } from './modules/light-zones/light-zones.module';
 import { LedModule } from './modules/led/led.module';
 import { AudioModule } from './modules/audio/audio.module';
 import { HvacModule } from './modules/hvac/hvac.module';
@@ -55,6 +56,7 @@ import { ServicesModule } from './services/services.module';
     DevicesModule,
     ScenesModule,
     LightingModule,
+    LightZonesModule,
     LedModule,
     AudioModule,
     HvacModule,

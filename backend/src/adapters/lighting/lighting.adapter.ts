@@ -81,6 +81,38 @@ export class LightingAdapter extends BaseAdapter {
     return this.impl().setZoneBrightness(zoneId, value, ctx);
   }
 
+  /**
+   * Sprint E (2026-05-31): 显式按 (slaveId, group) 直发 — LightZone-driven 路径.
+   * 跟 setZoneBrightness 的区别: 后者用全局 group→slaveId map 推导, 同 group
+   * 号在两个网关上时表达不了.
+   *
+   * 实现注意:
+   *   - cy-dali64a / mock: 已实现
+   *   - iot-gateway (RealDaliAdapter): 没实现, 调到会抛错; 现场用 cy-dali64a
+   */
+  setBrightnessOnGateway(
+    slaveId: number,
+    group: number,
+    value: number,
+    ctx?: AdapterContext,
+  ): Promise<AdapterResult<BrightnessState & { slaveId: number; group: number }>> {
+    const impl = this.impl() as unknown as {
+      setBrightnessOnGateway?: (
+        slaveId: number,
+        group: number,
+        value: number,
+        ctx?: AdapterContext,
+      ) => Promise<AdapterResult<BrightnessState & { slaveId: number; group: number }>>;
+    };
+    if (typeof impl.setBrightnessOnGateway !== 'function') {
+      throw new Error(
+        `当前 lighting adapter (${this.kind}) 没实现 setBrightnessOnGateway. ` +
+        `只有 cy-dali64a / mock 支持. 配 LIGHTING_ADAPTER_KIND=cy-dali64a.`,
+      );
+    }
+    return impl.setBrightnessOnGateway(slaveId, group, value, ctx);
+  }
+
   async healthCheck(ctx?: AdapterContext): Promise<AdapterResult<{ ok: true }>> {
     return this.impl().healthCheck(ctx);
   }

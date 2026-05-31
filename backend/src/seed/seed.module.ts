@@ -11,6 +11,7 @@ import { User } from '../entities/user.entity';
 import { OperationLog } from '../entities/operation-log.entity';
 import { UatRecord } from '../entities/uat-record.entity';
 import { HardwareUnit } from '../entities/hardware-unit.entity';
+import { LightZone } from '../entities/light-zone.entity';
 import { SeedService } from './seed.service';
 
 @Module({
@@ -23,7 +24,7 @@ import { SeedService } from './seed.service';
     }),
     LoggerModule,
     TypeOrmModule.forRootAsync({ useClass: TypeOrmConfigService }),
-    TypeOrmModule.forFeature([Device, Scene, SceneAction, User, OperationLog, UatRecord, HardwareUnit]),
+    TypeOrmModule.forFeature([Device, Scene, SceneAction, User, OperationLog, UatRecord, HardwareUnit, LightZone]),
     // ↑ SceneAction 已在原列表内, seed.service.ts 通过 actionRepo 写入
   ],
   providers: [SeedService],

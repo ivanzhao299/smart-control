@@ -280,6 +280,32 @@ export class CyDali64aAdapter extends BaseAdapter {
     });
   }
 
+  /**
+   * Sprint E (2026-05-31): 显式给定 (slaveId, group) 直接发命令, 不走
+   * resolveSlaveIdForGroup 推导. 这是新前端 LightZone-driven 控制路径用的:
+   * LightZonesService 查到 zone 的网关 + group, 直接调这个方法, 避免单值 map
+   * 表达不了"同 group 号、不同总线"的两束灯.
+   */
+  async setBrightnessOnGateway(
+    slaveId: number,
+    group: number,
+    value: number,
+    ctx?: AdapterContext,
+  ): Promise<AdapterResult<BrightnessState & { slaveId: number; group: number }>> {
+    return this.run(`gw${slaveId}-g${group}`, 'setBrightnessOnGateway', ctx, async () => {
+      if (!Number.isInteger(slaveId) || slaveId < 1 || slaveId > 247) {
+        throw new Error(`slaveId 必须 1-247, got ${slaveId}`);
+      }
+      if (!Number.isInteger(group) || group < 1 || group > 16) {
+        throw new Error(`group 必须 1-16, got ${group}`);
+      }
+      const pct = Math.max(0, Math.min(100, Number(value)));
+      const addr: Required<DaliAddressing> = { slaveId, group, short: 0 };
+      await this.writeFadeBrightness(addr, undefined, brightnessPctToRaw(pct), ctx?.signal);
+      return { brightness: pct, on: pct > 0, slaveId, group };
+    });
+  }
+
   /** 暴露给诊断 — 看实际 modbus client 在跑哪个 host */
   getRuntimeHost(): string {
     return this.modbusHost;
