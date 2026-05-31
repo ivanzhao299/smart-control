@@ -1,12 +1,10 @@
 <script setup lang="ts">
-import { computed, provide } from 'vue';
+import { computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { Maximize2, Minimize2 } from 'lucide-vue-next';
-// AlertBanner 已从前台 header 移除 (2026-05-31 用户反馈业主不想看 noise).
-// 告警仍正常产生 + 存数据库, 后台 → 报警中心 (/admin/alerts) 看.
-// ExecutionStatusBar 已下架 — 用户反馈"提示条赖着不走", 错误改进后台日志
-import FullscreenPrompt from '@/components/FullscreenPrompt.vue';
-import { useFullscreen } from '@/composables/useFullscreen';
+// 2026-05-31: 全屏按钮 + FullscreenPrompt 已去掉 — 用户反馈"让系统更像原生".
+// 默认靠 PWA standalone manifest 自动全屏; 手动浏览器访问就接受浏览器 UI.
+// AlertBanner 已从前台 header 移除 — 告警仅在后台 /admin/alerts 看.
+// ExecutionStatusBar 也下架 — 错误改进后台日志, 场景反馈走 toast.
 import { navIconFor } from '@/composables/useIcons';
 import { useSystemStore } from '@/stores/system';
 import { useSceneStore } from '@/stores/scene';
@@ -22,9 +20,57 @@ const branding = computed(() => brandingStore.branding);
 const toast = useToastStore();
 const toastMsg = computed(() => toast.current);
 
-// 终端全屏 (Sprint-08 终端模式)
-const fs = useFullscreen({ autoEnter: true });
-provide('fullscreen', fs);
+/**
+ * 2026-05-31 性能优化: 应用 mount 后 idle 预取常用页 chunk.
+ * 业主进入首页 800ms 后浏览器空闲, 偷偷把灯光/LED/音响/空调/电源/媒体/状态
+ * 6 个常用页 chunk 都下载下来. 之后切菜单是"打开缓存", 不再有 300ms 黑屏.
+ * 不阻塞首屏渲染, 失败也无所谓 (路由懒加载兜底).
+ */
+function prefetchMainPages(): void {
+  const tasks = [
+    () => import('@/pages/LightingPage.vue'),
+    () => import('@/pages/LedPage.vue'),
+    () => import('@/pages/AudioPage.vue'),
+    () => import('@/pages/HvacPage.vue'),
+    () => import('@/pages/PowerPage.vue'),
+    () => import('@/pages/MediaPage.vue'),
+    () => import('@/pages/StatusPage.vue'),
+  ];
+  const runNext = () => {
+    const t = tasks.shift();
+    if (!t) return;
+    t().catch(() => { /* 失败无所谓 */ }).finally(() => {
+      const ric = (window as unknown as { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback;
+      if (typeof ric === 'function') ric(runNext);
+      else setTimeout(runNext, 400);
+    });
+  };
+  // 800ms 后启动, 给首屏渲染让路
+  setTimeout(runNext, 800);
+}
+
+onMounted(() => { prefetchMainPages(); });
+
+/** hover/touch 时立刻 prefetch 对应路由 chunk — 比 click 早 ~200ms */
+const ROUTE_PREFETCH: Record<string, () => Promise<unknown>> = {
+  dashboard: () => import('@/pages/DashboardPage.vue'),
+  lighting: () => import('@/pages/LightingPage.vue'),
+  led: () => import('@/pages/LedPage.vue'),
+  audio: () => import('@/pages/AudioPage.vue'),
+  hvac: () => import('@/pages/HvacPage.vue'),
+  power: () => import('@/pages/PowerPage.vue'),
+  media: () => import('@/pages/MediaPage.vue'),
+  status: () => import('@/pages/StatusPage.vue'),
+  'admin-devices': () => import('@/layouts/AdminLayout.vue'),
+};
+const prefetched = new Set<string>();
+function prefetchRoute(name: string): void {
+  if (prefetched.has(name)) return;
+  const fn = ROUTE_PREFETCH[name];
+  if (!fn) return;
+  prefetched.add(name);
+  fn().catch(() => { prefetched.delete(name); /* 失败下次重试 */ });
+}
 
 // v2 侧导航 - 只 icon (跟 mockup 一致), title 给 hover tooltip
 const navItems: Array<{ name: string; label: string; section?: 'main' | 'tools' }> = [
@@ -91,7 +137,9 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
           <template v-else>{{ branding.logoText }}</template>
         </div>
       </button>
-      <!-- nav 列表: flex-grow 占满剩余高度, items 之间 space-around 自动均布 -->
+      <!-- nav 列表: flex-grow 占满剩余高度, items 之间 space-around 自动均布
+           性能: pointerenter (hover/touch start) 触发 chunk 预取, 等手指离开
+           按钮命中已下载缓存, 切页 100ms 内完成 -->
       <nav class="v2-nav-list">
         <button
           v-for="item in mainNavs"
@@ -100,6 +148,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
           :class="{ 'is-active': route.name === item.name }"
           :title="item.label"
           @click="go(item.name)"
+          @pointerenter="prefetchRoute(item.name)"
         >
           <component :is="navIconFor(item.name)" :size="22" :stroke-width="1.8" />
           <span class="v2-nav-label">{{ item.label }}</span>
@@ -112,6 +161,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
           :class="{ 'is-active': route.name === item.name }"
           :title="item.label"
           @click="go(item.name)"
+          @pointerenter="prefetchRoute(item.name)"
         >
           <component :is="navIconFor(item.name)" :size="22" :stroke-width="1.8" />
           <span class="v2-nav-label">{{ item.label }}</span>
@@ -153,15 +203,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
         <div class="v2-clock v2-inter">
           {{ clockHM }}<span class="sec">:{{ clockSec }}</span>
         </div>
-        <button
-          v-if="fs.isSupported.value && !fs.isStandalone.value"
-          class="v2-fs-btn"
-          :title="fs.isActive.value ? '退出全屏 (Esc)' : '进入终端模式 (全屏)'"
-          @click="fs.toggle()"
-        >
-          <Minimize2 v-if="fs.isActive.value" :size="18" :stroke-width="1.8" />
-          <Maximize2 v-else :size="18" :stroke-width="1.8" />
-        </button>
+        <!-- 全屏切换按钮 2026-05-31 去掉, 默认 PWA standalone 接管 -->
       </div>
     </header>
 
@@ -176,12 +218,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
       </router-view>
     </main>
 
-    <!-- ExecutionStatusBar 已下架 (用户反馈占屏幕没用); 场景执行结果走顶部 toast 一闪而过 -->
-    <FullscreenPrompt
-      :visible="fs.showPrompt.value"
-      @enter="fs.enter()"
-      @dismiss="fs.dismissPrompt()"
-    />
+    <!-- 全屏 prompt 已去掉. 场景执行结果走顶部 inline toast. -->
   </div>
 </template>
 
@@ -468,22 +505,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }
 }
-.v2-fs-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--v2-r-sm);
-  background: var(--v2-surf-1);
-  border: 1px solid var(--v2-border-soft);
-  color: var(--v2-text-2);
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-  transition: all 0.18s ease;
-}
-.v2-fs-btn:hover {
-  background: var(--v2-surf-1-hover);
-  color: var(--v2-text-1);
-}
+/* .v2-fs-btn 已删 — 全屏按钮 2026-05-31 去掉 */
 
 /* ============ 主区 ============ */
 .v2-main {

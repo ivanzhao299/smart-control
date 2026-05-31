@@ -82,13 +82,13 @@ export default defineConfig(({ mode }) => {
           // POST/PUT/DELETE 默认不缓存 (workbox 行为), 不会影响命令.
           runtimeCaching: [
             {
-              urlPattern: /\/api\/.*\/(devices|scenes|hardware|drivers|system\/info|system\/runtime)/,
+              urlPattern: /\/api\/(devices|scenes|hardware|drivers|system\/info|system\/runtime|light-zones|power-circuits|brands|system-branding)/,
               handler: 'NetworkFirst',
               options: {
                 cacheName: 'api-read',
-                networkTimeoutSeconds: 3,
+                networkTimeoutSeconds: 2,   // 旧 3s → 2s, 弱网更快降级
                 expiration: {
-                  maxEntries: 50,
+                  maxEntries: 80,
                   maxAgeSeconds: 60,
                 },
               },
