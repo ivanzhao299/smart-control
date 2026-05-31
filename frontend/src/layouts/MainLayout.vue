@@ -87,29 +87,32 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
           <template v-else>{{ branding.logoText }}</template>
         </div>
       </button>
-      <button
-        v-for="item in mainNavs"
-        :key="item.name"
-        class="v2-nav-item"
-        :class="{ 'is-active': route.name === item.name }"
-        :title="item.label"
-        @click="go(item.name)"
-      >
-        <component :is="navIconFor(item.name)" :size="20" :stroke-width="1.8" />
-        <span class="v2-nav-label">{{ item.label }}</span>
-      </button>
-      <div class="v2-nav-divider"></div>
-      <button
-        v-for="item in toolNavs"
-        :key="item.name"
-        class="v2-nav-item"
-        :class="{ 'is-active': route.name === item.name }"
-        :title="item.label"
-        @click="go(item.name)"
-      >
-        <component :is="navIconFor(item.name)" :size="20" :stroke-width="1.8" />
-        <span class="v2-nav-label">{{ item.label }}</span>
-      </button>
+      <!-- nav 列表: flex-grow 占满剩余高度, items 之间 space-around 自动均布 -->
+      <nav class="v2-nav-list">
+        <button
+          v-for="item in mainNavs"
+          :key="item.name"
+          class="v2-nav-item"
+          :class="{ 'is-active': route.name === item.name }"
+          :title="item.label"
+          @click="go(item.name)"
+        >
+          <component :is="navIconFor(item.name)" :size="22" :stroke-width="1.8" />
+          <span class="v2-nav-label">{{ item.label }}</span>
+        </button>
+        <div class="v2-nav-divider"></div>
+        <button
+          v-for="item in toolNavs"
+          :key="item.name"
+          class="v2-nav-item"
+          :class="{ 'is-active': route.name === item.name }"
+          :title="item.label"
+          @click="go(item.name)"
+        >
+          <component :is="navIconFor(item.name)" :size="22" :stroke-width="1.8" />
+          <span class="v2-nav-label">{{ item.label }}</span>
+        </button>
+      </nav>
     </aside>
 
     <!-- 顶 Header (56px) - 集成 Alert 内联条; logo 已挪到侧栏 -->
@@ -186,7 +189,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   overflow: hidden;
 }
 
-/* ============ 侧导航 (顶 brand + icon/文字 nav, 8 项装一屏不滚) ============ */
+/* ============ 侧导航 (顶 brand + icon/文字 nav, 项 flex-grow 充满屏幕高度) ============ */
 .v2-nav {
   grid-area: nav;
   /* 侧栏从顶到底 (grid 高度 = header 56 + main 1fr), 自带覆盖 header 高度 */
@@ -195,9 +198,21 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   flex-direction: column;
   align-items: center;
   padding: 8px 6px 10px;
-  gap: 3px;
   border-right: 1px solid var(--v2-border-soft);
   background: rgba(10, 14, 26, 0.5);
+  overflow: hidden;
+}
+/* 项容器 — flex-grow 占满 brand 之下的所有剩余高度, items 平均分布 */
+.v2-nav-list {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-around;
+  gap: 6px;
+  padding: 8px 0;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -248,22 +263,23 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   display: block;
 }
 
+/* nav 按钮 — 正方形 (宽=高=64px), space-around 让它们均匀撑满侧栏高度 */
 .v2-nav-item {
   width: 64px;
-  min-height: 52px;
+  height: 64px;
   border-radius: var(--v2-r-md);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  color: var(--v2-text-3);
+  gap: 6px;
+  color: var(--v2-text-2);
   cursor: pointer;
   transition: all 0.18s ease;
   position: relative;
-  background: transparent;
-  border: none;
-  padding: 7px 2px;
+  background: var(--v2-surf-1);
+  border: 1px solid var(--v2-border-soft);
+  padding: 0;
   flex-shrink: 0;
   font-family: inherit;
 }
@@ -303,10 +319,10 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   white-space: nowrap;
 }
 .v2-nav-divider {
-  width: 28px;
+  width: 36px;
   height: 1px;
-  background: var(--v2-border-soft);
-  margin: 4px 0;
+  background: linear-gradient(90deg, transparent, var(--v2-border-strong), transparent);
+  margin: 2px 0;
   flex-shrink: 0;
 }
 
