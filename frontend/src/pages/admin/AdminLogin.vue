@@ -87,32 +87,36 @@ async function submit(): Promise<void> {
         <button type="submit" class="submit-btn" :disabled="submitting || !password">
           {{ submitting ? '登录中...' : '登 录' }}
         </button>
-
-        <div class="hint">
-          忘记密码? 找系统部署方重置 (修改数据库 admin_auth_v1 表 passwordHash 字段).
-        </div>
       </form>
     </div>
   </div>
 </template>
 
 <style scoped>
+/* 登录页用 isolation 屏蔽全局 body::before 的 aurora 漂浮动画,
+ * 同时整个容器铺实色, 卡片背景静止不抖. */
 .admin-login {
   min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   place-items: center;
-  position: relative;
+  position: fixed;
+  inset: 0;
   padding: 24px;
   background: var(--v2-bg-0);
+  isolation: isolate;
+  overflow: hidden;
 }
 .login-bg {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse 60% 50% at 30% 20%, rgba(6, 182, 212, 0.18) 0%, transparent 60%),
-    radial-gradient(ellipse 50% 40% at 80% 80%, rgba(245, 158, 11, 0.13) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 50% at 30% 20%, rgba(0, 229, 255, 0.16) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 80% 80%, rgba(168, 85, 247, 0.12) 0%, transparent 55%),
     linear-gradient(180deg, var(--v2-bg-0) 0%, var(--v2-bg-1) 100%);
   z-index: 0;
+  /* 静止 — 不跟全局 aurora-drift 同步漂移 */
+  animation: none;
 }
 
 .login-card {
@@ -218,17 +222,7 @@ async function submit(): Promise<void> {
 }
 .submit-btn:hover:not(:disabled) {
   filter: brightness(1.1);
-  transform: translateY(-1px);
   box-shadow: var(--v2-glow-primary-strong);
 }
-.submit-btn:active:not(:disabled) { transform: translateY(0); }
 .submit-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-
-.hint {
-  margin-top: 10px;
-  font-size: 11px;
-  color: var(--v2-text-3);
-  line-height: 1.6;
-  text-align: center;
-}
 </style>
