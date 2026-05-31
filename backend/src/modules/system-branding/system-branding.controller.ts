@@ -54,10 +54,53 @@ export class SystemBrandingController {
    * 实测最干净: 返回普通 object, 让 vite-plugin-pwa 拒了我们 fallback.
    * 这里走纯 string + raw response.
    */
+  /**
+   * 真实 HTTP 图片端点 — 用 logoUrl (DB 里可能是 data:image/...;base64,xxx 或
+   * 普通 http URL) 解析出二进制流, 让浏览器 / PWA / iOS 当成真实 image 资源.
+   *
+   * 为啥要这个: PWA manifest icon 和 apple-touch-icon 在多数浏览器实现里
+   * 对 data URI 支持不稳定 (Android Chrome 部分 OK, iOS Safari 几乎不支持).
+   * 走真实 HTTP URL 兼容性最好.
+   *
+   * Cache: ETag 基于 logoUrl 内容 hash (改 logo 时 hash 变, 浏览器拿新图).
+   */
+  @Get('logo.png')
+  async logo(@Res() res: Response): Promise<void> {
+    const b = await this.service.get();
+    const logoUrl = b.logoUrl;
+    if (!logoUrl) {
+      // 没上传 logo, 重定向到默认 PWA icon
+      res.redirect(302, '/control/icons/pwa-512x512.png');
+      return;
+    }
+    // 解析 data URL
+    const m = /^data:(image\/[a-z0-9+.-]+);base64,(.+)$/i.exec(logoUrl);
+    if (m) {
+      const contentType = m[1];
+      const buf = Buffer.from(m[2], 'base64');
+      // ETag 用内容长度 + 前 8 字节 hex 做 cheap hash (业主换图就变)
+      const etag = `"${buf.length.toString(16)}-${buf.slice(0, 8).toString('hex')}"`;
+      if (res.req.headers['if-none-match'] === etag) {
+        res.status(304).end();
+        return;
+      }
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
+      res.setHeader('ETag', etag);
+      res.send(buf);
+      return;
+    }
+    // 不是 data URL — 假设是 http URL, 重定向
+    res.redirect(302, logoUrl);
+  }
+
   @Get('manifest.webmanifest')
   async manifest(@Res() res: Response): Promise<void> {
     const b = await this.service.get();
-    const logoUrl = b.logoUrl ?? '/control/icons/pwa-512x512.png';
+    // 永远走 /api/system-branding/logo.png 真实 HTTP 端点, 不直接给 data URL.
+    // 浏览器/iOS/Android 对 data URL 在 manifest icons 里支持不稳定, 会 fallback
+    // 到自动字母图标 (业主反馈"显示金字"的根因). 真实 HTTP URL 兼容性最好.
+    const logoEndpoint = '/control/api/system-branding/logo.png';
     // short_name 是主屏图标下面的名字, manifest 标准要求 ≤12 字符. logoText
     // 是给"圆形 logo"里显示的占位单字 (业主可能填 1 / 金 这种), 语义完全不同,
     // 不能拿来当 short_name. 这里从 systemName 截 8 个字, 不行就 fallback.
@@ -74,9 +117,9 @@ export class SystemBrandingController {
       start_url: '/control/',
       scope: '/control/',
       icons: [
-        { src: logoUrl, sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
-        { src: logoUrl, sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
-        { src: logoUrl, sizes: 'any', type: 'image/png', purpose: 'any maskable' },
+        { src: logoEndpoint, sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+        { src: logoEndpoint, sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+        { src: logoEndpoint, sizes: 'any', type: 'image/png', purpose: 'any maskable' },
       ],
     };
     // 用 res.send() 自己控制 — 绕开 ResponseInterceptor 的 {success, data} 包装,

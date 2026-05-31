@@ -57,19 +57,22 @@ export const useSystemBrandingStore = defineStore('system-branding', () => {
   }
 
   /**
-   * 把 logoUrl 同步到 <link rel="icon"> 和 <link rel="apple-touch-icon">.
+   * 把所有 logo 相关 link 都指向 backend 的真实 HTTP 端点
+   * (/control/api/system-branding/logo.png), 而不是 raw data URL.
    *
-   * 业主上传的 logo (256×256 PNG) 当 favicon 用 — 这样:
-   *   - 浏览器 tab 上的图标 = 业主 logo
-   *   - 平板"添加到主屏幕"的图标 = 业主 logo
-   *   - iOS Home Screen 用 apple-touch-icon
+   * 为啥: data URL 在 PWA manifest / apple-touch-icon / 某些浏览器的 favicon
+   * 上支持不稳定. 走真实 HTTP URL 兼容性最好, ETag 让业主换 logo 时浏览器
+   * 立刻拿新图.
    *
-   * 没上传 logo 时 (logoUrl=null) 保留 index.html 里的默认 SVG / PWA icon.
+   * 没上传 logo 时 backend logo.png 会 302 重定向到默认 PWA icon.
    */
   function applyFavicon(): void {
     if (typeof document === 'undefined') return;
-    const url = branding.value.logoUrl;
-    if (!url) return; // 没上传就用 index.html 默认
+    // 业主有没有上传 logo 都走这个端点 — 没上传时 backend 自己 redirect 到默认.
+    // 加 cache-bust 参数防止浏览器死板拿旧缓存; 业主刚改完 logo 立刻能看到新图.
+    const base = import.meta.env.BASE_URL ?? '/';
+    const ts = branding.value.logoUrl ? branding.value.logoUrl.length : 0;
+    const url = `${base}api/system-branding/logo.png?v=${ts}`.replace(/\/+/g, '/');
 
     // 标准 favicon
     let icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
@@ -90,7 +93,7 @@ export const useSystemBrandingStore = defineStore('system-branding', () => {
     }
     appleIcon.href = url;
 
-    // Android Chrome "添加到主屏幕" 用 shortcut icon, 跟 favicon 同一份
+    // Android Chrome "添加到主屏幕" 用 shortcut icon
     let shortcut = document.querySelector<HTMLLinkElement>('link[rel="shortcut icon"]');
     if (!shortcut) {
       shortcut = document.createElement('link');
