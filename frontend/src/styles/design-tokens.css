@@ -415,17 +415,18 @@ html {
   background-color: transparent !important;
 }
 
-/* Element Plus el-button[type=primary] 也升级成实色发光, 跟 .v2-btn-primary 一致 */
-.el-button--primary {
+/* Element Plus el-button[type=primary] 升级成实色发光. 重要: 必须排除
+ * .is-link / .is-text — 否则文字按钮被加 gradient bg, 跟字同色就完全看不见. */
+.el-button--primary:not(.is-link):not(.is-text) {
   background: linear-gradient(135deg, var(--v2-primary) 0%, var(--v2-primary-dark) 100%) !important;
   border-color: rgba(255, 255, 255, 0.14) !important;
   box-shadow: var(--v2-glow-primary);
 }
-.el-button--primary:hover:not(.is-disabled) {
+.el-button--primary:not(.is-link):not(.is-text):hover:not(.is-disabled) {
   filter: brightness(1.1);
   box-shadow: var(--v2-glow-primary-strong);
 }
-.el-button--primary:active:not(.is-disabled) {
+.el-button--primary:not(.is-link):not(.is-text):active:not(.is-disabled) {
   filter: brightness(0.95);
 }
 
@@ -466,28 +467,49 @@ html {
   color: var(--v2-text-2) !important;
 }
 
-/* el-button[link] / text-button — 默认 type 时给可读对比度 */
-.el-button.is-link {
+/* el-button[link] / text-button — 透明底 + 各 type 显式亮字, hover 加亮不加底 */
+.el-button.is-link,
+.el-button.is-text {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
   color: var(--v2-text-1) !important;
   font-weight: 500;
+  padding: 0 6px !important;
 }
-.el-button.is-link.el-button--primary {
-  color: var(--v2-primary-hover) !important;
+.el-button.is-link.el-button--primary,
+.el-button.is-text.el-button--primary {
+  color: #67e8f9 !important;  /* 亮青, 比 v2-primary-hover 再亮一档, 在深底/zebra 上都看得清 */
 }
-.el-button.is-link.el-button--success {
-  color: var(--v2-success) !important;
+.el-button.is-link.el-button--success,
+.el-button.is-text.el-button--success {
+  color: #6ee7b7 !important;  /* 亮绿 */
 }
-.el-button.is-link.el-button--danger {
-  color: #f87171 !important;  /* 亮一点的红, 默认 ef4444 在深底上有点闷 */
+.el-button.is-link.el-button--danger,
+.el-button.is-text.el-button--danger {
+  color: #fca5a5 !important;  /* 亮红 — 默认 ef4444 在深底上有点闷 */
 }
-.el-button.is-link.el-button--warning {
-  color: var(--v2-warning) !important;
+.el-button.is-link.el-button--warning,
+.el-button.is-text.el-button--warning {
+  color: #fcd34d !important;  /* 亮黄 */
 }
-.el-button.is-link:hover {
-  filter: brightness(1.25);
+.el-button.is-link:hover,
+.el-button.is-text:hover {
+  background: transparent !important;
+  background-color: transparent !important;
+  filter: brightness(1.3);
   text-decoration: underline;
 }
-.el-button.is-link.is-disabled {
+.el-button.is-link:focus,
+.el-button.is-link:active,
+.el-button.is-text:focus,
+.el-button.is-text:active {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+.el-button.is-link.is-disabled,
+.el-button.is-text.is-disabled {
   color: var(--v2-text-3) !important;
   filter: none;
 }
@@ -528,12 +550,63 @@ html {
   color: var(--v2-text-3) !important;
 }
 
-/* el-tag (各色) — 文字色升级到 0.92 透明度, 默认 EP 在某些 type 下灰 */
+/* el-tag (各色) — 深色主题重设: 深底 + 高亮对应类型色字, 不再用 EP 默认浅底
+ * 用户截图问题: "GROUP 1" 标签是浅蓝底 + 浅蓝白字, 完全看不见. 必须深底浅字. */
 .el-tag {
   font-weight: 500;
   border-width: 1px;
+  border-style: solid;
 }
-.el-tag.el-tag--info { color: var(--v2-text-1) !important; }
+.el-tag,
+.el-tag.el-tag--default {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+  color: var(--v2-text-1) !important;
+}
+.el-tag.el-tag--primary {
+  background-color: rgba(6, 182, 212, 0.18) !important;
+  border-color: rgba(6, 182, 212, 0.45) !important;
+  color: #67e8f9 !important;  /* 亮青 */
+}
+.el-tag.el-tag--success {
+  background-color: rgba(16, 185, 129, 0.18) !important;
+  border-color: rgba(16, 185, 129, 0.45) !important;
+  color: #6ee7b7 !important;
+}
+.el-tag.el-tag--warning {
+  background-color: rgba(245, 158, 11, 0.20) !important;
+  border-color: rgba(245, 158, 11, 0.48) !important;
+  color: #fcd34d !important;
+}
+.el-tag.el-tag--danger {
+  background-color: rgba(239, 68, 68, 0.18) !important;
+  border-color: rgba(239, 68, 68, 0.45) !important;
+  color: #fca5a5 !important;
+}
+.el-tag.el-tag--info {
+  background-color: rgba(148, 163, 184, 0.18) !important;
+  border-color: rgba(148, 163, 184, 0.42) !important;
+  color: #cbd5e1 !important;
+}
+
+/* el-switch inline-prompt 模式的 active-text / inactive-text — 在 switch 内嵌
+ * 必须白色 + 1px shadow, 不管底色是青(开)还是灰(关)都看得清 */
+.el-switch.is-checked .el-switch__core,
+.el-switch .el-switch__core {
+  border-color: transparent !important;
+}
+.el-switch__inner,
+.el-switch__inner span {
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  font-size: 11px !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  letter-spacing: 0.4px;
+}
+/* 关闭状态 switch 底色 (灰), 上面的"停用"白字 + shadow 同样看得清 */
+.el-switch:not(.is-checked) .el-switch__core {
+  background-color: rgba(255, 255, 255, 0.22) !important;
+}
 
 /* el-select 下拉项 hover/selected 文本对比度 */
 .el-select-dropdown__item {
