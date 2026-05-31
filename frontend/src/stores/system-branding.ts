@@ -33,6 +33,7 @@ export const useSystemBrandingStore = defineStore('system-branding', () => {
       branding.value = await fetchSystemBranding();
       loaded.value = true;
       applyBrowserTitle();
+      applyFavicon();
     } catch (e) {
       lastError.value = (e as Error).message;
       // 保留 FALLBACK, 不抛, 避免 App 起不来
@@ -45,6 +46,7 @@ export const useSystemBrandingStore = defineStore('system-branding', () => {
     branding.value = await saveSystemBranding(patch);
     loaded.value = true;
     applyBrowserTitle();
+    applyFavicon();
   }
 
   /** 把 browserTitle 实际写到 document.title, App.vue + 改完都调一下 */
@@ -54,5 +56,50 @@ export const useSystemBrandingStore = defineStore('system-branding', () => {
     }
   }
 
-  return { branding, loaded, loading, lastError, load, save, applyBrowserTitle };
+  /**
+   * 把 logoUrl 同步到 <link rel="icon"> 和 <link rel="apple-touch-icon">.
+   *
+   * 业主上传的 logo (256×256 PNG) 当 favicon 用 — 这样:
+   *   - 浏览器 tab 上的图标 = 业主 logo
+   *   - 平板"添加到主屏幕"的图标 = 业主 logo
+   *   - iOS Home Screen 用 apple-touch-icon
+   *
+   * 没上传 logo 时 (logoUrl=null) 保留 index.html 里的默认 SVG / PWA icon.
+   */
+  function applyFavicon(): void {
+    if (typeof document === 'undefined') return;
+    const url = branding.value.logoUrl;
+    if (!url) return; // 没上传就用 index.html 默认
+
+    // 标准 favicon
+    let icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (!icon) {
+      icon = document.createElement('link');
+      icon.rel = 'icon';
+      document.head.appendChild(icon);
+    }
+    icon.type = 'image/png';
+    icon.href = url;
+
+    // iOS / iPadOS "添加到主屏幕"
+    let appleIcon = document.querySelector<HTMLLinkElement>('link[rel="apple-touch-icon"]');
+    if (!appleIcon) {
+      appleIcon = document.createElement('link');
+      appleIcon.rel = 'apple-touch-icon';
+      document.head.appendChild(appleIcon);
+    }
+    appleIcon.href = url;
+
+    // Android Chrome "添加到主屏幕" 用 shortcut icon, 跟 favicon 同一份
+    let shortcut = document.querySelector<HTMLLinkElement>('link[rel="shortcut icon"]');
+    if (!shortcut) {
+      shortcut = document.createElement('link');
+      shortcut.rel = 'shortcut icon';
+      document.head.appendChild(shortcut);
+    }
+    shortcut.type = 'image/png';
+    shortcut.href = url;
+  }
+
+  return { branding, loaded, loading, lastError, load, save, applyBrowserTitle, applyFavicon };
 });
