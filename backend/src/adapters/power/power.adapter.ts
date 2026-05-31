@@ -121,8 +121,9 @@ export class PowerAdapter extends BaseAdapter {
 
   // ============ 内部 ============
 
+  /** Wall-clock 毫秒. backend 跑 node, Date.now() 完全可用. */
   private tsNow(): number {
-    return Number(process.hrtime.bigint() / 1_000_000n);
+    return Date.now();
   }
 
   private ensureCircuit(id: number): CircuitState {
