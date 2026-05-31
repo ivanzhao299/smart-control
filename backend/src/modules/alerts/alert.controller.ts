@@ -52,4 +52,22 @@ export class AlertController {
     const data = await this.service.ignore(id, dto.resolvedBy || 'admin');
     return { message: '已忽略', data };
   }
+
+  /**
+   * 按来源批量 resolve — 比如某个网关误报, 一键清掉所有它的 active 报警.
+   * AlertBanner 上 "×" 按钮调这个 (设备旁的红色叉, 一键消干净).
+   */
+  @Post('resolve-by-source')
+  @HttpCode(200)
+  async resolveBySource(@Body() body: { sourceType?: string; sourceId?: string | null; resolvedBy?: string }) {
+    if (!body?.sourceType) {
+      return { message: 'sourceType 必填', data: { count: 0 } };
+    }
+    const count = await this.service.resolveBySource(
+      body.sourceType,
+      body.sourceId ?? null,
+      body.resolvedBy || 'admin',
+    );
+    return { message: `已清除 ${count} 条`, data: { count } };
+  }
 }

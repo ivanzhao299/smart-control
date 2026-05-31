@@ -82,6 +82,28 @@ function dismiss(): void {
 function gotoAlerts(): void {
   router.push({ name: 'status' });
 }
+
+/**
+ * 持久化报警的 "×" — 把这个 source 下所有 active 报警一次性清掉.
+ * 适合用户判断报警已不需要 (设备拆了 / 误报) 的场景. stopPropagation 防触发
+ * 跳转到 status 页. 注意: 如果设备真的还离线, probe 还会重新生成新 alert.
+ * 真要静音: 在 backend env 配 LED_PROBE_DISABLED=1 之类 (具体 key 见
+ * device-health.service GATEWAY_META).
+ */
+async function dismissPersisted(ev: MouseEvent): Promise<void> {
+  ev.stopPropagation();
+  const a = topPersistedAlert.value;
+  if (!a) return;
+  try {
+    const r = await adminAlertService.resolveBySource(a.sourceType, a.sourceId ?? null, 'admin');
+    persistedAlerts.value = persistedAlerts.value.filter(
+      (x) => !(x.sourceType === a.sourceType && x.sourceId === a.sourceId),
+    );
+    activeCount.value = Math.max(0, activeCount.value - (r?.count ?? 1));
+  } catch {
+    void refresh();
+  }
+}
 </script>
 
 <template>
@@ -110,6 +132,7 @@ function gotoAlerts(): void {
       </div>
       <div class="alert-count" v-if="activeCount > 1">共 {{ activeCount }} 条 →</div>
       <div v-else class="alert-count">查看 →</div>
+      <button class="alert-close" @click="dismissPersisted" aria-label="清除此来源所有报警" title="清除此来源所有报警 (设备真离线下次探活会再报)">×</button>
     </div>
   </transition>
 </template>

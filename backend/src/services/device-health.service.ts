@@ -30,6 +30,28 @@ interface ProbeFn {
 /** Sprint-08 自定义重连退避: 立即 / 5s / 15s 三次, 失败后标记 offline */
 const RECONNECT_DELAYS_MS = [0, 5_000, 15_000];
 
+/**
+ * 网关 key → 人读名字 + 是否启用 probe.
+ * 报警标题用 displayName, 用户看 "网关离线: 诺瓦 V2460" 比 "led-nova-vx1000" 友好.
+ * envSkip 列表里的 gateway 跳过 probe (e.g. 现场没接 V2460 时 LED_PROBE_DISABLED=1).
+ */
+const GATEWAY_META: Record<string, { displayName: string; envSkipKey: string }> = {
+  'lighting-dali-gateway': { displayName: '灯光 DALI 网关', envSkipKey: 'LIGHTING_PROBE_DISABLED' },
+  'led-nova-vx1000':       { displayName: '诺瓦 V2460 LED 控制器', envSkipKey: 'LED_PROBE_DISABLED' },
+  'audio-dsp':             { displayName: '音响 DSP', envSkipKey: 'AUDIO_PROBE_DISABLED' },
+  'hvac-modbus':           { displayName: '空调 Modbus', envSkipKey: 'HVAC_PROBE_DISABLED' },
+};
+
+function gatewayDisplay(key: string): string {
+  return GATEWAY_META[key]?.displayName ?? key;
+}
+function isGatewayProbeDisabled(key: string): boolean {
+  const meta = GATEWAY_META[key];
+  if (!meta) return false;
+  const v = process.env[meta.envSkipKey];
+  return v === '1' || v === 'true';
+}
+
 @Injectable()
 export class DeviceHealthService implements OnApplicationBootstrap, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
@@ -92,12 +114,22 @@ export class DeviceHealthService implements OnApplicationBootstrap, OnModuleDest
     if (this.running) return;
     this.running = true;
     try {
-      await Promise.allSettled([
-        this.probeOne('lighting-dali-gateway', () => this.lighting.healthCheck()),
-        this.probeOne('led-nova-vx1000', () => this.led.healthCheck()),
-        this.probeOne('audio-dsp', () => this.audio.healthCheck()),
-        this.probeOne('hvac-modbus', () => this.hvac.healthCheck()),
-      ]);
+      const tasks: Array<Promise<void>> = [];
+      const all: Array<[string, ProbeFn]> = [
+        ['lighting-dali-gateway', () => this.lighting.healthCheck()],
+        ['led-nova-vx1000',       () => this.led.healthCheck()],
+        ['audio-dsp',             () => this.audio.healthCheck()],
+        ['hvac-modbus',           () => this.hvac.healthCheck()],
+      ];
+      for (const [key, fn] of all) {
+        if (isGatewayProbeDisabled(key)) {
+          // env 显式禁了, 也顺手 auto-resolve 一下之前的 active alert (避免遗留)
+          await this.alertService.autoResolveBySource('gateway', key, 'gateway_offline');
+          continue;
+        }
+        tasks.push(this.probeOne(key, fn));
+      }
+      await Promise.allSettled(tasks);
       this.lastProbeAt = new Date().toISOString();
       this.detectStateTransitions();
     } finally {
@@ -159,7 +191,7 @@ export class DeviceHealthService implements OnApplicationBootstrap, OnModuleDest
           type: 'gateway_offline',
           sourceType: 'gateway',
           sourceId: gateway,
-          title: `网关离线: ${gateway}`,
+          title: `网关离线: ${gatewayDisplay(gateway)}`,
           message: lastError ?? 'all reconnect attempts failed',
           dedupe: true,
         });

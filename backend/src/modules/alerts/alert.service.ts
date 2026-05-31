@@ -151,6 +151,11 @@ export class AlertService {
     return saved;
   }
 
+  /** 操作员手动 "X 全部清除", 等同 autoResolveBySource 但带 manual 标记 */
+  async resolveBySource(sourceType: string, sourceId: string | null, resolvedBy = 'admin'): Promise<number> {
+    return this.autoResolveBySource(sourceType, sourceId, undefined, resolvedBy);
+  }
+
   /** 当对应来源恢复正常时, 把所有 active 报警一并 resolve */
   async autoResolveBySource(
     sourceType: string,

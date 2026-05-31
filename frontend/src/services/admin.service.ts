@@ -156,6 +156,8 @@ export const adminAlertService = {
     api.post<Alert>(`/alerts/${id}/resolve`, { resolvedBy }),
   ignore: (id: number, resolvedBy?: string) =>
     api.post<Alert>(`/alerts/${id}/ignore`, { resolvedBy }),
+  resolveBySource: (sourceType: string, sourceId: string | null, resolvedBy?: string) =>
+    api.post<{ count: number }>('/alerts/resolve-by-source', { sourceType, sourceId, resolvedBy }),
 };
 
 /* ---------- Monitor (Sprint-08) ---------- */
