@@ -32,7 +32,14 @@ function redirectToTarget(): void {
   const target = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/admin')
     ? route.query.redirect
     : '/admin';
-  router.replace(target);
+  // 用 window.location.href 强制整页 reload 而非 router.replace —
+  // 业主反馈 2026-05-31 (复发): "登录成功但进不去后台". 同一 bug 之前修过 router guard
+  // 顺序, 但 PWA Service Worker 可能缓存了一份跟新 router 不匹配的 JS bundle,
+  // SPA 内 navigate 时旧 guard 还在拦. 整页 reload 让浏览器重新走 SW + 拉新 bundle,
+  // 同时 sessionStorage 里的 admin token 在新 boot 时被 admin-auth store init 读到,
+  // 直接进入 AdminLayout — 治本.
+  const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+  window.location.href = base + target;
 }
 
 function goBack(): void {
