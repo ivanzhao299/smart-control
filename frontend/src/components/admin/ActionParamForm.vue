@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, ref } from 'vue';
+import { Image as ImageIcon } from 'lucide-vue-next';
+import MediaPickerDialog from './MediaPickerDialog.vue';
 import type { CommandSpec, ParamSpec } from '@/services/scene-action-schema';
 
 /**
@@ -21,8 +22,6 @@ const emit = defineEmits<{
   'update:modelValue': [v: Record<string, unknown>];
 }>();
 
-const router = useRouter();
-
 function patch(key: string, value: unknown): void {
   emit('update:modelValue', { ...props.modelValue, [key]: value });
 }
@@ -33,12 +32,20 @@ function valOf(p: ParamSpec): unknown {
   return v ?? p.default;
 }
 
-/** 媒体选择: 暂时跳 MediaPage pick 模式去, 业主选完手回来手填. 后续可改成模态弹层 */
-function pickMedia(p: ParamSpec): void {
-  // 简单跳法: 弹个提示让用户记住要回来粘 mediaId. 后续改成 modal 弹媒体库.
-  router.push({ name: 'media' });
-  // TODO Sprint-D2: 内嵌 MediaPickerDialog 组件直接弹层选, 不离开当前 dialog
-  void p;
+/** 当前正在挑媒体的字段 (用 dialog) */
+const pickerOpen = ref(false);
+const pickerForKey = ref<string>('');
+const pickerCurrentId = ref<number | null>(null);
+const pickedMediaName = ref<Record<string, string>>({}); // 记字段对应的文件名, 方便回显
+function openMediaPicker(p: ParamSpec): void {
+  pickerForKey.value = p.key;
+  const v = props.modelValue[p.key];
+  pickerCurrentId.value = typeof v === 'number' ? v : null;
+  pickerOpen.value = true;
+}
+function onMediaPicked(item: { id: number; originalName: string }): void {
+  patch(pickerForKey.value, item.id);
+  pickedMediaName.value[pickerForKey.value] = item.originalName;
 }
 
 const items = computed(() => props.spec.params);
@@ -111,19 +118,19 @@ const items = computed(() => props.spec.params);
         @update:model-value="(v: string) => patch(p.key, v)"
       />
 
-      <!-- 媒体挑选 (临时实现, 跳 MediaPage) -->
+      <!-- 媒体挑选 — 弹层版 -->
       <div v-else-if="p.widget === 'media-picker'" class="media-picker">
-        <el-input-number
-          :model-value="Number(valOf(p) ?? 0)"
-          :min="1"
-          :max="99999"
-          :step="1"
-          controls-position="right"
-          style="flex: 1;"
-          @update:model-value="(v: number | undefined) => patch(p.key, v)"
-        />
-        <el-button @click="pickMedia(p)">去媒体库</el-button>
-        <span class="hint">填媒体的数字 ID. 后续会改成弹层挑选</span>
+        <div class="media-display">
+          <ImageIcon :size="14" :stroke-width="2" class="media-ico" />
+          <span v-if="valOf(p)" class="media-name">
+            {{ pickedMediaName[p.key] || `媒体 #${valOf(p)}` }}
+            <span class="media-id">#{{ valOf(p) }}</span>
+          </span>
+          <span v-else class="media-empty">(未选媒体)</span>
+        </div>
+        <el-button type="primary" @click="openMediaPicker(p)">
+          {{ valOf(p) ? '换' : '选' }}媒体
+        </el-button>
       </div>
 
       <!-- 场景挑选 -->
@@ -155,6 +162,13 @@ const items = computed(() => props.spec.params);
       <div v-if="p.help" class="help-row">{{ p.help }}</div>
     </el-form-item>
   </el-form>
+
+  <!-- 媒体挑选弹层 -->
+  <MediaPickerDialog
+    v-model="pickerOpen"
+    :selected-id="pickerCurrentId"
+    @picked="onMediaPicked"
+  />
 </template>
 
 <style scoped>
@@ -192,14 +206,39 @@ const items = computed(() => props.spec.params);
 .media-picker {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
 }
-.media-picker .hint {
-  margin-left: 6px;
+.media-display {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--v2-border-soft);
+  border-radius: 8px;
+  font-size: 13px;
+  min-height: 36px;
+  overflow: hidden;
+}
+.media-ico { color: var(--v2-text-3); flex-shrink: 0; }
+.media-name {
+  color: var(--v2-text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.media-id {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 11px;
   color: var(--v2-text-3);
-  flex-shrink: 0;
+  margin-left: 6px;
+}
+.media-empty {
+  color: var(--v2-text-3);
+  font-style: italic;
 }
 
 .help-row {

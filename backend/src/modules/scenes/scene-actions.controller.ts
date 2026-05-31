@@ -53,4 +53,18 @@ export class SceneActionsController {
     await this.service.remove(actionId);
     return { message: '删除成功', data: null };
   }
+
+  /**
+   * 单动作"试触发" — 不进 SceneEngine 队列, 直接走 dispatcher 派发, 返结果.
+   * 给业主在编辑器里"测试一下这条能跑通吗"用.
+   */
+  @Post('scene-actions/:id/test')
+  @HttpCode(200)
+  async test(@Param('id', ParseIntPipe) actionId: number) {
+    const result = await this.service.testOne(actionId);
+    return {
+      message: result.ok ? '动作执行成功' : `动作执行失败: ${(result as { error?: string }).error ?? '未知错误'}`,
+      data: result,
+    };
+  }
 }

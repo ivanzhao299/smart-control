@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Repository } from 'typeorm';
@@ -10,6 +10,8 @@ import {
   CreateSingleActionDto,
   UpdateSingleActionDto,
 } from './dto/single-action.dto';
+import { CommandDispatcherService } from '../../services/command-dispatcher.service';
+import { AdapterResult } from '../../adapters/adapter.types';
 
 @Injectable()
 export class SceneActionsService {
@@ -17,8 +19,40 @@ export class SceneActionsService {
     @InjectRepository(Scene) private readonly sceneRepo: Repository<Scene>,
     @InjectRepository(SceneAction) private readonly actionRepo: Repository<SceneAction>,
     private readonly logService: OperationLogService,
+    private readonly dispatcher: CommandDispatcherService,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
+
+  /**
+   * 单动作"试触发" — 调试用. 不进 SceneEngine 队列, 不写 SceneExecution.
+   * 直接走 CommandDispatcher 派发到对应 adapter, 等结果返给前端.
+   * 让业主在编辑器里能立刻验"这条动作真能跑出灯亮 / 屏切吗".
+   */
+  async testOne(actionId: number, operator = 'admin'): Promise<AdapterResult> {
+    const action = await this.actionRepo.findOne({ where: { id: actionId } });
+    if (!action) throw new NotFoundException(`动作 ${actionId} 不存在`);
+    let params: Record<string, unknown> = {};
+    try {
+      params = action.params ? JSON.parse(action.params) : {};
+    } catch (e) {
+      throw new BadRequestException(`动作 ${actionId} 的 params 不是合法 JSON: ${(e as Error).message}`);
+    }
+    const result = await this.dispatcher.dispatch({
+      deviceType: action.deviceType,
+      deviceId: action.deviceId,
+      command: action.command,
+      params,
+    });
+    await this.logService.record({
+      operator,
+      action: 'scene-action.test',
+      targetType: 'scene_action',
+      targetId: String(actionId),
+      result: result.ok ? 'success' : 'failure',
+      message: JSON.stringify({ deviceType: action.deviceType, deviceId: action.deviceId, command: action.command, params, ok: result.ok, error: (result as { error?: string }).error }),
+    });
+    return result;
+  }
 
   async listForScene(sceneId: number): Promise<SceneAction[]> {
     await this.assertSceneExists(sceneId);

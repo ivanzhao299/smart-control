@@ -85,6 +85,8 @@ export const adminSceneService = {
 export const adminSceneActionService = {
   listForScene: (sceneId: number) =>
     api.get<SceneAction[]>(`/scenes/${sceneId}/actions`),
+  test: (actionId: number) =>
+    api.post<{ ok: boolean; error?: string; data?: unknown }>(`/scene-actions/${actionId}/test`),
   create: (sceneId: number, body: SceneActionPayload) =>
     api.post<SceneAction>(`/scenes/${sceneId}/actions`, body),
   update: (actionId: number, body: Partial<SceneActionPayload>) =>

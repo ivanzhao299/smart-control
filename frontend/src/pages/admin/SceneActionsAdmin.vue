@@ -10,7 +10,7 @@ import {
 import { usePermissionStore } from '@/stores/permission';
 import {
   Settings2, ChevronLeft, RefreshCw, Plus, Play, Pencil, Trash2,
-  ChevronUp, ChevronDown, Loader, Code2, Wand2,
+  ChevronUp, ChevronDown, Loader, Code2, Wand2, Copy, Zap,
 } from 'lucide-vue-next';
 import type { Scene, SceneAction } from '@/types/api';
 import ActionParamForm from '@/components/admin/ActionParamForm.vue';
@@ -18,7 +18,7 @@ import ActionDeviceSelector from '@/components/admin/ActionDeviceSelector.vue';
 import {
   DEVICE_TYPE_LIST, DEVICE_TYPE_META,
   getCommandSpec, listCommandsForType,
-  paramsFromForm,
+  paramsFromForm, humanizeAction,
   type CommandSpec,
 } from '@/services/scene-action-schema';
 
@@ -275,6 +275,47 @@ async function toggleEnabled(row: SceneAction): Promise<void> {
   await refresh();
 }
 
+/**
+ * 试触发单条动作 — 后端 POST /scene-actions/:id/test, 不进 SceneEngine 队列.
+ * 业主调试时点这个能立刻验"这条动作真能让灯亮/屏切吗", 不用先存场景再整体跑.
+ */
+const testingId = ref<number | null>(null);
+async function testAction(row: SceneAction): Promise<void> {
+  if (testingId.value) return;
+  testingId.value = row.id;
+  try {
+    const res = await adminSceneActionService.test(row.id);
+    if (res?.ok) ElMessage.success(`已触发: ${humanizeAction(row.deviceType, row.deviceId, row.command, row.params)}`);
+    else ElMessage.error(`执行失败: ${res?.error ?? '未知'}`);
+  } catch (err) {
+    ElMessage.error('试触发失败: ' + (err as Error).message);
+  } finally {
+    testingId.value = null;
+  }
+}
+
+/** 复制动作 — 同 scene 内插一条一样的, sortOrder 紧跟原来 +1 */
+async function cloneAction(row: SceneAction): Promise<void> {
+  if (!perm.canEdit) return;
+  try {
+    let params: Record<string, unknown> = {};
+    try { params = row.params ? JSON.parse(row.params) : {}; } catch { /* ignore */ }
+    await adminSceneActionService.create(sceneId.value, {
+      deviceType: row.deviceType,
+      deviceId: row.deviceId,
+      command: row.command,
+      params,
+      delayMs: row.delayMs,
+      sortOrder: row.sortOrder + 1,
+      enabled: row.enabled,
+    });
+    ElMessage.success('已复制');
+    await refresh();
+  } catch (err) {
+    ElMessage.error('复制失败: ' + (err as Error).message);
+  }
+}
+
 async function testExecute(): Promise<void> {
   if (!perm.canExecute || !scene.value) return;
   try {
@@ -346,9 +387,10 @@ onMounted(refresh);
           <div class="cmd-raw">{{ row.command }}</div>
         </template>
       </el-table-column>
-      <el-table-column prop="params" label="参数" min-width="200">
+      <el-table-column label="预览 (人话)" min-width="280">
         <template #default="{ row }">
-          <code class="params">{{ row.params }}</code>
+          <div class="preview-text">{{ humanizeAction(row.deviceType, row.deviceId, row.command, row.params) }}</div>
+          <code class="params" v-if="row.params && row.params !== '{}'">{{ row.params }}</code>
         </template>
       </el-table-column>
       <el-table-column prop="delayMs" label="延时" width="90">
@@ -359,19 +401,27 @@ onMounted(refresh);
           <el-switch :model-value="row.enabled" :disabled="!perm.canEdit" @change="toggleEnabled(row)" />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="260" fixed="right" align="right">
+      <el-table-column label="操作" width="340" fixed="right" align="right">
         <template #default="{ row }">
-          <button class="row-btn" @click="move(row, -1)" :disabled="!perm.canEdit">
+          <button class="row-btn" @click="move(row, -1)" :disabled="!perm.canEdit" title="上移">
             <ChevronUp :size="13" :stroke-width="2" />
           </button>
-          <button class="row-btn" @click="move(row, 1)" :disabled="!perm.canEdit">
+          <button class="row-btn" @click="move(row, 1)" :disabled="!perm.canEdit" title="下移">
             <ChevronDown :size="13" :stroke-width="2" />
           </button>
-          <button class="row-btn" @click="openEdit(row)" :disabled="!perm.canEdit">
-            <Pencil :size="13" :stroke-width="2" /> 编辑
+          <button class="row-btn row-btn-test" @click="testAction(row)" :disabled="!perm.canExecute || testingId !== null" title="单独试触发这条 (不进队列)">
+            <Loader v-if="testingId === row.id" :size="13" :stroke-width="2" class="spin" />
+            <Zap v-else :size="13" :stroke-width="2" />
+            试触发
           </button>
-          <button class="row-btn row-btn-danger" @click="remove(row)" :disabled="!perm.canEdit">
-            <Trash2 :size="13" :stroke-width="2" /> 删除
+          <button class="row-btn" @click="cloneAction(row)" :disabled="!perm.canEdit" title="复制一条">
+            <Copy :size="13" :stroke-width="2" />
+          </button>
+          <button class="row-btn" @click="openEdit(row)" :disabled="!perm.canEdit" title="编辑">
+            <Pencil :size="13" :stroke-width="2" />
+          </button>
+          <button class="row-btn row-btn-danger" @click="remove(row)" :disabled="!perm.canEdit" title="删除">
+            <Trash2 :size="13" :stroke-width="2" />
           </button>
         </template>
       </el-table-column>
@@ -538,6 +588,31 @@ onMounted(refresh);
   font-size: 10.5px;
   color: var(--v2-text-3);
   margin-top: 2px;
+}
+
+/* 人话预览 */
+.preview-text {
+  font-size: 13px;
+  color: var(--v2-text-1);
+  line-height: 1.5;
+}
+.preview-text + .params {
+  display: block;
+  margin-top: 4px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  color: var(--v2-text-3);
+}
+
+/* "试触发" 按钮强调 */
+.row-btn-test {
+  color: var(--v2-warning) !important;
+  border-color: rgba(245, 158, 11, 0.4) !important;
+}
+.row-btn-test:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.08);
+  color: #fbbf24 !important;
+  border-color: rgba(245, 158, 11, 0.6) !important;
 }
 
 /* 新版 form */

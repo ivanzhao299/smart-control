@@ -246,3 +246,46 @@ export function formFromParams(spec: CommandSpec, params: Record<string, unknown
   }
   return out;
 }
+
+/**
+ * 把一条动作拼成人话, e.g.:
+ *   把 [一层主灯] 亮度调到 80%
+ *   把 [HDMI1 → LED] 推送视频 #5
+ *   开 [音响主区]
+ *
+ * params 走 schema 的 label + value (枚举值反查 options.label).
+ * 不在 schema 的命令 fallback 到 "<command> <params JSON>" 原样.
+ */
+export function humanizeAction(deviceType: string, deviceId: string, command: string, rawParams: string): string {
+  let params: Record<string, unknown> = {};
+  try { params = rawParams ? JSON.parse(rawParams) : {}; } catch { /* ignore */ }
+
+  const spec = getCommandSpec(deviceType, command);
+  const deviceLabel = `[${deviceId}]`;
+
+  if (!spec) {
+    return `${deviceLabel} ${command}` + (Object.keys(params).length ? ` ${JSON.stringify(params)}` : '');
+  }
+
+  // 把 params 渲染成 key=value 短串, 枚举 value 反查中文
+  const parts: string[] = [];
+  for (const p of spec.params) {
+    const v = params[p.key];
+    if (v === undefined || v === null || v === '') continue;
+    let valueText: string;
+    if (p.widget === 'select' && Array.isArray(p.options)) {
+      const opt = p.options.find((o) => o.value === v);
+      valueText = opt ? opt.label : String(v);
+    } else if (p.widget === 'switch') {
+      valueText = v ? '开' : '关';
+    } else if (p.widget === 'playback-slot') {
+      valueText = v === 2 ? 'HDMI2 (投影)' : 'HDMI1 (LED)';
+    } else {
+      valueText = String(v) + (p.suffix ?? '');
+    }
+    parts.push(`${p.label} ${valueText}`);
+  }
+
+  const paramStr = parts.length ? `, ${parts.join(', ')}` : '';
+  return `${deviceLabel} ${spec.label}${paramStr}`;
+}
