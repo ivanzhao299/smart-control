@@ -1,19 +1,27 @@
 # =====================================================================
-# Deploy - 自动部署到 cnjinhu.top
+# Deploy - 手动部署到 cnjinhu.top
+#
+# 2026-05-31 改: 默认部署目标是现场 GK9000 (走 watcher 自动拉), 云端
+# cnjinhu.top 不再每次 push 都跟着同步. 业主要看公网时再手动触发.
+# 这样省云端空间 + 省 CI 时间 + 避免现场和云端长期不一致带来的混乱.
+#
 # 触发:
-#   1) push main           → 自动部署当前 commit
-#   2) workflow_dispatch   → 手动触发 (可指定 ref + rollback)
+#   - workflow_dispatch 手动触发 (GitHub Actions 页面点 Run, 或者 AI 用
+#     gh workflow run 触发, 仅当用户明确要 "推到云端" 时)
 # 流程:
 #   build → upload tarballs (artifact) → ssh + scp deploy → health check → 失败回滚
 # 服务器路径:
 #   前端: /srv/www/cnjinhu.top/control/current/ (release.sh 管理)
 #   后端: /srv/app/smart-control/releases/<TS>/  + current 软链
+# Release 保留策略 (--keep 1 / KEEP_RELEASES=1):
+#   只保留当前 1 个 release. 出问题就重新跑这个 workflow 部署上一个
+#   commit. 不再留 5 个备份占空间.
 # =====================================================================
 name: Deploy
 
 on:
-  push:
-    branches: [main]
+  # 2026-05-31: 不再 push 自动触发. push main 只把代码同步到 GitHub +
+  # GK9000 watcher (watcher 自己 poll, 不依赖 CI), 云端发布要手动.
   workflow_dispatch:
     inputs:
       ref:
@@ -220,7 +228,8 @@ jobs:
             set -e
             rm -rf /tmp/stage && mkdir /tmp/stage
             tar xzf /tmp/control-dist.tgz -C /tmp/stage
-            /srv/www/cnjinhu.top/bin/release.sh control /tmp/stage
+            # KEEP_RELEASES=1: 部署完只保留当前这次, 旧的删. 省云端空间.
+            KEEP_RELEASES=1 /srv/www/cnjinhu.top/bin/release.sh control /tmp/stage
           '
 
       - name: Deploy backend
@@ -236,7 +245,7 @@ jobs:
               --meta-tarball /tmp/deploy-meta.tgz \
               --app-root /srv/app/smart-control \
               --pm2-name smart-control-backend \
-              --keep 5
+              --keep 1
           '
 
       # ---------- Nginx 配置: 自动 diff + reload (有改动才 reload, 防误炸) ----------
