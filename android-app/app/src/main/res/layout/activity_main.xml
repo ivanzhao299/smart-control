@@ -64,19 +64,22 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- 右上角"切换服务器"小按钮 (业主切回配置页用) -->
+        <!-- 切换服务器小按钮 — 只在 PWA 登录页 (/client-login) 时由 MainActivity 显示出来
+             业主反馈 2026-05-31: 登录成功后这个图标没必要常驻, 会遮挡时钟.
+             位置移到底部右下角, 避开 PWA 顶部时钟; 默认 GONE, MainActivity 按当前 URL 切换可见性. -->
         <ImageButton
             android:id="@+id/btnGear"
             android:layout_width="44dp"
             android:layout_height="44dp"
-            android:layout_gravity="top|end"
-            android:layout_marginTop="24dp"
+            android:layout_gravity="bottom|end"
+            android:layout_marginBottom="24dp"
             android:layout_marginEnd="12dp"
             android:background="@drawable/bg_btn_secondary"
             android:src="@android:drawable/ic_menu_manage"
             android:tint="@color/primary"
             android:contentDescription="@string/settings"
             android:scaleType="centerInside"
-            android:alpha="0.6" />
+            android:alpha="0.35"
+            android:visibility="gone" />
     </FrameLayout>
 </FrameLayout>

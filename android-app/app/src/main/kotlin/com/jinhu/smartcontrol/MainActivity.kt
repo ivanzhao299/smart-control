@@ -231,12 +231,22 @@ class MainActivity : AppCompatActivity() {
         wv.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                 bind.errorOverlay.visibility = View.GONE
+                applyGearVisibility(url)
+            }
+            override fun onPageFinished(view: WebView, url: String) {
+                applyGearVisibility(url)
+            }
+            /** PWA 是 SPA, router.push 不走 onPageStarted, 但走 doUpdateVisitedHistory. */
+            override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
+                applyGearVisibility(url)
             }
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (!request.isForMainFrame) return
                 val msg = "${error.errorCode}: ${error.description}"
                 bind.errorText.text = getString(R.string.webview_error, msg)
                 bind.errorOverlay.visibility = View.VISIBLE
+                // 出错也露出齿轮, 业主可以切换服务器
+                bind.btnGear.visibility = View.VISIBLE
             }
         }
         wv.webChromeClient = WebChromeClient()
@@ -258,6 +268,19 @@ class MainActivity : AppCompatActivity() {
         bind.webView.loadUrl(url)
         // 加载 PWA 之后异步检查 APP 自身版本
         UpdateChecker.checkAsync(this, url)
+    }
+
+    /**
+     * 齿轮按钮可见性策略:
+     *   - PWA 登录页 (/client-login)  → 显示 (业主可能要换 server)
+     *   - 进入业主侧主页面 (dashboard / lighting / ...) → 隐藏 (避免遮挡 PWA 顶部时钟)
+     *   - 出错 → onReceivedError 那边显式显示
+     *
+     * 业主反馈 2026-05-31: 登录成功后这个图标没必要再存在.
+     */
+    private fun applyGearVisibility(url: String?) {
+        val show = url?.contains("/client-login") == true
+        bind.btnGear.visibility = if (show) View.VISIBLE else View.GONE
     }
 
     // ============ 返回键 ============

@@ -241,7 +241,9 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
           <span class="v2-dot"></span>
           {{ activeScene }}
         </span>
-        <span class="v2-pill" :class="wsPillCls">
+        <!-- 网络状态 pill: 已连接时隐藏 (无消息就是好消息), 只在 connecting/离线时弹出红黄提示
+             业主反馈 2026-05-31: 正常连接时这个图标没必要常驻, 还挤时钟 -->
+        <span v-if="sys.wsState !== 'open'" class="v2-pill" :class="wsPillCls">
           <span class="v2-dot"></span>{{ wsPillText }}
         </span>
         <span v-if="mockTag" class="v2-pill" style="background: rgba(59,130,246,.12); color: var(--v2-info); border-color: rgba(59,130,246,.3)">
