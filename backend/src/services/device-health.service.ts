@@ -36,16 +36,29 @@ const RECONNECT_DELAYS_MS = [0, 5_000, 15_000];
  * envSkip 列表里的 gateway 跳过 probe (e.g. 现场没接 V2460 时 LED_PROBE_DISABLED=1).
  */
 const GATEWAY_META: Record<string, { displayName: string; envSkipKey: string }> = {
-  'lighting-dali-gateway': { displayName: '灯光 DALI 网关', envSkipKey: 'LIGHTING_PROBE_DISABLED' },
-  'led-nova-vx1000':       { displayName: '诺瓦 V2460 LED 控制器', envSkipKey: 'LED_PROBE_DISABLED' },
-  'audio-dsp':             { displayName: '音响 DSP', envSkipKey: 'AUDIO_PROBE_DISABLED' },
-  'hvac-modbus':           { displayName: '空调 Modbus', envSkipKey: 'HVAC_PROBE_DISABLED' },
+  'lighting-dali-gateway':    { displayName: '灯光 DALI 网关 (旧 key, 已淘汰)', envSkipKey: 'LIGHTING_PROBE_DISABLED' },
+  'lighting-dali-cy64a':      { displayName: '灯光 DALI 网关 (旧聚合 key)', envSkipKey: 'LIGHTING_PROBE_DISABLED' },
+  // 多网关时代 (2026-05-31+) 按 slaveId 区分:
+  'lighting-dali-cy64a-1':    { displayName: 'DALI 网关 #1 (1F)', envSkipKey: 'LIGHTING_PROBE_DISABLED' },
+  'lighting-dali-cy64a-2':    { displayName: 'DALI 网关 #2 (2F)', envSkipKey: 'LIGHTING_PROBE_DISABLED' },
+  'led-nova-vx1000':          { displayName: '诺瓦 V2460 LED 控制器', envSkipKey: 'LED_PROBE_DISABLED' },
+  'audio-dsp':                { displayName: '音响 DSP', envSkipKey: 'AUDIO_PROBE_DISABLED' },
+  'hvac-modbus':              { displayName: '空调 Modbus', envSkipKey: 'HVAC_PROBE_DISABLED' },
 };
 
 function gatewayDisplay(key: string): string {
-  return GATEWAY_META[key]?.displayName ?? key;
+  if (GATEWAY_META[key]) return GATEWAY_META[key].displayName;
+  // 动态生成: lighting-dali-cy64a-3 → 'DALI 网关 (slaveId=3)'
+  const m = key.match(/^lighting-dali-cy64a-(\d+)$/);
+  if (m) return `DALI 网关 (slaveId=${m[1]})`;
+  return key;
 }
 function isGatewayProbeDisabled(key: string): boolean {
+  // 所有 lighting-dali-* 都共用一个 env 开关
+  if (key.startsWith('lighting-dali-')) {
+    const v = process.env.LIGHTING_PROBE_DISABLED;
+    return v === '1' || v === 'true';
+  }
   const meta = GATEWAY_META[key];
   if (!meta) return false;
   const v = process.env[meta.envSkipKey];
@@ -115,8 +128,10 @@ export class DeviceHealthService implements OnApplicationBootstrap, OnModuleDest
     this.running = true;
     try {
       const tasks: Array<Promise<void>> = [];
+      // 灯光 cy-dali64a 的 healthCheck 内部已经并行 probe 所有 slaveId, 上层只调一次,
+      // 但 reconnect 状态归到 -1 那个 key (默认 slaveId), 其他 slaveId 由 readWithFault 实时报告.
       const all: Array<[string, ProbeFn]> = [
-        ['lighting-dali-gateway', () => this.lighting.healthCheck()],
+        ['lighting-dali-cy64a-1', () => this.lighting.healthCheck()],
         ['led-nova-vx1000',       () => this.led.healthCheck()],
         ['audio-dsp',             () => this.audio.healthCheck()],
         ['hvac-modbus',           () => this.hvac.healthCheck()],

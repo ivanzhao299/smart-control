@@ -27,7 +27,21 @@ import {
   shortBaseReg,
 } from './cy-dali64a-registers';
 
-const GATEWAY_KEY = 'lighting-dali-cy64a';
+/**
+ * 网关连接注册 key — 按 slaveId 拆开, 每个 DALI 网关独立追踪在线 / 故障状态.
+ *
+ * 历史: 之前是一个常量 'lighting-dali-cy64a', 不管打到哪个 slaveId 都汇报到这个 key.
+ * 单网关场景 OK, 但加了 GW-DALI-2 后, 2 号网关的在线状态没法独立展示, 用户看
+ * UI 永远只有"1 个 DALI 网关", 以为 #2 没上线.
+ *
+ * 新格式: lighting-dali-cy64a-<slaveId>, e.g. lighting-dali-cy64a-1 / -2
+ * 兼容老 alert: 加一个 LEGACY_KEY, 启动时 auto-resolve 它的残留 alert
+ */
+const GATEWAY_KEY_PREFIX = 'lighting-dali-cy64a';
+const LEGACY_GATEWAY_KEY = 'lighting-dali-cy64a'; // 老 key, 启动时清残留
+function gatewayKeyForSlave(slaveId: number): string {
+  return `${GATEWAY_KEY_PREFIX}-${slaveId}`;
+}
 
 interface DaliAddressing {
   /** 网关从机地址 (拨码盘 1-63), 缺省取 env DALI_RTU_SLAVE_ID */
@@ -127,20 +141,42 @@ export class CyDali64aAdapter extends BaseAdapter {
     this.modbusHost = this.cfg.host;
     this.modbusPort = this.cfg.port;
 
-    if (!this.isMock()) this.registry.register(GATEWAY_KEY, this.endpoint);
+    if (!this.isMock()) {
+      // 启动注册 default slaveId 网关, 其他 slaveId 等首次 modbus 调用 / 健康检查时按需注册
+      this.registry.register(gatewayKeyForSlave(this.cfg.defaultSlaveId), this.endpoint);
+      // 老单 key 'lighting-dali-cy64a' 已废弃, 残留 alert 通过 AlertBanner X 按钮清理
+      // (adapter 没注入 AlertService, 避免 alert 模块循环依赖)
+    }
 
     this.logger.info(
-      `CyDali64aAdapter ready (host=${this.cfg.host}:${this.cfg.port} slaveId=${this.cfg.defaultSlaveId})`,
+      `CyDali64aAdapter ready (host=${this.cfg.host}:${this.cfg.port} defaultSlaveId=${this.cfg.defaultSlaveId})`,
       { context: 'CyDali64aAdapter' },
     );
   }
 
   // ============ 公共 API ============
 
+  /**
+   * 健康检查 — 从 DB 拉所有 cy-dali64a 网关, 逐个 probe (并行).
+   * 任何一个失败就视为整体 fail 抛错 (DeviceHealthService 会按这个判 offline).
+   * 每个网关的具体在线/失败状态独立写到对应 slaveId 的 ConnectionRegistry 条目.
+   */
   async healthCheck(ctx?: AdapterContext): Promise<AdapterResult<{ ok: true }>> {
-    return this.run(GATEWAY_KEY, 'healthCheck', ctx, async () => {
-      // 读 1 个寄存器作为探活 (随便读组 1 亮度)
-      await this.readWithFault(this.cfg.defaultSlaveId, groupBaseReg(1) + 1, 1, ctx?.signal);
+    return this.run(gatewayKeyForSlave(this.cfg.defaultSlaveId), 'healthCheck', ctx, async () => {
+      const slaveIds = await this.getAllConfiguredSlaveIds();
+      const results = await Promise.allSettled(
+        slaveIds.map(async (sid) => {
+          // 确保注册过 (DB 里新加的网关首次 probe 时 register)
+          this.registry.register(gatewayKeyForSlave(sid), this.endpoint);
+          // 读 group 1 亮度寄存器探活 (group 1 不一定真存在, 但 modbus 层只要响应就算通)
+          await this.readWithFault(sid, groupBaseReg(1) + 1, 1, ctx?.signal);
+        }),
+      );
+      const failed = results.filter((r) => r.status === 'rejected');
+      if (failed.length > 0) {
+        const errs = failed.map((r) => (r.status === 'rejected' ? r.reason?.message ?? String(r.reason) : ''));
+        throw new Error(`部分网关探活失败 (${failed.length}/${slaveIds.length}): ${errs.join('; ')}`);
+      }
       return { ok: true as const };
     });
   }
@@ -317,6 +353,33 @@ export class CyDali64aAdapter extends BaseAdapter {
   }
 
   /**
+   * 拉所有 dali-gateway hardware_unit 的 slaveId 列表 (去重, 升序).
+   * healthCheck 用这个逐个 probe; 没 DB 数据时退回 defaultSlaveId 单网关.
+   */
+  private async getAllConfiguredSlaveIds(): Promise<number[]> {
+    const fallback = [this.cfg.defaultSlaveId];
+    if (!this.hwRepo) return fallback;
+    try {
+      const rows = await this.hwRepo.find({ where: { category: 'dali-gateway' } });
+      const set = new Set<number>();
+      for (const row of rows) {
+        if (!row.enabled) continue; // 禁用的网关跳过 probe
+        if (!row.addressing) continue;
+        try {
+          const a = JSON.parse(row.addressing) as { slaveId?: number };
+          if (typeof a.slaveId === 'number' && a.slaveId >= 1 && a.slaveId <= 247) {
+            set.add(a.slaveId);
+          }
+        } catch { /* 单条配置错不影响其他 */ }
+      }
+      if (set.size === 0) return fallback;
+      return Array.from(set).sort((a, b) => a - b);
+    } catch {
+      return fallback;
+    }
+  }
+
+  /**
    * 多网关支持: 读所有 hardware_unit category='dali-gateway' 行, 把它们的
    * addressing.groups (number[]) 跟 addressing.slaveId 拼成 Map<group, slaveId>.
    *
@@ -394,25 +457,25 @@ export class CyDali64aAdapter extends BaseAdapter {
     this.cfg.port = port;
     this.endpoint = `tcp://${host}:${port}`;
     if (!this.isMock()) {
-      // register 现在是幂等的, 已存在会更新 endpoint + 清旧 lastError
-      this.registry.register(GATEWAY_KEY, this.endpoint);
+      // 所有已知 slaveId 都重新 register, endpoint 跟主 host:port 一致
+      void this.getAllConfiguredSlaveIds().then((sids) => {
+        for (const sid of sids) {
+          this.registry.register(gatewayKeyForSlave(sid), this.endpoint);
+        }
+      }).catch(() => { /* DB 拉不到, 至少默认那台已经注册过了 */ });
     }
   }
 
-  /** Sprint-08 设备健康检查使用; 现在简化为读 1 个寄存器 */
+  /** Sprint-08 设备健康检查 — 单 slaveId 探活, 给 device-status.service 用 */
   async ping(ctx?: AdapterContext): Promise<void> {
     await this.syncRuntime();
+    const sid = this.cfg.defaultSlaveId;
     try {
-      await this.modbus.readHoldingRegisters(
-        groupBaseReg(1) + 1,
-        1,
-        this.cfg.defaultSlaveId,
-        ctx?.signal,
-      );
-      this.registry.markOnline(GATEWAY_KEY);
+      await this.modbus.readHoldingRegisters(groupBaseReg(1) + 1, 1, sid, ctx?.signal);
+      this.registry.markOnline(gatewayKeyForSlave(sid));
     } catch (err) {
       const dErr = classifyError('lighting', err);
-      this.registry.markFailure(GATEWAY_KEY, dErr.message, false);
+      this.registry.markFailure(gatewayKeyForSlave(sid), dErr.message, false);
       throw dErr;
     }
   }
@@ -498,13 +561,16 @@ export class CyDali64aAdapter extends BaseAdapter {
     signal?: AbortSignal,
   ): Promise<number[]> {
     await this.syncRuntime();
+    const key = gatewayKeyForSlave(slaveId);
+    // 没 register 过的 slaveId (运行时新增网关) 立即注册一下, 这样 markOnline 才有目标
+    this.registry.register(key, this.endpoint);
     try {
       const out = await this.modbus.readHoldingRegisters(address, qty, slaveId, signal);
-      this.registry.markOnline(GATEWAY_KEY);
+      this.registry.markOnline(key);
       return out;
     } catch (err) {
       const dErr = classifyError('lighting', err);
-      this.registry.markFailure(GATEWAY_KEY, dErr.message, true);
+      this.registry.markFailure(key, dErr.message, true);
       throw dErr;
     }
   }
@@ -516,12 +582,14 @@ export class CyDali64aAdapter extends BaseAdapter {
     signal?: AbortSignal,
   ): Promise<void> {
     await this.syncRuntime();
+    const key = gatewayKeyForSlave(slaveId);
+    this.registry.register(key, this.endpoint);
     try {
       await this.modbus.writeSingleRegister(address, value, slaveId, signal);
-      this.registry.markOnline(GATEWAY_KEY);
+      this.registry.markOnline(key);
     } catch (err) {
       const dErr = classifyError('lighting', err);
-      this.registry.markFailure(GATEWAY_KEY, dErr.message, true);
+      this.registry.markFailure(key, dErr.message, true);
       throw dErr;
     }
   }
@@ -533,12 +601,14 @@ export class CyDali64aAdapter extends BaseAdapter {
     signal?: AbortSignal,
   ): Promise<void> {
     await this.syncRuntime();
+    const key = gatewayKeyForSlave(slaveId);
+    this.registry.register(key, this.endpoint);
     try {
       await this.modbus.writeMultipleRegisters(address, values, slaveId, signal);
-      this.registry.markOnline(GATEWAY_KEY);
+      this.registry.markOnline(key);
     } catch (err) {
       const dErr = classifyError('lighting', err);
-      this.registry.markFailure(GATEWAY_KEY, dErr.message, true);
+      this.registry.markFailure(key, dErr.message, true);
       throw dErr;
     }
   }
