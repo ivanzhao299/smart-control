@@ -62,6 +62,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'hardware', name: 'admin-hardware', component: () => import('@/pages/admin/HardwareAdmin.vue') },
       { path: 'light-zones', name: 'admin-light-zones', component: () => import('@/pages/admin/LightZonesAdmin.vue') },
       { path: 'power-circuits', name: 'admin-power-circuits', component: () => import('@/pages/admin/PowerCircuitsAdmin.vue') },
+      { path: 'app-release', name: 'admin-app-release', component: () => import('@/pages/admin/AppReleaseAdmin.vue') },
       { path: 'drivers', name: 'admin-drivers', component: () => import('@/pages/admin/DriversAdmin.vue') },
       { path: 'brands', name: 'admin-brands', component: () => import('@/pages/admin/BrandsAdmin.vue') },
       { path: 'system-branding', name: 'admin-system-branding', component: () => import('@/pages/admin/SystemBrandingAdmin.vue') },

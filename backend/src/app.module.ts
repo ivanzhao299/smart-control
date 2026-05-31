@@ -34,6 +34,7 @@ import { BrandsModule } from './modules/brands/brands.module';
 import { SystemBrandingModule } from './modules/system-branding/system-branding.module';
 import { AdminAuthModule } from './modules/admin-auth/admin-auth.module';
 import { ClientAuthModule } from './modules/client-auth/client-auth.module';
+import { AppReleaseModule } from './modules/app-release/app-release.module';
 import { PlaybackModule } from './modules/playback/playback.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AdaptersModule } from './adapters/adapters.module';
@@ -75,6 +76,7 @@ import { ServicesModule } from './services/services.module';
     SystemBrandingModule,
     AdminAuthModule,
     ClientAuthModule,
+    AppReleaseModule,
     PlaybackModule,
     AuditModule,
     WebsocketModule,

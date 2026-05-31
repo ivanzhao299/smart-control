@@ -61,6 +61,7 @@ export const ADMIN_NAV_ICON: Record<string, LucideIcon> = {
   'admin-hardware': Cable,
   'admin-light-zones': Lightbulb,
   'admin-power-circuits': Zap,
+  'admin-app-release': Settings,
   'admin-drivers': Cpu,
   'admin-brands': Tag,
   'admin-system-branding': Palette,

@@ -256,6 +256,8 @@ class MainActivity : AppCompatActivity() {
         bind.configPanel.root.visibility = View.GONE
         bind.webPanel.visibility = View.VISIBLE
         bind.webView.loadUrl(url)
+        // 加载 PWA 之后异步检查 APP 自身版本
+        UpdateChecker.checkAsync(this, url)
     }
 
     // ============ 返回键 ============
