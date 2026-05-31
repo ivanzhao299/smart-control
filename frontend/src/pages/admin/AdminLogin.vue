@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { Lock, ArrowLeft } from 'lucide-vue-next';
+import { Lock, X } from 'lucide-vue-next';
 import { useAdminAuthStore } from '@/stores/admin-auth';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 
@@ -65,8 +65,7 @@ async function submit(): Promise<void> {
     <div class="login-bg"></div>
     <div class="login-card">
       <button class="back-btn" @click="goBack" title="返回前台首页">
-        <ArrowLeft :size="16" :stroke-width="2" />
-        <span>返回首页</span>
+        <X :size="18" :stroke-width="2" />
       </button>
       <div class="brand">
         <div class="brand-logo">
@@ -140,22 +139,22 @@ async function submit(): Promise<void> {
   box-shadow: var(--v2-elev-3);
   backdrop-filter: blur(20px);
 }
-/* 左上角返回按钮 — 让业主进了登录页能退出去 */
+/* 右上角关闭按钮 — 让业主进了登录页能退出. 36×36 方形, 跟 dialog 关闭按钮一致 */
 .back-btn {
   position: absolute;
-  top: 14px;
-  left: 14px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px 6px 10px;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
   border-radius: 8px;
   background: transparent;
   border: 1px solid var(--v2-border-soft);
   color: var(--v2-text-2);
-  font-size: 12px;
   cursor: pointer;
   transition: all 0.18s ease;
+  padding: 0;
 }
 .back-btn:hover {
   background: var(--v2-surf-1-hover);
