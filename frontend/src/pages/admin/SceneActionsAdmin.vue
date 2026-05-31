@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
@@ -10,9 +10,17 @@ import {
 import { usePermissionStore } from '@/stores/permission';
 import {
   Settings2, ChevronLeft, RefreshCw, Plus, Play, Pencil, Trash2,
-  ChevronUp, ChevronDown, Loader,
+  ChevronUp, ChevronDown, Loader, Code2, Wand2,
 } from 'lucide-vue-next';
 import type { Scene, SceneAction } from '@/types/api';
+import ActionParamForm from '@/components/admin/ActionParamForm.vue';
+import ActionDeviceSelector from '@/components/admin/ActionDeviceSelector.vue';
+import {
+  DEVICE_TYPE_LIST, DEVICE_TYPE_META,
+  getCommandSpec, listCommandsForType,
+  paramsFromForm,
+  type CommandSpec,
+} from '@/services/scene-action-schema';
 
 const props = defineProps<{ id: string | number }>();
 const router = useRouter();
@@ -23,46 +31,94 @@ const scene = ref<Scene | null>(null);
 const rows = ref<SceneAction[]>([]);
 const loading = ref(false);
 
-const deviceTypeOptions = ['lighting', 'led', 'audio', 'hvac', 'hvac-zone', 'power'];
-const commandsByType: Record<string, string[]> = {
-  lighting: ['turnOn', 'turnOff', 'setBrightness', 'recallScene'],
-  led: ['powerOn', 'powerOff', 'switchInput', 'playMedia', 'showWelcome'],
-  audio: ['setVolume', 'mute', 'unmute', 'playBgm', 'stopBgm', 'enableMic'],
-  hvac: ['turnOn', 'turnOff', 'setTemperature', 'setMode', 'setFanSpeed'],
-  // hvac-zone: deviceId 填 zone code (例 "roadshow", "meeting_room", "lobby_2f", 见 docs/HVAC_ZONES.md)
-  'hvac-zone': ['turnOn', 'turnOff', 'setTemperature', 'setMode', 'setFanSpeed'],
-  power: ['turnOn', 'turnOff'],
-};
+/** 是否走"高级 JSON" 模式 — 默认 false (智能 form), 老数据 / 未识别 schema 时强制 true */
+const advancedJson = ref(false);
 
 const dialogVisible = ref(false);
 const dialogMode = ref<'create' | 'edit'>('create');
 const formRef = ref<FormInstance>();
-const form = reactive<{
+
+interface ActionForm {
   id?: number;
   deviceType: string;
   deviceId: string;
   command: string;
+  /** 智能 form 模式: 按 schema 的 key→value */
+  paramsForm: Record<string, unknown>;
+  /** 高级 JSON 模式 / fallback: 原始 JSON 文本 */
   paramsRaw: string;
   delayMs: number;
   sortOrder: number;
   enabled: boolean;
-}>({
+}
+
+const form = reactive<ActionForm>({
   deviceType: 'lighting',
   deviceId: '',
   command: 'turnOn',
+  paramsForm: {},
   paramsRaw: '{}',
   delayMs: 0,
   sortOrder: 0,
   enabled: true,
 });
 
+/** 当前 (deviceType, command) 对应的 schema; null = 未注册, 必须走 JSON */
+const currentSpec = computed<CommandSpec | null>(() => getCommandSpec(form.deviceType, form.command));
+
+/** 当前 deviceType 下所有已注册命令 */
+const availableCommands = computed(() => listCommandsForType(form.deviceType));
+
+const deviceTypeOptionsExt = DEVICE_TYPE_LIST;
+
+/** deviceType 切换时, 命令重置到该类型的第一个 / 清空 */
+watch(() => form.deviceType, (newType, oldType) => {
+  if (newType === oldType) return;
+  const list = listCommandsForType(newType);
+  form.command = list[0]?.value ?? '';
+  form.deviceId = '';
+  form.paramsForm = {};
+  form.paramsRaw = '{}';
+});
+
+/** command 切换时, paramsForm 重置到 schema 默认值 */
+watch(() => form.command, () => {
+  const spec = getCommandSpec(form.deviceType, form.command);
+  if (spec) {
+    form.paramsForm = {};
+    for (const p of spec.params) {
+      if (p.default !== undefined) form.paramsForm[p.key] = p.default;
+    }
+  }
+});
+
+/** 智能 form 和 JSON 切换时双向同步 */
+function toggleAdvanced(): void {
+  if (!advancedJson.value) {
+    // 切到 JSON 模式: 把 paramsForm 序列化进 paramsRaw
+    form.paramsRaw = JSON.stringify(form.paramsForm, null, 2);
+  } else {
+    // 切回 form 模式: 解析 paramsRaw 回 paramsForm
+    try {
+      const obj = JSON.parse(form.paramsRaw || '{}');
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+        form.paramsForm = obj;
+      }
+    } catch {
+      ElMessage.warning('当前 JSON 不合法, form 模式可能丢字段');
+    }
+  }
+  advancedJson.value = !advancedJson.value;
+}
+
 const rules: FormRules = {
   deviceType: [{ required: true, message: '设备类型必选', trigger: 'change' }],
-  deviceId: [{ required: true, message: '设备ID不能为空', trigger: 'blur' }],
-  command: [{ required: true, message: '命令不能为空', trigger: 'blur' }],
+  deviceId: [{ required: true, message: '设备必选', trigger: 'change' }],
+  command: [{ required: true, message: '操作必选', trigger: 'change' }],
   paramsRaw: [
     {
       validator: (_r, v, cb) => {
+        if (!advancedJson.value) return cb();   // 智能 form 模式不校验 raw
         if (!v || !v.trim()) return cb();
         try {
           const parsed = JSON.parse(v);
@@ -102,29 +158,45 @@ function openCreate(): void {
     deviceType: 'lighting',
     deviceId: '',
     command: 'turnOn',
+    paramsForm: {},
     paramsRaw: '{}',
     delayMs: 0,
     sortOrder: maxSort + 1,
     enabled: true,
   });
+  advancedJson.value = false;
   dialogVisible.value = true;
 }
 
 function openEdit(row: SceneAction): void {
   if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
   dialogMode.value = 'edit';
-  let prettyParams = row.params;
-  try { prettyParams = JSON.stringify(JSON.parse(row.params), null, 2); } catch { /* keep as-is */ }
+  // 试着把 row.params (JSON 文本) 解析回 paramsForm; 解析失败的留 JSON 模式
+  let parsed: Record<string, unknown> = {};
+  let parseOk = false;
+  try {
+    const obj = JSON.parse(row.params || '{}');
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+      parsed = obj as Record<string, unknown>;
+      parseOk = true;
+    }
+  } catch { /* ignore */ }
+
   Object.assign(form, {
     id: row.id,
     deviceType: row.deviceType,
     deviceId: row.deviceId,
     command: row.command,
-    paramsRaw: prettyParams,
+    paramsForm: parsed,
+    paramsRaw: parseOk ? JSON.stringify(parsed, null, 2) : row.params,
     delayMs: row.delayMs,
     sortOrder: row.sortOrder,
     enabled: row.enabled,
   });
+
+  // 如果 schema 不认识这个命令, 直接走 JSON 高级模式
+  const spec = getCommandSpec(row.deviceType, row.command);
+  advancedJson.value = !spec || !parseOk;
   dialogVisible.value = true;
 }
 
@@ -132,10 +204,26 @@ async function submit(): Promise<void> {
   if (!formRef.value) return;
   await formRef.value.validate(async (valid) => {
     if (!valid) return;
-    const params = (() => {
-      if (!form.paramsRaw.trim()) return {};
-      return JSON.parse(form.paramsRaw);
-    })();
+
+    // 取 params: 智能 form 模式从 paramsForm 经 schema 提取; JSON 模式直接 parse
+    let params: Record<string, unknown>;
+    if (advancedJson.value) {
+      try {
+        params = form.paramsRaw.trim() ? JSON.parse(form.paramsRaw) : {};
+      } catch (err) {
+        ElMessage.error('JSON 解析失败: ' + (err as Error).message);
+        return;
+      }
+    } else {
+      const spec = currentSpec.value;
+      if (spec) {
+        params = paramsFromForm(spec, form.paramsForm);
+      } else {
+        // 没注册的命令: 退回 paramsForm 直接做对象用
+        params = { ...form.paramsForm };
+      }
+    }
+
     const payload: SceneActionPayload = {
       deviceType: form.deviceType,
       deviceId: form.deviceId,
@@ -238,15 +326,24 @@ onMounted(refresh);
 
     <el-table v-loading="loading" :data="rows" stripe size="default" row-key="id">
       <el-table-column prop="sortOrder" label="顺序" width="80" sortable :sort-method="sortBySort" />
-      <el-table-column label="设备类型" width="110">
+      <el-table-column label="类型" width="130">
         <template #default="{ row }">
-          <code class="code-cell">{{ row.deviceType }}</code>
+          <span class="type-cell">
+            {{ DEVICE_TYPE_META[row.deviceType]?.icon ?? '⚙' }} {{ DEVICE_TYPE_META[row.deviceType]?.label ?? row.deviceType }}
+          </span>
         </template>
       </el-table-column>
-      <el-table-column prop="deviceId" label="设备ID" min-width="180" />
-      <el-table-column label="命令" width="160">
+      <el-table-column prop="deviceId" label="设备 / 区域" min-width="180">
         <template #default="{ row }">
-          <code class="code-cell">{{ row.command }}</code>
+          <code class="code-cell">{{ row.deviceId }}</code>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="180">
+        <template #default="{ row }">
+          <span class="cmd-cell">
+            {{ getCommandSpec(row.deviceType, row.command)?.label ?? row.command }}
+          </span>
+          <div class="cmd-raw">{{ row.command }}</div>
         </template>
       </el-table-column>
       <el-table-column prop="params" label="参数" min-width="200">
@@ -283,39 +380,88 @@ onMounted(refresh);
     <el-dialog
       v-model="dialogVisible"
       :title="dialogMode === 'create' ? '新增动作' : '编辑动作'"
-      width="640"
+      width="720"
       destroy-on-close
     >
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="100" status-icon>
-        <el-form-item label="设备类型" prop="deviceType">
+      <el-form ref="formRef" :model="form" :rules="rules" label-position="top" status-icon class="action-form">
+        <!-- 第 1 步: 设备类型 -->
+        <el-form-item label="① 选设备类型" prop="deviceType">
           <el-select v-model="form.deviceType" style="width: 100%;">
-            <el-option v-for="t in deviceTypeOptions" :key="t" :label="t" :value="t" />
+            <el-option v-for="t in deviceTypeOptionsExt" :key="t.value" :label="t.label" :value="t.value" />
           </el-select>
         </el-form-item>
-        <el-form-item label="设备ID" prop="deviceId">
-          <el-input v-model="form.deviceId" placeholder="如 light_1f_main" />
+
+        <!-- 第 2 步: 设备 (按类型下拉) -->
+        <el-form-item label="② 选具体设备" prop="deviceId">
+          <ActionDeviceSelector v-model="form.deviceId" :device-type="form.deviceType" />
         </el-form-item>
-        <el-form-item label="命令" prop="command">
-          <el-select v-model="form.command" filterable allow-create style="width: 100%;">
+
+        <!-- 第 3 步: 操作 -->
+        <el-form-item label="③ 选操作" prop="command">
+          <el-select v-model="form.command" filterable allow-create placeholder="选一个操作" style="width: 100%;">
             <el-option
-              v-for="c in commandsByType[form.deviceType] ?? []"
-              :key="c" :label="c" :value="c"
-            />
+              v-for="c in availableCommands"
+              :key="c.value"
+              :label="c.label"
+              :value="c.value"
+            >
+              <span style="float: left;">{{ c.label }}</span>
+              <span style="float: right; color: var(--v2-text-3); font-size: 12px; margin-left: 12px;">{{ c.value }}</span>
+            </el-option>
           </el-select>
+          <div v-if="currentSpec?.description" class="cmd-desc">{{ currentSpec.description }}</div>
         </el-form-item>
-        <el-form-item label="参数 JSON" prop="paramsRaw">
-          <el-input v-model="form.paramsRaw" type="textarea" :rows="4" placeholder='例: {"value":80}' />
+
+        <!-- 第 4 步: 参数 — 智能 form / JSON 高级模式切换 -->
+        <el-form-item :label="advancedJson ? '④ 参数 (JSON 高级)' : '④ 参数'" prop="paramsRaw">
+          <div class="param-section">
+            <div class="param-mode-row">
+              <el-button v-if="!advancedJson" link type="primary" size="small" @click="toggleAdvanced">
+                <Code2 :size="13" /> 切到 JSON 高级模式
+              </el-button>
+              <el-button v-else link type="primary" size="small" @click="toggleAdvanced">
+                <Wand2 :size="13" /> 切回智能模式
+              </el-button>
+            </div>
+
+            <!-- 智能 form 模式 -->
+            <ActionParamForm
+              v-if="!advancedJson && currentSpec"
+              v-model="form.paramsForm"
+              :spec="currentSpec"
+            />
+            <div v-else-if="!advancedJson && !currentSpec" class="no-schema-hint">
+              这个命令 ({{ form.deviceType }}.{{ form.command }}) 还没注册智能 schema,
+              请用 JSON 模式输入参数 →
+              <el-button link type="primary" size="small" @click="toggleAdvanced">切到 JSON</el-button>
+            </div>
+
+            <!-- JSON 高级模式 -->
+            <el-input
+              v-if="advancedJson"
+              v-model="form.paramsRaw"
+              type="textarea"
+              :rows="5"
+              placeholder='例: {"value":80}'
+              class="json-textarea"
+            />
+          </div>
         </el-form-item>
-        <el-form-item label="延时 (ms)">
-          <el-input-number v-model="form.delayMs" :min="0" :step="100" />
-        </el-form-item>
-        <el-form-item label="顺序 (sortOrder)">
-          <el-input-number v-model="form.sortOrder" :min="0" />
-          <div class="sc-subtle hint">相同 sortOrder 的动作并行执行；不同的按升序顺序执行</div>
-        </el-form-item>
-        <el-form-item label="启用">
-          <el-switch v-model="form.enabled" />
-        </el-form-item>
+
+        <!-- 时序参数 -->
+        <div class="form-row">
+          <el-form-item label="延时 (毫秒)" class="half">
+            <el-input-number v-model="form.delayMs" :min="0" :step="100" />
+            <div class="cmd-desc">动作触发前先等多少毫秒</div>
+          </el-form-item>
+          <el-form-item label="执行顺序" class="half">
+            <el-input-number v-model="form.sortOrder" :min="0" />
+            <div class="cmd-desc">相同顺序并行, 不同顺序按升序串行</div>
+          </el-form-item>
+          <el-form-item label="启用" class="quarter">
+            <el-switch v-model="form.enabled" />
+          </el-form-item>
+        </div>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -376,4 +522,69 @@ onMounted(refresh);
 
 .spin { animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* 表格类型 / 操作列友好显示 */
+.type-cell {
+  font-size: 13px;
+  color: var(--v2-text-1);
+}
+.cmd-cell {
+  font-size: 13px;
+  color: var(--v2-text-1);
+  font-weight: 500;
+}
+.cmd-raw {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  color: var(--v2-text-3);
+  margin-top: 2px;
+}
+
+/* 新版 form */
+.action-form :deep(.el-form-item__label) {
+  font-weight: 500;
+  color: var(--v2-text-1);
+  padding-bottom: 6px;
+  line-height: 1.4;
+}
+.cmd-desc {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--v2-text-3);
+  line-height: 1.5;
+}
+.param-section {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--v2-border-soft);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.param-mode-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+.no-schema-hint {
+  padding: 12px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--v2-text-2);
+  line-height: 1.6;
+}
+.json-textarea :deep(textarea) {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+}
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 100px;
+  gap: 14px;
+  align-items: start;
+}
+@media (max-width: 720px) {
+  .form-row { grid-template-columns: 1fr; }
+}
 </style>
