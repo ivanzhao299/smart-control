@@ -2,7 +2,10 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <!-- 关掉所有缩放: PWA standalone 模式下浏览器本来就忽略, 这是给业主浏览器
+         访问 URL 时的兜底. iOS Safari 13+ 即使设 user-scalable=no 也允许双指缩放,
+         配合 main.ts 里的 gesturestart/gestureend preventDefault 才彻底禁掉 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, viewport-fit=cover, user-scalable=no" />
     <meta name="theme-color" content="#111827" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />

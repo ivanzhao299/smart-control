@@ -32,6 +32,53 @@ function redirectManifestToBackend(): void {
 }
 redirectManifestToBackend();
 
+/**
+ * 禁双指/双击缩放 (iOS Safari 13+ 兜底)
+ *
+ * iOS Safari 13+ 故意无视 user-scalable=no (帮助残障人士), 但 PWA standalone 模式
+ * 仍尊重. 不过业主可能在浏览器访问 URL, 那种情况下要靠下面这些 JS 才能彻底禁:
+ *
+ * - gesturestart/change/end: Safari 专属手势事件, 双指缩放从这里开始 → 直接吃掉
+ * - touchstart 多指: Android Chrome / 通用浏览器 → 多于 1 指就吃
+ * - dblclick / 双击 touchend: 双击 zoom
+ *
+ * passive: false 必须的, 否则 preventDefault 不生效.
+ */
+function disableZoom(): void {
+  const opts: AddEventListenerOptions = { passive: false };
+  // Safari 手势事件 (双指缩放)
+  document.addEventListener('gesturestart', (e) => e.preventDefault(), opts);
+  document.addEventListener('gesturechange', (e) => e.preventDefault(), opts);
+  document.addEventListener('gestureend', (e) => e.preventDefault(), opts);
+
+  // 多指 touch 通杀 (Android / Firefox 等没有 gesture 事件的)
+  document.addEventListener('touchstart', (e) => {
+    if (e.touches.length > 1) e.preventDefault();
+  }, opts);
+  document.addEventListener('touchmove', (e) => {
+    if (e.touches.length > 1) e.preventDefault();
+  }, opts);
+
+  // 双击 zoom (旧 iOS Safari)
+  let lastTap = 0;
+  document.addEventListener('touchend', (e) => {
+    const now = Date.now();
+    if (now - lastTap < 320) e.preventDefault();
+    lastTap = now;
+  }, opts);
+
+  // Ctrl+滚轮 / Cmd+加减 (桌面浏览器调试时也禁)
+  document.addEventListener('wheel', (e) => {
+    if (e.ctrlKey) e.preventDefault();
+  }, opts);
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && ['+', '-', '=', '0'].includes(e.key)) {
+      e.preventDefault();
+    }
+  });
+}
+disableZoom();
+
 const app = createApp(App);
 app.use(createPinia());
 app.use(router);

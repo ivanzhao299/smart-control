@@ -51,6 +51,12 @@ body,
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
   user-select: none;
+  /* 禁缩放 + 双击放大 — 'manipulation' 允许 pan/zoom 但去掉双击延迟和双击 zoom.
+     配合 viewport meta + main.ts 的 gesturestart preventDefault 三重保险. */
+  touch-action: manipulation;
+  /* Safari 历史遗留: 内容超出时仍会被 -webkit-overflow-scrolling 触发橡皮筋,
+     overscroll-behavior 关掉所有滚动连锁 */
+  overscroll-behavior: none;
 }
 
 button,
