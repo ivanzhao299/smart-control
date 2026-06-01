@@ -12,10 +12,14 @@ import {
   RefreshCcw,
   Send,
   ArrowLeft,
+  Home,
 } from 'lucide-vue-next';
 import { mediaService, type MediaItem } from '@/services/media.service';
 import { usePlaybackStore } from '@/stores/playback';
+import { useSystemBrandingStore } from '@/stores/system-branding';
 import { absUrl } from '@/services/http';
+
+const brandingStore = useSystemBrandingStore();
 
 const playbackStore = usePlaybackStore();
 
@@ -245,7 +249,36 @@ function currentSlotFor(mediaId: number): string {
   return slots.join(' + ');
 }
 
-onMounted(() => { void refresh(); });
+/** 是不是当前欢迎页 — 用来给卡片加"欢迎页"标记 */
+const welcomeMediaId = computed<number | null>(() => brandingStore.branding.welcomeMediaId);
+function isWelcome(m: MediaItem): boolean {
+  return welcomeMediaId.value === m.id;
+}
+
+/** 设为欢迎页 — 写到 system-branding.welcomeMediaId, LED 欢迎页按钮后续就播这个 */
+async function setAsWelcome(m: MediaItem): Promise<void> {
+  try {
+    await brandingStore.save({ welcomeMediaId: m.id });
+    ElMessage.success(`已把「${m.originalName}」设为欢迎页, LED 点欢迎页就播这个`);
+  } catch (e) {
+    ElMessage.error(`设置失败: ${(e as Error).message}`);
+  }
+}
+
+/** 取消欢迎页绑定 → LED 欢迎页按钮回落到 V2460 内置 preset (老逻辑) */
+async function clearWelcome(): Promise<void> {
+  try {
+    await brandingStore.save({ welcomeMediaId: null });
+    ElMessage.success('已取消欢迎页绑定, 后续 LED 欢迎页走控制器内置预设');
+  } catch (e) {
+    ElMessage.error(`取消失败: ${(e as Error).message}`);
+  }
+}
+
+onMounted(async () => {
+  await brandingStore.load();   // 拉 welcomeMediaId 用来标记当前欢迎页卡片
+  void refresh();
+});
 </script>
 
 <template>
@@ -342,11 +375,17 @@ onMounted(() => { void refresh(); });
               <span v-if="m.resolution">· {{ m.resolution }}</span>
             </div>
           </div>
-          <div v-if="currentSlotFor(m.id)" class="playing-tag">
+          <div v-if="isWelcome(m)" class="welcome-tag" title="当前欢迎页 — 点 LED 欢迎页按钮会播这个">
+            <Home :size="11" :stroke-width="2" /> 欢迎页
+          </div>
+          <div v-if="currentSlotFor(m.id)" class="playing-tag" :style="isWelcome(m) ? 'top: 36px;' : ''">
             <Send :size="11" :stroke-width="2" /> 播放中: {{ currentSlotFor(m.id) }}
           </div>
           <div class="card-actions" @click.stop>
-            <el-dropdown trigger="click" @command="(s: 1|2|'both') => pushTo(m, s)">
+            <el-dropdown trigger="click" @command="(c: number | string) => {
+              if (c === 'welcome') setAsWelcome(m);
+              else pushTo(m, c as 1 | 2 | 'both');
+            }">
               <button class="card-btn" title="推送到">
                 <Send :size="14" :stroke-width="2" />
               </button>
@@ -355,6 +394,9 @@ onMounted(() => { void refresh(); });
                   <el-dropdown-item :command="1">推到 LED 大屏 (HDMI1)</el-dropdown-item>
                   <el-dropdown-item :command="2">推到投影仪 (HDMI2)</el-dropdown-item>
                   <el-dropdown-item :command="'both'" divided>同时推两路</el-dropdown-item>
+                  <el-dropdown-item :command="'welcome'" divided :disabled="isWelcome(m)">
+                    {{ isWelcome(m) ? '✓ 已是欢迎页' : '设为欢迎页' }}
+                  </el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
@@ -395,6 +437,17 @@ onMounted(() => { void refresh(); });
             </button>
             <button class="v2-quick" @click="pushTo(previewItem, 'both')">
               <Send :size="14" :stroke-width="2" /> 同时推两路
+            </button>
+            <button
+              class="v2-quick"
+              :disabled="isWelcome(previewItem)"
+              :title="isWelcome(previewItem) ? '已是欢迎页, 点 LED 欢迎页按钮就播这个' : '点 LED 欢迎页按钮时就播这个'"
+              @click="setAsWelcome(previewItem)"
+            >
+              <Home :size="14" :stroke-width="2" /> {{ isWelcome(previewItem) ? '✓ 已是欢迎页' : '设为欢迎页' }}
+            </button>
+            <button v-if="isWelcome(previewItem)" class="v2-quick" @click="clearWelcome">
+              取消欢迎页
             </button>
             <button class="v2-quick danger" @click="confirmDelete(previewItem)">
               <Trash2 :size="14" :stroke-width="2" /> 删除
@@ -558,6 +611,23 @@ onMounted(() => { void refresh(); });
   font-weight: 500;
   letter-spacing: 0.04em;
   box-shadow: 0 4px 10px -2px rgba(6, 182, 212, 0.4);
+  z-index: 2;
+}
+.welcome-tag {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: white;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  box-shadow: 0 4px 10px -2px rgba(245, 158, 11, 0.5);
   z-index: 2;
 }
 .card-btn { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; background: rgba(15, 23, 42, 0.8); color: #fff; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; cursor: pointer; backdrop-filter: blur(6px); transition: all 0.15s; }

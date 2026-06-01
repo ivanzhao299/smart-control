@@ -12,6 +12,8 @@ export interface SystemBrandingDto {
   logoUrl: string | null;
   browserTitle: string | null;
   copyright: string | null;
+  /** 欢迎页绑定的媒体 ID. null = 没设, LED welcome 按钮回落到 V2460 preset */
+  welcomeMediaId: number | null;
 }
 
 const DEFAULTS: SystemBrandingDto = {
@@ -21,6 +23,7 @@ const DEFAULTS: SystemBrandingDto = {
   logoUrl: null,
   browserTitle: '金湖展贸中心 控制系统',
   copyright: null,
+  welcomeMediaId: null,
 };
 
 @Injectable()
@@ -53,7 +56,14 @@ export class SystemBrandingService implements OnModuleInit {
       logoUrl: row.logoUrl,
       browserTitle: row.browserTitle,
       copyright: row.copyright,
+      welcomeMediaId: row.welcomeMediaId,
     };
+  }
+
+  /** 直接读 welcomeMediaId (给 LedController.welcome 用, 不需要拼整个 DTO) */
+  async getWelcomeMediaId(): Promise<number | null> {
+    const row = await this.repo.findOne({ where: { id: 1 } });
+    return row?.welcomeMediaId ?? null;
   }
 
   async update(input: Partial<SystemBrandingDto>): Promise<SystemBrandingDto> {
@@ -92,6 +102,11 @@ export class SystemBrandingService implements OnModuleInit {
     }
     if (input.copyright !== undefined) {
       patch.copyright = norm(input.copyright);
+    }
+    if (input.welcomeMediaId !== undefined) {
+      // null / undefined / 非整数都视为清空
+      const v = input.welcomeMediaId;
+      patch.welcomeMediaId = typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null;
     }
 
     if (current) {

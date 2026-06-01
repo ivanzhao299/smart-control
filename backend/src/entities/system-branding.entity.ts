@@ -57,6 +57,18 @@ export class SystemBranding {
   @Column({ type: 'varchar', length: 120, nullable: true })
   copyright!: string | null;
 
+  /**
+   * 欢迎页绑定的媒体 ID (来自 media 表).
+   *
+   * 业主在 MediaPage 点"设为欢迎页"后写入这个字段. LedController.welcome()
+   * 收到点击后, 不再走 V2460 内置 preset, 而是查这个 mediaId 并通过 playback
+   * 服务推到 slot1 (HDMI1 → LED) loop 播.
+   *
+   * null = 没设置 → showWelcome 回落到 V2460 preset (兼容老安装).
+   */
+  @Column({ type: 'integer', name: 'welcome_media_id', nullable: true })
+  welcomeMediaId!: number | null;
+
   @UpdateDateColumn()
   updatedAt!: Date;
 }

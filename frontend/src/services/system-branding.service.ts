@@ -21,6 +21,12 @@ export interface SystemBranding {
   logoUrl: string | null;
   browserTitle: string | null;
   copyright: string | null;
+  /**
+   * 欢迎页绑定的媒体 ID. null = 没设 → LED welcome 按钮回落到 V2460 内置 preset.
+   * 业主在 MediaPage 点"设为欢迎页"会写入这个字段. 之后 LedController.welcome
+   * 走 playback 推这个 media 到 slot=1 loop 播.
+   */
+  welcomeMediaId: number | null;
 }
 
 export type SystemBrandingPatch = Partial<SystemBranding>;
