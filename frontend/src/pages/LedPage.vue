@@ -7,6 +7,8 @@ import {
 } from 'lucide-vue-next';
 import { ledService, type LedInput } from '@/services/led.service';
 import { usePlaybackStore } from '@/stores/playback';
+import { absUrl } from '@/services/http';
+import { Image as ImageIcon, MonitorOff } from 'lucide-vue-next';
 
 const playbackStore = usePlaybackStore();
 
@@ -167,8 +169,30 @@ async function allOff(): Promise<void> {
             {{ playbackStore.slot1?.currentMediaId ? '播放中' : '待机' }}
           </div>
         </div>
+        <!-- 大屏实时镜像 — 跟 PlayerPage 显示一样的内容, 业主一眼看到大屏状态 -->
+        <div class="pb-mirror" :class="{ empty: !playbackStore.slot1?.currentMediaUrl }">
+          <video
+            v-if="playbackStore.slot1?.currentMediaKind === 'video' && playbackStore.slot1?.currentMediaUrl"
+            :src="absUrl(playbackStore.slot1.currentMediaUrl)"
+            :key="playbackStore.slot1.currentMediaUrl"
+            muted
+            autoplay
+            loop
+            playsinline
+          />
+          <img
+            v-else-if="playbackStore.slot1?.currentMediaKind === 'image' && playbackStore.slot1?.currentMediaUrl"
+            :src="absUrl(playbackStore.slot1.currentMediaUrl)"
+            :alt="playbackStore.slot1.currentMediaName || ''"
+          />
+          <div v-else class="pb-mirror-idle">
+            <MonitorOff :size="28" :stroke-width="1.5" />
+            <span>待机中</span>
+          </div>
+        </div>
         <div v-if="playbackStore.slot1?.currentMediaName" class="pb-media">
-          {{ playbackStore.slot1.currentMediaKind === 'video' ? '🎬' : '🖼' }}
+          <Play v-if="playbackStore.slot1.currentMediaKind === 'video'" :size="13" :stroke-width="2" />
+          <ImageIcon v-else :size="13" :stroke-width="2" />
           {{ playbackStore.slot1.currentMediaName }}
           <span class="pb-loop">{{ playbackStore.slot1.loopMode === 'loop' ? '· 循环' : '· 单次' }}</span>
         </div>
@@ -188,8 +212,29 @@ async function allOff(): Promise<void> {
             {{ playbackStore.slot2?.currentMediaId ? '播放中' : '待机' }}
           </div>
         </div>
+        <div class="pb-mirror" :class="{ empty: !playbackStore.slot2?.currentMediaUrl }">
+          <video
+            v-if="playbackStore.slot2?.currentMediaKind === 'video' && playbackStore.slot2?.currentMediaUrl"
+            :src="absUrl(playbackStore.slot2.currentMediaUrl)"
+            :key="playbackStore.slot2.currentMediaUrl"
+            muted
+            autoplay
+            loop
+            playsinline
+          />
+          <img
+            v-else-if="playbackStore.slot2?.currentMediaKind === 'image' && playbackStore.slot2?.currentMediaUrl"
+            :src="absUrl(playbackStore.slot2.currentMediaUrl)"
+            :alt="playbackStore.slot2.currentMediaName || ''"
+          />
+          <div v-else class="pb-mirror-idle">
+            <MonitorOff :size="28" :stroke-width="1.5" />
+            <span>待机中</span>
+          </div>
+        </div>
         <div v-if="playbackStore.slot2?.currentMediaName" class="pb-media">
-          {{ playbackStore.slot2.currentMediaKind === 'video' ? '🎬' : '🖼' }}
+          <Play v-if="playbackStore.slot2.currentMediaKind === 'video'" :size="13" :stroke-width="2" />
+          <ImageIcon v-else :size="13" :stroke-width="2" />
           {{ playbackStore.slot2.currentMediaName }}
           <span class="pb-loop">{{ playbackStore.slot2.loopMode === 'loop' ? '· 循环' : '· 单次' }}</span>
         </div>
@@ -353,9 +398,48 @@ async function allOff(): Promise<void> {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .pb-loop { color: var(--v2-text-3); font-size: 11px; margin-left: 4px; }
 .pb-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* 大屏实时镜像 — 业主看大屏播啥的窗口 */
+.pb-mirror {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--v2-border-soft);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.4),
+    0 4px 14px -4px rgba(0, 0, 0, 0.45);
+}
+.pb-mirror video, .pb-mirror img {
+  width: 100%; height: 100%;
+  object-fit: contain;
+  display: block;
+  background: #000;
+}
+.pb-mirror.empty {
+  background: radial-gradient(ellipse at center, rgba(0, 229, 255, 0.04), transparent 70%), #050810;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+.pb-mirror-idle {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--v2-text-3);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+}
 
 /* 屏卡 */
 .v2-screen-grid {

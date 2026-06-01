@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router';
 import { wsClient } from '@/services/websocket.service';
 import { getChannel, channelHeartbeat } from '@/services/playback.service';
 import { useSystemBrandingStore } from '@/stores/system-branding';
+import { absUrl } from '@/services/http';
 import type { PlaybackChannelView, WsEvent } from '@/types/api';
 
 /**
@@ -110,7 +111,7 @@ const isIdle = computed<boolean>(() => !channel.value?.currentMediaUrl);
       v-if="isVideo && channel?.currentMediaUrl"
       ref="videoEl"
       class="media-el"
-      :src="channel.currentMediaUrl"
+      :src="absUrl(channel.currentMediaUrl)"
       autoplay
       muted
       playsinline
@@ -122,7 +123,7 @@ const isIdle = computed<boolean>(() => !channel.value?.currentMediaUrl);
     <img
       v-else-if="isImage && channel?.currentMediaUrl"
       class="media-el"
-      :src="channel.currentMediaUrl"
+      :src="absUrl(channel.currentMediaUrl)"
       :alt="channel.currentMediaName || ''"
     />
 

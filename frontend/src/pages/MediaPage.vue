@@ -15,6 +15,7 @@ import {
 } from 'lucide-vue-next';
 import { mediaService, type MediaItem } from '@/services/media.service';
 import { usePlaybackStore } from '@/stores/playback';
+import { absUrl } from '@/services/http';
 
 const playbackStore = usePlaybackStore();
 
@@ -325,8 +326,8 @@ onMounted(() => { void refresh(); });
           @click="pickForSlot ? pickAndPush(m) : openPreview(m)"
         >
           <div class="thumb">
-            <video v-if="m.kind === 'video'" :src="m.fileUrl" preload="metadata" muted playsinline />
-            <img v-else :src="m.fileUrl" :alt="m.originalName" />
+            <video v-if="m.kind === 'video'" :src="absUrl(m.fileUrl)" preload="metadata" muted playsinline />
+            <img v-else :src="absUrl(m.fileUrl)" :alt="m.originalName" />
             <span class="kind-tag" :class="m.kind">
               <Film v-if="m.kind === 'video'" :size="11" :stroke-width="2" />
               <ImageIcon v-else :size="11" :stroke-width="2" />
@@ -370,8 +371,8 @@ onMounted(() => { void refresh(); });
       <div class="preview-box">
         <button class="preview-close" @click="closePreview"><X :size="20" :stroke-width="2" /></button>
         <div class="preview-media">
-          <video v-if="previewItem.kind === 'video'" :src="previewItem.fileUrl" controls autoplay style="max-width:100%; max-height: 70vh;" />
-          <img v-else :src="previewItem.fileUrl" :alt="previewItem.originalName" style="max-width:100%; max-height: 70vh;" />
+          <video v-if="previewItem.kind === 'video'" :src="absUrl(previewItem.fileUrl)" controls autoplay style="max-width:100%; max-height: 70vh;" />
+          <img v-else :src="absUrl(previewItem.fileUrl)" :alt="previewItem.originalName" style="max-width:100%; max-height: 70vh;" />
         </div>
         <div class="preview-info">
           <h3>{{ previewItem.originalName }}</h3>

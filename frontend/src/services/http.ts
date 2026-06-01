@@ -45,6 +45,26 @@ export function setApiBaseURL(input: string): void {
 }
 export function getApiBaseURL(): string { return baseURL; }
 
+/**
+ * 把 backend 返的相对路径 (e.g. "/api/media/2/file") 拼成绝对 URL.
+ *
+ * 背景: backend 返 fileUrl/logoUrl 这种相对路径, axios 请求时会自动拼 baseURL,
+ * 但 <video :src> / <img :src> 走浏览器原生 fetch, 用当前 origin 去拼. 当
+ * frontend 跟 backend 不同源 (frontend 5173, backend 3200) 时, 浏览器会去
+ * 5173/api/... 取 — 404. 必须在前端拼 baseURL 去掉 /api 后缀的 origin.
+ *
+ * 输入若已是绝对 URL (http://...) 或 data: URL 直接原样返回.
+ */
+export function absUrl(path: string | null | undefined): string {
+  if (!path) return '';
+  if (/^(https?:|data:|blob:)/.test(path)) return path;
+  // baseURL 形如 "http://192.168.124.11:3200/api" 或 "/api"
+  // 想拿 origin (去掉 /api 后缀), 路径直接拼回去
+  const origin = baseURL.replace(/\/api(\/.*)?$/, '');
+  // path 已经带 /api/... 前缀, origin 不带 /api, 直接拼
+  return `${origin}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 /**
