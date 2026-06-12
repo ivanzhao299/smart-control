@@ -325,17 +325,39 @@ export class TestCenterService {
     const t0 = Date.now();
     let r: PingResult;
     try {
-      // 兼容 Linux (`-c 1 -W 2`) 与 macOS (`-c 1 -W 2000`)
-      const timeoutSec = Math.max(1, Math.floor(timeoutMs / 1000));
-      const timeoutOpt = process.platform === 'darwin' ? String(timeoutMs) : String(timeoutSec);
-      const out = await execFileAsync('ping', ['-c', '1', '-W', timeoutOpt, ip], {
+      // 跨平台 ping 参数 (历史 bug: GK9000 是 Windows, 但代码只考虑 Linux/macOS,
+      // 用 `-c 1 -W` 在 Windows 上根本不识别 -> 所有 ping 都 failed)
+      // - Windows:  ping -n 1 -w <timeoutMs>   ← -w 单位是毫秒
+      // - macOS:    ping -c 1 -W <timeoutMs>   ← BSD ping, -W 单位是毫秒
+      // - Linux:    ping -c 1 -W <timeoutSec>  ← iputils, -W 单位是秒
+      const platform = process.platform;
+      const args: string[] = (() => {
+        if (platform === 'win32') {
+          return ['-n', '1', '-w', String(timeoutMs), ip];
+        }
+        if (platform === 'darwin') {
+          return ['-c', '1', '-W', String(timeoutMs), ip];
+        }
+        const timeoutSec = Math.max(1, Math.floor(timeoutMs / 1000));
+        return ['-c', '1', '-W', String(timeoutSec), ip];
+      })();
+      const out = await execFileAsync('ping', args, {
         timeout: timeoutMs + 1000,
         windowsHide: true,
       });
-      // 解析延迟 (Linux/macOS 都支持 time=X ms)
-      const m = /time[=<]([\d.]+)\s*ms/i.exec(out.stdout);
+      // 解析延迟. Linux/macOS: time=X ms. Windows: "时间=Xms" 或 "time=Xms" (英文系统)
+      const m = /(?:time|时间)[=<]([\d.]+)\s*ms/i.exec(out.stdout);
       const latencyMs = m ? Number.parseFloat(m[1]) : Date.now() - t0;
-      r = { success: true, ip, reachable: true, latencyMs };
+      // Windows 即使主机不通也可能 exit 0 (输出 "请求超时" / "Request timed out"), 检查 stdout
+      const lower = out.stdout.toLowerCase();
+      const failed = lower.includes('请求超时') || lower.includes('request timed out')
+        || lower.includes('无法访问') || lower.includes('destination host unreachable')
+        || lower.includes('100% loss') || lower.includes('100% packet loss');
+      if (failed) {
+        r = { success: true, ip, reachable: false, latencyMs: null, error: 'host unreachable' };
+      } else {
+        r = { success: true, ip, reachable: true, latencyMs };
+      }
     } catch (err) {
       r = {
         success: true,
@@ -363,6 +385,52 @@ export class TestCenterService {
       result: r,
     });
     return r;
+  }
+
+  /**
+   * 查 GK9000 当前 ARP 表 — 用于排查"网线同交换机但 ping 不通"场景:
+   * 设备如果 IP 配在别的网段, 跨网段 ping 不通, 但只要同 broadcast domain
+   * (同交换机 + 同 VLAN) ARP 广播一定到, GK9000 网卡缓存里就有它的 MAC + IP.
+   *
+   * 返回结构: [{ ip, mac, type? }, ...]
+   */
+  async arpTable(): Promise<Array<{ ip: string; mac: string; iface?: string; type?: string }>> {
+    try {
+      const platform = process.platform;
+      const cmd = platform === 'win32' ? 'arp' : 'arp';
+      const args = platform === 'win32' ? ['-a'] : ['-an'];
+      const out = await execFileAsync(cmd, args, { timeout: 5000, windowsHide: true });
+      const entries: Array<{ ip: string; mac: string; iface?: string; type?: string }> = [];
+      if (platform === 'win32') {
+        // Windows 输出格式:
+        //   Interface: 192.168.124.11 --- 0x6
+        //     Internet Address      Physical Address      Type
+        //     192.168.124.1         00-aa-bb-cc-dd-ee     dynamic
+        let currentIface = '';
+        for (const line of out.stdout.split(/\r?\n/)) {
+          const ifaceMatch = /Interface:\s+([\d.]+)/i.exec(line);
+          if (ifaceMatch) {
+            currentIface = ifaceMatch[1];
+            continue;
+          }
+          const m = /^\s*([\d.]+)\s+([0-9a-f-]{17})\s+(\S+)\s*$/i.exec(line);
+          if (m) {
+            entries.push({ ip: m[1], mac: m[2].replace(/-/g, ':').toLowerCase(), iface: currentIface, type: m[3] });
+          }
+        }
+      } else {
+        // Linux/macOS 输出格式: ? (192.168.x.x) at ab:cd:ef:01:02:03 [ether] on en0
+        for (const line of out.stdout.split(/\r?\n/)) {
+          const m = /\(([\d.]+)\)\s+at\s+([0-9a-f:]{17})/i.exec(line);
+          if (m) {
+            entries.push({ ip: m[1], mac: m[2].toLowerCase() });
+          }
+        }
+      }
+      return entries;
+    } catch (err) {
+      return [];
+    }
   }
 
   async portCheck(

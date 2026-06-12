@@ -52,6 +52,21 @@ export class TestCenterController {
     return { message: '端口测试完成', data };
   }
 
+  /**
+   * 查看主机当前 ARP 缓存 (`arp -a`) — 业主反馈"网线同交换机但 ping 不通",
+   * 设备 IP 可能配错网段, 同 broadcast domain 内 ARP 一定能看到. 列表带 MAC,
+   * 接手用厂家 MAC OUI 反查能定位设备种类.
+   *
+   * 跨平台:
+   *   - Windows: `arp -a`  → "  192.168.124.1   00-aa-bb-..." 行
+   *   - Linux/macOS: `arp -an` → "? (192.168.x.x) at ab:cd:..."
+   */
+  @Get('network/arp')
+  async arp() {
+    const data = await this.service.arpTable();
+    return { message: 'ARP 表查询完成', data };
+  }
+
   @Get('logs')
   async listLogs(@Query() q: QueryTestLogDto) {
     const data = await this.service.findLogs(q);
