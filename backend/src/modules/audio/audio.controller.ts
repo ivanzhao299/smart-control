@@ -44,6 +44,22 @@ export class AudioController {
     return { message: '完成', data };
   }
 
+  /**
+   * 调试: 用 UDP 发 hex frame 到指定端口. EKX 实际可能不是 TCP 而是 UDP,
+   * 9760 TCP 已确认是 echo 不是 EKX 协议, 试 UDP 看会不会有真实响应.
+   * Body: { hex: "7B 7D 01 4A 00 00 00 7D 7B", port?: number, host?: string, timeoutMs?: number }
+   */
+  @Post('debug/udp')
+  async debugUdp(@Body() body: { hex?: string; port?: number; host?: string; timeoutMs?: number } = {}) {
+    const data = await this.audio.debugSendUdp(
+      body.hex ?? '',
+      body.host ?? '192.168.50.61',
+      body.port ?? 9760,
+      body.timeoutMs ?? 2000,
+    );
+    return { message: '完成', data };
+  }
+
   @Post(':id/volume')
   volume(@Param('id') id: string, @Body() dto: AudioVolumeDto) {
     return this.wrap(id, 'volume',

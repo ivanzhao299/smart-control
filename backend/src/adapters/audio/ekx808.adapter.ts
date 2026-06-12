@@ -434,6 +434,48 @@ export class EkxDspAdapter extends BaseAdapter {
     };
   }
 
+  /**
+   * 调试: UDP 发 hex frame 到指定端口. 用于排查 EKX 实际是不是 UDP 协议.
+   */
+  async debugSendUdp(hex: string, host: string, port: number, timeoutMs: number): Promise<{ sent: string; received: string; receivedBytes: number; from?: string }> {
+    const clean = (hex || '').replace(/\s+/g, '');
+    if (clean.length === 0) throw new Error('hex 必填');
+    if (!/^[0-9a-fA-F]+$/.test(clean) || clean.length % 2 !== 0) {
+      throw new Error('hex 格式错: 必须为偶数个 [0-9a-f] 字符');
+    }
+    const buf = Buffer.from(clean, 'hex') as Buffer;
+    const dgram = await import('dgram');
+    return new Promise((resolve, reject) => {
+      const sock = dgram.createSocket('udp4');
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const cleanup = () => { if (timer) clearTimeout(timer); try { sock.close(); } catch { /* ignore */ } };
+      sock.on('message', (msg, rinfo) => {
+        cleanup();
+        resolve({
+          sent: [...buf].map((b) => b.toString(16).padStart(2, '0')).join(' '),
+          received: [...msg].map((b) => b.toString(16).padStart(2, '0')).join(' '),
+          receivedBytes: msg.length,
+          from: `${rinfo.address}:${rinfo.port}`,
+        });
+      });
+      sock.on('error', (err) => { cleanup(); reject(err); });
+      sock.bind(0, () => {
+        sock.send(buf, port, host, (err) => {
+          if (err) { cleanup(); reject(err); return; }
+          timer = setTimeout(() => {
+            cleanup();
+            resolve({
+              sent: [...buf].map((b) => b.toString(16).padStart(2, '0')).join(' '),
+              received: '',
+              receivedBytes: 0,
+              from: '(timeout, no response)',
+            });
+          }, timeoutMs);
+        });
+      });
+    });
+  }
+
   /** 单条命令发送 (带重试). expectResponse=true 时等待 9 字节响应帧 */
   private async send(payload: Buffer, signal?: AbortSignal, expectResponse = false): Promise<Buffer> {
     await this.syncRuntime();

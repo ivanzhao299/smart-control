@@ -108,4 +108,11 @@ export class AudioAdapter extends BaseAdapter {
     }
     return this.ekxImpl.debugSendRaw(hex);
   }
+
+  async debugSendUdp(hex: string, host: string, port: number, timeoutMs: number): Promise<{ sent: string; received: string; receivedBytes: number; from?: string }> {
+    if (this.vendor !== 'takstar-ekx808') {
+      throw new Error('debugSendUdp 仅 takstar-ekx808 厂家支持');
+    }
+    return this.ekxImpl.debugSendUdp(hex, host, port, timeoutMs);
+  }
 }
