@@ -32,6 +32,18 @@ export class AudioController {
     return { message: result.ok ? 'ok' : 'failed', data: result };
   }
 
+  /**
+   * 调试: 发任意 9 字节十六进制 frame 到 EKX, 返回原始响应 hex.
+   * 用于排查协议字段偏移 / 实际固件 vs 说明书的差异.
+   * Body: { hex: "7B 7D 01 48 01 00 00 7D 7B" }
+   * 返回: { sent: "...", received: "...", receivedBytes: 9 }
+   */
+  @Post('debug/raw')
+  async debugRaw(@Body() body: { hex?: string } = {}) {
+    const data = await this.audio.debugSendRaw(body.hex ?? '');
+    return { message: '完成', data };
+  }
+
   @Post(':id/volume')
   volume(@Param('id') id: string, @Body() dto: AudioVolumeDto) {
     return this.wrap(id, 'volume',

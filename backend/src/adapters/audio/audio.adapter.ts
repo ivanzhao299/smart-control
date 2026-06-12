@@ -96,4 +96,16 @@ export class AudioAdapter extends BaseAdapter {
       mock: false, durationMs: 0,
     };
   }
+
+  /**
+   * 调试: 发任意 hex frame 到 EKX, 拿原始响应字节.
+   * 用于协议排查 — 业主在 PC 软件里改一个值后, 我们读回看 raw bytes,
+   * 跟说明书对比找出 backend 解析的偏移错误.
+   */
+  async debugSendRaw(hex: string): Promise<{ sent: string; received: string; receivedBytes: number }> {
+    if (this.vendor !== 'takstar-ekx808') {
+      throw new Error('debugSendRaw 仅 takstar-ekx808 厂家支持');
+    }
+    return this.ekxImpl.debugSendRaw(hex);
+  }
 }

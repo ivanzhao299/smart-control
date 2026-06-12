@@ -405,6 +405,35 @@ export class EkxDspAdapter extends BaseAdapter {
     return 50 + ((db + 10) / 22) * 50;
   }
 
+  /**
+   * 调试: 发任意 hex frame, 拿 raw response.
+   * hex 形如 "7B 7D 01 48 01 00 00 7D 7B" 或 "7B7D01480100007D7B"
+   */
+  async debugSendRaw(hex: string): Promise<{ sent: string; received: string; receivedBytes: number }> {
+    await this.syncRuntime();
+    const clean = (hex || '').replace(/\s+/g, '');
+    if (clean.length === 0) throw new Error('hex 必填');
+    if (!/^[0-9a-fA-F]+$/.test(clean) || clean.length % 2 !== 0) {
+      throw new Error('hex 格式错: 必须为偶数个 [0-9a-f] 字符');
+    }
+    const buf = Buffer.from(clean, 'hex') as Buffer;
+    let received: Buffer = Buffer.alloc(0);
+    try {
+      received = await this.tcp.sendAndExpect(buf, FRAME_LEN, undefined);
+    } catch (err) {
+      // 即使 sendAndExpect 失败也想看到收到的部分字节, 用 send 走兜底
+      try {
+        await this.tcp.send(buf);
+      } catch { /* ignore */ }
+      throw new Error(`sendAndExpect 失败: ${(err as Error).message}`);
+    }
+    return {
+      sent: [...buf].map((b) => b.toString(16).padStart(2, '0')).join(' '),
+      received: [...received].map((b) => b.toString(16).padStart(2, '0')).join(' '),
+      receivedBytes: received.length,
+    };
+  }
+
   /** 单条命令发送 (带重试). expectResponse=true 时等待 9 字节响应帧 */
   private async send(payload: Buffer, signal?: AbortSignal, expectResponse = false): Promise<Buffer> {
     await this.syncRuntime();
