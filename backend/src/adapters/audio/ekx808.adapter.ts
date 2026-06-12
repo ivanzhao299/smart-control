@@ -92,7 +92,9 @@ export class EkxDspAdapter extends BaseAdapter {
   ) {
     super(config, logger);
     this.host = process.env.AUDIO_EKX_HOST ?? '192.168.50.61';
-    this.port = Number.parseInt(process.env.AUDIO_EKX_PORT ?? '5000', 10);
+    // 默认 TCP 端口: 9760 (得胜 EKX-808 出厂固定端口)
+    // 历史代码写 5000 是猜的; 2026-06-01 现场实测真实端口 9760, 跟厂家固件对齐.
+    this.port = Number.parseInt(process.env.AUDIO_EKX_PORT ?? '9760', 10);
     this.devAddr = Number.parseInt(process.env.AUDIO_EKX_DEV_ADDR ?? '1', 10);
     this.timeoutMs = Number.parseInt(process.env.DEVICE_TIMEOUT_MS ?? '3000', 10);
     this.retries = Number.parseInt(process.env.DEVICE_RETRIES ?? '3', 10);
@@ -157,10 +159,10 @@ export class EkxDspAdapter extends BaseAdapter {
         'set_volume', 'mute', 'recall_scene', 'read_current_scene',
         'set_matrix', 'aux_switch', 'read_level', 'health_check',
       ],
-      defaultAddressing: { devAddr: 1, tcpPort: 5000, inputs: 8, outputs: 8 },
+      defaultAddressing: { devAddr: 1, tcpPort: 9760, inputs: 8, outputs: 8 },
       paramSchema: {
         ip:      { type: 'string', label: 'DSP IP', required: true, placeholder: '192.168.x.x' },
-        tcpPort: { type: 'number', label: 'TCP 端口', default: 5000, min: 1, max: 65535 },
+        tcpPort: { type: 'number', label: 'TCP 端口', default: 9760, min: 1, max: 65535 },
         devAddr: { type: 'number', label: '设备地址', default: 1, min: 1, max: 254 },
       },
       remark: '8 输入 8 输出数字音频矩阵 + DSP, 支持用户预设 U01-U12, AEC/NR/摄像跟踪/自动混音开关.',
@@ -173,7 +175,7 @@ export class EkxDspAdapter extends BaseAdapter {
     const envHost = process.env.AUDIO_EKX_HOST;
     const envPort = process.env.AUDIO_EKX_PORT ? Number.parseInt(process.env.AUDIO_EKX_PORT, 10) : undefined;
     const host = db?.host ?? envHost ?? '192.168.50.61';
-    const port = db?.port ?? envPort ?? 5000;
+    const port = db?.port ?? envPort ?? 9760;
     if (host === this.host && port === this.port) return;
     const source = db?.host ? 'db' : envHost ? 'env' : 'default';
     this.logger.warn(
