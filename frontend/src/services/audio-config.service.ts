@@ -1,4 +1,9 @@
 import { api } from './http';
+import { queryOnce, invalidate } from './query.service';
+
+const ACZ = 'audio-config:zones';
+const ACI = 'audio-config:inputs';
+const ACS = 'audio-config:scenes';
 
 /** 音响输出通道 (后台可配置名称) */
 export interface AudioOutputZone {
@@ -70,23 +75,27 @@ export function parseSceneContent(scene: Pick<AudioScene, 'content'>): SceneCont
 
 export const audioConfigService = {
   // 输出通道
+  // SWR 缓存: list 命中立返 + 后台 revalidate; 增删改后 invalidate 对应 key
   listZones: (includeDisabled = false) =>
-    api.get<AudioOutputZone[]>(`/audio-config/zones${includeDisabled ? '?includeDisabled=1' : ''}`),
-  createZone: (dto: AudioZonePatch) => api.post<AudioOutputZone>('/audio-config/zones', dto),
-  updateZone: (id: number, dto: AudioZonePatch) => api.put<AudioOutputZone>(`/audio-config/zones/${id}`, dto),
-  deleteZone: (id: number) => api.del<{ removedId: number }>(`/audio-config/zones/${id}`),
+    queryOnce(`${ACZ}:${includeDisabled}`, () =>
+      api.get<AudioOutputZone[]>(`/audio-config/zones${includeDisabled ? '?includeDisabled=1' : ''}`)),
+  createZone: (dto: AudioZonePatch) => api.post<AudioOutputZone>('/audio-config/zones', dto).then((r) => { invalidate(ACZ); return r; }),
+  updateZone: (id: number, dto: AudioZonePatch) => api.put<AudioOutputZone>(`/audio-config/zones/${id}`, dto).then((r) => { invalidate(ACZ); return r; }),
+  deleteZone: (id: number) => api.del<{ removedId: number }>(`/audio-config/zones/${id}`).then((r) => { invalidate(ACZ); return r; }),
   // 输入源
   listInputs: (includeDisabled = false) =>
-    api.get<AudioInputSource[]>(`/audio-config/inputs${includeDisabled ? '?includeDisabled=1' : ''}`),
-  createInput: (dto: AudioInputPatch) => api.post<AudioInputSource>('/audio-config/inputs', dto),
-  updateInput: (id: number, dto: AudioInputPatch) => api.put<AudioInputSource>(`/audio-config/inputs/${id}`, dto),
-  deleteInput: (id: number) => api.del<{ removedId: number }>(`/audio-config/inputs/${id}`),
+    queryOnce(`${ACI}:${includeDisabled}`, () =>
+      api.get<AudioInputSource[]>(`/audio-config/inputs${includeDisabled ? '?includeDisabled=1' : ''}`)),
+  createInput: (dto: AudioInputPatch) => api.post<AudioInputSource>('/audio-config/inputs', dto).then((r) => { invalidate(ACI); return r; }),
+  updateInput: (id: number, dto: AudioInputPatch) => api.put<AudioInputSource>(`/audio-config/inputs/${id}`, dto).then((r) => { invalidate(ACI); return r; }),
+  deleteInput: (id: number) => api.del<{ removedId: number }>(`/audio-config/inputs/${id}`).then((r) => { invalidate(ACI); return r; }),
   // 场景
   listScenes: (includeDisabled = false) =>
-    api.get<AudioScene[]>(`/audio-config/scenes${includeDisabled ? '?includeDisabled=1' : ''}`),
-  createScene: (dto: AudioScenePatch) => api.post<AudioScene>('/audio-config/scenes', dto),
-  updateScene: (id: number, dto: AudioScenePatch) => api.put<AudioScene>(`/audio-config/scenes/${id}`, dto),
-  deleteScene: (id: number) => api.del<{ removedId: number }>(`/audio-config/scenes/${id}`),
+    queryOnce(`${ACS}:${includeDisabled}`, () =>
+      api.get<AudioScene[]>(`/audio-config/scenes${includeDisabled ? '?includeDisabled=1' : ''}`)),
+  createScene: (dto: AudioScenePatch) => api.post<AudioScene>('/audio-config/scenes', dto).then((r) => { invalidate(ACS); return r; }),
+  updateScene: (id: number, dto: AudioScenePatch) => api.put<AudioScene>(`/audio-config/scenes/${id}`, dto).then((r) => { invalidate(ACS); return r; }),
+  deleteScene: (id: number) => api.del<{ removedId: number }>(`/audio-config/scenes/${id}`).then((r) => { invalidate(ACS); return r; }),
   // 场景下发 (走 /audio 控制端点, 不是 /audio-config)
   applyScene: (preset: number) => api.post<{ ok: boolean }>(`/audio/scene/apply/${preset}`, {}),
   resetSceneCache: () => api.post<{ ok: boolean }>('/audio/scene/reset-cache', {}),

@@ -1,4 +1,5 @@
 import { api } from './http';
+import { queryOnce, invalidate } from './query.service';
 
 /**
  * 后端 /api/light-zones CRUD 客户端.
@@ -48,15 +49,21 @@ export interface LightZoneTestResult {
   };
 }
 
+const LZ = 'light-zones:list';
+
 export const lightZonesService = {
+  // SWR 缓存: 命中立返 + 后台 revalidate; 写操作后 invalidate(LZ) 保证下次拉到最新
   list: (includeDisabled = false) =>
-    api.get<LightZoneView[]>('/light-zones', {
-      params: includeDisabled ? { includeDisabled: '1' } : {},
-    }),
+    queryOnce(`${LZ}:${includeDisabled}`, () =>
+      api.get<LightZoneView[]>('/light-zones', {
+        params: includeDisabled ? { includeDisabled: '1' } : {},
+      })),
   detail: (id: number) => api.get<LightZoneView>(`/light-zones/${id}`),
-  create: (dto: LightZoneUpsertDto) => api.post<LightZoneView>('/light-zones', dto),
+  create: (dto: LightZoneUpsertDto) =>
+    api.post<LightZoneView>('/light-zones', dto).then((r) => { invalidate(LZ); return r; }),
   update: (id: number, dto: Partial<LightZoneUpsertDto>) =>
-    api.put<LightZoneView>(`/light-zones/${id}`, dto),
-  remove: (id: number) => api.del<null>(`/light-zones/${id}`),
+    api.put<LightZoneView>(`/light-zones/${id}`, dto).then((r) => { invalidate(LZ); return r; }),
+  remove: (id: number) =>
+    api.del<null>(`/light-zones/${id}`).then((r) => { invalidate(LZ); return r; }),
   test: (id: number) => api.post<LightZoneTestResult>(`/light-zones/${id}/test`),
 };

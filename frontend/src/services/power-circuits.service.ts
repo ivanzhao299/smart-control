@@ -1,4 +1,5 @@
 import { api } from './http';
+import { queryOnce, invalidate } from './query.service';
 
 export interface PowerReading {
   on: boolean;
@@ -48,16 +49,24 @@ export interface PowerCircuitUpsertDto {
   enabled?: boolean;
 }
 
+const PC = 'power-circuits:list';
+
 export const powerCircuitsService = {
+  // SWR 缓存; on/off 也 invalidate (它们改 reading.on, 列表"状态"列要刷新)
   list: (includeDisabled = false) =>
-    api.get<PowerCircuitView[]>('/power-circuits', {
-      params: includeDisabled ? { includeDisabled: '1' } : {},
-    }),
+    queryOnce(`${PC}:${includeDisabled}`, () =>
+      api.get<PowerCircuitView[]>('/power-circuits', {
+        params: includeDisabled ? { includeDisabled: '1' } : {},
+      })),
   detail: (id: number) => api.get<PowerCircuitView>(`/power-circuits/${id}`),
-  create: (dto: PowerCircuitUpsertDto) => api.post<PowerCircuitView>('/power-circuits', dto),
+  create: (dto: PowerCircuitUpsertDto) =>
+    api.post<PowerCircuitView>('/power-circuits', dto).then((r) => { invalidate(PC); return r; }),
   update: (id: number, dto: Partial<PowerCircuitUpsertDto>) =>
-    api.put<PowerCircuitView>(`/power-circuits/${id}`, dto),
-  remove: (id: number) => api.del<null>(`/power-circuits/${id}`),
-  on: (id: number) => api.post<PowerCircuitView>(`/power-circuits/${id}/on`),
-  off: (id: number) => api.post<PowerCircuitView>(`/power-circuits/${id}/off`),
+    api.put<PowerCircuitView>(`/power-circuits/${id}`, dto).then((r) => { invalidate(PC); return r; }),
+  remove: (id: number) =>
+    api.del<null>(`/power-circuits/${id}`).then((r) => { invalidate(PC); return r; }),
+  on: (id: number) =>
+    api.post<PowerCircuitView>(`/power-circuits/${id}/on`).then((r) => { invalidate(PC); return r; }),
+  off: (id: number) =>
+    api.post<PowerCircuitView>(`/power-circuits/${id}/off`).then((r) => { invalidate(PC); return r; }),
 };
