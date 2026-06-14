@@ -37,6 +37,7 @@ const items: Array<{ name: string; label: string }> = [
   { name: 'admin-hardware', label: '硬件清单' },
   { name: 'admin-light-zones', label: '灯光分区' },
   { name: 'admin-power-circuits', label: '电源回路' },
+  { name: 'admin-audio-config', label: '音响配置' },
   { name: 'admin-app-release', label: 'APP 版本' },
   { name: 'admin-system-branding', label: '系统品牌' },
   { name: 'admin-users', label: '用户管理' },

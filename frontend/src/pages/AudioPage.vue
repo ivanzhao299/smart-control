@@ -6,6 +6,7 @@ import {
   ArrowLeft, Speaker, Volume2, VolumeX, Play, Sparkles, Music, Square, FolderOpen,
 } from 'lucide-vue-next';
 import { audioService } from '@/services/audio.service';
+import { audioConfigService } from '@/services/audio-config.service';
 import { usePlaybackStore } from '@/stores/playback';
 
 const router = useRouter();
@@ -26,22 +27,17 @@ async function stopBgm(): Promise<void> {
 }
 
 // ============ EKX-808 一键场景 ============
+// 场景从后台配置拉 (业主可自定义名字), id = EKX 预设号 1-12
 interface Scene { id: number; name: string; hint: string; }
-const SCENES: Scene[] = [
-  { id: 1,  name: '早班接待',       hint: '8-10 点全场低音量 BGM' },
-  { id: 2,  name: '日常运营',       hint: '10-17 点标准音量' },
-  { id: 3,  name: '路演演讲',       hint: 'LED 区主声道' },
-  { id: 4,  name: '大型发布会',     hint: '全场开 + 突出' },
-  { id: 5,  name: '会议室独立',     hint: 'ZONE 8 独立 + AEC' },
-  { id: 6,  name: '跟随讲解',       hint: 'WTG-800 自动激活' },
-  { id: 7,  name: '政府接待 VIP',   hint: '全场 +0dB' },
-  { id: 8,  name: '夜间静音',       hint: '18-8 点全静音' },
-  { id: 9,  name: '应急广播',       hint: '消防/疏散最大声' },
-  { id: 10, name: '大屏视频',       hint: 'ZONE 1 + SUB12' },
-  { id: 11, name: '自定义 1',       hint: '备用' },
-  { id: 12, name: '自定义 2',       hint: '备用' },
-];
+const SCENES = ref<Scene[]>([]);
 const currentScene = ref<number | null>(null);
+
+async function loadScenes(): Promise<void> {
+  try {
+    const rows = await audioConfigService.listScenes();
+    SCENES.value = rows.map((s) => ({ id: s.presetNum, name: s.name, hint: s.hint ?? '' }));
+  } catch { /* 拉不到就空, 不挡页面 */ }
+}
 const sceneBusy = ref(false);
 
 async function recallScene(s: Scene): Promise<void> {
@@ -62,7 +58,10 @@ async function refreshCurrentScene(): Promise<void> {
     if (typeof preset === 'number' && preset >= 1 && preset <= 12) currentScene.value = preset;
   } catch { /* 静默 */ }
 }
-onMounted(() => { void refreshCurrentScene(); });
+onMounted(async () => {
+  await Promise.all([loadScenes(), loadZones()]);
+  void refreshCurrentScene();
+});
 
 // ============ 分区 ============
 interface AudioRow {
@@ -72,22 +71,27 @@ interface AudioRow {
   busy: boolean; error: string | null;
 }
 
-// 测试阶段: 8 个输出通道 OUT1-OUT8, 顺序对应 EKX 物理输出 1-8.
-// 现场接好喇叭后可改成区域名 (一层/二层/会议...), 或做成后台可配置分区.
-const channels = ref<AudioRow[]>(
-  Array.from({ length: 8 }, (_, i) => ({
-    id: `audio_out${i + 1}`,
-    name: `OUT ${i + 1}`,
-    zone: `out${i + 1}`,
-    volume: 50,
-    muted: false,
-    bgm: '',
-    bgmPlaying: false,
-    mic: false,
-    busy: false,
-    error: null,
-  })),
-);
+// 输出通道从后台配置拉 (业主可自定义名字 + 楼层 + 色). zone='out{channel+1}' 对应
+// 后端 ZONE_TO_OUT 映射 (channel 0-based). 拉不到时兜底空, onMounted 再填.
+const channels = ref<AudioRow[]>([]);
+
+async function loadZones(): Promise<void> {
+  try {
+    const rows = await audioConfigService.listZones();
+    channels.value = rows.map((z) => ({
+      id: `audio_out${z.channel + 1}`,
+      name: z.name,
+      zone: `out${z.channel + 1}`,
+      volume: 50,
+      muted: false,
+      bgm: '',
+      bgmPlaying: false,
+      mic: false,
+      busy: false,
+      error: null,
+    }));
+  } catch { /* 拉不到就空 */ }
+}
 
 async function call(z: AudioRow, label: string, fn: () => Promise<{ ok: boolean; error?: string }>): Promise<boolean> {
   z.busy = true; z.error = null;
