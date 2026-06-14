@@ -243,17 +243,18 @@ onMounted(refresh);
     />
 
     <el-table :data="filtered" v-loading="loading" stripe class="zones-table">
-      <el-table-column prop="sortOrder" label="排序" width="56" align="center" />
-      <el-table-column label="名称" min-width="150">
+      <el-table-column label="名称" min-width="160">
         <template #default="{ row }">
           <div class="name-cell">
-            <span class="zone-name">{{ row.name }}</span>
+            <div class="name-row">
+              <span class="zone-name">{{ row.name }}</span>
+              <span v-if="row.floor" class="floor-tag">{{ row.floor }}</span>
+            </div>
             <code class="zone-code">{{ row.code }}</code>
             <div v-if="row.description" class="zone-desc">{{ row.description }}</div>
           </div>
         </template>
       </el-table-column>
-      <el-table-column prop="floor" label="楼层" width="64" align="center" />
       <el-table-column label="DALI 网关" min-width="150">
         <template #default="{ row }">
           <div>{{ row.gatewayDisplayName }}</div>
@@ -278,17 +279,19 @@ onMounted(refresh);
           />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="156" fixed="right">
+      <el-table-column label="操作" width="170" fixed="right">
         <template #default="{ row }">
-          <el-button
-            link
-            type="success"
-            :loading="testingId === row.id"
-            @click="testZone(row)"
-            title="发 50% 亮度 → 等 1.2s → 关. 看灯有没有亮"
-          >测试</el-button>
-          <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-          <el-button link type="danger" @click="remove(row)">删除</el-button>
+          <span class="acts">
+            <el-button
+              link
+              type="success"
+              :loading="testingId === row.id"
+              @click="testZone(row)"
+              title="发 50% 亮度 → 等 1.2s → 关. 看灯有没有亮"
+            >测试</el-button>
+            <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+            <el-button link type="danger" @click="remove(row)">删除</el-button>
+          </span>
         </template>
       </el-table-column>
     </el-table>
@@ -422,6 +425,15 @@ onMounted(refresh);
 .actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 
 .name-cell { display: flex; flex-direction: column; gap: 3px; }
+.name-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.floor-tag {
+  font-size: 11px; font-weight: 500;
+  padding: 0 7px; line-height: 18px; border-radius: 9px;
+  background: rgba(0, 229, 255, 0.12); color: #67E8F9;
+  white-space: nowrap; flex-shrink: 0;
+}
+/* 操作列按钮强制单行, 不换行 */
+.acts { display: inline-flex; align-items: center; white-space: nowrap; }
 .zone-name {
   font-weight: 600;
   color: var(--v2-text-1);

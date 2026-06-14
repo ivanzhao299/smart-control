@@ -182,17 +182,18 @@ onMounted(refresh);
     </header>
 
     <el-table :data="filtered" v-loading="loading" stripe class="circuits-table">
-      <el-table-column prop="sortOrder" label="排序" width="56" align="center" />
-      <el-table-column label="名称" min-width="130">
+      <el-table-column label="名称" min-width="150">
         <template #default="{ row }">
           <div class="name-cell">
-            <span class="circuit-name">{{ row.name }}</span>
+            <div class="name-row">
+              <span class="circuit-name">{{ row.name }}</span>
+              <span v-if="row.floor" class="floor-tag">{{ row.floor }}</span>
+            </div>
             <code class="circuit-code">{{ row.code }}</code>
             <div v-if="row.description" class="circuit-desc">{{ row.description }}</div>
           </div>
         </template>
       </el-table-column>
-      <el-table-column prop="floor" label="楼层" width="64" align="center" />
       <el-table-column label="类型" width="76" align="center">
         <template #default="{ row }">
           <el-tag size="default" :type="row.category === 'misc' ? 'info' : 'primary'">
@@ -206,7 +207,7 @@ onMounted(refresh);
           <span v-else class="muted">未配置</span>
         </template>
       </el-table-column>
-      <el-table-column label="额定" width="116">
+      <el-table-column label="额定" width="108">
         <template #default="{ row }">
           <code class="gw-code">{{ row.ratedVoltage }}V · {{ row.ratedCurrent }}A · {{ row.ratedPower }}W</code>
         </template>
@@ -229,7 +230,7 @@ onMounted(refresh);
           />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="120" fixed="right">
+      <el-table-column label="操作" width="110" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button link type="danger" @click="remove(row)">删除</el-button>
@@ -310,6 +311,13 @@ onMounted(refresh);
 .actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 
 .name-cell { display: flex; flex-direction: column; gap: 3px; }
+.name-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.floor-tag {
+  font-size: 11px; font-weight: 500;
+  padding: 0 7px; line-height: 18px; border-radius: 9px;
+  background: rgba(0, 229, 255, 0.12); color: #67E8F9;
+  white-space: nowrap; flex-shrink: 0;
+}
 .circuit-name { font-weight: 600; color: var(--v2-text-1); font-size: 14px; letter-spacing: 0.3px; }
 .circuit-code {
   font-size: 11.5px;
