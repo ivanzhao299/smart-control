@@ -8,6 +8,7 @@ import { useRoute, useRouter } from 'vue-router';
 // - PWA standalone 启动也仍然全屏 (manifest display: fullscreen 接管)
 // - AlertBanner 已移除, 告警走后台 /admin/alerts
 // - 场景反馈走顶部 inline toast
+import { Maximize2, Minimize2 } from 'lucide-vue-next';
 import { useFullscreen } from '@/composables/useFullscreen';
 import { navIconFor } from '@/composables/useIcons';
 import { useSystemStore } from '@/stores/system';
@@ -115,9 +116,12 @@ function prefetchRoute(name: string): void {
 }
 
 // Auto-enter 全屏: 用户首次 click/touch/keydown 后自动 request fullscreen.
-// 不暴露按钮也不弹 prompt — composable 的 showPrompt 不被任何模板消费.
-// 已在 PWA standalone 模式时跳过 (浏览器本身已经全屏).
-useFullscreen({ autoEnter: true });
+// 同时暴露 toggle/isActive 给顶栏全屏按钮 (业主反馈要手动按钮).
+// 已在 PWA standalone 模式时跳过 autoEnter (浏览器本身已经全屏).
+const fs = useFullscreen({ autoEnter: true });
+const fsActive = fs.isActive;
+const fsSupported = fs.isSupported;
+function toggleFullscreen(): void { void fs.toggle(); }
 
 // v2 侧导航 - 只 icon (跟 mockup 一致), title 给 hover tooltip
 const navItems: Array<{ name: string; label: string; section?: 'main' | 'tools' }> = [
@@ -252,7 +256,16 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
         <div class="v2-clock v2-inter">
           {{ clockHM }}<span class="sec">:{{ clockSec }}</span>
         </div>
-        <!-- 全屏切换按钮 2026-05-31 去掉, 默认 PWA standalone 接管 -->
+        <!-- 全屏切换按钮 (业主反馈 2026-06-13 要手动按钮). 不支持 Fullscreen API 就不显示 -->
+        <button
+          v-if="fsSupported"
+          class="v2-fs-btn"
+          :title="fsActive ? '退出全屏' : '进入全屏'"
+          @click="toggleFullscreen"
+        >
+          <Minimize2 v-if="fsActive" :size="18" :stroke-width="2" />
+          <Maximize2 v-else :size="18" :stroke-width="2" />
+        </button>
       </div>
     </header>
 
@@ -533,6 +546,20 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   gap: var(--v2-sp-3);
   flex-shrink: 0;
 }
+/* 全屏切换按钮 */
+.v2-fs-btn {
+  width: 36px; height: 36px; flex-shrink: 0;
+  display: grid; place-items: center;
+  border-radius: var(--v2-r-sm);
+  background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft);
+  color: var(--v2-text-2); cursor: pointer;
+  transition: all 0.18s ease;
+}
+.v2-fs-btn:hover {
+  background: var(--v2-surf-1-hover); color: var(--v2-primary-hover);
+  border-color: rgba(0, 229, 255, 0.4);
+}
+.v2-fs-btn:active { transform: scale(0.94); }
 /* 顶栏时钟 — Tesla / NIO 中控感: JetBrains Mono + tabular-nums + cyan glow + 冒号闪烁 */
 .v2-clock {
   font-size: 22px;
