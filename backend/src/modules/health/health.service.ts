@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import * as os from 'os';
-import { execSync } from 'child_process';
+import { statfsSync } from 'fs';
 import { Device } from '../../entities/device.entity';
 import { DeviceStatusService } from '../../services/device-status.service';
 import { AdapterConnectionRegistry } from '../../adapters/connection-registry';
@@ -126,25 +126,32 @@ export class HealthService {
     };
   }
 
+  // 磁盘用量缓存: statfs 本身极快, 但磁盘变化慢, 缓存 30s 进一步省掉每次 health 的系统调用
+  private diskCache: { at: number; val: { usagePercent: number; usedGb: number; totalGb: number } } | null = null;
+
   private readDisk(): { usagePercent: number; usedGb: number; totalGb: number } {
+    const now = Date.now();
+    if (this.diskCache && now - this.diskCache.at < 30_000) return this.diskCache.val;
+    let val = { usagePercent: 0, usedGb: 0, totalGb: 0 };
     try {
-      // df -k <cwd> 跨 Linux/macOS 通用
-      const out = execSync(`df -k ${process.cwd()}`, { encoding: 'utf8', timeout: 1500 });
-      const lines = out.trim().split('\n');
-      if (lines.length < 2) throw new Error('df no row');
-      const parts = lines[lines.length - 1].split(/\s+/);
-      // parts: filesystem 1K-blocks used available cap% mount
-      const total = Number(parts[1]) * 1024;
-      const used = Number(parts[2]) * 1024;
+      // Node 原生 statfs (跨平台, Windows 也支持) 取代旧的 execSync('df'):
+      // df 在 Windows GK9000 上根本不存在, 旧实现每次 health 都 spawn 一个注定失败的子进程,
+      // 磁盘用量还永远读成 0. statfs 无子进程、无异常、数值在 Windows 上也正确.
+      const s = statfsSync(process.cwd());
+      const total = s.blocks * s.bsize;
+      const free = s.bavail * s.bsize;
+      const used = total - free;
       const usagePercent = total > 0 ? Math.round((used / total) * 1000) / 10 : 0;
-      return {
+      val = {
         usagePercent,
         usedGb: Math.round((used / 1024 / 1024 / 1024) * 100) / 100,
         totalGb: Math.round((total / 1024 / 1024 / 1024) * 100) / 100,
       };
     } catch {
-      return { usagePercent: 0, usedGb: 0, totalGb: 0 };
+      val = { usagePercent: 0, usedGb: 0, totalGb: 0 };
     }
+    this.diskCache = { at: now, val };
+    return val;
   }
 
   private async checkDatabase(): Promise<'up' | 'down'> {

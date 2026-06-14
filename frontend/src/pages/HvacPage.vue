@@ -383,7 +383,7 @@ async function allOff(): Promise<void> {
   border: 1px solid var(--v2-border-soft);
   border-radius: var(--v2-r-lg);
   display: flex; flex-direction: column; gap: var(--v2-sp-3);
-  backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
   transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
 }

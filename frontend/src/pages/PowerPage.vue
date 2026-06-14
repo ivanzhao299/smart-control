@@ -459,8 +459,8 @@ onUnmounted(() => { stopRefresh(); });
   gap: var(--v2-sp-3);
   overflow: hidden;
   transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
-  backdrop-filter: blur(7px);
-  -webkit-backdrop-filter: blur(7px);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 .circuit-card::after {
   content: '';

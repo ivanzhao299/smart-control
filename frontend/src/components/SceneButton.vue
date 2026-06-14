@@ -221,8 +221,8 @@ function onClick(): void {
 .badge .dot {
   width: 5px; height: 5px; border-radius: 50%;
   background: currentColor;
-  box-shadow: 0 0 0 0 currentColor;
-  animation: pulse 1.6s ease-out infinite;
+  box-shadow: 0 0 5px currentColor;
+  animation: pulse 1.6s ease-in-out infinite;
 }
 .badge-err {
   background: rgba(239, 68, 68, 0.2);
@@ -241,10 +241,10 @@ function onClick(): void {
   animation: spin 0.7s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* opacity 呼吸 (GPU 合成) 替代 box-shadow 扩散环 — 后者每帧 CPU 全量重绘, 场景磁贴多实例时叠加成卡顿 */
 @keyframes pulse {
-  0%   { box-shadow: 0 0 0 0   currentColor; }
-  70%  { box-shadow: 0 0 0 7px transparent; }
-  100% { box-shadow: 0 0 0 0   transparent; }
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
 }
 
 /* 小屏 (10.1" 平板) 进一步收紧 */

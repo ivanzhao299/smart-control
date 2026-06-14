@@ -136,14 +136,14 @@ function onClick(): void {
   width: 6px; height: 6px;
   border-radius: 50%;
   background: var(--card-accent);
-  box-shadow: 0 0 0 0 var(--card-accent), 0 0 6px var(--card-accent);
-  animation: card-pulse 1.8s ease-out infinite;
+  box-shadow: 0 0 6px var(--card-accent);
+  animation: card-pulse 1.8s ease-in-out infinite;
 }
 .status-card.is-default .dot { animation: none; box-shadow: none; }
+/* opacity 呼吸替代双层 box-shadow 扩散 — 状态卡多实例 (首页子系统条/状态页) 时这是主要重绘开销 */
 @keyframes card-pulse {
-  0%   { box-shadow: 0 0 0 0   var(--card-accent), 0 0 6px var(--card-accent); }
-  70%  { box-shadow: 0 0 0 6px transparent,         0 0 8px var(--card-accent); }
-  100% { box-shadow: 0 0 0 0   transparent,         0 0 6px var(--card-accent); }
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
 }
 
 .sub-inline { color: var(--text-secondary); margin-left: 2px; }

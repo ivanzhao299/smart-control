@@ -513,8 +513,8 @@ async function exitToFront(): Promise<void> {
     transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
     box-shadow: 8px 0 32px -8px rgba(0, 0, 0, 0.7);
     background: rgba(6, 8, 24, 0.92);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
     padding-top: env(safe-area-inset-top);
   }
   .admin.sidebar-open .side {

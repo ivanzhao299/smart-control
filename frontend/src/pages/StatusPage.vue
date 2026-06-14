@@ -302,7 +302,7 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
   background: var(--v2-surf-1);
   border: 1px solid var(--v2-border-soft);
   border-radius: var(--v2-r-md);
-  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
 }
 .metric-label {
   font-size: var(--v2-fs-xs); color: var(--v2-text-3);
@@ -332,7 +332,7 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
   background: var(--v2-surf-1);
   border: 1px solid var(--v2-border-soft);
   border-radius: var(--v2-r-md);
-  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
 }
 .card-head {
   font-size: var(--v2-fs-md);
