@@ -442,16 +442,9 @@ export class EkxDspAdapter extends BaseAdapter {
       throw new Error('hex 格式错: 必须为偶数个 [0-9a-f] 字符');
     }
     const buf = Buffer.from(clean, 'hex') as Buffer;
-    let received: Buffer = Buffer.alloc(0);
-    try {
-      received = await this.tcp.sendAndExpect(buf, FRAME_LEN, undefined);
-    } catch (err) {
-      // 即使 sendAndExpect 失败也想看到收到的部分字节, 用 send 走兜底
-      try {
-        await this.tcp.send(buf);
-      } catch { /* ignore */ }
-      throw new Error(`sendAndExpect 失败: ${(err as Error).message}`);
-    }
+    // 走 send() (经串行锁 + keepAlive + sendAndReadAll), 跟真实命令同一条路径,
+    // 这样 debug/raw 拿到的就是 backend 真实读取行为.
+    const received: Buffer = await this.send(buf, undefined, true);
     return {
       sent: [...buf].map((b) => b.toString(16).padStart(2, '0')).join(' '),
       received: [...received].map((b) => b.toString(16).padStart(2, '0')).join(' '),
