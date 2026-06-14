@@ -76,6 +76,14 @@ export class EkxDspAdapter extends BaseAdapter {
   private dbCache: { host?: string; port?: number; at: number } = { at: 0 };
   private readonly DB_CACHE_TTL_MS = 5000;
 
+  /**
+   * 命令串行锁. EKX-808 是**单客户端设备** — 同一时刻只接受一个 TCP 连接.
+   * 现场实测 (2026-06-13 netstat): backend 健康探测 + API 读并发开 2 个连接时,
+   * 第二个卡在 SYN_SENT 连不上, 设备读响应直接废 (写命令照样收, 但读不回).
+   * 所有 send 经这把锁排队, 保证任意时刻只有一个连接, 读写都稳.
+   */
+  private cmdLock: Promise<unknown> = Promise.resolve();
+
   /** zone 名 → DSP 输出通道索引 (0-7) */
   private static readonly ZONE_TO_OUT: Record<string, ChannelIndex> = {
     '1f_bg': 1,
@@ -501,19 +509,26 @@ export class EkxDspAdapter extends BaseAdapter {
    * (调试时业主可能要连). expectResponse 参数保留兼容, 现在统一都读响应.
    */
   private async send(payload: Buffer, signal?: AbortSignal, _expectResponse = false): Promise<Buffer> {
-    await this.syncRuntime();
-    try {
-      const result = await withRetry(
-        // settle 200ms (收到末字节后静默 200ms 即认为发完), 整体上限 1200ms
-        async () => this.tcp.sendAndReadAll(payload, 200, 1200, signal),
-        { retries: this.retries, timeoutMs: this.timeoutMs, signal },
-      );
-      this.registry.markOnline(GATEWAY_KEY);
-      return result;
-    } catch (err) {
-      const dErr = classifyError('audio', err);
-      this.registry.markFailure(GATEWAY_KEY, dErr.message, true);
-      throw dErr;
-    }
+    // 串行锁: 所有命令排队, 任意时刻只有一个 TCP 连接 (EKX 单客户端, 并发必废).
+    const run = async (): Promise<Buffer> => {
+      await this.syncRuntime();
+      try {
+        const result = await withRetry(
+          // settle 200ms (收到末字节后静默 200ms 即认为发完), 整体上限 1200ms
+          async () => this.tcp.sendAndReadAll(payload, 200, 1200, signal),
+          { retries: this.retries, timeoutMs: this.timeoutMs, signal },
+        );
+        this.registry.markOnline(GATEWAY_KEY);
+        return result;
+      } catch (err) {
+        const dErr = classifyError('audio', err);
+        this.registry.markFailure(GATEWAY_KEY, dErr.message, true);
+        throw dErr;
+      }
+    };
+    const next = this.cmdLock.then(run, run);
+    // 锁链不被单次失败打断 (吞掉 rejection 只为续锁; 真实结果仍由 next 抛出)
+    this.cmdLock = next.then(() => undefined, () => undefined);
+    return next;
   }
 }
