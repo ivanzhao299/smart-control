@@ -59,6 +59,7 @@ const toast = useToastStore();
 
 async function fireScene(code: string): Promise<void> {
   const name = sceneStore.scenes.find((s) => s.code === code)?.name ?? code;
+  toast.info(`场景【${name}】启动中…`); // 即时反馈: 转满瞬间就提示, 不干等多子系统串行下发完
   try {
     await sceneStore.execute(code);
     toast.success(`场景【${name}】已启动`);
@@ -68,9 +69,9 @@ async function fireScene(code: string): Promise<void> {
 }
 
 // ============ 场景卡「长按激活」防误触 ============
-// 触屏一碰就切换风险大 (会误触整场联动). 改成: 轻碰无反应, 按住 ~0.65s 进度环转满
-// 才真正执行; 中途松手 / 划走立即取消. 误蹭绝对触发不了, 正常用就是多按住半秒.
-const HOLD_MS = 650;
+// 触屏一碰就切换风险大 (会误触整场联动). 改成: 轻碰无反应, 按住 ~1.1s 进度环转满
+// 才真正执行; 中途松手 / 划走立即取消. 误蹭绝对触发不了, 正常用就是多按住一秒.
+const HOLD_MS = 1100;
 const RING_C = 2 * Math.PI * 20; // 进度环周长 (r=20)
 const holdCode = ref<string | null>(null); // 正在按住的场景 code (同一时刻只一个)
 const holdPct = ref(0);                     // 当前进度 0..100

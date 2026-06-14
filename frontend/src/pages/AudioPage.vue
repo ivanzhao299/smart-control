@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
@@ -42,15 +42,60 @@ const sceneBusy = ref(false);
 
 async function recallScene(s: Scene): Promise<void> {
   sceneBusy.value = true;
+  const prev = currentScene.value;
+  currentScene.value = s.id;                         // 乐观高亮: 转满瞬间立即反馈, 不干等硬件串行下发
+  ElMessage.info(`切换中: ${s.name} (U${String(s.id).padStart(2, '0')})`);
   try {
     const res = await audioService.applyScene(s.id);
     if (!res.ok) throw new Error(res.error || '场景切换失败');
-    currentScene.value = s.id;
-    ElMessage.success(`场景已切换: ${s.name} (U${String(s.id).padStart(2,'0')})`);
+    ElMessage.success(`场景已切换: ${s.name} (U${String(s.id).padStart(2, '0')})`);
   } catch (err) {
+    currentScene.value = prev;                       // 失败回滚高亮
     ElMessage.error(`切换 ${s.name} 失败: ${(err as Error).message}`);
   } finally { sceneBusy.value = false; }
 }
+
+// ============ 一键场景「长按激活」防误触 (跟首页磁贴一致) ============
+// 轻碰无反应; 按住进度条走满 (~1.1s) 才真正切换; 中途松手 / 划走立即取消.
+const HOLD_MS = 1100;
+const holdId = ref<number | null>(null);   // 正在按住的预设号
+const holdPct = ref(0);                     // 进度 0..100
+let holdRaf = 0;
+let holdFired = false;
+let holdStartX = 0;
+let holdStartY = 0;
+function resetHold(): void {
+  if (holdRaf) cancelAnimationFrame(holdRaf);
+  holdRaf = 0; holdId.value = null; holdPct.value = 0;
+}
+function onHoldStart(s: Scene, ev: PointerEvent): void {
+  if (ev.pointerType === 'mouse' && ev.button !== 0) return; // 只认左键/单指
+  if (sceneBusy.value) return;
+  holdFired = false; holdId.value = s.id; holdPct.value = 0;
+  holdStartX = ev.clientX; holdStartY = ev.clientY;
+  const start = performance.now();
+  if (holdRaf) cancelAnimationFrame(holdRaf);
+  const loop = (now: number): void => {
+    if (holdId.value !== s.id) return;
+    const p = Math.min(100, ((now - start) / HOLD_MS) * 100);
+    holdPct.value = p;
+    if (p >= 100) { holdFired = true; resetHold(); void recallScene(s); return; }
+    holdRaf = requestAnimationFrame(loop);
+  };
+  holdRaf = requestAnimationFrame(loop);
+}
+function onHoldMove(ev: PointerEvent): void {
+  if (holdId.value === null) return;
+  // 移动超过 12px = 想滚动/划走 → 取消
+  if (Math.hypot(ev.clientX - holdStartX, ev.clientY - holdStartY) > 12) resetHold();
+}
+function onHoldEnd(): void {
+  if (holdFired) { holdFired = false; return; }
+  const p = holdPct.value;
+  resetHold();
+  if (p >= 10 && p < 100) ElMessage.info('按住场景按钮直到进度条走满，才会切换');
+}
+onUnmounted(() => { if (holdRaf) cancelAnimationFrame(holdRaf); });
 async function refreshCurrentScene(): Promise<void> {
   try {
     const wrapped = await audioService.currentScene();
@@ -206,13 +251,18 @@ async function muteAll(): Promise<void> {
           v-for="s in SCENES"
           :key="s.id"
           class="scene-btn"
-          :class="{ active: currentScene === s.id }"
+          :class="{ active: currentScene === s.id, holding: holdId === s.id }"
           :disabled="sceneBusy"
-          @click="recallScene(s)"
+          @pointerdown="onHoldStart(s, $event)"
+          @pointermove="onHoldMove($event)"
+          @pointerup="onHoldEnd"
+          @pointerleave="onHoldEnd"
+          @pointercancel="onHoldEnd"
         >
           <div class="scene-id v2-inter">U{{ String(s.id).padStart(2,'0') }}</div>
           <div class="scene-name">{{ s.name }}</div>
           <div class="scene-hint">{{ s.hint }}</div>
+          <div class="hold-bar" :style="{ width: holdId === s.id ? holdPct + '%' : '0%' }" aria-hidden="true"></div>
         </button>
       </div>
     </section>
@@ -400,6 +450,8 @@ async function muteAll(): Promise<void> {
 @media (max-width: 900px)  { .scene-grid { grid-template-columns: repeat(3, 1fr); } }
 
 .scene-btn {
+  position: relative;
+  overflow: hidden;
   padding: var(--v2-sp-3);
   background: var(--v2-surf-1);
   border: 1px solid var(--v2-border-soft);
@@ -407,9 +459,18 @@ async function muteAll(): Promise<void> {
   cursor: pointer;
   text-align: left;
   color: var(--v2-text-1);
-  transition: all 0.18s ease;
+  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
   min-height: 80px;
   display: flex; flex-direction: column; gap: 2px;
+  user-select: none; -webkit-user-select: none;
+}
+.scene-btn.holding { border-color: var(--v2-primary); }
+.hold-bar {
+  position: absolute; left: 0; bottom: 0; height: 3px; width: 0;
+  background: linear-gradient(90deg, var(--v2-primary), #22d3ee);
+  box-shadow: 0 0 8px rgba(6, 182, 212, 0.7);
+  transition: width 60ms linear;
+  pointer-events: none;
 }
 .scene-btn:hover {
   background: var(--v2-surf-1-hover);
