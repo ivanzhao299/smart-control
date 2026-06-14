@@ -454,12 +454,12 @@ onMounted(refresh);
     <!-- 列表 -->
     <AppSkeleton v-if="loading && filtered.length === 0" variant="table" :rows="8" />
     <el-table v-else :data="filtered" v-loading="loading" stripe size="default" style="width:100%;">
-      <el-table-column label="编号" prop="code" width="83">
+      <el-table-column label="编号" prop="code" width="170">
         <template #default="{ row }">
           <code class="code-cell">{{ row.code }}</code>
         </template>
       </el-table-column>
-      <el-table-column label="名称" min-width="112">
+      <el-table-column label="名称" min-width="220">
         <template #default="{ row }">
           <div class="name-cell">
             <component
@@ -475,19 +475,19 @@ onMounted(refresh);
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="楼层 / 位置" min-width="112">
+      <el-table-column label="楼层 / 位置" min-width="180">
         <template #default="{ row }">
           <div class="sub-text">{{ row.floor || '—' }}</div>
           <div class="sub">{{ row.location || '—' }}</div>
         </template>
       </el-table-column>
-      <el-table-column label="IP" prop="ip" width="86">
+      <el-table-column label="IP" prop="ip" width="140">
         <template #default="{ row }">
           <code v-if="row.ip" class="code-cell">{{ row.ip }}</code>
           <span v-else class="sub">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="寻址 / 通道" min-width="112">
+      <el-table-column label="寻址 / 通道" min-width="220">
         <template #default="{ row }">
           <div v-if="row.addressing" class="addr-cell" :title="prettyJson(row.addressing)">
             {{ formatAddressing(row.addressing) }}
@@ -495,7 +495,7 @@ onMounted(refresh);
           <div v-if="row.channels" class="sub">{{ channelCount(row.channels) }} 通道</div>
         </template>
       </el-table-column>
-      <el-table-column label="状态" width="72">
+      <el-table-column label="状态" width="100">
         <template #default="{ row }">
           <span class="sc-status" :class="statusMeta[row.status as HardwareStatus].cls">
             <span class="sc-status-dot" />
@@ -503,7 +503,7 @@ onMounted(refresh);
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="139" align="right">
+      <el-table-column label="操作" width="160" align="right">
         <template #default="{ row }">
           <button class="row-btn" @click="openEdit(row)">
             <Pencil :size="14" :stroke-width="2" /> 编辑

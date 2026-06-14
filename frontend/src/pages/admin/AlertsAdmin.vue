@@ -250,48 +250,48 @@ onBeforeUnmount(() => { if (unsubscribeWs) unsubscribeWs(); });
         <span class="sc-subtle">共 {{ total }} 条</span>
       </div>
       <el-table v-loading="loading" :data="rows" stripe size="default" style="width:100%;">
-        <el-table-column prop="id" label="ID" width="44" />
-        <el-table-column label="等级" width="58">
+        <el-table-column prop="id" label="ID" width="64" />
+        <el-table-column label="等级" width="90">
           <template #default="{ row }">
             <span class="sc-status" :class="levelMeta[row.level as AlertLevel].cls">
               <span class="sc-status-dot" /> {{ levelMeta[row.level as AlertLevel].label }}
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="58">
+        <el-table-column label="状态" width="100">
           <template #default="{ row }">
             <span class="sc-status" :class="statusMeta[row.status as AlertStatus].cls">
               <span class="sc-status-dot" /> {{ statusMeta[row.status as AlertStatus].label }}
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="来源" width="59">
+        <el-table-column label="来源" width="170">
           <template #default="{ row }">
             <div>{{ row.sourceType }}</div>
             <div class="sub-mono">{{ row.sourceId ?? '—' }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="子类型" width="60">
+        <el-table-column label="子类型" width="140">
           <template #default="{ row }"><code class="code-cell">{{ row.type }}</code></template>
         </el-table-column>
-        <el-table-column label="标题" min-width="95" />
-        <el-table-column label="详细消息" min-width="95">
+        <el-table-column label="标题" min-width="200" />
+        <el-table-column label="详细消息" min-width="240">
           <template #default="{ row }">
             <span v-if="row.message" class="msg-cell">{{ row.message }}</span>
             <span v-else class="sub-mono">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="时间" width="59">
+        <el-table-column label="时间" width="170">
           <template #default="{ row }">
             <span class="sub-mono">{{ fmtDate(row.createdAt) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="处理时间" width="59">
+        <el-table-column label="处理时间" width="170">
           <template #default="{ row }">
             <span class="sub-mono">{{ fmtDate(row.resolvedAt) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="129" fixed="right" align="right">
+        <el-table-column label="操作" width="170" fixed="right" align="right">
           <template #default="{ row }">
             <template v-if="row.status === 'active'">
               <button class="row-btn row-btn-ok" :disabled="!perm.canEdit" @click="resolve(row)">

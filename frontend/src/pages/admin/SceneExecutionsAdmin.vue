@@ -206,27 +206,27 @@ onBeforeUnmount(() => {
     </div>
 
     <el-table v-loading="loading" :data="rows" stripe size="default">
-      <el-table-column prop="id" label="ID" width="44" />
-      <el-table-column label="场景" min-width="98">
+      <el-table-column prop="id" label="ID" width="64" />
+      <el-table-column label="场景" min-width="200">
         <template #default="{ row }">
           <div>{{ row.sceneName }}</div>
           <code class="code-cell">{{ row.sceneCode }}</code>
         </template>
       </el-table-column>
-      <el-table-column label="触发" width="64">
+      <el-table-column label="触发" width="150">
         <template #default="{ row }">
           <div>{{ triggerLabel(row.triggerType) }}</div>
           <div class="sub-mono">{{ row.triggerSource }}</div>
         </template>
       </el-table-column>
-      <el-table-column label="状态" width="62">
+      <el-table-column label="状态" width="120">
         <template #default="{ row }">
           <span class="sc-status" :class="statusCls[row.status as ExecutionStatus]">
             <span class="sc-status-dot" /> {{ statusLabel(row.status) }}
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="动作 (成功/失败/总)" width="64">
+      <el-table-column label="动作 (成功/失败/总)" width="170">
         <template #default="{ row }">
           <span class="ok">{{ row.successCount }}</span>
           <span class="sub-mono"> / </span>
@@ -234,16 +234,16 @@ onBeforeUnmount(() => {
           <span class="sub-mono"> / {{ row.totalActions }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="耗时" width="59">
+      <el-table-column label="耗时" width="90">
         <template #default="{ row }"><span class="sub-mono">{{ formatDuration(row.durationMs) }}</span></template>
       </el-table-column>
-      <el-table-column label="开始" width="64">
+      <el-table-column label="开始" width="170">
         <template #default="{ row }"><span class="sub-mono">{{ formatDate(row.startedAt) }}</span></template>
       </el-table-column>
-      <el-table-column label="结束" width="64">
+      <el-table-column label="结束" width="170">
         <template #default="{ row }"><span class="sub-mono">{{ formatDate(row.finishedAt) }}</span></template>
       </el-table-column>
-      <el-table-column label="摘要" min-width="97">
+      <el-table-column label="摘要" min-width="160">
         <template #default="{ row }">
           <el-popover v-if="row.failedCount > 0" :width="520" trigger="hover" placement="left-start">
             <template #reference>

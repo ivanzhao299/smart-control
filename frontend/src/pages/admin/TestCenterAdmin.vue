@@ -431,25 +431,25 @@ function shortParams(s: string | null): string {
           <el-button @click="refreshLogs">查询</el-button>
         </div>
         <el-table :data="logs" size="small" stripe>
-          <el-table-column prop="id" label="ID" width="45" />
-          <el-table-column label="时间" width="81">
+          <el-table-column prop="id" label="ID" width="60" />
+          <el-table-column label="时间" width="170">
             <template #default="{ row }">{{ fmtTime(row.createdAt) }}</template>
           </el-table-column>
-          <el-table-column prop="testType" label="类型" width="77" />
-          <el-table-column prop="targetType" label="目标类型" width="77" />
-          <el-table-column prop="targetId" label="目标" min-width="108" />
-          <el-table-column prop="command" label="命令" width="83" />
-          <el-table-column label="参数" min-width="111">
+          <el-table-column prop="testType" label="类型" width="120" />
+          <el-table-column prop="targetType" label="目标类型" width="120" />
+          <el-table-column prop="targetId" label="目标" min-width="160" />
+          <el-table-column prop="command" label="命令" width="140" />
+          <el-table-column label="参数" min-width="200">
             <template #default="{ row }">
               <code class="params">{{ shortParams(row.params) }}</code>
             </template>
           </el-table-column>
-          <el-table-column label="结果" width="64">
+          <el-table-column label="结果" width="80">
             <template #default="{ row }">
               <el-tag :type="row.success ? 'success' : 'danger'" size="small">{{ row.success ? '✓' : '✖' }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="durationMs" label="耗时(ms)" width="70" />
+          <el-table-column prop="durationMs" label="耗时(ms)" width="100" />
         </el-table>
       </el-tab-pane>
 

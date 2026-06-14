@@ -106,21 +106,21 @@ onMounted(refresh);
     </header>
 
     <el-table :data="list" v-loading="loading" stripe @row-click="openDetail" class="audit-table">
-      <el-table-column prop="id" label="#" width="46" />
-      <el-table-column prop="createdAt" label="时间" width="95">
+      <el-table-column prop="id" label="#" width="70" />
+      <el-table-column prop="createdAt" label="时间" width="180">
         <template #default="{ row }">
           <span class="time">{{ new Date(row.createdAt).toLocaleString() }}</span>
         </template>
       </el-table-column>
-      <el-table-column prop="entityType" label="类型" width="99" />
-      <el-table-column prop="entityId" label="实体 ID" width="88" />
-      <el-table-column label="动作" width="78">
+      <el-table-column prop="entityType" label="类型" width="140" />
+      <el-table-column prop="entityId" label="实体 ID" width="120" />
+      <el-table-column label="动作" width="100">
         <template #default="{ row }">
           <el-tag :type="actionTagType(row.action)" size="small">{{ row.action }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="operator" label="操作人" width="88" />
-      <el-table-column prop="remark" label="备注 / 来源" min-width="121" />
+      <el-table-column prop="operator" label="操作人" width="120" />
+      <el-table-column prop="remark" label="备注 / 来源" min-width="240" />
       <el-table-column label="操作" width="100" fixed="right">
         <template #default="{ row }">
           <el-button
