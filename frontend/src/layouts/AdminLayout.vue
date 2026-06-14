@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ChevronLeft, Menu, X, Maximize2, Minimize2 } from 'lucide-vue-next';
+import { ChevronLeft, Menu, X, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen } from 'lucide-vue-next';
 import BrandLogo from '@/components/BrandLogo.vue';
 import { useFullscreen } from '@/composables/useFullscreen';
 import { useSystemStore } from '@/stores/system';
@@ -72,6 +72,15 @@ function closeSidebar(): void { sidebarOpen.value = false; }
 // 切换路由后自动收起抽屉 (业主在手机上点菜单 → 跳页面 → 抽屉关掉)
 watch(() => route.name, () => { sidebarOpen.value = false; });
 
+/** 桌面/平板: 左栏折叠成图标栏 (>600px 生效, 持久化到 localStorage) */
+const COLLAPSE_KEY = 'sc.admin.sidebarCollapsed';
+const collapsed = ref<boolean>(false);
+try { collapsed.value = localStorage.getItem(COLLAPSE_KEY) === '1'; } catch { /* localStorage 不可用就默认展开 */ }
+function toggleCollapse(): void {
+  collapsed.value = !collapsed.value;
+  try { localStorage.setItem(COLLAPSE_KEY, collapsed.value ? '1' : '0'); } catch { /* ignore */ }
+}
+
 function go(name: string): void {
   router.push({ name });
   sidebarOpen.value = false;
@@ -102,13 +111,13 @@ async function logout(): Promise<void> {
 </script>
 
 <template>
-  <div class="admin" :class="{ 'sidebar-open': sidebarOpen }">
+  <div class="admin" :class="{ 'sidebar-open': sidebarOpen, collapsed }">
     <!-- 手机抽屉遮罩 -->
     <div class="sidebar-mask" @click="closeSidebar"></div>
     <aside class="side">
       <div class="brand">
         <BrandLogo :height="40" />
-        <div>
+        <div class="brand-text">
           <div class="title">{{ branding.systemName }}</div>
           <div class="sub">后台管理 · Admin</div>
         </div>
@@ -120,6 +129,7 @@ async function logout(): Promise<void> {
           type="button"
           class="menu-item"
           :class="{ 'is-active': currentName === it.name }"
+          :title="collapsed ? it.label : undefined"
           @click="go(it.name)"
         >
           <span class="ico">
@@ -143,6 +153,16 @@ async function logout(): Promise<void> {
         <button class="hamburger" @click="toggleSidebar" :aria-label="sidebarOpen ? '关闭菜单' : '打开菜单'">
           <X v-if="sidebarOpen" :size="20" :stroke-width="2" />
           <Menu v-else :size="20" :stroke-width="2" />
+        </button>
+        <button
+          class="collapse-btn"
+          type="button"
+          :title="collapsed ? '展开侧栏' : '收起侧栏'"
+          :aria-label="collapsed ? '展开侧栏' : '收起侧栏'"
+          @click="toggleCollapse"
+        >
+          <PanelLeftOpen v-if="collapsed" :size="18" :stroke-width="2" />
+          <PanelLeftClose v-else :size="18" :stroke-width="2" />
         </button>
         <div class="crumb">{{ items.find((i) => i.name === currentName)?.label ?? '后台管理' }}</div>
         <div class="meta">
@@ -193,6 +213,7 @@ async function logout(): Promise<void> {
   padding-right: env(safe-area-inset-right);
   box-sizing: border-box;
   position: relative;
+  transition: grid-template-columns 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
 /* 手机抽屉遮罩 — 默认不显示, 手机抽屉打开时盖上 */
 .sidebar-mask {
@@ -216,6 +237,28 @@ async function logout(): Promise<void> {
 .hamburger:hover {
   background: var(--v2-surf-1-hover);
   border-color: var(--v2-primary);
+}
+/* 折叠侧栏按钮 — 桌面/平板显示, 手机隐藏 (手机用 hamburger 抽屉) */
+.collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  margin-right: 10px;
+  flex-shrink: 0;
+  border: 1px solid var(--v2-border-soft);
+  background: var(--v2-surf-1);
+  color: var(--v2-text-2);
+  border-radius: 8px;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.18s ease;
+}
+.collapse-btn:hover {
+  background: var(--v2-surf-1-hover);
+  border-color: var(--v2-primary);
+  color: var(--v2-primary-hover);
 }
 .side {
   display: flex;
@@ -364,6 +407,22 @@ async function logout(): Promise<void> {
 .page-enter-from, .page-leave-to { opacity: 0; transform: translateY(6px); }
 .page-enter-active, .page-leave-active { transition: all 0.2s ease; }
 
+/* ============ 折叠态: 侧栏收成 64px 图标栏 (仅 >600px, 手机不受影响) ============ */
+@media (min-width: 601px) {
+  .admin.collapsed { grid-template-columns: 64px 1fr; }
+  /* 品牌区: 只留 logo 居中, 隐藏文字 */
+  .collapsed .brand { justify-content: center; padding: 16px 8px; }
+  .collapsed .brand-text { display: none; }
+  /* 菜单: 图标居中, 隐藏文字 (hover 有 title 气泡提示) */
+  .collapsed .menu { padding: var(--v2-sp-3) 8px; }
+  .collapsed .menu-item { justify-content: center; padding: 11px 0; }
+  .collapsed .menu-item .lbl { display: none; }
+  .collapsed .menu-item.is-active::before { left: -8px; height: 24px; }
+  /* 底部按钮: 只留图标 */
+  .collapsed .footer { padding: var(--v2-sp-3) 8px; }
+  .collapsed .footer .back { gap: 0; font-size: 0; padding: 10px 0; }
+}
+
 /* ============ 平板竖屏 (≤900px): 侧栏缩窄 ============ */
 @media (max-width: 900px) and (min-width: 601px) {
   .admin { grid-template-columns: 180px 1fr; }
@@ -385,6 +444,10 @@ async function logout(): Promise<void> {
   .hamburger {
     display: inline-flex;
     margin-right: 12px;
+  }
+  /* 手机用抽屉, 不需要折叠按钮 */
+  .collapse-btn {
+    display: none;
   }
   /* 侧栏 → fixed 抽屉, 默认 translateX(-100%) 藏左边 */
   .side {
