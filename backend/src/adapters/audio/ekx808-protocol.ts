@@ -251,7 +251,10 @@ export function cmdReadMute(devAddr: number, io: IODirection, channel: ChannelIn
 
 /** 读取当前预设号 (返回 1 Byte: 0x00-0x0C = F00, U01-U12) */
 export function cmdReadPreset(devAddr: number): Buffer {
-  return buildFrame(devAddr, CMD.READ_PRESET, 0x30, 0, 0);
+  // ⚠️ D1=0x00 (不是手册表格写的 0x30). 手册自相矛盾: 表格写 0x30, 但官方范例
+  // 报文是 "7B7D014A0000007D7B" (D1=0x00). 2026-06-13 现场实测: D1=0x00 才读到
+  // 真实预设号, D1=0x30 读不到 (返 0). 以官方范例 + 实测为准.
+  return buildFrame(devAddr, CMD.READ_PRESET, 0x00, 0, 0);
 }
 
 /** 读取实时电平 (返回 3 Byte: In/Out/Aux, Channel, signed dB) */
