@@ -354,30 +354,6 @@ async function remove(row: HardwareUnit): Promise<void> {
   }
 }
 
-function prettyJson(s: string | null): string {
-  if (!s) return '—';
-  try { return JSON.stringify(JSON.parse(s), null, 2); } catch { return s; }
-}
-
-function formatAddressing(s: string | null): string {
-  if (!s) return '';
-  const a = parseAddressing(s);
-  const parts: string[] = [];
-  if (a.slaveId != null) parts.push(`从机=${a.slaveId}`);
-  if (a.baud != null) parts.push(`${a.baud}bps`);
-  if (a.port != null) parts.push(`端口=${a.port}`);
-  if (a.frameIntervalMs != null) parts.push(`帧${a.frameIntervalMs}ms`);
-  if (a.daliStart != null && a.daliCount != null) parts.push(`DALI ${a.daliStart}-${a.daliStart + a.daliCount - 1}`);
-  return parts.length > 0 ? parts.join(' · ') : s;
-}
-
-function channelCount(s: string | null): number {
-  if (!s) return 0;
-  try {
-    const arr = JSON.parse(s);
-    return Array.isArray(arr) ? arr.length : 0;
-  } catch { return 0; }
-}
 
 onMounted(refresh);
 </script>
@@ -485,14 +461,6 @@ onMounted(refresh);
         <template #default="{ row }">
           <code v-if="row.ip" class="code-cell">{{ row.ip }}</code>
           <span v-else class="sub">—</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="寻址 / 通道" min-width="220">
-        <template #default="{ row }">
-          <div v-if="row.addressing" class="addr-cell" :title="prettyJson(row.addressing)">
-            {{ formatAddressing(row.addressing) }}
-          </div>
-          <div v-if="row.channels" class="sub">{{ channelCount(row.channels) }} 通道</div>
         </template>
       </el-table-column>
       <el-table-column label="状态" width="100">

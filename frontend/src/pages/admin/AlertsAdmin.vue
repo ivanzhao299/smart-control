@@ -250,7 +250,6 @@ onBeforeUnmount(() => { if (unsubscribeWs) unsubscribeWs(); });
         <span class="sc-subtle">共 {{ total }} 条</span>
       </div>
       <el-table v-loading="loading" :data="rows" stripe size="default" style="width:100%;">
-        <el-table-column prop="id" label="ID" width="64" />
         <el-table-column label="等级" width="90">
           <template #default="{ row }">
             <span class="sc-status" :class="levelMeta[row.level as AlertLevel].cls">

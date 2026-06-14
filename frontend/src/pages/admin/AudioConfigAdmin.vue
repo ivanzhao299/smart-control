@@ -257,7 +257,7 @@ onMounted(refresh);
             <el-input v-model="row.name" maxlength="64" placeholder="如: 早班接待" />
           </template>
         </el-table-column>
-        <el-table-column label="提示说明" min-width="190">
+        <el-table-column label="提示说明" min-width="140">
           <template #default="{ row }">
             <el-input v-model="row.hint" maxlength="128" placeholder="如: 8-10 点全场低音量 (可空)" />
           </template>

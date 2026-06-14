@@ -206,7 +206,6 @@ onBeforeUnmount(() => {
     </div>
 
     <el-table v-loading="loading" :data="rows" stripe size="default">
-      <el-table-column prop="id" label="ID" width="64" />
       <el-table-column label="场景" min-width="200">
         <template #default="{ row }">
           <div>{{ row.sceneName }}</div>

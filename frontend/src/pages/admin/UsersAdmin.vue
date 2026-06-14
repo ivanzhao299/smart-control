@@ -183,7 +183,6 @@ onMounted(refresh);
     </header>
 
     <el-table v-loading="loading" :data="rows" stripe size="default" row-key="id">
-      <el-table-column prop="id" label="ID" width="60" />
       <el-table-column prop="username" label="用户名" min-width="180" />
       <el-table-column label="角色" width="140">
         <template #default="{ row }">

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ChevronLeft, Menu, X, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen } from 'lucide-vue-next';
+import { Menu, X, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen } from 'lucide-vue-next';
 import BrandLogo from '@/components/BrandLogo.vue';
 import { useFullscreen } from '@/composables/useFullscreen';
 import { useSystemStore } from '@/stores/system';
@@ -9,7 +9,7 @@ import { usePermissionStore } from '@/stores/permission';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { useAdminAuthStore } from '@/stores/admin-auth';
 import { LogOut } from 'lucide-vue-next';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessageBox } from 'element-plus';
 import { adminNavIconFor } from '@/composables/useIcons';
 import type { UserRole } from '@/types/api';
 
@@ -116,26 +116,22 @@ function go(name: string): void {
   sidebarOpen.value = false;
 }
 
-function gotoPad(): void {
-  router.push({ name: 'dashboard' });
-}
-
 function onRoleChange(v: UserRole): void {
   perm.setRole(v);
 }
 
-async function logout(): Promise<void> {
+/** 退出后台 = 清 admin 登录态 + 返回前台首页. 再进后台会被 guard 拦, 需重新输密码. */
+async function exitToFront(): Promise<void> {
   try {
-    await ElMessageBox.confirm('确定退出后台?', '退出登录', {
+    await ElMessageBox.confirm('退出后台并返回前台? 再次进入后台需要输入密码。', '退出后台', {
       confirmButtonText: '退出',
       cancelButtonText: '取消',
       type: 'warning',
     });
     await authStore.logout();
-    ElMessage.success('已退出');
-    router.replace({ name: 'admin-login' });
+    router.replace({ name: 'dashboard' });
   } catch {
-    // 用户点了"取消"或关闭, 走 reject, 啥也不干
+    // 取消, 不动
   }
 }
 </script>
@@ -172,11 +168,8 @@ async function logout(): Promise<void> {
         </template>
       </nav>
       <div class="footer">
-        <button type="button" class="back" @click="gotoPad">
-          <ChevronLeft :size="16" :stroke-width="2" /> 返回平板首页
-        </button>
-        <button type="button" class="back logout-btn" @click="logout">
-          <LogOut :size="16" :stroke-width="2" /> 退出后台
+        <button type="button" class="back" @click="exitToFront">
+          <LogOut :size="16" :stroke-width="2" /> 退出后台 · 返回前台
         </button>
       </div>
     </aside>
@@ -341,7 +334,7 @@ async function logout(): Promise<void> {
 .menu-item {
   position: relative;
   display: flex; align-items: center; gap: var(--v2-sp-3);
-  padding: 6px 12px;
+  padding: 5px 12px;
   background: transparent;
   border: none;
   color: var(--v2-text-2);

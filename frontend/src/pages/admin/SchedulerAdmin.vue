@@ -183,7 +183,6 @@ onMounted(refresh);
     </header>
 
     <el-table v-loading="loading" :data="rows" stripe size="default" row-key="id">
-      <el-table-column prop="id" label="ID" width="60" />
       <el-table-column prop="name" label="任务名" min-width="180" />
       <el-table-column label="Cron" width="170">
         <template #default="{ row }"><code class="code-cell">{{ row.cron }}</code></template>

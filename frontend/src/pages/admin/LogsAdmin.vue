@@ -148,7 +148,6 @@ onMounted(refresh);
     </div>
 
     <el-table v-loading="loading" :data="rows" stripe size="default">
-      <el-table-column prop="id" label="ID" width="64" />
       <el-table-column label="时间" width="170">
         <template #default="{ row }"><span class="sub-mono">{{ new Date(row.createdAt).toLocaleString('zh-CN', { hour12: false }) }}</span></template>
       </el-table-column>
@@ -157,9 +156,6 @@ onMounted(refresh);
         <template #default="{ row }"><code class="code-cell">{{ row.action }}</code></template>
       </el-table-column>
       <el-table-column prop="targetType" label="目标类型" width="120" />
-      <el-table-column prop="targetId" label="目标ID" width="100">
-        <template #default="{ row }"><span class="sub-mono">{{ row.targetId ?? '—' }}</span></template>
-      </el-table-column>
       <el-table-column label="结果" width="90">
         <template #default="{ row }">
           <span class="sc-status" :class="row.result === 'success' ? 'is-on' : 'is-error'">

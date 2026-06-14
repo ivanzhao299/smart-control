@@ -291,8 +291,7 @@ onMounted(refresh);
 
     <!-- 表格 -->
     <el-table v-loading="loading" :data="filtered" stripe size="default" style="width:100%;" row-key="id">
-      <el-table-column prop="id" label="ID" width="60" />
-      <el-table-column label="名称" min-width="220">
+      <el-table-column label="名称" min-width="150">
         <template #default="{ row }">
           <div class="name-cell">
             <component
@@ -307,20 +306,14 @@ onMounted(refresh);
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="楼层 / 区域" width="160">
+      <el-table-column label="楼层 / 区域" width="120">
         <template #default="{ row }">
           <span>{{ [row.floor, row.zone].filter(Boolean).join(' / ') || '—' }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="IP" width="140">
+      <el-table-column label="IP" width="120">
         <template #default="{ row }">
           <code v-if="row.ip" class="code-cell">{{ row.ip }}</code>
-          <span v-else class="sub-mono">—</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="地址" width="180">
-        <template #default="{ row }">
-          <code v-if="row.address" class="code-cell">{{ row.address }}</code>
           <span v-else class="sub-mono">—</span>
         </template>
       </el-table-column>
@@ -329,7 +322,7 @@ onMounted(refresh);
           <el-switch :model-value="row.enabled" :disabled="!perm.canEdit" @change="toggleEnabled(row)" />
         </template>
       </el-table-column>
-      <el-table-column label="实时状态" width="120">
+      <el-table-column label="实时状态" width="100">
         <template #default="{ row }">
           <span class="sc-status" :class="statusMeta[runtimeStatus(row.name)].cls">
             <span class="sc-status-dot" /> {{ statusMeta[runtimeStatus(row.name)].label }}

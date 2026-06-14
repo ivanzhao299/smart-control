@@ -113,7 +113,6 @@ onMounted(refresh);
         </template>
       </el-table-column>
       <el-table-column prop="entityType" label="类型" width="140" />
-      <el-table-column prop="entityId" label="实体 ID" width="120" />
       <el-table-column label="动作" width="100">
         <template #default="{ row }">
           <el-tag :type="actionTagType(row.action)" size="small">{{ row.action }}</el-tag>

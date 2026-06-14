@@ -203,25 +203,9 @@ onMounted(refresh);
     </header>
 
     <el-table :data="filtered" v-loading="loading" stripe @row-click="openDetail" class="drivers-table">
-      <el-table-column prop="kind" label="kind" width="160" />
       <el-table-column prop="displayName" label="显示名" min-width="240" />
       <el-table-column prop="vendor" label="厂商" width="160" />
       <el-table-column prop="category" label="品类" width="140" />
-      <el-table-column prop="protocol" label="协议" width="180" />
-      <el-table-column label="能力" min-width="280">
-        <template #default="{ row }">
-          <el-tag
-            v-for="cap in row.capabilities.slice(0, 4)"
-            :key="cap"
-            size="small"
-            class="cap-tag"
-            type="info"
-          >
-            {{ cap }}
-          </el-tag>
-          <span v-if="row.capabilities.length > 4" class="more">+{{ row.capabilities.length - 4 }}</span>
-        </template>
-      </el-table-column>
       <el-table-column label="来源" width="100">
         <template #default="{ row }">
           <el-tag v-if="row.builtin" type="success" size="small">代码</el-tag>

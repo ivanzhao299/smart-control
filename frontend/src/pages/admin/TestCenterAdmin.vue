@@ -226,10 +226,6 @@ async function genReport(): Promise<void> {
 function fmtTime(s: string): string {
   return new Date(s).toLocaleString();
 }
-function shortParams(s: string | null): string {
-  if (!s) return '';
-  return s.length > 60 ? s.slice(0, 60) + '...' : s;
-}
 </script>
 
 <template>
@@ -431,7 +427,6 @@ function shortParams(s: string | null): string {
           <el-button @click="refreshLogs">查询</el-button>
         </div>
         <el-table :data="logs" size="small" stripe>
-          <el-table-column prop="id" label="ID" width="60" />
           <el-table-column label="时间" width="170">
             <template #default="{ row }">{{ fmtTime(row.createdAt) }}</template>
           </el-table-column>
@@ -439,11 +434,6 @@ function shortParams(s: string | null): string {
           <el-table-column prop="targetType" label="目标类型" width="120" />
           <el-table-column prop="targetId" label="目标" min-width="160" />
           <el-table-column prop="command" label="命令" width="140" />
-          <el-table-column label="参数" min-width="200">
-            <template #default="{ row }">
-              <code class="params">{{ shortParams(row.params) }}</code>
-            </template>
-          </el-table-column>
           <el-table-column label="结果" width="80">
             <template #default="{ row }">
               <el-tag :type="row.success ? 'success' : 'danger'" size="small">{{ row.success ? '✓' : '✖' }}</el-tag>

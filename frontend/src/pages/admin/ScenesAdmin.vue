@@ -147,7 +147,6 @@ onMounted(refresh);
     </header>
 
     <el-table v-loading="loading" :data="rows" stripe size="default" style="width: 100%;" row-key="id">
-      <el-table-column prop="id" label="ID" width="60" />
       <el-table-column label="编码" width="180">
         <template #default="{ row }"><code class="code-cell">{{ row.code }}</code></template>
       </el-table-column>
