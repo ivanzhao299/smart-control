@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
+import AppSkeleton from '@/components/AppSkeleton.vue';
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
 import {
   lightZonesService,
@@ -238,7 +239,8 @@ onMounted(refresh);
       style="margin-bottom: 16px;"
     />
 
-    <el-table :data="filtered" v-loading="loading" stripe class="zones-table">
+    <AppSkeleton v-if="loading && filtered.length === 0" variant="table" :rows="8" />
+    <el-table v-else :data="filtered" v-loading="loading" stripe class="zones-table">
       <el-table-column label="名称" min-width="160">
         <template #default="{ row }">
           <div class="name-cell">

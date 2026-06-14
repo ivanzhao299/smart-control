@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
+import AppSkeleton from '@/components/AppSkeleton.vue';
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
 import {
   powerCircuitsService,
@@ -177,7 +178,8 @@ onMounted(refresh);
       每条回路 = 一路强电继电器通道 + 可选电能表. 通断走 gatewayCode/relayChannel, 实时数据走 meterAddress (留空则 mock 模拟).
     </p>
 
-    <el-table :data="filtered" v-loading="loading" stripe class="circuits-table">
+    <AppSkeleton v-if="loading && filtered.length === 0" variant="table" :rows="8" />
+    <el-table v-else :data="filtered" v-loading="loading" stripe class="circuits-table">
       <el-table-column label="名称" min-width="150">
         <template #default="{ row }">
           <div class="name-cell">

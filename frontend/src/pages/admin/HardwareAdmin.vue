@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
+import AppSkeleton from '@/components/AppSkeleton.vue';
 import {
   Cable, Cpu, Lightbulb, MonitorPlay, Network, Plus, RefreshCw, Server,
   Speaker, Snowflake, Tablet, Trash2, Zap, Pencil,
@@ -451,7 +452,8 @@ onMounted(refresh);
     </div>
 
     <!-- 列表 -->
-    <el-table :data="filtered" v-loading="loading" stripe size="default" style="width:100%;">
+    <AppSkeleton v-if="loading && filtered.length === 0" variant="table" :rows="8" />
+    <el-table v-else :data="filtered" v-loading="loading" stripe size="default" style="width:100%;">
       <el-table-column label="编号" prop="code" width="170">
         <template #default="{ row }">
           <code class="code-cell">{{ row.code }}</code>

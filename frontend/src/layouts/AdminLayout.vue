@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ChevronLeft, Menu, X, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen } from 'lucide-vue-next';
 import BrandLogo from '@/components/BrandLogo.vue';
@@ -94,6 +94,22 @@ function toggleCollapse(): void {
   collapsed.value = !collapsed.value;
   try { localStorage.setItem(COLLAPSE_KEY, collapsed.value ? '1' : '0'); } catch { /* ignore */ }
 }
+
+// 进了后台后, idle 时预取各分组主页面 chunk, 切页不等下载 (只在后台触发, 不拖累客户端平板)
+onMounted(() => {
+  const ric =
+    (window as Window & { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback ??
+    ((cb: () => void) => window.setTimeout(cb, 1200));
+  ric(() => {
+    void import('@/pages/admin/MonitorAdmin.vue');
+    void import('@/pages/admin/ScenesAdmin.vue');
+    void import('@/pages/admin/DevicesAdmin.vue');
+    void import('@/pages/admin/HardwareHubAdmin.vue');
+    void import('@/pages/admin/ZonesConfigAdmin.vue');
+    void import('@/pages/admin/LogsHubAdmin.vue');
+    void import('@/pages/admin/SettingsHubAdmin.vue');
+  });
+});
 
 function go(name: string): void {
   router.push({ name });
@@ -208,7 +224,12 @@ async function logout(): Promise<void> {
       <main class="content">
         <router-view v-slot="{ Component }">
           <transition name="page" mode="out-in">
-            <component :is="Component" />
+            <!-- 页面缓存: 切回已访问的后台页瞬开 + 保留筛选/滚动状态.
+                 活页(监控/报警)被缓存时其中心化轮询继续, 数据保持新鲜;
+                 超出 max 的旧页 LRU 淘汰 → onUnmounted 退订, 有界不泄漏. -->
+            <keep-alive :max="12">
+              <component :is="Component" />
+            </keep-alive>
           </transition>
         </router-view>
       </main>
@@ -431,8 +452,11 @@ async function logout(): Promise<void> {
   padding: var(--v2-sp-5);
 }
 
-.page-enter-from, .page-leave-to { opacity: 0; transform: translateY(6px); }
-.page-enter-active, .page-leave-active { transition: all 0.2s ease; }
+/* 切页过渡: 只动 opacity/transform (GPU 合成层, 不掉帧); 离场快、入场略缓, 跟手不拖沓 */
+.page-enter-from { opacity: 0; transform: translateY(4px); }
+.page-leave-to { opacity: 0; }
+.page-enter-active { transition: opacity 0.14s ease, transform 0.14s ease; }
+.page-leave-active { transition: opacity 0.09s ease; }
 
 /* ============ 折叠态: 侧栏收成 64px 图标栏 (仅 >600px, 手机不受影响) ============ */
 @media (min-width: 601px) {
