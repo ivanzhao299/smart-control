@@ -27,29 +27,46 @@ const fsActive = fs.isActive;
 const fsSupported = fs.isSupported;
 function toggleFullscreen(): void { void fs.toggle(); }
 
-// 2026-05-30 生产模式菜单审计: 删 4 项不日常用的, 保留 12 项. 删的菜单不删路由,
-// 应急可以直接 URL 访问 (/admin/uat / /admin/drivers / /admin/brands / /admin/audit).
-// 删: UAT 验收 (一次性现场交付) / 驱动模板 (开发集成用) / 硬件品牌 (低价值) / 变更历史 (取证用)
-const items: Array<{ name: string; label: string }> = [
-  { name: 'admin-monitor', label: '运维监控' },
-  { name: 'admin-alerts', label: '报警中心' },
-  { name: 'admin-devices', label: '设备管理' },
-  { name: 'admin-scenes', label: '场景管理' },
-  { name: 'admin-scheduler', label: '定时任务' },
-  { name: 'admin-scene-executions', label: '执行记录' },
-  // Sprint-09 测试中心 / Sprint-06 spec 「设备调试」(同一页面, /admin/test-center 与 /admin/debug 等价)
-  // 保留: 现场维护应急时需要 (DALI 直接 poke / Ping / 端口 / rawResponse)
-  { name: 'admin-test-center', label: '测试 / 调试' },
-  { name: 'admin-logs', label: '日志中心' },
-  { name: 'admin-hardware', label: '硬件清单' },
-  { name: 'admin-light-zones', label: '灯光分区' },
-  { name: 'admin-power-circuits', label: '电源回路' },
-  { name: 'admin-audio-config', label: '音响配置' },
-  { name: 'admin-app-release', label: 'APP 版本' },
-  { name: 'admin-system-branding', label: '系统品牌' },
-  { name: 'admin-users', label: '用户管理' },
-  { name: 'admin-settings', label: '系统设置' },
+// 2026-06-14 菜单重排: 按使用频次分 4 组 + 同类页合并 (tab). 16 项扁平 → 12 项分组.
+// 合并: 日志中心(操作/执行/变更) · 硬件清单(设备/驱动/品牌) · 分区配置(灯光/电源/音响) · 系统设置(常规/品牌)
+const groups: Array<{ section: string; items: Array<{ name: string; label: string }> }> = [
+  { section: '日常运行', items: [
+    { name: 'admin-monitor', label: '运维监控' },
+    { name: 'admin-alerts', label: '报警中心' },
+    { name: 'admin-scenes', label: '场景管理' },
+    { name: 'admin-scheduler', label: '定时任务' },
+  ] },
+  { section: '设备与分区', items: [
+    { name: 'admin-devices', label: '设备管理' },
+    { name: 'admin-hardware', label: '硬件清单' },
+    { name: 'admin-zones-config', label: '分区配置' },
+  ] },
+  { section: '日志与诊断', items: [
+    { name: 'admin-logs', label: '日志中心' },
+    { name: 'admin-test-center', label: '测试 / 调试' },
+  ] },
+  { section: '系统管理', items: [
+    { name: 'admin-users', label: '用户管理' },
+    { name: 'admin-app-release', label: 'APP 版本' },
+    { name: 'admin-settings', label: '系统设置' },
+  ] },
 ];
+/** 扁平列表 — crumb / 查找用 */
+const flatItems = groups.flatMap((g) => g.items);
+/** 子页/深链 → 高亮哪个菜单项 (合并后, 子页归到它的合并页) */
+const MENU_ALIAS: Record<string, string> = {
+  'admin-scene-actions': 'admin-scenes',
+  'admin-debug': 'admin-test-center',
+  'admin-uat': 'admin-test-center',
+  'admin-scene-executions': 'admin-logs',
+  'admin-audit': 'admin-logs',
+  'admin-drivers': 'admin-hardware',
+  'admin-brands': 'admin-hardware',
+  'admin-light-zones': 'admin-zones-config',
+  'admin-power-circuits': 'admin-zones-config',
+  'admin-audio-config': 'admin-zones-config',
+  'admin-system-branding': 'admin-settings',
+};
 
 const timeLabel = computed(() => {
   const d = new Date(sys.now);
@@ -59,10 +76,7 @@ const timeLabel = computed(() => {
 
 const currentName = computed(() => {
   const cur = route.name?.toString() ?? '';
-  if (cur.startsWith('admin-scene-actions')) return 'admin-scenes';
-  // Sprint-06 spec: /admin/debug 与 /admin/test-center 同一页, 菜单都激活测试中心
-  if (cur === 'admin-debug') return 'admin-test-center';
-  return cur;
+  return MENU_ALIAS[cur] ?? cur;
 });
 
 /** 手机抽屉开关状态 (≤600px 才生效) */
@@ -123,20 +137,23 @@ async function logout(): Promise<void> {
         </div>
       </div>
       <nav class="menu">
-        <button
-          v-for="it in items"
-          :key="it.name"
-          type="button"
-          class="menu-item"
-          :class="{ 'is-active': currentName === it.name }"
-          :title="collapsed ? it.label : undefined"
-          @click="go(it.name)"
-        >
-          <span class="ico">
-            <component :is="adminNavIconFor(it.name)" :size="18" :stroke-width="1.75" />
-          </span>
-          <span class="lbl">{{ it.label }}</span>
-        </button>
+        <template v-for="g in groups" :key="g.section">
+          <div class="menu-section">{{ g.section }}</div>
+          <button
+            v-for="it in g.items"
+            :key="it.name"
+            type="button"
+            class="menu-item"
+            :class="{ 'is-active': currentName === it.name }"
+            :title="collapsed ? it.label : undefined"
+            @click="go(it.name)"
+          >
+            <span class="ico">
+              <component :is="adminNavIconFor(it.name)" :size="18" :stroke-width="1.75" />
+            </span>
+            <span class="lbl">{{ it.label }}</span>
+          </button>
+        </template>
       </nav>
       <div class="footer">
         <button type="button" class="back" @click="gotoPad">
@@ -164,7 +181,7 @@ async function logout(): Promise<void> {
           <PanelLeftOpen v-if="collapsed" :size="18" :stroke-width="2" />
           <PanelLeftClose v-else :size="18" :stroke-width="2" />
         </button>
-        <div class="crumb">{{ items.find((i) => i.name === currentName)?.label ?? '后台管理' }}</div>
+        <div class="crumb">{{ flatItems.find((i) => i.name === currentName)?.label ?? '后台管理' }}</div>
         <div class="meta">
           <span class="version">{{ sys.info?.sprint ?? '—' }} · v{{ sys.info?.version ?? '—' }}</span>
           <span class="v2-pill" :class="sys.info?.mockMode ? '' : 'idle'">
@@ -287,6 +304,16 @@ async function logout(): Promise<void> {
   flex: 1; display: flex; flex-direction: column; gap: 2px;
   padding: var(--v2-sp-3) var(--v2-sp-2); overflow-y: auto;
 }
+/* 分组小标题 */
+.menu-section {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  color: var(--v2-text-3);
+  padding: 12px 12px 4px;
+  user-select: none;
+}
+.menu-section:first-child { padding-top: 2px; }
 .menu-item {
   position: relative;
   display: flex; align-items: center; gap: var(--v2-sp-3);
@@ -415,6 +442,12 @@ async function logout(): Promise<void> {
   .collapsed .brand-text { display: none; }
   /* 菜单: 图标居中, 隐藏文字 (hover 有 title 气泡提示) */
   .collapsed .menu { padding: var(--v2-sp-3) 8px; }
+  /* 分组标题 → 细分隔线 (第一组上面不要线) */
+  .collapsed .menu-section {
+    height: 1px; font-size: 0; padding: 0; overflow: hidden;
+    margin: 8px 6px; background: var(--v2-border-soft); letter-spacing: 0;
+  }
+  .collapsed .menu-section:first-child { display: none; }
   .collapsed .menu-item { justify-content: center; padding: 11px 0; }
   .collapsed .menu-item .lbl { display: none; }
   .collapsed .menu-item.is-active::before { left: -8px; height: 24px; }

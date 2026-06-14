@@ -58,8 +58,13 @@ const routes: RouteRecordRaw[] = [
       // Sprint-06 spec 命名别名: /admin/debug → TestCenterAdmin (含单设备测试 + Ping + 端口 + rawResponse)
       { path: 'debug', name: 'admin-debug', component: () => import('@/pages/admin/TestCenterAdmin.vue') },
       { path: 'uat', name: 'admin-uat', component: () => import('@/pages/admin/UatAdmin.vue') },
-      { path: 'logs', name: 'admin-logs', component: () => import('@/pages/admin/LogsAdmin.vue') },
-      { path: 'hardware', name: 'admin-hardware', component: () => import('@/pages/admin/HardwareAdmin.vue') },
+      // 日志中心 (合并页): 操作日志 + 场景执行 + 变更历史 — 三个只读历史流收成 tab
+      { path: 'logs', name: 'admin-logs', component: () => import('@/pages/admin/LogsHubAdmin.vue') },
+      // 硬件清单 (合并页): 设备登记 + 驱动模板 + 厂商品牌 — 硬件定义层收成 tab
+      { path: 'hardware', name: 'admin-hardware', component: () => import('@/pages/admin/HardwareHubAdmin.vue') },
+      // 分区配置 (合并页): 灯光 + 电源 + 音响 — 子系统输出单元配置收成 tab
+      { path: 'zones-config', name: 'admin-zones-config', component: () => import('@/pages/admin/ZonesConfigAdmin.vue') },
+      // 以下子页保留独立路由作深链 (菜单已收进上面的合并页, 不再单独列)
       { path: 'light-zones', name: 'admin-light-zones', component: () => import('@/pages/admin/LightZonesAdmin.vue') },
       { path: 'power-circuits', name: 'admin-power-circuits', component: () => import('@/pages/admin/PowerCircuitsAdmin.vue') },
       { path: 'audio-config', name: 'admin-audio-config', component: () => import('@/pages/admin/AudioConfigAdmin.vue') },
@@ -69,7 +74,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'system-branding', name: 'admin-system-branding', component: () => import('@/pages/admin/SystemBrandingAdmin.vue') },
       { path: 'audit', name: 'admin-audit', component: () => import('@/pages/admin/AuditAdmin.vue') },
       { path: 'users', name: 'admin-users', component: () => import('@/pages/admin/UsersAdmin.vue') },
-      { path: 'settings', name: 'admin-settings', component: () => import('@/pages/admin/SettingsAdmin.vue') },
+      // 系统设置 (合并页): 常规设置 + 系统品牌
+      { path: 'settings', name: 'admin-settings', component: () => import('@/pages/admin/SettingsHubAdmin.vue') },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
