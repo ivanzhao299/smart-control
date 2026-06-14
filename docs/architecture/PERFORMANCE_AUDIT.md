@@ -271,4 +271,6 @@ P3 监控放最后, 单独 sprint
   - 切页过渡 0.4s→~0.23s, 纯 opacity/transform (GPU)
   - 进后台后 idle 预取各分组主页 chunk (前台 P1-#8 已做, 这次补后台)
   - 新增复用骨架屏组件 AppSkeleton, 应用到灯光/电源/硬件首次加载 (替代空白/转圈)
-  - 待办: 骨架屏可继续铺到首页冷启动 + 其余后台列表页; P2-#13 SWR 缓存 / P2-#14 ETag 仍未做
+  - SWR 缓存 (P2-#13): query.service.ts 之前写好但 0 处使用, 这次接到 light-zones/power-circuits/audio-config
+    的 list (queryOnce 缓存 + 写操作 invalidate); 页面零改动. 切页/回访命中缓存瞬开 + 后台 silent revalidate.
+  - 待办: 骨架屏可继续铺到首页 + 其余后台页; SWR 可扩到 device/scene (需先确认其 mutation 路径); P2-#14 ETag 未做
