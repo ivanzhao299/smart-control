@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ChevronLeft, Menu, X } from 'lucide-vue-next';
+import { ChevronLeft, Menu, X, Maximize2, Minimize2 } from 'lucide-vue-next';
 import BrandLogo from '@/components/BrandLogo.vue';
+import { useFullscreen } from '@/composables/useFullscreen';
 import { useSystemStore } from '@/stores/system';
 import { usePermissionStore } from '@/stores/permission';
 import { useSystemBrandingStore } from '@/stores/system-branding';
@@ -19,6 +20,12 @@ const perm = usePermissionStore();
 const brandingStore = useSystemBrandingStore();
 const branding = computed(() => brandingStore.branding);
 const authStore = useAdminAuthStore();
+
+// 全屏切换 (后台不强制 autoEnter, 业主想全屏时手动点)
+const fs = useFullscreen({ autoEnter: false });
+const fsActive = fs.isActive;
+const fsSupported = fs.isSupported;
+function toggleFullscreen(): void { void fs.toggle(); }
 
 // 2026-05-30 生产模式菜单审计: 删 4 项不日常用的, 保留 12 项. 删的菜单不删路由,
 // 应急可以直接 URL 访问 (/admin/uat / /admin/drivers / /admin/brands / /admin/audit).
@@ -148,6 +155,16 @@ async function logout(): Promise<void> {
             <el-option label="operator" value="operator" />
             <el-option label="viewer" value="viewer" />
           </el-select>
+          <button
+            v-if="fsSupported"
+            type="button"
+            class="fs-btn"
+            :title="fsActive ? '退出全屏' : '全屏'"
+            @click="toggleFullscreen"
+          >
+            <Minimize2 v-if="fsActive" :size="16" :stroke-width="2" />
+            <Maximize2 v-else :size="16" :stroke-width="2" />
+          </button>
           <span class="clock">{{ timeLabel }}</span>
         </div>
       </header>
@@ -321,6 +338,22 @@ async function logout(): Promise<void> {
   font-variant-numeric: tabular-nums;
   font-size: 14px;
   color: var(--v2-text-1);
+}
+.fs-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px;
+  border: 1px solid var(--v2-border-soft);
+  background: var(--v2-surf-1);
+  color: var(--v2-text-2);
+  border-radius: 8px;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.18s ease;
+}
+.fs-btn:hover {
+  background: var(--v2-surf-1-hover);
+  border-color: var(--v2-primary);
+  color: var(--v2-primary-hover);
 }
 
 .content {
