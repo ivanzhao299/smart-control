@@ -294,4 +294,75 @@ export class TcpClient {
       void persistent;
     });
   }
+
+  /**
+   * 短连接: 发 payload, 等一个"安静窗口"收齐所有返回字节, 然后关连接.
+   *
+   * 用于响应**变长且无帧边界**的协议 (得胜 EKX-808: readGain 返 4 字节,
+   * readMute 3 字节, 写命令返 "OK" 2 字节, readPreset 1 字节, 全是裸数据
+   * 没有 7B7D 帧头帧尾). sendAndExpect 那种"等固定 N 字节"在这里会死等 timeout.
+   *
+   * 策略: 写完后, 每收到数据就重置 settleMs 计时; settleMs 内没有新数据
+   * 就认为对端发完了, 返回已收字节. 整体不超过 maxWaitMs.
+   */
+  async sendAndReadAll(
+    payload: Buffer | string,
+    settleMs = 250,
+    maxWaitMs?: number,
+    signal?: AbortSignal,
+  ): Promise<Buffer> {
+    const connectTimeout = this.opts.timeoutMs ?? 3000;
+    const hardMax = maxWaitMs ?? connectTimeout;
+    const sock = await this.connectOnce(connectTimeout, signal);
+    try {
+      await this.writeAsync(sock, payload);
+      return await new Promise<Buffer>((resolve, reject) => {
+        const chunks: Buffer[] = [];
+        let settled = false;
+        let settleTimer: NodeJS.Timeout | undefined;
+
+        const finish = (): void => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          resolve(Buffer.concat(chunks));
+        };
+        const onData = (chunk: Buffer): void => {
+          chunks.push(chunk);
+          if (settleTimer) clearTimeout(settleTimer);
+          settleTimer = setTimeout(finish, settleMs);  // 收到数据 → 重置安静计时
+        };
+        const onError = (err: Error): void => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(classifyError(this.opts.deviceType, err));
+        };
+        const onEnd = (): void => finish();  // 对端关连接 = 发完了
+        const onAbort = (): void => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(new DeviceConnectionError(this.opts.deviceType, 'aborted'));
+        };
+        const cleanup = (): void => {
+          if (settleTimer) clearTimeout(settleTimer);
+          clearTimeout(hardTimer);
+          sock.off('data', onData);
+          sock.off('error', onError);
+          sock.off('end', onEnd);
+          if (signal) signal.removeEventListener('abort', onAbort);
+        };
+        // 兜底: 不管有没有数据, hardMax 后强制返回已收 (可能是 0 字节)
+        const hardTimer = setTimeout(finish, hardMax);
+
+        if (signal) signal.addEventListener('abort', onAbort, { once: true });
+        sock.on('data', onData);
+        sock.on('error', onError);
+        sock.on('end', onEnd);
+      });
+    } finally {
+      sock.destroy();
+    }
+  }
 }

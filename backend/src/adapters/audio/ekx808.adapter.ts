@@ -92,9 +92,10 @@ export class EkxDspAdapter extends BaseAdapter {
   ) {
     super(config, logger);
     this.host = process.env.AUDIO_EKX_HOST ?? '192.168.50.61';
-    // 默认 TCP 端口: 9760 (得胜 EKX-808 出厂固定端口)
-    // 历史代码写 5000 是猜的; 2026-06-01 现场实测真实端口 9760, 跟厂家固件对齐.
-    this.port = Number.parseInt(process.env.AUDIO_EKX_PORT ?? '9760', 10);
+    // 默认 TCP 端口: 9761 (得胜 EKX-808 网口控制端口)
+    // 2026-06-13 现场抓厂家 PC Editor 软件的真实 TCP 连接确认: PC 软件连的是 9761.
+    // (9760 是设备的 echo 干扰端口, 一字之差坑了两天). EKX 单客户端, 短连接一问一答.
+    this.port = Number.parseInt(process.env.AUDIO_EKX_PORT ?? '9761', 10);
     this.devAddr = Number.parseInt(process.env.AUDIO_EKX_DEV_ADDR ?? '1', 10);
     this.timeoutMs = Number.parseInt(process.env.DEVICE_TIMEOUT_MS ?? '3000', 10);
     this.retries = Number.parseInt(process.env.DEVICE_RETRIES ?? '3', 10);
@@ -159,10 +160,10 @@ export class EkxDspAdapter extends BaseAdapter {
         'set_volume', 'mute', 'recall_scene', 'read_current_scene',
         'set_matrix', 'aux_switch', 'read_level', 'health_check',
       ],
-      defaultAddressing: { devAddr: 1, tcpPort: 9760, inputs: 8, outputs: 8 },
+      defaultAddressing: { devAddr: 1, tcpPort: 9761, inputs: 8, outputs: 8 },
       paramSchema: {
         ip:      { type: 'string', label: 'DSP IP', required: true, placeholder: '192.168.x.x' },
-        tcpPort: { type: 'number', label: 'TCP 端口', default: 9760, min: 1, max: 65535 },
+        tcpPort: { type: 'number', label: 'TCP 端口', default: 9761, min: 1, max: 65535 },
         devAddr: { type: 'number', label: '设备地址', default: 1, min: 1, max: 254 },
       },
       remark: '8 输入 8 输出数字音频矩阵 + DSP, 支持用户预设 U01-U12, AEC/NR/摄像跟踪/自动混音开关.',
@@ -175,7 +176,7 @@ export class EkxDspAdapter extends BaseAdapter {
     const envHost = process.env.AUDIO_EKX_HOST;
     const envPort = process.env.AUDIO_EKX_PORT ? Number.parseInt(process.env.AUDIO_EKX_PORT, 10) : undefined;
     const host = db?.host ?? envHost ?? '192.168.50.61';
-    const port = db?.port ?? envPort ?? 9760;
+    const port = db?.port ?? envPort ?? 9761;
     if (host === this.host && port === this.port) return;
     const source = db?.host ? 'db' : envHost ? 'env' : 'default';
     this.logger.warn(
@@ -225,8 +226,10 @@ export class EkxDspAdapter extends BaseAdapter {
       const ch = this.channelFor(deviceId, params.zone);
       const percent = Math.max(0, Math.min(100, Number(params.value ?? 0)));
       const db = this.percentToDb(percent);
+      // 写命令: 发完读 "OK" 确认. 不再额外 readState (EKX 单客户端, 连发多个连接
+      // 容易被拒). 乐观返回刚设的值 — PWA 本来就用自己的滑条值, 不依赖回读.
       await this.send(cmdSetOutputVolume(this.devAddr, ch, db), ctx?.signal);
-      return this.readState(ch, ctx?.signal);
+      return { volume: percent, muted: false, bgm: null, micEnabled: false };
     });
   }
 
@@ -255,7 +258,7 @@ export class EkxDspAdapter extends BaseAdapter {
     return this.run(deviceId, muted ? 'mute' : 'unmute', ctx, async () => {
       const ch = this.channelFor(deviceId, params.zone);
       await this.send(cmdMute(this.devAddr, IO_OUT, ch, muted), ctx?.signal);
-      return this.readState(ch, ctx?.signal);
+      return { volume: 0, muted, bgm: null, micEnabled: false };
     });
   }
 
@@ -287,7 +290,7 @@ export class EkxDspAdapter extends BaseAdapter {
       const ch = this.channelFor(deviceId, params.zone);
       const muted = params.enable === false;
       await this.send(cmdMute(this.devAddr, IO_IN, ch, muted), ctx?.signal);
-      return this.readState(ch, ctx?.signal);
+      return { volume: 0, muted, bgm: null, micEnabled: params.enable !== false };
     });
   }
 
@@ -308,8 +311,8 @@ export class EkxDspAdapter extends BaseAdapter {
   async readCurrentScene(ctx?: AdapterContext): Promise<AdapterResult<{ preset: number }>> {
     return this.run('audio-dsp', 'readCurrentScene', ctx, async () => {
       const resp = await this.send(cmdReadPreset(this.devAddr), ctx?.signal, true);
-      const f = parseFrame(resp);
-      const preset = f ? f.payload[0] : 0;
+      // 实测返回 1 字节裸数据: preset (无帧头). 0=F00, 1-12=U01-U12
+      const preset = resp.length >= 1 ? resp[0] : 0;
       return { preset };
     });
   }
@@ -343,8 +346,8 @@ export class EkxDspAdapter extends BaseAdapter {
   async readLevel(io: 0 | 1 | 2, channel: ChannelIndex, ctx?: AdapterContext): Promise<AdapterResult<{ db: number }>> {
     return this.run('audio-dsp', `readLevel_${io}_${channel}`, ctx, async () => {
       const resp = await this.send(cmdReadLevel(this.devAddr, io, channel), ctx?.signal, true);
-      const f = parseFrame(resp);
-      const db = f ? levelByteToDb(f.payload[2]) : -128;
+      // 实测裸响应 (无帧头): readLevel 返 3 字节 [IO, Ch, level], level 在 payload[2]
+      const db = resp.length >= 3 ? levelByteToDb(resp[2]) : -128;
       return { db };
     });
   }
@@ -373,15 +376,20 @@ export class EkxDspAdapter extends BaseAdapter {
     return -10 + ((percent - 50) / 50) * 22;
   }
 
-  /** 读取通道当前状态 (合成 AudioState) */
+  /**
+   * 读取通道当前状态 (合成 AudioState).
+   * 实测裸响应 (无帧头):
+   *   readGain → 4 字节 [IO, Ch, HI, LO]  code = HI<<8|LO, codeToDb 换算
+   *   readMute → 3 字节 [IO, Ch, mute]
+   * 给后台/状态面板用, 写命令不再走这里 (避免连发连接被 EKX 拒).
+   */
   private async readState(ch: ChannelIndex, signal?: AbortSignal): Promise<AudioState> {
     let volume = 0;
     let muted = false;
     try {
       const gainResp = await this.send(cmdReadGain(this.devAddr, IO_OUT, ch), signal, true);
-      const g = parseFrame(gainResp);
-      if (g) {
-        const db = singleByteCodeToDb(g.payload[2]);
+      if (gainResp.length >= 4) {
+        const db = codeToDb(gainResp[2], gainResp[3]);
         volume = Math.round(this.dbToPercent(db));
       }
     } catch {
@@ -389,8 +397,7 @@ export class EkxDspAdapter extends BaseAdapter {
     }
     try {
       const muteResp = await this.send(cmdReadMute(this.devAddr, IO_OUT, ch), signal, true);
-      const m = parseFrame(muteResp);
-      if (m) muted = m.payload[0] === 1;
+      if (muteResp.length >= 3) muted = muteResp[2] === 1;
     } catch {
       /* 同上 */
     }
@@ -476,18 +483,26 @@ export class EkxDspAdapter extends BaseAdapter {
     });
   }
 
-  /** 单条命令发送 (带重试). expectResponse=true 时等待 9 字节响应帧 */
-  private async send(payload: Buffer, signal?: AbortSignal, expectResponse = false): Promise<Buffer> {
+  /**
+   * 单条命令发送 (带重试), 返回设备的**变长裸响应字节**.
+   *
+   * EKX-808 实测协议 (2026-06-13 现场抓包):
+   *   - 写命令 (setVolume/mute/recallScene/matrix) → 返 "OK" = [0x4F, 0x4B]
+   *   - readGain   → 4 字节 [IO, Ch, HI, LO]  (code = HI<<8 | LO)
+   *   - readMute   → 3 字节 [IO, Ch, mute]
+   *   - readPreset → 1 字节 [preset]
+   *   响应**没有 7B7D 帧头帧尾**, 长度不定. 所以不能用 sendAndExpect(固定9字节),
+   *   改用 sendAndReadAll: 写完后收齐"安静窗口"内所有字节再返回.
+   *
+   * EKX 单客户端 + 短连接: 每条命令开一个 TCP 连接发完读完就关, 释放给厂家 PC 软件
+   * (调试时业主可能要连). expectResponse 参数保留兼容, 现在统一都读响应.
+   */
+  private async send(payload: Buffer, signal?: AbortSignal, _expectResponse = false): Promise<Buffer> {
     await this.syncRuntime();
     try {
       const result = await withRetry(
-        async () => {
-          if (expectResponse) {
-            return await this.tcp.sendAndExpect(payload, FRAME_LEN, signal);
-          }
-          await this.tcp.send(payload, signal);
-          return Buffer.alloc(0);
-        },
+        // settle 200ms (收到末字节后静默 200ms 即认为发完), 整体上限 1200ms
+        async () => this.tcp.sendAndReadAll(payload, 200, 1200, signal),
         { retries: this.retries, timeoutMs: this.timeoutMs, signal },
       );
       this.registry.markOnline(GATEWAY_KEY);
