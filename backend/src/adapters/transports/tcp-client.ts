@@ -315,7 +315,6 @@ export class TcpClient {
     const hardMax = maxWaitMs ?? connectTimeout;
     const sock = await this.connectOnce(connectTimeout, signal);
     try {
-      await this.writeAsync(sock, payload);
       return await new Promise<Buffer>((resolve, reject) => {
         const chunks: Buffer[] = [];
         let settled = false;
@@ -357,9 +356,21 @@ export class TcpClient {
         const hardTimer = setTimeout(finish, hardMax);
 
         if (signal) signal.addEventListener('abort', onAbort, { once: true });
+        // ⚠️ 关键: 先挂 data/error/end 监听, 再 write.
+        // EKX 响应极快 (短连接秒回), 若 write 后才挂监听, 设备的回包可能在
+        // 挂监听前就到达并被丢掉 (race) → 收 0 字节 → 上层默认 preset=0.
+        // 现场实测: 写命令照样生效 (设备收到), 但读响应永远拿不到, 就是这个 race.
         sock.on('data', onData);
         sock.on('error', onError);
         sock.on('end', onEnd);
+        // 监听挂好后再发, 回包必被 onData 抓到
+        sock.write(payload, (err) => {
+          if (err && !settled) {
+            settled = true;
+            cleanup();
+            reject(classifyError(this.opts.deviceType, err));
+          }
+        });
       });
     } finally {
       sock.destroy();
