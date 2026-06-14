@@ -215,22 +215,18 @@ onMounted(refresh);
 <template>
   <section class="zones-admin">
     <header class="page-head">
-      <div>
-        <h2>灯光分区</h2>
-        <p class="sub">
-          前台 LightingPage 的 zone 数据源. 一个 zone = (DALI 网关 + DALI 组号). 同一组号
-          在不同网关上是物理不同的两束灯, 互不影响.
-        </p>
-      </div>
-      <div class="actions">
-        <el-select v-model="floorFilter" placeholder="全部楼层" clearable style="width: 140px;">
-          <el-option v-for="f in floorOptions" :key="f" :label="f" :value="f" />
-        </el-select>
-        <el-input v-model="search" placeholder="搜索名称 / code / 网关" clearable style="width: 240px;" />
-        <el-button type="primary" @click="openCreate" :disabled="gateways.length === 0">新增分区</el-button>
-        <el-button @click="refresh" :loading="loading">刷新</el-button>
-      </div>
+      <h2>灯光分区</h2>
+      <el-select v-model="floorFilter" placeholder="全部楼层" clearable class="floor-sel">
+        <el-option v-for="f in floorOptions" :key="f" :label="f" :value="f" />
+      </el-select>
+      <el-input v-model="search" placeholder="搜索名称 / code / 网关" clearable class="search-inp" />
+      <el-button type="primary" class="head-add" @click="openCreate" :disabled="gateways.length === 0">新增分区</el-button>
+      <el-button @click="refresh" :loading="loading">刷新</el-button>
     </header>
+    <p class="sub">
+      前台 LightingPage 的 zone 数据源. 一个 zone = (DALI 网关 + DALI 组号). 同一组号
+      在不同网关上是物理不同的两束灯, 互不影响.
+    </p>
 
     <el-alert
       v-if="gateways.length === 0"
@@ -417,12 +413,14 @@ onMounted(refresh);
 <style scoped>
 .zones-admin { padding: 16px 24px; color: var(--v2-text-1); }
 .page-head {
-  display: flex; justify-content: space-between; align-items: flex-end;
-  margin-bottom: 16px; gap: 16px;
+  display: flex; align-items: center; gap: 10px;
+  flex-wrap: wrap; margin-bottom: 10px;
 }
-.page-head h2 { margin: 0; font-size: 20px; color: var(--v2-text-1); }
-.sub { color: var(--v2-text-2); margin: 4px 0 0; font-size: 13px; max-width: 720px; line-height: 1.6; }
-.actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.page-head h2 { margin: 0 6px 0 0; font-size: 20px; color: var(--v2-text-1); white-space: nowrap; }
+.floor-sel { width: 120px; }
+.search-inp { width: 220px; }
+.head-add { margin-left: auto; }
+.sub { color: var(--v2-text-2); margin: 0 0 14px; font-size: 13px; max-width: 720px; line-height: 1.6; }
 
 .name-cell { display: flex; flex-direction: column; gap: 3px; }
 .name-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }

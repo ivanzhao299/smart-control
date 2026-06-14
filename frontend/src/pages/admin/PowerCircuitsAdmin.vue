@@ -165,21 +165,17 @@ onMounted(refresh);
 <template>
   <section class="circuits-admin">
     <header class="page-head">
-      <div>
-        <h2>电源回路</h2>
-        <p class="sub">
-          每条回路 = 一路强电继电器通道 + 可选电能表. 通断走 gatewayCode/relayChannel, 实时数据走 meterAddress (留空则 mock 模拟).
-        </p>
-      </div>
-      <div class="actions">
-        <el-select v-model="floorFilter" placeholder="全部楼层" clearable style="width: 140px;">
-          <el-option v-for="f in floorOptions" :key="f" :label="f" :value="f" />
-        </el-select>
-        <el-input v-model="search" placeholder="搜索名称 / code / 继电器" clearable style="width: 240px;" />
-        <el-button type="primary" @click="openCreate">新增回路</el-button>
-        <el-button @click="refresh" :loading="loading">刷新</el-button>
-      </div>
+      <h2>电源回路</h2>
+      <el-select v-model="floorFilter" placeholder="全部楼层" clearable class="floor-sel">
+        <el-option v-for="f in floorOptions" :key="f" :label="f" :value="f" />
+      </el-select>
+      <el-input v-model="search" placeholder="搜索名称 / code / 继电器" clearable class="search-inp" />
+      <el-button type="primary" class="head-add" @click="openCreate">新增回路</el-button>
+      <el-button @click="refresh" :loading="loading">刷新</el-button>
     </header>
+    <p class="sub">
+      每条回路 = 一路强电继电器通道 + 可选电能表. 通断走 gatewayCode/relayChannel, 实时数据走 meterAddress (留空则 mock 模拟).
+    </p>
 
     <el-table :data="filtered" v-loading="loading" stripe class="circuits-table">
       <el-table-column label="名称" min-width="150">
@@ -303,12 +299,14 @@ onMounted(refresh);
 <style scoped>
 .circuits-admin { padding: 16px 24px; color: var(--v2-text-1); }
 .page-head {
-  display: flex; justify-content: space-between; align-items: flex-end;
-  margin-bottom: 16px; gap: 16px;
+  display: flex; align-items: center; gap: 10px;
+  flex-wrap: wrap; margin-bottom: 10px;
 }
-.page-head h2 { margin: 0; font-size: 20px; color: var(--v2-text-1); }
-.sub { color: var(--v2-text-2); margin: 4px 0 0; font-size: 13px; max-width: 720px; line-height: 1.6; }
-.actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.page-head h2 { margin: 0 6px 0 0; font-size: 20px; color: var(--v2-text-1); white-space: nowrap; }
+.floor-sel { width: 120px; }
+.search-inp { width: 220px; }
+.head-add { margin-left: auto; }
+.sub { color: var(--v2-text-2); margin: 0 0 14px; font-size: 13px; max-width: 720px; line-height: 1.6; }
 
 .name-cell { display: flex; flex-direction: column; gap: 3px; }
 .name-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
