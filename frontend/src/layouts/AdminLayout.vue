@@ -309,7 +309,7 @@ async function logout(): Promise<void> {
 }
 .brand {
   display: flex; align-items: center; gap: var(--v2-sp-3);
-  padding: 18px 18px;
+  padding: 11px 16px;
   border-bottom: 1px solid var(--v2-border-soft);
 }
 .title {
@@ -322,23 +322,26 @@ async function logout(): Promise<void> {
 }
 
 .menu {
-  flex: 1; display: flex; flex-direction: column; gap: 2px;
-  padding: var(--v2-sp-3) var(--v2-sp-2); overflow-y: auto;
+  flex: 1; display: flex; flex-direction: column; gap: 1px;
+  padding: 5px 8px; overflow-y: auto;
+  /* 一屏装下后不需要滚动条 (问题3) */
+  scrollbar-width: none;
 }
-/* 分组小标题 */
+.menu::-webkit-scrollbar { width: 0; height: 0; }
+/* 分组小标题 — 收紧上下间距 */
 .menu-section {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 1.5px;
   color: var(--v2-text-3);
-  padding: 12px 12px 4px;
+  padding: 7px 12px 2px;
   user-select: none;
 }
 .menu-section:first-child { padding-top: 2px; }
 .menu-item {
   position: relative;
   display: flex; align-items: center; gap: var(--v2-sp-3);
-  padding: 10px 12px;
+  padding: 6px 12px;
   background: transparent;
   border: none;
   color: var(--v2-text-2);
@@ -387,7 +390,8 @@ async function logout(): Promise<void> {
 .menu-item .lbl { flex: 1; }
 
 .footer {
-  padding: var(--v2-sp-3) var(--v2-sp-3);
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px 10px;
   border-top: 1px solid var(--v2-border-soft);
 }
 .back {
@@ -396,7 +400,7 @@ async function logout(): Promise<void> {
   background: var(--v2-surf-1);
   color: var(--v2-text-2);
   border: 1px solid var(--v2-border-soft);
-  padding: 9px 12px;
+  padding: 7px 12px;
   border-radius: var(--v2-r-sm);
   cursor: pointer;
   font-size: 13px;
