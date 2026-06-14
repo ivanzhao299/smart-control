@@ -430,6 +430,29 @@ html {
   background-color: var(--el-mask-color);
 }
 
+/* ============ 浮层强制实色 ============
+ * 根因: 本文件第 114 行把旧 token --bg-panel 重映射成半透明 --v2-surf-1 (rgba …,0.10),
+ * 而 theme.css 里下拉/popover/select 的背景都用 var(--bg-panel) → 浮在内容上变透明,
+ * 看不清选项. 浮层(不像卡片有 body gradient 垫底)必须实色. 这里统一强制覆盖,
+ * 用 design-tokens 已定义的浮层实色 --el-bg-color-overlay (#1B2034). 本文件后加载, 胜出. */
+.el-popper:not(.is-dark),
+.el-select__popper.el-popper,
+.el-select-v2__popper.el-popper,
+.el-dropdown__popper.el-popper,
+.el-cascader__dropdown.el-popper,
+.el-picker__popper.el-popper,
+.el-autocomplete__popper.el-popper,
+.el-select-dropdown,
+.el-select-dropdown__wrap,
+.el-select-dropdown__list,
+.el-dropdown-menu,
+.el-cascader-menu {
+  background-color: #1B2034 !important;
+}
+.el-popper:not(.is-dark) .el-popper__arrow::before {
+  background: #1B2034 !important;
+}
+
 /* ============ el-table 直接选择器覆盖 (token 不够, 因为 EP 默认 .el-table 把 bg 写死) ============ */
 .el-table,
 .el-table tr,
