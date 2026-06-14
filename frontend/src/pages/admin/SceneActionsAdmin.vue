@@ -366,20 +366,20 @@ onMounted(refresh);
     </header>
 
     <el-table v-loading="loading" :data="rows" stripe size="default" row-key="id">
-      <el-table-column prop="sortOrder" label="顺序" width="80" sortable :sort-method="sortBySort" />
-      <el-table-column label="类型" width="130">
+      <el-table-column prop="sortOrder" label="顺序" width="56" sortable :sort-method="sortBySort" />
+      <el-table-column label="类型" width="80">
         <template #default="{ row }">
           <span class="type-cell">
             {{ DEVICE_TYPE_META[row.deviceType]?.icon ?? '⚙' }} {{ DEVICE_TYPE_META[row.deviceType]?.label ?? row.deviceType }}
           </span>
         </template>
       </el-table-column>
-      <el-table-column prop="deviceId" label="设备 / 区域" min-width="180">
+      <el-table-column prop="deviceId" label="设备 / 区域" min-width="96">
         <template #default="{ row }">
           <code class="code-cell">{{ row.deviceId }}</code>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="180">
+      <el-table-column label="操作" width="92">
         <template #default="{ row }">
           <span class="cmd-cell">
             {{ getCommandSpec(row.deviceType, row.command)?.label ?? row.command }}
@@ -387,21 +387,21 @@ onMounted(refresh);
           <div class="cmd-raw">{{ row.command }}</div>
         </template>
       </el-table-column>
-      <el-table-column label="预览 (人话)" min-width="280">
+      <el-table-column label="预览 (人话)" min-width="104">
         <template #default="{ row }">
           <div class="preview-text">{{ humanizeAction(row.deviceType, row.deviceId, row.command, row.params) }}</div>
           <code class="params" v-if="row.params && row.params !== '{}'">{{ row.params }}</code>
         </template>
       </el-table-column>
-      <el-table-column prop="delayMs" label="延时" width="90">
+      <el-table-column prop="delayMs" label="延时" width="60">
         <template #default="{ row }"><span class="sub-mono">{{ row.delayMs }}ms</span></template>
       </el-table-column>
-      <el-table-column label="启用" width="80">
+      <el-table-column label="启用" width="56">
         <template #default="{ row }">
           <el-switch :model-value="row.enabled" :disabled="!perm.canEdit" @change="toggleEnabled(row)" />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="340" fixed="right" align="right">
+      <el-table-column label="操作" width="200" fixed="right" align="right">
         <template #default="{ row }">
           <button class="row-btn" @click="move(row, -1)" :disabled="!perm.canEdit" title="上移">
             <ChevronUp :size="13" :stroke-width="2" />
@@ -409,10 +409,9 @@ onMounted(refresh);
           <button class="row-btn" @click="move(row, 1)" :disabled="!perm.canEdit" title="下移">
             <ChevronDown :size="13" :stroke-width="2" />
           </button>
-          <button class="row-btn row-btn-test" @click="testAction(row)" :disabled="!perm.canExecute || testingId !== null" title="单独试触发这条 (不进队列)">
+          <button class="row-btn row-btn-test" @click="testAction(row)" :disabled="!perm.canExecute || testingId !== null" title="试触发: 单独触发这条 (不进队列)">
             <Loader v-if="testingId === row.id" :size="13" :stroke-width="2" class="spin" />
             <Zap v-else :size="13" :stroke-width="2" />
-            试触发
           </button>
           <button class="row-btn" @click="cloneAction(row)" :disabled="!perm.canEdit" title="复制一条">
             <Copy :size="13" :stroke-width="2" />
