@@ -155,6 +155,9 @@ html {
 .el-table__empty-text { color: var(--text-secondary) !important; }
 /* 单元格左右内边距 12→8px: 收紧列间距, 宽表在 iPad 带侧栏也不横滚, 更紧凑 */
 .el-table .cell { color: inherit; padding-left: 8px; padding-right: 8px; }
+/* 操作列收窄后按钮不换行: 固定右列单行 + 相邻按钮间距 12→7px */
+.el-table__fixed-right .cell { white-space: nowrap; }
+.el-table .cell .el-button + .el-button { margin-left: 7px; }
 .el-table--border .el-table__cell {
   border-right: 1px solid var(--border-soft) !important;
 }

@@ -183,29 +183,29 @@ onMounted(refresh);
     </header>
 
     <el-table v-loading="loading" :data="rows" stripe size="default" row-key="id">
-      <el-table-column prop="id" label="ID" width="60" />
-      <el-table-column prop="name" label="任务名" min-width="180" />
-      <el-table-column label="Cron" width="170">
+      <el-table-column prop="id" label="ID" width="45" />
+      <el-table-column prop="name" label="任务名" min-width="106" />
+      <el-table-column label="Cron" width="75">
         <template #default="{ row }"><code class="code-cell">{{ row.cron }}</code></template>
       </el-table-column>
-      <el-table-column label="绑定场景" width="180">
+      <el-table-column label="绑定场景" width="75">
         <template #default="{ row }"><code class="code-cell">{{ row.sceneCode }}</code></template>
       </el-table-column>
-      <el-table-column label="启用" width="80">
+      <el-table-column label="启用" width="62">
         <template #default="{ row }">
           <el-switch :model-value="row.enabled" :disabled="!perm.canEdit" @change="toggleEnabled(row)" />
         </template>
       </el-table-column>
-      <el-table-column label="最近执行" width="170">
+      <el-table-column label="最近执行" width="75">
         <template #default="{ row }"><span class="sub-mono">{{ formatDate(row.lastRunAt) }}</span></template>
       </el-table-column>
-      <el-table-column label="下次执行" width="170">
+      <el-table-column label="下次执行" width="75">
         <template #default="{ row }">
           <span v-if="row.enabled && row.nextRunAt" class="sub-mono">{{ formatDate(row.nextRunAt) }}</span>
           <span v-else class="sub-mono">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="最近结果" width="110">
+      <el-table-column label="最近结果" width="69">
         <template #default="{ row }">
           <span v-if="row.lastRunStatus === 'success'" class="sc-status is-on">
             <span class="sc-status-dot" /> 成功
@@ -216,7 +216,7 @@ onMounted(refresh);
           <span v-else class="sub-mono">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="280" fixed="right" align="right">
+      <el-table-column label="操作" width="135" fixed="right" align="right">
         <template #default="{ row }">
           <button class="row-btn row-btn-ok" :disabled="!perm.canExecute" @click="runNow(row)">
             <Play :size="13" :stroke-width="2" /> 立即执行

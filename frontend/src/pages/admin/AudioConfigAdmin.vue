@@ -252,17 +252,17 @@ onMounted(refresh);
         <el-table-column label="预设" width="80">
           <template #default="{ row }"><span class="chan-tag">U{{ String(row.presetNum).padStart(2,'0') }}</span></template>
         </el-table-column>
-        <el-table-column label="场景名称" min-width="150">
+        <el-table-column label="场景名称" min-width="140">
           <template #default="{ row }">
             <el-input v-model="row.name" maxlength="64" placeholder="如: 早班接待" />
           </template>
         </el-table-column>
-        <el-table-column label="提示说明" min-width="190">
+        <el-table-column label="提示说明" min-width="150">
           <template #default="{ row }">
             <el-input v-model="row.hint" maxlength="128" placeholder="如: 8-10 点全场低音量 (可空)" />
           </template>
         </el-table-column>
-        <el-table-column label="路由" width="120">
+        <el-table-column label="路由" width="119">
           <template #default="{ row }">
             <span v-if="sceneRouteCount(row) > 0" class="route-badge on">已配 {{ sceneRouteCount(row) }} 路</span>
             <span v-else class="route-badge off">未配</span>
@@ -271,7 +271,7 @@ onMounted(refresh);
         <el-table-column label="启用" width="70">
           <template #default="{ row }"><el-switch v-model="row.enabled" /></template>
         </el-table-column>
-        <el-table-column label="操作" width="190">
+        <el-table-column label="操作" width="158">
           <template #default="{ row }">
             <el-button size="small" @click="openEditor(row)">
               <Grid3x3 :size="13" :stroke-width="2" style="margin-right:4px" /> 编辑路由

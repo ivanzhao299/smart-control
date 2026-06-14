@@ -150,39 +150,39 @@ onMounted(refresh);
     </header>
 
     <el-table :data="filtered" v-loading="loading" stripe class="brands-table">
-      <el-table-column label="Logo" width="80">
+      <el-table-column label="Logo" width="63">
         <template #default="{ row }">
           <img v-if="row.logoUrl" :src="row.logoUrl" :alt="row.name" class="logo-thumb" />
           <span v-else class="no-logo">—</span>
         </template>
       </el-table-column>
-      <el-table-column prop="name" label="品牌标识" min-width="180">
+      <el-table-column prop="name" label="品牌标识" min-width="108">
         <template #default="{ row }">
           <code class="brand-name">{{ row.name }}</code>
           <div v-if="row.displayName" class="brand-display">{{ row.displayName }}</div>
         </template>
       </el-table-column>
-      <el-table-column prop="country" label="国家/地区" width="140" />
-      <el-table-column label="联系方式" min-width="240">
+      <el-table-column prop="country" label="国家/地区" width="80" />
+      <el-table-column label="联系方式" min-width="108">
         <template #default="{ row }">
           <div v-if="row.salesContact" class="contact-row"><span class="tag">销售</span>{{ row.salesContact }}</div>
           <div v-if="row.techContact" class="contact-row"><span class="tag tech">技术</span>{{ row.techContact }}</div>
           <span v-if="!row.salesContact && !row.techContact" class="muted">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="官网" width="140">
+      <el-table-column label="官网" width="80">
         <template #default="{ row }">
           <a v-if="row.website" :href="row.website" target="_blank" rel="noopener" class="link-cell">访问 ↗</a>
           <span v-else class="muted">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="引用" width="160">
+      <el-table-column label="引用" width="77">
         <template #default="{ row }">
           <el-tag size="small" type="info">{{ row.hardwareCount }} 设备</el-tag>
           <el-tag size="small" type="success" style="margin-left: 4px;">{{ row.driverCount }} 驱动</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="状态" width="100">
+      <el-table-column label="状态" width="68">
         <template #default="{ row }">
           <el-switch
             :model-value="row.enabled"
@@ -193,7 +193,7 @@ onMounted(refresh);
           />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="140" fixed="right">
+      <el-table-column label="操作" width="131" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button link type="danger" @click="remove(row)">删除</el-button>

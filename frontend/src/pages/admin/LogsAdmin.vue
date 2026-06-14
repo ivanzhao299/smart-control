@@ -148,26 +148,26 @@ onMounted(refresh);
     </div>
 
     <el-table v-loading="loading" :data="rows" stripe size="default">
-      <el-table-column prop="id" label="ID" width="64" />
-      <el-table-column label="时间" width="170">
+      <el-table-column prop="id" label="ID" width="46" />
+      <el-table-column label="时间" width="99">
         <template #default="{ row }"><span class="sub-mono">{{ new Date(row.createdAt).toLocaleString('zh-CN', { hour12: false }) }}</span></template>
       </el-table-column>
-      <el-table-column prop="operator" label="操作人" width="150" />
-      <el-table-column label="动作" width="190">
+      <el-table-column prop="operator" label="操作人" width="99" />
+      <el-table-column label="动作" width="99">
         <template #default="{ row }"><code class="code-cell">{{ row.action }}</code></template>
       </el-table-column>
-      <el-table-column prop="targetType" label="目标类型" width="120" />
-      <el-table-column prop="targetId" label="目标ID" width="100">
+      <el-table-column prop="targetType" label="目标类型" width="92" />
+      <el-table-column prop="targetId" label="目标ID" width="81">
         <template #default="{ row }"><span class="sub-mono">{{ row.targetId ?? '—' }}</span></template>
       </el-table-column>
-      <el-table-column label="结果" width="90">
+      <el-table-column label="结果" width="75">
         <template #default="{ row }">
           <span class="sc-status" :class="row.result === 'success' ? 'is-on' : 'is-error'">
             <span class="sc-status-dot" /> {{ row.result === 'success' ? '成功' : '失败' }}
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="消息" min-width="300">
+      <el-table-column label="消息" min-width="125">
         <template #default="{ row }">
           <el-popover :width="500" trigger="hover" placement="left-start">
             <template #reference>

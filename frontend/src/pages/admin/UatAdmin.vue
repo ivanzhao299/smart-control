@@ -214,25 +214,25 @@ function fmtTime(s: string): string {
     </div>
 
     <el-table v-loading="loading" :data="records" stripe size="default" row-key="id">
-      <el-table-column label="序号" width="64">
+      <el-table-column label="序号" width="44">
         <template #default="{ row }">{{ row.sortOrder || row.id }}</template>
       </el-table-column>
-      <el-table-column label="分类" width="80">
+      <el-table-column label="分类" width="56">
         <template #default="{ row }">{{ categoryLabel(row.category) }}</template>
       </el-table-column>
-      <el-table-column label="项目" min-width="180">
+      <el-table-column label="项目" min-width="92">
         <template #default="{ row }">
           <div class="item-name">{{ row.itemName }}</div>
           <div v-if="row.testStep" class="sc-subtle item-step">{{ row.testStep }}</div>
         </template>
       </el-table-column>
-      <el-table-column label="预期结果" min-width="200">
+      <el-table-column label="预期结果" min-width="92">
         <template #default="{ row }">
           <span v-if="row.expectedResult">{{ row.expectedResult }}</span>
           <span v-else class="sc-subtle">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="实际结果" min-width="220">
+      <el-table-column label="实际结果" min-width="92">
         <template #default="{ row }">
           <el-input
             v-if="editing[row.id] !== undefined"
@@ -246,7 +246,7 @@ function fmtTime(s: string): string {
           <el-button v-else size="small" link @click="startEdit(row)" :disabled="!perm.canEdit">+ 录入结果</el-button>
         </template>
       </el-table-column>
-      <el-table-column label="备注" width="180">
+      <el-table-column label="备注" width="56">
         <template #default="{ row }">
           <el-input
             v-if="editing[row.id] !== undefined"
@@ -258,26 +258,26 @@ function fmtTime(s: string): string {
           <span v-else class="sc-subtle">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="状态" width="110">
+      <el-table-column label="状态" width="56">
         <template #default="{ row }">
           <span class="sc-status" :class="statusCls[row.status as UatStatus]">
             <span class="sc-status-dot" /> {{ statusLabel(row.status) }}
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="测试人" width="100">
+      <el-table-column label="测试人" width="56">
         <template #default="{ row }">
           <span v-if="row.tester">{{ row.tester }}</span>
           <span v-else class="sc-subtle">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="时间" width="160">
+      <el-table-column label="时间" width="56">
         <template #default="{ row }">
           <span v-if="row.status !== 'pending'" class="sc-subtle">{{ fmtTime(row.updatedAt) }}</span>
           <span v-else class="sc-subtle">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="340" fixed="right" align="right">
+      <el-table-column label="操作" width="128" fixed="right" align="right">
         <template #default="{ row }">
           <template v-if="editing[row.id] !== undefined">
             <button class="row-btn row-btn-ok" :disabled="!perm.canEdit" @click="transit(row, 'passed')">

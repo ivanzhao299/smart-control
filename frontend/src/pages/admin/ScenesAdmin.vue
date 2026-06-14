@@ -147,12 +147,12 @@ onMounted(refresh);
     </header>
 
     <el-table v-loading="loading" :data="rows" stripe size="default" style="width: 100%;" row-key="id">
-      <el-table-column prop="id" label="ID" width="60" />
-      <el-table-column label="编码" width="180">
+      <el-table-column prop="id" label="ID" width="48" />
+      <el-table-column label="编码" width="132">
         <template #default="{ row }"><code class="code-cell">{{ row.code }}</code></template>
       </el-table-column>
-      <el-table-column prop="name" label="名称" width="220" />
-      <el-table-column prop="description" label="说明" min-width="220">
+      <el-table-column prop="name" label="名称" width="132" />
+      <el-table-column prop="description" label="说明" min-width="150">
         <template #default="{ row }">
           <span v-if="row.description">{{ row.description }}</span>
           <span v-else class="sub-mono">—</span>
@@ -163,7 +163,7 @@ onMounted(refresh);
           <el-switch :model-value="row.enabled" :disabled="!perm.canEdit" @change="toggleEnabled(row)" />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="320" fixed="right" align="right">
+      <el-table-column label="操作" width="158" fixed="right" align="right">
         <template #default="{ row }">
           <button class="row-btn" @click="gotoActions(row)">
             <Settings2 :size="13" :stroke-width="2" /> 动作

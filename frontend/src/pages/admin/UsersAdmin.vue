@@ -183,8 +183,8 @@ onMounted(refresh);
     </header>
 
     <el-table v-loading="loading" :data="rows" stripe size="default" row-key="id">
-      <el-table-column prop="id" label="ID" width="60" />
-      <el-table-column prop="username" label="用户名" min-width="180" />
+      <el-table-column prop="id" label="ID" width="48" />
+      <el-table-column prop="username" label="用户名" min-width="150" />
       <el-table-column label="角色" width="140">
         <template #default="{ row }">
           <span class="sc-status" :class="row.role === 'admin' ? 'is-error' : row.role === 'operator' ? 'is-on' : 'is-off'">
@@ -197,10 +197,10 @@ onMounted(refresh);
           <el-switch :model-value="row.enabled" :disabled="!perm.canEdit" @change="toggleEnabled(row)" />
         </template>
       </el-table-column>
-      <el-table-column label="创建时间" width="180">
+      <el-table-column label="创建时间" width="132">
         <template #default="{ row }"><span class="sub-mono">{{ new Date(row.createdAt).toLocaleString('zh-CN', { hour12: false }) }}</span></template>
       </el-table-column>
-      <el-table-column label="操作" width="180" fixed="right" align="right">
+      <el-table-column label="操作" width="158" fixed="right" align="right">
         <template #default="{ row }">
           <button class="row-btn" @click="openEdit(row)" :disabled="!perm.canEdit">
             <Pencil :size="13" :stroke-width="2" /> 编辑
