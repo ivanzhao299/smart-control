@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
 import { AudioAdapter } from '../../adapters/audio/audio.adapter';
 import { OperationLogService } from '../logs/operation-log.service';
+import { AudioConfigService } from '../audio-config/audio-config.service';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { AudioBgmDto, AudioMicDto, AudioMuteDto, AudioVolumeDto } from './dto/audio.dto';
 import { AdapterResult } from '../../adapters/adapter.types';
@@ -13,11 +14,38 @@ export class AudioController {
   constructor(
     private readonly audio: AudioAdapter,
     private readonly logService: OperationLogService,
+    private readonly audioConfig: AudioConfigService,
   ) {}
 
   // ============ EKX-808 场景预设 ============
 
-  /** 一键场景切换 (调用 DSP 用户预设 U01-U12) */
+  /**
+   * 一键场景切换 (后台编辑版, 前端用这个) —
+   * 读 DB 里这个场景的 content (矩阵路由+音量+静音) 逐条下发到矩阵.
+   * 没配 content 的场景 → 回退调设备内置预设 U0N (老行为, 兼容).
+   */
+  @Post('scene/apply/:preset')
+  async applyScene(@Param('preset', ParseIntPipe) preset: number) {
+    const scene = await this.audioConfig.getSceneByPreset(preset);
+    const content = this.audioConfig.parseSceneContent(scene);
+    if (content && content.outputs.length > 0) {
+      return this.wrap('audio-dsp', `scene.apply.U${preset}`,
+        () => this.audio.applyScene(content),
+        { preset, mode: 'content', outputs: content.outputs.length });
+    }
+    return this.wrap('audio-dsp', `scene.recall.U${preset}`,
+      () => this.audio.recallScene(preset),
+      { preset, mode: 'device-preset' });
+  }
+
+  /** 清空场景增量缓存 → 下次 apply 全量下发 (业主用过厂家 PC Editor 后点) */
+  @Post('scene/reset-cache')
+  resetSceneCache() {
+    this.audio.resetSceneCache();
+    return { message: '已清空场景缓存, 下次切场景将全量下发', data: { ok: true } };
+  }
+
+  /** 一键场景切换 (调用 DSP 内置用户预设 U01-U12, 不读 DB content) */
   @Post('scene/recall/:preset')
   recallScene(@Param('preset', ParseIntPipe) preset: number) {
     return this.wrap('audio-dsp', `scene.recall.U${preset}`,

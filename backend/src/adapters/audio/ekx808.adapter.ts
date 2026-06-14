@@ -39,6 +39,23 @@ import {
 
 const GATEWAY_KEY = 'audio-ekx808';
 
+/** 单路输出在某场景里的配置 */
+export interface SceneOutputConfig {
+  /** 输出通道 0-7 */
+  ch: number;
+  /** 喂给这路输出的输入通道号 (0-7), 多个=混音. 不传=不动这路的路由 */
+  inputs?: number[];
+  /** 输出音量 0-100. 不传=不动音量 */
+  volume?: number;
+  /** 是否静音. 不传=不动静音 */
+  muted?: boolean;
+}
+
+/** 一个场景的完整内容 (后台可编辑, 切场景时逐条下发到矩阵) */
+export interface SceneContent {
+  outputs: SceneOutputConfig[];
+}
+
 /**
  * 得胜 TAKSTAR EKX-808 8x8 数字矩阵 DSP 适配器
  *
@@ -83,6 +100,23 @@ export class EkxDspAdapter extends BaseAdapter {
    * 所有 send 经这把锁排队, 保证任意时刻只有一个连接, 读写都稳.
    */
   private cmdLock: Promise<unknown> = Promise.resolve();
+
+  /**
+   * applyScene 增量缓存 — 记住上次下发到设备的 8×8 矩阵 / 8 路音量 / 8 路静音.
+   * 切场景时只发跟缓存不一样的格子, 避免每次全量 ~80 条命令 (单客户端串行会很慢).
+   * null = 未知 (backend 刚起 / 换过设备), 下次 applyScene 对应项全量下发.
+   * 手动 setVolume/mute/setMatrix 也会同步更新这里, 防止缓存跟真实状态脱节.
+   */
+  private appliedMatrix: (boolean | null)[][] = Array.from({ length: 8 }, () => Array<boolean | null>(8).fill(null));
+  private appliedVol: (number | null)[] = Array<number | null>(8).fill(null);
+  private appliedMute: (boolean | null)[] = Array<boolean | null>(8).fill(null);
+
+  /** 清空增量缓存 → 下次 applyScene 全量下发. 业主用过厂家 PC Editor / 换设备后调. */
+  resetSceneCache(): void {
+    this.appliedMatrix = Array.from({ length: 8 }, () => Array<boolean | null>(8).fill(null));
+    this.appliedVol = Array<number | null>(8).fill(null);
+    this.appliedMute = Array<boolean | null>(8).fill(null);
+  }
 
   /**
    * zone 名 → DSP 输出通道索引 (0-based: 0=OUT1 ... 7=OUT8).
@@ -209,6 +243,7 @@ export class EkxDspAdapter extends BaseAdapter {
     this.host = host;
     this.port = port;
     if (!this.isMock()) this.registry.register(GATEWAY_KEY, `tcp://${host}:${port}`);
+    this.resetSceneCache(); // 换了设备 → 设备真实状态未知, 下次场景全量下发
   }
 
   // ============ 基础: ping + 健康检查 ============
@@ -246,6 +281,7 @@ export class EkxDspAdapter extends BaseAdapter {
       // 写命令: 发完读 "OK" 确认. 不再额外 readState (EKX 单客户端, 连发多个连接
       // 容易被拒). 乐观返回刚设的值 — PWA 本来就用自己的滑条值, 不依赖回读.
       await this.send(cmdSetOutputVolume(this.devAddr, ch, db), ctx?.signal);
+      this.appliedVol[ch] = percent; // 同步增量缓存
       return { volume: percent, muted: false, bgm: null, micEnabled: false };
     });
   }
@@ -275,6 +311,7 @@ export class EkxDspAdapter extends BaseAdapter {
     return this.run(deviceId, muted ? 'mute' : 'unmute', ctx, async () => {
       const ch = this.channelFor(deviceId, params.zone);
       await this.send(cmdMute(this.devAddr, IO_OUT, ch, muted), ctx?.signal);
+      this.appliedMute[ch] = muted; // 同步增量缓存
       return { volume: 0, muted, bgm: null, micEnabled: false };
     });
   }
@@ -327,6 +364,51 @@ export class EkxDspAdapter extends BaseAdapter {
     });
   }
 
+  /**
+   * 下发一个"后台编辑的场景内容"到矩阵 — 逐条发 setMatrix + 输出音量 + 静音,
+   * 把整机摆成 content 描述的样子. 走增量缓存: 只发跟上次不一样的, 切场景通常很快.
+   * (跟设备内置预设 recallScene 不同 — 这个的内容存在我们 DB 里, 业主后台可改.)
+   */
+  async applyScene(content: SceneContent, ctx?: AdapterContext): Promise<AdapterResult<{ commands: number; outputs: number }>> {
+    return this.run('audio-dsp', 'applyScene', ctx, async () => {
+      let cmds = 0;
+      const outs = Array.isArray(content?.outputs) ? content.outputs : [];
+      for (const out of outs) {
+        const ch = Number(out.ch);
+        if (!Number.isInteger(ch) || ch < 0 || ch > 7) continue;
+        const cch = ch as ChannelIndex;
+        // 1) 矩阵路由: 逐个输入比对缓存, 只发变化的格子 (Out cch ← In inp 开/关)
+        if (Array.isArray(out.inputs)) {
+          const wanted = new Set(out.inputs.map(Number).filter((n) => n >= 0 && n <= 7));
+          for (let inp = 0; inp < 8; inp++) {
+            const desired = wanted.has(inp);
+            if (this.appliedMatrix[cch][inp] !== desired) {
+              await this.send(cmdSetMatrix(this.devAddr, cch, inp as ChannelIndex, desired), ctx?.signal);
+              this.appliedMatrix[cch][inp] = desired;
+              cmds++;
+            }
+          }
+        }
+        // 2) 输出音量 (百分比 → dB)
+        if (typeof out.volume === 'number' && Number.isFinite(out.volume)) {
+          const v = Math.max(0, Math.min(100, Math.round(out.volume)));
+          if (this.appliedVol[cch] !== v) {
+            await this.send(cmdSetOutputVolume(this.devAddr, cch, this.percentToDb(v)), ctx?.signal);
+            this.appliedVol[cch] = v;
+            cmds++;
+          }
+        }
+        // 3) 静音
+        if (typeof out.muted === 'boolean' && this.appliedMute[cch] !== out.muted) {
+          await this.send(cmdMute(this.devAddr, IO_OUT, cch, out.muted), ctx?.signal);
+          this.appliedMute[cch] = out.muted;
+          cmds++;
+        }
+      }
+      return { commands: cmds, outputs: outs.length };
+    });
+  }
+
   /** 读当前激活的预设号 (返回 0 = F00, 1-12 = U01-U12) */
   async readCurrentScene(ctx?: AdapterContext): Promise<AdapterResult<{ preset: number }>> {
     return this.run('audio-dsp', 'readCurrentScene', ctx, async () => {
@@ -341,6 +423,7 @@ export class EkxDspAdapter extends BaseAdapter {
   async setMatrix(out: ChannelIndex, input: ChannelIndex, on: boolean, ctx?: AdapterContext): Promise<AdapterResult<{ out: number; input: number; on: boolean }>> {
     return this.run('audio-dsp', `setMatrix_O${out}_I${input}_${on ? 'on' : 'off'}`, ctx, async () => {
       await this.send(cmdSetMatrix(this.devAddr, out, input, on), ctx?.signal);
+      this.appliedMatrix[out][input] = on; // 同步增量缓存
       return { out, input, on };
     });
   }

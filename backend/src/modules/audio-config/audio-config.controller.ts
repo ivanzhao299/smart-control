@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import {
   AudioConfigService,
+  type AudioInputUpsertDto,
   type AudioSceneUpsertDto,
   type AudioZoneUpsertDto,
 } from './audio-config.service';
@@ -49,6 +50,30 @@ export class AudioConfigController {
   @UseGuards(AdminGuard)
   async deleteZone(@Param('id', ParseIntPipe) id: number) {
     return { message: '已删除', data: await this.service.deleteZone(id) };
+  }
+
+  // ---- 输入源 ----
+  @Get('inputs')
+  async listInputs(@Query('includeDisabled') inc?: string) {
+    return { message: 'ok', data: await this.service.listInputs(inc === '1' || inc === 'true') };
+  }
+
+  @Post('inputs')
+  @UseGuards(AdminGuard)
+  async createInput(@Body() dto: AudioInputUpsertDto) {
+    return { message: '创建成功', data: await this.service.upsertInput(null, dto) };
+  }
+
+  @Put('inputs/:id')
+  @UseGuards(AdminGuard)
+  async updateInput(@Param('id', ParseIntPipe) id: number, @Body() dto: AudioInputUpsertDto) {
+    return { message: '更新成功', data: await this.service.upsertInput(id, dto) };
+  }
+
+  @Delete('inputs/:id')
+  @UseGuards(AdminGuard)
+  async deleteInput(@Param('id', ParseIntPipe) id: number) {
+    return { message: '已删除', data: await this.service.deleteInput(id) };
   }
 
   // ---- 场景 ----

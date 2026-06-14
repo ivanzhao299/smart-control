@@ -43,7 +43,7 @@ const sceneBusy = ref(false);
 async function recallScene(s: Scene): Promise<void> {
   sceneBusy.value = true;
   try {
-    const res = await audioService.recallScene(s.id);
+    const res = await audioService.applyScene(s.id);
     if (!res.ok) throw new Error(res.error || '场景切换失败');
     currentScene.value = s.id;
     ElMessage.success(`场景已切换: ${s.name} (U${String(s.id).padStart(2,'0')})`);

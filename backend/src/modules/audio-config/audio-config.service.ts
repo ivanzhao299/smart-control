@@ -4,7 +4,9 @@ import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { AudioOutputZone } from '../../entities/audio-output-zone.entity';
+import { AudioInputSource } from '../../entities/audio-input-source.entity';
 import { AudioScene } from '../../entities/audio-scene.entity';
+import type { SceneContent, SceneOutputConfig } from '../../adapters/audio/ekx808.adapter';
 
 export interface AudioZoneUpsertDto {
   channel?: number;
@@ -15,10 +17,20 @@ export interface AudioZoneUpsertDto {
   enabled?: boolean;
 }
 
+export interface AudioInputUpsertDto {
+  channel?: number;
+  name?: string;
+  color?: string | null;
+  sortOrder?: number;
+  enabled?: boolean;
+}
+
 export interface AudioSceneUpsertDto {
   presetNum?: number;
   name?: string;
   hint?: string | null;
+  /** 场景内容 (矩阵路由+音量+静音). null=清空回退设备预设, undefined=不动 */
+  content?: SceneContent | null;
   sortOrder?: number;
   enabled?: boolean;
 }
@@ -28,6 +40,14 @@ const DEFAULT_ZONES = Array.from({ length: 8 }, (_, i) => ({
   channel: i,
   name: `OUT ${i + 1}`,
   floor: null as string | null,
+  color: null as string | null,
+  sortOrder: i,
+}));
+
+/** 默认 8 输入源: IN1-IN8 (channel 0-7), 业主后续改名 (背景音乐/话筒/播放器...) */
+const DEFAULT_INPUTS = Array.from({ length: 8 }, (_, i) => ({
+  channel: i,
+  name: `IN ${i + 1}`,
   color: null as string | null,
   sortOrder: i,
 }));
@@ -52,15 +72,20 @@ const DEFAULT_SCENES: Array<{ presetNum: number; name: string; hint: string }> =
 export class AudioConfigService implements OnModuleInit {
   constructor(
     @InjectRepository(AudioOutputZone) private readonly zoneRepo: Repository<AudioOutputZone>,
+    @InjectRepository(AudioInputSource) private readonly inputRepo: Repository<AudioInputSource>,
     @InjectRepository(AudioScene) private readonly sceneRepo: Repository<AudioScene>,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
-  /** 启动 seed: 表空时插默认 8 通道 + 12 场景. 不覆盖业主改过的 */
+  /** 启动 seed: 表空时插默认 8 输出 + 8 输入 + 12 场景. 不覆盖业主改过的 */
   async onModuleInit(): Promise<void> {
     if ((await this.zoneRepo.count()) === 0) {
       await this.zoneRepo.save(DEFAULT_ZONES.map((z) => this.zoneRepo.create(z)));
       this.logger.info('[AudioConfig] seeded 8 输出通道 (OUT1-OUT8)');
+    }
+    if ((await this.inputRepo.count()) === 0) {
+      await this.inputRepo.save(DEFAULT_INPUTS.map((s) => this.inputRepo.create(s)));
+      this.logger.info('[AudioConfig] seeded 8 输入源 (IN1-IN8)');
     }
     if ((await this.sceneRepo.count()) === 0) {
       await this.sceneRepo.save(
@@ -68,6 +93,43 @@ export class AudioConfigService implements OnModuleInit {
       );
       this.logger.info('[AudioConfig] seeded 12 场景 (U01-U12)');
     }
+  }
+
+  // ============ 输入源 ============
+
+  async listInputs(includeDisabled = false): Promise<AudioInputSource[]> {
+    const qb = this.inputRepo.createQueryBuilder('s').orderBy('s.sortOrder', 'ASC').addOrderBy('s.channel', 'ASC');
+    if (!includeDisabled) qb.where('s.enabled = :e', { e: true });
+    return qb.getMany();
+  }
+
+  async upsertInput(id: number | null, dto: AudioInputUpsertDto): Promise<AudioInputSource> {
+    let row = id ? await this.inputRepo.findOne({ where: { id } }) : null;
+    if (id && !row) throw new NotFoundException(`输入源不存在: id=${id}`);
+    if (!row) {
+      if (typeof dto.channel !== 'number') throw new Error('channel 必填');
+      row = this.inputRepo.create({ channel: dto.channel, name: dto.name ?? `IN ${dto.channel + 1}` });
+    }
+    if (dto.channel !== undefined) {
+      if (dto.channel < 0 || dto.channel > 7) throw new Error('channel 必须 0-7');
+      row.channel = dto.channel;
+    }
+    if (dto.name !== undefined) {
+      const v = dto.name.trim();
+      if (!v) throw new Error('名称不能为空');
+      row.name = v.slice(0, 64);
+    }
+    if (dto.color !== undefined) row.color = dto.color?.trim() || null;
+    if (dto.sortOrder !== undefined) row.sortOrder = dto.sortOrder;
+    if (dto.enabled !== undefined) row.enabled = dto.enabled;
+    return this.inputRepo.save(row);
+  }
+
+  async deleteInput(id: number): Promise<{ removedId: number }> {
+    const row = await this.inputRepo.findOne({ where: { id } });
+    if (!row) throw new NotFoundException(`输入源不存在: id=${id}`);
+    await this.inputRepo.remove(row);
+    return { removedId: id };
   }
 
   // ============ 输出通道 ============
@@ -133,6 +195,9 @@ export class AudioConfigService implements OnModuleInit {
       row.name = v.slice(0, 64);
     }
     if (dto.hint !== undefined) row.hint = dto.hint?.trim() || null;
+    if (dto.content !== undefined) {
+      row.content = dto.content === null ? null : JSON.stringify(this.sanitizeContent(dto.content));
+    }
     if (dto.sortOrder !== undefined) row.sortOrder = dto.sortOrder;
     if (dto.enabled !== undefined) row.enabled = dto.enabled;
     return this.sceneRepo.save(row);
@@ -143,5 +208,41 @@ export class AudioConfigService implements OnModuleInit {
     if (!row) throw new NotFoundException(`场景不存在: id=${id}`);
     await this.sceneRepo.remove(row);
     return { removedId: id };
+  }
+
+  async getSceneByPreset(presetNum: number): Promise<AudioScene | null> {
+    return this.sceneRepo.findOne({ where: { presetNum } });
+  }
+
+  /** 解析场景的 content JSON → SceneContent, 非法/空返回 null */
+  parseSceneContent(scene: AudioScene | null): SceneContent | null {
+    if (!scene?.content) return null;
+    try {
+      const parsed = JSON.parse(scene.content) as SceneContent;
+      return parsed && Array.isArray(parsed.outputs) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 校验+规整场景内容: 丢掉非法 ch, 去重排序 inputs, 钳 volume 0-100 */
+  private sanitizeContent(content: SceneContent): SceneContent {
+    const outs = Array.isArray(content?.outputs) ? content.outputs : [];
+    const cleaned = outs
+      .map((o): SceneOutputConfig | null => {
+        const ch = Number(o.ch);
+        if (!Number.isInteger(ch) || ch < 0 || ch > 7) return null;
+        const out: SceneOutputConfig = { ch };
+        if (Array.isArray(o.inputs)) {
+          out.inputs = [...new Set(o.inputs.map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= 7))].sort((a, b) => a - b);
+        }
+        if (typeof o.volume === 'number' && Number.isFinite(o.volume)) {
+          out.volume = Math.max(0, Math.min(100, Math.round(o.volume)));
+        }
+        if (typeof o.muted === 'boolean') out.muted = o.muted;
+        return out;
+      })
+      .filter((o): o is SceneOutputConfig => o !== null);
+    return { outputs: cleaned };
   }
 }

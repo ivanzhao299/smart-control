@@ -35,6 +35,19 @@ export class AudioScene {
   @Column({ type: 'varchar', length: 128, nullable: true })
   hint!: string | null;
 
+  /**
+   * 场景实际内容 — 后台可编辑的"矩阵路由 + 各路音量 + 静音" (2026-06-14).
+   * JSON 字符串, 结构: { outputs: [{ ch, inputs:[...], volume?, muted? }] }
+   *   - ch: 输出通道 0-7
+   *   - inputs: 喂给这路输出的输入通道号数组 (8×8 矩阵, 可多源混音)
+   *   - volume: 输出音量 0-100 (可空=不改)
+   *   - muted: 是否静音 (可空=不改)
+   * 切场景时后端按这个逐条发 setMatrix + setOutputVolume + mute 把矩阵摆成这样.
+   * 为空 (null) → 回退到调设备内置预设 U0N (老行为, 兼容没配过内容的场景).
+   */
+  @Column({ type: 'text', nullable: true })
+  content!: string | null;
+
   /** 排序 */
   @Column({ type: 'int', default: 0, name: 'sort_order' })
   sortOrder!: number;

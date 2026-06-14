@@ -15,7 +15,10 @@ export const audioService = {
   mic: (id: string, enable: boolean, zone?: string) =>
     api.post<AdapterResult>(`/audio/${id}/mic`, { enable, zone }),
 
-  // EKX-808 一键场景预设 (U01-U12)
+  // EKX-808 一键场景 — apply 走后台编辑的矩阵内容 (没配则后端回退设备预设)
+  applyScene: (preset: number) =>
+    api.post<AdapterResult<{ preset?: number; commands?: number; outputs?: number }>>(`/audio/scene/apply/${preset}`, {}),
+  // 直接调设备内置预设 (不读 DB content), 留作调试/兜底
   recallScene: (preset: number) =>
     api.post<AdapterResult<{ preset: number }>>(`/audio/scene/recall/${preset}`, {}),
   currentScene: () =>

@@ -6,7 +6,7 @@ import { BaseAdapter } from '../base.adapter';
 import { AdapterContext, AdapterResult } from '../adapter.types';
 import { AudioState, AudioZone, MockAudioAdapter } from './mock-audio.adapter';
 import { RealAudioAdapter } from './real-audio.adapter';
-import { EkxDspAdapter } from './ekx808.adapter';
+import { EkxDspAdapter, type SceneContent } from './ekx808.adapter';
 
 type AudioVendor = 'dsppa' | 'takstar-ekx808';
 
@@ -82,6 +82,30 @@ export class AudioAdapter extends BaseAdapter {
       error: `recallScene 仅 takstar-ekx808 厂家支持, 当前 vendor=${this.vendor}`,
       mock: false, durationMs: 0,
     };
+  }
+
+  /**
+   * 下发后台编辑的场景内容 (矩阵路由 + 音量 + 静音) 到 DSP.
+   * 跟 recallScene 不同: 这个内容存在我们 DB 里, 业主后台可改, 不依赖设备内置预设.
+   */
+  async applyScene(content: SceneContent, ctx?: AdapterContext): Promise<AdapterResult<{ commands: number; outputs: number }>> {
+    if (this.isMock()) {
+      return {
+        ok: true, deviceId: 'audio-dsp', command: 'applyScene',
+        data: { commands: 0, outputs: content?.outputs?.length ?? 0 }, mock: true, durationMs: 0,
+      };
+    }
+    if (this.vendor === 'takstar-ekx808') return this.ekxImpl.applyScene(content, ctx);
+    return {
+      ok: false, deviceId: 'audio-dsp', command: 'applyScene',
+      error: `applyScene 仅 takstar-ekx808 厂家支持, 当前 vendor=${this.vendor}`,
+      mock: false, durationMs: 0,
+    };
+  }
+
+  /** 清空场景增量缓存 → 下次 applyScene 全量下发 (mock / 非 ekx 直接 no-op) */
+  resetSceneCache(): void {
+    if (!this.isMock() && this.vendor === 'takstar-ekx808') this.ekxImpl.resetSceneCache();
   }
 
   /** 读当前激活的场景号 (返回 0=F00, 1-12=U01-U12) */
