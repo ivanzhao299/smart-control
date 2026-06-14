@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useToastStore } from '@/stores/toast';
 import { useRouter } from 'vue-router';
 import {
@@ -65,6 +65,64 @@ async function fireScene(code: string): Promise<void> {
   } catch (err) {
     toast.error(`场景【${name}】启动失败: ${(err as Error).message}`);
   }
+}
+
+// ============ 场景卡「长按激活」防误触 ============
+// 触屏一碰就切换风险大 (会误触整场联动). 改成: 轻碰无反应, 按住 ~0.65s 进度环转满
+// 才真正执行; 中途松手 / 划走立即取消. 误蹭绝对触发不了, 正常用就是多按住半秒.
+const HOLD_MS = 650;
+const RING_C = 2 * Math.PI * 20; // 进度环周长 (r=20)
+const holdCode = ref<string | null>(null); // 正在按住的场景 code (同一时刻只一个)
+const holdPct = ref(0);                     // 当前进度 0..100
+const ringOffset = computed(() => RING_C * (1 - holdPct.value / 100));
+let holdRaf = 0;
+let holdStartX = 0;
+let holdStartY = 0;
+let holdFired = false;
+
+function resetHold(): void {
+  if (holdRaf) cancelAnimationFrame(holdRaf);
+  holdRaf = 0;
+  holdCode.value = null;
+  holdPct.value = 0;
+}
+
+function onHoldStart(code: string, ev: PointerEvent): void {
+  if (ev.pointerType === 'mouse' && ev.button !== 0) return; // 只认左键/单指
+  holdFired = false;
+  holdCode.value = code;
+  holdPct.value = 0;
+  holdStartX = ev.clientX;
+  holdStartY = ev.clientY;
+  const start = performance.now();
+  if (holdRaf) cancelAnimationFrame(holdRaf);
+  const loop = (now: number): void => {
+    if (holdCode.value !== code) return; // 已被取消
+    const p = Math.min(100, ((now - start) / HOLD_MS) * 100);
+    holdPct.value = p;
+    if (p >= 100) {
+      holdFired = true;
+      resetHold();
+      void fireScene(code);
+      return;
+    }
+    holdRaf = requestAnimationFrame(loop);
+  };
+  holdRaf = requestAnimationFrame(loop);
+}
+
+function onHoldMove(ev: PointerEvent): void {
+  if (!holdCode.value) return;
+  // 移动超过 12px = 想滚动/划走 → 取消 (松手即取消的另一种形式, 也让纵向滚动可用)
+  if (Math.hypot(ev.clientX - holdStartX, ev.clientY - holdStartY) > 12) resetHold();
+}
+
+function onHoldEnd(): void {
+  if (holdFired) { holdFired = false; return; } // 已执行, 不提示
+  const p = holdPct.value;
+  resetHold();
+  // 按了一下但没转满 (不是纯误蹭) → 教学提示
+  if (p >= 10 && p < 100) toast.info('按住卡片直到圆环转满，才会切换场景', 1800);
 }
 
 // ============ 子系统状态 ============
@@ -144,9 +202,14 @@ function goTo(name: string): void {
           v-for="(s) in scenesView"
           :key="s.code"
           class="v2-scene"
-          :class="{ active: s.active }"
+          :class="{ active: s.active, holding: holdCode === s.code }"
           :data-color="s.color"
-          @click="fireScene(s.code)"
+          @pointerdown="onHoldStart(s.code, $event)"
+          @pointermove="onHoldMove($event)"
+          @pointerup="onHoldEnd"
+          @pointerleave="onHoldEnd"
+          @pointercancel="onHoldEnd"
+          @contextmenu.prevent
         >
           <div class="v2-scene-top">
             <div class="v2-scene-ico">
@@ -158,7 +221,21 @@ function goTo(name: string): void {
           </div>
           <div>
             <div class="v2-scene-name">{{ s.name }}</div>
-            <div class="v2-scene-desc">{{ s.description || '点击执行' }}</div>
+            <div class="v2-scene-desc">{{ s.description || '按住切换' }}</div>
+          </div>
+
+          <!-- 长按进度环 overlay (按住该卡时显示) -->
+          <div v-show="holdCode === s.code" class="v2-scene-hold" aria-hidden="true">
+            <svg class="hold-ring" viewBox="0 0 48 48">
+              <circle class="ring-track" cx="24" cy="24" r="20" />
+              <circle
+                class="ring-fill"
+                cx="24" cy="24" r="20"
+                :stroke-dasharray="RING_C"
+                :stroke-dashoffset="ringOffset"
+              />
+            </svg>
+            <span class="hold-text">按住切换…</span>
           </div>
         </button>
       </div>
@@ -318,6 +395,45 @@ function goTo(name: string): void {
   text-align: left;
   color: var(--v2-text-1);
   min-height: 120px;
+  /* 长按防误触: 禁文字选中/长按菜单; pan-y 让纵向滚动仍可用, 静止按住才触发 */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: pan-y;
+}
+/* 按住中: 轻微下压反馈 */
+.v2-scene.holding {
+  transform: scale(0.975);
+  border-color: var(--scene-border);
+}
+/* 长按进度环 overlay */
+.v2-scene-hold {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(6, 8, 24, 0.5);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.hold-ring {
+  width: 46px; height: 46px;
+  transform: rotate(-90deg); /* 12 点方向起步 */
+}
+.hold-ring .ring-track {
+  fill: none; stroke: rgba(255, 255, 255, 0.18); stroke-width: 4;
+}
+.hold-ring .ring-fill {
+  fill: none; stroke: var(--v2-primary, #00E5FF); stroke-width: 4; stroke-linecap: round;
+  filter: drop-shadow(0 0 6px var(--v2-primary, #00E5FF));
+}
+.hold-text {
+  font-size: 12px; font-weight: 600; letter-spacing: 1px;
+  color: #fff;
 }
 /* 卡片右上角光晕 — 各场景自己的色 */
 .v2-scene::before {
