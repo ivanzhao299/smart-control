@@ -35,7 +35,7 @@ export class PlaybackChannel {
 
   /** 物理输出去到哪种设备 — 给 UI / 场景动作判断用 */
   @Column({ type: 'varchar', length: 32 })
-  outputKind!: 'led' | 'projector' | 'monitor';
+  outputKind!: 'led' | 'projector' | 'monitor' | 'audio';
 
   /** 当前正在播的媒体 ID, null = 待机 (PlayerPage 显示 logo 兜底) */
   @Column({ type: 'int', nullable: true })

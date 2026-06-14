@@ -7,6 +7,7 @@ import {
   Trash2,
   Film,
   Image as ImageIcon,
+  Music,
   X,
   FolderOpen,
   RefreshCcw,
@@ -34,30 +35,36 @@ const route = useRoute();
  *   - 推完自动返回 LedPage
  *   - 顶部 "返回" 按钮也回 LedPage 而不是 dashboard
  */
-const pickForSlot = computed<1 | 2 | null>(() => {
+const pickForSlot = computed<1 | 2 | 3 | null>(() => {
   const v = Array.isArray(route.query.pick_for_slot) ? route.query.pick_for_slot[0] : route.query.pick_for_slot;
   const n = Number(v);
-  return n === 1 || n === 2 ? n : null;
+  return n === 1 || n === 2 || n === 3 ? n : null;
 });
 const pickModeLabel = computed<string>(() => {
   if (pickForSlot.value === 1) return 'LED 大屏 (HDMI1)';
   if (pickForSlot.value === 2) return '投影仪 (HDMI2)';
+  if (pickForSlot.value === 3) return '背景音乐 (音响)';
   return '';
 });
 
+/** 挑选模式回哪个页: slot3(音频)回音响页, 其余回 LED 页 */
+function pickReturnRoute(): string {
+  return pickForSlot.value === 3 ? 'audio' : 'led';
+}
 function goBack(): void {
-  if (pickForSlot.value) router.push({ name: 'led' });
+  if (pickForSlot.value) router.push({ name: pickReturnRoute() });
   else router.push({ name: 'dashboard' });
 }
 
-/** 挑选模式下点卡片: 直接推 + 回 LED 页 */
+/** 挑选模式下点卡片: 直接推 + 回来源页 */
 async function pickAndPush(m: MediaItem): Promise<void> {
   const slot = pickForSlot.value;
   if (!slot) return;
   try {
-    await playbackStore.publish(slot, m.id, 'once');
+    // 背景音乐默认循环播放, 视频/图片默认单次
+    await playbackStore.publish(slot, m.id, slot === 3 ? 'loop' : 'once');
     ElMessage.success(`已推「${m.originalName}」到 ${pickModeLabel.value}`);
-    router.push({ name: 'led' });
+    router.push({ name: pickReturnRoute() });
   } catch (e) {
     ElMessage.error(`推送失败: ${(e as Error).message}`);
   }
@@ -69,7 +76,7 @@ const uploading = ref(false);
 const uploadPct = ref(0);
 const uploadName = ref('');
 const uploadStartAt = ref(0);
-const filter = ref<'all' | 'video' | 'image'>('all');
+const filter = ref<'all' | 'video' | 'image' | 'audio'>('all');
 const previewItem = ref<MediaItem | null>(null);
 const isDragging = ref(false);
 
@@ -81,8 +88,9 @@ const filtered = computed(() => {
 const stats = computed(() => {
   const v = items.value.filter((m) => m.kind === 'video').length;
   const i = items.value.filter((m) => m.kind === 'image').length;
+  const a = items.value.filter((m) => m.kind === 'audio').length;
   const totalBytes = items.value.reduce((s, m) => s + m.sizeBytes, 0);
-  return { v, i, totalBytes };
+  return { v, i, a, totalBytes };
 });
 
 const uploadEta = computed(() => {
@@ -241,6 +249,16 @@ async function pushTo(m: MediaItem, slot: 1 | 2 | 'both', loopMode: 'once' | 'lo
   }
 }
 
+/** 推送音频到背景音乐通道 (slot 3 → GK9000 声卡 → EKX), 默认循环 */
+async function pushAudio(m: MediaItem): Promise<void> {
+  try {
+    await playbackStore.publish(3, m.id, 'loop');
+    ElMessage.success(`已播放背景音乐「${m.originalName}」(循环)`);
+  } catch (e) {
+    ElMessage.error(`播放失败: ${(e as Error).message}`);
+  }
+}
+
 /** 查媒体当前是不是在某个 slot 上播 — 给卡片加角标用 */
 function currentSlotFor(mediaId: number): string {
   const slots: string[] = [];
@@ -291,12 +309,13 @@ onMounted(async () => {
         </button>
         <div class="title-block">
           <div class="title"><FolderOpen :size="18" :stroke-width="1.8" /> 媒体库</div>
-          <div class="sub">视频 {{ stats.v }} · 图片 {{ stats.i }} · 占 {{ fmtSize(stats.totalBytes) }}</div>
+          <div class="sub">视频 {{ stats.v }} · 图片 {{ stats.i }} · 音频 {{ stats.a }} · 占 {{ fmtSize(stats.totalBytes) }}</div>
         </div>
         <div class="v2-tabs">
           <button class="v2-tab" :class="{ active: filter === 'all' }" @click="filter = 'all'">全部</button>
           <button class="v2-tab" :class="{ active: filter === 'video' }" @click="filter = 'video'">视频</button>
           <button class="v2-tab" :class="{ active: filter === 'image' }" @click="filter = 'image'">图片</button>
+          <button class="v2-tab" :class="{ active: filter === 'audio' }" @click="filter = 'audio'">音频</button>
         </div>
       </div>
       <div class="quick-actions">
@@ -306,7 +325,7 @@ onMounted(async () => {
         <label class="v2-quick primary" :class="{ disabled: uploading }">
           <Upload :size="14" :stroke-width="2" />
           {{ uploading ? `上传中 ${uploadPct}%` : '上传文件' }}
-          <input type="file" accept="video/*,image/*" :disabled="uploading" @change="onFileInput" hidden />
+          <input type="file" accept="video/*,image/*,audio/*,.mp3,.wav,.aac,.m4a,.ogg,.flac" :disabled="uploading" @change="onFileInput" hidden />
         </label>
       </div>
     </header>
@@ -315,7 +334,7 @@ onMounted(async () => {
     <div v-if="pickForSlot" class="pick-banner">
       <Send :size="16" :stroke-width="1.8" />
       <span class="pb-text">为 <b>{{ pickModeLabel }}</b> 挑选一个媒体, 点击就推送</span>
-      <button class="pb-cancel" @click="router.push({ name: 'led' })">取消</button>
+      <button class="pb-cancel" @click="router.push({ name: pickReturnRoute() })">取消</button>
     </div>
 
     <!-- 上传进度 (大文件含速率 + ETA) -->
@@ -360,11 +379,13 @@ onMounted(async () => {
         >
           <div class="thumb">
             <video v-if="m.kind === 'video'" :src="absUrl(m.fileUrl)" preload="metadata" muted playsinline />
+            <div v-else-if="m.kind === 'audio'" class="audio-thumb"><Music :size="40" :stroke-width="1.5" /></div>
             <img v-else :src="absUrl(m.fileUrl)" :alt="m.originalName" />
             <span class="kind-tag" :class="m.kind">
               <Film v-if="m.kind === 'video'" :size="11" :stroke-width="2" />
+              <Music v-else-if="m.kind === 'audio'" :size="11" :stroke-width="2" />
               <ImageIcon v-else :size="11" :stroke-width="2" />
-              {{ m.kind === 'video' ? '视频' : '图片' }}
+              {{ m.kind === 'video' ? '视频' : m.kind === 'audio' ? '音频' : '图片' }}
             </span>
             <span v-if="m.kind === 'video'" class="duration">{{ fmtDuration(m.durationSec) || '—' }}</span>
           </div>
@@ -382,7 +403,12 @@ onMounted(async () => {
             <Send :size="11" :stroke-width="2" /> 播放中: {{ currentSlotFor(m.id) }}
           </div>
           <div class="card-actions" @click.stop>
-            <el-dropdown trigger="click" @command="(c: number | string) => {
+            <!-- 音频: 直接一个"播放背景音乐"按钮 -->
+            <button v-if="m.kind === 'audio'" class="card-btn" title="播放背景音乐" @click="pushAudio(m)">
+              <Music :size="14" :stroke-width="2" />
+            </button>
+            <!-- 视频/图片: 推送到 LED/投影/欢迎页菜单 -->
+            <el-dropdown v-else trigger="click" @command="(c: number | string) => {
               if (c === 'welcome') setAsWelcome(m);
               else pushTo(m, c as 1 | 2 | 'both');
             }">
@@ -414,13 +440,17 @@ onMounted(async () => {
         <button class="preview-close" @click="closePreview"><X :size="20" :stroke-width="2" /></button>
         <div class="preview-media">
           <video v-if="previewItem.kind === 'video'" :src="absUrl(previewItem.fileUrl)" controls autoplay style="max-width:100%; max-height: 70vh;" />
+          <div v-else-if="previewItem.kind === 'audio'" class="audio-preview">
+            <Music :size="64" :stroke-width="1.4" />
+            <audio :src="absUrl(previewItem.fileUrl)" controls autoplay style="width: 320px; max-width: 80vw;" />
+          </div>
           <img v-else :src="absUrl(previewItem.fileUrl)" :alt="previewItem.originalName" style="max-width:100%; max-height: 70vh;" />
         </div>
         <div class="preview-info">
           <h3>{{ previewItem.originalName }}</h3>
           <div class="meta-row">
             <span class="kind-tag" :class="previewItem.kind">
-              {{ previewItem.kind === 'video' ? '视频' : '图片' }}
+              {{ previewItem.kind === 'video' ? '视频' : previewItem.kind === 'audio' ? '音频' : '图片' }}
             </span>
             <span>{{ fmtSize(previewItem.sizeBytes) }}</span>
             <span v-if="previewItem.resolution">{{ previewItem.resolution }}</span>
@@ -428,7 +458,17 @@ onMounted(async () => {
             <span>{{ new Date(previewItem.createdAt).toLocaleString('zh-CN') }}</span>
           </div>
           <div v-if="previewItem.remark" class="remark">{{ previewItem.remark }}</div>
-          <div class="preview-actions">
+          <!-- 音频: 播放背景音乐 -->
+          <div v-if="previewItem.kind === 'audio'" class="preview-actions">
+            <button class="v2-quick primary" @click="pushAudio(previewItem)">
+              <Music :size="14" :stroke-width="2" /> 播放背景音乐 (→ 音响, 循环)
+            </button>
+            <button class="v2-quick danger" @click="confirmDelete(previewItem)">
+              <Trash2 :size="14" :stroke-width="2" /> 删除
+            </button>
+          </div>
+          <!-- 视频/图片: 推 LED/投影/欢迎页 -->
+          <div v-else class="preview-actions">
             <button class="v2-quick primary" @click="pushTo(previewItem, 1)">
               <Send :size="14" :stroke-width="2" /> 推到 LED 大屏 (HDMI1)
             </button>
@@ -586,9 +626,13 @@ onMounted(async () => {
 .pick-banner .pb-cancel:hover { background: rgba(255, 255, 255, 0.14); color: var(--v2-text-1); }
 .thumb { position: relative; aspect-ratio: 16/10; background: #0b1220; overflow: hidden; display: flex; align-items: center; justify-content: center; }
 .thumb video, .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.audio-thumb { width: 100%; height: 100%; display: grid; place-items: center; color: #c4b5fd;
+  background: radial-gradient(ellipse at center, rgba(168,85,247,0.18), transparent 70%), #0b1220; }
 .kind-tag { position: absolute; top: 8px; left: 8px; display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; font-size: 10px; font-weight: 600; border-radius: 999px; backdrop-filter: blur(6px); }
 .kind-tag.video { background: rgba(168, 85, 247, 0.4); color: #f3e8ff; border: 1px solid rgba(168, 85, 247, 0.6); }
 .kind-tag.image { background: rgba(6, 182, 212, 0.4); color: #cffafe; border: 1px solid rgba(6, 182, 212, 0.6); }
+.kind-tag.audio { background: rgba(245, 158, 11, 0.4); color: #fef3c7; border: 1px solid rgba(245, 158, 11, 0.6); }
+.audio-preview { display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 30px 20px; color: #c4b5fd; }
 .duration { position: absolute; bottom: 8px; right: 8px; padding: 2px 7px; font-size: 11px; font-family: 'JetBrains Mono', ui-monospace, monospace; background: rgba(0, 0, 0, 0.6); color: #fff; border-radius: 4px; backdrop-filter: blur(4px); }
 .meta { padding: 8px 12px; }
 .name { font-size: 13px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

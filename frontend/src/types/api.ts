@@ -500,10 +500,10 @@ export interface PlaybackChannelView {
   id: number;
   slot: number;
   name: string;
-  outputKind: 'led' | 'projector' | 'monitor';
+  outputKind: 'led' | 'projector' | 'monitor' | 'audio';
   currentMediaId: number | null;
   currentMediaName: string | null;
-  currentMediaKind: 'video' | 'image' | null;
+  currentMediaKind: 'video' | 'image' | 'audio' | null;
   currentMediaUrl: string | null;
   currentMediaDurationSec: number | null;
   currentPlaylistId: number | null;

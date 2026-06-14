@@ -1,6 +1,6 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 
-export type MediaKind = 'video' | 'image';
+export type MediaKind = 'video' | 'image' | 'audio';
 
 /**
  * 媒体资源 (上传到展厅中控的视频/图片)

@@ -54,10 +54,16 @@ export class MediaController {
       }),
       limits: { fileSize: MAX_UPLOAD_BYTES },
       fileFilter: (_req, file, cb) => {
-        if (file.mimetype.startsWith('video/') || file.mimetype.startsWith('image/')) {
+        const m = file.mimetype;
+        const name = (file.originalname || '').toLowerCase();
+        const audioExt = ['.mp3', '.wav', '.aac', '.m4a', '.ogg', '.flac', '.wma'];
+        if (
+          m.startsWith('video/') || m.startsWith('image/') || m.startsWith('audio/')
+          || audioExt.some((ext) => name.endsWith(ext))  // m4a/aac mime 有时不带 audio/
+        ) {
           cb(null, true);
         } else {
-          cb(new Error(`不支持的文件类型 ${file.mimetype}, 仅支持 video/* 和 image/*`), false);
+          cb(new Error(`不支持的文件类型 ${file.mimetype}, 仅支持 video/* 图片 音频`), false);
         }
       },
     }),
@@ -88,7 +94,7 @@ export class MediaController {
 
   @Get()
   async list(
-    @Query('kind') kind?: 'video' | 'image',
+    @Query('kind') kind?: 'video' | 'image' | 'audio',
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {

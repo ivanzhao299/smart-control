@@ -101,7 +101,25 @@ function onVideoEnded(): void {
 
 const isVideo = computed<boolean>(() => channel.value?.currentMediaKind === 'video');
 const isImage = computed<boolean>(() => channel.value?.currentMediaKind === 'image');
+const isAudio = computed<boolean>(() => channel.value?.currentMediaKind === 'audio');
 const isIdle = computed<boolean>(() => !channel.value?.currentMediaUrl);
+
+// 音频元素 — slot=3 (背景音乐 → GK9000 声卡 → EKX). 不静音!
+// 注意: Chromium kiosk 需 --autoplay-policy=no-user-gesture-required 才能自动出声,
+// 见 scripts/start-players.ps1 的 slot=3 启动参数.
+const audioEl = ref<HTMLAudioElement | null>(null);
+watch(() => channel.value?.currentMediaUrl, (url, oldUrl) => {
+  if (url !== oldUrl && audioEl.value) {
+    audioEl.value.load();
+    void audioEl.value.play().catch(() => { /* 自动播放被拦, 靠 kiosk flag 兜 */ });
+  }
+});
+function onAudioEnded(): void {
+  if (channel.value?.loopMode === 'loop' && audioEl.value) {
+    audioEl.value.currentTime = 0;
+    void audioEl.value.play();
+  }
+}
 </script>
 
 <template>
@@ -126,6 +144,21 @@ const isIdle = computed<boolean>(() => !channel.value?.currentMediaUrl);
       :src="absUrl(channel.currentMediaUrl)"
       :alt="channel.currentMediaName || ''"
     />
+
+    <!-- 播放音频 (背景音乐) — audio 元素出声 + 可视化"正在播放"卡 -->
+    <div v-else-if="isAudio && channel?.currentMediaUrl" class="audio-now">
+      <audio
+        ref="audioEl"
+        :src="absUrl(channel.currentMediaUrl)"
+        autoplay
+        :loop="channel.loopMode === 'loop'"
+        @ended="onAudioEnded"
+      />
+      <div class="audio-icon">🎵</div>
+      <div class="audio-title">{{ channel.currentMediaName }}</div>
+      <div class="audio-sub">{{ channel.loopMode === 'loop' ? '循环播放' : '单曲播放' }} · 背景音乐</div>
+      <div class="audio-wave"><span></span><span></span><span></span><span></span><span></span></div>
+    </div>
 
     <!-- 待机: branding logo + 系统名 -->
     <div v-else-if="isIdle" class="idle">
@@ -157,6 +190,38 @@ const isIdle = computed<boolean>(() => !channel.value?.currentMediaUrl);
   background: #000;
   display: block;
 }
+
+/* 音频播放可视化 (slot=3 背景音乐 — 这个 kiosk 窗口可见时显示) */
+.audio-now {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 35%, rgba(168, 85, 247, 0.18) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 50% 75%, rgba(0, 229, 255, 0.12) 0%, transparent 55%),
+    linear-gradient(180deg, #070B17 0%, #0C1124 100%);
+  color: #fff;
+}
+.audio-icon { font-size: 90px; filter: drop-shadow(0 0 24px rgba(168, 85, 247, 0.7)); }
+.audio-title { font-size: 44px; font-weight: 600; letter-spacing: 0.03em; max-width: 80vw; text-align: center; }
+.audio-sub { font-size: 20px; color: rgba(255, 255, 255, 0.55); letter-spacing: 0.06em; }
+.audio-wave { display: flex; gap: 8px; align-items: flex-end; height: 60px; margin-top: 10px; }
+.audio-wave span {
+  width: 10px; border-radius: 5px;
+  background: linear-gradient(180deg, #00E5FF, #A855F7);
+  animation: audio-bar 1s ease-in-out infinite;
+}
+.audio-wave span:nth-child(1) { height: 30%; animation-delay: 0s; }
+.audio-wave span:nth-child(2) { height: 70%; animation-delay: 0.15s; }
+.audio-wave span:nth-child(3) { height: 100%; animation-delay: 0.3s; }
+.audio-wave span:nth-child(4) { height: 60%; animation-delay: 0.45s; }
+.audio-wave span:nth-child(5) { height: 40%; animation-delay: 0.6s; }
+@keyframes audio-bar { 0%, 100% { transform: scaleY(0.4); } 50% { transform: scaleY(1); } }
+
 .idle {
   position: absolute;
   inset: 0;

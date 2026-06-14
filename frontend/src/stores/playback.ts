@@ -23,6 +23,8 @@ export const usePlaybackStore = defineStore('playback', () => {
 
   const slot1 = computed<PlaybackChannelView | null>(() => channelMap.value[1] ?? null);
   const slot2 = computed<PlaybackChannelView | null>(() => channelMap.value[2] ?? null);
+  // slot 3 = 背景音乐 (GK9000 声卡 → EKX 音响输入)
+  const slotAudio = computed<PlaybackChannelView | null>(() => channelMap.value[3] ?? null);
 
   async function load(): Promise<void> {
     loading.value = true;
@@ -56,5 +58,5 @@ export const usePlaybackStore = defineStore('playback', () => {
     }
   }
 
-  return { channels, loaded, loading, slot1, slot2, channelMap, load, publish, stop, handleWs };
+  return { channels, loaded, loading, slot1, slot2, slotAudio, channelMap, load, publish, stop, handleWs };
 });

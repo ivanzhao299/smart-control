@@ -3,9 +3,27 @@ import { computed, onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
-  ArrowLeft, Speaker, Volume2, VolumeX, Play, Sparkles,
+  ArrowLeft, Speaker, Volume2, VolumeX, Play, Sparkles, Music, Square, FolderOpen,
 } from 'lucide-vue-next';
 import { audioService } from '@/services/audio.service';
+import { usePlaybackStore } from '@/stores/playback';
+
+const router = useRouter();
+const playbackStore = usePlaybackStore();
+
+// ============ 背景音乐 (slot 3 → GK9000 声卡 → EKX) ============
+const bgmChannel = computed(() => playbackStore.slotAudio);
+function gotoMusicLibrary(): void {
+  router.push({ name: 'media', query: { pick_for_slot: '3' } });
+}
+async function stopBgm(): Promise<void> {
+  try {
+    await playbackStore.stop(3);
+    ElMessage.success('已停止背景音乐');
+  } catch (e) {
+    ElMessage.error(`停止失败: ${(e as Error).message}`);
+  }
+}
 
 // ============ EKX-808 一键场景 ============
 interface Scene { id: number; name: string; hint: string; }
@@ -114,7 +132,6 @@ const overview = computed(() => {
   return { total, active, avgVol, playing };
 });
 
-const router = useRouter();
 function goBack(): void { router.push({ name: 'dashboard' }); }
 async function muteAll(): Promise<void> {
   for (const z of channels.value) { if (!z.muted) await toggleMute(z); }
@@ -193,6 +210,37 @@ async function muteAll(): Promise<void> {
           <div class="scene-name">{{ s.name }}</div>
           <div class="scene-hint">{{ s.hint }}</div>
         </button>
+      </div>
+    </section>
+
+    <!-- 背景音乐 (GK9000 声卡 → EKX 输入) -->
+    <section>
+      <header class="block-head">
+        <h2 class="block-title"><span class="accent">●</span>背景音乐</h2>
+        <div class="block-sub">GK9000 播放音频 → 声卡 → EKX 输入 · 从媒体库选音乐</div>
+      </header>
+      <div class="bgm-card" :class="{ playing: bgmChannel?.currentMediaId }">
+        <div class="bgm-icon"><Music :size="28" :stroke-width="1.8" /></div>
+        <div class="bgm-body">
+          <div class="bgm-now">
+            {{ bgmChannel?.currentMediaName || '未播放' }}
+          </div>
+          <div class="bgm-sub">
+            <template v-if="bgmChannel?.currentMediaId">
+              {{ bgmChannel.loopMode === 'loop' ? '循环播放中' : '单曲播放中' }}
+              · {{ bgmChannel.alive ? '播放器在线' : '⚠ 播放器离线 (检查 GK9000 音频 kiosk)' }}
+            </template>
+            <template v-else>从媒体库选一首音乐开始播放</template>
+          </div>
+        </div>
+        <div class="bgm-actions">
+          <button class="v2-quick primary" @click="gotoMusicLibrary">
+            <FolderOpen :size="14" :stroke-width="2" /> 选音乐
+          </button>
+          <button v-if="bgmChannel?.currentMediaId" class="v2-quick danger" @click="stopBgm">
+            <Square :size="14" :stroke-width="2" /> 停止
+          </button>
+        </div>
       </div>
     </section>
 
@@ -288,6 +336,34 @@ async function muteAll(): Promise<void> {
   background: linear-gradient(135deg, rgba(52, 211, 153, 0.05), rgba(52, 211, 153, 0.01));
   border: 1px solid rgba(52, 211, 153, 0.12);
   border-radius: var(--v2-r-lg);
+}
+
+/* 背景音乐卡 */
+.bgm-card {
+  display: flex; align-items: center; gap: var(--v2-sp-4);
+  padding: var(--v2-sp-4);
+  background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft);
+  border-radius: var(--v2-r-lg);
+  transition: all 0.28s ease;
+}
+.bgm-card.playing {
+  border-color: rgba(168, 85, 247, 0.5);
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.08), rgba(0, 229, 255, 0.03));
+  box-shadow: inset 0 1px 0 rgba(168, 85, 247, 0.4), 0 8px 28px -10px rgba(168, 85, 247, 0.4);
+}
+.bgm-icon {
+  width: 52px; height: 52px; border-radius: var(--v2-r-md); flex-shrink: 0;
+  display: grid; place-items: center;
+  background: rgba(168, 85, 247, 0.15); color: #c4b5fd;
+}
+.bgm-card.playing .bgm-icon { color: #d8b4fe; box-shadow: 0 0 18px rgba(168, 85, 247, 0.5); }
+.bgm-body { flex: 1; min-width: 0; }
+.bgm-now { font-size: 16px; font-weight: 600; color: var(--v2-text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bgm-sub { font-size: 12px; color: var(--v2-text-3); margin-top: 4px; }
+.bgm-actions { display: flex; gap: var(--v2-sp-2); flex-shrink: 0; }
+@media (max-width: 600px) {
+  .bgm-card { flex-wrap: wrap; }
+  .bgm-actions { width: 100%; }
 }
 .ov-item { display: flex; align-items: center; gap: var(--v2-sp-3); }
 .ov-ico {

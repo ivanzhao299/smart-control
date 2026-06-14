@@ -11,10 +11,10 @@ export interface PlaybackChannelView {
   id: number;
   slot: number;
   name: string;
-  outputKind: 'led' | 'projector' | 'monitor';
+  outputKind: 'led' | 'projector' | 'monitor' | 'audio';
   currentMediaId: number | null;
   currentMediaName: string | null;
-  currentMediaKind: 'video' | 'image' | null;
+  currentMediaKind: 'video' | 'image' | 'audio' | null;
   currentMediaUrl: string | null;     // 前端 PlayerPage 直接 <video src=> / <img src=> 用
   currentMediaDurationSec: number | null;
   currentPlaylistId: number | null;
@@ -43,6 +43,9 @@ export class PlaybackService implements OnModuleInit {
     const seeds: Array<Pick<PlaybackChannel, 'slot' | 'name' | 'outputKind'>> = [
       { slot: 1, name: 'LED 大屏 (HDMI1)', outputKind: 'led' },
       { slot: 2, name: '投影仪 (HDMI2)', outputKind: 'projector' },
+      // slot 3: GK9000 声卡输出 → EKX 音响输入. PlayerPage?slot=3 用 HTML5 audio
+      // 播音频, Chromium 声卡输出走 GK9000 3.5mm → EKX IN.
+      { slot: 3, name: '背景音乐 (声卡→音响)', outputKind: 'audio' },
     ];
     for (const s of seeds) {
       const exists = await this.repo.findOne({ where: { slot: s.slot } });
@@ -129,7 +132,7 @@ export class PlaybackService implements OnModuleInit {
 
   private async toView(row: PlaybackChannel): Promise<PlaybackChannelView> {
     let mediaName: string | null = null;
-    let mediaKind: 'video' | 'image' | null = null;
+    let mediaKind: 'video' | 'image' | 'audio' | null = null;
     let mediaUrl: string | null = null;
     let durationSec: number | null = null;
     if (row.currentMediaId !== null) {

@@ -10,7 +10,7 @@ export class MediaUploadMetaDto {
 export interface MediaListItem {
   id: number;
   originalName: string;
-  kind: 'video' | 'image';
+  kind: 'video' | 'image' | 'audio';
   mimeType: string;
   sizeBytes: number;
   durationSec: number | null;

@@ -5,7 +5,7 @@ const baseURL = import.meta.env.VITE_API_BASE_URL ?? '/api';
 export interface MediaItem {
   id: number;
   originalName: string;
-  kind: 'video' | 'image';
+  kind: 'video' | 'image' | 'audio';
   mimeType: string;
   sizeBytes: number;
   durationSec: number | null;
@@ -21,7 +21,7 @@ export interface MediaItem {
 interface ListResult { items: MediaItem[]; total: number }
 
 export const mediaService = {
-  async list(opts: { kind?: 'video' | 'image' } = {}): Promise<ListResult> {
+  async list(opts: { kind?: 'video' | 'image' | 'audio' } = {}): Promise<ListResult> {
     const params: Record<string, string> = {};
     if (opts.kind) params.kind = opts.kind;
     const r = await axios.get(`${baseURL}/media`, { params });
