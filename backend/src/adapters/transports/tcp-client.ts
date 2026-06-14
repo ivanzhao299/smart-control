@@ -313,9 +313,48 @@ export class TcpClient {
   ): Promise<Buffer> {
     const connectTimeout = this.opts.timeoutMs ?? 3000;
     const hardMax = maxWaitMs ?? connectTimeout;
+
+    // 常驻连接模式: 复用同一 socket (EKX-808 单客户端 + 对短连接频繁开关敏感,
+    // 必须像厂家 PC 软件那样保持一条长连接). socketMutex 串行化, 防 read 流交叠.
+    if (this.opts.keepAlive) {
+      return this.serialized(async () => {
+        const sock = await this.acquirePersistent(signal);
+        try {
+          // 写前先排空 socket 上残留字节 (上一条命令的尾巴), 防跨命令污染
+          let stray: Buffer | null;
+          while ((stray = sock.read() as Buffer | null) !== null) { /* drain */ }
+          const result = await this.collectSettled(sock, payload, settleMs, hardMax, signal, false);
+          return result;
+        } catch (err) {
+          this.killPersistent();  // 出错杀掉, 下次重连
+          throw err;
+        } finally {
+          this.resetIdleTimer();
+        }
+      });
+    }
+
     const sock = await this.connectOnce(connectTimeout, signal);
     try {
-      return await new Promise<Buffer>((resolve, reject) => {
+      return await this.collectSettled(sock, payload, settleMs, hardMax, signal, true);
+    } finally {
+      sock.destroy();
+    }
+  }
+
+  /**
+   * 在已连接的 socket 上: 先挂监听再写, 收齐"安静窗口"内所有字节返回.
+   * destroyOnDone=false 时不动 socket (常驻连接复用).
+   */
+  private collectSettled(
+    sock: Socket,
+    payload: Buffer | string,
+    settleMs: number,
+    hardMax: number,
+    signal: AbortSignal | undefined,
+    _destroyOnDone: boolean,
+  ): Promise<Buffer> {
+    return new Promise<Buffer>((resolve, reject) => {
         const chunks: Buffer[] = [];
         let settled = false;
         let settleTimer: NodeJS.Timeout | undefined;
@@ -371,9 +410,6 @@ export class TcpClient {
             reject(classifyError(this.opts.deviceType, err));
           }
         });
-      });
-    } finally {
-      sock.destroy();
-    }
+    });
   }
 }

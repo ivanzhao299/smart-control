@@ -112,6 +112,10 @@ export class EkxDspAdapter extends BaseAdapter {
       port: this.port,
       deviceType: 'audio',
       timeoutMs: this.timeoutMs,
+      // EKX-808 单客户端 + 对短连接频繁开关敏感 → 跟厂家 PC 软件一样保持一条长连接.
+      // idle 8s 后自动断开, 释放给业主用 PC Editor 调试 (backend 空闲 8s 即让出).
+      keepAlive: true,
+      idleTimeoutMs: 8000,
     });
     if (!this.isMock()) this.registry.register(GATEWAY_KEY, `tcp://${this.host}:${this.port}`);
     this.logger.info(
@@ -191,11 +195,14 @@ export class EkxDspAdapter extends BaseAdapter {
       `EkxDspAdapter rewiring: ${this.host}:${this.port} → ${host}:${port} (source=${source})`,
       { context: 'EkxDspAdapter' },
     );
+    this.tcp.dispose();  // 关掉旧长连接, 换 host/port 重建
     this.tcp = new TcpClient({
       host,
       port,
       deviceType: 'audio',
       timeoutMs: this.timeoutMs,
+      keepAlive: true,
+      idleTimeoutMs: 8000,
     });
     this.host = host;
     this.port = port;
