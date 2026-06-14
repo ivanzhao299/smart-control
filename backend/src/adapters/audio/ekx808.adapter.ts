@@ -84,12 +84,14 @@ export class EkxDspAdapter extends BaseAdapter {
    */
   private cmdLock: Promise<unknown> = Promise.resolve();
 
-  /** zone 名 → DSP 输出通道索引 (0-7) */
+  /**
+   * zone 名 → DSP 输出通道索引 (0-based: 0=OUT1 ... 7=OUT8).
+   * 测试阶段: PWA 显示 OUT1-OUT8, 直接顺序对应物理输出 1-8.
+   * 现场接好喇叭后, 可改成区域名 (一层/二层/会议...) 或做成后台可配置.
+   */
   private static readonly ZONE_TO_OUT: Record<string, ChannelIndex> = {
-    '1f_bg': 1,
-    '2f_bg': 4,
-    meeting: 7,
-    roadshow: 0,
+    out1: 0, out2: 1, out3: 2, out4: 3,
+    out5: 4, out6: 5, out7: 6, out8: 7,
   };
 
   constructor(

@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
-  ArrowLeft, Speaker, Volume2, VolumeX, Mic, MicOff, Play, Square, Sparkles,
+  ArrowLeft, Speaker, Volume2, VolumeX, Play, Sparkles,
 } from 'lucide-vue-next';
 import { audioService } from '@/services/audio.service';
 
@@ -54,12 +54,22 @@ interface AudioRow {
   busy: boolean; error: string | null;
 }
 
-const channels = ref<AudioRow[]>([
-  { id: 'audio_1f', name: '一层背景音', zone: '1f_bg', volume: 30, muted: false, bgm: 'welcome', bgmPlaying: false, mic: false, busy: false, error: null },
-  { id: 'audio_2f', name: '二层背景音', zone: '2f_bg', volume: 30, muted: false, bgm: 'welcome', bgmPlaying: false, mic: false, busy: false, error: null },
-  { id: 'audio_meeting', name: '会议区', zone: 'meeting', volume: 40, muted: false, bgm: '', bgmPlaying: false, mic: false, busy: false, error: null },
-  { id: 'audio_roadshow', name: '路演区', zone: 'roadshow', volume: 50, muted: false, bgm: '', bgmPlaying: false, mic: false, busy: false, error: null },
-]);
+// 测试阶段: 8 个输出通道 OUT1-OUT8, 顺序对应 EKX 物理输出 1-8.
+// 现场接好喇叭后可改成区域名 (一层/二层/会议...), 或做成后台可配置分区.
+const channels = ref<AudioRow[]>(
+  Array.from({ length: 8 }, (_, i) => ({
+    id: `audio_out${i + 1}`,
+    name: `OUT ${i + 1}`,
+    zone: `out${i + 1}`,
+    volume: 50,
+    muted: false,
+    bgm: '',
+    bgmPlaying: false,
+    mic: false,
+    busy: false,
+    error: null,
+  })),
+);
 
 async function call(z: AudioRow, label: string, fn: () => Promise<{ ok: boolean; error?: string }>): Promise<boolean> {
   z.busy = true; z.error = null;
@@ -92,21 +102,6 @@ async function toggleMute(z: AudioRow): Promise<void> {
   if (ok) z.muted = next;
 }
 
-async function toggleBgm(z: AudioRow): Promise<void> {
-  if (z.bgmPlaying) {
-    const ok = await call(z, '停止 BGM', () => audioService.stopBgm(z.id, z.zone));
-    if (ok) z.bgmPlaying = false;
-  } else {
-    const ok = await call(z, '播放 BGM', () => audioService.playBgm(z.id, z.bgm || undefined, z.zone));
-    if (ok) z.bgmPlaying = true;
-  }
-}
-
-async function toggleMic(z: AudioRow): Promise<void> {
-  const next = !z.mic;
-  const ok = await call(z, next ? '开麦克风' : '关麦克风', () => audioService.mic(z.id, next, z.zone));
-  if (ok) z.mic = next;
-}
 
 // ============ 总览 ============
 const overview = computed(() => {
@@ -201,11 +196,11 @@ async function muteAll(): Promise<void> {
       </div>
     </section>
 
-    <!-- 分区控制 -->
+    <!-- 输出通道控制 -->
     <section>
       <header class="block-head">
-        <h2 class="block-title"><span class="accent">●</span>分区控制</h2>
-        <div class="block-sub">{{ overview.total }} 个分区 · 音量 / 静音 / BGM / 麦克风</div>
+        <h2 class="block-title"><span class="accent">●</span>输出通道</h2>
+        <div class="block-sub">EKX-808 共 8 路输出 · 音量 / 静音 · 接好喇叭后可改成区域名</div>
       </header>
       <div class="ch-grid">
         <div
@@ -243,18 +238,6 @@ async function muteAll(): Promise<void> {
             </div>
           </div>
 
-          <div class="ch-actions">
-            <button class="v2-quick" :class="{ active: z.bgmPlaying }" :disabled="z.busy" @click="toggleBgm(z)">
-              <Square v-if="z.bgmPlaying" :size="14" :stroke-width="2" />
-              <Play v-else :size="14" :stroke-width="2" />
-              {{ z.bgmPlaying ? '停止 BGM' : '播放 BGM' }}
-            </button>
-            <button class="v2-quick" :class="{ primary: z.mic }" :disabled="z.busy" @click="toggleMic(z)">
-              <Mic v-if="z.mic" :size="14" :stroke-width="2" />
-              <MicOff v-else :size="14" :stroke-width="2" />
-              {{ z.mic ? '麦克风开' : '麦克风关' }}
-            </button>
-          </div>
         </div>
       </div>
     </section>
