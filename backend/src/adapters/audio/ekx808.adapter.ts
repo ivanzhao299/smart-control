@@ -302,7 +302,10 @@ export class EkxDspAdapter extends BaseAdapter {
       if (presetNum < 1 || presetNum > 12) {
         throw new Error(`预设号必须 1-12, got ${presetNum}`);
       }
-      await this.send(cmdRecallUserPreset(this.devAddr, presetNum), ctx?.signal);
+      // ⚠️ off-by-one: 设备 recall 是 0-indexed (U01 = D2=0, U12 = D2=11),
+      // 但回读 readPreset 是 1-indexed (U01 = 1). 2026-06-13 现场实测确认:
+      // 发 D2=2 回读 03 = U03. PWA 传 1-12 (U01-U12), 这里要 -1 才对得上设备.
+      await this.send(cmdRecallUserPreset(this.devAddr, presetNum - 1), ctx?.signal);
       return { preset: presetNum };
     });
   }
