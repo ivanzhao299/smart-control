@@ -333,7 +333,7 @@ async function exitToFront(): Promise<void> {
 .menu-item {
   position: relative;
   display: flex; align-items: center; gap: 10px;
-  padding: 3px 12px;
+  padding: 8px 12px;
   background: transparent;
   border: none;
   color: var(--v2-text-2);
@@ -466,7 +466,7 @@ async function exitToFront(): Promise<void> {
     margin: 8px 6px; background: var(--v2-border-soft); letter-spacing: 0;
   }
   .collapsed .menu-section:first-child { display: none; }
-  .collapsed .menu-item { justify-content: center; padding: 11px 0; }
+  .collapsed .menu-item { justify-content: center; padding: 5px 0; }
   .collapsed .menu-item .lbl { display: none; }
   .collapsed .menu-item.is-active::before { left: -8px; height: 24px; }
   /* 底部按钮: 只留图标 */

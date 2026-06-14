@@ -481,7 +481,8 @@ button {
   box-shadow: 0 0 0 0 currentColor;
 }
 .sc-status.is-on    { color: #34d399; background: rgba(16, 185, 129, 0.14); border-color: rgba(16, 185, 129, 0.32); }
-.sc-status.is-on .sc-status-dot { animation: sc-status-pulse 1.6s ease-out infinite; }
+/* 静态光晕替代脉冲动画: box-shadow 动画每帧全量重绘, 表格几十行同时脉冲 = 滚动卡顿主因 */
+.sc-status.is-on .sc-status-dot { box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.18); }
 .sc-status.is-off   { color: #94a3b8; background: rgba(148, 163, 184, 0.12); border-color: rgba(148, 163, 184, 0.22); }
 .sc-status.is-warning { color: #fbbf24; background: rgba(245, 158, 11, 0.14); border-color: rgba(245, 158, 11, 0.32); }
 .sc-status.is-error { color: #f87171; background: rgba(239, 68, 68, 0.14); border-color: rgba(239, 68, 68, 0.32); }

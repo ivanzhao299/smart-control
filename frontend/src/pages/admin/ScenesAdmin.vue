@@ -147,17 +147,17 @@ onMounted(refresh);
     </header>
 
     <el-table v-loading="loading" :data="rows" stripe size="default" style="width: 100%;" row-key="id">
-      <el-table-column label="编码" width="180">
+      <el-table-column label="编码" width="92">
         <template #default="{ row }"><code class="code-cell">{{ row.code }}</code></template>
       </el-table-column>
-      <el-table-column prop="name" label="名称" width="220" />
-      <el-table-column prop="description" label="说明" min-width="220">
+      <el-table-column prop="name" label="名称" min-width="120" />
+      <el-table-column prop="description" label="说明" min-width="120">
         <template #default="{ row }">
           <span v-if="row.description">{{ row.description }}</span>
           <span v-else class="sub-mono">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="启用" width="80">
+      <el-table-column label="启用" width="64">
         <template #default="{ row }">
           <el-switch :model-value="row.enabled" :disabled="!perm.canEdit" @change="toggleEnabled(row)" />
         </template>
