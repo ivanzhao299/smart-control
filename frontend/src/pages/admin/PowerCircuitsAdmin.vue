@@ -182,8 +182,8 @@ onMounted(refresh);
     </header>
 
     <el-table :data="filtered" v-loading="loading" stripe class="circuits-table">
-      <el-table-column prop="sortOrder" label="排序" width="70" align="center" />
-      <el-table-column label="名称" min-width="220">
+      <el-table-column prop="sortOrder" label="排序" width="56" align="center" />
+      <el-table-column label="名称" min-width="130">
         <template #default="{ row }">
           <div class="name-cell">
             <span class="circuit-name">{{ row.name }}</span>
@@ -192,33 +192,33 @@ onMounted(refresh);
           </div>
         </template>
       </el-table-column>
-      <el-table-column prop="floor" label="楼层" width="80" align="center" />
-      <el-table-column label="类型" width="100" align="center">
+      <el-table-column prop="floor" label="楼层" width="64" align="center" />
+      <el-table-column label="类型" width="76" align="center">
         <template #default="{ row }">
           <el-tag size="default" :type="row.category === 'misc' ? 'info' : 'primary'">
             {{ CATEGORIES.find(c => c.value === row.category)?.label ?? row.category }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="继电器" min-width="160">
+      <el-table-column label="继电器" min-width="120">
         <template #default="{ row }">
           <code v-if="row.gatewayCode" class="gw-code">{{ row.gatewayCode }} · CH{{ row.relayChannel ?? '?' }}</code>
           <span v-else class="muted">未配置</span>
         </template>
       </el-table-column>
-      <el-table-column label="额定" width="160">
+      <el-table-column label="额定" width="116">
         <template #default="{ row }">
           <code class="gw-code">{{ row.ratedVoltage }}V · {{ row.ratedCurrent }}A · {{ row.ratedPower }}W</code>
         </template>
       </el-table-column>
-      <el-table-column label="状态" width="120" align="center">
+      <el-table-column label="状态" width="80" align="center">
         <template #default="{ row }">
           <el-tag size="default" :type="row.reading.on ? 'success' : 'info'">
             {{ row.reading.on ? '通电' : '断电' }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="启用" width="100" align="center">
+      <el-table-column label="启用" width="84" align="center">
         <template #default="{ row }">
           <el-switch
             :model-value="row.enabled"
@@ -229,7 +229,7 @@ onMounted(refresh);
           />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="140" fixed="right">
+      <el-table-column label="操作" width="120" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button link type="danger" @click="remove(row)">删除</el-button>

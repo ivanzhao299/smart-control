@@ -243,8 +243,8 @@ onMounted(refresh);
     />
 
     <el-table :data="filtered" v-loading="loading" stripe class="zones-table">
-      <el-table-column prop="sortOrder" label="排序" width="70" align="center" />
-      <el-table-column label="名称" min-width="220">
+      <el-table-column prop="sortOrder" label="排序" width="56" align="center" />
+      <el-table-column label="名称" min-width="150">
         <template #default="{ row }">
           <div class="name-cell">
             <span class="zone-name">{{ row.name }}</span>
@@ -253,8 +253,8 @@ onMounted(refresh);
           </div>
         </template>
       </el-table-column>
-      <el-table-column prop="floor" label="楼层" width="80" align="center" />
-      <el-table-column label="DALI 网关" min-width="200">
+      <el-table-column prop="floor" label="楼层" width="64" align="center" />
+      <el-table-column label="DALI 网关" min-width="150">
         <template #default="{ row }">
           <div>{{ row.gatewayDisplayName }}</div>
           <code class="gw-code">
@@ -262,12 +262,12 @@ onMounted(refresh);
           </code>
         </template>
       </el-table-column>
-      <el-table-column label="DALI 组" width="120" align="center">
+      <el-table-column label="DALI 组" width="96" align="center">
         <template #default="{ row }">
           <el-tag size="default" type="primary">GROUP {{ row.daliGroup }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="启用" width="100" align="center">
+      <el-table-column label="启用" width="84" align="center">
         <template #default="{ row }">
           <el-switch
             :model-value="row.enabled"
@@ -278,7 +278,7 @@ onMounted(refresh);
           />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="220" fixed="right">
+      <el-table-column label="操作" width="156" fixed="right">
         <template #default="{ row }">
           <el-button
             link

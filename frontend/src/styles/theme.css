@@ -153,7 +153,8 @@ html {
 }
 .el-table__empty-block { background: var(--bg-panel) !important; }
 .el-table__empty-text { color: var(--text-secondary) !important; }
-.el-table .cell { color: inherit; }
+/* 单元格左右内边距 12→8px: 收紧列间距, 宽表在 iPad 带侧栏也不横滚, 更紧凑 */
+.el-table .cell { color: inherit; padding-left: 8px; padding-right: 8px; }
 .el-table--border .el-table__cell {
   border-right: 1px solid var(--border-soft) !important;
 }
