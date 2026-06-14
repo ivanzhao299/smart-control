@@ -144,7 +144,7 @@ async function submit(): Promise<void> {
   border: 1px solid var(--v2-border-soft);
   border-radius: var(--v2-r-lg);
   box-shadow: var(--v2-elev-3);
-  backdrop-filter: blur(20px);
+  backdrop-filter: blur(8px);
 }
 /* 右上角关闭按钮 — 让业主进了登录页能退出. 36×36 方形, 跟 dialog 关闭按钮一致 */
 .back-btn {

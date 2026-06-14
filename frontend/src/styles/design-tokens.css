@@ -154,7 +154,7 @@ body::before {
     radial-gradient(ellipse 55% 40% at 85% 25%, rgba(168, 85, 247, 0.20) 0%, transparent 60%),
     radial-gradient(ellipse 45% 35% at 70% 95%, rgba(244, 114, 182, 0.16) 0%, transparent 55%),
     radial-gradient(ellipse 40% 30% at 10% 90%, rgba(255, 184, 0, 0.10) 0%, transparent 50%);
-  animation: v2-aurora-drift 60s ease-in-out infinite;
+  /* aurora 静态: 去漂移动画, 消除每帧重绘卡顿 */
 }
 /* Aurora layer 2: 细科技网格 (35×35, 4% 青线), 静态 */
 body::after {
@@ -184,8 +184,8 @@ body::after {
   position: relative;
   background: var(--v2-surf-1);
   border: 1px solid var(--v2-border-soft);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border-radius: var(--v2-r-md);
   box-shadow: var(--v2-elev-1);
 }

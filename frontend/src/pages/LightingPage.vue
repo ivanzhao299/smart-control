@@ -533,8 +533,8 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   gap: var(--v2-sp-3);
   overflow: hidden;
   transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
 }
 /* 顶部 1px 琥珀色发光光带 — 默认弱, on 时强 */
 .v2-zone::after {

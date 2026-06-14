@@ -456,8 +456,8 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   padding: 0 var(--v2-sp-5);
   border-bottom: 1px solid var(--v2-border-soft);
   background: rgba(10, 14, 26, 0.6);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 .v2-brand {
   /* logo 已挪到侧栏, 这里就是纵向 title + sub 块 */
@@ -651,7 +651,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
     border-top: 1px solid var(--v2-border-soft);
     border-right: none;
     background: rgba(10, 14, 26, 0.92);
-    backdrop-filter: blur(16px);
+    backdrop-filter: blur(8px);
     /* safe area 底部 (iOS home indicator) */
     padding-bottom: max(4px, env(safe-area-inset-bottom));
     height: calc(60px + env(safe-area-inset-bottom));

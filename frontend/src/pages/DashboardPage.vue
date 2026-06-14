@@ -289,8 +289,8 @@ function goTo(name: string): void {
   display: flex;
   align-items: center;
   gap: var(--v2-sp-3);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
   min-width: 0;
   cursor: default;
 }
@@ -390,8 +390,8 @@ function goTo(name: string): void {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
   text-align: left;
   color: var(--v2-text-1);
   min-height: 120px;
@@ -619,8 +619,8 @@ function goTo(name: string): void {
   background: var(--v2-surf-1);
   border: 1px solid var(--v2-border-soft);
   border-radius: var(--v2-r-md);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
 }
 .v2-subsystems-label {
   font-size: var(--v2-fs-sm);

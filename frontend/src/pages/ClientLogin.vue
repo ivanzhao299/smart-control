@@ -191,7 +191,7 @@ async function doLogin(): Promise<void> {
   border: 1px solid var(--v2-border-soft);
   border-radius: var(--v2-r-lg);
   box-shadow: var(--v2-elev-3);
-  backdrop-filter: blur(20px);
+  backdrop-filter: blur(8px);
 }
 .login-card::before {
   content: '';

@@ -462,7 +462,7 @@ async function allOff(): Promise<void> {
   border-radius: var(--v2-r-lg);
   display: flex; flex-direction: column; gap: var(--v2-sp-4);
   overflow: hidden;
-  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
   transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 /* 顶部 1px 电光青光带 — LED 主色 */

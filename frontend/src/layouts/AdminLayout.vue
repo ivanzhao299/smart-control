@@ -47,7 +47,6 @@ const groups: Array<{ section: string; items: Array<{ name: string; label: strin
   ] },
   { section: '系统管理', items: [
     { name: 'admin-users', label: '用户管理' },
-    { name: 'admin-app-release', label: 'APP 版本' },
     { name: 'admin-settings', label: '系统设置' },
   ] },
 ];
@@ -66,6 +65,7 @@ const MENU_ALIAS: Record<string, string> = {
   'admin-power-circuits': 'admin-zones-config',
   'admin-audio-config': 'admin-zones-config',
   'admin-system-branding': 'admin-settings',
+  'admin-app-release': 'admin-settings',
 };
 
 const timeLabel = computed(() => {
@@ -294,9 +294,8 @@ async function exitToFront(): Promise<void> {
 .side {
   display: flex;
   flex-direction: column;
-  background: rgba(10, 14, 26, 0.6);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  /* 实色面板 (去掉 backdrop-filter 毛玻璃 — 滚动时每帧重算模糊是卡顿主因) */
+  background: rgba(13, 17, 28, 0.97);
   border-right: 1px solid var(--v2-border-soft);
   min-height: 0;
 }
@@ -333,8 +332,8 @@ async function exitToFront(): Promise<void> {
 .menu-section:first-child { padding-top: 2px; }
 .menu-item {
   position: relative;
-  display: flex; align-items: center; gap: var(--v2-sp-3);
-  padding: 5px 12px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 3px 12px;
   background: transparent;
   border: none;
   color: var(--v2-text-2);
@@ -410,9 +409,7 @@ async function exitToFront(): Promise<void> {
 .top {
   display: flex; align-items: center; justify-content: space-between;
   padding: 12px 22px;
-  background: rgba(10, 14, 26, 0.6);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(13, 17, 28, 0.97);
   border-bottom: 1px solid var(--v2-border-soft);
 }
 .crumb {
@@ -516,8 +513,8 @@ async function exitToFront(): Promise<void> {
     transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
     box-shadow: 8px 0 32px -8px rgba(0, 0, 0, 0.7);
     background: rgba(6, 8, 24, 0.92);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     padding-top: env(safe-area-inset-top);
   }
   .admin.sidebar-open .side {
