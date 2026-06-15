@@ -96,7 +96,9 @@ function Start-Slot {
     '--disable-restore-session-state'
   )
   Write-Host "→ 启动 slot=$N @ $url (位置 $X,$Y, 数据目录 $dataDir)" -ForegroundColor Cyan
-  Start-Process -FilePath $browser -ArgumentList $args -WindowStyle Hidden
+  # ⚠️ 必须 Normal 不能 Hidden: Chrome 会无视 Hidden 强制全屏, 但 Edge 会真的把窗口藏起来
+  # (现场用 Edge), 导致播放器进程在跑、大屏却只显示桌面. --kiosk 自己会全屏.
+  Start-Process -FilePath $browser -ArgumentList $args -WindowStyle Normal
 }
 
 # 音频播放器 (slot=3): 不全屏, 小窗 (只为让 Chromium 出声到声卡 → EKX).
