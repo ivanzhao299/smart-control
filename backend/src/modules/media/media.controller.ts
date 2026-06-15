@@ -19,7 +19,7 @@ import { extname, join } from 'path';
 import { mkdirSync } from 'fs';
 // (Sprint-10: spawn 用于旧 publish 路径, 已下架)
 import { MediaService } from './media.service';
-import { MediaUploadMetaDto } from './dto/media.dto';
+import { MediaUploadMetaDto, WebpageCreateDto } from './dto/media.dto';
 import { OperationLogService } from '../logs/operation-log.service';
 
 /** 高清视频 4K 60fps 30 分钟 ≈ 10GB, 默认放到 10GB. env MEDIA_MAX_BYTES 可调 */
@@ -90,6 +90,21 @@ export class MediaController {
       }),
     });
     return { message: '上传成功', data: this.media.toListItem(asset) };
+  }
+
+  /** 添加一个网页 URL 作为"媒体" — 可像视频/图片一样推送到 LED/投影 */
+  @Post('webpage')
+  async createWebpage(@Body() dto: WebpageCreateDto) {
+    const asset = await this.media.createWebpage(dto.name, dto.url);
+    await this.opLog.record({
+      operator: 'system',
+      action: 'media.webpage.create',
+      targetType: 'media',
+      targetId: String(asset.id),
+      result: 'success',
+      message: JSON.stringify({ name: asset.originalName, url: asset.sourceUrl }),
+    });
+    return { message: '已添加网页', data: this.media.toListItem(asset) };
   }
 
   @Get()

@@ -1,6 +1,6 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 
-export type MediaKind = 'video' | 'image' | 'audio';
+export type MediaKind = 'video' | 'image' | 'audio' | 'webpage';
 
 /**
  * 媒体资源 (上传到展厅中控的视频/图片)
@@ -37,6 +37,10 @@ export class MediaAsset {
   @Index()
   @Column({ type: 'varchar', length: 16 })
   kind!: MediaKind;
+
+  /** 网页类型 (kind='webpage') 的外部 URL; 其它类型为 null (走物理文件) */
+  @Column({ type: 'varchar', length: 1000, nullable: true })
+  sourceUrl!: string | null;
 
   @Column({ type: 'varchar', length: 128 })
   mimeType!: string;

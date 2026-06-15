@@ -503,7 +503,7 @@ export interface PlaybackChannelView {
   outputKind: 'led' | 'projector' | 'monitor' | 'audio';
   currentMediaId: number | null;
   currentMediaName: string | null;
-  currentMediaKind: 'video' | 'image' | 'audio' | null;
+  currentMediaKind: 'video' | 'image' | 'audio' | 'webpage' | null;
   currentMediaUrl: string | null;
   currentMediaDurationSec: number | null;
   currentPlaylistId: number | null;

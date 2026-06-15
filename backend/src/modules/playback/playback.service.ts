@@ -14,7 +14,7 @@ export interface PlaybackChannelView {
   outputKind: 'led' | 'projector' | 'monitor' | 'audio';
   currentMediaId: number | null;
   currentMediaName: string | null;
-  currentMediaKind: 'video' | 'image' | 'audio' | null;
+  currentMediaKind: 'video' | 'image' | 'audio' | 'webpage' | null;
   currentMediaUrl: string | null;     // 前端 PlayerPage 直接 <video src=> / <img src=> 用
   currentMediaDurationSec: number | null;
   currentPlaylistId: number | null;
@@ -132,7 +132,7 @@ export class PlaybackService implements OnModuleInit {
 
   private async toView(row: PlaybackChannel): Promise<PlaybackChannelView> {
     let mediaName: string | null = null;
-    let mediaKind: 'video' | 'image' | 'audio' | null = null;
+    let mediaKind: 'video' | 'image' | 'audio' | 'webpage' | null = null;
     let mediaUrl: string | null = null;
     let durationSec: number | null = null;
     if (row.currentMediaId !== null) {
@@ -140,8 +140,8 @@ export class PlaybackService implements OnModuleInit {
       if (m) {
         mediaName = m.originalName;
         mediaKind = m.kind;
-        // PlayerPage 直接拿这个 URL 当 <video src>, 走相同 host (vite preview / nginx)
-        mediaUrl = `/api/media/${m.id}/file`;
+        // webpage 用外部 URL (PlayerPage iframe); 其它走物理文件 (相同 host)
+        mediaUrl = m.kind === 'webpage' ? m.sourceUrl : `/api/media/${m.id}/file`;
         durationSec = m.durationSec;
       } else {
         // 媒体被删了但 channel 还指着它 → 当成 stop, 但不主动改库, 留给下次 publish 覆盖

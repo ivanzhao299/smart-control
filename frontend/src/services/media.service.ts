@@ -5,7 +5,7 @@ const baseURL = import.meta.env.VITE_API_BASE_URL ?? '/api';
 export interface MediaItem {
   id: number;
   originalName: string;
-  kind: 'video' | 'image' | 'audio';
+  kind: 'video' | 'image' | 'audio' | 'webpage';
   mimeType: string;
   sizeBytes: number;
   durationSec: number | null;
@@ -21,11 +21,18 @@ export interface MediaItem {
 interface ListResult { items: MediaItem[]; total: number }
 
 export const mediaService = {
-  async list(opts: { kind?: 'video' | 'image' | 'audio' } = {}): Promise<ListResult> {
+  async list(opts: { kind?: 'video' | 'image' | 'audio' | 'webpage' } = {}): Promise<ListResult> {
     const params: Record<string, string> = {};
     if (opts.kind) params.kind = opts.kind;
     const r = await axios.get(`${baseURL}/media`, { params });
     return r.data?.data ?? { items: [], total: 0 };
+  },
+
+  /** 添加网页 URL 作为媒体 (可推到 LED/投影 iframe 播放) */
+  async createWebpage(name: string, url: string): Promise<MediaItem> {
+    const r = await axios.post(`${baseURL}/media/webpage`, { name, url });
+    if (!r.data?.data) throw new Error(r.data?.message || '添加网页失败');
+    return r.data.data;
   },
 
   /** 上传, 支持 progress 回调 */

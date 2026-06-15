@@ -14,6 +14,7 @@ import {
   Send,
   ArrowLeft,
   Home,
+  Globe,
 } from 'lucide-vue-next';
 import { mediaService, type MediaItem } from '@/services/media.service';
 import { usePlaybackStore } from '@/stores/playback';
@@ -76,7 +77,7 @@ const uploading = ref(false);
 const uploadPct = ref(0);
 const uploadName = ref('');
 const uploadStartAt = ref(0);
-const filter = ref<'all' | 'video' | 'image' | 'audio'>('all');
+const filter = ref<'all' | 'video' | 'image' | 'audio' | 'webpage'>('all');
 const previewItem = ref<MediaItem | null>(null);
 const isDragging = ref(false);
 
@@ -259,6 +260,26 @@ async function pushAudio(m: MediaItem): Promise<void> {
   }
 }
 
+// ── 添加网页 (作为可推送的"媒体") ──
+const webpageDialog = ref(false);
+const webpageForm = ref<{ name: string; url: string }>({ name: '', url: '' });
+function openWebpageDialog(): void {
+  webpageForm.value = { name: '', url: '' };
+  webpageDialog.value = true;
+}
+async function submitWebpage(): Promise<void> {
+  const url = webpageForm.value.url.trim();
+  if (!/^https?:\/\//i.test(url)) { ElMessage.warning('网址要以 http:// 或 https:// 开头'); return; }
+  try {
+    const m = await mediaService.createWebpage(webpageForm.value.name.trim() || url, url);
+    items.value.unshift(m);
+    webpageDialog.value = false;
+    ElMessage.success(`已添加网页「${m.originalName}」`);
+  } catch (e) {
+    ElMessage.error(`添加失败: ${(e as Error).message}`);
+  }
+}
+
 /** 查媒体当前是不是在某个 slot 上播 — 给卡片加角标用 */
 function currentSlotFor(mediaId: number): string {
   const slots: string[] = [];
@@ -316,6 +337,7 @@ onMounted(async () => {
           <button class="v2-tab" :class="{ active: filter === 'video' }" @click="filter = 'video'">视频</button>
           <button class="v2-tab" :class="{ active: filter === 'image' }" @click="filter = 'image'">图片</button>
           <button class="v2-tab" :class="{ active: filter === 'audio' }" @click="filter = 'audio'">音频</button>
+          <button class="v2-tab" :class="{ active: filter === 'webpage' }" @click="filter = 'webpage'">网页</button>
         </div>
       </div>
       <div class="quick-actions">
@@ -327,6 +349,9 @@ onMounted(async () => {
           {{ uploading ? `上传中 ${uploadPct}%` : '上传文件' }}
           <input type="file" accept="video/*,image/*,audio/*,.mp3,.wav,.aac,.m4a,.ogg,.flac" :disabled="uploading" @change="onFileInput" hidden />
         </label>
+        <button class="v2-quick" @click="openWebpageDialog">
+          <Globe :size="14" :stroke-width="2" /> 添加网页
+        </button>
       </div>
     </header>
 
@@ -380,12 +405,14 @@ onMounted(async () => {
           <div class="thumb">
             <video v-if="m.kind === 'video'" :src="absUrl(m.fileUrl)" preload="metadata" muted playsinline />
             <div v-else-if="m.kind === 'audio'" class="audio-thumb"><Music :size="40" :stroke-width="1.5" /></div>
+            <div v-else-if="m.kind === 'webpage'" class="web-thumb"><Globe :size="40" :stroke-width="1.5" /></div>
             <img v-else :src="absUrl(m.fileUrl)" :alt="m.originalName" />
             <span class="kind-tag" :class="m.kind">
               <Film v-if="m.kind === 'video'" :size="11" :stroke-width="2" />
               <Music v-else-if="m.kind === 'audio'" :size="11" :stroke-width="2" />
+              <Globe v-else-if="m.kind === 'webpage'" :size="11" :stroke-width="2" />
               <ImageIcon v-else :size="11" :stroke-width="2" />
-              {{ m.kind === 'video' ? '视频' : m.kind === 'audio' ? '音频' : '图片' }}
+              {{ m.kind === 'video' ? '视频' : m.kind === 'audio' ? '音频' : m.kind === 'webpage' ? '网页' : '图片' }}
             </span>
             <span v-if="m.kind === 'video'" class="duration">{{ fmtDuration(m.durationSec) || '—' }}</span>
           </div>
@@ -420,7 +447,7 @@ onMounted(async () => {
                   <el-dropdown-item :command="1">推到 LED 大屏 (HDMI1)</el-dropdown-item>
                   <el-dropdown-item :command="2">推到投影仪 (HDMI2)</el-dropdown-item>
                   <el-dropdown-item :command="'both'" divided>同时推两路</el-dropdown-item>
-                  <el-dropdown-item :command="'welcome'" divided :disabled="isWelcome(m)">
+                  <el-dropdown-item v-if="m.kind !== 'webpage'" :command="'welcome'" divided :disabled="isWelcome(m)">
                     {{ isWelcome(m) ? '✓ 已是欢迎页' : '设为欢迎页' }}
                   </el-dropdown-item>
                 </el-dropdown-menu>
@@ -434,6 +461,22 @@ onMounted(async () => {
       </div>
     </div>
 
+    <!-- 添加网页 dialog -->
+    <div v-if="webpageDialog" class="preview-mask" @click.self="webpageDialog = false">
+      <div class="webpage-box">
+        <div class="wb-title"><Globe :size="18" :stroke-width="1.8" /> 添加网页</div>
+        <div class="wb-hint">网页会进媒体库，可像视频/图片一样推到 LED 大屏 / 投影显示</div>
+        <label class="wb-label">名称</label>
+        <input v-model="webpageForm.name" class="wb-input" placeholder="如 公司官网 / 活动大屏 H5" />
+        <label class="wb-label">网址</label>
+        <input v-model="webpageForm.url" class="wb-input" placeholder="https://..." @keyup.enter="submitWebpage" />
+        <div class="wb-actions">
+          <button class="v2-quick" @click="webpageDialog = false">取消</button>
+          <button class="v2-quick primary" @click="submitWebpage">添加</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 预览弹层 -->
     <div v-if="previewItem" class="preview-mask" @click.self="closePreview">
       <div class="preview-box">
@@ -443,6 +486,10 @@ onMounted(async () => {
           <div v-else-if="previewItem.kind === 'audio'" class="audio-preview">
             <Music :size="64" :stroke-width="1.4" />
             <audio :src="absUrl(previewItem.fileUrl)" controls autoplay style="width: 320px; max-width: 80vw;" />
+          </div>
+          <div v-else-if="previewItem.kind === 'webpage'" class="audio-preview">
+            <Globe :size="64" :stroke-width="1.4" />
+            <a :href="previewItem.fileUrl" target="_blank" rel="noopener" class="web-url">{{ previewItem.fileUrl }}</a>
           </div>
           <img v-else :src="absUrl(previewItem.fileUrl)" :alt="previewItem.originalName" style="max-width:100%; max-height: 70vh;" />
         </div>
@@ -632,6 +679,8 @@ onMounted(async () => {
 .kind-tag.video { background: rgba(168, 85, 247, 0.4); color: #f3e8ff; border: 1px solid rgba(168, 85, 247, 0.6); }
 .kind-tag.image { background: rgba(6, 182, 212, 0.4); color: #cffafe; border: 1px solid rgba(6, 182, 212, 0.6); }
 .kind-tag.audio { background: rgba(245, 158, 11, 0.4); color: #fef3c7; border: 1px solid rgba(245, 158, 11, 0.6); }
+.kind-tag.webpage { background: rgba(34, 211, 238, 0.4); color: #cffafe; border: 1px solid rgba(34, 211, 238, 0.6); }
+.web-thumb { width: 100%; height: 100%; display: grid; place-items: center; color: #22d3ee; background: linear-gradient(135deg, rgba(34,211,238,0.12), rgba(99,102,241,0.08)); }
 .audio-preview { display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 30px 20px; color: #c4b5fd; }
 .duration { position: absolute; bottom: 8px; right: 8px; padding: 2px 7px; font-size: 11px; font-family: 'JetBrains Mono', ui-monospace, monospace; background: rgba(0, 0, 0, 0.6); color: #fff; border-radius: 4px; backdrop-filter: blur(4px); }
 .meta { padding: 8px 12px; }
@@ -680,6 +729,14 @@ onMounted(async () => {
 
 /* 预览弹层 */
 .preview-mask { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+.webpage-box { background: #1B2034; border: 1px solid var(--v2-border-soft); border-radius: 14px; padding: 22px; width: min(440px, 90vw); display: flex; flex-direction: column; gap: 6px; }
+.wb-title { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; color: var(--v2-text-1); }
+.wb-hint { font-size: 12px; color: var(--v2-text-3); margin-bottom: 8px; }
+.wb-label { font-size: 12px; color: var(--v2-text-3); margin-top: 6px; }
+.wb-input { background: rgba(255,255,255,0.04); border: 1px solid var(--v2-border-soft); border-radius: 8px; padding: 10px 12px; color: var(--v2-text-1); font-size: 14px; outline: none; font-family: inherit; }
+.wb-input:focus { border-color: var(--v2-primary); }
+.wb-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+.web-url { color: #22d3ee; word-break: break-all; text-align: center; font-size: 14px; text-decoration: none; }
 .preview-box { position: relative; max-width: 90vw; max-height: 90vh; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(99, 102, 241, 0.4); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 14px; overflow: auto; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6); }
 .preview-close { position: absolute; top: 12px; right: 12px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; background: rgba(15, 23, 42, 0.6); color: #fff; border: 1px solid var(--border-soft); border-radius: 8px; cursor: pointer; z-index: 5; }
 .preview-close:hover { background: rgba(239, 68, 68, 0.3); border-color: rgba(239, 68, 68, 0.5); }

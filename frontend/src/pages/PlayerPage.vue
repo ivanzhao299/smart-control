@@ -29,7 +29,7 @@ const brandingStore = useSystemBrandingStore();
 const slot = computed<number>(() => {
   const q = Array.isArray(route.query.slot) ? route.query.slot[0] : route.query.slot;
   const n = Number(q);
-  return Number.isFinite(n) && (n === 1 || n === 2) ? n : 1;
+  return Number.isFinite(n) && (n === 1 || n === 2 || n === 3) ? n : 1;
 });
 
 const channel = ref<PlaybackChannelView | null>(null);
@@ -102,6 +102,7 @@ function onVideoEnded(): void {
 const isVideo = computed<boolean>(() => channel.value?.currentMediaKind === 'video');
 const isImage = computed<boolean>(() => channel.value?.currentMediaKind === 'image');
 const isAudio = computed<boolean>(() => channel.value?.currentMediaKind === 'audio');
+const isWebpage = computed<boolean>(() => channel.value?.currentMediaKind === 'webpage');
 const isIdle = computed<boolean>(() => !channel.value?.currentMediaUrl);
 
 // 音频元素 — slot=3 (背景音乐 → GK9000 声卡 → EKX). 不静音!
@@ -160,6 +161,14 @@ function onAudioEnded(): void {
       <div class="audio-wave"><span></span><span></span><span></span><span></span><span></span></div>
     </div>
 
+    <!-- 播放网页 (iframe 全屏渲染外部 URL) -->
+    <iframe
+      v-else-if="isWebpage && channel?.currentMediaUrl"
+      class="media-el web-frame"
+      :src="channel.currentMediaUrl"
+      referrerpolicy="no-referrer"
+    />
+
     <!-- 待机: branding logo + 系统名 -->
     <div v-else-if="isIdle" class="idle">
       <div class="idle-logo">
@@ -190,6 +199,7 @@ function onAudioEnded(): void {
   background: #000;
   display: block;
 }
+.web-frame { object-fit: unset; border: 0; background: #fff; }
 
 /* 音频播放可视化 (slot=3 背景音乐 — 这个 kiosk 窗口可见时显示) */
 .audio-now {
