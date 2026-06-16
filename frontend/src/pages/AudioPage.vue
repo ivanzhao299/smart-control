@@ -324,32 +324,26 @@ async function muteAll(): Promise<void> {
           class="ch-card"
           :class="{ muted: z.muted, error: !!z.error }"
         >
-          <div class="ch-top">
-            <div class="ch-meta">
-              <div class="ch-name">{{ z.name }}</div>
-              <div class="ch-addr v2-inter">{{ z.id.toUpperCase() }}</div>
-            </div>
-            <button class="v2-toggle" :class="{ on: !z.muted }" @click="toggleMute(z)"></button>
+          <div class="ch-meta">
+            <div class="ch-name">{{ z.name }}</div>
+            <div class="ch-addr v2-inter">{{ z.id.toUpperCase() }}</div>
           </div>
-
-          <div class="volume">
-            <span class="vol-name">音量</span>
-            <div class="slider-wrap">
-              <div class="slider">
-                <div class="slider-fill" :style="{ width: z.volume + '%' }"></div>
-              </div>
-              <input
-                type="range"
-                :value="z.volume"
-                :min="0" :max="100" :step="5"
-                :disabled="z.muted"
-                class="slider-input"
-                @input="onVolInput(z, $event)"
-                @change="onVolChange(z, $event)"
-              />
+          <button class="v2-toggle" :class="{ on: !z.muted }" @click="toggleMute(z)"></button>
+          <div class="slider-wrap">
+            <div class="slider">
+              <div class="slider-fill" :style="{ width: z.volume + '%' }"></div>
             </div>
-            <span class="vol-value v2-inter">{{ z.volume }}<span class="pct">%</span></span>
+            <input
+              type="range"
+              :value="z.volume"
+              :min="0" :max="100" :step="5"
+              :disabled="z.muted"
+              class="slider-input"
+              @input="onVolInput(z, $event)"
+              @change="onVolChange(z, $event)"
+            />
           </div>
+          <span class="vol-value v2-inter">{{ z.volume }}<span class="pct">%</span></span>
 
         </div>
       </div>
@@ -525,7 +519,7 @@ async function muteAll(): Promise<void> {
 
 /* Channel grid */
 .ch-grid {
-  display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--v2-sp-3);
+  display: flex; flex-direction: column; gap: var(--v2-sp-2);
 }
 @media (max-width: 900px) { .ch-grid { grid-template-columns: 1fr; } }
 @media (max-width: 600px) {
@@ -539,13 +533,12 @@ async function muteAll(): Promise<void> {
 }
 
 .ch-card {
-  padding: var(--v2-sp-4);
+  padding: 10px var(--v2-sp-4);
   background: var(--v2-surf-1);
   border: 1px solid var(--v2-border-soft);
-  border-radius: var(--v2-r-lg);
-  display: flex; flex-direction: column; gap: var(--v2-sp-3);
-  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
-  transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: var(--v2-r-md);
+  display: flex; flex-direction: row; align-items: center; gap: var(--v2-sp-4);
+  transition: border-color 0.18s ease, background 0.18s ease;
   position: relative;
   overflow: hidden;
 }
@@ -562,12 +555,7 @@ async function muteAll(): Promise<void> {
   transition: opacity 0.28s ease;
 }
 .ch-card:hover {
-  transform: translateY(-3px);
   border-color: rgba(0, 231, 138, 0.45);
-  box-shadow:
-    inset 0 1px 0 rgba(0, 231, 138, 0.55),
-    0 0 0 1px rgba(0, 231, 138, 0.15),
-    0 14px 32px -10px rgba(0, 231, 138, 0.3);
 }
 .ch-card:hover::after { opacity: 0.85; }
 .ch-card:not(.muted) {
@@ -583,8 +571,8 @@ async function muteAll(): Promise<void> {
 .ch-card.error { border-color: rgba(255, 71, 87, 0.55); }
 
 .ch-top { display: flex; align-items: center; justify-content: space-between; }
-.ch-meta { display: flex; flex-direction: column; gap: 2px; }
-.ch-name { font-size: 17px; font-weight: 600; color: var(--v2-text-1); }
+.ch-meta { display: flex; flex-direction: column; gap: 2px; width: 128px; flex-shrink: 0; }
+.ch-name { font-size: 15px; font-weight: 600; color: var(--v2-text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ch-addr { font-size: 10px; color: var(--v2-text-3); letter-spacing: 1px; }
 
 .v2-toggle {
