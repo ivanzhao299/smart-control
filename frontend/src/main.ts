@@ -76,6 +76,10 @@ function disableZoom(): void {
       e.preventDefault();
     }
   });
+
+  // 触屏长按卡片 (尤其场景卡长按激活) 会弹出浏览器右键/上下文菜单, 干扰操作 —
+  // 全局禁掉, 覆盖所有页面所有卡片.
+  document.addEventListener('contextmenu', (e) => e.preventDefault());
 }
 disableZoom();
 

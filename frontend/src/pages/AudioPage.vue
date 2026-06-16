@@ -333,10 +333,7 @@ async function muteAll(): Promise<void> {
           </div>
 
           <div class="volume">
-            <div class="vol-label">
-              <span class="vol-name">音量</span>
-              <span class="vol-value v2-inter">{{ z.volume }}<span class="pct">%</span></span>
-            </div>
+            <span class="vol-name">音量</span>
             <div class="slider-wrap">
               <div class="slider">
                 <div class="slider-fill" :style="{ width: z.volume + '%' }"></div>
@@ -351,6 +348,7 @@ async function muteAll(): Promise<void> {
                 @change="onVolChange(z, $event)"
               />
             </div>
+            <span class="vol-value v2-inter">{{ z.volume }}<span class="pct">%</span></span>
           </div>
 
         </div>
@@ -533,7 +531,7 @@ async function muteAll(): Promise<void> {
 @media (max-width: 600px) {
   .ch-card { padding: var(--v2-sp-3); gap: var(--v2-sp-3); }
   .ch-name { font-size: 15px; }
-  .vol-value { font-size: 22px; }
+  .vol-value { font-size: 16px; }
   .slider { height: 18px; }
   .v2-toggle { width: 48px; height: 28px; }
   .v2-toggle::after { width: 24px; height: 24px; }
@@ -613,15 +611,15 @@ async function muteAll(): Promise<void> {
 }
 .v2-toggle.on::after { transform: translateX(18px); }
 
-.volume { display: flex; flex-direction: column; gap: var(--v2-sp-2); }
+.volume { display: flex; align-items: center; gap: var(--v2-sp-3); }
 .vol-label { display: flex; align-items: baseline; justify-content: space-between; }
-.vol-name { font-size: var(--v2-fs-xs); color: var(--v2-text-3); letter-spacing: 0.5px; }
-.vol-value { font-size: 26px; font-weight: 700; color: var(--v2-text-1); letter-spacing: 0.5px; }
+.vol-name { font-size: var(--v2-fs-xs); color: var(--v2-text-3); letter-spacing: 0.5px; flex-shrink: 0; }
+.vol-value { font-size: 18px; font-weight: 700; color: var(--v2-text-1); letter-spacing: 0.5px; flex-shrink: 0; min-width: 46px; text-align: right; }
 .ch-card:not(.muted) .vol-value { color: #6BFFB9; text-shadow: var(--v2-text-glow-success); }
 .vol-value .pct { font-size: 13px; color: var(--v2-text-3); margin-left: 3px; font-weight: 500; text-shadow: none; }
 .ch-card.muted .vol-value { color: var(--v2-text-3); }
 
-.slider-wrap { position: relative; }
+.slider-wrap { position: relative; flex: 1; min-width: 0; }
 .slider {
   position: relative; height: 14px;
   background: var(--v2-surf-2); border-radius: 7px; overflow: hidden;
