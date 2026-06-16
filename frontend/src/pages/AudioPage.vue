@@ -138,22 +138,22 @@ async function loadZones(): Promise<void> {
   } catch { /* 拉不到就空 */ }
 }
 
-async function call(z: AudioRow, label: string, fn: () => Promise<{ ok: boolean; error?: string }>): Promise<boolean> {
-  z.busy = true; z.error = null;
-  try {
-    const res = await fn();
-    if (!res.ok) throw new Error(res.error || '执行失败');
-    return true;
-  } catch (err) {
-    z.error = (err as Error).message;
-    ElMessage.error(`${z.name} ${label}失败: ${z.error}`);
-    return false;
-  } finally { z.busy = false; }
-}
+// 页内 tab: 一键场景 / 背景音乐 / 分区音量 — 一屏一组, 不上下滚
+const audioTab = ref<'scene' | 'bgm' | 'zones'>('scene');
 
 async function applyVolume(z: AudioRow, value: number): Promise<void> {
+  // 乐观: 滑条即时生效, 后台异步下发, 失败回滚
+  const prev = z.volume;
   z.volume = value;
-  await call(z, `音量 ${value}`, () => audioService.setVolume(z.id, value, z.zone));
+  z.error = null;
+  try {
+    const res = await audioService.setVolume(z.id, value, z.zone);
+    if (!res.ok) throw new Error(res.error || '执行失败');
+  } catch (err) {
+    z.volume = prev;
+    z.error = (err as Error).message;
+    ElMessage.error(`${z.name} 音量调节失败: ${z.error}`);
+  }
 }
 function onVolInput(z: AudioRow, ev: Event): void {
   z.volume = Number((ev.target as HTMLInputElement).value);
@@ -163,10 +163,18 @@ function onVolChange(z: AudioRow, ev: Event): void {
 }
 
 async function toggleMute(z: AudioRow): Promise<void> {
-  const next = !z.muted;
-  const ok = await call(z, next ? '静音' : '取消静音',
-    () => (next ? audioService.mute(z.id, z.zone) : audioService.unmute(z.id, z.zone)));
-  if (ok) z.muted = next;
+  // 乐观: 立即翻转 UI, 失败回滚
+  const prev = z.muted;
+  z.muted = !z.muted;
+  z.error = null;
+  try {
+    const res = z.muted ? await audioService.mute(z.id, z.zone) : await audioService.unmute(z.id, z.zone);
+    if (!res.ok) throw new Error(res.error || '执行失败');
+  } catch (err) {
+    z.muted = prev;
+    z.error = (err as Error).message;
+    ElMessage.error(`${z.name} ${z.muted ? '静音' : '取消静音'}失败: ${z.error}`);
+  }
 }
 
 
@@ -197,6 +205,11 @@ async function muteAll(): Promise<void> {
         <div class="title-block">
           <div class="title"><Speaker :size="18" :stroke-width="1.8" /> 音响控制</div>
           <div class="sub">得胜 EKX-808 8×8 矩阵 + WTG-800 跟随讲解</div>
+        </div>
+        <div class="v2-tabs">
+          <button class="v2-tab" :class="{ active: audioTab === 'scene' }" @click="audioTab = 'scene'">一键场景</button>
+          <button class="v2-tab" :class="{ active: audioTab === 'bgm' }" @click="audioTab = 'bgm'">背景音乐</button>
+          <button class="v2-tab" :class="{ active: audioTab === 'zones' }" @click="audioTab = 'zones'">分区音量</button>
         </div>
       </div>
       <div class="quick-actions">
@@ -241,7 +254,7 @@ async function muteAll(): Promise<void> {
     </div>
 
     <!-- 一键场景 U01-U12 -->
-    <section class="scene-section">
+    <section v-if="audioTab === 'scene'" class="scene-section">
       <header class="block-head">
         <h2 class="block-title"><span class="accent">●</span>一键场景预设</h2>
         <div class="block-sub">U01-U12 由厂家工程师 PC 软件预录入 · 一条命令切全部 8 路</div>
@@ -268,7 +281,7 @@ async function muteAll(): Promise<void> {
     </section>
 
     <!-- 背景音乐 (GK9000 声卡 → EKX 输入) -->
-    <section>
+    <section v-if="audioTab === 'bgm'">
       <header class="block-head">
         <h2 class="block-title"><span class="accent">●</span>背景音乐</h2>
         <div class="block-sub">GK9000 播放音频 → 声卡 → EKX 输入 · 从媒体库选音乐</div>
@@ -299,7 +312,7 @@ async function muteAll(): Promise<void> {
     </section>
 
     <!-- 输出通道控制 -->
-    <section>
+    <section v-if="audioTab === 'zones'">
       <header class="block-head">
         <h2 class="block-title"><span class="accent">●</span>输出通道</h2>
         <div class="block-sub">EKX-808 共 8 路输出 · 音量 / 静音 · 接好喇叭后可改成区域名</div>
@@ -316,7 +329,7 @@ async function muteAll(): Promise<void> {
               <div class="ch-name">{{ z.name }}</div>
               <div class="ch-addr v2-inter">{{ z.id.toUpperCase() }}</div>
             </div>
-            <button class="v2-toggle" :class="{ on: !z.muted }" :disabled="z.busy" @click="toggleMute(z)"></button>
+            <button class="v2-toggle" :class="{ on: !z.muted }" @click="toggleMute(z)"></button>
           </div>
 
           <div class="volume">
@@ -332,7 +345,7 @@ async function muteAll(): Promise<void> {
                 type="range"
                 :value="z.volume"
                 :min="0" :max="100" :step="5"
-                :disabled="z.busy || z.muted"
+                :disabled="z.muted"
                 class="slider-input"
                 @input="onVolInput(z, $event)"
                 @change="onVolChange(z, $event)"
@@ -361,6 +374,29 @@ async function muteAll(): Promise<void> {
 .title-block { display: flex; flex-direction: column; }
 .title { font-size: 15px; font-weight: 600; color: var(--v2-text-1); display: inline-flex; align-items: center; gap: var(--v2-sp-2); }
 .sub { font-size: var(--v2-fs-xs); color: var(--v2-text-3); margin-top: 2px; }
+.v2-tabs {
+  display: inline-flex;
+  background: var(--v2-surf-1);
+  border: 1px solid var(--v2-border-soft);
+  border-radius: var(--v2-r-sm);
+  padding: 3px;
+  margin-left: var(--v2-sp-3);
+}
+.v2-tab {
+  padding: 5px 14px;
+  border-radius: 6px;
+  font-size: var(--v2-fs-sm);
+  color: var(--v2-text-2);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  transition: all 0.18s ease;
+}
+.v2-tab.active {
+  background: var(--v2-primary-soft);
+  color: var(--v2-primary);
+  box-shadow: 0 0 0 1px rgba(6, 182, 212, 0.2);
+}
 .quick-actions { display: flex; gap: var(--v2-sp-2); }
 .v2-quick {
   padding: 8px 14px; border-radius: var(--v2-r-sm); font-size: var(--v2-fs-sm);
