@@ -1,31 +1,30 @@
 # =====================================================================
-# GK9000 三路播控 Kiosk 启动脚本
-# 文件: scripts/start-players.ps1
+# GK9000 three-channel player kiosk launcher
+# File: scripts/start-players.ps1
 #
-# 拉起 Chromium 窗口加载 PlayerPage:
-#   - 主屏 (HDMI1 → V2460 → LED 大屏): ?slot=1   全屏 kiosk
-#   - 副屏 (HDMI2 → 投影仪): ?slot=2             全屏 kiosk
-#   - 背景音乐 (声卡 → EKX 音响输入): ?slot=3    小窗 (只为出声, 不占屏)
+# NOTE: keep this file ASCII-only. GK9000 PowerShell 5.1 reads BOM-less
+# files as GBK; non-ASCII comment bytes can swallow the following newline
+# and break param parsing (this once blanked out $BaseUrl -> URL became
+# just "?slot=1" -> Edge fell back to its MSN homepage / ads).
 #
-# 用法:
-#   .\scripts\start-players.ps1            # 启动三路
-#   .\scripts\start-players.ps1 -Stop      # 杀掉已启动的 player 窗口
-#   .\scripts\start-players.ps1 -Slot 1    # 只启动 slot=1
-#   .\scripts\start-players.ps1 -Slot 3    # 只启动音频播放器
+# Launches Chromium/Edge windows loading PlayerPage:
+#   - Main  (HDMI1 -> V2460 -> LED wall): ?slot=1   fullscreen kiosk
+#   - Sub   (HDMI2 -> projector):         ?slot=2   fullscreen kiosk
+#   - Audio (sound card -> EKX input):    ?slot=3   small window (sound only)
 #
-# 多屏坐标要根据 Windows 显示设置实测填:
-#   Win + P 看排列, 显示设置 (Win+R "ms-settings:display") 看每个屏的"分辨率 + 起点 X"
+# Usage:
+#   .\scripts\start-players.ps1            # start all three
+#   .\scripts\start-players.ps1 -Stop      # kill launched player windows
+#   .\scripts\start-players.ps1 -Slot 1    # start only slot=1
+#   .\scripts\start-players.ps1 -Slot 3    # start only audio player
 #
-# 当前默认假设 (现场实际接线后再调):
-#   显示器 1 (主, HDMI1): 0,0 . 1920x1080
-#   显示器 2 (副, HDMI2): 1920,0 . 1920x1080
-#
-# 改这里的两个坐标对应实际现场即可, 不动其他逻辑.
+# Multi-monitor coords must match the real layout (Win+P / display settings).
+# Default: monitor1 (HDMI1) 0,0 1920x1080 ; monitor2 (HDMI2) 1920,0 1920x1080
 # =====================================================================
 [CmdletBinding()]
 param(
   [switch]$Stop,
-  [int]$Slot = 0,        # 0 = 两路都启动
+  [int]$Slot = 0,
   [string]$BaseUrl = 'http://localhost:5173/control/player',
   [int]$Slot1X = 0,
   [int]$Slot1Y = 0,
@@ -37,7 +36,7 @@ param(
 
 $ErrorActionPreference = 'Continue'
 
-# 1) 找 Chromium / Edge (优先 Chrome → Edge → 报错)
+# Find Chromium / Edge (prefer Chrome, then Edge)
 function Find-Browser {
   $candidates = @(
     "${env:ProgramFiles}\Google\Chrome\Application\chrome.exe",
@@ -51,15 +50,15 @@ function Find-Browser {
   return $null
 }
 
-# 2) 杀已有 player 窗口 (按 user-data-dir 标记区分)
+# Kill existing player windows (matched by user-data-dir marker)
 function Stop-Players {
-  Write-Host '正在停止已有 player 窗口...' -ForegroundColor Yellow
+  Write-Host 'Stopping existing player windows...' -ForegroundColor Yellow
   $patterns = @('player-slot1', 'player-slot2', 'player-slot3')
   foreach ($pat in $patterns) {
     Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='msedge.exe'" -ErrorAction SilentlyContinue |
       Where-Object { $_.CommandLine -and $_.CommandLine -match $pat } |
       ForEach-Object {
-        Write-Host "  杀 PID $($_.ProcessId) ($pat)" -ForegroundColor Gray
+        Write-Host ("  kill PID " + $_.ProcessId + " (" + $pat + ")") -ForegroundColor Gray
         Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
       }
   }
@@ -69,23 +68,27 @@ if ($Stop) { Stop-Players; exit 0 }
 
 $browser = Find-Browser
 if (-not $browser) {
-  Write-Host '❌ 没找到 Chrome / Edge. 装一个再跑.' -ForegroundColor Red
+  Write-Host 'No Chrome / Edge found. Install one.' -ForegroundColor Red
   exit 1
 }
-Write-Host "→ 浏览器: $browser" -ForegroundColor Green
+Write-Host ("Browser: " + $browser) -ForegroundColor Green
 
-# 3) 先杀掉旧 player (避免重复启动)
+# Kill old players first (avoid duplicates)
 Stop-Players
 Start-Sleep -Seconds 1
 
-# 4) 启动指定 slot
+# Start a video slot (fullscreen kiosk on the given monitor coords).
+# Edge needs --edge-kiosk-type=fullscreen to honour the --kiosk URL;
+# without it Edge ignores the URL and shows its MSN homepage. Chrome
+# ignores the extra flag, so it stays compatible. Window style MUST be
+# Normal, not Hidden: Edge would actually hide the window otherwise.
 function Start-Slot {
   param([int]$N, [int]$X, [int]$Y, [int]$W, [int]$H)
   $dataDir = "$env:LOCALAPPDATA\smart-control-player-slot$N"
   $url = "${BaseUrl}?slot=$N"
-  $args = @(
+  $chromeArgs = @(
     '--kiosk', $url,
-    '--edge-kiosk-type=fullscreen',   # ⚠️ Edge 必须加这个才认 --kiosk 的 URL, 否则忽略 URL 弹 MSN 主页(满屏广告). Chrome 会忽略此参数, 兼容.
+    '--edge-kiosk-type=fullscreen',
     '--edge-kiosk-reset-after-idle-timeout=0',
     "--user-data-dir=$dataDir",
     "--window-position=$X,$Y",
@@ -97,33 +100,31 @@ function Start-Slot {
     '--disable-pinch',
     '--disable-restore-session-state'
   )
-  Write-Host "→ 启动 slot=$N @ $url (位置 $X,$Y, 数据目录 $dataDir)" -ForegroundColor Cyan
-  # ⚠️ 必须 Normal 不能 Hidden: Chrome 会无视 Hidden 强制全屏, 但 Edge 会真的把窗口藏起来
-  # (现场用 Edge), 导致播放器进程在跑、大屏却只显示桌面. --kiosk 自己会全屏.
-  Start-Process -FilePath $browser -ArgumentList $args -WindowStyle Normal
+  Write-Host ("Start slot=" + $N + " @ " + $url + " (pos " + $X + "," + $Y + ")") -ForegroundColor Cyan
+  Start-Process -FilePath $browser -ArgumentList $chromeArgs -WindowStyle Normal
 }
 
-# 音频播放器 (slot=3): 不全屏, 小窗 (只为让 Chromium 出声到声卡 → EKX).
-# 关键: 不能 minimize (后台节流会卡音频), 用小窗 + 防节流 flag 保活.
+# Audio player (slot=3): small app-mode window, only to push sound to the
+# sound card -> EKX input. Not fullscreen. Anti-throttle flags keep audio alive.
 function Start-AudioSlot {
   $N = 3
   $dataDir = "$env:LOCALAPPDATA\smart-control-player-slot$N"
   $url = "${BaseUrl}?slot=$N"
-  $args = @(
-    '--app=' + $url,                       # app 模式: 无地址栏的独立小窗
+  $chromeArgs = @(
+    '--app=' + $url,
     "--user-data-dir=$dataDir",
     '--window-position=40,40',
     '--window-size=480,320',
     '--no-first-run',
     '--no-default-browser-check',
-    '--autoplay-policy=no-user-gesture-required',   # 自动出声 (背景音乐)
-    '--disable-background-timer-throttling',         # 防后台节流卡音频
+    '--autoplay-policy=no-user-gesture-required',
+    '--disable-background-timer-throttling',
     '--disable-renderer-backgrounding',
     '--disable-backgrounding-occluded-windows',
     '--disable-restore-session-state'
   )
-  Write-Host "→ 启动 slot=3 音频播放器 @ $url (小窗 480x320, 声卡→EKX)" -ForegroundColor Magenta
-  Start-Process -FilePath $browser -ArgumentList $args -WindowStyle Minimized
+  Write-Host ("Start slot=3 audio @ " + $url + " (small window, sound card -> EKX)") -ForegroundColor Magenta
+  Start-Process -FilePath $browser -ArgumentList $chromeArgs -WindowStyle Minimized
 }
 
 if ($Slot -eq 0 -or $Slot -eq 1) {
@@ -139,14 +140,5 @@ if ($Slot -eq 0 -or $Slot -eq 3) {
 }
 
 Write-Host ''
-Write-Host '✓ Player kiosk 已启动. 状态:' -ForegroundColor Green
-Start-Sleep -Seconds 2
-Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='msedge.exe'" -ErrorAction SilentlyContinue |
-  Where-Object { $_.CommandLine -match 'smart-control-player-slot' } |
-  ForEach-Object {
-    if ($_.CommandLine -match 'slot1') { Write-Host "  slot=1 (LED)   PID $($_.ProcessId)" -ForegroundColor Green }
-    if ($_.CommandLine -match 'slot2') { Write-Host "  slot=2 (投影)  PID $($_.ProcessId)" -ForegroundColor Green }
-    if ($_.CommandLine -match 'slot3') { Write-Host "  slot=3 (音频)  PID $($_.ProcessId)" -ForegroundColor Magenta }
-  }
-Write-Host ''
-Write-Host '停止: .\scripts\start-players.ps1 -Stop' -ForegroundColor Gray
+Write-Host 'Player kiosk started.' -ForegroundColor Green
+Write-Host 'Stop with: .\scripts\start-players.ps1 -Stop' -ForegroundColor Gray
