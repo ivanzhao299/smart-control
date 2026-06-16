@@ -85,6 +85,8 @@ function Start-Slot {
   $url = "${BaseUrl}?slot=$N"
   $args = @(
     '--kiosk', $url,
+    '--edge-kiosk-type=fullscreen',   # ⚠️ Edge 必须加这个才认 --kiosk 的 URL, 否则忽略 URL 弹 MSN 主页(满屏广告). Chrome 会忽略此参数, 兼容.
+    '--edge-kiosk-reset-after-idle-timeout=0',
     "--user-data-dir=$dataDir",
     "--window-position=$X,$Y",
     "--window-size=$W,$H",
