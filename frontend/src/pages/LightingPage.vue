@@ -85,35 +85,36 @@ const overview = computed(() => {
 
 // ============ 操作 ============
 async function toggleZone(z: ZoneRow): Promise<void> {
-  z.busy = true; z.error = null;
+  // 乐观更新: 点击瞬间翻转 UI, 后台异步下发 DALI, 失败回滚. 消除"等硬件下发"的迟缓感.
+  const prevOn = z.on;
+  const prevBri = z.brightness;
+  z.on = !z.on;
+  if (z.on && z.brightness === 0) z.brightness = 80;
+  z.error = null;
   try {
-    if (z.on) {
-      const res = await lightingService.zoneOff(z.id);
-      if (!res.ok) throw new Error(res.error || '执行失败');
-      z.on = false;
-    } else {
-      const res = await lightingService.zoneOn(z.id);
-      if (!res.ok) throw new Error(res.error || '执行失败');
-      z.on = true;
-      if (z.brightness === 0) z.brightness = 80;
-    }
+    const res = z.on ? await lightingService.zoneOn(z.id) : await lightingService.zoneOff(z.id);
+    if (!res.ok) throw new Error(res.error || '执行失败');
   } catch (err) {
+    z.on = prevOn; z.brightness = prevBri;       // 回滚
     z.error = (err as Error).message;
     ElMessage.error(`${z.name} 操作失败: ${z.error}`);
-  } finally { z.busy = false; }
+  }
 }
 
 async function applyBrightness(z: ZoneRow, value: number): Promise<void> {
+  // 乐观: 滑条/预设值立即生效, 后台异步下发, 失败回滚
+  const prevOn = z.on;
   z.brightness = value;
-  z.busy = true; z.error = null;
+  z.on = value > 0;
+  z.error = null;
   try {
     const res = await lightingService.setBrightness(z.id, value);
     if (!res.ok) throw new Error(res.error || '执行失败');
-    z.on = value > 0;
   } catch (err) {
+    z.on = prevOn;
     z.error = (err as Error).message;
     ElMessage.error(`${z.name} 亮度调节失败: ${z.error}`);
-  } finally { z.busy = false; }
+  }
 }
 
 // 滑条交互 — 拖动时即时更新, 鼠标抬起才调 API
@@ -144,38 +145,37 @@ function applyPreset(z: ZoneRow, value: number): void {
 //         "整馆全开/全关", 不是 "当前看的 tab 的 zone 全开/全关".
 //         如果只想控当前楼层, 用下面的 floorOn / floorOff.
 async function dispatchMany(targets: ZoneRow[], op: 'on' | 'off'): Promise<void> {
+  // 乐观: 先把目标区 UI 立即切到目标态, 再逐区异步下发硬件, 个别失败再回滚那一区
+  const want = op === 'on';
+  for (const z of targets) {
+    z.error = null;
+    z.on = want;
+    if (want && z.brightness === 0) z.brightness = 80;
+  }
   let okCount = 0;
   let failCount = 0;
   let mockCount = 0;
   for (const z of targets) {
-    z.busy = true; z.error = null;
     try {
-      const res = op === 'on'
-        ? await lightingService.zoneOn(z.id)
-        : await lightingService.zoneOff(z.id);
+      const res = want ? await lightingService.zoneOn(z.id) : await lightingService.zoneOff(z.id);
       if (!res.ok) throw new Error(res.error || '执行失败');
       okCount += 1;
       if (res.mock) mockCount += 1;
-      if (op === 'on') {
-        z.on = true;
-        if (z.brightness === 0) z.brightness = 80;
-      } else {
-        z.on = false;
-      }
     } catch (err) {
       failCount += 1;
+      z.on = !want;                 // 个别回滚
       z.error = (err as Error).message;
-      ElMessage.error(`${z.name} ${op === 'on' ? '开启' : '关闭'}失败: ${z.error}`);
-    } finally { z.busy = false; }
+    }
   }
-  // 全 mock → 用户看到"成功 toast"但灯没动, 必须高亮警告
   if (mockCount > 0 && mockCount === okCount) {
     ElMessage.warning(
       `命令成功送出, 但后端在 MOCK 模式 (${mockCount}/${targets.length} 区), 灯不会真的动. ` +
-      `去 GK9000 后端 .env 改 MOCK_MODE=false 并重启 pm2.`,
+      `去 GK9000 后端 .env 改 MOCK_MODE=false 并重启.`,
     );
   } else if (failCount === 0 && okCount > 0) {
-    ElMessage.success(`${okCount} 区命令已送出. 若灯未动, 到后台 → 灯光分区 → 测试 看细节.`);
+    ElMessage.success(`${okCount} 区已下发`);
+  } else if (failCount > 0) {
+    ElMessage.error(`${failCount}/${targets.length} 区下发失败`);
   }
 }
 
@@ -329,7 +329,6 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
           <button
             class="v2-toggle"
             :class="{ on: z.on }"
-            :disabled="z.busy"
             @click="toggleZone(z)"
             :title="z.on ? '关闭' : '开启'"
           ></button>
