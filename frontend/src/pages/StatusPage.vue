@@ -112,6 +112,8 @@ function gatewayLabel(name: string): string {
   return name;
 }
 
+// 页内 tab: 概览(指标+主机+网关) / 设备列表 / 报警 — 一屏一组不上下滚
+const statusTab = ref<'overview' | 'devices' | 'alerts'>('overview');
 function goBack(): void { router.push({ name: 'dashboard' }); }
 </script>
 
@@ -125,6 +127,11 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
         <div class="title-block">
           <div class="title"><Activity :size="18" :stroke-width="1.8" /> 系统状态</div>
           <div class="sub">设备 / 网关 / 告警 / 中控主机</div>
+        </div>
+        <div class="v2-tabs">
+          <button class="v2-tab" :class="{ active: statusTab === 'overview' }" @click="statusTab = 'overview'">概览</button>
+          <button class="v2-tab" :class="{ active: statusTab === 'devices' }" @click="statusTab = 'devices'">设备</button>
+          <button class="v2-tab" :class="{ active: statusTab === 'alerts' }" @click="statusTab = 'alerts'">报警</button>
         </div>
       </div>
       <div class="quick-actions">
@@ -141,7 +148,7 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
     </header>
 
     <!-- 指标 4 卡 -->
-    <div class="v2-metrics">
+    <div v-if="statusTab === 'overview'" class="v2-metrics">
       <div class="metric">
         <div class="metric-label">设备在线率</div>
         <div class="metric-num v2-inter" :style="{ color: gaugeColor(100 - deviceOnlineRatio) }">
@@ -176,7 +183,7 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
     </div>
 
     <!-- 两栏: 中控主机 + 网关 -->
-    <div class="grid-2">
+    <div v-if="statusTab === 'overview'" class="grid-2">
       <div class="v2-card">
         <div class="card-head"><span class="accent">●</span>中控主机</div>
         <div class="kv">
@@ -220,7 +227,7 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
     </div>
 
     <!-- 设备列表 -->
-    <div class="v2-card">
+    <div v-if="statusTab === 'devices'" class="v2-card">
       <div class="card-head">
         <span class="accent">●</span>设备列表
         <span class="card-sub">共 {{ deviceStore.totalCount }} · 在线 {{ deviceStore.onlineCount }} · 离线 {{ deviceStore.offlineDevices.length }}</span>
@@ -245,7 +252,7 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
     </div>
 
     <!-- 报警列表 -->
-    <div class="v2-card">
+    <div v-if="statusTab === 'alerts'" class="v2-card">
       <div class="card-head">
         <span class="accent">●</span>报警记录
         <button v-if="sys.alerts.length > 0" class="link" @click="sys.clearAlerts()">清空</button>
@@ -278,6 +285,29 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
 .title-block { display: flex; flex-direction: column; }
 .title { font-size: 15px; font-weight: 600; color: var(--v2-text-1); display: inline-flex; align-items: center; gap: var(--v2-sp-2); }
 .sub { font-size: var(--v2-fs-xs); color: var(--v2-text-3); margin-top: 2px; }
+.v2-tabs {
+  display: inline-flex;
+  background: var(--v2-surf-1);
+  border: 1px solid var(--v2-border-soft);
+  border-radius: var(--v2-r-sm);
+  padding: 3px;
+  margin-left: var(--v2-sp-3);
+}
+.v2-tab {
+  padding: 5px 14px;
+  border-radius: 6px;
+  font-size: var(--v2-fs-sm);
+  color: var(--v2-text-2);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  transition: all 0.18s ease;
+}
+.v2-tab.active {
+  background: var(--v2-primary-soft);
+  color: var(--v2-primary);
+  box-shadow: 0 0 0 1px rgba(6, 182, 212, 0.2);
+}
 .quick-actions { display: flex; gap: var(--v2-sp-2); }
 .v2-quick {
   padding: 8px 14px; border-radius: var(--v2-r-sm); font-size: var(--v2-fs-sm);

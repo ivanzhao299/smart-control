@@ -64,16 +64,22 @@ const overview = computed(() => {
 
 // 单回路 on/off
 async function dispatchOne(c: PowerCircuitView, op: 'on' | 'off'): Promise<void> {
+  const want = op === 'on';
+  const prevOn = c.reading.on;
+  // 乐观: 立即翻转 on (UI 即变), 后台异步下发; 成功用真实读数替换, 失败回滚
+  const idx0 = circuits.value.findIndex((x) => x.id === c.id);
+  if (idx0 >= 0) circuits.value[idx0] = { ...c, reading: { ...c.reading, on: want } };
   busyIds.value.add(c.id);
   try {
-    const updated = op === 'on'
+    const updated = want
       ? await powerCircuitsService.on(c.id)
       : await powerCircuitsService.off(c.id);
-    // 替换本地数据
     const idx = circuits.value.findIndex((x) => x.id === c.id);
     if (idx >= 0) circuits.value[idx] = updated;
   } catch (err) {
-    ElMessage.error(`${c.name} ${op === 'on' ? '通电' : '断电'}失败: ${(err as Error).message}`);
+    const idx = circuits.value.findIndex((x) => x.id === c.id);
+    if (idx >= 0) circuits.value[idx] = { ...circuits.value[idx], reading: { ...circuits.value[idx].reading, on: prevOn } };
+    ElMessage.error(`${c.name} ${want ? '通电' : '断电'}失败: ${(err as Error).message}`);
   } finally {
     busyIds.value.delete(c.id);
   }

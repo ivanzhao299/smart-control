@@ -78,43 +78,62 @@ function zoneOnCount(z: ZoneState): number {
   return Array.from(z.indoorStates.values()).filter((s) => s.on).length;
 }
 
-async function zoneCall(z: ZoneState, label: string, fn: () => Promise<{ okCount: number; failCount: number; total: number }>): Promise<boolean> {
-  z.busy = true; z.error = null;
-  try {
-    const r = await fn();
-    if (r.failCount === 0) return true;
-    if (r.okCount > 0) {
-      ElMessage.warning(`${z.name} ${label} 部分成功 ${r.okCount}/${r.total}`);
-      return true;
-    }
-    throw new Error('全部失败');
-  } catch (err) {
-    z.error = (err as Error).message;
-    ElMessage.error(`${z.name} ${label} 失败: ${z.error}`);
-    return false;
-  } finally { z.busy = false; }
-}
-
+// 乐观更新: 点击瞬间整区 UI 立即变, 后台异步下发, 全失败才回滚 (备份各室内机原值)
 async function zoneToggle(z: ZoneState): Promise<void> {
   const want = zoneOnCount(z) === 0;
-  const ok = await zoneCall(z, want ? '开机' : '关机',
-    () => (want ? hvacService.zoneOn(z.code) : hvacService.zoneOff(z.code)));
-  if (ok) z.indoorStates.forEach((s) => (s.on = want));
+  const saved = new Map([...z.indoorStates].map(([k, s]) => [k, s.on]));
+  z.indoorStates.forEach((s) => (s.on = want));
+  z.error = null;
+  try {
+    const r = await (want ? hvacService.zoneOn(z.code) : hvacService.zoneOff(z.code));
+    if (r.okCount === 0 && r.failCount > 0) throw new Error('全部失败');
+  } catch (err) {
+    z.indoorStates.forEach((s, k) => (s.on = saved.get(k) ?? s.on));
+    z.error = (err as Error).message;
+    ElMessage.error(`${z.name} ${want ? '开机' : '关机'} 失败: ${z.error}`);
+  }
 }
 async function zoneAdjustTemp(z: ZoneState, delta: number): Promise<void> {
   const cur = avgTemp(z);
   const next = Math.max(16, Math.min(30, cur + delta));
   if (next === cur) return;
-  const ok = await zoneCall(z, `温度 ${next}°C`, () => hvacService.zoneTemperature(z.code, next));
-  if (ok) z.indoorStates.forEach((s) => (s.temperature = next));
+  const saved = new Map([...z.indoorStates].map(([k, s]) => [k, s.temperature]));
+  z.indoorStates.forEach((s) => (s.temperature = next));
+  z.error = null;
+  try {
+    const r = await hvacService.zoneTemperature(z.code, next);
+    if (r.okCount === 0 && r.failCount > 0) throw new Error('全部失败');
+  } catch (err) {
+    z.indoorStates.forEach((s, k) => (s.temperature = saved.get(k) ?? s.temperature));
+    z.error = (err as Error).message;
+    ElMessage.error(`${z.name} 温度 失败: ${z.error}`);
+  }
 }
 async function zoneSetMode(z: ZoneState, mode: HvacMode): Promise<void> {
-  const ok = await zoneCall(z, `模式 ${mode}`, () => hvacService.zoneMode(z.code, mode));
-  if (ok) z.indoorStates.forEach((s) => (s.mode = mode));
+  const saved = new Map([...z.indoorStates].map(([k, s]) => [k, s.mode]));
+  z.indoorStates.forEach((s) => (s.mode = mode));
+  z.error = null;
+  try {
+    const r = await hvacService.zoneMode(z.code, mode);
+    if (r.okCount === 0 && r.failCount > 0) throw new Error('全部失败');
+  } catch (err) {
+    z.indoorStates.forEach((s, k) => (s.mode = saved.get(k) ?? s.mode));
+    z.error = (err as Error).message;
+    ElMessage.error(`${z.name} 模式 失败: ${z.error}`);
+  }
 }
 async function zoneSetFan(z: ZoneState, fan: HvacFan): Promise<void> {
-  const ok = await zoneCall(z, `风速 ${fan}`, () => hvacService.zoneFanSpeed(z.code, fan));
-  if (ok) z.indoorStates.forEach((s) => (s.fan = fan));
+  const saved = new Map([...z.indoorStates].map(([k, s]) => [k, s.fan]));
+  z.indoorStates.forEach((s) => (s.fan = fan));
+  z.error = null;
+  try {
+    const r = await hvacService.zoneFanSpeed(z.code, fan);
+    if (r.okCount === 0 && r.failCount > 0) throw new Error('全部失败');
+  } catch (err) {
+    z.indoorStates.forEach((s, k) => (s.fan = saved.get(k) ?? s.fan));
+    z.error = (err as Error).message;
+    ElMessage.error(`${z.name} 风速 失败: ${z.error}`);
+  }
 }
 
 // ============ 楼层 Tab + 总览 ============
