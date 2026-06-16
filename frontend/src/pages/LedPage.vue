@@ -1,79 +1,24 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
-  ArrowLeft, MonitorPlay, Power, X, Sparkles, Play, Tv2, Sun,
+  ArrowLeft, MonitorPlay, Play, Tv2, Sun, Globe,
+  Image as ImageIcon, MonitorOff,
 } from 'lucide-vue-next';
-import { ledService, type LedInput } from '@/services/led.service';
 import { usePlaybackStore } from '@/stores/playback';
 import { absUrl } from '@/services/http';
-import { Image as ImageIcon, MonitorOff } from 'lucide-vue-next';
 
 const playbackStore = usePlaybackStore();
 
-interface LedRow {
-  id: string;
-  name: string;
-  floor: string;
-  power: boolean;
-  input: LedInput;
-  brightness: number;
-  media: string;
-  busy: boolean;
-  error: string | null;
-}
-
-const screens = ref<LedRow[]>([
-  { id: 'led_1f_main', name: '一层主 LED', floor: '1F', power: false, input: 'HDMI1', brightness: 80, media: '', busy: false, error: null },
-  { id: 'led_2f_main', name: '二层主 LED', floor: '2F', power: false, input: 'HDMI1', brightness: 80, media: '', busy: false, error: null },
-]);
-
-const INPUTS: Array<{ value: LedInput; label: string }> = [
-  { value: 'HDMI1', label: 'HDMI 1' },
-  { value: 'HDMI2', label: 'HDMI 2' },
-  { value: 'welcome', label: '欢迎页' },
-  { value: 'video', label: '视频' },
-];
-
-async function call(z: LedRow, label: string, fn: () => Promise<{ ok: boolean; error?: string }>): Promise<boolean> {
-  z.busy = true; z.error = null;
-  try {
-    const res = await fn();
-    if (!res.ok) throw new Error(res.error || '执行失败');
-    ElMessage.success(`${z.name} ${label}成功`);
-    return true;
-  } catch (err) {
-    z.error = (err as Error).message;
-    ElMessage.error(`${z.name} ${label}失败: ${z.error}`);
-    return false;
-  } finally { z.busy = false; }
-}
-
-async function togglePower(z: LedRow): Promise<void> {
-  const want = !z.power;
-  const ok = await call(z, want ? '开屏' : '关屏', () => (want ? ledService.on(z.id) : ledService.off(z.id)));
-  if (ok) z.power = want;
-}
-
-async function changeInput(z: LedRow, input: LedInput): Promise<void> {
-  const ok = await call(z, `切换 ${input}`, () => ledService.switchInput(z.id, input));
-  if (ok) { z.input = input; z.power = true; }
-}
-
-async function welcome(z: LedRow): Promise<void> {
-  const ok = await call(z, '欢迎页', () => ledService.welcome(z.id));
-  if (ok) { z.power = true; z.input = 'welcome'; }
-}
-
-// Sprint-10 后: 不再用旧 ledService.play(media=字符串) 这条路径, 媒体走 playbackStore.publish.
-// 留 ledService.play() 的 API 给场景引擎用 (LED 切到 "video" 预设, 不传文件名).
-
-// ============ 总览 ============
+// 现场只有两块由 GK9000 控制的屏: LED 大屏 (slot1 HDMI1) + 投影 (slot2 HDMI2).
+// 概览看这两块的播放/在线状态.
 const overview = computed(() => {
-  const total = screens.value.length;
-  const onCount = screens.value.filter((z) => z.power).length;
-  return { total, onCount };
+  const list = [playbackStore.slot1, playbackStore.slot2];
+  return {
+    playing: list.filter((s) => s?.currentMediaId).length,
+    online: list.filter((s) => s?.alive).length,
+  };
 });
 
 const router = useRouter();
@@ -95,12 +40,6 @@ async function stopPlayback(slot: 1 | 2): Promise<void> {
     ElMessage.error(`停止失败: ${(e as Error).message}`);
   }
 }
-async function allOn(): Promise<void> {
-  for (const z of screens.value) { if (!z.power) await togglePower(z); }
-}
-async function allOff(): Promise<void> {
-  for (const z of screens.value) { if (z.power) await togglePower(z); }
-}
 </script>
 
 <template>
@@ -111,17 +50,9 @@ async function allOff(): Promise<void> {
           <ArrowLeft :size="18" :stroke-width="2" />
         </button>
         <div class="title-block">
-          <div class="title"><MonitorPlay :size="18" :stroke-width="1.8" /> LED 大屏控制</div>
-          <div class="sub">诺瓦 V2460 · V/VX 协议族 · {{ overview.total }} 屏</div>
+          <div class="title"><MonitorPlay :size="18" :stroke-width="1.8" /> 大屏 / 投影播控</div>
+          <div class="sub">GK9000 双路播控 · HDMI1 → LED 大屏 · HDMI2 → 投影仪</div>
         </div>
-      </div>
-      <div class="quick-actions">
-        <button class="v2-quick primary" @click="allOn">
-          <Power :size="14" :stroke-width="2" /> 全部开
-        </button>
-        <button class="v2-quick danger" @click="allOff">
-          <X :size="14" :stroke-width="2" /> 全部关
-        </button>
       </div>
     </header>
 
@@ -130,29 +61,29 @@ async function allOff(): Promise<void> {
       <div class="ov-item">
         <div class="ov-ico"><MonitorPlay :size="18" :stroke-width="2" /></div>
         <div class="ov-body">
-          <div class="ov-label">开屏中</div>
-          <div class="ov-value v2-inter">{{ overview.onCount }}<span class="unit">/ {{ overview.total }}</span></div>
+          <div class="ov-label">播放中</div>
+          <div class="ov-value v2-inter">{{ overview.playing }}<span class="unit">/ 2</span></div>
         </div>
       </div>
       <div class="ov-item">
         <div class="ov-ico"><Tv2 :size="18" :stroke-width="2" /></div>
         <div class="ov-body">
-          <div class="ov-label">控制器</div>
-          <div class="ov-value v2-inter" style="font-size: 16px;">诺瓦 V2460</div>
+          <div class="ov-label">播放器在线</div>
+          <div class="ov-value v2-inter">{{ overview.online }}<span class="unit">/ 2</span></div>
         </div>
       </div>
       <div class="ov-item">
-        <div class="ov-ico"><Sparkles :size="18" :stroke-width="2" /></div>
+        <div class="ov-ico"><Play :size="18" :stroke-width="2" /></div>
         <div class="ov-body">
-          <div class="ov-label">协议</div>
-          <div class="ov-value v2-inter" style="font-size: 16px;">TCP 5200</div>
+          <div class="ov-label">输出</div>
+          <div class="ov-value v2-inter" style="font-size: 15px;">HDMI 双路</div>
         </div>
       </div>
       <div class="ov-item">
-        <div class="ov-ico"><Power :size="18" :stroke-width="2" /></div>
+        <div class="ov-ico"><MonitorPlay :size="18" :stroke-width="2" /></div>
         <div class="ov-body">
-          <div class="ov-label">网关状态</div>
-          <div class="ov-value v2-inter" style="font-size: 16px; color: var(--v2-success);">在线</div>
+          <div class="ov-label">主控</div>
+          <div class="ov-value v2-inter" style="font-size: 15px;">GK9000</div>
         </div>
       </div>
     </div>
@@ -185,6 +116,10 @@ async function allOff(): Promise<void> {
             :src="absUrl(playbackStore.slot1.currentMediaUrl)"
             :alt="playbackStore.slot1.currentMediaName || ''"
           />
+          <div v-else-if="playbackStore.slot1?.currentMediaKind === 'webpage'" class="pb-mirror-idle">
+            <Globe :size="28" :stroke-width="1.5" />
+            <span>网页内容</span>
+          </div>
           <div v-else class="pb-mirror-idle">
             <MonitorOff :size="28" :stroke-width="1.5" />
             <span>待机中</span>
@@ -197,8 +132,9 @@ async function allOff(): Promise<void> {
           <span class="pb-loop">{{ playbackStore.slot1.loopMode === 'loop' ? '· 循环' : '· 单次' }}</span>
         </div>
         <div class="pb-actions">
-          <button class="v2-quick" @click="gotoMedia(1)">选媒体</button>
-          <button v-if="playbackStore.slot1?.currentMediaId" class="v2-quick danger" @click="stopPlayback(1)">停止 / 回待机</button>
+          <button class="v2-quick primary" @click="gotoMedia(1)"><Play :size="14" :stroke-width="2" /> 视频/图片</button>
+          <button class="v2-quick" @click="gotoMedia(1)"><Globe :size="14" :stroke-width="2" /> 网页</button>
+          <button class="v2-quick" @click="stopPlayback(1)"><Sun :size="14" :stroke-width="2" /> 欢迎/待机</button>
         </div>
       </div>
 
@@ -227,6 +163,10 @@ async function allOff(): Promise<void> {
             :src="absUrl(playbackStore.slot2.currentMediaUrl)"
             :alt="playbackStore.slot2.currentMediaName || ''"
           />
+          <div v-else-if="playbackStore.slot2?.currentMediaKind === 'webpage'" class="pb-mirror-idle">
+            <Globe :size="28" :stroke-width="1.5" />
+            <span>网页内容</span>
+          </div>
           <div v-else class="pb-mirror-idle">
             <MonitorOff :size="28" :stroke-width="1.5" />
             <span>待机中</span>
@@ -239,63 +179,13 @@ async function allOff(): Promise<void> {
           <span class="pb-loop">{{ playbackStore.slot2.loopMode === 'loop' ? '· 循环' : '· 单次' }}</span>
         </div>
         <div class="pb-actions">
-          <button class="v2-quick" @click="gotoMedia(2)">选媒体</button>
-          <button v-if="playbackStore.slot2?.currentMediaId" class="v2-quick danger" @click="stopPlayback(2)">停止 / 回待机</button>
+          <button class="v2-quick primary" @click="gotoMedia(2)"><Play :size="14" :stroke-width="2" /> 视频/图片</button>
+          <button class="v2-quick" @click="gotoMedia(2)"><Globe :size="14" :stroke-width="2" /> 网页</button>
+          <button class="v2-quick" @click="stopPlayback(2)"><Sun :size="14" :stroke-width="2" /> 欢迎/待机</button>
         </div>
       </div>
     </div>
 
-    <!-- 屏卡 -->
-    <div class="v2-screen-grid">
-      <div
-        v-for="z in screens"
-        :key="z.id"
-        class="v2-screen"
-        :class="{ on: z.power, offline: !!z.error }"
-      >
-        <div class="screen-top">
-          <div class="screen-meta">
-            <div class="screen-name">{{ z.name }}</div>
-            <div class="screen-addr v2-inter">{{ z.id.toUpperCase() }} · {{ z.floor }}</div>
-          </div>
-          <button
-            class="v2-toggle"
-            :class="{ on: z.power }"
-            :disabled="z.busy"
-            @click="togglePower(z)"
-            :title="z.power ? '关屏' : '开屏'"
-          ></button>
-        </div>
-
-        <!-- 当前输入 -->
-        <div class="screen-state">
-          <div class="state-label">当前输入</div>
-          <div class="state-value v2-inter">{{ INPUTS.find(i => i.value === z.input)?.label ?? z.input }}</div>
-        </div>
-
-        <!-- 输入切换 -->
-        <div class="input-row">
-          <button
-            v-for="i in INPUTS"
-            :key="i.value"
-            class="input-chip"
-            :class="{ active: z.input === i.value }"
-            :disabled="z.busy"
-            @click="changeInput(z, i.value)"
-          >{{ i.label }}</button>
-        </div>
-
-        <!-- 媒体操作: 旧手输文件名行已下架, 改成"去媒体页选" 链接 + 当前播放 -->
-        <div class="media-row">
-          <button class="v2-quick primary" @click="gotoMedia(1)">
-            <Play :size="14" :stroke-width="2" /> 选媒体推送
-          </button>
-          <button class="v2-quick" :disabled="z.busy" @click="welcome(z)">
-            <Sun :size="14" :stroke-width="2" /> 欢迎页
-          </button>
-        </div>
-      </div>
-    </div>
   </section>
 </template>
 
