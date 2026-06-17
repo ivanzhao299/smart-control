@@ -126,7 +126,6 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
         </button>
         <div class="title-block">
           <div class="title"><Activity :size="18" :stroke-width="1.8" /> 系统状态</div>
-          <div class="sub">设备 / 网关 / 告警 / 中控主机</div>
         </div>
         <div class="v2-tabs">
           <button class="v2-tab" :class="{ active: statusTab === 'overview' }" @click="statusTab = 'overview'">概览</button>

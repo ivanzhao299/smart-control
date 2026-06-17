@@ -211,7 +211,6 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
         </button>
         <div class="title-block">
           <div class="title"><Lightbulb :size="18" :stroke-width="1.8" /> 灯光控制</div>
-          <div class="sub">{{ overview.total }} 个分区 · {{ overview.gatewayCount }} 个 DALI 网关</div>
         </div>
         <div class="v2-tabs">
           <button
@@ -469,18 +468,28 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 }
 
 /* ============ 总览 ============ */
+/* 状态行卡片: 原 4 个独立大格压成一条横条, 段间细线分隔 */
 .v2-overview {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--v2-sp-3);
-  padding: var(--v2-sp-4);
+  display: flex; align-items: center;
+  padding: 8px var(--v2-sp-3);
   background: linear-gradient(135deg, rgba(251, 191, 36, 0.05), rgba(251, 191, 36, 0.01));
   border: 1px solid rgba(251, 191, 36, 0.12);
-  border-radius: var(--v2-r-lg);
+  border-radius: var(--v2-r-md);
 }
-.ov-item { display: flex; align-items: center; gap: var(--v2-sp-3); }
+.ov-item {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: var(--v2-sp-3);
+  padding: 0 var(--v2-sp-4);
+  position: relative;
+}
+.ov-item:not(:first-child)::before {
+  content: ''; position: absolute; left: 0; top: 50%;
+  transform: translateY(-50%);
+  width: 1px; height: 28px;
+  background: var(--v2-border-soft);
+}
 .ov-ico {
-  width: 40px; height: 40px;
+  width: 32px; height: 32px;
   border-radius: var(--v2-r-sm);
   background: var(--v2-amber-soft);
   color: var(--v2-amber);
@@ -490,13 +499,13 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 .ov-body { display: flex; flex-direction: column; min-width: 0; }
 .ov-label { font-size: var(--v2-fs-xs); color: var(--v2-text-3); letter-spacing: 1px; }
 .ov-value {
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 600;
   line-height: 1.1;
-  margin-top: 2px;
+  margin-top: 1px;
   color: var(--v2-text-1);
 }
-.ov-value .unit { font-size: 12px; color: var(--v2-text-3); margin-left: 2px; font-weight: 400; }
+.ov-value .unit { font-size: 11px; color: var(--v2-text-3); margin-left: 2px; font-weight: 400; }
 
 /* ============ 区卡 ============ */
 .v2-zone-grid {

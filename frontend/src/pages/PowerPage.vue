@@ -144,7 +144,6 @@ onUnmounted(() => { stopRefresh(); });
         </button>
         <div class="title-block">
           <div class="title"><Zap :size="18" :stroke-width="1.8" /> 电源管理</div>
-          <div class="sub">{{ overview.total }} 路 · 共 {{ Math.round(overview.totalPower) }} W</div>
         </div>
         <div class="v2-tabs">
           <button
@@ -401,17 +400,26 @@ onUnmounted(() => { stopRefresh(); });
 
 /* ============ 总览 ============ */
 .v2-overview {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--v2-sp-3);
-  padding: var(--v2-sp-4);
+  display: flex; align-items: center;
+  padding: 8px var(--v2-sp-3);
   background: linear-gradient(135deg, rgba(168, 85, 247, 0.06), rgba(168, 85, 247, 0.01));
   border: 1px solid rgba(168, 85, 247, 0.18);
-  border-radius: var(--v2-r-lg);
+  border-radius: var(--v2-r-md);
 }
-.ov-item { display: flex; align-items: center; gap: var(--v2-sp-3); }
+.ov-item {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: var(--v2-sp-3);
+  padding: 0 var(--v2-sp-4);
+  position: relative;
+}
+.ov-item:not(:first-child)::before {
+  content: ''; position: absolute; left: 0; top: 50%;
+  transform: translateY(-50%);
+  width: 1px; height: 28px;
+  background: var(--v2-border-soft);
+}
 .ov-ico {
-  width: 40px; height: 40px;
+  width: 32px; height: 32px;
   border-radius: var(--v2-r-sm);
   background: var(--v2-purple-soft);
   color: #C084FC;
@@ -422,15 +430,15 @@ onUnmounted(() => { stopRefresh(); });
 .ov-body { display: flex; flex-direction: column; min-width: 0; }
 .ov-label { font-size: var(--v2-fs-xs); color: var(--v2-text-2); letter-spacing: 1px; text-transform: uppercase; }
 .ov-value {
-  font-size: 22px;
+  font-size: 17px;
   font-weight: 700;
   line-height: 1.1;
-  margin-top: 2px;
+  margin-top: 1px;
   color: #E9D5FF;
   text-shadow: var(--v2-text-glow-purple);
   letter-spacing: 0.5px;
 }
-.ov-value .unit { font-size: 12px; color: var(--v2-text-3); margin-left: 4px; font-weight: 500; text-shadow: none; }
+.ov-value .unit { font-size: 11px; color: var(--v2-text-3); margin-left: 4px; font-weight: 500; text-shadow: none; }
 
 /* ============ 回路卡 ============ */
 .circuit-grid {

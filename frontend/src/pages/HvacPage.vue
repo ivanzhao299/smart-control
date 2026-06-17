@@ -174,7 +174,6 @@ async function allOff(): Promise<void> {
         </button>
         <div class="title-block">
           <div class="title"><Snowflake :size="18" :stroke-width="1.8" /> 中央空调</div>
-          <div class="sub">中弘 B 集控网关 · 2 楼层 · {{ zones.length }} 个功能区 · {{ overview.totalIndoor }} 台内机</div>
         </div>
         <div class="v2-tabs">
           <button class="v2-tab" :class="{ active: floorTab === '1F' }" @click="floorTab = '1F'">一楼</button>
@@ -353,22 +352,33 @@ async function allOff(): Promise<void> {
 
 /* Overview (HVAC blue) */
 .v2-overview.hvac {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--v2-sp-3);
-  padding: var(--v2-sp-4);
+  display: flex; align-items: center;
+  padding: 8px var(--v2-sp-3);
   background: linear-gradient(135deg, rgba(96, 165, 250, 0.05), rgba(96, 165, 250, 0.01));
   border: 1px solid rgba(96, 165, 250, 0.12);
-  border-radius: var(--v2-r-lg);
+  border-radius: var(--v2-r-md);
 }
-.ov-item { display: flex; align-items: center; gap: var(--v2-sp-3); }
+.ov-item {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: var(--v2-sp-3);
+  padding: 0 var(--v2-sp-4);
+  position: relative;
+}
+.ov-item:not(:first-child)::before {
+  content: ''; position: absolute; left: 0; top: 50%;
+  transform: translateY(-50%);
+  width: 1px; height: 28px;
+  background: var(--v2-border-soft);
+}
 .ov-ico {
-  width: 40px; height: 40px; border-radius: var(--v2-r-sm);
+  width: 32px; height: 32px; border-radius: var(--v2-r-sm);
   background: rgba(96, 165, 250, 0.14); color: #60a5fa;
   display: grid; place-items: center; flex-shrink: 0;
 }
 .ov-body { display: flex; flex-direction: column; min-width: 0; }
 .ov-label { font-size: var(--v2-fs-xs); color: var(--v2-text-3); letter-spacing: 1px; }
-.ov-value { font-size: 20px; font-weight: 600; line-height: 1.1; margin-top: 2px; color: var(--v2-text-1); }
-.ov-value .unit { font-size: 12px; color: var(--v2-text-3); margin-left: 2px; font-weight: 400; }
+.ov-value { font-size: 17px; font-weight: 600; line-height: 1.1; margin-top: 1px; color: var(--v2-text-1); }
+.ov-value .unit { font-size: 11px; color: var(--v2-text-3); margin-left: 2px; font-weight: 400; }
 
 .loading-tip {
   padding: 40px;

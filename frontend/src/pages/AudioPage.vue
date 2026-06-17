@@ -204,7 +204,6 @@ async function muteAll(): Promise<void> {
         </button>
         <div class="title-block">
           <div class="title"><Speaker :size="18" :stroke-width="1.8" /> 音响控制</div>
-          <div class="sub">得胜 EKX-808 8×8 矩阵 + WTG-800 跟随讲解</div>
         </div>
         <div class="v2-tabs">
           <button class="v2-tab" :class="{ active: audioTab === 'scene' }" @click="audioTab = 'scene'">一键场景</button>
@@ -415,11 +414,11 @@ async function muteAll(): Promise<void> {
 
 /* Overview (audio green) */
 .v2-overview.audio {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--v2-sp-3);
-  padding: var(--v2-sp-4);
+  display: flex; align-items: center;
+  padding: 8px var(--v2-sp-3);
   background: linear-gradient(135deg, rgba(52, 211, 153, 0.05), rgba(52, 211, 153, 0.01));
   border: 1px solid rgba(52, 211, 153, 0.12);
-  border-radius: var(--v2-r-lg);
+  border-radius: var(--v2-r-md);
 }
 
 /* 背景音乐卡 */
@@ -449,16 +448,27 @@ async function muteAll(): Promise<void> {
   .bgm-card { flex-wrap: wrap; }
   .bgm-actions { width: 100%; }
 }
-.ov-item { display: flex; align-items: center; gap: var(--v2-sp-3); }
+.ov-item {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: var(--v2-sp-3);
+  padding: 0 var(--v2-sp-4);
+  position: relative;
+}
+.ov-item:not(:first-child)::before {
+  content: ''; position: absolute; left: 0; top: 50%;
+  transform: translateY(-50%);
+  width: 1px; height: 28px;
+  background: var(--v2-border-soft);
+}
 .ov-ico {
-  width: 40px; height: 40px; border-radius: var(--v2-r-sm);
+  width: 32px; height: 32px; border-radius: var(--v2-r-sm);
   background: rgba(52, 211, 153, 0.14); color: #34d399;
   display: grid; place-items: center; flex-shrink: 0;
 }
 .ov-body { display: flex; flex-direction: column; min-width: 0; }
 .ov-label { font-size: var(--v2-fs-xs); color: var(--v2-text-3); letter-spacing: 1px; }
-.ov-value { font-size: 20px; font-weight: 600; line-height: 1.1; margin-top: 2px; color: var(--v2-text-1); }
-.ov-value .unit { font-size: 12px; color: var(--v2-text-3); margin-left: 2px; font-weight: 400; }
+.ov-value { font-size: 17px; font-weight: 600; line-height: 1.1; margin-top: 1px; color: var(--v2-text-1); }
+.ov-value .unit { font-size: 11px; color: var(--v2-text-3); margin-left: 2px; font-weight: 400; }
 
 /* block head */
 .block-head {

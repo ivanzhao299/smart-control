@@ -86,14 +86,6 @@ const filtered = computed(() => {
   return items.value.filter((m) => m.kind === filter.value);
 });
 
-const stats = computed(() => {
-  const v = items.value.filter((m) => m.kind === 'video').length;
-  const i = items.value.filter((m) => m.kind === 'image').length;
-  const a = items.value.filter((m) => m.kind === 'audio').length;
-  const totalBytes = items.value.reduce((s, m) => s + m.sizeBytes, 0);
-  return { v, i, a, totalBytes };
-});
-
 const uploadEta = computed(() => {
   if (!uploading.value || uploadPct.value === 0 || !uploadStartAt.value) return '';
   const elapsedMs = Date.now() - uploadStartAt.value;
@@ -330,7 +322,6 @@ onMounted(async () => {
         </button>
         <div class="title-block">
           <div class="title"><FolderOpen :size="18" :stroke-width="1.8" /> 媒体库</div>
-          <div class="sub">视频 {{ stats.v }} · 图片 {{ stats.i }} · 音频 {{ stats.a }} · 占 {{ fmtSize(stats.totalBytes) }}</div>
         </div>
         <div class="v2-tabs">
           <button class="v2-tab" :class="{ active: filter === 'all' }" @click="filter = 'all'">全部</button>
