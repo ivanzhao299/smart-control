@@ -311,8 +311,8 @@ async function muteAll(): Promise<void> {
       </div>
     </section>
 
-    <!-- 输出通道控制 -->
-    <section v-if="audioTab === 'zones'">
+    <!-- 输出通道控制 — 8 路竖直推子 (调音台式), 一屏不滚 -->
+    <section v-if="audioTab === 'zones'" class="zones-section">
       <header class="block-head">
         <h2 class="block-title"><span class="accent">●</span>输出通道</h2>
         <div class="block-sub">EKX-808 共 8 路输出 · 音量 / 静音 · 接好喇叭后可改成区域名</div>
@@ -324,27 +324,26 @@ async function muteAll(): Promise<void> {
           class="ch-card"
           :class="{ muted: z.muted, error: !!z.error }"
         >
-          <div class="ch-meta">
-            <div class="ch-name">{{ z.name }}</div>
-            <div class="ch-addr v2-inter">{{ z.id.toUpperCase() }}</div>
-          </div>
-          <button class="v2-toggle" :class="{ on: !z.muted }" @click="toggleMute(z)"></button>
-          <div class="slider-wrap">
-            <div class="slider">
-              <div class="slider-fill" :style="{ width: z.volume + '%' }"></div>
+          <div class="ch-name">{{ z.name }}</div>
+          <div class="ch-addr v2-inter">{{ z.id.toUpperCase() }}</div>
+          <div class="fader">
+            <div class="fader-track">
+              <div class="fader-fill" :style="{ height: z.volume + '%' }"></div>
             </div>
+            <div class="fader-thumb" :style="{ bottom: 'calc(' + z.volume + '% - 8px)' }" aria-hidden="true"></div>
             <input
               type="range"
+              orient="vertical"
               :value="z.volume"
               :min="0" :max="100" :step="5"
               :disabled="z.muted"
-              class="slider-input"
+              class="fader-input"
               @input="onVolInput(z, $event)"
               @change="onVolChange(z, $event)"
             />
           </div>
+          <button class="v2-toggle" :class="{ on: !z.muted }" @click="toggleMute(z)"></button>
           <span class="vol-value v2-inter">{{ z.volume }}<span class="pct">%</span></span>
-
         </div>
       </div>
     </section>
@@ -352,7 +351,10 @@ async function muteAll(): Promise<void> {
 </template>
 
 <style scoped>
-.v2-page { padding: var(--v2-sp-5); display: flex; flex-direction: column; gap: var(--v2-sp-4); }
+.v2-page {
+  padding: var(--v2-sp-5); display: flex; flex-direction: column; gap: var(--v2-sp-4);
+  height: 100vh; height: 100dvh; box-sizing: border-box; overflow: hidden;
+}
 
 .v2-page-head { display: flex; justify-content: space-between; align-items: center; gap: var(--v2-sp-4); flex-wrap: wrap; }
 .back-row { display: flex; align-items: center; gap: var(--v2-sp-4); }
@@ -517,27 +519,28 @@ async function muteAll(): Promise<void> {
 .scene-hint { font-size: 10px; color: var(--v2-text-3); letter-spacing: 0.5px; }
 .scene-btn.active .scene-hint { color: rgba(6, 182, 212, 0.7); }
 
-/* Channel grid */
+/* zones tab 占满剩余高度, 内部不滚 (8 路竖直推子一屏全显) */
+.zones-section { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.zones-section .block-head { flex-shrink: 0; }
+
+/* 8 路竖直推子横向并排 */
 .ch-grid {
-  display: flex; flex-direction: column; gap: var(--v2-sp-2);
+  display: flex; flex-direction: row; gap: var(--v2-sp-2);
+  flex: 1; min-height: 0; align-items: stretch;
 }
-@media (max-width: 900px) { .ch-grid { grid-template-columns: 1fr; } }
-@media (max-width: 600px) {
-  .ch-card { padding: var(--v2-sp-3); gap: var(--v2-sp-3); }
-  .ch-name { font-size: 15px; }
-  .vol-value { font-size: 16px; }
-  .slider { height: 18px; }
-  .v2-toggle { width: 48px; height: 28px; }
-  .v2-toggle::after { width: 24px; height: 24px; }
-  .v2-toggle.on::after { transform: translateX(20px); }
+/* 屏矮时进一步压字号 */
+@media (max-height: 680px) {
+  .ch-name { font-size: 12px; }
+  .vol-value { font-size: 13px; }
 }
 
 .ch-card {
-  padding: 10px var(--v2-sp-4);
+  flex: 1; min-width: 0;
+  padding: var(--v2-sp-3) 6px var(--v2-sp-2);
   background: var(--v2-surf-1);
   border: 1px solid var(--v2-border-soft);
   border-radius: var(--v2-r-md);
-  display: flex; flex-direction: row; align-items: center; gap: var(--v2-sp-4);
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
   transition: border-color 0.18s ease, background 0.18s ease;
   position: relative;
   overflow: hidden;
@@ -559,21 +562,16 @@ async function muteAll(): Promise<void> {
 }
 .ch-card:hover::after { opacity: 0.85; }
 .ch-card:not(.muted) {
-  border-color: rgba(0, 231, 138, 0.55);
-  background: linear-gradient(135deg, rgba(0, 231, 138, 0.08), rgba(16, 185, 129, 0.03));
-  box-shadow:
-    inset 0 1px 0 rgba(0, 231, 138, 0.55),
-    0 8px 32px -8px rgba(0, 231, 138, 0.35),
-    0 0 36px -10px rgba(0, 231, 138, 0.25) !important;
+  border-color: rgba(0, 231, 138, 0.5);
+  background: linear-gradient(180deg, rgba(0, 231, 138, 0.06), rgba(16, 185, 129, 0.02));
+  box-shadow: inset 0 1px 0 rgba(0, 231, 138, 0.45);
 }
 .ch-card:not(.muted)::after { opacity: 1; }
 .ch-card.muted { opacity: 0.7; }
 .ch-card.error { border-color: rgba(255, 71, 87, 0.55); }
 
-.ch-top { display: flex; align-items: center; justify-content: space-between; }
-.ch-meta { display: flex; flex-direction: column; gap: 2px; width: 128px; flex-shrink: 0; }
-.ch-name { font-size: 15px; font-weight: 600; color: var(--v2-text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ch-addr { font-size: 10px; color: var(--v2-text-3); letter-spacing: 1px; }
+.ch-name { font-size: 13px; font-weight: 600; color: var(--v2-text-1); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; flex-shrink: 0; }
+.ch-addr { font-size: 10px; color: var(--v2-text-3); letter-spacing: 1px; text-align: center; flex-shrink: 0; }
 
 .v2-toggle {
   position: relative; width: 42px; height: 24px;
@@ -599,35 +597,50 @@ async function muteAll(): Promise<void> {
 }
 .v2-toggle.on::after { transform: translateX(18px); }
 
-.volume { display: flex; align-items: center; gap: var(--v2-sp-3); }
-.vol-label { display: flex; align-items: baseline; justify-content: space-between; }
-.vol-name { font-size: var(--v2-fs-xs); color: var(--v2-text-3); letter-spacing: 0.5px; flex-shrink: 0; }
-.vol-value { font-size: 18px; font-weight: 700; color: var(--v2-text-1); letter-spacing: 0.5px; flex-shrink: 0; min-width: 46px; text-align: right; }
-.ch-card:not(.muted) .vol-value { color: #6BFFB9; text-shadow: var(--v2-text-glow-success); }
-.vol-value .pct { font-size: 13px; color: var(--v2-text-3); margin-left: 3px; font-weight: 500; text-shadow: none; }
-.ch-card.muted .vol-value { color: var(--v2-text-3); }
-
-.slider-wrap { position: relative; flex: 1; min-width: 0; }
-.slider {
-  position: relative; height: 14px;
-  background: var(--v2-surf-2); border-radius: 7px; overflow: hidden;
+/* 竖直推子 (fader) — 占满 card 中段剩余高度, 可竖向拖动 */
+.fader {
+  position: relative; flex: 1; min-height: 70px; width: 100%;
+  display: flex; justify-content: center;
+}
+.fader-track {
+  position: relative; width: 12px; height: 100%;
+  background: var(--v2-surf-2); border-radius: 8px; overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
-.slider-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #10B981 0%, #00E78A 50%, #6BFFB9 100%);
-  border-radius: 7px;
-  box-shadow:
-    0 0 16px rgba(0, 231, 138, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.35);
-  transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+.fader-fill {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(0deg, #10B981 0%, #00E78A 55%, #6BFFB9 100%);
+  box-shadow: 0 0 14px rgba(0, 231, 138, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transition: height 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.ch-card.muted .slider-fill { background: var(--v2-surf-2); box-shadow: none; }
-.slider-input {
+.ch-card.muted .fader-fill { background: var(--v2-surf-2); box-shadow: none; }
+/* 推子帽 (拖动手柄) — 跟随音量上下移动, 一看就知道能竖向拖 */
+.fader-thumb {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  width: 24px; height: 16px; border-radius: 5px;
+  background: linear-gradient(180deg, #ffffff, #cdebdd);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55), 0 0 12px rgba(0, 231, 138, 0.5);
+  z-index: 2; pointer-events: none;
+  transition: bottom 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.fader-thumb::after {
+  content: ''; position: absolute; left: 5px; right: 5px; top: 50%;
+  height: 2px; transform: translateY(-50%);
+  background: rgba(0, 0, 0, 0.22); border-radius: 1px;
+}
+.ch-card.muted .fader-thumb { background: #8092ab; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5); }
+/* 透明竖向 range 盖在整条上接收触摸拖动 (底=0 顶=100) */
+.fader-input {
   position: absolute; inset: 0; width: 100%; height: 100%;
-  opacity: 0; cursor: pointer;
+  margin: 0; opacity: 0; cursor: pointer; touch-action: none;
+  writing-mode: vertical-lr; direction: rtl;
+  -webkit-appearance: slider-vertical; appearance: slider-vertical;
+  z-index: 3;
 }
-.slider-input:disabled { cursor: not-allowed; }
+.fader-input:disabled { cursor: not-allowed; }
 
-.ch-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--v2-sp-2); }
+.vol-value { font-size: 15px; font-weight: 700; color: var(--v2-text-1); text-align: center; flex-shrink: 0; }
+.ch-card:not(.muted) .vol-value { color: #6BFFB9; text-shadow: var(--v2-text-glow-success); }
+.vol-value .pct { font-size: 10px; color: var(--v2-text-3); margin-left: 1px; font-weight: 500; text-shadow: none; }
+.ch-card.muted .vol-value { color: var(--v2-text-3); }
 </style>
