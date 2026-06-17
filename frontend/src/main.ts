@@ -5,6 +5,7 @@ import { router } from './router';
 import 'element-plus/dist/index.css';
 import './styles/theme.css';
 import './styles/design-tokens.css';
+import './styles/industrial-hardening.css';
 
 /**
  * 把 <link rel="manifest"> 从 vite-plugin-pwa 生成的静态 manifest.webmanifest
@@ -80,6 +81,9 @@ function disableZoom(): void {
   // 触屏长按卡片 (尤其场景卡长按激活) 会弹出浏览器右键/上下文菜单, 干扰操作 —
   // 全局禁掉, 覆盖所有页面所有卡片.
   document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // 工业终端: 禁元素拖拽 (图片/链接/文本被拖出或拖动), 防误操作把界面拖乱
+  document.addEventListener('dragstart', (e) => e.preventDefault());
 }
 disableZoom();
 

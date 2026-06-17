@@ -1,0 +1,47 @@
+/* ===================================================================
+ * 工业级触屏终端 hardening (展厅平板作为生产终端)
+ *
+ * 把设备当成固定操作面板, 禁掉容易误触的手势:
+ *   - 长按不弹 iOS 菜单 / 放大镜 (-webkit-touch-callout)
+ *   - 不能选中文字 / 拖蓝 (前台操作端 user-select)
+ *   - 元素 / 图片不可拖拽 (-webkit-user-drag)
+ *   - 下拉不刷新、滚到边缘不橡皮筋 (overscroll-behavior)
+ *   - 点击不闪蓝色高亮 (-webkit-tap-highlight-color)
+ *
+ * 保留不动: 单指点击 / 列表滚动 / 滑块拖动 / 输入框编辑.
+ * 缩放 / 多指 / 右键 / 双击缩放 由 main.ts disableZoom() 另行 JS 拦截.
+ * =================================================================== */
+
+* {
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+}
+
+html,
+body {
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+img,
+a {
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+/* 前台 (平板操作端 MainLayout = .v2-shell): 禁文本选择 / 拖蓝.
+   生产终端不需要选字; 后台 AdminLayout 不是 .v2-shell, 不受影响,
+   仍可正常选中复制日志 / 表格. */
+.v2-shell {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 例外: 输入控件仍要能选中 / 编辑 (客户端登录密码、媒体改名等) */
+.v2-shell input,
+.v2-shell textarea,
+.v2-shell select,
+.v2-shell [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
