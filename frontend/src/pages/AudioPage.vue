@@ -353,7 +353,7 @@ async function muteAll(): Promise<void> {
 <style scoped>
 .v2-page {
   padding: var(--v2-sp-5); display: flex; flex-direction: column; gap: var(--v2-sp-4);
-  height: 100vh; height: 100dvh; box-sizing: border-box; overflow: hidden;
+  height: 100%; box-sizing: border-box; overflow: hidden;
 }
 
 .v2-page-head { display: flex; justify-content: space-between; align-items: center; gap: var(--v2-sp-4); flex-wrap: wrap; }

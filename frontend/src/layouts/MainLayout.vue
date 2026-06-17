@@ -142,6 +142,9 @@ function go(name: string): void {
   if (route.name !== name) router.push({ name });
 }
 
+// 首页保留全局顶栏 (品牌+时钟氛围); 功能页隐藏它, 主区上移多出 56px 给功能区
+const showHeader = computed(() => route.name === 'dashboard');
+
 // ===== Header 数据 =====
 const dateLabel = computed(() => {
   const d = new Date(sys.now);
@@ -177,7 +180,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 </script>
 
 <template>
-  <div class="v2-shell">
+  <div class="v2-shell" :class="{ lean: !showHeader }">
 
     <!-- 侧导航 (80px, 顶部品牌 logo + icon/文字 nav, 不滚) -->
     <aside class="v2-nav">
@@ -220,8 +223,8 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
       </nav>
     </aside>
 
-    <!-- 顶 Header (56px) - 集成 Alert 内联条; logo 已挪到侧栏 -->
-    <header class="v2-header">
+    <!-- 顶 Header (56px) - 仅首页显示 (功能页隐藏, 主区上移给功能区让空间); 集成 inline toast -->
+    <header v-if="showHeader" class="v2-header">
       <div class="v2-brand">
         <div class="v2-brand-title">{{ branding.systemName }}</div>
         <div class="v2-brand-sub">{{ dateLabel }}</div>
@@ -301,12 +304,16 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   box-sizing: border-box;
   overflow: hidden;
 }
+/* 功能页 (非首页): 隐藏全局顶栏, 主区上移占满, 多出 56px 给功能区 */
+.v2-shell.lean {
+  grid-template-rows: 1fr;
+  grid-template-areas: "nav main";
+}
 
 /* ============ 侧导航 (顶 brand + icon/文字 nav, 项 flex-grow 充满屏幕高度) ============ */
 .v2-nav {
   grid-area: nav;
-  /* 侧栏从顶到底 (grid 高度 = header 56 + main 1fr), 自带覆盖 header 高度 */
-  grid-row: 1 / 3;
+  /* 跨满 grid 所有行: 有 header 时跨 header+main, 无 header 时只 main — 靠 grid-template-areas 的 nav 区域自动撑, 不写死 grid-row */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -638,6 +645,13 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
     /* 防底栏被键盘抬起遮挡 */
     height: 100vh;
     height: 100dvh;
+  }
+  /* 手机竖屏功能页: 同样去掉顶 header, 只剩 main + 底栏 */
+  .v2-shell.lean {
+    grid-template-rows: 1fr 60px;
+    grid-template-areas:
+      'main'
+      'nav';
   }
 
   /* 侧栏 → 底栏 */
