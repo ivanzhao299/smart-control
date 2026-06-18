@@ -9,6 +9,7 @@ import { useRoute, useRouter } from 'vue-router';
 // - AlertBanner 已移除, 告警走后台 /admin/alerts
 // - 场景反馈走顶部 inline toast
 import { Maximize2, Minimize2 } from 'lucide-vue-next';
+import ErrorBoundary from '@/components/ErrorBoundary.vue';
 import { useFullscreen } from '@/composables/useFullscreen';
 import { navIconFor } from '@/composables/useIcons';
 import { useSystemStore } from '@/stores/system';
@@ -275,11 +276,14 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
     <!-- 主区 -->
     <main class="v2-main">
       <router-view v-slot="{ Component }">
-        <!-- PERFORMANCE_AUDIT P1-#7: max 6 → 10 覆盖 8 项主菜单 +
-             admin 入口缓冲, 切页 100% 命中缓存 (60-100ms vs 重 mount 200-400ms) -->
-        <keep-alive :max="10">
-          <component :is="Component" />
-        </keep-alive>
+        <!-- 崩溃自恢复: ErrorBoundary 包住所有页面, 单页报错降级不白屏整机 -->
+        <ErrorBoundary>
+          <!-- PERFORMANCE_AUDIT P1-#7: max 6 → 10 覆盖 8 项主菜单 +
+               admin 入口缓冲, 切页 100% 命中缓存 (60-100ms vs 重 mount 200-400ms) -->
+          <keep-alive :max="10">
+            <component :is="Component" />
+          </keep-alive>
+        </ErrorBoundary>
       </router-view>
     </main>
 

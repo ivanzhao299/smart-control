@@ -87,7 +87,52 @@ function disableZoom(): void {
 }
 disableZoom();
 
+/**
+ * 白屏看门狗 — 工业终端最后防线
+ *
+ * #app 挂载后正常应一直有子节点; 若整个应用崩溃导致根节点清空且持续 >8s,
+ * 自动 reload 恢复. sessionStorage 限流: 连续 3 次重载仍白屏就停手 (持久
+ * 故障别无限刷, 留白屏让现场维护介入), 一旦恢复正常立即清零计数.
+ */
+function startBlankScreenWatchdog(): void {
+  const appEl = document.getElementById('app');
+  if (!appEl) return;
+  const KEY = 'sc.watchdog.reloads';
+  let blankSince = 0;
+  window.setInterval(() => {
+    const blank = appEl.childElementCount === 0;
+    if (!blank) {
+      blankSince = 0;
+      if (sessionStorage.getItem(KEY)) sessionStorage.removeItem(KEY);
+      return;
+    }
+    if (blankSince === 0) {
+      blankSince = Date.now();
+    } else if (Date.now() - blankSince > 8000) {
+      const n = Number(sessionStorage.getItem(KEY) ?? '0');
+      if (n < 3) {
+        sessionStorage.setItem(KEY, String(n + 1));
+        window.location.reload();
+      }
+    }
+  }, 3000);
+}
+
 const app = createApp(App);
+
+// 工业终端健壮性: Vue 层 + JS 层错误兜底 (跟 ErrorBoundary + 白屏看门狗 配合)
+app.config.errorHandler = (err, _instance, info) => {
+  // eslint-disable-next-line no-console
+  console.error('[Vue errorHandler]', info, err);
+};
+window.addEventListener('unhandledrejection', (e) => {
+  // eslint-disable-next-line no-console
+  console.error('[unhandledrejection]', e.reason);
+});
+
 app.use(createPinia());
 app.use(router);
 app.mount('#app');
+
+// 白屏看门狗: 应用挂载后启动
+startBlankScreenWatchdog();
