@@ -81,6 +81,12 @@ const filter = ref<'all' | 'video' | 'image' | 'audio' | 'webpage'>('all');
 const previewItem = ref<MediaItem | null>(null);
 const isDragging = ref(false);
 
+// 批量上传队列
+const uploadQueue = ref<File[]>([]);
+const uploadBatchTotal = ref(0);
+const uploadBatchDone = ref(0);
+let processingQueue = false;
+
 const filtered = computed(() => {
   if (filter.value === 'all') return items.value;
   return items.value.filter((m) => m.kind === filter.value);
@@ -125,43 +131,93 @@ async function refresh(): Promise<void> {
 
 const UPLOAD_MAX_GB = 10;
 
-async function doUpload(file: File): Promise<void> {
-  if (uploading.value) {
-    ElMessage.warning('正在上传, 请等待当前任务完成');
-    return;
+// 递归读取 FileSystemDirectoryReader (每次 readEntries 最多 100 条, 需循环)
+async function readAllEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
+  const all: FileSystemEntry[] = [];
+  let batch: FileSystemEntry[];
+  do {
+    batch = await new Promise<FileSystemEntry[]>((res) => reader.readEntries(res, () => res([])));
+    all.push(...batch);
+  } while (batch.length > 0);
+  return all;
+}
+
+// 从单个 FileSystemEntry 递归收集所有 File 对象
+async function collectFromEntry(entry: FileSystemEntry): Promise<File[]> {
+  if (entry.isFile) {
+    return new Promise<File[]>((res) =>
+      (entry as FileSystemFileEntry).file((f) => res([f]), () => res([])),
+    );
   }
-  if (file.size > UPLOAD_MAX_GB * 1024 * 1024 * 1024) {
-    ElMessage.error(`文件超过 ${UPLOAD_MAX_GB}GB 上限 (现 ${fmtSize(file.size)})`);
-    return;
+  if (entry.isDirectory) {
+    const entries = await readAllEntries((entry as FileSystemDirectoryEntry).createReader());
+    const nested = await Promise.all(entries.map(collectFromEntry));
+    return nested.flat();
   }
-  if (!file.type.startsWith('video/') && !file.type.startsWith('image/')) {
-    ElMessage.error(`不支持的文件类型: ${file.type}`);
-    return;
+  return [];
+}
+
+// 校验 + 入队 + 启动串行上传
+async function queueFiles(rawFiles: File[]): Promise<void> {
+  const valid: File[] = [];
+  for (const f of rawFiles) {
+    if (!f.type.startsWith('video/') && !f.type.startsWith('image/') && !f.type.startsWith('audio/')) {
+      if (f.size > 0) ElMessage.warning(`已跳过: ${f.name} (类型不支持)`);
+      continue;
+    }
+    if (f.size > UPLOAD_MAX_GB * 1024 * 1024 * 1024) {
+      ElMessage.error(`已跳过: ${f.name} (超过 ${UPLOAD_MAX_GB}GB 上限)`);
+      continue;
+    }
+    valid.push(f);
   }
-  // 大文件友好提示 (>500MB)
-  if (file.size > 500 * 1024 * 1024) {
-    const sizeStr = fmtSize(file.size);
-    const estMin = Math.ceil(file.size / (10 * 1024 * 1024) / 60); // 估 80Mbps 实际
+  if (valid.length === 0) return;
+
+  // 单个大文件才弹确认
+  if (valid.length === 1 && valid[0].size > 500 * 1024 * 1024) {
+    const file = valid[0];
+    const estMin = Math.ceil(file.size / (10 * 1024 * 1024) / 60);
     try {
       await ElMessageBox.confirm(
-        `文件 ${file.name} (${sizeStr}) 是大文件, 预估 ${estMin} 分钟左右上传完成 (实际取决于网速). 上传期间请保持页面打开. 继续?`,
+        `文件 ${file.name} (${fmtSize(file.size)}) 较大, 预估 ${estMin} 分钟. 上传期间请保持页面打开. 继续?`,
         '大文件上传',
         { type: 'info', confirmButtonText: '开始上传', cancelButtonText: '取消' },
       );
     } catch { return; }
   }
+
+  const wasIdle = !processingQueue;
+  uploadQueue.value.push(...valid);
+  if (wasIdle) { uploadBatchTotal.value = valid.length; uploadBatchDone.value = 0; }
+  else uploadBatchTotal.value += valid.length;
+
+  if (wasIdle) void startQueue();
+}
+
+async function startQueue(): Promise<void> {
+  processingQueue = true;
+  while (uploadQueue.value.length > 0) {
+    const file = uploadQueue.value[0];
+    await doUploadOne(file);
+    uploadQueue.value.shift();
+    uploadBatchDone.value++;
+  }
+  processingQueue = false;
+  uploadBatchTotal.value = 0;
+  uploadBatchDone.value = 0;
+}
+
+async function doUploadOne(file: File): Promise<void> {
   uploading.value = true;
   uploadPct.value = 0;
   uploadName.value = file.name;
   uploadStartAt.value = Date.now();
   try {
-    await mediaService.upload(file, {
-      onProgress: (p) => { uploadPct.value = p; },
-    });
+    await mediaService.upload(file, { onProgress: (p) => { uploadPct.value = p; } });
     ElMessage.success(`上传成功: ${file.name}`);
     await refresh();
   } catch (e) {
-    ElMessage.error(`上传失败: ${(e as Error).message}`);
+    ElMessage.error(`上传失败 ${file.name}: ${(e as Error).message}`);
   } finally {
     uploading.value = false;
     uploadPct.value = 0;
@@ -172,9 +228,9 @@ async function doUpload(file: File): Promise<void> {
 
 function onFileInput(e: Event): void {
   const target = e.target as HTMLInputElement;
-  if (target.files && target.files[0]) {
-    void doUpload(target.files[0]);
-    target.value = ''; // 允许重选同名
+  if (target.files && target.files.length > 0) {
+    void queueFiles(Array.from(target.files));
+    target.value = '';
   }
 }
 
@@ -189,11 +245,27 @@ function onDragLeave(e: DragEvent): void {
 function onDragOver(e: DragEvent): void {
   e.preventDefault();
 }
-function onDrop(e: DragEvent): void {
+async function onDrop(e: DragEvent): Promise<void> {
   e.preventDefault();
   isDragging.value = false;
-  const f = e.dataTransfer?.files?.[0];
-  if (f) void doUpload(f);
+
+  // 优先用 DataTransferItem API — 支持文件夹递归
+  const dtItems = e.dataTransfer?.items;
+  if (dtItems && dtItems.length > 0) {
+    const entries: FileSystemEntry[] = [];
+    for (let i = 0; i < dtItems.length; i++) {
+      const entry = dtItems[i].webkitGetAsEntry?.();
+      if (entry) entries.push(entry);
+    }
+    if (entries.length > 0) {
+      const files = (await Promise.all(entries.map(collectFromEntry))).flat();
+      if (files.length > 0) { void queueFiles(files); return; }
+    }
+  }
+
+  // 降级: 直接读 files (文件夹内容可能不完整)
+  const files = Array.from(e.dataTransfer?.files ?? []);
+  if (files.length > 0) void queueFiles(files);
 }
 
 async function confirmDelete(m: MediaItem): Promise<void> {
@@ -337,8 +409,15 @@ onMounted(async () => {
         </button>
         <label class="v2-quick primary" :class="{ disabled: uploading }">
           <Upload :size="14" :stroke-width="2" />
-          {{ uploading ? `上传中 ${uploadPct}%` : '上传文件' }}
-          <input type="file" accept="video/*,image/*,audio/*,.mp3,.wav,.aac,.m4a,.ogg,.flac" :disabled="uploading" @change="onFileInput" hidden />
+          <span v-if="uploading">
+            上传中 {{ uploadPct }}%<span v-if="uploadBatchTotal > 1" class="upload-count-inline"> ({{ uploadBatchDone + 1 }}/{{ uploadBatchTotal }})</span>
+          </span>
+          <span v-else>上传文件</span>
+          <input type="file" accept="video/*,image/*,audio/*,.mp3,.wav,.aac,.m4a,.ogg,.flac" multiple :disabled="uploading" @change="onFileInput" hidden />
+        </label>
+        <label class="v2-quick" :class="{ disabled: uploading }">
+          <FolderOpen :size="14" :stroke-width="2" /> 上传文件夹
+          <input type="file" :webkitdirectory="true" multiple accept="video/*,image/*,audio/*,.mp3,.wav,.aac,.m4a,.ogg,.flac" :disabled="uploading" @change="onFileInput" hidden />
         </label>
         <button class="v2-quick" @click="openWebpageDialog">
           <Globe :size="14" :stroke-width="2" /> 添加网页
@@ -362,6 +441,7 @@ onMounted(async () => {
       <div class="upload-meta">
         <span class="upload-pct">{{ uploadPct }}%</span>
         <span v-if="uploadEta" class="upload-eta">{{ uploadEta }}</span>
+        <span v-if="uploadBatchTotal > 1" class="upload-batch">({{ uploadBatchDone + 1 }}/{{ uploadBatchTotal }})</span>
       </div>
     </div>
 
@@ -376,7 +456,7 @@ onMounted(async () => {
     >
       <div v-if="isDragging" class="drop-overlay">
         <Upload :size="48" :stroke-width="1.5" />
-        <div class="drop-text">释放鼠标即开始上传</div>
+        <div class="drop-text">释放即上传（支持多文件 / 文件夹）</div>
       </div>
 
       <div v-if="!loading && filtered.length === 0" class="empty">
@@ -603,6 +683,8 @@ onMounted(async () => {
 .upload-meta { display: flex; align-items: center; gap: 10px; }
 .upload-pct { font-family: 'JetBrains Mono', ui-monospace, monospace; color: #06b6d4; font-weight: 600; }
 .upload-eta { font-size: 11px; color: var(--text-secondary); font-family: 'JetBrains Mono', ui-monospace, monospace; }
+.upload-batch { font-size: 11px; color: #a78bfa; font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 600; }
+.upload-count-inline { font-size: 11px; opacity: 0.8; }
 
 .grid-wrap { position: relative; flex: 1; min-height: 0; overflow: auto; padding: 4px; border-radius: 12px; }
 .grid-wrap.is-drag { background: rgba(6, 182, 212, 0.08); outline: 2px dashed rgba(6, 182, 212, 0.5); outline-offset: -2px; }
