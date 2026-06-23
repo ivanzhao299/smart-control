@@ -15,6 +15,9 @@ import {
   ArrowLeft,
   Home,
   Globe,
+  LayoutList,
+  LayoutGrid,
+  AlignJustify,
 } from 'lucide-vue-next';
 import { mediaService, type MediaItem } from '@/services/media.service';
 import { usePlaybackStore } from '@/stores/playback';
@@ -78,6 +81,7 @@ const uploadPct = ref(0);
 const uploadName = ref('');
 const uploadStartAt = ref(0);
 const filter = ref<'all' | 'video' | 'image' | 'audio' | 'webpage'>('all');
+const viewMode = ref<'list' | 'grid' | 'detail'>('list');
 const previewItem = ref<MediaItem | null>(null);
 const isDragging = ref(false);
 
@@ -416,6 +420,17 @@ onMounted(async () => {
         </div>
       </div>
       <div class="quick-actions">
+        <div class="view-toggle">
+          <button class="vt-btn" :class="{ active: viewMode === 'list' }" title="列表" @click="viewMode = 'list'">
+            <LayoutList :size="15" :stroke-width="2" />
+          </button>
+          <button class="vt-btn" :class="{ active: viewMode === 'grid' }" title="图标" @click="viewMode = 'grid'">
+            <LayoutGrid :size="15" :stroke-width="2" />
+          </button>
+          <button class="vt-btn" :class="{ active: viewMode === 'detail' }" title="详情" @click="viewMode = 'detail'">
+            <AlignJustify :size="15" :stroke-width="2" />
+          </button>
+        </div>
         <button class="v2-quick" :disabled="loading" @click="refresh">
           <RefreshCcw :size="14" :stroke-width="2" /> 刷新
         </button>
@@ -477,7 +492,8 @@ onMounted(async () => {
         <div class="empty-sub">{{ items.length === 0 ? '把视频或图片拖进来, 或点右上 "上传文件"' : '换个过滤标签看看' }}</div>
       </div>
 
-      <div class="grid">
+      <!-- ── 图标视图 ── -->
+      <div v-if="viewMode === 'grid'" class="grid">
         <div
           v-for="m in filtered"
           :key="m.id"
@@ -501,44 +517,130 @@ onMounted(async () => {
           </div>
           <div class="meta">
             <div class="name" :title="m.originalName">{{ m.originalName }}</div>
-            <div class="info">
-              <span>{{ fmtSize(m.sizeBytes) }}</span>
-              <span v-if="m.resolution">· {{ m.resolution }}</span>
-            </div>
+            <div class="info"><span>{{ fmtSize(m.sizeBytes) }}</span><span v-if="m.resolution">· {{ m.resolution }}</span></div>
           </div>
-          <div v-if="isWelcome(m)" class="welcome-tag" title="当前欢迎页 — 点 LED 欢迎页按钮会播这个">
-            <Home :size="11" :stroke-width="2" /> 欢迎页
-          </div>
+          <div v-if="isWelcome(m)" class="welcome-tag" title="当前欢迎页"><Home :size="11" :stroke-width="2" /> 欢迎页</div>
           <div v-if="currentSlotFor(m.id)" class="playing-tag" :style="isWelcome(m) ? 'top: 36px;' : ''">
             <Send :size="11" :stroke-width="2" /> 播放中: {{ currentSlotFor(m.id) }}
           </div>
           <div class="card-actions" @click.stop>
-            <!-- 音频: 直接一个"播放背景音乐"按钮 -->
-            <button v-if="m.kind === 'audio'" class="card-btn" title="播放背景音乐" @click="pushAudio(m)">
-              <Music :size="14" :stroke-width="2" />
-            </button>
-            <!-- 视频/图片: 推送到 LED/投影/欢迎页菜单 -->
-            <el-dropdown v-else trigger="click" @command="(c: number | string) => {
-              if (c === 'welcome') setAsWelcome(m);
-              else pushTo(m, c as 1 | 2 | 'both');
-            }">
-              <button class="card-btn" title="推送到">
-                <Send :size="14" :stroke-width="2" />
-              </button>
+            <button v-if="m.kind === 'audio'" class="card-btn" title="播放背景音乐" @click="pushAudio(m)"><Music :size="14" :stroke-width="2" /></button>
+            <el-dropdown v-else trigger="click" @command="(c: number | string) => { if (c === 'welcome') setAsWelcome(m); else pushTo(m, c as 1 | 2 | 'both'); }">
+              <button class="card-btn" title="推送到"><Send :size="14" :stroke-width="2" /></button>
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item :command="1">推到 LED 大屏 (HDMI1)</el-dropdown-item>
                   <el-dropdown-item :command="2">推到投影仪 (HDMI2)</el-dropdown-item>
                   <el-dropdown-item :command="'both'" divided>同时推两路</el-dropdown-item>
-                  <el-dropdown-item v-if="m.kind !== 'webpage'" :command="'welcome'" divided :disabled="isWelcome(m)">
-                    {{ isWelcome(m) ? '✓ 已是欢迎页' : '设为欢迎页' }}
-                  </el-dropdown-item>
+                  <el-dropdown-item v-if="m.kind !== 'webpage'" :command="'welcome'" divided :disabled="isWelcome(m)">{{ isWelcome(m) ? '✓ 已是欢迎页' : '设为欢迎页' }}</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
-            <button class="card-btn danger" title="删除" @click="confirmDelete(m)">
-              <Trash2 :size="14" :stroke-width="2" />
-            </button>
+            <button class="card-btn danger" title="删除" @click="confirmDelete(m)"><Trash2 :size="14" :stroke-width="2" /></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 列表视图 ── -->
+      <div v-else-if="viewMode === 'list'" class="list-view">
+        <div
+          v-for="m in filtered"
+          :key="m.id"
+          class="list-row"
+          :class="{ 'pick-mode': pickForSlot }"
+          @click="pickForSlot ? pickAndPush(m) : openPreview(m)"
+        >
+          <div class="lr-thumb">
+            <video v-if="m.kind === 'video'" :src="absUrl(m.fileUrl)" preload="metadata" muted playsinline />
+            <div v-else-if="m.kind === 'audio'" class="lr-icon"><Music :size="18" :stroke-width="1.5" /></div>
+            <div v-else-if="m.kind === 'webpage'" class="lr-icon web"><Globe :size="18" :stroke-width="1.5" /></div>
+            <img v-else :src="absUrl(m.fileUrl)" :alt="m.originalName" />
+          </div>
+          <span class="kind-tag" :class="m.kind">
+            <Film v-if="m.kind === 'video'" :size="11" :stroke-width="2" />
+            <Music v-else-if="m.kind === 'audio'" :size="11" :stroke-width="2" />
+            <Globe v-else-if="m.kind === 'webpage'" :size="11" :stroke-width="2" />
+            <ImageIcon v-else :size="11" :stroke-width="2" />
+            {{ m.kind === 'video' ? '视频' : m.kind === 'audio' ? '音频' : m.kind === 'webpage' ? '网页' : '图片' }}
+          </span>
+          <div class="lr-name" :title="m.originalName">{{ m.originalName }}</div>
+          <div class="lr-badges">
+            <span v-if="isWelcome(m)" class="lr-badge welcome"><Home :size="10" :stroke-width="2" /> 欢迎页</span>
+            <span v-if="currentSlotFor(m.id)" class="lr-badge playing"><Send :size="10" :stroke-width="2" /> {{ currentSlotFor(m.id) }}</span>
+          </div>
+          <div class="lr-size">{{ fmtSize(m.sizeBytes) }}<span v-if="m.resolution" class="lr-res"> · {{ m.resolution }}</span></div>
+          <div class="lr-date">{{ new Date(m.createdAt).toLocaleDateString('zh-CN') }}</div>
+          <div class="lr-actions" @click.stop>
+            <button v-if="m.kind === 'audio'" class="card-btn" title="播放背景音乐" @click="pushAudio(m)"><Music :size="14" :stroke-width="2" /></button>
+            <el-dropdown v-else trigger="click" @command="(c: number | string) => { if (c === 'welcome') setAsWelcome(m); else pushTo(m, c as 1 | 2 | 'both'); }">
+              <button class="card-btn" title="推送到"><Send :size="14" :stroke-width="2" /></button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item :command="1">推到 LED 大屏 (HDMI1)</el-dropdown-item>
+                  <el-dropdown-item :command="2">推到投影仪 (HDMI2)</el-dropdown-item>
+                  <el-dropdown-item :command="'both'" divided>同时推两路</el-dropdown-item>
+                  <el-dropdown-item v-if="m.kind !== 'webpage'" :command="'welcome'" divided :disabled="isWelcome(m)">{{ isWelcome(m) ? '✓ 已是欢迎页' : '设为欢迎页' }}</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+            <button class="card-btn danger" title="删除" @click="confirmDelete(m)"><Trash2 :size="14" :stroke-width="2" /></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 详情视图 ── -->
+      <div v-else class="detail-view">
+        <div class="dv-head">
+          <div class="dv-col dv-c-thumb"></div>
+          <div class="dv-col dv-c-name">文件名</div>
+          <div class="dv-col dv-c-kind">类型</div>
+          <div class="dv-col dv-c-size">大小</div>
+          <div class="dv-col dv-c-res">分辨率</div>
+          <div class="dv-col dv-c-dur">时长</div>
+          <div class="dv-col dv-c-date">上传时间</div>
+          <div class="dv-col dv-c-act"></div>
+        </div>
+        <div
+          v-for="m in filtered"
+          :key="m.id"
+          class="dv-row"
+          :class="{ 'pick-mode': pickForSlot }"
+          @click="pickForSlot ? pickAndPush(m) : openPreview(m)"
+        >
+          <div class="dv-col dv-c-thumb">
+            <div class="dv-tw">
+              <video v-if="m.kind === 'video'" :src="absUrl(m.fileUrl)" preload="metadata" muted playsinline />
+              <img v-else-if="m.kind === 'image'" :src="absUrl(m.fileUrl)" :alt="m.originalName" />
+              <div v-else-if="m.kind === 'audio'" class="dv-ico"><Music :size="14" :stroke-width="1.5" /></div>
+              <div v-else class="dv-ico web"><Globe :size="14" :stroke-width="1.5" /></div>
+            </div>
+            <span v-if="isWelcome(m)" class="dv-badge welcome" title="欢迎页"><Home :size="9" /></span>
+            <span v-if="currentSlotFor(m.id)" class="dv-badge playing" title="播放中"><Send :size="9" /></span>
+          </div>
+          <div class="dv-col dv-c-name" :title="m.originalName">{{ m.originalName }}</div>
+          <div class="dv-col dv-c-kind">
+            <span class="kind-tag" :class="m.kind">
+              {{ m.kind === 'video' ? '视频' : m.kind === 'audio' ? '音频' : m.kind === 'webpage' ? '网页' : '图片' }}
+            </span>
+          </div>
+          <div class="dv-col dv-c-size">{{ fmtSize(m.sizeBytes) }}</div>
+          <div class="dv-col dv-c-res">{{ m.resolution || '—' }}</div>
+          <div class="dv-col dv-c-dur">{{ m.durationSec ? fmtDuration(m.durationSec) : '—' }}</div>
+          <div class="dv-col dv-c-date">{{ new Date(m.createdAt).toLocaleString('zh-CN') }}</div>
+          <div class="dv-col dv-c-act" @click.stop>
+            <button v-if="m.kind === 'audio'" class="card-btn" title="播放背景音乐" @click="pushAudio(m)"><Music :size="14" :stroke-width="2" /></button>
+            <el-dropdown v-else trigger="click" @command="(c: number | string) => { if (c === 'welcome') setAsWelcome(m); else pushTo(m, c as 1 | 2 | 'both'); }">
+              <button class="card-btn" title="推送到"><Send :size="14" :stroke-width="2" /></button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item :command="1">推到 LED 大屏 (HDMI1)</el-dropdown-item>
+                  <el-dropdown-item :command="2">推到投影仪 (HDMI2)</el-dropdown-item>
+                  <el-dropdown-item :command="'both'" divided>同时推两路</el-dropdown-item>
+                  <el-dropdown-item v-if="m.kind !== 'webpage'" :command="'welcome'" divided :disabled="isWelcome(m)">{{ isWelcome(m) ? '✓ 已是欢迎页' : '设为欢迎页' }}</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+            <button class="card-btn danger" title="删除" @click="confirmDelete(m)"><Trash2 :size="14" :stroke-width="2" /></button>
           </div>
         </div>
       </div>
@@ -834,4 +936,110 @@ onMounted(async () => {
 @media (max-width: 1100px) {
   .grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
 }
+
+/* ── 视图切换按钮组 ── */
+.view-toggle {
+  display: inline-flex;
+  background: var(--v2-surf-1);
+  border: 1px solid var(--v2-border-soft);
+  border-radius: var(--v2-r-sm);
+  padding: 3px;
+  gap: 2px;
+}
+.vt-btn {
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  border: none; border-radius: 5px;
+  background: transparent;
+  color: var(--v2-text-3);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.vt-btn:hover { background: var(--v2-surf-1-hover); color: var(--v2-text-1); }
+.vt-btn.active { background: var(--v2-primary-soft); color: var(--v2-primary); }
+
+/* ── 列表视图 ── */
+.list-view { display: flex; flex-direction: column; gap: 3px; }
+.list-row {
+  display: grid;
+  grid-template-columns: 80px auto 1fr auto auto auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px 0 0;
+  background: linear-gradient(135deg, rgba(99,102,241,0.05), transparent), rgba(15,23,42,0.5);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  min-height: 52px;
+}
+.list-row:hover { border-color: rgba(6,182,212,0.5); background: rgba(15,23,42,0.7); }
+.list-row.pick-mode:hover { border-color: var(--v2-primary); }
+.lr-thumb {
+  width: 80px; height: 50px; flex-shrink: 0;
+  overflow: hidden; background: #0b1220; border-radius: 8px 0 0 8px;
+  display: flex; align-items: center; justify-content: center;
+}
+.lr-thumb video, .lr-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.lr-icon { width: 100%; height: 100%; display: grid; place-items: center; color: #c4b5fd;
+  background: radial-gradient(ellipse at center, rgba(168,85,247,0.18), transparent 70%); }
+.lr-icon.web { color: #22d3ee; background: radial-gradient(ellipse at center, rgba(34,211,238,0.18), transparent 70%); }
+.list-row .kind-tag { position: static; flex-shrink: 0; }
+.lr-name { font-size: 13px; font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lr-badges { display: flex; gap: 4px; flex-shrink: 0; }
+.lr-badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 999px; font-size: 10px; font-weight: 500; }
+.lr-badge.welcome { background: linear-gradient(135deg, #f59e0b, #d97706); color: white; }
+.lr-badge.playing { background: rgba(6,182,212,0.85); color: white; }
+.lr-size { font-size: 12px; color: var(--text-secondary); white-space: nowrap; flex-shrink: 0; }
+.lr-res { color: var(--v2-text-3); }
+.lr-date { font-size: 11px; color: var(--v2-text-3); white-space: nowrap; flex-shrink: 0; }
+.lr-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+/* ── 详情视图 ── */
+.detail-view { display: flex; flex-direction: column; gap: 2px; }
+.dv-head, .dv-row {
+  display: grid;
+  grid-template-columns: 72px 1fr 56px 70px 80px 52px 120px 70px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 0;
+}
+.dv-head {
+  padding: 6px 10px 6px 4px;
+  font-size: 11px; color: var(--v2-text-3); font-weight: 500;
+  letter-spacing: 0.5px; border-bottom: 1px solid var(--v2-border-soft);
+  position: sticky; top: 0; background: rgba(10,15,28,0.95); z-index: 1;
+}
+.dv-row {
+  background: linear-gradient(135deg, rgba(99,102,241,0.04), transparent), rgba(15,23,42,0.45);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  min-height: 48px;
+}
+.dv-row:hover { border-color: rgba(6,182,212,0.5); background: rgba(15,23,42,0.65); }
+.dv-row.pick-mode:hover { border-color: var(--v2-primary); }
+.dv-col { overflow: hidden; }
+.dv-c-thumb { position: relative; display: flex; align-items: center; }
+.dv-tw {
+  width: 72px; height: 46px;
+  overflow: hidden; background: #0b1220;
+  display: flex; align-items: center; justify-content: center;
+}
+.dv-tw video, .dv-tw img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dv-ico { width: 100%; height: 100%; display: grid; place-items: center; color: #c4b5fd; }
+.dv-ico.web { color: #22d3ee; }
+.dv-badge { position: absolute; top: 2px; right: 2px; width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; font-size: 9px; }
+.dv-badge.welcome { background: #f59e0b; color: white; top: 2px; }
+.dv-badge.playing { background: rgba(6,182,212,0.9); color: white; top: 20px; }
+.dv-c-name { font-size: 13px; font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px; }
+.dv-c-kind .kind-tag { position: static; }
+.dv-c-size { font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+.dv-c-res { font-size: 12px; color: var(--v2-text-3); white-space: nowrap; }
+.dv-c-dur { font-size: 12px; color: var(--v2-text-3); font-family: 'JetBrains Mono', ui-monospace, monospace; white-space: nowrap; }
+.dv-c-date { font-size: 11px; color: var(--v2-text-3); white-space: nowrap; }
+.dv-c-act { display: flex; gap: 4px; justify-content: flex-end; }
 </style>
