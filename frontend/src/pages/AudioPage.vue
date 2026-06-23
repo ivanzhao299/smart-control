@@ -3,21 +3,118 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
-  ArrowLeft, Speaker, Volume2, VolumeX, Play, Sparkles, Music, Square, FolderOpen,
+  ArrowLeft, Speaker, Volume2, VolumeX, Play, Sparkles, Music, Square,
+  SkipBack, SkipForward, Shuffle, Repeat, Repeat1, ListMusic, Trash2,
 } from 'lucide-vue-next';
 import { audioService } from '@/services/audio.service';
 import { audioConfigService } from '@/services/audio-config.service';
 import { usePlaybackStore } from '@/stores/playback';
+import { mediaService } from '@/services/media.service';
 
 const router = useRouter();
 const playbackStore = usePlaybackStore();
 
 // ============ 背景音乐 (slot 3 → GK9000 声卡 → EKX) ============
 const bgmChannel = computed(() => playbackStore.slotAudio);
-function gotoMusicLibrary(): void {
-  router.push({ name: 'media', query: { pick_for_slot: '3' } });
+
+// ── 播放列表 ──
+interface PlItem { id: number; name: string; durationSec: number | null; }
+const playlist = ref<PlItem[]>([]);
+const plIdx = ref(-1);
+type PlayMode = 'seq' | 'loop1' | 'loopAll' | 'shuffle';
+const playMode = ref<PlayMode>('loopAll');
+const plProgress = ref(0);
+const plPickerOpen = ref(false);
+const audioAssets = ref<PlItem[]>([]);
+let plTimer: ReturnType<typeof setInterval> | null = null;
+let plTimerStart = 0;
+let plTimerDuration = 0;
+
+async function loadAudioAssets(): Promise<void> {
+  try {
+    const { items } = await mediaService.list({ kind: 'audio' });
+    audioAssets.value = items.map((i) => ({ id: i.id, name: i.originalName, durationSec: i.durationSec }));
+  } catch { /* silent */ }
 }
+function addToPlaylist(item: PlItem): void { playlist.value.push({ ...item }); }
+function removeFromPlaylist(i: number): void {
+  playlist.value.splice(i, 1);
+  if (plIdx.value >= playlist.value.length) plIdx.value = playlist.value.length - 1;
+}
+function clearPlaylist(): void {
+  stopPlTimer();
+  playlist.value = [];
+  plIdx.value = -1;
+  plProgress.value = 0;
+}
+function stopPlTimer(): void {
+  if (plTimer !== null) { clearInterval(plTimer); plTimer = null; }
+}
+function startPlTimer(dur: number | null): void {
+  stopPlTimer();
+  plProgress.value = 0;
+  if (!dur || dur <= 0) return;
+  plTimerStart = Date.now();
+  plTimerDuration = dur;
+  plTimer = setInterval(() => {
+    const elapsed = (Date.now() - plTimerStart) / 1000;
+    plProgress.value = Math.min(100, (elapsed / plTimerDuration) * 100);
+    if (elapsed >= plTimerDuration) { stopPlTimer(); onTrackEnd(); }
+  }, 300);
+}
+async function playAt(i: number): Promise<void> {
+  if (playlist.value.length === 0 || i < 0) return;
+  const idx = ((i % playlist.value.length) + playlist.value.length) % playlist.value.length;
+  plIdx.value = idx;
+  const item = playlist.value[idx];
+  try {
+    await playbackStore.publish(3, item.id, 'once');
+    startPlTimer(item.durationSec);
+  } catch (e) { ElMessage.error(`播放失败: ${(e as Error).message}`); }
+}
+function nextIdx(): number {
+  const len = playlist.value.length;
+  if (len === 0) return -1;
+  if (playMode.value === 'seq') return plIdx.value < len - 1 ? plIdx.value + 1 : -1;
+  if (playMode.value === 'loop1') return plIdx.value;
+  if (playMode.value === 'loopAll') return (plIdx.value + 1) % len;
+  // shuffle
+  if (len === 1) return 0;
+  const others = Array.from({ length: len }, (_, k) => k).filter((k) => k !== plIdx.value);
+  return others[Math.floor(Math.random() * others.length)];
+}
+function onTrackEnd(): void {
+  const ni = nextIdx();
+  if (ni >= 0) void playAt(ni); else { plIdx.value = -1; plProgress.value = 0; }
+}
+async function plPlayPause(): Promise<void> {
+  if (bgmChannel.value?.currentMediaId) {
+    await stopBgm();
+  } else if (playlist.value.length > 0) {
+    await playAt(plIdx.value >= 0 ? plIdx.value : 0);
+  }
+}
+async function plPrev(): Promise<void> {
+  if (playlist.value.length === 0) return;
+  await playAt((plIdx.value - 1 + playlist.value.length) % playlist.value.length);
+}
+async function plNext(): Promise<void> {
+  if (playlist.value.length === 0) return;
+  stopPlTimer(); onTrackEnd();
+}
+function fmtDuration(sec: number | null): string {
+  if (!sec || sec <= 0) return '';
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+const plCurrentItem = computed<PlItem | null>(() =>
+  plIdx.value >= 0 && plIdx.value < playlist.value.length ? playlist.value[plIdx.value] : null,
+);
+
 async function stopBgm(): Promise<void> {
+  stopPlTimer();
+  plProgress.value = 0;
   try {
     await playbackStore.stop(3);
     ElMessage.success('已停止背景音乐');
@@ -95,7 +192,7 @@ function onHoldEnd(): void {
   resetHold();
   if (p >= 10 && p < 100) ElMessage.info('按住场景按钮直到进度条走满，才会切换');
 }
-onUnmounted(() => { if (holdRaf) cancelAnimationFrame(holdRaf); });
+onUnmounted(() => { if (holdRaf) cancelAnimationFrame(holdRaf); stopPlTimer(); });
 async function refreshCurrentScene(): Promise<void> {
   try {
     const wrapped = await audioService.currentScene();
@@ -106,6 +203,7 @@ async function refreshCurrentScene(): Promise<void> {
 onMounted(async () => {
   await Promise.all([loadScenes(), loadZones(), loadInputs()]);
   void refreshCurrentScene();
+  void loadAudioAssets();
 });
 
 // ============ 分区 ============
@@ -331,34 +429,122 @@ async function muteAll(): Promise<void> {
     </section>
 
     <!-- 背景音乐 (GK9000 声卡 → EKX 输入) -->
-    <section v-if="audioTab === 'bgm'">
-      <header class="block-head">
-        <h2 class="block-title"><span class="accent">●</span>背景音乐</h2>
-        <div class="block-sub">GK9000 播放音频 → 声卡 → EKX 输入 · 从媒体库选音乐</div>
-      </header>
-      <div class="bgm-card" :class="{ playing: bgmChannel?.currentMediaId }">
-        <div class="bgm-icon"><Music :size="28" :stroke-width="1.8" /></div>
-        <div class="bgm-body">
-          <div class="bgm-now">
-            {{ bgmChannel?.currentMediaName || '未播放' }}
-          </div>
-          <div class="bgm-sub">
-            <template v-if="bgmChannel?.currentMediaId">
-              {{ bgmChannel.loopMode === 'loop' ? '循环播放中' : '单曲播放中' }}
-              · {{ bgmChannel.alive ? '播放器在线' : '⚠ 播放器离线 (检查 GK9000 音频 kiosk)' }}
-            </template>
-            <template v-else>从媒体库选一首音乐开始播放</template>
+    <section v-if="audioTab === 'bgm'" class="bgm-section">
+      <!-- 播放器卡片 -->
+      <div class="bgm-player" :class="{ playing: bgmChannel?.currentMediaId }">
+        <div class="bgm-now-row">
+          <div class="bgm-ico-wrap"><Music :size="20" :stroke-width="1.6" /></div>
+          <div class="bgm-now-body">
+            <div class="bgm-now-name">{{ plCurrentItem?.name || bgmChannel?.currentMediaName || '未播放' }}</div>
+            <div class="bgm-now-meta">
+              <template v-if="bgmChannel?.currentMediaId">
+                播放中 · {{ bgmChannel.alive ? 'GK9000 → 声卡 → EKX' : '⚠ 播放器离线' }}
+                <template v-if="plCurrentItem?.durationSec"> · {{ fmtDuration(plCurrentItem.durationSec) }}</template>
+              </template>
+              <template v-else>添加曲目后点 ▶ 开始播放</template>
+            </div>
           </div>
         </div>
-        <div class="bgm-actions">
-          <button class="v2-quick primary" @click="gotoMusicLibrary">
-            <FolderOpen :size="14" :stroke-width="2" /> 选音乐
-          </button>
-          <button v-if="bgmChannel?.currentMediaId" class="v2-quick danger" @click="stopBgm">
-            <Square :size="14" :stroke-width="2" /> 停止
-          </button>
+        <!-- 进度条 -->
+        <div class="bgm-prog-wrap">
+          <div class="bgm-prog-fill" :style="{ width: plProgress + '%' }"></div>
+        </div>
+        <!-- 控制行 -->
+        <div class="bgm-ctrl-row">
+          <div class="bgm-ctrl-btns">
+            <button class="bgm-btn" title="上一首" :disabled="playlist.length === 0" @click="plPrev">
+              <SkipBack :size="17" :stroke-width="2" />
+            </button>
+            <button class="bgm-btn bgm-btn-main" :title="bgmChannel?.currentMediaId ? '停止' : '播放'" :disabled="playlist.length === 0" @click="plPlayPause">
+              <Square v-if="bgmChannel?.currentMediaId" :size="16" :stroke-width="2" />
+              <Play v-else :size="16" :stroke-width="2" />
+            </button>
+            <button class="bgm-btn" title="下一首" :disabled="playlist.length === 0" @click="plNext">
+              <SkipForward :size="17" :stroke-width="2" />
+            </button>
+          </div>
+          <div class="bgm-mode-row">
+            <button :class="['bgm-mode', { active: playMode === 'seq' }]" title="顺序播放" @click="playMode = 'seq'">顺序</button>
+            <button :class="['bgm-mode', { active: playMode === 'loop1' }]" title="单曲循环" @click="playMode = 'loop1'">
+              <Repeat1 :size="12" :stroke-width="2.2" /> 单曲
+            </button>
+            <button :class="['bgm-mode', { active: playMode === 'loopAll' }]" title="列表循环" @click="playMode = 'loopAll'">
+              <Repeat :size="12" :stroke-width="2.2" /> 列表
+            </button>
+            <button :class="['bgm-mode', { active: playMode === 'shuffle' }]" title="随机播放" @click="playMode = 'shuffle'">
+              <Shuffle :size="12" :stroke-width="2.2" /> 随机
+            </button>
+          </div>
         </div>
       </div>
+
+      <!-- 播放列表 -->
+      <div class="bgm-pl">
+        <div class="bgm-pl-bar">
+          <span class="bgm-pl-label"><ListMusic :size="14" :stroke-width="1.8" /> 播放列表 <span class="bgm-pl-cnt">{{ playlist.length }}</span></span>
+          <div class="bgm-pl-acts">
+            <button class="v2-quick primary sm" @click="plPickerOpen = true; loadAudioAssets()">
+              <Music :size="13" :stroke-width="2" /> 添加曲目
+            </button>
+            <button v-if="playlist.length > 0" class="v2-quick danger sm" @click="clearPlaylist">
+              <Trash2 :size="13" :stroke-width="2" /> 清空
+            </button>
+          </div>
+        </div>
+        <div v-if="playlist.length === 0" class="bgm-pl-empty">
+          <Music :size="26" :stroke-width="1.2" />
+          <span>还没有曲目 · 点「添加曲目」从媒体库选音乐</span>
+        </div>
+        <div v-else class="bgm-pl-list">
+          <div
+            v-for="(item, i) in playlist"
+            :key="i"
+            class="bgm-pl-row"
+            :class="{ active: i === plIdx }"
+            @click="playAt(i)"
+          >
+            <div class="bgm-pl-idx">
+              <Volume2 v-if="i === plIdx" :size="12" :stroke-width="2" class="bgm-pl-anim" />
+              <span v-else>{{ i + 1 }}</span>
+            </div>
+            <div class="bgm-pl-name">{{ item.name }}</div>
+            <div class="bgm-pl-dur">{{ fmtDuration(item.durationSec) }}</div>
+            <button class="bgm-pl-del" title="移除" @click.stop="removeFromPlaylist(i)">
+              <Square :size="10" :stroke-width="2.5" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 音频选择器 dialog -->
+      <Teleport to="body">
+        <div v-if="plPickerOpen" class="preview-mask" @click.self="plPickerOpen = false">
+          <div class="bgm-picker">
+            <div class="bgm-picker-head">
+              <Music :size="16" :stroke-width="1.8" /> 选择音乐
+              <span class="bgm-picker-sub">点击曲目添加到播放列表</span>
+            </div>
+            <div v-if="audioAssets.length === 0" class="bgm-picker-empty">媒体库暂无音频文件，请先到「媒体库」上传</div>
+            <div v-else class="bgm-picker-list">
+              <div
+                v-for="a in audioAssets"
+                :key="a.id"
+                class="bgm-picker-row"
+                :class="{ added: playlist.some(p => p.id === a.id) }"
+                @click="addToPlaylist(a)"
+              >
+                <Music :size="13" :stroke-width="1.8" class="bgm-picker-ico" />
+                <div class="bgm-picker-name">{{ a.name }}</div>
+                <div class="bgm-picker-dur">{{ fmtDuration(a.durationSec) }}</div>
+                <div class="bgm-picker-tag">{{ playlist.some(p => p.id === a.id) ? '✓ 已添加' : '+ 添加' }}</div>
+              </div>
+            </div>
+            <div class="bgm-picker-foot">
+              <button class="v2-quick" @click="plPickerOpen = false">完成</button>
+            </div>
+          </div>
+        </div>
+      </Teleport>
     </section>
 
     <!-- 输出通道控制 — 8 路竖直推子 (调音台式), 一屏不滚 -->
@@ -510,32 +696,176 @@ async function muteAll(): Promise<void> {
   border-radius: var(--v2-r-md);
 }
 
-/* 背景音乐卡 */
-.bgm-card {
-  display: flex; align-items: center; gap: var(--v2-sp-4);
+/* ── 背景音乐播放器 ── */
+.bgm-section { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--v2-sp-3); }
+
+.bgm-player {
+  flex-shrink: 0;
   padding: var(--v2-sp-4);
   background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft);
   border-radius: var(--v2-r-lg);
-  transition: all 0.28s ease;
+  display: flex; flex-direction: column; gap: var(--v2-sp-3);
+  transition: border-color 0.28s ease, background 0.28s ease, box-shadow 0.28s ease;
 }
-.bgm-card.playing {
-  border-color: rgba(168, 85, 247, 0.5);
-  background: linear-gradient(135deg, rgba(168, 85, 247, 0.08), rgba(0, 229, 255, 0.03));
-  box-shadow: inset 0 1px 0 rgba(168, 85, 247, 0.4), 0 8px 28px -10px rgba(168, 85, 247, 0.4);
+.bgm-player.playing {
+  border-color: rgba(168, 85, 247, 0.45);
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.07), rgba(0, 229, 255, 0.02));
+  box-shadow: inset 0 1px 0 rgba(168, 85, 247, 0.35), 0 6px 24px -8px rgba(168, 85, 247, 0.35);
 }
-.bgm-icon {
-  width: 52px; height: 52px; border-radius: var(--v2-r-md); flex-shrink: 0;
+.bgm-now-row { display: flex; align-items: center; gap: var(--v2-sp-3); }
+.bgm-ico-wrap {
+  width: 44px; height: 44px; border-radius: var(--v2-r-md); flex-shrink: 0;
   display: grid; place-items: center;
-  background: rgba(168, 85, 247, 0.15); color: #c4b5fd;
+  background: rgba(168, 85, 247, 0.14); color: #c4b5fd;
+  transition: box-shadow 0.28s ease;
 }
-.bgm-card.playing .bgm-icon { color: #d8b4fe; box-shadow: 0 0 18px rgba(168, 85, 247, 0.5); }
-.bgm-body { flex: 1; min-width: 0; }
-.bgm-now { font-size: 16px; font-weight: 600; color: var(--v2-text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bgm-sub { font-size: 12px; color: var(--v2-text-3); margin-top: 4px; }
-.bgm-actions { display: flex; gap: var(--v2-sp-2); flex-shrink: 0; }
-@media (max-width: 600px) {
-  .bgm-card { flex-wrap: wrap; }
-  .bgm-actions { width: 100%; }
+.bgm-player.playing .bgm-ico-wrap { color: #d8b4fe; box-shadow: 0 0 16px rgba(168, 85, 247, 0.45); }
+.bgm-now-body { flex: 1; min-width: 0; }
+.bgm-now-name { font-size: 15px; font-weight: 600; color: var(--v2-text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bgm-now-meta { font-size: 11px; color: var(--v2-text-3); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bgm-prog-wrap {
+  height: 3px; border-radius: 2px; background: var(--v2-surf-2); overflow: hidden;
+}
+.bgm-prog-fill {
+  height: 100%; border-radius: 2px;
+  background: linear-gradient(90deg, #a855f7, #c084fc);
+  box-shadow: 0 0 8px rgba(168, 85, 247, 0.6);
+  transition: width 0.4s linear;
+}
+.bgm-ctrl-row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--v2-sp-3);
+  flex-wrap: wrap;
+}
+.bgm-ctrl-btns { display: flex; align-items: center; gap: var(--v2-sp-2); }
+.bgm-btn {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: var(--v2-surf-2); border: 1px solid var(--v2-border-soft);
+  display: grid; place-items: center; cursor: pointer; color: var(--v2-text-2);
+  transition: all 0.16s ease;
+}
+.bgm-btn:hover:not(:disabled) { background: var(--v2-surf-1-hover); color: var(--v2-text-1); border-color: var(--v2-border-strong); }
+.bgm-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.bgm-btn-main {
+  width: 44px; height: 44px; background: rgba(168, 85, 247, 0.18); color: #c084fc;
+  border-color: rgba(168, 85, 247, 0.3);
+}
+.bgm-btn-main:hover:not(:disabled) { background: rgba(168, 85, 247, 0.32); color: #d8b4fe; }
+.bgm-mode-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.bgm-mode {
+  padding: 4px 10px; border-radius: 20px; font-size: 11px; cursor: pointer;
+  background: var(--v2-surf-2); border: 1px solid var(--v2-border-soft);
+  color: var(--v2-text-3); display: inline-flex; align-items: center; gap: 4px;
+  transition: all 0.16s ease;
+}
+.bgm-mode:hover { color: var(--v2-text-2); border-color: var(--v2-border-strong); }
+.bgm-mode.active {
+  background: rgba(168, 85, 247, 0.18); color: #c084fc;
+  border-color: rgba(168, 85, 247, 0.4);
+}
+
+/* 播放列表 */
+.bgm-pl {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft);
+  border-radius: var(--v2-r-lg); overflow: hidden;
+}
+.bgm-pl-bar {
+  flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;
+  padding: 10px var(--v2-sp-4); border-bottom: 1px solid var(--v2-border-soft);
+}
+.bgm-pl-label {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 600; color: var(--v2-text-2);
+}
+.bgm-pl-cnt {
+  font-size: 11px; padding: 1px 7px; border-radius: 10px;
+  background: var(--v2-surf-2); color: var(--v2-text-3); font-weight: 500;
+}
+.bgm-pl-acts { display: flex; gap: 6px; }
+.v2-quick.sm { padding: 5px 10px; min-height: 28px; font-size: 12px; }
+.bgm-pl-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--v2-sp-2); color: var(--v2-text-3); font-size: 13px;
+}
+.bgm-pl-list { flex: 1; overflow-y: auto; }
+.bgm-pl-row {
+  display: grid; grid-template-columns: 30px 1fr auto 28px;
+  align-items: center; gap: 8px;
+  padding: 8px var(--v2-sp-4);
+  border-bottom: 1px solid var(--v2-border-soft);
+  cursor: pointer; transition: background 0.14s ease;
+}
+.bgm-pl-row:last-child { border-bottom: none; }
+.bgm-pl-row:hover { background: var(--v2-surf-1-hover); }
+.bgm-pl-row.active { background: rgba(168, 85, 247, 0.07); }
+.bgm-pl-idx {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: var(--v2-text-3); font-weight: 500;
+}
+.bgm-pl-row.active .bgm-pl-idx { color: #c084fc; }
+.bgm-pl-anim { color: #c084fc; }
+.bgm-pl-name {
+  font-size: 13px; color: var(--v2-text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.bgm-pl-row.active .bgm-pl-name { color: #c084fc; font-weight: 500; }
+.bgm-pl-dur { font-size: 11px; color: var(--v2-text-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bgm-pl-del {
+  display: grid; place-items: center; width: 24px; height: 24px;
+  border-radius: var(--v2-r-sm); background: transparent; border: none;
+  color: var(--v2-text-3); cursor: pointer; opacity: 0; transition: all 0.14s ease;
+}
+.bgm-pl-row:hover .bgm-pl-del { opacity: 1; }
+.bgm-pl-del:hover { background: rgba(239, 68, 68, 0.12); color: var(--v2-danger); }
+
+/* 音频选择器 dialog */
+.bgm-picker {
+  background: var(--v2-surf-0); border: 1px solid var(--v2-border-soft);
+  border-radius: var(--v2-r-xl);
+  width: min(560px, 94vw); max-height: 70vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 24px 64px -16px rgba(0,0,0,0.6);
+}
+.bgm-picker-head {
+  flex-shrink: 0; padding: var(--v2-sp-4) var(--v2-sp-5);
+  border-bottom: 1px solid var(--v2-border-soft);
+  font-size: 15px; font-weight: 600; color: var(--v2-text-1);
+  display: flex; align-items: center; gap: 8px;
+}
+.bgm-picker-sub { margin-left: auto; font-size: 11px; color: var(--v2-text-3); font-weight: 400; }
+.bgm-picker-empty { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px; color: var(--v2-text-3); font-size: 13px; }
+.bgm-picker-list { flex: 1; overflow-y: auto; }
+.bgm-picker-row {
+  display: grid; grid-template-columns: 20px 1fr auto auto;
+  align-items: center; gap: 10px;
+  padding: 10px var(--v2-sp-5);
+  border-bottom: 1px solid var(--v2-border-soft);
+  cursor: pointer; transition: background 0.14s ease;
+}
+.bgm-picker-row:last-child { border-bottom: none; }
+.bgm-picker-row:hover { background: var(--v2-surf-1); }
+.bgm-picker-row.added { opacity: 0.65; }
+.bgm-picker-ico { color: #c084fc; flex-shrink: 0; }
+.bgm-picker-name { font-size: 13px; color: var(--v2-text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bgm-picker-dur { font-size: 11px; color: var(--v2-text-3); white-space: nowrap; }
+.bgm-picker-tag {
+  font-size: 11px; padding: 2px 8px; border-radius: 10px; white-space: nowrap;
+  background: var(--v2-surf-2); color: var(--v2-text-3); border: 1px solid var(--v2-border-soft);
+}
+.bgm-picker-row:not(.added):hover .bgm-picker-tag {
+  background: rgba(168, 85, 247, 0.15); color: #c084fc; border-color: rgba(168, 85, 247, 0.3);
+}
+.bgm-picker-row.added .bgm-picker-tag { background: rgba(16, 185, 129, 0.1); color: var(--v2-success); border-color: rgba(16, 185, 129, 0.25); }
+.bgm-picker-foot {
+  flex-shrink: 0; padding: var(--v2-sp-3) var(--v2-sp-5);
+  border-top: 1px solid var(--v2-border-soft);
+  display: flex; justify-content: flex-end;
+}
+
+/* dialog overlay (shared with picker) */
+.preview-mask {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center;
+  z-index: 1000; padding: 20px;
 }
 .ov-item {
   flex: 1; min-width: 0;
