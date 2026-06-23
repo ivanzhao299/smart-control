@@ -21,6 +21,7 @@ export interface PlaybackChannelView {
   playlistIndex: number;
   startedAt: string | null;
   loopMode: 'once' | 'loop';
+  paused: boolean;
   lastHeartbeatAt: string | null;
   /** PlayerPage 还活着吗 — 超过 90s 没心跳就 stale */
   alive: boolean;
@@ -97,6 +98,7 @@ export class PlaybackService implements OnModuleInit {
     row.playlistIndex = 0;
     row.startedAt = new Date();
     row.loopMode = opts.loopMode ?? 'once';
+    row.paused = false;
     await this.repo.save(row);
 
     const view = await this.toView(row);
@@ -113,11 +115,32 @@ export class PlaybackService implements OnModuleInit {
     row.currentPlaylistId = null;
     row.playlistIndex = 0;
     row.startedAt = null;
+    row.paused = false;
     await this.repo.save(row);
 
     const view = await this.toView(row);
     this.broadcast(view);
     this.logger.info(`[Playback] slot=${slot} → idle`);
+    return view;
+  }
+
+  async pause(slot: number): Promise<PlaybackChannelView> {
+    const row = await this.repo.findOne({ where: { slot } });
+    if (!row) throw new NotFoundException(`slot=${slot} 不存在`);
+    row.paused = true;
+    await this.repo.save(row);
+    const view = await this.toView(row);
+    this.broadcast(view);
+    return view;
+  }
+
+  async resume(slot: number): Promise<PlaybackChannelView> {
+    const row = await this.repo.findOne({ where: { slot } });
+    if (!row) throw new NotFoundException(`slot=${slot} 不存在`);
+    row.paused = false;
+    await this.repo.save(row);
+    const view = await this.toView(row);
+    this.broadcast(view);
     return view;
   }
 
@@ -165,6 +188,7 @@ export class PlaybackService implements OnModuleInit {
       playlistIndex: row.playlistIndex,
       startedAt: row.startedAt ? row.startedAt.toISOString() : null,
       loopMode: row.loopMode,
+      paused: row.paused ?? false,
       lastHeartbeatAt: row.lastHeartbeatAt ? row.lastHeartbeatAt.toISOString() : null,
       alive,
       updatedAt: row.updatedAt.toISOString(),

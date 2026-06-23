@@ -510,6 +510,7 @@ export interface PlaybackChannelView {
   playlistIndex: number;
   startedAt: string | null;
   loopMode: 'once' | 'loop';
+  paused: boolean;
   lastHeartbeatAt: string | null;
   alive: boolean;
   updatedAt: string;

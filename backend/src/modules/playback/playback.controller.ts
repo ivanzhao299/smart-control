@@ -46,6 +46,20 @@ export class PlaybackController {
     return { message: '已停止, 切回待机', data: view };
   }
 
+  /** 暂停 slot3 BGM (bgm-player.ps1 下次轮询到后执行 MCI pause) */
+  @Post('channels/:slot/pause')
+  async pause(@Param('slot', ParseIntPipe) slot: number) {
+    const view = await this.service.pause(slot);
+    return { message: '已暂停', data: view };
+  }
+
+  /** 恢复 slot3 BGM (bgm-player.ps1 下次轮询到后执行 MCI resume) */
+  @Post('channels/:slot/resume')
+  async resume(@Param('slot', ParseIntPipe) slot: number) {
+    const view = await this.service.resume(slot);
+    return { message: '已恢复', data: view };
+  }
+
   /**
    * PlayerPage 心跳上报. 不要 guard — kiosk 浏览器不会有 admin token.
    * 频率: 每 30s 一次. 服务端只看时间戳, 不广播 WS.

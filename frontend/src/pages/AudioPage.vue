@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
-  ArrowLeft, Speaker, Volume2, VolumeX, Play, Sparkles, Music, Square,
+  ArrowLeft, Speaker, Volume2, VolumeX, Play, Sparkles, Music, Square, Pause,
   SkipBack, SkipForward, Shuffle, Repeat, Repeat1, ListMusic, Trash2,
 } from 'lucide-vue-next';
 import { audioService } from '@/services/audio.service';
@@ -27,8 +27,9 @@ const plProgress = ref(0);
 const plPickerOpen = ref(false);
 const audioAssets = ref<PlItem[]>([]);
 let plTimer: ReturnType<typeof setInterval> | null = null;
-let plTimerStart = 0;
-let plTimerDuration = 0;
+let plTimerDuration = 0;     // total seconds of current track
+let plTimerElapsed = 0;      // seconds elapsed before current segment
+let plTimerSegStart = 0;     // Date.now() when current segment started
 
 async function loadAudioAssets(): Promise<void> {
   try {
@@ -50,18 +51,52 @@ function clearPlaylist(): void {
 function stopPlTimer(): void {
   if (plTimer !== null) { clearInterval(plTimer); plTimer = null; }
 }
+function pausePlTimer(): void {
+  if (plTimer !== null) {
+    plTimerElapsed += (Date.now() - plTimerSegStart) / 1000;
+    clearInterval(plTimer);
+    plTimer = null;
+  }
+}
+function resumePlTimer(): void {
+  if (plTimer !== null || !plTimerDuration) return;
+  plTimerSegStart = Date.now();
+  plTimer = setInterval(() => {
+    const elapsed = plTimerElapsed + (Date.now() - plTimerSegStart) / 1000;
+    plProgress.value = Math.min(100, (elapsed / plTimerDuration) * 100);
+    if (elapsed >= plTimerDuration) { stopPlTimer(); plTimerElapsed = 0; onTrackEnd(); }
+  }, 300);
+}
 function startPlTimer(dur: number | null): void {
   stopPlTimer();
   plProgress.value = 0;
-  if (!dur || dur <= 0) return;
-  plTimerStart = Date.now();
-  plTimerDuration = dur;
+  plTimerElapsed = 0;
+  plTimerDuration = dur && dur > 0 ? dur : 0;
+  if (!plTimerDuration) return;
+  plTimerSegStart = Date.now();
   plTimer = setInterval(() => {
-    const elapsed = (Date.now() - plTimerStart) / 1000;
+    const elapsed = plTimerElapsed + (Date.now() - plTimerSegStart) / 1000;
     plProgress.value = Math.min(100, (elapsed / plTimerDuration) * 100);
-    if (elapsed >= plTimerDuration) { stopPlTimer(); onTrackEnd(); }
+    if (elapsed >= plTimerDuration) { stopPlTimer(); plTimerElapsed = 0; onTrackEnd(); }
   }, 300);
 }
+
+async function detectDuration(mediaId: number): Promise<number | null> {
+  return new Promise((resolve) => {
+    const audio = new Audio();
+    audio.preload = 'metadata';
+    const timer = setTimeout(() => { audio.src = ''; resolve(null); }, 6000);
+    audio.addEventListener('loadedmetadata', () => {
+      clearTimeout(timer);
+      const d = audio.duration;
+      audio.src = '';
+      resolve(isFinite(d) && d > 0 ? d : null);
+    }, { once: true });
+    audio.addEventListener('error', () => { clearTimeout(timer); resolve(null); }, { once: true });
+    audio.src = `/api/media/${mediaId}/file`;
+  });
+}
+
 async function playAt(i: number): Promise<void> {
   if (playlist.value.length === 0 || i < 0) return;
   const idx = ((i % playlist.value.length) + playlist.value.length) % playlist.value.length;
@@ -69,7 +104,13 @@ async function playAt(i: number): Promise<void> {
   const item = playlist.value[idx];
   try {
     await playbackStore.publish(3, item.id, 'once');
-    startPlTimer(item.durationSec);
+    // Use cached duration; if missing, detect from audio file header (metadata only, no download)
+    let dur = item.durationSec;
+    if (!dur) {
+      dur = await detectDuration(item.id);
+      if (dur) item.durationSec = dur; // cache for later tracks
+    }
+    startPlTimer(dur);
   } catch (e) { ElMessage.error(`播放失败: ${(e as Error).message}`); }
 }
 function nextIdx(): number {
@@ -78,7 +119,6 @@ function nextIdx(): number {
   if (playMode.value === 'seq') return plIdx.value < len - 1 ? plIdx.value + 1 : -1;
   if (playMode.value === 'loop1') return plIdx.value;
   if (playMode.value === 'loopAll') return (plIdx.value + 1) % len;
-  // shuffle
   if (len === 1) return 0;
   const others = Array.from({ length: len }, (_, k) => k).filter((k) => k !== plIdx.value);
   return others[Math.floor(Math.random() * others.length)];
@@ -87,11 +127,18 @@ function onTrackEnd(): void {
   const ni = nextIdx();
   if (ni >= 0) void playAt(ni); else { plIdx.value = -1; plProgress.value = 0; }
 }
-async function plPlayPause(): Promise<void> {
-  if (bgmChannel.value?.currentMediaId) {
-    await stopBgm();
-  } else if (playlist.value.length > 0) {
-    await playAt(plIdx.value >= 0 ? plIdx.value : 0);
+async function plTogglePause(): Promise<void> {
+  if (!bgmChannel.value?.currentMediaId) {
+    // not playing at all — start
+    if (playlist.value.length > 0) await playAt(plIdx.value >= 0 ? plIdx.value : 0);
+    return;
+  }
+  if (bgmChannel.value.paused) {
+    await playbackStore.resume(3);
+    resumePlTimer();
+  } else {
+    await playbackStore.pause(3);
+    pausePlTimer();
   }
 }
 async function plPrev(): Promise<void> {
@@ -100,7 +147,7 @@ async function plPrev(): Promise<void> {
 }
 async function plNext(): Promise<void> {
   if (playlist.value.length === 0) return;
-  stopPlTimer(); onTrackEnd();
+  stopPlTimer(); plTimerElapsed = 0; onTrackEnd();
 }
 function fmtDuration(sec: number | null): string {
   if (!sec || sec <= 0) return '';
@@ -115,6 +162,7 @@ const plCurrentItem = computed<PlItem | null>(() =>
 async function stopBgm(): Promise<void> {
   stopPlTimer();
   plProgress.value = 0;
+  plTimerElapsed = 0;
   try {
     await playbackStore.stop(3);
     ElMessage.success('已停止背景音乐');
@@ -447,7 +495,7 @@ async function toggleMuteAll(): Promise<void> {
             <div class="bgm-now-name">{{ plCurrentItem?.name || bgmChannel?.currentMediaName || '未播放' }}</div>
             <div class="bgm-now-meta">
               <template v-if="bgmChannel?.currentMediaId">
-                播放中 · {{ bgmChannel.alive ? 'GK9000 → 声卡 → EKX' : '⚠ 播放器离线' }}
+                {{ bgmChannel.paused ? '已暂停' : '播放中' }} · {{ bgmChannel.alive ? 'GK9000 → 声卡 → EKX' : '⚠ 播放器离线' }}
                 <template v-if="plCurrentItem?.durationSec"> · {{ fmtDuration(plCurrentItem.durationSec) }}</template>
               </template>
               <template v-else>添加曲目后点 ▶ 开始播放</template>
@@ -464,12 +512,20 @@ async function toggleMuteAll(): Promise<void> {
             <button class="bgm-btn" title="上一首" :disabled="playlist.length === 0" @click="plPrev">
               <SkipBack :size="17" :stroke-width="2" />
             </button>
-            <button class="bgm-btn bgm-btn-main" :title="bgmChannel?.currentMediaId ? '停止' : '播放'" :disabled="playlist.length === 0" @click="plPlayPause">
-              <Square v-if="bgmChannel?.currentMediaId" :size="16" :stroke-width="2" />
+            <button
+              class="bgm-btn bgm-btn-main"
+              :title="!bgmChannel?.currentMediaId ? '播放' : bgmChannel.paused ? '继续' : '暂停'"
+              :disabled="playlist.length === 0"
+              @click="plTogglePause"
+            >
+              <Pause v-if="bgmChannel?.currentMediaId && !bgmChannel.paused" :size="16" :stroke-width="2" />
               <Play v-else :size="16" :stroke-width="2" />
             </button>
             <button class="bgm-btn" title="下一首" :disabled="playlist.length === 0" @click="plNext">
               <SkipForward :size="17" :stroke-width="2" />
+            </button>
+            <button class="bgm-btn" title="停止" :disabled="!bgmChannel?.currentMediaId" @click="stopBgm">
+              <Square :size="15" :stroke-width="2" />
             </button>
           </div>
           <div class="bgm-mode-row">

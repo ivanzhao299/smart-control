@@ -57,6 +57,10 @@ export class PlaybackChannel {
   @Column({ type: 'varchar', length: 16, default: 'once' })
   loopMode!: PlaybackLoopMode;
 
+  /** 暂停标志 — bgm-player.ps1 轮询到后调 MCI pause/resume */
+  @Column({ type: 'boolean', default: false })
+  paused!: boolean;
+
   /** PlayerPage 心跳, 知道 kiosk 还活着. 太久没心跳 = 浏览器死了, 后台报警 */
   @Column({ type: 'datetime', nullable: true })
   lastHeartbeatAt!: Date | null;

@@ -29,6 +29,14 @@ export async function stopChannel(slot: number): Promise<PlaybackChannelView> {
   return api.post<PlaybackChannelView>(`/playback/channels/${slot}/stop`, null);
 }
 
+export async function pauseChannel(slot: number): Promise<PlaybackChannelView> {
+  return api.post<PlaybackChannelView>(`/playback/channels/${slot}/pause`, null);
+}
+
+export async function resumeChannel(slot: number): Promise<PlaybackChannelView> {
+  return api.post<PlaybackChannelView>(`/playback/channels/${slot}/resume`, null);
+}
+
 export async function channelHeartbeat(slot: number): Promise<void> {
   await api.post<null>(`/playback/channels/${slot}/heartbeat`, null);
 }

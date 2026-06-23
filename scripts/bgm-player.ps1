@@ -41,6 +41,7 @@ $tmpFile = Join-Path $env:TEMP 'sc-bgm.mp3'
 $curId = $null
 $curLoop = 'once'
 $opened = $false
+$localPaused = $false
 
 function To-Abs([string]$u) {
   if ([string]::IsNullOrEmpty($u)) { return $null }
@@ -61,10 +62,12 @@ while ($true) {
     $murl = [string]$ch.currentMediaUrl
     $loop = [string]$ch.loopMode
 
+    $wantPaused = [bool]($ch.paused)
+
     if (-not $mid -or [string]::IsNullOrEmpty($murl)) {
       # nothing selected -> stop
       if ($opened) { Invoke-Mci 'close bgm' | Out-Null; $opened = $false }
-      $curId = $null
+      $curId = $null; $localPaused = $false
     }
     elseif ("$mid" -ne "$curId") {
       # track changed (or first run) -> download + play
@@ -75,18 +78,22 @@ while ($true) {
           Invoke-WebRequest -UseBasicParsing $abs -OutFile $tmpFile -TimeoutSec 30
           Invoke-Mci ('open "' + $tmpFile + '" alias bgm') | Out-Null
           Invoke-Mci 'play bgm' | Out-Null
-          $opened = $true
-          $curId = "$mid"
-          $curLoop = $loop
+          $opened = $true; $curId = "$mid"; $curLoop = $loop; $localPaused = $false
         } catch {}
       }
     }
     else {
-      # same track -> loop it when MCI reports it has stopped
+      # same track -> handle pause / resume / loop
       $curLoop = $loop
       if ($opened) {
         $mode = Invoke-Mci 'status bgm mode'
-        if ($mode -match 'stopped' -and $curLoop -eq 'loop') {
+        if ($wantPaused -and $mode -match 'playing') {
+          Invoke-Mci 'pause bgm' | Out-Null; $localPaused = $true
+        }
+        elseif (-not $wantPaused -and ($mode -match 'paused' -or $localPaused)) {
+          Invoke-Mci 'resume bgm' | Out-Null; $localPaused = $false
+        }
+        elseif (-not $localPaused -and $mode -match 'stopped' -and $curLoop -eq 'loop') {
           Invoke-Mci 'seek bgm to start' | Out-Null
           Invoke-Mci 'play bgm' | Out-Null
         }

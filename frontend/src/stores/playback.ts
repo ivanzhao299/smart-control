@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import { listChannels, publishToChannel, stopChannel, type LoopMode } from '@/services/playback.service';
+import { listChannels, publishToChannel, stopChannel, pauseChannel, resumeChannel, type LoopMode } from '@/services/playback.service';
 import type { PlaybackChannelView, WsEvent } from '@/types/api';
 
 /**
@@ -46,6 +46,16 @@ export const usePlaybackStore = defineStore('playback', () => {
     patchChannel(view);
   }
 
+  async function pause(slot: number): Promise<void> {
+    const view = await pauseChannel(slot);
+    patchChannel(view);
+  }
+
+  async function resume(slot: number): Promise<void> {
+    const view = await resumeChannel(slot);
+    patchChannel(view);
+  }
+
   function patchChannel(view: PlaybackChannelView): void {
     const idx = channels.value.findIndex((c) => c.slot === view.slot);
     if (idx >= 0) channels.value[idx] = view;
@@ -58,5 +68,5 @@ export const usePlaybackStore = defineStore('playback', () => {
     }
   }
 
-  return { channels, loaded, loading, slot1, slot2, slotAudio, channelMap, load, publish, stop, handleWs };
+  return { channels, loaded, loading, slot1, slot2, slotAudio, channelMap, load, publish, stop, pause, resume, handleWs };
 });
