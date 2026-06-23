@@ -104,16 +104,20 @@ function Start-Slot {
   Start-Process -FilePath $browser -ArgumentList $chromeArgs -WindowStyle Normal
 }
 
-# Audio player (slot=3): app-mode window pushed OFF-SCREEN, only to push sound
-# to the sound card -> EKX input.
+# Audio player (slot=3): app-mode window at 0,0 then COVERED by slot1's fullscreen
+# kiosk, only to push sound to the sound card -> EKX input.
 #
-# MUST be -WindowStyle Normal, NOT Minimized. A minimized --app window gets
-# reaped by Edge after ~6-12s (renderer backgrounds, window closes), which kills
-# the audio -> "background music plays a few seconds then dies / 时好时坏".
-# Verified 2026-06-23: Minimized -> dead in <12s; Normal -> stable 18s+.
-# Off-screen position (-2400,-2400) keeps the window alive but invisible so it
-# doesn't cover the LED wall / projector. Clear stale Singleton lock first so a
-# standalone (-Slot 3) restart doesn't bounce off a previous crash's lockfile.
+# Three hard-won rules (2026-06-23):
+#  1. -WindowStyle Normal, NOT Minimized: Edge reaps a minimized --app window
+#     after ~6-12s (renderer backgrounds, window closes) -> audio dies.
+#  2. ON-SCREEN (0,0), NOT off-screen: a fully off-screen window gets its audio
+#     throttled/paused by Chromium ("plays a few seconds then stops"). Keep it on
+#     a real display at 0,0 and let slot1's fullscreen kiosk cover it (slot3
+#     starts FIRST, see bottom of script) -> invisible but audio keeps playing.
+#  3. --disable-features=CalculateNativeWinOcclusion + the 3 backgrounding flags
+#     stop Chromium from pausing audio while the window is fully occluded.
+# Clear stale Singleton lock first so a standalone (-Slot 3) restart doesn't
+# bounce off a previous crash's lockfile.
 function Start-AudioSlot {
   $N = 3
   $dataDir = "$env:LOCALAPPDATA\smart-control-player-slot$N"
@@ -122,7 +126,7 @@ function Start-AudioSlot {
   $chromeArgs = @(
     '--app=' + $url,
     "--user-data-dir=$dataDir",
-    '--window-position=-2400,-2400',
+    '--window-position=0,0',
     '--window-size=480,320',
     '--no-first-run',
     '--no-default-browser-check',
@@ -130,22 +134,26 @@ function Start-AudioSlot {
     '--disable-background-timer-throttling',
     '--disable-renderer-backgrounding',
     '--disable-backgrounding-occluded-windows',
+    '--disable-features=CalculateNativeWinOcclusion',
     '--disable-restore-session-state'
   )
   Write-Host ("Start slot=3 audio @ " + $url + " (off-screen Normal window, sound card -> EKX)") -ForegroundColor Magenta
   Start-Process -FilePath $browser -ArgumentList $chromeArgs -WindowStyle Normal
 }
 
+# slot3 (audio) starts FIRST at 0,0; slot1's fullscreen kiosk (also 0,0) then
+# covers it -> slot3 invisible but audio keeps playing (on-screen + occlusion
+# flags). slot2 goes to the projector (1920,0) and never touches slot3.
+if ($Slot -eq 0 -or $Slot -eq 3) {
+  Start-AudioSlot
+  Start-Sleep -Milliseconds 800
+}
 if ($Slot -eq 0 -or $Slot -eq 1) {
   Start-Slot -N 1 -X $Slot1X -Y $Slot1Y -W $ScreenW -H $ScreenH
 }
 if ($Slot -eq 0 -or $Slot -eq 2) {
   Start-Sleep -Milliseconds 500
   Start-Slot -N 2 -X $Slot2X -Y $Slot2Y -W $ScreenW -H $ScreenH
-}
-if ($Slot -eq 0 -or $Slot -eq 3) {
-  Start-Sleep -Milliseconds 500
-  Start-AudioSlot
 }
 
 Write-Host ''
