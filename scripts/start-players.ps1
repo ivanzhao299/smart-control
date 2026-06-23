@@ -119,10 +119,16 @@ function Start-Slot {
 # such constraint -> audio just plays. See bgm-player.ps1 header for the full saga.
 function Start-AudioSlot {
   $script = Join-Path $PSScriptRoot 'bgm-player.ps1'
-  Write-Host ("Start background-music daemon (windowless MediaPlayer): " + $script) -ForegroundColor Magenta
-  Start-Process -FilePath 'powershell.exe' `
-    -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', $script) `
-    -WindowStyle Hidden
+  # Launch via WMI Win32_Process.Create so the daemon is DETACHED. A powershell
+  # child started with Start-Process gets killed when the launching SSH session
+  # ends (Edge re-parents itself so it survives, but powershell does not -> the
+  # bgm daemon died a few seconds after every SSH deploy). WMI Create parents it
+  # to the WMI service, so it keeps running after SSH / parent exits, and the
+  # same call works when launched from the Startup folder at boot. Windowless
+  # MCI playback (bgm-player.ps1) -> no window, no occlusion, no throttling.
+  $cmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $script + '"'
+  Write-Host ("Start background-music daemon (detached, windowless MCI): " + $script) -ForegroundColor Magenta
+  ([WMIClass]'Win32_Process').Create($cmd) | Out-Null
 }
 
 # slot1/2 kiosks first (fullscreen LED + projector), then slot3 audio LAST so its
