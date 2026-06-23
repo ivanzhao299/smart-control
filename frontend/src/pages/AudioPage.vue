@@ -400,12 +400,10 @@ async function muteAll(): Promise<void> {
 
     <!-- 音源矩阵 (EKX-808 8x8 路由) -->
     <section v-if="audioTab === 'matrix'" class="matrix-section">
-      <header class="block-head">
+      <header class="block-head matrix-head">
         <h2 class="block-title"><span class="accent">●</span>音源矩阵</h2>
-        <div class="block-sub">点亮交叉点 = 该输出接收该输入音源 · 一路输出可接多个输入(混音) · 点一下实时下发到 808</div>
       </header>
       <div class="input-gains">
-        <div class="ig-title">输入增益（EKX 预设常把输入压到最小，没声先把对应输入拉上来）</div>
         <div class="ig-row">
           <div v-for="inp in inputs" :key="'ig' + inp.channel" class="ig-item">
             <div class="ig-name" :title="inp.name">{{ inp.name }}</div>
@@ -747,8 +745,8 @@ async function muteAll(): Promise<void> {
 
 /* ============ 音源矩阵 (EKX-808 8x8) ============ */
 .matrix-section { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.matrix-section .block-head { flex-shrink: 0; }
-.matrix-wrap { flex: 1; min-height: 0; overflow: auto; }
+.matrix-head { flex-shrink: 0; margin-bottom: 8px; }
+.matrix-wrap { flex: 1; min-height: 0; overflow: hidden; }
 .matrix-grid { display: grid; gap: 5px; align-content: start; }
 .mx-corner {
   font-size: 10px; color: var(--v2-text-3); letter-spacing: 0.5px;
@@ -766,7 +764,7 @@ async function muteAll(): Promise<void> {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .mx-cell {
-  min-height: 38px; border-radius: 8px;
+  min-height: 34px; border-radius: 8px;
   background: var(--v2-surf-2); border: 1px solid var(--v2-border-soft);
   cursor: pointer; display: grid; place-items: center;
   transition: background 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
@@ -780,8 +778,7 @@ async function muteAll(): Promise<void> {
 .mx-dot { width: 11px; height: 11px; border-radius: 50%; background: #fff; box-shadow: 0 0 6px rgba(255, 255, 255, 0.85); }
 
 /* 输入增益行 (音源矩阵页顶部) */
-.input-gains { flex-shrink: 0; margin-bottom: var(--v2-sp-3); }
-.ig-title { font-size: 11px; color: var(--v2-text-3); margin-bottom: 8px; letter-spacing: 0.5px; }
+.input-gains { flex-shrink: 0; margin-bottom: 10px; }
 .ig-row { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px; }
 .ig-item { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
 .ig-name { font-size: 10px; color: var(--v2-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
