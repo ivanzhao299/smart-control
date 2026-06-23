@@ -338,8 +338,15 @@ const overview = computed(() => {
 });
 
 function goBack(): void { router.push({ name: 'dashboard' }); }
-async function muteAll(): Promise<void> {
-  for (const z of channels.value) { if (!z.muted) await toggleMute(z); }
+const allMuted = computed(() =>
+  channels.value.length > 0 && channels.value.every((c) => c.muted),
+);
+async function toggleMuteAll(): Promise<void> {
+  if (allMuted.value) {
+    for (const z of channels.value) { if (z.muted) await toggleMute(z); }
+  } else {
+    for (const z of channels.value) { if (!z.muted) await toggleMute(z); }
+  }
 }
 </script>
 
@@ -361,8 +368,10 @@ async function muteAll(): Promise<void> {
         </div>
       </div>
       <div class="quick-actions">
-        <button class="v2-quick danger" @click="muteAll">
-          <VolumeX :size="14" :stroke-width="2" /> 全部静音
+        <button :class="['v2-quick', allMuted ? 'active' : 'danger']" @click="toggleMuteAll">
+          <Volume2 v-if="allMuted" :size="14" :stroke-width="2" />
+          <VolumeX v-else :size="14" :stroke-width="2" />
+          {{ allMuted ? '解除静音' : '全部静音' }}
         </button>
       </div>
     </header>
