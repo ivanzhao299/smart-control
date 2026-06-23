@@ -140,6 +140,21 @@ export class AudioAdapter extends BaseAdapter {
     };
   }
 
+  /** 设置输入通道增益 (0-100%). 前台音源矩阵输入增益滑条用. */
+  async setInputVolume(channel: number, percent: number, ctx?: AdapterContext): Promise<AdapterResult<{ channel: number; volume: number }>> {
+    if (this.isMock()) {
+      return { ok: true, deviceId: 'audio-dsp', command: 'setInputVolume', data: { channel, volume: percent }, mock: true, durationMs: 0 };
+    }
+    if (this.vendor === 'takstar-ekx808') {
+      return this.ekxImpl.setInputVolume(channel as ChannelIndex, percent, ctx);
+    }
+    return {
+      ok: false, deviceId: 'audio-dsp', command: 'setInputVolume',
+      error: `setInputVolume 仅 takstar-ekx808 厂家支持, 当前 vendor=${this.vendor}`,
+      mock: false, durationMs: 0,
+    };
+  }
+
   /**
    * 调试: 发任意 hex frame 到 EKX, 拿原始响应字节.
    * 用于协议排查 — 业主在 PC 软件里改一个值后, 我们读回看 raw bytes,

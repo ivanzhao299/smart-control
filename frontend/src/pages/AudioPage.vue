@@ -174,6 +174,23 @@ async function toggleMatrix(outCh: number, inCh: number): Promise<void> {
   }
 }
 
+// 输入增益 (本地状态, 默认 80%; 乐观下发, 不回读设备). EKX 预设常把输入压到 -60dB.
+const inputGain = ref<Record<number, number>>({});
+function inputGainOf(ch: number): number {
+  return inputGain.value[ch] ?? 80;
+}
+async function onInputGain(ch: number, value: number): Promise<void> {
+  const prev = inputGain.value[ch] ?? 80;
+  inputGain.value = { ...inputGain.value, [ch]: value };
+  try {
+    const res = await audioService.setInputVolume(ch, value);
+    if (!res.ok) throw new Error(res.error || '执行失败');
+  } catch (err) {
+    inputGain.value = { ...inputGain.value, [ch]: prev };
+    ElMessage.error(`IN${ch + 1} 增益设置失败: ${(err as Error).message}`);
+  }
+}
+
 async function applyVolume(z: AudioRow, value: number): Promise<void> {
   // 乐观: 滑条即时生效, 后台异步下发, 失败回滚
   const prev = z.volume;
@@ -387,6 +404,21 @@ async function muteAll(): Promise<void> {
         <h2 class="block-title"><span class="accent">●</span>音源矩阵</h2>
         <div class="block-sub">点亮交叉点 = 该输出接收该输入音源 · 一路输出可接多个输入(混音) · 点一下实时下发到 808</div>
       </header>
+      <div class="input-gains">
+        <div class="ig-title">输入增益（EKX 预设常把输入压到最小，没声先把对应输入拉上来）</div>
+        <div class="ig-row">
+          <div v-for="inp in inputs" :key="'ig' + inp.channel" class="ig-item">
+            <div class="ig-name" :title="inp.name">{{ inp.name }}</div>
+            <input
+              type="range" :min="0" :max="100" :step="5"
+              :value="inputGainOf(inp.channel)"
+              class="ig-slider"
+              @change="onInputGain(inp.channel, Number(($event.target as HTMLInputElement).value))"
+            />
+            <div class="ig-val v2-inter">{{ inputGainOf(inp.channel) }}%</div>
+          </div>
+        </div>
+      </div>
       <div class="matrix-wrap">
         <div class="matrix-grid" :style="{ gridTemplateColumns: `112px repeat(${inputs.length || 8}, minmax(0, 1fr))` }">
           <div class="mx-corner">输出 ↓ &nbsp;/&nbsp; 输入 →</div>
@@ -746,4 +778,13 @@ async function muteAll(): Promise<void> {
   box-shadow: 0 0 12px rgba(0, 231, 138, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 .mx-dot { width: 11px; height: 11px; border-radius: 50%; background: #fff; box-shadow: 0 0 6px rgba(255, 255, 255, 0.85); }
+
+/* 输入增益行 (音源矩阵页顶部) */
+.input-gains { flex-shrink: 0; margin-bottom: var(--v2-sp-3); }
+.ig-title { font-size: 11px; color: var(--v2-text-3); margin-bottom: 8px; letter-spacing: 0.5px; }
+.ig-row { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px; }
+.ig-item { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+.ig-name { font-size: 10px; color: var(--v2-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.ig-slider { width: 100%; accent-color: #00E78A; cursor: pointer; }
+.ig-val { font-size: 11px; color: #6BFFB9; font-weight: 700; }
 </style>

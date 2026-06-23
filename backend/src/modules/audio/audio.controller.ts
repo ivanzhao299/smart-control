@@ -68,6 +68,14 @@ export class AudioController {
       { out: dto.out, input: dto.input, on: dto.on });
   }
 
+  /** 输入通道增益 (前台音源矩阵输入增益滑条). EKX 预设常把输入压到 -60dB, 这里拉回. */
+  @Post('input/:ch/gain')
+  setInputGain(@Param('ch', ParseIntPipe) ch: number, @Body() dto: AudioVolumeDto) {
+    return this.wrap('audio-dsp', `inputGain.I${ch}`,
+      () => this.audio.setInputVolume(ch, dto.value),
+      { channel: ch, value: dto.value });
+  }
+
   /**
    * 调试: 发任意 9 字节十六进制 frame 到 EKX, 返回原始响应 hex.
    * 用于排查协议字段偏移 / 实际固件 vs 说明书的差异.

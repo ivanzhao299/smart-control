@@ -286,6 +286,16 @@ export class EkxDspAdapter extends BaseAdapter {
     });
   }
 
+  /** 设置输入通道增益 (0-100% → dB). 前台"音源矩阵"输入增益用 — EKX 用户预设常把
+   *  输入压到 -60dB(最小), 矩阵通了也没声, 这里能把输入拉回来. */
+  async setInputVolume(channel: ChannelIndex, percent: number, ctx?: AdapterContext): Promise<AdapterResult<{ channel: number; volume: number }>> {
+    return this.run('audio-dsp', `setInputVolume_I${channel}`, ctx, async () => {
+      const v = Math.max(0, Math.min(100, Number(percent)));
+      await this.send(cmdSetInputVolume(this.devAddr, channel, this.percentToDb(v)), ctx?.signal);
+      return { channel, volume: v };
+    });
+  }
+
   async mute(
     deviceId: string,
     params: { zone?: AudioZone } = {},
