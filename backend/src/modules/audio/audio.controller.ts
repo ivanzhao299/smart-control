@@ -3,7 +3,7 @@ import { AudioAdapter } from '../../adapters/audio/audio.adapter';
 import { OperationLogService } from '../logs/operation-log.service';
 import { AudioConfigService } from '../audio-config/audio-config.service';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
-import { AudioBgmDto, AudioMicDto, AudioMuteDto, AudioVolumeDto } from './dto/audio.dto';
+import { AudioBgmDto, AudioMatrixDto, AudioMicDto, AudioMuteDto, AudioVolumeDto } from './dto/audio.dto';
 import { AdapterResult } from '../../adapters/adapter.types';
 
 // 音量滑条会拖出连续命令, 6 次/秒/客户端给点余量
@@ -58,6 +58,14 @@ export class AudioController {
   async currentScene() {
     const result = await this.audio.readCurrentScene();
     return { message: result.ok ? 'ok' : 'failed', data: result };
+  }
+
+  /** 实时矩阵单点路由 (Out X ← In Y 接通/断开). 前台"音源矩阵"页点交叉点用. */
+  @Post('matrix')
+  setMatrix(@Body() dto: AudioMatrixDto) {
+    return this.wrap('audio-dsp', `matrix.O${dto.out}I${dto.input}.${dto.on ? 'on' : 'off'}`,
+      () => this.audio.setMatrix(dto.out, dto.input, dto.on),
+      { out: dto.out, input: dto.input, on: dto.on });
   }
 
   /**

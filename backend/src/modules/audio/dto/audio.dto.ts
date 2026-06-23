@@ -47,3 +47,21 @@ export class AudioMicDto {
   @MaxLength(32)
   zone?: string;
 }
+
+/** 矩阵单点路由: 输出 out ← 输入 input, on=接通/off=断开 (EKX-808 8x8, 通道 0-7) */
+export class AudioMatrixDto {
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(7)
+  out!: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(7)
+  input!: number;
+
+  @IsBoolean()
+  on!: boolean;
+}

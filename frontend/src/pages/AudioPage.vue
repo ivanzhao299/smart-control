@@ -104,13 +104,13 @@ async function refreshCurrentScene(): Promise<void> {
   } catch { /* 静默 */ }
 }
 onMounted(async () => {
-  await Promise.all([loadScenes(), loadZones()]);
+  await Promise.all([loadScenes(), loadZones(), loadInputs()]);
   void refreshCurrentScene();
 });
 
 // ============ 分区 ============
 interface AudioRow {
-  id: string; name: string; zone: string;
+  id: string; name: string; zone: string; channel: number;
   volume: number; muted: boolean; bgm: string;
   bgmPlaying: boolean; mic: boolean;
   busy: boolean; error: string | null;
@@ -127,6 +127,7 @@ async function loadZones(): Promise<void> {
       id: `audio_out${z.channel + 1}`,
       name: z.name,
       zone: `out${z.channel + 1}`,
+      channel: z.channel,
       volume: 50,
       muted: false,
       bgm: '',
@@ -138,8 +139,40 @@ async function loadZones(): Promise<void> {
   } catch { /* 拉不到就空 */ }
 }
 
-// 页内 tab: 一键场景 / 背景音乐 / 分区音量 — 一屏一组, 不上下滚
-const audioTab = ref<'scene' | 'bgm' | 'zones'>('scene');
+// 页内 tab: 一键场景 / 背景音乐 / 分区音量 / 音源矩阵 — 一屏一组, 不上下滚
+const audioTab = ref<'scene' | 'bgm' | 'zones' | 'matrix'>('scene');
+
+// ============ 音源矩阵 (EKX-808 8x8 路由) ============
+interface AudioIn { channel: number; name: string; }
+const inputs = ref<AudioIn[]>([]);
+async function loadInputs(): Promise<void> {
+  try {
+    const rows = await audioConfigService.listInputs();
+    inputs.value = rows.map((s) => ({ channel: s.channel, name: s.name }));
+  } catch { /* 拉不到就空 */ }
+}
+// 矩阵本地状态: key = `${outCh}_${inCh}` → 接通与否. 乐观更新 (不回读设备真实矩阵).
+const matrixOn = ref<Record<string, boolean>>({});
+const matrixBusy = ref<Record<string, boolean>>({});
+function isMatrixOn(outCh: number, inCh: number): boolean {
+  return !!matrixOn.value[`${outCh}_${inCh}`];
+}
+async function toggleMatrix(outCh: number, inCh: number): Promise<void> {
+  const key = `${outCh}_${inCh}`;
+  if (matrixBusy.value[key]) return;
+  const want = !matrixOn.value[key];
+  matrixOn.value = { ...matrixOn.value, [key]: want };        // 乐观: 立即点亮/熄灭
+  matrixBusy.value = { ...matrixBusy.value, [key]: true };
+  try {
+    const res = await audioService.setMatrix(outCh, inCh, want);
+    if (!res.ok) throw new Error(res.error || '执行失败');
+  } catch (err) {
+    matrixOn.value = { ...matrixOn.value, [key]: !want };     // 失败回滚
+    ElMessage.error(`路由 OUT${outCh + 1}←IN${inCh + 1} 失败: ${(err as Error).message}`);
+  } finally {
+    matrixBusy.value = { ...matrixBusy.value, [key]: false };
+  }
+}
 
 async function applyVolume(z: AudioRow, value: number): Promise<void> {
   // 乐观: 滑条即时生效, 后台异步下发, 失败回滚
@@ -209,6 +242,7 @@ async function muteAll(): Promise<void> {
           <button class="v2-tab" :class="{ active: audioTab === 'scene' }" @click="audioTab = 'scene'">一键场景</button>
           <button class="v2-tab" :class="{ active: audioTab === 'bgm' }" @click="audioTab = 'bgm'">背景音乐</button>
           <button class="v2-tab" :class="{ active: audioTab === 'zones' }" @click="audioTab = 'zones'">分区音量</button>
+          <button class="v2-tab" :class="{ active: audioTab === 'matrix' }" @click="audioTab = 'matrix'">音源矩阵</button>
         </div>
       </div>
       <div class="quick-actions">
@@ -343,6 +377,31 @@ async function muteAll(): Promise<void> {
           </div>
           <button class="v2-toggle" :class="{ on: !z.muted }" @click="toggleMute(z)"></button>
           <span class="vol-value v2-inter">{{ z.volume }}<span class="pct">%</span></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 音源矩阵 (EKX-808 8x8 路由) -->
+    <section v-if="audioTab === 'matrix'" class="matrix-section">
+      <header class="block-head">
+        <h2 class="block-title"><span class="accent">●</span>音源矩阵</h2>
+        <div class="block-sub">点亮交叉点 = 该输出接收该输入音源 · 一路输出可接多个输入(混音) · 点一下实时下发到 808</div>
+      </header>
+      <div class="matrix-wrap">
+        <div class="matrix-grid" :style="{ gridTemplateColumns: `112px repeat(${inputs.length || 8}, minmax(0, 1fr))` }">
+          <div class="mx-corner">输出 ↓ &nbsp;/&nbsp; 输入 →</div>
+          <div v-for="inp in inputs" :key="'h' + inp.channel" class="mx-colhead">{{ inp.name }}</div>
+          <template v-for="z in channels" :key="'r' + z.channel">
+            <div class="mx-rowhead" :title="z.name">{{ z.name }}</div>
+            <button
+              v-for="inp in inputs"
+              :key="z.channel + '_' + inp.channel"
+              class="mx-cell"
+              :class="{ on: isMatrixOn(z.channel, inp.channel) }"
+              :title="`${z.name} ← ${inp.name}`"
+              @click="toggleMatrix(z.channel, inp.channel)"
+            ><span v-if="isMatrixOn(z.channel, inp.channel)" class="mx-dot"></span></button>
+          </template>
         </div>
       </div>
     </section>
@@ -653,4 +712,38 @@ async function muteAll(): Promise<void> {
 .ch-card:not(.muted) .vol-value { color: #6BFFB9; text-shadow: var(--v2-text-glow-success); }
 .vol-value .pct { font-size: 10px; color: var(--v2-text-3); margin-left: 1px; font-weight: 500; text-shadow: none; }
 .ch-card.muted .vol-value { color: var(--v2-text-3); }
+
+/* ============ 音源矩阵 (EKX-808 8x8) ============ */
+.matrix-section { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.matrix-section .block-head { flex-shrink: 0; }
+.matrix-wrap { flex: 1; min-height: 0; overflow: auto; }
+.matrix-grid { display: grid; gap: 5px; align-content: start; }
+.mx-corner {
+  font-size: 10px; color: var(--v2-text-3); letter-spacing: 0.5px;
+  display: flex; align-items: center; justify-content: center; text-align: center; padding: 4px;
+}
+.mx-colhead {
+  font-size: 11px; color: var(--v2-text-2); font-weight: 500;
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  padding: 5px 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  border-bottom: 1px solid var(--v2-border-soft);
+}
+.mx-rowhead {
+  font-size: 13px; color: var(--v2-text-1); font-weight: 500;
+  display: flex; align-items: center; padding: 0 10px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mx-cell {
+  min-height: 38px; border-radius: 8px;
+  background: var(--v2-surf-2); border: 1px solid var(--v2-border-soft);
+  cursor: pointer; display: grid; place-items: center;
+  transition: background 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.mx-cell:hover { border-color: rgba(0, 231, 138, 0.5); }
+.mx-cell.on {
+  background: linear-gradient(135deg, #10B981, #00E78A);
+  border-color: transparent;
+  box-shadow: 0 0 12px rgba(0, 231, 138, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+.mx-dot { width: 11px; height: 11px; border-radius: 50%; background: #fff; box-shadow: 0 0 6px rgba(255, 255, 255, 0.85); }
 </style>

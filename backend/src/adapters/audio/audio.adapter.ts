@@ -7,6 +7,7 @@ import { AdapterContext, AdapterResult } from '../adapter.types';
 import { AudioState, AudioZone, MockAudioAdapter } from './mock-audio.adapter';
 import { RealAudioAdapter } from './real-audio.adapter';
 import { EkxDspAdapter, type SceneContent } from './ekx808.adapter';
+import type { ChannelIndex } from './ekx808-protocol';
 
 type AudioVendor = 'dsppa' | 'takstar-ekx808';
 
@@ -117,6 +118,24 @@ export class AudioAdapter extends BaseAdapter {
     return {
       ok: false, deviceId: 'audio-dsp', command: 'readCurrentScene',
       error: `readCurrentScene 仅 takstar-ekx808 厂家支持`,
+      mock: false, durationMs: 0,
+    };
+  }
+
+  /**
+   * 实时设置矩阵单点路由 (Out X ← In Y 开/关). 前台"音源矩阵"页 / 调试 808 用.
+   * ekxImpl.setMatrix 内部会同步增量缓存, 不跟 applyScene 打架.
+   */
+  async setMatrix(out: number, input: number, on: boolean, ctx?: AdapterContext): Promise<AdapterResult<{ out: number; input: number; on: boolean }>> {
+    if (this.isMock()) {
+      return { ok: true, deviceId: 'audio-dsp', command: 'setMatrix', data: { out, input, on }, mock: true, durationMs: 0 };
+    }
+    if (this.vendor === 'takstar-ekx808') {
+      return this.ekxImpl.setMatrix(out as ChannelIndex, input as ChannelIndex, on, ctx);
+    }
+    return {
+      ok: false, deviceId: 'audio-dsp', command: 'setMatrix',
+      error: `setMatrix 仅 takstar-ekx808 厂家支持, 当前 vendor=${this.vendor}`,
       mock: false, durationMs: 0,
     };
   }

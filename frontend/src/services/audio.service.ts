@@ -23,4 +23,8 @@ export const audioService = {
     api.post<AdapterResult<{ preset: number }>>(`/audio/scene/recall/${preset}`, {}),
   currentScene: () =>
     api.get<{ message: string; data: AdapterResult<{ preset: number }> }>(`/audio/scene/current`),
+
+  // EKX-808 8x8 矩阵单点路由 (Out X ← In Y 接通/断开). 前台"音源矩阵"页点交叉点用.
+  setMatrix: (out: number, input: number, on: boolean) =>
+    api.post<AdapterResult<{ out: number; input: number; on: boolean }>>(`/audio/matrix`, { out, input, on }),
 };
