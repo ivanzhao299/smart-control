@@ -104,16 +104,25 @@ function Start-Slot {
   Start-Process -FilePath $browser -ArgumentList $chromeArgs -WindowStyle Normal
 }
 
-# Audio player (slot=3): small app-mode window, only to push sound to the
-# sound card -> EKX input. Not fullscreen. Anti-throttle flags keep audio alive.
+# Audio player (slot=3): app-mode window pushed OFF-SCREEN, only to push sound
+# to the sound card -> EKX input.
+#
+# MUST be -WindowStyle Normal, NOT Minimized. A minimized --app window gets
+# reaped by Edge after ~6-12s (renderer backgrounds, window closes), which kills
+# the audio -> "background music plays a few seconds then dies / 时好时坏".
+# Verified 2026-06-23: Minimized -> dead in <12s; Normal -> stable 18s+.
+# Off-screen position (-2400,-2400) keeps the window alive but invisible so it
+# doesn't cover the LED wall / projector. Clear stale Singleton lock first so a
+# standalone (-Slot 3) restart doesn't bounce off a previous crash's lockfile.
 function Start-AudioSlot {
   $N = 3
   $dataDir = "$env:LOCALAPPDATA\smart-control-player-slot$N"
+  Remove-Item (Join-Path $dataDir 'Singleton*') -Force -ErrorAction SilentlyContinue
   $url = "${BaseUrl}?slot=$N"
   $chromeArgs = @(
     '--app=' + $url,
     "--user-data-dir=$dataDir",
-    '--window-position=40,40',
+    '--window-position=-2400,-2400',
     '--window-size=480,320',
     '--no-first-run',
     '--no-default-browser-check',
@@ -123,8 +132,8 @@ function Start-AudioSlot {
     '--disable-backgrounding-occluded-windows',
     '--disable-restore-session-state'
   )
-  Write-Host ("Start slot=3 audio @ " + $url + " (small window, sound card -> EKX)") -ForegroundColor Magenta
-  Start-Process -FilePath $browser -ArgumentList $chromeArgs -WindowStyle Minimized
+  Write-Host ("Start slot=3 audio @ " + $url + " (off-screen Normal window, sound card -> EKX)") -ForegroundColor Magenta
+  Start-Process -FilePath $browser -ArgumentList $chromeArgs -WindowStyle Normal
 }
 
 if ($Slot -eq 0 -or $Slot -eq 1) {
