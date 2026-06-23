@@ -56,7 +56,11 @@ export class MediaController {
       fileFilter: (_req, file, cb) => {
         const m = file.mimetype;
         const name = (file.originalname || '').toLowerCase();
-        const audioExt = ['.mp3', '.wav', '.aac', '.m4a', '.ogg', '.flac', '.wma'];
+        const audioExt = [
+          '.mp3', '.wav', '.aac', '.m4a', '.ogg', '.flac', '.wma',
+          '.opus', '.aiff', '.aif', '.ape', '.mp2', '.mka', '.wv',
+          '.mid', '.midi', '.spx', '.dsf', '.dff', '.au', '.ra',
+        ];
         if (
           m.startsWith('video/') || m.startsWith('image/') || m.startsWith('audio/')
           || audioExt.some((ext) => name.endsWith(ext))  // m4a/aac mime 有时不带 audio/

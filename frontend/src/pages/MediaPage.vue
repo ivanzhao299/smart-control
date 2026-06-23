@@ -131,6 +131,18 @@ async function refresh(): Promise<void> {
 
 const UPLOAD_MAX_GB = 10;
 
+// 扩展名兜底：Windows 对 .ape/.flac 等有时报 application/octet-stream
+const AUDIO_EXTS = new Set([
+  '.mp3', '.wav', '.aac', '.m4a', '.ogg', '.flac', '.wma',
+  '.opus', '.aiff', '.aif', '.ape', '.mp2', '.mka', '.wv',
+  '.mid', '.midi', '.spx', '.dsf', '.dff', '.au', '.ra',
+]);
+function isAllowedFile(f: File): boolean {
+  if (f.type.startsWith('video/') || f.type.startsWith('image/') || f.type.startsWith('audio/')) return true;
+  const dot = f.name.lastIndexOf('.');
+  return dot >= 0 && AUDIO_EXTS.has(f.name.slice(dot).toLowerCase());
+}
+
 // 递归读取 FileSystemDirectoryReader (每次 readEntries 最多 100 条, 需循环)
 async function readAllEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
   const all: FileSystemEntry[] = [];
@@ -161,7 +173,7 @@ async function collectFromEntry(entry: FileSystemEntry): Promise<File[]> {
 async function queueFiles(rawFiles: File[]): Promise<void> {
   const valid: File[] = [];
   for (const f of rawFiles) {
-    if (!f.type.startsWith('video/') && !f.type.startsWith('image/') && !f.type.startsWith('audio/')) {
+    if (!isAllowedFile(f)) {
       if (f.size > 0) ElMessage.warning(`已跳过: ${f.name} (类型不支持)`);
       continue;
     }
@@ -413,11 +425,11 @@ onMounted(async () => {
             上传中 {{ uploadPct }}%<span v-if="uploadBatchTotal > 1" class="upload-count-inline"> ({{ uploadBatchDone + 1 }}/{{ uploadBatchTotal }})</span>
           </span>
           <span v-else>上传文件</span>
-          <input type="file" accept="video/*,image/*,audio/*,.mp3,.wav,.aac,.m4a,.ogg,.flac" multiple :disabled="uploading" @change="onFileInput" hidden />
+          <input type="file" accept="video/*,image/*,audio/*,.mp3,.wav,.aac,.m4a,.ogg,.flac,.wma,.opus,.aiff,.aif,.ape,.mp2,.mka,.wv,.mid,.midi,.spx,.dsf,.dff,.au,.ra" multiple :disabled="uploading" @change="onFileInput" hidden />
         </label>
         <label class="v2-quick" :class="{ disabled: uploading }">
           <FolderOpen :size="14" :stroke-width="2" /> 上传文件夹
-          <input type="file" :webkitdirectory="true" multiple accept="video/*,image/*,audio/*,.mp3,.wav,.aac,.m4a,.ogg,.flac" :disabled="uploading" @change="onFileInput" hidden />
+          <input type="file" :webkitdirectory="true" multiple accept="video/*,image/*,audio/*,.mp3,.wav,.aac,.m4a,.ogg,.flac,.wma,.opus,.aiff,.aif,.ape,.mp2,.mka,.wv,.mid,.midi,.spx,.dsf,.dff,.au,.ra" :disabled="uploading" @change="onFileInput" hidden />
         </label>
         <button class="v2-quick" @click="openWebpageDialog">
           <Globe :size="14" :stroke-width="2" /> 添加网页
