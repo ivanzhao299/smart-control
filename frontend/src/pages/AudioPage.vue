@@ -418,7 +418,7 @@ async function muteAll(): Promise<void> {
         </div>
       </div>
       <div class="matrix-wrap">
-        <div class="matrix-grid" :style="{ gridTemplateColumns: `112px repeat(${inputs.length || 8}, minmax(0, 1fr))` }">
+        <div class="matrix-grid" :style="{ gridTemplateColumns: `112px repeat(${inputs.length || 8}, minmax(0, 1fr))`, gridTemplateRows: `auto repeat(${channels.length || 8}, 1fr)` }">
           <div class="mx-corner">输出 ↓ &nbsp;/&nbsp; 输入 →</div>
           <div v-for="inp in inputs" :key="'h' + inp.channel" class="mx-colhead">{{ inp.name }}</div>
           <template v-for="z in channels" :key="'r' + z.channel">
@@ -747,7 +747,7 @@ async function muteAll(): Promise<void> {
 .matrix-section { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .matrix-head { flex-shrink: 0; margin-bottom: 8px; }
 .matrix-wrap { flex: 1; min-height: 0; overflow: hidden; }
-.matrix-grid { display: grid; gap: 5px; align-content: start; }
+.matrix-grid { display: grid; gap: 5px; height: 100%; }
 .mx-corner {
   font-size: 10px; color: var(--v2-text-3); letter-spacing: 0.5px;
   display: flex; align-items: center; justify-content: center; text-align: center; padding: 4px;
@@ -764,7 +764,7 @@ async function muteAll(): Promise<void> {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .mx-cell {
-  min-height: 34px; border-radius: 8px;
+  border-radius: 8px;
   background: var(--v2-surf-2); border: 1px solid var(--v2-border-soft);
   cursor: pointer; display: grid; place-items: center;
   transition: background 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
