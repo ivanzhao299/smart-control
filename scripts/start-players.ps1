@@ -62,6 +62,13 @@ function Stop-Players {
         Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
       }
   }
+  # kill the background-music daemon (windowless powershell running bgm-player.ps1)
+  Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -and $_.CommandLine -match 'bgm-player' } |
+    ForEach-Object {
+      Write-Host ("  kill PID " + $_.ProcessId + " (bgm-player)") -ForegroundColor Gray
+      Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+    }
 }
 
 if ($Stop) { Stop-Players; exit 0 }
@@ -104,42 +111,18 @@ function Start-Slot {
   Start-Process -FilePath $browser -ArgumentList $chromeArgs -WindowStyle Normal
 }
 
-# Audio player (slot=3): small VISIBLE app window in the LED wall's bottom-right
-# corner, only to push sound to the sound card -> EKX input.
-#
-# Hard-won rules (2026-06-23, after 3 failed attempts at hiding it):
-#  1. -WindowStyle Normal, NOT Minimized: Edge reaps a minimized --app window
-#     after ~6-12s -> audio dies (window closed).
-#  2. Window MUST stay VISIBLE. Chromium pauses/throttles audio whenever the
-#     window is minimized OR fully off-screen OR fully covered by another window:
-#       minimized -> dies; off-screen -> "plays a few seconds then stops";
-#       fully covered -> "never plays". Backgrounding flags + occlusion flag did
-#       NOT keep audio alive when fully covered. So it must show a small visible
-#       window. It starts LAST (below) so it sits on top of slot1/2 kiosks, in
-#       the LED bottom-right corner, small (360x240) to minimize coverage.
-# Clear stale Singleton lock first so a standalone (-Slot 3) restart doesn't
-# bounce off a previous crash's lockfile.
+# Audio player (slot=3): NOT Edge anymore. Background music is played by a
+# windowless WPF MediaPlayer daemon (bgm-player.ps1). Edge audio windows can't
+# survive on this box: slot1/2 topmost fullscreen kiosks cover both monitors, and
+# Chromium pauses audio for any minimized / off-screen / fully-occluded window
+# (tried all three on 2026-06-23, all failed). A windowless MediaPlayer has no
+# such constraint -> audio just plays. See bgm-player.ps1 header for the full saga.
 function Start-AudioSlot {
-  $N = 3
-  $dataDir = "$env:LOCALAPPDATA\smart-control-player-slot$N"
-  Remove-Item (Join-Path $dataDir 'Singleton*') -Force -ErrorAction SilentlyContinue
-  $url = "${BaseUrl}?slot=$N"
-  $chromeArgs = @(
-    '--app=' + $url,
-    "--user-data-dir=$dataDir",
-    '--window-position=1480,820',
-    '--window-size=360,240',
-    '--no-first-run',
-    '--no-default-browser-check',
-    '--autoplay-policy=no-user-gesture-required',
-    '--disable-background-timer-throttling',
-    '--disable-renderer-backgrounding',
-    '--disable-backgrounding-occluded-windows',
-    '--disable-features=CalculateNativeWinOcclusion',
-    '--disable-restore-session-state'
-  )
-  Write-Host ("Start slot=3 audio @ " + $url + " (off-screen Normal window, sound card -> EKX)") -ForegroundColor Magenta
-  Start-Process -FilePath $browser -ArgumentList $chromeArgs -WindowStyle Normal
+  $script = Join-Path $PSScriptRoot 'bgm-player.ps1'
+  Write-Host ("Start background-music daemon (windowless MediaPlayer): " + $script) -ForegroundColor Magenta
+  Start-Process -FilePath 'powershell.exe' `
+    -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', $script) `
+    -WindowStyle Hidden
 }
 
 # slot1/2 kiosks first (fullscreen LED + projector), then slot3 audio LAST so its
