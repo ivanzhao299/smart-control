@@ -335,7 +335,7 @@ try {
 
       # 同时从外部网卡 IP 探一下, 看跟 localhost 是不是同一个 backend
       $probe.pokeViaExt = @{}
-      foreach ($extIp in @('192.168.124.11', '192.168.50.10')) {
+      foreach ($extIp in @('192.168.77.54', '192.168.50.10')) {
         $st = -1
         try {
           $r = Invoke-WebRequest -Uri "http://${extIp}:$port/api/system/dali-poke?short=99&value=0" `

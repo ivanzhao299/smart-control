@@ -60,13 +60,25 @@ function goBack(): void {
   else router.push({ name: 'dashboard' });
 }
 
-/** 挑选模式下点卡片: 直接推 + 回来源页 */
+/** 挑选模式下点卡片: slot3 (背景音乐) 跳到播放器并加入播放列表; 其他 slot 直接推 */
 async function pickAndPush(m: MediaItem): Promise<void> {
   const slot = pickForSlot.value;
   if (!slot) return;
+  if (slot === 3) {
+    // 背景音乐: 跳到音响页 BGM tab, 把歌加进播放列表
+    router.push({
+      name: 'audio',
+      query: {
+        tab: 'bgm',
+        pick_id: String(m.id),
+        pick_name: m.originalName,
+        pick_dur: m.durationSec != null ? String(m.durationSec) : '',
+      },
+    });
+    return;
+  }
   try {
-    // 背景音乐默认循环播放, 视频/图片默认单次
-    await playbackStore.publish(slot, m.id, slot === 3 ? 'loop' : 'once');
+    await playbackStore.publish(slot, m.id, 'once');
     ElMessage.success(`已推「${m.originalName}」到 ${pickModeLabel.value}`);
     router.push({ name: pickReturnRoute() });
   } catch (e) {

@@ -48,7 +48,7 @@ const GATEWAY_KEY = 'led-nova-vx1000';
  *   切换素材; 若没设置, playMedia 退化成 "切到 video 预设".
  *
  * env:
- *   LED_HOST=192.168.50.30          VX1000 IP
+ *   LED_HOST=192.168.77.42          VX1000 IP
  *   LED_PORT=5200                    VX1000 TCP 端口
  *   LED_NUC_HOST=192.168.50.31      NUC 媒体主机 IP (可选)
  *   LED_NUC_PORT=8080                NUC HTTP API 端口
@@ -99,7 +99,7 @@ export class NovaLedAdapter extends BaseAdapter {
     @Optional() @InjectRepository(HardwareUnit) private readonly hwRepo?: Repository<HardwareUnit>,
   ) {
     super(config, logger);
-    const host = process.env.LED_HOST ?? '192.168.50.30';
+    const host = process.env.LED_HOST ?? '192.168.77.42';
     const port = Number.parseInt(process.env.LED_PORT ?? '5200', 10);
     const nucHost = process.env.LED_NUC_HOST;
     const nucPort = nucHost ? Number.parseInt(process.env.LED_NUC_PORT ?? '8080', 10) : undefined;
@@ -217,7 +217,7 @@ export class NovaLedAdapter extends BaseAdapter {
     const db = await this.getConfigFromDb();
     const envHost = process.env.LED_HOST;
     const envPort = process.env.LED_PORT ? Number.parseInt(process.env.LED_PORT, 10) : undefined;
-    const host = db?.host ?? envHost ?? '192.168.50.30';
+    const host = db?.host ?? envHost ?? '192.168.77.42';
     const port = db?.port ?? envPort ?? 5200;
     if (host === this.tcpHost && port === this.tcpPort) return;
     const source = db?.host ? 'db' : envHost ? 'env' : 'default';

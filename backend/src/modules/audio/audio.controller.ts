@@ -1,4 +1,6 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { readFile, writeFile } from 'fs/promises';
+import { dirname, join } from 'path';
 import { AudioAdapter } from '../../adapters/audio/audio.adapter';
 import { OperationLogService } from '../logs/operation-log.service';
 import { AudioConfigService } from '../audio-config/audio-config.service';
@@ -11,11 +13,18 @@ import { AdapterResult } from '../../adapters/adapter.types';
 @UseGuards(RateLimitGuard)
 @RateLimit({ max: 6, windowMs: 1000 })
 export class AudioController {
+  private readonly matrixStatePath: string;
+
   constructor(
     private readonly audio: AudioAdapter,
     private readonly logService: OperationLogService,
     private readonly audioConfig: AudioConfigService,
-  ) {}
+  ) {
+    const dbPath = process.env.DB_PATH;
+    this.matrixStatePath = dbPath
+      ? join(dirname(dbPath), 'matrix-state.json')
+      : join(process.cwd(), '..', 'database', 'matrix-state.json');
+  }
 
   // ============ EKX-808 场景预设 ============
 
@@ -60,6 +69,24 @@ export class AudioController {
     return { message: result.ok ? 'ok' : 'failed', data: result };
   }
 
+  /** 读取矩阵状态持久化 (前端刷新后可恢复点亮状态) */
+  @Get('matrix/state')
+  async getMatrixState() {
+    try {
+      const raw = await readFile(this.matrixStatePath, 'utf8');
+      return { message: 'ok', data: JSON.parse(raw) as Record<string, boolean> };
+    } catch {
+      return { message: 'ok', data: {} };
+    }
+  }
+
+  /** 保存矩阵状态 (每次点交叉点后前端调此接口) */
+  @Post('matrix/state')
+  async saveMatrixState(@Body() body: Record<string, boolean>) {
+    await writeFile(this.matrixStatePath, JSON.stringify(body), 'utf8');
+    return { message: '已保存', data: null };
+  }
+
   /** 实时矩阵单点路由 (Out X ← In Y 接通/断开). 前台"音源矩阵"页点交叉点用. */
   @Post('matrix')
   setMatrix(@Body() dto: AudioMatrixDto) {
@@ -97,7 +124,7 @@ export class AudioController {
   async debugUdp(@Body() body: { hex?: string; port?: number; host?: string; timeoutMs?: number } = {}) {
     const data = await this.audio.debugSendUdp(
       body.hex ?? '',
-      body.host ?? '192.168.50.61',
+      body.host ?? '192.168.77.61',
       body.port ?? 9760,
       body.timeoutMs ?? 2000,
     );

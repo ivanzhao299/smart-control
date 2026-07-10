@@ -61,7 +61,7 @@ module.exports = {
       },
       env_production: {
         // 生产用 3200 — frontend bundle 里硬编码了
-        // baseURL=http://192.168.124.11:3200/api (.env.local 覆盖 .env.production
+        // baseURL=http://192.168.77.54:3200/api (.env.local 覆盖 .env.production
         // 的 /control/api), PWA 直连此端口, 不能再用 3000.
         NODE_ENV: 'production',
         PORT: 3200,

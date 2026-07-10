@@ -21,7 +21,7 @@ import { trackApiCall } from './rum.service';
  * APP 化时, 业主第一次启动会被路由 guard 推到 ClientLogin, 输入地址 → 测试 →
  * 登录, 整个过程 baseURL 都设好.
  *
- * 业主输入的是 "http://192.168.124.11:3200" 这种 origin, 我们自动拼 /api.
+ * 业主输入的是 "http://192.168.77.54:3200" 这种 origin, 我们自动拼 /api.
  */
 const STORAGE_KEY_BASE = 'sc.client.baseURL';
 function readInitialBaseURL(): string {
@@ -58,7 +58,7 @@ export function getApiBaseURL(): string { return baseURL; }
 export function absUrl(path: string | null | undefined): string {
   if (!path) return '';
   if (/^(https?:|data:|blob:)/.test(path)) return path;
-  // baseURL 形如 "http://192.168.124.11:3200/api" 或 "/api"
+  // baseURL 形如 "http://192.168.77.54:3200/api" 或 "/api"
   // 想拿 origin (去掉 /api 后缀), 路径直接拼回去
   const origin = baseURL.replace(/\/api(\/.*)?$/, '');
   // path 已经带 /api/... 前缀, origin 不带 /api, 直接拼

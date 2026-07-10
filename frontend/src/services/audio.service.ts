@@ -27,6 +27,10 @@ export const audioService = {
   // EKX-808 8x8 矩阵单点路由 (Out X ← In Y 接通/断开). 前台"音源矩阵"页点交叉点用.
   setMatrix: (out: number, input: number, on: boolean) =>
     api.post<AdapterResult<{ out: number; input: number; on: boolean }>>(`/audio/matrix`, { out, input, on }),
+  getMatrixState: () =>
+    api.get<Record<string, boolean>>('/audio/matrix/state'),
+  saveMatrixState: (state: Record<string, boolean>) =>
+    api.post<null>('/audio/matrix/state', state),
   // 输入通道增益 (0-100). EKX 用户预设常把输入压到 -60dB, 矩阵通了也没声, 这里拉回.
   setInputVolume: (channel: number, value: number) =>
     api.post<AdapterResult<{ channel: number; volume: number }>>(`/audio/input/${channel}/gain`, { value }),

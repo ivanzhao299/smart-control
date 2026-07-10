@@ -582,7 +582,7 @@ export class SeedService {
         vendor: '有人 USR',
         model: 'USR-TCP232-410S',
         driverKind: 'cy-dali64a',
-        ip: '192.168.50.20',
+        ip: '192.168.77.20',
         floor: '1F',
         location: '1F 弱电机柜 / 公共电箱 F101 附近',
         addressing: JSON.stringify({ port: 502, baud: 9600, parity: 'N', stop: 1 }),
@@ -747,7 +747,7 @@ export class SeedService {
         vendor: '诺瓦 NovaStar',
         model: 'V2460',
         driverKind: 'nova-vx',
-        ip: '192.168.50.30',
+        ip: '192.168.77.42',
         floor: '1F',
         location: '1F 主控室机柜',
         addressing: JSON.stringify({ box: '1', port: 5200 }),
@@ -766,7 +766,7 @@ export class SeedService {
         vendor: '得胜 TAKSTAR',
         model: 'EKX-808',
         driverKind: 'ekx-808',
-        ip: '192.168.50.61',
+        ip: '192.168.77.61',
         floor: '1F',
         location: '1F 主控室机柜',
         addressing: JSON.stringify({
@@ -898,11 +898,11 @@ export class SeedService {
     }
 
     // ---------- 一次性自愈: 修正旧的硬件 IP ----------
-    // 之前 CONV-RTU-1 seed 错写成 USR 出厂默认 192.168.0.7. 现场实际 IP 是 192.168.50.20
+    // 之前 CONV-RTU-1 seed 错写成 USR 出厂默认 192.168.0.7. 现场实际 IP 是 192.168.77.20
     // (跟 .env / 文档 / nginx 一致). 由于上面 seed 逻辑遇到已存在记录就跳过, 旧 DB 不会被更新.
     // 这段强制把错值改回正确值, 只动这一个特定字段 + 特定错值, 不影响其他人工调整.
     const HW_IP_FIXES: Array<{ code: string; oldIp: string; newIp: string }> = [
-      { code: 'CONV-RTU-1', oldIp: '192.168.0.7', newIp: '192.168.50.20' },
+      { code: 'CONV-RTU-1', oldIp: '192.168.0.7', newIp: '192.168.77.20' },
     ];
     for (const fix of HW_IP_FIXES) {
       const row = await this.hwRepo.findOne({ where: { code: fix.code } });

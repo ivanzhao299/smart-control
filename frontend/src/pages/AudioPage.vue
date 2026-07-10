@@ -1,17 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import {
   ArrowLeft, Speaker, Volume2, VolumeX, Play, Sparkles, Music, Square, Pause,
   SkipBack, SkipForward, Shuffle, Repeat, Repeat1, ListMusic, Trash2,
 } from 'lucide-vue-next';
 import { audioService } from '@/services/audio.service';
 import { audioConfigService } from '@/services/audio-config.service';
+import { absUrl } from '@/services/http';
 import { usePlaybackStore } from '@/stores/playback';
 import { mediaService } from '@/services/media.service';
 
 const router = useRouter();
+const route = useRoute();
 const playbackStore = usePlaybackStore();
 
 // ============ 背景音乐 (slot 3 → GK9000 声卡 → EKX) ============
@@ -19,6 +21,7 @@ const bgmChannel = computed(() => playbackStore.slotAudio);
 
 // ── 播放列表 ──
 interface PlItem { id: number; name: string; durationSec: number | null; }
+const PLAYLIST_KEY = 'bgm_playlist_v2';
 const playlist = ref<PlItem[]>([]);
 const plIdx = ref(-1);
 type PlayMode = 'seq' | 'loop1' | 'loopAll' | 'shuffle';
@@ -26,6 +29,17 @@ const playMode = ref<PlayMode>('loopAll');
 const plProgress = ref(0);
 const plPickerOpen = ref(false);
 const audioAssets = ref<PlItem[]>([]);
+
+// 播放列表持久化
+watch(playlist, (val) => {
+  localStorage.setItem(PLAYLIST_KEY, JSON.stringify(val));
+}, { deep: true });
+function loadPlaylist(): void {
+  try {
+    const raw = localStorage.getItem(PLAYLIST_KEY);
+    if (raw) playlist.value = JSON.parse(raw) as PlItem[];
+  } catch { /* ignore */ }
+}
 let plTimer: ReturnType<typeof setInterval> | null = null;
 let plTimerDuration = 0;     // total seconds of current track
 let plTimerElapsed = 0;      // seconds elapsed before current segment
@@ -36,6 +50,13 @@ async function loadAudioAssets(): Promise<void> {
     const { items } = await mediaService.list({ kind: 'audio' });
     audioAssets.value = items.map((i) => ({ id: i.id, name: i.originalName, durationSec: i.durationSec }));
   } catch { /* silent */ }
+}
+
+async function loadMatrixState(): Promise<void> {
+  try {
+    const state = await audioService.getMatrixState();
+    matrixOn.value = state ?? {};
+  } catch { /* silent - default all off */ }
 }
 function addToPlaylist(item: PlItem): void { playlist.value.push({ ...item }); }
 function removeFromPlaylist(i: number): void {
@@ -93,7 +114,7 @@ async function detectDuration(mediaId: number): Promise<number | null> {
       resolve(isFinite(d) && d > 0 ? d : null);
     }, { once: true });
     audio.addEventListener('error', () => { clearTimeout(timer); resolve(null); }, { once: true });
-    audio.src = `/api/media/${mediaId}/file`;
+    audio.src = absUrl(`/api/media/${mediaId}/file`);
   });
 }
 
@@ -249,9 +270,41 @@ async function refreshCurrentScene(): Promise<void> {
   } catch { /* 静默 */ }
 }
 onMounted(async () => {
-  await Promise.all([loadScenes(), loadZones(), loadInputs()]);
+  loadPlaylist();
+  await Promise.all([loadScenes(), loadZones(), loadInputs(), loadMatrixState()]);
   void refreshCurrentScene();
   void loadAudioAssets();
+
+  // 恢复静音状态 (从 localStorage)
+  try {
+    const raw = localStorage.getItem(MUTE_STATE_KEY);
+    if (raw) {
+      const saved = JSON.parse(raw) as Record<string, { muted: boolean; volume: number }>;
+      for (const z of channels.value) {
+        if (saved[z.id]) {
+          z.muted = saved[z.id].muted;
+          z.volume = saved[z.id].volume;
+          savedVolumes.value[z.id] = saved[z.id].volume;
+        }
+      }
+    }
+  } catch { /* ignore */ }
+
+  // 从媒体库跳转过来时: 把选中的歌加到播放列表
+  const pickId = Number(route.query.pick_id);
+  const pickName = String(route.query.pick_name ?? '');
+  if (pickId && pickName) {
+    const dur = route.query.pick_dur ? Number(route.query.pick_dur) : null;
+    if (!playlist.value.find((p) => p.id === pickId)) {
+      playlist.value.push({ id: pickId, name: pickName, durationSec: dur || null });
+    }
+    audioTab.value = 'bgm';
+    void router.replace({ name: 'audio', query: {} });
+    ElMessage.success(`「${pickName}」已加入播放列表`);
+  } else if (route.query.tab === 'bgm') {
+    audioTab.value = 'bgm';
+    void router.replace({ name: 'audio', query: {} });
+  }
 });
 
 // ============ 分区 ============
@@ -307,14 +360,15 @@ async function toggleMatrix(outCh: number, inCh: number): Promise<void> {
   const key = `${outCh}_${inCh}`;
   if (matrixBusy.value[key]) return;
   const want = !matrixOn.value[key];
-  matrixOn.value = { ...matrixOn.value, [key]: want };        // 乐观: 立即点亮/熄灭
+  matrixOn.value = { ...matrixOn.value, [key]: want };
   matrixBusy.value = { ...matrixBusy.value, [key]: true };
   try {
     const res = await audioService.setMatrix(outCh, inCh, want);
-    if (!res.ok) throw new Error(res.error || '执行失败');
-  } catch (err) {
-    matrixOn.value = { ...matrixOn.value, [key]: !want };     // 失败回滚
-    ElMessage.error(`路由 OUT${outCh + 1}←IN${inCh + 1} 失败: ${(err as Error).message}`);
+    if (!res.ok) ElMessage.warning(`路由 OUT${outCh + 1}←IN${inCh + 1} 命令未确认，界面已保存`);
+    void audioService.saveMatrixState(matrixOn.value).catch(() => {});
+  } catch {
+    ElMessage.warning(`路由 OUT${outCh + 1}←IN${inCh + 1} 未到达设备，界面已保存`);
+    void audioService.saveMatrixState(matrixOn.value).catch(() => {});
   } finally {
     matrixBusy.value = { ...matrixBusy.value, [key]: false };
   }
@@ -337,8 +391,17 @@ async function onInputGain(ch: number, value: number): Promise<void> {
   }
 }
 
+// 静音前保存各通道音量, 解除静音时用于渐响恢复
+const savedVolumes = ref<Record<string, number>>({});
+const MUTE_STATE_KEY = 'audio_mute_state_v1';
+
+function saveMuteState(): void {
+  const state: Record<string, { muted: boolean; volume: number }> = {};
+  for (const z of channels.value) state[z.id] = { muted: z.muted, volume: z.volume };
+  localStorage.setItem(MUTE_STATE_KEY, JSON.stringify(state));
+}
+
 async function applyVolume(z: AudioRow, value: number): Promise<void> {
-  // 乐观: 滑条即时生效, 后台异步下发, 失败回滚
   const prev = z.volume;
   z.volume = value;
   z.error = null;
@@ -358,14 +421,41 @@ function onVolChange(z: AudioRow, ev: Event): void {
   void applyVolume(z, Number((ev.target as HTMLInputElement).value));
 }
 
+async function fadeInVolumes(targets: { z: AudioRow; vol: number }[]): Promise<void> {
+  const STEPS = 5;
+  const STEP_MS = 800; // 4 seconds total
+  for (let step = 1; step <= STEPS; step++) {
+    const pct = step / STEPS;
+    for (const { z, vol } of targets) {
+      const v = Math.round(vol * pct);
+      z.volume = v;
+      void audioService.setVolume(z.id, v, z.zone).catch(() => {});
+    }
+    if (step < STEPS) await new Promise<void>((r) => { setTimeout(r, STEP_MS); });
+  }
+}
+
 async function toggleMute(z: AudioRow): Promise<void> {
-  // 乐观: 立即翻转 UI, 失败回滚
   const prev = z.muted;
+  if (!prev) {
+    // 即将静音: 保存当前音量
+    savedVolumes.value = { ...savedVolumes.value, [z.id]: z.volume };
+  }
   z.muted = !z.muted;
   z.error = null;
   try {
-    const res = z.muted ? await audioService.mute(z.id, z.zone) : await audioService.unmute(z.id, z.zone);
+    const res = z.muted
+      ? await audioService.mute(z.id, z.zone)
+      : await audioService.unmute(z.id, z.zone);
     if (!res.ok) throw new Error(res.error || '执行失败');
+    saveMuteState();
+    if (!z.muted) {
+      // 解除静音: 渐响到保存的音量
+      const target = savedVolumes.value[z.id] ?? z.volume;
+      z.volume = 0;
+      void audioService.setVolume(z.id, 0, z.zone).catch(() => {});
+      void fadeInVolumes([{ z, vol: target }]);
+    }
   } catch (err) {
     z.muted = prev;
     z.error = (err as Error).message;
@@ -391,9 +481,31 @@ const allMuted = computed(() =>
 );
 async function toggleMuteAll(): Promise<void> {
   if (allMuted.value) {
-    for (const z of channels.value) { if (z.muted) await toggleMute(z); }
+    // 解除全部静音: 先发 unmute 命令, 再统一渐响
+    const fadeTargets: { z: AudioRow; vol: number }[] = [];
+    for (const z of channels.value) {
+      if (!z.muted) continue;
+      const target = savedVolumes.value[z.id] ?? z.volume;
+      savedVolumes.value = { ...savedVolumes.value, [z.id]: target };
+      z.muted = false;
+      z.volume = 0;
+      void audioService.unmute(z.id, z.zone).catch(() => {});
+      void audioService.setVolume(z.id, 0, z.zone).catch(() => {});
+      fadeTargets.push({ z, vol: target });
+    }
+    saveMuteState();
+    ElMessage.success('已解除静音，音量渐响恢复中…');
+    void fadeInVolumes(fadeTargets);
   } else {
-    for (const z of channels.value) { if (!z.muted) await toggleMute(z); }
+    // 全部静音: 保存各通道音量
+    for (const z of channels.value) {
+      if (z.muted) continue;
+      savedVolumes.value = { ...savedVolumes.value, [z.id]: z.volume };
+      z.muted = true;
+      void audioService.mute(z.id, z.zone).catch(() => {});
+    }
+    saveMuteState();
+    ElMessage.success('已全部静音');
   }
 }
 </script>

@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router';
 import { wsClient } from '@/services/websocket.service';
 import { getChannel, channelHeartbeat } from '@/services/playback.service';
 import { useSystemBrandingStore } from '@/stores/system-branding';
-import { absUrl } from '@/services/http';
+import { absUrl, setApiBaseURL } from '@/services/http';
 import type { PlaybackChannelView, WsEvent } from '@/types/api';
 
 /**
@@ -57,6 +57,11 @@ async function sendHeartbeat(): Promise<void> {
 }
 
 onMounted(async () => {
+  // kiosk 始终在本机运行: 强制 API 指向本机后端, 防止 localStorage 残留旧 IP 导致超时
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    setApiBaseURL('http://localhost:3200');
+  }
+
   await brandingStore.load();
   await fetchChannel();
 
