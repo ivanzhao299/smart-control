@@ -1,6 +1,16 @@
 import axios, { type AxiosProgressEvent } from 'axios';
+import { getApiBaseURL } from './http';
 
-const baseURL = import.meta.env.VITE_API_BASE_URL ?? '/api';
+/**
+ * baseURL 必须运行时动态读 (2026-07-11 修):
+ * 之前是模块级快照 import.meta.env.VITE_API_BASE_URL — 构建时固化.
+ * GK9000 构建里这是 http://localhost:3200/api, 平板/手机上的 PWA
+ * 会去请求设备自己的 localhost → 媒体列表永远是空的.
+ * getApiBaseURL() 跟随业主在服务器设置框填的地址 (localStorage), 与
+ * 其它页面 (http.ts 体系) 一致. axios 保留只为 upload 的进度回调
+ * (fetch 不支持上传进度).
+ */
+const base = (): string => getApiBaseURL();
 
 export interface MediaItem {
   id: number;
@@ -24,13 +34,13 @@ export const mediaService = {
   async list(opts: { kind?: 'video' | 'image' | 'audio' | 'webpage' } = {}): Promise<ListResult> {
     const params: Record<string, string> = {};
     if (opts.kind) params.kind = opts.kind;
-    const r = await axios.get(`${baseURL}/media`, { params });
+    const r = await axios.get(`${base()}/media`, { params });
     return r.data?.data ?? { items: [], total: 0 };
   },
 
   /** 添加网页 URL 作为媒体 (可推到 LED/投影 iframe 播放) */
   async createWebpage(name: string, url: string): Promise<MediaItem> {
-    const r = await axios.post(`${baseURL}/media/webpage`, { name, url });
+    const r = await axios.post(`${base()}/media/webpage`, { name, url });
     if (!r.data?.data) throw new Error(r.data?.message || '添加网页失败');
     return r.data.data;
   },
@@ -43,7 +53,7 @@ export const mediaService = {
     const fd = new FormData();
     fd.append('file', file);
     if (opts.remark) fd.append('remark', opts.remark);
-    const r = await axios.post(`${baseURL}/media/upload`, fd, {
+    const r = await axios.post(`${base()}/media/upload`, fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 30 * 60 * 1000, // 30 分钟 (大视频)
       maxContentLength: Infinity,
@@ -59,16 +69,16 @@ export const mediaService = {
   },
 
   async remove(id: number): Promise<void> {
-    await axios.delete(`${baseURL}/media/${id}`);
+    await axios.delete(`${base()}/media/${id}`);
   },
 
   async publish(id: number): Promise<{ id: number; name: string; player: string }> {
-    const r = await axios.post(`${baseURL}/media/${id}/publish`);
+    const r = await axios.post(`${base()}/media/${id}/publish`);
     if (!r.data?.data) throw new Error(r.data?.message || '推送失败');
     return r.data.data;
   },
 
   fileUrl(id: number): string {
-    return `${baseURL}/media/${id}/file`;
+    return `${base()}/media/${id}/file`;
   },
 };
