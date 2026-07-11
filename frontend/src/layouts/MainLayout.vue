@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 // 2026-05-31:
 // - 全屏按钮 + FullscreenPrompt 弹层已去掉 (用户嫌)
@@ -8,10 +8,13 @@ import { useRoute, useRouter } from 'vue-router';
 // - PWA standalone 启动也仍然全屏 (manifest display: fullscreen 接管)
 // - AlertBanner 已移除, 告警走后台 /admin/alerts
 // - 场景反馈走顶部 inline toast
-import { Maximize2, Minimize2 } from 'lucide-vue-next';
+import { Maximize2, Minimize2, Wifi } from 'lucide-vue-next';
 import ErrorBoundary from '@/components/ErrorBoundary.vue';
+import ServerSettingsDialog from '@/components/ServerSettingsDialog.vue';
 import { useFullscreen } from '@/composables/useFullscreen';
 import { navIconFor } from '@/composables/useIcons';
+import { setConnectivityListener } from '@/services/http';
+import { useConnectionStore } from '@/stores/connection';
 import { useSystemStore } from '@/stores/system';
 import { useSceneStore } from '@/stores/scene';
 import { useSystemBrandingStore } from '@/stores/system-branding';
@@ -25,6 +28,7 @@ const brandingStore = useSystemBrandingStore();
 const branding = computed(() => brandingStore.branding);
 const toast = useToastStore();
 const toastMsg = computed(() => toast.current);
+const conn = useConnectionStore();
 
 /**
  * 2026-05-31 性能优化: 应用 mount 后 idle 预取常用页 chunk.
@@ -78,7 +82,34 @@ async function prefetchData(): Promise<void> {
 onMounted(() => {
   prefetchMainPages();
   setTimeout(() => { void prefetchData(); }, 1200);
+  // 连通性监听: 每个 API 请求结束都报告到 connection store
+  setConnectivityListener(conn.report);
 });
+onUnmounted(() => {
+  setConnectivityListener(null);
+});
+
+/**
+ * 服务器地址设置弹窗 — 两个入口:
+ *   1. API 连续失败 (服务器 IP 变了/断网) → 自动弹出, 每次断线只弹一次,
+ *      业主关掉后不再骚扰, 恢复在线后重新武装
+ *   2. 侧导航底部 Wifi 按钮 → 随时手动打开
+ */
+const showServerSettings = ref(false);
+const serverSettingsReason = ref<string | undefined>(undefined);
+let autoOpenedThisEpisode = false;
+watch(() => conn.online, (online) => {
+  if (!online && !autoOpenedThisEpisode && !showServerSettings.value) {
+    autoOpenedThisEpisode = true;
+    serverSettingsReason.value = '无法连接服务器 — 请确认服务器地址, 或从下方历史列表选择';
+    showServerSettings.value = true;
+  }
+  if (online) autoOpenedThisEpisode = false;
+});
+function openServerSettings(): void {
+  serverSettingsReason.value = undefined;
+  showServerSettings.value = true;
+}
 
 /** hover/touch 时立刻 prefetch 对应路由 chunk — 比 click 早 ~200ms */
 const ROUTE_PREFETCH: Record<string, () => Promise<unknown>> = {
@@ -222,6 +253,17 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
           <span class="v2-nav-label">{{ item.label }}</span>
         </button>
       </nav>
+
+      <!-- 固定入口: 服务器地址设置 (连不上时也是自动弹这个框) -->
+      <button
+        class="v2-nav-item v2-nav-server"
+        :class="{ 'is-offline': !conn.online }"
+        title="服务器设置"
+        @click="openServerSettings"
+      >
+        <Wifi :size="20" :stroke-width="1.8" />
+        <span class="v2-nav-label">网络</span>
+      </button>
     </aside>
 
     <!-- 顶 Header (56px) - 仅首页显示 (功能页隐藏, 主区上移给功能区让空间); 集成 inline toast -->
@@ -288,6 +330,9 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
     </main>
 
     <!-- 全屏 prompt 已去掉. 场景执行结果走顶部 inline toast. -->
+
+    <!-- 服务器地址设置弹窗: API 连不上自动弹 / 侧导航网络按钮手动开 -->
+    <ServerSettingsDialog v-model="showServerSettings" :reason="serverSettingsReason" />
   </div>
 </template>
 
@@ -456,6 +501,22 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   background: linear-gradient(90deg, transparent, var(--v2-border-strong), transparent);
   margin: 2px 0;
   flex-shrink: 0;
+}
+
+/* 侧栏底部固定的服务器设置入口 — 不参与 nav-list 均分, 始终贴底 */
+.v2-nav-server {
+  flex: 0 0 auto;
+  height: 52px;
+  min-height: 52px;
+  margin-top: 2px;
+}
+.v2-nav-server.is-offline {
+  color: var(--v2-danger, #ff4757);
+  animation: server-offline-pulse 1.6s ease-in-out infinite;
+}
+@keyframes server-offline-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
 }
 
 /* ============ Header ============ */

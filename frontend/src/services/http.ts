@@ -68,6 +68,20 @@ export function absUrl(path: string | null | undefined): string {
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 /**
+ * 连通性监听 — MainLayout 注册回调, 每次请求结束报告 "服务器可达/不可达".
+ * 网络层失败 (fetch 抛错 / 超时) 报 false; 只要拿到 HTTP 响应 (哪怕 500) 报 true.
+ * 调用方主动取消的请求 (外部 signal abort) 不算失败, 不报告.
+ * 用途: 连续失败 → 弹服务器地址设置框, 让业主换 IP.
+ */
+let connectivityListener: ((ok: boolean) => void) | null = null;
+export function setConnectivityListener(fn: ((ok: boolean) => void) | null): void {
+  connectivityListener = fn;
+}
+function reportConnectivity(ok: boolean): void {
+  try { connectivityListener?.(ok); } catch { /* 监听器异常不影响请求 */ }
+}
+
+/**
  * Admin Bearer token — 由 adminAuth Pinia store 在 login 后调 setAdminToken 注入,
  * logout 时调 clearAdminToken 清掉. 所有 PUT/POST/DELETE 自动带 Authorization 头.
  * GET 不带也行 (后端 GET 都公开), 带了也无害.
@@ -164,6 +178,9 @@ async function request<T>(
   } catch (err) {
     clearTimeout(timer);
     trackApiCall(url, Math.round(performance.now() - startMs), 0);
+    // 外部主动取消不算连不上; 超时/网络错误才报不可达
+    const externallyAborted = cfg?.signal?.aborted === true;
+    if (!externallyAborted) reportConnectivity(false);
     if (ctrl.signal.aborted) {
       const reason = ctrl.signal.reason as Error | string | undefined;
       throw new HttpError(
@@ -175,6 +192,7 @@ async function request<T>(
   }
   clearTimeout(timer);
   trackApiCall(url, Math.round(performance.now() - startMs), resp.status);
+  reportConnectivity(true);
 
   // 304: 让上层用缓存 (useQuery 会用); 直接抛特殊 status
   if (resp.status === 304) {

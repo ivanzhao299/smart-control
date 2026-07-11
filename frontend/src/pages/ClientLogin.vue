@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { Lock, Globe, Wifi, CheckCircle2, XCircle } from 'lucide-vue-next';
+import { Lock, Globe, Wifi, CheckCircle2, XCircle, Trash2, History } from 'lucide-vue-next';
 import { useClientAuthStore } from '@/stores/client-auth';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { useToastStore } from '@/stores/toast';
+import { getServerHistory, addServerHistory, removeServerHistory } from '@/services/server-history';
 
 const router = useRouter();
 const route = useRoute();
@@ -22,9 +23,11 @@ interface TestResult {
   message?: string;
 }
 const test = ref<TestResult>({ state: 'idle' });
+const history = ref<string[]>([]);
 
 onMounted(() => {
   void brandingStore.load();
+  history.value = getServerHistory();
   // 已经登录就跳走
   if (auth.isAuthed) {
     redirectToTarget();
@@ -32,6 +35,21 @@ onMounted(() => {
   }
   setTimeout(() => passwordInput.value?.focus(), 50);
 });
+
+/** baseURL 带 /api 后缀, 显示/存历史用裸 origin */
+function originOf(base: string): string {
+  return base.replace(/\/api(\/.*)?$/, '');
+}
+
+function useHistoryEntry(url: string): void {
+  serverInput.value = url;
+  void doTest();
+}
+
+function deleteHistoryEntry(url: string): void {
+  removeServerHistory(url);
+  history.value = getServerHistory();
+}
 
 function redirectToTarget(): void {
   const target = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
@@ -50,6 +68,8 @@ async function doTest(): Promise<void> {
   const result = await auth.testConnection();
   if (result.ok) {
     test.value = { state: 'ok', message: `连接成功 · ${result.serverTime?.slice(11, 19) ?? ''}` };
+    addServerHistory(originOf(auth.baseURL));
+    history.value = getServerHistory();
   } else {
     test.value = { state: 'fail', message: result.error ?? '无法连接' };
   }
@@ -65,6 +85,7 @@ async function doLogin(): Promise<void> {
   submitting.value = true;
   try {
     await auth.login(password.value);
+    addServerHistory(originOf(auth.baseURL));
     toast.success('登录成功');
     redirectToTarget();
   } catch (e) {
@@ -132,6 +153,20 @@ async function doLogin(): Promise<void> {
           </button>
         </div>
         <div v-if="test.state !== 'idle'" class="test-msg" :class="`is-${test.state}`">{{ test.message }}</div>
+
+        <!-- 连接历史 — 连过的服务器点一下即测, 可删 -->
+        <div v-if="history.length" class="history-box">
+          <div class="history-title">
+            <History :size="12" :stroke-width="2" />
+            连接过的服务器
+          </div>
+          <div v-for="h in history" :key="h" class="history-row">
+            <button type="button" class="history-url" @click="useHistoryEntry(h)">{{ h }}</button>
+            <button type="button" class="history-del" title="删除" @click="deleteHistoryEntry(h)">
+              <Trash2 :size="13" :stroke-width="2" />
+            </button>
+          </div>
+        </div>
 
         <!-- 密码 -->
         <div class="field">
@@ -310,6 +345,54 @@ async function doLogin(): Promise<void> {
 .test-msg.is-ok { color: #6EE7B7; }
 .test-msg.is-fail { color: #FCA5A5; }
 .test-msg.is-testing { color: var(--v2-text-3); }
+
+.history-box { margin-top: -2px; }
+.history-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--v2-text-3);
+  margin-bottom: 4px;
+  padding: 0 2px;
+}
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0;
+}
+.history-url {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--v2-text-2);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.history-url:hover { background: rgba(0, 229, 255, 0.1); color: var(--v2-text-1); }
+.history-del {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--v2-text-3);
+  cursor: pointer;
+}
+.history-del:hover { background: rgba(255, 71, 87, 0.14); color: #FCA5A5; }
 
 .submit-btn {
   margin-top: 6px;
