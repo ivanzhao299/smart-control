@@ -1,4 +1,5 @@
 import type { WsEvent } from '@/types/api';
+import { getApiBaseURL } from './http';
 
 export type WsHandler = (event: WsEvent) => void;
 export type WsStateHandler = (state: WsConnectionState) => void;
@@ -46,11 +47,20 @@ class WsClient {
     if (this.destroyed) return;
     this.setState('connecting');
 
-    // 1) 优先用 VITE_WS_URL 绝对地址 (GK9000 直连场景: ws://192.168.77.54:3200/ws/status)
-    // 2) fallback 用 page host + path (cnjinhu.top nginx 反代场景)
+    // WS 地址优先级 (2026-07-11 改):
+    // 1) 运行时 API baseURL 是绝对地址 → 从它推导 (业主在服务器设置框填的地址,
+    //    平板/手机场景. 旧逻辑 VITE_WS_URL 优先, 但 GK9000 构建里那是
+    //    ws://localhost:3200 — 平板会去连平板自己, 永远断线)
+    // 2) VITE_WS_URL 绝对地址 (build 时定制的场景)
+    // 3) page host + path (cnjinhu.top nginx 反代场景)
+    const apiBase = getApiBaseURL(); // e.g. "http://192.168.77.54:3200/api" 或 "/api"
+    const apiOrigin = /^(https?):\/\/([^/]+)/.exec(apiBase);
     const absUrl = import.meta.env.VITE_WS_URL as string | undefined;
     let url: string;
-    if (absUrl && /^wss?:\/\//.test(absUrl)) {
+    if (apiOrigin) {
+      const wsProto = apiOrigin[1] === 'https' ? 'wss' : 'ws';
+      url = `${wsProto}://${apiOrigin[2]}${this.path}`;
+    } else if (absUrl && /^wss?:\/\//.test(absUrl)) {
       url = absUrl;
     } else {
       const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
