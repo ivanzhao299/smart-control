@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { FindOptionsWhere, Like, Repository } from 'typeorm';
 import { Logger } from 'winston';
+import { Device } from '../../entities/device.entity';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
 import { OperationLogService } from '../logs/operation-log.service';
 import { PagedResult } from '../devices/devices.service';
@@ -21,6 +22,7 @@ import {
 export class HardwareService {
   constructor(
     @InjectRepository(HardwareUnit) private readonly repo: Repository<HardwareUnit>,
+    @InjectRepository(Device) private readonly deviceRepo: Repository<Device>,
     private readonly logService: OperationLogService,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
@@ -115,6 +117,7 @@ export class HardwareService {
       const dup = await this.repo.findOne({ where: { code: dto.code } });
       if (dup && dup.id !== id) throw new ConflictException(`硬件编号已存在: ${dto.code}`);
     }
+    const oldIp = h.ip;
     Object.assign(h, {
       ...(dto.code !== undefined && { code: dto.code }),
       ...(dto.name !== undefined && { name: dto.name }),
@@ -144,7 +147,36 @@ export class HardwareService {
       targetId: String(id),
       message: `${saved.code} status=${saved.status} enabled=${saved.enabled}`,
     });
+    await this.propagateHvacGatewayIp(saved, oldIp);
     return saved;
+  }
+
+  /**
+   * 空调网关换 IP 时, 把 devices 表里指向旧网关的内机 gwHost 一起改掉.
+   *
+   * 背景: HVAC 逐台内机控制读的是 devices.address JSON 里的 gwHost
+   * ({"gwHost":"x.x.x.x","n":0}), 不是 hardware_units.ip. 只改 hardware
+   * 行的话, 后台设备网络页看着改成功了, 空调实际还在连旧 IP.
+   */
+  private async propagateHvacGatewayIp(saved: HardwareUnit, oldIp: string | null): Promise<void> {
+    const ipRe = /^(\d{1,3}\.){3}\d{1,3}$/;
+    if (saved.category !== 'hvac-gateway') return;
+    if (!oldIp || !saved.ip || saved.ip === oldIp) return;
+    if (!ipRe.test(oldIp) || !ipRe.test(saved.ip)) return;
+    const result = await this.deviceRepo
+      .createQueryBuilder()
+      .update(Device)
+      .set({
+        address: () => `REPLACE(address, '"gwHost":"${oldIp}"', '"gwHost":"${saved.ip}"')`,
+      })
+      .where('address LIKE :pat', { pat: `%"gwHost":"${oldIp}"%` })
+      .execute();
+    if (result.affected) {
+      this.logger.info(
+        `HVAC gateway IP propagated: ${oldIp} → ${saved.ip}, ${result.affected} 台内机 gwHost 已同步`,
+        { context: 'HardwareService' },
+      );
+    }
   }
 
   async remove(id: number, operator = 'admin'): Promise<void> {
