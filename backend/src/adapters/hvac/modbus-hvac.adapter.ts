@@ -7,6 +7,7 @@ import { Logger } from 'winston';
 import { BaseAdapter } from '../base.adapter';
 import { AdapterContext, AdapterResult } from '../adapter.types';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
+import { Device } from '../../entities/device.entity';
 import { AdapterConnectionRegistry } from '../connection-registry';
 import { classifyError, DeviceProtocolError } from '../errors';
 import { withRetry } from '../retry';
@@ -56,11 +57,15 @@ export class ModbusHvacAdapter extends BaseAdapter {
   };
   private readonly DB_CACHE_TTL_MS = 5000;
 
+  /** 内机序号(indoorIdx 1..N) → address JSON 映射缓存, 5s TTL */
+  private idxCache: { map: Map<number, string>; at: number } = { map: new Map(), at: 0 };
+
   constructor(
     config: ConfigService,
     @Inject(WINSTON_MODULE_PROVIDER) logger: Logger,
     private readonly registry: AdapterConnectionRegistry,
     @Optional() @InjectRepository(HardwareUnit) private readonly hwRepo?: Repository<HardwareUnit>,
+    @Optional() @InjectRepository(Device) private readonly deviceRepo?: Repository<Device>,
   ) {
     super(config, logger);
     this.timeoutMs = Number.parseInt(process.env.DEVICE_TIMEOUT_MS ?? '3000', 10);
@@ -100,10 +105,63 @@ export class ModbusHvacAdapter extends BaseAdapter {
   /** PUT /api/hardware/:id 成功后调, 让 ping 用最新 DB 配置, 同时清掉所有 TCP 客户端缓存. */
   invalidateConfigCache(): void {
     this.dbCache = { gateways: [], at: 0 };
+    // 网关 IP 变了, 序号→address 映射里的 gwHost 也过期, 一并清
+    this.idxCache = { map: new Map(), at: 0 };
     // 清掉所有 TCP 客户端, 让下次调用按最新 IP 重建.
     // 注意: device 表里的 gwHost 字段也需要后台同步改, 否则即使重建了 TCP 也是连旧 IP.
     // P3 会通过 hardware_unit.code 替换 IP 直挂的耦合.
     this.clients.clear();
+  }
+
+  /**
+   * 内机序号(indoorIdx 1..N) → address JSON 映射. 5s TTL 缓存.
+   *
+   * 前端/场景按"楼层内机序号"下发 (1..22), 但适配器要 {gwHost,n} 地址.
+   * 查 devices 表 category='hvac', 按 (楼层, n) 排序建立序号→address:
+   *   1F 内机 (n=0..9) 排前 → 序号 1..10; 2F 接续 → 序号 11..22.
+   * 跟 seed / HVAC_ZONES 的 indoorIdx 定义一致. address 用 DB 实时值,
+   * 网关换 IP 时其 gwHost 自动跟随 (配合 HardwareService 的 gwHost 联动).
+   */
+  private async getIdxAddressMap(): Promise<Map<number, string>> {
+    const now = Date.now();
+    if (this.idxCache.map.size > 0 && now - this.idxCache.at < this.DB_CACHE_TTL_MS) {
+      return this.idxCache.map;
+    }
+    const map = new Map<number, string>();
+    if (this.deviceRepo) {
+      try {
+        const rows = await this.deviceRepo.find({ where: { category: 'hvac' } });
+        const parsed = rows
+          .map((d) => {
+            let n: number | null = null;
+            try {
+              const a = JSON.parse(d.address ?? '{}') as { n?: number };
+              if (typeof a.n === 'number') n = a.n;
+            } catch { /* address 不是 JSON, 跳过 */ }
+            return { address: d.address ?? '', floor: d.floor ?? '', n };
+          })
+          .filter((x) => x.n !== null && x.address)
+          .sort((a, b) => (a.floor === b.floor ? (a.n as number) - (b.n as number) : a.floor.localeCompare(b.floor)));
+        parsed.forEach((x, i) => map.set(i + 1, x.address));
+      } catch (err) {
+        this.logger.warn(`getIdxAddressMap 失败: ${(err as Error).message}`, { context: 'ModbusHvacAdapter' });
+      }
+    }
+    this.idxCache = { map, at: now };
+    return map;
+  }
+
+  /**
+   * deviceId 归一化: 前端传内机序号 ("1".."22"); 场景动作可能直接传 address JSON.
+   * 纯数字序号 → 查表转 address JSON; 已是 JSON (以 { 开头) 原样返回.
+   */
+  private async normalizeDeviceId(deviceId: string): Promise<string> {
+    const s = deviceId.trim();
+    if (s.startsWith('{')) return s; // 已是 address JSON (场景动作直传)
+    const idx = Number(s);
+    if (!Number.isInteger(idx) || idx < 1) return s; // 非序号, 交给下游报错
+    const addr = (await this.getIdxAddressMap()).get(idx);
+    return addr ?? s;
   }
 
   /** P2 — 给 DriverRegistryService 注册用 */
@@ -129,10 +187,11 @@ export class ModbusHvacAdapter extends BaseAdapter {
   }
 
   /** 拿到 deviceId 对应内机的网关客户端 + 网关 key */
-  private resolve(deviceId: string): { addr: IndoorAddress; modbus: ModbusTcpClient; key: string } {
-    const addr = parseIndoorAddress(deviceId);
+  private async resolve(deviceId: string): Promise<{ addr: IndoorAddress; modbus: ModbusTcpClient; key: string }> {
+    const normalized = await this.normalizeDeviceId(deviceId);
+    const addr = parseIndoorAddress(normalized);
     if (!addr) {
-      throw new DeviceProtocolError('hvac', `invalid deviceId, expect JSON {gwHost,n}: ${deviceId}`);
+      throw new DeviceProtocolError('hvac', `invalid deviceId, expect indoorIdx(1..N) or JSON {gwHost,n}: ${deviceId}`);
     }
     const key = `hvac-zh-${addr.gwHost}:${addr.gwPort ?? 502}`;
     let entry = this.clients.get(key);
@@ -194,7 +253,7 @@ export class ModbusHvacAdapter extends BaseAdapter {
 
   async turnOn(deviceId: string, _p: Record<string, unknown> = {}, ctx?: AdapterContext): Promise<AdapterResult<HvacState>> {
     return this.run(deviceId, 'turnOn', ctx, async () => {
-      const r = this.resolve(deviceId);
+      const r = await this.resolve(deviceId);
       await this.writeReg(r, ctrlBaseAddr(r.addr.n) + CTRL_OFFSET.POWER, 1, ctx?.signal);
       return this.readState(r, ctx?.signal);
     });
@@ -202,7 +261,7 @@ export class ModbusHvacAdapter extends BaseAdapter {
 
   async turnOff(deviceId: string, _p: Record<string, unknown> = {}, ctx?: AdapterContext): Promise<AdapterResult<HvacState>> {
     return this.run(deviceId, 'turnOff', ctx, async () => {
-      const r = this.resolve(deviceId);
+      const r = await this.resolve(deviceId);
       await this.writeReg(r, ctrlBaseAddr(r.addr.n) + CTRL_OFFSET.POWER, 0, ctx?.signal);
       return this.readState(r, ctx?.signal);
     });
@@ -214,7 +273,7 @@ export class ModbusHvacAdapter extends BaseAdapter {
       if (!Number.isFinite(v) || v < 16 || v > 32) {
         throw new DeviceProtocolError('hvac', `temperature out of range 16-32: ${v}`);
       }
-      const r = this.resolve(deviceId);
+      const r = await this.resolve(deviceId);
       await this.writeReg(r, ctrlBaseAddr(r.addr.n) + CTRL_OFFSET.TEMP, tempToReg(v), ctx?.signal);
       return this.readState(r, ctx?.signal);
     });
@@ -227,7 +286,7 @@ export class ModbusHvacAdapter extends BaseAdapter {
       if (regVal === undefined) {
         throw new DeviceProtocolError('hvac', `invalid hvac mode: ${mode}`);
       }
-      const r = this.resolve(deviceId);
+      const r = await this.resolve(deviceId);
       await this.writeReg(r, ctrlBaseAddr(r.addr.n) + CTRL_OFFSET.MODE, regVal, ctx?.signal);
       return this.readState(r, ctx?.signal);
     });
@@ -240,7 +299,7 @@ export class ModbusHvacAdapter extends BaseAdapter {
       if (regVal === undefined) {
         throw new DeviceProtocolError('hvac', `invalid fan speed: ${speed}`);
       }
-      const r = this.resolve(deviceId);
+      const r = await this.resolve(deviceId);
       await this.writeReg(r, ctrlBaseAddr(r.addr.n) + CTRL_OFFSET.FAN, regVal, ctx?.signal);
       return this.readState(r, ctx?.signal);
     });
@@ -248,7 +307,7 @@ export class ModbusHvacAdapter extends BaseAdapter {
 
   async getStatus(deviceId: string, ctx?: AdapterContext): Promise<AdapterResult<HvacState>> {
     return this.run(deviceId, 'getStatus', ctx, async () => {
-      const r = this.resolve(deviceId);
+      const r = await this.resolve(deviceId);
       return this.readState(r, ctx?.signal);
     });
   }
