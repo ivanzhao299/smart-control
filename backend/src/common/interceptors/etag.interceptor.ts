@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { createHash } from 'crypto';
-import { Observable, map } from 'rxjs';
+import { EMPTY, Observable, of, switchMap } from 'rxjs';
 
 /**
  * ETag 拦截器 (PERFORMANCE_AUDIT P2-#14).
@@ -29,8 +29,8 @@ export class EtagInterceptor implements NestInterceptor {
     const res = ctx.getResponse<Response>();
 
     return next.handle().pipe(
-      map((body: unknown) => {
-        if (body === undefined || body === null) return body;
+      switchMap((body: unknown) => {
+        if (body === undefined || body === null) return of(body);
         try {
           const json = JSON.stringify(body);
           const etag = `W/"${createHash('sha1').update(json).digest('hex').slice(0, 12)}"`;
@@ -42,12 +42,13 @@ export class EtagInterceptor implements NestInterceptor {
           }
           if (ifNoneMatch === etag) {
             res.status(304).end();
-            return null; // 走 ResponseInterceptor 时不会再序列化
+            // EMPTY 终止 observable 链，防止 NestJS 再次调用 res.send() 触发 ERR_HTTP_HEADERS_SENT
+            return EMPTY;
           }
-          return body;
+          return of(body);
         } catch {
           // body 不能序列化 (Buffer / stream), 跳过 ETag
-          return body;
+          return of(body);
         }
       }),
     );
