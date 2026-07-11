@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { createHash } from 'crypto';
-import { EMPTY, Observable, of, switchMap } from 'rxjs';
+import { Observable, map } from 'rxjs';
 
 /**
  * ETag 拦截器 (PERFORMANCE_AUDIT P2-#14).
@@ -29,8 +29,8 @@ export class EtagInterceptor implements NestInterceptor {
     const res = ctx.getResponse<Response>();
 
     return next.handle().pipe(
-      switchMap((body: unknown) => {
-        if (body === undefined || body === null) return of(body);
+      map((body: unknown) => {
+        if (body === undefined || body === null) return body;
         try {
           const json = JSON.stringify(body);
           const etag = `W/"${createHash('sha1').update(json).digest('hex').slice(0, 12)}"`;
@@ -41,14 +41,17 @@ export class EtagInterceptor implements NestInterceptor {
             res.setHeader('Cache-Control', 'private, max-age=5');
           }
           if (ifNoneMatch === etag) {
-            res.status(304).end();
-            // EMPTY 终止 observable 链，防止 NestJS 再次调用 res.send() 触发 ERR_HTTP_HEADERS_SENT
-            return EMPTY;
+            // 只设状态码, 不自己 end() — 让 Nest 正常走一次 res.send(),
+            // express 对 304 会自动清 body/长度头. 自己 end() 会造成二次
+            // send → ERR_HTTP_HEADERS_SENT; 返回 EMPTY 则 Nest 等不到值
+            // 抛 "no elements in sequence" → 假 500 日志. 两个坑都踩过.
+            res.status(304);
+            return null;
           }
-          return of(body);
+          return body;
         } catch {
           // body 不能序列化 (Buffer / stream), 跳过 ETag
-          return of(body);
+          return body;
         }
       }),
     );
