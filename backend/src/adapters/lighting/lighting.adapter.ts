@@ -153,7 +153,7 @@ export class LightingAdapter extends BaseAdapter {
       return out;
     }
 
-    const host = process.env.DALI_RTU_HOST ?? '192.168.77.20';
+    const host = process.env.DALI_RTU_HOST ?? '192.168.50.20';
     const port = Number(process.env.DALI_RTU_PORT ?? 502);
     const slaveId = Number(process.env.DALI_RTU_SLAVE_ID ?? 1);
     // 关键对比: process.env 现状 (live) vs CyDali64aAdapter 实际用的 host (起进程时锁定).
@@ -271,7 +271,7 @@ export class LightingAdapter extends BaseAdapter {
     }
 
     out.daliConfig = {
-      host: process.env.DALI_RTU_HOST ?? '192.168.77.20',
+      host: process.env.DALI_RTU_HOST ?? '192.168.50.20',
       port: Number(process.env.DALI_RTU_PORT ?? 502),
       slaveId: Number(process.env.DALI_RTU_SLAVE_ID ?? 1),
     };

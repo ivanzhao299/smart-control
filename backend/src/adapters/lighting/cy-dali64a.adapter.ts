@@ -71,7 +71,7 @@ interface CommandParams {
  *   {"slaveId": 1, "short": 17}  控制 1 号网关的 17 号短地址 (单灯)
  *
  * env:
- *   DALI_RTU_HOST          RTU↔TCP 转换器 IP, 默认 192.168.77.20
+ *   DALI_RTU_HOST          RTU↔TCP 转换器 IP, 默认 192.168.50.20
  *   DALI_RTU_PORT          转换器 TCP 端口, 默认 502
  *   DALI_RTU_SLAVE_ID      默认从机地址, 默认 1
  *   DALI_RTU_FRAME_INTERVAL_MS  帧间隔 (≥150), 默认 200
@@ -116,7 +116,7 @@ export class CyDali64aAdapter extends BaseAdapter {
   ) {
     super(config, logger);
     this.cfg = {
-      host: process.env.DALI_RTU_HOST ?? '192.168.77.20',
+      host: process.env.DALI_RTU_HOST ?? '192.168.50.20',
       port: Number.parseInt(process.env.DALI_RTU_PORT ?? '502', 10),
       defaultSlaveId: Number.parseInt(process.env.DALI_RTU_SLAVE_ID ?? '1', 10),
       timeoutMs: Number.parseInt(process.env.DEVICE_TIMEOUT_MS ?? '3000', 10),
@@ -460,7 +460,7 @@ export class CyDali64aAdapter extends BaseAdapter {
     const db = await this.getConfigFromDb();
     const envHost = process.env.DALI_RTU_HOST;
     const envPort = process.env.DALI_RTU_PORT ? Number.parseInt(process.env.DALI_RTU_PORT, 10) : undefined;
-    const host = db?.host ?? envHost ?? '192.168.77.20';
+    const host = db?.host ?? envHost ?? '192.168.50.20';
     const port = db?.port ?? envPort ?? 502;
     if (host === this.modbusHost && port === this.modbusPort) return;
     const source = db?.host ? 'db' : envHost ? 'env' : 'default';

@@ -59,7 +59,7 @@ export interface SceneContent {
 /**
  * 得胜 TAKSTAR EKX-808 8x8 数字矩阵 DSP 适配器
  *
- * 走 TCP 短连接 (默认 IP 192.168.77.61), 协议封装在 ekx808-protocol.ts
+ * 走 TCP 短连接 (默认 IP 192.168.50.61), 协议封装在 ekx808-protocol.ts
  * 启用方式: 设置 env AUDIO_VENDOR=takstar-ekx808 (默认 'dsppa' 时不启用)
  *
  * 兼容 AudioAdapter 标准接口 (setVolume/mute/...) — 区映射规则:
@@ -135,7 +135,7 @@ export class EkxDspAdapter extends BaseAdapter {
     @Optional() @InjectRepository(HardwareUnit) private readonly hwRepo?: Repository<HardwareUnit>,
   ) {
     super(config, logger);
-    this.host = process.env.AUDIO_EKX_HOST ?? '192.168.77.61';
+    this.host = process.env.AUDIO_EKX_HOST ?? '192.168.50.61';
     // 默认 TCP 端口: 9761 (得胜 EKX-808 网口控制端口)
     // 2026-06-13 现场抓厂家 PC Editor 软件的真实 TCP 连接确认: PC 软件连的是 9761.
     // (9760 是设备的 echo 干扰端口, 一字之差坑了两天). EKX 单客户端, 短连接一问一答.
@@ -223,7 +223,7 @@ export class EkxDspAdapter extends BaseAdapter {
     const db = await this.getConfigFromDb();
     const envHost = process.env.AUDIO_EKX_HOST;
     const envPort = process.env.AUDIO_EKX_PORT ? Number.parseInt(process.env.AUDIO_EKX_PORT, 10) : undefined;
-    const host = db?.host ?? envHost ?? '192.168.77.61';
+    const host = db?.host ?? envHost ?? '192.168.50.61';
     const port = db?.port ?? envPort ?? 9761;
     if (host === this.host && port === this.port) return;
     const source = db?.host ? 'db' : envHost ? 'env' : 'default';

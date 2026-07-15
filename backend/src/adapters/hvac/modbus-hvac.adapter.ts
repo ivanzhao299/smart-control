@@ -34,8 +34,8 @@ import {
  * 部署: 2 台网关, 一台/外机, 直接接交换机 (无需 USR-TCP232).
  *
  * device.address (JSON) 决定路由到哪个网关 + 内机号:
- *   {"gwHost":"192.168.50.51","n":0}   // 1F 网关第 0 台内机
- *   {"gwHost":"192.168.50.52","n":5}   // 2F 网关第 5 台内机
+ *   {"gwHost":"192.168.50.66","n":0}   // 1F 网关第 0 台内机
+ *   {"gwHost":"192.168.50.67","n":5}   // 2F 网关第 5 台内机
  *
  * 现场可通过修改设备表 address 字段重新分组, 无需改代码.
  */
@@ -218,7 +218,7 @@ export class ModbusHvacAdapter extends BaseAdapter {
     // DB > env > default 三级取默认网关地址
     const dbGateways = await this.getGatewaysFromDb();
     const dbFirst = dbGateways[0];
-    const host = dbFirst?.ip ?? process.env.HVAC_HOST ?? '192.168.50.51';
+    const host = dbFirst?.ip ?? process.env.HVAC_HOST ?? '192.168.50.66';
     const port = dbFirst?.port ?? Number.parseInt(process.env.HVAC_PORT ?? '502', 10);
     const slaveId = Number.parseInt(process.env.HVAC_DEFAULT_SLAVE_ID ?? '1', 10);
     const key = `hvac-zh-${host}:${port}`;

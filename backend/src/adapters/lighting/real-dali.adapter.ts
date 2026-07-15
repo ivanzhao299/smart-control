@@ -59,7 +59,7 @@ export class RealDaliAdapter extends BaseAdapter {
   ) {
     super(config, logger);
     this.daliConfig = {
-      host: process.env.DALI_GATEWAY_HOST ?? '192.168.77.20',
+      host: process.env.DALI_GATEWAY_HOST ?? '192.168.50.20',
       port: Number.parseInt(process.env.DALI_GATEWAY_PORT ?? '80', 10),
       apiPath: process.env.DALI_API_PATH ?? '/control',
       apiKey: process.env.DALI_API_KEY,

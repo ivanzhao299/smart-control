@@ -124,7 +124,7 @@ export class AudioController {
   async debugUdp(@Body() body: { hex?: string; port?: number; host?: string; timeoutMs?: number } = {}) {
     const data = await this.audio.debugSendUdp(
       body.hex ?? '',
-      body.host ?? '192.168.77.61',
+      body.host ?? '192.168.50.61',
       body.port ?? 9760,
       body.timeoutMs ?? 2000,
     );
