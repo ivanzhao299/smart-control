@@ -27,6 +27,31 @@ import {
   tempToReg,
 } from './zhonghong-mbt-protocol';
 
+/** 网关扫描结果 — 现场实际挂载的内机清单 (见 scanGateway) */
+export interface HvacGatewayScan {
+  host: string;
+  port: number;
+  /** 空调品牌码, 奥克斯=15; 非 15 表示网关还没识别完, 数据不可信 */
+  brand: number;
+  type: number;
+  /** 网关自报的内机数量 (寄存器 2002) */
+  indoorCount: number;
+  /** brand===15 才算数据就绪 */
+  ready: boolean;
+  /** 实际在线的内机号 (真实现场编号, 可能不是从 0 开始!) */
+  onlineNs: number[];
+  indoors: Array<{
+    n: number;
+    online: boolean;
+    on: boolean;
+    mode: string;
+    temperature: number;
+    roomTemp?: number;
+    faultCode: number;
+  }>;
+  error?: string;
+}
+
 /**
  * HVAC 适配器 - 中弘 B 集控网关 (TCP 款)
  *
@@ -310,6 +335,90 @@ export class ModbusHvacAdapter extends BaseAdapter {
       const r = await this.resolve(deviceId);
       return this.readState(r, ctx?.signal);
     });
+  }
+
+  /**
+   * 扫描一台网关实际挂载的内机 — 现场调试 / 配置校准用.
+   *
+   * 中弘网关是单客户端: 后端占着连接时外部工具连不进去, 所以这个能力必须放在
+   * 后端 (复用已有的 TCP 客户端). 读网关信息寄存器 2000-2005 (品牌/类型/内机数量)
+   * + 逐台读 6*n 状态寄存器, 返回真实在线内机清单.
+   *
+   * 用途: 校验 devices 表配的 n 是否跟现场一致 (2026-07-11 就是靠它发现 2F
+   * 实际内机是 n=1..12 而库里配的是 n=0..11, 整体错位一位).
+   */
+  async scanGateway(
+    host: string,
+    port = 502,
+    maxIndoor = 16,
+    slaveId = 1,
+    signal?: AbortSignal,
+  ): Promise<HvacGatewayScan> {
+    const key = `hvac-zh-${host}:${port}`;
+    let entry = this.clients.get(key);
+    if (!entry) {
+      const tcp = new TcpClient({
+        host, port, deviceType: 'hvac', timeoutMs: this.timeoutMs,
+        keepAlive: true, idleTimeoutMs: 30_000,
+      });
+      const modbus = new ModbusTcpClient(tcp, slaveId);
+      this.clients.set(key, { modbus, key });
+      if (!this.isMock()) this.registry.register(key, `modbus-tcp://${host}:${port}`);
+      entry = { modbus, key };
+    }
+
+    // 网关信息: 2000=品牌码(奥克斯=15) 2001=类型 2002=内机数量 2003/2004=温度上下限
+    const info = await entry.modbus.readHoldingRegisters(2000, 6, slaveId, signal);
+    const indoors: HvacGatewayScan['indoors'] = [];
+    for (let n = 0; n <= maxIndoor; n += 1) {
+      try {
+        const regs = await entry.modbus.readHoldingRegisters(
+          stateBaseAddr(n), STATE_REGS_PER_INDOOR, slaveId, signal,
+        );
+        const st = decodeIndoorState(regs);
+        indoors.push({
+          n,
+          online: st.online,
+          on: st.on,
+          mode: st.mode,
+          temperature: st.temperature,
+          roomTemp: st.roomTemp,
+          faultCode: st.faultCode,
+        });
+      } catch {
+        // 读不到这台就跳过 (地址越界会回 Modbus 异常码)
+      }
+    }
+    return {
+      host,
+      port,
+      brand: info[0],
+      type: info[1],
+      indoorCount: info[2],
+      // brand 应为 15 (奥克斯); 非 15 说明网关还没识别完空调, 数据不可信
+      ready: info[0] === 15,
+      onlineNs: indoors.filter((i) => i.online).map((i) => i.n),
+      indoors,
+    };
+  }
+
+  /** 扫描 DB 里登记的所有 hvac 网关 */
+  async scanAllGateways(maxIndoor = 16, signal?: AbortSignal): Promise<Array<HvacGatewayScan & { code: string }>> {
+    const gws = await this.getGatewaysFromDb();
+    const out: Array<HvacGatewayScan & { code: string }> = [];
+    for (const gw of gws) {
+      try {
+        const scan = await this.scanGateway(gw.ip, gw.port, maxIndoor, 1, signal);
+        out.push({ code: gw.code, ...scan });
+      } catch (err) {
+        out.push({
+          code: gw.code, host: gw.ip, port: gw.port, brand: -1, type: -1, indoorCount: -1,
+          ready: false, onlineNs: [], indoors: [],
+          error: (err as Error).message,
+        } as HvacGatewayScan & { code: string });
+      }
+    }
+    return out;
   }
 
   // ============ 内部 ============

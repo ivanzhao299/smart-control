@@ -1,5 +1,6 @@
-import { Body, Controller, Get, NotFoundException, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { HvacAdapter } from '../../adapters/hvac/hvac.adapter';
+import { ModbusHvacAdapter } from '../../adapters/hvac/modbus-hvac.adapter';
 import { OperationLogService } from '../logs/operation-log.service';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { HvacFanDto, HvacModeDto, HvacTempDto } from './dto/hvac.dto';
@@ -13,6 +14,7 @@ import { findZone, HVAC_ZONES, HvacZoneConfig } from '../../adapters/hvac/hvac-z
 export class HvacController {
   constructor(
     private readonly hvac: HvacAdapter,
+    private readonly modbusHvac: ModbusHvacAdapter,
     private readonly logService: OperationLogService,
   ) {}
 
@@ -23,6 +25,22 @@ export class HvacController {
       message: 'OK',
       data: HVAC_ZONES,
     };
+  }
+
+  /**
+   * 扫描网关实际挂载的内机 — 现场调试 / 校准配置用.
+   *
+   * 中弘网关单客户端, 后端占着连接时外部工具连不进去, 所以扫描必须走后端。
+   * 返回每台网关自报的内机数量 + 真实在线的内机号 (现场编号可能不从 0 开始)。
+   * 用来核对 devices 表里配的 n 跟现场是否一致。
+   *
+   * GET /api/hvac/gateways/scan?maxIndoor=16
+   */
+  @Get('gateways/scan')
+  async scanGateways(@Query('maxIndoor') maxIndoor?: string) {
+    const max = Math.min(Math.max(Number.parseInt(maxIndoor ?? '16', 10) || 16, 1), 63);
+    const data = await this.modbusHvac.scanAllGateways(max);
+    return { message: 'OK', data };
   }
 
   // ============ 单内机控制 (id 是 indoorIdx 字符串, 例 "1".."22") ============
