@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, type Component } from 'vue';
+import { computed, nextTick, onMounted, ref, type Component } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
   ArrowLeft, Snowflake, Flame, Wind, Sparkles, Droplet,
-  Power, X, Minus, Plus, Thermometer,
+  Power, X, Minus, Plus, Thermometer, Pencil,
 } from 'lucide-vue-next';
 import { hvacService, type HvacFan, type HvacMode, type HvacZone } from '@/services/hvac.service';
 
@@ -154,6 +154,35 @@ const overview = computed(() => {
   return { total, onCount, totalIndoor, onlineIndoor, avgT };
 });
 
+// ============ 区名就地改 (业主自助, 不用进后台) ============
+const editingCode = ref<string | null>(null);
+const editingName = ref('');
+const nameInput = ref<HTMLInputElement | null>(null);
+
+function startRename(z: ZoneState): void {
+  editingCode.value = z.code;
+  editingName.value = z.name;
+  void nextTick(() => nameInput.value?.focus());
+}
+function cancelRename(): void {
+  editingCode.value = null;
+  editingName.value = '';
+}
+async function commitRename(z: ZoneState): Promise<void> {
+  const next = editingName.value.trim();
+  if (!next || next === z.name) { cancelRename(); return; }
+  const prev = z.name;
+  z.name = next;          // 乐观更新
+  cancelRename();
+  try {
+    await hvacService.renameZone(z.code, next);
+    ElMessage.success(`已改名为「${next}」`);
+  } catch (err) {
+    z.name = prev;        // 失败回滚
+    ElMessage.error('改名失败: ' + (err as Error).message);
+  }
+}
+
 const router = useRouter();
 function goBack(): void { router.push({ name: 'dashboard' }); }
 
@@ -234,7 +263,23 @@ async function allOff(): Promise<void> {
       >
         <div class="zone-top">
           <div class="zone-meta">
-            <div class="zone-name">{{ z.name }}</div>
+            <!-- 区名可就地改: 点铅笔 → 输入 → 回车保存 / Esc 取消 -->
+            <input
+              v-if="editingCode === z.code"
+              ref="nameInput"
+              v-model="editingName"
+              class="zone-name-input"
+              maxlength="32"
+              @keyup.enter="commitRename(z)"
+              @keyup.esc="cancelRename"
+              @blur="commitRename(z)"
+            />
+            <div v-else class="zone-name-row">
+              <div class="zone-name">{{ z.name }}</div>
+              <button class="zone-rename-btn" title="改名" @click.stop="startRename(z)">
+                <Pencil :size="13" :stroke-width="2" />
+              </button>
+            </div>
             <div class="zone-addr v2-inter">{{ z.indoors.length }} 内机 · {{ z.floor }}</div>
           </div>
           <button
@@ -451,6 +496,34 @@ async function allOff(): Promise<void> {
 .zone-top { display: flex; align-items: center; justify-content: space-between; }
 .zone-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .zone-name { font-size: 15px; font-weight: 600; color: var(--v2-text-1); letter-spacing: 0.5px; }
+
+/* 区名 + 改名按钮 (hover 才显形, 平常不干扰) */
+.zone-name-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.zone-rename-btn {
+  display: grid; place-items: center;
+  width: 22px; height: 22px; flex-shrink: 0;
+  border: none; border-radius: 5px;
+  background: transparent; color: var(--v2-text-3);
+  cursor: pointer; opacity: 0;
+  transition: opacity 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+.v2-hvac-zone:hover .zone-rename-btn { opacity: 1; }
+.zone-rename-btn:hover { background: rgba(96, 165, 250, 0.16); color: #60a5fa; }
+/* 触屏没有 hover — 平板上常驻显示 */
+@media (hover: none) {
+  .zone-rename-btn { opacity: 0.55; }
+}
+.zone-name-input {
+  width: 100%;
+  font-size: 15px; font-weight: 600;
+  color: var(--v2-text-1);
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--v2-info);
+  border-radius: 6px;
+  padding: 2px 8px;
+  outline: none;
+  font-family: inherit;
+}
 .zone-addr { font-size: 10px; color: var(--v2-text-3); letter-spacing: 1px; }
 
 .v2-toggle {

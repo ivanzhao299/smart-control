@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsIn, IsNumber, Max, Min } from 'class-validator';
+import { IsIn, IsNumber, IsString, Length, Max, Min } from 'class-validator';
 
 const MODES = ['cool', 'heat', 'fan', 'auto', 'dry'] as const;
 const FANS = ['auto', 'low', 'mid', 'high'] as const;
@@ -22,4 +22,11 @@ export class HvacModeDto {
 export class HvacFanDto {
   @IsIn([...FANS])
   speed!: FanSpeed;
+}
+
+/** 业主在 PWA 空调页改功能区名字 */
+export class HvacZoneRenameDto {
+  @IsString()
+  @Length(1, 32, { message: '名称长度需在 1-32 字之间' })
+  name!: string;
 }

@@ -1,11 +1,14 @@
-import { Body, Controller, Get, NotFoundException, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { HvacAdapter } from '../../adapters/hvac/hvac.adapter';
 import { ModbusHvacAdapter } from '../../adapters/hvac/modbus-hvac.adapter';
 import { OperationLogService } from '../logs/operation-log.service';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
-import { HvacFanDto, HvacModeDto, HvacTempDto } from './dto/hvac.dto';
+import { HvacFanDto, HvacModeDto, HvacTempDto, HvacZoneRenameDto } from './dto/hvac.dto';
 import { AdapterResult } from '../../adapters/adapter.types';
 import { findZone, HVAC_ZONES, HvacZoneConfig } from '../../adapters/hvac/hvac-zones';
+import { HvacZone } from '../../entities/hvac-zone.entity';
 
 // 温度按 +/- 步进调, 6 次/秒/客户端
 @Controller('hvac')
@@ -16,15 +19,81 @@ export class HvacController {
     private readonly hvac: HvacAdapter,
     private readonly modbusHvac: ModbusHvacAdapter,
     private readonly logService: OperationLogService,
+    @InjectRepository(HvacZone) private readonly zoneRepo: Repository<HvacZone>,
   ) {}
 
-  // ============ 列出所有功能区 (前端 UI / 场景配置用) ============
+  /**
+   * 列出所有功能区 (前端 UI / 场景配置用).
+   *
+   * 数据源是 hvac_zone 表 (业主可在前端改名); 表为空时 (首次启动/新库) 用
+   * HVAC_ZONES 常量灌入一次, 之后就以库为准。code 幂等, 不会覆盖改过的名字。
+   */
   @Get('zones')
-  listZones() {
+  async listZones() {
+    const rows = await this.ensureZonesSeeded();
+    const data: HvacZoneConfig[] = rows.map((z) => ({
+      code: z.code,
+      name: z.name,
+      floor: z.floor as '1F' | '2F',
+      indoors: this.parseIndoors(z.indoors),
+      desc: z.description ?? undefined,
+    }));
+    return { message: 'OK', data };
+  }
+
+  /**
+   * 改功能区名字 — 业主在 PWA 空调页直接点区名改, 不用进后台。
+   * PUT /api/hvac/zones/:code  { name: "新名字" }
+   */
+  @Put('zones/:code')
+  @RateLimit({ max: 10, windowMs: 5000 })
+  async renameZone(@Param('code') code: string, @Body() dto: HvacZoneRenameDto) {
+    await this.ensureZonesSeeded();
+    const zone = await this.zoneRepo.findOne({ where: { code } });
+    if (!zone) throw new NotFoundException(`hvac zone "${code}" 不存在`);
+    const oldName = zone.name;
+    zone.name = dto.name.trim();
+    const saved = await this.zoneRepo.save(zone);
+    await this.logService.record({
+      operator: 'client',
+      action: 'hvac.zone.rename',
+      targetType: 'hvac-zone',
+      targetId: code,
+      result: 'success',
+      message: JSON.stringify({ from: oldName, to: saved.name }),
+    });
     return {
-      message: 'OK',
-      data: HVAC_ZONES,
+      message: '已更名',
+      data: { code: saved.code, name: saved.name, floor: saved.floor, indoors: this.parseIndoors(saved.indoors) },
     };
+  }
+
+  /** 表空则用 HVAC_ZONES 常量灌一次 (幂等: 已存在的 code 不动, 保留业主改的名字) */
+  private async ensureZonesSeeded(): Promise<HvacZone[]> {
+    const existing = await this.zoneRepo.find({ where: { enabled: true }, order: { floor: 'ASC', sortOrder: 'ASC' } });
+    if (existing.length > 0) return existing;
+    const seeded = HVAC_ZONES.map((z, i) =>
+      this.zoneRepo.create({
+        code: z.code,
+        name: z.name,
+        floor: z.floor,
+        indoors: JSON.stringify(z.indoors),
+        sortOrder: (i + 1) * 10,
+        description: z.desc ?? null,
+        enabled: true,
+      }),
+    );
+    await this.zoneRepo.save(seeded);
+    return this.zoneRepo.find({ where: { enabled: true }, order: { floor: 'ASC', sortOrder: 'ASC' } });
+  }
+
+  private parseIndoors(json: string): number[] {
+    try {
+      const a = JSON.parse(json) as unknown;
+      return Array.isArray(a) ? a.filter((x): x is number => typeof x === 'number') : [];
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -114,7 +183,11 @@ export class HvacController {
     fn: (indoorId: string) => Promise<AdapterResult>,
     extra: Record<string, unknown> = {},
   ) {
-    const zone = findZone(code);
+    // 走 DB (业主改过的名字/成员生效); 库里没有再回退到常量
+    const row = await this.zoneRepo.findOne({ where: { code } });
+    const zone: HvacZoneConfig | undefined = row
+      ? { code: row.code, name: row.name, floor: row.floor as '1F' | '2F', indoors: this.parseIndoors(row.indoors) }
+      : findZone(code);
     if (!zone) throw new NotFoundException(`hvac zone "${code}" 不存在`);
 
     const results = await Promise.all(

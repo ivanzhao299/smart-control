@@ -59,8 +59,11 @@ export interface HvacGatewayScan {
  * 部署: 2 台网关, 一台/外机, 直接接交换机 (无需 USR-TCP232).
  *
  * device.address (JSON) 决定路由到哪个网关 + 内机号:
- *   {"gwHost":"192.168.50.66","n":0}   // 1F 网关第 0 台内机
- *   {"gwHost":"192.168.50.67","n":5}   // 2F 网关第 5 台内机
+ *   {"gwHost":"192.168.50.66","n":1}   // 1F 网关第 1 台内机
+ *   {"gwHost":"192.168.50.67","n":6}   // 2F 网关第 6 台内机
+ *
+ * 注意: 现场内机号从 1 开始 (1F n=1..10, 2F n=1..12), 不是从 0.
+ * 靠 GET /api/hvac/gateways/scan 实测确认, 别想当然按 0 起.
  *
  * 现场可通过修改设备表 address 字段重新分组, 无需改代码.
  */
@@ -143,7 +146,7 @@ export class ModbusHvacAdapter extends BaseAdapter {
    *
    * 前端/场景按"楼层内机序号"下发 (1..22), 但适配器要 {gwHost,n} 地址.
    * 查 devices 表 category='hvac', 按 (楼层, n) 排序建立序号→address:
-   *   1F 内机 (n=0..9) 排前 → 序号 1..10; 2F 接续 → 序号 11..22.
+   *   1F 内机 (n=1..10) 排前 → 序号 1..10; 2F 接续 → 序号 11..22.
    * 跟 seed / HVAC_ZONES 的 indoorIdx 定义一致. address 用 DB 实时值,
    * 网关换 IP 时其 gwHost 自动跟随 (配合 HardwareService 的 gwHost 联动).
    */
@@ -344,8 +347,10 @@ export class ModbusHvacAdapter extends BaseAdapter {
    * 后端 (复用已有的 TCP 客户端). 读网关信息寄存器 2000-2005 (品牌/类型/内机数量)
    * + 逐台读 6*n 状态寄存器, 返回真实在线内机清单.
    *
-   * 用途: 校验 devices 表配的 n 是否跟现场一致 (2026-07-11 就是靠它发现 2F
-   * 实际内机是 n=1..12 而库里配的是 n=0..11, 整体错位一位).
+   * 用途: 校验 devices 表配的 n 是否跟现场一致 (2026-07-11 就是靠它发现两台
+   * 网关的实际内机都是从 n=1 起 — 1F n=1..10 / 2F n=1..12 — 而库里按 n=0 起配,
+   * 整体错位一位: n=0 打给不存在的内机 (Modbus 层返回成功但现场无反应), 最后
+   * 一台够不着, 中间全部张冠李戴).
    */
   async scanGateway(
     host: string,

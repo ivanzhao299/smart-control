@@ -89,34 +89,34 @@ const DEVICES: DeviceSeed[] = [
   { name: 'audio_1f', category: 'audio', protocol: 'tcp', adapter: 'mock', floor: '1F', zone: 'main' },
   { name: 'audio_2f', category: 'audio', protocol: 'tcp', adapter: 'mock', floor: '2F', zone: 'main' },
   // ---- 中央空调内机 (奥克斯 ARV-X9 + 2 台中弘 B 集控 TCP 网关) ----
-  // 1F 网关: 192.168.50.66:502 (slaveId 1), 挂 10 内机 (n=0..9)
-  // 2F 网关: 192.168.50.67:502 (slaveId 1), 挂 12 内机 (n=0..11)
+  // 1F 网关: 192.168.50.66:502 (slaveId 1), 挂 10 内机 (n=1..10)
+  // 2F 网关: 192.168.50.67:502 (slaveId 1), 挂 12 内机 (n=1..12)
   // 数据来源: 《F1楼-一层二层空调位置明细》2026-05-21
   // address JSON: { gwHost, n, model, kw } — gwHost+n 唯一定位内机, model/kw 仅供前端显示
-  // 1F (网关 192.168.50.66, n=0..9)
-  { name: 'hvac_1f_exhibit_1',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '1F', zone: 'enterprise_booth_1', address: '{"gwHost":"192.168.50.66","n":0,"model":"DLR-63F","kw":1.8}' },
-  { name: 'hvac_1f_exhibit_2',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '1F', zone: 'enterprise_booth_2', address: '{"gwHost":"192.168.50.66","n":1,"model":"DLR-63F","kw":1.8}' },
-  { name: 'hvac_1f_exhibit_3',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '1F', zone: 'enterprise_booth_3', address: '{"gwHost":"192.168.50.66","n":2,"model":"DLR-63F","kw":1.8}' },
-  { name: 'hvac_1f_livestream',    category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '1F', zone: 'livestream',         address: '{"gwHost":"192.168.50.66","n":3,"model":"DLR-71F","kw":2.0}' },
-  { name: 'hvac_1f_trade_1',       category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '1F', zone: 'foreign_trade_1',    address: '{"gwHost":"192.168.50.66","n":4,"model":"DLR-71F","kw":2.0}' },
-  { name: 'hvac_1f_trade_2',       category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '1F', zone: 'foreign_trade_2',    address: '{"gwHost":"192.168.50.66","n":5,"model":"DLR-80F","kw":2.0}' },
-  { name: 'hvac_1f_park_display',  category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '1F', zone: 'park_display',       address: '{"gwHost":"192.168.50.66","n":6,"model":"DLR-90F","kw":2.2}' },
-  { name: 'hvac_1f_roadshow_1',    category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '1F', zone: 'roadshow_1',         address: '{"gwHost":"192.168.50.66","n":7,"model":"DLR-100F","kw":2.2}' },
-  { name: 'hvac_1f_roadshow_2',    category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '1F', zone: 'roadshow_2',         address: '{"gwHost":"192.168.50.66","n":8,"model":"DLR-112F","kw":2.2}' },
-  { name: 'hvac_1f_showcase',      category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '1F', zone: 'enterprise_showcase',address: '{"gwHost":"192.168.50.66","n":9,"model":"DLR-125F","kw":2.2}' },
-  // 2F (网关 192.168.50.67, n=0..11)
-  { name: 'hvac_2f_group_mgmt',    category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'group_mgmt',         address: '{"gwHost":"192.168.50.67","n":0,"model":"DLR-90F","kw":2.2}'  },
-  { name: 'hvac_2f_decision',      category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'decision_center',    address: '{"gwHost":"192.168.50.67","n":1,"model":"DLR-90F","kw":2.2}'  },
-  { name: 'hvac_2f_meeting',       category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'meeting_room',       address: '{"gwHost":"192.168.50.67","n":2,"model":"DLR-90F","kw":2.2}'  },
-  { name: 'hvac_2f_shared_1',      category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'shared_office_1',    address: '{"gwHost":"192.168.50.67","n":3,"model":"DLR-90F","kw":2.2}'  },
-  { name: 'hvac_2f_shared_2',      category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'shared_office_2',    address: '{"gwHost":"192.168.50.67","n":4,"model":"DLR-90F","kw":2.2}'  },
-  { name: 'hvac_2f_service_1',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'service_center_1',   address: '{"gwHost":"192.168.50.67","n":5,"model":"DLR-90F","kw":2.2}'  },
-  { name: 'hvac_2f_service_2',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'service_center_2',   address: '{"gwHost":"192.168.50.67","n":6,"model":"DLR-90F","kw":2.2}'  },
-  { name: 'hvac_2f_command_1',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'command_center_1',   address: '{"gwHost":"192.168.50.67","n":7,"model":"DLR-90F","kw":2.2}'  },
-  { name: 'hvac_2f_command_2',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'command_center_2',   address: '{"gwHost":"192.168.50.67","n":8,"model":"DLR-90F","kw":2.2}'  },
-  { name: 'hvac_2f_lobby_1',       category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'lobby_1',            address: '{"gwHost":"192.168.50.67","n":9,"model":"DLR-100F","kw":2.2}' },
-  { name: 'hvac_2f_lobby_2',       category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'lobby_2',            address: '{"gwHost":"192.168.50.67","n":10,"model":"DLR-100F","kw":2.2}' },
-  { name: 'hvac_2f_research',      category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'research_center',    address: '{"gwHost":"192.168.50.67","n":11,"model":"DLR-100F","kw":2.2}' },
+  // 1F (网关 192.168.50.66, n=1..10)
+  { name: 'hvac_1f_exhibit_1',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '1F', zone: 'enterprise_booth_1', address: '{"gwHost":"192.168.50.66","n":1,"model":"DLR-63F","kw":1.8}' },
+  { name: 'hvac_1f_exhibit_2',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '1F', zone: 'enterprise_booth_2', address: '{"gwHost":"192.168.50.66","n":2,"model":"DLR-63F","kw":1.8}' },
+  { name: 'hvac_1f_exhibit_3',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '1F', zone: 'enterprise_booth_3', address: '{"gwHost":"192.168.50.66","n":3,"model":"DLR-63F","kw":1.8}' },
+  { name: 'hvac_1f_livestream',    category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '1F', zone: 'livestream',         address: '{"gwHost":"192.168.50.66","n":4,"model":"DLR-71F","kw":2.0}' },
+  { name: 'hvac_1f_trade_1',       category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '1F', zone: 'foreign_trade_1',    address: '{"gwHost":"192.168.50.66","n":5,"model":"DLR-71F","kw":2.0}' },
+  { name: 'hvac_1f_trade_2',       category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '1F', zone: 'foreign_trade_2',    address: '{"gwHost":"192.168.50.66","n":6,"model":"DLR-80F","kw":2.0}' },
+  { name: 'hvac_1f_park_display',  category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '1F', zone: 'park_display',       address: '{"gwHost":"192.168.50.66","n":7,"model":"DLR-90F","kw":2.2}' },
+  { name: 'hvac_1f_roadshow_1',    category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '1F', zone: 'roadshow_1',         address: '{"gwHost":"192.168.50.66","n":8,"model":"DLR-100F","kw":2.2}' },
+  { name: 'hvac_1f_roadshow_2',    category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '1F', zone: 'roadshow_2',         address: '{"gwHost":"192.168.50.66","n":9,"model":"DLR-112F","kw":2.2}' },
+  { name: 'hvac_1f_showcase',      category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '1F', zone: 'enterprise_showcase',address: '{"gwHost":"192.168.50.66","n":10,"model":"DLR-125F","kw":2.2}' },
+  // 2F (网关 192.168.50.67, n=1..12)
+  { name: 'hvac_2f_group_mgmt',    category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'group_mgmt',         address: '{"gwHost":"192.168.50.67","n":1,"model":"DLR-90F","kw":2.2}'  },
+  { name: 'hvac_2f_decision',      category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'decision_center',    address: '{"gwHost":"192.168.50.67","n":2,"model":"DLR-90F","kw":2.2}'  },
+  { name: 'hvac_2f_meeting',       category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'meeting_room',       address: '{"gwHost":"192.168.50.67","n":3,"model":"DLR-90F","kw":2.2}'  },
+  { name: 'hvac_2f_shared_1',      category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'shared_office_1',    address: '{"gwHost":"192.168.50.67","n":4,"model":"DLR-90F","kw":2.2}'  },
+  { name: 'hvac_2f_shared_2',      category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'shared_office_2',    address: '{"gwHost":"192.168.50.67","n":5,"model":"DLR-90F","kw":2.2}'  },
+  { name: 'hvac_2f_service_1',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'service_center_1',   address: '{"gwHost":"192.168.50.67","n":6,"model":"DLR-90F","kw":2.2}'  },
+  { name: 'hvac_2f_service_2',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'service_center_2',   address: '{"gwHost":"192.168.50.67","n":7,"model":"DLR-90F","kw":2.2}'  },
+  { name: 'hvac_2f_command_1',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'command_center_1',   address: '{"gwHost":"192.168.50.67","n":8,"model":"DLR-90F","kw":2.2}'  },
+  { name: 'hvac_2f_command_2',     category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'command_center_2',   address: '{"gwHost":"192.168.50.67","n":9,"model":"DLR-90F","kw":2.2}'  },
+  { name: 'hvac_2f_lobby_1',       category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'lobby_1',            address: '{"gwHost":"192.168.50.67","n":10,"model":"DLR-100F","kw":2.2}' },
+  { name: 'hvac_2f_lobby_2',       category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'lobby_2',            address: '{"gwHost":"192.168.50.67","n":11,"model":"DLR-100F","kw":2.2}' },
+  { name: 'hvac_2f_research',      category: 'hvac', protocol: 'modbus-tcp', adapter: 'zhonghong-mbt', floor: '2F', zone: 'research_center',    address: '{"gwHost":"192.168.50.67","n":12,"model":"DLR-100F","kw":2.2}' },
 ];
 
 // ============ 场景动作种子 ============
@@ -840,7 +840,7 @@ export class SeedService {
         floor: '1F',
         location: '1F 弱电机柜',
         addressing: JSON.stringify({ slaveId: 1, port: 502, maxIndoor: 64, protocol: 'MODBUS-TCP (MBT v3.2)', auxBrandCode: 15 }),
-        remark: '直接接交换机 (RJ45 + Modbus TCP), 不需要 USR-TCP232. 挂 1F 外机, 10 内机 (n=0..9). 单价 ~¥1,200',
+        remark: '直接接交换机 (RJ45 + Modbus TCP), 不需要 USR-TCP232. 挂 1F 外机, 10 内机 (n=1..10). 单价 ~¥1,200',
       },
       {
         code: 'HVAC-GW-2F',
@@ -853,7 +853,7 @@ export class SeedService {
         floor: '2F',
         location: '2F 公共电箱 F201 或 1F 主控室 (二选一, XYE 总线就近)',
         addressing: JSON.stringify({ slaveId: 1, port: 502, maxIndoor: 64, protocol: 'MODBUS-TCP (MBT v3.2)', auxBrandCode: 15 }),
-        remark: '挂 2F 外机, 12 内机 (n=0..11). 跟 1F 网关同型号, 不同 IP',
+        remark: '挂 2F 外机, 12 内机 (n=1..12). 跟 1F 网关同型号, 不同 IP',
       },
       // ---- 控制平板 ----
       {
