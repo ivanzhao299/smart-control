@@ -32,6 +32,8 @@ export class RealAudioAdapter extends BaseAdapter {
 
   private readonly http: HttpClient;
   private readonly endpoint: string;
+  /** 是否已注册进 registry (惰性, 见 ensureRegistered) */
+  private registered = false;
   private readonly defaultZone: AudioZone;
   private readonly timeoutMs: number;
   private readonly retries: number;
@@ -55,7 +57,17 @@ export class RealAudioAdapter extends BaseAdapter {
       retries: this.retries,
       authHeader: process.env.AUDIO_API_KEY ? `Bearer ${process.env.AUDIO_API_KEY}` : undefined,
     });
-    if (!this.isMock()) this.registry.register(GATEWAY_KEY, this.endpoint);
+    // 构造时不注册 gateway: 本适配器只在 AUDIO_VENDOR 明确选它时才被 AudioAdapter 调用,
+    // 现场默认是 takstar-ekx808 (EkxDspAdapter). 以前在这里无条件 register, 结果 registry
+    // 里常驻一个永远连不上的幽灵网关 (audio-dsp -> 一台并不存在的设备), 健康检查一直报离线.
+    // 改成惰性: 真被调用时 (ensureRegistered) 才注册.
+  }
+
+  /** 惰性注册 — 只有本适配器真被使用时才进 registry, 避免未启用却报离线 */
+  private ensureRegistered(): void {
+    if (this.isMock() || this.registered) return;
+    this.registry.register(GATEWAY_KEY, this.endpoint);
+    this.registered = true;
   }
 
   private zoneFor(deviceId: string, params: { zone?: AudioZone } = {}): AudioZone {
@@ -70,6 +82,7 @@ export class RealAudioAdapter extends BaseAdapter {
   }
 
   async ping(ctx?: AdapterContext): Promise<void> {
+    this.ensureRegistered();
     try {
       await this.http.request({ method: 'GET', path: '/api/health' }, ctx?.signal);
       this.registry.markOnline(GATEWAY_KEY);

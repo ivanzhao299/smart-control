@@ -43,6 +43,8 @@ export class RealDaliAdapter extends BaseAdapter {
 
   private readonly http: HttpClient;
   private readonly endpoint: string;
+  /** 是否已注册进 registry (惰性, 见 ensureRegistered) */
+  private registered = false;
   private readonly daliConfig: {
     host: string;
     port: number;
@@ -75,10 +77,21 @@ export class RealDaliAdapter extends BaseAdapter {
       retries: cfg.retries,
       authHeader: cfg.apiKey ? `Bearer ${cfg.apiKey}` : undefined,
     });
-    if (!this.isMock()) this.registry.register(GATEWAY_KEY, this.endpoint);
+    // 构造时不注册 gateway: 本适配器 (通用 HTTP REST DALI 网关) 只在 LIGHTING_DRIVER 明确
+    // 选它时才被 LightingAdapter 调用, 现场用的是 CyDali64aAdapter (Modbus RTU-over-TCP).
+    // 以前在这里无条件 register, 结果 registry 常驻 'lighting-dali-gateway' 幽灵 (走 HTTP 80,
+    // 现场那台是串口服务器, 根本没这个 HTTP 接口), 健康检查一直报离线. 改成惰性注册.
+  }
+
+  /** 惰性注册 — 只有本适配器真被使用时才进 registry, 避免未启用却报离线 */
+  private ensureRegistered(): void {
+    if (this.isMock() || this.registered) return;
+    this.registry.register(GATEWAY_KEY, this.endpoint);
+    this.registered = true;
   }
 
   async ping(ctx?: AdapterContext): Promise<void> {
+    this.ensureRegistered();
     try {
       await this.http.request({ method: 'GET', path: '/health' }, ctx?.signal);
       this.registry.markOnline(GATEWAY_KEY);
