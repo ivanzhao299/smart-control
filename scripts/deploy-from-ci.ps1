@@ -57,19 +57,13 @@ function Restart-Services {
   #  见 boot-pm2.ps1)。旧的 Start-ScheduledTask 逻辑在这套架构下必挂: 前端任务
   # 被禁用会抛错, 后端任务只是引导脚本不代表能重启已在跑的 node 进程。
   #
-  # ⚠️ 不能靠 $env:APPDATA 拼 pm2 路径: CI 的双跳非交互 SSH 会话里它是**空的**
-  # (2026-07-16 实测, Join-Path $null → Test-Path $null 直接抛错)。用固定已知安装
-  # 位置, 再退到 PATH。同理显式给 PM2_HOME —— 否则那个会话里 pm2 可能找不到既有
-  # daemon 而在错误位置另起一个 (孤儿)。GK9000 是固定单机 (user 'user'), 硬编码
-  # 兜底路径可接受。
-  $userHome = if ($env:USERPROFILE) { $env:USERPROFILE } else { 'C:\Users\user' }
-  $candidates = @()
-  if ($env:APPDATA) { $candidates += (Join-Path $env:APPDATA 'npm\pm2.cmd') }
-  $candidates += (Join-Path $userHome 'AppData\Roaming\npm\pm2.cmd')
-  $candidates += 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
-  $pm2 = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
-  if (-not $pm2) { $pm2 = 'pm2' }
-  if (-not $env:PM2_HOME) { $env:PM2_HOME = Join-Path $userHome '.pm2' }
+  # ⚠️ CI 的双跳非交互 SSH 会话里 $env:APPDATA **和** $env:USERPROFILE 都是空的
+  # (2026-07-16 端到端实测: 先 APPDATA 空, 补 USERPROFILE 后它也空)。跟环境变量
+  # 较劲是错的方向 —— GK9000 是固定单机 (user 'user'), 直接用字面绝对路径, 彻底
+  # 不依赖任何 env。PM2_HOME 也用字面量, 否则 pm2 找不到既有 daemon 会另起孤儿。
+  $pm2 = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
+  if (-not (Test-Path $pm2)) { $pm2 = 'pm2' }  # 万一改过安装位置, 退回 PATH
+  $env:PM2_HOME = 'C:\Users\user\.pm2'
   Write-DeployLog "pm2 = $pm2 ; PM2_HOME = $env:PM2_HOME"
   Invoke-Native $pm2 @('restart', 'smart-control-backend', 'smart-control-frontend', '--update-env')
   Invoke-Native $pm2 @('save')

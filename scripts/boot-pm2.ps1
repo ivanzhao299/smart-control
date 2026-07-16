@@ -24,16 +24,11 @@ function Log($m) { "$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')) $m" | Out-File
 
 Log '[boot] start'
 
-# pm2 路径别只靠 $env:APPDATA (某些非交互会话里为空 → Join-Path $null 抛错).
-# 固定已知安装位置兜底; PM2_HOME 也显式给, 免得另起孤儿 daemon.
-$userHome = if ($env:USERPROFILE) { $env:USERPROFILE } else { 'C:\Users\user' }
-$pm2Candidates = @()
-if ($env:APPDATA) { $pm2Candidates += (Join-Path $env:APPDATA 'npm\pm2.cmd') }
-$pm2Candidates += (Join-Path $userHome 'AppData\Roaming\npm\pm2.cmd')
-$pm2Candidates += 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
-$pm2 = $pm2Candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
-if (-not $pm2) { $pm2 = 'pm2' }  # 退回 PATH
-if (-not $env:PM2_HOME) { $env:PM2_HOME = Join-Path $userHome '.pm2' }
+# pm2 / PM2_HOME 用字面绝对路径, 不碰 env —— 非交互会话里 APPDATA/USERPROFILE
+# 都可能为空 (见 deploy-from-ci.ps1 的说明)。GK9000 固定单机 (user 'user')。
+$pm2 = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
+if (-not (Test-Path $pm2)) { $pm2 = 'pm2' }  # 退回 PATH
+$env:PM2_HOME = 'C:\Users\user\.pm2'
 Log "[boot] pm2 = $pm2 ; PM2_HOME = $env:PM2_HOME"
 
 # 端口已经有人监听 = 服务已在跑 (人工起过 / 上一次没退干净), 别再 resurrect 叠一层
