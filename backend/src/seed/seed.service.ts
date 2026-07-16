@@ -388,6 +388,8 @@ export class SeedService {
    * 组的分布是**实测**的 (2026-07-16 扫两台网关的组亮度寄存器, 全部 254 亮着):
    *   网关2 (拨码2): 组 1, 2, 3
    *   网关1 (拨码1): 组 5, 6, 7, 8, 9, 10, 11
+   * 共 10 组。业主说"11 组灯", 差的那组扫不到 —— 可能是组 4 (两台都没读到) 或某组
+   * 当时不在线。现场核对: 缺的组补一条 light_group 记录即可, 前端能直接归区。
    * 注意组号在两台网关间会重复, 所以唯一键必须是 (gatewayCode, daliGroup).
    *
    * ⚠️ 组→分区的归属是**占位猜测**, 不是实测: 网关的 Modbus 寄存器表里没有"组成员"
@@ -638,26 +640,31 @@ export class SeedService {
       },
       {
         code: 'GW-DALI-1',
-        name: 'DALI 网关 #1 (1F)',
+        name: 'DALI 网关 #1',
         category: 'dali-gateway',
         vendor: '元创智控',
         model: 'CY-DALI64A',
         floor: '1F',
-        location: '1F 弱电机柜',
-        // addressing.groups: 这台网关负责的 DALI 组号清单, adapter 按 zone → slaveId 路由
-        addressing: JSON.stringify({ slaveId: 1, baud: 9600, frameIntervalMs: 200, groups: [1, 2, 3, 4, 5, 6, 7] }),
-        remark: 'DALI 总线 16V/250mA, 拨码盘地址 1, RS485 控制串口接 CONV-RTU-1. 负责 1F 分区 (group 1-7).',
+        location: '弱电机柜',
+        // addressing.groups: 这台网关上**实测**存在的 DALI 组 (2026-07-16 扫组亮度寄存器).
+        // 只给 health probe / 老 setZoneBrightness 用; 分区下发已改成显式带 slaveId
+        // 的 setBrightnessOnGateway, 不走这张表 —— 组号在两台网关间会重复, 一张
+        // 全局 group→slave 表本来就表达不了.
+        addressing: JSON.stringify({ slaveId: 1, baud: 9600, frameIntervalMs: 200, groups: [5, 6, 7, 8, 9, 10, 11] }),
+        remark: 'DALI 总线 16V/250mA, 拨码盘地址 1, RS485 控制串口接 CONV-RTU-1. 实测组 5-11.',
       },
       {
         code: 'GW-DALI-2',
-        name: 'DALI 网关 #2 (2F)',
+        name: 'DALI 网关 #2',
         category: 'dali-gateway',
         vendor: '元创智控',
         model: 'CY-DALI64A',
-        floor: '2F',
-        location: '2F 弱电机柜',
-        addressing: JSON.stringify({ slaveId: 2, baud: 9600, frameIntervalMs: 200, groups: [8, 9, 10, 11, 12] }),
-        remark: '2 楼增配 — 1F 那台带不动全栋 12 组, 2F 走独立总线. 拨码盘地址 2, 跟 #1 共用 CONV-RTU-1 RS485 串口. 负责 2F 分区 (group 8-12).',
+        // 2026-07-16: 全馆只剩一层, 这台不再是"2F 那台". 跟 #1 同层、共用 RS485,
+        // 靠拨码盘地址 (slaveId 1/2) 区分. 具体机柜位置现场核实.
+        floor: '1F',
+        location: '弱电机柜',
+        addressing: JSON.stringify({ slaveId: 2, baud: 9600, frameIntervalMs: 200, groups: [1, 2, 3] }),
+        remark: '拨码盘地址 2, 跟 #1 共用 CONV-RTU-1 RS485 串口. 实测组 1-3.',
       },
       // ==================== DALI 调光设备 (按《金湖照明灯具明细 v3》2026-05-21 重新选型) ====================
       // 方案 B: 灯带走 MEANWELL HLG 恒压 DALI 电源, 灯具走 0-10V (DALI 转换器 LT-84A)
