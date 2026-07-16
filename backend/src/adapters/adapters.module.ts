@@ -18,6 +18,7 @@ import { HvacAdapter } from './hvac/hvac.adapter';
 import { MockHvacAdapter } from './hvac/mock-hvac.adapter';
 import { ModbusHvacAdapter } from './hvac/modbus-hvac.adapter';
 import { PowerAdapter } from './power/power.adapter';
+import { Epo802pAdapter } from './power/epo802p.adapter';
 import { ServicesPrimitivesModule } from '../services/services-primitives.module';
 
 const PROVIDERS = [
@@ -42,6 +43,7 @@ const PROVIDERS = [
   HvacAdapter,
   // Power
   PowerAdapter,
+  Epo802pAdapter,
 ];
 
 @Module({

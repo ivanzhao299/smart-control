@@ -9,6 +9,7 @@ import { CyDali64aAdapter } from '../../adapters/lighting/cy-dali64a.adapter';
 import { NovaLedAdapter } from '../../adapters/led/nova-led.adapter';
 import { EkxDspAdapter } from '../../adapters/audio/ekx808.adapter';
 import { ModbusHvacAdapter } from '../../adapters/hvac/modbus-hvac.adapter';
+import { Epo802pAdapter } from '../../adapters/power/epo802p.adapter';
 
 /**
  * 启动时把代码里所有 adapter 的 describe() 上报到 driver_template 表 (upsert by kind, builtin=true).
@@ -29,6 +30,7 @@ export class DriverRegistryService implements OnModuleInit {
     () => NovaLedAdapter.describe(),
     () => EkxDspAdapter.describe(),
     () => ModbusHvacAdapter.describe(),
+    () => Epo802pAdapter.describe(),
   ];
 
   async onModuleInit(): Promise<void> {

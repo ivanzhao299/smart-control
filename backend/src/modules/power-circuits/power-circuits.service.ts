@@ -11,6 +11,8 @@ import { Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { PowerCircuit } from '../../entities/power-circuit.entity';
 import { PowerAdapter, PowerReading } from '../../adapters/power/power.adapter';
+import { Epo802pAdapter } from '../../adapters/power/epo802p.adapter';
+import { HardwareUnit } from '../../entities/hardware-unit.entity';
 
 export interface PowerCircuitView {
   id: number;
@@ -83,7 +85,10 @@ const SEED_CIRCUITS: Array<Omit<PowerCircuitUpsertDto, 'enabled'> & { enabled?: 
 export class PowerCircuitsService implements OnModuleInit {
   constructor(
     @InjectRepository(PowerCircuit) private readonly repo: Repository<PowerCircuit>,
+    @InjectRepository(HardwareUnit) private readonly hwRepo: Repository<HardwareUnit>,
     private readonly adapter: PowerAdapter,
+    /** 电源时序器真机 — 挂在它上面的回路走真设备, 其余走 mock */
+    private readonly epo: Epo802pAdapter,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
@@ -194,19 +199,44 @@ export class PowerCircuitsService implements OnModuleInit {
 
   /** 通电 — 走 adapter, 然后返回最新读数 */
   async turnOn(id: number): Promise<PowerCircuitView> {
-    const row = await this.repo.findOne({ where: { id } });
-    if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
-    if (!row.enabled) throw new ConflictException(`circuit ${row.name} 已禁用`);
-    await this.adapter.circuitTurnOn(id);
-    return this.toView(row);
+    return this.switchCircuit(id, true);
   }
 
   async turnOff(id: number): Promise<PowerCircuitView> {
+    return this.switchCircuit(id, false);
+  }
+
+  /**
+   * 回路通断 — 挂在电源时序器上的回路打真设备, 其余仍走 mock.
+   *
+   * 判断依据: hardware_unit 里 gatewayCode 对应那台的 category='audio-power'
+   * (EPO-802P), relayChannel 就是它的 1-8 路。这样接了真设备的回路立刻生效,
+   * 没接的 (RELAY-1F-1 之类还没到货的继电器) 保持原样, 不会报错。
+   */
+  private async switchCircuit(id: number, on: boolean): Promise<PowerCircuitView> {
     const row = await this.repo.findOne({ where: { id } });
     if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
     if (!row.enabled) throw new ConflictException(`circuit ${row.name} 已禁用`);
-    await this.adapter.circuitTurnOff(id);
+
+    if (await this.isSequencerCircuit(row)) {
+      await this.epo.setChannel(row.relayChannel as number, on);
+    }
+    // mock adapter 仍要跑: 它维护 PowerPage 用的电量/读数状态
+    if (on) await this.adapter.circuitTurnOn(id);
+    else await this.adapter.circuitTurnOff(id);
+
     return this.toView(row);
+  }
+
+  /** 这条回路是不是挂在 EPO-802P 时序器上 */
+  private async isSequencerCircuit(row: PowerCircuit): Promise<boolean> {
+    if (!row.gatewayCode || !row.relayChannel) return false;
+    try {
+      const hw = await this.hwRepo.findOne({ where: { code: row.gatewayCode } });
+      return hw?.category === 'audio-power' && hw.enabled;
+    } catch {
+      return false;
+    }
   }
 
   // ============ 内部 ============
