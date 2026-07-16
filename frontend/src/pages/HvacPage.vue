@@ -158,10 +158,19 @@ const visibleIndoors = computed(() =>
 );
 
 /** 当前楼层下的组 + "未分组" 兜底 (未分组不是错误, 是编组过程中的正常状态) */
-const visibleZones = computed(() => {
-  const zs = floorTab.value === 'all' ? zones.value : zones.value.filter((z) => z.floor === floorTab.value);
-  return zs.filter((z) => visibleIndoors.value.some((i) => i.zoneCode === z.code));
-});
+/**
+ * 快选条上显示哪些分区.
+ *
+ * ⚠️ 这里**不能**过滤掉空分区 (2026-07-16 业主报"新建编组后没保存"的真因):
+ * 原来是 `zs.filter(z => 有内机属于它)` —— 新建的分区一台内机都没有, 于是刚建完
+ * 就被过滤掉、界面上根本不出现, 看着就像没存 (其实后端存得好好的)。更糟的是这
+ * 构成死锁: 要往组里放内机得先点那个组, 而组因为空又不显示 -> 永远放不进去。
+ *
+ * 现在: 空分区照常显示 (数量标 0), 这样才点得到、才能往里放内机。
+ */
+const visibleZones = computed(() =>
+  floorTab.value === 'all' ? zones.value : zones.value.filter((z) => z.floor === floorTab.value),
+);
 const ungroupedCount = computed(() => visibleIndoors.value.filter((i) => !i.zoneCode).length);
 
 const zoneNameOf = computed(() => {
@@ -216,20 +225,50 @@ function toggleOne(idx: number): void {
   if (s.has(idx)) s.delete(idx); else s.add(idx);
   selected.value = s;
 }
-function selectAll(): void { selected.value = new Set(visibleIndoors.value.map((i) => i.idx)); }
+/**
+ * 快选一律是**切换**, 不是覆盖 (2026-07-16 业主: "对内机全选状态没有反选功能").
+ *
+ * 原来 selectAll/selectZone 都是无条件 `selected = 这一组`, 再点一次结果不变 ——
+ * 全选之后没有任何办法取消, 只能一台台点掉。现在: 该组已经全选中就取消掉它们,
+ * 否则并入选中集合。并入而不是覆盖, 这样"前厅 + 会议室"可以叠加选。
+ */
+function toggleMany(idxs: number[]): void {
+  if (idxs.length === 0) return;
+  const s = new Set(selected.value);
+  const allOn = idxs.every((i) => s.has(i));
+  for (const i of idxs) {
+    if (allOn) s.delete(i); else s.add(i);
+  }
+  selected.value = s;
+}
+function selectAll(): void { toggleMany(visibleIndoors.value.map((i) => i.idx)); }
 function selectNone(): void { selected.value = new Set(); }
+/** 反选: 当前可见范围内, 选中的变未选、未选的变选中 */
+function invertSelection(): void {
+  const s = new Set<number>();
+  for (const i of visibleIndoors.value) {
+    if (!selected.value.has(i.idx)) s.add(i.idx);
+  }
+  // 可见范围外的选中项保持不动, 免得切了楼层 tab 就把别处的选择清掉
+  for (const idx of selected.value) {
+    if (!visibleIndoors.value.some((i) => i.idx === idx)) s.add(idx);
+  }
+  selected.value = s;
+}
 function selectFloor(f: '1F' | '2F'): void {
-  selected.value = new Set(indoors.value.filter((i) => i.floor === f).map((i) => i.idx));
+  toggleMany(indoors.value.filter((i) => i.floor === f).map((i) => i.idx));
 }
 function selectZone(code: string | null): void {
-  selected.value = new Set(
-    visibleIndoors.value.filter((i) => i.zoneCode === code).map((i) => i.idx),
-  );
+  toggleMany(visibleIndoors.value.filter((i) => i.zoneCode === code).map((i) => i.idx));
 }
 function isZoneSelected(code: string | null): boolean {
   const members = visibleIndoors.value.filter((i) => i.zoneCode === code).map((i) => i.idx);
   return members.length > 0 && members.every((m) => selected.value.has(m));
 }
+/** 可见内机是否已全选 —— 给"全部"按钮显示选中态用 */
+const allSelected = computed(() =>
+  visibleIndoors.value.length > 0 && visibleIndoors.value.every((i) => selected.value.has(i.idx)),
+);
 
 // ============ 控制 (统一走 batch, 乐观更新 + 失败回滚) ============
 
@@ -446,9 +485,12 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
     <!-- ===== 快选条 ===== -->
     <div class="hv-quick">
       <span class="hv-quick-label">快选</span>
-      <button class="hv-chip" @click="selectAll">全部 {{ visibleIndoors.length }}</button>
+      <button class="hv-chip" :class="{ on: allSelected }" @click="selectAll">
+        全部 {{ visibleIndoors.length }}
+      </button>
       <button v-if="floorTab === 'all'" class="hv-chip" @click="selectFloor('1F')">一楼</button>
       <button v-if="floorTab === 'all'" class="hv-chip" @click="selectFloor('2F')">二楼</button>
+      <button class="hv-chip" title="选中的变未选, 未选的变选中" @click="invertSelection">反选</button>
       <span class="hv-quick-sep" />
       <template v-for="z in visibleZones" :key="z.code">
         <input
