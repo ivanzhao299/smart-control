@@ -30,10 +30,11 @@ $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
   -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File $scriptPath"
 
 # At logon (immediate when user signs in) + a repeating backstop every 5 min.
+# The backstop covers "boot-pm2 failed once, retry" and is safe because the
+# script is idempotent. RepetitionDuration must be finite for the scheduler.
 $atLogon = New-ScheduledTaskTrigger -AtLogOn -User $user
-$repeat = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1)
-$repeat.Repetition = (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
-  -RepetitionInterval (New-TimeSpan -Minutes 5)).Repetition
+$repeat = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
+  -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
 
 # Interactive: runs in the user's session (no stored password needed), only when
 # logged on -- which is the required state for this kiosk machine anyway.
@@ -42,7 +43,12 @@ $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -Ru
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries `
   -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
 
-Set-ScheduledTask -TaskName $taskName -Action $action -Trigger @($atLogon, $repeat) `
+# Register-ScheduledTask (unregister first) sets principal + triggers + action
+# atomically -- Set-ScheduledTask choked on the multi-trigger + principal combo.
+if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
+  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+}
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger @($atLogon, $repeat) `
   -Principal $principal -Settings $settings | Out-Null
 
 Write-Output "Reconfigured '$taskName' to run boot-pm2.ps1 as '$user' (AtLogon + 5-min backstop)."
