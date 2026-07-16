@@ -111,17 +111,13 @@ function Start-Slot {
     '--disable-features=TranslateUI,AutofillServerCommunication',
     '--autoplay-policy=no-user-gesture-required',
     '--disable-pinch',
-    '--disable-restore-session-state',
-    # PlayerPage calls setSinkId to push slot1/2 audio out the HDMI endpoint
-    # (-> splitter -> matrix IN4 -> OUT5 -> LED amp) instead of the Windows
-    # default device (the USB sound card, wired to IN1, which OUT5 does not
-    # listen to). enumerateDevices() only returns device LABELS once mic
-    # permission is granted, and without labels the page cannot tell which
-    # endpoint is HDMI. This flag auto-accepts that permission prompt.
-    # NOTE: --use-fake-UI-for-media-stream only auto-accepts the prompt; it
-    # still uses the REAL devices (--use-fake-DEVICE-for-media-stream would
-    # substitute fake ones -- do not add that).
-    '--use-fake-ui-for-media-stream'
+    '--disable-restore-session-state'
+    # NOTE: do NOT add --use-fake-ui-for-media-stream here. PlayerPage needs
+    # microphone permission so enumerateDevices() exposes device LABELS (that is
+    # how it finds the HDMI endpoint for setSinkId). That flag grants it, but
+    # Edge then paints a yellow "unsupported command-line flag" infobar across
+    # the top of the LED wall. The permission is granted by the
+    # AudioCaptureAllowedUrls policy instead -- see scripts/setup-edge-policy.ps1.
   )
   Write-Host ("Start slot=" + $N + " @ " + $url + " (pos " + $X + "," + $Y + ")") -ForegroundColor Cyan
   Start-Process -FilePath $browser -ArgumentList $chromeArgs -WindowStyle Normal
