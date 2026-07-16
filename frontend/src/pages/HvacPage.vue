@@ -523,7 +523,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
         <div class="cell-body">
           <span v-if="!row.state.known" class="cell-unknown">未读到状态</span>
           <template v-else-if="row.state.on">
-            <span class="cell-temp">{{ row.state.temperature }}<i>°C</i></span>
+            <span class="cell-temp" :class="'m-' + row.state.mode">{{ row.state.temperature }}<i>°C</i></span>
             <span v-if="row.state.roomTemp !== undefined" class="cell-room" title="实测室温">
               室温 {{ row.state.roomTemp }}°
             </span>
@@ -536,7 +536,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 
         <div class="cell-foot">
           <span v-if="!row.state.known" class="cell-mode dim">—</span>
-          <span v-else class="cell-mode" :class="{ dim: !row.state.on }">
+          <span v-else class="cell-mode" :class="row.state.on ? 'm-' + row.state.mode : 'dim'">
             <component :is="modeIcon(row.state.mode)" :size="15" /> {{ modeLabel(row.state.mode) }}
             <i class="cell-fan">· {{ fanLabel(row.state.fan) }}</i>
           </span>
@@ -622,10 +622,29 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 }
 
 /* ---- 顶栏 ---- */
-.hv-head { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+.hv-head { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; }
 .hv-title {
   display: flex; align-items: center; gap: 6px;
-  font-size: 17px; font-weight: 600; color: var(--v2-text, #e8eef7); white-space: nowrap;
+  font-size: 18px; font-weight: 600; color: var(--v2-text, #e8eef7); white-space: nowrap;
+}
+
+/* 楼层切换 —— 分段控件 (原来没定义, 吃的是浏览器默认按钮 = "80 年代按钮") */
+.v2-tabs {
+  display: inline-flex; gap: 4px; padding: 4px; flex: 0 0 auto;
+  background: var(--v2-surface-2, #1b2534);
+  border: 1px solid var(--v2-border, #26344a);
+  border-radius: 12px;
+}
+.v2-tab {
+  padding: 9px 22px; border-radius: 9px; border: none; cursor: pointer;
+  font-size: 16px; font-weight: 500; line-height: 1;
+  background: transparent; color: var(--v2-text-dim, #8fa3bd);
+  transition: background .15s, color .15s;
+}
+.v2-tab:hover { color: var(--v2-text, #e8eef7); background: #26344a; }
+.v2-tab.active {
+  background: var(--v2-accent, #4da3ff); color: #04101d; font-weight: 700;
+  box-shadow: 0 2px 10px #4da3ff55;
 }
 .hv-stats {
   display: flex; align-items: center; gap: 14px; margin-left: auto;
@@ -692,7 +711,12 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   transition: border-color .12s, background .12s, box-shadow .12s;
 }
 .hv-cell:hover { border-color: #3f5a80; }
-.hv-cell.running { background: linear-gradient(160deg, #12324d, #141c28); }
+/* 运行卡片: 有色底 + 左侧彩条, 关机卡片纯深灰 —— 开关机一眼可辨 */
+.hv-cell.running {
+  background: linear-gradient(160deg, #123049, #141c28);
+  border-color: #2b4a63;
+  box-shadow: inset 3px 0 0 #38a9e0;
+}
 /* 未知: 斜纹底 + 虚线框 —— 一眼跟"关机"区分开, 不靠颜色深浅 */
 .hv-cell.unknown {
   border-style: dashed;
@@ -751,11 +775,21 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   flex: 1 1 auto; min-height: 0;
   display: flex; flex-direction: column; justify-content: center; gap: 4px;
 }
-.cell-temp { font-size: 46px; font-weight: 300; color: #eaf2ff; line-height: 1; letter-spacing: -1px; }
+.cell-temp { font-size: 46px; font-weight: 400; color: #eaf2ff; line-height: 1; letter-spacing: -1px; }
 .cell-temp i { font-size: 20px; font-style: normal; opacity: .6; margin-left: 2px; }
 .cell-room { font-size: 15px; color: #8ba0bd; }
+/* 关机灰、运行彩 —— 灰/彩对比让开关机一眼可辨 */
 .cell-off { font-size: 30px; font-weight: 300; color: #5b6b83; line-height: 1; }
 .cell-unknown { font-size: 20px; color: #6d7f98; font-style: italic; }
+
+/* 温度 / 模式标签按空调模式配色 */
+.cell-temp.m-cool, .cell-mode.m-cool { color: #38d6ff; }   /* 制冷 冰蓝 */
+.cell-temp.m-heat, .cell-mode.m-heat { color: #ff8a4d; }   /* 制热 暖橙 */
+.cell-temp.m-fan,  .cell-mode.m-fan  { color: #4ce0be; }   /* 送风 青绿 */
+.cell-temp.m-auto, .cell-mode.m-auto { color: #7db6ff; }   /* 自动 蓝 */
+.cell-temp.m-dry,  .cell-mode.m-dry  { color: #9d8bff; }   /* 除湿 紫 */
+.cell-temp.m-cool { text-shadow: 0 0 20px #38d6ff44; }
+.cell-temp.m-heat { text-shadow: 0 0 20px #ff8a4d44; }
 
 /* ---- 底部: 模式/风速 + 分区 ---- */
 .cell-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
@@ -771,77 +805,87 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 }
 
 /* ---- 控制条 ---- */
+/* 控制条: 触摸屏用, 按钮做大做够点得着 (目标高度 ~48px) */
 .hv-bar {
   flex: 0 0 auto;
-  display: flex; align-items: center; gap: 14px;
-  padding: 9px 12px;
+  display: flex; align-items: center; gap: 16px;
+  padding: 12px 16px;
   background: var(--v2-surface, #141c28);
   border: 1px solid var(--v2-border, #26344a);
-  border-radius: 10px;
+  border-radius: 14px;
 }
 .hv-bar.empty { opacity: .62; }
 .bar-sel {
-  display: flex; align-items: baseline; gap: 6px; min-width: 210px; max-width: 300px;
-  font-size: 12px; color: var(--v2-text-dim, #8fa3bd);
+  display: flex; align-items: baseline; gap: 6px; min-width: 150px; max-width: 240px;
+  font-size: 14px; color: var(--v2-text-dim, #8fa3bd);
 }
-.bar-sel b { font-size: 15px; color: var(--v2-accent, #4da3ff); }
+.bar-sel b { font-size: 20px; color: var(--v2-accent, #4da3ff); }
 .bar-names {
-  font-size: 11px; color: #6d7f98;
+  font-size: 12px; color: #6d7f98;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.bar-ctrl, .bar-group { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; }
+.bar-ctrl, .bar-group { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; }
 .bar-group { flex-wrap: wrap; }
-.bar-hint { font-size: 12px; color: var(--v2-text-dim, #8fa3bd); }
+.bar-hint { font-size: 14px; color: var(--v2-text-dim, #8fa3bd); }
 .bar-state {
-  display: inline-flex; align-items: center; gap: 4px;
-  margin-left: auto; font-size: 12px; color: #35d07f;
+  display: inline-flex; align-items: center; gap: 5px;
+  margin-left: auto; font-size: 14px; color: #35d07f;
 }
 
 .bar-temp {
-  display: flex; align-items: center; gap: 8px;
-  padding: 3px 8px; border-radius: 8px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 5px 10px; border-radius: 12px;
   background: var(--v2-surface-2, #1b2534); border: 1px solid var(--v2-border, #26344a);
 }
 .temp-btn {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; border-radius: 6px; cursor: pointer;
-  background: #26344a; color: var(--v2-text, #e8eef7); border: none;
+  width: 44px; height: 44px; border-radius: 10px; cursor: pointer;
+  background: #2a3a52; color: var(--v2-text, #e8eef7); border: none;
 }
 .temp-btn:hover:not(:disabled) { background: var(--v2-accent, #4da3ff); color: #04101d; }
+.temp-btn:active:not(:disabled) { transform: scale(.94); }
 .temp-btn:disabled { opacity: .35; cursor: not-allowed; }
-.temp-val { font-size: 20px; font-weight: 300; min-width: 54px; text-align: center; color: var(--v2-text, #e8eef7); }
-.temp-val i { font-size: 11px; font-style: normal; opacity: .55; }
+.temp-val { font-size: 28px; font-weight: 400; min-width: 80px; text-align: center; color: var(--v2-text, #e8eef7); }
+.temp-val i { font-size: 15px; font-style: normal; opacity: .55; }
 
 .bar-seg {
-  display: flex; gap: 2px; padding: 2px; border-radius: 8px;
+  display: flex; gap: 3px; padding: 3px; border-radius: 12px;
   background: var(--v2-surface-2, #1b2534); border: 1px solid var(--v2-border, #26344a);
 }
 .seg {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 6px 10px; border-radius: 6px; cursor: pointer; border: none;
-  font-size: 12px; background: transparent; color: var(--v2-text-dim, #8fa3bd);
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 11px 16px; border-radius: 9px; cursor: pointer; border: none;
+  font-size: 15px; font-weight: 500; background: transparent; color: var(--v2-text-dim, #8fa3bd);
   white-space: nowrap;
 }
 .seg:hover:not(:disabled) { color: var(--v2-text, #e8eef7); background: #26344a; }
-.seg.on { background: var(--v2-accent, #4da3ff); color: #04101d; font-weight: 600; }
+.seg.on { background: var(--v2-accent, #4da3ff); color: #04101d; font-weight: 700; }
+.seg:active:not(:disabled) { transform: scale(.96); }
 .seg:disabled { opacity: .35; cursor: not-allowed; }
 
 /* ---- 按钮 ---- */
 .hv-btn {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 7px 13px; border-radius: 8px; cursor: pointer;
-  font-size: 13px; font-weight: 500; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 16px; border-radius: 10px; cursor: pointer;
+  font-size: 15px; font-weight: 500; white-space: nowrap;
   background: var(--v2-surface-2, #1b2534);
   border: 1px solid var(--v2-border, #26344a);
   color: var(--v2-text, #e8eef7);
 }
 .hv-btn:hover:not(:disabled) { border-color: var(--v2-accent, #4da3ff); }
+.hv-btn:active:not(:disabled) { transform: scale(.97); }
 .hv-btn:disabled { opacity: .35; cursor: not-allowed; }
 .hv-btn.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
 .hv-btn.danger { background: #3a2226; border-color: #6b2b32; color: #ff8f8f; }
 .hv-btn.warn { border-color: #b8860055; color: #e8b339; }
 .hv-btn.ghost.active { background: var(--v2-accent, #4da3ff); border-color: var(--v2-accent, #4da3ff); color: #04101d; }
-.hv-btn.tiny { padding: 5px 9px; font-size: 12px; }
+.hv-btn.tiny { padding: 8px 14px; font-size: 14px; }
+
+/* 控制条里的主/次动作按钮 (开/关) 是主操作, 再放大一档, 点得爽 */
+.bar-ctrl .hv-btn.primary,
+.bar-ctrl .hv-btn.danger {
+  padding: 12px 26px; font-size: 17px; font-weight: 700; border-radius: 12px;
+}
 
 /* 1600 及以下: 6 列会挤, 降到 5 列 (22 台 = 5 行, 行高 ~170px). 温度收到 40px
    刚好在 5 行时不裁切, 而 10 台 (2 行) 时卡片高、40px 居中依然大气. */
