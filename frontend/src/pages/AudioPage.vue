@@ -52,11 +52,30 @@ async function loadAudioAssets(): Promise<void> {
   } catch { /* silent */ }
 }
 
+/**
+ * 从**设备**读真实路由表.
+ *
+ * 以前这里读的是 GET /audio/matrix/state —— 后端一个本地 JSON 文件, 记的是
+ * "谁点过哪个交叉点", 不是设备状态。而且下发失败时前端照样存进去, 界面就会
+ * 亮着一个从没接通过的交叉点。现在直接问设备 (一条命令, ~284ms)。
+ *
+ * 读不到时**保持上次的值并标记 matrixStale**, 不要清空 —— 清空会让界面看起来
+ * "全部断开", 那同样是假的。
+ */
+const matrixStale = ref(false);
 async function loadMatrixState(): Promise<void> {
   try {
-    const state = await audioService.getMatrixState();
-    matrixOn.value = state ?? {};
-  } catch { /* silent - default all off */ }
+    const r = await audioService.getLiveMatrix();
+    if (!r.ok || !r.data?.matrix) throw new Error(r.error || '读矩阵失败');
+    const next: Record<string, boolean> = {};
+    r.data.matrix.forEach((row, out) => {
+      row.forEach((on, inCh) => { next[`${out}_${inCh}`] = on; });
+    });
+    matrixOn.value = next;
+    matrixStale.value = false;
+  } catch {
+    matrixStale.value = true;
+  }
 }
 function addToPlaylist(item: PlItem): void { playlist.value.push({ ...item }); }
 function removeFromPlaylist(i: number): void {
@@ -261,7 +280,11 @@ function onHoldEnd(): void {
   resetHold();
   if (p >= 10 && p < 100) ElMessage.info('按住场景按钮直到进度条走满，才会切换');
 }
-onUnmounted(() => { if (holdRaf) cancelAnimationFrame(holdRaf); stopPlTimer(); });
+onUnmounted(() => {
+  if (holdRaf) cancelAnimationFrame(holdRaf);
+  stopPlTimer();
+  if (matrixTimer) clearTimeout(matrixTimer); // 不清会在切页面后继续打设备
+});
 async function refreshCurrentScene(): Promise<void> {
   try {
     const wrapped = await audioService.currentScene();
@@ -269,11 +292,28 @@ async function refreshCurrentScene(): Promise<void> {
     if (typeof preset === 'number' && preset >= 1 && preset <= 12) currentScene.value = preset;
   } catch { /* 静默 */ }
 }
+/**
+ * 矩阵轮询 — 一条命令 ~284ms, 8s 一轮.
+ * 这样别人用厂家 PC Editor 改了路由, 这边也能跟上; 更重要的是: 切页面回来
+ * 看到的永远是设备当前的真实路由, 而不是本地记忆。
+ */
+const MATRIX_POLL_MS = 8000;
+let matrixTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleMatrixPoll(): void {
+  matrixTimer = setTimeout(async () => {
+    await loadMatrixState();
+    scheduleMatrixPoll();
+  }, MATRIX_POLL_MS);
+}
+
 onMounted(async () => {
   loadPlaylist();
   await Promise.all([loadScenes(), loadZones(), loadInputs(), loadMatrixState()]);
   void refreshCurrentScene();
   void loadAudioAssets();
+  // 输入增益读一次要 ~4.6s, 不阻塞首屏, 也不进轮询
+  void loadInputChannels();
+  scheduleMatrixPoll();
 
   // 恢复静音状态 (从 localStorage)
   try {
@@ -356,38 +396,86 @@ const matrixBusy = ref<Record<string, boolean>>({});
 function isMatrixOn(outCh: number, inCh: number): boolean {
   return !!matrixOn.value[`${outCh}_${inCh}`];
 }
+/**
+ * 点交叉点 → 下发 → **复读设备**确认.
+ *
+ * 以前这里在命令失败时会 saveMatrixState(matrixOn) 把"已接通"存进本地文件,
+ * 提示语还写着"界面已保存" —— 等于告诉用户"没发成功但我给你记上了", 界面
+ * 从此显示一个设备上并不存在的连接。现在失败就回滚成点击前的样子, 并且无论
+ * 成败都复读一次设备, 以寄存器为准。
+ */
 async function toggleMatrix(outCh: number, inCh: number): Promise<void> {
   const key = `${outCh}_${inCh}`;
   if (matrixBusy.value[key]) return;
-  const want = !matrixOn.value[key];
-  matrixOn.value = { ...matrixOn.value, [key]: want };
+  const before = !!matrixOn.value[key];
+  const want = !before;
+  matrixOn.value = { ...matrixOn.value, [key]: want };   // 乐观, 让按钮跟手
   matrixBusy.value = { ...matrixBusy.value, [key]: true };
   try {
     const res = await audioService.setMatrix(outCh, inCh, want);
-    if (!res.ok) ElMessage.warning(`路由 OUT${outCh + 1}←IN${inCh + 1} 命令未确认，界面已保存`);
-    void audioService.saveMatrixState(matrixOn.value).catch(() => {});
-  } catch {
-    ElMessage.warning(`路由 OUT${outCh + 1}←IN${inCh + 1} 未到达设备，界面已保存`);
-    void audioService.saveMatrixState(matrixOn.value).catch(() => {});
+    if (!res.ok) throw new Error(res.error || '设备未确认');
+  } catch (err) {
+    matrixOn.value = { ...matrixOn.value, [key]: before }; // 失败=回到原样, 不留假连接
+    ElMessage.error(`路由 OUT${outCh + 1}←IN${inCh + 1} 失败: ${(err as Error).message}`);
   } finally {
     matrixBusy.value = { ...matrixBusy.value, [key]: false };
+    await loadMatrixState();  // 无论成败都以设备为准
   }
 }
 
-// 输入增益 (本地状态, 默认 80%; 乐观下发, 不回读设备). EKX 预设常把输入压到 -60dB.
-const inputGain = ref<Record<number, number>>({});
-function inputGainOf(ch: number): number {
-  return inputGain.value[ch] ?? 80;
+/**
+ * 输入增益 — **读设备真实值**, 不再是"默认 80% 的本地状态".
+ *
+ * 老代码注释自己写着 "本地状态, 默认 80%; 乐观下发, 不回读设备"。2026-07-16
+ * 实测真实增益是 IN1=+12dB / IN2=-60dB / IN3=+3.6dB / IN4=+0.1dB —— 跟界面上
+ * 那个 80% 毫无关系, 而且切页面就没了。
+ *
+ * 读一次要 ~4.6s (16 次往返, EKX 单客户端只能串行), 所以只在开页面 / 改完时读,
+ * 不轮询。null = 没读到, 界面显示"—"而不是编一个数。
+ */
+const inputGainDb = ref<Record<number, number | null>>({});
+const inputMuted = ref<Record<number, boolean | null>>({});
+const inputsLoading = ref(false);
+
+async function loadInputChannels(): Promise<void> {
+  inputsLoading.value = true;
+  try {
+    const r = await audioService.getLiveInputs();
+    if (!r.ok || !r.data?.channels) throw new Error(r.error || '读输入通道失败');
+    const g: Record<number, number | null> = {};
+    const m: Record<number, boolean | null> = {};
+    for (const c of r.data.channels) { g[c.ch] = c.gainDb; m[c.ch] = c.muted; }
+    inputGainDb.value = g;
+    inputMuted.value = m;
+  } catch {
+    /* 读不到就保持上次的值, 界面按 null 显示"—" */
+  } finally {
+    inputsLoading.value = false;
+  }
 }
+
+/** 设备 dB (-60..+12) → 滑条百分比 (0..100), 仅用于 UI 展示 */
+function gainDbToPct(db: number): number {
+  return Math.round(((db + 60) / 72) * 100);
+}
+function inputGainOf(ch: number): number {
+  const db = inputGainDb.value[ch];
+  return db === null || db === undefined ? 0 : gainDbToPct(db);
+}
+/** 界面上显示的真实 dB 文本; 没读到就是 '—', 不编数 */
+function inputGainLabel(ch: number): string {
+  const db = inputGainDb.value[ch];
+  return db === null || db === undefined ? '—' : `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`;
+}
+
 async function onInputGain(ch: number, value: number): Promise<void> {
-  const prev = inputGain.value[ch] ?? 80;
-  inputGain.value = { ...inputGain.value, [ch]: value };
   try {
     const res = await audioService.setInputVolume(ch, value);
     if (!res.ok) throw new Error(res.error || '执行失败');
   } catch (err) {
-    inputGain.value = { ...inputGain.value, [ch]: prev };
     ElMessage.error(`IN${ch + 1} 增益设置失败: ${(err as Error).message}`);
+  } finally {
+    await loadInputChannels(); // 以设备读回的为准, 不信自己刚才发了什么
   }
 }
 
@@ -764,7 +852,14 @@ async function toggleMuteAll(): Promise<void> {
     <!-- 音源矩阵 (EKX-808 8x8 路由) -->
     <section v-if="audioTab === 'matrix'" class="matrix-section">
       <header class="block-head matrix-head">
-        <h2 class="block-title"><span class="accent">●</span>音源矩阵</h2>
+        <h2 class="block-title">
+          <span class="accent">●</span>音源矩阵
+          <!-- 读不到时明说, 别让人以为看到的是当前状态 -->
+          <span v-if="matrixStale" class="mx-stale" title="读不到设备, 下面显示的是上次读到的路由">
+            设备读取失败 · 显示的是上次的路由
+          </span>
+          <span v-if="inputsLoading" class="mx-loading">读取增益中…</span>
+        </h2>
       </header>
       <div class="input-gains">
         <div class="ig-row">
@@ -776,7 +871,10 @@ async function toggleMuteAll(): Promise<void> {
               class="ig-slider"
               @change="onInputGain(inp.channel, Number(($event.target as HTMLInputElement).value))"
             />
-            <div class="ig-val v2-inter">{{ inputGainOf(inp.channel) }}%</div>
+            <!-- 显示设备真实 dB, 不是滑条百分比 —— 百分比是 UI 自己换算的, dB 才是设备说的 -->
+            <div class="ig-val v2-inter" :class="{ unknown: inputGainDb[inp.channel] == null }">
+              {{ inputGainLabel(inp.channel) }}
+            </div>
           </div>
         </div>
       </div>
@@ -1291,4 +1389,14 @@ async function toggleMuteAll(): Promise<void> {
 .ig-name { font-size: 10px; color: var(--v2-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .ig-slider { width: 100%; accent-color: #00E78A; cursor: pointer; }
 .ig-val { font-size: 11px; color: #6BFFB9; font-weight: 700; }
+
+/* 矩阵读不到 / 增益读取中 的提示 */
+.mx-stale {
+  margin-left: 10px; padding: 2px 7px; border-radius: 999px;
+  font-size: 11px; font-weight: 400; color: #ff9a52;
+  background: #3a2a1c; border: 1px solid #6b4526;
+}
+.mx-loading { margin-left: 10px; font-size: 11px; font-weight: 400; color: #6d7f98; }
+/* 增益没读到时显示 "—", 灰掉, 别让人以为是个真数 */
+.ig-val.unknown { color: #55637a; font-style: italic; }
 </style>
