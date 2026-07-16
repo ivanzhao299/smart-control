@@ -51,6 +51,21 @@ function Invoke-Native([string]$FilePath, [string[]]$Arguments) {
   }
 }
 
+function Restart-Services {
+  # 重启走 pm2, 不走计划任务 —— 2026-07-16 起后端/前端都只由 pm2 管
+  # (计划任务 SmartControlBackend 改成开机引导 pm2, SmartControlFrontend 已停用,
+  #  见 boot-pm2.ps1)。旧的 Start-ScheduledTask 逻辑在这套架构下必挂: 前端任务
+  # 被禁用会抛错, 后端任务只是引导脚本不代表能重启已在跑的 node 进程。
+  #
+  # CI 经 SSH 会话跑, pm2 daemon 已由开机引导拉起, 这里 pm2 restart 连既有
+  # named pipe 重启真实进程即可 (不需要 WMI —— WMI 只在 daemon 不存在、需要
+  # 脱离会话启动时才用)。
+  $pm2 = Join-Path $env:APPDATA 'npm\pm2.cmd'
+  if (-not (Test-Path $pm2)) { $pm2 = 'pm2' }
+  Invoke-Native $pm2 @('restart', 'smart-control-backend', 'smart-control-frontend', '--update-env')
+  Invoke-Native $pm2 @('save')
+}
+
 function Test-BackendHealth {
   try {
     $response = Invoke-RestMethod 'http://127.0.0.1:3200/api/system/health' -TimeoutSec 5 -ErrorAction Stop
@@ -145,14 +160,8 @@ try {
         Pop-Location
       }
 
-      foreach ($taskName in @('SmartControlBackend', 'SmartControlFrontend')) {
-        Write-DeployLog "Restarting scheduled task: $taskName"
-        Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-      }
-      Start-Sleep -Seconds 2
-      foreach ($taskName in @('SmartControlBackend', 'SmartControlFrontend')) {
-        Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
-      }
+      Write-DeployLog 'Restarting services through pm2.'
+      Restart-Services
     }
   }
 
@@ -185,13 +194,7 @@ try {
           Copy-Item -Path $backupDist -Destination $targetDist -Recurse -Force
         }
       }
-      foreach ($taskName in @('SmartControlBackend', 'SmartControlFrontend')) {
-        Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-      }
-      Start-Sleep -Seconds 2
-      foreach ($taskName in @('SmartControlBackend', 'SmartControlFrontend')) {
-        Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
-      }
+      Restart-Services
       Write-DeployLog 'Rollback completed.'
     } catch {
       Write-DeployLog "Rollback failed and requires operator attention: $($_.Exception.Message)"
