@@ -51,8 +51,8 @@ const filtered = computed<LightZoneView[]>(() => {
       (z) =>
         z.name.toLowerCase().includes(q) ||
         z.code.toLowerCase().includes(q) ||
-        z.gatewayCode.toLowerCase().includes(q) ||
-        z.gatewayDisplayName.toLowerCase().includes(q),
+        z.groups.some((g) => g.gatewayCode.toLowerCase().includes(q)) ||
+        z.groups.some((g) => g.gatewayDisplayName.toLowerCase().includes(q)),
     );
   }
   return rows;
@@ -84,8 +84,6 @@ const form = reactive<FormState>({
   code: '',
   name: '',
   floor: '1F',
-  gatewayCode: '',
-  daliGroup: 1,
   sortOrder: 100,
   icon: 'Lightbulb',
   description: '',
@@ -96,8 +94,6 @@ const rules: FormRules = {
   code: [{ required: true, message: 'code 必填, 业务唯一, e.g. 1f-front-hall', trigger: 'blur' }],
   name: [{ required: true, message: '显示名必填', trigger: 'blur' }],
   floor: [{ required: true, message: '楼层必填', trigger: 'blur' }],
-  gatewayCode: [{ required: true, message: '必须关联一台 DALI 网关', trigger: 'change' }],
-  daliGroup: [{ required: true, type: 'number', message: 'DALI 组号 1-16', trigger: 'blur' }],
 };
 
 function openCreate(): void {
@@ -107,8 +103,6 @@ function openCreate(): void {
     code: '',
     name: '',
     floor: floorFilter.value || '1F',
-    gatewayCode: gateways.value[0]?.code ?? '',
-    daliGroup: 1,
     sortOrder: 100,
     icon: 'Lightbulb',
     description: '',
@@ -124,8 +118,6 @@ function openEdit(row: LightZoneView): void {
     code: row.code,
     name: row.name,
     floor: row.floor,
-    gatewayCode: row.gatewayCode,
-    daliGroup: row.daliGroup,
     sortOrder: row.sortOrder,
     icon: row.icon ?? 'Lightbulb',
     description: row.description ?? '',
@@ -142,8 +134,6 @@ async function submit(): Promise<void> {
       code: form.code.trim(),
       name: form.name.trim(),
       floor: form.floor.trim(),
-      gatewayCode: form.gatewayCode,
-      daliGroup: Number(form.daliGroup),
       sortOrder: Number(form.sortOrder ?? 100),
       icon: (form.icon || 'Lightbulb').trim() || null,
       description: (form.description || '').trim() || null,
@@ -253,17 +243,17 @@ onMounted(refresh);
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="DALI 网关" min-width="150">
+      <!-- 一个分区可含多组、且可跨网关, 所以组号必须连网关一起显示 -->
+      <el-table-column label="包含灯组" min-width="240">
         <template #default="{ row }">
-          <div>{{ row.gatewayDisplayName }}</div>
-          <code class="gw-code">
-            {{ row.gatewayCode }}<span v-if="row.gatewaySlaveId !== null"> · slaveId={{ row.gatewaySlaveId }}</span>
-          </code>
-        </template>
-      </el-table-column>
-      <el-table-column label="DALI 组" width="96" align="center">
-        <template #default="{ row }">
-          <el-tag size="default" type="primary">GROUP {{ row.daliGroup }}</el-tag>
+          <span v-if="row.groups.length === 0" class="muted">未分配灯组 — 去灯光页「编组」里放</span>
+          <el-tag
+            v-for="g in row.groups"
+            :key="g.id"
+            size="default"
+            type="primary"
+            style="margin: 2px 4px 2px 0;"
+          >{{ g.gatewayDisplayName }} · {{ g.daliGroup }}组</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="启用" width="84" align="center">
@@ -301,42 +291,26 @@ onMounted(refresh);
           <div class="kv-label">分区</div>
           <div class="kv-value">{{ testResult.zone.name }} <code class="muted">({{ testResult.zone.code }} #{{ testResult.zone.id }})</code></div>
 
-          <div class="kv-label">关联网关</div>
-          <div class="kv-value">{{ testResult.gateway.displayName }} <code class="muted">({{ testResult.gateway.code }})</code></div>
-
-          <div class="kv-label">slaveId</div>
-          <div class="kv-value">
-            <code v-if="testResult.gateway.slaveId !== null" class="strong">{{ testResult.gateway.slaveId }}</code>
-            <span v-else class="err">未解析出 — 检查硬件清单的 addressing JSON</span>
-          </div>
-
-          <div class="kv-label">DALI 组号</div>
-          <div class="kv-value"><code class="strong">GROUP {{ testResult.daliGroup }}</code></div>
-
           <div class="kv-label">路由阶段</div>
           <div class="kv-value">
             <el-tag v-if="testResult.routing.ok" type="success" size="small">通过</el-tag>
             <el-tag v-else type="danger" size="small">失败: {{ testResult.routing.error }}</el-tag>
           </div>
 
-          <template v-if="testResult.dispatch">
-            <div class="kv-label">下发 50% on</div>
+          <!-- 逐组一行: 哪组没亮一眼看到 -->
+          <template v-for="d in testResult.dispatch ?? []" :key="`${d.gateway.code}-${d.daliGroup}`">
+            <div class="kv-label">{{ d.gateway.code }} · {{ d.daliGroup }}组</div>
             <div class="kv-value">
-              <el-tag v-if="testResult.dispatch.on.ok" type="success" size="small">{{ testResult.dispatch.on.durationMs }}ms</el-tag>
-              <el-tag v-else type="danger" size="small">失败: {{ testResult.dispatch.on.error }}</el-tag>
-              <el-tag v-if="testResult.dispatch.on.mock" type="warning" size="small" style="margin-left: 6px;">MOCK</el-tag>
-            </div>
-
-            <div class="kv-label">下发 0 off</div>
-            <div class="kv-value">
-              <el-tag v-if="testResult.dispatch.off.ok" type="success" size="small">{{ testResult.dispatch.off.durationMs }}ms</el-tag>
-              <el-tag v-else type="danger" size="small">失败: {{ testResult.dispatch.off.error }}</el-tag>
-              <el-tag v-if="testResult.dispatch.off.mock" type="warning" size="small" style="margin-left: 6px;">MOCK</el-tag>
+              <el-tag v-if="d.on.ok" type="success" size="small">开 {{ d.on.durationMs }}ms</el-tag>
+              <el-tag v-else type="danger" size="small">开失败: {{ d.on.error }}</el-tag>
+              <el-tag v-if="d.off.ok" type="success" size="small" style="margin-left: 6px;">关 {{ d.off.durationMs }}ms</el-tag>
+              <el-tag v-else type="danger" size="small" style="margin-left: 6px;">关失败: {{ d.off.error }}</el-tag>
+              <el-tag v-if="d.on.mock || d.off.mock" type="warning" size="small" style="margin-left: 6px;">MOCK</el-tag>
             </div>
           </template>
         </div>
         <el-alert
-          v-if="testResult.dispatch && (testResult.dispatch.on.mock || testResult.dispatch.off.mock)"
+          v-if="testResult.dispatch?.some((d) => d.on.mock || d.off.mock)"
           type="warning"
           :closable="false"
           show-icon
@@ -345,7 +319,7 @@ onMounted(refresh);
           style="margin-top: 12px;"
         />
         <el-alert
-          v-else-if="testResult.dispatch && testResult.dispatch.on.ok && testResult.dispatch.off.ok"
+          v-else-if="testResult.dispatch?.length && testResult.dispatch.every((d) => d.on.ok && d.off.ok)"
           type="success"
           :closable="false"
           show-icon
@@ -373,21 +347,6 @@ onMounted(refresh);
         <el-form-item label="楼层" prop="floor">
           <el-input v-model="form.floor" placeholder="1F / 2F / 3F / 室外" style="width: 160px;" />
           <span class="hint inline">前台 LightingPage 按这个分 tab</span>
-        </el-form-item>
-        <el-form-item label="DALI 网关" prop="gatewayCode">
-          <el-select v-model="form.gatewayCode" placeholder="选 DALI 网关" style="width: 100%;">
-            <el-option
-              v-for="g in gateways"
-              :key="g.code"
-              :value="g.code"
-              :label="`${g.name} · ${g.code}`"
-            />
-          </el-select>
-          <div class="hint">从硬件清单 category=dali-gateway 拉</div>
-        </el-form-item>
-        <el-form-item label="DALI 组号" prop="daliGroup">
-          <el-input-number v-model="form.daliGroup" :min="1" :max="16" controls-position="right" />
-          <span class="hint inline">现场 CY-DALI64A 上的 group 编号 (1-16)</span>
         </el-form-item>
         <el-form-item label="排序">
           <el-input-number v-model="form.sortOrder" :min="0" :max="9999" controls-position="right" />

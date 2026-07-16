@@ -3,30 +3,49 @@ import {
   Inject,
   Injectable,
   NotFoundException,
-  OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { LightZone } from '../../entities/light-zone.entity';
+import { LightGroup } from '../../entities/light-group.entity';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
 
+/** 一个物理 DALI 组 (网关 + 组号唯一确定) */
+export interface LightGroupView {
+  id: number;
+  gatewayCode: string;
+  daliGroup: number;
+  zoneCode: string | null;
+  /** 实测填入的灯具短地址; 没扫过是空数组 */
+  shorts: number[];
+  sortOrder: number;
+  enabled: boolean;
+  /** 派生: 网关的 Modbus 从机号 (hardware_unit.addressing.slaveId), 查不到给 null */
+  slaveId: number | null;
+  /** 派生: 网关显示名, 找不到就填 gatewayCode */
+  gatewayDisplayName: string;
+}
+
+/**
+ * 一个分区 = 一个名字 + 若干 DALI 组.
+ *
+ * 2026-07-16 改造: 原来分区上直接挂单个 (gatewayCode, daliGroup), 一个分区只能对
+ * 应一个组。现场是 7 分区 / 11 组, 好几个分区由多组灯拼成 —— 所以成员关系搬到
+ * LightGroup.zoneCode 上, 这里用 groups[] 呈现。
+ */
 export interface LightZoneView {
   id: number;
   code: string;
   name: string;
   floor: string;
-  gatewayCode: string;
-  daliGroup: number;
   sortOrder: number;
   icon: string | null;
   description: string | null;
   enabled: boolean;
-  /** 帮前端展示的派生字段: 网关在 hardware_unit 表里查到的 slaveId, 没查到给 null */
-  gatewaySlaveId: number | null;
-  /** 网关显示名 (hardware_unit.name), 找不到时填 gatewayCode */
-  gatewayDisplayName: string;
+  /** 该分区包含的 DALI 组 (可以是 0 个 —— 新建的空分区照常显示, 否则没法往里放组) */
+  groups: LightGroupView[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -34,156 +53,182 @@ export interface LightZoneView {
 export interface LightZoneUpsertDto {
   code: string;
   name: string;
-  floor: string;
-  gatewayCode: string;
-  daliGroup: number;
+  floor?: string;
   sortOrder?: number;
   icon?: string | null;
   description?: string | null;
   enabled?: boolean;
 }
 
-/**
- * 启动自动注入种子数据用. SeedService 的 seedLightZones 也写一份, 双保险:
- * - 全新装机走 SeedService (npm run seed)
- * - 老库升级 (e.g. 远程部署 watcher 拉到 Sprint E) 走 onModuleInit, 无人值守
- *
- * 跟 SeedService 的清单保持同步.
- */
-const SEED_ZONES: Array<{
-  code: string; name: string; floor: string; gatewayCode: string;
-  daliGroup: number; sortOrder: number; icon: string; description?: string;
-}> = [
-  { code: '1f-front-hall',    name: '一层前厅 / 园区展示', floor: '1F', gatewayCode: 'GW-DALI-1', daliGroup: 1, sortOrder: 10, icon: 'Lightbulb' },
-  { code: '1f-roadshow',      name: '一层路演 / 洽谈区',   floor: '1F', gatewayCode: 'GW-DALI-1', daliGroup: 2, sortOrder: 20, icon: 'Lightbulb' },
-  { code: '1f-corridor',      name: '一层走廊',           floor: '1F', gatewayCode: 'GW-DALI-1', daliGroup: 3, sortOrder: 30, icon: 'Lightbulb' },
-  { code: '1f-accent',        name: '一层重点照明 / 灯箱', floor: '1F', gatewayCode: 'GW-DALI-1', daliGroup: 4, sortOrder: 40, icon: 'Sparkles' },
-  { code: '1f-enterprise',    name: '一层企业展位区',     floor: '1F', gatewayCode: 'GW-DALI-1', daliGroup: 5, sortOrder: 50, icon: 'Lightbulb' },
-  { code: '1f-general',       name: '一层综合展销区',     floor: '1F', gatewayCode: 'GW-DALI-1', daliGroup: 6, sortOrder: 60, icon: 'Lightbulb' },
-  { code: '1f-trade',         name: '一层物贸交易展示区', floor: '1F', gatewayCode: 'GW-DALI-1', daliGroup: 7, sortOrder: 70, icon: 'Lightbulb' },
-  { code: '2f-test-a',        name: '二层测试灯 A',       floor: '2F', gatewayCode: 'GW-DALI-2', daliGroup: 3, sortOrder: 5,  icon: 'Lightbulb', description: '2026-05-31 现场调试 USB 直连找到, group 3' },
-  { code: '2f-test-b',        name: '二层测试灯 B',       floor: '2F', gatewayCode: 'GW-DALI-2', daliGroup: 4, sortOrder: 6,  icon: 'Lightbulb', description: '2026-05-31 现场调试 USB 直连找到, group 4' },
-  { code: '2f-front-hall',    name: '二层前厅 / 走廊',     floor: '2F', gatewayCode: 'GW-DALI-2', daliGroup: 8, sortOrder: 10, icon: 'Lightbulb', description: '灯具未安装, 占位' },
-  { code: '2f-enterprise-svc',name: '二层企业服务中心',   floor: '2F', gatewayCode: 'GW-DALI-2', daliGroup: 9, sortOrder: 20, icon: 'Lightbulb', description: '灯具未安装, 占位' },
-  { code: '2f-coworking',     name: '二层共享办公',       floor: '2F', gatewayCode: 'GW-DALI-2', daliGroup: 10, sortOrder: 30, icon: 'Lightbulb', description: '灯具未安装, 占位' },
-  { code: '2f-research',      name: '二层产业研究 / 接待', floor: '2F', gatewayCode: 'GW-DALI-2', daliGroup: 11, sortOrder: 40, icon: 'Lightbulb', description: '灯具未安装, 占位' },
-  { code: '2f-control',       name: '二层运营指挥中心',   floor: '2F', gatewayCode: 'GW-DALI-2', daliGroup: 12, sortOrder: 50, icon: 'Sparkles',  description: '灯具未安装, 占位' },
-];
+/** resolveForCommand 的结果: 分区 + 它下面每个组的实际下发目标 */
+export interface ZoneCommandTargets {
+  zone: LightZone;
+  targets: Array<{ slaveId: number; daliGroup: number; gatewayCode: string }>;
+}
 
 @Injectable()
-export class LightZonesService implements OnModuleInit {
+export class LightZonesService {
   constructor(
     @InjectRepository(LightZone) private readonly zoneRepo: Repository<LightZone>,
+    @InjectRepository(LightGroup) private readonly groupRepo: Repository<LightGroup>,
     @InjectRepository(HardwareUnit) private readonly hwRepo: Repository<HardwareUnit>,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
-  /** 启动自动注入种子 — code 唯一, 已存在跳过, 业主改过的不会被覆盖. */
-  async onModuleInit(): Promise<void> {
-    let created = 0;
-    for (const z of SEED_ZONES) {
-      const exists = await this.zoneRepo.findOne({ where: { code: z.code } });
-      if (exists) continue;
-      await this.zoneRepo.save(
-        this.zoneRepo.create({
-          code: z.code,
-          name: z.name,
-          floor: z.floor,
-          gatewayCode: z.gatewayCode,
-          daliGroup: z.daliGroup,
-          sortOrder: z.sortOrder,
-          icon: z.icon,
-          description: z.description ?? null,
-          enabled: true,
-        }),
-      );
-      created += 1;
+  // 注意: 这里**没有** onModuleInit 自动灌种子。
+  // 原来有一份 SEED_ZONES 副本在这里"双保险", 结果是: SeedService 按现场实际删掉
+  // 作废的旧分区后, 下次启动这里又把它们原样建回来 —— 业主删不掉。种子只留
+  // SeedService 一处 (seedLightZones), 免得两份清单互相打架。
+
+  // ============ 查询 ============
+
+  /** 网关 code -> {slaveId, displayName}; 一次查完, 避免 N+1 */
+  private async gatewayMap(codes: string[]): Promise<Map<string, { slaveId: number | null; name: string }>> {
+    const map = new Map<string, { slaveId: number | null; name: string }>();
+    const uniq = Array.from(new Set(codes.filter(Boolean)));
+    if (uniq.length === 0) return map;
+    const rows = await this.hwRepo.find({ where: { code: In(uniq) } });
+    for (const h of rows) {
+      let slaveId: number | null = null;
+      if (h.addressing) {
+        try {
+          const a = JSON.parse(h.addressing) as { slaveId?: number };
+          if (typeof a.slaveId === 'number') slaveId = a.slaveId;
+        } catch { /* 老数据非 JSON */ }
+      }
+      map.set(h.code, { slaveId, name: h.name || h.code });
     }
-    if (created > 0) {
-      this.logger.info(`LightZonesService bootstrap: 自动注入 ${created} 个分区`, {
-        context: 'LightZonesService',
-      });
+    return map;
+  }
+
+  private parseShorts(raw: string | null): number[] {
+    if (!raw) return [];
+    try {
+      const a = JSON.parse(raw) as unknown;
+      return Array.isArray(a) ? a.filter((x): x is number => typeof x === 'number') : [];
+    } catch {
+      return [];
     }
   }
 
-  /** 列表 — 前端 LightingPage 拉这个就够 */
+  private groupToView(g: LightGroup, hw: Map<string, { slaveId: number | null; name: string }>): LightGroupView {
+    const info = hw.get(g.gatewayCode);
+    return {
+      id: g.id,
+      gatewayCode: g.gatewayCode,
+      daliGroup: g.daliGroup,
+      zoneCode: g.zoneCode,
+      shorts: this.parseShorts(g.shorts),
+      sortOrder: g.sortOrder,
+      enabled: g.enabled,
+      slaveId: info?.slaveId ?? null,
+      gatewayDisplayName: info?.name ?? g.gatewayCode,
+    };
+  }
+
+  /** 所有 DALI 组 (含未分配的) — 前端编组界面用 */
+  async listGroups(): Promise<LightGroupView[]> {
+    const rows = await this.groupRepo.find({
+      where: { enabled: true },
+      order: { gatewayCode: 'ASC', daliGroup: 'ASC' },
+    });
+    const hw = await this.gatewayMap(rows.map((r) => r.gatewayCode));
+    return rows.map((r) => this.groupToView(r, hw));
+  }
+
+  /**
+   * 分区列表 (含成员组).
+   * 空分区照常返回 —— 新建的分区一个组都没有, 过滤掉的话前端就点不到它、
+   * 永远没法往里放组 (空调那边已经栽过这个坑)。
+   */
   async list(opts: { includeDisabled?: boolean } = {}): Promise<LightZoneView[]> {
-    const where = opts.includeDisabled ? {} : { enabled: true };
-    const rows = await this.zoneRepo.find({
-      where,
+    const zones = await this.zoneRepo.find({
+      where: opts.includeDisabled ? {} : { enabled: true },
       order: { floor: 'ASC', sortOrder: 'ASC', id: 'ASC' },
     });
-    const gatewayCodes = Array.from(new Set(rows.map((r) => r.gatewayCode)));
-    const hwRows = gatewayCodes.length
-      ? await this.hwRepo
-          .createQueryBuilder('h')
-          .where('h.code IN (:...codes)', { codes: gatewayCodes })
-          .getMany()
-      : [];
-    const hwMap = new Map(hwRows.map((h) => [h.code, h]));
-    return rows.map((r) => this.toView(r, hwMap.get(r.gatewayCode)));
+    const groups = await this.groupRepo.find({ where: { enabled: true }, order: { sortOrder: 'ASC' } });
+    const hw = await this.gatewayMap(groups.map((g) => g.gatewayCode));
+    return zones.map((z) => this.toView(z, groups.filter((g) => g.zoneCode === z.code), hw));
   }
 
   async detail(id: number): Promise<LightZoneView> {
     const row = await this.zoneRepo.findOne({ where: { id } });
     if (!row) throw new NotFoundException(`light zone #${id} 不存在`);
-    const hw = await this.hwRepo.findOne({ where: { code: row.gatewayCode } });
-    return this.toView(row, hw ?? undefined);
+    const groups = await this.groupRepo.find({ where: { zoneCode: row.code, enabled: true } });
+    const hw = await this.gatewayMap(groups.map((g) => g.gatewayCode));
+    return this.toView(row, groups, hw);
   }
 
-  /** 按 code 查 (供 controller 路由用) — 不存在抛 404 */
   async byCode(code: string): Promise<LightZoneView> {
     const row = await this.zoneRepo.findOne({ where: { code } });
     if (!row) throw new NotFoundException(`light zone code "${code}" 不存在`);
-    const hw = await this.hwRepo.findOne({ where: { code: row.gatewayCode } });
-    return this.toView(row, hw ?? undefined);
+    const groups = await this.groupRepo.find({ where: { zoneCode: code, enabled: true } });
+    const hw = await this.gatewayMap(groups.map((g) => g.gatewayCode));
+    return this.toView(row, groups, hw);
   }
 
-  /** 按 id 拿原始 entity (controller 给 adapter 派发命令用) */
-  async resolveForCommand(id: number): Promise<{ zone: LightZone; slaveId: number }> {
+  // ============ 控制路由 ============
+
+  /**
+   * 分区 id -> 该分区所有组的下发目标.
+   *
+   * 一个分区可能横跨两台网关 (组号在网关间会重复, 所以每个目标都要带自己的
+   * slaveId, 不能只传组号)。空分区返回空 targets, 由 controller 决定怎么处理 ——
+   * 不在这里抛错, 因为"分区暂时没有组"是编组过程中的正常状态, 不是故障。
+   */
+  async resolveForCommand(id: number): Promise<ZoneCommandTargets> {
     const zone = await this.zoneRepo.findOne({ where: { id } });
     if (!zone) throw new NotFoundException(`light zone #${id} 不存在`);
     if (!zone.enabled) throw new ConflictException(`light zone #${id} (${zone.name}) 已禁用`);
-    const hw = await this.hwRepo.findOne({ where: { code: zone.gatewayCode } });
-    if (!hw) {
-      throw new NotFoundException(
-        `light zone #${id} 关联的网关 ${zone.gatewayCode} 在 hardware_unit 表里不存在`,
-      );
+
+    const groups = await this.groupRepo.find({
+      where: { zoneCode: zone.code, enabled: true },
+      order: { sortOrder: 'ASC' },
+    });
+    const hw = await this.gatewayMap(groups.map((g) => g.gatewayCode));
+
+    const targets: ZoneCommandTargets['targets'] = [];
+    for (const g of groups) {
+      const info = hw.get(g.gatewayCode);
+      if (!info) {
+        this.logger.warn(
+          `分区 ${zone.code} 的组 ${g.gatewayCode}/${g.daliGroup}: 网关不在 hardware_unit 表里, 跳过`,
+          { context: 'LightZonesService' },
+        );
+        continue;
+      }
+      if (info.slaveId === null) {
+        this.logger.warn(
+          `分区 ${zone.code} 的组 ${g.gatewayCode}/${g.daliGroup}: 网关 addressing 里没有 slaveId, 跳过`,
+          { context: 'LightZonesService' },
+        );
+        continue;
+      }
+      targets.push({ slaveId: info.slaveId, daliGroup: g.daliGroup, gatewayCode: g.gatewayCode });
     }
-    if (!hw.enabled) {
-      throw new ConflictException(`网关 ${zone.gatewayCode} 已禁用`);
-    }
-    let slaveId: number | undefined;
-    if (hw.addressing) {
-      try {
-        const a = JSON.parse(hw.addressing) as { slaveId?: number };
-        if (typeof a.slaveId === 'number') slaveId = a.slaveId;
-      } catch {/* 老数据非 JSON 兜底 */}
-    }
-    if (!slaveId) {
-      throw new ConflictException(
-        `网关 ${zone.gatewayCode} 的 addressing 里没有 slaveId 字段, 没法路由`,
-      );
-    }
-    return { zone, slaveId };
+    return { zone, targets };
   }
 
+  // ============ 分区增删改 ============
+
   async create(dto: LightZoneUpsertDto): Promise<LightZoneView> {
-    this.validate(dto);
+    if (!dto.code?.trim()) throw new ConflictException('code 不能为空');
+    if (!dto.name?.trim()) throw new ConflictException('name 不能为空');
     const dup = await this.zoneRepo.findOne({ where: { code: dto.code } });
     if (dup) throw new ConflictException(`zone code 已存在: ${dto.code}`);
-    const row = this.zoneRepo.create({
-      code: dto.code,
-      name: dto.name,
-      floor: dto.floor,
-      gatewayCode: dto.gatewayCode,
-      daliGroup: dto.daliGroup,
-      sortOrder: dto.sortOrder ?? 100,
-      icon: dto.icon ?? null,
-      description: dto.description ?? null,
-      enabled: dto.enabled ?? true,
-    });
-    const saved = await this.zoneRepo.save(row);
+    const saved = await this.zoneRepo.save(
+      this.zoneRepo.create({
+        code: dto.code.trim(),
+        name: dto.name.trim(),
+        floor: dto.floor ?? '1F',
+        gatewayCode: null,
+        daliGroup: null,
+        sortOrder: dto.sortOrder ?? 100,
+        icon: dto.icon ?? 'Lightbulb',
+        description: dto.description ?? null,
+        enabled: dto.enabled ?? true,
+      }),
+    );
     return this.detail(saved.id);
   }
 
@@ -193,90 +238,77 @@ export class LightZonesService implements OnModuleInit {
     if (dto.code && dto.code !== row.code) {
       const dup = await this.zoneRepo.findOne({ where: { code: dto.code } });
       if (dup && dup.id !== id) throw new ConflictException(`zone code 已存在: ${dto.code}`);
+      // 改 code 会让成员组的 zoneCode 指向虚空, 一并迁过去
+      await this.groupRepo.update({ zoneCode: row.code }, { zoneCode: dto.code });
+      row.code = dto.code;
     }
-    if (dto.daliGroup !== undefined) {
-      if (!Number.isInteger(dto.daliGroup) || dto.daliGroup < 1 || dto.daliGroup > 16) {
-        throw new ConflictException('daliGroup 必须是 1-16');
-      }
-    }
-    Object.assign(row, {
-      ...(dto.code !== undefined && { code: dto.code }),
-      ...(dto.name !== undefined && { name: dto.name }),
-      ...(dto.floor !== undefined && { floor: dto.floor }),
-      ...(dto.gatewayCode !== undefined && { gatewayCode: dto.gatewayCode }),
-      ...(dto.daliGroup !== undefined && { daliGroup: dto.daliGroup }),
-      ...(dto.sortOrder !== undefined && { sortOrder: dto.sortOrder }),
-      ...(dto.icon !== undefined && { icon: dto.icon }),
-      ...(dto.description !== undefined && { description: dto.description }),
-      ...(dto.enabled !== undefined && { enabled: dto.enabled }),
-    });
-    const saved = await this.zoneRepo.save(row);
-    return this.detail(saved.id);
+    if (dto.name !== undefined) row.name = dto.name;
+    if (dto.floor !== undefined) row.floor = dto.floor;
+    if (dto.sortOrder !== undefined) row.sortOrder = dto.sortOrder;
+    if (dto.icon !== undefined) row.icon = dto.icon;
+    if (dto.description !== undefined) row.description = dto.description;
+    if (dto.enabled !== undefined) row.enabled = dto.enabled;
+    await this.zoneRepo.save(row);
+    return this.detail(id);
   }
 
-  async remove(id: number): Promise<void> {
+  /** 删分区 — 成员组不删, 只是变回"未分配" */
+  async remove(id: number): Promise<{ code: string; releasedGroups: number }> {
     const row = await this.zoneRepo.findOne({ where: { id } });
-    if (!row) return;
-    await this.zoneRepo.delete({ id });
-    this.logger.info(`删除 light zone #${id} (${row.name})`, { context: 'LightZonesService' });
+    if (!row) throw new NotFoundException(`light zone #${id} 不存在`);
+    const members = await this.groupRepo.find({ where: { zoneCode: row.code } });
+    for (const m of members) m.zoneCode = null;
+    if (members.length > 0) await this.groupRepo.save(members);
+    await this.zoneRepo.remove(row);
+    return { code: row.code, releasedGroups: members.length };
   }
 
-  /** 启动时 seed 用 (上层 SeedService 调) — code 唯一, 已存在跳过 */
-  async upsertByCode(dto: LightZoneUpsertDto): Promise<{ created: boolean; row: LightZone }> {
-    const existing = await this.zoneRepo.findOne({ where: { code: dto.code } });
-    if (existing) return { created: false, row: existing };
-    this.validate(dto);
-    const saved = await this.zoneRepo.save(
-      this.zoneRepo.create({
-        code: dto.code,
-        name: dto.name,
-        floor: dto.floor,
-        gatewayCode: dto.gatewayCode,
-        daliGroup: dto.daliGroup,
-        sortOrder: dto.sortOrder ?? 100,
-        icon: dto.icon ?? null,
-        description: dto.description ?? null,
-        enabled: dto.enabled ?? true,
-      }),
-    );
-    return { created: true, row: saved };
-  }
+  // ============ 组归属 ============
 
-  private validate(dto: LightZoneUpsertDto): void {
-    if (!dto.code || dto.code.length > 64) throw new ConflictException('code 必填且 ≤64');
-    if (!dto.name || dto.name.length > 128) throw new ConflictException('name 必填且 ≤128');
-    if (!dto.floor || dto.floor.length > 16) throw new ConflictException('floor 必填且 ≤16');
-    if (!dto.gatewayCode) throw new ConflictException('gatewayCode 必填');
-    if (!Number.isInteger(dto.daliGroup) || dto.daliGroup < 1 || dto.daliGroup > 16) {
-      throw new ConflictException('daliGroup 必须是 1-16');
+  /** 把若干组划进某分区; zoneCode 传空 = 移出分区 */
+  async assignGroups(groupIds: number[], zoneCode: string | null): Promise<{ count: number; zoneCode: string | null }> {
+    const target = (zoneCode ?? '').trim();
+    let normalized: string | null = null;
+    if (target) {
+      const zone = await this.zoneRepo.findOne({ where: { code: target } });
+      if (!zone) throw new NotFoundException(`分区 "${target}" 不存在`);
+      normalized = zone.code;
     }
+    const rows = await this.groupRepo.find({ where: { id: In(groupIds) } });
+    if (rows.length === 0) throw new NotFoundException('选中的组都不存在');
+    for (const r of rows) r.zoneCode = normalized;
+    await this.groupRepo.save(rows);
+    return { count: rows.length, zoneCode: normalized };
   }
 
-  private toView(row: LightZone, hw?: HardwareUnit): LightZoneView {
-    let slaveId: number | null = null;
-    let displayName: string = row.gatewayCode;
-    if (hw) {
-      displayName = hw.name || hw.code;
-      if (hw.addressing) {
-        try {
-          const a = JSON.parse(hw.addressing) as { slaveId?: number };
-          if (typeof a.slaveId === 'number') slaveId = a.slaveId;
-        } catch {/* 老数据 */}
-      }
-    }
+  /** 记录某组实测出来的灯具短地址 (逐组点亮回读扫描的结果) */
+  async setGroupShorts(groupId: number, shorts: number[]): Promise<LightGroupView> {
+    const row = await this.groupRepo.findOne({ where: { id: groupId } });
+    if (!row) throw new NotFoundException(`light group #${groupId} 不存在`);
+    row.shorts = JSON.stringify(shorts);
+    await this.groupRepo.save(row);
+    const hw = await this.gatewayMap([row.gatewayCode]);
+    return this.groupToView(row, hw);
+  }
+
+  private toView(
+    row: LightZone,
+    groups: LightGroup[],
+    hw: Map<string, { slaveId: number | null; name: string }>,
+  ): LightZoneView {
     return {
       id: row.id,
       code: row.code,
       name: row.name,
       floor: row.floor,
-      gatewayCode: row.gatewayCode,
-      daliGroup: row.daliGroup,
       sortOrder: row.sortOrder,
       icon: row.icon,
       description: row.description,
       enabled: row.enabled,
-      gatewaySlaveId: slaveId,
-      gatewayDisplayName: displayName,
+      groups: groups
+        .slice()
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((g) => this.groupToView(g, hw)),
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };

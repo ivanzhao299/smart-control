@@ -4,17 +4,23 @@ import { ElMessage } from 'element-plus';
 import { useRouter } from 'vue-router';
 import { ArrowLeft, Lightbulb, Power, X, Sparkles, Layers, RefreshCw } from 'lucide-vue-next';
 import { lightingService } from '@/services/lighting.service';
-import { lightZonesService, type LightZoneView } from '@/services/light-zones.service';
+import {
+  lightZonesService,
+  type LightZoneView,
+  type LightGroupView,
+} from '@/services/light-zones.service';
 
+/**
+ * 2026-07-16 模型改造: 一个分区 = 若干个 DALI 组 (可跨两台网关), 不再是"分区就是一组".
+ * 现场 7 分区 / 11 组, 全在一层。分区里的组数可以是 0 (刚建的空分区)。
+ */
 interface ZoneRow {
   id: number;
   code: string;
   name: string;
   floor: string;
-  /** DALI 组号 (1-16), 只在网关上是 group, 在 UI 里只做副标题展示 */
-  daliGroup: number;
-  /** 关联的网关 code, 用于显示 */
-  gatewayDisplayName: string;
+  /** 该分区包含的 DALI 组; 组号必须跟网关一起看 (两台网关的"组3"是不同的灯) */
+  groups: LightGroupView[];
   brightness: number;
   on: boolean;
   busy: boolean;
@@ -23,6 +29,7 @@ interface ZoneRow {
 
 // ============ 数据源 — Sprint E (2026-05-31): 从 /api/light-zones 拉, 不再硬编码 ============
 const zones = ref<ZoneRow[]>([]);
+const allGroups = ref<LightGroupView[]>([]);
 const loading = ref<boolean>(false);
 const loadError = ref<string | null>(null);
 
@@ -30,24 +37,23 @@ async function loadZones(): Promise<void> {
   loading.value = true;
   loadError.value = null;
   try {
-    const list = await lightZonesService.list();
+    // 并发拉: 分区列表 + 全部组 (编组面板要列"未分配"的组)
+    const [list, groups] = await Promise.all([
+      lightZonesService.list(),
+      lightZonesService.groups(),
+    ]);
+    allGroups.value = groups;
     zones.value = list.map((z: LightZoneView): ZoneRow => ({
       id: z.id,
       code: z.code,
       name: z.name,
       floor: z.floor,
-      daliGroup: z.daliGroup,
-      gatewayDisplayName: z.gatewayDisplayName,
+      groups: z.groups,
       brightness: 80,        // 后端没存运行时亮度, 默认 80, 用户操作后更新
       on: false,             // 默认关 — 不再硬编码"假装亮着"
       busy: false,
       error: null,
     }));
-    // 初次进页面默认 1F tab; 若 1F 没数据自动切到第一个有数据的楼层
-    const floors = floorOptions.value;
-    if (!floors.includes(floorTab.value) && floors.length > 0) {
-      floorTab.value = floors[0];
-    }
   } catch (err) {
     loadError.value = (err as Error).message;
     ElMessage.error(`加载灯光分区失败: ${loadError.value}`);
@@ -56,20 +62,14 @@ async function loadZones(): Promise<void> {
   }
 }
 
-// ============ 楼层 Tab ============
-const floorTab = ref<string>('1F');
-const floorOptions = computed<string[]>(() => {
-  const set = new Set<string>();
-  for (const z of zones.value) set.add(z.floor);
-  // 按字母升序 ('1F', '2F', '3F'... 'all' 单独追加)
-  return Array.from(set).sort();
-});
-const filteredZones = computed(() => {
-  if (floorTab.value === 'all') return zones.value;
-  return zones.value.filter((z) => z.floor === floorTab.value);
-});
-
 onMounted(() => { void loadZones(); });
+
+// 全馆只有一层, 不再做楼层 tab (业主: "去除所有二层的信息, 只保留一层").
+// filteredZones 保留是为了下面 dispatchMany / 模板不用改口径.
+const filteredZones = computed(() => zones.value);
+
+/** 未归入任何分区的组 — 编组面板的左侧待分配池 */
+const unassignedGroups = computed(() => allGroups.value.filter((g) => g.zoneCode === null));
 
 // ============ 总览 ============
 const overview = computed(() => {
@@ -78,10 +78,56 @@ const overview = computed(() => {
   const avgBri = onCount === 0 ? 0 : Math.round(
     zones.value.filter((z) => z.on).reduce((s, z) => s + z.brightness, 0) / onCount,
   );
-  // 涉及的 gateway 个数 (作为"驱动器/网关"统计的替代)
-  const gateways = new Set(zones.value.map((z) => z.gatewayDisplayName));
-  return { total, onCount, avgBri, gatewayCount: gateways.size };
+  // 网关台数从组上统计 — 分区自己不再挂网关
+  const gateways = new Set(allGroups.value.map((g) => g.gatewayCode));
+  return { total, onCount, avgBri, gatewayCount: gateways.size, groupCount: allGroups.value.length };
 });
+
+// ============ 编组模式 ============
+// 业主要能在前端把组塞进分区 (代码里写死过一次, 现场对不上就得改代码重部署 — 不可接受).
+const grouping = ref<boolean>(false);
+const pickedGroups = ref<Set<number>>(new Set());
+
+function togglePick(gid: number): void {
+  const s = new Set(pickedGroups.value);
+  if (s.has(gid)) s.delete(gid); else s.add(gid);
+  pickedGroups.value = s;   // 换引用才触发 Vue 响应式 (Set 原地改不触发)
+}
+
+async function assignPickedTo(zoneCode: string | null): Promise<void> {
+  const ids = Array.from(pickedGroups.value);
+  if (ids.length === 0) {
+    ElMessage.info('先选中要分配的灯组');
+    return;
+  }
+  try {
+    await lightZonesService.assignGroups(ids, zoneCode);
+    pickedGroups.value = new Set();
+    await loadZones();       // 重新拉, 以后端为准 — 别本地猜
+    const zoneName = zoneCode === null
+      ? '未分配'
+      : (zones.value.find((z) => z.code === zoneCode)?.name ?? zoneCode);
+    ElMessage.success(`${ids.length} 组已归入「${zoneName}」`);
+  } catch (err) {
+    ElMessage.error(`分配失败: ${(err as Error).message}`);
+  }
+}
+
+/** 把一个组移出所在分区, 回到未分配池 */
+async function moveOut(g: LightGroupView): Promise<void> {
+  try {
+    await lightZonesService.assignGroups([g.id], null);
+    await loadZones();
+    ElMessage.success(`${groupLabel(g)} 已移出`);
+  } catch (err) {
+    ElMessage.error(`移出失败: ${(err as Error).message}`);
+  }
+}
+
+/** 组的人类可读名 — 必须带网关, 否则两台网关的同号组分不清 */
+function groupLabel(g: LightGroupView): string {
+  return `${g.gatewayDisplayName} · ${g.daliGroup}组`;
+}
 
 // ============ 操作 ============
 async function toggleZone(z: ZoneRow): Promise<void> {
@@ -141,9 +187,7 @@ function applyPreset(z: ZoneRow, value: number): void {
 // ============ 全部开/关 ============
 // 注意 1: 不要看本地 z.on 状态判断要不要发! z.on 是页面打开时的初始值, 跟现场
 //         灯真实状态没关系. DALI 命令幂等, 全部一律发就完了.
-// 注意 2: "全部开/全部关" 操作 **所有** zone, 不分楼层 — 操作员预期的是
-//         "整馆全开/全关", 不是 "当前看的 tab 的 zone 全开/全关".
-//         如果只想控当前楼层, 用下面的 floorOn / floorOff.
+// 注意 2: "全部开/全部关" 操作 **所有** zone — 全馆只有一层, 操作员预期就是整馆.
 async function dispatchMany(targets: ZoneRow[], op: 'on' | 'off'): Promise<void> {
   // 乐观: 先把目标区 UI 立即切到目标态, 再逐区异步下发硬件, 个别失败再回滚那一区
   const want = op === 'on';
@@ -180,20 +224,12 @@ async function dispatchMany(targets: ZoneRow[], op: 'on' | 'off'): Promise<void>
 }
 
 async function allOn(): Promise<void> {
-  ElMessage.info(`全部开启 — 逐区下发 (${zones.value.length} 区, 跨所有楼层)`);
+  ElMessage.info(`全部开启 — 逐区下发 (${zones.value.length} 区)`);
   await dispatchMany(zones.value, 'on');
 }
 async function allOff(): Promise<void> {
-  ElMessage.warning(`全部关闭 — 逐区下发 (${zones.value.length} 区, 跨所有楼层)`);
+  ElMessage.warning(`全部关闭 — 逐区下发 (${zones.value.length} 区)`);
   await dispatchMany(zones.value, 'off');
-}
-async function floorOn(): Promise<void> {
-  ElMessage.info(`${floorTab.value} 全开 — 逐区下发 (${filteredZones.value.length} 区)`);
-  await dispatchMany(filteredZones.value, 'on');
-}
-async function floorOff(): Promise<void> {
-  ElMessage.warning(`${floorTab.value} 全关 — 逐区下发 (${filteredZones.value.length} 区)`);
-  await dispatchMany(filteredZones.value, 'off');
 }
 
 const router = useRouter();
@@ -213,42 +249,18 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
           <div class="title"><Lightbulb :size="18" :stroke-width="1.8" /> 灯光控制</div>
         </div>
         <div class="v2-tabs">
-          <button
-            v-for="f in floorOptions"
-            :key="f"
-            class="v2-tab"
-            :class="{ active: floorTab === f }"
-            @click="floorTab = f"
-          >{{ f }}</button>
-          <button class="v2-tab" :class="{ active: floorTab === 'all' }" @click="floorTab = 'all'">全部</button>
+          <button class="v2-tab" :class="{ active: !grouping }" @click="grouping = false">控制</button>
+          <button class="v2-tab" :class="{ active: grouping }" @click="grouping = true">编组</button>
         </div>
       </div>
       <div class="quick-actions">
         <button class="v2-quick" @click="loadZones" :disabled="loading" title="重新加载分区列表">
           <RefreshCw :size="14" :stroke-width="2" />
         </button>
-        <button
-          v-if="floorTab !== 'all'"
-          class="v2-quick"
-          @click="floorOn"
-          :disabled="loading || filteredZones.length === 0"
-          :title="`只开当前 ${floorTab} 楼层 (${filteredZones.length} 区)`"
-        >
-          <Power :size="14" :stroke-width="2" /> {{ floorTab }} 开
-        </button>
-        <button
-          v-if="floorTab !== 'all'"
-          class="v2-quick"
-          @click="floorOff"
-          :disabled="loading || filteredZones.length === 0"
-          :title="`只关当前 ${floorTab} 楼层 (${filteredZones.length} 区)`"
-        >
-          <X :size="14" :stroke-width="2" /> {{ floorTab }} 关
-        </button>
-        <button class="v2-quick primary" @click="allOn" :disabled="loading || zones.length === 0" title="整馆全开 (跨所有楼层)">
+        <button class="v2-quick primary" @click="allOn" :disabled="loading || zones.length === 0" title="整馆全开">
           <Power :size="14" :stroke-width="2" /> 全部开
         </button>
-        <button class="v2-quick danger" @click="allOff" :disabled="loading || zones.length === 0" title="整馆全关 (跨所有楼层)">
+        <button class="v2-quick danger" @click="allOff" :disabled="loading || zones.length === 0" title="整馆全关">
           <X :size="14" :stroke-width="2" /> 全部关
         </button>
         <button class="v2-quick" @click="gotoScene">
@@ -256,6 +268,30 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
         </button>
       </div>
     </header>
+
+    <!-- 编组面板: 选中灯组 → 点分区按钮归入. 现场核对分组时用, 不用改代码. -->
+    <div v-if="grouping" class="group-panel">
+      <div class="gp-head">
+        <div class="gp-title"><Layers :size="16" :stroke-width="2" /> 未分配灯组</div>
+        <div class="gp-hint">
+          选中灯组, 再点下方分区卡上的「放这里」。分区里的组点一下可移出。
+        </div>
+      </div>
+      <div v-if="unassignedGroups.length === 0" class="gp-empty">全部灯组都已分配</div>
+      <div v-else class="gp-chips">
+        <button
+          v-for="g in unassignedGroups"
+          :key="g.id"
+          class="gp-chip"
+          :class="{ picked: pickedGroups.has(g.id) }"
+          @click="togglePick(g.id)"
+        >{{ groupLabel(g) }}</button>
+      </div>
+      <div v-if="pickedGroups.size > 0" class="gp-bar">
+        已选 {{ pickedGroups.size }} 组
+        <button class="v2-quick" @click="pickedGroups = new Set()">取消选择</button>
+      </div>
+    </div>
 
     <!-- 总览条 -->
     <div class="v2-overview">
@@ -305,11 +341,6 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
       <div class="state-title">还没有配置灯光分区</div>
       <div class="state-sub">到 后台 → 灯光分区管理 添加</div>
     </div>
-    <div v-else-if="filteredZones.length === 0" class="state-card">
-      <Lightbulb :size="32" :stroke-width="1.5" />
-      <div class="state-title">{{ floorTab }} 楼层没有分区</div>
-      <div class="state-sub">切换到其他楼层 tab, 或在后台添加</div>
-    </div>
 
     <!-- 区卡网格 -->
     <div v-else class="v2-zone-grid">
@@ -322,15 +353,36 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
         <div class="zone-top">
           <div class="zone-meta">
             <div class="zone-name">{{ z.name }}</div>
-            <!-- 业主不看 gateway/group 这种调试信息, 只显示楼层. 调试详情在后台 → 灯光分区. -->
-            <div class="zone-addr">{{ z.floor }}</div>
+            <!-- 控制态只报"几组灯", 不摆 gateway/组号这种调试信息; 编组态才需要看明细 -->
+            <div class="zone-addr">
+              {{ z.groups.length === 0 ? '暂无灯组' : `${z.groups.length} 组灯` }}
+            </div>
           </div>
           <button
+            v-if="!grouping"
             class="v2-toggle"
             :class="{ on: z.on }"
             @click="toggleZone(z)"
             :title="z.on ? '关闭' : '开启'"
           ></button>
+        </div>
+
+        <!-- 编组态: 列出本区的组 (点一下移出), 并提供"放这里" -->
+        <div v-if="grouping" class="zone-groups">
+          <div v-if="z.groups.length === 0" class="zg-empty">还没有灯组</div>
+          <button
+            v-for="g in z.groups"
+            :key="g.id"
+            class="gp-chip in-zone"
+            @click="moveOut(g)"
+            :title="`点击把 ${groupLabel(g)} 移出本区`"
+          >{{ groupLabel(g) }} <X :size="11" :stroke-width="2.5" /></button>
+          <button
+            class="zg-drop"
+            :disabled="pickedGroups.size === 0"
+            @click="assignPickedTo(z.code)"
+            :title="pickedGroups.size === 0 ? '先在上面选中灯组' : `把选中的 ${pickedGroups.size} 组放入 ${z.name}`"
+          >放这里</button>
         </div>
 
         <div class="brightness">
@@ -374,6 +426,87 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 </template>
 
 <style scoped>
+/* ============ 编组面板 ============ */
+.group-panel {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--v2-border-soft);
+  background: rgba(255, 255, 255, 0.03);
+}
+.gp-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.gp-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--v2-text-1);
+}
+.gp-hint { font-size: 13px; color: var(--v2-text-2); }
+.gp-empty { font-size: 13px; color: var(--v2-text-2); padding: 6px 0; }
+.gp-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+/* 灯组 chip 要够大 —— 现场是站着用平板点的, 不是坐着用鼠标 */
+.gp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 9px 14px;
+  min-height: 40px;
+  border-radius: 8px;
+  border: 1px solid var(--v2-border-soft);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--v2-text-1);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.gp-chip:hover { border-color: var(--v2-primary-soft); }
+.gp-chip.picked {
+  border-color: var(--v2-primary);
+  background: var(--v2-primary-soft);
+  color: #fff;
+  box-shadow: 0 0 0 1px var(--v2-primary) inset;
+}
+.gp-chip.in-zone { padding: 6px 10px; min-height: 32px; font-size: 13px; }
+.gp-chip.in-zone:hover { border-color: var(--v2-danger); color: var(--v2-danger); }
+.gp-bar {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--v2-text-1);
+}
+
+/* 卡片内的灯组列表 (编组态) */
+.zone-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 10px;
+}
+.zg-empty { font-size: 13px; color: var(--v2-text-2); }
+.zg-drop {
+  padding: 6px 12px;
+  min-height: 32px;
+  border-radius: 8px;
+  border: 1px dashed var(--v2-primary);
+  background: transparent;
+  color: var(--v2-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.zg-drop:disabled { opacity: 0.35; cursor: not-allowed; border-style: dashed; }
+.zg-drop:not(:disabled):hover { background: var(--v2-primary-soft); color: #fff; }
+
 .v2-page {
   padding: var(--v2-sp-5);
   display: flex;

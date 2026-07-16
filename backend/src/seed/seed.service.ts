@@ -10,6 +10,7 @@ import { User } from '../entities/user.entity';
 import { UatCategory, UatRecord } from '../entities/uat-record.entity';
 import { HardwareCategory, HardwareUnit } from '../entities/hardware-unit.entity';
 import { LightZone } from '../entities/light-zone.entity';
+import { LightGroup } from '../entities/light-group.entity';
 import { hashPassword } from '../common/utils/password.util';
 
 interface UatSeed {
@@ -347,6 +348,7 @@ export class SeedService {
     @InjectRepository(UatRecord) private readonly uatRepo: Repository<UatRecord>,
     @InjectRepository(HardwareUnit) private readonly hwRepo: Repository<HardwareUnit>,
     @InjectRepository(LightZone) private readonly lightZoneRepo: Repository<LightZone>,
+    @InjectRepository(LightGroup) private readonly lightGroupRepo: Repository<LightGroup>,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
@@ -374,60 +376,106 @@ export class SeedService {
    *
    * 幂等: 按 code 唯一, 已存在跳过 — 业主在后台改过的不被覆盖.
    */
+  /**
+   * 灯光分区 + DALI 组 (2026-07-16 现场重构).
+   *
+   * 变了什么:
+   *   - 全楼只剩**一层**, 2F 那批分区 (测试灯 A/B、二层前厅…) 全部作废
+   *   - 7 个分区 / 11 个组 —— **一个分区可含多个组** (业主: "有的多组灯放在一个分区")
+   *   - 所以成员关系从 light_zone 上的单值 (gatewayCode, daliGroup) 搬到
+   *     light_group.zoneCode (照 hvac_indoor 的做法), 见 LightGroup 实体注释
+   *
+   * 组的分布是**实测**的 (2026-07-16 扫两台网关的组亮度寄存器, 全部 254 亮着):
+   *   网关2 (拨码2): 组 1, 2, 3
+   *   网关1 (拨码1): 组 5, 6, 7, 8, 9, 10, 11
+   * 注意组号在两台网关间会重复, 所以唯一键必须是 (gatewayCode, daliGroup).
+   *
+   * ⚠️ 组→分区的归属是**占位猜测**, 不是实测: 网关的 Modbus 寄存器表里没有"组成员"
+   * 这一项 (查过), 所以读不出哪个组对应哪片区域。业主明确说 "后续可以在测试时再修改"
+   * —— 前端可改, 现场点一个组看哪片灯亮, 改过来即可。别把这里的归属当事实。
+   *
+   * 幂等: 按 code / (网关,组) 唯一, 已存在跳过, 不覆盖业主改过的。
+   */
   private async seedLightZones(): Promise<void> {
-    interface ZoneSeed {
-      code: string;
-      name: string;
-      floor: string;
-      gatewayCode: string;
-      daliGroup: number;
-      sortOrder: number;
-      icon?: string;
-      description?: string;
-    }
+    interface ZoneSeed { code: string; name: string; sortOrder: number; icon?: string }
     const ZONES: ZoneSeed[] = [
-      // ---------- 1F (GW-DALI-1, slaveId=1) ----------
-      { code: '1f-front-hall',    name: '一层前厅 / 园区展示', floor: '1F', gatewayCode: 'GW-DALI-1', daliGroup: 1, sortOrder: 10, icon: 'Lightbulb' },
-      { code: '1f-roadshow',      name: '一层路演 / 洽谈区',   floor: '1F', gatewayCode: 'GW-DALI-1', daliGroup: 2, sortOrder: 20, icon: 'Lightbulb' },
-      { code: '1f-corridor',      name: '一层走廊',           floor: '1F', gatewayCode: 'GW-DALI-1', daliGroup: 3, sortOrder: 30, icon: 'Lightbulb' },
-      { code: '1f-accent',        name: '一层重点照明 / 灯箱', floor: '1F', gatewayCode: 'GW-DALI-1', daliGroup: 4, sortOrder: 40, icon: 'Sparkles' },
-      { code: '1f-enterprise',    name: '一层企业展位区',     floor: '1F', gatewayCode: 'GW-DALI-1', daliGroup: 5, sortOrder: 50, icon: 'Lightbulb' },
-      { code: '1f-general',       name: '一层综合展销区',     floor: '1F', gatewayCode: 'GW-DALI-1', daliGroup: 6, sortOrder: 60, icon: 'Lightbulb' },
-      { code: '1f-trade',         name: '一层物贸交易展示区', floor: '1F', gatewayCode: 'GW-DALI-1', daliGroup: 7, sortOrder: 70, icon: 'Lightbulb' },
-      // ---------- 2F (GW-DALI-2, slaveId=2) ----------
-      // group 3/4 是用户现场实际接的两盏测试灯 (USB 直连模式找到), 排在最前.
-      // group 8-12 是 v3 设计文档规划的 2F 5 个分区, 灯具尚未到货时占位.
-      { code: '2f-test-a',        name: '二层测试灯 A',       floor: '2F', gatewayCode: 'GW-DALI-2', daliGroup: 3, sortOrder: 5,  icon: 'Lightbulb', description: '2026-05-31 现场调试, USB 直连找到, group 3' },
-      { code: '2f-test-b',        name: '二层测试灯 B',       floor: '2F', gatewayCode: 'GW-DALI-2', daliGroup: 4, sortOrder: 6,  icon: 'Lightbulb', description: '2026-05-31 现场调试, USB 直连找到, group 4' },
-      { code: '2f-front-hall',    name: '二层前厅 / 走廊',     floor: '2F', gatewayCode: 'GW-DALI-2', daliGroup: 8, sortOrder: 10, icon: 'Lightbulb', description: '灯具未安装, 占位' },
-      { code: '2f-enterprise-svc',name: '二层企业服务中心',   floor: '2F', gatewayCode: 'GW-DALI-2', daliGroup: 9, sortOrder: 20, icon: 'Lightbulb', description: '灯具未安装, 占位' },
-      { code: '2f-coworking',     name: '二层共享办公',       floor: '2F', gatewayCode: 'GW-DALI-2', daliGroup: 10, sortOrder: 30, icon: 'Lightbulb', description: '灯具未安装, 占位' },
-      { code: '2f-research',      name: '二层产业研究 / 接待', floor: '2F', gatewayCode: 'GW-DALI-2', daliGroup: 11, sortOrder: 40, icon: 'Lightbulb', description: '灯具未安装, 占位' },
-      { code: '2f-control',       name: '二层运营指挥中心',   floor: '2F', gatewayCode: 'GW-DALI-2', daliGroup: 12, sortOrder: 50, icon: 'Sparkles', description: '灯具未安装, 占位' },
+      { code: 'front-hall',  name: '前厅',     sortOrder: 10, icon: 'Lightbulb' },
+      { code: 'park-show',   name: '园区展示', sortOrder: 20, icon: 'Lightbulb' },
+      { code: 'east-hall',   name: '东展区',   sortOrder: 30, icon: 'Lightbulb' },
+      { code: 'south-hall',  name: '南展区',   sortOrder: 40, icon: 'Lightbulb' },
+      { code: 'west-hall',   name: '西展区',   sortOrder: 50, icon: 'Lightbulb' },
+      { code: 'release-hall',name: '发布厅',   sortOrder: 60, icon: 'Sparkles' },
+      { code: 'corridor',    name: '走廊区',   sortOrder: 70, icon: 'Lightbulb' },
     ];
-    let created = 0;
+
+    // 实测在用的组 -> 占位归属 (测试时再改)
+    interface GroupSeed { gatewayCode: string; daliGroup: number; zoneCode: string | null; sortOrder: number }
+    const GROUPS: GroupSeed[] = [
+      { gatewayCode: 'GW-DALI-2', daliGroup: 1,  zoneCode: 'front-hall',   sortOrder: 10 },
+      { gatewayCode: 'GW-DALI-2', daliGroup: 2,  zoneCode: 'park-show',    sortOrder: 20 },
+      { gatewayCode: 'GW-DALI-2', daliGroup: 3,  zoneCode: 'east-hall',    sortOrder: 30 },
+      { gatewayCode: 'GW-DALI-1', daliGroup: 5,  zoneCode: 'south-hall',   sortOrder: 40 },
+      { gatewayCode: 'GW-DALI-1', daliGroup: 6,  zoneCode: 'west-hall',    sortOrder: 50 },
+      { gatewayCode: 'GW-DALI-1', daliGroup: 7,  zoneCode: 'release-hall', sortOrder: 60 },
+      { gatewayCode: 'GW-DALI-1', daliGroup: 8,  zoneCode: 'corridor',     sortOrder: 70 },
+      { gatewayCode: 'GW-DALI-1', daliGroup: 9,  zoneCode: 'corridor',     sortOrder: 80 },
+      { gatewayCode: 'GW-DALI-1', daliGroup: 10, zoneCode: 'corridor',     sortOrder: 90 },
+      { gatewayCode: 'GW-DALI-1', daliGroup: 11, zoneCode: 'corridor',     sortOrder: 100 },
+    ];
+
+    // 一次性清掉 2026-07-16 之前那批按两层规划的分区 (含 2F 全部 + 1F 旧命名).
+    // 只在它们还带着老 code 时删, 删过就不会再命中, 幂等。
+    const OBSOLETE = [
+      '1f-front-hall', '1f-roadshow', '1f-corridor', '1f-accent',
+      '1f-enterprise', '1f-general', '1f-trade',
+      '2f-test-a', '2f-test-b', '2f-front-hall', '2f-enterprise-svc',
+      '2f-coworking', '2f-research', '2f-control',
+    ];
+    for (const code of OBSOLETE) {
+      const old = await this.lightZoneRepo.findOne({ where: { code } });
+      if (old) {
+        await this.lightZoneRepo.remove(old);
+        this.logger.info(`Removed obsolete light zone: ${code}`, { context: 'SeedService' });
+      }
+    }
+
+    let zCreated = 0;
     for (const z of ZONES) {
-      const exists = await this.lightZoneRepo.findOne({ where: { code: z.code } });
-      if (exists) continue;
-      const row = this.lightZoneRepo.create({
+      if (await this.lightZoneRepo.findOne({ where: { code: z.code } })) continue;
+      await this.lightZoneRepo.save(this.lightZoneRepo.create({
         code: z.code,
         name: z.name,
-        floor: z.floor,
-        gatewayCode: z.gatewayCode,
-        daliGroup: z.daliGroup,
+        floor: '1F',           // 全楼只剩一层
+        gatewayCode: null,     // 遗留列, 成员看 light_group.zoneCode
+        daliGroup: null,
         sortOrder: z.sortOrder,
         icon: z.icon ?? 'Lightbulb',
-        description: z.description ?? null,
+        description: null,
         enabled: true,
+      }));
+      zCreated += 1;
+    }
+
+    let gCreated = 0;
+    for (const g of GROUPS) {
+      const exists = await this.lightGroupRepo.findOne({
+        where: { gatewayCode: g.gatewayCode, daliGroup: g.daliGroup },
       });
-      await this.lightZoneRepo.save(row);
-      created += 1;
+      if (exists) continue;
+      await this.lightGroupRepo.save(this.lightGroupRepo.create({
+        gatewayCode: g.gatewayCode,
+        daliGroup: g.daliGroup,
+        zoneCode: g.zoneCode,
+        shorts: null,
+        sortOrder: g.sortOrder,
+        enabled: true,
+      }));
+      gCreated += 1;
     }
-    if (created > 0) {
-      this.logger.info(`Seeded ${created}/${ZONES.length} light zones`, { context: 'SeedService' });
-    } else {
-      this.logger.info(`All ${ZONES.length} light zones already exist, skip`, { context: 'SeedService' });
-    }
+    this.logger.info(
+      `Light zones: +${zCreated}/${ZONES.length}, DALI groups: +${gCreated}/${GROUPS.length}`,
+      { context: 'SeedService' },
+    );
   }
 
   /**

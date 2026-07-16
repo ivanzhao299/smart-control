@@ -51,13 +51,20 @@ export class LightZone {
   @Column({ type: 'varchar', length: 16 })
   floor!: string;
 
-  /** 关联的 DALI 网关 code (对应 hardware_unit.code), e.g. 'GW-DALI-1' */
-  @Column({ type: 'varchar', length: 64, name: 'gateway_code' })
-  gatewayCode!: string;
+  /**
+   * @deprecated 2026-07-16 起不再是成员关系的真源, 成员看 light_group.zoneCode.
+   *
+   * 现场是 7 个分区 / 11 个组, 好几个分区由多组灯拼成 —— 单值字段表达不了
+   * "一个分区含多个组"。所以成员关系搬到 LightGroup 上 (照 hvac_indoor 的做法)。
+   * 这两列保留只为兼容老库结构 (SQLite 改列会重建表, 犯不着为此冒险丢业主改过的
+   * 分区名), 新代码一律不读。
+   */
+  @Column({ type: 'varchar', length: 64, name: 'gateway_code', nullable: true })
+  gatewayCode!: string | null;
 
-  /** DALI 组号 1-16 */
-  @Column({ type: 'integer', name: 'dali_group' })
-  daliGroup!: number;
+  /** @deprecated 同上 — 成员关系看 light_group.zoneCode */
+  @Column({ type: 'integer', name: 'dali_group', nullable: true })
+  daliGroup!: number | null;
 
   /** 显示顺序 (升序), 同楼层内排序; 默认 100 */
   @Column({ type: 'integer', name: 'sort_order', default: 100 })
