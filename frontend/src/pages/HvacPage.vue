@@ -16,12 +16,13 @@
  * 编组模式: 选中若干台 → "归到此组" → 选组。跟单机测试是同一个选择习惯,
  * 不用学第二套操作。组名/内机名都能就地改, 全部落库, 不用改代码。
  */
-import { computed, nextTick, onMounted, ref, type Component } from 'vue';
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, type Component } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
   ArrowLeft, Snowflake, Flame, Wind, Sparkles, Droplet,
   Power, Minus, Plus, Thermometer, Pencil, Check, FolderPlus, Trash2, Layers,
+  AlertTriangle, RefreshCw,
 } from 'lucide-vue-next';
 import {
   hvacService, type HvacFan, type HvacIndoor, type HvacMode, type HvacZone,
@@ -30,16 +31,29 @@ import {
 const router = useRouter();
 function goBack(): void { void router.push('/'); }
 
-/** 本地推测的内机状态 — 中弘网关读回状态较慢, 这里走乐观更新, 失败再回滚 */
+/**
+ * 内机状态 — **来自真机寄存器**, 由 GET /hvac/states 轮询.
+ *
+ * known=false = 这一轮没读到 (网关超时 / 内机离线)。必须跟"关机"区分开:
+ * 把读不到画成关机, 会让人以为空调停了而实际在跑, 比不显示更糟。
+ */
 interface IndoorState {
+  known: boolean;
   on: boolean;
   temperature: number;
   mode: HvacMode;
   fan: HvacFan;
+  /** 实测室温 (设定温度是 temperature, 这个是屋里实际多少度) */
+  roomTemp?: number;
+  online: boolean;
+  faultCode: number;
 }
 interface IndoorRow extends HvacIndoor {
   state: IndoorState;
 }
+
+/** 状态轮询间隔 — 2 次 Modbus 往返约 0.2-1s, 5s 一轮既跟手又不压网关 */
+const POLL_MS = 5000;
 
 const indoors = ref<IndoorRow[]>([]);
 const zones = ref<HvacZone[]>([]);
@@ -63,19 +77,18 @@ const fans: Array<{ value: HvacFan; label: string }> = [
   { value: 'high', label: '高' },
 ];
 
-function freshState(): IndoorState {
-  return { on: false, temperature: 24, mode: 'auto', fan: 'auto' };
+/** 还没读到真机状态时的占位 —— known=false, 界面显示"未知"而不是"关机" */
+function unknownState(): IndoorState {
+  return { known: false, on: false, temperature: 24, mode: 'auto', fan: 'auto', online: false, faultCode: 0 };
 }
 
 async function loadAll(): Promise<void> {
   loading.value = true;
   try {
     const [ind, zs] = await Promise.all([hvacService.listIndoors(), hvacService.listZones()]);
-    // 重载时保留已有的本地状态推测, 免得刚点完开机一刷新又变回关
     const prev = new Map(indoors.value.map((i) => [i.idx, i.state]));
-    indoors.value = ind.map((i) => ({ ...i, state: prev.get(i.idx) ?? freshState() }));
+    indoors.value = ind.map((i) => ({ ...i, state: prev.get(i.idx) ?? unknownState() }));
     zones.value = zs;
-    // 选中项里可能有已被删掉的内机, 清理掉
     const alive = new Set(ind.map((i) => i.idx));
     selected.value = new Set([...selected.value].filter((x) => alive.has(x)));
   } catch (err) {
@@ -84,7 +97,59 @@ async function loadAll(): Promise<void> {
     loading.value = false;
   }
 }
-onMounted(() => { void loadAll(); });
+
+const lastPollAt = ref<Date | null>(null);
+const pollFailed = ref(false);
+let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** 拉一次真机状态并合并进卡片 */
+async function pollStates(): Promise<void> {
+  try {
+    const list = await hvacService.listStates();
+    const byIdx = new Map(list.map((s) => [s.idx, s]));
+    for (const row of indoors.value) {
+      const s = byIdx.get(row.idx);
+      if (!s || !s.known) {
+        // 这一轮没读到: 只把 known 打掉, 保留上次的值给界面做灰显, 不要清成 0
+        row.state.known = false;
+        row.state.online = false;
+        continue;
+      }
+      row.state = {
+        known: true,
+        on: s.on,
+        temperature: s.temperature,
+        mode: s.mode,
+        fan: s.fan,
+        roomTemp: s.roomTemp,
+        online: s.online,
+        faultCode: s.faultCode,
+      };
+    }
+    lastPollAt.value = new Date();
+    pollFailed.value = false;
+  } catch {
+    // 轮询失败不弹窗 —— 每 5s 弹一次没法用; 顶栏显示"状态读取失败"即可
+    pollFailed.value = true;
+  }
+}
+
+/** setTimeout 递归而非 setInterval: 避免上一轮没回来就发下一轮, 把网关压垮 */
+function schedulePoll(): void {
+  pollTimer = setTimeout(async () => {
+    await pollStates();
+    schedulePoll();
+  }, POLL_MS);
+}
+
+onMounted(async () => {
+  await loadAll();
+  await pollStates();
+  schedulePoll();
+});
+onBeforeUnmount(() => {
+  if (pollTimer) clearTimeout(pollTimer);
+});
 
 // ============ 视图 ============
 
@@ -109,18 +174,28 @@ const selectedIdxs = computed(() => selectedRows.value.map((i) => i.idx));
 
 const overview = computed(() => {
   const list = visibleIndoors.value;
-  const on = list.filter((i) => i.state.on);
+  // 只统计真读到状态的 —— 未知的既不算开也不算关, 单独报出来
+  const known = list.filter((i) => i.state.known);
+  const on = known.filter((i) => i.state.on);
+  const rt = known.map((i) => i.state.roomTemp).filter((t): t is number => typeof t === 'number');
   return {
     onCount: on.length,
+    knownCount: known.length,
+    unknownCount: list.length - known.length,
     total: list.length,
-    avgT: on.length ? Math.round(on.reduce((s, i) => s + i.state.temperature, 0) / on.length) : 0,
+    faultCount: known.filter((i) => i.state.faultCode > 0).length,
+    // 显示实测室温均值 (设定温度是人设的, 室温才是现场真实情况)
+    avgRoomT: rt.length ? Math.round((rt.reduce((s, t) => s + t, 0) / rt.length) * 10) / 10 : null,
     zoneCount: visibleZones.value.length,
   };
 });
 
-/** 控制条显示的值: 选中项一致就显示该值, 不一致显示 null (界面上留空/不高亮) */
+/**
+ * 控制条显示的值: 只看**读到状态**的那些选中项, 一致就显示该值, 不一致显示 null
+ * (界面上不高亮任何一个). 未知的不参与 —— 拿占位值凑数会显示出一个假的共识.
+ */
 function commonOf<K extends keyof IndoorState>(key: K): IndoorState[K] | null {
-  const rows = selectedRows.value;
+  const rows = selectedRows.value.filter((r) => r.state.known);
   if (!rows.length) return null;
   const first = rows[0].state[key];
   return rows.every((r) => r.state[key] === first) ? first : null;
@@ -129,7 +204,7 @@ const selMode = computed(() => commonOf('mode'));
 const selFan = computed(() => commonOf('fan'));
 const selOn = computed(() => commonOf('on'));
 const selTemp = computed(() => {
-  const rows = selectedRows.value;
+  const rows = selectedRows.value.filter((r) => r.state.known);
   if (!rows.length) return 24;
   return Math.round(rows.reduce((s, r) => s + r.state.temperature, 0) / rows.length);
 });
@@ -170,6 +245,7 @@ async function run(
   const rows = selectedRows.value;
   if (!rows.length) { ElMessage.warning('请先选中内机'); return; }
   const backup = rows.map((r) => ({ idx: r.idx, snapshot: { ...r.state } }));
+  // 先乐观改, 让按钮跟手 (中弘网关下发到状态寄存器更新有延迟, 干等会像卡死)
   rows.forEach((r) => apply(r.state));
   busy.value = true;
   try {
@@ -183,6 +259,9 @@ async function run(
     ElMessage.error(`${label} 失败: ${(err as Error).message}`);
   } finally {
     busy.value = false;
+    // 关键: 复读真机, 用寄存器的真相覆盖掉刚才的乐观猜测.
+    // 命令下发到网关刷新状态寄存器有延迟, 立刻读会读到旧值, 所以等一下再读。
+    setTimeout(() => { void pollStates(); }, 1200);
   }
 }
 
@@ -213,6 +292,7 @@ async function floorPower(on: boolean): Promise<void> {
     ElMessage.error(`${on ? '全开' : '全关'} 失败: ${(err as Error).message}`);
   } finally {
     busy.value = false;
+    setTimeout(() => { void pollStates(); }, 1200);
   }
 }
 
@@ -320,6 +400,7 @@ async function removeZone(z: HvacZone): Promise<void> {
 
 const modeIcon = (m: HvacMode): Component => modes.find((x) => x.value === m)?.icon ?? Sparkles;
 const modeLabel = (m: HvacMode): string => modes.find((x) => x.value === m)?.label ?? m;
+const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label ?? f;
 </script>
 
 <template>
@@ -338,9 +419,19 @@ const modeLabel = (m: HvacMode): string => modes.find((x) => x.value === m)?.lab
       </div>
 
       <div class="hv-stats">
-        <span><b>{{ overview.onCount }}</b>/{{ overview.total }} 运行</span>
-        <span v-if="overview.avgT"><Thermometer :size="13" /> {{ overview.avgT }}°C</span>
+        <span><b>{{ overview.onCount }}</b>/{{ overview.knownCount }} 运行</span>
+        <span v-if="overview.avgRoomT !== null" title="实测室温均值">
+          <Thermometer :size="13" /> {{ overview.avgRoomT }}°C
+        </span>
         <span><Layers :size="13" /> {{ overview.zoneCount }} 组</span>
+        <span v-if="overview.faultCount" class="warn"><AlertTriangle :size="13" /> {{ overview.faultCount }} 故障</span>
+        <span v-if="overview.unknownCount" class="dim" title="本轮未读到状态的内机">
+          {{ overview.unknownCount }} 台未知
+        </span>
+        <span class="poll" :class="{ bad: pollFailed }" :title="pollFailed ? '状态读取失败' : '最近一次读取时间'">
+          <RefreshCw :size="12" />
+          {{ pollFailed ? '读取失败' : (lastPollAt ? lastPollAt.toLocaleTimeString('zh-CN', { hour12: false }) : '读取中') }}
+        </span>
       </div>
 
       <div class="hv-head-actions">
@@ -389,12 +480,24 @@ const modeLabel = (m: HvacMode): string => modes.find((x) => x.value === m)?.lab
       <button
         v-for="row in visibleIndoors" :key="row.idx"
         class="hv-cell"
-        :class="{ sel: selected.has(row.idx), running: row.state.on }"
+        :class="{
+          sel: selected.has(row.idx),
+          running: row.state.known && row.state.on,
+          unknown: !row.state.known,
+          fault: row.state.known && row.state.faultCode > 0,
+        }"
         @click="toggleOne(row.idx)"
       >
         <div class="cell-top">
           <span class="cell-tag">{{ row.floor }}-{{ row.idx }}</span>
-          <span class="cell-dot" :class="{ on: row.state.on }" />
+          <span v-if="row.state.known && row.state.faultCode > 0" class="cell-fault" :title="'故障码 ' + row.state.faultCode">
+            <AlertTriangle :size="11" /> {{ row.state.faultCode }}
+          </span>
+          <span
+            class="cell-dot"
+            :class="{ on: row.state.known && row.state.on, unknown: !row.state.known }"
+            :title="!row.state.known ? '未读到状态' : (row.state.on ? '运行中' : '已关机')"
+          />
         </div>
 
         <div class="cell-name">
@@ -413,13 +516,25 @@ const modeLabel = (m: HvacMode): string => modes.find((x) => x.value === m)?.lab
         </div>
 
         <div class="cell-mid">
-          <span v-if="row.state.on" class="cell-temp">{{ row.state.temperature }}<i>°C</i></span>
-          <span v-else class="cell-off">关机</span>
+          <!-- 读不到 ≠ 关机: 必须分开显示, 否则会让人以为空调停了而实际在跑 -->
+          <span v-if="!row.state.known" class="cell-unknown">未读到</span>
+          <template v-else-if="row.state.on">
+            <span class="cell-temp">{{ row.state.temperature }}<i>°C</i></span>
+            <span v-if="row.state.roomTemp !== undefined" class="cell-room" title="实测室温">
+              室温 {{ row.state.roomTemp }}°
+            </span>
+          </template>
+          <span v-else class="cell-off">
+            关机
+            <em v-if="row.state.roomTemp !== undefined">室温 {{ row.state.roomTemp }}°</em>
+          </span>
         </div>
 
         <div class="cell-foot">
-          <span class="cell-mode" :class="{ dim: !row.state.on }">
+          <span v-if="!row.state.known" class="cell-mode dim">—</span>
+          <span v-else class="cell-mode" :class="{ dim: !row.state.on }">
             <component :is="modeIcon(row.state.mode)" :size="11" /> {{ modeLabel(row.state.mode) }}
+            <i class="cell-fan">{{ fanLabel(row.state.fan) }}</i>
           </span>
           <span class="cell-zone" :title="zoneNameOf(row.zoneCode)">{{ zoneNameOf(row.zoneCode) }}</span>
         </div>
@@ -514,6 +629,10 @@ const modeLabel = (m: HvacMode): string => modes.find((x) => x.value === m)?.lab
 }
 .hv-stats span { display: inline-flex; align-items: center; gap: 4px; }
 .hv-stats b { color: var(--v2-accent, #4da3ff); font-size: 14px; }
+.hv-stats .warn { color: #e8b339; }
+.hv-stats .dim { color: #6d7f98; }
+.hv-stats .poll { color: #55637a; font-variant-numeric: tabular-nums; }
+.hv-stats .poll.bad { color: #ff7875; }
 .hv-head-actions { display: flex; gap: 8px; }
 
 /* ---- 快选条 ---- */
@@ -570,6 +689,13 @@ const modeLabel = (m: HvacMode): string => modes.find((x) => x.value === m)?.lab
 }
 .hv-cell:hover { border-color: var(--v2-accent, #4da3ff); }
 .hv-cell.running { background: linear-gradient(160deg, #12283d, #141c28); }
+/* 未知: 斜纹底 + 虚线框 —— 一眼跟"关机"区分开, 不靠颜色深浅 */
+.hv-cell.unknown {
+  border-style: dashed;
+  border-color: #3c4a5e;
+  background: repeating-linear-gradient(45deg, #141c28, #141c28 6px, #171f2c 6px, #171f2c 12px);
+}
+.hv-cell.fault { border-color: #a9541f; }
 /* 选中态用实心边框 + 外发光, 不靠颜色深浅 —— 现场大屏斜着看也要分得清 */
 .hv-cell.sel {
   border-color: var(--v2-accent, #4da3ff);
@@ -578,8 +704,13 @@ const modeLabel = (m: HvacMode): string => modes.find((x) => x.value === m)?.lab
 
 .cell-top { display: flex; align-items: center; justify-content: space-between; }
 .cell-tag { font-size: 10px; color: var(--v2-text-dim, #8fa3bd); letter-spacing: .3px; }
-.cell-dot { width: 7px; height: 7px; border-radius: 50%; background: #3c4a5e; }
+.cell-dot { width: 7px; height: 7px; border-radius: 50%; background: #3c4a5e; flex: 0 0 auto; }
 .cell-dot.on { background: #35d07f; box-shadow: 0 0 6px #35d07f99; }
+.cell-dot.unknown { background: transparent; border: 1.5px dashed #55637a; }
+.cell-fault {
+  display: inline-flex; align-items: center; gap: 2px; margin-left: auto; margin-right: 4px;
+  font-size: 10px; color: #ff9a52;
+}
 
 .cell-name { display: flex; align-items: center; gap: 4px; min-height: 18px; }
 .cell-name-text {
@@ -595,10 +726,13 @@ const modeLabel = (m: HvacMode): string => modes.find((x) => x.value === m)?.lab
   border: 1px solid var(--v2-accent, #4da3ff); border-radius: 4px; outline: none;
 }
 
-.cell-mid { flex: 1 1 auto; display: flex; align-items: center; min-height: 0; }
+.cell-mid { flex: 1 1 auto; display: flex; align-items: baseline; gap: 6px; min-height: 0; }
 .cell-temp { font-size: 26px; font-weight: 300; color: var(--v2-text, #e8eef7); line-height: 1; }
 .cell-temp i { font-size: 12px; font-style: normal; opacity: .55; margin-left: 1px; }
-.cell-off { font-size: 13px; color: #55637a; }
+.cell-room { font-size: 11px; color: #7d8fa8; white-space: nowrap; }
+.cell-off { font-size: 13px; color: #55637a; display: inline-flex; align-items: baseline; gap: 6px; }
+.cell-off em { font-style: normal; font-size: 11px; color: #7d8fa8; }
+.cell-unknown { font-size: 13px; color: #6d7f98; font-style: italic; }
 
 .cell-foot { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
 .cell-mode {
@@ -606,6 +740,7 @@ const modeLabel = (m: HvacMode): string => modes.find((x) => x.value === m)?.lab
   font-size: 10px; color: var(--v2-accent, #4da3ff); white-space: nowrap;
 }
 .cell-mode.dim { color: #55637a; }
+.cell-fan { font-style: normal; opacity: .6; }
 .cell-zone {
   font-size: 10px; color: var(--v2-text-dim, #8fa3bd);
   max-width: 62%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

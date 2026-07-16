@@ -72,6 +72,40 @@ export class HvacController {
   }
 
   /**
+   * 所有内机的**真实状态** — PWA 空调页轮询这个.
+   *
+   * 不合并进 GET /indoors: 那边是配置 (名字/归属, 很少变), 这边是每几秒要刷的
+   * 实时量, 合在一起会让每次轮询都白读一遍配置。
+   *
+   * 读不到的内机**不出现在结果里**, 前端显示"未知" —— 不能拿"读不到"当"关机",
+   * 那会让人以为空调是关的而实际在跑。
+   */
+  @Get('states')
+  async listStates() {
+    const rows = await this.ensureIndoorsSeeded();
+    const states = await this.hvac.readAllStates(rows.map((r) => r.idx));
+    return {
+      message: 'OK',
+      data: rows.map((r) => {
+        const s = states.get(r.idx);
+        return s
+          ? {
+              idx: r.idx,
+              known: true,
+              on: s.on,
+              mode: s.mode,
+              temperature: s.temperature,
+              fan: s.fan,
+              roomTemp: s.roomTemp,
+              online: s.online,
+              faultCode: s.faultCode ?? 0,
+            }
+          : { idx: r.idx, known: false };
+      }),
+    };
+  }
+
+  /**
    * 改内机的名字 / 归属组 — 业主在 PWA 直接改, 不用进后台, 更不用改代码.
    * PUT /api/hvac/indoors/:idx  { name?, zoneCode? }
    */

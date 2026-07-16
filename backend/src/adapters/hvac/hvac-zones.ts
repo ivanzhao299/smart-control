@@ -129,17 +129,17 @@ export const HVAC_ZONES: HvacZoneConfig[] = [
 
 /** 按 code 找 zone */
 export function findZone(code: string): HvacZoneConfig | undefined {
-  return HVAC_ZONES.find(z => z.code === code);
+  return HVAC_ZONES.find((z) => z.code === code);
 }
 
 /** 按楼层分组 */
 export function zonesByFloor(floor: '1F' | '2F'): HvacZoneConfig[] {
-  return HVAC_ZONES.filter(z => z.floor === floor);
+  return HVAC_ZONES.filter((z) => z.floor === floor);
 }
 
 /** 给定内机 indoorIdx, 反查所在区 */
 export function zoneOfIndoor(indoorIdx: number): HvacZoneConfig | undefined {
-  return HVAC_ZONES.find(z => z.indoors.includes(indoorIdx));
+  return HVAC_ZONES.find((z) => z.indoors.includes(indoorIdx));
 }
 
 /** 内机总数 (用于校验) */

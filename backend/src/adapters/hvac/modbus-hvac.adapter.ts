@@ -613,4 +613,76 @@ export class ModbusHvacAdapter extends BaseAdapter {
       roomTemp: state.roomTemp,
     };
   }
+
+  /**
+   * 一次性读**所有**内机的真实状态 — 给 PWA 空调页轮询用.
+   *
+   * 关键是别逐台读: 22 台 × 一次 Modbus 往返 (还带重试) = 十几秒, 页面根本没法
+   * 每几秒刷一次。而状态寄存器是连续排的 (stateBaseAddr(n) = 6n), 所以**一台网关
+   * 上的所有内机可以合并成一次读**: 1F 10 台 = 60 个寄存器, 2F 12 台 = 72 个,
+   * 都在 Modbus 单次读上限 125 之内。22 台总共只要 2 次往返.
+   *
+   * 一台网关挂了不影响另一台 (各自 allSettled), 读不到的内机就不出现在返回的
+   * Map 里 —— 前端据此显示"未知", 而不是假装它是关机状态。
+   */
+  async readAllStates(
+    signal?: AbortSignal,
+  ): Promise<Map<number, HvacState & { online: boolean; faultCode: number }>> {
+    const out = new Map<number, HvacState & { online: boolean; faultCode: number }>();
+    const meta = await this.listIndoorMeta();
+    if (meta.length === 0) return out;
+
+    // 按网关分组 — 每台网关一次读
+    const byGw = new Map<string, typeof meta>();
+    for (const m of meta) {
+      if (!m.gwHost) continue;
+      const list = byGw.get(m.gwHost) ?? [];
+      list.push(m);
+      byGw.set(m.gwHost, list);
+    }
+
+    await Promise.allSettled(
+      [...byGw.entries()].map(async ([, list]) => {
+        // 借用 resolve() 拿到该网关的 modbus 客户端 (顺带完成注册)
+        const first = await this.resolve(list[0].address);
+        const ns = list.map((m) => m.n);
+        const minN = Math.min(...ns);
+        const maxN = Math.max(...ns);
+        const base = stateBaseAddr(minN);
+        const count = (maxN - minN + 1) * STATE_REGS_PER_INDOOR;
+        let regs: number[];
+        try {
+          regs = await withRetry(
+            () => first.modbus.readHoldingRegisters(base, count, first.addr.slaveId ?? 1, signal),
+            { retries: this.retries, timeoutMs: this.timeoutMs, signal },
+          );
+          this.registry.markOnline(first.key);
+        } catch (err) {
+          const dErr = classifyError('hvac', err);
+          this.registry.markFailure(first.key, dErr.message, true);
+          throw dErr; // allSettled 兜住, 别的网关照读
+        }
+        for (const m of list) {
+          const off = (m.n - minN) * STATE_REGS_PER_INDOOR;
+          const slice = regs.slice(off, off + STATE_REGS_PER_INDOOR);
+          if (slice.length < STATE_REGS_PER_INDOOR) continue;
+          try {
+            const s = decodeIndoorState(slice);
+            out.set(m.idx, {
+              on: s.on,
+              mode: s.mode as HvacMode,
+              temperature: s.temperature,
+              fan: s.fan as FanSpeed,
+              roomTemp: s.roomTemp,
+              online: s.online,
+              faultCode: s.faultCode,
+            });
+          } catch {
+            /* 单台解码失败不该拖垮整批 */
+          }
+        }
+      }),
+    );
+    return out;
+  }
 }

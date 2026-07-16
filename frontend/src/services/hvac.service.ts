@@ -26,6 +26,27 @@ export interface HvacIndoor {
   model?: string;
 }
 
+/**
+ * 一台内机的真实状态 (GET /hvac/states).
+ *
+ * known=false 表示**这一轮没读到** (网关超时/内机不在线), 其余字段缺失 —— 界面上
+ * 要显示"未知", 绝不能当成关机: 那会让人以为空调停了而实际还在跑。
+ */
+export type HvacIndoorState =
+  | { idx: number; known: false }
+  | {
+      idx: number;
+      known: true;
+      on: boolean;
+      mode: HvacMode;
+      temperature: number;
+      fan: HvacFan;
+      /** 室温 (实测), 网关读不到时缺省 */
+      roomTemp?: number;
+      online: boolean;
+      faultCode: number;
+    };
+
 /** 批量控制的聚合结果 (POST /hvac/batch/*) */
 export interface HvacBatchResult {
   total: number;
@@ -76,6 +97,8 @@ export const hvacService = {
     api.post<AdapterResult>(`/hvac/${id}/fan-speed`, { speed }),
   // ---- 内机: 单机测试 + 改名 + 编组 (都在 PWA 里做, 不用进后台) ----
   listIndoors: () => api.get<HvacIndoor[]>('/hvac/indoors'),
+  /** 真实状态 — 轮询用. 后端按网关合并成一次 Modbus 读, 22 台只要 2 次往返 */
+  listStates: () => api.get<HvacIndoorState[]>('/hvac/states'),
   /** 改内机名字 / 归属组; zoneCode 传 '' = 移出分组 */
   updateIndoor: (idx: number, patch: { name?: string; zoneCode?: string | null }) =>
     api.put<HvacIndoor>(`/hvac/indoors/${idx}`, patch),

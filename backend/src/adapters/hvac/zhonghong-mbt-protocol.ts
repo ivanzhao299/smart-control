@@ -25,12 +25,12 @@
 export const PERF_BASE = 2000;
 export const PERF_REG_COUNT = 6;
 export const PERF_OFFSET = {
-  BRAND: 0,          // 2000: 空调品牌 (见 ZH_BRAND)
-  PRODUCT_TYPE: 1,   // 2001: 产品类型, 2=集控网关
-  INDOOR_COUNT: 2,   // 2002: 内机数量
-  TEMP_MIN: 3,       // 2003: 温度下限 (℃)
-  TEMP_MAX: 4,       // 2004: 温度上限 (℃)
-  RESERVED: 5,       // 2005: 备用
+  BRAND: 0, // 2000: 空调品牌 (见 ZH_BRAND)
+  PRODUCT_TYPE: 1, // 2001: 产品类型, 2=集控网关
+  INDOOR_COUNT: 2, // 2002: 内机数量
+  TEMP_MIN: 3, // 2003: 温度下限 (℃)
+  TEMP_MAX: 4, // 2004: 温度上限 (℃)
+  RESERVED: 5, // 2005: 备用
 } as const;
 
 /** 单内机状态 (每内机 6 寄存器, FC 0x03 读). 起始 = 6*n */
@@ -43,12 +43,12 @@ export function stateBaseAddr(indoorN: number): number {
 }
 
 export const STATE_OFFSET = {
-  POWER: 0,       // 开关查询: 0=关 / 1=开
-  MODE: 1,        // 模式查询: 1=制热 / 2=制冷 / 4=送风 / 8=除湿
-  TEMP: 2,        // 温度查询: 设定温度 (无符号, 0x14=20)
-  FAN: 3,         // 风速查询: 0=自动 / 1=低 / 2=中 / 3=高
-  ROOM_TEMP: 4,   // 室温查询: **有符号** 0x00-0x32=0-50℃, 0xce-0xff=-50~-1℃
-  FAULT: 5,       // 故障代码: 品牌相关 (见附录)
+  POWER: 0, // 开关查询: 0=关 / 1=开
+  MODE: 1, // 模式查询: 1=制热 / 2=制冷 / 4=送风 / 8=除湿
+  TEMP: 2, // 温度查询: 设定温度 (无符号, 0x14=20)
+  FAN: 3, // 风速查询: 0=自动 / 1=低 / 2=中 / 3=高
+  ROOM_TEMP: 4, // 室温查询: **有符号** 0x00-0x32=0-50℃, 0xce-0xff=-50~-1℃
+  FAULT: 5, // 故障代码: 品牌相关 (见附录)
 } as const;
 
 /** 单内机控制 (每内机 4 寄存器, FC 0x06/0x10 写). 起始 = 4000 + 4*n */
@@ -62,10 +62,10 @@ export function ctrlBaseAddr(indoorN: number): number {
 }
 
 export const CTRL_OFFSET = {
-  POWER: 0,       // 0=关 / 1=开
-  MODE: 1,        // 1=制热 / 2=制冷 / 4=送风 / 8=除湿
-  TEMP: 2,        // 16-32 (0x10-0x20)
-  FAN: 3,         // 0=自动 / 1=低 / 2=中 / 3=高
+  POWER: 0, // 0=关 / 1=开
+  MODE: 1, // 1=制热 / 2=制冷 / 4=送风 / 8=除湿
+  TEMP: 2, // 16-32 (0x10-0x20)
+  FAN: 3, // 0=自动 / 1=低 / 2=中 / 3=高
 } as const;
 
 /** 全部内机控制 (5000-5003), 同 CTRL_OFFSET 的 4 字段, 但作用于该网关所有内机 */
@@ -80,35 +80,45 @@ export type HvacFan = 'auto' | 'low' | 'mid' | 'high';
 export const MODE_TO_REG: Record<HvacMode, number> = {
   heat: 0x01,
   cool: 0x02,
-  fan:  0x04,
-  dry:  0x08,
-  auto: 0x02,    // 协议无独立 auto, fallback 制冷 (B 集控网关无 auto 模式)
+  fan: 0x04,
+  dry: 0x08,
+  auto: 0x02, // 协议无独立 auto, fallback 制冷 (B 集控网关无 auto 模式)
 };
 
 export function decodeMode(raw: number): HvacMode {
   switch (raw & 0x0f) {
-    case 0x01: return 'heat';
-    case 0x02: return 'cool';
-    case 0x04: return 'fan';
-    case 0x08: return 'dry';
-    default:   return 'auto';
+    case 0x01:
+      return 'heat';
+    case 0x02:
+      return 'cool';
+    case 0x04:
+      return 'fan';
+    case 0x08:
+      return 'dry';
+    default:
+      return 'auto';
   }
 }
 
 /** 风速 (B 集控 v3.2: 0=自动 / 1=低 / 2=中 / 3=高) */
 export const FAN_TO_REG: Record<HvacFan, number> = {
   auto: 0,
-  low:  1,
-  mid:  2,
+  low: 1,
+  mid: 2,
   high: 3,
 };
 
 export function decodeFan(raw: number): HvacFan {
   switch (raw & 0xff) {
-    case 1: return 'low';
-    case 2: return 'mid';
-    case 3: return 'high';
-    case 0: default: return 'auto';
+    case 1:
+      return 'low';
+    case 2:
+      return 'mid';
+    case 3:
+      return 'high';
+    case 0:
+    default:
+      return 'auto';
   }
 }
 
@@ -123,9 +133,9 @@ export function regToTemp(reg: number): number {
 /** 室温 (有符号: 0x00-0x32=0-50℃, 0xce-0xff=-50~-1℃) */
 export function regToRoomTemp(reg: number): number {
   const v = reg & 0xff;
-  if (v <= 0x32) return v;                 // 0-50℃ (正)
-  if (v >= 0xce) return v - 0x100;         // -50~-1℃ (有符号补码)
-  return NaN;                              // 0x33-0xcd 非法
+  if (v <= 0x32) return v; // 0-50℃ (正)
+  if (v >= 0xce) return v - 0x100; // -50~-1℃ (有符号补码)
+  return NaN; // 0x33-0xcd 非法
 }
 
 // ============ 内机解码后的完整状态 ============
@@ -133,11 +143,11 @@ export function regToRoomTemp(reg: number): number {
 export interface IndoorState {
   on: boolean;
   mode: HvacMode;
-  temperature: number;      // 设定温度
+  temperature: number; // 设定温度
   fan: HvacFan;
-  roomTemp?: number;        // 室温 (有效则有值)
-  faultCode: number;        // 0=无故障
-  online: boolean;          // 通过 mode/temp 非 0 推断 (协议建议)
+  roomTemp?: number; // 室温 (有效则有值)
+  faultCode: number; // 0=无故障
+  online: boolean; // 通过 mode/temp 非 0 推断 (协议建议)
 }
 
 export function decodeIndoorState(regs: number[]): IndoorState {
@@ -162,7 +172,7 @@ export function decodeIndoorState(regs: number[]): IndoorState {
 // ============ 空调品牌码 (D2000 低字节) ============
 
 export const ZH_BRAND = {
-  simulator: 0,         // 模拟器 (调试用, 无实物可测)
+  simulator: 0, // 模拟器 (调试用, 无实物可测)
   daikin: 1,
   hitachi: 2,
   toshiba: 3,
