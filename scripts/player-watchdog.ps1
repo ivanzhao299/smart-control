@@ -42,17 +42,59 @@ if ($Register) {
   $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
     -RepetitionInterval (New-TimeSpan -Minutes 5) `
     -RepetitionDuration (New-TimeSpan -Days 3650)
-  # Interactive logon type: runs in the logged-on user's desktop session
-  # (kiosk box auto-logs-on), no password needed, windows appear on the
-  # real monitors. SSH-spawned GUI would land in an invisible session.
-  $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive
+  # Interactive logon type: runs in the logged-on user's desktop session, no
+  # password needed, windows appear on the real monitors. An SSH-spawned GUI
+  # would land in an invisible session instead.
+  # NOTE: this box has NO auto-logon (checked 2026-07-16: AutoAdminLogon empty),
+  # so after a reboot nothing runs until someone signs in -- same for the kiosk.
+  # RunLevel Highest is required: tscon (see step 0) needs admin rights.
+  $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive `
+    -RunLevel Highest
   Register-ScheduledTask -TaskName 'SmartControl-PlayerWatchdog' `
     -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
-  Log 'Registered scheduled task SmartControl-PlayerWatchdog (every 5 min, interactive)'
+  Log 'Registered scheduled task SmartControl-PlayerWatchdog (every 5 min, interactive, elevated)'
   exit 0
 }
 
 # ---- normal watchdog run ----
+
+# 0. Keep this session attached to the PHYSICAL CONSOLE.
+#
+#    Why this must run first, before any heartbeat check (2026-07-16):
+#    kiosk windows only reach the LED / projector when their session is attached
+#    to the physical console. Any RDP login steals the session away from the
+#    console, so the physical screens fall back to the desktop wallpaper while
+#    the players keep heartbeating perfectly happily inside the RDP session.
+#    The staleness check below would then see "all slots healthy" and do
+#    nothing -- yet the LED shows the desktop. That is exactly what happened
+#    after the 2026-07-16 reboot: slot1/slot3 heartbeats were fresh, no chrome
+#    was missing, and the LED still showed wallpaper.
+#
+#    Reattaching disconnects whoever is on RDP. On an exhibition controller the
+#    physical display wins; RDP can simply reconnect (and this watchdog will
+#    reattach again 5 minutes later).
+function Get-ConsoleSessionId {
+  try {
+    Add-Type -Namespace GK -Name Wts -ErrorAction Stop -MemberDefinition @'
+[DllImport("kernel32.dll")] public static extern uint WTSGetActiveConsoleSessionId();
+'@
+    return [int][GK.Wts]::WTSGetActiveConsoleSessionId()
+  } catch { return -1 }
+}
+
+$reattached = $false
+$mySession = (Get-Process -Id $PID).SessionId
+$consoleSession = Get-ConsoleSessionId
+if ($consoleSession -ge 0 -and $mySession -ne $consoleSession) {
+  Log ('session ' + $mySession + ' is not on the console (' + $consoleSession + ') -> tscon /dest:console')
+  try {
+    & tscon.exe $mySession /dest:console 2>&1 | ForEach-Object { Log ('  ' + $_) }
+    Start-Sleep -Seconds 3
+    $reattached = $true
+  } catch {
+    Log ('tscon failed (needs admin?): ' + $_.Exception.Message)
+  }
+}
 
 # 1. Backend must be reachable, otherwise players cannot heartbeat anyway
 #    and restarting them would just load another error page.
@@ -90,12 +132,19 @@ foreach ($c in $channels) {
   }
 }
 
-if ($stale.Count -eq 0) { exit 0 }
+# A session we just reattached ALWAYS needs a relaunch, even if every slot
+# heartbeats: the windows were placed against the RDP virtual display, so their
+# coordinates mean nothing on the real 3-monitor layout. Restart to re-place them.
+if ($stale.Count -eq 0 -and -not $reattached) { exit 0 }
 
 # 4. Relaunch all players (start-players.ps1 kills every slot first, so
 #    per-slot restart is not possible; a short blink on healthy screens
 #    is acceptable for recovery).
-Log ('stale slots: ' + ($stale -join ',') + ' -> restarting players')
+if ($reattached) {
+  Log ('reattached to console -> restarting players to re-place windows (stale: ' + ($stale -join ',') + ')')
+} else {
+  Log ('stale slots: ' + ($stale -join ',') + ' -> restarting players')
+}
 $launcher = Join-Path $PSScriptRoot 'start-players.ps1'
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher
 Log 'start-players.ps1 issued'
