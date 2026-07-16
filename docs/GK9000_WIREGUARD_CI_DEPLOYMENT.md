@@ -28,7 +28,7 @@ The deployment script:
 4. fast-forwards the checked-out repository;
 5. invokes the existing production backup;
 6. installs locked dependencies and builds backend/frontend;
-7. restarts the existing `SmartControlBackend` and `SmartControlFrontend` scheduled tasks;
+7. restarts both services **through pm2** (`pm2 restart smart-control-backend smart-control-frontend`), the single process owner as of 2026-07-16 — the old scheduled-task restart was removed because `SmartControlBackend` now only boot-resurrects pm2 and `SmartControlFrontend` is disabled (see `scripts/boot-pm2.ps1`);
 8. verifies ports `3200` and `5173`;
 9. restores the previous commit and build artifacts if deployment fails;
 10. writes deployment logs and JSON audit records under `D:\smart-control\logs`.
