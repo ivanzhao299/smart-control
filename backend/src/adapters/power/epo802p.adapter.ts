@@ -10,7 +10,7 @@ import { HardwareUnit } from '../../entities/hardware-unit.entity';
 import { AdapterConnectionRegistry } from '../connection-registry';
 import { classifyError, DeviceProtocolError } from '../errors';
 import { withRetry } from '../retry';
-import { TcpClient } from '../transports/tcp-client';
+import { SerialPortClient } from './serial-port-client';
 import {
   cmdAllChannels,
   cmdChannelDelay,
@@ -27,18 +27,24 @@ const GATEWAY_KEY = 'power-epo802p';
 /**
  * 得胜 TAKSTAR EPO-802P 8 路电源时序器适配器
  *
- * 协议: 厂家《EPO-802P 中控指令表》, 串口 19200, 现场经**串口服务器**转 TCP
- * (跟 DALI 那台 USR 一个路子 — 时序器本身没有网口)。
+ * 协议: 厂家《EPO-802P 中控指令表》, 串口 **19200 8N1**。
  * 组帧逻辑在 epo802p-protocol.ts, 已用文档里全部 10 个官方例子逐字节比对通过。
  *
- * IP/端口从 DB 读 (hardware_unit category='audio-power'), 后台改完不用重启;
- * 没配就退回 env POWER_EPO_HOST / POWER_EPO_PORT。
+ * 接线 (2026-07-16 现场实测确认): **GK9000 板载 COM1 直连**, 不是串口服务器转
+ * TCP。实测 `ac` 读状态回 137 字节, 8 路状态 + 延时参数 + 过压(250V)/欠压(150V)
+ * 全部解析正确。
+ *
+ * 串口号从 DB 读 (hardware_unit category='audio-power' 的 ip 字段填 "COM1"),
+ * 没配就退回 env POWER_EPO_PORT_PATH, 默认 COM1。
  *
  * 通道对应: PowerCircuit.relayChannel (1-8) 直接就是时序器的通道号。
  *
- * ⚠️ 时序器的意义在"时序": 8 路按设定延时**依次**通断, 保护功放不被浪涌打坏。
- * 所以"全开/全关"务必走 b3 (cmdAllChannels) 让设备自己按延时跑, 不要在这边
- * for 循环逐路发 b2 —— 那样就丧失时序保护了。
+ * ⚠️ 两个要点:
+ *   1. **时序**: 全开/全关走 b3 (cmdAllChannels) 让设备按各路延时依次动作, 保护
+ *      功放不被浪涌打坏。绝不在这边 for 循环发 8 次 b2 —— 那样丧失时序保护。
+ *   2. **串口独占**: COM 口同一时刻只能被一个进程打开, 所以用短连接 (每次命令
+ *      开-发-收-关), 不长期占着 —— 否则现场想用厂家工具调试就打不开了。
+ *      注意 COM7 是现场调 DALI 网关的 USB 转串口, 别碰。
  */
 @Injectable()
 export class Epo802pAdapter extends BaseAdapter {
@@ -46,21 +52,22 @@ export class Epo802pAdapter extends BaseAdapter {
     return 'power';
   }
 
-  private tcp: TcpClient | null = null;
-  private host: string;
-  private port: number;
+  private serial: SerialPortClient | null = null;
+  /** 串口号, e.g. 'COM1' */
+  private portPath: string;
+  private baudRate: number;
   private devAddr: number;
   private readonly timeoutMs: number;
   private readonly retries: number;
   private endpoint = '';
 
   /** DB 配置缓存, 5s TTL (跟其它适配器一致) */
-  private dbCache: { host?: string; port?: number; addr?: number; at: number } = { at: 0 };
+  private dbCache: { path?: string; baud?: number; addr?: number; at: number } = { at: 0 };
   private readonly DB_CACHE_TTL_MS = 5000;
 
   /**
-   * 命令串行锁 — 串口服务器后面是一根 RS232/485 总线, 并发发帧会互相插队导致
-   * 收发错位 (EKX 那边踩过同样的坑)。所有 send 经这把锁排队。
+   * 命令串行锁 — COM 口是独占资源, 且串口无帧边界, 并发发帧会互相插队导致收发
+   * 错位 (EKX 那边踩过同样的坑)。所有 send 经这把锁排队, 保证一次只有一个往返。
    */
   private cmdLock: Promise<unknown> = Promise.resolve();
 
@@ -71,19 +78,23 @@ export class Epo802pAdapter extends BaseAdapter {
     @Optional() @InjectRepository(HardwareUnit) private readonly hwRepo?: Repository<HardwareUnit>,
   ) {
     super(config, logger);
-    this.host = process.env.POWER_EPO_HOST ?? '192.168.50.20';
-    this.port = Number.parseInt(process.env.POWER_EPO_PORT ?? '502', 10);
+    this.portPath = process.env.POWER_EPO_PORT_PATH ?? 'COM1';
+    this.baudRate = Number.parseInt(process.env.POWER_EPO_BAUD ?? '19200', 10);
     this.devAddr = Number.parseInt(process.env.POWER_EPO_ADDR ?? '0', 10);
     this.timeoutMs = Number.parseInt(process.env.DEVICE_TIMEOUT_MS ?? '3000', 10);
     this.retries = Number.parseInt(process.env.DEVICE_RETRIES ?? '3', 10);
   }
 
-  /** 查 DB 里 audio-power 那条硬件记录, 拿 ip + addressing.port/devAddr. 5s TTL. */
-  private async getConfigFromDb(): Promise<{ host?: string; port?: number; addr?: number } | null> {
+  /**
+   * 查 DB 里 audio-power 那条硬件记录. 5s TTL.
+   * 串口设备没有 IP — 复用 `ip` 字段存串口号 ("COM1"), addressing 存 {baud, devAddr}。
+   * 这样后台「设备网络」页改串口号也能生效, 不用改代码。
+   */
+  private async getConfigFromDb(): Promise<{ path?: string; baud?: number; addr?: number } | null> {
     if (!this.hwRepo) return null;
     const now = Date.now();
     if (now - this.dbCache.at < this.DB_CACHE_TTL_MS) {
-      return { host: this.dbCache.host, port: this.dbCache.port, addr: this.dbCache.addr };
+      return { path: this.dbCache.path, baud: this.dbCache.baud, addr: this.dbCache.addr };
     }
     try {
       const row = await this.hwRepo.findOne({ where: { category: 'audio-power' } });
@@ -91,17 +102,19 @@ export class Epo802pAdapter extends BaseAdapter {
         this.dbCache = { at: now };
         return null;
       }
-      let port: number | undefined;
+      let baud: number | undefined;
       let addr: number | undefined;
       if (row.addressing) {
         try {
-          const a = JSON.parse(row.addressing) as { port?: number; tcpPort?: number; devAddr?: number };
-          port = a.port ?? a.tcpPort;
+          const a = JSON.parse(row.addressing) as { baud?: number; devAddr?: number };
+          baud = a.baud;
           addr = a.devAddr;
         } catch { /* addressing 不是 JSON 也 OK */ }
       }
-      this.dbCache = { host: row.ip ?? undefined, port, addr, at: now };
-      return { host: row.ip ?? undefined, port, addr };
+      // ip 字段存的是串口号 (COM1); 不像 COM 口的值 (比如遗留的 IP) 一律忽略
+      const path = row.ip && /^COM\d+$/i.test(row.ip.trim()) ? row.ip.trim().toUpperCase() : undefined;
+      this.dbCache = { path, baud, addr, at: now };
+      return { path, baud, addr };
     } catch (err) {
       this.logger.warn(`getConfigFromDb 失败: ${(err as Error).message}`, { context: 'Epo802pAdapter' });
       this.dbCache = { at: now };
@@ -109,64 +122,52 @@ export class Epo802pAdapter extends BaseAdapter {
     }
   }
 
-  /** 后台改完 IP 调这个, 下次命令就用新地址 */
+  /** 后台改完串口号调这个, 下次命令就用新口 */
   invalidateConfigCache(): void {
     this.dbCache = { at: 0 };
-    this.tcp?.dispose();
-    this.tcp = null;
+    this.serial = null;
   }
 
-  /** 每次发命令前: DB > env > default 三级取 host/port, 变了就重建连接 */
-  private async ensureClient(): Promise<TcpClient> {
+  /** 每次发命令前: DB > env > default 三级取串口号/波特率, 变了就重建 */
+  private async ensureClient(): Promise<SerialPortClient> {
     const db = await this.getConfigFromDb();
-    const host = db?.host ?? process.env.POWER_EPO_HOST ?? '192.168.50.20';
-    const port = db?.port ?? Number.parseInt(process.env.POWER_EPO_PORT ?? '502', 10);
-    const addr = db?.addr ?? Number.parseInt(process.env.POWER_EPO_ADDR ?? '0', 10);
-    this.devAddr = addr;
+    const path = db?.path ?? process.env.POWER_EPO_PORT_PATH ?? 'COM1';
+    const baud = db?.baud ?? Number.parseInt(process.env.POWER_EPO_BAUD ?? '19200', 10);
+    this.devAddr = db?.addr ?? Number.parseInt(process.env.POWER_EPO_ADDR ?? '0', 10);
 
-    if (this.tcp && host === this.host && port === this.port) return this.tcp;
+    if (this.serial && path === this.portPath && baud === this.baudRate) return this.serial;
 
-    if (this.tcp) {
+    if (this.serial) {
       this.logger.info(
-        `Epo802pAdapter rewiring: ${this.host}:${this.port} → ${host}:${port}`,
+        `Epo802pAdapter rewiring: ${this.portPath}@${this.baudRate} → ${path}@${baud}`,
         { context: 'Epo802pAdapter' },
       );
-      this.tcp.dispose();
     }
-    this.host = host;
-    this.port = port;
-    this.endpoint = `tcp://${host}:${port}`;
-    this.tcp = new TcpClient({
-      host,
-      port,
+    this.portPath = path;
+    this.baudRate = baud;
+    this.endpoint = `serial://${path}@${baud}`;
+    this.serial = new SerialPortClient({
+      path,
+      baudRate: baud,
       deviceType: 'power',
       timeoutMs: this.timeoutMs,
-      // 串口服务器: 短连接更稳 (跟 EKX 一样, 长连接容易被设备侧掐)
-      keepAlive: false,
     });
     if (!this.isMock()) this.registry.register(GATEWAY_KEY, this.endpoint);
-    return this.tcp;
+    return this.serial;
   }
 
   /**
-   * 串行发帧; expectBytes>0 时读回响应.
+   * 串行发帧; expectReply=true 时读回响应.
    *
-   * ac 读状态的回帧长度: 帧头(3)+7 字段+len(2) + 缓冲区 + 校验(1)+帧尾(1)。
-   * 缓冲区 = 8 路状态 + 8×4 延时 + 过压/欠压(4) + 若干 1B 参数 ≈ 50+ 字节。
-   * 用 minBytes 宽松收 (串口服务器可能分片), 解析时按帧头定位, 不依赖精确长度。
+   * 串口没有帧边界, SerialPortClient 靠"静默 250ms"判定收完 —— 实测 ac 回 137
+   * 字节 (8 路状态 + 8×4 延时 + 过压/欠压 + 若干参数), 一次就能收全。
    */
-  private async send(frame: Buffer, signal?: AbortSignal, expectBytes = 0): Promise<Buffer> {
+  private async send(frame: Buffer, signal?: AbortSignal, expectReply = false): Promise<Buffer> {
     const run = async (): Promise<Buffer> => {
-      const tcp = await this.ensureClient();
+      const serial = await this.ensureClient();
       try {
         const resp = await withRetry(
-          async () => {
-            if (expectBytes > 0) {
-              return tcp.sendAndExpect(frame, expectBytes, signal, { minBytes: 20 });
-            }
-            await tcp.send(frame, signal);
-            return Buffer.alloc(0);
-          },
+          () => serial.request(frame, { expectReply, signal }),
           { retries: this.retries, timeoutMs: this.timeoutMs, signal },
         );
         this.registry.markOnline(GATEWAY_KEY);
@@ -181,9 +182,6 @@ export class Epo802pAdapter extends BaseAdapter {
     this.cmdLock = queued.catch(() => undefined);
     return queued;
   }
-
-  /** ac 状态回帧的预期长度 (见 send 注释) */
-  private static readonly STATUS_REPLY_BYTES = 64;
 
   private assertChannel(ch: number): PowerChannel {
     if (!Number.isInteger(ch) || ch < 1 || ch > 8) {
@@ -223,7 +221,7 @@ export class Epo802pAdapter extends BaseAdapter {
   /** 读 8 路真实状态 + 延时参数 (ac) */
   async readStatus(ctx?: AdapterContext): Promise<AdapterResult<Epo802pStatus>> {
     return this.run('epo-status', 'readStatus', ctx, async () => {
-      const resp = await this.send(cmdReadStatus(this.devAddr), ctx?.signal, Epo802pAdapter.STATUS_REPLY_BYTES);
+      const resp = await this.send(cmdReadStatus(this.devAddr), ctx?.signal, true);
       const st = parseStatus(resp);
       if (!st) {
         throw new DeviceProtocolError('power', `EPO-802P 状态帧解析失败: ${resp.toString('hex')}`);
@@ -247,7 +245,7 @@ export class Epo802pAdapter extends BaseAdapter {
   }
 
   async ping(ctx?: AdapterContext): Promise<void> {
-    const resp = await this.send(cmdReadStatus(this.devAddr), ctx?.signal, Epo802pAdapter.STATUS_REPLY_BYTES);
+    const resp = await this.send(cmdReadStatus(this.devAddr), ctx?.signal, true);
     if (!parseStatus(resp)) {
       throw new DeviceProtocolError('power', 'EPO-802P 无有效状态响应');
     }
@@ -268,15 +266,15 @@ export class Epo802pAdapter extends BaseAdapter {
       displayName: '得胜 EPO-802P 8 路电源时序器',
       vendor: '得胜 TAKSTAR',
       category: 'audio-power',
-      protocol: 'serial-over-tcp',
+      protocol: 'serial',
       capabilities: ['turn_on', 'turn_off', 'get_status', 'health_check'],
-      defaultAddressing: { port: 502, devAddr: 0, baud: 19200, channels: 8 },
+      defaultAddressing: { baud: 19200, devAddr: 0, channels: 8 },
       paramSchema: {
-        ip: { type: 'string', label: '串口服务器 IP', required: true, placeholder: '192.168.50.x' },
-        port: { type: 'number', label: 'TCP 端口', default: 502, min: 1, max: 65535 },
+        ip: { type: 'string', label: '串口号', required: true, placeholder: 'COM1' },
+        baud: { type: 'number', label: '波特率', default: 19200, min: 1200, max: 115200 },
         devAddr: { type: 'number', label: '机器 ID', default: 0, min: 0, max: 255 },
       },
-      remark: '8 路时序上电保护功放. 串口 19200, 经串口服务器转 TCP. 全开/全关走 b3 由设备按延时依次动作.',
+      remark: '8 路时序上电保护功放. GK9000 板载 COM1 直连, 19200 8N1. 全开/全关走 b3 由设备按延时依次动作.',
     };
   }
 }
