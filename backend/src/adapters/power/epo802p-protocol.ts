@@ -201,24 +201,54 @@ export function parseStatus(resp: Buffer): Epo802pStatus | null {
   const channels: boolean[] = [];
   for (let i = 0; i < 8; i += 1) channels.push(resp[bufStart + i] === 0x01);
 
+  /** 2 字节参数一律小端 (低位在前), 跟发送侧一致 */
+  const readLE = (o: number): number => resp[o] | (resp[o + 1] << 8);
+
+  /**
+   * ⚠️ 延时的实际布局跟文档写的不一样 —— 以实测为准。
+   *
+   * 文档第 8 点说: "第一个参数为通道1的开延时(2B), 第二个为通道1的关延时(2B),
+   * 依次类推" —— 即 [ch1on, ch1off, ch2on, ch2off, ...] 交错排列。
+   *
+   * 但 2026-07-16 GK9000 COM1 实测回帧, 参数段 32 字节是:
+   *   01 00 03 00 05 00 07 00 09 00 0B 00 0D 00 0F 00   → 1,3,5,7,9,11,13,15
+   *   0F 00 0D 00 0B 00 09 00 07 00 05 00 03 00 01 00   → 15,13,11,9,7,5,3,1
+   * 即 **前 16 字节是 8 路开延时, 后 16 字节是 8 路关延时**, 不是交错。
+   * 而且这组数字本身印证了它: 开机 CH1→CH8 依次 1,3,5..15 秒上电, 关机反序
+   * 15,13..1 秒断电 (先开的后关) —— 教科书式的时序器配置, 交错解读则会得到
+   * 毫无规律的数字。
+   *
+   * 另注: 通道段(12-19)和延时段之间还夹了 1 个 00 字节, 所以延时从 **21** 起,
+   * 不是 20 —— 少算这一位会把 01 00 读成 0x0100=256 (整体差 256 倍)。
+   */
+  const paramStart = bufStart + 9;
   const delays: Array<{ on: number; off: number }> = [];
-  const paramStart = bufStart + 8;
-  for (let ch = 0; ch < 8; ch += 1) {
-    const o = paramStart + ch * 4;
-    if (resp.length < o + 4) break;
-    // 参数是 2 字节一个, 按小端读 (跟发送时一致)
-    delays.push({
-      on: resp[o] | (resp[o + 1] << 8),
-      off: resp[o + 2] | (resp[o + 3] << 8),
-    });
+  if (resp.length >= paramStart + 32) {
+    for (let ch = 0; ch < 8; ch += 1) {
+      delays.push({
+        on: readLE(paramStart + ch * 2),
+        off: readLE(paramStart + 16 + ch * 2),
+      });
+    }
   }
 
-  const vStart = paramStart + 32;
+  /**
+   * 过压/欠压: 实测在帧尾往前数第 10/8 字节 (137 字节的回帧里是偏移 127/129,
+   * 值 FA 00=250V / 96 00=150V, 跟面板设置一致)。
+   * 参数段到过压之间有一大段 00 填充 (文档说缓冲区是 buf[2048], 返回时长度不定),
+   * 所以按"从参数段固定偏移"算不准, 这里从帧尾倒推。
+   * 帧结构末尾: ... [过压 2B][欠压 2B][开关机月日/时分秒等 5B][校验 1B][帧尾 1B]
+   */
   let overVoltage: number | undefined;
   let underVoltage: number | undefined;
-  if (resp.length >= vStart + 4) {
-    overVoltage = resp[vStart] | (resp[vStart + 1] << 8);
-    underVoltage = resp[vStart + 2] | (resp[vStart + 3] << 8);
+  const tail = resp.lastIndexOf(FRAME_TAIL);
+  if (tail >= 10) {
+    const vStart = tail - 9;
+    const ov = readLE(vStart);
+    const uv = readLE(vStart + 2);
+    // 合理性兜底: 市电保护阈值总在 50-500V, 越界就说明布局不符, 宁可不给也不给错的
+    if (ov >= 50 && ov <= 500) overVoltage = ov;
+    if (uv >= 50 && uv <= 500) underVoltage = uv;
   }
 
   return { channels, delays, overVoltage, underVoltage };
