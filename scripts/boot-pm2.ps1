@@ -1,20 +1,29 @@
 # ==============================================================
-# 开机引导 pm2 — 取代 start-backend.ps1 / start-frontend.ps1 那两个直跑 node 的死循环
+# Boot bootstrap for pm2 -- replaces start-backend.ps1 / start-frontend.ps1
+# (the two "while(true){ node ... }" loops that ran outside pm2).
 #
-# 为什么换掉旧脚本 (2026-07-16):
-#   旧的 start-backend.ps1 是 `while($true){ node dist\main.js }` 死循环, 计划任务
-#   开机拉起它。可 pm2 也在管同一个后端 (autorestart)。两个看门狗抢 3200 端口,
-#   输的那个无限 EADDRINUSE 崩溃循环 —— 这就是"部署后没跑通"的根因: pm2 restart
-#   把新代码放进 pm2 的进程, 但端口被死循环那份 (旧代码) 占着, 新代码永远起不来。
-#   start-frontend.ps1 同理 (直跑 vite, 绕开 pm2)。
+# Why (2026-07-16):
+#   The old start-backend.ps1 was a `while($true){ node dist\main.js }` loop that
+#   the scheduled task launched at boot, bypassing pm2 entirely. pm2 also managed
+#   the same backend (autorestart). Two watchdogs fought over port 3200 and the
+#   loser crash-looped on EADDRINUSE -- that was the real cause of "deploy did not
+#   take": pm2 restart put new code in pm2's process, but the loop's process (old
+#   code) held the port, so new code never came up. start-frontend.ps1 was the
+#   same (ran vite directly, outside pm2).
 #
-#   决策: 后端/前端都只由 pm2 管。这个脚本开机只做一件事 —— resurrect 一次 pm2,
-#   把上次 `pm2 save` 存下的进程列表拉起来。不再有第二个看门狗。
+#   Decision: pm2 is the single owner of both services. This script does one thing
+#   at boot -- resurrect pm2 once from the last `pm2 save` -- with no second watchdog.
 #
-# 为什么 WMI 脱离:
-#   Windows OpenSSH / 计划任务会话结束时会杀掉派生的进程树。直接
-#   `pm2 resurrect` 起的 daemon 会随之死掉, node 变孤儿 (端口占着但 pm2 管不到)。
-#   用 WMI Win32_Process.Create 让 pm2 daemon 脱离本会话, 独立存活。
+# Why WMI detach:
+#   Windows OpenSSH / scheduled-task sessions kill the spawned process tree on exit.
+#   A plain `pm2 resurrect` daemon would die with it, orphaning node (port held but
+#   pm2 cannot manage it). Win32_Process.Create detaches the pm2 daemon from this
+#   session so it survives.
+#
+# IMPORTANT: keep this file ASCII-only. PowerShell 5.1 on Chinese Windows reads
+# .ps1 as the GBK codepage; a non-ASCII comment in a UTF-8 (no BOM) file eats the
+# following newline and merges the next line into the comment -- which silently
+# comments out real code. (2026-07-16: cost several rounds to diagnose.)
 # ==============================================================
 $ErrorActionPreference = 'Continue'
 $logDir = 'D:\smart-control\logs'
@@ -24,33 +33,35 @@ function Log($m) { "$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')) $m" | Out-File
 
 Log '[boot] start'
 
-# pm2 / PM2_HOME 用字面绝对路径, 不碰 env —— 非交互会话里 APPDATA/USERPROFILE
-# 都可能为空 (见 deploy-from-ci.ps1 的说明)。GK9000 固定单机 (user 'user')。
+# Literal absolute paths -- do NOT read $env:APPDATA/$env:USERPROFILE (empty in
+# non-interactive sessions). Set PM2_HOME literally so pm2 finds the existing
+# daemon instead of spawning an orphan. GK9000 is a fixed single host (user 'user').
 $pm2 = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
-if (-not (Test-Path $pm2)) { $pm2 = 'pm2' }  # 退回 PATH
+if (-not (Test-Path $pm2)) { $pm2 = 'pm2' }
 $env:PM2_HOME = 'C:\Users\user\.pm2'
 Log "[boot] pm2 = $pm2 ; PM2_HOME = $env:PM2_HOME"
 
-# 端口已经有人监听 = 服务已在跑 (人工起过 / 上一次没退干净), 别再 resurrect 叠一层
+# Ports already listening = services already up (started manually / left running).
+# Skip resurrect so we don't stack a second layer.
 $backendUp = $null -ne (Get-NetTCPConnection -LocalPort 3200 -State Listen -ErrorAction SilentlyContinue)
 $frontendUp = $null -ne (Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue)
 if ($backendUp -and $frontendUp) {
-  Log '[boot] 3200 + 5173 都已在监听, 跳过 resurrect'
+  Log '[boot] 3200 + 5173 already listening, skip resurrect'
   exit 0
 }
 
-# WMI 脱离本会话跑 pm2 resurrect (会话结束不杀它)
+# Run pm2 resurrect detached from this session (survives session exit).
 $cmd = "cmd /c `"$pm2`" resurrect"
 try {
   $r = ([wmiclass]'\\.\root\cimv2:Win32_Process').Create($cmd, 'C:\Users\user', $null)
-  Log "[boot] WMI resurrect 已发起, ProcessId=$($r.ProcessId) ReturnValue=$($r.ReturnValue)"
+  Log "[boot] WMI resurrect started, ProcessId=$($r.ProcessId) ReturnValue=$($r.ReturnValue)"
 } catch {
-  Log "[boot] WMI resurrect 失败: $($_.Exception.Message)"
+  Log "[boot] WMI resurrect failed: $($_.Exception.Message)"
 }
 
-# 等服务起来, 简单确认 (真正的验证交给 verify-deploy.js)
+# Give services time to come up, then a simple confirm (verify-deploy.js is authoritative).
 Start-Sleep -Seconds 12
 $b = $null -ne (Get-NetTCPConnection -LocalPort 3200 -State Listen -ErrorAction SilentlyContinue)
 $f = $null -ne (Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue)
-Log "[boot] 结果: backend(3200)=$b frontend(5173)=$f"
+Log "[boot] result: backend(3200)=$b frontend(5173)=$f"
 Log '[boot] done'

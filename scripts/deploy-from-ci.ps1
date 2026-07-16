@@ -52,17 +52,24 @@ function Invoke-Native([string]$FilePath, [string[]]$Arguments) {
 }
 
 function Restart-Services {
-  # 重启走 pm2, 不走计划任务 —— 2026-07-16 起后端/前端都只由 pm2 管
-  # (计划任务 SmartControlBackend 改成开机引导 pm2, SmartControlFrontend 已停用,
-  #  见 boot-pm2.ps1)。旧的 Start-ScheduledTask 逻辑在这套架构下必挂: 前端任务
-  # 被禁用会抛错, 后端任务只是引导脚本不代表能重启已在跑的 node 进程。
+  # Restart through pm2, not scheduled tasks. Since 2026-07-16 pm2 is the single
+  # owner of both services (SmartControlBackend boot-resurrects pm2,
+  # SmartControlFrontend disabled -- see boot-pm2.ps1). The old Start-ScheduledTask
+  # restart cannot work here: the frontend task is disabled (throws) and the
+  # backend task is only a boot shim, it does not restart the running node process.
   #
-  # ⚠️ CI 的双跳非交互 SSH 会话里 $env:APPDATA **和** $env:USERPROFILE 都是空的
-  # (2026-07-16 端到端实测: 先 APPDATA 空, 补 USERPROFILE 后它也空)。跟环境变量
-  # 较劲是错的方向 —— GK9000 是固定单机 (user 'user'), 直接用字面绝对路径, 彻底
-  # 不依赖任何 env。PM2_HOME 也用字面量, 否则 pm2 找不到既有 daemon 会另起孤儿。
+  # IMPORTANT: this file MUST stay ASCII-only. PowerShell 5.1 on Chinese Windows
+  # reads .ps1 as the GBK codepage; a non-ASCII comment in a UTF-8 (no BOM) file
+  # eats the following newline, merging the next line into the comment. That is
+  # what silently commented out the "$pm2 = ..." assignment and made every restart
+  # fail with "Test-Path: Path is null" (2026-07-16, chased for several rounds).
+  #
+  # Use literal absolute paths -- do NOT read $env:APPDATA/$env:USERPROFILE: the
+  # double-hop non-interactive SSH session (GitHub -> Aliyun -> WireGuard -> GK9000)
+  # leaves both empty. Set PM2_HOME literally too, else pm2 may not find the
+  # existing daemon and spawns an orphan. GK9000 is a fixed single host (user 'user').
   $pm2 = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
-  if (-not (Test-Path $pm2)) { $pm2 = 'pm2' }  # 万一改过安装位置, 退回 PATH
+  if (-not (Test-Path $pm2)) { $pm2 = 'pm2' }
   $env:PM2_HOME = 'C:\Users\user\.pm2'
   Write-DeployLog "pm2 = $pm2 ; PM2_HOME = $env:PM2_HOME"
   Invoke-Native $pm2 @('restart', 'smart-control-backend', 'smart-control-frontend', '--update-env')
