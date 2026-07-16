@@ -18,6 +18,21 @@
 #   .\scripts\start-players.ps1 -Slot 1    # start only slot=1
 #   .\scripts\start-players.ps1 -Slot 3    # start only audio player
 #
+# !!! NEVER RUN THIS OVER SSH !!!  (2026-07-17, cost two hours of dead air)
+# An SSH shell lands in session 0. Windows created there can NEVER render to the
+# physical console (session 2) where the LED wall lives, and Chromium throttles
+# a window it considers permanently invisible -- so the video plays for a few
+# seconds, the audio cuts out, and the wall shows the bare desktop instead.
+# Worse, this script kills all slots FIRST, so an SSH run destroys the good
+# session-2 players and replaces them with useless session-0 ones.
+# Measured that day: SSH session = 0, console = 2, msedge players all in 0.
+#
+# Launch it only from something that runs INTERACTIVELY IN THE CONSOLE SESSION:
+#   - the SmartControl-PlayerWatchdog scheduled task (user / Interactive), or
+#   - a shell on the physical console / an RDP session that owns session 2.
+# To recover remotely, let the watchdog do it: it relaunches on its own once a
+# slot heartbeat is stale for -StaleMinutes (default 3).
+#
 # Multi-monitor coords must match the real layout (Win+P / display settings).
 # Default: monitor1 (HDMI1) 0,0 1920x1080 ; monitor2 (HDMI2) 1920,0 1920x1080
 # =====================================================================
