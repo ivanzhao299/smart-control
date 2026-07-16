@@ -69,7 +69,38 @@ export class AudioController {
     return { message: result.ok ? 'ok' : 'failed', data: result };
   }
 
-  /** 读取矩阵状态持久化 (前端刷新后可恢复点亮状态) */
+  /**
+   * 设备**真实**的 8×8 路由表 — 前端矩阵界面该信的唯一数据源.
+   *
+   * 一条命令 (0x61) 读回, 实测 ~284ms, 可以轮询.
+   *
+   * ⚠️ 别再用 GET matrix/state (下面那个已废弃的): 那个读的是本地 JSON 文件,
+   * 记的是"谁点过哪个交叉点", 不是设备状态 —— 而且前端在命令下发失败时照样
+   * 存进去, 于是界面亮着一个从没接通过的交叉点。界面宁可显示"读不到", 也不能
+   * 显示一个假的接通。
+   */
+  @Get('matrix/live')
+  async getLiveMatrix() {
+    const result = await this.audio.readFullMatrix();
+    return { message: result.ok ? 'ok' : 'failed', data: result };
+  }
+
+  /**
+   * 8 路输入的真实增益 (dB) + 静音.
+   *
+   * 慢 (~4.6s: 16 次往返 × ~280ms, EKX 单客户端只能串行, 协议也没有批量读增益的
+   * 命令), 所以别放进轮询 —— 开页面读一次、改完复读即可。
+   */
+  @Get('inputs/live')
+  async getLiveInputs() {
+    const result = await this.audio.readInputChannels();
+    return { message: result.ok ? 'ok' : 'failed', data: result };
+  }
+
+  /**
+   * @deprecated 本地 JSON 文件里的矩阵点击记录 — **不是设备状态**.
+   * 保留只为兼容老前端; 新代码一律用 GET matrix/live 问设备本人.
+   */
   @Get('matrix/state')
   async getMatrixState() {
     try {
@@ -80,7 +111,7 @@ export class AudioController {
     }
   }
 
-  /** 保存矩阵状态 (每次点交叉点后前端调此接口) */
+  /** @deprecated 同上 — 写本地文件, 不代表设备真的接通了 */
   @Post('matrix/state')
   async saveMatrixState(@Body() body: Record<string, boolean>) {
     await writeFile(this.matrixStatePath, JSON.stringify(body), 'utf8');

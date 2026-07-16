@@ -267,6 +267,43 @@ export function cmdReadFullMatrix(devAddr: number): Buffer {
   return buildFrame(devAddr, CMD.READ_FULL_MATRIX, 0, 0, 0);
 }
 
+/**
+ * 解析全矩阵回帧 → matrix[out][in] (0-based).
+ *
+ * ⚠️ 手册说"返回 160 字节 (5x32 完整路由表)" —— **不对**. 2026-07-16 真机实测
+ * (EKX-808 @192.168.50.61, devAddr=1) 只回 **24 字节**:
+ *
+ *   00 00 07 | 01 00 05 | 02 00 05 | 03 00 05 | 04 00 0e | 05 00 04 | 06 00 05 | 07 00 05
+ *   └OUT0     └OUT1      └OUT2      └OUT3      └OUT4      └OUT5      └OUT6      └OUT7
+ *
+ * 即 8 组 × 3 字节 = [输出号, 掩码高字节, 掩码低字节], 掩码的 bit N = IN(N+1) 接到
+ * 该输出。EPO-802P 那次也是文档布局跟真机对不上, 一律以实测为准。
+ *
+ * 这个布局不是猜的: 用 0x4F 逐点读了全部 64 个交叉点做独立参照, **64/64 完全一致**.
+ * (OUT5←IN2/IN3/IN4 也跟现场接线对得上 —— OUT5 走 LED 大屏功放, IN4 是 HDMI
+ * 分离器提取的那一路.)
+ */
+export function parseFullMatrix(resp: Buffer): boolean[][] | null {
+  // 回帧可能带包头/包尾, 找到 8 组 3 字节的数据段: 首字节应是递增的 0..7
+  const bytes = Array.from(resp);
+  let start = -1;
+  for (let i = 0; i + 24 <= bytes.length; i += 1) {
+    let ok = true;
+    for (let g = 0; g < 8; g += 1) {
+      if (bytes[i + g * 3] !== g) { ok = false; break; }
+    }
+    if (ok) { start = i; break; }
+  }
+  if (start < 0) return null;
+
+  const matrix: boolean[][] = [];
+  for (let out = 0; out < 8; out += 1) {
+    const mask = (bytes[start + out * 3 + 1] << 8) | bytes[start + out * 3 + 2];
+    matrix.push(Array.from({ length: 8 }, (_, inCh) => !!(mask & (1 << inCh))));
+  }
+  return matrix;
+}
+
 /** 读取单点矩阵 (Out X ← In Y 的开/关) */
 export function cmdReadMatrixCell(devAddr: number, outCh: ChannelIndex, inCh: ChannelIndex): Buffer {
   return buildFrame(devAddr, CMD.READ_MATRIX_CELL, outCh, inCh, 0);

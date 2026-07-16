@@ -21,6 +21,8 @@ import {
   cmdReadGain,
   cmdReadMute,
   cmdReadMatrixCell,
+  cmdReadFullMatrix,
+  parseFullMatrix,
   cmdSetMatrix,
   cmdGroupVolume,
   cmdAuxSwitch,
@@ -424,6 +426,54 @@ export class EkxDspAdapter extends BaseAdapter {
   }
 
   /** 读当前激活的预设号 (返回 0 = F00, 1-12 = U01-U12) */
+  /**
+   * 读设备**真实**的 8×8 路由表 — 一条命令 (0x61), 实测 ~284ms.
+   *
+   * 这是前端矩阵界面唯一该信的数据源。以前前端点一下就把结果存进本地 JSON
+   * 文件 (GET/POST /api/audio/matrix/state), 那记的是"谁点过什么", 不是设备
+   * 状态 —— 而且命令失败时照样存, 于是界面亮着一个从没接通过的交叉点。
+   *
+   * 别逐点读: 64 个点 × ~280ms ≈ 18s (EKX 单客户端 + 串行锁, 快不了)。
+   */
+  async readFullMatrix(ctx?: AdapterContext): Promise<AdapterResult<{ matrix: boolean[][] }>> {
+    return this.run('audio-dsp', 'readFullMatrix', ctx, async () => {
+      const resp = await this.send(cmdReadFullMatrix(this.devAddr), ctx?.signal, true);
+      const matrix = parseFullMatrix(resp);
+      if (!matrix) {
+        throw new Error(`全矩阵回帧解析失败 (${resp.length}B): ${resp.toString('hex')}`);
+      }
+      return { matrix };
+    });
+  }
+
+  /**
+   * 读 8 路输入的真实增益 + 静音. 实测 ~4.6s (16 次往返, 每次 ~280ms).
+   *
+   * 慢是因为协议只能逐路读 (没有批量读增益的命令), 而 EKX 单客户端必须串行。
+   * 所以这个别放进轮询, 开页面读一次 + 改完复读即可。
+   */
+  async readInputChannels(
+    ctx?: AdapterContext,
+  ): Promise<AdapterResult<{ channels: Array<{ ch: number; gainDb: number | null; muted: boolean | null }> }>> {
+    return this.run('audio-dsp', 'readInputChannels', ctx, async () => {
+      const channels: Array<{ ch: number; gainDb: number | null; muted: boolean | null }> = [];
+      for (let ch = 0; ch < 8; ch += 1) {
+        let gainDb: number | null = null;
+        let muted: boolean | null = null;
+        try {
+          const g = await this.send(cmdReadGain(this.devAddr, IO_IN, ch as ChannelIndex), ctx?.signal, true);
+          if (g.length >= 4) gainDb = codeToDb(g[2], g[3]);
+        } catch { /* 单路读不到不拖垮整批, 留 null = 未知 */ }
+        try {
+          const m = await this.send(cmdReadMute(this.devAddr, IO_IN, ch as ChannelIndex), ctx?.signal, true);
+          if (m.length >= 3) muted = m[2] === 1;
+        } catch { /* 同上 */ }
+        channels.push({ ch, gainDb, muted });
+      }
+      return { channels };
+    });
+  }
+
   async readCurrentScene(ctx?: AdapterContext): Promise<AdapterResult<{ preset: number }>> {
     return this.run('audio-dsp', 'readCurrentScene', ctx, async () => {
       const resp = await this.send(cmdReadPreset(this.devAddr), ctx?.signal, true);

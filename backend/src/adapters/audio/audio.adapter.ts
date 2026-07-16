@@ -148,6 +148,24 @@ export class AudioAdapter extends BaseAdapter {
    * **不是设备真实状态**, 不能用它下结论。
    * 现场排查用: 放音乐时读 IN1 电平, 有跳动=信号进来了, 恒 -128=没进来。
    */
+  /** 设备真实 8×8 路由表 (EKX 专属; 其它厂商/mock 不支持时报错) */
+  readFullMatrix(ctx?: AdapterContext) {
+    const impl = this.impl();
+    if (!('readFullMatrix' in impl)) {
+      throw new Error('当前音频适配器不支持读全矩阵 (仅 EKX-808)');
+    }
+    return (impl as EkxDspAdapter).readFullMatrix(ctx);
+  }
+
+  /** 8 路输入真实增益 + 静音 (EKX 专属) */
+  readInputChannels(ctx?: AdapterContext) {
+    const impl = this.impl();
+    if (!('readInputChannels' in impl)) {
+      throw new Error('当前音频适配器不支持读输入通道 (仅 EKX-808)');
+    }
+    return (impl as EkxDspAdapter).readInputChannels(ctx);
+  }
+
   async readLevel(io: 0 | 1 | 2, channel: number, ctx?: AdapterContext): Promise<AdapterResult<{ db: number }>> {
     if (this.isMock()) {
       return { ok: true, deviceId: 'audio-dsp', command: 'readLevel', data: { db: -20 }, mock: true, durationMs: 0 };
