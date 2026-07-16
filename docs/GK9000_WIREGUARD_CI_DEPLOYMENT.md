@@ -34,3 +34,8 @@ The deployment script:
 10. writes deployment logs and JSON audit records under `D:\smart-control\logs`.
 
 The workflow does not print or export `.env`, database content, or hardware credentials. It invokes the existing local backup script before replacement, so the protected production backup remains on GK9000. It does not expose the Windows LAN through WireGuard.
+
+## Troubleshooting
+
+- **`Test-Path: parameter 'Path' is null` during restart** — the double-hop non-interactive SSH session (GitHub → Aliyun → WireGuard → GK9000) does **not** populate `$env:APPDATA`. Never build the pm2 path from it. `Restart-Services` in `scripts/deploy-from-ci.ps1` resolves pm2 from a fixed known location and sets `PM2_HOME` explicitly; do the same in any new script that shells out to pm2 from the CI path.
+- **`ERR_PNPM_OUTDATED_LOCKFILE`** — a dependency was added to `package.json` without committing the regenerated `pnpm-lock.yaml`. CI uses `--frozen-lockfile`; regenerate with the pinned pnpm version and commit the lockfile in the same change.
