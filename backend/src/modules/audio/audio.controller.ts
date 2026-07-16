@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { readFile, writeFile } from 'fs/promises';
 import { dirname, join } from 'path';
 import { AudioAdapter } from '../../adapters/audio/audio.adapter';
@@ -93,6 +93,27 @@ export class AudioController {
     return this.wrap('audio-dsp', `matrix.O${dto.out}I${dto.input}.${dto.on ? 'on' : 'off'}`,
       () => this.audio.setMatrix(dto.out, dto.input, dto.on),
       { out: dto.out, input: dto.input, on: dto.on });
+  }
+
+  /**
+   * 读实时电平 (dB) — 现场排查"信号有没有真的进/出矩阵"用.
+   *
+   * ⚠️ 不要用 GET matrix/state 判断设备状态: 那个读的是本地 JSON 文件
+   * (前端点交叉点的记录), 不是设备真实状态。电平表才是问设备本人。
+   *
+   * GET /api/audio/level?io=0&ch=0   → IN1 电平 (io: 0=输入 1=输出)
+   * 放音乐时电平有跳动 = 信号进来了; 恒 -128 = 没进来。
+   */
+  @Get('level')
+  readLevel(@Query('io') io?: string, @Query('ch') ch?: string) {
+    const ioN = Number.parseInt(io ?? '0', 10);
+    const chN = Number.parseInt(ch ?? '0', 10);
+    if (![0, 1, 2].includes(ioN) || chN < 0 || chN > 7) {
+      throw new BadRequestException('io 需为 0/1/2, ch 需为 0-7');
+    }
+    return this.wrap('audio-dsp', `readLevel.io${ioN}.ch${chN}`,
+      () => this.audio.readLevel(ioN as 0 | 1 | 2, chN),
+      { io: ioN, ch: chN });
   }
 
   /** 输入通道增益 (前台音源矩阵输入增益滑条). EKX 预设常把输入压到 -60dB, 这里拉回. */

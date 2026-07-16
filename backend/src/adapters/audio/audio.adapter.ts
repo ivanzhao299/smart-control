@@ -140,6 +140,28 @@ export class AudioAdapter extends BaseAdapter {
     };
   }
 
+  /**
+   * 读单通道实时电平 (dB). io: 0=输入 1=输出 2=其它.
+   *
+   * 这是判断"信号到底有没有进/出矩阵"的唯一客观手段 —— 注意
+   * GET /api/audio/matrix/state 读的是本地 JSON 文件 (前端点击记录),
+   * **不是设备真实状态**, 不能用它下结论。
+   * 现场排查用: 放音乐时读 IN1 电平, 有跳动=信号进来了, 恒 -128=没进来。
+   */
+  async readLevel(io: 0 | 1 | 2, channel: number, ctx?: AdapterContext): Promise<AdapterResult<{ db: number }>> {
+    if (this.isMock()) {
+      return { ok: true, deviceId: 'audio-dsp', command: 'readLevel', data: { db: -20 }, mock: true, durationMs: 0 };
+    }
+    if (this.vendor === 'takstar-ekx808') {
+      return this.ekxImpl.readLevel(io, channel as ChannelIndex, ctx);
+    }
+    return {
+      ok: false, deviceId: 'audio-dsp', command: 'readLevel',
+      error: `readLevel 仅 takstar-ekx808 厂家支持, 当前 vendor=${this.vendor}`,
+      mock: false, durationMs: 0,
+    };
+  }
+
   /** 设置输入通道增益 (0-100%). 前台音源矩阵输入增益滑条用. */
   async setInputVolume(channel: number, percent: number, ctx?: AdapterContext): Promise<AdapterResult<{ channel: number; volume: number }>> {
     if (this.isMock()) {
