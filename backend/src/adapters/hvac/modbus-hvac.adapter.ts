@@ -117,14 +117,18 @@ export class ModbusHvacAdapter extends BaseAdapter {
             try {
               const parsed = JSON.parse(r.addressing) as { port?: number };
               if (typeof parsed.port === 'number') port = parsed.port;
-            } catch { /* 忽略非 JSON */ }
+            } catch {
+              /* 忽略非 JSON */
+            }
           }
           return { code: r.code, ip: r.ip as string, port };
         });
       this.dbCache = { gateways, at: now };
       return gateways;
     } catch (err) {
-      this.logger.warn(`getGatewaysFromDb 失败: ${(err as Error).message}`, { context: 'ModbusHvacAdapter' });
+      this.logger.warn(`getGatewaysFromDb 失败: ${(err as Error).message}`, {
+        context: 'ModbusHvacAdapter',
+      });
       this.dbCache = { gateways: [], at: now };
       return [];
     }
@@ -156,27 +160,67 @@ export class ModbusHvacAdapter extends BaseAdapter {
       return this.idxCache.map;
     }
     const map = new Map<number, string>();
-    if (this.deviceRepo) {
-      try {
-        const rows = await this.deviceRepo.find({ where: { category: 'hvac' } });
-        const parsed = rows
-          .map((d) => {
-            let n: number | null = null;
-            try {
-              const a = JSON.parse(d.address ?? '{}') as { n?: number };
-              if (typeof a.n === 'number') n = a.n;
-            } catch { /* address 不是 JSON, 跳过 */ }
-            return { address: d.address ?? '', floor: d.floor ?? '', n };
-          })
-          .filter((x) => x.n !== null && x.address)
-          .sort((a, b) => (a.floor === b.floor ? (a.n as number) - (b.n as number) : a.floor.localeCompare(b.floor)));
-        parsed.forEach((x, i) => map.set(i + 1, x.address));
-      } catch (err) {
-        this.logger.warn(`getIdxAddressMap 失败: ${(err as Error).message}`, { context: 'ModbusHvacAdapter' });
-      }
-    }
+    for (const m of await this.listIndoorMeta()) map.set(m.idx, m.address);
     this.idxCache = { map, at: now };
     return map;
+  }
+
+  /**
+   * 序号 → 内机元信息 (楼层 / 网关 / 物理机号 / 机型), 跟 getIdxAddressMap
+   * **同一份排序口径**.
+   *
+   * 上层 (HvacController 灌 hvac_indoor 种子、前端展示机型) 需要的不只是
+   * address。单独再实现一遍排序 = 迟早跟这里漂移, 序号错位的 bug 已经犯过一次
+   * (2026-07-11 内机号错位), 所以这里只留一处排序, 两边都从它取。
+   */
+  async listIndoorMeta(): Promise<
+    Array<{
+      idx: number;
+      floor: string;
+      n: number;
+      gwHost?: string;
+      model?: string;
+      kw?: number;
+      address: string;
+    }>
+  > {
+    if (!this.deviceRepo) return [];
+    try {
+      const rows = await this.deviceRepo.find({ where: { category: 'hvac' } });
+      return rows
+        .map((d) => {
+          let a: { n?: number; gwHost?: string; model?: string; kw?: number } = {};
+          try {
+            a = JSON.parse(d.address ?? '{}') as typeof a;
+          } catch {
+            /* address 不是 JSON, 下面会被过滤掉 */
+          }
+          return {
+            address: d.address ?? '',
+            floor: d.floor ?? '',
+            n: typeof a.n === 'number' ? a.n : null,
+            gwHost: a.gwHost,
+            model: a.model,
+            kw: a.kw,
+          };
+        })
+        .filter((x): x is typeof x & { n: number } => x.n !== null && !!x.address)
+        .sort((a, b) => (a.floor === b.floor ? a.n - b.n : a.floor.localeCompare(b.floor)))
+        .map((x, i) => ({
+          idx: i + 1,
+          floor: x.floor,
+          n: x.n,
+          gwHost: x.gwHost,
+          model: x.model,
+          kw: x.kw,
+          address: x.address,
+        }));
+    } catch (err) {
+      this.logger.warn(`listIndoorMeta 失败: ${(err as Error).message}`, {
+        context: 'ModbusHvacAdapter',
+      });
+      return [];
+    }
   }
 
   /**
@@ -201,25 +245,42 @@ export class ModbusHvacAdapter extends BaseAdapter {
       category: 'hvac-gateway',
       protocol: 'modbus-tcp',
       capabilities: [
-        'turn_on', 'turn_off', 'set_temperature', 'set_mode', 'set_fan_speed', 'get_status', 'health_check',
+        'turn_on',
+        'turn_off',
+        'set_temperature',
+        'set_mode',
+        'set_fan_speed',
+        'get_status',
+        'health_check',
       ],
-      defaultAddressing: { slaveId: 1, port: 502, maxIndoor: 64, protocol: 'MODBUS-TCP (MBT v3.2)' },
+      defaultAddressing: {
+        slaveId: 1,
+        port: 502,
+        maxIndoor: 64,
+        protocol: 'MODBUS-TCP (MBT v3.2)',
+      },
       paramSchema: {
-        ip:        { type: 'string', label: '网关 IP', required: true, placeholder: '192.168.x.x' },
-        port:      { type: 'number', label: 'TCP 端口', default: 502, min: 1, max: 65535 },
-        slaveId:   { type: 'number', label: 'Modbus 从机号', default: 1, min: 1, max: 247 },
+        ip: { type: 'string', label: '网关 IP', required: true, placeholder: '192.168.x.x' },
+        port: { type: 'number', label: 'TCP 端口', default: 502, min: 1, max: 65535 },
+        slaveId: { type: 'number', label: 'Modbus 从机号', default: 1, min: 1, max: 247 },
         maxIndoor: { type: 'number', label: '最大内机数', default: 64, min: 1, max: 64 },
       },
-      remark: '一台网关挂 1-64 台 VRF 内机, 走 Modbus TCP. 跟商用奥克斯/大金/美的等品牌 VRF 主机配对.',
+      remark:
+        '一台网关挂 1-64 台 VRF 内机, 走 Modbus TCP. 跟商用奥克斯/大金/美的等品牌 VRF 主机配对.',
     };
   }
 
   /** 拿到 deviceId 对应内机的网关客户端 + 网关 key */
-  private async resolve(deviceId: string): Promise<{ addr: IndoorAddress; modbus: ModbusTcpClient; key: string }> {
+  private async resolve(
+    deviceId: string,
+  ): Promise<{ addr: IndoorAddress; modbus: ModbusTcpClient; key: string }> {
     const normalized = await this.normalizeDeviceId(deviceId);
     const addr = parseIndoorAddress(normalized);
     if (!addr) {
-      throw new DeviceProtocolError('hvac', `invalid deviceId, expect indoorIdx(1..N) or JSON {gwHost,n}: ${deviceId}`);
+      throw new DeviceProtocolError(
+        'hvac',
+        `invalid deviceId, expect indoorIdx(1..N) or JSON {gwHost,n}: ${deviceId}`,
+      );
     }
     const key = `hvac-zh-${addr.gwHost}:${addr.gwPort ?? 502}`;
     let entry = this.clients.get(key);
@@ -236,7 +297,8 @@ export class ModbusHvacAdapter extends BaseAdapter {
       });
       const modbus = new ModbusTcpClient(tcp, addr.slaveId ?? 1);
       this.clients.set(key, { modbus, key });
-      if (!this.isMock()) this.registry.register(key, `modbus-tcp://${addr.gwHost}:${addr.gwPort ?? 502}`);
+      if (!this.isMock())
+        this.registry.register(key, `modbus-tcp://${addr.gwHost}:${addr.gwPort ?? 502}`);
       entry = { modbus, key };
     }
     return { addr, modbus: entry.modbus, key: entry.key };
@@ -261,8 +323,12 @@ export class ModbusHvacAdapter extends BaseAdapter {
     let entry = this.clients.get(key);
     if (!entry) {
       const tcp = new TcpClient({
-        host, port, deviceType: 'hvac', timeoutMs: this.timeoutMs,
-        keepAlive: true, idleTimeoutMs: 30_000,
+        host,
+        port,
+        deviceType: 'hvac',
+        timeoutMs: this.timeoutMs,
+        keepAlive: true,
+        idleTimeoutMs: 30_000,
       });
       const modbus = new ModbusTcpClient(tcp, slaveId);
       this.clients.set(key, { modbus, key });
@@ -315,7 +381,11 @@ export class ModbusHvacAdapter extends BaseAdapter {
     });
   }
 
-  async turnOn(deviceId: string, _p: Record<string, unknown> = {}, ctx?: AdapterContext): Promise<AdapterResult<HvacState>> {
+  async turnOn(
+    deviceId: string,
+    _p: Record<string, unknown> = {},
+    ctx?: AdapterContext,
+  ): Promise<AdapterResult<HvacState>> {
     return this.run(deviceId, 'turnOn', ctx, async () => {
       const r = await this.resolve(deviceId);
       await this.writeReg(r, ctrlBaseAddr(r.addr.n) + CTRL_OFFSET.POWER, 1, ctx?.signal);
@@ -323,7 +393,11 @@ export class ModbusHvacAdapter extends BaseAdapter {
     });
   }
 
-  async turnOff(deviceId: string, _p: Record<string, unknown> = {}, ctx?: AdapterContext): Promise<AdapterResult<HvacState>> {
+  async turnOff(
+    deviceId: string,
+    _p: Record<string, unknown> = {},
+    ctx?: AdapterContext,
+  ): Promise<AdapterResult<HvacState>> {
     return this.run(deviceId, 'turnOff', ctx, async () => {
       const r = await this.resolve(deviceId);
       await this.writeReg(r, ctrlBaseAddr(r.addr.n) + CTRL_OFFSET.POWER, 0, ctx?.signal);
@@ -331,7 +405,11 @@ export class ModbusHvacAdapter extends BaseAdapter {
     });
   }
 
-  async setTemperature(deviceId: string, params: { value?: number; temperature?: number } = {}, ctx?: AdapterContext): Promise<AdapterResult<HvacState>> {
+  async setTemperature(
+    deviceId: string,
+    params: { value?: number; temperature?: number } = {},
+    ctx?: AdapterContext,
+  ): Promise<AdapterResult<HvacState>> {
     return this.run(deviceId, 'setTemperature', ctx, async () => {
       const v = Number(params.value ?? params.temperature);
       if (!Number.isFinite(v) || v < 16 || v > 32) {
@@ -343,7 +421,11 @@ export class ModbusHvacAdapter extends BaseAdapter {
     });
   }
 
-  async setMode(deviceId: string, params: { mode?: HvacMode } = {}, ctx?: AdapterContext): Promise<AdapterResult<HvacState>> {
+  async setMode(
+    deviceId: string,
+    params: { mode?: HvacMode } = {},
+    ctx?: AdapterContext,
+  ): Promise<AdapterResult<HvacState>> {
     return this.run(deviceId, 'setMode', ctx, async () => {
       const mode = params.mode ?? 'auto';
       const regVal = MODE_TO_REG[mode];
@@ -356,7 +438,11 @@ export class ModbusHvacAdapter extends BaseAdapter {
     });
   }
 
-  async setFanSpeed(deviceId: string, params: { speed?: FanSpeed } = {}, ctx?: AdapterContext): Promise<AdapterResult<HvacState>> {
+  async setFanSpeed(
+    deviceId: string,
+    params: { speed?: FanSpeed } = {},
+    ctx?: AdapterContext,
+  ): Promise<AdapterResult<HvacState>> {
     return this.run(deviceId, 'setFanSpeed', ctx, async () => {
       const speed = params.speed ?? 'auto';
       const regVal = FAN_TO_REG[speed];
@@ -399,8 +485,12 @@ export class ModbusHvacAdapter extends BaseAdapter {
     let entry = this.clients.get(key);
     if (!entry) {
       const tcp = new TcpClient({
-        host, port, deviceType: 'hvac', timeoutMs: this.timeoutMs,
-        keepAlive: true, idleTimeoutMs: 30_000,
+        host,
+        port,
+        deviceType: 'hvac',
+        timeoutMs: this.timeoutMs,
+        keepAlive: true,
+        idleTimeoutMs: 30_000,
       });
       const modbus = new ModbusTcpClient(tcp, slaveId);
       this.clients.set(key, { modbus, key });
@@ -414,7 +504,10 @@ export class ModbusHvacAdapter extends BaseAdapter {
     for (let n = 0; n <= maxIndoor; n += 1) {
       try {
         const regs = await entry.modbus.readHoldingRegisters(
-          stateBaseAddr(n), STATE_REGS_PER_INDOOR, slaveId, signal,
+          stateBaseAddr(n),
+          STATE_REGS_PER_INDOOR,
+          slaveId,
+          signal,
         );
         const st = decodeIndoorState(regs);
         indoors.push({
@@ -444,7 +537,10 @@ export class ModbusHvacAdapter extends BaseAdapter {
   }
 
   /** 扫描 DB 里登记的所有 hvac 网关 */
-  async scanAllGateways(maxIndoor = 16, signal?: AbortSignal): Promise<Array<HvacGatewayScan & { code: string }>> {
+  async scanAllGateways(
+    maxIndoor = 16,
+    signal?: AbortSignal,
+  ): Promise<Array<HvacGatewayScan & { code: string }>> {
     const gws = await this.getGatewaysFromDb();
     const out: Array<HvacGatewayScan & { code: string }> = [];
     for (const gw of gws) {
@@ -453,8 +549,15 @@ export class ModbusHvacAdapter extends BaseAdapter {
         out.push({ code: gw.code, ...scan });
       } catch (err) {
         out.push({
-          code: gw.code, host: gw.ip, port: gw.port, brand: -1, type: -1, indoorCount: -1,
-          ready: false, onlineNs: [], indoors: [],
+          code: gw.code,
+          host: gw.ip,
+          port: gw.port,
+          brand: -1,
+          type: -1,
+          indoorCount: -1,
+          ready: false,
+          onlineNs: [],
+          indoors: [],
           error: (err as Error).message,
         } as HvacGatewayScan & { code: string });
       }
@@ -491,7 +594,8 @@ export class ModbusHvacAdapter extends BaseAdapter {
     let regs: number[];
     try {
       regs = await withRetry(
-        () => r.modbus.readHoldingRegisters(base, STATE_REGS_PER_INDOOR, r.addr.slaveId ?? 1, signal),
+        () =>
+          r.modbus.readHoldingRegisters(base, STATE_REGS_PER_INDOOR, r.addr.slaveId ?? 1, signal),
         { retries: this.retries, timeoutMs: this.timeoutMs, signal },
       );
       this.registry.markOnline(r.key);
