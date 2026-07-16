@@ -5,7 +5,9 @@ import {
   OnModuleDestroy,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
+import { Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { LightingAdapter } from '../adapters/lighting/lighting.adapter';
 import { LedAdapter } from '../adapters/led/led.adapter';
@@ -14,6 +16,8 @@ import { HvacAdapter } from '../adapters/hvac/hvac.adapter';
 import { AdapterConnectionRegistry, ConnectionInfo } from '../adapters/connection-registry';
 import { ControlBus } from './control-bus';
 import { AlertService } from '../modules/alerts/alert.service';
+import { Device, DeviceStatus } from '../entities/device.entity';
+import { DeviceStatusService } from './device-status.service';
 
 export interface HealthSummary {
   intervalMs: number;
@@ -77,6 +81,9 @@ export class DeviceHealthService implements OnApplicationBootstrap, OnModuleDest
   /** 上一次的网关状态, 用于触发 online/offline 转换事件 */
   private lastGatewayState = new Map<string, ConnectionInfo['state']>();
 
+  /** 上一次下发给设备的状态, 只在变化时写 DB (否则每 30s 无谓写 38 行) */
+  private lastDeviceStatus = new Map<string, DeviceStatus>();
+
   constructor(
     private readonly config: ConfigService,
     private readonly registry: AdapterConnectionRegistry,
@@ -86,6 +93,8 @@ export class DeviceHealthService implements OnApplicationBootstrap, OnModuleDest
     private readonly hvac: HvacAdapter,
     private readonly bus: ControlBus,
     private readonly alertService: AlertService,
+    private readonly deviceStatus: DeviceStatusService,
+    @InjectRepository(Device) private readonly deviceRepo: Repository<Device>,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {
     this.intervalMs = Number.parseInt(process.env.HEALTH_CHECK_INTERVAL_MS ?? '30000', 10);
@@ -147,8 +156,86 @@ export class DeviceHealthService implements OnApplicationBootstrap, OnModuleDest
       await Promise.allSettled(tasks);
       this.lastProbeAt = new Date().toISOString();
       this.detectStateTransitions();
+      await this.syncDeviceStatuses();
     } finally {
       this.running = false;
+    }
+  }
+
+  /**
+   * 把网关在线状态摊到挂在它下面的设备上.
+   *
+   * 为什么需要这一步: 探活只写内存里的 ConnectionRegistry, 粒度是**网关**;
+   * 而前端 deviceStore.statusOf(name) 查的是**设备名**, 查不到就回落到
+   * devices.status 这个 DB 字段 —— 那个字段自从种子数据写进去 ('offline')
+   * 之后再没有任何代码改过它。于是出现"网关全绿、设备全灰"。这里补上中间
+   * 这一环: 设备的在线与否 = 服务它的那台网关通不通。
+   *
+   * 映射不用另建对应表 —— devices.address 里本来就有:
+   *   灯光 {"slaveId":1,"group":1}      → lighting-dali-cy64a-1
+   *   空调 {"gwHost":"192.168.50.66"}   → hvac-zh-192.168.50.66:502
+   * LED / 音响 各只有一台网关, 按 category 前缀认即可.
+   */
+  private async syncDeviceStatuses(): Promise<void> {
+    let devices: Device[];
+    try {
+      devices = await this.deviceRepo.find();
+    } catch (err) {
+      this.logger.warn(`syncDeviceStatuses 读设备表失败: ${(err as Error).message}`, {
+        context: 'DeviceHealthService',
+      });
+      return;
+    }
+    const gateways = this.registry.list();
+
+    for (const dev of devices) {
+      const next = this.deriveStatus(dev, gateways);
+      // undefined = 这一族网关一个都没注册 (适配器 mock / 还没初始化),
+      // 无从判断就别乱写 —— 保持 DB 里原值, 不假装知道
+      if (!next) continue;
+      const prev = this.lastDeviceStatus.get(dev.name);
+      if (prev === next) continue;
+      this.lastDeviceStatus.set(dev.name, next);
+      // 变化才落库 (persist=true), 这样重启后前端也能看到上次已知状态
+      await this.deviceStatus.update(dev.name, next, { derivedFrom: 'gateway-probe' }, true);
+    }
+  }
+
+  /** 设备状态 = 服务它的网关的状态; 返回 undefined 表示"无从判断" */
+  private deriveStatus(dev: Device, gateways: ConnectionInfo[]): DeviceStatus | undefined {
+    if (!dev.enabled) return 'disabled';
+    const serving = this.gatewaysForDevice(dev, gateways);
+    if (serving.length === 0) return undefined;
+    if (serving.some((g) => g.state === 'online')) return 'online';
+    if (serving.some((g) => g.state === 'reconnecting')) return 'reconnecting';
+    if (serving.some((g) => g.state === 'error')) return 'error';
+    return 'offline';
+  }
+
+  private gatewaysForDevice(dev: Device, gateways: ConnectionInfo[]): ConnectionInfo[] {
+    const family = gateways.filter((g) => g.gateway.startsWith(`${dev.category}-`));
+    if (family.length === 0) return [];
+    const addr = this.parseAddress(dev.address);
+    if (!addr) return family;
+
+    // 多网关的两族再按 address 里的归属收窄到具体那一台
+    if (dev.category === 'lighting' && typeof addr.slaveId === 'number') {
+      const exact = family.filter((g) => g.gateway === `lighting-dali-cy64a-${addr.slaveId}`);
+      if (exact.length > 0) return exact;
+    }
+    if (dev.category === 'hvac' && typeof addr.gwHost === 'string') {
+      const exact = family.filter((g) => g.gateway.startsWith(`hvac-zh-${addr.gwHost}:`));
+      if (exact.length > 0) return exact;
+    }
+    return family;
+  }
+
+  private parseAddress(raw: string | null): { slaveId?: number; gwHost?: string } | null {
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as { slaveId?: number; gwHost?: string };
+    } catch {
+      return null; // 非 JSON 的老格式, 按整族算
     }
   }
 

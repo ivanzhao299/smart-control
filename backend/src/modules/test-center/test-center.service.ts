@@ -403,7 +403,7 @@ export class TestCenterService {
       const entries: Array<{ ip: string; mac: string; iface?: string; type?: string }> = [];
       if (platform === 'win32') {
         // Windows 输出格式:
-        //   Interface: 192.168.124.11 --- 0x6
+        //   Interface: 192.168.77.54 --- 0x6
         //     Internet Address      Physical Address      Type
         //     192.168.124.1         00-aa-bb-cc-dd-ee     dynamic
         let currentIface = '';

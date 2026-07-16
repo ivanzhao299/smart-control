@@ -242,12 +242,20 @@ export class ModbusHvacAdapter extends BaseAdapter {
     return { addr, modbus: entry.modbus, key: entry.key };
   }
 
-  async ping(ctx?: AdapterContext): Promise<void> {
-    // DB > env > default 三级取默认网关地址
+  /** 现场所有网关地址: DB > env > default 三级. 空调是多网关 (1F/2F 各一台). */
+  private async listGatewayEndpoints(): Promise<Array<{ host: string; port: number }>> {
     const dbGateways = await this.getGatewaysFromDb();
-    const dbFirst = dbGateways[0];
-    const host = dbFirst?.ip ?? process.env.HVAC_HOST ?? '192.168.50.66';
-    const port = dbFirst?.port ?? Number.parseInt(process.env.HVAC_PORT ?? '502', 10);
+    if (dbGateways.length > 0) return dbGateways.map((g) => ({ host: g.ip, port: g.port }));
+    return [
+      {
+        host: process.env.HVAC_HOST ?? '192.168.50.66',
+        port: Number.parseInt(process.env.HVAC_PORT ?? '502', 10),
+      },
+    ];
+  }
+
+  /** 探活单台网关; 成功/失败都写进 ConnectionRegistry 对应 key */
+  private async pingGateway(host: string, port: number, ctx?: AdapterContext): Promise<void> {
     const slaveId = Number.parseInt(process.env.HVAC_DEFAULT_SLAVE_ID ?? '1', 10);
     const key = `hvac-zh-${host}:${port}`;
     let entry = this.clients.get(key);
@@ -272,9 +280,37 @@ export class ModbusHvacAdapter extends BaseAdapter {
     }
   }
 
+  /** 兼容旧调用: 只探默认 (第一台) 网关 */
+  async ping(ctx?: AdapterContext): Promise<void> {
+    const [first] = await this.listGatewayEndpoints();
+    await this.pingGateway(first.host, first.port, ctx);
+  }
+
+  /**
+   * 探活**所有**网关, 不是只探第一台.
+   *
+   * 之前这里是 `await this.ping(ctx)` —— ping 取 `dbGateways[0]`, 于是 2F 那台
+   * (192.168.50.67) 永远没被探过, ConnectionRegistry 里压根没有它的条目, 除非
+   * 有人正好下发过一条 2F 的空调命令才会被 resolve() 惰性注册。表现就是
+   * "2F 空调看着永远不在线"。多网关是现场常态, 探活必须按台遍历。
+   */
   async healthCheck(ctx?: AdapterContext): Promise<AdapterResult<{ ok: true }>> {
     return this.run('hvac-gateway', 'healthCheck', ctx, async () => {
-      await this.ping(ctx);
+      const endpoints = await this.listGatewayEndpoints();
+      const results = await Promise.allSettled(
+        endpoints.map((e) => this.pingGateway(e.host, e.port, ctx)),
+      );
+      const failed = results
+        .map((r, i) => ({ r, e: endpoints[i] }))
+        .filter((x) => x.r.status === 'rejected');
+      if (failed.length === endpoints.length) {
+        // 全挂才算 healthCheck 失败 (触发上层重连退避); 部分挂由各自的
+        // registry 条目如实反映, 不该让好的那台跟着背锅重连
+        const errs = failed
+          .map((x) => `${x.e.host}:${x.e.port} ${(x.r as PromiseRejectedResult).reason?.message}`)
+          .join('; ');
+        throw new Error(`所有空调网关探活失败 (${failed.length}/${endpoints.length}): ${errs}`);
+      }
       return { ok: true as const };
     });
   }
