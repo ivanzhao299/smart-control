@@ -39,10 +39,10 @@
 │  - /admin/*    (管理后台, 独立 admin 鉴权)                 │
 └──────┬─────────────────────────────────────────────────────┘
        │  HTTP/JSON + WebSocket
-       │  baseURL: http://192.168.124.11:3200/api (动态可配, ClientLogin 输)
+       │  baseURL: http://192.168.77.54:3200/api (动态可配, ClientLogin 输)
        ↓
 ┌────────────────────────────────────────────────────────────┐
-│  GK9000 Windows 10 主控机 (192.168.124.11)                 │
+│  GK9000 Windows 10 主控机 (192.168.77.54)                 │
 │  ├── backend (NestJS, pm2 id=50, port 3200)                │
 │  │   ├── 28 模块, 22 张表, 见 §6                           │
 │  │   ├── SQLite: D:/smart-control/database/smart-control.db│
@@ -62,7 +62,7 @@
        │  └──── (可选 NUC HTTP)
        ↓
 现场硬件:
-- CY-DALI64A × 2 (1F+2F 灯光网关, Modbus-TCP 经 USR 透传)
+- CY-DALI64A × 2 (灯光网关, 同一层, 共用一条 RS485 经 USR 透传, 靠拨码地址 1/2 区分)
 - 诺瓦 V2460 LED 控制器 + 灯杆/吊顶 LED
 - 投影仪 (HDMI2 输入)
 - EKX808 音响 (HTTP)
@@ -160,7 +160,7 @@ smart-control/
 
 | 项 | 值 |
 |---|---|
-| IP | **192.168.124.11** (内网静态) |
+| IP | **192.168.77.54** (内网静态) |
 | OS | Windows 10 Pro x64 |
 | 用户名 | `user` |
 | 密码 | `<待填 — 业主告知接手人>` |
@@ -175,7 +175,7 @@ smart-control/
 
 SSH 进 GK9000:
 ```bash
-ssh user@192.168.124.11
+ssh user@192.168.77.54
 # 内外网通, 不需要 VPN (业主自述)
 ```
 
@@ -194,13 +194,14 @@ ssh user@192.168.124.11
 
 ```
 192.168.124.0/24  控制网段
-  ├── 192.168.124.11  GK9000 主控机
+  ├── 192.168.77.54  GK9000 主控机
   ├── 192.168.124.???  业主平板 (DHCP, 一般有)
   └── ...
 
 192.168.50.0/24   设备网段
-  ├── 192.168.50.20:502   1F DALI 网关 (CY-DALI64A, USR 透传)  ⚠️ 历史问题见 §10
-  ├── 192.168.50.21:502   2F DALI 网关 (CY-DALI64A, USR 透传)
+  ├── 192.168.50.20:502   RS485↔TCP 转换器 CONV-RTU-1 (USR)  ⚠️ 历史问题见 §10
+  │                        └── 两台 CY-DALI64A 都挂在这条 RS485 上, 自己没有 IP,
+  │                            靠拨码地址区分: slaveId=1 网关#1, slaveId=2 网关#2
   ├── 192.168.50.30:5200  诺瓦 V2460 LED 控制器
   ├── 192.168.50.40:80    EKX808 音响
   ├── 192.168.50.50:502   HVAC 空调网关 (USR 透传 Modbus-RTU)
@@ -262,7 +263,7 @@ ssh user@192.168.124.11
 | **devices** | 设备总表 (CRUD) |
 | **hardware** | 硬件单元 (网关 / 控制器实例) + driver 选择 |
 | **drivers** | driver_template 表 + 自描述接口 + 自助创建 UI |
-| **light-zones** | 灯光分区 (业主可见的"客厅灯/前台射灯") + DALI group 路由 |
+| **light-zones** | 灯光分区 (业主可见的"前厅/东展区") + 灯组归属; 一个分区含多个 DALI 组, 可跨网关 |
 | **power-circuits** | 电源回路 (Sprint G 加, 电流/电压/功率/电量) |
 | **lighting** | DALI 灯光控制 endpoint (调用 adapter) |
 | **led** | LED 大屏 endpoint (开关 / 切输入 / 欢迎页) |
@@ -297,6 +298,34 @@ backend/src/adapters/
 ```
 
 **Adapter 切换**: `.env LIGHTING_ADAPTER_KIND=cy-dali64a` (默认), 改 `mock` 走 Mock 模拟测试.
+
+#### ⚠️ 灯光模型 (2026-07-16 按现场重构, 接手前必读)
+
+现场是**一层 / 7 个分区 / 10 个实测灯组**, 且**一个分区可以由多组灯拼成**
+(走廊区就是 4 组). 所以:
+
+```
+light_zone  (前厅/东展区/走廊区…)   业主看得见的名字, 前端可增删改
+   └── light_group (N 个)          最小可控单位 = (gatewayCode, daliGroup)
+                                    唯一键是这个二元组, 不是组号!
+```
+
+- **组号在两台网关之间会重复** —— 两台都可能有"组 3", 却是完全不同的灯. 任何
+  只拿组号路由的代码都是错的, 必须带 slaveId 一起走
+  (`setBrightnessOnGateway(slaveId, group, value)`).
+- 分区下发由 `lighting.controller` **扇出**到该区每个组, 串行发 (共用一条
+  RS485, 并发帧会互踩), 返回 okCount/failCount.
+- 组归属哪个分区, 业主**在前端灯光页「编组」里自己改**, 不用改代码重部署 ——
+  网关的 Modbus 寄存器表里没有"组成员"这一项 (查证过), 读不出来, 只能人工核对.
+- 实测组分布 (扫组亮度寄存器): 网关#1(拨码1) = 组 5-11, 网关#2(拨码2) = 组 1-3.
+  业主说共 11 组, 扫到 10 组, 差的那组现场补一条 light_group 记录即可.
+
+**两个部署坑** (2026-07-16 踩过):
+1. **CI 不跑 seed**. `deploy-from-ci.ps1` 只有 install/build/pm2 restart. 新增的
+   分区/灯组这类**数据**不会自己上生产, 要手工 `cd backend && node dist/seed/seed.js`
+   (winston 在生产写文件不写 stdout, 所以跑完屏幕上什么都没有是正常的, 用 API 验).
+2. **`seedHardware` 是 `if (exists) continue`** —— 改 seed 里的硬件字段对**已有**
+   生产库无效, 只影响全新安装. 已有记录要走后台硬件清单改.
 
 每个 adapter 都自描述 (driver-descriptor.ts), backend 启动时自动注册到 `driver_template` 表, 后台 `/admin/drivers` 能浏览.
 
@@ -340,7 +369,7 @@ GK9000 上 `auto-update-watcher.ps1` 后台跑, 每 5 分钟一次 git pull, 检
 ### 7.2 强制立刻部署 (从 mac SSH 进去手动跑)
 
 ```bash
-ssh user@192.168.124.11 'chcp 65001 > $null; cd D:/smart-control; git checkout frontend/components.d.ts 2>$null; git pull --ff-only origin main 2>$null; powershell -ExecutionPolicy Bypass -File .\scripts\update.ps1 -SkipPull -Force'
+ssh user@192.168.77.54 'chcp 65001 > $null; cd D:/smart-control; git checkout frontend/components.d.ts 2>$null; git pull --ff-only origin main 2>$null; powershell -ExecutionPolicy Bypass -File .\scripts\update.ps1 -SkipPull -Force'
 ```
 
 `update.ps1` 干啥:
@@ -582,7 +611,7 @@ backend 返 `fileUrl: "/api/media/N/file"` 相对路径, 但 frontend 5173 跟 b
 
 3. **SSH 上 GK9000**, 看实际生产环境:
    ```bash
-   ssh user@192.168.124.11
+   ssh user@192.168.77.54
    pm2 list                   # 应该看到 backend + frontend online
    pm2 logs --lines 50        # 看最近日志
    ```

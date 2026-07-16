@@ -63,7 +63,7 @@ keytool -genkey -v -keystore jinhu-release.jks \
 ## 业主操作
 
 1. 第一次开 APP → 看到配置页
-2. 输入服务器地址 (e.g. `http://192.168.124.11:5173/control/`)
+2. 输入服务器地址 (e.g. `http://192.168.77.54:5173/control/`)
 3. 点 "测试连接" → 看到绿色"连接成功" → 点 "保存并启动"
 4. 进入 PWA → 看到 PWA 自己的 `/client-login` (业主输 1234 默认密码)
 5. 之后开 APP → 直接进 PWA, 不再问地址 (除非业主主动点右上角齿轮)
