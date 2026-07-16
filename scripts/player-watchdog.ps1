@@ -22,7 +22,11 @@
 [CmdletBinding()]
 param(
   [switch]$Register,
-  [int]$StaleMinutes = 3
+  [int]$StaleMinutes = 3,
+  # Must match start-players.ps1's slot2 (projector) coords: this script has to
+  # make the SAME "is the projector actually there?" decision the launcher makes.
+  [int]$Slot2X = 1920,
+  [int]$Slot2Y = 0
 )
 
 $ErrorActionPreference = 'Continue'
@@ -117,12 +121,44 @@ try {
   exit 0
 }
 
-# 3. Find stale slots (1-3). A slot is stale when it never heartbeated or
-#    the last heartbeat is older than $StaleMinutes.
+# 3. Work out which slots are SUPPOSED to be running, then find stale ones.
+#
+#    Only checking "is the heartbeat old?" is not enough: start-players.ps1
+#    deliberately SKIPS slot2 when no monitor lives at its coords (projector
+#    unplugged). That slot then never heartbeats -- so a naive staleness check
+#    calls it stale forever and relaunches every single run.
+#    2026-07-16 this was actually happening: the log shows
+#      "stale slots: 2 -> restarting players"
+#    every 5 minutes with the projector unplugged. Each relaunch kills and
+#    respawns the LED player, so the wall blinks, the fresh window briefly shows
+#    its address bar before going fullscreen, and for a moment the old and new
+#    windows are both up showing the same video. That is what the site saw.
+Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+function Test-CoordsOnScreen {
+  param([int]$X, [int]$Y)
+  try {
+    foreach ($s in [System.Windows.Forms.Screen]::AllScreens) {
+      if ($X -ge $s.Bounds.X -and $X -lt ($s.Bounds.X + $s.Bounds.Width) -and
+          $Y -ge $s.Bounds.Y -and $Y -lt ($s.Bounds.Y + $s.Bounds.Height)) { return $true }
+    }
+  } catch { return $true }   # can't tell -> don't suppress
+  return $false
+}
+
+# slot1 = LED, slot3 = windowless bgm daemon: both always expected.
+# slot2 = projector: expected only when a monitor really lives at its coords.
+$expected = @(1, 3)
+if (Test-CoordsOnScreen -X $Slot2X -Y $Slot2Y) {
+  $expected += 2
+} else {
+  Log ('slot2 not expected (no monitor at ' + $Slot2X + ',' + $Slot2Y + ', projector unplugged) -> not counting it stale')
+}
+
 $now = Get-Date
 $stale = @()
 foreach ($c in $channels) {
   if ($c.slot -lt 1 -or $c.slot -gt 3) { continue }
+  if ($expected -notcontains $c.slot) { continue }
   $hb = $null
   if ($c.lastHeartbeatAt) {
     try { $hb = ([datetime]::Parse($c.lastHeartbeatAt)).ToLocalTime() } catch { $hb = $null }
