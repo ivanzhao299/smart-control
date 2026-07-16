@@ -20,6 +20,7 @@ import {
   cmdMute,
   cmdReadGain,
   cmdReadMute,
+  cmdReadMatrixCell,
   cmdSetMatrix,
   cmdGroupVolume,
   cmdAuxSwitch,
@@ -518,6 +519,59 @@ export class EkxDspAdapter extends BaseAdapter {
       /* 同上 */
     }
     return { volume, muted, bgm: null, micEnabled: false };
+  }
+
+  /**
+   * 输入通路诊断 — 读某路输入的真实增益/静音, 以及它到 8 路输出的真实路由.
+   *
+   * 为什么需要它 (2026-07-16 现场):
+   *   "BGM 从 3.5mm 出来了、GK9000 也能听见, 但矩阵收不到" 这类问题, 光读电平
+   *   表判断不了 —— EKX 预设常把输入增益压到 -60dB, 信号进来了也会被压成本底
+   *   噪声 (IN1 读数恒 -70dB), 看起来跟"没接线"一模一样。
+   *   而 GET /api/audio/matrix/state 读的是本地 JSON 文件, 不是设备状态。
+   *   这里直接问设备: 增益多少 / 静音没 / 路由通没通。
+   */
+  async diagnoseInput(channel: ChannelIndex, ctx?: AdapterContext): Promise<AdapterResult<{
+    channel: number;
+    gainDb: number | null;
+    muted: boolean | null;
+    level: number | null;
+    routedTo: number[];
+  }>> {
+    return this.run('audio-dsp', `diagnoseInput_${channel}`, ctx, async () => {
+      let gainDb: number | null = null;
+      let muted: boolean | null = null;
+      let level: number | null = null;
+      const routedTo: number[] = [];
+
+      try {
+        const g = await this.send(cmdReadGain(this.devAddr, IO_IN, channel), ctx?.signal, true);
+        if (g.length >= 4) gainDb = codeToDb(g[2], g[3]);
+      } catch { /* 读不到就留 null, 不阻塞其它项 */ }
+
+      try {
+        const m = await this.send(cmdReadMute(this.devAddr, IO_IN, channel), ctx?.signal, true);
+        if (m.length >= 3) muted = m[2] === 1;
+      } catch { /* 同上 */ }
+
+      try {
+        const l = await this.send(cmdReadLevel(this.devAddr, 0, channel), ctx?.signal, true);
+        if (l.length >= 3) level = levelByteToDb(l[2]);
+      } catch { /* 同上 */ }
+
+      // 逐格问设备这路输入接到了哪些输出 (单客户端设备, send 已串行排队)
+      for (let out = 0; out < 8; out += 1) {
+        try {
+          const c = await this.send(
+            cmdReadMatrixCell(this.devAddr, out as ChannelIndex, channel), ctx?.signal, true,
+          );
+          // 返回 [outCh, inCh, on]
+          if (c.length >= 3 && c[2] === 1) routedTo.push(out);
+        } catch { /* 单格读失败不影响其它格 */ }
+      }
+
+      return { channel, gainDb, muted, level, routedTo };
+    });
   }
 
   /** dB → 百分比 (反向, 仅用于状态回读) */

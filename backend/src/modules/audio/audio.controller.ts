@@ -116,6 +116,23 @@ export class AudioController {
       { io: ioN, ch: chN });
   }
 
+  /**
+   * 输入通路诊断 — 直接问设备这路输入的增益/静音/电平 + 真实路由到哪些输出.
+   *
+   * GET /api/audio/input/0/diagnose   → IN1 全貌
+   *
+   * 排查"3.5mm 有声音但矩阵收不到"这类问题必用:
+   *   - gainDb 接近 -60 → 被预设压死了, 信号进来也听不到 (调 POST input/:ch/gain 拉回)
+   *   - muted=true      → 通道被静音
+   *   - routedTo 为空   → 没接到任何输出
+   * 光看电平表会被 -60dB 增益骗过去 (读数跟没接线一模一样)。
+   */
+  @Get('input/:ch/diagnose')
+  diagnoseInput(@Param('ch', ParseIntPipe) ch: number) {
+    if (ch < 0 || ch > 7) throw new BadRequestException('ch 需为 0-7');
+    return this.wrap('audio-dsp', `diagnoseInput.ch${ch}`, () => this.audio.diagnoseInput(ch), { ch });
+  }
+
   /** 输入通道增益 (前台音源矩阵输入增益滑条). EKX 预设常把输入压到 -60dB, 这里拉回. */
   @Post('input/:ch/gain')
   setInputGain(@Param('ch', ParseIntPipe) ch: number, @Body() dto: AudioVolumeDto) {

@@ -162,6 +162,29 @@ export class AudioAdapter extends BaseAdapter {
     };
   }
 
+  /**
+   * 输入通路诊断 — 直接问设备: 这路输入的增益/静音/电平, 以及它接到了哪些输出.
+   * 排查"信号进来了但听不到"必用 (光看电平会被 -60dB 的预设增益骗过去)。
+   */
+  async diagnoseInput(channel: number, ctx?: AdapterContext): Promise<AdapterResult<{
+    channel: number; gainDb: number | null; muted: boolean | null; level: number | null; routedTo: number[];
+  }>> {
+    if (this.isMock()) {
+      return {
+        ok: true, deviceId: 'audio-dsp', command: 'diagnoseInput',
+        data: { channel, gainDb: 0, muted: false, level: -20, routedTo: [0] }, mock: true, durationMs: 0,
+      };
+    }
+    if (this.vendor === 'takstar-ekx808') {
+      return this.ekxImpl.diagnoseInput(channel as ChannelIndex, ctx);
+    }
+    return {
+      ok: false, deviceId: 'audio-dsp', command: 'diagnoseInput',
+      error: `diagnoseInput 仅 takstar-ekx808 厂家支持, 当前 vendor=${this.vendor}`,
+      mock: false, durationMs: 0,
+    };
+  }
+
   /** 设置输入通道增益 (0-100%). 前台音源矩阵输入增益滑条用. */
   async setInputVolume(channel: number, percent: number, ctx?: AdapterContext): Promise<AdapterResult<{ channel: number; volume: number }>> {
     if (this.isMock()) {
