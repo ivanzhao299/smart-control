@@ -88,6 +88,45 @@ onBeforeUnmount(() => {
 
 // 视频元素引用 — 用来在 ended 时根据 loopMode 决定循环或回待机
 const videoEl = ref<HTMLVideoElement | null>(null);
+
+/**
+ * 把视频声音送到 HDMI 音频端点 (slot 1/2), 而不是 Windows 默认设备.
+ *
+ * 现场接线 (2026-07-16 机柜标签):
+ *   GK9000 HDMI ──> 分离器 ──┬─> 视频 ──> 诺瓦 ──> LED 大屏
+ *                            └─> 音频 ──> 矩阵 IN4 ──> OUT5 ──> 大屏功放
+ *   GK9000 USB 声卡 3.5mm ─────────────> 矩阵 IN1 ──> OUT1/2/3/4/7/8 (各区)
+ *
+ * 但 Windows 默认播放设备是那块 USB 声卡, 所以视频声音全跑去了 IN1, 而 OUT5
+ * 只吃 IN2/IN3/IN4 —— 大屏永远没声。2026-07-16 实测坐实: 放视频时 IN4 电平
+ * 纹丝不动 (-66dB 噪声底), 跳动的是 IN1 上的背景音乐。
+ *
+ * 不能改 Windows 默认设备: 背景音乐 (bgm-player.ps1, 无窗口 MCI) 只会走默认
+ * 设备, 把默认改成 HDMI 会让各区丢掉 BGM。所以只把**播放器这一路**用
+ * setSinkId 指到 HDMI, 两条路各走各的 —— 这正是接 HDMI 音频分离器的本意。
+ *
+ * 拿设备标签需要麦克风权限, 由 start-players.ps1 的
+ * --use-fake-ui-for-media-stream 自动放行 (它只自动同意授权, 用的仍是真设备)。
+ */
+let audioRouted = false;
+async function routeVideoAudio(): Promise<void> {
+  if (audioRouted) return;                       // 每个窗口只需成功指一次
+  if (slot.value !== 1 && slot.value !== 2) return;  // slot3 是 BGM, 必须留在默认设备
+  const el = videoEl.value as (HTMLVideoElement & { setSinkId?: (id: string) => Promise<void> }) | null;
+  if (!el?.setSinkId) return;                    // 浏览器不支持就算了, 至少声音还在默认设备
+  try {
+    // 先取一次权限, 否则 enumerateDevices 拿不到 label, 认不出哪个是 HDMI
+    await navigator.mediaDevices.getUserMedia({ audio: true })
+      .then((s) => s.getTracks().forEach((t) => t.stop()))
+      .catch(() => { /* 没授权也继续试, 有的环境本来就给 label */ });
+    const outs = (await navigator.mediaDevices.enumerateDevices())
+      .filter((d) => d.kind === 'audiooutput');
+    const hdmi = outs.find((d) => /HDMI|显示器音频|Display Audio/i.test(d.label));
+    if (!hdmi) return;                           // 找不到就保持默认, 不要瞎指
+    await el.setSinkId(hdmi.deviceId);
+    audioRouted = true;
+  } catch { /* 指不过去就维持默认设备, 不能因此让视频不播 */ }
+}
 watch(() => channel.value?.currentMediaUrl, (url, oldUrl) => {
   // url 变了就强制 reload <video>, 防止浏览器缓存上一段
   if (url !== oldUrl && videoEl.value) {
@@ -137,10 +176,10 @@ function onAudioEnded(): void {
       class="media-el"
       :src="absUrl(channel.currentMediaUrl)"
       autoplay
-      muted
       playsinline
       :loop="channel.loopMode === 'loop'"
       @ended="onVideoEnded"
+      @loadedmetadata="routeVideoAudio"
     />
 
     <!-- 播放图片 -->
