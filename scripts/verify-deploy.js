@@ -54,6 +54,15 @@ const APPS = [
     name: 'smart-control-backend',
     port: 3200,
     artifact: path.join(ROOT, 'backend', 'dist', 'main.js'),
+    /**
+     * ⚠️ 新鲜度要看**整个 dist 里最新的文件**, 不能只看 main.js.
+     * tsc 是增量编译 (有 tsconfig.build.tsbuildinfo): main.ts 没改它就不重写
+     * main.js。2026-07-16 实测 main.js 停在 13:35, 而真正改动的
+     * modules/hvac/hvac.controller.js 是 15:22 —— 只看 main.js 的话, "只改了
+     * controller + 构建了 + 忘了重启" 这个最常见的场景会被判成绿, 假绿灯正好
+     * 是这个验证器要防的东西。
+     */
+    artifactDir: path.join(ROOT, 'backend', 'dist'),
     freshness: 'restart',
     check: { path: '/api/system/health', expect: (b) => JSON.parse(b)?.data?.status === 'ok' },
   },
@@ -66,6 +75,24 @@ const APPS = [
     check: { path: '/control/', expect: (b) => b.length > 0 },
   },
 ];
+
+/** 目录里最新的 .js 产物 — 返回 {mtimeMs, file}; 增量编译下只看单个文件会误判 */
+function newestBuild(dir) {
+  let best = { mtimeMs: 0, file: null };
+  const walk = (d) => {
+    let entries;
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) { walk(full); continue; }
+      if (!e.name.endsWith('.js')) continue;
+      const st = fs.statSync(full);
+      if (st.mtimeMs > best.mtimeMs) best = { mtimeMs: st.mtimeMs, file: full };
+    }
+  };
+  walk(dir);
+  return best;
+}
 
 /** 从 HTML 里抽出它引用的入口 bundle 文件名 (带内容哈希, 每次构建都变) */
 function assetFingerprint(html) {
@@ -187,16 +214,24 @@ async function main() {
 
     // --- C. 新鲜度: 跑的是不是这次构建的东西 (两种机制判法不同, 见 APPS 注释) ---
     if (app.freshness === 'restart') {
-      const built = fs.statSync(app.artifact).mtimeMs;
-      if (p.uptime && p.uptime < built) {
-        const lag = Math.round((built - p.uptime) / 1000);
+      // 取整个 dist 里最新的 .js, 不是 main.js —— 增量编译不重写没变的文件
+      const newest = newestBuild(app.artifactDir);
+      if (!newest.file) {
+        bad(`${app.name}: ${app.artifactDir} 里一个 .js 都没有 —— 构建没做?`);
+      } else if (p.uptime && p.uptime < newest.mtimeMs) {
+        const lag = Math.round((newest.mtimeMs - p.uptime) / 1000);
         bad(
-          `${app.name}: 进程 ${new Date(p.uptime).toLocaleString()} 就启动了, ` +
-          `但产物 ${path.basename(app.artifact)} 是 ${new Date(built).toLocaleString()} 才构建的 ` +
-          `(晚 ${lag}s) —— 跑的是旧代码, 需要 pm2 restart ${app.name}`,
+          `${app.name}: 进程 ${new Date(p.uptime).toLocaleTimeString()} 就启动了, ` +
+          `但产物 ${path.relative(app.artifactDir, newest.file)} 是 ` +
+          `${new Date(newest.mtimeMs).toLocaleTimeString()} 才构建的 (晚 ${lag}s) ` +
+          `—— 跑的是旧代码, 需要 pm2 restart ${app.name}`,
         );
       } else {
-        ok('跑的是最新构建 (进程启动于产物之后)');
+        ok(
+          `跑的是最新构建 (进程 ${new Date(p.uptime).toLocaleTimeString()} > ` +
+          `最新产物 ${path.relative(app.artifactDir, newest.file)} ` +
+          `${new Date(newest.mtimeMs).toLocaleTimeString()})`,
+        );
       }
     }
 
