@@ -488,16 +488,20 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
         }"
         @click="toggleOne(row.idx)"
       >
-        <div class="cell-top">
+        <div class="cell-head">
+          <!-- 选中态: 一个明确的复选框, 选了就打勾变蓝, 不靠边框深浅去猜 -->
+          <span class="cell-check" :class="{ on: selected.has(row.idx) }">
+            <Check v-if="selected.has(row.idx)" :size="16" :stroke-width="3" />
+          </span>
           <span class="cell-tag">{{ row.floor }}-{{ row.idx }}</span>
           <span v-if="row.state.known && row.state.faultCode > 0" class="cell-fault" :title="'故障码 ' + row.state.faultCode">
-            <AlertTriangle :size="11" /> {{ row.state.faultCode }}
+            <AlertTriangle :size="14" /> {{ row.state.faultCode }}
           </span>
           <span
             class="cell-dot"
             :class="{ on: row.state.known && row.state.on, unknown: !row.state.known }"
             :title="!row.state.known ? '未读到状态' : (row.state.on ? '运行中' : '已关机')"
-          />
+          >{{ !row.state.known ? '未知' : (row.state.on ? '运行' : '关') }}</span>
         </div>
 
         <div class="cell-name">
@@ -510,31 +514,31 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
           <template v-else>
             <span class="cell-name-text" :title="row.name">{{ row.name }}</span>
             <span class="cell-edit" title="改名" @click.stop="startRenameIndoor(row)">
-              <Pencil :size="11" />
+              <Pencil :size="15" />
             </span>
           </template>
         </div>
 
-        <div class="cell-mid">
-          <!-- 读不到 ≠ 关机: 必须分开显示, 否则会让人以为空调停了而实际在跑 -->
-          <span v-if="!row.state.known" class="cell-unknown">未读到</span>
+        <!-- 中段占满剩余高度, 温度居中放大 —— 卡片再大也不留空洞 -->
+        <div class="cell-body">
+          <span v-if="!row.state.known" class="cell-unknown">未读到状态</span>
           <template v-else-if="row.state.on">
             <span class="cell-temp">{{ row.state.temperature }}<i>°C</i></span>
             <span v-if="row.state.roomTemp !== undefined" class="cell-room" title="实测室温">
               室温 {{ row.state.roomTemp }}°
             </span>
           </template>
-          <span v-else class="cell-off">
-            关机
-            <em v-if="row.state.roomTemp !== undefined">室温 {{ row.state.roomTemp }}°</em>
-          </span>
+          <template v-else>
+            <span class="cell-off">关机</span>
+            <span v-if="row.state.roomTemp !== undefined" class="cell-room">室温 {{ row.state.roomTemp }}°</span>
+          </template>
         </div>
 
         <div class="cell-foot">
           <span v-if="!row.state.known" class="cell-mode dim">—</span>
           <span v-else class="cell-mode" :class="{ dim: !row.state.on }">
-            <component :is="modeIcon(row.state.mode)" :size="11" /> {{ modeLabel(row.state.mode) }}
-            <i class="cell-fan">{{ fanLabel(row.state.fan) }}</i>
+            <component :is="modeIcon(row.state.mode)" :size="15" /> {{ modeLabel(row.state.mode) }}
+            <i class="cell-fan">· {{ fanLabel(row.state.fan) }}</i>
           </span>
           <span class="cell-zone" :title="zoneNameOf(row.zoneCode)">{{ zoneNameOf(row.zoneCode) }}</span>
         </div>
@@ -679,71 +683,91 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 .hv-grid.loading { opacity: .5; pointer-events: none; }
 
 .hv-cell {
-  display: flex; flex-direction: column; gap: 2px;
-  padding: 8px 10px; text-align: left; cursor: pointer;
+  display: flex; flex-direction: column;
+  padding: 12px 16px; text-align: left; cursor: pointer;
   min-height: 0; overflow: hidden;
   background: var(--v2-surface, #141c28);
-  border: 1.5px solid var(--v2-border, #26344a);
-  border-radius: 10px;
-  transition: border-color .12s, background .12s;
+  border: 2px solid var(--v2-border, #26344a);
+  border-radius: 14px;
+  transition: border-color .12s, background .12s, box-shadow .12s;
 }
-.hv-cell:hover { border-color: var(--v2-accent, #4da3ff); }
-.hv-cell.running { background: linear-gradient(160deg, #12283d, #141c28); }
+.hv-cell:hover { border-color: #3f5a80; }
+.hv-cell.running { background: linear-gradient(160deg, #12324d, #141c28); }
 /* 未知: 斜纹底 + 虚线框 —— 一眼跟"关机"区分开, 不靠颜色深浅 */
 .hv-cell.unknown {
   border-style: dashed;
   border-color: #3c4a5e;
-  background: repeating-linear-gradient(45deg, #141c28, #141c28 6px, #171f2c 6px, #171f2c 12px);
+  background: repeating-linear-gradient(45deg, #141c28, #141c28 7px, #171f2c 7px, #171f2c 14px);
 }
 .hv-cell.fault { border-color: #a9541f; }
-/* 选中态用实心边框 + 外发光, 不靠颜色深浅 —— 现场大屏斜着看也要分得清 */
+/* 选中态: 粗蓝边 + 蓝底 + 外发光, 三重冗余 —— 现场大屏斜着看也一眼分得清选没选 */
 .hv-cell.sel {
   border-color: var(--v2-accent, #4da3ff);
-  box-shadow: 0 0 0 2px #4da3ff55 inset;
+  background: linear-gradient(160deg, #16375a, #12233a);
+  box-shadow: 0 0 0 2px var(--v2-accent, #4da3ff), 0 6px 18px #0a1a2e88;
 }
 
-.cell-top { display: flex; align-items: center; justify-content: space-between; }
-.cell-tag { font-size: 10px; color: var(--v2-text-dim, #8fa3bd); letter-spacing: .3px; }
-.cell-dot { width: 7px; height: 7px; border-radius: 50%; background: #3c4a5e; flex: 0 0 auto; }
-.cell-dot.on { background: #35d07f; box-shadow: 0 0 6px #35d07f99; }
-.cell-dot.unknown { background: transparent; border: 1.5px dashed #55637a; }
+/* ---- 头部: 复选框 + 编号 + 运行徽标 ---- */
+.cell-head { display: flex; align-items: center; gap: 8px; }
+.cell-check {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; flex: 0 0 auto; border-radius: 6px;
+  border: 2px solid #46566e; background: transparent; color: #04101d;
+  transition: background .12s, border-color .12s;
+}
+.cell-check.on { background: var(--v2-accent, #4da3ff); border-color: var(--v2-accent, #4da3ff); }
+.cell-tag { font-size: 14px; font-weight: 600; color: var(--v2-text-dim, #8fa3bd); letter-spacing: .3px; }
 .cell-fault {
-  display: inline-flex; align-items: center; gap: 2px; margin-left: auto; margin-right: 4px;
-  font-size: 10px; color: #ff9a52;
+  display: inline-flex; align-items: center; gap: 3px; margin-left: auto;
+  font-size: 13px; font-weight: 600; color: #ff9a52;
 }
+/* 运行状态做成文字徽标, 不是小圆点 —— 远处也读得出"运行/关/未知" */
+.cell-dot {
+  margin-left: auto; padding: 3px 10px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; line-height: 1;
+  background: #223044; color: #8fa3bd; flex: 0 0 auto;
+}
+.cell-dot.on { background: #17432b; color: #4fe08a; }
+.cell-dot.unknown { background: transparent; border: 1px dashed #55637a; color: #8598b0; }
+.cell-fault + .cell-dot { margin-left: 6px; }
 
-.cell-name { display: flex; align-items: center; gap: 4px; min-height: 18px; }
+/* ---- 名字 (可改) ---- */
+.cell-name { display: flex; align-items: center; gap: 6px; margin-top: 8px; min-height: 28px; }
 .cell-name-text {
-  font-size: 13px; font-weight: 600; color: var(--v2-text, #e8eef7);
+  font-size: 21px; font-weight: 600; color: var(--v2-text, #e8eef7); line-height: 1.1;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.cell-edit { opacity: 0; padding: 1px; border-radius: 3px; color: var(--v2-text-dim, #8fa3bd); flex: 0 0 auto; }
+.cell-edit { opacity: 0; padding: 3px; border-radius: 5px; color: var(--v2-text-dim, #8fa3bd); flex: 0 0 auto; }
 .hv-cell:hover .cell-edit { opacity: .7; }
 .cell-edit:hover { opacity: 1 !important; background: #ffffff22; }
 .cell-name-input {
-  width: 100%; font-size: 13px; font-weight: 600; padding: 1px 4px;
+  width: 100%; font-size: 21px; font-weight: 600; padding: 2px 6px;
   color: var(--v2-text, #e8eef7); background: #0b1220;
-  border: 1px solid var(--v2-accent, #4da3ff); border-radius: 4px; outline: none;
+  border: 2px solid var(--v2-accent, #4da3ff); border-radius: 6px; outline: none;
 }
 
-.cell-mid { flex: 1 1 auto; display: flex; align-items: baseline; gap: 6px; min-height: 0; }
-.cell-temp { font-size: 26px; font-weight: 300; color: var(--v2-text, #e8eef7); line-height: 1; }
-.cell-temp i { font-size: 12px; font-style: normal; opacity: .55; margin-left: 1px; }
-.cell-room { font-size: 11px; color: #7d8fa8; white-space: nowrap; }
-.cell-off { font-size: 13px; color: #55637a; display: inline-flex; align-items: baseline; gap: 6px; }
-.cell-off em { font-style: normal; font-size: 11px; color: #7d8fa8; }
-.cell-unknown { font-size: 13px; color: #6d7f98; font-style: italic; }
+/* ---- 中段: 撑满剩余高度, 温度居中放大, 卡片再大也不空 ---- */
+.cell-body {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column; justify-content: center; gap: 4px;
+}
+.cell-temp { font-size: 46px; font-weight: 300; color: #eaf2ff; line-height: 1; letter-spacing: -1px; }
+.cell-temp i { font-size: 20px; font-style: normal; opacity: .6; margin-left: 2px; }
+.cell-room { font-size: 15px; color: #8ba0bd; }
+.cell-off { font-size: 30px; font-weight: 300; color: #5b6b83; line-height: 1; }
+.cell-unknown { font-size: 20px; color: #6d7f98; font-style: italic; }
 
-.cell-foot { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+/* ---- 底部: 模式/风速 + 分区 ---- */
+.cell-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
 .cell-mode {
-  display: inline-flex; align-items: center; gap: 3px;
-  font-size: 10px; color: var(--v2-accent, #4da3ff); white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 15px; font-weight: 500; color: #6db4ff; white-space: nowrap;
 }
 .cell-mode.dim { color: #55637a; }
-.cell-fan { font-style: normal; opacity: .6; }
+.cell-fan { font-style: normal; opacity: .7; }
 .cell-zone {
-  font-size: 10px; color: var(--v2-text-dim, #8fa3bd);
-  max-width: 62%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 14px; color: var(--v2-text-dim, #8fa3bd);
+  max-width: 55%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 /* ---- 控制条 ---- */
@@ -819,13 +843,22 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 .hv-btn.ghost.active { background: var(--v2-accent, #4da3ff); border-color: var(--v2-accent, #4da3ff); color: #04101d; }
 .hv-btn.tiny { padding: 5px 9px; font-size: 12px; }
 
-/* 1440 及以下: 6 列会挤, 降到 5 列 (22 台 = 5 行, 仍不滚动) */
+/* 1600 及以下: 6 列会挤, 降到 5 列 (22 台 = 5 行, 行高 ~170px). 温度收到 40px
+   刚好在 5 行时不裁切, 而 10 台 (2 行) 时卡片高、40px 居中依然大气. */
 @media (max-width: 1600px) {
   .hv-grid { grid-template-columns: repeat(5, 1fr); }
   .bar-names { display: none; }
+  .cell-temp { font-size: 40px; }
+  .cell-temp i { font-size: 18px; }
+  .cell-off { font-size: 27px; }
 }
+/* 更窄: 4 列 → 22 台 6 行, 行更矮, 再收一档字, 保证不滚动 */
 @media (max-width: 1280px) {
   .hv-grid { grid-template-columns: repeat(4, 1fr); }
-  .cell-temp { font-size: 22px; }
+  .hv-cell { padding: 10px 12px; }
+  .cell-name-text { font-size: 18px; }
+  .cell-temp { font-size: 32px; }
+  .cell-off { font-size: 22px; }
+  .cell-mode, .cell-zone, .cell-room { font-size: 13px; }
 }
 </style>
