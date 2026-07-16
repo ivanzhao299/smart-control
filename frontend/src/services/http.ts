@@ -24,12 +24,53 @@ import { trackApiCall } from './rum.service';
  * 业主输入的是 "http://192.168.77.54:3200" 这种 origin, 我们自动拼 /api.
  */
 const STORAGE_KEY_BASE = 'sc.client.baseURL';
+/** 后端默认端口 — env 里给不出端口时用它 */
+const DEFAULT_BACKEND_PORT = 3200;
+
+/** 从形如 http://host:3200/api 的字符串里取端口; 取不到给 null */
+function portOfBase(base: string | undefined): number | null {
+  if (!base) return null;
+  try {
+    const p = new URL(base).port;
+    return p ? Number.parseInt(p, 10) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 没存过地址时的默认值.
+ *
+ * ⚠️ 别直接用 VITE_API_BASE_URL (它是 http://localhost:3200/api):
+ * localhost 只在 GK9000 那台机器上成立。业主用手机/平板打开 PWA 时, localhost
+ * 指的是**手机自己**, 必然连不上 —— 于是每台新设备、每次重装 PWA 都得手动清掉
+ * 再敲一遍真实地址。业主原话: "每次都要输入网址"。
+ *
+ * 改成从**当前页面的 origin** 推: PWA 从哪台机器打开, backend 就在那台机器上。
+ *   kiosk 上页面是 http://localhost:5173     -> 推出 http://localhost:3200/api (行为不变)
+ *   手机上页面是 http://192.168.77.54:5173   -> 推出 http://192.168.77.54:3200/api (正是要的)
+ * 端口沿用 env 里写的 (没有就 3200), 这样换端口只改 env 一处。
+ *
+ * 例外: env 是相对路径 (e.g. '/control/api') 说明是 nginx 同源反代部署, 那种情况
+ * origin 推断会推出错误的 :3200, 所以相对路径优先直接用。
+ */
 function readInitialBaseURL(): string {
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY_BASE);
     if (stored) return stored;
   } catch { /* localStorage 不可用 (隐私模式) */ }
+
   const fromEnv = import.meta.env.VITE_API_BASE_URL as string | undefined;
+  if (fromEnv && fromEnv.startsWith('/')) return fromEnv; // 同源反代
+
+  try {
+    const { protocol, hostname } = window.location;
+    if (/^https?:$/.test(protocol) && hostname) {
+      const port = portOfBase(fromEnv) ?? DEFAULT_BACKEND_PORT;
+      return `${protocol}//${hostname}:${port}/api`;
+    }
+  } catch { /* 非浏览器环境 (SSR/测试) */ }
+
   return fromEnv ?? '/api';
 }
 let baseURL: string = readInitialBaseURL();

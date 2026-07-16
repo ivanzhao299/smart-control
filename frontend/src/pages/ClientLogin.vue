@@ -13,7 +13,9 @@ const auth = useClientAuthStore();
 const brandingStore = useSystemBrandingStore();
 const toast = useToastStore();
 
-const serverInput = ref<string>(auth.baseURL);
+// 显示裸 origin (http://x.x.x.x:3200), 跟 placeholder 的格式一致; baseURL 自带
+// 的 /api 后缀是内部实现, 让业主看见只会以为要连它一起敲。setApiBaseURL 会自动补回。
+const serverInput = ref<string>(originOf(auth.baseURL));
 const password = ref('');
 const passwordInput = ref<HTMLInputElement | null>(null);
 const submitting = ref(false);
