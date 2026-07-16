@@ -253,41 +253,37 @@ try {
   Write-Host "  (admin-restart 不可达, 老版本 backend 没这个 endpoint, 跳过)" -ForegroundColor DarkGray
 }
 
-# 健康检查 — 多端口探测 (生产 3200 / 开发 3000), 不再硬编码
-Write-Host "`n等待服务起来 (5s)..." -ForegroundColor Gray
-if (-not $DryRun) { Start-Sleep -Seconds 5 }
+# ============================================================
+# 部署验证 — 判据全在 scripts/verify-deploy.js 里, 这里只负责调它
+#
+# 原来这里是"探一下 backend 的 /api/system/health, 200 就算成功"。那个判据
+# 挡不住现场真实发生过的两类故障:
+#   1) 前端崩溃循环 421 次、死了一整天, 而这里只看后端 → 每次都报"更新完成"
+#   2) 孤儿进程霸占端口跑旧代码, health 打到它身上照样 200 ok → 报成功,
+#      但业主拿到的还是旧版本
+# 所以验证必须包含: 端口持有者 PID == pm2 PID (查孤儿)、进程启动时间晚于构建
+# 产物 (查是不是真跑了新代码)、前端也要探、重启计数不增长 (查崩溃循环)。
+# ============================================================
+Write-Host "`n等待服务起来 (6s)..." -ForegroundColor Gray
+if (-not $DryRun) { Start-Sleep -Seconds 6 }
 
-Write-Host "`n健康检查..." -ForegroundColor Yellow
-$healthOk = $false
-$lastErr = $null
-foreach ($port in @(3200, 3000)) {
-  if ($DryRun) { $healthOk = $true; break }
-  try {
-    $health = Invoke-RestMethod "http://localhost:$port/api/system/health" -TimeoutSec 10 -ErrorAction Stop
-    if ($health.data.status -eq 'ok') {
-      Write-Host "  ✓ 服务健康 @ :$port, 更新成功" -ForegroundColor Green
-      Write-Host "    apiStatus    = $($health.data.apiStatus)"
-      Write-Host "    dbStatus     = $($health.data.databaseStatus)"
-      Write-Host "    deviceOnline = $($health.data.deviceOnlineCount)"
-      $healthOk = $true
-      break
-    } else {
-      $lastErr = "返回非 ok: $($health | ConvertTo-Json -Compress)"
-    }
-  } catch {
-    $lastErr = "端口 $port 不可达: $($_.Exception.Message)"
+if ($DryRun) {
+  Write-Host "`n(DryRun: 跳过部署验证)" -ForegroundColor DarkGray
+} else {
+  Write-Host "`n部署验证..." -ForegroundColor Yellow
+  $verifier = Join-Path $PSScriptRoot 'verify-deploy.js'
+  & node $verifier
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "`n  X 部署验证未通过 — 服务没有跑绿, 不能算部署成功" -ForegroundColor Red
+    Write-Host "`n回滚命令:" -ForegroundColor Yellow
+    Write-Host "  git reset --hard $beforeCommit" -ForegroundColor Yellow
+    Write-Host "  pm2 restart smart-control-backend smart-control-frontend" -ForegroundColor Yellow
+    throw "部署验证失败 (详见上面的失败项)"
   }
-}
-if (-not $healthOk) {
-  Write-Host "  ✗ 健康检查全部端口失败: $lastErr" -ForegroundColor Red
-  Write-Host "`n回滚命令:" -ForegroundColor Yellow
-  Write-Host "  git reset --hard $beforeCommit" -ForegroundColor Yellow
-  Write-Host "  pm2 restart smart-control-backend" -ForegroundColor Yellow
-  throw "健康检查失败: $lastErr"
 }
 
 Write-Host "`n================================================" -ForegroundColor Cyan
-Write-Host " 更新完成" -ForegroundColor Green
+Write-Host " 更新完成 (已验证跑绿)" -ForegroundColor Green
 Write-Host "================================================" -ForegroundColor Cyan
 
 # 心跳已移到 watcher 里 (finally 块), 每次轮询都报, 不只 update 成功时
