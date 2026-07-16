@@ -37,23 +37,41 @@ const path = require('path');
 const ROOT = path.resolve(__dirname, '..');
 const isWin = process.platform === 'win32';
 
-/** 被检查的 app 清单 */
+/**
+ * 被检查的 app 清单.
+ *
+ * freshness 是"怎么证明它跑的是新代码", 两种服务的机制完全不同, 不能一刀切:
+ *   'restart' — node 在启动时把 dist/main.js 读进内存, 之后改文件也不生效.
+ *               所以判据是: 进程启动时间必须晚于产物 mtime.
+ *   'served'  — vite preview 是静态文件服务器, **每次请求都读盘**, 换了 dist
+ *               不用重启 (见 deploy/ecosystem.config.js 的注释: 零停机更新).
+ *               所以拿启动时间去卡它是误报. 正确判据是: 把它实际吐出来的 HTML
+ *               里引用的 bundle 文件名, 跟磁盘上 dist/index.html 里的对比 ——
+ *               一致才说明服务的确实是这次构建的产物.
+ */
 const APPS = [
   {
     name: 'smart-control-backend',
     port: 3200,
-    /** 跑的代码产物 — 进程启动时间必须晚于它 */
     artifact: path.join(ROOT, 'backend', 'dist', 'main.js'),
+    freshness: 'restart',
     check: { path: '/api/system/health', expect: (b) => JSON.parse(b)?.data?.status === 'ok' },
   },
   {
     name: 'smart-control-frontend',
     port: 5173,
     artifact: path.join(ROOT, 'frontend', 'dist', 'index.html'),
-    // vite preview 每次请求读文件系统, 所以只要 200 就说明在服务新 dist
-    check: { path: '/', expect: (b) => b.length > 0 },
+    freshness: 'served',
+    // 前端 vite base 是 /control/, 打根路径会 302 跳过去 —— 那是正常的, 要跟着跳
+    check: { path: '/control/', expect: (b) => b.length > 0 },
   },
 ];
+
+/** 从 HTML 里抽出它引用的入口 bundle 文件名 (带内容哈希, 每次构建都变) */
+function assetFingerprint(html) {
+  const hits = [...html.matchAll(/(?:src|href)="[^"]*?\/(assets\/[\w.-]+\.(?:js|css))"/g)].map((m) => m[1]);
+  return hits.length ? hits.sort().join(',') : null;
+}
 
 const RED = (s) => `\x1b[31m${s}\x1b[0m`;
 const GREEN = (s) => `\x1b[32m${s}\x1b[0m`;
@@ -99,11 +117,19 @@ function portOwner(port) {
   }
 }
 
-function httpGet(port, p) {
+/** GET, 跟随 302 (前端根路径会跳到 /control/, 那是正常的) */
+function httpGet(port, p, hops = 3) {
   return new Promise((resolve) => {
     const req = http.request(
       { host: '127.0.0.1', port, path: p, method: 'GET', timeout: 10000 },
       (res) => {
+        const loc = res.headers.location;
+        if (res.statusCode >= 300 && res.statusCode < 400 && loc && hops > 0) {
+          res.resume();
+          const next = loc.startsWith('http') ? new URL(loc).pathname : loc;
+          resolve(httpGet(port, next, hops - 1));
+          return;
+        }
         let b = '';
         res.on('data', (c) => { b += c; });
         res.on('end', () => resolve({ code: res.statusCode, body: b }));
@@ -153,8 +179,14 @@ async function main() {
       ok(`端口 ${app.port} 持有者 PID ${owner} 与 pm2 一致 (无孤儿)`);
     }
 
-    // --- C. 进程启动时间晚于构建产物 (证明跑的是新代码) ---
-    if (fs.existsSync(app.artifact)) {
+    if (!fs.existsSync(app.artifact)) {
+      bad(`${app.name}: 找不到构建产物 ${app.artifact} —— 构建没做?`);
+      console.log('');
+      continue;
+    }
+
+    // --- C. 新鲜度: 跑的是不是这次构建的东西 (两种机制判法不同, 见 APPS 注释) ---
+    if (app.freshness === 'restart') {
       const built = fs.statSync(app.artifact).mtimeMs;
       if (p.uptime && p.uptime < built) {
         const lag = Math.round((built - p.uptime) / 1000);
@@ -164,10 +196,8 @@ async function main() {
           `(晚 ${lag}s) —— 跑的是旧代码, 需要 pm2 restart ${app.name}`,
         );
       } else {
-        ok(`跑的是最新构建 (进程启动于产物之后)`);
+        ok('跑的是最新构建 (进程启动于产物之后)');
       }
-    } else {
-      bad(`${app.name}: 找不到构建产物 ${app.artifact} —— 构建没做?`);
     }
 
     // --- D. HTTP 实测 ---
@@ -177,8 +207,24 @@ async function main() {
     } else {
       let good = false;
       try { good = app.check.expect(r.body); } catch { good = false; }
-      if (good) ok(`HTTP 200 且内容校验通过`);
+      if (good) ok('HTTP 200 且内容校验通过');
       else bad(`${app.name}: HTTP 200 但内容不对: ${r.body.slice(0, 120)}`);
+    }
+
+    // --- C'. 静态服务: 比对它吐出来的 bundle 指纹 vs 磁盘上的构建产物 ---
+    if (app.freshness === 'served' && r.code === 200) {
+      const onDisk = assetFingerprint(fs.readFileSync(app.artifact, 'utf8'));
+      const served = assetFingerprint(r.body);
+      if (!onDisk || !served) {
+        bad(`${app.name}: HTML 里找不到 assets 引用, 没法确认服务的是不是新构建 (磁盘=${onDisk} 服务=${served})`);
+      } else if (onDisk !== served) {
+        bad(
+          `${app.name}: 服务的不是这次的构建 —— 它吐出来的是 [${served}], ` +
+          `磁盘上是 [${onDisk}]. 多半有个旧进程占着端口 (pm2 管不到的孤儿)`,
+        );
+      } else {
+        ok('服务的正是这次构建的产物 (bundle 指纹一致)');
+      }
     }
     console.log('');
   }
