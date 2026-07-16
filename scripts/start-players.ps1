@@ -96,6 +96,86 @@ Start-Sleep -Seconds 1
 #   https://learn.microsoft.com/en-us/answers/questions/1162281/
 #
 # Window style MUST be Normal, not Hidden: Edge would actually hide it.
+# Win32 helpers used by Force-ExactFullscreen (below).
+Add-Type -Name Win -Namespace Kiosk -ErrorAction SilentlyContinue -MemberDefinition @'
+[DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+[DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+[DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+[DllImport("user32.dll")] public static extern IntPtr GetTopWindow(IntPtr h);
+[DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h, uint c);
+[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+[StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
+'@
+
+# Pin a slot's window to the monitor's EXACT pixel rect.
+#
+# Why this exists (2026-07-16): --start-fullscreen does NOT give a real
+# 1920x1080 window on this box -- measured 1920x1079, i.e. one pixel short at the
+# bottom, both before AND after the taskbar was set to auto-hide (so it is not a
+# work-area/taskbar effect, Chromium just sizes it that way). That leftover 1px
+# row shows whatever is behind the player: with the taskbar auto-hidden, its
+# reveal sliver bleeds through as a thin BLUE line along the bottom of the LED
+# wall -- which is exactly what the site reported.
+#
+# So stop negotiating with Chromium's idea of fullscreen and set the rect
+# ourselves. SWP_NOZORDER keeps the existing stacking (slot ordering still
+# matters), SWP_NOACTIVATE avoids stealing focus.
+# Find the PIDs that belong to one slot, by the user-data-dir marker in their
+# command line. Must NOT use the PID that Start-Process returned: Edge re-parents
+# itself, so the window usually belongs to a DIFFERENT process than the one we
+# launched (measured 2026-07-16: --app process 6820, window owned by 13776).
+# This is the same discriminator Stop-Players uses.
+function Get-SlotPids {
+  param([int]$N)
+  $marker = "smart-control-player-slot$N"
+  return @(
+    Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='msedge.exe'" -ErrorAction SilentlyContinue |
+      Where-Object { $_.CommandLine -and $_.CommandLine -match [regex]::Escape($marker) } |
+      ForEach-Object { [int]$_.ProcessId }
+  )
+}
+
+function Force-ExactFullscreen {
+  param([int]$N, [int]$X, [int]$Y, [int]$W, [int]$H, [int]$TimeoutMs = 15000)
+  $SWP_NOZORDER = 0x0004; $SWP_NOACTIVATE = 0x0010; $SWP_FRAMECHANGED = 0x0020
+  $deadline = (Get-Date).AddMilliseconds($TimeoutMs)
+  while ((Get-Date) -lt $deadline) {
+    $pids = Get-SlotPids -N $N
+    if ($pids.Count -gt 0) {
+      $h = [Kiosk.Win]::GetTopWindow([IntPtr]::Zero)
+      while ($h -ne [IntPtr]::Zero) {
+        if ([Kiosk.Win]::IsWindowVisible($h)) {
+          $wpid = 0
+          [Kiosk.Win]::GetWindowThreadProcessId($h, [ref]$wpid) | Out-Null
+          if ($pids -contains [int]$wpid) {
+            $r = New-Object Kiosk.Win+RECT
+            [Kiosk.Win]::GetWindowRect($h, [ref]$r) | Out-Null
+            # only the big content window, not tooltips / hidden helpers
+            if (($r.R - $r.L) -gt 300 -and ($r.B - $r.T) -gt 300) {
+              [Kiosk.Win]::SetWindowPos($h, [IntPtr]::Zero, $X, $Y, $W, $H,
+                ($SWP_NOZORDER -bor $SWP_NOACTIVATE -bor $SWP_FRAMECHANGED)) | Out-Null
+              Start-Sleep -Milliseconds 400
+              [Kiosk.Win]::GetWindowRect($h, [ref]$r) | Out-Null
+              $got = ($r.R - $r.L).ToString() + 'x' + ($r.B - $r.T).ToString()
+              $want = "${W}x${H}"
+              if ($got -eq $want) {
+                Write-Host ("  slot=$N pinned to " + $r.L + "," + $r.T + " " + $got) -ForegroundColor Green
+              } else {
+                Write-Host ("  slot=$N pin gave $got, wanted $want") -ForegroundColor Yellow
+              }
+              return $true
+            }
+          }
+        }
+        $h = [Kiosk.Win]::GetWindow($h, 2)   # GW_HWNDNEXT
+      }
+    }
+    Start-Sleep -Milliseconds 500
+  }
+  Write-Host "  (slot=$N window not found to pin; leaving as-is)" -ForegroundColor Yellow
+  return $false
+}
+
 function Start-Slot {
   param([int]$N, [int]$X, [int]$Y, [int]$W, [int]$H)
   $dataDir = "$env:LOCALAPPDATA\smart-control-player-slot$N"
@@ -134,6 +214,8 @@ function Start-Slot {
   )
   Write-Host ("Start slot=" + $N + " @ " + $url + " (pos " + $X + "," + $Y + ")") -ForegroundColor Cyan
   Start-Process -FilePath $browser -ArgumentList $chromeArgs -WindowStyle Normal
+  Start-Sleep -Milliseconds 2500
+  Force-ExactFullscreen -N $N -X $X -Y $Y -W $W -H $H | Out-Null
 }
 
 # Audio player (slot=3): NOT Edge anymore. Background music is played by a
