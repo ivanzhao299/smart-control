@@ -12,6 +12,28 @@ export interface HvacZone {
   desc?: string;
 }
 
+/**
+ * 一台内机 (GET /hvac/indoors).
+ *
+ * idx 是"楼层内机序号" 1..22, 控制命令下发的就是它。
+ * zoneCode 为 null = 未分组。名字和归属都能在本页直接改。
+ */
+export interface HvacIndoor {
+  idx: number;
+  name: string;
+  floor: '1F' | '2F';
+  zoneCode: string | null;
+  model?: string;
+}
+
+/** 批量控制的聚合结果 (POST /hvac/batch/*) */
+export interface HvacBatchResult {
+  total: number;
+  okCount: number;
+  failCount: number;
+  results: Array<{ indoorIdx: number; ok: boolean; error?: string; durationMs: number }>;
+}
+
 /** 网关实际挂载的内机扫描结果 (GET /hvac/gateways/scan) */
 export interface HvacGatewayScan {
   code: string;
@@ -52,11 +74,36 @@ export const hvacService = {
     api.post<AdapterResult>(`/hvac/${id}/mode`, { mode }),
   setFanSpeed: (id: string, speed: HvacFan) =>
     api.post<AdapterResult>(`/hvac/${id}/fan-speed`, { speed }),
-  // 功能区批量 (code = "roadshow" / "meeting_room" / ...)
+  // ---- 内机: 单机测试 + 改名 + 编组 (都在 PWA 里做, 不用进后台) ----
+  listIndoors: () => api.get<HvacIndoor[]>('/hvac/indoors'),
+  /** 改内机名字 / 归属组; zoneCode 传 '' = 移出分组 */
+  updateIndoor: (idx: number, patch: { name?: string; zoneCode?: string | null }) =>
+    api.put<HvacIndoor>(`/hvac/indoors/${idx}`, patch),
+  /** 批量归组: 选中的几台一次划进某组 */
+  assignIndoors: (indoors: number[], zoneCode: string | null) =>
+    api.post<{ count: number; zoneCode: string | null }>('/hvac/indoors/assign', { indoors, zoneCode }),
+
+  // ---- 批量控制: 选中集合 (单机/组/楼层/全部 都走这里) ----
+  batchOn: (indoors: number[]) => api.post<HvacBatchResult>('/hvac/batch/on', { indoors }),
+  batchOff: (indoors: number[]) => api.post<HvacBatchResult>('/hvac/batch/off', { indoors }),
+  batchTemperature: (indoors: number[], value: number) =>
+    api.post<HvacBatchResult>('/hvac/batch/temperature', { indoors, value }),
+  batchMode: (indoors: number[], mode: HvacMode) =>
+    api.post<HvacBatchResult>('/hvac/batch/mode', { indoors, mode }),
+  batchFanSpeed: (indoors: number[], speed: HvacFan) =>
+    api.post<HvacBatchResult>('/hvac/batch/fan-speed', { indoors, speed }),
+
+  // 功能区 (code = "roadshow" / "meeting_room" / ...)
   listZones: () => api.get<HvacZone[]>('/hvac/zones'),
   /** 改功能区名字 — 业主在空调页直接改, 不用进后台 */
   renameZone: (code: string, name: string) =>
     api.put<HvacZone>(`/hvac/zones/${code}`, { name }),
+  /** 新建功能区 */
+  createZone: (name: string, floor: '1F' | '2F') =>
+    api.post<HvacZone>('/hvac/zones', { name, floor }),
+  /** 删除功能区 — 组内内机不删, 只变回未分组 */
+  deleteZone: (code: string) =>
+    api.del<{ code: string; releasedIndoors: number[] }>(`/hvac/zones/${code}`),
   /** 扫描网关实际挂载的内机 (现场校准用) */
   scanGateways: () => api.get<HvacGatewayScan[]>('/hvac/gateways/scan'),
   zoneOn: (code: string) => api.post<HvacZoneResult>(`/hvac/zone/${code}/on`),
