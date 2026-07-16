@@ -84,22 +84,28 @@ Write-Host ("Browser: " + $browser) -ForegroundColor Green
 Stop-Players
 Start-Sleep -Seconds 1
 
-# Start a video slot (fullscreen kiosk on the given monitor coords).
-# Edge needs --edge-kiosk-type=fullscreen to honour the --kiosk URL;
-# without it Edge ignores the URL and shows its MSN homepage. Chrome
-# ignores the extra flag, so it stays compatible. Window style MUST be
-# Normal, not Hidden: Edge would actually hide the window otherwise.
+# Start a video slot (fullscreen on the given monitor coords).
+#
+# 2026-07-16: switched from --kiosk to --app. Microsoft documents that
+# --kiosk does NOT support multiple monitors: it force-fullscreens onto the
+# PRIMARY display and silently ignores --window-position. Symptom on site:
+# slot1 (LED) and slot2 (projector) both landed at (0,0) stacked on top of
+# each other, so the LED showed the projector's page. Official workaround is
+# --app=URL + --window-position + --start-fullscreen, which gives the same
+# chrome-less fullscreen UX but honours per-monitor coords.
+#   https://learn.microsoft.com/en-us/answers/questions/1162281/
+#
+# Window style MUST be Normal, not Hidden: Edge would actually hide it.
 function Start-Slot {
   param([int]$N, [int]$X, [int]$Y, [int]$W, [int]$H)
   $dataDir = "$env:LOCALAPPDATA\smart-control-player-slot$N"
   $url = "${BaseUrl}?slot=$N"
   $chromeArgs = @(
-    '--kiosk', $url,
-    '--edge-kiosk-type=fullscreen',
-    '--edge-kiosk-reset-after-idle-timeout=0',
-    "--user-data-dir=$dataDir",
+    "--app=$url",
     "--window-position=$X,$Y",
     "--window-size=$W,$H",
+    '--start-fullscreen',
+    "--user-data-dir=$dataDir",
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-features=TranslateUI,AutofillServerCommunication',
@@ -131,15 +137,39 @@ function Start-AudioSlot {
   ([WMIClass]'Win32_Process').Create($cmd) | Out-Null
 }
 
-# slot1/2 kiosks first (fullscreen LED + projector), then slot3 audio LAST so its
-# small visible window stays ON TOP in the LED bottom-right corner (it must stay
-# visible or Chromium pauses its audio).
+# How many real monitors does this session see? A slot whose coords fall outside
+# every monitor would otherwise get dumped on the primary display and cover the
+# slot that belongs there (2026-07-16: projector unplugged -> slot2 landed on the
+# LED and hid slot1, site saw the projector's standby page on the LED wall).
+Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+function Test-CoordsOnScreen {
+  param([int]$X, [int]$Y)
+  try {
+    foreach ($s in [System.Windows.Forms.Screen]::AllScreens) {
+      if ($X -ge $s.Bounds.X -and $X -lt ($s.Bounds.X + $s.Bounds.Width) -and
+          $Y -ge $s.Bounds.Y -and $Y -lt ($s.Bounds.Y + $s.Bounds.Height)) { return $true }
+    }
+  } catch { return $true }   # can't tell (e.g. session 0) -> don't block
+  return $false
+}
+
+# slot1/2 fullscreen (LED + projector), then slot3 audio LAST so its small visible
+# window stays ON TOP in the LED bottom-right corner (it must stay visible or
+# Chromium pauses its audio).
 if ($Slot -eq 0 -or $Slot -eq 1) {
   Start-Slot -N 1 -X $Slot1X -Y $Slot1Y -W $ScreenW -H $ScreenH
 }
 if ($Slot -eq 0 -or $Slot -eq 2) {
-  Start-Sleep -Milliseconds 500
-  Start-Slot -N 2 -X $Slot2X -Y $Slot2Y -W $ScreenW -H $ScreenH
+  # -Slot 2 (explicit) always starts: operator asked for it on purpose.
+  # -Slot 0 (start all) skips it when no monitor lives at those coords.
+  if ($Slot -eq 2 -or (Test-CoordsOnScreen -X $Slot2X -Y $Slot2Y)) {
+    Start-Sleep -Milliseconds 500
+    Start-Slot -N 2 -X $Slot2X -Y $Slot2Y -W $ScreenW -H $ScreenH
+  } else {
+    Write-Host ("SKIP slot=2: no monitor at " + $Slot2X + "," + $Slot2Y + " (projector not connected?).") -ForegroundColor Yellow
+    Write-Host "      Starting it would cover slot1 on the LED. Plug the projector in and re-run," -ForegroundColor Yellow
+    Write-Host "      or force it with: .\scripts\start-players.ps1 -Slot 2" -ForegroundColor Yellow
+  }
 }
 if ($Slot -eq 0 -or $Slot -eq 3) {
   Start-Sleep -Milliseconds 500
