@@ -284,6 +284,7 @@ onUnmounted(() => {
   if (holdRaf) cancelAnimationFrame(holdRaf);
   stopPlTimer();
   if (matrixTimer) clearTimeout(matrixTimer); // 不清会在切页面后继续打设备
+  if (reconcileTimer) clearTimeout(reconcileTimer); // 同上: 切走后别再对账
 });
 async function refreshCurrentScene(): Promise<void> {
   try {
@@ -301,7 +302,12 @@ const MATRIX_POLL_MS = 8000;
 let matrixTimer: ReturnType<typeof setTimeout> | null = null;
 function scheduleMatrixPoll(): void {
   matrixTimer = setTimeout(async () => {
-    await loadMatrixState();
+    // 有在途写入 / 正等着对账时别读: 设备可能还没落到最新值, 读回来会把用户刚点
+    // 的状态覆盖掉 (界面闪一下弹回去)。跳过这轮, 8s 后再来, 反正 scheduleReconcile
+    // 会在这批点完后对一次账。
+    if (pendingWrites.value === 0 && reconcileTimer === null) {
+      await loadMatrixState();
+    }
     scheduleMatrixPoll();
   }, MATRIX_POLL_MS);
 }
@@ -392,34 +398,67 @@ async function loadInputs(): Promise<void> {
 }
 // 矩阵本地状态: key = `${outCh}_${inCh}` → 接通与否. 乐观更新 (不回读设备真实矩阵).
 const matrixOn = ref<Record<string, boolean>>({});
-const matrixBusy = ref<Record<string, boolean>>({});
 function isMatrixOn(outCh: number, inCh: number): boolean {
   return !!matrixOn.value[`${outCh}_${inCh}`];
 }
 /**
- * 点交叉点 → 下发 → **复读设备**确认.
+ * 点交叉点 → 立即变色 → 后台下发 → 一批点完后**统一复读一次**设备.
  *
- * 以前这里在命令失败时会 saveMatrixState(matrixOn) 把"已接通"存进本地文件,
- * 提示语还写着"界面已保存" —— 等于告诉用户"没发成功但我给你记上了", 界面
- * 从此显示一个设备上并不存在的连接。现在失败就回滚成点击前的样子, 并且无论
- * 成败都复读一次设备, 以寄存器为准。
+ * 失败就回滚成点击前的样子, 不留假连接 (以前失败会 saveMatrixState 把"已接通"
+ * 存进本地文件, 提示还写"界面已保存" —— 等于显示一个设备上不存在的连接)。
+ *
+ * 2026-07-17 性能返工 (业主: "选择和取消动作太迟钝")。原来每点一下要跑两条
+ * 设备命令: setMatrix(~287ms) + 收尾的整表复读(~287ms) ≈ 600ms, 而这 600ms
+ * 里 matrixBusy 把这个点锁死、**再点直接被静默吞掉**(手感=点了没反应)。
+ * EKX808 又是单客户端串行锁, 连点 5 下 = 10 条命令排队 ≈ 3 秒; 后端限流还是
+ * 6 次/秒, 而每次点击发两个请求 -> 连点三下就撞限流报错。
+ *
+ * 现在: 每次点击只发**一条**命令, 不再逐次复读 (交给下面的防抖复读 + 8s 轮询);
+ * 同一个点连点用"最后一次为准"合并, 不吞点击。
  */
+// 同一个交叉点的目标态 (最后一次点击为准); 有在途请求时不重复起循环
+const desiredCross = new Map<string, boolean>();
+const inFlightCross = new Set<string>();
+const pendingWrites = ref<number>(0);
+
+// 一批点完后再复读一次设备对账 —— 别每点一下都读
+let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleReconcile(): void {
+  if (reconcileTimer) clearTimeout(reconcileTimer);
+  reconcileTimer = setTimeout(() => {
+    reconcileTimer = null;
+    if (pendingWrites.value === 0) void loadMatrixState();
+  }, 1200);
+}
+
 async function toggleMatrix(outCh: number, inCh: number): Promise<void> {
   const key = `${outCh}_${inCh}`;
-  if (matrixBusy.value[key]) return;
   const before = !!matrixOn.value[key];
   const want = !before;
-  matrixOn.value = { ...matrixOn.value, [key]: want };   // 乐观, 让按钮跟手
-  matrixBusy.value = { ...matrixBusy.value, [key]: true };
+  matrixOn.value = { ...matrixOn.value, [key]: want };   // 乐观: 点击瞬间跟手
+  desiredCross.set(key, want);
+
+  // 已有在途循环: 它会读走最新的 desiredCross, 这里直接返回 (但界面已经翻好了)
+  if (inFlightCross.has(key)) return;
+  inFlightCross.add(key);
+  pendingWrites.value += 1;
   try {
-    const res = await audioService.setMatrix(outCh, inCh, want);
-    if (!res.ok) throw new Error(res.error || '设备未确认');
+    // 排空: 期间又被点了就只发最后那个值, 中间的跳过 —— 少打设备
+    while (desiredCross.has(key)) {
+      const v = desiredCross.get(key) as boolean;
+      desiredCross.delete(key);
+      const res = await audioService.setMatrix(outCh, inCh, v);
+      if (!res.ok) throw new Error(res.error || '设备未确认');
+    }
   } catch (err) {
-    matrixOn.value = { ...matrixOn.value, [key]: before }; // 失败=回到原样, 不留假连接
+    desiredCross.delete(key);
+    matrixOn.value = { ...matrixOn.value, [key]: before }; // 失败=回到原样
     ElMessage.error(`路由 OUT${outCh + 1}←IN${inCh + 1} 失败: ${(err as Error).message}`);
+    void loadMatrixState();                                // 失败才立刻对账
   } finally {
-    matrixBusy.value = { ...matrixBusy.value, [key]: false };
-    await loadMatrixState();  // 无论成败都以设备为准
+    inFlightCross.delete(key);
+    pendingWrites.value -= 1;
+    scheduleReconcile();
   }
 }
 
