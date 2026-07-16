@@ -39,3 +39,5 @@ The workflow does not print or export `.env`, database content, or hardware cred
 
 - **`Test-Path: parameter 'Path' is null` during restart** — the double-hop non-interactive SSH session (GitHub → Aliyun → WireGuard → GK9000) does **not** populate `$env:APPDATA` (nor `$env:USERPROFILE`). Never build the pm2 path from it. `Restart-Services` in `scripts/deploy-from-ci.ps1` resolves pm2 from a fixed known location and sets `PM2_HOME` explicitly; do the same in any new script that shells out to pm2 from the CI path.
 - **`ERR_PNPM_OUTDATED_LOCKFILE`** — a dependency was added to `package.json` without committing the regenerated `pnpm-lock.yaml`. CI uses `--frozen-lockfile`; regenerate with the pinned pnpm version and commit the lockfile in the same change.
+
+- **Restart step silently no-ops or throws `Path is null`** — a non-ASCII comment in a `.ps1` file. PowerShell 5.1 on Chinese Windows reads `.ps1` as GBK; in a UTF-8 (no BOM) file a non-ASCII comment eats the following newline and merges the next line into the comment, commenting out real code. Keep `scripts/*.ps1` ASCII-only.
