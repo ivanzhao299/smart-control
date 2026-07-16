@@ -62,12 +62,14 @@ export interface SceneContent {
  * 走 TCP 短连接 (默认 IP 192.168.50.61), 协议封装在 ekx808-protocol.ts
  * 启用方式: 设置 env AUDIO_VENDOR=takstar-ekx808 (默认 'dsppa' 时不启用)
  *
- * 兼容 AudioAdapter 标准接口 (setVolume/mute/...) — 区映射规则:
- *   audio_1f         -> Out Ch 1  (1F 前厅区)
- *   audio_2f         -> Out Ch 4  (2F 前厅区)
- *   audio_meeting    -> Out Ch 7  (ZONE 8 会议室独立)
- *   audio_roadshow   -> Out Ch 0  (ZONE 1 路演 + LED 大屏)
- *   (其余通道 2/3/5/6 用 zone 参数显式指定)
+ * 兼容 AudioAdapter 标准接口 (setVolume/mute/...) — zone 参数用 out1..out8,
+ * 直接对应物理输出 1-8 (见 ZONE_TO_OUT)。通道叫什么名字**不在代码里**,
+ * 存 audio_output_zone / audio_input_source 表, 后台可改 (GET/PUT /api/audio-config/*)。
+ *
+ * 现场实际接线 (2026-07-16 机柜标签):
+ *   IN1 中控主机   IN2 定时播放器   IN3 调音台   IN4 中控主机2   (IN5-8 未接)
+ *   OUT1 一楼门厅  OUT2 一楼东北   OUT3 一楼中厅  OUT4 一楼南厅
+ *   OUT5 一楼大屏  OUT6 一楼投影仪  OUT7 二楼走廊  OUT8 二楼办公区
  *
  * 新增方法 (EKX-808 专属):
  *   recallScene(presetNum)   — 调用用户预设 U01-U12, 一键场景切换
@@ -120,8 +122,9 @@ export class EkxDspAdapter extends BaseAdapter {
 
   /**
    * zone 名 → DSP 输出通道索引 (0-based: 0=OUT1 ... 7=OUT8).
-   * 测试阶段: PWA 显示 OUT1-OUT8, 直接顺序对应物理输出 1-8.
-   * 现场接好喇叭后, 可改成区域名 (一层/二层/会议...) 或做成后台可配置.
+   * 通道的**显示名**不在这里 — 存 audio_output_zone 表, 后台/PWA 可改
+   * (2026-07-16 已按机柜标签配好: OUT1 一楼门厅 ... OUT8 二楼办公区)。
+   * 这张表只负责 "out1" 这个 key → 物理通道号 的固定对应, 不用动。
    */
   private static readonly ZONE_TO_OUT: Record<string, ChannelIndex> = {
     out1: 0, out2: 1, out3: 2, out4: 3,
