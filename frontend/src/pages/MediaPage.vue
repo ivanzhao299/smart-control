@@ -78,7 +78,7 @@ async function pickAndPush(m: MediaItem): Promise<void> {
     return;
   }
   try {
-    await playbackStore.publish(slot, m.id, 'once');
+    await playbackStore.publish(slot, m.id, 'loop');
     ElMessage.success(`已推「${m.originalName}」到 ${pickModeLabel.value}`);
     router.push({ name: pickReturnRoute() });
   } catch (e) {
@@ -327,7 +327,7 @@ function closePreview(): void {
  * slot=2: HDMI2 → 投影仪
  * 同时推 both: 两个 slot 一起切到同一素材
  */
-async function pushTo(m: MediaItem, slot: 1 | 2 | 'both', loopMode: 'once' | 'loop' = 'once'): Promise<void> {
+async function pushTo(m: MediaItem, slot: 1 | 2 | 'both', loopMode: 'once' | 'loop' = 'loop'): Promise<void> {
   try {
     if (slot === 'both') {
       await Promise.all([playbackStore.publish(1, m.id, loopMode), playbackStore.publish(2, m.id, loopMode)]);

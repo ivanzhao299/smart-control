@@ -97,7 +97,9 @@ export class PlaybackService implements OnModuleInit {
     row.currentPlaylistId = null;
     row.playlistIndex = 0;
     row.startedAt = new Date();
-    row.loopMode = opts.loopMode ?? 'once';
+    // 展厅大屏默认循环: 播一遍就回待机等于要人守着重推, 现场没人干这事
+    // (2026-07-16 业主: "没有人工干预就让它循环播放")
+    row.loopMode = opts.loopMode ?? 'loop';
     row.paused = false;
     await this.repo.save(row);
 

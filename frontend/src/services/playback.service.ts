@@ -21,7 +21,8 @@ export async function getChannel(slot: number): Promise<PlaybackChannelView> {
   return api.get<PlaybackChannelView>(`/playback/channels/${slot}`);
 }
 
-export async function publishToChannel(slot: number, mediaId: number, loopMode: LoopMode = 'once'): Promise<PlaybackChannelView> {
+// 默认循环 —— 展厅大屏播一遍就停等于没人看的时候黑屏
+export async function publishToChannel(slot: number, mediaId: number, loopMode: LoopMode = 'loop'): Promise<PlaybackChannelView> {
   return api.post<PlaybackChannelView>(`/playback/channels/${slot}/publish`, { mediaId, loopMode });
 }
 
