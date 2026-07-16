@@ -111,13 +111,26 @@ function Start-Slot {
     '--disable-features=TranslateUI,AutofillServerCommunication',
     '--autoplay-policy=no-user-gesture-required',
     '--disable-pinch',
-    '--disable-restore-session-state'
-    # NOTE: do NOT add --use-fake-ui-for-media-stream here. PlayerPage needs
-    # microphone permission so enumerateDevices() exposes device LABELS (that is
-    # how it finds the HDMI endpoint for setSinkId). That flag grants it, but
-    # Edge then paints a yellow "unsupported command-line flag" infobar across
-    # the top of the LED wall. The permission is granted by the
-    # AudioCaptureAllowedUrls policy instead -- see scripts/setup-edge-policy.ps1.
+    '--disable-restore-session-state',
+    # PlayerPage needs microphone permission so enumerateDevices() exposes device
+    # LABELS -- that is how it finds the HDMI endpoint for setSinkId (slot1/2
+    # audio -> splitter -> matrix IN4 -> OUT5 -> LED amp). Without labels it
+    # silently falls back to the Windows default device (USB card -> IN1), which
+    # OUT5 does not listen to, and the LED goes silent again.
+    #
+    # 2026-07-16: tried replacing this with the AudioCaptureAllowedUrls policy to
+    # avoid the infobar -- it did NOT work on this box (workgroup / unmanaged, so
+    # Edge ignored the HKLM policy). Measured: HDMI endpoint peak dropped to
+    # 0.0000 and audio went back to the USB card. So the flag stays.
+    #
+    # --use-fake-UI-for-media-stream only auto-accepts the permission prompt; it
+    # still uses the REAL devices. (--use-fake-DEVICE-for-media-stream would
+    # substitute fake ones -- never add that.)
+    '--use-fake-ui-for-media-stream',
+    # Suppresses the yellow "you are using an unsupported command-line flag"
+    # infobar that the flag above triggers -- it was painting across the top of
+    # the LED wall. This is what ChromeDriver/Selenium have used for years.
+    '--test-type'
   )
   Write-Host ("Start slot=" + $N + " @ " + $url + " (pos " + $X + "," + $Y + ")") -ForegroundColor Cyan
   Start-Process -FilePath $browser -ArgumentList $chromeArgs -WindowStyle Normal
