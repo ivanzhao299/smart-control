@@ -43,6 +43,24 @@ export class AudioInputSource {
   @Column({ type: 'boolean', default: true })
   enabled!: boolean;
 
+  /**
+   * **期望增益 (dB)** — null = 不管这一路, 由现场/厂家软件说了算。
+   *
+   * 光存路由不够: 2026-07-17 设备断电重启后, 路由被冲掉的同时增益也被打回预设值
+   * (IN4 中控主机2 从 +12dB 变 -60dB)。只纠路由的话, 交叉点通了却还是没声。
+   * AudioReconciler 会把实际增益纠回这个值, 见 audio-reconciler.service.ts。
+   *
+   * EKX 增益范围 -60 ~ +12 dB。
+   */
+  @Column({ type: 'float', nullable: true, name: 'desired_gain_db' })
+  desiredGainDb!: number | null;
+
+  /**
+   * **期望静音态** — null = 不管。
+   */
+  @Column({ type: 'boolean', nullable: true, name: 'desired_muted' })
+  desiredMuted!: boolean | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 

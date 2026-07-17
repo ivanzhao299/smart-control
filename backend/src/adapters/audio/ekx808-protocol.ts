@@ -308,3 +308,19 @@ export function parseFullMatrix(resp: Buffer): boolean[][] | null {
 export function cmdReadMatrixCell(devAddr: number, outCh: ChannelIndex, inCh: ChannelIndex): Buffer {
   return buildFrame(devAddr, CMD.READ_MATRIX_CELL, outCh, inCh, 0);
 }
+
+/**
+ * 界面百分比 (0-100) -> EKX 增益 dB (-60~+12).
+ *
+ * **单一真源**: adapter 下发和 controller 存"期望增益"都必须用这一个函数。
+ * 两边各抄一份公式的话, 一旦漂移, AudioReconciler 会每 30 秒把业主刚拖好的
+ * 滑条"纠正"回一个差之毫厘的值 —— 表现为音量自己跳。
+ *
+ * 非线性: 0-50% 对应 -60~-10dB (低段给足分辨率), 50-100% 对应 -10~+12dB。
+ */
+export function percentToDb(percent: number): number {
+  if (percent <= 0) return -60;
+  if (percent >= 100) return 12;
+  if (percent < 50) return -60 + (percent / 50) * 50;
+  return -10 + ((percent - 50) / 50) * 22;
+}

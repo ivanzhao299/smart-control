@@ -38,6 +38,7 @@ import {
   type AuxSwitchKind,
   type IODirection,
   FRAME_LEN,
+  percentToDb as protoPercentToDb,
 } from './ekx808-protocol';
 
 const GATEWAY_KEY = 'audio-ekx808';
@@ -302,6 +303,30 @@ export class EkxDspAdapter extends BaseAdapter {
     });
   }
 
+  /**
+   * 直接按 **dB** 设输入增益 (-60 ~ +12)。
+   *
+   * 为什么不复用 setInputVolume(percent): percentToDb 是非线性的 (0-50% -> -60~-10dB,
+   * 50-100% -> -10~+12dB), 存 dB 再反推百分比会有精度损失, 对账时就会反复"纠正"
+   * 一个其实已经对了的值 —— 每 30 秒白打一次设备。底层 cmdSetInputVolume 本来就收 dB,
+   * 直接给它。AudioReconciler 用这个。
+   */
+  async setInputGainDb(channel: ChannelIndex, db: number, ctx?: AdapterContext): Promise<AdapterResult<{ channel: number; gainDb: number }>> {
+    return this.run('audio-dsp', `setInputGainDb_I${channel}`, ctx, async () => {
+      const d = Math.max(-60, Math.min(12, Number(db)));
+      await this.send(cmdSetInputVolume(this.devAddr, channel, d), ctx?.signal);
+      return { channel, gainDb: d };
+    });
+  }
+
+  /** 输入通道静音/解除 (AudioReconciler 用; enableMic 那个是按 deviceId/zone 找通道的, 这里直接给通道号) */
+  async setInputMuted(channel: ChannelIndex, muted: boolean, ctx?: AdapterContext): Promise<AdapterResult<{ channel: number; muted: boolean }>> {
+    return this.run('audio-dsp', `setInputMuted_I${channel}`, ctx, async () => {
+      await this.send(cmdMute(this.devAddr, IO_IN, channel, muted), ctx?.signal);
+      return { channel, muted };
+    });
+  }
+
   async mute(
     deviceId: string,
     params: { zone?: AudioZone } = {},
@@ -535,12 +560,9 @@ export class EkxDspAdapter extends BaseAdapter {
   }
 
   /** 百分比 (0-100) → dB (-60 ~ +12), 0=-∞, 100=+12dB, 50=-10dB */
+  /** 委托给协议层的单一真源 —— controller 存"期望增益"用的是同一个函数, 见那边说明 */
   private percentToDb(percent: number): number {
-    if (percent <= 0) return -60;
-    if (percent >= 100) return 12;
-    // 非线性映射: 0-50% 对应 -60 ~ -10dB, 50-100% 对应 -10 ~ +12dB
-    if (percent < 50) return -60 + (percent / 50) * 50;
-    return -10 + ((percent - 50) / 50) * 22;
+    return protoPercentToDb(percent);
   }
 
   /**

@@ -149,6 +149,15 @@ export class AudioAdapter extends BaseAdapter {
    * 现场排查用: 放音乐时读 IN1 电平, 有跳动=信号进来了, 恒 -128=没进来。
    */
   /** 设备真实 8×8 路由表 (EKX 专属; 其它厂商/mock 不支持时报错) */
+  /**
+   * 当前适配器能不能回读矩阵/增益 (mock 和非 EKX 厂家不能)。
+   * AudioReconciler 用它判断"该不该干活" —— 不支持时安静跳过, 而不是每 30 秒
+   * 抛一次异常刷日志。
+   */
+  supportsMatrixReadback(): boolean {
+    return 'readFullMatrix' in this.impl();
+  }
+
   readFullMatrix(ctx?: AdapterContext) {
     const impl = this.impl();
     if (!('readFullMatrix' in impl)) {
@@ -214,6 +223,36 @@ export class AudioAdapter extends BaseAdapter {
     return {
       ok: false, deviceId: 'audio-dsp', command: 'setInputVolume',
       error: `setInputVolume 仅 takstar-ekx808 厂家支持, 当前 vendor=${this.vendor}`,
+      mock: false, durationMs: 0,
+    };
+  }
+
+  /** 按 dB 设输入增益 (-60~+12). AudioReconciler 用 — 见 ekx808.adapter 里的说明 */
+  async setInputGainDb(channel: number, db: number, ctx?: AdapterContext): Promise<AdapterResult<{ channel: number; gainDb: number }>> {
+    if (this.isMock()) {
+      return { ok: true, deviceId: 'audio-dsp', command: 'setInputGainDb', data: { channel, gainDb: db }, mock: true, durationMs: 0 };
+    }
+    if (this.vendor === 'takstar-ekx808') {
+      return this.ekxImpl.setInputGainDb(channel as ChannelIndex, db, ctx);
+    }
+    return {
+      ok: false, deviceId: 'audio-dsp', command: 'setInputGainDb',
+      error: `setInputGainDb 仅 takstar-ekx808 厂家支持, 当前 vendor=${this.vendor}`,
+      mock: false, durationMs: 0,
+    };
+  }
+
+  /** 输入通道静音/解除. AudioReconciler 用 */
+  async setInputMuted(channel: number, muted: boolean, ctx?: AdapterContext): Promise<AdapterResult<{ channel: number; muted: boolean }>> {
+    if (this.isMock()) {
+      return { ok: true, deviceId: 'audio-dsp', command: 'setInputMuted', data: { channel, muted }, mock: true, durationMs: 0 };
+    }
+    if (this.vendor === 'takstar-ekx808') {
+      return this.ekxImpl.setInputMuted(channel as ChannelIndex, muted, ctx);
+    }
+    return {
+      ok: false, deviceId: 'audio-dsp', command: 'setInputMuted',
+      error: `setInputMuted 仅 takstar-ekx808 厂家支持, 当前 vendor=${this.vendor}`,
       mock: false, durationMs: 0,
     };
   }
