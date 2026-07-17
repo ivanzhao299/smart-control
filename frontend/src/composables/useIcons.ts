@@ -32,14 +32,14 @@ import {
   Tag,
   Palette,
   SlidersHorizontal,
-  type LucideIcon,
-} from 'lucide-vue-next';
+  type LucideIcon, Projector } from 'lucide-vue-next';
 
 /** 平板侧边导航 */
 export const NAV_ICON: Record<string, LucideIcon> = {
   dashboard: Home,
   lighting: Lightbulb,
   led: MonitorPlay,
+  projector: Projector,
   audio: Volume2,
   hvac: Snowflake,
   power: Zap,

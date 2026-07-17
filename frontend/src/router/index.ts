@@ -12,6 +12,8 @@ const routes: RouteRecordRaw[] = [
       { path: '', name: 'dashboard', component: () => import('@/pages/DashboardPage.vue') },
       { path: 'lighting', name: 'lighting', component: () => import('@/pages/LightingPage.vue') },
       { path: 'led', name: 'led', component: () => import('@/pages/LedPage.vue') },
+      // 2026-07-17 业主: "把投影仪页面单独摘出来" —— 原来跟 LED 挤在一页, 容易推错屏
+      { path: 'projector', name: 'projector', component: () => import('@/pages/ProjectorPage.vue') },
       { path: 'audio', name: 'audio', component: () => import('@/pages/AudioPage.vue') },
       { path: 'hvac', name: 'hvac', component: () => import('@/pages/HvacPage.vue') },
       { path: 'power', name: 'power', component: () => import('@/pages/PowerPage.vue') },

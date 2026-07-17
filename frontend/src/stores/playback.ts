@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import { listChannels, publishToChannel, stopChannel, pauseChannel, resumeChannel, type LoopMode } from '@/services/playback.service';
+import { listChannels, publishToChannel, stopChannel, pauseChannel, resumeChannel, nextInPlaylist, prevInPlaylist, type LoopMode } from '@/services/playback.service';
 import type { PlaybackChannelView, WsEvent } from '@/types/api';
 
 /**
@@ -56,6 +56,17 @@ export const usePlaybackStore = defineStore('playback', () => {
     patchChannel(view);
   }
 
+  /**
+   * 上一个 / 下一个 —— 在播放列表里环形切换 (业主: "不能一直无脑播放, 保持用户控制状态")。
+   * 后端以**当前在播的 mediaId** 定位, 不信 playlistIndex; 列表空会返回 400 说人话。
+   */
+  async function next(slot: number): Promise<void> {
+    patchChannel(await nextInPlaylist(slot));
+  }
+  async function prev(slot: number): Promise<void> {
+    patchChannel(await prevInPlaylist(slot));
+  }
+
   function patchChannel(view: PlaybackChannelView): void {
     const idx = channels.value.findIndex((c) => c.slot === view.slot);
     if (idx >= 0) channels.value[idx] = view;
@@ -68,5 +79,7 @@ export const usePlaybackStore = defineStore('playback', () => {
     }
   }
 
-  return { channels, loaded, loading, slot1, slot2, slotAudio, channelMap, load, publish, stop, pause, resume, handleWs };
+  return {
+    next,
+    prev, channels, loaded, loading, slot1, slot2, slotAudio, channelMap, load, publish, stop, pause, resume, handleWs };
 });
