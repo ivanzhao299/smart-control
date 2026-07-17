@@ -83,8 +83,28 @@ async function playItem(it: PlaylistItemView): Promise<void> {
   } finally { busy.value = false; }
 }
 
+/**
+ * 播放 / 暂停 / 继续 —— 一个按钮三态。
+ *
+ * 待机时按下 = **接着上次那个继续播** (业主: "要保持最后状态, 不要每次都丢状态")。
+ * 上次播的从**播放历史**里取 (history[0] 就是最近一次), 它还在列表里就播它;
+ * 不在了 (被移出列表/媒体被删) 就退回列表第一个 —— 总能播起来, 不会按了没反应。
+ */
 async function togglePause(): Promise<void> {
-  if (!ch.value?.currentMediaId) return;
+  // 待机 -> 起播
+  if (!ch.value?.currentMediaId) {
+    if (playlist.value.length === 0) {
+      ElMessage.warning('播放列表是空的, 先上传内容或从历史里加回来');
+      return;
+    }
+    const lastId = history.value.find((h) => !h.missing)?.mediaId;
+    const target = playlist.value.find((x) => x.mediaId === lastId && !x.missing)
+      ?? playlist.value.find((x) => !x.missing);
+    if (!target) { ElMessage.warning('列表里的媒体都已被删除'); return; }
+    await playItem(target);
+    return;
+  }
+  // 播放中 -> 暂停; 已暂停 -> 继续
   busy.value = true;
   try {
     if (ch.value.paused) await playbackStore.resume(SLOT.value);
@@ -229,14 +249,23 @@ async function onFilePicked(ev: Event): Promise<void> {
       </div>
       <!-- 业主: "暂停、切换、上下内容等均可控制" + "随时可以点击终止" -->
       <div class="now-ctrl">
-        <button class="pc-btn" :disabled="busy" title="上一个" @click="step('prev')">
+        <button class="pc-btn" :disabled="busy || playlist.length === 0" title="上一个" @click="step('prev')">
           <SkipBack :size="20" />
         </button>
-        <button class="pc-btn main" :disabled="busy || !ch?.currentMediaId" :title="ch?.paused ? '继续' : '暂停'" @click="togglePause">
-          <Play v-if="ch?.paused" :size="22" />
-          <Pause v-else :size="22" />
+        <!-- 待机时必须是「播放」而不是一个被禁用的「暂停」(2026-07-17 业主:
+             "有停止和暂停按钮, 但是没有播放按钮")。原来 disabled 挂在
+             !ch.currentMediaId 上 —— 恰恰在最需要它的时候(待机)把它锁死了。
+             口径对齐音响页 BGM 那个已验证好用的: disabled 只看列表空不空。 -->
+        <button
+          class="pc-btn main"
+          :disabled="busy || playlist.length === 0"
+          :title="!ch?.currentMediaId ? '播放' : (ch.paused ? '继续' : '暂停')"
+          @click="togglePause"
+        >
+          <Pause v-if="ch?.currentMediaId && !ch.paused" :size="22" />
+          <Play v-else :size="22" />
         </button>
-        <button class="pc-btn" :disabled="busy" title="下一个" @click="step('next')">
+        <button class="pc-btn" :disabled="busy || playlist.length === 0" title="下一个" @click="step('next')">
           <SkipForward :size="20" />
         </button>
         <button class="pc-btn stop" :disabled="busy || !ch?.currentMediaId" title="终止播放, 回到待机" @click="stopPlayback">
