@@ -77,20 +77,81 @@ if ($Register) {
 #    Reattaching disconnects whoever is on RDP. On an exhibition controller the
 #    physical display wins; RDP can simply reconnect (and this watchdog will
 #    reattach again 5 minutes later).
-function Get-ConsoleSessionId {
+function Add-WtsType {
   try {
     Add-Type -Namespace GK -Name Wts -ErrorAction Stop -MemberDefinition @'
 [DllImport("kernel32.dll")] public static extern uint WTSGetActiveConsoleSessionId();
+[DllImport("wtsapi32.dll", SetLastError=true)] public static extern bool WTSQuerySessionInformationW(System.IntPtr hServer, int sessionId, int infoClass, out System.IntPtr buffer, out int bytesReturned);
+[DllImport("wtsapi32.dll")] public static extern void WTSFreeMemory(System.IntPtr memory);
 '@
-    return [int][GK.Wts]::WTSGetActiveConsoleSessionId()
-  } catch { return -1 }
+  } catch { }
 }
 
+function Get-ConsoleSessionId {
+  try { return [int][GK.Wts]::WTSGetActiveConsoleSessionId() } catch { return -1 }
+}
+
+# WTSConnectState (info class 8): 0=Active 1=Connected 4=Disconnected ...
+# Active + not on the console == a human is sitting in an RDP session RIGHT NOW.
+function Get-SessionConnectState {
+  param([int]$Id)
+  $buf = [IntPtr]::Zero
+  $n = 0
+  try {
+    if ([GK.Wts]::WTSQuerySessionInformationW([IntPtr]::Zero, $Id, 8, [ref]$buf, [ref]$n)) {
+      $state = [System.Runtime.InteropServices.Marshal]::ReadInt32($buf)
+      [GK.Wts]::WTSFreeMemory($buf)
+      return $state
+    }
+  } catch { }
+  return -1
+}
+
+# Manual override: while this file exists the watchdog does nothing at all.
+#   create: New-Item D:\smart-control\MAINTENANCE.flag
+#   clear : Remove-Item D:\smart-control\MAINTENANCE.flag
+# For when you are working AT THE CONSOLE (the RDP check below cannot see that --
+# the session is legitimately on the console, so it looks perfectly healthy).
+# Auto-expires after 8 hours so a forgotten flag cannot silently disable recovery
+# forever; that is the whole point of a watchdog.
+$flag = 'D:\smart-control\MAINTENANCE.flag'
+if (Test-Path $flag) {
+  $age = (Get-Date) - (Get-Item $flag).LastWriteTime
+  if ($age.TotalHours -lt 8) {
+    Log ('MAINTENANCE.flag present (' + [int]$age.TotalMinutes + ' min old) -> back off, do nothing this round')
+    exit 0
+  }
+  Log ('MAINTENANCE.flag is ' + [int]$age.TotalHours + 'h old -> expired, ignoring it and resuming watch')
+}
+
+Add-WtsType
 $reattached = $false
 $mySession = (Get-Process -Id $PID).SessionId
 $consoleSession = Get-ConsoleSessionId
+
+# 2026-07-17 -- BACK OFF WHILE A HUMAN IS OPERATING THIS BOX.
+#
+# This block used to be missing, and it made the watchdog fight the operator:
+# every 5 minutes it saw "session is not on the console", tscon'd the owner's RDP
+# away, and then (because $reattached forces a relaunch, see below) threw the
+# topmost fullscreen players back over whatever they were doing. The owner was
+# configuring lighting over RDP and got kicked + covered on every single cycle
+# (measured 2026-07-16 22:06 and 22:11). The system was treating the human as a
+# fault to correct.
+#
+# An ACTIVE off-console session means someone is connected and working. Leave them
+# alone -- the LED wall showing wallpaper for a few minutes is the correct trade:
+# a person is present and in charge. Once they disconnect the session goes
+# Disconnected (4), and the tscon below restores the wall on the next cycle, with
+# nobody to disturb. Physically closing RDP is enough; no logoff needed.
+$myState = Get-SessionConnectState -Id $mySession
+if ($consoleSession -ge 0 -and $mySession -ne $consoleSession -and $myState -eq 0) {
+  Log ('session ' + $mySession + ' is ACTIVE off-console (someone is on RDP) -> back off, do nothing this round')
+  exit 0
+}
+
 if ($consoleSession -ge 0 -and $mySession -ne $consoleSession) {
-  Log ('session ' + $mySession + ' is not on the console (' + $consoleSession + ') -> tscon /dest:console')
+  Log ('session ' + $mySession + ' is not on the console (' + $consoleSession + '), state=' + $myState + ' -> tscon /dest:console')
   try {
     & tscon.exe $mySession /dest:console 2>&1 | ForEach-Object { Log ('  ' + $_) }
     Start-Sleep -Seconds 3
