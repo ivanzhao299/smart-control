@@ -1,9 +1,11 @@
 import { BadRequestException, Inject, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { Logger } from 'winston';
 import { PlaybackChannel } from '../../entities/playback-channel.entity';
+import { PlaylistItem } from '../../entities/playlist-item.entity';
+import { PlaybackHistory } from '../../entities/playback-history.entity';
 import { MediaService } from '../media/media.service';
 import { ControlBus } from '../../services/control-bus';
 
@@ -34,6 +36,8 @@ const HEARTBEAT_STALE_MS = 90 * 1000;
 export class PlaybackService implements OnModuleInit {
   constructor(
     @InjectRepository(PlaybackChannel) private readonly repo: Repository<PlaybackChannel>,
+    @InjectRepository(PlaylistItem) private readonly plRepo: Repository<PlaylistItem>,
+    @InjectRepository(PlaybackHistory) private readonly hisRepo: Repository<PlaybackHistory>,
     private readonly mediaService: MediaService,
     private readonly bus: ControlBus,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
@@ -103,10 +107,143 @@ export class PlaybackService implements OnModuleInit {
     row.paused = false;
     await this.repo.save(row);
 
+    // 记历史: 现场常有"刚才那片子叫啥来着, 再放一遍" —— 有历史就一点即回,
+    // 不用去媒体库翻。名字存快照, 媒体以后被删/改名, 历史仍看得到当时播的是什么。
+    await this.hisRepo.save(this.hisRepo.create({
+      slot, mediaId, mediaName: m.originalName ?? `media ${mediaId}`,
+    }));
+
     const view = await this.toView(row);
     this.broadcast(view);
     this.logger.info(`[Playback] slot=${slot} → media id=${mediaId} (${m.originalName}, loop=${row.loopMode})`);
     return view;
+  }
+
+
+  // ============ 播放列表 (业主: "平时经常播放的内容应该在播放列表里面") ============
+
+  /**
+   * 某块屏的播放列表。title 为空则回退媒体原名。
+   * 媒体被删了仍返回该条 (标 missing), 让业主看得到并能删掉它 —— 不能默默藏起来,
+   * 否则就是 2026-07-17 那个"slot 指着已删除 media 35, 界面只显示(媒体已删除)"的翻版。
+   */
+  async listPlaylist(slot: number): Promise<Array<{
+    id: number; mediaId: number; title: string; sortOrder: number;
+    kind: string | null; durationSec: number | null; missing: boolean;
+  }>> {
+    const rows = await this.plRepo.find({ where: { slot }, order: { sortOrder: 'ASC', id: 'ASC' } });
+    const out = [];
+    for (const r of rows) {
+      const m = await this.mediaService.get(r.mediaId).catch(() => null);
+      out.push({
+        id: r.id,
+        mediaId: r.mediaId,
+        title: r.title ?? m?.originalName ?? `media ${r.mediaId}`,
+        sortOrder: r.sortOrder,
+        kind: m?.kind ?? null,
+        durationSec: m?.durationSec ?? null,
+        missing: !m,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * 把媒体加进播放列表 —— **必须人工调用**。
+   * 业主: "媒体文件夹内容默认不加入播放列表, 需经管理员确认后再手工加入播放列表"。
+   * 所以上传/扫描等任何自动流程都不许调这个。
+   */
+  async addToPlaylist(slot: number, mediaId: number, title?: string): Promise<{ id: number }> {
+    const m = await this.mediaService.get(mediaId).catch(() => null);
+    if (!m) throw new BadRequestException(`媒体 ${mediaId} 不存在`);
+    const exists = await this.plRepo.findOne({ where: { slot, mediaId } });
+    if (exists) return { id: exists.id };
+    const max = await this.plRepo.find({ where: { slot }, order: { sortOrder: 'DESC' }, take: 1 });
+    const row = await this.plRepo.save(this.plRepo.create({
+      slot, mediaId,
+      title: title?.trim() || null,
+      sortOrder: (max[0]?.sortOrder ?? 0) + 10,
+    }));
+    return { id: row.id };
+  }
+
+  /**
+   * 改播放列表里的显示名 —— **只改别名, 不动媒体库原文件名**。
+   * 业主: "在播放列表里面可以更改文件名字, 便于随时查找需要播放的素材"。
+   * 原名可能是 runway-agent-xxx-20260608.mp4, 别处还在引用, 不能动。
+   */
+  async renamePlaylistItem(id: number, title: string): Promise<{ id: number; title: string }> {
+    const row = await this.plRepo.findOne({ where: { id } });
+    if (!row) throw new NotFoundException(`播放列表项 #${id} 不存在`);
+    row.title = title.trim() || null;
+    await this.plRepo.save(row);
+    return { id: row.id, title: row.title ?? '' };
+  }
+
+  async removeFromPlaylist(id: number): Promise<{ id: number }> {
+    const row = await this.plRepo.findOne({ where: { id } });
+    if (!row) throw new NotFoundException(`播放列表项 #${id} 不存在`);
+    await this.plRepo.remove(row);
+    return { id };
+  }
+
+  /** 拖拽排序 (同灯光分区: 顺序存后端, 现场多终端要一致) */
+  async reorderPlaylist(ids: number[]): Promise<{ count: number }> {
+    const rows = await this.plRepo.find({ where: { id: In(ids) } });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const touched: PlaylistItem[] = [];
+    ids.forEach((id, i) => {
+      const r = byId.get(id);
+      if (r) { r.sortOrder = (i + 1) * 10; touched.push(r); }
+    });
+    if (touched.length) await this.plRepo.save(touched);
+    return { count: touched.length };
+  }
+
+  // ============ 上一个 / 下一个 (业主: "不能一直无脑播放, 保持用户控制状态") ============
+
+  /**
+   * 在播放列表里前后切换。
+   *
+   * 以**当前正在播的 mediaId** 在列表中的位置为准, 而不是信 playlistIndex ——
+   * 业主可能中途从媒体库直接推了别的片子, 或者列表被增删过, index 早就对不上了。
+   * 当前片子不在列表里 (比如从媒体库临时推的): 下一个 = 列表第一个, 上一个 = 最后一个,
+   * 这样从任何状态都能一键回到列表, 不会卡死。
+   * 列表空 = 不动, 照实说, 别静默失败。
+   */
+  async step(slot: number, dir: 1 | -1): Promise<PlaybackChannelView> {
+    const row = await this.repo.findOne({ where: { slot } });
+    if (!row) throw new NotFoundException(`slot=${slot} 不存在`);
+    const list = await this.plRepo.find({ where: { slot }, order: { sortOrder: 'ASC', id: 'ASC' } });
+    if (list.length === 0) throw new BadRequestException('播放列表是空的, 先把常播内容加进列表');
+
+    const cur = list.findIndex((x) => x.mediaId === row.currentMediaId);
+    let next: number;
+    if (cur < 0) next = dir === 1 ? 0 : list.length - 1;
+    else next = (cur + dir + list.length) % list.length;   // 环形, 到头绕回去
+
+    return this.publishMedia(slot, list[next].mediaId, { loopMode: row.loopMode as 'once' | 'loop' });
+  }
+
+  // ============ 播放历史 ============
+
+  /**
+   * 最近播过的, 按媒体去重取最近一次 —— 同一个片子放 20 遍不该刷屏 20 条。
+   */
+  async listHistory(slot: number, limit = 20): Promise<Array<{
+    mediaId: number; mediaName: string; playedAt: Date; missing: boolean;
+  }>> {
+    const rows = await this.hisRepo.find({ where: { slot }, order: { playedAt: 'DESC' }, take: 200 });
+    const seen = new Set<number>();
+    const out = [];
+    for (const r of rows) {
+      if (seen.has(r.mediaId)) continue;
+      seen.add(r.mediaId);
+      const m = await this.mediaService.get(r.mediaId).catch(() => null);
+      out.push({ mediaId: r.mediaId, mediaName: m?.originalName ?? r.mediaName, playedAt: r.playedAt, missing: !m });
+      if (out.length >= limit) break;
+    }
+    return out;
   }
 
   /** 清掉当前播放, 回到待机 (PlayerPage 显示 logo + 系统名称) */

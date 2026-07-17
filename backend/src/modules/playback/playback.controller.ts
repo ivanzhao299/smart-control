@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Put } from '@nestjs/common';
 import { PlaybackService } from './playback.service';
 
 /**
@@ -12,6 +12,71 @@ export class PlaybackController {
   constructor(private readonly service: PlaybackService) {}
 
   /** 拿所有通道状态. PlayerPage 起来时第一次拉 + 后台监控也读 */
+
+  // ============ 播放列表 / 历史 / 上下曲 (2026-07-17) ============
+  // 业主: "播放过的内容应该有播放历史, 平时经常播放的内容应该在播放列表里面, 随时可以
+  //       切换播放列表内的内容, 在播放列表里面可以更改文件名字"
+  //       "背景音乐及大屏播放都应该有播放控制功能, 不能一直无脑播放"
+  //
+  // ⚠️ 路由顺序: 这些两段/三段路径必须在 ':slot' 之类的单段参数路由**之前**声明,
+  //    否则被 ParseIntPipe 吃掉 400 (light-zones 和 hvac 都踩过这个坑)。
+
+  @Get('playlist/:slot')
+  async playlist(@Param('slot', ParseIntPipe) slot: number) {
+    return { message: '查询成功', data: await this.service.listPlaylist(slot) };
+  }
+
+  /** 加进播放列表 —— 必须人工调用 (媒体库内容默认不进列表, 需管理员确认) */
+  @Post('playlist/:slot')
+  @HttpCode(200)
+  async addPlaylist(
+    @Param('slot', ParseIntPipe) slot: number,
+    @Body() body: { mediaId?: number; title?: string } = {},
+  ) {
+    if (typeof body?.mediaId !== 'number') throw new BadRequestException('mediaId 必填');
+    return { message: '已加入播放列表', data: await this.service.addToPlaylist(slot, body.mediaId, body.title) };
+  }
+
+  /** 改别名 — 只改播放列表里的显示名, 不动媒体库原文件 */
+  @Put('playlist/item/:id')
+  async renamePlaylist(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { title?: string } = {},
+  ) {
+    if (typeof body?.title !== 'string') throw new BadRequestException('title 必填');
+    return { message: '已改名', data: await this.service.renamePlaylistItem(id, body.title) };
+  }
+
+  @Delete('playlist/item/:id')
+  @HttpCode(200)
+  async removePlaylist(@Param('id', ParseIntPipe) id: number) {
+    return { message: '已移出播放列表', data: await this.service.removeFromPlaylist(id) };
+  }
+
+  @Put('playlist/:slot/reorder')
+  async reorderPlaylist(@Param('slot', ParseIntPipe) _slot: number, @Body() body: { ids?: number[] } = {}) {
+    if (!Array.isArray(body?.ids)) throw new BadRequestException('ids 必填');
+    return { message: '顺序已保存', data: await this.service.reorderPlaylist(body.ids) };
+  }
+
+  @Get('history/:slot')
+  async history(@Param('slot', ParseIntPipe) slot: number) {
+    return { message: '查询成功', data: await this.service.listHistory(slot) };
+  }
+
+  /** 上一个 / 下一个 — 在播放列表里环形切换 */
+  @Post('channels/:slot/next')
+  @HttpCode(200)
+  async next(@Param('slot', ParseIntPipe) slot: number) {
+    return { message: '已切到下一个', data: await this.service.step(slot, 1) };
+  }
+
+  @Post('channels/:slot/prev')
+  @HttpCode(200)
+  async prev(@Param('slot', ParseIntPipe) slot: number) {
+    return { message: '已切到上一个', data: await this.service.step(slot, -1) };
+  }
+
   @Get('channels')
   async list() {
     return { message: '查询成功', data: await this.service.list() };
