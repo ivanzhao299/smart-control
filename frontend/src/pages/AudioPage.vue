@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useRouter, useRoute } from 'vue-router';
 import {
@@ -9,6 +9,12 @@ import { audioService } from '@/services/audio.service';
 import { audioConfigService } from '@/services/audio-config.service';
 import { absUrl } from '@/services/http';
 import { usePlaybackStore } from '@/stores/playback';
+import {
+  listPlaylist,
+  addToPlaylist as apiAddToPlaylist,
+  removeFromPlaylist as apiRemoveFromPlaylist,
+  renamePlaylistItem as apiRenamePlaylistItem,
+} from '@/services/playback.service';
 import { mediaService } from '@/services/media.service';
 
 const router = useRouter();
@@ -19,8 +25,18 @@ const playbackStore = usePlaybackStore();
 const bgmChannel = computed(() => playbackStore.slotAudio);
 
 // ── 播放列表 ──
-interface PlItem { id: number; name: string; durationSec: number | null; }
-const PLAYLIST_KEY = 'bgm_playlist_v2';
+interface PlItem {
+  /** media 表主键 */
+  id: number;
+  /** playlist_item 表主键 (从后端来的才有; 选曲弹窗里的候选项没有) */
+  itemId?: number;
+  name: string;
+  durationSec: number | null;
+  /** 媒体已被删 —— 仍列出来让业主能删掉它, 不默默藏起来 */
+  missing?: boolean;
+}
+/** BGM = slot3 (GK9000 声卡 -> EKX IN1 -> 各区), 跟 LED(1)/投影(2) 共用同一套播放后端 */
+const BGM_SLOT = 3;
 const playlist = ref<PlItem[]>([]);
 const plIdx = ref(-1);
 type PlayMode = 'seq' | 'loop1' | 'loopAll' | 'shuffle';
@@ -29,15 +45,28 @@ const plProgress = ref(0);
 const plPickerOpen = ref(false);
 const audioAssets = ref<PlItem[]>([]);
 
-// 播放列表持久化
-watch(playlist, (val) => {
-  localStorage.setItem(PLAYLIST_KEY, JSON.stringify(val));
-}, { deep: true });
-function loadPlaylist(): void {
+/**
+ * 播放列表持久化 —— **走后端, 不再用 localStorage**。
+ *
+ * 2026-07-17 业主: "要保持最后状态, 不要每次都丢状态"。
+ * 真因: 这个列表原来存 localStorage(bgm_playlist_v2) —— 换设备/换浏览器/清缓存就没了,
+ * 而且主控机、平板、手机**各有各的列表**, 互相看不见。跟灯光排序那个坑是同一个病:
+ * 现场是多终端, 状态只存前端等于没存。
+ * 现在落 playlist_item 表 (slot=3 就是 BGM), 跟 LED/投影仪共用同一套后端。
+ */
+async function loadPlaylist(): Promise<void> {
   try {
-    const raw = localStorage.getItem(PLAYLIST_KEY);
-    if (raw) playlist.value = JSON.parse(raw) as PlItem[];
-  } catch { /* ignore */ }
+    const rows = await listPlaylist(BGM_SLOT);
+    playlist.value = rows.map((r) => ({
+      id: r.mediaId,
+      itemId: r.id,                       // 后端主键 — 改名/删除要用
+      name: r.title,                      // 业主起的别名, 空则是媒体原名
+      durationSec: r.durationSec,
+      missing: r.missing,
+    }));
+  } catch (e) {
+    ElMessage.error(`加载背景音乐列表失败: ${(e as Error).message}`);
+  }
 }
 let plTimer: ReturnType<typeof setInterval> | null = null;
 let plTimerDuration = 0;     // total seconds of current track
@@ -76,13 +105,58 @@ async function loadMatrixState(): Promise<void> {
     matrixStale.value = true;
   }
 }
-function addToPlaylist(item: PlItem): void { playlist.value.push({ ...item }); }
-function removeFromPlaylist(i: number): void {
-  playlist.value.splice(i, 1);
-  if (plIdx.value >= playlist.value.length) plIdx.value = playlist.value.length - 1;
+/** 加进 BGM 播放列表 —— 落库, 不再只存本地 (换设备就没了) */
+async function addToPlaylist(item: PlItem): Promise<void> {
+  try {
+    await apiAddToPlaylist(BGM_SLOT, item.id);
+    await loadPlaylist();
+  } catch (e) {
+    ElMessage.error(`加入失败: ${(e as Error).message}`);
+  }
 }
-function clearPlaylist(): void {
+async function removeFromPlaylist(i: number): Promise<void> {
+  const it = playlist.value[i];
+  if (!it?.itemId) { playlist.value.splice(i, 1); return; }   // 没落过库的直接去掉
+  try {
+    await apiRemoveFromPlaylist(it.itemId);
+    await loadPlaylist();
+    if (plIdx.value >= playlist.value.length) plIdx.value = playlist.value.length - 1;
+  } catch (e) {
+    ElMessage.error(`移除失败: ${(e as Error).message}`);
+  }
+}
+
+/**
+ * 改曲目显示名 —— 只改播放列表里的别名, **不动媒体库原文件**。
+ * 业主: "在播放列表里面可以更改文件名字, 便于随时查找需要播放的素材"。
+ */
+const plEditingId = ref<number | null>(null);
+const plEditingText = ref('');
+function startRenamePl(it: PlItem): void {
+  if (!it.itemId) return;
+  plEditingId.value = it.itemId;
+  plEditingText.value = it.name;
+}
+async function commitRenamePl(it: PlItem): Promise<void> {
+  const title = plEditingText.value.trim();
+  plEditingId.value = null;
+  if (!it.itemId || !title || title === it.name) return;
+  const before = it.name;
+  it.name = title;
+  try {
+    await apiRenamePlaylistItem(it.itemId, title);
+    ElMessage.success('已改名 (媒体库原文件不变)');
+  } catch (e) {
+    it.name = before;
+    ElMessage.error(`改名失败: ${(e as Error).message}`);
+  }
+}
+async function clearPlaylist(): Promise<void> {
   stopPlTimer();
+  // 逐条删 —— 后端没有"清空"接口, 而且逐条删有审计价值
+  for (const it of playlist.value.slice()) {
+    if (it.itemId) await apiRemoveFromPlaylist(it.itemId).catch(() => {});
+  }
   playlist.value = [];
   plIdx.value = -1;
   plProgress.value = 0;
@@ -838,8 +912,22 @@ async function toggleMuteAll(): Promise<void> {
               <Volume2 v-if="i === plIdx" :size="12" :stroke-width="2" class="bgm-pl-anim" />
               <span v-else>{{ i + 1 }}</span>
             </div>
-            <div class="bgm-pl-name">{{ item.name }}</div>
+            <!-- 就地改名: 只改这里的显示名, 不动媒体库原文件 (跟 LED 播放页一致的交互) -->
+            <input
+              v-if="plEditingId === item.itemId && item.itemId"
+              v-model="plEditingText"
+              class="bgm-pl-name-input" maxlength="60"
+              @click.stop @keyup.enter="commitRenamePl(item)"
+              @keyup.esc="plEditingId = null" @blur="commitRenamePl(item)"
+            />
+            <div v-else class="bgm-pl-name" :title="item.name" @dblclick.stop="startRenamePl(item)">
+              {{ item.name }}
+              <i v-if="item.missing" class="bgm-pl-missing">媒体已删除</i>
+            </div>
             <div class="bgm-pl-dur">{{ fmtDuration(item.durationSec) }}</div>
+            <button class="bgm-pl-ico" title="改名 (只改显示名, 不动媒体库原文件)" @click.stop="startRenamePl(item)">
+              <Pencil :size="12" :stroke-width="2" />
+            </button>
             <button class="bgm-pl-del" title="移除" @click.stop="removeFromPlaylist(i)">
               <Square :size="10" :stroke-width="2.5" />
             </button>
@@ -979,6 +1067,24 @@ async function toggleMuteAll(): Promise<void> {
 </template>
 
 <style scoped>
+/* BGM 列表就地改名 (业主: "在播放列表里面可以更改文件名字") */
+.bgm-pl-name-input {
+  flex: 1 1 auto; min-width: 0; padding: 3px 6px; font-size: 13px;
+  color: var(--v2-text-1); background: rgba(0,0,0,.4);
+  border: 1px solid var(--v2-primary); border-radius: 5px; outline: none;
+}
+.bgm-pl-missing {
+  margin-left: 6px; padding: 1px 5px; border-radius: 4px;
+  background: #7f1d1d55; color: #fca5a5; font-size: 10px; font-style: normal;
+}
+.bgm-pl-ico {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; flex: 0 0 auto; border-radius: 5px;
+  background: transparent; border: none; cursor: pointer;
+  color: var(--v2-text-2); opacity: 0; transition: opacity .12s;
+}
+.bgm-pl-row:hover .bgm-pl-ico { opacity: 1; }
+.bgm-pl-ico:hover { color: var(--v2-primary); }
 /* 输出通道就地改名 (业主: 推子名称要跟机柜标签一致且可编辑) */
 .ch-name-input {
   width: 100%; padding: 3px 6px;
