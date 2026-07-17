@@ -29,7 +29,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
   ArrowLeft, MonitorPlay, Play, Pause, Square, SkipBack, SkipForward,
-  Upload, ListMusic, History, Pencil, Trash2, Plus, Repeat, Repeat1, AlertTriangle, GripVertical,
+  Upload, ListMusic, History, Pencil, Trash2, Plus, Repeat, Repeat1, AlertTriangle, GripVertical, FolderOpen, X,
 } from 'lucide-vue-next';
 import { usePlaybackStore } from '@/stores/playback';
 import {
@@ -190,6 +190,52 @@ async function addFromHistory(h: PlaybackHistoryView): Promise<void> {
     ElMessage.error(`加入失败: ${(e as Error).message}`);
   }
 }
+
+// ============ 从媒体库选内容加入播放列表 ============
+/**
+ * 2026-07-17 业主: "昨天上传的视频内容是MP4格式, 但不能发送到屏幕播放, 是什么原因?"
+ *                 "现在LED大屏之前的欢迎页和网页选择项不见了"
+ *
+ * 真因 (我挖的坑): 我重做这个页面时, 把老版"视频/图片""网页"两个按钮 (跳媒体页选片)
+ * 砍掉换成了播放列表, 但**只留了两条进列表的路**: 上传新的、从播放历史加回。
+ * 于是**之前就躺在媒体库里的东西, 既不在历史里(从没播过)、又没法从媒体库选 —— 根本
+ * 进不了播放列表**, 自然"发送不到屏幕"。查证过: 那个 MP4 上传成功、文件在、HTTP 200、
+ * 编码是 avc1(H.264) Edge 原生能播 —— **格式从来不是原因, 是没有入口**。
+ * 网页同理 (网页在媒体库里就是 kind='webpage' 的条目, PlayerPage 本来就支持渲染)。
+ *
+ * 补上这个选择器, 三个问题一起解决, 而且**不跳走**。
+ */
+/** 手机上列表/历史二选一显示; 平板以上两栏并排, 这个值不起作用 */
+const mobTab = ref<'list' | 'his'>('list');
+const pickerOpen = ref(false);
+const pickerKind = ref<'video' | 'image' | 'webpage'>('video');
+const assets = ref<Array<{ id: number; originalName: string; kind: string }>>([]);
+const pickerLoading = ref(false);
+
+async function openPicker(): Promise<void> {
+  pickerOpen.value = true;
+  await loadAssets();
+}
+async function loadAssets(): Promise<void> {
+  pickerLoading.value = true;
+  try {
+    const r = await mediaService.list({ kind: pickerKind.value });
+    assets.value = r.items.map((m) => ({ id: m.id, originalName: m.originalName, kind: m.kind }));
+  } catch (e) {
+    ElMessage.error(`读媒体库失败: ${(e as Error).message}`);
+  } finally { pickerLoading.value = false; }
+}
+async function pickAsset(a: { id: number; originalName: string }): Promise<void> {
+  try {
+    await addToPlaylist(SLOT.value, a.id);
+    await loadAll();
+    ElMessage.success(`「${a.originalName}」已加入播放列表`);
+  } catch (e) {
+    ElMessage.error(`加入失败: ${(e as Error).message}`);
+  }
+}
+/** 已在列表里的不重复加 —— 让业主一眼看出哪些已经加过 */
+const inPlaylist = computed(() => new Set(playlist.value.map((x) => x.mediaId)));
 
 // ============ 输入源切换 (业主: "在工具栏页面可以切换各种输入源") ============
 // 诺瓦控制器支持的源见 nova-vx1000-protocol.ts: HDMI1=0x11 / HDMI2=0x12,
@@ -361,15 +407,36 @@ async function onFilePicked(ev: Event): Promise<void> {
       <span v-if="!lastInput" class="src-hint">当前源以设备实际为准 — 协议没有回读命令, 这里只记本次切过什么</span>
     </section>
 
-    <div class="cols">
+    <!-- 手机上把「播放列表 / 播放历史」做成切换页 (业主 2026-07-17: "播放列表和播放
+         历史应该做成切换页, 因为手机端放不下太多内容" + "下方还有不少空间")。
+         平板/主控机宽度够, 两栏并排, 这一行 tab 不出现。 -->
+    <div class="mob-tabs">
+      <button class="mob-tab" :class="{ on: mobTab === 'list' }" @click="mobTab = 'list'">
+        <ListMusic :size="15" /> 播放列表 <i>{{ playlist.length }}</i>
+      </button>
+      <button class="mob-tab" :class="{ on: mobTab === 'his' }" @click="mobTab = 'his'">
+        <History :size="15" /> 播放历史 <i>{{ history.length }}</i>
+      </button>
+    </div>
+
+    <div class="cols" :data-tab="mobTab">
       <!-- ===== 播放列表 ===== -->
-      <section class="panel">
+      <section class="panel panel-list">
         <header class="panel-head">
           <span class="panel-title"><ListMusic :size="16" /> 播放列表</span>
           <span class="panel-count">{{ playlist.length }}</span>
           <input ref="fileInput" type="file" class="hidden-file" accept="video/*,image/*,audio/*" @change="onFilePicked" />
-          <button class="v2-quick primary" :disabled="uploading" @click="pickFile">
-            <Upload :size="14" /> {{ uploading ? `上传中 ${uploadPct}%` : '上传内容' }}
+          <!-- 从媒体库选 —— 之前躺在媒体库里的东西必须有路进列表, 否则永远播不了
+               (2026-07-17 业主的 MP4 就是卡在这) -->
+          <button class="v2-quick" @click="openPicker">
+            <FolderOpen :size="14" /> 从媒体库选
+          </button>
+          <button
+            class="v2-quick primary" :class="{ uploading }"
+            :style="uploading ? { '--pct': uploadPct + '%' } : undefined"
+            :disabled="uploading" @click="pickFile"
+          >
+            <Upload :size="14" /> <span>{{ uploading ? `上传中 ${uploadPct}%` : '上传内容' }}</span>
           </button>
         </header>
 
@@ -418,7 +485,7 @@ async function onFilePicked(ev: Event): Promise<void> {
       </section>
 
       <!-- ===== 播放历史 ===== -->
-      <section class="panel">
+      <section class="panel panel-his">
         <header class="panel-head">
           <span class="panel-title"><History :size="16" /> 播放历史</span>
           <span class="panel-count">{{ history.length }}</span>
@@ -437,6 +504,43 @@ async function onFilePicked(ev: Event): Promise<void> {
           </div>
         </div>
       </section>
+    </div>
+
+    <!-- 媒体库选择器 — 不跳走, 就在本页选 -->
+    <div v-if="pickerOpen" class="pick-mask" @click.self="pickerOpen = false">
+      <div class="pick-box">
+        <header class="pick-head">
+          <span class="pick-title"><FolderOpen :size="16" /> 从媒体库选内容</span>
+          <div class="pick-tabs">
+            <button
+              v-for="k in ([
+                { v: 'video', t: '视频' },
+                { v: 'image', t: '图片' },
+                { v: 'webpage', t: '网页' },
+              ] as const)"
+              :key="k.v"
+              class="pick-tab" :class="{ on: pickerKind === k.v }"
+              @click="pickerKind = k.v; loadAssets()"
+            >{{ k.t }}</button>
+          </div>
+          <button class="pick-close" @click="pickerOpen = false"><X :size="18" /></button>
+        </header>
+        <div v-if="pickerLoading" class="pick-empty">读取中…</div>
+        <div v-else-if="assets.length === 0" class="pick-empty">媒体库里还没有这类内容</div>
+        <div v-else class="pick-list">
+          <button
+            v-for="a in assets" :key="a.id"
+            class="pick-item" :class="{ added: inPlaylist.has(a.id) }"
+            :disabled="inPlaylist.has(a.id)"
+            :title="inPlaylist.has(a.id) ? '已在播放列表里' : '加入播放列表'"
+            @click="pickAsset(a)"
+          >
+            <span class="pick-name">{{ a.originalName }}</span>
+            <span v-if="inPlaylist.has(a.id)" class="pick-added">已加入</span>
+            <Plus v-else :size="15" />
+          </button>
+        </div>
+      </div>
     </div>
   </section>
 </template>
@@ -502,6 +606,20 @@ async function onFilePicked(ev: Event): Promise<void> {
 .panel-title { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; color: var(--v2-text-1); }
 .panel-count { font-size: 12px; color: var(--v2-text-2); background: #1b2534; border-radius: 20px; padding: 2px 8px; }
 .panel-head .v2-quick { margin-left: auto; }
+/* 上传中: 原来 disabled 让按钮变灰, 文字跟底色糊在一起完全看不清 (业主截图坐实)。
+   改成"进度填充"样式: 深底 + 亮字 + 一条随进度走的填充, 一眼看得见传到哪了。 */
+.v2-quick.uploading {
+  position: relative; overflow: hidden;
+  opacity: 1 !important;                 /* 盖掉 disabled 的变灰 */
+  color: #fff; font-weight: 600;
+  background: #0f2942; border-color: var(--v2-primary);
+}
+.v2-quick.uploading::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+  width: var(--pct, 0%); background: var(--v2-primary-soft);
+  transition: width .2s linear; z-index: 0;
+}
+.v2-quick.uploading > * { position: relative; z-index: 1; }
 .hidden-file { display: none; }
 
 .empty { padding: 20px; text-align: center; font-size: 13px; color: var(--v2-text-2); border: 1px dashed var(--v2-border-soft); border-radius: 10px; }
@@ -544,9 +662,63 @@ async function onFilePicked(ev: Event): Promise<void> {
 .pl-ico.danger:hover { color: #ff6b6b; }
 .pl-ico:disabled { opacity: .3; cursor: not-allowed; }
 
-/* 平板/手机: 两栏叠成一栏 */
+/* 选择器弹窗 */
+.pick-mask {
+  position: fixed; inset: 0; z-index: 3000;
+  background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+}
+.pick-box {
+  width: min(560px, 100%); max-height: 76vh; display: flex; flex-direction: column;
+  background: var(--v2-surface, #141c28); border: 1px solid var(--v2-border, #26344a);
+  border-radius: 14px; padding: 14px;
+}
+.pick-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.pick-title { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; color: var(--v2-text-1); }
+.pick-tabs { display: flex; gap: 4px; margin-left: auto; }
+.pick-tab {
+  padding: 7px 14px; min-height: 36px; border-radius: 8px; cursor: pointer; font-size: 13px;
+  background: var(--v2-surface-2, #1b2534); border: 1px solid var(--v2-border, #26344a); color: var(--v2-text-2);
+}
+.pick-tab.on { border-color: var(--v2-primary); color: #fff; background: var(--v2-primary-soft); }
+.pick-close {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border-radius: 8px; cursor: pointer;
+  background: transparent; border: 1px solid var(--v2-border); color: var(--v2-text-2);
+}
+.pick-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.pick-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 11px 12px; min-height: 46px; border-radius: 10px; cursor: pointer; text-align: left;
+  background: var(--v2-surface-2, #1b2534); border: 1px solid transparent; color: var(--v2-text-1);
+}
+.pick-item:hover:not(:disabled) { border-color: var(--v2-primary); }
+.pick-item.added { opacity: .5; cursor: default; }
+.pick-name { flex: 1 1 auto; min-width: 0; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pick-added { font-size: 11px; color: var(--v2-primary); flex: 0 0 auto; }
+.pick-empty { padding: 24px; text-align: center; font-size: 13px; color: var(--v2-text-2); }
+
+/* 手机/平板 tab — 宽屏不显示 (两栏并排放得下) */
+.mob-tabs { display: none; gap: 8px; }
+.mob-tab {
+  flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 11px; min-height: 46px; border-radius: 10px; cursor: pointer; font-size: 14px;
+  background: var(--v2-surface, #141c28); border: 1px solid var(--v2-border, #26344a); color: var(--v2-text-2);
+}
+.mob-tab.on { border-color: var(--v2-primary); color: #fff; background: var(--v2-primary-soft); }
+.mob-tab i { font-style: normal; font-size: 12px; opacity: .8; }
+
 @media (max-width: 900px) {
+  /* 列表/历史二选一, 不再上下堆两个半高的空面板 (业主: "下方还有不少空间") */
+  .mob-tabs { display: flex; }
   .cols { grid-template-columns: 1fr; }
+  .cols[data-tab='list'] .panel-his { display: none; }
+  .cols[data-tab='his'] .panel-list { display: none; }
+  /* 选中的那个吃满剩余高度 — 不留大片空白 */
+  .cols > .panel { height: 100%; }
   .now-ctrl { width: 100%; justify-content: center; }
+  .panel-head { flex-wrap: wrap; }
+  .panel-head .v2-quick { margin-left: 0; }
+  .panel-head .panel-title { flex: 1 1 100%; }
 }
 </style>
