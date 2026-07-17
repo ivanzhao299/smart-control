@@ -8,7 +8,7 @@ import { useRoute, useRouter } from 'vue-router';
 // - PWA standalone 启动也仍然全屏 (manifest display: fullscreen 接管)
 // - AlertBanner 已移除, 告警走后台 /admin/alerts
 // - 场景反馈走顶部 inline toast
-import { Maximize2, Minimize2 } from 'lucide-vue-next';
+import { Maximize2, Minimize2, MoreHorizontal } from 'lucide-vue-next';
 import ErrorBoundary from '@/components/ErrorBoundary.vue';
 import ServerSettingsDialog from '@/components/ServerSettingsDialog.vue';
 import { useFullscreen } from '@/composables/useFullscreen';
@@ -165,6 +165,24 @@ const navItems: Array<{ name: string; label: string; section?: 'main' | 'tools' 
 const mainNavs = navItems.filter((n) => n.section === 'main');
 const toolNavs = navItems.filter((n) => n.section === 'tools');
 
+/**
+ * 手机竖屏: 底栏只放 main (6 个) + 一个「更多」, tools 收进抽屉。
+ *
+ * 2026-07-17 业主: "横屏、竖屏模式下, 功能图标分布要科学美观"。
+ * 实测 390×844 (iPhone 14) 底栏塞 9 个: **每个只有 42px 宽**, 低于 Apple HIG 的
+ * 44pt / Material 的 48dp 触摸下限 —— 手指点不准, 这是可量化的不合格, 不是审美问题。
+ * 390 / 44 ≈ 8.8, 最多容 8 个。收起 3 个 tools 后是 6+1=7 个槽 -> 每个 55px, 达标。
+ * 这也是 iOS 标准做法 (标签栏最多 5 个, 其余进 More)。
+ * 平板/主控机 (>600px) 是侧栏, 空间够, 9 个全列, 不受影响。
+ */
+const moreOpen = ref(false);
+function goFromMore(name: string): void {
+  moreOpen.value = false;
+  go(name);
+}
+/** 当前页在「更多」里时, 让「更多」按钮也高亮 —— 否则点进去后底栏没有任何选中态 */
+const moreActive = computed(() => toolNavs.some((n) => n.name === route.name));
+
 function go(name: string): void {
   if (route.name !== name) router.push({ name });
 }
@@ -235,10 +253,11 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
           <span class="v2-nav-label">{{ item.label }}</span>
         </button>
         <div class="v2-nav-divider"></div>
+        <!-- 平板/主控机 (侧栏): tools 直接全列, 空间够 -->
         <button
           v-for="item in toolNavs"
           :key="item.name"
-          class="v2-nav-item"
+          class="v2-nav-item v2-nav-tool"
           :class="{ 'is-active': route.name === item.name }"
           :title="item.label"
           @click="go(item.name)"
@@ -246,6 +265,17 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
         >
           <component :is="navIconFor(item.name)" :size="22" :stroke-width="1.8" />
           <span class="v2-nav-label">{{ item.label }}</span>
+        </button>
+        <!-- 手机竖屏 (底栏): tools 收进「更多」, 保证每个触摸目标 >=44pt。
+             实测 390px 塞 9 个每个只有 42px, 低于 Apple HIG 下限; 6+1 个则是 55px。 -->
+        <button
+          class="v2-nav-item v2-nav-more"
+          :class="{ 'is-active': moreActive }"
+          title="更多"
+          @click="moreOpen = true"
+        >
+          <MoreHorizontal :size="22" :stroke-width="1.8" />
+          <span class="v2-nav-label">更多</span>
         </button>
       </nav>
 
@@ -256,6 +286,34 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
            而能看见它的时候恰恰是在线、根本不需要它的时候。纯占位。
            真要手动改地址: 退出登录回 ClientLogin 页即可 (那里就是填服务器地址的)。 -->
     </aside>
+
+    <!-- 「更多」抽屉 (仅手机竖屏底栏用). 从底部升起, 遵循 iOS sheet 习惯;
+         点遮罩或选完即关。安全区兜底, 否则 iPhone 底部横条会压住最后一项。 -->
+    <!-- 刻意不做入场动画 (纯 v-if, 无 transition / 无 CSS animation).
+         2026-07-17: 一开始用了 <transition>, 测出"关闭后节点删不掉、留下 opacity:0 的
+         全屏遮罩吞掉所有点击"。后来做对照实验才发现: **是测试环境的动画时钟冻结**
+         (随便造一个动画, 500ms 后 currentTime 仍是 0) —— transition 靠 transitionend
+         收尾, 动画永不结束, 节点自然删不掉。真机上它本来是好的, 那是个假 bug。
+         但结论没变: 任何依赖动画时钟的方案, 一旦某个环境节流动画就会把面板卡成隐形,
+         而我在这个环境里**无法验证**动画。收益是 160ms 淡入, 风险是整个面板看不见 ——
+         不值。纯 v-if 立刻出现, 不可能坏, 手机上也完全可接受。 -->
+    <div v-if="moreOpen" class="v2-more-mask" @click="moreOpen = false">
+        <div class="v2-more-sheet" @click.stop>
+          <div class="v2-more-grip"></div>
+          <div class="v2-more-grid">
+            <button
+              v-for="item in toolNavs"
+              :key="item.name"
+              class="v2-more-item"
+              :class="{ 'is-active': route.name === item.name }"
+              @click="goFromMore(item.name)"
+            >
+              <component :is="navIconFor(item.name)" :size="26" :stroke-width="1.8" />
+              <span>{{ item.label }}</span>
+            </button>
+          </div>
+        </div>
+    </div>
 
     <!-- 顶 Header (56px) - 仅首页显示 (功能页隐藏, 主区上移给功能区让空间); 集成 inline toast -->
     <header v-if="showHeader" class="v2-header">
@@ -680,7 +738,43 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
  * 布局: header 48px + main 1fr + bottom-nav 56px
  * 侧栏内部 nav-list 旋成横排, 跟原生 iOS / Android tabbar 一样
  */
+/* 「更多」按钮只在手机竖屏底栏出现; 侧栏形态 (平板/主控机) 隐藏 —— 那儿 tools 是全列的 */
+.v2-nav-more { display: none; }
+
+/* ===== 「更多」抽屉 ===== */
+.v2-more-mask {
+  position: fixed; inset: 0; z-index: 3000;
+  background: rgba(0, 0, 0, .5);
+  display: flex; align-items: flex-end;
+}
+.v2-more-sheet {
+  width: 100%;
+  background: var(--v2-surface, #141c28);
+  border-top: 1px solid var(--v2-border, #26344a);
+  border-radius: 18px 18px 0 0;
+  padding: 10px 14px calc(14px + env(safe-area-inset-bottom));
+}
+.v2-more-grip {
+  width: 40px; height: 4px; margin: 2px auto 12px;
+  border-radius: 3px; background: #46566e;
+}
+.v2-more-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.v2-more-item {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; padding: 16px 6px;            /* 触摸目标做足, 不再是 42px 的小格子 */
+  min-height: 84px;
+  border-radius: 12px; cursor: pointer;
+  background: var(--v2-surface-2, #1b2534);
+  border: 1px solid var(--v2-border, #26344a);
+  color: var(--v2-text-dim, #8fa3bd); font-size: 13px;
+}
+.v2-more-item.is-active { color: var(--v2-primary); border-color: var(--v2-primary); }
+
 @media (max-width: 600px) {
+  /* 手机竖屏: tools 收进「更多」, 底栏只剩 main(6) + 更多 = 7 个槽 -> 每个 55px, 达标 */
+  .v2-nav-tool { display: none; }
+  .v2-nav-more { display: flex; }
+
   .v2-shell {
     grid-template-columns: 1fr;
     grid-template-rows: 48px 1fr 60px;

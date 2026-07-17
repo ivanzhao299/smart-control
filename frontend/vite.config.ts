@@ -54,8 +54,14 @@ export default defineConfig(({ mode }) => {
           description: '金湖展贸中心 — 展厅自动化中控平板界面',
           theme_color: '#111827',
           background_color: '#111827',
+          // 'fullscreen' = 加到主屏后没有浏览器地址栏/工具栏, 真全屏 (业主: "手机访问
+          // 前端的时候要默认全屏状态, 有产品级全屏效果")。
           display: 'fullscreen',
-          orientation: 'landscape',
+          // 2026-07-17 去掉 orientation: 'landscape'。
+          // 原来锁死横屏 —— 手机竖着拿会被强行横过来, 而 MainLayout 里那套手机竖屏
+          // 底栏布局 (600px 断点: 侧栏变底栏 + 安全区) 就此完全用不上, 白做。
+          // 业主要"横屏、竖屏模式下功能图标分布要科学美观" -> 两种都得让它自然发生。
+          // 主控机是横屏大屏, 本来也不靠这个字段锁。
           start_url: `${SCOPE_PREFIX}/`,
           scope: `${SCOPE_PREFIX}/`,
           icons: [
