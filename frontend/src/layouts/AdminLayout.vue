@@ -239,6 +239,8 @@ async function exitToFront(): Promise<void> {
   height: 100dvh;
   color: var(--v2-text-1);
   overflow: hidden;
+  /* 跟 MainLayout 一样漏了 top —— 手机上顶部状态栏会压住"设备管理"这行 header */
+  padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);

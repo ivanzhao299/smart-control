@@ -596,9 +596,13 @@ async function onFilePicked(ev: Event): Promise<void> {
 .src-btn:disabled { opacity: .4; cursor: not-allowed; }
 .src-hint { font-size: 11px; color: #6d7f98; }
 
-.cols { display: grid; grid-template-columns: 1.4fr 1fr; gap: 12px; flex: 1 1 auto; min-height: 0; }
+/* align-items: start (不是默认的 stretch) —— 列表/历史内容短的时候(比如只有 2 条),
+   不强行把卡片撑满 .cols 剩余高度, 卡片底下露一大截空白背景 (业主反馈: "下面还有不少
+   空间")。卡片改成跟内容一样高, 多出来的空间就是页面背景, 不再是半空的卡片。
+   长列表需要滚动时靠 .panel 的 max-height + .pl-list 的 overflow-y 兜底, 不受影响。 */
+.cols { display: grid; grid-template-columns: 1.4fr 1fr; gap: 12px; flex: 0 1 auto; max-height: 100%; min-height: 0; align-items: start; }
 .panel {
-  display: flex; flex-direction: column; min-height: 0;
+  display: flex; flex-direction: column; min-height: 0; max-height: 100%;
   border-radius: 14px; padding: 12px;
   background: var(--v2-surface, #141c28); border: 1px solid var(--v2-border-soft);
 }
@@ -714,8 +718,6 @@ async function onFilePicked(ev: Event): Promise<void> {
   .cols { grid-template-columns: 1fr; }
   .cols[data-tab='list'] .panel-his { display: none; }
   .cols[data-tab='his'] .panel-list { display: none; }
-  /* 选中的那个吃满剩余高度 — 不留大片空白 */
-  .cols > .panel { height: 100%; }
   .now-ctrl { width: 100%; justify-content: center; }
   .panel-head { flex-wrap: wrap; }
   .panel-head .v2-quick { margin-left: 0; }

@@ -782,7 +782,11 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 
   .v2-shell {
     grid-template-columns: 1fr;
-    grid-template-rows: 48px 1fr 60px;
+    /* nav 行不能写死 60px —— .v2-nav 实际高度是 60px + safe-area-inset-bottom (iOS 底部
+       home indicator), 写死会把多出来的 safe-area 那截挤没, 底栏背景填不满到屏幕真正
+       底边, 露出一条没样式的空白 (业主: "手机页面下方还有不少空间")。改 auto 让行高
+       跟着 .v2-nav 自己算出来的高度走。 */
+    grid-template-rows: 48px 1fr auto;
     grid-template-areas:
       'header'
       'main'
@@ -793,7 +797,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   }
   /* 手机竖屏功能页: 同样去掉顶 header, 只剩 main + 底栏 */
   .v2-shell.lean {
-    grid-template-rows: 1fr 60px;
+    grid-template-rows: 1fr auto;
     grid-template-areas:
       'main'
       'nav';
