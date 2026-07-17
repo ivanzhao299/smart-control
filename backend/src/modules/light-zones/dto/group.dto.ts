@@ -26,3 +26,12 @@ export class GroupShortsDto {
   @Max(63, { each: true })
   shorts!: number[];
 }
+
+/** 拖拽排序: 传全量有序 id 列表, 后端按下标重写 sortOrder */
+export class ReorderDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @IsInt({ each: true })
+  ids!: number[];
+}

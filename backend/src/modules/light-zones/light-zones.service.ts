@@ -130,7 +130,10 @@ export class LightZonesService {
   async listGroups(): Promise<LightGroupView[]> {
     const rows = await this.groupRepo.find({
       where: { enabled: true },
-      order: { gatewayCode: 'ASC', daliGroup: 'ASC' },
+      // sortOrder 优先 —— 业主拖出来的顺序要作数。原来只按 (网关, 组号) 排,
+      // 那样 reorderGroups 存进去的顺序读出来又被覆盖, 等于白拖。
+      // 同 sortOrder 时再退回 (网关, 组号), 保证顺序稳定 (否则每次读顺序可能不同)。
+      order: { sortOrder: 'ASC', gatewayCode: 'ASC', daliGroup: 'ASC' },
     });
     const hw = await this.gatewayMap(rows.map((r) => r.gatewayCode));
     return rows.map((r) => this.groupToView(r, hw));
@@ -279,6 +282,45 @@ export class LightZonesService {
     for (const r of rows) r.zoneCode = normalized;
     await this.groupRepo.save(rows);
     return { count: rows.length, zoneCode: normalized };
+  }
+
+  // ============ 排序 ============
+
+  /**
+   * 按业主拖拽出来的顺序重排分区。
+   *
+   * 为什么存后端而不是前端 (2026-07-17 业主问"看是在前端还是在后端来实现比较容易"):
+   * 现场有主控机 + 平板 + 手机多个终端。排序只存前端 (localStorage) 的话, 每台设备
+   * 顺序都不一样, 等于没排。sortOrder 字段本来就在实体上, list() 也早就按它排
+   * (order: floor, sortOrder, id), 只是从来没人写入 —— 补上这个写入口即可, 前端
+   * 拖完把 id 顺序发过来。
+   *
+   * 传全量有序 id 列表, 按下标重写 sortOrder。用 10 的倍数留空隙, 以后想在两个之间
+   * 手工插一个不用整体重排。
+   */
+  async reorderZones(orderedIds: number[]): Promise<{ count: number }> {
+    const rows = await this.zoneRepo.find({ where: { id: In(orderedIds) } });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const touched: LightZone[] = [];
+    orderedIds.forEach((id, i) => {
+      const row = byId.get(id);
+      if (row) { row.sortOrder = (i + 1) * 10; touched.push(row); }
+    });
+    if (touched.length) await this.zoneRepo.save(touched);
+    return { count: touched.length };
+  }
+
+  /** 同上, 重排某分区内的灯组 (跨分区拖动请用 assignGroups, 这里只管顺序) */
+  async reorderGroups(orderedIds: number[]): Promise<{ count: number }> {
+    const rows = await this.groupRepo.find({ where: { id: In(orderedIds) } });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const touched: LightGroup[] = [];
+    orderedIds.forEach((id, i) => {
+      const row = byId.get(id);
+      if (row) { row.sortOrder = (i + 1) * 10; touched.push(row); }
+    });
+    if (touched.length) await this.groupRepo.save(touched);
+    return { count: touched.length };
   }
 
   /** 记录某组实测出来的灯具短地址 (逐组点亮回读扫描的结果) */

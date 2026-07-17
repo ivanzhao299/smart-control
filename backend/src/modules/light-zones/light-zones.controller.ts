@@ -14,13 +14,18 @@ import {
 import { LightZonesService, type LightZoneUpsertDto } from './light-zones.service';
 import { AdminGuard } from '../admin-auth/admin-auth.guard';
 import { LightingAdapter } from '../../adapters/lighting/lighting.adapter';
-import { AssignGroupsDto, GroupShortsDto } from './dto/group.dto';
+import { AssignGroupsDto, GroupShortsDto, ReorderDto } from './dto/group.dto';
 
 /**
  * 灯光分区 CRUD.
  *
- * 读: GET / GET/:id — 不要 token, LightingPage 拉这个渲染
- * 写: POST / PUT / DELETE — 后台编辑, 需要 admin token
+ * 权限口径 (2026-07-17 修正, 对齐 hvac.controller —— 那边实测可用):
+ *   读 + **业主日常操作** (建分区/改名/编组/排序/记短地址) — 不要 admin token。
+ *     这些就是 LightingPage 上的常规操作, 要 admin 密码等于没法用:
+ *     操作员登录 (ClientLogin) 根本不设 adminToken, 只有后台登录才设 ->
+ *     2026-07-16 做的"编组"功能在操作员页面上一直是 401, 等于废的。
+ *     空调那边 POST /hvac/indoors/assign 从来就没有 guard, 实测好用。
+ *   删分区 / :id/test (会真点灯) — 保留 admin token, 破坏性和会动现场设备的才拦。
  */
 @Controller('light-zones')
 export class LightZonesController {
@@ -55,11 +60,28 @@ export class LightZonesController {
   }
 
   /**
+   * 按拖拽结果重排分区 / 组。传全量有序 id 列表。
+   *
+   * **必须声明在 @Put(':id') 之前** —— Nest 按声明顺序匹配, 放后面的话 'reorder'
+   * 会先落到 :id 上被 ParseIntPipe 拒掉 400 (跟上面 groups 同一个坑)。
+   *
+   * 排序存后端而不是前端: 现场有主控机+平板+手机, 只存前端的话每台设备顺序都不一样。
+   */
+  @Put('reorder/zones')
+  async reorderZones(@Body() dto: ReorderDto) {
+    return { message: '顺序已保存', data: await this.service.reorderZones(dto.ids) };
+  }
+
+  @Put('reorder/groups')
+  async reorderGroups(@Body() dto: ReorderDto) {
+    return { message: '顺序已保存', data: await this.service.reorderGroups(dto.ids) };
+  }
+
+  /**
    * 把若干个组归到某个分区 (zoneCode=null 表示从分区里移出, 变成未分配).
    * 前端"编组模式"就调这个。
    */
   @Post('groups/assign')
-  @UseGuards(AdminGuard)
   @HttpCode(200)
   async assignGroups(@Body() dto: AssignGroupsDto) {
     const data = await this.service.assignGroups(dto.groupIds, dto.zoneCode ?? null);
@@ -68,7 +90,6 @@ export class LightZonesController {
 
   /** 记录某组实测到的灯具短地址 (现场点灯时逐个填) */
   @Put('groups/:groupId/shorts')
-  @UseGuards(AdminGuard)
   async setGroupShorts(
     @Param('groupId', ParseIntPipe) groupId: number,
     @Body() dto: GroupShortsDto,
@@ -77,13 +98,11 @@ export class LightZonesController {
   }
 
   @Post()
-  @UseGuards(AdminGuard)
   async create(@Body() dto: LightZoneUpsertDto) {
     return { message: '创建成功', data: await this.service.create(dto) };
   }
 
   @Put(':id')
-  @UseGuards(AdminGuard)
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: Partial<LightZoneUpsertDto>,

@@ -91,6 +91,19 @@ export const lightZonesService = {
     api.put<LightZoneView>(`/light-zones/${id}`, dto).then((r) => { invalidateAll(); return r; }),
   remove: (id: number) =>
     api.del<null>(`/light-zones/${id}`).then((r) => { invalidateAll(); return r; }),
+  /**
+   * 拖拽排序 — 传全量有序 id。
+   *
+   * 排序存后端而不是 localStorage: 现场有主控机 + 平板 + 手机, 只存前端的话每台
+   * 设备顺序都不一样, 等于没排。sortOrder 字段本来就在实体上、list 也早按它排,
+   * 只差这个写入口。
+   */
+  reorderZones: (ids: number[]) =>
+    api.put<{ count: number }>('/light-zones/reorder/zones', { ids })
+      .then((r) => { invalidateAll(); return r; }),
+  reorderGroups: (ids: number[]) =>
+    api.put<{ count: number }>('/light-zones/reorder/groups', { ids })
+      .then((r) => { invalidateAll(); return r; }),
   /** zoneCode=null 表示把这些组从分区里移出 */
   assignGroups: (groupIds: number[], zoneCode: string | null) =>
     api.post<{ count: number; zoneCode: string | null }>('/light-zones/groups/assign', { groupIds, zoneCode })

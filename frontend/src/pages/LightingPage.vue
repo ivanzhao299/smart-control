@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useRouter } from 'vue-router';
-import { ArrowLeft, Lightbulb, Power, X, Sparkles, Layers, RefreshCw } from 'lucide-vue-next';
+import { ArrowLeft, Lightbulb, Power, X, Sparkles, Layers, RefreshCw, GripVertical, Pencil } from 'lucide-vue-next';
 import { lightingService } from '@/services/lighting.service';
 import {
   lightZonesService,
@@ -127,6 +127,69 @@ async function moveOut(g: LightGroupView): Promise<void> {
 /** 组的人类可读名 — 必须带网关, 否则两台网关的同号组分不清 */
 function groupLabel(g: LightGroupView): string {
   return `${g.gatewayDisplayName} · ${g.daliGroup}组`;
+}
+
+// ============ 分区改名 (就地编辑, 不弹窗) ============
+const editingZone = ref<number | null>(null);
+const editingText = ref('');
+function startRenameZone(z: ZoneRow): void {
+  editingZone.value = z.id;
+  editingText.value = z.name;
+}
+async function commitRenameZone(z: ZoneRow): Promise<void> {
+  const name = editingText.value.trim();
+  editingZone.value = null;
+  if (!name || name === z.name) return;
+  try {
+    await lightZonesService.update(z.id, { name });
+    z.name = name;                    // 乐观: 立刻显示, 不等重拉
+    ElMessage.success(`已改名为「${name}」`);
+  } catch (err) {
+    ElMessage.error(`改名失败: ${(err as Error).message}`);
+    await loadZones();                // 失败就以后端为准, 不留假名字
+  }
+}
+
+// ============ 拖拽排序 ============
+// 用原生 HTML5 drag & drop, 不引第三方库 —— 这点需求不值得再加一个依赖。
+// 顺序**存后端** (见 service 里的说明): 现场多终端, 存前端等于没排。
+const dragZoneId = ref<number | null>(null);
+const dragOverZoneId = ref<number | null>(null);
+
+function onZoneDragStart(z: ZoneRow, ev: DragEvent): void {
+  dragZoneId.value = z.id;
+  ev.dataTransfer?.setData('text/plain', String(z.id));  // Firefox 不设这个不触发 drop
+  if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move';
+}
+function onZoneDragOver(z: ZoneRow, ev: DragEvent): void {
+  if (dragZoneId.value === null || dragZoneId.value === z.id) return;
+  ev.preventDefault();                                    // 不 preventDefault 就不允许 drop
+  dragOverZoneId.value = z.id;
+}
+async function onZoneDrop(target: ZoneRow): Promise<void> {
+  const from = dragZoneId.value;
+  dragZoneId.value = null;
+  dragOverZoneId.value = null;
+  if (from === null || from === target.id) return;
+
+  const list = zones.value.slice();
+  const fi = list.findIndex((z) => z.id === from);
+  const ti = list.findIndex((z) => z.id === target.id);
+  if (fi < 0 || ti < 0) return;
+  const [moved] = list.splice(fi, 1);
+  list.splice(ti, 0, moved);
+  const before = zones.value;
+  zones.value = list;                                     // 乐观: 松手立刻就位, 不等网络
+  try {
+    await lightZonesService.reorderZones(list.map((z) => z.id));
+  } catch (err) {
+    zones.value = before;                                 // 失败回滚, 不留一个后端不认的假顺序
+    ElMessage.error(`排序保存失败: ${(err as Error).message}`);
+  }
+}
+function onZoneDragEnd(): void {
+  dragZoneId.value = null;
+  dragOverZoneId.value = null;
 }
 
 // ============ 操作 ============
@@ -348,11 +411,38 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
         v-for="z in filteredZones"
         :key="z.id"
         class="v2-zone"
-        :class="{ on: z.on, off: !z.on, offline: !!z.error }"
+        :class="{
+          on: z.on, off: !z.on, offline: !!z.error,
+          dragging: dragZoneId === z.id,
+          dropzone: dragOverZoneId === z.id,
+        }"
+        :draggable="grouping && editingZone !== z.id"
+        @dragstart="onZoneDragStart(z, $event)"
+        @dragover="onZoneDragOver(z, $event)"
+        @drop.prevent="onZoneDrop(z)"
+        @dragend="onZoneDragEnd"
       >
         <div class="zone-top">
           <div class="zone-meta">
-            <div class="zone-name">{{ z.name }}</div>
+            <!-- 编组态才给拖 —— 控制态误拖会让人以为点错了, 而且那时也不该改布局 -->
+            <span v-if="grouping" class="zone-drag" title="按住拖动可调整顺序">
+              <GripVertical :size="16" :stroke-width="2" />
+            </span>
+            <!-- 就地改名: 双击/点笔即可, 不弹窗。业主要的是"区域名称可自定义" -->
+            <input
+              v-if="editingZone === z.id"
+              v-model="editingText"
+              class="zone-name-input" maxlength="24"
+              @click.stop @keyup.enter="commitRenameZone(z)"
+              @keyup.esc="editingZone = null" @blur="commitRenameZone(z)"
+            />
+            <div v-else class="zone-name" @dblclick.stop="grouping && startRenameZone(z)">
+              {{ z.name }}
+              <button
+                v-if="grouping" class="zone-edit" title="改名"
+                @click.stop="startRenameZone(z)"
+              ><Pencil :size="13" /></button>
+            </div>
             <!-- 控制态只报"几组灯", 不摆 gateway/组号这种调试信息; 编组态才需要看明细 -->
             <div class="zone-addr">
               {{ z.groups.length === 0 ? '暂无灯组' : `${z.groups.length} 组灯` }}
@@ -426,6 +516,35 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 </template>
 
 <style scoped>
+/* ============ 拖拽排序 + 就地改名 ============
+   顺序存后端 (见 service): 现场多终端, 存 localStorage 每台设备顺序都不一样。 */
+.zone-drag {
+  display: inline-flex; align-items: center; margin-right: 6px;
+  color: var(--v2-text-2); cursor: grab;
+}
+.zone-drag:active { cursor: grabbing; }
+.v2-zone.dragging { opacity: .45; }
+/* 拖到哪儿就在哪儿亮一条边 —— 松手前就知道会落在哪, 不用猜 */
+.v2-zone.dropzone {
+  outline: 2px dashed var(--v2-primary);
+  outline-offset: 2px;
+}
+.zone-name-input {
+  width: 100%; padding: 4px 8px;
+  font-size: 17px; font-weight: 600;
+  color: var(--v2-text-1); background: rgba(0,0,0,.35);
+  border: 1px solid var(--v2-primary); border-radius: 6px;
+  outline: none;
+}
+.zone-edit {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; margin-left: 6px; border-radius: 6px;
+  background: transparent; border: none; cursor: pointer;
+  color: var(--v2-text-2); opacity: 0; transition: opacity .12s;
+}
+.v2-zone:hover .zone-edit { opacity: 1; }
+.zone-edit:hover { color: var(--v2-primary); }
+
 /* ============ 编组面板 ============ */
 .group-panel {
   margin-bottom: 14px;
