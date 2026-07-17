@@ -37,11 +37,19 @@ import {
   listHistory, type PlaylistItemView, type PlaybackHistoryView,
 } from '@/services/playback.service';
 import { mediaService } from '@/services/media.service';
+import { ledService, type LedInput } from '@/services/led.service';
 
 const props = defineProps<{
   /** 1 = LED 大屏 (HDMI1), 2 = 投影仪 (HDMI2) */
   slot: 1 | 2;
   title: string;
+  /**
+   * 显示设备的 code (如 LED-NOVA-1) —— 传了才显示"输入源"那一栏。
+   * 业主 2026-07-17: "把投影仪页面单独摘出来, 在工具栏页面可以切换各种输入源以及播放素材"。
+   * 不传 = 这块屏没有可切的输入源 (比如它只吃我们推的内容), 那一栏就不出现,
+   * 而不是摆一排点了没用的按钮。
+   */
+  deviceId?: string;
 }>();
 const SLOT = computed(() => props.slot);
 
@@ -183,6 +191,30 @@ async function addFromHistory(h: PlaybackHistoryView): Promise<void> {
   }
 }
 
+// ============ 输入源切换 (业主: "在工具栏页面可以切换各种输入源") ============
+// 诺瓦控制器支持的源见 nova-vx1000-protocol.ts: HDMI1=0x11 / HDMI2=0x12,
+// 另外 welcome(欢迎页) / video(播我们推的内容) 是控制器的内置动作。
+const INPUTS: Array<{ v: LedInput; label: string; hint: string }> = [
+  { v: 'video',   label: '播放内容', hint: '播我们从这里推的视频/图片' },
+  { v: 'HDMI1',   label: 'HDMI1',   hint: '切到 HDMI1 输入' },
+  { v: 'HDMI2',   label: 'HDMI2',   hint: '切到 HDMI2 输入' },
+  { v: 'welcome', label: '欢迎页',   hint: '控制器内置欢迎画面' },
+];
+/** 当前源没法从设备回读 (协议没有查询命令), 所以只记我们自己发过什么, 不假装知道 */
+const lastInput = ref<LedInput | null>(null);
+async function switchInput(v: LedInput): Promise<void> {
+  if (!props.deviceId) return;
+  busy.value = true;
+  try {
+    const r = await ledService.switchInput(props.deviceId, v);
+    if (!r.ok) throw new Error(r.error || '设备未确认');
+    lastInput.value = v;
+    ElMessage.success(`已切到「${INPUTS.find((x) => x.v === v)?.label}」`);
+  } catch (e) {
+    ElMessage.error(`切换输入源失败: ${(e as Error).message}`);
+  } finally { busy.value = false; }
+}
+
 // ============ 拖拽排序 ============
 // 原生 HTML5 drag & drop, 不引第三方库。顺序**存后端** (reorderPlaylist):
 // 现场是主控机+平板+手机多终端, 只存前端的话每台设备顺序都不一样, 等于没排 ——
@@ -317,6 +349,18 @@ async function onFilePicked(ev: Event): Promise<void> {
       </div>
     </section>
 
+    <!-- 输入源 — 只在传了 deviceId 时出现 (业主: "工具栏页面可以切换各种输入源") -->
+    <section v-if="deviceId" class="src-bar">
+      <span class="src-label">输入源</span>
+      <button
+        v-for="i in INPUTS" :key="i.v"
+        class="src-btn" :class="{ on: lastInput === i.v }"
+        :disabled="busy" :title="i.hint"
+        @click="switchInput(i.v)"
+      >{{ i.label }}</button>
+      <span v-if="!lastInput" class="src-hint">当前源以设备实际为准 — 协议没有回读命令, 这里只记本次切过什么</span>
+    </section>
+
     <div class="cols">
       <!-- ===== 播放列表 ===== -->
       <section class="panel">
@@ -432,6 +476,21 @@ async function onFilePicked(ev: Event): Promise<void> {
 .pc-btn:disabled { opacity: .35; cursor: not-allowed; }
 .pc-btn.main { width: 60px; height: 60px; background: var(--v2-primary-soft); border-color: var(--v2-primary); color: #fff; }
 .pc-btn.stop:not(:disabled):hover { border-color: #ff4757; color: #ff4757; }
+
+.src-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 14px; border-radius: 12px;
+  background: var(--v2-surface, #141c28); border: 1px solid var(--v2-border-soft);
+}
+.src-label { font-size: 13px; color: var(--v2-text-2); }
+.src-btn {
+  padding: 9px 16px; min-height: 40px; border-radius: 9px; cursor: pointer;
+  font-size: 14px; color: var(--v2-text-1);
+  background: var(--v2-surface-2, #1b2534); border: 1px solid var(--v2-border, #26344a);
+}
+.src-btn.on { border-color: var(--v2-primary); background: var(--v2-primary-soft); color: #fff; }
+.src-btn:disabled { opacity: .4; cursor: not-allowed; }
+.src-hint { font-size: 11px; color: #6d7f98; }
 
 .cols { display: grid; grid-template-columns: 1.4fr 1fr; gap: 12px; flex: 1 1 auto; min-height: 0; }
 .panel {
