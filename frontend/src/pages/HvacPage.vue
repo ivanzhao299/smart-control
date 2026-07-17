@@ -173,6 +173,39 @@ const visibleZones = computed(() =>
 );
 const ungroupedCount = computed(() => visibleIndoors.value.filter((i) => !i.zoneCode).length);
 
+/**
+ * 编组模式的**分组视图** — 按组把内机分段列出, 未分组的单独一段兜底.
+ *
+ * 2026-07-17 业主: "空调内机编组逻辑和实现还没闭环, 不好使用, 须优化"。
+ *
+ * 原来编组模式下就是一张平铺的卡片网格 + 底部一排 14 个"归到 XX"的小按钮, 三个毛病:
+ *   1) **看不见结构**: 哪台在哪个组只能靠卡片角落一行小字, 改完也没有即时反馈 ——
+ *      这就是"不闭环": 做了动作却看不到结果, 只能一张张卡去数。
+ *   2) **同名不同义**: 14 个组名在顶部快选条 (按组选中) 和底部 (归到该组) 各出现一次,
+ *      长得一样、点下去行为完全不同。
+ *   3) 底部 14 个按钮挤成一堵墙, 触摸屏点不准。
+ *
+ * 改成按组分段后: 结构直接摆在眼前, 把内机移过去 -> 它立刻出现在那一段里, 动作和
+ * 结果在同一个地方发生。底部那堵按钮墙也就不需要了。
+ */
+const groupedSections = computed<Array<{ code: string | null; name: string; zone: HvacZone | null; rows: IndoorRow[] }>>(() => {
+  const byCode = new Map<string | null, IndoorRow[]>();
+  for (const row of visibleIndoors.value) {
+    const k = row.zoneCode ?? null;
+    const list = byCode.get(k) ?? [];
+    list.push(row);
+    byCode.set(k, list);
+  }
+  const out: Array<{ code: string | null; name: string; zone: HvacZone | null; rows: IndoorRow[] }> = [];
+  // 空组也要显示 —— 否则新建的组无处安放, 又回到那个"建了看不见 -> 放不进去"的死锁
+  for (const z of visibleZones.value) {
+    out.push({ code: z.code, name: z.name, zone: z, rows: byCode.get(z.code) ?? [] });
+  }
+  const un = byCode.get(null) ?? [];
+  if (un.length) out.push({ code: null, name: '未分组', zone: null, rows: un });
+  return out;
+});
+
 const zoneNameOf = computed(() => {
   const m = new Map(zones.value.map((z) => [z.code, z.name]));
   return (code: string | null): string => (code ? m.get(code) ?? '?' : '未分组');
@@ -517,10 +550,14 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
       <button v-if="selected.size" class="hv-chip clear" @click="selectNone">清空选择</button>
     </div>
 
-    <!-- ===== 内机网格 (22 台一屏铺满) ===== -->
-    <div class="hv-grid" :class="{ loading }">
+    <!-- ===== 内机网格 =====
+         控制模式: 平铺 22 台, 1920 下 6 列一屏不滚动.
+         编组模式: 按组分段 —— 结构直接摆在眼前, 移动内机立刻看到它换了位置。
+         卡片本体用同一个 <template>, 两个模式共用一份, 不写两遍 (写两遍必然改一处漏一处)。 -->
+    <template v-if="!groupMode">
+      <div class="hv-grid" :class="{ loading }">
+        <template v-for="row in visibleIndoors" :key="row.idx">
       <button
-        v-for="row in visibleIndoors" :key="row.idx"
         class="hv-cell"
         :class="{
           sel: selected.has(row.idx),
@@ -531,10 +568,10 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
         @click="toggleOne(row.idx)"
       >
         <div class="cell-head">
-          <!-- 选中态: 一个明确的复选框, 选了就打勾变蓝, 不靠边框深浅去猜 -->
-          <span class="cell-check" :class="{ on: selected.has(row.idx) }">
-            <Check v-if="selected.has(row.idx)" :size="16" :stroke-width="3" />
-          </span>
+          <!-- 2026-07-17 业主: "内机卡片去掉勾选框, 使用体验不好, 只要选中后高亮提示就可以了"。
+               勾选框在触摸屏上是个 18px 的小方块, 手指点不准, 还占掉卡头一格;
+               整张卡本来就是按钮, 选中态改用整卡高亮 (亮边 + 主色底 + 左侧竖条),
+               比一个小勾更早被眼睛捕捉到。 -->
           <span class="cell-tag">{{ row.floor }}-{{ row.idx }}</span>
           <span v-if="row.state.known && row.state.faultCode > 0" class="cell-fault" :title="'故障码 ' + row.state.faultCode">
             <AlertTriangle :size="14" /> {{ row.state.faultCode }}
@@ -585,6 +622,107 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
           <span class="cell-zone" :title="zoneNameOf(row.zoneCode)">{{ zoneNameOf(row.zoneCode) }}</span>
         </div>
       </button>
+        </template>
+      </div>
+    </template>
+
+    <div v-else class="hv-sections" :class="{ loading }">
+      <section v-for="sec in groupedSections" :key="sec.code ?? '__none__'" class="hv-sec">
+        <header class="sec-head">
+          <span class="sec-name" :class="{ none: sec.code === null }">{{ sec.name }}</span>
+          <span class="sec-count">{{ sec.rows.length }} 台</span>
+          <!-- 动作就在这一段的标题上 —— 想把内机放进这个组, 点的就是这个组本身,
+               不用去底部一排同名按钮里找 -->
+          <button
+            v-if="sec.code !== null"
+            class="hv-btn tiny primary" :disabled="!selected.size"
+            :title="selected.size ? `把选中的 ${selected.size} 台移到「${sec.name}」` : '先选中内机'"
+            @click="assignTo(sec.code)"
+          >移入{{ selected.size ? ` ${selected.size}` : '' }}</button>
+          <button
+            v-if="sec.code !== null" class="sec-ico" title="改名"
+            @click="sec.zone && startRenameZone(sec.zone)"
+          ><Pencil :size="14" /></button>
+          <button
+            v-if="sec.code !== null" class="sec-ico danger" title="删除该组"
+            @click="sec.zone && removeZone(sec.zone)"
+          ><Trash2 :size="14" /></button>
+          <button
+            v-if="sec.code === null && sec.rows.length" class="hv-btn tiny ghost"
+            @click="selectZone(null)"
+          >全选未分组</button>
+        </header>
+        <div v-if="sec.rows.length" class="sec-grid">
+          <template v-for="row in sec.rows" :key="row.idx">
+      <button
+        class="hv-cell"
+        :class="{
+          sel: selected.has(row.idx),
+          running: row.state.known && row.state.on,
+          unknown: !row.state.known,
+          fault: row.state.known && row.state.faultCode > 0,
+        }"
+        @click="toggleOne(row.idx)"
+      >
+        <div class="cell-head">
+          <!-- 2026-07-17 业主: "内机卡片去掉勾选框, 使用体验不好, 只要选中后高亮提示就可以了"。
+               勾选框在触摸屏上是个 18px 的小方块, 手指点不准, 还占掉卡头一格;
+               整张卡本来就是按钮, 选中态改用整卡高亮 (亮边 + 主色底 + 左侧竖条),
+               比一个小勾更早被眼睛捕捉到。 -->
+          <span class="cell-tag">{{ row.floor }}-{{ row.idx }}</span>
+          <span v-if="row.state.known && row.state.faultCode > 0" class="cell-fault" :title="'故障码 ' + row.state.faultCode">
+            <AlertTriangle :size="14" /> {{ row.state.faultCode }}
+          </span>
+          <span
+            class="cell-dot"
+            :class="{ on: row.state.known && row.state.on, unknown: !row.state.known }"
+            :title="!row.state.known ? '未读到状态' : (row.state.on ? '运行中' : '已关机')"
+          >{{ !row.state.known ? '未知' : (row.state.on ? '运行' : '关') }}</span>
+        </div>
+
+        <div class="cell-name">
+          <input
+            v-if="editingIndoor === row.idx" :ref="bindNameInput" v-model="editingText"
+            class="cell-name-input" maxlength="32"
+            @click.stop @keyup.enter="commitRenameIndoor(row)"
+            @keyup.esc="editingIndoor = null" @blur="commitRenameIndoor(row)"
+          />
+          <template v-else>
+            <span class="cell-name-text" :title="row.name">{{ row.name }}</span>
+            <span class="cell-edit" title="改名" @click.stop="startRenameIndoor(row)">
+              <Pencil :size="15" />
+            </span>
+          </template>
+        </div>
+
+        <!-- 中段占满剩余高度, 温度居中放大 —— 卡片再大也不留空洞 -->
+        <div class="cell-body">
+          <span v-if="!row.state.known" class="cell-unknown">未读到状态</span>
+          <template v-else-if="row.state.on">
+            <span class="cell-temp" :class="'m-' + row.state.mode">{{ row.state.temperature }}<i>°C</i></span>
+            <span v-if="row.state.roomTemp !== undefined" class="cell-room" title="实测室温">
+              室温 {{ row.state.roomTemp }}°
+            </span>
+          </template>
+          <template v-else>
+            <span class="cell-off">关机</span>
+            <span v-if="row.state.roomTemp !== undefined" class="cell-room">室温 {{ row.state.roomTemp }}°</span>
+          </template>
+        </div>
+
+        <div class="cell-foot">
+          <span v-if="!row.state.known" class="cell-mode dim">—</span>
+          <span v-else class="cell-mode" :class="row.state.on ? 'm-' + row.state.mode : 'dim'">
+            <component :is="modeIcon(row.state.mode)" :size="15" /> {{ modeLabel(row.state.mode) }}
+            <i class="cell-fan">· {{ fanLabel(row.state.fan) }}</i>
+          </span>
+          <span class="cell-zone" :title="zoneNameOf(row.zoneCode)">{{ zoneNameOf(row.zoneCode) }}</span>
+        </div>
+      </button>
+          </template>
+        </div>
+        <div v-else class="sec-empty">还没有内机 — 选中上面的内机后点「移入」</div>
+      </section>
     </div>
 
     <!-- ===== 控制条 (作用于选中集合) ===== -->
@@ -598,13 +736,15 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
       </div>
 
       <template v-if="groupMode">
+        <!-- 2026-07-17: 这里原本是一排 14 个"归到 XX"按钮 —— 跟顶部快选条同名却不同义,
+             而且挤成一堵墙点不准。现在"移入"就在每个组自己的标题上, 点哪个组进哪个组,
+             不用在按钮墙里找名字。这里只留"移出分组"这个反向动作。 -->
         <div class="bar-group">
-          <span class="bar-hint">归到:</span>
-          <button
-            v-for="z in visibleZones" :key="z.code"
-            class="hv-btn tiny" :disabled="!selected.size" @click="assignTo(z.code)"
-          >{{ z.name }}</button>
-          <button class="hv-btn tiny warn" :disabled="!selected.size" @click="assignTo(null)">移出分组</button>
+          <span class="bar-hint">选中内机后, 点上方任一分组标题的「移入」即可归组</span>
+          <button class="hv-btn tiny warn" :disabled="!selected.size" @click="assignTo(null)">
+            移出分组{{ selected.size ? ` (${selected.size})` : '' }}
+          </button>
+          <button class="hv-btn tiny" @click="createZone"><FolderPlus :size="13" /> 新建组</button>
         </div>
       </template>
 
@@ -767,21 +907,24 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 }
 .hv-cell.fault { border-color: #a9541f; }
 /* 选中态: 粗蓝边 + 蓝底 + 外发光, 三重冗余 —— 现场大屏斜着看也一眼分得清选没选 */
+/* 选中态 —— 勾选框拿掉后, 这里必须一眼就能认出来 (业主: "选择和取消选择状态要
+   交待清楚, 别搞的稀里糊涂看不清楚")。三重信号叠加, 隔两米也看得见:
+     1) 整圈亮边 + 外发光   2) 主色渐变底   3) 左侧一条实心竖条
+   只靠边框深浅是不够的 —— 展厅光线亮, 平板反光, 细边看不出来。 */
 .hv-cell.sel {
   border-color: var(--v2-accent, #4da3ff);
-  background: linear-gradient(160deg, #16375a, #12233a);
-  box-shadow: 0 0 0 2px var(--v2-accent, #4da3ff), 0 6px 18px #0a1a2e88;
+  background: linear-gradient(160deg, #1b4676, #12233a);
+  box-shadow: 0 0 0 2px var(--v2-accent, #4da3ff), 0 0 22px #4da3ff55, 0 6px 18px #0a1a2e88;
 }
+/* 左侧竖条: 卡片密排时, 边框会跟邻居的边框糊在一起, 这条竖条不会 */
+.hv-cell.sel::before {
+  content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 4px;
+  border-radius: 0 3px 3px 0; background: var(--v2-accent, #4da3ff);
+}
+.hv-cell { position: relative; }
 
 /* ---- 头部: 复选框 + 编号 + 运行徽标 ---- */
 .cell-head { display: flex; align-items: center; gap: 8px; }
-.cell-check {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 22px; height: 22px; flex: 0 0 auto; border-radius: 6px;
-  border: 2px solid #46566e; background: transparent; color: #04101d;
-  transition: background .12s, border-color .12s;
-}
-.cell-check.on { background: var(--v2-accent, #4da3ff); border-color: var(--v2-accent, #4da3ff); }
 .cell-tag { font-size: 14px; font-weight: 600; color: var(--v2-text-dim, #8fa3bd); letter-spacing: .3px; }
 .cell-fault {
   display: inline-flex; align-items: center; gap: 3px; margin-left: auto;
@@ -851,6 +994,8 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 .hv-bar {
   flex: 0 0 auto;
   display: flex; align-items: center; gap: 16px;
+  /* 外层也必须能换行: 内层 .bar-ctrl 换了行, 外层还 nowrap 的话照样把它整体推出屏幕 */
+  flex-wrap: wrap;
   padding: 12px 16px;
   background: var(--v2-surface, #141c28);
   border: 1px solid var(--v2-border, #26344a);
@@ -866,8 +1011,12 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   font-size: 12px; color: #6d7f98;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.bar-ctrl, .bar-group { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; }
-.bar-group { flex-wrap: wrap; }
+/* 2026-07-17 业主: "空调控制页面下端没有风量大小调节"。
+   风量一直是有的 —— 它被**裁掉了**: 这里原本写死 flex-wrap:nowrap, 而 .hv-page 是
+   overflow:hidden, 于是屏幕一窄, 排在最后的风量组就被挤出可视区直接消失。
+   768 平板上实测: 风量组 left=1143 right=1363, 而视口只有 768 宽 —— 差了 400 多像素,
+   控制条整体溢出 428px。允许换行, 宁可多占一行也不能让控件人间蒸发。 */
+.bar-ctrl, .bar-group { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .bar-hint { font-size: 14px; color: var(--v2-text-dim, #8fa3bd); }
 .bar-state {
   display: inline-flex; align-items: center; gap: 5px;
@@ -947,4 +1096,83 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   .cell-off { font-size: 22px; }
   .cell-mode, .cell-zone, .cell-room { font-size: 13px; }
 }
+
+/* 平板 (业主实际拿在手里的那块) — 2026-07-17 之前这一档**完全没做**, 断点只到 1280,
+   于是 768 上整页横向溢出 595px、控制条溢出 428px, 风量组被推到 x=1143 (视口才 768) 后
+   被 overflow:hidden 裁掉 —— 业主看到的就是"没有风量调节"。
+   这一档的原则跟 1920 相反: **不再强求一屏不滚动**。22 台内机 × 可读的字号, 768 宽
+   物理上放不下; 硬塞的结果就是 cell-body 被压到 13px、温度和"关机"叠在一起(实测)。
+   宁可让网格自己滚, 也不能让内容糊成一团或凭空消失。 */
+@media (max-width: 900px) {
+  .hv-page { height: 100dvh; padding: 8px; gap: 8px; }
+  /* 2 列: 768 下每张卡约 350px 宽, 字号不用再缩就能读 */
+  .hv-grid {
+    grid-template-columns: repeat(2, 1fr);
+    grid-auto-rows: minmax(112px, auto);  /* 高度按内容给足, 不再压扁 */
+    overflow-y: auto;                      /* 放不下就滚这里, 而不是被裁掉 */
+    -webkit-overflow-scrolling: touch;
+  }
+  .hv-head { flex-wrap: wrap; gap: 8px; }
+  .hv-stats { display: none; }             /* 顶栏统计让位, 控制权优先 */
+  .cell-name-text { font-size: 17px; }
+  .cell-temp { font-size: 30px; }
+  .cell-off { font-size: 20px; }
+  /* 控制条: 手指操作, 按钮不能再小; 换行后允许它占两三行 */
+  .hv-bar { gap: 10px; padding: 10px; }
+  .bar-sel { min-width: 100%; max-width: none; }   /* 独占一行, 不挤控件 */
+  .bar-names { display: none; }
+  .seg { padding: 9px 12px; font-size: 14px; }
+  .temp-btn { width: 40px; height: 40px; }
+}
+
+/* ===== 编组模式: 按组分段 =====
+   结构摆在眼前, 移动内机立刻看到它出现在目标组里 —— 动作和结果在同一个地方发生,
+   这才是"闭环"。旧版是平铺网格 + 底部 14 个同名小按钮, 做完看不到结果。 */
+.hv-sections {
+  flex: 1 1 auto; min-height: 0;
+  overflow-y: auto;                 /* 组多了滚这里, 不撑破页面 */
+  display: flex; flex-direction: column; gap: 10px;
+  padding-right: 4px;
+}
+.hv-sections.loading { opacity: .5; pointer-events: none; }
+.hv-sec {
+  background: #0f1724cc;
+  border: 1px solid var(--v2-border, #26344a);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.sec-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.sec-name { font-size: 17px; font-weight: 700; color: var(--v2-text, #e8f0fb); }
+.sec-name.none { color: #e0a14a; }          /* 未分组用警示色, 一眼看到还剩几台没归 */
+.sec-count {
+  font-size: 13px; color: var(--v2-text-dim, #8fa3bd);
+  background: #1b2534; border-radius: 20px; padding: 2px 9px;
+}
+.sec-ico {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 8px;   /* 触摸目标别再做成 14px 的小图标 */
+  background: transparent; border: 1px solid var(--v2-border, #26344a);
+  color: var(--v2-text-dim, #8fa3bd); cursor: pointer;
+}
+.sec-ico:hover { color: var(--v2-text, #e8f0fb); border-color: #46566e; }
+.sec-ico.danger:hover { color: #ff6b6b; border-color: #ff6b6b66; }
+.sec-grid {
+  display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px;
+  grid-auto-rows: minmax(120px, auto);
+}
+.sec-empty {
+  padding: 14px; text-align: center; font-size: 13px;
+  color: var(--v2-text-dim, #8fa3bd);
+  border: 1px dashed var(--v2-border, #26344a); border-radius: 10px;
+}
+@media (max-width: 1280px) { .sec-grid { grid-template-columns: repeat(4, 1fr); } }
+@media (max-width: 900px)  { .sec-grid { grid-template-columns: repeat(2, 1fr); } }
+
+/* 卡片正文永不塌陷 —— 1920 下也一样。
+   实测 768: 卡片 161×119, 但 .cell-body 只剩 13px 高, 温度/「关机」直接叠在名字上。
+   min-height 给个地板, 内容再多也不会互相压。 */
+.cell-body { min-height: 34px; }
 </style>
