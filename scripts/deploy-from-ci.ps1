@@ -72,8 +72,53 @@ function Restart-Services {
   if (-not (Test-Path $pm2)) { $pm2 = 'pm2' }
   $env:PM2_HOME = 'C:\Users\user\.pm2'
   Write-DeployLog "pm2 = $pm2 ; PM2_HOME = $env:PM2_HOME"
-  Invoke-Native $pm2 @('restart', 'smart-control-backend', 'smart-control-frontend', '--update-env')
+
+  # Happy path: the daemon is alive and already owns both apps.
+  # Only the restart may fall through to recovery -- do NOT put `pm2 save` in this
+  # try, or a hiccup in save would send us into the port-killing branch below.
+  $needsRecovery = $false
+  try {
+    Invoke-Native $pm2 @('restart', 'smart-control-backend', 'smart-control-frontend', '--update-env')
+  } catch {
+    Write-DeployLog "pm2 restart failed: $($_.Exception.Message)"
+    $needsRecovery = $true
+  }
+  if (-not $needsRecovery) {
+    Invoke-Native $pm2 @('save')
+    return
+  }
+
+  # Recovery (2026-07-17): 'Process or Namespace smart-control-backend not found'.
+  # The old daemon was gone, so pm2 just spawned a FRESH EMPTY one and restart had
+  # nothing to act on. This is not rare: the daemon dies with the SSH session that
+  # spawned it (that is exactly why boot-pm2.ps1 detaches it through WMI). Before
+  # this block the deploy died here AND the rollback died here too -- rollback calls
+  # this same function -- leaving "requires operator attention" and no way in.
+  #
+  # The node processes the dead daemon used to own usually SURVIVE as orphans still
+  # holding 3200/5173 (verify-deploy.js calls this out as "port holder PID != pm2
+  # PID"). So a plain `pm2 resurrect` here would start a SECOND copy that crash-loops
+  # on EADDRINUSE. Clear the port holders first, then resurrect from the last
+  # `pm2 save` dump -- the worktree is already at the target commit, so resurrect
+  # brings up the NEW code.
+  Write-DeployLog 'pm2 daemon had no such process -> clearing port holders, then resurrect'
+  foreach ($port in @(3200, 5173)) {
+    $owners = @(
+      Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty OwningProcess -Unique
+    )
+    foreach ($opid in $owners) {
+      if ($opid -and $opid -gt 0) {
+        Write-DeployLog ("  port {0} held by orphan pid {1} -> stop" -f $port, $opid)
+        Stop-Process -Id $opid -Force -ErrorAction SilentlyContinue
+      }
+    }
+  }
+  Start-Sleep -Seconds 2
+  Invoke-Native $pm2 @('resurrect')
   Invoke-Native $pm2 @('save')
+  # Caller still runs the port + health checks below; if resurrect did not bring
+  # them back the deploy fails and rolls back exactly as before.
 }
 
 function Test-BackendHealth {
