@@ -29,11 +29,11 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
   ArrowLeft, MonitorPlay, Play, Pause, Square, SkipBack, SkipForward,
-  Upload, ListMusic, History, Pencil, Trash2, Plus, Repeat, Repeat1, AlertTriangle,
+  Upload, ListMusic, History, Pencil, Trash2, Plus, Repeat, Repeat1, AlertTriangle, GripVertical,
 } from 'lucide-vue-next';
 import { usePlaybackStore } from '@/stores/playback';
 import {
-  listPlaylist, addToPlaylist, renamePlaylistItem, removeFromPlaylist,
+  listPlaylist, addToPlaylist, renamePlaylistItem, removeFromPlaylist, reorderPlaylist,
   listHistory, type PlaylistItemView, type PlaybackHistoryView,
 } from '@/services/playback.service';
 import { mediaService } from '@/services/media.service';
@@ -183,6 +183,49 @@ async function addFromHistory(h: PlaybackHistoryView): Promise<void> {
   }
 }
 
+// ============ 拖拽排序 ============
+// 原生 HTML5 drag & drop, 不引第三方库。顺序**存后端** (reorderPlaylist):
+// 现场是主控机+平板+手机多终端, 只存前端的话每台设备顺序都不一样, 等于没排 ——
+// 灯光分区排序已经论证过这一点, 同一个道理。
+const dragId = ref<number | null>(null);
+const dragOverId = ref<number | null>(null);
+
+function onDragStart(it: PlaylistItemView, ev: DragEvent): void {
+  dragId.value = it.id;
+  ev.dataTransfer?.setData('text/plain', String(it.id));   // Firefox 不设这个不触发 drop
+  if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move';
+}
+function onDragOver(it: PlaylistItemView, ev: DragEvent): void {
+  if (dragId.value === null || dragId.value === it.id) return;
+  ev.preventDefault();                                     // 不 preventDefault 就不允许 drop
+  dragOverId.value = it.id;
+}
+async function onDrop(target: PlaylistItemView): Promise<void> {
+  const from = dragId.value;
+  dragId.value = null;
+  dragOverId.value = null;
+  if (from === null || from === target.id) return;
+
+  const list = playlist.value.slice();
+  const fi = list.findIndex((x) => x.id === from);
+  const ti = list.findIndex((x) => x.id === target.id);
+  if (fi < 0 || ti < 0) return;
+  const [moved] = list.splice(fi, 1);
+  list.splice(ti, 0, moved);
+  const before = playlist.value;
+  playlist.value = list;                                   // 乐观: 松手立刻就位
+  try {
+    await reorderPlaylist(SLOT.value, list.map((x) => x.id));
+  } catch (e) {
+    playlist.value = before;                               // 失败回滚, 不留后端不认的假顺序
+    ElMessage.error(`排序保存失败: ${(e as Error).message}`);
+  }
+}
+function onDragEnd(): void {
+  dragId.value = null;
+  dragOverId.value = null;
+}
+
 // ============ 本页直接上传 (业主: "在 LED 大屏播放页面就可以直接点击上传内容") ============
 const fileInput = ref<HTMLInputElement | null>(null);
 const uploading = ref(false);
@@ -295,8 +338,17 @@ async function onFilePicked(ev: Event): Promise<void> {
           <div
             v-for="it in playlist" :key="it.id"
             class="pl-item"
-            :class="{ playing: ch?.currentMediaId === it.mediaId, missing: it.missing }"
+            :class="{
+              playing: ch?.currentMediaId === it.mediaId, missing: it.missing,
+              dragging: dragId === it.id, dropzone: dragOverId === it.id,
+            }"
+            draggable="true"
+            @dragstart="onDragStart(it, $event)"
+            @dragover="onDragOver(it, $event)"
+            @drop.prevent="onDrop(it)"
+            @dragend="onDragEnd"
           >
+            <span class="pl-grip" title="按住拖动可调整顺序"><GripVertical :size="15" /></span>
             <button class="pl-play" :disabled="busy || it.missing" title="播放这个" @click="playItem(it)">
               <Play :size="15" />
             </button>
@@ -403,6 +455,11 @@ async function onFilePicked(ev: Event): Promise<void> {
   background: var(--v2-surface-2, #1b2534); border: 1px solid transparent;
 }
 .pl-item.playing { border-color: var(--v2-primary); background: #16375a; }
+.pl-item.dragging { opacity: .45; }
+/* 拖到哪儿哪儿亮一条虚线 —— 松手前就知道会落在哪, 不用猜 */
+.pl-item.dropzone { outline: 2px dashed var(--v2-primary); outline-offset: 2px; }
+.pl-grip { display: inline-flex; align-items: center; color: var(--v2-text-2); cursor: grab; flex: 0 0 auto; }
+.pl-grip:active { cursor: grabbing; }
 .pl-item.missing { opacity: .55; }
 .pl-play {
   display: inline-flex; align-items: center; justify-content: center;
