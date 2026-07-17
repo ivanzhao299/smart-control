@@ -202,7 +202,16 @@ async function doLogin(): Promise<void> {
   inset: 0;
   display: grid;
   place-items: center;
-  padding: 24px;
+  /* 四边都让开安全区 —— index.html 开了 viewport-fit=cover +
+     apple-mobile-web-app-status-bar-style=black-translucent, 意思是"内容铺满整块屏,
+     安全区你自己让"。漏一边就被压一边:
+     2026-07-17 业主报"手机端登录页面上端与手机时间相互遮盖" —— 就是漏了 top。
+     用 max(24px, env(...)) 而不是相加: 没有刘海的设备 env 是 0, 相加会让内边距缩水。 */
+  padding:
+    max(24px, env(safe-area-inset-top))
+    max(24px, env(safe-area-inset-right))
+    max(24px, env(safe-area-inset-bottom))
+    max(24px, env(safe-area-inset-left));
   background: var(--v2-bg-0);
   isolation: isolate;
   overflow: hidden;

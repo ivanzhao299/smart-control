@@ -398,6 +398,9 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   width: 100vw;
   height: 100vh;
   height: 100dvh;
+  /* 2026-07-17: 原来只让了 bottom/left/right, **唯独漏了 top** —— 手机上内容会钻到
+     状态栏(时间/信号/刘海)底下。viewport-fit=cover 要求四边都让, 漏一边压一边。 */
+  padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
