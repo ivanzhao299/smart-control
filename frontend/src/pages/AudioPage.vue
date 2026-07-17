@@ -4,8 +4,7 @@ import { ElMessage } from 'element-plus';
 import { useRouter, useRoute } from 'vue-router';
 import {
   ArrowLeft, Speaker, Volume2, VolumeX, Play, Sparkles, Music, Square, Pause,
-  SkipBack, SkipForward, Shuffle, Repeat, Repeat1, ListMusic, Trash2,
-} from 'lucide-vue-next';
+  SkipBack, SkipForward, Shuffle, Repeat, Repeat1, ListMusic, Trash2, Pencil } from 'lucide-vue-next';
 import { audioService } from '@/services/audio.service';
 import { audioConfigService } from '@/services/audio-config.service';
 import { absUrl } from '@/services/http';
@@ -355,6 +354,8 @@ onMounted(async () => {
 
 // ============ 分区 ============
 interface AudioRow {
+  /** 后端 audio_output_zone 主键 — 改名要用它 (下面的 id 是 'audio_out1' 这种展示用字符串) */
+  dbId: number;
   id: string; name: string; zone: string; channel: number;
   volume: number; muted: boolean; bgm: string;
   bgmPlaying: boolean; mic: boolean;
@@ -369,6 +370,7 @@ async function loadZones(): Promise<void> {
   try {
     const rows = await audioConfigService.listZones();
     channels.value = rows.map((z) => ({
+      dbId: z.id,
       id: `audio_out${z.channel + 1}`,
       name: z.name,
       zone: `out${z.channel + 1}`,
@@ -386,6 +388,31 @@ async function loadZones(): Promise<void> {
 
 // 页内 tab: 一键场景 / 背景音乐 / 分区音量 / 音源矩阵 — 一屏一组, 不上下滚
 const audioTab = ref<'scene' | 'bgm' | 'zones' | 'matrix'>('scene');
+
+// ============ 输出通道改名 ============
+// 2026-07-17 业主: "分区音量里的输出通道推子名称应该和上传的照片名称一致, 并且可以编辑"。
+// 名字本来就存在 audio_output_zone 表、也早按机柜标签配好了 (一楼门厅…二楼办公区),
+// 缺的只是就地编辑。改完落库, 矩阵页的输出名来自同一张表, 会一起变。
+const editingCh = ref<number | null>(null);
+const editingChText = ref('');
+function startRenameCh(z: AudioRow): void {
+  editingCh.value = z.dbId;
+  editingChText.value = z.name;
+}
+async function commitRenameCh(z: AudioRow): Promise<void> {
+  const name = editingChText.value.trim();
+  editingCh.value = null;
+  if (!name || name === z.name) return;
+  const before = z.name;
+  z.name = name;                       // 乐观: 立刻显示
+  try {
+    await audioConfigService.updateZone(z.dbId, { name });
+    ElMessage.success(`已改名为「${name}」`);
+  } catch (err) {
+    z.name = before;                   // 失败回滚, 不留后端不认的假名字
+    ElMessage.error(`改名失败: ${(err as Error).message}`);
+  }
+}
 
 // ============ 音源矩阵 (EKX-808 8x8 路由) ============
 interface AudioIn { channel: number; name: string; }
@@ -864,7 +891,20 @@ async function toggleMuteAll(): Promise<void> {
           class="ch-card"
           :class="{ muted: z.muted, error: !!z.error }"
         >
-          <div class="ch-name">{{ z.name }}</div>
+          <!-- 就地改名: 双击名字或点笔。名字落 audio_output_zone 表, 矩阵页同源, 一起变 -->
+          <input
+            v-if="editingCh === z.dbId"
+            v-model="editingChText"
+            class="ch-name-input" maxlength="24"
+            @click.stop @keyup.enter="commitRenameCh(z)"
+            @keyup.esc="editingCh = null" @blur="commitRenameCh(z)"
+          />
+          <div v-else class="ch-name" :title="z.name" @dblclick.stop="startRenameCh(z)">
+            {{ z.name }}
+            <button class="ch-edit" title="改名" @click.stop="startRenameCh(z)">
+              <Pencil :size="12" />
+            </button>
+          </div>
           <div class="ch-addr v2-inter">{{ z.id.toUpperCase() }}</div>
           <div class="fader">
             <div class="fader-track">
@@ -939,6 +979,21 @@ async function toggleMuteAll(): Promise<void> {
 </template>
 
 <style scoped>
+/* 输出通道就地改名 (业主: 推子名称要跟机柜标签一致且可编辑) */
+.ch-name-input {
+  width: 100%; padding: 3px 6px;
+  font-size: 14px; font-weight: 600; text-align: center;
+  color: var(--v2-text-1); background: rgba(0,0,0,.35);
+  border: 1px solid var(--v2-primary); border-radius: 5px; outline: none;
+}
+.ch-edit {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; margin-left: 3px; border-radius: 4px;
+  background: transparent; border: none; cursor: pointer;
+  color: var(--v2-text-2); opacity: 0; transition: opacity .12s;
+}
+.ch-card:hover .ch-edit { opacity: 1; }
+.ch-edit:hover { color: var(--v2-primary); }
 .v2-page {
   padding: var(--v2-sp-5); display: flex; flex-direction: column; gap: var(--v2-sp-4);
   height: 100%; box-sizing: border-box; overflow: hidden;

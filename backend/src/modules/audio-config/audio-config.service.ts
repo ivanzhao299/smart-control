@@ -36,18 +36,40 @@ export interface AudioSceneUpsertDto {
 }
 
 /** 默认 8 输出通道: OUT1-OUT8 (channel 0-7), 业主后续改名 */
+/**
+ * 默认 8 路输出 —— 名字取自**现场机柜标签**照片 (2026-07-16 业主拍给我的那张):
+ *   输出1 一楼门厅  输出2 一楼东北   输出3 一楼中厅   输出4 一楼南厅
+ *   输出5 一楼大屏  输出6 一楼投影仪  输出7 二楼走廊   输出8 二楼办公区
+ *
+ * 原来是 `OUT 1`..`OUT 8` 的占位。生产库里早已被改成上面这些真名, 但**种子里没有** ——
+ * 重装/新机器就会退回占位名, 现场对不上标签。现场标签是权威, 代码跟着它走。
+ * 业主仍可在前端就地改名 (分区音量页双击名字), 幂等 seed 不会覆盖改过的。
+ */
+const DEFAULT_ZONE_NAMES = [
+  '一楼门厅', '一楼东北', '一楼中厅', '一楼南厅',
+  '一楼大屏', '一楼投影仪', '二楼走廊', '二楼办公区',
+];
 const DEFAULT_ZONES = Array.from({ length: 8 }, (_, i) => ({
   channel: i,
-  name: `OUT ${i + 1}`,
-  floor: null as string | null,
+  name: DEFAULT_ZONE_NAMES[i],
+  floor: (i < 6 ? '1F' : '2F') as string | null,
   color: null as string | null,
   sortOrder: i,
 }));
 
-/** 默认 8 输入源: IN1-IN8 (channel 0-7), 业主后续改名 (背景音乐/话筒/播放器...) */
+/**
+ * 默认 8 路输入 —— 同样取自机柜标签照片:
+ *   输入1 中控主机 (声卡, 背景音乐这一路)   输入2 定时播放器
+ *   输入3 调音台                          输入4 中控主机2 (HDMI, 大屏音频这一路)
+ * IN5-IN8 现场**没有标签 = 没接线**, 保留占位名, 别乱起名误导人。
+ */
+const DEFAULT_INPUT_NAMES = [
+  '中控主机', '定时播放器', '调音台', '中控主机2',
+  'IN 5 (未接线)', 'IN 6 (未接线)', 'IN 7 (未接线)', 'IN 8 (未接线)',
+];
 const DEFAULT_INPUTS = Array.from({ length: 8 }, (_, i) => ({
   channel: i,
-  name: `IN ${i + 1}`,
+  name: DEFAULT_INPUT_NAMES[i],
   color: null as string | null,
   sortOrder: i,
 }));

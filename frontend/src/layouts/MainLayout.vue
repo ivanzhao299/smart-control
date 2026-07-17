@@ -8,7 +8,7 @@ import { useRoute, useRouter } from 'vue-router';
 // - PWA standalone 启动也仍然全屏 (manifest display: fullscreen 接管)
 // - AlertBanner 已移除, 告警走后台 /admin/alerts
 // - 场景反馈走顶部 inline toast
-import { Maximize2, Minimize2, Wifi } from 'lucide-vue-next';
+import { Maximize2, Minimize2 } from 'lucide-vue-next';
 import ErrorBoundary from '@/components/ErrorBoundary.vue';
 import ServerSettingsDialog from '@/components/ServerSettingsDialog.vue';
 import { useFullscreen } from '@/composables/useFullscreen';
@@ -93,7 +93,6 @@ onUnmounted(() => {
  * 服务器地址设置弹窗 — 两个入口:
  *   1. API 连续失败 (服务器 IP 变了/断网) → 自动弹出, 每次断线只弹一次,
  *      业主关掉后不再骚扰, 恢复在线后重新武装
- *   2. 侧导航底部 Wifi 按钮 → 随时手动打开
  */
 const showServerSettings = ref(false);
 const serverSettingsReason = ref<string | undefined>(undefined);
@@ -106,10 +105,6 @@ watch(() => conn.online, (online) => {
   }
   if (online) autoOpenedThisEpisode = false;
 });
-function openServerSettings(): void {
-  serverSettingsReason.value = undefined;
-  showServerSettings.value = true;
-}
 
 /** hover/touch 时立刻 prefetch 对应路由 chunk — 比 click 早 ~200ms */
 const ROUTE_PREFETCH: Record<string, () => Promise<unknown>> = {
@@ -254,16 +249,12 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
         </button>
       </nav>
 
-      <!-- 固定入口: 服务器地址设置 (连不上时也是自动弹这个框) -->
-      <button
-        class="v2-nav-item v2-nav-server"
-        :class="{ 'is-offline': !conn.online }"
-        title="服务器设置"
-        @click="openServerSettings"
-      >
-        <Wifi :size="20" :stroke-width="1.8" />
-        <span class="v2-nav-label">网络</span>
-      </button>
+      <!-- 2026-07-17 业主: "那个网络按钮就是个沙币设计, 连不上网就进不了界面,
+           看不到这个按钮, 把它直接删掉"。
+           他是对的, 而且代码坐实了: 上面那个 watch(conn.online) 在**离线时会自动弹出**
+           服务器设置框 —— 这个按钮唯一的用途 (连不上时改地址) 本来就被覆盖了;
+           而能看见它的时候恰恰是在线、根本不需要它的时候。纯占位。
+           真要手动改地址: 退出登录回 ClientLogin 页即可 (那里就是填服务器地址的)。 -->
     </aside>
 
     <!-- 顶 Header (56px) - 仅首页显示 (功能页隐藏, 主区上移给功能区让空间); 集成 inline toast -->
@@ -504,16 +495,6 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 }
 
 /* 侧栏底部固定的服务器设置入口 — 不参与 nav-list 均分, 始终贴底 */
-.v2-nav-server {
-  flex: 0 0 auto;
-  height: 52px;
-  min-height: 52px;
-  margin-top: 2px;
-}
-.v2-nav-server.is-offline {
-  color: var(--v2-danger, #ff4757);
-  animation: server-offline-pulse 1.6s ease-in-out infinite;
-}
 @keyframes server-offline-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }
