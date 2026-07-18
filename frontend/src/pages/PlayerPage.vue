@@ -113,21 +113,28 @@ const videoEl = ref<HTMLVideoElement | null>(null);
  * 拿设备标签需要麦克风权限, 由 start-players.ps1 的
  * --use-fake-ui-for-media-stream 自动放行 (它只自动同意授权, 用的仍是真设备)。
  *
- * 2026-07-18 现场复现两次"大屏没声音", 矩阵/increase机都是好的, 根子在这个函数:
+ * 2026-07-18 现场复现两次"大屏没声音", 矩阵/功放机都是好的, 根子在这个函数:
  * 只在 @loadedmetadata 时试一次, 没找到 HDMI 设备或 setSinkId 抛错就永久放弃 ——
  * loop 模式下同一个视频反复播放不会重新触发 loadedmetadata (onVideoEnded 只是
  * currentTime=0 再 play, 不叫 .load()), 所以一旦某次没试成功, 只能等下一次真的
  * 换素材, 或者整个浏览器窗口重启 (这个页面在 GK9000 的 session 2 里, SSH 摸不到,
  * 只能物理重启整机, 代价很大)。改成失败了就每隔几秒自己重试, 不用再赌"下一次
  * 会不会自己好"。
+ *
+ * 2026-07-18 晚间二次复现, 且是稳定可复现的: "重启后第一段视频有声音, PWA 一
+ * 切换播放内容就没声音" —— 根子是上面那版重试逻辑用一个全局 audioRouted 标志
+ * 一劳永逸地"指过一次就不再指". <video> 元素在切换素材时是**同一个 DOM 节点**
+ * (currentMediaUrl 变化只是改 src 再调 .load(), 没有重新挂载), 但 .load() 会把
+ * 元素内部状态(含 sinkId 的输出路由)冲回默认设备 —— 第一段视频指过一次之后,
+ * audioRouted 永远是 true, 后面每次 .load() 触发的 loadedmetadata 都被这一行
+ * 直接挡掉, 新素材静静地退回 USB 声卡, 大屏再次没声音。
+ * 改法: HDMI 设备 id 只需要解析一次并缓存 (标签不会变), 但 setSinkId 本身**每次
+ * loadedmetadata 都要重新指一遍**, 不能用"成功过一次"当挡箭牌。
  */
-let audioRouted = false;
+let cachedHdmiDeviceId: string | null = null;
 let audioRouteRetryTimer: number | undefined;
-async function routeVideoAudio(): Promise<void> {
-  if (audioRouted) return;                       // 已经指过一次就不用再试
-  if (slot.value !== 1 && slot.value !== 2) return;  // slot3 是 BGM, 必须留在默认设备
-  const el = videoEl.value as (HTMLVideoElement & { setSinkId?: (id: string) => Promise<void> }) | null;
-  if (!el?.setSinkId) return;                    // 浏览器不支持就算了, 至少声音还在默认设备
+async function resolveHdmiDeviceId(): Promise<string | null> {
+  if (cachedHdmiDeviceId) return cachedHdmiDeviceId;
   try {
     // 先取一次权限, 否则 enumerateDevices 拿不到 label, 认不出哪个是 HDMI
     await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -136,9 +143,19 @@ async function routeVideoAudio(): Promise<void> {
     const outs = (await navigator.mediaDevices.enumerateDevices())
       .filter((d) => d.kind === 'audiooutput');
     const hdmi = outs.find((d) => /HDMI|显示器音频|Display Audio/i.test(d.label));
-    if (!hdmi) return;                           // 这次没找到, 等下一轮定时重试
-    await el.setSinkId(hdmi.deviceId);
-    audioRouted = true;
+    if (hdmi) cachedHdmiDeviceId = hdmi.deviceId;
+  } catch { /* 这次没解析出来, 等下一轮重试 */ }
+  return cachedHdmiDeviceId;
+}
+async function routeVideoAudio(): Promise<void> {
+  if (slot.value !== 1 && slot.value !== 2) return;  // slot3 是 BGM, 必须留在默认设备
+  const el = videoEl.value as (HTMLVideoElement & { setSinkId?: (id: string) => Promise<void> }) | null;
+  if (!el?.setSinkId) return;                    // 浏览器不支持就算了, 至少声音还在默认设备
+  const hdmiId = await resolveHdmiDeviceId();
+  if (!hdmiId) return;                           // 这次没找到, 等下一轮定时重试
+  try {
+    // 每次 loadedmetadata 都要重新指: .load() 会把上次指过的 sinkId 冲回默认设备
+    await el.setSinkId(hdmiId);
     if (audioRouteRetryTimer !== undefined) { window.clearInterval(audioRouteRetryTimer); audioRouteRetryTimer = undefined; }
   } catch { /* 这次没指上, 等下一轮定时重试, 不能因此让视频不播 */ }
 }
