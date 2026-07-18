@@ -72,6 +72,10 @@ onMounted(async () => {
   void sendHeartbeat();
   heartbeatTimer = window.setInterval(() => void sendHeartbeat(), 30_000);
 
+  // HDMI 音频路由重试: 只有 slot1/2 (视频) 需要, routeVideoAudio 内部已经检查过
+  // slot, 这里无脑每 5s 试一次, 成功了自己会清掉这个定时器, 便宜且没有副作用
+  audioRouteRetryTimer = window.setInterval(() => void routeVideoAudio(), 5_000);
+
   // 自动进入浏览器全屏 (kiosk 模式本来就 borderless 但有些环境 fullscreen API 还要单独触发)
   try {
     const el = document.documentElement;
@@ -83,6 +87,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (heartbeatTimer) clearInterval(heartbeatTimer);
+  if (audioRouteRetryTimer !== undefined) clearInterval(audioRouteRetryTimer);
   if (unsubscribeWs) unsubscribeWs();
 });
 
@@ -107,10 +112,19 @@ const videoEl = ref<HTMLVideoElement | null>(null);
  *
  * 拿设备标签需要麦克风权限, 由 start-players.ps1 的
  * --use-fake-ui-for-media-stream 自动放行 (它只自动同意授权, 用的仍是真设备)。
+ *
+ * 2026-07-18 现场复现两次"大屏没声音", 矩阵/increase机都是好的, 根子在这个函数:
+ * 只在 @loadedmetadata 时试一次, 没找到 HDMI 设备或 setSinkId 抛错就永久放弃 ——
+ * loop 模式下同一个视频反复播放不会重新触发 loadedmetadata (onVideoEnded 只是
+ * currentTime=0 再 play, 不叫 .load()), 所以一旦某次没试成功, 只能等下一次真的
+ * 换素材, 或者整个浏览器窗口重启 (这个页面在 GK9000 的 session 2 里, SSH 摸不到,
+ * 只能物理重启整机, 代价很大)。改成失败了就每隔几秒自己重试, 不用再赌"下一次
+ * 会不会自己好"。
  */
 let audioRouted = false;
+let audioRouteRetryTimer: number | undefined;
 async function routeVideoAudio(): Promise<void> {
-  if (audioRouted) return;                       // 每个窗口只需成功指一次
+  if (audioRouted) return;                       // 已经指过一次就不用再试
   if (slot.value !== 1 && slot.value !== 2) return;  // slot3 是 BGM, 必须留在默认设备
   const el = videoEl.value as (HTMLVideoElement & { setSinkId?: (id: string) => Promise<void> }) | null;
   if (!el?.setSinkId) return;                    // 浏览器不支持就算了, 至少声音还在默认设备
@@ -122,10 +136,11 @@ async function routeVideoAudio(): Promise<void> {
     const outs = (await navigator.mediaDevices.enumerateDevices())
       .filter((d) => d.kind === 'audiooutput');
     const hdmi = outs.find((d) => /HDMI|显示器音频|Display Audio/i.test(d.label));
-    if (!hdmi) return;                           // 找不到就保持默认, 不要瞎指
+    if (!hdmi) return;                           // 这次没找到, 等下一轮定时重试
     await el.setSinkId(hdmi.deviceId);
     audioRouted = true;
-  } catch { /* 指不过去就维持默认设备, 不能因此让视频不播 */ }
+    if (audioRouteRetryTimer !== undefined) { window.clearInterval(audioRouteRetryTimer); audioRouteRetryTimer = undefined; }
+  } catch { /* 这次没指上, 等下一轮定时重试, 不能因此让视频不播 */ }
 }
 watch(() => channel.value?.currentMediaUrl, (url, oldUrl) => {
   // url 变了就强制 reload <video>, 防止浏览器缓存上一段
