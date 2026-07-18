@@ -757,7 +757,8 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   background: var(--v2-surface, #141c28);
   border-top: 1px solid var(--v2-border, #26344a);
   border-radius: 18px 18px 0 0;
-  padding: 10px 14px calc(14px + env(safe-area-inset-bottom));
+  /* 封顶 34px, 理由跟 .v2-nav 那处一致 (Chrome for iOS 的 env() 汇报值不可信) */
+  padding: 10px 14px calc(14px + min(env(safe-area-inset-bottom), 34px));
 }
 .v2-more-grip {
   width: 40px; height: 4px; margin: 2px auto 12px;
@@ -818,26 +819,23 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
     flex-direction: row;
     align-items: stretch;
     padding: 4px 4px;
-    height: 60px;
     border-top: 1px solid var(--v2-border-soft);
     border-right: none;
     background: rgba(10, 14, 26, 0.92);
     backdrop-filter: blur(8px);
-    /* safe area 底部 (iOS home indicator) —— 封顶 40px (真机 Home 指示条最高也就
-       34px 左右, iPhone 14/15 Pro Max 那一档)。业主反馈 iPhone Chrome 上这块留白
-       大得离谱、比微信底栏明显多一截: Chrome for iOS 上 env(safe-area-inset-bottom)
-       历史上就有汇报值偏大/不准的问题 (它是套壳 WebKit, 自己還有一层浏览器 UI,
-       安全区计算跟 Safari 原生不是一回事)。不封顶的话, 这个不准的值会直接顶开
-       auto 的 grid 行, 导致底栏比正常高出一大截。封顶后正常设备不受影响
-       (env() 本来就不会超过 40px), 只挡住不合理的超大值。
-       2026-07-18: 封顶之后业主还是嫌"下面留白比微信多一截" —— 问题这次不在安全区
-       本身 (那部分 34px 左右是 iOS 强制的 Home 指示条手势区, 微信也躲不掉, 少了
-       反而会跟系统手势冲突), 而在**图标行本体**: 之前 60px 比 iOS 原生 tabbar 标准
-       高度 49pt 胖了 11px, 安全区叠上去视觉上更显眼。改成 49px 贴 Apple HIG 标准
-       (WeChat 用的也是这个), 图标 22px + label 10px 挤在 49px 里依然够放, 不用再
-       伸手去压安全区本身。 */
-    padding-bottom: max(4px, min(env(safe-area-inset-bottom), 40px));
-    height: calc(49px + min(env(safe-area-inset-bottom), 40px));
+    /* safe area 底部 (iOS home indicator) —— 封顶 34px, 不是随便挑的整数: 所有
+       Face ID 机型 (iPhone X 到最新款) 的 Home 指示条手势区都固定是 34pt, 不随
+       屏幕尺寸变 (这是 Apple HIG 写死的常量, 不是"最大约 34px 左右")。微信这类
+       原生 app 用的就是这个精确值。
+       2026-07-18 两轮迭代:
+       第一轮封顶 40px, 图标行还是 60px —— 业主反馈跟微信比留白还是多一截。
+       缩图标行到 49px (贴 iOS tabbar 标准高度) 后依然多一截, 说明问题不在图标行,
+       在安全区这个数字本身: 40px 封顶只是防止"读到离谱大值", 没有把它锁到 WeChat
+       真正用的 34px —— 如果 Chrome for iOS 汇报的 env() 落在 34-40px 之间(它是
+       套壳 WebKit, 安全区计算跟 Safari 原生历史上就对不上), 40px 封顶完全不生效,
+       比原生 app 多出来的几像素就是业主看到的那截。改封顶 34px 直接锁死这个数字。 */
+    padding-bottom: max(4px, min(env(safe-area-inset-bottom), 34px));
+    height: calc(49px + min(env(safe-area-inset-bottom), 34px));
   }
 
   /* logo 块挪走 — 手机底栏没空间 */
