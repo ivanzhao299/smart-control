@@ -829,9 +829,15 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
        历史上就有汇报值偏大/不准的问题 (它是套壳 WebKit, 自己還有一层浏览器 UI,
        安全区计算跟 Safari 原生不是一回事)。不封顶的话, 这个不准的值会直接顶开
        auto 的 grid 行, 导致底栏比正常高出一大截。封顶后正常设备不受影响
-       (env() 本来就不会超过 40px), 只挡住不合理的超大值。 */
+       (env() 本来就不会超过 40px), 只挡住不合理的超大值。
+       2026-07-18: 封顶之后业主还是嫌"下面留白比微信多一截" —— 问题这次不在安全区
+       本身 (那部分 34px 左右是 iOS 强制的 Home 指示条手势区, 微信也躲不掉, 少了
+       反而会跟系统手势冲突), 而在**图标行本体**: 之前 60px 比 iOS 原生 tabbar 标准
+       高度 49pt 胖了 11px, 安全区叠上去视觉上更显眼。改成 49px 贴 Apple HIG 标准
+       (WeChat 用的也是这个), 图标 22px + label 10px 挤在 49px 里依然够放, 不用再
+       伸手去压安全区本身。 */
     padding-bottom: max(4px, min(env(safe-area-inset-bottom), 40px));
-    height: calc(60px + min(env(safe-area-inset-bottom), 40px));
+    height: calc(49px + min(env(safe-area-inset-bottom), 40px));
   }
 
   /* logo 块挪走 — 手机底栏没空间 */
