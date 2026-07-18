@@ -135,6 +135,17 @@ watch(() => channel.value?.currentMediaUrl, (url, oldUrl) => {
   }
 });
 
+/**
+ * 控制台的暂停按钮之前只改了 channel.paused 这个数据库字段, 从没接到这个
+ * <video> 元素本身 —— 业主点暂停, 大屏画面照样在走, 按钮形同虚设。
+ * 2026-07-18 业主: "加一个暂停键, 确保可以随时暂停定格画面"。
+ */
+watch(() => channel.value?.paused, (paused) => {
+  if (!videoEl.value || !channel.value?.currentMediaId) return;
+  if (paused) videoEl.value.pause();
+  else void videoEl.value.play().catch(() => { /* 用户没交互可能被拒 */ });
+});
+
 function onVideoEnded(): void {
   if (channel.value?.loopMode === 'loop' && videoEl.value) {
     videoEl.value.currentTime = 0;

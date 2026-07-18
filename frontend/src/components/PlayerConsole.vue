@@ -30,6 +30,7 @@ import { useRouter } from 'vue-router';
 import {
   ArrowLeft, MonitorPlay, Play, Pause, Square, SkipBack, SkipForward,
   Upload, ListMusic, History, Pencil, Trash2, Plus, Repeat, Repeat1, AlertTriangle, GripVertical, FolderOpen, X,
+  Globe,
 } from 'lucide-vue-next';
 import { usePlaybackStore } from '@/stores/playback';
 import {
@@ -341,6 +342,30 @@ async function onFilePicked(ev: Event): Promise<void> {
     uploading.value = false;
   }
 }
+
+// ============ 添加网页 (业主: "说的可以播放网页内容也没加上吗") ============
+// "从媒体库选"的网页 tab 只能挑**已经存在**的网页条目 —— 库里一条没有的话形同虚设,
+// 得先去媒体页用"添加网页"建一条再回来选, 业主感受就是"没加上"。跟"上传内容"
+// 同一个道理, 本页直接能建, 不用跳走 (业主: "播放页面不应该点击按钮跳转到其他页面")。
+const webpageDialog = ref(false);
+const webpageForm = ref<{ name: string; url: string }>({ name: '', url: '' });
+function openWebpageDialog(): void {
+  webpageForm.value = { name: '', url: '' };
+  webpageDialog.value = true;
+}
+async function submitWebpage(): Promise<void> {
+  const url = webpageForm.value.url.trim();
+  if (!/^https?:\/\//i.test(url)) { ElMessage.warning('网址要以 http:// 或 https:// 开头'); return; }
+  try {
+    const m = await mediaService.createWebpage(webpageForm.value.name.trim() || url, url);
+    await addToPlaylist(SLOT.value, m.id);
+    await loadAll();
+    webpageDialog.value = false;
+    ElMessage.success(`「${m.originalName}」已加入播放列表`);
+  } catch (e) {
+    ElMessage.error(`添加失败: ${(e as Error).message}`);
+  }
+}
 </script>
 
 <template>
@@ -440,6 +465,9 @@ async function onFilePicked(ev: Event): Promise<void> {
             :disabled="uploading" @click="pickFile"
           >
             <Upload :size="14" /> <span>{{ uploading ? `上传中 ${uploadPct}%` : '上传内容' }}</span>
+          </button>
+          <button class="v2-quick" @click="openWebpageDialog">
+            <Globe :size="14" /> 添加网页
           </button>
         </header>
 
@@ -542,6 +570,25 @@ async function onFilePicked(ev: Event): Promise<void> {
             <span v-if="inPlaylist.has(a.id)" class="pick-added">已加入</span>
             <Plus v-else :size="15" />
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 添加网页 dialog — 不跳走, 就在本页建 -->
+    <div v-if="webpageDialog" class="pick-mask" @click.self="webpageDialog = false">
+      <div class="pick-box webpage-box">
+        <header class="pick-head">
+          <span class="pick-title"><Globe :size="16" /> 添加网页</span>
+          <button class="pick-close" @click="webpageDialog = false"><X :size="18" /></button>
+        </header>
+        <div class="wb-hint">网页会进媒体库并直接加入本页播放列表, 可像视频一样推到 LED 大屏</div>
+        <label class="wb-label">名称</label>
+        <input v-model="webpageForm.name" class="wb-input" placeholder="如 公司官网 / 活动大屏 H5" />
+        <label class="wb-label">网址</label>
+        <input v-model="webpageForm.url" class="wb-input" placeholder="https://..." @keyup.enter="submitWebpage" />
+        <div class="wb-actions">
+          <button class="v2-quick" @click="webpageDialog = false">取消</button>
+          <button class="v2-quick primary" @click="submitWebpage">添加</button>
         </div>
       </div>
     </div>
@@ -680,6 +727,15 @@ async function onFilePicked(ev: Event): Promise<void> {
   background: var(--v2-surface, #141c28); border: 1px solid var(--v2-border, #26344a);
   border-radius: 14px; padding: 14px;
 }
+.webpage-box { gap: 6px; }
+.wb-hint { font-size: 12px; color: var(--v2-text-3); margin-bottom: 8px; }
+.wb-label { font-size: 12px; color: var(--v2-text-3); margin-top: 6px; }
+.wb-input {
+  background: rgba(255,255,255,0.04); border: 1px solid var(--v2-border-soft); border-radius: 8px;
+  padding: 10px 12px; color: var(--v2-text-1); font-size: 14px; outline: none; font-family: inherit;
+}
+.wb-input:focus { border-color: var(--v2-primary); }
+.wb-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
 .pick-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .pick-title { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; color: var(--v2-text-1); }
 .pick-tabs { display: flex; gap: 4px; margin-left: auto; }
