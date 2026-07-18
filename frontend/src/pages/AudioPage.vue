@@ -405,6 +405,8 @@ onUnmounted(() => {
   stopPlTimer();
   if (matrixTimer) clearTimeout(matrixTimer); // 不清会在切页面后继续打设备
   if (reconcileTimer) clearTimeout(reconcileTimer); // 同上: 切走后别再对账
+  // 拖推子过程中切页 → 别把锁滚动的全局监听漏在 document 上
+  document.removeEventListener('touchmove', preventScrollWhileDragging);
 });
 async function refreshCurrentScene(): Promise<void> {
   try {
@@ -730,6 +732,18 @@ function onFaderPointerUp(z: AudioRow, ev: PointerEvent): void {
   if (track.hasPointerCapture(ev.pointerId)) track.releasePointerCapture(ev.pointerId);
   void applyVolume(z, z.volume);
 }
+
+/**
+ * 拖推子时锁住整页滚动。业主反馈"手机上动推子时整个画面不稳定": iOS 上
+ * touch-action:none 只管元素自身, 手指一旦拖出推子范围, 底层 touch 照样把页面
+ * 滚起来, 画面就晃。拖动期间在 document 上拦掉 touchmove (必须 passive:false
+ * 才能 preventDefault) 才真正锁死, 松手立刻解除。
+ */
+function preventScrollWhileDragging(e: TouchEvent): void { e.preventDefault(); }
+watch(draggingFaderId, (id) => {
+  if (id) document.addEventListener('touchmove', preventScrollWhileDragging, { passive: false });
+  else document.removeEventListener('touchmove', preventScrollWhileDragging);
+});
 
 async function fadeInVolumes(targets: { z: AudioRow; vol: number }[]): Promise<void> {
   const STEPS = 5;
@@ -1076,15 +1090,17 @@ async function toggleMuteAll(): Promise<void> {
             </button>
           </div>
           <div class="ch-addr v2-inter">{{ z.id.toUpperCase() }}</div>
-          <div class="fader">
-            <div
-              class="fader-track"
-              :class="{ disabled: z.muted }"
-              @pointerdown="onFaderPointerDown(z, $event)"
-              @pointermove="onFaderPointerMove(z, $event)"
-              @pointerup="onFaderPointerUp(z, $event)"
-              @pointercancel="onFaderPointerUp(z, $event)"
-            >
+          <!-- 触摸/拖动接收区是整个 .fader (不是 12px 窄轨) —— 手指粗, 按窄轨极易
+               滑出, 一滑出 iOS 就当页面滚动。整块接收 + 拖动中全局锁滚动才不抖。 -->
+          <div
+            class="fader"
+            :class="{ disabled: z.muted, dragging: draggingFaderId === z.id }"
+            @pointerdown="onFaderPointerDown(z, $event)"
+            @pointermove="onFaderPointerMove(z, $event)"
+            @pointerup="onFaderPointerUp(z, $event)"
+            @pointercancel="onFaderPointerUp(z, $event)"
+          >
+            <div class="fader-track">
               <div class="fader-fill" :style="{ height: z.volume + '%' }"></div>
             </div>
             <div class="fader-thumb" :style="{ bottom: 'calc(' + z.volume + '% - 8px)' }" aria-hidden="true"></div>
@@ -1614,8 +1630,16 @@ async function toggleMuteAll(): Promise<void> {
 .ch-card.muted .fader-thumb { background: #8092ab; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5); }
 /* fader-track 本身就是拖动接收面 (见 onFaderPointerDown/Move/Up) — 不用透明
    range 输入盖一层了, 见上面 script 里那段改法说明 */
-.fader-track { cursor: pointer; touch-action: none; }
-.fader-track.disabled { cursor: not-allowed; }
+/* 触摸/拖动接收区是整个 .fader (见模板注释 + onFaderPointer*)。touch-action:none
+   阻止该区域自身的滚动手势; 手指拖出范围后的全局锁滚动在 script 里
+   (preventScrollWhileDragging)。两层一起才治得住"动推子整个画面晃"。 */
+.fader { cursor: pointer; touch-action: none; }
+.fader.disabled { cursor: not-allowed; }
+.fader-track { touch-action: none; }
+/* 拖动中禁掉 fill/thumb 的追赶动画 —— 值在快速变, 0.22s 缓动会一路"追"着走, 看着
+   就是抖/滞后。松手后 (非 dragging) 恢复, 单击 / 程序改值仍有平滑过渡。 */
+.fader.dragging .fader-fill,
+.fader.dragging .fader-thumb { transition: none; }
 
 .vol-value { font-size: 15px; font-weight: 700; color: var(--v2-text-1); text-align: center; flex-shrink: 0; }
 .ch-card:not(.muted) .vol-value { color: #6BFFB9; text-shadow: var(--v2-text-glow-success); }
