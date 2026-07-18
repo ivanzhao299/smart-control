@@ -194,22 +194,53 @@ function startPlTimer(dur: number | null): void {
   }, 300);
 }
 
+/**
+ * 2026-07-18 业主反馈: "播放进度条不稳定"。根因之一: 部分 mp3 是 VBR 编码,
+ * Chrome 读 loadedmetadata 那一刻经常给出 duration=Infinity (要扫完整个文件
+ * 才知道真实时长, 浏览器不会现扫), 原来的代码遇到这种情况直接判定"探测失败"
+ * 返回 null——那首歌的 plTimerDuration 就成了 0, 进度条压根不走; 换一首没有
+ * 这个问题的曲子进度条又正常, 看起来就是"时好时不好"。
+ * 标准 workaround: seek 到一个远超正常时长的位置, 逼浏览器把文件扫完并触发
+ * durationchange 给出真实值。
+ */
 async function detectDuration(mediaId: number): Promise<number | null> {
   return new Promise((resolve) => {
     const audio = new Audio();
     audio.preload = 'metadata';
-    const timer = setTimeout(() => { audio.src = ''; resolve(null); }, 6000);
-    audio.addEventListener('loadedmetadata', () => {
+    const timer = setTimeout(() => finish(null), 6000);
+    function finish(d: number | null): void {
       clearTimeout(timer);
-      const d = audio.duration;
       audio.src = '';
-      resolve(isFinite(d) && d > 0 ? d : null);
+      resolve(d);
+    }
+    function tryResolve(): boolean {
+      const d = audio.duration;
+      if (isFinite(d) && d > 0) { finish(d); return true; }
+      return false;
+    }
+    audio.addEventListener('loadedmetadata', () => {
+      if (tryResolve()) return;
+      // duration 是 Infinity/NaN (常见于 VBR mp3) —— 等 durationchange, 同时
+      // seek 到远处强制浏览器扫完整个文件算出真实时长
+      audio.addEventListener('durationchange', tryResolve, { once: true });
+      try { audio.currentTime = 1e7; } catch { /* 极少数浏览器直接拒绝这么大的 seek, 忽略, 等超时兜底 */ }
     }, { once: true });
-    audio.addEventListener('error', () => { clearTimeout(timer); resolve(null); }, { once: true });
+    audio.addEventListener('error', () => finish(null), { once: true });
     audio.src = absUrl(`/api/media/${mediaId}/file`);
   });
 }
 
+/**
+ * 行点击 = 播放该曲目, 但这一行正在改名时不能触发——不然点名字进编辑态、
+ * 或者双击名字确认改名的过程中, 冒泡上来的 click 会先把 playAt 打了一遍,
+ * 版本早的时候名字上只有 dblclick.stop, 单击 (双击的前半段) 照样冒泡到这里,
+ * 改着改着歌就换了, 改名输入框也跟着被换掉的那次渲染打断, 状态卡住看着像
+ * "没保存也退不出编辑"。名字文字本身现在也加了 click.stop, 这里再兜底一层。
+ */
+function onPlRowClick(i: number, item: PlItem): void {
+  if (plEditingId.value === item.itemId) return;
+  void playAt(i);
+}
 async function playAt(i: number): Promise<void> {
   if (playlist.value.length === 0 || i < 0) return;
   const idx = ((i % playlist.value.length) + playlist.value.length) % playlist.value.length;
@@ -642,11 +673,44 @@ async function applyVolume(z: AudioRow, value: number): Promise<void> {
     ElMessage.error(`${z.name} 音量调节失败: ${z.error}`);
   }
 }
-function onVolInput(z: AudioRow, ev: Event): void {
-  z.volume = Number((ev.target as HTMLInputElement).value);
+/**
+ * 竖向推子交互 —— 不用 <input type="range"> 了。
+ *
+ * 2026-07-18 业主反馈: "分区音量推子不稳定,点击推子时随之漂动"。根因:
+ * 原来是原生 range 输入伪装成竖向 (writing-mode: vertical-lr + direction: rtl,
+ * 再叠一层 -webkit-appearance: slider-vertical 兜底), 三种手法一起糊上去。
+ * 这类 CSS hack 让浏览器算"点在轨道哪个位置"时经常算错——尤其是**单击**(不是
+ * 拖拽)瞬间, 不同 Chrome/Edge 版本对 vertical-lr+rtl 的命中判定不一致, 点下去
+ * 报的初始值和手指/鼠标实际位置对不上, 看着就是"一点就跳到别的地方"。
+ * 拖拽本身还好 (相对位移一般能跟手), 问题集中在点下那一下。
+ *
+ * 改法: 自己接管 pointerdown/move/up, 用轨道的 getBoundingClientRect() 直接
+ * 算百分比, 不依赖浏览器对 range 输入方向的内部换算, 点哪就是哪。
+ */
+const draggingFaderId = ref<string | null>(null);
+function faderPercentFromY(track: HTMLElement, clientY: number): number {
+  const rect = track.getBoundingClientRect();
+  const ratio = rect.height > 0 ? (rect.bottom - clientY) / rect.height : 0;
+  const raw = Math.max(0, Math.min(100, ratio * 100));
+  return Math.round(raw / 5) * 5; // 跟原来 step=5 对齐
 }
-function onVolChange(z: AudioRow, ev: Event): void {
-  void applyVolume(z, Number((ev.target as HTMLInputElement).value));
+function onFaderPointerDown(z: AudioRow, ev: PointerEvent): void {
+  if (z.muted) return;
+  const track = ev.currentTarget as HTMLElement;
+  track.setPointerCapture(ev.pointerId);
+  draggingFaderId.value = z.id;
+  z.volume = faderPercentFromY(track, ev.clientY);
+}
+function onFaderPointerMove(z: AudioRow, ev: PointerEvent): void {
+  if (draggingFaderId.value !== z.id) return;
+  z.volume = faderPercentFromY(ev.currentTarget as HTMLElement, ev.clientY);
+}
+function onFaderPointerUp(z: AudioRow, ev: PointerEvent): void {
+  if (draggingFaderId.value !== z.id) return;
+  draggingFaderId.value = null;
+  const track = ev.currentTarget as HTMLElement;
+  if (track.hasPointerCapture(ev.pointerId)) track.releasePointerCapture(ev.pointerId);
+  void applyVolume(z, z.volume);
 }
 
 async function fadeInVolumes(targets: { z: AudioRow; vol: number }[]): Promise<void> {
@@ -906,7 +970,7 @@ async function toggleMuteAll(): Promise<void> {
             :key="i"
             class="bgm-pl-row"
             :class="{ active: i === plIdx }"
-            @click="playAt(i)"
+            @click="onPlRowClick(i, item)"
           >
             <div class="bgm-pl-idx">
               <Volume2 v-if="i === plIdx" :size="12" :stroke-width="2" class="bgm-pl-anim" />
@@ -920,7 +984,7 @@ async function toggleMuteAll(): Promise<void> {
               @click.stop @keyup.enter="commitRenamePl(item)"
               @keyup.esc="plEditingId = null" @blur="commitRenamePl(item)"
             />
-            <div v-else class="bgm-pl-name" :title="item.name" @dblclick.stop="startRenamePl(item)">
+            <div v-else class="bgm-pl-name" :title="item.name" @click.stop @dblclick.stop="startRenamePl(item)">
               {{ item.name }}
               <i v-if="item.missing" class="bgm-pl-missing">媒体已删除</i>
             </div>
@@ -995,20 +1059,17 @@ async function toggleMuteAll(): Promise<void> {
           </div>
           <div class="ch-addr v2-inter">{{ z.id.toUpperCase() }}</div>
           <div class="fader">
-            <div class="fader-track">
+            <div
+              class="fader-track"
+              :class="{ disabled: z.muted }"
+              @pointerdown="onFaderPointerDown(z, $event)"
+              @pointermove="onFaderPointerMove(z, $event)"
+              @pointerup="onFaderPointerUp(z, $event)"
+              @pointercancel="onFaderPointerUp(z, $event)"
+            >
               <div class="fader-fill" :style="{ height: z.volume + '%' }"></div>
             </div>
             <div class="fader-thumb" :style="{ bottom: 'calc(' + z.volume + '% - 8px)' }" aria-hidden="true"></div>
-            <input
-              type="range"
-              orient="vertical"
-              :value="z.volume"
-              :min="0" :max="100" :step="5"
-              :disabled="z.muted"
-              class="fader-input"
-              @input="onVolInput(z, $event)"
-              @change="onVolChange(z, $event)"
-            />
           </div>
           <button class="v2-toggle" :class="{ on: !z.muted }" @click="toggleMute(z)"></button>
           <span class="vol-value v2-inter">{{ z.volume }}<span class="pct">%</span></span>
@@ -1533,15 +1594,10 @@ async function toggleMuteAll(): Promise<void> {
   background: rgba(0, 0, 0, 0.22); border-radius: 1px;
 }
 .ch-card.muted .fader-thumb { background: #8092ab; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5); }
-/* 透明竖向 range 盖在整条上接收触摸拖动 (底=0 顶=100) */
-.fader-input {
-  position: absolute; inset: 0; width: 100%; height: 100%;
-  margin: 0; opacity: 0; cursor: pointer; touch-action: none;
-  writing-mode: vertical-lr; direction: rtl;
-  -webkit-appearance: slider-vertical; appearance: slider-vertical;
-  z-index: 3;
-}
-.fader-input:disabled { cursor: not-allowed; }
+/* fader-track 本身就是拖动接收面 (见 onFaderPointerDown/Move/Up) — 不用透明
+   range 输入盖一层了, 见上面 script 里那段改法说明 */
+.fader-track { cursor: pointer; touch-action: none; }
+.fader-track.disabled { cursor: not-allowed; }
 
 .vol-value { font-size: 15px; font-weight: 700; color: var(--v2-text-1); text-align: center; flex-shrink: 0; }
 .ch-card:not(.muted) .vol-value { color: #6BFFB9; text-shadow: var(--v2-text-glow-success); }
