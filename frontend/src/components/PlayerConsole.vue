@@ -240,10 +240,13 @@ const inPlaylist = computed(() => new Set(playlist.value.map((x) => x.mediaId)))
 // ============ 输入源切换 (业主: "在工具栏页面可以切换各种输入源") ============
 // 诺瓦控制器支持的源见 nova-vx1000-protocol.ts: HDMI1=0x11 / HDMI2=0x12,
 // 另外 welcome(欢迎页) / video(播我们推的内容) 是控制器的内置动作。
+// 2026-07-18 业主: "大屏没声音", 排查发现真因是 HDMI1/HDMI2 直通选项容易被误切到 ——
+// 切过去以后, 控制器显示的是外部 HDMI 信号源, 不是我们这套播控系统推的内容/声音,
+// 平台这边完全不知道、也管不了。协议又没有"当前源"回读命令 (见下面 lastInput 那条
+// 注释), 误切了只能靠人眼现场发现, 排查成本很高。业主原话: "直接删掉, 避免错乱"——
+// 干脆不给这个误触的入口, 只留我们真正会用到的两个源。
 const INPUTS: Array<{ v: LedInput; label: string; hint: string }> = [
   { v: 'video',   label: '播放内容', hint: '播我们从这里推的视频/图片' },
-  { v: 'HDMI1',   label: 'HDMI1',   hint: '切到 HDMI1 输入' },
-  { v: 'HDMI2',   label: 'HDMI2',   hint: '切到 HDMI2 输入' },
   { v: 'welcome', label: '欢迎页',   hint: '控制器内置欢迎画面' },
 ];
 /** 当前源没法从设备回读 (协议没有查询命令), 所以只记我们自己发过什么, 不假装知道 */
