@@ -19,15 +19,12 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: { '@': resolve(__dirname, 'src') },
     },
-    // preview (生产 serve) 加缓存头让 PWA 资源走浏览器缓存
+    // preview (生产 serve) 的缓存头按路径区分, 见下面 cache-control-by-path 插件
+    // (不能用这里的 headers 选项 —— 它是全局的, 会把 index.html 也一起缓成"一年不过期")
     preview: {
       host: '0.0.0.0',
       port: 5173,
       strictPort: true,
-      headers: {
-        // hash 化的 assets 永久缓存 (vite 文件名带 hash, 改动会换名)
-        'Cache-Control': 'public, max-age=31536000, immutable',
-      },
     },
     server: {
       host: '0.0.0.0',
@@ -42,6 +39,30 @@ export default defineConfig(({ mode }) => {
       },
     },
     plugins: [
+      // 2026-07-18 根因: 之前 preview.headers 是全局的, 把 index.html / sw.js /
+      // manifest.webmanifest 全都跟着 hash 化的 /assets/*.js|css 一起缓成了
+      // "一年不过期、免验证" —— 结果任何浏览器只要访问过一次这个页面, 之后不管
+      // 服务器上部署了多少次新代码, 都会一直吃本地那份一年前的 index.html, 连
+      // "下拉刷新""换个浏览器试试"都救不了 (immutable 意味着浏览器根本不会发请求
+      // 去验证是否过期)。业主反馈"不同浏览器都不行, 底栏还是在老位置"就是这个:
+      // 每个浏览器第一次打开时各自缓了一份旧的, 从此各自动弹不得。
+      // 同样道理, sw.js 被缓死也顺带解释了"添加到主屏幕后图标/内容不自动更新"——
+      // service worker 自己的更新检测得先能拿到新版 sw.js 才谈得上生效。
+      // 只有文件名带 content hash 的 /assets/* 才能安全永久缓存 (内容变化=文件名
+      // 变化); index.html / manifest / sw 这些固定文件名的必须每次都找服务器验证。
+      {
+        name: 'cache-control-by-path',
+        configurePreviewServer(server) {
+          server.middlewares.use((req, res, next) => {
+            const isHashedAsset = !!req.url && /\/assets\//.test(req.url);
+            res.setHeader(
+              'Cache-Control',
+              isHashedAsset ? 'public, max-age=31536000, immutable' : 'no-cache',
+            );
+            next();
+          });
+        },
+      },
       vue(),
       AutoImport({ resolvers: [ElementPlusResolver()] }),
       Components({ resolvers: [ElementPlusResolver()] }),
