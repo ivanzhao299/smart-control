@@ -36,11 +36,36 @@ function Invoke-Mci([string]$cmd) {
   return $sb.ToString()
 }
 
+# Lightweight log. This daemon used to have NO logging at all -- when background
+# music misbehaved, the only tools were an audio-endpoint peak probe + guesswork
+# (cost a full day once). Log STATE CHANGES only (never the every-3s poll):
+# track changes, download / MCI failures, advance, backend up/down transitions.
+$logFile = Join-Path (Split-Path -Parent $PSScriptRoot) 'logs\bgm-player.log'
+function Log([string]$msg) {
+  try { Add-Content -Path $logFile -Value (('{0} {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $msg)) -Encoding UTF8 } catch {}
+}
+# roll the log if it got big, so a months-running daemon can't fill the disk
+try { if ((Test-Path $logFile) -and (Get-Item $logFile).Length -gt 1MB) { Clear-Content $logFile -ErrorAction SilentlyContinue } } catch {}
+Log 'bgm-player started'
+
+# MCI with return-code check. mciSendString returns 0 on success, non-zero on
+# error; plain Invoke-Mci above throws that away, so a failed open/play went
+# SILENT -- the daemon set "now playing X" but nothing actually came out, and it
+# sat stuck forever. Use this for the state-changing commands (open/play/close)
+# so failures get logged and the track is retried instead of faked.
+function Invoke-MciChecked([string]$cmd, [string]$label) {
+  $sb = New-Object System.Text.StringBuilder 256
+  $code = [Win32Audio.MCI]::mciSendString($cmd, $sb, 256, [IntPtr]::Zero)
+  if ($code -ne 0) { Log ('MCI FAIL [' + $label + '] code=' + $code) }
+  return ($code -eq 0)
+}
+
 $apiBase = 'http://127.0.0.1:3200'
 $tmpFile = Join-Path $env:TEMP 'sc-bgm.mp3'
 $curId = $null
 $opened = $false
 $localPaused = $false
+$backendReachable = $true   # only used to log up/down transitions once each
 
 function To-Abs([string]$u) {
   if ([string]::IsNullOrEmpty($u)) { return $null }
@@ -56,6 +81,7 @@ Invoke-Mci 'close all' | Out-Null
 while ($true) {
   try {
     $resp = Invoke-WebRequest -UseBasicParsing "$apiBase/api/playback/channels" -TimeoutSec 6
+    if (-not $backendReachable) { Log 'backend reachable again'; $backendReachable = $true }
     $ch = ($resp.Content | ConvertFrom-Json).data | Where-Object { $_.slot -eq 3 }
     $mid = $ch.currentMediaId
     $murl = [string]$ch.currentMediaUrl
@@ -74,10 +100,23 @@ while ($true) {
       if ($abs) {
         try {
           Invoke-WebRequest -UseBasicParsing $abs -OutFile $tmpFile -TimeoutSec 30
-          Invoke-Mci ('open "' + $tmpFile + '" alias bgm') | Out-Null
-          Invoke-Mci 'play bgm' | Out-Null
-          $opened = $true; $curId = "$mid"; $localPaused = $false
-        } catch {}
+          # open + play WITH return-code checks. If either fails, do NOT fake
+          # "now playing" -- close, leave $curId null so the next poll retries,
+          # instead of sitting stuck forever on a track that never started.
+          $ok = (Invoke-MciChecked ('open "' + $tmpFile + '" alias bgm') 'open') `
+            -and (Invoke-MciChecked 'play bgm' 'play')
+          if ($ok) {
+            $opened = $true; $curId = "$mid"; $localPaused = $false
+            Log ('playing media ' + $mid)
+          } else {
+            Invoke-Mci 'close bgm' | Out-Null
+            $opened = $false; $curId = $null
+            Start-Sleep -Milliseconds 500  # don't hot-loop the CPU on a bad track
+          }
+        } catch {
+          Log ('download failed for media ' + $mid + ': ' + $_.Exception.Message)
+          $opened = $false; $curId = $null
+        }
       }
     }
     else {
@@ -113,7 +152,9 @@ while ($true) {
           try {
             Invoke-WebRequest -UseBasicParsing -Method Post "$apiBase/api/playback/channels/3/advance" -TimeoutSec 6 | Out-Null
             $curId = $null
+            Log 'track finished -> asked backend to advance'
           } catch {
+            Log 'advance failed (backend down?), replaying current track'
             Invoke-Mci 'seek bgm to start' | Out-Null
             Invoke-Mci 'play bgm' | Out-Null
           }
@@ -123,6 +164,10 @@ while ($true) {
 
     # heartbeat so PWA audio page shows "player online"
     try { Invoke-WebRequest -UseBasicParsing -Method Post "$apiBase/api/playback/channels/3/heartbeat" -TimeoutSec 4 | Out-Null } catch {}
-  } catch { }
+  } catch {
+    # backend momentarily down (deploy / restart) is normal; log the transition
+    # ONCE, not every 3s. Music keeps playing whatever it already has; just wait.
+    if ($backendReachable) { Log ('backend unreachable: ' + $_.Exception.Message); $backendReachable = $false }
+  }
   Start-Sleep -Seconds 3
 }

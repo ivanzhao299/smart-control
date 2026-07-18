@@ -68,9 +68,12 @@ onMounted(async () => {
   unsubscribeWs = wsClient.on(handleWs);
   wsClient.connect();
 
-  // 立刻一次心跳, 然后每 30s 一次
+  // 立刻一次心跳, 然后每 30s 一次。顺带每轮 fetchChannel 兜底: WS 是零延迟切素材
+  // 的主路径, 但 WS 万一长时间断线 (网络抖动 / 后端重启后重连失败), 光靠 WS 就再也
+  // 收不到切换事件, 大屏会卡在旧素材上。加一条 30s 轮询 —— WS 通时它拉到的跟 WS
+  // 推的一样 (幂等无害), WS 断时它就是唯一能把新素材切上来的兜底。
   void sendHeartbeat();
-  heartbeatTimer = window.setInterval(() => void sendHeartbeat(), 30_000);
+  heartbeatTimer = window.setInterval(() => { void sendHeartbeat(); void fetchChannel(); }, 30_000);
 
   // HDMI 音频路由重试: 只有 slot1/2 (视频) 需要, routeVideoAudio 内部已经检查过
   // slot, 这里无脑每 5s 试一次, 成功了自己会清掉这个定时器, 便宜且没有副作用
