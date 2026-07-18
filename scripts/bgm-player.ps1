@@ -91,22 +91,32 @@ while ($true) {
           Invoke-Mci 'resume bgm' | Out-Null; $localPaused = $false
         }
         elseif (-not $localPaused -and $mode -match 'stopped') {
-          # 2026-07-18: this used to require loopMode=='loop' to restart, and
-          # that was the actual root cause of "BGM has no sound": AudioPage.vue
-          # drives its playlist entirely client-side (a setInterval counts down
-          # the track length in whoever's browser has that page open, then calls
-          # playAt() for the next track; every playAt() explicitly publishes
-          # loopMode='once'). Nobody keeps that browser tab open forever, so as
-          # soon as it closes, the current track finishes, MCI reports stopped,
-          # loopMode is 'once' -> this branch used to do nothing -> silent
-          # forever until someone manually hits play again.
-          # This slot is BGM-only; there is no legitimate "play once then stay
-          # silent forever" case here (unlike the LED slots, where 'once' means
-          # freeze on the last frame). Whatever loopMode says, if nobody asked
-          # to pause/stop, there should always be sound. An unexpected "replays
-          # the current track" beats an unexpected "goes silent".
-          Invoke-Mci 'seek bgm to start' | Out-Null
-          Invoke-Mci 'play bgm' | Out-Null
+          # Current track finished -> let the BACKEND advance per the play mode
+          # (seq / loop1 / loopAll / shuffle). This is the core of the 2026-07-18
+          # root-cause fix: the "what plays next" logic now lives in the backend
+          # and is driven by THIS daemon -- the thing that actually makes sound --
+          # NOT by a setInterval in whoever's browser has the audio page open.
+          # That browser dependency was the real root cause of the day-long
+          # "BGM keeps going silent" saga: close the tab and there was simply no
+          # next track, so it stopped for good. Now bgm-player itself asks the
+          # backend to advance, so background music plays on with nobody watching.
+          #
+          # After POST advance the backend has set the new currentMediaId (or
+          # republished the same one for loop1, or gone idle for seq-finished).
+          # We clear $curId to null so the NEXT poll unconditionally reloads and
+          # plays whatever the backend now points at -- next-track / replay /
+          # idle(null) all fall out of the existing top-level branches, and
+          # clearing $curId also debounces (next loop takes the "changed" branch,
+          # not this "stopped" branch, so advance can't double-fire).
+          # If advance fails (backend momentarily down), fall back to replaying
+          # the current track so BGM never goes fully silent.
+          try {
+            Invoke-WebRequest -UseBasicParsing -Method Post "$apiBase/api/playback/channels/3/advance" -TimeoutSec 6 | Out-Null
+            $curId = $null
+          } catch {
+            Invoke-Mci 'seek bgm to start' | Out-Null
+            Invoke-Mci 'play bgm' | Out-Null
+          }
         }
       }
     }

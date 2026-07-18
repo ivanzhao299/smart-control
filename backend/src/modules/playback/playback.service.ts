@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Repository, In } from 'typeorm';
 import { Logger } from 'winston';
-import { PlaybackChannel } from '../../entities/playback-channel.entity';
+import { PlaybackChannel, type PlaybackPlayMode } from '../../entities/playback-channel.entity';
 import { PlaylistItem } from '../../entities/playlist-item.entity';
 import { PlaybackHistory } from '../../entities/playback-history.entity';
 import { MediaService } from '../media/media.service';
@@ -23,6 +23,7 @@ export interface PlaybackChannelView {
   playlistIndex: number;
   startedAt: string | null;
   loopMode: 'once' | 'loop';
+  playMode: PlaybackPlayMode;
   paused: boolean;
   lastHeartbeatAt: string | null;
   /** PlayerPage 还活着吗 — 超过 90s 没心跳就 stale */
@@ -225,6 +226,71 @@ export class PlaybackService implements OnModuleInit {
     return this.publishMedia(slot, list[next].mediaId, { loopMode: row.loopMode as 'once' | 'loop' });
   }
 
+  // ============ 自动推进 (背景音乐一首播完后, bgm-player 触发) ============
+
+  /**
+   * 一首播完后自动推进 —— bgm-player.ps1 播完当前曲就 POST /channels/:slot/advance.
+   *
+   * 这是"背景音乐不依赖任何人开着网页也能一直放"的核心: 推进逻辑放后端, 由真正
+   * 出声的 bgm-player 守护触发, 而不是靠某个浏览器 tab 的 JS 定时器 (那正是搞了一天
+   * 反复没声的病根 —— tab 一关就没有下一首了)。按 playMode 决定下一步:
+   *   loop1   重播当前这首
+   *   seq     下一首; 已是最后一首 → 停 (回待机)
+   *   shuffle 随机一首 (多首时不重复当前)
+   *   loopAll 环形下一首 (到末尾绕回第一首) —— 默认
+   * 当前曲不在列表 (从媒体库临时推的) / 列表空: 有当前曲就重播它, 否则不动, 从任何
+   * 状态都不会卡死。
+   */
+  async advance(slot: number): Promise<PlaybackChannelView> {
+    const row = await this.repo.findOne({ where: { slot } });
+    if (!row) throw new NotFoundException(`slot=${slot} 不存在`);
+    const mode: PlaybackPlayMode = row.playMode ?? 'loopAll';
+
+    // 单曲循环: 直接重播当前 (不看列表)
+    if (mode === 'loop1' && row.currentMediaId !== null) {
+      return this.publishMedia(slot, row.currentMediaId, { loopMode: row.loopMode });
+    }
+
+    const list = await this.plRepo.find({ where: { slot }, order: { sortOrder: 'ASC', id: 'ASC' } });
+
+    // 列表空: 无从推进. 有当前曲就重播 (别让背景音乐彻底停), 否则不动.
+    if (list.length === 0) {
+      if (row.currentMediaId !== null) return this.publishMedia(slot, row.currentMediaId, { loopMode: row.loopMode });
+      return this.toView(row);
+    }
+
+    const cur = list.findIndex((x) => x.mediaId === row.currentMediaId);
+
+    if (mode === 'shuffle') {
+      let pick = cur;
+      if (list.length > 1) { while (pick === cur) pick = Math.floor(Math.random() * list.length); }
+      else pick = 0;
+      return this.publishMedia(slot, list[pick].mediaId, { loopMode: row.loopMode });
+    }
+
+    if (mode === 'seq') {
+      if (cur < 0) return this.publishMedia(slot, list[0].mediaId, { loopMode: row.loopMode });
+      if (cur >= list.length - 1) return this.stop(slot); // 顺序播到底 → 待机
+      return this.publishMedia(slot, list[cur + 1].mediaId, { loopMode: row.loopMode });
+    }
+
+    // loopAll (默认): 环形下一首
+    const next = cur < 0 ? 0 : (cur + 1) % list.length;
+    return this.publishMedia(slot, list[next].mediaId, { loopMode: row.loopMode });
+  }
+
+  /** 设背景音乐播放模式 (前端点 顺序/单曲/列表/随机). 存后端, bgm-player advance 时读它. */
+  async setPlayMode(slot: number, mode: PlaybackPlayMode): Promise<PlaybackChannelView> {
+    const row = await this.repo.findOne({ where: { slot } });
+    if (!row) throw new NotFoundException(`slot=${slot} 不存在`);
+    row.playMode = mode;
+    await this.repo.save(row);
+    const view = await this.toView(row);
+    this.broadcast(view);
+    this.logger.info(`[Playback] slot=${slot} → playMode=${mode}`);
+    return view;
+  }
+
   // ============ 播放历史 ============
 
   /**
@@ -327,6 +393,7 @@ export class PlaybackService implements OnModuleInit {
       playlistIndex: row.playlistIndex,
       startedAt: row.startedAt ? row.startedAt.toISOString() : null,
       loopMode: row.loopMode,
+      playMode: row.playMode ?? 'loopAll',
       paused: row.paused ?? false,
       lastHeartbeatAt: row.lastHeartbeatAt ? row.lastHeartbeatAt.toISOString() : null,
       alive,

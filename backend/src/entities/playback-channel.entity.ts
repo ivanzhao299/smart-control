@@ -3,6 +3,16 @@ import { Column, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from 
 export type PlaybackLoopMode = 'once' | 'loop';
 
 /**
+ * 播放列表推进模式 (背景音乐 slot3 用). 一首播完后 bgm-player 调 advance,
+ * 后端按这个模式决定下一首:
+ *   seq     顺序播, 到最后一首就停 (回待机)
+ *   loop1   单曲循环 (一直重播当前这首)
+ *   loopAll 列表循环 (到末尾绕回第一首) —— 背景音乐默认, 业主要的"一直放"
+ *   shuffle 随机 (不重复当前那首)
+ */
+export type PlaybackPlayMode = 'seq' | 'loop1' | 'loopAll' | 'shuffle';
+
+/**
  * 播控通道 (PlaybackChannel) — GK9000 的 一个物理 HDMI 输出 + 它当前在播什么.
  *
  * 现场硬件接线 (2026-05-31 确认):
@@ -56,6 +66,14 @@ export class PlaybackChannel {
   /** 单文件 once 模式 = 播完待机; loop = 循环单文件. playlist 模式由 playlist 自身定 */
   @Column({ type: 'varchar', length: 16, default: 'once' })
   loopMode!: PlaybackLoopMode;
+
+  /**
+   * 播放列表推进模式 (背景音乐 slot3). 一首播完 bgm-player 调 advance, 后端按
+   * 这个决定下一首 (seq/loop1/loopAll/shuffle). 默认 loopAll = 列表循环, 让背景
+   * 音乐不依赖任何人开着网页就能自己一直放下去. slot1/2 (LED/投影) 不用它.
+   */
+  @Column({ type: 'varchar', length: 16, default: 'loopAll' })
+  playMode!: PlaybackPlayMode;
 
   /** 暂停标志 — bgm-player.ps1 轮询到后调 MCI pause/resume */
   @Column({ type: 'boolean', default: false })

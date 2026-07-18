@@ -77,6 +77,30 @@ export class PlaybackController {
     return { message: '已切到上一个', data: await this.service.step(slot, -1) };
   }
 
+  /**
+   * 一首播完自动推进 —— bgm-player.ps1 播完当前曲就调这个, 后端按 playMode 决定
+   * 下一首。这是"背景音乐不靠任何人开网页也能一直放"的核心 (见 service.advance)。
+   */
+  @Post('channels/:slot/advance')
+  @HttpCode(200)
+  async advance(@Param('slot', ParseIntPipe) slot: number) {
+    return { message: '已推进', data: await this.service.advance(slot) };
+  }
+
+  /** 设背景音乐播放模式 (顺序/单曲/列表/随机). 前端点模式按钮时调, 存后端. */
+  @Post('channels/:slot/play-mode')
+  @HttpCode(200)
+  async playMode(
+    @Param('slot', ParseIntPipe) slot: number,
+    @Body() body: { mode?: string } = {},
+  ) {
+    const valid = ['seq', 'loop1', 'loopAll', 'shuffle'];
+    if (!body?.mode || !valid.includes(body.mode)) {
+      throw new BadRequestException(`mode 必须是 ${valid.join('/')}`);
+    }
+    return { message: '播放模式已保存', data: await this.service.setPlayMode(slot, body.mode as 'seq' | 'loop1' | 'loopAll' | 'shuffle') };
+  }
+
   @Get('channels')
   async list() {
     return { message: '查询成功', data: await this.service.list() };

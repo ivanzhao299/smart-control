@@ -510,6 +510,8 @@ export interface PlaybackChannelView {
   playlistIndex: number;
   startedAt: string | null;
   loopMode: 'once' | 'loop';
+  /** 背景音乐播放列表推进模式 (slot3): 顺序/单曲/列表循环/随机. 后端存, bgm-player 读 */
+  playMode: 'seq' | 'loop1' | 'loopAll' | 'shuffle';
   paused: boolean;
   lastHeartbeatAt: string | null;
   alive: boolean;

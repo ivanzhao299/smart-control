@@ -90,3 +90,7 @@ export const nextInPlaylist = (slot: number) =>
   api.post<PlaybackChannelView>(`/playback/channels/${slot}/next`);
 export const prevInPlaylist = (slot: number) =>
   api.post<PlaybackChannelView>(`/playback/channels/${slot}/prev`);
+
+/** 设背景音乐播放模式 (顺序/单曲/列表/随机) — 存后端, bgm-player 播完 advance 时读它 */
+export const setChannelPlayMode = (slot: number, mode: 'seq' | 'loop1' | 'loopAll' | 'shuffle') =>
+  api.post<PlaybackChannelView>(`/playback/channels/${slot}/play-mode`, { mode });

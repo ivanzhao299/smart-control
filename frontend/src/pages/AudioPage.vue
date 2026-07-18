@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useRouter, useRoute } from 'vue-router';
 import {
@@ -14,6 +14,7 @@ import {
   addToPlaylist as apiAddToPlaylist,
   removeFromPlaylist as apiRemoveFromPlaylist,
   renamePlaylistItem as apiRenamePlaylistItem,
+  setChannelPlayMode,
 } from '@/services/playback.service';
 import { mediaService } from '@/services/media.service';
 
@@ -177,7 +178,9 @@ function resumePlTimer(): void {
   plTimer = setInterval(() => {
     const elapsed = plTimerElapsed + (Date.now() - plTimerSegStart) / 1000;
     plProgress.value = Math.min(100, (elapsed / plTimerDuration) * 100);
-    if (elapsed >= plTimerDuration) { stopPlTimer(); plTimerElapsed = 0; onTrackEnd(); }
+    // 到点只停 + 进度拉满; 切下一首/循环由后端 bgm-player advance 触发, 前端不再
+    // 自驱切歌 (进度条纯视觉估算)。后端换曲后 WS 广播 → watch(currentMediaId) 重启进度。
+    if (elapsed >= plTimerDuration) { stopPlTimer(); plProgress.value = 100; }
   }, 300);
 }
 function startPlTimer(dur: number | null): void {
@@ -190,7 +193,9 @@ function startPlTimer(dur: number | null): void {
   plTimer = setInterval(() => {
     const elapsed = plTimerElapsed + (Date.now() - plTimerSegStart) / 1000;
     plProgress.value = Math.min(100, (elapsed / plTimerDuration) * 100);
-    if (elapsed >= plTimerDuration) { stopPlTimer(); plTimerElapsed = 0; onTrackEnd(); }
+    // 到点只停 + 进度拉满; 切下一首/循环由后端 bgm-player advance 触发, 前端不再
+    // 自驱切歌 (进度条纯视觉估算)。后端换曲后 WS 广播 → watch(currentMediaId) 重启进度。
+    if (elapsed >= plTimerDuration) { stopPlTimer(); plProgress.value = 100; }
   }, 300);
 }
 
@@ -244,33 +249,36 @@ function onPlRowClick(i: number, item: PlItem): void {
 async function playAt(i: number): Promise<void> {
   if (playlist.value.length === 0 || i < 0) return;
   const idx = ((i % playlist.value.length) + playlist.value.length) % playlist.value.length;
-  plIdx.value = idx;
   const item = playlist.value[idx];
   try {
-    await playbackStore.publish(3, item.id, 'once');
-    // Use cached duration; if missing, detect from audio file header (metadata only, no download)
-    let dur = item.durationSec;
-    if (!dur) {
-      dur = await detectDuration(item.id);
-      if (dur) item.durationSec = dur; // cache for later tracks
-    }
-    startPlTimer(dur);
+    // 只"发起播放": 推给后端 → 后端置 currentMediaId → WS 广播 → watch(currentMediaId)
+    // 统一更新高亮和进度条。前端不再自己维护一套播放状态 (前端一套 + 后端一套互相
+    // 打架, 正是这个背景音乐反复没声的病根)。loopMode 传 'loop' 只是让单曲能先响;
+    // 真正的"下一首/循环/随机"由后端按 playMode 在 bgm-player advance 时决定。
+    await playbackStore.publish(3, item.id, 'loop');
   } catch (e) { ElMessage.error(`播放失败: ${(e as Error).message}`); }
 }
-function nextIdx(): number {
-  const len = playlist.value.length;
-  if (len === 0) return -1;
-  if (playMode.value === 'seq') return plIdx.value < len - 1 ? plIdx.value + 1 : -1;
-  if (playMode.value === 'loop1') return plIdx.value;
-  if (playMode.value === 'loopAll') return (plIdx.value + 1) % len;
-  if (len === 1) return 0;
-  const others = Array.from({ length: len }, (_, k) => k).filter((k) => k !== plIdx.value);
-  return others[Math.floor(Math.random() * others.length)];
+/**
+ * 前端"跟随"后端 —— 当前在播哪首完全由后端说了算 (用户点歌 / bgm-player 按 playMode
+ * 自动推进, 都会改后端 currentMediaId → WS 广播 → 这里)。前端只负责把高亮和进度条
+ * 对上, 不再自己算"下一首"。原来那套前端 nextIdx/onTrackEnd 自驱推进跟后端打架,
+ * 是背景音乐反复没声的根源, 已删。
+ */
+async function syncPlaybackFromChannel(mid: number | null | undefined): Promise<void> {
+  if (!mid) { plIdx.value = -1; stopPlTimer(); plProgress.value = 0; return; }
+  const i = playlist.value.findIndex((p) => p.id === mid);
+  plIdx.value = i; // i=-1 = 当前曲不在列表 (从媒体库临时推的), 正常
+  let dur: number | null = i >= 0 ? playlist.value[i].durationSec : null;
+  if (!dur) {
+    dur = await detectDuration(mid);
+    if (dur && i >= 0) playlist.value[i].durationSec = dur;
+  }
+  // 暂停态不跑进度条 (等 resume), 否则从头估算
+  if (bgmChannel.value?.paused) stopPlTimer(); else startPlTimer(dur);
 }
-function onTrackEnd(): void {
-  const ni = nextIdx();
-  if (ni >= 0) void playAt(ni); else { plIdx.value = -1; plProgress.value = 0; }
-}
+watch(() => bgmChannel.value?.currentMediaId, (mid) => { void syncPlaybackFromChannel(mid); });
+// 播放模式以后端为准 (多终端一致): 后端推来就同步本地高亮
+watch(() => bgmChannel.value?.playMode, (m) => { if (m) playMode.value = m; }, { immediate: true });
 async function plTogglePause(): Promise<void> {
   if (!bgmChannel.value?.currentMediaId) {
     // not playing at all — start
@@ -287,11 +295,19 @@ async function plTogglePause(): Promise<void> {
 }
 async function plPrev(): Promise<void> {
   if (playlist.value.length === 0) return;
-  await playAt((plIdx.value - 1 + playlist.value.length) % playlist.value.length);
+  // 交给后端环形切换 (后端以当前在播 mediaId 定位, 不信前端 index) → WS → watch 同步
+  try { await playbackStore.prev(3); } catch (e) { ElMessage.error(`上一首失败: ${(e as Error).message}`); }
 }
 async function plNext(): Promise<void> {
   if (playlist.value.length === 0) return;
-  stopPlTimer(); plTimerElapsed = 0; onTrackEnd();
+  try { await playbackStore.next(3); } catch (e) { ElMessage.error(`下一首失败: ${(e as Error).message}`); }
+}
+/** 点播放模式按钮 → 存后端 (bgm-player advance 时读它决定下一首); 乐观更新, 失败回滚 */
+async function setPlayModeAndSave(mode: PlayMode): Promise<void> {
+  const prev = playMode.value;
+  playMode.value = mode;
+  try { await setChannelPlayMode(3, mode); }
+  catch (e) { playMode.value = prev; ElMessage.error(`设置播放模式失败: ${(e as Error).message}`); }
 }
 function fmtDuration(sec: number | null): string {
   if (!sec || sec <= 0) return '';
@@ -417,7 +433,9 @@ function scheduleMatrixPoll(): void {
 }
 
 onMounted(async () => {
-  loadPlaylist();
+  await loadPlaylist();
+  // 进页面先跟后端"当前在播的"对齐一次 (bgm-player 可能正放着), 之后靠 watch 跟随
+  void syncPlaybackFromChannel(bgmChannel.value?.currentMediaId);
   await Promise.all([loadScenes(), loadZones(), loadInputs(), loadMatrixState()]);
   void refreshCurrentScene();
   void loadAudioAssets();
@@ -933,14 +951,14 @@ async function toggleMuteAll(): Promise<void> {
             </button>
           </div>
           <div class="bgm-mode-row">
-            <button :class="['bgm-mode', { active: playMode === 'seq' }]" title="顺序播放" @click="playMode = 'seq'">顺序</button>
-            <button :class="['bgm-mode', { active: playMode === 'loop1' }]" title="单曲循环" @click="playMode = 'loop1'">
+            <button :class="['bgm-mode', { active: playMode === 'seq' }]" title="顺序播放" @click="setPlayModeAndSave('seq')">顺序</button>
+            <button :class="['bgm-mode', { active: playMode === 'loop1' }]" title="单曲循环" @click="setPlayModeAndSave('loop1')">
               <Repeat1 :size="12" :stroke-width="2.2" /> 单曲
             </button>
-            <button :class="['bgm-mode', { active: playMode === 'loopAll' }]" title="列表循环" @click="playMode = 'loopAll'">
+            <button :class="['bgm-mode', { active: playMode === 'loopAll' }]" title="列表循环" @click="setPlayModeAndSave('loopAll')">
               <Repeat :size="12" :stroke-width="2.2" /> 列表
             </button>
-            <button :class="['bgm-mode', { active: playMode === 'shuffle' }]" title="随机播放" @click="playMode = 'shuffle'">
+            <button :class="['bgm-mode', { active: playMode === 'shuffle' }]" title="随机播放" @click="setPlayModeAndSave('shuffle')">
               <Shuffle :size="12" :stroke-width="2.2" /> 随机
             </button>
           </div>
