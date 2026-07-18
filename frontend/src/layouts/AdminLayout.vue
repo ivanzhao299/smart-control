@@ -142,7 +142,7 @@ async function exitToFront(): Promise<void> {
     <div class="sidebar-mask" @click="closeSidebar"></div>
     <aside class="side">
       <div class="brand">
-        <BrandLogo :height="40" />
+        <BrandLogo :height="48" />
         <div class="brand-text">
           <div class="title">{{ branding.systemName }}</div>
           <div class="sub">后台管理 · Admin</div>

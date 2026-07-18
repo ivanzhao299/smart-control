@@ -14,6 +14,7 @@ import { onBeforeUnmount, onMounted, ref, computed } from 'vue';
 type DocAny = Document & {
   webkitFullscreenElement?: Element | null;
   webkitExitFullscreen?: () => Promise<void> | void;
+  webkitFullscreenEnabled?: boolean;
 };
 
 type ElAny = HTMLElement & {
@@ -148,9 +149,17 @@ export function useFullscreen(opts: { autoEnter?: boolean } = {}) {
   onMounted(() => {
     if (typeof window === 'undefined') return;
     const d = document as DocAny;
-    isSupported.value =
+    // 光看 requestFullscreen 是不是个函数不够 —— iPhone 上的 WebKit (Safari 和 Chrome
+    // 底层引擎其实是同一个, 苹果强制所有 iOS 浏览器用 WebKit) 为了兼容 spec 检测,
+    // 把这个方法挂在原型上, 但 document.fullscreenEnabled 其实是 false, 调了也没用
+    // (iPhone 不支持任意元素的 Fullscreen API, 只有 iPad 支持)。之前只判断方法存在,
+    // 按钮在 iPhone 上照样显示, 点了却什么都不发生 (业主反馈: 苹果手机 Chrome 上点了
+    // "全屏", 底栏没跟着挪) —— 不是没适配好, 是这个按钮从一开始就不该出现。
+    const hasApi =
       typeof d.documentElement.requestFullscreen === 'function' ||
       typeof (d.documentElement as ElAny).webkitRequestFullscreen === 'function';
+    const enabled = d.fullscreenEnabled ?? d.webkitFullscreenEnabled ?? false;
+    isSupported.value = hasApi && enabled;
 
     loadOptOut();
     refreshState();

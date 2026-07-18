@@ -19,7 +19,7 @@ import {
   LayoutGrid,
   AlignJustify,
 } from 'lucide-vue-next';
-import { mediaService, type MediaItem } from '@/services/media.service';
+import { mediaService, type MediaItem, type OrphanMediaItem } from '@/services/media.service';
 import { usePlaybackStore } from '@/stores/playback';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { absUrl } from '@/services/http';
@@ -372,6 +372,42 @@ async function submitWebpage(): Promise<void> {
   }
 }
 
+// ── 收编服务器上手动拷进来的文件 (业主 RDP 进服务器直接把视频丢进 media 文件夹,
+// 没走上传接口, 数据库不认识, PWA 自然看不到它 —— 媒体库从来只认数据库记录,
+// 不扫盘。给一个"扫描"入口手动认领, 跟"从媒体库选"同一个原则: 不自动收编。) ──
+const orphanDialog = ref(false);
+const orphanScanning = ref(false);
+const orphanImporting = ref<string | null>(null); // 正在导入哪个 relPath
+const orphans = ref<OrphanMediaItem[]>([]);
+
+async function openOrphanDialog(): Promise<void> {
+  orphanDialog.value = true;
+  await scanOrphans();
+}
+async function scanOrphans(): Promise<void> {
+  orphanScanning.value = true;
+  try {
+    orphans.value = await mediaService.scanOrphans();
+  } catch (e) {
+    ElMessage.error(`扫描失败: ${(e as Error).message}`);
+  } finally {
+    orphanScanning.value = false;
+  }
+}
+async function importOrphan(o: OrphanMediaItem): Promise<void> {
+  orphanImporting.value = o.relPath;
+  try {
+    const m = await mediaService.importOrphan(o.relPath);
+    items.value.unshift(m);
+    orphans.value = orphans.value.filter((x) => x.relPath !== o.relPath);
+    ElMessage.success(`「${o.name}」已收编到媒体库`);
+  } catch (e) {
+    ElMessage.error(`收编失败: ${(e as Error).message}`);
+  } finally {
+    orphanImporting.value = null;
+  }
+}
+
 /** 查媒体当前是不是在某个 slot 上播 — 给卡片加角标用 */
 function currentSlotFor(mediaId: number): string {
   const slots: string[] = [];
@@ -460,6 +496,9 @@ onMounted(async () => {
         </label>
         <button class="v2-quick" @click="openWebpageDialog">
           <Globe :size="14" :stroke-width="2" /> 添加网页
+        </button>
+        <button class="v2-quick" title="服务器上手动拷进 media 文件夹、还没进媒体库的文件" @click="openOrphanDialog">
+          <RefreshCcw :size="14" :stroke-width="2" /> 扫描服务器新文件
         </button>
       </div>
     </header>
@@ -670,6 +709,40 @@ onMounted(async () => {
         <div class="wb-actions">
           <button class="v2-quick" @click="webpageDialog = false">取消</button>
           <button class="v2-quick primary" @click="submitWebpage">添加</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 扫描服务器新文件 dialog -->
+    <div v-if="orphanDialog" class="preview-mask" @click.self="orphanDialog = false">
+      <div class="webpage-box orphan-box">
+        <div class="wb-title"><RefreshCcw :size="18" :stroke-width="1.8" /> 扫描服务器新文件</div>
+        <div class="wb-hint">
+          直接拷进服务器 media 文件夹、没走上传接口的文件, 数据库不认识它们, 所以 PWA 之前看不到。
+          点"收编"逐个正式加入媒体库 (不会自动导入, 需要你确认)。
+        </div>
+
+        <div v-if="orphanScanning" class="orphan-empty">扫描中…</div>
+        <div v-else-if="orphans.length === 0" class="orphan-empty">没发现数据库不认识的文件</div>
+        <div v-else class="orphan-list">
+          <div v-for="o in orphans" :key="o.relPath" class="orphan-item">
+            <component :is="o.kind === 'video' ? Film : o.kind === 'audio' ? Music : o.kind === 'image' ? ImageIcon : X" :size="16" :stroke-width="1.8" />
+            <span class="orphan-name" :title="o.relPath">{{ o.name }}</span>
+            <span class="orphan-size">{{ fmtSize(o.sizeBytes) }}</span>
+            <span v-if="!o.kind" class="orphan-unknown">扩展名不认识, 需重命名后重新扫描</span>
+            <button
+              v-else class="v2-quick primary orphan-import-btn"
+              :disabled="orphanImporting === o.relPath"
+              @click="importOrphan(o)"
+            >{{ orphanImporting === o.relPath ? '收编中…' : '收编' }}</button>
+          </div>
+        </div>
+
+        <div class="wb-actions">
+          <button class="v2-quick" :disabled="orphanScanning" @click="scanOrphans">
+            <RefreshCcw :size="14" :stroke-width="2" /> 重新扫描
+          </button>
+          <button class="v2-quick" @click="orphanDialog = false">关闭</button>
         </div>
       </div>
     </div>
@@ -935,6 +1008,20 @@ onMounted(async () => {
 .wb-input { background: rgba(255,255,255,0.04); border: 1px solid var(--v2-border-soft); border-radius: 8px; padding: 10px 12px; color: var(--v2-text-1); font-size: 14px; outline: none; font-family: inherit; }
 .wb-input:focus { border-color: var(--v2-primary); }
 .wb-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+
+.orphan-box { width: min(560px, 90vw); max-height: 80vh; }
+.orphan-empty { padding: 20px; text-align: center; font-size: 13px; color: var(--v2-text-3); }
+.orphan-list { display: flex; flex-direction: column; gap: 6px; max-height: 46vh; overflow-y: auto; margin-top: 6px; }
+.orphan-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 10px; border-radius: 9px;
+  background: rgba(255,255,255,0.04); border: 1px solid var(--v2-border-soft);
+  color: var(--v2-text-2);
+}
+.orphan-name { flex: 1 1 auto; min-width: 0; font-size: 13px; color: var(--v2-text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.orphan-size { flex: 0 0 auto; font-size: 12px; color: var(--v2-text-3); }
+.orphan-unknown { flex: 0 0 auto; font-size: 12px; color: #fbbf24; }
+.orphan-import-btn { flex: 0 0 auto; }
 .web-url { color: #22d3ee; word-break: break-all; text-align: center; font-size: 14px; text-decoration: none; }
 .preview-box { position: relative; max-width: 90vw; max-height: 90vh; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(99, 102, 241, 0.4); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 14px; overflow: auto; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6); }
 .preview-close { position: absolute; top: 12px; right: 12px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; background: rgba(15, 23, 42, 0.6); color: #fff; border: 1px solid var(--border-soft); border-radius: 8px; cursor: pointer; z-index: 5; }

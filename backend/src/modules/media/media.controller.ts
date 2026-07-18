@@ -19,7 +19,7 @@ import { extname, join } from 'path';
 import { mkdirSync } from 'fs';
 // (Sprint-10: spawn 用于旧 publish 路径, 已下架)
 import { MediaService } from './media.service';
-import { MediaUploadMetaDto, WebpageCreateDto } from './dto/media.dto';
+import { ImportOrphanDto, MediaUploadMetaDto, WebpageCreateDto } from './dto/media.dto';
 import { OperationLogService } from '../logs/operation-log.service';
 
 /** 高清视频 4K 60fps 30 分钟 ≈ 10GB, 默认放到 10GB. env MEDIA_MAX_BYTES 可调 */
@@ -121,6 +121,31 @@ export class MediaController {
     const o = offset ? Math.max(0, Number(offset)) : 0;
     const result = await this.media.list({ kind, limit: l, offset: o });
     return { message: 'ok', data: result };
+  }
+
+  /**
+   * 扫描 media 目录里数据库还不认识的文件 (业主直接 RDP 进服务器拷进来的, 没走上传接口)。
+   * 路由必须排在 :id 前面, 否则 "orphans" 会被当成 :id 解析。
+   */
+  @Get('orphans')
+  async orphans() {
+    const items = await this.media.scanOrphans();
+    return { message: 'ok', data: items };
+  }
+
+  /** 收编 scanOrphans() 列出的某个文件, 正式变成媒体库资源 */
+  @Post('orphans/import')
+  async importOrphan(@Body() dto: ImportOrphanDto) {
+    const asset = await this.media.importOrphan(dto.relPath, 'system', dto.remark);
+    await this.opLog.record({
+      operator: 'system',
+      action: 'media.orphan.import',
+      targetType: 'media',
+      targetId: String(asset.id),
+      result: 'success',
+      message: JSON.stringify({ name: asset.originalName, kind: asset.kind, relPath: dto.relPath }),
+    });
+    return { message: '已收编到媒体库', data: this.media.toListItem(asset) };
   }
 
   @Get(':id')

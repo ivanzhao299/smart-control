@@ -30,6 +30,13 @@ export interface MediaItem {
 
 interface ListResult { items: MediaItem[]; total: number }
 
+export interface OrphanMediaItem {
+  relPath: string;
+  name: string;
+  sizeBytes: number;
+  kind: 'video' | 'image' | 'audio' | null;
+}
+
 export const mediaService = {
   async list(opts: { kind?: 'video' | 'image' | 'audio' | 'webpage' } = {}): Promise<ListResult> {
     const params: Record<string, string> = {};
@@ -70,6 +77,19 @@ export const mediaService = {
 
   async remove(id: number): Promise<void> {
     await axios.delete(`${base()}/media/${id}`);
+  },
+
+  /** 服务器 media 目录里数据库还不认识的文件 (业主直接拷进服务器的, 没走上传接口) */
+  async scanOrphans(): Promise<OrphanMediaItem[]> {
+    const r = await axios.get(`${base()}/media/orphans`);
+    return r.data?.data ?? [];
+  },
+
+  /** 把某个孤儿文件收编成正式媒体库资源 */
+  async importOrphan(relPath: string, remark?: string): Promise<MediaItem> {
+    const r = await axios.post(`${base()}/media/orphans/import`, { relPath, remark });
+    if (!r.data?.data) throw new Error(r.data?.message || '收编失败');
+    return r.data.data;
   },
 
   async publish(id: number): Promise<{ id: number; name: string; player: string }> {

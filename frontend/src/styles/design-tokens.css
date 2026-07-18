@@ -758,17 +758,20 @@ html {
   }
   .el-drawer__header {
     padding: 14px 16px !important;
+    /* 抽屉强制 height:100%, header 贴在视口最顶上 —— 手机状态栏/刘海会压住标题栏,
+       补一份安全区 (业主: "新建场景弹出的页面未做安全边界处理, 上方还是被系统遮挡") */
+    padding-top: max(14px, env(safe-area-inset-top)) !important;
     margin-bottom: 0 !important;
     border-bottom: 1px solid var(--v2-border-soft);
   }
   .el-drawer__body { padding: 12px 16px !important; }
   .el-drawer__footer { padding: 12px 16px !important; }
 
-  /* el-dialog 手机几乎占满 */
+  /* el-dialog 手机几乎占满 —— 固定 8px 顶部外边距同样没让状态栏, 同一个问题 */
   .el-dialog {
     width: calc(100% - 16px) !important;
     max-width: calc(100% - 16px) !important;
-    margin: 8px auto !important;
+    margin: max(8px, env(safe-area-inset-top)) auto 8px !important;
   }
   .el-dialog__header { padding: 14px 16px !important; }
   .el-dialog__body { padding: 12px 16px !important; }
@@ -780,9 +783,20 @@ html {
     max-width: 420px;
   }
 
-  /* el-table 手机横向滚 + 最小宽度防挤变形 */
-  .el-table {
-    overflow-x: auto;
+  /* el-table 手机横向滚 + 最小宽度防挤变形
+     之前只改了 .el-table 根节点的 overflow-x —— 但 Element Plus 表格真正裁切/滚动横向
+     内容的是内部几层 (.el-table__body-wrapper / .el-table__header-wrapper 及它们各自
+     套的 .el-scrollbar__wrap), 这些内部节点自带 overflow: hidden / 内联 overflow-x
+     样式, 优先级比我们只改根节点的规则高。根节点看着能滚, 实际内容在更里面一层被
+     裁掉了 —— 表现就是"操作"列的编辑/删除按钮划不出来也点不到 (业主反馈: 硬件清单/
+     日志中心等多个后台页面同样的问题)。这里把所有可能裁切横向内容的层都放开, 只在
+     真的溢出时才会生效, 不会影响没溢出的表格。 */
+  .el-table,
+  .el-table__inner-wrapper,
+  .el-table__header-wrapper,
+  .el-table__body-wrapper,
+  .el-table .el-scrollbar__wrap {
+    overflow-x: auto !important;
     -webkit-overflow-scrolling: touch;
   }
   .el-table__inner-wrapper { min-width: 600px; }

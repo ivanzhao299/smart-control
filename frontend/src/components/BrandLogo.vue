@@ -91,14 +91,14 @@ const showImage = computed<boolean>(() => props.useImage && !imageBroken.value);
 }
 
 .logo-img {
+  /* 之前 contain + 白底 padding: 图片比框小一圈, 看着像"外面圆角卡片、里面又是一张
+     方形小图" —— 改 cover 让图直接填满整个框, 圆角切在图片本身边缘上, 不再露白边。 */
   height: 100%;
-  width: auto;
-  max-width: 100%;
-  object-fit: contain;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
   display: block;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.96);
-  padding: 4px 6px;
   box-shadow: 0 4px 12px -4px rgba(15, 23, 42, 0.28),
               0 0 0 1px rgba(255, 255, 255, 0.05);
 }

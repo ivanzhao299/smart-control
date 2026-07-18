@@ -17,6 +17,27 @@ export class WebpageCreateDto {
   url!: string;
 }
 
+export class ImportOrphanDto {
+  /** scanOrphans() 返回的 relPath, 原样传回来指定收编哪一个 */
+  @IsString()
+  @MaxLength(500)
+  relPath!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  remark?: string;
+}
+
+export interface OrphanMediaItem {
+  /** 相对 mediaRoot 的路径, import 时原样传回 */
+  relPath: string;
+  name: string;
+  sizeBytes: number;
+  /** 扩展名猜不出类型时为 null —— 前端标"不支持", 不给点导入 */
+  kind: 'video' | 'image' | 'audio' | null;
+}
+
 export interface MediaListItem {
   id: number;
   originalName: string;
