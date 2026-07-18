@@ -1,4 +1,4 @@
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsInt, IsOptional, IsString, Max, Min, ValidateIf } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsInt, IsOptional, IsString, Max, Min, MaxLength, ValidateIf } from 'class-validator';
 
 export class AssignGroupsDto {
   @IsArray()
@@ -34,4 +34,28 @@ export class ReorderDto {
   @ArrayMaxSize(200)
   @IsInt({ each: true })
   ids!: number[];
+}
+
+/**
+ * 新建一个物理 DALI 组 —— 之前只能编排"数据库里已经有的组", 现场新接一条 DALI 总线 /
+ * 新分了一个组号, 没有入口能让系统认识它, 只能改代码重部署。业主原话:
+ * "灯光编组没有新建编组, 要加上"。
+ */
+export class CreateGroupDto {
+  /** 对应 hardware_unit.code, e.g. 'GW-DALI-1' */
+  @IsString()
+  @MaxLength(64)
+  gatewayCode!: string;
+
+  /** 该网关上的 DALI 组号, 1-16 */
+  @IsInt()
+  @Min(1)
+  @Max(16)
+  daliGroup!: number;
+
+  /** 建好直接归入某分区; 不传 = 先放进"未分配"池, 现场再手动编组 */
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsString()
+  @IsOptional()
+  zoneCode?: string | null;
 }

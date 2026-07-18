@@ -14,7 +14,7 @@ import {
 import { LightZonesService, type LightZoneUpsertDto } from './light-zones.service';
 import { AdminGuard } from '../admin-auth/admin-auth.guard';
 import { LightingAdapter } from '../../adapters/lighting/lighting.adapter';
-import { AssignGroupsDto, GroupShortsDto, ReorderDto } from './dto/group.dto';
+import { AssignGroupsDto, CreateGroupDto, GroupShortsDto, ReorderDto } from './dto/group.dto';
 
 /**
  * 灯光分区 CRUD.
@@ -75,6 +75,16 @@ export class LightZonesController {
   @Put('reorder/groups')
   async reorderGroups(@Body() dto: ReorderDto) {
     return { message: '顺序已保存', data: await this.service.reorderGroups(dto.ids) };
+  }
+
+  /**
+   * 登记一个新的物理 DALI 组 (网关 + 组号). 前端"编组模式"的"新建组"就调这个。
+   * 跟建分区 (下面 @Post()) 同一档权限 —— 业主日常现场接线登记, 不要 admin token。
+   */
+  @Post('groups')
+  async createGroup(@Body() dto: CreateGroupDto) {
+    const data = await this.service.createGroup(dto);
+    return { message: '组已登记', data };
   }
 
   /**

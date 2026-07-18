@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useRouter } from 'vue-router';
-import { ArrowLeft, Lightbulb, Power, X, Sparkles, Layers, RefreshCw, GripVertical, Pencil } from 'lucide-vue-next';
+import { ArrowLeft, Lightbulb, Power, X, Sparkles, Layers, RefreshCw, GripVertical, Pencil, Plus } from 'lucide-vue-next';
 import { lightingService } from '@/services/lighting.service';
 import {
   lightZonesService,
@@ -127,6 +127,37 @@ async function moveOut(g: LightGroupView): Promise<void> {
 /** 组的人类可读名 — 必须带网关, 否则两台网关的同号组分不清 */
 function groupLabel(g: LightGroupView): string {
   return `${g.gatewayDisplayName} · ${g.daliGroup}组`;
+}
+
+// ============ 新建组 (业主: "灯光编组没有新建编组, 要加上") ============
+// 之前"编组"面板只能编排数据库里已经有的组 (拖来拖去), 现场新接一条 DALI 总线 /
+// 新分了一个组号, 系统压根不认识它, 只能改代码硬编种子数据再重新部署。这里给个
+// 入口直接登记 —— 只是让系统"认识"这个 (网关, 组号), 不碰硬件, 现场那个组本来
+// 响不响应还是看接线。已知网关从现有组里取, 省得每次手打网关代码。
+const knownGateways = computed(() => {
+  const seen = new Map<string, string>();
+  for (const g of allGroups.value) seen.set(g.gatewayCode, g.gatewayDisplayName);
+  return Array.from(seen, ([code, name]) => ({ code, name }));
+});
+const newGroupDialog = ref(false);
+const newGroupForm = ref<{ gatewayCode: string; daliGroup: number | null }>({ gatewayCode: '', daliGroup: null });
+function openNewGroupDialog(): void {
+  newGroupForm.value = { gatewayCode: knownGateways.value[0]?.code ?? '', daliGroup: null };
+  newGroupDialog.value = true;
+}
+async function submitNewGroup(): Promise<void> {
+  const gatewayCode = newGroupForm.value.gatewayCode.trim();
+  const daliGroup = newGroupForm.value.daliGroup;
+  if (!gatewayCode) { ElMessage.warning('网关代码不能为空'); return; }
+  if (!daliGroup || daliGroup < 1 || daliGroup > 16) { ElMessage.warning('组号要在 1-16 之间'); return; }
+  try {
+    await lightZonesService.createGroup(gatewayCode, daliGroup);
+    newGroupDialog.value = false;
+    await loadZones();
+    ElMessage.success(`已登记 ${gatewayCode} · ${daliGroup}组, 在下面"未分配灯组"里`);
+  } catch (err) {
+    ElMessage.error(`登记失败: ${(err as Error).message}`);
+  }
 }
 
 // ============ 分区改名 (就地编辑, 不弹窗) ============
@@ -339,6 +370,9 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
         <div class="gp-hint">
           选中灯组, 再点下方分区卡上的「放这里」。分区里的组点一下可移出。
         </div>
+        <button class="v2-quick primary gp-new-btn" @click="openNewGroupDialog">
+          <Plus :size="14" :stroke-width="2" /> 新建组
+        </button>
       </div>
       <div v-if="unassignedGroups.length === 0" class="gp-empty">全部灯组都已分配</div>
       <div v-else class="gp-chips">
@@ -512,6 +546,35 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
         <div v-if="z.error" class="zone-err">{{ z.error }}</div>
       </div>
     </div>
+
+    <!-- 新建组 dialog -->
+    <div v-if="newGroupDialog" class="ng-mask" @click.self="newGroupDialog = false">
+      <div class="ng-box">
+        <div class="ng-title"><Plus :size="18" :stroke-width="2" /> 新建灯组</div>
+        <div class="ng-hint">只是让系统认识这个 (网关, 组号), 不碰硬件 —— 那条 DALI 总线上这个组是否真的响应, 还是看现场接线</div>
+
+        <label class="ng-label">网关</label>
+        <select v-model="newGroupForm.gatewayCode" class="ng-input">
+          <option v-for="gw in knownGateways" :key="gw.code" :value="gw.code">{{ gw.name }} ({{ gw.code }})</option>
+          <option value="">— 手动输入网关代码 —</option>
+        </select>
+        <input
+          v-if="!knownGateways.some(gw => gw.code === newGroupForm.gatewayCode)"
+          v-model="newGroupForm.gatewayCode" class="ng-input" placeholder="如 GW-DALI-1"
+        />
+
+        <label class="ng-label">组号 (1-16)</label>
+        <input
+          v-model.number="newGroupForm.daliGroup" type="number" min="1" max="16"
+          class="ng-input" placeholder="1-16" @keyup.enter="submitNewGroup"
+        />
+
+        <div class="ng-actions">
+          <button class="v2-quick" @click="newGroupDialog = false">取消</button>
+          <button class="v2-quick primary" @click="submitNewGroup">新建</button>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -603,6 +666,28 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   font-size: 13px;
   color: var(--v2-text-1);
 }
+.gp-new-btn { margin-left: auto; }
+
+/* ============ 新建组 dialog ============ */
+.ng-mask {
+  position: fixed; inset: 0; z-index: 3000;
+  background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+}
+.ng-box {
+  width: min(400px, 100%); display: flex; flex-direction: column; gap: 6px;
+  background: var(--v2-surf-1, #141c28); border: 1px solid var(--v2-border-soft);
+  border-radius: 14px; padding: 20px;
+}
+.ng-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; color: var(--v2-text-1); }
+.ng-hint { font-size: 12px; color: var(--v2-text-3); margin-bottom: 8px; line-height: 1.5; }
+.ng-label { font-size: 12px; color: var(--v2-text-3); margin-top: 6px; }
+.ng-input {
+  background: rgba(255,255,255,0.04); border: 1px solid var(--v2-border-soft); border-radius: 8px;
+  padding: 10px 12px; color: var(--v2-text-1); font-size: 14px; outline: none; font-family: inherit;
+}
+.ng-input:focus { border-color: var(--v2-primary); }
+.ng-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
 
 /* 卡片内的灯组列表 (编组态) */
 .zone-groups {

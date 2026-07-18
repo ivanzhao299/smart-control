@@ -266,6 +266,42 @@ export class LightZonesService {
     return { code: row.code, releasedGroups: members.length };
   }
 
+  // ============ 组新建 ============
+
+  /**
+   * 登记一个新的物理 DALI 组 —— 只是元数据登记, 不碰硬件 (那条 DALI 总线上这个组
+   * 组号本来就存在或不存在, 我们只是让系统"认识"它)。
+   * (gatewayCode, daliGroup) 唯一, 建重了给友好报错而不是让 DB 唯一约束抛裸异常。
+   */
+  async createGroup(dto: { gatewayCode: string; daliGroup: number; zoneCode?: string | null }): Promise<LightGroupView> {
+    const gatewayCode = dto.gatewayCode.trim();
+    if (!gatewayCode) throw new ConflictException('gatewayCode 不能为空');
+
+    const dup = await this.groupRepo.findOne({ where: { gatewayCode, daliGroup: dto.daliGroup } });
+    if (dup) throw new ConflictException(`${gatewayCode} 上的 ${dto.daliGroup} 组已经登记过了`);
+
+    let zoneCode: string | null = null;
+    const target = (dto.zoneCode ?? '').trim();
+    if (target) {
+      const zone = await this.zoneRepo.findOne({ where: { code: target } });
+      if (!zone) throw new NotFoundException(`分区 "${target}" 不存在`);
+      zoneCode = zone.code;
+    }
+
+    const saved = await this.groupRepo.save(
+      this.groupRepo.create({
+        gatewayCode,
+        daliGroup: dto.daliGroup,
+        zoneCode,
+        shorts: null,
+        sortOrder: 100,
+        enabled: true,
+      }),
+    );
+    const hw = await this.gatewayMap([saved.gatewayCode]);
+    return this.groupToView(saved, hw);
+  }
+
   // ============ 组归属 ============
 
   /** 把若干组划进某分区; zoneCode 传空 = 移出分区 */

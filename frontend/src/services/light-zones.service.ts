@@ -84,6 +84,10 @@ export const lightZonesService = {
         params: includeDisabled ? { includeDisabled: '1' } : {},
       })),
   groups: () => queryOnce(LG, () => api.get<LightGroupView[]>('/light-zones/groups')),
+  /** 登记一个新的物理 DALI 组 (网关+组号); 不传 zoneCode 就先落进"未分配"池 */
+  createGroup: (gatewayCode: string, daliGroup: number, zoneCode?: string | null) =>
+    api.post<LightGroupView>('/light-zones/groups', { gatewayCode, daliGroup, zoneCode })
+      .then((r) => { invalidateAll(); return r; }),
   detail: (id: number) => api.get<LightZoneView>(`/light-zones/${id}`),
   create: (dto: LightZoneUpsertDto) =>
     api.post<LightZoneView>('/light-zones', dto).then((r) => { invalidateAll(); return r; }),
