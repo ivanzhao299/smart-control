@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { Lock, Globe, Wifi, CheckCircle2, XCircle, Trash2, History } from 'lucide-vue-next';
+import { Lock, Globe, Wifi, CheckCircle2, XCircle, Trash2, History, Loader } from 'lucide-vue-next';
 import { useClientAuthStore } from '@/stores/client-auth';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { useToastStore } from '@/stores/toast';
@@ -26,12 +26,26 @@ interface TestResult {
 }
 const test = ref<TestResult>({ state: 'idle' });
 const history = ref<string[]>([]);
+/** 本地存过密码, 正在悄悄试自动登录 —— 这段时间不露登录表单, 免得先闪一下密码框
+    再跳走, 业主会以为自己又要手动登一次 */
+const autoLoggingIn = ref(false);
 
-onMounted(() => {
+onMounted(async () => {
   void brandingStore.load();
   history.value = getServerHistory();
   // 已经登录就跳走
   if (auth.isAuthed) {
+    redirectToTarget();
+    return;
+  }
+  // token 是 30 天 TTL 没错, 但 backend 常年跟着部署重启, session 表在内存里,
+  // 重启就清空, token 没到期也会失效 —— 存过密码的话先悄悄试一次自动登录,
+  // 不用每次部署完业主都要摸出手机重新输密码。
+  autoLoggingIn.value = true;
+  const ok = await auth.tryAutoLogin();
+  autoLoggingIn.value = false;
+  if (ok) {
+    toast.success('已自动登录');
     redirectToTarget();
     return;
   }
@@ -115,7 +129,13 @@ async function doLogin(): Promise<void> {
         </div>
       </div>
 
-      <form class="form" @submit.prevent="doLogin">
+      <!-- 本地存过密码, 悄悄自动登录中 — 不闪一下登录表单再跳走 -->
+      <div v-if="autoLoggingIn" class="auto-login-box">
+        <Loader :size="22" :stroke-width="2" class="auto-login-spin" />
+        <span>自动登录中…</span>
+      </div>
+
+      <form v-else class="form" @submit.prevent="doLogin">
         <!-- 服务器地址 -->
         <div class="server-row">
           <div class="field server-field">
@@ -279,6 +299,15 @@ async function doLogin(): Promise<void> {
 }
 
 .form { display: flex; flex-direction: column; gap: 12px; }
+
+.auto-login-box {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 32px 0;
+  color: var(--v2-text-2);
+  font-size: 14px;
+}
+.auto-login-spin { animation: auto-login-spin 1s linear infinite; }
+@keyframes auto-login-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
 .server-row {
   display: grid;

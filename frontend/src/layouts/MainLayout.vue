@@ -794,6 +794,14 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
     /* 防底栏被键盘抬起遮挡 */
     height: 100vh;
     height: 100dvh;
+    /* 真因找到了: 桌面版 .v2-shell 本来就有 padding-bottom: env(safe-area-inset-bottom)
+       (给桌面/平板没有独立底栏时兜底安全区), 手机这里 .v2-nav 自己又用 height 单独
+       算了一遍 safe-area —— 同一份安全区被算了两次: 一次是 shell 的 padding 把
+       grid 内容区往上挤, 一次是 nav 自己再撑高, 两截叠在一起, 底栏下面露出比正常
+       宽一倍还多的空白 (业主反馈: "下面留的距离也太大了, 微信留的距离是刚好的")。
+       手机上 nav 是最后一行, 它自己的高度已经包含了安全区, shell 就不需要再单独
+       留了, 归零。 */
+    padding-bottom: 0;
   }
   /* 手机竖屏功能页: 同样去掉顶 header, 只剩 main + 底栏 */
   .v2-shell.lean {
@@ -815,9 +823,15 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
     border-right: none;
     background: rgba(10, 14, 26, 0.92);
     backdrop-filter: blur(8px);
-    /* safe area 底部 (iOS home indicator) */
-    padding-bottom: max(4px, env(safe-area-inset-bottom));
-    height: calc(60px + env(safe-area-inset-bottom));
+    /* safe area 底部 (iOS home indicator) —— 封顶 40px (真机 Home 指示条最高也就
+       34px 左右, iPhone 14/15 Pro Max 那一档)。业主反馈 iPhone Chrome 上这块留白
+       大得离谱、比微信底栏明显多一截: Chrome for iOS 上 env(safe-area-inset-bottom)
+       历史上就有汇报值偏大/不准的问题 (它是套壳 WebKit, 自己還有一层浏览器 UI,
+       安全区计算跟 Safari 原生不是一回事)。不封顶的话, 这个不准的值会直接顶开
+       auto 的 grid 行, 导致底栏比正常高出一大截。封顶后正常设备不受影响
+       (env() 本来就不会超过 40px), 只挡住不合理的超大值。 */
+    padding-bottom: max(4px, min(env(safe-area-inset-bottom), 40px));
+    height: calc(60px + min(env(safe-area-inset-bottom), 40px));
   }
 
   /* logo 块挪走 — 手机底栏没空间 */
