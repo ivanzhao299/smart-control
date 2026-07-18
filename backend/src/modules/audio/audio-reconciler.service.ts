@@ -37,8 +37,17 @@ import { AudioInputSource } from '../../entities/audio-input-source.entity';
  */
 @Injectable()
 export class AudioReconcilerService implements OnModuleInit {
-  /** 多久对一次账 */
-  private readonly INTERVAL_MS = 30_000;
+  /**
+   * 多久对一次账。
+   *
+   * 2026-07-18 现场排查"大屏声音时有时无": 真因不是矩阵本身, 是 GK9000 主机
+   * 电源不稳, 今天已经两次意外断电重启 (Windows Kernel-Power Event 41, 无
+   * minidump/无 WHEA 温度告警 → 排除蓝屏和过热, 就是物理断电)。每次断电,
+   * EKX-808 断电重启回工厂预设 (IN3→全部, 大屏那路的 IN4 被打成 -60dB 静音),
+   * 开机后要等对账器抓到才补回来。原来 30s 一轮, 断电到补救之间这段大屏是真哑的。
+   * 缩到 10s 缩短这个窗口 —— 治标, 治本是电源本身 (现场需要查电源适配器/插排)。
+   */
+  private readonly INTERVAL_MS = 10_000;
   /** 最近一次写操作后, 静默多久再对账 (给设备落值的时间, 别把人刚点的纠回去) */
   private readonly QUIET_MS = 5_000;
 
