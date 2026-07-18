@@ -157,6 +157,47 @@ const visibleIndoors = computed(() =>
   floorTab.value === 'all' ? indoors.value : indoors.value.filter((i) => i.floor === floorTab.value),
 );
 
+// ============ 内机拖动排序 (业主: "空调内机的位置可以拖动") ============
+// 用原生 HTML5 drag & drop, 跟灯光分区拖动一致, 不引第三方库。顺序**存后端**
+// (sortOrder): 现场主控机+平板+手机, 只存前端每台顺序都不一样。只在非编组模式
+// 拖 (编组模式是"选中移入组", 拖动会跟选中打架); 改名中的那台不给拖。
+const dragIndoorIdx = ref<number | null>(null);
+const dragOverIndoorIdx = ref<number | null>(null);
+function onIndoorDragStart(row: IndoorRow, ev: DragEvent): void {
+  dragIndoorIdx.value = row.idx;
+  ev.dataTransfer?.setData('text/plain', String(row.idx)); // Firefox 不设这个不触发 drop
+  if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move';
+}
+function onIndoorDragOver(row: IndoorRow, ev: DragEvent): void {
+  if (dragIndoorIdx.value === null || dragIndoorIdx.value === row.idx) return;
+  ev.preventDefault(); // 不 preventDefault 就不允许 drop
+  dragOverIndoorIdx.value = row.idx;
+}
+async function onIndoorDrop(target: IndoorRow): Promise<void> {
+  const from = dragIndoorIdx.value;
+  dragIndoorIdx.value = null;
+  dragOverIndoorIdx.value = null;
+  if (from === null || from === target.idx) return;
+  const list = indoors.value.slice();
+  const fi = list.findIndex((i) => i.idx === from);
+  const ti = list.findIndex((i) => i.idx === target.idx);
+  if (fi < 0 || ti < 0) return;
+  const [moved] = list.splice(fi, 1);
+  list.splice(ti, 0, moved);
+  const before = indoors.value;
+  indoors.value = list; // 乐观: 松手立刻就位, 不等网络
+  try {
+    await hvacService.reorderIndoors(list.map((i) => i.idx));
+  } catch (err) {
+    indoors.value = before; // 失败回滚, 不留后端不认的假顺序
+    ElMessage.error(`排序保存失败: ${(err as Error).message}`);
+  }
+}
+function onIndoorDragEnd(): void {
+  dragIndoorIdx.value = null;
+  dragOverIndoorIdx.value = null;
+}
+
 /** 当前楼层下的组 + "未分组" 兜底 (未分组不是错误, 是编组过程中的正常状态) */
 /**
  * 快选条上显示哪些分区.
@@ -564,7 +605,14 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
           running: row.state.known && row.state.on,
           unknown: !row.state.known,
           fault: row.state.known && row.state.faultCode > 0,
+          'drag-over': dragOverIndoorIdx === row.idx,
+          dragging: dragIndoorIdx === row.idx,
         }"
+        :draggable="editingIndoor !== row.idx"
+        @dragstart="onIndoorDragStart(row, $event)"
+        @dragover="onIndoorDragOver(row, $event)"
+        @drop.prevent="onIndoorDrop(row)"
+        @dragend="onIndoorDragEnd"
         @click="toggleOne(row.idx)"
       >
         <div class="cell-head">
@@ -893,6 +941,10 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   transition: border-color .12s, background .12s, box-shadow .12s;
 }
 .hv-cell:hover { border-color: #3f5a80; }
+/* 拖动排序 (业主要的"内机位置可拖动"): 抓手光标 + 拖动中半透 + 落点虚线框 */
+.hv-cell[draggable="true"] { cursor: grab; }
+.hv-cell.dragging { opacity: 0.45; cursor: grabbing; }
+.hv-cell.drag-over { border-color: var(--v2-primary, #00e5ff); box-shadow: 0 0 0 2px var(--v2-primary, #00e5ff) inset; }
 /* 运行卡片: 有色底 + 左侧彩条, 关机卡片纯深灰 —— 开关机一眼可辨 */
 .hv-cell.running {
   background: linear-gradient(160deg, #123049, #141c28);

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -106,6 +107,32 @@ export class HvacController {
   }
 
   /**
+   * 内机拖动排序 (业主: "空调内机的位置可以拖动")。传全量有序 idx 列表, 按顺序写
+   * sortOrder (只动显示顺序, 不碰 idx —— idx 是场景/下发的口径, 不能变)。
+   *
+   * **必须声明在 @Put('indoors/:idx') 之前** —— Nest 按声明顺序匹配, 放后面的话
+   * 'reorder' 会先落到 :idx 上被 ParseIntPipe 拒掉 400 (light-zones / playlist 都
+   * 踩过这个坑)。排序存后端: 现场主控机+平板+手机, 只存前端每台顺序都不一样。
+   */
+  @Put('indoors/reorder')
+  @RateLimit({ max: 20, windowMs: 5000 })
+  async reorderIndoors(@Body() dto: { idxs?: number[] }) {
+    await this.ensureIndoorsSeeded();
+    if (!Array.isArray(dto?.idxs) || dto.idxs.length === 0) {
+      throw new BadRequestException('idxs 必填');
+    }
+    const rows = await this.indoorRepo.find({ where: { idx: In(dto.idxs) } });
+    const byIdx = new Map(rows.map((r) => [r.idx, r]));
+    const touched: HvacIndoor[] = [];
+    dto.idxs.forEach((idx, i) => {
+      const r = byIdx.get(idx);
+      if (r) { r.sortOrder = (i + 1) * 10; touched.push(r); }
+    });
+    if (touched.length) await this.indoorRepo.save(touched);
+    return { message: '顺序已保存', data: { count: touched.length } };
+  }
+
+  /**
    * 改内机的名字 / 归属组 — 业主在 PWA 直接改, 不用进后台, 更不用改代码.
    * PUT /api/hvac/indoors/:idx  { name?, zoneCode? }
    */
@@ -185,7 +212,9 @@ export class HvacController {
   private async ensureIndoorsSeeded(): Promise<HvacIndoor[]> {
     const existing = await this.indoorRepo.find({
       where: { enabled: true },
-      order: { idx: 'ASC' },
+      // 显示顺序: 楼层 → sortOrder (业主拖动排的) → idx 兜底。sortOrder 默认=idx,
+      // 所以没拖过时跟原来一模一样, 拖过之后按业主排的来。
+      order: { floor: 'ASC', sortOrder: 'ASC', idx: 'ASC' },
     });
     const meta = await this.modbusHvac.listIndoorMeta();
     // 适配器拿不到 devices (mock / 空库) 时不硬造, 直接返回现状
@@ -213,7 +242,7 @@ export class HvacController {
         }),
       );
     }
-    return this.indoorRepo.find({ where: { enabled: true }, order: { idx: 'ASC' } });
+    return this.indoorRepo.find({ where: { enabled: true }, order: { floor: 'ASC', sortOrder: 'ASC', idx: 'ASC' } });
   }
 
   // ============ 功能区 (只是个名字 + 楼层; 成员关系存在内机那边) ============

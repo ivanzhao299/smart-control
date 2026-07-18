@@ -105,6 +105,9 @@ export const hvacService = {
   /** 批量归组: 选中的几台一次划进某组 */
   assignIndoors: (indoors: number[], zoneCode: string | null) =>
     api.post<{ count: number; zoneCode: string | null }>('/hvac/indoors/assign', { indoors, zoneCode }),
+  /** 内机拖动排序: 传全量有序 idx 列表, 后端按顺序写 sortOrder (只动显示顺序, 不碰 idx) */
+  reorderIndoors: (idxs: number[]) =>
+    api.put<{ count: number }>('/hvac/indoors/reorder', { idxs }),
 
   // ---- 批量控制: 选中集合 (单机/组/楼层/全部 都走这里) ----
   batchOn: (indoors: number[]) => api.post<HvacBatchResult>('/hvac/batch/on', { indoors }),
