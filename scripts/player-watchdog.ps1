@@ -10,11 +10,24 @@
 # page. An error page runs no JS, so PlayerPage can never heal itself and
 # the slot heartbeat stays dead forever ("Kiosk offline" in the PWA).
 #
-# Strategy: run every 5 min as an INTERACTIVE scheduled task
+# Strategy: run every 1 min as an INTERACTIVE scheduled task
 # (SmartControl-PlayerWatchdog). If any slot 1-3 heartbeat is stale for
 # more than $StaleMinutes while backend AND frontend are both reachable,
 # relaunch all players via start-players.ps1 (it kills all slots first,
 # so a full restart is the only safe granularity).
+#
+# 2026-07-18: interval was 5 min. Every RDP login onto this box steals the
+# console session out from under the kiosk (Windows Pro allows only one
+# interactive session -- see [[gk9000-session-trap]]), so the LED wall goes
+# dark/silent for however long someone stays connected, PLUS up to one more
+# full interval after they disconnect before this script notices "reattached
+# to console" and relaunches. Chose not to solve the RDP-vs-console conflict
+# itself (that needs either a screen-mirroring tool instead of RDP, or RDP
+# Wrapper to unlock true concurrent sessions -- both are real infrastructure
+# changes) and instead just shrank the blast radius: 5 min -> 1 min cuts the
+# worst-case post-disconnect blackout from ~5 min to ~1 min. Safe to shrink:
+# the tick body is a handful of cheap local reads (heartbeat, session query)
+# plus an HTTP health check, well under a minute even on a bad run.
 #
 # Register (run once, in an interactive/desktop context):
 #   powershell -ExecutionPolicy Bypass -File scripts\player-watchdog.ps1 -Register
@@ -44,7 +57,7 @@ if ($Register) {
   $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
     -Argument ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $PSCommandPath + '"')
   $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
-    -RepetitionInterval (New-TimeSpan -Minutes 5) `
+    -RepetitionInterval (New-TimeSpan -Minutes 1) `
     -RepetitionDuration (New-TimeSpan -Days 3650)
   # Interactive logon type: runs in the logged-on user's desktop session, no
   # password needed, windows appear on the real monitors. An SSH-spawned GUI
@@ -56,7 +69,7 @@ if ($Register) {
     -RunLevel Highest
   Register-ScheduledTask -TaskName 'SmartControl-PlayerWatchdog' `
     -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
-  Log 'Registered scheduled task SmartControl-PlayerWatchdog (every 5 min, interactive, elevated)'
+  Log 'Registered scheduled task SmartControl-PlayerWatchdog (every 1 min, interactive, elevated)'
   exit 0
 }
 
@@ -76,7 +89,7 @@ if ($Register) {
 #
 #    Reattaching disconnects whoever is on RDP. On an exhibition controller the
 #    physical display wins; RDP can simply reconnect (and this watchdog will
-#    reattach again 5 minutes later).
+#    reattach again within a minute).
 function Add-WtsType {
   try {
     Add-Type -Namespace GK -Name Wts -ErrorAction Stop -MemberDefinition @'
@@ -140,10 +153,11 @@ $consoleSession = Get-ConsoleSessionId
 # fault to correct.
 #
 # An ACTIVE off-console session means someone is connected and working. Leave them
-# alone -- the LED wall showing wallpaper for a few minutes is the correct trade:
-# a person is present and in charge. Once they disconnect the session goes
-# Disconnected (4), and the tscon below restores the wall on the next cycle, with
-# nobody to disturb. Physically closing RDP is enough; no logoff needed.
+# alone -- the LED wall showing wallpaper for as long as they stay connected is the
+# correct trade: a person is present and in charge. Once they disconnect the session
+# goes Disconnected (4), and the tscon below restores the wall on the next cycle
+# (within a minute, 2026-07-18: shrunk from 5), with nobody to disturb. Physically
+# closing RDP is enough; no logoff needed.
 $myState = Get-SessionConnectState -Id $mySession
 if ($consoleSession -ge 0 -and $mySession -ne $consoleSession -and $myState -eq 0) {
   Log ('session ' + $mySession + ' is ACTIVE off-console (someone is on RDP) -> back off, do nothing this round')
