@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
-import { ArrowLeft, Lightbulb, Power, X, Sparkles, Layers, RefreshCw, GripVertical, Pencil, Plus } from 'lucide-vue-next';
+import { ArrowLeft, Lightbulb, Power, X, Sparkles, Layers, RefreshCw, GripVertical, Pencil, Plus, FolderPlus } from 'lucide-vue-next';
 import { lightingService } from '@/services/lighting.service';
 import {
   lightZonesService,
@@ -157,6 +157,27 @@ async function submitNewGroup(): Promise<void> {
     ElMessage.success(`已登记 ${gatewayCode} · ${daliGroup}组, 在下面"未分配灯组"里`);
   } catch (err) {
     ElMessage.error(`登记失败: ${(err as Error).message}`);
+  }
+}
+
+// ============ 新建分区 (业主: "灯光分组应该和空调分组一样, 可以新建分组") ============
+// 跟空调 createZone 一个交互: 弹框输名字即可, code 前端自动生成 (业主不需要懂 code)。
+// 后端 POST /light-zones 早就支持, 之前前端只在空状态写了"到后台加" —— 那是死路,
+// 现在编组面板和空状态都能直接建。建完是空分区, 切"编组"把灯组放进去。
+async function createLightZone(): Promise<void> {
+  try {
+    const { value } = await ElMessageBox.prompt('新建灯光分区', '新建分区', {
+      inputPlaceholder: '例如: 会议室 / 前厅 / 走廊',
+      inputPattern: /\S+/,
+      inputErrorMessage: '名称不能为空',
+    });
+    const name = String(value).trim();
+    await lightZonesService.create({ code: `lz-${Date.now()}`, name, floor: '1F' });
+    await loadZones();
+    ElMessage.success(`已新建分区「${name}」, 切到「编组」把灯组放进去`);
+  } catch (err) {
+    if (err === 'cancel' || err === 'close') return;
+    ElMessage.error('新建分区失败: ' + (err as Error).message);
   }
 }
 
@@ -370,9 +391,14 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
         <div class="gp-hint">
           选中灯组, 再点下方分区卡上的「放这里」。分区里的组点一下可移出。
         </div>
-        <button class="v2-quick primary gp-new-btn" @click="openNewGroupDialog">
-          <Plus :size="14" :stroke-width="2" /> 新建组
-        </button>
+        <div class="gp-new-btns">
+          <button class="v2-quick primary" @click="createLightZone">
+            <FolderPlus :size="14" :stroke-width="2" /> 新建分区
+          </button>
+          <button class="v2-quick primary" @click="openNewGroupDialog">
+            <Plus :size="14" :stroke-width="2" /> 新建组
+          </button>
+        </div>
       </div>
       <div v-if="unassignedGroups.length === 0" class="gp-empty">全部灯组都已分配</div>
       <div v-else class="gp-chips">
@@ -436,7 +462,10 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
     <div v-else-if="zones.length === 0" class="state-card">
       <Lightbulb :size="32" :stroke-width="1.5" />
       <div class="state-title">还没有配置灯光分区</div>
-      <div class="state-sub">到 后台 → 灯光分区管理 添加</div>
+      <div class="state-sub">点下面直接新建, 或到 后台 → 灯光分区管理 添加</div>
+      <button class="v2-quick primary" style="margin-top: 12px" @click="createLightZone">
+        <FolderPlus :size="14" :stroke-width="2" /> 新建分区
+      </button>
     </div>
 
     <!-- 区卡网格 -->
@@ -667,6 +696,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   color: var(--v2-text-1);
 }
 .gp-new-btn { margin-left: auto; }
+.gp-new-btns { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 
 /* ============ 新建组 dialog ============ */
 .ng-mask {
