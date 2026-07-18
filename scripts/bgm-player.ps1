@@ -39,7 +39,6 @@ function Invoke-Mci([string]$cmd) {
 $apiBase = 'http://127.0.0.1:3200'
 $tmpFile = Join-Path $env:TEMP 'sc-bgm.mp3'
 $curId = $null
-$curLoop = 'once'
 $opened = $false
 $localPaused = $false
 
@@ -60,7 +59,6 @@ while ($true) {
     $ch = ($resp.Content | ConvertFrom-Json).data | Where-Object { $_.slot -eq 3 }
     $mid = $ch.currentMediaId
     $murl = [string]$ch.currentMediaUrl
-    $loop = [string]$ch.loopMode
 
     $wantPaused = [bool]($ch.paused)
 
@@ -78,13 +76,12 @@ while ($true) {
           Invoke-WebRequest -UseBasicParsing $abs -OutFile $tmpFile -TimeoutSec 30
           Invoke-Mci ('open "' + $tmpFile + '" alias bgm') | Out-Null
           Invoke-Mci 'play bgm' | Out-Null
-          $opened = $true; $curId = "$mid"; $curLoop = $loop; $localPaused = $false
+          $opened = $true; $curId = "$mid"; $localPaused = $false
         } catch {}
       }
     }
     else {
       # same track -> handle pause / resume / loop
-      $curLoop = $loop
       if ($opened) {
         $mode = Invoke-Mci 'status bgm mode'
         if ($wantPaused -and $mode -match 'playing') {
@@ -93,7 +90,21 @@ while ($true) {
         elseif (-not $wantPaused -and ($mode -match 'paused' -or $localPaused)) {
           Invoke-Mci 'resume bgm' | Out-Null; $localPaused = $false
         }
-        elseif (-not $localPaused -and $mode -match 'stopped' -and $curLoop -eq 'loop') {
+        elseif (-not $localPaused -and $mode -match 'stopped') {
+          # 2026-07-18: this used to require loopMode=='loop' to restart, and
+          # that was the actual root cause of "BGM has no sound": AudioPage.vue
+          # drives its playlist entirely client-side (a setInterval counts down
+          # the track length in whoever's browser has that page open, then calls
+          # playAt() for the next track; every playAt() explicitly publishes
+          # loopMode='once'). Nobody keeps that browser tab open forever, so as
+          # soon as it closes, the current track finishes, MCI reports stopped,
+          # loopMode is 'once' -> this branch used to do nothing -> silent
+          # forever until someone manually hits play again.
+          # This slot is BGM-only; there is no legitimate "play once then stay
+          # silent forever" case here (unlike the LED slots, where 'once' means
+          # freeze on the last frame). Whatever loopMode says, if nobody asked
+          # to pause/stop, there should always be sound. An unexpected "replays
+          # the current track" beats an unexpected "goes silent".
           Invoke-Mci 'seek bgm to start' | Out-Null
           Invoke-Mci 'play bgm' | Out-Null
         }
