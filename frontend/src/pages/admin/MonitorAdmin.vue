@@ -71,7 +71,7 @@ function gatewayState(name: string): string {
 
 function statusCls(state: string): string {
   switch (state) {
-    case 'online': case 'up': return 'is-on';
+    case 'online': case 'up': case 'ok': return 'is-on';
     case 'reconnecting': case 'degraded': return 'is-warning';
     case 'error': case 'offline': case 'down': return 'is-error';
     default: return 'is-off';
@@ -211,10 +211,16 @@ onBeforeUnmount(() => {
           <div class="section-title"><Server :size="16" :stroke-width="1.75" /> 服务状态</div>
         </div>
         <div class="svc-list">
+          <!--
+            显示整体健康 status (ok/degraded/down), 不再显示 apiStatus ——
+            后者在 health.service 里是硬编码常量 'up', 这个灯永远是绿的, 纯骗人:
+            数据库挂了、调度器没起, 它照样显示正常。status 才是真算出来的
+            (db 挂=down / ws|scheduler 没起=degraded)。2026-07-19 改。
+          -->
           <div class="svc-row">
-            <span class="svc-name"><Server :size="14" :stroke-width="2" /> API</span>
-            <span class="sc-status" :class="statusCls(health?.apiStatus ?? '')">
-              <span class="sc-status-dot" /> {{ health?.apiStatus ?? '—' }}
+            <span class="svc-name"><Server :size="14" :stroke-width="2" /> 整体</span>
+            <span class="sc-status" :class="statusCls(health?.status ?? '')">
+              <span class="sc-status-dot" /> {{ health?.status ?? '—' }}
             </span>
           </div>
           <div class="svc-row">

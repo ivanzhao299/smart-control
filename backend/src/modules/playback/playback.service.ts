@@ -98,15 +98,19 @@ export class PlaybackService implements OnModuleInit {
     const m = await this.mediaService.get(mediaId).catch(() => null);
     if (!m) throw new BadRequestException(`媒体 ${mediaId} 不存在`);
 
-    row.currentMediaId = mediaId;
-    row.currentPlaylistId = null;
-    row.playlistIndex = 0;
-    row.startedAt = new Date();
     // 展厅大屏默认循环: 播一遍就回待机等于要人守着重推, 现场没人干这事
     // (2026-07-16 业主: "没有人工干预就让它循环播放")
-    row.loopMode = opts.loopMode ?? 'loop';
-    row.paused = false;
-    await this.repo.save(row);
+    const loopMode = opts.loopMode ?? 'loop';
+    // 只写"推送新媒体"该动的这几个字段, 不整行 save —— 否则会把 playMode /
+    // lastHeartbeatAt 这些不相干的字段一起写回旧值 (见 pause 上方注释)
+    await this.repo.update({ slot }, {
+      currentMediaId: mediaId,
+      currentPlaylistId: null,
+      playlistIndex: 0,
+      startedAt: new Date(),
+      loopMode,
+      paused: false,
+    });
 
     // 记历史: 现场常有"刚才那片子叫啥来着, 再放一遍" —— 有历史就一点即回,
     // 不用去媒体库翻。名字存快照, 媒体以后被删/改名, 历史仍看得到当时播的是什么。
@@ -114,9 +118,9 @@ export class PlaybackService implements OnModuleInit {
       slot, mediaId, mediaName: m.originalName ?? `media ${mediaId}`,
     }));
 
-    const view = await this.toView(row);
+    const view = await this.getBySlot(slot);
     this.broadcast(view);
-    this.logger.info(`[Playback] slot=${slot} → media id=${mediaId} (${m.originalName}, loop=${row.loopMode})`);
+    this.logger.info(`[Playback] slot=${slot} → media id=${mediaId} (${m.originalName}, loop=${loopMode})`);
     return view;
   }
 
@@ -281,11 +285,10 @@ export class PlaybackService implements OnModuleInit {
 
   /** 设背景音乐播放模式 (前端点 顺序/单曲/列表/随机). 存后端, bgm-player advance 时读它. */
   async setPlayMode(slot: number, mode: PlaybackPlayMode): Promise<PlaybackChannelView> {
-    const row = await this.repo.findOne({ where: { slot } });
-    if (!row) throw new NotFoundException(`slot=${slot} 不存在`);
-    row.playMode = mode;
-    await this.repo.save(row);
-    const view = await this.toView(row);
+    // 只写 playMode: 改播放模式不该把当前在播的曲子/暂停状态一起冲掉
+    const res = await this.repo.update({ slot }, { playMode: mode });
+    if (!res.affected) throw new NotFoundException(`slot=${slot} 不存在`);
+    const view = await this.getBySlot(slot);
     this.broadcast(view);
     this.logger.info(`[Playback] slot=${slot} → playMode=${mode}`);
     return view;
@@ -314,37 +317,45 @@ export class PlaybackService implements OnModuleInit {
 
   /** 清掉当前播放, 回到待机 (PlayerPage 显示 logo + 系统名称) */
   async stop(slot: number): Promise<PlaybackChannelView> {
-    const row = await this.repo.findOne({ where: { slot } });
-    if (!row) throw new NotFoundException(`slot=${slot} 不存在`);
-    row.currentMediaId = null;
-    row.currentPlaylistId = null;
-    row.playlistIndex = 0;
-    row.startedAt = null;
-    row.paused = false;
-    await this.repo.save(row);
+    // 只清播放状态相关字段, 不碰 playMode / lastHeartbeatAt (见 pause 上方注释)
+    const res = await this.repo.update({ slot }, {
+      currentMediaId: null,
+      currentPlaylistId: null,
+      playlistIndex: 0,
+      startedAt: null,
+      paused: false,
+    });
+    if (!res.affected) throw new NotFoundException(`slot=${slot} 不存在`);
 
-    const view = await this.toView(row);
+    const view = await this.getBySlot(slot);
     this.broadcast(view);
     this.logger.info(`[Playback] slot=${slot} → idle`);
     return view;
   }
 
+  /**
+   * ⚠️ 播控写入一律"按字段 update", 不要 findOne → 改字段 → save(row)。
+   *
+   * save(row) 会把**读到那一刻的整行**写回去。播控这张表同时被三方写:
+   * 用户操作(暂停/推媒体/切曲)、bgm-player 的自动 advance、PlayerPage 的 30s 心跳。
+   * 整行写回就会互相冲掉对方刚改的字段, 典型症状:
+   *   - 点暂停的瞬间 bgm 刚推进下一首 → 暂停把 currentMediaId 冲回上一首
+   *   - 心跳把用户刚点的暂停冲回 false → "点了暂停过一会儿自己又播了"
+   * 只写自己该写的字段就不会互相踩; 写完重新读一次拿到最新完整状态再广播,
+   * 这样 WS 推出去的也是准的 (而不是自己内存里那份旧 row)。
+   */
   async pause(slot: number): Promise<PlaybackChannelView> {
-    const row = await this.repo.findOne({ where: { slot } });
-    if (!row) throw new NotFoundException(`slot=${slot} 不存在`);
-    row.paused = true;
-    await this.repo.save(row);
-    const view = await this.toView(row);
+    const res = await this.repo.update({ slot }, { paused: true });
+    if (!res.affected) throw new NotFoundException(`slot=${slot} 不存在`);
+    const view = await this.getBySlot(slot);
     this.broadcast(view);
     return view;
   }
 
   async resume(slot: number): Promise<PlaybackChannelView> {
-    const row = await this.repo.findOne({ where: { slot } });
-    if (!row) throw new NotFoundException(`slot=${slot} 不存在`);
-    row.paused = false;
-    await this.repo.save(row);
-    const view = await this.toView(row);
+    const res = await this.repo.update({ slot }, { paused: false });
+    if (!res.affected) throw new NotFoundException(`slot=${slot} 不存在`);
+    const view = await this.getBySlot(slot);
     this.broadcast(view);
     return view;
   }

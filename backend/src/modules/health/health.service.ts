@@ -65,6 +65,11 @@ export class HealthService {
       this.countDevices(),
       Promise.resolve(this.resources()),
     ]);
+    // ⚠️ 恒为 'up' —— 这是个自指的假字段: 这份报告本身就是 API 返回的, 调用方能拿到它
+    // 就说明 API 活着, 所以它永远不可能是 'down'。**别拿它当健康判据**:
+    // CI 的云端健康门曾经判 apiStatus=='up', 等于恒真条件, DB 挂了照样判部署成功
+    // (2026-07-19 已改判下面算出来的 status)。后台监控面板同理, 那个灯永远绿。
+    // 字段保留只为不破坏既有响应契约; 有诊断价值的是 status / databaseStatus 这些。
     const apiStatus: 'up' | 'down' = 'up';
     const status: HealthReport['status'] =
       db === 'down' ? 'down' : (this.wsUp && this.schedulerUp ? 'ok' : 'degraded');
