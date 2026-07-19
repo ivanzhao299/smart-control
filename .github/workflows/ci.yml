@@ -71,5 +71,12 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       # 协议编解码层单测: 改错一个字节/大小端/换算, 这里先红, 不流到现场硬件
-      - run: pnpm test -- --ci --reporters=default
+      #
+      # ⚠️ 必须用 `pnpm exec jest`, 不能写 `pnpm test -- --ci`:
+      # pnpm 不像 npm 需要 `--` 转义额外参数, 那个 `--` 会**原样传给 jest**, 于是
+      # `--ci --reporters=default` 被 jest 当成**测试路径匹配模式**(日志里是
+      # `Pattern: --ci|--reporters=default - 0 matches`), 匹配不到任何文件 →
+      # "No tests found, exiting with code 1" → CI 红, 而测试本身根本没跑。
+      # 2026-07-19 踩过一次: testMatch 明明 5 matches, 却报没找到测试。
+      - run: pnpm exec jest --ci --reporters=default
       - run: pnpm run build
