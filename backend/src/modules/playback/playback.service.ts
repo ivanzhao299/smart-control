@@ -349,12 +349,19 @@ export class PlaybackService implements OnModuleInit {
     return view;
   }
 
-  /** PlayerPage 心跳 — 证明 kiosk 还活着. 超过 HEARTBEAT_STALE_MS 没收到就 alive=false */
+  /**
+   * PlayerPage 心跳 — 证明 kiosk 还活着. 超过 HEARTBEAT_STALE_MS 没收到就 alive=false
+   *
+   * ⚠️ 只按字段 update, 不做 read-modify-write 整行 save.
+   * 原来是 findOne → 改 lastHeartbeatAt → save(row): save 会把**读到那一刻的整行**写回去.
+   * 而心跳是全系统最高频的写 (大屏/投影/BGM 三个 slot 各 30s 一次) —— 如果这期间用户点了
+   * 暂停、推了新媒体, 或 bgm-player 调了 advance, 心跳就会拿它读到的旧快照把这些改动覆盖掉
+   * (典型表现: 点了暂停过一会儿自己又播了 / 刚推的媒体被弹回上一个). 按字段 update 之后,
+   * 心跳只碰 lastHeartbeatAt, 不再跟播控命令抢同一行.
+   */
   async heartbeat(slot: number): Promise<void> {
-    const row = await this.repo.findOne({ where: { slot } });
-    if (!row) throw new NotFoundException(`slot=${slot} 不存在`);
-    row.lastHeartbeatAt = new Date();
-    await this.repo.save(row);
+    const res = await this.repo.update({ slot }, { lastHeartbeatAt: new Date() });
+    if (!res.affected) throw new NotFoundException(`slot=${slot} 不存在`);
     // 心跳不广播 WS, 太频繁; 前端要看 PlayerPage 活没活直接 GET /api/playback
   }
 

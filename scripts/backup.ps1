@@ -59,7 +59,9 @@ if (Test-Path $envFile) {
 # Seed (UAT 数据用过的可保留)
 $uatExport = Join-Path $snap 'uat-snapshot.json'
 try {
-  $uat = Invoke-RestMethod -Uri 'http://127.0.0.1:3000/api/uat?pageSize=500' -Method Get -TimeoutSec 5
+  # 端口 3200 — 生产后端就是 3200, 之前写的 3000 是早期端口, 一直静默走 catch 分支
+  # (表现为每次备份都提示"UAT 导出跳过", 看着像服务没起, 其实是打错端口)
+  $uat = Invoke-RestMethod -Uri 'http://127.0.0.1:3200/api/uat?pageSize=500' -Method Get -TimeoutSec 5
   $uat | ConvertTo-Json -Depth 10 | Out-File -FilePath $uatExport -Encoding utf8
   Write-Host "[3/3] UAT 验收快照已导出 (服务运行中)" -ForegroundColor Green
 } catch {

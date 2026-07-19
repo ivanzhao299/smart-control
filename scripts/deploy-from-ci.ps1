@@ -231,6 +231,23 @@ try {
   }
   if (-not $healthy) { throw 'GK9000 backend or frontend did not become healthy.' }
 
+  # 权威部署验证 — 上面的 health 循环只能证明"有 3200/5173 在应答", 证明不了跑的是新代码:
+  # 孤儿旧进程占着端口时 health 一样返回 200 (2026-07-16 踩过, "部署后没跑通"的根因).
+  # verify-deploy.js 才是唯一判据: pm2 online / 端口持有者 PID == pm2 记录的 PID /
+  # 进程启动时间 > dist mtime / health status==ok / 重启计数 3s 内不增长.
+  # update.ps1 早就走它了, CI 这条路径之前漏了, 这里补齐 —— 失败则走下面已有的回滚。
+  $verifier = Join-Path $projectRoot 'scripts\verify-deploy.js'
+  if (Test-Path $verifier) {
+    Write-DeployLog 'Running verify-deploy.js (authoritative deploy verification).'
+    & node $verifier 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
+    if ($LASTEXITCODE -ne 0) {
+      throw "verify-deploy.js reported failure (exit $LASTEXITCODE)."
+    }
+    Write-DeployLog 'verify-deploy.js passed.'
+  } else {
+    Write-DeployLog 'WARN: scripts\verify-deploy.js not found - authoritative verification skipped.'
+  }
+
   $deployedCommit = (git rev-parse HEAD).Trim()
   $result = 'PASS'
   Write-DeployLog "Deployment complete: $deployedCommit"

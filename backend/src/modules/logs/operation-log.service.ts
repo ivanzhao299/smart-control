@@ -1,7 +1,7 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
-import { Between, FindOptionsWhere, In, Like, MoreThanOrEqual, Repository } from 'typeorm';
+import { Between, FindOptionsWhere, In, LessThan, Like, MoreThanOrEqual, Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { LogResult, OperationLog } from '../../entities/operation-log.entity';
 import { QueryLogDto } from './dto/query-log.dto';
@@ -23,11 +23,61 @@ export interface RecordLogInput {
 }
 
 @Injectable()
-export class OperationLogService {
+export class OperationLogService implements OnModuleInit, OnModuleDestroy {
+  /**
+   * 日志留存天数 — 默认 90 天, 用 LOG_RETENTION_DAYS 调; <=0 关闭清理.
+   *
+   * 背景: operation_log 每次设备操作都写一行, 之前**没有任何留存策略**, SQLite 只涨不减.
+   * 展厅每天几百到几千条, 一年就是几十万行 —— 拖慢日志页分页查询, 也把 DB 文件撑大
+   * (备份跟着变慢). 90 天足够追溯现场问题, 再老的没人看.
+   */
+  private readonly retentionDays = Number.parseInt(process.env.LOG_RETENTION_DAYS ?? '90', 10);
+  private purgeTimer?: NodeJS.Timeout;
+
   constructor(
     @InjectRepository(OperationLog) private readonly repo: Repository<OperationLog>,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
+
+  onModuleInit(): void {
+    if (!Number.isFinite(this.retentionDays) || this.retentionDays <= 0) {
+      this.logger.info('操作日志留存清理已关闭 (LOG_RETENTION_DAYS<=0)', {
+        context: 'OperationLogService',
+      });
+      return;
+    }
+    // 启动 5 分钟后先清一次积压 (避开启动高峰), 之后每 24h 一次.
+    // 用 setTimeout/setInterval 而不是引入 ScheduleModule: 自包含、不动全局模块布线.
+    setTimeout(() => void this.purgeExpired(), 5 * 60_000).unref?.();
+    this.purgeTimer = setInterval(() => void this.purgeExpired(), 24 * 3600_000);
+    this.purgeTimer.unref?.();
+  }
+
+  onModuleDestroy(): void {
+    if (this.purgeTimer) clearInterval(this.purgeTimer);
+  }
+
+  /** 删除超过留存期的操作日志, 返回删除条数 */
+  async purgeExpired(): Promise<number> {
+    const cutoff = new Date(Date.now() - this.retentionDays * 24 * 3600_000);
+    try {
+      const res = await this.repo.delete({ createdAt: LessThan(cutoff) });
+      const removed = res.affected ?? 0;
+      if (removed > 0) {
+        this.logger.info(
+          `操作日志清理: 删除 ${removed} 条 (早于 ${cutoff.toISOString()}, 留存 ${this.retentionDays} 天)`,
+          { context: 'OperationLogService' },
+        );
+      }
+      return removed;
+    } catch (err) {
+      // 清理失败不能影响主流程 (写日志/查日志照常)
+      this.logger.error(`操作日志清理失败: ${(err as Error).message}`, {
+        context: 'OperationLogService',
+      });
+      return 0;
+    }
+  }
 
   async record(input: RecordLogInput): Promise<OperationLog> {
     const entity = this.repo.create({

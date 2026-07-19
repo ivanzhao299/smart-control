@@ -337,13 +337,18 @@ jobs:
           for i in 1 2 3 4 5 6 7 8 9 10; do
             sleep 3
             BODY=$(curl -fsS --max-time 5 https://cnjinhu.top/control/api/system/health || true)
-            STATUS=$(echo "$BODY" | jq -r .data.apiStatus 2>/dev/null)
-            if [ "$STATUS" = "up" ]; then
+            # 判 .data.status 而不是 .data.apiStatus:
+            # apiStatus 在 health.service 里是**硬编码常量 'up'** (`const apiStatus = 'up'`),
+            # 只要接口能应答就恒真 —— 等于健康门形同虚设, DB 挂了照样判通过。
+            # status 才是真算出来的: db 挂 = down, ws/scheduler 没起 = degraded, 全好才 ok。
+            STATUS=$(echo "$BODY" | jq -r .data.status 2>/dev/null)
+            if [ "$STATUS" = "ok" ]; then
               echo "✅ Health OK (attempt $i)"
               echo "$BODY" | jq .data
               exit 0
             fi
-            echo "⏳ health attempt $i: $STATUS"
+            # 失败时打细分项, 免得只看到一个 degraded 不知道是谁拖的
+            echo "⏳ health attempt $i: status=$STATUS db=$(echo "$BODY" | jq -r .data.databaseStatus 2>/dev/null) ws=$(echo "$BODY" | jq -r .data.websocketStatus 2>/dev/null) scheduler=$(echo "$BODY" | jq -r .data.schedulerStatus 2>/dev/null)"
           done
           echo "❌ Health check 失败, 自动回滚..."
           ssh -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "root@$DEPLOY_HOST" '
