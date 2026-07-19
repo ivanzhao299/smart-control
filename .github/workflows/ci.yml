@@ -51,7 +51,7 @@ jobs:
           retention-days: 7
 
   backend:
-    name: Backend · build
+    name: Backend · build & test
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -70,6 +70,6 @@ jobs:
           cache-dependency-path: backend/pnpm-lock.yaml
 
       - run: pnpm install --frozen-lockfile
+      # 协议编解码层单测: 改错一个字节/大小端/换算, 这里先红, 不流到现场硬件
+      - run: pnpm test -- --ci --reporters=default
       - run: pnpm run build
-      # TODO Sprint-11: 启用单测后取消注释
-      # - run: pnpm test -- --ci --reporters=default
