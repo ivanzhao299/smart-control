@@ -1,6 +1,7 @@
 import { BadRequestException, Body, Controller, Get, Headers, Post, UseGuards } from '@nestjs/common';
 import { AdminAuthService } from './admin-auth.service';
 import { AdminGuard } from './admin-auth.guard';
+import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 
 @Controller('admin/auth')
 export class AdminAuthController {
@@ -11,6 +12,9 @@ export class AdminAuthController {
    * 前端进 /admin 路由前 / 进入后没 token 时调.
    */
   @Post('login')
+  // 防爆破 (2026-07-19 加固): 按 IP 限流 10 次/分, 挡住对后台口令的枚举。
+  @UseGuards(RateLimitGuard)
+  @RateLimit({ max: 10, windowMs: 60_000 })
   async login(@Body() body: { password?: string } = {}) {
     if (!body?.password || typeof body.password !== 'string') {
       throw new BadRequestException('password 必填');

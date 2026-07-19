@@ -401,6 +401,7 @@ function onHoldEnd(): void {
   if (p >= 10 && p < 100) ElMessage.info('按住场景按钮直到进度条走满，才会切换');
 }
 onUnmounted(() => {
+  matrixPollStopped = true; // 见 scheduleMatrixPoll: 防 await 后又排一个孤儿 timer
   if (holdRaf) cancelAnimationFrame(holdRaf);
   stopPlTimer();
   if (matrixTimer) clearTimeout(matrixTimer); // 不清会在切页面后继续打设备
@@ -422,6 +423,8 @@ async function refreshCurrentScene(): Promise<void> {
  */
 const MATRIX_POLL_MS = 8000;
 let matrixTimer: ReturnType<typeof setTimeout> | null = null;
+// 2026-07-19 加固: 同 HvacPage, 防切页时 await 后重排出孤儿轮询, 持续打单客户端矩阵。
+let matrixPollStopped = false;
 function scheduleMatrixPoll(): void {
   matrixTimer = setTimeout(async () => {
     // 有在途写入 / 正等着对账时别读: 设备可能还没落到最新值, 读回来会把用户刚点
@@ -430,7 +433,7 @@ function scheduleMatrixPoll(): void {
     if (pendingWrites.value === 0 && reconcileTimer === null) {
       await loadMatrixState();
     }
-    scheduleMatrixPoll();
+    if (!matrixPollStopped) scheduleMatrixPoll();
   }, MATRIX_POLL_MS);
 }
 

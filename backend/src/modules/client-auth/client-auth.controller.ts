@@ -1,6 +1,7 @@
 import { BadRequestException, Body, Controller, Get, HttpCode, Post, Put, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ClientAuthService } from './client-auth.service';
 import { AdminGuard } from '../admin-auth/admin-auth.guard';
+import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 
 /**
  * /api/client-auth
@@ -21,6 +22,10 @@ export class ClientAuthController {
 
   @Post('login')
   @HttpCode(200)
+  // 防爆破 (2026-07-19 加固): 按 IP 限流 10 次/分。正常业主输错几次不受影响, 但挡住
+  // 公网对 4 位口令的秒级枚举 (枚举需要每秒多次)。RateLimitGuard 按 IP×路由 分桶。
+  @UseGuards(RateLimitGuard)
+  @RateLimit({ max: 10, windowMs: 60_000 })
   async login(@Body() body: { password?: string }) {
     if (!body?.password) {
       throw new BadRequestException('请输入密码');

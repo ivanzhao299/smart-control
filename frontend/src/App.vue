@@ -16,6 +16,8 @@ const brandingStore = useSystemBrandingStore();
 const playbackStore = usePlaybackStore();
 
 let unsubscribeWs: (() => void) | null = null;
+let unsubscribeWsState: (() => void) | null = null;
+let wsWasOpen = false; // 区分首次连接 vs 重连, 只在重连时补对齐
 
 onMounted(async () => {
   systemStore.startClock();
@@ -52,6 +54,21 @@ onMounted(async () => {
     systemStore.handleWs(event);
     playbackStore.handleWs(event);
   });
+
+  // WS 重连对齐 (2026-07-19 加固). 之前 WS 断线重连后, 全项目没有任何"重新拉一遍"
+  // 的动作 —— 断线期间漏掉的事件永远补不回来, 而且 WS 连接快照根本不含 playback 通道,
+  // 于是多个终端会无限期停在断线前的旧状态 (显示"播放中: 视频X", 大屏其实早换成 Y)。
+  // 首次连接不用补 (onMounted 已 fetch); 只有重连 (wsWasOpen 已 true) 才 refetch 各 store。
+  unsubscribeWsState = wsClient.onState((state) => {
+    if (state !== 'open') return;
+    if (wsWasOpen) {
+      void deviceStore.fetchRuntime();
+      void deviceStore.fetchGateways();
+      void sceneStore.refreshRunning();
+      void playbackStore.load();
+    }
+    wsWasOpen = true;
+  });
   wsClient.connect();
 
   // PERFORMANCE_AUDIT P0-#3: 统一轮询调度器, 替代散落 setInterval
@@ -80,6 +97,7 @@ onBeforeUnmount(() => {
   systemStore.stopAlertTtlSweep();
   polling.stop();
   if (unsubscribeWs) unsubscribeWs();
+  if (unsubscribeWsState) unsubscribeWsState();
   wsClient.disconnect();
 });
 </script>

@@ -135,10 +135,14 @@ async function pollStates(): Promise<void> {
 }
 
 /** setTimeout 递归而非 setInterval: 避免上一轮没回来就发下一轮, 把网关压垮 */
+// 2026-07-19 加固: pollStopped 标志。之前切页时若恰有一轮 pollStates 在途, onBeforeUnmount
+// 的 clearTimeout 已是 no-op (timer 早 fired), await 完成后又排了个无人持有的新 timer ->
+// 孤儿轮询累积, 持续打脆弱的单客户端空调网关。重排前判 stopped 才彻底停得掉。
+let pollStopped = false;
 function schedulePoll(): void {
   pollTimer = setTimeout(async () => {
     await pollStates();
-    schedulePoll();
+    if (!pollStopped) schedulePoll();
   }, POLL_MS);
 }
 
@@ -148,6 +152,7 @@ onMounted(async () => {
   schedulePoll();
 });
 onBeforeUnmount(() => {
+  pollStopped = true;
   if (pollTimer) clearTimeout(pollTimer);
 });
 
