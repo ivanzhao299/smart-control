@@ -41,6 +41,34 @@ if (-not (Test-Path $pm2)) { $pm2 = 'pm2' }
 $env:PM2_HOME = 'C:\Users\user\.pm2'
 Log "[boot] pm2 = $pm2 ; PM2_HOME = $env:PM2_HOME"
 
+# --- WireGuard keepalive (must stay ABOVE the early-exit below) ---
+# GK9000 sits behind NAT. With no keepalive the NAT mapping expires after a few idle
+# minutes and the jump host can no longer INITIATE a connection -- deploys time out and
+# remote access dies -- even though the machine is online and its own outbound traffic
+# (git fetch, heartbeat) works fine. That asymmetry is what made the tunnel look
+# "sometimes up, sometimes down" for two days (2026-07-19/20) and cost several failed
+# deploys before the cause was found.
+#
+# 25s is the WireGuard-recommended interval. `wg set` is a RUNTIME-only change: it does
+# not survive a tunnel or host restart -- and this host gets powered off by hand fairly
+# often. So re-apply it on every run: this script fires at boot AND on the 5-minute
+# backstop trigger, and the call is idempotent.
+#
+# Deliberately placed before the "ports already listening -> exit 0" shortcut, otherwise
+# the keepalive would be skipped exactly when the services are healthy (the common case).
+$wgExe = 'C:\Program Files\WireGuard\wg.exe'
+$wgPeer = 'pFHcSLdoGn19NXM64W2k0k+4XYu3SFBpzTAv8XtBliw='
+if (Test-Path $wgExe) {
+  try {
+    & $wgExe set gk9000 peer $wgPeer persistent-keepalive 25 2>&1 | Out-Null
+    Log '[boot] wireguard persistent-keepalive=25 applied'
+  } catch {
+    Log "[boot] wireguard keepalive failed: $($_.Exception.Message)"
+  }
+} else {
+  Log '[boot] wg.exe not found, skip keepalive'
+}
+
 # Ports already listening = services already up (started manually / left running).
 # Skip resurrect so we don't stack a second layer.
 $backendUp = $null -ne (Get-NetTCPConnection -LocalPort 3200 -State Listen -ErrorAction SilentlyContinue)
