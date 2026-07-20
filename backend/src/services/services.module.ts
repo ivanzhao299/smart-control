@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Device } from '../entities/device.entity';
+import { DeviceState } from '../entities/device-state.entity';
 import { Scene } from '../entities/scene.entity';
 import { SceneAction } from '../entities/scene-action.entity';
 import { SceneExecution } from '../entities/scene-execution.entity';
@@ -15,7 +16,7 @@ import { DeviceHealthService } from './device-health.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Device, Scene, SceneAction, SceneExecution]),
+    TypeOrmModule.forFeature([Device, DeviceState, Scene, SceneAction, SceneExecution]),
     ServicesPrimitivesModule,
     AdaptersModule,
     LogsModule,
