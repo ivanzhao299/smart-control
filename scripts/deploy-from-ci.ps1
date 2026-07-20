@@ -218,6 +218,19 @@ try {
         Pop-Location
       }
 
+      # Run DB migrations after build, before restart. With DB_SYNCHRONIZE=false the
+      # schema only changes through migrations, so this is where new ones get applied.
+      # run-migrations.js is a no-op when nothing is pending, backs up the DB before it
+      # touches anything, and exits non-zero on failure -> the catch below rolls back.
+      Push-Location (Join-Path $projectRoot 'backend')
+      try {
+        Write-DeployLog 'Running DB migrations (run-migrations.js).'
+        & node scripts/run-migrations.js 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
+        if ($LASTEXITCODE -ne 0) { throw "Database migration failed (exit $LASTEXITCODE)." }
+      } finally {
+        Pop-Location
+      }
+
       Write-DeployLog 'Restarting services through pm2.'
       Restart-Services
     }
