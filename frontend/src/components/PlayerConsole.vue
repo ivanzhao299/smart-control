@@ -609,7 +609,7 @@ async function submitWebpage(): Promise<void> {
 .now {
   display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
   padding: 14px 16px; border-radius: 14px;
-  background: var(--v2-surface, #14161A); border: 1px solid var(--v2-border-soft);
+  background: var(--v2-surf-1, #14161A); border: 1px solid var(--v2-border-soft);
 }
 .now-info { flex: 1 1 240px; min-width: 0; }
 .now-label { font-size: 12px; color: var(--v2-text-2); }
@@ -624,8 +624,8 @@ async function submitWebpage(): Promise<void> {
 .pc-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 48px; height: 48px; border-radius: 12px; cursor: pointer;
-  background: var(--v2-surface-2, #1A1D22);
-  border: 1px solid var(--v2-border, #23262C); color: var(--v2-text-1);
+  background: var(--v2-surf-2, #1A1D22);
+  border: 1px solid var(--v2-border-soft, #23262C); color: var(--v2-text-1);
 }
 .pc-btn:disabled { opacity: .35; cursor: not-allowed; }
 .pc-btn.main { width: 60px; height: 60px; background: var(--v2-primary-soft); border-color: var(--v2-primary); color: #fff; }
@@ -634,13 +634,13 @@ async function submitWebpage(): Promise<void> {
 .src-bar {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding: 10px 14px; border-radius: 12px;
-  background: var(--v2-surface, #14161A); border: 1px solid var(--v2-border-soft);
+  background: var(--v2-surf-1, #14161A); border: 1px solid var(--v2-border-soft);
 }
 .src-label { font-size: 13px; color: var(--v2-text-2); }
 .src-btn {
   padding: 9px 16px; min-height: 40px; border-radius: 9px; cursor: pointer;
   font-size: 14px; color: var(--v2-text-1);
-  background: var(--v2-surface-2, #1A1D22); border: 1px solid var(--v2-border, #23262C);
+  background: var(--v2-surf-2, #1A1D22); border: 1px solid var(--v2-border-soft, #23262C);
 }
 .src-btn.on { border-color: var(--v2-primary); background: var(--v2-primary-soft); color: #fff; }
 .src-btn:disabled { opacity: .4; cursor: not-allowed; }
@@ -654,7 +654,7 @@ async function submitWebpage(): Promise<void> {
 .panel {
   display: flex; flex-direction: column; min-height: 0; max-height: 100%;
   border-radius: 14px; padding: 12px;
-  background: var(--v2-surface, #14161A); border: 1px solid var(--v2-border-soft);
+  background: var(--v2-surf-1, #14161A); border: 1px solid var(--v2-border-soft);
 }
 .panel-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .panel-title { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; color: var(--v2-text-1); }
@@ -683,7 +683,7 @@ async function submitWebpage(): Promise<void> {
 .pl-item {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 10px; border-radius: 10px;
-  background: var(--v2-surface-2, #1A1D22); border: 1px solid transparent;
+  background: var(--v2-surf-2, #1A1D22); border: 1px solid transparent;
 }
 .pl-item.playing { border-color: var(--v2-primary); background: #16375a; }
 .pl-item.dragging { opacity: .45; }
@@ -695,7 +695,7 @@ async function submitWebpage(): Promise<void> {
 .pl-play {
   display: inline-flex; align-items: center; justify-content: center;
   width: 34px; height: 34px; flex: 0 0 auto; border-radius: 8px; cursor: pointer;
-  background: transparent; border: 1px solid var(--v2-border); color: var(--v2-text-1);
+  background: transparent; border: 1px solid var(--v2-border-soft); color: var(--v2-text-1);
 }
 .pl-play:disabled { opacity: .35; cursor: not-allowed; }
 .pl-name { flex: 1 1 auto; min-width: 0; font-size: 14px; color: var(--v2-text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: text; }
@@ -724,7 +724,7 @@ async function submitWebpage(): Promise<void> {
 }
 .pick-box {
   width: min(560px, 100%); max-height: 76vh; display: flex; flex-direction: column;
-  background: var(--v2-surface, #14161A); border: 1px solid var(--v2-border, #23262C);
+  background: var(--v2-surf-1, #14161A); border: 1px solid var(--v2-border-soft, #23262C);
   border-radius: 14px; padding: 14px;
 }
 .webpage-box { gap: 6px; }
@@ -741,19 +741,19 @@ async function submitWebpage(): Promise<void> {
 .pick-tabs { display: flex; gap: 4px; margin-left: auto; }
 .pick-tab {
   padding: 7px 14px; min-height: 36px; border-radius: 8px; cursor: pointer; font-size: 13px;
-  background: var(--v2-surface-2, #1A1D22); border: 1px solid var(--v2-border, #23262C); color: var(--v2-text-2);
+  background: var(--v2-surf-2, #1A1D22); border: 1px solid var(--v2-border-soft, #23262C); color: var(--v2-text-2);
 }
 .pick-tab.on { border-color: var(--v2-primary); color: #fff; background: var(--v2-primary-soft); }
 .pick-close {
   display: inline-flex; align-items: center; justify-content: center;
   width: 34px; height: 34px; border-radius: 8px; cursor: pointer;
-  background: transparent; border: 1px solid var(--v2-border); color: var(--v2-text-2);
+  background: transparent; border: 1px solid var(--v2-border-soft); color: var(--v2-text-2);
 }
 .pick-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
 .pick-item {
   display: flex; align-items: center; gap: 10px; width: 100%;
   padding: 11px 12px; min-height: 46px; border-radius: 10px; cursor: pointer; text-align: left;
-  background: var(--v2-surface-2, #1A1D22); border: 1px solid transparent; color: var(--v2-text-1);
+  background: var(--v2-surf-2, #1A1D22); border: 1px solid transparent; color: var(--v2-text-1);
 }
 .pick-item:hover:not(:disabled) { border-color: var(--v2-primary); }
 .pick-item.added { opacity: .5; cursor: default; }
@@ -766,7 +766,7 @@ async function submitWebpage(): Promise<void> {
 .mob-tab {
   flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   padding: 11px; min-height: 46px; border-radius: 10px; cursor: pointer; font-size: 14px;
-  background: var(--v2-surface, #14161A); border: 1px solid var(--v2-border, #23262C); color: var(--v2-text-2);
+  background: var(--v2-surf-1, #14161A); border: 1px solid var(--v2-border-soft, #23262C); color: var(--v2-text-2);
 }
 .mob-tab.on { border-color: var(--v2-primary); color: #fff; background: var(--v2-primary-soft); }
 .mob-tab i { font-style: normal; font-size: 12px; opacity: .8; }

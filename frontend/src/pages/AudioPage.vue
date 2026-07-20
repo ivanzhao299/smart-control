@@ -1392,7 +1392,7 @@ async function toggleMuteAll(): Promise<void> {
 
 /* 音频选择器 dialog */
 .bgm-picker {
-  background: var(--v2-surf-0); border: 1px solid var(--v2-border-soft);
+  background: var(--v2-bg-0); border: 1px solid var(--v2-border-soft);
   border-radius: var(--v2-r-xl);
   width: min(560px, 94vw); max-height: 70vh;
   display: flex; flex-direction: column;

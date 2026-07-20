@@ -754,8 +754,8 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 }
 .v2-more-sheet {
   width: 100%;
-  background: var(--v2-surface, #14161A);
-  border-top: 1px solid var(--v2-border, #23262C);
+  background: var(--v2-surf-1, #14161A);
+  border-top: 1px solid var(--v2-border-soft, #23262C);
   border-radius: 18px 18px 0 0;
   /* 封顶 34px, 理由跟 .v2-nav 那处一致 (Chrome for iOS 的 env() 汇报值不可信) */
   padding: 10px 14px calc(14px + min(env(safe-area-inset-bottom), 34px));
@@ -770,9 +770,9 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   gap: 8px; padding: 16px 6px;            /* 触摸目标做足, 不再是 42px 的小格子 */
   min-height: 84px;
   border-radius: 12px; cursor: pointer;
-  background: var(--v2-surface-2, #1A1D22);
-  border: 1px solid var(--v2-border, #23262C);
-  color: var(--v2-text-dim, #9BA1A9); font-size: 13px;
+  background: var(--v2-surf-2, #1A1D22);
+  border: 1px solid var(--v2-border-soft, #23262C);
+  color: var(--v2-text-3, #9BA1A9); font-size: 13px;
 }
 .v2-more-item.is-active { color: var(--v2-primary); border-color: var(--v2-primary); }
 
