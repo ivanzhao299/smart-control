@@ -11,6 +11,7 @@ import {
 import { ControlBus } from '../../services/control-bus';
 import { QueryAlertDto } from './dto/alert.dto';
 import { PagedResult } from '../devices/devices.service';
+import { AlertNotifierService } from './alert-notifier.service';
 
 export interface CreateAlertInput {
   level: AlertLevel;
@@ -35,6 +36,7 @@ export class AlertService {
   constructor(
     @InjectRepository(Alert) private readonly repo: Repository<Alert>,
     private readonly bus: ControlBus,
+    private readonly notifier: AlertNotifierService,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
@@ -82,6 +84,17 @@ export class AlertService {
       alertId: saved.id,
       level: saved.level,
       alertType: saved.type,
+      sourceType: saved.sourceType,
+      sourceId: saved.sourceId,
+      title: saved.title,
+      message: saved.message,
+      at: saved.createdAt.toISOString(),
+    });
+    // 推到人眼前 (企业微信/钉钉/自建 webhook)。fire-and-forget: notify 内部自己吞异常,
+    // 推送失败绝不影响告警落库 —— 告警本身已经在上面 save 完了。
+    void this.notifier.notify({
+      level: saved.level,
+      type: saved.type,
       sourceType: saved.sourceType,
       sourceId: saved.sourceId,
       title: saved.title,
