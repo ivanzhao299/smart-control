@@ -195,7 +195,9 @@ try {
       $backupScript = Join-Path $projectRoot 'scripts\backup.ps1'
       if (Test-Path $backupScript) {
         Write-DeployLog 'Creating the existing production backup before build.'
-        & $backupScript -Keep 14 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
+        # 保留 7 份 (原 14): 每份是一整个 SQLite 快照 (~39MB), 14 份就是 ~550MB。
+        # 7 份 = 一周回溯窗口, 足够发现"配置被误改/数据不对"再回退; 更早的没人会用。
+        & $backupScript -Keep 7 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
       }
 
       Push-Location (Join-Path $projectRoot 'backend')
@@ -236,7 +238,11 @@ try {
   # verify-deploy.js 才是唯一判据: pm2 online / 端口持有者 PID == pm2 记录的 PID /
   # 进程启动时间 > dist mtime / health status==ok / 重启计数 3s 内不增长.
   # update.ps1 早就走它了, CI 这条路径之前漏了, 这里补齐 —— 失败则走下面已有的回滚。
-  $verifier = Join-Path $projectRoot 'scripts\verify-deploy.js'
+  # 用 $PSScriptRoot(本脚本所在的 scripts 目录), **不要用 $projectRoot** ——
+  # 那个变量只在"需要更新代码"的分支里赋值; 走"已经是目标 commit"的快捷路径时它是空的,
+  # Join-Path 会返回空 → Test-Path 报"参数是空值"→ 把一次本来成功的部署判成失败并回滚。
+  # 2026-07-20 踩过一次。update.ps1 里一直用的就是 $PSScriptRoot。
+  $verifier = Join-Path $PSScriptRoot 'verify-deploy.js'
   if (Test-Path $verifier) {
     Write-DeployLog 'Running verify-deploy.js (authoritative deploy verification).'
     & node $verifier 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
@@ -246,6 +252,22 @@ try {
     Write-DeployLog 'verify-deploy.js passed.'
   } else {
     Write-DeployLog 'WARN: scripts\verify-deploy.js not found - authoritative verification skipped.'
+  }
+
+  # 清理历史回滚备份 —— 只留当前这一份。
+  # 原来的目录名带 commit ($ProgramData\Anksen\smart-control-rollback-<sha>), 而上面
+  # 只 Remove 了"同名"那个, 所以**每换一个 commit 就留下一整份前后端 dist 副本, 永不回收**,
+  # 部署越多占得越多。部署到这里已经通过 verify-deploy 验证, 旧回滚点没有价值了 ——
+  # 真要退版本, 直接用目标 commit 重新部署即可 (代码都在 git 上)。
+  $rollbackParent = Join-Path $env:ProgramData 'Anksen'
+  if (Test-Path $rollbackParent) {
+    $stale = Get-ChildItem -Path $rollbackParent -Directory -Filter 'smart-control-rollback-*' -ErrorAction SilentlyContinue |
+      Where-Object { $_.FullName -ne $rollbackRoot }
+    foreach ($d in $stale) {
+      Write-DeployLog "Pruning stale rollback snapshot: $($d.Name)"
+      Remove-Item -Path $d.FullName -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if ($stale) { Write-DeployLog "Pruned $($stale.Count) stale rollback snapshot(s)." }
   }
 
   $deployedCommit = (git rev-parse HEAD).Trim()

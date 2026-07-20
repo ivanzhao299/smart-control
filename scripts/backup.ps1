@@ -6,7 +6,9 @@
 [CmdletBinding()]
 param(
   [string]$Dest = '',
-  [int]$Keep = 14
+  # 默认保留 7 份 (原 14): 每份是一整个 SQLite 快照 (~39MB)。7 份 = 一周回溯窗口,
+  # 足够发现"配置被误改"后回退; 更早的实际没人会用, 纯占盘。
+  [int]$Keep = 7
 )
 
 $ErrorActionPreference = 'Stop'
