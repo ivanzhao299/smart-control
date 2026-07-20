@@ -195,8 +195,9 @@ try {
       $backupScript = Join-Path $projectRoot 'scripts\backup.ps1'
       if (Test-Path $backupScript) {
         Write-DeployLog 'Creating the existing production backup before build.'
-        # 保留 7 份 (原 14): 每份是一整个 SQLite 快照 (~39MB), 14 份就是 ~550MB。
-        # 7 份 = 一周回溯窗口, 足够发现"配置被误改/数据不对"再回退; 更早的没人会用。
+        # Keep 7 (was 14): each snapshot is a full SQLite copy (~39MB), so 14 was ~550MB.
+        # 7 gives a one-week rollback window - enough to catch "config got changed by
+        # mistake" and revert; nobody ever reaches for anything older.
         & $backupScript -Keep 7 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
       }
 
@@ -233,16 +234,20 @@ try {
   }
   if (-not $healthy) { throw 'GK9000 backend or frontend did not become healthy.' }
 
-  # 权威部署验证 — 上面的 health 循环只能证明"有 3200/5173 在应答", 证明不了跑的是新代码:
-  # 孤儿旧进程占着端口时 health 一样返回 200 (2026-07-16 踩过, "部署后没跑通"的根因).
-  # verify-deploy.js 才是唯一判据: pm2 online / 端口持有者 PID == pm2 记录的 PID /
-  # 进程启动时间 > dist mtime / health status==ok / 重启计数 3s 内不增长.
-  # update.ps1 早就走它了, CI 这条路径之前漏了, 这里补齐 —— 失败则走下面已有的回滚。
-  # 用 $PSScriptRoot(本脚本所在的 scripts 目录), **不要用 $projectRoot** ——
-  # 那个变量只在"需要更新代码"的分支里赋值; 走"已经是目标 commit"的快捷路径时它是空的,
-  # Join-Path 会返回空 → Test-Path 报"参数是空值"→ 把一次本来成功的部署判成失败并回滚。
-  # 2026-07-20 踩过一次。update.ps1 里一直用的就是 $PSScriptRoot。
-  $verifier = Join-Path $PSScriptRoot 'verify-deploy.js'
+  # Authoritative deploy verification. The health loop above only proves "something is
+  # answering on 3200/5173" - it cannot prove the NEW code is live: an orphaned old
+  # process still holding the port answers 200 just the same (that was the root cause of
+  # the 2026-07-16 "deployed but never went live" incident). verify-deploy.js is the
+  # single source of truth: pm2 online / port-holder PID == pm2 PID / process start time
+  # newer than dist mtime / health status==ok / restart count stable over 3s.
+  # update.ps1 has always run it; this CI path was missing it, so we add it here.
+  # On failure we fall through to the rollback block below.
+  #
+  # KEEP THIS FILE ASCII-ONLY. Non-ASCII comments get mangled under the GBK console
+  # codepage and can swallow the FOLLOWING line's newline - that is exactly how the
+  # assignment below once got absorbed into a comment, leaving $verifier null and
+  # failing three otherwise-successful deploys (2026-07-20).
+  $verifier = Join-Path $projectRoot 'scripts\verify-deploy.js'
   if (Test-Path $verifier) {
     Write-DeployLog 'Running verify-deploy.js (authoritative deploy verification).'
     & node $verifier 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
@@ -254,11 +259,12 @@ try {
     Write-DeployLog 'WARN: scripts\verify-deploy.js not found - authoritative verification skipped.'
   }
 
-  # 清理历史回滚备份 —— 只留当前这一份。
-  # 原来的目录名带 commit ($ProgramData\Anksen\smart-control-rollback-<sha>), 而上面
-  # 只 Remove 了"同名"那个, 所以**每换一个 commit 就留下一整份前后端 dist 副本, 永不回收**,
-  # 部署越多占得越多。部署到这里已经通过 verify-deploy 验证, 旧回滚点没有价值了 ——
-  # 真要退版本, 直接用目标 commit 重新部署即可 (代码都在 git 上)。
+  # Prune stale rollback snapshots - keep only the current one.
+  # The directory name carries the commit ($ProgramData\Anksen\smart-control-rollback-<sha>)
+  # and the block above only removes the SAME-named one, so every new commit left behind a
+  # full copy of backend+frontend dist that was never reclaimed - it grew with every deploy.
+  # By this point the deploy has passed verify-deploy, so older rollback points are worthless:
+  # to go back a version just redeploy that commit (everything is in git).
   $rollbackParent = Join-Path $env:ProgramData 'Anksen'
   if (Test-Path $rollbackParent) {
     $stale = Get-ChildItem -Path $rollbackParent -Directory -Filter 'smart-control-rollback-*' -ErrorAction SilentlyContinue |

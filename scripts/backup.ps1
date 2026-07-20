@@ -6,8 +6,9 @@
 [CmdletBinding()]
 param(
   [string]$Dest = '',
-  # 默认保留 7 份 (原 14): 每份是一整个 SQLite 快照 (~39MB)。7 份 = 一周回溯窗口,
-  # 足够发现"配置被误改"后回退; 更早的实际没人会用, 纯占盘。
+  # Default 7 (was 14): each snapshot is a full SQLite copy (~39MB). 7 = one-week
+  # rollback window, enough to catch "config got changed by mistake" and revert;
+  # anything older is never used and just eats disk.
   [int]$Keep = 7
 )
 
@@ -61,8 +62,9 @@ if (Test-Path $envFile) {
 # Seed (UAT 数据用过的可保留)
 $uatExport = Join-Path $snap 'uat-snapshot.json'
 try {
-  # 端口 3200 — 生产后端就是 3200, 之前写的 3000 是早期端口, 一直静默走 catch 分支
-  # (表现为每次备份都提示"UAT 导出跳过", 看着像服务没起, 其实是打错端口)
+  # Port 3200 - production backend listens on 3200. The old 3000 was an early port and
+  # had been silently falling into the catch branch ever since (every backup printed
+  # "UAT export skipped", which looked like the service was down but was just a bad port).
   $uat = Invoke-RestMethod -Uri 'http://127.0.0.1:3200/api/uat?pageSize=500' -Method Get -TimeoutSec 5
   $uat | ConvertTo-Json -Depth 10 | Out-File -FilePath $uatExport -Encoding utf8
   Write-Host "[3/3] UAT 验收快照已导出 (服务运行中)" -ForegroundColor Green
