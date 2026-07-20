@@ -706,7 +706,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 }
 .ng-box {
   width: min(400px, 100%); display: flex; flex-direction: column; gap: 6px;
-  background: var(--v2-surf-1, #141c28); border: 1px solid var(--v2-border-soft);
+  background: var(--v2-surf-1, #14161A); border: 1px solid var(--v2-border-soft);
   border-radius: 14px; padding: 20px;
 }
 .ng-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; color: var(--v2-text-1); }
@@ -804,7 +804,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 .v2-tab.active {
   background: var(--v2-primary-soft);
   color: var(--v2-primary);
-  box-shadow: 0 0 0 1px rgba(6, 182, 212, 0.2);
+  box-shadow: 0 0 0 1px rgba(76, 154, 255, 0.2);
 }
 
 .quick-actions { display: flex; gap: var(--v2-sp-2); }
@@ -823,24 +823,28 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   min-height: 36px;
 }
 .v2-quick:hover { background: var(--v2-surf-1-hover); color: var(--v2-text-1); }
+/* "全部开"是常规批量操作, 不是警示也不是危险 —— 不该穿琥珀色。
+   危险的那个("全部关")保持红色即可, 一屏上只需要一个颜色警示。 */
 .v2-quick.primary {
-  background: var(--v2-amber-soft);
-  color: var(--v2-amber);
-  border-color: rgba(245, 158, 11, 0.3);
+  background: var(--v2-surf-2);
+  color: var(--v2-text-1);
+  border-color: var(--v2-border-strong);
 }
 .v2-quick.danger {
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(229, 100, 93, 0.1);
   color: var(--v2-danger);
-  border-color: rgba(239, 68, 68, 0.3);
+  border-color: rgba(229, 100, 93, 0.3);
 }
 
 /* ============ 总览 ============ */
 /* 状态行卡片: 原 4 个独立大格压成一条横条, 段间细线分隔 */
+/* 总览条: 去掉"灯光=琥珀"的品类底色, 统一中性表面。
+   这条是纯数据展示, 不表达任何状态, 不该占用颜色预算。 */
 .v2-overview {
   display: flex; align-items: center;
   padding: 8px var(--v2-sp-3);
-  background: linear-gradient(135deg, rgba(251, 191, 36, 0.05), rgba(251, 191, 36, 0.01));
-  border: 1px solid rgba(251, 191, 36, 0.12);
+  background: var(--v2-surf-1);
+  border: 1px solid var(--v2-border-soft);
   border-radius: var(--v2-r-md);
 }
 .ov-item {
@@ -858,8 +862,8 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 .ov-ico {
   width: 32px; height: 32px;
   border-radius: var(--v2-r-sm);
-  background: var(--v2-amber-soft);
-  color: var(--v2-amber);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--v2-text-2);
   display: grid; place-items: center;
   flex-shrink: 0;
 }
@@ -911,8 +915,9 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
 }
-/* 顶部 1px 琥珀色发光光带 — 默认弱, on 时强 */
+/* v4: 每张分区卡顶部那条琥珀发光带取消 —— 十几个分区各来一条, 就是一屏发光条 */
 .v2-zone::after {
+  display: none;
   content: '';
   position: absolute;
   top: 0; left: 12%; right: 12%;
@@ -934,21 +939,21 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 }
 .v2-zone:hover {
   transform: translateY(-3px);
-  border-color: rgba(255, 184, 0, 0.45);
+  border-color: rgba(224, 160, 48, 0.45);
   box-shadow:
-    inset 0 1px 0 rgba(255, 184, 0, 0.5),
-    0 0 0 1px rgba(255, 184, 0, 0.15),
-    0 14px 32px -10px rgba(255, 184, 0, 0.25);
+    inset 0 1px 0 rgba(224, 160, 48, 0.5),
+    0 0 0 1px rgba(224, 160, 48, 0.15),
+    0 14px 32px -10px rgba(224, 160, 48, 0.25);
 }
 .v2-zone:hover::after { opacity: 0.8; }
 .v2-zone.on {
-  --zone-glow: rgba(255, 184, 0, 0.35);
-  border-color: rgba(255, 184, 0, 0.55);
-  background: linear-gradient(135deg, rgba(255, 184, 0, 0.10), rgba(255, 100, 0, 0.04));
+  --zone-glow: rgba(224, 160, 48, 0.35);
+  border-color: rgba(224, 160, 48, 0.55);
+  background: linear-gradient(135deg, rgba(224, 160, 48, 0.10), rgba(255, 100, 0, 0.04));
   box-shadow:
-    inset 0 1px 0 rgba(255, 184, 0, 0.65),
-    0 8px 32px -8px rgba(255, 184, 0, 0.45),
-    0 0 40px -10px rgba(255, 184, 0, 0.35) !important;
+    inset 0 1px 0 rgba(224, 160, 48, 0.65),
+    0 8px 32px -8px rgba(224, 160, 48, 0.45),
+    0 0 40px -10px rgba(224, 160, 48, 0.35) !important;
 }
 .v2-zone.on::before { opacity: 1; }
 .v2-zone.on::after { opacity: 1; }
@@ -965,7 +970,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   border-radius: 999px;
   letter-spacing: 0.5px;
   font-weight: 600;
-  box-shadow: 0 0 12px rgba(255, 71, 87, 0.35);
+  box-shadow: 0 0 12px rgba(229, 100, 93, 0.35);
 }
 
 .zone-top {
@@ -1010,10 +1015,10 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .v2-toggle.on {
-  background: linear-gradient(135deg, #FF8800, #FFB800);
+  background: linear-gradient(135deg, #E0A030, #E0A030);
   box-shadow:
-    0 0 14px rgba(255, 184, 0, 0.6),
-    0 0 28px rgba(255, 184, 0, 0.35);
+    0 0 14px rgba(224, 160, 48, 0.6),
+    0 0 28px rgba(224, 160, 48, 0.35);
 }
 .v2-toggle.on::after {
   background: white;
@@ -1063,10 +1068,10 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 }
 .slider-fill {
   height: 100%;
-  background: linear-gradient(90deg, #FF8800 0%, #FFB800 50%, #FFD060 100%);
+  background: linear-gradient(90deg, #E0A030 0%, #E0A030 50%, #FFD060 100%);
   border-radius: 7px;
   box-shadow:
-    0 0 16px rgba(255, 184, 0, 0.55),
+    0 0 16px rgba(224, 160, 48, 0.55),
     inset 0 1px 0 rgba(255, 255, 255, 0.35);
   transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -1102,10 +1107,11 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   min-height: 32px;
 }
 .preset:hover { background: var(--v2-surf-1-hover); color: var(--v2-text-1); }
+/* 选中态用强调色, 不用琥珀 —— 琥珀是警示语义, 不该拿来表示"当前选的是这档" */
 .preset.active {
-  background: var(--v2-amber-soft);
-  color: var(--v2-amber);
-  border-color: rgba(245, 158, 11, 0.3);
+  background: var(--v2-primary-soft);
+  color: var(--v2-primary);
+  border-color: rgba(76, 154, 255, 0.35);
 }
 .preset:disabled { opacity: 0.4; cursor: not-allowed; }
 
@@ -1114,9 +1120,9 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   padding: 6px 10px;
   border-radius: 6px;
   font-size: 11px;
-  background: rgba(239, 68, 68, 0.12);
+  background: rgba(229, 100, 93, 0.12);
   color: var(--v2-danger);
-  border: 1px solid rgba(239, 68, 68, 0.25);
+  border: 1px solid rgba(229, 100, 93, 0.25);
   word-break: break-all;
 }
 
@@ -1132,7 +1138,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   border-radius: var(--v2-r-lg);
   color: var(--v2-text-3);
 }
-.state-card.error { border-color: rgba(239, 68, 68, 0.3); color: var(--v2-danger); }
+.state-card.error { border-color: rgba(229, 100, 93, 0.3); color: var(--v2-danger); }
 .state-title { font-size: 14px; color: var(--v2-text-1); }
 .state-sub { font-size: 12px; color: var(--v2-text-3); }
 </style>

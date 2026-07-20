@@ -347,7 +347,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
         <span v-if="sys.wsState !== 'open'" class="v2-pill" :class="wsPillCls">
           <span class="v2-dot"></span>{{ wsPillText }}
         </span>
-        <span v-if="mockTag" class="v2-pill" style="background: rgba(59,130,246,.12); color: var(--v2-info); border-color: rgba(59,130,246,.3)">
+        <span v-if="mockTag" class="v2-pill" style="background: rgba(76, 154, 255, .12); color: var(--v2-info); border-color: rgba(76, 154, 255, .3)">
           MOCK
         </span>
         <div class="v2-clock v2-inter">
@@ -483,7 +483,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   font-size: 18px;
   color: white;
   letter-spacing: 0;
-  box-shadow: 0 4px 14px -4px rgba(6, 182, 212, 0.6);
+  box-shadow: 0 4px 14px -4px rgba(76, 154, 255, 0.6);
   overflow: hidden;
 }
 .v2-nav-brand .v2-logo img {
@@ -522,9 +522,9 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   filter: drop-shadow(0 0 6px var(--v2-primary));
 }
 .v2-nav-item.is-active {
-  background: linear-gradient(90deg, rgba(0, 229, 255, 0.20) 0%, rgba(0, 229, 255, 0.04) 100%);
+  background: linear-gradient(90deg, rgba(76, 154, 255, 0.20) 0%, rgba(76, 154, 255, 0.04) 100%);
   color: var(--v2-primary-hover);
-  box-shadow: inset 0 1px 0 rgba(0, 229, 255, 0.4);
+  box-shadow: inset 0 1px 0 rgba(76, 154, 255, 0.4);
 }
 .v2-nav-item.is-active svg {
   filter: drop-shadow(0 0 10px var(--v2-primary));
@@ -597,7 +597,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   font-weight: 700;
   letter-spacing: 1px;
   color: var(--v2-text-1);
-  text-shadow: 0 0 12px rgba(0, 229, 255, 0.35);
+  text-shadow: 0 0 12px rgba(76, 154, 255, 0.35);
 }
 .v2-brand-sub {
   font-size: var(--v2-fs-xs);
@@ -630,20 +630,20 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   line-height: 1.4;
 }
 .v2-inline-toast.is-error {
-  color: #FCA5A5;
-  text-shadow: 0 0 8px rgba(255, 71, 87, 0.55);
+  color: #EC8880;
+  text-shadow: 0 0 8px rgba(229, 100, 93, 0.55);
 }
 .v2-inline-toast.is-warning {
   color: #FCD34D;
-  text-shadow: 0 0 8px rgba(255, 184, 0, 0.55);
+  text-shadow: 0 0 8px rgba(224, 160, 48, 0.55);
 }
 .v2-inline-toast.is-success {
-  color: #6EE7B7;
-  text-shadow: 0 0 8px rgba(0, 231, 138, 0.55);
+  color: #5FCB9B;
+  text-shadow: 0 0 8px rgba(63, 191, 135, 0.55);
 }
 .v2-inline-toast.is-info {
   color: #BFD7FF;
-  text-shadow: 0 0 8px rgba(91, 143, 255, 0.45);
+  text-shadow: 0 0 8px rgba(76, 154, 255, 0.45);
 }
 
 /* 渐显 / 渐隐 */
@@ -673,7 +673,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 }
 .v2-fs-btn:hover {
   background: var(--v2-surf-1-hover); color: var(--v2-primary-hover);
-  border-color: rgba(0, 229, 255, 0.4);
+  border-color: rgba(76, 154, 255, 0.4);
 }
 .v2-fs-btn:active { transform: scale(0.94); }
 /* 顶栏时钟 — Tesla / NIO 中控感: JetBrains Mono + tabular-nums + cyan glow + 冒号闪烁 */
@@ -754,8 +754,8 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 }
 .v2-more-sheet {
   width: 100%;
-  background: var(--v2-surface, #141c28);
-  border-top: 1px solid var(--v2-border, #26344a);
+  background: var(--v2-surface, #14161A);
+  border-top: 1px solid var(--v2-border, #23262C);
   border-radius: 18px 18px 0 0;
   /* 封顶 34px, 理由跟 .v2-nav 那处一致 (Chrome for iOS 的 env() 汇报值不可信) */
   padding: 10px 14px calc(14px + min(env(safe-area-inset-bottom), 34px));
@@ -770,9 +770,9 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   gap: 8px; padding: 16px 6px;            /* 触摸目标做足, 不再是 42px 的小格子 */
   min-height: 84px;
   border-radius: 12px; cursor: pointer;
-  background: var(--v2-surface-2, #1b2534);
-  border: 1px solid var(--v2-border, #26344a);
-  color: var(--v2-text-dim, #8fa3bd); font-size: 13px;
+  background: var(--v2-surface-2, #1A1D22);
+  border: 1px solid var(--v2-border, #23262C);
+  color: var(--v2-text-dim, #9BA1A9); font-size: 13px;
 }
 .v2-more-item.is-active { color: var(--v2-primary); border-color: var(--v2-primary); }
 

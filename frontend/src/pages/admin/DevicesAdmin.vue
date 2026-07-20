@@ -21,9 +21,9 @@ const filter = reactive({
 });
 
 const categoryMeta: Record<DeviceCategory, { label: string; icon: unknown; color: string }> = {
-  lighting: { label: '灯光',  icon: Lightbulb,   color: '#f59e0b' },
-  led:      { label: 'LED',  icon: MonitorPlay, color: '#8b5cf6' },
-  audio:    { label: '音响',  icon: Volume2,     color: '#ec4899' },
+  lighting: { label: '灯光',  icon: Lightbulb,   color: '#E0A030' },
+  led:      { label: 'LED',  icon: MonitorPlay, color: '#9BA1A9' },
+  audio:    { label: '音响',  icon: Volume2,     color: '#9BA1A9' },
   hvac:     { label: '空调',  icon: Snowflake,   color: '#06b6d4' },
   power:    { label: '电源',  icon: Zap,         color: '#eab308' },
   system:   { label: '系统',  icon: Server,      color: '#94a3b8' },
@@ -403,23 +403,23 @@ onMounted(refresh);
 }
 .info-card::before {
   content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
-  background: linear-gradient(90deg, #3b82f6 0%, #7c3aed 80%, transparent 100%);
+  background: linear-gradient(90deg, #4C9AFF 0%, #9BA1A9 80%, transparent 100%);
 }
-.info-card.ok-card::before { background: linear-gradient(90deg, #10b981 0%, #059669 100%); }
-.info-card.alert-card::before { background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%); }
-.info-card.alert-card { border-color: rgba(239, 68, 68, 0.32); }
+.info-card.ok-card::before { background: linear-gradient(90deg, #3FBF87 0%, #059669 100%); }
+.info-card.alert-card::before { background: linear-gradient(90deg, #E5645D 0%, #dc2626 100%); }
+.info-card.alert-card { border-color: rgba(229, 100, 93, 0.32); }
 .info-label { font-size: 11px; color: var(--text-secondary); letter-spacing: 1.5px; text-transform: uppercase; }
 .info-value { margin: 6px 0 4px; font-size: 22px; font-weight: 700; }
 .ver-num {
   font-size: 32px;
-  background: linear-gradient(135deg, #60a5fa, #a78bfa);
+  background: linear-gradient(135deg, #4C9AFF, #a78bfa);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   font-variant-numeric: tabular-nums;
 }
-.ver-num.is-good { background: linear-gradient(135deg, #34d399, #10b981); -webkit-background-clip: text; background-clip: text; }
-.ver-num.is-bad  { background: linear-gradient(135deg, #f87171, #ef4444); -webkit-background-clip: text; background-clip: text; }
+.ver-num.is-good { background: linear-gradient(135deg, #3FBF87, #3FBF87); -webkit-background-clip: text; background-clip: text; }
+.ver-num.is-bad  { background: linear-gradient(135deg, #E5645D, #E5645D); -webkit-background-clip: text; background-clip: text; }
 .info-foot { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .info-mono {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
@@ -448,11 +448,11 @@ onMounted(refresh);
   font-weight: 500;
   transition: all 0.15s;
 }
-.tab:hover { color: var(--text-primary); border-color: rgba(99, 102, 241, 0.4); }
+.tab:hover { color: var(--text-primary); border-color: rgba(255, 255, 255, 0.08); }
 .tab.active {
-  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+  background: linear-gradient(135deg, #4C9AFF 0%, #9BA1A9 100%);
   color: #fff; border-color: transparent;
-  box-shadow: 0 6px 14px -6px rgba(99, 102, 241, 0.55);
+  box-shadow: 0 6px 14px -6px rgba(255, 255, 255, 0.08);
 }
 
 .filter-panel { display: flex; flex-direction: column; gap: 10px; }
@@ -464,8 +464,8 @@ onMounted(refresh);
 .code-cell {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 12px;
-  color: #93c5fd;
-  background: rgba(59, 130, 246, 0.1);
+  color: #6BADFF;
+  background: rgba(76, 154, 255, 0.1);
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -489,8 +489,8 @@ onMounted(refresh);
   touch-action: manipulation;
   transition: all 0.15s;
 }
-.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: rgba(99, 102, 241, 0.5); }
-.row-btn-danger:hover:not(:disabled) { color: #f87171; border-color: rgba(239, 68, 68, 0.5); }
+.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: rgba(255, 255, 255, 0.08); }
+.row-btn-danger:hover:not(:disabled) { color: #E5645D; border-color: rgba(229, 100, 93, 0.5); }
 .row-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .form-row { display: flex; gap: 12px; }

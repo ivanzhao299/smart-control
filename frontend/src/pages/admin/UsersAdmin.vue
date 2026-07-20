@@ -268,8 +268,8 @@ onMounted(refresh);
   touch-action: manipulation;
   transition: all 0.15s;
 }
-.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: rgba(99, 102, 241, 0.5); }
-.row-btn-danger:hover:not(:disabled) { color: #f87171; border-color: rgba(239, 68, 68, 0.5); }
+.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: rgba(255, 255, 255, 0.08); }
+.row-btn-danger:hover:not(:disabled) { color: #E5645D; border-color: rgba(229, 100, 93, 0.5); }
 .row-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .spin { animation: spin 0.8s linear infinite; }

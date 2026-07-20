@@ -141,9 +141,9 @@ const durationLabel = computed(() => {
 .hint { font-size: 12px; color: var(--color-warning); margin-top: 6px; }
 
 .is-pending { color: var(--text-primary); }
-.is-success { color: var(--color-success); background: rgba(16, 185, 129, 0.12); }
-.is-warning { color: var(--color-warning); background: rgba(245, 158, 11, 0.12); }
-.is-error { color: var(--color-error); background: rgba(239, 68, 68, 0.12); }
+.is-success { color: var(--color-success); background: rgba(63, 191, 135, 0.12); }
+.is-warning { color: var(--color-warning); background: rgba(224, 160, 48, 0.12); }
+.is-error { color: var(--color-error); background: rgba(229, 100, 93, 0.12); }
 .is-cancelled { color: var(--text-secondary); background: var(--bg-elevated); }
 
 .slide-up-enter-from, .slide-up-leave-to { opacity: 0; transform: translateY(20px); }

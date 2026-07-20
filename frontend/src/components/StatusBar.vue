@@ -111,7 +111,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? true);
   gap: 16px;
   padding: 8px 16px;
   background:
-    linear-gradient(180deg, rgba(99, 102, 241, 0.05) 0%, transparent 70%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, transparent 70%),
     var(--bg-panel);
   border-bottom: 1px solid var(--border-soft);
   flex-shrink: 0;
@@ -152,10 +152,10 @@ const mockTag = computed(() => sys.info?.mockMode ?? true);
   transition: all 0.15s ease;
 }
 .fs-toggle:hover {
-  background: linear-gradient(135deg, #3b82f6, #7c3aed);
+  background: linear-gradient(135deg, #4C9AFF, #9BA1A9);
   color: #fff;
   border-color: transparent;
-  box-shadow: 0 8px 18px -6px rgba(99, 102, 241, 0.55);
+  box-shadow: 0 8px 18px -6px rgba(255, 255, 255, 0.08);
 }
 .fs-toggle:active { transform: scale(0.95); }
 .clock {

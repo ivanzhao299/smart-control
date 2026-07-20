@@ -315,7 +315,7 @@ onMounted(refresh);
 .floor-tag {
   font-size: 11px; font-weight: 500;
   padding: 0 7px; line-height: 18px; border-radius: 9px;
-  background: rgba(0, 229, 255, 0.12); color: #67E8F9;
+  background: rgba(76, 154, 255, 0.12); color: #67E8F9;
   white-space: nowrap; flex-shrink: 0;
 }
 .circuit-name { font-weight: 600; color: var(--v2-text-1); font-size: 14px; letter-spacing: 0.3px; }

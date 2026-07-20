@@ -540,7 +540,7 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
   color: white;
   font-weight: 700;
   font-size: 16px;
-  box-shadow: 0 4px 14px -4px rgba(6, 182, 212, 0.6);
+  box-shadow: 0 4px 14px -4px rgba(76, 154, 255, 0.6);
   overflow: hidden;
 }
 .pv-logo img {
@@ -621,8 +621,8 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
   align-items: center;
   gap: 14px;
   padding: 12px 14px;
-  background: rgba(6, 182, 212, 0.06);
-  border: 1px solid rgba(6, 182, 212, 0.25);
+  background: rgba(76, 154, 255, 0.06);
+  border: 1px solid rgba(76, 154, 255, 0.25);
   border-radius: 10px;
 }
 .logo-current-img {
@@ -652,7 +652,7 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
 }
 .logo-uploader :deep(.el-upload-dragger:hover) {
   border-color: var(--v2-primary);
-  background: rgba(6, 182, 212, 0.05);
+  background: rgba(76, 154, 255, 0.05);
 }
 .logo-uploader-inner {
   display: flex;

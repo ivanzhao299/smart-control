@@ -496,8 +496,8 @@ function fmtTime(s: string): string {
   margin-top: 8px; padding: 12px 16px; border-radius: 10px;
   background: var(--bg-elevated); border: 1px solid var(--border-soft);
 }
-.result-card.ok { border-color: var(--color-success); background: rgba(16,185,129,0.06); }
-.result-card.fail { border-color: var(--color-error); background: rgba(239,68,68,0.06); }
+.result-card.ok { border-color: var(--color-success); background: rgba(63, 191, 135, 0.06); }
+.result-card.fail { border-color: var(--color-error); background: rgba(229, 100, 93, 0.06); }
 .result-head { display: flex; align-items: center; gap: 10px; }
 .result-icon { font-size: 20px; font-weight: 700; }
 .result-card.ok .result-icon { color: var(--color-success); }

@@ -305,7 +305,7 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
 .v2-tab.active {
   background: var(--v2-primary-soft);
   color: var(--v2-primary);
-  box-shadow: 0 0 0 1px rgba(6, 182, 212, 0.2);
+  box-shadow: 0 0 0 1px rgba(76, 154, 255, 0.2);
 }
 .quick-actions { display: flex; gap: var(--v2-sp-2); }
 .v2-quick {
@@ -318,7 +318,7 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
 .v2-quick:hover { background: var(--v2-surf-1-hover); color: var(--v2-text-1); }
 .v2-quick.primary {
   background: var(--v2-primary-soft); color: var(--v2-primary);
-  border-color: rgba(6, 182, 212, 0.3);
+  border-color: rgba(76, 154, 255, 0.3);
 }
 .v2-quick:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -401,7 +401,7 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
 .gw-err {
   font-size: 11px; color: var(--v2-danger);
   padding: var(--v2-sp-2) var(--v2-sp-3);
-  background: rgba(239, 68, 68, 0.06);
+  background: rgba(229, 100, 93, 0.06);
   border-radius: var(--v2-r-sm);
   display: inline-flex; align-items: center; gap: 6px;
 }
@@ -436,9 +436,9 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
   letter-spacing: 0.5px;
   font-weight: 500;
 }
-.v2-mini-pill.success { background: rgba(16, 185, 129, 0.14); color: var(--v2-success); }
+.v2-mini-pill.success { background: rgba(63, 191, 135, 0.14); color: var(--v2-success); }
 .v2-mini-pill.warn { background: var(--v2-amber-soft); color: var(--v2-amber); }
-.v2-mini-pill.danger { background: rgba(239, 68, 68, 0.12); color: var(--v2-danger); }
+.v2-mini-pill.danger { background: rgba(229, 100, 93, 0.12); color: var(--v2-danger); }
 .v2-mini-pill.idle { background: var(--v2-surf-2); color: var(--v2-text-3); }
 .v2-mini-pill.info { background: var(--v2-primary-soft); color: var(--v2-primary); }
 
@@ -452,8 +452,8 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
   background: var(--v2-surf-2);
   font-size: 13px;
 }
-.alert-row.lvl-error { background: rgba(239, 68, 68, 0.1); }
-.alert-row.lvl-warning { background: rgba(245, 158, 11, 0.1); }
+.alert-row.lvl-error { background: rgba(229, 100, 93, 0.1); }
+.alert-row.lvl-warning { background: rgba(224, 160, 48, 0.1); }
 .alert-row .lvl { font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: 1px; }
 .alert-row.lvl-error .lvl { color: var(--v2-danger); }
 .alert-row.lvl-warning .lvl { color: var(--v2-warning); }

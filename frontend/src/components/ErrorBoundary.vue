@@ -50,8 +50,8 @@ function reload(): void { window.location.reload(); }
 .eb-ico {
   width: 72px; height: 72px; border-radius: 18px;
   display: grid; place-items: center;
-  background: rgba(255, 184, 0, 0.12); color: #FCD34D;
-  box-shadow: 0 0 30px -8px rgba(255, 184, 0, 0.4);
+  background: rgba(224, 160, 48, 0.12); color: #FCD34D;
+  box-shadow: 0 0 30px -8px rgba(224, 160, 48, 0.4);
 }
 .eb-title { font-size: 19px; font-weight: 600; color: var(--v2-text-1); }
 .eb-sub { font-size: 13px; color: var(--v2-text-3); max-width: 340px; line-height: 1.5; }
@@ -66,6 +66,6 @@ function reload(): void { window.location.reload(); }
 .eb-btn:hover { background: var(--v2-surf-1-hover); color: var(--v2-text-1); }
 .eb-btn.primary {
   background: var(--v2-primary-soft); color: var(--v2-primary);
-  border-color: rgba(0, 229, 255, 0.3);
+  border-color: rgba(76, 154, 255, 0.3);
 }
 </style>

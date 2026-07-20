@@ -368,7 +368,7 @@ onBeforeUnmount(() => {
   content: '';
   position: absolute; top: 0; left: 0; right: 0;
   height: 3px;
-  background: linear-gradient(90deg, #3b82f6 0%, #7c3aed 80%, transparent 100%);
+  background: linear-gradient(90deg, #4C9AFF 0%, #9BA1A9 80%, transparent 100%);
 }
 .info-label {
   font-size: 11px; color: var(--text-secondary);
@@ -380,7 +380,7 @@ onBeforeUnmount(() => {
   display: flex; align-items: baseline; gap: 8px;
 }
 .ver-num {
-  background: linear-gradient(135deg, #60a5fa, #a78bfa);
+  background: linear-gradient(135deg, #4C9AFF, #a78bfa);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -391,19 +391,19 @@ onBeforeUnmount(() => {
   font-weight: 600; letter-spacing: 1px;
 }
 .env-tag.is-prod {
-  background: rgba(16, 185, 129, 0.14);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.32);
+  background: rgba(63, 191, 135, 0.14);
+  color: #3FBF87;
+  border: 1px solid rgba(63, 191, 135, 0.32);
 }
 .env-tag.is-dev {
-  background: rgba(245, 158, 11, 0.14);
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.32);
+  background: rgba(224, 160, 48, 0.14);
+  color: #E0A030;
+  border: 1px solid rgba(224, 160, 48, 0.32);
 }
 .env-tag.is-mock {
-  background: rgba(168, 85, 247, 0.14);
-  color: #c084fc;
-  border: 1px solid rgba(168, 85, 247, 0.32);
+  background: rgba(255, 255, 255, 0.08);
+  color: #9BA1A9;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 .info-foot { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
 .info-mono {
@@ -429,7 +429,7 @@ onBeforeUnmount(() => {
 .res-card { display: flex; flex-direction: column; gap: 12px; }
 .res-value {
   font-size: 36px; font-weight: 700;
-  background: linear-gradient(135deg, #60a5fa, #a78bfa);
+  background: linear-gradient(135deg, #4C9AFF, #a78bfa);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -438,9 +438,9 @@ onBeforeUnmount(() => {
 }
 .res-bar { height: 6px; background: var(--bg-elevated); border-radius: 3px; overflow: hidden; }
 .res-fill { height: 100%; transition: width 0.4s ease; border-radius: 3px; }
-.res-fill.is-cpu  { background: linear-gradient(90deg, #10b981, #06b6d4); }
-.res-fill.is-mem  { background: linear-gradient(90deg, #3b82f6, #7c3aed); }
-.res-fill.is-disk { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+.res-fill.is-cpu  { background: linear-gradient(90deg, #3FBF87, #06b6d4); }
+.res-fill.is-mem  { background: linear-gradient(90deg, #4C9AFF, #9BA1A9); }
+.res-fill.is-disk { background: linear-gradient(90deg, #E0A030, #E5645D); }
 
 /* 服务列表 / 网关列表 */
 .svc-list { display: flex; flex-direction: column; gap: 6px; }
@@ -462,13 +462,13 @@ onBeforeUnmount(() => {
   font-size: 56px; font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: -2px;
-  background: linear-gradient(135deg, #34d399, #10b981);
+  background: linear-gradient(135deg, #3FBF87, #3FBF87);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 .big-num.is-bad {
-  background: linear-gradient(135deg, #f87171, #ef4444);
+  background: linear-gradient(135deg, #E5645D, #E5645D);
   -webkit-background-clip: text;
   background-clip: text;
 }
@@ -484,9 +484,9 @@ onBeforeUnmount(() => {
 }
 .lv-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .lv-emergency { background: #dc2626; box-shadow: 0 0 8px #dc2626; }
-.lv-critical  { background: #ef4444; }
-.lv-warning   { background: #f59e0b; }
-.lv-info      { background: #60a5fa; }
+.lv-critical  { background: #E5645D; }
+.lv-warning   { background: #E0A030; }
+.lv-info      { background: #4C9AFF; }
 .lv-label { color: var(--text-secondary); flex: 1; letter-spacing: 1px; text-transform: uppercase; font-size: 11px; }
 .lv-num {
   font-weight: 700;
@@ -507,7 +507,7 @@ onBeforeUnmount(() => {
   color: var(--text-secondary);
   display: inline-flex; align-items: center; gap: 6px;
 }
-.kpi-bad { color: #f87171; }
+.kpi-bad { color: #E5645D; }
 .kpi-val {
   font-weight: 700;
   font-family: 'JetBrains Mono', ui-monospace, monospace;

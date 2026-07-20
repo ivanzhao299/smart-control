@@ -126,8 +126,8 @@ async function submit(): Promise<void> {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse 60% 50% at 30% 20%, rgba(0, 229, 255, 0.16) 0%, transparent 60%),
-    radial-gradient(ellipse 50% 40% at 80% 80%, rgba(168, 85, 247, 0.12) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 50% at 30% 20%, rgba(76, 154, 255, 0.16) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 80% 80%, rgba(255, 255, 255, 0.08) 0%, transparent 55%),
     linear-gradient(180deg, var(--v2-bg-0) 0%, var(--v2-bg-1) 100%);
   z-index: 0;
   /* 静止 — 不跟全局 aurora-drift 同步漂移 */
@@ -173,7 +173,7 @@ async function submit(): Promise<void> {
   position: absolute;
   top: 0; left: 10%; right: 10%;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(6, 182, 212, 0.7) 50%, transparent);
+  background: linear-gradient(90deg, transparent, rgba(76, 154, 255, 0.7) 50%, transparent);
 }
 
 .brand {
@@ -192,7 +192,7 @@ async function submit(): Promise<void> {
   color: white;
   font-weight: 700;
   font-size: 20px;
-  box-shadow: 0 6px 18px -4px rgba(6, 182, 212, 0.65);
+  box-shadow: 0 6px 18px -4px rgba(76, 154, 255, 0.65);
   overflow: hidden;
   flex-shrink: 0;
 }
@@ -239,7 +239,7 @@ async function submit(): Promise<void> {
 }
 .field-input:focus {
   border-color: var(--v2-primary);
-  box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.18);
+  box-shadow: 0 0 0 3px rgba(76, 154, 255, 0.18);
 }
 .field-input::placeholder { color: var(--v2-text-3); letter-spacing: 0.02em; }
 

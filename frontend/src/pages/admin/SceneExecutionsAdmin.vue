@@ -303,16 +303,16 @@ onBeforeUnmount(() => {
 .code-cell {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 11.5px;
-  color: #93c5fd;
-  background: rgba(59, 130, 246, 0.1);
+  color: #6BADFF;
+  background: rgba(76, 154, 255, 0.1);
   padding: 2px 6px;
   border-radius: 4px;
   display: inline-block;
   margin-top: 2px;
 }
 .sub-mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11.5px; color: var(--text-secondary); }
-.ok { color: #34d399; font-weight: 700; font-family: 'JetBrains Mono', ui-monospace, monospace; }
-.fail { color: #f87171; font-weight: 700; font-family: 'JetBrains Mono', ui-monospace, monospace; }
+.ok { color: #3FBF87; font-weight: 700; font-family: 'JetBrains Mono', ui-monospace, monospace; }
+.fail { color: #E5645D; font-weight: 700; font-family: 'JetBrains Mono', ui-monospace, monospace; }
 
 .row-btn {
   background: var(--bg-elevated);
@@ -328,8 +328,8 @@ onBeforeUnmount(() => {
   touch-action: manipulation;
   transition: all 0.15s;
 }
-.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: rgba(99, 102, 241, 0.5); }
-.row-btn-danger:hover:not(:disabled) { color: #f87171; border-color: rgba(239, 68, 68, 0.5); }
+.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: rgba(255, 255, 255, 0.08); }
+.row-btn-danger:hover:not(:disabled) { color: #E5645D; border-color: rgba(229, 100, 93, 0.5); }
 .row-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .failures-pop { display: flex; flex-direction: column; gap: 10px; }
@@ -340,7 +340,7 @@ onBeforeUnmount(() => {
   font-family: ui-monospace, monospace;
 }
 .failure-item .attempts { color: var(--text-secondary); margin-left: 6px; }
-.failure-item .error { color: #f87171; margin-top: 4px; font-family: ui-monospace, monospace; }
+.failure-item .error { color: #E5645D; margin-top: 4px; font-family: ui-monospace, monospace; }
 .pager { display: flex; justify-content: flex-end; }
 
 .spin { animation: spin 0.8s linear infinite; }

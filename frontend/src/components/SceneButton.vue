@@ -19,15 +19,15 @@ const isStringIcon = computed(() => typeof props.icon === 'string');
 // 按场景 code 分配独特霓虹色 (主色/辅色), 不在表里走默认蓝紫
 const PALETTE: Record<string, { a: string; b: string; glow: string }> = {
   opening:        { a: '#ff8a00', b: '#ffd84d', glow: 'rgba(255, 138, 0, 0.45)' },     // 开馆 暖橙→金黄
-  reception:      { a: '#5b8def', b: '#a855f7', glow: 'rgba(124, 58, 237, 0.45)' },    // 接待 蓝→紫
-  meeting:        { a: '#10b981', b: '#06b6d4', glow: 'rgba(6, 182, 212, 0.45)' },     // 会议 翠绿→青
-  roadshow:       { a: '#ec4899', b: '#f97316', glow: 'rgba(236, 72, 153, 0.45)' },    // 路演 粉→橙
+  reception:      { a: '#5b8def', b: '#9BA1A9', glow: 'rgba(255, 255, 255, 0.08)' },    // 接待 蓝→紫
+  meeting:        { a: '#3FBF87', b: '#06b6d4', glow: 'rgba(76, 154, 255, 0.45)' },     // 会议 翠绿→青
+  roadshow:       { a: '#9BA1A9', b: '#f97316', glow: 'rgba(255, 255, 255, 0.08)' },    // 路演 粉→橙
   cleaning:       { a: '#22d3ee', b: '#0ea5e9', glow: 'rgba(34, 211, 238, 0.45)' },    // 清洁 青蓝
-  closing:        { a: '#6366f1', b: '#1e293b', glow: 'rgba(99, 102, 241, 0.35)' },    // 闭馆 靛蓝→深
+  closing:        { a: '#9BA1A9', b: '#1e293b', glow: 'rgba(255, 255, 255, 0.08)' },    // 闭馆 靛蓝→深
   sprint07_demo:  { a: '#64748b', b: '#94a3b8', glow: 'rgba(148, 163, 184, 0.3)' },   // 演示 灰
 };
 function paletteOf(code: string) {
-  return PALETTE[code] ?? { a: '#3b82f6', b: '#7c3aed', glow: 'rgba(99, 102, 241, 0.4)' };
+  return PALETTE[code] ?? { a: '#4C9AFF', b: '#9BA1A9', glow: 'rgba(255, 255, 255, 0.08)' };
 }
 
 const palette = computed(() => paletteOf(props.code));
@@ -82,7 +82,7 @@ function onClick(): void {
     linear-gradient(135deg, color-mix(in srgb, var(--scene-a) 18%, transparent) 0%, color-mix(in srgb, var(--scene-b) 12%, transparent) 100%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, transparent 70%),
     #1a2030;
-  border: 1px solid color-mix(in srgb, var(--scene-a) 30%, rgba(99, 102, 241, 0.15));
+  border: 1px solid color-mix(in srgb, var(--scene-a) 30%, rgba(255, 255, 255, 0.08));
   border-radius: 14px;
   color: var(--text-primary);
   display: grid;
@@ -150,8 +150,8 @@ function onClick(): void {
 .scene-btn.is-active .ribbon { background: rgba(255, 255, 255, 0.6); box-shadow: 0 0 12px rgba(255, 255, 255, 0.5); }
 
 .scene-btn.is-error {
-  border-color: rgba(239, 68, 68, 0.55);
-  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.3);
+  border-color: rgba(229, 100, 93, 0.55);
+  box-shadow: 0 0 0 1px rgba(229, 100, 93, 0.3);
 }
 .scene-btn.is-loading { opacity: 0.82; cursor: progress; }
 .scene-btn.is-disabled { opacity: 0.45; cursor: not-allowed; }
@@ -208,9 +208,9 @@ function onClick(): void {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  background: rgba(16, 185, 129, 0.2);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.4);
+  background: rgba(63, 191, 135, 0.2);
+  color: #3FBF87;
+  border: 1px solid rgba(63, 191, 135, 0.4);
   letter-spacing: 1px;
 }
 .scene-btn.is-active .badge {
@@ -225,9 +225,9 @@ function onClick(): void {
   animation: pulse 1.6s ease-in-out infinite;
 }
 .badge-err {
-  background: rgba(239, 68, 68, 0.2);
-  color: #f87171;
-  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(229, 100, 93, 0.2);
+  color: #E5645D;
+  border-color: rgba(229, 100, 93, 0.4);
 }
 .spinner {
   position: absolute;

@@ -356,14 +356,14 @@ onMounted(refresh);
 .chan-tag {
   display: inline-block; padding: 2px 10px; border-radius: 6px;
   font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600;
-  background: rgba(0, 229, 255, 0.15); color: #67E8F9;
+  background: rgba(76, 154, 255, 0.15); color: #67E8F9;
 }
-.chan-tag.out { background: rgba(0, 229, 255, 0.15); color: #67E8F9; }
+.chan-tag.out { background: rgba(76, 154, 255, 0.15); color: #67E8F9; }
 .chan-tag.in { background: rgba(167, 139, 250, 0.18); color: #C4B5FD; }
 .route-badge {
   display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 12px; font-weight: 600;
 }
-.route-badge.on { background: rgba(52, 211, 153, 0.16); color: #6EE7B7; }
+.route-badge.on { background: rgba(63, 191, 135, 0.16); color: #5FCB9B; }
 .route-badge.off { background: rgba(148, 163, 184, 0.16); color: #94A3B8; }
 
 /* 矩阵编辑器 */

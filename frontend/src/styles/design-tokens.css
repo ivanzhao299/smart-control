@@ -20,62 +20,85 @@
    * 拟态 + 慢漂浮 aurora. 参考 NIO ET7 / 小鹏 X9 / NIO Phone.
    * ============================================================ */
 
-  /* ---------- 中性 / 表面 (深空蓝 + 微紫调) ---------- */
-  --v2-bg-0: #060818;                       /* 深空蓝底 (比纯黑暖一点, 比 navy 紫一点) */
-  --v2-bg-1: #0E0F2A;                       /* 渐变低点, 加紫调 */
-  --v2-surf-1: rgba(140, 180, 255, 0.10);   /* 卡片底: 微紫白, 比旧版亮 + 暖 */
-  --v2-surf-1-hover: rgba(140, 180, 255, 0.16);
-  --v2-surf-2: rgba(255, 255, 255, 0.10);   /* 卡内嵌 */
-  --v2-surf-3: rgba(140, 180, 255, 0.18);   /* 抽屉 / dialog */
+  /* ============================================================
+   * v4 (2026-07-20): 收颜色预算
+   *
+   * v3 那版把颜色花在"分类"上 —— 6 个场景 6 种霓虹渐变、5 个子系统 5 种彩色
+   * 图标底、再加 6 种 text-glow。结果是彩虹效应: 每个元素都在喊, 没有层级;
+   * 更要命的是**真正需要颜色的地方被淹没了** —— LED 大屏 0/2 掉线是故障,
+   * 却和正常的灯光音响长得一样花, 一眼根本看不出来。中控系统最该做到的
+   * "哪里出事了一眼可见", 被装饰色吃掉了。
+   *
+   * v4 的原则: 颜色是稀缺资源, 只留给**状态**和**选中**, 不用于分类。
+   * 分类交给图标和文字。
+   *
+   * 注意这不是退回 v2 那版"性冷淡": v2 的问题是明度糊成一片、对比不足所以
+   * 显得暗陈无趣。v4 的层次感来自**清晰的明度阶梯 + 材质精度**(实色表面、
+   * 1px 描边、tabular 数字), 而不是色相数量。深色底保留 —— 展厅环境合适。
+   * ============================================================ */
 
-  /* 边框: 紫青双色光带感 */
-  --v2-border-soft: rgba(120, 180, 255, 0.22);
-  --v2-border-strong: rgba(0, 229, 255, 0.45);
+  /* ---------- 中性表面: 纯中性 + 清晰明度阶梯 ---------- */
+  /* 用实色而非半透明: 半透明表面叠在不同底色上会得到不同结果, 层级就糊了 */
+  --v2-bg-0: #0A0B0D;                       /* 页面底 */
+  --v2-bg-1: #0E1013;                       /* 渐变低点 */
+  --v2-surf-1: #14161A;                     /* 卡片 */
+  --v2-surf-1-hover: #191C21;
+  --v2-surf-2: #1A1D22;                     /* 卡内嵌 */
+  --v2-surf-3: #202329;                     /* 抽屉 / dialog */
 
-  --v2-text-1: rgba(255, 255, 255, 0.98);
-  --v2-text-2: rgba(220, 230, 255, 0.72);   /* 二级带一点紫调, 不再灰 */
-  --v2-text-3: rgba(180, 200, 240, 0.52);
+  --v2-border-soft: #23262C;
+  --v2-border-strong: #32363E;
 
-  /* ---------- 品牌主色: 电光青 (Cyan Electric) ---------- */
-  --v2-primary: #00E5FF;                    /* 电光青, 比旧 #06b6d4 更鲜更亮 */
-  --v2-primary-dark: #00B8D4;
-  --v2-primary-hover: #67FFFF;              /* hover 更亮 */
-  --v2-primary-soft: rgba(0, 229, 255, 0.32);
+  --v2-text-1: #E9EBEE;                     /* 主文字 */
+  --v2-text-2: #9BA1A9;                     /* 次要 */
+  --v2-text-3: #6B7178;                     /* 弱化 / 单位 / 占位 */
 
-  /* ---------- 副色: 极光紫 (Aurora Purple) ---------- */
-  --v2-purple: #A855F7;
-  --v2-purple-soft: rgba(168, 85, 247, 0.32);
-  --v2-purple-glow: rgba(168, 85, 247, 0.55);
+  /* ---------- 唯一强调色: 克制的冷蓝 ---------- */
+  /* 只用于"选中/当前/可操作", 不做装饰。比 #4C9AFF 电光青收敛, 长时间看不刺眼 */
+  --v2-primary: #4C9AFF;
+  --v2-primary-dark: #3B7FD4;
+  --v2-primary-hover: #6BADFF;
+  --v2-primary-soft: rgba(76, 154, 255, 0.14);
 
-  /* ---------- 强调色: 霓虹粉 (告警/重点) ---------- */
-  --v2-pink: #F472B6;
-  --v2-pink-soft: rgba(244, 114, 182, 0.30);
+  /* ---------- 原"品类色"全部并入中性 ---------- */
+  /* 变量保留(避免各页面引用报废), 但不再是独立色相 —— 用颜色区分品类的地方自动失效。
+     紫/粉这两个纯装饰色直接给中性; 琥珀留着, 因为它同时是 warning 语义。 */
+  --v2-purple: var(--v2-text-2);
+  --v2-purple-soft: rgba(255, 255, 255, 0.06);
+  --v2-purple-glow: transparent;
 
-  /* 琥珀: 灯光场景 / 警告 */
-  --v2-amber: #FFB800;                      /* 略提亮, 比 #f59e0b 更"汽车仪表"感 */
-  --v2-amber-soft: rgba(255, 184, 0, 0.32);
+  --v2-pink: var(--v2-text-2);
+  --v2-pink-soft: rgba(255, 255, 255, 0.06);
 
-  --v2-success: #00E78A;                    /* 更鲜的霓虹绿 */
-  --v2-warning: #FFB800;
-  --v2-danger: #FF4757;                     /* 更鲜的红, 不闷 */
-  --v2-info: #5B8FFF;                       /* 信息蓝, 带紫调 */
+  --v2-amber: #E0A030;                      /* 降饱和; 仅作 warning 语义用 */
+  --v2-amber-soft: rgba(224, 160, 48, 0.14);
 
-  --v2-success-soft: rgba(0, 231, 138, 0.32);
-  --v2-warning-soft: rgba(255, 184, 0, 0.32);
-  --v2-danger-soft:  rgba(255, 71, 87, 0.32);
-  --v2-info-soft:    rgba(91, 143, 255, 0.32);
+  /* ---------- 语义色: 降饱和, 只表状态 ---------- */
+  --v2-success: #3FBF87;
+  --v2-warning: #E0A030;
+  --v2-danger: #E5645D;
+  --v2-info: #4C9AFF;
 
-  /* "数字发光" — 多色 glow 池, 给 KPI/亮度/温度等大字号用 */
-  --v2-text-glow-primary: 0 0 20px rgba(0, 229, 255, 0.7), 0 0 6px rgba(0, 229, 255, 0.45);
-  --v2-text-glow-amber:   0 0 20px rgba(255, 184, 0, 0.7), 0 0 6px rgba(255, 184, 0, 0.45);
-  --v2-text-glow-purple:  0 0 20px rgba(168, 85, 247, 0.7), 0 0 6px rgba(168, 85, 247, 0.45);
-  --v2-text-glow-success: 0 0 20px rgba(0, 231, 138, 0.7), 0 0 6px rgba(0, 231, 138, 0.45);
-  --v2-text-glow-danger:  0 0 20px rgba(255, 71, 87, 0.7), 0 0 6px rgba(255, 71, 87, 0.45);
-  --v2-text-glow-pink:    0 0 20px rgba(244, 114, 182, 0.7), 0 0 6px rgba(244, 114, 182, 0.45);
+  /* soft 底从 32% 降到 14%: 32% 会让状态底色抢过内容本身 */
+  --v2-success-soft: rgba(63, 191, 135, 0.14);
+  --v2-warning-soft: rgba(224, 160, 48, 0.14);
+  --v2-danger-soft:  rgba(229, 100, 93, 0.14);
+  --v2-info-soft:    rgba(76, 154, 255, 0.14);
 
-  /* 灯光暖色 (亮度滑条 / 灯光卡 active) */
-  --v2-light-warm: #fbbf24;
-  --v2-light-warm-glow: rgba(251, 191, 36, 0.5);
+  /* ---------- 文字发光: 全部关闭 ---------- */
+  /* 这几个 token 被 KPI / 亮度 / 温度等大字号广泛引用。置成 none 之后,
+     全站所有"发光数字"一次性消失, 不必逐页去删 —— 这是改 token 层的杠杆所在。
+     数字要突出, 靠字号、字重和明度对比, 不靠辉光。 */
+  --v2-text-glow-primary: none;
+  --v2-text-glow-amber:   none;
+  --v2-text-glow-purple:  none;
+  --v2-text-glow-success: none;
+  --v2-text-glow-danger:  none;
+  --v2-text-glow-pink:    none;
+
+  /* 灯光暖色 (亮度滑条): 灯光本身就是暖的, 这个保留 —— 它表达的是物理量, 不是装饰 */
+  --v2-light-warm: #D9A441;
+  --v2-light-warm-glow: transparent;
 
   /* ---------- 圆角 ---------- */
   --v2-r-sm: 8px;
@@ -106,8 +129,8 @@
   --v2-elev-2: 0 8px 24px -8px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
   --v2-elev-3: 0 24px 56px -16px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.10) inset;
 
-  --v2-glow-primary: 0 4px 16px -4px rgba(6, 182, 212, 0.5);
-  --v2-glow-primary-strong: 0 6px 24px -6px rgba(6, 182, 212, 0.7);
+  --v2-glow-primary: 0 4px 16px -4px rgba(76, 154, 255, 0.5);
+  --v2-glow-primary-strong: 0 6px 24px -6px rgba(76, 154, 255, 0.7);
 
   /* ---------- 兼容旧 token (theme.css 里的) → v2 映射 ---------- */
   --bg-base: var(--v2-bg-0);
@@ -127,9 +150,14 @@
   --border-strong: var(--v2-border-strong);
 }
 
-/* ============ 全局 body 背景 — Aurora (极光) + 慢漂浮 + 网格 ============
- * v3: 深空蓝 + 3 个 radial gradient (青/紫/粉) + 60s 缓慢漂浮
- * 不会晕眩 (60s 一圈才动一次), 但有"宇宙在呼吸"的感觉
+/* ============ 全局 body 背景 ============
+ * v3 在这里铺了 4 个彩色 radial(青 22% / 紫 20% / 粉 16% / 琥珀 10%) 当"极光".
+ * 它是整屏彩色雾的来源 —— 每个页面不管内容是什么, 底子上先蒙一层四色渐变,
+ * 上面再放彩色卡片, 于是怎么调都显脏。
+ *
+ * v4: 只留**一处极淡的单色顶部渐晕**(强调色 5.5%)。作用是给纯深色底一点纵深,
+ * 避免"一片死黑"那种廉价感 —— 这正是当初嫌 v2"暗陈无趣"的症结, 但用一个色相
+ * 解决, 而不是四个。网格保留(它是克制的科技感元素), 只是换成中性白线。
  */
 html, body, #app {
   background: var(--v2-bg-0) !important;
@@ -150,11 +178,7 @@ body::before {
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(ellipse 50% 45% at 15% 10%, rgba(0, 229, 255, 0.22) 0%, transparent 55%),
-    radial-gradient(ellipse 55% 40% at 85% 25%, rgba(168, 85, 247, 0.20) 0%, transparent 60%),
-    radial-gradient(ellipse 45% 35% at 70% 95%, rgba(244, 114, 182, 0.16) 0%, transparent 55%),
-    radial-gradient(ellipse 40% 30% at 10% 90%, rgba(255, 184, 0, 0.10) 0%, transparent 50%);
-  /* aurora 静态: 去漂移动画, 消除每帧重绘卡顿 */
+    radial-gradient(ellipse 70% 50% at 50% -5%, rgba(76, 154, 255, 0.055) 0%, transparent 62%);
 }
 /* Aurora layer 2: 细科技网格 (35×35, 4% 青线), 静态 */
 body::after {
@@ -164,8 +188,8 @@ body::after {
   z-index: 0;
   pointer-events: none;
   background-image:
-    linear-gradient(rgba(120, 200, 255, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(120, 200, 255, 0.045) 1px, transparent 1px);
+    linear-gradient(rgba(255, 255, 255, 0.020) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.020) 1px, transparent 1px);
   background-size: 35px 35px;
   background-position: -1px -1px;
   mask-image: radial-gradient(ellipse 80% 70% at 50% 30%, black 0%, rgba(0,0,0,0.4) 80%);
@@ -195,14 +219,14 @@ body::after {
   position: absolute;
   top: 0; left: 8%; right: 8%;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(6, 182, 212, 0.7) 50%, transparent);
+  background: linear-gradient(90deg, transparent, rgba(76, 154, 255, 0.7) 50%, transparent);
   border-radius: 1px;
   pointer-events: none;
 }
 .v2-glass-hover:hover {
   background: var(--v2-surf-1-hover);
   border-color: var(--v2-border-strong);
-  box-shadow: var(--v2-elev-2), inset 0 0 24px -8px rgba(6, 182, 212, 0.25);
+  box-shadow: var(--v2-elev-2), inset 0 0 24px -8px rgba(76, 154, 255, 0.25);
 }
 
 /* ============ 数字发光 utility (KPI / 亮度 / 温度) ============ */
@@ -264,8 +288,8 @@ body::after {
 .v2-subsystems,
 .v2-overview {
   box-shadow:
-    inset 0 1px 0 rgba(0, 229, 255, 0.5),
-    0 0 0 1px rgba(120, 180, 255, 0.08),
+    inset 0 1px 0 rgba(76, 154, 255, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.08),
     var(--v2-elev-1) !important;
   transition: box-shadow 0.32s cubic-bezier(0.4, 0, 0.2, 1), transform 0.22s ease, border-color 0.22s ease;
 }
@@ -277,9 +301,9 @@ body::after {
 .metric:hover,
 .v2-card:hover {
   box-shadow:
-    inset 0 1px 0 rgba(0, 229, 255, 0.75),
-    0 0 0 1px rgba(0, 229, 255, 0.18),
-    0 12px 32px -10px rgba(0, 229, 255, 0.35),
+    inset 0 1px 0 rgba(76, 154, 255, 0.75),
+    0 0 0 1px rgba(76, 154, 255, 0.18),
+    0 12px 32px -10px rgba(76, 154, 255, 0.35),
     var(--v2-elev-2) !important;
   transform: translateY(-2px);
 }
@@ -290,8 +314,8 @@ body::after {
 .v2-hvac-zone.on {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    0 8px 32px -6px var(--scene-glow, rgba(0, 229, 255, 0.6)),
-    0 0 36px -8px var(--scene-glow, rgba(0, 229, 255, 0.4)) !important;
+    0 8px 32px -6px var(--scene-glow, rgba(76, 154, 255, 0.6)),
+    0 0 36px -8px var(--scene-glow, rgba(76, 154, 255, 0.4)) !important;
 }
 
 /* ============ KPI / 亮度 / 温度 等"大数字"自动发光 ============
@@ -356,17 +380,17 @@ textarea:focus-visible,
 select:focus-visible,
 [role="button"]:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.35);
+  box-shadow: 0 0 0 3px rgba(76, 154, 255, 0.35);
 }
 
 /* ============ Element Plus 暗黑适配 (复用 v2 token) ============ */
 html {
   --el-color-primary: var(--v2-primary);
-  --el-color-primary-light-3: rgba(6, 182, 212, 0.45);
-  --el-color-primary-light-5: rgba(6, 182, 212, 0.30);
-  --el-color-primary-light-7: rgba(6, 182, 212, 0.16);
-  --el-color-primary-light-8: rgba(6, 182, 212, 0.12);
-  --el-color-primary-light-9: rgba(6, 182, 212, 0.08);
+  --el-color-primary-light-3: rgba(76, 154, 255, 0.45);
+  --el-color-primary-light-5: rgba(76, 154, 255, 0.30);
+  --el-color-primary-light-7: rgba(76, 154, 255, 0.16);
+  --el-color-primary-light-8: rgba(76, 154, 255, 0.12);
+  --el-color-primary-light-9: rgba(76, 154, 255, 0.08);
   --el-color-primary-dark-2: var(--v2-primary-dark);
 
   /* Element Plus 表面色映射 — 让 el-button / el-input / el-table 跟着升级
@@ -487,14 +511,14 @@ html {
 }
 .el-table__body tr.el-table__row:hover > td.el-table__cell,
 .el-table__body tr.el-table__row.hover-row > td.el-table__cell {
-  background-color: rgba(0, 229, 255, 0.10) !important;
+  background-color: rgba(76, 154, 255, 0.10) !important;
   box-shadow:
-    inset 0 1px 0 rgba(0, 229, 255, 0.25),
-    inset 0 -1px 0 rgba(0, 229, 255, 0.25) !important;
+    inset 0 1px 0 rgba(76, 154, 255, 0.25),
+    inset 0 -1px 0 rgba(76, 154, 255, 0.25) !important;
 }
 /* 选中行 */
 .el-table__body tr.current-row > td.el-table__cell {
-  background-color: rgba(6, 182, 212, 0.15) !important;
+  background-color: rgba(76, 154, 255, 0.15) !important;
 }
 /* 空状态 / 加载层底色 */
 .el-table__empty-block {
@@ -570,11 +594,11 @@ html {
 }
 .el-button.is-link.el-button--success,
 .el-button.is-text.el-button--success {
-  color: #6ee7b7 !important;  /* 亮绿 */
+  color: #5FCB9B !important;  /* 亮绿 */
 }
 .el-button.is-link.el-button--danger,
 .el-button.is-text.el-button--danger {
-  color: #fca5a5 !important;  /* 亮红 — 默认 ef4444 在深底上有点闷 */
+  color: #EC8880 !important;  /* 亮红 — 默认 ef4444 在深底上有点闷 */
 }
 .el-button.is-link.el-button--warning,
 .el-button.is-text.el-button--warning {
@@ -650,24 +674,24 @@ html {
   color: var(--v2-text-1) !important;
 }
 .el-tag.el-tag--primary {
-  background-color: rgba(6, 182, 212, 0.18) !important;
-  border-color: rgba(6, 182, 212, 0.45) !important;
+  background-color: rgba(76, 154, 255, 0.18) !important;
+  border-color: rgba(76, 154, 255, 0.45) !important;
   color: #67e8f9 !important;  /* 亮青 */
 }
 .el-tag.el-tag--success {
-  background-color: rgba(16, 185, 129, 0.18) !important;
-  border-color: rgba(16, 185, 129, 0.45) !important;
-  color: #6ee7b7 !important;
+  background-color: rgba(63, 191, 135, 0.18) !important;
+  border-color: rgba(63, 191, 135, 0.45) !important;
+  color: #5FCB9B !important;
 }
 .el-tag.el-tag--warning {
-  background-color: rgba(245, 158, 11, 0.20) !important;
-  border-color: rgba(245, 158, 11, 0.48) !important;
+  background-color: rgba(224, 160, 48, 0.20) !important;
+  border-color: rgba(224, 160, 48, 0.48) !important;
   color: #fcd34d !important;
 }
 .el-tag.el-tag--danger {
-  background-color: rgba(239, 68, 68, 0.18) !important;
-  border-color: rgba(239, 68, 68, 0.45) !important;
-  color: #fca5a5 !important;
+  background-color: rgba(229, 100, 93, 0.18) !important;
+  border-color: rgba(229, 100, 93, 0.45) !important;
+  color: #EC8880 !important;
 }
 .el-tag.el-tag--info {
   background-color: rgba(148, 163, 184, 0.18) !important;

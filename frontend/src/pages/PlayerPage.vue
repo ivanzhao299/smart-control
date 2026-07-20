@@ -301,18 +301,18 @@ function onAudioEnded(): void {
   justify-content: center;
   gap: 22px;
   background:
-    radial-gradient(ellipse 60% 50% at 50% 35%, rgba(168, 85, 247, 0.18) 0%, transparent 60%),
-    radial-gradient(ellipse 50% 40% at 50% 75%, rgba(0, 229, 255, 0.12) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 50% at 50% 35%, rgba(255, 255, 255, 0.08) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 50% 75%, rgba(76, 154, 255, 0.12) 0%, transparent 55%),
     linear-gradient(180deg, #070B17 0%, #0C1124 100%);
   color: #fff;
 }
-.audio-icon { font-size: 90px; filter: drop-shadow(0 0 24px rgba(168, 85, 247, 0.7)); }
+.audio-icon { font-size: 90px; filter: drop-shadow(0 0 24px rgba(255, 255, 255, 0.08)); }
 .audio-title { font-size: 44px; font-weight: 600; letter-spacing: 0.03em; max-width: 80vw; text-align: center; }
 .audio-sub { font-size: 20px; color: rgba(255, 255, 255, 0.55); letter-spacing: 0.06em; }
 .audio-wave { display: flex; gap: 8px; align-items: flex-end; height: 60px; margin-top: 10px; }
 .audio-wave span {
   width: 10px; border-radius: 5px;
-  background: linear-gradient(180deg, #00E5FF, #A855F7);
+  background: linear-gradient(180deg, #4C9AFF, #9BA1A9);
   animation: audio-bar 1s ease-in-out infinite;
 }
 .audio-wave span:nth-child(1) { height: 30%; animation-delay: 0s; }
@@ -331,8 +331,8 @@ function onAudioEnded(): void {
   justify-content: center;
   gap: 24px;
   background:
-    radial-gradient(ellipse 60% 50% at 50% 30%, rgba(6, 182, 212, 0.15) 0%, transparent 60%),
-    radial-gradient(ellipse 50% 40% at 50% 80%, rgba(245, 158, 11, 0.10) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 50% at 50% 30%, rgba(76, 154, 255, 0.15) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 50% 80%, rgba(224, 160, 48, 0.10) 0%, transparent 55%),
     linear-gradient(180deg, #070B17 0%, #0C1124 100%);
   color: white;
 }
@@ -340,12 +340,12 @@ function onAudioEnded(): void {
   width: 200px;
   height: 200px;
   border-radius: 36px;
-  background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
+  background: linear-gradient(135deg, #06b6d4 0%, #4C9AFF 100%);
   display: grid;
   place-items: center;
   font-size: 100px;
   font-weight: 700;
-  box-shadow: 0 20px 60px -10px rgba(6, 182, 212, 0.5);
+  box-shadow: 0 20px 60px -10px rgba(76, 154, 255, 0.5);
   overflow: hidden;
 }
 .idle-logo img {
@@ -368,7 +368,7 @@ function onAudioEnded(): void {
   top: 16px;
   right: 16px;
   padding: 8px 14px;
-  background: rgba(239, 68, 68, 0.85);
+  background: rgba(229, 100, 93, 0.85);
   color: white;
   font-size: 13px;
   border-radius: 6px;

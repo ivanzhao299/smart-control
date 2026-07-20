@@ -292,12 +292,12 @@ onMounted(refresh);
   padding: 1px 6px;
   font-size: 10px;
   border-radius: 4px;
-  background: rgba(6, 182, 212, 0.16);
+  background: rgba(76, 154, 255, 0.16);
   color: var(--el-color-primary);
   letter-spacing: 0.5px;
 }
 .tag.tech {
-  background: rgba(245, 158, 11, 0.14);
+  background: rgba(224, 160, 48, 0.14);
   color: var(--el-color-warning);
 }
 .link-cell {

@@ -201,8 +201,8 @@ onMounted(refresh);
 .code-cell {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 12px;
-  color: #93c5fd;
-  background: rgba(59, 130, 246, 0.1);
+  color: #6BADFF;
+  background: rgba(76, 154, 255, 0.1);
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -214,7 +214,7 @@ onMounted(refresh);
   font-family: inherit; touch-action: manipulation;
   transition: all 0.15s;
 }
-.row-btn:hover { color: #c7d2fe; border-color: rgba(99, 102, 241, 0.5); }
+.row-btn:hover { color: #c7d2fe; border-color: rgba(255, 255, 255, 0.08); }
 
 .spin { animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

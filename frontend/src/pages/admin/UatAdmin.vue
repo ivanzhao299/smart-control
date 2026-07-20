@@ -328,24 +328,24 @@ function fmtTime(s: string): string {
 }
 .info-card::before {
   content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
-  background: linear-gradient(90deg, #3b82f6 0%, #7c3aed 80%, transparent 100%);
+  background: linear-gradient(90deg, #4C9AFF 0%, #9BA1A9 80%, transparent 100%);
 }
-.info-card.ok-card::before { background: linear-gradient(90deg, #10b981 0%, #059669 100%); }
-.info-card.warn-card::before { background: linear-gradient(90deg, #f59e0b 0%, #d97706 100%); }
-.info-card.alert-card::before { background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%); }
-.info-card.alert-card { border-color: rgba(239, 68, 68, 0.32); }
+.info-card.ok-card::before { background: linear-gradient(90deg, #3FBF87 0%, #059669 100%); }
+.info-card.warn-card::before { background: linear-gradient(90deg, #E0A030 0%, #d97706 100%); }
+.info-card.alert-card::before { background: linear-gradient(90deg, #E5645D 0%, #dc2626 100%); }
+.info-card.alert-card { border-color: rgba(229, 100, 93, 0.32); }
 .info-label { font-size: 11px; color: var(--text-secondary); letter-spacing: 1.5px; text-transform: uppercase; }
 .info-value { margin: 6px 0 4px; font-size: 22px; font-weight: 700; }
 .ver-num {
   font-size: 32px;
-  background: linear-gradient(135deg, #60a5fa, #a78bfa);
+  background: linear-gradient(135deg, #4C9AFF, #a78bfa);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   font-variant-numeric: tabular-nums;
 }
-.ver-num.is-good { background: linear-gradient(135deg, #34d399, #10b981); -webkit-background-clip: text; background-clip: text; }
-.ver-num.is-bad  { background: linear-gradient(135deg, #f87171, #ef4444); -webkit-background-clip: text; background-clip: text; }
+.ver-num.is-good { background: linear-gradient(135deg, #3FBF87, #3FBF87); -webkit-background-clip: text; background-clip: text; }
+.ver-num.is-bad  { background: linear-gradient(135deg, #E5645D, #E5645D); -webkit-background-clip: text; background-clip: text; }
 .ver-num small { font-size: 18px; }
 .info-foot { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .info-mono {
@@ -377,10 +377,10 @@ function fmtTime(s: string): string {
   touch-action: manipulation;
   transition: all 0.15s;
 }
-.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: rgba(99, 102, 241, 0.5); }
-.row-btn-ok:hover:not(:disabled) { color: #34d399; border-color: rgba(16, 185, 129, 0.5); }
-.row-btn-warn:hover:not(:disabled) { color: #fbbf24; border-color: rgba(245, 158, 11, 0.5); }
-.row-btn-danger:hover:not(:disabled) { color: #f87171; border-color: rgba(239, 68, 68, 0.5); }
+.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: rgba(255, 255, 255, 0.08); }
+.row-btn-ok:hover:not(:disabled) { color: #3FBF87; border-color: rgba(63, 191, 135, 0.5); }
+.row-btn-warn:hover:not(:disabled) { color: #E0A030; border-color: rgba(224, 160, 48, 0.5); }
+.row-btn-danger:hover:not(:disabled) { color: #E5645D; border-color: rgba(229, 100, 93, 0.5); }
 .row-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .spin { animation: spin 0.8s linear infinite; }

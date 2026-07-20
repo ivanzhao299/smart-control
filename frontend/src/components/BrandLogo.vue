@@ -66,8 +66,8 @@ const showImage = computed<boolean>(() => props.useImage && !imageBroken.value);
       <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" class="logo-svg">
         <defs>
           <linearGradient id="bl-grad" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stop-color="#3b82f6" />
-            <stop offset="1" stop-color="#7c3aed" />
+            <stop offset="0" stop-color="#4C9AFF" />
+            <stop offset="1" stop-color="#9BA1A9" />
           </linearGradient>
         </defs>
         <rect x="0" y="0" width="48" height="48" rx="12" fill="url(#bl-grad)" />
@@ -108,7 +108,7 @@ const showImage = computed<boolean>(() => props.useImage && !imageBroken.value);
   aspect-ratio: 1;
   border-radius: 14px;
   display: block;
-  box-shadow: 0 8px 20px -8px rgba(59, 130, 246, 0.55);
+  box-shadow: 0 8px 20px -8px rgba(76, 154, 255, 0.55);
 }
 
 .pulse {

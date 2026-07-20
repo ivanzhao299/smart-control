@@ -542,8 +542,8 @@ onMounted(refresh);
 .code-cell {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 12px;
-  color: #93c5fd;
-  background: rgba(59, 130, 246, 0.1);
+  color: #6BADFF;
+  background: rgba(76, 154, 255, 0.1);
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -565,8 +565,8 @@ onMounted(refresh);
   touch-action: manipulation;
   transition: all 0.15s;
 }
-.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: rgba(99, 102, 241, 0.5); }
-.row-btn-danger:hover:not(:disabled) { color: #f87171; border-color: rgba(239, 68, 68, 0.5); }
+.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: rgba(255, 255, 255, 0.08); }
+.row-btn-danger:hover:not(:disabled) { color: #E5645D; border-color: rgba(229, 100, 93, 0.5); }
 .row-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .spin { animation: spin 0.8s linear infinite; }
@@ -606,12 +606,12 @@ onMounted(refresh);
 /* "试触发" 按钮强调 */
 .row-btn-test {
   color: var(--v2-warning) !important;
-  border-color: rgba(245, 158, 11, 0.4) !important;
+  border-color: rgba(224, 160, 48, 0.4) !important;
 }
 .row-btn-test:hover:not(:disabled) {
-  background: rgba(245, 158, 11, 0.08);
-  color: #fbbf24 !important;
-  border-color: rgba(245, 158, 11, 0.6) !important;
+  background: rgba(224, 160, 48, 0.08);
+  color: #E0A030 !important;
+  border-color: rgba(224, 160, 48, 0.6) !important;
 }
 
 /* 新版 form */
@@ -641,8 +641,8 @@ onMounted(refresh);
 }
 .no-schema-hint {
   padding: 12px;
-  background: rgba(245, 158, 11, 0.08);
-  border: 1px solid rgba(245, 158, 11, 0.3);
+  background: rgba(224, 160, 48, 0.08);
+  border: 1px solid rgba(224, 160, 48, 0.3);
   border-radius: 6px;
   font-size: 12px;
   color: var(--v2-text-2);

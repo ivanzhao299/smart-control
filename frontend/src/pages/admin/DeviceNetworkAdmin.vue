@@ -307,8 +307,8 @@ const dirtyCount = computed(() => rows.value.filter(isDirty).length);
   margin-left: 8px;
   padding: 1px 8px;
   border-radius: 99px;
-  background: rgba(251, 191, 36, 0.15);
-  color: #fbbf24;
+  background: rgba(224, 160, 48, 0.15);
+  color: #E0A030;
   font-size: 11px;
 }
 
@@ -326,15 +326,15 @@ const dirtyCount = computed(() => rows.value.filter(isDirty).length);
   border-radius: 99px;
   font-size: 11.5px;
 }
-.state-badge.is-online { background: rgba(0, 231, 138, 0.13); color: #6ee7b7; }
-.state-badge.is-offline { background: rgba(255, 71, 87, 0.13); color: #fca5a5; }
-.state-badge.is-warn { background: rgba(251, 191, 36, 0.13); color: #fbbf24; }
+.state-badge.is-online { background: rgba(63, 191, 135, 0.13); color: #5FCB9B; }
+.state-badge.is-offline { background: rgba(229, 100, 93, 0.13); color: #EC8880; }
+.state-badge.is-warn { background: rgba(224, 160, 48, 0.13); color: #E0A030; }
 .state-badge.is-na { color: var(--v2-text-3); }
 
 .probe-cell { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .probe-msg { font-size: 11.5px; }
-.probe-msg.is-ok { color: #6ee7b7; }
-.probe-msg.is-fail { color: #fca5a5; }
+.probe-msg.is-ok { color: #5FCB9B; }
+.probe-msg.is-fail { color: #EC8880; }
 
 .devnet-hint {
   margin-top: 10px;

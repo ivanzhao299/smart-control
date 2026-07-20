@@ -359,9 +359,9 @@ async function exitToFront(): Promise<void> {
   filter: drop-shadow(0 0 6px var(--v2-primary));
 }
 .menu-item.is-active {
-  background: linear-gradient(90deg, rgba(0, 229, 255, 0.20) 0%, rgba(0, 229, 255, 0.04) 100%);
+  background: linear-gradient(90deg, rgba(76, 154, 255, 0.20) 0%, rgba(76, 154, 255, 0.04) 100%);
   color: var(--v2-primary-hover);
-  box-shadow: inset 0 1px 0 rgba(0, 229, 255, 0.4);
+  box-shadow: inset 0 1px 0 rgba(76, 154, 255, 0.4);
 }
 .menu-item.is-active .ico {
   filter: drop-shadow(0 0 10px var(--v2-primary));

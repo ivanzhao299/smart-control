@@ -240,8 +240,8 @@ async function doLogin(): Promise<void> {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse 60% 50% at 30% 20%, rgba(0, 229, 255, 0.18) 0%, transparent 60%),
-    radial-gradient(ellipse 50% 40% at 80% 80%, rgba(168, 85, 247, 0.13) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 50% at 30% 20%, rgba(76, 154, 255, 0.18) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 80% 80%, rgba(255, 255, 255, 0.08) 0%, transparent 55%),
     linear-gradient(180deg, var(--v2-bg-0) 0%, var(--v2-bg-1) 100%);
   z-index: 0;
   animation: none;
@@ -282,7 +282,7 @@ async function doLogin(): Promise<void> {
   color: white;
   font-weight: 700;
   font-size: 20px;
-  box-shadow: 0 6px 18px -4px rgba(0, 229, 255, 0.55);
+  box-shadow: 0 6px 18px -4px rgba(76, 154, 255, 0.55);
   overflow: hidden;
   flex-shrink: 0;
 }
@@ -340,7 +340,7 @@ async function doLogin(): Promise<void> {
 }
 .field-input:focus {
   border-color: var(--v2-primary);
-  box-shadow: 0 0 0 3px rgba(0, 229, 255, 0.18);
+  box-shadow: 0 0 0 3px rgba(76, 154, 255, 0.18);
 }
 .field-input::placeholder { color: var(--v2-text-3); }
 
@@ -366,14 +366,14 @@ async function doLogin(): Promise<void> {
   border-color: var(--v2-primary);
 }
 .test-btn.state-ok {
-  color: #6EE7B7;
-  border-color: rgba(0, 231, 138, 0.45);
-  background: rgba(0, 231, 138, 0.10);
+  color: #5FCB9B;
+  border-color: rgba(63, 191, 135, 0.45);
+  background: rgba(63, 191, 135, 0.10);
 }
 .test-btn.state-fail {
-  color: #FCA5A5;
-  border-color: rgba(255, 71, 87, 0.45);
-  background: rgba(255, 71, 87, 0.10);
+  color: #EC8880;
+  border-color: rgba(229, 100, 93, 0.45);
+  background: rgba(229, 100, 93, 0.10);
 }
 .test-btn.state-testing { opacity: 0.7; }
 
@@ -382,8 +382,8 @@ async function doLogin(): Promise<void> {
   padding: 0 4px;
   margin-top: -4px;
 }
-.test-msg.is-ok { color: #6EE7B7; }
-.test-msg.is-fail { color: #FCA5A5; }
+.test-msg.is-ok { color: #5FCB9B; }
+.test-msg.is-fail { color: #EC8880; }
 .test-msg.is-testing { color: var(--v2-text-3); }
 
 .history-box { margin-top: -2px; }
@@ -419,7 +419,7 @@ async function doLogin(): Promise<void> {
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
-.history-url:hover { background: rgba(0, 229, 255, 0.1); color: var(--v2-text-1); }
+.history-url:hover { background: rgba(76, 154, 255, 0.1); color: var(--v2-text-1); }
 .history-del {
   flex-shrink: 0;
   display: grid;
@@ -432,7 +432,7 @@ async function doLogin(): Promise<void> {
   color: var(--v2-text-3);
   cursor: pointer;
 }
-.history-del:hover { background: rgba(255, 71, 87, 0.14); color: #FCA5A5; }
+.history-del:hover { background: rgba(229, 100, 93, 0.14); color: #EC8880; }
 
 .submit-btn {
   margin-top: 6px;
@@ -462,7 +462,7 @@ async function doLogin(): Promise<void> {
   line-height: 1.6;
 }
 .footer-hint code {
-  background: rgba(0, 229, 255, 0.15);
+  background: rgba(76, 154, 255, 0.15);
   color: #67E8F9;
   padding: 1px 6px;
   border-radius: 4px;

@@ -162,7 +162,13 @@ function goTo(name: string): void {
   <section class="v2-dash">
     <!-- KPI 行 -->
     <div class="v2-kpi-row">
-      <div class="v2-kpi success">
+      <!-- 设备在线: 颜色跟着实际在线率走, 不写死。
+           全在线=中性(正常不需要喊), 有掉线=琥珀, 全掉线=红。
+           之前恒定挂 .success, 于是 0/8 全掉线时那个圆圈照样是绿的 —— 颜色在说谎。 -->
+      <div class="v2-kpi" :class="{
+        amber: totalCount > 0 && onlineCount > 0 && onlineCount < totalCount,
+        danger: totalCount > 0 && onlineCount === 0,
+      }">
         <div class="v2-kpi-ico"><CheckCircle2 :size="18" :stroke-width="2" /></div>
         <div class="v2-kpi-body">
           <div class="v2-kpi-label">设备在线</div>
@@ -176,14 +182,15 @@ function goTo(name: string): void {
           <div class="v2-kpi-value v2-inter">{{ runningCount }}<span class="unit">个</span></div>
         </div>
       </div>
-      <div class="v2-kpi info">
+      <div class="v2-kpi">
         <div class="v2-kpi-ico"><Clock :size="18" :stroke-width="2" /></div>
         <div class="v2-kpi-body">
           <div class="v2-kpi-label">系统运行</div>
           <div class="v2-kpi-value v2-inter">{{ uptimeHours }}<span class="unit">小时</span></div>
         </div>
       </div>
-      <div class="v2-kpi amber">
+      <!-- 告警卡只在真有告警时才染琥珀色, 0 条时保持中性 -->
+      <div class="v2-kpi" :class="{ amber: alertCount > 0 }">
         <div class="v2-kpi-ico"><TriangleAlert :size="18" :stroke-width="2" /></div>
         <div class="v2-kpi-body">
           <div class="v2-kpi-label">告警</div>
@@ -295,30 +302,36 @@ function goTo(name: string): void {
   min-width: 0;
   cursor: default;
 }
+/* KPI 是参考信息, 图标一律中性。
+   之前四张卡各配一个彩色圆(绿/蓝/蓝/琥珀)且恒定不变 —— 那是"用颜色装饰"的
+   典型: 告警 0 条时那个琥珀圆照样亮着, 等于把警示色用成了图标背景。 */
 .v2-kpi-ico {
   width: 40px; height: 40px;
   border-radius: var(--v2-r-md);
   display: grid; place-items: center;
-  background: var(--v2-primary-soft);
-  color: var(--v2-primary);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--v2-text-2);
   flex-shrink: 0;
-  filter: drop-shadow(0 0 8px var(--v2-primary-soft));
+  filter: none;
 }
+/* 只有真的有告警时这张卡才染色 (模板按 alertCount 动态挂 .amber) */
 .v2-kpi.amber .v2-kpi-ico {
   background: var(--v2-amber-soft);
   color: var(--v2-amber);
-  filter: drop-shadow(0 0 8px rgba(255, 184, 0, 0.5));
+  filter: none;
 }
+.v2-kpi.amber .v2-kpi-value { color: var(--v2-amber); }
 .v2-kpi.success .v2-kpi-ico {
   background: var(--v2-success-soft);
   color: var(--v2-success);
-  filter: drop-shadow(0 0 8px rgba(0, 231, 138, 0.5));
+  filter: none;
 }
-.v2-kpi.info .v2-kpi-ico {
-  background: var(--v2-info-soft);
-  color: var(--v2-info);
-  filter: drop-shadow(0 0 8px rgba(91, 143, 255, 0.5));
+.v2-kpi.danger .v2-kpi-ico {
+  background: var(--v2-danger-soft);
+  color: var(--v2-danger);
+  filter: none;
 }
+.v2-kpi.danger .v2-kpi-value { color: var(--v2-danger); }
 .v2-kpi-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .v2-kpi-label {
   font-size: var(--v2-fs-xs);
@@ -336,7 +349,7 @@ function goTo(name: string): void {
 }
 .v2-kpi.amber .v2-kpi-value { text-shadow: var(--v2-text-glow-amber); }
 .v2-kpi.success .v2-kpi-value { text-shadow: var(--v2-text-glow-success); }
-.v2-kpi.info .v2-kpi-value { color: #BFD7FF; text-shadow: 0 0 18px rgba(91, 143, 255, 0.6); }
+.v2-kpi.info .v2-kpi-value { color: var(--v2-text-1); text-shadow: none; }
 .v2-kpi-value .unit {
   font-size: 12px;
   color: var(--v2-text-3);
@@ -429,8 +442,8 @@ function goTo(name: string): void {
   fill: none; stroke: rgba(255, 255, 255, 0.18); stroke-width: 4;
 }
 .hold-ring .ring-fill {
-  fill: none; stroke: var(--v2-primary, #00E5FF); stroke-width: 4; stroke-linecap: round;
-  filter: drop-shadow(0 0 6px var(--v2-primary, #00E5FF));
+  fill: none; stroke: var(--v2-primary, #4C9AFF); stroke-width: 4; stroke-linecap: round;
+  filter: drop-shadow(0 0 6px var(--v2-primary, #4C9AFF));
 }
 .hold-text {
   font-size: 12px; font-weight: 600; letter-spacing: 1px;
@@ -447,40 +460,31 @@ function goTo(name: string): void {
   pointer-events: none;
 }
 /* 顶部 1px 场景色发光光带 — v3 标志元素 */
-.v2-scene::after {
-  content: '';
-  position: absolute;
-  top: 0; left: 10%; right: 10%;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--scene-fg) 50%, transparent);
-  box-shadow: 0 0 8px var(--scene-fg);
-  opacity: 0.7;
-  pointer-events: none;
-}
-.v2-scene:hover {
-  transform: translateY(-4px);
-  border-color: var(--scene-border);
-  background: linear-gradient(135deg, var(--scene-bg-1), var(--scene-bg-2));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.4),
-    0 12px 40px -8px var(--scene-glow),
-    0 0 48px -10px var(--scene-glow) !important;
-}
-.v2-scene:hover::before { opacity: 1; }
-.v2-scene:hover::after { opacity: 1; }
+/* v4: 顶部彩色发光光带取消 —— 6 张卡各来一条, 正是"花花绿绿"的主要来源之一 */
+.v2-scene::after { display: none; }
 
+/* hover: 只提一档表面 + 描边转亮。现场是触屏为主, hover 本来就用得少,
+   不值得为它挂三层辉光 */
+.v2-scene:hover {
+  transform: none;
+  border-color: var(--v2-border-strong);
+  background: var(--v2-surf-1-hover);
+  box-shadow: none;
+}
+
+/* 运行中: 全屏唯一用强调色的场景卡 —— 这才是颜色该花的地方 */
 .v2-scene.active {
-  background: linear-gradient(135deg, var(--scene-bg-1), var(--scene-bg-2));
-  border-color: var(--scene-border);
+  background: var(--v2-surf-1);
+  border-color: var(--v2-primary);
 }
 .v2-scene.active .active-dot {
   position: absolute;
   top: var(--v2-sp-3); right: var(--v2-sp-3);
-  width: 8px; height: 8px;
+  width: 6px; height: 6px;
   border-radius: 50%;
-  background: white;
-  box-shadow: 0 0 12px white, 0 0 24px var(--scene-fg);
-  animation: v2-pulse 2s ease-out infinite;
+  background: var(--v2-primary);
+  box-shadow: none;
+  animation: none;
 }
 
 .v2-scene-top {
@@ -489,125 +493,65 @@ function goTo(name: string): void {
   justify-content: space-between;
 }
 .v2-scene-ico {
-  width: 48px; height: 48px;
+  width: 44px; height: 44px;
   border-radius: var(--v2-r-md);
   display: grid; place-items: center;
   background: var(--scene-icon-bg);
-  color: var(--scene-fg);
-  filter: drop-shadow(0 0 8px var(--scene-glow));
-  transition: all 0.22s ease;
+  color: var(--v2-text-2);
+  filter: none;
+  transition: color 0.22s ease, background 0.22s ease;
 }
 .v2-scene:hover .v2-scene-ico {
-  background: rgba(255, 255, 255, 0.22);
-  color: white;
-  filter: drop-shadow(0 0 12px var(--scene-fg));
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--v2-text-1);
 }
 .v2-scene.active .v2-scene-ico {
-  background: rgba(255, 255, 255, 0.25);
-  color: white;
-  filter: drop-shadow(0 0 14px white);
+  background: var(--v2-primary-soft);
+  color: var(--v2-primary);
 }
 .v2-scene-meta { text-align: right; }
-.v2-scene-code {
-  font-size: 11px;
-  color: var(--scene-fg);
-  letter-spacing: 2px;
-  font-weight: 600;
-  opacity: 0.7;
-}
-.v2-scene:hover .v2-scene-code,
-.v2-scene.active .v2-scene-code {
-  color: rgba(255, 255, 255, 0.9);
-  opacity: 1;
-}
+
+/* v4: OPENING / RECEPTION / MEETING 这类英文角标隐藏。
+   它不传递任何信息(中文名就在下面), 纯装饰; 而且它上的是场景色, 本身就是
+   彩虹感的一部分。想恢复的话删掉这一条即可, 模板没动。 */
+.v2-scene-code { display: none; }
+
 .v2-scene-name {
-  font-size: 18px;
-  font-weight: 700;
+  font-size: 17px;
+  font-weight: 600;
   margin-top: var(--v2-sp-3);
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
   color: var(--v2-text-1);
-  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+  /* 阴影去掉: 那是为了让白字压住彩色渐变底才加的, 现在底是纯中性色, 不需要 */
+  text-shadow: none;
 }
 .v2-scene-desc {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.78);
+  color: var(--v2-text-3);
   margin-top: 6px;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.2px;
 }
-.v2-scene:hover .v2-scene-desc,
-.v2-scene.active .v2-scene-desc { color: rgba(255, 255, 255, 0.92); }
+.v2-scene.active .v2-scene-desc { color: var(--v2-text-2); }
 
-/* ============ 场景配色 (v3 蔚来车机风) ============
- * 每个场景三档色:
- *   *-bg-1-dim / *-bg-2-dim : 默认状态卡片底 (28-22% 不饱和, 业主一眼看出"哦这是xx场景")
- *   *-bg-1 / *-bg-2         : hover / active 状态卡片底 (鲜亮饱和)
- *   *-fg / *-glow / *-border / *-border-dim / *-icon-bg : 配套
+/* ============ 场景配色 (v4: 不再按场景分色) ============
+ * 过去 6 个场景各占一种霓虹渐变(琥珀/极光紫/电光青/霓虹粉/霓虹绿/深空蓝)。
+ * 问题不是"不好看", 是把颜色这个最强的信号花在了"分类"上:
+ *   - 6 张卡一起喊 = 没有重点, 眼睛不知道看哪
+ *   - 颜色预算用光后, 真正需要颜色的地方(设备掉线)反而没得可用 ——
+ *     LED 大屏 0/2 掉线时, 它和正常的灯光/音响长得一样花, 一眼看不出来
+ * 现在全部共用中性表面, 只有"运行中"那张用强调色标出。分类交给图标和文字。
+ * data-color 属性保留(模板不动), 只是不再产生颜色差异。
  */
-.v2-scene[data-color="opening"] {
-  --scene-fg: #FFB800;              /* 琥珀-亮 */
-  --scene-glow: rgba(255, 184, 0, 0.55);
-  --scene-icon-bg: rgba(255, 184, 0, 0.20);
-  --scene-bg-1-dim: rgba(255, 120, 0, 0.22);
-  --scene-bg-2-dim: rgba(255, 80, 0, 0.10);
-  --scene-bg-1: #FF8800;
-  --scene-bg-2: #E04500;
-  --scene-border: rgba(255, 184, 0, 0.7);
-  --scene-border-dim: rgba(255, 184, 0, 0.35);
-}
-.v2-scene[data-color="reception"] {
-  --scene-fg: #C084FC;              /* 极光紫-亮 */
-  --scene-glow: rgba(168, 85, 247, 0.55);
-  --scene-icon-bg: rgba(168, 85, 247, 0.20);
-  --scene-bg-1-dim: rgba(168, 85, 247, 0.22);
-  --scene-bg-2-dim: rgba(99, 102, 241, 0.10);
-  --scene-bg-1: #A855F7;
-  --scene-bg-2: #6366F1;
-  --scene-border: rgba(192, 132, 252, 0.7);
-  --scene-border-dim: rgba(192, 132, 252, 0.35);
-}
-.v2-scene[data-color="meeting"] {
-  --scene-fg: #00E5FF;              /* 电光青 — v3 主色 */
-  --scene-glow: rgba(0, 229, 255, 0.55);
-  --scene-icon-bg: rgba(0, 229, 255, 0.20);
-  --scene-bg-1-dim: rgba(0, 229, 255, 0.22);
-  --scene-bg-2-dim: rgba(0, 184, 212, 0.10);
-  --scene-bg-1: #00B8D4;
-  --scene-bg-2: #006B85;
-  --scene-border: rgba(0, 229, 255, 0.7);
-  --scene-border-dim: rgba(0, 229, 255, 0.35);
-}
-.v2-scene[data-color="roadshow"] {
-  --scene-fg: #F472B6;              /* 霓虹粉 */
-  --scene-glow: rgba(244, 114, 182, 0.55);
-  --scene-icon-bg: rgba(244, 114, 182, 0.20);
-  --scene-bg-1-dim: rgba(244, 114, 182, 0.22);
-  --scene-bg-2-dim: rgba(236, 72, 153, 0.10);
-  --scene-bg-1: #EC4899;
-  --scene-bg-2: #DB2777;
-  --scene-border: rgba(244, 114, 182, 0.7);
-  --scene-border-dim: rgba(244, 114, 182, 0.35);
-}
-.v2-scene[data-color="cleaning"] {
-  --scene-fg: #00E78A;              /* 霓虹绿 */
-  --scene-glow: rgba(0, 231, 138, 0.55);
-  --scene-icon-bg: rgba(0, 231, 138, 0.20);
-  --scene-bg-1-dim: rgba(0, 231, 138, 0.22);
-  --scene-bg-2-dim: rgba(16, 185, 129, 0.10);
-  --scene-bg-1: #10B981;
-  --scene-bg-2: #047857;
-  --scene-border: rgba(0, 231, 138, 0.7);
-  --scene-border-dim: rgba(0, 231, 138, 0.35);
-}
-.v2-scene[data-color="closing"] {
-  --scene-fg: #5B8FFF;              /* 深空蓝-亮 */
-  --scene-glow: rgba(91, 143, 255, 0.55);
-  --scene-icon-bg: rgba(91, 143, 255, 0.20);
-  --scene-bg-1-dim: rgba(91, 143, 255, 0.22);
-  --scene-bg-2-dim: rgba(67, 56, 202, 0.10);
-  --scene-bg-1: #4F46E5;
-  --scene-bg-2: #1E1B4B;
-  --scene-border: rgba(91, 143, 255, 0.7);
-  --scene-border-dim: rgba(91, 143, 255, 0.35);
+.v2-scene[data-color] {
+  --scene-fg: var(--v2-text-2);
+  --scene-glow: transparent;
+  --scene-icon-bg: rgba(255, 255, 255, 0.05);
+  --scene-bg-1-dim: var(--v2-surf-1);
+  --scene-bg-2-dim: var(--v2-surf-1);
+  --scene-bg-1: var(--v2-surf-1-hover);
+  --scene-bg-2: var(--v2-surf-1-hover);
+  --scene-border: var(--v2-primary);
+  --scene-border-dim: var(--v2-border-soft);
 }
 
 /* ============ 子系统状态 ============ */
@@ -647,22 +591,20 @@ function goTo(name: string): void {
 }
 .v2-sub:hover {
   background: rgba(255, 255, 255, 0.04);
-  border-color: var(--sub-fg);
-  box-shadow: 0 0 16px -4px var(--sub-fg);
+  border-color: var(--v2-border-strong);
+  box-shadow: none;
 }
 .v2-sub-ico {
-  width: 36px; height: 36px;
+  width: 34px; height: 34px;
   border-radius: var(--v2-r-sm);
   display: grid; place-items: center;
   background: var(--sub-bg);
   color: var(--sub-fg);
   flex-shrink: 0;
-  filter: drop-shadow(0 0 6px var(--sub-bg));
-  transition: filter 0.22s ease;
+  filter: none;
+  transition: color 0.22s ease;
 }
-.v2-sub:hover .v2-sub-ico {
-  filter: drop-shadow(0 0 10px var(--sub-fg));
-}
+.v2-sub:hover .v2-sub-ico { color: var(--v2-text-1); }
 .v2-sub-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .v2-sub-name {
   font-size: var(--v2-fs-sm);
@@ -672,36 +614,40 @@ function goTo(name: string): void {
   align-items: center;
   gap: 6px;
 }
-/* 在线心跳点 — 子系统都加, 不只是 warn */
+/* 在线状态点。保留语义色(绿=正常/琥珀=异常), 但去掉辉光和呼吸动画 ——
+   一屏上五个点同时呼吸发光, 反而让真正异常的那个不显眼 */
 .v2-sub-name::before {
   content: '';
   display: inline-block;
   width: 6px; height: 6px;
   border-radius: 50%;
   background: var(--v2-success);
-  box-shadow: 0 0 8px var(--v2-success);
-  animation: v2-glow-breathe 2.4s ease-in-out infinite;
+  box-shadow: none;
+  animation: none;
 }
 .v2-sub-stats {
   font-size: var(--v2-fs-xs);
-  color: var(--v2-text-2);
+  color: var(--v2-text-3);
 }
+/* 正常时在线数就是普通文字 —— 只有异常才配得上颜色 */
 .v2-sub-stats .online {
-  color: var(--sub-fg);
+  color: var(--v2-text-2);
+  font-weight: 500;
+  text-shadow: none;
+  font-variant-numeric: tabular-nums;
+}
+.v2-sub[data-status="warn"] .v2-sub-name::before { background: var(--v2-warning); }
+.v2-sub[data-status="warn"] .v2-sub-stats .online {
+  color: var(--v2-warning);
   font-weight: 600;
-  text-shadow: 0 0 6px var(--sub-bg);
 }
-.v2-sub[data-status="warn"] .v2-sub-name::before {
-  background: var(--v2-warning);
-  box-shadow: 0 0 8px var(--v2-warning);
-}
-.v2-sub[data-status="warn"] .v2-sub-stats .online { color: var(--v2-warning); }
+/* 异常那一行整行提亮, 让它在列表里真正跳出来 */
+.v2-sub[data-status="warn"] .v2-sub-name { color: var(--v2-text-1); }
+.v2-sub[data-status="warn"] .v2-sub-ico { color: var(--v2-warning); }
 
-.v2-sub[data-kind="light"]  { --sub-fg: #FFB800; --sub-bg: rgba(255, 184, 0, 0.22); }
-.v2-sub[data-kind="led"]    { --sub-fg: #00E5FF; --sub-bg: rgba(0, 229, 255, 0.22); }
-.v2-sub[data-kind="audio"]  { --sub-fg: #00E78A; --sub-bg: rgba(0, 231, 138, 0.22); }
-.v2-sub[data-kind="hvac"]   { --sub-fg: #5B8FFF; --sub-bg: rgba(91, 143, 255, 0.22); }
-.v2-sub[data-kind="power"]  { --sub-fg: #C084FC; --sub-bg: rgba(192, 132, 252, 0.22); }
+/* v4: 子系统不再按品类分色(原来灯光黄/LED青/音响绿/空调蓝/电源紫)。
+   图标一律中性 —— 这样"LED 大屏 0/2"掉线时, 琥珀色是整屏唯一的一处, 一眼可见。 */
+.v2-sub[data-kind] { --sub-fg: var(--v2-text-2); --sub-bg: rgba(255, 255, 255, 0.05); }
 
 /* ============ 中宽屏 (≤960): 子系统行能横向滚, 保持单行不换 ============ */
 @media (max-width: 960px) {

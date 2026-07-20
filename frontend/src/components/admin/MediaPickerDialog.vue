@@ -242,12 +242,12 @@ function fmtDur(sec: number | null): string {
 }
 .picker-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(6, 182, 212, 0.55);
-  box-shadow: 0 8px 20px -8px rgba(6, 182, 212, 0.4);
+  border-color: rgba(76, 154, 255, 0.55);
+  box-shadow: 0 8px 20px -8px rgba(76, 154, 255, 0.4);
 }
 .picker-card.selected {
   border-color: var(--v2-primary);
-  box-shadow: 0 0 0 2px var(--v2-primary), 0 10px 24px -6px rgba(6, 182, 212, 0.6);
+  box-shadow: 0 0 0 2px var(--v2-primary), 0 10px 24px -6px rgba(76, 154, 255, 0.6);
 }
 
 .thumb {

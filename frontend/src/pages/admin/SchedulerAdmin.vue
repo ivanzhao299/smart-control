@@ -277,8 +277,8 @@ onMounted(refresh);
 .code-cell {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 12.5px;
-  color: #93c5fd;
-  background: rgba(59, 130, 246, 0.1);
+  color: #6BADFF;
+  background: rgba(76, 154, 255, 0.1);
   padding: 2px 8px;
   border-radius: 4px;
 }
@@ -298,9 +298,9 @@ onMounted(refresh);
   touch-action: manipulation;
   transition: all 0.15s;
 }
-.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: rgba(99, 102, 241, 0.5); }
-.row-btn-ok:hover:not(:disabled) { color: #34d399; border-color: rgba(16, 185, 129, 0.5); }
-.row-btn-danger:hover:not(:disabled) { color: #f87171; border-color: rgba(239, 68, 68, 0.5); }
+.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: rgba(255, 255, 255, 0.08); }
+.row-btn-ok:hover:not(:disabled) { color: #3FBF87; border-color: rgba(63, 191, 135, 0.5); }
+.row-btn-danger:hover:not(:disabled) { color: #E5645D; border-color: rgba(229, 100, 93, 0.5); }
 .row-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .hint { margin-top: 6px; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; font-size: 12px; }

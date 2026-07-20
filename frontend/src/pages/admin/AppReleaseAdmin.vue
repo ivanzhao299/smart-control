@@ -316,17 +316,17 @@ onMounted(refresh);
 .ptab.active {
   background: var(--v2-primary-soft);
   color: var(--v2-primary-hover);
-  box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.3);
+  box-shadow: 0 0 0 1px rgba(76, 154, 255, 0.3);
 }
 
 /* 当前版本卡 — 主视觉, 版本号大字 + 下载按钮高亮 */
 .release-card {
   padding: 18px 22px;
-  background: linear-gradient(135deg, rgba(0, 229, 255, 0.04) 0%, rgba(168, 85, 247, 0.04) 100%);
+  background: linear-gradient(135deg, rgba(76, 154, 255, 0.04) 0%, rgba(255, 255, 255, 0.04) 100%);
   border: 1px solid var(--v2-border-soft);
   border-radius: var(--v2-r-md);
   margin-bottom: 20px;
-  box-shadow: 0 4px 16px -8px rgba(0, 229, 255, 0.18);
+  box-shadow: 0 4px 16px -8px rgba(76, 154, 255, 0.18);
 }
 .release-card.empty {
   display: flex;
@@ -353,12 +353,12 @@ onMounted(refresh);
   font-size: 24px;
   font-weight: 700;
   color: var(--v2-primary-hover);
-  text-shadow: 0 0 12px rgba(0, 229, 255, 0.4);
+  text-shadow: 0 0 12px rgba(76, 154, 255, 0.4);
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   letter-spacing: 0.5px;
 }
 .code-pill {
-  background: rgba(0, 229, 255, 0.15);
+  background: rgba(76, 154, 255, 0.15);
   color: #67E8F9;
   padding: 2px 10px;
   border-radius: 4px;
@@ -383,14 +383,14 @@ onMounted(refresh);
   border-radius: var(--v2-r-md);
   font-weight: 600;
   font-size: 14px;
-  box-shadow: 0 4px 14px -4px rgba(0, 229, 255, 0.5);
+  box-shadow: 0 4px 14px -4px rgba(76, 154, 255, 0.5);
   transition: all 0.18s ease;
   white-space: nowrap;
   cursor: pointer;
 }
 .dl-btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px -4px rgba(0, 229, 255, 0.7);
+  box-shadow: 0 6px 20px -4px rgba(76, 154, 255, 0.7);
 }
 .dl-btn:active { transform: translateY(0); }
 
@@ -454,7 +454,7 @@ onMounted(refresh);
 
 .adv-block {
   padding: 12px 0 4px;
-  border-left: 2px solid rgba(168, 85, 247, 0.3);
+  border-left: 2px solid rgba(255, 255, 255, 0.08);
   padding-left: 16px;
   margin: 0 0 12px;
 }

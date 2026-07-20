@@ -173,7 +173,7 @@ onBeforeUnmount(() => { if (unsubscribeWs) unsubscribeWs(); });
         <div class="info-foot">
           <component :is="summary.active > 0 ? AlertOctagon : CheckCircle2"
             :size="12" :stroke-width="2"
-            :style="{ color: summary.active > 0 ? '#f87171' : '#34d399' }" />
+            :style="{ color: summary.active > 0 ? '#E5645D' : '#3FBF87' }" />
           <span class="info-mono">{{ summary.active > 0 ? '需要处理' : '运行平稳' }}</span>
         </div>
       </div>
@@ -184,7 +184,7 @@ onBeforeUnmount(() => { if (unsubscribeWs) unsubscribeWs(); });
           <span class="ver-num" :class="{ 'is-bad': seriousCount > 0 }">{{ seriousCount }}</span>
         </div>
         <div class="info-foot">
-          <AlertOctagon :size="12" :stroke-width="2" style="color:#f87171;" />
+          <AlertOctagon :size="12" :stroke-width="2" style="color:#E5645D;" />
           <span class="info-mono">critical {{ summary.byLevel.critical }} · emergency {{ summary.byLevel.emergency }}</span>
         </div>
       </div>
@@ -195,7 +195,7 @@ onBeforeUnmount(() => { if (unsubscribeWs) unsubscribeWs(); });
           <span class="ver-num warn-num">{{ summary.byLevel.warning }}</span>
         </div>
         <div class="info-foot">
-          <AlertTriangle :size="12" :stroke-width="2" style="color:#fbbf24;" />
+          <AlertTriangle :size="12" :stroke-width="2" style="color:#E0A030;" />
           <span class="info-mono">warning level</span>
         </div>
       </div>
@@ -337,28 +337,28 @@ onBeforeUnmount(() => { if (unsubscribeWs) unsubscribeWs(); });
   content: '';
   position: absolute; top: 0; left: 0; right: 0;
   height: 3px;
-  background: linear-gradient(90deg, #3b82f6 0%, #7c3aed 80%, transparent 100%);
+  background: linear-gradient(90deg, #4C9AFF 0%, #9BA1A9 80%, transparent 100%);
 }
-.info-card.alert-card::before { background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%); }
-.info-card.alert-card { border-color: rgba(239, 68, 68, 0.32); }
-.info-card.ok-card::before { background: linear-gradient(90deg, #10b981 0%, #059669 100%); }
+.info-card.alert-card::before { background: linear-gradient(90deg, #E5645D 0%, #dc2626 100%); }
+.info-card.alert-card { border-color: rgba(229, 100, 93, 0.32); }
+.info-card.ok-card::before { background: linear-gradient(90deg, #3FBF87 0%, #059669 100%); }
 .info-label { font-size: 11px; color: var(--text-secondary); letter-spacing: 1.5px; text-transform: uppercase; }
 .info-value { margin: 6px 0 4px; font-size: 22px; font-weight: 700; }
 .ver-num {
   font-size: 32px;
-  background: linear-gradient(135deg, #60a5fa, #a78bfa);
+  background: linear-gradient(135deg, #4C9AFF, #a78bfa);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   font-variant-numeric: tabular-nums;
 }
 .ver-num.is-bad {
-  background: linear-gradient(135deg, #f87171, #ef4444);
+  background: linear-gradient(135deg, #E5645D, #E5645D);
   -webkit-background-clip: text;
   background-clip: text;
 }
 .warn-num {
-  background: linear-gradient(135deg, #fbbf24, #f59e0b);
+  background: linear-gradient(135deg, #E0A030, #E0A030);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -372,7 +372,7 @@ onBeforeUnmount(() => { if (unsubscribeWs) unsubscribeWs(); });
 
 /* sc-status local override: info level uses light blue */
 .sc-status.is-info-lv {
-  color: #60a5fa;
+  color: #4C9AFF;
   background: rgba(96, 165, 250, 0.14);
   border: 1px solid rgba(96, 165, 250, 0.32);
 }
@@ -389,8 +389,8 @@ onBeforeUnmount(() => { if (unsubscribeWs) unsubscribeWs(); });
 .code-cell {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 12px;
-  color: #93c5fd;
-  background: rgba(59, 130, 246, 0.1);
+  color: #6BADFF;
+  background: rgba(76, 154, 255, 0.1);
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -422,8 +422,8 @@ onBeforeUnmount(() => { if (unsubscribeWs) unsubscribeWs(); });
   touch-action: manipulation;
   transition: all 0.15s;
 }
-.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: rgba(99, 102, 241, 0.5); }
-.row-btn-ok:hover:not(:disabled) { color: #34d399; border-color: rgba(16, 185, 129, 0.5); }
+.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: rgba(255, 255, 255, 0.08); }
+.row-btn-ok:hover:not(:disabled) { color: #3FBF87; border-color: rgba(63, 191, 135, 0.5); }
 .row-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .pager { display: flex; justify-content: flex-end; margin-top: 10px; }

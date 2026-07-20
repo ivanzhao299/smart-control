@@ -19,12 +19,12 @@ const isStringIcon = computed(() => typeof props.icon === 'string');
 
 const cfg = computed(() => {
   switch (props.status) {
-    case 'online': return { label: '在线', cls: 'is-success', accent: '#10b981' };
-    case 'running': return { label: '运行中', cls: 'is-info', accent: '#3b82f6' };
-    case 'reconnecting': return { label: '重连中', cls: 'is-warning', accent: '#f59e0b' };
-    case 'error': return { label: '故障', cls: 'is-error', accent: '#ef4444' };
-    case 'disabled': return { label: '已禁用', cls: 'is-default', accent: '#6b7280' };
-    default: return { label: '离线', cls: 'is-error', accent: '#ef4444' };
+    case 'online': return { label: '在线', cls: 'is-success', accent: '#3FBF87' };
+    case 'running': return { label: '运行中', cls: 'is-info', accent: '#4C9AFF' };
+    case 'reconnecting': return { label: '重连中', cls: 'is-warning', accent: '#E0A030' };
+    case 'error': return { label: '故障', cls: 'is-error', accent: '#E5645D' };
+    case 'disabled': return { label: '已禁用', cls: 'is-default', accent: '#6B7178' };
+    default: return { label: '离线', cls: 'is-error', accent: '#E5645D' };
   }
 });
 
@@ -68,7 +68,7 @@ function onClick(): void {
   /* 删 backdrop-filter — 12 个卡片同时 blur GPU 撑不住, 用纯色替代 */
   border-radius: 12px;
   padding: 10px 14px;
-  border: 1px solid color-mix(in srgb, var(--card-accent) 22%, rgba(99, 102, 241, 0.12));
+  border: 1px solid color-mix(in srgb, var(--card-accent) 22%, rgba(255, 255, 255, 0.08));
   display: grid;
   grid-template-columns: 44px 1fr auto;
   align-items: center;

@@ -26,15 +26,15 @@ const rows = ref<HardwareUnit[]>([]);
 const summary = ref<HardwareSummary | null>(null);
 
 const categoryMeta: Record<HardwareCategory, { label: string; icon: unknown; color: string }> = {
-  'dali-gateway':       { label: 'DALI 网关/调光控制器', icon: Cable,       color: '#3b82f6' },
-  'led-driver':         { label: 'LED 灯具驱动器', icon: Lightbulb,   color: '#fbbf24' },
+  'dali-gateway':       { label: 'DALI 网关/调光控制器', icon: Cable,       color: '#4C9AFF' },
+  'led-driver':         { label: 'LED 灯具驱动器', icon: Lightbulb,   color: '#E0A030' },
   'dali-converter':     { label: 'DALI→0-10V 转换器', icon: Cable,    color: '#facc15' },
   'dali-dimmer':        { label: '[废弃] DALI 调光器模块', icon: Lightbulb, color: '#94a3b8' },
-  'rtu-tcp-converter':  { label: 'RTU↔TCP 转换器', icon: Network,     color: '#10b981' },
-  'led-controller':     { label: 'LED 控制器',    icon: MonitorPlay, color: '#8b5cf6' },
-  'led-player':         { label: 'LED 播控主机',  icon: Cpu,         color: '#a855f7' },
-  'audio-dsp':          { label: '音响 DSP',      icon: Speaker,     color: '#ec4899' },
-  'audio-guide':        { label: '分区跟随导览',  icon: Speaker,     color: '#f472b6' },
+  'rtu-tcp-converter':  { label: 'RTU↔TCP 转换器', icon: Network,     color: '#3FBF87' },
+  'led-controller':     { label: 'LED 控制器',    icon: MonitorPlay, color: '#9BA1A9' },
+  'led-player':         { label: 'LED 播控主机',  icon: Cpu,         color: '#9BA1A9' },
+  'audio-dsp':          { label: '音响 DSP',      icon: Speaker,     color: '#9BA1A9' },
+  'audio-guide':        { label: '分区跟随导览',  icon: Speaker,     color: '#9BA1A9' },
   'audio-power':        { label: '音响时序器',    icon: Zap,         color: '#fb923c' },
   'hvac-outdoor':       { label: '空调外机',      icon: Snowflake,   color: '#0891b2' },
   'hvac-gateway':       { label: '空调网关',      icon: Snowflake,   color: '#06b6d4' },
@@ -685,23 +685,23 @@ onMounted(refresh);
   position: absolute;
   top: 0; left: 0; right: 0;
   height: 3px;
-  background: linear-gradient(90deg, #3b82f6 0%, #7c3aed 80%, transparent 100%);
+  background: linear-gradient(90deg, #4C9AFF 0%, #9BA1A9 80%, transparent 100%);
 }
 .stat-card.alert::before {
-  background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%);
+  background: linear-gradient(90deg, #E5645D 0%, #dc2626 100%);
 }
 .stat-card.stat-categories { grid-column: span 2; }
 .stat-label { font-size: 12px; color: var(--text-secondary); letter-spacing: 1.5px; text-transform: uppercase; }
 .stat-value {
   font-size: 32px; font-weight: 700; margin-top: 4px;
-  background: linear-gradient(135deg, #60a5fa, #a78bfa);
+  background: linear-gradient(135deg, #4C9AFF, #a78bfa);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   font-variant-numeric: tabular-nums;
 }
 .stat-card.alert .stat-value {
-  background: linear-gradient(135deg, #f87171, #ef4444);
+  background: linear-gradient(135deg, #E5645D, #E5645D);
   -webkit-background-clip: text;
 }
 .stat-sub { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
@@ -737,19 +737,19 @@ onMounted(refresh);
   font-weight: 500;
   transition: all 0.15s ease;
 }
-.tab:hover { color: var(--text-primary); border-color: rgba(99, 102, 241, 0.4); }
+.tab:hover { color: var(--text-primary); border-color: rgba(255, 255, 255, 0.08); }
 .tab.active {
-  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+  background: linear-gradient(135deg, #4C9AFF 0%, #9BA1A9 100%);
   color: #fff;
   border-color: transparent;
-  box-shadow: 0 6px 14px -6px rgba(99, 102, 241, 0.55);
+  box-shadow: 0 6px 14px -6px rgba(255, 255, 255, 0.08);
 }
 
 .code-cell {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 12.5px;
-  color: #93c5fd;
-  background: rgba(59, 130, 246, 0.1);
+  color: #6BADFF;
+  background: rgba(76, 154, 255, 0.1);
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -780,7 +780,7 @@ onMounted(refresh);
   transition: all 0.15s;
 }
 .row-btn:hover { color: var(--color-primary); border-color: var(--color-primary); }
-.row-btn-danger:hover { color: #f87171; border-color: rgba(239, 68, 68, 0.5); }
+.row-btn-danger:hover { color: #E5645D; border-color: rgba(229, 100, 93, 0.5); }
 
 .form-row { display: flex; gap: 12px; }
 

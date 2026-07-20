@@ -602,14 +602,14 @@ async function submitWebpage(): Promise<void> {
 .led-title { display: flex; align-items: center; gap: 8px; font-size: 20px; font-weight: 700; color: var(--v2-text-1); }
 .led-state { padding: 3px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; }
 .led-state.on { background: #14532d55; color: #4ade80; }
-.led-state.off { background: #1b2534; color: var(--v2-text-2); }
-.led-warn { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: #fbbf24; }
+.led-state.off { background: #1A1D22; color: var(--v2-text-2); }
+.led-warn { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: #E0A030; }
 
 /* 正在播 + 控制条 */
 .now {
   display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
   padding: 14px 16px; border-radius: 14px;
-  background: var(--v2-surface, #141c28); border: 1px solid var(--v2-border-soft);
+  background: var(--v2-surface, #14161A); border: 1px solid var(--v2-border-soft);
 }
 .now-info { flex: 1 1 240px; min-width: 0; }
 .now-label { font-size: 12px; color: var(--v2-text-2); }
@@ -618,29 +618,29 @@ async function submitWebpage(): Promise<void> {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .now-sub { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--v2-text-2); margin-top: 3px; }
-.now-sub .tmp { color: #fbbf24; }
+.now-sub .tmp { color: #E0A030; }
 .now-ctrl { display: flex; align-items: center; gap: 10px; }
 /* 触摸目标做足 —— 现场是站着用平板点的 */
 .pc-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 48px; height: 48px; border-radius: 12px; cursor: pointer;
-  background: var(--v2-surface-2, #1b2534);
-  border: 1px solid var(--v2-border, #26344a); color: var(--v2-text-1);
+  background: var(--v2-surface-2, #1A1D22);
+  border: 1px solid var(--v2-border, #23262C); color: var(--v2-text-1);
 }
 .pc-btn:disabled { opacity: .35; cursor: not-allowed; }
 .pc-btn.main { width: 60px; height: 60px; background: var(--v2-primary-soft); border-color: var(--v2-primary); color: #fff; }
-.pc-btn.stop:not(:disabled):hover { border-color: #ff4757; color: #ff4757; }
+.pc-btn.stop:not(:disabled):hover { border-color: #E5645D; color: #E5645D; }
 
 .src-bar {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding: 10px 14px; border-radius: 12px;
-  background: var(--v2-surface, #141c28); border: 1px solid var(--v2-border-soft);
+  background: var(--v2-surface, #14161A); border: 1px solid var(--v2-border-soft);
 }
 .src-label { font-size: 13px; color: var(--v2-text-2); }
 .src-btn {
   padding: 9px 16px; min-height: 40px; border-radius: 9px; cursor: pointer;
   font-size: 14px; color: var(--v2-text-1);
-  background: var(--v2-surface-2, #1b2534); border: 1px solid var(--v2-border, #26344a);
+  background: var(--v2-surface-2, #1A1D22); border: 1px solid var(--v2-border, #23262C);
 }
 .src-btn.on { border-color: var(--v2-primary); background: var(--v2-primary-soft); color: #fff; }
 .src-btn:disabled { opacity: .4; cursor: not-allowed; }
@@ -654,11 +654,11 @@ async function submitWebpage(): Promise<void> {
 .panel {
   display: flex; flex-direction: column; min-height: 0; max-height: 100%;
   border-radius: 14px; padding: 12px;
-  background: var(--v2-surface, #141c28); border: 1px solid var(--v2-border-soft);
+  background: var(--v2-surface, #14161A); border: 1px solid var(--v2-border-soft);
 }
 .panel-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .panel-title { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; color: var(--v2-text-1); }
-.panel-count { font-size: 12px; color: var(--v2-text-2); background: #1b2534; border-radius: 20px; padding: 2px 8px; }
+.panel-count { font-size: 12px; color: var(--v2-text-2); background: #1A1D22; border-radius: 20px; padding: 2px 8px; }
 .panel-head .v2-quick { margin-left: auto; }
 /* 上传中: 原来 disabled 让按钮变灰, 文字跟底色糊在一起完全看不清 (业主截图坐实)。
    改成"进度填充"样式: 深底 + 亮字 + 一条随进度走的填充, 一眼看得见传到哪了。 */
@@ -683,7 +683,7 @@ async function submitWebpage(): Promise<void> {
 .pl-item {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 10px; border-radius: 10px;
-  background: var(--v2-surface-2, #1b2534); border: 1px solid transparent;
+  background: var(--v2-surface-2, #1A1D22); border: 1px solid transparent;
 }
 .pl-item.playing { border-color: var(--v2-primary); background: #16375a; }
 .pl-item.dragging { opacity: .45; }
@@ -704,7 +704,7 @@ async function submitWebpage(): Promise<void> {
   color: var(--v2-text-1); background: rgba(0,0,0,.35);
   border: 1px solid var(--v2-primary); border-radius: 6px; outline: none;
 }
-.tag-missing { margin-left: 6px; padding: 1px 6px; border-radius: 4px; background: #7f1d1d55; color: #fca5a5; font-size: 11px; font-style: normal; }
+.tag-missing { margin-left: 6px; padding: 1px 6px; border-radius: 4px; background: #7f1d1d55; color: #EC8880; font-size: 11px; font-style: normal; }
 .pl-now { font-size: 11px; color: var(--v2-primary); flex: 0 0 auto; }
 .pl-time { font-size: 12px; color: var(--v2-text-2); flex: 0 0 auto; }
 .pl-ico {
@@ -724,7 +724,7 @@ async function submitWebpage(): Promise<void> {
 }
 .pick-box {
   width: min(560px, 100%); max-height: 76vh; display: flex; flex-direction: column;
-  background: var(--v2-surface, #141c28); border: 1px solid var(--v2-border, #26344a);
+  background: var(--v2-surface, #14161A); border: 1px solid var(--v2-border, #23262C);
   border-radius: 14px; padding: 14px;
 }
 .webpage-box { gap: 6px; }
@@ -741,7 +741,7 @@ async function submitWebpage(): Promise<void> {
 .pick-tabs { display: flex; gap: 4px; margin-left: auto; }
 .pick-tab {
   padding: 7px 14px; min-height: 36px; border-radius: 8px; cursor: pointer; font-size: 13px;
-  background: var(--v2-surface-2, #1b2534); border: 1px solid var(--v2-border, #26344a); color: var(--v2-text-2);
+  background: var(--v2-surface-2, #1A1D22); border: 1px solid var(--v2-border, #23262C); color: var(--v2-text-2);
 }
 .pick-tab.on { border-color: var(--v2-primary); color: #fff; background: var(--v2-primary-soft); }
 .pick-close {
@@ -753,7 +753,7 @@ async function submitWebpage(): Promise<void> {
 .pick-item {
   display: flex; align-items: center; gap: 10px; width: 100%;
   padding: 11px 12px; min-height: 46px; border-radius: 10px; cursor: pointer; text-align: left;
-  background: var(--v2-surface-2, #1b2534); border: 1px solid transparent; color: var(--v2-text-1);
+  background: var(--v2-surface-2, #1A1D22); border: 1px solid transparent; color: var(--v2-text-1);
 }
 .pick-item:hover:not(:disabled) { border-color: var(--v2-primary); }
 .pick-item.added { opacity: .5; cursor: default; }
@@ -766,7 +766,7 @@ async function submitWebpage(): Promise<void> {
 .mob-tab {
   flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   padding: 11px; min-height: 46px; border-radius: 10px; cursor: pointer; font-size: 14px;
-  background: var(--v2-surface, #141c28); border: 1px solid var(--v2-border, #26344a); color: var(--v2-text-2);
+  background: var(--v2-surface, #14161A); border: 1px solid var(--v2-border, #23262C); color: var(--v2-text-2);
 }
 .mob-tab.on { border-color: var(--v2-primary); color: #fff; background: var(--v2-primary-soft); }
 .mob-tab i { font-style: normal; font-size: 12px; opacity: .8; }

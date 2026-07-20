@@ -220,9 +220,9 @@ function deleteHistory(url: string): void {
   margin-bottom: 12px;
   padding: 8px 12px;
   border-radius: 8px;
-  background: rgba(255, 71, 87, 0.12);
-  border: 1px solid rgba(255, 71, 87, 0.3);
-  color: #fca5a5;
+  background: rgba(229, 100, 93, 0.12);
+  border: 1px solid rgba(229, 100, 93, 0.3);
+  color: #EC8880;
   font-size: 12px;
   line-height: 1.5;
 }
@@ -244,8 +244,8 @@ function deleteHistory(url: string): void {
   min-width: 0;
 }
 .ssd-input:focus {
-  border-color: var(--v2-primary, #00e5ff);
-  box-shadow: 0 0 0 3px rgba(0, 229, 255, 0.15);
+  border-color: var(--v2-primary, #4C9AFF);
+  box-shadow: 0 0 0 3px rgba(76, 154, 255, 0.15);
 }
 .ssd-test-btn {
   display: inline-flex;
@@ -260,14 +260,14 @@ function deleteHistory(url: string): void {
   cursor: pointer;
   white-space: nowrap;
 }
-.ssd-test-btn:hover:not(:disabled) { border-color: var(--v2-primary, #00e5ff); color: var(--v2-text-1, #e8ecf3); }
-.ssd-test-btn.state-ok { color: #6ee7b7; border-color: rgba(0, 231, 138, 0.4); background: rgba(0, 231, 138, 0.1); }
-.ssd-test-btn.state-fail { color: #fca5a5; border-color: rgba(255, 71, 87, 0.4); background: rgba(255, 71, 87, 0.1); }
+.ssd-test-btn:hover:not(:disabled) { border-color: var(--v2-primary, #4C9AFF); color: var(--v2-text-1, #e8ecf3); }
+.ssd-test-btn.state-ok { color: #5FCB9B; border-color: rgba(63, 191, 135, 0.4); background: rgba(63, 191, 135, 0.1); }
+.ssd-test-btn.state-fail { color: #EC8880; border-color: rgba(229, 100, 93, 0.4); background: rgba(229, 100, 93, 0.1); }
 .ssd-test-btn.state-testing { opacity: 0.6; }
 
 .ssd-test-msg { margin-top: 6px; font-size: 11px; padding: 0 2px; }
-.ssd-test-msg.is-ok { color: #6ee7b7; }
-.ssd-test-msg.is-fail { color: #fca5a5; }
+.ssd-test-msg.is-ok { color: #5FCB9B; }
+.ssd-test-msg.is-fail { color: #EC8880; }
 .ssd-test-msg.is-testing { color: var(--v2-text-3, #7a8699); }
 
 .ssd-history { margin-top: 14px; }
@@ -285,7 +285,7 @@ function deleteHistory(url: string): void {
   gap: 6px;
   padding: 2px 0;
 }
-.ssd-history-row.is-current .ssd-history-url { color: var(--v2-primary, #00e5ff); }
+.ssd-history-row.is-current .ssd-history-url { color: var(--v2-primary, #4C9AFF); }
 .ssd-history-url {
   flex: 1;
   min-width: 0;
@@ -302,14 +302,14 @@ function deleteHistory(url: string): void {
   font-size: 12px;
   cursor: pointer;
 }
-.ssd-history-url:hover { background: rgba(0, 229, 255, 0.1); color: var(--v2-text-1, #e8ecf3); }
+.ssd-history-url:hover { background: rgba(76, 154, 255, 0.1); color: var(--v2-text-1, #e8ecf3); }
 .ssd-current-tag {
   flex-shrink: 0;
   font-size: 10px;
   padding: 2px 7px;
   border-radius: 99px;
-  background: rgba(0, 229, 255, 0.14);
-  color: var(--v2-primary, #00e5ff);
+  background: rgba(76, 154, 255, 0.14);
+  color: var(--v2-primary, #4C9AFF);
 }
 .ssd-history-del {
   flex-shrink: 0;
@@ -323,7 +323,7 @@ function deleteHistory(url: string): void {
   color: var(--v2-text-3, #7a8699);
   cursor: pointer;
 }
-.ssd-history-del:hover { background: rgba(255, 71, 87, 0.14); color: #fca5a5; }
+.ssd-history-del:hover { background: rgba(229, 100, 93, 0.14); color: #EC8880; }
 
 .ssd-save-btn {
   width: 100%;
@@ -331,7 +331,7 @@ function deleteHistory(url: string): void {
   padding: 12px;
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  background: linear-gradient(135deg, var(--v2-primary, #00e5ff) 0%, var(--v2-primary-dark, #0097b2) 100%);
+  background: linear-gradient(135deg, var(--v2-primary, #4C9AFF) 0%, var(--v2-primary-dark, #0097b2) 100%);
   color: white;
   font-size: 14px;
   font-weight: 500;
@@ -346,13 +346,13 @@ function deleteHistory(url: string): void {
   margin-top: 8px;
   padding: 9px;
   border-radius: 9px;
-  border: 1px dashed rgba(255, 71, 87, 0.4);
+  border: 1px dashed rgba(229, 100, 93, 0.4);
   background: transparent;
-  color: #fca5a5;
+  color: #EC8880;
   font-size: 12px;
   cursor: pointer;
 }
-.ssd-force-btn:hover { background: rgba(255, 71, 87, 0.08); }
+.ssd-force-btn:hover { background: rgba(229, 100, 93, 0.08); }
 
 .ssd-fade-enter-active, .ssd-fade-leave-active { transition: opacity 0.18s ease; }
 .ssd-fade-enter-from, .ssd-fade-leave-to { opacity: 0; }
