@@ -28,12 +28,25 @@ import { DataSource } from 'typeorm';
 function loadEnvFile(): void {
   const envPath = resolve(process.cwd(), '.env');
   if (!existsSync(envPath)) return;
-  for (const line of readFileSync(envPath, 'utf-8').split('\n')) {
-    const m = /^\s*([\w.-]+)\s*=\s*(.*)?\s*$/.exec(line);
-    if (!m || line.trim().startsWith('#')) continue;
+  // BOM / CRLF / CR / UTF-16 都要兜住: Windows 上这个文件被多种工具写过。
+  // 不处理的话表现是"文件在、值也在, 就是解析不出来", 然后悄悄退到默认路径连错库。
+  const buf = readFileSync(envPath);
+  let raw: string;
+  if (buf[0] === 0xff && buf[1] === 0xfe) {
+    raw = buf.toString('utf16le');
+  } else if (buf[0] === 0xfe && buf[1] === 0xff) {
+    raw = buf.swap16().toString('utf16le');
+  } else {
+    raw = buf.toString('utf-8');
+  }
+  if (raw.charCodeAt(0) === 0xfeff) raw = raw.slice(1);
+  for (const line of raw.split(/\r\n|\r|\n/)) {
+    if (line.trim().startsWith('#')) continue;
+    const m = /^\s*([\w.-]+)\s*=\s*(.*?)\s*$/.exec(line);
+    if (!m) continue;
     const key = m[1];
     if (process.env[key] !== undefined) continue;
-    let val = (m[2] ?? '').trim();
+    let val = m[2] ?? '';
     if (
       (val.startsWith('"') && val.endsWith('"')) ||
       (val.startsWith("'") && val.endsWith("'"))
@@ -53,7 +66,10 @@ const resolvePath = (raw: string | undefined, fallback: string): string => {
 
 export default new DataSource({
   type: 'better-sqlite3',
-  database: resolvePath(process.env.DB_PATH, './database/smart-control.db'),
+  // 默认走 ../database: CLI 的 cwd 是 backend/, 项目结构固定为 backend/ 与 database/ 同级。
+  // 用 ./database 会在 backend/ 下指向一个不存在的位置, 而 SQLite 打开不存在的文件会
+  // **静默创建空库** —— 于是 migration:show 之类的命令看的是空库, 显示"迁移全未执行"。
+  database: resolvePath(process.env.DB_PATH, '../database/smart-control.db'),
   entities: [resolve(__dirname, 'entities/*.entity{.ts,.js}')],
   migrations: [resolve(__dirname, 'migrations/*{.ts,.js}')],
   migrationsTableName: 'migrations',

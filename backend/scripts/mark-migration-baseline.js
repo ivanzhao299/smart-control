@@ -26,15 +26,32 @@
 const fs = require('fs');
 const path = require('path');
 
+/**
+ * 读 .env。踩过的坑都在这:
+ * - Windows 上这个文件被多种工具写过, 可能带 UTF-8 BOM, 也可能是 CRLF 甚至纯 CR。
+ *   按 '\n' 切、不去 BOM 的话, 轻则首行读不到, 重则整个文件被当成一行 ——
+ *   表现就是"文件明明在、值也明明写着, 却解析不出来", 然后悄悄退到默认路径。
+ * - UTF-16 存的 .env 用 utf-8 读会得到夹 \0 的乱码, 这里也一并识别。
+ */
 function loadEnvFile(cwd) {
   const p = path.resolve(cwd, '.env');
   if (!fs.existsSync(p)) return;
-  for (const line of fs.readFileSync(p, 'utf-8').split('\n')) {
+  const buf = fs.readFileSync(p);
+  let raw;
+  if (buf[0] === 0xff && buf[1] === 0xfe) {
+    raw = buf.toString('utf16le');
+  } else if (buf[0] === 0xfe && buf[1] === 0xff) {
+    raw = buf.swap16().toString('utf16le');
+  } else {
+    raw = buf.toString('utf-8');
+  }
+  if (raw.charCodeAt(0) === 0xfeff) raw = raw.slice(1); // 去 BOM
+  for (const line of raw.split(/\r\n|\r|\n/)) {
     if (line.trim().startsWith('#')) continue;
-    const m = /^\s*([\w.-]+)\s*=\s*(.*)?\s*$/.exec(line);
+    const m = /^\s*([\w.-]+)\s*=\s*(.*?)\s*$/.exec(line);
     if (!m) continue;
     if (process.env[m[1]] !== undefined) continue;
-    let v = (m[2] ?? '').trim();
+    let v = m[2] ?? '';
     if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
       v = v.slice(1, -1);
     }
@@ -46,7 +63,14 @@ function main() {
   const cwd = process.cwd();
   loadEnvFile(cwd);
 
-  const rawPath = process.env.DB_PATH || './database/smart-control.db';
+  // --db <路径> 显式指定, 优先级最高 —— 多层 SSH 下设环境变量的引号转义极易出错,
+  // 一个不带引号的命令行参数是最不会翻车的传参方式
+  const dbArgIdx = process.argv.indexOf('--db');
+  const dbArg = dbArgIdx >= 0 ? process.argv[dbArgIdx + 1] : undefined;
+
+  // 默认值优先找 ../database(项目结构固定: backend/ 的上一级有 database/),
+  // 而不是 ./database —— 后者在 cwd=backend 时会指向一个根本不存在的位置
+  const rawPath = dbArg || process.env.DB_PATH || '../database/smart-control.db';
   const dbPath = path.isAbsolute(rawPath) ? rawPath : path.resolve(cwd, rawPath);
 
   // 诊断: 这几行是必要的 —— 之前有一次 .env 没被解析到, 脚本悄悄退到默认路径
