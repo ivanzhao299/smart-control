@@ -48,8 +48,19 @@ function main() {
 
   const rawPath = process.env.DB_PATH || './database/smart-control.db';
   const dbPath = path.isAbsolute(rawPath) ? rawPath : path.resolve(cwd, rawPath);
+
+  // 诊断: 这几行是必要的 —— 之前有一次 .env 没被解析到, 脚本悄悄退到默认路径
+  // ./database/... 于是在 backend/ 下**新建了一个空库**并在里面标记, 而真正的
+  // 生产库什么也没发生。路径这种东西必须打出来, 不能靠事后从备份文件名反推。
+  console.log(`[baseline] cwd      = ${cwd}`);
+  console.log(`[baseline] .env     = ${fs.existsSync(path.resolve(cwd, '.env')) ? '已找到' : '**未找到**'}`);
+  console.log(`[baseline] DB_PATH  = ${process.env.DB_PATH ?? '(未解析到, 用默认值)'}`);
+  console.log(`[baseline] 实际库    = ${dbPath}`);
+
   if (!fs.existsSync(dbPath)) {
     console.error(`[baseline] 数据库不存在: ${dbPath}`);
+    console.error('[baseline] 拒绝在不存在的库上建表 —— 那只会凭空造出一个空库。');
+    console.error('[baseline] 请检查 cwd 是否为 backend/, 或显式指定 DB_PATH 环境变量。');
     process.exit(1);
   }
 
