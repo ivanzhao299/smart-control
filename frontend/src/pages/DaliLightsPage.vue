@@ -32,6 +32,11 @@ const loading = ref(false);
 const selectedId = ref<number | null>(null);
 const gatewayFilter = ref<string>('');
 
+// 分配分区对话框: 下拉选已有分区 + 没有就当场新建、建完立即选中 (不再手输分区名, 免得对不上)
+const zoneDlg = ref<{ open: boolean; light: DaliLight | null; picked: string | null; creating: boolean; newName: string; busy: boolean }>({
+  open: false, light: null, picked: null, creating: false, newName: '', busy: false,
+});
+
 const selected = computed(() => lights.value.find((l) => l.id === selectedId.value) ?? null);
 const shownLights = computed(() =>
   gatewayFilter.value ? lights.value.filter((l) => l.gatewayCode === gatewayFilter.value) : lights.value,
@@ -129,33 +134,38 @@ async function assignZone(l: DaliLight, zoneCode: string | null): Promise<void> 
   }
 }
 
-async function pickZone(l: DaliLight): Promise<void> {
-  if (zones.value.length === 0) {
-    ElMessage.warning('还没有分区, 先到"分区"页新建');
-    return;
-  }
+function openZoneDialog(l: DaliLight): void {
+  zoneDlg.value = { open: true, light: l, picked: l.zoneCode ?? null, creating: false, newName: '', busy: false };
+}
+function closeZoneDialog(): void {
+  zoneDlg.value.open = false;
+}
+/** 对话框内当场新建分区, 建完自动选中 —— 保证名称一致、不用切到分区页 */
+async function createZoneInDialog(): Promise<void> {
+  const name = zoneDlg.value.newName.trim();
+  if (!name || zoneDlg.value.busy) return;
+  zoneDlg.value.busy = true;
+  const code = `lz-${Date.now()}`;
   try {
-    const { value } = await ElMessageBox.prompt(
-      `把 ${label(l)} 分到哪个区? 输入分区名 (留空=移出)`,
-      '分配分区',
-      {
-        inputValue: zoneName(l.zoneCode),
-        inputPlaceholder: zones.value.map((z) => z.name).join(' / '),
-        confirmButtonText: '保存',
-        cancelButtonText: '取消',
-      },
-    );
-    const v = (value ?? '').trim();
-    if (!v) return assignZone(l, null);
-    const z = zones.value.find((x) => x.name === v || x.code === v);
-    if (!z) {
-      ElMessage.warning('没有这个分区, 请到"分区"页先建');
-      return;
-    }
-    return assignZone(l, z.code);
-  } catch {
-    /* 取消 */
+    await api.post('/light-zones', { name, floor: '1F', code });
+    // 刷新分区列表, 让新分区出现在选项里
+    zones.value = await api.get<Zone[]>('/light-zones').catch(() => zones.value);
+    zoneDlg.value.picked = code; // 立即选中新建的
+    zoneDlg.value.creating = false;
+    zoneDlg.value.newName = '';
+    ElMessage.success(`已新建「${name}」并选中`);
+  } catch (err) {
+    ElMessage.error('新建分区失败: ' + (err as Error).message);
+  } finally {
+    zoneDlg.value.busy = false;
   }
+}
+/** 确认: 把灯分到选中的分区 (picked 为 null = 移出) */
+async function confirmZone(): Promise<void> {
+  const l = zoneDlg.value.light;
+  if (!l) return;
+  await assignZone(l, zoneDlg.value.picked || null);
+  closeZoneDialog();
 }
 
 async function controlZone(z: Zone, cmd: { on?: boolean; brightness?: number }): Promise<void> {
@@ -321,7 +331,45 @@ onMounted(loadAll);
         <button class="op" @click="control(selected, { on: false })">关</button>
         <button class="op" @click="control(selected, { brightness: 50 })">50%</button>
         <button class="op" @click="rename(selected)">命名</button>
-        <button class="op" @click="pickZone(selected)">分区</button>
+        <button class="op" @click="openZoneDialog(selected)">分区</button>
+      </div>
+    </div>
+
+    <!-- 分配分区对话框: 下拉选已有 + 当场新建 (建完立即可选) -->
+    <div v-if="zoneDlg.open" class="zone-modal-mask" @click.self="closeZoneDialog">
+      <div class="zone-modal">
+        <div class="zm-title">分到哪个区<span class="zm-sub">{{ zoneDlg.light ? label(zoneDlg.light) : '' }}</span></div>
+        <div class="zm-list">
+          <button type="button" class="zm-opt" :class="{ sel: !zoneDlg.picked }" @click="zoneDlg.picked = null">
+            不分区(移出)<span v-if="!zoneDlg.picked" class="zm-check">✓</span>
+          </button>
+          <button
+            v-for="z in zones" :key="z.code" type="button"
+            class="zm-opt" :class="{ sel: zoneDlg.picked === z.code }"
+            @click="zoneDlg.picked = z.code"
+          >
+            {{ z.name }}<span v-if="zoneDlg.picked === z.code" class="zm-check">✓</span>
+          </button>
+          <p v-if="zones.length === 0" class="zm-empty">还没有分区, 下面新建一个 ↓</p>
+        </div>
+
+        <!-- 当场新建分区 -->
+        <div class="zm-new">
+          <button v-if="!zoneDlg.creating" type="button" class="zm-new-btn" @click="zoneDlg.creating = true">+ 新建分区</button>
+          <div v-else class="zm-new-row">
+            <input
+              v-model="zoneDlg.newName" class="zm-input"
+              placeholder="新分区名, 例如: 一层前厅"
+              @keyup.enter="createZoneInDialog"
+            />
+            <button type="button" class="zm-create" :disabled="zoneDlg.busy || !zoneDlg.newName.trim()" @click="createZoneInDialog">创建</button>
+          </div>
+        </div>
+
+        <div class="zm-actions">
+          <button type="button" class="zm-cancel" @click="closeZoneDialog">取消</button>
+          <button type="button" class="zm-save" @click="confirmZone">保存</button>
+        </div>
       </div>
     </div>
   </section>
@@ -431,4 +479,48 @@ onMounted(loadAll);
   background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); color: var(--v2-text-1);
 }
 .op.flash { background: var(--v2-primary-soft); border-color: var(--v2-primary); color: var(--v2-primary); font-weight: 600; }
+
+/* ============ 分配分区对话框 (手机底部弹出 sheet / 桌面居中) ============ */
+.zone-modal-mask {
+  position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, .55);
+  display: flex; align-items: flex-end; justify-content: center;
+}
+@media (min-width: 560px) { .zone-modal-mask { align-items: center; padding: 20px; } }
+.zone-modal {
+  width: 100%; max-width: 460px;
+  background: var(--v2-surf-2); border: 1px solid var(--v2-border-strong);
+  border-radius: 16px 16px 0 0; box-shadow: var(--v2-elev-3);
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+}
+@media (min-width: 560px) { .zone-modal { border-radius: 16px; } }
+.zm-title { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+.zm-title .zm-sub { font-size: 12px; color: var(--v2-text-3); font-weight: 400; margin-left: 8px; }
+.zm-list { display: flex; flex-direction: column; gap: 6px; max-height: 44vh; overflow-y: auto; }
+.zm-opt {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border-radius: 10px; text-align: left; cursor: pointer; font-size: 14px;
+  background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); color: var(--v2-text-1);
+}
+.zm-opt.sel { border-color: var(--v2-primary); background: var(--v2-primary-soft); color: var(--v2-primary); font-weight: 600; }
+.zm-check { font-weight: 700; }
+.zm-empty { color: var(--v2-text-3); font-size: 13px; text-align: center; padding: 10px 0; }
+.zm-new { margin-top: 10px; }
+.zm-new-btn {
+  width: 100%; padding: 11px; border-radius: 10px; cursor: pointer; font-size: 14px;
+  background: var(--v2-surf-1); border: 1px dashed var(--v2-border-strong); color: var(--v2-text-2);
+}
+.zm-new-row { display: flex; gap: 8px; }
+.zm-input {
+  flex: 1; min-width: 0; padding: 11px 12px; border-radius: 10px; font-size: 14px;
+  background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); color: var(--v2-text-1);
+}
+.zm-create {
+  flex: none; padding: 11px 18px; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 600;
+  background: var(--v2-primary-soft); border: 1px solid var(--v2-primary); color: var(--v2-primary);
+}
+.zm-create:disabled { opacity: .5; }
+.zm-actions { display: flex; gap: 10px; margin-top: 16px; }
+.zm-cancel, .zm-save { flex: 1; padding: 12px; border-radius: 10px; cursor: pointer; font-size: 15px; font-weight: 600; }
+.zm-cancel { background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); color: var(--v2-text-2); }
+.zm-save { background: var(--v2-primary); border: 1px solid var(--v2-primary); color: #fff; }
 </style>
