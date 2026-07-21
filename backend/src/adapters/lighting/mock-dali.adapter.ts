@@ -110,4 +110,19 @@ export class MockDaliAdapter extends BaseAdapter {
   async healthCheck(ctx?: AdapterContext): Promise<AdapterResult<{ ok: true }>> {
     return this.run('lighting-mock-gateway', 'healthCheck', ctx, async () => ({ ok: true }));
   }
+
+  /** 模拟扫描: 每台网关前 22 盏在线, 第 5 盏(index 4)故障 — 给前端/云端演示用 */
+  async scanGateway(
+    _slaveId = 1,
+    _signal?: AbortSignal,
+  ): Promise<{ online: boolean[]; fault: boolean[] }> {
+    const online = Array.from({ length: 64 }, (_v, i) => i < 22);
+    const fault = Array.from({ length: 64 }, (_v, i) => i === 4);
+    return { online, fault };
+  }
+
+  /** 模拟闪烁: mock 态无灯可闪, 空跑一小段模拟耗时 */
+  async identify(_short: number, _slaveId = 1, _signal?: AbortSignal): Promise<void> {
+    await new Promise((r) => setTimeout(r, 200));
+  }
 }

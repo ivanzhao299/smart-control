@@ -118,6 +118,31 @@ export class LightingAdapter extends BaseAdapter {
   }
 
   /**
+   * 扫描一台网关的 64 短地址在线/故障 (单灯发现). mock 与 cy-dali64a 都实现了;
+   * iot-gateway 没有 → 明确报错, 别让调用方拿到空数据当真.
+   */
+  async scanGateway(slaveId: number, ctx?: AdapterContext): Promise<{ online: boolean[]; fault: boolean[] }> {
+    const impl = this.impl() as unknown as {
+      scanGateway?: (slaveId: number, signal?: AbortSignal) => Promise<{ online: boolean[]; fault: boolean[] }>;
+    };
+    if (typeof impl.scanGateway !== 'function') {
+      throw new Error(`当前 lighting adapter (${this.kind}) 不支持扫描. 只有 cy-dali64a / mock 支持.`);
+    }
+    return impl.scanGateway(slaveId, ctx?.signal);
+  }
+
+  /** 闪烁识别指定短地址的灯 */
+  async identifyLight(slaveId: number, short: number, ctx?: AdapterContext): Promise<void> {
+    const impl = this.impl() as unknown as {
+      identify?: (short: number, slaveId?: number, signal?: AbortSignal) => Promise<void>;
+    };
+    if (typeof impl.identify !== 'function') {
+      throw new Error(`当前 lighting adapter (${this.kind}) 不支持闪烁识别.`);
+    }
+    return impl.identify(short, slaveId, ctx?.signal);
+  }
+
+  /**
    * 分层诊断 (2026-05-27): TCP → Modbus → DALI 总线一层层独立测.
    * 每层短硬超时, 失败不阻塞下一层. 远端看 backend 卡哪层一目了然.
    */

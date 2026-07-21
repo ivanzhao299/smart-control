@@ -518,6 +518,36 @@ export class CyDali64aAdapter extends BaseAdapter {
     return parseFaultMatrix(words);
   }
 
+  /** 扫描一台网关: 一次拿回 64 短地址的在线 + 故障 (给单灯发现用) */
+  async scanGateway(
+    slaveId = this.cfg.defaultSlaveId,
+    signal?: AbortSignal,
+  ): Promise<{ online: boolean[]; fault: boolean[] }> {
+    const [online, fault] = await Promise.all([
+      this.readOnlineMatrix(slaveId, signal),
+      this.readFaultMatrix(slaveId, signal),
+    ]);
+    return { online, fault };
+  }
+
+  /**
+   * 闪烁识别 —— 让指定短地址的灯亮灭几次, 现场一眼认出是哪盏。闪完停在"亮"
+   * (调试时希望它保持点亮好继续看)。写单灯寄存器 [渐变=立即, 亮度]。
+   */
+  async identify(
+    short: number,
+    slaveId = this.cfg.defaultSlaveId,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const base = shortBaseReg(short);
+    for (let i = 0; i < 3; i += 1) {
+      await this.writeMultiWithFault(slaveId, base, [0, 0], signal); // 灭
+      await new Promise((r) => setTimeout(r, 350));
+      await this.writeMultiWithFault(slaveId, base, [0, 254], signal); // 全亮
+      await new Promise((r) => setTimeout(r, 350));
+    }
+  }
+
   // ============ 内部工具 ============
 
   /**
