@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
-import { ArrowLeft, Lightbulb, Power, X, Sparkles, Layers, RefreshCw, GripVertical, Pencil, Plus, FolderPlus } from 'lucide-vue-next';
+import { ArrowLeft, Lightbulb, Power, X, Sparkles, Layers, RefreshCw, GripVertical, Pencil, Plus, FolderPlus, Search } from 'lucide-vue-next';
 import { lightingService } from '@/services/lighting.service';
 import {
   lightZonesService,
@@ -380,6 +380,9 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
         </button>
         <button class="v2-quick" @click="gotoScene">
           <Sparkles :size="14" :stroke-width="2" /> 调用场景
+        </button>
+        <button class="v2-quick" @click="router.push({ name: 'dali-lights' })" title="扫描/命名/分组单盏 DALI 灯">
+          <Search :size="14" :stroke-width="2" /> 单灯调试
         </button>
       </div>
     </header>

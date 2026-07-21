@@ -1,4 +1,11 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { In, Repository } from 'typeorm';
@@ -27,9 +34,18 @@ export interface GatewayRef {
  * 场景调用 = 遍历场景项(灯或区)逐个下发。都不依赖 DALI 硬件组。
  */
 @Injectable()
-export class DaliLightsService {
+export class DaliLightsService implements OnModuleInit, OnModuleDestroy {
   private gwCache: { list: GatewayRef[]; at: number } = { list: [], at: 0 };
   private readonly GW_CACHE_TTL_MS = 5000;
+
+  /**
+   * 定时扫描 —— 把每盏灯的真实在线/故障刷进 dali_light。默认 60s, DALI_LIGHT_SCAN_INTERVAL_MS
+   * 可调, <=0 关闭。这就是"在线精确到单灯"的来源: 前端单灯页/分区看的是这里的 online,
+   * 而不是"网关通就全绿" —— 一盏灯坏了(fault)或掉线(online=false)在这就体现出来。
+   * DALI 不通时 scan 内部逐网关 catch, 不影响主流程。
+   */
+  private scanTimer?: NodeJS.Timeout;
+  private readonly autoScanMs = Number.parseInt(process.env.DALI_LIGHT_SCAN_INTERVAL_MS ?? '60000', 10);
 
   constructor(
     private readonly lighting: LightingAdapter,
@@ -39,6 +55,18 @@ export class DaliLightsService {
     @InjectRepository(HardwareUnit) private readonly hwRepo: Repository<HardwareUnit>,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
+
+  onModuleInit(): void {
+    if (!Number.isFinite(this.autoScanMs) || this.autoScanMs <= 0) return;
+    // 启动 20s 后首扫(让适配器先就绪), 之后按周期
+    setTimeout(() => void this.scan().catch(() => undefined), 20_000).unref?.();
+    this.scanTimer = setInterval(() => void this.scan().catch(() => undefined), this.autoScanMs);
+    this.scanTimer.unref?.();
+  }
+
+  onModuleDestroy(): void {
+    if (this.scanTimer) clearInterval(this.scanTimer);
+  }
 
   // ============ 网关 ============
 
