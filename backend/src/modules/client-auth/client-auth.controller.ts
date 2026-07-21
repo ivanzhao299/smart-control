@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, Get, HttpCode, Post, Put, Unauth
 import { ClientAuthService } from './client-auth.service';
 import { AdminGuard } from '../admin-auth/admin-auth.guard';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
+import { Public } from '../../common/decorators/public.decorator';
 
 /**
  * /api/client-auth
@@ -14,12 +15,14 @@ import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard'
 export class ClientAuthController {
   constructor(private readonly service: ClientAuthService) {}
 
+  @Public()
   @Get('ping')
   ping() {
     // 故意返回简单结构, 业主登录页只需要看 200 + ok:true 就知道 backend 通了.
     return { message: '在线', data: this.service.ping() };
   }
 
+  @Public()
   @Post('login')
   @HttpCode(200)
   // 防爆破 (2026-07-19 加固): 按 IP 限流 10 次/分。正常业主输错几次不受影响, 但挡住

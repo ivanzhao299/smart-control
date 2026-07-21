@@ -121,6 +121,21 @@ export const useClientAuthStore = defineStore('client-auth', () => {
     clearSavedPassword();
   }
 
+  /**
+   * token 被后端判失效 (最常见: 后端重启/重新部署清了内存 session 表, token 没到期也不认了)。
+   * 清掉 token 让 isAuthed 变 false, 但**保留存的密码** —— 好让登录页 tryAutoLogin 悄悄重登,
+   * 业主无感。跟 logout() 的区别就是不清密码 (logout 是业主主动退出, 该清干净)。
+   */
+  function markSessionExpired(): void {
+    token.value = null;
+    expiresAt.value = null;
+    setClientToken(null);
+    try {
+      window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+      window.localStorage.removeItem(TOKEN_EXPIRY_KEY);
+    } catch { /* ignore */ }
+  }
+
   return {
     token,
     expiresAt,
@@ -134,6 +149,7 @@ export const useClientAuthStore = defineStore('client-auth', () => {
     tryAutoLogin,
     clearSavedPassword,
     logout,
+    markSessionExpired,
   };
 });
 

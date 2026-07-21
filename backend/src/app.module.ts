@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import configuration from './common/config/configuration';
+import { GlobalAuthGuard } from './common/guards/global-auth.guard';
 import { TypeOrmConfigService } from './common/config/typeorm.config';
 import { LoggerModule } from './common/logger/logger.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -87,6 +88,8 @@ import { ServicesModule } from './services/services.module';
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
+    // 全局鉴权门: 除 @Public 白名单外, 所有请求必须带有效业主/后台 token (2026-07-21, 为封装 App 分发)
+    { provide: APP_GUARD, useClass: GlobalAuthGuard },
     // 顺序: Latency (最外, 测真总耗时) → Etag (304 短路) → Response (包 success)
     { provide: APP_INTERCEPTOR, useClass: LatencyInterceptor },
     { provide: APP_INTERCEPTOR, useClass: EtagInterceptor },

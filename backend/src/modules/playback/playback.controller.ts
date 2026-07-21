@@ -1,5 +1,6 @@
 import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Put } from '@nestjs/common';
 import { PlaybackService } from './playback.service';
+import { Public } from '../../common/decorators/public.decorator';
 
 /**
  * 鉴权策略 (Sprint-A 修正):
@@ -81,6 +82,7 @@ export class PlaybackController {
    * 一首播完自动推进 —— bgm-player.ps1 播完当前曲就调这个, 后端按 playMode 决定
    * 下一首。这是"背景音乐不靠任何人开网页也能一直放"的核心 (见 service.advance)。
    */
+  @Public()
   @Post('channels/:slot/advance')
   @HttpCode(200)
   async advance(@Param('slot', ParseIntPipe) slot: number) {
@@ -101,12 +103,14 @@ export class PlaybackController {
     return { message: '播放模式已保存', data: await this.service.setPlayMode(slot, body.mode as 'seq' | 'loop1' | 'loopAll' | 'shuffle') };
   }
 
+  @Public()
   @Get('channels')
   async list() {
     return { message: '查询成功', data: await this.service.list() };
   }
 
   /** 拿指定 slot 当前状态. PlayerPage 启动时按 ?slot=N 拉 */
+  @Public()
   @Get('channels/:slot')
   async getOne(@Param('slot', ParseIntPipe) slot: number) {
     return { message: '查询成功', data: await this.service.getBySlot(slot) };
@@ -153,6 +157,7 @@ export class PlaybackController {
    * PlayerPage 心跳上报. 不要 guard — kiosk 浏览器不会有 admin token.
    * 频率: 每 30s 一次. 服务端只看时间戳, 不广播 WS.
    */
+  @Public()
   @Post('channels/:slot/heartbeat')
   async heartbeat(@Param('slot', ParseIntPipe) slot: number) {
     await this.service.heartbeat(slot);

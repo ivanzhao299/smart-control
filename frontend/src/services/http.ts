@@ -137,6 +137,14 @@ let clientToken: string | null = null;
 export function setClientToken(t: string | null): void { clientToken = t; }
 export function getClientToken(): string | null { return clientToken; }
 
+/**
+ * 401 兜底钩子 (2026-07-21, 配合后端全局鉴权门).
+ * 任何非登录端点返回 401 (token 失效/被清, 常见于后端重启清了内存 session 表) 时触发,
+ * 由 App.vue 注册: 业主侧用存的密码悄悄自动重登, 登不上才推回登录页。
+ */
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(fn: (() => void) | null): void { onUnauthorized = fn; }
+
 export interface HttpRequestConfig {
   /** URL query params, 自动 encode 拼到 url 后. 接受任何 typed interface, 运行时再过滤 nullish. */
   params?: Record<string, unknown>;
@@ -249,6 +257,10 @@ async function request<T>(
   }
 
   if (!resp.ok) {
+    // 401 且不是登录/ping 端点本身 → 通知上层重新鉴权 (登录端点的 401 是密码错, 不该触发)
+    if (resp.status === 401 && !/(client-auth\/(login|ping)|admin\/auth\/login)/.test(url)) {
+      try { onUnauthorized?.(); } catch { /* 钩子异常不影响本次请求抛错 */ }
+    }
     const msg =
       (payload as { message?: string } | undefined)?.message ??
       `Request failed with status ${resp.status}`;

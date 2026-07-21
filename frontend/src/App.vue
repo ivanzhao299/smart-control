@@ -1,49 +1,70 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from 'vue';
+import { onBeforeUnmount, onMounted, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { useSceneStore } from '@/stores/scene';
 import { useDeviceStore } from '@/stores/device';
 import { useSystemStore } from '@/stores/system';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { usePlaybackStore } from '@/stores/playback';
+import { useClientAuthStore } from '@/stores/client-auth';
 import { wsClient } from '@/services/websocket.service';
 import { polling } from '@/services/polling.service';
 import { markBootComplete } from '@/services/rum.service';
+import { setUnauthorizedHandler } from '@/services/http';
 
+const router = useRouter();
 const sceneStore = useSceneStore();
 const deviceStore = useDeviceStore();
 const systemStore = useSystemStore();
 const brandingStore = useSystemBrandingStore();
 const playbackStore = usePlaybackStore();
+const clientAuth = useClientAuthStore();
 
 let unsubscribeWs: (() => void) | null = null;
 let unsubscribeWsState: (() => void) | null = null;
 let wsWasOpen = false; // 区分首次连接 vs 重连, 只在重连时补对齐
+
+/** 拉需要登录态的业务数据 (登录后 / 启动时已登录 / WS 重连时调). 公开数据 (系统信息/品牌)
+ *  不在这里, 它们登录页也要、不需 token。 */
+function fetchAuthedData(): void {
+  void sceneStore.fetchScenes();
+  void deviceStore.fetchDevices();
+  void deviceStore.fetchRuntime();
+  void deviceStore.fetchGateways();
+  void sceneStore.refreshRunning();
+  void playbackStore.load();
+}
+
+// 全局 401 兜底 (2026-07-21, 配合后端全局鉴权门). token 失效 (最常见: 后端重启/重新部署
+// 清了内存 session 表, token 没到期也不认了) 时后端回 401。
+//   - 后台 /admin 路由 + kiosk /player: 各自处理, 不插手。
+//   - 业主侧: markSessionExpired 清掉失效 token (isAuthed→false → watch 停掉业务轮询,
+//     401 风暴消失, 但保留存的密码) → 推回登录页, 登录页 onMounted 会 tryAutoLogin 用
+//     存的密码悄悄重登, 登上了自动跳回来。单飞 + 短关窗防并发 401 反复触发。
+let reauthing = false;
+setUnauthorizedHandler(() => {
+  if (reauthing) return;
+  const cur = router.currentRoute.value;
+  if (cur.path.startsWith('/admin') || cur.path === '/player') return;
+  reauthing = true;
+  clientAuth.markSessionExpired();
+  if (cur.name !== 'client-login') {
+    void router.push({ name: 'client-login', query: { redirect: cur.fullPath } });
+  }
+  window.setTimeout(() => { reauthing = false; }, 800);
+});
 
 onMounted(async () => {
   systemStore.startClock();
   systemStore.startAlertTtlSweep();
   systemStore.bindWsState();
 
-  // PERFORMANCE_AUDIT P0-#2:
-  // 启动期 fetch 拆关键路径 (await) + 非关键 (fire-and-forget):
-  //   关键 = system info + devices 列表 + scenes 元数据 → 影响 Dashboard 首屏
-  //   非关键 = runtime gateways + running scenes → 显示在后台/状态页, 不必同步等
-  try {
-    await Promise.all([
-      systemStore.fetchInfo(),
-      sceneStore.fetchScenes(),
-      deviceStore.fetchDevices(),
-      brandingStore.load(),
-    ]);
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn('bootstrap critical fetch failed:', (err as Error).message);
-  }
-  // 非关键: fire-and-forget, 不阻塞首屏渲染
-  void deviceStore.fetchRuntime();
-  void deviceStore.fetchGateways();
-  void sceneStore.refreshRunning();
-  void playbackStore.load();  // 播控通道初始状态, 不卡首屏
+  // 公开数据 (登录页也要, 走 @Public 端点): 系统信息 + 品牌 —— 不需 token
+  void systemStore.fetchInfo();
+  void brandingStore.load();
+  // 业务数据 (scenes/devices/runtime/gateways/playback) 只在已登录时拉 ——
+  // 未登录 (停在登录页) 时这些端点会 401, 不该打, 否则 401 风暴。登录后靠下面 watch 补拉。
+  if (clientAuth.isAuthed) fetchAuthedData();
 
   // PERFORMANCE_AUDIT P3-#20: 首屏可用时刻
   markBootComplete();
@@ -61,12 +82,7 @@ onMounted(async () => {
   // 首次连接不用补 (onMounted 已 fetch); 只有重连 (wsWasOpen 已 true) 才 refetch 各 store。
   unsubscribeWsState = wsClient.onState((state) => {
     if (state !== 'open') return;
-    if (wsWasOpen) {
-      void deviceStore.fetchRuntime();
-      void deviceStore.fetchGateways();
-      void sceneStore.refreshRunning();
-      void playbackStore.load();
-    }
+    if (wsWasOpen && clientAuth.isAuthed) fetchAuthedData(); // 重连补拉, 但要登录态
     wsWasOpen = true;
   });
   wsClient.connect();
@@ -74,9 +90,13 @@ onMounted(async () => {
   // PERFORMANCE_AUDIT P0-#3: 统一轮询调度器, 替代散落 setInterval
   // WS 在线时整体放大到 ≥30s, WS 断时回到 declared 间隔
   polling.start();
-  polling.subscribe('app:devices-runtime', 20_000, () => deviceStore.fetchRuntime());
-  polling.subscribe('app:devices-gateways', 20_000, () => deviceStore.fetchGateways());
-  polling.subscribe('app:scenes-running', 30_000, () => sceneStore.refreshRunning());
+  // 轮询回调 gate 在登录态: 未登录不打业务接口, 避免停在登录页时的 401 风暴
+  polling.subscribe('app:devices-runtime', 20_000, () => { if (clientAuth.isAuthed) void deviceStore.fetchRuntime(); });
+  polling.subscribe('app:devices-gateways', 20_000, () => { if (clientAuth.isAuthed) void deviceStore.fetchGateways(); });
+  polling.subscribe('app:scenes-running', 30_000, () => { if (clientAuth.isAuthed) void sceneStore.refreshRunning(); });
+
+  // 登录态一旦变 true (登录成功 / 自动重登成功) → 立即补拉一次业务数据
+  watch(() => clientAuth.isAuthed, (authed) => { if (authed) fetchAuthedData(); });
 
   // PERFORMANCE_AUDIT P1-#8: idle 时预取所有主菜单 chunk, 切页瞬开
   const ric =

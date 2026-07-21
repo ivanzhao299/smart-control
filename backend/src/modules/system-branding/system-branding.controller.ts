@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, Get, Put, Res, UseGuards } from 
 import type { Response } from 'express';
 import { SystemBrandingDto, SystemBrandingService } from './system-branding.service';
 import { AdminGuard } from '../admin-auth/admin-auth.guard';
+import { Public } from '../../common/decorators/public.decorator';
 
 /**
  * /api/system-branding
@@ -18,6 +19,7 @@ import { AdminGuard } from '../admin-auth/admin-auth.guard';
 export class SystemBrandingController {
   constructor(private readonly service: SystemBrandingService) {}
 
+  @Public()
   @Get()
   async get() {
     return { message: '查询成功', data: await this.service.get() };
@@ -64,6 +66,7 @@ export class SystemBrandingController {
    *
    * Cache: ETag 基于 logoUrl 内容 hash (改 logo 时 hash 变, 浏览器拿新图).
    */
+  @Public()
   @Get('logo.png')
   async logo(@Res() res: Response): Promise<void> {
     const b = await this.service.get();
@@ -94,6 +97,7 @@ export class SystemBrandingController {
     res.redirect(302, logoUrl);
   }
 
+  @Public()
   @Get('manifest.webmanifest')
   async manifest(@Res() res: Response): Promise<void> {
     const b = await this.service.get();

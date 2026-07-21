@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, Get, Headers, Post, UseGuards } 
 import { AdminAuthService } from './admin-auth.service';
 import { AdminGuard } from './admin-auth.guard';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
+import { Public } from '../../common/decorators/public.decorator';
 
 @Controller('admin/auth')
 export class AdminAuthController {
@@ -11,6 +12,7 @@ export class AdminAuthController {
    * POST /api/admin/auth/login — 公开. 输 password → 拿 token.
    * 前端进 /admin 路由前 / 进入后没 token 时调.
    */
+  @Public()
   @Post('login')
   // 防爆破 (2026-07-19 加固): 按 IP 限流 10 次/分, 挡住对后台口令的枚举。
   @UseGuards(RateLimitGuard)
@@ -37,6 +39,7 @@ export class AdminAuthController {
    * POST /api/admin/auth/logout — 销毁当前 token.
    * 不严格要求 guard, 因为反正要把 token 扔了.
    */
+  @Public()
   @Post('logout')
   async logout(@Headers('authorization') auth?: string) {
     if (auth && auth.startsWith('Bearer ')) {

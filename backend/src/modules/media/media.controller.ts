@@ -21,6 +21,7 @@ import { mkdirSync } from 'fs';
 import { MediaService } from './media.service';
 import { ImportOrphanDto, MediaUploadMetaDto, WebpageCreateDto } from './dto/media.dto';
 import { OperationLogService } from '../logs/operation-log.service';
+import { Public } from '../../common/decorators/public.decorator';
 
 /** 高清视频 4K 60fps 30 分钟 ≈ 10GB, 默认放到 10GB. env MEDIA_MAX_BYTES 可调 */
 const MAX_UPLOAD_BYTES = Number(process.env.MEDIA_MAX_BYTES ?? 10 * 1024 * 1024 * 1024);
@@ -154,6 +155,7 @@ export class MediaController {
     return { message: 'ok', data: this.media.toListItem(m) };
   }
 
+  @Public()
   @Get(':id/file')
   async file(@Param('id', ParseIntPipe) id: number, @Res() res: Response): Promise<void> {
     const { stream, mimeType, size, filename } = await this.media.openStream(id);

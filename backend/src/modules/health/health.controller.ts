@@ -2,6 +2,7 @@ import { Controller, Get } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AdapterConfig, AppConfig } from '../../common/config/configuration';
 import { HealthService } from './health.service';
+import { Public } from '../../common/decorators/public.decorator';
 
 @Controller('system')
 export class HealthController {
@@ -11,6 +12,7 @@ export class HealthController {
   ) {}
 
   /** Sprint-08 增强健康检查 + Sprint-01 现场主机标识 */
+  @Public()
   @Get('health')
   async healthCheck() {
     const report = await this.health.report();

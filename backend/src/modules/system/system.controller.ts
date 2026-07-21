@@ -8,6 +8,7 @@ import { DeviceHealthService } from '../../services/device-health.service';
 import { AdapterConnectionRegistry } from '../../adapters/connection-registry';
 import { LightingAdapter } from '../../adapters/lighting/lighting.adapter';
 import { SystemService } from './system.service';
+import { Public } from '../../common/decorators/public.decorator';
 
 @Controller('system')
 export class SystemController {
@@ -23,6 +24,7 @@ export class SystemController {
     private readonly system: SystemService,
   ) {}
 
+  @Public()
   @Get('info')
   info() {
     const app = this.config.getOrThrow<AppConfig>('app');
@@ -111,6 +113,7 @@ export class SystemController {
   }
 
   // 现场主控机心跳: update.ps1 跑成功后回拨, 报当前 commit / 时间. 远程靠这个看 GK9000 状态.
+  @Public()
   @Post('site-heartbeat')
   siteHeartbeat(@Body() body: {
     host?: string;
@@ -183,6 +186,7 @@ export class SystemController {
    * 请求 remoteAddress 是 nginx upstream IP, 不会是 127.0.0.1, 因此远程公网
    * 即使知道 token 也调不通. 双保险: token + 来源 IP 检查.
    */
+  @Public()
   @Post('admin-restart')
   adminRestart(@Req() req: Request, @Body() body: { token?: string } = {}) {
     const remoteAddr = req.socket?.remoteAddress ?? '';
@@ -210,6 +214,7 @@ export class SystemController {
    * 场景: watcher 卡住 / 上次 build 中途挂了导致 dist/assets/ 为空, 不想
    * RDC 进 GK9000 又想远程恢复.
    */
+  @Public()
   @Post('admin-rebuild-frontend')
   async adminRebuildFrontend(@Req() req: Request, @Body() body: { token?: string } = {}): Promise<unknown> {
     const remoteAddr = req.socket?.remoteAddress ?? '';
@@ -262,6 +267,7 @@ export class SystemController {
   }
 
   /** 验证 backend 跑的是最新 build — 返回硬编码 marker 字符串 */
+  @Public()
   @Get('build-marker')
   buildMarker() {
     return {

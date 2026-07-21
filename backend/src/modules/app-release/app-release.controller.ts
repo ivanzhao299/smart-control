@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { AppReleaseService, type AppReleaseUpsertDto } from './app-release.service';
 import { AdminGuard } from '../admin-auth/admin-auth.guard';
+import { Public } from '../../common/decorators/public.decorator';
 
 const VALID_PLATFORMS = new Set(['android', 'ios']);
 
@@ -22,6 +23,7 @@ export class AppReleaseController {
    *
    * GET /api/app/android/latest
    */
+  @Public()
   @Get(':platform/latest')
   async latest(@Param('platform') platform: string) {
     if (!VALID_PLATFORMS.has(platform)) {
