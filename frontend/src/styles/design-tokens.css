@@ -46,20 +46,24 @@
    * 的问题。现在每档拉到 ~10-20 的差值, 相邻两层肉眼可辨:
    *   bg 4% → surf-1 11% → surf-2 15% → surf-3 19%, 描边再比所在面高一档
    */
-  --v2-bg-0: #08090C;                       /* 页面底 — 压暗一点, 给上层腾出空间 */
-  --v2-bg-1: #0D0F13;                       /* 渐变低点 */
-  --v2-surf-1: #23272F;                     /* 卡片 — 与底对比 ~1.35, 面本身要有存在感 */
-  --v2-surf-1-hover: #2B303A;
-  --v2-surf-2: #2C313B;                     /* 卡内嵌 / 分段控件 */
-  --v2-surf-3: #353B46;                     /* 抽屉 / dialog */
+  /* v5 (2026-07-21): 纯灰 → 冷石墨。
+   * v4 收对了颜色预算, 但中性色是"纯中性灰"(色相≈0), 深色底显得像默认灰盒子、
+   * 没被设计过。v5 给中性色注入极轻的蓝调(冷石墨), 跟强调蓝同宗、更"仪表盘"。
+   * 明度阶梯照 v4 拉开的档位不动(bg→surf-1 对比 ~1.4), 只是整体偏冷。 */
+  --v2-bg-0: #0A0D12;                       /* 页面底 — 冷石墨, 带极轻蓝调 */
+  --v2-bg-1: #0E121A;                       /* 渐变低点 */
+  --v2-surf-1: #1C2431;                     /* 卡片 — 冷石墨, 与底对比 ~1.4, 面本身要有存在感 */
+  --v2-surf-1-hover: #232C3B;
+  --v2-surf-2: #232C39;                     /* 卡内嵌 / 分段控件 */
+  --v2-surf-3: #2C3643;                     /* 抽屉 / dialog */
 
   /* 描边比它所在的面再高一档, 否则卡片边缘会消失在面里 */
-  --v2-border-soft: #3A4049;
-  --v2-border-strong: #4A515C;
+  --v2-border-soft: #333D4B;
+  --v2-border-strong: #44505F;
 
-  --v2-text-1: #EDEFF2;                     /* 主文字 */
-  --v2-text-2: #A3AAB3;                     /* 次要 */
-  --v2-text-3: #7A818A;                     /* 弱化 / 单位 / 占位 — 比原来提亮, 免得糊进面里 */
+  --v2-text-1: #EAEEF4;                     /* 主文字 */
+  --v2-text-2: #99A5B4;                     /* 次要 — 冷调 */
+  --v2-text-3: #68727F;                     /* 弱化 / 单位 / 占位 */
 
   /* ---------- 唯一强调色: 克制的冷蓝 ---------- */
   /* 只用于"选中/当前/可操作", 不做装饰。比 #4C9AFF 电光青收敛, 长时间看不刺眼 */
@@ -221,20 +225,20 @@ body::after {
   border-radius: var(--v2-r-md);
   box-shadow: var(--v2-elev-1);
 }
-/* 顶部 1px 青色 hairline — 科技产品的"上沿发光" */
+/* 顶部 1px 机械高光 — 中性白, 给玻璃面一道"上沿反光"的材质感 (v5: 从蓝改中性) */
 .v2-glass::before {
   content: '';
   position: absolute;
   top: 0; left: 8%; right: 8%;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(76, 154, 255, 0.7) 50%, transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.14) 50%, transparent);
   border-radius: 1px;
   pointer-events: none;
 }
 .v2-glass-hover:hover {
   background: var(--v2-surf-1-hover);
   border-color: var(--v2-border-strong);
-  box-shadow: var(--v2-elev-2), inset 0 0 24px -8px rgba(76, 154, 255, 0.25);
+  box-shadow: var(--v2-elev-2);
 }
 
 /* ============ 数字发光 utility (KPI / 亮度 / 温度) ============ */
@@ -281,9 +285,12 @@ body::after {
   filter: grayscale(0.4);
 }
 
-/* ============ 全局卡片顶边电光青发光 (科技感 hairline) ============
- * v3: 顶部光带从青色单线升级成"渐变光带" (青→紫→透明), 更未来感
- * + 卡片整体加微紫 halo
+/* ============ 全局卡片材质 (v5: 中性机械高光, 蓝色只留给活跃) ============
+ * v4 遗留的自相矛盾: 给所有卡片顶部挂了一条蓝色发光线 + hover 蓝光, 等于用颜色
+ * 装饰每一张卡, 把强调色稀释了 —— 跟 v4 自己"颜色只留给状态/选中"的原则打架,
+ * 也是页面"偏灰又有点残留青"的由来。
+ * v5: 常态改成中性白色机械高光 + 克制阴影(材质感来自这里); 蓝色强调只在
+ * .active/.on 出现 —— boldness 花在一处, 其余安静。
  */
 .v2-kpi,
 .v2-scene,
@@ -296,10 +303,9 @@ body::after {
 .v2-subsystems,
 .v2-overview {
   box-shadow:
-    inset 0 1px 0 rgba(76, 154, 255, 0.5),
-    0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
     var(--v2-elev-1) !important;
-  transition: box-shadow 0.32s cubic-bezier(0.4, 0, 0.2, 1), transform 0.22s ease, border-color 0.22s ease;
+  transition: box-shadow 0.26s ease, transform 0.2s ease, border-color 0.2s ease;
 }
 .v2-kpi:hover,
 .v2-zone:hover,
@@ -309,21 +315,21 @@ body::after {
 .metric:hover,
 .v2-card:hover {
   box-shadow:
-    inset 0 1px 0 rgba(76, 154, 255, 0.75),
-    0 0 0 1px rgba(76, 154, 255, 0.18),
-    0 12px 32px -10px rgba(76, 154, 255, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
     var(--v2-elev-2) !important;
-  transform: translateY(-2px);
+  transform: translateY(-1px);
+  border-color: var(--v2-border-strong);
 }
+/* 活跃 / 选中 —— 唯一花强调色的地方: 蓝描边 + 一道克制柔光 */
 .v2-scene.active,
 .v2-zone.on,
 .ch-card:not(.muted),
 .v2-screen.on,
 .v2-hvac-zone.on {
+  border-color: color-mix(in srgb, var(--v2-primary) 50%, transparent) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    0 8px 32px -6px var(--scene-glow, rgba(76, 154, 255, 0.6)),
-    0 0 36px -8px var(--scene-glow, rgba(76, 154, 255, 0.4)) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    0 8px 30px -12px var(--scene-glow, rgba(76, 154, 255, 0.5)) !important;
 }
 
 /* ============ KPI / 亮度 / 温度 等"大数字"自动发光 ============

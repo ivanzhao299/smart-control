@@ -137,13 +137,17 @@ const subsystems = computed(() => {
       const s = deviceStore.statusOf(d.name);
       return s === 'online' || s === 'running';
     }).length;
-    return { online, total: list.length, hasFault: online < list.length };
+    const total = list.length;
+    // 三态, 跟 KPI"设备在线"同逻辑: 全在线=ok(不喊) / 部分掉线=warn(琥珀) / 全掉线=danger(红)
+    const status: 'ok' | 'warn' | 'danger' =
+      total === 0 ? 'ok' : online === 0 ? 'danger' : online < total ? 'warn' : 'ok';
+    return { online, total, hasFault: online < total, status };
   }
   const lighting = summary('lighting');
   const led = summary('led');
   const audio = summary('audio');
   const hvac = summary('hvac');
-  const power = { online: 0, total: 0, hasFault: false };
+  const power = { online: 0, total: 0, hasFault: false, status: 'ok' as const };
   return [
     { kind: 'light' as const, name: '灯光', ico: Lightbulb, route: 'lighting', ...lighting },
     { kind: 'led' as const, name: 'LED 大屏', ico: MonitorPlay, route: 'led', ...led },
@@ -257,7 +261,7 @@ function goTo(name: string): void {
         :key="sub.kind"
         class="v2-sub"
         :data-kind="sub.kind"
-        :data-status="sub.hasFault ? 'warn' : 'ok'"
+        :data-status="sub.status"
         @click="goTo(sub.route)"
       >
         <div class="v2-sub-ico"><component :is="sub.ico" :size="16" :stroke-width="2" /></div>
@@ -644,6 +648,11 @@ function goTo(name: string): void {
 /* 异常那一行整行提亮, 让它在列表里真正跳出来 */
 .v2-sub[data-status="warn"] .v2-sub-name { color: var(--v2-text-1); }
 .v2-sub[data-status="warn"] .v2-sub-ico { color: var(--v2-warning); }
+/* 全掉线 = danger 红, 比"部分掉线"的琥珀更重 —— 一眼看出是整个子系统下线, 不是个别 */
+.v2-sub[data-status="danger"] .v2-sub-name::before { background: var(--v2-danger); }
+.v2-sub[data-status="danger"] .v2-sub-stats .online { color: var(--v2-danger); font-weight: 600; }
+.v2-sub[data-status="danger"] .v2-sub-name { color: var(--v2-text-1); }
+.v2-sub[data-status="danger"] .v2-sub-ico { color: var(--v2-danger); }
 
 /* v4: 子系统不再按品类分色(原来灯光黄/LED青/音响绿/空调蓝/电源紫)。
    图标一律中性 —— 这样"LED 大屏 0/2"掉线时, 琥珀色是整屏唯一的一处, 一眼可见。 */
