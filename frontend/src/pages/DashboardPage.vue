@@ -476,11 +476,9 @@ function goTo(name: string): void {
   box-shadow: none;
 }
 
-/* 运行中: 全屏唯一用强调色的场景卡 —— 这才是颜色该花的地方 */
-.v2-scene.active {
-  background: var(--v2-surf-1);
-  border-color: var(--v2-primary);
-}
+/* 运行中: 全屏唯一用强调色的场景卡 —— 这才是颜色该花的地方。
+   底色/描边/光晕由 design-tokens.css 的全局"活跃/选中"规则统一给(强调色染底 + 实边 + 光晕),
+   这里只管本页特有的部分(图标/圆点/描述文字), 别再各写一份背景, 否则全站选中态又不一致。 */
 .v2-scene.active .active-dot {
   position: absolute;
   top: var(--v2-sp-3); right: var(--v2-sp-3);

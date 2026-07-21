@@ -320,16 +320,29 @@ body::after {
   transform: translateY(-1px);
   border-color: var(--v2-border-strong);
 }
-/* 活跃 / 选中 —— 唯一花强调色的地方: 蓝描边 + 一道克制柔光 */
+/* ============ 活跃 / 选中 = 明显高亮 (全站统一走这一条) ============
+ * 业主反馈"选中或打开状态不明显"。之前只有一条 50% 透明的蓝描边, 而且那道柔光写的是
+ * var(--scene-glow, 回退色) —— 场景卡上 --scene-glow 被 v4 定义成了 transparent,
+ * 于是**回退色根本不生效, 光晕是透明的**, 活跃态几乎看不见。
+ *
+ * 现在: 强调色染底 + 实心蓝描边 + 1px 内环 + 真实光晕。选中就是要一眼看见。
+ * 用 !important 压过各页 scoped 的 active 背景, 保证全站"选中"长得一样。
+ */
+/* 注意: 灯光分区 .v2-zone.on 故意**不在**这条里 —— "灯亮着"用暖色(物理语义, 见
+   LightingPage 里的暖色高亮), 不该被强调蓝盖掉。它在自己页面里做同等强度的暖色高亮。 */
 .v2-scene.active,
-.v2-zone.on,
 .ch-card:not(.muted),
 .v2-screen.on,
 .v2-hvac-zone.on {
-  border-color: color-mix(in srgb, var(--v2-primary) 50%, transparent) !important;
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--v2-primary) 22%, var(--v2-surf-1)),
+      color-mix(in srgb, var(--v2-primary) 12%, var(--v2-surf-1))) !important;
+  border-color: var(--v2-primary) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.10),
-    0 8px 30px -12px var(--scene-glow, rgba(76, 154, 255, 0.5)) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 0 0 1px color-mix(in srgb, var(--v2-primary) 40%, transparent),
+    0 10px 30px -10px color-mix(in srgb, var(--v2-primary) 55%, transparent) !important;
 }
 
 /* ============ KPI / 亮度 / 温度 等"大数字"自动发光 ============

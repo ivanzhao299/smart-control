@@ -826,10 +826,14 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
     0 14px 32px -10px rgba(224, 160, 48, 0.25);
 }
 .v2-zone:hover::after { opacity: 0.8; }
+/* 灯亮着 = 暖色高亮(物理语义: 灯本来就是暖的, 不用强调蓝)。
+   强度对齐全站"活跃/选中"那条: 明显染底 + 实心暖边 + 光晕 —— 业主反馈"打开状态不明显", 原来底色只有 10%。 */
 .v2-zone.on {
   --zone-glow: rgba(224, 160, 48, 0.35);
-  border-color: rgba(224, 160, 48, 0.55);
-  background: linear-gradient(135deg, rgba(224, 160, 48, 0.10), rgba(255, 100, 0, 0.04));
+  border-color: var(--v2-light-warm);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--v2-light-warm) 24%, var(--v2-surf-1)),
+    color-mix(in srgb, var(--v2-light-warm) 13%, var(--v2-surf-1)));
   box-shadow:
     inset 0 1px 0 rgba(224, 160, 48, 0.65),
     0 8px 32px -8px rgba(224, 160, 48, 0.45),
