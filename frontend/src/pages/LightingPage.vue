@@ -86,42 +86,47 @@ const overview = computed(() => {
 // ============ 编组模式 ============
 // 业主要能在前端把组塞进分区 (代码里写死过一次, 现场对不上就得改代码重部署 — 不可接受).
 const grouping = ref<boolean>(false);
-const pickedGroups = ref<Set<number>>(new Set());
-
-function togglePick(gid: number): void {
-  const s = new Set(pickedGroups.value);
-  if (s.has(gid)) s.delete(gid); else s.add(gid);
-  pickedGroups.value = s;   // 换引用才触发 Vue 响应式 (Set 原地改不触发)
+// 分配分区对话框: 点一个灯组 → 下拉选分区 (含当场新建), 不用"上面选组、下面找区"。跟单灯页一个套路。
+const zoneDlg = ref<{ open: boolean; group: LightGroupView | null; picked: string | null; creating: boolean; newName: string; busy: boolean }>({
+  open: false, group: null, picked: null, creating: false, newName: '', busy: false,
+});
+function openGroupZoneDialog(g: LightGroupView): void {
+  zoneDlg.value = { open: true, group: g, picked: g.zoneCode ?? null, creating: false, newName: '', busy: false };
 }
-
-async function assignPickedTo(zoneCode: string | null): Promise<void> {
-  const ids = Array.from(pickedGroups.value);
-  if (ids.length === 0) {
-    ElMessage.info('先选中要分配的灯组');
-    return;
-  }
+function closeGroupZoneDialog(): void { zoneDlg.value.open = false; }
+/** 对话框内当场新建分区, 建完自动选中 —— 保证名称一致、不用切走 */
+async function createZoneInDialog(): Promise<void> {
+  const name = zoneDlg.value.newName.trim();
+  if (!name || zoneDlg.value.busy) return;
+  zoneDlg.value.busy = true;
+  const code = `lz-${Date.now()}`;
   try {
-    await lightZonesService.assignGroups(ids, zoneCode);
-    pickedGroups.value = new Set();
-    await loadZones();       // 重新拉, 以后端为准 — 别本地猜
-    const zoneName = zoneCode === null
-      ? '未分配'
-      : (zones.value.find((z) => z.code === zoneCode)?.name ?? zoneCode);
-    ElMessage.success(`${ids.length} 组已归入「${zoneName}」`);
+    await lightZonesService.create({ code, name, floor: '1F' });
+    await loadZones();               // 刷新分区列表, 新分区出现在选项里
+    zoneDlg.value.picked = code;     // 立即选中新建的
+    zoneDlg.value.creating = false;
+    zoneDlg.value.newName = '';
+    ElMessage.success(`已新建「${name}」并选中`);
+  } catch (err) {
+    ElMessage.error('新建分区失败: ' + (err as Error).message);
+  } finally {
+    zoneDlg.value.busy = false;
+  }
+}
+/** 确认: 把这个组分到选中分区 (picked 为 null = 移出到未分配) */
+async function confirmGroupZone(): Promise<void> {
+  const g = zoneDlg.value.group;
+  if (!g) return;
+  const zoneCode = zoneDlg.value.picked || null;
+  try {
+    await lightZonesService.assignGroups([g.id], zoneCode);
+    await loadZones();               // 以后端为准, 别本地猜
+    const zn = zoneCode === null ? '未分配' : (zones.value.find((z) => z.code === zoneCode)?.name ?? zoneCode);
+    ElMessage.success(`${groupLabel(g)} 已归入「${zn}」`);
   } catch (err) {
     ElMessage.error(`分配失败: ${(err as Error).message}`);
   }
-}
-
-/** 把一个组移出所在分区, 回到未分配池 */
-async function moveOut(g: LightGroupView): Promise<void> {
-  try {
-    await lightZonesService.assignGroups([g.id], null);
-    await loadZones();
-    ElMessage.success(`${groupLabel(g)} 已移出`);
-  } catch (err) {
-    ElMessage.error(`移出失败: ${(err as Error).message}`);
-  }
+  closeGroupZoneDialog();
 }
 
 /** 组的人类可读名 — 必须带网关, 否则两台网关的同号组分不清 */
@@ -392,7 +397,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
       <div class="gp-head">
         <div class="gp-title"><Layers :size="16" :stroke-width="2" /> 未分配灯组</div>
         <div class="gp-hint">
-          选中灯组, 再点下方分区卡上的「放这里」。分区里的组点一下可移出。
+          点一个灯组, 在弹出的列表里选分区 (没有就当场新建)。分区里的组点一下也能改分区/移出。
         </div>
         <div class="gp-new-btns">
           <button class="v2-quick primary" @click="createLightZone">
@@ -409,13 +414,8 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
           v-for="g in unassignedGroups"
           :key="g.id"
           class="gp-chip"
-          :class="{ picked: pickedGroups.has(g.id) }"
-          @click="togglePick(g.id)"
+          @click="openGroupZoneDialog(g)"
         >{{ groupLabel(g) }}</button>
-      </div>
-      <div v-if="pickedGroups.size > 0" class="gp-bar">
-        已选 {{ pickedGroups.size }} 组
-        <button class="v2-quick" @click="pickedGroups = new Set()">取消选择</button>
       </div>
     </div>
 
@@ -525,20 +525,14 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 
         <!-- 编组态: 列出本区的组 (点一下移出), 并提供"放这里" -->
         <div v-if="grouping" class="zone-groups">
-          <div v-if="z.groups.length === 0" class="zg-empty">还没有灯组</div>
+          <div v-if="z.groups.length === 0" class="zg-empty">还没有灯组 —— 点上面「未分配灯组」里的组分过来</div>
           <button
             v-for="g in z.groups"
             :key="g.id"
             class="gp-chip in-zone"
-            @click="moveOut(g)"
-            :title="`点击把 ${groupLabel(g)} 移出本区`"
-          >{{ groupLabel(g) }} <X :size="11" :stroke-width="2.5" /></button>
-          <button
-            class="zg-drop"
-            :disabled="pickedGroups.size === 0"
-            @click="assignPickedTo(z.code)"
-            :title="pickedGroups.size === 0 ? '先在上面选中灯组' : `把选中的 ${pickedGroups.size} 组放入 ${z.name}`"
-          >放这里</button>
+            @click="openGroupZoneDialog(g)"
+            title="点击改分区 / 移出"
+          >{{ groupLabel(g) }} <Pencil :size="10" :stroke-width="2.5" /></button>
         </div>
 
         <div class="brightness">
@@ -604,6 +598,41 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
         <div class="ng-actions">
           <button class="v2-quick" @click="newGroupDialog = false">取消</button>
           <button class="v2-quick primary" @click="submitNewGroup">新建</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 分配分区对话框: 点灯组 → 下拉选分区 + 当场新建 (跟单灯页一致) -->
+    <div v-if="zoneDlg.open" class="zone-modal-mask" @click.self="closeGroupZoneDialog">
+      <div class="zone-modal">
+        <div class="zm-title">分到哪个区<span class="zm-sub">{{ zoneDlg.group ? groupLabel(zoneDlg.group) : '' }}</span></div>
+        <div class="zm-list">
+          <button type="button" class="zm-opt" :class="{ sel: !zoneDlg.picked }" @click="zoneDlg.picked = null">
+            不分区(移出)<span v-if="!zoneDlg.picked" class="zm-check">✓</span>
+          </button>
+          <button
+            v-for="z in zones" :key="z.code" type="button"
+            class="zm-opt" :class="{ sel: zoneDlg.picked === z.code }"
+            @click="zoneDlg.picked = z.code"
+          >
+            {{ z.name }}<span v-if="zoneDlg.picked === z.code" class="zm-check">✓</span>
+          </button>
+          <p v-if="zones.length === 0" class="zm-empty">还没有分区, 下面新建一个 ↓</p>
+        </div>
+        <div class="zm-new">
+          <button v-if="!zoneDlg.creating" type="button" class="zm-new-btn" @click="zoneDlg.creating = true">+ 新建分区</button>
+          <div v-else class="zm-new-row">
+            <input
+              v-model="zoneDlg.newName" class="zm-input"
+              placeholder="新分区名, 例如: 会议室 / 前厅"
+              @keyup.enter="createZoneInDialog"
+            />
+            <button type="button" class="zm-create" :disabled="zoneDlg.busy || !zoneDlg.newName.trim()" @click="createZoneInDialog">创建</button>
+          </div>
+        </div>
+        <div class="zm-actions">
+          <button type="button" class="zm-cancel" @click="closeGroupZoneDialog">取消</button>
+          <button type="button" class="zm-save" @click="confirmGroupZone">保存</button>
         </div>
       </div>
     </div>
@@ -1144,4 +1173,48 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 .state-card.error { border-color: rgba(229, 100, 93, 0.3); color: var(--v2-danger); }
 .state-title { font-size: 14px; color: var(--v2-text-1); }
 .state-sub { font-size: 12px; color: var(--v2-text-3); }
+
+/* ============ 分配分区对话框 (跟单灯页一致: 手机底部 sheet / 桌面居中) ============ */
+.zone-modal-mask {
+  position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, .55);
+  display: flex; align-items: flex-end; justify-content: center;
+}
+@media (min-width: 560px) { .zone-modal-mask { align-items: center; padding: 20px; } }
+.zone-modal {
+  width: 100%; max-width: 460px;
+  background: var(--v2-surf-2); border: 1px solid var(--v2-border-strong);
+  border-radius: 16px 16px 0 0; box-shadow: var(--v2-elev-3);
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+}
+@media (min-width: 560px) { .zone-modal { border-radius: 16px; } }
+.zm-title { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+.zm-title .zm-sub { font-size: 12px; color: var(--v2-text-3); font-weight: 400; margin-left: 8px; }
+.zm-list { display: flex; flex-direction: column; gap: 6px; max-height: 44vh; overflow-y: auto; }
+.zm-opt {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border-radius: 10px; text-align: left; cursor: pointer; font-size: 14px;
+  background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); color: var(--v2-text-1);
+}
+.zm-opt.sel { border-color: var(--v2-primary); background: var(--v2-primary-soft); color: var(--v2-primary); font-weight: 600; }
+.zm-check { font-weight: 700; }
+.zm-empty { color: var(--v2-text-3); font-size: 13px; text-align: center; padding: 10px 0; }
+.zm-new { margin-top: 10px; }
+.zm-new-btn {
+  width: 100%; padding: 11px; border-radius: 10px; cursor: pointer; font-size: 14px;
+  background: var(--v2-surf-1); border: 1px dashed var(--v2-border-strong); color: var(--v2-text-2);
+}
+.zm-new-row { display: flex; gap: 8px; }
+.zm-input {
+  flex: 1; min-width: 0; padding: 11px 12px; border-radius: 10px; font-size: 14px;
+  background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); color: var(--v2-text-1);
+}
+.zm-create {
+  flex: none; padding: 11px 18px; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 600;
+  background: var(--v2-primary-soft); border: 1px solid var(--v2-primary); color: var(--v2-primary);
+}
+.zm-create:disabled { opacity: .5; }
+.zm-actions { display: flex; gap: 10px; margin-top: 16px; }
+.zm-cancel, .zm-save { flex: 1; padding: 12px; border-radius: 10px; cursor: pointer; font-size: 15px; font-weight: 600; }
+.zm-cancel { background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); color: var(--v2-text-2); }
+.zm-save { background: var(--v2-primary); border: 1px solid var(--v2-primary); color: #fff; }
 </style>
