@@ -397,7 +397,9 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
       <div class="gp-head">
         <div class="gp-title"><Layers :size="16" :stroke-width="2" /> 未分配灯组</div>
         <div class="gp-hint">
-          点一个灯组, 在弹出的列表里选分区 (没有就当场新建)。分区里的组点一下也能改分区/移出。
+          <b style="color: var(--v2-text-1)">推荐去「单灯调试」页把灯按盏分到分区</b> —— 逐灯直控, 不依赖硬件组、可跨总线、随时改。
+          硬件组只对已在网关里烧好组的灯有效 (寻址后不分组就是空的)。下面的编组仅为兼容已烧组的老现场保留:
+          点一个灯组在弹出列表里选分区 (没有就当场新建), 分区里的组点一下能改分区/移出。
         </div>
         <div class="gp-new-btns">
           <button class="v2-quick primary" @click="createLightZone">
