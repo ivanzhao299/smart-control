@@ -242,6 +242,7 @@ onMounted(loadAll);
         <option value="">全部网关</option>
         <option v-for="g in gateways" :key="g.code" :value="g.code">{{ g.code }}</option>
       </select>
+      <button class="diag-btn" @click="router.push({ name: 'dali-diagnose' })">总线体检</button>
       <button class="scan-btn" :disabled="scanning" @click="scan">
         {{ scanning ? '扫描中…' : '扫描' }}
       </button>
@@ -351,6 +352,10 @@ onMounted(loadAll);
   border-radius: var(--v2-r-sm); padding: 8px 16px; font-size: 14px; font-weight: 600; cursor: pointer; flex: none;
 }
 .scan-btn:disabled { opacity: .6; }
+.diag-btn {
+  background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); color: var(--v2-text-2);
+  border-radius: var(--v2-r-sm); padding: 8px 12px; font-size: 13px; cursor: pointer; flex: none;
+}
 
 .dali-tabs { display: flex; gap: 8px; padding: 10px 14px; }
 .dali-tabs button {

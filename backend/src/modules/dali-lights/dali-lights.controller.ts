@@ -9,6 +9,7 @@ import {
   ParseIntPipe,
   Post,
   Put,
+  Query,
 } from '@nestjs/common';
 import { DaliLightsService, LightCmd } from './dali-lights.service';
 
@@ -39,6 +40,36 @@ export class DaliLightsController {
   @HttpCode(200)
   async scan(@Body() body: { gatewayCode?: string } = {}) {
     return { message: '扫描完成', data: await this.service.scan(body?.gatewayCode) };
+  }
+
+  // ============ 总线体检 (实时读+按地址闪/控, 不落库) ============
+  // 注意: 这几条静态路由必须声明在下面 :id/* 之前, 否则 'diagnose' 会被当成 :id 走 ParseIntPipe 报 400。
+
+  /** 实时读全部(或指定 ?gateway=)网关的 1-64 槽位占用图, 不落库 */
+  @Get('diagnose')
+  async diagnose(@Query('gateway') gateway?: string) {
+    return { message: '体检完成', data: await this.service.diagnose(gateway) };
+  }
+
+  /** 体检: 按 (网关, 短地址) 闪 —— 空号/未登记地址也能点 */
+  @Post('diagnose/identify')
+  @HttpCode(200)
+  async diagnoseIdentify(@Body() body: { gatewayCode?: string; short?: number } = {}) {
+    if (!body?.gatewayCode || typeof body?.short !== 'number') {
+      throw new BadRequestException('gatewayCode + short 必填');
+    }
+    return { message: '已发送闪烁', data: await this.service.identifyAddr(body.gatewayCode, body.short) };
+  }
+
+  /** 体检: 按 (网关, 短地址) 直控 —— 排查"控制不了" */
+  @Post('diagnose/control')
+  @HttpCode(200)
+  async diagnoseControl(@Body() body: { gatewayCode?: string; short?: number } & LightCmd = {}) {
+    if (!body?.gatewayCode || typeof body?.short !== 'number') {
+      throw new BadRequestException('gatewayCode + short 必填');
+    }
+    const { gatewayCode, short, ...cmd } = body;
+    return { message: '已下发', data: await this.service.controlAddr(gatewayCode, short, cmd) };
   }
 
   /** 闪烁识别某盏灯 */

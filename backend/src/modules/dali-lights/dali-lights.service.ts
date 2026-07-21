@@ -228,6 +228,98 @@ export class DaliLightsService implements OnModuleInit, OnModuleDestroy {
     return { zoneCode, total: lights.length, ok };
   }
 
+  // ============ 总线体检 (实时读, 按地址闪/控, 不落库) ============
+  // 现场排查"地址重复 / 找不到灯 / 控制不了": 分总线看 1-64 槽位实时占用,
+  // 逐个地址闪灯认位置。全是读 + 闪, 不写短地址(不碰寻址), 零破坏性。
+
+  /**
+   * 实时读一台或全部网关的 64 短地址占用图, 不落库(区别于 scan)。
+   * 每条总线单独 try/catch: 读失败就 ok=false + error, 前端能直接显示"地址2总线读取失败: xxx"
+   * ——这正是"控制不了"排查要的信号, 而不是像 scan 那样静默跳过。
+   * 已命名的灯(dali_light 里)把名字带过来, 体检图上也能看到。
+   */
+  async diagnose(gatewayCode?: string): Promise<{
+    gateways: Array<{
+      code: string;
+      slaveId: number;
+      ok: boolean;
+      error?: string;
+      onlineCount: number;
+      faultCount: number;
+      slots: Array<{ short: number; online: boolean; fault: boolean; name: string | null }>;
+    }>;
+  }> {
+    const gws = (await this.getGateways()).filter((g) => !gatewayCode || g.code === gatewayCode);
+    const gateways = [];
+    for (const gw of gws) {
+      const named = await this.lightRepo.find({ where: { gatewayCode: gw.code } });
+      const nameByShort = new Map(named.map((l) => [l.shortAddr, l.name ?? null]));
+      let online: boolean[] = [];
+      let fault: boolean[] = [];
+      let ok = true;
+      let error: string | undefined;
+      try {
+        ({ online, fault } = await this.lighting.scanGateway(gw.slaveId));
+      } catch (err) {
+        ok = false;
+        error = (err as Error).message;
+        this.logger.warn(`体检读网关 ${gw.code} 失败: ${error}`, { context: 'DaliLightsService' });
+      }
+      const slots = [];
+      let onlineCount = 0;
+      let faultCount = 0;
+      for (let i = 0; i < 64; i += 1) {
+        const isOnline = online[i] === true;
+        const isFault = fault[i] === true;
+        if (isOnline) onlineCount += 1;
+        if (isFault) faultCount += 1;
+        slots.push({ short: i + 1, online: isOnline, fault: isFault, name: nameByShort.get(i + 1) ?? null });
+      }
+      gateways.push({ code: gw.code, slaveId: gw.slaveId, ok, error, onlineCount, faultCount, slots });
+    }
+    return { gateways };
+  }
+
+  /** 按 (网关, 短地址) 直接闪, 不需要库里有这盏灯 —— 体检时空号/未登记地址也能点亮认位置 */
+  async identifyAddr(
+    gatewayCode: string,
+    short: number,
+  ): Promise<{ gatewayCode: string; short: number; ok: true }> {
+    this.assertShort(short);
+    const slaveId = await this.slaveIdOf(gatewayCode);
+    await this.lighting.identifyLight(slaveId, short);
+    return { gatewayCode, short, ok: true };
+  }
+
+  /** 按 (网关, 短地址) 直控 —— 体检"控制不了"排查: 点一个裸地址看它到底响不响应 */
+  async controlAddr(
+    gatewayCode: string,
+    short: number,
+    cmd: LightCmd,
+  ): Promise<{ gatewayCode: string; short: number; ok: boolean; error?: string }> {
+    this.assertShort(short);
+    const slaveId = await this.slaveIdOf(gatewayCode);
+    const deviceId = JSON.stringify({ slaveId, short });
+    let res;
+    if (cmd.on === false) {
+      res = await this.lighting.turnOff(deviceId);
+    } else if (cmd.brightness != null || cmd.kelvin != null) {
+      res = await this.lighting.setBrightness(deviceId, {
+        value: cmd.brightness ?? 100,
+        ...(cmd.kelvin != null ? { kelvin: cmd.kelvin } : {}),
+      } as { value?: number; kelvin?: number });
+    } else {
+      res = await this.lighting.turnOn(deviceId);
+    }
+    return { gatewayCode, short, ok: res.ok, error: res.error };
+  }
+
+  private assertShort(short: number): void {
+    if (!Number.isInteger(short) || short < 1 || short > 64) {
+      throw new BadRequestException(`短地址必须 1-64, got ${short}`);
+    }
+  }
+
   // ============ 场景 ============
 
   async listScenes(): Promise<Array<LightScene & { items: LightSceneItem[] }>> {
