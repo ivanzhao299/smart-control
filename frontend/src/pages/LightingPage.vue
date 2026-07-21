@@ -2,34 +2,36 @@
 import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
-import { ArrowLeft, Lightbulb, Power, X, Sparkles, Layers, RefreshCw, GripVertical, Pencil, Plus, FolderPlus, Search } from 'lucide-vue-next';
+import { ArrowLeft, Lightbulb, Power, X, Sparkles, Layers, RefreshCw, GripVertical, Pencil, FolderPlus, Search } from 'lucide-vue-next';
 import { lightingService } from '@/services/lighting.service';
+import { api } from '@/services/http';
 import {
   lightZonesService,
   type LightZoneView,
-  type LightGroupView,
 } from '@/services/light-zones.service';
 
 /**
- * 2026-07-16 模型改造: 一个分区 = 若干个 DALI 组 (可跨两台网关), 不再是"分区就是一组".
- * 现场 7 分区 / 11 组, 全在一层。分区里的组数可以是 0 (刚建的空分区)。
+ * 2026-07-21: 硬件组编排退役 (见 refactor 6989cf1)。分区成员统一为"单灯"(在单灯页按盏分配),
+ * 分区控制走单灯优先。灯光页只保留分区本身 (改名/排序/新建) + 分区控制。
  */
 interface ZoneRow {
   id: number;
   code: string;
   name: string;
   floor: string;
-  /** 该分区包含的 DALI 组; 组号必须跟网关一起看 (两台网关的"组3"是不同的灯) */
-  groups: LightGroupView[];
+  /** 老硬件组数 —— 现场还有靠硬件组工作的分区, 单灯没分进来时用它兜底显示/控制 */
+  groupCount: number;
   brightness: number;
   on: boolean;
   busy: boolean;
   error: string | null;
 }
 
-// ============ 数据源 — Sprint E (2026-05-31): 从 /api/light-zones 拉, 不再硬编码 ============
+// ============ 数据源: 分区列表 + 每区单灯计数 (成员归属在单灯页管理) ============
+interface DaliLightLite { zoneCode: string | null }
 const zones = ref<ZoneRow[]>([]);
-const allGroups = ref<LightGroupView[]>([]);
+const lightCountByZone = ref<Map<string, number>>(new Map());
+const totalLights = ref<number>(0);
 const loading = ref<boolean>(false);
 const loadError = ref<string | null>(null);
 
@@ -37,18 +39,21 @@ async function loadZones(): Promise<void> {
   loading.value = true;
   loadError.value = null;
   try {
-    // 并发拉: 分区列表 + 全部组 (编组面板要列"未分配"的组)
-    const [list, groups] = await Promise.all([
+    // 分区列表 + 单灯 (只用来统计每区几盏灯; 成员的增删在单灯页做)
+    const [list, lights] = await Promise.all([
       lightZonesService.list(),
-      lightZonesService.groups(),
+      api.get<DaliLightLite[]>('/dali-lights').catch(() => [] as DaliLightLite[]),
     ]);
-    allGroups.value = groups;
+    const counts = new Map<string, number>();
+    for (const l of lights) if (l.zoneCode) counts.set(l.zoneCode, (counts.get(l.zoneCode) ?? 0) + 1);
+    lightCountByZone.value = counts;
+    totalLights.value = lights.length;
     zones.value = list.map((z: LightZoneView): ZoneRow => ({
       id: z.id,
       code: z.code,
       name: z.name,
       floor: z.floor,
-      groups: z.groups,
+      groupCount: z.groups?.length ?? 0,
       brightness: 80,        // 后端没存运行时亮度, 默认 80, 用户操作后更新
       on: false,             // 默认关 — 不再硬编码"假装亮着"
       busy: false,
@@ -68,8 +73,17 @@ onMounted(() => { void loadZones(); });
 // filteredZones 保留是为了下面 dispatchMany / 模板不用改口径.
 const filteredZones = computed(() => zones.value);
 
-/** 未归入任何分区的组 — 编组面板的左侧待分配池 */
-const unassignedGroups = computed(() => allGroups.value.filter((g) => g.zoneCode === null));
+/** 某分区里的单灯数 (成员在单灯页管) */
+function zoneLightCount(code: string): number {
+  return lightCountByZone.value.get(code) ?? 0;
+}
+/** 分区成员摘要 —— 单灯优先; 单灯没分进来就报老硬件组数 (现场很多分区还靠组工作, 别误报"暂无灯") */
+function zoneMemberLabel(z: ZoneRow): string {
+  const n = zoneLightCount(z.code);
+  if (n > 0) return `${n} 盏灯`;
+  if (z.groupCount > 0) return `${z.groupCount} 组灯 (硬件组)`;
+  return '暂无灯 (去单灯页分配)';
+}
 
 // ============ 总览 ============
 const overview = computed(() => {
@@ -78,92 +92,12 @@ const overview = computed(() => {
   const avgBri = onCount === 0 ? 0 : Math.round(
     zones.value.filter((z) => z.on).reduce((s, z) => s + z.brightness, 0) / onCount,
   );
-  // 网关台数从组上统计 — 分区自己不再挂网关
-  const gateways = new Set(allGroups.value.map((g) => g.gatewayCode));
-  return { total, onCount, avgBri, gatewayCount: gateways.size, groupCount: allGroups.value.length };
+  return { total, onCount, avgBri, lights: totalLights.value };
 });
 
-// ============ 编组模式 ============
-// 业主要能在前端把组塞进分区 (代码里写死过一次, 现场对不上就得改代码重部署 — 不可接受).
+// ============ 分区管理模式 (原"编组"; 硬件组编排已退役, 见 refactor 6989cf1) ============
+// 分区成员统一在"单灯调试"页按盏分配; 这个模式只留分区本身的管理: 新建 / 改名 / 拖动排序。
 const grouping = ref<boolean>(false);
-// 分配分区对话框: 点一个灯组 → 下拉选分区 (含当场新建), 不用"上面选组、下面找区"。跟单灯页一个套路。
-const zoneDlg = ref<{ open: boolean; group: LightGroupView | null; picked: string | null; creating: boolean; newName: string; busy: boolean }>({
-  open: false, group: null, picked: null, creating: false, newName: '', busy: false,
-});
-function openGroupZoneDialog(g: LightGroupView): void {
-  zoneDlg.value = { open: true, group: g, picked: g.zoneCode ?? null, creating: false, newName: '', busy: false };
-}
-function closeGroupZoneDialog(): void { zoneDlg.value.open = false; }
-/** 对话框内当场新建分区, 建完自动选中 —— 保证名称一致、不用切走 */
-async function createZoneInDialog(): Promise<void> {
-  const name = zoneDlg.value.newName.trim();
-  if (!name || zoneDlg.value.busy) return;
-  zoneDlg.value.busy = true;
-  const code = `lz-${Date.now()}`;
-  try {
-    await lightZonesService.create({ code, name, floor: '1F' });
-    await loadZones();               // 刷新分区列表, 新分区出现在选项里
-    zoneDlg.value.picked = code;     // 立即选中新建的
-    zoneDlg.value.creating = false;
-    zoneDlg.value.newName = '';
-    ElMessage.success(`已新建「${name}」并选中`);
-  } catch (err) {
-    ElMessage.error('新建分区失败: ' + (err as Error).message);
-  } finally {
-    zoneDlg.value.busy = false;
-  }
-}
-/** 确认: 把这个组分到选中分区 (picked 为 null = 移出到未分配) */
-async function confirmGroupZone(): Promise<void> {
-  const g = zoneDlg.value.group;
-  if (!g) return;
-  const zoneCode = zoneDlg.value.picked || null;
-  try {
-    await lightZonesService.assignGroups([g.id], zoneCode);
-    await loadZones();               // 以后端为准, 别本地猜
-    const zn = zoneCode === null ? '未分配' : (zones.value.find((z) => z.code === zoneCode)?.name ?? zoneCode);
-    ElMessage.success(`${groupLabel(g)} 已归入「${zn}」`);
-  } catch (err) {
-    ElMessage.error(`分配失败: ${(err as Error).message}`);
-  }
-  closeGroupZoneDialog();
-}
-
-/** 组的人类可读名 — 必须带网关, 否则两台网关的同号组分不清 */
-function groupLabel(g: LightGroupView): string {
-  return `${g.gatewayDisplayName} · ${g.daliGroup}组`;
-}
-
-// ============ 新建组 (业主: "灯光编组没有新建编组, 要加上") ============
-// 之前"编组"面板只能编排数据库里已经有的组 (拖来拖去), 现场新接一条 DALI 总线 /
-// 新分了一个组号, 系统压根不认识它, 只能改代码硬编种子数据再重新部署。这里给个
-// 入口直接登记 —— 只是让系统"认识"这个 (网关, 组号), 不碰硬件, 现场那个组本来
-// 响不响应还是看接线。已知网关从现有组里取, 省得每次手打网关代码。
-const knownGateways = computed(() => {
-  const seen = new Map<string, string>();
-  for (const g of allGroups.value) seen.set(g.gatewayCode, g.gatewayDisplayName);
-  return Array.from(seen, ([code, name]) => ({ code, name }));
-});
-const newGroupDialog = ref(false);
-const newGroupForm = ref<{ gatewayCode: string; daliGroup: number | null }>({ gatewayCode: '', daliGroup: null });
-function openNewGroupDialog(): void {
-  newGroupForm.value = { gatewayCode: knownGateways.value[0]?.code ?? '', daliGroup: null };
-  newGroupDialog.value = true;
-}
-async function submitNewGroup(): Promise<void> {
-  const gatewayCode = newGroupForm.value.gatewayCode.trim();
-  const daliGroup = newGroupForm.value.daliGroup;
-  if (!gatewayCode) { ElMessage.warning('网关代码不能为空'); return; }
-  if (!daliGroup || daliGroup < 1 || daliGroup > 16) { ElMessage.warning('组号要在 1-16 之间'); return; }
-  try {
-    await lightZonesService.createGroup(gatewayCode, daliGroup);
-    newGroupDialog.value = false;
-    await loadZones();
-    ElMessage.success(`已登记 ${gatewayCode} · ${daliGroup}组, 在下面"未分配灯组"里`);
-  } catch (err) {
-    ElMessage.error(`登记失败: ${(err as Error).message}`);
-  }
-}
 
 // ============ 新建分区 (业主: "灯光分组应该和空调分组一样, 可以新建分组") ============
 // 跟空调 createZone 一个交互: 弹框输名字即可, code 前端自动生成 (业主不需要懂 code)。
@@ -179,7 +113,7 @@ async function createLightZone(): Promise<void> {
     const name = String(value).trim();
     await lightZonesService.create({ code: `lz-${Date.now()}`, name, floor: '1F' });
     await loadZones();
-    ElMessage.success(`已新建分区「${name}」, 切到「编组」把灯组放进去`);
+    ElMessage.success(`已新建分区「${name}」, 去「单灯调试」页把灯分进来`);
   } catch (err) {
     if (err === 'cancel' || err === 'close') return;
     ElMessage.error('新建分区失败: ' + (err as Error).message);
@@ -370,7 +304,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
         </div>
         <div class="v2-tabs">
           <button class="v2-tab" :class="{ active: !grouping }" @click="grouping = false">控制</button>
-          <button class="v2-tab" :class="{ active: grouping }" @click="grouping = true">编组</button>
+          <button class="v2-tab" :class="{ active: grouping }" @click="grouping = true">分区</button>
         </div>
       </div>
       <div class="quick-actions">
@@ -392,32 +326,22 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
       </div>
     </header>
 
-    <!-- 编组面板: 选中灯组 → 点分区按钮归入. 现场核对分组时用, 不用改代码. -->
+    <!-- 分区管理面板: 新建 / 拖动排序 / 双击改名。成员 (哪盏灯在哪个区) 在单灯页管。 -->
     <div v-if="grouping" class="group-panel">
       <div class="gp-head">
-        <div class="gp-title"><Layers :size="16" :stroke-width="2" /> 未分配灯组</div>
+        <div class="gp-title"><Layers :size="16" :stroke-width="2" /> 分区管理</div>
         <div class="gp-hint">
-          <b style="color: var(--v2-text-1)">推荐去「单灯调试」页把灯按盏分到分区</b> —— 逐灯直控, 不依赖硬件组、可跨总线、随时改。
-          硬件组只对已在网关里烧好组的灯有效 (寻址后不分组就是空的)。下面的编组仅为兼容已烧组的老现场保留:
-          点一个灯组在弹出列表里选分区 (没有就当场新建), 分区里的组点一下能改分区/移出。
+          新建 / 拖动排序 / 双击改名。<b style="color: var(--v2-text-1)">分区里放哪些灯, 去「单灯调试」页按盏分配</b>
+          (逐灯直控、不依赖硬件组、可跨总线随时改)。
         </div>
         <div class="gp-new-btns">
           <button class="v2-quick primary" @click="createLightZone">
             <FolderPlus :size="14" :stroke-width="2" /> 新建分区
           </button>
-          <button class="v2-quick primary" @click="openNewGroupDialog">
-            <Plus :size="14" :stroke-width="2" /> 新建组
+          <button class="v2-quick" @click="router.push({ name: 'dali-lights' })">
+            <Search :size="14" :stroke-width="2" /> 去单灯页分配
           </button>
         </div>
-      </div>
-      <div v-if="unassignedGroups.length === 0" class="gp-empty">全部灯组都已分配</div>
-      <div v-else class="gp-chips">
-        <button
-          v-for="g in unassignedGroups"
-          :key="g.id"
-          class="gp-chip"
-          @click="openGroupZoneDialog(g)"
-        >{{ groupLabel(g) }}</button>
       </div>
     </div>
 
@@ -440,8 +364,8 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
       <div class="ov-item">
         <div class="ov-ico"><Layers :size="18" :stroke-width="2" /></div>
         <div class="ov-body">
-          <div class="ov-label">DALI 网关</div>
-          <div class="ov-value v2-inter">{{ overview.gatewayCount }}<span class="unit"> 台</span></div>
+          <div class="ov-label">已分配灯</div>
+          <div class="ov-value v2-inter">{{ overview.lights }}<span class="unit"> 盏</span></div>
         </div>
       </div>
       <div class="ov-item">
@@ -511,10 +435,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
                 @click.stop="startRenameZone(z)"
               ><Pencil :size="13" /></button>
             </div>
-            <!-- 控制态只报"几组灯", 不摆 gateway/组号这种调试信息; 编组态才需要看明细 -->
-            <div class="zone-addr">
-              {{ z.groups.length === 0 ? '暂无灯组' : `${z.groups.length} 组灯` }}
-            </div>
+            <div class="zone-addr">{{ zoneMemberLabel(z) }}</div>
           </div>
           <button
             v-if="!grouping"
@@ -523,18 +444,6 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
             @click="toggleZone(z)"
             :title="z.on ? '关闭' : '开启'"
           ></button>
-        </div>
-
-        <!-- 编组态: 列出本区的组 (点一下移出), 并提供"放这里" -->
-        <div v-if="grouping" class="zone-groups">
-          <div v-if="z.groups.length === 0" class="zg-empty">还没有灯组 —— 点上面「未分配灯组」里的组分过来</div>
-          <button
-            v-for="g in z.groups"
-            :key="g.id"
-            class="gp-chip in-zone"
-            @click="openGroupZoneDialog(g)"
-            title="点击改分区 / 移出"
-          >{{ groupLabel(g) }} <Pencil :size="10" :stroke-width="2.5" /></button>
         </div>
 
         <div class="brightness">
@@ -575,69 +484,6 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
       </div>
     </div>
 
-    <!-- 新建组 dialog -->
-    <div v-if="newGroupDialog" class="ng-mask" @click.self="newGroupDialog = false">
-      <div class="ng-box">
-        <div class="ng-title"><Plus :size="18" :stroke-width="2" /> 新建灯组</div>
-        <div class="ng-hint">只是让系统认识这个 (网关, 组号), 不碰硬件 —— 那条 DALI 总线上这个组是否真的响应, 还是看现场接线</div>
-
-        <label class="ng-label">网关</label>
-        <select v-model="newGroupForm.gatewayCode" class="ng-input">
-          <option v-for="gw in knownGateways" :key="gw.code" :value="gw.code">{{ gw.name }} ({{ gw.code }})</option>
-          <option value="">— 手动输入网关代码 —</option>
-        </select>
-        <input
-          v-if="!knownGateways.some(gw => gw.code === newGroupForm.gatewayCode)"
-          v-model="newGroupForm.gatewayCode" class="ng-input" placeholder="如 GW-DALI-1"
-        />
-
-        <label class="ng-label">组号 (1-16)</label>
-        <input
-          v-model.number="newGroupForm.daliGroup" type="number" min="1" max="16"
-          class="ng-input" placeholder="1-16" @keyup.enter="submitNewGroup"
-        />
-
-        <div class="ng-actions">
-          <button class="v2-quick" @click="newGroupDialog = false">取消</button>
-          <button class="v2-quick primary" @click="submitNewGroup">新建</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 分配分区对话框: 点灯组 → 下拉选分区 + 当场新建 (跟单灯页一致) -->
-    <div v-if="zoneDlg.open" class="zone-modal-mask" @click.self="closeGroupZoneDialog">
-      <div class="zone-modal">
-        <div class="zm-title">分到哪个区<span class="zm-sub">{{ zoneDlg.group ? groupLabel(zoneDlg.group) : '' }}</span></div>
-        <div class="zm-list">
-          <button type="button" class="zm-opt" :class="{ sel: !zoneDlg.picked }" @click="zoneDlg.picked = null">
-            不分区(移出)<span v-if="!zoneDlg.picked" class="zm-check">✓</span>
-          </button>
-          <button
-            v-for="z in zones" :key="z.code" type="button"
-            class="zm-opt" :class="{ sel: zoneDlg.picked === z.code }"
-            @click="zoneDlg.picked = z.code"
-          >
-            {{ z.name }}<span v-if="zoneDlg.picked === z.code" class="zm-check">✓</span>
-          </button>
-          <p v-if="zones.length === 0" class="zm-empty">还没有分区, 下面新建一个 ↓</p>
-        </div>
-        <div class="zm-new">
-          <button v-if="!zoneDlg.creating" type="button" class="zm-new-btn" @click="zoneDlg.creating = true">+ 新建分区</button>
-          <div v-else class="zm-new-row">
-            <input
-              v-model="zoneDlg.newName" class="zm-input"
-              placeholder="新分区名, 例如: 会议室 / 前厅"
-              @keyup.enter="createZoneInDialog"
-            />
-            <button type="button" class="zm-create" :disabled="zoneDlg.busy || !zoneDlg.newName.trim()" @click="createZoneInDialog">创建</button>
-          </div>
-        </div>
-        <div class="zm-actions">
-          <button type="button" class="zm-cancel" @click="closeGroupZoneDialog">取消</button>
-          <button type="button" class="zm-save" @click="confirmGroupZone">保存</button>
-        </div>
-      </div>
-    </div>
   </section>
 </template>
 
