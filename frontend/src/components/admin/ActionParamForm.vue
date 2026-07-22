@@ -215,7 +215,7 @@ const items = computed(() => props.spec.params);
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--v2-inset-bg);
   border: 1px solid var(--v2-border-soft);
   border-radius: 8px;
   font-size: 13px;

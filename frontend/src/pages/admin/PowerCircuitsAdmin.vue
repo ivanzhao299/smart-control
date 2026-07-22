@@ -321,14 +321,14 @@ onMounted(refresh);
 .circuit-name { font-weight: 600; color: var(--v2-text-1); font-size: 14px; letter-spacing: 0.3px; }
 .circuit-code {
   font-size: 11.5px;
-  color: rgba(255, 255, 255, 0.62);
+  color: var(--v2-text-2);
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   letter-spacing: 0.4px;
 }
 .circuit-desc { font-size: 11.5px; color: var(--v2-text-2); font-style: italic; }
 .gw-code {
   font-size: 11.5px;
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--v2-text-2);
   font-family: 'JetBrains Mono', ui-monospace, monospace;
 }
 .muted { color: var(--v2-text-3); font-size: 12px; }

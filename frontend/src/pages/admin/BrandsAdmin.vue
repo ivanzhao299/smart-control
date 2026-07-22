@@ -262,7 +262,7 @@ onMounted(refresh);
   width: 40px; height: 40px;
   object-fit: contain;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--v2-ov-1);
   padding: 4px;
 }
 .no-logo, .muted {
@@ -316,7 +316,7 @@ onMounted(refresh);
 .logo-preview {
   margin-top: 8px;
   padding: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--v2-ov-1);
   border-radius: 6px;
   text-align: center;
 }

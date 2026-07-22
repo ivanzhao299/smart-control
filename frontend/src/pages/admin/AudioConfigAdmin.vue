@@ -375,7 +375,7 @@ onMounted(refresh);
   padding: 8px 10px; text-align: center; font-size: 13px;
 }
 .matrix thead th {
-  background: rgba(255, 255, 255, 0.04); color: var(--v2-text-1);
+  background: var(--v2-ov-1); color: var(--v2-text-1);
   font-weight: 600; position: sticky; top: 0;
 }
 .matrix .out-col { text-align: left; min-width: 110px; }

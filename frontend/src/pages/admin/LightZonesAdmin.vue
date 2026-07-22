@@ -401,7 +401,7 @@ onMounted(refresh);
 }
 .zone-code {
   font-size: 11.5px;
-  color: rgba(255, 255, 255, 0.62);
+  color: var(--v2-text-2);
   font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   letter-spacing: 0.4px;
 }
@@ -413,7 +413,7 @@ onMounted(refresh);
 }
 .gw-code {
   font-size: 11.5px;
-  color: rgba(255, 255, 255, 0.62);
+  color: var(--v2-text-2);
   font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   letter-spacing: 0.4px;
   display: block;

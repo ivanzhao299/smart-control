@@ -297,7 +297,7 @@ async function exitToFront(): Promise<void> {
   display: flex;
   flex-direction: column;
   /* 实色面板 (去掉 backdrop-filter 毛玻璃 — 滚动时每帧重算模糊是卡顿主因) */
-  background: rgba(13, 17, 28, 0.97);
+  background: var(--v2-chrome-bg-solid);
   border-right: 1px solid var(--v2-border-soft);
   min-height: 0;
 }
@@ -411,7 +411,7 @@ async function exitToFront(): Promise<void> {
 .top {
   display: flex; align-items: center; justify-content: space-between;
   padding: 12px 22px;
-  background: rgba(13, 17, 28, 0.97);
+  background: var(--v2-chrome-bg-solid);
   border-bottom: 1px solid var(--v2-border-soft);
 }
 .crumb {
@@ -514,7 +514,7 @@ async function exitToFront(): Promise<void> {
     transform: translateX(-100%);
     transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
     box-shadow: 8px 0 32px -8px rgba(0, 0, 0, 0.7);
-    background: rgba(6, 8, 24, 0.92);
+    background: var(--v2-chrome-bg-solid);
     backdrop-filter: blur(5px);
     -webkit-backdrop-filter: blur(5px);
     padding-top: env(safe-area-inset-top);

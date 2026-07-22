@@ -461,7 +461,7 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
 .form-card,
 .preview-card,
 .pw-card {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--v2-ov-1);
   border: 1px solid var(--v2-border-soft);
   border-radius: var(--v2-r-md);
 }
@@ -528,7 +528,7 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
   padding: 8px 12px;
   display: flex;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--v2-ov-1);
 }
 .pv-logo {
   width: 40px;
@@ -588,7 +588,7 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--v2-ov-1);
   border: 1px solid var(--v2-border-soft);
   border-radius: 8px 8px 0 0;
   padding: 6px 12px;
@@ -631,7 +631,7 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
   object-fit: cover;
   border-radius: 10px;
   flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--v2-ov-1);
 }
 .logo-current-meta {
   flex: 1;

@@ -401,9 +401,9 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(224, 160, 48, 0.32);
 }
 .env-tag.is-mock {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--v2-ov-2);
   color: #9BA1A9;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--v2-border-soft);
 }
 .info-foot { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
 .info-mono {

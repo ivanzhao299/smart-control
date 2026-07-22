@@ -693,7 +693,7 @@ onMounted(refresh);
 }
 .row-btn:hover:not(:disabled) {
   color: #c7d2fe;
-  border-color: rgba(255, 255, 255, 0.08);
+  border-color: var(--v2-border-soft);
 }
 .row-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .more-hint { font-size: 12px; color: var(--text-secondary); padding: 6px 4px; }

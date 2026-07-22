@@ -448,7 +448,7 @@ onMounted(refresh);
   font-weight: 500;
   transition: all 0.15s;
 }
-.tab:hover { color: var(--text-primary); border-color: rgba(255, 255, 255, 0.08); }
+.tab:hover { color: var(--text-primary); border-color: var(--v2-border-soft); }
 .tab.active {
   background: linear-gradient(135deg, #4C9AFF 0%, #9BA1A9 100%);
   color: #fff; border-color: transparent;
@@ -489,7 +489,7 @@ onMounted(refresh);
   touch-action: manipulation;
   transition: all 0.15s;
 }
-.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: rgba(255, 255, 255, 0.08); }
+.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: var(--v2-border-soft); }
 .row-btn-danger:hover:not(:disabled) { color: #E5645D; border-color: rgba(229, 100, 93, 0.5); }
 .row-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 

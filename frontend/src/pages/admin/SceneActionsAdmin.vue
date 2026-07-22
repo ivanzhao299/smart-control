@@ -565,7 +565,7 @@ onMounted(refresh);
   touch-action: manipulation;
   transition: all 0.15s;
 }
-.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: rgba(255, 255, 255, 0.08); }
+.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: var(--v2-border-soft); }
 .row-btn-danger:hover:not(:disabled) { color: #E5645D; border-color: rgba(229, 100, 93, 0.5); }
 .row-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -629,7 +629,7 @@ onMounted(refresh);
 }
 .param-section {
   width: 100%;
-  background: rgba(255, 255, 255, 0.025);
+  background: var(--v2-ov-1);
   border: 1px solid var(--v2-border-soft);
   border-radius: 8px;
   padding: 12px 14px;

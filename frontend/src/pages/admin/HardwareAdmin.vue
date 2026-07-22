@@ -737,7 +737,7 @@ onMounted(refresh);
   font-weight: 500;
   transition: all 0.15s ease;
 }
-.tab:hover { color: var(--text-primary); border-color: rgba(255, 255, 255, 0.08); }
+.tab:hover { color: var(--text-primary); border-color: var(--v2-border-soft); }
 .tab.active {
   background: linear-gradient(135deg, #4C9AFF 0%, #9BA1A9 100%);
   color: #fff;

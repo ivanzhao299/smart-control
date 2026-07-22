@@ -214,7 +214,7 @@ onMounted(refresh);
   font-family: inherit; touch-action: manipulation;
   transition: all 0.15s;
 }
-.row-btn:hover { color: #c7d2fe; border-color: rgba(255, 255, 255, 0.08); }
+.row-btn:hover { color: #c7d2fe; border-color: var(--v2-border-soft); }
 
 .spin { animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

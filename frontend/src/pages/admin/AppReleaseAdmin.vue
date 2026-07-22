@@ -397,7 +397,7 @@ onMounted(refresh);
 .release-notes {
   margin: 14px 0 0;
   padding: 12px 14px;
-  background: rgba(10, 14, 26, 0.5);
+  background: var(--v2-ov-1);
   border: 1px solid var(--v2-border-soft);
   border-radius: var(--v2-r-sm);
   color: var(--v2-text-1);
@@ -439,7 +439,7 @@ onMounted(refresh);
   gap: 6px;
   padding: 10px 12px;
   margin: 8px 0 12px;
-  background: rgba(10, 14, 26, 0.4);
+  background: var(--v2-ov-1);
   border: 1px dashed var(--v2-border-soft);
   border-radius: var(--v2-r-sm);
   color: var(--v2-text-2);
@@ -454,7 +454,7 @@ onMounted(refresh);
 
 .adv-block {
   padding: 12px 0 4px;
-  border-left: 2px solid rgba(255, 255, 255, 0.08);
+  border-left: 2px solid var(--v2-border-soft);
   padding-left: 16px;
   margin: 0 0 12px;
 }

@@ -125,7 +125,7 @@ const options = computed(() => (usingZones.value ? zoneOptions.value : deviceOpt
   padding: 8px 12px;
   font-size: 12px;
   color: var(--v2-text-3);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--v2-ov-1);
   border-radius: 6px;
 }
 .select-empty {

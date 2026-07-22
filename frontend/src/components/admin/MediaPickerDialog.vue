@@ -191,7 +191,7 @@ function fmtDur(sec: number | null): string {
 }
 .search-input {
   flex: 1;
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--v2-inset-bg);
   border: 1px solid var(--v2-border-soft);
   border-radius: 8px;
   padding: 7px 30px;
@@ -231,7 +231,7 @@ function fmtDur(sec: number | null): string {
 }
 
 .picker-card {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--v2-ov-1);
   border: 1px solid var(--v2-border-soft);
   border-radius: 10px;
   overflow: hidden;

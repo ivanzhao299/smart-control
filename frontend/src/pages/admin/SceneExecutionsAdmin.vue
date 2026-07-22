@@ -328,7 +328,7 @@ onBeforeUnmount(() => {
   touch-action: manipulation;
   transition: all 0.15s;
 }
-.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: rgba(255, 255, 255, 0.08); }
+.row-btn:hover:not(:disabled) { color: #c7d2fe; border-color: var(--v2-border-soft); }
 .row-btn-danger:hover:not(:disabled) { color: #E5645D; border-color: rgba(229, 100, 93, 0.5); }
 .row-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 

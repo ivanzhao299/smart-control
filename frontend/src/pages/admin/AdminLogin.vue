@@ -227,7 +227,7 @@ async function submit(): Promise<void> {
 }
 .field-input {
   flex: 1;
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--v2-inset-bg);
   border: 1px solid var(--v2-border-soft);
   border-radius: 10px;
   padding: 12px 14px 12px 40px;
