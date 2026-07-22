@@ -701,7 +701,7 @@ async function submitWebpage(): Promise<void> {
 .pl-name { flex: 1 1 auto; min-width: 0; font-size: 14px; color: var(--v2-text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: text; }
 .pl-name-input {
   flex: 1 1 auto; min-width: 0; padding: 5px 8px; font-size: 14px;
-  color: var(--v2-text-1); background: rgba(0,0,0,.35);
+  color: var(--v2-text-1); background: var(--v2-inset-bg);
   border: 1px solid var(--v2-primary); border-radius: 6px; outline: none;
 }
 .tag-missing { margin-left: 6px; padding: 1px 6px; border-radius: 4px; background: #7f1d1d55; color: #EC8880; font-size: 11px; font-style: normal; }
@@ -731,7 +731,7 @@ async function submitWebpage(): Promise<void> {
 .wb-hint { font-size: 12px; color: var(--v2-text-3); margin-bottom: 8px; }
 .wb-label { font-size: 12px; color: var(--v2-text-3); margin-top: 6px; }
 .wb-input {
-  background: rgba(255,255,255,0.04); border: 1px solid var(--v2-border-soft); border-radius: 8px;
+  background: var(--v2-ov-1); border: 1px solid var(--v2-border-soft); border-radius: 8px;
   padding: 10px 12px; color: var(--v2-text-1); font-size: 14px; outline: none; font-family: inherit;
 }
 .wb-input:focus { border-color: var(--v2-primary); }

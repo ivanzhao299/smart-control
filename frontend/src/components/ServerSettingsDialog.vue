@@ -214,7 +214,7 @@ function deleteHistory(url: string): void {
   color: var(--v2-text-3, #7a8699);
   cursor: pointer;
 }
-.ssd-close:hover { background: rgba(255, 255, 255, 0.08); color: var(--v2-text-1, #e8ecf3); }
+.ssd-close:hover { background: var(--v2-ov-2); color: var(--v2-text-1, #e8ecf3); }
 
 .ssd-reason {
   margin-bottom: 12px;
@@ -234,7 +234,7 @@ function deleteHistory(url: string): void {
 }
 .ssd-input {
   padding: 11px 12px;
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--v2-inset-bg);
   border: 1px solid var(--v2-border-soft, rgba(255, 255, 255, 0.1));
   border-radius: 9px;
   color: var(--v2-text-1, #e8ecf3);
@@ -253,7 +253,7 @@ function deleteHistory(url: string): void {
   gap: 5px;
   padding: 0 13px;
   border-radius: 9px;
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--v2-inset-bg);
   border: 1px solid var(--v2-border-soft, rgba(255, 255, 255, 0.1));
   color: var(--v2-text-2, #aab4c3);
   font-size: 13px;
@@ -296,7 +296,7 @@ function deleteHistory(url: string): void {
   padding: 7px 10px;
   border: none;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--v2-ov-1);
   color: var(--v2-text-2, #aab4c3);
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 12px;

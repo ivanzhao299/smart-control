@@ -504,7 +504,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 .zone-name-input {
   width: 100%; padding: 4px 8px;
   font-size: 17px; font-weight: 600;
-  color: var(--v2-text-1); background: rgba(0,0,0,.35);
+  color: var(--v2-text-1); background: var(--v2-inset-bg);
   border: 1px solid var(--v2-primary); border-radius: 6px;
   outline: none;
 }
@@ -523,7 +523,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   padding: 14px 16px;
   border-radius: 12px;
   border: 1px solid var(--v2-border-soft);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--v2-ov-1);
 }
 .gp-head {
   display: flex;
@@ -552,7 +552,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   min-height: 40px;
   border-radius: 8px;
   border: 1px solid var(--v2-border-soft);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--v2-ov-1);
   color: var(--v2-text-1);
   font-size: 14px;
   cursor: pointer;
@@ -593,7 +593,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 .ng-hint { font-size: 12px; color: var(--v2-text-3); margin-bottom: 8px; line-height: 1.5; }
 .ng-label { font-size: 12px; color: var(--v2-text-3); margin-top: 6px; }
 .ng-input {
-  background: rgba(255,255,255,0.04); border: 1px solid var(--v2-border-soft); border-radius: 8px;
+  background: var(--v2-ov-1); border: 1px solid var(--v2-border-soft); border-radius: 8px;
   padding: 10px 12px; color: var(--v2-text-1); font-size: 14px; outline: none; font-family: inherit;
 }
 .ng-input:focus { border-color: var(--v2-primary); }
@@ -742,7 +742,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 .ov-ico {
   width: 32px; height: 32px;
   border-radius: var(--v2-r-sm);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--v2-ov-1);
   color: var(--v2-text-2);
   display: grid; place-items: center;
   flex-shrink: 0;
@@ -948,7 +948,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   background: var(--v2-surf-2);
   border-radius: 7px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--v2-border-soft);
 }
 .slider-fill {
   height: 100%;

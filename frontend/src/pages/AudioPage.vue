@@ -1168,7 +1168,7 @@ async function toggleMuteAll(): Promise<void> {
 /* BGM 列表就地改名 (业主: "在播放列表里面可以更改文件名字") */
 .bgm-pl-name-input {
   flex: 1 1 auto; min-width: 0; padding: 3px 6px; font-size: 13px;
-  color: var(--v2-text-1); background: rgba(0,0,0,.4);
+  color: var(--v2-text-1); background: var(--v2-inset-bg);
   border: 1px solid var(--v2-primary); border-radius: 5px; outline: none;
 }
 .bgm-pl-missing {
@@ -1187,7 +1187,7 @@ async function toggleMuteAll(): Promise<void> {
 .ch-name-input {
   width: 100%; padding: 3px 6px;
   font-size: 14px; font-weight: 600; text-align: center;
-  color: var(--v2-text-1); background: rgba(0,0,0,.35);
+  color: var(--v2-text-1); background: var(--v2-inset-bg);
   border: 1px solid var(--v2-primary); border-radius: 5px; outline: none;
 }
 .ch-edit {
@@ -1281,15 +1281,15 @@ async function toggleMuteAll(): Promise<void> {
   transition: border-color 0.28s ease, background 0.28s ease, box-shadow 0.28s ease;
 }
 .bgm-player.playing {
-  border-color: rgba(255, 255, 255, 0.08);
+  border-color: var(--v2-border-soft);
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.07), rgba(76, 154, 255, 0.02));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 6px 24px -8px rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 var(--v2-card-hairline), 0 6px 24px -8px rgba(255, 255, 255, 0.08);
 }
 .bgm-now-row { display: flex; align-items: center; gap: var(--v2-sp-3); }
 .bgm-ico-wrap {
   width: 44px; height: 44px; border-radius: var(--v2-r-md); flex-shrink: 0;
   display: grid; place-items: center;
-  background: rgba(255, 255, 255, 0.08); color: #c4b5fd;
+  background: var(--v2-ov-2); color: #c4b5fd;
   transition: box-shadow 0.28s ease;
 }
 .bgm-player.playing .bgm-ico-wrap { color: #d8b4fe; box-shadow: 0 0 16px rgba(255, 255, 255, 0.08); }
@@ -1319,10 +1319,10 @@ async function toggleMuteAll(): Promise<void> {
 .bgm-btn:hover:not(:disabled) { background: var(--v2-surf-1-hover); color: var(--v2-text-1); border-color: var(--v2-border-strong); }
 .bgm-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 .bgm-btn-main {
-  width: 44px; height: 44px; background: rgba(255, 255, 255, 0.08); color: #9BA1A9;
-  border-color: rgba(255, 255, 255, 0.08);
+  width: 44px; height: 44px; background: var(--v2-ov-2); color: #9BA1A9;
+  border-color: var(--v2-border-soft);
 }
-.bgm-btn-main:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); color: #d8b4fe; }
+.bgm-btn-main:hover:not(:disabled) { background: var(--v2-ov-2); color: #d8b4fe; }
 .bgm-mode-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .bgm-mode {
   padding: 4px 10px; border-radius: 20px; font-size: 11px; cursor: pointer;
@@ -1332,8 +1332,8 @@ async function toggleMuteAll(): Promise<void> {
 }
 .bgm-mode:hover { color: var(--v2-text-2); border-color: var(--v2-border-strong); }
 .bgm-mode.active {
-  background: rgba(255, 255, 255, 0.08); color: #9BA1A9;
-  border-color: rgba(255, 255, 255, 0.08);
+  background: var(--v2-ov-2); color: #9BA1A9;
+  border-color: var(--v2-border-soft);
 }
 
 /* 播放列表 */
@@ -1370,7 +1370,7 @@ async function toggleMuteAll(): Promise<void> {
 }
 .bgm-pl-row:last-child { border-bottom: none; }
 .bgm-pl-row:hover { background: var(--v2-surf-1-hover); }
-.bgm-pl-row.active { background: rgba(255, 255, 255, 0.07); }
+.bgm-pl-row.active { background: var(--v2-ov-2); }
 .bgm-pl-idx {
   display: flex; align-items: center; justify-content: center;
   font-size: 12px; color: var(--v2-text-3); font-weight: 500;
@@ -1425,7 +1425,7 @@ async function toggleMuteAll(): Promise<void> {
   background: var(--v2-surf-2); color: var(--v2-text-3); border: 1px solid var(--v2-border-soft);
 }
 .bgm-picker-row:not(.added):hover .bgm-picker-tag {
-  background: rgba(255, 255, 255, 0.08); color: #9BA1A9; border-color: rgba(255, 255, 255, 0.08);
+  background: var(--v2-ov-2); color: #9BA1A9; border-color: var(--v2-border-soft);
 }
 .bgm-picker-row.added .bgm-picker-tag { background: rgba(63, 191, 135, 0.1); color: var(--v2-success); border-color: rgba(63, 191, 135, 0.25); }
 .bgm-picker-foot {
@@ -1607,7 +1607,7 @@ async function toggleMuteAll(): Promise<void> {
 .fader-track {
   position: relative; width: 12px; height: 100%;
   background: var(--v2-surf-2); border-radius: 8px; overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--v2-border-soft);
 }
 .fader-fill {
   position: absolute; left: 0; right: 0; bottom: 0;

@@ -61,6 +61,21 @@
   --v2-border-soft: #333D4B;
   --v2-border-strong: #44505F;
 
+  /* ---------- 叠加层 (2026-07-22 加, 为浅色主题准备) ----------
+   * 深色主题里到处是 rgba(255,255,255,.05) 这种"在深色底上叠白"来抬升表面的写法,
+   * 浅色主题下会变成白上加白(看不见)。收敛成这几个 token, 浅色主题里翻转成叠黑,
+   * 页面就不用各写一份。新代码一律用这些, 别再写死 rgba(255,255,255,..)。 */
+  --v2-ov-1: rgba(255, 255, 255, 0.05);   /* 最轻: 图标底 / 斑马纹 */
+  --v2-ov-2: rgba(255, 255, 255, 0.08);   /* 中: hover 面 / chip */
+  --v2-ov-3: rgba(255, 255, 255, 0.12);   /* 重: 分隔 / 强调块 */
+  --v2-inset-bg: rgba(0, 0, 0, 0.25);     /* 内陷面: 输入框 / 滑槽 */
+  --v2-card-hairline: rgba(255, 255, 255, 0.05); /* 卡片顶部机械高光 */
+  --v2-grid-line: rgba(255, 255, 255, 0.020);    /* 背景细网格 */
+  --v2-aurora: rgba(76, 154, 255, 0.055);        /* 顶部单色渐晕 */
+  /* 外壳(侧导航/顶栏)半透明底 —— 之前写死 rgba(10,14,26,..), 浅色下会变成一条深灰带 */
+  --v2-chrome-bg: rgba(10, 14, 26, 0.5);
+  --v2-chrome-bg-solid: rgba(10, 14, 26, 0.92);  /* 手机底栏: 要更实, 内容会滚到它下面 */
+
   --v2-text-1: #EAEEF4;                     /* 主文字 */
   --v2-text-2: #99A5B4;                     /* 次要 — 冷调 */
   --v2-text-3: #68727F;                     /* 弱化 / 单位 / 占位 */
@@ -162,6 +177,78 @@
   --border-strong: var(--v2-border-strong);
 }
 
+/* ============================================================
+ * 浅色主题 (2026-07-22) —— html[data-theme="light"] 时整套 token 翻转。
+ *
+ * 不是把深色简单反相: 底用**冷调浅灰**(不是刺眼纯白)、卡片才是纯白浮起, 保持
+ * "冷石墨"那一家的调性。强调色/语义色在浅底上必须**加深**才够对比 (浅底上 #4C9AFF
+ * 这种亮蓝会糊), 所以蓝 #4C9AFF→#2563EB、绿/红/琥珀同理加深。
+ * 阴影从"黑透明"换成柔和灰影, 否则浅色下发脏。
+ * ============================================================ */
+:root[data-theme="light"] {
+  --v2-bg-0: #EEF2F7;                       /* 页面底 — 冷调浅灰 */
+  --v2-bg-1: #E4EAF2;                       /* 渐变低点 */
+  --v2-surf-1: #FFFFFF;                     /* 卡片 — 纯白浮起 */
+  --v2-surf-1-hover: #F6F9FC;
+  --v2-surf-2: #F1F5FA;                     /* 卡内嵌 / 分段控件 */
+  --v2-surf-3: #FFFFFF;                     /* 抽屉 / dialog */
+
+  --v2-border-soft: #DCE3EC;
+  --v2-border-strong: #BFC9D8;
+
+  --v2-text-1: #0F1B2D;                     /* 主文字 — 深蓝灰, 不用纯黑 */
+  --v2-text-2: #4A5768;
+  --v2-text-3: #7C8899;
+
+  /* 叠加翻转: 浅底上"抬升"要叠黑, 不是叠白 */
+  --v2-ov-1: rgba(15, 27, 45, 0.04);
+  --v2-ov-2: rgba(15, 27, 45, 0.07);
+  --v2-ov-3: rgba(15, 27, 45, 0.11);
+  --v2-inset-bg: #FFFFFF;                   /* 输入框在浅色下是白底 + 描边 */
+  --v2-card-hairline: rgba(255, 255, 255, 0.9);
+  --v2-grid-line: rgba(15, 27, 45, 0.035);  /* 浅底上网格要叠黑才看得见 */
+  --v2-aurora: rgba(37, 99, 235, 0.05);
+  --v2-chrome-bg: rgba(255, 255, 255, 0.72);
+  --v2-chrome-bg-solid: rgba(255, 255, 255, 0.96);
+
+  /* 强调色/语义色: 浅底上加深才够对比 */
+  --v2-primary: #2563EB;
+  --v2-primary-dark: #1D4ED8;
+  --v2-primary-hover: #1D4ED8;
+  --v2-primary-soft: rgba(37, 99, 235, 0.10);
+
+  --v2-purple: var(--v2-text-2);
+  --v2-purple-soft: rgba(15, 27, 45, 0.06);
+  --v2-pink: var(--v2-text-2);
+  --v2-pink-soft: rgba(15, 27, 45, 0.06);
+
+  --v2-amber: #B45309;
+  --v2-amber-soft: rgba(180, 83, 9, 0.12);
+  --v2-success: #15803D;
+  --v2-warning: #B45309;
+  --v2-danger: #DC2626;
+  --v2-info: #2563EB;
+  --v2-success-soft: rgba(21, 128, 61, 0.12);
+  --v2-warning-soft: rgba(180, 83, 9, 0.12);
+  --v2-danger-soft:  rgba(220, 38, 38, 0.12);
+  --v2-info-soft:    rgba(37, 99, 235, 0.12);
+
+  --v2-light-warm: #C2780B;                 /* "灯亮着"的暖色, 浅底上加深 */
+
+  /* 阴影: 浅色下用柔和灰影, 不用黑透明 */
+  --v2-elev-1: 0 1px 2px rgba(15, 27, 45, 0.06), 0 1px 3px rgba(15, 27, 45, 0.05);
+  --v2-elev-2: 0 4px 12px -2px rgba(15, 27, 45, 0.10), 0 2px 6px -2px rgba(15, 27, 45, 0.06);
+  --v2-elev-3: 0 16px 40px -12px rgba(15, 27, 45, 0.18);
+  --v2-glow-primary: 0 4px 14px -4px rgba(37, 99, 235, 0.45);
+  --v2-glow-primary-strong: 0 6px 20px -6px rgba(37, 99, 235, 0.60);
+
+  /* Element Plus 浮层/输入 在浅色下回到白底 */
+  --el-bg-color: #FFFFFF;
+  --el-bg-color-overlay: #FFFFFF;
+  --el-fill-color-blank: #FFFFFF;
+  --el-mask-color: rgba(15, 27, 45, 0.35);
+}
+
 /* ============ 全局 body 背景 ============
  * v3 在这里铺了 4 个彩色 radial(青 22% / 紫 20% / 粉 16% / 琥珀 10%) 当"极光".
  * 它是整屏彩色雾的来源 —— 每个页面不管内容是什么, 底子上先蒙一层四色渐变,
@@ -190,7 +277,7 @@ body::before {
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(ellipse 70% 50% at 50% -5%, rgba(76, 154, 255, 0.055) 0%, transparent 62%);
+    radial-gradient(ellipse 70% 50% at 50% -5%, var(--v2-aurora) 0%, transparent 62%);
 }
 /* Aurora layer 2: 细科技网格 (35×35, 4% 青线), 静态 */
 body::after {
@@ -200,8 +287,8 @@ body::after {
   z-index: 0;
   pointer-events: none;
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.020) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.020) 1px, transparent 1px);
+    linear-gradient(var(--v2-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--v2-grid-line) 1px, transparent 1px);
   background-size: 35px 35px;
   background-position: -1px -1px;
   mask-image: radial-gradient(ellipse 80% 70% at 50% 30%, black 0%, rgba(0,0,0,0.4) 80%);
@@ -231,7 +318,7 @@ body::after {
   position: absolute;
   top: 0; left: 8%; right: 8%;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.14) 50%, transparent);
+  background: linear-gradient(90deg, transparent, var(--v2-card-hairline) 50%, transparent);
   border-radius: 1px;
   pointer-events: none;
 }
@@ -303,7 +390,7 @@ body::after {
 .v2-subsystems,
 .v2-overview {
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 1px 0 var(--v2-card-hairline),
     var(--v2-elev-1) !important;
   transition: box-shadow 0.26s ease, transform 0.2s ease, border-color 0.2s ease;
 }
@@ -315,7 +402,7 @@ body::after {
 .metric:hover,
 .v2-card:hover {
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 1px 0 var(--v2-card-hairline),
     var(--v2-elev-2) !important;
   transform: translateY(-1px);
   border-color: var(--v2-border-strong);
@@ -432,8 +519,8 @@ html {
   --el-bg-color-page: var(--v2-bg-0);
   --el-fill-color: var(--v2-surf-2);       /* 卡内元素 (tag / chip), 仍走半透明 */
   --el-fill-color-light: var(--v2-surf-1-hover);
-  --el-fill-color-lighter: rgba(255, 255, 255, 0.025); /* el-table 斑马纹 — 深色主题下必须超低对比, 否则就是闪光弹 */
-  --el-fill-color-extra-light: rgba(255, 255, 255, 0.015);
+  --el-fill-color-lighter: var(--v2-ov-1); /* el-table 斑马纹 — 深色主题下必须超低对比, 否则就是闪光弹 */
+  --el-fill-color-extra-light: var(--v2-ov-1);
   --el-fill-color-blank: #161B2A;          /* el-input 等输入框底, 实色保证 caret 清晰 */
   --el-border-color: var(--v2-border-soft);
   --el-border-color-light: var(--v2-border-soft);
@@ -443,13 +530,13 @@ html {
   --el-table-bg-color: transparent;
   --el-table-tr-bg-color: transparent;
   --el-table-row-hover-bg-color: rgba(110, 200, 220, 0.07);
-  --el-table-header-bg-color: rgba(255, 255, 255, 0.04);
+  --el-table-header-bg-color: var(--v2-ov-1);
   --el-table-header-text-color: var(--v2-text-1);
   --el-table-text-color: var(--v2-text-1);
   --el-table-border-color: var(--v2-border-soft);
   --el-table-border: 1px solid var(--v2-border-soft);
   --el-table-fixed-box-shadow: 0 0 10px rgba(0, 0, 0, 0.4);
-  --el-table-expanded-cell-bg-color: rgba(255, 255, 255, 0.02);
+  --el-table-expanded-cell-bg-color: var(--v2-ov-1);
   --el-mask-color: rgba(0, 0, 0, 0.55);    /* dialog mask 颜色, 加深让弹层突出 */
   --el-text-color-primary: var(--v2-text-1);
   --el-text-color-regular: var(--v2-text-1);
@@ -462,7 +549,7 @@ html {
 .el-dialog,
 .el-drawer,
 .el-message-box {
-  background-color: #1B2034 !important;
+  background-color: var(--el-bg-color-overlay) !important;
   border: 1px solid var(--v2-border-soft);
   box-shadow: var(--v2-elev-3);
 }
@@ -498,10 +585,10 @@ html {
 .el-select-dropdown__list,
 .el-dropdown-menu,
 .el-cascader-menu {
-  background-color: #1B2034 !important;
+  background-color: var(--el-bg-color-overlay) !important;
 }
 .el-popper:not(.is-dark) .el-popper__arrow::before {
-  background: #1B2034 !important;
+  background: var(--el-bg-color-overlay) !important;
 }
 
 /* ============ el-table 直接选择器覆盖 (token 不够, 因为 EP 默认 .el-table 把 bg 写死) ============ */
@@ -519,7 +606,7 @@ html {
 }
 /* 表头行 — 微微浮起 */
 .el-table th.el-table__cell {
-  background-color: rgba(255, 255, 255, 0.04) !important;
+  background-color: var(--v2-ov-1) !important;
   color: var(--v2-text-1) !important;
   font-weight: 500;
   border-bottom: 1px solid var(--v2-border-soft) !important;
@@ -530,7 +617,7 @@ html {
 }
 /* 斑马纹 — 几乎不可见的微白, 而不是默认浅色主题刷白 */
 .el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
-  background-color: rgba(255, 255, 255, 0.025) !important;
+  background-color: var(--v2-ov-1) !important;
 }
 /* hover 行 — 电光青高亮 + 行光晕 + 微浮起 */
 .el-table__body tr.el-table__row {
@@ -592,7 +679,7 @@ html {
 }
 /* 表格内 <code> 元素 (业务 code 字段) — 亮色 + monospace */
 .el-table td.el-table__cell code {
-  color: rgba(255, 255, 255, 0.82) !important;
+  color: var(--v2-text-1) !important;
   font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   font-size: 11.5px;
 }
@@ -696,8 +783,8 @@ html {
 }
 .el-tag,
 .el-tag.el-tag--default {
-  background-color: rgba(255, 255, 255, 0.08) !important;
-  border-color: rgba(255, 255, 255, 0.18) !important;
+  background-color: var(--v2-ov-2) !important;
+  border-color: var(--v2-ov-3) !important;
   color: var(--v2-text-1) !important;
 }
 .el-tag.el-tag--primary {
@@ -742,7 +829,7 @@ html {
 }
 /* 关闭状态 switch 底色 (灰), 上面的"停用"白字 + shadow 同样看得清 */
 .el-switch:not(.is-checked) .el-switch__core {
-  background-color: rgba(255, 255, 255, 0.22) !important;
+  background-color: var(--v2-ov-3) !important;
 }
 
 /* el-select 下拉项 hover/selected 文本对比度 */

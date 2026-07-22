@@ -5,6 +5,7 @@ import { wsClient } from '@/services/websocket.service';
 import { getChannel, channelHeartbeat } from '@/services/playback.service';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { absUrl, setApiBaseURL } from '@/services/http';
+import { forceThemeWithoutPersist, restoreStoredTheme } from '@/services/theme.service';
 import type { PlaybackChannelView, WsEvent } from '@/types/api';
 
 /**
@@ -57,6 +58,10 @@ async function sendHeartbeat(): Promise<void> {
 }
 
 onMounted(async () => {
+  // 大屏永远深色: 展厅是暗环境, 业主就算把控制端切成浅色, 大屏也不该刷一块白。
+  // 不落盘, 不污染业主自己选的主题。
+  forceThemeWithoutPersist('dark');
+
   // kiosk 始终在本机运行: 强制 API 指向本机后端, 防止 localStorage 残留旧 IP 导致超时
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
     setApiBaseURL('http://localhost:3200');
@@ -92,6 +97,7 @@ onBeforeUnmount(() => {
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   if (audioRouteRetryTimer !== undefined) clearInterval(audioRouteRetryTimer);
   if (unsubscribeWs) unsubscribeWs();
+  restoreStoredTheme();   // 离开大屏页, 回到业主自己选的主题
 });
 
 // 视频元素引用 — 用来在 ended 时根据 loopMode 决定循环或回待机

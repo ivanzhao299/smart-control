@@ -37,7 +37,7 @@ withDefaults(
 .sk-block {
   position: relative;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.045);
+  background: var(--v2-ov-1);
   border: 1px solid var(--v2-border-soft, rgba(255, 255, 255, 0.08));
   border-radius: 10px;
 }

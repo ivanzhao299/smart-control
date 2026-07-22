@@ -362,7 +362,7 @@ onUnmounted(() => { stopRefresh(); });
 }
 .v2-tab.active {
   background: var(--v2-purple-soft);
-  color: #9BA1A9;
+  color: var(--v2-text-2);
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
@@ -384,12 +384,12 @@ onUnmounted(() => { stopRefresh(); });
 .v2-quick:hover:not(:disabled) {
   background: var(--v2-surf-1-hover);
   color: var(--v2-text-1);
-  border-color: rgba(255, 255, 255, 0.08);
+  border-color: var(--v2-border-soft);
 }
 .v2-quick.primary {
   background: var(--v2-purple-soft);
-  color: #9BA1A9;
-  border-color: rgba(255, 255, 255, 0.08);
+  color: var(--v2-text-2);
+  border-color: var(--v2-border-soft);
 }
 .v2-quick.danger {
   background: var(--v2-danger-soft);
@@ -403,7 +403,7 @@ onUnmounted(() => { stopRefresh(); });
   display: flex; align-items: center;
   padding: 8px var(--v2-sp-3);
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.01));
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--v2-border-soft);
   border-radius: var(--v2-r-md);
 }
 .ov-item {
@@ -422,7 +422,7 @@ onUnmounted(() => { stopRefresh(); });
   width: 32px; height: 32px;
   border-radius: var(--v2-r-sm);
   background: var(--v2-purple-soft);
-  color: #9BA1A9;
+  color: var(--v2-text-2);
   display: grid; place-items: center;
   flex-shrink: 0;
   filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.08));
@@ -489,18 +489,18 @@ onUnmounted(() => { stopRefresh(); });
 }
 .circuit-card:hover {
   transform: translateY(-3px);
-  border-color: rgba(255, 255, 255, 0.08);
+  border-color: var(--v2-border-soft);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 1px 0 var(--v2-card-hairline),
     0 0 0 1px rgba(255, 255, 255, 0.08),
     0 14px 32px -10px rgba(255, 255, 255, 0.08);
 }
 .circuit-card:hover::after { opacity: 0.85; }
 .circuit-card.on {
-  border-color: rgba(255, 255, 255, 0.08);
+  border-color: var(--v2-border-soft);
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 1px 0 var(--v2-card-hairline),
     0 8px 32px -8px rgba(255, 255, 255, 0.08),
     0 0 40px -10px rgba(255, 255, 255, 0.08) !important;
 }
@@ -512,16 +512,16 @@ onUnmounted(() => { stopRefresh(); });
   width: 44px; height: 44px;
   border-radius: var(--v2-r-md);
   background: var(--v2-purple-soft);
-  color: #9BA1A9;
+  color: var(--v2-text-2);
   display: grid; place-items: center;
   flex-shrink: 0;
   filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.08));
   transition: all 0.22s ease;
 }
 .circuit-card.on .card-ico {
-  background: rgba(255, 255, 255, 0.08);
-  color: white;
-  filter: drop-shadow(0 0 12px var(--v2-purple));
+  background: var(--v2-primary-soft);
+  color: var(--v2-primary);
+  filter: none;
 }
 .card-meta { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .card-name {
@@ -576,9 +576,9 @@ onUnmounted(() => { stopRefresh(); });
   grid-template-columns: repeat(4, 1fr);
   gap: var(--v2-sp-2);
   padding: var(--v2-sp-3);
-  background: rgba(0, 0, 0, 0.18);
+  background: var(--v2-inset-bg);
   border-radius: var(--v2-r-md);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--v2-border-soft);
 }
 .metric { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .metric-label {
@@ -621,10 +621,10 @@ onUnmounted(() => { stopRefresh(); });
   padding: 3px 9px;
   border-radius: 999px;
   font-family: 'Inter', monospace;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--v2-ov-1);
   color: var(--v2-text-2);
   letter-spacing: 0.6px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--v2-border-soft);
   text-transform: uppercase;
   font-weight: 600;
 }
@@ -635,7 +635,7 @@ onUnmounted(() => { stopRefresh(); });
   border-color: rgba(63, 191, 135, 0.45);
 }
 .chip.off {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--v2-ov-1);
   color: var(--v2-text-3);
 }
 .chip[data-category="lighting"] { background: rgba(224, 160, 48, 0.20); color: #FCD34D; border-color: rgba(224, 160, 48, 0.45); }
@@ -643,7 +643,7 @@ onUnmounted(() => { stopRefresh(); });
 .chip[data-category="hvac"]     { background: rgba(76, 154, 255, 0.18); color: #BFD7FF; border-color: rgba(76, 154, 255, 0.45); }
 .chip[data-category="led"]      { background: rgba(76, 154, 255, 0.18); color: #67E8F9; border-color: rgba(76, 154, 255, 0.45); }
 .chip[data-category="audio"]    { background: rgba(63, 191, 135, 0.18); color: #5FCB9B; border-color: rgba(63, 191, 135, 0.45); }
-.chip[data-category="misc"]     { background: rgba(255, 255, 255, 0.08); color: #9BA1A9; border-color: rgba(255, 255, 255, 0.08); }
+.chip[data-category="misc"]     { background: var(--v2-ov-2); color: #9BA1A9; border-color: var(--v2-border-soft); }
 
 /* 状态 */
 .state-card {

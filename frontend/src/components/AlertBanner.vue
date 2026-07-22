@@ -265,7 +265,7 @@ async function dismissPersisted(ev: MouseEvent): Promise<void> {
 .alert-count {
   font-size: 10px;
   padding: 2px 8px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--v2-ov-2);
   color: var(--v2-text-2);
   border-radius: 999px;
   flex-shrink: 0;
@@ -288,7 +288,7 @@ async function dismissPersisted(ev: MouseEvent): Promise<void> {
   padding: 0;
 }
 .alert-close:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--v2-ov-2);
   color: var(--v2-text-1);
 }
 

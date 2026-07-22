@@ -313,7 +313,7 @@ function goTo(name: string): void {
   width: 40px; height: 40px;
   border-radius: var(--v2-r-md);
   display: grid; place-items: center;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--v2-ov-1);
   color: var(--v2-text-2);
   flex-shrink: 0;
   filter: none;
@@ -504,7 +504,7 @@ function goTo(name: string): void {
   transition: color 0.22s ease, background 0.22s ease;
 }
 .v2-scene:hover .v2-scene-ico {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--v2-ov-2);
   color: var(--v2-text-1);
 }
 .v2-scene.active .v2-scene-ico {
@@ -547,7 +547,7 @@ function goTo(name: string): void {
 .v2-scene[data-color] {
   --scene-fg: var(--v2-text-2);
   --scene-glow: transparent;
-  --scene-icon-bg: rgba(255, 255, 255, 0.05);
+  --scene-icon-bg: var(--v2-ov-1);
   --scene-bg-1-dim: var(--v2-surf-1);
   --scene-bg-2-dim: var(--v2-surf-1);
   --scene-bg-1: var(--v2-surf-1-hover);
@@ -592,7 +592,7 @@ function goTo(name: string): void {
   position: relative;
 }
 .v2-sub:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--v2-ov-1);
   border-color: var(--v2-border-strong);
   box-shadow: none;
 }
@@ -654,7 +654,7 @@ function goTo(name: string): void {
 
 /* v4: 子系统不再按品类分色(原来灯光黄/LED青/音响绿/空调蓝/电源紫)。
    图标一律中性 —— 这样"LED 大屏 0/2"掉线时, 琥珀色是整屏唯一的一处, 一眼可见。 */
-.v2-sub[data-kind] { --sub-fg: var(--v2-text-2); --sub-bg: rgba(255, 255, 255, 0.05); }
+.v2-sub[data-kind] { --sub-fg: var(--v2-text-2); --sub-bg: var(--v2-ov-1); }
 
 /* ============ 中宽屏 (≤960): 子系统行能横向滚, 保持单行不换 ============ */
 @media (max-width: 960px) {

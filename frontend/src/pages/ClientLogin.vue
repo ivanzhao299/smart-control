@@ -327,7 +327,7 @@ async function doLogin(): Promise<void> {
 }
 .field-input {
   flex: 1;
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--v2-inset-bg);
   border: 1px solid var(--v2-border-soft);
   border-radius: 10px;
   padding: 12px 14px 12px 40px;
@@ -352,7 +352,7 @@ async function doLogin(): Promise<void> {
   gap: 6px;
   padding: 10px 14px;
   border-radius: 10px;
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--v2-inset-bg);
   border: 1px solid var(--v2-border-soft);
   color: var(--v2-text-2);
   font-size: 13px;
@@ -412,7 +412,7 @@ async function doLogin(): Promise<void> {
   padding: 7px 10px;
   border: none;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.045);
+  background: var(--v2-ov-1);
   color: var(--v2-text-2);
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 12px;

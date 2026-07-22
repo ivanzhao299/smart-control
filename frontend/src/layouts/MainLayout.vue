@@ -8,7 +8,8 @@ import { useRoute, useRouter } from 'vue-router';
 // - PWA standalone 启动也仍然全屏 (manifest display: fullscreen 接管)
 // - AlertBanner 已移除, 告警走后台 /admin/alerts
 // - 场景反馈走顶部 inline toast
-import { Maximize2, Minimize2, MoreHorizontal } from 'lucide-vue-next';
+import { Maximize2, Minimize2, MoreHorizontal, Sun, Moon } from 'lucide-vue-next';
+import { theme, toggleTheme } from '@/services/theme.service';
 import ErrorBoundary from '@/components/ErrorBoundary.vue';
 import ServerSettingsDialog from '@/components/ServerSettingsDialog.vue';
 import { useFullscreen } from '@/composables/useFullscreen';
@@ -268,6 +269,15 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
           <component :is="navIconFor(item.name)" :size="22" :stroke-width="1.8" />
           <span class="v2-nav-label">{{ item.label }}</span>
         </button>
+        <!-- 主题切换: 深色(展厅暗环境, 默认) ↔ 浅色。图标显示"切过去会变成什么" -->
+        <button
+          class="v2-nav-item v2-nav-tool"
+          :title="theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'"
+          @click="toggleTheme()"
+        >
+          <component :is="theme === 'dark' ? Sun : Moon" :size="22" :stroke-width="1.8" />
+          <span class="v2-nav-label">{{ theme === 'dark' ? '浅色' : '深色' }}</span>
+        </button>
         <!-- 手机竖屏 (底栏): tools 收进「更多」, 保证每个触摸目标 >=44pt。
              实测 390px 塞 9 个每个只有 42px, 低于 Apple HIG 下限; 6+1 个则是 55px。 -->
         <button
@@ -312,6 +322,11 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
             >
               <component :is="navIconFor(item.name)" :size="26" :stroke-width="1.8" />
               <span>{{ item.label }}</span>
+            </button>
+            <!-- 手机端也要能切主题 -->
+            <button class="v2-more-item" @click="toggleTheme()">
+              <component :is="theme === 'dark' ? Sun : Moon" :size="26" :stroke-width="1.8" />
+              <span>{{ theme === 'dark' ? '浅色' : '深色' }}</span>
             </button>
           </div>
         </div>
@@ -422,7 +437,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   align-items: center;
   padding: 8px 6px 10px;
   border-right: 1px solid var(--v2-border-soft);
-  background: rgba(10, 14, 26, 0.5);
+  background: var(--v2-chrome-bg);
   overflow: hidden;
 }
 /* 项容器 — flex-grow 占满 brand 之下的所有剩余高度
@@ -571,7 +586,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   justify-content: space-between;
   padding: 0 var(--v2-sp-5);
   border-bottom: 1px solid var(--v2-border-soft);
-  background: rgba(10, 14, 26, 0.6);
+  background: var(--v2-chrome-bg);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }
@@ -821,7 +836,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
     padding: 4px 4px;
     border-top: 1px solid var(--v2-border-soft);
     border-right: none;
-    background: rgba(10, 14, 26, 0.92);
+    background: var(--v2-chrome-bg-solid);
     backdrop-filter: blur(8px);
     /* safe area 底部 (iOS home indicator) —— 封顶 34px, 不是随便挑的整数: 所有
        Face ID 机型 (iPhone X 到最新款) 的 Home 指示条手势区都固定是 34pt, 不随

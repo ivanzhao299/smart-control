@@ -6,6 +6,10 @@ import 'element-plus/dist/index.css';
 import './styles/theme.css';
 import './styles/design-tokens.css';
 import './styles/industrial-hardening.css';
+import { initTheme } from './services/theme.service';
+
+// 主题必须在 mount 之前应用, 否则会先渲染一帧深色再跳浅色 (闪一下)
+initTheme();
 
 /**
  * 把 <link rel="manifest"> 从 vite-plugin-pwa 生成的静态 manifest.webmanifest

@@ -934,7 +934,7 @@ onMounted(async () => {
 .pick-banner .pb-text { flex: 1; }
 .pick-banner b { color: var(--v2-primary-hover); font-weight: 600; margin: 0 2px; }
 .pick-banner .pb-cancel {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--v2-ov-2);
   border: 1px solid var(--v2-border-soft);
   color: var(--v2-text-2);
   padding: 6px 14px;
@@ -942,7 +942,7 @@ onMounted(async () => {
   cursor: pointer;
   font-size: 13px;
 }
-.pick-banner .pb-cancel:hover { background: rgba(255, 255, 255, 0.14); color: var(--v2-text-1); }
+.pick-banner .pb-cancel:hover { background: var(--v2-ov-3); color: var(--v2-text-1); }
 .thumb { position: relative; aspect-ratio: 16/10; background: #0b1220; overflow: hidden; display: flex; align-items: center; justify-content: center; }
 .thumb video, .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .audio-thumb { width: 100%; height: 100%; display: grid; place-items: center; color: #c4b5fd;
