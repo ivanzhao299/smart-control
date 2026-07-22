@@ -43,6 +43,12 @@ export class PowerCircuitsController {
     return { message: '查询成功', data: await this.service.detail(id) };
   }
 
+  /** 智能断路器全量计量: 三相分相电压/电流 + 漏电 + 4 路接线柱温度 + 报警位 */
+  @Get(':id/breaker')
+  async breaker(@Param('id', ParseIntPipe) id: number) {
+    return { message: '查询成功', data: await this.service.breakerMeasurements(id) };
+  }
+
   @Post()
   @UseGuards(AdminGuard)
   async create(@Body() dto: PowerCircuitUpsertDto) {

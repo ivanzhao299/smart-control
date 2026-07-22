@@ -12,6 +12,8 @@ import { Logger } from 'winston';
 import { PowerCircuit } from '../../entities/power-circuit.entity';
 import { PowerAdapter, PowerReading } from '../../adapters/power/power.adapter';
 import { Epo802pAdapter } from '../../adapters/power/epo802p.adapter';
+import { EpaBreakerAdapter } from '../../adapters/power/epa-breaker.adapter';
+import type { BreakerMeasurements } from '../../adapters/power/epa-breaker-registers';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
 
 export interface PowerCircuitView {
@@ -67,10 +69,11 @@ const SEED_CIRCUITS: Array<Omit<PowerCircuitUpsertDto, 'enabled'> & { enabled?: 
     gatewayCode: 'RELAY-1F-1', relayChannel: 3,
     ratedVoltage: 220, ratedCurrent: 16, ratedPower: 1500,
     sortOrder: 20, icon: 'Plug' },
+  // LED 大屏总闸走 ePa 智能断路器 (三相 40A), 不是继电器通道 —— relayChannel 留空
   { code: '1f-led', name: '一层 LED 大屏', floor: '1F', category: 'led',
-    gatewayCode: 'RELAY-1F-1', relayChannel: 4,
-    ratedVoltage: 220, ratedCurrent: 20, ratedPower: 3500,
-    sortOrder: 30, icon: 'MonitorPlay' },
+    gatewayCode: 'BREAKER-LED-1', relayChannel: null,
+    ratedVoltage: 380, ratedCurrent: 40, ratedPower: 19000,
+    sortOrder: 30, icon: 'MonitorPlay', description: 'LED 大屏远程总闸 (ePa 智能断路器, 三相 40A)' },
   { code: '2f-lighting', name: '二层照明回路', floor: '2F', category: 'lighting',
     gatewayCode: 'RELAY-2F-1', relayChannel: 1,
     ratedVoltage: 220, ratedCurrent: 16, ratedPower: 1800,
@@ -89,8 +92,18 @@ export class PowerCircuitsService implements OnModuleInit {
     private readonly adapter: PowerAdapter,
     /** 电源时序器真机 — 挂在它上面的回路走真设备, 其余走 mock */
     private readonly epo: Epo802pAdapter,
+    /** 智能断路器真机 — LED 大屏总闸 */
+    private readonly breaker: EpaBreakerAdapter,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
+
+  /**
+   * 断路器实时读数缓存 —— toView() 每列一行都会调, list() 一次会调 6 次。
+   * 没缓存的话每次翻页都往 485 上打一串 Modbus 帧, 而且转换器掉线时每行都要等满
+   * DEVICE_TIMEOUT_MS, 整个电源页会卡死。TTL 内复用, 读失败回落到上一次好的值。
+   */
+  private breakerCache = new Map<number, { at: number; reading: PowerReading }>();
+  private readonly BREAKER_CACHE_TTL_MS = 3000;
 
   async onModuleInit(): Promise<void> {
     let created = 0;
@@ -120,6 +133,30 @@ export class PowerCircuitsService implements OnModuleInit {
         context: 'PowerCircuitsService',
       });
     }
+    await this.healLedCircuitToBreaker();
+  }
+
+  /**
+   * 一次性自愈 (2026-07-22): LED 大屏回路原来指向 RELAY-1F-1 通道 4 —— 那是一台从没到货的
+   * 继电器, 点了没有任何反应。现在真闸装好了 (ePa 智能断路器 + CONV-RTU-2), 把这条回路
+   * 改指 BREAKER-LED-1, 顺便把额定值从占位的 220V/20A/3500W 改成实际的三相 380V/40A/19KW。
+   *
+   * 上面的 seed 遇到已存在的 code 就跳过, 所以生产库的旧行不会被改 —— 只能在这里补。
+   * 只在"值还是当初那个占位值"时才动, 人工调过的一律不碰。
+   */
+  private async healLedCircuitToBreaker(): Promise<void> {
+    const row = await this.repo.findOne({ where: { code: '1f-led' } });
+    if (!row || row.gatewayCode !== 'RELAY-1F-1') return;
+    row.gatewayCode = 'BREAKER-LED-1';
+    row.relayChannel = null;
+    if (row.ratedVoltage === 220) row.ratedVoltage = 380;
+    if (row.ratedCurrent === 20) row.ratedCurrent = 40;
+    if (row.ratedPower === 3500) row.ratedPower = 19000;
+    if (!row.description) row.description = 'LED 大屏远程总闸 (ePa 智能断路器, 三相 40A)';
+    await this.repo.save(row);
+    this.logger.info('电源回路自愈: 1f-led RELAY-1F-1 → BREAKER-LED-1 (真空开已装机)', {
+      context: 'PowerCircuitsService',
+    });
   }
 
   async list(opts: { includeDisabled?: boolean } = {}): Promise<PowerCircuitView[]> {
@@ -218,7 +255,19 @@ export class PowerCircuitsService implements OnModuleInit {
     if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
     if (!row.enabled) throw new ConflictException(`circuit ${row.name} 已禁用`);
 
-    if (await this.isSequencerCircuit(row)) {
+    if (await this.isBreakerCircuit(row)) {
+      // 真·物理总闸: 失败必须抛出去, 绝不能让前端显示"断电成功"而闸没动
+      const r = on
+        ? await this.breaker.turnOn(row.code)
+        : await this.breaker.turnOff(row.code);
+      if (!r.ok) {
+        throw new ConflictException(`空开${on ? '合闸' : '分闸'}失败: ${r.error ?? '未知错误'}`);
+      }
+      this.breakerCache.delete(row.id); // 状态刚变, 别再拿旧读数糊弄前端
+      this.logger.info(`空开${on ? '合闸' : '分闸'}: circuit=${row.code}`, {
+        context: 'PowerCircuitsService',
+      });
+    } else if (await this.isSequencerCircuit(row)) {
       await this.epo.setChannel(row.relayChannel as number, on);
     }
     // mock adapter 仍要跑: 它维护 PowerPage 用的电量/读数状态
@@ -226,6 +275,66 @@ export class PowerCircuitsService implements OnModuleInit {
     else await this.adapter.circuitTurnOff(id);
 
     return this.toView(row);
+  }
+
+  /** 这条回路是不是挂在 ePa 智能断路器上 (不吃 relayChannel, 整台闸就是一条回路) */
+  private async isBreakerCircuit(row: PowerCircuit): Promise<boolean> {
+    if (!row.gatewayCode) return false;
+    try {
+      const hw = await this.hwRepo.findOne({ where: { code: row.gatewayCode } });
+      return hw?.category === 'power-breaker' && hw.enabled;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * 断路器回路的真实读数 —— 三相取值口径:
+   *   voltage = 三相平均 (现场三相基本平衡, 平均值最能代表这条回路)
+   *   current = 三相最大 (40A 保护看的是最重的那一相, 用平均会把偏载藏起来)
+   *   power / energy = 总量 (第 4 个元素就是总)
+   * 读不到就回落到缓存里上一次的好值, 再没有就返回全 0 + on=false, 不让电源页崩。
+   */
+  private async breakerReading(row: PowerCircuit): Promise<PowerReading> {
+    const cached = this.breakerCache.get(row.id);
+    if (cached && Date.now() - cached.at < this.BREAKER_CACHE_TTL_MS) return cached.reading;
+
+    const r = await this.breaker.getMeasurements(row.code);
+    if (!r.ok || !r.data) {
+      this.logger.warn(`空开读数失败 circuit=${row.code}: ${r.error ?? '无数据'}`, {
+        context: 'PowerCircuitsService',
+      });
+      return cached?.reading ?? {
+        on: false, current: 0, voltage: 0, power: 0, powerFactor: 0, energy: 0,
+        lastReadAt: new Date().toISOString(),
+      };
+    }
+    const m: BreakerMeasurements = r.data;
+    const reading: PowerReading = {
+      on: m.switchState === 'closed',
+      voltage: Number((m.voltages.reduce((a, b) => a + b, 0) / 3).toFixed(1)),
+      current: Number(Math.max(...m.currents).toFixed(3)),
+      power: m.powers[3],
+      powerFactor: m.powerFactor,
+      energy: m.energies[3],
+      lastReadAt: new Date().toISOString(),
+    };
+    this.breakerCache.set(row.id, { at: Date.now(), reading });
+    return reading;
+  }
+
+  /** 断路器全量计量 (三相分相 + 温度 + 漏电 + 报警位) — 给运维/详情页看 */
+  async breakerMeasurements(id: number): Promise<BreakerMeasurements> {
+    const row = await this.repo.findOne({ where: { id } });
+    if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
+    if (!(await this.isBreakerCircuit(row))) {
+      throw new ConflictException(`circuit ${row.name} 不是智能断路器回路`);
+    }
+    const r = await this.breaker.getMeasurements(row.code);
+    if (!r.ok || !r.data) {
+      throw new ConflictException(`读空开失败: ${r.error ?? '无数据'}`);
+    }
+    return r.data;
   }
 
   /** 这条回路是不是挂在 EPO-802P 时序器上 */
@@ -248,6 +357,10 @@ export class PowerCircuitsService implements OnModuleInit {
   }
 
   private async toView(row: PowerCircuit): Promise<PowerCircuitView> {
+    // 智能断路器回路: 读真机 (电压/电流/功率/电量都是实测), 不用 mock 的模拟值
+    if (await this.isBreakerCircuit(row)) {
+      return { ...this.baseView(row), reading: await this.breakerReading(row) };
+    }
     const result = await this.adapter.circuitReadStatus(row.id, {
       voltage: row.ratedVoltage,
       current: row.ratedCurrent,
@@ -256,6 +369,11 @@ export class PowerCircuitsService implements OnModuleInit {
     const reading: PowerReading = result.ok && result.data
       ? result.data
       : { on: false, current: 0, voltage: 0, power: 0, powerFactor: 0, energy: 0, lastReadAt: new Date().toISOString() };
+    return { ...this.baseView(row), reading };
+  }
+
+  /** 行字段 → view (不含 reading, 两条读数路径共用) */
+  private baseView(row: PowerCircuit): Omit<PowerCircuitView, 'reading'> {
     return {
       id: row.id,
       code: row.code,
@@ -272,7 +390,6 @@ export class PowerCircuitsService implements OnModuleInit {
       icon: row.icon,
       description: row.description,
       enabled: row.enabled,
-      reading,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };

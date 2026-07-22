@@ -40,7 +40,12 @@ describe('EpaBreakerAdapter · describe() 驱动目录契约', () => {
   it('paramSchema 必填 IP, 有端口/从机号默认值(前端据此生成表单)', () => {
     expect(d.paramSchema?.ip?.required).toBe(true);
     expect(d.paramSchema?.port?.default).toBe(502);
-    expect(d.paramSchema?.slaveId?.default).toBe(1);
+    expect(d.paramSchema?.slaveId?.default).toBe(255);
+  });
+  it('slaveId 上限放到 255 —— 出厂从机号就是 0xFF, 卡在 247 会填不进去', () => {
+    // 2026-07-22 现场实测: 扫 1..247 全部无应答, 只有 255 应答(厂家实测帧里的 FF)
+    expect(d.paramSchema?.slaveId?.max).toBe(255);
+    expect(d.defaultAddressing).toMatchObject({ slaveId: 255 });
   });
 });
 

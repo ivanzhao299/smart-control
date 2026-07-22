@@ -38,12 +38,13 @@ export interface BreakerState {
  * 协议编解码在 epa-breaker-registers.ts(已 16 个金标准测试), 走 ModbusRtuClient 收发,
  * 跟 cy-dali64a 是同一套路(裸 Modbus RTU + CRC16 灌进有人转换器)。
  *
- * 【当前状态: 就绪待联调】
- * 协议层已验证, adapter 结构完整, mock 路径可跑。但设备和转换器**还没到货**, 所以:
- *   - 暂不注册为 NestJS provider、不接进 PowerAdapter 的执行路由(那要动执行主干,
- *     且无真机无法验证)
- *   - DriverRegistryService 只调它的 static describe(), 让它出现在 driver 目录里
- * 真机到货后: 注册 provider + 接进 PowerAdapter + 在 hardware_unit 填转换器 IP, 即联调。
+ * 【当前状态: 2026-07-22 现场联调通过】
+ * 硬件已装(断路器 + 有人 USR-DR304 转换器 192.168.50.21:502, TCP Server 透传, 115200/8N1)。
+ * 已注册为 NestJS provider, PowerCircuitsService 按 gatewayCode → hardware_unit
+ * (category='power-breaker') 路由到本 adapter, 分合闸与计量都走真机。
+ *
+ * **从机地址是 255(0xFF)**, 不是 1 —— 厂家实测帧 FF06010100010DE8 里的 FF 就是它的出厂地址,
+ * 现场扫 1..247 全部无应答, 只有 255 应答。所以 paramSchema 的 slaveId 放开到 255。
  *
  * 连接参数从 hardware_unit(category='power-breaker')的 ip + addressing 读, 5s TTL,
  * 后台改转换器 IP 不重启生效 —— 跟其它 adapter 一致。
@@ -57,7 +58,7 @@ export class EpaBreakerAdapter extends BaseAdapter {
   private modbus: ModbusRtuClient | null = null;
   private host = '';
   private port = 502;
-  private slaveId = 1;
+  private slaveId = 255;
   private endpoint = '';
 
   private dbCache: { host?: string; port?: number; slaveId?: number; at: number } = { at: 0 };
@@ -178,7 +179,8 @@ export class EpaBreakerAdapter extends BaseAdapter {
     const db = await this.getConfigFromDb();
     const host = db?.host ?? process.env.EPA_RTU_HOST ?? '192.168.50.21';
     const port = db?.port ?? Number.parseInt(process.env.EPA_RTU_PORT ?? '502', 10);
-    this.slaveId = db?.slaveId ?? Number.parseInt(process.env.EPA_RTU_SLAVE_ID ?? '1', 10);
+    // 出厂从机号 255(0xFF) —— 见类注释, 不是常规的 1
+    this.slaveId = db?.slaveId ?? Number.parseInt(process.env.EPA_RTU_SLAVE_ID ?? '255', 10);
 
     if (this.modbus && host === this.host && port === this.port) return this.modbus;
 
@@ -270,16 +272,17 @@ export class EpaBreakerAdapter extends BaseAdapter {
       category: 'power-breaker',
       protocol: 'modbus-rtu',
       capabilities: ['turn_on', 'turn_off', 'get_status', 'get_measurements', 'health_check'],
-      defaultAddressing: { port: 502, slaveId: 1 },
+      defaultAddressing: { port: 502, slaveId: 255 },
       paramSchema: {
         ip: { type: 'string', label: 'RTU↔TCP 转换器 IP', required: true, placeholder: '192.168.50.21' },
         port: { type: 'number', label: 'TCP 端口', default: 502, min: 1, max: 65535 },
-        slaveId: { type: 'number', label: 'Modbus 从机号', default: 1, min: 1, max: 247 },
+        // 出厂从机号是 255(0xFF), 超出 Modbus 常规 1-247 —— 现场实测只有 255 应答, 别改回 247
+        slaveId: { type: 'number', label: 'Modbus 从机号', default: 255, min: 1, max: 255 },
       },
       remark:
         '给大屏做远程物理总闸: 合闸/分闸 + 计量. 485 标准 Modbus-RTU(115200/8N1/CRC16), ' +
         '经有人 RTU-TCP 转换器接入(别与 DALI 那台共用, 波特率不同). 分合闸写寄存器 0x0101(1合/2分). ' +
-        '就绪待联调: 协议层已金标准测试, 设备到货填 IP 即用.',
+        '2026-07-22 现场联调通过: 转换器 192.168.50.21:502, 从机号 255.',
     };
   }
 }

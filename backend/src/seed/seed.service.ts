@@ -811,6 +811,42 @@ export class SeedService {
       // 注: 原计划的"独立 LED 播控主机 (Intel NUC11)" 已取消
       // 视频文件和播放统一交给 GK9000 中控主机 (GK9000 有 2 个 HDMI 输出, HDMI1 → V2460)
       // 视频存储路径见 D:\smart-control\media\ 或自定义, ViPlex Express 跑在 GK9000 上
+      // ---- LED 大屏远程总闸 (2026-07-22 装机联调) ----
+      // 走的是 EpaBreakerAdapter: 它按 category='power-breaker' 找这一行读 ip + addressing,
+      // 所以连接参数记在断路器这行上 (ip 填的是转换器 IP, 断路器本身在 485 那头没有 IP).
+      {
+        code: 'BREAKER-LED-1',
+        name: 'LED 大屏远程总闸 (智能断路器)',
+        category: 'power-breaker',
+        vendor: 'ePa',
+        model: '3P-40A 智能断路器',
+        driverKind: 'epa-breaker',
+        ip: '192.168.50.21',
+        floor: '1F',
+        location: '1F 大屏配电箱',
+        // slaveId 是 255(0xFF) 不是 1 —— 出厂从机号, 现场扫 1..247 全部无应答
+        addressing: JSON.stringify({ port: 502, slaveId: 255, baud: 115200, parity: 'N', stop: 1 }),
+        remark:
+          '19KW/三相 LED 大屏物理总闸, 485 标准 Modbus-RTU 经 CONV-RTU-2 接入. ' +
+          '分合闸写寄存器 0x0101 (1合/2分), 计量读 0x0000 起 40 个寄存器. ' +
+          '被控回路不含 GK9000 中控主机 (否则远程分闸=自锁死锁).',
+      },
+      {
+        code: 'CONV-RTU-2',
+        name: 'RS485 RTU↔TCP 转换器 #2 (空开专用)',
+        category: 'rtu-tcp-converter',
+        vendor: '有人 USR',
+        model: 'USR-DR304-C7',
+        driverKind: 'epa-breaker',
+        ip: '192.168.50.21',
+        floor: '1F',
+        location: '1F 大屏配电箱',
+        addressing: JSON.stringify({ port: 502, baud: 115200, parity: 'N', stop: 1, mode: 'TCP Server' }),
+        remark:
+          '专供智能断路器, **不能跟 CONV-RTU-1 共用**: 空开 115200, DALI 锁死 9600, 波特率冲突. ' +
+          '工作方式 TCP Server / 本地端口 502 / 透传 (Modbus 网关功能关闭, 后端自己发 RTU 帧带 CRC). ' +
+          'Web 配置 http://192.168.50.21 admin/admin. 出厂 IP 是 192.168.0.7, 2026-07-22 改到 50 网段.',
+      },
       // ---- 音响 (得胜方案 2 + WTG-800 跟随讲解) ----
       // 协议参考: docs/AUDIO_PROTOCOL_EKX808.md
       // 实现: backend/src/adapters/audio/ekx808-protocol.ts (编解码就绪, 待联调)
