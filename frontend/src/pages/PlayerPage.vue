@@ -152,22 +152,25 @@ async function resolveHdmiDeviceId(): Promise<string | null> {
     const outs = (await navigator.mediaDevices.enumerateDevices())
       .filter((d) => d.kind === 'audiooutput');
     // slot1(LED) 与 slot2(投影) 是两个独立浏览器窗口, 但共用这段代码。必须按 slot
-    // 各自指到**不同**的 HDMI 端点, 否则两路声音会挤到同一个端点、从同一个分区出来。
-    // 现场端点 (2026-07-23 实测, audio-endpoints.ps1):
-    //   slot1 LED  -> "HDMI1.3"      -> HDMI 分离器 -> 矩阵 IN4 -> OUT5(大屏)
-    //   slot2 投影 -> "lontium semi" (融合器 HDMI 端点, HDMI2 那路) -> OUT6(投影)
-    // 之前是 outs.find(/HDMI.../) 不分 slot, 两个窗口都抓到第一个 HDMI 端点
-    // (HDMI1.3), 于是投影的声音跟着 LED 一起从 OUT5 出来 —— 业主报的"两处内容
-    // 都从 LED 通道播出"就是这个根子。
-    const isFusion = (l: string) => /lontium/i.test(l);
-    const isHdmi = (l: string) => /HDMI|显示器音频|Display Audio/i.test(l);
-    const pick = slot.value === 2
-      // 投影: 优先融合器端点 "lontium semi"; 兜底取一个不是 HDMI1 的 HDMI 端点。
-      // 都没有就返回 null -> 声音留在默认设备, 至少不会去污染 OUT5(大屏)。
-      ? (outs.find((d) => isFusion(d.label))
-          ?? outs.find((d) => isHdmi(d.label) && !/HDMI\s*1/i.test(d.label)))
-      // LED: HDMI 端点, 但排除融合器那个 (别把 LED 指到投影去)。
-      : outs.find((d) => isHdmi(d.label) && !isFusion(d.label));
+    // 各自指到**不同**的显示音频端点, 否则两路声音会挤到同一个端点、从同一个分区出来。
+    // 关键: 端点名字会随接线/EDID 变。现场见过两代命名 (2026-07-23 实测):
+    //   LED  端点: "HDMI1.3"      后被现场手工重命名为 "LED_PLAYER_*"
+    //   投影 端点: "lontium semi" (融合器直连) 或 "HDMI2.0" (中间加了 HDMI 音频分离器)
+    // 所以不能只靠 /HDMI/ 正则 (它认不出 "LED_PLAYER_*", 会让 slot1 退而抓到投影的
+    // "HDMI2.0" -> 两路撞一起串音)。改成按**稳定语义锚点**分路:
+    //   - LED  专属端点被命名成 LED_PLAYER_*, 用 /LED[_ ]?PLAYER/ 认;
+    //   - 投影 是 HDMI2 / 融合器(lontium) 那个显示端点, 且明确排除 LED。
+    // 兜底都保证 "不是对方那个端点", 认不出就返回 null (留默认设备, 不污染对方分区)。
+    const isLed = (l: string) => /LED[_ ]?PLAYER/i.test(l);
+    const isProjector = (l: string) => /HDMI\s*2|lontium/i.test(l);
+    const isDisplayAudio = (l: string) => /HDMI|显示器音频|Display Audio|lontium/i.test(l);
+    const pick = slot.value === 1
+      // LED: 优先专属命名端点 LED_PLAYER_*; 兜底取一个"不是投影"的显示端点。
+      ? (outs.find((d) => isLed(d.label))
+          ?? outs.find((d) => isDisplayAudio(d.label) && !isProjector(d.label)))
+      // 投影: 优先 HDMI2 / 融合器端点; 兜底取一个既不是 LED 也不是 HDMI1 的显示端点。
+      : (outs.find((d) => isProjector(d.label))
+          ?? outs.find((d) => isDisplayAudio(d.label) && !isLed(d.label) && !/HDMI\s*1/i.test(d.label)));
     if (pick) cachedHdmiDeviceId = pick.deviceId;
   } catch { /* 这次没解析出来, 等下一轮重试 */ }
   return cachedHdmiDeviceId;
