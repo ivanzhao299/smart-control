@@ -36,6 +36,7 @@ export const HARDWARE_CATEGORIES = [
   'rtu-tcp-converter',// RS-485 RTU ↔ TCP 转换器 (USR-TCP232, Moxa MGate)
   'led-controller',   // LED 大屏控制器 (诺瓦 VX1000)
   'led-player',       // LED 播控主机 (Intel NUC)
+  'projector-fusion', // 投影视频融合器 (JBT-SK-HD02 — 播控协议 TCP 63426, 投影边缘融合)
   'audio-dsp',        // 音响 DSP (得胜 EKX-808 / DSPPA / ITC)
   'audio-guide',      // 智能分区导览 / 跟随讲解 (得胜 WTG-800 等)
   'audio-power',      // 音响电源时序器 (得胜 EPO-802P 等)

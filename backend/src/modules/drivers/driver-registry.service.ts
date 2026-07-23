@@ -11,6 +11,7 @@ import { EkxDspAdapter } from '../../adapters/audio/ekx808.adapter';
 import { ModbusHvacAdapter } from '../../adapters/hvac/modbus-hvac.adapter';
 import { Epo802pAdapter } from '../../adapters/power/epo802p.adapter';
 import { EpaBreakerAdapter } from '../../adapters/power/epa-breaker.adapter';
+import { FusionPlayerAdapter } from '../../adapters/projector/fusion-player.adapter';
 
 /**
  * 启动时把代码里所有 adapter 的 describe() 上报到 driver_template 表 (upsert by kind, builtin=true).
@@ -34,6 +35,8 @@ export class DriverRegistryService implements OnModuleInit {
     () => Epo802pAdapter.describe(),
     // 空开: 协议层已就绪, adapter 待真机联调; 先登记进目录, 让它能被选型/配置
     () => EpaBreakerAdapter.describe(),
+    // 投影融合器: 播控协议层已就绪(31金标准), 设备未到货; 先登记进目录
+    () => FusionPlayerAdapter.describe(),
   ];
 
   async onModuleInit(): Promise<void> {

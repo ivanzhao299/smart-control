@@ -412,4 +412,107 @@ export class TcpClient {
         });
     });
   }
+
+  /**
+   * 发一条命令, 读到出现 terminator 字节 (默认 '>') 立刻返回 (含 terminator)。
+   *
+   * 用于**有明确帧结束符的变长文本协议** —— 投影融合器播控: 响应 `<cmd,…>` 以 '>' 收尾。
+   * 比 sendAndReadAll 的"安静窗口"更快更准: 一见 '>' 立即返回, 不用干等 settleMs。
+   * 一发一收协议, 一帧一个 terminator, 所以见到就是收完了。
+   */
+  async sendAndReadUntil(
+    payload: Buffer | string,
+    terminator = '>',
+    signal?: AbortSignal,
+  ): Promise<Buffer> {
+    const connectTimeout = this.opts.timeoutMs ?? 3000;
+    const term = terminator.charCodeAt(0);
+
+    if (this.opts.keepAlive) {
+      return this.serialized(async () => {
+        const sock = await this.acquirePersistent(signal);
+        try {
+          // 排空上一条命令残留字节, 防跨命令污染
+          let stray: Buffer | null;
+          while ((stray = sock.read() as Buffer | null) !== null) { /* drain */ }
+          return await this.collectUntil(sock, payload, term, connectTimeout, signal);
+        } catch (err) {
+          this.killPersistent();
+          throw err;
+        } finally {
+          this.resetIdleTimer();
+        }
+      });
+    }
+
+    const sock = await this.connectOnce(connectTimeout, signal);
+    try {
+      return await this.collectUntil(sock, payload, term, connectTimeout, signal);
+    } finally {
+      sock.destroy();
+    }
+  }
+
+  /** 在已连接 socket 上: 先挂监听再写, 一见 terminator 字节就返回已收全部字节。 */
+  private collectUntil(
+    sock: Socket,
+    payload: Buffer | string,
+    terminator: number,
+    hardMax: number,
+    signal: AbortSignal | undefined,
+  ): Promise<Buffer> {
+    return new Promise<Buffer>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      let done = false;
+      const finish = (): void => {
+        if (done) return;
+        done = true;
+        cleanup();
+        resolve(Buffer.concat(chunks));
+      };
+      const onData = (chunk: Buffer): void => {
+        chunks.push(chunk);
+        if (chunk.includes(terminator)) finish();  // 一帧一回, terminator 到就是收完
+      };
+      const onError = (err: Error): void => {
+        if (done) return;
+        done = true;
+        cleanup();
+        reject(classifyError(this.opts.deviceType, err));
+      };
+      const onEnd = (): void => finish();
+      const onAbort = (): void => {
+        if (done) return;
+        done = true;
+        cleanup();
+        reject(new DeviceConnectionError(this.opts.deviceType, 'aborted'));
+      };
+      const cleanup = (): void => {
+        clearTimeout(hardTimer);
+        sock.off('data', onData);
+        sock.off('error', onError);
+        sock.off('end', onEnd);
+        if (signal) signal.removeEventListener('abort', onAbort);
+      };
+      const hardTimer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        cleanup();
+        reject(new DeviceConnectionError(this.opts.deviceType, 'read timeout (未见帧结束符)'));
+      }, hardMax);
+
+      if (signal) signal.addEventListener('abort', onAbort, { once: true });
+      // 先挂监听再写 (同 collectSettled: 防回包在挂监听前到达被丢)
+      sock.on('data', onData);
+      sock.on('error', onError);
+      sock.on('end', onEnd);
+      sock.write(payload, (err) => {
+        if (err && !done) {
+          done = true;
+          cleanup();
+          reject(classifyError(this.opts.deviceType, err));
+        }
+      });
+    });
+  }
 }
