@@ -133,9 +133,10 @@ export class FusionPlayerAdapter extends BaseAdapter {
   }
 
   /**
-   * 替换窗口信号源. 返回新窗口 ID (0=失败).
-   * ⚠️ **未在真机验证格式** —— replace 会改源(类似 open, 可能也有前置画布字段)。这里先按
-   *   文档裸格式 `replace_window,<id>,<新源>` 发, 待厂家新版文档或联调确认后修正。
+   * 替换窗口信号源.
+   * ⚠️ **本固件(2.4.25.268)不支持** —— 2026-07-23 实机发 `<replace_window,…>` 回
+   *   `<command_error, can't find command ! command: replace_window>`。要"换源"就 close + open。
+   *   方法保留(mock 可用 + 万一别的固件有), 真机会抛 FusionCommandError, 别接进控制面板。
    */
   async replaceWindow(
     windowId: number,

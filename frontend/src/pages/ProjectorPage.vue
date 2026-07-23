@@ -5,7 +5,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useRouter } from 'vue-router';
-import { ArrowLeft, MonitorPlay, RefreshCw, X, Plus, Volume2, AlertTriangle, Layout, Trash2 } from 'lucide-vue-next';
+import { ArrowLeft, MonitorPlay, RefreshCw, X, Plus, Volume2, AlertTriangle, Layout, Trash2, Play, Pause, SkipBack, SkipForward } from 'lucide-vue-next';
 import { projectorService, type ProjectorStatus } from '@/services/projector.service';
 
 const router = useRouter();
@@ -18,6 +18,7 @@ const busy = ref(false);
 const selectedId = ref<number | null>(null);
 const newSource = ref('');
 const vol = ref(50);
+const playlist = ref<{ currentFile: string; currentIndex: number; files: string[] }>({ currentFile: '', currentIndex: 1, files: [] });
 
 const windows = computed(() => status.value?.windows ?? []);
 const selected = computed(() => windows.value.find((w) => w.id === selectedId.value) ?? null);
@@ -48,6 +49,23 @@ async function selectWindow(id: number): Promise<void> {
     const v = await projectorService.getVolume(id);
     vol.value = v.volume;
   } catch { /* 音量读不到就保持上一个 */ }
+  try {
+    playlist.value = await projectorService.getPlaylist(id);
+  } catch { playlist.value = { currentFile: '', currentIndex: 1, files: [] }; }
+}
+
+async function playPause(id: number, act: 'play' | 'pause'): Promise<void> {
+  await guarded(() => (act === 'play' ? projectorService.play(id) : projectorService.pause(id)),
+    act === 'play' ? '已播放' : '已暂停');
+}
+
+async function playlistStep(id: number, dir: 1 | -1): Promise<void> {
+  const next = playlist.value.currentIndex + dir;
+  if (next < 1) return;
+  await guarded(async () => {
+    await projectorService.setPlaylistIndex(id, next);
+    playlist.value = await projectorService.getPlaylist(id);
+  });
 }
 
 // 布局预设 (归一化 x,y,w,h)
@@ -179,6 +197,9 @@ onUnmounted(() => { if (timer) clearInterval(timer); });
                 {{ l.label }}
               </button>
             </div>
+            <div class="src-note">
+              源名 = 融合器 media 里的文件名。网页 / PPT / 监控 需先在融合器自带软件里"添加源", 再按其名字开窗。
+            </div>
           </div>
 
           <div class="ctl-card" v-if="selected">
@@ -187,6 +208,20 @@ onUnmounted(() => { if (timer) clearInterval(timer); });
               <button class="close-x" @click="closeWindow(selected.id)" :disabled="busy" title="关闭此窗口"><X :size="14" /></button>
             </div>
             <div class="cur-src" :title="selected.source">{{ selected.source || '(无源)' }}</div>
+
+            <!-- 播放控制 -->
+            <div class="play-row">
+              <button class="pp-btn" :disabled="busy" @click="playPause(selected.id, 'play')" title="播放"><Play :size="15" /></button>
+              <button class="pp-btn" :disabled="busy" @click="playPause(selected.id, 'pause')" title="暂停"><Pause :size="15" /></button>
+              <div class="pl-mid">
+                <button class="pp-btn sm" :disabled="busy" @click="playlistStep(selected.id, -1)" title="上一个"><SkipBack :size="14" /></button>
+                <button class="pp-btn sm" :disabled="busy" @click="playlistStep(selected.id, 1)" title="下一个"><SkipForward :size="14" /></button>
+              </div>
+            </div>
+            <div v-if="playlist.files.length > 1" class="pl-info">
+              列表 {{ playlist.currentIndex }}/{{ playlist.files.length }}
+            </div>
+
             <div class="dim sub">摆放</div>
             <div class="layout-grid">
               <button v-for="l in LAYOUTS" :key="l.key" class="lay-btn" :disabled="busy" @click="applyLayout(l.box)">{{ l.label }}</button>
@@ -255,6 +290,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); });
 
 .ctl-col { display: flex; flex-direction: column; gap: var(--v2-sp-3); }
 .src-input { width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: var(--v2-r-sm); background: var(--v2-surf-2); border: 1px solid var(--v2-border-soft); color: var(--v2-text-1); font-size: var(--v2-fs-sm); }
+.src-note { font-size: 10px; color: var(--v2-text-3); line-height: 1.4; margin-top: 8px; }
 .src-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
 .src-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; padding: 3px 8px; border-radius: 999px; background: var(--v2-surf-2); border: 1px solid var(--v2-border-soft); color: var(--v2-text-2); cursor: pointer; }
 .layout-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
@@ -264,6 +300,13 @@ onUnmounted(() => { if (timer) clearInterval(timer); });
 .cur-src { font-size: var(--v2-fs-sm); color: var(--v2-text-1); font-weight: 600; word-break: break-all; margin-bottom: 4px; }
 .close-x { margin-left: auto; width: 24px; height: 24px; display: grid; place-items: center; border-radius: var(--v2-r-sm); background: var(--v2-danger-soft); color: var(--v2-danger); border: none; cursor: pointer; }
 .close-x:disabled { opacity: 0.4; }
+.play-row { display: flex; align-items: center; gap: 8px; margin: 10px 0 2px; }
+.pl-mid { display: flex; gap: 6px; margin-left: auto; }
+.pp-btn { width: 36px; height: 32px; display: grid; place-items: center; border-radius: var(--v2-r-sm); background: var(--v2-surf-2); border: 1px solid var(--v2-border-soft); color: var(--v2-text-1); cursor: pointer; }
+.pp-btn:hover:not(:disabled) { background: var(--v2-primary-soft); color: var(--v2-primary); border-color: var(--v2-primary); }
+.pp-btn.sm { width: 30px; height: 28px; color: var(--v2-text-2); }
+.pp-btn:disabled { opacity: 0.4; cursor: default; }
+.pl-info { font-size: 11px; color: var(--v2-text-3); margin-bottom: 4px; }
 .vol-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: var(--v2-text-2); }
 .vol-row input[type=range] { flex: 1; accent-color: var(--v2-primary); }
 .vol-num { font-size: 12px; color: var(--v2-text-1); min-width: 26px; text-align: right; }

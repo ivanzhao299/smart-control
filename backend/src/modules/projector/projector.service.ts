@@ -81,6 +81,32 @@ export class ProjectorService {
     return { volume: r.volume ?? 0, muted: r.muted ?? false };
   }
 
+  // ============ 播放控制 (2026-07-23 实机验通, doc 格式) ============
+
+  /** 让暂停的窗口继续播 */
+  async play(id: number): Promise<void> {
+    this.expectOk(await this.fusion.playWindow(id), '播放');
+  }
+
+  /** 暂停窗口 */
+  async pause(id: number): Promise<void> {
+    this.expectOk(await this.fusion.pauseWindow(id), '暂停');
+  }
+
+  /** 读窗口的播放列表: 当前文件 + 当前序号(从1) + 全部文件 */
+  async getPlaylist(id: number): Promise<{ currentFile: string; currentIndex: number; files: string[] }> {
+    const r = this.unwrap(await this.fusion.getPlaylist(id));
+    if (!r.ok) throw new BadRequestException(`读播放列表失败: ${r.error ?? '未知'}`);
+    return { currentFile: r.currentFile ?? '', currentIndex: r.currentIndex ?? 1, files: r.files ?? [] };
+  }
+
+  /** 切到播放列表里第 index 个(从1开始). 1成功/0失败(到头返回失败, 前端据此不越界)。 */
+  async setPlaylistIndex(id: number, index: number): Promise<boolean> {
+    if (index < 1) throw new BadRequestException('序号从 1 开始');
+    const r = this.unwrap(await this.fusion.setPlaylistCurrent(id, index));
+    return r.ok;
+  }
+
   // ============ 内部 ============
 
   private assertNorm(vals: Record<string, number>): void {

@@ -33,4 +33,10 @@ export const projectorService = {
     api.get<{ volume: number; muted: boolean }>(`/projector/windows/${id}/volume`),
   setVolume: (id: number, volume: number) =>
     api.post<{ volume: number; muted: boolean }>(`/projector/windows/${id}/volume`, { volume }),
+  play: (id: number) => api.post<null>(`/projector/windows/${id}/play`),
+  pause: (id: number) => api.post<null>(`/projector/windows/${id}/pause`),
+  getPlaylist: (id: number) =>
+    api.get<{ currentFile: string; currentIndex: number; files: string[] }>(`/projector/windows/${id}/playlist`),
+  setPlaylistIndex: (id: number, index: number) =>
+    api.post<{ ok: boolean }>(`/projector/windows/${id}/playlist`, { index }),
 };

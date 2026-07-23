@@ -73,4 +73,33 @@ export class ProjectorController {
   async setVolume(@Param('id', ParseIntPipe) id: number, @Body() b: { volume: number }) {
     return { message: '调音量成功', data: await this.service.setVolume(id, b.volume) };
   }
+
+  @Post('windows/:id/play')
+  @UseGuards(RateLimitGuard)
+  @RateLimit({ max: 8, windowMs: 1000 })
+  async play(@Param('id', ParseIntPipe) id: number) {
+    await this.service.play(id);
+    return { message: '已播放', data: null };
+  }
+
+  @Post('windows/:id/pause')
+  @UseGuards(RateLimitGuard)
+  @RateLimit({ max: 8, windowMs: 1000 })
+  async pause(@Param('id', ParseIntPipe) id: number) {
+    await this.service.pause(id);
+    return { message: '已暂停', data: null };
+  }
+
+  @Get('windows/:id/playlist')
+  async getPlaylist(@Param('id', ParseIntPipe) id: number) {
+    return { message: '查询成功', data: await this.service.getPlaylist(id) };
+  }
+
+  @Post('windows/:id/playlist')
+  @UseGuards(RateLimitGuard)
+  @RateLimit({ max: 8, windowMs: 1000 })
+  async setPlaylist(@Param('id', ParseIntPipe) id: number, @Body() b: { index: number }) {
+    const ok = await this.service.setPlaylistIndex(id, b.index);
+    return { message: ok ? '已切换' : '切换失败(可能到头了)', data: { ok } };
+  }
 }
