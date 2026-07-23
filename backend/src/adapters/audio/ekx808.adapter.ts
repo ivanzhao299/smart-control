@@ -460,8 +460,27 @@ export class EkxDspAdapter extends BaseAdapter {
    *
    * 别逐点读: 64 个点 × ~280ms ≈ 18s (EKX 单客户端 + 串行锁, 快不了)。
    */
+  /**
+   * 网关已知离线时直接快速失败, 别在死连接上排队干等。
+   *
+   * EKX 是单客户端 + send() 串行锁: 设备掉线后, 每条读命令都要等满 timeoutMs(3s) 才失败,
+   * 后台 8s 一轮的矩阵轮询会持续占着这把锁。此时前端来一发 matrix/live 会**排在一串
+   * 3s 超时的命令后面**, 整个请求挂十几秒才回 → 音响页看着就是"矩阵状态为空"。
+   * 一旦 ConnectionRegistry 已把它标 offline/reconnecting, 就没必要再连了, 立刻抛
+   * 明确的"离线"错, 让前端秒显"音频矩阵离线, 查电源/网线", 而不是转圈变空。
+   * 注意: 只挡 UI 的批量读, 不挡 ping/healthCheck —— 那两个还要继续探测, 好了才能标回 online。
+   */
+  private failFastIfOffline(): void {
+    if (this.isMock()) return;
+    const st = this.registry.get(GATEWAY_KEY)?.state;
+    if (st === 'offline' || st === 'reconnecting' || st === 'error') {
+      throw new Error(`音频矩阵离线: EKX-808 (${this.host}:${this.port}) 连不上, 请检查设备电源与网线`);
+    }
+  }
+
   async readFullMatrix(ctx?: AdapterContext): Promise<AdapterResult<{ matrix: boolean[][] }>> {
     return this.run('audio-dsp', 'readFullMatrix', ctx, async () => {
+      this.failFastIfOffline();
       const resp = await this.send(cmdReadFullMatrix(this.devAddr), ctx?.signal, true);
       const matrix = parseFullMatrix(resp);
       if (!matrix) {
@@ -481,6 +500,7 @@ export class EkxDspAdapter extends BaseAdapter {
     ctx?: AdapterContext,
   ): Promise<AdapterResult<{ channels: Array<{ ch: number; gainDb: number | null; muted: boolean | null }> }>> {
     return this.run('audio-dsp', 'readInputChannels', ctx, async () => {
+      this.failFastIfOffline();  // 16 次往返, 离线时更该早退, 别干等 16×3s
       const channels: Array<{ ch: number; gainDb: number | null; muted: boolean | null }> = [];
       for (let ch = 0; ch < 8; ch += 1) {
         let gainDb: number | null = null;

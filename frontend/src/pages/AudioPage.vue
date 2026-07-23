@@ -92,6 +92,9 @@ async function loadAudioAssets(): Promise<void> {
  * "全部断开", 那同样是假的。
  */
 const matrixStale = ref(false);
+/** 矩阵设备离线(EKX-808 连不上) —— 跟"偶发读失败"分开, 单独给一条醒目提示 */
+const matrixOffline = ref(false);
+const matrixErrMsg = ref('');
 async function loadMatrixState(): Promise<void> {
   try {
     const r = await audioService.getLiveMatrix();
@@ -102,8 +105,14 @@ async function loadMatrixState(): Promise<void> {
     });
     matrixOn.value = next;
     matrixStale.value = false;
-  } catch {
+    matrixOffline.value = false;
+    matrixErrMsg.value = '';
+  } catch (e) {
     matrixStale.value = true;
+    const msg = (e as Error).message || '';
+    matrixErrMsg.value = msg;
+    // 后端离线快速失败会带"离线/连不上"; 超时类也归为离线
+    matrixOffline.value = /离线|连不上|offline|timed?\s*out|timeout/i.test(msg);
   }
 }
 /** 加进 BGM 播放列表 —— 落库, 不再只存本地 (换设备就没了) */
@@ -1116,6 +1125,11 @@ async function toggleMuteAll(): Promise<void> {
 
     <!-- 音源矩阵 (EKX-808 8x8 路由) -->
     <section v-if="audioTab === 'matrix'" class="matrix-section">
+      <div v-if="matrixOffline" class="mx-offline">
+        <strong>⚠ 音频矩阵离线</strong>
+        <span>{{ matrixErrMsg || 'EKX-808 (192.168.50.61) 连不上' }}</span>
+        <span class="mx-offline-hint">音频矩阵是全场声音的中枢 —— 它离线时所有分区都没声。请到功放/音频机柜检查 EKX-808 的电源和网线（改投影/融合器接线时最容易被碰掉）。设备恢复上电联网后会自动重连。</span>
+      </div>
       <header class="block-head matrix-head">
         <h2 class="block-title">
           <span class="accent">●</span>音源矩阵
@@ -1698,6 +1712,14 @@ async function toggleMuteAll(): Promise<void> {
   background: #3a2a1c; border: 1px solid #6b4526;
 }
 .mx-loading { margin-left: 10px; font-size: 11px; font-weight: 400; color: #6d7f98; }
+.mx-offline {
+  display: flex; flex-direction: column; gap: 4px;
+  margin-bottom: 14px; padding: 12px 16px; border-radius: 10px;
+  background: rgba(229, 100, 93, 0.14); border: 1px solid rgba(229, 100, 93, 0.5);
+}
+.mx-offline strong { color: #ff8f88; font-size: 15px; }
+.mx-offline > span { color: #ffb3ad; font-size: 13px; }
+.mx-offline .mx-offline-hint { color: #d69a96; font-size: 12px; line-height: 1.5; font-weight: 400; }
 /* 增益没读到时显示 "—", 灰掉, 别让人以为是个真数 */
 .ig-val.unknown { color: #55637a; font-style: italic; }
 </style>
