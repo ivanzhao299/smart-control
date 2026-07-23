@@ -32,6 +32,8 @@ export interface PowerCircuitView {
   icon: string | null;
   description: string | null;
   enabled: boolean;
+  /** 是不是智能断路器回路 (前端据此显示空开专属详情 + 隐藏"CH -") */
+  isBreaker: boolean;
   /** 实时数据 (从 adapter 拉, mock 时为模拟值) */
   reading: PowerReading;
   createdAt: Date;
@@ -357,9 +359,10 @@ export class PowerCircuitsService implements OnModuleInit {
   }
 
   private async toView(row: PowerCircuit): Promise<PowerCircuitView> {
+    const isBreaker = await this.isBreakerCircuit(row);
     // 智能断路器回路: 读真机 (电压/电流/功率/电量都是实测), 不用 mock 的模拟值
-    if (await this.isBreakerCircuit(row)) {
-      return { ...this.baseView(row), reading: await this.breakerReading(row) };
+    if (isBreaker) {
+      return { ...this.baseView(row), isBreaker, reading: await this.breakerReading(row) };
     }
     const result = await this.adapter.circuitReadStatus(row.id, {
       voltage: row.ratedVoltage,
@@ -369,11 +372,11 @@ export class PowerCircuitsService implements OnModuleInit {
     const reading: PowerReading = result.ok && result.data
       ? result.data
       : { on: false, current: 0, voltage: 0, power: 0, powerFactor: 0, energy: 0, lastReadAt: new Date().toISOString() };
-    return { ...this.baseView(row), reading };
+    return { ...this.baseView(row), isBreaker, reading };
   }
 
-  /** 行字段 → view (不含 reading, 两条读数路径共用) */
-  private baseView(row: PowerCircuit): Omit<PowerCircuitView, 'reading'> {
+  /** 行字段 → view (不含 reading / isBreaker, 两条读数路径共用) */
+  private baseView(row: PowerCircuit): Omit<PowerCircuitView, 'reading' | 'isBreaker'> {
     return {
       id: row.id,
       code: row.code,

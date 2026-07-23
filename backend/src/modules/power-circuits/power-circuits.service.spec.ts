@@ -159,6 +159,7 @@ describe('PowerCircuitsService · 断路器实时读数', () => {
   it('读数取真机值: 电压三相平均, 电流取最重一相, 功率/电量取总', async () => {
     const { svc } = makeService();
     const v = await svc.detail(4);
+    expect(v.isBreaker).toBe(true);                  // 前端据此显示空开详情
     expect(v.reading.voltage).toBeCloseTo(240.2, 1); // (239.9+240.1+240.6)/3
     expect(v.reading.current).toBe(31.2);            // 最大相, 不是平均
     expect(v.reading.power).toBe(19070);             // 总功率
@@ -191,6 +192,11 @@ describe('PowerCircuitsService · 断路器实时读数', () => {
     expect(v.reading.on).toBe(false);
     expect(v.reading.voltage).toBe(0);
     expect(v.name).toBe('一层 LED 大屏'); // 行字段照常返回
+  });
+
+  it('非断路器回路 isBreaker=false (前端不显示空开详情)', async () => {
+    const { svc } = makeService({ hwCategory: 'power-relay' });
+    expect((await svc.detail(4)).isBreaker).toBe(false);
   });
 
   it('合分闸后立刻失效缓存 —— 别拿旧读数糊弄前端', async () => {

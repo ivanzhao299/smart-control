@@ -4,11 +4,13 @@ import { ElMessage } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
   ArrowLeft, Zap, Power, X, RefreshCw, Activity, Gauge, Lightbulb, Plug,
-  MonitorPlay, Snowflake, Volume2,
+  MonitorPlay, Snowflake, Volume2, ChevronDown, Thermometer, Droplet,
+  AlertTriangle, ShieldCheck,
 } from 'lucide-vue-next';
 import {
   powerCircuitsService,
   type PowerCircuitView,
+  type BreakerMeasurements,
 } from '@/services/power-circuits.service';
 
 const ICON_MAP: Record<string, typeof Zap> = {
@@ -85,6 +87,28 @@ async function dispatchOne(c: PowerCircuitView, op: 'on' | 'off'): Promise<void>
   }
 }
 
+// 空开专属详情 (三相分相 + 温度 + 漏电 + 报警) — 只对 isBreaker 回路, 点开才拉
+const expandedId = ref<number | null>(null);
+const breakerDetail = ref<Record<number, BreakerMeasurements>>({});
+const breakerLoading = ref<Set<number>>(new Set());
+
+async function toggleBreaker(c: PowerCircuitView): Promise<void> {
+  if (expandedId.value === c.id) { expandedId.value = null; return; }
+  expandedId.value = c.id;
+  if (!breakerDetail.value[c.id]) await loadBreaker(c.id);
+}
+
+async function loadBreaker(id: number): Promise<void> {
+  breakerLoading.value.add(id);
+  try {
+    breakerDetail.value[id] = await powerCircuitsService.breaker(id);
+  } catch (err) {
+    ElMessage.error(`读空开详情失败: ${(err as Error).message}`);
+  } finally {
+    breakerLoading.value.delete(id);
+  }
+}
+
 async function dispatchMany(targets: PowerCircuitView[], op: 'on' | 'off'): Promise<void> {
   for (const c of targets) {
     await dispatchOne(c, op);
@@ -117,6 +141,8 @@ function startRefresh(): void {
       void powerCircuitsService.list().then((rows) => {
         circuits.value = rows;
       }).catch(() => { /* 静默 */ });
+      // 展开着的空开详情也顺带刷新 (三相/温度实时变化)
+      if (expandedId.value != null) void loadBreaker(expandedId.value);
     }
   }, 5000);
 }
@@ -240,13 +266,16 @@ onUnmounted(() => { stopRefresh(); });
         v-for="c in filteredCircuits"
         :key="c.id"
         class="circuit-card"
-        :class="{ on: c.reading.on }"
+        :class="{ on: c.reading.on, breaker: c.isBreaker }"
       >
         <!-- 顶部 -->
         <div class="card-top">
           <div class="card-ico"><component :is="iconFor(c.icon)" :size="22" :stroke-width="1.8" /></div>
           <div class="card-meta">
-            <div class="card-name">{{ c.name }}</div>
+            <div class="card-name">
+              {{ c.name }}
+              <span v-if="c.isBreaker" class="breaker-badge" title="智能断路器 · 远程物理总闸">总闸</span>
+            </div>
             <div class="card-floor">{{ c.floor }} · {{ c.ratedVoltage }}V {{ c.ratedCurrent }}A</div>
           </div>
           <button
@@ -289,10 +318,71 @@ onUnmounted(() => { stopRefresh(); });
         <!-- 底部 chip 行 -->
         <div class="chip-row">
           <span class="chip" :data-category="c.category">{{ c.category }}</span>
-          <span v-if="c.gatewayCode" class="chip muted">CH {{ c.relayChannel ?? '-' }}</span>
+          <span v-if="c.isBreaker" class="chip muted">485 空开</span>
+          <span v-else-if="c.relayChannel != null" class="chip muted">CH {{ c.relayChannel }}</span>
           <span class="chip" :class="c.reading.on ? 'on' : 'off'">
             {{ c.reading.on ? '通电' : '断电' }}
           </span>
+          <button
+            v-if="c.isBreaker"
+            class="detail-toggle"
+            :class="{ open: expandedId === c.id }"
+            @click="toggleBreaker(c)"
+            :title="expandedId === c.id ? '收起空开详情' : '展开空开详情'"
+          >
+            详情 <ChevronDown :size="13" :stroke-width="2.2" />
+          </button>
+        </div>
+
+        <!-- 空开专属详情: 三相分相 + 温度 + 漏电 + 报警 -->
+        <div v-if="c.isBreaker && expandedId === c.id" class="breaker-detail">
+          <div v-if="breakerLoading.has(c.id) && !breakerDetail[c.id]" class="bd-loading">
+            <RefreshCw :size="14" class="spin" /> 读取中…
+          </div>
+          <template v-else-if="breakerDetail[c.id]">
+            <!-- 报警条 -->
+            <div
+              class="bd-alarm"
+              :class="breakerDetail[c.id].alarms.any ? 'bad' : 'ok'"
+            >
+              <component :is="breakerDetail[c.id].alarms.any ? AlertTriangle : ShieldCheck" :size="14" :stroke-width="2" />
+              {{ breakerDetail[c.id].alarms.any ? '有电气报警 — 请检查' : '无电气报警' }}
+            </div>
+
+            <!-- 三相分相表 -->
+            <table class="bd-phase">
+              <thead>
+                <tr><th></th><th>A 相</th><th>B 相</th><th>C 相</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="bd-rk">电压 V</td>
+                  <td v-for="(v, i) in breakerDetail[c.id].voltages" :key="'v' + i" class="v2-inter">{{ v.toFixed(1) }}</td>
+                </tr>
+                <tr>
+                  <td class="bd-rk">电流 A</td>
+                  <td v-for="(a, i) in breakerDetail[c.id].currents" :key="'a' + i" class="v2-inter">{{ a.toFixed(2) }}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <!-- 温度 + 漏电 + PF/频率 -->
+            <div class="bd-row">
+              <div class="bd-item"><Thermometer :size="13" :stroke-width="2" /> 接线柱
+                <span class="v2-inter">{{ breakerDetail[c.id].temperatures.map((t) => t.toFixed(0)).join(' / ') }}</span> ℃
+              </div>
+              <div class="bd-item" :class="{ warn: breakerDetail[c.id].leakageCurrent > 0.03 }">
+                <Droplet :size="13" :stroke-width="2" /> 漏电
+                <span class="v2-inter">{{ (breakerDetail[c.id].leakageCurrent * 1000).toFixed(0) }}</span> mA
+              </div>
+              <div class="bd-item"><Gauge :size="13" :stroke-width="2" /> PF
+                <span class="v2-inter">{{ breakerDetail[c.id].powerFactor.toFixed(2) }}</span>
+              </div>
+              <div class="bd-item"><Activity :size="13" :stroke-width="2" /> 频率
+                <span class="v2-inter">{{ breakerDetail[c.id].frequency }}</span> Hz
+              </div>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -644,6 +734,81 @@ onUnmounted(() => { stopRefresh(); });
 .chip[data-category="led"]      { background: rgba(76, 154, 255, 0.18); color: #67E8F9; border-color: rgba(76, 154, 255, 0.45); }
 .chip[data-category="audio"]    { background: rgba(63, 191, 135, 0.18); color: #5FCB9B; border-color: rgba(63, 191, 135, 0.45); }
 .chip[data-category="misc"]     { background: var(--v2-ov-2); color: #9BA1A9; border-color: var(--v2-border-soft); }
+
+/* ============ 空开专属: 总闸标记 + 详情面板 ============ */
+.circuit-card.breaker { border-color: var(--v2-warning-soft); }
+.breaker-badge {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--v2-warning-soft);
+  color: var(--v2-warning);
+  border: 1px solid var(--v2-warning-soft);
+}
+.detail-toggle {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  background: var(--v2-surf-1);
+  color: var(--v2-text-2);
+  border: 1px solid var(--v2-border-soft);
+  transition: background 0.15s, color 0.15s;
+}
+.detail-toggle:hover { background: var(--v2-surf-1-hover); color: var(--v2-text-1); }
+.detail-toggle svg { transition: transform 0.2s; }
+.detail-toggle.open svg { transform: rotate(180deg); }
+
+.breaker-detail {
+  margin-top: var(--v2-sp-2);
+  padding-top: var(--v2-sp-3);
+  border-top: 1px dashed var(--v2-border-soft);
+  display: flex;
+  flex-direction: column;
+  gap: var(--v2-sp-3);
+}
+.bd-loading {
+  display: flex; align-items: center; gap: 6px;
+  font-size: var(--v2-fs-sm); color: var(--v2-text-3);
+}
+.spin { animation: bd-spin 0.9s linear infinite; }
+@keyframes bd-spin { to { transform: rotate(360deg); } }
+
+.bd-alarm {
+  display: flex; align-items: center; gap: 6px;
+  font-size: var(--v2-fs-sm); font-weight: 600;
+  padding: 5px 10px; border-radius: var(--v2-r-sm);
+}
+.bd-alarm.ok  { background: var(--v2-success-soft); color: var(--v2-success, #3FBF87); }
+.bd-alarm.bad { background: var(--v2-danger-soft);  color: var(--v2-danger, #E5645D); }
+
+.bd-phase { width: 100%; border-collapse: collapse; font-size: 12px; }
+.bd-phase th, .bd-phase td {
+  text-align: right; padding: 3px 6px;
+  border-bottom: 1px solid var(--v2-border-soft);
+}
+.bd-phase th { color: var(--v2-text-3); font-weight: 600; font-size: 10px; text-transform: uppercase; }
+.bd-phase td { color: var(--v2-text-1); }
+.bd-phase .bd-rk { text-align: left; color: var(--v2-text-3); }
+
+.bd-row { display: flex; flex-wrap: wrap; gap: var(--v2-sp-2) var(--v2-sp-4); }
+.bd-item {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--v2-text-2);
+}
+.bd-item .v2-inter { color: var(--v2-text-1); font-weight: 600; }
+.bd-item.warn, .bd-item.warn .v2-inter { color: var(--v2-warning); }
 
 /* 状态 */
 .state-card {
