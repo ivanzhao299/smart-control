@@ -292,5 +292,10 @@ if ($reattached) {
   Log ('stale slots: ' + ($stale -join ',') + ' -> restarting players')
 }
 $launcher = Join-Path $PSScriptRoot 'start-players.ps1'
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher
+# Capture start-players output into this log so the session-2 display layout it
+# sees (Get-ProjectorRect prints every screen's primary flag + bounds), the rect
+# it chose for slot2, and the Force-ExactFullscreen pin result are all visible
+# from SSH. Without this the projector-window placement is invisible off-console.
+$spOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher *>&1
+foreach ($line in $spOut) { Log ('  [start-players] ' + $line) }
 Log 'start-players.ps1 issued'
