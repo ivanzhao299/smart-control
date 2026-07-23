@@ -2,12 +2,17 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { FusionPlayerAdapter } from '../../adapters/projector/fusion-player.adapter';
 import type { FusionWindow } from '../../adapters/projector/fusion-player-protocol';
 
+/** HDMI 输入源名 (实测融合器只认大写 HDMI) —— 显示 GK9000 HDMI2 推来的画面 */
+const HDMI_SOURCE = 'HDMI';
+
 export interface ProjectorStatus {
   version: string;
   kind: string;
   /** 预案是否在运行 (运行时窗口操作会失效) */
   planRunning: boolean;
   windows: FusionWindow[];
+  /** 是否正在显示 GK9000 的 HDMI 输入 (模型A: 投影应始终显示这个) */
+  showingHdmi: boolean;
 }
 
 /**
@@ -29,12 +34,28 @@ export class ProjectorService {
       this.fusion.getRunningPlan(),
       this.fusion.enumWindows(),
     ]);
+    const windows = wins.ok && wins.data ? wins.data : [];
     return {
       version: ver.ok && ver.data ? ver.data.version : '',
       kind: ver.ok && ver.data ? ver.data.kind : '',
       planRunning: plan.ok && plan.data ? plan.data.running : false,
-      windows: wins.ok && wins.data ? wins.data : [],
+      windows,
+      showingHdmi: windows.some((w) => w.source === HDMI_SOURCE),
     };
+  }
+
+  /**
+   * 模型A 一键: 让投影显示 GK9000 的 HDMI 输入。
+   * 关掉融合器所有内部媒体窗口, 开一个全屏 HDMI 窗口。之后投影 = GK9000 HDMI2 推来的画面
+   * (边缘融合到两台投影)。内容切换走 GK9000 播控(slot2 播放列表), 融合器只管融合显示。
+   */
+  async showHdmiInput(): Promise<void> {
+    const wins = this.unwrap(await this.fusion.enumWindows());
+    for (const w of wins) {
+      if (w.id >= 0) await this.fusion.closeWindow(w.id); // 只关 open 出来的数字 id 窗口
+    }
+    const r = this.unwrap(await this.fusion.openWindow(HDMI_SOURCE, 0, 0, 1, 1));
+    if (!r.ok) throw new BadRequestException(`切到 HDMI 输入失败: ${r.error ?? '未知(源名要大写 HDMI)'}`);
   }
 
   async listWindows(): Promise<FusionWindow[]> {

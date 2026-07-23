@@ -1,324 +1,101 @@
 <script setup lang="ts">
-// 投影视频融合器 (JBT-SK-HD02) 控制面板 —— 走后端 /api/projector/* (已实机验通的核心命令)。
-// 2026-07-23 重写: 原来这页是 in-house PlayerConsole slot2(GK9000 渲染 HDMI2), 跟现场这台
-// 融合器是两套。现在直接控这台融合器: 看/摆/切/关窗口 + 音量。
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+// 投影仪页 (模型A, 2026-07-23 定): 投影内容由 GK9000 出 —— 跟 LED 一样用 PlayerConsole 管
+// 媒体库/播放列表/选片/切换/上传, 推到 slot2 → GK9000 渲染 HDMI2 → 融合器显示 HDMI 输入
+// (边缘融合到两台投影)。融合器只做"融合显示", 固定显示 GK9000 的 HDMI 输入。
+//
+// 顶部一条"投影输出"控制条: 显示融合器现在放的是不是 GK9000 的 HDMI 输入, 一键切回。
+// (之前那版直控融合器窗口的完整面板是模型B, 业主选了模型A, 收成这条。)
+import { onMounted, onUnmounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
-import { useRouter } from 'vue-router';
-import { ArrowLeft, MonitorPlay, RefreshCw, X, Plus, Volume2, AlertTriangle, Layout, Trash2, Play, Pause, SkipBack, SkipForward } from 'lucide-vue-next';
-import { projectorService, type ProjectorStatus } from '@/services/projector.service';
+import { MonitorPlay, Check, AlertTriangle, RefreshCw } from 'lucide-vue-next';
+import PlayerConsole from '@/components/PlayerConsole.vue';
+import { projectorService } from '@/services/projector.service';
 
-const router = useRouter();
-function goBack(): void { router.push({ name: 'dashboard' }); }
-
-const status = ref<ProjectorStatus | null>(null);
-const loading = ref(false);
-const loadError = ref<string | null>(null);
+const showingHdmi = ref<boolean | null>(null); // null = 还没读到/连不上
+const fusionErr = ref('');
 const busy = ref(false);
-const selectedId = ref<number | null>(null);
-const newSource = ref('');
-const vol = ref(50);
-const playlist = ref<{ currentFile: string; currentIndex: number; files: string[] }>({ currentFile: '', currentIndex: 1, files: [] });
 
-const windows = computed(() => status.value?.windows ?? []);
-const selected = computed(() => windows.value.find((w) => w.id === selectedId.value) ?? null);
-/** 可控窗口: 排除默认播放窗口(id=-1, enum 里 id 空, 不能用数字 id 操作) */
-const controllable = computed(() => windows.value.filter((w) => w.id >= 0));
-/** 现有窗口用过的源, 给"开窗"快速填 */
-const knownSources = computed(() => Array.from(new Set(windows.value.map((w) => w.source).filter(Boolean))));
-
-async function load(): Promise<void> {
-  loading.value = true;
-  loadError.value = null;
+async function loadFusion(): Promise<void> {
   try {
-    status.value = await projectorService.status();
-    if (selectedId.value != null && !windows.value.some((w) => w.id === selectedId.value)) {
-      selectedId.value = null;
-    }
-  } catch (err) {
-    loadError.value = (err as Error).message;
-  } finally {
-    loading.value = false;
+    const s = await projectorService.status();
+    showingHdmi.value = s.showingHdmi;
+    fusionErr.value = '';
+  } catch (e) {
+    showingHdmi.value = null;
+    fusionErr.value = (e as Error).message;
   }
 }
 
-async function selectWindow(id: number): Promise<void> {
-  if (id < 0) return;
-  selectedId.value = id;
-  try {
-    const v = await projectorService.getVolume(id);
-    vol.value = v.volume;
-  } catch { /* 音量读不到就保持上一个 */ }
-  try {
-    playlist.value = await projectorService.getPlaylist(id);
-  } catch { playlist.value = { currentFile: '', currentIndex: 1, files: [] }; }
-}
-
-async function playPause(id: number, act: 'play' | 'pause'): Promise<void> {
-  await guarded(() => (act === 'play' ? projectorService.play(id) : projectorService.pause(id)),
-    act === 'play' ? '已播放' : '已暂停');
-}
-
-async function playlistStep(id: number, dir: 1 | -1): Promise<void> {
-  const next = playlist.value.currentIndex + dir;
-  if (next < 1) return;
-  await guarded(async () => {
-    await projectorService.setPlaylistIndex(id, next);
-    playlist.value = await projectorService.getPlaylist(id);
-  });
-}
-
-// 布局预设 (归一化 x,y,w,h)
-const LAYOUTS: Array<{ key: string; label: string; box: [number, number, number, number] }> = [
-  { key: 'full', label: '全屏', box: [0, 0, 1, 1] },
-  { key: 'left', label: '左半', box: [0, 0, 0.5, 1] },
-  { key: 'right', label: '右半', box: [0.5, 0, 0.5, 1] },
-  { key: 'tl', label: '左上', box: [0, 0, 0.5, 0.5] },
-  { key: 'tr', label: '右上', box: [0.5, 0, 0.5, 0.5] },
-  { key: 'bl', label: '左下', box: [0, 0.5, 0.5, 0.5] },
-  { key: 'br', label: '右下', box: [0.5, 0.5, 0.5, 0.5] },
-  { key: 'pip', label: '角落画中画', box: [0.72, 0.03, 0.25, 0.25] },
-];
-
-async function guarded(fn: () => Promise<unknown>, okMsg?: string): Promise<void> {
+async function switchToGk(): Promise<void> {
   if (busy.value) return;
   busy.value = true;
   try {
-    await fn();
-    if (okMsg) ElMessage.success(okMsg);
-    await load();
-  } catch (err) {
-    ElMessage.error((err as Error).message);
+    await projectorService.showHdmi();
+    ElMessage.success('已让投影切回 GK9000 画面');
+    await loadFusion();
+  } catch (e) {
+    ElMessage.error(`切换失败: ${(e as Error).message}`);
   } finally {
     busy.value = false;
   }
 }
 
-async function applyLayout(box: [number, number, number, number]): Promise<void> {
-  const w = selected.value;
-  if (!w) return;
-  await guarded(async () => {
-    await projectorService.move(w.id, box[0], box[1]);
-    await projectorService.resize(w.id, box[2], box[3]);
-  }, '布局已应用');
-}
-
-async function openWindow(box: [number, number, number, number]): Promise<void> {
-  const src = newSource.value.trim();
-  if (!src) { ElMessage.warning('请先填信号源名称'); return; }
-  await guarded(async () => {
-    const r = await projectorService.open(src, box[0], box[1], box[2], box[3]);
-    selectedId.value = r.windowId;
-  }, '已开窗');
-}
-
-async function closeWindow(id: number): Promise<void> {
-  await guarded(() => projectorService.close(id), '已关窗');
-}
-async function cleanAll(): Promise<void> {
-  await guarded(() => projectorService.clean(), '已清空窗口');
-}
-function onVolChange(e: Event): void {
-  const id = selectedId.value;
-  if (id == null || id < 0) return;
-  const v = +(e.target as HTMLInputElement).value;
-  vol.value = v;
-  void guarded(() => projectorService.setVolume(id, v));
-}
-
 let timer: ReturnType<typeof setInterval> | null = null;
 onMounted(() => {
-  void load();
-  timer = setInterval(() => { if (!busy.value) void load(); }, 4000);
+  void loadFusion();
+  timer = setInterval(() => { if (!busy.value) void loadFusion(); }, 8000);
 });
 onUnmounted(() => { if (timer) clearInterval(timer); });
 </script>
 
 <template>
-  <section class="v2-page">
-    <header class="v2-page-head">
-      <div class="back-row">
-        <button class="v2-back-btn" @click="goBack" title="返回首页">
-          <ArrowLeft :size="18" :stroke-width="2" />
-        </button>
-        <div class="title"><MonitorPlay :size="18" :stroke-width="1.8" /> 投影融合器</div>
-      </div>
-      <div class="head-right">
-        <span v-if="status" class="chip" :class="status.kind === 'FUSION' ? 'ok' : ''">
-          {{ status.kind || '—' }} · v{{ status.version || '—' }}
-        </span>
-        <button class="v2-quick" @click="load" :disabled="loading" title="刷新">
-          <RefreshCw :size="14" :class="{ spin: loading }" /> 刷新
-        </button>
-      </div>
-    </header>
-
-    <div v-if="loadError" class="state-card error">
-      <AlertTriangle :size="28" /> <div>连接融合器失败: {{ loadError }}</div>
-      <button class="v2-quick" @click="load">重试</button>
+  <div class="proj-wrap">
+    <!-- 投影输出状态条 (融合器: 是否在显示 GK9000 的 HDMI 输入) -->
+    <div class="out-bar" :class="showingHdmi === true ? 'ok' : showingHdmi === false ? 'warn' : 'unknown'">
+      <MonitorPlay :size="16" :stroke-width="1.9" />
+      <template v-if="showingHdmi === true">
+        <Check :size="15" /> <span>投影正在显示 <b>GK9000 画面</b>(融合器 HDMI 输入,边缘融合中)</span>
+      </template>
+      <template v-else-if="showingHdmi === false">
+        <AlertTriangle :size="15" /> <span>投影现在显示的是<b>融合器内部内容</b>,不是 GK9000 推的画面</span>
+      </template>
+      <template v-else>
+        <AlertTriangle :size="15" /> <span>融合器连不上:{{ fusionErr || '检查融合器电源/网络' }}</span>
+      </template>
+      <button class="out-btn" :disabled="busy" @click="switchToGk">
+        <RefreshCw :size="13" :class="{ spin: busy }" /> 切到 GK9000 画面
+      </button>
+    </div>
+    <div class="out-hint">
+      投影内容用下面的播放列表管(跟 LED 一样)。融合器负责把 GK9000 的画面边缘融合到两台投影,
+      平时固定显示 GK9000 输入;若投影上不是 GK9000 的画面,点上面「切到 GK9000 画面」。
     </div>
 
-    <template v-else>
-      <div v-if="status?.planRunning" class="plan-warn">
-        <AlertTriangle :size="15" /> 融合器正在运行预案 —— 此时开/关/移动窗口可能不生效, 需先在设备上停止预案。
-      </div>
-
-      <div class="main-grid">
-        <!-- 左: 可视化布局画布 -->
-        <div class="canvas-card">
-          <div class="card-label"><Layout :size="14" /> 输出画面布局 <span class="dim">(点窗口选中)</span></div>
-          <div class="canvas">
-            <div
-              v-for="w in windows"
-              :key="w.id"
-              class="win-box"
-              :class="{ selected: w.id === selectedId, ghost: w.id < 0 }"
-              :style="{ left: w.x * 100 + '%', top: w.y * 100 + '%', width: w.width * 100 + '%', height: w.height * 100 + '%' }"
-              @click="selectWindow(w.id)"
-              :title="w.id < 0 ? '默认播放窗口 (不可用数字ID控制)' : '窗口 ' + w.id"
-            >
-              <span class="win-src">{{ w.source || '(无源)' }}</span>
-              <span class="win-id">{{ w.id < 0 ? '默认' : '#' + w.id }}</span>
-            </div>
-            <div v-if="windows.length === 0" class="canvas-empty">当前无窗口</div>
-          </div>
-        </div>
-
-        <!-- 右: 控制 -->
-        <div class="ctl-col">
-          <div class="ctl-card">
-            <div class="card-label"><Plus :size="14" /> 开新窗口</div>
-            <input v-model="newSource" class="src-input" placeholder="信号源名称 (如 media 里的文件名)" />
-            <div v-if="knownSources.length" class="src-chips">
-              <button v-for="s in knownSources" :key="s" class="src-chip" @click="newSource = s" :title="s">{{ s }}</button>
-            </div>
-            <div class="layout-grid">
-              <button v-for="l in LAYOUTS" :key="l.key" class="lay-btn" :disabled="busy || !newSource.trim()" @click="openWindow(l.box)">
-                {{ l.label }}
-              </button>
-            </div>
-            <div class="src-note">
-              源名 = 融合器 media 里的文件名。网页 / PPT / 监控 需先在融合器自带软件里"添加源", 再按其名字开窗。
-            </div>
-          </div>
-
-          <div class="ctl-card" v-if="selected">
-            <div class="card-label">
-              <MonitorPlay :size="14" /> 窗口 #{{ selected.id }} 控制
-              <button class="close-x" @click="closeWindow(selected.id)" :disabled="busy" title="关闭此窗口"><X :size="14" /></button>
-            </div>
-            <div class="cur-src" :title="selected.source">{{ selected.source || '(无源)' }}</div>
-
-            <!-- 播放控制 -->
-            <div class="play-row">
-              <button class="pp-btn" :disabled="busy" @click="playPause(selected.id, 'play')" title="播放"><Play :size="15" /></button>
-              <button class="pp-btn" :disabled="busy" @click="playPause(selected.id, 'pause')" title="暂停"><Pause :size="15" /></button>
-              <div class="pl-mid">
-                <button class="pp-btn sm" :disabled="busy" @click="playlistStep(selected.id, -1)" title="上一个"><SkipBack :size="14" /></button>
-                <button class="pp-btn sm" :disabled="busy" @click="playlistStep(selected.id, 1)" title="下一个"><SkipForward :size="14" /></button>
-              </div>
-            </div>
-            <div v-if="playlist.files.length > 1" class="pl-info">
-              列表 {{ playlist.currentIndex }}/{{ playlist.files.length }}
-            </div>
-
-            <div class="dim sub">摆放</div>
-            <div class="layout-grid">
-              <button v-for="l in LAYOUTS" :key="l.key" class="lay-btn" :disabled="busy" @click="applyLayout(l.box)">{{ l.label }}</button>
-            </div>
-            <div class="vol-row">
-              <Volume2 :size="15" />
-              <input type="range" min="0" max="100" step="1" :value="vol" @change="onVolChange" />
-              <span class="vol-num v2-inter">{{ vol }}</span>
-            </div>
-          </div>
-          <div class="ctl-card hint" v-else-if="controllable.length">
-            点左侧画面里的窗口进行控制
-          </div>
-
-          <button class="v2-quick danger clean" @click="cleanAll" :disabled="busy || windows.length === 0">
-            <Trash2 :size="14" /> 清空所有窗口
-          </button>
-        </div>
-      </div>
-
-      <div class="list-card" v-if="controllable.length">
-        <div class="card-label">窗口清单</div>
-        <div class="win-row" v-for="w in controllable" :key="w.id" :class="{ selected: w.id === selectedId }" @click="selectWindow(w.id)">
-          <span class="wr-id">#{{ w.id }}</span>
-          <span class="wr-src">{{ w.source }}</span>
-          <span class="wr-pos v2-inter">{{ (w.x * 100).toFixed(0) }},{{ (w.y * 100).toFixed(0) }} · {{ (w.width * 100).toFixed(0) }}×{{ (w.height * 100).toFixed(0) }}%</span>
-          <button class="close-x" @click.stop="closeWindow(w.id)" :disabled="busy"><X :size="13" /></button>
-        </div>
-      </div>
-    </template>
-  </section>
+    <!-- 播放控制台 (slot2 = 投影仪, GK9000 出内容) -->
+    <PlayerConsole :slot="2" title="投影仪" />
+  </div>
 </template>
 
 <style scoped>
-.v2-page { padding: var(--v2-sp-5); display: flex; flex-direction: column; gap: var(--v2-sp-4); }
-.v2-page-head { display: flex; justify-content: space-between; align-items: center; gap: var(--v2-sp-4); flex-wrap: wrap; }
-.back-row { display: flex; align-items: center; gap: var(--v2-sp-3); }
-.v2-back-btn { width: 36px; height: 36px; border-radius: var(--v2-r-sm); background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); color: var(--v2-text-2); cursor: pointer; display: grid; place-items: center; }
-.v2-back-btn:hover { background: var(--v2-surf-1-hover); color: var(--v2-text-1); }
-.title { display: flex; align-items: center; gap: var(--v2-sp-2); font-size: 18px; font-weight: 700; color: var(--v2-text-1); }
-.head-right { display: flex; align-items: center; gap: var(--v2-sp-2); }
-.v2-quick { display: inline-flex; align-items: center; gap: 5px; padding: 7px 12px; border-radius: var(--v2-r-sm); font-size: var(--v2-fs-sm); background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); color: var(--v2-text-2); cursor: pointer; }
-.v2-quick:hover:not(:disabled) { background: var(--v2-surf-1-hover); color: var(--v2-text-1); }
-.v2-quick:disabled { opacity: 0.5; cursor: default; }
-.v2-quick.danger { background: var(--v2-danger-soft); color: var(--v2-danger); border-color: transparent; }
-.chip { font-size: 11px; padding: 4px 10px; border-radius: 999px; background: var(--v2-surf-2); color: var(--v2-text-2); border: 1px solid var(--v2-border-soft); font-family: 'Inter', monospace; }
-.chip.ok { background: var(--v2-success-soft); color: var(--v2-success); border-color: transparent; }
+.proj-wrap { display: flex; flex-direction: column; }
+.out-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: var(--v2-sp-5) var(--v2-sp-5) 0;
+  padding: 10px 14px; border-radius: var(--v2-r-md);
+  font-size: var(--v2-fs-sm); font-weight: 600;
+}
+.out-bar b { font-weight: 700; }
+.out-bar.ok { background: var(--v2-success-soft); color: var(--v2-success); border: 1px solid var(--v2-success-soft); }
+.out-bar.warn { background: var(--v2-warning-soft); color: var(--v2-warning); border: 1px solid var(--v2-warning-soft); }
+.out-bar.unknown { background: var(--v2-danger-soft); color: var(--v2-danger); border: 1px solid var(--v2-danger-soft); }
+.out-btn {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 12px; border-radius: 999px; cursor: pointer;
+  font-size: 12px; font-weight: 600;
+  background: var(--v2-surf-1); color: var(--v2-text-1); border: 1px solid var(--v2-border-soft);
+}
+.out-btn:hover:not(:disabled) { background: var(--v2-surf-1-hover); }
+.out-btn:disabled { opacity: 0.5; cursor: default; }
 .spin { animation: sp 0.9s linear infinite; } @keyframes sp { to { transform: rotate(360deg); } }
-
-.plan-warn { display: flex; align-items: center; gap: 8px; padding: 9px 14px; border-radius: var(--v2-r-sm); background: var(--v2-warning-soft); color: var(--v2-warning); font-size: var(--v2-fs-sm); font-weight: 600; }
-
-.main-grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: var(--v2-sp-4); align-items: start; }
-@media (max-width: 860px) { .main-grid { grid-template-columns: 1fr; } }
-
-.canvas-card, .ctl-card, .list-card { background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); border-radius: var(--v2-r-lg); padding: var(--v2-sp-4); }
-.card-label { display: flex; align-items: center; gap: 6px; font-size: var(--v2-fs-sm); font-weight: 700; color: var(--v2-text-1); margin-bottom: var(--v2-sp-3); }
-.dim { color: var(--v2-text-3); font-weight: 400; } .sub { font-size: 11px; margin: 8px 0 4px; }
-
-.canvas { position: relative; width: 100%; aspect-ratio: 16 / 9; background: repeating-conic-gradient(var(--v2-surf-2) 0% 25%, var(--v2-surf-3) 0% 50%) 50% / 28px 28px; border: 1px solid var(--v2-border-strong); border-radius: var(--v2-r-md); overflow: hidden; }
-.win-box { position: absolute; box-sizing: border-box; border: 2px solid var(--v2-primary); background: var(--v2-primary-soft); display: flex; flex-direction: column; justify-content: space-between; padding: 4px 6px; cursor: pointer; overflow: hidden; transition: box-shadow 0.15s; }
-.win-box.ghost { border-style: dashed; border-color: var(--v2-text-3); background: transparent; cursor: default; }
-.win-box.selected { box-shadow: 0 0 0 2px var(--v2-primary), 0 0 18px -4px var(--v2-primary); z-index: 2; }
-.win-src { font-size: 11px; color: var(--v2-text-1); font-weight: 600; line-height: 1.2; word-break: break-all; }
-.win-id { font-size: 10px; color: var(--v2-text-2); font-family: 'Inter', monospace; align-self: flex-end; }
-.canvas-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--v2-text-3); font-size: var(--v2-fs-sm); }
-
-.ctl-col { display: flex; flex-direction: column; gap: var(--v2-sp-3); }
-.src-input { width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: var(--v2-r-sm); background: var(--v2-surf-2); border: 1px solid var(--v2-border-soft); color: var(--v2-text-1); font-size: var(--v2-fs-sm); }
-.src-note { font-size: 10px; color: var(--v2-text-3); line-height: 1.4; margin-top: 8px; }
-.src-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
-.src-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; padding: 3px 8px; border-radius: 999px; background: var(--v2-surf-2); border: 1px solid var(--v2-border-soft); color: var(--v2-text-2); cursor: pointer; }
-.layout-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
-.lay-btn { padding: 7px 4px; border-radius: var(--v2-r-sm); background: var(--v2-surf-2); border: 1px solid var(--v2-border-soft); color: var(--v2-text-2); font-size: 11px; cursor: pointer; }
-.lay-btn:hover:not(:disabled) { background: var(--v2-primary-soft); color: var(--v2-primary); border-color: var(--v2-primary); }
-.lay-btn:disabled { opacity: 0.4; cursor: default; }
-.cur-src { font-size: var(--v2-fs-sm); color: var(--v2-text-1); font-weight: 600; word-break: break-all; margin-bottom: 4px; }
-.close-x { margin-left: auto; width: 24px; height: 24px; display: grid; place-items: center; border-radius: var(--v2-r-sm); background: var(--v2-danger-soft); color: var(--v2-danger); border: none; cursor: pointer; }
-.close-x:disabled { opacity: 0.4; }
-.play-row { display: flex; align-items: center; gap: 8px; margin: 10px 0 2px; }
-.pl-mid { display: flex; gap: 6px; margin-left: auto; }
-.pp-btn { width: 36px; height: 32px; display: grid; place-items: center; border-radius: var(--v2-r-sm); background: var(--v2-surf-2); border: 1px solid var(--v2-border-soft); color: var(--v2-text-1); cursor: pointer; }
-.pp-btn:hover:not(:disabled) { background: var(--v2-primary-soft); color: var(--v2-primary); border-color: var(--v2-primary); }
-.pp-btn.sm { width: 30px; height: 28px; color: var(--v2-text-2); }
-.pp-btn:disabled { opacity: 0.4; cursor: default; }
-.pl-info { font-size: 11px; color: var(--v2-text-3); margin-bottom: 4px; }
-.vol-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: var(--v2-text-2); }
-.vol-row input[type=range] { flex: 1; accent-color: var(--v2-primary); }
-.vol-num { font-size: 12px; color: var(--v2-text-1); min-width: 26px; text-align: right; }
-.ctl-card.hint { color: var(--v2-text-3); font-size: var(--v2-fs-sm); text-align: center; }
-.clean { justify-content: center; }
-
-.win-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--v2-r-sm); cursor: pointer; }
-.win-row:hover, .win-row.selected { background: var(--v2-surf-2); }
-.wr-id { font-family: 'Inter', monospace; font-size: 12px; color: var(--v2-text-2); }
-.wr-src { flex: 1; font-size: var(--v2-fs-sm); color: var(--v2-text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wr-pos { font-size: 11px; color: var(--v2-text-3); }
-.state-card { display: flex; align-items: center; gap: 12px; padding: var(--v2-sp-5); background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); border-radius: var(--v2-r-lg); color: var(--v2-text-2); }
-.state-card.error { color: var(--v2-danger); }
-.v2-inter { font-family: 'Inter', monospace; }
+.out-hint { margin: 6px var(--v2-sp-5) 0; font-size: 11px; color: var(--v2-text-3); line-height: 1.5; }
 </style>

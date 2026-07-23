@@ -15,11 +15,15 @@ export interface ProjectorStatus {
   kind: string;
   planRunning: boolean;
   windows: FusionWindow[];
+  /** 是否正在显示 GK9000 的 HDMI 输入 */
+  showingHdmi: boolean;
 }
 
 /** 投影视频融合器控制 API (JBT-SK-HD02). 只含后端已实机验通的核心命令. */
 export const projectorService = {
   status: () => api.get<ProjectorStatus>('/projector/status'),
+  /** 模型A: 让投影显示 GK9000 的 HDMI 输入 */
+  showHdmi: () => api.post<null>('/projector/show-hdmi'),
   windows: () => api.get<FusionWindow[]>('/projector/windows'),
   open: (source: string, x: number, y: number, w: number, h: number) =>
     api.post<{ windowId: number }>('/projector/windows/open', { source, x, y, w, h }),

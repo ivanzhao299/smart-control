@@ -17,6 +17,15 @@ export class ProjectorController {
     return { message: '查询成功', data: await this.service.status() };
   }
 
+  /** 模型A 一键: 让投影显示 GK9000 的 HDMI 输入 (关内部媒体窗 + 开 HDMI 全屏) */
+  @Post('show-hdmi')
+  @UseGuards(RateLimitGuard)
+  @RateLimit({ max: 2, windowMs: 2000 })
+  async showHdmi() {
+    await this.service.showHdmiInput();
+    return { message: '已切到 GK9000 HDMI 输入', data: null };
+  }
+
   @Get('windows')
   async windows() {
     return { message: '查询成功', data: await this.service.listWindows() };
