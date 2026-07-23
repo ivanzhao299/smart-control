@@ -242,13 +242,26 @@ function Test-CoordsOnScreen {
   return $false
 }
 
+# slot2 (projector) is expected whenever a NON-primary display is attached. The old
+# check keyed on a monitor at exactly 1920,0, but inserting an HDMI audio de-embedder
+# on the HDMI2 line renegotiates the fusion EDID and can move the projector display
+# off 1920,0 -- the watchdog then wrongly declared it "unplugged" and stopped
+# re-placing it (2026-07-23). Key on "a second display exists" so it stays in sync
+# with start-players.ps1 Get-ProjectorRect (which places slot2 on that same display).
+function Test-SecondDisplayPresent {
+  try {
+    $sec = [System.Windows.Forms.Screen]::AllScreens | Where-Object { -not $_.Primary } | Select-Object -First 1
+    return [bool]$sec
+  } catch { return $true }   # can't tell -> don't suppress
+}
+
 # slot1 = LED, slot3 = windowless bgm daemon: both always expected.
-# slot2 = projector: expected only when a monitor really lives at its coords.
+# slot2 = projector: expected only when a second (projector) display is present.
 $expected = @(1, 3)
-if (Test-CoordsOnScreen -X $Slot2X -Y $Slot2Y) {
+if (Test-SecondDisplayPresent) {
   $expected += 2
 } else {
-  Log ('slot2 not expected (no monitor at ' + $Slot2X + ',' + $Slot2Y + ', projector unplugged) -> not counting it stale')
+  Log 'slot2 not expected (no second/projector display present) -> not counting it stale'
 }
 
 $now = Get-Date

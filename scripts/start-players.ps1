@@ -269,6 +269,27 @@ function Test-CoordsOnScreen {
   return $false
 }
 
+# slot2 lives on the projector display, which is the NON-primary monitor (the LED
+# is primary at 0,0). Return its REAL bounds so we adapt to whatever position /
+# resolution it currently has, instead of the hard-coded 1920,0 1920x1080.
+# 2026-07-23: inserting an HDMI audio de-embedder on the HDMI2 line renegotiated
+# the fusion-box EDID; the projector display moved off 1920,0 and the fixed-coord
+# window landed on the bare desktop (a taskbar line, no picture). Keying on the
+# actual second-display bounds survives that. Also prints every screen it sees so
+# the layout is visible in the log. Returns $null when it cannot enumerate or when
+# there is no second display (projector unplugged).
+function Get-ProjectorRect {
+  try {
+    $all = [System.Windows.Forms.Screen]::AllScreens
+    foreach ($s in $all) {
+      Write-Host ("  screen: primary=" + $s.Primary + " " + $s.Bounds.X + "," + $s.Bounds.Y + " " + $s.Bounds.Width + "x" + $s.Bounds.Height) -ForegroundColor DarkGray
+    }
+    $sec = $all | Where-Object { -not $_.Primary } | Select-Object -First 1
+    if ($sec) { return $sec.Bounds }
+  } catch { return $null }
+  return $null
+}
+
 # slot1/2 fullscreen (LED + projector), then slot3 audio LAST so its small visible
 # window stays ON TOP in the LED bottom-right corner (it must stay visible or
 # Chromium pauses its audio).
@@ -276,13 +297,22 @@ if ($Slot -eq 0 -or $Slot -eq 1) {
   Start-Slot -N 1 -X $Slot1X -Y $Slot1Y -W $ScreenW -H $ScreenH
 }
 if ($Slot -eq 0 -or $Slot -eq 2) {
-  # -Slot 2 (explicit) always starts: operator asked for it on purpose.
-  # -Slot 0 (start all) skips it when no monitor lives at those coords.
-  if ($Slot -eq 2 -or (Test-CoordsOnScreen -X $Slot2X -Y $Slot2Y)) {
+  # slot2 = projector on the NON-primary display. Use its real bounds so it tracks
+  # EDID / resolution / position changes (e.g. inserting the HDMI audio splitter).
+  # -Slot 2 (explicit) still starts even if no 2nd display is enumerable, falling
+  # back to the -Slot2X/-ScreenW defaults; -Slot 0 (start all) skips when there is
+  # no projector display so it can't cover slot1 on the LED.
+  $pr = Get-ProjectorRect
+  if ($pr) {
+    Write-Host ("slot=2 -> projector display " + $pr.X + "," + $pr.Y + " " + $pr.Width + "x" + $pr.Height) -ForegroundColor Cyan
+    Start-Sleep -Milliseconds 500
+    Start-Slot -N 2 -X $pr.X -Y $pr.Y -W $pr.Width -H $pr.Height
+  } elseif ($Slot -eq 2) {
+    Write-Host ("slot=2 forced but no 2nd display enumerable -> defaults " + $Slot2X + "," + $Slot2Y + " " + $ScreenW + "x" + $ScreenH) -ForegroundColor Yellow
     Start-Sleep -Milliseconds 500
     Start-Slot -N 2 -X $Slot2X -Y $Slot2Y -W $ScreenW -H $ScreenH
   } else {
-    Write-Host ("SKIP slot=2: no monitor at " + $Slot2X + "," + $Slot2Y + " (projector not connected?).") -ForegroundColor Yellow
+    Write-Host "SKIP slot=2: no second (projector) display found." -ForegroundColor Yellow
     Write-Host "      Starting it would cover slot1 on the LED. Plug the projector in and re-run," -ForegroundColor Yellow
     Write-Host "      or force it with: .\scripts\start-players.ps1 -Slot 2" -ForegroundColor Yellow
   }
