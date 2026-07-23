@@ -1,5 +1,21 @@
 import axios, { type AxiosProgressEvent } from 'axios';
-import { getApiBaseURL } from './http';
+import { getApiBaseURL, getClientToken, getAdminToken } from './http';
+
+/**
+ * media 专用 axios(留着只为上传进度回调 —— http.ts 那套 fetch 没有 onUploadProgress)。
+ *
+ * ⚠️ 关键: 必须自己带鉴权 header! 它不走 http.ts 的 request(), 所以不会自动带 token。
+ * 自从加了全局鉴权门(d4a65e7), 裸 axios 的媒体请求全被 401 掉 —— 表现就是"媒体库为空 +
+ * 上传报错"。这里加个请求拦截器, 跟 http.ts 一样带上 X-Client-Token / Bearer。
+ */
+const mediaHttp = axios.create();
+mediaHttp.interceptors.request.use((config) => {
+  const ct = getClientToken();
+  const at = getAdminToken();
+  if (ct) config.headers.set('X-Client-Token', ct);
+  if (at && !config.headers.has('Authorization')) config.headers.set('Authorization', `Bearer ${at}`);
+  return config;
+});
 
 /**
  * baseURL 必须运行时动态读 (2026-07-11 修):
@@ -41,13 +57,13 @@ export const mediaService = {
   async list(opts: { kind?: 'video' | 'image' | 'audio' | 'webpage' } = {}): Promise<ListResult> {
     const params: Record<string, string> = {};
     if (opts.kind) params.kind = opts.kind;
-    const r = await axios.get(`${base()}/media`, { params });
+    const r = await mediaHttp.get(`${base()}/media`, { params });
     return r.data?.data ?? { items: [], total: 0 };
   },
 
   /** 添加网页 URL 作为媒体 (可推到 LED/投影 iframe 播放) */
   async createWebpage(name: string, url: string): Promise<MediaItem> {
-    const r = await axios.post(`${base()}/media/webpage`, { name, url });
+    const r = await mediaHttp.post(`${base()}/media/webpage`, { name, url });
     if (!r.data?.data) throw new Error(r.data?.message || '添加网页失败');
     return r.data.data;
   },
@@ -60,8 +76,9 @@ export const mediaService = {
     const fd = new FormData();
     fd.append('file', file);
     if (opts.remark) fd.append('remark', opts.remark);
-    const r = await axios.post(`${base()}/media/upload`, fd, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+    const r = await mediaHttp.post(`${base()}/media/upload`, fd, {
+      // 不要手写 Content-Type: 'multipart/form-data' —— 那样没有 boundary, 后端解析不出文件。
+      // 交给 axios/浏览器按 FormData 自动带 boundary。(之前被 401 挡着没暴露, token 修好后就会露)
       timeout: 30 * 60 * 1000, // 30 分钟 (大视频)
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
@@ -76,24 +93,24 @@ export const mediaService = {
   },
 
   async remove(id: number): Promise<void> {
-    await axios.delete(`${base()}/media/${id}`);
+    await mediaHttp.delete(`${base()}/media/${id}`);
   },
 
   /** 服务器 media 目录里数据库还不认识的文件 (业主直接拷进服务器的, 没走上传接口) */
   async scanOrphans(): Promise<OrphanMediaItem[]> {
-    const r = await axios.get(`${base()}/media/orphans`);
+    const r = await mediaHttp.get(`${base()}/media/orphans`);
     return r.data?.data ?? [];
   },
 
   /** 把某个孤儿文件收编成正式媒体库资源 */
   async importOrphan(relPath: string, remark?: string): Promise<MediaItem> {
-    const r = await axios.post(`${base()}/media/orphans/import`, { relPath, remark });
+    const r = await mediaHttp.post(`${base()}/media/orphans/import`, { relPath, remark });
     if (!r.data?.data) throw new Error(r.data?.message || '收编失败');
     return r.data.data;
   },
 
   async publish(id: number): Promise<{ id: number; name: string; player: string }> {
-    const r = await axios.post(`${base()}/media/${id}/publish`);
+    const r = await mediaHttp.post(`${base()}/media/${id}/publish`);
     if (!r.data?.data) throw new Error(r.data?.message || '推送失败');
     return r.data.data;
   },

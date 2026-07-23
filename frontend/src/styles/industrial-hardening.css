@@ -45,3 +45,15 @@ a {
   -webkit-user-select: text;
   user-select: text;
 }
+
+/* ---- 提示条(ElMessage/通知)避开手机刘海 ----
+ * ElMessage 默认贴屏幕顶部, 带刘海(notch)的手机上正好被挡住。
+ * viewport-fit=cover 已开, 用 safe-area 把提示整体下移到刘海下面;
+ * 无刘海设备 safe-area-inset-top=0, 不受影响。margin-top 叠加在其 inline top 上, 不打架。 */
+.el-message {
+  margin-top: env(safe-area-inset-top, 0px);
+}
+.el-notification.right,
+.el-notification.left {
+  margin-top: env(safe-area-inset-top, 0px);
+}
