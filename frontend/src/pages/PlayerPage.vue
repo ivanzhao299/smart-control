@@ -151,8 +151,24 @@ async function resolveHdmiDeviceId(): Promise<string | null> {
       .catch(() => { /* 没授权也继续试, 有的环境本来就给 label */ });
     const outs = (await navigator.mediaDevices.enumerateDevices())
       .filter((d) => d.kind === 'audiooutput');
-    const hdmi = outs.find((d) => /HDMI|显示器音频|Display Audio/i.test(d.label));
-    if (hdmi) cachedHdmiDeviceId = hdmi.deviceId;
+    // slot1(LED) 与 slot2(投影) 是两个独立浏览器窗口, 但共用这段代码。必须按 slot
+    // 各自指到**不同**的 HDMI 端点, 否则两路声音会挤到同一个端点、从同一个分区出来。
+    // 现场端点 (2026-07-23 实测, audio-endpoints.ps1):
+    //   slot1 LED  -> "HDMI1.3"      -> HDMI 分离器 -> 矩阵 IN4 -> OUT5(大屏)
+    //   slot2 投影 -> "lontium semi" (融合器 HDMI 端点, HDMI2 那路) -> OUT6(投影)
+    // 之前是 outs.find(/HDMI.../) 不分 slot, 两个窗口都抓到第一个 HDMI 端点
+    // (HDMI1.3), 于是投影的声音跟着 LED 一起从 OUT5 出来 —— 业主报的"两处内容
+    // 都从 LED 通道播出"就是这个根子。
+    const isFusion = (l: string) => /lontium/i.test(l);
+    const isHdmi = (l: string) => /HDMI|显示器音频|Display Audio/i.test(l);
+    const pick = slot.value === 2
+      // 投影: 优先融合器端点 "lontium semi"; 兜底取一个不是 HDMI1 的 HDMI 端点。
+      // 都没有就返回 null -> 声音留在默认设备, 至少不会去污染 OUT5(大屏)。
+      ? (outs.find((d) => isFusion(d.label))
+          ?? outs.find((d) => isHdmi(d.label) && !/HDMI\s*1/i.test(d.label)))
+      // LED: HDMI 端点, 但排除融合器那个 (别把 LED 指到投影去)。
+      : outs.find((d) => isHdmi(d.label) && !isFusion(d.label));
+    if (pick) cachedHdmiDeviceId = pick.deviceId;
   } catch { /* 这次没解析出来, 等下一轮重试 */ }
   return cachedHdmiDeviceId;
 }
