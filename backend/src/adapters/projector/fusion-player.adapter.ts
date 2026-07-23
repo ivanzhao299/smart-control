@@ -12,6 +12,7 @@ import { classifyError } from '../errors';
 import { TcpClient } from '../transports/tcp-client';
 import {
   FUSION_TCP_PORT,
+  DEFAULT_CANVAS,
   encodeCommand,
   parseResponse,
   decodeVersion,
@@ -60,8 +61,10 @@ export class FusionPlayerAdapter extends BaseAdapter {
   private host = '';
   private port = FUSION_TCP_PORT;
   private endpoint = '';
+  /** open/close 的前置画布字段, 从 hardware_unit.addressing.canvas 读, 默认 0 */
+  private canvas = DEFAULT_CANVAS;
 
-  private dbCache: { host?: string; port?: number; at: number } = { at: 0 };
+  private dbCache: { host?: string; port?: number; canvas?: number; at: number } = { at: 0 };
   private readonly DB_CACHE_TTL_MS = 5000;
   private readonly timeoutMs: number;
 
@@ -122,13 +125,18 @@ export class FusionPlayerAdapter extends BaseAdapter {
         this.mockVol.set(id, { volume: 50, muted: false });
         return { windowId: id, ok: true };
       }
+      // 🔧 真机: open_window 有前置画布字段 —— open_window,<画布>,源,x,y,w,h
       return decodeOpenResult(
-        await this.send('open_window', [source, x, y, width, height], ctx?.signal),
+        await this.send('open_window', [this.canvas, source, x, y, width, height], ctx?.signal),
       );
     });
   }
 
-  /** 替换窗口信号源. 返回新窗口 ID (0=失败). */
+  /**
+   * 替换窗口信号源. 返回新窗口 ID (0=失败).
+   * ⚠️ **未在真机验证格式** —— replace 会改源(类似 open, 可能也有前置画布字段)。这里先按
+   *   文档裸格式 `replace_window,<id>,<新源>` 发, 待厂家新版文档或联调确认后修正。
+   */
   async replaceWindow(
     windowId: number,
     newSource: string,
@@ -153,7 +161,8 @@ export class FusionPlayerAdapter extends BaseAdapter {
         this.mockWindows = this.mockWindows.filter((w) => w.id !== windowId);
         return { ok: true };
       }
-      return decodeBoolResult(await this.send('close_window', [windowId], ctx?.signal));
+      // 🔧 真机: close_window 有前置画布字段 —— close_window,<画布>,<窗口id>
+      return decodeBoolResult(await this.send('close_window', [this.canvas, windowId], ctx?.signal));
     });
   }
 
@@ -354,8 +363,9 @@ export class FusionPlayerAdapter extends BaseAdapter {
   /** DB > env > default 三级取连接参数, 变了就重建 client (热切换). */
   private async ensureClient(): Promise<TcpClient> {
     const db = await this.getConfigFromDb();
-    const host = db?.host ?? process.env.FUSION_HOST ?? '192.168.2.168';
+    const host = db?.host ?? process.env.FUSION_HOST ?? '192.168.1.168';
     const port = db?.port ?? Number.parseInt(process.env.FUSION_PORT ?? String(FUSION_TCP_PORT), 10);
+    this.canvas = db?.canvas ?? Number.parseInt(process.env.FUSION_CANVAS ?? String(DEFAULT_CANVAS), 10);
 
     if (this.tcp && host === this.host && port === this.port) return this.tcp;
 
@@ -379,11 +389,11 @@ export class FusionPlayerAdapter extends BaseAdapter {
     return this.tcp;
   }
 
-  private async getConfigFromDb(): Promise<{ host?: string; port?: number } | null> {
+  private async getConfigFromDb(): Promise<{ host?: string; port?: number; canvas?: number } | null> {
     if (!this.hwRepo) return null;
     const now = Date.now();
     if (now - this.dbCache.at < this.DB_CACHE_TTL_MS) {
-      return { host: this.dbCache.host, port: this.dbCache.port };
+      return { host: this.dbCache.host, port: this.dbCache.port, canvas: this.dbCache.canvas };
     }
     try {
       const row = await this.hwRepo.findOne({ where: { category: 'projector-fusion' } });
@@ -392,16 +402,18 @@ export class FusionPlayerAdapter extends BaseAdapter {
         return null;
       }
       let port: number | undefined;
+      let canvas: number | undefined;
       if (row.addressing) {
         try {
-          const a = JSON.parse(row.addressing) as { port?: number };
+          const a = JSON.parse(row.addressing) as { port?: number; canvas?: number };
           port = a.port;
+          canvas = a.canvas;
         } catch {
           /* addressing 不是 JSON 也 OK */
         }
       }
-      this.dbCache = { host: row.ip ?? undefined, port, at: now };
-      return { host: row.ip ?? undefined, port };
+      this.dbCache = { host: row.ip ?? undefined, port, canvas, at: now };
+      return { host: row.ip ?? undefined, port, canvas };
     } catch (err) {
       this.logger.warn(`getConfigFromDb 失败: ${(err as Error).message}`, { context: 'FusionPlayerAdapter' });
       this.dbCache = { at: now };
@@ -447,15 +459,17 @@ export class FusionPlayerAdapter extends BaseAdapter {
         'set_window_volume', 'mute_window', 'get_playlist', 'set_playlist_current',
         'health_check',
       ],
-      defaultAddressing: { port: FUSION_TCP_PORT },
+      defaultAddressing: { port: FUSION_TCP_PORT, canvas: DEFAULT_CANVAS },
       paramSchema: {
-        ip: { type: 'string', label: '融合器 IP', required: true, placeholder: '192.168.2.168' },
+        ip: { type: 'string', label: '融合器 IP', required: true, placeholder: '192.168.1.168' },
         port: { type: 'number', label: 'TCP 端口', default: FUSION_TCP_PORT, min: 1, max: 65535 },
+        canvas: { type: 'number', label: '画布/屏索引 (open/close 前置字段)', default: DEFAULT_CANVAS, min: 0, max: 7 },
       },
       remark:
-        '投影仪 4K 二通道融合处理器 (JBT-SK-HD02). 网口直连 TCP 文本协议《播控中控 V1.1》, ' +
-        '端口 63426. 开/关/移动/缩放窗口 + 切源 + 音量 + 调用模式 + 播放列表. 坐标归一化 0~1. ' +
-        '出厂 IP 192.168.2.168 / admin. 就绪待联调: 协议层已金标准测试, 设备到货填 IP 即用.',
+        '投影仪 4K 二通道融合处理器 (JBT-SK-HD02). 网口直连 TCP 文本协议《播控中控》, 端口 63426. ' +
+        '开/关/移动/缩放窗口 + 切源 + 音量 + 播放列表. 坐标归一化 0~1. ' +
+        '2026-07-23 现场实机验通核心命令(固件 2.4.25.268 比文档新, open/close 有前置画布字段). ' +
+        'run_mode(调预设)待设备里配好模式 + 拿厂家新版文档后补.',
     };
   }
 }

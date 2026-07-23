@@ -14,10 +14,25 @@
  *   2. **响应里逗号后可能带空格** (如 `<set_window_volume,1, 90, 0>`) —— parseResponse 每段 trim。
  *
  * 坐标/大小统一归一化 0~1。窗口 ID 掉电重启会变, 不可持久化。
+ *
+ * 🔧 2026-07-23 现场实机(固件 2.4.25.268, 比文档 V1.1 的 2.4.25.60 新)逐条 read-back 验证,
+ *    发现**命令格式 per-command 跟文档不一致**, 已按真机改:
+ *      - open_window / close_window 多一个**前置"画布"字段**(填 0): `open_window,<画布>,源,x,y,w,h`
+ *        / `close_window,<画布>,窗口id`。不加前置它会把 x 当源名。
+ *      - move / resize / set_window_volume / get_window_volume 是**裸文档格式**(无前置)。
+ *      - open_window 响应是 `<open_window,<成功1>,<窗口id>>`(两段: 成功位 + id), 不是文档的单段 id。
+ *      - enum_modes 疑似 `<enum_modes,<count>,<名…>>`(0 模式时 `<enum_modes,0,>`) —— **未验(没配模式)**。
+ *    详见 [[fusion-player-protocol]] 记忆的"固件实测命令格式"一节。
  */
 
 export const FUSION_TCP_PORT = 63426;
 export const FUSION_UDP_PORT = 63427;
+
+/**
+ * open_window / close_window 的前置"画布/屏"字段。二通道融合可能有多块画布,
+ * 单屏场景固定 0(实机验证 0 可用)。真机没这个字段会把坐标当源名 → 开窗失败。
+ */
+export const DEFAULT_CANVAS = 0;
 
 /** version 命令返回的播控类型 */
 export type PlaybackKind = 'SPECIAL_VIDEO' | 'LED_PLAYER' | 'MAGIC_WALL' | 'FUSION';
@@ -97,6 +112,7 @@ export function decodeVersion(r: ParsedResponse): FusionVersion {
 }
 
 export interface FusionWindow {
+  /** 窗口 ID。**-1 = 融合器默认播放窗口**(enum 里 id 字段是空的, 无法用数字 id 控制)。 */
   id: number;
   /** 信号源名称 (播放的文件/输入源) */
   source: string;
@@ -107,9 +123,13 @@ export interface FusionWindow {
   height: number;
 }
 
+/** 默认播放窗口(enum 里 id 空)的哨兵 id —— 不可用数字 id 做 move/close/音量 */
+export const DEFAULT_WINDOW_ID = -1;
+
 /**
  * `<enum_windows,id,源,x,y,w,h,id,源,x,y,w,h,…>` → 窗口数组 (每 6 个一组)。
  * 空窗口时播控回 `<enum_windows,>` (parseResponse 后 params=['']), 返回空数组。
+ * 🔧 真机: 默认播放窗口的 id 字段是**空的** → 记为 DEFAULT_WINDOW_ID(-1); open 出来的窗口是数字 id。
  */
 export function decodeWindows(r: ParsedResponse): FusionWindow[] {
   assertOk(r, 'enum_windows');
@@ -121,8 +141,10 @@ export function decodeWindows(r: ParsedResponse): FusionWindow[] {
   }
   const out: FusionWindow[] = [];
   for (let i = 0; i < p.length; i += 6) {
+    const rawId = p[i];
+    const id = rawId === '' ? DEFAULT_WINDOW_ID : Number.parseInt(rawId, 10);
     out.push({
-      id: Number.parseInt(p[i], 10),
+      id: Number.isNaN(id) ? DEFAULT_WINDOW_ID : id,
       source: p[i + 1],
       x: Number.parseFloat(p[i + 2]),
       y: Number.parseFloat(p[i + 3]),
@@ -140,12 +162,18 @@ export interface OpenResult {
   error?: string;
 }
 
-/** open_window / replace_window: `<open_window,5>` 成功 / `<open_window,0,原因>` 失败 */
+/**
+ * open_window 响应。
+ * 🔧 真机(2.4.25.268): `<open_window,<成功1/0>,<窗口id>>` 成功 / `<open_window,0,原因>` 失败。
+ *   —— 第一段是成功位(不是 id!), 成功时第二段才是新窗口 id。
+ * (文档 V1.1 是单段 `<open_window,id>`, 已被真机推翻。)
+ */
 export function decodeOpenResult(r: ParsedResponse): OpenResult {
   assertOk(r);
-  const id = Number.parseInt(r.params[0] ?? '0', 10);
-  if (id === 0) return { windowId: 0, ok: false, error: r.params[1] };
-  return { windowId: id, ok: true };
+  const ok = (r.params[0] ?? '0') === '1';
+  if (!ok) return { windowId: 0, ok: false, error: r.params.slice(1).join(', ') || undefined };
+  const id = Number.parseInt(r.params[1] ?? '0', 10);
+  return { windowId: Number.isNaN(id) ? 0 : id, ok: true };
 }
 
 export interface BoolResult {
@@ -187,12 +215,23 @@ export function decodeVolumeResult(r: ParsedResponse): VolumeResult {
   return out;
 }
 
-/** `<enum_modes,测试1,测试2>` → ['测试1','测试2']; 空 `<enum_modes,>` → [] */
+/**
+ * enum_modes → 模式名数组。
+ * 🔧 真机(2.4.25.268)回 `<enum_modes,<count>,<名1>,<名2>…>` —— **前面多一个 count 字段**
+ *   (0 模式时 `<enum_modes,0,>`)。⚠️ **未验**: 现场 0 模式, 没法看有模式时的真实排布,
+ *   配了模式 + 拿到厂家新版文档后要复核。这里按"首段是 count 就丢掉"处理, 再滤掉空串。
+ */
 export function decodeModes(r: ParsedResponse): string[] {
   assertOk(r, 'enum_modes');
-  const p = r.params;
-  if (p.length === 0 || (p.length === 1 && p[0] === '')) return [];
-  return p;
+  let p = r.params;
+  // 首段是纯数字且 == 后面非空名字的个数 → 当 count 丢掉
+  if (p.length >= 1 && /^\d+$/.test(p[0])) {
+    const rest = p.slice(1).filter((x) => x !== '');
+    if (Number.parseInt(p[0], 10) === rest.length) return rest;
+    // count 对不上也把它当 count 丢(保守), 剩下滤空
+    p = p.slice(1);
+  }
+  return p.filter((x) => x !== '');
 }
 
 /** `<get_running_plan,1>` → true(预案运行中) */

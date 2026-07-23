@@ -26,11 +26,20 @@ describe('融合器协议 · 请求编码 (逗号后绝不加空格)', () => {
     expect(encodeCommand('clean_windows')).toBe('<clean_windows>');
   });
 
-  it('open_window: 文档原文 <open_window,测试1.mp4,0,0,0.5,0.5>', () => {
+  it('encodeCommand 不加空格 (逗号紧贴源名)', () => {
     // 文档反复强调: 逗号和信号源名之间多一个空格就找不到信号源
     expect(encodeCommand('open_window', ['测试1.mp4', 0, 0, 0.5, 0.5])).toBe(
       '<open_window,测试1.mp4,0,0,0.5,0.5>',
     );
+  });
+
+  it('真机 open_window 帧: 前置画布字段 0 + 源 + 坐标', () => {
+    // adapter 实际发的: <open_window,<画布=0>,源,x,y,w,h>
+    expect(encodeCommand('open_window', [0, '测试1.mp4', 0, 0, 0.5, 0.5])).toBe(
+      '<open_window,0,测试1.mp4,0,0,0.5,0.5>',
+    );
+    // close 也带画布: <close_window,<画布>,<窗口id>>
+    expect(encodeCommand('close_window', [0, 3])).toBe('<close_window,0,3>');
   });
 
   it('close_window / resize / move', () => {
@@ -100,6 +109,26 @@ describe('融合器协议 · enum_windows', () => {
     expect(ws[1]).toEqual({ id: 2, source: '测试2.mp4', x: 0.5, y: 0.5, width: 0.5, height: 0.5 });
   });
 
+  it('真机: 默认播放窗口 id 空 → DEFAULT_WINDOW_ID(-1)', () => {
+    // 现场原样: <enum_windows, ,FRANCE...595s.mp4,0,0,1,0.998779>
+    const ws = decodeWindows(
+      parseResponse('<enum_windows, ,FRANCE 1周同尧《天体》-595s.mp4,0.000000,0.000000,1.000000,0.998779>'),
+    );
+    expect(ws).toHaveLength(1);
+    expect(ws[0].id).toBe(-1); // DEFAULT_WINDOW_ID
+    expect(ws[0].source).toBe('FRANCE 1周同尧《天体》-595s.mp4');
+    expect(ws[0].width).toBe(1);
+  });
+
+  it('真机: 默认窗口 + open 出来的 id=0 窗口混排', () => {
+    // <enum_windows, ,主源,0,0,1,0.998, 0,PIP源,0.72,0.02,0.25,0.25>
+    const ws = decodeWindows(
+      parseResponse('<enum_windows, ,主源.mp4,0,0,1,0.998779,0,PIP.mp4,0.72,0.02,0.25,0.25>'),
+    );
+    expect(ws.map((w) => w.id)).toEqual([-1, 0]);
+    expect(ws[1]).toMatchObject({ id: 0, source: 'PIP.mp4', x: 0.72, width: 0.25 });
+  });
+
   it('参数非 6 的倍数 → FusionFrameError', () => {
     expect(() => decodeWindows(parseResponse('<enum_windows,1,x.mp4,0,0,0.5>'))).toThrow(
       FusionFrameError,
@@ -107,20 +136,20 @@ describe('融合器协议 · enum_windows', () => {
   });
 });
 
-describe('融合器协议 · open / replace 窗口', () => {
-  it('开窗成功: <open_window,5> → id=5', () => {
-    expect(decodeOpenResult(parseResponse('<open_window,5>'))).toEqual({ windowId: 5, ok: true });
+describe('融合器协议 · open 窗口 (真机 2.4.25.268: 成功位 + id 两段)', () => {
+  it('开窗成功: 真机回 <open_window, 1, 0> → 成功位1, 新窗口 id=0', () => {
+    expect(decodeOpenResult(parseResponse('<open_window, 1, 0>'))).toEqual({ windowId: 0, ok: true });
   });
-  it('开窗失败: <open_window, 0, can\'t find signal source…> → id=0 + 原因', () => {
+  it('开窗成功 id=5: <open_window,1,5>', () => {
+    expect(decodeOpenResult(parseResponse('<open_window,1,5>'))).toEqual({ windowId: 5, ok: true });
+  });
+  it('开窗失败: <open_window, 0, can\'t find signal source…> → 成功位0 + 原因', () => {
     const r = decodeOpenResult(
       parseResponse("<open_window, 0, can't find signal source! signal source name: 测试1.mp4>"),
     );
     expect(r.ok).toBe(false);
     expect(r.windowId).toBe(0);
     expect(r.error).toMatch(/can't find signal source/);
-  });
-  it('替换窗口成功: <open_window,6> (replace 回显也是 open_window)', () => {
-    expect(decodeOpenResult(parseResponse('<open_window,6>')).windowId).toBe(6);
   });
 });
 
@@ -160,16 +189,29 @@ describe('融合器协议 · 音量', () => {
     const v = decodeVolumeResult(parseResponse('<get_window_volume,1,100,0>'));
     expect(v).toEqual({ ok: true, volume: 100, muted: false });
   });
+  it('真机原样带空格+静音: <get_window_volume, 1,80,1> → 80, 静音', () => {
+    const v = decodeVolumeResult(parseResponse('<get_window_volume, 1,80,1>'));
+    expect(v).toEqual({ ok: true, volume: 80, muted: true });
+  });
+  it('真机 set 回读: <get_window_volume, 1,25,0> → 25, 未静音', () => {
+    expect(decodeVolumeResult(parseResponse('<get_window_volume, 1,25,0>'))).toEqual({
+      ok: true, volume: 25, muted: false,
+    });
+  });
 });
 
 describe('融合器协议 · 模式 / 预案', () => {
-  it('enum_modes 空 → []', () => {
-    expect(decodeModes(parseResponse('<enum_modes,>'))).toEqual([]);
+  it('真机 0 模式: <enum_modes, 0,> → [] (丢掉前置 count)', () => {
+    expect(decodeModes(parseResponse('<enum_modes, 0,>'))).toEqual([]);
   });
-  it('enum_modes 四个: 文档原文', () => {
-    expect(decodeModes(parseResponse('<enum_modes,测试1,测试2,测试3,测试4>'))).toEqual([
+  it('真机 count 前置格式: <enum_modes,4,测试1,测试2,测试3,测试4> → 4 个名 (未真机验但按此假设)', () => {
+    expect(decodeModes(parseResponse('<enum_modes,4,测试1,测试2,测试3,测试4>'))).toEqual([
       '测试1', '测试2', '测试3', '测试4',
     ]);
+  });
+  it('文档裸格式(无 count)也兜住: <enum_modes,测试1,测试2>', () => {
+    // 首段"测试1"非纯数字 → 不当 count, 全返回
+    expect(decodeModes(parseResponse('<enum_modes,测试1,测试2>'))).toEqual(['测试1', '测试2']);
   });
   it('get_running_plan 运行中: <get_running_plan,1> → true', () => {
     expect(decodeRunningPlan(parseResponse('<get_running_plan,1>'))).toBe(true);

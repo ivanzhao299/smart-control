@@ -26,10 +26,11 @@ describe('FusionPlayerAdapter · describe() 驱动目录契约', () => {
     expect(d.category).toBe('projector-fusion');
     expect(d.protocol).toBe('tcp-text');
   });
-  it('默认端口 63426, 必填 IP', () => {
-    expect(d.defaultAddressing).toMatchObject({ port: 63426 });
+  it('默认端口 63426, 必填 IP, 带画布字段', () => {
+    expect(d.defaultAddressing).toMatchObject({ port: 63426, canvas: 0 });
     expect(d.paramSchema?.ip?.required).toBe(true);
     expect(d.paramSchema?.port?.default).toBe(63426);
+    expect(d.paramSchema?.canvas?.default).toBe(0);
   });
   it('能力含开窗/切源/模式/播放列表', () => {
     expect(d.capabilities).toEqual(
