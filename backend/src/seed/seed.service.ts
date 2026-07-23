@@ -847,6 +847,25 @@ export class SeedService {
           '工作方式 TCP Server / 本地端口 502 / 透传 (Modbus 网关功能关闭, 后端自己发 RTU 帧带 CRC). ' +
           'Web 配置 http://192.168.50.21 admin/admin. 出厂 IP 是 192.168.0.7, 2026-07-22 改到 50 网段.',
       },
+      // ---- 投影视频融合器 (2026-07-23 装机联调) ----
+      {
+        code: 'FUSION-PROJ-1',
+        name: '投影视频融合器',
+        category: 'projector-fusion',
+        vendor: 'JBT',
+        model: 'JBT-SK-HD02',
+        driverKind: 'fusion-player',
+        ip: '192.168.1.168',
+        floor: '1F',
+        location: '1F 投影配套机柜',
+        // canvas = open/close 前置画布字段(固件 2.4.25.268 实测需要, 单屏填 0)
+        addressing: JSON.stringify({ port: 63426, canvas: 0 }),
+        remark:
+          '4K 二通道投影融合处理器. 网口直连 TCP 文本播控协议, 端口 63426. ' +
+          '出厂 192.168.2.168, 现场在 192.168.1.168(admin/admin, web SPA 配置). ' +
+          '**待挪到 50 网段统一管理**. 固件 2.4.25.268 比文档 V1.1 新, open/close 有前置画布字段. ' +
+          '核心命令(开窗/切源/移动/缩放/音量)已实机验通; run_mode 待设备里配模式.',
+      },
       // ---- 音响 (得胜方案 2 + WTG-800 跟随讲解) ----
       // 协议参考: docs/AUDIO_PROTOCOL_EKX808.md
       // 实现: backend/src/adapters/audio/ekx808-protocol.ts (编解码就绪, 待联调)

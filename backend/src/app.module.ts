@@ -24,6 +24,7 @@ import { PowerCircuitsModule } from './modules/power-circuits/power-circuits.mod
 import { LedModule } from './modules/led/led.module';
 import { AudioModule } from './modules/audio/audio.module';
 import { HvacModule } from './modules/hvac/hvac.module';
+import { ProjectorModule } from './modules/projector/projector.module';
 import { SchedulerModule } from './modules/scheduler/scheduler.module';
 import { SceneExecutionsModule } from './modules/scene-executions/scene-executions.module';
 import { AlertModule } from './modules/alerts/alert.module';
@@ -68,6 +69,7 @@ import { ServicesModule } from './services/services.module';
     LedModule,
     AudioModule,
     HvacModule,
+    ProjectorModule,
     SchedulerModule,
     SceneExecutionsModule,
     AlertModule,
