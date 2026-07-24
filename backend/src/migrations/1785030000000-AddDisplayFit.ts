@@ -11,10 +11,10 @@ export class AddDisplayFit1785030000000 implements MigrationInterface {
     name = 'AddDisplayFit1785030000000'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`ALTER TABLE "playback_channel" ADD COLUMN "displayFit" varchar(16) NOT NULL DEFAULT ('fill')`);
+        await queryRunner.query(`ALTER TABLE "playback_channels" ADD COLUMN "displayFit" varchar(16) NOT NULL DEFAULT ('fill')`);
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`ALTER TABLE "playback_channel" DROP COLUMN "displayFit"`);
+        await queryRunner.query(`ALTER TABLE "playback_channels" DROP COLUMN "displayFit"`);
     }
 }
