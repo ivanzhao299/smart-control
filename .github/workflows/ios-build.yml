@@ -30,7 +30,10 @@ permissions:
 jobs:
   build:
     name: Build unsigned IPA
-    runs-on: macos-14
+    # macos-15: 默认 Xcode 16.x。xcodegen 2.45+ 生成的是 objectVersion 77
+    # (Xcode 16 工程格式), macos-14 默认的 Xcode 15 读不了 ("future Xcode
+    # project file format"), 2026-07-24 首跑就是这么挂的。
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
