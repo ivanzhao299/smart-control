@@ -1,0 +1,5 @@
+SmartControl.xcodeproj/
+build/
+Payload/
+*.ipa
+DerivedData/
