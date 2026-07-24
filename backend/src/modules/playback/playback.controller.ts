@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Put } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Logger, Param, ParseIntPipe, Post, Put } from '@nestjs/common';
 import { PlaybackService } from './playback.service';
 import { Public } from '../../common/decorators/public.decorator';
 
@@ -11,6 +11,23 @@ import { Public } from '../../common/decorators/public.decorator';
 @Controller('playback')
 export class PlaybackController {
   constructor(private readonly service: PlaybackService) {}
+
+  private readonly logger = new Logger('AudioRouteDebug');
+
+  /**
+   * 临时调试 (2026-07-24): PlayerPage 上报它 enumerateDevices() 看到的音频输出设备
+   * 标签 + 它给这个 slot 挑中的那个, 落进 pm2-out.log, 用来定位投影(slot2) setSinkId
+   * 到底指到了哪、为什么没落到 HDMI2 那口。定位完删。
+   */
+  @Public()
+  @Post('audio-debug')
+  @HttpCode(200)
+  audioDebug(@Body() body: { slot?: number; labels?: string[]; picked?: string | null } = {}) {
+    this.logger.warn(
+      `[audio-route] slot=${body.slot} picked=${JSON.stringify(body.picked)} labels=${JSON.stringify(body.labels)}`,
+    );
+    return { ok: true };
+  }
 
   /** 拿所有通道状态. PlayerPage 起来时第一次拉 + 后台监控也读 */
 

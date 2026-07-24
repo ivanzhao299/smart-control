@@ -177,6 +177,13 @@ async function resolveHdmiDeviceId(): Promise<string | null> {
       // 投影: 取一个"不是 LED"的显示音频端点(HDMI1.3 / HDMI2.0 / lontium 都算)。
       : outs.find((d) => isDisplayAudio(d.label) && !isLed(d.label));
     if (pick) cachedHdmiDeviceId = pick.deviceId;
+    // 临时调试 (2026-07-24): 上报浏览器实际枚举到的设备标签 + 本 slot 挑中的那个,
+    // 落进后端日志, 定位投影(slot2) setSinkId 到底指哪、为何没落到 HDMI2。定位完删。
+    void fetch('/api/playback/audio-debug', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slot: slot.value, labels: outs.map((d) => d.label), picked: pick?.label ?? null }),
+    }).catch(() => { /* 调试用, 失败无所谓 */ });
   } catch { /* 这次没解析出来, 等下一轮重试 */ }
   return cachedHdmiDeviceId;
 }

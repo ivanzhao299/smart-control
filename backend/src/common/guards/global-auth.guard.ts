@@ -29,6 +29,15 @@ export class GlobalAuthGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // 2026-07-24: 业主明确要求关闭"用户/业主鉴权"门 —— 现场频繁因 token 过期被踢出、
+    // 报"没有权限操作", 严重影响使用。默认放行**所有**请求。后台写接口仍由各自的
+    // @UseGuards(AdminGuard) 独立保护 (admin-auth / audio-config / power-circuits /
+    // light-zones / system-branding / app-release / client-auth), 这部分不受影响。
+    // ⚠️ 安全提示: 关闭后, 未单独挂 AdminGuard 的控制器 (devices / hardware / scenes /
+    // scheduler / media / audio / playback / lighting / hvac 等) 在网络可达范围内无鉴权。
+    // 要重新启用全局用户门: 设环境变量 CLIENT_AUTH_ENABLED=true。
+    if (process.env.CLIENT_AUTH_ENABLED !== 'true') return true;
+
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
       context.getClass(),
