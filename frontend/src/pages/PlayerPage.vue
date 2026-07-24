@@ -191,7 +191,11 @@ async function resolveHdmiDeviceId(): Promise<string | null> {
 }
 async function routeVideoAudio(): Promise<void> {
   if (slot.value !== 1 && slot.value !== 2) return;  // slot3 是 BGM, 必须留在默认设备
-  const el = videoEl.value as (HTMLVideoElement & { setSinkId?: (id: string) => Promise<void> }) | null;
+  // 2026-07-24: 不只 <video> —— slot1/2 也能推**音频文件**(业主: "播放器都应该支持
+  // 播放音频文件"), <audio> 的声音同样必须 setSinkId 到本 slot 的显示音频端点,
+  // 否则掉进默认设备(USB 声卡) → 从 BGM 通道出来, 大屏/投影分区没声。
+  // 取当前活跃的媒体元素: 视频在放取 video, 音频在放取 audio (v-if 互斥, 只会有一个)。
+  const el = (videoEl.value ?? audioEl.value) as (HTMLMediaElement & { setSinkId?: (id: string) => Promise<void> }) | null;
   if (!el?.setSinkId) return;                    // 浏览器不支持就算了, 至少声音还在默认设备
   const hdmiId = await resolveHdmiDeviceId();
   if (!hdmiId) return;                           // 这次没找到, 等下一轮定时重试
@@ -283,10 +287,11 @@ function onAudioEnded(): void {
         autoplay
         :loop="channel.loopMode === 'loop'"
         @ended="onAudioEnded"
+        @loadedmetadata="routeVideoAudio"
       />
       <div class="audio-icon">🎵</div>
       <div class="audio-title">{{ channel.currentMediaName }}</div>
-      <div class="audio-sub">{{ channel.loopMode === 'loop' ? '循环播放' : '单曲播放' }} · 背景音乐</div>
+      <div class="audio-sub">{{ channel.loopMode === 'loop' ? '循环播放' : '单曲播放' }} · {{ channel?.name || '播放器' }}</div>
       <div class="audio-wave"><span></span><span></span><span></span><span></span><span></span></div>
     </div>
 
