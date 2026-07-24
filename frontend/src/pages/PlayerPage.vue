@@ -161,16 +161,21 @@ async function resolveHdmiDeviceId(): Promise<string | null> {
     //   - LED  专属端点被命名成 LED_PLAYER_*, 用 /LED[_ ]?PLAYER/ 认;
     //   - 投影 是 HDMI2 / 融合器(lontium) 那个显示端点, 且明确排除 LED。
     // 兜底都保证 "不是对方那个端点", 认不出就返回 null (留默认设备, 不污染对方分区)。
-    const isLed = (l: string) => /LED[_ ]?PLAYER/i.test(l);
-    const isProjector = (l: string) => /HDMI\s*2|lontium/i.test(l);
+    // 2026-07-23 关键订正: 两个分离器都正常时, Windows 里就有两个活动显示音频端点,
+    // 一个 LED、一个投影。现场实测活动端点 = "LED_PLAYER_ST"(LED, 已确认) +
+    // "HDMI1.3"。**"HDMI1.3" 其实是投影(HDMI2)那口** —— Intel 驱动按自己的口序命名,
+    // 名字里的 "1" 不代表物理 HDMI1。之前 slot2 兜底写了 !/HDMI1/ 想排除 LED 的旧名,
+    // 结果把投影这个真端点也排除了 -> 投影声音退回 USB 声卡。这就是那个"程序问题"。
+    // 订正: 投影 = "**不是 LED 的那个显示音频端点**"(不管它叫 HDMI1.3 / HDMI2.0 /
+    // lontium), 不再按 HDMI 口序号排除。
+    const isLed = (l: string) => /LED[_ ]?PLAYER|NOVA/i.test(l);
     const isDisplayAudio = (l: string) => /HDMI|显示器音频|Display Audio|lontium/i.test(l);
     const pick = slot.value === 1
-      // LED: 优先专属命名端点 LED_PLAYER_*; 兜底取一个"不是投影"的显示端点。
+      // LED: 优先专属命名端点 LED_PLAYER_*; 兜底取任意显示端点(单 LED 场景)。
       ? (outs.find((d) => isLed(d.label))
-          ?? outs.find((d) => isDisplayAudio(d.label) && !isProjector(d.label)))
-      // 投影: 优先 HDMI2 / 融合器端点; 兜底取一个既不是 LED 也不是 HDMI1 的显示端点。
-      : (outs.find((d) => isProjector(d.label))
-          ?? outs.find((d) => isDisplayAudio(d.label) && !isLed(d.label) && !/HDMI\s*1/i.test(d.label)));
+          ?? outs.find((d) => isDisplayAudio(d.label)))
+      // 投影: 取一个"不是 LED"的显示音频端点(HDMI1.3 / HDMI2.0 / lontium 都算)。
+      : outs.find((d) => isDisplayAudio(d.label) && !isLed(d.label));
     if (pick) cachedHdmiDeviceId = pick.deviceId;
   } catch { /* 这次没解析出来, 等下一轮重试 */ }
   return cachedHdmiDeviceId;
