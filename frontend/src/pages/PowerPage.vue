@@ -87,6 +87,48 @@ async function dispatchOne(c: PowerCircuitView, op: 'on' | 'off'): Promise<void>
   }
 }
 
+// ============ 时序器 (EPO-802P, floor='音响') ============
+// 全开/全关走 b3: 设备按各路设定延时依次通断 (开 1,3..15s / 关 15,13..1s), 保护功放。
+const hasSeq = computed<boolean>(() => circuits.value.some((c) => c.category === 'audio-seq'));
+const seqBusy = ref(false);
+async function seqAll(on: boolean): Promise<void> {
+  seqBusy.value = true;
+  try {
+    if (on) await powerCircuitsService.seqAllOn();
+    else await powerCircuitsService.seqAllOff();
+    ElMessage.success(on ? '时序开机已下发, 各路按延时依次上电' : '时序关机已下发, 各路按延时依次断电');
+    // 时序动作要几十秒才走完, 稍等再刷一轮真实状态
+    window.setTimeout(() => { void loadCircuits(); }, 4000);
+  } catch (err) {
+    ElMessage.error(`时序${on ? '开' : '关'}机失败: ${(err as Error).message}`);
+  } finally {
+    seqBusy.value = false;
+  }
+}
+
+// ============ 行内改名 (每一路名称业主可自定义) ============
+// script setup 里的局部指令: <input v-focus> 挂载即聚焦 (动态插入的输入框 autofocus 不可靠)
+const vFocus = { mounted: (el: HTMLElement) => el.focus() };
+const renamingId = ref<number | null>(null);
+const renameDraft = ref('');
+function startRename(c: PowerCircuitView): void {
+  renamingId.value = c.id;
+  renameDraft.value = c.name;
+}
+async function commitRename(c: PowerCircuitView): Promise<void> {
+  const name = renameDraft.value.trim();
+  renamingId.value = null;
+  if (!name || name === c.name) return;
+  try {
+    const updated = await powerCircuitsService.rename(c.id, name);
+    const idx = circuits.value.findIndex((x) => x.id === c.id);
+    if (idx >= 0) circuits.value[idx] = updated;
+    ElMessage.success('已改名');
+  } catch (err) {
+    ElMessage.error(`改名失败: ${(err as Error).message}`);
+  }
+}
+
 // 空开专属详情 (三相分相 + 温度 + 漏电 + 报警) — 只对 isBreaker 回路, 点开才拉
 const expandedId = ref<number | null>(null);
 const breakerDetail = ref<Record<number, BreakerMeasurements>>({});
@@ -186,6 +228,25 @@ onUnmounted(() => { stopRefresh(); });
         <button class="v2-quick" @click="loadCircuits" :disabled="loading" title="重新加载">
           <RefreshCw :size="14" :stroke-width="2" />
         </button>
+        <!-- 时序器: b3 全开/全关, 设备按延时依次动作 (保护功放), 有时序回路才显示 -->
+        <button
+          v-if="hasSeq && (floorTab === '音响' || floorTab === 'all')"
+          class="v2-quick primary"
+          @click="seqAll(true)"
+          :disabled="seqBusy"
+          title="各路按设定延时依次上电 (1,3,..15 秒)"
+        >
+          <Power :size="14" :stroke-width="2" /> 时序开机
+        </button>
+        <button
+          v-if="hasSeq && (floorTab === '音响' || floorTab === 'all')"
+          class="v2-quick danger"
+          @click="seqAll(false)"
+          :disabled="seqBusy"
+          title="先开的后关, 按延时依次断电 (15,13,..1 秒)"
+        >
+          <Power :size="14" :stroke-width="2" /> 时序关机
+        </button>
         <button
           v-if="floorTab !== 'all'"
           class="v2-quick"
@@ -273,7 +334,18 @@ onUnmounted(() => { stopRefresh(); });
           <div class="card-ico"><component :is="iconFor(c.icon)" :size="22" :stroke-width="1.8" /></div>
           <div class="card-meta">
             <div class="card-name">
-              {{ c.name }}
+              <!-- 行内改名: 点名字直接编辑 (业主自定义每一路名称), 回车/失焦保存 -->
+              <input
+                v-if="renamingId === c.id"
+                v-model="renameDraft"
+                class="rename-input"
+                maxlength="32"
+                @keyup.enter="commitRename(c)"
+                @blur="commitRename(c)"
+                @keyup.esc="renamingId = null"
+                v-focus
+              />
+              <span v-else class="name-text" title="点击改名" @click="startRename(c)">{{ c.name }}</span>
               <span v-if="c.isBreaker" class="breaker-badge" title="智能断路器 · 远程物理总闸">总闸</span>
             </div>
             <div class="card-floor">{{ c.floor }} · {{ c.ratedVoltage }}V {{ c.ratedCurrent }}A</div>
@@ -619,6 +691,21 @@ onUnmounted(() => { stopRefresh(); });
   font-weight: 700;
   color: var(--v2-text-1);
   letter-spacing: 0.3px;
+}
+/* 行内改名: 名字可点; 编辑态输入框贴合卡片风格 */
+.card-name .name-text { cursor: pointer; }
+.card-name .name-text:hover { text-decoration: underline dotted; text-underline-offset: 3px; }
+.rename-input {
+  width: 100%;
+  max-width: 180px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--v2-text-1);
+  background: var(--v2-bg-2, rgba(0,0,0,0.2));
+  border: 1px solid var(--v2-primary);
+  border-radius: 6px;
+  padding: 2px 8px;
+  outline: none;
 }
 .card-floor {
   font-size: 11px;

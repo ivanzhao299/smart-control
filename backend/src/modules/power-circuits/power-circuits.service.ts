@@ -84,6 +84,23 @@ const SEED_CIRCUITS: Array<Omit<PowerCircuitUpsertDto, 'enabled'> & { enabled?: 
     gatewayCode: 'RELAY-2F-1', relayChannel: 2,
     ratedVoltage: 380, ratedCurrent: 40, ratedPower: 12000,
     sortOrder: 20, icon: 'Snowflake' },
+  // ---- 音响电源时序器 EPO-802P (COM1 直连, 2026-07-24 端口实测通) ----
+  // 8 路时序上电保护功放。名字是占位, 业主在电源页可直接改 (rename 端点),
+  // seed 按 code 幂等, 改过的名字不会被冲掉。
+  ...Array.from({ length: 8 }, (_, i) => ({
+    code: `seq-${i + 1}`,
+    name: `时序 ${i + 1} 路`,
+    floor: '音响',
+    category: 'audio-seq',
+    gatewayCode: 'AUDIO-PWR-SEQ-1',
+    relayChannel: i + 1,
+    ratedVoltage: 220,
+    ratedCurrent: 16,
+    ratedPower: 2000,
+    sortOrder: 100 + i,
+    icon: 'Plug',
+    description: `EPO-802P 时序器通道 ${i + 1}`,
+  })),
 ];
 
 @Injectable()
@@ -106,6 +123,13 @@ export class PowerCircuitsService implements OnModuleInit {
    */
   private breakerCache = new Map<number, { at: number; reading: PowerReading }>();
   private readonly BREAKER_CACHE_TTL_MS = 3000;
+
+  /**
+   * 时序器状态缓存 —— 8 路回路共享**一次** readStatus (0xac 一帧就带全部 8 路状态),
+   * 不然 list() 一次要开关 COM 口 8 遍。TTL 内复用; 读失败回落上一次好值。
+   */
+  private seqCache: { at: number; channels: boolean[] } | null = null;
+  private readonly SEQ_CACHE_TTL_MS = 3000;
 
   async onModuleInit(): Promise<void> {
     let created = 0;
@@ -339,6 +363,55 @@ export class PowerCircuitsService implements OnModuleInit {
     return r.data;
   }
 
+  /**
+   * 时序器回路读数 — 8 路共享一次 0xac 全状态帧 (seqCache)。
+   * 读失败回落上次好值; 再没有就 on=false, 不让电源页崩。
+   */
+  private async seqReading(row: PowerCircuit): Promise<PowerReading> {
+    const ch = (row.relayChannel ?? 0) - 1;
+    let channels: boolean[] | null = null;
+    if (this.seqCache && Date.now() - this.seqCache.at < this.SEQ_CACHE_TTL_MS) {
+      channels = this.seqCache.channels;
+    } else {
+      const r = await this.epo.readStatus();
+      if (r.ok && r.data?.channels) {
+        channels = r.data.channels;
+        this.seqCache = { at: Date.now(), channels };
+      } else {
+        this.logger.warn(`时序器读状态失败 circuit=${row.code}: ${r.error ?? '无数据'}`, {
+          context: 'PowerCircuitsService',
+        });
+        channels = this.seqCache?.channels ?? null;
+      }
+    }
+    return {
+      on: channels?.[ch] ?? false,
+      current: 0, voltage: 0, power: 0, powerFactor: 0, energy: 0,
+      lastReadAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * 时序器全开/全关 (b3) — 设备按各路设定延时**依次**动作 (实测配置: 开 1,3,..15s,
+   * 关 15,13,..1s 先开后关), 保护功放。这是时序器的正经用法, 电源页"时序开机/关机"按钮用。
+   */
+  async sequencerAll(on: boolean): Promise<void> {
+    const r = await this.epo.setAll(on);
+    if (!r.ok) throw new ConflictException(`时序器${on ? '开' : '关'}机失败: ${r.error ?? '未知'}`);
+    this.seqCache = null; // 状态马上要变, 缓存作废
+  }
+
+  /** 改名 (业主在电源页直接改, 不需要 admin) */
+  async rename(id: number, name: string): Promise<PowerCircuitView> {
+    const row = await this.repo.findOne({ where: { id } });
+    if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
+    const trimmed = (name ?? '').trim();
+    if (!trimmed) throw new ConflictException('名称不能为空');
+    if (trimmed.length > 32) throw new ConflictException('名称最长 32 字');
+    row.name = trimmed;
+    return this.toView(await this.repo.save(row));
+  }
+
   /** 这条回路是不是挂在 EPO-802P 时序器上 */
   private async isSequencerCircuit(row: PowerCircuit): Promise<boolean> {
     if (!row.gatewayCode || !row.relayChannel) return false;
@@ -363,6 +436,10 @@ export class PowerCircuitsService implements OnModuleInit {
     // 智能断路器回路: 读真机 (电压/电流/功率/电量都是实测), 不用 mock 的模拟值
     if (isBreaker) {
       return { ...this.baseView(row), isBreaker, reading: await this.breakerReading(row) };
+    }
+    // 时序器回路: 开关状态读真机 (0xac 一帧带全部 8 路), 电量指标时序器没有 → 0
+    if (await this.isSequencerCircuit(row)) {
+      return { ...this.baseView(row), isBreaker, reading: await this.seqReading(row) };
     }
     const result = await this.adapter.circuitReadStatus(row.id, {
       voltage: row.ratedVoltage,

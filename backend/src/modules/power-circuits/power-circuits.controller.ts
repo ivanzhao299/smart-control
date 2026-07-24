@@ -38,6 +38,35 @@ export class PowerCircuitsController {
     };
   }
 
+  // ============ 时序器 (EPO-802P) ============
+  // ⚠️ 路由顺序: 'sequencer/*' 必须声明在 ':id' 参数路由之前, 否则被 ParseIntPipe 吃掉 400。
+
+  /** 时序开机 (b3 全开) — 设备按各路延时 1,3,..15s 依次上电, 保护功放 */
+  @Post('sequencer/all-on')
+  @UseGuards(RateLimitGuard)
+  @RateLimit({ max: 2, windowMs: 3000 })
+  async seqAllOn() {
+    await this.service.sequencerAll(true);
+    return { message: '时序开机已下发, 各路按延时依次上电', data: { on: true } };
+  }
+
+  /** 时序关机 (b3 全关) — 先开的后关, 按 15,13,..1s 依次断电 */
+  @Post('sequencer/all-off')
+  @UseGuards(RateLimitGuard)
+  @RateLimit({ max: 2, windowMs: 3000 })
+  async seqAllOff() {
+    await this.service.sequencerAll(false);
+    return { message: '时序关机已下发, 各路按延时依次断电', data: { on: false } };
+  }
+
+  /** 改名 — 业主在电源页直接改每一路名字, 日常操作不卡 admin (同 on/off 策略) */
+  @Post(':id/rename')
+  @UseGuards(RateLimitGuard)
+  @RateLimit({ max: 4, windowMs: 1000 })
+  async rename(@Param('id', ParseIntPipe) id: number, @Body() body: { name?: string } = {}) {
+    return { message: '已改名', data: await this.service.rename(id, body.name ?? '') };
+  }
+
   @Get(':id')
   async detail(@Param('id', ParseIntPipe) id: number) {
     return { message: '查询成功', data: await this.service.detail(id) };

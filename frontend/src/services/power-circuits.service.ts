@@ -97,4 +97,13 @@ export const powerCircuitsService = {
     api.post<PowerCircuitView>(`/power-circuits/${id}/off`).then((r) => { invalidate(PC); return r; }),
   /** 空开专属: 三相分相 + 4 路温度 + 漏电 + 报警位 (只对 isBreaker 回路有意义) */
   breaker: (id: number) => api.get<BreakerMeasurements>(`/power-circuits/${id}/breaker`),
+  /** 改名 (电源页行内编辑, 不需要 admin) */
+  rename: (id: number, name: string) =>
+    api.post<PowerCircuitView>(`/power-circuits/${id}/rename`, { name }).then((r) => { invalidate(PC); return r; }),
+  /** 时序器全开 (b3) — 设备按各路延时依次上电 */
+  seqAllOn: () =>
+    api.post<{ on: boolean }>('/power-circuits/sequencer/all-on').then((r) => { invalidate(PC); return r; }),
+  /** 时序器全关 (b3) — 先开的后关 */
+  seqAllOff: () =>
+    api.post<{ on: boolean }>('/power-circuits/sequencer/all-off').then((r) => { invalidate(PC); return r; }),
 };
