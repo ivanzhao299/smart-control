@@ -4,6 +4,7 @@ import SwiftUI
 /// 输 url → 测试 (GET /api/client-auth/ping, 显示服务器时间) → 保存进 WebView。
 struct ConfigView: View {
     @State private var urlText: String
+    @State private var remoteText: String
     @State private var testing = false
     @State private var statusText: String?
     @State private var statusOk = false
@@ -12,25 +13,45 @@ struct ConfigView: View {
     init(onSave: @escaping (String) -> Void) {
         self.onSave = onSave
         _urlText = State(initialValue: Prefs.serverUrl ?? Prefs.defaultServerUrl)
+        _remoteText = State(initialValue: Prefs.remoteUrl ?? "")
     }
 
     var body: some View {
-        VStack(spacing: 22) {
+        VStack(spacing: 18) {
             Spacer()
             Text("金湖智控")
                 .font(.system(size: 30, weight: .bold))
-            Text("请输入服务器地址")
+            Text("配置一次, 现场/远程自动切换")
                 .font(.system(size: 15))
                 .foregroundColor(.secondary)
 
-            TextField("http://192.168.x.x:5173/control/", text: $urlText)
-                .keyboardType(.URL)
-                .autocapitalization(.none)
-                .disableAutocorrection(true)
-                .padding(12)
-                .background(Color(.secondarySystemBackground))
-                .cornerRadius(10)
-                .padding(.horizontal, 28)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("现场地址 (展厅局域网)")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                TextField("http://192.168.77.54:5173/control/", text: $urlText)
+                    .keyboardType(.URL)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                    .padding(12)
+                    .background(Color(.secondarySystemBackground))
+                    .cornerRadius(10)
+            }
+            .padding(.horizontal, 28)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("远程地址 (隧道/公网, 可选)")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                TextField(Prefs.defaultRemoteUrl, text: $remoteText)
+                    .keyboardType(.URL)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                    .padding(12)
+                    .background(Color(.secondarySystemBackground))
+                    .cornerRadius(10)
+            }
+            .padding(.horizontal, 28)
 
             if let s = statusText {
                 Text(s)
@@ -80,44 +101,41 @@ struct ConfigView: View {
     }
 
     private func onTest() {
-        guard let base0 = normalized() else { return }
-        let base = base0.hasSuffix("/") ? String(base0.dropLast()) : base0
-        guard let url = URL(string: "\(base)/api/client-auth/ping") else {
-            status("地址无法解析", ok: false); return
+        guard let local = normalized() else { return }
+        let remote = remoteText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !remote.isEmpty && !remote.hasPrefix("http://") && !remote.hasPrefix("https://") {
+            status("远程地址必须以 http:// 或 https:// 开头", ok: false); return
         }
         testing = true
         statusText = nil
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 4
-        URLSession.shared.dataTask(with: req) { data, resp, err in
-            DispatchQueue.main.async {
-                testing = false
-                if let err = err {
-                    status("连接失败: \(err.localizedDescription)", ok: false); return
+        // 两个地址都测, 结果并排 (在展厅只有现场通、在外面只有远程通都是正常态)
+        ServerResolver.ping(local) { lok, ltime in
+            let localLine = lok ? "现场: 连接成功 ✓ \(ltime ?? "")" : "现场: 连不上"
+            if remote.isEmpty {
+                DispatchQueue.main.async {
+                    testing = false
+                    status(localLine, ok: lok)
                 }
-                guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                    let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
-                    status("连接失败: HTTP \(code)", ok: false); return
-                }
-                // 摘 serverTime 的 HH:mm:ss 给业主看 (对齐安卓壳)
-                var timeStr = ""
-                if let data = data,
-                   let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    let d = (root["data"] as? [String: Any]) ?? root
-                    if let iso = d["serverTime"] as? String, iso.count >= 19 {
-                        let start = iso.index(iso.startIndex, offsetBy: 11)
-                        let end = iso.index(iso.startIndex, offsetBy: 19)
-                        timeStr = String(iso[start..<end])
-                    }
-                }
-                status("连接成功 ✓ 服务器时间 \(timeStr)", ok: true)
+                return
             }
-        }.resume()
+            ServerResolver.ping(remote) { rok, rtime in
+                DispatchQueue.main.async {
+                    testing = false
+                    let remoteLine = rok ? "远程: 连接成功 ✓ \(rtime ?? "")" : "远程: 连不上"
+                    status(localLine + "\n" + remoteLine, ok: lok || rok)
+                }
+            }
+        }
     }
 
     private func doSave() {
         guard let t = normalized() else { return }
+        let remote = remoteText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !remote.isEmpty && !remote.hasPrefix("http://") && !remote.hasPrefix("https://") {
+            status("远程地址必须以 http:// 或 https:// 开头", ok: false); return
+        }
         Prefs.serverUrl = t
+        Prefs.remoteUrl = remote.isEmpty ? nil : remote
         onSave(t)
     }
 

@@ -59,14 +59,74 @@ class MainActivity : AppCompatActivity() {
         setupWebView()
         setupConfigPanel()
         setupBackHandler()
+        registerNetworkCallback()
 
-        // 启动判断: 有 url → WebView, 无 → 配置
+        // 启动判断: 有 url → 探测双地址后进 WebView, 无 → 配置
         val saved = Prefs.getServerUrl(this)
         if (saved.isNullOrBlank()) {
             showConfig()
         } else {
-            loadWeb(saved)
+            resolveAndLoad()
         }
+    }
+
+    // ============ 双地址自动选择 (2026-07-25) ============
+    //
+    // 业主: "远程连上了应用, 到展厅现场以后可以自动切换为局域网"。
+    // 现场地址 (server_url, 展厅 LAN) + 远程地址 (remote_url, WireGuard 隧道/公网)。
+    // 规则: **现场优先** (LAN 快且不占隧道) —— ping 现场通就用现场, 不通再试远程,
+    // 都不通就仍加载现场地址 (让 WebView 的错误覆盖层出来, 业主可重试/重配)。
+    // 触发: 启动 + 保存配置 + 系统网络变化 (Wi-Fi 切换/隧道连断, 2s 防抖)。
+
+    /** 当前 WebView 实际加载的地址 (探测选中的那个) */
+    private var activeUrl: String? = null
+    private var resolving = false
+    private val netHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var netCallback: android.net.ConnectivityManager.NetworkCallback? = null
+
+    private fun resolveAndLoad() {
+        val local = Prefs.getServerUrl(this) ?: return
+        val remote = Prefs.getRemoteUrl(this)
+        if (resolving) return
+        resolving = true
+        thread {
+            val chosen = when {
+                ping(local).ok -> local
+                !remote.isNullOrBlank() && ping(remote).ok -> remote
+                else -> local   // 都不通: 加载现场地址, 让错误覆盖层露出来
+            }
+            runOnUiThread {
+                resolving = false
+                if (chosen != activeUrl) {
+                    loadWeb(chosen)
+                    if (activeUrl != null) {
+                        val label = if (chosen == local) "现场局域网" else "远程隧道"
+                        Toast.makeText(this, "已自动切换到$label", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    }
+
+    /** 系统网络一变 (进出展厅 Wi-Fi / 隧道连断) 就重探; 2s 防抖挡掉连环回调 */
+    private fun registerNetworkCallback() {
+        val cm = getSystemService(android.net.ConnectivityManager::class.java) ?: return
+        val cb = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) = scheduleResolve()
+            override fun onLost(network: android.net.Network) = scheduleResolve()
+            private fun scheduleResolve() {
+                netHandler.removeCallbacksAndMessages(null)
+                netHandler.postDelayed({
+                    if (bind.webPanel.visibility == View.VISIBLE && !Prefs.getServerUrl(this@MainActivity).isNullOrBlank()) {
+                        resolveAndLoad()
+                    }
+                }, 2000)
+            }
+        }
+        try {
+            cm.registerDefaultNetworkCallback(cb)
+            netCallback = cb
+        } catch (e: Exception) { /* 个别 ROM 限制注册数, 失败就退化为仅启动时探测 */ }
     }
 
     // ============ 全屏 / 沉浸 ============
@@ -98,6 +158,7 @@ class MainActivity : AppCompatActivity() {
         // 加载已存 url 到输入框 (业主重新配置时不用从头输)
         val current = Prefs.getServerUrl(this) ?: BuildConfig.DEFAULT_SERVER_URL
         configBind.etUrl.setText(current)
+        configBind.etRemoteUrl.setText(Prefs.getRemoteUrl(this) ?: "")
         configBind.tvVersion.text = "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
 
         configBind.btnTest.setOnClickListener { onTest() }
@@ -111,6 +172,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun onTest() {
         val url = configBind.etUrl.text.toString().trim()
+        val remote = configBind.etRemoteUrl.text.toString().trim()
         if (url.isEmpty()) {
             showStatus(getString(R.string.config_no_url), false)
             return
@@ -119,19 +181,27 @@ class MainActivity : AppCompatActivity() {
             showStatus(getString(R.string.config_invalid_url), false)
             return
         }
+        if (remote.isNotEmpty() && !remote.startsWith("http://") && !remote.startsWith("https://")) {
+            showStatus(getString(R.string.config_invalid_url), false)
+            return
+        }
         configBind.btnTest.isEnabled = false
         configBind.btnTest.text = getString(R.string.config_testing)
 
         thread {
-            val result = ping(url)
+            // 两个地址都测, 结果并排给业主看 (现场在展厅只有 LAN 通、在外面只有隧道通都是正常态)
+            val localResult = ping(url)
+            val remoteResult = if (remote.isNotEmpty()) ping(remote) else null
             runOnUiThread {
                 configBind.btnTest.isEnabled = true
                 configBind.btnTest.text = getString(R.string.config_test)
-                if (result.ok) {
-                    showStatus(getString(R.string.config_test_ok, result.serverTime ?: ""), true)
-                } else {
-                    showStatus(getString(R.string.config_test_fail, result.error ?: "unknown"), false)
+                val sb = StringBuilder()
+                sb.append(if (localResult.ok) "现场: 连接成功 ✓ ${localResult.serverTime ?: ""}" else "现场: 连不上 (${localResult.error})")
+                if (remoteResult != null) {
+                    sb.append('\n')
+                    sb.append(if (remoteResult.ok) "远程: 连接成功 ✓ ${remoteResult.serverTime ?: ""}" else "远程: 连不上 (${remoteResult.error})")
                 }
+                showStatus(sb.toString(), localResult.ok || remoteResult?.ok == true)
             }
         }
     }
@@ -189,6 +259,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun onSave() {
         val url = configBind.etUrl.text.toString().trim()
+        val remote = configBind.etRemoteUrl.text.toString().trim()
         if (url.isEmpty()) {
             Toast.makeText(this, R.string.config_no_url, Toast.LENGTH_SHORT).show()
             return
@@ -197,8 +268,14 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.config_invalid_url, Toast.LENGTH_SHORT).show()
             return
         }
+        if (remote.isNotEmpty() && !remote.startsWith("http://") && !remote.startsWith("https://")) {
+            Toast.makeText(this, R.string.config_invalid_url, Toast.LENGTH_SHORT).show()
+            return
+        }
         Prefs.setServerUrl(this, url)
-        loadWeb(url)
+        Prefs.setRemoteUrl(this, remote.ifEmpty { null })
+        activeUrl = null   // 强制重新探测选择
+        resolveAndLoad()
     }
 
     // ============ WebView ============
@@ -263,6 +340,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadWeb(url: String) {
+        activeUrl = url
         bind.configPanel.root.visibility = View.GONE
         bind.webPanel.visibility = View.VISIBLE
         bind.webView.loadUrl(url)
@@ -311,6 +389,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        netCallback?.let {
+            try { getSystemService(android.net.ConnectivityManager::class.java)?.unregisterNetworkCallback(it) } catch (e: Exception) { /* already gone */ }
+        }
+        netHandler.removeCallbacksAndMessages(null)
         bind.webView.destroy()
         super.onDestroy()
     }

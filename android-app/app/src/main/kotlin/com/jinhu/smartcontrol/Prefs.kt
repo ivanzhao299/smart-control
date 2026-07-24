@@ -10,6 +10,7 @@ import android.content.SharedPreferences
 object Prefs {
     private const val PREFS_NAME = "jinhu_shell"
     private const val KEY_SERVER_URL = "server_url"
+    private const val KEY_REMOTE_URL = "remote_url"
     private const val KEY_DISMISSED_VERSION = "update_dismissed_version_code"
     private const val KEY_DISMISSED_AT = "update_dismissed_at_ms"
 
@@ -24,6 +25,14 @@ object Prefs {
 
     fun clearServerUrl(ctx: Context) {
         get(ctx).edit().remove(KEY_SERVER_URL).apply()
+    }
+
+    /** 远程地址 (隧道/公网, 可选) — 现场地址探不通时自动切它, 见 MainActivity.resolveAndLoad */
+    fun getRemoteUrl(ctx: Context): String? = get(ctx).getString(KEY_REMOTE_URL, null)
+
+    fun setRemoteUrl(ctx: Context, url: String?) {
+        if (url.isNullOrBlank()) get(ctx).edit().remove(KEY_REMOTE_URL).apply()
+        else get(ctx).edit().putString(KEY_REMOTE_URL, url).apply()
     }
 
     /** 业主点了"稍后"对哪个 versionCode dismiss 过 */

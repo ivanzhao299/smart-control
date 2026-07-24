@@ -64,6 +64,32 @@
             android:singleLine="true"
             android:autofillHints="username" />
 
+        <!-- 远程地址 (可选, 隧道/公网): 现场地址不通时自动切它; 网络一变自动重探 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/config_remote_url_label"
+            android:textColor="@color/text_2"
+            android:textSize="12sp"
+            android:letterSpacing="0.08"
+            android:layout_marginTop="14dp"
+            android:layout_marginBottom="8dp" />
+        <EditText
+            android:id="@+id/etRemoteUrl"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:background="@drawable/bg_input"
+            android:hint="@string/config_remote_url_hint"
+            android:textColorHint="@color/text_3"
+            android:textColor="@color/text_1"
+            android:textSize="14sp"
+            android:fontFamily="monospace"
+            android:paddingHorizontal="14dp"
+            android:inputType="textUri"
+            android:imeOptions="actionDone"
+            android:singleLine="true"
+            android:autofillHints="username" />
+
         <!-- 测试结果 -->
         <TextView
             android:id="@+id/tvTestStatus"

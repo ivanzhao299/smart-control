@@ -8,11 +8,14 @@ import SwiftUI
 ///   进 WebView 后异步检查 APP 自身版本 (UpdateChecker)。
 struct ContentView: View {
     @State private var serverUrl: String? = Prefs.serverUrl
+    /// 探测选中的实际加载地址 (现场 or 远程), nil = 正在探测
+    @State private var activeUrl: String?
     @State private var showConfig = Prefs.serverUrl == nil
     @State private var gearVisible = false
     @State private var errorText: String?
     @State private var reloadToken = 0
     @State private var updatePrompt: UpdateChecker.Prompt?
+    @StateObject private var netWatcher = NetWatcher()
 
     var body: some View {
         ZStack {
@@ -23,9 +26,19 @@ struct ContentView: View {
                     serverUrl = saved
                     showConfig = false
                     errorText = nil
+                    activeUrl = nil
+                    reResolve()
                     checkUpdate(saved)
                 }
-            } else if let s = serverUrl, let u = URL(string: s) {
+            } else if activeUrl == nil {
+                // 正在探测现场/远程哪个通
+                VStack(spacing: 14) {
+                    ProgressView().tint(.white)
+                    Text("正在连接服务器…")
+                        .font(.system(size: 14))
+                        .foregroundColor(.gray)
+                }
+            } else if let s = activeUrl, let u = URL(string: s) {
                 WebView(
                     initialUrl: u,
                     reloadToken: reloadToken,
@@ -105,8 +118,13 @@ struct ContentView: View {
         .onAppear {
             // 对应安卓 FLAG_KEEP_SCREEN_ON — 展厅平板常亮
             UIApplication.shared.isIdleTimerDisabled = true
+            // 网络一变 (进出展厅 Wi-Fi / 隧道连断) 就重探现场/远程哪个通, 自动切换
+            netWatcher.onChange = { reResolve() }
+            netWatcher.start()
+            reResolve()
             if let s = serverUrl { checkUpdate(s) }
         }
+        .onDisappear { netWatcher.stop() }
         .alert(item: $updatePrompt) { p in
             if p.mustUpdate {
                 return Alert(
@@ -127,6 +145,17 @@ struct ContentView: View {
                     Prefs.setDismissed(versionCode: p.versionCode)
                 }
             )
+        }
+    }
+
+    /// 现场优先探测选地址; 选中的变了才动 WebView (initialUrl 变化会触发重载)
+    private func reResolve() {
+        guard let local = serverUrl, !showConfig else { return }
+        ServerResolver.resolve(local: local, remote: Prefs.remoteUrl) { chosen in
+            if chosen != activeUrl {
+                errorText = nil
+                activeUrl = chosen
+            }
         }
     }
 

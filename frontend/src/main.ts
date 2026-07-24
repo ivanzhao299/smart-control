@@ -7,6 +7,7 @@ import './styles/theme.css';
 import './styles/design-tokens.css';
 import './styles/industrial-hardening.css';
 import { initTheme } from './services/theme.service';
+import { autoSelectServer } from './services/server-autoselect';
 
 // 主题必须在 mount 之前应用, 否则会先渲染一帧深色再跳浅色 (闪一下)
 initTheme();
@@ -140,3 +141,7 @@ app.mount('#app');
 
 // 白屏看门狗: 应用挂载后启动
 startBlankScreenWatchdog();
+
+// 服务器地址自动选择: 当前地址 ping 不通就自动切到历史里能通的那个 (现场↔隧道
+// 两个网络环境不用再手输 IP)。异步跑, 不挡首屏。
+void autoSelectServer();
