@@ -200,11 +200,19 @@ describe('PowerCircuitsService · 断路器实时读数', () => {
   });
 
   it('合分闸后立刻失效缓存 —— 别拿旧读数糊弄前端', async () => {
-    const { svc, breaker } = makeService();
+    // 2026-07-24 起 switchCircuit 下发命令后会轮询 getMeasurements 等物理闸真正
+    // 走完 (switchState 翻到目标态) 再返回 —— 否则命令回来比闸动作快, 前端拿旧
+    // 状态覆盖乐观 UI, 按钮当场跳回。mock 直接给目标态 open, 轮询第一次就命中:
+    // detail 1 次 + turnOff(轮询 1 次 + toView 重读 1 次) = 3 次。
+    const { svc, breaker } = makeService({
+      breaker: { getMeasurements: jest.fn().mockResolvedValue({
+        ok: true, data: measurements({ switchState: 'open', currents: [0, 0, 0] }),
+      }) },
+    });
     await svc.detail(4);                             // 第 1 次读, 进缓存
     expect(breaker.getMeasurements).toHaveBeenCalledTimes(1);
-    await svc.turnOff(4);                            // 应清缓存, 且 toView 再读一次
-    expect(breaker.getMeasurements).toHaveBeenCalledTimes(2);
+    await svc.turnOff(4);
+    expect(breaker.getMeasurements).toHaveBeenCalledTimes(3);
   });
 
   it('非断路器回路读 /breaker 全量计量要拒绝', async () => {
