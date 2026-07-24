@@ -12,6 +12,9 @@ export type PlaybackLoopMode = 'once' | 'loop';
  */
 export type PlaybackPlayMode = 'seq' | 'loop1' | 'loopAll' | 'shuffle';
 
+/** 画面铺放: fill=铺满拉伸(默认) / contain=保持比例 / cover=裁切铺满 */
+export type PlaybackDisplayFit = 'fill' | 'contain' | 'cover';
+
 /**
  * 播控通道 (PlaybackChannel) — GK9000 的 一个物理 HDMI 输出 + 它当前在播什么.
  *
@@ -74,6 +77,13 @@ export class PlaybackChannel {
    */
   @Column({ type: 'varchar', length: 16, default: 'loopAll' })
   playMode!: PlaybackPlayMode;
+
+  /**
+   * 画面铺放模式 (业主 2026-07-25): fill=铺满拉伸(默认) / contain=保持比例 /
+   * cover=裁切铺满。图片和视频都吃; PlayerPage 直接绑到 object-fit。
+   */
+  @Column({ type: 'varchar', length: 16, default: 'fill' })
+  displayFit!: PlaybackDisplayFit;
 
   /** 暂停标志 — bgm-player.ps1 轮询到后调 MCI pause/resume */
   @Column({ type: 'boolean', default: false })

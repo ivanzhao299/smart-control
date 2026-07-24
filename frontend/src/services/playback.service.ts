@@ -38,6 +38,13 @@ export async function resumeChannel(slot: number): Promise<PlaybackChannelView> 
   return api.post<PlaybackChannelView>(`/playback/channels/${slot}/resume`, null);
 }
 
+export type DisplayFit = 'fill' | 'contain' | 'cover';
+
+/** 画面铺放模式 (fill/contain/cover) — 后端持久 + WS 广播 kiosk 即时生效 */
+export async function setDisplayFit(slot: number, fit: DisplayFit): Promise<PlaybackChannelView> {
+  return api.post<PlaybackChannelView>(`/playback/channels/${slot}/display-fit`, { fit });
+}
+
 export async function channelHeartbeat(slot: number): Promise<void> {
   await api.post<null>(`/playback/channels/${slot}/heartbeat`, null);
 }

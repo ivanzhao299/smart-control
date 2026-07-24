@@ -512,6 +512,8 @@ export interface PlaybackChannelView {
   loopMode: 'once' | 'loop';
   /** 背景音乐播放列表推进模式 (slot3): 顺序/单曲/列表循环/随机. 后端存, bgm-player 读 */
   playMode: 'seq' | 'loop1' | 'loopAll' | 'shuffle';
+  /** 画面铺放: fill=铺满拉伸(默认)/contain=保持比例/cover=裁切铺满 */
+  displayFit: 'fill' | 'contain' | 'cover';
   paused: boolean;
   lastHeartbeatAt: string | null;
   alive: boolean;

@@ -35,7 +35,7 @@ import {
 import { usePlaybackStore } from '@/stores/playback';
 import {
   listPlaylist, addToPlaylist, renamePlaylistItem, removeFromPlaylist, reorderPlaylist,
-  listHistory, type PlaylistItemView, type PlaybackHistoryView,
+  listHistory, setDisplayFit, type DisplayFit, type PlaylistItemView, type PlaybackHistoryView,
 } from '@/services/playback.service';
 import { mediaService } from '@/services/media.service';
 import { ledService, type LedInput } from '@/services/led.service';
@@ -131,6 +131,19 @@ async function stopPlayback(): Promise<void> {
     ElMessage.success(`已终止, ${props.title}回到待机`);
   } catch (e) {
     ElMessage.error(`终止失败: ${(e as Error).message}`);
+  } finally { busy.value = false; }
+}
+
+/** 画面铺放模式 (业主 2026-07-25): 下拉选择, 默认铺满; 后端持久 + WS 推给 kiosk 即时生效 */
+async function changeFit(fit: DisplayFit): Promise<void> {
+  busy.value = true;
+  try {
+    await setDisplayFit(SLOT.value, fit);
+    await playbackStore.load();   // WS 也会推, 这里再拉一次保证本页立即一致
+    const label = fit === 'fill' ? '铺满屏幕' : fit === 'contain' ? '保持比例' : '裁切铺满';
+    ElMessage.success(`画面铺放已切为「${label}」`);
+  } catch (e) {
+    ElMessage.error(`切换铺放模式失败: ${(e as Error).message}`);
   } finally { busy.value = false; }
 }
 
@@ -421,6 +434,22 @@ async function submitWebpage(): Promise<void> {
           <Square :size="18" />
         </button>
       </div>
+
+      <!-- 画面铺放 (业主 2026-07-25): 图片/视频都吃, 默认铺满; 改完即时生效并记住 -->
+      <div class="fit-row">
+        <span class="fit-label">画面铺放</span>
+        <el-select
+          class="fit-select"
+          :model-value="ch?.displayFit || 'fill'"
+          size="small"
+          :disabled="busy"
+          @change="changeFit"
+        >
+          <el-option value="fill" label="铺满屏幕 (拉伸)" />
+          <el-option value="contain" label="保持比例 (留黑边)" />
+          <el-option value="cover" label="裁切铺满 (不变形)" />
+        </el-select>
+      </div>
     </section>
 
     <!-- 输入源 — 只在传了 deviceId 时出现 (业主: "工具栏页面可以切换各种输入源") -->
@@ -630,6 +659,20 @@ async function submitWebpage(): Promise<void> {
 .pc-btn:disabled { opacity: .35; cursor: not-allowed; }
 .pc-btn.main { width: 60px; height: 60px; background: var(--v2-primary-soft); border-color: var(--v2-primary); color: #fff; }
 .pc-btn.stop:not(:disabled):hover { border-color: #E5645D; color: #E5645D; }
+
+.fit-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+.fit-label {
+  font-size: 12px;
+  color: var(--v2-text-2);
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.fit-select { width: 180px; }
 
 .src-bar {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;

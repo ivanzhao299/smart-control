@@ -83,6 +83,20 @@ export class PlaybackController {
   }
 
   /** 上一个 / 下一个 — 在播放列表里环形切换 */
+  /** 画面铺放模式 (业主 2026-07-25): fill=铺满拉伸(默认)/contain=保持比例/cover=裁切铺满 */
+  @Post('channels/:slot/display-fit')
+  @HttpCode(200)
+  async displayFit(
+    @Param('slot', ParseIntPipe) slot: number,
+    @Body() body: { fit?: string } = {},
+  ) {
+    const fit = body?.fit;
+    if (fit !== 'fill' && fit !== 'contain' && fit !== 'cover') {
+      throw new BadRequestException('fit 必须是 fill / contain / cover');
+    }
+    return { message: '铺放模式已更新', data: await this.service.setDisplayFit(slot, fit) };
+  }
+
   @Post('channels/:slot/next')
   @HttpCode(200)
   async next(@Param('slot', ParseIntPipe) slot: number) {

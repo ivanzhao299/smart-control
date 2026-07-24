@@ -263,6 +263,7 @@ function onAudioEnded(): void {
       v-if="isVideo && channel?.currentMediaUrl"
       ref="videoEl"
       class="media-el"
+      :style="{ objectFit: channel.displayFit || 'fill' }"
       :src="absUrl(channel.currentMediaUrl)"
       autoplay
       playsinline
@@ -272,11 +273,12 @@ function onAudioEnded(): void {
     />
 
     <!-- 播放图片 -->
-    <!-- 图片铺满: 业主 2026-07-25 选择"拉伸铺满" —— 比例不一致时拉伸变形也要满屏,
-         不留黑边 (media-el 默认 contain 只用于视频, 视频拉伸变形更难受)。-->
+    <!-- 画面铺放模式跟随通道设置 (fill=铺满拉伸(默认)/contain=保持比例/cover=裁切铺满),
+         播放页下拉可改, WS 推过来即时生效; 图片和视频同款。-->
     <img
       v-else-if="isImage && channel?.currentMediaUrl"
-      class="media-el img-fill"
+      class="media-el"
+      :style="{ objectFit: channel.displayFit || 'fill' }"
       :src="absUrl(channel.currentMediaUrl)"
       :alt="channel.currentMediaName || ''"
     />
@@ -336,8 +338,7 @@ function onAudioEnded(): void {
   display: block;
 }
 .web-frame { object-fit: unset; border: 0; background: #fff; }
-/* 图片拉伸铺满 (业主选择): 比例不一致也满屏, 不留黑边; 视频仍走 contain */
-.img-fill { object-fit: fill; }
+
 
 /* 音频播放可视化 (slot=3 背景音乐 — 这个 kiosk 窗口可见时显示) */
 .audio-now {

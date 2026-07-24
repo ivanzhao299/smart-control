@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Repository, In } from 'typeorm';
 import { Logger } from 'winston';
-import { PlaybackChannel, type PlaybackPlayMode } from '../../entities/playback-channel.entity';
+import { PlaybackChannel, type PlaybackDisplayFit, type PlaybackPlayMode } from '../../entities/playback-channel.entity';
 import { PlaylistItem } from '../../entities/playlist-item.entity';
 import { PlaybackHistory } from '../../entities/playback-history.entity';
 import { MediaService } from '../media/media.service';
@@ -24,6 +24,8 @@ export interface PlaybackChannelView {
   startedAt: string | null;
   loopMode: 'once' | 'loop';
   playMode: PlaybackPlayMode;
+  /** 画面铺放: fill=铺满拉伸(默认)/contain=保持比例/cover=裁切铺满, 图片和视频都吃 */
+  displayFit: PlaybackDisplayFit;
   paused: boolean;
   lastHeartbeatAt: string | null;
   /** PlayerPage 还活着吗 — 超过 90s 没心跳就 stale */
@@ -360,6 +362,16 @@ export class PlaybackService implements OnModuleInit {
     return view;
   }
 
+  /** 画面铺放模式 (fill/contain/cover) — WS 广播, kiosk 即时生效, 状态持久 */
+  async setDisplayFit(slot: number, fit: PlaybackDisplayFit): Promise<PlaybackChannelView> {
+    const res = await this.repo.update({ slot }, { displayFit: fit });
+    if (!res.affected) throw new NotFoundException(`slot=${slot} 不存在`);
+    const view = await this.getBySlot(slot);
+    this.broadcast(view);
+    this.logger.info(`[Playback] slot=${slot} displayFit=${fit}`);
+    return view;
+  }
+
   /**
    * PlayerPage 心跳 — 证明 kiosk 还活着. 超过 HEARTBEAT_STALE_MS 没收到就 alive=false
    *
@@ -409,6 +421,7 @@ export class PlaybackService implements OnModuleInit {
       currentMediaDurationSec: durationSec,
       currentPlaylistId: row.currentPlaylistId,
       playlistIndex: row.playlistIndex,
+      displayFit: (row.displayFit ?? 'fill') as PlaybackDisplayFit,
       startedAt: row.startedAt ? row.startedAt.toISOString() : null,
       loopMode: row.loopMode,
       playMode: row.playMode ?? 'loopAll',
