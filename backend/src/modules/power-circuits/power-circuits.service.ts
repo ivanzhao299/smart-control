@@ -290,6 +290,17 @@ export class PowerCircuitsService implements OnModuleInit {
         throw new ConflictException(`空开${on ? '合闸' : '分闸'}失败: ${r.error ?? '未知错误'}`);
       }
       this.breakerCache.delete(row.id); // 状态刚变, 别再拿旧读数糊弄前端
+      // 等物理闸走完再返回 (2026-07-24 业主: "按钮状态未能与实际开关状态一致"):
+      // 电机合/分闸要 ~1s, 命令一回来就读, 读到的还是动作前的状态 —— 前端拿这个
+      // "旧状态"覆盖乐观 UI, 按钮当场跳回。轮询到 switchState 翻转为止 (上限 4s,
+      // 超时不报错 —— 命令已确认成功, 状态让下一轮 8s 轮询兜底)。
+      const wanted = on ? 'closed' : 'open';
+      for (let i = 0; i < 10; i += 1) {
+        await new Promise((res) => setTimeout(res, 400));
+        const m = await this.breaker.getMeasurements(row.code);
+        if (m.ok && m.data?.switchState === wanted) break;
+      }
+      this.breakerCache.delete(row.id); // 轮询期间 breakerReading 可能又缓存了旧值
       this.logger.info(`空开${on ? '合闸' : '分闸'}: circuit=${row.code}`, {
         context: 'PowerCircuitsService',
       });

@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router';
 import { wsClient } from '@/services/websocket.service';
 import { getChannel, channelHeartbeat } from '@/services/playback.service';
 import { useSystemBrandingStore } from '@/stores/system-branding';
-import { absUrl, setApiBaseURL } from '@/services/http';
+import { absUrl, api, setApiBaseURL } from '@/services/http';
 import { forceThemeWithoutPersist, restoreStoredTheme } from '@/services/theme.service';
 import type { PlaybackChannelView, WsEvent } from '@/types/api';
 
@@ -178,11 +178,13 @@ async function resolveHdmiDeviceId(): Promise<string | null> {
       : outs.find((d) => isDisplayAudio(d.label) && !isLed(d.label));
     if (pick) cachedHdmiDeviceId = pick.deviceId;
     // 临时调试 (2026-07-24): 上报浏览器实际枚举到的设备标签 + 本 slot 挑中的那个,
-    // 落进后端日志, 定位投影(slot2) setSinkId 到底指哪、为何没落到 HDMI2。定位完删。
-    void fetch('/api/playback/audio-debug', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slot: slot.value, labels: outs.map((d) => d.label), picked: pick?.label ?? null }),
+    // 落进后端日志 (winston app-*.log), 定位投影(slot2) setSinkId 指哪。定位完删。
+    // ⚠️ 必须走 http.ts 的 api (带 baseURL) —— 之前用相对路径 fetch('/api/..') 打到
+    // 5173 (vite preview 无代理) 404 被静默吞掉, 后端从没收到过上报。
+    void api.post('/playback/audio-debug', {
+      slot: slot.value,
+      labels: outs.map((d) => d.label),
+      picked: pick?.label ?? null,
     }).catch(() => { /* 调试用, 失败无所谓 */ });
   } catch { /* 这次没解析出来, 等下一轮重试 */ }
   return cachedHdmiDeviceId;
