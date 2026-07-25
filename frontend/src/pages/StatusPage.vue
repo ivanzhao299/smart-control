@@ -134,18 +134,18 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
         <div class="v2-tabs">
           <button class="v2-tab" :class="{ active: statusTab === 'overview' }" @click="statusTab = 'overview'">概览</button>
           <button class="v2-tab" :class="{ active: statusTab === 'devices' }" @click="statusTab = 'devices'">设备</button>
-          <button class="v2-tab" :class="{ active: statusTab === 'alerts' }" @click="statusTab = 'alerts'">报警</button>
+          <button class="v2-tab" :class="{ active: statusTab === 'alerts' }" @click="statusTab = 'alerts'">告警</button>
         </div>
       </div>
       <div class="quick-actions">
         <button class="v2-quick" :disabled="clearing" @click="clearFaults">
-          <Trash2 :size="14" :stroke-width="2" /> {{ clearing ? '清空中...' : '清空旧告警' }}
+          <Trash2 :size="14" :stroke-width="2" /> {{ clearing ? '清空中…' : '清空旧告警' }}
         </button>
         <button class="v2-quick" :disabled="probing" @click="probe">
-          <RadioReceiver :size="14" :stroke-width="2" /> {{ probing ? '探活中...' : '立即探活' }}
+          <RadioReceiver :size="14" :stroke-width="2" /> {{ probing ? '探活中…' : '立即探活' }}
         </button>
         <button class="v2-quick primary" :disabled="refreshing" @click="refresh">
-          <RefreshCw :size="14" :stroke-width="2" /> {{ refreshing ? '刷新中...' : '刷新' }}
+          <RefreshCw :size="14" :stroke-width="2" /> {{ refreshing ? '刷新中…' : '刷新' }}
         </button>
       </div>
     </header>
@@ -199,7 +199,7 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
         </div>
 
         <div class="card-head" style="margin-top: 16px;"><span class="accent">●</span>执行中场景</div>
-        <div v-if="sceneStore.running.length === 0" class="empty">无场景在执行</div>
+        <div v-if="sceneStore.running.length === 0" class="empty">暂无运行场景</div>
         <div v-else class="run-list">
           <div v-for="r in sceneStore.running" :key="r.executionId" class="run-row">
             <strong>{{ r.sceneName }}</strong>
@@ -260,7 +260,7 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
         <span class="accent">●</span>报警记录
         <button v-if="sys.alerts.length > 0" class="link" @click="sys.clearAlerts()">清空</button>
       </div>
-      <div v-if="sys.alerts.length === 0" class="empty">暂无报警</div>
+      <div v-if="sys.alerts.length === 0" class="empty">暂无告警</div>
       <div v-else class="alert-list">
         <div v-for="a in sys.alerts" :key="a.id" class="alert-row" :class="`lvl-${a.level}`">
           <span class="lvl">{{ a.level }}</span>

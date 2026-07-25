@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useToastStore } from '@/stores/toast';
 import { useRouter } from 'vue-router';
 import {
-  CheckCircle2, BarChart3, Clock, TriangleAlert,
+  CheckCircle2, BarChart3, Clock,
   Sparkles, Calendar, Users, Presentation, Wrench, Moon,
   Lightbulb, MonitorPlay, Speaker, Snowflake, Zap,
 } from 'lucide-vue-next';
@@ -27,7 +27,6 @@ const uptimeHours = computed(() => {
   const s = sys.info?.uptimeSec ?? 0;
   return (s / 3600).toFixed(1);
 });
-const alertCount = computed(() => sys.alerts.length);
 
 // ============ 全场脉搏: 实时功率 + 迷你曲线 (2026-07-25 体验升级 D3) ============
 // 数据全部来自现有 /power-circuits 读数汇总, 不加后端接口; 曲线是本会话内的
@@ -166,7 +165,7 @@ function onHoldEnd(): void {
   const p = holdPct.value;
   resetHold();
   // 按了一下但没转满 (不是纯误蹭) → 教学提示
-  if (p >= 10 && p < 100) toast.info('按住卡片直到圆环转满，才会切换场景', 1800);
+  if (p >= 10 && p < 100) toast.info('按住直到进度环走满才会执行', 1800);
 }
 
 // ============ 子系统状态 ============
@@ -246,14 +245,6 @@ function goTo(name: string): void {
           <svg v-if="sparkPoints" class="kpi-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
             <polyline :points="sparkPoints" fill="none" stroke="var(--v2-primary)" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" opacity="0.9" />
           </svg>
-        </div>
-      </div>
-      <!-- 告警卡只在真有告警时才染琥珀色, 0 条时保持中性 -->
-      <div class="v2-kpi" :class="{ amber: alertCount > 0 }">
-        <div class="v2-kpi-ico"><TriangleAlert :size="18" :stroke-width="2" /></div>
-        <div class="v2-kpi-body">
-          <div class="v2-kpi-label">告警</div>
-          <div class="v2-kpi-value v2-inter">{{ alertCount }}<span class="unit">条</span></div>
         </div>
       </div>
     </div>

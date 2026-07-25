@@ -280,18 +280,18 @@ async function dispatchMany(targets: ZoneRow[], op: 'on' | 'off'): Promise<void>
 /** 整馆开/关灯二次确认 (2026-07-25 生产级整改, 同空调/电源页口径) */
 async function allOn(): Promise<void> {
   try {
-    await ElMessageBox.confirm(`确定开启整馆全部 ${zones.value.length} 个灯光分区?`, '全部开启确认',
-      { type: 'warning', confirmButtonText: '全部开', cancelButtonText: '取消' });
+    await ElMessageBox.confirm(`确定开启整馆全部 ${zones.value.length} 个灯光分区?`, '全开确认',
+      { type: 'warning', confirmButtonText: '全开', cancelButtonText: '取消' });
   } catch { return; }
-  ElMessage.info(`全部开启 — 逐区下发 (${zones.value.length} 区)`);
+  ElMessage.info(`全开 — 逐区下发 (${zones.value.length} 区)`);
   await dispatchMany(zones.value, 'on');
 }
 async function allOff(): Promise<void> {
   try {
-    await ElMessageBox.confirm(`确定关闭整馆全部 ${zones.value.length} 个灯光分区?展厅将全场熄灯。`, '全部关闭确认',
-      { type: 'warning', confirmButtonText: '全部关', cancelButtonText: '取消' });
+    await ElMessageBox.confirm(`确定关闭整馆全部 ${zones.value.length} 个灯光分区?展厅将全场熄灯。`, '全关确认',
+      { type: 'warning', confirmButtonText: '全关', cancelButtonText: '取消' });
   } catch { return; }
-  ElMessage.warning(`全部关闭 — 逐区下发 (${zones.value.length} 区)`);
+  ElMessage.warning(`全关 — 逐区下发 (${zones.value.length} 区)`);
   await dispatchMany(zones.value, 'off');
 }
 
@@ -311,20 +311,16 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
         <div class="title-block">
           <div class="title"><Lightbulb :size="18" :stroke-width="1.8" /> 灯光控制</div>
         </div>
-        <div class="v2-tabs">
-          <button class="v2-tab" :class="{ active: !grouping }" @click="grouping = false">控制</button>
-          <button class="v2-tab" :class="{ active: grouping }" @click="grouping = true">分区</button>
-        </div>
       </div>
       <div class="quick-actions">
         <button class="v2-quick" @click="loadZones" :disabled="loading" title="重新加载分区列表">
           <RefreshCw :size="14" :stroke-width="2" />
         </button>
         <button class="v2-quick primary" @click="allOn" :disabled="loading || zones.length === 0" title="整馆全开">
-          <Power :size="14" :stroke-width="2" /> 全部开
+          <Power :size="14" :stroke-width="2" /> 全开
         </button>
         <button class="v2-quick danger" @click="allOff" :disabled="loading || zones.length === 0" title="整馆全关">
-          <X :size="14" :stroke-width="2" /> 全部关
+          <X :size="14" :stroke-width="2" /> 全关
         </button>
         <button class="v2-quick" @click="gotoScene">
           <Sparkles :size="14" :stroke-width="2" /> 调用场景
@@ -332,6 +328,11 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
         <button class="v2-quick" @click="router.push({ name: 'dali-lights' })" title="扫描/命名/分组单盏 DALI 灯">
           <Search :size="14" :stroke-width="2" /> 单灯调试
         </button>
+        <!-- 业主 2026-07-25: 控制/分区切换放单灯调试后, 头部收成两行 -->
+        <div class="v2-tabs">
+          <button class="v2-tab" :class="{ active: !grouping }" @click="grouping = false">控制</button>
+          <button class="v2-tab" :class="{ active: grouping }" @click="grouping = true">分区</button>
+        </div>
       </div>
     </header>
 
@@ -340,7 +341,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
       <div class="gp-head">
         <div class="gp-title"><Layers :size="16" :stroke-width="2" /> 分区管理</div>
         <div class="gp-hint">
-          新建 / 拖动排序 / 双击改名。<b style="color: var(--v2-text-1)">分区里放哪些灯, 去「单灯调试」页按盏分配</b>
+成员分配在「单灯调试」页
           (逐灯直控、不依赖硬件组、可跨总线随时改)。
         </div>
         <div class="gp-new-btns">
@@ -375,13 +376,6 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
         <div class="ov-body">
           <div class="ov-label">已分配灯</div>
           <div class="ov-value v2-inter">{{ overview.lights }}<span class="unit"> 盏</span></div>
-        </div>
-      </div>
-      <div class="ov-item">
-        <div class="ov-ico"><Power :size="18" :stroke-width="2" /></div>
-        <div class="ov-body">
-          <div class="ov-label">网关状态</div>
-          <div class="ov-value v2-inter" style="color: var(--v2-success); font-size: 16px;">在线</div>
         </div>
       </div>
     </div>
@@ -966,7 +960,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   box-shadow:
     0 0 16px rgba(224, 160, 48, 0.55),
     inset 0 1px 0 rgba(255, 255, 255, 0.35);
-  transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: none; /* 拖动跟手不惯性 (2026-07-25): 值绑定属性禁过渡 */
 }
 .v2-zone.off .slider-fill { background: var(--v2-surf-2); box-shadow: none; }
 .v2-zone.off .bri-value { color: var(--v2-text-3); }

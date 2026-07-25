@@ -270,7 +270,7 @@ onMounted(loadAll);
         还没有灯。点右上角<b>扫描</b>发现网关上的灯。
       </p>
       <p v-else-if="unassigned.length" class="hint">
-        {{ unassigned.length }} 盏未分区 —— 点灯 → 闪烁认位置 → 命名 → 分到区
+        {{ unassigned.length }} 盏未分区
       </p>
       <div class="light-grid">
         <button
@@ -302,7 +302,7 @@ onMounted(loadAll);
         </div>
         <div class="zone-lights">
           <span v-for="l in lightsInZone(z.code)" :key="l.id" class="chip" :class="{ off: !l.online }">{{ label(l) }}</span>
-          <span v-if="lightsInZone(z.code).length === 0" class="chip empty-chip">还没分灯进来</span>
+          <span v-if="lightsInZone(z.code).length === 0" class="chip empty-chip">暂无成员</span>
         </div>
       </div>
     </div>
@@ -314,11 +314,11 @@ onMounted(loadAll);
         <div v-for="s in scenes" :key="s.code" class="scene-card">
           <button class="scene-main" @click="recallScene(s)">
             <span class="s-name">{{ s.name }}</span>
-            <span class="s-meta">{{ s.items?.length ?? 0 }} 项 · 点击调用</span>
+            <span class="s-meta">{{ s.items?.length ?? 0 }} 项</span>
           </button>
           <button class="s-del" @click="deleteScene(s)" aria-label="删除">✕</button>
         </div>
-        <p v-if="scenes.length === 0" class="empty">还没有场景。场景 = 把几个分区一次调到想要的状态。</p>
+        <p v-if="scenes.length === 0" class="empty">暂无场景</p>
       </div>
     </div>
 
@@ -350,7 +350,7 @@ onMounted(loadAll);
           >
             {{ z.name }}<span v-if="zoneDlg.picked === z.code" class="zm-check">✓</span>
           </button>
-          <p v-if="zones.length === 0" class="zm-empty">还没有分区, 下面新建一个 ↓</p>
+          <p v-if="zones.length === 0" class="zm-empty">暂无分区</p>
         </div>
 
         <!-- 当场新建分区 -->
@@ -402,7 +402,7 @@ onMounted(loadAll);
 .scan-btn:disabled { opacity: .6; }
 .diag-btn {
   background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); color: var(--v2-text-2);
-  border-radius: var(--v2-r-sm); padding: 8px 12px; font-size: 13px; cursor: pointer; flex: none;
+  border-radius: var(--v2-r-sm); padding: 8px 16px; font-size: 14px; cursor: pointer; flex: none;
 }
 
 .dali-tabs { display: flex; gap: 8px; padding: 10px 14px; }

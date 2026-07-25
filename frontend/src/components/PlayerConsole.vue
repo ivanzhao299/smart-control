@@ -411,7 +411,7 @@ async function submitWebpage(): Promise<void> {
       </div>
       <!-- 业主: "暂停、切换、上下内容等均可控制" + "随时可以点击终止" -->
       <div class="now-ctrl">
-        <button class="pc-btn" :disabled="busy || playlist.length === 0" title="上一个" @click="step('prev')">
+        <button class="pc-btn" :disabled="busy || playlist.length === 0" title="上一首" @click="step('prev')">
           <SkipBack :size="20" />
         </button>
         <!-- 待机时必须是「播放」而不是一个被禁用的「暂停」(2026-07-17 业主:
@@ -427,7 +427,7 @@ async function submitWebpage(): Promise<void> {
           <Pause v-if="ch?.currentMediaId && !ch.paused" :size="22" />
           <Play v-else :size="22" />
         </button>
-        <button class="pc-btn" :disabled="busy || playlist.length === 0" title="下一个" @click="step('next')">
+        <button class="pc-btn" :disabled="busy || playlist.length === 0" title="下一首" @click="step('next')">
           <SkipForward :size="20" />
         </button>
         <button class="pc-btn stop" :disabled="busy || !ch?.currentMediaId" title="终止播放, 回到待机" @click="stopPlayback">
@@ -461,7 +461,7 @@ async function submitWebpage(): Promise<void> {
         :disabled="busy" :title="i.hint"
         @click="switchInput(i.v)"
       >{{ i.label }}</button>
-      <span v-if="!lastInput" class="src-hint">当前源以设备实际为准 — 协议没有回读命令, 这里只记本次切过什么</span>
+      <span v-if="!lastInput" class="src-hint">以设备实际为准</span>
     </section>
 
     <!-- 手机上把「播放列表 / 播放历史」做成切换页 (业主 2026-07-17: "播放列表和播放
@@ -501,8 +501,8 @@ async function submitWebpage(): Promise<void> {
         </header>
 
         <div v-if="playlist.length === 0" class="empty">
-          播放列表是空的。点「上传内容」传新素材, 或从右侧历史里加回来。
-          <div class="empty-sub">媒体库里的文件不会自动进这里 — 需要你确认后手工加入</div>
+          暂无内容 — 点「上传内容」添加。
+          <div class="empty-sub"></div>
         </div>
 
         <div v-else class="pl-list">

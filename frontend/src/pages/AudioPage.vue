@@ -407,7 +407,7 @@ function onHoldEnd(): void {
   if (holdFired) { holdFired = false; return; }
   const p = holdPct.value;
   resetHold();
-  if (p >= 10 && p < 100) ElMessage.info('按住场景按钮直到进度条走满，才会切换');
+  if (p >= 10 && p < 100) ElMessage.info('按住直到进度环走满才会执行');
 }
 onUnmounted(() => {
   matrixPollStopped = true; // 见 scheduleMatrixPoll: 防 await 后又排一个孤儿 timer
@@ -870,9 +870,8 @@ async function toggleMuteAll(): Promise<void> {
           <button class="v2-tab" :class="{ active: audioTab === 'zones' }" @click="audioTab = 'zones'">分区音量</button>
           <button class="v2-tab" :class="{ active: audioTab === 'matrix' }" @click="audioTab = 'matrix'">音源矩阵</button>
         </div>
-      </div>
-      <div class="quick-actions">
-        <button :class="['v2-quick', allMuted ? 'active' : 'danger']" @click="toggleMuteAll">
+        <!-- 业主 2026-07-25: 全部静音并入 tab 行, 省一行空间 -->
+        <button :class="['v2-quick', 'mute-inline', allMuted ? 'active' : 'danger']" @click="toggleMuteAll">
           <Volume2 v-if="allMuted" :size="14" :stroke-width="2" />
           <VolumeX v-else :size="14" :stroke-width="2" />
           {{ allMuted ? '解除静音' : '全部静音' }}
@@ -1059,7 +1058,7 @@ async function toggleMuteAll(): Promise<void> {
               <Music :size="16" :stroke-width="1.8" /> 选择音乐
               <span class="bgm-picker-sub">点击曲目添加到播放列表</span>
             </div>
-            <div v-if="audioAssets.length === 0" class="bgm-picker-empty">媒体库暂无音频文件，请先到「媒体库」上传</div>
+            <div v-if="audioAssets.length === 0" class="bgm-picker-empty">暂无音频 — 到「媒体库」上传</div>
             <div v-else class="bgm-picker-list">
               <div
                 v-for="a in audioAssets"
@@ -1643,7 +1642,7 @@ async function toggleMuteAll(): Promise<void> {
   position: absolute; left: 0; right: 0; bottom: 0;
   background: linear-gradient(0deg, #3FBF87 0%, #3FBF87 55%, #6BFFB9 100%);
   box-shadow: 0 0 14px rgba(63, 191, 135, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.3);
-  transition: height 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  /* 2026-07-25 业主: 推子必须稳 — 值绑定属性上禁过渡, 点哪停哪不惯性飘 */
 }
 .ch-card.muted .fader-fill { background: var(--v2-surf-2); box-shadow: none; }
 /* 推子帽 (拖动手柄) — 跟随音量上下移动, 一看就知道能竖向拖 */
@@ -1653,7 +1652,6 @@ async function toggleMuteAll(): Promise<void> {
   background: linear-gradient(180deg, #ffffff, #cdebdd);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55), 0 0 12px rgba(63, 191, 135, 0.5);
   z-index: 2; pointer-events: none;
-  transition: bottom 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .fader-thumb::after {
   content: ''; position: absolute; left: 5px; right: 5px; top: 50%;
@@ -1746,4 +1744,7 @@ async function toggleMuteAll(): Promise<void> {
 .mx-offline .mx-offline-hint { color: #d69a96; font-size: 12px; line-height: 1.5; font-weight: 400; }
 /* 增益没读到时显示 "—", 灰掉, 别让人以为是个真数 */
 .ig-val.unknown { color: #55637a; font-style: italic; }
+
+/* 全部静音并入 tab 行 (2026-07-25) */
+.mute-inline { margin-left: auto; flex: 0 0 auto; }
 </style>

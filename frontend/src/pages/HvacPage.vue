@@ -799,13 +799,12 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
     </div>
 
     <!-- ===== 控制条 (作用于选中集合) ===== -->
-    <footer class="hv-bar" :class="{ empty: !selected.size }">
+    <!-- 2026-07-25 业主整改: 操作条改为固定浮层 — 选中才弹出, 位置固定不动,
+         出现/消失不再挤压网格 (页面常驻预留高度); 空态提示删除。 -->
+    <footer v-if="groupMode || selected.size" class="hv-bar">
       <div class="bar-sel">
-        <template v-if="selected.size">
-          已选 <b>{{ selected.size }}</b> 台
-          <span class="bar-names">{{ selectedRows.map((r) => r.name).join('、') }}</span>
-        </template>
-        <template v-else>点内机卡片选中, 或用上方快选</template>
+        已选 <b>{{ selected.size }}</b> 台
+        <span class="bar-names">{{ selectedRows.map((r) => r.name).join('、') }}</span>
       </div>
 
       <template v-if="groupMode">
@@ -813,7 +812,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
              而且挤成一堵墙点不准。现在"移入"就在每个组自己的标题上, 点哪个组进哪个组,
              不用在按钮墙里找名字。这里只留"移出分组"这个反向动作。 -->
         <div class="bar-group">
-          <span class="bar-hint">选中内机后, 点上方任一分组标题的「移入」即可归组</span>
+          <span class="bar-hint">选中后点分组标题「移入」</span>
           <button class="hv-btn tiny warn" :disabled="!selected.size" @click="assignTo(null)">
             移出分组{{ selected.size ? ` (${selected.size})` : '' }}
           </button>
@@ -890,7 +889,8 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
-  padding: 10px 14px 12px;
+  /* 底部常驻预留操作浮层的高度: 浮层弹出/收起都不引起网格行高变化 */
+  padding: 10px 14px 108px;
   gap: 8px;
   box-sizing: border-box;
 }
@@ -1101,19 +1101,24 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 /* ---- 控制条 ---- */
 /* 控制条: 触摸屏用, 按钮做大做够点得着 (目标高度 ~48px) */
 .hv-bar {
-  flex: 0 0 auto;
-  display: flex; align-items: center; gap: 16px;
-  /* 外层也必须能换行: 内层 .bar-ctrl 换了行, 外层还 nowrap 的话照样把它整体推出屏幕 */
+  /* 固定浮层 (2026-07-25): 出现/消失不改变网格高度, "弹出后固定不动" */
+  position: fixed;
+  left: 14px; right: 14px;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  z-index: 300;
+  display: flex; align-items: center; gap: 12px;
   flex-wrap: wrap;
-  padding: 12px 16px;
-  background: var(--v2-surf-1, #14161A);
-  border: 1px solid var(--v2-border-soft, #23262C);
+  padding: 10px 16px;
+  background: color-mix(in srgb, var(--v2-surf-1) 92%, transparent);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--v2-border-strong, #32363E);
   border-radius: 14px;
+  box-shadow: var(--v2-elev-3, 0 24px 56px -16px rgba(0,0,0,.7));
 }
-.hv-bar.empty { opacity: .62; }
 .bar-sel {
-  display: flex; align-items: baseline; gap: 6px; min-width: 150px; max-width: 240px;
-  font-size: 14px; color: var(--v2-text-3, #9BA1A9);
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: 13px; color: var(--v2-text-3, #9BA1A9);
+  flex: 0 0 auto;
 }
 .bar-sel b { font-size: 20px; color: var(--v2-primary, #4C9AFF); }
 .bar-names {
@@ -1132,7 +1137,10 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   margin-left: auto; font-size: 14px; color: #35d07f;
 }
 /* 开/关机错峰逐台下发中 (22 台约 10s) — 明示进行中, 别让人以为卡死狂点 */
-.bar-dispatching { font-size: 13px; color: #e8b339; animation: hvPulse 1.2s ease-in-out infinite; }
+.bar-dispatching {
+  position: absolute; top: -22px; left: 16px;   /* 浮在条上方, 出现时按钮不移位 */
+  font-size: 12px; color: #e8b339; animation: hvPulse 1.2s ease-in-out infinite;
+}
 @keyframes hvPulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 
 .bar-temp {
@@ -1223,7 +1231,8 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
      压缩 padding/字号后同屏 8 张, 全场状态两屏扫完。 */
   .hv-grid {
     grid-template-columns: repeat(2, 1fr);
-    grid-auto-rows: minmax(88px, auto);
+    /* 行高定死 (2026-07-25): 任何 tab、任何数量下卡片完全等高 */
+    grid-auto-rows: 96px;
     gap: 6px;
     overflow-y: auto;                      /* 放不下就滚这里, 而不是被裁掉 */
     -webkit-overflow-scrolling: touch;
@@ -1258,12 +1267,23 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
     color: var(--v2-primary, #4C9AFF);
   }
   .hv-chip.clear { margin-left: 0; }
-  /* 控制条: 手指操作, 按钮不能再小; 换行后允许它占两三行 */
-  .hv-bar { gap: 10px; padding: 10px; }
-  .bar-sel { min-width: 100%; max-width: none; }   /* 独占一行, 不挤控件 */
+  /* 操作浮层 (2026-07-25): 紧凑两行 — 行1: 已选+开关+温度; 行2: 模式+风速横滑 */
+  .hv-page { padding-bottom: 128px; }
+  .hv-bar { left: 8px; right: 8px; gap: 8px; padding: 9px 10px; }
   .bar-names { display: none; }
-  .seg { padding: 9px 12px; font-size: 14px; }
-  .temp-btn { width: 40px; height: 40px; }
+  .bar-ctrl { gap: 8px; width: 100%; }
+  .bar-seg {
+    flex: 0 0 auto;
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; flex-wrap: nowrap;
+    max-width: 100%;
+  }
+  .bar-seg::-webkit-scrollbar { display: none; }
+  .seg { padding: 8px 11px; font-size: 13px; flex: 0 0 auto; }
+  .temp-btn { width: 38px; height: 38px; }
+  .temp-val { font-size: 22px; min-width: 60px; }
+  .bar-ctrl .hv-btn.primary, .bar-ctrl .hv-btn.danger { padding: 9px 18px; font-size: 15px; }
+  .bar-state { display: none; }
 }
 
 /* ===== 编组模式: 按组分段 =====
