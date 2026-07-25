@@ -185,7 +185,8 @@
  * 这种亮蓝会糊), 所以蓝 #4C9AFF→#2563EB、绿/红/琥珀同理加深。
  * 阴影从"黑透明"换成柔和灰影, 否则浅色下发脏。
  * ============================================================ */
-:root[data-theme="light"] {
+/* 特异性 :root:root[…] (0,3,0): 必须压过上面暗色块的 :root:root, 见那边注释 */
+:root:root[data-theme="light"] {
   --v2-bg-0: #EEF2F7;                       /* 页面底 — 冷调浅灰 */
   --v2-bg-1: #E4EAF2;                       /* 渐变低点 */
   --v2-surf-1: #FFFFFF;                     /* 卡片 — 纯白浮起 */
@@ -497,8 +498,16 @@ select:focus-visible,
   box-shadow: 0 0 0 3px rgba(76, 154, 255, 0.35);
 }
 
-/* ============ Element Plus 暗黑适配 (复用 v2 token) ============ */
-html {
+/* ============ Element Plus 暗黑适配 (复用 v2 token) ============
+ * ⚠️ 选择器必须是 :root, 不能是 html (2026-07-25 业主截图报障的真根因):
+ * element-plus/dist/index.css 自己把默认值(白底浅色主题)定义在 `:root` 上,
+ * 特异性 (0,1,0) **高于** `html` (0,0,1) —— 这里之前写 html, 整块覆盖从来就没
+ * 生效过: 深色主题下 el-dialog / el-message-box 一直在用 EP 默认白底, 再配上
+ * 我们的浅白字色规则 = 弹窗白底白字全看不见。改成 :root 后与 EP 同特异性,
+ * 更阴的坑: EP 按需组件样式(unplugin 自动注入的 base.css/var.css)加载顺序晚于
+ * main.ts 的手动 import, 它的 :root 默认值会**最后加载获胜**(实测 sheet 9)。
+ * 所以特异性必须再抬一级: :root:root (0,2,0) — 无论 EP 的 :root 何时注入都赢。 */
+:root:root {
   --el-color-primary: var(--v2-primary);
   --el-color-primary-light-3: rgba(76, 154, 255, 0.45);
   --el-color-primary-light-5: rgba(76, 154, 255, 0.30);

@@ -1,24 +1,29 @@
+/* 旧 token 层 — 2026-07-25 起**全部桥接到 v2 token**。
+ * 根因复盘: 浅色主题(2026-07-22)上线时只翻转了 --v2-*, 这里的旧 token 仍写死
+ * 深色值(--text-primary 浅白字), 而 el-dialog 的字色规则用旧 token 且带 !important
+ * → 浅色主题下弹窗白底浅白字全看不见(业主 2026-07-25 截图报障)。
+ * 桥接后旧规则自动跟随明暗主题。 */
 :root {
-  --bg-base: #0A0B0D;
-  --bg-panel: #14161A;
-  --bg-panel-soft: #14161A;
-  --bg-elevated: #202329;
+  --bg-base: var(--v2-bg-0);
+  --bg-panel: var(--el-bg-color-overlay);   /* 弹层/下拉必须实色: 深 #1B2034 / 浅 #FFF */
+  --bg-panel-soft: var(--el-bg-color-overlay);
+  --bg-elevated: var(--el-bg-color-overlay);
 
-  --color-primary: #3B7FD4;
+  --color-primary: var(--v2-primary);
   --color-primary-hover: #4C9AFF;
-  --color-primary-press: #3B7FD4;
+  --color-primary-press: var(--v2-primary-dark);
 
-  --color-success: #3FBF87;
-  --color-warning: #E0A030;
-  --color-error: #E5645D;
+  --color-success: var(--v2-success);
+  --color-warning: var(--v2-warning);
+  --color-error: var(--v2-danger);
   --color-info: #4C9AFF;
 
-  --text-primary: #F9FAFB;
-  --text-secondary: #9BA1A9;
-  --text-muted: #6B7178;
+  --text-primary: var(--v2-text-1);
+  --text-secondary: var(--v2-text-2);
+  --text-muted: var(--v2-text-3);
 
-  --border-soft: #23262C;
-  --border-strong: #32363E;
+  --border-soft: var(--v2-border-soft);
+  --border-strong: var(--v2-border-strong);
 
   --radius-md: 14px;
   --radius-lg: 22px;
@@ -69,30 +74,8 @@ textarea {
   font-family: inherit;
 }
 
-/* ----- Element Plus dark theme overrides ----- */
-html {
-  --el-bg-color: var(--bg-base);
-  --el-bg-color-page: var(--bg-base);
-  --el-bg-color-overlay: var(--bg-panel);
-  --el-text-color-primary: var(--text-primary);
-  --el-text-color-regular: var(--text-primary);
-  --el-text-color-secondary: var(--text-secondary);
-  --el-text-color-placeholder: var(--text-muted);
-  --el-text-color-disabled: #4b5563;
-  --el-border-color: var(--border-soft);
-  --el-border-color-light: var(--border-soft);
-  --el-border-color-lighter: var(--border-soft);
-  --el-fill-color: var(--bg-panel);
-  --el-fill-color-light: var(--bg-panel-soft);
-  --el-fill-color-blank: var(--bg-panel);
-  --el-color-primary: var(--color-primary);
-  --el-color-success: var(--color-success);
-  --el-color-warning: var(--color-warning);
-  --el-color-danger: var(--color-error);
-  --el-color-error: var(--color-error);
-  --el-color-info: var(--color-info);
-  --el-mask-color: rgba(17, 24, 39, 0.75);
-}
+/* (旧 Element Plus 覆盖块已删 — design-tokens.css 的 html 级 --el-* 映射是唯一权威;
+ * 这里再放一套同特异性的值, 加载顺序一变就会反咬弹层配色。2026-07-25) */
 
 .el-message,
 .el-notification {
