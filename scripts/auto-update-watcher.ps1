@@ -229,11 +229,15 @@ try {
     }
   } catch { $procInfo.pm2Status = 'pm2-error' }
 
-  # 直接枚举所有 node.exe 进程 — 不依赖 pm2 daemon 是否健康
+  # 直接枚举所有 node.exe 进程 — 不依赖 pm2 daemon 是否健康。
+  # 2026-07-25: 只留前 15 个 + 总数。之前不设上限, 僵尸 node 堆积几十个时,
+  # 加上下面的连接表, 心跳 payload 超过 cnjinhu backend 的 100KB json 上限,
+  # 被 "request entity too large" (500) 拒收 —— 心跳连续失败, 远端全盲。
   $procInfo.nodeProcs = @()
   try {
-    $allNodes = Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction Stop
-    foreach ($n in $allNodes) {
+    $allNodes = @(Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction Stop)
+    $procInfo.nodeProcCount = $allNodes.Count
+    foreach ($n in ($allNodes | Select-Object -First 15)) {
       $ownerName = 'unknown'
       try { $ownerName = $n.GetOwner().User } catch { }
       $cmdLine = $null
@@ -245,11 +249,13 @@ try {
     }
   } catch { $procInfo.nodeProcsErr = $_.Exception.Message }
 
-  # 看实际谁在监听 :3200 (PID + 状态)
+  # 看实际谁在监听 :3200 — 只报 Listen 态。全量连接表是之前 payload 爆炸的
+  # 主犯: PWA 轮询让 3200 上常挂着成百上千个 TIME_WAIT, 全塞进心跳毫无意义。
   $procInfo.port3200 = @()
   try {
-    $conns = Get-NetTCPConnection -LocalPort 3200 -ErrorAction Stop
-    foreach ($c in $conns) {
+    $conns = @(Get-NetTCPConnection -LocalPort 3200 -ErrorAction Stop)
+    $procInfo.port3200ConnCount = $conns.Count
+    foreach ($c in ($conns | Where-Object { $_.State -eq 'Listen' })) {
       $procInfo.port3200 += @{ pid = $c.OwningProcess; state = $c.State.ToString(); localAddr = $c.LocalAddress }
     }
   } catch { $procInfo.port3200Err = $_.Exception.Message }
@@ -366,6 +372,19 @@ try {
     version = $hbStatus
     diagnostics = $diag
   } | ConvertTo-Json -Compress -Depth 6
+
+  # 兜底: 无论上面怎么收集, payload 超 80KB 一律降级成摘要 —— 心跳的首要职责
+  # 是"活着 + 在哪个 commit", 诊断细节丢了可以再查, 心跳本身不能丢。
+  if ($hbPayload.Length -gt 80KB) {
+    $hbPayload = @{
+      host = $env:COMPUTERNAME
+      commit = $hbHead
+      ref = 'main'
+      updatedAt = (Get-Date).ToUniversalTime().ToString("o")
+      version = $hbStatus
+      diagnostics = @{ note = 'diag-truncated-oversize'; originalBytes = $hbPayload.Length }
+    } | ConvertTo-Json -Compress -Depth 3
+  }
 
   $hbAuth = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("jinhu:jinhu2026"))
   Invoke-RestMethod -Uri 'https://cnjinhu.top/control/api/system/site-heartbeat' `
