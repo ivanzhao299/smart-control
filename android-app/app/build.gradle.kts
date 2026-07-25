@@ -11,8 +11,8 @@ android {
         applicationId = "com.jinhu.smartcontrol"
         minSdk = 24                  // Android 7.0+ — 覆盖 ≥99% 在用机型
         targetSdk = 34
-        versionCode = 9
-        versionName = "1.1.1"    // 图标重制(深底铺满+adaptive前景)
+        versionCode = 10
+        versionName = "1.1.2"    // 图标 logo 最大化
         // 默认服务器地址 (可在 BuildConfig 用 — APP 启动时如果 SharedPreferences 没保存就用这个作 placeholder)
         // 2026-07-25 改成展厅现场真实地址 (GK9000 静态 IP)
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"http://192.168.77.54:5173/control/\"")
