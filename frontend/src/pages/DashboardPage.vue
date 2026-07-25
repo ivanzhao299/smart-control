@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useToastStore } from '@/stores/toast';
 import { useRouter } from 'vue-router';
 import {
@@ -7,6 +7,8 @@ import {
   Sparkles, Calendar, Users, Presentation, Wrench, Moon,
   Lightbulb, MonitorPlay, Speaker, Snowflake, Zap,
 } from 'lucide-vue-next';
+import { powerCircuitsService } from '@/services/power-circuits.service';
+import { polling } from '@/services/polling.service';
 import { useSceneStore } from '@/stores/scene';
 import { useDeviceStore } from '@/stores/device';
 import { useSystemStore } from '@/stores/system';
@@ -25,6 +27,45 @@ const uptimeHours = computed(() => {
   return (s / 3600).toFixed(1);
 });
 const alertCount = computed(() => sys.alerts.length);
+
+// ============ 全场脉搏: 实时功率 + 迷你曲线 (2026-07-25 体验升级 D3) ============
+// 数据全部来自现有 /power-circuits 读数汇总, 不加后端接口; 曲线是本会话内的
+// 前端环形缓冲 (最近 40 个采样 ≈ 20 分钟), 中控"活着"的心电图。
+// 走统一 polling 调度器 (30s 一采, WS 在线自动降频, 与 C3 收编方向一致)。
+const powerNowW = ref<number | null>(null);
+const energyTotalKwh = ref<number | null>(null);
+const powerHistory = ref<number[]>([]);
+async function samplePower(): Promise<void> {
+  try {
+    const list = await powerCircuitsService.list();
+    const w = list.reduce((s, c) => s + (c.reading?.power ?? 0), 0);
+    const kwh = list.reduce((s, c) => s + (c.reading?.energy ?? 0), 0);
+    powerNowW.value = Math.round(w);
+    energyTotalKwh.value = Math.round(kwh * 100) / 100;
+    const h = powerHistory.value.slice(-39);
+    h.push(w);
+    powerHistory.value = h;
+  } catch { /* 电源子系统不可达时脉搏卡显示 — , 不打扰首页 */ }
+}
+/** sparkline: 采样归一化成 100x24 viewBox 的 polyline 坐标串 */
+const sparkPoints = computed(() => {
+  const h = powerHistory.value;
+  if (h.length < 2) return '';
+  const max = Math.max(...h, 1);
+  const min = Math.min(...h);
+  const span = Math.max(max - min, 1);
+  return h.map((v, i) => {
+    const x = (i / (h.length - 1)) * 100;
+    const y = 22 - ((v - min) / span) * 20;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+});
+let unsubPower: (() => void) | null = null;
+onMounted(() => {
+  void samplePower();
+  unsubPower = polling.subscribe('dash:power', 30_000, samplePower);
+});
+onBeforeUnmount(() => { if (unsubPower) unsubPower(); });
 
 // ============ 场景磁贴 ============
 type SceneColor = 'opening' | 'reception' | 'meeting' | 'roadshow' | 'cleaning' | 'closing';
@@ -193,6 +234,18 @@ function goTo(name: string): void {
           <div class="v2-kpi-value v2-inter">{{ uptimeHours }}<span class="unit">小时</span></div>
         </div>
       </div>
+      <!-- 全场脉搏 (D3): 实时功率大字 + 最近 20 分钟功率心电图。
+           曲线是会话内采样, 刷新重新积累 —— 它表达"现在活不活跃", 不是报表 -->
+      <div class="v2-kpi pulse" title="全场实时功率 · 曲线为最近约 20 分钟">
+        <div class="v2-kpi-ico"><Zap :size="18" :stroke-width="2" /></div>
+        <div class="v2-kpi-body">
+          <div class="v2-kpi-label">实时功率{{ energyTotalKwh !== null ? ` · 累计 ${energyTotalKwh} kWh` : '' }}</div>
+          <div class="v2-kpi-value v2-inter">{{ powerNowW ?? '—' }}<span class="unit">W</span></div>
+          <svg v-if="sparkPoints" class="kpi-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+            <polyline :points="sparkPoints" fill="none" stroke="var(--v2-primary)" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" opacity="0.9" />
+          </svg>
+        </div>
+      </div>
       <!-- 告警卡只在真有告警时才染琥珀色, 0 条时保持中性 -->
       <div class="v2-kpi" :class="{ amber: alertCount > 0 }">
         <div class="v2-kpi-ico"><TriangleAlert :size="18" :stroke-width="2" /></div>
@@ -295,9 +348,11 @@ function goTo(name: string): void {
 /* ============ KPI 行 ============ */
 .v2-kpi-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* D3: 加"全场脉搏"后 5 张卡, auto-fit 各屏自适应换行 */
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
   gap: var(--v2-sp-3);
 }
+.kpi-spark { width: 100%; height: 22px; margin-top: 4px; display: block; }
 .v2-kpi {
   padding: 14px 18px;
   background: var(--v2-surf-1);
