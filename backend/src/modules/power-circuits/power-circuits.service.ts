@@ -306,6 +306,20 @@ export class PowerCircuitsService implements OnModuleInit {
       });
     } else if (await this.isSequencerCircuit(row)) {
       await this.epo.setChannel(row.relayChannel as number, on);
+      // 2026-07-25 业主: "时序器点击回弹, 状态不能保持" — 根因: 下发后没动 seqCache,
+      // 紧随的 toView / 5s 轮询读到 3s 缓存里的旧状态, 把前端乐观 UI 打回去。
+      // (b2 协议有官方例帧金标准单测, 设备实际动了, 纯 UI 回弹。)
+      // 修: 命令确认后按目标值**乐观置位缓存**并把有效期顺延 ~7s —— EPO 每路可能配
+      // 开/关延时, 等待翻转不可靠; 置位让 UI 立即稳定, 之后轮询以真机为准。
+      const chIdx = (row.relayChannel ?? 0) - 1;
+      if (!this.seqCache) {
+        const r = await this.epo.readStatus();
+        if (r.ok && r.data?.channels) this.seqCache = { at: Date.now(), channels: r.data.channels };
+      }
+      if (this.seqCache && chIdx >= 0 && chIdx < this.seqCache.channels.length) {
+        this.seqCache.channels[chIdx] = on;
+        this.seqCache.at = Date.now() + 4000; // TTL 3s, 未来值 => 写后约 7s 内都用乐观态
+      }
     }
     // mock adapter 仍要跑: 它维护 PowerPage 用的电量/读数状态
     if (on) await this.adapter.circuitTurnOn(id);

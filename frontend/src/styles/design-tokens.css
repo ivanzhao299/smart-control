@@ -1038,8 +1038,9 @@ select:focus-visible,
 
 /* 按压反馈: 全站可点卡片/按钮统一"按下去有回应"。
  * 集中选择器而不是逐页加 class —— 覆盖各页既有交互件, 不动模板。 */
+/* .ch-card 不参与按压缩放 (2026-07-25 业主: 点推子背景条时整卡缩放=跳动) */
 .v2-scene, .v2-zone, .v2-quick, .v2-kpi, .v2-btn-primary,
-.circuit-card, .hv-cell, .hv-btn, .hv-chip, .ch-card, .seg,
+.circuit-card, .hv-cell, .hv-btn, .hv-chip, .seg,
 .pc-btn, .temp-btn, .card-btn, .src-btn, .v2-tab, .v2-back-btn {
   transition-property: transform, box-shadow, border-color, background-color, color, opacity;
   transition-duration: var(--v2-dur-fast);
@@ -1047,7 +1048,7 @@ select:focus-visible,
 }
 .v2-scene:active, .v2-zone:active, .v2-quick:active, .v2-btn-primary:active,
 .circuit-card:active, .hv-cell:active, .hv-btn:active:not(:disabled), .hv-chip:active,
-.ch-card:active, .pc-btn:active:not(:disabled), .temp-btn:active:not(:disabled),
+.pc-btn:active:not(:disabled), .temp-btn:active:not(:disabled),
 .card-btn:active, .src-btn:active, .v2-back-btn:active {
   transform: scale(0.965);
   transition-duration: 80ms;
@@ -1063,6 +1064,22 @@ select:focus-visible,
   .v2-page-enter-active, .v2-page-leave-active { transition: none; }
   .v2-scene:active, .v2-zone:active, .v2-quick:active, .v2-btn-primary:active,
   .circuit-card:active, .hv-cell:active, .hv-btn:active, .hv-chip:active,
-  .ch-card:active, .pc-btn:active, .temp-btn:active, .card-btn:active,
+  .pc-btn:active, .temp-btn:active, .card-btn:active,
   .src-btn:active, .v2-back-btn:active { transform: none; }
+}
+
+
+/* ============ 页头固定 (2026-07-25 业主: 顶栏固定, 只滚内容) ============
+ * .v2-page-head 是各页共用类名 — 这里全局 sticky: 页面滚动时头部钉在滚动容器顶,
+ * 负 margin + 等量 padding 抵掉 .v2-page 的顶部内边距, 避免头上方露内容。
+ * 一屏不滚的页面 (1920 主控机) 完全无感。 */
+.v2-page-head {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  background: var(--v2-bg-0);
+  margin-top: calc(-1 * var(--v2-sp-5));
+  padding-top: var(--v2-sp-5);
+  padding-bottom: var(--v2-sp-2);
+  box-shadow: 0 8px 16px -12px rgba(0, 0, 0, 0.35);
 }

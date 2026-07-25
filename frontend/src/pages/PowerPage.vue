@@ -45,7 +45,7 @@ async function loadCircuits(): Promise<void> {
 }
 
 // 楼层 tab
-const floorTab = ref<string>('1F');
+const floorTab = ref<string>('音响');  // 2026-07-25 业主: 音响(时序器)是最常用页, 设为默认
 const floorOptions = computed<string[]>(() => {
   const set = new Set<string>();
   for (const c of circuits.value) set.add(c.floor);
@@ -380,8 +380,9 @@ onUnmounted(() => { stopRefresh(); });
           ></button>
         </div>
 
-        <!-- 4 数据值 -->
-        <div class="metrics">
+        <!-- 4 数据值 — 时序器每路没有独立计量 (EPO-802P 是时序器不是电表),
+             显示一排 0 只会误导, 该类回路收成简洁开关卡 (2026-07-25 业主) -->
+        <div v-if="c.category !== 'audio-seq'" class="metrics">
           <div class="metric">
             <div class="metric-label">电流</div>
             <div class="metric-value v2-inter">

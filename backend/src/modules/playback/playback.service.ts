@@ -74,6 +74,11 @@ export class PlaybackService implements OnModuleInit {
         this.logger.info(`[PlaybackChannel] seeded slot=${s.slot} (${s.outputKind})`);
       }
     }
+    // 2026-07-25 业主: "LED/背景音乐/投影默认不要自动播, 有人操作才播"。
+    // 后端每次启动(开机/部署重启)把三路播放状态清空回待机 —— 重启后无人操作
+    // 就该是待机。要放内容: 媒体页/播放控制台人为推送。
+    await this.repo.update({ slot: In([1, 2, 3]) }, { currentMediaId: null, currentPlaylistId: null, paused: false });
+    this.logger.info('[Playback] 启动即待机: 已清空三路播放状态 (业主要求默认不自动播)');
   }
 
   async list(): Promise<PlaybackChannelView[]> {

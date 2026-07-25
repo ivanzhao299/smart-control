@@ -1246,9 +1246,10 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   .cell-name-text { font-size: 15px; }
   .cell-temp { font-size: 24px; }
   .cell-temp i { font-size: 13px; }
-  .cell-off { font-size: 16px; }
+  /* 2026-07-25 业主: 右上角已有开关徽章, "关机"大字多此一举且挤掉末行 — 手机隐藏 */
+  .cell-off { display: none; }
   .cell-room { font-size: 12px; }
-  .cell-body { min-height: 24px; gap: 2px; }
+  .cell-body { min-height: 0; gap: 2px; justify-content: flex-start; }
   .cell-dot { padding: 2px 8px; font-size: 11px; }
   .cell-tag { font-size: 12px; }
   .cell-foot { margin-top: 3px; }

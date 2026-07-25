@@ -967,4 +967,9 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 /* 离线时内容区打灰: 数据是"最后已知", 不该看起来还新鲜 */
 .v2-offline-dim { filter: grayscale(0.45) opacity(0.82); transition: filter var(--v2-dur-slow) ease; }
 @media (prefers-reduced-motion: reduce) { .v2-net-capsule.offline .dot { animation: none; } }
+
+/* 导航文字对比度 (2026-07-25 业主: APP 底栏文字太灰) — 未选中提到 text-2,
+ * 选中用 primary 加粗; 深浅两主题同源变量, 自动跟随 */
+.v2-nav-label { color: var(--v2-text-2); }
+.v2-nav-item.is-active .v2-nav-label { color: var(--v2-primary); font-weight: 700; }
 </style>
