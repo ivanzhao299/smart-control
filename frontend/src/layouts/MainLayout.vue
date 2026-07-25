@@ -88,10 +88,35 @@ async function prefetchData(): Promise<void> {
  */
 let mainEl: HTMLElement | null = null;
 let touchStartY = 0;
-function onMainTouchStart(e: TouchEvent): void { touchStartY = e.touches[0].clientY; }
+let touchStartX = 0;
+function onMainTouchStart(e: TouchEvent): void {
+  touchStartY = e.touches[0].clientY;
+  touchStartX = e.touches[0].clientX;
+}
+/** 触点到 .v2-main 之间有没有自己能滚的容器 (BGM 列表/矩阵横滑/空调网格…) */
+function hasInnerScrollable(target: EventTarget | null, horizontal: boolean): boolean {
+  let el = target instanceof HTMLElement ? target : null;
+  while (el && el !== mainEl) {
+    const cs = getComputedStyle(el);
+    if (!horizontal && (cs.overflowY === 'auto' || cs.overflowY === 'scroll')
+        && el.scrollHeight > el.clientHeight + 1) return true;
+    if (horizontal && (cs.overflowX === 'auto' || cs.overflowX === 'scroll')
+        && el.scrollWidth > el.clientWidth + 1) return true;
+    el = el.parentElement;
+  }
+  return false;
+}
 function onMainTouchMove(e: TouchEvent): void {
   if (!mainEl) return;
   const dy = e.touches[0].clientY - touchStartY;
+  const dx = e.touches[0].clientX - touchStartX;
+  // 2026-07-25 二次修正 (业主: "BGM 列表不能上下拖、矩阵不能左右拖"):
+  // 初版把所有边界手势都吃掉, 连内部滚动容器一起锁死。放行规则:
+  //  1) 横向手势一律放行 (矩阵/推子/横滑 tab 都靠它)
+  //  2) 触点在自己能滚的内部容器里 → 放行, 滚动由它消化
+  //  3) 只有滚动责任真落在 .v2-main 且已到边 → 吃掉 (这才是橡皮筋)
+  if (Math.abs(dx) > Math.abs(dy)) return;
+  if (hasInnerScrollable(e.target, false)) return;
   const atTop = mainEl.scrollTop <= 0;
   const atBottom = mainEl.scrollTop + mainEl.clientHeight >= mainEl.scrollHeight - 1;
   if ((atTop && dy > 0) || (atBottom && dy < 0)) e.preventDefault();
