@@ -383,14 +383,18 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 
     <!-- 主区 -->
     <main class="v2-main">
-      <router-view v-slot="{ Component }">
+      <router-view v-slot="{ Component, route }">
         <!-- 崩溃自恢复: ErrorBoundary 包住所有页面, 单页报错降级不白屏整机 -->
         <ErrorBoundary>
-          <!-- PERFORMANCE_AUDIT P1-#7: max 6 → 10 覆盖 8 项主菜单 +
-               admin 入口缓冲, 切页 100% 命中缓存 (60-100ms vs 重 mount 200-400ms) -->
-          <keep-alive :max="10">
-            <component :is="Component" />
-          </keep-alive>
+          <!-- 切页转场 (2026-07-25 D2): 120ms 淡入+8px 上移, mode=out-in 防重叠;
+               reduced-motion 下 token 层已退化为无动画 -->
+          <transition name="v2-page" mode="out-in">
+            <!-- PERFORMANCE_AUDIT P1-#7: max 6 → 10 覆盖 8 项主菜单 +
+                 admin 入口缓冲, 切页 100% 命中缓存 (60-100ms vs 重 mount 200-400ms) -->
+            <keep-alive :max="10">
+              <component :is="Component" :key="route.name" />
+            </keep-alive>
+          </transition>
         </ErrorBoundary>
       </router-view>
     </main>
