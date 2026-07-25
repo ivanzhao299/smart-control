@@ -968,8 +968,13 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   flex: 1 1 auto; min-height: 0;
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  grid-auto-rows: 1fr;
+  /* 行高按"全部"tab 的设计行数固定 (6 列 x 22 台 = 4 行), 而不是 1fr 均分:
+     切到一楼/二楼后内机少、行数少, 1fr 会把卡片撑成巨大 (业主 2026-07-25:
+     "一二楼的卡片大小可以和全部相同")。固定基准后楼层 tab 下卡片大小不变,
+     下方留白; % 相对网格容器高, 各屏自适应。24px = 3 个 gap。 */
+  grid-auto-rows: calc((100% - 24px) / 4);
   gap: 8px;
+  overflow-y: auto;   /* 兜底: 万一以后加内机超出设计行数, 微滚而不是裁切 */
 }
 .hv-grid.loading { opacity: .5; pointer-events: none; }
 
@@ -1184,7 +1189,8 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 /* 1600 及以下: 6 列会挤, 降到 5 列 (22 台 = 5 行, 行高 ~170px). 温度收到 40px
    刚好在 5 行时不裁切, 而 10 台 (2 行) 时卡片高、40px 居中依然大气. */
 @media (max-width: 1600px) {
-  .hv-grid { grid-template-columns: repeat(5, 1fr); }
+  /* 5 列 x 22 = 5 行基准 (4 gap = 32px) */
+  .hv-grid { grid-template-columns: repeat(5, 1fr); grid-auto-rows: calc((100% - 32px) / 5); }
   .bar-names { display: none; }
   .cell-temp { font-size: 40px; }
   .cell-temp i { font-size: 18px; }
@@ -1192,7 +1198,8 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 }
 /* 更窄: 4 列 → 22 台 6 行, 行更矮, 再收一档字, 保证不滚动 */
 @media (max-width: 1280px) {
-  .hv-grid { grid-template-columns: repeat(4, 1fr); }
+  /* 4 列 x 22 = 6 行基准 (5 gap = 40px) */
+  .hv-grid { grid-template-columns: repeat(4, 1fr); grid-auto-rows: calc((100% - 40px) / 6); }
   .hv-cell { padding: 10px 12px; }
   .cell-name-text { font-size: 18px; }
   .cell-temp { font-size: 32px; }
