@@ -98,6 +98,17 @@ onUnmounted(() => {
 const showServerSettings = ref(false);
 const serverSettingsReason = ref<string | undefined>(undefined);
 let autoOpenedThisEpisode = false;
+// A5 (2026-07-25): "已重连"胶囊闪现 1.6s
+const justReconnected = ref(false);
+let reconnT: number | undefined;
+watch(() => conn.online, (ok, was) => {
+  if (ok && was === false) {
+    justReconnected.value = true;
+    window.clearTimeout(reconnT);
+    reconnT = window.setTimeout(() => { justReconnected.value = false; }, 1600);
+  }
+});
+
 watch(() => conn.online, (online) => {
   if (!online && !autoOpenedThisEpisode && !showServerSettings.value) {
     autoOpenedThisEpisode = true;
@@ -382,7 +393,17 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
     </header>
 
     <!-- 主区 -->
-    <main class="v2-main">
+    <!-- A5 离线胶囊 (2026-07-25): 断网不再靠错误弹窗轰炸 — 顶部一条安静的胶囊,
+         内容区打灰保留最后已知状态; 恢复自动消失并闪现"已重连"。 -->
+    <transition name="v2-page">
+      <div v-if="!conn.online" class="v2-net-capsule offline">
+        <span class="dot"></span> 网络中断 · 重连中…
+      </div>
+      <div v-else-if="justReconnected" class="v2-net-capsule back">
+        <span class="dot"></span> 已重连
+      </div>
+    </transition>
+    <main class="v2-main" :class="{ 'v2-offline-dim': !conn.online }">
       <router-view v-slot="{ Component, route }">
         <!-- 崩溃自恢复: ErrorBoundary 包住所有页面, 单页报错降级不白屏整机 -->
         <ErrorBoundary>
@@ -924,4 +945,26 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
     /* 避免主区被底栏挡 — grid 行布局已经预留, 这里不用 padding-bottom */
   }
 }
+
+/* ---- A5 离线胶囊 ---- */
+.v2-net-capsule {
+  position: fixed; top: max(10px, env(safe-area-inset-top)); left: 50%;
+  transform: translateX(-50%);
+  z-index: 4000;
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 7px 16px; border-radius: 999px;
+  font-size: 13px; font-weight: 500;
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--v2-border-strong);
+  box-shadow: var(--v2-elev-2);
+}
+.v2-net-capsule .dot { width: 8px; height: 8px; border-radius: 50%; }
+.v2-net-capsule.offline { background: color-mix(in srgb, var(--v2-danger) 16%, var(--v2-surf-2)); color: var(--v2-text-1); }
+.v2-net-capsule.offline .dot { background: var(--v2-danger); animation: hvPulseNet 1.1s ease-in-out infinite; }
+.v2-net-capsule.back { background: color-mix(in srgb, var(--v2-success) 18%, var(--v2-surf-2)); color: var(--v2-text-1); }
+.v2-net-capsule.back .dot { background: var(--v2-success); }
+@keyframes hvPulseNet { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+/* 离线时内容区打灰: 数据是"最后已知", 不该看起来还新鲜 */
+.v2-offline-dim { filter: grayscale(0.45) opacity(0.82); transition: filter var(--v2-dur-slow) ease; }
+@media (prefers-reduced-motion: reduce) { .v2-net-capsule.offline .dot { animation: none; } }
 </style>
