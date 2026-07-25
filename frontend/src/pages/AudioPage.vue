@@ -439,7 +439,8 @@ function scheduleMatrixPoll(): void {
     // 有在途写入 / 正等着对账时别读: 设备可能还没落到最新值, 读回来会把用户刚点
     // 的状态覆盖掉 (界面闪一下弹回去)。跳过这轮, 8s 后再来, 反正 scheduleReconcile
     // 会在这批点完后对一次账。
-    if (pendingWrites.value === 0 && reconcileTimer === null) {
+    if (!document.hidden && pendingWrites.value === 0 && reconcileTimer === null) {
+      // C3: 页面在后台不打设备 (plTimer 进度条是纯本地 UI, 不用管)
       await loadMatrixState();
     }
     if (!matrixPollStopped) scheduleMatrixPoll();

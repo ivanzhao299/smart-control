@@ -57,6 +57,9 @@ class PollingScheduler {
   }
 
   private tick(): void {
+    // C3 (2026-07-25): 页面进后台 (切走/锁屏) 全局暂停 — 手机口袋里不打设备不耗电。
+    // 回前台下一 tick 自然补跑; lastRun 不动, 到点的订阅立即执行。
+    if (typeof document !== 'undefined' && document.hidden) return;
     const now = Date.now();
     for (const sub of this.subs.values()) {
       const targetMs = this.effectiveInterval(sub.intervalMs);

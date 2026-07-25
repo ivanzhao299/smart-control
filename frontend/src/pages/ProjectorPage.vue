@@ -43,7 +43,9 @@ async function switchToGk(): Promise<void> {
 let timer: ReturnType<typeof setInterval> | null = null;
 onMounted(() => {
   void loadFusion();
-  timer = setInterval(() => { if (!busy.value) void loadFusion(); }, 8000);
+  timer = setInterval(() => {
+  if (document.hidden) return; // C3: 页面在后台不打设备
+ if (!busy.value) void loadFusion(); }, 8000);
 });
 onUnmounted(() => { if (timer) clearInterval(timer); });
 </script>

@@ -198,6 +198,8 @@ let refreshTimer: ReturnType<typeof setInterval> | null = null;
 function startRefresh(): void {
   if (refreshTimer) return;
   refreshTimer = setInterval(() => {
+  if (document.hidden) return; // C3: 页面在后台不打设备
+
     if (!loading.value && busyIds.value.size === 0) {
       void powerCircuitsService.list().then((rows) => {
         circuits.value = rows;

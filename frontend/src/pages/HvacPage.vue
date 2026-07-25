@@ -109,6 +109,8 @@ let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** 拉一次真机状态并合并进卡片 */
 async function pollStates(): Promise<void> {
+  if (document.hidden) return; // C3: 页面在后台不打设备
+
   try {
     const list = await hvacService.listStates();
     const byIdx = new Map(list.map((s) => [s.idx, s]));
