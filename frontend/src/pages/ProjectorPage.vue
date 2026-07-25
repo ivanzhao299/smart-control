@@ -7,7 +7,7 @@
 // (之前那版直控融合器窗口的完整面板是模型B, 业主选了模型A, 收成这条。)
 import { onMounted, onUnmounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
-import { MonitorPlay, Check, AlertTriangle, RefreshCw } from 'lucide-vue-next';
+import { AlertTriangle, RefreshCw } from 'lucide-vue-next';
 import PlayerConsole from '@/components/PlayerConsole.vue';
 import { projectorService } from '@/services/projector.service';
 
@@ -52,29 +52,20 @@ onUnmounted(() => { if (timer) clearInterval(timer); });
 
 <template>
   <div class="proj-wrap">
-    <!-- 投影输出状态条 (融合器: 是否在显示 GK9000 的 HDMI 输入) -->
-    <div class="out-bar" :class="showingHdmi === true ? 'ok' : showingHdmi === false ? 'warn' : 'unknown'">
-      <MonitorPlay :size="16" :stroke-width="1.9" />
-      <template v-if="showingHdmi === true">
-        <Check :size="15" /> <span>投影正在显示 <b>GK9000 画面</b>(融合器 HDMI 输入,边缘融合中)</span>
+    <!-- 2026-07-25 业主: 说明文字删除; 报警条移入播放器区域 (插槽), 仅异常时出现,
+         正常态不占一寸空间 — 与 LED 页同构 (共用 PlayerConsole, 播放器区置顶固定) -->
+    <PlayerConsole :slot="2" title="投影仪">
+      <template #alert>
+        <div v-if="showingHdmi !== true" class="out-bar" :class="showingHdmi === false ? 'warn' : 'unknown'">
+          <AlertTriangle :size="15" />
+          <span v-if="showingHdmi === false">投影当前显示的不是 GK9000 推的画面</span>
+          <span v-else>融合器连不上:{{ fusionErr || '检查融合器电源/网络' }}</span>
+          <button class="out-btn" :disabled="busy" @click="switchToGk">
+            <RefreshCw :size="13" :class="{ spin: busy }" /> 切到 GK9000 画面
+          </button>
+        </div>
       </template>
-      <template v-else-if="showingHdmi === false">
-        <AlertTriangle :size="15" /> <span>投影现在显示的是<b>融合器内部内容</b>,不是 GK9000 推的画面</span>
-      </template>
-      <template v-else>
-        <AlertTriangle :size="15" /> <span>融合器连不上:{{ fusionErr || '检查融合器电源/网络' }}</span>
-      </template>
-      <button class="out-btn" :disabled="busy" @click="switchToGk">
-        <RefreshCw :size="13" :class="{ spin: busy }" /> 切到 GK9000 画面
-      </button>
-    </div>
-    <div class="out-hint">
-      投影内容用下面的播放列表管(跟 LED 一样)。融合器负责把 GK9000 的画面边缘融合到两台投影,
-      平时固定显示 GK9000 输入;若投影上不是 GK9000 的画面,点上面「切到 GK9000 画面」。
-    </div>
-
-    <!-- 播放控制台 (slot2 = 投影仪, GK9000 出内容) -->
-    <PlayerConsole :slot="2" title="投影仪" />
+    </PlayerConsole>
   </div>
 </template>
 
@@ -82,12 +73,11 @@ onUnmounted(() => { if (timer) clearInterval(timer); });
 .proj-wrap { display: flex; flex-direction: column; }
 .out-bar {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  margin: var(--v2-sp-5) var(--v2-sp-5) 0;
+  margin: 0 var(--v2-sp-5) 6px;
   padding: 10px 14px; border-radius: var(--v2-r-md);
   font-size: var(--v2-fs-sm); font-weight: 600;
 }
 .out-bar b { font-weight: 700; }
-.out-bar.ok { background: var(--v2-success-soft); color: var(--v2-success); border: 1px solid var(--v2-success-soft); }
 .out-bar.warn { background: var(--v2-warning-soft); color: var(--v2-warning); border: 1px solid var(--v2-warning-soft); }
 .out-bar.unknown { background: var(--v2-danger-soft); color: var(--v2-danger); border: 1px solid var(--v2-danger-soft); }
 .out-btn {
@@ -99,5 +89,4 @@ onUnmounted(() => { if (timer) clearInterval(timer); });
 .out-btn:hover:not(:disabled) { background: var(--v2-surf-1-hover); }
 .out-btn:disabled { opacity: 0.5; cursor: default; }
 .spin { animation: sp 0.9s linear infinite; } @keyframes sp { to { transform: rotate(360deg); } }
-.out-hint { margin: 6px var(--v2-sp-5) 0; font-size: 11px; color: var(--v2-text-3); line-height: 1.5; }
 </style>

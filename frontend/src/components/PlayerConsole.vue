@@ -391,6 +391,8 @@ async function submitWebpage(): Promise<void> {
 
 <template>
   <section class="led-page">
+    <!-- 播放器区置顶固定 (2026-07-25 业主): 头部+报警+正在播放 钉住, 列表在下面滚 -->
+    <div class="pc-sticky">
     <header class="led-head">
       <button class="v2-back-btn" @click="goBack" title="返回首页">
         <ArrowLeft :size="18" :stroke-width="2" />
@@ -403,6 +405,10 @@ async function submitWebpage(): Promise<void> {
         <AlertTriangle :size="14" /> 播放器离线
       </span>
     </header>
+
+    <!-- 报警插槽 (2026-07-25): 设备/输出异常条放播放器区域内 (投影页融合器状态用) -->
+    <slot name="alert" />
+
 
     <!-- ===== 正在播 + 播放控制 ===== -->
     <section class="now">
@@ -461,6 +467,8 @@ async function submitWebpage(): Promise<void> {
     </section>
 
     <!-- 输入源 — 只在传了 deviceId 时出现 (业主: "工具栏页面可以切换各种输入源") -->
+    </div><!-- /pc-sticky -->
+
     <section v-if="deviceId" class="src-bar">
       <span class="src-label">输入源</span>
       <button
@@ -832,5 +840,13 @@ async function submitWebpage(): Promise<void> {
   .panel-head { flex-wrap: wrap; }
   .panel-head .v2-quick { margin-left: 0; }
   .panel-head .panel-title { flex: 1 1 100%; }
+}
+
+/* 播放器区置顶固定 (业主 2026-07-25): 滚动时头部+正在播放钉在顶部, 只滚列表 */
+.pc-sticky {
+  position: sticky; top: 0; z-index: 60;
+  background: var(--v2-bg-0);
+  padding-bottom: 4px;
+  box-shadow: 0 8px 16px -12px rgba(0, 0, 0, 0.35);
 }
 </style>
