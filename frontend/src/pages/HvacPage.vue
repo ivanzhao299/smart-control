@@ -56,10 +56,14 @@ interface IndoorRow extends HvacIndoor {
 const POLL_MS = 5000;
 
 const indoors = ref<IndoorRow[]>([]);
+/** 错峰下发中 (开/关机是逐台串行, 22 台约 10s) — 界面提示别让人以为卡死 */
+const dispatching = ref(false);
 const zones = ref<HvacZone[]>([]);
 const loading = ref(false);
 const busy = ref(false);
 const floorTab = ref<'1F' | '2F' | 'all'>('all');
+/** 手机端快选条默认折叠成一行横滚 (14 个分组铺 6 行占掉 1/4 屏), 点「展开」才铺开 */
+const quickExpanded = ref(false);
 const selected = ref<Set<number>>(new Set());
 const groupMode = ref(false);
 
@@ -334,9 +338,6 @@ function invertSelection(): void {
   }
   selected.value = s;
 }
-function selectFloor(f: '1F' | '2F'): void {
-  toggleMany(indoors.value.filter((i) => i.floor === f).map((i) => i.idx));
-}
 function selectZone(code: string | null): void {
   toggleMany(visibleIndoors.value.filter((i) => i.zoneCode === code).map((i) => i.idx));
 }
@@ -383,8 +384,9 @@ async function run(
   }
 }
 
-const turnOn = () => run('开机', (s) => { s.on = true; }, (ix) => hvacService.batchOn(ix));
-const turnOff = () => run('关机', (s) => { s.on = false; }, (ix) => hvacService.batchOff(ix));
+// 开/关走后端错峰 (0.4s/台) — dispatching 提示逐台下发中
+const turnOn = () => { dispatching.value = true; void run('开机', (s) => { s.on = true; }, (ix) => hvacService.batchOn(ix)).finally(() => { dispatching.value = false; }); };
+const turnOff = () => { dispatching.value = true; void run('关机', (s) => { s.on = false; }, (ix) => hvacService.batchOff(ix)).finally(() => { dispatching.value = false; }); };
 const setMode = (mode: HvacMode) => run('模式', (s) => { s.mode = mode; }, (ix) => hvacService.batchMode(ix, mode));
 const setFan = (speed: HvacFan) => run('风速', (s) => { s.fan = speed; }, (ix) => hvacService.batchFanSpeed(ix, speed));
 function adjustTemp(delta: number): void {
@@ -393,13 +395,24 @@ function adjustTemp(delta: number): void {
   void run('温度', (s) => { s.temperature = next; }, (ix) => hvacService.batchTemperature(ix, next));
 }
 
-/** 顶部"全开/全关" — 作用于当前楼层 tab 的全部内机, 跟选中无关 */
+/** 顶部"全开/全关" — 作用于当前楼层 tab 的全部内机, 跟选中无关。
+ *  2026-07-25 生产级整改: 一键动全场必须二次确认 (访客/保洁误碰一下 22 台就全动了);
+ *  后端已改错峰逐台下发 (0.4s/台, 保护外机), 确认框里把耗时说清楚, 别让人以为卡死。 */
 async function floorPower(on: boolean): Promise<void> {
   const idxs = visibleIndoors.value.map((i) => i.idx);
   if (!idxs.length) return;
+  const scope = floorTab.value === 'all' ? '全部楼层' : (floorTab.value === '1F' ? '一楼' : '二楼');
+  try {
+    await ElMessageBox.confirm(
+      `确定${on ? '开启' : '关闭'}${scope}共 ${idxs.length} 台空调?\n将逐台错峰下发, 约需 ${Math.ceil(idxs.length * 0.6) + 2} 秒。`,
+      on ? '全开确认' : '全关确认',
+      { type: 'warning', confirmButtonText: on ? '全开' : '全关', cancelButtonText: '取消' },
+    );
+  } catch { return; }
   const backup = indoors.value.map((i) => ({ idx: i.idx, on: i.state.on }));
   visibleIndoors.value.forEach((i) => { i.state.on = on; });
   busy.value = true;
+  dispatching.value = true;
   try {
     const r = await (on ? hvacService.batchOn(idxs) : hvacService.batchOff(idxs));
     if (r.okCount === 0 && r.failCount > 0) throw new Error('全部失败');
@@ -410,6 +423,7 @@ async function floorPower(on: boolean): Promise<void> {
     ElMessage.error(`${on ? '全开' : '全关'} 失败: ${(err as Error).message}`);
   } finally {
     busy.value = false;
+    dispatching.value = false;
     setTimeout(() => { void pollStates(); }, 1200);
   }
 }
@@ -562,13 +576,12 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
     </header>
 
     <!-- ===== 快选条 ===== -->
-    <div class="hv-quick">
+    <!-- 楼层 chips 已去掉 (和顶部楼层 tab 重复 — 想选整层: 切楼层 tab 后点"全部 N") -->
+    <div class="hv-quick" :class="{ expanded: quickExpanded }">
       <span class="hv-quick-label">快选</span>
       <button class="hv-chip" :class="{ on: allSelected }" @click="selectAll">
         全部 {{ visibleIndoors.length }}
       </button>
-      <button v-if="floorTab === 'all'" class="hv-chip" @click="selectFloor('1F')">一楼</button>
-      <button v-if="floorTab === 'all'" class="hv-chip" @click="selectFloor('2F')">二楼</button>
       <button class="hv-chip" title="选中的变未选, 未选的变选中" @click="invertSelection">反选</button>
       <span class="hv-quick-sep" />
       <template v-for="z in visibleZones" :key="z.code">
@@ -594,6 +607,9 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
       </button>
       <button v-if="groupMode" class="hv-chip add" @click="createZone"><FolderPlus :size="13" /> 新建组</button>
       <button v-if="selected.size" class="hv-chip clear" @click="selectNone">清空选择</button>
+      <button class="hv-chip quick-toggle" @click="quickExpanded = !quickExpanded">
+        {{ quickExpanded ? '收起 ▲' : '展开 ▼' }}
+      </button>
     </div>
 
     <!-- ===== 内机网格 =====
@@ -605,14 +621,14 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
         <template v-for="row in visibleIndoors" :key="row.idx">
       <button
         class="hv-cell"
-        :class="{
+        :class="[{
           sel: selected.has(row.idx),
           running: row.state.known && row.state.on,
           unknown: !row.state.known,
           fault: row.state.known && row.state.faultCode > 0,
           'drag-over': dragOverIndoorIdx === row.idx,
           dragging: dragIndoorIdx === row.idx,
-        }"
+        }, row.state.known && row.state.on ? 'run-' + row.state.mode : '']"
         :draggable="editingIndoor !== row.idx"
         @dragstart="onIndoorDragStart(row, $event)"
         @dragover="onIndoorDragOver(row, $event)"
@@ -709,12 +725,12 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
           <template v-for="row in sec.rows" :key="row.idx">
       <button
         class="hv-cell"
-        :class="{
+        :class="[{
           sel: selected.has(row.idx),
           running: row.state.known && row.state.on,
           unknown: !row.state.known,
           fault: row.state.known && row.state.faultCode > 0,
-        }"
+        }, row.state.known && row.state.on ? 'run-' + row.state.mode : '']"
         @click="toggleOne(row.idx)"
       >
         <div class="cell-head">
@@ -801,26 +817,29 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
         </div>
       </template>
 
-      <template v-else>
+      <!-- 2026-07-25 生产级整改: 没选中就没有作用对象 — 控制条整体不渲染,
+           手机屏立省 1/4; 只留一行提示。选中后浮出, "已选 N 台"就在旁边, 打到谁一目了然。 -->
+      <template v-else-if="selected.size">
         <div class="bar-ctrl">
-          <button class="hv-btn primary" :disabled="!selected.size || busy" @click="turnOn">
+          <span v-if="dispatching" class="bar-dispatching">逐台下发中…</span>
+          <button class="hv-btn primary" :disabled="busy" @click="turnOn">
             <Power :size="15" /> 开
           </button>
-          <button class="hv-btn danger" :disabled="!selected.size || busy" @click="turnOff">
+          <button class="hv-btn danger" :disabled="busy" @click="turnOff">
             <Power :size="15" /> 关
           </button>
 
           <div class="bar-temp">
-            <button class="temp-btn" :disabled="!selected.size || busy" @click="adjustTemp(-1)"><Minus :size="16" /></button>
+            <button class="temp-btn" :disabled="busy" @click="adjustTemp(-1)"><Minus :size="16" /></button>
             <span class="temp-val">{{ selTemp }}<i>°C</i></span>
-            <button class="temp-btn" :disabled="!selected.size || busy" @click="adjustTemp(1)"><Plus :size="16" /></button>
+            <button class="temp-btn" :disabled="busy" @click="adjustTemp(1)"><Plus :size="16" /></button>
           </div>
 
           <div class="bar-seg">
             <button
               v-for="m in modes" :key="m.value"
               class="seg" :class="{ on: selMode === m.value }"
-              :disabled="!selected.size || busy" @click="setMode(m.value)"
+              :disabled="busy" @click="setMode(m.value)"
             >
               <component :is="m.icon" :size="14" /> {{ m.label }}
             </button>
@@ -830,7 +849,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
             <button
               v-for="f in fans" :key="f.value"
               class="seg" :class="{ on: selFan === f.value }"
-              :disabled="!selected.size || busy" @click="setFan(f.value)"
+              :disabled="busy" @click="setFan(f.value)"
             >{{ f.label }}</button>
           </div>
 
@@ -931,6 +950,8 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 .hv-chip.warn.on { background: #e8b339; color: #2a1d00; }
 .hv-chip.add { border-style: dashed; color: var(--v2-primary, #4C9AFF); }
 .hv-chip.clear { margin-left: auto; color: var(--v2-text-3, #9BA1A9); }
+/* 展开/收起 chip 只在手机端出现 (桌面 1920 快选一行放得下, 不需要折叠) */
+.hv-chip.quick-toggle { display: none; }
 .hv-chip-input {
   width: 110px; padding: 4px 9px; font-size: 12px; line-height: 1;
   color: var(--v2-text-1, #e8eef7); background: #0b1220;
@@ -966,12 +987,18 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 .hv-cell[draggable="true"] { cursor: grab; }
 .hv-cell.dragging { opacity: 0.45; cursor: grabbing; }
 .hv-cell.drag-over { border-color: var(--v2-primary, #4C9AFF); box-shadow: 0 0 0 2px var(--v2-primary, #4C9AFF) inset; }
-/* 运行卡片: 有色底 + 左侧彩条, 关机卡片纯深灰 —— 开关机一眼可辨 */
+/* 运行卡片: 有色底 + 左侧彩条, 关机卡片纯深灰 —— 开关机一眼可辨。
+   2026-07-25: 彩条/底色跟随**模式**着色 (制冷蓝/制热橙/送风青/除湿紫) ——
+   全场哪台在制冷哪台在制热, 扫一眼就分得出, 不用逐张读字。 */
 .hv-cell.running {
   background: linear-gradient(160deg, #123049, #14161A);
   border-color: #2b4a63;
   box-shadow: inset 3px 0 0 #38a9e0;
 }
+.hv-cell.run-heat { background: linear-gradient(160deg, #3a2415, #14161A); border-color: #5e3a22; box-shadow: inset 3px 0 0 #ff8a4d; }
+.hv-cell.run-fan  { background: linear-gradient(160deg, #123a33, #14161A); border-color: #245a4e; box-shadow: inset 3px 0 0 #4ce0be; }
+.hv-cell.run-dry  { background: linear-gradient(160deg, #291f45, #14161A); border-color: #43356e; box-shadow: inset 3px 0 0 #9d8bff; }
+/* run-cool / run-auto 沿用默认蓝 */
 /* 未知: 斜纹底 + 虚线框 —— 一眼跟"关机"区分开, 不靠颜色深浅 */
 .hv-cell.unknown {
   border-style: dashed;
@@ -1095,6 +1122,9 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   display: inline-flex; align-items: center; gap: 5px;
   margin-left: auto; font-size: 14px; color: #35d07f;
 }
+/* 开/关机错峰逐台下发中 (22 台约 10s) — 明示进行中, 别让人以为卡死狂点 */
+.bar-dispatching { font-size: 13px; color: #e8b339; animation: hvPulse 1.2s ease-in-out infinite; }
+@keyframes hvPulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 
 .bar-temp {
   display: flex; align-items: center; gap: 10px;
@@ -1178,18 +1208,45 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
    宁可让网格自己滚, 也不能让内容糊成一团或凭空消失。 */
 @media (max-width: 900px) {
   .hv-page { height: 100dvh; padding: 8px; gap: 8px; }
-  /* 2 列: 768 下每张卡约 350px 宽, 字号不用再缩就能读 */
+  /* 2026-07-25 生产级整改: 卡片紧凑化 — 原来一张卡 200px+ 高, 22 台滚 5 屏;
+     压缩 padding/字号后同屏 8 张, 全场状态两屏扫完。 */
   .hv-grid {
     grid-template-columns: repeat(2, 1fr);
-    grid-auto-rows: minmax(112px, auto);  /* 高度按内容给足, 不再压扁 */
+    grid-auto-rows: minmax(88px, auto);
+    gap: 6px;
     overflow-y: auto;                      /* 放不下就滚这里, 而不是被裁掉 */
     -webkit-overflow-scrolling: touch;
   }
+  .hv-cell { padding: 8px 10px; border-radius: 11px; }
+  .hv-cell.sel::before { top: 6px; bottom: 6px; }
   .hv-head { flex-wrap: wrap; gap: 8px; }
   .hv-stats { display: none; }             /* 顶栏统计让位, 控制权优先 */
-  .cell-name-text { font-size: 17px; }
-  .cell-temp { font-size: 30px; }
-  .cell-off { font-size: 20px; }
+  .cell-name { margin-top: 2px; min-height: 22px; }
+  .cell-name-text { font-size: 15px; }
+  .cell-temp { font-size: 24px; }
+  .cell-temp i { font-size: 13px; }
+  .cell-off { font-size: 16px; }
+  .cell-room { font-size: 12px; }
+  .cell-body { min-height: 24px; gap: 2px; }
+  .cell-dot { padding: 2px 8px; font-size: 11px; }
+  .cell-tag { font-size: 12px; }
+  .cell-foot { margin-top: 3px; }
+  .cell-mode, .cell-zone { font-size: 12px; }
+  /* 快选条: 默认折叠成一行横向滚动 (14 个分组铺 6 行占掉 1/4 屏), 点「展开」才铺开 */
+  .hv-quick:not(.expanded) {
+    flex-wrap: nowrap; overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .hv-quick:not(.expanded)::-webkit-scrollbar { display: none; }
+  .hv-quick .hv-chip { flex: 0 0 auto; }
+  .hv-chip.quick-toggle {
+    display: inline-flex;
+    position: sticky; right: 0;             /* 横滚时始终看得见入口 */
+    background: var(--v2-surf-1, #14161A);
+    color: var(--v2-primary, #4C9AFF);
+  }
+  .hv-chip.clear { margin-left: 0; }
   /* 控制条: 手指操作, 按钮不能再小; 换行后允许它占两三行 */
   .hv-bar { gap: 10px; padding: 10px; }
   .bar-sel { min-width: 100%; max-width: none; }   /* 独占一行, 不挤控件 */

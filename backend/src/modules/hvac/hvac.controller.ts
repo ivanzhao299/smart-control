@@ -420,14 +420,17 @@ export class HvacController {
 
   // ============ 批量控制 (任意选中集合 — 单机/组/楼层/全部 都走这里) ============
 
+  // 开/关走**错峰串行** (staggerMs): 22 台同时启动对外机负载申请和配电都是冲击,
+  // 厂家建议逐台间隔下发。0.4s x 22 ≈ 9s, 前端有"逐台下发中"提示。
+  // 温度/模式/风速不动负载, 保持并发, 按下即达。
   @Post('batch/on')
   batchOn(@Body() dto: HvacBatchTargetDto) {
-    return this.fanOut(dto.indoors, 'on', (id) => this.hvac.turnOn(id));
+    return this.fanOut(dto.indoors, 'on', (id) => this.hvac.turnOn(id), {}, 'hvac-batch', undefined, 400);
   }
 
   @Post('batch/off')
   batchOff(@Body() dto: HvacBatchTargetDto) {
-    return this.fanOut(dto.indoors, 'off', (id) => this.hvac.turnOff(id));
+    return this.fanOut(dto.indoors, 'off', (id) => this.hvac.turnOff(id), {}, 'hvac-batch', undefined, 400);
   }
 
   @Post('batch/temperature')
@@ -582,17 +585,27 @@ export class HvacController {
     extra: Record<string, unknown> = {},
     targetType = 'hvac-batch',
     targetId?: string,
+    staggerMs = 0,
   ) {
-    const results = await Promise.all(
-      indoors.map(async (idx) => {
-        try {
-          const r = await fn(String(idx));
-          return { indoorIdx: idx, ok: r.ok, error: r.error, durationMs: r.durationMs };
-        } catch (err) {
-          return { indoorIdx: idx, ok: false, error: (err as Error).message, durationMs: 0 };
-        }
-      }),
-    );
+    const runOne = async (idx: number) => {
+      try {
+        const r = await fn(String(idx));
+        return { indoorIdx: idx, ok: r.ok, error: r.error, durationMs: r.durationMs };
+      } catch (err) {
+        return { indoorIdx: idx, ok: false, error: (err as Error).message, durationMs: 0 };
+      }
+    };
+    let results: Array<{ indoorIdx: number; ok: boolean; error?: string; durationMs: number }>;
+    if (staggerMs > 0) {
+      // 错峰: 逐台串行 + 固定间隔 (开/关机保护外机, 见 batchOn 注释)
+      results = [];
+      for (let i = 0; i < indoors.length; i += 1) {
+        results.push(await runOne(indoors[i]));
+        if (i < indoors.length - 1) await new Promise((res) => setTimeout(res, staggerMs));
+      }
+    } else {
+      results = await Promise.all(indoors.map(runOne));
+    }
     const okCount = results.filter((r) => r.ok).length;
     const failCount = results.length - okCount;
     const ok = failCount === 0;
