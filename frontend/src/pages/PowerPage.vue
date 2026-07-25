@@ -57,13 +57,6 @@ const filteredCircuits = computed(() => {
 });
 
 // 总览
-const overview = computed(() => {
-  const total = circuits.value.length;
-  const onCount = circuits.value.filter((c) => c.reading.on).length;
-  const totalPower = circuits.value.reduce((s, c) => s + (c.reading.on ? c.reading.power : 0), 0);
-  const totalEnergy = circuits.value.reduce((s, c) => s + c.reading.energy, 0);
-  return { total, onCount, totalPower, totalEnergy };
-});
 
 // 单回路 on/off
 async function dispatchOne(c: PowerCircuitView, op: 'on' | 'off'): Promise<void> {
@@ -172,15 +165,17 @@ async function confirmPower(scope: string, count: number, on: boolean): Promise<
     return true;
   } catch { return false; }
 }
+/** "全部"不含时序回路 —— 那 8 路只能走时序开/关机 (b3), 逐路 b2 会绕开功放保护 */
+const nonSeqCircuits = computed(() => circuits.value.filter((c) => c.category !== 'audio-seq'));
 async function allOn(): Promise<void> {
-  if (!(await confirmPower('全部楼层', circuits.value.length, true))) return;
-  ElMessage.info(`全部通电 — 逐路下发 (${circuits.value.length} 路, 跨所有楼层)`);
-  await dispatchMany(circuits.value, 'on');
+  if (!(await confirmPower('全部楼层', nonSeqCircuits.value.length, true))) return;
+  ElMessage.info(`全部通电 — 逐路下发 (${nonSeqCircuits.value.length} 路, 时序回路请用时序开机)`);
+  await dispatchMany(nonSeqCircuits.value, 'on');
 }
 async function allOff(): Promise<void> {
-  if (!(await confirmPower('全部楼层', circuits.value.length, false))) return;
-  ElMessage.warning(`全部断电 — 逐路下发 (${circuits.value.length} 路, 跨所有楼层)`);
-  await dispatchMany(circuits.value, 'off');
+  if (!(await confirmPower('全部楼层', nonSeqCircuits.value.length, false))) return;
+  ElMessage.warning(`全部断电 — 逐路下发 (${nonSeqCircuits.value.length} 路, 时序回路请用时序关机)`);
+  await dispatchMany(nonSeqCircuits.value, 'off');
 }
 async function floorOn(): Promise<void> {
   if (!(await confirmPower(floorTab.value, filteredCircuits.value.length, true))) return;
@@ -268,62 +263,35 @@ onUnmounted(() => { stopRefresh(); });
         >
           <Power :size="14" :stroke-width="2" /> 时序关机
         </button>
+        <!-- 2026-07-25 业主: 按钮逻辑收敛, 每个 tab 只显示自己那一对 —
+             音响 tab = 时序开/关机 (b3, 别处渲染); 楼层 tab = 本层通/断电;
+             全部 tab = 全部通/断电 (跳过时序回路 — 那 8 路必须走时序保护) -->
         <button
-          v-if="floorTab !== 'all'"
-          class="v2-quick"
+          v-if="floorTab !== 'all' && floorTab !== '音响'"
+          class="v2-quick primary"
           @click="floorOn"
           :disabled="loading || filteredCircuits.length === 0"
         >
           <Power :size="14" :stroke-width="2" /> {{ floorTab }} 通电
         </button>
         <button
-          v-if="floorTab !== 'all'"
-          class="v2-quick"
+          v-if="floorTab !== 'all' && floorTab !== '音响'"
+          class="v2-quick danger"
           @click="floorOff"
           :disabled="loading || filteredCircuits.length === 0"
         >
           <X :size="14" :stroke-width="2" /> {{ floorTab }} 断电
         </button>
-        <button class="v2-quick primary" @click="allOn" :disabled="loading || circuits.length === 0" title="整馆通电">
+        <button v-if="floorTab === 'all'" class="v2-quick primary" @click="allOn" :disabled="loading || circuits.length === 0" title="整馆通电 (时序回路走时序开机)">
           <Power :size="14" :stroke-width="2" /> 全部通电
         </button>
-        <button class="v2-quick danger" @click="allOff" :disabled="loading || circuits.length === 0" title="整馆断电">
+        <button v-if="floorTab === 'all'" class="v2-quick danger" @click="allOff" :disabled="loading || circuits.length === 0" title="整馆断电 (时序回路走时序关机)">
           <X :size="14" :stroke-width="2" /> 全部断电
         </button>
       </div>
     </header>
 
-    <!-- 总览 -->
-    <div class="v2-overview">
-      <div class="ov-item">
-        <div class="ov-ico"><Power :size="18" :stroke-width="2" /></div>
-        <div class="ov-body">
-          <div class="ov-label">通电回路</div>
-          <div class="ov-value v2-inter">{{ overview.onCount }}<span class="unit">/ {{ overview.total }}</span></div>
-        </div>
-      </div>
-      <div class="ov-item">
-        <div class="ov-ico"><Activity :size="18" :stroke-width="2" /></div>
-        <div class="ov-body">
-          <div class="ov-label">实时功率</div>
-          <div class="ov-value v2-inter">{{ Math.round(overview.totalPower) }}<span class="unit">W</span></div>
-        </div>
-      </div>
-      <div class="ov-item">
-        <div class="ov-ico"><Gauge :size="18" :stroke-width="2" /></div>
-        <div class="ov-body">
-          <div class="ov-label">累计电量</div>
-          <div class="ov-value v2-inter">{{ overview.totalEnergy.toFixed(2) }}<span class="unit">kWh</span></div>
-        </div>
-      </div>
-      <div class="ov-item">
-        <div class="ov-ico"><Zap :size="18" :stroke-width="2" /></div>
-        <div class="ov-body">
-          <div class="ov-label">数据源</div>
-          <div class="ov-value v2-inter" style="font-size: 14px; color: var(--v2-warning);">模拟</div>
-        </div>
-      </div>
-    </div>
+    <!-- 总览卡已删 (2026-07-25 业主: 没什么用途, 腾空间) -->
 
     <!-- 加载/错误/空态 -->
     <div v-if="loading && circuits.length === 0" class="state-card">
