@@ -20,9 +20,14 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<!-- 空 LaunchScreen 字典: 没它 iOS 会按兼容模式加黑边, 页面不满屏 -->
+	<!-- 启动画面 (2026-07-25 体验升级 A1): 深底 + logo, 与安卓壳/PWA 启动占位同语言 -->
 	<key>UILaunchScreen</key>
-	<dict/>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBg</string>
+		<key>UIImageName</key>
+		<string>LaunchLogo</string>
+	</dict>
 	<!-- 展厅局域网是 http 明文 (192.168.x.x:5173), 必须放行非 TLS 加载 -->
 	<key>NSAppTransportSecurity</key>
 	<dict>

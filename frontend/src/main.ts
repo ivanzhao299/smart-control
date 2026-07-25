@@ -146,6 +146,15 @@ app.use(createPinia());
 app.use(router);
 app.mount('#app');
 
+// 启动占位淡出 (A1): 应用挂载完成即撤; transition 由内联样式提供
+{
+  const splash = document.getElementById('boot-splash');
+  if (splash) {
+    splash.style.opacity = '0';
+    window.setTimeout(() => splash.remove(), 320);
+  }
+}
+
 // 白屏看门狗: 应用挂载后启动
 startBlankScreenWatchdog();
 

@@ -986,3 +986,26 @@ select:focus-visible,
   0%, 100% { opacity: 0.6; }
   50% { opacity: 1; }
 }
+
+
+/* ============ 骨架屏 (2026-07-25 体验升级 A1) ============
+ * 数据未到时的占位: .v2-skeleton 上到任意块级元素即可。
+ * shimmer 用叠加层扫过, 深浅主题都能用; reduced-motion 下退化为静态灰块。 */
+.v2-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--v2-ov-2);
+  border-radius: var(--v2-r-md);
+  color: transparent !important;
+  pointer-events: none;
+  user-select: none;
+}
+.v2-skeleton::after {
+  content: '';
+  position: absolute; inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--v2-ov-3), transparent);
+  animation: v2Shimmer 1.4s ease-in-out infinite;
+}
+@keyframes v2Shimmer { 100% { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) { .v2-skeleton::after { animation: none; } }

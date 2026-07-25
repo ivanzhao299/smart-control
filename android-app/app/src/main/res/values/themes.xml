@@ -4,7 +4,7 @@
         <item name="colorPrimary">@color/primary</item>
         <item name="colorPrimaryDark">@color/primary_dark</item>
         <item name="colorAccent">@color/purple</item>
-        <item name="android:windowBackground">@color/bg_0</item>
+        <item name="android:windowBackground">@drawable/splash_bg</item>
         <item name="android:textColor">@color/text_1</item>
         <item name="android:textColorPrimary">@color/text_1</item>
         <item name="android:textColorSecondary">@color/text_2</item>

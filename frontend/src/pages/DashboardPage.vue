@@ -210,6 +210,11 @@ function goTo(name: string): void {
         <div class="v2-block-sub">点击执行联动 · 当前 {{ runningCount }} 个运行中</div>
       </header>
       <div class="v2-scene-grid">
+        <!-- 骨架占位 (A1): 场景还没从后端回来时不再是一片空白 — 生产恒有 12 个场景,
+             这里只在首帧数据未到的瞬间可见 -->
+        <template v-if="scenesView.length === 0">
+          <div v-for="i in 6" :key="'sk' + i" class="v2-scene v2-skeleton" style="min-height: 96px"></div>
+        </template>
         <button
           v-for="(s) in scenesView"
           :key="s.code"

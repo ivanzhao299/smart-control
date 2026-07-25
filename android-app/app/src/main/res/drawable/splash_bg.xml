@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 启动画面 (2026-07-25 体验升级 A1): 点图标到 WebView 就绪之间, 深底 + logo 居中,
+     与 PWA 的 boot-splash / 新版应用图标同一视觉语言, 全程无白屏无跳变。 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/ic_launcher_background" />
+    <item android:width="160dp" android:height="160dp" android:gravity="center">
+        <bitmap android:src="@mipmap/ic_launcher_foreground" android:gravity="center" />
+    </item>
+</layer-list>
