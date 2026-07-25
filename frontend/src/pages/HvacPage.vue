@@ -676,6 +676,17 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
           </template>
         </div>
 
+        <!-- 手机专用一行元信息 (2026-07-25 重构): 桌面隐藏。室温 · 设定+模式(开机) · 分区,
+             一行放全超出省略 — 高度从此确定, 不再有"末行被吃" -->
+        <div class="cell-mline">
+          <span v-if="!row.state.known">未读到状态</span>
+          <template v-else>
+            <span v-if="row.state.roomTemp !== undefined">室温{{ row.state.roomTemp }}°</span>
+            <span v-if="row.state.on" :class="'m-' + row.state.mode">{{ row.state.temperature }}° {{ modeLabel(row.state.mode) }}</span>
+            <span class="mline-zone">{{ zoneNameOf(row.zoneCode) }}</span>
+          </template>
+        </div>
+
         <!-- 中段占满剩余高度, 温度居中放大 —— 卡片再大也不留空洞 -->
         <div class="cell-body">
           <span v-if="!row.state.known" class="cell-unknown">未读到状态</span>
@@ -770,6 +781,17 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
             <span class="cell-edit" title="改名" @click.stop="startRenameIndoor(row)">
               <Pencil :size="15" />
             </span>
+          </template>
+        </div>
+
+        <!-- 手机专用一行元信息 (2026-07-25 重构): 桌面隐藏。室温 · 设定+模式(开机) · 分区,
+             一行放全超出省略 — 高度从此确定, 不再有"末行被吃" -->
+        <div class="cell-mline">
+          <span v-if="!row.state.known">未读到状态</span>
+          <template v-else>
+            <span v-if="row.state.roomTemp !== undefined">室温{{ row.state.roomTemp }}°</span>
+            <span v-if="row.state.on" :class="'m-' + row.state.mode">{{ row.state.temperature }}° {{ modeLabel(row.state.mode) }}</span>
+            <span class="mline-zone">{{ zoneNameOf(row.zoneCode) }}</span>
           </template>
         </div>
 
@@ -1237,9 +1259,8 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
      压缩 padding/字号后同屏 8 张, 全场状态两屏扫完。 */
   .hv-grid {
     grid-template-columns: repeat(2, 1fr);
-    /* 行高定死 (2026-07-25): 任何 tab、任何数量下卡片完全等高。
-       100px = 8+18(头)+20(名)+18(体)+16(脚)+间隙, 开/关卡内容行数一致 (温度小字化) */
-    grid-auto-rows: 100px;
+    /* 行高定死 (2026-07-25 三行重构): 头(18) + 名(20) + 元信息行(16) + padding/gap = 84 */
+    grid-auto-rows: 84px;
     gap: 6px;
     overflow-y: auto;                      /* 放不下就滚这里, 而不是被裁掉 */
     -webkit-overflow-scrolling: touch;
@@ -1250,20 +1271,22 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   .hv-stats { display: none; }             /* 顶栏统计让位, 控制权优先 */
   .cell-name { margin-top: 2px; min-height: 22px; }
   .cell-name-text { font-size: 15px; }
-  /* 手机上温度收成小字与室温同级 — 大字撑高会把末行(模式·分区)挤出卡外 */
-  .cell-temp { font-size: 15px; font-weight: 600; }
-  .cell-temp i { font-size: 11px; }
-  /* 2026-07-25 业主: 右上角已有开关徽章, "关机"大字多此一举且挤掉末行 — 手机隐藏 */
-  .cell-off { display: none; }
-  .cell-room { font-size: 12px; }
-  /* flex:0 是关键 — 桌面的 flex:1 会让室温区吃掉中间全部空间, 把末行顶出卡外
-     (业主: "室温下面一行空格, 末行截一半")。手机全部顶对齐, 空白只留卡底。 */
-  .cell-body { flex: 0 0 auto; min-height: 0; gap: 0; justify-content: flex-start; flex-direction: row; align-items: baseline; column-gap: 8px; }
-  .cell-foot { margin-top: 2px; }
+  /* 三行重构: body/foot 手机全隐藏, 信息合并进 .cell-mline 一行 */
+  .cell-body, .cell-foot { display: none; }
+  .cell-mline {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--v2-text-2);
+    white-space: nowrap; overflow: hidden;
+    margin-top: 2px;
+  }
+  .cell-mline .mline-zone { color: var(--v2-text-3); overflow: hidden; text-overflow: ellipsis; }
+  .cell-mline .m-cool { color: color-mix(in srgb, #38d6ff 62%, var(--v2-text-1)); }
+  .cell-mline .m-heat { color: color-mix(in srgb, #ff8a4d 62%, var(--v2-text-1)); }
+  .cell-mline .m-fan  { color: color-mix(in srgb, #4ce0be 62%, var(--v2-text-1)); }
+  .cell-mline .m-auto { color: color-mix(in srgb, #7db6ff 62%, var(--v2-text-1)); }
+  .cell-mline .m-dry  { color: color-mix(in srgb, #9d8bff 62%, var(--v2-text-1)); }
   .cell-dot { padding: 2px 8px; font-size: 11px; }
   .cell-tag { font-size: 12px; }
-  .cell-foot { margin-top: 3px; }
-  .cell-mode, .cell-zone { font-size: 12px; }
   /* 快选条: 默认折叠成一行横向滚动 (14 个分组铺 6 行占掉 1/4 屏), 点「展开」才铺开 */
   .hv-quick:not(.expanded) {
     flex-wrap: nowrap; overflow-x: auto;
@@ -1348,4 +1371,6 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
    实测 768: 卡片 161×119, 但 .cell-body 只剩 13px 高, 温度/「关机」直接叠在名字上。
    min-height 给个地板, 内容再多也不会互相压。 */
 .cell-body { min-height: 34px; }
+/* 手机专用一行元信息 — 桌面不渲染视觉 (布局仍以 body/foot 为准) */
+.cell-mline { display: none; }
 </style>

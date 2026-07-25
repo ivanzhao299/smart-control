@@ -311,7 +311,8 @@ onUnmounted(() => { stopRefresh(); });
     </div>
 
     <!-- 回路网格 -->
-    <div v-else class="circuit-grid">
+    <!-- 时序器 tab (2026-07-25 业主): 一行两卡, 8 路一屏放全不滑动 -->
+    <div v-else class="circuit-grid" :class="{ 'seq-grid': floorTab === '音响' }">
       <div
         v-for="c in filteredCircuits"
         :key="c.id"
@@ -600,6 +601,14 @@ onUnmounted(() => { stopRefresh(); });
 }
 @media (max-width: 1280px) { .circuit-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 720px)  { .circuit-grid { grid-template-columns: 1fr; } }
+/* 时序回路 (简洁开关卡) 任何宽度都两列起步, 手机 8 路一屏放全 */
+.circuit-grid.seq-grid { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 1280px) { .circuit-grid.seq-grid { grid-template-columns: repeat(4, 1fr); } }
+@media (max-width: 720px) {
+  .circuit-grid.seq-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .circuit-grid.seq-grid .circuit-card { padding: 10px 12px; }
+  .circuit-grid.seq-grid .card-ico { display: none; }
+}
 @media (max-width: 600px)  {
   .v2-page { padding: var(--v2-sp-3); gap: var(--v2-sp-3); }
   .v2-overview { padding: var(--v2-sp-3); gap: var(--v2-sp-2); grid-template-columns: 1fr 1fr; }
