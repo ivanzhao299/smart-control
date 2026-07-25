@@ -902,7 +902,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .v2-toggle.on {
-  background: linear-gradient(135deg, #E0A030, #E0A030);
+  background: linear-gradient(135deg, var(--v2-light-warm, #E0A030), var(--v2-light-warm, #E0A030));
   box-shadow:
     0 0 14px rgba(224, 160, 48, 0.6),
     0 0 28px rgba(224, 160, 48, 0.35);
@@ -955,7 +955,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 }
 .slider-fill {
   height: 100%;
-  background: linear-gradient(90deg, #E0A030 0%, #E0A030 50%, #FFD060 100%);
+  background: linear-gradient(90deg, var(--v2-light-warm, #E0A030) 0%, var(--v2-light-warm, #E0A030) 50%, #FFD060 100%);
   border-radius: 7px;
   box-shadow:
     0 0 16px rgba(224, 160, 48, 0.55),

@@ -721,19 +721,19 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   line-height: 1.4;
 }
 .v2-inline-toast.is-error {
-  color: #EC8880;
+  color: var(--v2-danger);
   text-shadow: 0 0 8px rgba(229, 100, 93, 0.55);
 }
 .v2-inline-toast.is-warning {
-  color: #FCD34D;
+  color: var(--v2-warning);
   text-shadow: 0 0 8px rgba(224, 160, 48, 0.55);
 }
 .v2-inline-toast.is-success {
-  color: #5FCB9B;
+  color: var(--v2-success);
   text-shadow: 0 0 8px rgba(63, 191, 135, 0.55);
 }
 .v2-inline-toast.is-info {
-  color: #BFD7FF;
+  color: var(--v2-info);
   text-shadow: 0 0 8px rgba(76, 154, 255, 0.45);
 }
 

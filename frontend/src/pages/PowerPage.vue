@@ -586,7 +586,7 @@ onUnmounted(() => { stopRefresh(); });
   font-weight: 700;
   line-height: 1.1;
   margin-top: 1px;
-  color: #E9D5FF;
+  color: var(--v2-text-1);
   text-shadow: var(--v2-text-glow-purple);
   letter-spacing: 0.5px;
 }
@@ -767,7 +767,7 @@ onUnmounted(() => { stopRefresh(); });
   gap: 3px;
 }
 .circuit-card.on .metric-value .num {
-  color: #E9D5FF;
+  color: var(--v2-text-1);
   text-shadow: var(--v2-text-glow-purple);
 }
 .metric-value .unit {

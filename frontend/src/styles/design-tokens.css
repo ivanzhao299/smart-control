@@ -430,10 +430,10 @@ body::after {
  * 现在: 强调色染底 + 实心蓝描边 + 1px 内环 + 真实光晕。选中就是要一眼看见。
  * 用 !important 压过各页 scoped 的 active 背景, 保证全站"选中"长得一样。
  */
-/* 注意: 灯光分区 .v2-zone.on 故意**不在**这条里 —— "灯亮着"用暖色(物理语义, 见
-   LightingPage 里的暖色高亮), 不该被强调蓝盖掉。它在自己页面里做同等强度的暖色高亮。 */
+/* 注意: 灯光分区 .v2-zone.on 故意**不在**这条里 —— "灯亮着"用暖色(物理语义)。
+   2026-07-25 审计: 音响 .ch-card 也摘出 —— 它有自己的 .live 薄荷青状态光 (D1),
+   被这条 primary 底盖掉会变成"薄荷框+绿内容"三色打架。 */
 .v2-scene.active,
-.ch-card:not(.muted),
 .v2-screen.on,
 .v2-hvac-zone.on {
   background:
