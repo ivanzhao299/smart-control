@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)]
   [ValidatePattern('^[0-9a-f]{40}$')]
@@ -265,7 +265,24 @@ try {
     Write-DeployLog 'Running verify-deploy.js (authoritative deploy verification).'
     & node $verifier 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
     if ($LASTEXITCODE -ne 0) {
-      throw "verify-deploy.js reported failure (exit $LASTEXITCODE)."
+      # 2026-07-25: flappy verifies root cause - when the pm2 daemon happens to be
+      # down, update.ps1's in-session `pm2 start` respawns the daemon INSIDE this
+      # SSH session; SSH exits -> daemon dies -> services die -> verify red, while
+      # the on-box watcher revives everything a minute later (result green, CI red).
+      # Self-heal here: restart backend through WMI (detached from this session,
+      # same trick as boot-pm2.ps1), wait, then verify once more.
+      Write-DeployLog 'verify failed - detached pm2 restart via WMI, then re-verify.'
+      $pm2cmd = Join-Path $env:APPDATA 'npm\pm2.cmd'
+      try {
+        ([wmiclass]'\\.\root\cimv2:Win32_Process').Create("cmd /c `"$pm2cmd`" restart smart-control-backend --update-env", $env:USERPROFILE, $null) | Out-Null
+      } catch {
+        Write-DeployLog "WMI detached restart failed: $($_.Exception.Message)"
+      }
+      Start-Sleep -Seconds 30
+      & node $verifier 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
+      if ($LASTEXITCODE -ne 0) {
+        throw "verify-deploy.js reported failure after detached-restart retry (exit $LASTEXITCODE)."
+      }
     }
     Write-DeployLog 'verify-deploy.js passed.'
   } else {

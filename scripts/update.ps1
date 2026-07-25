@@ -191,6 +191,19 @@ foreach ($targetPort in @(3200, 3000)) {
 }
 Start-Sleep -Milliseconds 800
 
+# 6c-pre: pm2 daemon 绝不能在本 SSH 会话里被顺手拉起 —— SSH 一断 daemon 连同
+# 两个服务全死 (CI 部署时红时绿的根因, 2026-07-25)。daemon 不在就先用 WMI 脱离
+# 方式复活它 (boot-pm2.ps1 同款), 之后再正常对话。
+& pm2 ping *>$null
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "  -> pm2 daemon 不在, 用 WMI 脱离方式拉起 (session 陷阱)" -ForegroundColor Yellow
+  $pm2cmdPath = Join-Path $env:APPDATA 'npm\pm2.cmd'
+  try {
+    ([wmiclass]'\\.\root\cimv2:Win32_Process').Create("cmd /c `"$pm2cmdPath`" ping", $env:USERPROFILE, $null) | Out-Null
+  } catch { Write-Host "  -> WMI 拉起失败: $($_.Exception.Message)" -ForegroundColor Red }
+  Start-Sleep -Seconds 5
+}
+
 # 6c: 用 ecosystem 重新起, 读最新 .env
 $ecosystem = Join-Path $projectRoot 'deploy\ecosystem.config.js'
 try { & pm2 start "$ecosystem" --only smart-control-backend --update-env 2>&1 | Out-Null } catch { }
