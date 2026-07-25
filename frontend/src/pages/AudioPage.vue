@@ -1747,4 +1747,8 @@ async function toggleMuteAll(): Promise<void> {
 
 /* 全部静音并入 tab 行 (2026-07-25) */
 .mute-inline { margin-left: auto; flex: 0 0 auto; }
+@media (max-width: 900px) {
+  /* 手机: 静音钮换行放, 别和 tabs 抢一行宽度 (挤压是竖排的根源) */
+  .mute-inline { margin-left: 0; }
+}
 </style>

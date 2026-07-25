@@ -80,13 +80,39 @@ async function prefetchData(): Promise<void> {
   }
 }
 
+/**
+ * iOS 橡皮筋锁死 (2026-07-25 业主: "向下滑动时顶部还是橡皮筋随动")。
+ * CSS overscroll-behavior 对 iOS 的**内部滚动容器**支持不全, 只能 JS 拦:
+ * 在 .v2-main 上, 已到顶还往下拉 / 已到底还往上推 → 直接吃掉手势。
+ * 中间的正常滚动不拦 (passive:false 只在边界分支 preventDefault)。
+ */
+let mainEl: HTMLElement | null = null;
+let touchStartY = 0;
+function onMainTouchStart(e: TouchEvent): void { touchStartY = e.touches[0].clientY; }
+function onMainTouchMove(e: TouchEvent): void {
+  if (!mainEl) return;
+  const dy = e.touches[0].clientY - touchStartY;
+  const atTop = mainEl.scrollTop <= 0;
+  const atBottom = mainEl.scrollTop + mainEl.clientHeight >= mainEl.scrollHeight - 1;
+  if ((atTop && dy > 0) || (atBottom && dy < 0)) e.preventDefault();
+}
+
 onMounted(() => {
+  mainEl = document.querySelector('.v2-main');
+  if (mainEl) {
+    mainEl.addEventListener('touchstart', onMainTouchStart, { passive: true });
+    mainEl.addEventListener('touchmove', onMainTouchMove, { passive: false });
+  }
   prefetchMainPages();
   setTimeout(() => { void prefetchData(); }, 1200);
   // 连通性监听: 每个 API 请求结束都报告到 connection store
   setConnectivityListener(conn.report);
 });
 onUnmounted(() => {
+  if (mainEl) {
+    mainEl.removeEventListener('touchstart', onMainTouchStart);
+    mainEl.removeEventListener('touchmove', onMainTouchMove);
+  }
   setConnectivityListener(null);
 });
 

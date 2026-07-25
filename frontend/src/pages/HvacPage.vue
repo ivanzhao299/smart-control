@@ -1232,8 +1232,9 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
      压缩 padding/字号后同屏 8 张, 全场状态两屏扫完。 */
   .hv-grid {
     grid-template-columns: repeat(2, 1fr);
-    /* 行高定死 (2026-07-25): 任何 tab、任何数量下卡片完全等高 */
-    grid-auto-rows: 96px;
+    /* 行高定死 (2026-07-25): 任何 tab、任何数量下卡片完全等高。
+       100px = 8+18(头)+20(名)+18(体)+16(脚)+间隙, 开/关卡内容行数一致 (温度小字化) */
+    grid-auto-rows: 100px;
     gap: 6px;
     overflow-y: auto;                      /* 放不下就滚这里, 而不是被裁掉 */
     -webkit-overflow-scrolling: touch;
@@ -1244,12 +1245,13 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   .hv-stats { display: none; }             /* 顶栏统计让位, 控制权优先 */
   .cell-name { margin-top: 2px; min-height: 22px; }
   .cell-name-text { font-size: 15px; }
-  .cell-temp { font-size: 24px; }
-  .cell-temp i { font-size: 13px; }
+  /* 手机上温度收成小字与室温同级 — 大字撑高会把末行(模式·分区)挤出卡外 */
+  .cell-temp { font-size: 15px; font-weight: 600; }
+  .cell-temp i { font-size: 11px; }
   /* 2026-07-25 业主: 右上角已有开关徽章, "关机"大字多此一举且挤掉末行 — 手机隐藏 */
   .cell-off { display: none; }
   .cell-room { font-size: 12px; }
-  .cell-body { min-height: 0; gap: 2px; justify-content: flex-start; }
+  .cell-body { min-height: 0; gap: 0; justify-content: flex-start; flex-direction: row; align-items: baseline; column-gap: 8px; }
   .cell-dot { padding: 2px 8px; font-size: 11px; }
   .cell-tag { font-size: 12px; }
   .cell-foot { margin-top: 3px; }

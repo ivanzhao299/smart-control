@@ -1091,3 +1091,22 @@ select:focus-visible,
  * /PWA 的最后一层)。内滚容器用 contain, 防滚动链把动作传给外层。 */
 html, body { overscroll-behavior: none; }
 .v2-main { overscroll-behavior: contain; }
+
+
+/* ============ 头部文字防竖排 (2026-07-25 业主截图: 音响页标题/tab 逐字断行) ============
+ * 手机宽度下 flex 挤压会把中文标题/tab 压成一字一行。统一锁 nowrap;
+ * tabs 放不下就自身横滚, 不许竖排。 */
+.v2-page-head .title, .v2-tab, .ov-label, .v2-nav-label { white-space: nowrap; }
+.v2-page-head .title { flex: 0 0 auto; }
+@media (max-width: 900px) {
+  .v2-page-head .back-row { flex-wrap: wrap; row-gap: 8px; }
+  .v2-tabs {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex: 0 1 auto;
+  }
+  .v2-tabs::-webkit-scrollbar { display: none; }
+  .v2-overview, .v2-overview.audio { flex-wrap: wrap; row-gap: 8px; }
+}
