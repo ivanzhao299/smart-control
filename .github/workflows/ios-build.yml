@@ -72,3 +72,87 @@ jobs:
           name: SmartControl-unsigned-ipa
           path: ios-app/SmartControl-unsigned.ipa
           retention-days: 14
+
+  # ================== TestFlight 签名上传 (A7, 2026-07-25) ==================
+  # 需要 4 个 repo secrets (业主 Apple Developer 账号下生成, 见 ios-app/README.md):
+  #   APPSTORE_KEY_ID / APPSTORE_ISSUER_ID / APPSTORE_P8_BASE64 / APPLE_TEAM_ID
+  # secrets 没配齐时本 job 自动跳过, 上面的 unsigned 构建照常出包。
+  # 签名走 xcodebuild cloud signing (API Key 自动管理证书/描述文件, 仓库不存 p12)。
+  testflight:
+    name: Sign & upload TestFlight
+    runs-on: macos-15
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    env:
+      KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+      ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+      P8_B64: ${{ secrets.APPSTORE_P8_BASE64 }}
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - name: Check secrets
+        id: gate
+        run: |
+          if [ -z "$KEY_ID" ] || [ -z "$ISSUER_ID" ] || [ -z "$P8_B64" ] || [ -z "$TEAM_ID" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "TestFlight secrets 未配置, 跳过 (只出未签名 IPA)"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.run == 'true'
+
+      - name: Install XcodeGen
+        if: steps.gate.outputs.run == 'true'
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        if: steps.gate.outputs.run == 'true'
+        working-directory: ios-app
+        run: xcodegen generate
+
+      - name: Write API key
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/keys"
+          echo "$P8_B64" | base64 -d > "$RUNNER_TEMP/keys/AuthKey.p8"
+
+      - name: Archive (cloud signing)
+        if: steps.gate.outputs.run == 'true'
+        working-directory: ios-app
+        run: |
+          xcodebuild archive \
+            -project SmartControl.xcodeproj \
+            -scheme SmartControl \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/SmartControl.xcarchive \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey.p8" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER"
+
+      - name: Export & upload to TestFlight
+        if: steps.gate.outputs.run == 'true'
+        working-directory: ios-app
+        run: |
+          cat > export.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath build/SmartControl.xcarchive \
+            -exportOptionsPlist export.plist \
+            -exportPath build/export \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey.p8" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID"

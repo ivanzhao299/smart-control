@@ -39,7 +39,23 @@ GitHub runner 没有 Apple 证书,IPA 未签名,不能直接点开安装。两�
 5. **免费 Apple ID 签名 7 天有效**,过期后 app 打不开,重新侧载一次即可
    (Sideloadly 可以设自动续签)
 
-### 路线 B:Apple Developer 账号($99/年,正式分发)
+### 路线 B:TestFlight(已配好 CI,只差 4 个 Secrets)
+
+1. **生成 API 密钥**:appstoreconnect.apple.com → 用户和访问 → 集成 →
+   App Store Connect API → 团队密钥 → ➕(名称 `ci`,权限 **App 管理**)。
+   记下 **Issuer ID**、**密钥 ID**,下载 `AuthKey_XXXX.p8`(只能下载一次!)
+2. **Team ID**:developer.apple.com → Membership 页面,10 位字符。
+3. **注册 App**:developer.apple.com → Identifiers → ➕ App ID
+   (`com.jinhu.smartcontrol`);再到 App Store Connect → 我的 App → ➕ 新建
+   (名称如「金湖智控」,若被占换「金湖展贸智控」;语言简体中文;SKU 随意)。
+4. **配 Secrets**(GitHub 仓库 → Settings → Secrets → Actions):
+   `APPSTORE_KEY_ID` / `APPSTORE_ISSUER_ID` / `APPLE_TEAM_ID` /
+   `APPSTORE_P8_BASE64`(p8 文件 base64:`base64 -i AuthKey_XXXX.p8`)。
+5. 之后每次 push,CI 自动签名并上传 TestFlight;iPhone 装 TestFlight APP
+   接受邀请即可安装/自动更新。后台"APP 版本管理" ios downloadUrl 填
+   TestFlight 公开链接。
+
+### 旧路线:Apple Developer 手动($99/年,正式分发)
 
 1. 注册 [Apple Developer Program](https://developer.apple.com/programs/)
 2. 生成发布证书(.p12)+ App ID(com.jinhu.smartcontrol)+ 描述文件

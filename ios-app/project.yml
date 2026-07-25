@@ -24,3 +24,12 @@ targets:
         SWIFT_VERSION: "5.9"
         ENABLE_BITCODE: "NO"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+
+# TestFlight (A7): archive 需要 shared scheme; xcodegen 按此生成
+schemes:
+  SmartControl:
+    build:
+      targets:
+        SmartControl: all
+    archive:
+      config: Release
