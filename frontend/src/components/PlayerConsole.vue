@@ -630,7 +630,7 @@ async function submitWebpage(): Promise<void> {
 .led-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .led-title { display: flex; align-items: center; gap: 8px; font-size: 20px; font-weight: 700; color: var(--v2-text-1); }
 .led-state { padding: 3px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; }
-.led-state.on { background: #14532d55; color: #4ade80; }
+.led-state.on { background: color-mix(in srgb, var(--v2-success) 20%, transparent); color: var(--v2-success); }
 .led-state.off { background: #1A1D22; color: var(--v2-text-2); }
 .led-warn { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: #E0A030; }
 

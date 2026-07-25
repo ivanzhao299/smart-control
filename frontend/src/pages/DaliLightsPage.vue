@@ -4,6 +4,9 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import {
+  ArrowLeft, Lightbulb, ScanLine, Activity, Zap, Plus, X, Check,
+} from 'lucide-vue-next';
 import { api } from '@/services/http';
 
 interface DaliLight {
@@ -241,28 +244,36 @@ onMounted(loadAll);
 </script>
 
 <template>
-  <section class="dali-page">
-    <header class="dali-head">
-      <button class="icon-btn" @click="router.back()" aria-label="返回"><i class="back-arrow">‹</i></button>
-      <div class="head-title">
-        <div class="t1">单灯调试</div>
-        <div class="t2">在线 {{ onlineCount }}<span v-if="faultCount"> · 故障 {{ faultCount }}</span> · 共 {{ lights.length }}</div>
+  <section class="dali-page v2-page">
+    <!-- 2026-07-25 业主: 单灯页向全站风格对齐 — 标准头部骨架 + lucide 图标 + 胶囊 tab -->
+    <header class="v2-page-head">
+      <div class="back-row">
+        <button class="v2-back-btn" @click="router.back()" aria-label="返回">
+          <ArrowLeft :size="18" :stroke-width="2" />
+        </button>
+        <div class="title-block">
+          <div class="title"><Lightbulb :size="18" :stroke-width="1.8" /> 单灯调试</div>
+          <div class="sub">在线 {{ onlineCount }}<span v-if="faultCount"> · 故障 {{ faultCount }}</span> · 共 {{ lights.length }}</div>
+        </div>
+        <div class="v2-tabs">
+          <button class="v2-tab" :class="{ active: tab === 'lights' }" @click="tab = 'lights'">灯 {{ lights.length }}</button>
+          <button class="v2-tab" :class="{ active: tab === 'zones' }" @click="tab = 'zones'">分区 {{ zones.length }}</button>
+          <button class="v2-tab" :class="{ active: tab === 'scenes' }" @click="tab = 'scenes'">场景 {{ scenes.length }}</button>
+        </div>
       </div>
-      <select v-if="gateways.length > 1" v-model="gatewayFilter" class="gw-select">
-        <option value="">全部网关</option>
-        <option v-for="g in gateways" :key="g.code" :value="g.code">{{ g.code }}</option>
-      </select>
-      <button class="diag-btn" @click="router.push({ name: 'dali-diagnose' })">总线体检</button>
-      <button class="scan-btn" :disabled="scanning" @click="scan">
-        {{ scanning ? '扫描中…' : '扫描' }}
-      </button>
+      <div class="quick-actions">
+        <select v-if="gateways.length > 1" v-model="gatewayFilter" class="gw-select">
+          <option value="">全部网关</option>
+          <option v-for="g in gateways" :key="g.code" :value="g.code">{{ g.code }}</option>
+        </select>
+        <button class="v2-quick" @click="router.push({ name: 'dali-diagnose' })">
+          <Activity :size="14" :stroke-width="2" /> 总线体检
+        </button>
+        <button class="v2-quick primary" :disabled="scanning" @click="scan">
+          <ScanLine :size="14" :stroke-width="2" /> {{ scanning ? '扫描中…' : '扫描' }}
+        </button>
+      </div>
     </header>
-
-    <nav class="dali-tabs">
-      <button :class="{ on: tab === 'lights' }" @click="tab = 'lights'">灯 {{ lights.length }}</button>
-      <button :class="{ on: tab === 'zones' }" @click="tab = 'zones'">分区 {{ zones.length }}</button>
-      <button :class="{ on: tab === 'scenes' }" @click="tab = 'scenes'">场景 {{ scenes.length }}</button>
-    </nav>
 
     <!-- 灯 -->
     <div v-if="tab === 'lights'" class="pane">
@@ -289,7 +300,7 @@ onMounted(loadAll);
 
     <!-- 分区 -->
     <div v-else-if="tab === 'zones'" class="pane">
-      <button class="add-row" @click="newZone">+ 新建分区</button>
+      <button class="add-row" @click="newZone"><Plus :size="15" :stroke-width="2" /> 新建分区</button>
       <div v-for="z in zones" :key="z.code" class="zone-block">
         <div class="zone-head">
           <div class="zone-name">{{ z.name }} <span class="zone-count">{{ lightsInZone(z.code).length }} 盏</span></div>
@@ -309,14 +320,14 @@ onMounted(loadAll);
 
     <!-- 场景 -->
     <div v-else class="pane">
-      <button class="add-row" @click="newScene">+ 新建场景</button>
+      <button class="add-row" @click="newScene"><Plus :size="15" :stroke-width="2" /> 新建场景</button>
       <div class="scene-grid">
         <div v-for="s in scenes" :key="s.code" class="scene-card">
           <button class="scene-main" @click="recallScene(s)">
             <span class="s-name">{{ s.name }}</span>
             <span class="s-meta">{{ s.items?.length ?? 0 }} 项</span>
           </button>
-          <button class="s-del" @click="deleteScene(s)" aria-label="删除">✕</button>
+          <button class="s-del" @click="deleteScene(s)" aria-label="删除"><X :size="14" :stroke-width="2" /></button>
         </div>
         <p v-if="scenes.length === 0" class="empty">暂无场景</p>
       </div>
@@ -326,7 +337,7 @@ onMounted(loadAll);
     <div v-if="tab === 'lights' && selected" class="dock">
       <div class="dock-title">{{ label(selected) }} <span class="dock-sub">#{{ selected.shortAddr }} · {{ selected.gatewayCode }}</span></div>
       <div class="dock-ops">
-        <button class="op flash" @click="identify(selected)">闪烁认灯</button>
+        <button class="op flash" @click="identify(selected)"><Zap :size="14" :stroke-width="2" /> 闪烁认灯</button>
         <button class="op" @click="control(selected, { on: true })">开</button>
         <button class="op" @click="control(selected, { on: false })">关</button>
         <button class="op" @click="control(selected, { brightness: 50 })">50%</button>
@@ -341,21 +352,21 @@ onMounted(loadAll);
         <div class="zm-title">分到哪个区<span class="zm-sub">{{ zoneDlg.light ? label(zoneDlg.light) : '' }}</span></div>
         <div class="zm-list">
           <button type="button" class="zm-opt" :class="{ sel: !zoneDlg.picked }" @click="zoneDlg.picked = null">
-            不分区(移出)<span v-if="!zoneDlg.picked" class="zm-check">✓</span>
+            不分区(移出)<Check v-if="!zoneDlg.picked" class="zm-check" :size="16" :stroke-width="2.5" />
           </button>
           <button
             v-for="z in zones" :key="z.code" type="button"
             class="zm-opt" :class="{ sel: zoneDlg.picked === z.code }"
             @click="zoneDlg.picked = z.code"
           >
-            {{ z.name }}<span v-if="zoneDlg.picked === z.code" class="zm-check">✓</span>
+            {{ z.name }}<Check v-if="zoneDlg.picked === z.code" class="zm-check" :size="16" :stroke-width="2.5" />
           </button>
           <p v-if="zones.length === 0" class="zm-empty">暂无分区</p>
         </div>
 
         <!-- 当场新建分区 -->
         <div class="zm-new">
-          <button v-if="!zoneDlg.creating" type="button" class="zm-new-btn" @click="zoneDlg.creating = true">+ 新建分区</button>
+          <button v-if="!zoneDlg.creating" type="button" class="zm-new-btn" @click="zoneDlg.creating = true"><Plus :size="14" :stroke-width="2" /> 新建分区</button>
           <div v-else class="zm-new-row">
             <input
               v-model="zoneDlg.newName" class="zm-input"
@@ -377,43 +388,51 @@ onMounted(loadAll);
 
 <style scoped>
 .dali-page { min-height: 100vh; padding-bottom: 96px; color: var(--v2-text-1); }
-.dali-head {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 14px; position: sticky; top: 0; z-index: 10;
-  background: var(--v2-bg-0); border-bottom: 1px solid var(--v2-border-soft);
-}
-.icon-btn {
+/* 标准头部骨架 (与状态/媒体/电源页一致, 2026-07-25 全站对齐) */
+.v2-page { padding: var(--v2-sp-5); display: flex; flex-direction: column; gap: var(--v2-sp-4); }
+.v2-page-head { display: flex; justify-content: space-between; align-items: center; gap: var(--v2-sp-4); flex-wrap: wrap; }
+.back-row { display: flex; align-items: center; gap: var(--v2-sp-4); flex-wrap: wrap; }
+.v2-back-btn {
   width: 36px; height: 36px; border-radius: var(--v2-r-sm);
   background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft);
-  color: var(--v2-text-2); font-size: 22px; line-height: 1; cursor: pointer; flex: none;
+  display: grid; place-items: center; cursor: pointer; color: var(--v2-text-2);
+  transition: all 0.18s ease;
 }
-.back-arrow { font-style: normal; }
-.head-title { flex: 1; min-width: 0; }
-.head-title .t1 { font-size: 16px; font-weight: 600; }
-.head-title .t2 { font-size: 12px; color: var(--v2-text-3); font-variant-numeric: tabular-nums; }
+.v2-back-btn:hover { background: var(--v2-surf-1-hover); color: var(--v2-text-1); }
+.title-block { display: flex; flex-direction: column; }
+.title { font-size: 15px; font-weight: 600; color: var(--v2-text-1); display: inline-flex; align-items: center; gap: var(--v2-sp-2); }
+.sub { font-size: var(--v2-fs-xs); color: var(--v2-text-3); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.v2-tabs {
+  display: inline-flex;
+  background: var(--v2-surf-1);
+  border: 1px solid var(--v2-border-soft);
+  border-radius: var(--v2-r-sm);
+  padding: 3px;
+  margin-left: var(--v2-sp-3);
+}
+.v2-tab {
+  padding: 5px 14px; border-radius: 6px; font-size: var(--v2-fs-sm);
+  color: var(--v2-text-2); cursor: pointer; background: transparent; border: none;
+  transition: all 0.18s ease; white-space: nowrap;
+}
+.v2-tab.active { background: var(--v2-primary-soft); color: var(--v2-primary); box-shadow: 0 0 0 1px rgba(var(--v2-primary-rgb), 0.2); }
+.quick-actions { display: flex; gap: var(--v2-sp-2); flex-wrap: wrap; }
+.v2-quick {
+  padding: 8px 14px; border-radius: var(--v2-r-sm); font-size: var(--v2-fs-sm);
+  background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft);
+  color: var(--v2-text-2); cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: all 0.18s ease; min-height: 36px;
+}
+.v2-quick:hover { background: var(--v2-surf-1-hover); color: var(--v2-text-1); }
+.v2-quick.primary { background: var(--v2-primary-soft); color: var(--v2-primary); border-color: rgba(var(--v2-primary-rgb), 0.3); }
+.v2-quick:disabled { opacity: 0.5; cursor: not-allowed; }
 .gw-select {
   background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); color: var(--v2-text-1);
-  border-radius: var(--v2-r-sm); padding: 6px 8px; font-size: 13px; max-width: 120px;
-}
-.scan-btn {
-  background: var(--v2-primary-soft); border: 1px solid var(--v2-primary); color: var(--v2-primary);
-  border-radius: var(--v2-r-sm); padding: 8px 16px; font-size: 14px; font-weight: 600; cursor: pointer; flex: none;
-}
-.scan-btn:disabled { opacity: .6; }
-.diag-btn {
-  background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); color: var(--v2-text-2);
-  border-radius: var(--v2-r-sm); padding: 8px 16px; font-size: 14px; cursor: pointer; flex: none;
+  border-radius: var(--v2-r-sm); padding: 6px 8px; font-size: 13px; max-width: 130px;
 }
 
-.dali-tabs { display: flex; gap: 8px; padding: 10px 14px; }
-.dali-tabs button {
-  flex: 1; padding: 9px 0; border-radius: var(--v2-r-sm);
-  background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft);
-  color: var(--v2-text-2); font-size: 14px; cursor: pointer;
-}
-.dali-tabs button.on { background: var(--v2-primary-soft); border-color: var(--v2-primary); color: var(--v2-primary); font-weight: 600; }
-
-.pane { padding: 4px 14px 20px; }
+.pane { padding: 0; }
 .empty { color: var(--v2-text-3); font-size: 14px; text-align: center; padding: 40px 20px; line-height: 1.7; }
 .hint { color: var(--v2-text-3); font-size: 12.5px; margin: 4px 2px 12px; }
 
@@ -435,6 +454,7 @@ onMounted(loadAll);
 
 .add-row {
   width: 100%; padding: 12px; margin-bottom: 12px; border-radius: 12px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   background: var(--v2-surf-1); border: 1px dashed var(--v2-border-strong); color: var(--v2-text-2);
   font-size: 14px; cursor: pointer;
 }
@@ -462,9 +482,11 @@ onMounted(loadAll);
 .s-name { font-size: 15px; font-weight: 600; }
 .s-meta { font-size: 11.5px; color: var(--v2-text-3); }
 .s-del {
-  position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; border-radius: 50%;
-  background: transparent; border: none; color: var(--v2-text-3); font-size: 13px; cursor: pointer;
+  position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border-radius: 50%;
+  background: transparent; border: none; color: var(--v2-text-3); cursor: pointer;
+  display: grid; place-items: center;
 }
+.s-del:hover { color: var(--v2-danger); background: var(--v2-ov-2); }
 
 .dock {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
@@ -475,7 +497,7 @@ onMounted(loadAll);
 .dock-sub { font-size: 12px; color: var(--v2-text-3); font-weight: 400; }
 .dock-ops { display: flex; gap: 8px; overflow-x: auto; }
 .op {
-  flex: none; padding: 9px 16px; border-radius: var(--v2-r-sm); font-size: 14px; cursor: pointer;
+  flex: none; padding: 9px 16px; display: inline-flex; align-items: center; gap: 6px; border-radius: var(--v2-r-sm); font-size: 14px; cursor: pointer;
   background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); color: var(--v2-text-1);
 }
 .op.flash { background: var(--v2-primary-soft); border-color: var(--v2-primary); color: var(--v2-primary); font-weight: 600; }
@@ -502,11 +524,12 @@ onMounted(loadAll);
   background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); color: var(--v2-text-1);
 }
 .zm-opt.sel { border-color: var(--v2-primary); background: var(--v2-primary-soft); color: var(--v2-primary); font-weight: 600; }
-.zm-check { font-weight: 700; }
+.zm-check { flex: 0 0 auto; }
 .zm-empty { color: var(--v2-text-3); font-size: 13px; text-align: center; padding: 10px 0; }
 .zm-new { margin-top: 10px; }
 .zm-new-btn {
   width: 100%; padding: 11px; border-radius: 10px; cursor: pointer; font-size: 14px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   background: var(--v2-surf-1); border: 1px dashed var(--v2-border-strong); color: var(--v2-text-2);
 }
 .zm-new-row { display: flex; gap: 8px; }
@@ -522,5 +545,5 @@ onMounted(loadAll);
 .zm-actions { display: flex; gap: 10px; margin-top: 16px; }
 .zm-cancel, .zm-save { flex: 1; padding: 12px; border-radius: 10px; cursor: pointer; font-size: 15px; font-weight: 600; }
 .zm-cancel { background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); color: var(--v2-text-2); }
-.zm-save { background: var(--v2-primary); border: 1px solid var(--v2-primary); color: #fff; }
+.zm-save { background: var(--v2-primary); border: 1px solid var(--v2-primary); color: var(--v2-on-primary); }
 </style>
