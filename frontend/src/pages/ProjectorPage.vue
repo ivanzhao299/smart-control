@@ -72,19 +72,20 @@ onUnmounted(() => { if (timer) clearInterval(timer); });
 <style scoped>
 .proj-wrap { display: flex; flex-direction: column; }
 .out-bar {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  margin: 0 var(--v2-sp-5) 6px;
-  padding: 10px 14px; border-radius: var(--v2-r-md);
-  font-size: var(--v2-fs-sm); font-weight: 600;
+  /* 2026-07-25 业主: 只要文字不要文本框 — 一行警示小字, 零底色零边框 */
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin: 0 var(--v2-sp-5) 4px;
+  font-size: 12px; font-weight: 500;
 }
 .out-bar b { font-weight: 700; }
-.out-bar.warn { background: var(--v2-warning-soft); color: var(--v2-warning); border: 1px solid var(--v2-warning-soft); }
-.out-bar.unknown { background: var(--v2-danger-soft); color: var(--v2-danger); border: 1px solid var(--v2-danger-soft); }
+.out-bar.warn { color: var(--v2-warning); }
+.out-bar.unknown { color: var(--v2-danger); }
 .out-btn {
-  margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
-  padding: 6px 12px; border-radius: 999px; cursor: pointer;
+  margin-left: 6px; display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 999px; cursor: pointer;
   font-size: 12px; font-weight: 600;
-  background: var(--v2-surf-1); color: var(--v2-text-1); border: 1px solid var(--v2-border-soft);
+  background: transparent; color: var(--v2-primary); border: 1px solid transparent;
+  text-decoration: underline; text-underline-offset: 3px;
 }
 .out-btn:hover:not(:disabled) { background: var(--v2-surf-1-hover); }
 .out-btn:disabled { opacity: 0.5; cursor: default; }
