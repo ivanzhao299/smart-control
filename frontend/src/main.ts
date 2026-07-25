@@ -2,7 +2,14 @@ import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import App from './App.vue';
 import { router } from './router';
-import 'element-plus/dist/index.css';
+// Element Plus 样式按需 (2026-07-25 体验升级 C1): 模板组件由 unplugin resolver
+// 自动带各自的 css; 之前这里全量引 dist/index.css (387KB, 实际用到不足 1/3)。
+// 手动具名 import 的函数式组件 (ElMessage/ElMessageBox/v-loading) resolver 管不到,
+// 样式在此显式引入 (含 base/var 集, 弹层默认变量由它提供)。
+import 'element-plus/es/components/base/style/css';
+import 'element-plus/es/components/message/style/css';
+import 'element-plus/es/components/message-box/style/css';
+import 'element-plus/es/components/loading/style/css';
 import './styles/theme.css';
 import './styles/design-tokens.css';
 import './styles/industrial-hardening.css';
