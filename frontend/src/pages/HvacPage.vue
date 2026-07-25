@@ -1251,7 +1251,10 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   /* 2026-07-25 业主: 右上角已有开关徽章, "关机"大字多此一举且挤掉末行 — 手机隐藏 */
   .cell-off { display: none; }
   .cell-room { font-size: 12px; }
-  .cell-body { min-height: 0; gap: 0; justify-content: flex-start; flex-direction: row; align-items: baseline; column-gap: 8px; }
+  /* flex:0 是关键 — 桌面的 flex:1 会让室温区吃掉中间全部空间, 把末行顶出卡外
+     (业主: "室温下面一行空格, 末行截一半")。手机全部顶对齐, 空白只留卡底。 */
+  .cell-body { flex: 0 0 auto; min-height: 0; gap: 0; justify-content: flex-start; flex-direction: row; align-items: baseline; column-gap: 8px; }
+  .cell-foot { margin-top: 2px; }
   .cell-dot { padding: 2px 8px; font-size: 11px; }
   .cell-tag { font-size: 12px; }
   .cell-foot { margin-top: 3px; }
