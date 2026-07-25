@@ -85,6 +85,10 @@ export class PlaybackChannel {
   @Column({ type: 'varchar', length: 16, default: 'fill' })
   displayFit!: PlaybackDisplayFit;
 
+  /** 文档当前页 (kind='doc' 投屏翻页; publish 时重置 1) */
+  @Column({ type: 'int', default: 1 })
+  docPage!: number;
+
   /** 暂停标志 — bgm-player.ps1 轮询到后调 MCI pause/resume */
   @Column({ type: 'boolean', default: false })
   paused!: boolean;

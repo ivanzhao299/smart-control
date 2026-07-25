@@ -1,6 +1,6 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 
-export type MediaKind = 'video' | 'image' | 'audio' | 'webpage';
+export type MediaKind = 'video' | 'image' | 'audio' | 'webpage' | 'doc';
 
 /**
  * 媒体资源 (上传到展厅中控的视频/图片)
@@ -66,6 +66,14 @@ export class MediaAsset {
   uploader!: string;
 
   /** 最近一次推送到大屏时间 */
+  /** 文档总页数 (kind='doc'; 放映守护用 PowerPoint/Word COM 回写) */
+  @Column({ type: 'int', nullable: true })
+  pageCount!: number | null;
+
+  /** Word 转出的 PDF 相对路径 (kind='doc' 且为 word 时; PPT 原生放映不需要) */
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  docPdfPath!: string | null;
+
   @Column({ name: 'last_played_at', type: 'datetime', nullable: true })
   lastPlayedAt!: Date | null;
 

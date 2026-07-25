@@ -92,7 +92,7 @@ const uploading = ref(false);
 const uploadPct = ref(0);
 const uploadName = ref('');
 const uploadStartAt = ref(0);
-const filter = ref<'all' | 'video' | 'image' | 'audio' | 'webpage'>('all');
+const filter = ref<'all' | 'video' | 'image' | 'audio' | 'webpage' | 'doc' | 'doc'>('all');
 const viewMode = ref<'list' | 'grid' | 'detail'>('list');
 const previewItem = ref<MediaItem | null>(null);
 const isDragging = ref(false);
@@ -469,6 +469,7 @@ onMounted(async () => {
           <button class="v2-tab" :class="{ active: filter === 'video' }" @click="filter = 'video'">视频</button>
           <button class="v2-tab" :class="{ active: filter === 'image' }" @click="filter = 'image'">图片</button>
           <button class="v2-tab" :class="{ active: filter === 'audio' }" @click="filter = 'audio'">音频</button>
+          <button class="v2-tab" :class="{ active: filter === 'doc' }" @click="filter = 'doc'">文档</button>
           <button class="v2-tab" :class="{ active: filter === 'webpage' }" @click="filter = 'webpage'">网页</button>
         </div>
       </div>
@@ -493,11 +494,11 @@ onMounted(async () => {
             上传中 {{ uploadPct }}%<span v-if="uploadBatchTotal > 1" class="upload-count-inline"> ({{ uploadBatchDone + 1 }}/{{ uploadBatchTotal }})</span>
           </span>
           <span v-else>上传文件</span>
-          <input type="file" accept="video/*,image/*,audio/*,.mp3,.wav,.aac,.m4a,.ogg,.flac,.wma,.opus,.aiff,.aif,.ape,.mp2,.mka,.wv,.mid,.midi,.spx,.dsf,.dff,.au,.ra" multiple :disabled="uploading" @change="onFileInput" hidden />
+          <input type="file" accept="video/*,image/*,audio/*,.ppt,.pptx,.doc,.docx,.mp3,.wav,.aac,.m4a,.ogg,.flac,.wma,.opus,.aiff,.aif,.ape,.mp2,.mka,.wv,.mid,.midi,.spx,.dsf,.dff,.au,.ra" multiple :disabled="uploading" @change="onFileInput" hidden />
         </label>
         <label class="v2-quick" :class="{ disabled: uploading }">
           <FolderOpen :size="14" :stroke-width="2" /> 上传文件夹
-          <input type="file" :webkitdirectory="true" multiple accept="video/*,image/*,audio/*,.mp3,.wav,.aac,.m4a,.ogg,.flac,.wma,.opus,.aiff,.aif,.ape,.mp2,.mka,.wv,.mid,.midi,.spx,.dsf,.dff,.au,.ra" :disabled="uploading" @change="onFileInput" hidden />
+          <input type="file" :webkitdirectory="true" multiple accept="video/*,image/*,audio/*,.ppt,.pptx,.doc,.docx,.mp3,.wav,.aac,.m4a,.ogg,.flac,.wma,.opus,.aiff,.aif,.ape,.mp2,.mka,.wv,.mid,.midi,.spx,.dsf,.dff,.au,.ra" :disabled="uploading" @change="onFileInput" hidden />
         </label>
         <button class="v2-quick" @click="openWebpageDialog">
           <Globe :size="14" :stroke-width="2" /> 添加网页
@@ -567,7 +568,7 @@ onMounted(async () => {
               <Music v-else-if="m.kind === 'audio'" :size="11" :stroke-width="2" />
               <Globe v-else-if="m.kind === 'webpage'" :size="11" :stroke-width="2" />
               <ImageIcon v-else :size="11" :stroke-width="2" />
-              {{ m.kind === 'video' ? '视频' : m.kind === 'audio' ? '音频' : m.kind === 'webpage' ? '网页' : '图片' }}
+              {{ m.kind === 'video' ? '视频' : m.kind === 'audio' ? '音频' : m.kind === 'webpage' ? '网页' : m.kind === 'doc' ? '文档' : '图片' }}
             </span>
             <span v-if="m.kind === 'video'" class="duration">{{ fmtDuration(m.durationSec) || '—' }}</span>
           </div>
@@ -617,7 +618,7 @@ onMounted(async () => {
             <Music v-else-if="m.kind === 'audio'" :size="11" :stroke-width="2" />
             <Globe v-else-if="m.kind === 'webpage'" :size="11" :stroke-width="2" />
             <ImageIcon v-else :size="11" :stroke-width="2" />
-            {{ m.kind === 'video' ? '视频' : m.kind === 'audio' ? '音频' : m.kind === 'webpage' ? '网页' : '图片' }}
+            {{ m.kind === 'video' ? '视频' : m.kind === 'audio' ? '音频' : m.kind === 'webpage' ? '网页' : m.kind === 'doc' ? '文档' : '图片' }}
           </span>
           <div class="lr-name" :title="m.originalName">{{ m.originalName }}</div>
           <div class="lr-badges">
@@ -676,7 +677,7 @@ onMounted(async () => {
           <div class="dv-col dv-c-name" :title="m.originalName">{{ m.originalName }}</div>
           <div class="dv-col dv-c-kind">
             <span class="kind-tag" :class="m.kind">
-              {{ m.kind === 'video' ? '视频' : m.kind === 'audio' ? '音频' : m.kind === 'webpage' ? '网页' : '图片' }}
+              {{ m.kind === 'video' ? '视频' : m.kind === 'audio' ? '音频' : m.kind === 'webpage' ? '网页' : m.kind === 'doc' ? '文档' : '图片' }}
             </span>
           </div>
           <div class="dv-col dv-c-size">{{ fmtSize(m.sizeBytes) }}</div>

@@ -45,6 +45,11 @@ export async function setDisplayFit(slot: number, fit: DisplayFit): Promise<Play
   return api.post<PlaybackChannelView>(`/playback/channels/${slot}/display-fit`, { fit });
 }
 
+/** 文档翻页 (2026-07-25 文档投屏) */
+export async function setDocPage(slot: number, page: number): Promise<PlaybackChannelView> {
+  return api.post<PlaybackChannelView>(`/playback/channels/${slot}/doc-page`, { page });
+}
+
 export async function channelHeartbeat(slot: number): Promise<void> {
   await api.post<null>(`/playback/channels/${slot}/heartbeat`, null);
 }

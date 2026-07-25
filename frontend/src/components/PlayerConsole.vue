@@ -31,12 +31,14 @@ import {
   ArrowLeft, MonitorPlay, Play, Pause, Square, SkipBack, SkipForward,
   Upload, ListMusic, History, Pencil, Trash2, Plus, Repeat, Repeat1, AlertTriangle, GripVertical, FolderOpen, X,
   Globe,
+  ChevronLeft, ChevronRight, Power,
 } from 'lucide-vue-next';
 import { usePlaybackStore } from '@/stores/playback';
 import {
   listPlaylist, addToPlaylist, renamePlaylistItem, removeFromPlaylist, reorderPlaylist,
-  listHistory, setDisplayFit, type DisplayFit, type PlaylistItemView, type PlaybackHistoryView,
+  listHistory, setDisplayFit, setDocPage, type DisplayFit, type PlaylistItemView, type PlaybackHistoryView,
 } from '@/services/playback.service';
+import { powerCircuitsService, type PowerCircuitView } from '@/services/power-circuits.service';
 import { mediaService } from '@/services/media.service';
 import { ledService, type LedInput } from '@/services/led.service';
 
@@ -51,6 +53,8 @@ const props = defineProps<{
    * 而不是摆一排点了没用的按钮。
    */
   deviceId?: string;
+  /** 本屏的电源回路 code (LED=1f-led / 投影=seq-8), 传了就显示电源开关 (2026-07-25) */
+  powerCode?: string;
 }>();
 const SLOT = computed(() => props.slot);
 
@@ -81,7 +85,57 @@ watch(() => ch.value?.currentMediaId, () => {
   reloadT = window.setTimeout(() => { void loadAll(); }, 800);
 });
 
-onMounted(() => { void loadAll(); });
+// ============ 文档翻页 (2026-07-25 文档投屏) ============
+const isDocPlaying = computed(() => ch.value?.currentMediaKind === 'doc' && !!ch.value?.currentMediaId);
+const docPage = computed(() => ch.value?.docPage ?? 1);
+const docTotal = computed(() => ch.value?.currentMediaPageCount ?? null);
+let pageBusy = false;
+async function gotoDocPage(p: number): Promise<void> {
+  if (pageBusy) return;
+  const max = docTotal.value ?? Number.MAX_SAFE_INTEGER;
+  const target = Math.max(1, Math.min(p, max));
+  if (target === docPage.value) return;
+  pageBusy = true;
+  try {
+    const v = await setDocPage(SLOT.value, target);
+    playbackStore.handleWs({ type: 'playback_channel_changed', data: v } as never);
+  } catch (e) {
+    ElMessage.error(`翻页失败: ${(e as Error).message}`);
+  } finally { pageBusy = false; }
+}
+
+// ============ 屏幕电源开关 (2026-07-25 业主: LED=空开 / 投影=时序器第8路) ============
+const powerCircuit = ref<PowerCircuitView | null>(null);
+async function loadPowerCircuit(): Promise<void> {
+  if (!props.powerCode) return;
+  try {
+    const list = await powerCircuitsService.list();
+    powerCircuit.value = list.find((c) => c.code === props.powerCode) ?? null;
+  } catch { /* 电源子系统不可达时不显示开关 */ }
+}
+const powerBusy = ref(false);
+async function togglePower(): Promise<void> {
+  const c = powerCircuit.value;
+  if (!c || powerBusy.value) return;
+  const on = c.reading.on;
+  if (on) {
+    try {
+      await ElMessageBox.confirm(`确定断开${props.title}电源?画面会熄灭。`, '断电确认',
+        { type: 'warning', confirmButtonText: '断电', cancelButtonText: '取消' });
+    } catch { return; }
+  }
+  powerBusy.value = true;
+  try {
+    const updated = on ? await powerCircuitsService.off(c.id) : await powerCircuitsService.on(c.id);
+    powerCircuit.value = updated;
+    ElMessage.success(on ? `${props.title}电源已断开` : `${props.title}电源已接通`);
+  } catch (e) {
+    ElMessage.error(`电源操作失败: ${(e as Error).message}`);
+  } finally { powerBusy.value = false; }
+}
+
+onMounted(() => {
+  void loadPowerCircuit(); void loadAll(); });
 
 /** 当前在播的是列表里的哪一条 (用 mediaId 比, 不信 index —— 可能从媒体库临时推过片子) */
 const currentInList = computed(() =>
@@ -404,6 +458,18 @@ async function submitWebpage(): Promise<void> {
       <span v-if="ch && !ch.alive" class="led-warn" title="播放器没有心跳">
         <AlertTriangle :size="14" /> 播放器离线
       </span>
+      <!-- 屏幕电源开关 (2026-07-25 业主): LED=空开 / 投影=时序器第8路, 就近控制 -->
+      <button
+        v-if="powerCircuit"
+        class="pw-btn"
+        :class="{ on: powerCircuit.reading.on }"
+        :disabled="powerBusy"
+        :title="powerCircuit.reading.on ? '断开电源' : '接通电源'"
+        @click="togglePower"
+      >
+        <Power :size="14" :stroke-width="2.2" />
+        {{ powerCircuit.reading.on ? '电源已开' : '电源已关' }}
+      </button>
     </header>
 
     <!-- 报警插槽 (2026-07-25): 设备/输出异常条放播放器区域内 (投影页融合器状态用) -->
@@ -467,6 +533,22 @@ async function submitWebpage(): Promise<void> {
     </section>
 
     <!-- 输入源 — 只在传了 deviceId 时出现 (业主: "工具栏页面可以切换各种输入源") -->
+      <!-- 文档翻页条 (2026-07-25 文档投屏): PPT 原生放映/Word PDF 都由它遥控 -->
+      <div v-if="isDocPlaying" class="doc-pager">
+        <button class="pg-btn" :disabled="docPage <= 1" @click="gotoDocPage(1)" title="第一页">
+          <SkipBack :size="15" />
+        </button>
+        <button class="pg-btn big" :disabled="docPage <= 1" @click="gotoDocPage(docPage - 1)">
+          <ChevronLeft :size="20" /> 上一页
+        </button>
+        <span class="pg-num v2-inter">{{ docPage }}<i>/ {{ docTotal ?? '…' }}</i></span>
+        <button class="pg-btn big" :disabled="docTotal !== null && docPage >= docTotal" @click="gotoDocPage(docPage + 1)">
+          下一页 <ChevronRight :size="20" />
+        </button>
+        <button class="pg-btn" :disabled="docTotal === null || docPage >= docTotal" @click="docTotal && gotoDocPage(docTotal)" title="最后一页">
+          <SkipForward :size="15" />
+        </button>
+      </div>
     </div><!-- /pc-sticky -->
 
     <section v-if="deviceId" class="src-bar">
@@ -849,4 +931,35 @@ async function submitWebpage(): Promise<void> {
   padding-bottom: 4px;
   box-shadow: 0 8px 16px -12px rgba(0, 0, 0, 0.35);
 }
+
+/* ---- 文档翻页条 (2026-07-25) ---- */
+.doc-pager {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 8px 12px; margin: 6px var(--v2-sp-5) 0;
+  background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft);
+  border-radius: var(--v2-r-md);
+}
+.pg-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 9px 12px; border-radius: var(--v2-r-sm); cursor: pointer;
+  background: var(--v2-surf-2); border: 1px solid var(--v2-border-soft);
+  color: var(--v2-text-1); font-size: 14px; font-weight: 600;
+}
+.pg-btn.big { padding: 11px 20px; font-size: 15px; background: var(--v2-primary); color: var(--v2-on-primary); border-color: var(--v2-primary); }
+.pg-btn:disabled { opacity: .4; cursor: not-allowed; }
+.pg-num { font-size: 18px; font-weight: 700; min-width: 72px; text-align: center; color: var(--v2-text-1); }
+.pg-num i { font-style: normal; font-size: 13px; color: var(--v2-text-3); margin-left: 3px; }
+/* ---- 屏幕电源开关 ---- */
+.pw-btn {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 13px; border-radius: 999px; cursor: pointer;
+  font-size: 13px; font-weight: 600;
+  background: var(--v2-surf-2); border: 1px solid var(--v2-border-soft); color: var(--v2-text-3);
+}
+.pw-btn.on {
+  background: color-mix(in srgb, var(--v2-live-power, #48D597) 18%, var(--v2-surf-1));
+  border-color: color-mix(in srgb, var(--v2-live-power, #48D597) 45%, var(--v2-border-soft));
+  color: var(--v2-live-power, #48D597);
+}
+.pw-btn:disabled { opacity: .5; }
 </style>

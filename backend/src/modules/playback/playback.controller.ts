@@ -83,6 +83,18 @@ export class PlaybackController {
   }
 
   /** 上一个 / 下一个 — 在播放列表里环形切换 */
+  /** 文档翻页 (2026-07-25 文档投屏): 手机翻页条 → 这里 → WS → PPT 守护/kiosk */
+  @Post('channels/:slot/doc-page')
+  @HttpCode(200)
+  async docPage(
+    @Param('slot', ParseIntPipe) slot: number,
+    @Body() body: { page?: number } = {},
+  ) {
+    const page = Number(body?.page);
+    if (!Number.isFinite(page) || page < 1) throw new BadRequestException('page 必须是 >=1 的数字');
+    return { message: '已翻页', data: await this.service.setDocPage(slot, page) };
+  }
+
   /** 画面铺放模式 (业主 2026-07-25): fill=铺满拉伸(默认)/contain=保持比例/cover=裁切铺满 */
   @Post('channels/:slot/display-fit')
   @HttpCode(200)

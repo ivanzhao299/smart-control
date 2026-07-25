@@ -35,13 +35,13 @@ export interface OrphanMediaItem {
   name: string;
   sizeBytes: number;
   /** 扩展名猜不出类型时为 null —— 前端标"不支持", 不给点导入 */
-  kind: 'video' | 'image' | 'audio' | null;
+  kind: 'video' | 'image' | 'audio' | 'doc' | null;
 }
 
 export interface MediaListItem {
   id: number;
   originalName: string;
-  kind: 'video' | 'image' | 'audio' | 'webpage';
+  kind: 'video' | 'image' | 'audio' | 'webpage' | 'doc';
   mimeType: string;
   sizeBytes: number;
   durationSec: number | null;

@@ -503,7 +503,7 @@ export interface PlaybackChannelView {
   outputKind: 'led' | 'projector' | 'monitor' | 'audio';
   currentMediaId: number | null;
   currentMediaName: string | null;
-  currentMediaKind: 'video' | 'image' | 'audio' | 'webpage' | null;
+  currentMediaKind: 'video' | 'image' | 'audio' | 'webpage' | 'doc' | null;
   currentMediaUrl: string | null;
   currentMediaDurationSec: number | null;
   currentPlaylistId: number | null;
@@ -514,6 +514,10 @@ export interface PlaybackChannelView {
   playMode: 'seq' | 'loop1' | 'loopAll' | 'shuffle';
   /** 画面铺放: fill=铺满拉伸(默认)/contain=保持比例/cover=裁切铺满 */
   displayFit: 'fill' | 'contain' | 'cover';
+  /** 文档当前页 (kind='doc') */
+  docPage: number;
+  /** 文档总页数 (守护回写前为 null) */
+  currentMediaPageCount: number | null;
   paused: boolean;
   lastHeartbeatAt: string | null;
   alive: boolean;

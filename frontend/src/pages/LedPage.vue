@@ -8,5 +8,5 @@ import PlayerConsole from '@/components/PlayerConsole.vue';
 </script>
 
 <template>
-  <PlayerConsole :slot="1" title="LED 大屏" device-id="LED-NOVA-1" />
+  <PlayerConsole :slot="1" title="LED 大屏" device-id="LED-NOVA-1" power-code="1f-led" />
 </template>

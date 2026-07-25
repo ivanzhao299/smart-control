@@ -13,6 +13,14 @@ const VIDEO_MIME_PREFIXES = ['video/'];
 const IMAGE_MIME_PREFIXES = ['image/'];
 const AUDIO_MIME_PREFIXES = ['audio/'];
 // 有些浏览器/系统对音频给的 mime 不带 audio/ 前缀 (如 Windows 对 .ape/.flac 报 application/octet-stream), 用扩展名兜底
+// 文档投屏 (2026-07-25): PPT 原生放映保动画, Word 转 PDF 逐页
+const DOC_EXT = ['.ppt', '.pptx', '.doc', '.docx'];
+const DOC_MIME = [
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+];
 const AUDIO_EXT = [
   '.mp3', '.wav', '.aac', '.m4a', '.ogg', '.flac', '.wma',
   '.opus', '.aiff', '.aif', '.ape', '.mp2', '.mka', '.wv',
@@ -85,11 +93,22 @@ export class MediaService implements OnModuleInit {
     if (IMAGE_MIME_PREFIXES.some((p) => mimeType.startsWith(p))) return 'image';
     if (AUDIO_MIME_PREFIXES.some((p) => mimeType.startsWith(p))) return 'audio';
     // 扩展名兜底: m4a/aac 等有时 mime 给成 application/octet-stream
+    if (DOC_MIME.includes(mimeType)) return 'doc';
     if (filename) {
       const lower = filename.toLowerCase();
       if (AUDIO_EXT.some((ext) => lower.endsWith(ext))) return 'audio';
+      if (DOC_EXT.some((ext) => lower.endsWith(ext))) return 'doc';
     }
     return null;
+  }
+
+  /** 放映守护回写文档元数据 (页数 / Word 转出的 PDF 相对路径) */
+  async setDocMeta(id: number, meta: { pageCount?: number; pdfRelPath?: string }): Promise<MediaAsset> {
+    const row = await this.repo.findOne({ where: { id } });
+    if (!row) throw new NotFoundException(`media #${id} 不存在`);
+    if (typeof meta.pageCount === 'number' && meta.pageCount > 0) row.pageCount = Math.floor(meta.pageCount);
+    if (meta.pdfRelPath) row.docPdfPath = meta.pdfRelPath;
+    return this.repo.save(row);
   }
 
   /** Multer 落到 tmp 后, 调用本方法把文件挪到正式位置 + 创建 DB 记录 */
@@ -261,8 +280,21 @@ export class MediaService implements OnModuleInit {
     return m;
   }
 
-  async openStream(id: number): Promise<{ stream: ReadStream; mimeType: string; size: number; filename: string }> {
+  async openStream(id: number, asPdf = false): Promise<{ stream: ReadStream; mimeType: string; size: number; filename: string }> {
     const m = await this.get(id);
+    // 文档投屏: variant=pdf 时流出 Word 转出的 PDF (kiosk 逐页渲染用)
+    if (asPdf) {
+      if (!m.docPdfPath) throw new NotFoundException('该文档还没有转换出 PDF (放映守护转换中或未启动)');
+      const pdfAbs = join(this.mediaRoot, m.docPdfPath);
+      let psize = 0;
+      try { psize = statSync(pdfAbs).size; } catch { throw new NotFoundException('PDF 文件不存在'); }
+      return {
+        stream: createReadStream(pdfAbs),
+        mimeType: 'application/pdf',
+        size: psize,
+        filename: m.originalName.replace(/\.[^.]+$/, '') + '.pdf',
+      };
+    }
     let size = m.sizeBytes;
     try { size = statSync(m.path).size; } catch { /* keep DB size */ }
     return {
@@ -271,6 +303,11 @@ export class MediaService implements OnModuleInit {
       size,
       filename: m.originalName,
     };
+  }
+
+  /** 磁盘绝对路径 (放映守护打开原始文件用) */
+  absPathOf(m: MediaAsset): string {
+    return m.path;
   }
 
   async remove(id: number): Promise<{ removedId: number }> {

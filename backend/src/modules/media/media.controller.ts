@@ -11,6 +11,7 @@ import {
   Res,
   UploadedFile,
   UseInterceptors,
+  HttpCode,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
@@ -62,13 +63,15 @@ export class MediaController {
           '.opus', '.aiff', '.aif', '.ape', '.mp2', '.mka', '.wv',
           '.mid', '.midi', '.spx', '.dsf', '.dff', '.au', '.ra',
         ];
+        const docExt = ['.ppt', '.pptx', '.doc', '.docx']; // 文档投屏 (2026-07-25)
         if (
           m.startsWith('video/') || m.startsWith('image/') || m.startsWith('audio/')
           || audioExt.some((ext) => name.endsWith(ext))  // m4a/aac mime 有时不带 audio/
+          || docExt.some((ext) => name.endsWith(ext))
         ) {
           cb(null, true);
         } else {
-          cb(new Error(`不支持的文件类型 ${file.mimetype}, 仅支持 video/* 图片 音频`), false);
+          cb(new Error(`不支持的文件类型 ${file.mimetype}, 仅支持 视频/图片/音频/PPT/Word`), false);
         }
       },
     }),
@@ -157,8 +160,12 @@ export class MediaController {
 
   @Public()
   @Get(':id/file')
-  async file(@Param('id', ParseIntPipe) id: number, @Res() res: Response): Promise<void> {
-    const { stream, mimeType, size, filename } = await this.media.openStream(id);
+  async file(
+    @Param('id', ParseIntPipe) id: number,
+    @Res() res: Response,
+    @Query('variant') variant?: string,
+  ): Promise<void> {
+    const { stream, mimeType, size, filename } = await this.media.openStream(id, variant === 'pdf');
     res.setHeader('Content-Type', mimeType);
     res.setHeader('Content-Length', size);
     // 支持浏览器内嵌播放 (不强制下载)
@@ -186,4 +193,33 @@ export class MediaController {
   //   PlaybackService 写 channel 状态 + WS 广播, PlayerPage (Chromium kiosk
   //   全屏占住 HDMI1/HDMI2) 收到 WS 事件直接 <video src=/api/media/N/file>.
   // 整套不再依赖 Windows 默认关联程序, 切换无延迟, 双路独立.
+  /** 放映守护专用: 文档的磁盘绝对路径等 (本机进程用, 与其他接口同鉴权口径) */
+  @Get(':id/doc-info')
+  async docInfo(@Param('id', ParseIntPipe) id: number) {
+    const a = await this.media.get(id);
+    return {
+      message: 'ok',
+      data: {
+        id: a.id,
+        kind: a.kind,
+        originalName: a.originalName,
+        absPath: this.media.absPathOf(a),
+        ext: (a.safeName.split('.').pop() || '').toLowerCase(),
+        pageCount: a.pageCount,
+        docPdfPath: a.docPdfPath,
+      },
+    };
+  }
+
+  /** 放映守护回写: 页数 / Word 转出 PDF 相对路径 */
+  @Post(':id/doc-meta')
+  @HttpCode(200)
+  async docMeta(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { pageCount?: number; pdfRelPath?: string } = {},
+  ) {
+    const a = await this.media.setDocMeta(id, body);
+    return { message: 'ok', data: { id: a.id, pageCount: a.pageCount, docPdfPath: a.docPdfPath } };
+  }
+
 }

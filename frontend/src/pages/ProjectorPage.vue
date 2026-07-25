@@ -54,7 +54,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); });
   <div class="proj-wrap">
     <!-- 2026-07-25 业主: 说明文字删除; 报警条移入播放器区域 (插槽), 仅异常时出现,
          正常态不占一寸空间 — 与 LED 页同构 (共用 PlayerConsole, 播放器区置顶固定) -->
-    <PlayerConsole :slot="2" title="投影仪">
+    <PlayerConsole :slot="2" title="投影仪" power-code="seq-8">
       <template #alert>
         <div v-if="showingHdmi !== true" class="out-bar" :class="showingHdmi === false ? 'warn' : 'unknown'">
           <AlertTriangle :size="15" />

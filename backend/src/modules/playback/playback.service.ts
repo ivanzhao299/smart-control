@@ -16,7 +16,7 @@ export interface PlaybackChannelView {
   outputKind: 'led' | 'projector' | 'monitor' | 'audio';
   currentMediaId: number | null;
   currentMediaName: string | null;
-  currentMediaKind: 'video' | 'image' | 'audio' | 'webpage' | null;
+  currentMediaKind: 'video' | 'image' | 'audio' | 'webpage' | 'doc' | null;
   currentMediaUrl: string | null;     // 前端 PlayerPage 直接 <video src=> / <img src=> 用
   currentMediaDurationSec: number | null;
   currentPlaylistId: number | null;
@@ -26,6 +26,10 @@ export interface PlaybackChannelView {
   playMode: PlaybackPlayMode;
   /** 画面铺放: fill=铺满拉伸(默认)/contain=保持比例/cover=裁切铺满, 图片和视频都吃 */
   displayFit: PlaybackDisplayFit;
+  /** 文档当前页 (kind='doc'; 手机翻页条驱动, 守护/kiosk 跟随) */
+  docPage: number;
+  /** 文档总页数 (放映守护回写; null=还没算出来) */
+  currentMediaPageCount: number | null;
   paused: boolean;
   lastHeartbeatAt: string | null;
   /** PlayerPage 还活着吗 — 超过 90s 没心跳就 stale */
@@ -112,6 +116,7 @@ export class PlaybackService implements OnModuleInit {
     // lastHeartbeatAt 这些不相干的字段一起写回旧值 (见 pause 上方注释)
     await this.repo.update({ slot }, {
       currentMediaId: mediaId,
+      docPage: 1, // 新内容从第一页开始 (文档投屏)
       currentPlaylistId: null,
       playlistIndex: 0,
       startedAt: new Date(),
@@ -367,6 +372,22 @@ export class PlaybackService implements OnModuleInit {
     return view;
   }
 
+  /** 文档翻页 (2026-07-25): clamp 到 [1, pageCount]; WS 广播 — 守护(PPT)/kiosk(Word) 跟随 */
+  async setDocPage(slot: number, page: number): Promise<PlaybackChannelView> {
+    const row = await this.repo.findOne({ where: { slot } });
+    if (!row) throw new NotFoundException(`slot=${slot} 不存在`);
+    let max = Number.MAX_SAFE_INTEGER;
+    if (row.currentMediaId) {
+      const m = await this.mediaService.get(row.currentMediaId).catch(() => null);
+      if (m?.pageCount) max = m.pageCount;
+    }
+    row.docPage = Math.max(1, Math.min(Math.floor(page) || 1, max));
+    await this.repo.save(row);
+    const view = await this.toView(row);
+    this.broadcast(view);
+    return view;
+  }
+
   /** 画面铺放模式 (fill/contain/cover) — WS 广播, kiosk 即时生效, 状态持久 */
   async setDisplayFit(slot: number, fit: PlaybackDisplayFit): Promise<PlaybackChannelView> {
     const res = await this.repo.update({ slot }, { displayFit: fit });
@@ -395,17 +416,22 @@ export class PlaybackService implements OnModuleInit {
 
   private async toView(row: PlaybackChannel): Promise<PlaybackChannelView> {
     let mediaName: string | null = null;
-    let mediaKind: 'video' | 'image' | 'audio' | 'webpage' | null = null;
+    let mediaKind: 'video' | 'image' | 'audio' | 'webpage' | 'doc' | null = null;
     let mediaUrl: string | null = null;
     let durationSec: number | null = null;
+    let pageCount: number | null = null;
     if (row.currentMediaId !== null) {
       const m = await this.mediaService.get(row.currentMediaId).catch(() => null);
       if (m) {
         mediaName = m.originalName;
         mediaKind = m.kind;
-        // webpage 用外部 URL (PlayerPage iframe); 其它走物理文件 (相同 host)
-        mediaUrl = m.kind === 'webpage' ? m.sourceUrl : `/api/media/${m.id}/file`;
+        // webpage 用外部 URL; doc: Word 有转好的 PDF 给 kiosk 逐页渲染,
+        // PPT 走 PowerPoint 原生放映 (kiosk 只显示占位) → url=null
+        if (m.kind === 'webpage') mediaUrl = m.sourceUrl;
+        else if (m.kind === 'doc') mediaUrl = m.docPdfPath ? `/api/media/${m.id}/file?variant=pdf` : null;
+        else mediaUrl = `/api/media/${m.id}/file`;
         durationSec = m.durationSec;
+        pageCount = m.pageCount;
       } else {
         // 媒体被删了但 channel 还指着它 → 当成 stop, 但不主动改库, 留给下次 publish 覆盖
         mediaName = `(媒体已删除 id=${row.currentMediaId})`;
@@ -427,6 +453,8 @@ export class PlaybackService implements OnModuleInit {
       currentPlaylistId: row.currentPlaylistId,
       playlistIndex: row.playlistIndex,
       displayFit: (row.displayFit ?? 'fill') as PlaybackDisplayFit,
+      docPage: row.docPage ?? 1,
+      currentMediaPageCount: pageCount,
       startedAt: row.startedAt ? row.startedAt.toISOString() : null,
       loopMode: row.loopMode,
       playMode: row.playMode ?? 'loopAll',

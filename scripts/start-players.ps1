@@ -1,4 +1,4 @@
-# =====================================================================
+﻿# =====================================================================
 # GK9000 three-channel player kiosk launcher
 # File: scripts/start-players.ps1
 #
@@ -77,6 +77,13 @@ function Stop-Players {
         Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
       }
   }
+  # kill the doc-screening daemon (ppt-player.ps1) — same lifecycle as bgm daemon
+  Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -and $_.CommandLine -match 'ppt-player' } |
+    ForEach-Object {
+      Write-Host ("  kill PID " + $_.ProcessId + " (ppt-player)") -ForegroundColor Gray
+      Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+    }
   # kill the background-music daemon (windowless powershell running bgm-player.ps1)
   Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.CommandLine -and $_.CommandLine -match 'bgm-player' } |
@@ -239,6 +246,15 @@ function Start-Slot {
 # Chromium pauses audio for any minimized / off-screen / fully-occluded window
 # (tried all three on 2026-06-23, all failed). A windowless MediaPlayer has no
 # such constraint -> audio just plays. See bgm-player.ps1 header for the full saga.
+# Doc-screening daemon (2026-07-25): PPT native slideshow + Word->PDF, session 2,
+# detached via WMI for the same reason as the bgm daemon (survives SSH exit).
+function Start-DocDaemon {
+  $script = Join-Path $PSScriptRoot 'ppt-player.ps1'
+  $cmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $script + '"'
+  Write-Host ("Start doc-screening daemon (detached): " + $script) -ForegroundColor Magenta
+  ([WMIClass]'Win32_Process').Create($cmd) | Out-Null
+}
+
 function Start-AudioSlot {
   $script = Join-Path $PSScriptRoot 'bgm-player.ps1'
   # Launch via WMI Win32_Process.Create so the daemon is DETACHED. A powershell
@@ -320,6 +336,7 @@ if ($Slot -eq 0 -or $Slot -eq 2) {
 if ($Slot -eq 0 -or $Slot -eq 3) {
   Start-Sleep -Milliseconds 500
   Start-AudioSlot
+  Start-DocDaemon
 }
 
 Write-Host ''

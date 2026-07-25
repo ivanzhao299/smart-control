@@ -31,7 +31,7 @@ const base = (): string => getApiBaseURL();
 export interface MediaItem {
   id: number;
   originalName: string;
-  kind: 'video' | 'image' | 'audio' | 'webpage';
+  kind: 'video' | 'image' | 'audio' | 'webpage' | 'doc';
   mimeType: string;
   sizeBytes: number;
   durationSec: number | null;
@@ -54,7 +54,7 @@ export interface OrphanMediaItem {
 }
 
 export const mediaService = {
-  async list(opts: { kind?: 'video' | 'image' | 'audio' | 'webpage' } = {}): Promise<ListResult> {
+  async list(opts: { kind?: 'video' | 'image' | 'audio' | 'webpage' | 'doc' } = {}): Promise<ListResult> {
     const params: Record<string, string> = {};
     if (opts.kind) params.kind = opts.kind;
     const r = await mediaHttp.get(`${base()}/media`, { params });

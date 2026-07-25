@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch , nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import { wsClient } from '@/services/websocket.service';
 import { getChannel, channelHeartbeat } from '@/services/playback.service';
@@ -189,6 +189,45 @@ async function resolveHdmiDeviceId(): Promise<string | null> {
   } catch { /* 这次没解析出来, 等下一轮重试 */ }
   return cachedHdmiDeviceId;
 }
+// ============ 文档投屏 (2026-07-25): Word=PDF 逐页渲染; PPT 由 PowerPoint 原生放映
+// (放映窗口盖在本页之上, 这里只留占位)。翻页: channel.docPage 经 WS 实时到达。 ============
+const docCanvas = ref<HTMLCanvasElement | null>(null);
+let docPdf: { numPages: number; getPage: (n: number) => Promise<unknown> } | null = null;
+let docPdfUrl = '';
+let docRenderSeq = 0;
+async function renderDocPage(): Promise<void> {
+  const url = channel.value?.currentMediaUrl;
+  if (!isDoc.value || !url || !docCanvas.value) return;
+  const seq = ++docRenderSeq;
+  try {
+    const pdfjs = await import('pdfjs-dist');
+    const worker = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
+    pdfjs.GlobalWorkerOptions.workerSrc = worker;
+    const full = absUrl(url);
+    if (!docPdf || docPdfUrl !== full) {
+      docPdf = await pdfjs.getDocument(full).promise as never;
+      docPdfUrl = full;
+    }
+    if (seq !== docRenderSeq || !docPdf) return; // 已被更新的渲染取代
+    const pageNo = Math.max(1, Math.min(channel.value?.docPage ?? 1, docPdf.numPages));
+    const page = await docPdf.getPage(pageNo) as never as {
+      getViewport: (o: { scale: number }) => { width: number; height: number };
+      render: (o: { canvasContext: CanvasRenderingContext2D; viewport: unknown }) => { promise: Promise<void> };
+    };
+    const vp1 = page.getViewport({ scale: 1 });
+    const scale = Math.min(window.innerWidth / vp1.width, window.innerHeight / vp1.height);
+    const vp = page.getViewport({ scale });
+    const canvas = docCanvas.value;
+    canvas.width = vp.width; canvas.height = vp.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  } catch { /* 渲染失败留黑屏, 下一次 docPage/URL 变化重试 */ }
+}
+watch(() => [channel.value?.currentMediaUrl, channel.value?.docPage, isDoc.value], () => {
+  void nextTick(() => { void renderDocPage(); });
+});
+
 async function routeVideoAudio(): Promise<void> {
   if (slot.value !== 1 && slot.value !== 2) return;  // slot3 是 BGM, 必须留在默认设备
   // 2026-07-24: 不只 <video> —— slot1/2 也能推**音频文件**(业主: "播放器都应该支持
@@ -236,6 +275,7 @@ const isVideo = computed<boolean>(() => channel.value?.currentMediaKind === 'vid
 const isImage = computed<boolean>(() => channel.value?.currentMediaKind === 'image');
 const isAudio = computed<boolean>(() => channel.value?.currentMediaKind === 'audio');
 const isWebpage = computed<boolean>(() => channel.value?.currentMediaKind === 'webpage');
+const isDoc = computed(() => channel.value?.currentMediaKind === 'doc');
 const isIdle = computed<boolean>(() => !channel.value?.currentMediaUrl);
 
 // 音频元素 — slot=3 (背景音乐 → GK9000 声卡 → EKX). 不静音!
@@ -297,6 +337,18 @@ function onAudioEnded(): void {
       <div class="audio-title">{{ channel.currentMediaName }}</div>
       <div class="audio-sub">{{ channel.loopMode === 'loop' ? '循环播放' : '单曲播放' }} · {{ channel?.name || '播放器' }}</div>
       <div class="audio-wave"><span></span><span></span><span></span><span></span><span></span></div>
+    </div>
+
+    <!-- 文档: Word=PDF 逐页画布; PPT=原生放映占位 (放映窗口盖在上面) -->
+    <canvas
+      v-else-if="isDoc && channel?.currentMediaUrl"
+      ref="docCanvas"
+      class="media-el doc-canvas"
+    ></canvas>
+    <div v-else-if="isDoc" class="audio-now">
+      <div class="audio-icon">📽️</div>
+      <div class="audio-title">{{ channel?.currentMediaName }}</div>
+      <div class="audio-sub">演示放映中 · 手机端可翻页</div>
     </div>
 
     <!-- 播放网页 (iframe 全屏渲染外部 URL) -->
@@ -422,4 +474,6 @@ function onAudioEnded(): void {
   font-size: 13px;
   border-radius: 6px;
 }
+
+.doc-canvas { object-fit: contain; background: #000; display: block; margin: 0 auto; }
 </style>
