@@ -163,6 +163,11 @@ async function commitRenamePl(it: PlItem): Promise<void> {
 }
 async function clearPlaylist(): Promise<void> {
   stopPlTimer();
+  // 审计 P1: 清空列表时若 BGM 正在放要一并停 — 否则设备还响着, 而空列表下
+  // 暂停键被禁用, 业主只能干瞪眼
+  if (bgmChannel.value?.currentMediaId) {
+    await playbackStore.stop(BGM_SLOT).catch(() => {});
+  }
   // 逐条删 —— 后端没有"清空"接口, 而且逐条删有审计价值
   for (const it of playlist.value.slice()) {
     if (it.itemId) await apiRemoveFromPlaylist(it.itemId).catch(() => {});
@@ -280,6 +285,9 @@ async function syncPlaybackFromChannel(mid: number | null | undefined): Promise<
   let dur: number | null = i >= 0 ? playlist.value[i].durationSec : null;
   if (!dur) {
     dur = await detectDuration(mid);
+    // 审计 P2 竞态: detectDuration 最长 6s, 期间可能已切歌 — 旧实例的结果作废,
+    // 否则会拿上一首的时长起进度条/写错列表
+    if (bgmChannel.value?.currentMediaId !== mid) return;
     if (dur && i >= 0) playlist.value[i].durationSec = dur;
   }
   // 暂停态不跑进度条 (等 resume), 否则从头估算
@@ -477,13 +485,21 @@ onMounted(async () => {
   const pickId = Number(route.query.pick_id);
   const pickName = String(route.query.pick_name ?? '');
   if (pickId && pickName) {
-    const dur = route.query.pick_dur ? Number(route.query.pick_dur) : null;
-    if (!playlist.value.find((p) => p.id === pickId)) {
-      playlist.value.push({ id: pickId, name: pickName, durationSec: dur || null });
-    }
+    // 2026-07-25 审计 P0: 之前只 push 本地数组不落库 — itemId 为空, 一次 loadPlaylist
+    // 就被后端数据覆盖丢失, 其他终端也看不到。改走与手动添加同一条落库路径。
     audioTab.value = 'bgm';
     void router.replace({ name: 'audio', query: {} });
-    ElMessage.success(`「${pickName}」已加入播放列表`);
+    if (!playlist.value.find((p) => p.id === pickId)) {
+      try {
+        await apiAddToPlaylist(BGM_SLOT, pickId);
+        await loadPlaylist();
+        ElMessage.success(`「${pickName}」已加入播放列表`);
+      } catch (err) {
+        ElMessage.error(`加入播放列表失败: ${(err as Error).message}`);
+      }
+    } else {
+      ElMessage.info(`「${pickName}」已在播放列表里`);
+    }
   } else if (route.query.tab === 'bgm') {
     audioTab.value = 'bgm';
     void router.replace({ name: 'audio', query: {} });
@@ -808,7 +824,8 @@ const overview = computed(() => {
   const avgVol = active === 0 ? 0 : Math.round(
     channels.value.filter((c) => !c.muted).reduce((s, c) => s + c.volume, 0) / active,
   );
-  const playing = channels.value.filter((c) => c.bgmPlaying).length;
+  // 审计 P2: bgmPlaying 从没被写过 (恒 0 的死指标) — BGM 走 slot3 通道, 直接读它
+  const playing = bgmChannel.value?.currentMediaId ? 1 : 0;
   return { total, active, avgVol, playing };
 });
 
@@ -970,7 +987,7 @@ async function toggleMuteAll(): Promise<void> {
             <button
               class="bgm-btn bgm-btn-main"
               :title="!bgmChannel?.currentMediaId ? '播放' : bgmChannel.paused ? '继续' : '暂停'"
-              :disabled="playlist.length === 0"
+              :disabled="!bgmChannel?.currentMediaId && playlist.length === 0"
               @click="plTogglePause"
             >
               <Pause v-if="bgmChannel?.currentMediaId && !bgmChannel.paused" :size="16" :stroke-width="2" />
@@ -1673,7 +1690,7 @@ async function toggleMuteAll(): Promise<void> {
 .fader.dragging .fader-thumb { transition: none; }
 
 .vol-value { font-size: 15px; font-weight: 700; color: var(--v2-text-1); text-align: center; flex-shrink: 0; }
-.ch-card:not(.muted) .vol-value { color: #6BFFB9; text-shadow: var(--v2-text-glow-success); }
+.ch-card:not(.muted) .vol-value { color: color-mix(in srgb, var(--v2-success) 65%, var(--v2-text-1)); text-shadow: var(--v2-text-glow-success); }
 .vol-value .pct { font-size: 10px; color: var(--v2-text-3); margin-left: 1px; font-weight: 500; text-shadow: none; }
 .ch-card.muted .vol-value { color: var(--v2-text-3); }
 
@@ -1725,13 +1742,14 @@ async function toggleMuteAll(): Promise<void> {
 .ig-item { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
 .ig-name { font-size: 10px; color: var(--v2-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .ig-slider { width: 100%; accent-color: #3FBF87; cursor: pointer; }
-.ig-val { font-size: 11px; color: #6BFFB9; font-weight: 700; }
+.ig-val { font-size: 11px; color: color-mix(in srgb, var(--v2-success) 65%, var(--v2-text-1)); font-weight: 700; }
 
 /* 矩阵读不到 / 增益读取中 的提示 */
 .mx-stale {
-  margin-left: 10px; padding: 2px 7px; border-radius: 999px;
-  font-size: 11px; font-weight: 400; color: #ff9a52;
-  background: #3a2a1c; border: 1px solid #6b4526;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 999px; font-size: 11px;
+  background: var(--v2-warning-soft); border: 1px solid color-mix(in srgb, var(--v2-warning) 40%, transparent);
+  color: var(--v2-warning);
 }
 .mx-loading { margin-left: 10px; font-size: 11px; font-weight: 400; color: #6d7f98; }
 .mx-offline {

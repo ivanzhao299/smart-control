@@ -30,7 +30,7 @@ import {
 } from '@/services/hvac.service';
 
 const router = useRouter();
-function goBack(): void { void router.push('/'); }
+function goBack(): void { void router.push({ name: 'dashboard' }); }
 
 /**
  * 内机状态 — **来自真机寄存器**, 由 GET /hvac/states 轮询.
@@ -108,8 +108,11 @@ const pollFailed = ref(false);
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** 拉一次真机状态并合并进卡片 */
+/** 最近一次下发时间 — 写后 2.5s 内跳过常规轮询, 防止寄存器未刷新的旧值打回乐观 UI (审计 P1) */
+let lastWriteAt = 0;
 async function pollStates(): Promise<void> {
   if (document.hidden) return; // C3: 页面在后台不打设备
+  if (busy.value || Date.now() - lastWriteAt < 2500) return; // 写后冷却, run() 的延迟复读负责校正
 
   try {
     const list = await hvacService.listStates();
@@ -369,6 +372,7 @@ async function run(
   const backup = rows.map((r) => ({ idx: r.idx, snapshot: { ...r.state } }));
   // 先乐观改, 让按钮跟手 (中弘网关下发到状态寄存器更新有延迟, 干等会像卡死)
   rows.forEach((r) => apply(r.state));
+  lastWriteAt = Date.now();
   haptics.tap(); // A2: 命令真的走出去
   busy.value = true;
   try {
@@ -415,6 +419,7 @@ async function floorPower(on: boolean): Promise<void> {
   } catch { return; }
   const backup = indoors.value.map((i) => ({ idx: i.idx, on: i.state.on }));
   visibleIndoors.value.forEach((i) => { i.state.on = on; });
+  lastWriteAt = Date.now();
   busy.value = true;
   dispatching.value = true;
   try {

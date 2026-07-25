@@ -189,13 +189,13 @@ const subsystems = computed(() => {
   const led = summary('led');
   const audio = summary('audio');
   const hvac = summary('hvac');
-  const power = { online: 0, total: 0, hasFault: false, status: 'ok' as const };
+  const power = { online: 1, total: 1, hasFault: false, status: 'ok' as const }; // 时序器/空开是真设备, 常显首页入口 (审计)
   return [
     { kind: 'light' as const, name: '灯光', ico: Lightbulb, route: 'lighting', ...lighting },
     { kind: 'led' as const, name: 'LED 大屏', ico: MonitorPlay, route: 'led', ...led },
     { kind: 'audio' as const, name: '音响', ico: Speaker, route: 'audio', ...audio },
     { kind: 'hvac' as const, name: '中央空调', ico: Snowflake, route: 'hvac', ...hvac },
-    { kind: 'power' as const, name: '电源系统', ico: Zap, route: 'status', ...power },
+    { kind: 'power' as const, name: '电源系统', ico: Zap, route: 'power', ...power }, // 审计: 之前误指 status
   ];
 });
 

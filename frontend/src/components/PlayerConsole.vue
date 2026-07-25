@@ -24,7 +24,7 @@
  *
  * 投影仪 (slot2) 已拆到独立页 ProjectorPage, 本页只管 LED (slot1)。
  */
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref , watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
@@ -73,6 +73,14 @@ async function loadAll(): Promise<void> {
     ElMessage.error(`加载播放列表失败: ${(e as Error).message}`);
   }
 }
+// 审计 P1: 列表/历史只在本页操作后刷新 — 其他终端改动看不到。跟着在播媒体
+// 的 WS 变化节流重拉 (playback store 是 WS 实时的, 以它为信号源)。
+let reloadT: number | undefined;
+watch(() => ch.value?.currentMediaId, () => {
+  window.clearTimeout(reloadT);
+  reloadT = window.setTimeout(() => { void loadAll(); }, 800);
+});
+
 onMounted(() => { void loadAll(); });
 
 /** 当前在播的是列表里的哪一条 (用 mediaId 比, 不信 index —— 可能从媒体库临时推过片子) */
@@ -420,7 +428,7 @@ async function submitWebpage(): Promise<void> {
              口径对齐音响页 BGM 那个已验证好用的: disabled 只看列表空不空。 -->
         <button
           class="pc-btn main"
-          :disabled="busy || playlist.length === 0"
+          :disabled="busy || (!ch?.currentMediaId && playlist.length === 0)"
           :title="!ch?.currentMediaId ? '播放' : (ch.paused ? '继续' : '暂停')"
           @click="togglePause"
         >
@@ -631,8 +639,8 @@ async function submitWebpage(): Promise<void> {
 .led-title { display: flex; align-items: center; gap: 8px; font-size: 20px; font-weight: 700; color: var(--v2-text-1); }
 .led-state { padding: 3px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; }
 .led-state.on { background: color-mix(in srgb, var(--v2-success) 20%, transparent); color: var(--v2-success); }
-.led-state.off { background: #1A1D22; color: var(--v2-text-2); }
-.led-warn { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: #E0A030; }
+.led-state.off { background: var(--v2-surf-2); color: var(--v2-text-2); }
+.led-warn { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: var(--v2-warning); }
 
 /* 正在播 + 控制条 */
 .now {
@@ -657,7 +665,7 @@ async function submitWebpage(): Promise<void> {
   border: 1px solid var(--v2-border-soft, #23262C); color: var(--v2-text-1);
 }
 .pc-btn:disabled { opacity: .35; cursor: not-allowed; }
-.pc-btn.main { width: 60px; height: 60px; background: var(--v2-primary-soft); border-color: var(--v2-primary); color: #fff; }
+.pc-btn.main { width: 60px; height: 60px; background: var(--v2-primary); border-color: var(--v2-primary); color: var(--v2-on-primary); }
 .pc-btn.stop:not(:disabled):hover { border-color: #E5645D; color: #E5645D; }
 
 .fit-row {
@@ -685,9 +693,9 @@ async function submitWebpage(): Promise<void> {
   font-size: 14px; color: var(--v2-text-1);
   background: var(--v2-surf-2, #1A1D22); border: 1px solid var(--v2-border-soft, #23262C);
 }
-.src-btn.on { border-color: var(--v2-primary); background: var(--v2-primary-soft); color: #fff; }
+.src-btn.on { border-color: var(--v2-primary); background: var(--v2-primary); color: var(--v2-on-primary); }
 .src-btn:disabled { opacity: .4; cursor: not-allowed; }
-.src-hint { font-size: 11px; color: #6d7f98; }
+.src-hint { font-size: 11px; color: var(--v2-text-3); }
 
 /* align-items: start (不是默认的 stretch) —— 列表/历史内容短的时候(比如只有 2 条),
    不强行把卡片撑满 .cols 剩余高度, 卡片底下露一大截空白背景 (业主反馈: "下面还有不少
@@ -701,15 +709,15 @@ async function submitWebpage(): Promise<void> {
 }
 .panel-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .panel-title { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; color: var(--v2-text-1); }
-.panel-count { font-size: 12px; color: var(--v2-text-2); background: #1A1D22; border-radius: 20px; padding: 2px 8px; }
+.panel-count { font-size: 12px; color: var(--v2-text-2); background: var(--v2-surf-2); border-radius: 20px; padding: 2px 8px; }
 .panel-head .v2-quick { margin-left: auto; }
 /* 上传中: 原来 disabled 让按钮变灰, 文字跟底色糊在一起完全看不清 (业主截图坐实)。
    改成"进度填充"样式: 深底 + 亮字 + 一条随进度走的填充, 一眼看得见传到哪了。 */
 .v2-quick.uploading {
   position: relative; overflow: hidden;
   opacity: 1 !important;                 /* 盖掉 disabled 的变灰 */
-  color: #fff; font-weight: 600;
-  background: #0f2942; border-color: var(--v2-primary);
+  color: var(--v2-text-1); font-weight: 600;
+  background: color-mix(in srgb, var(--v2-info) 14%, var(--v2-surf-1)); border-color: var(--v2-primary);
 }
 .v2-quick.uploading::before {
   content: ''; position: absolute; left: 0; top: 0; bottom: 0;
@@ -720,7 +728,7 @@ async function submitWebpage(): Promise<void> {
 .hidden-file { display: none; }
 
 .empty { padding: 20px; text-align: center; font-size: 13px; color: var(--v2-text-2); border: 1px dashed var(--v2-border-soft); border-radius: 10px; }
-.empty-sub { margin-top: 6px; font-size: 12px; color: #6d7f98; }
+.empty-sub { margin-top: 6px; font-size: 12px; color: var(--v2-text-3); }
 
 .pl-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
 .pl-item {
@@ -728,7 +736,7 @@ async function submitWebpage(): Promise<void> {
   padding: 8px 10px; border-radius: 10px;
   background: var(--v2-surf-2, #1A1D22); border: 1px solid transparent;
 }
-.pl-item.playing { border-color: var(--v2-primary); background: #16375a; }
+.pl-item.playing { border-color: var(--v2-primary); background: color-mix(in srgb, var(--v2-primary) 20%, var(--v2-surf-1)); }
 .pl-item.dragging { opacity: .45; }
 /* 拖到哪儿哪儿亮一条虚线 —— 松手前就知道会落在哪, 不用猜 */
 .pl-item.dropzone { outline: 2px dashed var(--v2-primary); outline-offset: 2px; }
@@ -756,7 +764,7 @@ async function submitWebpage(): Promise<void> {
   background: transparent; border: none; color: var(--v2-text-2);
 }
 .pl-ico:hover { color: var(--v2-text-1); }
-.pl-ico.danger:hover { color: #ff6b6b; }
+.pl-ico.danger:hover { color: var(--v2-danger); }
 .pl-ico:disabled { opacity: .3; cursor: not-allowed; }
 
 /* 选择器弹窗 */
@@ -786,7 +794,7 @@ async function submitWebpage(): Promise<void> {
   padding: 7px 14px; min-height: 36px; border-radius: 8px; cursor: pointer; font-size: 13px;
   background: var(--v2-surf-2, #1A1D22); border: 1px solid var(--v2-border-soft, #23262C); color: var(--v2-text-2);
 }
-.pick-tab.on { border-color: var(--v2-primary); color: #fff; background: var(--v2-primary-soft); }
+.pick-tab.on { border-color: var(--v2-primary); color: var(--v2-primary); background: var(--v2-primary-soft); font-weight: 600; }
 .pick-close {
   display: inline-flex; align-items: center; justify-content: center;
   width: 34px; height: 34px; border-radius: 8px; cursor: pointer;
@@ -811,7 +819,7 @@ async function submitWebpage(): Promise<void> {
   padding: 11px; min-height: 46px; border-radius: 10px; cursor: pointer; font-size: 14px;
   background: var(--v2-surf-1, #14161A); border: 1px solid var(--v2-border-soft, #23262C); color: var(--v2-text-2);
 }
-.mob-tab.on { border-color: var(--v2-primary); color: #fff; background: var(--v2-primary-soft); }
+.mob-tab.on { border-color: var(--v2-primary); color: var(--v2-primary); background: var(--v2-primary-soft); font-weight: 600; }
 .mob-tab i { font-style: normal; font-size: 12px; opacity: .8; }
 
 @media (max-width: 900px) {

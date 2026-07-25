@@ -22,11 +22,13 @@ class PollingScheduler {
   private tickHandle?: number;
   private tickMs = 5_000;
   private wsOpen = false;
+  private offState?: () => void;
 
   start(): void {
     if (this.tickHandle) return;
     // 跟随 WS 状态调节速率: WS 在线 → 慢, WS 断 → 回到默认
-    wsClient.onState((s) => {
+    // (审计 P2: 保存取消函数, stop 时解绑 — 防 start/stop 循环叠监听)
+    this.offState = wsClient.onState((s) => {
       this.wsOpen = s === 'open';
     });
     this.tickHandle = window.setInterval(() => this.tick(), this.tickMs);
@@ -37,6 +39,8 @@ class PollingScheduler {
       window.clearInterval(this.tickHandle);
       this.tickHandle = undefined;
     }
+    this.offState?.();
+    this.offState = undefined;
   }
 
   /**

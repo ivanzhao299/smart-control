@@ -140,10 +140,13 @@ class WsClient {
   private scheduleReconnect(): void {
     if (this.destroyed) return;
     if (this.reconnectTimer) window.clearTimeout(this.reconnectTimer);
+    const delay = this.reconnectDelay;
+    // 审计 P2: 翻倍必须在 connect() 之前落账 — connect() 同步抛错会立刻再进
+    // 本函数, 若翻倍写在 connect() 后面, 该路径的退避永远停在最小值
+    this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.reconnectMax);
     this.reconnectTimer = window.setTimeout(() => {
       this.connect();
-      this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.reconnectMax);
-    }, this.reconnectDelay);
+    }, delay);
   }
 
   private startHeartbeat(): void {
