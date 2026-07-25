@@ -152,8 +152,12 @@ Push-Location (Join-Path $projectRoot 'backend')
 Run "npm run build"
 Pop-Location
 
+# 前端在生产机上跳过 vue-tsc 类型检查, 只跑 vite build。
+# 2026-07-25: pdfjs-dist 引入后 vue-tsc 在 GK9000 上 OOM ("Zone Allocation failed"),
+# 把 08d607b 的前端构建整个打挂 (dist 只剩 public 静态件, 全靠 PWA 缓存硬撑)。
+# 类型检查本地开发和 CI 都会跑, 生产机只需要产物。
 Push-Location (Join-Path $projectRoot 'frontend')
-Run "npm run build"
+Run "npm run build:deploy"
 Pop-Location
 Write-Host "  构建完成" -ForegroundColor Green
 

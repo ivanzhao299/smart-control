@@ -540,6 +540,41 @@ async function loadZones(): Promise<void> {
   } catch { /* 拉不到就空 */ }
 }
 
+// ============ 立体声配对 (2026-07-25 立体声改造) ============
+// 约定: 名字以 "·左" / "·右" 结尾且前缀相同的两路输出是一个立体声对
+// (割接后 OUT1/2=LED大屏·左/右, OUT3/4=发布厅投影·左/右)。配对纯靠命名,
+// 零表结构改动 —— 页面把两路合成一张卡, 音量/静音双路联动。没有命名匹配时
+// 一切照旧, 所以这个功能先于现场接线上线也无副作用。
+const pairPartnerId = computed<Record<string, string>>(() => {
+  const byName = new Map(channels.value.map((z) => [z.name, z.id]));
+  const map: Record<string, string> = {};
+  for (const z of channels.value) {
+    if (z.name.endsWith('·左')) {
+      const rid = byName.get(z.name.slice(0, -2) + '·右');
+      if (rid) { map[z.id] = rid; map[rid] = z.id; }
+    }
+  }
+  return map;
+});
+function partnerOf(z: AudioRow): AudioRow | undefined {
+  const pid = pairPartnerId.value[z.id];
+  return pid ? channels.value.find((c) => c.id === pid) : undefined;
+}
+/** 展示行: 立体声对只显示"左"这张卡 (名字去后缀), "右"隐藏并跟随联动 */
+const displayChannels = computed(() =>
+  channels.value.filter((z) => !(z.name.endsWith('·右') && pairPartnerId.value[z.id])),
+);
+function displayName(z: AudioRow): string {
+  return isStereo(z) ? z.name.slice(0, -2) : z.name;
+}
+function isStereo(z: AudioRow): boolean {
+  return !!pairPartnerId.value[z.id] && z.name.endsWith('·左');
+}
+function displayAddr(z: AudioRow): string {
+  const mate = partnerOf(z);
+  return mate ? `${z.id.toUpperCase()}+${mate.channel + 1}` : z.id.toUpperCase();
+}
+
 // 页内 tab: 一键场景 / 背景音乐 / 分区音量 / 音源矩阵 — 一屏一组, 不上下滚
 const audioTab = ref<'scene' | 'bgm' | 'zones' | 'matrix'>('scene');
 
@@ -716,6 +751,12 @@ async function applyVolume(z: AudioRow, value: number): Promise<void> {
   try {
     const res = await audioService.setVolume(z.id, value, z.zone);
     if (!res.ok) throw new Error(res.error || '执行失败');
+    // 立体声对: 右声道跟随左声道 (对方失败不回滚主路, 静默重试交给下次操作)
+    const mate = partnerOf(z);
+    if (mate) {
+      mate.volume = value;
+      void audioService.setVolume(mate.id, value, mate.zone).catch(() => {});
+    }
   } catch (err) {
     z.volume = prev;
     z.error = (err as Error).message;
@@ -801,13 +842,32 @@ async function toggleMute(z: AudioRow): Promise<void> {
       ? await audioService.mute(z.id, z.zone)
       : await audioService.unmute(z.id, z.zone);
     if (!res.ok) throw new Error(res.error || '执行失败');
+    // 立体声对: 右声道跟随左声道静音/解除
+    const mate = partnerOf(z);
+    if (mate && mate.muted !== z.muted) {
+      if (z.muted) {
+        savedVolumes.value = { ...savedVolumes.value, [mate.id]: mate.volume };
+        mate.muted = true;
+        void audioService.mute(mate.id, mate.zone).catch(() => {});
+      } else {
+        mate.muted = false;
+        void audioService.unmute(mate.id, mate.zone).catch(() => {});
+      }
+    }
     saveMuteState();
     if (!z.muted) {
-      // 解除静音: 渐响到保存的音量
+      // 解除静音: 渐响到保存的音量 (立体声对两路一起渐响)
       const target = savedVolumes.value[z.id] ?? z.volume;
       z.volume = 0;
       void audioService.setVolume(z.id, 0, z.zone).catch(() => {});
-      void fadeInVolumes([{ z, vol: target }]);
+      const fades = [{ z, vol: target }];
+      if (mate) {
+        const mateTarget = savedVolumes.value[mate.id] ?? mate.volume;
+        mate.volume = 0;
+        void audioService.setVolume(mate.id, 0, mate.zone).catch(() => {});
+        fades.push({ z: mate, vol: mateTarget });
+      }
+      void fadeInVolumes(fades);
     }
   } catch (err) {
     z.muted = prev;
@@ -819,10 +879,11 @@ async function toggleMute(z: AudioRow): Promise<void> {
 
 // ============ 总览 ============
 const overview = computed(() => {
-  const total = channels.value.length;
-  const active = channels.value.filter((c) => !c.muted).length;
+  // 立体声对算一个分区 (displayChannels 已把"右"路藏掉), 免得总览数字虚高
+  const total = displayChannels.value.length;
+  const active = displayChannels.value.filter((c) => !c.muted).length;
   const avgVol = active === 0 ? 0 : Math.round(
-    channels.value.filter((c) => !c.muted).reduce((s, c) => s + c.volume, 0) / active,
+    displayChannels.value.filter((c) => !c.muted).reduce((s, c) => s + c.volume, 0) / active,
   );
   // 审计 P2: bgmPlaying 从没被写过 (恒 0 的死指标) — BGM 走 slot3 通道, 直接读它
   const playing = bgmChannel.value?.currentMediaId ? 1 : 0;
@@ -1106,7 +1167,7 @@ async function toggleMuteAll(): Promise<void> {
       </header>
       <div class="ch-grid">
         <div
-          v-for="z in channels"
+          v-for="z in displayChannels"
           :key="z.id"
           class="ch-card"
           :class="{ muted: z.muted, error: !!z.error, live: !z.muted && z.volume > 0 }"
@@ -1120,12 +1181,14 @@ async function toggleMuteAll(): Promise<void> {
             @keyup.esc="editingCh = null" @blur="commitRenameCh(z)"
           />
           <div v-else class="ch-name" :title="z.name" @dblclick.stop="startRenameCh(z)">
-            {{ z.name }}
+            {{ displayName(z) }}
             <button class="ch-edit" title="改名" @click.stop="startRenameCh(z)">
               <Pencil :size="12" />
             </button>
           </div>
-          <div class="ch-addr v2-inter">{{ z.id.toUpperCase() }}</div>
+          <div class="ch-addr v2-inter">
+            {{ displayAddr(z) }}<span v-if="isStereo(z)" class="stereo-badge">立体声</span>
+          </div>
           <!-- 触摸/拖动接收区是整个 .fader (不是 12px 窄轨) —— 手指粗, 按窄轨极易
                滑出, 一滑出 iOS 就当页面滚动。整块接收 + 拖动中全局锁滚动才不抖。 -->
           <div
@@ -1620,6 +1683,12 @@ async function toggleMuteAll(): Promise<void> {
 
 .ch-name { font-size: 13px; font-weight: 600; color: var(--v2-text-1); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; flex-shrink: 0; }
 .ch-addr { font-size: 10px; color: var(--v2-text-3); letter-spacing: 1px; text-align: center; flex-shrink: 0; }
+/* 立体声对徽标 — 两路合一张卡时的身份提示 */
+.stereo-badge {
+  display: inline-block; margin-left: 4px; padding: 0 5px;
+  font-size: 9px; letter-spacing: 0; line-height: 14px; border-radius: 7px;
+  color: var(--v2-accent); background: color-mix(in srgb, var(--v2-accent) 14%, transparent);
+}
 
 .v2-toggle {
   position: relative; width: 42px; height: 24px;
