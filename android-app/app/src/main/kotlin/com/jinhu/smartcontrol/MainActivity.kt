@@ -305,6 +305,23 @@ class MainActivity : AppCompatActivity() {
         wv.isHorizontalScrollBarEnabled = false
         wv.overScrollMode = View.OVER_SCROLL_NEVER
 
+        // A2 (2026-07-25): 触感桥 — PWA 调 window.JinhuShell.vibrate(ms) 落到系统马达。
+        // 只暴露这一个只写方法, 不开任何读取口子。
+        wv.addJavascriptInterface(object {
+            @android.webkit.JavascriptInterface
+            fun vibrate(ms: Int) {
+                try {
+                    val v = getSystemService(android.os.Vibrator::class.java) ?: return
+                    val dur = ms.coerceIn(1, 200).toLong()
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        v.vibrate(android.os.VibrationEffect.createOneShot(dur, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+                    } else {
+                        @Suppress("DEPRECATION") v.vibrate(dur)
+                    }
+                } catch (e: Exception) { /* 触感失败无所谓 */ }
+            }
+        }, "JinhuShell")
+
         wv.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                 bind.errorOverlay.visibility = View.GONE

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import WebKit
 
 /// WKWebView 的 SwiftUI 包装 — 行为对齐安卓壳 setupWebView():
@@ -23,6 +24,14 @@ struct WebView: UIViewRepresentable {
         // 对齐安卓 UA 后缀 (userAgentString + " JinhuShell/x"), 前端可识别壳环境
         config.applicationNameForUserAgent = "JinhuShell/\(UpdateChecker.localVersionName)"
         config.websiteDataStore = .default()
+
+        // A2 (2026-07-25): 触感桥 — window.JinhuShell.vibrate(ms) → UIImpactFeedback。
+        // 注入脚本在 documentStart, PWA 一启动即可用; 只此一个只写通道。
+        let bridge = WKUserScript(
+            source: "window.JinhuShell={vibrate:function(ms){try{window.webkit.messageHandlers.haptic.postMessage(ms)}catch(e){}}};",
+            injectionTime: .atDocumentStart, forMainFrameOnly: true)
+        config.userContentController.addUserScript(bridge)
+        config.userContentController.add(context.coordinator, name: "haptic")
 
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.navigationDelegate = context.coordinator
@@ -67,7 +76,14 @@ struct WebView: UIViewRepresentable {
         }
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard message.name == "haptic" else { return }
+            let ms = (message.body as? NSNumber)?.intValue ?? 12
+            let style: UIImpactFeedbackGenerator.FeedbackStyle = ms >= 20 ? .medium : .light
+            UIImpactFeedbackGenerator(style: style).impactOccurred()
+        }
+
         var parent: WebView
         var urlObservation: NSKeyValueObservation?
         var lastInitialUrl: URL?

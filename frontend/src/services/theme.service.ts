@@ -10,6 +10,13 @@ import { ref } from 'vue';
  * 默认深色: 展厅是暗环境, 而且大屏 kiosk 必须深色。
  * initTheme() 在 main.ts 里 **mount 之前**调, 避免先渲染一帧深色再跳浅色的闪烁。
  */
+
+/** A4: 浏览器 UI 色跟随主题 (PWA 全屏无地址栏, 这是给浏览器直开的兜底) */
+function syncThemeColor(t: string): void {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', t === 'light' ? '#EEF2F7' : '#0A0D12');
+}
+
 export type Theme = 'dark' | 'light';
 
 const STORAGE_KEY = 'sc.theme';
@@ -33,12 +40,14 @@ function readStored(): Theme | null {
 export function applyTheme(t: Theme): void {
   theme.value = t;
   document.documentElement.setAttribute('data-theme', t);
+  syncThemeColor(t);
   persist(t);
 }
 
 /** 只应用不记住 —— 给 kiosk 大屏强制深色用, 不污染业主自己的选择 */
 export function forceThemeWithoutPersist(t: Theme): void {
   document.documentElement.setAttribute('data-theme', t);
+  syncThemeColor(t);
 }
 
 /** 启动时调 (main.ts, mount 之前) */
@@ -46,6 +55,7 @@ export function initTheme(): void {
   const t = readStored() ?? 'dark';
   theme.value = t;
   document.documentElement.setAttribute('data-theme', t);
+  syncThemeColor(t);
 }
 
 /** 切换 */
@@ -55,5 +65,7 @@ export function toggleTheme(): void {
 
 /** 回到业主记住的主题 (kiosk 页离开时用) */
 export function restoreStoredTheme(): void {
-  document.documentElement.setAttribute('data-theme', readStored() ?? 'dark');
+  const __t = readStored() ?? 'dark';
+  document.documentElement.setAttribute('data-theme', __t);
+  syncThemeColor(__t);
 }

@@ -24,6 +24,7 @@ import {
   Power, Minus, Plus, Thermometer, Pencil, Check, FolderPlus, Trash2, Layers,
   AlertTriangle, RefreshCw,
 } from 'lucide-vue-next';
+import { haptics } from '@/services/haptics';
 import {
   hvacService, type HvacFan, type HvacIndoor, type HvacMode, type HvacZone,
 } from '@/services/hvac.service';
@@ -366,6 +367,7 @@ async function run(
   const backup = rows.map((r) => ({ idx: r.idx, snapshot: { ...r.state } }));
   // 先乐观改, 让按钮跟手 (中弘网关下发到状态寄存器更新有延迟, 干等会像卡死)
   rows.forEach((r) => apply(r.state));
+  haptics.tap(); // A2: 命令真的走出去
   busy.value = true;
   try {
     const r = await send(rows.map((x) => x.idx));

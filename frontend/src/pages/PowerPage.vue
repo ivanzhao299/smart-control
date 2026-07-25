@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import { haptics } from '@/services/haptics';
 import { useRouter } from 'vue-router';
 import {
   ArrowLeft, Zap, Power, X, RefreshCw, Activity, Gauge, Lightbulb, Plug,
@@ -135,6 +136,8 @@ const breakerDetail = ref<Record<number, BreakerMeasurements>>({});
 const breakerLoading = ref<Set<number>>(new Set());
 
 async function toggleBreaker(c: PowerCircuitView): Promise<void> {
+  haptics.tap(); // A2: 开关下发
+
   if (expandedId.value === c.id) { expandedId.value = null; return; }
   expandedId.value = c.id;
   if (!breakerDetail.value[c.id]) await loadBreaker(c.id);

@@ -7,6 +7,7 @@ import {
   Sparkles, Calendar, Users, Presentation, Wrench, Moon,
   Lightbulb, MonitorPlay, Speaker, Snowflake, Zap,
 } from 'lucide-vue-next';
+import { haptics } from '@/services/haptics';
 import { powerCircuitsService } from '@/services/power-circuits.service';
 import { polling } from '@/services/polling.service';
 import { useSceneStore } from '@/stores/scene';
@@ -99,6 +100,7 @@ const scenesView = computed(() => {
 const toast = useToastStore();
 
 async function fireScene(code: string): Promise<void> {
+  haptics.impact(); // A2: 长按走满、场景真的开始执行的那一下
   const name = sceneStore.scenes.find((s) => s.code === code)?.name ?? code;
   toast.info(`场景【${name}】启动中…`); // 即时反馈: 转满瞬间就提示, 不干等多子系统串行下发完
   try {
