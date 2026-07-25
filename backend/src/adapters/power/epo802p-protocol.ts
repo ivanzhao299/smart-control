@@ -196,20 +196,22 @@ export function parseStatus(resp: Buffer): Epo802pStatus | null {
   if (start < 0) return null;
   // 帧头(3) + addr/product/frameType/dataType/userId/chId/dataId (7) + len(2) = 12 → 缓冲区起点
   const bufStart = start + 12;
-  if (resp.length < bufStart + 9) return null;
+  if (resp.length < bufStart + 8) return null;
 
   /**
-   * ⚠️ 通道状态段从 bufStart+1 起 —— buf 第 1 字节不是通道 (2026-07-25 真机双针实验)。
+   * ⚠️ 通道状态段从 bufStart-1 起 (整体**左移 1**) —— 2026-07-25 三针真机实验 + 部署复验钉死。
    *
-   * 上线时 8 路全关、全 0, 偏移暴露不出来。业主报"单路打开保持一会又关"后实测:
-   *   b2 chId=8 开 → 旧解析显示位 7 亮; chId=2 开 → 显示位 1 亮; chId=1 开 → 无位亮;
-   *   b3 全开 → 旧解析恒显示 1-7 亮、8 灭。
-   * 四组证据唯一自洽解释: 写侧 chId 正确(1-based), 读侧通道段整体右移 1 字节
-   * (buf[0] 是填充/其他字段, buf[1..8] 才是通道 1-8)。这样延时段 buf+9 起也自然
-   * 连续 (8 通道 + 1 前置字节), 与已实测钉死的延时布局完全吻合。
+   * 证据链 (chId 写侧 1-based 正确):
+   *   下发 chId=8 → 旧解析(buf[0..7])位7 亮  → 通道8 状态在 buf[6]
+   *   下发 chId=2 → 旧解析位1 亮              → 通道2 状态在 buf[0]
+   *   下发 chId=1 → 旧解析无位亮              → 通道1 状态在 buf[-1] (头区最后一字节)
+   *   b3 全开     → 旧解析恒 1-7 亮 8 灭      → 同一偏移的整体表现
+   *   第一次误修为右移(+1) 部署后显示 6=ON (= buf[7]=通道8 挪进窗口) → 反向证明左移。
+   * 即物理通道 n 的状态在 resp[bufStart - 1 + (n-1)]; 其后 2 字节填充, 延时段仍从
+   * buf+9 (start+21) 起 —— 与已实测钉死的延时布局兼容 (8 通道 + 2 pad)。
    */
   const channels: boolean[] = [];
-  for (let i = 0; i < 8; i += 1) channels.push(resp[bufStart + 1 + i] === 0x01);
+  for (let i = 0; i < 8; i += 1) channels.push(resp[bufStart - 1 + i] === 0x01);
 
   /** 2 字节参数一律小端 (低位在前), 跟发送侧一致 */
   const readLE = (o: number): number => resp[o] | (resp[o + 1] << 8);
