@@ -1083,3 +1083,11 @@ select:focus-visible,
   padding-bottom: var(--v2-sp-2);
   box-shadow: 0 8px 16px -12px rgba(0, 0, 0, 0.35);
 }
+
+
+/* ============ 滚动边界锁死 (2026-07-25 业主: 顶栏固定死, 不许上下晃) ============
+ * sticky 头已钉住; 这里再锁掉滚动边界的橡皮筋回弹 — 到顶/到底后继续拖不再
+ * 整页拉动 (iOS 壳侧 bounces=false / 安卓壳 OVER_SCROLL_NEVER 已关, 这是浏览器
+ * /PWA 的最后一层)。内滚容器用 contain, 防滚动链把动作传给外层。 */
+html, body { overscroll-behavior: none; }
+.v2-main { overscroll-behavior: contain; }

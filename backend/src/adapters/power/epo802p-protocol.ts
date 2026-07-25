@@ -196,10 +196,20 @@ export function parseStatus(resp: Buffer): Epo802pStatus | null {
   if (start < 0) return null;
   // 帧头(3) + addr/product/frameType/dataType/userId/chId/dataId (7) + len(2) = 12 → 缓冲区起点
   const bufStart = start + 12;
-  if (resp.length < bufStart + 8) return null;
+  if (resp.length < bufStart + 9) return null;
 
+  /**
+   * ⚠️ 通道状态段从 bufStart+1 起 —— buf 第 1 字节不是通道 (2026-07-25 真机双针实验)。
+   *
+   * 上线时 8 路全关、全 0, 偏移暴露不出来。业主报"单路打开保持一会又关"后实测:
+   *   b2 chId=8 开 → 旧解析显示位 7 亮; chId=2 开 → 显示位 1 亮; chId=1 开 → 无位亮;
+   *   b3 全开 → 旧解析恒显示 1-7 亮、8 灭。
+   * 四组证据唯一自洽解释: 写侧 chId 正确(1-based), 读侧通道段整体右移 1 字节
+   * (buf[0] 是填充/其他字段, buf[1..8] 才是通道 1-8)。这样延时段 buf+9 起也自然
+   * 连续 (8 通道 + 1 前置字节), 与已实测钉死的延时布局完全吻合。
+   */
   const channels: boolean[] = [];
-  for (let i = 0; i < 8; i += 1) channels.push(resp[bufStart + i] === 0x01);
+  for (let i = 0; i < 8; i += 1) channels.push(resp[bufStart + 1 + i] === 0x01);
 
   /** 2 字节参数一律小端 (低位在前), 跟发送侧一致 */
   const readLE = (o: number): number => resp[o] | (resp[o + 1] << 8);
