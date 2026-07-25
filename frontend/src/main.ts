@@ -1,4 +1,5 @@
 import { createApp } from 'vue';
+import { ElMessage } from 'element-plus';
 import { createPinia } from 'pinia';
 import App from './App.vue';
 import { router } from './router';
@@ -157,6 +158,16 @@ app.mount('#app');
 
 // 白屏看门狗: 应用挂载后启动
 startBlankScreenWatchdog();
+
+// A6 (2026-07-25): PWA 静默更新完成后给一句安静的提示 —— autoUpdate 模式下
+// 新 SW 接管 (controllerchange) 意味着下次导航/刷新就是新版; 告诉业主一声,
+// 避免"改了怎么没变"的困惑。首次安装 (controller 从无到有) 不提示。
+if ('serviceWorker' in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (hadController) ElMessage.success({ message: '系统已更新到新版本', duration: 3500 });
+  });
+}
 
 // 服务器地址自动选择: 当前地址 ping 不通就自动切到历史里能通的那个 (现场↔隧道
 // 两个网络环境不用再手输 IP)。异步跑, 不挡首屏。
