@@ -123,6 +123,15 @@
   --v2-text-glow-danger:  none;
   --v2-text-glow-pink:    none;
 
+  /* ---------- 状态光 (2026-07-25 体验升级 D1, 方向 A"石墨点睛") ----------
+   * 骨架保持中性灰, 但**活着的设备自己发光**: 品类色只出现在"运行中"的卡上
+   * (左光条 + 低饱和辉光 + 数字着色), 关停即回归中性。这与 v4"颜色只留给状态"
+   * 的原则一致 —— "运行中"本身就是状态。灯光暖光(下方)和空调 run-* 是先例。 */
+  --v2-live-power: #48D597;                 /* 电源: 通电青绿 */
+  --v2-live-power-glow: rgba(72, 213, 151, 0.16);
+  --v2-live-audio: #2FD6A3;                 /* 音响: 出声薄荷青 */
+  --v2-live-audio-glow: rgba(47, 214, 163, 0.14);
+
   /* 灯光暖色 (亮度滑条): 灯光本身就是暖的, 这个保留 —— 它表达的是物理量, 不是装饰 */
   --v2-light-warm: #D9A441;
   --v2-light-warm-glow: transparent;
@@ -235,6 +244,11 @@
   --v2-info-soft:    rgba(37, 99, 235, 0.12);
 
   --v2-light-warm: #C2780B;                 /* "灯亮着"的暖色, 浅底上加深 */
+  /* 状态光: 浅底上加深降透 (D1) */
+  --v2-live-power: #0E9F6E;
+  --v2-live-power-glow: rgba(14, 159, 110, 0.12);
+  --v2-live-audio: #0C9A72;
+  --v2-live-audio-glow: rgba(12, 154, 114, 0.10);
 
   /* 阴影: 浅色下用柔和灰影, 不用黑透明 */
   --v2-elev-1: 0 1px 2px rgba(15, 27, 45, 0.06), 0 1px 3px rgba(15, 27, 45, 0.05);
@@ -1009,3 +1023,46 @@ select:focus-visible,
 }
 @keyframes v2Shimmer { 100% { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) { .v2-skeleton::after { animation: none; } }
+
+
+/* ============ 微动效 (2026-07-25 体验升级 D2) ============
+ * motion token: 全站动效只用这三档时长和两条曲线, 不各写各的。
+ * 原则: 反馈要快(fast), 空间移动用 base, spring 只给开关/按压这类"物理"交互。 */
+:root:root {
+  --v2-dur-fast: 120ms;
+  --v2-dur-base: 200ms;
+  --v2-dur-slow: 320ms;
+  --v2-ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --v2-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* 按压反馈: 全站可点卡片/按钮统一"按下去有回应"。
+ * 集中选择器而不是逐页加 class —— 覆盖各页既有交互件, 不动模板。 */
+.v2-scene, .v2-zone, .v2-quick, .v2-kpi, .v2-btn-primary,
+.circuit-card, .hv-cell, .hv-btn, .hv-chip, .ch-card, .seg,
+.pc-btn, .temp-btn, .card-btn, .src-btn, .v2-tab, .v2-back-btn {
+  transition-property: transform, box-shadow, border-color, background-color, color, opacity;
+  transition-duration: var(--v2-dur-fast);
+  transition-timing-function: var(--v2-ease-out);
+}
+.v2-scene:active, .v2-zone:active, .v2-quick:active, .v2-btn-primary:active,
+.circuit-card:active, .hv-cell:active, .hv-btn:active:not(:disabled), .hv-chip:active,
+.ch-card:active, .pc-btn:active:not(:disabled), .temp-btn:active:not(:disabled),
+.card-btn:active, .src-btn:active, .v2-back-btn:active {
+  transform: scale(0.965);
+  transition-duration: 80ms;
+}
+
+/* 路由转场: 淡入 + 8px 上移, 120ms — 切页不再硬切 */
+.v2-page-enter-active { transition: opacity var(--v2-dur-fast) var(--v2-ease-out), transform var(--v2-dur-fast) var(--v2-ease-out); }
+.v2-page-leave-active { transition: opacity 80ms ease; }
+.v2-page-enter-from { opacity: 0; transform: translateY(8px); }
+.v2-page-leave-to { opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .v2-page-enter-active, .v2-page-leave-active { transition: none; }
+  .v2-scene:active, .v2-zone:active, .v2-quick:active, .v2-btn-primary:active,
+  .circuit-card:active, .hv-cell:active, .hv-btn:active, .hv-chip:active,
+  .ch-card:active, .pc-btn:active, .temp-btn:active, .card-btn:active,
+  .src-btn:active, .v2-back-btn:active { transform: none; }
+}

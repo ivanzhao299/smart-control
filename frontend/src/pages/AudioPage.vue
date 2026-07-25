@@ -1092,7 +1092,7 @@ async function toggleMuteAll(): Promise<void> {
           v-for="z in channels"
           :key="z.id"
           class="ch-card"
-          :class="{ muted: z.muted, error: !!z.error }"
+          :class="{ muted: z.muted, error: !!z.error, live: !z.muted && z.volume > 0 }"
         >
           <!-- 就地改名: 双击名字或点笔。名字落 audio_output_zone 表, 矩阵页同源, 一起变 -->
           <input
@@ -1590,6 +1590,14 @@ async function toggleMuteAll(): Promise<void> {
   box-shadow: inset 0 1px 0 rgba(63, 191, 135, 0.45);
 }
 .ch-card:not(.muted)::after { opacity: 1; }
+/* 出声通道: 薄荷青状态光 (2026-07-25 D1) — 音量>0 且未静音 = "活着", 左光条 +
+   低饱和辉光; 静音/零音量回归中性灰。全场哪些区在响, 扫一眼可见。 */
+.ch-card.live {
+  border-color: color-mix(in srgb, var(--v2-live-audio) 32%, var(--v2-border-soft));
+  background: linear-gradient(180deg, var(--v2-live-audio-glow), transparent 55%), var(--v2-surf-1);
+  box-shadow: inset 3px 0 0 var(--v2-live-audio);
+}
+.ch-card.live .ch-name { color: color-mix(in srgb, var(--v2-live-audio) 45%, var(--v2-text-1)); }
 .ch-card.muted { opacity: 0.7; }
 .ch-card.error { border-color: rgba(229, 100, 93, 0.55); }
 

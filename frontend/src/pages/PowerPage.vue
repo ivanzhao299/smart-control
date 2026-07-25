@@ -674,13 +674,15 @@ onUnmounted(() => { stopRefresh(); });
     0 14px 32px -10px rgba(255, 255, 255, 0.08);
 }
 .circuit-card:hover::after { opacity: 0.85; }
+/* 通电卡: 品类青绿状态光 (2026-07-25 D1) —— 之前是中性白光, 通电/断电只差
+   一点亮度, 扫一眼分不出。改成左光条 + 低饱和青绿辉光, "活着"一眼可见。 */
 .circuit-card.on {
-  border-color: var(--v2-border-soft);
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
+  border-color: color-mix(in srgb, var(--v2-live-power) 35%, var(--v2-border-soft));
+  background: linear-gradient(135deg, var(--v2-live-power-glow), transparent 60%), var(--v2-surf-1);
   box-shadow:
+    inset 3px 0 0 var(--v2-live-power),
     inset 0 1px 0 var(--v2-card-hairline),
-    0 8px 32px -8px rgba(255, 255, 255, 0.08),
-    0 0 40px -10px rgba(255, 255, 255, 0.08) !important;
+    0 8px 32px -8px var(--v2-live-power-glow) !important;
 }
 .circuit-card.on::after { opacity: 1; }
 
