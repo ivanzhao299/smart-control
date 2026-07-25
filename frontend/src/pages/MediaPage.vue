@@ -1035,6 +1035,15 @@ onMounted(async () => {
 @media (max-width: 1100px) {
   .grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
 }
+/* 手机 (2026-07-25 生产级整改): 之前没有手机断点, 列表 7 列固定网格在 ≤400px
+   直接溢出挤压。收敛成 缩略图/名称/操作 三列, 次要列(类型/大小/日期)隐藏 —
+   手机上点开预览都看得到, 列表里不值得占宽度。 */
+@media (max-width: 600px) {
+  .grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .list-row { grid-template-columns: 56px 1fr auto auto; gap: 8px; min-height: 48px; }
+  .kind-tag, .lr-size, .lr-date { display: none; }
+  .lr-name { font-size: 13px; }
+}
 
 /* ── 视图切换按钮组 ── */
 .view-toggle {

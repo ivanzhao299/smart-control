@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
   ArrowLeft, Zap, Power, X, RefreshCw, Activity, Gauge, Lightbulb, Plug,
@@ -157,19 +157,35 @@ async function dispatchMany(targets: PowerCircuitView[], op: 'on' | 'off'): Prom
   }
 }
 
+/** 全场/整层通断电必须二次确认 (2026-07-25 生产级整改, 同空调页口径):
+ *  "全部断电"是全系统后果最重的一键 — 切断全场供电, 误碰不可接受。 */
+async function confirmPower(scope: string, count: number, on: boolean): Promise<boolean> {
+  try {
+    await ElMessageBox.confirm(
+      `确定${on ? '通电' : '断电'}${scope}共 ${count} 路?将逐路下发。`,
+      on ? '通电确认' : '断电确认',
+      { type: 'warning', confirmButtonText: on ? '通电' : '断电', cancelButtonText: '取消' },
+    );
+    return true;
+  } catch { return false; }
+}
 async function allOn(): Promise<void> {
+  if (!(await confirmPower('全部楼层', circuits.value.length, true))) return;
   ElMessage.info(`全部通电 — 逐路下发 (${circuits.value.length} 路, 跨所有楼层)`);
   await dispatchMany(circuits.value, 'on');
 }
 async function allOff(): Promise<void> {
+  if (!(await confirmPower('全部楼层', circuits.value.length, false))) return;
   ElMessage.warning(`全部断电 — 逐路下发 (${circuits.value.length} 路, 跨所有楼层)`);
   await dispatchMany(circuits.value, 'off');
 }
 async function floorOn(): Promise<void> {
+  if (!(await confirmPower(floorTab.value, filteredCircuits.value.length, true))) return;
   ElMessage.info(`${floorTab.value} 通电 — 逐路下发 (${filteredCircuits.value.length} 路)`);
   await dispatchMany(filteredCircuits.value, 'on');
 }
 async function floorOff(): Promise<void> {
+  if (!(await confirmPower(floorTab.value, filteredCircuits.value.length, false))) return;
   ElMessage.warning(`${floorTab.value} 断电 — 逐路下发 (${filteredCircuits.value.length} 路)`);
   await dispatchMany(filteredCircuits.value, 'off');
 }

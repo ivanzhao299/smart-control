@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter, useRoute } from 'vue-router';
 import {
   ArrowLeft, Speaker, Volume2, VolumeX, Play, Sparkles, Music, Square, Pause,
@@ -816,6 +816,13 @@ const allMuted = computed(() =>
   channels.value.length > 0 && channels.value.every((c) => c.muted),
 );
 async function toggleMuteAll(): Promise<void> {
+  // 静音方向加轻确认 (2026-07-25 整改): 全场闭麦在接待中误碰很尴尬; 解除方向免确认
+  if (!allMuted.value) {
+    try {
+      await ElMessageBox.confirm('确定全部静音?全场背景音乐与音源都会闭声。', '全部静音确认',
+        { type: 'warning', confirmButtonText: '全部静音', cancelButtonText: '取消' });
+    } catch { return; }
+  }
   if (allMuted.value) {
     // 解除全部静音: 先发 unmute 命令, 再统一渐响
     const fadeTargets: { z: AudioRow; vol: number }[] = [];
@@ -1668,6 +1675,14 @@ async function toggleMuteAll(): Promise<void> {
 .matrix-head { flex-shrink: 0; margin-bottom: 8px; }
 .matrix-wrap { flex: 1; min-height: 0; overflow: hidden; }
 .matrix-grid { display: grid; gap: 5px; height: 100%; }
+/* 手机 (2026-07-25 生产级整改): 112px + 8 输入列在手机必然溢出 — 矩阵改为
+   容器内横向滚动 (行头 112px 保持可读), 推子区字号/留白同步压缩。 */
+@media (max-width: 600px) {
+  .matrix-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .matrix-grid { min-width: 560px; height: auto; min-height: 100%; }
+  .ch-name { font-size: 12px; }
+  .vol-value { font-size: 13px; }
+}
 .mx-corner {
   font-size: 10px; color: var(--v2-text-3); letter-spacing: 0.5px;
   display: flex; align-items: center; justify-content: center; text-align: center; padding: 4px;

@@ -277,11 +277,20 @@ async function dispatchMany(targets: ZoneRow[], op: 'on' | 'off'): Promise<void>
   }
 }
 
+/** 整馆开/关灯二次确认 (2026-07-25 生产级整改, 同空调/电源页口径) */
 async function allOn(): Promise<void> {
+  try {
+    await ElMessageBox.confirm(`确定开启整馆全部 ${zones.value.length} 个灯光分区?`, '全部开启确认',
+      { type: 'warning', confirmButtonText: '全部开', cancelButtonText: '取消' });
+  } catch { return; }
   ElMessage.info(`全部开启 — 逐区下发 (${zones.value.length} 区)`);
   await dispatchMany(zones.value, 'on');
 }
 async function allOff(): Promise<void> {
+  try {
+    await ElMessageBox.confirm(`确定关闭整馆全部 ${zones.value.length} 个灯光分区?展厅将全场熄灯。`, '全部关闭确认',
+      { type: 'warning', confirmButtonText: '全部关', cancelButtonText: '取消' });
+  } catch { return; }
   ElMessage.warning(`全部关闭 — 逐区下发 (${zones.value.length} 区)`);
   await dispatchMany(zones.value, 'off');
 }

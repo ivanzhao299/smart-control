@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
   ArrowLeft, Activity, RefreshCw, Cpu, MemoryStick, AlertCircle, Wifi,
@@ -83,6 +83,10 @@ async function probe(): Promise<void> {
 
 const clearing = ref(false);
 async function clearFaults(): Promise<void> {
+  try {
+    await ElMessageBox.confirm('确定清空全部旧告警记录?', '清空确认',
+      { type: 'warning', confirmButtonText: '清空', cancelButtonText: '取消' });
+  } catch { return; }
   clearing.value = true;
   try {
     const r = await deviceService.clearGatewayFaults();
@@ -463,6 +467,13 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
 
 @media (max-width: 1100px) {
   .alert-row { grid-template-columns: 1fr; gap: 4px; }
+}
+/* 手机 (2026-07-25 生产级整改): 4 列设备表在窄屏拥挤 — 收成 2 列两行排布, 字号下调 */
+@media (max-width: 600px) {
+  .thead { display: none; }
+  .trow { grid-template-columns: 1.4fr 0.8fr; row-gap: 4px; padding: 10px 8px; font-size: 12px; }
+  .v2-metrics { gap: 8px; }
+  .metric-num { font-size: 22px; }
 }
 
 .link {
