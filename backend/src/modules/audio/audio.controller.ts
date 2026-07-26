@@ -111,6 +111,17 @@ export class AudioController {
   }
 
   /**
+   * 8 路输出的真实音量/静音 — 慢 (~4.6s), 诊断用, 别轮询。
+   * 排查"推子不受控": 界面推完读这里 —— 设备值跟着变 = 指令到位, 现场听感
+   * 却没变就去查功放侧 (功放自带音量旋钮 / 喇叭线没走矩阵输出)。
+   */
+  @Get('outputs/live')
+  async getLiveOutputs() {
+    const result = await this.audio.readOutputChannels();
+    return { message: result.ok ? 'ok' : 'failed', data: result };
+  }
+
+  /**
    * @deprecated 本地 JSON 文件里的矩阵点击记录 — **不是设备状态**.
    * 保留只为兼容老前端; 新代码一律用 GET matrix/live 问设备本人.
    */

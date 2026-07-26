@@ -160,6 +160,38 @@ if (Test-Path $flag) {
 }
 
 Add-WtsType
+
+# One-time migration (2026-07-26): SmartControl-AutoUpdate fires every 90s and
+# launched powershell.exe DIRECTLY. Windows creates the console window BEFORE
+# -WindowStyle Hidden can apply, so every tick FLASHED a black window over the
+# kiosk and dragged the taskbar on top of the wall (owner report: "windows keep
+# popping up, taskbar shows over the screen"). Same disease this watchdog's own
+# -Register block fixed on 2026-07-18: route the launch through a wscript.exe
+# stub (GUI subsystem host - no console ever exists). This block runs elevated
+# every minute but only acts while the task still points at powershell.exe;
+# after the rewrite it is a cheap no-op.
+try {
+  $auTask = Get-ScheduledTask -TaskName 'SmartControl-AutoUpdate' -ErrorAction SilentlyContinue
+  if ($auTask -and (@($auTask.Actions)[0].Execute -notmatch 'wscript')) {
+    $vbsPath = Join-Path $PSScriptRoot 'run-hidden.vbs'
+    if (-not (Test-Path $vbsPath)) {
+      $vbsBody = @'
+' Hidden PowerShell launcher -- see player-watchdog.ps1 -Register block.
+Set sh = CreateObject("WScript.Shell")
+sh.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -File """ & WScript.Arguments(0) & """", 0, False
+'@
+      Set-Content -Path $vbsPath -Value $vbsBody -Encoding ASCII
+    }
+    $auWatcherPs1 = Join-Path $PSScriptRoot 'auto-update-watcher.ps1'
+    $newAct = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\wscript.exe" `
+      -Argument ('"' + $vbsPath + '" "' + $auWatcherPs1 + '"') -WorkingDirectory $RepoRoot
+    Set-ScheduledTask -TaskName 'SmartControl-AutoUpdate' -Action $newAct | Out-Null
+    Log 'migrated SmartControl-AutoUpdate task to hidden wscript launcher (no more console flash over the kiosk)'
+  }
+} catch {
+  Log ('SmartControl-AutoUpdate migration failed (will retry next tick): ' + $_.Exception.Message)
+}
+
 $reattached = $false
 $mySession = (Get-Process -Id $PID).SessionId
 $consoleSession = Get-ConsoleSessionId

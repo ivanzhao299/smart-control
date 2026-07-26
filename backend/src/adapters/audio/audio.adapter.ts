@@ -175,6 +175,15 @@ export class AudioAdapter extends BaseAdapter {
     return (impl as EkxDspAdapter).readInputChannels(ctx);
   }
 
+  /** 8 路输出真实音量 + 静音 (EKX 专属) — 诊断"推子不受控"用 */
+  readOutputChannels(ctx?: AdapterContext) {
+    const impl = this.impl();
+    if (!('readOutputChannels' in impl)) {
+      throw new Error('当前音频适配器不支持读输出通道 (仅 EKX-808)');
+    }
+    return (impl as EkxDspAdapter).readOutputChannels(ctx);
+  }
+
   async readLevel(io: 0 | 1 | 2, channel: number, ctx?: AdapterContext): Promise<AdapterResult<{ db: number }>> {
     if (this.isMock()) {
       return { ok: true, deviceId: 'audio-dsp', command: 'readLevel', data: { db: -20 }, mock: true, durationMs: 0 };

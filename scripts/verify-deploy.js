@@ -387,6 +387,14 @@ async function main() {
     } else {
       console.log('  ' + RED('WARN') + ' 矩阵实时读取失败: ' + (m && m.error ? m.error : `HTTP ${rm.code}`));
     }
+    // 输出音量回读 (慢 ~4.6s): 诊断"推子不受控" — 界面推完看这里, 设备值变了
+    // 说明指令到位, 听感没变就查功放侧。老部署没有这个接口, 404 静默跳过。
+    const ro = await httpGet(3200, '/api/audio/outputs/live');
+    const o = ro.code === 200 ? JSON.parse(ro.body).data : null;
+    if (o && o.ok && o.data && Array.isArray(o.data.channels)) {
+      console.log('  设备输出音量: ' + o.data.channels
+        .map((c) => `OUT${c.ch + 1}=${c.volume ?? '?'}%${c.muted ? '(静音)' : ''}`).join(' '));
+    }
   } catch (e) {
     console.log('  ' + RED('WARN') + ' 音频矩阵探测异常: ' + e.message);
   }

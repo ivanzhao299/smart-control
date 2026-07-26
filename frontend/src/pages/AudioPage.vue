@@ -574,6 +574,29 @@ function displayAddr(z: AudioRow): string {
   const mate = partnerOf(z);
   return mate ? `${z.id.toUpperCase()}+${mate.channel + 1}` : z.id.toUpperCase();
 }
+/** 立体声卡里的两行: [左, 右] — 模板 v-for 用, 避免模板里写非空断言 */
+function duoRows(z: AudioRow): AudioRow[] {
+  const mate = partnerOf(z);
+  return mate ? [z, mate] : [z];
+}
+
+// ============ 立体声联动 (2026-07-26 业主: 两个推子放一起推, 也可单独推) ============
+// key = 左路 z.id。默认联动: 推任意一边, 两边一起走; 点"联动"徽标切到"独立",
+// 左右各推各的 (比如现场左右喇叭灵敏度不一致要做平衡)。
+const stereoLink = ref<Record<string, boolean>>({});
+function pairLeftId(z: AudioRow): string | null {
+  const pid = pairPartnerId.value[z.id];
+  if (!pid) return null;
+  return z.name.endsWith('·左') ? z.id : pid;
+}
+function linkOn(z: AudioRow): boolean {
+  const key = pairLeftId(z);
+  return key ? (stereoLink.value[key] ?? true) : false;
+}
+function toggleLink(z: AudioRow): void {
+  const key = pairLeftId(z);
+  if (key) stereoLink.value = { ...stereoLink.value, [key]: !(stereoLink.value[key] ?? true) };
+}
 
 // 页内 tab: 一键场景 / 背景音乐 / 分区音量 / 音源矩阵 — 一屏一组, 不上下滚
 const audioTab = ref<'scene' | 'bgm' | 'zones' | 'matrix'>('scene');
@@ -744,23 +767,43 @@ function saveMuteState(): void {
   localStorage.setItem(MUTE_STATE_KEY, JSON.stringify(state));
 }
 
-async function applyVolume(z: AudioRow, value: number): Promise<void> {
-  const prev = z.volume;
-  z.volume = value;
-  z.error = null;
-  try {
-    const res = await audioService.setVolume(z.id, value, z.zone);
-    if (!res.ok) throw new Error(res.error || '执行失败');
-    // 立体声对: 右声道跟随左声道 (对方失败不回滚主路, 静默重试交给下次操作)
-    const mate = partnerOf(z);
-    if (mate) {
-      mate.volume = value;
-      void audioService.setVolume(mate.id, value, mate.zone).catch(() => {});
+/**
+ * 音量指令合并发送 (2026-07-26 业主: "推子响应不够及时"):
+ * 之前只在松手时发一条, 拖动全程设备毫无反应; 而拖动中每个 move 都发的话,
+ * EKX 单客户端串行 ~300ms/条, 排队全发必然越拖越滞后。
+ * 改成每通道一个"在飞 + 最新待发"槽: 上一条在路上时只记住最新值, 回来立刻发
+ * 最新值, 中间值全部丢弃 —— 拖多快, 设备最多落后一条命令 (~300ms)。
+ */
+const volSend: Record<string, { inflight: boolean; pending: number | null }> = {};
+function queueVolume(z: AudioRow): void {
+  let st = volSend[z.id];
+  if (!st) { st = { inflight: false, pending: null }; volSend[z.id] = st; }
+  st.pending = z.volume;
+  if (st.inflight) return;
+  st.inflight = true;
+  void (async () => {
+    while (st.pending !== null) {
+      const v = st.pending;
+      st.pending = null;
+      try {
+        const res = await audioService.setVolume(z.id, v, z.zone);
+        if (!res.ok) throw new Error(res.error || '执行失败');
+        z.error = null;
+      } catch (err) {
+        z.error = (err as Error).message;
+      }
     }
-  } catch (err) {
-    z.volume = prev;
-    z.error = (err as Error).message;
-    ElMessage.error(`${z.name} 音量调节失败: ${z.error}`);
+    st.inflight = false;
+  })();
+}
+/** 拖动/点击设值统一入口: 本路 + (联动时) 对路一起, 实时下发 */
+function setFaderValue(z: AudioRow, v: number): void {
+  z.volume = v;
+  queueVolume(z);
+  const mate = partnerOf(z);
+  if (mate && linkOn(z)) {
+    mate.volume = v;
+    queueVolume(mate);
   }
 }
 /**
@@ -789,18 +832,20 @@ function onFaderPointerDown(z: AudioRow, ev: PointerEvent): void {
   const track = ev.currentTarget as HTMLElement;
   track.setPointerCapture(ev.pointerId);
   draggingFaderId.value = z.id;
-  z.volume = faderPercentFromY(track, ev.clientY);
+  setFaderValue(z, faderPercentFromY(track, ev.clientY));
 }
 function onFaderPointerMove(z: AudioRow, ev: PointerEvent): void {
   if (draggingFaderId.value !== z.id) return;
-  z.volume = faderPercentFromY(ev.currentTarget as HTMLElement, ev.clientY);
+  // 拖动中实时下发 (queueVolume 合并, 不排队) —— 声音跟手, 不是松手才响应
+  setFaderValue(z, faderPercentFromY(ev.currentTarget as HTMLElement, ev.clientY));
 }
 function onFaderPointerUp(z: AudioRow, ev: PointerEvent): void {
   if (draggingFaderId.value !== z.id) return;
   draggingFaderId.value = null;
   const track = ev.currentTarget as HTMLElement;
   if (track.hasPointerCapture(ev.pointerId)) track.releasePointerCapture(ev.pointerId);
-  void applyVolume(z, z.volume);
+  setFaderValue(z, z.volume);
+  if (z.error) ElMessage.error(`${z.name} 音量调节失败: ${z.error}`);
 }
 
 /**
@@ -1187,11 +1232,38 @@ async function toggleMuteAll(): Promise<void> {
             </button>
           </div>
           <div class="ch-addr v2-inter">
-            {{ displayAddr(z) }}<span v-if="isStereo(z)" class="stereo-badge">立体声</span>
+            {{ displayAddr(z) }}<span
+              v-if="isStereo(z)"
+              class="stereo-badge"
+              :class="{ off: !linkOn(z) }"
+              role="button"
+              :title="linkOn(z) ? '联动中: 推任意一边左右一起走, 点击切为独立' : '独立中: 左右各推各的, 点击恢复联动'"
+              @click.stop="toggleLink(z)"
+            >{{ linkOn(z) ? '联动' : '独立' }}</span>
+          </div>
+          <!-- 立体声对: 左右两根推子并排 (2026-07-26 业主), 联动时一起走, 独立时各推各的 -->
+          <div v-if="isStereo(z)" class="fader-duo">
+            <div v-for="(r, di) in duoRows(z)" :key="r.id" class="fader-col">
+              <div class="duo-label v2-inter">{{ di === 0 ? '左' : '右' }} {{ r.volume }}</div>
+              <div
+                class="fader"
+                :class="{ disabled: r.muted, dragging: draggingFaderId === r.id }"
+                @pointerdown="onFaderPointerDown(r, $event)"
+                @pointermove="onFaderPointerMove(r, $event)"
+                @pointerup="onFaderPointerUp(r, $event)"
+                @pointercancel="onFaderPointerUp(r, $event)"
+              >
+                <div class="fader-track">
+                  <div class="fader-fill" :style="{ height: r.volume + '%' }"></div>
+                </div>
+                <div class="fader-thumb" :style="{ bottom: 'calc(' + r.volume + '% - 8px)' }" aria-hidden="true"></div>
+              </div>
+            </div>
           </div>
           <!-- 触摸/拖动接收区是整个 .fader (不是 12px 窄轨) —— 手指粗, 按窄轨极易
                滑出, 一滑出 iOS 就当页面滚动。整块接收 + 拖动中全局锁滚动才不抖。 -->
           <div
+            v-else
             class="fader"
             :class="{ disabled: z.muted, dragging: draggingFaderId === z.id }"
             @pointerdown="onFaderPointerDown(z, $event)"
@@ -1205,7 +1277,8 @@ async function toggleMuteAll(): Promise<void> {
             <div class="fader-thumb" :style="{ bottom: 'calc(' + z.volume + '% - 8px)' }" aria-hidden="true"></div>
           </div>
           <button class="v2-toggle" :class="{ on: !z.muted }" @click="toggleMute(z)"></button>
-          <span class="vol-value v2-inter">{{ z.volume }}<span class="pct">%</span></span>
+          <span v-if="isStereo(z)" class="vol-value v2-inter">{{ z.volume }}<span class="pct">%</span> · {{ partnerOf(z)?.volume ?? '–' }}<span class="pct">%</span></span>
+          <span v-else class="vol-value v2-inter">{{ z.volume }}<span class="pct">%</span></span>
         </div>
       </div>
     </section>
@@ -1683,12 +1756,29 @@ async function toggleMuteAll(): Promise<void> {
 
 .ch-name { font-size: 13px; font-weight: 600; color: var(--v2-text-1); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; flex-shrink: 0; }
 .ch-addr { font-size: 10px; color: var(--v2-text-3); letter-spacing: 1px; text-align: center; flex-shrink: 0; }
-/* 立体声对徽标 — 两路合一张卡时的身份提示 */
+/* 立体声对徽标 — 现在也是联动/独立切换按钮 (2026-07-26) */
 .stereo-badge {
   display: inline-block; margin-left: 4px; padding: 0 5px;
   font-size: 9px; letter-spacing: 0; line-height: 14px; border-radius: 7px;
   color: var(--v2-accent); background: color-mix(in srgb, var(--v2-accent) 14%, transparent);
+  cursor: pointer; user-select: none;
 }
+.stereo-badge.off {
+  color: var(--v2-text-3);
+  background: color-mix(in srgb, var(--v2-text-3) 14%, transparent);
+}
+
+/* 立体声双推子: 左右两根并排, 各自可拖; 联动时逻辑层同步, 界面看着一起走 */
+.fader-duo {
+  flex: 1; min-height: 70px; width: 100%;
+  display: flex; gap: 4px; justify-content: center;
+}
+.fader-col {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.duo-label { font-size: 10px; color: var(--v2-text-3); flex-shrink: 0; white-space: nowrap; }
+.fader-col .fader { min-height: 50px; }
 
 .v2-toggle {
   position: relative; width: 42px; height: 24px;

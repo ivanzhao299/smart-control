@@ -50,9 +50,22 @@ if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
   Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
 }
 
+# 2026-07-26: 不再直接拉 powershell.exe —— Windows 先建控制台窗口再应用
+# -WindowStyle Hidden, 每次触发 (90s 一次!) 都在 kiosk 大屏上闪一下黑窗并把
+# 任务栏带出来。走 wscript.exe 无控制台启动器 (同 player-watchdog -Register,
+# run-hidden.vbs 由它生成/维护), 从创建那一刻就是隐藏的。
+$vbsPath = Join-Path $projectRoot 'scripts\run-hidden.vbs'
+if (-not (Test-Path $vbsPath)) {
+  $vbsBody = @'
+' Hidden PowerShell launcher -- see player-watchdog.ps1 -Register block.
+Set sh = CreateObject("WScript.Shell")
+sh.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -File """ & WScript.Arguments(0) & """", 0, False
+'@
+  Set-Content -Path $vbsPath -Value $vbsBody -Encoding ASCII
+}
 $action = New-ScheduledTaskAction `
-  -Execute 'powershell.exe' `
-  -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$watcher`"" `
+  -Execute "$env:SystemRoot\System32\wscript.exe" `
+  -Argument ('"' + $vbsPath + '" "' + $watcher + '"') `
   -WorkingDirectory $projectRoot
 
 # Trigger: 30s 后开始, 之后每 N 秒一次, 持续 10 年

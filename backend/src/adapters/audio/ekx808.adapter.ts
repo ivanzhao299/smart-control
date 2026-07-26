@@ -519,6 +519,35 @@ export class EkxDspAdapter extends BaseAdapter {
     });
   }
 
+  /**
+   * 8 路输出的真实音量(%) + 静音 — 排查"分区推子不受控"用 (2026-07-26):
+   * 界面推完来这里问设备本人 —— 值跟着变 = 指令到达设备, 现场还听不到变化
+   * 就是矩阵之后的物理链路问题 (功放自带音量旋钮 / 接线绕过了矩阵输出)。
+   * 慢 (16 次往返 × ~280ms), 诊断用, 别放轮询。
+   */
+  async readOutputChannels(
+    ctx?: AdapterContext,
+  ): Promise<AdapterResult<{ channels: Array<{ ch: number; volume: number | null; muted: boolean | null }> }>> {
+    return this.run('audio-dsp', 'readOutputChannels', ctx, async () => {
+      this.failFastIfOffline();
+      const channels: Array<{ ch: number; volume: number | null; muted: boolean | null }> = [];
+      for (let ch = 0; ch < 8; ch += 1) {
+        let volume: number | null = null;
+        let muted: boolean | null = null;
+        try {
+          const g = await this.send(cmdReadGain(this.devAddr, IO_OUT, ch as ChannelIndex), ctx?.signal, true);
+          if (g.length >= 4) volume = Math.round(this.dbToPercent(codeToDb(g[2], g[3])));
+        } catch { /* 单路读不到不拖垮整批, 留 null = 未知 */ }
+        try {
+          const m = await this.send(cmdReadMute(this.devAddr, IO_OUT, ch as ChannelIndex), ctx?.signal, true);
+          if (m.length >= 3) muted = m[2] === 1;
+        } catch { /* 同上 */ }
+        channels.push({ ch, volume, muted });
+      }
+      return { channels };
+    });
+  }
+
   async readCurrentScene(ctx?: AdapterContext): Promise<AdapterResult<{ preset: number }>> {
     return this.run('audio-dsp', 'readCurrentScene', ctx, async () => {
       const resp = await this.send(cmdReadPreset(this.devAddr), ctx?.signal, true);
