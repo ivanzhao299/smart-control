@@ -777,6 +777,7 @@ async function submitWebpage(): Promise<void> {
 
 /* 正在播 + 控制条 */
 .now {
+  position: relative; /* alert 插槽绝对定位锚点 (投影页警示行不撑高卡片) */
   display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
   padding: 14px 16px; border-radius: 14px;
   background: var(--v2-surf-1, #14161A); border: 1px solid var(--v2-border-soft);

@@ -70,11 +70,15 @@ onUnmounted(() => { if (timer) clearInterval(timer); });
 <style scoped>
 .out-bar {
   /* 2026-07-25 业主: 只要文字不要文本框 — 一行警示小字, 零底色零边框 */
-  /* 2026-07-26: 已移入播放卡片内部 (PlayerConsole .now), 卡片自带内边距, 去掉外边距 */
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  margin: 0;
+  /* 2026-07-26 业主: "投影卡片被两行文字撑高, 要和 LED 卡片高度一致" —
+     改绝对定位悬浮在卡片右上角, 完全不占布局高度; 单行省略不换行 */
+  position: absolute; top: 8px; right: 14px; max-width: 62%;
+  display: flex; align-items: center; gap: 6px; flex-wrap: nowrap;
+  margin: 0; overflow: hidden;
   font-size: 12px; font-weight: 500;
 }
+.out-bar > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.out-btn { flex: 0 0 auto; }
 .out-bar b { font-weight: 700; }
 .out-bar.warn { color: var(--v2-warning); }
 .out-bar.unknown { color: var(--v2-danger); }

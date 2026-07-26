@@ -681,8 +681,11 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
         <div class="cell-mline">
           <span v-if="!row.state.known">未读到状态</span>
           <template v-else>
-            <span v-if="row.state.roomTemp !== undefined">室温{{ row.state.roomTemp }}°</span>
-            <span v-if="row.state.on" :class="'m-' + row.state.mode">{{ row.state.temperature }}° {{ modeLabel(row.state.mode) }}</span>
+            <!-- 2026-07-26 业主: "内机卡温度状态都没有了" — 室温/设定改为**始终显示**
+                 (关机也显示, 室温没读到显示 –), 不再按开关机/有无读数时隐时现 -->
+            <span class="mline-room">室温{{ row.state.roomTemp ?? '–' }}°</span>
+            <span v-if="row.state.on" :class="'m-' + row.state.mode">设定{{ row.state.temperature }}° {{ modeLabel(row.state.mode) }}</span>
+            <span v-else class="mline-off">设定{{ row.state.temperature }}° 关</span>
             <span class="mline-zone">{{ zoneNameOf(row.zoneCode) }}</span>
           </template>
         </div>
@@ -789,8 +792,11 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
         <div class="cell-mline">
           <span v-if="!row.state.known">未读到状态</span>
           <template v-else>
-            <span v-if="row.state.roomTemp !== undefined">室温{{ row.state.roomTemp }}°</span>
-            <span v-if="row.state.on" :class="'m-' + row.state.mode">{{ row.state.temperature }}° {{ modeLabel(row.state.mode) }}</span>
+            <!-- 2026-07-26 业主: "内机卡温度状态都没有了" — 室温/设定改为**始终显示**
+                 (关机也显示, 室温没读到显示 –), 不再按开关机/有无读数时隐时现 -->
+            <span class="mline-room">室温{{ row.state.roomTemp ?? '–' }}°</span>
+            <span v-if="row.state.on" :class="'m-' + row.state.mode">设定{{ row.state.temperature }}° {{ modeLabel(row.state.mode) }}</span>
+            <span v-else class="mline-off">设定{{ row.state.temperature }}° 关</span>
             <span class="mline-zone">{{ zoneNameOf(row.zoneCode) }}</span>
           </template>
         </div>
@@ -926,7 +932,12 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 }
 
 /* ---- 顶栏 ---- */
-.hv-head { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; }
+.hv-head { display: flex; align-items: center; gap: 14px; flex: 0 0 auto;
+  /* 2026-07-26 业主: "顶部还没锁定, 还可以上下滑动" — 双保险: 即使父容器
+     (.v2-main) 因高度链断裂发生滚动, sticky 也把顶栏钉在最上, 永不滚出 */
+  position: sticky; top: 0; z-index: 5;
+  background: var(--v2-bg-0);
+  padding-bottom: 4px; }
 .hv-title {
   display: flex; align-items: center; gap: 6px;
   font-size: 20px; font-weight: 700; color: var(--v2-text-1, #e8eef7); white-space: nowrap;
@@ -1257,7 +1268,9 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
    物理上放不下; 硬塞的结果就是 cell-body 被压到 13px、温度和"关机"叠在一起(实测)。
    宁可让网格自己滚, 也不能让内容糊成一团或凭空消失。 */
 @media (max-width: 900px) {
-  .hv-page { height: 100dvh; padding: 8px; gap: 8px; }
+  /* 100dvh 比 .v2-main 实际可用高度 (去掉顶栏/底栏) 高, 撑破父容器 → 整页
+     可滚、顶部跟着滚走 (2026-07-26 业主实测)。改 100% 精确贴合父容器。 */
+  .hv-page { height: 100%; padding: 8px; gap: 8px; }
   /* 2026-07-25 生产级整改: 卡片紧凑化 — 原来一张卡 200px+ 高, 22 台滚 5 屏;
      压缩 padding/字号后同屏 8 张, 全场状态两屏扫完。 */
   .hv-grid {
@@ -1283,6 +1296,8 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
     margin-top: 2px;
   }
   .cell-mline .mline-zone { color: var(--v2-text-3); overflow: hidden; text-overflow: ellipsis; }
+  .cell-mline .mline-room { color: var(--v2-text-1); font-weight: 600; }
+  .cell-mline .mline-off { color: var(--v2-text-3); }
   .cell-mline .m-cool { color: color-mix(in srgb, #38d6ff 62%, var(--v2-text-1)); }
   .cell-mline .m-heat { color: color-mix(in srgb, #ff8a4d 62%, var(--v2-text-1)); }
   .cell-mline .m-fan  { color: color-mix(in srgb, #4ce0be 62%, var(--v2-text-1)); }
