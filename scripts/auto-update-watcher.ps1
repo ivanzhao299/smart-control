@@ -227,16 +227,19 @@ try {
   # (cnjinhu backend 报 "Expected ',' or '}' after property value in JSON at position 439"),
   # 心跳整体被拒 400 → 远端永远看不到状态. 简化掉, 改成只发关键标量.
   $procInfo = @{ distMain = $null; distMainMtime = $null; distMainAgeSec = $null; pm2Status = $null; pm2Restarts = $null }
+  # 【2026-07-26 根治泄漏】绝不在这里调用 `& pm2 jlist`。
+  # 根因: boot-pm2.ps1 用 WMI Win32_Process.Create 把 pm2 守护"脱离"启动 (刻意为之,
+  # 免得守护随会话死)。但 pm2 CLI 在 Windows 上靠命名管道找守护, 而管道是按会话
+  # 隔离的 —— watcher 这个计划任务在另一个会话里跑 `pm2 jlist`, 看不见那个脱离的
+  # 守护, 于是每次都 fork 一个自己的新守护。watcher 每 ~90s 一轮 = 每 90s 泄漏一个
+  # 孤儿 pm2 daemon, 几小时堆到几十个, 句柄/进程创建资源耗尽把整机拖死 (2026-07-25
+  # 现场卡到连 shutdown 都 spawn 不出来, 只能物理断电)。设 PM2_HOME 也堵不住 ——
+  # 跨会话管道问题跟家目录无关。
+  # 诊断字段改用"不 spawn 任何进程"的方式拿: 直接探端口判断后端在不在。
   try {
-    # pm2 jlist 输出 → 只挑标量字段, 避免嵌套深度
-    $pm2raw = & pm2 jlist 2>&1 | Out-String
-    $pm2arr = $pm2raw | ConvertFrom-Json -ErrorAction Stop
-    $sc = $pm2arr | Where-Object { $_.name -eq 'smart-control-backend' } | Select-Object -First 1
-    if ($sc) {
-      $procInfo.pm2Status = [string]$sc.pm2_env.status
-      $procInfo.pm2Restarts = [int]$sc.pm2_env.restart_time
-    }
-  } catch { $procInfo.pm2Status = 'pm2-error' }
+    $listening = [bool](Get-NetTCPConnection -LocalPort 3200 -State Listen -ErrorAction SilentlyContinue)
+    $procInfo.pm2Status = if ($listening) { 'backend-listening' } else { 'backend-down' }
+  } catch { $procInfo.pm2Status = 'probe-error' }
 
   # 直接枚举所有 node.exe 进程 — 不依赖 pm2 daemon 是否健康。
   # 2026-07-25: 只留前 15 个 + 总数。之前不设上限, 僵尸 node 堆积几十个时,
