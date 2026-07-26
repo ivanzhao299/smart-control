@@ -278,16 +278,46 @@ foreach ($c in $channels) {
   }
 }
 
+# Git-driven forced relaunch (2026-07-26). Heartbeats can be perfectly fresh
+# while every kiosk window sits on the WRONG monitor: the LED breaker was
+# power-cycled today -> the HDMI1 display vanished -> Windows moved the windows
+# to the surviving monitor -> the display came back but the windows never move
+# back, so the wall shows the bare desktop while all three slots heartbeat
+# happily. Staleness cannot see that. Remote lever: change the CONTENT of
+# scripts\relaunch-players.token (delivered by the ordinary git pull); the next
+# tick relaunches all players once and records the processed token so it does
+# not loop. The done-marker lives under logs\ (untracked) on purpose - writing
+# a tracked file would trip the deploy script's clean-worktree check.
+$tokenFile = Join-Path $PSScriptRoot 'relaunch-players.token'
+$doneFile  = Join-Path $RepoRoot 'logs\player-relaunch.done'
+$forceRelaunch = $false
+if (Test-Path $tokenFile) {
+  $token = ''
+  try { $token = (Get-Content $tokenFile -Raw -ErrorAction Stop).Trim() } catch { }
+  $done = ''
+  if (Test-Path $doneFile) {
+    try { $done = (Get-Content $doneFile -Raw -ErrorAction Stop).Trim() } catch { }
+  }
+  if ($token -and $token -ne $done) {
+    Log ('relaunch token changed -> forcing player relaunch (token: ' + $token + ')')
+    # Record BEFORE relaunching so a crashing relaunch cannot retrigger forever.
+    try { Set-Content -Path $doneFile -Value $token -Encoding UTF8 } catch { }
+    $forceRelaunch = $true
+  }
+}
+
 # A session we just reattached ALWAYS needs a relaunch, even if every slot
 # heartbeats: the windows were placed against the RDP virtual display, so their
 # coordinates mean nothing on the real 3-monitor layout. Restart to re-place them.
-if ($stale.Count -eq 0 -and -not $reattached) { exit 0 }
+if ($stale.Count -eq 0 -and -not $reattached -and -not $forceRelaunch) { exit 0 }
 
 # 4. Relaunch all players (start-players.ps1 kills every slot first, so
 #    per-slot restart is not possible; a short blink on healthy screens
 #    is acceptable for recovery).
 if ($reattached) {
   Log ('reattached to console -> restarting players to re-place windows (stale: ' + ($stale -join ',') + ')')
+} elseif ($forceRelaunch) {
+  Log ('forced relaunch via token -> restarting players to re-place windows')
 } else {
   Log ('stale slots: ' + ($stale -join ',') + ' -> restarting players')
 }
