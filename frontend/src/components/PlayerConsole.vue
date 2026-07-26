@@ -104,20 +104,28 @@ async function gotoDocPage(p: number): Promise<void> {
   } finally { pageBusy = false; }
 }
 
-// ============ 屏幕电源开关 (2026-07-25 业主: LED=空开 / 投影=时序器第8路) ============
-const powerCircuit = ref<PowerCircuitView | null>(null);
+// ============ 屏幕电源开关 ============
+// powerCode 支持逗号分隔多个回路 code (2026-07-26 业主: 投影仪与视频拼接器
+// 同时工作, 一个开关同开同关 —— 投影页传 "seq-5,seq-4")。开关状态 = 全部通电
+// 才亮; 拨动 = 所有回路一起 on/off (时序器自身按各路延时依次动作, 保护设备)。
+const powerCircuits = ref<PowerCircuitView[]>([]);
 async function loadPowerCircuit(): Promise<void> {
   if (!props.powerCode) return;
+  const codes = props.powerCode.split(',').map((s) => s.trim()).filter(Boolean);
   try {
     const list = await powerCircuitsService.list();
-    powerCircuit.value = list.find((c) => c.code === props.powerCode) ?? null;
+    powerCircuits.value = codes
+      .map((code) => list.find((c) => c.code === code))
+      .filter((c): c is PowerCircuitView => !!c);
   } catch { /* 电源子系统不可达时不显示开关 */ }
 }
+const powerAllOn = computed(
+  () => powerCircuits.value.length > 0 && powerCircuits.value.every((c) => c.reading.on),
+);
 const powerBusy = ref(false);
 async function togglePower(): Promise<void> {
-  const c = powerCircuit.value;
-  if (!c || powerBusy.value) return;
-  const on = c.reading.on;
+  if (!powerCircuits.value.length || powerBusy.value) return;
+  const on = powerAllOn.value;
   if (on) {
     try {
       await ElMessageBox.confirm(`确定断开${props.title}电源?画面会熄灭。`, '断电确认',
@@ -126,11 +134,21 @@ async function togglePower(): Promise<void> {
   }
   powerBusy.value = true;
   try {
-    const updated = on ? await powerCircuitsService.off(c.id) : await powerCircuitsService.on(c.id);
-    powerCircuit.value = updated;
-    ElMessage.success(on ? `${props.title}电源已断开` : `${props.title}电源已接通`);
-  } catch (e) {
-    ElMessage.error(`电源操作失败: ${(e as Error).message}`);
+    // 逐个下发 (共用一条串口链路, 并发会互踩); 部分失败也把能做的做完, 最后统一报
+    const failed: string[] = [];
+    for (let i = 0; i < powerCircuits.value.length; i += 1) {
+      const c = powerCircuits.value[i];
+      try {
+        powerCircuits.value[i] = on ? await powerCircuitsService.off(c.id) : await powerCircuitsService.on(c.id);
+      } catch (e) {
+        failed.push(`${c.name}: ${(e as Error).message}`);
+      }
+    }
+    if (failed.length) {
+      ElMessage.error(`部分电源操作失败: ${failed.join('; ')}`);
+    } else {
+      ElMessage.success(on ? `${props.title}电源已断开` : `${props.title}电源已接通`);
+    }
   } finally { powerBusy.value = false; }
 }
 
@@ -463,20 +481,20 @@ async function submitWebpage(): Promise<void> {
       <span v-if="ch && !ch.alive" class="led-warn" title="播放器没有心跳">
         <AlertTriangle :size="14" /> 播放器离线
       </span>
-      <!-- 屏幕电源开关 (2026-07-26 业主: 放到"待机"状态同一行末尾, 时序器拨动样式):
-           LED=空开(1f-led) / 投影=时序器第8路(seq-8) -->
-      <div v-if="powerCircuit" class="now-power">
+      <!-- 屏幕电源开关 (放"待机"状态行末尾, 时序器拨动样式):
+           LED=空开(1f-led) / 投影=时序器 5 路投影仪 + 4 路视频拼接器 联动 (seq-5,seq-4) -->
+      <div v-if="powerCircuits.length" class="now-power">
         <Power :size="15" :stroke-width="2" />
         <span class="np-label">电源</span>
         <button
           class="v2-toggle"
-          :class="{ on: powerCircuit.reading.on }"
+          :class="{ on: powerAllOn }"
           :disabled="powerBusy"
-          :title="powerCircuit.reading.on ? '断开电源' : '接通电源'"
+          :title="(powerAllOn ? '断开' : '接通') + powerCircuits.map((c) => c.name).join('+')"
           @click="togglePower"
         ></button>
-        <span class="np-state" :class="{ on: powerCircuit.reading.on }">
-          {{ powerCircuit.reading.on ? '已通电' : '已断电' }}
+        <span class="np-state" :class="{ on: powerAllOn }">
+          {{ powerAllOn ? '已通电' : (powerCircuits.some((c) => c.reading.on) ? '部分通电' : '已断电') }}
         </span>
       </div>
     </header>
