@@ -51,6 +51,42 @@ function Invoke-Native([string]$FilePath, [string[]]$Arguments) {
   }
 }
 
+function Invoke-DetachedResurrect {
+  # Bring pm2 (daemon + both apps) back WITHOUT tying the daemon to this SSH
+  # session. An in-session `pm2 resurrect` respawns the daemon INSIDE the SSH
+  # session; when the session exits the daemon dies and takes both services
+  # with it - CI green, production dead (the 2026-07-25 "SSH session trap",
+  # and the most likely shape of the 2026-07-26 afternoon outage: services
+  # died hours after a green deploy with no new commits in between).
+  # WMI Win32_Process.Create detaches the process into session 0. WMI does not
+  # pass the caller environment, so PM2_HOME is injected into the command line
+  # (same proven trick as boot-pm2.ps1).
+  $pm2 = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
+  if (-not (Test-Path $pm2)) { $pm2 = 'pm2' }
+  $pm2Home = 'C:\Users\user\.pm2'
+
+  # Clear surviving orphan port holders first: resurrect on top of one
+  # crash-loops on EADDRINUSE (the 2026-07-15 421-restart incident).
+  foreach ($port in @(3200, 5173)) {
+    $owners = @(
+      Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty OwningProcess -Unique
+    )
+    foreach ($opid in $owners) {
+      if ($opid -and $opid -gt 0) {
+        Write-DeployLog ("  port {0} held by pid {1} -> stop" -f $port, $opid)
+        Stop-Process -Id $opid -Force -ErrorAction SilentlyContinue
+      }
+    }
+  }
+  Start-Sleep -Seconds 2
+
+  $cmd = "cmd /c `"set PM2_HOME=$pm2Home && $pm2 resurrect`""
+  Write-DeployLog "WMI detached resurrect: $cmd"
+  $r = ([wmiclass]'\\.\root\cimv2:Win32_Process').Create($cmd, 'C:\Users\user', $null)
+  Write-DeployLog ("  WMI ProcessId={0} ReturnValue={1}" -f $r.ProcessId, $r.ReturnValue)
+}
+
 function Restart-Services {
   # Restart through pm2, not scheduled tasks. Since 2026-07-16 pm2 is the single
   # owner of both services (SmartControlBackend boot-resurrects pm2,
@@ -101,22 +137,14 @@ function Restart-Services {
   # on EADDRINUSE. Clear the port holders first, then resurrect from the last
   # `pm2 save` dump -- the worktree is already at the target commit, so resurrect
   # brings up the NEW code.
-  Write-DeployLog 'pm2 daemon had no such process -> clearing port holders, then resurrect'
-  foreach ($port in @(3200, 5173)) {
-    $owners = @(
-      Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
-        Select-Object -ExpandProperty OwningProcess -Unique
-    )
-    foreach ($opid in $owners) {
-      if ($opid -and $opid -gt 0) {
-        Write-DeployLog ("  port {0} held by orphan pid {1} -> stop" -f $port, $opid)
-        Stop-Process -Id $opid -Force -ErrorAction SilentlyContinue
-      }
-    }
-  }
-  Start-Sleep -Seconds 2
-  Invoke-Native $pm2 @('resurrect')
-  Invoke-Native $pm2 @('save')
+  # 2026-07-26: resurrect DETACHED, not in-session. The old in-session
+  # `pm2 resurrect` here rebuilt everything inside this SSH session - all green
+  # until the session exited, then the daemon and both services died with it.
+  # Also: no `pm2 save` in this branch. If the detached resurrect has not come
+  # up yet, an in-session save spawns a fresh EMPTY daemon and overwrites
+  # dump.pm2 with an empty list, destroying the only recovery point.
+  Write-DeployLog 'pm2 daemon had no such process -> detached resurrect from last dump'
+  Invoke-DetachedResurrect
   # Caller still runs the port + health checks below; if resurrect did not bring
   # them back the deploy fails and rolls back exactly as before.
 }
@@ -245,7 +273,28 @@ try {
     }
     Start-Sleep -Seconds 2
   }
-  if (-not $healthy) { throw 'GK9000 backend or frontend did not become healthy.' }
+  if (-not $healthy) {
+    # Self-heal (2026-07-26): on the already-deployed short-circuit (and in
+    # VerifyOnly mode) nothing above has restarted anything, so a dead pm2
+    # daemon just failed here with no recovery attempt - and this restricted
+    # CI path is the ONLY remote hand we have on the box. Try one detached
+    # resurrect, then run the health loop again before giving up.
+    Write-DeployLog 'Health checks failed - attempting detached pm2 resurrect, then re-check.'
+    try {
+      Invoke-DetachedResurrect
+    } catch {
+      Write-DeployLog "Detached resurrect failed: $($_.Exception.Message)"
+    }
+    for ($attempt = 1; $attempt -le 30; $attempt++) {
+      if ((Test-BackendHealth) -and (Test-FrontendHealth)) {
+        Write-DeployLog "Health checks passed after resurrect on attempt $attempt."
+        $healthy = $true
+        break
+      }
+      Start-Sleep -Seconds 2
+    }
+  }
+  if (-not $healthy) { throw 'GK9000 backend or frontend did not become healthy (even after detached pm2 resurrect).' }
 
   # Authoritative deploy verification. The health loop above only proves "something is
   # answering on 3200/5173" - it cannot prove the NEW code is live: an orphaned old
@@ -272,9 +321,13 @@ try {
       # Self-heal here: restart backend through WMI (detached from this session,
       # same trick as boot-pm2.ps1), wait, then verify once more.
       Write-DeployLog 'verify failed - detached pm2 restart via WMI, then re-verify.'
-      $pm2cmd = Join-Path $env:APPDATA 'npm\pm2.cmd'
+      # Literal path, not $env:APPDATA - the double-hop non-interactive SSH
+      # session leaves APPDATA/USERPROFILE empty (see Restart-Services note),
+      # which made this Join-Path throw and silently skipped the self-heal.
+      $pm2cmd = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
+      if (-not (Test-Path $pm2cmd)) { $pm2cmd = 'pm2' }
       try {
-        ([wmiclass]'\\.\root\cimv2:Win32_Process').Create("cmd /c `"$pm2cmd`" restart smart-control-backend --update-env", $env:USERPROFILE, $null) | Out-Null
+        ([wmiclass]'\\.\root\cimv2:Win32_Process').Create("cmd /c `"set PM2_HOME=C:\Users\user\.pm2 && $pm2cmd restart smart-control-backend --update-env`"", 'C:\Users\user', $null) | Out-Null
       } catch {
         Write-DeployLog "WMI detached restart failed: $($_.Exception.Message)"
       }
