@@ -3,7 +3,11 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
+import { promises as fs } from 'fs';
+import { resolve } from 'path';
+import { RECOMMENDED_SCENE_ACTIONS } from '../../seed/recommended-scene-actions';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { DataSource, FindOptionsWhere, Like, Repository } from 'typeorm';
@@ -18,7 +22,57 @@ import { OperationLogService } from '../logs/operation-log.service';
 import { PagedResult } from '../devices/devices.service';
 
 @Injectable()
-export class ScenesService {
+export class ScenesService implements OnModuleInit {
+  async onModuleInit(): Promise<void> {
+    await this.healRecommendedActions();
+  }
+
+  /**
+   * 一次性割接 (2026-07-26): 首页四个情景模式按现场接线现实重建推荐动作编排。
+   *
+   * 旧动作是 2026-05 规划期的数据: 灯光 deviceId '1'-'12' 不带 slaveId (两台
+   * 网关组号重复, 必然打错灯)、audio_1f/audio_2f 设备已不存在、还引用已删除
+   * 的会议/清洁场景 —— 点场景卡片等于放空枪。CI 不跑 seed、seed 又遇已有
+   * 动作就跳过, 不 heal 新编排永远上不了生产 (老坑)。
+   *
+   * 做法: 对 opening/reception/roadshow/closing 四个场景, 清空旧动作、写入
+   * RECOMMENDED_SCENE_ACTIONS (推荐起点, 业主在后台动作配置里随意微调)。
+   * 一次性哨兵 = logs/scene-actions-v2.done 标记文件 —— 割接一次后永不再动,
+   * 业主的后续调整不会被冲掉。
+   */
+  private async healRecommendedActions(): Promise<void> {
+    try {
+      const flag = resolve(process.cwd(), '..', 'logs', 'scene-actions-v2.done');
+      if (await fs.access(flag).then(() => true).catch(() => false)) return;
+      for (const [code, actions] of Object.entries(RECOMMENDED_SCENE_ACTIONS)) {
+        const scene = await this.sceneRepo.findOne({ where: { code } });
+        if (!scene) {
+          this.logger.warn(`[Scenes] 推荐编排: 场景 ${code} 不存在, 跳过`, { context: 'ScenesService' });
+          continue;
+        }
+        await this.actionRepo.delete({ sceneId: scene.id });
+        for (let i = 0; i < actions.length; i += 1) {
+          const a = actions[i];
+          await this.actionRepo.save(this.actionRepo.create({
+            sceneId: scene.id,
+            deviceType: a.deviceType,
+            deviceId: a.deviceId,
+            command: a.command,
+            params: JSON.stringify(a.params ?? {}),
+            delayMs: a.delayMs ?? 0,
+            sortOrder: (i + 1) * 10,
+            enabled: true,
+          }));
+        }
+        this.logger.warn(`[Scenes] 场景 ${code} 动作已重建为推荐编排 (${actions.length} 条)`, { context: 'ScenesService' });
+      }
+      await fs.mkdir(resolve(process.cwd(), '..', 'logs'), { recursive: true }).catch(() => {});
+      await fs.writeFile(flag, new Date().toISOString()).catch(() => {});
+    } catch (e) {
+      this.logger.warn(`[Scenes] 推荐编排割接失败: ${(e as Error).message}`, { context: 'ScenesService' });
+    }
+  }
+
   constructor(
     @InjectRepository(Scene) private readonly sceneRepo: Repository<Scene>,
     @InjectRepository(SceneAction) private readonly actionRepo: Repository<SceneAction>,
