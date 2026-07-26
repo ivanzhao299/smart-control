@@ -260,6 +260,34 @@ if ($fePresent) {
 
 try { & pm2 save 2>&1 | Out-Null } catch { }
 
+# 6c.2 【2026-07-26 根治孤儿守护泄漏】
+# 部署过程中的 `& pm2 delete/start/describe/save` 在 Windows 上跨会话时可能各自
+# fork 出孤儿 pm2 守护 —— pm2 CLI 靠命名管道找守护、管道按会话隔离, 看不到 boot-pm2
+# 用 WMI 脱离启动的那个守护就自建一个 (详见 auto-update-watcher.ps1 同类注释)。
+# 每次部署收尾在这里归零: 只留真正在托管 backend/frontend 的那个守护 (被托管的
+# ProcessContainerFork.js 进程的父进程就是它), 其余 Daemon.js 一律杀掉。
+# 只在找得到被托管进程时才动手, 绝不盲杀 (托管进程为空时保守跳过)。
+try {
+  $managed = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction Stop |
+    Where-Object { $_.CommandLine -match 'ProcessContainerFork' })
+  $keep = @($managed | ForEach-Object { [int]$_.ParentProcessId } | Sort-Object -Unique)
+  if ($keep.Count -gt 0) {
+    $daemons = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction Stop |
+      Where-Object { $_.CommandLine -match 'Daemon\.js' })
+    $killed = 0
+    foreach ($d in $daemons) {
+      if ($keep -notcontains [int]$d.ProcessId) {
+        try { Stop-Process -Id ([int]$d.ProcessId) -Force -ErrorAction Stop; $killed++ } catch { }
+      }
+    }
+    Write-Host "  [daemon-dedup] 保留在管守护 $($keep -join ','); 清掉孤儿 $killed 个" -ForegroundColor DarkGray
+  } else {
+    Write-Host "  [daemon-dedup] 未找到被托管进程, 保守跳过 (不盲杀)" -ForegroundColor DarkGray
+  }
+} catch {
+  Write-Host "  [daemon-dedup] 跳过: $($_.Exception.Message)" -ForegroundColor DarkGray
+}
+
 # 6d: 兜底 — 假设上面 pm2 命令因权限不通 (watcher 用 user 身份, pm2 daemon
 # 可能归 admin), 调一下 backend 自己提供的 loopback 重启 endpoint. 它会
 # process.exit(0), 然后 admin 持有的 pm2 daemon 看到进程死掉会 autorestart,
