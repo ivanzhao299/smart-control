@@ -150,6 +150,41 @@ export class AudioConfigService implements OnModuleInit {
       this.logger.info('[AudioConfig] seeded 12 场景 (U01-U12)');
     }
     await this.heal20260726Rewiring();
+    await this.ensureStereoSuffixes();
+  }
+
+  /**
+   * 立体声命名自愈 (2026-07-26 现场踩坑): OUT1/2 与 OUT3/4 物理上就是两对
+   * 立体声, 前端配对**纯靠**「·左/·右」后缀 —— 业主改名把后缀改丢后, 两路卡片
+   * 当场分离、联动失效。前端改名入口已改为只编辑基名, 这里是兜底: 每次启动
+   * 把 ch0-3 的后缀补回来; 两路基名不一致时以 updatedAt 较新的一路为准
+   * (那是业主最后一次改名的意图)。幂等, 已正确则不写库。
+   */
+  private async ensureStereoSuffixes(): Promise<void> {
+    const stripSuffix = (n: string): string => n.replace(/·[左右]$/u, '').trim();
+    for (const [lch, rch] of [[0, 1], [2, 3]] as Array<[number, number]>) {
+      const left = await this.zoneRepo.findOne({ where: { channel: lch } });
+      const right = await this.zoneRepo.findOne({ where: { channel: rch } });
+      if (!left || !right) continue;
+      let base = stripSuffix(left.name);
+      const baseR = stripSuffix(right.name);
+      if (base !== baseR) {
+        base = (left.updatedAt >= right.updatedAt ? base : baseR) || base || baseR;
+      }
+      if (!base) base = stripSuffix(DEFAULT_ZONE_NAMES[lch]);
+      const wantL = `${base}·左`;
+      const wantR = `${base}·右`;
+      if (left.name !== wantL) {
+        this.logger.warn(`[AudioConfig] OUT${lch + 1}「${left.name}」缺立体声后缀/前缀不一致, 修复为「${wantL}」`, { context: 'AudioConfig' });
+        left.name = wantL;
+        await this.zoneRepo.save(left);
+      }
+      if (right.name !== wantR) {
+        this.logger.warn(`[AudioConfig] OUT${rch + 1}「${right.name}」缺立体声后缀/前缀不一致, 修复为「${wantR}」`, { context: 'AudioConfig' });
+        right.name = wantR;
+        await this.zoneRepo.save(right);
+      }
+    }
   }
 
   /**

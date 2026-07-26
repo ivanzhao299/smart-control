@@ -609,17 +609,43 @@ const editingCh = ref<number | null>(null);
 const editingChText = ref('');
 function startRenameCh(z: AudioRow): void {
   editingCh.value = z.dbId;
-  editingChText.value = z.name;
+  // 立体声卡编辑的是"基名" (不带 ·左/·右) —— 后缀是配对标识, 由代码维护,
+  // 业主改掉后缀会导致左右两卡分离/联动失效 (2026-07-26 现场踩过)。
+  editingChText.value = isStereo(z) ? z.name.slice(0, -2) : z.name;
 }
 async function commitRenameCh(z: AudioRow): Promise<void> {
-  const name = editingChText.value.trim();
+  const raw = editingChText.value.trim();
   editingCh.value = null;
-  if (!name || name === z.name) return;
+  if (!raw) return;
+  const mate = partnerOf(z);
+  if (mate && z.name.endsWith('·左')) {
+    // 立体声对: 基名 + 后缀两路一起改, 保证配对约定永不被改名打破
+    const base = raw.replace(/·[左右]$/u, '').trim();
+    if (!base) return;
+    const newL = `${base}·左`;
+    const newR = `${base}·右`;
+    if (newL === z.name && newR === mate.name) return;
+    const beforeL = z.name;
+    const beforeR = mate.name;
+    z.name = newL;
+    mate.name = newR;
+    try {
+      await audioConfigService.updateZone(z.dbId, { name: newL });
+      await audioConfigService.updateZone(mate.dbId, { name: newR });
+      ElMessage.success(`已改名为「${base}」(左/右两路已同步)`);
+    } catch (err) {
+      z.name = beforeL;
+      mate.name = beforeR;
+      ElMessage.error(`改名失败: ${(err as Error).message}`);
+    }
+    return;
+  }
+  if (raw === z.name) return;
   const before = z.name;
-  z.name = name;                       // 乐观: 立刻显示
+  z.name = raw;                        // 乐观: 立刻显示
   try {
-    await audioConfigService.updateZone(z.dbId, { name });
-    ElMessage.success(`已改名为「${name}」`);
+    await audioConfigService.updateZone(z.dbId, { name: raw });
+    ElMessage.success(`已改名为「${raw}」`);
   } catch (err) {
     z.name = before;                   // 失败回滚, 不留后端不认的假名字
     ElMessage.error(`改名失败: ${(err as Error).message}`);

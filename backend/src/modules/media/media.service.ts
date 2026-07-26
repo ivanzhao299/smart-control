@@ -98,9 +98,28 @@ export class MediaService implements OnModuleInit {
     const src = resolve(process.cwd(), '..', 'deploy', 'assets', 'stereo-lr-test.wav');
     const originalName = '左右声道测试.wav';
     try {
-      if (await this.repo.findOne({ where: { originalName } })) return;
       const stat = await fs.stat(src).catch(() => null);
       if (!stat || !stat.isFile()) return; // 仓库里没带 (老部署), 静默跳过
+
+      const existing = await this.repo.findOne({ where: { originalName } });
+      if (existing) {
+        // 自修复 (2026-07-26): 行在但文件缺/path 为空 = 上次拷贝半途失败,
+        // 库里留了个指向空的死行 —— 媒体页点开就报错、素材也"找不到"。重拷补齐。
+        const fileOk = existing.path
+          ? await fs.stat(existing.path).then((s) => s.isFile()).catch(() => false)
+          : false;
+        if (fileOk) return;
+        const dir = join(this.mediaRoot, String(existing.id));
+        await fs.mkdir(dir, { recursive: true });
+        const p = join(dir, existing.safeName || this.safeFilename(originalName));
+        await fs.copyFile(src, p);
+        existing.path = p;
+        existing.sizeBytes = stat.size;
+        await this.repo.save(existing);
+        this.logger.info(`[Media] 内置素材死行已修复: ${originalName} (#${existing.id})`, { context: 'MediaService' });
+        return;
+      }
+
       const safeName = this.safeFilename(originalName);
       const saved = await this.repo.save(this.repo.create({
         originalName,
@@ -116,12 +135,18 @@ export class MediaService implements OnModuleInit {
         uploader: 'system',
         lastPlayedAt: null,
       }));
-      const finalDir = join(this.mediaRoot, String(saved.id));
-      await fs.mkdir(finalDir, { recursive: true });
-      const finalPath = join(finalDir, safeName);
-      await fs.copyFile(src, finalPath);
-      saved.path = finalPath;
-      await this.repo.save(saved);
+      try {
+        const finalDir = join(this.mediaRoot, String(saved.id));
+        await fs.mkdir(finalDir, { recursive: true });
+        const finalPath = join(finalDir, safeName);
+        await fs.copyFile(src, finalPath);
+        saved.path = finalPath;
+        await this.repo.save(saved);
+      } catch (copyErr) {
+        // 拷贝失败不留 path='' 的死行 (会让媒体页报错), 删行下次启动重试
+        await this.repo.remove(saved).catch(() => {});
+        throw copyErr;
+      }
       this.logger.info(`[Media] 内置素材已入库: ${originalName} (#${saved.id})`, { context: 'MediaService' });
     } catch (e) {
       this.logger.warn(`[Media] 内置素材入库失败 (不影响启动): ${(e as Error).message}`, {

@@ -582,14 +582,14 @@ onMounted(async () => {
           </div>
           <div class="card-actions" @click.stop>
             <button v-if="m.kind === 'audio'" class="card-btn" title="播放背景音乐" @click="pushAudio(m)"><Music :size="14" :stroke-width="2" /></button>
-            <el-dropdown v-else trigger="click" @command="(c: number | string) => { if (c === 'welcome') setAsWelcome(m); else pushTo(m, c as 1 | 2 | 'both'); }">
+            <el-dropdown trigger="click" @command="(c: number | string) => { if (c === 'welcome') setAsWelcome(m); else pushTo(m, c as 1 | 2 | 'both'); }">
               <button class="card-btn" title="推送到"><Send :size="14" :stroke-width="2" /></button>
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item :command="1">推到 LED 大屏 (HDMI1)</el-dropdown-item>
                   <el-dropdown-item :command="2">推到投影仪 (HDMI2)</el-dropdown-item>
                   <el-dropdown-item :command="'both'" divided>同时推两路</el-dropdown-item>
-                  <el-dropdown-item v-if="m.kind !== 'webpage'" :command="'welcome'" divided :disabled="isWelcome(m)">{{ isWelcome(m) ? '✓ 已是欢迎页' : '设为欢迎页' }}</el-dropdown-item>
+                  <el-dropdown-item v-if="m.kind !== 'webpage' && m.kind !== 'audio'" :command="'welcome'" divided :disabled="isWelcome(m)">{{ isWelcome(m) ? '✓ 已是欢迎页' : '设为欢迎页' }}</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
@@ -629,14 +629,14 @@ onMounted(async () => {
           <div class="lr-date">{{ new Date(m.createdAt).toLocaleDateString('zh-CN') }}</div>
           <div class="lr-actions" @click.stop>
             <button v-if="m.kind === 'audio'" class="card-btn" title="播放背景音乐" @click="pushAudio(m)"><Music :size="14" :stroke-width="2" /></button>
-            <el-dropdown v-else trigger="click" @command="(c: number | string) => { if (c === 'welcome') setAsWelcome(m); else pushTo(m, c as 1 | 2 | 'both'); }">
+            <el-dropdown trigger="click" @command="(c: number | string) => { if (c === 'welcome') setAsWelcome(m); else pushTo(m, c as 1 | 2 | 'both'); }">
               <button class="card-btn" title="推送到"><Send :size="14" :stroke-width="2" /></button>
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item :command="1">推到 LED 大屏 (HDMI1)</el-dropdown-item>
                   <el-dropdown-item :command="2">推到投影仪 (HDMI2)</el-dropdown-item>
                   <el-dropdown-item :command="'both'" divided>同时推两路</el-dropdown-item>
-                  <el-dropdown-item v-if="m.kind !== 'webpage'" :command="'welcome'" divided :disabled="isWelcome(m)">{{ isWelcome(m) ? '✓ 已是欢迎页' : '设为欢迎页' }}</el-dropdown-item>
+                  <el-dropdown-item v-if="m.kind !== 'webpage' && m.kind !== 'audio'" :command="'welcome'" divided :disabled="isWelcome(m)">{{ isWelcome(m) ? '✓ 已是欢迎页' : '设为欢迎页' }}</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
@@ -686,14 +686,14 @@ onMounted(async () => {
           <div class="dv-col dv-c-date">{{ new Date(m.createdAt).toLocaleString('zh-CN') }}</div>
           <div class="dv-col dv-c-act" @click.stop>
             <button v-if="m.kind === 'audio'" class="card-btn" title="播放背景音乐" @click="pushAudio(m)"><Music :size="14" :stroke-width="2" /></button>
-            <el-dropdown v-else trigger="click" @command="(c: number | string) => { if (c === 'welcome') setAsWelcome(m); else pushTo(m, c as 1 | 2 | 'both'); }">
+            <el-dropdown trigger="click" @command="(c: number | string) => { if (c === 'welcome') setAsWelcome(m); else pushTo(m, c as 1 | 2 | 'both'); }">
               <button class="card-btn" title="推送到"><Send :size="14" :stroke-width="2" /></button>
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item :command="1">推到 LED 大屏 (HDMI1)</el-dropdown-item>
                   <el-dropdown-item :command="2">推到投影仪 (HDMI2)</el-dropdown-item>
                   <el-dropdown-item :command="'both'" divided>同时推两路</el-dropdown-item>
-                  <el-dropdown-item v-if="m.kind !== 'webpage'" :command="'welcome'" divided :disabled="isWelcome(m)">{{ isWelcome(m) ? '✓ 已是欢迎页' : '设为欢迎页' }}</el-dropdown-item>
+                  <el-dropdown-item v-if="m.kind !== 'webpage' && m.kind !== 'audio'" :command="'welcome'" divided :disabled="isWelcome(m)">{{ isWelcome(m) ? '✓ 已是欢迎页' : '设为欢迎页' }}</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>

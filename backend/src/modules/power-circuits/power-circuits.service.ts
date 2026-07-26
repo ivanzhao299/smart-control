@@ -160,6 +160,43 @@ export class PowerCircuitsService implements OnModuleInit {
       });
     }
     await this.healLedCircuitToBreaker();
+    await this.healProjectorSeqChannel();
+  }
+
+  /**
+   * 2026-07-26 现场改线: 投影仪电源从时序器旧路号 (之前第 7 路) 挪到了第 4 路。
+   * 行名「投影仪」是业主在 UI 里改的, relayChannel 还指着旧路 → 界面上开关
+   * 投影仪电源实际打到别的设备上。改到 4 路; 若 4 路已被别的行占用, 让占用者
+   * 顶到投影仪的旧路号上 (对调), 保证 8 路不重号。
+   * 哨兵: 「投影仪」行 relayChannel 已是 4 就永不再动 —— 只割接一次,
+   * 业主后续在后台怎么调都不会被冲掉。
+   */
+  private async healProjectorSeqChannel(): Promise<void> {
+    try {
+      const rows = await this.repo.find();
+      const proj = rows.find((r) => r.name === '投影仪' && r.relayChannel !== null);
+      if (!proj || proj.relayChannel === 4) return;
+      if (!(await this.isSequencerCircuit(proj))) return;
+      const old = proj.relayChannel;
+      const occupant = rows.find(
+        (r) => r.id !== proj.id && r.relayChannel === 4 && r.gatewayCode === proj.gatewayCode,
+      );
+      proj.relayChannel = 4;
+      await this.repo.save(proj);
+      if (occupant) {
+        occupant.relayChannel = old;
+        await this.repo.save(occupant);
+      }
+      this.logger.warn(
+        `[PowerCircuits] 投影仪电源割接: 时序 ${old} 路 → 4 路` +
+        (occupant ? ` (原 4 路「${occupant.name}」对调到 ${old} 路)` : ''),
+        { context: 'PowerCircuitsService' },
+      );
+    } catch (e) {
+      this.logger.warn(`[PowerCircuits] 投影仪时序路号割接失败: ${(e as Error).message}`, {
+        context: 'PowerCircuitsService',
+      });
+    }
   }
 
   /**

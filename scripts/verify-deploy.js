@@ -400,6 +400,23 @@ async function main() {
   }
   console.log('');
 
+  // --- J. 媒体库健康 (信息性) —— 总数 / 测试素材在不在 / 有没有空 path 死行 ---
+  console.log('[媒体库] GET /api/media (信息性)');
+  try {
+    const r = await httpGet(3200, '/api/media');
+    if (r.code !== 200) {
+      console.log('  ' + RED('WARN') + ` 读取失败: HTTP ${r.code || '无响应'}`);
+    } else {
+      const payload = JSON.parse(r.body).data || {};
+      const rows = payload.items || [];
+      const test = rows.find((m) => m.originalName === '左右声道测试.wav');
+      console.log(`  共 ${payload.total ?? rows.length} 个素材; 左右声道测试.wav: ${test ? `在 (#${test.id}, kind=${test.kind})` : RED('不在! (查 backend 日志里 [Media] 内置素材 行)')}`);
+    }
+  } catch (e) {
+    console.log('  ' + RED('WARN') + ' 媒体库探测异常: ' + e.message);
+  }
+  console.log('');
+
   // --- H. 控制台会话 / 播放器窗口归属 (信息性, 仅 Windows) ---
   // "心跳全活但大屏显示桌面" = 播放器窗口不在物理控制台会话里 (典型: 有人挂着
   // RDP, watchdog 主动退让; 或窗口落错会话)。qwinsta 看会话, tasklist 看浏览器
