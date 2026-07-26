@@ -64,9 +64,27 @@ function Invoke-DetachedResurrect {
   $pm2 = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
   if (-not (Test-Path $pm2)) { $pm2 = 'pm2' }
   $pm2Home = 'C:\Users\user\.pm2'
+  $env:PM2_HOME = $pm2Home
 
-  # Clear surviving orphan port holders first: resurrect on top of one
-  # crash-loops on EADDRINUSE (the 2026-07-15 421-restart incident).
+  # Kill any daemon currently answering on this PM2_HOME first. If one is alive
+  # - typically the EMPTY one that a just-failed in-session `pm2 restart`
+  # spawned inside this SSH session - the detached resurrect below would reach
+  # it over the shared named pipe and load the apps into IT, reintroducing the
+  # session trap. Every caller of this function runs with services already
+  # down, so killing the daemon loses nothing.
+  $previousPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    & $pm2 kill 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
+  } catch {
+    Write-DeployLog "pm2 kill failed (continuing): $($_.Exception.Message)"
+  } finally {
+    $ErrorActionPreference = $previousPreference
+  }
+
+  # Clear surviving orphan port holders: resurrect on top of one crash-loops
+  # on EADDRINUSE (the 2026-07-15 421-restart incident). The apps a killed
+  # daemon owned can survive it as orphans still holding 3200/5173.
   foreach ($port in @(3200, 5173)) {
     $owners = @(
       Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
