@@ -53,6 +53,15 @@ export interface OrphanMediaItem {
   kind: 'video' | 'image' | 'audio' | null;
 }
 
+/**
+ * 上传入口统一的 accept 列表 (2026-07-26): PlayerConsole (LED/投影页"上传内容")
+ * 原来只有 video/*,image/*,audio/* —— PPT/Word 选不了, .ape/.dsf/.mid 这类无标准
+ * MIME 的音频在文件选择器里也被滤掉。所有上传入口共用这一份, 不再两处漂移;
+ * 真正的类型判定在 backend classifyKind (按 MIME + 扩展名兜底)。
+ */
+export const MEDIA_UPLOAD_ACCEPT =
+  'video/*,image/*,audio/*,.ppt,.pptx,.doc,.docx,.mp3,.wav,.aac,.m4a,.ogg,.flac,.wma,.opus,.aiff,.aif,.ape,.mp2,.mka,.wv,.mid,.midi,.spx,.dsf,.dff,.au,.ra';
+
 export const mediaService = {
   async list(opts: { kind?: 'video' | 'image' | 'audio' | 'webpage' | 'doc' } = {}): Promise<ListResult> {
     const params: Record<string, string> = {};

@@ -39,7 +39,7 @@ import {
   listHistory, setDisplayFit, setDocPage, type DisplayFit, type PlaylistItemView, type PlaybackHistoryView,
 } from '@/services/playback.service';
 import { powerCircuitsService, type PowerCircuitView } from '@/services/power-circuits.service';
-import { mediaService } from '@/services/media.service';
+import { mediaService, MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
 import { ledService, type LedInput } from '@/services/led.service';
 
 const props = defineProps<{
@@ -53,7 +53,11 @@ const props = defineProps<{
    * 而不是摆一排点了没用的按钮。
    */
   deviceId?: string;
-  /** 本屏的电源回路 code (LED=1f-led / 投影=seq-8), 传了就显示电源开关 (2026-07-25) */
+  /**
+   * 本屏的电源回路 code, 传了就显示电源开关 (2026-07-25)。
+   * 支持逗号分隔多个 code 一键联动 (2026-07-26): LED=1f-led / 投影=seq-5,seq-4
+   * (投影仪 + 视频拼接器同开同关)。
+   */
   powerCode?: string;
 }>();
 const SLOT = computed(() => props.slot);
@@ -607,7 +611,7 @@ async function submitWebpage(): Promise<void> {
         <header class="panel-head">
           <span class="panel-title"><ListMusic :size="16" /> 播放列表</span>
           <span class="panel-count">{{ playlist.length }}</span>
-          <input ref="fileInput" type="file" class="hidden-file" accept="video/*,image/*,audio/*" @change="onFilePicked" />
+          <input ref="fileInput" type="file" class="hidden-file" :accept="MEDIA_UPLOAD_ACCEPT" @change="onFilePicked" />
           <!-- 从媒体库选 —— 之前躺在媒体库里的东西必须有路进列表, 否则永远播不了
                (2026-07-17 业主的 MP4 就是卡在这) -->
           <button class="v2-quick" @click="openPicker">

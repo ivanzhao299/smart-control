@@ -19,7 +19,7 @@ import {
   LayoutGrid,
   AlignJustify,
 } from 'lucide-vue-next';
-import { mediaService, type MediaItem, type OrphanMediaItem } from '@/services/media.service';
+import { mediaService, type MediaItem, type OrphanMediaItem, MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
 import { usePlaybackStore } from '@/stores/playback';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { absUrl } from '@/services/http';
@@ -494,11 +494,11 @@ onMounted(async () => {
             上传中 {{ uploadPct }}%<span v-if="uploadBatchTotal > 1" class="upload-count-inline"> ({{ uploadBatchDone + 1 }}/{{ uploadBatchTotal }})</span>
           </span>
           <span v-else>上传文件</span>
-          <input type="file" accept="video/*,image/*,audio/*,.ppt,.pptx,.doc,.docx,.mp3,.wav,.aac,.m4a,.ogg,.flac,.wma,.opus,.aiff,.aif,.ape,.mp2,.mka,.wv,.mid,.midi,.spx,.dsf,.dff,.au,.ra" multiple :disabled="uploading" @change="onFileInput" hidden />
+          <input type="file" :accept="MEDIA_UPLOAD_ACCEPT" multiple :disabled="uploading" @change="onFileInput" hidden />
         </label>
         <label class="v2-quick" :class="{ disabled: uploading }">
           <FolderOpen :size="14" :stroke-width="2" /> 上传文件夹
-          <input type="file" :webkitdirectory="true" multiple accept="video/*,image/*,audio/*,.ppt,.pptx,.doc,.docx,.mp3,.wav,.aac,.m4a,.ogg,.flac,.wma,.opus,.aiff,.aif,.ape,.mp2,.mka,.wv,.mid,.midi,.spx,.dsf,.dff,.au,.ra" :disabled="uploading" @change="onFileInput" hidden />
+          <input type="file" :webkitdirectory="true" multiple :accept="MEDIA_UPLOAD_ACCEPT" :disabled="uploading" @change="onFileInput" hidden />
         </label>
         <button class="v2-quick" @click="openWebpageDialog">
           <Globe :size="14" :stroke-width="2" /> 添加网页
