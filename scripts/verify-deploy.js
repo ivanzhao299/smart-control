@@ -343,11 +343,14 @@ async function main() {
       const rows = JSON.parse(r.body).data || [];
       if (!rows.length) console.log('  ' + RED('WARN') + ' 无回路记录');
       for (const c of rows) {
-        const read = c.lastReadAt ? new Date(c.lastReadAt) : null;
+        // 读数嵌在 reading 子对象里 (toView: {...baseView, isBreaker, reading})
+        // —— 第一版探针按顶层字段读, 全 undefined, 打出了"全部断开"的假象。
+        const rd = c.reading ?? c;
+        const read = rd.lastReadAt ? new Date(rd.lastReadAt) : null;
         const ageSec = read ? Math.round((Date.now() - read.getTime()) / 1000) : null;
         console.log(
-          `  - ${c.name ?? c.id}: ${c.on ? '通电' : '断开'} ` +
-          `P=${c.power ?? '-'}W I=${c.current ?? '-'}A ` +
+          `  - ${c.name ?? c.id}: ${rd.on ? '通电' : '断开'} ` +
+          `P=${rd.power ?? '-'}W I=${rd.current ?? '-'}A ` +
           `读数=${read ? `${ageSec}s 前` : '无'}`,
         );
       }
