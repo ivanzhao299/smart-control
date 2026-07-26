@@ -26,6 +26,7 @@ const form = reactive({
   logoUrl: '',
   browserTitle: '',
   copyright: '',
+  welcomeGuest: '',
 });
 
 // logoUrl 不放 rules — 它是上传出来的 data URL, 不归用户管. 校验只看其他字段.
@@ -177,6 +178,7 @@ function loadFormFromStore(): void {
   form.logoUrl = b.logoUrl ?? '';
   form.browserTitle = b.browserTitle ?? '';
   form.copyright = b.copyright ?? '';
+  form.welcomeGuest = b.welcomeGuest ?? '';
 }
 
 onMounted(async () => {
@@ -196,6 +198,7 @@ async function save(): Promise<void> {
       logoUrl: form.logoUrl.trim() || null,
       browserTitle: form.browserTitle.trim() || null,
       copyright: form.copyright.trim() || null,
+      welcomeGuest: form.welcomeGuest.trim() || null,
     });
     ElMessage.success('已保存, 前台所有 logo + 标题已实时更新');
   } catch (e) {
@@ -308,6 +311,16 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
           </el-form-item>
 
           <el-divider content-position="left">其他</el-divider>
+
+          <el-form-item label="欢迎页嘉宾称谓" prop="welcomeGuest">
+            <el-input
+              v-model="form.welcomeGuest"
+              maxlength="64"
+              show-word-limit
+              placeholder="比如: 某某集团 张某某董事长一行"
+            />
+            <div class="form-help">大屏欢迎页「恭迎 ___ 莅临参观指导」中间那段, 保存后约 20 秒内大屏自动更新. 留空显示"各位领导嘉宾"</div>
+          </el-form-item>
 
           <el-form-item label="浏览器标签页标题" prop="browserTitle">
             <el-input

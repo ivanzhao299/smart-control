@@ -27,6 +27,8 @@ export interface SystemBranding {
    * 走 playback 推这个 media 到 slot=1 loop 播.
    */
   welcomeMediaId: number | null;
+  /** 欢迎页嘉宾称谓 (大屏欢迎页实时读取, 空 = 显示默认'各位领导嘉宾') */
+  welcomeGuest: string | null;
 }
 
 export type SystemBrandingPatch = Partial<SystemBranding>;

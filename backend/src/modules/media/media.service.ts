@@ -95,9 +95,57 @@ export class MediaService implements OnModuleInit {
    * 最后 660Hz 双声道齐响 3s。
    */
   private async seedBundledAssets(): Promise<void> {
-    const src = resolve(process.cwd(), '..', 'deploy', 'assets', 'stereo-lr-test.wav');
-    const originalName = '左右声道测试.wav';
+    const bundled: Array<{ file: string; originalName: string; kind: MediaKind; mime: string; remark: string }> = [
+      {
+        file: 'stereo-lr-test.wav', originalName: '左右声道测试.wav', kind: 'audio', mime: 'audio/wav',
+        remark: '内置测试素材: 低音=左声道, 高音=右声道, 交替两轮后双声道齐响',
+      },
+      {
+        file: 'welcome-led-3612x1462.png', originalName: '金湖欢迎页·LED大屏.png', kind: 'image', mime: 'image/png',
+        remark: '3612×1462 静态欢迎页 (备用; 称谓可编辑请用「金湖欢迎页·动态」)',
+      },
+      {
+        file: 'welcome-proj-3380x1225.png', originalName: '金湖欢迎页·投影.png', kind: 'image', mime: 'image/png',
+        remark: '3380×1225 (6760×2450mm 幕布比例) 静态欢迎页 (备用)',
+      },
+    ];
+    for (const b of bundled) {
+      await this.seedBundledFile(b).catch((e) => {
+        this.logger.warn(`[Media] 内置素材 ${b.originalName} 入库失败: ${(e as Error).message}`, { context: 'MediaService' });
+      });
+    }
+    // 动态欢迎页 (kind=webpage): kiosk iframe 加载本机前端静态页, 嘉宾称谓走
+    // system-branding.welcomeGuest, 后台改完 20s 内大屏自动变字。按名字判重。
     try {
+      const wpName = '金湖欢迎页·动态(称谓可编辑)';
+      if (!(await this.repo.findOne({ where: { originalName: wpName } }))) {
+        await this.repo.save(this.repo.create({
+          originalName: wpName,
+          safeName: 'webpage',
+          path: '',
+          thumbPath: null,
+          kind: 'webpage' as MediaKind,
+          sourceUrl: 'http://localhost:5173/control/welcome/index.html',
+          mimeType: 'text/html',
+          sizeBytes: 0,
+          durationSec: null,
+          resolution: null,
+          remark: '推到大屏/投影即显示; 嘉宾称谓在 后台→系统品牌→欢迎页嘉宾称谓 编辑, 约 20s 自动生效',
+          uploader: 'system',
+          lastPlayedAt: null,
+        }));
+        this.logger.info(`[Media] 内置动态欢迎页已入库: ${wpName}`, { context: 'MediaService' });
+      }
+    } catch (e) {
+      this.logger.warn(`[Media] 动态欢迎页入库失败: ${(e as Error).message}`, { context: 'MediaService' });
+    }
+  }
+
+  /** 单个随仓库素材的入库/自修复 (见 seedBundledAssets 注释) */
+  private async seedBundledFile(b: { file: string; originalName: string; kind: MediaKind; mime: string; remark: string }): Promise<void> {
+    const src = resolve(process.cwd(), '..', 'deploy', 'assets', b.file);
+    const originalName = b.originalName;
+    {
       const stat = await fs.stat(src).catch(() => null);
       if (!stat || !stat.isFile()) return; // 仓库里没带 (老部署), 静默跳过
 
@@ -126,12 +174,12 @@ export class MediaService implements OnModuleInit {
         safeName,
         path: '',
         thumbPath: null,
-        kind: 'audio' as MediaKind,
-        mimeType: 'audio/wav',
+        kind: b.kind,
+        mimeType: b.mime,
         sizeBytes: stat.size,
         durationSec: null,
         resolution: null,
-        remark: '内置测试素材: 低音=左声道, 高音=右声道, 交替两轮后双声道齐响',
+        remark: b.remark,
         uploader: 'system',
         lastPlayedAt: null,
       }));
@@ -148,10 +196,6 @@ export class MediaService implements OnModuleInit {
         throw copyErr;
       }
       this.logger.info(`[Media] 内置素材已入库: ${originalName} (#${saved.id})`, { context: 'MediaService' });
-    } catch (e) {
-      this.logger.warn(`[Media] 内置素材入库失败 (不影响启动): ${(e as Error).message}`, {
-        context: 'MediaService',
-      });
     }
   }
 

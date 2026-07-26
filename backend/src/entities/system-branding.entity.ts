@@ -69,6 +69,14 @@ export class SystemBranding {
   @Column({ type: 'integer', name: 'welcome_media_id', nullable: true })
   welcomeMediaId!: number | null;
 
+  /**
+   * 欢迎页嘉宾称谓 (2026-07-26 业主: "某某领导这个字段可以编辑")。
+   * 大屏欢迎页 (frontend/public/welcome/) 20s 轮询, 改完实时变字;
+   * 空/NULL 时欢迎页显示默认 "各位领导嘉宾"。
+   */
+  @Column({ type: 'varchar', length: 64, nullable: true, name: 'welcomeGuest' })
+  welcomeGuest!: string | null;
+
   @UpdateDateColumn()
   updatedAt!: Date;
 }

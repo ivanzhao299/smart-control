@@ -18,6 +18,7 @@ const FALLBACK: SystemBranding = {
   browserTitle: '金湖展贸中心 控制系统',
   copyright: null,
   welcomeMediaId: null,
+  welcomeGuest: null,
 };
 
 export const useSystemBrandingStore = defineStore('system-branding', () => {

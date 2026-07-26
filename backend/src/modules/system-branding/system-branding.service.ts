@@ -16,6 +16,8 @@ export interface SystemBrandingDto {
   copyright: string | null;
   /** 欢迎页绑定的媒体 ID. null = 没设, LED welcome 按钮回落到 V2460 preset */
   welcomeMediaId: number | null;
+  /** 欢迎页嘉宾称谓 (可编辑, 空 = 欢迎页显示默认 "各位领导嘉宾") */
+  welcomeGuest: string | null;
 }
 
 const DEFAULTS: SystemBrandingDto = {
@@ -26,6 +28,7 @@ const DEFAULTS: SystemBrandingDto = {
   browserTitle: '金湖展贸中心 控制系统',
   copyright: null,
   welcomeMediaId: null,
+  welcomeGuest: null,
 };
 
 @Injectable()
@@ -96,6 +99,7 @@ export class SystemBrandingService implements OnModuleInit {
       browserTitle: row.browserTitle,
       copyright: row.copyright,
       welcomeMediaId: row.welcomeMediaId,
+      welcomeGuest: row.welcomeGuest,
     };
   }
 
@@ -146,6 +150,10 @@ export class SystemBrandingService implements OnModuleInit {
       // null / undefined / 非整数都视为清空
       const v = input.welcomeMediaId;
       patch.welcomeMediaId = typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null;
+    }
+    if (input.welcomeGuest !== undefined) {
+      const v = norm(input.welcomeGuest);
+      patch.welcomeGuest = v ? v.slice(0, 64) : null;
     }
 
     if (current) {

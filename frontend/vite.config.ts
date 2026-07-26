@@ -106,7 +106,7 @@ export default defineConfig(({ mode }) => {
           // (文件名含 Admin) 和只有 admin 用的 date-picker 不进每台手机的离线包。
           // admin 在线才用得上, 其 chunk 走浏览器 HTTP 缓存 (assets 带一年 immutable)。
           // 注意 admin.service (小写) 被业主侧状态页共享, 不匹配此模式, 不受影响。
-          globIgnores: ['**/*Admin*', '**/el-date-picker*'],
+          globIgnores: ['**/*Admin*', '**/el-date-picker*', 'welcome/**'],
           navigateFallback: `${SCOPE_PREFIX}/index.html`,
           navigateFallbackDenylist: [/\/api(\/|$)/, /\/ws(\/|$)/],
           // PERFORMANCE_AUDIT P0-#5: API GET 走 NetworkFirst, 弱网时 3s 内
