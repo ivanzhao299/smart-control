@@ -1,5 +1,7 @@
 import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { promises as fs } from 'fs';
+import { resolve } from 'path';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Repository } from 'typeorm';
 import { Logger } from 'winston';
@@ -40,6 +42,43 @@ export class SystemBrandingService implements OnModuleInit {
       const seed = this.repo.create({ id: 1, ...DEFAULTS });
       await this.repo.save(seed);
       this.logger.info('[SystemBranding] 初始化默认配置 (id=1)');
+    }
+    await this.healTransparentLogo();
+  }
+
+  /**
+   * 一次性割接 (2026-07-26): logo 换成透明底版本。
+   *
+   * 业主投诉 (带投影待机页照片): "外面圆角里面方角图片非常丑, 必须解决" ——
+   * 库里存的 logo 是白底图, 待机页/图标把它放进圆角容器里就是白方块怼蓝底。
+   * 仓库 frontend/public/brand-logo.png 是同一枚 logo 的**全透明底**版 (本次
+   * 已重新裁切居中), 启动时把它以 data URI 写进 logoUrl。
+   *
+   * 一次性哨兵 = logs/branding-logo-transparent.done 标记文件 (不入 git):
+   * 割接过一次就永不再动 —— 业主以后在后台上传新 logo 不会被这里冲掉。
+   */
+  private async healTransparentLogo(): Promise<void> {
+    try {
+      const flag = resolve(process.cwd(), '..', 'logs', 'branding-logo-transparent.done');
+      if (await fs.access(flag).then(() => true).catch(() => false)) return;
+      const asset = resolve(process.cwd(), '..', 'frontend', 'public', 'brand-logo.png');
+      const buf = await fs.readFile(asset).catch(() => null);
+      if (!buf) return; // 老部署没这文件, 跳过
+      const dataUri = `data:image/png;base64,${buf.toString('base64')}`;
+      const row = await this.repo.findOne({ where: { id: 1 } });
+      if (row && row.logoUrl !== dataUri) {
+        row.logoUrl = dataUri;
+        await this.repo.save(row);
+        this.logger.warn('[SystemBranding] logo 已替换为透明底版本 (2026-07-26 割接)', {
+          context: 'SystemBranding',
+        });
+      }
+      await fs.mkdir(resolve(process.cwd(), '..', 'logs'), { recursive: true }).catch(() => {});
+      await fs.writeFile(flag, new Date().toISOString()).catch(() => {});
+    } catch (e) {
+      this.logger.warn(`[SystemBranding] 透明 logo 割接失败: ${(e as Error).message}`, {
+        context: 'SystemBranding',
+      });
     }
   }
 

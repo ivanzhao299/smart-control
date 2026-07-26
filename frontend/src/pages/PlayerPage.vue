@@ -450,9 +450,14 @@ function onAudioEnded(): void {
   overflow: hidden;
 }
 .idle-logo img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  /* 2026-07-26 业主 (带照片): "外面圆角里面方角图片非常丑"。logo 已割接成
+     透明底 (system-branding heal), 这里配套改 contain + 留白 —— logo 悬浮在
+     蓝色渐变磁贴中央, 而不是一张图铺满把白底怼出来。 */
+  width: 78%;
+  height: 78%;
+  object-fit: contain;
+  /* 深蓝 logo 落在蓝色渐变上, 一点柔和落影拉开层次 */
+  filter: drop-shadow(0 4px 14px rgba(0, 20, 40, 0.35));
 }
 .idle-title {
   font-size: 56px;
