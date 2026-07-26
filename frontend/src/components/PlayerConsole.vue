@@ -223,6 +223,11 @@ async function step(dir: 'next' | 'prev'): Promise<void> {
 // ============ 播放列表维护 ============
 const editingId = ref<number | null>(null);
 const editingText = ref('');
+// 编辑框一出现就自动聚焦并全选 (原来没聚焦, 得手动点进去, 而父项是 draggable
+// 又会把点击当拖拽 —— 于是"点不进/存不了/退不出"。见下 startRename 的 draggable 处理)
+const vFocus = {
+  mounted(el: HTMLInputElement) { el.focus(); el.select(); },
+};
 function startRename(it: PlaylistItemView): void {
   editingId.value = it.id;
   editingText.value = it.title;
@@ -616,7 +621,7 @@ async function submitWebpage(): Promise<void> {
               playing: ch?.currentMediaId === it.mediaId, missing: it.missing,
               dragging: dragId === it.id, dropzone: dragOverId === it.id,
             }"
-            draggable="true"
+            :draggable="editingId !== it.id"
             @dragstart="onDragStart(it, $event)"
             @dragover="onDragOver(it, $event)"
             @drop.prevent="onDrop(it)"
@@ -628,8 +633,9 @@ async function submitWebpage(): Promise<void> {
             </button>
             <input
               v-if="editingId === it.id"
+              v-focus
               v-model="editingText" class="pl-name-input" maxlength="60"
-              @click.stop @keyup.enter="commitRename(it)"
+              @click.stop @mousedown.stop @keyup.enter="commitRename(it)"
               @keyup.esc="editingId = null" @blur="commitRename(it)"
             />
             <span v-else class="pl-name" :title="it.title" @dblclick="startRename(it)">
