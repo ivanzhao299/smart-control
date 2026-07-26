@@ -267,25 +267,37 @@ try { & pm2 save 2>&1 | Out-Null } catch { }
 # 每次部署收尾在这里归零: 只留真正在托管 backend/frontend 的那个守护 (被托管的
 # ProcessContainerFork.js 进程的父进程就是它), 其余 Daemon.js 一律杀掉。
 # 只在找得到被托管进程时才动手, 绝不盲杀 (托管进程为空时保守跳过)。
-try {
-  $managed = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction Stop |
-    Where-Object { $_.CommandLine -match 'ProcessContainerFork' })
-  $keep = @($managed | ForEach-Object { [int]$_.ParentProcessId } | Sort-Object -Unique)
-  if ($keep.Count -gt 0) {
-    $daemons = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction Stop |
-      Where-Object { $_.CommandLine -match 'Daemon\.js' })
-    $killed = 0
-    foreach ($d in $daemons) {
-      if ($keep -notcontains [int]$d.ProcessId) {
-        try { Stop-Process -Id ([int]$d.ProcessId) -Force -ErrorAction Stop; $killed++ } catch { }
+#
+# v2 (2026-07-26 修): 带重试。v1 紧跟 pm2 start 就跑, 此刻被托管进程
+# (ProcessContainerFork) 往往还没起来 -> keep 集空 -> "保守跳过" -> 没清 ->
+# 每次部署漏几个、十来次累积到几十个又把机器拖到崩 (实测 10 次部署堆到 46)。
+# v2 最多轮询 24s 等托管进程出现, 出现即清; 真没起来(backend 挂了)才跳过。
+$deduped = $false
+for ($try = 0; $try -lt 12; $try++) {
+  try {
+    $managed = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction Stop |
+      Where-Object { $_.CommandLine -match 'ProcessContainerFork' })
+    $keep = @($managed | ForEach-Object { [int]$_.ParentProcessId } | Sort-Object -Unique)
+    if ($keep.Count -gt 0) {
+      $daemons = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction Stop |
+        Where-Object { $_.CommandLine -match 'Daemon\.js' })
+      $killed = 0
+      foreach ($d in $daemons) {
+        if ($keep -notcontains [int]$d.ProcessId) {
+          try { Stop-Process -Id ([int]$d.ProcessId) -Force -ErrorAction Stop; $killed++ } catch { }
+        }
       }
+      Write-Host "  [daemon-dedup] 保留在管守护 $($keep -join ','); 清掉孤儿 $killed 个 (第 $($try + 1) 轮)" -ForegroundColor DarkGray
+      $deduped = $true
+      break
     }
-    Write-Host "  [daemon-dedup] 保留在管守护 $($keep -join ','); 清掉孤儿 $killed 个" -ForegroundColor DarkGray
-  } else {
-    Write-Host "  [daemon-dedup] 未找到被托管进程, 保守跳过 (不盲杀)" -ForegroundColor DarkGray
+  } catch {
+    Write-Host "  [daemon-dedup] 探测出错: $($_.Exception.Message)" -ForegroundColor DarkGray
   }
-} catch {
-  Write-Host "  [daemon-dedup] 跳过: $($_.Exception.Message)" -ForegroundColor DarkGray
+  Start-Sleep -Seconds 2
+}
+if (-not $deduped) {
+  Write-Host "  [daemon-dedup] 等 24s 仍无被托管进程 (backend 未起?), 保守跳过" -ForegroundColor Yellow
 }
 
 # 6d: 兜底 — 假设上面 pm2 命令因权限不通 (watcher 用 user 身份, pm2 daemon
