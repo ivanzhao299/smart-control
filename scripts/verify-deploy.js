@@ -349,7 +349,8 @@ async function main() {
         const read = rd.lastReadAt ? new Date(rd.lastReadAt) : null;
         const ageSec = read ? Math.round((Date.now() - read.getTime()) / 1000) : null;
         console.log(
-          `  - ${c.name ?? c.id}: ${rd.on ? '通电' : '断开'} ` +
+          `  - ${c.name ?? c.id}${c.relayChannel != null ? `[时序${c.relayChannel}路]` : ''}: ` +
+          `${rd.on ? '通电' : '断开'} ` +
           `P=${rd.power ?? '-'}W I=${rd.current ?? '-'}A ` +
           `读数=${read ? `${ageSec}s 前` : '无'}`,
         );
