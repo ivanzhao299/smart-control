@@ -28,6 +28,15 @@ $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyI
 $projectRoot = (Resolve-Path (Join-Path $scriptDir '..')).Path
 Set-Location $projectRoot
 
+# 关键 (2026-07-26): 固定 PM2_HOME, 和 boot-pm2.ps1 保持一致。
+# 根因: 本脚本作为计划任务在非交互会话跑, $env:USERPROFILE 为空, 下面的
+# `& pm2 jlist` 会用 pm2 的默认家目录 (跟 boot-pm2 的 C:\Users\user\.pm2 不是
+# 同一个), 找不到 boot 起的守护 -> 每轮 (~90s) spawn 一个孤儿 pm2 daemon。
+# 几小时堆到几十个, 把句柄/内存/进程创建资源耗尽, 整机卡死到连 shutdown 都
+# spawn 不出来 (2026-07-25 现场就是这样被拖死、只能物理断电)。设成同一个家目录,
+# pm2 命令就复用那唯一的守护, 不再泄漏。
+$env:PM2_HOME = 'C:\Users\user\.pm2'
+
 $logsDir = Join-Path $projectRoot 'logs'
 $tmpDir = Join-Path $projectRoot 'tmp'
 foreach ($d in @($logsDir, $tmpDir)) {

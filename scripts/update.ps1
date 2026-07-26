@@ -28,6 +28,11 @@ $ErrorActionPreference = 'Continue'
 $projectRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 Set-Location $projectRoot
 
+# 固定 PM2_HOME, 和 boot-pm2.ps1 / auto-update-watcher.ps1 保持一致 (2026-07-26)。
+# 否则本脚本里的 `& pm2 delete/start/describe` 在非交互会话用默认家目录, 找不到
+# boot 起的守护, 会 spawn 孤儿 daemon。详见 auto-update-watcher.ps1 同段注释。
+$env:PM2_HOME = 'C:\Users\user\.pm2'
+
 function Run($cmd) {
   Write-Host "  > $cmd" -ForegroundColor DarkGray
   if (-not $DryRun) {
