@@ -6,6 +6,7 @@ import { Logger } from 'winston';
 import { AudioOutputZone } from '../../entities/audio-output-zone.entity';
 import { AudioInputSource } from '../../entities/audio-input-source.entity';
 import { AudioScene } from '../../entities/audio-scene.entity';
+import { AudioDesiredLink } from '../../entities/audio-desired-link.entity';
 import type { SceneContent, SceneOutputConfig } from '../../adapters/audio/ekx808.adapter';
 
 export interface AudioZoneUpsertDto {
@@ -35,46 +36,72 @@ export interface AudioSceneUpsertDto {
   enabled?: boolean;
 }
 
-/** 默认 8 输出通道: OUT1-OUT8 (channel 0-7), 业主后续改名 */
 /**
- * 默认 8 路输出 —— 名字取自**现场机柜标签**照片 (2026-07-16 业主拍给我的那张):
- *   输出1 一楼门厅  输出2 一楼东北   输出3 一楼中厅   输出4 一楼南厅
- *   输出5 一楼大屏  输出6 一楼投影仪  输出7 二楼走廊   输出8 二楼办公区
+ * 默认 8 路输出 —— 2026-07-26 业主定的全量接线 (权威, 代码跟着接线走):
+ *   OUT1/2 LED大屏 左/右   OUT3/4 投影仪 左/右
+ *   OUT5 二楼办公区        OUT6 二楼走廊区
+ *   OUT7 前厅和东北区      OUT8 一楼展位
  *
- * 原来是 `OUT 1`..`OUT 8` 的占位。生产库里早已被改成上面这些真名, 但**种子里没有** ——
- * 重装/新机器就会退回占位名, 现场对不上标签。现场标签是权威, 代码跟着它走。
- * 业主仍可在前端就地改名 (分区音量页双击名字), 幂等 seed 不会覆盖改过的。
+ * ⚠️ OUT1-4 的名字必须保持 `前缀·左` / `前缀·右` 格式 —— AudioPage 的立体声
+ * 配对**纯靠这个命名约定**识别 (两路合一张卡, 右路跟随左路)。
+ * 业主仍可在前端就地改名, 幂等 seed 不会覆盖改过的。
  */
 const DEFAULT_ZONE_NAMES = [
-  '一楼门厅', '一楼东北', '一楼中厅', '一楼南厅',
-  '一楼大屏', '一楼投影仪', '二楼走廊', '二楼办公区',
+  'LED大屏·左', 'LED大屏·右', '投影仪·左', '投影仪·右',
+  '二楼办公区', '二楼走廊区', '前厅和东北区', '一楼展位',
 ];
+const DEFAULT_ZONE_FLOORS = ['1F', '1F', '1F', '1F', '2F', '2F', '1F', '1F'];
 const DEFAULT_ZONES = Array.from({ length: 8 }, (_, i) => ({
   channel: i,
   name: DEFAULT_ZONE_NAMES[i],
-  floor: (i < 6 ? '1F' : '2F') as string | null,
+  floor: DEFAULT_ZONE_FLOORS[i] as string | null,
   color: null as string | null,
   sortOrder: i,
 }));
 
 /**
- * 默认 8 路输入 —— 2026-07-24 分离器重排后的接线现实:
- *   IN1 中控主机 (USB 声卡, 背景音乐)      IN2 定时播放器
- *   IN3 调音台                            IN4 HDMI1 分离器 → LED 大屏视频声
- *   IN5 HDMI2 分离器 → 投影仪视频声        IN6-IN8 没接线, 占位名
- * (2026-07-25 业主报"IN5 前端看不见": 生产该行 enabled=false 被隐藏, 已手工
- *  启用+改名; 这里同步默认名, 只影响新环境空表 seed。)
+ * 默认 8 路输入 —— 2026-07-26 业主定的全量接线 (8 路全用上, 只有 IN8 空):
+ *   IN1/2 HDMI1 分离器 → LED 大屏视频声 左/右
+ *   IN3/4 HDMI2 分离器 → 投影仪视频声 左/右
+ *   IN5 USB 声卡 (中控主机, 背景音乐)   IN6 调音台
+ *   IN7 定时播放器                      IN8 未接线
+ *
+ * IN1-IN5 给 desiredGainDb=0 / desiredMuted=false: 2026-07-17 教训 —— 矩阵断电
+ * 重启会把增益打回预设 (-60dB), 交叉点通了也没声; AudioReconciler 每 30s 把
+ * 实际增益纠回期望值, 视频声与 BGM 这几路必须托管住。调音台/定时播放器留 null
+ * (现场人工调, 系统不抢)。
  */
 const DEFAULT_INPUT_NAMES = [
-  '中控主机', '定时播放器', '调音台', 'LED 大屏 (HDMI1)',
-  '投影仪 (HDMI2)', 'IN 6 (未接线)', 'IN 7 (未接线)', 'IN 8 (未接线)',
+  'LED大屏·左', 'LED大屏·右', '投影仪·左', '投影仪·右',
+  'USB 声卡', '调音台', '定时播放器', 'IN 8 (未接线)',
 ];
 const DEFAULT_INPUTS = Array.from({ length: 8 }, (_, i) => ({
   channel: i,
   name: DEFAULT_INPUT_NAMES[i],
   color: null as string | null,
   sortOrder: i,
+  enabled: i !== 7,
+  desiredGainDb: i <= 4 ? 0 : null,
+  desiredMuted: i <= 4 ? false : null,
 }));
+
+/**
+ * 默认路由 (期望交叉点) —— "默认是这种接线逻辑" (业主 2026-07-26):
+ *   LED 视频声直通:  OUT1←IN1, OUT2←IN2 (立体声左右各走各)
+ *   投影视频声直通:  OUT3←IN3, OUT4←IN4
+ *   分区 BGM:        OUT5-8 ← IN5 (USB 声卡, 中控主机背景音乐)
+ *
+ * 落成**完整 8×8 期望** (8 通 + 56 断), 不是只存通的 8 条: 设备里可能残留
+ * 旧接线时代的交叉点 (旧 IN1=BGM→分区), 割接后物理含义全变, 不显式声明"断"
+ * 的话 reconciler 不会去关它们 —— LED 左声道就会灌进分区喇叭。
+ * 业主在矩阵 UI 点交叉点即改期望, AudioReconciler (30s) 持续把设备纠成期望态。
+ */
+const DEFAULT_ON = new Set(['0_0', '1_1', '2_2', '3_3', '4_4', '5_4', '6_4', '7_4']);
+const DEFAULT_LINKS = Array.from({ length: 64 }, (_, i) => {
+  const outCh = Math.floor(i / 8);
+  const inCh = i % 8;
+  return { outCh, inCh, enabled: DEFAULT_ON.has(`${outCh}_${inCh}`) };
+});
 
 /** 默认 12 场景 (U01-U12), 名字跟原前端硬编码一致, 业主后续改 */
 const DEFAULT_SCENES: Array<{ presetNum: number; name: string; hint: string }> = [
@@ -98,10 +125,11 @@ export class AudioConfigService implements OnModuleInit {
     @InjectRepository(AudioOutputZone) private readonly zoneRepo: Repository<AudioOutputZone>,
     @InjectRepository(AudioInputSource) private readonly inputRepo: Repository<AudioInputSource>,
     @InjectRepository(AudioScene) private readonly sceneRepo: Repository<AudioScene>,
+    @InjectRepository(AudioDesiredLink) private readonly linkRepo: Repository<AudioDesiredLink>,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
-  /** 启动 seed: 表空时插默认 8 输出 + 8 输入 + 12 场景. 不覆盖业主改过的 */
+  /** 启动 seed: 表空时插默认 8 输出 + 8 输入 + 默认路由 + 12 场景. 不覆盖业主改过的 */
   async onModuleInit(): Promise<void> {
     if ((await this.zoneRepo.count()) === 0) {
       await this.zoneRepo.save(DEFAULT_ZONES.map((z) => this.zoneRepo.create(z)));
@@ -111,12 +139,59 @@ export class AudioConfigService implements OnModuleInit {
       await this.inputRepo.save(DEFAULT_INPUTS.map((s) => this.inputRepo.create(s)));
       this.logger.info('[AudioConfig] seeded 8 输入源 (IN1-IN8)');
     }
+    if ((await this.linkRepo.count()) === 0) {
+      await this.linkRepo.save(DEFAULT_LINKS.map((l) => this.linkRepo.create(l)));
+      this.logger.info('[AudioConfig] seeded 8×8 默认路由期望 (8 通 / 56 断)');
+    }
     if ((await this.sceneRepo.count()) === 0) {
       await this.sceneRepo.save(
         DEFAULT_SCENES.map((s, i) => this.sceneRepo.create({ ...s, sortOrder: i })),
       );
       this.logger.info('[AudioConfig] seeded 12 场景 (U01-U12)');
     }
+    await this.heal20260726Rewiring();
+  }
+
+  /**
+   * 一次性割接 (2026-07-26): 音频矩阵按业主定的全量接线重排。
+   *
+   * 生产库还是 07-24 的旧映射 (IN1=中控主机...), 而 seed 遇已有行只跳过 ——
+   * 不 heal 的话新接线永远上不了生产 (老坑, 同 healLedCircuitToBreaker)。
+   *
+   * 哨兵 = IN1 还叫「中控主机」: 割接后 IN1 改名, 此方法从此不再触发;
+   * 业主后续在 UI 里怎么改都不会被冲掉。
+   *
+   * 旧 desired_link 全清: in_ch 的物理含义整个变了 (旧 IN1=BGM, 新 IN1=LED左),
+   * 留着旧交叉点会把 LED 左声道灌进分区喇叭。清掉重建默认直通+BGM 路由,
+   * AudioReconciler (30s 周期) 会自动把设备纠成新期望。
+   */
+  private async heal20260726Rewiring(): Promise<void> {
+    const in0 = await this.inputRepo.findOne({ where: { channel: 0 } });
+    if (!in0 || in0.name !== '中控主机') return;
+
+    for (const d of DEFAULT_INPUTS) {
+      const row = (await this.inputRepo.findOne({ where: { channel: d.channel } }))
+        ?? this.inputRepo.create({ channel: d.channel, name: d.name });
+      row.name = d.name;
+      row.enabled = d.enabled;
+      row.desiredGainDb = d.desiredGainDb;
+      row.desiredMuted = d.desiredMuted;
+      await this.inputRepo.save(row);
+    }
+    for (const d of DEFAULT_ZONES) {
+      const row = (await this.zoneRepo.findOne({ where: { channel: d.channel } }))
+        ?? this.zoneRepo.create({ channel: d.channel, name: d.name });
+      row.name = d.name;
+      row.floor = d.floor;
+      row.enabled = true;
+      await this.zoneRepo.save(row);
+    }
+    await this.linkRepo.clear();
+    await this.linkRepo.save(DEFAULT_LINKS.map((l) => this.linkRepo.create(l)));
+    this.logger.warn(
+      '[AudioConfig] 2026-07-26 割接完成: 输入/输出全量重命名, 路由重建为直通+BGM (LED IN1/2→OUT1/2, 投影 IN3/4→OUT3/4, USB声卡→OUT5-8)',
+      { context: 'AudioConfig' },
+    );
   }
 
   // ============ 输入源 ============
