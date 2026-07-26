@@ -467,7 +467,7 @@ async function submitWebpage(): Promise<void> {
            LED=空开(1f-led) / 投影=时序器第8路(seq-8) -->
       <div v-if="powerCircuit" class="now-power">
         <Power :size="15" :stroke-width="2" />
-        <span class="np-label">屏幕电源</span>
+        <span class="np-label">电源</span>
         <button
           class="v2-toggle"
           :class="{ on: powerCircuit.reading.on }"
@@ -809,6 +809,11 @@ async function submitWebpage(): Promise<void> {
 .cols { display: grid; grid-template-columns: 1.4fr 1fr; gap: 12px; flex: 0 1 auto; max-height: 100%; min-height: 0; align-items: start; }
 .panel {
   display: flex; flex-direction: column; min-height: 0; max-height: 100%;
+  /* min-width: 0 关键 (2026-07-26): panel 是 .cols 的网格子项, 默认 min-width:auto
+     不肯收缩到内容(超长文件名 nowrap)以下 —— 于是被撑得比屏幕还宽, 右侧连同圆角
+     被挤出视口外, 看着就是"圆角缺失/被切"。设 0 后 panel 收缩到网格轨道宽,
+     长文件名走 .pl-name 的省略号, 卡片回到屏内、圆角完整。 */
+  min-width: 0;
   border-radius: 14px; padding: 12px;
   background: var(--v2-surf-1, #14161A); border: 1px solid var(--v2-border-soft);
 }
@@ -835,9 +840,9 @@ async function submitWebpage(): Promise<void> {
 .empty { padding: 20px; text-align: center; font-size: 13px; color: var(--v2-text-2); border: 1px dashed var(--v2-border-soft); border-radius: 10px; }
 .empty-sub { margin-top: 6px; font-size: 12px; color: var(--v2-text-3); }
 
-.pl-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.pl-list { flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
 .pl-item {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: 8px; min-width: 0;
   padding: 8px 10px; border-radius: 10px;
   background: var(--v2-surf-2, #1A1D22); border: 1px solid transparent;
 }
@@ -964,15 +969,17 @@ async function submitWebpage(): Promise<void> {
 .pg-btn:disabled { opacity: .4; cursor: not-allowed; }
 .pg-num { font-size: 18px; font-weight: 700; min-width: 72px; text-align: center; color: var(--v2-text-1); }
 .pg-num i { font-style: normal; font-size: 13px; color: var(--v2-text-3); margin-left: 3px; }
-/* ---- 屏幕电源开关 (卡片内, 时序器同款拨动开关) ---- */
+/* ---- 电源开关 (标题栏"待机"行末尾, 时序器同款拨动开关) ---- */
 /* 报警插槽在卡片内占满整行, 显示在顶部 (投影融合器状态) */
 .now :deep(.out-bar) { flex-basis: 100%; width: 100%; }
+/* 2026-07-26: 收紧间距/去掉状态字固定预留宽, 让整块更窄, LED 页("LED 大屏"标题较宽)
+   电源块也能留在"待机"同一行不换行。 */
 .now-power {
-  margin-left: auto; display: inline-flex; align-items: center; gap: 9px;
-  color: var(--v2-text-2);
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+  color: var(--v2-text-2); flex-shrink: 0; white-space: nowrap;
 }
 .np-label { font-size: 13px; font-weight: 600; color: var(--v2-text-1); }
-.np-state { font-size: 12px; font-weight: 600; color: var(--v2-text-3); min-width: 40px; }
+.np-state { font-size: 12px; font-weight: 600; color: var(--v2-text-3); }
 .np-state.on { color: var(--v2-live-power, #48D597); }
 
 /* 拨动开关 —— 抄自电源页时序器 (.v2-toggle), 保持全站一致 */
