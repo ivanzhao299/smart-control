@@ -463,6 +463,22 @@ async function submitWebpage(): Promise<void> {
       <span v-if="ch && !ch.alive" class="led-warn" title="播放器没有心跳">
         <AlertTriangle :size="14" /> 播放器离线
       </span>
+      <!-- 屏幕电源开关 (2026-07-26 业主: 放到"待机"状态同一行末尾, 时序器拨动样式):
+           LED=空开(1f-led) / 投影=时序器第8路(seq-8) -->
+      <div v-if="powerCircuit" class="now-power">
+        <Power :size="15" :stroke-width="2" />
+        <span class="np-label">屏幕电源</span>
+        <button
+          class="v2-toggle"
+          :class="{ on: powerCircuit.reading.on }"
+          :disabled="powerBusy"
+          :title="powerCircuit.reading.on ? '断开电源' : '接通电源'"
+          @click="togglePower"
+        ></button>
+        <span class="np-state" :class="{ on: powerCircuit.reading.on }">
+          {{ powerCircuit.reading.on ? '已通电' : '已断电' }}
+        </span>
+      </div>
     </header>
 
 
@@ -522,23 +538,6 @@ async function submitWebpage(): Promise<void> {
           <el-option value="contain" label="保持比例 (留黑边)" />
           <el-option value="cover" label="裁切铺满 (不变形)" />
         </el-select>
-      </div>
-
-      <!-- 屏幕电源开关 (2026-07-26 业主: 挪进播放卡片, 改时序器拨动开关样式):
-           LED=空开(1f-led) / 投影=时序器第8路(seq-8), 就近控制屏幕电源 -->
-      <div v-if="powerCircuit" class="now-power">
-        <Power :size="15" :stroke-width="2" />
-        <span class="np-label">屏幕电源</span>
-        <button
-          class="v2-toggle"
-          :class="{ on: powerCircuit.reading.on }"
-          :disabled="powerBusy"
-          :title="powerCircuit.reading.on ? '断开电源' : '接通电源'"
-          @click="togglePower"
-        ></button>
-        <span class="np-state" :class="{ on: powerCircuit.reading.on }">
-          {{ powerCircuit.reading.on ? '已通电' : '已断电' }}
-        </span>
       </div>
     </section>
 
@@ -748,6 +747,11 @@ async function submitWebpage(): Promise<void> {
   display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
   padding: 14px 16px; border-radius: 14px;
   background: var(--v2-surf-1, #14161A); border: 1px solid var(--v2-border-soft);
+  /* 2026-07-26 业主: ① 与顶部标题栏留出间距(不紧贴); ② LED/投影卡片等高固定,
+     报警文字(投影融合器状态)出现时在此高度内容纳、不撑高卡片。内容垂直居中,
+     没报警时留白均分在上下, 看着是平衡的内边距而非空洞。 */
+  margin-top: 12px;
+  min-height: 116px;
 }
 .now-info { flex: 1 1 240px; min-width: 0; }
 .now-label { font-size: 12px; color: var(--v2-text-2); }
