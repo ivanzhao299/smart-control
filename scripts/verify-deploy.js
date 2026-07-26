@@ -280,6 +280,36 @@ async function main() {
     bad('复采 pm2 失败: ' + e.message);
   }
 
+  // --- F. Kiosk 播放器心跳 (信息性, 不计入成败) ---
+  // 播放器是控制台会话里的 Chromium kiosk 窗口, 不归 pm2 管; 拉活它们是
+  // SmartControl-PlayerWatchdog (每分钟, 心跳陈旧超 3 分钟自动重拉) 的职责。
+  // 这里只把 backend 记录的各 slot 心跳打出来, 让远程 CI 探针能看到
+  // "大屏(1)/投影(2)/BGM(3) 到底活没活" —— 不算进部署成败: 部署好坏与
+  // 控制台会话里有没有浏览器窗口是两回事 (RDP 抢占控制台也会杀心跳)。
+  console.log('[kiosk 心跳] GET /api/playback/channels (信息性)');
+  try {
+    const r = await httpGet(3200, '/api/playback/channels');
+    if (r.code !== 200) {
+      console.log('  ' + RED('WARN') + ` 读取失败: HTTP ${r.code || '无响应'} ${String(r.body).slice(0, 80)}`);
+    } else {
+      const rows = JSON.parse(r.body).data || [];
+      if (!rows.length) console.log('  ' + RED('WARN') + ' 没有任何播控通道记录');
+      for (const c of rows) {
+        const hb = c.lastHeartbeatAt ? new Date(c.lastHeartbeatAt) : null;
+        const ageSec = hb ? Math.round((Date.now() - hb.getTime()) / 1000) : null;
+        const label =
+          `slot=${c.slot} alive=${c.alive} ` +
+          `心跳=${hb ? `${hb.toLocaleTimeString()} (${ageSec}s 前)` : '从未'} ` +
+          `媒体=${c.mediaName ?? '-'}`;
+        if (c.alive) ok(label);
+        else console.log('  ' + RED('WARN') + ' ' + label + ' — kiosk 可能没在跑或控制台会话被 RDP 抢占');
+      }
+    }
+  } catch (e) {
+    console.log('  ' + RED('WARN') + ' kiosk 心跳读取异常: ' + e.message);
+  }
+  console.log('');
+
   console.log('\n==== 结果 ====');
   if (failures.length) {
     console.log(RED(`\n部署未通过 — ${failures.length} 项失败:\n`));
