@@ -99,8 +99,18 @@ function Invoke-DetachedResurrect {
   }
   Start-Sleep -Seconds 2
 
-  $cmd = "cmd /c `"set PM2_HOME=$pm2Home && $pm2 resurrect`""
-  Write-DeployLog "WMI detached resurrect: $cmd"
+  # Chain resurrect -> start ecosystem -> save inside the ONE detached process.
+  # `pm2 resurrect` alone cannot recover two known-real states (2026-07-26 #207
+  # failed exactly here): a dump.pm2 that was overwritten empty (nothing to
+  # restore), and apps left permanently 'errored' after max_restarts was
+  # exhausted (resurrect does not touch existing app entries). `pm2 start
+  # <ecosystem>` covers both - it creates missing apps and restarts existing
+  # ones from the declarative config. The trailing save then repairs the dump
+  # while the apps are actually up. Plain & (not &&) between the pm2 steps so
+  # a failing resurrect does not stop the ecosystem start.
+  $eco = Join-Path $projectRoot 'deploy\ecosystem.config.js'
+  $cmd = "cmd /c `"set PM2_HOME=$pm2Home && $pm2 resurrect & $pm2 start $eco --env production & $pm2 save`""
+  Write-DeployLog "WMI detached recover: $cmd"
   $r = ([wmiclass]'\\.\root\cimv2:Win32_Process').Create($cmd, 'C:\Users\user', $null)
   Write-DeployLog ("  WMI ProcessId={0} ReturnValue={1}" -f $r.ProcessId, $r.ReturnValue)
 }
