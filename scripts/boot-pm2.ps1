@@ -1,4 +1,4 @@
-# ==============================================================
+﻿# ==============================================================
 # Boot bootstrap for pm2 -- replaces start-backend.ps1 / start-frontend.ps1
 # (the two "while(true){ node ... }" loops that ran outside pm2).
 #
@@ -38,7 +38,23 @@ Log '[boot] start'
 # daemon instead of spawning an orphan. GK9000 is a fixed single host (user 'user').
 $pm2 = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
 if (-not (Test-Path $pm2)) { $pm2 = 'pm2' }
-$env:PM2_HOME = 'C:\Users\user\.pm2'
+$PM2HOME = 'C:\Users\user\.pm2'
+$env:PM2_HOME = $PM2HOME
+
+# 【2026-07-26 根治守护碎片化】把 PM2_HOME 设成机器级环境变量。
+# 根因: WMI Win32_Process.Create 不传调用者环境, 脱离到 session 0 的守护拿不到
+# 上面这句 $env:PM2_HOME, 就用了 SYSTEM 默认目录; 而 session-1 的 watcher/update.ps1
+# 用 C:\Users\user\.pm2 —— 两边永远对不上, 每次 pm2 调用都新建一个守护, 越堆越多。
+# 设成机器级后, 所有进程(含 WMI 脱离的守护、任何会话的 pm2 CLI)都继承同一个
+# PM2_HOME, 共用唯一守护, 从源头不再滋生孤儿。幂等: 已一致就跳过。
+try {
+  $cur = [Environment]::GetEnvironmentVariable('PM2_HOME', 'Machine')
+  if ($cur -ne $PM2HOME) {
+    [Environment]::SetEnvironmentVariable('PM2_HOME', $PM2HOME, 'Machine')
+    Log "[boot] 机器级 PM2_HOME 设为 $PM2HOME (原: $cur)"
+  }
+} catch { Log "[boot] 设机器级 PM2_HOME 失败 (需管理员?): $($_.Exception.Message)" }
+
 Log "[boot] pm2 = $pm2 ; PM2_HOME = $env:PM2_HOME"
 
 # --- WireGuard keepalive (must stay ABOVE the early-exit below) ---
@@ -79,7 +95,9 @@ if ($backendUp -and $frontendUp) {
 }
 
 # Run pm2 resurrect detached from this session (survives session exit).
-$cmd = "cmd /c `"$pm2`" resurrect"
+# 关键: 命令里显式 set PM2_HOME 再跑 pm2 —— WMI 不传环境, 不注入的话这个脱离守护
+# 会落到 SYSTEM 默认目录, 与 session-1 调用者的 C:\Users\user\.pm2 对不上 (碎片化根因)。
+$cmd = "cmd /c `"set PM2_HOME=$PM2HOME && $pm2 resurrect`""
 try {
   $r = ([wmiclass]'\\.\root\cimv2:Win32_Process').Create($cmd, 'C:\Users\user', $null)
   Log "[boot] WMI resurrect started, ProcessId=$($r.ProcessId) ReturnValue=$($r.ReturnValue)"
