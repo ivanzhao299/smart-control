@@ -336,6 +336,8 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
       </div>
     </header>
 
+    <!-- 2026-07-26 业主: 顶栏固定, 内容区独立滚动 (与空调/播放器页统一) -->
+    <div class="v2-page-body">
     <!-- 分区管理面板: 新建 / 拖动排序 / 双击改名。成员 (哪盏灯在哪个区) 在单灯页管。 -->
     <div v-if="grouping" class="group-panel">
       <div class="gp-head">
@@ -486,6 +488,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
         <div v-if="z.error" class="zone-err">{{ z.error }}</div>
       </div>
     </div>
+    </div><!-- /v2-page-body -->
 
   </section>
 </template>
@@ -626,6 +629,21 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 
 .v2-page {
   padding: var(--v2-sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--v2-sp-4);
+  /* 2026-07-26 业主: 固定壳 —— 顶栏固定, 只内容区滚动 (与空调/播放器页统一) */
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.v2-page-head { flex: 0 0 auto; }
+.v2-page-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;   /* 到边不外弹, 无橡皮筋 */
   display: flex;
   flex-direction: column;
   gap: var(--v2-sp-4);

@@ -914,7 +914,10 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 .hv-page {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  /* 2026-07-26 业主: 原 100vh 比容器(.v2-main)高, 溢出才产生滚动+橡皮筋。
+     改 100% 精确贴合容器 -> 顶栏固定、只内容区滚, 与灯光/播放器页统一。 */
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
   /* 底部常驻预留操作浮层的高度: 浮层弹出/收起都不引起网格行高变化 */
   padding: 10px 14px 108px;

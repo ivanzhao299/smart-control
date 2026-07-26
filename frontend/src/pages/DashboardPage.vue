@@ -359,6 +359,11 @@ function goTo(name: string): void {
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   min-width: 0;
+  /* 2026-07-26 业主: 卡片固定高度 —— "实时功率"卡带心电图曲线, 不固定的话它一
+     出现就把整行 KPI 卡撑高。固定 92px 预留曲线空间, 有没有曲线高度都一样。 */
+  height: 92px;
+  box-sizing: border-box;
+  overflow: hidden;
   cursor: default;
 }
 /* KPI 是参考信息, 图标一律中性。

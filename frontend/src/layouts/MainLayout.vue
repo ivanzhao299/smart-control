@@ -808,6 +808,9 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   grid-area: main;
   overflow-y: auto;
   overflow-x: hidden;
+  /* 2026-07-26 业主: 全站去掉下拉橡皮筋回弹 —— 滚动到边界不再往外弹, 也不把
+     回弹传给外层。配合各功能页"上下栏固定、只内容区滚"一起统一体验。 */
+  overscroll-behavior: contain;
   min-width: 0;
   min-height: 0;
 }
