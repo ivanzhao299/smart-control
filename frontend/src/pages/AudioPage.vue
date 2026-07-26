@@ -593,9 +593,9 @@ function linkOn(z: AudioRow): boolean {
   const key = pairLeftId(z);
   return key ? (stereoLink.value[key] ?? true) : false;
 }
-function toggleLink(z: AudioRow): void {
+function setLink(z: AudioRow, v: boolean): void {
   const key = pairLeftId(z);
-  if (key) stereoLink.value = { ...stereoLink.value, [key]: !(stereoLink.value[key] ?? true) };
+  if (key) stereoLink.value = { ...stereoLink.value, [key]: v };
 }
 
 // 页内 tab: 一键场景 / 背景音乐 / 分区音量 / 音源矩阵 — 一屏一组, 不上下滚
@@ -758,13 +758,27 @@ async function loadInputChannels(): Promise<void> {
   }
 }
 
-/** 设备 dB (-60..+12) → 滑条百分比 (0..100), 仅用于 UI 展示 */
-function gainDbToPct(db: number): number {
-  return Math.round(((db + 60) / 72) * 100);
+/**
+ * 百分比 ↔ dB 换算 —— 必须与 backend ekx808-protocol percentToDb **完全同式**
+ * (0→-60, 50→-10, 100→+12, 分段线性)。2026-07-26 前这里用的是线性 (db+60)/72,
+ * 跟设置端的分段式对不上: 拖到 50% 设了 -10dB, 回读换算却显示在 69% —— 滑条
+ * "跳来跳去切不准"的元凶之一。
+ */
+function pctToDbUi(percent: number): number {
+  if (percent <= 0) return -60;
+  if (percent >= 100) return 12;
+  if (percent < 50) return -60 + (percent / 50) * 50;
+  return -10 + ((percent - 50) / 50) * 22;
+}
+function dbToPctUi(db: number): number {
+  if (db <= -60) return 0;
+  if (db >= 12) return 100;
+  if (db < -10) return Math.round(((db + 60) / 50) * 50);
+  return Math.round(50 + ((db + 10) / 22) * 50);
 }
 function inputGainOf(ch: number): number {
   const db = inputGainDb.value[ch];
-  return db === null || db === undefined ? 0 : gainDbToPct(db);
+  return db === null || db === undefined ? 0 : dbToPctUi(db);
 }
 /** 界面上显示的真实 dB 文本; 没读到就是 '—', 不编数 */
 function inputGainLabel(ch: number): string {
@@ -772,15 +786,35 @@ function inputGainLabel(ch: number): string {
   return db === null || db === undefined ? '—' : `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`;
 }
 
-async function onInputGain(ch: number, value: number): Promise<void> {
-  try {
-    const res = await audioService.setInputVolume(ch, value);
-    if (!res.ok) throw new Error(res.error || '执行失败');
-  } catch (err) {
-    ElMessage.error(`IN${ch + 1} 增益设置失败: ${(err as Error).message}`);
-  } finally {
-    await loadInputChannels(); // 以设备读回的为准, 不信自己刚才发了什么
-  }
+/**
+ * 输入增益实时下发 (2026-07-26 业主: "调节不灵敏, 不能实时反馈"):
+ * 原来 @change 松手才发一条, 发完还要整批回读 8 路 (~4.6s) —— 拖动全程无反馈,
+ * 读完值还可能跳。改成: @input 实时 —— dB 数字立即按同式换算显示, 指令走
+ * 每通道"在飞+最新待发"合并 (与分区推子同机制), 不再整批回读 (setInputVolume
+ * 会把值记进期望增益, reconciler 每 30s 兜底校准)。
+ */
+const gainSend: Record<number, { inflight: boolean; pending: number | null }> = {};
+function onInputGain(ch: number, value: number): void {
+  inputGainDb.value = { ...inputGainDb.value, [ch]: pctToDbUi(value) };
+  let st = gainSend[ch];
+  if (!st) { st = { inflight: false, pending: null }; gainSend[ch] = st; }
+  st.pending = value;
+  if (st.inflight) return;
+  st.inflight = true;
+  void (async () => {
+    while (st.pending !== null) {
+      const v = st.pending;
+      st.pending = null;
+      try {
+        const res = await audioService.setInputVolume(ch, v);
+        if (!res.ok) throw new Error(res.error || '执行失败');
+      } catch (err) {
+        ElMessage.error(`IN${ch + 1} 增益设置失败: ${(err as Error).message}`);
+        break;
+      }
+    }
+    st.inflight = false;
+  })();
 }
 
 // 静音前保存各通道音量, 解除静音时用于渐响恢复
@@ -1257,15 +1291,19 @@ async function toggleMuteAll(): Promise<void> {
               <Pencil :size="12" />
             </button>
           </div>
-          <div class="ch-addr v2-inter">
-            {{ displayAddr(z) }}<span
-              v-if="isStereo(z)"
-              class="stereo-badge"
-              :class="{ off: !linkOn(z) }"
-              role="button"
-              :title="linkOn(z) ? '联动中: 推任意一边左右一起走, 点击切为独立' : '独立中: 左右各推各的, 点击恢复联动'"
-              @click.stop="toggleLink(z)"
-            >{{ linkOn(z) ? '联动' : '独立' }}</span>
+          <div class="ch-addr v2-inter">{{ displayAddr(z) }}</div>
+          <!-- 立体声联动/独立: 胶囊分段开关 (2026-07-26 业主: 徽标看不清, 要做明显) -->
+          <div v-if="isStereo(z)" class="link-capsule" role="group" @click.stop>
+            <button
+              class="lc-opt" :class="{ act: linkOn(z) }"
+              title="联动: 推任意一边, 左右一起走"
+              @click="setLink(z, true)"
+            >联动</button>
+            <button
+              class="lc-opt" :class="{ act: !linkOn(z) }"
+              title="独立: 左右各推各的 (做左右平衡)"
+              @click="setLink(z, false)"
+            >独立</button>
           </div>
           <!-- 立体声对: 左右两根推子并排 (2026-07-26 业主), 联动时一起走, 独立时各推各的 -->
           <div v-if="isStereo(z)" class="fader-duo">
@@ -1331,10 +1369,10 @@ async function toggleMuteAll(): Promise<void> {
           <div v-for="inp in inputs" :key="'ig' + inp.channel" class="ig-item">
             <div class="ig-name" :title="inp.name">{{ inp.name }}</div>
             <input
-              type="range" :min="0" :max="100" :step="5"
+              type="range" :min="0" :max="100" :step="1"
               :value="inputGainOf(inp.channel)"
               class="ig-slider"
-              @change="onInputGain(inp.channel, Number(($event.target as HTMLInputElement).value))"
+              @input="onInputGain(inp.channel, Number(($event.target as HTMLInputElement).value))"
             />
             <!-- 显示设备真实 dB, 不是滑条百分比 —— 百分比是 UI 自己换算的, dB 才是设备说的 -->
             <div class="ig-val v2-inter" :class="{ unknown: inputGainDb[inp.channel] == null }">
@@ -1782,16 +1820,26 @@ async function toggleMuteAll(): Promise<void> {
 
 .ch-name { font-size: 13px; font-weight: 600; color: var(--v2-text-1); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; flex-shrink: 0; }
 .ch-addr { font-size: 10px; color: var(--v2-text-3); letter-spacing: 1px; text-align: center; flex-shrink: 0; }
-/* 立体声对徽标 — 现在也是联动/独立切换按钮 (2026-07-26) */
-.stereo-badge {
-  display: inline-block; margin-left: 4px; padding: 0 5px;
-  font-size: 9px; letter-spacing: 0; line-height: 14px; border-radius: 7px;
-  color: var(--v2-accent); background: color-mix(in srgb, var(--v2-accent) 14%, transparent);
-  cursor: pointer; user-select: none;
+/* 立体声联动/独立: 胶囊分段开关 (2026-07-26 业主: 之前的小徽标看不清) —
+   两段式, 当前态实心高亮 + 白字, 非当前态弱化, 状态一眼可辨 */
+.link-capsule {
+  display: flex; flex-shrink: 0;
+  border-radius: 999px; overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--v2-success) 45%, var(--v2-border-soft));
+  background: var(--v2-surf-2);
 }
-.stereo-badge.off {
-  color: var(--v2-text-3);
-  background: color-mix(in srgb, var(--v2-text-3) 14%, transparent);
+.lc-opt {
+  border: none; padding: 3px 10px;
+  font-size: 11px; line-height: 1.2; letter-spacing: 1px;
+  color: var(--v2-text-3); background: transparent;
+  cursor: pointer; user-select: none;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+.lc-opt.act {
+  color: #fff;
+  background: linear-gradient(135deg, #3FBF87, #2FA873);
+  box-shadow: 0 0 10px rgba(63, 191, 135, 0.45);
+  font-weight: 700;
 }
 
 /* 立体声双推子: 左右两根并排, 各自可拖; 联动时逻辑层同步, 界面看着一起走 */
@@ -1923,10 +1971,12 @@ async function toggleMuteAll(): Promise<void> {
 
 /* 输入增益行 (音源矩阵页顶部) */
 .input-gains { flex-shrink: 0; margin-bottom: 10px; }
-.ig-row { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px; }
-.ig-item { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+/* 2026-07-26 业主: "加长输入推子, 更灵敏切换到准确数值" —— 8 列一行改 4 列两行,
+   每根滑条长度翻倍; step 5→1; 加高触摸区, 手指好抓 */
+.ig-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 14px; }
+.ig-item { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
 .ig-name { font-size: 10px; color: var(--v2-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.ig-slider { width: 100%; accent-color: #3FBF87; cursor: pointer; }
+.ig-slider { width: 100%; height: 28px; accent-color: #3FBF87; cursor: pointer; touch-action: none; }
 .ig-val { font-size: 11px; color: color-mix(in srgb, var(--v2-success) 65%, var(--v2-text-1)); font-weight: 700; }
 
 /* 矩阵读不到 / 增益读取中 的提示 */
