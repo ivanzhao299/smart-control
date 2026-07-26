@@ -51,11 +51,6 @@ onUnmounted(() => { if (timer) clearInterval(timer); });
 </script>
 
 <template>
-  <!-- 2026-07-26 业主: 去掉外层 .proj-wrap 壳 —— 它高度 auto, 会把 PlayerConsole
-       的 .led-page(height:100%)高度链打断, 导致投影页 sticky 失效、上半部分可滑,
-       和 LED 页表现不一致。现在直接用 PlayerConsole 当根, 与 LED 页 100% 同构。
-       报警条(插槽)的 .out-bar 样式仍由本页 scoped CSS 生效(Vue 把父作用域打到
-       插槽内容上), 无需外层壳。 -->
   <PlayerConsole :slot="2" title="投影仪" power-code="seq-8">
     <template #alert>
       <div v-if="showingHdmi !== true" class="out-bar" :class="showingHdmi === false ? 'warn' : 'unknown'">

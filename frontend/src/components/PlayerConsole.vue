@@ -734,8 +734,19 @@ async function submitWebpage(): Promise<void> {
 
 <style scoped>
 /* LED 播放页 — 所有操作内嵌本页, 不跳走 (业主: "播放页面不应该点击按钮跳转到其他页面") */
-.led-page { display: flex; flex-direction: column; gap: 12px; height: 100%; padding: 12px; min-height: 0; }
+/* overflow: hidden 兜底 (2026-07-26): 保证本页永远不产生外层滚动 —— 顶部标题栏+
+   播放卡片钉死, 只有下方播放列表/历史内部滚动。之前投影页可滑是外层壳打断了高度链,
+   壳已去掉; 这条再上一道保险, 让 LED/投影 100% 一致、任何细微溢出都不会让整页滑。 */
+.led-page { display: flex; flex-direction: column; gap: 12px; height: 100%; padding: 12px; min-height: 0; overflow: hidden; }
 .led-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+/* 返回键: 与灯光/音响/空调等功能页统一成深色描边按钮 (业主 2026-07-26)。
+   原来 PlayerConsole 没定义, 用了浏览器默认白按钮, 和其它页不一致。 */
+.v2-back-btn {
+  width: 36px; height: 36px; border-radius: var(--v2-r-sm);
+  background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft);
+  display: grid; place-items: center; cursor: pointer; color: var(--v2-text-2);
+}
+.v2-back-btn:hover { background: var(--v2-surf-1-hover); color: var(--v2-text-1); }
 .led-title { display: flex; align-items: center; gap: 8px; font-size: 20px; font-weight: 700; color: var(--v2-text-1); }
 .led-state { padding: 3px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; }
 .led-state.on { background: color-mix(in srgb, var(--v2-success) 20%, transparent); color: var(--v2-success); }

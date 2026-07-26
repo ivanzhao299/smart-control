@@ -329,13 +329,15 @@ function goTo(name: string): void {
 
 <style scoped>
 .v2-dash {
-  min-height: 100%;
+  /* 业主 2026-07-26: 首页元素固定一屏显示, 不得滑动。删掉会议/清洁两个场景后,
+     KPI + 4 个场景 + 子系统条正好一屏装下。height:100% + overflow:hidden 钉死,
+     中间场景块(1fr)自适应剩余高度。 */
+  height: 100%;
   padding: var(--v2-sp-4) var(--v2-sp-5);
   display: grid;
   grid-template-rows: auto 1fr auto;
   gap: var(--v2-sp-3);
-  /* 优先按 iPad 1180×820 不滚装下; 窗口过窄/过矮时允许纵向滚, 不再让子系统盖住场景 */
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 /* ============ KPI 行 ============ */

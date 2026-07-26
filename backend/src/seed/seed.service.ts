@@ -1,11 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { Device, DeviceCategory } from '../entities/device.entity';
 import { Scene } from '../entities/scene.entity';
 import { SceneAction } from '../entities/scene-action.entity';
+import { SceneExecution } from '../entities/scene-execution.entity';
 import { User } from '../entities/user.entity';
 import { UatCategory, UatRecord } from '../entities/uat-record.entity';
 import { HardwareCategory, HardwareUnit } from '../entities/hardware-unit.entity';
@@ -62,11 +63,15 @@ interface SceneSeed {
 const SCENES: SceneSeed[] = [
   { code: 'opening', name: '开馆模式', description: '展馆开放期间常规灯光与音响' },
   { code: 'reception', name: '接待模式', description: '重要客户接待场景' },
-  { code: 'meeting', name: '会议模式', description: '会议区域灯光与显示设备' },
   { code: 'roadshow', name: '路演模式', description: '展品路演与互动展示' },
-  { code: 'cleaning', name: '清洁模式', description: '保洁时段照明' },
   { code: 'closing', name: '闭馆模式', description: '闭馆后基础安防与节能照明' },
 ];
+
+// 业主 2026-07-26: 彻底删除"会议模式(meeting)/清洁模式(cleaning)"两个场景。
+// seed 是幂等的、只创建不删除, 所以移除数组还不够 —— DB 里已存在的得主动删。
+// 下面在 seedScenes 里显式清理 (连同 scene_actions + scene_executions), 幂等,
+// 删完即无操作。
+const REMOVED_SCENE_CODES = ['meeting', 'cleaning'];
 
 // 灯光设备 = DALI 组. id 后缀 = DALI 组号 (与 LightingPage 前端 zone.id 对齐)
 // 走 CY-DALI64A 网关 (Modbus RTU over TCP). LIGHTING_ADAPTER_KIND=cy-dali64a (默认)
@@ -553,6 +558,20 @@ export class SeedService {
   }
 
   private async seedScenes(): Promise<void> {
+    // 一次性彻底删除已废弃场景 (会议/清洁) —— 幂等: 不存在就跳过。
+    const doomed = await this.sceneRepo.find({ where: { code: In(REMOVED_SCENE_CODES) } });
+    if (doomed.length) {
+      const ids = doomed.map((s) => s.id);
+      // 显式按顺序删关联, 不依赖 DB 级联是否建对 (DB_SYNCHRONIZE=false 走 migration)
+      await this.actionRepo.delete({ sceneId: In(ids) });
+      await this.sceneRepo.manager.delete(SceneExecution, { sceneCode: In(REMOVED_SCENE_CODES) });
+      await this.sceneRepo.remove(doomed);
+      this.logger.info(
+        `Removed deprecated scenes: ${doomed.map((s) => s.code).join(', ')} (+ actions/executions)`,
+        { context: 'SeedService' },
+      );
+    }
+
     for (const s of SCENES) {
       const exists = await this.sceneRepo.findOne({ where: { code: s.code } });
       if (exists) continue;

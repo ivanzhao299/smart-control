@@ -482,8 +482,8 @@ onUnmounted(() => { stopRefresh(); });
 .v2-back-btn:hover { background: var(--v2-surf-1-hover); color: var(--v2-text-1); }
 .title-block { display: flex; flex-direction: column; }
 .title {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 20px;
+  font-weight: 700;
   color: var(--v2-text-1);
   display: inline-flex;
   align-items: center;

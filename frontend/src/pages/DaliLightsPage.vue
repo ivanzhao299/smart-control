@@ -400,7 +400,7 @@ onMounted(loadAll);
 }
 .v2-back-btn:hover { background: var(--v2-surf-1-hover); color: var(--v2-text-1); }
 .title-block { display: flex; flex-direction: column; }
-.title { font-size: 15px; font-weight: 600; color: var(--v2-text-1); display: inline-flex; align-items: center; gap: var(--v2-sp-2); }
+.title { font-size: 20px; font-weight: 700; color: var(--v2-text-1); display: inline-flex; align-items: center; gap: var(--v2-sp-2); }
 .sub { font-size: var(--v2-fs-xs); color: var(--v2-text-3); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .v2-tabs {
   display: inline-flex;

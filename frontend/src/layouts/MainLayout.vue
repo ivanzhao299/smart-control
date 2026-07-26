@@ -684,11 +684,17 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   letter-spacing: 0;
 }
 .v2-brand-title {
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  color: var(--v2-text-1);
-  text-shadow: 0 0 12px rgba(76, 154, 255, 0.35);
+  /* 业主 2026-07-26: 字号加大 + 金色/琥珀醒目标题色。文字仍来自 branding.systemName,
+     后台"系统品牌"页可改。金色在深/浅主题各取一档保证对比度。 */
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  color: #E7B84E;
+  text-shadow: 0 0 16px rgba(231, 184, 78, 0.35);
+}
+:root[data-theme="light"] .v2-brand-title {
+  color: #B8860B;
+  text-shadow: 0 0 10px rgba(184, 134, 11, 0.22);
 }
 .v2-brand-sub {
   font-size: var(--v2-fs-xs);
@@ -811,7 +817,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   .v2-shell { grid-template-columns: 72px 1fr; }
   .v2-nav-item { width: 60px; min-height: 46px; }
   .v2-nav-label { font-size: 10px; }
-  .v2-brand-title { font-size: 13px; }
+  .v2-brand-title { font-size: 22px; }
   .v2-brand-sub { font-size: 10px; }
   .v2-header { padding: 0 var(--v2-sp-3); }
   .v2-header-right { gap: var(--v2-sp-2); }
@@ -980,7 +986,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 
   /* header 极简: 只剩品牌 + 时钟 */
   .v2-header { padding: 0 12px; height: 48px; }
-  .v2-brand-title { font-size: 14px; letter-spacing: 0.4px; }
+  .v2-brand-title { font-size: 20px; letter-spacing: 0.6px; }
   .v2-brand-sub { display: none; }
   .v2-header-spacer { display: none; }
   .v2-header-alert { display: none; }

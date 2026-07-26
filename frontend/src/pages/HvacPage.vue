@@ -926,7 +926,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 .hv-head { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; }
 .hv-title {
   display: flex; align-items: center; gap: 6px;
-  font-size: 18px; font-weight: 600; color: var(--v2-text-1, #e8eef7); white-space: nowrap;
+  font-size: 20px; font-weight: 700; color: var(--v2-text-1, #e8eef7); white-space: nowrap;
 }
 
 /* 楼层切换 —— 分段控件 (原来没定义, 吃的是浏览器默认按钮 = "80 年代按钮") */
