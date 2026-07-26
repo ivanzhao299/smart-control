@@ -360,6 +360,38 @@ async function main() {
   }
   console.log('');
 
+  // --- I. 音频矩阵 (信息性) —— 验证 2026-07-26 割接: 命名 + 设备实时路由 ---
+  // inputs/zones 读 DB (heal 是否执行过), matrix/live 读 EKX-808 本人 (0x61 一帧,
+  // ~284ms) —— reconciler 是否已把期望路由真正下发到设备。只打印不判失败。
+  console.log('[音频矩阵] 命名 + 设备实时路由 (信息性)');
+  try {
+    const ri = await httpGet(3200, '/api/audio-config/inputs');
+    const rz = await httpGet(3200, '/api/audio-config/zones');
+    if (ri.code === 200) {
+      const rows = JSON.parse(ri.body).data || [];
+      console.log('  输入: ' + rows.map((s) => `IN${s.channel + 1}=${s.name}` +
+        (s.desiredGainDb !== null && s.desiredGainDb !== undefined ? `(${s.desiredGainDb}dB)` : '')).join(' | '));
+    }
+    if (rz.code === 200) {
+      const rows = JSON.parse(rz.body).data || [];
+      console.log('  输出: ' + rows.map((z) => `OUT${z.channel + 1}=${z.name}`).join(' | '));
+    }
+    const rm = await httpGet(3200, '/api/audio/matrix/live');
+    const m = rm.code === 200 ? JSON.parse(rm.body).data : null;
+    if (m && m.ok && m.data && Array.isArray(m.data.matrix)) {
+      const onList = [];
+      m.data.matrix.forEach((row, out) => row.forEach((on, inn) => {
+        if (on) onList.push(`OUT${out + 1}←IN${inn + 1}`);
+      }));
+      console.log('  设备实时接通交叉点: ' + (onList.join(', ') || '(全断)'));
+    } else {
+      console.log('  ' + RED('WARN') + ' 矩阵实时读取失败: ' + (m && m.error ? m.error : `HTTP ${rm.code}`));
+    }
+  } catch (e) {
+    console.log('  ' + RED('WARN') + ' 音频矩阵探测异常: ' + e.message);
+  }
+  console.log('');
+
   // --- H. 控制台会话 / 播放器窗口归属 (信息性, 仅 Windows) ---
   // "心跳全活但大屏显示桌面" = 播放器窗口不在物理控制台会话里 (典型: 有人挂着
   // RDP, watchdog 主动退让; 或窗口落错会话)。qwinsta 看会话, tasklist 看浏览器
