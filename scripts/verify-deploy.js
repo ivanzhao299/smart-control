@@ -310,6 +310,53 @@ async function main() {
   }
   console.log('');
 
+  // --- G. 硬件网关连接 + 电源回路/时序器 (信息性, 不计入成败) ---
+  // 网关 state 来自 AdapterConnectionRegistry (DALI/LED/音响/空调/时序器等的
+  // 传输层连接); 电源回路的 on/电流/功率 读数经时序器(EPO-802P)/断路器采回,
+  // 有新鲜读数 = 控制链路活着。设备受不受控是现场硬件+网线的事, 不该拦部署,
+  // 所以只打印不判失败 —— 但远程一眼能看出哪条链路断了。
+  console.log('[硬件网关] GET /api/system/runtime/gateways (信息性)');
+  try {
+    const r = await httpGet(3200, '/api/system/runtime/gateways');
+    if (r.code !== 200) {
+      console.log('  ' + RED('WARN') + ` 读取失败: HTTP ${r.code || '无响应'}`);
+    } else {
+      const rows = JSON.parse(r.body).data || [];
+      if (!rows.length) console.log('  ' + RED('WARN') + ' 注册表为空 (MOCK 模式?)');
+      for (const g of rows) {
+        const label = `${g.gateway} @ ${g.endpoint ?? '-'} state=${g.state}` +
+          (g.lastError ? ` lastError=${String(g.lastError).slice(0, 60)}` : '');
+        if (g.state === 'online') ok(label);
+        else console.log('  ' + RED('WARN') + ' ' + label);
+      }
+    }
+  } catch (e) {
+    console.log('  ' + RED('WARN') + ' 网关状态读取异常: ' + e.message);
+  }
+  console.log('');
+  console.log('[电源回路] GET /api/power-circuits (信息性)');
+  try {
+    const r = await httpGet(3200, '/api/power-circuits');
+    if (r.code !== 200) {
+      console.log('  ' + RED('WARN') + ` 读取失败: HTTP ${r.code || '无响应'}`);
+    } else {
+      const rows = JSON.parse(r.body).data || [];
+      if (!rows.length) console.log('  ' + RED('WARN') + ' 无回路记录');
+      for (const c of rows) {
+        const read = c.lastReadAt ? new Date(c.lastReadAt) : null;
+        const ageSec = read ? Math.round((Date.now() - read.getTime()) / 1000) : null;
+        console.log(
+          `  - ${c.name ?? c.id}: ${c.on ? '通电' : '断开'} ` +
+          `P=${c.power ?? '-'}W I=${c.current ?? '-'}A ` +
+          `读数=${read ? `${ageSec}s 前` : '无'}`,
+        );
+      }
+    }
+  } catch (e) {
+    console.log('  ' + RED('WARN') + ' 电源回路读取异常: ' + e.message);
+  }
+  console.log('');
+
   console.log('\n==== 结果 ====');
   if (failures.length) {
     console.log(RED(`\n部署未通过 — ${failures.length} 项失败:\n`));
