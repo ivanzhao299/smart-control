@@ -81,6 +81,53 @@ export class MediaService implements OnModuleInit {
   async onModuleInit(): Promise<void> {
     await fs.mkdir(this.mediaRoot, { recursive: true });
     this.logger.info(`MediaService ready, root=${this.mediaRoot}`, { context: 'MediaService' });
+    await this.seedBundledAssets();
+  }
+
+  /**
+   * 随仓库携带的内置素材 (2026-07-26): 左右声道测试音频。
+   *
+   * 音频矩阵按新接线割接后, 业主要验证 LED 左右声道通路, 现场没有现成素材 ——
+   * 文件随 git 部署到 deploy/assets/, 启动时若媒体库还没有同名资源就自动收编
+   * 一份 (拷贝进 mediaRoot/<id>/ 标准布局, remove() 时删得干净, 不动仓库原件)。
+   * 按 originalName 判重: 业主删掉后下次重启会重建; 不想再看到就在媒体库改名。
+   * 素材内容: 440Hz 低音 3s = 左声道, 880Hz 高音 3s = 右声道, 交替两轮,
+   * 最后 660Hz 双声道齐响 3s。
+   */
+  private async seedBundledAssets(): Promise<void> {
+    const src = resolve(process.cwd(), '..', 'deploy', 'assets', 'stereo-lr-test.wav');
+    const originalName = '左右声道测试.wav';
+    try {
+      if (await this.repo.findOne({ where: { originalName } })) return;
+      const stat = await fs.stat(src).catch(() => null);
+      if (!stat || !stat.isFile()) return; // 仓库里没带 (老部署), 静默跳过
+      const safeName = this.safeFilename(originalName);
+      const saved = await this.repo.save(this.repo.create({
+        originalName,
+        safeName,
+        path: '',
+        thumbPath: null,
+        kind: 'audio' as MediaKind,
+        mimeType: 'audio/wav',
+        sizeBytes: stat.size,
+        durationSec: null,
+        resolution: null,
+        remark: '内置测试素材: 低音=左声道, 高音=右声道, 交替两轮后双声道齐响',
+        uploader: 'system',
+        lastPlayedAt: null,
+      }));
+      const finalDir = join(this.mediaRoot, String(saved.id));
+      await fs.mkdir(finalDir, { recursive: true });
+      const finalPath = join(finalDir, safeName);
+      await fs.copyFile(src, finalPath);
+      saved.path = finalPath;
+      await this.repo.save(saved);
+      this.logger.info(`[Media] 内置素材已入库: ${originalName} (#${saved.id})`, { context: 'MediaService' });
+    } catch (e) {
+      this.logger.warn(`[Media] 内置素材入库失败 (不影响启动): ${(e as Error).message}`, {
+        context: 'MediaService',
+      });
+    }
   }
 
   /** Multer 临时上传根 (跟正式 root 同盘, 避免跨盘 rename 失败) */
