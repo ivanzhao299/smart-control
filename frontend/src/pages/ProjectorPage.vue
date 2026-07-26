@@ -51,26 +51,26 @@ onUnmounted(() => { if (timer) clearInterval(timer); });
 </script>
 
 <template>
-  <div class="proj-wrap">
-    <!-- 2026-07-25 业主: 说明文字删除; 报警条移入播放器区域 (插槽), 仅异常时出现,
-         正常态不占一寸空间 — 与 LED 页同构 (共用 PlayerConsole, 播放器区置顶固定) -->
-    <PlayerConsole :slot="2" title="投影仪" power-code="seq-8">
-      <template #alert>
-        <div v-if="showingHdmi !== true" class="out-bar" :class="showingHdmi === false ? 'warn' : 'unknown'">
-          <AlertTriangle :size="15" />
-          <span v-if="showingHdmi === false">投影当前显示的不是 GK9000 推的画面</span>
-          <span v-else>融合器连不上:{{ fusionErr || '检查融合器电源/网络' }}</span>
-          <button class="out-btn" :disabled="busy" @click="switchToGk">
-            <RefreshCw :size="13" :class="{ spin: busy }" /> 切到 GK9000 画面
-          </button>
-        </div>
-      </template>
-    </PlayerConsole>
-  </div>
+  <!-- 2026-07-26 业主: 去掉外层 .proj-wrap 壳 —— 它高度 auto, 会把 PlayerConsole
+       的 .led-page(height:100%)高度链打断, 导致投影页 sticky 失效、上半部分可滑,
+       和 LED 页表现不一致。现在直接用 PlayerConsole 当根, 与 LED 页 100% 同构。
+       报警条(插槽)的 .out-bar 样式仍由本页 scoped CSS 生效(Vue 把父作用域打到
+       插槽内容上), 无需外层壳。 -->
+  <PlayerConsole :slot="2" title="投影仪" power-code="seq-8">
+    <template #alert>
+      <div v-if="showingHdmi !== true" class="out-bar" :class="showingHdmi === false ? 'warn' : 'unknown'">
+        <AlertTriangle :size="15" />
+        <span v-if="showingHdmi === false">投影当前显示的不是 GK9000 推的画面</span>
+        <span v-else>融合器连不上:{{ fusionErr || '检查融合器电源/网络' }}</span>
+        <button class="out-btn" :disabled="busy" @click="switchToGk">
+          <RefreshCw :size="13" :class="{ spin: busy }" /> 切到 GK9000 画面
+        </button>
+      </div>
+    </template>
+  </PlayerConsole>
 </template>
 
 <style scoped>
-.proj-wrap { display: flex; flex-direction: column; }
 .out-bar {
   /* 2026-07-25 业主: 只要文字不要文本框 — 一行警示小字, 零底色零边框 */
   /* 2026-07-26: 已移入播放卡片内部 (PlayerConsole .now), 卡片自带内边距, 去掉外边距 */
