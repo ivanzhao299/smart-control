@@ -360,6 +360,53 @@ async function main() {
   }
   console.log('');
 
+  // --- H. 控制台会话 / 播放器窗口归属 (信息性, 仅 Windows) ---
+  // "心跳全活但大屏显示桌面" = 播放器窗口不在物理控制台会话里 (典型: 有人挂着
+  // RDP, watchdog 主动退让; 或窗口落错会话)。qwinsta 看会话, tasklist 看浏览器
+  // 进程落在哪个会话, watchdog 日志尾看它每分钟的决策, MAINTENANCE.flag 看有没有
+  // 人为停用 watchdog。全部只读, 不动任何状态。
+  if (isWin) {
+    console.log('[会话归属] qwinsta / 浏览器进程会话 / watchdog 日志尾 (信息性)');
+    try {
+      const q = execSync('qwinsta', { encoding: 'utf8' });
+      q.split(/\r?\n/).filter((l) => l.trim()).forEach((l) => console.log('  | ' + l));
+    } catch (e) { console.log('  ' + RED('WARN') + ' qwinsta 失败: ' + e.message); }
+    try {
+      for (const img of ['msedge.exe', 'chrome.exe']) {
+        const t = execSync(`tasklist /FI "IMAGENAME eq ${img}" /FO CSV`, { encoding: 'utf8' });
+        const lines = t.split(/\r?\n/).filter((l) => l.startsWith('"'));
+        if (lines.length > 1) {
+          // CSV: "Image","PID","SessionName","Session#","Mem" — 汇总各会话进程数
+          const bySession = {};
+          for (const l of lines.slice(1)) {
+            const cols = l.split('","');
+            const sess = `${cols[2]}#${cols[3]}`;
+            bySession[sess] = (bySession[sess] || 0) + 1;
+          }
+          console.log(`  ${img}: ` + Object.entries(bySession).map(([s, n]) => `${s} x${n}`).join(', '));
+        }
+      }
+    } catch (e) { console.log('  ' + RED('WARN') + ' tasklist 失败: ' + e.message); }
+    try {
+      const flag = path.resolve(__dirname, '..', 'MAINTENANCE.flag');
+      if (fs.existsSync(flag)) {
+        const ageMin = Math.round((Date.now() - fs.statSync(flag).mtimeMs) / 60000);
+        console.log('  ' + RED('WARN') + ` MAINTENANCE.flag 存在 (${ageMin} 分钟前) — watchdog 被停用 (8h 自动过期)`);
+      } else {
+        ok('无 MAINTENANCE.flag');
+      }
+      const wdLog = path.resolve(__dirname, '..', 'logs', 'player-watchdog.log');
+      if (fs.existsSync(wdLog)) {
+        const tail = fs.readFileSync(wdLog, 'utf8').trimEnd().split(/\r?\n/).slice(-10);
+        console.log('  watchdog 日志尾 10 行:');
+        tail.forEach((l) => console.log('  | ' + l));
+      } else {
+        console.log('  ' + RED('WARN') + ' 找不到 player-watchdog.log — watchdog 可能从未跑过');
+      }
+    } catch (e) { console.log('  ' + RED('WARN') + ' watchdog 状态读取异常: ' + e.message); }
+    console.log('');
+  }
+
   console.log('\n==== 结果 ====');
   if (failures.length) {
     console.log(RED(`\n部署未通过 — ${failures.length} 项失败:\n`));
