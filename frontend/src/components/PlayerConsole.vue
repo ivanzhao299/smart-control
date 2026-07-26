@@ -458,26 +458,14 @@ async function submitWebpage(): Promise<void> {
       <span v-if="ch && !ch.alive" class="led-warn" title="播放器没有心跳">
         <AlertTriangle :size="14" /> 播放器离线
       </span>
-      <!-- 屏幕电源开关 (2026-07-25 业主): LED=空开 / 投影=时序器第8路, 就近控制 -->
-      <button
-        v-if="powerCircuit"
-        class="pw-btn"
-        :class="{ on: powerCircuit.reading.on }"
-        :disabled="powerBusy"
-        :title="powerCircuit.reading.on ? '断开电源' : '接通电源'"
-        @click="togglePower"
-      >
-        <Power :size="14" :stroke-width="2.2" />
-        {{ powerCircuit.reading.on ? '电源已开' : '电源已关' }}
-      </button>
     </header>
-
-    <!-- 报警插槽 (2026-07-25): 设备/输出异常条放播放器区域内 (投影页融合器状态用) -->
-    <slot name="alert" />
 
 
     <!-- ===== 正在播 + 播放控制 ===== -->
     <section class="now">
+      <!-- 报警插槽 (2026-07-26 业主: 移到播放卡片内部): 设备/输出异常条,
+           投影页融合器状态用; 占满整行显示在卡片顶部 -->
+      <slot name="alert" />
       <div class="now-info">
         <div class="now-label">正在播放</div>
         <div class="now-name" :title="ch?.currentMediaName || ''">
@@ -529,6 +517,23 @@ async function submitWebpage(): Promise<void> {
           <el-option value="contain" label="保持比例 (留黑边)" />
           <el-option value="cover" label="裁切铺满 (不变形)" />
         </el-select>
+      </div>
+
+      <!-- 屏幕电源开关 (2026-07-26 业主: 挪进播放卡片, 改时序器拨动开关样式):
+           LED=空开(1f-led) / 投影=时序器第8路(seq-8), 就近控制屏幕电源 -->
+      <div v-if="powerCircuit" class="now-power">
+        <Power :size="15" :stroke-width="2" />
+        <span class="np-label">屏幕电源</span>
+        <button
+          class="v2-toggle"
+          :class="{ on: powerCircuit.reading.on }"
+          :disabled="powerBusy"
+          :title="powerCircuit.reading.on ? '断开电源' : '接通电源'"
+          @click="togglePower"
+        ></button>
+        <span class="np-state" :class="{ on: powerCircuit.reading.on }">
+          {{ powerCircuit.reading.on ? '已通电' : '已断电' }}
+        </span>
       </div>
     </section>
 
@@ -949,17 +954,51 @@ async function submitWebpage(): Promise<void> {
 .pg-btn:disabled { opacity: .4; cursor: not-allowed; }
 .pg-num { font-size: 18px; font-weight: 700; min-width: 72px; text-align: center; color: var(--v2-text-1); }
 .pg-num i { font-style: normal; font-size: 13px; color: var(--v2-text-3); margin-left: 3px; }
-/* ---- 屏幕电源开关 ---- */
-.pw-btn {
-  margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
-  padding: 7px 13px; border-radius: 999px; cursor: pointer;
-  font-size: 13px; font-weight: 600;
-  background: var(--v2-surf-2); border: 1px solid var(--v2-border-soft); color: var(--v2-text-3);
+/* ---- 屏幕电源开关 (卡片内, 时序器同款拨动开关) ---- */
+/* 报警插槽在卡片内占满整行, 显示在顶部 (投影融合器状态) */
+.now :deep(.out-bar) { flex-basis: 100%; width: 100%; }
+.now-power {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 9px;
+  color: var(--v2-text-2);
 }
-.pw-btn.on {
-  background: color-mix(in srgb, var(--v2-live-power, #48D597) 18%, var(--v2-surf-1));
-  border-color: color-mix(in srgb, var(--v2-live-power, #48D597) 45%, var(--v2-border-soft));
-  color: var(--v2-live-power, #48D597);
+.np-label { font-size: 13px; font-weight: 600; color: var(--v2-text-1); }
+.np-state { font-size: 12px; font-weight: 600; color: var(--v2-text-3); min-width: 40px; }
+.np-state.on { color: var(--v2-live-power, #48D597); }
+
+/* 拨动开关 —— 抄自电源页时序器 (.v2-toggle), 保持全站一致 */
+.v2-toggle {
+  position: relative;
+  width: 46px; height: 26px;
+  border-radius: 13px;
+  background: var(--v2-surf-2);
+  cursor: pointer;
+  transition: background 0.22s ease;
+  flex-shrink: 0;
+  border: none;
+  padding: 0;
 }
-.pw-btn:disabled { opacity: .5; }
+.v2-toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.v2-toggle.on {
+  background: linear-gradient(135deg, #9BA1A9, #9BA1A9);
+  box-shadow: 0 0 14px rgba(255, 255, 255, 0.08), 0 0 28px rgba(255, 255, 255, 0.08);
+}
+.v2-toggle.on::after {
+  transform: translateX(20px);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4), 0 0 8px rgba(255, 255, 255, 0.6);
+}
+.v2-toggle:disabled { opacity: 0.5; cursor: not-allowed; }
+@media (max-width: 640px) {
+  .v2-toggle { width: 48px; height: 28px; }
+  .v2-toggle::after { width: 24px; height: 24px; }
+  .v2-toggle.on::after { transform: translateX(20px); }
+}
 </style>

@@ -73,8 +73,9 @@ onUnmounted(() => { if (timer) clearInterval(timer); });
 .proj-wrap { display: flex; flex-direction: column; }
 .out-bar {
   /* 2026-07-25 业主: 只要文字不要文本框 — 一行警示小字, 零底色零边框 */
+  /* 2026-07-26: 已移入播放卡片内部 (PlayerConsole .now), 卡片自带内边距, 去掉外边距 */
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  margin: 0 var(--v2-sp-5) 4px;
+  margin: 0;
   font-size: 12px; font-weight: 500;
 }
 .out-bar b { font-weight: 700; }
