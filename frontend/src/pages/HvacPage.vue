@@ -1017,7 +1017,10 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
      切到一楼/二楼后内机少、行数少, 1fr 会把卡片撑成巨大 (业主 2026-07-25:
      "一二楼的卡片大小可以和全部相同")。固定基准后楼层 tab 下卡片大小不变,
      下方留白; % 相对网格容器高, 各屏自适应。24px = 3 个 gap。 */
-  grid-auto-rows: calc((100% - 24px) / 4);
+  /* 2026-07-27 业主: "卡片高度不够容纳文本, 内容被切掉"。行高从"定死"改成
+     minmax(设计基准, auto) —— 正常情况维持设计尺寸不变, 文本多一行 (长分区名换行/
+     室温+设定始终显示) 时该行自动长高, 内容永不被裁; 超出容器就靠下面的滚动。 */
+  grid-auto-rows: minmax(calc((100% - 24px) / 4), auto);
   gap: 8px;
   overflow-y: auto;   /* 兜底: 万一以后加内机超出设计行数, 微滚而不是裁切 */
 }
@@ -1244,7 +1247,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
    刚好在 5 行时不裁切, 而 10 台 (2 行) 时卡片高、40px 居中依然大气. */
 @media (max-width: 1600px) {
   /* 5 列 x 22 = 5 行基准 (4 gap = 32px) */
-  .hv-grid { grid-template-columns: repeat(5, 1fr); grid-auto-rows: calc((100% - 32px) / 5); }
+  .hv-grid { grid-template-columns: repeat(5, 1fr); grid-auto-rows: minmax(calc((100% - 32px) / 5), auto); }
   .bar-names { display: none; }
   .cell-temp { font-size: 40px; }
   .cell-temp i { font-size: 18px; }
@@ -1253,7 +1256,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 /* 更窄: 4 列 → 22 台 6 行, 行更矮, 再收一档字, 保证不滚动 */
 @media (max-width: 1280px) {
   /* 4 列 x 22 = 6 行基准 (5 gap = 40px) */
-  .hv-grid { grid-template-columns: repeat(4, 1fr); grid-auto-rows: calc((100% - 40px) / 6); }
+  .hv-grid { grid-template-columns: repeat(4, 1fr); grid-auto-rows: minmax(calc((100% - 40px) / 6), auto); }
   .hv-cell { padding: 10px 12px; }
   .cell-name-text { font-size: 18px; }
   .cell-temp { font-size: 32px; }
@@ -1275,8 +1278,9 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
      压缩 padding/字号后同屏 8 张, 全场状态两屏扫完。 */
   .hv-grid {
     grid-template-columns: repeat(2, 1fr);
-    /* 行高定死 (2026-07-25 三行重构): 头(18) + 名(20) + 元信息行(16) + padding/gap = 84 */
-    grid-auto-rows: 84px;
+    /* 行高基准 84 (2026-07-25 三行重构): 头(18) + 名(20) + 元信息行(16) + padding/gap;
+       2026-07-27 改 minmax(84, auto): 长分区名换行等内容超高时该行长高, 不再裁字 */
+    grid-auto-rows: minmax(84px, auto);
     gap: 6px;
     overflow-y: auto;                      /* 放不下就滚这里, 而不是被裁掉 */
     -webkit-overflow-scrolling: touch;

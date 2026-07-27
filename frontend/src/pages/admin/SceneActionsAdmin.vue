@@ -556,7 +556,9 @@ onMounted(refresh);
   color: var(--text-secondary);
   border: 1px solid var(--border-soft);
   border-radius: 6px;
-  padding: 4px 8px;
+  /* 2026-07-27: 平板手指触摸目标 ≥36px (原 ~24px 常点空), 同 ScenesAdmin */
+  padding: 8px 10px;
+  min-height: 36px;
   margin-left: 6px;
   cursor: pointer;
   font-size: 12px;

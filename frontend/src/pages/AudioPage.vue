@@ -1441,7 +1441,18 @@ async function toggleMuteAll(): Promise<void> {
   height: 100%; box-sizing: border-box; overflow: hidden;
 }
 
-.v2-page-head { display: flex; justify-content: space-between; align-items: center; gap: var(--v2-sp-4); flex-wrap: wrap; }
+.v2-page-head {
+  display: flex; justify-content: space-between; align-items: center; gap: var(--v2-sp-4); flex-wrap: wrap;
+  /* 2026-07-27: 同 LightingPage —— 本页是固定壳 (.v2-page overflow:hidden), 全局
+     sticky 页头补丁在这里让头部渲染下移 24px、以不透明底压住 KPI 条顶部 8px
+     (业主: "第二行卡片上面被切掉一部分")。固定壳下头部不滚, 整体中和全局补丁。 */
+  position: static;
+  margin-top: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  background: transparent;
+  box-shadow: none;
+}
 .back-row { display: flex; align-items: center; gap: var(--v2-sp-4); }
 .v2-back-btn {
   width: 36px; height: 36px; border-radius: var(--v2-r-sm);

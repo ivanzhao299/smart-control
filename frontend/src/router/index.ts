@@ -137,3 +137,27 @@ router.afterEach((to) => {
     routeStartMs = 0;
   }
 });
+
+/**
+ * 懒加载 chunk 拉取失败自愈 (2026-07-27)。
+ *
+ * 业主: "后台场景编辑里点「动作」没有反应"。点击本身没问题 (本地实测跳转正常),
+ * 生产上的"没反应"是这条链: 平板上 Service Worker/浏览器缓存着**旧版** index.html
+ * 或旧 precache → 新部署后带哈希的懒加载 chunk 文件名变了 → 点击触发的
+ * dynamic import 404/失败 → vue-router 把整次导航静默 abort —— 界面上就是
+ * "点了没反应", 控制台才有 Failed to fetch dynamically imported module。
+ *
+ * 自愈: 捕获 chunk 加载类错误, 整页跳到目标地址 (强制重新拉 index.html, SW 顺带
+ * 检查更新), 30s 冷却防刷新循环。除此之外的路由错误照旧抛出, 不吞。
+ */
+router.onError((err, to) => {
+  const msg = String((err as Error)?.message ?? err);
+  const isChunkError = /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module|Unable to preload CSS|ChunkLoadError/i.test(msg);
+  if (!isChunkError) return;
+  const KEY = 'sc-chunk-reload-at';
+  const last = Number(sessionStorage.getItem(KEY) ?? 0);
+  if (Date.now() - last < 30_000) return; // 30s 内已重载过一次还失败 → 别循环刷
+  sessionStorage.setItem(KEY, String(Date.now()));
+  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+  window.location.assign(base + (to?.fullPath ?? '/'));
+});

@@ -234,7 +234,10 @@ onMounted(refresh);
   color: var(--text-secondary);
   border: 1px solid var(--border-soft);
   border-radius: 6px;
-  padding: 4px 10px;
+  /* 2026-07-27: 后台也在平板上用手指点 — 原 4px 上下 padding 触摸目标只有 ~26px,
+     低于 44pt 下限, 手指常点空 ("点了没反应"的另一半原因)。加高到 ≥36px。 */
+  padding: 8px 12px;
+  min-height: 36px;
   margin-left: 6px;
   cursor: pointer;
   font-size: 12px;

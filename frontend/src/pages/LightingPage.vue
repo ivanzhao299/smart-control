@@ -638,7 +638,21 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   overflow: hidden;
   box-sizing: border-box;
 }
-.v2-page-head { flex: 0 0 auto; }
+.v2-page-head {
+  flex: 0 0 auto;
+  /* 2026-07-27 业主: "第二行卡片上面被切掉一部分"。根因: design-tokens.css 的全局
+     sticky 页头补丁 (负 margin + 等量 padding + 不透明底) 是给"整页滚动"的页面设计的;
+     本页 07-26 改成固定壳 (.v2-page overflow:hidden + .v2-page-body 独立滚动) 后,
+     sticky 改以 overflow:hidden 的 .v2-page 为滚动参照 —— 头部**渲染位置**被推下
+     24px 而排版占位不变, 带着不透明背景 (z-index 60) 压住内容区顶部 8px, KPI 条/
+     卡片顶被"切"。固定壳下头部本来就不滚, 把全局补丁整体中和。 */
+  position: static;
+  margin-top: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  background: transparent;
+  box-shadow: none;
+}
 .v2-page-body {
   flex: 1 1 auto;
   min-height: 0;

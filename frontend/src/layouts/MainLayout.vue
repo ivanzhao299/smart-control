@@ -8,7 +8,7 @@ import { useRoute, useRouter } from 'vue-router';
 // - PWA standalone 启动也仍然全屏 (manifest display: fullscreen 接管)
 // - AlertBanner 已移除, 告警走后台 /admin/alerts
 // - 场景反馈走顶部 inline toast
-import { Maximize2, Minimize2, MoreHorizontal, Sun, Moon } from 'lucide-vue-next';
+import { Activity, Maximize2, Minimize2, MoreHorizontal, Sun, Moon } from 'lucide-vue-next';
 import { theme, toggleTheme } from '@/services/theme.service';
 import ErrorBoundary from '@/components/ErrorBoundary.vue';
 import ServerSettingsDialog from '@/components/ServerSettingsDialog.vue';
@@ -229,6 +229,12 @@ const navItems: Array<{ name: string; label: string; section?: 'main' | 'tools' 
 ];
 const mainNavs = navItems.filter((n) => n.section === 'main');
 const toolNavs = navItems.filter((n) => n.section === 'tools');
+/**
+ * 2026-07-27 业主: "平板打开页面时侧边栏按钮图标放不开, 去掉状态按钮、状态放到其他位置"。
+ * 侧栏 (平板/主控机) 不再列「状态」—— 入口挪到首页顶栏右侧的心电图标按钮 (go('status'))。
+ * 手机底栏的「更多」抽屉保留全量 toolNavs, 状态仍在里面。
+ */
+const sideToolNavs = toolNavs.filter((n) => n.name !== 'status');
 
 /**
  * 手机竖屏: 底栏只放 main (6 个) + 一个「更多」, tools 收进抽屉。
@@ -320,7 +326,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
         <div class="v2-nav-divider"></div>
         <!-- 平板/主控机 (侧栏): tools 直接全列, 空间够 -->
         <button
-          v-for="item in toolNavs"
+          v-for="item in sideToolNavs"
           :key="item.name"
           class="v2-nav-item v2-nav-tool"
           :class="{ 'is-active': route.name === item.name }"
@@ -427,6 +433,11 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
         <span v-if="mockTag" class="v2-pill" style="background: rgba(76, 154, 255, .12); color: var(--v2-info); border-color: rgba(76, 154, 255, .3)">
           MOCK
         </span>
+        <!-- 状态入口 (2026-07-27): 从侧栏挪来 — 侧栏图标挤不下, 状态属于"偶尔看"的
+             工具页, 放首页顶栏右侧一个心电图标即可 -->
+        <button class="v2-fs-btn" title="系统状态" @click="go('status')">
+          <Activity :size="18" :stroke-width="2" />
+        </button>
         <div class="v2-clock v2-inter">
           {{ clockHM }}<span class="sec">:{{ clockSec }}</span>
         </div>
