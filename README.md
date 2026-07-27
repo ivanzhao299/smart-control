@@ -1,6 +1,36 @@
 # 展贸中心智能化中控系统 (Smart Exhibition Control)
 
-> 展厅自动化中控平台 — 统一控制灯光 / LED大屏 / 音响 / 中央空调 / 场景联动
+> 金湖展贸中心展厅自动化中控平台 — 统一控制灯光 / LED大屏 / 投影 / 音响 / 中央空调 / 电源时序 / 场景联动
+
+## 当前状态（2026-07-27，生产运行中）
+
+系统已在现场 GK9000 工控机（Windows 10，`D:\smart-control\`）生产运行：
+pm2 守护 backend(3200) + frontend(5173)，三路播放 kiosk（LED 大屏 / 投影 / 立式屏），
+业主平板走 PWA。部署走 push `main` → GitHub Actions → 阿里云跳板 → WireGuard 隧道
+→ 盒上脚本自动构建重启验证，盒上 watcher 每分钟自动拉取兜底。
+
+### 接手必读（按顺序）
+
+| # | 文档 | 内容 |
+| --- | --- | --- |
+| 1 | [`docs/HANDOVER.md`](docs/HANDOVER.md) | 移交总览：架构 / 目录 / 账号 / 环境 |
+| 2 | [`CLAUDE.md`](CLAUDE.md) | 工程记忆：架构决策、部署坑、领域知识、UI 铁律 |
+| 3 | [`docs/INCIDENTS.md`](docs/INCIDENTS.md) | **故障档案：所有踩过的坑 症状→根因→根治 速查** |
+| 4 | [`docs/PROGRESS.md`](docs/PROGRESS.md) | 项目进展时间线 + 当前待办 |
+| 5 | [`docs/GK9000_WIREGUARD_CI_DEPLOYMENT.md`](docs/GK9000_WIREGUARD_CI_DEPLOYMENT.md) | 部署链路细节 |
+| 6 | [`docs/HOST_OPERATIONS.md`](docs/HOST_OPERATIONS.md) | 主机日常运维 |
+
+**排障第一入口**：最近一次 GitHub Actions 部署日志——`verify-deploy.js` 每轮输出
+完整体检（进程/守护/管道/kiosk 心跳/网关/电源/音频/磁盘）。设备大面积 offline
+先想"设备没上电"，不是服务器故障。
+
+---
+
+## 以下为历史 Sprint 资料（2026-04~05 交付期，部分做法已被取代）
+
+> ⚠️ 下文的 Nginx 反代、后端 serve 前端、`cnjinhu.top` 演示环境、Sprint 快速入口等
+> 属于交付期方案，**与当前生产架构不一致**（现状见上方与 `docs/PROGRESS.md`）。
+> 保留仅供追溯。
 
 ## 当前版本
 
