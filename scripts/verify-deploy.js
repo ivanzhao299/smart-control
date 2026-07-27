@@ -444,11 +444,23 @@ async function main() {
         else if (cmd.includes('daemon.js') || cmd.includes('pm2')) cls.pm2daemon.push(pid);
         else cls.other.push(`${pid}: ${l.slice(0, 110)}`);
       }
-      const summary = `node 进程: backend×${cls.backend.length} 前端×${cls.frontend.length} pm2守护×${cls.pm2daemon.length} 其他×${cls.other.length}`;
-      const healthyCounts = cls.backend.length === 1 && cls.frontend.length === 1 && cls.pm2daemon.length === 1 && cls.other.length === 0;
+      const summary = `node 进程: backend×${cls.backend.length} 前端×${cls.frontend.length} pm2相关×${cls.pm2daemon.length} 其他×${cls.other.length}`;
+      const healthyCounts = cls.backend.length === 1 && cls.frontend.length === 1 && cls.pm2daemon.length <= 3 && cls.other.length === 0;
       console.log('  ' + (healthyCounts ? GREEN('OK') + '   ' : RED('WARN') + ' ') + summary);
       cls.other.forEach((o) => console.log('  ' + RED('  泄漏嫌疑') + ' ' + o));
-      if (cls.pm2daemon.length > 1) console.log('  ' + RED('  pm2 守护多于 1 个!') + ' pids=' + cls.pm2daemon.join(','));
+      // pm2 桶按命令行去重统计 — 128 个"pm2相关"到底是什么, 一眼定罪
+      if (cls.pm2daemon.length > 3) {
+        const byCmd = new Map();
+        for (const l of rows) {
+          const cmd = l.toLowerCase();
+          if ((cmd.includes('daemon.js') || cmd.includes('pm2')) && !cmd.includes('dist\\main.js') && !cmd.includes('vite')) {
+            const key = l.replace(/^[^,]*,/, '').replace(/,\d+\s*$/, '').slice(0, 150);
+            byCmd.set(key, (byCmd.get(key) || 0) + 1);
+          }
+        }
+        [...byCmd.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6)
+          .forEach(([cmd, n]) => console.log(`  ${RED('  ×' + n)} ${cmd}`));
+      }
       if (cls.backend.length > 1) console.log('  ' + RED('  backend 多于 1 个!') + ' pids=' + cls.backend.join(','));
       for (const img of ['powershell.exe', 'wscript.exe', 'conhost.exe', 'cmd.exe']) {
         const t = execSync(`tasklist /FI "IMAGENAME eq ${img}" /FO CSV`, { encoding: 'utf8' });
