@@ -82,14 +82,20 @@ jobs:
       - name: Commit APK into deploy/assets/app (自动发布到展厅)
         run: |
           set -e
-          APK=android-app/app/build/outputs/apk/release/app-release.apk
+          # 先把 APK 挪出工作区, 再打扫: "Generate Gradle wrapper" 步骤会改动
+          # tracked 的 gradlew/wrapper 文件, 留着未暂存改动会让下面的
+          # pull --rebase 直接拒跑 (#18 失败原因之一)
+          APK_TMP=$(mktemp -d)/app-release.apk
+          cp android-app/app/build/outputs/apk/release/app-release.apk "$APK_TMP"
+          git checkout -- . || true
+          git clean -fd android-app || true
           mkdir -p deploy/assets/app
           # 内容没变就不提交 (防空转)
           if [ -f deploy/assets/app/smart-control-latest.apk ] && \
-             cmp -s "$APK" deploy/assets/app/smart-control-latest.apk; then
+             cmp -s "$APK_TMP" deploy/assets/app/smart-control-latest.apk; then
             echo "APK unchanged, skip commit"; exit 0
           fi
-          cp "$APK" deploy/assets/app/smart-control-latest.apk
+          cp "$APK_TMP" deploy/assets/app/smart-control-latest.apk
           cat > deploy/assets/app/manifest.json <<EOF
           {
             "platform": "android",
@@ -103,9 +109,10 @@ jobs:
           git config user.email 'github-actions[bot]@users.noreply.github.com'
           git add deploy/assets/app/
           git commit -m "chore(app): 发布 Android v${{ steps.ver.outputs.vn }} (code ${{ steps.ver.outputs.vc }}) [自动构建]"
-          # 推送带重试: main 可能刚好有新提交
+          # 推送带重试: main 可能刚好有新提交 (构建期间 6-8 分钟窗口很容易撞)。
+          # --autostash 兜底工作区残留, 保证 rebase 一定能跑。
           for i in 1 2 3; do
             git push origin HEAD:main && exit 0
-            git pull --rebase origin main
+            git pull --rebase --autostash origin main
           done
           git push origin HEAD:main
