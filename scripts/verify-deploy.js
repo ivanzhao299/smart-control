@@ -418,6 +418,57 @@ async function main() {
   }
   console.log('');
 
+  // --- K. 系统体检 (信息性, 仅 Windows) —— 资源水位 + 进程泄漏扫描 + 磁盘 ---
+  if (isWin) {
+    console.log('[系统体检] 资源 / 进程泄漏 / 磁盘 (信息性)');
+    try {
+      const rh = await httpGet(3200, '/api/system/health');
+      if (rh.code === 200) {
+        const h = JSON.parse(rh.body).data || {};
+        const up = typeof h.uptime === 'number' ? (h.uptime / 3600).toFixed(1) + 'h' : '?';
+        console.log(`  backend: status=${h.status} CPU=${h.cpuUsagePercent}% 内存=${h.memoryUsagePercent}% ` +
+          `已运行=${up} DB=${h.databaseStatus} WS=${h.websocketStatus} 调度=${h.schedulerStatus}`);
+      }
+    } catch (e) { console.log('  ' + RED('WARN') + ' 健康指标读取异常: ' + e.message); }
+    try {
+      // node.exe 逐个按命令行分类: 期望 = backend(dist/main.js) 1 + 前端(vite preview) 1
+      // + pm2 守护(Daemon.js) 1。多出来的都是泄漏嫌疑, 原样打出来。
+      const raw = execSync('wmic process where (name="node.exe") get ProcessId,CommandLine /format:csv', { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+      const rows = raw.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !/^Node,/i.test(l));
+      const cls = { backend: [], frontend: [], pm2daemon: [], other: [] };
+      for (const l of rows) {
+        const pid = (l.match(/,(\d+)\s*$/) || [])[1] || '?';
+        const cmd = l.toLowerCase();
+        if (cmd.includes('dist\\main.js') || cmd.includes('dist/main.js')) cls.backend.push(pid);
+        else if (cmd.includes('vite')) cls.frontend.push(pid);
+        else if (cmd.includes('daemon.js') || cmd.includes('pm2')) cls.pm2daemon.push(pid);
+        else cls.other.push(`${pid}: ${l.slice(0, 110)}`);
+      }
+      const summary = `node 进程: backend×${cls.backend.length} 前端×${cls.frontend.length} pm2守护×${cls.pm2daemon.length} 其他×${cls.other.length}`;
+      const healthyCounts = cls.backend.length === 1 && cls.frontend.length === 1 && cls.pm2daemon.length === 1 && cls.other.length === 0;
+      console.log('  ' + (healthyCounts ? GREEN('OK') + '   ' : RED('WARN') + ' ') + summary);
+      cls.other.forEach((o) => console.log('  ' + RED('  泄漏嫌疑') + ' ' + o));
+      if (cls.pm2daemon.length > 1) console.log('  ' + RED('  pm2 守护多于 1 个!') + ' pids=' + cls.pm2daemon.join(','));
+      if (cls.backend.length > 1) console.log('  ' + RED('  backend 多于 1 个!') + ' pids=' + cls.backend.join(','));
+      for (const img of ['powershell.exe', 'wscript.exe', 'conhost.exe', 'cmd.exe']) {
+        const t = execSync(`tasklist /FI "IMAGENAME eq ${img}" /FO CSV`, { encoding: 'utf8' });
+        const n = t.split(/\r?\n/).filter((l) => l.startsWith('"')).length - 1;
+        if (n > 0) console.log(`  ${img}: ${Math.max(n, 0)} 个`);
+      }
+    } catch (e) { console.log('  ' + RED('WARN') + ' 进程扫描异常: ' + e.message); }
+    try {
+      const d = execSync('wmic logicaldisk where drivetype=3 get Caption,FreeSpace,Size /format:csv', { encoding: 'utf8' });
+      d.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !/^Node,/i.test(l)).forEach((l) => {
+        const p = l.split(',');
+        if (p.length >= 4) {
+          const free = Number(p[2]) / 1e9, size = Number(p[3]) / 1e9;
+          if (size > 0) console.log(`  磁盘 ${p[1]} 剩余 ${free.toFixed(0)}GB / ${size.toFixed(0)}GB (${((free / size) * 100).toFixed(0)}%)`);
+        }
+      });
+    } catch (e) { console.log('  ' + RED('WARN') + ' 磁盘读取异常: ' + e.message); }
+    console.log('');
+  }
+
   // --- H. 控制台会话 / 播放器窗口归属 (信息性, 仅 Windows) ---
   // "心跳全活但大屏显示桌面" = 播放器窗口不在物理控制台会话里 (典型: 有人挂着
   // RDP, watchdog 主动退让; 或窗口落错会话)。qwinsta 看会话, tasklist 看浏览器
