@@ -27,6 +27,14 @@ export class ClientAuth {
   @Column({ type: 'datetime' })
   passwordChangedAt!: Date;
 
+  /**
+   * 令牌签名密钥 (2026-07-27 加固)。老方案会话存内存 Map, 后端每次重启/部署
+   * 全体 token 失效 → 业主 PWA "经常退出"。改 HMAC 签名令牌后, 密钥持久化
+   * 在这里, 重启不再失效; 改密码时轮换密钥 = 全体令牌立即作废。
+   */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  tokenSecret!: string | null;
+
   @UpdateDateColumn()
   updatedAt!: Date;
 }

@@ -48,10 +48,19 @@ setUnauthorizedHandler(() => {
   if (cur.path.startsWith('/admin') || cur.path === '/player') return;
   reauthing = true;
   clientAuth.markSessionExpired();
-  if (cur.name !== 'client-login') {
-    void router.push({ name: 'client-login', query: { redirect: cur.fullPath } });
-  }
-  window.setTimeout(() => { reauthing = false; }, 800);
+  // 2026-07-27 加固 (业主: "iPhone 上 PWA 经常退出"): 老流程是 401 直接踢回登录页,
+  // 再靠登录页 tryAutoLogin 跳回来 —— 业主看到的就是"动不动被退出"。改为**原地**
+  // 静默重登: 存过密码就先悄悄换一块新令牌, 成功则业主完全无感 (只补拉一次数据);
+  // 只有重登也失败 (密码被改/网络断) 才真正回登录页。
+  void (async () => {
+    const ok = await clientAuth.tryAutoLogin().catch(() => false);
+    if (ok) {
+      fetchAuthedData();
+    } else if (router.currentRoute.value.name !== 'client-login') {
+      void router.push({ name: 'client-login', query: { redirect: cur.fullPath } });
+    }
+    window.setTimeout(() => { reauthing = false; }, 800);
+  })();
 });
 
 onMounted(async () => {

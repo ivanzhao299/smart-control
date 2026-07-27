@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Repository } from 'typeorm';
 import { Logger } from 'winston';
-import { randomBytes } from 'crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { ClientAuth } from '../../entities/client-auth.entity';
 import { hashPassword, verifyPassword } from '../../common/utils/password.util';
 
@@ -12,14 +12,25 @@ const DEFAULT_PASSWORD = '1234';
 /** 客户端 token TTL: 30 天, 比 admin 长很多 (业主天天用, 不想老登) */
 const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-interface SessionEntry {
-  issuedAt: number;
-  expiresAt: number;
-}
-
+/**
+ * 客户端鉴权 (2026-07-27 签名令牌制重构)。
+ *
+ * 老方案: login 发随机 token, 存**内存 Map** —— 后端每次重启/部署 Map 清空,
+ * 全体 token 没到期也失效, 业主的 iPhone/平板 PWA 被打回登录页 ("经常退出")。
+ * 部署越勤退得越勤, 这是结构性缺陷不是网络问题。
+ *
+ * 新方案: HMAC-SHA256 签名令牌 `base64url(payload).hex(sig)`,
+ * payload = {iat, exp}。签名密钥持久化在 client_auth_v1.tokenSecret:
+ *   - 后端重启/部署 → 密钥还在 → 老令牌照样验过, 业主无感 (根治)
+ *   - 改密码 → 密钥轮换 + passwordChangedAt 更新 → 全体令牌立即作废 (语义与老方案一致)
+ *   - 单令牌注销 → 进程内黑名单 (业主"退出登录"本来就少用, 重启后黑名单清空可接受,
+ *     因为对应客户端本地也已删 token)
+ * 老格式 (64 位纯 hex) 令牌一律判失效 → 前端 401 → 存的密码静默重登, 一次性平滑换轨。
+ */
 @Injectable()
 export class ClientAuthService implements OnModuleInit {
-  private readonly sessions = new Map<string, SessionEntry>();
+  /** 注销黑名单 (签名令牌无状态, 注销靠这里兜) */
+  private readonly revoked = new Set<string>();
 
   constructor(
     @InjectRepository(ClientAuth) private readonly repo: Repository<ClientAuth>,
@@ -27,16 +38,23 @@ export class ClientAuthService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
-    const existing = await this.repo.findOne({ where: { id: 1 } });
-    if (!existing) {
-      await this.repo.save(
+    let row = await this.repo.findOne({ where: { id: 1 } });
+    if (!row) {
+      row = await this.repo.save(
         this.repo.create({
           id: 1,
           passwordHash: hashPassword(DEFAULT_PASSWORD),
           passwordChangedAt: new Date(),
+          tokenSecret: null,
         }),
       );
       this.logger.warn(`[ClientAuth] 首次启动, 默认密码已植入: ${DEFAULT_PASSWORD}. 业主进后台后请改.`);
+    }
+    // 签名密钥只生成一次, 之后每次重启都复用 —— 令牌跨重启存活的根基
+    if (!row.tokenSecret) {
+      row.tokenSecret = randomBytes(32).toString('hex');
+      await this.repo.save(row);
+      this.logger.info('[ClientAuth] 签名密钥已生成并持久化 (令牌从此跨重启存活)');
     }
   }
 
@@ -46,26 +64,38 @@ export class ClientAuthService implements OnModuleInit {
     if (!verifyPassword(password, row.passwordHash)) {
       throw new UnauthorizedException('密码错误');
     }
-    const token = randomBytes(32).toString('hex');
+    const secret = await this.ensureSecret(row);
     const now = Date.now();
-    this.sessions.set(token, { issuedAt: now, expiresAt: now + TOKEN_TTL_MS });
-    this.cleanupExpired();
-    this.logger.info(`[ClientAuth] login ok, 颁 token (TTL=${TOKEN_TTL_MS / 1000 / 60 / 60 / 24}d)`);
-    return { token, expiresAt: new Date(now + TOKEN_TTL_MS).toISOString() };
+    const payload = Buffer.from(JSON.stringify({ iat: now, exp: now + TOKEN_TTL_MS })).toString('base64url');
+    const sig = createHmac('sha256', secret).update(payload).digest('hex');
+    this.logger.info(`[ClientAuth] login ok, 颁签名 token (TTL=${TOKEN_TTL_MS / 1000 / 60 / 60 / 24}d)`);
+    return { token: `${payload}.${sig}`, expiresAt: new Date(now + TOKEN_TTL_MS).toISOString() };
   }
 
   async verifyToken(token: string): Promise<boolean> {
-    const entry = this.sessions.get(token);
-    if (!entry) return false;
-    if (entry.expiresAt < Date.now()) {
-      this.sessions.delete(token);
-      return false;
-    }
+    if (!token || this.revoked.has(token)) return false;
+    const dot = token.indexOf('.');
+    if (dot <= 0) return false; // 老格式 (纯 hex 无点) → 失效, 前端会用存的密码静默重登
+    const payloadB64 = token.slice(0, dot);
+    const sigHex = token.slice(dot + 1);
     const row = await this.repo.findOne({ where: { id: 1 } });
-    if (row && entry.issuedAt < row.passwordChangedAt.getTime()) {
-      this.sessions.delete(token);
+    if (!row?.tokenSecret) return false;
+    const expect = createHmac('sha256', row.tokenSecret).update(payloadB64).digest('hex');
+    if (sigHex.length !== expect.length) return false;
+    try {
+      if (!timingSafeEqual(Buffer.from(sigHex, 'hex'), Buffer.from(expect, 'hex'))) return false;
+    } catch {
       return false;
     }
+    let payload: { iat?: number; exp?: number };
+    try {
+      payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8')) as { iat?: number; exp?: number };
+    } catch {
+      return false;
+    }
+    if (typeof payload.exp !== 'number' || payload.exp < Date.now()) return false;
+    // 改密时间之后签发的才算数 (语义与老方案一致: 改密 = 全体重登)
+    if (typeof payload.iat !== 'number' || payload.iat < row.passwordChangedAt.getTime()) return false;
     return true;
   }
 
@@ -81,9 +111,10 @@ export class ClientAuthService implements OnModuleInit {
     if (!row) throw new UnauthorizedException('鉴权未初始化');
     row.passwordHash = hashPassword(newPassword);
     row.passwordChangedAt = new Date();
+    row.tokenSecret = randomBytes(32).toString('hex'); // 密钥轮换 = 全体令牌立即作废
     await this.repo.save(row);
-    this.sessions.clear();
-    this.logger.warn('[ClientAuth] 密码已修改, 所有 session 失效');
+    this.revoked.clear();
+    this.logger.warn('[ClientAuth] 密码已修改, 签名密钥已轮换, 所有令牌失效');
   }
 
   /** 健康检查 — 业主在登录页"测试连接"调这个, 不需要密码 */
@@ -92,13 +123,15 @@ export class ClientAuthService implements OnModuleInit {
   }
 
   logout(token: string): void {
-    this.sessions.delete(token);
+    if (token) this.revoked.add(token);
+    // 防黑名单无限涨 (每次注销顺手清一遍过期的没必要 — 上限兜底即可)
+    if (this.revoked.size > 1000) this.revoked.clear();
   }
 
-  private cleanupExpired(): void {
-    const now = Date.now();
-    for (const [t, e] of this.sessions) {
-      if (e.expiresAt < now) this.sessions.delete(t);
-    }
+  private async ensureSecret(row: ClientAuth): Promise<string> {
+    if (row.tokenSecret) return row.tokenSecret;
+    row.tokenSecret = randomBytes(32).toString('hex');
+    await this.repo.save(row);
+    return row.tokenSecret;
   }
 }
