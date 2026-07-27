@@ -258,6 +258,26 @@ function goFromMore(name: string): void {
 /** 当前页在「更多」里时, 让「更多」按钮也高亮 —— 否则点进去后底栏没有任何选中态 */
 const moreActive = computed(() => toolNavs.some((n) => n.name === route.name));
 
+/**
+ * 「更多」抽屉图标专属色 (2026-07-27 业主: "色彩层次不够鲜明, 灰不拉几")。
+ * 取 v3 体系色: 媒体=琥珀 / 状态=翠绿 / 后台=电光蓝 / 主题=晨紫。
+ * 芯片 = 同色 14% tinted 底 + 全饱和描边图标, 深浅主题都吃得住。
+ */
+const MORE_CHIP_COLORS: Record<string, string> = {
+  media: '#E0A030',
+  status: '#3FBF87',
+  'admin-devices': '#4C9AFF',
+  theme: '#9D8BFF',
+};
+function moreChipStyle(name: string): Record<string, string> {
+  const c = MORE_CHIP_COLORS[name] ?? '#4C9AFF';
+  return {
+    color: c,
+    background: `color-mix(in srgb, ${c} 14%, transparent)`,
+    boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${c} 35%, transparent)`,
+  };
+}
+
 function go(name: string): void {
   if (route.name !== name) router.push({ name });
 }
@@ -385,6 +405,8 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
         <div class="v2-more-sheet" @click.stop>
           <div class="v2-more-grip"></div>
           <div class="v2-more-grid">
+            <!-- 2026-07-27 业主: "更多里的图标色彩层次不够鲜明, 灰不拉几" ——
+                 每个入口给专属色相的图标芯片 (tinted 底 + 同色描边图标), 文字提亮 -->
             <button
               v-for="item in toolNavs"
               :key="item.name"
@@ -392,12 +414,16 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
               :class="{ 'is-active': route.name === item.name }"
               @click="goFromMore(item.name)"
             >
-              <component :is="navIconFor(item.name)" :size="26" :stroke-width="1.8" />
+              <span class="more-ico" :style="moreChipStyle(item.name)">
+                <component :is="navIconFor(item.name)" :size="24" :stroke-width="1.9" />
+              </span>
               <span>{{ item.label }}</span>
             </button>
             <!-- 手机端也要能切主题 -->
             <button class="v2-more-item" @click="toggleTheme()">
-              <component :is="theme === 'dark' ? Sun : Moon" :size="26" :stroke-width="1.8" />
+              <span class="more-ico" :style="moreChipStyle('theme')">
+                <component :is="theme === 'dark' ? Sun : Moon" :size="24" :stroke-width="1.9" />
+              </span>
               <span>{{ theme === 'dark' ? '浅色' : '深色' }}</span>
             </button>
           </div>
@@ -882,14 +908,21 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 .v2-more-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .v2-more-item {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 8px; padding: 16px 6px;            /* 触摸目标做足, 不再是 42px 的小格子 */
-  min-height: 84px;
+  gap: 8px; padding: 14px 6px;            /* 触摸目标做足, 不再是 42px 的小格子 */
+  min-height: 88px;
   border-radius: 12px; cursor: pointer;
   background: var(--v2-surf-2, #1A1D22);
   border: 1px solid var(--v2-border-soft, #23262C);
-  color: var(--v2-text-3, #9BA1A9); font-size: 13px;
+  /* 2026-07-27 业主: 文字从 text-3 提到 text-1, 不再灰不拉几 */
+  color: var(--v2-text-1, #E8EAED); font-size: 13px; font-weight: 500;
 }
-.v2-more-item.is-active { color: var(--v2-primary); border-color: var(--v2-primary); }
+/* 图标芯片: 42px 圆角方块, 颜色由 moreChipStyle 按入口注入 */
+.more-ico {
+  width: 42px; height: 42px; border-radius: 12px;
+  display: grid; place-items: center;
+}
+.v2-more-item.is-active { border-color: var(--v2-primary); }
+.v2-more-item.is-active .more-ico { filter: drop-shadow(0 0 8px currentColor); }
 
 @media (max-width: 600px) {
   /* 手机竖屏: tools 收进「更多」, 底栏只剩 main(6) + 更多 = 7 个槽 -> 每个 55px, 达标 */
