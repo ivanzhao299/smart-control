@@ -520,6 +520,30 @@ async function main() {
         }
       } catch (e) { console.log('  ' + RED('WARN') + ' boot-pm2.log 读取异常: ' + e.message); }
       try {
+        // 决定性实验 (2026-07-27): 管道清单证明全机只有固定名 \\.\pipe\rpc.sock
+        // 一套管道, 而守护数在部署的几十秒内随 pm2 CLI 调用逐次 +1 —— 怀疑机制:
+        // 客户端 ping 探活失败 -> 孵新守护 -> 新守护绑固定管道失败(老守护占着)
+        // -> 僵尸滞留, 客户端随后连上老守护干活成功。这里当场做一次对照实验:
+        // 数守护 -> pm2 ping -> 再数。净增=1 即定罪 "每次 CLI 调用净增一僵尸"。
+        const pidFile = 'C:\\Users\\user\\.pm2\\pm2.pid';
+        const pidVal = fs.existsSync(pidFile) ? fs.readFileSync(pidFile, 'utf8').trim() : '(无文件)';
+        const countDaemons = () => execSync('wmic process where (name="node.exe") get CommandLine', { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 })
+          .split(/\r?\n/).filter((l) => l.includes('Daemon.js')).length;
+        const before = countDaemons();
+        const t0 = Date.now();
+        let pingOut = '';
+        try {
+          const out = execSync('C:\\Users\\user\\AppData\\Roaming\\npm\\pm2.cmd ping', {
+            encoding: 'utf8', timeout: 30000,
+            env: { ...process.env, PM2_HOME: 'C:\\Users\\user\\.pm2' },
+          });
+          pingOut = (out.trim().split(/\r?\n/).pop() || '').slice(0, 80);
+        } catch (e) { pingOut = 'ping 失败: ' + String(e.message || e).slice(0, 80); }
+        const ms = Date.now() - t0;
+        const after = countDaemons();
+        console.log(`  pm2.pid 登记=${pidVal} | ping 实验: 前守护=${before} 后守护=${after} 净增=${after - before} 耗时=${ms}ms 回应="${pingOut}"`);
+      } catch (e) { console.log('  ' + RED('WARN') + ' ping 实验异常: ' + e.message); }
+      try {
         const pm2Log = 'C:\\Users\\user\\.pm2\\pm2.log';
         if (fs.existsSync(pm2Log)) {
           const tail = fs.readFileSync(pm2Log, 'utf8').trimEnd().split(/\r?\n/).slice(-12);
