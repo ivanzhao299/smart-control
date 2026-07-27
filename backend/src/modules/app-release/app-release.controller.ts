@@ -3,10 +3,15 @@ import {
   Body,
   Controller,
   Get,
+  NotFoundException,
   Param,
   Put,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
+import { createReadStream, promises as fs } from 'fs';
+import { resolve } from 'path';
 import { AppReleaseService, type AppReleaseUpsertDto } from './app-release.service';
 import { AdminGuard } from '../admin-auth/admin-auth.guard';
 import { Public } from '../../common/decorators/public.decorator';
@@ -16,6 +21,33 @@ const VALID_PLATFORMS = new Set(['android', 'ios']);
 @Controller('app')
 export class AppReleaseController {
   constructor(private readonly service: AppReleaseService) {}
+
+  /**
+   * 展厅本地 APK 下载 (2026-07-27 全自动发布链)。
+   *
+   * CI 构建的 APK 随 git 落在 deploy/assets/app/smart-control-latest.apk,
+   * 终端 App 的"立即更新"跳到这里直接从内网下载 —— 不再依赖 GitHub
+   * (大陆网络下 GitHub release 资产经常拉不动)。
+   *
+   * 注意: 本路由必须排在 ':platform/latest' 等参数路由之前 (Nest 按声明序匹配)。
+   */
+  @Public()
+  @Get('android/download')
+  async download(@Res() res: Response): Promise<void> {
+    const apk = resolve(process.cwd(), '..', 'deploy', 'assets', 'app', 'smart-control-latest.apk');
+    const stat = await fs.stat(apk).catch(() => null);
+    if (!stat) throw new NotFoundException('APK 尚未发布 (deploy/assets/app 下没有安装包)');
+    // 文件名带版本号, 下载列表里一眼可辨
+    let name = 'smart-control-latest.apk';
+    try {
+      const mf = JSON.parse(await fs.readFile(resolve(apk, '..', 'manifest.json'), 'utf8')) as { versionName?: string };
+      if (mf.versionName) name = `smart-control-v${mf.versionName}.apk`;
+    } catch { /* manifest 缺失就用默认名 */ }
+    res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+    createReadStream(apk).pipe(res);
+  }
 
   /**
    * APP 启动时调这个 — 公开, 不要任何 token. 返回 latest 版本信息.

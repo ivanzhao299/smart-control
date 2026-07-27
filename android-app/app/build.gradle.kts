@@ -11,16 +11,32 @@ android {
         applicationId = "com.jinhu.smartcontrol"
         minSdk = 24                  // Android 7.0+ — 覆盖 ≥99% 在用机型
         targetSdk = 34
-        versionCode = 10
-        versionName = "1.1.2"    // 图标 logo 最大化
+        versionCode = 11
+        versionName = "1.1.3"    // 透明底桌面图标 + 展厅本地服务器直接下载更新
         // 默认服务器地址 (可在 BuildConfig 用 — APP 启动时如果 SharedPreferences 没保存就用这个作 placeholder)
         // 2026-07-25 改成展厅现场真实地址 (GK9000 静态 IP)
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"http://192.168.77.54:5173/control/\"")
     }
 
+    // 内部分发固定签名 (2026-07-27)。此前 CI 用 assembleDebug — 每台 runner 现生成
+    // debug keystore, **每次构建签名都不同**, 终端覆盖安装必失败 (签名冲突), 只能
+    // 卸载重装丢配置。这里换成仓库里提交的固定 PKCS12 keystore: 展厅内网 kiosk 壳,
+    // 密钥不保护任何敏感能力, 明文口令可接受; 从此 CI 每次出的 APK 同签名, 直接
+    // 覆盖升级。上架 Google Play 时另配正式 keystore (见 README)。
+    signingConfigs {
+        create("internal") {
+            storeFile = rootProject.file("signing/internal.p12")
+            storeType = "PKCS12"
+            storePassword = "jinhu-internal"
+            keyAlias = "jinhu-internal"
+            keyPassword = "jinhu-internal"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false  // 简单壳, 不混淆方便排错
+            signingConfig = signingConfigs.getByName("internal")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -28,6 +44,7 @@ android {
         }
         debug {
             isDebuggable = true
+            signingConfig = signingConfigs.getByName("internal")
         }
     }
 

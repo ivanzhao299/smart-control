@@ -416,6 +416,20 @@ async function main() {
   } catch (e) {
     console.log('  ' + RED('WARN') + ' 媒体库探测异常: ' + e.message);
   }
+  try {
+    // Android 发布链 (2026-07-27): 记录版本 + 下载地址 + 本地 APK 是否就位
+    const ra = await httpGet(3200, '/api/app/android/latest');
+    if (ra.code === 200) {
+      const d = JSON.parse(ra.body).data;
+      if (d) {
+        const apkPath = path.resolve(__dirname, '..', 'deploy', 'assets', 'app', 'smart-control-latest.apk');
+        const apkOk = fs.existsSync(apkPath) ? `${(fs.statSync(apkPath).size / 1e6).toFixed(1)}MB` : '未落地';
+        console.log(`  Android 发布: v${d.versionName} (code ${d.versionCode}) → ${d.downloadUrl} | 本地APK: ${apkOk}`);
+      } else {
+        console.log('  Android 发布: 无记录');
+      }
+    }
+  } catch (e) { console.log('  ' + RED('WARN') + ' app-release 读取异常: ' + e.message); }
   console.log('');
 
   // --- K. 系统体检 (信息性, 仅 Windows) —— 资源水位 + 进程泄漏扫描 + 磁盘 ---

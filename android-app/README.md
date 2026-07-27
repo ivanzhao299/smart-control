@@ -21,23 +21,21 @@
 
 ## 构建方式 — 两个选项
 
-### 选项 A: GitHub Actions 自动 build (推荐, 不用装环境)
+### 选项 A: GitHub Actions 全自动发布 (2026-07-27 起, 业主零操作)
 
-仓库已配 `.github/workflows/android-build.yml`:
+仓库已配 `.github/workflows/android-build.yml`, push 改动后全自动:
 
-```bash
-# 改完 android-app/ 代码后:
-git push origin main
+1. `assembleRelease` — 用仓库内**固定签名** `signing/internal.p12`
+   (内部分发密钥, 非机密; 每次构建同签名, 终端可直接覆盖安装升级。
+   此前用 assembleDebug, 每台 CI runner 的 debug 签名都不同, 覆盖安装必失败)
+2. APK + manifest.json 自动提交到 `deploy/assets/app/` → 随部署链落到 GK9000
+3. 后端启动自愈: 仓库带的版本比库里新 → 更新 `app_release` 表,
+   downloadUrl 指向展厅本地 `/api/app/android/download`
+4. 各终端 App 启动检查 `/api/app/android/latest` → 弹"发现新版本" →
+   内网直接下载安装 (不再依赖 GitHub)
 
-# GitHub Actions 自动:
-#   - JDK 17 + Android SDK 34
-#   - gradle build assembleDebug
-#   - 上传 APK artifact (在 Actions 页面下载)
-
-# 下载位置: GitHub Repo → Actions → 最新 run → Artifacts → app-debug.apk
-```
-
-业主把 APK 传到手机 → 允许 "未知来源" → 装.
+**发新版只需要**: 改 `app/build.gradle.kts` 的 versionCode +1、versionName,
+push main, 等两轮 CI 跑绿即可。Actions 页面仍留 artifact 兜底。
 
 ### 选项 B: 本地 Android Studio (需装环境)
 
