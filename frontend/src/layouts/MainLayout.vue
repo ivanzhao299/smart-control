@@ -932,20 +932,21 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   width: 40px; height: 4px; margin: 2px auto 12px;
   border-radius: 3px; background: #46566e;
 }
-.v2-more-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+/* 2026-07-27 业主: "手机端占两行, 改四个图标一行" —— 4 列单行, 格子相应收紧 */
+.v2-more-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .v2-more-item {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 8px; padding: 14px 6px;            /* 触摸目标做足, 不再是 42px 的小格子 */
-  min-height: 88px;
+  gap: 7px; padding: 12px 4px;
+  min-height: 80px;                       /* 仍高于 44pt 触摸下限 */
   border-radius: 12px; cursor: pointer;
   background: var(--v2-surf-2, #1A1D22);
   border: 1px solid var(--v2-border-soft, #23262C);
   /* 2026-07-27 业主: 文字从 text-3 提到 text-1, 不再灰不拉几 */
-  color: var(--v2-text-1, #E8EAED); font-size: 13px; font-weight: 500;
+  color: var(--v2-text-1, #E8EAED); font-size: 12px; font-weight: 500;
 }
-/* 图标芯片: 42px 圆角方块, 颜色由 moreChipStyle 按入口注入 */
+/* 图标芯片: 圆角方块, 颜色由 moreChipStyle 按入口注入 */
 .more-ico {
-  width: 42px; height: 42px; border-radius: 12px;
+  width: 38px; height: 38px; border-radius: 11px;
   display: grid; place-items: center;
 }
 .v2-more-item.is-active { border-color: var(--v2-primary); }
