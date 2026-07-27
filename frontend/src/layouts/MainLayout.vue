@@ -41,6 +41,10 @@ function prefetchMainPages(): void {
   const tasks = [
     () => import('@/pages/LightingPage.vue'),
     () => import('@/pages/LedPage.vue'),
+    // 2026-07-27 业主: "投影仪页面切不过去"。根因: 本列表漏了投影仪页 —— 部署换掉
+    // 带哈希的 chunk 文件名后, 其他页早已预取进内存照常能切, 唯独投影仪页点击时才
+    // 按旧文件名去拿 → 404 → 路由静默中止。主菜单页必须全部进预取名单。
+    () => import('@/pages/ProjectorPage.vue'),
     () => import('@/pages/AudioPage.vue'),
     () => import('@/pages/HvacPage.vue'),
     () => import('@/pages/PowerPage.vue'),
