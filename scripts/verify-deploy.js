@@ -466,16 +466,18 @@ async function main() {
       // Windows 服务 (pm2-windows-service 遗留?)、相关计划任务 (触发器周期)
       if (cls.pm2daemon.length > 3) {
         try {
-          const det = execSync('wmic process where (name="node.exe") get ProcessId,SessionId,CreationDate,CommandLine /format:csv', { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+          // ParentProcessId 一并采: 泄漏守护的父进程 (cmd 早退场的话 PPID 是
+          // 悬空数字, 但同一批孵化的 PPID 分布仍能指认孵化者形态)
+          const det = execSync('wmic process where (name="node.exe") get ProcessId,ParentProcessId,SessionId,CreationDate,CommandLine /format:csv', { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
           const ds = det.split(/\r?\n/).filter((l) => l.toLowerCase().includes('daemon.js'));
           const parse = (l) => {
             const parts = l.split(',');
-            // csv: Node,CommandLine,CreationDate,ProcessId,SessionId
-            const cd = parts[parts.length - 3] || '';
-            return { pid: parts[parts.length - 2], sess: parts[parts.length - 1], t: cd.slice(0, 14) };
+            // csv 列按字母序: Node,CommandLine,CreationDate,ParentProcessId,ProcessId,SessionId
+            const cd = parts[parts.length - 4] || '';
+            return { ppid: parts[parts.length - 3], pid: parts[parts.length - 2], sess: parts[parts.length - 1], t: cd.slice(0, 14) };
           };
           const sample = [...ds.slice(0, 3), ...ds.slice(-3)].map(parse);
-          console.log('  守护抽样(最早3+最新3): ' + sample.map((s) => `pid${s.pid}@s${s.sess} ${s.t}`).join(' | '));
+          console.log('  守护抽样(最早3+最新3): ' + sample.map((s) => `pid${s.pid}(ppid${s.ppid})@s${s.sess} ${s.t}`).join(' | '));
         } catch (e) { console.log('  ' + RED('WARN') + ' 守护抽样失败: ' + e.message); }
         try {
           const svc = execSync('wmic service get Name,State,StartMode,PathName /format:csv', { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
@@ -493,6 +495,38 @@ async function main() {
           });
         } catch (e) { console.log('  ' + RED('WARN') + ' 计划任务枚举失败: ' + e.message); }
       }
+      try {
+        // pm2 命名管道清单 (常开): rpc/pub 管道名里逐字嵌着 PM2_HOME —— 有几种
+        // 不同的管道名, 就有几套互不相认的 pm2 世界。名字用 <> 包起来打印,
+        // 尾随空格会当场现形 (2026-07-27 根因: set 值带尾随空格 -> 管道名多个空格)。
+        const pcmd = String.raw`powershell -NoProfile -Command "[System.IO.Directory]::GetFiles('\\.\pipe\') -match 'pm2|rpc\.sock|pub\.sock'"`;
+        const pipes = execSync(pcmd, { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 })
+          .split(/\r?\n/).map((l) => l.replace(/\r/g, '')).filter((l) => l.trim());
+        console.log(`  pm2 相关命名管道: ${pipes.length} 条`);
+        pipes.slice(0, 8).forEach((p) => console.log('  管道: <' + p + '>'));
+        if (pipes.length > 8) console.log(`  ... 其余 ${pipes.length - 8} 条略`);
+      } catch (e) { console.log('  ' + RED('WARN') + ' 管道枚举失败: ' + e.message); }
+      try {
+        // boot-pm2.log 尾 (常开): \SmartControlBackend 每 5 分钟跑一次 boot-pm2.ps1,
+        // 这里能直接看到每轮走的是"端口在听早退"还是"WMI resurrect" —— 守护
+        // 堆积节奏的第一现场。
+        const bootLog = path.resolve(__dirname, '..', 'logs', 'boot-pm2.log');
+        if (fs.existsSync(bootLog)) {
+          const tail = fs.readFileSync(bootLog, 'utf8').trimEnd().split(/\r?\n/).slice(-40);
+          console.log('  boot-pm2.log 尾 40 行:');
+          tail.forEach((l) => console.log('  | ' + l));
+        } else {
+          console.log('  ' + RED('WARN') + ' 找不到 boot-pm2.log — boot 任务可能从未跑过');
+        }
+      } catch (e) { console.log('  ' + RED('WARN') + ' boot-pm2.log 读取异常: ' + e.message); }
+      try {
+        const pm2Log = 'C:\\Users\\user\\.pm2\\pm2.log';
+        if (fs.existsSync(pm2Log)) {
+          const tail = fs.readFileSync(pm2Log, 'utf8').trimEnd().split(/\r?\n/).slice(-12);
+          console.log('  pm2.log 尾 12 行:');
+          tail.forEach((l) => console.log('  | ' + l));
+        }
+      } catch (e) { console.log('  ' + RED('WARN') + ' pm2.log 读取异常: ' + e.message); }
       for (const img of ['powershell.exe', 'wscript.exe', 'conhost.exe', 'cmd.exe']) {
         const t = execSync(`tasklist /FI "IMAGENAME eq ${img}" /FO CSV`, { encoding: 'utf8' });
         const n = t.split(/\r?\n/).filter((l) => l.startsWith('"')).length - 1;

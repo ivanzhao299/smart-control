@@ -208,7 +208,11 @@ if ($LASTEXITCODE -ne 0) {
   Write-Host "  -> pm2 daemon 不在, 用 WMI 脱离方式拉起 (session 陷阱)" -ForegroundColor Yellow
   $pm2cmdPath = Join-Path $env:APPDATA 'npm\pm2.cmd'
   try {
-    ([wmiclass]'\\.\root\cimv2:Win32_Process').Create("cmd /c `"$pm2cmdPath`" ping", $env:USERPROFILE, $null) | Out-Null
+    # 2026-07-27: WMI 不传调用者环境, 必须在命令行里注入 PM2_HOME, 否则这个脱离
+    # 守护会用别的家目录/管道名, 谁也找不到它 (孤儿守护堆积的一环)。注意 && 必须
+    # 紧贴变量值 —— cmd 会把 "=" 到 "&&" 之间的空格算进值里, 带尾随空格的
+    # PM2_HOME 拼出的命名管道名同样谁也对不上 (boot-pm2.ps1 同款修复)。
+    ([wmiclass]'\\.\root\cimv2:Win32_Process').Create("cmd /c `"set PM2_HOME=C:\Users\user\.pm2&& $pm2cmdPath ping`"", $env:USERPROFILE, $null) | Out-Null
   } catch { Write-Host "  -> WMI 拉起失败: $($_.Exception.Message)" -ForegroundColor Red }
   Start-Sleep -Seconds 5
 }

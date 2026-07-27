@@ -108,8 +108,15 @@ function Invoke-DetachedResurrect {
   # ones from the declarative config. The trailing save then repairs the dump
   # while the apps are actually up. Plain & (not &&) between the pm2 steps so
   # a failing resurrect does not stop the ecosystem start.
+  # NO space before '&&' after the set value (2026-07-27): cmd includes every
+  # character between '=' and '&&' in the value, so a space there gives
+  # PM2_HOME a trailing space. pm2 builds its rpc/pub named-pipe names
+  # verbatim from PM2_HOME (pipe names skip Win32 path normalization, the
+  # space survives), so that daemon lives on pipe names no normal client
+  # ever computes -> every later pm2 call misses it and hatches yet another
+  # daemon. That was the source of the 128-idle-daemon herd found 2026-07-27.
   $eco = Join-Path $projectRoot 'deploy\ecosystem.config.js'
-  $cmd = "cmd /c `"set PM2_HOME=$pm2Home && $pm2 resurrect & $pm2 start $eco --env production & $pm2 save`""
+  $cmd = "cmd /c `"set PM2_HOME=$pm2Home&& $pm2 resurrect & $pm2 start $eco --env production & $pm2 save`""
   Write-DeployLog "WMI detached recover: $cmd"
   $r = ([wmiclass]'\\.\root\cimv2:Win32_Process').Create($cmd, 'C:\Users\user', $null)
   Write-DeployLog ("  WMI ProcessId={0} ReturnValue={1}" -f $r.ProcessId, $r.ReturnValue)
@@ -213,7 +220,18 @@ try {
 
   if ($VerifyOnly) {
     if ($previousCommit -ne $Commit) {
-      throw "GK9000 is at $previousCommit, expected $Commit."
+      # Tolerate the on-box auto-update watcher racing ahead of CI (2026-07-27):
+      # between this run's deploy step and its verify step the watcher may have
+      # already fast-forwarded GK9000 PAST the requested commit. The requested
+      # commit IS live (plus newer ones) - that is success, not failure. Strict
+      # equality here produced false-red runs (#214/#227 pattern) while
+      # production was perfectly healthy. Behind/diverged states remain fatal.
+      & git merge-base --is-ancestor $Commit $previousCommit
+      if ($LASTEXITCODE -eq 0) {
+        Write-DeployLog "GK9000 is at $previousCommit which already contains $Commit (watcher deployed ahead) - verifying the newer state."
+      } else {
+        throw "GK9000 is at $previousCommit, expected $Commit."
+      }
     }
   } else {
     $trackedChanges = @(git status --porcelain --untracked-files=no)
@@ -355,7 +373,9 @@ try {
       $pm2cmd = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
       if (-not (Test-Path $pm2cmd)) { $pm2cmd = 'pm2' }
       try {
-        ([wmiclass]'\\.\root\cimv2:Win32_Process').Create("cmd /c `"set PM2_HOME=C:\Users\user\.pm2 && $pm2cmd restart smart-control-backend --update-env`"", 'C:\Users\user', $null) | Out-Null
+        # No space before '&&' - see Invoke-DetachedResurrect for why (trailing
+        # space would poison PM2_HOME and hatch an orphan daemon).
+        ([wmiclass]'\\.\root\cimv2:Win32_Process').Create("cmd /c `"set PM2_HOME=C:\Users\user\.pm2&& $pm2cmd restart smart-control-backend --update-env`"", 'C:\Users\user', $null) | Out-Null
       } catch {
         Write-DeployLog "WMI detached restart failed: $($_.Exception.Message)"
       }

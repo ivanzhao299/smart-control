@@ -57,6 +57,43 @@ try {
 
 Log "[boot] pm2 = $pm2 ; PM2_HOME = $env:PM2_HOME"
 
+# --- pm2 daemon dedupe (2026-07-27 守护泄漏根治的收尾兜底) ---
+# 07-26/27 现场: 空转的 pm2 Daemon.js 以约 5 分钟一个的节奏堆到 128 个。
+# 源头 = 本文件下面 resurrect 命令行 (以及 deploy-from-ci.ps1 同款) 里
+# `set PM2_HOME=... && pm2` 的 && 前有空格 —— cmd 把 "=" 到 "&&" 之间的所有
+# 字符(含那个空格)都算进变量值, PM2_HOME 带了尾随空格; 而 pm2 的 rpc/pub
+# 命名管道名是拿 PM2_HOME 逐字拼出来的, 管道名对不上 = 客户端永远"找不到
+# 守护 -> 再孵一个"。源头已修 (&& 紧贴值, 见下), 本块只做两件事:
+#   1) 一次性清掉已经堆积的百余个空转守护;
+#   2) 永久兜底 —— 若将来再有未知机制滋生守护, 每 5 分钟回收一次, 堆不起来。
+# 判活规则: 有任何 node 子进程 (pm2 的 app fork 都是 node.exe 且 PPID=守护)
+# 的守护绝不动; pm2.pid 里登记的守护绝不动; 其余空转守护满 10 分钟才回收
+# (给 部署重启瞬间新孵的守护 留出接管窗口)。
+try {
+  $nodes = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction Stop)
+  $daemons = @($nodes | Where-Object { $_.CommandLine -match 'pm2\\lib\\Daemon\.js' })
+  if ($daemons.Count -gt 1) {
+    $parentPids = @($nodes | ForEach-Object { $_.ParentProcessId } | Sort-Object -Unique)
+    $canonPid = 0
+    try {
+      $pidFile = Join-Path $PM2HOME 'pm2.pid'
+      if (Test-Path $pidFile) { $canonPid = [int]((Get-Content $pidFile -ErrorAction Stop | Select-Object -First 1).Trim()) }
+    } catch { }
+    $now = Get-Date
+    $killed = 0
+    foreach ($d in $daemons) {
+      if ($parentPids -contains $d.ProcessId) { continue }
+      if ($canonPid -gt 0 -and $d.ProcessId -eq $canonPid) { continue }
+      $ageMin = 99999
+      try { if ($d.CreationDate) { $ageMin = ($now - $d.CreationDate).TotalMinutes } } catch { }
+      if ($ageMin -lt 10) { continue }
+      Stop-Process -Id $d.ProcessId -Force -ErrorAction SilentlyContinue
+      $killed++
+    }
+    Log "[boot] daemon dedupe: total=$($daemons.Count) canonPid=$canonPid killed=$killed"
+  }
+} catch { Log "[boot] daemon dedupe failed: $($_.Exception.Message)" }
+
 # --- WireGuard keepalive (must stay ABOVE the early-exit below) ---
 # GK9000 sits behind NAT. With no keepalive the NAT mapping expires after a few idle
 # minutes and the jump host can no longer INITIATE a connection -- deploys time out and
@@ -89,6 +126,9 @@ if (Test-Path $wgExe) {
 # Skip resurrect so we don't stack a second layer.
 $backendUp = $null -ne (Get-NetTCPConnection -LocalPort 3200 -State Listen -ErrorAction SilentlyContinue)
 $frontendUp = $null -ne (Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue)
+# 2026-07-27: 每次都把端口判定落日志 —— 排查"5 分钟一个守护"时最需要的就是
+# 这条证据 (到底是早退了还是走到了 resurrect), 之前只在早退分支才有日志。
+Log "[boot] port check: backend(3200)=$backendUp frontend(5173)=$frontendUp"
 if ($backendUp -and $frontendUp) {
   Log '[boot] 3200 + 5173 already listening, skip resurrect'
   exit 0
@@ -97,7 +137,12 @@ if ($backendUp -and $frontendUp) {
 # Run pm2 resurrect detached from this session (survives session exit).
 # 关键: 命令里显式 set PM2_HOME 再跑 pm2 —— WMI 不传环境, 不注入的话这个脱离守护
 # 会落到 SYSTEM 默认目录, 与 session-1 调用者的 C:\Users\user\.pm2 对不上 (碎片化根因)。
-$cmd = "cmd /c `"set PM2_HOME=$PM2HOME && $pm2 resurrect`""
+# 2026-07-27 修复: && 必须紧贴变量值, 不能有空格。cmd 把 "=" 到 "&&" 之间的
+# 所有字符都算进值里 —— 原来的 `set PM2_HOME=... && pm2` 让 PM2_HOME 带上了
+# 尾随空格, pm2 的 rpc/pub 命名管道名由 PM2_HOME 逐字拼出 (管道路径不走文件
+# 系统归一化, 尾随空格不会被吞), 于是这个守护活在一个别的客户端永远算不出的
+# 管道名上, 后续每次 pm2 调用都"找不到守护 -> 又孵一个" —— 守护堆积的源头。
+$cmd = "cmd /c `"set PM2_HOME=$PM2HOME&& $pm2 resurrect`""
 try {
   $r = ([wmiclass]'\\.\root\cimv2:Win32_Process').Create($cmd, 'C:\Users\user', $null)
   Log "[boot] WMI resurrect started, ProcessId=$($r.ProcessId) ReturnValue=$($r.ReturnValue)"
