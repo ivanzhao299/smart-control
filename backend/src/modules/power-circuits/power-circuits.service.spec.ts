@@ -56,7 +56,12 @@ function makeService(opts: {
 } = {}) {
   const row = opts.row ?? circuitRow();
   const repo = {
-    findOne: jest.fn().mockResolvedValue(row),
+    // 按 code 匹配, 不匹配返回 null —— 2026-07-27 修: 原来无条件返回 row,
+    // onModuleInit 里 healProjectorSeqChannel 查 seq-4/seq-5 也拿到这行
+    // 1f-led 测试数据, 把它的 relayChannel 改成 5, CI 每次推送都红一次。
+    // 生产不受影响 (真库按 code 各查各行), 纯测试桩失真。
+    findOne: jest.fn(async (q?: { where?: { code?: string } }) =>
+      (q?.where?.code === undefined || q.where.code === row.code ? row : null)),
     find: jest.fn().mockResolvedValue([row]),
     save: jest.fn(async (r: unknown) => r),
     create: jest.fn((r: unknown) => r),
