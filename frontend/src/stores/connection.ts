@@ -10,7 +10,13 @@ import { computed, ref } from 'vue';
  * MainLayout 挂载时把 report() 注册进 setConnectivityListener,
  * 并 watch online: true→false 沿触发服务器设置弹窗 (每次断线只自动弹一次).
  */
-const OFFLINE_THRESHOLD = 2;
+/**
+ * 2026-07-27 加固 (业主: "PWA 频繁被踢回服务器设置页"): 2 → 3。
+ * iPhone 息屏/切后台回来的 1-2 秒里 Wi-Fi 还没重连好, 切页时并发发出的
+ * 两三个请求全失败 —— 阈值 2 一碰就 offline, 服务器设置弹窗跟着自动弹,
+ * 业主感觉"被踢出来"。3 次 + MainLayout 侧 8s 持续复核双闸后, 瞬断不再弹。
+ */
+const OFFLINE_THRESHOLD = 3;
 
 export const useConnectionStore = defineStore('connection', () => {
   const consecutiveFails = ref(0);

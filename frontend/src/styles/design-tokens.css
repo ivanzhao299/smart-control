@@ -1054,10 +1054,13 @@ select:focus-visible,
   transition-duration: 80ms;
 }
 
-/* 路由转场: 淡入 + 8px 上移, 120ms — 切页不再硬切 */
-.v2-page-enter-active { transition: opacity var(--v2-dur-fast) var(--v2-ease-out), transform var(--v2-dur-fast) var(--v2-ease-out); }
-.v2-page-leave-active { transition: opacity 80ms ease; }
-.v2-page-enter-from { opacity: 0; transform: translateY(8px); }
+/* 路由转场 (2026-07-27 业主: "页面出现时都会平铺展开一下" —— 就是这里原来的
+ * translateY(8px) 上滑入场: 每次切页整页从下方滑开, 看起来像重新展开加载。
+ * 页面壳本来就常驻 (SW 预缓存 + keep-alive), 不该有"展开"感。改为**原地**
+ * 70ms 纯淡入: 无位移、无缩放, 页面固定出现, 只保留最低限度的防硬切柔化) */
+.v2-page-enter-active { transition: opacity 70ms ease-out; }
+.v2-page-leave-active { transition: opacity 50ms ease; }
+.v2-page-enter-from { opacity: 0; }
 .v2-page-leave-to { opacity: 0; }
 
 @media (prefers-reduced-motion: reduce) {

@@ -14,7 +14,7 @@ import ErrorBoundary from '@/components/ErrorBoundary.vue';
 import ServerSettingsDialog from '@/components/ServerSettingsDialog.vue';
 import { useFullscreen } from '@/composables/useFullscreen';
 import { navIconFor } from '@/composables/useIcons';
-import { setConnectivityListener } from '@/services/http';
+import { getApiBaseURL, setConnectivityListener } from '@/services/http';
 import { useConnectionStore } from '@/stores/connection';
 import { useSystemStore } from '@/stores/system';
 import { useSceneStore } from '@/stores/scene';
@@ -136,6 +136,8 @@ onMounted(() => {
   setTimeout(() => { void prefetchData(); }, 1200);
   // 连通性监听: 每个 API 请求结束都报告到 connection store
   setConnectivityListener(conn.report);
+  // iOS 回前台快速探活 (2026-07-27, 见 onVisibleRecheck 注释)
+  document.addEventListener('visibilitychange', onVisibleRecheck);
 });
 onUnmounted(() => {
   if (mainEl) {
@@ -143,6 +145,7 @@ onUnmounted(() => {
     mainEl.removeEventListener('touchmove', onMainTouchMove);
   }
   setConnectivityListener(null);
+  document.removeEventListener('visibilitychange', onVisibleRecheck);
 });
 
 /**
@@ -164,14 +167,38 @@ watch(() => conn.online, (ok, was) => {
   }
 });
 
+// 2026-07-27 加固 (业主: "PWA 频繁被踢回服务器设置页"): 掉线不再立刻弹弹窗 ——
+// iPhone 息屏/切后台回来 Wi-Fi 重连的几秒里必然有请求失败, 立刻弹就是"被踢感"。
+// 改为 8 秒后复核: 仍然离线才弹 (真换了服务器地址/真断网的场景不受影响,
+// 顶部离线胶囊在这 8 秒里已经给了即时反馈)。
+let offlineRecheckT: number | undefined;
 watch(() => conn.online, (online) => {
   if (!online && !autoOpenedThisEpisode && !showServerSettings.value) {
-    autoOpenedThisEpisode = true;
-    serverSettingsReason.value = '无法连接服务器 — 请确认服务器地址, 或从下方历史列表选择';
-    showServerSettings.value = true;
+    window.clearTimeout(offlineRecheckT);
+    offlineRecheckT = window.setTimeout(() => {
+      if (!conn.online && !autoOpenedThisEpisode && !showServerSettings.value) {
+        autoOpenedThisEpisode = true;
+        serverSettingsReason.value = '无法连接服务器 — 请确认服务器地址, 或从下方历史列表选择';
+        showServerSettings.value = true;
+      }
+    }, 8000);
   }
-  if (online) autoOpenedThisEpisode = false;
+  if (online) {
+    window.clearTimeout(offlineRecheckT);
+    autoOpenedThisEpisode = false;
+  }
 });
+
+// iOS 回前台快速探活: PWA 被系统挂起后回来, 轮询要等下一 tick (最长 5s) 才知道
+// 网络已恢复, 离线胶囊/弹窗判定会多挂几秒。回前台立刻打一枪公开健康端点,
+// 成功即刻清零失败计数, 状态秒级归位。
+function onVisibleRecheck(): void {
+  if (document.hidden) return;
+  // 用配置的 API base (可能跨端口 5173→3200), 相对路径在生产会打错源
+  fetch(`${getApiBaseURL()}/system/health`, { cache: 'no-store' })
+    .then((r) => { if (r.ok) conn.report(true); })
+    .catch(() => { /* 失败交给正常判定链 */ });
+}
 
 /** hover/touch 时立刻 prefetch 对应路由 chunk — 比 click 早 ~200ms */
 const ROUTE_PREFETCH: Record<string, () => Promise<unknown>> = {
