@@ -166,6 +166,14 @@ Run "npm run build:deploy"
 Pop-Location
 Write-Host "  构建完成" -ForegroundColor Green
 
+# 5.4) 数据库迁移 —— 2026-07-27 补上这一环 (生产事故: watcher 抢跑部署了带新列
+# 的代码但没跑 migrations, 后端查不到列启动崩溃循环; CI 到场又因"已部署"短路
+# 跳过迁移, 两条路都没跑成)。run-migrations.js 无待办时是 no-op, 多跑无害。
+Write-Host "`n[5.4/6] 应用数据库迁移 (run-migrations.js)..." -ForegroundColor Yellow
+Push-Location (Join-Path $projectRoot 'backend')
+Run "node scripts/run-migrations.js"
+Pop-Location
+
 # 5.5) seed — 应用 entity / 硬件 / 场景的更新.
 # seed 本身是幂等的 (record 已存在就跳过), 安全多跑.
 # 例外: 末尾的 HW_IP_FIXES 段会把错的 IP 主动更新成正确值 (一次性自愈).
