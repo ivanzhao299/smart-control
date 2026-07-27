@@ -5,10 +5,11 @@
 //
 // 顶部一条"投影输出"控制条: 显示融合器现在放的是不是 GK9000 的 HDMI 输入, 一键切回。
 // (之前那版直控融合器窗口的完整面板是模型B, 业主选了模型A, 收成这条。)
-import { onMounted, onUnmounted, ref } from 'vue';
+import { ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { AlertTriangle, RefreshCw } from 'lucide-vue-next';
 import PlayerConsole from '@/components/PlayerConsole.vue';
+import { useActivePolling } from '@/composables/useActivePolling';
 import { projectorService } from '@/services/projector.service';
 
 const showingHdmi = ref<boolean | null>(null); // null = 还没读到/连不上
@@ -40,14 +41,21 @@ async function switchToGk(): Promise<void> {
   }
 }
 
+// 2026-07-27 切页卡顿根治: keep-alive 下 onUnmounted 不触发, 原来的 8s 轮询在
+// 切走后永续后台运行。改 useActivePolling — 在本页才轮询, 切走即停。
 let timer: ReturnType<typeof setInterval> | null = null;
-onMounted(() => {
+function startPolling(): void {
+  if (timer) return; // mounted+activated 双触发, 幂等
   void loadFusion();
   timer = setInterval(() => {
-  if (document.hidden) return; // C3: 页面在后台不打设备
- if (!busy.value) void loadFusion(); }, 8000);
-});
-onUnmounted(() => { if (timer) clearInterval(timer); });
+    if (document.hidden) return; // C3: 页面在后台不打设备
+    if (!busy.value) void loadFusion();
+  }, 8000);
+}
+function stopPolling(): void {
+  if (timer) { clearInterval(timer); timer = null; }
+}
+useActivePolling(startPolling, stopPolling);
 </script>
 
 <template>

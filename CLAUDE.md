@@ -72,7 +72,8 @@ cd frontend && pnpm install && pnpm dev   # :5173, 路径 /control/
 - **电源时序器**：Modbus parseStatus 通道段偏移是**左移 1 字节**，曾因偏移方向修反导致"开了又弹回"，动这段先看 `114c6e4`/`714243f`。
 - **双鉴权完全独立**：业主 `X-Client-Token`（localStorage, 30 天）vs 后台 `Bearer`（sessionStorage, 8h）。
 - **fileUrl 必须 `absUrl()` 拼接**（frontend 5173 与 backend 3200 跨端口，原生 `<img>/<video>` src 不走 axios baseURL）。
-- **UI 铁律**（业主 11+ 批验收整改沉淀）：页面固定壳——顶栏固定、内容区滚动、全局禁橡皮筋（但内部滚动容器/横向手势要放行）；卡片固定高度不被内容撑破；浅色主题对比度要过验收；危险操作要确认弹窗。改页面布局前先看 `0548395` 与 DESIGN_SYSTEM.md。
+- **UI 铁律**（业主 11+ 批验收整改沉淀）：页面固定壳——顶栏固定、内容区滚动、全局禁橡皮筋（但内部滚动容器/横向手势要放行）；卡片固定高度不被内容撑破（行高用 `minmax(基准, auto)` 而非定死）；浅色主题对比度要过验收；危险操作要确认弹窗；后台按钮触摸目标 ≥36px。改页面布局前先看 `0548395` 与 DESIGN_SYSTEM.md。
+- **keep-alive 轮询铁律**（2026-07-27 切页卡顿根治）：功能页都被 `keep-alive(max=10)` 缓存，切走只触发 `onDeactivated`——**`onUnmounted` 永远不来**，只在 unmount 清理的定时器会在后台永续运行（曾同时 5 路轮询把切页搞卡）。任何页面轮询必须走 `composables/useActivePolling.ts`（进页启动/切走即停，start/stop 幂等）。全局 sticky 页头补丁与固定壳页面互斥（会把头部渲染下移压住内容顶，见 INCIDENTS #20-21）。
 
 ## 工作流约定
 

@@ -16,7 +16,8 @@
  * 编组模式: 选中若干台 → "归到此组" → 选组。跟单机测试是同一个选择习惯,
  * 不用学第二套操作。组名/内机名都能就地改, 全部落库, 不用改代码。
  */
-import { computed, nextTick, onMounted, onBeforeUnmount, ref, type Component } from 'vue';
+import { computed, nextTick, ref, type Component } from 'vue';
+import { useActivePolling } from '@/composables/useActivePolling';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
@@ -156,15 +157,27 @@ function schedulePoll(): void {
   }, POLL_MS);
 }
 
-onMounted(async () => {
-  await loadAll();
-  await pollStates();
-  schedulePoll();
-});
-onBeforeUnmount(() => {
+// 2026-07-27 切页卡顿根治: keep-alive 下 onBeforeUnmount 不触发, 递归轮询切走后
+// 永续后台运行 (持续打脆弱的单客户端空调网关)。改 useActivePolling — 在本页才
+// 轮询, 切走即停; 回页立即补一轮 pollStates 对齐最新状态。
+let pollActive = false;
+let baseLoaded = false;
+function startPolling(): void {
+  if (pollActive) return; // mounted+activated 双触发, 幂等
+  pollActive = true;
+  pollStopped = false;
+  void (async () => {
+    if (!baseLoaded) { await loadAll(); baseLoaded = true; } // 静态清单只拉一次
+    await pollStates();
+    if (!pollStopped) schedulePoll();
+  })();
+}
+function stopPolling(): void {
+  pollActive = false;
   pollStopped = true;
   if (pollTimer) clearTimeout(pollTimer);
-});
+}
+useActivePolling(startPolling, stopPolling);
 
 // ============ 视图 ============
 

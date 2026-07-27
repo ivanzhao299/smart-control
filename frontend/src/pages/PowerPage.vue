@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, ref } from 'vue';
+import { useActivePolling } from '@/composables/useActivePolling';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { haptics } from '@/services/haptics';
 import { useRouter } from 'vue-router';
@@ -211,11 +212,15 @@ function stopRefresh(): void {
 const router = useRouter();
 function goBack(): void { router.push({ name: 'dashboard' }); }
 
-onMounted(() => {
+// 2026-07-27 切页卡顿根治: keep-alive 下 onUnmounted 不触发, 5s 轮询切走后
+// 永续后台运行 (还一直打后端)。改 useActivePolling — 在本页才轮询, 切走即停;
+// 回页时 loadCircuits 立即刷一次, 不等下一轮。
+function startPolling(): void {
+  if (refreshTimer) return; // mounted+activated 双触发, 幂等
   void loadCircuits();
   startRefresh();
-});
-onUnmounted(() => { stopRefresh(); });
+}
+useActivePolling(startPolling, stopRefresh);
 </script>
 
 <template>

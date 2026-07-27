@@ -133,7 +133,16 @@
 - EKX-808 @ `192.168.50.61:9761`。输入：IN1/2=LED 屏左右声道、IN3/4=投影仪左右、IN5=USB 声卡、IN6=调音台、IN7=定时播放器、IN8=空。输出：OUT1/2=LED 屏、OUT3/4=投影仪、OUT5=二楼办公区、OUT6=二楼走廊区、OUT7=前厅和东北区、OUT8=一楼展位。
 - 默认路由/命名在 `audio-config.service.ts`（含一次性割接自愈）；立体声配对纯靠分区名后缀 `·左`/`·右` 同前缀。**业主确认现场播放正常后明确要求"不要再改了"。**
 
-## 四、日常规约
+### 20. 切换页面卡顿不丝滑（2026-07-27）
+- **症状**：局域网生产环境下切页有卡顿感；同时后端持续收到并不在前台的页面的轮询请求。
+- **根因**：`MainLayout` 用 `<keep-alive :max="10">` 缓存功能页，切页只触发 `onDeactivated`——**`onUnmounted` 永远不来**；而各页轮询定时器全都只在 `onUnmounted/onBeforeUnmount` 清理。逛过一圈后：电源页 5s、投影页 8s、音响页 8s 矩阵轮询（一条设备命令 ~284ms）+1s 进度秒针、空调页递归轮询、状态页 10s、首页 30s——全部在后台永续运行，每轮 fetch + 缓存页响应式重渲染把主线程周期性打断，切页动画正好撞上就是卡顿；顺带持续骚扰脆弱的单客户端设备网关。
+- **根治**：新增 `composables/useActivePolling.ts`（onMounted/onActivated 启动、onDeactivated/onBeforeUnmount 停止，start/stop 幂等），六个页面全部接入；回页立即补一轮读数不等下一轮。实测：逛完全部页面后在首页静置 35s，后台 API 调用从 20+ 次降到 ~3 次（仅全局状态订阅）。
+- **防回退**：新页面加轮询一律走 `useActivePolling`，禁止裸 `setInterval + onUnmounted`。
+
+### 21. 灯光/音响页内容顶部被切 8px（2026-07-27）
+- **症状**：固定壳页面（灯光/音响）KPI 条或滚动上来的卡片顶部被"切掉一部分"。
+- **根因**：design-tokens.css 的全局 sticky 页头补丁（负 margin + 等量 padding + 不透明底，为"整页滚动"页面设计）与 07-26 的固定壳布局（`.v2-page overflow:hidden` + 内容区独立滚动）叠加：sticky 以 overflow:hidden 的 `.v2-page` 为滚动参照，把头部**渲染位置**推下 24px 而排版占位不变，不透明背景（z-index 60）压住内容区顶部 8px。
+- **根治**：固定壳页面在 scoped 样式里整体中和全局补丁（`position:static` + 清零 margin/padding/背景/阴影）。新页面二选一：要么整页滚动享受全局 sticky 头，要么固定壳 + 中和补丁，**不能混用**。
 
 - **components.d.ts**：自动生成且历史上被 track，拉代码常冲突——update.ps1 会先 checkout 它，**别手改**。
 - **CI 不跑 seed**：新增种子数据要手工跑；`seedHardware` 遇已存在记录直接 skip，改生产数据走后台 UI。

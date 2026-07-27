@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, ref } from 'vue';
+import { useActivePolling } from '@/composables/useActivePolling';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
@@ -35,13 +36,17 @@ async function refreshResource(): Promise<void> {
 
 // PERFORMANCE_AUDIT P0-#3: 走统一 polling 调度器, WS 在线时自动降速
 let unsubscribePoll: (() => void) | null = null;
-onMounted(() => {
+// 2026-07-27 切页卡顿根治: keep-alive 下 onBeforeUnmount 不触发, 10s 轮询切走后
+// 永续后台运行。改 useActivePolling — 在本页才轮询, 切走即退订。
+function startPolling(): void {
+  if (unsubscribePoll) return; // mounted+activated 双触发, 幂等
   void refreshResource();
   unsubscribePoll = polling.subscribe('status:resource', 10_000, refreshResource);
-});
-onBeforeUnmount(() => {
-  if (unsubscribePoll) unsubscribePoll();
-});
+}
+function stopPolling(): void {
+  if (unsubscribePoll) { unsubscribePoll(); unsubscribePoll = null; }
+}
+useActivePolling(startPolling, stopPolling);
 
 const deviceOnlineRatio = computed(() => {
   if (!health.value) return 0;

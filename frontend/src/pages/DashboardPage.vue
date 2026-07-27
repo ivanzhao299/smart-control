@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, ref } from 'vue';
+import { useActivePolling } from '@/composables/useActivePolling';
 import { useToastStore } from '@/stores/toast';
 import { useRouter } from 'vue-router';
 import {
@@ -61,11 +62,17 @@ const sparkPoints = computed(() => {
   }).join(' ');
 });
 let unsubPower: (() => void) | null = null;
-onMounted(() => {
+// 2026-07-27 切页卡顿根治: keep-alive 下 onBeforeUnmount 不触发, 首页被缓存后
+// 30s 功率采样在别的页面也一直跑。改 useActivePolling — 在首页才采, 切走即退订。
+function startPowerSample(): void {
+  if (unsubPower) return; // mounted+activated 双触发, 幂等
   void samplePower();
   unsubPower = polling.subscribe('dash:power', 30_000, samplePower);
-});
-onBeforeUnmount(() => { if (unsubPower) unsubPower(); });
+}
+function stopPowerSample(): void {
+  if (unsubPower) { unsubPower(); unsubPower = null; }
+}
+useActivePolling(startPowerSample, stopPowerSample);
 
 // ============ 场景磁贴 ============
 type SceneColor = 'opening' | 'reception' | 'meeting' | 'roadshow' | 'cleaning' | 'closing';

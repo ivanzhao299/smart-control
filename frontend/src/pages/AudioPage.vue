@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useActivePolling } from '@/composables/useActivePolling';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter, useRoute } from 'vue-router';
 import {
@@ -464,7 +465,7 @@ onMounted(async () => {
   void loadAudioAssets();
   // 输入增益读一次要 ~4.6s, 不阻塞首屏, 也不进轮询
   void loadInputChannels();
-  scheduleMatrixPoll();
+  // (矩阵轮询的启动挪到下面 useActivePolling — 2026-07-27 切页卡顿根治)
 
   // 恢复静音状态 (从 localStorage)
   try {
@@ -505,6 +506,30 @@ onMounted(async () => {
     void router.replace({ name: 'audio', query: {} });
   }
 });
+
+// 2026-07-27 切页卡顿根治: keep-alive 下 onUnmounted 不触发, 8s 矩阵轮询 (一条
+// 设备命令 ~284ms) + 1s 进度秒针切走后永续后台运行。改 useActivePolling ——
+// 在本页才跑; 从缓存回页时立即读一次矩阵 + 重对齐播放进度, 不等下一轮。
+let audioPollActive = false;
+let firstActivation = true;
+function startAudioPolling(): void {
+  if (audioPollActive) return; // mounted+activated 双触发, 幂等
+  audioPollActive = true;
+  matrixPollStopped = false;
+  if (!firstActivation) {
+    void loadMatrixState();
+    void syncPlaybackFromChannel(bgmChannel.value?.currentMediaId); // 重启进度秒针
+  }
+  firstActivation = false; // 首次进页 onMounted 已做全量加载, 不重复
+  scheduleMatrixPoll();
+}
+function stopAudioPolling(): void {
+  audioPollActive = false;
+  matrixPollStopped = true;
+  if (matrixTimer) { clearTimeout(matrixTimer); matrixTimer = null; }
+  stopPlTimer(); // 进度秒针纯视觉, 回页由上面的 sync 重算
+}
+useActivePolling(startAudioPolling, stopAudioPolling);
 
 // ============ 分区 ============
 interface AudioRow {
