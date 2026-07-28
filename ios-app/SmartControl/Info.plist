@@ -20,6 +20,11 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<!-- 出口合规声明 (2026-07-28): WebView 壳, 只用系统 HTTPS, 无自带加密算法,
+	     属豁免范围。缺这个 key 时每个构建处理完都要在 App Store Connect 手动
+	     回答一次"出口合规"问题, 构建才对测试员可用 —— 声明后永久免答。 -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<!-- 启动画面 (2026-07-25 体验升级 A1): 深底 + logo, 与安卓壳/PWA 启动占位同语言 -->
 	<key>UILaunchScreen</key>
 	<dict>
