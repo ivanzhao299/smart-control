@@ -16,7 +16,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jinhu.smartcontrol
         PRODUCT_NAME: SmartControl
-        MARKETING_VERSION: "1.1.2"
+        MARKETING_VERSION: "1.1.3"
         CURRENT_PROJECT_VERSION: "4"
         GENERATE_INFOPLIST_FILE: "NO"
         INFOPLIST_FILE: SmartControl/Info.plist
