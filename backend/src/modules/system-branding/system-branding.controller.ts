@@ -25,6 +25,32 @@ export class SystemBrandingController {
     return { message: '查询成功', data: await this.service.get() };
   }
 
+  /**
+   * 欢迎页内容编辑 (2026-07-28 业主: "编辑放到前端, 不用进后台") — 客户端 token
+   * 即可改 (走全局 ClientAuthGuard, 与切灯/推片同级的日常操作), 但**只放行欢迎页
+   * 四个字段**, logo/系统名等品牌配置仍必须走下面的 AdminGuard PUT。
+   */
+  @Put('welcome')
+  async updateWelcome(
+    @Body() body: Partial<Pick<SystemBrandingDto, 'welcomeGuest' | 'welcomeTitle' | 'welcomeTagline' | 'welcomeBgMediaId'>>,
+  ): Promise<unknown> {
+    if (!body || typeof body !== 'object') {
+      throw new BadRequestException('请求体必须是 JSON 对象');
+    }
+    const patch: Partial<SystemBrandingDto> = {};
+    if ('welcomeGuest' in body) patch.welcomeGuest = body.welcomeGuest ?? null;
+    if ('welcomeTitle' in body) patch.welcomeTitle = body.welcomeTitle ?? null;
+    if ('welcomeTagline' in body) patch.welcomeTagline = body.welcomeTagline ?? null;
+    if ('welcomeBgMediaId' in body) patch.welcomeBgMediaId = body.welcomeBgMediaId ?? null;
+    if (!Object.keys(patch).length) throw new BadRequestException('没有可保存的欢迎页字段');
+    try {
+      const updated = await this.service.update(patch);
+      return { message: '欢迎页已保存', data: updated };
+    } catch (e) {
+      throw new BadRequestException((e as Error).message);
+    }
+  }
+
   @Put()
   @UseGuards(AdminGuard)
   async update(@Body() body: Partial<SystemBrandingDto>): Promise<unknown> {

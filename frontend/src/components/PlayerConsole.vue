@@ -40,6 +40,8 @@ import {
   type DisplayFit, type PlaylistItemView, type PlaybackHistoryView,
 } from '@/services/playback.service';
 import { projectorService } from '@/services/projector.service';
+import { fetchSystemBranding, saveWelcomeConfig } from '@/services/system-branding.service';
+import { absUrl } from '@/services/http';
 import { powerCircuitsService, type PowerCircuitView } from '@/services/power-circuits.service';
 import { mediaService, MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
 import { ledService } from '@/services/led.service';
@@ -344,8 +346,8 @@ const inPlaylist = computed(() => new Set(playlist.value.map((x) => x.mediaId)))
 // ============ 输入源 (2026-07-28 业主: LED/投影两页统一 + 可选项指向明确) ============
 // 三个按钮各自指向固定目标, 按了就知道播的是什么:
 //   播放内容       → 本屏回到播放列表推送的画面 (GK9000 输出)
-//   欢迎页·可编辑  → 媒体库内置「金湖欢迎页·动态(称谓可编辑)」网页素材,
-//                    领导称谓在 后台→系统品牌 编辑, 约 20s 自动生效 (两屏共用)
+//   欢迎页·可编辑  → 媒体库内置「金湖欢迎页·动态(称谓可编辑)」网页素材 (两屏共用),
+//                    文字/底图在本卡「编辑欢迎页」就地改, 保存即生效
 //   欢迎页·默认    → 本屏专用尺寸的内置静态欢迎图 (slot1=LED版 / slot2=投影版), 兜底
 // 欢迎页统一走 playback 推流 (kiosk 渲染), 和播放列表同一条链路 —— 当前显示什么
 // 直接从通道状态读出来 (currentMediaName), 不再靠"记住自己发过什么"猜。
@@ -367,7 +369,7 @@ const activeSource = computed<SourceKey | null>(() => {
 });
 const SRC_HINTS: Record<SourceKey, string> = {
   'content': '正在播放列表内容',
-  'welcome-editable': '动态欢迎页 · 称谓在 后台→系统品牌 修改, 约20s生效',
+  'welcome-editable': '动态欢迎页 · 点「编辑欢迎页」改文字/底图, 保存即生效',
   'welcome-default': '内置静态欢迎页 (本屏专用尺寸, 不可编辑)',
 };
 const srcHint = computed(() => (activeSource.value ? SRC_HINTS[activeSource.value] : '当前待机 · 点按钮选择本屏显示内容'));
@@ -411,10 +413,61 @@ async function selectWelcome(variant: 'editable' | 'default'): Promise<void> {
   try {
     await ensureDisplayPath();
     await publishWelcome(SLOT.value, variant);
-    ElMessage.success(variant === 'editable' ? '已投放动态欢迎页 (称谓可在后台编辑)' : '已投放默认欢迎页');
+    ElMessage.success(variant === 'editable' ? '已投放动态欢迎页 (点「编辑欢迎页」可改内容)' : '已投放默认欢迎页');
   } catch (e) {
     ElMessage.error(`投放欢迎页失败: ${(e as Error).message}`);
   } finally { busy.value = false; }
+}
+
+// ============ 欢迎页编辑器 (2026-07-28 业主: "编辑放到前端, 不用进后台") ============
+// 就地编辑动态欢迎页: 主标题 / 嘉宾称谓 / 底部标语 三段文字 + 底图 (媒体库图片
+// 当模板, 不选 = 内置"鎏金夜湖"底)。保存走 PUT /system-branding/welcome (客户端
+// token 即可); 欢迎页本体 8s 轮询, 保存后若本屏正在播欢迎页再重推一次强制刷新,
+// 业主看到的效果就是"保存立即生效"。
+const welcomeEditOpen = ref(false);
+const welcomeSaving = ref(false);
+const welcomeLoading = ref(false);
+const welcomeForm = ref({ welcomeTitle: '', welcomeGuest: '', welcomeTagline: '', welcomeBgMediaId: null as number | null });
+const bgAssets = ref<Array<{ id: number; originalName: string; thumbUrl: string | null; fileUrl: string }>>([]);
+
+async function openWelcomeEditor(): Promise<void> {
+  welcomeEditOpen.value = true;
+  welcomeLoading.value = true;
+  try {
+    const [branding, imgs] = await Promise.all([
+      fetchSystemBranding(),
+      mediaService.list({ kind: 'image' }),
+    ]);
+    welcomeForm.value = {
+      welcomeTitle: branding.welcomeTitle ?? '',
+      welcomeGuest: branding.welcomeGuest ?? '',
+      welcomeTagline: branding.welcomeTagline ?? '',
+      welcomeBgMediaId: branding.welcomeBgMediaId ?? null,
+    };
+    bgAssets.value = imgs.items.map((m) => ({ id: m.id, originalName: m.originalName, thumbUrl: m.thumbUrl, fileUrl: m.fileUrl }));
+  } catch (e) {
+    ElMessage.error(`读取欢迎页配置失败: ${(e as Error).message}`);
+  } finally { welcomeLoading.value = false; }
+}
+
+async function saveWelcomeEdit(): Promise<void> {
+  welcomeSaving.value = true;
+  try {
+    await saveWelcomeConfig({
+      welcomeTitle: welcomeForm.value.welcomeTitle.trim() || null,
+      welcomeGuest: welcomeForm.value.welcomeGuest.trim() || null,
+      welcomeTagline: welcomeForm.value.welcomeTagline.trim() || null,
+      welcomeBgMediaId: welcomeForm.value.welcomeBgMediaId,
+    });
+    // 本屏正在播欢迎页 → 重推强制 kiosk 刷新, 立即生效; 没在播就不打扰当前内容
+    if (activeSource.value === 'welcome-editable') {
+      await publishWelcome(SLOT.value, 'editable').catch(() => {});
+    }
+    welcomeEditOpen.value = false;
+    ElMessage.success('欢迎页已保存, 大屏几秒内更新');
+  } catch (e) {
+    ElMessage.error(`保存失败: ${(e as Error).message}`);
+  } finally { welcomeSaving.value = false; }
 }
 
 // ============ 拖拽排序 ============
@@ -637,6 +690,7 @@ async function submitWebpage(): Promise<void> {
       <button class="src-btn" :class="{ on: activeSource === 'content' }" :disabled="busy" @click="selectContent">播放内容</button>
       <button class="src-btn" :class="{ on: activeSource === 'welcome-editable' }" :disabled="busy" @click="selectWelcome('editable')">欢迎页·可编辑称谓</button>
       <button class="src-btn" :class="{ on: activeSource === 'welcome-default' }" :disabled="busy" @click="selectWelcome('default')">欢迎页·默认</button>
+      <button class="src-btn edit" :disabled="busy" @click="openWelcomeEditor"><Pencil :size="13" /> 编辑欢迎页</button>
       <span class="src-hint">{{ srcHint }}</span>
     </section>
 
@@ -780,6 +834,46 @@ async function submitWebpage(): Promise<void> {
       </div>
     </div>
 
+    <!-- 欢迎页编辑器 (2026-07-28 业主: "编辑放到前端"): 文字 + 底图就地编辑, 保存立即生效 -->
+    <div v-if="welcomeEditOpen" class="pick-mask" @click.self="welcomeEditOpen = false">
+      <div class="pick-box we-box">
+        <header class="pick-head">
+          <span class="pick-title"><Pencil :size="16" /> 编辑欢迎页</span>
+          <button class="pick-close" @click="welcomeEditOpen = false"><X :size="18" /></button>
+        </header>
+        <div v-if="welcomeLoading" class="pick-empty">读取中…</div>
+        <template v-else>
+          <div class="we-scroll">
+            <label class="wb-label">主标题 (空 = 默认「热烈欢迎」)</label>
+            <input v-model="welcomeForm.welcomeTitle" class="wb-input" maxlength="16" placeholder="热烈欢迎" />
+            <label class="wb-label">嘉宾称谓 (显示为 恭迎 ×× 莅临参观指导)</label>
+            <input v-model="welcomeForm.welcomeGuest" class="wb-input" maxlength="64" placeholder="各位领导嘉宾" />
+            <label class="wb-label">底部标语 (空 = 默认「智慧展厅 · 数字展贸 · 科创未来」)</label>
+            <input v-model="welcomeForm.welcomeTagline" class="wb-input" maxlength="64" placeholder="智慧展厅 · 数字展贸 · 科创未来" />
+            <label class="wb-label">底图模板 — 选媒体库图片当底图; 想用新图先在本页「上传内容」传一张</label>
+            <div class="we-bg-grid">
+              <button
+                class="we-bg-item" :class="{ on: welcomeForm.welcomeBgMediaId === null }"
+                title="内置鎏金夜湖底图" @click="welcomeForm.welcomeBgMediaId = null"
+              ><span class="we-bg-default">默认底图<br>「鎏金夜湖」</span></button>
+              <button
+                v-for="a in bgAssets" :key="a.id"
+                class="we-bg-item" :class="{ on: welcomeForm.welcomeBgMediaId === a.id }"
+                :title="a.originalName" @click="welcomeForm.welcomeBgMediaId = a.id"
+              >
+                <img :src="absUrl(a.thumbUrl || a.fileUrl)" alt="" loading="lazy" />
+                <span class="we-bg-name">{{ a.originalName }}</span>
+              </button>
+            </div>
+          </div>
+          <div class="wb-actions">
+            <button class="v2-quick" @click="welcomeEditOpen = false">取消</button>
+            <button class="v2-quick primary" :disabled="welcomeSaving" @click="saveWelcomeEdit">{{ welcomeSaving ? '保存中…' : '保存并生效' }}</button>
+          </div>
+        </template>
+      </div>
+    </div>
+
     <!-- 添加网页 dialog — 不跳走, 就在本页建 -->
     <div v-if="webpageDialog" class="pick-mask" @click.self="webpageDialog = false">
       <div class="pick-box webpage-box">
@@ -881,7 +975,38 @@ async function submitWebpage(): Promise<void> {
 }
 .src-btn.on { border-color: var(--v2-primary); background: var(--v2-primary); color: var(--v2-on-primary); }
 .src-btn:disabled { opacity: .4; cursor: not-allowed; }
+.src-btn.edit { display: inline-flex; align-items: center; gap: 5px; color: var(--v2-primary); border-style: dashed; }
 .src-hint { font-size: 11px; color: var(--v2-text-3); }
+
+/* 欢迎页编辑器 (2026-07-28) */
+.we-box { width: min(680px, 94vw); max-height: 86vh; display: flex; flex-direction: column; }
+.we-scroll {
+  overflow-y: auto; min-height: 0; padding-right: 4px; -webkit-overflow-scrolling: touch;
+  display: flex; flex-direction: column; gap: 6px;   /* label 是 inline 元素, 不排 flex 会挤成一行 */
+}
+.we-bg-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 8px; margin-top: 6px;
+}
+.we-bg-item {
+  position: relative; height: 82px; border-radius: 9px; overflow: hidden; cursor: pointer;
+  background: var(--v2-surf-2, #1A1D22); border: 2px solid var(--v2-border-soft, #23262C);
+  padding: 0; display: grid; place-items: center;
+}
+.we-bg-item.on { border-color: var(--v2-primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--v2-primary) 35%, transparent); }
+.we-bg-item img { width: 100%; height: 100%; object-fit: cover; }
+.we-bg-name {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  font-size: 10px; line-height: 1.2; padding: 3px 5px;
+  background: rgba(6, 10, 18, 0.72); color: var(--v2-text-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left;
+}
+.we-bg-default {
+  font-size: 12px; color: #e8c66a; text-align: center; line-height: 1.5;
+  background: radial-gradient(120px 70px at 50% 110%, rgba(212, 175, 55, 0.25), transparent 70%),
+    radial-gradient(160px 90px at 50% 50%, #0d2038, #06101f);
+  position: absolute; inset: 0; display: grid; place-items: center;
+}
 
 /* align-items: start (不是默认的 stretch) —— 列表/历史内容短的时候(比如只有 2 条),
    不强行把卡片撑满 .cols 剩余高度, 卡片底下露一大截空白背景 (业主反馈: "下面还有不少

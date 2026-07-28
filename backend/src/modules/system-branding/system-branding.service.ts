@@ -18,6 +18,14 @@ export interface SystemBrandingDto {
   welcomeMediaId: number | null;
   /** 欢迎页嘉宾称谓 (可编辑, 空 = 欢迎页显示默认 "各位领导嘉宾") */
   welcomeGuest: string | null;
+  /** 欢迎页主标题 (空 = 默认 "热烈欢迎") — 2026-07-28 前端欢迎页编辑器 */
+  welcomeTitle: string | null;
+  /** 欢迎页底部标语 (空 = 默认 "智慧展厅 · 数字展贸 · 科创未来") */
+  welcomeTagline: string | null;
+  /** 欢迎页底图媒体 id (空 = 内置"鎏金夜湖"程序化底图) */
+  welcomeBgMediaId: number | null;
+  /** 只读: 底图直链 (由 welcomeBgMediaId 算出, 欢迎页/编辑器预览直接用) */
+  welcomeBgUrl?: string | null;
 }
 
 const DEFAULTS: SystemBrandingDto = {
@@ -29,6 +37,9 @@ const DEFAULTS: SystemBrandingDto = {
   copyright: null,
   welcomeMediaId: null,
   welcomeGuest: null,
+  welcomeTitle: null,
+  welcomeTagline: null,
+  welcomeBgMediaId: null,
 };
 
 @Injectable()
@@ -40,6 +51,15 @@ export class SystemBrandingService implements OnModuleInit {
 
   /** 启动时确保 id=1 这条记录存在 (没有就插默认), 后续都直接 update id=1 */
   async onModuleInit(): Promise<void> {
+    // 欢迎页编辑器三列自愈 (2026-07-28): 与迁移双保险 —— watcher 部署曾因不跑
+    // 迁移把生产打崩过 (INCIDENTS #22), 列缺失时先补上, 重复加列错误直接吞。
+    for (const ddl of [
+      `ALTER TABLE "system_branding_v2" ADD COLUMN "welcomeTitle" varchar(32)`,
+      `ALTER TABLE "system_branding_v2" ADD COLUMN "welcomeTagline" varchar(64)`,
+      `ALTER TABLE "system_branding_v2" ADD COLUMN "welcomeBgMediaId" integer`,
+    ]) {
+      await this.repo.query(ddl).catch(() => { /* duplicate column = 已存在, 正常 */ });
+    }
     const existing = await this.repo.findOne({ where: { id: 1 } });
     if (!existing) {
       const seed = this.repo.create({ id: 1, ...DEFAULTS });
@@ -100,6 +120,11 @@ export class SystemBrandingService implements OnModuleInit {
       copyright: row.copyright,
       welcomeMediaId: row.welcomeMediaId,
       welcomeGuest: row.welcomeGuest,
+      welcomeTitle: row.welcomeTitle,
+      welcomeTagline: row.welcomeTagline,
+      welcomeBgMediaId: row.welcomeBgMediaId,
+      // 底图直链: /api/media/:id/file 是 @Public 路由, kiosk 欢迎页无鉴权可读
+      welcomeBgUrl: row.welcomeBgMediaId ? `/api/media/${row.welcomeBgMediaId}/file` : null,
     };
   }
 
@@ -154,6 +179,18 @@ export class SystemBrandingService implements OnModuleInit {
     if (input.welcomeGuest !== undefined) {
       const v = norm(input.welcomeGuest);
       patch.welcomeGuest = v ? v.slice(0, 64) : null;
+    }
+    if (input.welcomeTitle !== undefined) {
+      const v = norm(input.welcomeTitle);
+      patch.welcomeTitle = v ? v.slice(0, 32) : null;
+    }
+    if (input.welcomeTagline !== undefined) {
+      const v = norm(input.welcomeTagline);
+      patch.welcomeTagline = v ? v.slice(0, 64) : null;
+    }
+    if (input.welcomeBgMediaId !== undefined) {
+      const v = input.welcomeBgMediaId;
+      patch.welcomeBgMediaId = typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null;
     }
 
     if (current) {

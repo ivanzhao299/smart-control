@@ -77,6 +77,22 @@ export class SystemBranding {
   @Column({ type: 'varchar', length: 64, nullable: true, name: 'welcomeGuest' })
   welcomeGuest!: string | null;
 
+  /**
+   * 欢迎页编辑器 (2026-07-28 业主: "编辑放到前端, 可换底图可改文字, 保存立即生效"):
+   * 动态欢迎页 (frontend/public/welcome/) 轮询这些字段渲染。
+   * - welcomeTitle: 主标题, 空 = 默认 "热烈欢迎"
+   * - welcomeTagline: 底部标语, 空 = 默认 "智慧展厅 · 数字展贸 · 科创未来"
+   * - welcomeBgMediaId: 底图 (媒体库图片 id), 空 = 内置"鎏金夜湖"程序化底图
+   */
+  @Column({ type: 'varchar', length: 32, nullable: true, name: 'welcomeTitle' })
+  welcomeTitle!: string | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true, name: 'welcomeTagline' })
+  welcomeTagline!: string | null;
+
+  @Column({ type: 'integer', name: 'welcomeBgMediaId', nullable: true })
+  welcomeBgMediaId!: number | null;
+
   @UpdateDateColumn()
   updatedAt!: Date;
 }

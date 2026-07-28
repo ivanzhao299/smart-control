@@ -19,6 +19,9 @@ const FALLBACK: SystemBranding = {
   copyright: null,
   welcomeMediaId: null,
   welcomeGuest: null,
+  welcomeTitle: null,
+  welcomeTagline: null,
+  welcomeBgMediaId: null,
 };
 
 export const useSystemBrandingStore = defineStore('system-branding', () => {

@@ -21,6 +21,16 @@
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 1920px; height: 1080px; overflow: hidden; background: #06101f; }
+
+  /* 自定义底图 (2026-07-28 前端欢迎页编辑器): 业主选了媒体库图片时铺满显示,
+     叠一层暗色渐变压住底图保文字可读; 程序化装饰层 (涟漪/网格/光尘) 同时隐藏 */
+  .custom-bg { position: absolute; inset: 0; display: none; }
+  .custom-bg img { width: 100%; height: 100%; object-fit: cover; }
+  .custom-bg::after { content: ''; position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(6,16,31,0.42), rgba(6,16,31,0.18) 40%, rgba(6,16,31,0.55));
+  }
+  body.has-bg .custom-bg { display: block; }
+  body.has-bg .grid, body.has-bg .ripples, body.has-bg .lake-haze, body.has-bg #motes { display: none; }
   body {
     position: relative;
     font-family: 'NotoSerifSC', 'STZhongsong', 'SimSun', serif;
@@ -151,6 +161,7 @@
 </style>
 </head>
 <body>
+  <div class="custom-bg"><img id="bgImg" alt=""></div>
   <div class="grid"></div>
   <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
   <div class="lake-haze"></div>
@@ -168,7 +179,7 @@
   </div>
 
   <main class="hero">
-    <div class="main-wrap"><div class="main-glow" aria-hidden="true">热烈欢迎</div><div class="main">热烈欢迎</div></div>
+    <div class="main-wrap"><div class="main-glow" id="mainGlow" aria-hidden="true">热烈欢迎</div><div class="main" id="mainTitle">热烈欢迎</div></div>
     <div class="guest">
       <span class="flank"></span>
       <span class="text">恭迎&nbsp;<span class="name" id="guestName">各位领导嘉宾</span>&nbsp;莅临参观指导</span>
@@ -185,7 +196,7 @@
       <span class="dot"></span>
     </div>
     <div class="hairline"></div>
-    <div class="marks">智慧展厅 · 数字展贸 · 科创未来</div>
+    <div class="marks" id="tagline">智慧展厅 · 数字展贸 · 科创未来</div>
   </footer>
 
   <script>
@@ -237,19 +248,33 @@
       }
     }
 
-    // ---- 嘉宾称谓: 后台可编辑 (system-branding.welcomeGuest), 20s 轮询实时生效 ----
-    // kiosk 在主机本机 → localhost; 平板预览 → location.hostname。读不到保持默认。
-    async function refreshGuest() {
+    // ---- 欢迎页内容: 前端编辑器可改 (system-branding: 称谓/主标题/标语/底图),
+    //      8s 轮询"保存后立即生效"。kiosk 在主机本机 → localhost; 平板预览 →
+    //      location.hostname。读不到保持现值/默认。
+    const API = `http://${location.hostname || 'localhost'}:3200`;
+    let lastBgUrl = null;
+    async function refreshBranding() {
       try {
-        const res = await fetch(`http://${location.hostname || 'localhost'}:3200/api/system-branding`, { cache: 'no-store' });
+        const res = await fetch(`${API}/api/system-branding`, { cache: 'no-store' });
         const j = await res.json();
-        const v = (j?.data?.welcomeGuest || '').trim();
-        document.getElementById('guestName').textContent = v || '各位领导嘉宾';
+        const d = j?.data || {};
+        const guest = (d.welcomeGuest || '').trim();
+        document.getElementById('guestName').textContent = guest || '各位领导嘉宾';
+        const title = (d.welcomeTitle || '').trim() || '热烈欢迎';
+        document.getElementById('mainTitle').textContent = title;
+        document.getElementById('mainGlow').textContent = title;
+        document.getElementById('tagline').textContent = (d.welcomeTagline || '').trim() || '智慧展厅 · 数字展贸 · 科创未来';
+        const bg = d.welcomeBgUrl ? `${API}${d.welcomeBgUrl}` : null;
+        if (bg !== lastBgUrl) {
+          lastBgUrl = bg;
+          if (bg) { document.getElementById('bgImg').src = bg; document.body.classList.add('has-bg'); }
+          else { document.body.classList.remove('has-bg'); document.getElementById('bgImg').removeAttribute('src'); }
+        }
       } catch { /* 后端暂不可达: 保持现值 */ }
       fitGuest();
     }
-    refreshGuest();
-    setInterval(refreshGuest, 20000);
+    refreshBranding();
+    setInterval(refreshBranding, 8000);
     document.fonts?.ready?.then(fitGuest);
   </script>
 </body>

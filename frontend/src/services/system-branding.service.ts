@@ -29,6 +29,14 @@ export interface SystemBranding {
   welcomeMediaId: number | null;
   /** 欢迎页嘉宾称谓 (大屏欢迎页实时读取, 空 = 显示默认'各位领导嘉宾') */
   welcomeGuest: string | null;
+  /** 欢迎页主标题 (空 = 默认 '热烈欢迎') — 2026-07-28 前端欢迎页编辑器 */
+  welcomeTitle: string | null;
+  /** 欢迎页底部标语 (空 = 默认 '智慧展厅 · 数字展贸 · 科创未来') */
+  welcomeTagline: string | null;
+  /** 欢迎页底图媒体 id (空 = 内置'鎏金夜湖'程序化底图) */
+  welcomeBgMediaId: number | null;
+  /** 只读: 底图直链 (后端由 welcomeBgMediaId 算出; 展示需 absUrl() 拼绝对地址) */
+  welcomeBgUrl?: string | null;
 }
 
 export type SystemBrandingPatch = Partial<SystemBranding>;
@@ -39,4 +47,10 @@ export async function fetchSystemBranding(): Promise<SystemBranding> {
 
 export async function saveSystemBranding(patch: SystemBrandingPatch): Promise<SystemBranding> {
   return api.put<SystemBranding>('/system-branding', patch);
+}
+
+/** 欢迎页字段专用保存 — 客户端 token 即可 (无需后台登录), 只收欢迎页四字段 */
+export type WelcomePatch = Partial<Pick<SystemBranding, 'welcomeGuest' | 'welcomeTitle' | 'welcomeTagline' | 'welcomeBgMediaId'>>;
+export async function saveWelcomeConfig(patch: WelcomePatch): Promise<SystemBranding> {
+  return api.put<SystemBranding>('/system-branding/welcome', patch);
 }
