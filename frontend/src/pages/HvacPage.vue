@@ -558,7 +558,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 </script>
 
 <template>
-  <section class="hv-page">
+  <section class="hv-page" :class="{ 'bar-open': groupMode || selected.size > 0 }">
     <!-- ===== 顶栏 ===== -->
     <header class="hv-head">
       <button class="v2-back-btn" @click="goBack" title="返回首页">
@@ -992,7 +992,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   flex-wrap: wrap; padding: 6px 8px;
   background: var(--v2-surf-1, #14161A); border-radius: 8px;
 }
-.hv-quick-label { font-size: 11px; color: var(--v2-text-3, #9BA1A9); margin-right: 2px; }
+.hv-quick-label { font-size: 11px; color: var(--v2-text-3, #9BA1A9); margin-right: 2px; white-space: nowrap; flex: 0 0 auto; }
 .hv-quick-sep { width: 1px; height: 16px; background: var(--v2-border-soft, #23262C); margin: 0 4px; }
 .hv-chip {
   display: inline-flex; align-items: center; gap: 4px;
@@ -1338,7 +1338,13 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   }
   .hv-chip.clear { margin-left: 0; }
   /* 操作浮层 (2026-07-25): 紧凑两行 — 行1: 已选+开关+温度; 行2: 模式+风速横滑 */
-  .hv-page { padding-bottom: 128px; }
+  /* 2026-07-28 业主: "最后一行卡片被切"。浮层在 390px 宽会换行长到 ~200px 高,
+     远超原来页面级 128px 静态预留 → 滚到底最后一行仍被压住。改法: 预留挪进
+     滚动容器内部且只在浮层出现时生效 —— 内部 padding 只延长滚动尾巴, 不挤压
+     卡片行高; 浮层收起时预留归零, 不再有 128px 常驻死空间。 */
+  .hv-page { padding-bottom: 12px; }
+  .hv-page.bar-open .hv-grid,
+  .hv-page.bar-open .hv-sections { padding-bottom: 248px; }
   .hv-bar { left: 8px; right: 8px; gap: 8px; padding: 9px 10px; }
   .bar-names { display: none; }
   .bar-ctrl { gap: 8px; width: 100%; }

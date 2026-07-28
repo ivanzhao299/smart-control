@@ -1975,6 +1975,17 @@ async function toggleMuteAll(): Promise<void> {
   .matrix-grid { min-width: 560px; height: auto; min-height: 100%; }
   .ch-name { font-size: 12px; }
   .vol-value { font-size: 13px; }
+  /* 2026-07-28 业主: 手机上总览条 4 项硬挤一行, "当前预设"溢出屏幕、数值折行。
+     改 2×2 网格, 每项有足够宽度; 第 3 项起新行, 左侧竖分隔线去掉。 */
+  .v2-overview.audio {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 10px 0; padding: 10px 4px;
+  }
+  .ov-item { padding: 0 10px; }
+  .ov-item:nth-child(3)::before { display: none; }
+  .ov-value { white-space: nowrap; }
+  /* 区块标题与右侧说明抢一行 → 标题断行错位, 改上下排列 */
+  .block-head { flex-direction: column; align-items: flex-start; gap: 2px; }
 }
 .mx-corner {
   font-size: 10px; color: var(--v2-text-3); letter-spacing: 0.5px;
