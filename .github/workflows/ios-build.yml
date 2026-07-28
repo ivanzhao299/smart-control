@@ -30,10 +30,11 @@ permissions:
 jobs:
   build:
     name: Build unsigned IPA
-    # macos-15: 默认 Xcode 16.x。xcodegen 2.45+ 生成的是 objectVersion 77
-    # (Xcode 16 工程格式), macos-14 默认的 Xcode 15 读不了 ("future Xcode
+    # macos-26 (2026-07-28, #13 上传被拒根治): 苹果 2026 起强制 iOS 26 SDK
+    # (Xcode 26) 构建才能传 App Store Connect —— macos-15 默认 Xcode 16.4/
+    # iOS 18.5 SDK 直接被验证环节打回。历史: macos-14 的 Xcode 15 读不了
     # project file format"), 2026-07-24 首跑就是这么挂的。
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 
@@ -80,7 +81,7 @@ jobs:
   # 签名走 xcodebuild cloud signing (API Key 自动管理证书/描述文件, 仓库不存 p12)。
   testflight:
     name: Sign & upload TestFlight
-    runs-on: macos-15
+    runs-on: macos-26
     needs: build
     if: github.ref == 'refs/heads/main'
     env:
