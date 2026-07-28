@@ -35,42 +35,43 @@ export class LedController {
   }
 
   /**
-   * 欢迎页 — 双路径策略 (2026-06-01):
-   *   1. 优先看 SystemBranding.welcomeMediaId — 业主在媒体库设了哪个文件做欢迎页?
-   *      有就走 playback 推到 slot=1 (HDMI1 → LED) loop 播.
-   *      PlayerPage 收到 WS 切到这个媒体, LED 自然显示 (kiosk 浏览器渲染).
-   *   2. 没设就回落到旧逻辑 (V2460 内置 preset 1), 兼容老安装.
-   *
-   * 业主在 PWA MediaPage 点"设为欢迎页"会写 welcomeMediaId, 之后欢迎页就是
-   * 这个文件; 想换内容直接换文件设置即可, 不用碰 NovaLCT.
+   * 欢迎页 (场景引擎/旧客户端入口) — 指向逻辑 2026-07-28 梳理为三级明确链:
+   *   1. 业主在媒体页"设为欢迎页"指定的素材 (SystemBranding.welcomeMediaId) —— 设了就播它;
+   *   2. 没设过 → 内置「金湖欢迎页·动态(称谓可编辑)」(领导称谓后台可编辑, 20s 生效),
+   *      与 LED/投影页"输入源 → 欢迎页·可编辑称谓"按钮同一指向;
+   *   3. 推流失败 (kiosk 断/素材被删) → V2460 内置 preset 硬件级兜底, 保证有画面。
    */
   @Post(':id/welcome')
   async welcome(@Param('id') id: string) {
     const welcomeMediaId = await this.branding.getWelcomeMediaId();
-    if (welcomeMediaId) {
-      // 走 playback: 通过 kiosk 浏览器播媒体库里的文件
-      try {
+    try {
+      let playedMediaId: number;
+      if (welcomeMediaId) {
         await this.playback.publishMedia(1, welcomeMediaId, { loopMode: 'loop' });
-        await this.logService.record({
-          operator: 'system',
-          action: 'led.welcome',
-          targetType: 'led',
-          targetId: id,
-          result: 'success',
-          message: JSON.stringify({ id, cmd: 'welcome', via: 'playback', mediaId: welcomeMediaId }),
-        });
-        return { message: '已切到欢迎页 (媒体库)', data: { ok: true, mediaId: welcomeMediaId } };
-      } catch (e) {
-        // playback 失败 (e.g. media 被删) 也回落 V2460 preset, 保证欢迎页能出现
-        await this.logService.record({
-          operator: 'system',
-          action: 'led.welcome',
-          targetType: 'led',
-          targetId: id,
-          result: 'failure',
-          message: JSON.stringify({ id, cmd: 'welcome', via: 'playback', mediaId: welcomeMediaId, error: (e as Error).message }),
-        });
+        playedMediaId = welcomeMediaId;
+      } else {
+        const r = await this.playback.publishWelcome(1, 'editable');
+        playedMediaId = r.view.currentMediaId ?? -1;
       }
+      await this.logService.record({
+        operator: 'system',
+        action: 'led.welcome',
+        targetType: 'led',
+        targetId: id,
+        result: 'success',
+        message: JSON.stringify({ id, cmd: 'welcome', via: 'playback', mediaId: playedMediaId, custom: !!welcomeMediaId }),
+      });
+      return { message: '已切到欢迎页 (媒体库)', data: { ok: true, mediaId: playedMediaId } };
+    } catch (e) {
+      // playback 失败 (e.g. media 被删) 回落 V2460 preset, 保证欢迎页能出现
+      await this.logService.record({
+        operator: 'system',
+        action: 'led.welcome',
+        targetType: 'led',
+        targetId: id,
+        result: 'failure',
+        message: JSON.stringify({ id, cmd: 'welcome', via: 'playback', mediaId: welcomeMediaId, error: (e as Error).message }),
+      });
     }
     // 回落: V2460 preset
     return this.wrap(id, 'welcome', () => this.led.showWelcome(id));

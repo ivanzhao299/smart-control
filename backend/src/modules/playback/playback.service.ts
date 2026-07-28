@@ -136,6 +136,33 @@ export class PlaybackService implements OnModuleInit {
     return view;
   }
 
+  // ============ 欢迎页一键投放 (2026-07-28 业主: 输入源两页统一 + 指向明确) ============
+  // 两种欢迎页, 按钮各自指向固定素材, 不再有"看设置猜播什么"的歧义:
+  //   editable → 「金湖欢迎页·动态(称谓可编辑)」 (kind=webpage, 领导称谓在
+  //              后台→系统品牌 编辑, 约 20s 自动生效) —— 两块屏共用一个网页素材,
+  //              kiosk 按各自分辨率渲染。
+  //   default  → 本屏专用尺寸的内置静态图 (slot1=LED版 / slot2=投影版), 不可编辑,
+  //              作为兜底画面。
+  // 素材是启动时自动入库的内置资源, 按 originalName 定位; 被改名/删除时报错并
+  // 提示重启后端可自动重建 (seedBundledAssets 幂等)。
+  static readonly WELCOME_EDITABLE_NAME = '金湖欢迎页·动态(称谓可编辑)';
+  static readonly WELCOME_DEFAULT_NAMES: Record<number, string> = {
+    1: '金湖欢迎页·LED大屏.png',
+    2: '金湖欢迎页·投影.png',
+  };
+
+  async publishWelcome(slot: number, variant: 'editable' | 'default'): Promise<{ assetName: string; view: PlaybackChannelView }> {
+    const name = variant === 'editable'
+      ? PlaybackService.WELCOME_EDITABLE_NAME
+      : (PlaybackService.WELCOME_DEFAULT_NAMES[slot] ?? PlaybackService.WELCOME_DEFAULT_NAMES[1]);
+    const media = await this.mediaService.findByOriginalName(name);
+    if (!media) {
+      throw new NotFoundException(`媒体库里找不到内置素材「${name}」(可能被改名或删除) — 重启后端会自动重建`);
+    }
+    const view = await this.publishMedia(slot, media.id, { loopMode: 'loop' });
+    return { assetName: name, view };
+  }
+
 
   // ============ 播放列表 (业主: "平时经常播放的内容应该在播放列表里面") ============
 

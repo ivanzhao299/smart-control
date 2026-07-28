@@ -175,6 +175,22 @@ export class PlaybackController {
     return { message: '已推送', data: view };
   }
 
+  /**
+   * 欢迎页一键投放 (2026-07-28 业主: LED/投影输入源统一, 指向明确)。
+   * variant: editable=动态欢迎页(称谓后台可编辑) / default=本屏内置静态欢迎图。
+   * 指向逻辑见 PlaybackService.publishWelcome 注释。
+   */
+  @Post('channels/:slot/welcome')
+  @HttpCode(200)
+  async welcome(
+    @Param('slot', ParseIntPipe) slot: number,
+    @Body() body: { variant?: 'editable' | 'default' } = {},
+  ) {
+    const variant = body?.variant === 'default' ? 'default' : 'editable';
+    const r = await this.service.publishWelcome(slot, variant);
+    return { message: `已投放「${r.assetName}」`, data: r.view };
+  }
+
   /** 清掉当前播, 回待机 */
   @Post('channels/:slot/stop')
   async stop(@Param('slot', ParseIntPipe) slot: number) {

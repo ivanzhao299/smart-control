@@ -396,6 +396,11 @@ export class MediaService implements OnModuleInit {
     return m;
   }
 
+  /** 按原始文件名精确查 (playback 欢迎页一键投放按内置素材名定位) */
+  findByOriginalName(originalName: string): Promise<MediaAsset | null> {
+    return this.repo.findOne({ where: { originalName } });
+  }
+
   async openStream(id: number, asPdf = false): Promise<{ stream: ReadStream; mimeType: string; size: number; filename: string }> {
     const m = await this.get(id);
     // 文档投屏: variant=pdf 时流出 Word 转出的 PDF (kiosk 逐页渲染用)

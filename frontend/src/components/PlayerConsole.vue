@@ -36,21 +36,22 @@ import {
 import { usePlaybackStore } from '@/stores/playback';
 import {
   listPlaylist, addToPlaylist, renamePlaylistItem, removeFromPlaylist, reorderPlaylist,
-  listHistory, setDisplayFit, setDocPage, type DisplayFit, type PlaylistItemView, type PlaybackHistoryView,
+  listHistory, setDisplayFit, setDocPage, publishWelcome,
+  type DisplayFit, type PlaylistItemView, type PlaybackHistoryView,
 } from '@/services/playback.service';
+import { projectorService } from '@/services/projector.service';
 import { powerCircuitsService, type PowerCircuitView } from '@/services/power-circuits.service';
 import { mediaService, MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
-import { ledService, type LedInput } from '@/services/led.service';
+import { ledService } from '@/services/led.service';
 
 const props = defineProps<{
   /** 1 = LED 大屏 (HDMI1), 2 = 投影仪 (HDMI2) */
   slot: 1 | 2;
   title: string;
   /**
-   * 显示设备的 code (如 LED-NOVA-1) —— 传了才显示"输入源"那一栏。
-   * 业主 2026-07-17: "把投影仪页面单独摘出来, 在工具栏页面可以切换各种输入源以及播放素材"。
-   * 不传 = 这块屏没有可切的输入源 (比如它只吃我们推的内容), 那一栏就不出现,
-   * 而不是摆一排点了没用的按钮。
+   * 显示设备的 code (如 LED-NOVA-1)。2026-07-28 起"输入源"一栏两页统一显示,
+   * deviceId 只影响切源时的"链路拉正"动作: slot1 传了它才能把诺瓦控制器切回
+   * HDMI1 (slot2 的链路拉正走融合器 showHdmi, 不需要 deviceId)。
    */
   deviceId?: string;
   /**
@@ -340,30 +341,79 @@ async function pickAsset(a: { id: number; originalName: string }): Promise<void>
 /** 已在列表里的不重复加 —— 让业主一眼看出哪些已经加过 */
 const inPlaylist = computed(() => new Set(playlist.value.map((x) => x.mediaId)));
 
-// ============ 输入源切换 (业主: "在工具栏页面可以切换各种输入源") ============
-// 诺瓦控制器支持的源见 nova-vx1000-protocol.ts: HDMI1=0x11 / HDMI2=0x12,
-// 另外 welcome(欢迎页) / video(播我们推的内容) 是控制器的内置动作。
-// 2026-07-18 业主: "大屏没声音", 排查发现真因是 HDMI1/HDMI2 直通选项容易被误切到 ——
-// 切过去以后, 控制器显示的是外部 HDMI 信号源, 不是我们这套播控系统推的内容/声音,
-// 平台这边完全不知道、也管不了。协议又没有"当前源"回读命令 (见下面 lastInput 那条
-// 注释), 误切了只能靠人眼现场发现, 排查成本很高。业主原话: "直接删掉, 避免错乱"——
-// 干脆不给这个误触的入口, 只留我们真正会用到的两个源。
-const INPUTS: Array<{ v: LedInput; label: string; hint: string }> = [
-  { v: 'video',   label: '播放内容', hint: '播我们从这里推的视频/图片' },
-  { v: 'welcome', label: '欢迎页',   hint: '控制器内置欢迎画面' },
-];
-/** 当前源没法从设备回读 (协议没有查询命令), 所以只记我们自己发过什么, 不假装知道 */
-const lastInput = ref<LedInput | null>(null);
-async function switchInput(v: LedInput): Promise<void> {
-  if (!props.deviceId) return;
+// ============ 输入源 (2026-07-28 业主: LED/投影两页统一 + 可选项指向明确) ============
+// 三个按钮各自指向固定目标, 按了就知道播的是什么:
+//   播放内容       → 本屏回到播放列表推送的画面 (GK9000 输出)
+//   欢迎页·可编辑  → 媒体库内置「金湖欢迎页·动态(称谓可编辑)」网页素材,
+//                    领导称谓在 后台→系统品牌 编辑, 约 20s 自动生效 (两屏共用)
+//   欢迎页·默认    → 本屏专用尺寸的内置静态欢迎图 (slot1=LED版 / slot2=投影版), 兜底
+// 欢迎页统一走 playback 推流 (kiosk 渲染), 和播放列表同一条链路 —— 当前显示什么
+// 直接从通道状态读出来 (currentMediaName), 不再靠"记住自己发过什么"猜。
+// 每个按钮都先把显示链路拉正 (LED: 诺瓦切回 HDMI1; 投影: 融合器回 GK9000 HDMI),
+// 修掉"按了没画面"的历史坑 —— 控制器/融合器停在别的源上时推什么都看不见。
+// (旧版诺瓦 'welcome' 内置 preset 入口已撤: 无法回读、内容改不了、易误切;
+//  HDMI 直通选项 2026-07-18 就因误切事故被业主要求删除, 经过见 git 历史。)
+const WELCOME_EDITABLE_NAME = '金湖欢迎页·动态(称谓可编辑)';
+const WELCOME_DEFAULT_NAMES = ['金湖欢迎页·LED大屏.png', '金湖欢迎页·投影.png'];
+
+type SourceKey = 'content' | 'welcome-editable' | 'welcome-default';
+/** 当前源: 从通道在播媒体名判断 (内置素材按名定位, 业主改名后回退为"播放内容") */
+const activeSource = computed<SourceKey | null>(() => {
+  const name = ch.value?.currentMediaName;
+  if (!name || !ch.value?.currentMediaId) return null;
+  if (name === WELCOME_EDITABLE_NAME) return 'welcome-editable';
+  if (WELCOME_DEFAULT_NAMES.includes(name)) return 'welcome-default';
+  return 'content';
+});
+const SRC_HINTS: Record<SourceKey, string> = {
+  'content': '正在播放列表内容',
+  'welcome-editable': '动态欢迎页 · 称谓在 后台→系统品牌 修改, 约20s生效',
+  'welcome-default': '内置静态欢迎页 (本屏专用尺寸, 不可编辑)',
+};
+const srcHint = computed(() => (activeSource.value ? SRC_HINTS[activeSource.value] : '当前待机 · 点按钮选择本屏显示内容'));
+
+/** 显示链路拉正 (best-effort): 设备停在别的源上时, 推什么都看不见 */
+async function ensureDisplayPath(): Promise<void> {
+  try {
+    if (props.slot === 1 && props.deviceId) {
+      const r = await ledService.switchInput(props.deviceId, 'video');
+      if (!r.ok) throw new Error(r.error || '设备未确认');
+    } else if (props.slot === 2) {
+      await projectorService.showHdmi();
+    }
+  } catch (e) {
+    // 不挡欢迎页推流 —— 链路已经在正确源上时这里失败也无所谓, 只提示一声
+    ElMessage.warning(`显示链路切换未确认: ${(e as Error).message}`);
+  }
+}
+
+async function selectContent(): Promise<void> {
   busy.value = true;
   try {
-    const r = await ledService.switchInput(props.deviceId, v);
-    if (!r.ok) throw new Error(r.error || '设备未确认');
-    lastInput.value = v;
-    ElMessage.success(`已切到「${INPUTS.find((x) => x.v === v)?.label}」`);
+    await ensureDisplayPath();
+    // 正在播欢迎页时按"播放内容" = 恢复播放列表 (从下一条接着放);
+    // 已经在播列表内容时只拉正链路, 不跳片
+    if (activeSource.value !== 'content') {
+      if (!playlist.value.length) {
+        ElMessage.info('播放列表是空的 — 先从媒体库加入素材');
+        return;
+      }
+      await playbackStore.next(SLOT.value);
+    }
+    ElMessage.success('已切到播放内容');
   } catch (e) {
-    ElMessage.error(`切换输入源失败: ${(e as Error).message}`);
+    ElMessage.error(`切换失败: ${(e as Error).message}`);
+  } finally { busy.value = false; }
+}
+
+async function selectWelcome(variant: 'editable' | 'default'): Promise<void> {
+  busy.value = true;
+  try {
+    await ensureDisplayPath();
+    await publishWelcome(SLOT.value, variant);
+    ElMessage.success(variant === 'editable' ? '已投放动态欢迎页 (称谓可在后台编辑)' : '已投放默认欢迎页');
+  } catch (e) {
+    ElMessage.error(`投放欢迎页失败: ${(e as Error).message}`);
   } finally { busy.value = false; }
 }
 
@@ -563,7 +613,6 @@ async function submitWebpage(): Promise<void> {
       </div>
     </section>
 
-    <!-- 输入源 — 只在传了 deviceId 时出现 (业主: "工具栏页面可以切换各种输入源") -->
       <!-- 文档翻页条 (2026-07-25 文档投屏): PPT 原生放映/Word PDF 都由它遥控 -->
       <div v-if="isDocPlaying" class="doc-pager">
         <button class="pg-btn" :disabled="docPage <= 1" @click="gotoDocPage(1)" title="第一页">
@@ -582,15 +631,13 @@ async function submitWebpage(): Promise<void> {
       </div>
     </div><!-- /pc-sticky -->
 
-    <section v-if="deviceId" class="src-bar">
+    <!-- 输入源 — LED/投影两页统一出现 (2026-07-28 业主), 按钮指向见 script 注释 -->
+    <section class="src-bar">
       <span class="src-label">输入源</span>
-      <button
-        v-for="i in INPUTS" :key="i.v"
-        class="src-btn" :class="{ on: lastInput === i.v }"
-        :disabled="busy" :title="i.hint"
-        @click="switchInput(i.v)"
-      >{{ i.label }}</button>
-      <span v-if="!lastInput" class="src-hint">以设备实际为准</span>
+      <button class="src-btn" :class="{ on: activeSource === 'content' }" :disabled="busy" @click="selectContent">播放内容</button>
+      <button class="src-btn" :class="{ on: activeSource === 'welcome-editable' }" :disabled="busy" @click="selectWelcome('editable')">欢迎页·可编辑称谓</button>
+      <button class="src-btn" :class="{ on: activeSource === 'welcome-default' }" :disabled="busy" @click="selectWelcome('default')">欢迎页·默认</button>
+      <span class="src-hint">{{ srcHint }}</span>
     </section>
 
     <!-- 手机上把「播放列表 / 播放历史」做成切换页 (业主 2026-07-17: "播放列表和播放
