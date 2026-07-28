@@ -1,4 +1,4 @@
-# CLAUDE.md — 项目记忆 (更新于 2026-07-27)
+# CLAUDE.md — 项目记忆 (更新于 2026-07-28)
 
 > 金湖展贸中心智慧展厅中控系统。生产中，业主日常使用。
 > 完整移交材料见 `docs/HANDOVER.md`（2026-06-01 版，架构/账号/硬件部分仍有效，本文件补充其后的变化）。
@@ -84,4 +84,5 @@ cd frontend && pnpm install && pnpm dev   # :5173, 路径 /control/
 ## 当前状态与 TODO
 
 - 生产运行中：Sprint 1-10 + v3 视觉重构 + Android 1.0.5+ + 6-7 月体验升级（启动画面/骨架屏/状态光/微动效/离线胶囊/后台暂停轮询/CSS -79%/离线包 -39%）与全站验收整改（业主批次 1-11+）均已交付。
-- TODO：真电表 DDS866 接入（power adapter 仍 Mock，框架已备）；1F DALI 网关 L2 Modbus 超时（现场硬件排查）；Android 生产签名上架；iOS TestFlight 等 secrets 到位。
+- **双端 App 发布链已全通（2026-07-28）**：Android v1.1.3 内网自动分发（CI 固定签名→APK 入库→GK9000 `/api/app/android/download`）；iOS v1.1.3 TestFlight 全自动（Admin API 密钥 + 归档免签/导出云签 + macos-26 跑批机 + 出口合规豁免声明，细节见 docs/PROGRESS.md 阶段五）。
+- TODO：iOS TestFlight 邀请失效排查（见 PROGRESS 待办 1）；真电表 DDS866 接入（power adapter 仍 Mock）；1F DALI 网关 L2 Modbus 超时（现场硬件排查）；App Store 公开上架待业主决策。

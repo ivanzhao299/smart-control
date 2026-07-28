@@ -56,12 +56,38 @@ Windows 生产部署体系（GK9000 工控机, `D:\smart-control\`）。
 - **文档整合**：新增本文件与 INCIDENTS.md；CLAUDE.md 工程记忆落 main；
   README 换现状头。
 
+## 阶段五：双端 App 发布链（2026-07-27~28）
+
+- **Android v1.1.3**：CI 固定签名（`android-app/signing/internal.p12`）→ APK 自动
+  提交 `deploy/assets/app/` → 随部署链落 GK9000 → 后端 `/api/app/android/download`
+  内网直发 + 启动自愈升版本记录 → 终端 App 弹更新。注意：签名切换版，
+  终端首次需卸载旧版再装，之后可覆盖升级。
+- **iOS v1.1.3 TestFlight 全自动链**（打通记录，共闯五关）：Admin 角色 API 密钥
+  （App 管理角色云签名权限不足）→ 归档跳过签名 `CODE_SIGNING_ALLOWED=NO`
+  （新账号无注册设备，automatic 归档要 Development 描述文件必死）→
+  exportArchive 云签名统一签（signingStyle=automatic）→ **macos-26 跑批机**
+  （苹果 2026 起强制 iOS 26 SDK 上传）→ Info.plist 声明
+  `ITSAppUsesNonExemptEncryption=false`（免每构建手动答出口合规）。
+  构建 #14/#15 已上传成功并挂入内部测试组。
+- 鉴权加固：客户端令牌改 HMAC 签名制跨重启存活（INCIDENTS #22）；
+  期间因 watcher 不跑迁移引发短暂生产崩溃，已三重根治（自愈补列/迁移幂等/
+  update.ps1 补跑迁移）。
+- 前端：v6/v6.5 视觉提亮、切页动画去展开感、掉线弹窗防误踢、CI 必红根治
+  （INCIDENTS #20~#23）。
+
 ## 当前状态快照（2026-07-27）
 
 - 生产：backend(3200) + frontend(5173) 由 pm2 守护，三路 kiosk（LED/投影/立式屏）
   心跳正常；最近连续部署全绿。
 - 设备：展厅设备未上电时 Modbus/矩阵/LED 网关显示 offline **属正常**。
-- 已知待办：
-  1. Android APK 换透明图标需 bump versionCode 走 CI 发版（图标源已就绪）。
-  2. 电源时序器未接入情景模式场景引擎（业主未要求，暂缓）。
-  3. 业主现场验证情景模式与欢迎页实际效果。
+- 已知待办（2026-07-28 更新）：
+  1. **iOS TestFlight 邀请失效排查中**：构建 15 已在内部测试组，业主 iPhone 点旧
+     邀请邮件报 "invitation revoked or invalid"——下一步：ASC 重发邀请，仍失效则
+     核对 iPhone 登录的 Apple ID 是否 = 测试员邮箱（344066039@qq.com），不一致就把
+     实际 Apple ID 加为 ASC 用户 + 内部测试员。
+  2. App Store 公开上架待业主决策（有 4.2 套壳与 2.1 审核员连不上内网的被拒风险，
+     方案：公网 MOCK 演示服务器 + 隐私政策页 + 截图文案）。
+  3. 业主旧的 App Store Connect API 密钥（CI，App 管理角色）确认新钥跑通后可撤销。
+  4. 后台 "APP 版本管理 → ios" 的 downloadUrl 待配（TestFlight 邀请就绪后）。
+  5. 电源时序器未接入情景模式场景引擎（业主未要求，暂缓）。
+  6. 业主现场验证情景模式与欢迎页实际效果。
