@@ -121,6 +121,11 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         working-directory: ios-app
         run: |
+          # CODE_SIGN_IDENTITY 强制走 Apple Distribution (2026-07-28 #10 失败根治):
+          # 自动签名在 archive 阶段默认要 Development 描述文件, 而 Development
+          # 需要团队至少注册一台设备 —— 全新开发者账号一台都没有, 报
+          # "Your team has no devices"。TestFlight 走 Distribution 签名, 根本
+          # 不需要设备; 云签名 (API Key) 会自动创建分发证书和 App Store 描述文件。
           xcodebuild archive \
             -project SmartControl.xcodeproj \
             -scheme SmartControl \
@@ -133,6 +138,7 @@ jobs:
             -authenticationKeyIssuerID "$ISSUER_ID" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
             CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER"
 
       - name: Export & upload to TestFlight
