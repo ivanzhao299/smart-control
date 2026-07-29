@@ -185,6 +185,20 @@ class MainActivity : AppCompatActivity() {
 
         configBind.btnTest.setOnClickListener { onTest() }
         configBind.btnSave.setOnClickListener { onSave() }
+        // 清除页面缓存 (2026-07-29 业主: 改动后手机端看不到新版) —— 清 WebView HTTP
+        // 缓存 + localStorage/Service Worker 存储, 然后重进页面强制拉全新资源。
+        // 注意: 客户端登录 token 也存 localStorage, 清完要重登一次 —— 提示里说清楚。
+        configBind.btnClearCache.setOnClickListener {
+            bind.webView.clearCache(true)
+            try { android.webkit.WebStorage.getInstance().deleteAllData() } catch (e: Exception) { }
+            try {
+                android.webkit.CookieManager.getInstance().removeAllCookies(null)
+                android.webkit.CookieManager.getInstance().flush()
+            } catch (e: Exception) { }
+            Toast.makeText(this, R.string.config_cache_cleared, Toast.LENGTH_LONG).show()
+            activeUrl = null           // 强制重探重载
+            resolveAndLoad()
+        }
     }
 
     private fun showConfig() {

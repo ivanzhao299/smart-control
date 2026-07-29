@@ -11,6 +11,8 @@
     <string name="config_remote_url_hint">e.g. http://10.66.66.3:5173/control/</string>
     <string name="config_test">测试连接</string>
     <string name="config_save">保存并启动</string>
+    <string name="config_clear_cache">清除页面缓存 (页面没更新时用)</string>
+    <string name="config_cache_cleared">缓存已清除, 正在重新加载最新页面…</string>
     <string name="config_testing">正在测试…</string>
     <string name="config_test_ok">连接成功 · %1$s</string>
     <string name="config_test_fail">连接失败 · %1$s</string>

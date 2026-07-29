@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 
 /// 服务器配置页 — 对齐安卓壳 panel_config:
 /// 输 url → 测试 (GET /api/client-auth/ping, 显示服务器时间) → 保存进 WebView。
@@ -83,6 +84,19 @@ struct ConfigView: View {
             }
             .padding(.horizontal, 28)
 
+            // 清除页面缓存 (2026-07-29 业主: 改动后手机端看不到新版):
+            // 清 WKWebView 全部站点数据 (HTTP 缓存/Service Worker/localStorage)。
+            // 登录 token 也在里面, 清完进入要重输一次访问密码。
+            Button(action: clearCache) {
+                Text("清除页面缓存 (页面没更新时用)")
+                    .font(.system(size: 13))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+            }
+            .background(Color(.tertiarySystemBackground))
+            .cornerRadius(10)
+            .padding(.horizontal, 28)
+
             Spacer()
             Text("v\(UpdateChecker.localVersionName) (\(UpdateChecker.localVersionCode))")
                 .font(.system(size: 12))
@@ -144,5 +158,14 @@ struct ConfigView: View {
     private func status(_ s: String, ok: Bool) {
         statusText = s
         statusOk = ok
+    }
+
+    private func clearCache() {
+        WKWebsiteDataStore.default().removeData(
+            ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
+            modifiedSince: .distantPast
+        ) {
+            status("缓存已清除 — 点「保存并进入」加载最新页面 (需重输一次访问密码)", ok: true)
+        }
     }
 }
