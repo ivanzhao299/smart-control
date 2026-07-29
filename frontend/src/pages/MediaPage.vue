@@ -949,13 +949,16 @@ onMounted(async () => {
   box-shadow: 0 0 0 1px rgba(76, 154, 255, 0.2);
 }
 
-.quick-actions { display: flex; gap: var(--v2-sp-2); }
+/* 2026-07-29 业主手机截图: 按钮排不换行 → 窄屏把每个按钮压成竖排文字高卡,
+   「在线曲库」「扫描」被挤出屏幕右缘。修: 容器换行 + 按钮锁单行不许压缩。 */
+.quick-actions { display: flex; gap: var(--v2-sp-2); flex-wrap: wrap; align-items: center; }
 .v2-quick {
   padding: 8px 14px; border-radius: var(--v2-r-sm); font-size: var(--v2-fs-sm);
   background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft);
   color: var(--v2-text-2); cursor: pointer;
   display: inline-flex; align-items: center; gap: 6px;
   transition: all 0.18s ease; min-height: 36px;
+  white-space: nowrap; flex: 0 0 auto;
 }
 .v2-quick:hover { background: var(--v2-surf-1-hover); color: var(--v2-text-1); }
 .v2-quick.primary {
