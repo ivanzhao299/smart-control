@@ -233,3 +233,95 @@ describe('PowerCircuitsService · 断路器实时读数', () => {
     expect(m.alarms.any).toBe(false);
   });
 });
+
+describe('PowerCircuitsService · 开机联动 (2026-07-28 业主: LED→功放 / 投影→融合器)', () => {
+  const seqRow = (over: Partial<PowerCircuit> = {}): PowerCircuit =>
+    circuitRow({
+      id: 15, code: 'seq-5', name: '投影仪', category: 'audio-seq',
+      gatewayCode: 'AUDIO-PWR-SEQ-1', relayChannel: 5,
+      ...over,
+    });
+
+  /** 时序器/断路器混排的多行桩: findOne 按 code / id, find 按 category 过滤 */
+  function makeLinkService(rows: PowerCircuit[], opts: { failChannel?: number } = {}) {
+    const repo = {
+      findOne: jest.fn(async (q?: { where?: { code?: string; id?: number } }) =>
+        rows.find((r) => (q?.where?.code !== undefined ? r.code === q.where.code : r.id === q?.where?.id)) ?? null),
+      find: jest.fn(async (q?: { where?: { category?: string } }) =>
+        rows.filter((r) => !q?.where?.category || r.category === q.where.category)),
+      save: jest.fn(async (r: unknown) => r),
+      create: jest.fn((r: unknown) => r),
+    };
+    // gatewayCode 决定路由: AUDIO-PWR-SEQ-1 → 时序器, BREAKER-LED-1 → 断路器
+    const hwRepo = {
+      findOne: jest.fn(async (q?: { where?: { code?: string } }) =>
+        q?.where?.code === 'AUDIO-PWR-SEQ-1'
+          ? { code: 'AUDIO-PWR-SEQ-1', category: 'audio-power', enabled: true }
+          : { code: 'BREAKER-LED-1', category: 'power-breaker', enabled: true }),
+    };
+    const ok = (data: unknown) => ({ ok: true, data, deviceId: 'x', command: 'c', mock: false, durationMs: 1 });
+    const breaker = {
+      turnOn: jest.fn().mockResolvedValue(ok({ on: true, switchState: 'closed' })),
+      turnOff: jest.fn().mockResolvedValue(ok({ on: false, switchState: 'open' })),
+      getMeasurements: jest.fn().mockResolvedValue(ok(measurements())),
+    };
+    const epo = {
+      setChannel: jest.fn(async (ch: number) => {
+        if (ch === opts.failChannel) throw new Error(`COM1 write failed (ch ${ch})`);
+      }),
+      readStatus: jest.fn().mockResolvedValue(ok({ channels: Array(8).fill(false) })),
+    };
+    const adapter = {
+      circuitTurnOn: jest.fn().mockResolvedValue(ok({})),
+      circuitTurnOff: jest.fn().mockResolvedValue(ok({})),
+      circuitReadStatus: jest.fn().mockResolvedValue(ok({
+        on: false, current: 0, voltage: 0, power: 0, powerFactor: 0, energy: 0, lastReadAt: '',
+      })),
+    };
+    const svc = new PowerCircuitsService(
+      repo as never, hwRepo as never, adapter as never, epo as never, breaker as never, fakeLogger(),
+    );
+    return { svc, epo, breaker };
+  }
+
+  it('开投影仪 (seq-5) → 融合器 (seq-4) 跟着开', async () => {
+    const rows = [seqRow(), seqRow({ id: 14, code: 'seq-4', name: '视频融合器', relayChannel: 4 })];
+    const { svc, epo } = makeLinkService(rows);
+    await svc.turnOn(15);
+    expect(epo.setChannel).toHaveBeenCalledWith(5, true);
+    expect(epo.setChannel).toHaveBeenCalledWith(4, true);
+  });
+
+  it('关投影仪只关 seq-5 —— "关"不联动 (投影页卡片自己管同关)', async () => {
+    const rows = [seqRow(), seqRow({ id: 14, code: 'seq-4', name: '视频融合器', relayChannel: 4 })];
+    const { svc, epo } = makeLinkService(rows);
+    await svc.turnOff(15);
+    expect(epo.setChannel).toHaveBeenCalledTimes(1);
+    expect(epo.setChannel).toHaveBeenCalledWith(5, false);
+  });
+
+  it('开 LED 总闸 (1f-led) → 按名字找到「LED大屏功放」那路时序器跟着开', async () => {
+    const rows = [
+      circuitRow(), // id=4 1f-led 断路器
+      seqRow({ id: 12, code: 'seq-2', name: 'LED大屏功放', relayChannel: 2 }),
+    ];
+    const { svc, epo, breaker } = makeLinkService(rows);
+    await svc.turnOn(4);
+    expect(breaker.turnOn).toHaveBeenCalledWith('1f-led');
+    expect(epo.setChannel).toHaveBeenCalledWith(2, true);
+  });
+
+  it('时序器里没有名含 LED/大屏+功放 的路 → 联动跳过不报错', async () => {
+    const rows = [circuitRow(), seqRow({ id: 12, code: 'seq-2', name: '时序 2 路', relayChannel: 2 })];
+    const { svc, epo } = makeLinkService(rows);
+    await svc.turnOn(4);
+    expect(epo.setChannel).not.toHaveBeenCalled();
+  });
+
+  it('联动那路下发失败 → 主开关仍返回成功 (只记日志)', async () => {
+    const rows = [seqRow(), seqRow({ id: 14, code: 'seq-4', name: '视频融合器', relayChannel: 4 })];
+    const { svc, epo } = makeLinkService(rows, { failChannel: 4 });
+    await expect(svc.turnOn(15)).resolves.toBeDefined();
+    expect(epo.setChannel).toHaveBeenCalledWith(5, true);
+  });
+});

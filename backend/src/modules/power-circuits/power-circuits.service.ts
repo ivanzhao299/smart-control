@@ -289,13 +289,63 @@ export class PowerCircuitsService implements OnModuleInit {
     await this.repo.delete({ id });
   }
 
-  /** 通电 — 走 adapter, 然后返回最新读数 */
+  /** 通电 — 走 adapter, 然后返回最新读数; 之后跑开机联动 (见 runPowerOnCompanions) */
   async turnOn(id: number): Promise<PowerCircuitView> {
-    return this.switchCircuit(id, true);
+    const view = await this.switchCircuit(id, true);
+    // 联动串行执行再返回: EPO-802P 挂 COM1 串口, 并发下发会互踩帧
+    await this.runPowerOnCompanions(view.code);
+    return view;
   }
 
   async turnOff(id: number): Promise<PowerCircuitView> {
     return this.switchCircuit(id, false);
+  }
+
+  /**
+   * 开机联动 (2026-07-28 业主: "打开 LED 电源同开时序器 LED 大屏功放,
+   * 打开投影仪电源同开视频融合器"):
+   *   1f-led (LED 大屏总闸) 通电 → 同开时序器里名含「LED/大屏 + 功放」的那路。
+   *     按名定位而不写死路号: 种子名是占位「时序 N 路」, 功放接哪路是业主在
+   *     电源页改名标定的, 生产/开发路号不同, 名字才是唯一可靠的锚。
+   *   seq-5 (投影仪) 通电 → 同开 seq-4 (视频融合/拼接器, 路号 2026-07-26 已核准)。
+   * 只联动"开"不联动"关": LED 功放同时服务 LED 区背景音乐, 关屏不该顺手掐音频;
+   * 投影侧的"同关"由投影页卡片开关 (seq-5,seq-4) 维持现状。
+   * 联动失败只记日志不抛错 —— 主开关已成功, 不能让联动把它报成失败。
+   * (场景引擎的 power 命令走 PowerAdapter 直发不经这里, 时序器接入场景引擎仍在待办。)
+   */
+  private async runPowerOnCompanions(triggerCode: string): Promise<void> {
+    try {
+      let companions: PowerCircuit[] = [];
+      if (triggerCode === '1f-led') {
+        const rows = await this.repo.find({ where: { category: 'audio-seq', enabled: true } });
+        companions = rows.filter((r) => /功放/.test(r.name) && /(LED|led|大屏)/.test(r.name));
+        if (!companions.length) {
+          this.logger.info(
+            '[PowerCircuits] LED 开机联动: 时序器里没有名含「LED/大屏+功放」的回路, 跳过 — 在电源页把功放那路改名 (如 "LED大屏功放") 即启用联动',
+            { context: 'PowerCircuitsService' },
+          );
+        }
+      } else if (triggerCode === 'seq-5') {
+        const fusion = await this.repo.findOne({ where: { code: 'seq-4' } });
+        if (fusion?.enabled) companions = [fusion];
+      }
+      for (const c of companions) {
+        try {
+          await this.switchCircuit(c.id, true);
+          this.logger.info(`[PowerCircuits] 开机联动: ${triggerCode} → ${c.code}「${c.name}」已同开`, {
+            context: 'PowerCircuitsService',
+          });
+        } catch (e) {
+          this.logger.warn(`[PowerCircuits] 开机联动失败: ${triggerCode} → ${c.code}: ${(e as Error).message}`, {
+            context: 'PowerCircuitsService',
+          });
+        }
+      }
+    } catch (e) {
+      this.logger.warn(`[PowerCircuits] 开机联动解析失败: ${(e as Error).message}`, {
+        context: 'PowerCircuitsService',
+      });
+    }
   }
 
   /**
