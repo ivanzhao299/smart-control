@@ -10,6 +10,7 @@ import { NovaLedAdapter } from '../../adapters/led/nova-led.adapter';
 import { EkxDspAdapter } from '../../adapters/audio/ekx808.adapter';
 import { ModbusHvacAdapter } from '../../adapters/hvac/modbus-hvac.adapter';
 import { Epo802pAdapter } from '../../adapters/power/epo802p.adapter';
+import { Seq55Adapter } from '../../adapters/power/seq55.adapter';
 import { EpaBreakerAdapter } from '../../adapters/power/epa-breaker.adapter';
 import { FusionPlayerAdapter } from '../../adapters/projector/fusion-player.adapter';
 
@@ -33,6 +34,7 @@ export class DriverRegistryService implements OnModuleInit {
     () => EkxDspAdapter.describe(),
     () => ModbusHvacAdapter.describe(),
     () => Epo802pAdapter.describe(),
+    () => Seq55Adapter.describe(),
     // 空开: 协议层已就绪, adapter 待真机联调; 先登记进目录, 让它能被选型/配置
     () => EpaBreakerAdapter.describe(),
     // 投影融合器: 播控协议层已就绪(31金标准), 设备未到货; 先登记进目录

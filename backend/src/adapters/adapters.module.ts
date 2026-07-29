@@ -19,6 +19,7 @@ import { MockHvacAdapter } from './hvac/mock-hvac.adapter';
 import { ModbusHvacAdapter } from './hvac/modbus-hvac.adapter';
 import { PowerAdapter } from './power/power.adapter';
 import { Epo802pAdapter } from './power/epo802p.adapter';
+import { Seq55Adapter } from './power/seq55.adapter';
 import { EpaBreakerAdapter } from './power/epa-breaker.adapter';
 import { FusionPlayerAdapter } from './projector/fusion-player.adapter';
 import { ServicesPrimitivesModule } from '../services/services-primitives.module';
@@ -46,6 +47,7 @@ const PROVIDERS = [
   // Power
   PowerAdapter,
   Epo802pAdapter,
+  Seq55Adapter,
   EpaBreakerAdapter,
   // Projector (视频融合器)
   FusionPlayerAdapter,

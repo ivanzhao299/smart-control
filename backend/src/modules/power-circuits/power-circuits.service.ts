@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
@@ -12,6 +13,7 @@ import { Logger } from 'winston';
 import { PowerCircuit } from '../../entities/power-circuit.entity';
 import { PowerAdapter, PowerReading } from '../../adapters/power/power.adapter';
 import { Epo802pAdapter } from '../../adapters/power/epo802p.adapter';
+import { Seq55Adapter } from '../../adapters/power/seq55.adapter';
 import { EpaBreakerAdapter } from '../../adapters/power/epa-breaker.adapter';
 import type { BreakerMeasurements } from '../../adapters/power/epa-breaker-registers';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
@@ -114,6 +116,8 @@ export class PowerCircuitsService implements OnModuleInit {
     /** 智能断路器真机 — LED 大屏总闸 */
     private readonly breaker: EpaBreakerAdapter,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
+    /** 第二台时序器 (55…AA 协议, 2026-07-29 备) — Optional: 既有单测桩不传也能构造 */
+    @Optional() private readonly seq55?: Seq55Adapter,
   ) {}
 
   /**
@@ -339,6 +343,12 @@ export class PowerCircuitsService implements OnModuleInit {
       this.logger.info(`空开${on ? '合闸' : '分闸'}: circuit=${row.code}`, {
         context: 'PowerCircuitsService',
       });
+    } else if (await this.isSeq55Circuit(row)) {
+      // 第二台时序器 (55…AA 协议, 2026-07-29 备): 只控不读 (回帧格式待实测),
+      // 状态由 mock adapter 维护的乐观值兜底
+      if (!this.seq55) throw new ConflictException('seq55 时序器适配器未装载');
+      const r = await this.seq55.setChannel(row.relayChannel as number, on);
+      if (!r.ok) throw new ConflictException(`时序器下发失败: ${r.error ?? '未知错误'}`);
     } else if (await this.isSequencerCircuit(row)) {
       await this.epo.setChannel(row.relayChannel as number, on);
       // 2026-07-25 业主: "时序器点击回弹, 状态不能保持" — 根因: 下发后没动 seqCache,
@@ -478,6 +488,17 @@ export class PowerCircuitsService implements OnModuleInit {
     try {
       const hw = await this.hwRepo.findOne({ where: { code: row.gatewayCode } });
       return hw?.category === 'audio-power' && hw.enabled;
+    } catch {
+      return false;
+    }
+  }
+
+  /** 这条回路是不是挂在第二台时序器 (55…AA 协议) 上 (2026-07-29 备, 到货启用) */
+  private async isSeq55Circuit(row: PowerCircuit): Promise<boolean> {
+    if (!row.gatewayCode || !row.relayChannel) return false;
+    try {
+      const hw = await this.hwRepo.findOne({ where: { code: row.gatewayCode } });
+      return hw?.category === 'power-seq55' && hw.enabled;
     } catch {
       return false;
     }
