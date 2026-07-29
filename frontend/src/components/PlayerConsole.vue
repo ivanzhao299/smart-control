@@ -62,6 +62,15 @@ const props = defineProps<{
    * (投影仪 + 视频拼接器同开同关)。
    */
   powerCode?: string;
+  /**
+   * 追加进电源开关分组的"按名定位"规则 (2026-07-28 业主: 页面开关还要带上时序器
+   * 里的功放路——LED 页带「LED大屏功放」, 投影页带「投影仪功放」。功放接在第几路
+   * 是业主在电源页改名标定的, code 写不死, 名字才是可靠的锚)。
+   * 每条规则 = 关键词数组, 时序器(audio-seq)回路名同时含数组里全部关键词即入组;
+   * 多条规则任一命中即可。没命中一路也不报错 (业主还没改名时开关照常控其余回路)。
+   * 分组语义 = 同开同关, 仅作用于本页面这个开关; 电源页各路仍单独控制。
+   */
+  powerNameGroups?: string[][];
 }>();
 const SLOT = computed(() => props.slot);
 
@@ -115,15 +124,24 @@ async function gotoDocPage(p: number): Promise<void> {
 // powerCode 支持逗号分隔多个回路 code (2026-07-26 业主: 投影仪与视频拼接器
 // 同时工作, 一个开关同开同关 —— 投影页传 "seq-5,seq-4")。开关状态 = 全部通电
 // 才亮; 拨动 = 所有回路一起 on/off (时序器自身按各路延时依次动作, 保护设备)。
+// 2026-07-28 业主: 分组再并入按名定位的功放路 (powerNameGroups), 同开同关。
 const powerCircuits = ref<PowerCircuitView[]>([]);
 async function loadPowerCircuit(): Promise<void> {
-  if (!props.powerCode) return;
-  const codes = props.powerCode.split(',').map((s) => s.trim()).filter(Boolean);
+  if (!props.powerCode && !props.powerNameGroups?.length) return;
+  const codes = (props.powerCode ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   try {
     const list = await powerCircuitsService.list();
-    powerCircuits.value = codes
+    const byCode = codes
       .map((code) => list.find((c) => c.code === code))
       .filter((c): c is PowerCircuitView => !!c);
+    const byName = (props.powerNameGroups ?? []).length
+      ? list.filter((c) =>
+          c.category === 'audio-seq'
+          && (props.powerNameGroups ?? []).some((kws) => kws.every((k) => c.name.includes(k))))
+      : [];
+    // code 命中优先保序, 按名命中追加, 按 id 去重
+    const seen = new Set<number>();
+    powerCircuits.value = [...byCode, ...byName].filter((c) => (seen.has(c.id) ? false : (seen.add(c.id), true)));
   } catch { /* 电源子系统不可达时不显示开关 */ }
 }
 const powerAllOn = computed(
@@ -588,8 +606,8 @@ async function submitWebpage(): Promise<void> {
       <span v-if="ch && !ch.alive" class="led-warn" title="播放器没有心跳">
         <AlertTriangle :size="14" /> 播放器离线
       </span>
-      <!-- 屏幕电源开关 (放"待机"状态行末尾, 时序器拨动样式):
-           LED=空开(1f-led) / 投影=时序器 5 路投影仪 + 4 路视频拼接器 联动 (seq-5,seq-4) -->
+      <!-- 屏幕电源开关 (放"待机"状态行末尾, 时序器拨动样式), 分组同开同关:
+           LED=空开(1f-led)+LED大屏功放(按名) / 投影=seq-5+seq-4+投影仪功放(按名) -->
       <div v-if="powerCircuits.length" class="now-power">
         <Power :size="15" :stroke-width="2" />
         <span class="np-label">电源</span>

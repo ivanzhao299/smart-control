@@ -8,5 +8,10 @@ import PlayerConsole from '@/components/PlayerConsole.vue';
 </script>
 
 <template>
-  <PlayerConsole :slot="1" title="LED 大屏" device-id="LED-NOVA-1" power-code="1f-led" />
+  <!-- 电源分组 (2026-07-28 业主): 页面开关 = LED 总闸 + 时序器「LED大屏功放」路
+       同开同关; 功放路按名定位 (名含 功放+LED 或 功放+大屏), 业主在电源页改名即生效 -->
+  <PlayerConsole
+    :slot="1" title="LED 大屏" device-id="LED-NOVA-1" power-code="1f-led"
+    :power-name-groups="[['功放', 'LED'], ['功放', '大屏']]"
+  />
 </template>

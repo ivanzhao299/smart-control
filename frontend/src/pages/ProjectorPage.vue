@@ -59,9 +59,12 @@ useActivePolling(startPolling, stopPolling);
 </script>
 
 <template>
-  <!-- 电源: 时序器 5 路(投影仪) + 4 路(视频拼接器) 一个开关同开同关 (2026-07-26 业主,
-       两台设备总是一起工作; 此前误绑 seq-8) -->
-  <PlayerConsole :slot="2" title="投影仪" power-code="seq-5,seq-4">
+  <!-- 电源: 时序器 5 路(投影仪) + 4 路(视频拼接/融合器) + 「投影仪功放」路(按名定位,
+       2026-07-28 业主补) 一个开关同开同关; 电源页各路仍单独控制 -->
+  <PlayerConsole
+    :slot="2" title="投影仪" power-code="seq-5,seq-4"
+    :power-name-groups="[['功放', '投影']]"
+  >
     <template #alert>
       <div v-if="showingHdmi !== true" class="out-bar" :class="showingHdmi === false ? 'warn' : 'unknown'">
         <AlertTriangle :size="15" />
