@@ -89,14 +89,35 @@ class MainActivity : AppCompatActivity() {
         val remote = Prefs.getRemoteUrl(this)
         if (resolving) return
         resolving = true
+        // 首次进入 (还没加载过页面): 探测期间亮"连接中"动画, 别黑屏 (2026-07-29 业主)
+        if (activeUrl == null) {
+            bind.configPanel.root.visibility = View.GONE
+            bind.webPanel.visibility = View.VISIBLE
+            bind.errorOverlay.visibility = View.GONE
+            bind.loadingOverlay.visibility = View.VISIBLE
+        }
         thread {
             val chosen = when {
                 ping(local).ok -> local
                 !remote.isNullOrBlank() && ping(remote).ok -> remote
-                else -> local   // 都不通: 加载现场地址, 让错误覆盖层露出来
+                // 都不通返回 null: **第一时间**弹错误覆盖层 (2026-07-29 业主), 不再把
+                // 死地址塞给 WebView 等 Chromium 慢慢超时黑屏
+                else -> null
             }
             runOnUiThread {
                 resolving = false
+                if (chosen == null) {
+                    if (activeUrl == null) {
+                        bind.loadingOverlay.visibility = View.GONE
+                        bind.errorText.text = getString(R.string.webview_error, "现场与远程地址都连不上, 正在自动重试")
+                        bind.errorOverlay.visibility = View.VISIBLE
+                        bind.btnGear.visibility = View.VISIBLE
+                        // 4s 自动重探 — 网络恢复后无感自动进入
+                        netHandler.postDelayed({ if (activeUrl == null) resolveAndLoad() }, 4000)
+                    }
+                    // 已在页面里: 不打扰, WebView 自己的错误覆盖层兜底
+                    return@runOnUiThread
+                }
                 if (chosen != activeUrl) {
                     loadWeb(chosen)
                     if (activeUrl != null) {
@@ -155,10 +176,11 @@ class MainActivity : AppCompatActivity() {
     // ============ 配置页 ============
 
     private fun setupConfigPanel() {
-        // 加载已存 url 到输入框 (业主重新配置时不用从头输)
+        // 两个地址都预填 (2026-07-29 业主: "远程地址也要默认填好, 不需每次重填"):
+        // 存过就回显上次配置, 没存过填默认值
         val current = Prefs.getServerUrl(this) ?: BuildConfig.DEFAULT_SERVER_URL
         configBind.etUrl.setText(current)
-        configBind.etRemoteUrl.setText(Prefs.getRemoteUrl(this) ?: "")
+        configBind.etRemoteUrl.setText(Prefs.getRemoteUrl(this) ?: BuildConfig.DEFAULT_REMOTE_URL)
         configBind.tvVersion.text = "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
 
         configBind.btnTest.setOnClickListener { onTest() }
@@ -328,6 +350,7 @@ class MainActivity : AppCompatActivity() {
                 applyGearVisibility(url)
             }
             override fun onPageFinished(view: WebView, url: String) {
+                bind.loadingOverlay.visibility = View.GONE   // 页面到位, 收起连接中动画
                 applyGearVisibility(url)
             }
             /** PWA 是 SPA, router.push 不走 onPageStarted, 但走 doUpdateVisitedHistory. */
@@ -337,6 +360,7 @@ class MainActivity : AppCompatActivity() {
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (!request.isForMainFrame) return
                 val msg = "${error.errorCode}: ${error.description}"
+                bind.loadingOverlay.visibility = View.GONE
                 bind.errorText.text = getString(R.string.webview_error, msg)
                 bind.errorOverlay.visibility = View.VISIBLE
                 // 出错也露出齿轮, 业主可以切换服务器
@@ -348,7 +372,8 @@ class MainActivity : AppCompatActivity() {
         bind.btnGear.setOnClickListener { showConfig() }
         bind.btnRetry.setOnClickListener {
             bind.errorOverlay.visibility = View.GONE
-            bind.webView.reload()
+            // 还没成功加载过 (探测全败的第一时间提示) → 重新探测; 加载过 → 刷新页面
+            if (activeUrl == null) resolveAndLoad() else bind.webView.reload()
         }
         bind.btnChangeServer.setOnClickListener {
             bind.errorOverlay.visibility = View.GONE

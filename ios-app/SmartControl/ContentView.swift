@@ -13,6 +13,9 @@ struct ContentView: View {
     @State private var showConfig = Prefs.serverUrl == nil
     @State private var gearVisible = false
     @State private var errorText: String?
+    /// 探测结果: 现场+远程都不通 (activeUrl 仍为 nil 时立即弹提示, 并自动重探)
+    @State private var probeFailed = false
+    @State private var probing = false
     @State private var reloadToken = 0
     @State private var updatePrompt: UpdateChecker.Prompt?
     @StateObject private var netWatcher = NetWatcher()
@@ -31,12 +34,44 @@ struct ContentView: View {
                     checkUpdate(saved)
                 }
             } else if activeUrl == nil {
-                // 正在探测现场/远程哪个通
-                VStack(spacing: 14) {
-                    ProgressView().tint(.white)
-                    Text("正在连接服务器…")
-                        .font(.system(size: 14))
-                        .foregroundColor(.gray)
+                if probeFailed {
+                    // 两个地址都探不通: **第一时间**弹提示 (2026-07-29 业主: 原来把死地址
+                    // 塞给 WebView 等系统超时, 黑屏很久才出"切换服务器"), 且每 4s 自动重探,
+                    // 网络恢复后无感自动进入。
+                    VStack(spacing: 18) {
+                        Image(systemName: "wifi.exclamationmark")
+                            .font(.system(size: 44))
+                            .foregroundColor(.orange)
+                        Text("连不上服务器")
+                            .font(.system(size: 19, weight: .semibold))
+                            .foregroundColor(.white)
+                        Text("现场与远程地址均无法连接\n正在自动重试, 也可检查网络或更换地址")
+                            .font(.system(size: 13))
+                            .foregroundColor(.gray)
+                            .multilineTextAlignment(.center)
+                        HStack(spacing: 14) {
+                            Button("立即重试") {
+                                probeFailed = false
+                                reResolve()
+                            }
+                            .padding(.horizontal, 26).padding(.vertical, 11)
+                            .background(Color.accentColor)
+                            .foregroundColor(.white)
+                            .cornerRadius(9)
+
+                            Button("切换服务器") {
+                                probeFailed = false
+                                showConfig = true
+                            }
+                            .padding(.horizontal, 22).padding(.vertical, 11)
+                            .background(Color.white.opacity(0.14))
+                            .foregroundColor(.white)
+                            .cornerRadius(9)
+                        }
+                    }
+                } else {
+                    // 正在探测现场/远程哪个通 — 纯动画 (2026-07-29 业主: 文字换动画)
+                    ConnectingView()
                 }
             } else if let s = activeUrl, let u = URL(string: s) {
                 WebView(
@@ -150,12 +185,24 @@ struct ContentView: View {
 
     /// 现场优先探测选地址; 选中的变了才动 WebView (initialUrl 变化会触发重载)
     private func reResolve() {
-        guard let local = serverUrl, !showConfig else { return }
-        ServerResolver.resolve(local: local, remote: Prefs.remoteUrl) { chosen in
-            if chosen != activeUrl {
-                errorText = nil
-                activeUrl = chosen
+        guard let local = serverUrl, !showConfig, !probing else { return }
+        probing = true
+        ServerResolver.resolve(local: local, remote: Prefs.remoteUrl) { chosen, reachable in
+            probing = false
+            if reachable {
+                probeFailed = false
+                if chosen != activeUrl {
+                    errorText = nil
+                    activeUrl = chosen
+                }
+            } else if activeUrl == nil {
+                // 还没进过页面: 立即弹提示 + 4s 后自动重探 (网络恢复无感进入)
+                probeFailed = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                    if activeUrl == nil && !showConfig { reResolve() }
+                }
             }
+            // 已在页面里且这次探测不通: 不打扰 —— WebView 自己的错误覆盖层兜底
         }
     }
 
@@ -163,5 +210,35 @@ struct ContentView: View {
         UpdateChecker.check(serverBaseUrl: base) { prompt in
             updatePrompt = prompt
         }
+    }
+}
+
+/// 连接中动画 (2026-07-29 业主: "正在连接服务器"文字换动画) —
+/// 与启动画面同语言: LaunchLogo 呼吸 + 蓝色弧线绕圈, 无文字。
+private struct ConnectingView: View {
+    @State private var spin = false
+    @State private var pulse = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.white.opacity(0.08), lineWidth: 3)
+                .frame(width: 104, height: 104)
+            Circle()
+                .trim(from: 0, to: 0.28)
+                .stroke(Color(red: 0.30, green: 0.60, blue: 1.0),
+                        style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .frame(width: 104, height: 104)
+                .rotationEffect(.degrees(spin ? 360 : 0))
+                .animation(.linear(duration: 1.1).repeatForever(autoreverses: false), value: spin)
+            Image("LaunchLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 58, height: 58)
+                .scaleEffect(pulse ? 1.06 : 0.92)
+                .opacity(pulse ? 1.0 : 0.8)
+                .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: pulse)
+        }
+        .onAppear { spin = true; pulse = true }
     }
 }

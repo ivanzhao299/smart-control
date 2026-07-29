@@ -12,8 +12,10 @@ struct ConfigView: View {
 
     init(onSave: @escaping (String) -> Void) {
         self.onSave = onSave
+        // 两个地址都预填 (2026-07-29 业主: "远程地址也要默认填好, 不需每次重填"):
+        // 存过就回显上次配置, 没存过填默认值 (现场静态 IP / WireGuard 隧道地址)
         _urlText = State(initialValue: Prefs.serverUrl ?? Prefs.defaultServerUrl)
-        _remoteText = State(initialValue: Prefs.remoteUrl ?? "")
+        _remoteText = State(initialValue: Prefs.remoteUrl ?? Prefs.defaultRemoteUrl)
     }
 
     var body: some View {

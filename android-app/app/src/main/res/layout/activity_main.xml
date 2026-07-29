@@ -21,6 +21,28 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
 
+        <!-- 连接中覆盖层 (2026-07-29 业主: 探测/首载别黑屏, 用动画) -->
+        <LinearLayout
+            android:id="@+id/loadingOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="@color/bg_0"
+            android:visibility="gone">
+            <ImageView
+                android:id="@+id/loadingLogo"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:src="@mipmap/ic_launcher"
+                android:contentDescription="@string/app_name" />
+            <ProgressBar
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginTop="20dp"
+                android:indeterminateTint="@color/primary" />
+        </LinearLayout>
+
         <!-- 错误覆盖层 -->
         <LinearLayout
             android:id="@+id/errorOverlay"

@@ -32,20 +32,24 @@ enum ServerResolver {
         }.resume()
     }
 
-    /// 现场优先选地址; 主线程回调选中的 URL 字符串
-    static func resolve(local: String, remote: String?, completion: @escaping (String) -> Void) {
-        ping(local) { ok, _ in
-            if ok {
-                DispatchQueue.main.async { completion(local) }
-                return
-            }
-            guard let remote = remote, !remote.isEmpty else {
-                DispatchQueue.main.async { completion(local) }
-                return
-            }
-            ping(remote) { rok, _ in
-                DispatchQueue.main.async { completion(rok ? remote : local) }
-            }
+    /// 现场优先选地址; 主线程回调 (选中URL, 是否可达)。
+    /// 2026-07-29 业主"连不上黑屏太久": 两个地址**并行**探测 (原先串行 3s+3s),
+    /// 最坏 ~3s 出结果; reachable=false 让调用方**立即**弹提示, 不再把死地址塞给
+    /// WebView 等它慢慢超时。
+    static func resolve(local: String, remote: String?, completion: @escaping (String, Bool) -> Void) {
+        let group = DispatchGroup()
+        var localOk = false
+        var remoteOk = false
+        group.enter()
+        ping(local) { ok, _ in localOk = ok; group.leave() }
+        if let remote = remote, !remote.isEmpty {
+            group.enter()
+            ping(remote) { ok, _ in remoteOk = ok; group.leave() }
+        }
+        group.notify(queue: .main) {
+            if localOk { completion(local, true) }
+            else if remoteOk, let remote = remote { completion(remote, true) }
+            else { completion(local, false) }
         }
     }
 }
