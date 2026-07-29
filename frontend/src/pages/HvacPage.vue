@@ -740,20 +740,27 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
           <div class="hz-top">
             <div class="hz-meta">
               <div class="hz-name">{{ c.name }}</div>
-              <div class="hz-sub">
-                <template v-if="c.members.length">
+              <!-- 下发中提示放在副标题行**原位替换** — 绝不新增一行把卡撑高 (2026-07-29 业主) -->
+              <div class="hz-sub" :class="{ busy: zoneBusy === zkey(c.code) }">
+                <template v-if="zoneBusy === zkey(c.code)">逐台错峰下发中…</template>
+                <template v-else-if="c.members.length">
                   {{ c.onCount }}/{{ c.members.length }} 台运行<template v-if="c.avgRoomT !== null"> · 室温 {{ c.avgRoomT }}°C</template>
                 </template>
                 <template v-else>空组 — 在「编组」里把内机分进来</template>
               </div>
             </div>
+            <!-- 全组开关: 明确的文字按钮 (2026-07-29 业主: 原 toggle 像个白点看不出是开关)。
+                 按钮文字 = 点击后的动作: 全关着显示"开启", 有开着的显示"关闭" -->
             <button
               v-if="c.members.length"
-              class="v2-toggle" :class="{ on: c.onCount > 0 }"
+              class="hz-power" :class="c.onCount > 0 ? 'to-off' : 'to-on'"
               :disabled="zoneBusy !== null"
-              :title="c.onCount > 0 ? '全组关机' : '全组开机'"
+              :title="c.onCount > 0 ? '关闭全组' : '开启全组'"
               @click="zonePower(c)"
-            ></button>
+            >
+              <Power :size="15" :stroke-width="2.2" />
+              {{ c.onCount > 0 ? '关闭' : '开启' }}
+            </button>
           </div>
           <div v-if="c.members.length" class="hz-ctrl">
             <div class="hz-temp">
@@ -770,7 +777,6 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
               ><component :is="m.icon" :size="14" /></button>
             </div>
           </div>
-          <div v-if="zoneBusy === zkey(c.code)" class="hz-busy-tip">逐台错峰下发中…</div>
         </div>
       </div>
 
@@ -1167,7 +1173,22 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 .hz-mode.on.hzm-fan  { color: #4ce0be; border-color: color-mix(in srgb, #4ce0be 55%, transparent); background: color-mix(in srgb, #4ce0be 14%, var(--v2-surf-2)); }
 .hz-mode.on.hzm-auto { color: #7db6ff; border-color: color-mix(in srgb, #7db6ff 55%, transparent); background: color-mix(in srgb, #7db6ff 14%, var(--v2-surf-2)); }
 .hz-mode.on.hzm-dry  { color: #9d8bff; border-color: color-mix(in srgb, #9d8bff 55%, transparent); background: color-mix(in srgb, #9d8bff 14%, var(--v2-surf-2)); }
-.hz-busy-tip { font-size: 12px; color: var(--v2-primary); }
+.hz-sub.busy { color: var(--v2-primary); }
+/* 全组开关按钮: 文字+图标, 一眼是开关; 触摸目标 ≥36px (UI 铁律) */
+.hz-power {
+  display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto;
+  min-height: 38px; padding: 8px 16px; border-radius: 10px; cursor: pointer;
+  font-size: 14px; font-weight: 600;
+}
+.hz-power.to-on {
+  background: var(--v2-primary); color: var(--v2-on-primary, #fff);
+  border: 1px solid var(--v2-primary);
+}
+.hz-power.to-off {
+  background: rgba(229, 100, 93, 0.12); color: var(--v2-danger, #E5645D);
+  border: 1px solid rgba(229, 100, 93, 0.4);
+}
+.hz-power:disabled { opacity: 0.45; cursor: not-allowed; }
 @media (max-width: 1600px) { .hz-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 1100px) { .hz-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 640px)  { .hz-grid { grid-template-columns: 1fr; gap: 8px; } .hz-card { padding: 12px 14px; } }
