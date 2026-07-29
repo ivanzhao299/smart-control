@@ -64,8 +64,10 @@ export class BaiduPanService implements OnModuleInit {
       "id" integer PRIMARY KEY NOT NULL,
       "appKey" varchar(64), "secretKey" varchar(64), "deviceCode" varchar(128),
       "accessToken" text, "refreshToken" text, "expiresAt" datetime,
-      "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
-    )`).catch(() => { /* 已存在 */ });
+      "updatedAt" datetime NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`).catch((e: Error) => {
+      this.logger.warn(`[BaiduPan] 建表自愈失败(将影响 /baidu-pan/status): ${e.message}`, { context: 'BaiduPanService' });
+    });
   }
 
   private async row(): Promise<BaiduPanAuth> {

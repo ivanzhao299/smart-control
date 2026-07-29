@@ -452,12 +452,18 @@ function closePanDialog(): void {
 async function refreshPanStatus(): Promise<void> {
   try { panStatus.value = await baiduPanService.status(); } catch (e) { panErr.value = (e as Error).message; }
 }
-/** 弹窗开着就 2s 轮询: 授权等待 + 下载进度都靠它推进 */
+/** 弹窗开着就 2s 轮询: 状态读取失败重试 + 授权等待 + 下载进度都靠它推进 */
 function schedulePanPoll(): void {
   window.clearTimeout(panPollTimer);
   if (!panDialog.value) return;
   panPollTimer = window.setTimeout(async () => {
-    if (panAuth.value && !panStatus.value?.authorized) {
+    if (!panStatus.value) {
+      await refreshPanStatus();
+      if (panStatus.value) {
+        panErr.value = '';
+        if ((panStatus.value as PanStatus).authorized) await panList(panDir.value);
+      }
+    } else if (panAuth.value && !panStatus.value?.authorized) {
       try {
         const r = await baiduPanService.authPoll();
         if (r.authorized) {
@@ -982,7 +988,17 @@ onMounted(async () => {
           </div>
         </template>
 
-        <div v-else class="orphan-empty">读取状态…</div>
+        <!-- 状态还没拿到: 失败要把真实报错亮出来 (2026-07-29 业主卡"读取状态"), 并自动重试 -->
+        <template v-else>
+          <div class="orphan-empty">
+            <template v-if="panErr">读取状态失败: {{ panErr }}<br /><span class="pan-wait">正在自动重试…</span></template>
+            <template v-else>读取状态…</template>
+          </div>
+          <div class="wb-actions">
+            <button class="v2-quick" @click="closePanDialog">关闭</button>
+            <button class="v2-quick primary" @click="refreshPanStatus">重试</button>
+          </div>
+        </template>
       </div>
     </div>
 

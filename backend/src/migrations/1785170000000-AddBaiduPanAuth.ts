@@ -17,7 +17,7 @@ export class AddBaiduPanAuth1785170000000 implements MigrationInterface {
             "accessToken" text,
             "refreshToken" text,
             "expiresAt" datetime,
-            "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+            "updatedAt" datetime NOT NULL DEFAULT CURRENT_TIMESTAMP
         )`);
     }
 

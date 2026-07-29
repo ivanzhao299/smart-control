@@ -430,6 +430,17 @@ async function main() {
       }
     }
   } catch (e) { console.log('  ' + RED('WARN') + ' app-release 读取异常: ' + e.message); }
+  try {
+    // 百度网盘接入 (2026-07-29): status 可用性 (业主端弹窗卡"读取状态…"远程排障用)
+    const rp = await httpGet(3200, '/api/baidu-pan/status');
+    if (rp.code === 200) {
+      const d = JSON.parse(rp.body).data || {};
+      const dl = d.download && d.download.active ? d.download.active.name : '无';
+      console.log(`  百度网盘: configured=${d.configured} authorized=${d.authorized} 下载中=${dl}`);
+    } else {
+      console.log('  ' + RED('WARN') + ` 百度网盘 status 异常: HTTP ${rp.code || '无响应'} body=${String(rp.body || '').slice(0, 200)}`);
+    }
+  } catch (e) { console.log('  ' + RED('WARN') + ' 百度网盘 status 读取异常: ' + e.message); }
   console.log('');
 
   // --- K. 系统体检 (信息性, 仅 Windows) —— 资源水位 + 进程泄漏扫描 + 磁盘 ---
