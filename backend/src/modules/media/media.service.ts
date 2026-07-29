@@ -108,6 +108,25 @@ export class MediaService implements OnModuleInit {
         file: 'welcome-proj-3380x1225.png', originalName: '金湖欢迎页·投影.png', kind: 'image', mime: 'image/png',
         remark: '3380×1225 (6760×2450mm 幕布比例) 静态欢迎页 (备用)',
       },
+      // ---- 内置无版权背景音乐 (2026-07-29 业主: "要能随时用免费无版权音乐") ----
+      // 来源 freepd.com (GitHub 镜像 0lhi/FreePD), 全部 CC0 公有领域: 商用免授权、
+      // 免署名、可再分发。随仓库部署到 deploy/assets/music/, 启动自动入库;
+      // 展厅断外网也可用。业主删掉后重启会重建, 不想再看到就在媒体库改名。
+      ...([
+        ['music/bgm-city-sunshine.mp3', '轻快·城市阳光.mp3', 'City Sunshine'],
+        ['music/bgm-inspiration.mp3', '轻快·灵感律动.mp3', 'Inspiration'],
+        ['music/bgm-screen-saver.mp3', '轻快·屏保时光.mp3', 'Screen Saver'],
+        ['music/bgm-be-chillin.mp3', '舒缓·悠然自得.mp3', 'Be Chillin'],
+        ['music/bgm-relaxing-ballad.mp3', '舒缓·放松民谣.mp3', 'Relaxing Ballad'],
+        ['music/bgm-the-lagoon.mp3', '舒缓·蓝色礁湖.mp3', 'The Lagoon'],
+        ['music/bgm-magic-in-the-garden.mp3', '优美·花园奇境.mp3', 'Magic in the Garden'],
+        ['music/bgm-ice-and-snow.mp3', '优美·冰雪之境.mp3', 'Ice and Snow'],
+        ['music/bgm-travelers-notebook.mp3', '优美·旅人手记.mp3', 'Travelers Notebook'],
+        ['music/bgm-inventing-flight.mp3', '大气·展翅飞翔.mp3', 'Inventing Flight'],
+      ] as Array<[string, string, string]>).map(([file, originalName, en]) => ({
+        file, originalName, kind: 'audio' as MediaKind, mime: 'audio/mpeg',
+        remark: `内置无版权背景音乐 (CC0 公有领域, freepd.com「${en}」) — 可商用免署名`,
+      })),
     ];
     for (const b of bundled) {
       await this.seedBundledFile(b).catch((e) => {
