@@ -416,6 +416,89 @@ function adjustTemp(delta: number): void {
   void run('温度', (s) => { s.temperature = next; }, (ix) => hvacService.batchTemperature(ix, next));
 }
 
+// ============ 分区视图 (2026-07-29 业主: "分组逻辑要像灯光页一样直接组控") ============
+// 灯光页的范式: 分区就是一张卡, 卡上直接开关/调参数 —— 不需要"先点快选选中、
+// 再到浮层操作"那两步。空调分区卡: 开关 (组内有开着的 → 视为开, 点击全组关;
+// 全关 → 点击全组开)、温度步进、模式一排, 全部直接下发到组内全部内机 (走既有
+// batch 接口, 后端错峰保护外机)。成员分配仍在「编组」模式里管 (对齐灯光页
+// "控制归控制、成员分配归编组"的分工)。默认进「分区」视图; 单台精控切「内机」。
+const viewTab = ref<'zones' | 'units'>('zones');
+const zkey = (c: string | null): string => c ?? '__none__';
+
+interface ZoneCard {
+  code: string | null;   // null = 未分组
+  name: string;
+  members: IndoorRow[];
+  onCount: number;
+  temp: number;          // 组设定温度: 开机内机平均, 无开机 → 已知内机平均, 都没有 → 26
+  mode: HvacMode | null; // 开机内机模式一致才亮
+  avgRoomT: number | null;
+}
+function buildZoneCard(code: string | null, name: string, members: IndoorRow[]): ZoneCard {
+  const known = members.filter((m) => m.state.known);
+  const on = known.filter((m) => m.state.on);
+  const tempSrc = on.length ? on : known;
+  const temp = tempSrc.length
+    ? Math.round(tempSrc.reduce((s, m) => s + m.state.temperature, 0) / tempSrc.length)
+    : 26;
+  const mode = on.length && on.every((m) => m.state.mode === on[0].state.mode) ? on[0].state.mode : null;
+  const rt = known.map((m) => m.state.roomTemp).filter((t): t is number => typeof t === 'number');
+  return {
+    code, name, members,
+    onCount: on.length,
+    temp: Math.max(16, Math.min(30, temp)),
+    mode,
+    avgRoomT: rt.length ? Math.round((rt.reduce((s, t) => s + t, 0) / rt.length) * 10) / 10 : null,
+  };
+}
+const zoneCards = computed<ZoneCard[]>(() => {
+  const cards = visibleZones.value.map((z) =>
+    buildZoneCard(z.code, z.name, visibleIndoors.value.filter((i) => i.zoneCode === z.code)));
+  const ungrouped = visibleIndoors.value.filter((i) => !i.zoneCode);
+  if (ungrouped.length) cards.push(buildZoneCard(null, '未分组', ungrouped));
+  return cards;
+});
+
+/** 正在下发的分区 key (整卡禁点, 别让两组命令在 485 上叠着跑) */
+const zoneBusy = ref<string | null>(null);
+async function zoneRun(
+  card: ZoneCard, label: string,
+  apply: (s: IndoorState) => void,
+  send: (idxs: number[]) => Promise<{ okCount: number; failCount: number }>,
+): Promise<void> {
+  if (zoneBusy.value || !card.members.length) return;
+  zoneBusy.value = zkey(card.code);
+  const backup = card.members.map((r) => ({ idx: r.idx, snapshot: { ...r.state } }));
+  card.members.forEach((r) => { apply(r.state); r.state.known = true; });   // 乐观跟手
+  lastWriteAt = Date.now();
+  haptics.tap();
+  try {
+    const r = await send(card.members.map((m) => m.idx));
+    if (r.okCount === 0 && r.failCount > 0) throw new Error('全部失败');
+    if (r.failCount > 0) ElMessage.warning(`「${card.name}」${label}: 部分成功 (${r.okCount}/${r.okCount + r.failCount})`);
+  } catch (err) {
+    const map = new Map(backup.map((b) => [b.idx, b.snapshot]));
+    indoors.value.forEach((i) => { const s = map.get(i.idx); if (s) i.state = s; });
+    ElMessage.error(`「${card.name}」${label}失败: ${(err as Error).message}`);
+  } finally {
+    zoneBusy.value = null;
+    setTimeout(() => { void pollStates(); }, 1200);   // 真机寄存器为准
+  }
+}
+function zonePower(card: ZoneCard): void {
+  const on = card.onCount === 0;   // 有开着的 → 全关; 全关着 → 全开
+  void zoneRun(card, on ? '开机' : '关机', (s) => { s.on = on; },
+    (ix) => (on ? hvacService.batchOn(ix) : hvacService.batchOff(ix)));
+}
+function zoneAdjustTemp(card: ZoneCard, delta: number): void {
+  const next = Math.max(16, Math.min(30, card.temp + delta));
+  if (next === card.temp) return;
+  void zoneRun(card, '温度', (s) => { s.temperature = next; }, (ix) => hvacService.batchTemperature(ix, next));
+}
+function zoneSetMode(card: ZoneCard, mode: HvacMode): void {
+  void zoneRun(card, '模式', (s) => { s.mode = mode; }, (ix) => hvacService.batchMode(ix, mode));
+}
+
 /** 顶部"全开/全关" — 作用于当前楼层 tab 的全部内机, 跟选中无关。
  *  2026-07-25 生产级整改: 一键动全场必须二次确认 (访客/保洁误碰一下 22 台就全动了);
  *  后端已改错峰逐台下发 (0.4s/台, 保护外机), 确认框里把耗时说清楚, 别让人以为卡死。 */
@@ -589,6 +672,11 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
       </div>
 
       <div class="hv-head-actions">
+        <!-- 分区/内机视图切换 (2026-07-29 业主: 分区要像灯光页一样直接组控) -->
+        <div v-if="!groupMode" class="v2-tabs">
+          <button class="v2-tab" :class="{ active: viewTab === 'zones' }" @click="viewTab = 'zones'">分区</button>
+          <button class="v2-tab" :class="{ active: viewTab === 'units' }" @click="viewTab = 'units'">内机</button>
+        </div>
         <button class="hv-btn ghost" :class="{ active: groupMode }" @click="groupMode = !groupMode">
           <Layers :size="15" /> {{ groupMode ? '完成编组' : '编组' }}
         </button>
@@ -597,9 +685,9 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
       </div>
     </header>
 
-    <!-- ===== 快选条 ===== -->
+    <!-- ===== 快选条 ===== (分区视图不需要"先选后操作", 只在内机/编组视图出现) -->
     <!-- 楼层 chips 已去掉 (和顶部楼层 tab 重复 — 想选整层: 切楼层 tab 后点"全部 N") -->
-    <div class="hv-quick" :class="{ expanded: quickExpanded }">
+    <div v-if="groupMode || viewTab === 'units'" class="hv-quick" :class="{ expanded: quickExpanded }">
       <span class="hv-quick-label">快选</span>
       <button class="hv-chip" :class="{ on: allSelected }" @click="selectAll">
         全部 {{ visibleIndoors.length }}
@@ -639,7 +727,54 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
          编组模式: 按组分段 —— 结构直接摆在眼前, 移动内机立刻看到它换了位置。
          卡片本体用同一个 <template>, 两个模式共用一份, 不写两遍 (写两遍必然改一处漏一处)。 -->
     <template v-if="!groupMode">
-      <div class="hv-grid" :class="{ loading }">
+      <!-- ===== 分区视图 (2026-07-29): 分区卡直接组控, 交互对齐灯光页 ===== -->
+      <div v-if="viewTab === 'zones'" class="hz-grid" :class="{ loading }">
+        <div v-if="zoneCards.length === 0" class="hz-empty">
+          还没有分区 — 点右上「编组」新建分组并把内机分进去, 分区卡就会出现在这里
+        </div>
+        <div
+          v-for="c in zoneCards" :key="zkey(c.code)"
+          class="hz-card"
+          :class="{ on: c.onCount > 0, none: c.code === null, busy: zoneBusy === zkey(c.code) }"
+        >
+          <div class="hz-top">
+            <div class="hz-meta">
+              <div class="hz-name">{{ c.name }}</div>
+              <div class="hz-sub">
+                <template v-if="c.members.length">
+                  {{ c.onCount }}/{{ c.members.length }} 台运行<template v-if="c.avgRoomT !== null"> · 室温 {{ c.avgRoomT }}°C</template>
+                </template>
+                <template v-else>空组 — 在「编组」里把内机分进来</template>
+              </div>
+            </div>
+            <button
+              v-if="c.members.length"
+              class="v2-toggle" :class="{ on: c.onCount > 0 }"
+              :disabled="zoneBusy !== null"
+              :title="c.onCount > 0 ? '全组关机' : '全组开机'"
+              @click="zonePower(c)"
+            ></button>
+          </div>
+          <div v-if="c.members.length" class="hz-ctrl">
+            <div class="hz-temp">
+              <button class="hz-tbtn" :disabled="zoneBusy !== null" @click="zoneAdjustTemp(c, -1)"><Minus :size="16" /></button>
+              <span class="hz-tval v2-inter">{{ c.temp }}<i>°C</i></span>
+              <button class="hz-tbtn" :disabled="zoneBusy !== null" @click="zoneAdjustTemp(c, 1)"><Plus :size="16" /></button>
+            </div>
+            <div class="hz-modes">
+              <button
+                v-for="m in modes" :key="m.value"
+                class="hz-mode" :class="['hzm-' + m.value, { on: c.mode === m.value }]"
+                :disabled="zoneBusy !== null" :title="m.label"
+                @click="zoneSetMode(c, m.value)"
+              ><component :is="m.icon" :size="14" /></button>
+            </div>
+          </div>
+          <div v-if="zoneBusy === zkey(c.code)" class="hz-busy-tip">逐台错峰下发中…</div>
+        </div>
+      </div>
+
+      <div v-else class="hv-grid" :class="{ loading }">
         <template v-for="row in visibleIndoors" :key="row.idx">
       <button
         class="hv-cell"
@@ -985,6 +1120,57 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 .hv-stats .poll { color: var(--v2-text-3); font-variant-numeric: tabular-nums; }
 .hv-stats .poll.bad { color: var(--v2-danger); }
 .hv-head-actions { display: flex; gap: 8px; }
+
+/* ---- 分区视图 (2026-07-29 业主: 分区卡直接组控, 对齐灯光页) ---- */
+.hz-grid {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+  align-content: start;
+}
+.hz-empty { grid-column: 1 / -1; text-align: center; color: var(--v2-text-3); padding: 44px 16px; font-size: 14px; line-height: 1.7; }
+.hz-card {
+  background: var(--v2-surf-1, #14161A); border: 1px solid var(--v2-border-soft, #23262C);
+  border-radius: 13px; padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.hz-card.on {
+  border-color: color-mix(in srgb, var(--v2-primary) 45%, transparent);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--v2-primary) 9%, var(--v2-surf-1)), var(--v2-surf-1));
+}
+.hz-card.none { border-style: dashed; }
+.hz-card.busy { opacity: 0.8; }
+.hz-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.hz-name { font-size: 16px; font-weight: 600; color: var(--v2-text-1); }
+.hz-sub { margin-top: 3px; font-size: 12px; color: var(--v2-text-3); }
+.hz-ctrl { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.hz-temp { display: flex; align-items: center; gap: 8px; }
+.hz-tbtn {
+  width: 38px; height: 38px; border-radius: 9px; cursor: pointer;
+  display: grid; place-items: center;
+  background: var(--v2-surf-2, #1A1D22); color: var(--v2-text-1);
+  border: 1px solid var(--v2-border-soft, #23262C);
+}
+.hz-tbtn:disabled { opacity: 0.4; cursor: default; }
+.hz-tval { font-size: 22px; font-weight: 600; color: var(--v2-text-1); min-width: 56px; text-align: center; }
+.hz-tval i { font-style: normal; font-size: 12px; color: var(--v2-text-3); margin-left: 2px; }
+.hz-modes { display: flex; gap: 6px; }
+.hz-mode {
+  width: 34px; height: 34px; border-radius: 8px; cursor: pointer;
+  display: grid; place-items: center;
+  background: var(--v2-surf-2, #1A1D22); color: var(--v2-text-2);
+  border: 1px solid var(--v2-border-soft, #23262C);
+}
+.hz-mode:disabled { opacity: 0.4; cursor: default; }
+/* 模式色与内机卡一致: 制冷蓝/制热橙/送风青/自动蓝紫/除湿紫 */
+.hz-mode.on.hzm-cool { color: #38d6ff; border-color: color-mix(in srgb, #38d6ff 55%, transparent); background: color-mix(in srgb, #38d6ff 14%, var(--v2-surf-2)); }
+.hz-mode.on.hzm-heat { color: #ff8a4d; border-color: color-mix(in srgb, #ff8a4d 55%, transparent); background: color-mix(in srgb, #ff8a4d 14%, var(--v2-surf-2)); }
+.hz-mode.on.hzm-fan  { color: #4ce0be; border-color: color-mix(in srgb, #4ce0be 55%, transparent); background: color-mix(in srgb, #4ce0be 14%, var(--v2-surf-2)); }
+.hz-mode.on.hzm-auto { color: #7db6ff; border-color: color-mix(in srgb, #7db6ff 55%, transparent); background: color-mix(in srgb, #7db6ff 14%, var(--v2-surf-2)); }
+.hz-mode.on.hzm-dry  { color: #9d8bff; border-color: color-mix(in srgb, #9d8bff 55%, transparent); background: color-mix(in srgb, #9d8bff 14%, var(--v2-surf-2)); }
+.hz-busy-tip { font-size: 12px; color: var(--v2-primary); }
+@media (max-width: 1600px) { .hz-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 1100px) { .hz-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px)  { .hz-grid { grid-template-columns: 1fr; gap: 8px; } .hz-card { padding: 12px 14px; } }
 
 /* ---- 快选条 ---- */
 .hv-quick {
