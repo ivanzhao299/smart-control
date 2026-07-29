@@ -21,6 +21,7 @@ import {
 } from 'lucide-vue-next';
 import { mediaService, type MediaItem, type OrphanMediaItem, MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
 import { onlineMusicService, type OnlineTrack } from '@/services/online-music.service';
+import { baiduPanService, type PanFile, type PanStatus, type PanAuthStart } from '@/services/baidu-pan.service';
 import { usePlaybackStore } from '@/stores/playback';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { absUrl } from '@/services/http';
@@ -422,6 +423,101 @@ async function downloadOnline(t: OnlineTrack): Promise<void> {
   } finally { onlineBusyPath.value = null; }
 }
 
+// ── 百度网盘 (2026-07-29 业主: "把B做出来") ──
+// 三步态: 未配置(粘 AppKey/SecretKey) → 未授权(设备码, 手机输码) → 已授权(浏览+代下载)。
+// 下载在 GK9000 服务器侧流式落盘, 这里 2s 轮询进度; 完成自动入媒体库。
+const panDialog = ref(false);
+const panStatus = ref<PanStatus | null>(null);
+const panCfg = ref({ appKey: '', secretKey: '' });
+const panAuth = ref<PanAuthStart | null>(null);
+const panAuthHint = ref('');
+const panDir = ref('/');
+const panEntries = ref<PanFile[]>([]);
+const panLoading = ref(false);
+const panErr = ref('');
+let panPollTimer: number | undefined;
+
+async function openPanDialog(): Promise<void> {
+  panDialog.value = true;
+  panErr.value = '';
+  await refreshPanStatus();
+  if (panStatus.value?.authorized) await panList(panDir.value);
+  schedulePanPoll();
+}
+function closePanDialog(): void {
+  panDialog.value = false;
+  window.clearTimeout(panPollTimer);
+  panAuth.value = null;
+}
+async function refreshPanStatus(): Promise<void> {
+  try { panStatus.value = await baiduPanService.status(); } catch (e) { panErr.value = (e as Error).message; }
+}
+/** 弹窗开着就 2s 轮询: 授权等待 + 下载进度都靠它推进 */
+function schedulePanPoll(): void {
+  window.clearTimeout(panPollTimer);
+  if (!panDialog.value) return;
+  panPollTimer = window.setTimeout(async () => {
+    if (panAuth.value && !panStatus.value?.authorized) {
+      try {
+        const r = await baiduPanService.authPoll();
+        if (r.authorized) {
+          panAuth.value = null;
+          ElMessage.success('百度网盘授权成功');
+          await refreshPanStatus();
+          await panList('/');
+        } else { panAuthHint.value = r.pending ?? '等待手机确认…'; }
+      } catch (e) { panAuthHint.value = (e as Error).message; }
+    } else if (panStatus.value?.download.active) {
+      const before = panStatus.value.download.last?.at;
+      await refreshPanStatus();
+      const last = panStatus.value?.download.last;
+      if (last && last.at !== before && !panStatus.value?.download.active) {
+        (last.ok ? ElMessage.success : ElMessage.error)(`「${last.name}」${last.message}`);
+        if (last.ok) { void refresh(); await panList(panDir.value); }
+      }
+    }
+    schedulePanPoll();
+  }, 2000);
+}
+async function panSaveConfig(): Promise<void> {
+  if (!panCfg.value.appKey.trim() || !panCfg.value.secretKey.trim()) { ElMessage.warning('AppKey 和 SecretKey 都要填'); return; }
+  try {
+    await baiduPanService.saveConfig(panCfg.value.appKey, panCfg.value.secretKey);
+    panCfg.value = { appKey: '', secretKey: '' };
+    ElMessage.success('已保存, 点「开始授权」用手机完成授权');
+    await refreshPanStatus();
+  } catch (e) { ElMessage.error((e as Error).message); }
+}
+async function panStartAuth(): Promise<void> {
+  try {
+    panAuth.value = await baiduPanService.authStart();
+    panAuthHint.value = '等待手机确认…';
+  } catch (e) { ElMessage.error((e as Error).message); }
+}
+async function panList(dir: string): Promise<void> {
+  panLoading.value = true;
+  panErr.value = '';
+  try {
+    const r = await baiduPanService.list(dir);
+    panDir.value = r.dir;
+    panEntries.value = r.entries;
+  } catch (e) { panErr.value = (e as Error).message; }
+  finally { panLoading.value = false; }
+}
+function panUp(): void {
+  if (panDir.value === '/') return;
+  const parts = panDir.value.split('/').filter(Boolean);
+  parts.pop();
+  void panList('/' + parts.join('/'));
+}
+async function panDownload(f: PanFile): Promise<void> {
+  try {
+    await baiduPanService.download(f.fsId, f.name);
+    ElMessage.success(`「${f.name}」开始下载, 完成后自动入媒体库`);
+    await refreshPanStatus();
+  } catch (e) { ElMessage.error((e as Error).message); }
+}
+
 // ── 收编服务器上手动拷进来的文件 (业主 RDP 进服务器直接把视频丢进 media 文件夹,
 // 没走上传接口, 数据库不认识, PWA 自然看不到它 —— 媒体库从来只认数据库记录,
 // 不扫盘。给一个"扫描"入口手动认领, 跟"从媒体库选"同一个原则: 不自动收编。) ──
@@ -550,6 +646,9 @@ onMounted(async () => {
         </button>
         <button class="v2-quick" title="FreePD 无版权音乐 (CC0), 服务器代下载入库" @click="openOnlineDialog">
           <Music :size="14" :stroke-width="2" /> 在线曲库
+        </button>
+        <button class="v2-quick" title="浏览你的百度网盘, 服务器代下载入库" @click="openPanDialog">
+          <FolderOpen :size="14" :stroke-width="2" /> 百度网盘
         </button>
         <button class="v2-quick" title="服务器上手动拷进 media 文件夹、还没进媒体库的文件" @click="openOrphanDialog">
           <RefreshCcw :size="14" :stroke-width="2" /> 扫描服务器新文件
@@ -805,6 +904,85 @@ onMounted(async () => {
         <div class="wb-actions">
           <button class="v2-quick" @click="onlineDialog = false">关闭</button>
         </div>
+      </div>
+    </div>
+
+    <!-- 百度网盘 dialog (2026-07-29): 配置 → 设备码授权 → 浏览 → 服务器代下载 -->
+    <div v-if="panDialog" class="preview-mask" @click.self="closePanDialog">
+      <div class="webpage-box om-box">
+        <div class="wb-title"><FolderOpen :size="18" :stroke-width="1.8" /> 百度网盘</div>
+
+        <!-- 态1: 未配置 -->
+        <template v-if="panStatus && !panStatus.configured">
+          <div class="wb-hint">
+            首次使用: 到 <b>pan.baidu.com/union</b> 注册个人开发者并「创建应用」,
+            把应用的 AppKey 和 SecretKey 粘到下面 (只需一次, 存在服务器上)。
+          </div>
+          <label class="wb-label">AppKey</label>
+          <input v-model="panCfg.appKey" class="wb-input" placeholder="应用的 API Key" />
+          <label class="wb-label">SecretKey</label>
+          <input v-model="panCfg.secretKey" class="wb-input" placeholder="应用的 Secret Key" />
+          <div class="wb-actions">
+            <button class="v2-quick" @click="closePanDialog">关闭</button>
+            <button class="v2-quick primary" @click="panSaveConfig">保存</button>
+          </div>
+        </template>
+
+        <!-- 态2: 已配置未授权 -->
+        <template v-else-if="panStatus && !panStatus.authorized">
+          <div v-if="!panAuth" class="wb-hint">
+            已配置应用, 还差一步授权你的百度账号 (手机上确认一次即可, 长期有效)。
+          </div>
+          <div v-if="panAuth" class="pan-code-box">
+            <div class="pan-code v2-inter">{{ panAuth.userCode }}</div>
+            <div class="wb-hint">
+              手机浏览器打开 <b>{{ panAuth.verificationUrl }}</b><br />
+              登录你的百度账号 → 输入上面的授权码 → 确认。<br />
+              <span class="pan-wait">{{ panAuthHint }}</span>
+            </div>
+          </div>
+          <div class="wb-actions">
+            <button class="v2-quick" @click="closePanDialog">关闭</button>
+            <button class="v2-quick primary" @click="panStartAuth">{{ panAuth ? '重新获取授权码' : '开始授权' }}</button>
+          </div>
+        </template>
+
+        <!-- 态3: 已授权 → 浏览 -->
+        <template v-else-if="panStatus">
+          <div class="pan-bar">
+            <button class="v2-quick" :disabled="panDir === '/' || panLoading" @click="panUp">↑ 上级</button>
+            <span class="pan-path" :title="panDir">{{ panDir }}</span>
+            <button class="v2-quick" :disabled="panLoading" @click="panList(panDir)"><RefreshCcw :size="13" /></button>
+          </div>
+          <div v-if="panStatus.download.active" class="pan-dl">
+            正在下载「{{ panStatus.download.active.name }}」
+            {{ (panStatus.download.active.receivedBytes / 1048576).toFixed(1) }}MB<template v-if="panStatus.download.active.totalBytes">
+              / {{ (panStatus.download.active.totalBytes / 1048576).toFixed(1) }}MB</template> …
+          </div>
+          <div v-if="panErr" class="orphan-empty">{{ panErr }}</div>
+          <div v-else-if="panLoading" class="orphan-empty">读取中…</div>
+          <div v-else-if="panEntries.length === 0" class="orphan-empty">这个文件夹是空的</div>
+          <div v-else class="orphan-list om-list">
+            <div v-for="f in panEntries" :key="f.fsId" class="orphan-item">
+              <component :is="f.isDir ? FolderOpen : (f.category === 2 ? Music : f.category === 1 ? Film : ImageIcon)" :size="15" :stroke-width="1.8" />
+              <span v-if="f.isDir" class="orphan-name pan-dir" @click="panList(f.path)">{{ f.name }}/</span>
+              <span v-else class="orphan-name" :title="f.name">{{ f.name }}</span>
+              <span v-if="!f.isDir" class="orphan-size">{{ fmtSize(f.sizeBytes) }}</span>
+              <span v-if="f.downloaded" class="om-done">已入库</span>
+              <button
+                v-else-if="!f.isDir && f.ingestible"
+                class="v2-quick primary orphan-import-btn"
+                :disabled="!!panStatus.download.active"
+                @click="panDownload(f)"
+              >下载</button>
+            </div>
+          </div>
+          <div class="wb-actions">
+            <button class="v2-quick" @click="closePanDialog">关闭</button>
+          </div>
+        </template>
+
+        <div v-else class="orphan-empty">读取状态…</div>
       </div>
     </div>
 
@@ -1124,6 +1302,22 @@ onMounted(async () => {
 .om-genre-tag { flex: 0 0 auto; font-size: 11px; color: var(--v2-text-3); padding: 1px 8px; border-radius: 999px; background: var(--v2-surf-2, #1A1D22); }
 .om-done { flex: 0 0 auto; font-size: 12px; color: var(--v2-success, #3FBF87); }
 .om-more { font-size: 12px; color: var(--v2-text-3); text-align: center; padding: 8px 0 2px; }
+
+/* 百度网盘 (2026-07-29) */
+.pan-code-box { text-align: center; padding: 8px 0 4px; }
+.pan-code {
+  display: inline-block; font-size: 34px; font-weight: 700; letter-spacing: 8px;
+  color: var(--v2-primary); padding: 8px 20px; border-radius: 10px;
+  background: var(--v2-primary-soft); margin-bottom: 8px;
+}
+.pan-wait { color: var(--v2-warning); }
+.pan-bar { display: flex; align-items: center; gap: 8px; margin: 4px 0 6px; }
+.pan-path { flex: 1; min-width: 0; font-size: 12px; color: var(--v2-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
+.pan-dir { cursor: pointer; color: var(--v2-primary); }
+.pan-dl {
+  font-size: 12px; color: var(--v2-primary); padding: 6px 10px; border-radius: 8px;
+  background: var(--v2-primary-soft); margin-bottom: 6px;
+}
 .orphan-empty { padding: 20px; text-align: center; font-size: 13px; color: var(--v2-text-3); }
 .orphan-list { display: flex; flex-direction: column; gap: 6px; max-height: 46vh; overflow-y: auto; margin-top: 6px; }
 .orphan-item {

@@ -302,6 +302,37 @@ export class MediaService implements OnModuleInit {
     return this.repo.save(saved);
   }
 
+  /**
+   * 服务器侧来源从**磁盘临时文件**入库 (百度网盘代下载等大文件用 — 流式落盘后
+   * 挪进正式位置, 不像 ingestFromBuffer 把整个文件压进内存)。
+   * rename 跨盘符会 EXDEV, 失败自动退化为 copy+unlink。
+   */
+  async ingestFromFile(originalName: string, mimeType: string, tmpPath: string, uploader: string, remark?: string): Promise<MediaAsset> {
+    const kind = this.classifyKind(mimeType, originalName);
+    if (!kind) {
+      await this.unlinkSafe(tmpPath);
+      throw new BadRequestException(`不支持的文件类型: ${mimeType} / ${originalName}`);
+    }
+    const stat = await fs.stat(tmpPath);
+    const safeName = this.safeFilename(originalName);
+    const saved = await this.repo.save(this.repo.create({
+      originalName, safeName, path: '', thumbPath: null, kind, mimeType,
+      sizeBytes: stat.size, durationSec: null, resolution: null,
+      remark: remark ?? null, uploader, lastPlayedAt: null,
+    }));
+    const finalDir = join(this.mediaRoot, String(saved.id));
+    const finalPath = join(finalDir, safeName);
+    await fs.mkdir(finalDir, { recursive: true });
+    try {
+      await fs.rename(tmpPath, finalPath);
+    } catch {
+      await fs.copyFile(tmpPath, finalPath);
+      await this.unlinkSafe(tmpPath);
+    }
+    saved.path = finalPath;
+    return this.repo.save(saved);
+  }
+
   /** 全部素材的原始文件名 (在线曲库标"已入库"用, 只拉一列) */
   async listOriginalNames(): Promise<string[]> {
     const rows = await this.repo.find({ select: { originalName: true } as never });
