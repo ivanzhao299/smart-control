@@ -284,6 +284,36 @@ export class MediaService implements OnModuleInit {
     return this.repo.save(saved);
   }
 
+  /** 服务器侧来源 (在线曲库下载等) 从内存 buffer 入库 — 目录布局与 ingest 一致 */
+  async ingestFromBuffer(originalName: string, mimeType: string, buf: Buffer, uploader: string, remark?: string): Promise<MediaAsset> {
+    const kind = this.classifyKind(mimeType, originalName);
+    if (!kind) throw new BadRequestException(`不支持的文件类型: ${mimeType}`);
+    const safeName = this.safeFilename(originalName);
+    const saved = await this.repo.save(this.repo.create({
+      originalName, safeName, path: '', thumbPath: null, kind, mimeType,
+      sizeBytes: buf.length, durationSec: null, resolution: null,
+      remark: remark ?? null, uploader, lastPlayedAt: null,
+    }));
+    const finalDir = join(this.mediaRoot, String(saved.id));
+    const finalPath = join(finalDir, safeName);
+    await fs.mkdir(finalDir, { recursive: true });
+    await fs.writeFile(finalPath, buf);
+    saved.path = finalPath;
+    return this.repo.save(saved);
+  }
+
+  /** 全部素材的原始文件名 (在线曲库标"已入库"用, 只拉一列) */
+  async listOriginalNames(): Promise<string[]> {
+    const rows = await this.repo.find({ select: { originalName: true } as never });
+    return rows.map((r) => r.originalName);
+  }
+
+  /** 全部素材备注 (在线曲库靠备注里的溯源标识别中文名入库的曲子) */
+  async listRemarks(): Promise<Array<string | null>> {
+    const rows = await this.repo.find({ select: { remark: true } as never });
+    return rows.map((r) => r.remark);
+  }
+
   /**
    * 扫描 mediaRoot 里数据库不认识的文件 —— 业主直接 RDP 进服务器把视频拷进 media
    * 文件夹, 不走上传接口, 库里没有记录, PWA 自然看不到 (这不是 bug, 是媒体库从来

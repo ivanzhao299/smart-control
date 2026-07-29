@@ -32,6 +32,7 @@ import { TestCenterModule } from './modules/test-center/test-center.module';
 import { UatModule } from './modules/uat/uat.module';
 import { HardwareModule } from './modules/hardware/hardware.module';
 import { MediaModule } from './modules/media/media.module';
+import { OnlineMusicModule } from './modules/online-music/online-music.module';
 import { DriversModule } from './modules/drivers/drivers.module';
 import { BrandsModule } from './modules/brands/brands.module';
 import { SystemBrandingModule } from './modules/system-branding/system-branding.module';
@@ -77,6 +78,7 @@ import { ServicesModule } from './services/services.module';
     UatModule,
     HardwareModule,
     MediaModule,
+    OnlineMusicModule,
     DriversModule,
     BrandsModule,
     SystemBrandingModule,

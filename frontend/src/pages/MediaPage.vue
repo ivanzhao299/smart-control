@@ -20,6 +20,7 @@ import {
   AlignJustify,
 } from 'lucide-vue-next';
 import { mediaService, type MediaItem, type OrphanMediaItem, MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
+import { onlineMusicService, type OnlineTrack } from '@/services/online-music.service';
 import { usePlaybackStore } from '@/stores/playback';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { absUrl } from '@/services/http';
@@ -377,6 +378,50 @@ async function submitWebpage(): Promise<void> {
   }
 }
 
+// ── 在线曲库 (2026-07-29 业主: "不能在系统里搜索和下载吗") ──
+// FreePD 全库 1016 首 CC0 无版权音乐, 按分类浏览/关键词搜索, 点"下载"由 GK9000
+// 服务器代下载入媒体库 (平板只发指令, 不占终端流量)。
+const onlineDialog = ref(false);
+const onlineLoading = ref(false);
+const onlineTracks = ref<OnlineTrack[]>([]);
+const onlineGenres = ref<Array<{ key: string; label: string; count: number }>>([]);
+const onlineGenre = ref<string>('all');
+const onlineQ = ref('');
+const onlineBusyPath = ref<string | null>(null);
+const ONLINE_SHOW_CAP = 300;
+
+async function openOnlineDialog(): Promise<void> {
+  onlineDialog.value = true;
+  onlineLoading.value = true;
+  try {
+    const c = await onlineMusicService.catalog();
+    onlineTracks.value = c.tracks;
+    onlineGenres.value = c.genres;
+  } catch (e) {
+    ElMessage.error(`读取曲库失败: ${(e as Error).message}`);
+  } finally { onlineLoading.value = false; }
+}
+const onlineFiltered = computed(() => {
+  const q = onlineQ.value.trim().toLowerCase();
+  return onlineTracks.value.filter((t) =>
+    (onlineGenre.value === 'all' || t.genre === onlineGenre.value)
+    && (!q || t.name.toLowerCase().includes(q)));
+});
+const onlineShown = computed(() => onlineFiltered.value.slice(0, ONLINE_SHOW_CAP));
+
+async function downloadOnline(t: OnlineTrack): Promise<void> {
+  if (onlineBusyPath.value) return;
+  onlineBusyPath.value = t.path;
+  try {
+    const r = await onlineMusicService.download(t.path);
+    t.downloaded = true;
+    ElMessage.success(`「${r.originalName}」已入媒体库 (${fmtSize(r.sizeBytes)})`);
+    void refresh();   // 媒体列表里马上能看到
+  } catch (e) {
+    ElMessage.error(`下载失败: ${(e as Error).message}`);
+  } finally { onlineBusyPath.value = null; }
+}
+
 // ── 收编服务器上手动拷进来的文件 (业主 RDP 进服务器直接把视频丢进 media 文件夹,
 // 没走上传接口, 数据库不认识, PWA 自然看不到它 —— 媒体库从来只认数据库记录,
 // 不扫盘。给一个"扫描"入口手动认领, 跟"从媒体库选"同一个原则: 不自动收编。) ──
@@ -502,6 +547,9 @@ onMounted(async () => {
         </label>
         <button class="v2-quick" @click="openWebpageDialog">
           <Globe :size="14" :stroke-width="2" /> 添加网页
+        </button>
+        <button class="v2-quick" title="FreePD 无版权音乐 (CC0), 服务器代下载入库" @click="openOnlineDialog">
+          <Music :size="14" :stroke-width="2" /> 在线曲库
         </button>
         <button class="v2-quick" title="服务器上手动拷进 media 文件夹、还没进媒体库的文件" @click="openOrphanDialog">
           <RefreshCcw :size="14" :stroke-width="2" /> 扫描服务器新文件
@@ -715,6 +763,47 @@ onMounted(async () => {
         <div class="wb-actions">
           <button class="v2-quick" @click="webpageDialog = false">取消</button>
           <button class="v2-quick primary" @click="submitWebpage">添加</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 在线曲库 dialog (2026-07-29): FreePD CC0 全库浏览/搜索/服务器代下载 -->
+    <div v-if="onlineDialog" class="preview-mask" @click.self="onlineDialog = false">
+      <div class="webpage-box om-box">
+        <div class="wb-title"><Music :size="18" :stroke-width="1.8" /> 在线曲库 · 无版权音乐</div>
+        <div class="wb-hint">
+          FreePD 全库 {{ onlineTracks.length }} 首, 全部 CC0 公有领域 — 商用免授权免署名。
+          点"下载"由服务器代下载入媒体库, 完成后在音响页背景音乐"从媒体库选"即可播。
+        </div>
+        <div class="om-genres">
+          <button class="om-chip" :class="{ on: onlineGenre === 'all' }" @click="onlineGenre = 'all'">全部</button>
+          <button
+            v-for="g in onlineGenres" :key="g.key"
+            class="om-chip" :class="{ on: onlineGenre === g.key }"
+            @click="onlineGenre = g.key"
+          >{{ g.label }} <i>{{ g.count }}</i></button>
+        </div>
+        <input v-model="onlineQ" class="wb-input" placeholder="搜索曲名 (英文), 如 piano / relax / jazz" />
+        <div v-if="onlineLoading" class="orphan-empty">读取曲库…</div>
+        <div v-else-if="onlineFiltered.length === 0" class="orphan-empty">没有匹配的曲子</div>
+        <div v-else class="orphan-list om-list">
+          <div v-for="t in onlineShown" :key="t.path" class="orphan-item">
+            <Music :size="15" :stroke-width="1.8" />
+            <span class="orphan-name" :title="t.path">{{ t.name }}</span>
+            <span class="om-genre-tag">{{ onlineGenres.find((g) => g.key === t.genre)?.label ?? t.genre }}</span>
+            <span v-if="t.downloaded" class="om-done">已入库</span>
+            <button
+              v-else class="v2-quick primary orphan-import-btn"
+              :disabled="onlineBusyPath !== null"
+              @click="downloadOnline(t)"
+            >{{ onlineBusyPath === t.path ? '下载中…' : '下载' }}</button>
+          </div>
+          <div v-if="onlineFiltered.length > ONLINE_SHOW_CAP" class="om-more">
+            还有 {{ onlineFiltered.length - ONLINE_SHOW_CAP }} 首未显示 — 输入关键词或选分类缩小范围
+          </div>
+        </div>
+        <div class="wb-actions">
+          <button class="v2-quick" @click="onlineDialog = false">关闭</button>
         </div>
       </div>
     </div>
@@ -1016,6 +1105,22 @@ onMounted(async () => {
 .wb-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
 
 .orphan-box { width: min(560px, 90vw); max-height: 80vh; }
+
+/* 在线曲库 (2026-07-29) */
+.om-box { width: min(640px, 94vw); max-height: 84vh; }
+.om-genres { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
+.om-chip {
+  padding: 5px 11px; border-radius: 999px; cursor: pointer; font-size: 12px;
+  background: var(--v2-surf-2, #1A1D22); color: var(--v2-text-1);
+  border: 1px solid var(--v2-border-soft, #23262C);
+}
+.om-chip i { font-style: normal; font-size: 10px; color: var(--v2-text-3); margin-left: 2px; }
+.om-chip.on { background: var(--v2-primary); border-color: var(--v2-primary); color: var(--v2-on-primary, #fff); }
+.om-chip.on i { color: color-mix(in srgb, var(--v2-on-primary, #fff) 75%, transparent); }
+.om-list { max-height: 44vh; }
+.om-genre-tag { flex: 0 0 auto; font-size: 11px; color: var(--v2-text-3); padding: 1px 8px; border-radius: 999px; background: var(--v2-surf-2, #1A1D22); }
+.om-done { flex: 0 0 auto; font-size: 12px; color: var(--v2-success, #3FBF87); }
+.om-more { font-size: 12px; color: var(--v2-text-3); text-align: center; padding: 8px 0 2px; }
 .orphan-empty { padding: 20px; text-align: center; font-size: 13px; color: var(--v2-text-3); }
 .orphan-list { display: flex; flex-direction: column; gap: 6px; max-height: 46vh; overflow-y: auto; margin-top: 6px; }
 .orphan-item {
