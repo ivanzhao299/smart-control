@@ -28,6 +28,8 @@ export interface PlaybackChannelView {
   displayFit: PlaybackDisplayFit;
   /** 文档当前页 (kind='doc'; 手机翻页条驱动, 守护/kiosk 跟随) */
   docPage: number;
+  /** 文档画面缩放 % (100=铺满; PPT 放映窗口/kiosk PDF 都吃) */
+  docZoom: number;
   /** 文档总页数 (放映守护回写; null=还没算出来) */
   currentMediaPageCount: number | null;
   paused: boolean;
@@ -52,6 +54,9 @@ export class PlaybackService implements OnModuleInit {
 
   /** 启动时确保 slot=1 + slot=2 两条记录存在 (现场硬件就两路). 没有就插默认 */
   async onModuleInit(): Promise<void> {
+    // docZoom 列自愈 (2026-07-29): 与迁移双保险, 防 watcher 部署不跑迁移复发 #22
+    await this.repo.query(`ALTER TABLE "playback_channels" ADD COLUMN "docZoom" integer NOT NULL DEFAULT 100`)
+      .catch(() => { /* duplicate column = 已存在, 正常 */ });
     const seeds: Array<Pick<PlaybackChannel, 'slot' | 'name' | 'outputKind'>> = [
       { slot: 1, name: 'LED 大屏 (HDMI1)', outputKind: 'led' },
       { slot: 2, name: '投影仪 (HDMI2)', outputKind: 'projector' },
@@ -117,6 +122,7 @@ export class PlaybackService implements OnModuleInit {
     await this.repo.update({ slot }, {
       currentMediaId: mediaId,
       docPage: 1, // 新内容从第一页开始 (文档投屏)
+      docZoom: 100, // 缩放回铺满
       currentPlaylistId: null,
       playlistIndex: 0,
       startedAt: new Date(),
@@ -415,6 +421,17 @@ export class PlaybackService implements OnModuleInit {
     return view;
   }
 
+  /** 文档画面缩放 (2026-07-29 业主: PPT 要能全屏/放大缩小)。50-200 夹取, 100=铺满 */
+  async setDocZoom(slot: number, zoom: number): Promise<PlaybackChannelView> {
+    const row = await this.repo.findOne({ where: { slot } });
+    if (!row) throw new NotFoundException(`slot=${slot} 不存在`);
+    row.docZoom = Math.max(50, Math.min(Math.round(zoom) || 100, 200));
+    await this.repo.save(row);
+    const view = await this.toView(row);
+    this.broadcast(view);
+    return view;
+  }
+
   /** 画面铺放模式 (fill/contain/cover) — WS 广播, kiosk 即时生效, 状态持久 */
   async setDisplayFit(slot: number, fit: PlaybackDisplayFit): Promise<PlaybackChannelView> {
     const res = await this.repo.update({ slot }, { displayFit: fit });
@@ -481,6 +498,7 @@ export class PlaybackService implements OnModuleInit {
       playlistIndex: row.playlistIndex,
       displayFit: (row.displayFit ?? 'fill') as PlaybackDisplayFit,
       docPage: row.docPage ?? 1,
+      docZoom: row.docZoom ?? 100,
       currentMediaPageCount: pageCount,
       startedAt: row.startedAt ? row.startedAt.toISOString() : null,
       loopMode: row.loopMode,

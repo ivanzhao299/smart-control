@@ -56,6 +56,11 @@ export async function setDocPage(slot: number, page: number): Promise<PlaybackCh
   return api.post<PlaybackChannelView>(`/playback/channels/${slot}/doc-page`, { page });
 }
 
+/** 文档画面缩放 (2026-07-29): 100=铺满, 50-200; PPT 放映窗口/kiosk PDF 都跟随 */
+export async function setDocZoom(slot: number, zoom: number): Promise<PlaybackChannelView> {
+  return api.post<PlaybackChannelView>(`/playback/channels/${slot}/doc-zoom`, { zoom });
+}
+
 export async function channelHeartbeat(slot: number): Promise<void> {
   await api.post<null>(`/playback/channels/${slot}/heartbeat`, null);
 }

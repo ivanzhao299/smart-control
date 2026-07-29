@@ -516,6 +516,8 @@ export interface PlaybackChannelView {
   displayFit: 'fill' | 'contain' | 'cover';
   /** 文档当前页 (kind='doc') */
   docPage: number;
+  /** 文档画面缩放 % (100=铺满目标屏; PPT 放映窗口/kiosk PDF 都吃) */
+  docZoom: number;
   /** 文档总页数 (守护回写前为 null) */
   currentMediaPageCount: number | null;
   paused: boolean;

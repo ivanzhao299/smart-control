@@ -339,11 +339,13 @@ function onAudioEnded(): void {
       <div class="audio-wave"><span></span><span></span><span></span><span></span><span></span></div>
     </div>
 
-    <!-- 文档: Word=PDF 逐页画布; PPT=原生放映占位 (放映窗口盖在上面) -->
+    <!-- 文档: Word=PDF 逐页画布; PPT=原生放映占位 (放映窗口盖在上面)。
+         docZoom (2026-07-29): 手机端缩放按钮 → CSS scale 跟随, 100=铺满 -->
     <canvas
       v-else-if="isDoc && channel?.currentMediaUrl"
       ref="docCanvas"
       class="media-el doc-canvas"
+      :style="{ transform: `scale(${(channel?.docZoom ?? 100) / 100})`, transformOrigin: 'center center' }"
     ></canvas>
     <div v-else-if="isDoc" class="audio-now">
       <div class="audio-icon">📽️</div>

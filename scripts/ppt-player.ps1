@@ -32,6 +32,7 @@ public static class PptWin {
   [DllImport("user32.dll", CharSet=CharSet.Auto)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
   [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h, int x, int y, int w, int hgt, bool repaint);
   [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+  [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
   public static readonly IntPtr TOPMOST = new IntPtr(-1);
   delegate bool EnumProc(IntPtr h, IntPtr lp);
   public static List<long> FindShowWindows() {
@@ -47,8 +48,40 @@ public static class PptWin {
 }
 '@
 
-$S = @{ 1 = @{ id = 0; pres = $null; hwnd = 0; page = 1 }; 2 = @{ id = 0; pres = $null; hwnd = 0; page = 1 } }
+$S = @{ 1 = @{ id = 0; pres = $null; hwnd = 0; page = 1; zoom = 100 }; 2 = @{ id = 0; pres = $null; hwnd = 0; page = 1; zoom = 100 } }
 $slotX = @{ 1 = 0; 2 = 1920 }
+
+# ---- 真实屏幕边界 (2026-07-29 业主: "PPT 页面放大未全屏整页显示") ----
+# 根因: 原来放映窗口硬编码 1920×1080, 而投影口 (slot2) 实际输出分辨率可能是
+# 1280×720 等 —— 窗口比屏大, 画面被裁掉一圈, 观感就是"放大了没显示全"。
+# 修: 按系统枚举的真实显示器边界摆窗; DPI aware 防缩放系数再糊一层。
+try { [void][PptWin]::SetProcessDPIAware() } catch { }
+[void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms')
+function Get-SlotBounds([int]$slot) {
+  try {
+    $screens = [System.Windows.Forms.Screen]::AllScreens
+    $primary = $screens | Where-Object { $_.Primary } | Select-Object -First 1
+    if (-not $primary) { $primary = $screens[0] }
+    $secondary = $screens | Where-Object { -not $_.Primary } | Select-Object -First 1
+    $sc = if ($slot -eq 2 -and $secondary) { $secondary } else { $primary }
+    return [pscustomobject]@{ X = $sc.Bounds.X; Y = $sc.Bounds.Y; W = $sc.Bounds.Width; H = $sc.Bounds.Height }
+  } catch {
+    return [pscustomobject]@{ X = $slotX[$slot]; Y = 0; W = 1920; H = 1080 }   # 枚举失败回退旧摆位
+  }
+}
+
+# 放映窗口几何 = 目标屏边界 × 缩放% (100=铺满; >100 放大裁边; <100 缩小留边, 居中)
+function Apply-Geometry([int]$slot, [int]$zoomPct) {
+  $st = $S[$slot]
+  if (-not $st.hwnd) { return }
+  $b = Get-SlotBounds $slot
+  $z = [Math]::Max(50, [Math]::Min(200, $zoomPct))
+  $w = [int]($b.W * $z / 100); $h = [int]($b.H * $z / 100)
+  $x = [int]($b.X - ($w - $b.W) / 2); $y = [int]($b.Y - ($h - $b.H) / 2)
+  [void][PptWin]::MoveWindow([IntPtr]$st.hwnd, $x, $y, $w, $h, $true)
+  [void][PptWin]::SetWindowPos([IntPtr]$st.hwnd, [PptWin]::TOPMOST, $x, $y, $w, $h, 0x0040)
+  Log ("[ppt] slot" + $slot + " geometry: screen " + $b.W + "x" + $b.H + "@" + $b.X + "," + $b.Y + " zoom=" + $z + "% -> " + $w + "x" + $h + "@" + $x + "," + $y)
+}
 $pptApp = $null
 $convertTried = @{}
 
@@ -69,10 +102,10 @@ function Close-Show([int]$slot) {
     try { $st.pres.Close() } catch { }
     Log ("[ppt] slot" + $slot + " show closed (media " + $st.id + ")")
   }
-  $st.pres = $null; $st.id = 0; $st.hwnd = 0; $st.page = 1
+  $st.pres = $null; $st.id = 0; $st.hwnd = 0; $st.page = 1; $st.zoom = 100
 }
 
-function Start-Show([int]$slot, [int]$mediaId, [string]$absPath, [int]$page) {
+function Start-Show([int]$slot, [int]$mediaId, [string]$absPath, [int]$page, [int]$zoom) {
   $app = Get-PptApp
   if ($null -eq $app) { return }
   $before = [PptWin]::FindShowWindows()
@@ -86,11 +119,10 @@ function Start-Show([int]$slot, [int]$mediaId, [string]$absPath, [int]$page) {
     $after = [PptWin]::FindShowWindows()
     $new = $after | Where-Object { $before -notcontains $_ } | Select-Object -First 1
     if ($new) {
-      [void][PptWin]::MoveWindow([IntPtr]$new, $slotX[$slot], 0, 1920, 1080, $true)
-      [void][PptWin]::SetWindowPos([IntPtr]$new, [PptWin]::TOPMOST, $slotX[$slot], 0, 1920, 1080, 0x0040)
       $S[$slot].hwnd = $new
+      Apply-Geometry $slot $zoom      # 按真实屏幕边界铺放 (根治"放大未全屏")
     }
-    $S[$slot].pres = $pres; $S[$slot].id = $mediaId; $S[$slot].page = 1
+    $S[$slot].pres = $pres; $S[$slot].id = $mediaId; $S[$slot].page = 1; $S[$slot].zoom = $zoom
     $count = 0; try { $count = $pres.Slides.Count } catch { }
     if ($count -gt 0) {
       try { Invoke-RestMethod -Uri ($api + '/media/' + $mediaId + '/doc-meta') -Method Post -ContentType 'application/json' -Body ('{"pageCount":' + $count + '}') | Out-Null } catch { }
@@ -136,15 +168,23 @@ while ($true) {
     }
     $info = $null
     try { $info = (Invoke-RestMethod -Uri ($api + '/media/' + $ch.currentMediaId + '/doc-info') -TimeoutSec 4).data } catch { continue }
+    $chZoom = 100; try { if ($ch.docZoom) { $chZoom = [int]$ch.docZoom } } catch { }
     if ($info.ext -in @('ppt', 'pptx')) {
       if ($st.id -ne $ch.currentMediaId) {
         Close-Show $slot
-        Start-Show $slot $ch.currentMediaId $info.absPath ([int]$ch.docPage)
-      } elseif ($st.pres -and ([int]$ch.docPage) -ne $st.page) {
-        try {
-          $st.pres.SlideShowWindow.View.GotoSlide([int]$ch.docPage)
-          $st.page = [int]$ch.docPage
-        } catch { Log ("[ppt] slot" + $slot + " goto FAILED: " + $_.Exception.Message); Close-Show $slot }
+        Start-Show $slot $ch.currentMediaId $info.absPath ([int]$ch.docPage) $chZoom
+      } else {
+        if ($st.pres -and ([int]$ch.docPage) -ne $st.page) {
+          try {
+            $st.pres.SlideShowWindow.View.GotoSlide([int]$ch.docPage)
+            $st.page = [int]$ch.docPage
+          } catch { Log ("[ppt] slot" + $slot + " goto FAILED: " + $_.Exception.Message); Close-Show $slot }
+        }
+        # 缩放/全屏遥控 (2026-07-29): 手机端按钮改 docZoom, 这里跟随重摆窗口
+        if ($st.pres -and $chZoom -ne $st.zoom) {
+          Apply-Geometry $slot $chZoom
+          $st.zoom = $chZoom
+        }
       }
     } elseif ($info.ext -in @('doc', 'docx')) {
       if ($st.pres) { Close-Show $slot }

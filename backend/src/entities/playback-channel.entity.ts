@@ -89,6 +89,15 @@ export class PlaybackChannel {
   @Column({ type: 'int', default: 1 })
   docPage!: number;
 
+  /**
+   * 文档画面缩放百分比 (2026-07-29 业主: PPT 放映要能全屏/放大缩小)。
+   * 100 = 铺满目标屏; >100 放大 (边缘裁掉); <100 缩小 (四周留边)。
+   * PPT 原生放映由 ppt-player.ps1 按此调放映窗口几何; Word/PDF 由 kiosk 缩放。
+   * publish 新内容时重置 100。
+   */
+  @Column({ type: 'int', default: 100 })
+  docZoom!: number;
+
   /** 暂停标志 — bgm-player.ps1 轮询到后调 MCI pause/resume */
   @Column({ type: 'boolean', default: false })
   paused!: boolean;

@@ -31,12 +31,12 @@ import {
   ArrowLeft, MonitorPlay, Play, Pause, Square, SkipBack, SkipForward,
   Upload, ListMusic, History, Pencil, Trash2, Plus, Repeat, Repeat1, AlertTriangle, GripVertical, FolderOpen, X,
   Globe,
-  ChevronLeft, ChevronRight, Power,
+  ChevronLeft, ChevronRight, Power, ZoomIn, ZoomOut, Maximize,
 } from 'lucide-vue-next';
 import { usePlaybackStore } from '@/stores/playback';
 import {
   listPlaylist, addToPlaylist, renamePlaylistItem, removeFromPlaylist, reorderPlaylist,
-  listHistory, setDisplayFit, setDocPage, publishWelcome,
+  listHistory, setDisplayFit, setDocPage, setDocZoom, publishWelcome,
   type DisplayFit, type PlaylistItemView, type PlaybackHistoryView,
 } from '@/services/playback.service';
 import { projectorService } from '@/services/projector.service';
@@ -105,6 +105,29 @@ watch(() => ch.value?.currentMediaId, () => {
 const isDocPlaying = computed(() => ch.value?.currentMediaKind === 'doc' && !!ch.value?.currentMediaId);
 const docPage = computed(() => ch.value?.docPage ?? 1);
 const docTotal = computed(() => ch.value?.currentMediaPageCount ?? null);
+/** 文档画面缩放 (2026-07-29 业主: PPT 要能全屏/放大缩小/退出):
+ *  改 docZoom → WS → PPT 守护重摆放映窗口 / kiosk PDF 跟随 CSS 缩放。
+ *  100=铺满整屏 ("全屏"按钮即回 100); 步进 ±15, 范围 50-200。 */
+const docZoom = computed(() => ch.value?.docZoom ?? 100);
+let zoomBusy = false;
+async function applyDocZoom(z: number): Promise<void> {
+  if (zoomBusy) return;
+  zoomBusy = true;
+  try {
+    const v = await setDocZoom(SLOT.value, z);
+    playbackStore.handleWs({ type: 'playback_channel_changed', data: v } as never);
+  } catch (e) {
+    ElMessage.error(`缩放失败: ${(e as Error).message}`);
+  } finally { zoomBusy = false; }
+}
+/** 退出放映 — 结束文档放映, 屏幕回到播放器待机/原内容 (对应业主"退出全屏") */
+async function exitDocShow(): Promise<void> {
+  try {
+    await ElMessageBox.confirm(`退出文档放映?${props.title}将回到待机画面。`, '退出放映',
+      { type: 'warning', confirmButtonText: '退出', cancelButtonText: '取消' });
+  } catch { return; }
+  await stopPlayback();
+}
 let pageBusy = false;
 async function gotoDocPage(p: number): Promise<void> {
   if (pageBusy) return;
@@ -699,6 +722,21 @@ async function submitWebpage(): Promise<void> {
         <button class="pg-btn" :disabled="docTotal === null || docPage >= docTotal" @click="docTotal && gotoDocPage(docTotal)" title="最后一页">
           <SkipForward :size="15" />
         </button>
+        <!-- 缩放/全屏/退出 (2026-07-29 业主: PPT 放映控制补全) -->
+        <span class="pg-gap"></span>
+        <button class="pg-btn" :disabled="docZoom <= 50" title="缩小画面" @click="applyDocZoom(docZoom - 15)">
+          <ZoomOut :size="15" />
+        </button>
+        <span class="pg-zoom v2-inter" :class="{ hot: docZoom !== 100 }">{{ docZoom }}%</span>
+        <button class="pg-btn" :disabled="docZoom >= 200" title="放大画面" @click="applyDocZoom(docZoom + 15)">
+          <ZoomIn :size="15" />
+        </button>
+        <button class="pg-btn big" :disabled="docZoom === 100" title="铺满整屏显示" @click="applyDocZoom(100)">
+          <Maximize :size="15" /> 全屏
+        </button>
+        <button class="pg-btn exit" title="退出放映, 回到待机画面" @click="exitDocShow">
+          <X :size="15" /> 退出
+        </button>
       </div>
     </div><!-- /pc-sticky -->
 
@@ -1193,6 +1231,12 @@ async function submitWebpage(): Promise<void> {
 .pg-btn:disabled { opacity: .4; cursor: not-allowed; }
 .pg-num { font-size: 18px; font-weight: 700; min-width: 72px; text-align: center; color: var(--v2-text-1); }
 .pg-num i { font-style: normal; font-size: 13px; color: var(--v2-text-3); margin-left: 3px; }
+/* 缩放/全屏/退出 (2026-07-29) */
+.pg-gap { width: 1px; height: 22px; background: var(--v2-border-soft); margin: 0 4px; }
+.pg-zoom { font-size: 13px; font-weight: 600; min-width: 44px; text-align: center; color: var(--v2-text-2); }
+.pg-zoom.hot { color: var(--v2-warning); }
+.pg-btn.big { display: inline-flex; align-items: center; gap: 5px; }
+.pg-btn.exit { display: inline-flex; align-items: center; gap: 4px; color: var(--v2-danger); }
 /* ---- 电源开关 (标题栏"待机"行末尾, 时序器同款拨动开关) ---- */
 /* 报警插槽在卡片内占满整行, 显示在顶部 (投影融合器状态) */
 .now :deep(.out-bar) { flex-basis: 100%; width: 100%; }

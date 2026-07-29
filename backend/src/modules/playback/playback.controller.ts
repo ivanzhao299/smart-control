@@ -95,6 +95,18 @@ export class PlaybackController {
     return { message: '已翻页', data: await this.service.setDocPage(slot, page) };
   }
 
+  /** 文档画面缩放 (2026-07-29 业主: PPT 要能全屏/放大缩小)。100=铺满, 50-200 */
+  @Post('channels/:slot/doc-zoom')
+  @HttpCode(200)
+  async docZoom(
+    @Param('slot', ParseIntPipe) slot: number,
+    @Body() body: { zoom?: number } = {},
+  ) {
+    const zoom = Number(body?.zoom);
+    if (!Number.isFinite(zoom)) throw new BadRequestException('zoom 必须是数字 (50-200)');
+    return { message: '缩放已更新', data: await this.service.setDocZoom(slot, zoom) };
+  }
+
   /** 画面铺放模式 (业主 2026-07-25): fill=铺满拉伸(默认)/contain=保持比例/cover=裁切铺满 */
   @Post('channels/:slot/display-fit')
   @HttpCode(200)
