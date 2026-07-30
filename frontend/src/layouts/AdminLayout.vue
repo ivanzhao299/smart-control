@@ -522,6 +522,15 @@ async function exitToFront(): Promise<void> {
   .admin.sidebar-open .side {
     transform: translateX(0);
   }
+  /* 手机抽屉行距放宽 (2026-07-30 业主: "左边栏行间距太窄"): 桌面端"一屏装下"的
+     紧凑排布在手机抽屉里显挤, 抽屉下方本就大片留白 — 行高提到 ≥44px 触控标准,
+     行距/分组间距同步拉开。只影响 ≤600px 抽屉, 桌面/平板侧栏不动。 */
+  .menu { gap: 6px; padding: 10px 12px; }
+  .menu-section { padding: 16px 12px 6px; }
+  .menu-section:first-child { padding-top: 6px; }
+  .menu-item { padding: 13px 12px; font-size: 15px; }
+  .footer { padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); }
+  .footer .back { padding: 12px 0; }
   /* 遮罩 — 抽屉打开时盖在 main 区上, 点击关闭 */
   .sidebar-mask {
     display: block;
