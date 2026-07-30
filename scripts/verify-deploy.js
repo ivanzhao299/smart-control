@@ -443,6 +443,34 @@ async function main() {
   } catch (e) { console.log('  ' + RED('WARN') + ' 百度网盘 status 读取异常: ' + e.message); }
   console.log('');
 
+  // --- J2. 公网直连链路 (信息性) —— GK9000 出公网绕一圈回自己, 验证 erp 反代 ---
+  console.log('[公网直连] https://erp.cnjinhu.top → 跳板机 nginx → WireGuard → 本机 (信息性)');
+  const httpsProbe = (url) => new Promise((resolve) => {
+    try {
+      const https = require('https');
+      const req = https.get(url, { timeout: 8000, rejectUnauthorized: false }, (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => resolve({ code: res.statusCode, body: Buffer.concat(chunks).toString('utf8').slice(0, 200) }));
+      });
+      req.on('timeout', () => { req.destroy(); resolve({ code: 0, body: 'timeout 8s' }); });
+      req.on('error', (e) => resolve({ code: 0, body: e.message }));
+    } catch (e) { resolve({ code: 0, body: e.message }); }
+  });
+  for (const [label, url, expectSelf] of [
+    ['erp API 健康', 'https://erp.cnjinhu.top/api/system/health', true],
+    ['erp 前端页', 'https://erp.cnjinhu.top/control/', true],
+    ['主域(云端mock)', 'https://cnjinhu.top/control/api/system/health', false],
+  ]) {
+    const r = await httpsProbe(url);
+    if (r.code === 200) {
+      console.log(`  OK   ${label}: HTTP 200${expectSelf ? ' (公网链路通!)' : ''}`);
+    } else {
+      console.log('  ' + RED('WARN') + ` ${label}: ${r.code || '不通'} ${String(r.body).slice(0, 100)}`);
+    }
+  }
+  console.log('');
+
   // --- K. 系统体检 (信息性, 仅 Windows) —— 资源水位 + 进程泄漏扫描 + 磁盘 ---
   if (isWin) {
     console.log('[系统体检] 资源 / 进程泄漏 / 磁盘 (信息性)');

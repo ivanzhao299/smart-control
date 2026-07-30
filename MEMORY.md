@@ -55,10 +55,18 @@
   业主随后截图报错=「timeout after 15000ms」→ 定性为远程 WireGuard 慢链路
   （媒体页缩略图占满并发连接，状态请求排队超时）；百度网盘全部请求超时已放宽
   30s；已建议业主在现场 WiFi 完成一次性配置+授权。
-- 远程直连方案已提议待业主拍板：阿里云跳板机(123.57.220.65)做公网中转
-  （nginx/端口转发走已有 WireGuard 隧道），手机免开 WG、代理不受影响；
-  前提三件套=改掉 1234 弱密码+登录限流+安全组放行。备选：sing-box/Clash Meta
-  把 WG 合并进代理配置。等业主确认后动工。
+- **公网直连方案实施中（2026-07-30 业主拍板）**：复用交接文档里已有的
+  erp.cnjinhu.top HTTPS 域名（阿里云跳板机 nginx → WireGuard → GK9000）。
+  已交付：①全局鉴权门默认重开（07-24 关门原因已被令牌签名制根治；新增本机
+  loopback 豁免保 kiosk/watcher/探针；紧急关闭开关改为 CLIENT_AUTH_DISABLED=true）
+  ②跳板机幂等配置脚本 deploy/aliyun-public-proxy.sh（DNS/隧道自检+证书复用或
+  certbot 签发+反代 5173//api//ws/+登录 nginx 限流第二层）③verify 探针加
+  [公网直连] 段（GK9000 出公网绕回自己测 erp 全链路）④docs/PUBLIC_REMOTE_ACCESS.md
+  业主手册。登录限流 backend 侧本来就有（10 次/分/IP）；admin-restart 等危险端点
+  本来就是 loopback-only。**待业主动作**：跳板机粘脚本跑一次 + 后台改掉
+  1234/jinhu888 默认密码 + App 远程地址换 https://erp.cnjinhu.top 。
+  ⚠️ 媒体文件 /api/media/:id/file 仍免 token（img 标签带不了 header），敏感资料
+  别放媒体库，后续可做签名 URL。
 
 - App 连接体验三连改交付（0c3b935，双端 v1.1.4）：①连接中文字换 logo 呼吸+蓝弧
   动画（iOS/Android 都有，Android 原黑屏也盖上）；②现场/远程并行探测（最坏 ~3s），

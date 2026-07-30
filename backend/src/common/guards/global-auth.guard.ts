@@ -29,14 +29,11 @@ export class GlobalAuthGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    // 2026-07-24: 业主明确要求关闭"用户/业主鉴权"门 —— 现场频繁因 token 过期被踢出、
-    // 报"没有权限操作", 严重影响使用。默认放行**所有**请求。后台写接口仍由各自的
-    // @UseGuards(AdminGuard) 独立保护 (admin-auth / audio-config / power-circuits /
-    // light-zones / system-branding / app-release / client-auth), 这部分不受影响。
-    // ⚠️ 安全提示: 关闭后, 未单独挂 AdminGuard 的控制器 (devices / hardware / scenes /
-    // scheduler / media / audio / playback / lighting / hvac 等) 在网络可达范围内无鉴权。
-    // 要重新启用全局用户门: 设环境变量 CLIENT_AUTH_ENABLED=true。
-    if (process.env.CLIENT_AUTH_ENABLED !== 'true') return true;
+    // 2026-07-30: 公网直连 (erp.cnjinhu.top → GK9000) 上线, 鉴权门**默认开启**。
+    // 07-24 关门的原因 (token 过期频繁踢人) 已由令牌签名制根治 (INCIDENTS #22,
+    // 令牌跨重启存活), 不复存在。紧急排障可设 CLIENT_AUTH_DISABLED=true 临时关闭
+    // —— 公网暴露期间严禁长期关闭。
+    if (process.env.CLIENT_AUTH_DISABLED === 'true') return true;
 
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
@@ -45,6 +42,14 @@ export class GlobalAuthGuard implements CanActivate {
     if (isPublic) return true;
 
     const req = context.switchToHttp().getRequest<Request>();
+
+    // 本机 loopback 豁免: kiosk 播放器 / 运维脚本 (watcher 心跳、update.ps1、
+    // verify-deploy 探针、ppt/bgm-player 轮询) 都跑在 GK9000 本机且无 token。
+    // 公网/内网来的请求 remoteAddress 是网卡地址, 不可能是 loopback, 豁免不外泄。
+    const remoteAddr = req.socket?.remoteAddress ?? '';
+    if (remoteAddr === '127.0.0.1' || remoteAddr === '::1' || remoteAddr === '::ffff:127.0.0.1') {
+      return true;
+    }
     const xClient = req.headers['x-client-token'];
     const clientTok = typeof xClient === 'string' ? xClient.trim() : '';
     const auth = req.headers['authorization'];
