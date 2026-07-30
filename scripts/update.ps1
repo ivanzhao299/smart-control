@@ -151,36 +151,63 @@ if (Test-Path $envFile) {
   }
 }
 
-# 5) 重新构建 (backend + frontend)
-Write-Host "`n[5/6] 重新构建..." -ForegroundColor Yellow
-Push-Location (Join-Path $projectRoot 'backend')
-Run "npm run build"
-Pop-Location
+# 5) 重新构建 (backend + frontend) —— 按改动路径条件化 (2026-07-30)
+# 之前无脑全量重建+硬重启: 文档/脚本/纯前端提交也会刷新 backend dist 时间戳
+# (verify 的"进程比产物旧"就此误报) 并把生产 backend delete+start 一遍 (无谓
+# 停机 15-30s), 还会和 CI 部署的重启并发打架孵僵尸守护。现在只有 backend/
+# (或 deploy/) 真有改动才碰 backend; frontend/ 有改动才重建前端。-Force 全做。
+$changedFiles = @(git diff --name-only "$beforeCommit" HEAD 2>$null)
+$backendChanged = @($changedFiles | Where-Object { $_ -match '^(backend|deploy)/' }).Count -gt 0
+$frontendChanged = @($changedFiles | Where-Object { $_ -match '^frontend/' }).Count -gt 0
+if ($Force -or $changedFiles.Count -eq 0) {
+  # -Force 或差异不可知 (如 -SkipPull 手动跑) → 保守全做
+  $backendChanged = $true; $frontendChanged = $true
+}
+Write-Host "`n[5/6] 重新构建 (backend=$backendChanged frontend=$frontendChanged)..." -ForegroundColor Yellow
+if ($backendChanged) {
+  Push-Location (Join-Path $projectRoot 'backend')
+  Run "npm run build"
+  Pop-Location
+} else {
+  Write-Host "  backend/ 无改动, 跳过 backend 构建 (保时间戳, 防 verify 假过期)" -ForegroundColor Gray
+}
 
 # 前端在生产机上跳过 vue-tsc 类型检查, 只跑 vite build。
 # 2026-07-25: pdfjs-dist 引入后 vue-tsc 在 GK9000 上 OOM ("Zone Allocation failed"),
 # 把 08d607b 的前端构建整个打挂 (dist 只剩 public 静态件, 全靠 PWA 缓存硬撑)。
 # 类型检查本地开发和 CI 都会跑, 生产机只需要产物。
-Push-Location (Join-Path $projectRoot 'frontend')
-Run "npm run build:deploy"
-Pop-Location
+if ($frontendChanged) {
+  Push-Location (Join-Path $projectRoot 'frontend')
+  Run "npm run build:deploy"
+  Pop-Location
+} else {
+  Write-Host "  frontend/ 无改动, 跳过前端构建" -ForegroundColor Gray
+}
 Write-Host "  构建完成" -ForegroundColor Green
 
 # 5.4) 数据库迁移 —— 2026-07-27 补上这一环 (生产事故: watcher 抢跑部署了带新列
 # 的代码但没跑 migrations, 后端查不到列启动崩溃循环; CI 到场又因"已部署"短路
 # 跳过迁移, 两条路都没跑成)。run-migrations.js 无待办时是 no-op, 多跑无害。
 Write-Host "`n[5.4/6] 应用数据库迁移 (run-migrations.js)..." -ForegroundColor Yellow
-Push-Location (Join-Path $projectRoot 'backend')
-Run "node scripts/run-migrations.js"
-Pop-Location
+if ($backendChanged) {
+  Push-Location (Join-Path $projectRoot 'backend')
+  Run "node scripts/run-migrations.js"
+  Pop-Location
+} else {
+  Write-Host "  backend/ 无改动, 跳过迁移" -ForegroundColor Gray
+}
 
 # 5.5) seed — 应用 entity / 硬件 / 场景的更新.
 # seed 本身是幂等的 (record 已存在就跳过), 安全多跑.
 # 例外: 末尾的 HW_IP_FIXES 段会把错的 IP 主动更新成正确值 (一次性自愈).
 Write-Host "`n[5.5/6] 应用 seed (硬件/场景/设备 idempotent 更新)..." -ForegroundColor Yellow
-Push-Location (Join-Path $projectRoot 'backend')
-Run "npm run seed"
-Pop-Location
+if ($backendChanged) {
+  Push-Location (Join-Path $projectRoot 'backend')
+  Run "npm run seed"
+  Pop-Location
+} else {
+  Write-Host "  backend/ 无改动, 跳过 seed" -ForegroundColor Gray
+}
 
 # 6) 强制重启 backend: pm2 delete + 杀残留 + pm2 start
 # 之前用 pm2 restart 实测在某些情形 (pm2 daemon 卡 / 进程脱钩) 下不真换进程,
@@ -188,6 +215,7 @@ Pop-Location
 # 强制清干净, 加上端口残留进程显式 kill.
 Write-Host "`n[6/6] 强制重启服务 (pm2 delete + kill :3200 + pm2 start)..." -ForegroundColor Yellow
 
+if ($backendChanged) {
 # 6a: pm2 delete 把记录清掉 (即使进程没了也无害)
 try { & pm2 delete smart-control-backend 2>&1 | Out-Null } catch { }
 
@@ -207,6 +235,9 @@ foreach ($targetPort in @(3200, 3000)) {
   } catch { }
 }
 Start-Sleep -Milliseconds 800
+} else {
+  Write-Host "  backend/ 无改动, 跳过 backend 硬重启 (生产不停机)" -ForegroundColor Gray
+}
 
 # 6c-pre: pm2 daemon 绝不能在本 SSH 会话里被顺手拉起 —— SSH 一断 daemon 连同
 # 两个服务全死 (CI 部署时红时绿的根因, 2026-07-25)。daemon 不在就先用 WMI 脱离
@@ -225,9 +256,11 @@ if ($LASTEXITCODE -ne 0) {
   Start-Sleep -Seconds 5
 }
 
-# 6c: 用 ecosystem 重新起, 读最新 .env
+# 6c: 用 ecosystem 重新起, 读最新 .env (仅 backend 有改动时 — 无改动没 delete 过, 不用重起)
 $ecosystem = Join-Path $projectRoot 'deploy\ecosystem.config.js'
-try { & pm2 start "$ecosystem" --only smart-control-backend --update-env 2>&1 | Out-Null } catch { }
+if ($backendChanged) {
+  try { & pm2 start "$ecosystem" --only smart-control-backend --update-env 2>&1 | Out-Null } catch { }
+}
 
 # 6c.1: smart-control-frontend (vite preview) 自动注册到 pm2 (一次性 + 幂等)
 # 之前 vite preview 是手动 npm run preview 起的孤儿, PS 一关就死, 无人值守不可能.
@@ -359,6 +392,7 @@ if (-not $deduped) {
 # 可能归 admin), 调一下 backend 自己提供的 loopback 重启 endpoint. 它会
 # process.exit(0), 然后 admin 持有的 pm2 daemon 看到进程死掉会 autorestart,
 # 拉起的新进程读最新 dist + 最新 .env. 这是绕开权限边界的关键.
+if ($backendChanged) {
 Start-Sleep -Seconds 3   # 给上面的 pm2 start (若成功) 一点时间
 try {
   $body = '{"token":"jinhu-restart-2026"}'
@@ -368,6 +402,9 @@ try {
 } catch {
   # 老版本 backend 没这个 endpoint (404), 不影响
   Write-Host "  (admin-restart 不可达, 老版本 backend 没这个 endpoint, 跳过)" -ForegroundColor DarkGray
+}
+} else {
+  Write-Host "  backend/ 无改动, 跳过 admin-restart 兜底 (生产不停机)" -ForegroundColor Gray
 }
 
 # ============================================================

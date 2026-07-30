@@ -393,19 +393,29 @@ try {
       } catch {
         Write-DeployLog "WMI detached restart failed: $($_.Exception.Message)"
       }
-      # 2026-07-30 (deploy d7142f9 false red): a fixed 30s sleep races the restart.
-      # The WMI-detached restart can take ~30s to actually fire, then Nest needs
-      # another 10-15s to bind :3200 - so re-verify probed the port ~1s after the
-      # new process spawned and failed, while the SAME verify pass printed
-      # "backend: status=ok" 16s later. Poll health (up to 150s) instead of sleeping.
+      # 2026-07-30 (deploys d7142f9 + e1615c2 false reds): the WMI-detached restart
+      # can lag 5-30s before it actually kills the process, so a plain "poll until
+      # healthy" is satisfied by the OLD process and re-verify then meets the
+      # restart mid-flight (waiting-restart state + counter bump read as a crash
+      # loop). Two phases: first wait for health to DIP (proof the restart fired),
+      # then wait for recovery. If it never dips within 90s assume the restart was
+      # lost or instant and proceed - verify will tell the truth either way.
+      $sawDown = $false
+      for ($i = 1; $i -le 18; $i++) {
+        Start-Sleep -Seconds 5
+        if (-not (Test-BackendHealth)) { $sawDown = $true; break }
+      }
+      if (-not $sawDown) {
+        Write-DeployLog 'WARN: backend never dipped within 90s - detached restart lost or instant; proceeding.'
+      }
       $reHealthy = $false
       for ($i = 1; $i -le 30; $i++) {
-        Start-Sleep -Seconds 5
         if (Test-BackendHealth) { $reHealthy = $true; break }
+        Start-Sleep -Seconds 5
       }
       if ($reHealthy) {
-        # Small settle so pm2 restart counters and port ownership are stable.
-        Start-Sleep -Seconds 3
+        # Settle so pm2 restart counters and port ownership are stable before verify.
+        Start-Sleep -Seconds 5
       } else {
         Write-DeployLog 'WARN: backend health not back within 150s - running verify anyway for the full report.'
       }
