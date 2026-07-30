@@ -460,6 +460,7 @@ async function main() {
   for (const [label, url, expectSelf] of [
     ['erp API 健康', 'https://erp.cnjinhu.top/api/system/health', true],
     ['erp 前端页', 'https://erp.cnjinhu.top/control/', true],
+    ['erp:8443 备用口', 'https://erp.cnjinhu.top:8443/api/system/health', true],
     ['主域(云端mock)', 'https://cnjinhu.top/control/api/system/health', false],
   ]) {
     const r = await httpsProbe(url);
