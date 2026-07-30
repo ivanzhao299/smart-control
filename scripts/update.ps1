@@ -285,9 +285,14 @@ try {
     if ($vh -ne $old) {
       Write-Host "  -> vite.config.ts 有变更, 重启 smart-control-frontend 使配置生效..." -ForegroundColor Yellow
       & pm2 restart smart-control-frontend --update-env 2>&1 | Out-Null
-      if (-not (Test-Path $stampDir)) { New-Item -ItemType Directory -Path $stampDir -Force | Out-Null }
-      Set-Content -Path $stampFile -Value $vh
-      Write-Host "    frontend 已重启 (配置哈希已记录)" -ForegroundColor Green
+      if ($LASTEXITCODE -eq 0) {
+        # 只在重启真成功时记哈希 — 失败要留着下次重试
+        if (-not (Test-Path $stampDir)) { New-Item -ItemType Directory -Path $stampDir -Force | Out-Null }
+        Set-Content -Path $stampFile -Value $vh
+        Write-Host "    frontend 已重启 (配置哈希已记录)" -ForegroundColor Green
+      } else {
+        Write-Host "    !! pm2 restart frontend 失败 (exit=$LASTEXITCODE), 不记哈希, 下次 watcher 重试" -ForegroundColor Yellow
+      }
     }
   }
 } catch {

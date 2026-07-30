@@ -445,6 +445,21 @@ async function main() {
 
   // --- J2. 公网直连链路 (信息性) —— GK9000 出公网绕一圈回自己, 验证 erp 反代 ---
   console.log('[公网直连] https://erp.cnjinhu.top → 跳板机 nginx → WireGuard → 本机 (信息性)');
+  // vite Host 白名单体检: 本机直连 5173 带 erp 域名 Host — 200=allowedHosts 生效, 403=前端进程没吃到配置
+  await new Promise((resolve) => {
+    const req = http.request(
+      { host: '127.0.0.1', port: 5173, path: '/control/', method: 'GET', timeout: 8000,
+        headers: { Host: 'erp.cnjinhu.top' } },
+      (res) => {
+        res.resume();
+        const ok = res.statusCode === 200;
+        console.log(`  vite Host 白名单(本机5173+erp域名): HTTP ${res.statusCode} ${ok ? '(allowedHosts 已生效)' : RED('(前端进程还没吃到 allowedHosts 配置, 需重启 frontend)')}`);
+        resolve();
+      });
+    req.on('error', (e) => { console.log('  ' + RED('WARN') + ' vite Host 体检异常: ' + e.message); resolve(); });
+    req.on('timeout', () => { req.destroy(); resolve(); });
+    req.end();
+  });
   const httpsProbe = (url) => new Promise((resolve) => {
     try {
       const https = require('https');
