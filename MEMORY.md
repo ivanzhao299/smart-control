@@ -70,6 +70,16 @@
   跑一次 ③后台改掉 1234/jinhu888 默认密码 ④App 远程地址换 https://erp.cnjinhu.top。
   ⚠️ 若业主报"没有权限操作"=某流程没带 token 撞上新鉴权门，紧急兜底
   CLIENT_AUTH_DISABLED=true，查明后再开。
+  **联调进展（07-30 下午）**：业主已加 DNS(erp→123.57.220.65 已全网生效)并跑通
+  反代脚本——本机自测 API 吐 JSON=nginx→WG→GK9000 回程全通。但公网 80/443 被
+  阿里云**未备案拦截**坐实（certbot HTTP 验证收到拦截页 403；443 是 SNI RST）→
+  路线改为：acme.sh DNS 验证签证书（deploy/aliyun-erp-cert-dns.sh，业主已跑完
+  AccessKey+签发两步）+ 8443 端口（拦截不看非标口）。前端页 403 根因=vite
+  preview 只在进程启动读配置、部署链从不重启前端 → allowedHosts(.cnjinhu.top)
+  落盘没生效；update.ps1 已加 vite.config 哈希戳记检测（9fba3df），配置变更才
+  重启前端。**剩余**：业主重跑反代脚本(切 HTTPS 443+8443)+安全组放行 8443 →
+  触发 verify 看 [公网直连] 段 8443 绿 → App 填 https://erp.cnjinhu.top:8443
+  → 改密码。治本=ICP 备案（1-2 周，通过后 443 可用去端口号）。
   ⚠️ 媒体文件 /api/media/:id/file 仍免 token（img 标签带不了 header），敏感资料
   别放媒体库，后续可做签名 URL。
 
