@@ -445,6 +445,15 @@ async function main() {
 
   // --- J2. 公网直连链路 (信息性) —— GK9000 出公网绕一圈回自己, 验证 erp 反代 ---
   console.log('[公网直连] https://erp.cnjinhu.top → 跳板机 nginx → WireGuard → 本机 (信息性)');
+  // 配置遮蔽取证: vite 找配置 .js/.mjs 优先于 .ts, 箱上散落的旧配置文件会静默遮蔽仓库配置
+  try {
+    const feDir = path.resolve(__dirname, '..', 'frontend');
+    const cfgs = fs.readdirSync(feDir).filter((f) => /^vite\.config\./.test(f));
+    const viteVer = JSON.parse(fs.readFileSync(path.join(feDir, 'node_modules', 'vite', 'package.json'), 'utf8')).version;
+    console.log(`  vite@${viteVer}; 配置文件: ${cfgs.map((f) => `${f}(${new Date(fs.statSync(path.join(feDir, f)).mtimeMs).toLocaleString()})`).join(' | ')}`);
+    const stray = cfgs.filter((f) => f !== 'vite.config.ts');
+    if (stray.length) console.log('  ' + RED('WARN') + ` 发现遮蔽配置: ${stray.join(', ')} — vite 会优先读它而忽略 vite.config.ts!`);
+  } catch (e) { console.log('  ' + RED('WARN') + ' vite 配置取证异常: ' + e.message); }
   // vite Host 白名单体检: 本机直连 5173 带 erp 域名 Host — 200=allowedHosts 生效, 403=前端进程没吃到配置
   await new Promise((resolve) => {
     const req = http.request(

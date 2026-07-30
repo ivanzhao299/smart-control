@@ -278,11 +278,22 @@ try {
   $viteCfg = Join-Path $projectRoot 'frontend\vite.config.ts'
   $stampDir = Join-Path $projectRoot 'logs'
   $stampFile = Join-Path $stampDir 'vite-config.applied.sha'
+  # 遮蔽配置清理: vite 找配置时 .js/.mjs/.cjs 优先于 .ts, 箱上散落的旧配置会
+  # 静默遮蔽仓库的 vite.config.ts (仓库只跟踪 .ts, 其余都是历史遗留)。删掉并强制重启。
+  $strayRemoved = $false
+  foreach ($ext in @('js', 'mjs', 'cjs', 'mts')) {
+    $strayPath = Join-Path $projectRoot "frontend\vite.config.$ext"
+    if (Test-Path $strayPath) {
+      Remove-Item $strayPath -Force -ErrorAction SilentlyContinue
+      Write-Host "  !! 删除遮蔽配置 vite.config.$ext (它会让 vite 忽略 vite.config.ts)" -ForegroundColor Yellow
+      $strayRemoved = $true
+    }
+  }
   if (Test-Path $viteCfg) {
     $vh = (Get-FileHash $viteCfg -Algorithm SHA256).Hash
     $old = ''
     if (Test-Path $stampFile) { $old = (Get-Content $stampFile -ErrorAction SilentlyContinue | Select-Object -First 1) }
-    if ($vh -ne $old) {
+    if ($strayRemoved -or ($vh -ne $old)) {
       Write-Host "  -> vite.config.ts 有变更, 重启 smart-control-frontend 使配置生效..." -ForegroundColor Yellow
       & pm2 restart smart-control-frontend --update-env 2>&1 | Out-Null
       if ($LASTEXITCODE -eq 0) {
