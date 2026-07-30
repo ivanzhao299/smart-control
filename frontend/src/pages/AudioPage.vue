@@ -1248,6 +1248,18 @@ async function toggleMuteAll(): Promise<void> {
               <i v-if="item.missing" class="bgm-pl-missing">媒体已删除</i>
             </div>
             <div class="bgm-pl-dur">{{ fmtDuration(item.durationSec) }}</div>
+            <!-- 2026-07-30 业主: "没有选择曲目按钮不好切歌" — 曲名区域为保护双击改名吞掉了
+                 单击, 整行可点的事实上只剩边缘。给每行一个明确的播放按钮。 -->
+            <button
+              class="bgm-pl-ico bgm-pl-play"
+              :class="{ playing: i === plIdx }"
+              :title="i === plIdx ? '正在播放' : '播放这首'"
+              :disabled="item.missing"
+              @click.stop="playAt(i)"
+            >
+              <Volume2 v-if="i === plIdx" :size="12" :stroke-width="2" />
+              <Play v-else :size="12" :stroke-width="2" />
+            </button>
             <button class="bgm-pl-ico" title="改名 (只改显示名, 不动媒体库原文件)" @click.stop="startRenamePl(item)">
               <Pencil :size="12" :stroke-width="2" />
             </button>
@@ -1446,6 +1458,14 @@ async function toggleMuteAll(): Promise<void> {
 }
 .bgm-pl-row:hover .bgm-pl-ico { opacity: 1; }
 .bgm-pl-ico:hover { color: var(--v2-primary); }
+/* 播放按钮: 平板没有 hover, 必须常显 + 触摸目标加大 */
+.bgm-pl-play {
+  opacity: 1;
+  width: 32px; height: 32px;
+  background: var(--v2-ov-1);
+}
+.bgm-pl-play.playing { color: var(--v2-primary); }
+.bgm-pl-play:disabled { opacity: .35; cursor: not-allowed; }
 /* 输出通道就地改名 (业主: 推子名称要跟机柜标签一致且可编辑) */
 .ch-name-input {
   width: 100%; padding: 3px 6px;
