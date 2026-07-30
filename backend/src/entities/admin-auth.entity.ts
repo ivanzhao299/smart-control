@@ -26,6 +26,10 @@ export class AdminAuth {
   @Column({ type: 'datetime' })
   passwordChangedAt!: Date;
 
+  /** HMAC 令牌签名密钥 (2026-07-30 签名制, 同 client_auth 的 #22 方案) — 持久化保令牌跨重启存活 */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  tokenSecret!: string | null;
+
   @UpdateDateColumn()
   updatedAt!: Date;
 }

@@ -96,11 +96,11 @@ const showImage = computed<boolean>(() => props.useImage && !imageBroken.value);
   height: 100%;
   width: 100%;
   aspect-ratio: 1;
-  object-fit: cover;
+  /* 2026-07-30: cover→contain — 新版 brand-logo 是透明底宽幅图形, cover 会裁掉
+     两侧; contain 完整显示, 透明底也不再需要投影圈 (会显出一圈"鬼影"方框)。 */
+  object-fit: contain;
   display: block;
   border-radius: 12px;
-  box-shadow: 0 4px 12px -4px rgba(15, 23, 42, 0.28),
-              0 0 0 1px rgba(255, 255, 255, 0.05);
 }
 
 .logo-svg {

@@ -26,7 +26,6 @@ const form = reactive({
   logoUrl: '',
   browserTitle: '',
   copyright: '',
-  welcomeGuest: '',
 });
 
 // logoUrl 不放 rules — 它是上传出来的 data URL, 不归用户管. 校验只看其他字段.
@@ -215,7 +214,6 @@ function loadFormFromStore(): void {
   form.logoUrl = b.logoUrl ?? '';
   form.browserTitle = b.browserTitle ?? '';
   form.copyright = b.copyright ?? '';
-  form.welcomeGuest = b.welcomeGuest ?? '';
 }
 
 onMounted(async () => {
@@ -235,7 +233,6 @@ async function save(): Promise<void> {
       logoUrl: form.logoUrl.trim() || null,
       browserTitle: form.browserTitle.trim() || null,
       copyright: form.copyright.trim() || null,
-      welcomeGuest: form.welcomeGuest.trim() || null,
     });
     ElMessage.success('已保存, 前台所有 logo + 标题已实时更新');
   } catch (e) {
@@ -349,16 +346,7 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
 
           <el-divider content-position="left">其他</el-divider>
 
-          <el-form-item label="欢迎页嘉宾称谓" prop="welcomeGuest">
-            <el-input
-              v-model="form.welcomeGuest"
-              maxlength="64"
-              show-word-limit
-              placeholder="比如: 某某集团 张某某董事长一行"
-            />
-            <div class="form-help">大屏欢迎页「恭迎 ___ 莅临参观指导」中间那段, 保存后约 20 秒内大屏自动更新. 留空显示"各位领导嘉宾"</div>
-          </el-form-item>
-
+          <!-- 2026-07-30 业主: 欢迎页内容编辑已搬到前台 (LED/投影页「编辑欢迎页」), 这里删除 -->
           <el-form-item label="浏览器标签页标题" prop="browserTitle">
             <el-input
               v-model="form.browserTitle"
@@ -454,7 +442,7 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
           <div class="preview-label">平板 / 控制端 顶栏</div>
           <div class="pv-shell-mini">
             <div class="pv-nav">
-              <div class="pv-logo">
+              <div class="pv-logo" :class="{ 'has-img': previewLogoUrl }">
                 <img v-if="previewLogoUrl" :src="previewLogoUrl" :alt="previewLogoText" />
                 <template v-else>{{ previewLogoText }}</template>
               </div>
@@ -471,7 +459,7 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
           <div class="preview-label">后台 侧栏</div>
           <div class="pv-admin-mini">
             <div class="pv-admin-brand">
-              <div class="pv-logo pv-logo-square">
+              <div class="pv-logo pv-logo-square" :class="{ 'has-img': previewLogoUrl }">
                 <img v-if="previewLogoUrl" :src="previewLogoUrl" :alt="previewLogoText" />
                 <template v-else>{{ previewLogoText }}</template>
               </div>
@@ -620,8 +608,13 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
 .pv-logo img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;   /* 完整显示 logo, 不裁切 */
   display: block;
+}
+/* 有 logo 图片时容器透明 — 蓝渐变只做无图时的文字底 (2026-07-30 业主: 写死蓝底难看) */
+.pv-logo.has-img {
+  background: transparent;
+  box-shadow: none;
 }
 .pv-logo-square {
   width: 38px;
