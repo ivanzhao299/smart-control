@@ -393,7 +393,22 @@ try {
       } catch {
         Write-DeployLog "WMI detached restart failed: $($_.Exception.Message)"
       }
-      Start-Sleep -Seconds 30
+      # 2026-07-30 (deploy d7142f9 false red): a fixed 30s sleep races the restart.
+      # The WMI-detached restart can take ~30s to actually fire, then Nest needs
+      # another 10-15s to bind :3200 - so re-verify probed the port ~1s after the
+      # new process spawned and failed, while the SAME verify pass printed
+      # "backend: status=ok" 16s later. Poll health (up to 150s) instead of sleeping.
+      $reHealthy = $false
+      for ($i = 1; $i -le 30; $i++) {
+        Start-Sleep -Seconds 5
+        if (Test-BackendHealth) { $reHealthy = $true; break }
+      }
+      if ($reHealthy) {
+        # Small settle so pm2 restart counters and port ownership are stable.
+        Start-Sleep -Seconds 3
+      } else {
+        Write-DeployLog 'WARN: backend health not back within 150s - running verify anyway for the full report.'
+      }
       & node $verifier 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
       if ($LASTEXITCODE -ne 0) {
         throw "verify-deploy.js reported failure after detached-restart retry (exit $LASTEXITCODE)."
