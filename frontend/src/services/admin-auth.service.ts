@@ -30,3 +30,8 @@ export async function adminLogout(): Promise<void> {
 export async function adminChangePassword(oldPassword: string, newPassword: string): Promise<void> {
   await api.post<null>('/admin/auth/change-password', { oldPassword, newPassword });
 }
+
+/** 管理员重置业主端(平板/手机)登录密码 — PUT /client-auth/password (AdminGuard) */
+export async function adminResetClientPassword(newPassword: string): Promise<void> {
+  await api.put<null>('/client-auth/password', { newPassword });
+}

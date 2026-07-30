@@ -64,10 +64,14 @@ function readInitialBaseURL(): string {
   if (fromEnv && fromEnv.startsWith('/')) return fromEnv; // 同源反代
 
   try {
-    const { protocol, hostname } = window.location;
+    const { protocol, hostname, port } = window.location;
     if (/^https?:$/.test(protocol) && hostname) {
-      const port = portOfBase(fromEnv) ?? DEFAULT_BACKEND_PORT;
-      return `${protocol}//${hostname}:${port}/api`;
+      // 反代域名场景 (公网 erp.cnjinhu.top:8443 等): 页面不在 5173 上说明走的是
+      // nginx 统一入口, /api 由同一入口反代到 backend — API 直接同源, 零配置。
+      if (port !== '5173') return `${protocol}//${window.location.host}/api`;
+      // 经典双端口场景 (5173 前端 + 3200 后端): 按 env 端口推 backend
+      const bePort = portOfBase(fromEnv) ?? DEFAULT_BACKEND_PORT;
+      return `${protocol}//${hostname}:${bePort}/api`;
     }
   } catch { /* 非浏览器环境 (SSR/测试) */ }
 

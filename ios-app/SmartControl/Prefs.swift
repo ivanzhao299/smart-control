@@ -11,7 +11,7 @@ enum Prefs {
     /// 展厅现场地址默认值 (GK9000 静态 IP; 业主重新配置时不用从头输)
     static let defaultServerUrl = "http://192.168.77.54:5173/control/"
     /// 远程隧道地址默认提示 (WireGuard 里 GK9000 的地址)
-    static let defaultRemoteUrl = "http://10.66.66.3:5173/control/"
+    static let defaultRemoteUrl = "https://erp.cnjinhu.top:8443/control/"
 
     static var serverUrl: String? {
         get { UserDefaults.standard.string(forKey: keyServerUrl) }

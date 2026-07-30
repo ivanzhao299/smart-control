@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
-import { ElMessage, type FormInstance, type FormRules } from 'element-plus';
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
 import { Upload, Trash2, Lock } from 'lucide-vue-next';
 import { useSystemBrandingStore } from '@/stores/system-branding';
-import { adminChangePassword } from '@/services/admin-auth.service';
+import { adminChangePassword, adminResetClientPassword } from '@/services/admin-auth.service';
 import { useAdminAuthStore } from '@/stores/admin-auth';
 import { useRouter } from 'vue-router';
 
@@ -167,6 +167,43 @@ async function changePassword(): Promise<void> {
     ElMessage.error(`改密失败: ${(e as Error).message}`);
   } finally {
     pwSubmitting.value = false;
+  }
+}
+
+// ============ 重置业主端密码 (平板/手机登录密码, 公网直连后必须换掉默认 1234) ============
+const cpForm = reactive({ newPassword: '', confirmPassword: '' });
+const cpSubmitting = ref(false);
+
+async function resetClientPassword(): Promise<void> {
+  if (!cpForm.newPassword) {
+    ElMessage.warning('请输入新密码');
+    return;
+  }
+  if (cpForm.newPassword.length < 6) {
+    ElMessage.warning('新密码至少 6 位 (公网可访问, 建议 8 位以上数字字母混合)');
+    return;
+  }
+  if (cpForm.newPassword !== cpForm.confirmPassword) {
+    ElMessage.warning('两次输入的新密码不一致');
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      '重置后所有已登录的平板/手机会被登出, 需要用新密码重新登录。确定重置?',
+      '重置业主端密码',
+      { type: 'warning', confirmButtonText: '确定重置', cancelButtonText: '再想想' },
+    );
+  } catch { return; }
+  cpSubmitting.value = true;
+  try {
+    await adminResetClientPassword(cpForm.newPassword);
+    ElMessage.success('业主端密码已重置, 各设备需用新密码重新登录');
+    cpForm.newPassword = '';
+    cpForm.confirmPassword = '';
+  } catch (e) {
+    ElMessage.error(`重置失败: ${(e as Error).message}`);
+  } finally {
+    cpSubmitting.value = false;
   }
 }
 
@@ -374,6 +411,30 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
           </el-form-item>
           <div class="pw-hint">
             ⚠️ 改完密码后, 所有正在用的登录 session 都会失效, 你自己也要重登一次.
+          </div>
+        </el-form>
+      </el-card>
+
+      <!-- 重置业主端密码 (平板/手机 App 登录密码) -->
+      <el-card class="pw-card" shadow="never">
+        <template #header>
+          <div class="pw-head">
+            <Lock :size="16" :stroke-width="1.8" />
+            <span>重置业主端密码 (平板/手机登录)</span>
+          </div>
+        </template>
+        <el-form label-position="top" @submit.prevent="resetClientPassword">
+          <el-form-item label="新密码">
+            <el-input v-model="cpForm.newPassword" type="password" show-password placeholder="至少 6 位, 建议 8 位以上" />
+          </el-form-item>
+          <el-form-item label="再输一次新密码">
+            <el-input v-model="cpForm.confirmPassword" type="password" show-password placeholder="跟上面一致" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="warning" :loading="cpSubmitting" @click="resetClientPassword">重置业主端密码</el-button>
+          </el-form-item>
+          <div class="pw-hint">
+            ⚠️ 系统已开公网访问, 默认密码 1234 必须换掉。重置后所有平板/手机需用新密码重新登录。
           </div>
         </el-form>
       </el-card>
