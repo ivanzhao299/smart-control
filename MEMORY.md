@@ -50,6 +50,14 @@
 
 ## 最近一次会话纪要（2026-07-29）
 
+- **双端面容/指纹解锁 v1.1.8（5de1859，07-30，四流水线一把全绿）**：应用锁
+  形态（令牌本就 30 天自动登录，缺的是拿到手机就能操控的防线）——开着时
+  冷启动必验、切后台超 60s 回来重验，全屏锁定层挡住一切；Android
+  BiometricPrompt（WEAK|DEVICE_CREDENTIAL）、iOS LocalAuthentication
+  （面容→锁屏密码兜底，Info.plist 已补 NSFaceIDUsageDescription）；配置页
+  开关**默认关**，开/关都要先过一次验证。Android code16 已自动入库
+  （终端会弹更新），iOS build5 已传 TestFlight。业主启用路径：更新 App →
+  配置页（登录页右下角齿轮）→「面容 ID/指纹解锁」开关。网页端无此能力。
 - **部署链竞态三连修（1bafe79，07-30 深夜，最终双绿）**：d7142f9/e1615c2 两轮
   Deploy 红，复盘=三层竞态非真故障（kiosk 心跳全程活，仅两次 15-30s 后端重启）：
   ①update.ps1 对任何提交无脑全量重建+delete 硬重启+admin-restart 再重启——纯前端/
