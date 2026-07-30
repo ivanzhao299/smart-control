@@ -294,8 +294,11 @@ try {
     $old = ''
     if (Test-Path $stampFile) { $old = (Get-Content $stampFile -ErrorAction SilentlyContinue | Select-Object -First 1) }
     if ($strayRemoved -or ($vh -ne $old)) {
-      Write-Host "  -> vite.config.ts 有变更, 重启 smart-control-frontend 使配置生效..." -ForegroundColor Yellow
-      & pm2 restart smart-control-frontend --update-env 2>&1 | Out-Null
+      Write-Host "  -> vite.config.ts 有变更, delete+start smart-control-frontend 使配置生效..." -ForegroundColor Yellow
+      # 用 delete+start 而非 restart: 6 号段注释里踩过 "pm2 restart 某些情形不真换进程"
+      try { & pm2 delete smart-control-frontend 2>&1 | Out-Null } catch { }
+      Start-Sleep -Milliseconds 800
+      & pm2 start "$ecosystem" --only smart-control-frontend --update-env 2>&1 | Out-Null
       if ($LASTEXITCODE -eq 0) {
         # 只在重启真成功时记哈希 — 失败要留着下次重试
         if (-not (Test-Path $stampDir)) { New-Item -ItemType Directory -Path $stampDir -Force | Out-Null }

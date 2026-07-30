@@ -454,6 +454,28 @@ async function main() {
     const stray = cfgs.filter((f) => f !== 'vite.config.ts');
     if (stray.length) console.log('  ' + RED('WARN') + ` 发现遮蔽配置: ${stray.join(', ')} — vite 会优先读它而忽略 vite.config.ts!`);
   } catch (e) { console.log('  ' + RED('WARN') + ' vite 配置取证异常: ' + e.message); }
+  // 隔离实验: 现场拉一个全新 vite preview (5599) 测同样的 Host —
+  //   新进程 200 + 5173 进程 403 => 在跑的进程没真被换掉 (重启机制问题)
+  //   新进程也 403               => 箱上配置加载有环境性问题
+  await new Promise((resolve) => {
+    try {
+      const { spawn } = require('child_process');
+      const feDir = path.resolve(__dirname, '..', 'frontend');
+      const child = spawn(process.execPath,
+        [path.join(feDir, 'node_modules', 'vite', 'bin', 'vite.js'), 'preview', '--host', '127.0.0.1', '--port', '5599', '--strictPort'],
+        { cwd: feDir, stdio: 'ignore', windowsHide: true });
+      const done = (msg) => { try { child.kill(); } catch { /* */ } console.log(msg); resolve(); };
+      setTimeout(() => {
+        const req = http.request(
+          { host: '127.0.0.1', port: 5599, path: '/control/', method: 'GET', timeout: 6000, headers: { Host: 'erp.cnjinhu.top' } },
+          (res) => { res.resume(); done(`  隔离实验(全新 preview@5599+erp域名): HTTP ${res.statusCode} ${res.statusCode === 200 ? '(当前配置本身没问题)' : RED('(箱上配置加载异常!)')}`); });
+        req.on('error', (e) => done('  ' + RED('WARN') + ' 隔离实验起不来: ' + e.message));
+        req.on('timeout', () => { req.destroy(); done('  ' + RED('WARN') + ' 隔离实验超时'); });
+        req.end();
+      }, 6000);
+      child.on('error', (e) => done('  ' + RED('WARN') + ' 隔离实验 spawn 失败: ' + e.message));
+    } catch (e) { console.log('  ' + RED('WARN') + ' 隔离实验异常: ' + e.message); resolve(); }
+  });
   // vite Host 白名单体检: 本机直连 5173 带 erp 域名 Host — 200=allowedHosts 生效, 403=前端进程没吃到配置
   await new Promise((resolve) => {
     const req = http.request(
