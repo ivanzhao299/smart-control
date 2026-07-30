@@ -42,6 +42,7 @@ import {
 import { projectorService } from '@/services/projector.service';
 import { fetchSystemBranding, saveWelcomeConfig } from '@/services/system-branding.service';
 import { absUrl } from '@/services/http';
+import { useAdminUnlock } from '@/composables/useAdminUnlock';
 import { powerCircuitsService, type PowerCircuitView } from '@/services/power-circuits.service';
 import { mediaService, MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
 import { ledService } from '@/services/led.service';
@@ -77,6 +78,7 @@ const SLOT = computed(() => props.slot);
 const router = useRouter();
 function goBack(): void { router.push({ name: 'dashboard' }); }
 
+const { ensureAdmin } = useAdminUnlock();
 const playbackStore = usePlaybackStore();
 const ch = computed(() => (props.slot === 1 ? playbackStore.slot1 : playbackStore.slot2));
 
@@ -294,7 +296,8 @@ const editingText = ref('');
 const vFocus = {
   mounted(el: HTMLInputElement) { el.focus(); el.select(); },
 };
-function startRename(it: PlaylistItemView): void {
+async function startRename(it: PlaylistItemView): Promise<void> {
+  if (!(await ensureAdmin('改名'))) return;
   editingId.value = it.id;
   editingText.value = it.title;
 }
@@ -472,6 +475,7 @@ const welcomeForm = ref({ welcomeTitle: '', welcomeGuest: '', welcomeTagline: ''
 const bgAssets = ref<Array<{ id: number; originalName: string; thumbUrl: string | null; fileUrl: string }>>([]);
 
 async function openWelcomeEditor(): Promise<void> {
+  if (!(await ensureAdmin('编辑欢迎页'))) return;
   welcomeEditOpen.value = true;
   welcomeLoading.value = true;
   try {
@@ -816,7 +820,7 @@ async function submitWebpage(): Promise<void> {
               @click.stop @mousedown.stop @keyup.enter="commitRename(it)"
               @keyup.esc="editingId = null" @blur="commitRename(it)"
             />
-            <span v-else class="pl-name" :title="it.title" @dblclick="startRename(it)">
+            <span v-else class="pl-name" :title="it.title">
               {{ it.title }}
               <i v-if="it.missing" class="tag-missing">媒体已删除</i>
             </span>

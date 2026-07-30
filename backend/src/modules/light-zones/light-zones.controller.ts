@@ -113,6 +113,7 @@ export class LightZonesController {
   }
 
   @Put(':id')
+  @UseGuards(AdminGuard)
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: Partial<LightZoneUpsertDto>,

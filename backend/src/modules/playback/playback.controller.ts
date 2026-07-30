@@ -1,4 +1,6 @@
 import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Logger, Param, ParseIntPipe, Post, Put } from '@nestjs/common';
+import { UseGuards } from '@nestjs/common';
+import { AdminGuard } from '../admin-auth/admin-auth.guard';
 import { PlaybackService } from './playback.service';
 import { Public } from '../../common/decorators/public.decorator';
 
@@ -55,7 +57,8 @@ export class PlaybackController {
     return { message: '已加入播放列表', data: await this.service.addToPlaylist(slot, body.mediaId, body.title) };
   }
 
-  /** 改别名 — 只改播放列表里的显示名, 不动媒体库原文件 */
+  /** 改别名 — 只改播放列表里的显示名, 不动媒体库原文件 (2026-07-30 起仅管理员) */
+  @UseGuards(AdminGuard)
   @Put('playlist/item/:id')
   async renamePlaylist(
     @Param('id', ParseIntPipe) id: number,

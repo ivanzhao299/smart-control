@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router';
 import { ArrowLeft, Lightbulb, Power, X, Sparkles, Layers, RefreshCw, GripVertical, Pencil, FolderPlus, Search } from 'lucide-vue-next';
 import { lightingService } from '@/services/lighting.service';
 import { api } from '@/services/http';
+import { useAdminUnlock } from '@/composables/useAdminUnlock';
 import {
   lightZonesService,
   type LightZoneView,
@@ -29,6 +30,7 @@ interface ZoneRow {
 
 // ============ 数据源: 分区列表 + 每区单灯计数 (成员归属在单灯页管理) ============
 interface DaliLightLite { zoneCode: string | null }
+const { ensureAdmin } = useAdminUnlock();
 const zones = ref<ZoneRow[]>([]);
 const lightCountByZone = ref<Map<string, number>>(new Map());
 const totalLights = ref<number>(0);
@@ -123,7 +125,8 @@ async function createLightZone(): Promise<void> {
 // ============ 分区改名 (就地编辑, 不弹窗) ============
 const editingZone = ref<number | null>(null);
 const editingText = ref('');
-function startRenameZone(z: ZoneRow): void {
+async function startRenameZone(z: ZoneRow): Promise<void> {
+  if (!(await ensureAdmin('分区改名'))) return;
   editingZone.value = z.id;
   editingText.value = z.name;
 }
@@ -433,7 +436,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
               @click.stop @keyup.enter="commitRenameZone(z)"
               @keyup.esc="editingZone = null" @blur="commitRenameZone(z)"
             />
-            <div v-else class="zone-name" @dblclick.stop="grouping && startRenameZone(z)">
+            <div v-else class="zone-name">
               {{ z.name }}
               <button
                 v-if="grouping" class="zone-edit" title="改名"

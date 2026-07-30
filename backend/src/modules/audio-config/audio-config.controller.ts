@@ -41,6 +41,7 @@ export class AudioConfigController {
   }
 
   @Put('zones/:id')
+  @UseGuards(AdminGuard)
   async updateZone(@Param('id', ParseIntPipe) id: number, @Body() dto: AudioZoneUpsertDto) {
     return { message: '更新成功', data: await this.service.upsertZone(id, dto) };
   }

@@ -30,6 +30,7 @@ export class SystemBrandingController {
    * 即可改 (走全局 ClientAuthGuard, 与切灯/推片同级的日常操作), 但**只放行欢迎页
    * 四个字段**, logo/系统名等品牌配置仍必须走下面的 AdminGuard PUT。
    */
+  @UseGuards(AdminGuard)
   @Put('welcome')
   async updateWelcome(
     @Body() body: Partial<Pick<SystemBrandingDto, 'welcomeGuest' | 'welcomeTitle' | 'welcomeTagline' | 'welcomeBgMediaId'>>,

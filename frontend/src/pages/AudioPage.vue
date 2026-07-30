@@ -7,6 +7,7 @@ import {
   ArrowLeft, Speaker, Volume2, VolumeX, Play, Sparkles, Music, Square, Pause,
   SkipBack, SkipForward, Shuffle, Repeat, Repeat1, ListMusic, Trash2, Pencil } from 'lucide-vue-next';
 import { audioService } from '@/services/audio.service';
+import { useAdminUnlock } from '@/composables/useAdminUnlock';
 import { audioConfigService } from '@/services/audio-config.service';
 import { absUrl } from '@/services/http';
 import { usePlaybackStore } from '@/stores/playback';
@@ -40,6 +41,7 @@ interface PlItem {
 /** BGM = slot3 (GK9000 声卡 -> EKX IN1 -> 各区), 跟 LED(1)/投影(2) 共用同一套播放后端 */
 const BGM_SLOT = 3;
 const playlist = ref<PlItem[]>([]);
+const { ensureAdmin } = useAdminUnlock();
 const plIdx = ref(-1);
 type PlayMode = 'seq' | 'loop1' | 'loopAll' | 'shuffle';
 const playMode = ref<PlayMode>('loopAll');
@@ -143,7 +145,8 @@ async function removeFromPlaylist(i: number): Promise<void> {
  */
 const plEditingId = ref<number | null>(null);
 const plEditingText = ref('');
-function startRenamePl(it: PlItem): void {
+async function startRenamePl(it: PlItem): Promise<void> {
+  if (!(await ensureAdmin('改名'))) return;
   if (!it.itemId) return;
   plEditingId.value = it.itemId;
   plEditingText.value = it.name;
@@ -632,7 +635,8 @@ const audioTab = ref<'scene' | 'bgm' | 'zones' | 'matrix'>('scene');
 // 缺的只是就地编辑。改完落库, 矩阵页的输出名来自同一张表, 会一起变。
 const editingCh = ref<number | null>(null);
 const editingChText = ref('');
-function startRenameCh(z: AudioRow): void {
+async function startRenameCh(z: AudioRow): Promise<void> {
+  if (!(await ensureAdmin('通道改名'))) return;
   editingCh.value = z.dbId;
   // 立体声卡编辑的是"基名" (不带 ·左/·右) —— 后缀是配对标识, 由代码维护,
   // 业主改掉后缀会导致左右两卡分离/联动失效 (2026-07-26 现场踩过)。
@@ -1243,7 +1247,7 @@ async function toggleMuteAll(): Promise<void> {
               @click.stop @keyup.enter="commitRenamePl(item)"
               @keyup.esc="plEditingId = null" @blur="commitRenamePl(item)"
             />
-            <div v-else class="bgm-pl-name" :title="item.name" @click.stop @dblclick.stop="startRenamePl(item)">
+            <div v-else class="bgm-pl-name" :title="item.name" @click.stop>
               {{ item.name }}
               <i v-if="item.missing" class="bgm-pl-missing">媒体已删除</i>
             </div>
@@ -1322,7 +1326,7 @@ async function toggleMuteAll(): Promise<void> {
             @click.stop @keyup.enter="commitRenameCh(z)"
             @keyup.esc="editingCh = null" @blur="commitRenameCh(z)"
           />
-          <div v-else class="ch-name" :title="z.name" @dblclick.stop="startRenameCh(z)">
+          <div v-else class="ch-name" :title="z.name">
             {{ displayName(z) }}
             <button class="ch-edit" title="改名" @click.stop="startRenameCh(z)">
               <Pencil :size="12" />
