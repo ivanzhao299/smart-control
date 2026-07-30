@@ -152,7 +152,7 @@ onMounted(refresh);
     <el-table :data="filtered" v-loading="loading" stripe class="brands-table">
       <el-table-column label="Logo" width="80">
         <template #default="{ row }">
-          <img v-if="row.logoUrl" :src="row.logoUrl" :alt="row.name" class="logo-thumb" />
+          <img v-if="row.logoUrl" :src="row.logoUrl" :alt="row.name" class="logo-thumb" loading="lazy" decoding="async" />
           <span v-else class="no-logo">—</span>
         </template>
       </el-table-column>

@@ -139,7 +139,7 @@ function fmtDur(sec: number | null): string {
       >
         <div class="thumb">
           <video v-if="m.kind === 'video'" :src="m.fileUrl" preload="metadata" muted playsinline />
-          <img v-else :src="m.fileUrl" :alt="m.originalName" />
+          <img v-else :src="m.fileUrl" :alt="m.originalName" loading="lazy" decoding="async" />
           <span class="kind-tag" :class="m.kind">
             <Film v-if="m.kind === 'video'" :size="10" :stroke-width="2" />
             <ImageIcon v-else :size="10" :stroke-width="2" />

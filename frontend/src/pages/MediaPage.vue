@@ -766,7 +766,8 @@ onMounted(async () => {
             <video v-if="m.kind === 'video'" :src="absUrl(m.fileUrl)" preload="metadata" muted playsinline />
             <div v-else-if="m.kind === 'audio'" class="audio-thumb"><Music :size="40" :stroke-width="1.5" /></div>
             <div v-else-if="m.kind === 'webpage'" class="web-thumb"><Globe :size="40" :stroke-width="1.5" /></div>
-            <img v-else :src="absUrl(m.fileUrl)" :alt="m.originalName" />
+            <!-- 懒加载: 缩略图是原图全文件, 全量并发拉取曾把慢链路挤爆 (状态请求排队超时) -->
+            <img v-else :src="absUrl(m.fileUrl)" :alt="m.originalName" loading="lazy" decoding="async" />
             <span class="kind-tag" :class="m.kind">
               <Film v-if="m.kind === 'video'" :size="11" :stroke-width="2" />
               <Music v-else-if="m.kind === 'audio'" :size="11" :stroke-width="2" />
@@ -815,7 +816,7 @@ onMounted(async () => {
             <video v-if="m.kind === 'video'" :src="absUrl(m.fileUrl)" preload="metadata" muted playsinline />
             <div v-else-if="m.kind === 'audio'" class="lr-icon"><Music :size="18" :stroke-width="1.5" /></div>
             <div v-else-if="m.kind === 'webpage'" class="lr-icon web"><Globe :size="18" :stroke-width="1.5" /></div>
-            <img v-else :src="absUrl(m.fileUrl)" :alt="m.originalName" />
+            <img v-else :src="absUrl(m.fileUrl)" :alt="m.originalName" loading="lazy" decoding="async" />
           </div>
           <span class="kind-tag" :class="m.kind">
             <Film v-if="m.kind === 'video'" :size="11" :stroke-width="2" />
@@ -871,7 +872,7 @@ onMounted(async () => {
           <div class="dv-col dv-c-thumb">
             <div class="dv-tw">
               <video v-if="m.kind === 'video'" :src="absUrl(m.fileUrl)" preload="metadata" muted playsinline />
-              <img v-else-if="m.kind === 'image'" :src="absUrl(m.fileUrl)" :alt="m.originalName" />
+              <img v-else-if="m.kind === 'image'" :src="absUrl(m.fileUrl)" :alt="m.originalName" loading="lazy" decoding="async" />
               <div v-else-if="m.kind === 'audio'" class="dv-ico"><Music :size="14" :stroke-width="1.5" /></div>
               <div v-else class="dv-ico web"><Globe :size="14" :stroke-width="1.5" /></div>
             </div>

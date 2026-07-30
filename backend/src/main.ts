@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import compression from 'compression';
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { ValidationPipe } from '@nestjs/common';
@@ -46,6 +47,9 @@ async function bootstrap(): Promise<void> {
     }),
   );
   app.enableCors();
+  // gzip 压缩 JSON/文本响应 (远程 WireGuard/公网慢链路上状态轮询立省 70-90% 流量)。
+  // compression 默认按 content-type 过滤: 视频/图片等已压缩格式不会二次压, 媒体流不受影响。
+  app.use(compression({ threshold: 1024 }));
   app.useWebSocketAdapter(new WsAdapter(app));
   app.enableShutdownHooks();
 
