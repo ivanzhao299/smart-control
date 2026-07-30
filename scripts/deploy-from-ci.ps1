@@ -240,7 +240,21 @@ try {
       throw "Tracked files are modified on GK9000: $($trackedChanges -join '; ')"
     }
 
-    Invoke-Native 'git' @('fetch', '--prune', 'origin', 'main')
+    # git fetch 竞态容忍 (2026-07-30 #52ec765 现场): watcher 的 fetch 可能与本脚本
+    # 同时更新 origin/main 的 ref, git 报 "cannot lock ref ... but expected ..." —
+    # ref 其实已被对方更到位, 等一拍重试即可, 不该让整次部署红掉。
+    $fetched = $false
+    for ($fi = 0; $fi -lt 3; $fi++) {
+      try {
+        Invoke-Native 'git' @('fetch', '--prune', 'origin', 'main')
+        $fetched = $true
+        break
+      } catch {
+        Write-DeployLog "git fetch attempt $($fi + 1) failed (watcher ref-lock race?), retry in 3s"
+        Start-Sleep -Seconds 3
+      }
+    }
+    if (-not $fetched) { throw 'git fetch failed after 3 attempts.' }
     Invoke-Native 'git' @('cat-file', '-e', "${Commit}^{commit}")
     & git merge-base --is-ancestor $Commit origin/main
     if ($LASTEXITCODE -ne 0) { throw 'Requested commit is not part of origin/main.' }
