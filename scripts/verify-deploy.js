@@ -503,6 +503,24 @@ async function main() {
       req.on('error', (e) => resolve({ code: 0, body: e.message }));
     } catch (e) { resolve({ code: 0, body: e.message }); }
   });
+  // 裸 IP 无 SNI 探针: TLS 握手不带域名 → 拦截设备看不到 SNI。
+  // 若这条通而域名口全被掐 = 坐实阿里云按 SNI 拦截 (不分端口), 只能等备案。
+  await new Promise((resolve) => {
+    try {
+      const https = require('https');
+      const req = https.request({
+        host: '123.57.220.65', port: 8443, path: '/api/system/health', method: 'GET',
+        timeout: 8000, rejectUnauthorized: false, headers: { Host: 'erp.cnjinhu.top' },
+      }, (res) => {
+        res.resume();
+        console.log(`  裸IP无SNI(123.57.220.65:8443): HTTP ${res.statusCode} ${res.statusCode === 200 ? '(nginx 8443 正常, 拦截只认域名)' : ''}`);
+        resolve();
+      });
+      req.on('timeout', () => { req.destroy(); console.log('  ' + RED('WARN') + ' 裸IP无SNI: timeout (8443 未监听或安全组未放行)'); resolve(); });
+      req.on('error', (e) => { console.log('  ' + RED('WARN') + ` 裸IP无SNI: ${e.message}`); resolve(); });
+      req.end();
+    } catch (e) { console.log('  ' + RED('WARN') + ' 裸IP探针异常: ' + e.message); resolve(); }
+  });
   for (const [label, url, expectSelf] of [
     ['erp API 健康', 'https://erp.cnjinhu.top/api/system/health', true],
     ['erp 前端页', 'https://erp.cnjinhu.top/control/', true],
