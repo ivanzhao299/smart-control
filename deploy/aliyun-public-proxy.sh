@@ -115,6 +115,7 @@ server {
 
 server {
   listen 443 ssl http2;
+  listen 8443 ssl http2;   # 备用端口: 若 443 被阿里云备案拦截, App 改用 https://$DOMAIN:8443
   server_name $DOMAIN;
   ssl_certificate     $CERT;
   ssl_certificate_key $KEY;
@@ -212,3 +213,6 @@ echo ""
 echo "==== 完成 ===="
 echo "手机不开 WireGuard 直接访问: $SCHEME://$DOMAIN/control/"
 echo "App 服务器设置里「远程地址」填: $SCHEME://$DOMAIN"
+echo ""
+echo "⚠️ 若手机打开显示阿里云「未备案」拦截页 (本机是大陆 ECS, 443 端口查备案):"
+echo "   安全组放行 8443, App 远程地址改填 https://$DOMAIN:8443 (已同时监听)"
