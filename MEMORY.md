@@ -63,8 +63,13 @@
   certbot 签发+反代 5173//api//ws/+登录 nginx 限流第二层）③verify 探针加
   [公网直连] 段（GK9000 出公网绕回自己测 erp 全链路）④docs/PUBLIC_REMOTE_ACCESS.md
   业主手册。登录限流 backend 侧本来就有（10 次/分/IP）；admin-restart 等危险端点
-  本来就是 loopback-only。**待业主动作**：跳板机粘脚本跑一次 + 后台改掉
-  1234/jinhu888 默认密码 + App 远程地址换 https://erp.cnjinhu.top 。
+  本来就是 loopback-only。a1cd30f 部署绿：**鉴权门已在生产生效**，kiosk 心跳/
+  探针/watcher 全正常（loopback 豁免起效）。探针实测 erp.cnjinhu.top
+  **DNS 记录不存在**（ENOTFOUND；主域正常）。**待业主动作**：①阿里云 DNS 给
+  cnjinhu.top 加 A 记录 erp→123.57.220.65 ②跳板机粘 deploy/aliyun-public-proxy.sh
+  跑一次 ③后台改掉 1234/jinhu888 默认密码 ④App 远程地址换 https://erp.cnjinhu.top。
+  ⚠️ 若业主报"没有权限操作"=某流程没带 token 撞上新鉴权门，紧急兜底
+  CLIENT_AUTH_DISABLED=true，查明后再开。
   ⚠️ 媒体文件 /api/media/:id/file 仍免 token（img 标签带不了 header），敏感资料
   别放媒体库，后续可做签名 URL。
 
