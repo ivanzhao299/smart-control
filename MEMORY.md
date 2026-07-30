@@ -76,9 +76,14 @@
   路线改为：acme.sh DNS 验证签证书（deploy/aliyun-erp-cert-dns.sh，业主已跑完
   AccessKey+签发两步）+ 8443 端口（拦截不看非标口）。前端页 403 根因=vite
   preview 只在进程启动读配置、部署链从不重启前端 → allowedHosts(.cnjinhu.top)
-  落盘没生效；update.ps1 已加 vite.config 哈希戳记检测（9fba3df），配置变更才
-  重启前端。**剩余**：业主重跑反代脚本(切 HTTPS 443+8443)+安全组放行 8443 →
-  触发 verify 看 [公网直连] 段 8443 绿 → App 填 https://erp.cnjinhu.top:8443
+  落盘没生效；update.ps1 已加 vite.config 哈希戳记检测（9fba3df）。**403 已根治
+  （ee06061 体检确认 5173 带 erp Host 返 200）**——最终根因=pm2 restart 不真换
+  进程（项目已知陷阱），改 delete+start 后生效；排查中顺手交付：verify 探针
+  vite 配置遮蔽取证+隔离实验（现场拉新 preview 对照）、deploy-from-ci git fetch
+  竞态重试（70f7055）。业主侧证书第一次失败=AccessKey 缺 AliyunDNSFullAccess
+  （Error adding TXT record），已给 RAM 授权指引。**剩余（全在业主）**：
+  ①RAM 授权修好重跑证书脚本 ②重跑反代脚本(切 443+8443) ③安全组放行 8443 →
+  我触发 verify 看 [公网直连] 8443 绿 → App 填 https://erp.cnjinhu.top:8443
   → 改密码。治本=ICP 备案（1-2 周，通过后 443 可用去端口号）。
   ⚠️ 媒体文件 /api/media/:id/file 仍免 token（img 标签带不了 header），敏感资料
   别放媒体库，后续可做签名 URL。
