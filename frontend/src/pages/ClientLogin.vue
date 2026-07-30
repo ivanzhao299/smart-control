@@ -208,9 +208,7 @@ async function doLogin(): Promise<void> {
           {{ submitting ? '登录中...' : '登 录' }}
         </button>
 
-        <div class="footer-hint">
-          首次使用 · 默认密码 <code>1234</code> · 登录后可在后台修改
-        </div>
+<!-- 2026-07-30 业主: 系统已开公网访问, 默认密码提示删除 (安全 + 已提供后台改密入口) -->
       </form>
     </div>
   </div>

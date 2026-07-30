@@ -55,14 +55,14 @@ function portOfBase(base: string | undefined): number | null {
  * origin 推断会推出错误的 :3200, 所以相对路径优先直接用。
  */
 function readInitialBaseURL(): string {
-  try {
-    const stored = window.localStorage.getItem(STORAGE_KEY_BASE);
-    if (stored) return stored;
-  } catch { /* localStorage 不可用 (隐私模式) */ }
-
   const fromEnv = import.meta.env.VITE_API_BASE_URL as string | undefined;
-  if (fromEnv && fromEnv.startsWith('/')) return fromEnv; // 同源反代
 
+  // 2026-07-30 (公网直连+现场自动提速): **页面 origin 优先**于存的地址。
+  // App 壳会按"现场优先"自动选择加载现场(192.168.77.54:5173)还是公网
+  // (erp.cnjinhu.top:8443)——API 必须跟着页面走, 否则现场打开页面、API 却
+  // 打到存下来的公网地址, 流量绕北京一圈白白变慢。
+  // 登录页手输的服务器地址仍即时生效 (setApiBaseURL 运行时覆盖), 只是
+  // 下次启动会重新按页面 origin 推。
   try {
     const { protocol, hostname, port } = window.location;
     if (/^https?:$/.test(protocol) && hostname) {
@@ -74,6 +74,13 @@ function readInitialBaseURL(): string {
       return `${protocol}//${hostname}:${bePort}/api`;
     }
   } catch { /* 非浏览器环境 (SSR/测试) */ }
+
+  try {
+    const stored = window.localStorage.getItem(STORAGE_KEY_BASE);
+    if (stored) return stored;
+  } catch { /* localStorage 不可用 (隐私模式) */ }
+
+  if (fromEnv && fromEnv.startsWith('/')) return fromEnv; // 同源反代
 
   return fromEnv ?? '/api';
 }
