@@ -57,3 +57,17 @@ a {
 .el-notification.left {
   margin-top: env(safe-area-inset-top, 0px);
 }
+
+/* ---- 后台 hero 头排按钮防竖排 (2026-07-30 业主: "手机端新建设备按钮是竖式") ----
+ * .hero 是 DevicesAdmin 等十余个后台页共用的头排模式 (各页 scoped 定义, 这里全局兜底):
+ * 窄屏下 flex 行挤压右侧按钮, 中文按字换行变成一根竖条。
+ * 修: 按钮文字永不换行 + 窄屏时按钮排整体换到第二行右对齐。 */
+.hero-btn,
+.hero-right > button {
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+@media (max-width: 640px) {
+  .hero { flex-wrap: wrap; }
+  .hero-right { flex: 0 0 100%; justify-content: flex-end; flex-wrap: wrap; }
+}
