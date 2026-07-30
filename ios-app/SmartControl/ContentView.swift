@@ -20,6 +20,15 @@ struct ContentView: View {
     @State private var updatePrompt: UpdateChecker.Prompt?
     @StateObject private var netWatcher = NetWatcher()
 
+    // ============ 面容 ID 应用锁 (2026-07-30 业主要求) ============
+    // 形态是"应用锁"而非"登录方式": 客户端令牌本就 30 天自动登录, 缺的是
+    // "拿到手机就能开灯断电"的防线。冷启动必验; 切后台超 60s 回来重验。
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var locked = Prefs.biometricLock   // 冷启动: 开着锁就先锁住
+    @State private var authInFlight = false
+    @State private var backgroundedAt: Date?
+    private let lockGraceSeconds: TimeInterval = 60
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -148,6 +157,48 @@ struct ContentView: View {
                     .background(Color.black.opacity(0.92).ignoresSafeArea())
                 }
             }
+
+            // 面容 ID 锁覆盖层 — 压在配置页与 WebView 之上, 验证通过前挡住全部内容
+            if locked {
+                VStack(spacing: 16) {
+                    Image("LaunchLogo")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 84, height: 84)
+                    Text("已锁定")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.white)
+                    Text("通过面容 ID 验证后进入")
+                        .font(.system(size: 13))
+                        .foregroundColor(.gray)
+                    Button("解 锁") {
+                        startUnlockAuth()
+                    }
+                    .padding(.horizontal, 34).padding(.vertical, 12)
+                    .background(Color.accentColor)
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
+                    .padding(.top, 10)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.black.ignoresSafeArea())
+                .zIndex(10)
+            }
+        }
+        .onChange(of: scenePhase) { phase in
+            switch phase {
+            case .background:
+                backgroundedAt = Date()
+            case .active:
+                guard Prefs.biometricLock else { break }
+                let awayTooLong = backgroundedAt.map { Date().timeIntervalSince($0) > lockGraceSeconds } ?? false
+                if locked || awayTooLong {
+                    locked = true
+                    startUnlockAuth()
+                }
+            default:
+                break
+            }
         }
         // 状态栏隐藏走 Info.plist 的 UIStatusBarHidden (statusBarHidden() 是 iOS16+ API)
         .onAppear {
@@ -158,6 +209,8 @@ struct ContentView: View {
             netWatcher.start()
             reResolve()
             if let s = serverUrl { checkUpdate(s) }
+            // 冷启动即验 (scenePhase 首帧已是 .active, onChange 不会补发)
+            if locked { startUnlockAuth() }
         }
         .onDisappear { netWatcher.stop() }
         .alert(item: $updatePrompt) { p in
@@ -209,6 +262,16 @@ struct ContentView: View {
     private func checkUpdate(_ base: String) {
         UpdateChecker.check(serverBaseUrl: base) { prompt in
             updatePrompt = prompt
+        }
+    }
+
+    /// 弹系统面容/密码验证; 失败留在锁屏, 业主点"解锁"重试
+    private func startUnlockAuth() {
+        guard !authInFlight else { return }
+        authInFlight = true
+        BiometricAuth.authenticate(reason: "验证身份以进入展厅中控") { ok in
+            authInFlight = false
+            if ok { locked = false }
         }
     }
 }

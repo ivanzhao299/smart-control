@@ -7,6 +7,7 @@ enum Prefs {
     private static let keyRemoteUrl = "remote_url"
     private static let keyDismissedVersion = "update_dismissed_version_code"
     private static let keyDismissedAt = "update_dismissed_at_ms"
+    private static let keyBiometricLock = "biometric_lock"
 
     /// 展厅现场地址默认值 (GK9000 静态 IP; 业主重新配置时不用从头输)
     static let defaultServerUrl = "http://192.168.77.54:5173/control/"
@@ -25,6 +26,12 @@ enum Prefs {
             if let v = newValue, !v.isEmpty { UserDefaults.standard.set(v, forKey: keyRemoteUrl) }
             else { UserDefaults.standard.removeObject(forKey: keyRemoteUrl) }
         }
+    }
+
+    /// 面容 ID 应用锁 (2026-07-30 业主要求, 默认关) — 开着时启动/回前台超时先过系统验证
+    static var biometricLock: Bool {
+        get { UserDefaults.standard.bool(forKey: keyBiometricLock) }
+        set { UserDefaults.standard.set(newValue, forKey: keyBiometricLock) }
     }
 
     static var dismissedVersion: Int {

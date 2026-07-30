@@ -60,6 +60,7 @@ class MainActivity : AppCompatActivity() {
         setupConfigPanel()
         setupBackHandler()
         registerNetworkCallback()
+        setupBiometricLock()
 
         // 启动判断: 有 url → 探测双地址后进 WebView, 无 → 配置
         val saved = Prefs.getServerUrl(this)
@@ -150,6 +151,91 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) { /* 个别 ROM 限制注册数, 失败就退化为仅启动时探测 */ }
     }
 
+    // ============ 面容/指纹应用锁 (2026-07-30 业主要求) ============
+    //
+    // 形态是"应用锁"而非"登录方式": 客户端令牌本就 30 天自动登录, 真正缺的是
+    // "拿到手机就能开灯断电"的防线。开着时: 冷启动必验; 切后台超过宽限期
+    // (60s) 回来重验。验证走系统 BiometricPrompt, 自动落到面部/指纹/锁屏密码。
+    // 默认关, 配置页开关; 开与关都要先过一次验证 (防配置页被人顺手关锁)。
+
+    private companion object { const val LOCK_GRACE_MS = 60_000L }
+
+    /** 本进程内是否已验证通过 (冷启动为 false) */
+    private var unlocked = false
+    private var lastBackgroundAt = 0L
+    private var authInFlight = false
+
+    override fun onStart() {
+        super.onStart()
+        maybeLock()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        lastBackgroundAt = System.currentTimeMillis()
+    }
+
+    private fun setupBiometricLock() {
+        bind.btnUnlock.setOnClickListener { if (!authInFlight) startUnlockAuth() }
+    }
+
+    private fun maybeLock() {
+        if (!Prefs.isBiometricLock(this)) return
+        val awayTooLong = lastBackgroundAt > 0 &&
+            System.currentTimeMillis() - lastBackgroundAt > LOCK_GRACE_MS
+        if (unlocked && !awayTooLong) return
+        unlocked = false
+        bind.lockOverlay.visibility = View.VISIBLE
+        if (!authInFlight) startUnlockAuth()
+    }
+
+    private fun startUnlockAuth() {
+        authenticate(
+            onSuccess = {
+                unlocked = true
+                bind.lockOverlay.visibility = View.GONE
+            },
+            onFail = { /* 覆盖层留着, 业主点"解锁"重试 */ },
+        )
+    }
+
+    /** 系统生物验证弹窗 — 面部/指纹优先, 兜底锁屏密码 (所以不设取消按钮文案) */
+    private fun authenticate(onSuccess: () -> Unit, onFail: () -> Unit) {
+        val authenticators = androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK or
+            androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        authInFlight = true
+        val prompt = androidx.biometric.BiometricPrompt(
+            this,
+            androidx.core.content.ContextCompat.getMainExecutor(this),
+            object : androidx.biometric.BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: androidx.biometric.BiometricPrompt.AuthenticationResult) {
+                    authInFlight = false
+                    onSuccess()
+                }
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    authInFlight = false
+                    onFail()
+                }
+                // onAuthenticationFailed = 单次没认出来, 系统弹窗自己继续收, 不处理
+            },
+        )
+        val info = androidx.biometric.BiometricPrompt.PromptInfo.Builder()
+            .setTitle(getString(R.string.biometric_prompt_title))
+            .setSubtitle(getString(R.string.biometric_prompt_subtitle))
+            .setAllowedAuthenticators(authenticators)
+            .build()
+        prompt.authenticate(info)
+    }
+
+    /** 设备是否配了任一可用验证方式 (面部/指纹/锁屏密码) */
+    private fun canAuthenticate(): Boolean {
+        val bm = androidx.biometric.BiometricManager.from(this)
+        return bm.canAuthenticate(
+            androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL,
+        ) == androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS
+    }
+
     // ============ 全屏 / 沉浸 ============
 
     private fun applyImmersive() {
@@ -198,6 +284,35 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.config_cache_cleared, Toast.LENGTH_LONG).show()
             activeUrl = null           // 强制重探重载
             resolveAndLoad()
+        }
+
+        // 面容/指纹解锁开关 — 开与关都先过一次系统验证 (防配置页被人顺手关锁)
+        var suppressSwitch = false
+        configBind.swBiometric.isChecked = Prefs.isBiometricLock(this)
+        configBind.swBiometric.setOnCheckedChangeListener { _, checked ->
+            if (suppressSwitch) return@setOnCheckedChangeListener
+            fun revert() {
+                suppressSwitch = true
+                configBind.swBiometric.isChecked = !checked
+                suppressSwitch = false
+            }
+            if (checked && !canAuthenticate()) {
+                Toast.makeText(this, R.string.biometric_unavailable, Toast.LENGTH_LONG).show()
+                revert()
+                return@setOnCheckedChangeListener
+            }
+            authenticate(
+                onSuccess = {
+                    Prefs.setBiometricLock(this, checked)
+                    if (checked) unlocked = true   // 刚验过, 本次会话不再弹
+                    Toast.makeText(
+                        this,
+                        if (checked) R.string.biometric_enabled else R.string.biometric_disabled,
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                },
+                onFail = { revert() },
+            )
         }
     }
 

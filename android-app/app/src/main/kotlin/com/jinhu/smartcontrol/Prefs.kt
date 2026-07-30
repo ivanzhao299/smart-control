@@ -13,6 +13,7 @@ object Prefs {
     private const val KEY_REMOTE_URL = "remote_url"
     private const val KEY_DISMISSED_VERSION = "update_dismissed_version_code"
     private const val KEY_DISMISSED_AT = "update_dismissed_at_ms"
+    private const val KEY_BIOMETRIC_LOCK = "biometric_lock"
 
     fun get(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -33,6 +34,13 @@ object Prefs {
     fun setRemoteUrl(ctx: Context, url: String?) {
         if (url.isNullOrBlank()) get(ctx).edit().remove(KEY_REMOTE_URL).apply()
         else get(ctx).edit().putString(KEY_REMOTE_URL, url).apply()
+    }
+
+    /** 面容/指纹应用锁 (2026-07-30 业主要求, 默认关) — 开着时启动/回前台超时要先过系统生物验证 */
+    fun isBiometricLock(ctx: Context): Boolean = get(ctx).getBoolean(KEY_BIOMETRIC_LOCK, false)
+
+    fun setBiometricLock(ctx: Context, on: Boolean) {
+        get(ctx).edit().putBoolean(KEY_BIOMETRIC_LOCK, on).apply()
     }
 
     /** 业主点了"稍后"对哪个 versionCode dismiss 过 */

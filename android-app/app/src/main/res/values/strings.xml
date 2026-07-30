@@ -12,6 +12,16 @@
     <string name="config_test">测试连接</string>
     <string name="config_save">保存并启动</string>
     <string name="config_clear_cache">清除页面缓存 (页面没更新时用)</string>
+    <string name="config_biometric_label">面容 / 指纹解锁</string>
+    <string name="config_biometric_hint">打开后, 每次启动或离开较久回来需先通过面容/指纹 (或锁屏密码) 验证</string>
+    <string name="biometric_prompt_title">解锁展厅中控</string>
+    <string name="biometric_prompt_subtitle">请通过面容 / 指纹 / 锁屏密码验证身份</string>
+    <string name="biometric_unavailable">设备未设置锁屏密码或生物识别, 无法开启</string>
+    <string name="biometric_enabled">面容/指纹解锁已开启</string>
+    <string name="biometric_disabled">面容/指纹解锁已关闭</string>
+    <string name="lock_title">已锁定</string>
+    <string name="lock_hint">通过面容 / 指纹验证后进入</string>
+    <string name="lock_unlock">解 锁</string>
     <string name="config_cache_cleared">缓存已清除, 正在重新加载最新页面…</string>
     <string name="config_testing">正在测试…</string>
     <string name="config_test_ok">连接成功 · %1$s</string>
