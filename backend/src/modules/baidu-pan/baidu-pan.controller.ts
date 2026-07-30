@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, Post, Query, UseGuards } from '@nestjs/common';
+import { AdminGuard } from '../admin-auth/admin-auth.guard';
 import { BaiduPanService } from './baidu-pan.service';
 
 /**
@@ -6,6 +7,7 @@ import { BaiduPanService } from './baidu-pan.service';
  * 客户端 token 即可 (走全局 ClientAuthGuard) — 与媒体上传同级的日常操作;
  * AppKey/SecretKey 只进 DB 不回显明文 (status 只报 configured 布尔)。
  */
+@UseGuards(AdminGuard) // 2026-07-30 业主隐私收紧: 网盘所有操作仅管理员 (业主端普通登录不可见)
 @Controller('baidu-pan')
 export class BaiduPanController {
   constructor(private readonly service: BaiduPanService) {}
@@ -35,6 +37,13 @@ export class BaiduPanController {
   @HttpCode(200)
   async authPoll() {
     return { message: '查询成功', data: await this.service.authPoll() };
+  }
+
+  @Post('root')
+  @HttpCode(200)
+  async setRoot(@Body() body: { path?: string | null } = {}) {
+    await this.service.setRoot(body?.path ?? null);
+    return { message: '可见根目录已更新', data: null };
   }
 
   @Get('list')

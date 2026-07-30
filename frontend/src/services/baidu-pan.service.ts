@@ -19,6 +19,8 @@ export interface PanFile {
 export interface PanStatus {
   configured: boolean;
   authorized: boolean;
+  /** 可见根目录 (null=全盘可见) — 浏览/下载被服务端钳制在此目录内 */
+  rootPath: string | null;
   download: {
     active: { name: string; receivedBytes: number; totalBytes: number | null; startedAt: number } | null;
     last: { ok: boolean; name: string; message: string; at: number } | null;
@@ -43,6 +45,7 @@ export const baiduPanService = {
   authStart: () => api.post<PanAuthStart>('/baidu-pan/auth/start', undefined, { timeout: SLOW_LINK_TIMEOUT }),
   authPoll: () =>
     api.post<{ authorized: boolean; pending: string | null }>('/baidu-pan/auth/poll', undefined, { timeout: SLOW_LINK_TIMEOUT }),
-  list: (dir: string) => api.get<{ dir: string; entries: PanFile[] }>('/baidu-pan/list', { params: { dir }, timeout: 30_000 }),
+  list: (dir: string) => api.get<{ dir: string; entries: PanFile[]; rootPath: string | null }>('/baidu-pan/list', { params: { dir }, timeout: 30_000 }),
+  setRoot: (path: string | null) => api.post<null>('/baidu-pan/root', { path }, { timeout: SLOW_LINK_TIMEOUT }),
   download: (fsId: number, name: string) => api.post<{ started: boolean }>('/baidu-pan/download', { fsId, name }, { timeout: 60_000 }),
 };

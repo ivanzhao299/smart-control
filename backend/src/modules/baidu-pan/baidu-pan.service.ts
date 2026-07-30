@@ -64,10 +64,14 @@ export class BaiduPanService implements OnModuleInit {
       "id" integer PRIMARY KEY NOT NULL,
       "appKey" varchar(64), "secretKey" varchar(64), "deviceCode" varchar(128),
       "accessToken" text, "refreshToken" text, "expiresAt" datetime,
+      "rootPath" varchar(256),
       "updatedAt" datetime NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`).catch((e: Error) => {
       this.logger.warn(`[BaiduPan] 建表自愈失败(将影响 /baidu-pan/status): ${e.message}`, { context: 'BaiduPanService' });
     });
+    // 列自愈 (与迁移 1785190000000 双保险)
+    await this.repo.query(`ALTER TABLE "baidu_pan_auth" ADD COLUMN "rootPath" varchar(256)`)
+      .catch(() => { /* 列已存在 */ });
   }
 
   private async row(): Promise<BaiduPanAuth> {
@@ -75,7 +79,7 @@ export class BaiduPanService implements OnModuleInit {
     if (!r) {
       r = await this.repo.save(this.repo.create({
         id: 1, appKey: null, secretKey: null, deviceCode: null,
-        accessToken: null, refreshToken: null, expiresAt: null,
+        accessToken: null, refreshToken: null, expiresAt: null, rootPath: null,
       }));
     }
     return r;
@@ -84,15 +88,34 @@ export class BaiduPanService implements OnModuleInit {
   // ============ 状态 / 配置 ============
 
   async status(): Promise<{
-    configured: boolean; authorized: boolean;
+    configured: boolean; authorized: boolean; rootPath: string | null;
     download: { active: BaiduPanService['activeDownload']; last: BaiduPanService['lastResult'] };
   }> {
     const r = await this.row();
     return {
       configured: !!(r.appKey && r.secretKey),
       authorized: !!r.refreshToken,
+      rootPath: r.rootPath ?? null,
       download: { active: this.activeDownload, last: this.lastResult },
     };
+  }
+
+  /** 设置可见根目录 (空串/null = 清除, 恢复全盘可见) */
+  async setRoot(path: string | null): Promise<void> {
+    const r = await this.row();
+    let p = (path ?? '').trim();
+    if (p && !p.startsWith('/')) p = '/' + p;
+    if (p.length > 1) p = p.replace(/\/+$/, '');
+    r.rootPath = p || null;
+    await this.repo.save(r);
+    this.logger.info(`[BaiduPan] 可见根目录已设为: ${r.rootPath ?? '(全盘)'}`, { context: 'BaiduPanService' });
+  }
+
+  /** 目录钳制: 设了根目录后, 任何越界请求一律拉回根目录内 */
+  private clampDir(dir: string, root: string | null): string {
+    if (!root) return dir;
+    if (dir === root || dir.startsWith(root + '/')) return dir;
+    return root;
   }
 
   async saveConfig(appKey: string, secretKey: string): Promise<void> {
@@ -173,8 +196,9 @@ export class BaiduPanService implements OnModuleInit {
 
   // ============ 文件浏览 / 下载入库 ============
 
-  async list(dir: string): Promise<{ dir: string; entries: PanFile[] }> {
-    const d = dir && dir.startsWith('/') ? dir : '/';
+  async list(dir: string): Promise<{ dir: string; entries: PanFile[]; rootPath: string | null }> {
+    const row = await this.row();
+    const d = this.clampDir(dir && dir.startsWith('/') ? dir : '/', row.rootPath);
     const tok = await this.token();
     const j = await this.getJson(
       `${PAN_BASE}/xpan/file?method=list&dir=${encodeURIComponent(d)}&order=name&desc=0&start=0&limit=500&web=web&folder=0&access_token=${encodeURIComponent(tok)}`);
@@ -199,7 +223,7 @@ export class BaiduPanService implements OnModuleInit {
     });
     // 文件夹在前, 再按名
     entries.sort((a, b) => (Number(b.isDir) - Number(a.isDir)) || a.name.localeCompare(b.name, 'zh-CN'));
-    return { dir: d, entries };
+    return { dir: d, entries, rootPath: row.rootPath ?? null };
   }
 
   /** 发起服务器侧代下载 (立即返回, 前端轮询 status 看进度) */
@@ -219,6 +243,14 @@ export class BaiduPanService implements OnModuleInit {
     }
     const size = Number(meta.list[0].size ?? 0);
     if (size > MAX_BYTES) throw new BadRequestException('文件超过 2GB 上限');
+    // 根目录钳制: 只允许下载可见范围内的文件 (防拿任意 fsId 越权拉私人文件)
+    const rowForRoot = await this.row();
+    if (rowForRoot.rootPath) {
+      const fpath = String(meta.list[0].path ?? '');
+      if (!(fpath === rowForRoot.rootPath || fpath.startsWith(rowForRoot.rootPath + '/'))) {
+        throw new BadRequestException('该文件不在可见根目录内');
+      }
+    }
 
     this.activeDownload = { name, receivedBytes: 0, totalBytes: size || null, startedAt: Date.now() };
     // 后台跑, 不阻塞请求

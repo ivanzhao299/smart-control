@@ -24,7 +24,8 @@ import { onlineMusicService, type OnlineTrack } from '@/services/online-music.se
 import { baiduPanService, type PanFile, type PanStatus, type PanAuthStart } from '@/services/baidu-pan.service';
 import { usePlaybackStore } from '@/stores/playback';
 import { useSystemBrandingStore } from '@/stores/system-branding';
-import { absUrl } from '@/services/http';
+import { absUrl, HttpError } from '@/services/http';
+import { useAdminAuthStore } from '@/stores/admin-auth';
 
 const brandingStore = useSystemBrandingStore();
 
@@ -435,6 +436,11 @@ const panDir = ref('/');
 const panEntries = ref<PanFile[]>([]);
 const panLoading = ref(false);
 const panErr = ref('');
+// 2026-07-30 业主隐私收紧: 网盘仅管理员可用 — 弹窗内就地验证后台密码
+const panNeedAdmin = ref(false);
+const panAdminPwd = ref('');
+const panAdminBusy = ref(false);
+const adminAuthStore = useAdminAuthStore();
 let panPollTimer: number | undefined;
 
 async function openPanDialog(): Promise<void> {
@@ -450,7 +456,49 @@ function closePanDialog(): void {
   panAuth.value = null;
 }
 async function refreshPanStatus(): Promise<void> {
-  try { panStatus.value = await baiduPanService.status(); } catch (e) { panErr.value = (e as Error).message; }
+  try {
+    panStatus.value = await baiduPanService.status();
+    panNeedAdmin.value = false;
+  } catch (e) {
+    if (e instanceof HttpError && (e.status === 401 || e.status === 403)) {
+      panNeedAdmin.value = true;   // 仅管理员可用, 弹窗切到密码验证态
+      panErr.value = '';
+    } else {
+      panErr.value = (e as Error).message;
+    }
+  }
+}
+
+/** 弹窗内验证后台管理密码 → 拿 admin 令牌后放行网盘操作 */
+async function panVerifyAdmin(): Promise<void> {
+  if (!panAdminPwd.value) { ElMessage.warning('请输入后台管理密码'); return; }
+  panAdminBusy.value = true;
+  try {
+    await adminAuthStore.login(panAdminPwd.value);
+    panAdminPwd.value = '';
+    panNeedAdmin.value = false;
+    await refreshPanStatus();
+    if (panStatus.value?.authorized) await panList(panDir.value);
+  } catch (e) {
+    ElMessage.error(`验证失败: ${(e as Error).message}`);
+  } finally { panAdminBusy.value = false; }
+}
+
+/** 设置可见根目录 — 服务端把浏览/下载钳制在该目录内 */
+async function panSetRoot(): Promise<void> {
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '设置后, 系统只能看到并下载该文件夹内的内容, 网盘其余内容完全不可见 (留空 = 全盘可见, 不推荐)。例: /展厅素材',
+      '设置可见根目录',
+      { inputValue: panStatus.value?.rootPath ?? '', confirmButtonText: '保存', cancelButtonText: '取消' },
+    );
+    await baiduPanService.setRoot((value ?? '').trim() || null);
+    ElMessage.success('可见根目录已更新');
+    await refreshPanStatus();
+    await panList(panStatus.value?.rootPath ?? '/');
+  } catch (e) {
+    if (e !== 'cancel' && (e as Error)?.message) ElMessage.error((e as Error).message);
+  }
 }
 /** 弹窗开着就 2s 轮询: 状态读取失败重试 + 授权等待 + 下载进度都靠它推进 */
 function schedulePanPoll(): void {
@@ -458,10 +506,12 @@ function schedulePanPoll(): void {
   if (!panDialog.value) return;
   panPollTimer = window.setTimeout(async () => {
     if (!panStatus.value) {
-      await refreshPanStatus();
-      if (panStatus.value) {
-        panErr.value = '';
-        if ((panStatus.value as PanStatus).authorized) await panList(panDir.value);
+      if (!panNeedAdmin.value) {   // 等待管理员验证时不空转重试
+        await refreshPanStatus();
+        if (panStatus.value) {
+          panErr.value = '';
+          if ((panStatus.value as PanStatus).authorized) await panList(panDir.value);
+        }
       }
     } else if (panAuth.value && !panStatus.value?.authorized) {
       try {
@@ -511,7 +561,8 @@ async function panList(dir: string): Promise<void> {
   finally { panLoading.value = false; }
 }
 function panUp(): void {
-  if (panDir.value === '/') return;
+  const root = panStatus.value?.rootPath;
+  if (panDir.value === '/' || (root && panDir.value === root)) return;
   const parts = panDir.value.split('/').filter(Boolean);
   parts.pop();
   void panList('/' + parts.join('/'));
@@ -918,8 +969,20 @@ onMounted(async () => {
       <div class="webpage-box om-box">
         <div class="wb-title"><FolderOpen :size="18" :stroke-width="1.8" /> 百度网盘</div>
 
+        <!-- 态0: 仅管理员 — 就地验证后台密码 -->
+        <template v-if="panNeedAdmin">
+          <div class="wb-hint">
+            百度网盘关联的是业主私人账号, <b>仅管理员可访问</b>。请输入后台管理密码验证身份。
+          </div>
+          <input v-model="panAdminPwd" type="password" class="wb-input" placeholder="后台管理密码" @keyup.enter="panVerifyAdmin" />
+          <div class="wb-actions">
+            <button class="v2-quick" @click="closePanDialog">关闭</button>
+            <button class="v2-quick primary" :disabled="panAdminBusy" @click="panVerifyAdmin">{{ panAdminBusy ? '验证中…' : '验证' }}</button>
+          </div>
+        </template>
+
         <!-- 态1: 未配置 -->
-        <template v-if="panStatus && !panStatus.configured">
+        <template v-else-if="panStatus && !panStatus.configured">
           <div class="wb-hint">
             首次使用: 到 <b>pan.baidu.com/union</b> 注册个人开发者并「创建应用」,
             把应用的 AppKey 和 SecretKey 粘到下面 (只需一次, 存在服务器上)。
@@ -956,9 +1019,13 @@ onMounted(async () => {
         <!-- 态3: 已授权 → 浏览 -->
         <template v-else-if="panStatus">
           <div class="pan-bar">
-            <button class="v2-quick" :disabled="panDir === '/' || panLoading" @click="panUp">↑ 上级</button>
+            <button class="v2-quick" :disabled="panLoading || panDir === '/' || panDir === (panStatus.rootPath ?? '')" @click="panUp">↑ 上级</button>
             <span class="pan-path" :title="panDir">{{ panDir }}</span>
+            <button class="v2-quick" :disabled="panLoading" title="设置可见根目录" @click="panSetRoot">根目录</button>
             <button class="v2-quick" :disabled="panLoading" @click="panList(panDir)"><RefreshCcw :size="13" /></button>
+          </div>
+          <div v-if="!panStatus.rootPath" class="wb-hint pan-root-warn">
+            ⚠️ 未设置可见根目录, 当前全盘可见 — 建议点「根目录」限定到专用文件夹
           </div>
           <div v-if="panStatus.download.active" class="pan-dl">
             正在下载「{{ panStatus.download.active.name }}」

@@ -35,6 +35,13 @@ export class BaiduPanAuth {
   @Column({ type: 'datetime', nullable: true })
   expiresAt!: Date | null;
 
+  /**
+   * 可见根目录 (2026-07-30 业主隐私收紧): 设置后浏览/下载都被钳制在该目录内,
+   * 网盘其余内容对系统完全不可见。null = 未设置 (全盘可见, 不推荐)。
+   */
+  @Column({ type: 'varchar', length: 256, nullable: true })
+  rootPath!: string | null;
+
   @UpdateDateColumn()
   updatedAt!: Date;
 }
