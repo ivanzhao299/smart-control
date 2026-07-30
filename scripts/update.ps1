@@ -270,6 +270,30 @@ if ($fePresent) {
   } catch { }
 }
 
+# 6c.2: vite.config.ts 变更 → 必须重启 frontend (2026-07-30)
+# vite preview 只在进程启动时读配置; "零停机换 dist 文件"模式覆盖不到配置变更
+# (公网直连的 allowedHosts 白名单就是这么漏掉的: 配置到了磁盘, 进程没吃进)。
+# 哈希戳记比对, 变了才重启 — 平时零停机模式不受影响。
+try {
+  $viteCfg = Join-Path $projectRoot 'frontend\vite.config.ts'
+  $stampDir = Join-Path $projectRoot 'logs'
+  $stampFile = Join-Path $stampDir 'vite-config.applied.sha'
+  if (Test-Path $viteCfg) {
+    $vh = (Get-FileHash $viteCfg -Algorithm SHA256).Hash
+    $old = ''
+    if (Test-Path $stampFile) { $old = (Get-Content $stampFile -ErrorAction SilentlyContinue | Select-Object -First 1) }
+    if ($vh -ne $old) {
+      Write-Host "  -> vite.config.ts 有变更, 重启 smart-control-frontend 使配置生效..." -ForegroundColor Yellow
+      & pm2 restart smart-control-frontend --update-env 2>&1 | Out-Null
+      if (-not (Test-Path $stampDir)) { New-Item -ItemType Directory -Path $stampDir -Force | Out-Null }
+      Set-Content -Path $stampFile -Value $vh
+      Write-Host "    frontend 已重启 (配置哈希已记录)" -ForegroundColor Green
+    }
+  }
+} catch {
+  Write-Host "  (vite.config 变更检查失败: $($_.Exception.Message))" -ForegroundColor DarkGray
+}
+
 try { & pm2 save 2>&1 | Out-Null } catch { }
 
 # 6c.2 【2026-07-26 根治孤儿守护泄漏】
