@@ -353,7 +353,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
     <aside class="v2-nav">
       <!-- 品牌 logo: 占侧栏顶部, header 不再重复显示. 文字 / 图片由 SystemBranding 配置 -->
       <button class="v2-nav-brand" :title="branding.systemName" @click="go('dashboard')">
-        <div class="v2-logo">
+        <div class="v2-logo" :class="{ 'has-img': branding.logoUrl }">
           <img v-if="branding.logoUrl" :src="branding.logoUrl" :alt="branding.logoText" />
           <template v-else>{{ branding.logoText }}</template>
         </div>
@@ -645,10 +645,15 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   box-shadow: 0 4px 14px -4px rgba(76, 154, 255, 0.6);
   overflow: hidden;
 }
+/* 有自定义 logo 图时去掉写死的蓝渐变底与光晕, 图完整显示 */
+.v2-nav-brand .v2-logo.has-img {
+  background: transparent;
+  box-shadow: none;
+}
 .v2-nav-brand .v2-logo img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
 }
 

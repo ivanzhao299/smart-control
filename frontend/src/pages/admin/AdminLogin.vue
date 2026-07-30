@@ -75,7 +75,7 @@ async function submit(): Promise<void> {
         <X :size="18" :stroke-width="2" />
       </button>
       <div class="brand">
-        <div class="brand-logo">
+        <div class="brand-logo" :class="{ 'has-img': brandingStore.branding.logoUrl }">
           <img v-if="brandingStore.branding.logoUrl" :src="brandingStore.branding.logoUrl" alt="logo" />
           <template v-else>{{ brandingStore.branding.logoText }}</template>
         </div>
@@ -196,10 +196,15 @@ async function submit(): Promise<void> {
   overflow: hidden;
   flex-shrink: 0;
 }
+/* 有自定义 logo 图时去掉写死的蓝渐变底与光晕, 图完整显示 */
+.brand-logo.has-img {
+  background: transparent;
+  box-shadow: none;
+}
 .brand-logo img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 .brand-title {
   font-size: 17px;

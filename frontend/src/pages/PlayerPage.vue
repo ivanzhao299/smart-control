@@ -363,7 +363,7 @@ function onAudioEnded(): void {
 
     <!-- 待机: branding logo + 系统名 -->
     <div v-else-if="isIdle" class="idle">
-      <div class="idle-logo">
+      <div class="idle-logo" :class="{ 'has-img': brandingStore.branding.logoUrl }">
         <img v-if="brandingStore.branding.logoUrl" :src="brandingStore.branding.logoUrl" alt="logo" />
         <template v-else>{{ brandingStore.branding.logoText }}</template>
       </div>
@@ -450,6 +450,11 @@ function onAudioEnded(): void {
   font-weight: 700;
   box-shadow: 0 20px 60px -10px rgba(76, 154, 255, 0.5);
   overflow: hidden;
+}
+/* 有自定义 logo 图时去掉写死的蓝渐变底与光晕 (透明底 logo 直接悬浮在待机深色背景上) */
+.idle-logo.has-img {
+  background: transparent;
+  box-shadow: none;
 }
 .idle-logo img {
   /* 2026-07-26 业主 (带照片): "外面圆角里面方角图片非常丑"。logo 已割接成

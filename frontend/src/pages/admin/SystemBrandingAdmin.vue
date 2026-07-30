@@ -475,7 +475,9 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
         <div class="preview-block">
           <div class="preview-label">浏览器标签页</div>
           <div class="pv-tab">
-            <div class="pv-tab-fav"></div>
+            <div class="pv-tab-fav" :class="{ 'has-img': previewLogoUrl }">
+              <img v-if="previewLogoUrl" :src="previewLogoUrl" alt="favicon" />
+            </div>
             <span class="pv-tab-text">{{ form.browserTitle.trim() || previewSystemName }}</span>
           </div>
         </div>
@@ -669,6 +671,17 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
   border-radius: 3px;
   background: linear-gradient(135deg, var(--v2-primary), var(--v2-info));
   flex-shrink: 0;
+  overflow: hidden;
+}
+/* 有 logo 图时 favicon 预览显示真图, 不再是写死的蓝色小方块 */
+.pv-tab-fav.has-img {
+  background: transparent;
+}
+.pv-tab-fav img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 .pv-tab-text {
   overflow: hidden;
