@@ -33,12 +33,16 @@ export interface PanAuthStart {
   interval: number;
 }
 
+// 远程 WireGuard 链路慢 (媒体缩略图会占满并发连接), 默认 15s 超时不够用 —— 统一放宽 30s
+const SLOW_LINK_TIMEOUT = 30_000;
+
 export const baiduPanService = {
-  status: () => api.get<PanStatus>('/baidu-pan/status'),
+  status: () => api.get<PanStatus>('/baidu-pan/status', { timeout: SLOW_LINK_TIMEOUT }),
   saveConfig: (appKey: string, secretKey: string) =>
-    api.post<null>('/baidu-pan/config', { appKey, secretKey }),
-  authStart: () => api.post<PanAuthStart>('/baidu-pan/auth/start'),
-  authPoll: () => api.post<{ authorized: boolean; pending: string | null }>('/baidu-pan/auth/poll'),
+    api.post<null>('/baidu-pan/config', { appKey, secretKey }, { timeout: SLOW_LINK_TIMEOUT }),
+  authStart: () => api.post<PanAuthStart>('/baidu-pan/auth/start', undefined, { timeout: SLOW_LINK_TIMEOUT }),
+  authPoll: () =>
+    api.post<{ authorized: boolean; pending: string | null }>('/baidu-pan/auth/poll', undefined, { timeout: SLOW_LINK_TIMEOUT }),
   list: (dir: string) => api.get<{ dir: string; entries: PanFile[] }>('/baidu-pan/list', { params: { dir }, timeout: 30_000 }),
   download: (fsId: number, name: string) => api.post<{ started: boolean }>('/baidu-pan/download', { fsId, name }, { timeout: 60_000 }),
 };
