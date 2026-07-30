@@ -25,6 +25,9 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       port: 5173,
       strictPort: true,
+      // 公网直连: 跳板机 nginx 反代 erp.cnjinhu.top 过来的请求带域名 Host,
+      // vite 的 DNS-rebind 防护默认只放行 IP/localhost, 域名不加白会 403
+      allowedHosts: ['.cnjinhu.top'],
     },
     server: {
       host: '0.0.0.0',

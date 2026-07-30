@@ -53,8 +53,14 @@ echo "nginx $(nginx -v 2>&1 | grep -o '[0-9.]*' | head -1) ✓"
 echo ""
 echo "==== 2. 找证书 ===="
 CERT=""; KEY=""
+# 2a-0. DNS 方式签发的证书 (aliyun-erp-cert-dns.sh 装到这里) — 优先
+if [ -f "/etc/nginx/certs/$DOMAIN.fullchain.pem" ]; then
+  CERT="/etc/nginx/certs/$DOMAIN.fullchain.pem"
+  KEY="/etc/nginx/certs/$DOMAIN.key.pem"
+  echo "复用 DNS 签发证书: $CERT"
+fi
 # 2a. 专属证书
-if [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]; then
+if [ -z "$CERT" ] && [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]; then
   CERT="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
   KEY="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
   echo "复用已有证书: $CERT"
