@@ -1,7 +1,7 @@
 {
   "platform": "android",
-  "versionCode": 14,
-  "versionName": "1.1.6",
-  "commit": "5073a15b8d4bdf5f3b95e26b30c6934cbecbb869",
-  "builtAt": "2026-07-30T04:37:05Z"
+  "versionCode": 15,
+  "versionName": "1.1.7",
+  "commit": "a8c89c1c42b566b11fbf2c3f2465d9c0dabebe28",
+  "builtAt": "2026-07-30T05:17:39Z"
 }
