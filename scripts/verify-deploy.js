@@ -731,6 +731,14 @@ async function main() {
       } else {
         console.log('  ' + RED('WARN') + ' 找不到 player-watchdog.log — watchdog 可能从未跑过');
       }
+      // 投影分辨率提优日志 (2026-07-31 令牌机制) — 有就带出尾巴, 远程判断
+      // "EDID 封顶没有更高模式" vs "脚本报错" 全靠这段
+      const resLog = path.resolve(__dirname, '..', 'logs', 'projector-res.log');
+      if (fs.existsSync(resLog)) {
+        const rtail = fs.readFileSync(resLog, 'utf8').trimEnd().split(/\r?\n/).slice(-12);
+        console.log('  projector-res.log 尾 12 行:');
+        rtail.forEach((l) => console.log('  | ' + l));
+      }
     } catch (e) { console.log('  ' + RED('WARN') + ' watchdog 状态读取异常: ' + e.message); }
     console.log('');
   }
