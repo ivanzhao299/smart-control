@@ -338,6 +338,33 @@ if (Test-Path $tokenFile) {
   }
 }
 
+# Projector-resolution token (2026-07-31): same git-delivered lever as the
+# relaunch token, but first runs set-projector-res.ps1 to raise the projector
+# display to the best EDID mode (needs THIS interactive session -- a service
+# or SSH context cannot change display modes), then forces a player relaunch
+# so the kiosk windows re-pin to the new geometry.
+$resTokenFile = Join-Path $PSScriptRoot 'projector-resolution.token'
+$resDoneFile  = Join-Path $RepoRoot 'logs\projector-res.done'
+if (Test-Path $resTokenFile) {
+  $rtoken = ''
+  try { $rtoken = (Get-Content $resTokenFile -Raw -ErrorAction Stop).Trim() } catch { }
+  $rdone = ''
+  if (Test-Path $resDoneFile) {
+    try { $rdone = (Get-Content $resDoneFile -Raw -ErrorAction Stop).Trim() } catch { }
+  }
+  if ($rtoken -and $rtoken -ne $rdone) {
+    Log ('projector-resolution token changed -> applying (token: ' + $rtoken + ')')
+    try { Set-Content -Path $resDoneFile -Value $rtoken -Encoding UTF8 } catch { }
+    $resTarget = 'auto'
+    if ($rtoken -match 'restore') { $resTarget = 'restore' }
+    try {
+      & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'set-projector-res.ps1') -Target $resTarget 2>&1 |
+        ForEach-Object { Log ('  [set-res] ' + $_) }
+    } catch { Log ('  [set-res] FAILED: ' + $_.Exception.Message) }
+    $forceRelaunch = $true
+  }
+}
+
 # A session we just reattached ALWAYS needs a relaunch, even if every slot
 # heartbeats: the windows were placed against the RDP virtual display, so their
 # coordinates mean nothing on the real 3-monitor layout. Restart to re-place them.
