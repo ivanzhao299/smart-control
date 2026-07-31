@@ -1113,7 +1113,8 @@ async function toggleMuteAll(): Promise<void> {
           <div class="ov-value v2-inter">{{ overview.active }}<span class="unit">/ {{ overview.total }}</span></div>
         </div>
       </div>
-      <div class="ov-item">
+      <!-- 平均音量/当前预设: 手机上隐藏 (2026-07-31 业主: 状态卡只留两项一行, 空间让给内容) -->
+      <div class="ov-item ov-avg">
         <div class="ov-ico"><Volume2 :size="18" :stroke-width="2" /></div>
         <div class="ov-body">
           <div class="ov-label">平均音量</div>
@@ -1127,7 +1128,7 @@ async function toggleMuteAll(): Promise<void> {
           <div class="ov-value v2-inter">{{ overview.playing }}<span class="unit">个 BGM</span></div>
         </div>
       </div>
-      <div class="ov-item">
+      <div class="ov-item ov-preset">
         <div class="ov-ico"><Sparkles :size="18" :stroke-width="2" /></div>
         <div class="ov-body">
           <div class="ov-label">当前预设</div>
@@ -1136,6 +1137,12 @@ async function toggleMuteAll(): Promise<void> {
           </div>
         </div>
       </div>
+      <!-- 手机专用: 全部静音挪进状态条右端 (头部那颗在手机上独占一行, 浪费竖向空间) -->
+      <button :class="['v2-quick', 'ov-mute', allMuted ? 'active' : 'danger']" @click="toggleMuteAll">
+        <Volume2 v-if="allMuted" :size="14" :stroke-width="2" />
+        <VolumeX v-else :size="14" :stroke-width="2" />
+        {{ allMuted ? '解除静音' : '全部静音' }}
+      </button>
     </div>
 
     <!-- 一键场景 U01-U12 -->
@@ -2082,14 +2089,15 @@ async function toggleMuteAll(): Promise<void> {
   .matrix-grid { min-width: 560px; height: auto; min-height: 100%; }
   .ch-name { font-size: 12px; }
   .vol-value { font-size: 13px; }
-  /* 2026-07-28 业主: 手机上总览条 4 项硬挤一行, "当前预设"溢出屏幕、数值折行。
-     改 2×2 网格, 每项有足够宽度; 第 3 项起新行, 左侧竖分隔线去掉。 */
-  .v2-overview.audio {
-    display: grid; grid-template-columns: 1fr 1fr;
-    gap: 10px 0; padding: 10px 4px;
-  }
+  /* 2026-07-28 业主: 手机总览条 4 项挤一行溢出 → 曾改 2×2。
+     2026-07-31 业主再改: 去掉"平均音量/当前预设"只留两项一行, 全部静音从头部
+     独占行挪进状态条右端 —— 头部+状态共省约两行, 空间让给下面内容。 */
+  .v2-overview.audio { padding: 8px 4px; }
   .ov-item { padding: 0 10px; }
-  .ov-item:nth-child(3)::before { display: none; }
+  .ov-avg, .ov-preset { display: none; }
+  /* 特异性 0,2,0: 压过文件后段的 .ov-mute{display:none} 基础规则 (源码顺序在后) */
+  .v2-overview.audio .ov-mute { display: inline-flex; margin-left: auto; flex: 0 0 auto; }
+  .back-row .mute-inline { display: none; }
   .ov-value { white-space: nowrap; }
   /* 区块标题与右侧说明抢一行 → 标题断行错位, 改上下排列 */
   .block-head { flex-direction: column; align-items: flex-start; gap: 2px; }
@@ -2152,10 +2160,12 @@ async function toggleMuteAll(): Promise<void> {
 /* 增益没读到时显示 "—", 灰掉, 别让人以为是个真数 */
 .ig-val.unknown { color: #55637a; font-style: italic; }
 
-/* 全部静音并入 tab 行 (2026-07-25) */
+/* 全部静音并入 tab 行 (2026-07-25); ≤600px 隐藏, 由状态条里的 .ov-mute 接替 */
 .mute-inline { margin-left: auto; flex: 0 0 auto; }
 @media (max-width: 900px) {
-  /* 手机: 静音钮换行放, 别和 tabs 抢一行宽度 (挤压是竖排的根源) */
+  /* 平板竖屏: 静音钮换行放, 别和 tabs 抢一行宽度 (挤压是竖排的根源) */
   .mute-inline { margin-left: 0; }
 }
+/* 状态条里的静音钮: 只在手机出现 (桌面/平板仍用头部那颗) */
+.ov-mute { display: none; }
 </style>
