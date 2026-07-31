@@ -90,6 +90,7 @@ while ($true) {
     $ch = ($resp.Content | ConvertFrom-Json).data | Where-Object { $_.slot -eq 3 }
     $mid = $ch.currentMediaId
     $murl = [string]$ch.currentMediaUrl
+    $mname = [string]$ch.currentMediaName
 
     $wantPaused = [bool]($ch.paused)
 
@@ -104,12 +105,22 @@ while ($true) {
       $abs = To-Abs $murl
       if ($abs) {
         try {
-          # keep the real extension so MCI opens the right decoder (see $tmpBase note)
-          $ext = '.mp3'
+          # keep the real extension so MCI opens the right decoder (see $tmpBase note).
+          # PRIMARY source is currentMediaName (original filename, e.g. "xxx.wav") --
+          # the media URL is /api/media/<id>/file with NO extension at all, so the
+          # first version of this fix (URL-only) never actually found one (2026-07-31).
+          $ext = ''
           try {
-            $e = [System.IO.Path]::GetExtension(([Uri]$abs).AbsolutePath).ToLower()
+            $e = [System.IO.Path]::GetExtension($mname).ToLower()
             if ($e -match '^\.[a-z0-9]{2,5}$') { $ext = $e }
           } catch {}
+          if (-not $ext) {
+            try {
+              $e2 = [System.IO.Path]::GetExtension(([Uri]$abs).AbsolutePath).ToLower()
+              if ($e2 -match '^\.[a-z0-9]{2,5}$') { $ext = $e2 }
+            } catch {}
+          }
+          if (-not $ext) { $ext = '.mp3' }
           $tmpFile = $tmpBase + $ext
           Invoke-WebRequest -UseBasicParsing $abs -OutFile $tmpFile -TimeoutSec 30
           # open + play WITH return-code checks. If either fails, do NOT fake
