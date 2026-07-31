@@ -58,6 +58,12 @@
   PWA 每次手动登录成功静默同步密码进壳（改密自动更新）；浏览器无桥不显示。
   Android code17 已自动入库，iOS build6 已传 TestFlight。业主路径：更新 App
   → 手动登录一次（密码进壳）→ 之后登录页就有面容按钮。
+- **wav 二连修（68b2bd2，07-31 部署绿）**：业主复报 wav 仍不能播，两个叠加
+  根因：①上一版按下载 URL 提扩展名，但媒体 URL 是 /api/media/:id/file 根本
+  不带扩展名——提取永远落空回落 .mp3；改为主取 currentMediaName（原始文件名）
+  URL 兜底。②bgm-player 是常驻进程，部署只换文件不换进程；已拨
+  relaunch-players.token（watchdog 每分钟检查、变更即整组重启播放器）——
+  **以后改播放器脚本都用这个令牌远程生效，无需现场**。等业主复测 wav。
 - **wav/m4v 全播放链支持（9fb2eb6，07-31 部署绿）**：业主报 wav 播不了。
   根因=bgm-player.ps1 固定下载成 sc-bgm.mp3 喂 MCI，MCI 按扩展名选解码器
   （内置"左右声道测试.wav"从来没能经 BGM 播出）。修：临时文件保留真实扩展
