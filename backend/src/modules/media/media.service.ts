@@ -40,7 +40,9 @@ const EXT_KIND_MIME: Record<string, { kind: Exclude<MediaKind, 'webpage'>; mime:
   '.webm': { kind: 'video', mime: 'video/webm' },
   '.flv': { kind: 'video', mime: 'video/x-flv' },
   '.wmv': { kind: 'video', mime: 'video/x-ms-wmv' },
-  '.m4v': { kind: 'video', mime: 'video/x-m4v' },
+  // .m4v 本质就是 MP4 容器 (H.264), 用标准 video/mp4 —— x-m4v 这种冷门 mime
+  // 会让个别播放端拒识 (2026-07-31 业主: 所有播放器要支持 m4v)
+  '.m4v': { kind: 'video', mime: 'video/mp4' },
   '.jpg': { kind: 'image', mime: 'image/jpeg' },
   '.jpeg': { kind: 'image', mime: 'image/jpeg' },
   '.png': { kind: 'image', mime: 'image/png' },
@@ -82,6 +84,18 @@ export class MediaService implements OnModuleInit {
     await fs.mkdir(this.mediaRoot, { recursive: true });
     this.logger.info(`MediaService ready, root=${this.mediaRoot}`, { context: 'MediaService' });
     await this.seedBundledAssets();
+    // 存量 .m4v 行的 mime 自愈 (上面 EXT_KIND_MIME 已改标准 video/mp4, 老行补齐)
+    try {
+      const healed = await this.repo.update(
+        { mimeType: 'video/x-m4v' },
+        { mimeType: 'video/mp4' },
+      );
+      if (healed.affected) {
+        this.logger.info(`[Media] ${healed.affected} 条 .m4v 资源 mime 已纠正为 video/mp4`, { context: 'MediaService' });
+      }
+    } catch (e) {
+      this.logger.warn(`[Media] m4v mime 自愈失败: ${(e as Error).message}`, { context: 'MediaService' });
+    }
   }
 
   /**
@@ -233,6 +247,9 @@ export class MediaService implements OnModuleInit {
       const lower = filename.toLowerCase();
       if (AUDIO_EXT.some((ext) => lower.endsWith(ext))) return 'audio';
       if (DOC_EXT.some((ext) => lower.endsWith(ext))) return 'doc';
+      // 视频/图片扩展名兜底: .m4v/.mkv 等浏览器常报 application/octet-stream (2026-07-31)
+      const byExt = EXT_KIND_MIME[extname(lower)];
+      if (byExt) return byExt.kind;
     }
     return null;
   }
@@ -256,6 +273,13 @@ export class MediaService implements OnModuleInit {
       await this.unlinkSafe(file.path);
       throw new BadRequestException(`不支持的文件类型: ${file.mimetype} (仅支持 video/* + image/* + audio/*)`);
     }
+    // mime 纠正: 浏览器给 octet-stream/空时按扩展名换成标准值 —— 存进库的
+    // mimeType 会成为 /media/:id/file 的 Content-Type, 冷门/错误值会让播放端拒识
+    let mimeType = file.mimetype;
+    if (!mimeType || mimeType === 'application/octet-stream') {
+      const byExt = EXT_KIND_MIME[extname(originalName.toLowerCase())];
+      if (byExt) mimeType = byExt.mime;
+    }
 
     // 先入库拿 id, 用 id 做目录避免文件名冲突
     const safeName = this.safeFilename(originalName);
@@ -265,7 +289,7 @@ export class MediaService implements OnModuleInit {
       path: '',
       thumbPath: null,
       kind,
-      mimeType: file.mimetype,
+      mimeType,
       sizeBytes: file.size,
       durationSec: null,
       resolution: null,

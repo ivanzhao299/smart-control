@@ -61,7 +61,12 @@ function Invoke-MciChecked([string]$cmd, [string]$label) {
 }
 
 $apiBase = 'http://127.0.0.1:3200'
-$tmpFile = Join-Path $env:TEMP 'sc-bgm.mp3'
+# MCI picks its decoder BY FILE EXTENSION (waveaudio for .wav, MPEGVideo for
+# .mp3/.wma/...). The temp name used to be hard-coded 'sc-bgm.mp3', so a .wav
+# track saved under a .mp3 name hit the wrong decoder and never played
+# (2026-07-31 owner report). Keep the track's real extension on the temp file.
+$tmpBase = Join-Path $env:TEMP 'sc-bgm'
+$tmpFile = $tmpBase + '.mp3'
 $curId = $null
 $opened = $false
 $localPaused = $false
@@ -99,6 +104,13 @@ while ($true) {
       $abs = To-Abs $murl
       if ($abs) {
         try {
+          # keep the real extension so MCI opens the right decoder (see $tmpBase note)
+          $ext = '.mp3'
+          try {
+            $e = [System.IO.Path]::GetExtension(([Uri]$abs).AbsolutePath).ToLower()
+            if ($e -match '^\.[a-z0-9]{2,5}$') { $ext = $e }
+          } catch {}
+          $tmpFile = $tmpBase + $ext
           Invoke-WebRequest -UseBasicParsing $abs -OutFile $tmpFile -TimeoutSec 30
           # open + play WITH return-code checks. If either fails, do NOT fake
           # "now playing" -- close, leave $curId null so the next poll retries,
@@ -111,6 +123,14 @@ while ($true) {
           } else {
             Invoke-Mci 'close bgm' | Out-Null
             $opened = $false; $curId = $null
+            # MCI cannot decode this file (codec not supported, e.g. flac/ogg on
+            # a bare Win10). Retrying forever would stall BGM on this one track
+            # AND re-download it every 3s -- ask the backend to advance instead,
+            # so the playlist skips the unplayable track and keeps going.
+            try {
+              Invoke-WebRequest -UseBasicParsing -Method Post "$apiBase/api/playback/channels/3/advance" -TimeoutSec 6 | Out-Null
+              Log ('unplayable media ' + $mid + ' -> asked backend to advance')
+            } catch {}
             Start-Sleep -Milliseconds 500  # don't hot-loop the CPU on a bad track
           }
         } catch {

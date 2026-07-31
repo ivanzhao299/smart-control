@@ -156,10 +156,17 @@ const AUDIO_EXTS = new Set([
   '.opus', '.aiff', '.aif', '.ape', '.mp2', '.mka', '.wv',
   '.mid', '.midi', '.spx', '.dsf', '.dff', '.au', '.ra',
 ]);
+// 同理视频兜底: .m4v/.mkv 在 Windows 上常拿到空 mime (2026-07-31 业主: m4v 要能播)
+const VIDEO_EXTS = new Set([
+  '.mp4', '.m4v', '.mov', '.mkv', '.avi', '.webm', '.flv', '.wmv',
+  '.mpg', '.mpeg', '.3gp', '.ts', '.vob', '.rmvb',
+]);
 function isAllowedFile(f: File): boolean {
   if (f.type.startsWith('video/') || f.type.startsWith('image/') || f.type.startsWith('audio/')) return true;
   const dot = f.name.lastIndexOf('.');
-  return dot >= 0 && AUDIO_EXTS.has(f.name.slice(dot).toLowerCase());
+  if (dot < 0) return false;
+  const ext = f.name.slice(dot).toLowerCase();
+  return AUDIO_EXTS.has(ext) || VIDEO_EXTS.has(ext);
 }
 
 // 递归读取 FileSystemDirectoryReader (每次 readEntries 最多 100 条, 需循环)

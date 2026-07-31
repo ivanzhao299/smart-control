@@ -60,7 +60,9 @@ export interface OrphanMediaItem {
  * 真正的类型判定在 backend classifyKind (按 MIME + 扩展名兜底)。
  */
 export const MEDIA_UPLOAD_ACCEPT =
-  'video/*,image/*,audio/*,.ppt,.pptx,.doc,.docx,.mp3,.wav,.aac,.m4a,.ogg,.flac,.wma,.opus,.aiff,.aif,.ape,.mp2,.mka,.wv,.mid,.midi,.spx,.dsf,.dff,.au,.ra';
+  'video/*,image/*,audio/*,.ppt,.pptx,.doc,.docx,.mp3,.wav,.aac,.m4a,.ogg,.flac,.wma,.opus,.aiff,.aif,.ape,.mp2,.mka,.wv,.mid,.midi,.spx,.dsf,.dff,.au,.ra'
+  // 视频扩展名兜底: Windows 对 .m4v/.mkv 等常报空 mime, 光靠 video/* 会被选择器滤掉
+  + ',.mp4,.m4v,.mov,.mkv,.avi,.webm,.flv,.wmv,.mpg,.mpeg,.3gp,.ts,.vob,.rmvb';
 
 export const mediaService = {
   async list(opts: { kind?: 'video' | 'image' | 'audio' | 'webpage' | 'doc' } = {}): Promise<ListResult> {

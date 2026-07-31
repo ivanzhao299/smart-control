@@ -64,9 +64,15 @@ export class MediaController {
           '.mid', '.midi', '.spx', '.dsf', '.dff', '.au', '.ra',
         ];
         const docExt = ['.ppt', '.pptx', '.doc', '.docx']; // 文档投屏 (2026-07-25)
+        // 视频扩展名兜底: .m4v/.mkv 等浏览器常报 application/octet-stream (2026-07-31)
+        const videoExt = [
+          '.mp4', '.m4v', '.mov', '.mkv', '.avi', '.webm', '.flv', '.wmv',
+          '.mpg', '.mpeg', '.3gp', '.ts', '.vob', '.rmvb',
+        ];
         if (
           m.startsWith('video/') || m.startsWith('image/') || m.startsWith('audio/')
           || audioExt.some((ext) => name.endsWith(ext))  // m4a/aac mime 有时不带 audio/
+          || videoExt.some((ext) => name.endsWith(ext))
           || docExt.some((ext) => name.endsWith(ext))
         ) {
           cb(null, true);
