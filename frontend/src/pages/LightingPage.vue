@@ -248,25 +248,33 @@ function applyPreset(z: ZoneRow, value: number): void {
 async function dispatchMany(targets: ZoneRow[], op: 'on' | 'off'): Promise<void> {
   // 乐观: 先把目标区 UI 立即切到目标态, 再逐区异步下发硬件, 个别失败再回滚那一区
   const want = op === 'on';
-  for (const z of targets) {
-    z.error = null;
-    z.on = want;
-    if (want && z.brightness === 0) z.brightness = 80;
-  }
   let okCount = 0;
   let failCount = 0;
   let mockCount = 0;
-  for (const z of targets) {
-    try {
-      const res = want ? await lightingService.zoneOn(z.id) : await lightingService.zoneOff(z.id);
-      if (!res.ok) throw new Error(res.error || '执行失败');
-      okCount += 1;
-      if (res.mock) mockCount += 1;
-    } catch (err) {
-      failCount += 1;
-      z.on = !want;                 // 个别回滚
-      z.error = (err as Error).message;
+  bulkBusy.value = true;
+  try {
+    for (let i = 0; i < targets.length; i++) {
+      const z = targets[i];
+      // 乐观翻卡挪进循环: 卡片随 1.5s 节奏逐个亮/灭, 界面节奏 = 现场灯的节奏
+      z.error = null;
+      z.on = want;
+      if (want && z.brightness === 0) z.brightness = 80;
+      try {
+        const res = want ? await lightingService.zoneOn(z.id) : await lightingService.zoneOff(z.id);
+        if (!res.ok) throw new Error(res.error || '执行失败');
+        okCount += 1;
+        if (res.mock) mockCount += 1;
+      } catch (err) {
+        failCount += 1;
+        z.on = !want;                 // 个别回滚
+        z.error = (err as Error).message;
+      }
+      // 2026-07-31 业主: 全开/全关逐区间隔 1.5s —— 错峰上电减小冲击电流,
+      // 也让整馆灯光有"依次点亮/熄灭"的仪式感。最后一区后不再等。
+      if (i < targets.length - 1) await new Promise((r) => setTimeout(r, ALL_DISPATCH_STAGGER_MS));
     }
+  } finally {
+    bulkBusy.value = false;
   }
   if (mockCount > 0 && mockCount === okCount) {
     ElMessage.warning(
@@ -280,13 +288,18 @@ async function dispatchMany(targets: ZoneRow[], op: 'on' | 'off'): Promise<void>
   }
 }
 
+/** 全开/全关逐区间隔 (2026-07-31 业主: "统一设 1.5 秒延时") */
+const ALL_DISPATCH_STAGGER_MS = 1500;
+/** 全开/全关执行中 — 期间锁两颗按钮防连点重入 */
+const bulkBusy = ref(false);
+
 /** 整馆开/关灯二次确认 (2026-07-25 生产级整改, 同空调/电源页口径) */
 async function allOn(): Promise<void> {
   try {
     await ElMessageBox.confirm(`确定开启整馆全部 ${zones.value.length} 个灯光分区?`, '全开确认',
       { type: 'warning', confirmButtonText: '全开', cancelButtonText: '取消' });
   } catch { return; }
-  ElMessage.info(`全开 — 逐区下发 (${zones.value.length} 区)`);
+  ElMessage.info(`全开 — 逐区下发, 每区间隔 1.5 秒 (${zones.value.length} 区)`);
   await dispatchMany(zones.value, 'on');
 }
 async function allOff(): Promise<void> {
@@ -294,7 +307,7 @@ async function allOff(): Promise<void> {
     await ElMessageBox.confirm(`确定关闭整馆全部 ${zones.value.length} 个灯光分区?展厅将全场熄灯。`, '全关确认',
       { type: 'warning', confirmButtonText: '全关', cancelButtonText: '取消' });
   } catch { return; }
-  ElMessage.warning(`全关 — 逐区下发 (${zones.value.length} 区)`);
+  ElMessage.warning(`全关 — 逐区下发, 每区间隔 1.5 秒 (${zones.value.length} 区)`);
   await dispatchMany(zones.value, 'off');
 }
 
@@ -319,10 +332,10 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
         <button class="v2-quick" @click="loadZones" :disabled="loading" title="重新加载分区列表">
           <RefreshCw :size="14" :stroke-width="2" />
         </button>
-        <button class="v2-quick primary" @click="allOn" :disabled="loading || zones.length === 0" title="整馆全开">
+        <button class="v2-quick primary" @click="allOn" :disabled="loading || bulkBusy || zones.length === 0" title="整馆全开">
           <Power :size="14" :stroke-width="2" /> 全开
         </button>
-        <button class="v2-quick danger" @click="allOff" :disabled="loading || zones.length === 0" title="整馆全关">
+        <button class="v2-quick danger" @click="allOff" :disabled="loading || bulkBusy || zones.length === 0" title="整馆全关">
           <X :size="14" :stroke-width="2" /> 全关
         </button>
         <button class="v2-quick" @click="gotoScene">
@@ -806,9 +819,13 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   gap: 10px;
 }
 @media (max-width: 600px)  {
-  .v2-zone-grid { grid-template-columns: 1fr; gap: 8px; }
+  /* 2026-07-31 业主: "手机竖屏还是那么大, 每行搞成两列" — 双列 + 内部再收紧 */
+  .v2-zone-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
   .v2-page { padding: var(--v2-sp-3); gap: var(--v2-sp-3); }
-  .v2-zone { padding: 10px 12px; }
+  .v2-zone { padding: 10px; gap: 6px; }
+  .zone-name { font-size: 13px; }
+  .zone-addr { font-size: 10px; letter-spacing: 0.4px; }
+  .preset-row { gap: 4px; }
   .bri-value { font-size: 18px; }
   /* 滑条触控区加大: 14px → 18px, 拇指更容易精准 */
   .slider { height: 18px; }
