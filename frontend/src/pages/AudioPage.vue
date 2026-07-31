@@ -635,7 +635,8 @@ function setLink(z: AudioRow, v: boolean): void {
 }
 
 // 页内 tab: 一键场景 / 背景音乐 / 分区音量 / 音源矩阵 — 一屏一组, 不上下滚
-const audioTab = ref<'scene' | 'bgm' | 'zones' | 'matrix'>('scene');
+// 2026-07-31 业主: 默认页改为背景音乐 (最常用)
+const audioTab = ref<'scene' | 'bgm' | 'zones' | 'matrix'>('bgm');
 
 // ============ 输出通道改名 ============
 // 2026-07-17 业主: "分区音量里的输出通道推子名称应该和上传的照片名称一致, 并且可以编辑"。
@@ -690,6 +691,10 @@ async function commitRenameCh(z: AudioRow): Promise<void> {
 }
 
 // ============ 音源矩阵 (EKX-808 8x8 路由) ============
+/** BGM 音源的矩阵输入口 = IN5 (0-based 4, USB 声卡←GK9000 主机, 2026-07-26 割接接线固定) */
+const BGM_INPUT_CH = 4;
+/** 分区喇叭输出 = OUT5-8 (0-based ≥4); OUT1-4 是 LED/投影的显示屏声道直通, 不该接 BGM */
+const bgmZoneOutputs = computed(() => channels.value.filter((z) => z.channel >= 4));
 interface AudioIn { channel: number; name: string; }
 const inputs = ref<AudioIn[]>([]);
 async function loadInputs(): Promise<void> {
@@ -1162,6 +1167,28 @@ async function toggleMuteAll(): Promise<void> {
 
     <!-- 背景音乐 (GK9000 声卡 → EKX 输入) -->
     <section v-if="audioTab === 'bgm'" class="bgm-section">
+      <!-- 音源矩阵快捷开关 (2026-07-31 业主: "上方加上音源矩阵的开关") —
+           哪些分区喇叭接通背景音乐 (矩阵 OUTx←IN5), 与音源矩阵页同一份状态
+           同一条下发链路, 切歌前不用再跑矩阵页接分区。 -->
+      <div class="bgm-mx-bar">
+        <div class="bgm-mx-label">
+          <Speaker :size="14" :stroke-width="2" />
+          分区接通
+        </div>
+        <button
+          v-for="z in bgmZoneOutputs"
+          :key="'bgmmx' + z.channel"
+          class="bgm-mx-sw"
+          :class="{ on: isMatrixOn(z.channel, BGM_INPUT_CH) }"
+          :title="(isMatrixOn(z.channel, BGM_INPUT_CH) ? '已接通背景音乐, 点击断开: ' : '未接背景音乐, 点击接通: ') + z.name"
+          @click="toggleMatrix(z.channel, BGM_INPUT_CH)"
+        >
+          <span class="bgm-mx-dot" aria-hidden="true"></span>
+          {{ z.name }}
+        </button>
+        <span v-if="matrixOffline" class="bgm-mx-offline">矩阵离线, 开关暂不可用</span>
+      </div>
+
       <!-- 播放器卡片 -->
       <div class="bgm-player" :class="{ playing: bgmChannel?.currentMediaId }">
         <div class="bgm-now-row">
@@ -1480,6 +1507,45 @@ async function toggleMuteAll(): Promise<void> {
 }
 .bgm-pl-play.playing { color: var(--v2-primary); }
 .bgm-pl-play:disabled { opacity: .35; cursor: not-allowed; }
+/* 音源矩阵快捷开关条 (背景音乐 tab 顶部) */
+.bgm-mx-bar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  background: var(--v2-surf-1);
+  border: 1px solid var(--v2-border-soft);
+  border-radius: var(--v2-r-md);
+}
+.bgm-mx-label {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--v2-text-2);
+  flex: 0 0 auto; margin-right: 2px;
+}
+.bgm-mx-sw {
+  display: inline-flex; align-items: center; gap: 7px;
+  min-height: 36px; padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--v2-border-soft);
+  background: var(--v2-ov-1);
+  color: var(--v2-text-2);
+  font-size: 13px; cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.bgm-mx-sw .bgm-mx-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--v2-text-3); flex: 0 0 auto;
+}
+.bgm-mx-sw.on {
+  background: var(--v2-primary-soft);
+  border-color: var(--v2-primary);
+  color: var(--v2-text-1);
+}
+.bgm-mx-sw.on .bgm-mx-dot {
+  background: var(--v2-success);
+  box-shadow: 0 0 6px var(--v2-success);
+}
+.bgm-mx-offline { font-size: 12px; color: var(--v2-warning); }
+
 /* 删除按钮: 同播放按钮常显 (平板没有 hover), 红色语义 */
 .bgm-pl-del {
   opacity: 1;
