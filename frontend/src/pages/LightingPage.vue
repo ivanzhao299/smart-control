@@ -797,18 +797,19 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 .ov-value .unit { font-size: 11px; color: var(--v2-text-3); margin-left: 2px; font-weight: 400; }
 
 /* ============ 区卡 ============ */
+/* 2026-07-31 业主"卡片太大没有意义, 页面要紧凑": 固定 4 列改 auto-fill —
+   卡片压缩后 (内边距/字号/间隙全降一档) 每行按 ~215px 最小宽自动多排,
+   1920 主控约 7-8 列、平板 3-4 列, 十几个分区一两屏收完。 */
 .v2-zone-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--v2-sp-3);
+  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+  gap: 10px;
 }
-@media (max-width: 1280px) { .v2-zone-grid { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 900px)  { .v2-zone-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 600px)  {
-  .v2-zone-grid { grid-template-columns: 1fr; }
+  .v2-zone-grid { grid-template-columns: 1fr; gap: 8px; }
   .v2-page { padding: var(--v2-sp-3); gap: var(--v2-sp-3); }
-  .v2-zone { padding: var(--v2-sp-3); }
-  .bri-value { font-size: 22px; }
+  .v2-zone { padding: 10px 12px; }
+  .bri-value { font-size: 18px; }
   /* 滑条触控区加大: 14px → 18px, 拇指更容易精准 */
   .slider { height: 18px; }
   .slider-input { min-height: 32px; }
@@ -821,13 +822,13 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 
 .v2-zone {
   position: relative;
-  padding: var(--v2-sp-4);
+  padding: 12px 14px;
   background: var(--v2-surf-1);
   border: 1px solid var(--v2-border-soft);
-  border-radius: var(--v2-r-lg);
+  border-radius: var(--v2-r-md);
   display: flex;
   flex-direction: column;
-  gap: var(--v2-sp-3);
+  gap: 8px;
   overflow: hidden;
   transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
   backdrop-filter: blur(4px);
@@ -902,7 +903,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 }
 .zone-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .zone-name {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.5px;
   color: var(--v2-text-1);
@@ -910,7 +911,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 .zone-addr {
   font-size: 11px;
   color: var(--v2-text-2);
-  letter-spacing: 1.2px;
+  letter-spacing: 0.8px;
   font-weight: 500;
 }
 
@@ -968,7 +969,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   letter-spacing: 0.5px;
 }
 .bri-value {
-  font-size: 26px;
+  font-size: 20px;   /* 26→20: 大数字是卡片撑高的主因之一, 20px 仍一眼可读 */
   font-weight: 700;
   color: var(--v2-text-1);
   letter-spacing: 0.5px;
@@ -977,7 +978,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
   color: #FFD060;
   text-shadow: var(--v2-text-glow-amber);
 }
-.bri-value .pct { font-size: 13px; color: var(--v2-text-3); margin-left: 3px; font-weight: 500; text-shadow: none; }
+.bri-value .pct { font-size: 11px; color: var(--v2-text-3); margin-left: 3px; font-weight: 500; text-shadow: none; }
 
 .slider-wrap { position: relative; }
 .slider {
@@ -1017,7 +1018,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 }
 .preset {
   flex: 1;
-  padding: 8px 0;
+  padding: 6px 0;   /* min-height 32px 兜底触摸目标, 视觉更矮 */
   border-radius: 6px;
   font-size: var(--v2-fs-xs);
   background: var(--v2-surf-2);
