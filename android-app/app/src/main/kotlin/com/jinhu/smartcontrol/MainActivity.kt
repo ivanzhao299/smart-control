@@ -227,6 +227,11 @@ class MainActivity : AppCompatActivity() {
         prompt.authenticate(info)
     }
 
+    /** 主线程上往 WebView 注 JS (面容登录回调用) */
+    private fun evalJs(js: String) {
+        runOnUiThread { bind.webView.evaluateJavascript(js, null) }
+    }
+
     /** 设备是否配了任一可用验证方式 (面部/指纹/锁屏密码) */
     private fun canAuthenticate(): Boolean {
         val bm = androidx.biometric.BiometricManager.from(this)
@@ -457,7 +462,10 @@ class MainActivity : AppCompatActivity() {
         wv.overScrollMode = View.OVER_SCROLL_NEVER
 
         // A2 (2026-07-25): 触感桥 — PWA 调 window.JinhuShell.vibrate(ms) 落到系统马达。
-        // 只暴露这一个只写方法, 不开任何读取口子。
+        // 2026-07-31 扩展面容登录四方法: bioInfo / saveBioPassword / clearBioPassword /
+        // requestBioLogin。密码只进 Keystore 加密 prefs, 只在系统生物验证通过后
+        // 经回调注回登录页 —— 不提供任何"不验证直接读"的口子。
+        // ⚠️ @JavascriptInterface 方法跑在 binder 线程, 碰 UI/弹窗必须 runOnUiThread。
         wv.addJavascriptInterface(object {
             @android.webkit.JavascriptInterface
             fun vibrate(ms: Int) {
@@ -470,6 +478,42 @@ class MainActivity : AppCompatActivity() {
                         @Suppress("DEPRECATION") v.vibrate(dur)
                     }
                 } catch (e: Exception) { /* 触感失败无所谓 */ }
+            }
+
+            @android.webkit.JavascriptInterface
+            fun bioInfo(): String {
+                val saved = Prefs.getBioPassword(this@MainActivity) != null
+                return "{\"available\":${canAuthenticate()},\"saved\":$saved}"
+            }
+
+            @android.webkit.JavascriptInterface
+            fun saveBioPassword(pwd: String) {
+                if (pwd.isNotEmpty()) Prefs.setBioPassword(this@MainActivity, pwd)
+            }
+
+            @android.webkit.JavascriptInterface
+            fun clearBioPassword() {
+                Prefs.clearBioPassword(this@MainActivity)
+            }
+
+            @android.webkit.JavascriptInterface
+            fun requestBioLogin() {
+                runOnUiThread {
+                    val pwd = Prefs.getBioPassword(this@MainActivity)
+                    if (pwd.isNullOrEmpty() || !canAuthenticate()) {
+                        evalJs("window.__jinhuBioLoginFail&&window.__jinhuBioLoginFail()")
+                        return@runOnUiThread
+                    }
+                    authenticate(
+                        onSuccess = {
+                            evalJs(
+                                "window.__jinhuBioLoginOk&&window.__jinhuBioLoginOk(" +
+                                    org.json.JSONObject.quote(pwd) + ")",
+                            )
+                        },
+                        onFail = { evalJs("window.__jinhuBioLoginFail&&window.__jinhuBioLoginFail()") },
+                    )
+                }
             }
         }, "JinhuShell")
 

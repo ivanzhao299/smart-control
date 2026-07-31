@@ -11,8 +11,8 @@ android {
         applicationId = "com.jinhu.smartcontrol"
         minSdk = 24                  // Android 7.0+ — 覆盖 ≥99% 在用机型
         targetSdk = 34
-        versionCode = 16
-        versionName = "1.1.8"    // 面容/指纹解锁 (应用锁, 配置页开关, 默认关)
+        versionCode = 17
+        versionName = "1.1.9"    // 面容登录 (登录页刷脸自动填密码, 密码存壳加密存储)
         // 默认服务器地址 (可在 BuildConfig 用 — APP 启动时如果 SharedPreferences 没保存就用这个作 placeholder)
         // 2026-07-25 改成展厅现场真实地址 (GK9000 静态 IP)
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"http://192.168.77.54:5173/control/\"")
@@ -80,4 +80,6 @@ dependencies {
     implementation("androidx.webkit:webkit:1.11.0")
     // 面容/指纹应用锁 (2026-07-30): 系统 BiometricPrompt, 自动落到面部/指纹/锁屏密码
     implementation("androidx.biometric:biometric:1.1.0")
+    // 面容登录 (2026-07-31): 访问密码存 Keystore 加密的 SharedPreferences
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 }

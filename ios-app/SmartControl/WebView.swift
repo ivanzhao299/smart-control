@@ -26,12 +26,27 @@ struct WebView: UIViewRepresentable {
         config.websiteDataStore = .default()
 
         // A2 (2026-07-25): 触感桥 — window.JinhuShell.vibrate(ms) → UIImpactFeedback。
-        // 注入脚本在 documentStart, PWA 一启动即可用; 只此一个只写通道。
+        // 2026-07-31 扩展面容登录: bioInfo (同步读缓存态) / saveBioPassword /
+        // clearBioPassword / requestBioLogin (结果经 __jinhuBioLoginOk/Fail 回调)。
+        // WKWebView 消息通道天然异步, 所以 available/saved 在注入时算好嵌进脚本,
+        // save/clear 时 JS 侧乐观同步更新缓存 —— 与安卓壳的同步接口拉平。
+        let bioAvailable = BiometricAuth.available ? "true" : "false"
+        let bioSaved = KeychainStore.hasPassword ? "true" : "false"
         let bridge = WKUserScript(
-            source: "window.JinhuShell={vibrate:function(ms){try{window.webkit.messageHandlers.haptic.postMessage(ms)}catch(e){}}};",
+            source: """
+            window.JinhuShell={
+              vibrate:function(ms){try{window.webkit.messageHandlers.haptic.postMessage(ms)}catch(e){}},
+              __bio:{available:\(bioAvailable),saved:\(bioSaved)},
+              bioInfo:function(){return JSON.stringify(this.__bio)},
+              saveBioPassword:function(p){try{this.__bio.saved=true;window.webkit.messageHandlers.jinhuShell.postMessage({type:'saveBio',pwd:String(p)})}catch(e){}},
+              clearBioPassword:function(){try{this.__bio.saved=false;window.webkit.messageHandlers.jinhuShell.postMessage({type:'clearBio'})}catch(e){}},
+              requestBioLogin:function(){try{window.webkit.messageHandlers.jinhuShell.postMessage({type:'bioLogin'})}catch(e){}}
+            };
+            """,
             injectionTime: .atDocumentStart, forMainFrameOnly: true)
         config.userContentController.addUserScript(bridge)
         config.userContentController.add(context.coordinator, name: "haptic")
+        config.userContentController.add(context.coordinator, name: "jinhuShell")
 
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.navigationDelegate = context.coordinator
@@ -78,10 +93,40 @@ struct WebView: UIViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            guard message.name == "haptic" else { return }
-            let ms = (message.body as? NSNumber)?.intValue ?? 12
-            let style: UIImpactFeedbackGenerator.FeedbackStyle = ms >= 20 ? .medium : .light
-            UIImpactFeedbackGenerator(style: style).impactOccurred()
+            if message.name == "haptic" {
+                let ms = (message.body as? NSNumber)?.intValue ?? 12
+                let style: UIImpactFeedbackGenerator.FeedbackStyle = ms >= 20 ? .medium : .light
+                UIImpactFeedbackGenerator(style: style).impactOccurred()
+                return
+            }
+            guard message.name == "jinhuShell",
+                  let body = message.body as? [String: Any],
+                  let type = body["type"] as? String
+            else { return }
+            switch type {
+            case "saveBio":
+                if let pwd = body["pwd"] as? String, !pwd.isEmpty { KeychainStore.set(pwd) }
+            case "clearBio":
+                KeychainStore.clear()
+            case "bioLogin":
+                let wv = message.webView
+                guard let pwd = KeychainStore.password, BiometricAuth.available else {
+                    wv?.evaluateJavaScript("window.__jinhuBioLoginFail&&window.__jinhuBioLoginFail()")
+                    return
+                }
+                BiometricAuth.authenticate(reason: "面容登录展厅中控") { ok in
+                    guard ok else {
+                        wv?.evaluateJavaScript("window.__jinhuBioLoginFail&&window.__jinhuBioLoginFail()")
+                        return
+                    }
+                    // JSON 编码做 JS 字符串字面量转义 (密码可能含引号/反斜杠)
+                    let quoted = (try? JSONSerialization.data(withJSONObject: pwd, options: .fragmentsAllowed))
+                        .flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
+                    wv?.evaluateJavaScript("window.__jinhuBioLoginOk&&window.__jinhuBioLoginOk(\(quoted))")
+                }
+            default:
+                break
+            }
         }
 
         var parent: WebView

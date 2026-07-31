@@ -36,6 +36,43 @@ object Prefs {
         else get(ctx).edit().putString(KEY_REMOTE_URL, url).apply()
     }
 
+    // ============ 面容登录密码 (2026-07-31) ============
+    // 访问密码存 Android Keystore 加密的 SharedPreferences (独立文件), 只在
+    // 系统生物验证通过后由壳读出注回登录页。个别 ROM 的 Keystore 会抽风,
+    // 初始化失败就退化为普通私有 prefs (仍是应用私有目录, 不比 PWA 现状
+    // localStorage 明文差) —— 功能可用性优先。
+    private const val SECURE_PREFS = "jinhu_secure"
+    private const val KEY_BIO_PASSWORD = "bio_password"
+    private var securePrefs: SharedPreferences? = null
+
+    private fun secure(ctx: Context): SharedPreferences {
+        securePrefs?.let { return it }
+        val sp = try {
+            val master = androidx.security.crypto.MasterKey.Builder(ctx)
+                .setKeyScheme(androidx.security.crypto.MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            androidx.security.crypto.EncryptedSharedPreferences.create(
+                ctx, SECURE_PREFS, master,
+                androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
+        } catch (e: Exception) {
+            ctx.getSharedPreferences(SECURE_PREFS + "_plain", Context.MODE_PRIVATE)
+        }
+        securePrefs = sp
+        return sp
+    }
+
+    fun getBioPassword(ctx: Context): String? = secure(ctx).getString(KEY_BIO_PASSWORD, null)
+
+    fun setBioPassword(ctx: Context, pwd: String) {
+        secure(ctx).edit().putString(KEY_BIO_PASSWORD, pwd).apply()
+    }
+
+    fun clearBioPassword(ctx: Context) {
+        secure(ctx).edit().remove(KEY_BIO_PASSWORD).apply()
+    }
+
     /** 面容/指纹应用锁 (2026-07-30 业主要求, 默认关) — 开着时启动/回前台超时要先过系统生物验证 */
     fun isBiometricLock(ctx: Context): Boolean = get(ctx).getBoolean(KEY_BIOMETRIC_LOCK, false)
 

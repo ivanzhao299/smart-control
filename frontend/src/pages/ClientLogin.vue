@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { Lock, Globe, Wifi, CheckCircle2, XCircle, Trash2, History, Loader } from 'lucide-vue-next';
+import { Lock, Globe, Wifi, CheckCircle2, XCircle, Trash2, History, Loader, ScanFace } from 'lucide-vue-next';
 import { useClientAuthStore } from '@/stores/client-auth';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { useToastStore } from '@/stores/toast';
@@ -30,9 +30,52 @@ const history = ref<string[]>([]);
     再跳走, 业主会以为自己又要手动登一次 */
 const autoLoggingIn = ref(false);
 
+// ============ 面容登录 (2026-07-31, 仅壳 App 内) ============
+// 壳 (Android/iOS v1.1.9+) 注入 window.JinhuShell 桥: 密码存在壳的加密存储
+// (Keystore/Keychain), 清除页面缓存也不丢; 点"面容登录"→ 壳弹系统面容验证
+// → 通过后经 __jinhuBioLoginOk 回调把密码注回来自动登录。浏览器里无此桥, 不显示。
+interface ShellBio { available: boolean; saved: boolean }
+const shellBio = ref<ShellBio | null>(null);
+
+function readShellBio(): void {
+  try {
+    const raw = (window as unknown as { JinhuShell?: { bioInfo?: () => string } }).JinhuShell?.bioInfo?.();
+    if (raw) shellBio.value = JSON.parse(raw) as ShellBio;
+  } catch { /* 老版壳没有 bioInfo, 忽略 */ }
+}
+
+function faceLogin(): void {
+  const w = window as unknown as {
+    JinhuShell?: { requestBioLogin?: () => void };
+    __jinhuBioLoginOk?: (pwd: string) => void;
+    __jinhuBioLoginFail?: () => void;
+  };
+  if (!w.JinhuShell?.requestBioLogin) return;
+  w.__jinhuBioLoginOk = (pwd: string) => {
+    password.value = pwd;
+    void doLogin();
+  };
+  w.__jinhuBioLoginFail = () => {
+    toast.warning('面容验证未通过, 可重试或输入密码登录');
+  };
+  w.JinhuShell.requestBioLogin();
+}
+
+/** 登录成功后把密码同步进壳加密存储 (密码改过也随手更新), 失败静默 */
+function syncPasswordToShell(pwd: string): void {
+  try {
+    const shell = (window as unknown as { JinhuShell?: { saveBioPassword?: (p: string) => void } }).JinhuShell;
+    if (shell?.saveBioPassword && shellBio.value?.available) {
+      shell.saveBioPassword(pwd);
+      readShellBio();
+    }
+  } catch { /* 桥不可用就算了 */ }
+}
+
 onMounted(async () => {
   void brandingStore.load();
   history.value = getServerHistory();
+  readShellBio();
   // 已经登录就跳走
   if (auth.isAuthed) {
     redirectToTarget();
@@ -102,6 +145,7 @@ async function doLogin(): Promise<void> {
   try {
     await auth.login(password.value);
     addServerHistory(originOf(auth.baseURL));
+    syncPasswordToShell(password.value);
     toast.success('登录成功');
     redirectToTarget();
   } catch (e) {
@@ -206,6 +250,18 @@ async function doLogin(): Promise<void> {
 
         <button type="submit" class="submit-btn" :disabled="submitting || !password">
           {{ submitting ? '登录中...' : '登 录' }}
+        </button>
+
+        <!-- 面容登录 (2026-07-31): 壳 App 内且壳里存过密码才显示 -->
+        <button
+          v-if="shellBio?.saved"
+          type="button"
+          class="bio-btn"
+          :disabled="submitting"
+          @click="faceLogin"
+        >
+          <ScanFace :size="18" :stroke-width="1.8" />
+          面容 / 指纹登录
         </button>
 
 <!-- 2026-07-30 业主: 系统已开公网访问, 默认密码提示删除 (安全 + 已提供后台改密入口) -->
@@ -456,6 +512,27 @@ async function doLogin(): Promise<void> {
   box-shadow: var(--v2-glow-primary-strong);
 }
 .submit-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* 面容登录 — 次级按钮, 只在壳 App 内且壳里存过密码时出现 */
+.bio-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--v2-border-soft);
+  background: var(--v2-ov-1);
+  color: var(--v2-text-1);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s;
+}
+.bio-btn:hover:not(:disabled) {
+  background: var(--v2-ov-2);
+  border-color: var(--v2-border-strong);
+}
+.bio-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .footer-hint {
   margin-top: 10px;
