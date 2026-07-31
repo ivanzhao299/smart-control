@@ -50,6 +50,14 @@
 
 ## 最近一次会话纪要（2026-07-29）
 
+- **面容登录 v1.1.9（d915394，07-31，四流水线一把全绿）**：在 v1.1.8 应用锁
+  之上补"真·面容登录"——访问密码存壳安全存储（Android Keystore 加密 prefs
+  /iOS Keychain 本机专用），清缓存/令牌过期后登录页出「面容/指纹登录」按钮，
+  刷脸→壳注回密码→自动登录。壳桥 window.JinhuShell 四方法（bioInfo/save/
+  clear/requestBioLogin，回调 __jinhuBioLoginOk/Fail），无"不验证直接读"口子；
+  PWA 每次手动登录成功静默同步密码进壳（改密自动更新）；浏览器无桥不显示。
+  Android code17 已自动入库，iOS build6 已传 TestFlight。业主路径：更新 App
+  → 手动登录一次（密码进壳）→ 之后登录页就有面容按钮。
 - **wav/m4v 全播放链支持（9fb2eb6，07-31 部署绿）**：业主报 wav 播不了。
   根因=bgm-player.ps1 固定下载成 sc-bgm.mp3 喂 MCI，MCI 按扩展名选解码器
   （内置"左右声道测试.wav"从来没能经 BGM 播出）。修：临时文件保留真实扩展
