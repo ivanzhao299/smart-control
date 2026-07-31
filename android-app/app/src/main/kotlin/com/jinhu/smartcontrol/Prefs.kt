@@ -63,14 +63,19 @@ object Prefs {
         return sp
     }
 
-    fun getBioPassword(ctx: Context): String? = secure(ctx).getString(KEY_BIO_PASSWORD, null)
+    /** scope: "client"=业主访问密码 (兼容 v1.1.9 老 key) / "admin"=后台管理密码 (v1.1.10) */
+    private fun bioKey(scope: String): String =
+        if (scope == "admin") KEY_BIO_PASSWORD + "_admin" else KEY_BIO_PASSWORD
 
-    fun setBioPassword(ctx: Context, pwd: String) {
-        secure(ctx).edit().putString(KEY_BIO_PASSWORD, pwd).apply()
+    fun getBioPassword(ctx: Context, scope: String = "client"): String? =
+        secure(ctx).getString(bioKey(scope), null)
+
+    fun setBioPassword(ctx: Context, pwd: String, scope: String = "client") {
+        secure(ctx).edit().putString(bioKey(scope), pwd).apply()
     }
 
-    fun clearBioPassword(ctx: Context) {
-        secure(ctx).edit().remove(KEY_BIO_PASSWORD).apply()
+    fun clearBioPassword(ctx: Context, scope: String = "client") {
+        secure(ctx).edit().remove(bioKey(scope)).apply()
     }
 
     /** 面容/指纹应用锁 (2026-07-30 业主要求, 默认关) — 开着时启动/回前台超时要先过系统生物验证 */

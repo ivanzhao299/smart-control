@@ -129,7 +129,15 @@ async function addToPlaylist(item: PlItem): Promise<void> {
 }
 async function removeFromPlaylist(i: number): Promise<void> {
   const it = playlist.value[i];
-  if (!it?.itemId) { playlist.value.splice(i, 1); return; }   // 没落过库的直接去掉
+  if (!it) return;
+  try {
+    await ElMessageBox.confirm(
+      `将「${it.name}」移出播放列表? 只移出列表, 不删除媒体库里的原文件。`,
+      '移出确认',
+      { confirmButtonText: '移出', cancelButtonText: '取消', type: 'warning' },
+    );
+  } catch { return; }
+  if (!it.itemId) { playlist.value.splice(i, 1); return; }   // 没落过库的直接去掉
   try {
     await apiRemoveFromPlaylist(it.itemId);
     await loadPlaylist();
@@ -1267,8 +1275,10 @@ async function toggleMuteAll(): Promise<void> {
             <button class="bgm-pl-ico" title="改名 (只改显示名, 不动媒体库原文件)" @click.stop="startRenamePl(item)">
               <Pencil :size="12" :stroke-width="2" />
             </button>
-            <button class="bgm-pl-del" title="移除" @click.stop="removeFromPlaylist(i)">
-              <Square :size="10" :stroke-width="2.5" />
+            <!-- 2026-07-31 业主: "播放列表应该可以单条删除" — 原按钮 hover 才显形
+                 (平板隐形) 且图标是小方块像"停止", 改为常显垃圾桶 + 确认弹窗 -->
+            <button class="bgm-pl-ico bgm-pl-del" title="移出播放列表" @click.stop="removeFromPlaylist(i)">
+              <Trash2 :size="13" :stroke-width="2" />
             </button>
           </div>
         </div>
@@ -1470,6 +1480,13 @@ async function toggleMuteAll(): Promise<void> {
 }
 .bgm-pl-play.playing { color: var(--v2-primary); }
 .bgm-pl-play:disabled { opacity: .35; cursor: not-allowed; }
+/* 删除按钮: 同播放按钮常显 (平板没有 hover), 红色语义 */
+.bgm-pl-del {
+  opacity: 1;
+  width: 32px; height: 32px;
+  background: var(--v2-ov-1);
+}
+.bgm-pl-del:hover { color: var(--v2-danger); }
 /* 输出通道就地改名 (业主: 推子名称要跟机柜标签一致且可编辑) */
 .ch-name-input {
   width: 100%; padding: 3px 6px;

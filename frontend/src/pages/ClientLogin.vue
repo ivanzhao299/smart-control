@@ -6,6 +6,7 @@ import { useClientAuthStore } from '@/stores/client-auth';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { useToastStore } from '@/stores/toast';
 import { getServerHistory, addServerHistory, removeServerHistory } from '@/services/server-history';
+import { shellBioRead, shellBioSave, shellBioLogin, type ShellBioState } from '@/composables/useShellBio';
 
 const router = useRouter();
 const route = useRoute();
@@ -33,43 +34,28 @@ const autoLoggingIn = ref(false);
 // ============ 面容登录 (2026-07-31, 仅壳 App 内) ============
 // 壳 (Android/iOS v1.1.9+) 注入 window.JinhuShell 桥: 密码存在壳的加密存储
 // (Keystore/Keychain), 清除页面缓存也不丢; 点"面容登录"→ 壳弹系统面容验证
-// → 通过后经 __jinhuBioLoginOk 回调把密码注回来自动登录。浏览器里无此桥, 不显示。
-interface ShellBio { available: boolean; saved: boolean }
-const shellBio = ref<ShellBio | null>(null);
+// → 通过后回调注回密码自动登录。桥交互统一走 useShellBio (v1.1.10 双槽位)。
+const shellBio = ref<ShellBioState | null>(null);
 
 function readShellBio(): void {
-  try {
-    const raw = (window as unknown as { JinhuShell?: { bioInfo?: () => string } }).JinhuShell?.bioInfo?.();
-    if (raw) shellBio.value = JSON.parse(raw) as ShellBio;
-  } catch { /* 老版壳没有 bioInfo, 忽略 */ }
+  shellBio.value = shellBioRead('client');
 }
 
 function faceLogin(): void {
-  const w = window as unknown as {
-    JinhuShell?: { requestBioLogin?: () => void };
-    __jinhuBioLoginOk?: (pwd: string) => void;
-    __jinhuBioLoginFail?: () => void;
-  };
-  if (!w.JinhuShell?.requestBioLogin) return;
-  w.__jinhuBioLoginOk = (pwd: string) => {
+  shellBioLogin('client', (pwd) => {
     password.value = pwd;
     void doLogin();
-  };
-  w.__jinhuBioLoginFail = () => {
+  }, () => {
     toast.warning('面容验证未通过, 可重试或输入密码登录');
-  };
-  w.JinhuShell.requestBioLogin();
+  });
 }
 
 /** 登录成功后把密码同步进壳加密存储 (密码改过也随手更新), 失败静默 */
 function syncPasswordToShell(pwd: string): void {
-  try {
-    const shell = (window as unknown as { JinhuShell?: { saveBioPassword?: (p: string) => void } }).JinhuShell;
-    if (shell?.saveBioPassword && shellBio.value?.available) {
-      shell.saveBioPassword(pwd);
-      readShellBio();
-    }
-  } catch { /* 桥不可用就算了 */ }
+  if (shellBio.value?.available) {
+    shellBioSave('client', pwd);
+    readShellBio();
+  }
 }
 
 onMounted(async () => {

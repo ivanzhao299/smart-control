@@ -480,26 +480,40 @@ class MainActivity : AppCompatActivity() {
                 } catch (e: Exception) { /* 触感失败无所谓 */ }
             }
 
+            // ---- 面容登录 v1.1.9 老接口 (固定 client 槽), 兼容已发布的 PWA ----
             @android.webkit.JavascriptInterface
-            fun bioInfo(): String {
-                val saved = Prefs.getBioPassword(this@MainActivity) != null
+            fun bioInfo(): String = bioInfoScoped("client")
+
+            @android.webkit.JavascriptInterface
+            fun saveBioPassword(pwd: String) = saveBioPasswordScoped("client", pwd)
+
+            @android.webkit.JavascriptInterface
+            fun clearBioPassword() = clearBioPasswordScoped("client")
+
+            @android.webkit.JavascriptInterface
+            fun requestBioLogin() = requestBioLoginScoped("client")
+
+            // ---- v1.1.10 双槽位: scope = "client"(业主密码) / "admin"(后台管理密码) ----
+            @android.webkit.JavascriptInterface
+            fun bioInfoScoped(scope: String): String {
+                val saved = Prefs.getBioPassword(this@MainActivity, scope) != null
                 return "{\"available\":${canAuthenticate()},\"saved\":$saved}"
             }
 
             @android.webkit.JavascriptInterface
-            fun saveBioPassword(pwd: String) {
-                if (pwd.isNotEmpty()) Prefs.setBioPassword(this@MainActivity, pwd)
+            fun saveBioPasswordScoped(scope: String, pwd: String) {
+                if (pwd.isNotEmpty()) Prefs.setBioPassword(this@MainActivity, pwd, scope)
             }
 
             @android.webkit.JavascriptInterface
-            fun clearBioPassword() {
-                Prefs.clearBioPassword(this@MainActivity)
+            fun clearBioPasswordScoped(scope: String) {
+                Prefs.clearBioPassword(this@MainActivity, scope)
             }
 
             @android.webkit.JavascriptInterface
-            fun requestBioLogin() {
+            fun requestBioLoginScoped(scope: String) {
                 runOnUiThread {
-                    val pwd = Prefs.getBioPassword(this@MainActivity)
+                    val pwd = Prefs.getBioPassword(this@MainActivity, scope)
                     if (pwd.isNullOrEmpty() || !canAuthenticate()) {
                         evalJs("window.__jinhuBioLoginFail&&window.__jinhuBioLoginFail()")
                         return@runOnUiThread

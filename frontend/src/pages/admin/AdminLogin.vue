@@ -2,9 +2,10 @@
 import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { Lock, X } from 'lucide-vue-next';
+import { Lock, X, ScanFace } from 'lucide-vue-next';
 import { useAdminAuthStore } from '@/stores/admin-auth';
 import { useSystemBrandingStore } from '@/stores/system-branding';
+import { shellBioRead, shellBioSave, shellBioLogin, type ShellBioState } from '@/composables/useShellBio';
 
 const router = useRouter();
 const route = useRoute();
@@ -15,7 +16,21 @@ const password = ref('');
 const submitting = ref(false);
 const passwordInput = ref<HTMLInputElement | null>(null);
 
+// 面容登录 (2026-07-31 业主: "后台管理页没看见面容登录") — 壳 v1.1.10 'admin' 槽,
+// 管理密码与业主密码分开存; 壳内且存过才显示按钮, 浏览器/老壳不显示
+const shellBio = ref<ShellBioState | null>(null);
+
+function faceLogin(): void {
+  shellBioLogin('admin', (pwd) => {
+    password.value = pwd;
+    void submit();
+  }, () => {
+    ElMessage.warning('面容验证未通过, 可重试或输入密码登录');
+  });
+}
+
 onMounted(async () => {
+  shellBio.value = shellBioRead('admin');
   await brandingStore.load();
   // 如果已登录 (sessionStorage 有 token + 验证通过), 直接跳后台首页
   const ok = await authStore.ensureChecked();
@@ -55,6 +70,7 @@ async function submit(): Promise<void> {
   submitting.value = true;
   try {
     await authStore.login(password.value);
+    if (shellBio.value?.available) shellBioSave('admin', password.value);
     ElMessage.success('登录成功');
     redirectToTarget();
   } catch (e) {
@@ -101,6 +117,18 @@ async function submit(): Promise<void> {
 
         <button type="submit" class="submit-btn" :disabled="submitting || !password">
           {{ submitting ? '登录中...' : '登 录' }}
+        </button>
+
+        <!-- 面容登录 (壳 App 内且壳里存过管理密码才显示) -->
+        <button
+          v-if="shellBio?.saved"
+          type="button"
+          class="bio-btn"
+          :disabled="submitting"
+          @click="faceLogin"
+        >
+          <ScanFace :size="18" :stroke-width="1.8" />
+          面容 / 指纹登录
         </button>
       </form>
     </div>
@@ -267,4 +295,27 @@ async function submit(): Promise<void> {
   box-shadow: var(--v2-glow-primary-strong);
 }
 .submit-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* 面容登录 — 次级按钮, 只在壳 App 内且壳里存过管理密码时出现 */
+.bio-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 10px;
+  padding: 11px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--v2-border-soft);
+  background: var(--v2-ov-1);
+  color: var(--v2-text-1);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s;
+}
+.bio-btn:hover:not(:disabled) {
+  background: var(--v2-ov-2);
+  border-color: var(--v2-border-strong);
+}
+.bio-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 </style>

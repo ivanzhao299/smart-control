@@ -31,16 +31,21 @@ struct WebView: UIViewRepresentable {
         // WKWebView 消息通道天然异步, 所以 available/saved 在注入时算好嵌进脚本,
         // save/clear 时 JS 侧乐观同步更新缓存 —— 与安卓壳的同步接口拉平。
         let bioAvailable = BiometricAuth.available ? "true" : "false"
-        let bioSaved = KeychainStore.hasPassword ? "true" : "false"
+        let bioSavedClient = KeychainStore.hasPassword(scope: "client") ? "true" : "false"
+        let bioSavedAdmin = KeychainStore.hasPassword(scope: "admin") ? "true" : "false"
         let bridge = WKUserScript(
             source: """
             window.JinhuShell={
               vibrate:function(ms){try{window.webkit.messageHandlers.haptic.postMessage(ms)}catch(e){}},
-              __bio:{available:\(bioAvailable),saved:\(bioSaved)},
-              bioInfo:function(){return JSON.stringify(this.__bio)},
-              saveBioPassword:function(p){try{this.__bio.saved=true;window.webkit.messageHandlers.jinhuShell.postMessage({type:'saveBio',pwd:String(p)})}catch(e){}},
-              clearBioPassword:function(){try{this.__bio.saved=false;window.webkit.messageHandlers.jinhuShell.postMessage({type:'clearBio'})}catch(e){}},
-              requestBioLogin:function(){try{window.webkit.messageHandlers.jinhuShell.postMessage({type:'bioLogin'})}catch(e){}}
+              __bio:{available:\(bioAvailable),saved:{client:\(bioSavedClient),admin:\(bioSavedAdmin)}},
+              bioInfoScoped:function(s){return JSON.stringify({available:this.__bio.available,saved:!!this.__bio.saved[s==='admin'?'admin':'client']})},
+              saveBioPasswordScoped:function(s,p){try{this.__bio.saved[s==='admin'?'admin':'client']=true;window.webkit.messageHandlers.jinhuShell.postMessage({type:'saveBio',scope:String(s),pwd:String(p)})}catch(e){}},
+              clearBioPasswordScoped:function(s){try{this.__bio.saved[s==='admin'?'admin':'client']=false;window.webkit.messageHandlers.jinhuShell.postMessage({type:'clearBio',scope:String(s)})}catch(e){}},
+              requestBioLoginScoped:function(s){try{window.webkit.messageHandlers.jinhuShell.postMessage({type:'bioLogin',scope:String(s)})}catch(e){}},
+              bioInfo:function(){return this.bioInfoScoped('client')},
+              saveBioPassword:function(p){this.saveBioPasswordScoped('client',p)},
+              clearBioPassword:function(){this.clearBioPasswordScoped('client')},
+              requestBioLogin:function(){this.requestBioLoginScoped('client')}
             };
             """,
             injectionTime: .atDocumentStart, forMainFrameOnly: true)
@@ -103,14 +108,15 @@ struct WebView: UIViewRepresentable {
                   let body = message.body as? [String: Any],
                   let type = body["type"] as? String
             else { return }
+            let scope = (body["scope"] as? String) == "admin" ? "admin" : "client"
             switch type {
             case "saveBio":
-                if let pwd = body["pwd"] as? String, !pwd.isEmpty { KeychainStore.set(pwd) }
+                if let pwd = body["pwd"] as? String, !pwd.isEmpty { KeychainStore.set(pwd, scope: scope) }
             case "clearBio":
-                KeychainStore.clear()
+                KeychainStore.clear(scope: scope)
             case "bioLogin":
                 let wv = message.webView
-                guard let pwd = KeychainStore.password, BiometricAuth.available else {
+                guard let pwd = KeychainStore.password(scope: scope), BiometricAuth.available else {
                     wv?.evaluateJavaScript("window.__jinhuBioLoginFail&&window.__jinhuBioLoginFail()")
                     return
                 }

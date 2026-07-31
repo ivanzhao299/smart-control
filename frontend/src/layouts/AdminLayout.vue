@@ -522,15 +522,15 @@ async function exitToFront(): Promise<void> {
   .admin.sidebar-open .side {
     transform: translateX(0);
   }
-  /* 手机抽屉行距放宽 (2026-07-30 业主: "左边栏行间距太窄"): 桌面端"一屏装下"的
-     紧凑排布在手机抽屉里显挤, 抽屉下方本就大片留白 — 行高提到 ≥44px 触控标准,
-     行距/分组间距同步拉开。只影响 ≤600px 抽屉, 桌面/平板侧栏不动。 */
-  .menu { gap: 6px; padding: 10px 12px; }
-  .menu-section { padding: 16px 12px 6px; }
-  .menu-section:first-child { padding-top: 6px; }
-  .menu-item { padding: 13px 12px; font-size: 15px; }
-  .footer { padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); }
-  .footer .back { padding: 12px 0; }
+  /* 手机抽屉行距 (2026-07-30 业主嫌窄放宽 → 07-31 复评"又太大, 超出手机整屏"):
+     第三版取中 — 行高 ~38px (仍高于 36px 触摸底线), 13 项 + 4 分组 + 品牌 +
+     底按钮合计 ~780px, 常见手机 (812px+) 一屏装下。只影响 ≤600px 抽屉。 */
+  .menu { gap: 3px; padding: 6px 10px; }
+  .menu-section { padding: 10px 12px 4px; }
+  .menu-section:first-child { padding-top: 4px; }
+  .menu-item { padding: 10px 12px; font-size: 14px; }
+  .footer { padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
+  .footer .back { padding: 10px 0; }
   /* 遮罩 — 抽屉打开时盖在 main 区上, 点击关闭 */
   .sidebar-mask {
     display: block;
