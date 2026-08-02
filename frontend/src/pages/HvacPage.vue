@@ -1079,14 +1079,14 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  /* 底部常驻预留操作浮层的高度: 浮层弹出/收起都不引起网格行高变化 */
-  padding: 10px 14px 108px;
+  /* 没有操作浮层时不要常驻吞掉 108px 内容高度；浮层空间由其对应的滚动容器按需预留。 */
+  padding: 10px 14px;
   gap: 8px;
   box-sizing: border-box;
 }
 
 /* ---- 顶栏 ---- */
-.hv-head { display: flex; align-items: center; gap: 14px; flex: 0 0 auto;
+.hv-head { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; flex-wrap: wrap;
   /* 2026-07-26 业主: "顶部还没锁定, 还可以上下滑动" — 双保险: 即使父容器
      (.v2-main) 因高度链断裂发生滚动, sticky 也把顶栏钉在最上, 永不滚出 */
   position: sticky; top: 0; z-index: 5;
@@ -1125,13 +1125,13 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 .hv-stats .dim { color: var(--v2-text-3); }
 .hv-stats .poll { color: var(--v2-text-3); font-variant-numeric: tabular-nums; }
 .hv-stats .poll.bad { color: var(--v2-danger); }
-.hv-head-actions { display: flex; gap: 8px; }
+.hv-head-actions { display: flex; gap: 8px; flex-wrap: wrap; min-width: 0; }
 
 /* ---- 分区视图 (2026-07-29 业主: 分区卡直接组控, 对齐灯光页) ---- */
 .hz-grid {
   flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
-  align-content: start;
+  align-content: start; box-sizing: border-box; scroll-padding-bottom: 16px;
 }
 .hz-empty { grid-column: 1 / -1; text-align: center; color: var(--v2-text-3); padding: 44px 16px; font-size: 14px; line-height: 1.7; }
 .hz-card {
@@ -1243,6 +1243,8 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   grid-auto-rows: minmax(calc((100% - 24px) / 4), auto);
   gap: 8px;
   overflow-y: auto;   /* 兜底: 万一以后加内机超出设计行数, 微滚而不是裁切 */
+  box-sizing: border-box;
+  scroll-padding-bottom: 16px;
 }
 .hv-grid.loading { opacity: .5; pointer-events: none; }
 
@@ -1463,6 +1465,13 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   padding: 12px 26px; font-size: 17px; font-weight: 700; border-radius: 12px;
 }
 
+/* 操作浮层只在出现时占滚动尾部，最后一张卡可以完整滚到浮层上方。 */
+.hv-page.bar-open .hv-grid,
+.hv-page.bar-open .hv-sections {
+  padding-bottom: 116px;
+  scroll-padding-bottom: 116px;
+}
+
 /* 1600 及以下: 6 列会挤, 降到 5 列 (22 台 = 5 行, 行高 ~170px). 温度收到 40px
    刚好在 5 行时不裁切, 而 10 台 (2 行) 时卡片高、40px 居中依然大气. */
 @media (max-width: 1600px) {
@@ -1505,9 +1514,12 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
     overflow-y: auto;                      /* 放不下就滚这里, 而不是被裁掉 */
     -webkit-overflow-scrolling: touch;
   }
+  .hz-grid,
+  .hv-grid,
+  .hv-sections { padding-bottom: 8px; }
   .hv-cell { padding: 8px 10px; border-radius: 11px; }
   .hv-cell.sel::before { top: 6px; bottom: 6px; }
-  .hv-head { flex-wrap: wrap; gap: 8px; }
+  .hv-head { gap: 8px; }
   .hv-stats { display: none; }             /* 顶栏统计让位, 控制权优先 */
   .cell-name { margin-top: 2px; min-height: 22px; }
   .cell-name-text { font-size: 15px; }
@@ -1551,7 +1563,10 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
      卡片行高; 浮层收起时预留归零, 不再有 128px 常驻死空间。 */
   .hv-page { padding-bottom: 12px; }
   .hv-page.bar-open .hv-grid,
-  .hv-page.bar-open .hv-sections { padding-bottom: 248px; }
+  .hv-page.bar-open .hv-sections {
+    padding-bottom: 248px;
+    scroll-padding-bottom: 248px;
+  }
   .hv-bar { left: 8px; right: 8px; gap: 8px; padding: 9px 10px; }
   .bar-names { display: none; }
   .bar-ctrl { gap: 8px; width: 100%; }
@@ -1569,6 +1584,38 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   .bar-state { display: none; }
 }
 
+/* 手机顶栏固定三段：标题、楼层、操作。按钮不再靠 flex 猜测换行，避免图标被挤出屏幕。 */
+@media (max-width: 600px) {
+  .hv-head {
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr);
+    align-items: center;
+    width: 100%;
+  }
+  .hv-head > .v2-back-btn { grid-column: 1; }
+  .hv-head > .hv-title { grid-column: 2; min-width: 0; }
+  .hv-head > .v2-tabs {
+    grid-column: 1 / -1;
+    display: flex;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .hv-head > .v2-tabs .v2-tab { flex: 1 1 0; padding: 9px 10px; }
+  .hv-head-actions {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) repeat(3, auto);
+    width: 100%;
+    gap: 6px;
+  }
+  .hv-head-actions > .v2-tabs {
+    min-width: 0;
+    display: flex;
+  }
+  .hv-head-actions > .v2-tabs .v2-tab { flex: 1 1 0; padding: 8px 10px; }
+  .hv-head-actions .hv-btn { padding: 8px 10px; justify-content: center; }
+}
+
 /* ===== 编组模式: 按组分段 =====
    结构摆在眼前, 移动内机立刻看到它出现在目标组里 —— 动作和结果在同一个地方发生,
    这才是"闭环"。旧版是平铺网格 + 底部 14 个同名小按钮, 做完看不到结果。 */
@@ -1577,6 +1624,8 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   overflow-y: auto;                 /* 组多了滚这里, 不撑破页面 */
   display: flex; flex-direction: column; gap: 10px;
   padding-right: 4px;
+  box-sizing: border-box;
+  scroll-padding-bottom: 16px;
 }
 .hv-sections.loading { opacity: .5; pointer-events: none; }
 .hv-sec {
