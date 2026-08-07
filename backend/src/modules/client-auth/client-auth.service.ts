@@ -3,8 +3,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Repository } from 'typeorm';
 import { Logger } from 'winston';
-import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { ClientAuth } from '../../entities/client-auth.entity';
+import { User } from '../../entities/user.entity';
 import { hashPassword, verifyPassword } from '../../common/utils/password.util';
 
 /** 业主原话: 初始密码 1234. 弱但符合业主"先能用"的优先, 进后台第一件事改. */
@@ -34,6 +35,7 @@ export class ClientAuthService implements OnModuleInit {
 
   constructor(
     @InjectRepository(ClientAuth) private readonly repo: Repository<ClientAuth>,
+    @InjectRepository(User) private readonly userRepo: Repository<User>,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
@@ -65,15 +67,25 @@ export class ClientAuthService implements OnModuleInit {
     }
   }
 
-  async login(password: string): Promise<{ token: string; expiresAt: string }> {
+  async login(password: string, username?: string): Promise<{ token: string; expiresAt: string }> {
     const row = await this.repo.findOne({ where: { id: 1 } });
     if (!row) throw new UnauthorizedException('鉴权未初始化');
-    if (!verifyPassword(password, row.passwordHash)) {
+    let identity: { uid: number; ph: string } | undefined;
+    if (username) {
+      const user = await this.userRepo.createQueryBuilder('user')
+        .addSelect('user.password')
+        .where('user.username = :username', { username })
+        .getOne();
+      if (!user?.enabled || !verifyPassword(password, user.password)) {
+        throw new UnauthorizedException('用户名或密码错误');
+      }
+      identity = { uid: user.id, ph: this.passwordFingerprint(user.password) };
+    } else if (!verifyPassword(password, row.passwordHash)) {
       throw new UnauthorizedException('密码错误');
     }
     const secret = await this.ensureSecret(row);
     const now = Date.now();
-    const payload = Buffer.from(JSON.stringify({ iat: now, exp: now + TOKEN_TTL_MS })).toString('base64url');
+    const payload = Buffer.from(JSON.stringify({ iat: now, exp: now + TOKEN_TTL_MS, ...identity })).toString('base64url');
     const sig = createHmac('sha256', secret).update(payload).digest('hex');
     this.logger.info(`[ClientAuth] login ok, 颁签名 token (TTL=${TOKEN_TTL_MS / 1000 / 60 / 60 / 24}d)`);
     return { token: `${payload}.${sig}`, expiresAt: new Date(now + TOKEN_TTL_MS).toISOString() };
@@ -94,7 +106,7 @@ export class ClientAuthService implements OnModuleInit {
     } catch {
       return false;
     }
-    let payload: { iat?: number; exp?: number };
+    let payload: { iat?: number; exp?: number; uid?: number; ph?: string };
     try {
       payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8')) as { iat?: number; exp?: number };
     } catch {
@@ -103,6 +115,15 @@ export class ClientAuthService implements OnModuleInit {
     if (typeof payload.exp !== 'number' || payload.exp < Date.now()) return false;
     // 改密时间之后签发的才算数 (语义与老方案一致: 改密 = 全体重登)
     if (typeof payload.iat !== 'number' || payload.iat < row.passwordChangedAt.getTime()) return false;
+    // 用户账户令牌额外绑定账户状态和当前密码。后台禁用账户或修改密码后，该账户的旧令牌立即失效。
+    if (typeof payload.uid === 'number') {
+      const user = await this.userRepo.createQueryBuilder('user')
+        .addSelect('user.password')
+        .where('user.id = :id', { id: payload.uid })
+        .getOne();
+      if (!user?.enabled || typeof payload.ph !== 'string') return false;
+      if (payload.ph !== this.passwordFingerprint(user.password)) return false;
+    }
     return true;
   }
 
@@ -140,5 +161,9 @@ export class ClientAuthService implements OnModuleInit {
     row.tokenSecret = randomBytes(32).toString('hex');
     await this.repo.save(row);
     return row.tokenSecret;
+  }
+
+  private passwordFingerprint(passwordHash: string): string {
+    return createHash('sha256').update(passwordHash).digest('hex').slice(0, 24);
   }
 }

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { Lock, Globe, Wifi, CheckCircle2, XCircle, Trash2, History, Loader, ScanFace } from 'lucide-vue-next';
-import { useClientAuthStore } from '@/stores/client-auth';
+import { Lock, UserRound, Globe, Wifi, CheckCircle2, XCircle, Trash2, History, Loader, ScanFace } from 'lucide-vue-next';
+import { readSavedUsername, useClientAuthStore } from '@/stores/client-auth';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { useToastStore } from '@/stores/toast';
 import { getServerHistory, addServerHistory, removeServerHistory } from '@/services/server-history';
@@ -17,6 +17,7 @@ const toast = useToastStore();
 // 显示裸 origin (http://x.x.x.x:3200), 跟 placeholder 的格式一致; baseURL 自带
 // 的 /api 后缀是内部实现, 让业主看见只会以为要连它一起敲。setApiBaseURL 会自动补回。
 const serverInput = ref<string>(originOf(auth.baseURL));
+const username = ref(readSavedUsername());
 const password = ref('');
 const passwordInput = ref<HTMLInputElement | null>(null);
 const submitting = ref(false);
@@ -129,7 +130,7 @@ async function doLogin(): Promise<void> {
   auth.setBaseURL(serverInput.value);
   submitting.value = true;
   try {
-    await auth.login(password.value);
+    await auth.login(username.value, password.value);
     addServerHistory(originOf(auth.baseURL));
     syncPasswordToShell(password.value);
     toast.success('登录成功');
@@ -155,7 +156,7 @@ async function doLogin(): Promise<void> {
         </div>
         <div class="brand-text">
           <div class="brand-title">{{ brandingStore.branding.systemName }}</div>
-          <div class="brand-sub">请输入访问密码</div>
+          <div class="brand-sub">请输入用户名和密码</div>
         </div>
       </div>
 
@@ -220,6 +221,21 @@ async function doLogin(): Promise<void> {
           </div>
         </div>
 
+        <!-- 用户管理中配置的账户；留空兼容旧版“业主端访问密码” -->
+        <div class="field">
+          <UserRound :size="16" :stroke-width="1.8" class="field-icon" />
+          <input
+            v-model="username"
+            type="text"
+            class="field-input"
+            placeholder="用户名（旧版访问密码可留空）"
+            autocomplete="username"
+            autocapitalize="off"
+            spellcheck="false"
+            :disabled="submitting"
+          />
+        </div>
+
         <!-- 密码 -->
         <div class="field">
           <Lock :size="16" :stroke-width="1.8" class="field-icon" />
@@ -228,7 +244,7 @@ async function doLogin(): Promise<void> {
             v-model="password"
             type="password"
             class="field-input"
-            placeholder="访问密码"
+            placeholder="密码"
             autocomplete="current-password"
             :disabled="submitting"
           />
@@ -261,7 +277,7 @@ async function doLogin(): Promise<void> {
   position: fixed;
   inset: 0;
   display: grid;
-  place-items: center;
+  place-items: safe center;
   /* 四边都让开安全区 —— index.html 开了 viewport-fit=cover +
      apple-mobile-web-app-status-bar-style=black-translucent, 意思是"内容铺满整块屏,
      安全区你自己让"。漏一边就被压一边:
@@ -274,7 +290,8 @@ async function doLogin(): Promise<void> {
     max(24px, env(safe-area-inset-left));
   background: var(--v2-bg-0);
   isolation: isolate;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 .login-bg {
   position: absolute;

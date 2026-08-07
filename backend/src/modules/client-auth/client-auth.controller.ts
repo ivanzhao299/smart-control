@@ -8,7 +8,7 @@ import { Public } from '../../common/decorators/public.decorator';
  * /api/client-auth
  *
  * - GET /ping — 公开, 让登录页"测试连接"能验证 backend 在线
- * - POST /login — 公开, 业主输入密码 → 拿 token
+ * - POST /login — 公开, 用户名密码或兼容访问密码 → 拿 token
  * - PUT /password — 需 admin token, 在后台改/重置客户端密码 (不要求旧密码)
  */
 @Controller('client-auth')
@@ -29,12 +29,12 @@ export class ClientAuthController {
   // 公网对 4 位口令的秒级枚举 (枚举需要每秒多次)。RateLimitGuard 按 IP×路由 分桶。
   @UseGuards(RateLimitGuard)
   @RateLimit({ max: 10, windowMs: 60_000 })
-  async login(@Body() body: { password?: string }) {
+  async login(@Body() body: { username?: string; password?: string }) {
     if (!body?.password) {
       throw new BadRequestException('请输入密码');
     }
     try {
-      const result = await this.service.login(body.password);
+      const result = await this.service.login(body.password, body.username?.trim());
       return { message: '登录成功', data: result };
     } catch (e) {
       if (e instanceof UnauthorizedException) throw e;
