@@ -105,6 +105,9 @@ export default defineConfig(({ mode }) => {
           ],
         },
         workbox: {
+          cleanupOutdatedCaches: true,
+          clientsClaim: true,
+          skipWaiting: true,
           globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
           // C2 (2026-07-25): 离线预缓存只收业主侧 — 20+ 个后台管理页 chunk
           // (文件名含 Admin) 和只有 admin 用的 date-picker 不进每台手机的离线包。
