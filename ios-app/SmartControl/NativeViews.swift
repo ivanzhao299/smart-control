@@ -65,7 +65,18 @@ struct NativeMainView: View {
                 .tabItem { Label("更多", systemImage: "ellipsis.circle.fill") }
         }
         .overlay(alignment: .top) {
-            if state.busy { ProgressView().padding(8).background(.ultraThinMaterial).clipShape(Capsule()) }
+            if state.busy {
+                ProgressView().padding(8).background(.ultraThinMaterial).clipShape(Capsule())
+            } else if let notice = state.lastNotice {
+                Label(notice, systemImage: "checkmark.circle.fill")
+                    .font(.footnote).padding(10).background(.ultraThinMaterial).clipShape(Capsule())
+            }
+        }
+        .task {
+            while !Task.isCancelled && state.authenticated {
+                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                if !Task.isCancelled { await state.refresh() }
+            }
         }
     }
 }
@@ -81,6 +92,23 @@ struct NativeDashboard: View {
                     Spacer()
                     Text("\(state.runtimeDevices.filter { ["online", "running"].contains($0.status) }.count)/\(state.runtimeDevices.count) 在线")
                 }.font(.footnote).foregroundStyle(.secondary)
+                if !state.runningScenes.isEmpty {
+                    Text("正在执行").font(.headline)
+                    ForEach(state.runningScenes) { execution in
+                        HStack(spacing: 12) {
+                            ProgressView()
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(execution.sceneName ?? execution.sceneCode).font(.subheadline.weight(.semibold))
+                                Text(executionSummary(execution)).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("停止", role: .destructive) {
+                                Task { await state.command("scenes/\(execution.sceneCode)/stop") }
+                            }.buttonStyle(.bordered)
+                        }
+                        .padding(12).background(.thinMaterial).clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                }
                 Text("情景模式").font(.headline)
                 LazyVGrid(columns: columns, spacing: 12) {
                     ForEach(state.scenes) { scene in
@@ -98,6 +126,13 @@ struct NativeDashboard: View {
         .navigationTitle("金湖智控")
         .toolbar { Button { Task { await state.refresh() } } label: { Image(systemName: "arrow.clockwise") } }
         .refreshable { await state.refresh() }
+    }
+
+    private func executionSummary(_ execution: SceneExecutionNative) -> String {
+        let completed = execution.succeeded ?? 0
+        let failed = execution.failed ?? 0
+        let total = execution.totalActions ?? 0
+        return total > 0 ? "已完成 \(completed + failed)/\(total) · 失败 \(failed)" : "设备指令执行中"
     }
 }
 
@@ -170,6 +205,9 @@ struct NativeMoreView: View {
     var body: some View {
         List {
             Section("播放系统") {
+                NavigationLink("LED 大屏控制") { NativePlaybackView(state: state, slot: 1, title: "LED 大屏") }
+                NavigationLink("投影控制") { NativePlaybackView(state: state, slot: 2, title: "投影") }
+                NavigationLink("音响与背景音乐") { NativeAudioView(state: state) }
                 ForEach(state.playback) { channel in
                     VStack(alignment: .leading) {
                         Text(channel.slot == 1 ? "LED 大屏" : channel.slot == 2 ? "投影" : "播放通道 \(channel.slot)")
@@ -178,8 +216,8 @@ struct NativeMoreView: View {
                 }
             }
             Section("兼容工作台") {
-                Button("媒体、音响与后台管理") { showLegacy = true }
-                Text("复杂编辑功能继续使用原网页工作台，日常设备控制已原生化。")
+                Button("媒体库与后台管理") { showLegacy = true }
+                Text("媒体上传和工程配置继续使用原网页工作台；播放与音响日常控制已原生化。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("连接") {

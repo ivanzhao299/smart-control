@@ -14,6 +14,11 @@ final class NativeAppState: ObservableObject {
     @Published var powerCircuits: [PowerCircuitNative] = []
     @Published var runtimeDevices: [RuntimeDeviceNative] = []
     @Published var playback: [PlaybackChannelNative] = []
+    @Published var playlists: [Int: [PlaylistItemNative]] = [:]
+    @Published var audioZones: [AudioZoneNative] = []
+    @Published var audioScenes: [AudioSceneNative] = []
+    @Published var runningScenes: [SceneExecutionNative] = []
+    @Published var lastNotice: String?
 
     private(set) var api: NativeAPI?
     private let tokenScope = "native-client-token"
@@ -106,7 +111,24 @@ final class NativeAppState: ObservableObject {
         } catch {
             self.error = error.localizedDescription
             if case APIError.server(401, _) = error { authenticated = false }
+            return
         }
+
+        // Optional subsystems are isolated so an unavailable audio or playback
+        // endpoint never hides the core lighting/HVAC/power controls.
+        async let ledList: [PlaylistItemNative]? = try? api.request("playback/playlist/1")
+        async let projectorList: [PlaylistItemNative]? = try? api.request("playback/playlist/2")
+        async let bgmList: [PlaylistItemNative]? = try? api.request("playback/playlist/3")
+        async let zones: [AudioZoneNative]? = try? api.request("audio-config/zones")
+        async let presets: [AudioSceneNative]? = try? api.request("audio-config/scenes")
+        async let running: [SceneExecutionNative]? = try? api.request("scenes/runtime/running")
+        let optional = await (ledList, projectorList, bgmList, zones, presets, running)
+        if let value = optional.0 { playlists[1] = value }
+        if let value = optional.1 { playlists[2] = value }
+        if let value = optional.2 { playlists[3] = value }
+        if let value = optional.3 { audioZones = value.filter(\.enabled) }
+        if let value = optional.4 { audioScenes = value.filter(\.enabled) }
+        if let value = optional.5 { runningScenes = value }
     }
 
     func command(_ path: String, body: [String: Any]? = nil) async {
@@ -116,6 +138,11 @@ final class NativeAppState: ObservableObject {
         do {
             let _: AnyResult = try await api.request(path, method: "POST", body: body)
             error = nil
+            lastNotice = "操作已下发"
+            Task {
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                if self.lastNotice == "操作已下发" { self.lastNotice = nil }
+            }
             try? await Task.sleep(nanoseconds: 450_000_000)
             await refresh()
         } catch { self.error = error.localizedDescription }

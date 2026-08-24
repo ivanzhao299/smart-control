@@ -139,4 +139,47 @@ struct PlaybackChannelNative: Codable, Identifiable {
     let status: String?
     let currentMediaName: String?
     let paused: Bool?
+    let currentMediaId: Int?
+    let currentMediaKind: String?
+    let displayFit: String?
+    let docPage: Int?
+    let docZoom: Int?
+    let currentMediaPageCount: Int?
+    let alive: Bool?
+}
+
+struct PlaylistItemNative: Codable, Identifiable {
+    let id: Int
+    let mediaId: Int
+    let title: String
+    let kind: String?
+    let durationSec: Double?
+    let missing: Bool
+}
+
+struct AudioZoneNative: Codable, Identifiable {
+    let id: Int
+    let channel: Int
+    let name: String
+    let floor: String?
+    let enabled: Bool
+}
+
+struct AudioSceneNative: Codable, Identifiable {
+    let id: Int
+    let presetNum: Int
+    let name: String
+    let hint: String?
+    let enabled: Bool
+}
+
+struct SceneExecutionNative: Codable, Identifiable {
+    var id: String { executionId }
+    let executionId: String
+    let sceneCode: String
+    let sceneName: String?
+    let status: String
+    let totalActions: Int?
+    let succeeded: Int?
+    let failed: Int?
 }
