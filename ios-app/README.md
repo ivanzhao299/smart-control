@@ -8,6 +8,10 @@
 TestFlight 路线。只复用 Air Control Media 验证过的流程结构；Bundle ID
 `com.jinhu.smartcontrol`、应用记录、测试组和 Secrets 必须保持独立。
 
+原生版出现生产级问题时，使用固定 tag `ios-shell-v1.1.10-build7` 恢复上一版
+WKWebView 壳；只恢复 `ios-app/`，不回退后端、数据库或其他终端。完整步骤见
+[`../docs/IOS_NATIVE_ROLLBACK.md`](../docs/IOS_NATIVE_ROLLBACK.md)。
+
 ## 1.x 兼容壳说明
 
 WKWebView 包 PWA 的原生壳,行为与安卓壳 (`android-app/`) 1:1 对齐:
