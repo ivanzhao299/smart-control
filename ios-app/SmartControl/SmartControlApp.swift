@@ -1,12 +1,12 @@
 import SwiftUI
 
-/// 金湖展贸中心原生 iOS 控制系统。
-/// 日常控制由 SwiftUI + URLSession 原生实现；复杂管理工作台保留兼容入口。
+/// 金湖展贸中心智控 iOS 壳 — WKWebView 包 PWA, 行为对齐安卓壳 (android-app/):
+/// 配置服务器地址 → 全屏 WebView 加载 PWA → 检查 APP 自身更新。
 @main
 struct SmartControlApp: App {
     var body: some Scene {
         WindowGroup {
-            NativeRootView()
+            ContentView()
                 .preferredColorScheme(.dark)
         }
     }

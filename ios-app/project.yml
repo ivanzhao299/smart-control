@@ -16,8 +16,10 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jinhu.smartcontrol
         PRODUCT_NAME: SmartControl
-        MARKETING_VERSION: "2.1.0"
-        CURRENT_PROJECT_VERSION: "1"
+        # 壳代码恢复自 ios-shell-v1.1.10-build7；版本号必须高于已发布的原生 2.1.0，
+        # TestFlight 才会把回滚壳作为更新提供给已安装原生版的设备。
+        MARKETING_VERSION: "2.1.1"
+        CURRENT_PROJECT_VERSION: "7"
         GENERATE_INFOPLIST_FILE: "NO"
         INFOPLIST_FILE: SmartControl/Info.plist
         TARGETED_DEVICE_FAMILY: "1,2"

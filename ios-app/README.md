@@ -1,18 +1,4 @@
-# 金湖智控原生 iOS 系统 (SmartControl)
-
-从 2.0 起，登录、服务器自动选择、情景模式、灯光、空调、电源、设备状态与
-播放状态均由 SwiftUI + URLSession 原生实现。媒体上传、音响矩阵和后台配置
-在迁移期间继续通过应用内“兼容工作台”提供，避免功能倒退。
-
-发布沿用独立的 SwiftUI → GitHub Actions → App Store Connect 云签名 →
-TestFlight 路线。只复用 Air Control Media 验证过的流程结构；Bundle ID
-`com.jinhu.smartcontrol`、应用记录、测试组和 Secrets 必须保持独立。
-
-原生版出现生产级问题时，使用固定 tag `ios-shell-v1.1.10-build7` 恢复上一版
-WKWebView 壳；只恢复 `ios-app/`，不回退后端、数据库或其他终端。完整步骤见
-[`../docs/IOS_NATIVE_ROLLBACK.md`](../docs/IOS_NATIVE_ROLLBACK.md)。
-
-## 1.x 兼容壳说明
+# 金湖智控 iOS 壳 (SmartControl)
 
 WKWebView 包 PWA 的原生壳,行为与安卓壳 (`android-app/`) 1:1 对齐:
 

@@ -11,38 +11,6 @@ Pushes to `main` are validated by GitHub Actions and deployed to the exhibition 
 - The GK9000 tunnel service is `WireGuardTunnel$gk9000` and starts automatically.
 - Only the tunnel address is routed; the `192.168.77.0/24` LAN is not exposed through this peer.
 
-## Direct LAN Route
-
-When the maintenance Mac and GK9000 are on the same `192.168.77.0/24` LAN, the
-jump host can be bypassed:
-
-`Maintenance Mac -> SSH user@192.168.77.54 -> GK9000 dispatcher`
-
-Run from the repository root:
-
-```bash
-# Deploy the current commit, then run an independent verification
-./deploy/lan-gk9000-deploy.sh
-
-# Verify the currently selected commit without deploying or restarting
-./deploy/lan-gk9000-deploy.sh --verify-only
-
-# Optional dedicated SSH identity
-./deploy/lan-gk9000-deploy.sh --identity ~/.ssh/gk9000_lan_deploy
-```
-
-The script defaults to the current `HEAD`, requires that commit to be present in
-the local `origin/main` view, and calls the same installed Windows dispatcher as
-the CI route. Therefore the deployment still uses the production lock, clean
-worktree check, backup, locked dependency install, build, detached pm2 restart,
-rollback, audit log, and post-deployment health verification. If no identity is
-provided, normal SSH authentication is used and a password may be requested.
-
-The first connection must have the GK9000 host key recorded in
-`~/.ssh/known_hosts`. Verify its fingerprint through a trusted channel before
-accepting it. The LAN route is a maintenance fallback; pushes to `main` continue
-to use the GitHub Actions -> Aliyun -> WireGuard route below.
-
 ## Repository Secrets
 
 - `GK9000_DEPLOY_JUMP_SSH_KEY`: dedicated restricted key for the Aliyun jump host.
