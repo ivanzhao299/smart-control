@@ -9,6 +9,10 @@ pm2 守护 backend(3200) + frontend(5173)，三路播放 kiosk（LED 大屏 / �
 业主平板走 PWA。部署走 push `main` → GitHub Actions → 阿里云跳板 → WireGuard 隧道
 → 盒上脚本自动构建重启验证，盒上 watcher 每分钟自动拉取兜底。
 
+维护电脑与 GK9000 同处现场局域网时，也可绕过跳板机直接走 SSH，复用同一套
+受控部署和验证逻辑：`./deploy/lan-gk9000-deploy.sh`。详见
+[`docs/GK9000_WIREGUARD_CI_DEPLOYMENT.md`](docs/GK9000_WIREGUARD_CI_DEPLOYMENT.md)。
+
 ### 接手必读（按顺序）
 
 | # | 文档 | 内容 |
