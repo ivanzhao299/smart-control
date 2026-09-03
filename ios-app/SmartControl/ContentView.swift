@@ -16,6 +16,7 @@ struct ContentView: View {
     /// 探测结果: 现场+远程都不通 (activeUrl 仍为 nil 时立即弹提示, 并自动重探)
     @State private var probeFailed = false
     @State private var probing = false
+    @State private var resolveAttempt = UUID()
     @State private var reloadToken = 0
     @State private var updatePrompt: UpdateChecker.Prompt?
     @StateObject private var netWatcher = NetWatcher()
@@ -80,7 +81,21 @@ struct ContentView: View {
                     }
                 } else {
                     // 正在探测现场/远程哪个通 — 纯动画 (2026-07-29 业主: 文字换动画)
-                    ConnectingView()
+                    VStack(spacing: 22) {
+                        ConnectingView()
+                        Text("正在检查 GK9000 服务")
+                            .font(.system(size: 13))
+                            .foregroundColor(.gray)
+                        Button("切换服务器") {
+                            resolveAttempt = UUID() // 让在途探测回调失效
+                            probing = false
+                            showConfig = true
+                        }
+                        .padding(.horizontal, 22).padding(.vertical, 10)
+                        .background(Color.white.opacity(0.14))
+                        .foregroundColor(.white)
+                        .cornerRadius(9)
+                    }
                 }
             } else if let s = activeUrl, let u = URL(string: s) {
                 WebView(
@@ -239,8 +254,18 @@ struct ContentView: View {
     /// 现场优先探测选地址; 选中的变了才动 WebView (initialUrl 变化会触发重载)
     private func reResolve() {
         guard let local = serverUrl, !showConfig, !probing else { return }
+        let attempt = UUID()
+        resolveAttempt = attempt
         probing = true
+        // URLSession 在部分代理/TLS 异常下可能迟迟不回调。客户端必须自己兜底，
+        // 5 秒后退出 Logo 页并给出可操作的错误界面，绝不无限等待。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+            guard resolveAttempt == attempt, activeUrl == nil, !showConfig else { return }
+            probing = false
+            probeFailed = true
+        }
         ServerResolver.resolve(local: local, remote: Prefs.remoteUrl) { chosen, reachable in
+            guard resolveAttempt == attempt, !showConfig else { return }
             probing = false
             if reachable {
                 probeFailed = false
@@ -252,7 +277,7 @@ struct ContentView: View {
                 // 还没进过页面: 立即弹提示 + 4s 后自动重探 (网络恢复无感进入)
                 probeFailed = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
-                    if activeUrl == nil && !showConfig { reResolve() }
+                    if resolveAttempt == attempt && activeUrl == nil && !showConfig { reResolve() }
                 }
             }
             // 已在页面里且这次探测不通: 不打扰 —— WebView 自己的错误覆盖层兜底
