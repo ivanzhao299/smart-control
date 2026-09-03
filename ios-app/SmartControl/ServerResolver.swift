@@ -6,30 +6,42 @@ import Network
 /// 都不通返回现场地址 (让 WebView 错误覆盖层出来, 业主可重试/重配)。
 enum ServerResolver {
 
-    /// GET {base}/api/client-auth/ping, 3s 超时 → (通不通, 服务器时间 HH:mm:ss)
+    /// 真正探测 backend，而不是只看前端页面是否返回 200。
+    /// 5173 是 GK9000 前端，认证后端固定在同主机 3200；反代入口则保持原端口。
     static func ping(_ base0: String, completion: @escaping (Bool, String?) -> Void) {
-        let base = base0.hasSuffix("/") ? String(base0.dropLast()) : base0
-        guard let url = URL(string: "\(base)/api/client-auth/ping") else {
+        guard let url = healthURL(from: base0) else {
             completion(false, nil); return
         }
         var req = URLRequest(url: url)
         req.timeoutInterval = 3
         URLSession.shared.dataTask(with: req) { data, resp, _ in
-            guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            guard let http = resp as? HTTPURLResponse,
+                  (200...299).contains(http.statusCode),
+                  let data = data,
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 completion(false, nil); return
             }
+            let payload = (root["data"] as? [String: Any]) ?? root
+            guard payload["ok"] as? Bool == true else { completion(false, nil); return }
             var time: String?
-            if let data = data,
-               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                let d = (root["data"] as? [String: Any]) ?? root
-                if let iso = d["serverTime"] as? String, iso.count >= 19 {
-                    let s = iso.index(iso.startIndex, offsetBy: 11)
-                    let e = iso.index(iso.startIndex, offsetBy: 19)
-                    time = String(iso[s..<e])
-                }
+            if let iso = payload["serverTime"] as? String, iso.count >= 19 {
+                let s = iso.index(iso.startIndex, offsetBy: 11)
+                let e = iso.index(iso.startIndex, offsetBy: 19)
+                time = String(iso[s..<e])
             }
             completion(true, time)
         }.resume()
+    }
+
+    static func healthURL(from serverAddress: String) -> URL? {
+        guard var components = URLComponents(string: serverAddress.trimmingCharacters(in: .whitespacesAndNewlines)),
+              components.scheme == "http" || components.scheme == "https",
+              components.host != nil else { return nil }
+        if components.port == 5173 { components.port = 3200 }
+        components.path = "/api/client-auth/ping"
+        components.query = nil
+        components.fragment = nil
+        return components.url
     }
 
     /// 现场优先选地址; 主线程回调 (选中URL, 是否可达)。

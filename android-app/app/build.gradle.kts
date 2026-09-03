@@ -11,13 +11,13 @@ android {
         applicationId = "com.jinhu.smartcontrol"
         minSdk = 24                  // Android 7.0+ — 覆盖 ≥99% 在用机型
         targetSdk = 34
-        versionCode = 18
-        versionName = "1.1.10"   // 面容登录扩展到后台管理页 (双槽位: 业主密码/管理密码)
+        versionCode = 19
+        versionName = "1.1.11"
         // 默认服务器地址 (可在 BuildConfig 用 — APP 启动时如果 SharedPreferences 没保存就用这个作 placeholder)
         // 2026-07-25 改成展厅现场真实地址 (GK9000 静态 IP)
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"http://192.168.77.54:5173/control/\"")
         // 远程地址默认值 (2026-07-29 业主: "远程地址也要默认填好") — WireGuard 隧道里的 GK9000
-        buildConfigField("String", "DEFAULT_REMOTE_URL", "\"https://erp.cnjinhu.top:8443/control/\"")
+        buildConfigField("String", "DEFAULT_REMOTE_URL", "\"http://10.66.66.3:5173/control/\"")
     }
 
     // 内部分发固定签名 (2026-07-27)。此前 CI 用 assembleDebug — 每台 runner 现生成

@@ -12,7 +12,11 @@ enum Prefs {
     /// 展厅现场地址默认值 (GK9000 静态 IP; 业主重新配置时不用从头输)
     static let defaultServerUrl = "http://192.168.77.54:5173/control/"
     /// 远程隧道地址默认提示 (WireGuard 里 GK9000 的地址)
-    static let defaultRemoteUrl = "https://erp.cnjinhu.top:8443/control/"
+    static let defaultRemoteUrl = "http://10.66.66.3:5173/control/"
+    private static let retiredRemoteUrls = [
+        "https://erp.cnjinhu.top:8443/control/",
+        "https://erp.cnjinhu.top:8443/control"
+    ]
 
     static var serverUrl: String? {
         get { UserDefaults.standard.string(forKey: keyServerUrl) }
@@ -21,7 +25,16 @@ enum Prefs {
 
     /// 远程地址 (隧道/公网, 可选) — 现场地址探不通时自动切它
     static var remoteUrl: String? {
-        get { UserDefaults.standard.string(forKey: keyRemoteUrl) }
+        get {
+            guard let stored = UserDefaults.standard.string(forKey: keyRemoteUrl) else { return nil }
+            // 2.1.2: 旧公网入口不再作为生产端。已安装设备自动迁移到
+            // GK9000 WireGuard 地址，避免继续选中历史反代。
+            if retiredRemoteUrls.contains(stored) {
+                UserDefaults.standard.set(defaultRemoteUrl, forKey: keyRemoteUrl)
+                return defaultRemoteUrl
+            }
+            return stored
+        }
         set {
             if let v = newValue, !v.isEmpty { UserDefaults.standard.set(v, forKey: keyRemoteUrl) }
             else { UserDefaults.standard.removeObject(forKey: keyRemoteUrl) }

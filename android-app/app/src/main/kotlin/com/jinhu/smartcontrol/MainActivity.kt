@@ -370,12 +370,15 @@ class MainActivity : AppCompatActivity() {
     private data class PingResult(val ok: Boolean, val serverTime: String?, val error: String?)
 
     private fun ping(serverUrl: String): PingResult {
-        // 业主输的可能是 http://192.168.124.11:5173/control/ (frontend)
-        // 也可能是 http://192.168.124.11:3200 (backend 直连)
-        // 我们试两个 path: <url>/api/client-auth/ping 和 <url>api/client-auth/ping
-        val base = serverUrl.trimEnd('/')
-        // 业主输 frontend (/control/) 路径, /api/ 会被 nginx/vite 反代到 backend
-        val candidates = listOf("$base/api/client-auth/ping")
+        // 5173 只承载前端，真正的认证健康检查在同主机 3200。
+        // 不能再把 /control/api 返回的 SPA HTML 200 当成登录服务正常。
+        val input = try {
+            URL(serverUrl)
+        } catch (e: Exception) {
+            return PingResult(false, null, e.message ?: "地址无效")
+        }
+        val backendPort = if (input.port == 5173) 3200 else input.port
+        val candidates = listOf(URL(input.protocol, input.host, backendPort, "/api/client-auth/ping").toString())
         var lastError = "unknown"
         for (u in candidates) {
             try {
@@ -387,14 +390,16 @@ class MainActivity : AppCompatActivity() {
                 if (code in 200..299) {
                     val text = conn.inputStream.bufferedReader().use { it.readText() }
                     // 拿 ISO 时间, 截 HH:mm:ss 给业主看
-                    val time = try {
+                    val result = try {
                         val json = JSONObject(text)
                         val data = json.optJSONObject("data") ?: json
+                        if (!data.optBoolean("ok", false)) throw IllegalStateException("invalid health response")
                         val iso = data.optString("serverTime", "")
-                        if (iso.isNotEmpty() && iso.length >= 19) iso.substring(11, 19) else null
-                    } catch (e: Exception) { null }
+                        Pair(true, if (iso.length >= 19) iso.substring(11, 19) else null)
+                    } catch (e: Exception) { Pair(false, null) }
                     conn.disconnect()
-                    return PingResult(true, time, null)
+                    if (result.first) return PingResult(true, result.second, null)
+                    lastError = "认证服务响应无效"
                 } else {
                     lastError = "HTTP $code"
                     conn.disconnect()
