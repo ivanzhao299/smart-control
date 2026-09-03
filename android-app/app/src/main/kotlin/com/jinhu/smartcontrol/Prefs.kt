@@ -8,11 +8,6 @@ import android.content.SharedPreferences
  * Key 命名跟 frontend localStorage 区分 (那边是 sc.client.baseURL).
  */
 object Prefs {
-    private const val GK9000_REMOTE_URL = "http://10.66.66.3:5173/control/"
-    private val RETIRED_REMOTE_URLS = setOf(
-        "https://erp.cnjinhu.top:8443/control/",
-        "https://erp.cnjinhu.top:8443/control",
-    )
     private const val PREFS_NAME = "jinhu_shell"
     private const val KEY_SERVER_URL = "server_url"
     private const val KEY_REMOTE_URL = "remote_url"
@@ -34,14 +29,7 @@ object Prefs {
     }
 
     /** 远程地址 (隧道/公网, 可选) — 现场地址探不通时自动切它, 见 MainActivity.resolveAndLoad */
-    fun getRemoteUrl(ctx: Context): String? {
-        val stored = get(ctx).getString(KEY_REMOTE_URL, null) ?: return null
-        if (stored in RETIRED_REMOTE_URLS) {
-            get(ctx).edit().putString(KEY_REMOTE_URL, GK9000_REMOTE_URL).apply()
-            return GK9000_REMOTE_URL
-        }
-        return stored
-    }
+    fun getRemoteUrl(ctx: Context): String? = get(ctx).getString(KEY_REMOTE_URL, null)
 
     fun setRemoteUrl(ctx: Context, url: String?) {
         if (url.isNullOrBlank()) get(ctx).edit().remove(KEY_REMOTE_URL).apply()
