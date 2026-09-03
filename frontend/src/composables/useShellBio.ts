@@ -15,6 +15,8 @@ interface ShellBridge {
   bioInfoScoped?: (scope: string) => string;
   saveBioPassword?: (pwd: string) => void;
   saveBioPasswordScoped?: (scope: string, pwd: string) => void;
+  clearBioPassword?: () => void;
+  clearBioPasswordScoped?: (scope: string) => void;
   requestBioLogin?: () => void;
   requestBioLoginScoped?: (scope: string) => void;
 }
@@ -49,6 +51,16 @@ export function shellBioSave(scope: ShellBioScope, pwd: string): void {
     if (!s || !pwd) return;
     if (s.saveBioPasswordScoped) s.saveBioPasswordScoped(scope, pwd);
     else if (scope === 'client') s.saveBioPassword?.(pwd);
+  } catch { /* 桥不可用就算了 */ }
+}
+
+/** 清除壳中该槽位保存的密码，避免 Face ID 继续提交已失效的旧密码。 */
+export function shellBioClear(scope: ShellBioScope): void {
+  try {
+    const s = shell();
+    if (!s) return;
+    if (s.clearBioPasswordScoped) s.clearBioPasswordScoped(scope);
+    else if (scope === 'client') s.clearBioPassword?.();
   } catch { /* 桥不可用就算了 */ }
 }
 

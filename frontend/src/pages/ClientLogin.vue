@@ -6,7 +6,8 @@ import { readSavedUsername, useClientAuthStore } from '@/stores/client-auth';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { useToastStore } from '@/stores/toast';
 import { getServerHistory, addServerHistory, removeServerHistory } from '@/services/server-history';
-import { shellBioRead, shellBioSave, shellBioLogin, type ShellBioState } from '@/composables/useShellBio';
+import { shellBioRead, shellBioSave, shellBioClear, shellBioLogin, type ShellBioState } from '@/composables/useShellBio';
+import { HttpError } from '@/services/http';
 
 const router = useRouter();
 const route = useRoute();
@@ -45,7 +46,7 @@ function readShellBio(): void {
 function faceLogin(): void {
   shellBioLogin('client', (pwd) => {
     password.value = pwd;
-    void doLogin();
+    void doLogin(true);
   }, () => {
     toast.warning('面容验证未通过, 可重试或输入密码登录');
   });
@@ -121,7 +122,7 @@ async function doTest(): Promise<void> {
   }
 }
 
-async function doLogin(): Promise<void> {
+async function doLogin(fromBiometric = false): Promise<void> {
   if (!password.value) {
     toast.warning('请输入密码');
     return;
@@ -136,7 +137,14 @@ async function doLogin(): Promise<void> {
     toast.success('登录成功');
     redirectToTarget();
   } catch (e) {
-    toast.error((e as Error).message || '登录失败');
+    if (fromBiometric && e instanceof HttpError && e.status === 401) {
+      shellBioClear('client');
+      readShellBio();
+      auth.clearSavedPassword();
+      toast.error('已保存的面容登录密码已失效，请输入新密码重新登录');
+    } else {
+      toast.error((e as Error).message || '登录失败');
+    }
     password.value = '';
     setTimeout(() => passwordInput.value?.focus(), 50);
   } finally {
@@ -166,7 +174,7 @@ async function doLogin(): Promise<void> {
         <span>自动登录中…</span>
       </div>
 
-      <form v-else class="form" @submit.prevent="doLogin">
+      <form v-else class="form" @submit.prevent="doLogin(false)">
         <!-- 服务器地址 -->
         <div class="server-row">
           <div class="field server-field">

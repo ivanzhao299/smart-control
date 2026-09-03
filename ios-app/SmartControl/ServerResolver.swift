@@ -22,7 +22,9 @@ enum ServerResolver {
                 completion(false, nil); return
             }
             let payload = (root["data"] as? [String: Any]) ?? root
-            guard payload["ok"] as? Bool == true else { completion(false, nil); return }
+            guard payload["ok"] as? Bool == true,
+                  payload["service"] as? String == "client-auth"
+            else { completion(false, nil); return }
             var time: String?
             if let iso = payload["serverTime"] as? String, iso.count >= 19 {
                 let s = iso.index(iso.startIndex, offsetBy: 11)
