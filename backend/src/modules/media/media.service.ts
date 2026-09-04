@@ -590,8 +590,8 @@ export class MediaService implements OnModuleInit {
 
   async mediaToolStatus(): Promise<{ ffmpeg: boolean; ffprobe: boolean }> {
     const [ffmpeg, ffprobe] = await Promise.all([
-      this.commandWorks(process.env.FFMPEG_PATH || 'ffmpeg', ['-version']),
-      this.commandWorks(process.env.FFPROBE_PATH || 'ffprobe', ['-version']),
+      this.commandWorks(this.ffmpegCommand(), ['-version']),
+      this.commandWorks(this.ffprobeCommand(), ['-version']),
     ]);
     return { ffmpeg, ffprobe };
   }
@@ -624,7 +624,7 @@ export class MediaService implements OnModuleInit {
       const dir = join(this.mediaRoot, String(media.id));
       const temp = join(dir, 'playback-converting.mp4');
       const output = join(dir, 'playback.mp4');
-      await this.runCommand(process.env.FFMPEG_PATH || 'ffmpeg', [
+      await this.runCommand(this.ffmpegCommand(), [
         '-y', '-i', source, '-map', '0:v:0', '-map', '0:a?',
         '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-pix_fmt', 'yuv420p',
         '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', temp,
@@ -648,7 +648,7 @@ export class MediaService implements OnModuleInit {
   }
 
   private async probeVideo(file: string): Promise<{ videoCodec?: string; audioCodec?: string; width?: number; height?: number; duration?: number }> {
-    const output = await this.runCommand(process.env.FFPROBE_PATH || 'ffprobe', [
+    const output = await this.runCommand(this.ffprobeCommand(), [
       '-v', 'error', '-show_entries', 'stream=codec_type,codec_name,width,height:format=duration', '-of', 'json', file,
     ], true);
     const parsed = JSON.parse(output) as { streams?: Array<{ codec_type: string; codec_name?: string; width?: number; height?: number }>; format?: { duration?: string } };
@@ -672,6 +672,16 @@ export class MediaService implements OnModuleInit {
       child.once('error', reject);
       child.once('close', (code) => code === 0 ? resolvePromise(stdout) : reject(new Error(`${command} 退出码 ${code}: ${stderr.slice(-2000)}`)));
     });
+  }
+
+  private ffmpegCommand(): string {
+    return process.env.FFMPEG_PATH
+      || (process.platform === 'win32' ? 'D:\\smart-control-tools\\ffmpeg\\bin\\ffmpeg.exe' : 'ffmpeg');
+  }
+
+  private ffprobeCommand(): string {
+    return process.env.FFPROBE_PATH
+      || (process.platform === 'win32' ? 'D:\\smart-control-tools\\ffmpeg\\bin\\ffprobe.exe' : 'ffprobe');
   }
 
   toListItem(m: MediaAsset): MediaListItem {
