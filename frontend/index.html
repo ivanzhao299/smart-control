@@ -24,6 +24,16 @@
       <div style="font:500 13px/1 -apple-system,'PingFang SC','Microsoft YaHei',sans-serif;color:#5d6b80;letter-spacing:.35em">金湖智控</div>
       <style>@keyframes bootPulse{0%,100%{opacity:1}50%{opacity:.55}}@media (prefers-reduced-motion:reduce){#boot-splash img{animation:none}}</style>
     </div>
+    <!-- JS bundle 缺失或缓存错配时 main.ts 根本不会执行，不能让启动层永久遮屏。 -->
+    <script>
+      window.setTimeout(function () {
+        var splash = document.getElementById('boot-splash');
+        if (!splash) return;
+        splash.innerHTML = '<div style="font:600 20px -apple-system,\'PingFang SC\',sans-serif;color:#fff">系统页面未能启动</div>' +
+          '<div style="font:14px -apple-system,\'PingFang SC\',sans-serif;color:#7f8da3">请检查网络后重试</div>' +
+          '<button onclick="location.reload()" style="margin-top:10px;padding:12px 32px;border:0;border-radius:10px;background:#168cf0;color:#fff;font-size:16px">重新加载</button>';
+      }, 10000);
+    </script>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

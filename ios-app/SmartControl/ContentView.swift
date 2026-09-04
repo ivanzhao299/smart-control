@@ -7,10 +7,10 @@ import SwiftUI
 ///   错误覆盖层: 重试 / 切换服务器。
 ///   进 WebView 后异步检查 APP 自身版本 (UpdateChecker)。
 struct ContentView: View {
-    @State private var serverUrl: String? = Prefs.serverUrl
+    @State private var serverUrl: String?
     /// 探测选中的实际加载地址 (现场 or 远程), nil = 正在探测
     @State private var activeUrl: String?
-    @State private var showConfig = Prefs.serverUrl == nil
+    @State private var showConfig: Bool
     @State private var gearVisible = false
     @State private var errorText: String?
     /// 探测结果: 现场+远程都不通 (activeUrl 仍为 nil 时立即弹提示, 并自动重探)
@@ -18,6 +18,8 @@ struct ContentView: View {
     @State private var probing = false
     @State private var resolveAttempt = UUID()
     @State private var reloadToken = 0
+    @State private var pageReady = false
+    @State private var pageLoadAttempt = UUID()
     @State private var updatePrompt: UpdateChecker.Prompt?
     @StateObject private var netWatcher = NetWatcher()
 
@@ -30,6 +32,15 @@ struct ContentView: View {
     @State private var backgroundedAt: Date?
     private let lockGraceSeconds: TimeInterval = 60
 
+    init() {
+        let savedLocal = Prefs.serverUrl
+        // 有配置就立即创建 WebView。远程入口优先作为首屏候选，后台探测到
+        // 展厅 LAN 可用后再无感切回现场地址。服务器探测不再阻塞 App 启动。
+        _serverUrl = State(initialValue: savedLocal)
+        _activeUrl = State(initialValue: Prefs.remoteUrl ?? savedLocal)
+        _showConfig = State(initialValue: savedLocal == nil)
+    }
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -39,7 +50,8 @@ struct ContentView: View {
                     serverUrl = saved
                     showConfig = false
                     errorText = nil
-                    activeUrl = nil
+                    // 保存后先显示可交互页面，后台探测再选择更优路线。
+                    activeUrl = Prefs.remoteUrl ?? saved
                     reResolve()
                     checkUpdate(saved)
                 }
@@ -105,14 +117,20 @@ struct ContentView: View {
                         // 对齐安卓 applyGearVisibility: 登录页才露齿轮
                         gearVisible = url.contains("/client-login")
                     },
+                    onReady: {
+                        pageReady = true
+                        pageLoadAttempt = UUID() // 使在途超时回调失效
+                    },
                     onError: { msg in
                         errorText = msg
                     }
                 )
                 .ignoresSafeArea()
+                .onAppear { beginPageWatchdog() }
+                .onChange(of: s) { _ in beginPageWatchdog() }
 
                 // 齿轮 (右上角) — 登录页或出错时可切服务器
-                if gearVisible || errorText != nil {
+                if !pageReady || gearVisible || errorText != nil {
                     VStack {
                         HStack {
                             Spacer()
@@ -152,6 +170,7 @@ struct ContentView: View {
                             Button("重试") {
                                 errorText = nil
                                 reloadToken += 1
+                                beginPageWatchdog()
                             }
                             .padding(.horizontal, 26).padding(.vertical, 11)
                             .background(Color.accentColor)
@@ -248,6 +267,18 @@ struct ContentView: View {
                     Prefs.setDismissed(versionCode: p.versionCode)
                 }
             )
+        }
+    }
+
+    /// HTML 能返回但 Vue 未挂载时，PWA 启动 Logo 会永久遮屏。原生层独立计时，
+    /// 10 秒仍收不到 pageReady 就给出重试/切换服务器，保证用户永远有出口。
+    private func beginPageWatchdog() {
+        pageReady = false
+        let attempt = UUID()
+        pageLoadAttempt = attempt
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+            guard pageLoadAttempt == attempt, !pageReady, !showConfig else { return }
+            errorText = "系统页面未能完成启动。请重试，或切换到可用的 GK9000 地址。"
         }
     }
 

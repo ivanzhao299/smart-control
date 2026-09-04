@@ -13,6 +13,8 @@ struct WebView: UIViewRepresentable {
     /// 触发重载的信号 (错误覆盖层"重试"按钮 +1)
     let reloadToken: Int
     let onUrlChange: (String) -> Void
+    /// 前端真正完成挂载（boot-splash 已移除且 #app 已有内容），不是仅 HTML 导航完成。
+    let onReady: () -> Void
     let onError: (String) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -50,6 +52,25 @@ struct WebView: UIViewRepresentable {
             """,
             injectionTime: .atDocumentStart, forMainFrameOnly: true)
         config.userContentController.addUserScript(bridge)
+        // HTML 的 didFinish 不代表 Vue 已启动：JS chunk 损坏/缓存错配时，PWA 的
+        // boot-splash 会一直盖住页面。轮询真实挂载状态并回报原生层，由原生看门狗兜底。
+        let readyProbe = WKUserScript(
+            source: """
+            (function(){
+              var tries=0;
+              var timer=setInterval(function(){
+                tries++;
+                var app=document.getElementById('app');
+                var splash=document.getElementById('boot-splash');
+                if(app && app.childElementCount>0 && !splash){
+                  clearInterval(timer);
+                  try{window.webkit.messageHandlers.jinhuShell.postMessage({type:'pageReady'})}catch(e){}
+                } else if(tries>=60){ clearInterval(timer); }
+              },250);
+            })();
+            """,
+            injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+        config.userContentController.addUserScript(readyProbe)
         config.userContentController.add(context.coordinator, name: "haptic")
         config.userContentController.add(context.coordinator, name: "jinhuShell")
 
@@ -110,6 +131,8 @@ struct WebView: UIViewRepresentable {
             else { return }
             let scope = (body["scope"] as? String) == "admin" ? "admin" : "client"
             switch type {
+            case "pageReady":
+                DispatchQueue.main.async { self.parent.onReady() }
             case "saveBio":
                 if let pwd = body["pwd"] as? String, !pwd.isEmpty { KeychainStore.set(pwd, scope: scope) }
             case "clearBio":
@@ -156,6 +179,10 @@ struct WebView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
             report(error)
+        }
+
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            parent.onError("网页进程意外停止，请重试")
         }
 
         private func report(_ error: Error) {
