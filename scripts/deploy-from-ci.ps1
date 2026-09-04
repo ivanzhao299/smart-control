@@ -292,16 +292,14 @@ try {
           Remove-Item -Path $repairDir -Recurse -Force -ErrorAction SilentlyContinue
           Invoke-Native 'pnpm.cmd' @('exec', 'vite', 'build', '--outDir', 'dist-repair')
           $productionDist = Join-Path $projectRoot 'frontend\dist'
-          Get-ChildItem -Path $repairDir -File -Recurse | ForEach-Object {
-            $relative = $_.FullName.Substring($repairDir.Length).TrimStart('\')
-            $target = Join-Path $productionDist $relative
-            $targetExists = $true
-            try { $targetExists = Test-Path $target } catch { $targetExists = $true }
-            if (-not $targetExists) {
-              New-Item -ItemType Directory -Force -Path (Split-Path $target -Parent) | Out-Null
-              Copy-Item -Path $_.FullName -Destination $target
-            }
+          # Rename the whole legacy directory without traversing its unreadable
+          # children, then publish the complete new assets directory in one move.
+          $productionAssets = Join-Path $productionDist 'assets'
+          if (Test-Path $productionAssets) {
+            $quarantineAssets = Join-Path $productionDist ("assets-broken-" + (Get-Date -Format 'yyyyMMddHHmmss'))
+            Move-Item -Path $productionAssets -Destination $quarantineAssets
           }
+          Move-Item -Path (Join-Path $repairDir 'assets') -Destination $productionAssets
           # Publish fixed-name entry files last, after every hashed dependency exists.
           foreach ($rootFile in @('index.html', 'sw.js', 'registerSW.js', 'manifest.webmanifest')) {
             $source = Join-Path $repairDir $rootFile

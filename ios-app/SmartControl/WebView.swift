@@ -25,7 +25,7 @@ struct WebView: UIViewRepresentable {
         config.mediaTypesRequiringUserActionForPlayback = []
         // 对齐安卓 UA 后缀 (userAgentString + " JinhuShell/x"), 前端可识别壳环境
         config.applicationNameForUserAgent = "JinhuShell/\(UpdateChecker.localVersionName)"
-        config.websiteDataStore = .default()
+        config.websiteDataStore = .nonPersistent()
 
         // A2 (2026-07-25): 触感桥 — window.JinhuShell.vibrate(ms) → UIImpactFeedback。
         // 2026-07-31 扩展面容登录: bioInfo (同步读缓存态) / saveBioPassword /
@@ -49,6 +49,12 @@ struct WebView: UIViewRepresentable {
               clearBioPassword:function(){this.clearBioPasswordScoped('client')},
               requestBioLogin:function(){this.requestBioLoginScoped('client')}
             };
+            window.addEventListener('error',function(e){
+              try{window.webkit.messageHandlers.jinhuShell.postMessage({type:'pageError',message:String(e.message||'JavaScript 启动失败')+(e.filename?'\n'+e.filename:'')})}catch(_){}
+            });
+            window.addEventListener('unhandledrejection',function(e){
+              try{window.webkit.messageHandlers.jinhuShell.postMessage({type:'pageError',message:String((e.reason&&e.reason.message)||e.reason||'页面初始化失败')})}catch(_){}
+            });
             """,
             injectionTime: .atDocumentStart, forMainFrameOnly: true)
         config.userContentController.addUserScript(bridge)
@@ -93,7 +99,23 @@ struct WebView: UIViewRepresentable {
             }
         }
 
-        wv.load(URLRequest(url: initialUrl))
+        // 2.1.4 之前可能缓存了指向已缺失 chunk 的 Service Worker，服务器修复后
+        // WKWebView 仍会被旧离线缓存劫持。每个原生版本首次启动只清 SW + HTTP
+        // cache，保留 localStorage/cookies（登录态不会丢）。
+        let cacheResetKey = "web-cache-reset-\(UpdateChecker.localVersionName)"
+        if !UserDefaults.standard.bool(forKey: cacheResetKey) {
+            let types: Set<String> = [
+                WKWebsiteDataTypeServiceWorkerRegistrations,
+                WKWebsiteDataTypeDiskCache,
+                WKWebsiteDataTypeMemoryCache,
+            ]
+            config.websiteDataStore.removeData(ofTypes: types, modifiedSince: .distantPast) {
+                UserDefaults.standard.set(true, forKey: cacheResetKey)
+                DispatchQueue.main.async { wv.load(URLRequest(url: initialUrl)) }
+            }
+        } else {
+            wv.load(URLRequest(url: initialUrl))
+        }
         return wv
     }
 
@@ -133,6 +155,9 @@ struct WebView: UIViewRepresentable {
             switch type {
             case "pageReady":
                 DispatchQueue.main.async { self.parent.onReady() }
+            case "pageError":
+                let detail = body["message"] as? String ?? "页面脚本启动失败"
+                DispatchQueue.main.async { self.parent.onError(detail) }
             case "saveBio":
                 if let pwd = body["pwd"] as? String, !pwd.isEmpty { KeychainStore.set(pwd, scope: scope) }
             case "clearBio":
