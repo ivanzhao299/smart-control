@@ -291,7 +291,20 @@ try {
           $repairDir = Join-Path $projectRoot 'frontend\dist-repair'
           Remove-Item -Path $repairDir -Recurse -Force -ErrorAction SilentlyContinue
           Invoke-Native 'pnpm.cmd' @('exec', 'vite', 'build', '--outDir', 'dist-repair')
-          Copy-Item -Path (Join-Path $repairDir '*') -Destination (Join-Path $projectRoot 'frontend\dist') -Recurse -Force
+          $productionDist = Join-Path $projectRoot 'frontend\dist'
+          Get-ChildItem -Path $repairDir -File -Recurse | ForEach-Object {
+            $relative = $_.FullName.Substring($repairDir.Length).TrimStart('\')
+            $target = Join-Path $productionDist $relative
+            if (-not (Test-Path $target)) {
+              New-Item -ItemType Directory -Force -Path (Split-Path $target -Parent) | Out-Null
+              Copy-Item -Path $_.FullName -Destination $target
+            }
+          }
+          # Publish fixed-name entry files last, after every hashed dependency exists.
+          foreach ($rootFile in @('index.html', 'sw.js', 'registerSW.js', 'manifest.webmanifest')) {
+            $source = Join-Path $repairDir $rootFile
+            if (Test-Path $source) { Copy-Item -Path $source -Destination (Join-Path $productionDist $rootFile) -Force }
+          }
           Remove-Item -Path $repairDir -Recurse -Force -ErrorAction SilentlyContinue
         } finally {
           Pop-Location
