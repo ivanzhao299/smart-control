@@ -295,7 +295,9 @@ try {
           Get-ChildItem -Path $repairDir -File -Recurse | ForEach-Object {
             $relative = $_.FullName.Substring($repairDir.Length).TrimStart('\')
             $target = Join-Path $productionDist $relative
-            if (-not (Test-Path $target)) {
+            $targetExists = $true
+            try { $targetExists = Test-Path $target } catch { $targetExists = $true }
+            if (-not $targetExists) {
               New-Item -ItemType Directory -Force -Path (Split-Path $target -Parent) | Out-Null
               Copy-Item -Path $_.FullName -Destination $target
             }
