@@ -96,7 +96,10 @@ function newestBuild(dir) {
 
 /** 从 HTML 里抽出它引用的入口 bundle 文件名 (带内容哈希, 每次构建都变) */
 function assetFingerprint(html) {
-  const hits = [...html.matchAll(/(?:src|href)="[^"]*?\/(assets\/[\w.-]+\.(?:js|css))"/g)].map((m) => m[1]);
+  // GK9000 may publish into a commit-versioned directory (assets-<sha>) to
+  // bypass unrecoverable ACLs on the legacy assets directory. Treat both
+  // layouts as first-class production bundles.
+  const hits = [...html.matchAll(/(?:src|href)="[^"]*?\/(assets(?:-[\w.-]+)?\/[\w.-]+\.(?:js|css))"/g)].map((m) => m[1]);
   return hits.length ? hits.sort().join(',') : null;
 }
 

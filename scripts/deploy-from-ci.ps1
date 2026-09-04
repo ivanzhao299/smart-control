@@ -272,11 +272,11 @@ try {
         $frontendBundleMissing = $true
       } else {
         $indexText = Get-Content -Path $frontendIndex -Raw
-        $entryMatch = [regex]::Match($indexText, '/control/assets/([^"'']+\.js)')
+        $entryMatch = [regex]::Match($indexText, '/control/(assets(?:-[\w.-]+)?)/([^"'']+\.js)')
         if (-not $entryMatch.Success) {
           $frontendBundleMissing = $true
         } else {
-          $entryFile = Join-Path (Join-Path $projectRoot 'frontend\dist\assets') $entryMatch.Groups[1].Value
+          $entryFile = Join-Path (Join-Path $projectRoot "frontend\dist\$($entryMatch.Groups[1].Value)") $entryMatch.Groups[2].Value
           $frontendBundleMissing = -not (Test-Path $entryFile)
         }
       }
