@@ -1,6 +1,6 @@
 ﻿# Installs the FFmpeg Windows essentials build used for media compatibility.
-# The source is linked by ffmpeg.org; the adjacent publisher SHA-256 is verified
-# before extraction. Existing installations are a no-op.
+# The source is linked by ffmpeg.org. Pin the release and verify its published
+# SHA-256 before extraction so deployments are reproducible and fail closed.
 [CmdletBinding()]
 param()
 $ErrorActionPreference = 'Stop'
@@ -15,21 +15,20 @@ if ((Test-Path $ffmpeg) -and (Test-Path $ffprobe)) {
 }
 
 $downloadRoot = 'D:\smart-control-tools\downloads'
-$zip = Join-Path $downloadRoot 'ffmpeg-release-essentials.zip'
-$checksumFile = "$zip.sha256"
+$version = '8.1.2'
+$zip = Join-Path $downloadRoot "ffmpeg-$version-essentials_build.zip"
 $stage = Join-Path $downloadRoot 'ffmpeg-stage'
 New-Item -ItemType Directory -Force -Path $downloadRoot | Out-Null
 Remove-Item -Recurse -Force -Path $stage -ErrorAction SilentlyContinue
 
-$base = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
-Write-Host 'Downloading FFmpeg Windows essentials build...'
-Invoke-WebRequest -UseBasicParsing -Uri $base -OutFile $zip -TimeoutSec 600
-Invoke-WebRequest -UseBasicParsing -Uri "$base.sha256" -OutFile $checksumFile -TimeoutSec 60
-$checksumText = Get-Content -Raw $checksumFile
-$match = [regex]::Match($checksumText, '(?i)\b[0-9a-f]{64}\b')
-if (-not $match.Success) { throw 'Publisher checksum file did not contain a SHA-256 hash.' }
+$url = "https://github.com/GyanD/codexffmpeg/releases/download/$version/ffmpeg-$version-essentials_build.zip"
+$expected = 'DB580001CAA24AC104C8CB856CD113A87B0A443F7BDF47D8C12B1D740584A2EC'
+Remove-Item -Force -Path $zip -ErrorAction SilentlyContinue
+Write-Host "Downloading FFmpeg Windows essentials build $version..."
+& curl.exe -fL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 20 --max-time 1200 --output $zip $url
+if ($LASTEXITCODE -ne 0) { throw "FFmpeg download failed with curl exit code $LASTEXITCODE." }
 $actual = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash
-if ($actual -ne $match.Value.ToUpperInvariant()) { throw 'FFmpeg archive SHA-256 mismatch.' }
+if ($actual -ne $expected) { throw "FFmpeg archive SHA-256 mismatch. Expected $expected, got $actual." }
 
 Expand-Archive -Path $zip -DestinationPath $stage -Force
 $found = Get-ChildItem -Path $stage -Filter ffmpeg.exe -File -Recurse | Select-Object -First 1
