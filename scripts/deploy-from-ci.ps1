@@ -289,17 +289,13 @@ try {
           # have broken ACLs and make Vite's initial dist cleanup fail with
           # EPERM. A side build is complete before it touches production.
           $repairDir = Join-Path $projectRoot 'frontend\dist-repair'
+          $repairAssetsName = 'assets-' + $Commit.Substring(0, 8)
           Remove-Item -Path $repairDir -Recurse -Force -ErrorAction SilentlyContinue
-          Invoke-Native 'pnpm.cmd' @('exec', 'vite', 'build', '--outDir', 'dist-repair')
+          Invoke-Native 'pnpm.cmd' @('exec', 'vite', 'build', '--outDir', 'dist-repair', '--assetsDir', $repairAssetsName)
           $productionDist = Join-Path $projectRoot 'frontend\dist'
-          # Rename the whole legacy directory without traversing its unreadable
-          # children, then publish the complete new assets directory in one move.
-          $productionAssets = Join-Path $productionDist 'assets'
-          if (Test-Path $productionAssets) {
-            $quarantineAssets = Join-Path $productionDist ("assets-broken-" + (Get-Date -Format 'yyyyMMddHHmmss'))
-            Move-Item -Path $productionAssets -Destination $quarantineAssets
-          }
-          Move-Item -Path (Join-Path $repairDir 'assets') -Destination $productionAssets
+          # Publish to a versioned directory, bypassing the legacy assets ACL.
+          $productionAssets = Join-Path $productionDist $repairAssetsName
+          Move-Item -Path (Join-Path $repairDir $repairAssetsName) -Destination $productionAssets
           # Publish fixed-name entry files last, after every hashed dependency exists.
           foreach ($rootFile in @('index.html', 'sw.js', 'registerSW.js', 'manifest.webmanifest')) {
             $source = Join-Path $repairDir $rootFile
