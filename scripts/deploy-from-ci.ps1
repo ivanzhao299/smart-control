@@ -368,26 +368,6 @@ try {
     }
   }
 
-  # One-time owner-authorized GK9000 credential recovery. The helper performs
-  # its own online SQLite backup and writes a durable marker before this
-  # temporary hook is removed in the follow-up commit.
-  $authResetScript = Join-Path $projectRoot 'backend\scripts\reset-auth-20260904.js'
-  if (Test-Path $authResetScript) {
-    Write-DeployLog 'Running owner-authorized one-time client/admin auth reset.'
-    $env:SMART_CONTROL_AUTH_RESET_CONFIRMATION = 'RESET_BOTH_TO_1234_20260904'
-    try {
-      Push-Location (Join-Path $projectRoot 'backend')
-      try {
-        & node $authResetScript 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
-        if ($LASTEXITCODE -ne 0) { throw "One-time auth reset failed (exit $LASTEXITCODE)." }
-      } finally {
-        Pop-Location
-      }
-    } finally {
-      Remove-Item Env:SMART_CONTROL_AUTH_RESET_CONFIRMATION -ErrorAction SilentlyContinue
-    }
-  }
-
   $healthy = $false
   for ($attempt = 1; $attempt -le 30; $attempt++) {
     if ((Test-BackendHealth) -and (Test-FrontendHealth)) {
