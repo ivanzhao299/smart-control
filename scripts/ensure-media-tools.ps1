@@ -25,8 +25,12 @@ $url = "https://github.com/GyanD/codexffmpeg/releases/download/$version/ffmpeg-$
 $expected = 'DB580001CAA24AC104C8CB856CD113A87B0A443F7BDF47D8C12B1D740584A2EC'
 Remove-Item -Force -Path $zip -ErrorAction SilentlyContinue
 Write-Host "Downloading FFmpeg Windows essentials build $version..."
-& curl.exe -fL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 20 --max-time 1200 --output $zip $url
-if ($LASTEXITCODE -ne 0) { throw "FFmpeg download failed with curl exit code $LASTEXITCODE." }
+$savedErrorActionPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+& curl.exe -fsSL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 20 --max-time 1200 --output $zip $url
+$curlExitCode = $LASTEXITCODE
+$ErrorActionPreference = $savedErrorActionPreference
+if ($curlExitCode -ne 0) { throw "FFmpeg download failed with curl exit code $curlExitCode." }
 $actual = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash
 if ($actual -ne $expected) { throw "FFmpeg archive SHA-256 mismatch. Expected $expected, got $actual." }
 
