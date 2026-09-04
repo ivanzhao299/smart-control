@@ -368,6 +368,16 @@ try {
     }
   }
 
+  # Common path on purpose: the on-box watcher can fast-forward Git before CI
+  # arrives, so required host tooling must not live only in the "new commit"
+  # branch above.
+  $mediaToolsScript = Join-Path $projectRoot 'scripts\ensure-media-tools.ps1'
+  if (Test-Path $mediaToolsScript) {
+    Write-DeployLog 'Ensuring verified FFmpeg media compatibility tools are installed.'
+    & $mediaToolsScript 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
+    if ($LASTEXITCODE -ne 0) { throw "FFmpeg media tools installation failed (exit $LASTEXITCODE)." }
+  }
+
   $healthy = $false
   for ($attempt = 1; $attempt -le 30; $attempt++) {
     if ((Test-BackendHealth) -and (Test-FrontendHealth)) {

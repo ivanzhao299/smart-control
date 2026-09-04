@@ -58,6 +58,8 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: 3200,
+        FFMPEG_PATH: 'D:\\smart-control-tools\\ffmpeg\\bin\\ffmpeg.exe',
+        FFPROBE_PATH: 'D:\\smart-control-tools\\ffmpeg\\bin\\ffprobe.exe',
       },
       env_production: {
         // 生产用 3200 — frontend bundle 里硬编码了
