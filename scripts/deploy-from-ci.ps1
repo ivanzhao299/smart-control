@@ -285,7 +285,14 @@ try {
         Push-Location (Join-Path $projectRoot 'frontend')
         try {
           Invoke-Native 'pnpm.cmd' @('install', '--frozen-lockfile')
-          Invoke-Native 'pnpm.cmd' @('run', 'build')
+          # Build beside the damaged dist. Some old asset files on GK9000 can
+          # have broken ACLs and make Vite's initial dist cleanup fail with
+          # EPERM. A side build is complete before it touches production.
+          $repairDir = Join-Path $projectRoot 'frontend\dist-repair'
+          Remove-Item -Path $repairDir -Recurse -Force -ErrorAction SilentlyContinue
+          Invoke-Native 'pnpm.cmd' @('exec', 'vite', 'build', '--outDir', 'dist-repair')
+          Copy-Item -Path (Join-Path $repairDir '*') -Destination (Join-Path $projectRoot 'frontend\dist') -Recurse -Force
+          Remove-Item -Path $repairDir -Recurse -Force -ErrorAction SilentlyContinue
         } finally {
           Pop-Location
         }
