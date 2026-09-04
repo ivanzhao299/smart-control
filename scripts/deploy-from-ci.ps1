@@ -262,6 +262,41 @@ try {
     & git merge-base --is-ancestor $Commit $previousCommit
     if ($LASTEXITCODE -eq 0) {
       Write-DeployLog "Requested commit is already deployed or superseded by $previousCommit."
+
+      # The on-box watcher can fast-forward Git before its frontend build finishes.
+      # In that race CI used to short-circuit here and verify the old dist against
+      # itself. Validate the entry bundle on disk before accepting "already deployed".
+      $frontendIndex = Join-Path $projectRoot 'frontend\dist\index.html'
+      $frontendBundleMissing = $false
+      if (-not (Test-Path $frontendIndex)) {
+        $frontendBundleMissing = $true
+      } else {
+        $indexText = Get-Content -Path $frontendIndex -Raw
+        $entryMatch = [regex]::Match($indexText, '/control/assets/([^"'']+\.js)')
+        if (-not $entryMatch.Success) {
+          $frontendBundleMissing = $true
+        } else {
+          $entryFile = Join-Path (Join-Path $projectRoot 'frontend\dist\assets') $entryMatch.Groups[1].Value
+          $frontendBundleMissing = -not (Test-Path $entryFile)
+        }
+      }
+      if ($frontendBundleMissing) {
+        Write-DeployLog 'Frontend entry bundle is missing after Git fast-forward; rebuilding frontend before verification.'
+        Remove-Item -Path $rollbackRoot -Recurse -Force -ErrorAction SilentlyContinue
+        $backupDist = Join-Path $rollbackRoot 'frontend\dist'
+        if (Test-Path (Join-Path $projectRoot 'frontend\dist')) {
+          New-Item -ItemType Directory -Force -Path (Split-Path $backupDist -Parent) | Out-Null
+          Copy-Item -Path (Join-Path $projectRoot 'frontend\dist') -Destination $backupDist -Recurse -Force
+        }
+        $worktreeUpdated = $true
+        Push-Location (Join-Path $projectRoot 'frontend')
+        try {
+          Invoke-Native 'pnpm.cmd' @('install', '--frozen-lockfile')
+          Invoke-Native 'pnpm.cmd' @('run', 'build')
+        } finally {
+          Pop-Location
+        }
+      }
     } else {
       & git merge-base --is-ancestor $previousCommit $Commit
       if ($LASTEXITCODE -ne 0) { throw 'GK9000 and the requested commit have diverged.' }
