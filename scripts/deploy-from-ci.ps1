@@ -282,13 +282,6 @@ try {
       }
       if ($frontendBundleMissing) {
         Write-DeployLog 'Frontend entry bundle is missing after Git fast-forward; rebuilding frontend before verification.'
-        Remove-Item -Path $rollbackRoot -Recurse -Force -ErrorAction SilentlyContinue
-        $backupDist = Join-Path $rollbackRoot 'frontend\dist'
-        if (Test-Path (Join-Path $projectRoot 'frontend\dist')) {
-          New-Item -ItemType Directory -Force -Path (Split-Path $backupDist -Parent) | Out-Null
-          Copy-Item -Path (Join-Path $projectRoot 'frontend\dist') -Destination $backupDist -Recurse -Force
-        }
-        $worktreeUpdated = $true
         Push-Location (Join-Path $projectRoot 'frontend')
         try {
           Invoke-Native 'pnpm.cmd' @('install', '--frozen-lockfile')
