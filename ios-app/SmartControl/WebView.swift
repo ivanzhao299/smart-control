@@ -25,7 +25,7 @@ struct WebView: UIViewRepresentable {
         config.mediaTypesRequiringUserActionForPlayback = []
         // 对齐安卓 UA 后缀 (userAgentString + " JinhuShell/x"), 前端可识别壳环境
         config.applicationNameForUserAgent = "JinhuShell/\(UpdateChecker.localVersionName)"
-        config.websiteDataStore = .nonPersistent()
+        config.websiteDataStore = .default()
 
         // A2 (2026-07-25): 触感桥 — window.JinhuShell.vibrate(ms) → UIImpactFeedback。
         // 2026-07-31 扩展面容登录: bioInfo (同步读缓存态) / saveBioPassword /
