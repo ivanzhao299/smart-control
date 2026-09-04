@@ -113,6 +113,12 @@ export class PlaybackService implements OnModuleInit {
     // 校验媒体存在
     const m = await this.mediaService.get(mediaId).catch(() => null);
     if (!m) throw new BadRequestException(`媒体 ${mediaId} 不存在`);
+    if (m.kind === 'video' && m.processingStatus !== 'ready') {
+      const detail = m.processingStatus === 'failed'
+        ? `兼容转换失败: ${m.processingError || '请重试'}`
+        : '正在生成兼容播放版本，请稍后再推送';
+      throw new BadRequestException(detail);
+    }
 
     // 展厅大屏默认循环: 播一遍就回待机等于要人守着重推, 现场没人干这事
     // (2026-07-16 业主: "没有人工干预就让它循环播放")

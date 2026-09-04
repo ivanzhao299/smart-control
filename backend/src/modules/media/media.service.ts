@@ -6,6 +6,7 @@ import { Logger } from 'winston';
 import { Repository } from 'typeorm';
 import { promises as fs, createReadStream, ReadStream, statSync } from 'fs';
 import { join, resolve, relative, basename, extname, sep } from 'path';
+import { spawn } from 'child_process';
 import { MediaAsset, MediaKind } from '../../entities/media-asset.entity';
 import { MediaListItem, OrphanMediaItem } from './dto/media.dto';
 
@@ -14,12 +15,13 @@ const IMAGE_MIME_PREFIXES = ['image/'];
 const AUDIO_MIME_PREFIXES = ['audio/'];
 // 有些浏览器/系统对音频给的 mime 不带 audio/ 前缀 (如 Windows 对 .ape/.flac 报 application/octet-stream), 用扩展名兜底
 // 文档投屏 (2026-07-25): PPT 原生放映保动画, Word 转 PDF 逐页
-const DOC_EXT = ['.ppt', '.pptx', '.doc', '.docx'];
+const DOC_EXT = ['.ppt', '.pptx', '.doc', '.docx', '.pdf'];
 const DOC_MIME = [
   'application/vnd.ms-powerpoint',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/pdf',
 ];
 const AUDIO_EXT = [
   '.mp3', '.wav', '.aac', '.m4a', '.ogg', '.flac', '.wma',
@@ -43,6 +45,12 @@ const EXT_KIND_MIME: Record<string, { kind: Exclude<MediaKind, 'webpage'>; mime:
   // .m4v 本质就是 MP4 容器 (H.264), 用标准 video/mp4 —— x-m4v 这种冷门 mime
   // 会让个别播放端拒识 (2026-07-31 业主: 所有播放器要支持 m4v)
   '.m4v': { kind: 'video', mime: 'video/mp4' },
+  '.mpg': { kind: 'video', mime: 'video/mpeg' },
+  '.mpeg': { kind: 'video', mime: 'video/mpeg' },
+  '.3gp': { kind: 'video', mime: 'video/3gpp' },
+  '.ts': { kind: 'video', mime: 'video/mp2t' },
+  '.vob': { kind: 'video', mime: 'video/mpeg' },
+  '.rmvb': { kind: 'video', mime: 'application/vnd.rn-realmedia-vbr' },
   '.jpg': { kind: 'image', mime: 'image/jpeg' },
   '.jpeg': { kind: 'image', mime: 'image/jpeg' },
   '.png': { kind: 'image', mime: 'image/png' },
@@ -56,12 +64,18 @@ const EXT_KIND_MIME: Record<string, { kind: Exclude<MediaKind, 'webpage'>; mime:
   '.ogg': { kind: 'audio', mime: 'audio/ogg' },
   '.flac': { kind: 'audio', mime: 'audio/flac' },
   '.wma': { kind: 'audio', mime: 'audio/x-ms-wma' },
+  '.ppt': { kind: 'doc', mime: 'application/vnd.ms-powerpoint' },
+  '.pptx': { kind: 'doc', mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' },
+  '.doc': { kind: 'doc', mime: 'application/msword' },
+  '.docx': { kind: 'doc', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+  '.pdf': { kind: 'doc', mime: 'application/pdf' },
 };
 
 @Injectable()
 export class MediaService implements OnModuleInit {
   /** 媒体存储根目录 (env MEDIA_ROOT, 默认 D:\Media — Windows / /var/lib/smart-control/media — *nix) */
   readonly mediaRoot: string;
+  private readonly preparing = new Set<number>();
 
   constructor(
     @InjectRepository(MediaAsset)
@@ -82,6 +96,10 @@ export class MediaService implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     await fs.mkdir(this.mediaRoot, { recursive: true });
+    // 与 migration 双保险，避免现场 watcher 先拉代码后迁移尚未执行时启动失败。
+    await this.repo.query(`ALTER TABLE "media_assets" ADD COLUMN "sourcePath" varchar(500)`).catch(() => {});
+    await this.repo.query(`ALTER TABLE "media_assets" ADD COLUMN "processingStatus" varchar(16) NOT NULL DEFAULT 'ready'`).catch(() => {});
+    await this.repo.query(`ALTER TABLE "media_assets" ADD COLUMN "processingError" varchar(1000)`).catch(() => {});
     this.logger.info(`MediaService ready, root=${this.mediaRoot}`, { context: 'MediaService' });
     await this.seedBundledAssets();
     // 存量 .m4v 行的 mime 自愈 (上面 EXT_KIND_MIME 已改标准 video/mp4, 老行补齐)
@@ -295,6 +313,9 @@ export class MediaService implements OnModuleInit {
       resolution: null,
       remark: remark ?? null,
       uploader,
+      processingStatus: kind === 'video' ? 'pending' : 'ready',
+      processingError: null,
+      sourcePath: null,
       lastPlayedAt: null,
     });
     const saved = await this.repo.save(entity);
@@ -304,8 +325,12 @@ export class MediaService implements OnModuleInit {
     await fs.mkdir(finalDir, { recursive: true });
     await fs.rename(file.path, finalPath);
     saved.path = finalPath;
-
-    return this.repo.save(saved);
+    if (kind === 'doc' && extname(originalName).toLowerCase() === '.pdf') {
+      saved.docPdfPath = relative(this.mediaRoot, finalPath).split(sep).join('/');
+    }
+    const result = await this.repo.save(saved);
+    if (kind === 'video') void this.prepareVideo(result.id);
+    return result;
   }
 
   /** 服务器侧来源 (在线曲库下载等) 从内存 buffer 入库 — 目录布局与 ingest 一致 */
@@ -317,13 +342,17 @@ export class MediaService implements OnModuleInit {
       originalName, safeName, path: '', thumbPath: null, kind, mimeType,
       sizeBytes: buf.length, durationSec: null, resolution: null,
       remark: remark ?? null, uploader, lastPlayedAt: null,
+      processingStatus: kind === 'video' ? 'pending' : 'ready', processingError: null, sourcePath: null,
     }));
     const finalDir = join(this.mediaRoot, String(saved.id));
     const finalPath = join(finalDir, safeName);
     await fs.mkdir(finalDir, { recursive: true });
     await fs.writeFile(finalPath, buf);
     saved.path = finalPath;
-    return this.repo.save(saved);
+    if (kind === 'doc' && extname(originalName).toLowerCase() === '.pdf') saved.docPdfPath = relative(this.mediaRoot, finalPath).split(sep).join('/');
+    const result = await this.repo.save(saved);
+    if (kind === 'video') void this.prepareVideo(result.id);
+    return result;
   }
 
   /**
@@ -343,6 +372,7 @@ export class MediaService implements OnModuleInit {
       originalName, safeName, path: '', thumbPath: null, kind, mimeType,
       sizeBytes: stat.size, durationSec: null, resolution: null,
       remark: remark ?? null, uploader, lastPlayedAt: null,
+      processingStatus: kind === 'video' ? 'pending' : 'ready', processingError: null, sourcePath: null,
     }));
     const finalDir = join(this.mediaRoot, String(saved.id));
     const finalPath = join(finalDir, safeName);
@@ -354,7 +384,10 @@ export class MediaService implements OnModuleInit {
       await this.unlinkSafe(tmpPath);
     }
     saved.path = finalPath;
-    return this.repo.save(saved);
+    if (kind === 'doc' && extname(originalName).toLowerCase() === '.pdf') saved.docPdfPath = relative(this.mediaRoot, finalPath).split(sep).join('/');
+    const result = await this.repo.save(saved);
+    if (kind === 'video') void this.prepareVideo(result.id);
+    return result;
   }
 
   /** 全部素材的原始文件名 (在线曲库标"已入库"用, 只拉一列) */
@@ -447,6 +480,9 @@ export class MediaService implements OnModuleInit {
       resolution: null,
       remark: remark ?? null,
       uploader,
+      processingStatus: guess.kind === 'video' ? 'pending' : 'ready',
+      processingError: null,
+      sourcePath: null,
       lastPlayedAt: null,
     });
     const saved = await this.repo.save(entity);
@@ -457,7 +493,12 @@ export class MediaService implements OnModuleInit {
     await fs.mkdir(finalDir, { recursive: true });
     await fs.rename(abs, finalPath);
     saved.path = finalPath;
-    return this.repo.save(saved);
+    if (guess.kind === 'doc' && ext === '.pdf') {
+      saved.docPdfPath = relative(this.mediaRoot, finalPath).split(sep).join('/');
+    }
+    const result = await this.repo.save(saved);
+    if (guess.kind === 'video') void this.prepareVideo(result.id);
+    return result;
   }
 
   /** 添加网页 URL 作为一条 kind='webpage' 的媒体记录 (无物理文件, 存 sourceUrl) */
@@ -547,6 +588,92 @@ export class MediaService implements OnModuleInit {
     await this.repo.update(id, { lastPlayedAt: new Date() });
   }
 
+  async mediaToolStatus(): Promise<{ ffmpeg: boolean; ffprobe: boolean }> {
+    const [ffmpeg, ffprobe] = await Promise.all([
+      this.commandWorks(process.env.FFMPEG_PATH || 'ffmpeg', ['-version']),
+      this.commandWorks(process.env.FFPROBE_PATH || 'ffprobe', ['-version']),
+    ]);
+    return { ffmpeg, ffprobe };
+  }
+
+  /** 探测真实编码；浏览器不稳播的格式生成 H.264/AAC MP4 播放副本。 */
+  async prepareVideo(id: number): Promise<void> {
+    if (this.preparing.has(id)) return;
+    this.preparing.add(id);
+    try {
+      const media = await this.get(id);
+      if (media.kind !== 'video') throw new BadRequestException('只有视频需要转码');
+      media.processingStatus = 'processing';
+      media.processingError = null;
+      await this.repo.save(media);
+
+      const source = media.sourcePath || media.path;
+      const probe = await this.probeVideo(source);
+      media.durationSec = probe.duration ? Math.round(probe.duration) : media.durationSec;
+      media.resolution = probe.width && probe.height ? `${probe.width}x${probe.height}` : media.resolution;
+      const ext = extname(source).toLowerCase();
+      const browserReady = ext === '.mp4' && probe.videoCodec === 'h264'
+        && (!probe.audioCodec || probe.audioCodec === 'aac' || probe.audioCodec === 'mp3');
+      if (browserReady) {
+        media.mimeType = 'video/mp4';
+        media.processingStatus = 'ready';
+        await this.repo.save(media);
+        return;
+      }
+
+      const dir = join(this.mediaRoot, String(media.id));
+      const temp = join(dir, 'playback-converting.mp4');
+      const output = join(dir, 'playback.mp4');
+      await this.runCommand(process.env.FFMPEG_PATH || 'ffmpeg', [
+        '-y', '-i', source, '-map', '0:v:0', '-map', '0:a?',
+        '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', temp,
+      ]);
+      await fs.rename(temp, output);
+      media.sourcePath = source;
+      media.path = output;
+      media.mimeType = 'video/mp4';
+      media.sizeBytes = (await fs.stat(output)).size;
+      media.processingStatus = 'ready';
+      media.processingError = null;
+      await this.repo.save(media);
+      this.logger.info(`[Media] 视频 #${id} 已转为 H.264/AAC 播放副本`, { context: 'MediaService' });
+    } catch (error) {
+      const message = (error as Error).message.slice(0, 1000);
+      await this.repo.update(id, { processingStatus: 'failed', processingError: message }).catch(() => {});
+      this.logger.error(`[Media] 视频 #${id} 兼容处理失败: ${message}`, { context: 'MediaService' });
+    } finally {
+      this.preparing.delete(id);
+    }
+  }
+
+  private async probeVideo(file: string): Promise<{ videoCodec?: string; audioCodec?: string; width?: number; height?: number; duration?: number }> {
+    const output = await this.runCommand(process.env.FFPROBE_PATH || 'ffprobe', [
+      '-v', 'error', '-show_entries', 'stream=codec_type,codec_name,width,height:format=duration', '-of', 'json', file,
+    ], true);
+    const parsed = JSON.parse(output) as { streams?: Array<{ codec_type: string; codec_name?: string; width?: number; height?: number }>; format?: { duration?: string } };
+    const video = parsed.streams?.find((stream) => stream.codec_type === 'video');
+    const audio = parsed.streams?.find((stream) => stream.codec_type === 'audio');
+    if (!video) throw new Error('文件中没有视频轨');
+    return { videoCodec: video.codec_name, audioCodec: audio?.codec_name, width: video.width, height: video.height, duration: Number(parsed.format?.duration) || undefined };
+  }
+
+  private commandWorks(command: string, args: string[]): Promise<boolean> {
+    return this.runCommand(command, args, true).then(() => true, () => false);
+  }
+
+  private runCommand(command: string, args: string[], capture = false): Promise<string> {
+    return new Promise((resolvePromise, reject) => {
+      const child = spawn(command, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (chunk) => { if (capture && stdout.length < 2_000_000) stdout += chunk.toString(); });
+      child.stderr.on('data', (chunk) => { if (stderr.length < 8000) stderr += chunk.toString(); });
+      child.once('error', reject);
+      child.once('close', (code) => code === 0 ? resolvePromise(stdout) : reject(new Error(`${command} 退出码 ${code}: ${stderr.slice(-2000)}`)));
+    });
+  }
+
   toListItem(m: MediaAsset): MediaListItem {
     return {
       id: m.id,
@@ -562,6 +689,8 @@ export class MediaService implements OnModuleInit {
       fileUrl: m.kind === 'webpage' ? (m.sourceUrl ?? '') : `/api/media/${m.id}/file`,
       lastPlayedAt: m.lastPlayedAt ? m.lastPlayedAt.toISOString() : null,
       createdAt: m.createdAt.toISOString(),
+      processingStatus: m.processingStatus ?? 'ready',
+      processingError: m.processingError ?? null,
     };
   }
 

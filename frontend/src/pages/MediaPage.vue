@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter, useRoute } from 'vue-router';
 import {
@@ -161,12 +161,13 @@ const VIDEO_EXTS = new Set([
   '.mp4', '.m4v', '.mov', '.mkv', '.avi', '.webm', '.flv', '.wmv',
   '.mpg', '.mpeg', '.3gp', '.ts', '.vob', '.rmvb',
 ]);
+const DOC_EXTS = new Set(['.ppt', '.pptx', '.doc', '.docx', '.pdf']);
 function isAllowedFile(f: File): boolean {
   if (f.type.startsWith('video/') || f.type.startsWith('image/') || f.type.startsWith('audio/')) return true;
   const dot = f.name.lastIndexOf('.');
   if (dot < 0) return false;
   const ext = f.name.slice(dot).toLowerCase();
-  return AUDIO_EXTS.has(ext) || VIDEO_EXTS.has(ext);
+  return AUDIO_EXTS.has(ext) || VIDEO_EXTS.has(ext) || DOC_EXTS.has(ext);
 }
 
 // 递归读取 FileSystemDirectoryReader (每次 readEntries 最多 100 条, 需循环)
@@ -343,6 +344,10 @@ function closePreview(): void {
  * 同时推 both: 两个 slot 一起切到同一素材
  */
 async function pushTo(m: MediaItem, slot: 1 | 2 | 'both', loopMode: 'once' | 'loop' = 'loop'): Promise<void> {
+  if (m.kind === 'video' && m.processingStatus !== 'ready') {
+    ElMessage.warning(m.processingStatus === 'failed' ? '视频兼容转换失败，请点“重新转换”' : '视频正在生成兼容版本，请稍后');
+    return;
+  }
   try {
     if (slot === 'both') {
       await Promise.all([playbackStore.publish(1, m.id, loopMode), playbackStore.publish(2, m.id, loopMode)]);
@@ -354,6 +359,17 @@ async function pushTo(m: MediaItem, slot: 1 | 2 | 'both', loopMode: 'once' | 'lo
     }
   } catch (e) {
     ElMessage.error(`推送失败: ${(e as Error).message}`);
+  }
+}
+
+async function retryPrepare(m: MediaItem): Promise<void> {
+  try {
+    await mediaService.prepare(m.id);
+    ElMessage.success('已开始生成 H.264/AAC 兼容版本');
+    m.processingStatus = 'processing';
+    m.processingError = null;
+  } catch (e) {
+    ElMessage.error(`启动转换失败: ${(e as Error).message}`);
   }
 }
 
@@ -656,6 +672,10 @@ onMounted(async () => {
   await brandingStore.load();   // 拉 welcomeMediaId 用来标记当前欢迎页卡片
   void refresh();
 });
+let processingRefreshTimer = window.setInterval(() => {
+  if (items.value.some((item) => item.processingStatus === 'pending' || item.processingStatus === 'processing')) void refresh();
+}, 5000);
+onBeforeUnmount(() => window.clearInterval(processingRefreshTimer));
 </script>
 
 <template>
@@ -787,6 +807,9 @@ onMounted(async () => {
           <div class="meta">
             <div class="name" :title="m.originalName">{{ m.originalName }}</div>
             <div class="info"><span>{{ fmtSize(m.sizeBytes) }}</span><span v-if="m.resolution">· {{ m.resolution }}</span></div>
+            <div v-if="m.kind === 'video' && m.processingStatus !== 'ready'" class="info">
+              {{ m.processingStatus === 'failed' ? '兼容转换失败' : '正在生成兼容版本…' }}
+            </div>
           </div>
           <div v-if="isWelcome(m)" class="welcome-tag" title="当前欢迎页"><Home :size="11" :stroke-width="2" /> 欢迎页</div>
           <div v-if="currentSlotFor(m.id)" class="playing-tag" :style="isWelcome(m) ? 'top: 36px;' : ''">
@@ -836,6 +859,9 @@ onMounted(async () => {
           <div class="lr-badges">
             <span v-if="isWelcome(m)" class="lr-badge welcome"><Home :size="10" :stroke-width="2" /> 欢迎页</span>
             <span v-if="currentSlotFor(m.id)" class="lr-badge playing"><Send :size="10" :stroke-width="2" /> {{ currentSlotFor(m.id) }}</span>
+            <span v-if="m.kind === 'video' && m.processingStatus !== 'ready'" class="lr-badge">
+              {{ m.processingStatus === 'failed' ? '转换失败' : '兼容处理中' }}
+            </span>
           </div>
           <div class="lr-size">{{ fmtSize(m.sizeBytes) }}<span v-if="m.resolution" class="lr-res"> · {{ m.resolution }}</span></div>
           <div class="lr-date">{{ new Date(m.createdAt).toLocaleDateString('zh-CN') }}</div>
@@ -1125,13 +1151,17 @@ onMounted(async () => {
             <Globe :size="64" :stroke-width="1.4" />
             <a :href="previewItem.fileUrl" target="_blank" rel="noopener" class="web-url">{{ previewItem.fileUrl }}</a>
           </div>
+          <div v-else-if="previewItem.kind === 'doc'" class="audio-preview">
+            <LayoutList :size="64" :stroke-width="1.4" />
+            <div>PPT / Word / PDF 文档</div>
+          </div>
           <img v-else :src="absUrl(previewItem.fileUrl)" :alt="previewItem.originalName" style="max-width:100%; max-height: 70vh;" />
         </div>
         <div class="preview-info">
           <h3>{{ previewItem.originalName }}</h3>
           <div class="meta-row">
             <span class="kind-tag" :class="previewItem.kind">
-              {{ previewItem.kind === 'video' ? '视频' : previewItem.kind === 'audio' ? '音频' : '图片' }}
+              {{ previewItem.kind === 'video' ? '视频' : previewItem.kind === 'audio' ? '音频' : previewItem.kind === 'doc' ? '文档' : '图片' }}
             </span>
             <span>{{ fmtSize(previewItem.sizeBytes) }}</span>
             <span v-if="previewItem.resolution">{{ previewItem.resolution }}</span>
@@ -1139,6 +1169,10 @@ onMounted(async () => {
             <span>{{ new Date(previewItem.createdAt).toLocaleString('zh-CN') }}</span>
           </div>
           <div v-if="previewItem.remark" class="remark">{{ previewItem.remark }}</div>
+          <div v-if="previewItem.kind === 'video' && previewItem.processingStatus !== 'ready'" class="remark">
+            {{ previewItem.processingStatus === 'failed' ? `兼容转换失败：${previewItem.processingError || '未知错误'}` : '正在生成 H.264/AAC 兼容版本，完成后即可播放。' }}
+            <button v-if="previewItem.processingStatus === 'failed'" class="v2-quick" @click="retryPrepare(previewItem)">重新转换</button>
+          </div>
           <!-- 音频: 播放背景音乐 -->
           <div v-if="previewItem.kind === 'audio'" class="preview-actions">
             <button class="v2-quick primary" @click="pushAudio(previewItem)">
@@ -1150,10 +1184,10 @@ onMounted(async () => {
           </div>
           <!-- 视频/图片: 推 LED/投影/欢迎页 -->
           <div v-else class="preview-actions">
-            <button class="v2-quick primary" @click="pushTo(previewItem, 1)">
+            <button class="v2-quick primary" :disabled="previewItem.kind === 'video' && previewItem.processingStatus !== 'ready'" @click="pushTo(previewItem, 1)">
               <Send :size="14" :stroke-width="2" /> 推到 LED 大屏 (HDMI1)
             </button>
-            <button class="v2-quick primary" @click="pushTo(previewItem, 2)">
+            <button class="v2-quick primary" :disabled="previewItem.kind === 'video' && previewItem.processingStatus !== 'ready'" @click="pushTo(previewItem, 2)">
               <Send :size="14" :stroke-width="2" /> 推到投影仪 (HDMI2)
             </button>
             <button class="v2-quick" @click="pushTo(previewItem, 'both')">

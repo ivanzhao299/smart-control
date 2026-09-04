@@ -42,6 +42,8 @@ export interface MediaItem {
   fileUrl: string;
   lastPlayedAt: string | null;
   createdAt: string;
+  processingStatus: 'ready' | 'pending' | 'processing' | 'failed';
+  processingError: string | null;
 }
 
 interface ListResult { items: MediaItem[]; total: number }
@@ -50,7 +52,7 @@ export interface OrphanMediaItem {
   relPath: string;
   name: string;
   sizeBytes: number;
-  kind: 'video' | 'image' | 'audio' | null;
+  kind: 'video' | 'image' | 'audio' | 'doc' | null;
 }
 
 /**
@@ -60,7 +62,7 @@ export interface OrphanMediaItem {
  * 真正的类型判定在 backend classifyKind (按 MIME + 扩展名兜底)。
  */
 export const MEDIA_UPLOAD_ACCEPT =
-  'video/*,image/*,audio/*,.ppt,.pptx,.doc,.docx,.mp3,.wav,.aac,.m4a,.ogg,.flac,.wma,.opus,.aiff,.aif,.ape,.mp2,.mka,.wv,.mid,.midi,.spx,.dsf,.dff,.au,.ra'
+  'video/*,image/*,audio/*,.ppt,.pptx,.doc,.docx,.pdf,.mp3,.wav,.aac,.m4a,.ogg,.flac,.wma,.opus,.aiff,.aif,.ape,.mp2,.mka,.wv,.mid,.midi,.spx,.dsf,.dff,.au,.ra'
   // 视频扩展名兜底: Windows 对 .m4v/.mkv 等常报空 mime, 光靠 video/* 会被选择器滤掉
   + ',.mp4,.m4v,.mov,.mkv,.avi,.webm,.flv,.wmv,.mpg,.mpeg,.3gp,.ts,.vob,.rmvb';
 
@@ -105,6 +107,10 @@ export const mediaService = {
 
   async remove(id: number): Promise<void> {
     await mediaHttp.delete(`${base()}/media/${id}`);
+  },
+
+  async prepare(id: number): Promise<void> {
+    await mediaHttp.post(`${base()}/media/${id}/prepare`);
   },
 
   /** 服务器 media 目录里数据库还不认识的文件 (业主直接拷进服务器的, 没走上传接口) */

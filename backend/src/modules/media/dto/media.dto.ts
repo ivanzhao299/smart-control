@@ -52,4 +52,6 @@ export interface MediaListItem {
   fileUrl: string;
   lastPlayedAt: string | null;
   createdAt: string;
+  processingStatus: 'ready' | 'pending' | 'processing' | 'failed';
+  processingError: string | null;
 }

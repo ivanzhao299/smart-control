@@ -63,7 +63,7 @@ export class MediaController {
           '.opus', '.aiff', '.aif', '.ape', '.mp2', '.mka', '.wv',
           '.mid', '.midi', '.spx', '.dsf', '.dff', '.au', '.ra',
         ];
-        const docExt = ['.ppt', '.pptx', '.doc', '.docx']; // 文档投屏 (2026-07-25)
+        const docExt = ['.ppt', '.pptx', '.doc', '.docx', '.pdf'];
         // 视频扩展名兜底: .m4v/.mkv 等浏览器常报 application/octet-stream (2026-07-31)
         const videoExt = [
           '.mp4', '.m4v', '.mov', '.mkv', '.avi', '.webm', '.flv', '.wmv',
@@ -77,7 +77,7 @@ export class MediaController {
         ) {
           cb(null, true);
         } else {
-          cb(new Error(`不支持的文件类型 ${file.mimetype}, 仅支持 视频/图片/音频/PPT/Word`), false);
+          cb(new Error(`不支持的文件类型 ${file.mimetype}, 仅支持 视频/图片/音频/PPT/Word/PDF`), false);
         }
       },
     }),
@@ -123,7 +123,7 @@ export class MediaController {
 
   @Get()
   async list(
-    @Query('kind') kind?: 'video' | 'image' | 'audio',
+    @Query('kind') kind?: 'video' | 'image' | 'audio' | 'webpage' | 'doc',
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
@@ -141,6 +141,11 @@ export class MediaController {
   async orphans() {
     const items = await this.media.scanOrphans();
     return { message: 'ok', data: items };
+  }
+
+  @Get('tools/status')
+  async mediaTools() {
+    return { message: 'ok', data: await this.media.mediaToolStatus() };
   }
 
   /** 收编 scanOrphans() 列出的某个文件, 正式变成媒体库资源 */
@@ -226,6 +231,14 @@ export class MediaController {
   ) {
     const a = await this.media.setDocMeta(id, body);
     return { message: 'ok', data: { id: a.id, pageCount: a.pageCount, docPdfPath: a.docPdfPath } };
+  }
+
+  /** 对存量视频手动补做兼容转码；立即返回，进度通过媒体列表查看。 */
+  @Post(':id/prepare')
+  @HttpCode(202)
+  async prepare(@Param('id', ParseIntPipe) id: number) {
+    void this.media.prepareVideo(id);
+    return { message: '兼容处理已开始', data: { id } };
   }
 
 }
