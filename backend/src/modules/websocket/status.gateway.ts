@@ -17,6 +17,9 @@ import { ControlBus, ControlEvent } from '../../services/control-bus';
 import { DeviceStatusService } from '../../services/device-status.service';
 import { SceneEngineService } from '../../services/scene-engine.service';
 import { WebSocketConfig } from '../../common/config/configuration';
+import { ClientAuthService } from '../client-auth/client-auth.service';
+import { AdminAuthService } from '../admin-auth/admin-auth.service';
+import { Actor } from '../../common/auth/actor';
 
 interface ClientHello {
   type: 'hello';
@@ -29,7 +32,7 @@ interface PongMessage {
   at: string;
 }
 
-@WebSocketGateway({ path: '/ws/status' })
+@WebSocketGateway({ path: '/ws/status', maxPayload: 16384 })
 export class StatusGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect, OnModuleInit, OnModuleDestroy
 {
@@ -54,6 +57,8 @@ export class StatusGateway
   /** 每条连接上一轮是否回过 pong (WeakMap: 连接被回收时自动清, 不用手动删) */
   private readonly alive = new WeakMap<WebSocket, boolean>();
   private heartbeatTimer?: NodeJS.Timeout;
+  private readonly sessions = new WeakMap<WebSocket, { token: string; admin: boolean }>();
+  private readonly authTimers = new Map<WebSocket, NodeJS.Timeout>();
 
   constructor(
     config: ConfigService,
@@ -61,6 +66,8 @@ export class StatusGateway
     private readonly deviceStatus: DeviceStatusService,
     private readonly engine: SceneEngineService,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
+    private readonly clientAuth: ClientAuthService,
+    private readonly adminAuth: AdminAuthService,
   ) {
     this.wsCfg = config.getOrThrow<WebSocketConfig>('websocket');
   }
@@ -76,6 +83,8 @@ export class StatusGateway
   onModuleDestroy(): void {
     this.unsubscribe?.();
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    for (const timer of this.authTimers.values()) clearTimeout(timer);
+    this.authTimers.clear();
   }
 
   afterInit(_server: Server): void {
@@ -88,26 +97,47 @@ export class StatusGateway
     this.alive.set(client, true);
     // 协议层 pong (浏览器/ws 客户端自动回, 不需要前端配合)
     client.on('pong', () => this.alive.set(client, true));
+    const timer = setTimeout(() => client.close(4401, 'Authentication required'), 5000);
+    timer.unref?.();
+    this.authTimers.set(client, timer);
+  }
+
+  @SubscribeMessage('authenticate')
+  async authenticate(@ConnectedSocket() client: WebSocket, @MessageBody() data: unknown): Promise<void> {
+    if (this.sessions.has(client)) { client.close(4401, 'Reconnect to change identity'); return; }
+    const input = data as { token?: unknown; admin?: unknown } | null;
+    if (!input || typeof input.token !== 'string' || input.token.length > 8192 || typeof input.admin !== 'boolean') {
+      client.close(4401, 'Invalid authentication'); return;
+    }
+    this.sessions.set(client, { token: input.token, admin: input.admin });
+    const actor = await this.resolve(client);
+    if (!actor || client.readyState !== client.OPEN) return;
+    clearTimeout(this.authTimers.get(client));
+    this.authTimers.delete(client);
     const hello: ClientHello = {
       type: 'hello',
       message: 'smart-control status stream',
       serverTime: new Date().toISOString(),
     };
     this.safeSend(client, hello);
-    this.snapshot(client);
+    this.snapshot(client, actor);
     this.logger.info(`WS client connected (total=${this.server.clients.size})`, {
       context: 'StatusGateway',
     });
   }
 
   handleDisconnect(_client: WebSocket): void {
+    this.sessions.delete(_client);
+    clearTimeout(this.authTimers.get(_client));
+    this.authTimers.delete(_client);
     this.logger.info(`WS client disconnected (total=${this.server.clients.size})`, {
       context: 'StatusGateway',
     });
   }
 
   @SubscribeMessage('ping')
-  handlePing(@ConnectedSocket() client: WebSocket, @MessageBody() _data: unknown): PongMessage {
+  async handlePing(@ConnectedSocket() client: WebSocket, @MessageBody() _data: unknown): Promise<PongMessage | undefined> {
+    if (!await this.resolve(client)) return;
     // 应用层 ping (前端 websocket.service 每 10s 发) 也算活着
     this.alive.set(client, true);
     return { type: 'pong', at: new Date().toISOString() };
@@ -150,13 +180,13 @@ export class StatusGateway
     }
   }
 
-  private snapshot(client: WebSocket): void {
+  private snapshot(client: WebSocket, actor: Actor): void {
     for (const snap of this.deviceStatus.list()) {
       this.safeSend(client, {
         type: 'device_status',
         device: snap.device,
         status: snap.status,
-        state: snap.state,
+        state: actor.role === 'admin' ? snap.state : undefined,
         at: snap.updatedAt,
       });
     }
@@ -174,16 +204,34 @@ export class StatusGateway
 
   private broadcast(event: ControlEvent): void {
     if (!this.server) return;
-    const payload = JSON.stringify(event);
     for (const client of this.server.clients) {
-      if (client.readyState === client.OPEN) {
-        client.send(payload, (err) => {
-          if (err) {
-            this.logger.warn(`WS send failed: ${err.message}`, { context: 'StatusGateway' });
-          }
-        });
-      }
+      if (client.readyState === client.OPEN && this.sessions.has(client)) void this.sendAuthorized(client, event);
     }
+  }
+
+  private async resolve(client: WebSocket): Promise<Actor | null> {
+    const session = this.sessions.get(client);
+    try {
+      if (session) {
+        const actor: Actor | null = session.admin
+          ? await this.adminAuth.verifyToken(session.token) ? { kind: 'admin', userId: null, username: 'admin', role: 'admin' } : null
+          : await this.clientAuth.resolveActor(session.token);
+        if (actor && this.sessions.get(client) === session) return actor;
+      }
+    } catch { /* Fail closed on authentication storage errors. */ }
+    this.sessions.delete(client);
+    client.close(4401, 'Authentication expired');
+    return null;
+  }
+
+  private async sendAuthorized(client: WebSocket, event: ControlEvent): Promise<void> {
+    const actor = await this.resolve(client);
+    if (!actor) return;
+    if (actor.role === 'admin') { this.safeSend(client, event); return; }
+    // Never relay arbitrary adapter state, error messages or test results across users.
+    if (event.type === 'playback_channel_changed') this.safeSend(client, { type: event.type, slot: event.slot, at: event.at });
+    else if (event.type === 'device_status') this.safeSend(client, { type: event.type, device: event.device, status: event.status, at: event.at });
+    else if (event.type === 'scene') this.safeSend(client, { type: event.type, scene: event.scene, executionId: event.executionId, status: event.status, at: event.at });
   }
 
   private safeSend(client: WebSocket, payload: unknown): void {

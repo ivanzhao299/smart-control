@@ -1,5 +1,5 @@
 import type { WsEvent } from '@/types/api';
-import { getApiBaseURL } from './http';
+import { getApiBaseURL, getAdminToken, getClientToken } from './http';
 
 export type WsHandler = (event: WsEvent) => void;
 export type WsStateHandler = (state: WsConnectionState) => void;
@@ -70,16 +70,23 @@ class WsClient {
     try {
       const ws = new WebSocket(url);
       this.socket = ws;
+      let identity = '';
+      const currentIdentity = () => JSON.stringify([getAdminToken(), getClientToken()]);
 
       ws.onopen = () => {
+        identity = currentIdentity();
+        const admin = getAdminToken();
+        const token = admin || getClientToken();
+        if (!token) { ws.close(); return; }
+        ws.send(JSON.stringify({ event: 'authenticate', data: { token, admin: Boolean(admin) } }));
         this.reconnectDelay = this.reconnectMin;
-        this.setState('open');
-        this.startHeartbeat();
       };
 
       ws.onmessage = (msg) => {
+        if (identity !== currentIdentity()) { ws.close(); return; }
         try {
           const event = JSON.parse(msg.data) as WsEvent;
+          if (event.type === 'hello') { this.setState('open'); this.startHeartbeat(); }
           // pong 也走这条 — 收到任何消息都视为对端活着
           this.lastPongAt = Date.now();
           this.eventHandlers.forEach((h) => {
