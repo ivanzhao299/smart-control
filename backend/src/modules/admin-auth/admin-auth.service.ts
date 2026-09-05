@@ -45,7 +45,7 @@ export class AdminAuthService implements OnModuleInit {
           tokenSecret: null,
         }),
       );
-      this.logger.warn(`[AdminAuth] 首次启动, 默认密码已植入: ${DEFAULT_PASSWORD}. 业主进后台后请立即改.`);
+      this.logger.warn('[AdminAuth] 首次启动已初始化访问密码，请立即在后台修改。');
     }
     // 签名密钥只生成一次, 之后每次重启复用 —— 令牌跨重启存活的根基
     if (!row.tokenSecret) {
