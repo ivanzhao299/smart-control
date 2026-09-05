@@ -404,6 +404,7 @@ async function pushTo(m: MediaItem, slot: 1 | 2 | 'both', loopMode: 'once' | 'lo
 }
 
 async function retryPrepare(m: MediaItem): Promise<void> {
+  if (disposed || !canEditMedia(m)) return;
   try {
     await mediaService.prepare(m.id);
     ElMessage.success('已开始生成 H.264/AAC 兼容版本');
@@ -433,6 +434,7 @@ function openWebpageDialog(): void {
   webpageDialog.value = true;
 }
 async function submitWebpage(): Promise<void> {
+  if (disposed || !canOperate.value) return;
   const url = webpageForm.value.url.trim();
   if (!/^https?:\/\//i.test(url)) { ElMessage.warning('网址要以 http:// 或 https:// 开头'); return; }
   try {
@@ -477,6 +479,7 @@ const onlineFiltered = computed(() => {
 const onlineShown = computed(() => onlineFiltered.value.slice(0, ONLINE_SHOW_CAP));
 
 async function downloadOnline(t: OnlineTrack): Promise<void> {
+  if (disposed || !canOperate.value) return;
   if (onlineBusyPath.value) return;
   onlineBusyPath.value = t.path;
   try {
@@ -551,12 +554,14 @@ async function panVerifyAdmin(): Promise<void> {
 
 /** 设置可见根目录 — 服务端把浏览/下载钳制在该目录内 */
 async function panSetRoot(): Promise<void> {
+  if (disposed || !actorIsAdmin.value) return;
   try {
     const { value } = await ElMessageBox.prompt(
       '设置后, 系统只能看到并下载该文件夹内的内容, 网盘其余内容完全不可见 (留空 = 全盘可见, 不推荐)。例: /展厅素材',
       '设置可见根目录',
       { inputValue: panStatus.value?.rootPath ?? '', confirmButtonText: '保存', cancelButtonText: '取消' },
     );
+    if (disposed || !actorIsAdmin.value) return;
     await baiduPanService.setRoot((value ?? '').trim() || null);
     ElMessage.success('可见根目录已更新');
     await refreshPanStatus();
@@ -601,6 +606,7 @@ function schedulePanPoll(): void {
   }, 2000);
 }
 async function panSaveConfig(): Promise<void> {
+  if (disposed || !actorIsAdmin.value) return;
   if (!panCfg.value.appKey.trim() || !panCfg.value.secretKey.trim()) { ElMessage.warning('AppKey 和 SecretKey 都要填'); return; }
   try {
     await baiduPanService.saveConfig(panCfg.value.appKey, panCfg.value.secretKey);
@@ -610,6 +616,7 @@ async function panSaveConfig(): Promise<void> {
   } catch (e) { ElMessage.error((e as Error).message); }
 }
 async function panStartAuth(): Promise<void> {
+  if (disposed || !actorIsAdmin.value) return;
   try {
     panAuth.value = await baiduPanService.authStart();
     panAuthHint.value = '等待手机确认…';
@@ -633,6 +640,7 @@ function panUp(): void {
   void panList('/' + parts.join('/'));
 }
 async function panDownload(f: PanFile): Promise<void> {
+  if (disposed || !actorIsAdmin.value) return;
   try {
     await baiduPanService.download(f.fsId, f.name);
     ElMessage.success(`「${f.name}」开始下载, 完成后自动入媒体库`);
@@ -649,10 +657,12 @@ const orphanImporting = ref<string | null>(null); // 正在导入哪个 relPath
 const orphans = ref<OrphanMediaItem[]>([]);
 
 async function openOrphanDialog(): Promise<void> {
+  if (disposed || !actorIsAdmin.value) return;
   orphanDialog.value = true;
   await scanOrphans();
 }
 async function scanOrphans(): Promise<void> {
+  if (disposed || !actorIsAdmin.value) return;
   orphanScanning.value = true;
   try {
     orphans.value = await mediaService.scanOrphans();
@@ -663,6 +673,7 @@ async function scanOrphans(): Promise<void> {
   }
 }
 async function importOrphan(o: OrphanMediaItem): Promise<void> {
+  if (disposed || !actorIsAdmin.value) return;
   orphanImporting.value = o.relPath;
   try {
     const m = await mediaService.importOrphan(o.relPath);
@@ -692,6 +703,7 @@ function isWelcome(m: MediaItem): boolean {
 
 /** 设为欢迎页 — 写到 system-branding.welcomeMediaId, LED 欢迎页按钮后续就播这个 */
 async function setAsWelcome(m: MediaItem): Promise<void> {
+  if (disposed || !actorIsAdmin.value) return;
   try {
     await brandingStore.save({ welcomeMediaId: m.id });
     ElMessage.success(`已把「${m.originalName}」设为欢迎页, LED 点欢迎页就播这个`);
@@ -702,6 +714,7 @@ async function setAsWelcome(m: MediaItem): Promise<void> {
 
 /** 取消欢迎页绑定 → LED 欢迎页按钮回落到 V2460 内置 preset (老逻辑) */
 async function clearWelcome(): Promise<void> {
+  if (disposed || !actorIsAdmin.value) return;
   try {
     await brandingStore.save({ welcomeMediaId: null });
     ElMessage.success('已取消欢迎页绑定, 后续 LED 欢迎页走控制器内置预设');
@@ -1040,7 +1053,7 @@ onBeforeUnmount(() => { disposed = true; uploadQueue.value = []; window.clearInt
             <span v-if="t.downloaded" class="om-done">已入库</span>
             <button
               v-else class="v2-quick primary orphan-import-btn"
-              :disabled="onlineBusyPath !== null"
+              :disabled="!canOperate || onlineBusyPath !== null"
               @click="downloadOnline(t)"
             >{{ onlineBusyPath === t.path ? '下载中…' : '下载' }}</button>
           </div>
@@ -1227,40 +1240,40 @@ onBeforeUnmount(() => { disposed = true; uploadQueue.value = []; window.clearInt
           <div v-if="previewItem.remark" class="remark">{{ previewItem.remark }}</div>
           <div v-if="previewItem.kind === 'video' && previewItem.processingStatus !== 'ready'" class="remark">
             {{ previewItem.processingStatus === 'failed' ? `兼容转换失败：${previewItem.processingError || '未知错误'}` : '正在生成 H.264/AAC 兼容版本，完成后即可播放。' }}
-            <button v-if="previewItem.processingStatus === 'failed'" class="v2-quick" @click="retryPrepare(previewItem)">重新转换</button>
+            <button v-if="canEditMedia(previewItem) && previewItem.processingStatus === 'failed'" class="v2-quick" @click="retryPrepare(previewItem)">重新转换</button>
           </div>
           <!-- 音频: 播放背景音乐 -->
           <div v-if="previewItem.kind === 'audio'" class="preview-actions">
-            <button class="v2-quick primary" @click="pushAudio(previewItem)">
+            <button v-if="canOperate" class="v2-quick primary" @click="pushAudio(previewItem)">
               <Music :size="14" :stroke-width="2" /> 播放背景音乐 (→ 音响, 循环)
             </button>
-            <button class="v2-quick danger" @click="confirmDelete(previewItem)">
+            <button v-if="canEditMedia(previewItem)" class="v2-quick danger" @click="confirmDelete(previewItem)">
               <Trash2 :size="14" :stroke-width="2" /> 删除
             </button>
           </div>
           <!-- 视频/图片: 推 LED/投影/欢迎页 -->
           <div v-else class="preview-actions">
-            <button class="v2-quick primary" :disabled="previewItem.kind === 'video' && previewItem.processingStatus !== 'ready'" @click="pushTo(previewItem, 1)">
+            <button v-if="canOperate" class="v2-quick primary" :disabled="previewItem.kind === 'video' && previewItem.processingStatus !== 'ready'" @click="pushTo(previewItem, 1)">
               <Send :size="14" :stroke-width="2" /> 推到 LED 大屏 (HDMI1)
             </button>
-            <button class="v2-quick primary" :disabled="previewItem.kind === 'video' && previewItem.processingStatus !== 'ready'" @click="pushTo(previewItem, 2)">
+            <button v-if="canOperate" class="v2-quick primary" :disabled="previewItem.kind === 'video' && previewItem.processingStatus !== 'ready'" @click="pushTo(previewItem, 2)">
               <Send :size="14" :stroke-width="2" /> 推到投影仪 (HDMI2)
             </button>
-            <button class="v2-quick" @click="pushTo(previewItem, 'both')">
+            <button v-if="canOperate" class="v2-quick" @click="pushTo(previewItem, 'both')">
               <Send :size="14" :stroke-width="2" /> 同时推两路
             </button>
             <button
               class="v2-quick"
-              :disabled="isWelcome(previewItem)"
+              :disabled="!actorIsAdmin || isWelcome(previewItem)"
               :title="isWelcome(previewItem) ? '已是欢迎页, 点 LED 欢迎页按钮就播这个' : '点 LED 欢迎页按钮时就播这个'"
               @click="setAsWelcome(previewItem)"
             >
               <Home :size="14" :stroke-width="2" /> {{ isWelcome(previewItem) ? '✓ 已是欢迎页' : '设为欢迎页' }}
             </button>
-            <button v-if="isWelcome(previewItem)" class="v2-quick" @click="clearWelcome">
+            <button v-if="actorIsAdmin && isWelcome(previewItem)" class="v2-quick" @click="clearWelcome">
               取消欢迎页
             </button>
-            <button class="v2-quick danger" @click="confirmDelete(previewItem)">
+            <button v-if="canEditMedia(previewItem)" class="v2-quick danger" @click="confirmDelete(previewItem)">
               <Trash2 :size="14" :stroke-width="2" /> 删除
             </button>
           </div>
