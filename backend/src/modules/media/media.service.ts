@@ -330,17 +330,7 @@ export class MediaService implements OnModuleInit {
     });
     const saved = await this.repo.save(entity);
 
-    const finalDir = join(this.mediaRoot, String(saved.id));
-    const finalPath = join(finalDir, safeName);
-    await fs.mkdir(finalDir, { recursive: true });
-    await fs.rename(file.path, finalPath);
-    saved.path = finalPath;
-    if (kind === 'doc' && extname(originalName).toLowerCase() === '.pdf') {
-      saved.docPdfPath = relative(this.mediaRoot, finalPath).split(sep).join('/');
-    }
-    const result = await this.repo.save(saved);
-    if (kind === 'video') void this.prepareVideo(result.id);
-    return result;
+    return this.finishNewAsset(saved, path => fs.rename(file.path, path));
   }
 
   /** 服务器侧来源 (在线曲库下载等) 从内存 buffer 入库 — 目录布局与 ingest 一致 */
@@ -356,15 +346,7 @@ export class MediaService implements OnModuleInit {
       remark: remark ?? null, uploader, lastPlayedAt: null,
       processingStatus: kind === 'video' ? 'pending' : 'ready', processingError: null, sourcePath: null,
     }));
-    const finalDir = join(this.mediaRoot, String(saved.id));
-    const finalPath = join(finalDir, safeName);
-    await fs.mkdir(finalDir, { recursive: true });
-    await fs.writeFile(finalPath, buf);
-    saved.path = finalPath;
-    if (kind === 'doc' && extname(originalName).toLowerCase() === '.pdf') saved.docPdfPath = relative(this.mediaRoot, finalPath).split(sep).join('/');
-    const result = await this.repo.save(saved);
-    if (kind === 'video') void this.prepareVideo(result.id);
-    return result;
+    return this.finishNewAsset(saved, path => fs.writeFile(path, buf));
   }
 
   /**
@@ -393,19 +375,38 @@ export class MediaService implements OnModuleInit {
       remark: remark ?? null, uploader, lastPlayedAt: null,
       processingStatus: kind === 'video' ? 'pending' : 'ready', processingError: null, sourcePath: null,
     }));
-    const finalDir = join(this.mediaRoot, String(saved.id));
-    const finalPath = join(finalDir, safeName);
-    await fs.mkdir(finalDir, { recursive: true });
+    return this.finishNewAsset(saved, async path => {
+      try { await fs.rename(tmpPath, path); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EXDEV') throw error;
+        await fs.copyFile(tmpPath, path);
+        await fs.unlink(tmpPath);
+      }
+    });
+  }
+
+  private async finishNewAsset(saved: MediaAsset, write: (path: string) => Promise<void>): Promise<MediaAsset> {
+    const directory = join(this.mediaRoot, String(saved.id));
+    const path = join(directory, saved.safeName);
+    let created = false;
+    let result: MediaAsset;
     try {
-      await fs.rename(tmpPath, finalPath);
-    } catch {
-      await fs.copyFile(tmpPath, finalPath);
-      await this.unlinkSafe(tmpPath);
+      await fs.mkdir(this.mediaRoot, { recursive: true });
+      // Never adopt or remove an existing ID directory during failed ingestion.
+      await fs.mkdir(directory);
+      created = true;
+      await write(path);
+      saved.path = path;
+      if (saved.kind === 'doc' && extname(saved.originalName).toLowerCase() === '.pdf') saved.docPdfPath = relative(this.mediaRoot, path).split(sep).join('/');
+      result = await this.repo.save(saved);
+    } catch (error) {
+      // Remove only the newly created asset directory. If cleanup fails, retain
+      // its DB row so residual bytes continue counting against the owner's quota.
+      if (created) await fs.rm(directory, { recursive: true, force: true });
+      await this.repo.delete(saved.id);
+      throw error;
     }
-    saved.path = finalPath;
-    if (kind === 'doc' && extname(originalName).toLowerCase() === '.pdf') saved.docPdfPath = relative(this.mediaRoot, finalPath).split(sep).join('/');
-    const result = await this.repo.save(saved);
-    if (kind === 'video') void this.prepareVideo(result.id);
+    if (result.kind === 'video') void this.prepareVideo(result.id);
     return result;
   }
 
