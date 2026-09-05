@@ -1,6 +1,6 @@
 import { computed, ref, onMounted, onScopeDispose } from 'vue';
 import { api, getAdminToken, getClientToken } from './http';
-import { onIdentityChange } from './identity-boundary';
+import { onIdentityChange, invalidateIdentity } from './identity-boundary';
 import type { MediaItem } from './media.service';
 
 export interface CurrentActor { kind: 'user' | 'admin' | 'legacy'; userId: number | null; username: string; role: 'admin' | 'operator' | 'viewer' }
@@ -15,8 +15,22 @@ export function useCurrentActor() {
     if (!getAdminToken() && !getClientToken()) { actor.value = null; return; }
     try {
       const result = await api.get<CurrentActor>('/client-auth/me');
-      if (!disposed && request === revision) actor.value = result;
-    } catch { if (!disposed && request === revision) actor.value = null; }
+      if (!disposed && request === revision) {
+        // Role revocation must also evict already-rendered administrator data,
+        // not merely hide buttons while leaving the private list visible.
+        if (actor.value && JSON.stringify(actor.value) !== JSON.stringify(result)) {
+          invalidateIdentity();
+          return;
+        }
+        actor.value = result;
+      }
+    } catch {
+      if (!disposed && request === revision) {
+        const hadIdentity = actor.value !== null;
+        actor.value = null;
+        if (hadIdentity) invalidateIdentity();
+      }
+    }
   }
   const unsubscribe = onIdentityChange(() => { revision++; actor.value = null; });
   onMounted(() => { void refreshActor(); timer = setInterval(() => void refreshActor(), 30_000); });
