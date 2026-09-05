@@ -9,11 +9,14 @@ import {
   Post,
   Put,
   Query,
+  UseGuards,
 } from '@nestjs/common';
+import { ActorAdminGuard } from '../../common/guards/actor-admin.guard';
 import { UsersService } from './users.service';
 import { CreateUserDto, QueryUserDto, UpdateUserDto } from './dto/user.dto';
 
 @Controller('users')
+@UseGuards(ActorAdminGuard)
 export class UsersController {
   constructor(private readonly service: UsersService) {}
 

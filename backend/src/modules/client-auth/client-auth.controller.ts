@@ -3,6 +3,8 @@ import { ClientAuthService } from './client-auth.service';
 import { AdminGuard } from '../admin-auth/admin-auth.guard';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { Public } from '../../common/decorators/public.decorator';
+import { Req } from '@nestjs/common';
+import { AuthenticatedRequest, requireActor } from '../../common/auth/actor';
 
 /**
  * /api/client-auth
@@ -14,6 +16,11 @@ import { Public } from '../../common/decorators/public.decorator';
 @Controller('client-auth')
 export class ClientAuthController {
   constructor(private readonly service: ClientAuthService) {}
+
+  @Get('me')
+  me(@Req() req: AuthenticatedRequest) {
+    return { message: 'ok', data: requireActor(req) };
+  }
 
   @Public()
   @Get('ping')

@@ -4,6 +4,7 @@ import type { Request } from 'express';
 import { ClientAuthService } from '../../modules/client-auth/client-auth.service';
 import { AdminAuthService } from '../../modules/admin-auth/admin-auth.service';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import type { AuthenticatedRequest } from '../auth/actor';
 
 /**
  * 全局鉴权门 (2026-07-21, 为封装 App 分发准备)。
@@ -33,7 +34,6 @@ export class GlobalAuthGuard implements CanActivate {
     // 07-24 关门的原因 (token 过期频繁踢人) 已由令牌签名制根治 (INCIDENTS #22,
     // 令牌跨重启存活), 不复存在。紧急排障可设 CLIENT_AUTH_DISABLED=true 临时关闭
     // —— 公网暴露期间严禁长期关闭。
-    if (process.env.CLIENT_AUTH_DISABLED === 'true') return true;
 
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
@@ -41,7 +41,27 @@ export class GlobalAuthGuard implements CanActivate {
     ]);
     if (isPublic) return true;
 
-    const req = context.switchToHttp().getRequest<Request>();
+    const req = context.switchToHttp().getRequest<AuthenticatedRequest>();
+    delete req.actor;
+
+    const xClient = req.headers['x-client-token'];
+    const clientTok = typeof xClient === 'string' ? xClient.trim() : '';
+    const auth = req.headers['authorization'];
+    const bearer = typeof auth === 'string' && auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+    if (bearer && await this.adminAuth.verifyToken(bearer)) {
+      req.actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };
+      return true;
+    }
+    for (const token of [clientTok, bearer]) {
+      if (!token) continue;
+      const actor = await this.clientAuth.resolveActor(token);
+      if (actor) { req.actor = actor; return true; }
+    }
+    // Explicit invalid credentials must not gain privilege through a local proxy.
+    if (clientTok || bearer) throw new UnauthorizedException('未登录或登录已过期, 请重新登录');
+    // Legacy internal callers temporarily retain transport access, never an actor.
+    // Resource controllers requireActor independently; device authentication follows.
+    if (process.env.CLIENT_AUTH_DISABLED === 'true') return true;
 
     // 本机 loopback 豁免: kiosk 播放器 / 运维脚本 (watcher 心跳、update.ps1、
     // verify-deploy 探针、ppt/bgm-player 轮询) 都跑在 GK9000 本机且无 token。
@@ -49,18 +69,6 @@ export class GlobalAuthGuard implements CanActivate {
     const remoteAddr = req.socket?.remoteAddress ?? '';
     if (remoteAddr === '127.0.0.1' || remoteAddr === '::1' || remoteAddr === '::ffff:127.0.0.1') {
       return true;
-    }
-    const xClient = req.headers['x-client-token'];
-    const clientTok = typeof xClient === 'string' ? xClient.trim() : '';
-    const auth = req.headers['authorization'];
-    const bearer = typeof auth === 'string' && auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
-
-    // 业主 token (X-Client-Token) 优先
-    if (clientTok && (await this.clientAuth.verifyToken(clientTok))) return true;
-    // Bearer: 先当后台 token 验, 再兜底当业主 token (兼容把 client token 放 Bearer 的老路径)
-    if (bearer) {
-      if (await this.adminAuth.verifyToken(bearer)) return true;
-      if (await this.clientAuth.verifyToken(bearer)) return true;
     }
     throw new UnauthorizedException('未登录或登录已过期, 请重新登录');
   }

@@ -7,6 +7,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { ClientAuth } from '../../entities/client-auth.entity';
 import { User } from '../../entities/user.entity';
 import { hashPassword, verifyPassword } from '../../common/utils/password.util';
+import type { Actor } from '../../common/auth/actor';
 
 /** 业主原话: 初始密码 1234. 弱但符合业主"先能用"的优先, 进后台第一件事改. */
 const DEFAULT_PASSWORD = '1234';
@@ -92,39 +93,46 @@ export class ClientAuthService implements OnModuleInit {
   }
 
   async verifyToken(token: string): Promise<boolean> {
-    if (!token || this.revoked.has(token)) return false;
+    return (await this.resolveActor(token)) !== null;
+  }
+
+  async resolveActor(token: string): Promise<Actor | null> {
+    if (!token || this.revoked.has(token)) return null;
     const dot = token.indexOf('.');
-    if (dot <= 0) return false; // 老格式 (纯 hex 无点) → 失效, 前端会用存的密码静默重登
+    if (dot <= 0) return null;
     const payloadB64 = token.slice(0, dot);
     const sigHex = token.slice(dot + 1);
     const row = await this.repo.findOne({ where: { id: 1 } });
-    if (!row?.tokenSecret) return false;
+    if (!row?.tokenSecret) return null;
     const expect = createHmac('sha256', row.tokenSecret).update(payloadB64).digest('hex');
-    if (sigHex.length !== expect.length) return false;
+    if (!/^[a-f0-9]{64}$/.test(sigHex)) return null;
     try {
-      if (!timingSafeEqual(Buffer.from(sigHex, 'hex'), Buffer.from(expect, 'hex'))) return false;
+      if (!timingSafeEqual(Buffer.from(sigHex, 'hex'), Buffer.from(expect, 'hex'))) return null;
     } catch {
-      return false;
+      return null;
     }
     let payload: { iat?: number; exp?: number; uid?: number; ph?: string };
     try {
       payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8')) as { iat?: number; exp?: number };
     } catch {
-      return false;
+      return null;
     }
-    if (typeof payload.exp !== 'number' || payload.exp < Date.now()) return false;
+    if (!payload || typeof payload !== 'object' || typeof payload.exp !== 'number' || payload.exp <= Date.now()) return null;
     // 改密时间之后签发的才算数 (语义与老方案一致: 改密 = 全体重登)
-    if (typeof payload.iat !== 'number' || payload.iat < row.passwordChangedAt.getTime()) return false;
+    if (typeof payload.iat !== 'number' || payload.iat < row.passwordChangedAt.getTime()) return null;
     // 用户账户令牌额外绑定账户状态和当前密码。后台禁用账户或修改密码后，该账户的旧令牌立即失效。
     if (typeof payload.uid === 'number') {
       const user = await this.userRepo.createQueryBuilder('user')
         .addSelect('user.password')
         .where('user.id = :id', { id: payload.uid })
         .getOne();
-      if (!user?.enabled || typeof payload.ph !== 'string') return false;
-      if (payload.ph !== this.passwordFingerprint(user.password)) return false;
+      if (!user?.enabled || typeof payload.ph !== 'string') return null;
+      if (payload.ph !== this.passwordFingerprint(user.password)) return null;
+      if (!['admin', 'operator', 'viewer'].includes(user.role)) return null;
+      return { kind: 'user', userId: user.id, username: user.username, role: user.role };
     }
-    return true;
+    if (payload.uid !== undefined) return null;
+    return { kind: 'legacy', userId: null, username: 'legacy', role: 'viewer' };
   }
 
   /**
