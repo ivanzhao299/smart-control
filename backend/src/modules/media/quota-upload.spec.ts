@@ -1,4 +1,4 @@
-import { Server, createServer } from 'http';
+import { Server, createServer, request } from 'http';
 import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -50,5 +50,32 @@ describe('multipart quota enforcement', () => {
     quota.reserve.mockRejectedValue(new Error('full'));
     expect((await upload(10, 10)).status).toBe(403);
     expect(await fs.readdir(root)).toEqual([]);
+  });
+  it('releases reservation and partial file after a real client disconnect', async () => {
+    const client = request(url, { method: 'POST', headers: {
+      'X-Upload-Size': '100000', 'Content-Type': 'multipart/form-data; boundary=abort-test',
+    } });
+    client.on('error', () => undefined);
+    client.write('--abort-test\r\nContent-Disposition: form-data; name="file"; filename="partial.mp3"\r\nContent-Type: audio/mpeg\r\n\r\n');
+    client.write(Buffer.alloc(4096));
+    try {
+      for (let i = 0; i < 50; i++) {
+        const files = await fs.readdir(join(root, '_tmp')).catch(() => []);
+        if (files.length) break;
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      expect(quota.reserve).toHaveBeenCalledTimes(1);
+    } finally { client.destroy(); }
+    for (let i = 0; i < 100 && quota.release.mock.calls.length === 0; i++) await new Promise(resolve => setTimeout(resolve, 10));
+    expect(quota.release).toHaveBeenCalledTimes(1);
+    expect(await fs.readdir(join(root, '_tmp'))).toEqual([]);
+  });
+  it('cleans an incomplete multipart body that ends without its closing boundary', async () => {
+    const response = await fetch(url, { method: 'POST', headers: {
+      'X-Upload-Size': '100', 'Content-Type': 'multipart/form-data; boundary=broken',
+    }, body: '--broken\r\nContent-Disposition: form-data; name="file"; filename="partial.mp3"\r\nContent-Type: audio/mpeg\r\n\r\npartial', signal: AbortSignal.timeout(2000) });
+    expect(response.status).toBe(400);
+    expect(quota.release).toHaveBeenCalledTimes(1);
+    expect(await fs.readdir(join(root, '_tmp'))).toEqual([]);
   });
 });

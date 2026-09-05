@@ -2,7 +2,7 @@ import { Injectable, NestInterceptor, ExecutionContext, CallHandler, BadRequestE
 import { defer, lastValueFrom } from 'rxjs';
 import multer = require('multer');
 import { randomUUID } from 'crypto';
-import { promises as fs } from 'fs';
+import { promises as fs, createWriteStream } from 'fs';
 import { join, extname } from 'path';
 import { requireActor } from '../../common/auth/actor';
 import { MediaQuotaService } from './media-quota.service';
@@ -23,14 +23,41 @@ export class QuotaUploadInterceptor implements NestInterceptor {
       if (!Number.isSafeInteger(bytes) || bytes < 1 || !Number.isSafeInteger(maximum) || bytes > maximum) throw new BadRequestException('请提供有效的X-Upload-Size文件大小');
       const reservation = await this.quota.reserve(actor, bytes);
       let path: string | undefined;
+      let writing: Promise<void> = Promise.resolve();
       try {
         const directory = join(this.media.mediaRoot, '_tmp');
         await fs.mkdir(directory, { recursive: true });
+        if (req.aborted || req.destroyed) throw new BadRequestException('上传连接已断开');
         const parser = multer({
-          storage: multer.diskStorage({
-            destination: directory,
-            filename: (_req, file, cb) => { path = join(directory, randomUUID() + extname(file.originalname).toLowerCase()); cb(null, path.slice(directory.length + 1)); },
-          }),
+          storage: {
+            _handleFile: (_req, file, cb) => {
+              const filename = randomUUID() + extname(file.originalname).toLowerCase();
+              const target = join(directory, filename);
+              path = target;
+              const output = createWriteStream(target, { flags: 'wx' });
+              let failure: Error | undefined;
+              let sourceFailed = false;
+              // Stop consuming input, flush buffered bytes and close the handle.
+              // Multer's request error waits for this storage callback before cleanup.
+              const abort = () => { file.stream.unpipe(output); output.end(); };
+              const sourceError = () => { sourceFailed = true; abort(); };
+              file.stream.once('error', sourceError);
+              req.once('aborted', abort);
+              output.on('error', error => { failure = error; });
+              writing = new Promise<void>(resolve => output.once('close', () => {
+                req.removeListener('aborted', abort);
+                file.stream.removeListener('error', sourceError);
+                resolve();
+                // Multer already decrements its pending counter on file-stream error.
+                if (!sourceFailed) cb(failure ?? null, { destination: directory, filename, path: target, size: output.bytesWritten });
+              }));
+              file.stream.pipe(output);
+              if (req.aborted) abort();
+            },
+            _removeFile: (_req, file, cb) => {
+              fs.unlink(file.path).then(() => cb(null), error => cb(error.code === 'ENOENT' ? null : error));
+            },
+          },
           // Busboy signals limit when reaching the threshold, including an exact-size file.
           // One sentinel byte distinguishes a valid exact-size upload; never ingest excess.
           limits: { fileSize: bytes + 1, files: 1, fields: 5, fieldSize: 16 * 1024 },
@@ -40,9 +67,11 @@ export class QuotaUploadInterceptor implements NestInterceptor {
           },
         }).single('file');
         await new Promise<void>((resolve, reject) => parser(req, res, error => error ? reject(new BadRequestException('上传失败：文件过大或请求格式无效')) : resolve()));
+        if (req.aborted) throw new BadRequestException('上传连接已断开');
         if (!req.file || req.file.size !== bytes) throw new BadRequestException('实际文件大小与声明不一致');
         return await lastValueFrom(next.handle());
       } finally {
+        await writing;
         // The normal ingest moves this exact temp file. Do not delete final assets.
         if (path) await fs.unlink(path).catch(error => { if (error.code !== 'ENOENT') throw error; });
         await this.quota.release(actor, reservation);

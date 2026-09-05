@@ -10,6 +10,12 @@
 
 ## 工作队列
 
+### 上传断连清理实测与修复（2026-09-06）
+
+新增真实 HTTP socket 上传中途 destroy 测试，首次复现 quota.release 调用0次：默认 diskStorage 在请求断开后仍等待文件输入结束，Multer pendingWrites 无法归零。替换为受控磁盘 storage，随机文件以 wx 创建；aborted 时解除输入管道并结束写入，等待文件句柄 close 才回调和删除。源流错误路径避免重复递减 Multer pendingWrites；finally 同样等待磁盘写入关闭，再清理精确临时路径并释放预留。
+
+修复后5项上传测试通过：正常、过大/不足、缺大小/配额拒绝、真实中途断连、缺 multipart 结束边界；断连和畸形请求均验证临时目录为空及释放一次。后端构建通过（源流错误补充前），补充路径经 ts-jest编译及测试通过。进程崩溃/强杀后的持久化预留恢复、文件落盘与预留最终提交事务、真实 Windows 文件锁仍待完成，不以进程内断连测试代替。
+
 ### 媒体专用传输身份边界（2026-09-06）
 
 核查发现 mediaService 的列表/预览授权/上传/删除等仍全走专用 axios，未受 http.ts 代次校验保护。现改为同步捕获 URL 对应的令牌与身份代次，统一 AbortController 订阅身份变化；返回与异常都校验代次，上传进度只允许当前身份。完成后解除订阅。指定本地已安装 axios 1.16.1 的 fetch adapter，并配置 redirect:error、cache:no-store、withCredentials:false，避免 XHR 无法禁止重定向的问题。
