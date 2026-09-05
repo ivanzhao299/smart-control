@@ -1,4 +1,25 @@
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsOptional, IsString, MaxLength, IsIn, IsInt, Min } from 'class-validator';
+
+export class UpdateMediaDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  originalName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  remark?: string;
+
+  @IsOptional()
+  @IsIn(['private', 'shared'])
+  visibility?: 'private' | 'shared';
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  ownerUserId?: number;
+}
 
 export class MediaUploadMetaDto {
   @IsOptional()
@@ -39,6 +60,8 @@ export interface OrphanMediaItem {
 }
 
 export interface MediaListItem {
+  ownerUserId: number | null;
+  visibility: 'private' | 'shared';
   id: number;
   originalName: string;
   kind: 'video' | 'image' | 'audio' | 'webpage' | 'doc';

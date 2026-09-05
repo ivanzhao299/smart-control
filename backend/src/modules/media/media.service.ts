@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
@@ -8,7 +8,10 @@ import { promises as fs, createReadStream, ReadStream, statSync } from 'fs';
 import { join, resolve, relative, basename, extname, sep } from 'path';
 import { spawn } from 'child_process';
 import { MediaAsset, MediaKind } from '../../entities/media-asset.entity';
-import { MediaListItem, OrphanMediaItem } from './dto/media.dto';
+import { MediaListItem, OrphanMediaItem, UpdateMediaDto } from './dto/media.dto';
+import { User } from '../../entities/user.entity';
+import type { Actor } from '../../common/auth/actor';
+import { assertCanUpload, assertReadResource, assertWriteResource } from '../../common/auth/resource-policy';
 
 const VIDEO_MIME_PREFIXES = ['video/'];
 const IMAGE_MIME_PREFIXES = ['image/'];
@@ -183,6 +186,7 @@ export class MediaService implements OnModuleInit {
           resolution: null,
           remark: '推到大屏/投影即显示; 嘉宾称谓在 后台→系统品牌→欢迎页嘉宾称谓 编辑, 约 20s 自动生效',
           uploader: 'system',
+          ownerUserId: null, visibility: 'shared', source: 'system',
           lastPlayedAt: null,
         }));
         this.logger.info(`[Media] 内置动态欢迎页已入库: ${wpName}`, { context: 'MediaService' });
@@ -232,6 +236,7 @@ export class MediaService implements OnModuleInit {
         resolution: null,
         remark: b.remark,
         uploader: 'system',
+        ownerUserId: null, visibility: 'shared', source: 'system',
         lastPlayedAt: null,
       }));
       try {
@@ -282,7 +287,8 @@ export class MediaService implements OnModuleInit {
   }
 
   /** Multer 落到 tmp 后, 调用本方法把文件挪到正式位置 + 创建 DB 记录 */
-  async ingest(file: Express.Multer.File, uploader: string, remark?: string): Promise<MediaAsset> {
+  async ingest(file: Express.Multer.File, uploader: string, remark?: string, actor?: Actor): Promise<MediaAsset> {
+    if (actor) assertCanUpload(actor);
     // multer 默认按 latin1 解码 originalname, 中文文件名会乱码 → 转回 utf8.
     // (纯 ASCII 文件名在 latin1/utf8 下字节一致, 转换是恒等, 不受影响)
     const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
@@ -313,6 +319,9 @@ export class MediaService implements OnModuleInit {
       resolution: null,
       remark: remark ?? null,
       uploader,
+      ownerUserId: actor?.userId ?? null,
+      visibility: 'private',
+      source: 'upload',
       processingStatus: kind === 'video' ? 'pending' : 'ready',
       processingError: null,
       sourcePath: null,
@@ -502,13 +511,17 @@ export class MediaService implements OnModuleInit {
   }
 
   /** 添加网页 URL 作为一条 kind='webpage' 的媒体记录 (无物理文件, 存 sourceUrl) */
-  async createWebpage(name: string, url: string): Promise<MediaAsset> {
+  async createWebpage(name: string, url: string, actor?: Actor): Promise<MediaAsset> {
+    if (actor) assertCanUpload(actor);
     const clean = url.trim();
     if (!/^https?:\/\//i.test(clean)) {
       throw new BadRequestException('网页地址必须以 http:// 或 https:// 开头');
     }
     const entity = this.repo.create({
       originalName: (name || '').trim() || clean,
+      ownerUserId: actor?.userId ?? null,
+      visibility: 'private',
+      source: 'webpage',
       safeName: 'webpage',
       path: '',
       thumbPath: null,
@@ -525,8 +538,13 @@ export class MediaService implements OnModuleInit {
     return this.repo.save(entity);
   }
 
-  async list(opts: { kind?: MediaKind; limit?: number; offset?: number } = {}): Promise<{ items: MediaListItem[]; total: number }> {
+  async list(opts: { kind?: MediaKind; limit?: number; offset?: number; actor?: Actor } = {}): Promise<{ items: MediaListItem[]; total: number }> {
     const qb = this.repo.createQueryBuilder('m').orderBy('m.createdAt', 'DESC');
+    if (opts.actor && opts.actor.role !== 'admin') {
+      qb.andWhere('(m.visibility = :shared OR m.ownerUserId = :owner)', {
+        shared: 'shared', owner: opts.actor.kind === 'user' ? opts.actor.userId : null,
+      });
+    }
     if (opts.kind) qb.andWhere('m.kind = :k', { k: opts.kind });
     const total = await qb.getCount();
     if (typeof opts.limit === 'number') qb.take(opts.limit);
@@ -539,6 +557,39 @@ export class MediaService implements OnModuleInit {
     const m = await this.repo.findOne({ where: { id } });
     if (!m) throw new NotFoundException(`媒体不存在: id=${id}`);
     return m;
+  }
+
+  async authorized(id: number, actor: Actor, write = false): Promise<MediaAsset> {
+    const media = await this.get(id);
+    if (write) assertWriteResource(actor, media);
+    else assertReadResource(actor, media);
+    return media;
+  }
+
+  async updateOwned(id: number, actor: Actor, dto: UpdateMediaDto): Promise<MediaAsset> {
+    const row = await this.authorized(id, actor, true);
+    if ((dto.visibility !== undefined || dto.ownerUserId !== undefined) && actor.role !== 'admin') {
+      throw new ForbiddenException('仅管理员可调整资料归属或公共状态');
+    }
+    if (dto.ownerUserId !== undefined) {
+      if (!Number.isInteger(dto.ownerUserId) || dto.ownerUserId! < 1) throw new BadRequestException('归属用户无效');
+      const owner = await this.repo.manager.getRepository(User).findOneBy({ id: dto.ownerUserId, enabled: true });
+      if (!owner) throw new BadRequestException('目标用户不存在或已停用');
+      row.ownerUserId = owner.id;
+    }
+    if (dto.visibility !== undefined) {
+      if (dto.visibility !== 'private' && dto.visibility !== 'shared') throw new BadRequestException('可见范围无效');
+      row.visibility = dto.visibility;
+    }
+    if (dto.originalName !== undefined) {
+      if (typeof dto.originalName !== 'string' || !dto.originalName.trim()) throw new BadRequestException('资料名称不能为空');
+      row.originalName = dto.originalName.trim();
+    }
+    if (dto.remark !== undefined) {
+      if (typeof dto.remark !== 'string') throw new BadRequestException('备注无效');
+      row.remark = dto.remark.trim();
+    }
+    return this.repo.save(row);
   }
 
   /** 按原始文件名精确查 (playback 欢迎页一键投放按内置素材名定位) */
@@ -686,6 +737,8 @@ export class MediaService implements OnModuleInit {
 
   toListItem(m: MediaAsset): MediaListItem {
     return {
+      ownerUserId: m.ownerUserId,
+      visibility: m.visibility,
       id: m.id,
       originalName: m.originalName,
       kind: m.kind,

@@ -12,6 +12,9 @@ import {
   UploadedFile,
   UseInterceptors,
   HttpCode,
+  Req,
+  UseGuards,
+  Put,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
@@ -20,9 +23,21 @@ import { extname, join } from 'path';
 import { mkdirSync } from 'fs';
 // (Sprint-10: spawn 用于旧 publish 路径, 已下架)
 import { MediaService } from './media.service';
-import { ImportOrphanDto, MediaUploadMetaDto, WebpageCreateDto } from './dto/media.dto';
+import { ImportOrphanDto, MediaUploadMetaDto, WebpageCreateDto, UpdateMediaDto } from './dto/media.dto';
 import { OperationLogService } from '../logs/operation-log.service';
-import { Public } from '../../common/decorators/public.decorator';
+import { AuthenticatedRequest, requireActor } from '../../common/auth/actor';
+import { ActorAdminGuard } from '../../common/guards/actor-admin.guard';
+import { assertCanUpload } from '../../common/auth/resource-policy';
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+
+/** Runs before Multer so denied callers cannot fill the temporary disk. */
+@Injectable()
+class MediaUploadGuard implements CanActivate {
+  canActivate(ctx: ExecutionContext): boolean {
+    assertCanUpload(requireActor(ctx.switchToHttp().getRequest()));
+    return true;
+  }
+}
 
 /** 高清视频 4K 60fps 30 分钟 ≈ 10GB, 默认放到 10GB. env MEDIA_MAX_BYTES 可调 */
 const MAX_UPLOAD_BYTES = Number(process.env.MEDIA_MAX_BYTES ?? 10 * 1024 * 1024 * 1024);
@@ -37,6 +52,7 @@ export class MediaController {
   ) {}
 
   @Post('upload')
+  @UseGuards(MediaUploadGuard)
   @UseInterceptors(
     FileInterceptor('file', {
       storage: diskStorage({
@@ -83,13 +99,15 @@ export class MediaController {
     }),
   )
   async upload(
+    @Req() req: AuthenticatedRequest,
     @UploadedFile() file: Express.Multer.File,
     @Body() meta: MediaUploadMetaDto,
   ) {
     if (!file) {
       return { message: '未收到文件', data: null };
     }
-    const asset = await this.media.ingest(file, 'system', meta.remark);
+    const actor = requireActor(req);
+    const asset = await this.media.ingest(file, actor.username, meta.remark, actor);
     await this.opLog.record({
       operator: 'system',
       action: 'media.upload',
@@ -108,8 +126,8 @@ export class MediaController {
 
   /** 添加一个网页 URL 作为"媒体" — 可像视频/图片一样推送到 LED/投影 */
   @Post('webpage')
-  async createWebpage(@Body() dto: WebpageCreateDto) {
-    const asset = await this.media.createWebpage(dto.name, dto.url);
+  async createWebpage(@Body() dto: WebpageCreateDto, @Req() req: AuthenticatedRequest) {
+    const asset = await this.media.createWebpage(dto.name, dto.url, requireActor(req));
     await this.opLog.record({
       operator: 'system',
       action: 'media.webpage.create',
@@ -123,13 +141,14 @@ export class MediaController {
 
   @Get()
   async list(
+    @Req() req: AuthenticatedRequest,
     @Query('kind') kind?: 'video' | 'image' | 'audio' | 'webpage' | 'doc',
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
     const l = limit ? Math.max(1, Math.min(200, Number(limit))) : 200;
     const o = offset ? Math.max(0, Number(offset)) : 0;
-    const result = await this.media.list({ kind, limit: l, offset: o });
+    const result = await this.media.list({ kind, limit: l, offset: o, actor: requireActor(req) });
     return { message: 'ok', data: result };
   }
 
@@ -138,18 +157,21 @@ export class MediaController {
    * 路由必须排在 :id 前面, 否则 "orphans" 会被当成 :id 解析。
    */
   @Get('orphans')
+  @UseGuards(ActorAdminGuard)
   async orphans() {
     const items = await this.media.scanOrphans();
     return { message: 'ok', data: items };
   }
 
   @Get('tools/status')
+  @UseGuards(ActorAdminGuard)
   async mediaTools() {
     return { message: 'ok', data: await this.media.mediaToolStatus() };
   }
 
   /** 收编 scanOrphans() 列出的某个文件, 正式变成媒体库资源 */
   @Post('orphans/import')
+  @UseGuards(ActorAdminGuard)
   async importOrphan(@Body() dto: ImportOrphanDto) {
     const asset = await this.media.importOrphan(dto.relPath, 'system', dto.remark);
     await this.opLog.record({
@@ -164,18 +186,27 @@ export class MediaController {
   }
 
   @Get(':id')
-  async detail(@Param('id', ParseIntPipe) id: number) {
-    const m = await this.media.get(id);
+  async detail(@Param('id', ParseIntPipe) id: number, @Req() req: AuthenticatedRequest) {
+    const m = await this.media.authorized(id, requireActor(req));
     return { message: 'ok', data: this.media.toListItem(m) };
   }
 
-  @Public()
+  @Put(':id')
+  async update(@Param('id', ParseIntPipe) id: number, @Req() req: AuthenticatedRequest, @Body() dto: UpdateMediaDto) {
+    const actor = requireActor(req);
+    const media = await this.media.updateOwned(id, actor, dto);
+    await this.opLog.record({ operator: actor.username, action: 'media.update', targetType: 'media', targetId: String(id), message: JSON.stringify({ userId: actor.userId, ...dto }) });
+    return { message: '已更新', data: this.media.toListItem(media) };
+  }
+
   @Get(':id/file')
   async file(
+    @Req() req: AuthenticatedRequest,
     @Param('id', ParseIntPipe) id: number,
     @Res() res: Response,
     @Query('variant') variant?: string,
   ): Promise<void> {
+    await this.media.authorized(id, requireActor(req));
     const { stream, mimeType, size, filename } = await this.media.openStream(id, variant === 'pdf');
     res.setHeader('Content-Type', mimeType);
     res.setHeader('Content-Length', size);
@@ -186,7 +217,8 @@ export class MediaController {
   }
 
   @Delete(':id')
-  async remove(@Param('id', ParseIntPipe) id: number) {
+  async remove(@Param('id', ParseIntPipe) id: number, @Req() req: AuthenticatedRequest) {
+    await this.media.authorized(id, requireActor(req), true);
     const r = await this.media.remove(id);
     await this.opLog.record({
       operator: 'system',
@@ -206,6 +238,7 @@ export class MediaController {
   // 整套不再依赖 Windows 默认关联程序, 切换无延迟, 双路独立.
   /** 放映守护专用: 文档的磁盘绝对路径等 (本机进程用, 与其他接口同鉴权口径) */
   @Get(':id/doc-info')
+  @UseGuards(ActorAdminGuard)
   async docInfo(@Param('id', ParseIntPipe) id: number) {
     const a = await this.media.get(id);
     return {
@@ -224,6 +257,7 @@ export class MediaController {
 
   /** 放映守护回写: 页数 / Word 转出 PDF 相对路径 */
   @Post(':id/doc-meta')
+  @UseGuards(ActorAdminGuard)
   @HttpCode(200)
   async docMeta(
     @Param('id', ParseIntPipe) id: number,
@@ -236,7 +270,8 @@ export class MediaController {
   /** 对存量视频手动补做兼容转码；立即返回，进度通过媒体列表查看。 */
   @Post(':id/prepare')
   @HttpCode(202)
-  async prepare(@Param('id', ParseIntPipe) id: number) {
+  async prepare(@Param('id', ParseIntPipe) id: number, @Req() req: AuthenticatedRequest) {
+    await this.media.authorized(id, requireActor(req), true);
     void this.media.prepareVideo(id);
     return { message: '兼容处理已开始', data: { id } };
   }
