@@ -10,6 +10,12 @@
 
 ## 工作队列
 
+### 全局身份门禁收紧（2026-09-05）
+
+删除 GlobalAuthGuard 对 loopback 和 CLIENT_AUTH_DISABLED=true 的匿名豁免。所有非 Public 路由必须由管理员令牌或当前有效的用户令牌解析可信身份，转发头不能建立身份；明确 Public 路由仍必须逐项检查各自安全边界。新增9项 guard 测试，与6项身份测试合计15项通过，覆盖三种 loopback 地址、LAN、伪造转发头、陈旧 actor 清除、旧环境变量、两种用户令牌头和管理员/公开入口。
+
+发现但尚未完成的发布阻断项：StatusGateway 仍向未经认证的连接发送初始状态和事件；SystemController 的 site-heartbeat、admin-restart、admin-rebuild-frontend 有独立 Public 标记，后两者仍依赖旧静态口令与来源地址。必须改成受控运维身份并同步脚本，不能恢复全局匿名豁免来兼容。健康探针 system/health 保留 Public，不受本次移除影响。当前仍未部署。
+
 ### 完整服务启动与 HTTP 冒烟（2026-09-05）
 
 使用独立临时目录 `/tmp/smart-control-runtime-BK0BEA`、全新 SQLite、独立媒体目录、MOCK_MODE=true、DB_SYNCHRONIZE=false 完成全部 17 项迁移；完整 Nest 后端成功启动在 `127.0.0.1:33291`。新增可选 BIND_HOST，保持现有部署默认 0.0.0.0，隔离测试可仅绑定本机。未读取生产数据库、未控制真实设备。
