@@ -218,17 +218,25 @@ export class MediaController {
   @Public()
   @Get(':id/stream')
   async stream(@Param('id', ParseIntPipe) id: number, @Query('ticket') ticket: string,
-    @Res() res: Response): Promise<void> {
+    @Res() res: Response, @Req() req: AuthenticatedRequest): Promise<void> {
     const variant = await this.access.redeem(ticket, id);
-    const file = await this.media.openStream(id, variant === 'pdf');
+    const file = await this.media.openStream(id, variant === 'pdf', req.headers.range);
+    this.sendFile(res, file);
+  }
+
+  private sendFile(res: Response, file: Awaited<ReturnType<MediaService['openStream']>>): void {
     res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Type', file.mimeType);
     res.setHeader('Content-Length', file.size);
+    res.setHeader('Accept-Ranges', 'bytes');
+    if (file.contentRange) res.setHeader('Content-Range', file.contentRange);
+    res.status(file.status);
+    if (!file.stream) { res.end(); return; }
     res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.filename)}"`);
     file.stream.on('error', () => res.destroy());
-    res.on('close', () => file.stream.destroy());
+    res.on('close', () => file.stream?.destroy());
     file.stream.pipe(res);
   }
 
@@ -240,13 +248,7 @@ export class MediaController {
     @Query('variant') variant?: string,
   ): Promise<void> {
     await this.media.authorized(id, requireActor(req));
-    const { stream, mimeType, size, filename } = await this.media.openStream(id, variant === 'pdf');
-    res.setHeader('Content-Type', mimeType);
-    res.setHeader('Content-Length', size);
-    // 支持浏览器内嵌播放 (不强制下载)
-    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
-    res.setHeader('Accept-Ranges', 'bytes');
-    stream.pipe(res);
+    this.sendFile(res, await this.media.openStream(id, variant === 'pdf', req.headers.range));
   }
 
   @Delete(':id')

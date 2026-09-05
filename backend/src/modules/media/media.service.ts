@@ -5,11 +5,12 @@ import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Logger } from 'winston';
 import { Repository } from 'typeorm';
 import { promises as fs, createReadStream, ReadStream, statSync } from 'fs';
-import { join, resolve, relative, basename, extname, sep } from 'path';
+import { join, resolve, relative, basename, extname, sep, isAbsolute } from 'path';
 import { spawn } from 'child_process';
 import { MediaAsset, MediaKind } from '../../entities/media-asset.entity';
 import { MediaListItem, OrphanMediaItem, UpdateMediaDto } from './dto/media.dto';
 import { User } from '../../entities/user.entity';
+import { byteRange } from './byte-range';
 import type { Actor } from '../../common/auth/actor';
 import { assertCanUpload, assertReadResource, assertWriteResource } from '../../common/auth/resource-policy';
 
@@ -597,28 +598,41 @@ export class MediaService implements OnModuleInit {
     return this.repo.findOne({ where: { originalName } });
   }
 
-  async openStream(id: number, asPdf = false): Promise<{ stream: ReadStream; mimeType: string; size: number; filename: string }> {
+  async openStream(id: number, asPdf = false, rangeHeader?: string): Promise<{
+    stream: ReadStream | null; mimeType: string; size: number; filename: string;
+    status: number; contentRange?: string;
+  }> {
     const m = await this.get(id);
-    // 文档投屏: variant=pdf 时流出 Word 转出的 PDF (kiosk 逐页渲染用)
+    let file = m.path;
+    let filename = m.originalName;
+    let mimeType = m.mimeType;
     if (asPdf) {
       if (!m.docPdfPath) throw new NotFoundException('该文档还没有转换出 PDF (放映守护转换中或未启动)');
-      const pdfAbs = join(this.mediaRoot, m.docPdfPath);
-      let psize = 0;
-      try { psize = statSync(pdfAbs).size; } catch { throw new NotFoundException('PDF 文件不存在'); }
-      return {
-        stream: createReadStream(pdfAbs),
-        mimeType: 'application/pdf',
-        size: psize,
-        filename: m.originalName.replace(/\.[^.]+$/, '') + '.pdf',
-      };
+      file = resolve(this.mediaRoot, m.docPdfPath);
+      const rel = relative(this.mediaRoot, file);
+      if (rel === '..' || rel.startsWith(`..${sep}`) || resolve(file) === resolve(this.mediaRoot)) {
+        throw new NotFoundException('文件不存在');
+      }
+      filename = m.originalName.replace(/\.[^.]+$/, '') + '.pdf';
+      mimeType = 'application/pdf';
     }
-    let size = m.sizeBytes;
-    try { size = statSync(m.path).size; } catch { /* keep DB size */ }
+    let size: number;
+    try {
+      const root = await fs.realpath(this.mediaRoot);
+      file = await fs.realpath(file);
+      const rel = relative(root, file);
+      if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new Error('outside media root');
+      const stat = statSync(file);
+      if (!stat.isFile()) throw new Error('not a file');
+      size = stat.size;
+    } catch { throw new NotFoundException('文件不存在'); }
+    const range = byteRange(rangeHeader, size);
+    if (!range) return { stream: null, mimeType, filename, size: 0, status: 416, contentRange: `bytes */${size}` };
     return {
-      stream: createReadStream(m.path),
-      mimeType: m.mimeType,
-      size,
-      filename: m.originalName,
+      stream: createReadStream(file, range.partial ? { start: range.start, end: range.end } : undefined),
+      mimeType, filename, size: range.partial ? range.end - range.start + 1 : size,
+      status: range.partial ? 206 : 200,
+      contentRange: range.partial ? `bytes ${range.start}-${range.end}/${size}` : undefined,
     };
   }
 
