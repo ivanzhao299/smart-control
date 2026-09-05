@@ -61,7 +61,12 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright')
       await navigator.serviceWorker.register('/sw.js');
       await navigator.serviceWorker.ready;
     });
-    await first.waitForFunction(async () => !(await caches.keys()).includes('api-read') && !(await caches.keys()).includes('static-assets'));
+    // Poll the resolved CacheStorage result, not a Promise's truthiness in a page predicate.
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const names = await first.evaluate(() => caches.keys());
+      if (!names.includes('api-read') && !names.includes('static-assets')) break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
     assert.deepEqual(await first.evaluate(() => caches.keys()), ['unrelated-test-cache']);
     console.log('PASS real Chrome: cross-tab account change/logout, single reload per batch, new login preserved, legacy API/media caches removed, unrelated cache preserved');
     await context.close();

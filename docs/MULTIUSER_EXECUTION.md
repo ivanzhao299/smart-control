@@ -12,6 +12,8 @@
 
 ### 真实Chrome跨标签与Worker升级清缓存（2026-09-06）
 
+升级测试首次断言失败暴露异步缓存等待不可靠，改为Node侧逐次等待CacheStorage.keys的已解析结果，再做精确集合断言；随后旧Worker升级路径重跑通过。未修改应用清理逻辑来迁就测试。
+
 新增可重复运行frontend/tests/browser-privacy-smoke.cjs，用本机Chrome headless、全新隔离浏览器context和127.0.0.1临时HTTP端口。测试直接加载源码cross-tab-identity转译模块与sw-privacy.js；外部请求全部拒绝，未读取真实浏览器资料或生产凭据。实际两个标签验证合并账户变更事件只刷新一次、原标签不自刷新、新登录值保留、另一标签退出同步。先安装旧Worker再注册清理Worker，真实CacheStorage中api-read/static-assets删除，无关测试缓存保留。
 
 运行使用Node20和已发现的bundled Playwright，通过PLAYWRIGHT_MODULE_PATH指定模块；Chrome采用channel:chrome。首次测试发现测试自身页面导航等待竞争，已通过reload前清ready标志修正并重跑。此为真实浏览器的隔离模块验收，不是完整构建应用的页面/路由或旧正式PWA升级验收，更不是iOS/WKWebView测试。完整应用及设备验收仍未完成，禁止提前发布。
