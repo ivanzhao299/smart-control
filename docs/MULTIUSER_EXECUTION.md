@@ -44,6 +44,14 @@
 
 ## 验收边界
 
+## 设备状态和取流阶段进展
+
+新增 PlayerDeviceAccessService，GET /api/player-device/:slot/state 使用 X-Player-Token 设备认证，只查询凭据允许的当前通道，恢复发起账户并检查 enabled/role。文件地址替换为进程内随机票据，不包含设备原凭据；五分钟有效，最多1000份，轮询在剩余有效期超过一分钟时复用票据。绑定通道、媒体ID、startedAt、发起用户，取流每次复查设备、会话、用户及资料权限。GET stream 以该票据鉴权，复用媒体根目录限制及 Range 流，响应禁止缓存。
+
+设备访问测试覆盖不透明地址、复用、Range参数传递、伪造/跨通道拒绝、同素材重播后旧会话失效、设备撤销、账户停用、资料归属撤销及票据过期。测试为服务级模拟，不能当作Windows实际下载/音频连续播放验收。
+
+下一项：设备 advance 使用服务器发起用户上下文并防旧结束事件重放，文档守护接口与Windows/kiosk脚本接入；需解决短票据刷新不能触发重复播放，独立播放会话ID及原子切换防竞态仍待补。现在 startedAt 会话关联是阶段实现，尚不代表并发安全。生产未配置设备凭据，未发布。
+
 ## 设备认证基础阶段进展
 
 新增 PlayerDeviceAuthService/Guard，与用户 Actor 完全分离。服务端 PLAYER_DEVICE_CREDENTIALS 为 JSON 数组，每项包含 id、sha256、slots、enabled；客户端使用 X-Player-Token，服务端只保存摘要，以 timingSafeEqual 验证，每次请求重新检查配置。默认无配置拒绝，限定通道1/2/3，不接受重复头、短凭据、畸形摘要、禁用设备或越界权限。不得在文档/日志中记录实际凭据。
