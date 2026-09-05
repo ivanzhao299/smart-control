@@ -10,6 +10,14 @@
 
 ## 工作队列
 
+### 完整 WebSocket 实测与 HTTP 缓存隔离（2026-09-05）
+
+在独立 MOCK 服务 `127.0.0.1:33291` 使用真实 ws 客户端验证：管理员认证收到 hello/pong；匿名连接5秒后4401关闭且零业务消息；无效凭据4401关闭且零消息；新建 operator 用户成功握手，管理员通过 HTTP 停用后下一心跳4401断开，无 pong。测试仅操作临时数据库，未改生产账号；结束后停止该测试进程。
+
+修复 EtagInterceptor 对已认证 GET 的 `private,max-age=5` 缓存风险：带用户/管理员令牌或可信 Actor 时返回 no-store，不产生 ETag/304；已有 no-store 的票据响应也不再加 ETag。防止切换账号后浏览器短时复用同路径的私人响应。新增4项测试，连同6项 WebSocket 测试合计10项通过。前端内存状态、Service Worker 和详情页切换清理仍需完整浏览器验收；该修复不代替那些检查。
+
+进一步检查发现 PWA 使用 api-read NetworkFirst 和包含 media 的 static-assets 缓存。已将 api/media 路径改成 NetworkOnly，仅应用 assets/icons 使用新命名静态缓存；sw-privacy.js 在 activate 时删除本应用旧 api-read/static-assets 缓存。旧版已安装 PWA 的升级、断网账户切换以及缓存实际清除仍待浏览器测试，不以配置检查代替。
+
 ### WebSocket 身份与事件边界（2026-09-05）
 
 StatusGateway 新增 authenticate 消息（令牌放消息体，不放 URL）；连接5秒内未认证则关闭，认证前不发送 hello、快照或广播。认证服务复用当前用户状态/角色校验；每次广播及应用心跳重新核验，失效或认证存储错误时关闭。消息最大16KiB。普通用户只接收选定字段的设备状态、场景状态和播放失效通知，不转发任意 state、错误/告警详情、测试结果；管理员验证后保留完整事件。

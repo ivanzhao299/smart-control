@@ -105,6 +105,7 @@ export default defineConfig(({ mode }) => {
           ],
         },
         workbox: {
+          importScripts: [`${SCOPE_PREFIX}/sw-privacy.js`],
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           skipWaiting: true,
@@ -116,28 +117,18 @@ export default defineConfig(({ mode }) => {
           globIgnores: ['**/*Admin*', '**/el-date-picker*', 'welcome/**'],
           navigateFallback: `${SCOPE_PREFIX}/index.html`,
           navigateFallbackDenylist: [/\/api(\/|$)/, /\/ws(\/|$)/],
-          // PERFORMANCE_AUDIT P0-#5: API GET 走 NetworkFirst, 弱网时 3s 内
-          // 没返回就降级用 60s 内的 cache, 后台 silent revalidate.
-          // POST/PUT/DELETE 默认不缓存 (workbox 行为), 不会影响命令.
+          // Authenticated APIs must never fall back to another account's cache.
           runtimeCaching: [
             {
-              urlPattern: /\/api\/(devices|scenes|hardware|drivers|system\/info|system\/runtime|light-zones|power-circuits|brands|system-branding)/,
-              handler: 'NetworkFirst',
-              options: {
-                cacheName: 'api-read',
-                networkTimeoutSeconds: 2,   // 旧 3s → 2s, 弱网更快降级
-                expiration: {
-                  maxEntries: 80,
-                  maxAgeSeconds: 60,
-                },
-              },
+              urlPattern: /\/(api|media)(\/|$)/,
+              handler: 'NetworkOnly',
             },
             {
-              // 媒体缩略图 / 静态资源 stale-while-revalidate
-              urlPattern: /\/(media|assets|icons)\/.*\.(?:png|jpg|jpeg|webp|svg|woff2?)$/,
+              // Only application assets; never user-uploaded media.
+              urlPattern: /\/(assets|icons)\/.*\.(?:png|jpg|jpeg|webp|svg|woff2?)$/,
               handler: 'StaleWhileRevalidate',
               options: {
-                cacheName: 'static-assets',
+                cacheName: 'smart-control-static-v2',
                 expiration: { maxEntries: 100, maxAgeSeconds: 30 * 24 * 3600 },
               },
             },

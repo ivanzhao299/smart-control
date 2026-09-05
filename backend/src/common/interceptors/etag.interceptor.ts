@@ -27,9 +27,16 @@ export class EtagInterceptor implements NestInterceptor {
     const req = ctx.getRequest<Request>();
     if (req.method !== 'GET') return next.handle();
     const res = ctx.getResponse<Response>();
+    // A browser cache key does not include X-Client-Token. Never reuse a
+    // previous account's response, even briefly, after an identity switch.
+    if (req.headers.authorization || req.headers['x-client-token'] || (req as Request & { actor?: unknown }).actor) {
+      res.setHeader('Cache-Control', 'no-store');
+      return next.handle();
+    }
 
     return next.handle().pipe(
       map((body: unknown) => {
+        if (String(res.getHeader('Cache-Control') ?? '').includes('no-store')) return body;
         if (body === undefined || body === null) return body;
         try {
           const json = JSON.stringify(body);
