@@ -26,6 +26,7 @@ import { usePlaybackStore } from '@/stores/playback';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { absUrl, HttpError } from '@/services/http';
 import { useAdminAuthStore } from '@/stores/admin-auth';
+import MediaAdminPanel from '@/components/MediaAdminPanel.vue';
 
 const brandingStore = useSystemBrandingStore();
 
@@ -97,6 +98,8 @@ const uploadName = ref('');
 const uploadStartAt = ref(0);
 const filter = ref<'all' | 'video' | 'image' | 'audio' | 'webpage' | 'doc' | 'doc'>('all');
 const resourceScope = ref<'visible' | 'mine' | 'shared'>('visible');
+const ownerFilter = ref<number | undefined>();
+function setOwnerFilter(id: number | undefined): void { ownerFilter.value = id; void refresh(); }
 const viewMode = ref<'list' | 'grid' | 'detail'>('list');
 const previewItem = ref<MediaItem | null>(null);
 const isDragging = ref(false);
@@ -142,7 +145,7 @@ async function refresh(): Promise<void> {
   const revision = ++mediaRequestRevision;
   loading.value = true;
   try {
-    const r = await mediaService.list({ scope: resourceScope.value });
+    const r = await mediaService.list({ scope: resourceScope.value, ownerUserId: ownerFilter.value });
     if (revision !== mediaRequestRevision) return;
     items.value = r.items;
   } catch (e) {
@@ -957,6 +960,7 @@ onBeforeUnmount(() => window.clearInterval(processingRefreshTimer));
       </div>
     </div>
 
+    <MediaAdminPanel :items="items" @refresh="refresh" @owner="setOwnerFilter" />
     <!-- 添加网页 dialog -->
     <div v-if="webpageDialog" class="preview-mask" @click.self="webpageDialog = false">
       <div class="webpage-box">
