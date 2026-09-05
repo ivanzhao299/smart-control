@@ -1,8 +1,8 @@
-import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Logger, Param, ParseIntPipe, Post, Put, Req, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Logger, Param, ParseIntPipe, Post, Put, Req, Query, UseGuards } from '@nestjs/common';
+import { PlaybackOperatorGuard } from './playback-operator.guard';
 import { AuthenticatedRequest, requireActor } from '../../common/auth/actor';
 import { PersonalPlaylistService } from './personal-playlist.service';
 import { PlaybackService } from './playback.service';
-import { Public } from '../../common/decorators/public.decorator';
 
 /**
  * 鉴权策略 (Sprint-A 修正):
@@ -11,6 +11,7 @@ import { Public } from '../../common/decorators/public.decorator';
  *   改密码 / 改用户). 现场进入展厅 = 物理接触, 已经过了安全边界.
  */
 @Controller('playback')
+@UseGuards(PlaybackOperatorGuard)
 export class PlaybackController {
   constructor(private readonly service: PlaybackService, private readonly playlists: PersonalPlaylistService) {}
 
@@ -21,7 +22,6 @@ export class PlaybackController {
    * 标签 + 它给这个 slot 挑中的那个, 落进 pm2-out.log, 用来定位投影(slot2) setSinkId
    * 到底指到了哪、为什么没落到 HDMI2 那口。定位完删。
    */
-  @Public()
   @Post('audio-debug')
   @HttpCode(200)
   audioDebug(@Body() body: { slot?: number; labels?: string[]; picked?: string | null } = {}) {
