@@ -398,14 +398,18 @@ try {
     } | ConvertTo-Json -Compress -Depth 3
   }
 
-  $hbAuth = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("jinhu:jinhu2026"))
+  if (-not $env:SMART_CONTROL_HEARTBEAT_TOKEN_FILE) { throw 'Missing heartbeat credential file' }
+  $hbToken = [IO.File]::ReadAllText($env:SMART_CONTROL_HEARTBEAT_TOKEN_FILE).Trim()
+  if ($hbToken.Length -lt 32 -or $hbToken.Length -gt 512) { throw 'Invalid heartbeat credential' }
+  $hbHeaders = @{ 'X-Operations-Token' = $hbToken; 'Content-Type' = 'application/json' }
+  if ($env:SMART_CONTROL_HEARTBEAT_BASIC_AUTH) { $hbHeaders['Authorization'] = $env:SMART_CONTROL_HEARTBEAT_BASIC_AUTH }
   Invoke-RestMethod -Uri 'https://cnjinhu.top/control/api/system/site-heartbeat' `
     -Method Post `
-    -Headers @{ Authorization = $hbAuth; 'Content-Type' = 'application/json' } `
-    -Body $hbPayload -TimeoutSec 8 | Out-Null
+    -Headers $hbHeaders `
+    -Body $hbPayload -TimeoutSec 8 -MaximumRedirection 0 | Out-Null
   Log "heartbeat → cnjinhu (commit=$($hbHead.Substring(0,[Math]::Min(7,$hbHead.Length))), status=$hbStatus)" 'DarkGray'
 } catch {
-  Log "heartbeat 上报失败: $($_.Exception.Message)" 'Yellow'
+  Log "heartbeat 上报失败，请检查凭据、主机绑定和网络" 'Yellow'
 }
 
 if ($script:exitCode) { exit $script:exitCode }

@@ -395,13 +395,16 @@ if (-not $deduped) {
 if ($backendChanged) {
 Start-Sleep -Seconds 3   # 给上面的 pm2 start (若成功) 一点时间
 try {
-  $body = '{"token":"jinhu-restart-2026"}'
+  if (-not $env:SMART_CONTROL_OPERATIONS_TOKEN_FILE) { throw 'Missing operations credential file' }
+  $opsToken = [IO.File]::ReadAllText($env:SMART_CONTROL_OPERATIONS_TOKEN_FILE).Trim()
+  if ($opsToken.Length -lt 32 -or $opsToken.Length -gt 512) { throw 'Invalid operations credential' }
+  $body = '{}'
   Invoke-RestMethod -Uri 'http://localhost:3200/api/system/admin-restart' `
-    -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 5 | Out-Null
+    -Method Post -ContentType 'application/json' -Headers @{ 'X-Operations-Token' = $opsToken } -Body $body -TimeoutSec 5 -MaximumRedirection 0 | Out-Null
   Write-Host "  ✓ admin-restart 已触发, backend 200ms 后自退出 + pm2 autorestart" -ForegroundColor Green
 } catch {
   # 老版本 backend 没这个 endpoint (404), 不影响
-  Write-Host "  (admin-restart 不可达, 老版本 backend 没这个 endpoint, 跳过)" -ForegroundColor DarkGray
+  Write-Host "  (admin-restart 未完成，请检查运维凭据和后端状态；不得据此认定新版本已启动)" -ForegroundColor Yellow
 }
 } else {
   Write-Host "  backend/ 无改动, 跳过 admin-restart 兜底 (生产不停机)" -ForegroundColor Gray

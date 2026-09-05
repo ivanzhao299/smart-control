@@ -10,6 +10,14 @@
 
 ## 工作队列
 
+### 独立运维凭据（2026-09-06）
+
+site-heartbeat/admin-restart/admin-rebuild-frontend 继续显式Public以跳过用户身份，但全部增加OperationsGuard（无用户/管理员Actor）。OPERATIONS_CREDENTIALS配置JSON数组，每项id、enabled、sha256、scopes；scope为heartbeat/restart/rebuild，heartbeat另需host与正文完全一致。只存随机凭据SHA256；请求头X-Operations-Token，32至512字符，实时禁用/轮换。重启和构建保留loopback来源限制作为附加条件，已删除旧固定正文口令。
+
+update.ps1读取SMART_CONTROL_OPERATIONS_TOKEN_FILE；watcher及后端心跳发送读取SMART_CONTROL_HEARTBEAT_TOKEN_FILE。watcher旧硬编码Basic认证删除，需要代理Basic时显式配置SMART_CONTROL_HEARTBEAT_BASIC_AUTH。发送禁止重定向，后端心跳只允许HTTPS或本机HTTP；日志不输出凭据或异常正文。心跳凭据应仅有heartbeat scope，不能复用具restart能力的凭据。
+
+4项guard测试覆盖作用域、主机绑定、旧正文口令拒绝、禁用与轮换。尚未在Windows运行脚本，也未配置真实部署凭据、ACL或做完整HTTP运维调用验收。发布前必须先安全配置并验证新凭据，不得为了兼容旧脚本恢复固定口令。其它系统管理/公开信息端点仍需权限审计，当前不具备完整发布条件。
+
 ### 删除关联记录的事务与列表防复活（2026-09-06）
 
 资料删除在文件暂存后开启数据库事务，再次校验当前归属/状态/播放引用，同事务删除所有失效播放列表引用及资料行。保留原用户的历史快照供历史查询，缺失资料标记missing，不能重播。真实SQLite触发器注入删除失败，证明先删的列表记录回滚且原文件字节恢复。

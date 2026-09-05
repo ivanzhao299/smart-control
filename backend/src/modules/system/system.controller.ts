@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Logger, Post, Query, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Logger, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Operation, OperationsGuard } from './operations.guard';
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
 import { AdapterConfig, AppConfig, WebSocketConfig } from '../../common/config/configuration';
@@ -115,6 +116,8 @@ export class SystemController {
   // 现场主控机心跳: update.ps1 跑成功后回拨, 报当前 commit / 时间. 远程靠这个看 GK9000 状态.
   @Public()
   @Post('site-heartbeat')
+  @UseGuards(OperationsGuard)
+  @Operation('heartbeat')
   siteHeartbeat(@Body() body: {
     host?: string;
     commit?: string;
@@ -188,6 +191,8 @@ export class SystemController {
    */
   @Public()
   @Post('admin-restart')
+  @UseGuards(OperationsGuard)
+  @Operation('restart')
   adminRestart(@Req() req: Request, @Body() body: { token?: string } = {}) {
     const remoteAddr = req.socket?.remoteAddress ?? '';
     const isLoopback = remoteAddr === '127.0.0.1'
@@ -196,9 +201,6 @@ export class SystemController {
     if (!isLoopback) {
       this.logger.warn(`admin-restart denied: remote=${remoteAddr} (not loopback)`);
       throw new ForbiddenException('admin-restart 仅允许本机 loopback 调用');
-    }
-    if (body?.token !== 'jinhu-restart-2026') {
-      throw new BadRequestException('token 错误');
     }
     this.logger.warn(`admin-restart triggered from ${remoteAddr}, exiting in 200ms`);
     setTimeout(() => process.exit(0), 200);
@@ -216,13 +218,14 @@ export class SystemController {
    */
   @Public()
   @Post('admin-rebuild-frontend')
+  @UseGuards(OperationsGuard)
+  @Operation('rebuild')
   async adminRebuildFrontend(@Req() req: Request, @Body() body: { token?: string } = {}): Promise<unknown> {
     const remoteAddr = req.socket?.remoteAddress ?? '';
     const isLoopback = remoteAddr === '127.0.0.1'
       || remoteAddr === '::1'
       || remoteAddr === '::ffff:127.0.0.1';
     if (!isLoopback) throw new ForbiddenException('仅本机 loopback');
-    if (body?.token !== 'jinhu-restart-2026') throw new BadRequestException('token 错误');
 
     const { spawn } = await import('child_process');
     const { resolve } = await import('path');

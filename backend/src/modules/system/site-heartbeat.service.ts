@@ -5,6 +5,7 @@ import { Logger } from 'winston';
 import { AppConfig } from '../../common/config/configuration';
 import { AlertService } from '../alerts/alert.service';
 import { SystemService } from './system.service';
+import { promises as fs } from 'fs';
 
 /**
  * 站点心跳 —— 解决"现场挂了没人知道"。
@@ -90,6 +91,12 @@ export class SiteHeartbeatService implements OnModuleInit, OnModuleDestroy {
   async sendOnce(): Promise<void> {
     if (!this.sendUrl) return;
     try {
+      const target = new URL(this.sendUrl);
+      if (target.protocol !== 'https:' && !(target.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(target.hostname))) throw new Error('Unsafe heartbeat URL');
+      const credentialPath = process.env.SMART_CONTROL_HEARTBEAT_TOKEN_FILE;
+      if (!credentialPath) throw new Error('Missing heartbeat credential');
+      const token = (await fs.readFile(credentialPath, 'utf8')).trim();
+      if (token.length < 32 || token.length > 512) throw new Error('Invalid heartbeat credential');
       const app = this.config.getOrThrow<AppConfig>('app');
       const meta = this.system.meta();
       const ctrl = new AbortController();
@@ -97,7 +104,8 @@ export class SiteHeartbeatService implements OnModuleInit, OnModuleDestroy {
       try {
         const resp = await fetch(this.sendUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-Operations-Token': token },
+          redirect: 'error',
           body: JSON.stringify({
             host: app.hostMachine || 'unknown',
             commit: meta.commit ?? undefined,
@@ -118,7 +126,7 @@ export class SiteHeartbeatService implements OnModuleInit, OnModuleDestroy {
         clearTimeout(timer);
       }
     } catch (err) {
-      this.logger.warn(`站点心跳上报异常: ${(err as Error).message}`, {
+      this.logger.warn('站点心跳上报异常，请检查凭据、地址和网络', {
         context: 'SiteHeartbeatService',
       });
     }
