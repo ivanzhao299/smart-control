@@ -10,6 +10,12 @@
 
 ## 工作队列
 
+### 真实Chrome跨标签与Worker升级清缓存（2026-09-06）
+
+新增可重复运行frontend/tests/browser-privacy-smoke.cjs，用本机Chrome headless、全新隔离浏览器context和127.0.0.1临时HTTP端口。测试直接加载源码cross-tab-identity转译模块与sw-privacy.js；外部请求全部拒绝，未读取真实浏览器资料或生产凭据。实际两个标签验证合并账户变更事件只刷新一次、原标签不自刷新、新登录值保留、另一标签退出同步。先安装旧Worker再注册清理Worker，真实CacheStorage中api-read/static-assets删除，无关测试缓存保留。
+
+运行使用Node20和已发现的bundled Playwright，通过PLAYWRIGHT_MODULE_PATH指定模块；Chrome采用channel:chrome。首次测试发现测试自身页面导航等待竞争，已通过reload前清ready标志修正并重跑。此为真实浏览器的隔离模块验收，不是完整构建应用的页面/路由或旧正式PWA升级验收，更不是iOS/WKWebView测试。完整应用及设备验收仍未完成，禁止提前发布。
+
 ### 跨标签身份失效（2026-09-06）
 
 新增storage事件监听，仅响应本localStorage的客户端令牌/过期时间/服务器绑定/API地址及clear事件。立刻清本标签的客户端和管理员内存令牌及本标签sessionStorage管理员凭据，使旧请求/上传/WS失效，然后50ms合并刷新整个应用，重新从同一存储快照建立所有store。监听器不写localStorage，避免抹掉另一标签刚提交的新账户；主题等无关事件忽略，卸载时移除监听并取消待刷新定时器。
