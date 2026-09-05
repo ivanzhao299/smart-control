@@ -233,9 +233,9 @@ export class MediaController {
       targetType: 'media',
       targetId: String(id),
       result: 'success',
-      message: JSON.stringify({ id }),
+      message: JSON.stringify({ id, cleanupPending: r.cleanupPending }),
     });
-    return { message: '已删除', data: r };
+    return { message: r.cleanupPending ? '已删除资料记录，隔离文件待管理员清理' : '已删除', data: r };
   }
 
   // 注: 旧的 POST /api/media/:id/publish (spawn 系统播放器) 在 Sprint-10 已下架.

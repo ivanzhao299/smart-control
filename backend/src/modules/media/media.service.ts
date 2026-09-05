@@ -11,6 +11,7 @@ import { MediaAsset, MediaKind } from '../../entities/media-asset.entity';
 import { MediaListItem, OrphanMediaItem, UpdateMediaDto } from './dto/media.dto';
 import { User } from '../../entities/user.entity';
 import { byteRange } from './byte-range';
+import { recoverableDelete } from './recoverable-delete';
 import type { Actor } from '../../common/auth/actor';
 import { assertCanUpload, assertReadResource, assertWriteResource } from '../../common/auth/resource-policy';
 
@@ -461,6 +462,7 @@ export class MediaService implements OnModuleInit {
       for (const entry of entries) {
         const full = join(dir, entry.name);
         if (entry.isDirectory()) {
+          if (entry.name.startsWith('.delete-')) continue;
           if (resolve(full) === tmpRootResolved) continue; // _tmp 是上传中转站, 跳过
           await walk(full);
         } else if (entry.isFile()) {
@@ -495,6 +497,7 @@ export class MediaService implements OnModuleInit {
     const realFile = await fs.realpath(abs);
     const realRelative = relative(realRoot, realFile);
     if (!realRelative || realRelative.startsWith('..') || isAbsolute(realRelative)) throw new BadRequestException('非法路径');
+    if (realRelative.split(sep).some(part => part.startsWith('.delete-'))) throw new BadRequestException('删除隔离文件不能收编');
     let stat;
     try {
       stat = await fs.stat(abs);
@@ -708,18 +711,16 @@ export class MediaService implements OnModuleInit {
     return m.path;
   }
 
-  async remove(id: number, actor: Actor): Promise<{ removedId: number }> {
+  async remove(id: number, actor: Actor): Promise<{ removedId: number; cleanupPending: boolean }> {
     const release = this.acquireOperation(id);
     try {
       const m = await this.authorized(id, actor, true);
       if (this.preparing.has(id) || m.processingStatus === 'processing' || m.processingStatus === 'pending') throw new ConflictException('资料正在转码，不能删除');
       const channels = await this.repo.query('SELECT id FROM playback_channels WHERE currentMediaId = ? LIMIT 1', [id]);
       if (channels.length) throw new ConflictException('资料正在播放或暂停，请先停止播放再删除');
-      const dir = join(this.mediaRoot, String(m.id));
-      // Do not report success or free quota if Windows refuses to remove an open file.
-      await fs.rm(dir, { recursive: true, force: true });
-      await this.repo.remove(m);
-      return { removedId: id };
+      const result = await recoverableDelete(this.mediaRoot, m.id, () => this.repo.remove(m));
+      if (result.cleanupPending) this.logger.warn(`[Media] 已删除记录 #${id} 的隔离文件待清理`, { context: 'MediaService' });
+      return { removedId: id, cleanupPending: result.cleanupPending };
     } finally { release(); }
   }
 
