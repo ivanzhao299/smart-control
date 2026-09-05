@@ -336,6 +336,11 @@ export class MediaService implements OnModuleInit {
   /** 服务器侧来源 (在线曲库下载等) 从内存 buffer 入库 — 目录布局与 ingest 一致 */
   async ingestFromBuffer(originalName: string, mimeType: string, buf: Buffer, uploader: string, actor: Actor, remark?: string): Promise<MediaAsset> {
     assertCanUpload(actor);
+    if (actor.userId !== null) {
+      const current = await this.repo.manager.getRepository(User).findOneBy({ id: actor.userId, enabled: true });
+      if (!current) throw new ForbiddenException('导入账户已停用');
+      assertCanUpload({ ...actor, role: current.role });
+    }
     const kind = this.classifyKind(mimeType, originalName);
     if (!kind) throw new BadRequestException(`不支持的文件类型: ${mimeType}`);
     const safeName = this.safeFilename(originalName);

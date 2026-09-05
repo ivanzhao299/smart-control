@@ -56,6 +56,7 @@ describe('media isolation with SQLite repositories', () => {
   });
   it('rejects revoked import owners and non-admin orphan ingestion before touching files', async () => {
     await db.getRepository(User).update(1, { enabled: false });
+    await expect(media.ingestFromBuffer('test.mp3', 'audio/mpeg', Buffer.from('test'), alice.username, alice)).rejects.toThrow('导入账户已停用');
     await expect(media.ingestFromFile('test.mp3', 'audio/mpeg', '/nonexistent-import-test', alice.username, alice)).rejects.toThrow('导入账户已停用');
     await db.getRepository(User).update(1, { enabled: true, role: 'viewer' });
     await expect(media.ingestFromFile('test.mp3', 'audio/mpeg', '/nonexistent-import-test', alice.username, alice)).rejects.toThrow('上传权限');

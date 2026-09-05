@@ -6,6 +6,7 @@ import { MediaService } from '../media/media.service';
 import { FREEPD_GENRE_LABELS, FREEPD_TRACKS } from './freepd-catalog';
 import { Actor } from '../../common/auth/actor';
 import { assertCanUpload } from '../../common/auth/resource-policy';
+import { MediaQuotaService } from '../media/media-quota.service';
 
 /**
  * 在线无版权曲库 (2026-07-29 业主: "不能在系统里搜索和下载吗") —
@@ -22,6 +23,7 @@ export class OnlineMusicService {
   constructor(
     private readonly media: MediaService,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
+    private readonly quota: MediaQuotaService,
   ) {}
 
   private static readonly MAX_BYTES = 40 * 1024 * 1024;
@@ -74,10 +76,18 @@ export class OnlineMusicService {
     const existing = (await this.media.list({ actor })).items.find((m) => m.originalName.toLowerCase() === originalName.toLowerCase());
     if (existing) throw new ConflictException(`「${track.name}」已在媒体库里`);
 
+    // Claim the local worker before awaiting quota, so concurrent starts cannot overlap.
+    if (this.downloading) throw new ConflictException('下载服务正忙，请稍后重试');
     this.downloading = track.name;
+    let reservation: string | null = null;
     try {
+      const usage = await this.quota.usage(actor);
+      const allowance = usage.quotaBytes === null ? OnlineMusicService.MAX_BYTES
+        : Math.min(OnlineMusicService.MAX_BYTES, Math.max(0, Number(usage.quotaBytes) - Number(usage.usedBytes) - Number(usage.reservedBytes)));
+      if (allowance < 100 * 1024) throw new BadRequestException('剩余存储空间不足');
+      reservation = await this.quota.reserve(actor, allowance);
       const url = `${this.baseUrl()}/${encodeURI(track.path)}`;
-      const buf = await this.fetchBinary(url, OnlineMusicService.MAX_BYTES);
+      const buf = await this.fetchBinary(url, allowance);
       if (buf.length < 100 * 1024) {
         throw new BadRequestException('下载内容异常偏小, 可能被网络设备拦截, 已放弃入库');
       }
@@ -91,6 +101,7 @@ export class OnlineMusicService {
       return { id: saved.id, originalName: saved.originalName, sizeBytes: saved.sizeBytes };
     } finally {
       this.downloading = null;
+      await this.quota.release(actor, reservation);
     }
   }
 

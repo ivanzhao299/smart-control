@@ -14,6 +14,6 @@ import { QuotaUploadInterceptor } from './quota-upload.interceptor';
   imports: [TypeOrmModule.forFeature([MediaAsset]), LogsModule, ClientAuthModule, AdminAuthModule],
   controllers: [MediaController],
   providers: [MediaService, MediaAccessService, MediaQuotaService, QuotaUploadInterceptor],
-  exports: [MediaService],
+  exports: [MediaService, MediaQuotaService],
 })
 export class MediaModule {}
