@@ -34,6 +34,9 @@ export type PlaybackDisplayFit = 'fill' | 'contain' | 'cover';
  */
 @Entity({ name: 'playback_channels' })
 export class PlaybackChannel {
+  @Column({ name: 'playback_session', type: 'varchar', length: 64, nullable: true })
+  playbackSession!: string | null;
+
   @Column({ name: 'initiator_user_id', type: 'integer', nullable: true })
   initiatorUserId!: number | null;
 

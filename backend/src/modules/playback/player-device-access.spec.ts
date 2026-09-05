@@ -3,7 +3,7 @@ import { PlayerDeviceAccessService } from './player-device-access.service';
 describe('device playback access grants', () => {
   let service: PlayerDeviceAccessService, row: any, user: any, devices: any, media: any, playback: any;
   beforeEach(() => {
-    row = { slot: 3, currentMediaId: 7, initiatorUserId: 2, startedAt: new Date('2026-09-05T00:00:00Z') };
+    row = { slot: 3, currentMediaId: 7, initiatorUserId: 2, playbackSession: 'session-1', startedAt: new Date('2026-09-05T00:00:00Z') };
     user = { id: 2, username: 'owner', enabled: true, role: 'operator' };
     devices = { authenticate: jest.fn(() => ({ id: 'bgm', slots: [3] })) };
     media = { authorized: jest.fn(async () => ({})), openStream: jest.fn(async () => ({ status: 206 })) };
@@ -24,7 +24,7 @@ describe('device playback access grants', () => {
   });
   it('rejects old playback sessions even if the same media is replayed', async () => {
     const ticket = ticketOf(await service.state(3, 'device-secret'));
-    row.startedAt = new Date('2026-09-05T00:01:00Z');
+    row.playbackSession = 'session-2';
     await expect(service.stream(3, ticket)).rejects.toThrow('播放会话已变化');
     expect(media.openStream).not.toHaveBeenCalled();
   });
@@ -47,5 +47,14 @@ describe('device playback access grants', () => {
     finally { clock.mockRestore(); }
     playback.getBySlot.mockResolvedValue({ currentMediaId: null, currentMediaUrl: null });
     await expect(service.state(3, 'device-secret')).rejects.toThrow('播放状态变化或资料权限已撤销');
+  });
+  it('restores the server-side initiator for advance and rejects stale or paused events', async () => {
+    playback.advance = jest.fn(async () => undefined);
+    await service.advance(3, 'device-secret', 'session-1');
+    expect(playback.advance).toHaveBeenCalledWith(3, expect.objectContaining({ userId: 2, role: 'operator' }), 'session-1');
+    await expect(service.advance(3, 'device-secret', 'old')).rejects.toThrow();
+    row.paused = true;
+    await expect(service.advance(3, 'device-secret', 'session-1')).rejects.toThrow();
+    expect(playback.advance).toHaveBeenCalledTimes(1);
   });
 });

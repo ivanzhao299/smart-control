@@ -1,4 +1,5 @@
-import { BadRequestException, Inject, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Repository, In, IsNull } from 'typeorm';
@@ -90,7 +91,7 @@ export class PlaybackService implements OnModuleInit {
     // 2026-07-25 业主: "LED/背景音乐/投影默认不要自动播, 有人操作才播"。
     // 后端每次启动(开机/部署重启)把三路播放状态清空回待机 —— 重启后无人操作
     // 就该是待机。要放内容: 媒体页/播放控制台人为推送。
-    await this.repo.update({ slot: In([1, 2, 3]) }, { currentMediaId: null, initiatorUserId: null, currentPlaylistId: null, paused: false });
+    await this.repo.update({ slot: In([1, 2, 3]) }, { playbackSession: null, currentMediaId: null, initiatorUserId: null, currentPlaylistId: null, paused: false });
     this.logger.info('[Playback] 启动即待机: 已清空三路播放状态 (业主要求默认不自动播)');
   }
 
@@ -111,7 +112,7 @@ export class PlaybackService implements OnModuleInit {
    * - WS 广播 playback_channel_changed
    * - PlayerPage 收到 WS 事件就切 <video> / <img>
    */
-  async publishMedia(slot: number, mediaId: number, actor: Actor, opts: { loopMode?: 'once' | 'loop' } = {}): Promise<PlaybackChannelView> {
+  async publishMedia(slot: number, mediaId: number, actor: Actor, opts: { loopMode?: 'once' | 'loop'; expectedSession?: string } = {}): Promise<PlaybackChannelView> {
     assertCanUpload(actor);
     const row = await this.repo.findOne({ where: { slot } });
     if (!row) throw new NotFoundException(`slot=${slot} 不存在`);
@@ -131,7 +132,8 @@ export class PlaybackService implements OnModuleInit {
     const loopMode = opts.loopMode ?? 'loop';
     // 只写"推送新媒体"该动的这几个字段, 不整行 save —— 否则会把 playMode /
     // lastHeartbeatAt 这些不相干的字段一起写回旧值 (见 pause 上方注释)
-    await this.repo.update({ slot }, {
+    const changed = await this.repo.update(opts.expectedSession ? { slot, playbackSession: opts.expectedSession, paused: false } : { slot }, {
+      playbackSession: randomUUID(),
       currentMediaId: mediaId,
       initiatorUserId: actor.userId,
       docPage: 1, // 新内容从第一页开始 (文档投屏)
@@ -142,6 +144,7 @@ export class PlaybackService implements OnModuleInit {
       loopMode,
       paused: false,
     });
+    if (!changed.affected) throw new ConflictException('播放会话已变化');
 
     // 记历史: 现场常有"刚才那片子叫啥来着, 再放一遍" —— 有历史就一点即回,
     // 不用去媒体库翻。名字存快照, 媒体以后被删/改名, 历史仍看得到当时播的是什么。
@@ -305,22 +308,24 @@ export class PlaybackService implements OnModuleInit {
    * 当前曲不在列表 (从媒体库临时推的) / 列表空: 有当前曲就重播它, 否则不动, 从任何
    * 状态都不会卡死。
    */
-  async advance(slot: number, actor: Actor): Promise<PlaybackChannelView> {
+  async advance(slot: number, actor: Actor, expectedSession?: string): Promise<PlaybackChannelView> {
     assertCanUpload(actor);
     const row = await this.repo.findOne({ where: { slot } });
     if (!row) throw new NotFoundException(`slot=${slot} 不存在`);
     const mode: PlaybackPlayMode = row.playMode ?? 'loopAll';
+    if (expectedSession && row.playbackSession !== expectedSession) throw new ConflictException('播放会话已变化');
+    const nextOptions = { loopMode: row.loopMode, expectedSession };
 
     // 单曲循环: 直接重播当前 (不看列表)
     if (mode === 'loop1' && row.currentMediaId !== null) {
-      return this.publishMedia(slot, row.currentMediaId, actor, { loopMode: row.loopMode });
+      return this.publishMedia(slot, row.currentMediaId, actor, nextOptions);
     }
 
     const list = await this.playablePlaylist(slot, actor);
 
     // 列表空: 无从推进. 有当前曲就重播 (别让背景音乐彻底停), 否则不动.
     if (list.length === 0) {
-      if (row.currentMediaId !== null) return this.publishMedia(slot, row.currentMediaId, actor, { loopMode: row.loopMode });
+      if (row.currentMediaId !== null) return this.publishMedia(slot, row.currentMediaId, actor, nextOptions);
       return this.toView(row);
     }
 
@@ -330,18 +335,18 @@ export class PlaybackService implements OnModuleInit {
       let pick = cur;
       if (list.length > 1) { while (pick === cur) pick = Math.floor(Math.random() * list.length); }
       else pick = 0;
-      return this.publishMedia(slot, list[pick].mediaId, actor, { loopMode: row.loopMode });
+      return this.publishMedia(slot, list[pick].mediaId, actor, nextOptions);
     }
 
     if (mode === 'seq') {
-      if (cur < 0) return this.publishMedia(slot, list[0].mediaId, actor, { loopMode: row.loopMode });
-      if (cur >= list.length - 1) return this.stop(slot); // 顺序播到底 → 待机
-      return this.publishMedia(slot, list[cur + 1].mediaId, actor, { loopMode: row.loopMode });
+      if (cur < 0) return this.publishMedia(slot, list[0].mediaId, actor, nextOptions);
+      if (cur >= list.length - 1) return this.stop(slot, expectedSession);
+      return this.publishMedia(slot, list[cur + 1].mediaId, actor, nextOptions);
     }
 
     // loopAll (默认): 环形下一首
     const next = cur < 0 ? 0 : (cur + 1) % list.length;
-    return this.publishMedia(slot, list[next].mediaId, actor, { loopMode: row.loopMode });
+    return this.publishMedia(slot, list[next].mediaId, actor, nextOptions);
   }
 
   private async playablePlaylist(slot: number, actor: Actor): Promise<PlaylistItem[]> {
@@ -389,9 +394,10 @@ export class PlaybackService implements OnModuleInit {
   }
 
   /** 清掉当前播放, 回到待机 (PlayerPage 显示 logo + 系统名称) */
-  async stop(slot: number): Promise<PlaybackChannelView> {
+  async stop(slot: number, expectedSession?: string): Promise<PlaybackChannelView> {
     // 只清播放状态相关字段, 不碰 playMode / lastHeartbeatAt (见 pause 上方注释)
-    const res = await this.repo.update({ slot }, {
+    const res = await this.repo.update(expectedSession ? { slot, playbackSession: expectedSession, paused: false } : { slot }, {
+      playbackSession: null,
       currentMediaId: null,
       initiatorUserId: null,
       currentPlaylistId: null,
@@ -399,7 +405,10 @@ export class PlaybackService implements OnModuleInit {
       startedAt: null,
       paused: false,
     });
-    if (!res.affected) throw new NotFoundException(`slot=${slot} 不存在`);
+    if (!res.affected) {
+      if (expectedSession) throw new ConflictException('播放会话已变化');
+      throw new NotFoundException(`slot=${slot} 不存在`);
+    }
 
     const view = await this.getBySlot(slot);
     this.broadcast(view);

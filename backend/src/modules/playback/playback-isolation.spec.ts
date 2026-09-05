@@ -72,4 +72,16 @@ describe('playback ownership', () => {
     expect((await service.getBySlot(1, alice)).restricted).toBe(true);
     expect((await service.getBySlot(1, bob)).restricted).toBe(false);
   });
+  it('atomically accepts one completion event and rejects stale publish/stop', async () => {
+    await service.publishMedia(1, aliceId, alice);
+    const session = (await db.getRepository(PlaybackChannel).findOneByOrFail({ slot: 1 })).playbackSession!;
+    const results = await Promise.allSettled([service.advance(1, alice, session), service.advance(1, alice, session)]);
+    expect(results.filter(x => x.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter(x => x.status === 'rejected')).toHaveLength(1);
+    expect(await db.getRepository(PlaybackHistory).count()).toBe(2);
+    await service.publishMedia(1, bobId, bob);
+    await expect(service.stop(1, session)).rejects.toThrow('播放会话已变化');
+    await expect(service.publishMedia(1, aliceId, alice, { expectedSession: session })).rejects.toThrow('播放会话已变化');
+    expect((await service.getBySlot(1, bob)).currentMediaId).toBe(bobId);
+  });
 });

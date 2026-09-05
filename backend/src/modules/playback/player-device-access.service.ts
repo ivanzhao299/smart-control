@@ -24,7 +24,7 @@ export class PlayerDeviceAccessService {
   ) {}
 
   private session(row: PlaybackChannel): string {
-    return `${row.currentMediaId}:${row.startedAt?.toISOString() ?? ''}:${row.initiatorUserId}`;
+    return row.playbackSession ?? '';
   }
   private async initiator(row: PlaybackChannel): Promise<Actor> {
     // Null is the separate administrator login; personal accounts always persist an ID.
@@ -66,8 +66,18 @@ export class PlayerDeviceAccessService {
     if (!grant || grant.slot !== slot || grant.expires <= Date.now()) throw new UnauthorizedException('播放凭证已失效');
     this.devices.authenticate(grant.token, slot);
     const row = await this.channels.findOneByOrFail({ slot });
-    if (this.session(row) !== grant.session) throw new UnauthorizedException('播放会话已变化');
+    if (this.session(row) !== grant.session || row.currentMediaId !== grant.mediaId) throw new UnauthorizedException('播放会话已变化');
     await this.media.authorized(grant.mediaId, await this.initiator(row));
     return this.media.openStream(grant.mediaId, grant.pdf, range);
+  }
+
+  async advance(slot: number, token: string, session: string) {
+    this.devices.authenticate(token, slot);
+    if (typeof session !== 'string' || !session) throw new ConflictException('缺少播放会话');
+    const row = await this.channels.findOneByOrFail({ slot });
+    if (this.session(row) !== session || row.currentMediaId === null || row.paused) throw new ConflictException('播放会话已变化或已暂停');
+    const actor = await this.initiator(row);
+    await this.playback.advance(slot, actor, session);
+    return this.state(slot, token);
   }
 }

@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Param, ParseIntPipe, UseGuards, HttpCode, Headers, Query, Res, Header } from '@nestjs/common';
+import { Controller, Post, Get, Param, ParseIntPipe, UseGuards, HttpCode, Headers, Query, Res, Header, Body } from '@nestjs/common';
 import { Response } from 'express';
 import { PlayerDeviceAccessService } from './player-device-access.service';
 import { Public } from '../../common/decorators/public.decorator';
@@ -42,5 +42,12 @@ export class PlayerDeviceController {
   async heartbeat(@Param('slot', ParseIntPipe) slot: number) {
     await this.playback.heartbeat(slot);
     return { message: 'ok', data: null };
+  }
+
+  @Post('advance')
+  @UseGuards(PlayerDeviceGuard)
+  @HttpCode(200)
+  async advance(@Param('slot', ParseIntPipe) slot: number, @Headers('x-player-token') token: string, @Body() body: { playbackSession?: string }) {
+    return { message: 'ok', data: await this.access.advance(slot, token, body?.playbackSession ?? '') };
   }
 }
