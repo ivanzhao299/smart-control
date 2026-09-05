@@ -11,6 +11,9 @@ export class TypeOrmConfigService implements TypeOrmOptionsFactory {
 
   createTypeOrmOptions(): TypeOrmModuleOptions {
     const cfg = this.config.getOrThrow<DatabaseConfig>('database');
+    if (cfg.synchronize) {
+      throw new Error('Multiuser schema requires explicit migrations. Set DB_SYNCHRONIZE=false and run migration:run against the backed-up target database.');
+    }
     mkdirSync(dirname(cfg.path), { recursive: true });
 
     return {

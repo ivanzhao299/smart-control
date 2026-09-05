@@ -73,7 +73,7 @@ export default (): RootConfig => ({
   },
   database: {
     path: resolvePath(process.env.DB_PATH, './database/smart-control.db'),
-    synchronize: parseBool(process.env.DB_SYNCHRONIZE, true),
+    synchronize: parseBool(process.env.DB_SYNCHRONIZE, false),
     logging: parseBool(process.env.DB_LOGGING, false),
   },
   logger: {
