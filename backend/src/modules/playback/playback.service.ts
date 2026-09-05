@@ -113,6 +113,13 @@ export class PlaybackService implements OnModuleInit {
    * - PlayerPage 收到 WS 事件就切 <video> / <img>
    */
   async publishMedia(slot: number, mediaId: number, actor: Actor, opts: { loopMode?: 'once' | 'loop'; expectedSession?: string } = {}): Promise<PlaybackChannelView> {
+    const release = this.mediaService.acquireOperation(mediaId);
+    try {
+      return await this.publishMediaLocked(slot, mediaId, actor, opts);
+    } finally { release(); }
+  }
+
+  private async publishMediaLocked(slot: number, mediaId: number, actor: Actor, opts: { loopMode?: 'once' | 'loop'; expectedSession?: string }): Promise<PlaybackChannelView> {
     assertCanUpload(actor);
     const row = await this.repo.findOne({ where: { slot } });
     if (!row) throw new NotFoundException(`slot=${slot} 不存在`);

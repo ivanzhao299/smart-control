@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
@@ -80,6 +80,17 @@ export class MediaService implements OnModuleInit {
   /** 媒体存储根目录 (env MEDIA_ROOT, 默认 D:\Media — Windows / /var/lib/smart-control/media — *nix) */
   readonly mediaRoot: string;
   private readonly preparing = new Set<number>();
+  private readonly activeOperations = new Set<number>();
+  acquireOperation(id: number): () => void {
+    if (this.activeOperations.has(id)) throw new ConflictException('资料正在使用，请稍后重试');
+    this.activeOperations.add(id);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.activeOperations.delete(id);
+    };
+  }
 
   constructor(
     @InjectRepository(MediaAsset)
@@ -697,12 +708,19 @@ export class MediaService implements OnModuleInit {
     return m.path;
   }
 
-  async remove(id: number): Promise<{ removedId: number }> {
-    const m = await this.get(id);
-    const dir = join(this.mediaRoot, String(m.id));
-    await this.rmDirSafe(dir);
-    await this.repo.remove(m);
-    return { removedId: id };
+  async remove(id: number, actor: Actor): Promise<{ removedId: number }> {
+    const release = this.acquireOperation(id);
+    try {
+      const m = await this.authorized(id, actor, true);
+      if (this.preparing.has(id) || m.processingStatus === 'processing' || m.processingStatus === 'pending') throw new ConflictException('资料正在转码，不能删除');
+      const channels = await this.repo.query('SELECT id FROM playback_channels WHERE currentMediaId = ? LIMIT 1', [id]);
+      if (channels.length) throw new ConflictException('资料正在播放或暂停，请先停止播放再删除');
+      const dir = join(this.mediaRoot, String(m.id));
+      // Do not report success or free quota if Windows refuses to remove an open file.
+      await fs.rm(dir, { recursive: true, force: true });
+      await this.repo.remove(m);
+      return { removedId: id };
+    } finally { release(); }
   }
 
   async markPlayed(id: number): Promise<void> {
@@ -720,6 +738,7 @@ export class MediaService implements OnModuleInit {
   /** 探测真实编码；浏览器不稳播的格式生成 H.264/AAC MP4 播放副本。 */
   async prepareVideo(id: number): Promise<void> {
     if (this.preparing.has(id)) return;
+    const release = this.acquireOperation(id);
     this.preparing.add(id);
     try {
       const media = await this.get(id);
@@ -769,6 +788,7 @@ export class MediaService implements OnModuleInit {
       this.logger.error(`[Media] 视频 #${id} 兼容处理失败: ${message}`, { context: 'MediaService' });
     } finally {
       this.preparing.delete(id);
+      release();
     }
   }
 

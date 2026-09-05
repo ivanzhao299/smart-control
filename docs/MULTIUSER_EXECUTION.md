@@ -10,6 +10,12 @@
 
 ## 工作队列
 
+### 删除与播放/转码互斥（2026-09-06）
+
+MediaService.remove 强制 Actor 并在服务内复查写权限；pending/processing 视频、仍被播放通道引用（包括暂停）的资料返回冲突。新增同一 MediaService 实例按资料ID的互斥，publishMedia、prepareVideo、remove 共用，阻止检查后并发推送或转码。锁释放幂等。删除不再忽略磁盘清理错误，失败时不删除数据库行/释放其计量；控制器删除审计使用 actor.username。
+
+5项删除门禁测试、6项播放隔离与5项入库恢复测试合计16项通过。该锁仅进程内；发布前必须验证单进程约束或补持久锁。尚未完成删除中途磁盘部分成功/数据库失败恢复、播放列表外键与历史清理、打开的预览流、归属转移/文档转换互斥以及真实Windows文件锁测试，不能称删除生命周期完整。待补可恢复删除流程，不能以文件先删再删行作为最终原子实现。
+
 ### 上传断连清理实测与修复（2026-09-06）
 
 新增真实 HTTP socket 上传中途 destroy 测试，首次复现 quota.release 调用0次：默认 diskStorage 在请求断开后仍等待文件输入结束，Multer pendingWrites 无法归零。替换为受控磁盘 storage，随机文件以 wx 创建；aborted 时解除输入管道并结束写入，等待文件句柄 close 才回调和删除。源流错误路径避免重复递减 Multer pendingWrites；finally 同样等待磁盘写入关闭，再清理精确临时路径并释放预留。

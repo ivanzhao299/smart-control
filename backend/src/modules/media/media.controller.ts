@@ -225,10 +225,10 @@ export class MediaController {
 
   @Delete(':id')
   async remove(@Param('id', ParseIntPipe) id: number, @Req() req: AuthenticatedRequest) {
-    await this.media.authorized(id, requireActor(req), true);
-    const r = await this.media.remove(id);
+    const actor = requireActor(req);
+    const r = await this.media.remove(id, actor);
     await this.opLog.record({
-      operator: 'system',
+      operator: actor.username,
       action: 'media.delete',
       targetType: 'media',
       targetId: String(id),
