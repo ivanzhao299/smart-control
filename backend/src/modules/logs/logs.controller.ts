@@ -1,9 +1,12 @@
 import { Controller, Get, Query } from '@nestjs/common';
+import { UseGuards } from '@nestjs/common';
+import { ActorAdminGuard } from '../../common/guards/actor-admin.guard';
 import { OperationLogService } from './operation-log.service';
 import { AlertService } from '../alerts/alert.service';
 import { QueryLogDto } from './dto/query-log.dto';
 
 @Controller('logs')
+@UseGuards(ActorAdminGuard)
 export class LogsController {
   constructor(
     private readonly service: OperationLogService,

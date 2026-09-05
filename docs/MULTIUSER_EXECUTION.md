@@ -10,6 +10,12 @@
 
 ## 工作队列
 
+### 全局管理数据与具名管理员（2026-09-06）
+
+Scheduler/Audit/Logs/TestCenter/UAT 五个控制器全部限管理员，包含读取，避免普通用户看到别人的操作日志、审计快照、测试结果或修改全局任务。审计回滚显式使用requireAdmin(req).username传递真实操作者。前端调用位置已确认主要为admin服务/监控页，仍需UI验收。
+
+旧AdminGuard在存在全局验证Actor时复用当前admin角色，允许具名管理员管理现有音频/品牌等受保护配置，无需再输入共享后台口令；operator/viewer不进入旧Bearer回退。没有Actor的独立旧路径仍必须验证后台Bearer。新增元数据/角色/审计测试以及4项具名管理员兼容测试；不是绕过登录验证。剩余分区编组和公开端点等按后续审计执行，尚未部署。
+
 ### 基础配置管理边界（2026-09-06）
 
 设备档案、品牌、驱动模板、硬件连接、场景动作五个配置控制器增加ConfigurationWriteGuard：全部请求需可信Actor，读取保留给已登录用户，写入仅admin角色；不把此guard用于正常灯光/音量/空调控制。ScenesController创建/修改/删除与测试执行仅管理员，普通operator仍可execute/stop/cancel已有场景（viewer由全局写门禁拒绝）。

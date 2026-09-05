@@ -1,5 +1,5 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
-import { Request } from 'express';
+import { AuthenticatedRequest, requireAdmin } from '../../common/auth/actor';
 import { AdminAuthService } from './admin-auth.service';
 
 /**
@@ -25,7 +25,13 @@ export class AdminGuard implements CanActivate {
   constructor(private readonly authService: AdminAuthService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const req = context.switchToHttp().getRequest<Request>();
+    const req = context.switchToHttp().getRequest<AuthenticatedRequest>();
+    // GlobalAuthGuard already resolved the current DB role for named accounts.
+    // Never require a second, shared admin password from a verified administrator.
+    if (req.actor) {
+      requireAdmin(req);
+      return true;
+    }
     const auth = req.headers['authorization'];
     if (!auth || typeof auth !== 'string' || !auth.startsWith('Bearer ')) {
       throw new UnauthorizedException('缺少 admin 登录 token, 请先登录后台');

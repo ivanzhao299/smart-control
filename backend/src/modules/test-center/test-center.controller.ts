@@ -1,3 +1,5 @@
+import { UseGuards } from '@nestjs/common';
+import { ActorAdminGuard } from '../../common/guards/actor-admin.guard';
 import {
   Body,
   Controller,
@@ -19,6 +21,7 @@ import {
 } from './dto/test.dto';
 
 @Controller('test')
+@UseGuards(ActorAdminGuard)
 export class TestCenterController {
   constructor(private readonly service: TestCenterService) {}
 

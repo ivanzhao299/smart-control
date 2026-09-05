@@ -1,3 +1,5 @@
+import { UseGuards } from '@nestjs/common';
+import { ActorAdminGuard } from '../../common/guards/actor-admin.guard';
 import {
   Controller,
   Get,
@@ -9,8 +11,11 @@ import {
 } from '@nestjs/common';
 import { AuditLog } from '../../entities/audit-log.entity';
 import { AuditService } from './audit.service';
+import { Req } from '@nestjs/common';
+import { AuthenticatedRequest, requireAdmin } from '../../common/auth/actor';
 
 @Controller('audit-log')
+@UseGuards(ActorAdminGuard)
 export class AuditController {
   constructor(private readonly service: AuditService) {}
 
@@ -43,8 +48,8 @@ export class AuditController {
 
   /** 回滚到这条 audit 的 snapshotBefore */
   @Post(':id/rollback')
-  async rollback(@Param('id', ParseIntPipe) id: number) {
-    const data = await this.service.rollback(id);
+  async rollback(@Param('id', ParseIntPipe) id: number, @Req() req: AuthenticatedRequest) {
+    const data = await this.service.rollback(id, requireAdmin(req).username);
     return { message: '回滚成功', data };
   }
 }
