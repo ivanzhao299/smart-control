@@ -33,6 +33,17 @@ describe('media isolation with SQLite repositories', () => {
     expect(b.items.map(x => x.originalName).sort()).toEqual(['Bob private', 'Public']);
     expect((await media.list({ actor: admin })).total).toBe(3);
   });
+  it('scopes personal/shared collections and restricts owner filters to administrators', async () => {
+    expect((await media.list({ actor: alice, scope: 'mine' })).items.map(x => x.originalName)).toEqual(['Alice private']);
+    expect((await media.list({ actor: alice, scope: 'shared' })).total).toBe(1);
+    const result = await media.list({ actor: admin, ownerUserId: 2, limit: 1 });
+    expect(result.total).toBe(1);
+    expect(result.items[0].originalName).toBe('Bob private');
+    await expect(media.list({ actor: alice, ownerUserId: 2 })).rejects.toThrow();
+    await expect(media.list({ actor: admin, ownerUserId: NaN })).rejects.toThrow();
+    await expect(media.list({ actor: alice, limit: NaN })).rejects.toThrow();
+    await expect(media.list({ actor: alice, scope: 'invalid' as any })).rejects.toThrow();
+  });
   it('checks direct IDs even when lists are bypassed', async () => {
     const item = await db.getRepository(MediaAsset).findOneByOrFail({ originalName: 'Alice private' });
     await expect(media.authorized(item.id, bob)).rejects.toThrow('资料不存在');

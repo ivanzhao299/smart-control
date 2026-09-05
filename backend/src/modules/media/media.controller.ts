@@ -148,10 +148,12 @@ export class MediaController {
     @Query('kind') kind?: 'video' | 'image' | 'audio' | 'webpage' | 'doc',
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('scope') scope?: 'visible' | 'mine' | 'shared',
+    @Query('ownerUserId') ownerUserId?: string,
   ) {
     const l = limit ? Math.max(1, Math.min(200, Number(limit))) : 200;
     const o = offset ? Math.max(0, Number(offset)) : 0;
-    const result = await this.media.list({ kind, limit: l, offset: o, actor: requireActor(req) });
+    const result = await this.media.list({ kind, limit: l, offset: o, actor: requireActor(req), scope, ownerUserId: ownerUserId === undefined ? undefined : Number(ownerUserId) });
     for (const item of result.items) {
       if (item.kind !== 'webpage') {
         item.fileUrl = (await this.access.issue(req, item.id, 'file')).url;

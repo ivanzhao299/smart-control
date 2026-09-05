@@ -29,6 +29,8 @@ mediaHttp.interceptors.request.use((config) => {
 const base = (): string => getApiBaseURL();
 
 export interface MediaItem {
+  ownerUserId: number | null;
+  visibility: 'private' | 'shared';
   id: number;
   originalName: string;
   kind: 'video' | 'image' | 'audio' | 'webpage' | 'doc';
@@ -72,7 +74,7 @@ export const mediaService = {
     if (!response.data?.data?.url) throw new Error('无法获得资料预览授权');
     return response.data.data;
   },
-  async list(opts: { kind?: 'video' | 'image' | 'audio' | 'webpage' | 'doc' } = {}): Promise<ListResult> {
+  async list(opts: { kind?: 'video' | 'image' | 'audio' | 'webpage' | 'doc'; scope?: 'visible' | 'mine' | 'shared'; ownerUserId?: number } = {}): Promise<ListResult> {
     const params: Record<string, string> = {};
     if (opts.kind) params.kind = opts.kind;
     const r = await mediaHttp.get(`${base()}/media`, { params });

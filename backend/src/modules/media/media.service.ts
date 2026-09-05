@@ -539,7 +539,15 @@ export class MediaService implements OnModuleInit {
     return this.repo.save(entity);
   }
 
-  async list(opts: { kind?: MediaKind; limit?: number; offset?: number; actor?: Actor } = {}): Promise<{ items: MediaListItem[]; total: number }> {
+  async list(opts: { kind?: MediaKind; limit?: number; offset?: number; actor?: Actor; scope?: 'visible' | 'mine' | 'shared'; ownerUserId?: number } = {}): Promise<{ items: MediaListItem[]; total: number }> {
+    if (opts.scope && !['visible', 'mine', 'shared'].includes(opts.scope)) throw new BadRequestException('无效资料范围');
+    if (opts.ownerUserId !== undefined) {
+      if (opts.actor?.role !== 'admin') throw new ForbiddenException('仅管理员可按用户筛选');
+      if (!Number.isInteger(opts.ownerUserId) || opts.ownerUserId < 1) throw new BadRequestException('无效用户');
+    }
+    for (const [value, min] of [[opts.limit, 1], [opts.offset, 0]] as const) {
+      if (value !== undefined && (!Number.isSafeInteger(value) || value < min)) throw new BadRequestException('无效分页参数');
+    }
     const qb = this.repo.createQueryBuilder('m').orderBy('m.createdAt', 'DESC');
     if (opts.actor && opts.actor.role !== 'admin') {
       qb.andWhere('(m.visibility = :shared OR m.ownerUserId = :owner)', {
@@ -547,6 +555,12 @@ export class MediaService implements OnModuleInit {
       });
     }
     if (opts.kind) qb.andWhere('m.kind = :k', { k: opts.kind });
+    if (opts.scope === 'shared') qb.andWhere('m.visibility = :visibility', { visibility: 'shared' });
+    if (opts.scope === 'mine') {
+      if (!opts.actor || opts.actor.userId === null) qb.andWhere('1 = 0');
+      else qb.andWhere('m.ownerUserId = :mine', { mine: opts.actor.userId });
+    }
+    if (opts.ownerUserId !== undefined) qb.andWhere('m.ownerUserId = :selectedOwner', { selectedOwner: opts.ownerUserId });
     const total = await qb.getCount();
     if (typeof opts.limit === 'number') qb.take(opts.limit);
     if (typeof opts.offset === 'number') qb.skip(opts.offset);

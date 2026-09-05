@@ -96,6 +96,7 @@ const uploadPct = ref(0);
 const uploadName = ref('');
 const uploadStartAt = ref(0);
 const filter = ref<'all' | 'video' | 'image' | 'audio' | 'webpage' | 'doc' | 'doc'>('all');
+const resourceScope = ref<'visible' | 'mine' | 'shared'>('visible');
 const viewMode = ref<'list' | 'grid' | 'detail'>('list');
 const previewItem = ref<MediaItem | null>(null);
 const isDragging = ref(false);
@@ -136,15 +137,20 @@ function fmtDuration(sec: number | null): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+let mediaRequestRevision = 0;
 async function refresh(): Promise<void> {
+  const revision = ++mediaRequestRevision;
   loading.value = true;
   try {
-    const r = await mediaService.list();
+    const r = await mediaService.list({ scope: resourceScope.value });
+    if (revision !== mediaRequestRevision) return;
     items.value = r.items;
   } catch (e) {
+    if (revision !== mediaRequestRevision) return;
+    items.value = [];
     ElMessage.error(`加载失败: ${(e as Error).message}`);
   } finally {
-    loading.value = false;
+    if (revision === mediaRequestRevision) loading.value = false;
   }
 }
 
@@ -693,6 +699,11 @@ onBeforeUnmount(() => window.clearInterval(processingRefreshTimer));
         </button>
         <div class="title-block">
           <div class="title"><FolderOpen :size="18" :stroke-width="1.8" /> 媒体库</div>
+          <select v-model="resourceScope" aria-label="资料范围" @change="refresh">
+            <option value="visible">全部可见资料</option>
+            <option value="mine">我的资料</option>
+            <option value="shared">公共资料</option>
+          </select>
         </div>
         <div class="v2-tabs">
           <button class="v2-tab" :class="{ active: filter === 'all' }" @click="filter = 'all'">全部</button>
