@@ -16,11 +16,8 @@ import {
   UseGuards,
   Put,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { QuotaUploadInterceptor } from './quota-upload.interceptor';
 import type { Response } from 'express';
-import { diskStorage } from 'multer';
-import { extname, join } from 'path';
-import { mkdirSync } from 'fs';
 // (Sprint-10: spawn 用于旧 publish 路径, 已下架)
 import { MediaService } from './media.service';
 import { ImportOrphanDto, MediaUploadMetaDto, WebpageCreateDto, UpdateMediaDto } from './dto/media.dto';
@@ -42,7 +39,6 @@ class MediaUploadGuard implements CanActivate {
 }
 
 /** 高清视频 4K 60fps 30 分钟 ≈ 10GB, 默认放到 10GB. env MEDIA_MAX_BYTES 可调 */
-const MAX_UPLOAD_BYTES = Number(process.env.MEDIA_MAX_BYTES ?? 10 * 1024 * 1024 * 1024);
 
 @Controller('media')
 export class MediaController {
@@ -56,51 +52,7 @@ export class MediaController {
 
   @Post('upload')
   @UseGuards(MediaUploadGuard)
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: diskStorage({
-        destination: (_req, _file, cb) => {
-          // 通过 service 拿 tmp 路径 — 但 storage 工厂里没注入, 用 env 拷一份
-          const root = process.env.MEDIA_ROOT
-            || (process.platform === 'win32' ? 'D:\\Media' : '/var/lib/smart-control/media');
-          const tmp = join(root, '_tmp');
-          mkdirSync(tmp, { recursive: true });
-          cb(null, tmp);
-        },
-        filename: (_req, file, cb) => {
-          const ts = Date.now().toString(36);
-          const rand = Math.random().toString(36).slice(2, 8);
-          cb(null, `${ts}-${rand}${extname(file.originalname).toLowerCase()}`);
-        },
-      }),
-      limits: { fileSize: MAX_UPLOAD_BYTES },
-      fileFilter: (_req, file, cb) => {
-        const m = file.mimetype;
-        const name = (file.originalname || '').toLowerCase();
-        const audioExt = [
-          '.mp3', '.wav', '.aac', '.m4a', '.ogg', '.flac', '.wma',
-          '.opus', '.aiff', '.aif', '.ape', '.mp2', '.mka', '.wv',
-          '.mid', '.midi', '.spx', '.dsf', '.dff', '.au', '.ra',
-        ];
-        const docExt = ['.ppt', '.pptx', '.doc', '.docx', '.pdf'];
-        // 视频扩展名兜底: .m4v/.mkv 等浏览器常报 application/octet-stream (2026-07-31)
-        const videoExt = [
-          '.mp4', '.m4v', '.mov', '.mkv', '.avi', '.webm', '.flv', '.wmv',
-          '.mpg', '.mpeg', '.3gp', '.ts', '.vob', '.rmvb',
-        ];
-        if (
-          m.startsWith('video/') || m.startsWith('image/') || m.startsWith('audio/')
-          || audioExt.some((ext) => name.endsWith(ext))  // m4a/aac mime 有时不带 audio/
-          || videoExt.some((ext) => name.endsWith(ext))
-          || docExt.some((ext) => name.endsWith(ext))
-        ) {
-          cb(null, true);
-        } else {
-          cb(new Error(`不支持的文件类型 ${file.mimetype}, 仅支持 视频/图片/音频/PPT/Word/PDF`), false);
-        }
-      },
-    }),
-  )
+  @UseInterceptors(QuotaUploadInterceptor)
   async upload(
     @Req() req: AuthenticatedRequest,
     @UploadedFile() file: Express.Multer.File,
@@ -112,7 +64,7 @@ export class MediaController {
     const actor = requireActor(req);
     const asset = await this.media.ingest(file, actor.username, meta.remark, actor);
     await this.opLog.record({
-      operator: 'system',
+      operator: actor.username,
       action: 'media.upload',
       targetType: 'media',
       targetId: String(asset.id),

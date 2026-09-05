@@ -102,6 +102,7 @@ export const mediaService = {
     fd.append('file', file);
     if (opts.remark) fd.append('remark', opts.remark);
     const r = await mediaHttp.post(`${base()}/media/upload`, fd, {
+      headers: { 'X-Upload-Size': String(file.size) },
       // 不要手写 Content-Type: 'multipart/form-data' —— 那样没有 boundary, 后端解析不出文件。
       // 交给 axios/浏览器按 FormData 自动带 boundary。(之前被 401 挡着没暴露, token 修好后就会露)
       timeout: 30 * 60 * 1000, // 30 分钟 (大视频)
