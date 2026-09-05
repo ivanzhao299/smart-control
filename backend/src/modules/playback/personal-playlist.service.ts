@@ -39,6 +39,11 @@ export class PersonalPlaylistService {
     this.slot(slot); assertCanUpload(actor);
     if (!Number.isInteger(mediaId) || mediaId < 1) throw new BadRequestException('无效资料');
     if (title !== undefined && (typeof title !== 'string' || title.length > 120)) throw new BadRequestException('名称过长');
+    const release = this.media.acquireOperation(mediaId);
+    try { return await this.addLocked(actor, slot, mediaId, title); }
+    finally { release(); }
+  }
+  private async addLocked(actor: Actor, slot: number, mediaId: number, title?: string) {
     await this.media.authorized(mediaId, actor);
     const ownerUserId = this.owner(actor);
     const where = { slot, ownerUserId: ownerUserId ?? IsNull() };
@@ -54,7 +59,8 @@ export class PersonalPlaylistService {
     if (!row) throw new NotFoundException('播放列表项不存在');
     this.writable(actor, row);
     row.title = title.trim() || null;
-    await this.repo.save(row);
+    const updated = await this.repo.update(id, { title: row.title });
+    if (!updated.affected) throw new NotFoundException('播放列表项已删除');
     return { id, title: row.title ?? '' };
   }
   async remove(actor: Actor, id: number) {
@@ -73,7 +79,12 @@ export class PersonalPlaylistService {
     for (const row of rows) this.writable(actor, row);
     if (new Set(rows.map(row => row.ownerUserId)).size !== 1) throw new BadRequestException('不能混排不同用户的列表');
     for (const row of rows) row.sortOrder = (ids.indexOf(row.id) + 1) * 10;
-    await this.repo.save(rows);
+    await this.repo.manager.transaction(async manager => {
+      for (const row of rows) {
+        const updated = await manager.update(PlaylistItem, row.id, { sortOrder: row.sortOrder });
+        if (!updated.affected) throw new NotFoundException('播放列表项已删除');
+      }
+    });
     return { count: rows.length };
   }
 }

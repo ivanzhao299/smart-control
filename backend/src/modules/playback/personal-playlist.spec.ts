@@ -60,4 +60,24 @@ describe('personal playlists', () => {
     await expect(service.list(alice, 0)).rejects.toThrow();
     await expect(service.list(alice, 1, 'invalid' as any)).rejects.toThrow();
   });
+  it('does not resurrect an item deleted after rename read', async () => {
+    const item = await service.add(alice, 1, sharedId);
+    const repo = db.getRepository(PlaylistItem);
+    const snapshot = await repo.findOneByOrFail({ id: item.id });
+    const read = jest.spyOn(repo, 'findOneBy').mockImplementationOnce(async () => {
+      await repo.delete(item.id);
+      return snapshot;
+    });
+    try {
+      await expect(service.rename(alice, item.id, 'late rename')).rejects.toThrow('已删除');
+      expect(await repo.count()).toBe(0);
+    } finally { read.mockRestore(); }
+  });
+  it('refuses adding references while the asset lifecycle is locked', async () => {
+    const release = media.acquireOperation(sharedId);
+    try { await expect(service.add(alice, 1, sharedId)).rejects.toThrow('正在使用'); }
+    finally { release(); }
+    expect(await db.getRepository(PlaylistItem).count()).toBe(0);
+    await service.add(alice, 1, sharedId);
+  });
 });

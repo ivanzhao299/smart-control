@@ -8,6 +8,7 @@ import { promises as fs, createReadStream, ReadStream, statSync } from 'fs';
 import { join, resolve, relative, basename, extname, sep, isAbsolute } from 'path';
 import { spawn } from 'child_process';
 import { MediaAsset, MediaKind } from '../../entities/media-asset.entity';
+import { PlaylistItem } from '../../entities/playlist-item.entity';
 import { MediaListItem, OrphanMediaItem, UpdateMediaDto } from './dto/media.dto';
 import { User } from '../../entities/user.entity';
 import { byteRange } from './byte-range';
@@ -718,7 +719,17 @@ export class MediaService implements OnModuleInit {
       if (this.preparing.has(id) || m.processingStatus === 'processing' || m.processingStatus === 'pending') throw new ConflictException('资料正在转码，不能删除');
       const channels = await this.repo.query('SELECT id FROM playback_channels WHERE currentMediaId = ? LIMIT 1', [id]);
       if (channels.length) throw new ConflictException('资料正在播放或暂停，请先停止播放再删除');
-      const result = await recoverableDelete(this.mediaRoot, m.id, () => this.repo.remove(m));
+      const result = await recoverableDelete(this.mediaRoot, m.id, () => this.repo.manager.transaction(async manager => {
+        const current = await manager.getRepository(MediaAsset).findOneBy({ id });
+        if (!current) throw new NotFoundException('资料不存在');
+        assertWriteResource(actor, current);
+        if (current.processingStatus === 'processing' || current.processingStatus === 'pending') throw new ConflictException('资料正在转码');
+        if ((await manager.query('SELECT id FROM playback_channels WHERE currentMediaId = ? LIMIT 1', [id])).length) throw new ConflictException('请先停止播放再删除');
+        // Remove every now-unplayable reference atomically; historical snapshots remain
+        // owned by their original actor and cannot be replayed without a live asset.
+        await manager.delete(PlaylistItem, { mediaId: id });
+        await manager.delete(MediaAsset, { id });
+      }));
       if (result.cleanupPending) this.logger.warn(`[Media] 已删除记录 #${id} 的隔离文件待清理`, { context: 'MediaService' });
       return { removedId: id, cleanupPending: result.cleanupPending };
     } finally { release(); }
