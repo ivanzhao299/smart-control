@@ -1,4 +1,5 @@
 import { PlayerDeviceAccessService } from './player-device-access.service';
+import { join } from 'path';
 
 describe('device playback access grants', () => {
   let service: PlayerDeviceAccessService, row: any, user: any, devices: any, media: any, playback: any;
@@ -68,5 +69,21 @@ describe('device playback access grants', () => {
       clock.mockReturnValue(now + 551_000);
       await expect(service.stream(3, ticketOf(state))).rejects.toThrow();
     } finally { clock.mockRestore(); }
+  });
+  it('limits document metadata to current readable content and validates input before writing', async () => {
+    media.mediaRoot = __dirname;
+    media.absPathOf = jest.fn(() => join(__dirname, 'player-device-access.spec.ts'));
+    media.authorized.mockResolvedValue({ id: 7, kind: 'doc', pageCount: 4, docPdfPath: null });
+    media.setDocMeta = jest.fn(async () => ({ id: 7, pageCount: 5 }));
+    expect((await service.docInfo(3, 'device-secret', 'session-1')).id).toBe(7);
+    await expect(service.docInfo(3, 'device-secret', 'old')).rejects.toThrow();
+    await expect(service.docMeta(3, 'device-secret', 'session-1', -1)).rejects.toThrow();
+    await expect(service.docMeta(3, 'device-secret', 'session-1', 1.5)).rejects.toThrow();
+    await expect(service.docMeta(3, 'device-secret', 'session-1', 5, true)).rejects.toThrow('仅Word');
+    expect(media.setDocMeta).not.toHaveBeenCalled();
+    await service.docMeta(3, 'device-secret', 'session-1', 5);
+    expect(media.setDocMeta).toHaveBeenCalledWith(7, { pageCount: 5, pdfRelPath: undefined });
+    media.absPathOf.mockReturnValue(join(__dirname, '../../entities/user.entity.ts'));
+    await expect(service.docInfo(3, 'device-secret', 'session-1')).rejects.toThrow('文档路径无效');
   });
 });

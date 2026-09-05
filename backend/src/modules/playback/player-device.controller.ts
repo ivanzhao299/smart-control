@@ -1,5 +1,5 @@
-import { Controller, Post, Get, Param, ParseIntPipe, UseGuards, HttpCode, Headers, Query, Res, Header, Body } from '@nestjs/common';
-import { Response } from 'express';
+import { Controller, Post, Get, Param, ParseIntPipe, UseGuards, HttpCode, Headers, Query, Res, Header, Body, Req, ForbiddenException } from '@nestjs/common';
+import { Response, Request } from 'express';
 import { PlayerDeviceAccessService } from './player-device-access.service';
 import { Public } from '../../common/decorators/public.decorator';
 import { PlayerDeviceGuard } from './player-device.guard';
@@ -10,6 +10,25 @@ import { PlaybackService } from './playback.service';
 @Controller('player-device/:slot')
 export class PlayerDeviceController {
   constructor(private readonly playback: PlaybackService, private readonly access: PlayerDeviceAccessService) {}
+
+  private requireLocal(req: Request): void {
+    if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress ?? '')) throw new ForbiddenException('文档守护只允许本机设备调用');
+  }
+
+  @Get('doc-info')
+  @UseGuards(PlayerDeviceGuard)
+  @Header('Cache-Control', 'private, no-store')
+  async docInfo(@Req() req: Request, @Param('slot', ParseIntPipe) slot: number, @Headers('x-player-token') token: string, @Query('session') session: string) {
+    this.requireLocal(req);
+    return { message: 'ok', data: await this.access.docInfo(slot, token, session) };
+  }
+
+  @Post('doc-meta')
+  @UseGuards(PlayerDeviceGuard)
+  async docMeta(@Req() req: Request, @Param('slot', ParseIntPipe) slot: number, @Headers('x-player-token') token: string, @Body() body: { playbackSession?: string; pageCount?: number; pdfReady?: boolean }) {
+    this.requireLocal(req);
+    return { message: 'ok', data: await this.access.docMeta(slot, token, body?.playbackSession ?? '', body?.pageCount, body?.pdfReady) };
+  }
 
   @Get('state')
   @UseGuards(PlayerDeviceGuard)

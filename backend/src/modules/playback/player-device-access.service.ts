@@ -1,4 +1,6 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, BadRequestException } from '@nestjs/common';
+import { promises as fs } from 'fs';
+import { relative, isAbsolute, extname } from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
@@ -83,5 +85,46 @@ export class PlayerDeviceAccessService {
     const actor = await this.initiator(row);
     await this.playback.advance(slot, actor, session);
     return this.state(slot, token);
+  }
+
+  private async document(slot: number, token: string, session: string) {
+    this.devices.authenticate(token, slot);
+    const row = await this.channels.findOneByOrFail({ slot });
+    if (!session || this.session(row) !== session || row.currentMediaId === null) throw new ConflictException('播放会话已变化');
+    const media = await this.media.authorized(row.currentMediaId, await this.initiator(row));
+    if (media.kind !== 'doc') throw new BadRequestException('当前资料不是文档');
+    const root = await fs.realpath(this.media.mediaRoot);
+    const path = await fs.realpath(this.media.absPathOf(media));
+    const rel = relative(root, path);
+    if (!rel || rel.startsWith('..') || isAbsolute(rel)) throw new BadRequestException('文档路径无效');
+    return { media, root, path };
+  }
+
+  async docInfo(slot: number, token: string, session: string) {
+    const { media, path } = await this.document(slot, token, session);
+    return { id: media.id, ext: extname(path).slice(1).toLowerCase(), absPath: path, pageCount: media.pageCount, docPdfPath: media.docPdfPath };
+  }
+
+  async docMeta(slot: number, token: string, session: string, pageCount?: number, pdfReady?: boolean) {
+    if (pageCount !== undefined && (!Number.isInteger(pageCount) || pageCount < 1 || pageCount > 100_000)) throw new BadRequestException('无效页数');
+    if (pdfReady !== undefined && typeof pdfReady !== 'boolean') throw new BadRequestException('无效PDF状态');
+    const { media, path, root } = await this.document(slot, token, session);
+    let pdfRelPath: string | undefined;
+    if (pdfReady) {
+      if (!['.doc', '.docx'].includes(extname(path).toLowerCase())) throw new BadRequestException('仅Word文档可回写转换结果');
+      const expected = path.slice(0, -extname(path).length) + '.pdf';
+      const actual = await fs.realpath(expected);
+      if (actual !== expected) throw new BadRequestException('PDF路径无效');
+      pdfRelPath = relative(root, actual).replace(/\\/g, '/');
+      const handle = await fs.open(actual, 'r');
+      try {
+        const header = Buffer.alloc(5);
+        await handle.read(header, 0, 5, 0);
+        if (header.toString() !== '%PDF-') throw new BadRequestException('转换结果不是PDF');
+      } finally { await handle.close(); }
+    }
+    await this.document(slot, token, session);
+    const updated = await this.media.setDocMeta(media.id, { pageCount, pdfRelPath });
+    return { id: updated.id, pageCount: updated.pageCount };
   }
 }
