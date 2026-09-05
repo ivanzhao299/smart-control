@@ -11,7 +11,8 @@ import { useClientAuthStore } from '@/stores/client-auth';
 import { wsClient } from '@/services/websocket.service';
 import { polling } from '@/services/polling.service';
 import { markBootComplete } from '@/services/rum.service';
-import { setUnauthorizedHandler } from '@/services/http';
+import { setUnauthorizedHandler, setClientToken, setAdminToken } from '@/services/http';
+import { installCrossTabIdentitySync } from '@/services/cross-tab-identity';
 
 const router = useRouter();
 const sceneStore = useSceneStore();
@@ -20,6 +21,18 @@ const systemStore = useSystemStore();
 const brandingStore = useSystemBrandingStore();
 const playbackStore = usePlaybackStore();
 const clientAuth = useClientAuthStore();
+const unsubscribeCrossTab = installCrossTabIdentitySync(window, window.localStorage, () => {
+  // Clear this tab only; never erase the other tab's freshly saved credentials.
+  clientAuth.token = null;
+  clientAuth.expiresAt = null;
+  setClientToken(null);
+  setAdminToken(null);
+  try {
+    sessionStorage.removeItem('sc.adminToken');
+    sessionStorage.removeItem('sc.adminToken:exp');
+    sessionStorage.removeItem('sc.adminAuthServer');
+  } catch { /* Browser storage unavailable; in-memory credentials are already gone. */ }
+}, () => window.location.reload());
 const identityKey = ref(identityGeneration());
 const unsubscribeIdentity = onIdentityChange(() => {
   playbackStore.clearIdentity();
@@ -128,6 +141,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  unsubscribeCrossTab();
   unsubscribeIdentity();
   systemStore.stopClock();
   systemStore.stopAlertTtlSweep();

@@ -27,7 +27,8 @@ function load(fetch, axiosRequest = async () => ({ data: { data: {} } })) {
     return modules[name] = exports;
   }
   return { http: compile('./http'), boundary: compile('./identity-boundary'), media: compile('./media.service').mediaService,
-    useActor: compile('./current-actor').useCurrentActor, mount: () => mounted.forEach(fn => fn()), dispose: () => disposed.forEach(fn => fn()) };
+    useActor: compile('./current-actor').useCurrentActor, installCrossTab: compile('./cross-tab-identity').installCrossTabIdentitySync,
+    mount: () => mounted.forEach(fn => fn()), dispose: () => disposed.forEach(fn => fn()) };
 }
 const response = (status = 200, data = { privateName: 'alice' }) => ({ status, ok: status === 200, headers: { get: () => 'application/json' }, json: async () => ({ success: true, data }) });
 
@@ -168,4 +169,31 @@ test('operator can edit only own private media; viewer cannot edit', async () =>
   role = 'viewer'; await state.refreshActor(); await state.refreshActor();
   assert.equal(state.canEditMedia({ ownerUserId: 1, visibility: 'private' }), false);
   env.dispose();
+});
+
+test('cross-tab login batch invalidates immediately and reloads once without writing shared storage', async () => {
+  const env = load(async () => response());
+  let listener, invalidations = 0, reloads = 0;
+  const local = { setItem() { throw Error('must not write'); }, removeItem() { throw Error('must not erase other login'); } };
+  const target = { addEventListener: (_name, fn) => { listener = fn; }, removeEventListener() {} };
+  const stop = env.installCrossTab(target, local, () => invalidations++, () => reloads++);
+  listener({ storageArea: local, key: 'sc.client.token', oldValue: 'A', newValue: 'B' });
+  listener({ storageArea: local, key: 'sc.client.authServer', oldValue: 'old', newValue: 'new' });
+  assert.equal(invalidations, 1); assert.equal(reloads, 0);
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.equal(reloads, 1); stop();
+});
+
+test('cross-tab ignores unrelated/session-storage events and cancels reload after disposal', async () => {
+  const env = load(async () => response()); let listener, invalidations = 0, reloads = 0;
+  const local = {};
+  const target = { addEventListener: (_name, fn) => { listener = fn; }, removeEventListener: (_name, fn) => { assert.equal(fn, listener); } };
+  const stop = env.installCrossTab(target, local, () => invalidations++, () => reloads++);
+  listener({ storageArea: {}, key: 'sc.client.token', oldValue: 'a', newValue: 'b' });
+  listener({ storageArea: local, key: 'theme', oldValue: 'a', newValue: 'b' });
+  listener({ storageArea: local, key: 'sc.client.token', oldValue: 'a', newValue: 'a' });
+  assert.equal(invalidations, 0);
+  listener({ storageArea: local, key: null });
+  assert.equal(invalidations, 1); stop();
+  await new Promise(resolve => setTimeout(resolve, 80)); assert.equal(reloads, 0);
 });
