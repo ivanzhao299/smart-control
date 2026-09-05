@@ -1,4 +1,5 @@
-import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { User } from './user.entity';
 
 /**
  * 播放历史 —— "播放过的内容应该有播放历史" (业主 2026-07-17)。
@@ -16,6 +17,14 @@ import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 
  */
 @Entity({ name: 'playback_history' })
 export class PlaybackHistory {
+  @Index('ix_playback_history_owner')
+  @Column({ name: 'owner_user_id', type: 'integer', nullable: true })
+  ownerUserId!: number | null;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'owner_user_id', foreignKeyConstraintName: 'fk_playback_history_owner' })
+  owner!: User | null;
+
   @PrimaryGeneratedColumn()
   id!: number;
 

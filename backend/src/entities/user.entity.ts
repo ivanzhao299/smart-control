@@ -12,6 +12,9 @@ export type UserRole = (typeof USER_ROLES)[number];
 
 @Entity({ name: 'users' })
 export class User {
+  @Column({ name: 'storage_quota_bytes', type: 'bigint', default: 10737418240 })
+  storageQuotaBytes!: number;
+
   @PrimaryGeneratedColumn()
   id!: number;
 

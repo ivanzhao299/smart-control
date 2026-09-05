@@ -1,4 +1,5 @@
-import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { User } from './user.entity';
 
 export type MediaKind = 'video' | 'image' | 'audio' | 'webpage' | 'doc';
 export type MediaProcessingStatus = 'ready' | 'pending' | 'processing' | 'failed';
@@ -16,6 +17,20 @@ export type MediaProcessingStatus = 'ready' | 'pending' | 'processing' | 'failed
  */
 @Entity({ name: 'media_assets' })
 export class MediaAsset {
+  @Index('ix_media_assets_owner')
+  @Column({ name: 'owner_user_id', type: 'integer', nullable: true })
+  ownerUserId!: number | null;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'owner_user_id', foreignKeyConstraintName: 'fk_media_assets_owner' })
+  owner!: User | null;
+
+  @Column({ type: 'varchar', default: 'private' })
+  visibility!: 'private' | 'shared';
+
+  @Column({ type: 'varchar', default: 'upload' })
+  source!: 'upload' | 'legacy' | 'system' | 'webpage' | 'import';
+
   @PrimaryGeneratedColumn()
   id!: number;
 
