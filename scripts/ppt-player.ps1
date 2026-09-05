@@ -20,6 +20,21 @@ function Log([string]$m) {
   try { Add-Content -Path $logFile -Value $line -Encoding UTF8 } catch { }
 }
 Log '[ppt] daemon start'
+$credentialFile = $env:SMART_CONTROL_PLAYER_TOKEN_FILE
+if (-not $credentialFile) { Log '[ppt] missing device credential file'; exit 1 }
+function Get-PlayerHeaders {
+  $token = [System.IO.File]::ReadAllText($credentialFile).Trim()
+  if ($token.Length -lt 32 -or $token.Length -gt 512) { throw 'invalid device credential' }
+  return @{ 'X-Player-Token' = $token }
+}
+function Get-PlayerState([int]$slot) {
+  return (Invoke-RestMethod -Uri ($api + '/player-device/' + $slot + '/state') -Headers (Get-PlayerHeaders) -TimeoutSec 5 -ErrorAction Stop).data
+}
+function Save-DocMeta([int]$slot, [string]$session, [int]$pages, [bool]$pdfReady) {
+  $data = @{ playbackSession = $session; pdfReady = $pdfReady }
+  if ($pages -gt 0) { $data.pageCount = $pages }
+  Invoke-RestMethod -Uri ($api + '/player-device/' + $slot + '/doc-meta') -Headers (Get-PlayerHeaders) -Method Post -ContentType 'application/json' -Body ($data | ConvertTo-Json -Compress) -TimeoutSec 5 -ErrorAction Stop | Out-Null
+}
 
 # Win32: 枚举 PowerPoint 放映窗口 (class=screenClass) + 移动/置顶
 Add-Type @'
@@ -48,7 +63,7 @@ public static class PptWin {
 }
 '@
 
-$S = @{ 1 = @{ id = 0; pres = $null; hwnd = 0; page = 1; zoom = 100 }; 2 = @{ id = 0; pres = $null; hwnd = 0; page = 1; zoom = 100 } }
+$S = @{ 1 = @{ id = 0; session = ''; pres = $null; hwnd = 0; page = 1; zoom = 100 }; 2 = @{ id = 0; session = ''; pres = $null; hwnd = 0; page = 1; zoom = 100 } }
 $slotX = @{ 1 = 0; 2 = 1920 }
 
 # ---- 真实屏幕边界 (2026-07-29 业主: "PPT 页面放大未全屏整页显示") ----
@@ -102,15 +117,18 @@ function Close-Show([int]$slot) {
     try { $st.pres.Close() } catch { }
     Log ("[ppt] slot" + $slot + " show closed (media " + $st.id + ")")
   }
-  $st.pres = $null; $st.id = 0; $st.hwnd = 0; $st.page = 1; $st.zoom = 100
+  $st.pres = $null; $st.id = 0; $st.session = ''; $st.hwnd = 0; $st.page = 1; $st.zoom = 100
 }
 
-function Start-Show([int]$slot, [int]$mediaId, [string]$absPath, [int]$page, [int]$zoom) {
+function Start-Show([int]$slot, [int]$mediaId, [string]$session, [string]$absPath, [int]$page, [int]$zoom) {
   $app = Get-PptApp
   if ($null -eq $app) { return }
   $before = [PptWin]::FindShowWindows()
+  $pres = $null
   try {
+    $app.AutomationSecurity = 3
     $pres = $app.Presentations.Open($absPath, $true, $false, $false)
+    if ((Get-PlayerState $slot).playbackSession -ne $session) { throw 'playback session changed' }
     $pres.SlideShowSettings.ShowType = 3            # kiosk: 点击不换页, 翻页只听 COM
     $pres.SlideShowSettings.AdvanceMode = 1          # 手动推进
     $pres.SlideShowSettings.LoopUntilStopped = $true
@@ -122,44 +140,45 @@ function Start-Show([int]$slot, [int]$mediaId, [string]$absPath, [int]$page, [in
       $S[$slot].hwnd = $new
       Apply-Geometry $slot $zoom      # 按真实屏幕边界铺放 (根治"放大未全屏")
     }
-    $S[$slot].pres = $pres; $S[$slot].id = $mediaId; $S[$slot].page = 1; $S[$slot].zoom = $zoom
+    $S[$slot].pres = $pres; $S[$slot].id = $mediaId; $S[$slot].session = $session; $S[$slot].page = 1; $S[$slot].zoom = $zoom
     $count = 0; try { $count = $pres.Slides.Count } catch { }
     if ($count -gt 0) {
-      try { Invoke-RestMethod -Uri ($api + '/media/' + $mediaId + '/doc-meta') -Method Post -ContentType 'application/json' -Body ('{"pageCount":' + $count + '}') | Out-Null } catch { }
+      Save-DocMeta $slot $session $count $false
     }
     if ($page -gt 1) { try { $pres.SlideShowWindow.View.GotoSlide($page); $S[$slot].page = $page } catch { } }
     Log ("[ppt] slot" + $slot + " showing media " + $mediaId + " (" + $count + " slides) hwnd=" + $S[$slot].hwnd)
-  } catch { Log ("[ppt] slot" + $slot + " open FAILED: " + $_.Exception.Message) }
+  } catch {
+    if ($pres) { try { $pres.Close() } catch { } }
+    Close-Show $slot
+    Log ("[ppt] slot" + $slot + " open or authorization failed")
+  }
 }
 
-function Convert-WordToPdf([int]$mediaId, [string]$absPath) {
-  if ($convertTried.ContainsKey([string]$mediaId)) { return }
-  $convertTried[[string]$mediaId] = $true
+function Convert-WordToPdf([int]$slot, [int]$mediaId, [string]$session, [string]$absPath) {
+  if ($convertTried.ContainsKey($session)) { return }
   Log ("[ppt] word2pdf start: media " + $mediaId)
   $word = $null
   try {
     $pdfAbs = [System.IO.Path]::ChangeExtension($absPath, '.pdf')
     $word = New-Object -ComObject Word.Application
+    $word.AutomationSecurity = 3
     $word.Visible = $false
     $doc = $word.Documents.Open($absPath, $false, $true)
     $pages = 0; try { $pages = $doc.ComputeStatistics(2) } catch { }
     $doc.ExportAsFixedFormat($pdfAbs, 17)
     $doc.Close(0)
-    $rel = [System.IO.Path]::GetFileName((Split-Path $absPath -Parent)) + '/' + [System.IO.Path]::GetFileName($pdfAbs)
-    $body = '{"pdfRelPath":"' + $rel + '"' + $(if ($pages -gt 0) { ',"pageCount":' + $pages } else { '' }) + '}'
-    Invoke-RestMethod -Uri ($api + '/media/' + $mediaId + '/doc-meta') -Method Post -ContentType 'application/json' -Body $body | Out-Null
-    Log ("[ppt] word2pdf OK: " + $rel + " pages=" + $pages)
-  } catch { Log ("[ppt] word2pdf FAILED: " + $_.Exception.Message) }
+    Save-DocMeta $slot $session $pages $true
+    $convertTried[$session] = $true
+    Log ("[ppt] word2pdf OK media=" + $mediaId + " pages=" + $pages)
+  } catch { Log '[ppt] word2pdf or authorization failed' }
   finally { if ($word) { try { $word.Quit() } catch { } } }
 }
 
 while ($true) {
   Start-Sleep -Milliseconds 1200
-  $chs = $null
-  try { $chs = (Invoke-RestMethod -Uri ($api + '/playback/channels') -TimeoutSec 4).data } catch { continue }
   foreach ($slot in 1, 2) {
-    $ch = $chs | Where-Object { $_.slot -eq $slot }
-    if ($null -eq $ch) { continue }
+    try { $ch = Get-PlayerState $slot } catch { Close-Show $slot; continue }
+    if ($null -eq $ch) { Close-Show $slot; continue }
     $st = $S[$slot]
     $isDoc = ($ch.currentMediaKind -eq 'doc') -and $ch.currentMediaId
     if (-not $isDoc) {
@@ -167,12 +186,13 @@ while ($true) {
       continue
     }
     $info = $null
-    try { $info = (Invoke-RestMethod -Uri ($api + '/media/' + $ch.currentMediaId + '/doc-info') -TimeoutSec 4).data } catch { continue }
+    $session = [string]$ch.playbackSession
+    try { $info = (Invoke-RestMethod -Uri ($api + '/player-device/' + $slot + '/doc-info?session=' + [Uri]::EscapeDataString($session)) -Headers (Get-PlayerHeaders) -TimeoutSec 5 -ErrorAction Stop).data } catch { Close-Show $slot; continue }
     $chZoom = 100; try { if ($ch.docZoom) { $chZoom = [int]$ch.docZoom } } catch { }
     if ($info.ext -in @('ppt', 'pptx')) {
-      if ($st.id -ne $ch.currentMediaId) {
+      if ($st.id -ne $ch.currentMediaId -or $st.session -ne $session) {
         Close-Show $slot
-        Start-Show $slot $ch.currentMediaId $info.absPath ([int]$ch.docPage) $chZoom
+        Start-Show $slot $ch.currentMediaId $session $info.absPath ([int]$ch.docPage) $chZoom
       } else {
         if ($st.pres -and ([int]$ch.docPage) -ne $st.page) {
           try {
@@ -188,7 +208,7 @@ while ($true) {
       }
     } elseif ($info.ext -in @('doc', 'docx')) {
       if ($st.pres) { Close-Show $slot }
-      if (-not $info.docPdfPath) { Convert-WordToPdf $ch.currentMediaId $info.absPath }
+      if (-not $info.docPdfPath) { Convert-WordToPdf $slot $ch.currentMediaId $session $info.absPath }
     }
   }
 }
