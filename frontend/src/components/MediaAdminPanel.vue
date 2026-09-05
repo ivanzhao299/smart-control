@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { watch, ref } from 'vue';
+import { useCurrentActor } from '@/services/current-actor';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { api } from '@/services/http';
 import type { MediaItem } from '@/services/media.service';
 
 defineProps<{ items: MediaItem[] }>();
 const emit = defineEmits<{ refresh: []; owner: [id: number | undefined] }>();
-const isAdmin = ref(false);
+const { isAdmin } = useCurrentActor();
 const users = ref<Array<{ id: number; username: string; enabled: boolean }>>([]);
 const keyword = ref('');
 const selectedOwner = ref('');
@@ -22,6 +23,7 @@ async function setQuota() {
   try {
     await ElMessageBox.confirm(`将所选用户的存储配额设置为 ${quotaGiB.value} GiB？`, '修改配额');
   } catch { return; }
+  if (!isAdmin.value) return;
   try { await api.put(`/media/storage/users/${selectedOwner.value}`, { quotaBytes: bytes }); ElMessage.success('配额已更新'); }
   catch { ElMessage.error('配额修改失败：请检查权限、数值及用户已用容量'); }
 }
@@ -45,6 +47,7 @@ async function save() {
     try { await ElMessageBox.confirm('变更归属后，原用户可能无法再查看或播放此资料。是否继续？', '确认转移归属', { type: 'warning' }); }
     catch { return; }
   }
+  if (!isAdmin.value) return;
   saving.value = true;
   try {
     await api.put(`/media/${item.id}`, { originalName: name.value.trim(), visibility: visibility.value, ...(owner.value !== undefined && owner.value !== item.ownerUserId ? { ownerUserId: owner.value } : {}) });
@@ -52,12 +55,9 @@ async function save() {
   } catch { ElMessage.error('保存失败，请检查管理员权限及目标用户状态'); }
   finally { saving.value = false; }
 }
-onMounted(async () => {
-  try {
-    const actor = await api.get<{ role: string }>('/client-auth/me');
-    isAdmin.value = actor.role === 'admin';
-    if (isAdmin.value) await searchUsers();
-  } catch { isAdmin.value = false; }
+watch(isAdmin, async allowed => {
+  if (allowed) await searchUsers();
+  else { users.value = []; editing.value = null; selectedOwner.value = ''; emit('owner', undefined); }
 });
 </script>
 

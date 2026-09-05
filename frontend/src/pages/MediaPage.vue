@@ -26,6 +26,9 @@ import { usePlaybackStore } from '@/stores/playback';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { absUrl, HttpError, api } from '@/services/http';
 import { useAdminAuthStore } from '@/stores/admin-auth';
+import { useCurrentActor } from '@/services/current-actor';
+const { isAdmin: actorIsAdmin, canOperate, canEditMedia } = useCurrentActor();
+let disposed = false;
 import MediaAdminPanel from '@/components/MediaAdminPanel.vue';
 
 const brandingStore = useSystemBrandingStore();
@@ -66,6 +69,7 @@ function goBack(): void {
 
 /** 挑选模式下点卡片: slot3 (背景音乐) 跳到播放器并加入播放列表; 其他 slot 直接推 */
 async function pickAndPush(m: MediaItem): Promise<void> {
+  if (!canOperate.value) return;
   const slot = pickForSlot.value;
   if (!slot) return;
   if (slot === 3) {
@@ -224,6 +228,7 @@ async function collectFromEntry(entry: FileSystemEntry): Promise<File[]> {
 
 // 校验 + 入队 + 启动串行上传
 async function queueFiles(rawFiles: File[]): Promise<void> {
+  if (disposed || !canOperate.value) return;
   const valid: File[] = [];
   for (const f of rawFiles) {
     if (!isAllowedFile(f)) {
@@ -252,6 +257,7 @@ async function queueFiles(rawFiles: File[]): Promise<void> {
   }
 
   const wasIdle = !processingQueue;
+  if (disposed || !canOperate.value) return;
   uploadQueue.value.push(...valid);
   if (wasIdle) { uploadBatchTotal.value = valid.length; uploadBatchDone.value = 0; }
   else uploadBatchTotal.value += valid.length;
@@ -261,7 +267,7 @@ async function queueFiles(rawFiles: File[]): Promise<void> {
 
 async function startQueue(): Promise<void> {
   processingQueue = true;
-  while (uploadQueue.value.length > 0) {
+  while (!disposed && canOperate.value && uploadQueue.value.length > 0) {
     const file = uploadQueue.value[0];
     await doUploadOne(file);
     uploadQueue.value.shift();
@@ -279,10 +285,11 @@ async function doUploadOne(file: File): Promise<void> {
   uploadStartAt.value = Date.now();
   try {
     await mediaService.upload(file, { onProgress: (p) => { uploadPct.value = p; } });
+    if (disposed) return;
     ElMessage.success(`上传成功: ${file.name}`);
     await refresh();
   } catch (e) {
-    ElMessage.error(`上传失败 ${file.name}: ${(e as Error).message}`);
+    if (!disposed) ElMessage.error(`上传失败 ${file.name}: ${(e as Error).message}`);
   } finally {
     uploading.value = false;
     uploadPct.value = 0;
@@ -334,6 +341,7 @@ async function onDrop(e: DragEvent): Promise<void> {
 }
 
 async function confirmDelete(m: MediaItem): Promise<void> {
+  if (!canEditMedia(m)) return;
   try {
     await ElMessageBox.confirm(`确认删除「${m.originalName}」?`, '删除媒体', {
       type: 'warning',
@@ -342,6 +350,7 @@ async function confirmDelete(m: MediaItem): Promise<void> {
     });
   } catch { return; }
   try {
+    if (disposed || !canEditMedia(m)) return;
     await mediaService.remove(m.id);
     ElMessage.success(`已删除 ${m.originalName}`);
     items.value = items.value.filter((x) => x.id !== m.id);
@@ -375,6 +384,7 @@ function closePreview(): void {
  * 同时推 both: 两个 slot 一起切到同一素材
  */
 async function pushTo(m: MediaItem, slot: 1 | 2 | 'both', loopMode: 'once' | 'loop' = 'loop'): Promise<void> {
+  if (!canOperate.value) return;
   if (m.kind === 'video' && m.processingStatus !== 'ready') {
     ElMessage.warning(m.processingStatus === 'failed' ? '视频兼容转换失败，请点“重新转换”' : '视频正在生成兼容版本，请稍后');
     return;
@@ -406,6 +416,7 @@ async function retryPrepare(m: MediaItem): Promise<void> {
 
 /** 推送音频到背景音乐通道 (slot 3 → GK9000 声卡 → EKX), 默认循环 */
 async function pushAudio(m: MediaItem): Promise<void> {
+  if (!canOperate.value) return;
   try {
     await playbackStore.publish(3, m.id, 'loop');
     ElMessage.success(`已播放背景音乐「${m.originalName}」(循环)`);
@@ -706,7 +717,7 @@ onMounted(async () => {
 let processingRefreshTimer = window.setInterval(() => {
   if (items.value.some((item) => item.processingStatus === 'pending' || item.processingStatus === 'processing')) void refresh();
 }, 5000);
-onBeforeUnmount(() => window.clearInterval(processingRefreshTimer));
+onBeforeUnmount(() => { disposed = true; uploadQueue.value = []; window.clearInterval(processingRefreshTimer); });
 </script>
 
 <template>
@@ -749,7 +760,7 @@ onBeforeUnmount(() => window.clearInterval(processingRefreshTimer));
         <button class="v2-quick" :disabled="loading" @click="refresh">
           <RefreshCcw :size="14" :stroke-width="2" /> 刷新
         </button>
-        <label class="v2-quick primary" :class="{ disabled: uploading }">
+        <label v-if="canOperate" class="v2-quick primary" :class="{ disabled: uploading }">
           <Upload :size="14" :stroke-width="2" />
           <span v-if="uploading">
             上传中 {{ uploadPct }}%<span v-if="uploadBatchTotal > 1" class="upload-count-inline"> ({{ uploadBatchDone + 1 }}/{{ uploadBatchTotal }})</span>
@@ -757,20 +768,20 @@ onBeforeUnmount(() => window.clearInterval(processingRefreshTimer));
           <span v-else>上传文件</span>
           <input type="file" :accept="MEDIA_UPLOAD_ACCEPT" multiple :disabled="uploading" @change="onFileInput" hidden />
         </label>
-        <label class="v2-quick" :class="{ disabled: uploading }">
+        <label v-if="canOperate" class="v2-quick" :class="{ disabled: uploading }">
           <FolderOpen :size="14" :stroke-width="2" /> 上传文件夹
           <input type="file" :webkitdirectory="true" multiple :accept="MEDIA_UPLOAD_ACCEPT" :disabled="uploading" @change="onFileInput" hidden />
         </label>
-        <button class="v2-quick" @click="openWebpageDialog">
+        <button v-if="canOperate" class="v2-quick" @click="openWebpageDialog">
           <Globe :size="14" :stroke-width="2" /> 添加网页
         </button>
         <button class="v2-quick" title="FreePD 无版权音乐 (CC0), 服务器代下载入库" @click="openOnlineDialog">
           <Music :size="14" :stroke-width="2" /> 在线曲库
         </button>
-        <button class="v2-quick" title="浏览你的百度网盘, 服务器代下载入库" @click="openPanDialog">
+        <button v-if="actorIsAdmin" class="v2-quick" title="浏览你的百度网盘, 服务器代下载入库" @click="openPanDialog">
           <FolderOpen :size="14" :stroke-width="2" /> 百度网盘
         </button>
-        <button class="v2-quick" title="服务器上手动拷进 media 文件夹、还没进媒体库的文件" @click="openOrphanDialog">
+        <button v-if="actorIsAdmin" class="v2-quick" title="服务器上手动拷进 media 文件夹、还没进媒体库的文件" @click="openOrphanDialog">
           <RefreshCcw :size="14" :stroke-width="2" /> 扫描服务器新文件
         </button>
       </div>
@@ -852,19 +863,19 @@ onBeforeUnmount(() => window.clearInterval(processingRefreshTimer));
             <Send :size="11" :stroke-width="2" /> 播放中: {{ currentSlotFor(m.id) }}
           </div>
           <div class="card-actions" @click.stop>
-            <button v-if="m.kind === 'audio'" class="card-btn" title="播放背景音乐" @click="pushAudio(m)"><Music :size="14" :stroke-width="2" /></button>
-            <el-dropdown trigger="click" @command="(c: number | string) => { if (c === 'welcome') setAsWelcome(m); else pushTo(m, c as 1 | 2 | 'both'); }">
+            <button v-if="canOperate && m.kind === 'audio'" class="card-btn" title="播放背景音乐" @click="pushAudio(m)"><Music :size="14" :stroke-width="2" /></button>
+            <el-dropdown v-if="canOperate" trigger="click" @command="(c: number | string) => { if (c === 'welcome') setAsWelcome(m); else pushTo(m, c as 1 | 2 | 'both'); }">
               <button class="card-btn" title="推送到"><Send :size="14" :stroke-width="2" /></button>
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item :command="1">推到 LED 大屏 (HDMI1)</el-dropdown-item>
                   <el-dropdown-item :command="2">推到投影仪 (HDMI2)</el-dropdown-item>
                   <el-dropdown-item :command="'both'" divided>同时推两路</el-dropdown-item>
-                  <el-dropdown-item v-if="m.kind !== 'webpage' && m.kind !== 'audio'" :command="'welcome'" divided :disabled="isWelcome(m)">{{ isWelcome(m) ? '✓ 已是欢迎页' : '设为欢迎页' }}</el-dropdown-item>
+                  <el-dropdown-item v-if="actorIsAdmin && m.kind !== 'webpage' && m.kind !== 'audio'" :command="'welcome'" divided :disabled="isWelcome(m)">{{ isWelcome(m) ? '✓ 已是欢迎页' : '设为欢迎页' }}</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
-            <button class="card-btn danger" title="删除" @click="confirmDelete(m)"><Trash2 :size="14" :stroke-width="2" /></button>
+            <button v-if="canEditMedia(m)" class="card-btn danger" title="删除" @click="confirmDelete(m)"><Trash2 :size="14" :stroke-width="2" /></button>
           </div>
         </div>
       </div>
@@ -902,19 +913,19 @@ onBeforeUnmount(() => window.clearInterval(processingRefreshTimer));
           <div class="lr-size">{{ fmtSize(m.sizeBytes) }}<span v-if="m.resolution" class="lr-res"> · {{ m.resolution }}</span></div>
           <div class="lr-date">{{ new Date(m.createdAt).toLocaleDateString('zh-CN') }}</div>
           <div class="lr-actions" @click.stop>
-            <button v-if="m.kind === 'audio'" class="card-btn" title="播放背景音乐" @click="pushAudio(m)"><Music :size="14" :stroke-width="2" /></button>
-            <el-dropdown trigger="click" @command="(c: number | string) => { if (c === 'welcome') setAsWelcome(m); else pushTo(m, c as 1 | 2 | 'both'); }">
+            <button v-if="canOperate && m.kind === 'audio'" class="card-btn" title="播放背景音乐" @click="pushAudio(m)"><Music :size="14" :stroke-width="2" /></button>
+            <el-dropdown v-if="canOperate" trigger="click" @command="(c: number | string) => { if (c === 'welcome') setAsWelcome(m); else pushTo(m, c as 1 | 2 | 'both'); }">
               <button class="card-btn" title="推送到"><Send :size="14" :stroke-width="2" /></button>
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item :command="1">推到 LED 大屏 (HDMI1)</el-dropdown-item>
                   <el-dropdown-item :command="2">推到投影仪 (HDMI2)</el-dropdown-item>
                   <el-dropdown-item :command="'both'" divided>同时推两路</el-dropdown-item>
-                  <el-dropdown-item v-if="m.kind !== 'webpage' && m.kind !== 'audio'" :command="'welcome'" divided :disabled="isWelcome(m)">{{ isWelcome(m) ? '✓ 已是欢迎页' : '设为欢迎页' }}</el-dropdown-item>
+                  <el-dropdown-item v-if="actorIsAdmin && m.kind !== 'webpage' && m.kind !== 'audio'" :command="'welcome'" divided :disabled="isWelcome(m)">{{ isWelcome(m) ? '✓ 已是欢迎页' : '设为欢迎页' }}</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
-            <button class="card-btn danger" title="删除" @click="confirmDelete(m)"><Trash2 :size="14" :stroke-width="2" /></button>
+            <button v-if="canEditMedia(m)" class="card-btn danger" title="删除" @click="confirmDelete(m)"><Trash2 :size="14" :stroke-width="2" /></button>
           </div>
         </div>
       </div>
@@ -959,19 +970,19 @@ onBeforeUnmount(() => window.clearInterval(processingRefreshTimer));
           <div class="dv-col dv-c-dur">{{ m.durationSec ? fmtDuration(m.durationSec) : '—' }}</div>
           <div class="dv-col dv-c-date">{{ new Date(m.createdAt).toLocaleString('zh-CN') }}</div>
           <div class="dv-col dv-c-act" @click.stop>
-            <button v-if="m.kind === 'audio'" class="card-btn" title="播放背景音乐" @click="pushAudio(m)"><Music :size="14" :stroke-width="2" /></button>
-            <el-dropdown trigger="click" @command="(c: number | string) => { if (c === 'welcome') setAsWelcome(m); else pushTo(m, c as 1 | 2 | 'both'); }">
+            <button v-if="canOperate && m.kind === 'audio'" class="card-btn" title="播放背景音乐" @click="pushAudio(m)"><Music :size="14" :stroke-width="2" /></button>
+            <el-dropdown v-if="canOperate" trigger="click" @command="(c: number | string) => { if (c === 'welcome') setAsWelcome(m); else pushTo(m, c as 1 | 2 | 'both'); }">
               <button class="card-btn" title="推送到"><Send :size="14" :stroke-width="2" /></button>
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item :command="1">推到 LED 大屏 (HDMI1)</el-dropdown-item>
                   <el-dropdown-item :command="2">推到投影仪 (HDMI2)</el-dropdown-item>
                   <el-dropdown-item :command="'both'" divided>同时推两路</el-dropdown-item>
-                  <el-dropdown-item v-if="m.kind !== 'webpage' && m.kind !== 'audio'" :command="'welcome'" divided :disabled="isWelcome(m)">{{ isWelcome(m) ? '✓ 已是欢迎页' : '设为欢迎页' }}</el-dropdown-item>
+                  <el-dropdown-item v-if="actorIsAdmin && m.kind !== 'webpage' && m.kind !== 'audio'" :command="'welcome'" divided :disabled="isWelcome(m)">{{ isWelcome(m) ? '✓ 已是欢迎页' : '设为欢迎页' }}</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
-            <button class="card-btn danger" title="删除" @click="confirmDelete(m)"><Trash2 :size="14" :stroke-width="2" /></button>
+            <button v-if="canEditMedia(m)" class="card-btn danger" title="删除" @click="confirmDelete(m)"><Trash2 :size="14" :stroke-width="2" /></button>
           </div>
         </div>
       </div>

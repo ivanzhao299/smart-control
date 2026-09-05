@@ -1,0 +1,29 @@
+import { computed, ref, onMounted, onScopeDispose } from 'vue';
+import { api, getAdminToken, getClientToken } from './http';
+import { onIdentityChange } from './identity-boundary';
+import type { MediaItem } from './media.service';
+
+export interface CurrentActor { kind: 'user' | 'admin' | 'legacy'; userId: number | null; username: string; role: 'admin' | 'operator' | 'viewer' }
+/** Server-authoritative, fail-closed role state for mounted UI. */
+export function useCurrentActor() {
+  const actor = ref<CurrentActor | null>(null);
+  let revision = 0;
+  let disposed = false;
+  let timer: ReturnType<typeof setInterval> | undefined;
+  async function refreshActor() {
+    const request = ++revision;
+    if (!getAdminToken() && !getClientToken()) { actor.value = null; return; }
+    try {
+      const result = await api.get<CurrentActor>('/client-auth/me');
+      if (!disposed && request === revision) actor.value = result;
+    } catch { if (!disposed && request === revision) actor.value = null; }
+  }
+  const unsubscribe = onIdentityChange(() => { revision++; actor.value = null; });
+  onMounted(() => { void refreshActor(); timer = setInterval(() => void refreshActor(), 30_000); });
+  onScopeDispose(() => { disposed = true; revision++; actor.value = null; unsubscribe(); if (timer) clearInterval(timer); });
+  const isAdmin = computed(() => actor.value?.role === 'admin');
+  const canOperate = computed(() => isAdmin.value || actor.value?.role === 'operator');
+  const canEditMedia = (media: MediaItem) => isAdmin.value ||
+    (actor.value?.role === 'operator' && actor.value.userId !== null && media.ownerUserId === actor.value.userId && media.visibility === 'private');
+  return { actor, isAdmin, canOperate, canEditMedia, refreshActor };
+}
