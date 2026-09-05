@@ -44,6 +44,14 @@
 
 ## 验收边界
 
+## 设备认证基础阶段进展
+
+新增 PlayerDeviceAuthService/Guard，与用户 Actor 完全分离。服务端 PLAYER_DEVICE_CREDENTIALS 为 JSON 数组，每项包含 id、sha256、slots、enabled；客户端使用 X-Player-Token，服务端只保存摘要，以 timingSafeEqual 验证，每次请求重新检查配置。默认无配置拒绝，限定通道1/2/3，不接受重复头、短凭据、畸形摘要、禁用设备或越界权限。不得在文档/日志中记录实际凭据。
+
+专用 POST /api/player-device/:slot/heartbeat 已接入设备 Guard；Public 仅跳过用户登录验证，不跳过设备验证。旧匿名心跳入口不再写入状态。设备认证测试覆盖通道隔离、伪造、撤销和设备身份不能成为用户 Actor。
+
+仍待：设备状态/取流/文档接口、绑定当前播放会话的短期媒体凭证、从发起用户恢复续播权限、Windows与kiosk配置及脚本联调。当前只是专用身份和心跳入口，不能部署到旧播放脚本。生产凭据尚未生成或配置。
+
 ## 通道状态脱敏阶段进展
 
 通道查询已移除 Public 并要求可信 Actor。toView 对无身份或不可读素材输出 occupied/restricted，仅保留共享设备状态；不返回他人媒体ID、名称、种类、URL、时长、页数或列表位置。本人/管理员按当前素材归属读取。ControlBus 播放事件改为仅 slot/at 的失效通知，不携带 view；PWA store 和 PlayerPage 改为重新读取鉴权接口，控制台显示其他用户正在使用设备。store 并发读取仅接受最后发起的响应，失败清除缓存状态。

@@ -231,10 +231,8 @@ export class PlaybackController {
    * PlayerPage 心跳上报. 不要 guard — kiosk 浏览器不会有 admin token.
    * 频率: 每 30s 一次. 服务端只看时间戳, 不广播 WS.
    */
-  @Public()
   @Post('channels/:slot/heartbeat')
-  async heartbeat(@Param('slot', ParseIntPipe) slot: number) {
-    await this.service.heartbeat(slot);
-    return { message: 'ok', data: null };
+  async heartbeat() {
+    throw new BadRequestException('播放器请使用带设备凭据的 player-device/:slot/heartbeat');
   }
 }
