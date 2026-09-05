@@ -7,13 +7,14 @@ import type { PlaybackChannelView, WsEvent } from '@/types/api';
  * 播控通道 store.
  *
  * App.vue 启动期 load() 一次拿所有通道, WS handler 收到 playback_channel_changed
- * 就 patch 对应 slot. 所有 UI (MediaPage 推送 / LedPage 显示当前播 / PlayerPage
+ * 重新读取经过权限检查的状态。所有 UI (MediaPage 推送 / LedPage 显示当前播 / PlayerPage
  * 自己) 都从这里读 reactive 状态.
  */
 export const usePlaybackStore = defineStore('playback', () => {
   const channels = ref<PlaybackChannelView[]>([]);
   const loaded = ref(false);
   const loading = ref(false);
+  let loadRevision = 0;
 
   const channelMap = computed<Record<number, PlaybackChannelView>>(() => {
     const m: Record<number, PlaybackChannelView> = {};
@@ -27,12 +28,21 @@ export const usePlaybackStore = defineStore('playback', () => {
   const slotAudio = computed<PlaybackChannelView | null>(() => channelMap.value[3] ?? null);
 
   async function load(): Promise<void> {
+    const revision = ++loadRevision;
     loading.value = true;
     try {
-      channels.value = await listChannels();
+      const result = await listChannels();
+      if (revision !== loadRevision) return;
+      channels.value = result;
       loaded.value = true;
+    } catch (error) {
+      if (revision === loadRevision) {
+        channels.value = [];
+        loaded.value = false;
+      }
+      throw error;
     } finally {
-      loading.value = false;
+      if (revision === loadRevision) loading.value = false;
     }
   }
 
@@ -75,7 +85,7 @@ export const usePlaybackStore = defineStore('playback', () => {
 
   function handleWs(event: WsEvent): void {
     if (event.type === 'playback_channel_changed') {
-      patchChannel(event.view);
+      void load().catch(() => { /* State was cleared; next refresh can recover. */ });
     }
   }
 

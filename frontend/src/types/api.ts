@@ -497,6 +497,8 @@ export interface UatUpdatedWsEvent {
 
 /** Sprint-10: 播控通道变化 (HDMI1=LED / HDMI2=投影 当前播啥变了) */
 export interface PlaybackChannelView {
+  occupied: boolean;
+  restricted: boolean;
   id: number;
   slot: number;
   name: string;
@@ -528,7 +530,6 @@ export interface PlaybackChannelView {
 export interface PlaybackChannelChangedWsEvent {
   type: 'playback_channel_changed';
   slot: number;
-  view: PlaybackChannelView;
   at: string;
 }
 

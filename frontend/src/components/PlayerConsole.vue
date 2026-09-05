@@ -627,8 +627,8 @@ async function submitWebpage(): Promise<void> {
         <ArrowLeft :size="18" :stroke-width="2" />
       </button>
       <div class="led-title"><MonitorPlay :size="18" :stroke-width="1.8" /> {{ title }}</div>
-      <span class="led-state" :class="{ on: ch?.currentMediaId, off: !ch?.currentMediaId }">
-        {{ ch?.currentMediaId ? (ch.paused ? '已暂停' : '播放中') : '待机' }}
+      <span class="led-state" :class="{ on: ch?.occupied, off: !ch?.occupied }">
+        {{ ch?.occupied ? (ch.paused ? '已暂停' : '播放中') : '待机' }}
       </span>
       <span v-if="ch && !ch.alive" class="led-warn" title="播放器没有心跳">
         <AlertTriangle :size="14" /> 播放器离线
@@ -660,7 +660,7 @@ async function submitWebpage(): Promise<void> {
       <div class="now-info">
         <div class="now-label">正在播放</div>
         <div class="now-name" :title="ch?.currentMediaName || ''">
-          {{ currentInList?.title || ch?.currentMediaName || '— 待机中 —' }}
+          {{ ch?.restricted ? '其他用户的内容正在使用此设备' : (currentInList?.title || ch?.currentMediaName || '— 待机中 —') }}
         </div>
         <div class="now-sub">
           <span v-if="ch?.loopMode === 'loop'"><Repeat :size="13" /> 循环</span>

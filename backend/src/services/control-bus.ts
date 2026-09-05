@@ -153,7 +153,7 @@ export interface UatUpdatedEvent {
 export interface PlaybackChannelChangedEvent {
   type: 'playback_channel_changed';
   slot: number;
-  view: unknown;  // 完整 PlaybackChannelView, 接收端转 cast
+  // Invalidation only: each recipient fetches an authorized state over HTTP.
   at: string;
 }
 

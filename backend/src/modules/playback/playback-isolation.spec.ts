@@ -57,4 +57,19 @@ describe('playback ownership', () => {
     await expect(service.advance(1, alice)).rejects.toThrow();
     expect((await service.advance(1, bob)).currentMediaId).toBe(bobId);
   });
+  it('redacts private channel metadata and emits invalidations without content', async () => {
+    const events: unknown[] = [];
+    service = new PlaybackService(db.getRepository(PlaybackChannel), db.getRepository(PlaylistItem), db.getRepository(PlaybackHistory), media, { publish: (e: unknown) => events.push(e) } as any, { info: jest.fn() } as any);
+    await service.publishMedia(1, aliceId, alice);
+    const hidden = await service.getBySlot(1, bob);
+    expect(hidden).toMatchObject({ occupied: true, restricted: true, currentMediaId: null, currentMediaName: null, currentMediaUrl: null, currentMediaKind: null, currentMediaPageCount: null, currentMediaDurationSec: null });
+    expect(JSON.stringify(hidden)).not.toContain('example.test');
+    expect((await service.getBySlot(1)).restricted).toBe(true);
+    expect((await service.getBySlot(1, alice)).currentMediaName).toBe('Alice private');
+    expect((await service.getBySlot(1, admin)).currentMediaId).toBe(aliceId);
+    expect(events).toEqual([{ type: 'playback_channel_changed', slot: 1, at: expect.any(String) }]);
+    await media.updateOwned(aliceId, admin, { ownerUserId: 2 });
+    expect((await service.getBySlot(1, alice)).restricted).toBe(true);
+    expect((await service.getBySlot(1, bob)).restricted).toBe(false);
+  });
 });

@@ -12,6 +12,8 @@ import { MediaService } from '../media/media.service';
 import { ControlBus } from '../../services/control-bus';
 
 export interface PlaybackChannelView {
+  occupied: boolean;
+  restricted: boolean;
   id: number;
   slot: number;
   name: string;
@@ -92,15 +94,15 @@ export class PlaybackService implements OnModuleInit {
     this.logger.info('[Playback] 启动即待机: 已清空三路播放状态 (业主要求默认不自动播)');
   }
 
-  async list(): Promise<PlaybackChannelView[]> {
+  async list(actor?: Actor): Promise<PlaybackChannelView[]> {
     const rows = await this.repo.find({ order: { slot: 'ASC' } });
-    return Promise.all(rows.map((r) => this.toView(r)));
+    return Promise.all(rows.map((r) => this.toView(r, actor)));
   }
 
-  async getBySlot(slot: number): Promise<PlaybackChannelView> {
+  async getBySlot(slot: number, actor?: Actor): Promise<PlaybackChannelView> {
     const row = await this.repo.findOne({ where: { slot } });
     if (!row) throw new NotFoundException(`slot=${slot} 不存在`);
-    return this.toView(row);
+    return this.toView(row, actor);
   }
 
   /**
@@ -147,7 +149,7 @@ export class PlaybackService implements OnModuleInit {
       slot, mediaId, ownerUserId: actor.userId, mediaName: m.originalName ?? `media ${mediaId}`,
     }));
 
-    const view = await this.getBySlot(slot);
+    const view = await this.getBySlot(slot, actor);
     this.broadcast(view);
     this.logger.info(`[Playback] slot=${slot} → media id=${mediaId} (${m.originalName}, loop=${loopMode})`);
     return view;
@@ -485,7 +487,8 @@ export class PlaybackService implements OnModuleInit {
     // 心跳不广播 WS, 太频繁; 前端要看 PlayerPage 活没活直接 GET /api/playback
   }
 
-  private async toView(row: PlaybackChannel): Promise<PlaybackChannelView> {
+  private async toView(row: PlaybackChannel, actor?: Actor): Promise<PlaybackChannelView> {
+    let readable = false;
     let mediaName: string | null = null;
     let mediaKind: 'video' | 'image' | 'audio' | 'webpage' | 'doc' | null = null;
     let mediaUrl: string | null = null;
@@ -493,7 +496,8 @@ export class PlaybackService implements OnModuleInit {
     let pageCount: number | null = null;
     if (row.currentMediaId !== null) {
       const m = await this.mediaService.get(row.currentMediaId).catch(() => null);
-      if (m) {
+      if (m && actor && canReadResource(actor, m)) {
+        readable = true;
         mediaName = m.originalName;
         mediaKind = m.kind;
         // webpage 用外部 URL; doc: Word 有转好的 PDF 给 kiosk 逐页渲染,
@@ -503,28 +507,27 @@ export class PlaybackService implements OnModuleInit {
         else mediaUrl = `/api/media/${m.id}/file`;
         durationSec = m.durationSec;
         pageCount = m.pageCount;
-      } else {
-        // 媒体被删了但 channel 还指着它 → 当成 stop, 但不主动改库, 留给下次 publish 覆盖
-        mediaName = `(媒体已删除 id=${row.currentMediaId})`;
       }
     }
     const alive = row.lastHeartbeatAt
       ? Date.now() - row.lastHeartbeatAt.getTime() < HEARTBEAT_STALE_MS
       : false;
     return {
+      occupied: row.currentMediaId !== null,
+      restricted: row.currentMediaId !== null && !readable,
       id: row.id,
       slot: row.slot,
       name: row.name,
       outputKind: row.outputKind,
-      currentMediaId: row.currentMediaId,
+      currentMediaId: readable ? row.currentMediaId : null,
       currentMediaName: mediaName,
       currentMediaKind: mediaKind,
       currentMediaUrl: mediaUrl,
       currentMediaDurationSec: durationSec,
-      currentPlaylistId: row.currentPlaylistId,
-      playlistIndex: row.playlistIndex,
+      currentPlaylistId: readable ? row.currentPlaylistId : null,
+      playlistIndex: readable ? row.playlistIndex : 0,
       displayFit: (row.displayFit ?? 'fill') as PlaybackDisplayFit,
-      docPage: row.docPage ?? 1,
+      docPage: readable ? row.docPage ?? 1 : 1,
       docZoom: row.docZoom ?? 100,
       currentMediaPageCount: pageCount,
       startedAt: row.startedAt ? row.startedAt.toISOString() : null,
@@ -541,7 +544,6 @@ export class PlaybackService implements OnModuleInit {
     this.bus.publish({
       type: 'playback_channel_changed',
       slot: view.slot,
-      view,
       at: new Date().toISOString(),
     });
   }

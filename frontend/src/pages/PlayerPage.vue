@@ -49,7 +49,7 @@ async function fetchChannel(): Promise<void> {
 
 function handleWs(event: WsEvent): void {
   if (event.type === 'playback_channel_changed' && event.slot === slot.value) {
-    channel.value = event.view;
+    void fetchChannel();
   }
 }
 

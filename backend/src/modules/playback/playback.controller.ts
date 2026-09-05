@@ -161,17 +161,15 @@ export class PlaybackController {
     return { message: '播放模式已保存', data: await this.service.setPlayMode(slot, body.mode as 'seq' | 'loop1' | 'loopAll' | 'shuffle') };
   }
 
-  @Public()
   @Get('channels')
-  async list() {
-    return { message: '查询成功', data: await this.service.list() };
+  async list(@Req() req: AuthenticatedRequest) {
+    return { message: '查询成功', data: await this.service.list(requireActor(req)) };
   }
 
   /** 拿指定 slot 当前状态. PlayerPage 启动时按 ?slot=N 拉 */
-  @Public()
   @Get('channels/:slot')
-  async getOne(@Param('slot', ParseIntPipe) slot: number) {
-    return { message: '查询成功', data: await this.service.getBySlot(slot) };
+  async getOne(@Req() req: AuthenticatedRequest, @Param('slot', ParseIntPipe) slot: number) {
+    return { message: '查询成功', data: await this.service.getBySlot(slot, requireActor(req)) };
   }
 
   /**
