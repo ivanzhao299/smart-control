@@ -10,6 +10,9 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { BaiduPanAuth } from '../../entities/baidu-pan-auth.entity';
 import { MediaService } from '../media/media.service';
+import { MediaQuotaService } from '../media/media-quota.service';
+import { Transform } from 'stream';
+import { pipeline } from 'stream/promises';
 
 /**
  * 百度网盘接入 (2026-07-29 业主: "在线曲库能不能连到我的百度网盘 → 把B做出来")
@@ -52,6 +55,7 @@ export class BaiduPanService implements OnModuleInit {
     @InjectRepository(BaiduPanAuth) private readonly repo: Repository<BaiduPanAuth>,
     private readonly media: MediaService,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
+    private readonly quota: MediaQuotaService,
   ) {}
 
   /** 进行中的下载 (单并发) */
@@ -243,7 +247,7 @@ export class BaiduPanService implements OnModuleInit {
       throw new BadRequestException(`拿不到下载链接 (errno=${meta?.errno}) — 文件可能已被移动/删除`);
     }
     const size = Number(meta.list[0].size ?? 0);
-    if (size > MAX_BYTES) throw new BadRequestException('文件超过 2GB 上限');
+    if (!Number.isSafeInteger(size) || size < 1 || size > MAX_BYTES) throw new BadRequestException('文件大小无效或超过2GB上限');
     // 根目录钳制: 只允许下载可见范围内的文件 (防拿任意 fsId 越权拉私人文件)
     const rowForRoot = await this.row();
     if (rowForRoot.rootPath) {
@@ -253,9 +257,13 @@ export class BaiduPanService implements OnModuleInit {
       }
     }
 
-    this.activeDownload = { name, receivedBytes: 0, totalBytes: size || null, startedAt: Date.now() };
+    if (this.activeDownload) throw new ConflictException('下载服务正忙');
+    this.activeDownload = { name, receivedBytes: 0, totalBytes: size, startedAt: Date.now() };
+    let reservation: string | null;
+    try { reservation = await this.quota.reserve(actor, size); }
+    catch (error) { this.activeDownload = null; throw error; }
     // 后台跑, 不阻塞请求
-    void this.runDownload(`${dlink}&access_token=${encodeURIComponent(tok)}`, name, actor)
+    void this.runDownload(`${dlink}&access_token=${encodeURIComponent(tok)}`, name, actor, size, reservation)
       .then((saved) => {
         this.lastResult = { ok: true, name, message: `已入库 (#${saved.id}, ${(saved.sizeBytes / 1048576).toFixed(1)}MB)`, at: Date.now() };
         this.logger.info(`[BaiduPan] 下载入库完成: ${name} (#${saved.id})`, { context: 'BaiduPanService' });
@@ -268,19 +276,20 @@ export class BaiduPanService implements OnModuleInit {
     return { started: true };
   }
 
-  private async runDownload(url: string, name: string, actor: import('../../common/auth/actor').Actor): Promise<{ id: number; sizeBytes: number }> {
+  private async runDownload(url: string, name: string, actor: import('../../common/auth/actor').Actor, expectedBytes: number, reservation: string | null): Promise<{ id: number; sizeBytes: number }> {
     const tmp = join(tmpdir(), `baidupan-${Date.now()}-${Math.floor(Math.random() * 1e6)}`);
     try {
-      await this.streamToFile(url, tmp, 5);
+      await this.streamToFile(url, tmp, 5, expectedBytes);
       const stat = await fsp.stat(tmp);
       if (stat.size < 1024) throw new Error('下载内容异常偏小, 已放弃入库');
+      if (stat.size !== expectedBytes) throw new Error('下载大小与网盘元数据不一致');
       const mime = this.guessMime(name);
       const saved = await this.media.ingestFromFile(name, mime, tmp, actor.username, actor,
         `百度网盘下载 (${new Date().toISOString().slice(0, 10)})`);
       return { id: saved.id, sizeBytes: saved.sizeBytes };
-    } catch (e) {
-      await fsp.unlink(tmp).catch(() => undefined);
-      throw e;
+    } finally {
+      await fsp.unlink(tmp).catch(error => { if (error.code !== 'ENOENT') throw error; });
+      await this.quota.release(actor, reservation);
     }
   }
 
@@ -299,14 +308,15 @@ export class BaiduPanService implements OnModuleInit {
   }
 
   /** dlink 流式落盘 (UA 必须是 pan.baidu.com, 否则 403); 跟随重定向; 进度写 activeDownload */
-  private streamToFile(url: string, dest: string, redirects: number): Promise<void> {
+  private streamToFile(url: string, dest: string, redirects: number, maxBytes: number): Promise<void> {
     return new Promise((resolve, reject) => {
+      let receiving = false;
       const mod = url.startsWith('http:') ? http : https;
       const req = mod.get(url, { headers: { 'User-Agent': 'pan.baidu.com' }, timeout: 60000 }, (res) => {
         const code = res.statusCode ?? 0;
         if (code >= 300 && code < 400 && res.headers.location && redirects > 0) {
           res.resume();
-          this.streamToFile(new URL(res.headers.location, url).toString(), dest, redirects - 1).then(resolve, reject);
+          this.streamToFile(new URL(res.headers.location, url).toString(), dest, redirects - 1, maxBytes).then(resolve, reject);
           return;
         }
         if (code < 200 || code >= 300) {
@@ -315,19 +325,19 @@ export class BaiduPanService implements OnModuleInit {
           return;
         }
         const out = createWriteStream(dest);
+        receiving = true;
         let total = 0;
-        res.on('data', (c: Buffer) => {
-          total += c.length;
-          if (this.activeDownload) this.activeDownload.receivedBytes = total;
-          if (total > MAX_BYTES) req.destroy(new Error('文件超过 2GB 上限'));
-        });
-        res.pipe(out);
-        out.on('finish', () => resolve());
-        out.on('error', reject);
-        res.on('error', reject);
+        const active = this;
+        const limiter = new Transform({ transform(chunk: Buffer, _encoding, callback) {
+          total += chunk.length;
+          if (active.activeDownload) active.activeDownload.receivedBytes = total;
+          if (total > maxBytes) callback(new Error('下载超出预留容量'));
+          else callback(null, chunk);
+        } });
+        pipeline(res, limiter, out).then(resolve, reject);
       });
       req.on('timeout', () => req.destroy(new Error('连接百度超时')));
-      req.on('error', reject);
+      req.on('error', error => { if (!receiving) reject(error); });
     });
   }
 
