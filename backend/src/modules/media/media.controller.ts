@@ -27,6 +27,7 @@ import { ActorAdminGuard } from '../../common/guards/actor-admin.guard';
 import { assertCanUpload } from '../../common/auth/resource-policy';
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { MediaAccessService } from './media-access.service';
+import { MediaQuotaService } from './media-quota.service';
 import { Public } from '../../common/decorators/public.decorator';
 
 /** Runs before Multer so denied callers cannot fill the temporary disk. */
@@ -48,7 +49,22 @@ export class MediaController {
     private readonly media: MediaService,
     private readonly opLog: OperationLogService,
     private readonly access: MediaAccessService,
+    private readonly quota: MediaQuotaService,
   ) {}
+
+  @Get('storage/me')
+  async storage(@Req() req: AuthenticatedRequest) {
+    return { message: 'ok', data: await this.quota.usage(requireActor(req)) };
+  }
+
+  @Put('storage/users/:id')
+  @UseGuards(ActorAdminGuard)
+  async setQuota(@Req() req: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number, @Body() body: { quotaBytes?: number }) {
+    const actor = requireActor(req);
+    await this.quota.setLimit(actor, id, body?.quotaBytes as number);
+    await this.opLog.record({ operator: actor.username, action: 'user.storage-quota', targetType: 'user', targetId: String(id), message: `quotaBytes=${body.quotaBytes}` });
+    return { message: '配额已更新', data: null };
+  }
 
   @Post('upload')
   @UseGuards(MediaUploadGuard)

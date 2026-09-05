@@ -41,4 +41,15 @@ export class MediaQuotaService {
     if (!row) throw new ForbiddenException('账户不存在');
     return row;
   }
+
+  async setLimit(actor: Actor, userId: number, bytes: number): Promise<void> {
+    if (actor.role !== 'admin') throw new ForbiddenException('仅管理员可修改配额');
+    if (!Number.isSafeInteger(userId) || userId < 1 || !Number.isSafeInteger(bytes) || bytes < 0) throw new BadRequestException('无效配额参数');
+    // Cannot lower beneath committed and in-flight storage, including concurrent reservations.
+    const result = await this.db.createQueryBuilder().update('users').set({ storageQuotaBytes: bytes })
+      .where('id = :id', { id: userId })
+      .andWhere(`:bytes >= COALESCE((SELECT SUM(sizeBytes) FROM media_assets WHERE owner_user_id = :id), 0)
+        + COALESCE((SELECT SUM(bytes) FROM upload_reservations WHERE owner_user_id = :id), 0)`, { bytes, id: userId }).execute();
+    if (!result.affected) throw new BadRequestException('用户不存在或新配额低于已用及预留容量');
+  }
 }

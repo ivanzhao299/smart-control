@@ -24,7 +24,7 @@ import { onlineMusicService, type OnlineTrack } from '@/services/online-music.se
 import { baiduPanService, type PanFile, type PanStatus, type PanAuthStart } from '@/services/baidu-pan.service';
 import { usePlaybackStore } from '@/stores/playback';
 import { useSystemBrandingStore } from '@/stores/system-branding';
-import { absUrl, HttpError } from '@/services/http';
+import { absUrl, HttpError, api } from '@/services/http';
 import { useAdminAuthStore } from '@/stores/admin-auth';
 import MediaAdminPanel from '@/components/MediaAdminPanel.vue';
 
@@ -102,6 +102,13 @@ const ownerFilter = ref<number | undefined>();
 const mediaPage = ref(1);
 const mediaTotal = ref(0);
 const mediaKeyword = ref('');
+const storageInfo = ref<{ quotaBytes: number | null; usedBytes: number | null; reservedBytes: number | null } | null>(null);
+const storageText = computed(() => {
+  const value = storageInfo.value;
+  if (!value || value.quotaBytes === null) return '';
+  const gib = (n: number) => (n / 1024 ** 3).toFixed(2);
+  return `存储：已用 ${gib(Number(value.usedBytes))} GiB，上传预留 ${gib(Number(value.reservedBytes))} GiB / 配额 ${gib(Number(value.quotaBytes))} GiB`;
+});
 const mediaPageSize = 50;
 function searchMedia(): void { mediaPage.value = 1; void refresh(); }
 function setOwnerFilter(id: number | undefined): void { ownerFilter.value = id; searchMedia(); }
@@ -152,7 +159,9 @@ async function refresh(): Promise<void> {
   loading.value = true;
   try {
     const r = await mediaService.list({ scope: resourceScope.value, ownerUserId: ownerFilter.value, kind: filter.value === 'all' ? undefined : filter.value, keyword: mediaKeyword.value, limit: mediaPageSize, offset: (mediaPage.value - 1) * mediaPageSize });
+    const usage = await api.get<typeof storageInfo.value>('/media/storage/me').catch(() => null);
     if (revision !== mediaRequestRevision) return;
+    storageInfo.value = usage;
     items.value = r.items;
     mediaTotal.value = r.total;
   } catch (e) {
@@ -969,6 +978,7 @@ onBeforeUnmount(() => window.clearInterval(processingRefreshTimer));
     </div>
 
     <div class="media-pagination">
+      <span v-if="storageText">{{ storageText }}</span>
       <input v-model="mediaKeyword" placeholder="搜索资料名称" aria-label="搜索资料名称" maxlength="200" @keyup.enter="searchMedia" />
       <button @click="searchMedia">搜索</button>
       <button :disabled="loading || mediaPage <= 1" @click="mediaPage--; refresh()">上一页</button>

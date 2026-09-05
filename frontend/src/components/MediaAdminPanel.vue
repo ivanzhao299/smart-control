@@ -15,6 +15,16 @@ const name = ref('');
 const visibility = ref<'private' | 'shared'>('private');
 const owner = ref<number | undefined>();
 const saving = ref(false);
+const quotaGiB = ref(10);
+async function setQuota() {
+  if (!selectedOwner.value) return;
+  const bytes = Math.round(Number(quotaGiB.value) * 1024 ** 3);
+  try {
+    await ElMessageBox.confirm(`将所选用户的存储配额设置为 ${quotaGiB.value} GiB？`, '修改配额');
+  } catch { return; }
+  try { await api.put(`/media/storage/users/${selectedOwner.value}`, { quotaBytes: bytes }); ElMessage.success('配额已更新'); }
+  catch { ElMessage.error('配额修改失败：请检查权限、数值及用户已用容量'); }
+}
 async function searchUsers() {
   try {
     const result = await api.get<{ list: typeof users.value }>(`/users?pageSize=500&keyword=${encodeURIComponent(keyword.value)}`);
@@ -61,6 +71,10 @@ onMounted(async () => {
         <option value="">全部用户</option>
         <option v-for="user in users" :key="user.id" :value="String(user.id)">{{ user.username }}{{ user.enabled ? '' : '（已停用）' }}</option>
       </select>
+    </div>
+    <div v-if="selectedOwner" class="admin-controls">
+      <label>新配额（GiB）<input v-model.number="quotaGiB" type="number" min="0" step="0.1" /></label>
+      <button @click="setQuota">设置所选用户配额</button>
     </div>
     <p>下表管理当前筛选范围内已加载的资料。用户搜索每次最多显示 500 个结果。</p>
     <div class="admin-table">

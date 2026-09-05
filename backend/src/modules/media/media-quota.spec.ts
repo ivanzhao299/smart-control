@@ -52,4 +52,14 @@ describe('atomic upload capacity reservations', () => {
     await migration.down(db.createQueryRunner());
     expect(await db.createQueryRunner().hasTable('upload_reservations')).toBe(false);
   });
+  it('restricts quota edits to administrators and refuses lowering below reservations', async () => {
+    const admin: Actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };
+    await quota.reserve(alice, 60);
+    await expect(quota.setLimit(bob, 1, 500)).rejects.toThrow('仅管理员');
+    await expect(quota.setLimit(admin, 1, 59)).rejects.toThrow('低于');
+    expect((await quota.usage(alice)).quotaBytes).toBe(100);
+    await quota.setLimit(admin, 1, 60);
+    expect((await quota.usage(alice)).quotaBytes).toBe(60);
+    await expect(quota.reserve(alice, 1)).rejects.toThrow();
+  });
 });
