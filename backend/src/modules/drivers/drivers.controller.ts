@@ -1,4 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, Post } from '@nestjs/common';
+import { UseGuards } from '@nestjs/common';
+import { ConfigurationWriteGuard } from '../../common/guards/configuration-write.guard';
 import type { DriverDescriptor } from '../../adapters/driver-descriptor';
 import { DriverTemplate } from '../../entities/driver-template.entity';
 import { DriverRegistryService } from './driver-registry.service';
@@ -7,6 +9,7 @@ import { DriverRegistryService } from './driver-registry.service';
  * 驱动模板浏览 + 管理. P2 收尾 = 只有 list / detail; P4 加 create / delete.
  */
 @Controller('drivers')
+@UseGuards(ConfigurationWriteGuard)
 export class DriversController {
   constructor(private readonly registry: DriverRegistryService) {}
 

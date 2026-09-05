@@ -1,3 +1,5 @@
+import { UseGuards } from '@nestjs/common';
+import { ConfigurationWriteGuard } from '../../common/guards/configuration-write.guard';
 import {
   Body,
   Controller,
@@ -26,6 +28,7 @@ import { CreateHardwareDto, QueryHardwareDto, UpdateHardwareDto } from './dto/ha
 type AdapterCacheTarget = { codes: string[]; categories: string[]; adapter: { invalidateConfigCache(): void } };
 
 @Controller('hardware')
+@UseGuards(ConfigurationWriteGuard)
 export class HardwareController {
   private readonly adapterTargets: AdapterCacheTarget[];
 

@@ -1,3 +1,5 @@
+import { UseGuards } from '@nestjs/common';
+import { ConfigurationWriteGuard } from '../../common/guards/configuration-write.guard';
 import {
   Body,
   Controller,
@@ -16,6 +18,7 @@ import { UpdateDeviceDto } from './dto/update-device.dto';
 import { QueryDeviceDto } from './dto/query-device.dto';
 
 @Controller('devices')
+@UseGuards(ConfigurationWriteGuard)
 export class DevicesController {
   constructor(private readonly service: DevicesService) {}
 

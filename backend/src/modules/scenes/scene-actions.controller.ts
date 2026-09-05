@@ -1,3 +1,5 @@
+import { UseGuards } from '@nestjs/common';
+import { ConfigurationWriteGuard } from '../../common/guards/configuration-write.guard';
 import {
   Body,
   Controller,
@@ -16,6 +18,7 @@ import {
 } from './dto/single-action.dto';
 
 @Controller()
+@UseGuards(ConfigurationWriteGuard)
 export class SceneActionsController {
   constructor(private readonly service: SceneActionsService) {}
 

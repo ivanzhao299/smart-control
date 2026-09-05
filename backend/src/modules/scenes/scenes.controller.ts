@@ -11,6 +11,8 @@ import {
   Query,
 } from '@nestjs/common';
 import { ScenesService } from './scenes.service';
+import { UseGuards } from '@nestjs/common';
+import { ActorAdminGuard } from '../../common/guards/actor-admin.guard';
 import { CreateSceneDto } from './dto/create-scene.dto';
 import { UpdateSceneDto } from './dto/update-scene.dto';
 import { QuerySceneDto } from './dto/query-scene.dto';
@@ -36,18 +38,21 @@ export class ScenesController {
   }
 
   @Post()
+  @UseGuards(ActorAdminGuard)
   async create(@Body() dto: CreateSceneDto) {
     const data = await this.service.create(dto);
     return { message: '创建成功', data };
   }
 
   @Put(':id')
+  @UseGuards(ActorAdminGuard)
   async update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateSceneDto) {
     const data = await this.service.update(id, dto);
     return { message: '更新成功', data };
   }
 
   @Delete(':id')
+  @UseGuards(ActorAdminGuard)
   @HttpCode(200)
   async remove(@Param('id', ParseIntPipe) id: number) {
     await this.service.remove(id);
@@ -81,6 +86,7 @@ export class ScenesController {
    * MOCK_MODE=true 时不影响真实设备 (mock adapter)
    */
   @Post(':code/test')
+  @UseGuards(ActorAdminGuard)
   @HttpCode(202)
   async testExecute(@Param('code') code: string) {
     const data = await this.engine.execute(code, 'test', {

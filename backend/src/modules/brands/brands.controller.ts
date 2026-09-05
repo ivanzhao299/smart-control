@@ -1,3 +1,5 @@
+import { UseGuards } from '@nestjs/common';
+import { ConfigurationWriteGuard } from '../../common/guards/configuration-write.guard';
 import {
   Body,
   Controller,
@@ -12,6 +14,7 @@ import {
 import { BrandsService, type BrandUpsertDto } from './brands.service';
 
 @Controller('brands')
+@UseGuards(ConfigurationWriteGuard)
 export class BrandsController {
   constructor(private readonly service: BrandsService) {}
 
