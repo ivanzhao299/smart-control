@@ -1,7 +1,9 @@
 import { BadRequestException, Inject, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
-import { Repository, In } from 'typeorm';
+import { Repository, In, IsNull } from 'typeorm';
+import { Actor } from '../../common/auth/actor';
+import { assertCanUpload, assertCanPublish, canReadResource } from '../../common/auth/resource-policy';
 import { Logger } from 'winston';
 import { PlaybackChannel, type PlaybackDisplayFit, type PlaybackPlayMode } from '../../entities/playback-channel.entity';
 import { PlaylistItem } from '../../entities/playlist-item.entity';
@@ -86,7 +88,7 @@ export class PlaybackService implements OnModuleInit {
     // 2026-07-25 业主: "LED/背景音乐/投影默认不要自动播, 有人操作才播"。
     // 后端每次启动(开机/部署重启)把三路播放状态清空回待机 —— 重启后无人操作
     // 就该是待机。要放内容: 媒体页/播放控制台人为推送。
-    await this.repo.update({ slot: In([1, 2, 3]) }, { currentMediaId: null, currentPlaylistId: null, paused: false });
+    await this.repo.update({ slot: In([1, 2, 3]) }, { currentMediaId: null, initiatorUserId: null, currentPlaylistId: null, paused: false });
     this.logger.info('[Playback] 启动即待机: 已清空三路播放状态 (业主要求默认不自动播)');
   }
 
@@ -107,12 +109,14 @@ export class PlaybackService implements OnModuleInit {
    * - WS 广播 playback_channel_changed
    * - PlayerPage 收到 WS 事件就切 <video> / <img>
    */
-  async publishMedia(slot: number, mediaId: number, opts: { loopMode?: 'once' | 'loop' } = {}): Promise<PlaybackChannelView> {
+  async publishMedia(slot: number, mediaId: number, actor: Actor, opts: { loopMode?: 'once' | 'loop' } = {}): Promise<PlaybackChannelView> {
+    assertCanUpload(actor);
     const row = await this.repo.findOne({ where: { slot } });
     if (!row) throw new NotFoundException(`slot=${slot} 不存在`);
     // 校验媒体存在
     const m = await this.mediaService.get(mediaId).catch(() => null);
     if (!m) throw new BadRequestException(`媒体 ${mediaId} 不存在`);
+    assertCanPublish(actor, m);
     if (m.kind === 'video' && m.processingStatus !== 'ready') {
       const detail = m.processingStatus === 'failed'
         ? `兼容转换失败: ${m.processingError || '请重试'}`
@@ -127,6 +131,7 @@ export class PlaybackService implements OnModuleInit {
     // lastHeartbeatAt 这些不相干的字段一起写回旧值 (见 pause 上方注释)
     await this.repo.update({ slot }, {
       currentMediaId: mediaId,
+      initiatorUserId: actor.userId,
       docPage: 1, // 新内容从第一页开始 (文档投屏)
       docZoom: 100, // 缩放回铺满
       currentPlaylistId: null,
@@ -139,7 +144,7 @@ export class PlaybackService implements OnModuleInit {
     // 记历史: 现场常有"刚才那片子叫啥来着, 再放一遍" —— 有历史就一点即回,
     // 不用去媒体库翻。名字存快照, 媒体以后被删/改名, 历史仍看得到当时播的是什么。
     await this.hisRepo.save(this.hisRepo.create({
-      slot, mediaId, mediaName: m.originalName ?? `media ${mediaId}`,
+      slot, mediaId, ownerUserId: actor.userId, mediaName: m.originalName ?? `media ${mediaId}`,
     }));
 
     const view = await this.getBySlot(slot);
@@ -163,7 +168,8 @@ export class PlaybackService implements OnModuleInit {
     2: '金湖欢迎页·投影.png',
   };
 
-  async publishWelcome(slot: number, variant: 'editable' | 'default'): Promise<{ assetName: string; view: PlaybackChannelView }> {
+  async publishWelcome(slot: number, variant: 'editable' | 'default', actor: Actor): Promise<{ assetName: string; view: PlaybackChannelView }> {
+    assertCanUpload(actor);
     const name = variant === 'editable'
       ? PlaybackService.WELCOME_EDITABLE_NAME
       : (PlaybackService.WELCOME_DEFAULT_NAMES[slot] ?? PlaybackService.WELCOME_DEFAULT_NAMES[1]);
@@ -171,7 +177,7 @@ export class PlaybackService implements OnModuleInit {
     if (!media) {
       throw new NotFoundException(`媒体库里找不到内置素材「${name}」(可能被改名或删除) — 重启后端会自动重建`);
     }
-    const view = await this.publishMedia(slot, media.id, { loopMode: 'loop' });
+    const view = await this.publishMedia(slot, media.id, actor, { loopMode: 'loop' });
     return { assetName: name, view };
   }
 
@@ -267,10 +273,11 @@ export class PlaybackService implements OnModuleInit {
    * 这样从任何状态都能一键回到列表, 不会卡死。
    * 列表空 = 不动, 照实说, 别静默失败。
    */
-  async step(slot: number, dir: 1 | -1): Promise<PlaybackChannelView> {
+  async step(slot: number, dir: 1 | -1, actor: Actor): Promise<PlaybackChannelView> {
+    assertCanUpload(actor);
     const row = await this.repo.findOne({ where: { slot } });
     if (!row) throw new NotFoundException(`slot=${slot} 不存在`);
-    const list = await this.plRepo.find({ where: { slot }, order: { sortOrder: 'ASC', id: 'ASC' } });
+    const list = await this.playablePlaylist(slot, actor);
     if (list.length === 0) throw new BadRequestException('播放列表是空的, 先把常播内容加进列表');
 
     const cur = list.findIndex((x) => x.mediaId === row.currentMediaId);
@@ -278,7 +285,7 @@ export class PlaybackService implements OnModuleInit {
     if (cur < 0) next = dir === 1 ? 0 : list.length - 1;
     else next = (cur + dir + list.length) % list.length;   // 环形, 到头绕回去
 
-    return this.publishMedia(slot, list[next].mediaId, { loopMode: row.loopMode as 'once' | 'loop' });
+    return this.publishMedia(slot, list[next].mediaId, actor, { loopMode: row.loopMode as 'once' | 'loop' });
   }
 
   // ============ 自动推进 (背景音乐一首播完后, bgm-player 触发) ============
@@ -296,21 +303,22 @@ export class PlaybackService implements OnModuleInit {
    * 当前曲不在列表 (从媒体库临时推的) / 列表空: 有当前曲就重播它, 否则不动, 从任何
    * 状态都不会卡死。
    */
-  async advance(slot: number): Promise<PlaybackChannelView> {
+  async advance(slot: number, actor: Actor): Promise<PlaybackChannelView> {
+    assertCanUpload(actor);
     const row = await this.repo.findOne({ where: { slot } });
     if (!row) throw new NotFoundException(`slot=${slot} 不存在`);
     const mode: PlaybackPlayMode = row.playMode ?? 'loopAll';
 
     // 单曲循环: 直接重播当前 (不看列表)
     if (mode === 'loop1' && row.currentMediaId !== null) {
-      return this.publishMedia(slot, row.currentMediaId, { loopMode: row.loopMode });
+      return this.publishMedia(slot, row.currentMediaId, actor, { loopMode: row.loopMode });
     }
 
-    const list = await this.plRepo.find({ where: { slot }, order: { sortOrder: 'ASC', id: 'ASC' } });
+    const list = await this.playablePlaylist(slot, actor);
 
     // 列表空: 无从推进. 有当前曲就重播 (别让背景音乐彻底停), 否则不动.
     if (list.length === 0) {
-      if (row.currentMediaId !== null) return this.publishMedia(slot, row.currentMediaId, { loopMode: row.loopMode });
+      if (row.currentMediaId !== null) return this.publishMedia(slot, row.currentMediaId, actor, { loopMode: row.loopMode });
       return this.toView(row);
     }
 
@@ -320,18 +328,28 @@ export class PlaybackService implements OnModuleInit {
       let pick = cur;
       if (list.length > 1) { while (pick === cur) pick = Math.floor(Math.random() * list.length); }
       else pick = 0;
-      return this.publishMedia(slot, list[pick].mediaId, { loopMode: row.loopMode });
+      return this.publishMedia(slot, list[pick].mediaId, actor, { loopMode: row.loopMode });
     }
 
     if (mode === 'seq') {
-      if (cur < 0) return this.publishMedia(slot, list[0].mediaId, { loopMode: row.loopMode });
+      if (cur < 0) return this.publishMedia(slot, list[0].mediaId, actor, { loopMode: row.loopMode });
       if (cur >= list.length - 1) return this.stop(slot); // 顺序播到底 → 待机
-      return this.publishMedia(slot, list[cur + 1].mediaId, { loopMode: row.loopMode });
+      return this.publishMedia(slot, list[cur + 1].mediaId, actor, { loopMode: row.loopMode });
     }
 
     // loopAll (默认): 环形下一首
     const next = cur < 0 ? 0 : (cur + 1) % list.length;
-    return this.publishMedia(slot, list[next].mediaId, { loopMode: row.loopMode });
+    return this.publishMedia(slot, list[next].mediaId, actor, { loopMode: row.loopMode });
+  }
+
+  private async playablePlaylist(slot: number, actor: Actor): Promise<PlaylistItem[]> {
+    const rows = await this.plRepo.find({ where: { slot, ownerUserId: actor.userId ?? IsNull() }, order: { sortOrder: 'ASC', id: 'ASC' } });
+    const visible: PlaylistItem[] = [];
+    for (const row of rows) {
+      const media = await this.mediaService.get(row.mediaId).catch(() => null);
+      if (media && canReadResource(actor, media)) visible.push(row);
+    }
+    return visible;
   }
 
   /** 设背景音乐播放模式 (前端点 顺序/单曲/列表/随机). 存后端, bgm-player advance 时读它. */
@@ -350,17 +368,19 @@ export class PlaybackService implements OnModuleInit {
   /**
    * 最近播过的, 按媒体去重取最近一次 —— 同一个片子放 20 遍不该刷屏 20 条。
    */
-  async listHistory(slot: number, limit = 20): Promise<Array<{
-    mediaId: number; mediaName: string; playedAt: Date; missing: boolean;
+  async listHistory(slot: number, actor: Actor, limit = 20): Promise<Array<{
+    mediaId: number; mediaName: string; playedAt: Date; missing: boolean; ownerUserId: number | null;
   }>> {
-    const rows = await this.hisRepo.find({ where: { slot }, order: { playedAt: 'DESC' }, take: 200 });
-    const seen = new Set<number>();
+    const rows = await this.hisRepo.find({ where: actor.role === 'admin' ? { slot } : { slot, ownerUserId: actor.userId ?? IsNull() }, order: { playedAt: 'DESC', id: 'DESC' }, take: 200 });
+    const seen = new Set<string>();
     const out = [];
     for (const r of rows) {
-      if (seen.has(r.mediaId)) continue;
-      seen.add(r.mediaId);
+      const key = `${r.ownerUserId}:${r.mediaId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       const m = await this.mediaService.get(r.mediaId).catch(() => null);
-      out.push({ mediaId: r.mediaId, mediaName: m?.originalName ?? r.mediaName, playedAt: r.playedAt, missing: !m });
+      if (m && !canReadResource(actor, m)) continue;
+      out.push({ mediaId: r.mediaId, ownerUserId: r.ownerUserId, mediaName: m?.originalName ?? r.mediaName, playedAt: r.playedAt, missing: !m });
       if (out.length >= limit) break;
     }
     return out;
@@ -371,6 +391,7 @@ export class PlaybackService implements OnModuleInit {
     // 只清播放状态相关字段, 不碰 playMode / lastHeartbeatAt (见 pause 上方注释)
     const res = await this.repo.update({ slot }, {
       currentMediaId: null,
+      initiatorUserId: null,
       currentPlaylistId: null,
       playlistIndex: 0,
       startedAt: null,

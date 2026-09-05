@@ -1,4 +1,6 @@
-import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Param, Post, UseGuards, Req, HttpException } from '@nestjs/common';
+import { AuthenticatedRequest, requireActor } from '../../common/auth/actor';
+import { assertCanUpload } from '../../common/auth/resource-policy';
 import { LedAdapter } from '../../adapters/led/led.adapter';
 import { OperationLogService } from '../logs/operation-log.service';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
@@ -42,19 +44,21 @@ export class LedController {
    *   3. 推流失败 (kiosk 断/素材被删) → V2460 内置 preset 硬件级兜底, 保证有画面。
    */
   @Post(':id/welcome')
-  async welcome(@Param('id') id: string) {
+  async welcome(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+    const actor = requireActor(req);
+    assertCanUpload(actor);
     const welcomeMediaId = await this.branding.getWelcomeMediaId();
     try {
       let playedMediaId: number;
       if (welcomeMediaId) {
-        await this.playback.publishMedia(1, welcomeMediaId, { loopMode: 'loop' });
+        await this.playback.publishMedia(1, welcomeMediaId, actor, { loopMode: 'loop' });
         playedMediaId = welcomeMediaId;
       } else {
-        const r = await this.playback.publishWelcome(1, 'editable');
+        const r = await this.playback.publishWelcome(1, 'editable', actor);
         playedMediaId = r.view.currentMediaId ?? -1;
       }
       await this.logService.record({
-        operator: 'system',
+        operator: actor.username,
         action: 'led.welcome',
         targetType: 'led',
         targetId: id,
@@ -63,9 +67,10 @@ export class LedController {
       });
       return { message: '已切到欢迎页 (媒体库)', data: { ok: true, mediaId: playedMediaId } };
     } catch (e) {
+      if (e instanceof HttpException && [401, 403, 404].includes(e.getStatus())) throw e;
       // playback 失败 (e.g. media 被删) 回落 V2460 preset, 保证欢迎页能出现
       await this.logService.record({
-        operator: 'system',
+        operator: actor.username,
         action: 'led.welcome',
         targetType: 'led',
         targetId: id,

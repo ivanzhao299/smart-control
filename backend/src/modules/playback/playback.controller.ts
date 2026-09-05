@@ -82,8 +82,8 @@ export class PlaybackController {
   }
 
   @Get('history/:slot')
-  async history(@Param('slot', ParseIntPipe) slot: number) {
-    return { message: '查询成功', data: await this.service.listHistory(slot) };
+  async history(@Req() req: AuthenticatedRequest, @Param('slot', ParseIntPipe) slot: number) {
+    return { message: '查询成功', data: await this.service.listHistory(slot, requireActor(req)) };
   }
 
   /** 上一个 / 下一个 — 在播放列表里环形切换 */
@@ -127,25 +127,24 @@ export class PlaybackController {
 
   @Post('channels/:slot/next')
   @HttpCode(200)
-  async next(@Param('slot', ParseIntPipe) slot: number) {
-    return { message: '已切到下一个', data: await this.service.step(slot, 1) };
+  async next(@Req() req: AuthenticatedRequest, @Param('slot', ParseIntPipe) slot: number) {
+    return { message: '已切到下一个', data: await this.service.step(slot, 1, requireActor(req)) };
   }
 
   @Post('channels/:slot/prev')
   @HttpCode(200)
-  async prev(@Param('slot', ParseIntPipe) slot: number) {
-    return { message: '已切到上一个', data: await this.service.step(slot, -1) };
+  async prev(@Req() req: AuthenticatedRequest, @Param('slot', ParseIntPipe) slot: number) {
+    return { message: '已切到上一个', data: await this.service.step(slot, -1, requireActor(req)) };
   }
 
   /**
    * 一首播完自动推进 —— bgm-player.ps1 播完当前曲就调这个, 后端按 playMode 决定
    * 下一首。这是"背景音乐不靠任何人开网页也能一直放"的核心 (见 service.advance)。
    */
-  @Public()
   @Post('channels/:slot/advance')
   @HttpCode(200)
-  async advance(@Param('slot', ParseIntPipe) slot: number) {
-    return { message: '已推进', data: await this.service.advance(slot) };
+  async advance(@Req() req: AuthenticatedRequest, @Param('slot', ParseIntPipe) slot: number) {
+    return { message: '已推进', data: await this.service.advance(slot, requireActor(req)) };
   }
 
   /** 设背景音乐播放模式 (顺序/单曲/列表/随机). 前端点模式按钮时调, 存后端. */
@@ -181,13 +180,14 @@ export class PlaybackController {
    */
   @Post('channels/:slot/publish')
   async publish(
+    @Req() req: AuthenticatedRequest,
     @Param('slot', ParseIntPipe) slot: number,
     @Body() body: { mediaId?: number; loopMode?: 'once' | 'loop' } = {},
   ) {
     if (typeof body?.mediaId !== 'number') {
       throw new BadRequestException('mediaId 必填');
     }
-    const view = await this.service.publishMedia(slot, body.mediaId, { loopMode: body.loopMode });
+    const view = await this.service.publishMedia(slot, body.mediaId, requireActor(req), { loopMode: body.loopMode });
     return { message: '已推送', data: view };
   }
 
@@ -199,11 +199,12 @@ export class PlaybackController {
   @Post('channels/:slot/welcome')
   @HttpCode(200)
   async welcome(
+    @Req() req: AuthenticatedRequest,
     @Param('slot', ParseIntPipe) slot: number,
     @Body() body: { variant?: 'editable' | 'default' } = {},
   ) {
     const variant = body?.variant === 'default' ? 'default' : 'editable';
-    const r = await this.service.publishWelcome(slot, variant);
+    const r = await this.service.publishWelcome(slot, variant, requireActor(req));
     return { message: `已投放「${r.assetName}」`, data: r.view };
   }
 
