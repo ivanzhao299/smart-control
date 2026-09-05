@@ -17,7 +17,7 @@
 # level audio API, needs NO window and NO message pump, made exactly for this.
 # Polls the backend slot3 channel and mirrors it:
 #   - new currentMediaId   -> download mp3 to temp + MCI open + play
-#   - loopMode == 'loop'   -> when MCI reports 'stopped', seek to start + replay
+#   - track ended         -> authenticated, session-bound backend advance
 #   - empty currentMediaId -> close
 # Also posts the slot3 heartbeat so the PWA shows "player online".
 # Runs as a hidden background powershell process (launched by start-players.ps1
@@ -61,23 +61,41 @@ function Invoke-MciChecked([string]$cmd, [string]$label) {
 }
 
 $apiBase = 'http://127.0.0.1:3200'
+# Provision this file outside the checkout with an ACL limited to the player account.
+# Never put the credential in command arguments, URLs or logs.
+$credentialFile = $env:SMART_CONTROL_PLAYER_TOKEN_FILE
+if (-not $credentialFile) { Log 'missing player credential file configuration'; exit 1 }
+function Get-PlayerHeaders {
+  $token = [System.IO.File]::ReadAllText($credentialFile).Trim()
+  if ($token.Length -lt 32 -or $token.Length -gt 512) { throw 'invalid player credential file' }
+  return @{ 'X-Player-Token' = $token }
+}
+function Advance-Player([string]$session) {
+  if (-not $session) { throw 'missing playback session' }
+  $body = @{ playbackSession = $session } | ConvertTo-Json -Compress
+  Invoke-WebRequest -UseBasicParsing -Method Post "$apiBase/api/player-device/3/advance" -Headers (Get-PlayerHeaders) -ContentType 'application/json' -Body $body -TimeoutSec 6 -ErrorAction Stop | Out-Null
+}
 # MCI picks its decoder BY FILE EXTENSION (waveaudio for .wav, MPEGVideo for
 # .mp3/.wma/...). The temp name used to be hard-coded 'sc-bgm.mp3', so a .wav
 # track saved under a .mp3 name hit the wrong decoder and never played
 # (2026-07-31 owner report). Keep the track's real extension on the temp file.
-$tmpBase = Join-Path $env:TEMP 'sc-bgm'
+$tmpBase = Join-Path $env:TEMP ('sc-bgm-' + [Guid]::NewGuid().ToString('N'))
 $tmpFile = $tmpBase + '.mp3'
+function Remove-CurrentDownload {
+  # Only this process's exact file, never a wildcard or shared temp directory.
+  if (Test-Path -LiteralPath $tmpFile) { Remove-Item -LiteralPath $tmpFile -Force -ErrorAction SilentlyContinue }
+}
 $curId = $null
+$curSession = $null
 $opened = $false
 $localPaused = $false
 $backendReachable = $true   # only used to log up/down transitions once each
 
 function To-Abs([string]$u) {
   if ([string]::IsNullOrEmpty($u)) { return $null }
-  if ($u -match '^https?://') { return $u }
-  $p = $u -replace '^/control', ''
-  if ($p -notmatch '^/') { $p = '/' + $p }
-  return $apiBase + $p
+  # Accept only the local slot3 ticket route, never arbitrary external URLs.
+  if ($u -notmatch '^/api/player-device/3/stream\?ticket=[A-Za-z0-9_-]{43}$') { throw 'invalid playback URL' }
+  return $apiBase + $u
 }
 
 # clear any stale MCI alias left by a previous daemon instance
@@ -85,9 +103,11 @@ Invoke-Mci 'close all' | Out-Null
 
 while ($true) {
   try {
-    $resp = Invoke-WebRequest -UseBasicParsing "$apiBase/api/playback/channels" -TimeoutSec 6
+    $resp = Invoke-WebRequest -UseBasicParsing "$apiBase/api/player-device/3/state" -Headers (Get-PlayerHeaders) -TimeoutSec 6 -ErrorAction Stop
     if (-not $backendReachable) { Log 'backend reachable again'; $backendReachable = $true }
-    $ch = ($resp.Content | ConvertFrom-Json).data | Where-Object { $_.slot -eq 3 }
+    $ch = ($resp.Content | ConvertFrom-Json).data
+    if ($ch.slot -ne 3) { throw 'invalid player state' }
+    $session = [string]$ch.playbackSession
     $mid = $ch.currentMediaId
     $murl = [string]$ch.currentMediaUrl
     $mname = [string]$ch.currentMediaName
@@ -97,11 +117,14 @@ while ($true) {
     if (-not $mid -or [string]::IsNullOrEmpty($murl)) {
       # nothing selected -> stop
       if ($opened) { Invoke-Mci 'close bgm' | Out-Null; $opened = $false }
-      $curId = $null; $localPaused = $false
+      Remove-CurrentDownload
+      $curId = $null; $curSession = $null; $localPaused = $false
     }
-    elseif ("$mid" -ne "$curId") {
+    elseif (-not $session) { throw 'missing playback session' }
+    elseif ("$mid" -ne "$curId" -or $session -ne $curSession) {
       # track changed (or first run) -> download + play
       if ($opened) { Invoke-Mci 'close bgm' | Out-Null; $opened = $false }
+      Remove-CurrentDownload
       $abs = To-Abs $murl
       if ($abs) {
         try {
@@ -122,14 +145,19 @@ while ($true) {
           }
           if (-not $ext) { $ext = '.mp3' }
           $tmpFile = $tmpBase + $ext
-          Invoke-WebRequest -UseBasicParsing $abs -OutFile $tmpFile -TimeoutSec 30
+          Invoke-WebRequest -UseBasicParsing $abs -OutFile $tmpFile -TimeoutSec 30 -ErrorAction Stop
+          # A new user may take over during download. Revalidate before making sound.
+          $check = (Invoke-WebRequest -UseBasicParsing "$apiBase/api/player-device/3/state" -Headers (Get-PlayerHeaders) -TimeoutSec 6 -ErrorAction Stop).Content | ConvertFrom-Json
+          if ($check.data.playbackSession -ne $session) { throw 'playback session changed during download' }
+          $wantPaused = [bool]$check.data.paused
           # open + play WITH return-code checks. If either fails, do NOT fake
           # "now playing" -- close, leave $curId null so the next poll retries,
           # instead of sitting stuck forever on a track that never started.
-          $ok = (Invoke-MciChecked ('open "' + $tmpFile + '" alias bgm') 'open') `
-            -and (Invoke-MciChecked 'play bgm' 'play')
+          $ok = Invoke-MciChecked ('open "' + $tmpFile + '" alias bgm') 'open'
+          if ($ok -and -not $wantPaused) { $ok = Invoke-MciChecked 'play bgm' 'play' }
           if ($ok) {
-            $opened = $true; $curId = "$mid"; $localPaused = $false
+            $opened = $true; $curId = "$mid"; $curSession = $session; $localPaused = $false
+            if ($wantPaused) { $localPaused = $true }
             Log ('playing media ' + $mid)
           } else {
             Invoke-Mci 'close bgm' | Out-Null
@@ -139,14 +167,16 @@ while ($true) {
             # AND re-download it every 3s -- ask the backend to advance instead,
             # so the playlist skips the unplayable track and keeps going.
             try {
-              Invoke-WebRequest -UseBasicParsing -Method Post "$apiBase/api/playback/channels/3/advance" -TimeoutSec 6 | Out-Null
+              Advance-Player $session
               Log ('unplayable media ' + $mid + ' -> asked backend to advance')
             } catch {}
             Start-Sleep -Milliseconds 500  # don't hot-loop the CPU on a bad track
           }
         } catch {
-          Log ('download failed for media ' + $mid + ': ' + $_.Exception.Message)
-          $opened = $false; $curId = $null
+          Log ('download or authorization failed for media ' + $mid)
+          Invoke-Mci 'close bgm' | Out-Null
+          Remove-CurrentDownload
+          $opened = $false; $curId = $null; $curSession = $null
         }
       }
     }
@@ -158,7 +188,9 @@ while ($true) {
           Invoke-Mci 'pause bgm' | Out-Null; $localPaused = $true
         }
         elseif (-not $wantPaused -and ($mode -match 'paused' -or $localPaused)) {
-          Invoke-Mci 'resume bgm' | Out-Null; $localPaused = $false
+          if ($mode -match 'paused') { Invoke-Mci 'resume bgm' | Out-Null }
+          else { Invoke-Mci 'play bgm' | Out-Null }
+          $localPaused = $false
         }
         elseif (-not $localPaused -and $mode -match 'stopped') {
           # Current track finished -> let the BACKEND advance per the play mode
@@ -178,27 +210,31 @@ while ($true) {
           # idle(null) all fall out of the existing top-level branches, and
           # clearing $curId also debounces (next loop takes the "changed" branch,
           # not this "stopped" branch, so advance can't double-fire).
-          # If advance fails (backend momentarily down), fall back to replaying
-          # the current track so BGM never goes fully silent.
+          # Failed authorization must not silently replay a private cached file.
           try {
-            Invoke-WebRequest -UseBasicParsing -Method Post "$apiBase/api/playback/channels/3/advance" -TimeoutSec 6 | Out-Null
-            $curId = $null
+            Advance-Player $curSession
+            $curId = $null; $curSession = $null
             Log 'track finished -> asked backend to advance'
           } catch {
-            Log 'advance failed (backend down?), replaying current track'
-            Invoke-Mci 'seek bgm to start' | Out-Null
-            Invoke-Mci 'play bgm' | Out-Null
+            Log 'advance rejected or unavailable; waiting for authorized state'
+            Invoke-Mci 'close bgm' | Out-Null
+            Remove-CurrentDownload
+            $opened = $false; $curId = $null; $curSession = $null
           }
         }
       }
     }
 
     # heartbeat so PWA audio page shows "player online"
-    try { Invoke-WebRequest -UseBasicParsing -Method Post "$apiBase/api/playback/channels/3/heartbeat" -TimeoutSec 4 | Out-Null } catch {}
+    try { Invoke-WebRequest -UseBasicParsing -Method Post "$apiBase/api/player-device/3/heartbeat" -Headers (Get-PlayerHeaders) -TimeoutSec 4 -ErrorAction Stop | Out-Null } catch {}
   } catch {
     # backend momentarily down (deploy / restart) is normal; log the transition
-    # ONCE, not every 3s. Music keeps playing whatever it already has; just wait.
-    if ($backendReachable) { Log ('backend unreachable: ' + $_.Exception.Message); $backendReachable = $false }
+    # ONCE, not every 3s. Stop cached private audio until authorization recovers.
+    if ($backendReachable) { Log 'backend unavailable or authorization denied'; $backendReachable = $false }
+    # Do not keep private audio playing after account/device revocation.
+    Invoke-Mci 'close bgm' | Out-Null
+    Remove-CurrentDownload
+    $opened = $false; $curId = $null; $curSession = $null; $localPaused = $false
   }
   Start-Sleep -Seconds 3
 }
