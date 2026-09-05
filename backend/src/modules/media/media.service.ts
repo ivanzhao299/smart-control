@@ -344,13 +344,15 @@ export class MediaService implements OnModuleInit {
   }
 
   /** 服务器侧来源 (在线曲库下载等) 从内存 buffer 入库 — 目录布局与 ingest 一致 */
-  async ingestFromBuffer(originalName: string, mimeType: string, buf: Buffer, uploader: string, remark?: string): Promise<MediaAsset> {
+  async ingestFromBuffer(originalName: string, mimeType: string, buf: Buffer, uploader: string, actor: Actor, remark?: string): Promise<MediaAsset> {
+    assertCanUpload(actor);
     const kind = this.classifyKind(mimeType, originalName);
     if (!kind) throw new BadRequestException(`不支持的文件类型: ${mimeType}`);
     const safeName = this.safeFilename(originalName);
     const saved = await this.repo.save(this.repo.create({
       originalName, safeName, path: '', thumbPath: null, kind, mimeType,
       sizeBytes: buf.length, durationSec: null, resolution: null,
+      ownerUserId: actor.userId, visibility: 'private', source: 'import',
       remark: remark ?? null, uploader, lastPlayedAt: null,
       processingStatus: kind === 'video' ? 'pending' : 'ready', processingError: null, sourcePath: null,
     }));

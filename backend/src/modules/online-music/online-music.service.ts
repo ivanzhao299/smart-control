@@ -4,6 +4,8 @@ import { Logger } from 'winston';
 import * as https from 'https';
 import { MediaService } from '../media/media.service';
 import { FREEPD_GENRE_LABELS, FREEPD_TRACKS } from './freepd-catalog';
+import { Actor } from '../../common/auth/actor';
+import { assertCanUpload } from '../../common/auth/resource-policy';
 
 /**
  * 在线无版权曲库 (2026-07-29 业主: "不能在系统里搜索和下载吗") —
@@ -31,13 +33,14 @@ export class OnlineMusicService {
   }
 
   /** 目录 + 已入库标记。已入库判定: 库里有同名文件, 或备注里带同名 CC0 溯源标 */
-  async catalog(): Promise<{
+  async catalog(actor: Actor): Promise<{
     genres: Array<{ key: string; label: string; count: number }>;
     tracks: Array<{ path: string; name: string; genre: string; downloaded: boolean }>;
     downloading: string | null;
   }> {
-    const names = new Set((await this.media.listOriginalNames()).map((n) => n.toLowerCase()));
-    const remarkNames = await this.remarkTrackNames();
+    const visible = (await this.media.list({ actor })).items;
+    const names = new Set(visible.map((m) => m.originalName.toLowerCase()));
+    const remarkNames = this.remarkTrackNames(visible.map(m => m.remark));
     const tracks = FREEPD_TRACKS.map((t) => ({
       ...t,
       downloaded: names.has(`${t.name.toLowerCase()}.mp3`) || remarkNames.has(t.name),
@@ -47,12 +50,11 @@ export class OnlineMusicService {
     const genres = Object.entries(FREEPD_GENRE_LABELS)
       .filter(([k]) => counts.has(k))
       .map(([key, label]) => ({ key, label, count: counts.get(key) ?? 0 }));
-    return { genres, tracks, downloading: this.downloading };
+    return { genres, tracks, downloading: null };
   }
 
   /** 备注里的溯源标 (内置 10 首用中文名入库, 靠备注「英文名」识别已入库) */
-  private async remarkTrackNames(): Promise<Set<string>> {
-    const remarks = await this.media.listRemarks();
+  private remarkTrackNames(remarks: Array<string | null>): Set<string> {
     const set = new Set<string>();
     for (const r of remarks) {
       const m = /freepd\.com「(.+?)」/.exec(r ?? '');
@@ -61,14 +63,15 @@ export class OnlineMusicService {
     return set;
   }
 
-  async download(path: string): Promise<{ id: number; originalName: string; sizeBytes: number }> {
+  async download(path: string, actor: Actor): Promise<{ id: number; originalName: string; sizeBytes: number }> {
+    assertCanUpload(actor);
     const track = FREEPD_TRACKS.find((t) => t.path === path);
     if (!track) throw new NotFoundException('曲目不在曲库目录里');
     if (this.downloading) {
-      throw new ConflictException(`「${this.downloading}」正在下载, 请稍候再点`);
+      throw new ConflictException('下载服务正忙，请稍后重试');
     }
     const originalName = `${track.name}.mp3`;
-    const existing = (await this.media.listOriginalNames()).find((n) => n.toLowerCase() === originalName.toLowerCase());
+    const existing = (await this.media.list({ actor })).items.find((m) => m.originalName.toLowerCase() === originalName.toLowerCase());
     if (existing) throw new ConflictException(`「${track.name}」已在媒体库里`);
 
     this.downloading = track.name;
@@ -79,7 +82,7 @@ export class OnlineMusicService {
         throw new BadRequestException('下载内容异常偏小, 可能被网络设备拦截, 已放弃入库');
       }
       const saved = await this.media.ingestFromBuffer(
-        originalName, 'audio/mpeg', buf, 'online-music',
+        originalName, 'audio/mpeg', buf, actor.username, actor,
         `在线曲库下载 (CC0 公有领域, freepd.com「${track.name}」) — 可商用免署名`,
       );
       this.logger.info(`[OnlineMusic] 已下载入库: ${originalName} (#${saved.id}, ${(buf.length / 1048576).toFixed(1)}MB)`, {
