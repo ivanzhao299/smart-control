@@ -57,4 +57,16 @@ describe('device playback access grants', () => {
     await expect(service.advance(3, 'device-secret', 'session-1')).rejects.toThrow();
     expect(playback.advance).toHaveBeenCalledTimes(1);
   });
+  it('renews the same URL on authorized polling without restarting long media', async () => {
+    const now = Date.now();
+    const state = await service.state(3, 'device-secret');
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(now + 250_000);
+    try {
+      expect((await service.state(3, 'device-secret')).currentMediaUrl).toBe(state.currentMediaUrl);
+      clock.mockReturnValue(now + 400_000);
+      await expect(service.stream(3, ticketOf(state))).resolves.toEqual({ status: 206 });
+      clock.mockReturnValue(now + 551_000);
+      await expect(service.stream(3, ticketOf(state))).rejects.toThrow();
+    } finally { clock.mockRestore(); }
+  });
 });

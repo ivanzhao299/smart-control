@@ -44,6 +44,14 @@
 
 ## 验收边界
 
+## kiosk 设备接口接入阶段进展
+
+新增前端 player-device.service，独立 fetch 客户端仅发 X-Player-Token、不发送个人账户令牌或cookie，不跟随重定向，十秒超时。凭据按服务地址+通道存 sessionStorage；PlayerPage 提供密码型配置入口，不放URL。状态失败清空媒体并提示重连；请求序号防止迟到响应覆盖新状态。音频结束使用设备会话续播，移除audio原生loop避免绕过后端列表策略。网页iframe使用sandbox，避免嵌入内容直接读取播放器凭据。
+
+同会话短期票据在设备授权轮询成功时续期五分钟并保持URL不变，避免长视频每四分钟从头播放；不轮询即到期，取流仍逐次验证设备/用户/会话权限。新增服务测试覆盖续期地址不变及停止轮询后的到期。
+
+仍待真实浏览器验收，特别是暂停/重播相同媒体、iframe欢迎页sandbox兼容、PDF翻页、后端重启和网络恢复。当前sessionStorage需浏览器新会话重新配置；无人值守开机自动配置尚未实现，不能作为最终部署方案。生产和Windows未更改。
+
 ## Windows BGM 协议接入阶段进展
 
 bgm-player.ps1 改为从 SMART_CONTROL_PLAYER_TOKEN_FILE 读取设备凭据，逐次读取支持轮换，不放命令行、URL或日志。状态/心跳/续播改为 player-device/3 专用入口，结束上报 playbackSession。以媒体ID+会话判断换曲，不因短票据轮换重播；下载后复查会话，暂停态不先发声。取流仅允许本地 slot3 随机票据路由，禁止外部URL。

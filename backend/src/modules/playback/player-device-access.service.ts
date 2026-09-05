@@ -49,7 +49,11 @@ export class PlayerDeviceAccessService {
       for (const [key, grant] of this.grants) if (grant.expires <= now) this.grants.delete(key);
       let key: string | undefined;
       for (const [candidate, grant] of this.grants) {
-        if (grant.token === token && grant.slot === slot && grant.session === session && grant.expires > now + 60_000) { key = candidate; break; }
+        if (grant.token === token && grant.slot === slot && grant.session === session && grant.expires > now) {
+          grant.expires = now + 300_000;
+          key = candidate;
+          break;
+        }
       }
       if (!key) {
         while (this.grants.size >= 1000) this.grants.delete(this.grants.keys().next().value!);

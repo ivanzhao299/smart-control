@@ -2,11 +2,11 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch , nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import { wsClient } from '@/services/websocket.service';
-import { getChannel, channelHeartbeat } from '@/services/playback.service';
+import { getPlayerState, playerHeartbeat, playerAdvance, configurePlayer, hasPlayerCredential, type PlayerDeviceState } from '@/services/player-device.service';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { absUrl, api, setApiBaseURL } from '@/services/http';
 import { forceThemeWithoutPersist, restoreStoredTheme } from '@/services/theme.service';
-import type { PlaybackChannelView, WsEvent } from '@/types/api';
+import type { WsEvent } from '@/types/api';
 
 /**
  * PlayerPage — GK9000 上的 Chromium kiosk 全屏播放器.
@@ -21,7 +21,7 @@ import type { PlaybackChannelView, WsEvent } from '@/types/api';
  *   4) 每 30s 调 /api/playback/channels/:slot/heartbeat, backend 知道 kiosk 活着.
  *   5) 待机画面 = 居中显示 logo + 系统名 (来自 system-branding).
  *
- * 没鉴权 — kiosk 浏览器本来就在受控环境里, 公开 GET 也接受.
+ * 设备凭据与用户账户分离；状态轮询失败清空私人播放内容。
  */
 
 const route = useRoute();
@@ -33,17 +33,35 @@ const slot = computed<number>(() => {
   return Number.isFinite(n) && (n === 1 || n === 2 || n === 3) ? n : 1;
 });
 
-const channel = ref<PlaybackChannelView | null>(null);
+const channel = ref<PlayerDeviceState | null>(null);
+const credential = ref('');
+const needsCredential = ref(false);
+let requestRevision = 0;
+async function saveCredential(): Promise<void> {
+  try {
+    configurePlayer(slot.value, credential.value);
+    credential.value = '';
+    needsCredential.value = false;
+    await fetchChannel();
+  } catch (e) { errorMsg.value = (e as Error).message; }
+}
 const errorMsg = ref<string>('');
 let unsubscribeWs: (() => void) | null = null;
 let heartbeatTimer: number | undefined;
 
 async function fetchChannel(): Promise<void> {
+  const revision = ++requestRevision;
   try {
-    channel.value = await getChannel(slot.value);
+    const state = await getPlayerState(slot.value);
+    if (revision !== requestRevision) return;
+    channel.value = state;
+    needsCredential.value = false;
     errorMsg.value = '';
   } catch (e) {
+    if (revision !== requestRevision) return;
+    channel.value = null;
     errorMsg.value = (e as Error).message || '拉取通道失败';
+    needsCredential.value = true;
   }
 }
 
@@ -54,7 +72,7 @@ function handleWs(event: WsEvent): void {
 }
 
 async function sendHeartbeat(): Promise<void> {
-  try { await channelHeartbeat(slot.value); } catch { /* ignore */ }
+  try { await playerHeartbeat(slot.value); } catch { /* state request clears playback on failure */ }
 }
 
 onMounted(async () => {
@@ -67,7 +85,8 @@ onMounted(async () => {
     setApiBaseURL('http://localhost:3200');
   }
 
-  await brandingStore.load();
+  needsCredential.value = !hasPlayerCredential(slot.value);
+  await brandingStore.load().catch(() => { /* branding failure must not prevent device initialization */ });
   await fetchChannel();
 
   unsubscribeWs = wsClient.on(handleWs);
@@ -94,6 +113,8 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  ++requestRevision;
+  channel.value = null;
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   if (audioRouteRetryTimer !== undefined) clearInterval(audioRouteRetryTimer);
   if (unsubscribeWs) unsubscribeWs();
@@ -289,15 +310,18 @@ watch(() => channel.value?.currentMediaUrl, (url, oldUrl) => {
   }
 });
 function onAudioEnded(): void {
-  if (channel.value?.loopMode === 'loop' && audioEl.value) {
-    audioEl.value.currentTime = 0;
-    void audioEl.value.play();
-  }
+  const session = channel.value?.playbackSession;
+  if (session) void playerAdvance(slot.value, session).then(() => fetchChannel()).catch(() => fetchChannel());
 }
 </script>
 
 <template>
   <div class="player">
+    <form v-if="needsCredential" class="device-setup" @submit.prevent="saveCredential">
+      <label>通道 {{ slot }} 设备凭据<input v-model="credential" type="password" autocomplete="off" /></label>
+      <button type="submit">连接播放器</button>
+      <p>凭据仅保存在当前浏览器会话中，不使用个人账户密码。</p>
+    </form>
     <!-- 播放视频 -->
     <video
       v-if="isVideo && channel?.currentMediaUrl"
@@ -329,7 +353,6 @@ function onAudioEnded(): void {
         ref="audioEl"
         :src="absUrl(channel.currentMediaUrl)"
         autoplay
-        :loop="channel.loopMode === 'loop'"
         @ended="onAudioEnded"
         @loadedmetadata="routeVideoAudio"
       />
@@ -357,6 +380,7 @@ function onAudioEnded(): void {
     <iframe
       v-else-if="isWebpage && channel?.currentMediaUrl"
       class="media-el web-frame"
+      sandbox="allow-scripts allow-forms"
       :src="channel.currentMediaUrl"
       referrerpolicy="no-referrer"
     />
@@ -377,6 +401,8 @@ function onAudioEnded(): void {
 </template>
 
 <style scoped>
+.device-setup { position: fixed; inset: 25% 15% auto; padding: 24px; z-index: 100; background: #20232b; color: white; cursor: auto; }
+.device-setup input { display: block; width: 100%; margin: 12px 0; }
 .player {
   position: fixed;
   inset: 0;
