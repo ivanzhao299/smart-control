@@ -606,6 +606,7 @@ export class MediaService implements OnModuleInit {
 
   async updateOwned(id: number, actor: Actor, dto: UpdateMediaDto): Promise<MediaAsset> {
     const row = await this.authorized(id, actor, true);
+    const previousOwner = row.ownerUserId;
     if ((dto.visibility !== undefined || dto.ownerUserId !== undefined) && actor.role !== 'admin') {
       throw new ForbiddenException('仅管理员可调整资料归属或公共状态');
     }
@@ -627,7 +628,25 @@ export class MediaService implements OnModuleInit {
       if (typeof dto.remark !== 'string') throw new BadRequestException('备注无效');
       row.remark = dto.remark.trim();
     }
-    return this.repo.save(row);
+    const changes: Partial<MediaAsset> = {};
+    if (dto.ownerUserId !== undefined) changes.ownerUserId = row.ownerUserId;
+    if (dto.visibility !== undefined) changes.visibility = row.visibility;
+    if (dto.originalName !== undefined) changes.originalName = row.originalName;
+    if (dto.remark !== undefined) changes.remark = row.remark;
+    if (!Object.keys(changes).length) return row;
+    const update = this.repo.createQueryBuilder().update(MediaAsset).set(changes).where('id = :id', { id });
+    if (previousOwner === null) update.andWhere('owner_user_id IS NULL');
+    else update.andWhere('owner_user_id = :previousOwner', { previousOwner });
+    if (actor.role !== 'admin') update.andWhere("visibility = 'private'");
+    if (dto.ownerUserId !== undefined && dto.ownerUserId !== previousOwner) {
+      update.andWhere(`EXISTS (SELECT 1 FROM users u WHERE u.id = :target AND u.enabled = 1
+        AND media_assets.sizeBytes <= u.storage_quota_bytes
+          - COALESCE((SELECT SUM(m.sizeBytes) FROM media_assets m WHERE m.owner_user_id = u.id AND m.id <> :id), 0)
+          - COALESCE((SELECT SUM(r.bytes) FROM upload_reservations r WHERE r.owner_user_id = u.id), 0))`, { target: dto.ownerUserId, id });
+    }
+    const result = await update.execute();
+    if (!result.affected) throw new ForbiddenException('资料归属已变化或目标用户配额不足');
+    return this.get(id);
   }
 
   /** 按原始文件名精确查 (playback 欢迎页一键投放按内置素材名定位) */

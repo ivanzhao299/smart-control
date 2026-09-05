@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { AddUploadReservations1788618003000 } from '../../migrations/1788618003000-AddUploadReservations';
 import { DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { MediaService } from './media.service';
@@ -14,6 +15,7 @@ describe('media isolation with SQLite repositories', () => {
   const admin: Actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };
   beforeEach(async () => {
     db = await new DataSource({ type: 'better-sqlite3', database: ':memory:', entities: [MediaAsset, User], synchronize: true }).initialize();
+    await new AddUploadReservations1788618003000().up(db.createQueryRunner());
     await db.getRepository(User).save([
       { id: 1, username: 'alice', password: 'test', role: 'operator' },
       { id: 2, username: 'bob', password: 'test', role: 'operator' },
@@ -62,6 +64,20 @@ describe('media isolation with SQLite repositories', () => {
     await expect(media.ingestFromFile('test.mp3', 'audio/mpeg', '/nonexistent-import-test', alice.username, alice)).rejects.toThrow('上传权限');
     await expect(media.importOrphan('test.mp3', bob.username, bob)).rejects.toThrow('仅管理员');
     expect(await db.getRepository(MediaAsset).count()).toBe(3);
+  });
+  it('atomically limits ownership transfers including outstanding upload reservations', async () => {
+    const first = await db.getRepository(MediaAsset).findOneByOrFail({ originalName: 'Alice private' });
+    const second = await media.createWebpage('Another private', 'https://example.test/another', alice);
+    await db.getRepository(MediaAsset).update(first.id, { sizeBytes: 80 });
+    await db.getRepository(MediaAsset).update(second.id, { sizeBytes: 80 });
+    await db.getRepository(User).update(2, { storageQuotaBytes: 100 });
+    await db.query("INSERT INTO upload_reservations (id, owner_user_id, bytes) VALUES ('test-reservation', 2, 30)");
+    await expect(media.updateOwned(first.id, admin, { ownerUserId: 2, originalName: 'must not change' })).rejects.toThrow('配额不足');
+    expect((await media.get(first.id)).originalName).toBe('Alice private');
+    await db.query("DELETE FROM upload_reservations WHERE id = 'test-reservation'");
+    const results = await Promise.allSettled([media.updateOwned(first.id, admin, { ownerUserId: 2 }), media.updateOwned(second.id, admin, { ownerUserId: 2 })]);
+    expect(results.filter(x => x.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter(x => x.status === 'rejected')).toHaveLength(1);
   });
   it('checks direct IDs even when lists are bypassed', async () => {
     const item = await db.getRepository(MediaAsset).findOneByOrFail({ originalName: 'Alice private' });
