@@ -330,8 +330,13 @@ async function confirmDelete(m: MediaItem): Promise<void> {
   }
 }
 
-function openPreview(m: MediaItem): void {
-  previewItem.value = m;
+async function openPreview(m: MediaItem): Promise<void> {
+  try {
+    const url = m.kind === 'webpage' ? m.fileUrl : (await mediaService.access(m.id)).url;
+    previewItem.value = { ...m, fileUrl: url };
+  } catch (e) {
+    ElMessage.error((e as Error).message || '无法预览资料');
+  }
 }
 function closePreview(): void {
   previewItem.value = null;

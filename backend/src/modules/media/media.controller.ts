@@ -29,6 +29,8 @@ import { AuthenticatedRequest, requireActor } from '../../common/auth/actor';
 import { ActorAdminGuard } from '../../common/guards/actor-admin.guard';
 import { assertCanUpload } from '../../common/auth/resource-policy';
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+import { MediaAccessService } from './media-access.service';
+import { Public } from '../../common/decorators/public.decorator';
 
 /** Runs before Multer so denied callers cannot fill the temporary disk. */
 @Injectable()
@@ -49,6 +51,7 @@ export class MediaController {
   constructor(
     private readonly media: MediaService,
     private readonly opLog: OperationLogService,
+    private readonly access: MediaAccessService,
   ) {}
 
   @Post('upload')
@@ -149,6 +152,13 @@ export class MediaController {
     const l = limit ? Math.max(1, Math.min(200, Number(limit))) : 200;
     const o = offset ? Math.max(0, Number(offset)) : 0;
     const result = await this.media.list({ kind, limit: l, offset: o, actor: requireActor(req) });
+    for (const item of result.items) {
+      if (item.kind !== 'webpage') {
+        item.fileUrl = (await this.access.issue(req, item.id, 'file')).url;
+        // Use the authorized file until a dedicated thumbnail capability is added.
+        item.thumbUrl = null;
+      }
+    }
     return { message: 'ok', data: result };
   }
 
@@ -197,6 +207,29 @@ export class MediaController {
     const media = await this.media.updateOwned(id, actor, dto);
     await this.opLog.record({ operator: actor.username, action: 'media.update', targetType: 'media', targetId: String(id), message: JSON.stringify({ userId: actor.userId, ...dto }) });
     return { message: '已更新', data: this.media.toListItem(media) };
+  }
+
+  @Post(':id/access')
+  async issueAccess(@Param('id', ParseIntPipe) id: number, @Req() req: AuthenticatedRequest,
+    @Body() body: { variant?: string } = {}) {
+    return { message: 'ok', data: await this.access.issue(req, id, body.variant === 'pdf' ? 'pdf' : 'file') };
+  }
+
+  @Public()
+  @Get(':id/stream')
+  async stream(@Param('id', ParseIntPipe) id: number, @Query('ticket') ticket: string,
+    @Res() res: Response): Promise<void> {
+    const variant = await this.access.redeem(ticket, id);
+    const file = await this.media.openStream(id, variant === 'pdf');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Type', file.mimeType);
+    res.setHeader('Content-Length', file.size);
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.filename)}"`);
+    file.stream.on('error', () => res.destroy());
+    res.on('close', () => file.stream.destroy());
+    file.stream.pipe(res);
   }
 
   @Get(':id/file')

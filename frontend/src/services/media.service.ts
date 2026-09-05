@@ -67,6 +67,11 @@ export const MEDIA_UPLOAD_ACCEPT =
   + ',.mp4,.m4v,.mov,.mkv,.avi,.webm,.flv,.wmv,.mpg,.mpeg,.3gp,.ts,.vob,.rmvb';
 
 export const mediaService = {
+  async access(id: number, variant: 'file' | 'pdf' = 'file'): Promise<{ url: string; expiresAt: string }> {
+    const response = await mediaHttp.post(`${base()}/media/${id}/access`, { variant });
+    if (!response.data?.data?.url) throw new Error('无法获得资料预览授权');
+    return response.data.data;
+  },
   async list(opts: { kind?: 'video' | 'image' | 'audio' | 'webpage' | 'doc' } = {}): Promise<ListResult> {
     const params: Record<string, string> = {};
     if (opts.kind) params.kind = opts.kind;
