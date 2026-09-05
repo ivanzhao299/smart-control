@@ -1,5 +1,10 @@
 import 'reflect-metadata';
-import { GUARDS_METADATA } from '@nestjs/common/constants';
+import { GUARDS_METADATA, PATH_METADATA, METHOD_METADATA } from '@nestjs/common/constants';
+import { RequestMethod } from '@nestjs/common';
+import { HvacController } from '../../modules/hvac/hvac.controller';
+import { DaliLightsController } from '../../modules/dali-lights/dali-lights.controller';
+import { AudioConfigController } from '../../modules/audio-config/audio-config.controller';
+import { AdminGuard } from '../../modules/admin-auth/admin-auth.guard';
 import { ConfigurationWriteGuard } from './configuration-write.guard';
 import { ActorAdminGuard } from './actor-admin.guard';
 import { DevicesController } from '../../modules/devices/devices.controller';
@@ -51,5 +56,28 @@ describe('configuration versus shared equipment usage', () => {
     expect(rollback).toHaveBeenCalledWith(7, 'named-admin');
     await expect(controller.rollback(7, { actor: { role: 'operator' } } as any)).rejects.toThrow();
     expect(rollback).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    [HvacController, ['indoors/reorder', 'indoors/:idx', 'indoors/assign', 'zones', 'zones/:code', 'gateways/scan']],
+    [DaliLightsController, ['scan', 'diagnose', 'diagnose/identify', 'diagnose/control', ':id/identify', ':id/name', ':id/zone', 'assign-zone', 'scenes', 'scenes/:code']],
+  ] as const)('protects %p configuration while preserving ordinary controls', (controller, protectedPaths) => {
+    let checked = 0, ordinary = 0;
+    for (const name of Object.getOwnPropertyNames(controller.prototype)) {
+      const method = (controller.prototype as any)[name];
+      if (typeof method !== 'function') continue;
+      const path = Reflect.getMetadata(PATH_METADATA, method);
+      const verb = Reflect.getMetadata(METHOD_METADATA, method);
+      if (verb === undefined) continue;
+      const guards = Reflect.getMetadata(GUARDS_METADATA, method) ?? [];
+      const configuration = (protectedPaths as readonly string[]).includes(path) &&
+        (verb !== RequestMethod.GET || path === 'diagnose' || path === 'gateways/scan');
+      if (configuration) { expect(guards).toContain(ActorAdminGuard); checked++; }
+      else { expect(guards).not.toContain(ActorAdminGuard); ordinary++; }
+    }
+    expect(checked).toBeGreaterThanOrEqual(7);
+    expect(ordinary).toBeGreaterThan(0);
+  });
+  it('protects the previously unguarded audio input configuration update', () => {
+    expect(Reflect.getMetadata(GUARDS_METADATA, AudioConfigController.prototype.updateInput)).toContain(AdminGuard);
   });
 });

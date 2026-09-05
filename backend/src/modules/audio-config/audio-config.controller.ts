@@ -65,6 +65,7 @@ export class AudioConfigController {
   }
 
   @Put('inputs/:id')
+  @UseGuards(AdminGuard)
   async updateInput(@Param('id', ParseIntPipe) id: number, @Body() dto: AudioInputUpsertDto) {
     return { message: '更新成功', data: await this.service.upsertInput(id, dto) };
   }

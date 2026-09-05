@@ -59,8 +59,9 @@ export class PowerCircuitsController {
     return { message: '时序关机已下发, 各路按延时依次断电', data: { on: false } };
   }
 
-  /** 改名 — 业主在电源页直接改每一路名字, 日常操作不卡 admin (同 on/off 策略) */
+  /** 改名影响所有用户的共享配置，仅管理员；on/off仍为日常控制。 */
   @Post(':id/rename')
+  @UseGuards(AdminGuard)
   @UseGuards(RateLimitGuard)
   @RateLimit({ max: 4, windowMs: 1000 })
   async rename(@Param('id', ParseIntPipe) id: number, @Body() body: { name?: string } = {}) {

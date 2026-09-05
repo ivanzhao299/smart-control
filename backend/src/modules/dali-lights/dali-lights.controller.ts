@@ -1,3 +1,5 @@
+import { ActorAdminGuard } from '../../common/guards/actor-admin.guard';
+import { UseGuards } from '@nestjs/common';
 import {
   BadRequestException,
   Body,
@@ -16,8 +18,8 @@ import { DaliLightsService, LightCmd } from './dali-lights.service';
 /**
  * DALI 单灯管理 API —— 现场调试/命名/分组/场景。
  *
- * 鉴权: 跟灯光控制同级(日常操作), 不卡 admin token —— 现场平板/手机随时要用。
- * 进入展厅=物理接触, 已过安全边界(与 playback / lighting 一致)。
+ * 日常控制允许operator；扫描、诊断、命名、编组和共享场景定义仅管理员。
+ * 物理接触或局域网地址不能替代服务端角色验证。
  */
 @Controller('dali-lights')
 export class DaliLightsController {
@@ -37,6 +39,7 @@ export class DaliLightsController {
 
   /** 扫描发现(body.gatewayCode 可选, 不填扫全部) */
   @Post('scan')
+  @UseGuards(ActorAdminGuard)
   @HttpCode(200)
   async scan(@Body() body: { gatewayCode?: string } = {}) {
     return { message: '扫描完成', data: await this.service.scan(body?.gatewayCode) };
@@ -47,12 +50,14 @@ export class DaliLightsController {
 
   /** 实时读全部(或指定 ?gateway=)网关的 1-64 槽位占用图, 不落库 */
   @Get('diagnose')
+  @UseGuards(ActorAdminGuard)
   async diagnose(@Query('gateway') gateway?: string) {
     return { message: '体检完成', data: await this.service.diagnose(gateway) };
   }
 
   /** 体检: 按 (网关, 短地址) 闪 —— 空号/未登记地址也能点 */
   @Post('diagnose/identify')
+  @UseGuards(ActorAdminGuard)
   @HttpCode(200)
   async diagnoseIdentify(@Body() body: { gatewayCode?: string; short?: number } = {}) {
     if (!body?.gatewayCode || typeof body?.short !== 'number') {
@@ -63,6 +68,7 @@ export class DaliLightsController {
 
   /** 体检: 按 (网关, 短地址) 直控 —— 排查"控制不了" */
   @Post('diagnose/control')
+  @UseGuards(ActorAdminGuard)
   @HttpCode(200)
   async diagnoseControl(@Body() body: { gatewayCode?: string; short?: number } & LightCmd = {}) {
     if (!body?.gatewayCode || typeof body?.short !== 'number') {
@@ -74,6 +80,7 @@ export class DaliLightsController {
 
   /** 闪烁识别某盏灯 */
   @Post(':id/identify')
+  @UseGuards(ActorAdminGuard)
   @HttpCode(200)
   async identify(@Param('id', ParseIntPipe) id: number) {
     return { message: '已发送闪烁', data: await this.service.identify(id) };
@@ -88,6 +95,7 @@ export class DaliLightsController {
 
   /** 命名 */
   @Put(':id/name')
+  @UseGuards(ActorAdminGuard)
   async rename(@Param('id', ParseIntPipe) id: number, @Body() body: { name?: string } = {}) {
     if (typeof body?.name !== 'string') throw new BadRequestException('name 必填');
     return { message: '已改名', data: await this.service.rename(id, body.name) };
@@ -95,12 +103,14 @@ export class DaliLightsController {
 
   /** 分到分区(zoneCode 传 null/空 = 移出) */
   @Put(':id/zone')
+  @UseGuards(ActorAdminGuard)
   async assignZone(@Param('id', ParseIntPipe) id: number, @Body() body: { zoneCode?: string | null } = {}) {
     return { message: '已分配', data: await this.service.assignZone(id, body?.zoneCode ?? null) };
   }
 
   /** 批量分区 */
   @Post('assign-zone')
+  @UseGuards(ActorAdminGuard)
   @HttpCode(200)
   async assignZoneBatch(@Body() body: { ids?: number[]; zoneCode?: string | null } = {}) {
     if (!Array.isArray(body?.ids)) throw new BadRequestException('ids 必填');
@@ -123,12 +133,14 @@ export class DaliLightsController {
   }
 
   @Post('scenes')
+  @UseGuards(ActorAdminGuard)
   @HttpCode(200)
   async createScene(@Body() body: Parameters<DaliLightsService['createScene']>[0]) {
     return { message: '场景已创建', data: await this.service.createScene(body) };
   }
 
   @Put('scenes/:code')
+  @UseGuards(ActorAdminGuard)
   async updateScene(
     @Param('code') code: string,
     @Body() body: Parameters<DaliLightsService['updateScene']>[1],
@@ -137,6 +149,7 @@ export class DaliLightsController {
   }
 
   @Delete('scenes/:code')
+  @UseGuards(ActorAdminGuard)
   @HttpCode(200)
   async deleteScene(@Param('code') code: string) {
     await this.service.deleteScene(code);

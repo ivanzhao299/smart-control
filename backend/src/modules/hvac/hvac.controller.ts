@@ -1,3 +1,4 @@
+import { ActorAdminGuard } from '../../common/guards/actor-admin.guard';
 import {
   BadRequestException,
   Body,
@@ -115,6 +116,7 @@ export class HvacController {
    * 踩过这个坑)。排序存后端: 现场主控机+平板+手机, 只存前端每台顺序都不一样。
    */
   @Put('indoors/reorder')
+  @UseGuards(ActorAdminGuard)
   @RateLimit({ max: 20, windowMs: 5000 })
   async reorderIndoors(@Body() dto: { idxs?: number[] }) {
     await this.ensureIndoorsSeeded();
@@ -137,6 +139,7 @@ export class HvacController {
    * PUT /api/hvac/indoors/:idx  { name?, zoneCode? }
    */
   @Put('indoors/:idx')
+  @UseGuards(ActorAdminGuard)
   @RateLimit({ max: 20, windowMs: 5000 })
   async updateIndoor(@Param('idx', ParseIntPipe) idx: number, @Body() dto: HvacIndoorUpdateDto) {
     await this.ensureIndoorsSeeded();
@@ -173,6 +176,7 @@ export class HvacController {
    * POST /api/hvac/indoors/assign  { indoors: [1,2,3], zoneCode: 'meeting_room' }
    */
   @Post('indoors/assign')
+  @UseGuards(ActorAdminGuard)
   @RateLimit({ max: 20, windowMs: 5000 })
   async assignIndoors(@Body() dto: HvacAssignDto) {
     await this.ensureIndoorsSeeded();
@@ -274,6 +278,7 @@ export class HvacController {
    * POST /api/hvac/zones  { name, floor }
    */
   @Post('zones')
+  @UseGuards(ActorAdminGuard)
   @RateLimit({ max: 10, windowMs: 5000 })
   async createZone(@Body() dto: HvacZoneCreateDto) {
     await this.ensureZonesSeeded();
@@ -315,6 +320,7 @@ export class HvacController {
    * DELETE /api/hvac/zones/:code
    */
   @Delete('zones/:code')
+  @UseGuards(ActorAdminGuard)
   @RateLimit({ max: 10, windowMs: 5000 })
   async deleteZone(@Param('code') code: string) {
     const zone = await this.zoneRepo.findOne({ where: { code } });
@@ -341,6 +347,7 @@ export class HvacController {
    * PUT /api/hvac/zones/:code  { name: "新名字" }
    */
   @Put('zones/:code')
+  @UseGuards(ActorAdminGuard)
   @RateLimit({ max: 10, windowMs: 5000 })
   async renameZone(@Param('code') code: string, @Body() dto: HvacZoneRenameDto) {
     await this.ensureZonesSeeded();
@@ -412,6 +419,7 @@ export class HvacController {
    * GET /api/hvac/gateways/scan?maxIndoor=16
    */
   @Get('gateways/scan')
+  @UseGuards(ActorAdminGuard)
   async scanGateways(@Query('maxIndoor') maxIndoor?: string) {
     const max = Math.min(Math.max(Number.parseInt(maxIndoor ?? '16', 10) || 16, 1), 63);
     const data = await this.modbusHvac.scanAllGateways(max);
