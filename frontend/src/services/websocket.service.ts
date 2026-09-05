@@ -1,5 +1,6 @@
 import type { WsEvent } from '@/types/api';
 import { getApiBaseURL, getAdminToken, getClientToken } from './http';
+import { onIdentityChange } from './identity-boundary';
 
 export type WsHandler = (event: WsEvent) => void;
 export type WsStateHandler = (state: WsConnectionState) => void;
@@ -35,6 +36,9 @@ class WsClient {
   private pongCheckTimer?: number;
 
   constructor(opts: WsClientOptions = {}) {
+    onIdentityChange(() => {
+      if (this.socket) this.socket.close();
+    });
     this.path = opts.path ?? '/ws/status';
     this.reconnectMin = opts.reconnectMinMs ?? 1000;
     this.reconnectMax = opts.reconnectMaxMs ?? 15000;

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, watch } from 'vue';
+import { onBeforeUnmount, onMounted, watch, ref } from 'vue';
+import { identityGeneration, onIdentityChange } from '@/services/identity-boundary';
 import { useRouter } from 'vue-router';
 import { useSceneStore } from '@/stores/scene';
 import { useDeviceStore } from '@/stores/device';
@@ -19,6 +20,11 @@ const systemStore = useSystemStore();
 const brandingStore = useSystemBrandingStore();
 const playbackStore = usePlaybackStore();
 const clientAuth = useClientAuthStore();
+const identityKey = ref(identityGeneration());
+const unsubscribeIdentity = onIdentityChange(() => {
+  playbackStore.clearIdentity();
+  identityKey.value = identityGeneration();
+});
 
 let unsubscribeWs: (() => void) | null = null;
 let unsubscribeWsState: (() => void) | null = null;
@@ -122,6 +128,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  unsubscribeIdentity();
   systemStore.stopClock();
   systemStore.stopAlertTtlSweep();
   polling.stop();
@@ -132,5 +139,5 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <router-view />
+  <router-view :key="identityKey" />
 </template>

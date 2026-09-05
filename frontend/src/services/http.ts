@@ -1,5 +1,6 @@
 import type { ApiOk } from '@/types/api';
 import { trackApiCall } from './rum.service';
+import { identityGeneration, invalidateIdentity, assertCurrentIdentity } from './identity-boundary';
 
 /**
  * 原生 fetch + AbortController 替代 axios (PERFORMANCE_AUDIT P1-#10).
@@ -92,7 +93,9 @@ export function setApiBaseURL(input: string): void {
     normalized = `${normalized}/api`;
   }
   if (!normalized) normalized = '/api';
+  const changed = baseURL !== normalized;
   baseURL = normalized;
+  if (changed) invalidateIdentity();
   try { window.localStorage.setItem(STORAGE_KEY_BASE, normalized); } catch {/* ignore */}
 }
 export function getApiBaseURL(): string { return baseURL; }
@@ -140,12 +143,18 @@ function reportConnectivity(ok: boolean): void {
  * 用模块级变量而不是从 localStorage 读, 是为了避免 http.ts 反向依赖 Pinia.
  */
 let adminToken: string | null = null;
-export function setAdminToken(t: string | null): void { adminToken = t; }
+export function setAdminToken(t: string | null): void {
+  if (adminToken === t) return;
+  adminToken = t; invalidateIdentity();
+}
 export function getAdminToken(): string | null { return adminToken; }
 
 /** 客户端 token (业主级别). 走 X-Client-Token header, 跟 admin token 并列. */
 let clientToken: string | null = null;
-export function setClientToken(t: string | null): void { clientToken = t; }
+export function setClientToken(t: string | null): void {
+  if (clientToken === t) return;
+  clientToken = t; invalidateIdentity();
+}
 export function getClientToken(): string | null { return clientToken; }
 
 /**
@@ -198,6 +207,7 @@ async function request<T>(
   body?: unknown,
   cfg?: HttpRequestConfig,
 ): Promise<{ data: T }> {
+  const generation = identityGeneration();
   const finalUrl = buildUrl(url, cfg?.params);
   const headers: Record<string, string> = {
     Accept: 'application/json',
@@ -215,6 +225,7 @@ async function request<T>(
     method,
     headers,
     credentials: 'omit',
+    cache: 'no-store',
   };
   if (body !== undefined && body !== null) {
     headers['Content-Type'] = 'application/json';
@@ -237,6 +248,7 @@ async function request<T>(
     resp = await fetch(finalUrl, init);
   } catch (err) {
     clearTimeout(timer);
+    assertCurrentIdentity(generation);
     trackApiCall(url, Math.round(performance.now() - startMs), 0);
     // 外部主动取消不算连不上; 超时/网络错误才报不可达
     const externallyAborted = cfg?.signal?.aborted === true;
@@ -251,6 +263,7 @@ async function request<T>(
     throw new HttpError((err as Error).message ?? 'fetch failed', 0);
   }
   clearTimeout(timer);
+  assertCurrentIdentity(generation);
   trackApiCall(url, Math.round(performance.now() - startMs), resp.status);
   reportConnectivity(true);
 
@@ -267,6 +280,7 @@ async function request<T>(
     try { payload = await resp.text() as unknown as T; } catch { /* ignore */ }
   }
 
+  assertCurrentIdentity(generation);
   if (!resp.ok) {
     // 401 且不是登录/ping 端点本身 → 通知上层重新鉴权 (登录端点的 401 是密码错, 不该触发)
     if (resp.status === 401 && !/(client-auth\/(login|ping)|admin\/auth\/login)/.test(url)) {

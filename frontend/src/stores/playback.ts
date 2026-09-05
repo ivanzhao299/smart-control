@@ -15,6 +15,12 @@ export const usePlaybackStore = defineStore('playback', () => {
   const loaded = ref(false);
   const loading = ref(false);
   let loadRevision = 0;
+  function clearIdentity(): void {
+    loadRevision += 1;
+    channels.value = [];
+    loaded.value = false;
+    loading.value = false;
+  }
 
   const channelMap = computed<Record<number, PlaybackChannelView>>(() => {
     const m: Record<number, PlaybackChannelView> = {};
@@ -90,6 +96,7 @@ export const usePlaybackStore = defineStore('playback', () => {
   }
 
   return {
+    clearIdentity,
     next,
     prev, channels, loaded, loading, slot1, slot2, slotAudio, channelMap, load, publish, stop, pause, resume, handleWs };
 });
