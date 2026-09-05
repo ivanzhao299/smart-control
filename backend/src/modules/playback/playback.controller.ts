@@ -1,6 +1,6 @@
-import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Logger, Param, ParseIntPipe, Post, Put } from '@nestjs/common';
-import { UseGuards } from '@nestjs/common';
-import { AdminGuard } from '../admin-auth/admin-auth.guard';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Logger, Param, ParseIntPipe, Post, Put, Req, Query } from '@nestjs/common';
+import { AuthenticatedRequest, requireActor } from '../../common/auth/actor';
+import { PersonalPlaylistService } from './personal-playlist.service';
 import { PlaybackService } from './playback.service';
 import { Public } from '../../common/decorators/public.decorator';
 
@@ -12,7 +12,7 @@ import { Public } from '../../common/decorators/public.decorator';
  */
 @Controller('playback')
 export class PlaybackController {
-  constructor(private readonly service: PlaybackService) {}
+  constructor(private readonly service: PlaybackService, private readonly playlists: PersonalPlaylistService) {}
 
   private readonly logger = new Logger('AudioRouteDebug');
 
@@ -42,42 +42,43 @@ export class PlaybackController {
   //    否则被 ParseIntPipe 吃掉 400 (light-zones 和 hvac 都踩过这个坑)。
 
   @Get('playlist/:slot')
-  async playlist(@Param('slot', ParseIntPipe) slot: number) {
-    return { message: '查询成功', data: await this.service.listPlaylist(slot) };
+  async playlist(@Req() req: AuthenticatedRequest, @Param('slot', ParseIntPipe) slot: number, @Query('scope') scope?: 'mine' | 'shared' | 'all') {
+    return { message: '查询成功', data: await this.playlists.list(requireActor(req), slot, scope) };
   }
 
   /** 加进播放列表 —— 必须人工调用 (媒体库内容默认不进列表, 需管理员确认) */
   @Post('playlist/:slot')
   @HttpCode(200)
   async addPlaylist(
+    @Req() req: AuthenticatedRequest,
     @Param('slot', ParseIntPipe) slot: number,
     @Body() body: { mediaId?: number; title?: string } = {},
   ) {
     if (typeof body?.mediaId !== 'number') throw new BadRequestException('mediaId 必填');
-    return { message: '已加入播放列表', data: await this.service.addToPlaylist(slot, body.mediaId, body.title) };
+    return { message: '已加入播放列表', data: await this.playlists.add(requireActor(req), slot, body.mediaId, body.title) };
   }
 
-  /** 改别名 — 只改播放列表里的显示名, 不动媒体库原文件 (2026-07-30 起仅管理员) */
-  @UseGuards(AdminGuard)
+  /** 本人或管理员改列表别名，不修改素材原文件。 */
   @Put('playlist/item/:id')
   async renamePlaylist(
+    @Req() req: AuthenticatedRequest,
     @Param('id', ParseIntPipe) id: number,
     @Body() body: { title?: string } = {},
   ) {
     if (typeof body?.title !== 'string') throw new BadRequestException('title 必填');
-    return { message: '已改名', data: await this.service.renamePlaylistItem(id, body.title) };
+    return { message: '已改名', data: await this.playlists.rename(requireActor(req), id, body.title) };
   }
 
   @Delete('playlist/item/:id')
   @HttpCode(200)
-  async removePlaylist(@Param('id', ParseIntPipe) id: number) {
-    return { message: '已移出播放列表', data: await this.service.removeFromPlaylist(id) };
+  async removePlaylist(@Req() req: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number) {
+    return { message: '已移出播放列表', data: await this.playlists.remove(requireActor(req), id) };
   }
 
   @Put('playlist/:slot/reorder')
-  async reorderPlaylist(@Param('slot', ParseIntPipe) _slot: number, @Body() body: { ids?: number[] } = {}) {
+  async reorderPlaylist(@Req() req: AuthenticatedRequest, @Param('slot', ParseIntPipe) slot: number, @Body() body: { ids?: number[] } = {}) {
     if (!Array.isArray(body?.ids)) throw new BadRequestException('ids 必填');
-    return { message: '顺序已保存', data: await this.service.reorderPlaylist(body.ids) };
+    return { message: '顺序已保存', data: await this.playlists.reorder(requireActor(req), slot, body.ids) };
   }
 
   @Get('history/:slot')

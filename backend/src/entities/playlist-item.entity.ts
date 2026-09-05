@@ -1,4 +1,5 @@
-import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, Unique, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { User } from './user.entity';
 
 /**
  * 播放列表条目 —— "平时经常播的内容", 业主随时切换。
@@ -21,8 +22,17 @@ import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, Unique
  * **从来没有对应的表** —— 半拉子设计, 指向一个不存在的东西。这张表把它补实。
  */
 @Entity({ name: 'playlist_item' })
-@Unique('uq_playlist_slot_media', ['slot', 'mediaId'])
+@Index('uq_playlist_user_slot_media', ['ownerUserId', 'slot', 'mediaId'], { unique: true, where: 'owner_user_id IS NOT NULL' })
+@Index('uq_playlist_public_slot_media', ['slot', 'mediaId'], { unique: true, where: 'owner_user_id IS NULL' })
 export class PlaylistItem {
+  @Index('ix_playlist_owner')
+  @Column({ name: 'owner_user_id', type: 'integer', nullable: true })
+  ownerUserId!: number | null;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'owner_user_id', foreignKeyConstraintName: 'fk_playlist_owner' })
+  owner!: User | null;
+
   @PrimaryGeneratedColumn()
   id!: number;
 
