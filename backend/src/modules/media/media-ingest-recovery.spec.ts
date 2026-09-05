@@ -54,4 +54,15 @@ describe('file ingestion compensation', () => {
     expect((await repo.find())[0].sizeBytes).toBe(6);
     expect(await fs.readFile(join(root, '1', 'sample.mp3'), 'utf8')).toBe('sample');
   });
+  it('does not restore stale ownership or visibility after asynchronous video probing', async () => {
+    await db.getRepository(User).save({ id: 2, username: 'bob', password: 'test', role: 'operator' });
+    const repo = db.getRepository(MediaAsset);
+    const item = await repo.save({ originalName: 'original.mp4', safeName: 'original.mp4', path: '/test/original.mp4', kind: 'video', mimeType: 'video/mp4', sizeBytes: 10, ownerUserId: 1, visibility: 'private', uploader: 'alice' });
+    jest.spyOn(media as any, 'probeVideo').mockImplementation(async () => {
+      await repo.update(item.id, { ownerUserId: 2, visibility: 'shared', originalName: 'Administrator renamed.mp4' });
+      return { videoCodec: 'h264', audioCodec: 'aac', duration: 10 };
+    });
+    await media.prepareVideo(item.id);
+    expect(await repo.findOneByOrFail({ id: item.id })).toMatchObject({ ownerUserId: 2, visibility: 'shared', originalName: 'Administrator renamed.mp4', processingStatus: 'ready' });
+  });
 });

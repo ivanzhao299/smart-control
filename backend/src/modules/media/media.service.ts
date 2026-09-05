@@ -726,7 +726,7 @@ export class MediaService implements OnModuleInit {
       if (media.kind !== 'video') throw new BadRequestException('只有视频需要转码');
       media.processingStatus = 'processing';
       media.processingError = null;
-      await this.repo.save(media);
+      await this.repo.update(id, { processingStatus: 'processing', processingError: null });
 
       const source = media.sourcePath || media.path;
       const probe = await this.probeVideo(source);
@@ -738,7 +738,7 @@ export class MediaService implements OnModuleInit {
       if (browserReady) {
         media.mimeType = 'video/mp4';
         media.processingStatus = 'ready';
-        await this.repo.save(media);
+        await this.repo.update(id, { mimeType: media.mimeType, processingStatus: 'ready', durationSec: media.durationSec, resolution: media.resolution });
         return;
       }
 
@@ -757,7 +757,11 @@ export class MediaService implements OnModuleInit {
       media.sizeBytes = (await fs.stat(output)).size;
       media.processingStatus = 'ready';
       media.processingError = null;
-      await this.repo.save(media);
+      await this.repo.update(id, {
+        sourcePath: media.sourcePath, path: media.path, mimeType: media.mimeType,
+        sizeBytes: media.sizeBytes, processingStatus: 'ready', processingError: null,
+        durationSec: media.durationSec, resolution: media.resolution,
+      });
       this.logger.info(`[Media] 视频 #${id} 已转为 H.264/AAC 播放副本`, { context: 'MediaService' });
     } catch (error) {
       const message = (error as Error).message.slice(0, 1000);
