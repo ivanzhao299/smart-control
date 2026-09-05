@@ -47,4 +47,26 @@ describe('global authentication boundary', () => {
     expect(await guard(true).canActivate(context(req))).toBe(true);
     expect(req.actor).toBeUndefined();
   });
+  it.each(['POST', 'PUT', 'PATCH', 'DELETE'])('denies %s for current viewer and legacy roles globally', async method => {
+    for (const kind of ['user', 'legacy']) {
+      const viewerGuard = new GlobalAuthGuard(
+        { getAllAndOverride: () => false } as any,
+        { resolveActor: async () => ({ ...actor, kind, role: 'viewer' }) } as any,
+        { verifyToken: async () => false } as any,
+      );
+      const req: any = { method, headers: { 'x-client-token': 'viewer' } };
+      await expect(viewerGuard.canActivate(context(req))).rejects.toThrow('只读账户');
+      expect(req.actor).toBeUndefined();
+    }
+  });
+  it('allows a viewer to request explicitly read-only preview grants', async () => {
+    const viewerGuard = new GlobalAuthGuard(
+      { getAllAndOverride: (key: string) => key === 'read-only-request' } as any,
+      { resolveActor: async () => ({ ...actor, role: 'viewer' }) } as any,
+      { verifyToken: async () => false } as any,
+    );
+    const req: any = { method: 'POST', headers: { 'x-client-token': 'viewer' } };
+    expect(await viewerGuard.canActivate(context(req))).toBe(true);
+    expect(req.actor.role).toBe('viewer');
+  });
 });

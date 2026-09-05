@@ -1,5 +1,6 @@
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Logger, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Operation, OperationsGuard } from './operations.guard';
+import { ActorAdminGuard } from '../../common/guards/actor-admin.guard';
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
 import { AdapterConfig, AppConfig, WebSocketConfig } from '../../common/config/configuration';
@@ -75,6 +76,7 @@ export class SystemController {
 
   /** 清空所有网关的 lastError + 失败计数, 重新探活一次. 后台"清空告警"按钮调. */
   @Post('runtime/gateways/clear-faults')
+  @UseGuards(ActorAdminGuard)
   async clearGatewayFaults() {
     const cleared = this.registry.clearAllFaults();
     // 立即重新探活, 把真实状态填回去
@@ -91,23 +93,27 @@ export class SystemController {
   }
 
   @Post('runtime/health/probe')
+  @UseGuards(ActorAdminGuard)
   async probe() {
     await this.health.probeAll();
     return { message: '健康检查已执行', data: this.health.summary() };
   }
 
   @Get('backups')
+  @UseGuards(ActorAdminGuard)
   async listBackups() {
     return { message: '查询成功', data: await this.system.listBackups() };
   }
 
   @Post('backup')
+  @UseGuards(ActorAdminGuard)
   async backup() {
     const res = await this.system.backup();
     return { message: '数据库备份完成', data: res };
   }
 
   @Post('restore')
+  @UseGuards(ActorAdminGuard)
   async restore(@Body() body: { snapshot?: string } = {}) {
     const res = await this.system.restore(body?.snapshot);
     return { message: '恢复 (模拟) 已计算', data: res };
@@ -136,6 +142,7 @@ export class SystemController {
   }
 
   @Get('site-heartbeat')
+  @UseGuards(ActorAdminGuard)
   listSiteHeartbeat() {
     return { message: '查询成功', data: this.system.listSiteHeartbeats() };
   }
@@ -150,6 +157,7 @@ export class SystemController {
    * 没认证, 因为只 LAN 内可达 (生产 nginx 全局加 Basic Auth 已经够安全)
    */
   @Get('dali-poke')
+  @UseGuards(ActorAdminGuard)
   async daliPoke(
     @Query('short') shortStr?: string,
     @Query('value') valueStr?: string,
@@ -254,6 +262,7 @@ export class SystemController {
    * 因为 cnjinhu 后端的 LIGHTING_ADAPTER_KIND 是 mock; GK9000 本机才是真实 cy-dali64a.
    */
   @Get('dali-selftest')
+  @UseGuards(ActorAdminGuard)
   async daliSelftest() {
     const result = await this.lighting.selfDiagnose();
     return { message: '查询成功', data: result };
@@ -264,6 +273,7 @@ export class SystemController {
    * 排除路由解析问题. 每层独立超时, 失败不阻塞下一层.
    */
   @Get('diag')
+  @UseGuards(ActorAdminGuard)
   async diag() {
     const result = await this.lighting.diagnoseLayered();
     return { message: '查询成功', data: result };
@@ -295,6 +305,7 @@ export class SystemController {
    * 默认 subnet 取 NIC 当前的 LAN 段.
    */
   @Get('scan-novastar')
+  @UseGuards(ActorAdminGuard)
   async scanNovastar(
     @Query('subnet') subnetStr?: string,
     @Query('timeoutMs') timeoutMsStr?: string,

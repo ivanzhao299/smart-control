@@ -29,6 +29,7 @@ import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { MediaAccessService } from './media-access.service';
 import { MediaQuotaService } from './media-quota.service';
 import { Public } from '../../common/decorators/public.decorator';
+import { ReadOnlyRequest } from '../../common/decorators/read-only-request.decorator';
 
 /** Runs before Multer so denied callers cannot fill the temporary disk. */
 @Injectable()
@@ -182,6 +183,7 @@ export class MediaController {
   }
 
   @Post(':id/access')
+  @ReadOnlyRequest()
   async issueAccess(@Param('id', ParseIntPipe) id: number, @Req() req: AuthenticatedRequest,
     @Body() body: { variant?: string } = {}) {
     return { message: 'ok', data: await this.access.issue(req, id, body.variant === 'pdf' ? 'pdf' : 'file') };

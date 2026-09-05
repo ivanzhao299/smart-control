@@ -1,4 +1,5 @@
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable, UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import { READ_ONLY_REQUEST } from '../decorators/read-only-request.decorator';
 import { Reflector } from '@nestjs/core';
 import { ClientAuthService } from '../../modules/client-auth/client-auth.service';
 import { AdminAuthService } from '../../modules/admin-auth/admin-auth.service';
@@ -49,7 +50,14 @@ export class GlobalAuthGuard implements CanActivate {
     for (const token of [clientTok, bearer]) {
       if (!token) continue;
       const actor = await this.clientAuth.resolveActor(token);
-      if (actor) { req.actor = actor; return true; }
+      if (actor) {
+        const readOnly = this.reflector.getAllAndOverride<boolean>(READ_ONLY_REQUEST, [context.getHandler(), context.getClass()]);
+        if (actor.role === 'viewer' && !['GET', 'HEAD', 'OPTIONS'].includes(req.method ?? 'GET') && !readOnly) {
+          throw new ForbiddenException('只读账户不能修改资料、设置或控制设备');
+        }
+        req.actor = actor;
+        return true;
+      }
     }
     // Explicit invalid credentials must not gain privilege through a local proxy.
     if (clientTok || bearer) throw new UnauthorizedException('未登录或登录已过期, 请重新登录');

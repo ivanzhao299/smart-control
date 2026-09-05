@@ -10,6 +10,14 @@
 
 ## 工作队列
 
+### 只读账户全局写门禁与系统运维权限（2026-09-06）
+
+本轮后端全量回归：39组、361项全部通过。该数量仅表示当前测试覆盖范围，不替代未完成的生产/真机验收。
+
+GlobalAuthGuard 验证当前角色后，viewer（含旧共享口令legacy）默认拒绝POST/PUT/PATCH/DELETE，防止只读控制散落在个别模块。ReadOnlyRequest显式例外仅用于media/:id/access预览票据POST，仍由资料策略验证可读范围，不给予上传或修改权。登录/设备/运维Public路径继续由各自独立身份边界处理。
+
+SystemController 的备份列表、备份、恢复、清故障、主动探测、站点状态、DALI直控/自检/诊断、Nova扫描增加ActorAdminGuard；特别是GET dali-poke实际会操作硬件，不能视作只读。新增5项全局门禁测试（四种写方法同时覆盖用户/legacy，加只读POST例外），相关身份/预览合计24项通过，后端构建通过。还需所有其它模块的operator与管理员管理边界、Public路由清单、真实HTTP角色矩阵和前端禁用态验收，不代表权限审计完成。
+
 ### 独立运维凭据（2026-09-06）
 
 site-heartbeat/admin-restart/admin-rebuild-frontend 继续显式Public以跳过用户身份，但全部增加OperationsGuard（无用户/管理员Actor）。OPERATIONS_CREDENTIALS配置JSON数组，每项id、enabled、sha256、scopes；scope为heartbeat/restart/rebuild，heartbeat另需host与正文完全一致。只存随机凭据SHA256；请求头X-Operations-Token，32至512字符，实时禁用/轮换。重启和构建保留loopback来源限制作为附加条件，已删除旧固定正文口令。
