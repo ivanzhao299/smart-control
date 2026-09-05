@@ -44,6 +44,16 @@ describe('media isolation with SQLite repositories', () => {
     await expect(media.list({ actor: alice, limit: NaN })).rejects.toThrow();
     await expect(media.list({ actor: alice, scope: 'invalid' as any })).rejects.toThrow();
   });
+  it('searches within the permission boundary and paginates in stable ID order', async () => {
+    expect((await media.list({ actor: alice, keyword: 'Bob' })).total).toBe(0);
+    expect((await media.list({ actor: admin, keyword: 'bob' })).items[0].originalName).toBe('Bob private');
+    expect((await media.list({ actor: alice, keyword: '%' })).total).toBe(0);
+    const first = await media.list({ actor: admin, limit: 1, offset: 0 });
+    const second = await media.list({ actor: admin, limit: 1, offset: 1 });
+    expect(first.total).toBe(3);
+    expect(first.items[0].id).not.toBe(second.items[0].id);
+    await expect(media.list({ actor: alice, keyword: 'x'.repeat(201) })).rejects.toThrow();
+  });
   it('checks direct IDs even when lists are bypassed', async () => {
     const item = await db.getRepository(MediaAsset).findOneByOrFail({ originalName: 'Alice private' });
     await expect(media.authorized(item.id, bob)).rejects.toThrow('资料不存在');

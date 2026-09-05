@@ -74,9 +74,14 @@ export const mediaService = {
     if (!response.data?.data?.url) throw new Error('无法获得资料预览授权');
     return response.data.data;
   },
-  async list(opts: { kind?: 'video' | 'image' | 'audio' | 'webpage' | 'doc'; scope?: 'visible' | 'mine' | 'shared'; ownerUserId?: number } = {}): Promise<ListResult> {
+  async list(opts: { kind?: 'video' | 'image' | 'audio' | 'webpage' | 'doc'; scope?: 'visible' | 'mine' | 'shared'; ownerUserId?: number; keyword?: string; limit?: number; offset?: number } = {}): Promise<ListResult> {
     const params: Record<string, string> = {};
     if (opts.kind) params.kind = opts.kind;
+    if (opts.scope) params.scope = opts.scope;
+    if (opts.ownerUserId !== undefined) params.ownerUserId = String(opts.ownerUserId);
+    if (opts.keyword) params.keyword = opts.keyword;
+    if (opts.limit !== undefined) params.limit = String(opts.limit);
+    if (opts.offset !== undefined) params.offset = String(opts.offset);
     const r = await mediaHttp.get(`${base()}/media`, { params });
     return r.data?.data ?? { items: [], total: 0 };
   },

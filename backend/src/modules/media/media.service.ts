@@ -539,7 +539,8 @@ export class MediaService implements OnModuleInit {
     return this.repo.save(entity);
   }
 
-  async list(opts: { kind?: MediaKind; limit?: number; offset?: number; actor?: Actor; scope?: 'visible' | 'mine' | 'shared'; ownerUserId?: number } = {}): Promise<{ items: MediaListItem[]; total: number }> {
+  async list(opts: { kind?: MediaKind; limit?: number; offset?: number; actor?: Actor; scope?: 'visible' | 'mine' | 'shared'; ownerUserId?: number; keyword?: string } = {}): Promise<{ items: MediaListItem[]; total: number }> {
+    if (opts.keyword !== undefined && (typeof opts.keyword !== 'string' || opts.keyword.length > 200)) throw new BadRequestException('搜索文本过长');
     if (opts.scope && !['visible', 'mine', 'shared'].includes(opts.scope)) throw new BadRequestException('无效资料范围');
     if (opts.ownerUserId !== undefined) {
       if (opts.actor?.role !== 'admin') throw new ForbiddenException('仅管理员可按用户筛选');
@@ -548,7 +549,8 @@ export class MediaService implements OnModuleInit {
     for (const [value, min] of [[opts.limit, 1], [opts.offset, 0]] as const) {
       if (value !== undefined && (!Number.isSafeInteger(value) || value < min)) throw new BadRequestException('无效分页参数');
     }
-    const qb = this.repo.createQueryBuilder('m').orderBy('m.createdAt', 'DESC');
+    const qb = this.repo.createQueryBuilder('m').orderBy('m.createdAt', 'DESC').addOrderBy('m.id', 'DESC');
+    if (opts.keyword?.trim()) qb.andWhere('instr(lower(m.originalName), lower(:keyword)) > 0', { keyword: opts.keyword.trim() });
     if (opts.actor && opts.actor.role !== 'admin') {
       qb.andWhere('(m.visibility = :shared OR m.ownerUserId = :owner)', {
         shared: 'shared', owner: opts.actor.kind === 'user' ? opts.actor.userId : null,

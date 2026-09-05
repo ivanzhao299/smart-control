@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter, useRoute } from 'vue-router';
 import {
@@ -99,7 +99,13 @@ const uploadStartAt = ref(0);
 const filter = ref<'all' | 'video' | 'image' | 'audio' | 'webpage' | 'doc' | 'doc'>('all');
 const resourceScope = ref<'visible' | 'mine' | 'shared'>('visible');
 const ownerFilter = ref<number | undefined>();
-function setOwnerFilter(id: number | undefined): void { ownerFilter.value = id; void refresh(); }
+const mediaPage = ref(1);
+const mediaTotal = ref(0);
+const mediaKeyword = ref('');
+const mediaPageSize = 50;
+function searchMedia(): void { mediaPage.value = 1; void refresh(); }
+function setOwnerFilter(id: number | undefined): void { ownerFilter.value = id; searchMedia(); }
+watch([filter, resourceScope], searchMedia);
 const viewMode = ref<'list' | 'grid' | 'detail'>('list');
 const previewItem = ref<MediaItem | null>(null);
 const isDragging = ref(false);
@@ -145,12 +151,14 @@ async function refresh(): Promise<void> {
   const revision = ++mediaRequestRevision;
   loading.value = true;
   try {
-    const r = await mediaService.list({ scope: resourceScope.value, ownerUserId: ownerFilter.value });
+    const r = await mediaService.list({ scope: resourceScope.value, ownerUserId: ownerFilter.value, kind: filter.value === 'all' ? undefined : filter.value, keyword: mediaKeyword.value, limit: mediaPageSize, offset: (mediaPage.value - 1) * mediaPageSize });
     if (revision !== mediaRequestRevision) return;
     items.value = r.items;
+    mediaTotal.value = r.total;
   } catch (e) {
     if (revision !== mediaRequestRevision) return;
     items.value = [];
+    mediaTotal.value = 0;
     ElMessage.error(`加载失败: ${(e as Error).message}`);
   } finally {
     if (revision === mediaRequestRevision) loading.value = false;
@@ -702,7 +710,7 @@ onBeforeUnmount(() => window.clearInterval(processingRefreshTimer));
         </button>
         <div class="title-block">
           <div class="title"><FolderOpen :size="18" :stroke-width="1.8" /> 媒体库</div>
-          <select v-model="resourceScope" aria-label="资料范围" @change="refresh">
+          <select v-model="resourceScope" aria-label="资料范围">
             <option value="visible">全部可见资料</option>
             <option value="mine">我的资料</option>
             <option value="shared">公共资料</option>
@@ -960,6 +968,13 @@ onBeforeUnmount(() => window.clearInterval(processingRefreshTimer));
       </div>
     </div>
 
+    <div class="media-pagination">
+      <input v-model="mediaKeyword" placeholder="搜索资料名称" aria-label="搜索资料名称" maxlength="200" @keyup.enter="searchMedia" />
+      <button @click="searchMedia">搜索</button>
+      <button :disabled="loading || mediaPage <= 1" @click="mediaPage--; refresh()">上一页</button>
+      <span>第 {{ mediaPage }} 页 · 共 {{ mediaTotal }} 项</span>
+      <button :disabled="loading || mediaPage * mediaPageSize >= mediaTotal" @click="mediaPage++; refresh()">下一页</button>
+    </div>
     <MediaAdminPanel :items="items" @refresh="refresh" @owner="setOwnerFilter" />
     <!-- 添加网页 dialog -->
     <div v-if="webpageDialog" class="preview-mask" @click.self="webpageDialog = false">
@@ -1235,6 +1250,8 @@ onBeforeUnmount(() => window.clearInterval(processingRefreshTimer));
 </template>
 
 <style scoped>
+.media-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 16px 0; }
+.media-pagination input { min-width: 0; max-width: 100%; padding: 8px; }
 .media-page {
   padding: var(--v2-sp-5);
   display: flex; flex-direction: column; gap: var(--v2-sp-4);
