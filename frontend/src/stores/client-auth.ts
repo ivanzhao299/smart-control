@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
-import { computed, ref } from 'vue';
+import { computed, ref, onScopeDispose } from 'vue';
+import { onServerChange } from '@/services/identity-boundary';
 import { api, setApiBaseURL, getApiBaseURL, setClientToken } from '@/services/http';
 
 /**
@@ -24,6 +25,7 @@ const TOKEN_STORAGE_KEY = 'sc.client.token';
 const TOKEN_EXPIRY_KEY = 'sc.client.token.expiresAt';
 const SAVED_PASSWORD_KEY = 'sc.client.savedPassword';
 const SAVED_USERNAME_KEY = 'sc.client.savedUsername';
+const SERVER_KEY = 'sc.client.authServer';
 
 interface LoginResponse {
   token: string;
@@ -39,6 +41,10 @@ export const useClientAuthStore = defineStore('client-auth', () => {
 
   // 启动时把 token 同步到 http.ts
   setClientToken(token.value);
+  onScopeDispose(onServerChange(() => {
+    logout();
+    baseURL.value = getApiBaseURL();
+  }));
 
   const isAuthed = computed<boolean>(() => {
     if (!token.value) return false;
@@ -80,8 +86,10 @@ export const useClientAuthStore = defineStore('client-auth', () => {
       try {
         window.localStorage.setItem(TOKEN_STORAGE_KEY, data.token);
         window.localStorage.setItem(TOKEN_EXPIRY_KEY, data.expiresAt);
-        // 默认记密码 (remember:false 才不存, 目前没地方传 false, 等于永远记) ——
-        // 密码对了才走到这里, "保存密码并自动登录" 就是这么来的。
+        window.localStorage.setItem(SERVER_KEY, getApiBaseURL());
+        // Never retain another account's saved password when remember is disabled.
+        window.localStorage.removeItem(SAVED_PASSWORD_KEY);
+        window.localStorage.removeItem(SAVED_USERNAME_KEY);
         if (opts.remember !== false) {
           window.localStorage.setItem(SAVED_PASSWORD_KEY, password);
           if (normalizedUsername) window.localStorage.setItem(SAVED_USERNAME_KEY, normalizedUsername);
@@ -103,6 +111,7 @@ export const useClientAuthStore = defineStore('client-auth', () => {
    * 密码 —— 不然每次都要打一遍失败请求, 而且旧密码摆在 localStorage 里也没意义了。
    */
   async function tryAutoLogin(): Promise<boolean> {
+    if (!isBoundToCurrentServer()) { clearSavedPassword(); return false; }
     let saved: string | null = null;
     try { saved = window.localStorage.getItem(SAVED_PASSWORD_KEY); } catch { /* ignore */ }
     if (!saved) return false;
@@ -129,6 +138,7 @@ export const useClientAuthStore = defineStore('client-auth', () => {
     try {
       window.localStorage.removeItem(TOKEN_STORAGE_KEY);
       window.localStorage.removeItem(TOKEN_EXPIRY_KEY);
+      window.localStorage.removeItem(SERVER_KEY);
     } catch { /* ignore */ }
     clearSavedPassword();
   }
@@ -166,11 +176,17 @@ export const useClientAuthStore = defineStore('client-auth', () => {
 });
 
 function readToken(): string | null {
+  if (!isBoundToCurrentServer()) return null;
   try { return window.localStorage.getItem(TOKEN_STORAGE_KEY); } catch { return null; }
 }
 function readExpiry(): string | null {
+  if (!isBoundToCurrentServer()) return null;
   try { return window.localStorage.getItem(TOKEN_EXPIRY_KEY); } catch { return null; }
 }
 export function readSavedUsername(): string {
+  if (!isBoundToCurrentServer()) return '';
   try { return window.localStorage.getItem(SAVED_USERNAME_KEY) ?? ''; } catch { return ''; }
+}
+function isBoundToCurrentServer(): boolean {
+  try { return window.localStorage.getItem(SERVER_KEY) === getApiBaseURL(); } catch { return false; }
 }

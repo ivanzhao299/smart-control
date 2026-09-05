@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia';
-import { computed, ref } from 'vue';
+import { computed, ref, onScopeDispose } from 'vue';
+import { onServerChange } from '@/services/identity-boundary';
 import { adminLogin, adminLogout, adminMe } from '@/services/admin-auth.service';
-import { setAdminToken } from '@/services/http';
+import { setAdminToken, getApiBaseURL } from '@/services/http';
 
 /**
  * 后台鉴权 store.
@@ -14,8 +15,13 @@ import { setAdminToken } from '@/services/http';
  */
 
 const STORAGE_KEY = 'sc.adminToken';
+const SERVER_KEY = 'sc.adminAuthServer';
 
 export const useAdminAuthStore = defineStore('admin-auth', () => {
+  if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(SERVER_KEY) !== getApiBaseURL()) {
+    sessionStorage.removeItem(STORAGE_KEY);
+    sessionStorage.removeItem(STORAGE_KEY + ':exp');
+  }
   const token = ref<string | null>(typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(STORAGE_KEY) : null);
   const expiresAt = ref<string | null>(typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(STORAGE_KEY + ':exp') : null);
   const checking = ref(false);
@@ -23,6 +29,14 @@ export const useAdminAuthStore = defineStore('admin-auth', () => {
 
   // 启动时同步当前 token 到 http.ts 模块变量
   if (token.value) setAdminToken(token.value);
+  onScopeDispose(onServerChange(() => {
+    token.value = null;
+    expiresAt.value = null;
+    checked.value = false;
+    sessionStorage.removeItem(STORAGE_KEY);
+    sessionStorage.removeItem(STORAGE_KEY + ':exp');
+    sessionStorage.removeItem(SERVER_KEY);
+  }));
 
   const isAuthenticated = computed<boolean>(() => !!token.value);
 
@@ -32,6 +46,7 @@ export const useAdminAuthStore = defineStore('admin-auth', () => {
     expiresAt.value = res.expiresAt;
     sessionStorage.setItem(STORAGE_KEY, res.token);
     sessionStorage.setItem(STORAGE_KEY + ':exp', res.expiresAt);
+    sessionStorage.setItem(SERVER_KEY, getApiBaseURL());
     setAdminToken(res.token);
     checked.value = true;
   }

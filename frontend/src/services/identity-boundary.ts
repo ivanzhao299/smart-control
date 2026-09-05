@@ -1,6 +1,16 @@
 // Monotonic generation: switching A -> B -> A must still invalidate A's old work.
 let generation = 0;
 const listeners = new Set<() => void>();
+const serverListeners = new Set<() => void>();
+export function onServerChange(listener: () => void): () => void {
+  serverListeners.add(listener);
+  return () => serverListeners.delete(listener);
+}
+export function notifyServerChange(): void {
+  for (const listener of serverListeners) {
+    try { listener(); } catch { /* Continue clearing other identities. */ }
+  }
+}
 export const identityGeneration = () => generation;
 export function invalidateIdentity(): void {
   generation += 1;

@@ -63,3 +63,21 @@ test('same identity remains usable, requests bypass browser cache, server change
   stop(); http.setClientToken(null);
   assert.equal(changes, 1);
 });
+
+test('server change clears both tokens before subscribers and prevents credential redirects', async () => {
+  let sent;
+  const { http, boundary } = load(async (_url, init) => { sent = init; return response(); });
+  http.setClientToken('old-user'); http.setAdminToken('old-admin');
+  let notified = false;
+  boundary.onServerChange(() => {
+    assert.equal(http.getClientToken(), null);
+    assert.equal(http.getAdminToken(), null);
+    notified = true;
+  });
+  http.setApiBaseURL('http://new-server.test:3200');
+  await http.api.get('/client-auth/ping');
+  assert.equal(notified, true);
+  assert.equal(sent.headers.Authorization, undefined);
+  assert.equal(sent.headers['X-Client-Token'], undefined);
+  assert.equal(sent.redirect, 'error');
+});

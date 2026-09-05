@@ -1,6 +1,6 @@
 import type { ApiOk } from '@/types/api';
 import { trackApiCall } from './rum.service';
-import { identityGeneration, invalidateIdentity, assertCurrentIdentity } from './identity-boundary';
+import { identityGeneration, invalidateIdentity, assertCurrentIdentity, notifyServerChange } from './identity-boundary';
 
 /**
  * 原生 fetch + AbortController 替代 axios (PERFORMANCE_AUDIT P1-#10).
@@ -95,7 +95,13 @@ export function setApiBaseURL(input: string): void {
   if (!normalized) normalized = '/api';
   const changed = baseURL !== normalized;
   baseURL = normalized;
-  if (changed) invalidateIdentity();
+  if (changed) {
+    // Clear both identities before any subscriber can start a request to the new server.
+    adminToken = null;
+    clientToken = null;
+    notifyServerChange();
+    invalidateIdentity();
+  }
   try { window.localStorage.setItem(STORAGE_KEY_BASE, normalized); } catch {/* ignore */}
 }
 export function getApiBaseURL(): string { return baseURL; }
@@ -225,6 +231,7 @@ async function request<T>(
     method,
     headers,
     credentials: 'omit',
+    redirect: 'error',
     cache: 'no-store',
   };
   if (body !== undefined && body !== null) {
