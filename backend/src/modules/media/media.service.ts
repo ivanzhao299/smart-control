@@ -372,7 +372,13 @@ export class MediaService implements OnModuleInit {
    * 挪进正式位置, 不像 ingestFromBuffer 把整个文件压进内存)。
    * rename 跨盘符会 EXDEV, 失败自动退化为 copy+unlink。
    */
-  async ingestFromFile(originalName: string, mimeType: string, tmpPath: string, uploader: string, remark?: string): Promise<MediaAsset> {
+  async ingestFromFile(originalName: string, mimeType: string, tmpPath: string, uploader: string, actor: Actor, remark?: string): Promise<MediaAsset> {
+    assertCanUpload(actor);
+    if (actor.userId !== null) {
+      const current = await this.repo.manager.getRepository(User).findOneBy({ id: actor.userId, enabled: true });
+      if (!current) throw new ForbiddenException('导入账户已停用');
+      assertCanUpload({ ...actor, role: current.role });
+    }
     const kind = this.classifyKind(mimeType, originalName);
     if (!kind) {
       await this.unlinkSafe(tmpPath);
@@ -383,6 +389,7 @@ export class MediaService implements OnModuleInit {
     const saved = await this.repo.save(this.repo.create({
       originalName, safeName, path: '', thumbPath: null, kind, mimeType,
       sizeBytes: stat.size, durationSec: null, resolution: null,
+      ownerUserId: actor.userId, visibility: 'private', source: 'import',
       remark: remark ?? null, uploader, lastPlayedAt: null,
       processingStatus: kind === 'video' ? 'pending' : 'ready', processingError: null, sourcePath: null,
     }));
@@ -460,12 +467,17 @@ export class MediaService implements OnModuleInit {
   }
 
   /** 把 scanOrphans() 列出的某一个文件正式收编成媒体库资源 (原地过户, 不重新写一份) */
-  async importOrphan(relPath: string, uploader: string, remark?: string): Promise<MediaAsset> {
+  async importOrphan(relPath: string, uploader: string, actor: Actor, remark?: string): Promise<MediaAsset> {
+    if (actor.role !== 'admin') throw new ForbiddenException('仅管理员可收编服务器资料');
     const abs = resolve(join(this.mediaRoot, relPath));
     const rootResolved = resolve(this.mediaRoot);
     if (abs !== rootResolved && !abs.startsWith(rootResolved + sep)) {
       throw new BadRequestException('非法路径'); // 防 relPath 里塞 ../../ 之类的路径穿越
     }
+    const realRoot = await fs.realpath(this.mediaRoot);
+    const realFile = await fs.realpath(abs);
+    const realRelative = relative(realRoot, realFile);
+    if (!realRelative || realRelative.startsWith('..') || isAbsolute(realRelative)) throw new BadRequestException('非法路径');
     let stat;
     try {
       stat = await fs.stat(abs);
@@ -481,6 +493,7 @@ export class MediaService implements OnModuleInit {
     const originalName = basename(abs);
     const safeName = this.safeFilename(originalName);
     const entity = this.repo.create({
+      ownerUserId: actor.userId, visibility: 'private', source: 'import',
       originalName,
       safeName,
       path: '',

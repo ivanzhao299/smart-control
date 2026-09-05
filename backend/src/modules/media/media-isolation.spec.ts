@@ -54,6 +54,14 @@ describe('media isolation with SQLite repositories', () => {
     expect(first.items[0].id).not.toBe(second.items[0].id);
     await expect(media.list({ actor: alice, keyword: 'x'.repeat(201) })).rejects.toThrow();
   });
+  it('rejects revoked import owners and non-admin orphan ingestion before touching files', async () => {
+    await db.getRepository(User).update(1, { enabled: false });
+    await expect(media.ingestFromFile('test.mp3', 'audio/mpeg', '/nonexistent-import-test', alice.username, alice)).rejects.toThrow('导入账户已停用');
+    await db.getRepository(User).update(1, { enabled: true, role: 'viewer' });
+    await expect(media.ingestFromFile('test.mp3', 'audio/mpeg', '/nonexistent-import-test', alice.username, alice)).rejects.toThrow('上传权限');
+    await expect(media.importOrphan('test.mp3', bob.username, bob)).rejects.toThrow('仅管理员');
+    expect(await db.getRepository(MediaAsset).count()).toBe(3);
+  });
   it('checks direct IDs even when lists are bypassed', async () => {
     const item = await db.getRepository(MediaAsset).findOneByOrFail({ originalName: 'Alice private' });
     await expect(media.authorized(item.id, bob)).rejects.toThrow('资料不存在');

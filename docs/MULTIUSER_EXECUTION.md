@@ -44,6 +44,14 @@
 
 ## 验收边界
 
+## 网盘与目录收编归属
+
+网盘控制器改用可信Actor管理员门禁，startDownload将发起身份传入后台runDownload及ingestFromFile。文件入库前查询个人账户当前enabled/role，拒绝下载期间停用/降为viewer的账户；写入owner/private/import及真实uploader。目录收编服务强制管理员、同样写入私有归属，日志采用实际操作者；增加realpath根目录检查防符号链接越界。
+
+媒体隔离测试新增停用/降权账户在文件访问前拒绝、普通用户不能收编、拒绝操作不新增记录。管理员令牌型账户无个人ID，资料为管理员可见的无主私有记录，可后续显式分配。这与历史shared/legacy区分，不会默认公开。
+
+仍待异步任务开始/结束权限事务、原子配额、失败回收、网盘真实下载及所有导入链路端到端测试。本阶段不证明磁盘移动与数据库写入的一致性，未部署生产。
+
 ## 在线音乐导入隔离
 
 OnlineMusicController向目录/下载传递可信Actor，下载在联网前检查operator/admin。已下载标记和同名检查从当前用户可见媒体计算，不再读全局名称/备注；繁忙提示不透露其他用户正在下载的曲名。ingestFromBuffer强制Actor并写入owner/private/import，uploader采用真实用户名。

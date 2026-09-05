@@ -185,10 +185,11 @@ export class MediaController {
   /** 收编 scanOrphans() 列出的某个文件, 正式变成媒体库资源 */
   @Post('orphans/import')
   @UseGuards(ActorAdminGuard)
-  async importOrphan(@Body() dto: ImportOrphanDto) {
-    const asset = await this.media.importOrphan(dto.relPath, 'system', dto.remark);
+  async importOrphan(@Req() req: AuthenticatedRequest, @Body() dto: ImportOrphanDto) {
+    const actor = requireActor(req);
+    const asset = await this.media.importOrphan(dto.relPath, actor.username, actor, dto.remark);
     await this.opLog.record({
-      operator: 'system',
+      operator: actor.username,
       action: 'media.orphan.import',
       targetType: 'media',
       targetId: String(asset.id),

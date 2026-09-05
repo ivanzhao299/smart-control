@@ -1,5 +1,6 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, Post, Query, UseGuards } from '@nestjs/common';
-import { AdminGuard } from '../admin-auth/admin-auth.guard';
+import { BadRequestException, Body, Controller, Get, HttpCode, Post, Query, UseGuards, Req } from '@nestjs/common';
+import { ActorAdminGuard } from '../../common/guards/actor-admin.guard';
+import { AuthenticatedRequest, requireActor } from '../../common/auth/actor';
 import { BaiduPanService } from './baidu-pan.service';
 
 /**
@@ -7,7 +8,7 @@ import { BaiduPanService } from './baidu-pan.service';
  * 客户端 token 即可 (走全局 ClientAuthGuard) — 与媒体上传同级的日常操作;
  * AppKey/SecretKey 只进 DB 不回显明文 (status 只报 configured 布尔)。
  */
-@UseGuards(AdminGuard) // 2026-07-30 业主隐私收紧: 网盘所有操作仅管理员 (业主端普通登录不可见)
+@UseGuards(ActorAdminGuard)
 @Controller('baidu-pan')
 export class BaiduPanController {
   constructor(private readonly service: BaiduPanService) {}
@@ -53,9 +54,9 @@ export class BaiduPanController {
 
   @Post('download')
   @HttpCode(200)
-  async download(@Body() body: { fsId?: number; name?: string } = {}) {
+  async download(@Req() req: AuthenticatedRequest, @Body() body: { fsId?: number; name?: string } = {}) {
     if (typeof body?.fsId !== 'number' || !body?.name) throw new BadRequestException('fsId / name 必填');
-    const r = await this.service.startDownload(body.fsId, body.name);
+    const r = await this.service.startDownload(body.fsId, body.name, requireActor(req));
     return { message: `「${body.name}」开始下载, 完成后自动入媒体库`, data: r };
   }
 }

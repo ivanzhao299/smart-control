@@ -227,7 +227,8 @@ export class BaiduPanService implements OnModuleInit {
   }
 
   /** 发起服务器侧代下载 (立即返回, 前端轮询 status 看进度) */
-  async startDownload(fsId: number, name: string): Promise<{ started: boolean }> {
+  async startDownload(fsId: number, name: string, actor: import('../../common/auth/actor').Actor): Promise<{ started: boolean }> {
+    if (actor.role !== 'admin') throw new BadRequestException('仅管理员可导入网盘资料');
     if (this.activeDownload) {
       throw new ConflictException(`「${this.activeDownload.name}」正在下载, 请等它完成`);
     }
@@ -254,7 +255,7 @@ export class BaiduPanService implements OnModuleInit {
 
     this.activeDownload = { name, receivedBytes: 0, totalBytes: size || null, startedAt: Date.now() };
     // 后台跑, 不阻塞请求
-    void this.runDownload(`${dlink}&access_token=${encodeURIComponent(tok)}`, name)
+    void this.runDownload(`${dlink}&access_token=${encodeURIComponent(tok)}`, name, actor)
       .then((saved) => {
         this.lastResult = { ok: true, name, message: `已入库 (#${saved.id}, ${(saved.sizeBytes / 1048576).toFixed(1)}MB)`, at: Date.now() };
         this.logger.info(`[BaiduPan] 下载入库完成: ${name} (#${saved.id})`, { context: 'BaiduPanService' });
@@ -267,14 +268,14 @@ export class BaiduPanService implements OnModuleInit {
     return { started: true };
   }
 
-  private async runDownload(url: string, name: string): Promise<{ id: number; sizeBytes: number }> {
+  private async runDownload(url: string, name: string, actor: import('../../common/auth/actor').Actor): Promise<{ id: number; sizeBytes: number }> {
     const tmp = join(tmpdir(), `baidupan-${Date.now()}-${Math.floor(Math.random() * 1e6)}`);
     try {
       await this.streamToFile(url, tmp, 5);
       const stat = await fsp.stat(tmp);
       if (stat.size < 1024) throw new Error('下载内容异常偏小, 已放弃入库');
       const mime = this.guessMime(name);
-      const saved = await this.media.ingestFromFile(name, mime, tmp, 'baidu-pan',
+      const saved = await this.media.ingestFromFile(name, mime, tmp, actor.username, actor,
         `百度网盘下载 (${new Date().toISOString().slice(0, 10)})`);
       return { id: saved.id, sizeBytes: saved.sizeBytes };
     } catch (e) {
