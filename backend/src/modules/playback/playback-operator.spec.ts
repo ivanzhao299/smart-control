@@ -4,6 +4,20 @@ import { PlaybackOperatorGuard } from './playback-operator.guard';
 import { PlaybackController } from './playback.controller';
 
 describe('playback control role boundary', () => {
+  it('requires document control session and forwards it unchanged', async () => {
+    const service = { setDocPage: jest.fn(), setDocZoom: jest.fn() };
+    const controller = new PlaybackController(service as any, {} as any);
+    for (const expectedSession of [undefined, '', 5, 'x'.repeat(65)]) {
+      await expect(controller.docPage(1, { page: 2, expectedSession } as any)).rejects.toThrow();
+      await expect(controller.docZoom(1, { zoom: 150, expectedSession } as any)).rejects.toThrow();
+    }
+    expect(service.setDocPage).not.toHaveBeenCalled();
+    expect(service.setDocZoom).not.toHaveBeenCalled();
+    await controller.docPage(1, { page: 2, expectedSession: 'current-session' });
+    await controller.docZoom(1, { zoom: 150, expectedSession: 'current-session' });
+    expect(service.setDocPage).toHaveBeenCalledWith(1, 2, 'current-session');
+    expect(service.setDocZoom).toHaveBeenCalledWith(1, 150, 'current-session');
+  });
   const guard = new PlaybackOperatorGuard();
   const ctx = (method: string, actor?: unknown) => ({ switchToHttp: () => ({ getRequest: () => ({ method, actor }) }) }) as any;
   const operator = { kind: 'user', userId: 1, username: 'operator', role: 'operator' };

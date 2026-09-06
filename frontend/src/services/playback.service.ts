@@ -52,13 +52,13 @@ export async function setDisplayFit(slot: number, fit: DisplayFit): Promise<Play
 }
 
 /** 文档翻页 (2026-07-25 文档投屏) */
-export async function setDocPage(slot: number, page: number): Promise<PlaybackChannelView> {
-  return api.post<PlaybackChannelView>(`/playback/channels/${slot}/doc-page`, { page });
+export async function setDocPage(slot: number, page: number, expectedSession: string): Promise<PlaybackChannelView> {
+  return api.post<PlaybackChannelView>(`/playback/channels/${slot}/doc-page`, { page, expectedSession });
 }
 
 /** 文档画面缩放 (2026-07-29): 100=铺满, 50-200; PPT 放映窗口/kiosk PDF 都跟随 */
-export async function setDocZoom(slot: number, zoom: number): Promise<PlaybackChannelView> {
-  return api.post<PlaybackChannelView>(`/playback/channels/${slot}/doc-zoom`, { zoom });
+export async function setDocZoom(slot: number, zoom: number, expectedSession: string): Promise<PlaybackChannelView> {
+  return api.post<PlaybackChannelView>(`/playback/channels/${slot}/doc-zoom`, { zoom, expectedSession });
 }
 
 export async function channelHeartbeat(slot: number): Promise<void> {

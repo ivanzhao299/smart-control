@@ -29,6 +29,17 @@ describe('playback ownership', () => {
     await db.getRepository(PlaylistItem).save([{ slot: 1, mediaId: aliceId, ownerUserId: 1 }, { slot: 1, mediaId: bobId, ownerUserId: 2 }]);
   });
   afterEach(async () => { await db.destroy(); });
+  it('rejects document controls carrying a previous session even before the server lookup', async () => {
+    const first = await service.publishMedia(1, aliceId, alice);
+    expect(first.playbackSession).toEqual(expect.any(String));
+    expect((await service.getBySlot(1, bob)).playbackSession).toBeNull();
+    const next = await service.publishMedia(1, aliceId, alice);
+    expect(next.playbackSession).not.toBe(first.playbackSession);
+    await expect(service.setDocPage(1, 2, first.playbackSession!)).rejects.toThrow('播放会话已变化');
+    await expect(service.setDocZoom(1, 150, first.playbackSession!)).rejects.toThrow('播放会话已变化');
+    await service.setDocZoom(1, 150, next.playbackSession!);
+    expect((await db.getRepository(PlaybackChannel).findOneByOrFail({ slot: 1 })).docZoom).toBe(150);
+  });
   it.each(['page', 'zoom'])('rejects stale document %s changes instead of restoring a replaced channel', async control => {
     await service.publishMedia(1, aliceId, alice);
     const repo = db.getRepository(PlaybackChannel), findOne = repo.findOne.bind(repo);

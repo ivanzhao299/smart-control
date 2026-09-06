@@ -92,11 +92,12 @@ export class PlaybackController {
   @HttpCode(200)
   async docPage(
     @Param('slot', ParseIntPipe) slot: number,
-    @Body() body: { page?: number } = {},
+    @Body() body: { page?: number; expectedSession?: string } = {},
   ) {
     const page = Number(body?.page);
     if (!Number.isFinite(page) || page < 1) throw new BadRequestException('page 必须是 >=1 的数字');
-    return { message: '已翻页', data: await this.service.setDocPage(slot, page) };
+    if (typeof body.expectedSession !== 'string' || !body.expectedSession || body.expectedSession.length > 64) throw new BadRequestException('请刷新播放状态后重试');
+    return { message: '已翻页', data: await this.service.setDocPage(slot, page, body.expectedSession) };
   }
 
   /** 文档画面缩放 (2026-07-29 业主: PPT 要能全屏/放大缩小)。100=铺满, 50-200 */
@@ -104,11 +105,12 @@ export class PlaybackController {
   @HttpCode(200)
   async docZoom(
     @Param('slot', ParseIntPipe) slot: number,
-    @Body() body: { zoom?: number } = {},
+    @Body() body: { zoom?: number; expectedSession?: string } = {},
   ) {
     const zoom = Number(body?.zoom);
     if (!Number.isFinite(zoom)) throw new BadRequestException('zoom 必须是数字 (50-200)');
-    return { message: '缩放已更新', data: await this.service.setDocZoom(slot, zoom) };
+    if (typeof body.expectedSession !== 'string' || !body.expectedSession || body.expectedSession.length > 64) throw new BadRequestException('请刷新播放状态后重试');
+    return { message: '缩放已更新', data: await this.service.setDocZoom(slot, zoom, body.expectedSession) };
   }
 
   /** 画面铺放模式 (业主 2026-07-25): fill=铺满拉伸(默认)/contain=保持比例/cover=裁切铺满 */

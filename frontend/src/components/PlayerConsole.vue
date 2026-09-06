@@ -114,9 +114,11 @@ const docZoom = computed(() => ch.value?.docZoom ?? 100);
 let zoomBusy = false;
 async function applyDocZoom(z: number): Promise<void> {
   if (zoomBusy) return;
+  const session = ch.value?.playbackSession;
+  if (!session) { ElMessage.warning('请刷新播放状态后重试'); return; }
   zoomBusy = true;
   try {
-    const v = await setDocZoom(SLOT.value, z);
+    const v = await setDocZoom(SLOT.value, z, session);
     playbackStore.handleWs({ type: 'playback_channel_changed', data: v } as never);
   } catch (e) {
     ElMessage.error(`缩放失败: ${(e as Error).message}`);
@@ -133,12 +135,14 @@ async function exitDocShow(): Promise<void> {
 let pageBusy = false;
 async function gotoDocPage(p: number): Promise<void> {
   if (pageBusy) return;
+  const session = ch.value?.playbackSession;
+  if (!session) { ElMessage.warning('请刷新播放状态后重试'); return; }
   const max = docTotal.value ?? Number.MAX_SAFE_INTEGER;
   const target = Math.max(1, Math.min(p, max));
   if (target === docPage.value) return;
   pageBusy = true;
   try {
-    const v = await setDocPage(SLOT.value, target);
+    const v = await setDocPage(SLOT.value, target, session);
     playbackStore.handleWs({ type: 'playback_channel_changed', data: v } as never);
   } catch (e) {
     ElMessage.error(`翻页失败: ${(e as Error).message}`);

@@ -15,6 +15,7 @@ import { MediaService } from '../media/media.service';
 import { ControlBus } from '../../services/control-bus';
 
 export interface PlaybackChannelView {
+  playbackSession: string | null;
   occupied: boolean;
   restricted: boolean;
   id: number;
@@ -394,9 +395,10 @@ export class PlaybackService implements OnModuleInit {
   }
 
   /** 文档翻页 (2026-07-25): clamp 到 [1, pageCount]; WS 广播 — 守护(PPT)/kiosk(Word) 跟随 */
-  async setDocPage(slot: number, page: number): Promise<PlaybackChannelView> {
+  async setDocPage(slot: number, page: number, expectedSession?: string): Promise<PlaybackChannelView> {
     const row = await this.repo.findOne({ where: { slot } });
     if (!row) throw new NotFoundException(`slot=${slot} 不存在`);
+    if (expectedSession !== undefined && row.playbackSession !== expectedSession) throw new ConflictException('播放会话已变化，请刷新后翻页');
     let max = Number.MAX_SAFE_INTEGER;
     if (row.currentMediaId) {
       const m = await this.mediaService.get(row.currentMediaId).catch(() => null);
@@ -412,9 +414,10 @@ export class PlaybackService implements OnModuleInit {
   }
 
   /** 文档画面缩放 (2026-07-29 业主: PPT 要能全屏/放大缩小)。50-200 夹取, 100=铺满 */
-  async setDocZoom(slot: number, zoom: number): Promise<PlaybackChannelView> {
+  async setDocZoom(slot: number, zoom: number, expectedSession?: string): Promise<PlaybackChannelView> {
     const row = await this.repo.findOne({ where: { slot } });
     if (!row) throw new NotFoundException(`slot=${slot} 不存在`);
+    if (expectedSession !== undefined && row.playbackSession !== expectedSession) throw new ConflictException('播放会话已变化，请刷新后缩放');
     const changed = await this.repo.update({
       slot, playbackSession: row.playbackSession ?? IsNull(), currentMediaId: row.currentMediaId ?? IsNull(),
     }, { docZoom: Math.max(50, Math.min(Math.round(zoom) || 100, 200)) });
@@ -477,6 +480,7 @@ export class PlaybackService implements OnModuleInit {
       : false;
     return {
       occupied: row.currentMediaId !== null,
+      playbackSession: readable ? row.playbackSession : null,
       restricted: row.currentMediaId !== null && !readable,
       id: row.id,
       slot: row.slot,
