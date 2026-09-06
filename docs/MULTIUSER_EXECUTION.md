@@ -10,6 +10,12 @@
 
 ## 工作队列
 
+### 完整构建资料页三角色Chrome实测（2026-09-06）
+
+新增frontend/tests/app-media-browser-smoke.cjs，运行当前frontend/dist与完整MOCK后端，后端仅127.0.0.1:33291，数据库/媒体仍为/tmp/smart-control-runtime-BK0BEA隔离环境。通过真实HTTP创建operator/viewer/具名admin测试账户及私人/公共网页资料、获取真实登录令牌；浏览器新context注入该测试会话后访问完整/media页面，不伪造me或媒体API响应。390×844视口实测三角色通过：operator可见本人private与shared及上传；viewer不可见operator private且无上传/删除/推送；具名admin可见private/shared及管理员内容管理入口。
+
+静态服务器仅转发本机测试API，浏览器外部请求全部阻断；serviceWorkers:block保证这轮检验当前构建，不混入旧缓存。测试未点击真实设备推送，未操作生产数据库。尚未覆盖登录表单/实际上传/文档预览/管理员转移交互、无403背景错误完整性、真实WebSocket（测试静态代理不转发upgrade）、Apple或正式PWA升级。不可据此宣称完整端到端验收。退出测试后已停止专用后端进程，测试账户仅留在隔离库。
+
 ### 资料页二级操作入口补齐（2026-09-06）
 
 补齐预览弹窗的推送/删除/重转码权限，在线曲库下载在viewer状态禁用，网页提交与下载函数检查当前操作角色。网盘配置/下载、收编和欢迎页设置检查管理员；根目录prompt返回后再次核验，防止旧对话框在切换身份后写新服务器。卡片与弹窗仍允许合法预览，不将只读资料浏览整体禁用。
