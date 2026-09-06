@@ -29,6 +29,32 @@ describe('playback ownership', () => {
     await db.getRepository(PlaylistItem).save([{ slot: 1, mediaId: aliceId, ownerUserId: 1 }, { slot: 1, mediaId: bobId, ownerUserId: 2 }]);
   });
   afterEach(async () => { await db.destroy(); });
+  it('commits simultaneous independent channel publications without transaction nesting', async () => {
+    await db.getRepository(PlaybackChannel).save({ slot: 2, name: 'Test projector', outputKind: 'projector' });
+    for (let round = 0; round < 3; round++) {
+      const results = await Promise.allSettled([service.publishMedia(1, aliceId, alice), service.publishMedia(2, bobId, bob)]);
+      expect(results.map(result => result.status)).toEqual(['fulfilled', 'fulfilled']);
+    }
+    expect(await db.getRepository(PlaybackHistory).count()).toBe(6);
+    expect((await db.getRepository(PlaybackChannel).findOneByOrFail({ slot: 1 })).currentMediaId).toBe(aliceId);
+    expect((await db.getRepository(PlaybackChannel).findOneByOrFail({ slot: 2 })).currentMediaId).toBe(bobId);
+  });
+  it('keeps concurrent channels independent when one history write fails', async () => {
+    await db.getRepository(PlaybackChannel).save({ slot: 2, name: 'Test projector', outputKind: 'projector' });
+    await db.query("CREATE TRIGGER fail_second_history BEFORE INSERT ON playback_history WHEN NEW.slot = 2 BEGIN SELECT RAISE(ABORT, 'second history unavailable'); END");
+    const results = await Promise.allSettled([
+      service.publishMedia(1, aliceId, alice), service.publishMedia(2, bobId, bob),
+    ]);
+    expect(results.map(result => result.status)).toEqual(['fulfilled', 'rejected']);
+    const first = await db.getRepository(PlaybackChannel).findOneByOrFail({ slot: 1 });
+    const second = await db.getRepository(PlaybackChannel).findOneByOrFail({ slot: 2 });
+    expect(first.currentMediaId).toBe(aliceId);
+    expect(second.currentMediaId).toBeNull();
+    expect((await db.getRepository(PlaybackHistory).find()).map(row => row.slot)).toEqual([1]);
+    await db.query('DROP TRIGGER fail_second_history');
+    await service.publishMedia(2, bobId, bob);
+    expect(await db.getRepository(PlaybackHistory).count()).toBe(2);
+  });
   it.each(['disabled', 'viewer', 'deleted'])('rejects an actor made %s after the request began', async state => {
     const get = media.get.bind(media);
     jest.spyOn(media, 'get').mockImplementationOnce(async id => {

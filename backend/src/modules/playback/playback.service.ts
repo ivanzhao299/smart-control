@@ -50,6 +50,9 @@ const HEARTBEAT_STALE_MS = 90 * 1000;
 
 @Injectable()
 export class PlaybackService implements OnModuleInit {
+  // better-sqlite3 shares one connection. Concurrent async transactions must not
+  // interleave BEGIN/savepoint/rollback across independent publications.
+  private publicationTail: Promise<void> = Promise.resolve();
   constructor(
     @InjectRepository(PlaybackChannel) private readonly repo: Repository<PlaybackChannel>,
     @InjectRepository(PlaylistItem) private readonly plRepo: Repository<PlaylistItem>,
@@ -116,9 +119,13 @@ export class PlaybackService implements OnModuleInit {
    */
   async publishMedia(slot: number, mediaId: number, actor: Actor, opts: { loopMode?: 'once' | 'loop'; expectedSession?: string } = {}): Promise<PlaybackChannelView> {
     const release = this.mediaService.acquireOperation(mediaId);
+    const previous = this.publicationTail;
+    let releasePublication!: () => void;
+    this.publicationTail = new Promise<void>(resolve => { releasePublication = resolve; });
     try {
+      await previous;
       return await this.publishMediaLocked(slot, mediaId, actor, opts);
-    } finally { release(); }
+    } finally { releasePublication(); release(); }
   }
 
   private async publishMediaLocked(slot: number, mediaId: number, actor: Actor, opts: { loopMode?: 'once' | 'loop'; expectedSession?: string }): Promise<PlaybackChannelView> {
