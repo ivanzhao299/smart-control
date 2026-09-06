@@ -25,7 +25,7 @@
  * 投影仪 (slot2) 已拆到独立页 ProjectorPage, 本页只管 LED (slot1)。
  */
 import { computed, onMounted, onScopeDispose, ref , watch } from 'vue';
-import { identityGeneration, captureIdentityGuard } from '@/services/identity-boundary';
+import { identityGeneration, captureIdentityGuard, createLatestIdentityRead } from '@/services/identity-boundary';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
@@ -86,19 +86,34 @@ const ch = computed(() => (props.slot === 1 ? playbackStore.slot1 : playbackStor
 const playlist = ref<PlaylistItemView[]>([]);
 const history = ref<PlaybackHistoryView[]>([]);
 const busy = ref(false);
+const beginListRead = createLatestIdentityRead(() => !consoleDisposed);
 
 async function loadAll(): Promise<void> {
+  if (consoleDisposed) return;
+  const currentRead = beginListRead();
+  const currentAction = captureConsoleAction();
+  const slot = SLOT.value;
   try {
-    const [pl, his] = await Promise.all([listPlaylist(SLOT.value), listHistory(SLOT.value)]);
+    const [pl, his] = await Promise.all([listPlaylist(slot), listHistory(slot)]);
+    if (!currentRead() || !currentAction()) return;
     playlist.value = pl;
     history.value = his;
   } catch (e) {
+    if (!currentRead() || !currentAction()) return;
+    playlist.value = [];
+    history.value = [];
     ElMessage.error(`加载播放列表失败: ${(e as Error).message}`);
   }
 }
 // 审计 P1: 列表/历史只在本页操作后刷新 — 其他终端改动看不到。跟着在播媒体
 // 的 WS 变化节流重拉 (playback store 是 WS 实时的, 以它为信号源)。
 let reloadT: number | undefined;
+watch(SLOT, () => {
+  playlist.value = [];
+  history.value = [];
+  window.clearTimeout(reloadT);
+  void loadAll();
+}, { flush: 'sync' });
 watch(() => ch.value?.currentMediaId, () => {
   window.clearTimeout(reloadT);
   reloadT = window.setTimeout(() => { void loadAll(); }, 800);
@@ -139,7 +154,12 @@ async function exitDocShow(): Promise<void> {
   await stopPlayback(session);
 }
 let consoleDisposed = false;
-onScopeDispose(() => { consoleDisposed = true; });
+onScopeDispose(() => {
+  consoleDisposed = true;
+  window.clearTimeout(reloadT);
+  playlist.value = [];
+  history.value = [];
+});
 function captureConsoleAction(): () => boolean {
   const slot = SLOT.value;
   return captureIdentityGuard(() => !consoleDisposed && SLOT.value === slot);

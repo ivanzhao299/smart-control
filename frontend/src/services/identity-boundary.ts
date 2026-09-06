@@ -17,6 +17,14 @@ export function captureIdentityGuard(isActive: () => boolean = () => true): () =
   const expected = generation;
   return () => expected === generation && isActive();
 }
+/** Each new read invalidates older reads, including their late error handlers. */
+export function createLatestIdentityRead(isActive: () => boolean = () => true): () => (() => boolean) {
+  let revision = 0;
+  return () => {
+    const expected = ++revision;
+    return captureIdentityGuard(() => expected === revision && isActive());
+  };
+}
 export function invalidateIdentity(): void {
   generation += 1;
   for (const listener of listeners) {

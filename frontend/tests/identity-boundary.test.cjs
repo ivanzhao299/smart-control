@@ -32,6 +32,21 @@ function load(fetch, axiosRequest = async () => ({ data: { data: {} } })) {
 }
 const response = (status = 200, data = { privateName: 'alice' }) => ({ status, ok: status === 200, headers: { get: () => 'application/json' }, json: async () => ({ success: true, data }) });
 
+test('only latest read may commit success or failure; identity and disposal revoke it', () => {
+  const env = load(async () => response());
+  let active = true;
+  const begin = env.boundary.createLatestIdentityRead(() => active);
+  const first = begin(), second = begin();
+  assert.equal(first(), false);
+  assert.equal(second(), true);
+  env.boundary.invalidateIdentity();
+  assert.equal(second(), false);
+  const third = begin();
+  assert.equal(third(), true);
+  active = false;
+  assert.equal(third(), false);
+});
+
 test('deferred action guard rejects switched identity and disposed scope before the next request', () => {
   const env = load(async () => response());
   let active = true;
