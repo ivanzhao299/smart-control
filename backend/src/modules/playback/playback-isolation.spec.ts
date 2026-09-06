@@ -29,6 +29,29 @@ describe('playback ownership', () => {
     await db.getRepository(PlaylistItem).save([{ slot: 1, mediaId: aliceId, ownerUserId: 1 }, { slot: 1, mediaId: bobId, ownerUserId: 2 }]);
   });
   afterEach(async () => { await db.destroy(); });
+  it.each(['page', 'zoom'])('rejects stale document %s changes instead of restoring a replaced channel', async control => {
+    await service.publishMedia(1, aliceId, alice);
+    const repo = db.getRepository(PlaybackChannel), findOne = repo.findOne.bind(repo);
+    jest.spyOn(repo, 'findOne').mockImplementationOnce(async options => {
+      const old = await findOne(options);
+      await repo.update({ slot: 1 }, { currentMediaId: bobId, initiatorUserId: 2, playbackSession: 'new-session', docPage: 1, docZoom: 100, paused: true });
+      return old;
+    });
+    await expect(control === 'page' ? service.setDocPage(1, 3) : service.setDocZoom(1, 150)).rejects.toThrow('播放会话已变化');
+    expect(await repo.findOneByOrFail({ slot: 1 })).toMatchObject({
+      currentMediaId: bobId, initiatorUserId: 2, playbackSession: 'new-session', docPage: 1, docZoom: 100, paused: true,
+    });
+  });
+  it('document controls change only their fields and respect page/zoom bounds', async () => {
+    await db.getRepository(MediaAsset).update(aliceId, { pageCount: 4 });
+    await service.publishMedia(1, aliceId, alice);
+    await db.getRepository(PlaybackChannel).update({ slot: 1 }, { paused: true });
+    await service.setDocPage(1, 99);
+    await service.setDocZoom(1, 500);
+    expect(await db.getRepository(PlaybackChannel).findOneByOrFail({ slot: 1 })).toMatchObject({
+      currentMediaId: aliceId, initiatorUserId: 1, paused: true, docPage: 4, docZoom: 200,
+    });
+  });
   it('commits simultaneous independent channel publications without transaction nesting', async () => {
     await db.getRepository(PlaybackChannel).save({ slot: 2, name: 'Test projector', outputKind: 'projector' });
     for (let round = 0; round < 3; round++) {

@@ -402,9 +402,11 @@ export class PlaybackService implements OnModuleInit {
       const m = await this.mediaService.get(row.currentMediaId).catch(() => null);
       if (m?.pageCount) max = m.pageCount;
     }
-    row.docPage = Math.max(1, Math.min(Math.floor(page) || 1, max));
-    await this.repo.save(row);
-    const view = await this.toView(row);
+    const changed = await this.repo.update({
+      slot, playbackSession: row.playbackSession ?? IsNull(), currentMediaId: row.currentMediaId ?? IsNull(),
+    }, { docPage: Math.max(1, Math.min(Math.floor(page) || 1, max)) });
+    if (!changed.affected) throw new ConflictException('播放会话已变化，请刷新后翻页');
+    const view = await this.getBySlot(slot);
     this.broadcast(view);
     return view;
   }
@@ -413,9 +415,11 @@ export class PlaybackService implements OnModuleInit {
   async setDocZoom(slot: number, zoom: number): Promise<PlaybackChannelView> {
     const row = await this.repo.findOne({ where: { slot } });
     if (!row) throw new NotFoundException(`slot=${slot} 不存在`);
-    row.docZoom = Math.max(50, Math.min(Math.round(zoom) || 100, 200));
-    await this.repo.save(row);
-    const view = await this.toView(row);
+    const changed = await this.repo.update({
+      slot, playbackSession: row.playbackSession ?? IsNull(), currentMediaId: row.currentMediaId ?? IsNull(),
+    }, { docZoom: Math.max(50, Math.min(Math.round(zoom) || 100, 200)) });
+    if (!changed.affected) throw new ConflictException('播放会话已变化，请刷新后缩放');
+    const view = await this.getBySlot(slot);
     this.broadcast(view);
     return view;
   }
