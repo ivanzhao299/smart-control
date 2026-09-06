@@ -498,9 +498,12 @@ async function ensureDisplayPath(): Promise<void> {
 }
 
 async function selectContent(): Promise<void> {
+  const isCurrent = captureConsoleAction();
+  if (!isCurrent()) return;
   busy.value = true;
   try {
     await ensureDisplayPath();
+    if (!isCurrent()) return;
     // 正在播欢迎页时按"播放内容" = 恢复播放列表 (从下一条接着放);
     // 已经在播列表内容时只拉正链路, 不跳片
     if (activeSource.value !== 'content') {
@@ -510,20 +513,25 @@ async function selectContent(): Promise<void> {
       }
       await playbackStore.next(SLOT.value);
     }
+    if (!isCurrent()) return;
     ElMessage.success('已切到播放内容');
   } catch (e) {
-    ElMessage.error(`切换失败: ${(e as Error).message}`);
+    if (isCurrent()) ElMessage.error(`切换失败: ${(e as Error).message}`);
   } finally { busy.value = false; }
 }
 
 async function selectWelcome(variant: 'editable' | 'default'): Promise<void> {
+  const isCurrent = captureConsoleAction();
+  if (!isCurrent()) return;
   busy.value = true;
   try {
     await ensureDisplayPath();
+    if (!isCurrent()) return;
     await publishWelcome(SLOT.value, variant);
+    if (!isCurrent()) return;
     ElMessage.success(variant === 'editable' ? '已投放动态欢迎页 (点「编辑欢迎页」可改内容)' : '已投放默认欢迎页');
   } catch (e) {
-    ElMessage.error(`投放欢迎页失败: ${(e as Error).message}`);
+    if (isCurrent()) ElMessage.error(`投放欢迎页失败: ${(e as Error).message}`);
   } finally { busy.value = false; }
 }
 
