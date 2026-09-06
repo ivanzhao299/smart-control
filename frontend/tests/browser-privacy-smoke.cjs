@@ -13,8 +13,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright')
   const pageHtml = `<!doctype html><title>Isolated privacy acceptance</title><script type="module">
     import {installCrossTabIdentitySync} from '/identity.js';
     window.invalidated = false;
-    window.ready = true;
-    installCrossTabIdentitySync(window, localStorage, () => {
+    installCrossTabIdentitySync(window, () => window.localStorage, () => {
       window.invalidated = true;
       sessionStorage.setItem('invalidations', String(Number(sessionStorage.getItem('invalidations') || 0) + 1));
     }, () => {
@@ -22,6 +21,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright')
       window.ready = false;
       location.reload();
     });
+    window.ready = true;
   </script>`;
   const server = http.createServer((req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -69,6 +69,19 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright')
     }
     assert.deepEqual(await first.evaluate(() => caches.keys()), ['unrelated-test-cache']);
     console.log('PASS real Chrome: cross-tab account change/logout, single reload per batch, new login preserved, legacy API/media caches removed, unrelated cache preserved');
+    const restricted = await browser.newContext({ serviceWorkers: 'block' });
+    await restricted.addInitScript(() => {
+      Object.defineProperty(window, 'localStorage', { get() { throw new DOMException('Blocked for test', 'SecurityError'); } });
+    });
+    const restrictedPage = await restricted.newPage();
+    const errors = [];
+    restrictedPage.on('pageerror', error => errors.push(error.message));
+    await restrictedPage.goto(origin);
+    await restrictedPage.waitForFunction(() => window.ready);
+    assert.deepEqual(errors, []);
+    assert.equal(await restrictedPage.evaluate(() => window.invalidated), false);
+    console.log('PASS real Chrome with injected storage denial: module startup succeeds without invalidation or reload');
+    await restricted.close();
     await context.close();
   } finally {
     if (browser) await browser.close();

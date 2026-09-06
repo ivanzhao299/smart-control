@@ -5,10 +5,16 @@ const identityKeys = new Set([
 /** Do not write localStorage here: another tab may just have committed a new login. */
 export function installCrossTabIdentitySync(
   target: Pick<Window, 'addEventListener' | 'removeEventListener'>,
-  local: Storage,
+  storage: Storage | (() => Storage),
   invalidate: () => void,
   reload: () => void,
 ): () => void {
+  // Accessing window.localStorage itself can throw SecurityError in a restricted
+  // browser. Resolve it here, not in the caller's setup expression. No shared
+  // storage means no cross-tab channel; do not invent a persisted identity.
+  let local: Storage;
+  try { local = typeof storage === 'function' ? storage() : storage; }
+  catch { return () => undefined; }
   let pending = false;
   let disposed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;

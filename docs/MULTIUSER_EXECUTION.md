@@ -10,6 +10,12 @@
 
 ## 工作队列
 
+### 受限存储下跨标签模块启动保护（2026-09-06）
+
+App.vue原在setup参数中直接取window.localStorage，浏览器拒绝存储访问时可在安装同步前抛SecurityError。改传惰性访问函数，由installCrossTabIdentitySync捕获读取异常并返回可重复调用的空清理函数；不会生成持久身份、不改其它标签凭据。可访问时仍使用真实Storage对象匹配事件并保留原失效/重载逻辑。
+
+前端身份测试14项、vue-tsc通过；真实Chrome跨标签/Worker缓存清理回归通过，新增注入localStorage getter拒绝异常的独立模块页面验证启动成功且无pageerror/失效/重载。这是异常注入与模块级浏览器测试，不代表系统所有存储读取已审计、浏览器原生禁存策略或Apple/WKWebView完整登录已验收。未部署，上传崩溃恢复和其它发布阻断项保留。
+
 ### 网页资料创建审计归属修复（2026-09-06）
 
 MediaController.createWebpage不再把日志操作者固定为system，改为服务端验证后的Actor.username，并与资料创建共用同一Actor。新增3项控制器测试通过：忽略正文伪造用户名、缺失Actor时不创建或写成功日志、服务拒绝时不记录成功。后端构建通过。未部署、未访问生产数据。

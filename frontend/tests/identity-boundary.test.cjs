@@ -197,3 +197,29 @@ test('cross-tab ignores unrelated/session-storage events and cancels reload afte
   assert.equal(invalidations, 1); stop();
   await new Promise(resolve => setTimeout(resolve, 80)); assert.equal(reloads, 0);
 });
+
+test('restricted storage getter cannot crash cross-tab initialization or invent a login', () => {
+  const env = load(async () => response());
+  const unexpected = () => { throw Error('must not subscribe, invalidate, or reload'); };
+  const stop = env.installCrossTab(
+    { addEventListener: unexpected, removeEventListener: unexpected },
+    () => { throw new DOMException('Storage access denied', 'SecurityError'); },
+    unexpected, unexpected,
+  );
+  assert.equal(typeof stop, 'function');
+  stop(); stop();
+});
+
+test('lazy storage lookup still installs the real cross-tab identity boundary', () => {
+  const env = load(async () => response());
+  let listener, reads = 0, invalidations = 0;
+  const local = {};
+  const stop = env.installCrossTab(
+    { addEventListener: (_name, fn) => { listener = fn; }, removeEventListener() {} },
+    () => { reads++; return local; }, () => invalidations++, () => {},
+  );
+  assert.equal(reads, 1);
+  listener({ storageArea: local, key: 'sc.client.token', oldValue: 'a', newValue: 'b' });
+  assert.equal(invalidations, 1);
+  stop();
+});

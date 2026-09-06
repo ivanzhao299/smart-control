@@ -21,7 +21,7 @@ const systemStore = useSystemStore();
 const brandingStore = useSystemBrandingStore();
 const playbackStore = usePlaybackStore();
 const clientAuth = useClientAuthStore();
-const unsubscribeCrossTab = installCrossTabIdentitySync(window, window.localStorage, () => {
+const unsubscribeCrossTab = installCrossTabIdentitySync(window, () => window.localStorage, () => {
   // Clear this tab only; never erase the other tab's freshly saved credentials.
   clientAuth.token = null;
   clientAuth.expiresAt = null;
