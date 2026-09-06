@@ -32,6 +32,22 @@ function load(fetch, axiosRequest = async () => ({ data: { data: {} } })) {
 }
 const response = (status = 200, data = { privateName: 'alice' }) => ({ status, ok: status === 200, headers: { get: () => 'application/json' }, json: async () => ({ success: true, data }) });
 
+test('closing and reopening a read scope cannot revive its previous deferred response', async () => {
+  const env = load(async () => response());
+  let open = true, finishOld, finishNew;
+  const begin = env.boundary.createLatestIdentityRead(() => open);
+  const committed = [];
+  const oldGuard = begin();
+  const oldRead = new Promise(resolve => { finishOld = resolve; }).then(value => { if (oldGuard()) committed.push(value); });
+  open = false; begin();
+  open = true;
+  const newGuard = begin();
+  const newRead = new Promise(resolve => { finishNew = resolve; }).then(value => { if (newGuard()) committed.push(value); });
+  finishNew('new-picker'); await newRead;
+  finishOld('old-picker'); await oldRead;
+  assert.deepEqual(committed, ['new-picker']);
+});
+
 test('only latest read may commit success or failure; identity and disposal revoke it', () => {
   const env = load(async () => response());
   let active = true;

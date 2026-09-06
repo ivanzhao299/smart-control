@@ -405,27 +405,47 @@ const pickerOpen = ref(false);
 const pickerKind = ref<'video' | 'image' | 'webpage'>('video');
 const assets = ref<Array<{ id: number; originalName: string; kind: string }>>([]);
 const pickerLoading = ref(false);
+const beginAssetRead = createLatestIdentityRead(() => !consoleDisposed && pickerOpen.value);
+watch(SLOT, () => { pickerOpen.value = false; }, { flush: 'sync' });
+watch(pickerOpen, open => {
+  if (!open) {
+    beginAssetRead(); // Invalidate even if the dialog is reopened before completion.
+    assets.value = [];
+    pickerLoading.value = false;
+  }
+}, { flush: 'sync' });
+onScopeDispose(() => { assets.value = []; });
 
 async function openPicker(): Promise<void> {
   pickerOpen.value = true;
   await loadAssets();
 }
 async function loadAssets(): Promise<void> {
+  if (consoleDisposed || !pickerOpen.value) return;
+  const currentRead = beginAssetRead();
+  const currentAction = captureConsoleAction();
+  const kind = pickerKind.value;
   pickerLoading.value = true;
+  assets.value = [];
   try {
-    const r = await mediaService.list({ kind: pickerKind.value });
+    const r = await mediaService.list({ kind });
+    if (!currentRead() || !currentAction() || kind !== pickerKind.value) return;
     assets.value = r.items.map((m) => ({ id: m.id, originalName: m.originalName, kind: m.kind }));
   } catch (e) {
-    ElMessage.error(`读媒体库失败: ${(e as Error).message}`);
-  } finally { pickerLoading.value = false; }
+    if (currentRead() && currentAction()) ElMessage.error(`读媒体库失败: ${(e as Error).message}`);
+  } finally { if (currentRead() && currentAction()) pickerLoading.value = false; }
 }
 async function pickAsset(a: { id: number; originalName: string }): Promise<void> {
+  if (!pickerOpen.value || pickerLoading.value || !assets.value.some(item => item.id === a.id)) return;
+  const currentAction = captureConsoleAction();
   try {
     await addToPlaylist(SLOT.value, a.id);
+    if (!currentAction()) return;
     await loadAll();
+    if (!currentAction()) return;
     ElMessage.success(`「${a.originalName}」已加入播放列表`);
   } catch (e) {
-    ElMessage.error(`加入失败: ${(e as Error).message}`);
+    if (currentAction()) ElMessage.error(`加入失败: ${(e as Error).message}`);
   }
 }
 /** 已在列表里的不重复加 —— 让业主一眼看出哪些已经加过 */
