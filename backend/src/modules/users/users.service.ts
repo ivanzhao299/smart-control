@@ -48,7 +48,7 @@ export class UsersService {
     return u;
   }
 
-  async create(dto: CreateUserDto, operator = 'admin'): Promise<PublicUser> {
+  async create(dto: CreateUserDto, operator: string): Promise<PublicUser> {
     const exists = await this.repo.findOne({ where: { username: dto.username } });
     if (exists) throw new ConflictException(`用户名已存在: ${dto.username}`);
 
@@ -74,7 +74,7 @@ export class UsersService {
     return publicUser as PublicUser;
   }
 
-  async update(id: number, dto: UpdateUserDto, operator = 'admin'): Promise<PublicUser> {
+  async update(id: number, dto: UpdateUserDto, operator: string): Promise<PublicUser> {
     const user = await this.repo.findOne({ where: { id } });
     if (!user) throw new NotFoundException(`用户不存在: id=${id}`);
 
@@ -100,13 +100,25 @@ export class UsersService {
     return publicUser as PublicUser;
   }
 
-  async remove(id: number, operator = 'admin'): Promise<void> {
+  async remove(id: number, operator: string): Promise<void> {
     const user = await this.repo.findOne({ where: { id } });
     if (!user) throw new NotFoundException(`用户不存在: id=${id}`);
     if (user.username === 'admin') {
       throw new ConflictException('默认 admin 账户不可删除');
     }
-    await this.repo.remove(user);
+    try { await this.repo.remove(user); }
+    catch (error) {
+      // RESTRICT retains private media, playlists, history and upload reservations.
+      // Never clear ownership or cascade files to make account deletion succeed.
+      const failure = error as { driverError?: { code?: unknown; message?: unknown }; code?: unknown; message?: unknown } | null;
+      const cause = failure?.driverError ?? failure;
+      // SQLite reports ON DELETE RESTRICT as CONSTRAINT_TRIGGER on some versions.
+      if (cause?.code === 'SQLITE_CONSTRAINT_FOREIGNKEY' ||
+        (cause?.code === 'SQLITE_CONSTRAINT_TRIGGER' && cause.message === 'FOREIGN KEY constraint failed')) {
+        throw new ConflictException('该用户仍有关联资料、播放记录或上传任务，请停用账户以保留资料');
+      }
+      throw error;
+    }
     this.logger.info(`User removed: #${id} ${user.username}`, { context: 'UsersService' });
     await this.logService.record({
       operator,

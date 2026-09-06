@@ -9,9 +9,11 @@ import {
   Post,
   Put,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { ActorAdminGuard } from '../../common/guards/actor-admin.guard';
+import { AuthenticatedRequest, requireAdmin } from '../../common/auth/actor';
 import { UsersService } from './users.service';
 import { CreateUserDto, QueryUserDto, UpdateUserDto } from './dto/user.dto';
 
@@ -33,21 +35,21 @@ export class UsersController {
   }
 
   @Post()
-  async create(@Body() dto: CreateUserDto) {
-    const data = await this.service.create(dto);
+  async create(@Body() dto: CreateUserDto, @Req() req: AuthenticatedRequest) {
+    const data = await this.service.create(dto, requireAdmin(req).username);
     return { message: '创建成功', data };
   }
 
   @Put(':id')
-  async update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateUserDto) {
-    const data = await this.service.update(id, dto);
+  async update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateUserDto, @Req() req: AuthenticatedRequest) {
+    const data = await this.service.update(id, dto, requireAdmin(req).username);
     return { message: '更新成功', data };
   }
 
   @Delete(':id')
   @HttpCode(200)
-  async remove(@Param('id', ParseIntPipe) id: number) {
-    await this.service.remove(id);
+  async remove(@Param('id', ParseIntPipe) id: number, @Req() req: AuthenticatedRequest) {
+    await this.service.remove(id, requireAdmin(req).username);
     return { message: '删除成功', data: null };
   }
 }
