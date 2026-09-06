@@ -53,4 +53,27 @@ describe('user management attribution and retention', () => {
     jest.spyOn(repo, 'remove').mockRejectedValueOnce(new Error('disk unavailable'));
     await expect(service.remove(user.id, 'named-manager')).rejects.toThrow('disk unavailable');
   });
+  it('does not recreate a user deleted between lookup and update', async () => {
+    const user = await create();
+    const repo = db.getRepository(User), update = repo.update.bind(repo);
+    jest.spyOn(repo, 'update').mockImplementationOnce(async (id, changes) => {
+      await repo.delete(user.id);
+      return update(id, changes);
+    });
+    await expect(service.update(user.id, { enabled: false }, 'named-manager')).rejects.toThrow('用户不存在');
+    expect(await repo.count()).toBe(0);
+    expect(log.record.mock.calls.some(([entry]: any[]) => entry.action === 'user.update')).toBe(false);
+  });
+  it('a concurrent password update cannot restore stale role, enabled state or quota', async () => {
+    const user = await create();
+    const repo = db.getRepository(User), update = repo.update.bind(repo);
+    jest.spyOn(repo, 'update').mockImplementationOnce(async (id, changes) => {
+      await db.query('UPDATE users SET enabled = 0, role = ?, storage_quota_bytes = 123 WHERE id = ?', ['viewer', user.id]);
+      expect(Object.keys(changes)).toEqual(['password']);
+      return update(id, changes);
+    });
+    const result = await service.update(user.id, { password: 'new-synthetic-password' }, 'named-manager');
+    expect(result).toMatchObject({ enabled: false, role: 'viewer', storageQuotaBytes: 123 });
+    expect(result).not.toHaveProperty('password');
+  });
 });

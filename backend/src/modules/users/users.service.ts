@@ -39,13 +39,14 @@ export class UsersService {
       take: pageSize,
       // 默认 select 不包含 password (entity 上配置了 select:false)
     });
-    return { list, total, page, pageSize };
+    return { list: list.map(({ password: _pw, ...user }) => user), total, page, pageSize };
   }
 
   async findOne(id: number): Promise<PublicUser> {
     const u = await this.repo.findOne({ where: { id } });
     if (!u) throw new NotFoundException(`用户不存在: id=${id}`);
-    return u;
+    const { password: _pw, ...publicUser } = u;
+    return publicUser;
   }
 
   async create(dto: CreateUserDto, operator: string): Promise<PublicUser> {
@@ -78,26 +79,31 @@ export class UsersService {
     const user = await this.repo.findOne({ where: { id } });
     if (!user) throw new NotFoundException(`用户不存在: id=${id}`);
 
+    const changes: Partial<User> = {};
     if (dto.username && dto.username !== user.username) {
       const dup = await this.repo.findOne({ where: { username: dto.username } });
       if (dup && dup.id !== id) throw new ConflictException(`用户名已存在: ${dto.username}`);
-      user.username = dto.username;
+      changes.username = dto.username;
     }
-    if (dto.role) user.role = dto.role;
-    if (dto.enabled !== undefined) user.enabled = dto.enabled;
-    if (dto.password) user.password = hashPassword(dto.password);
+    if (dto.role) changes.role = dto.role;
+    if (dto.enabled !== undefined) changes.enabled = dto.enabled;
+    if (dto.password) changes.password = hashPassword(dto.password);
 
-    await this.repo.save(user);
+    if (!Object.keys(changes).length) return this.findOne(id);
+    // UPDATE only submitted fields. save(staleEntity) could restore an old role /
+    // enabled flag or insert a user deleted while this request was awaiting I/O.
+    const result = await this.repo.update(id, changes);
+    if (!result.affected) throw new NotFoundException(`用户不存在: id=${id}`);
+    const current = await this.findOne(id);
     this.logger.info(`User updated: #${id}`, { context: 'UsersService' });
     await this.logService.record({
       operator,
       action: 'user.update',
       targetType: 'user',
       targetId: String(id),
-      message: `username=${user.username} role=${user.role} enabled=${user.enabled}`,
+      message: `username=${current.username} role=${current.role} enabled=${current.enabled}`,
     });
-    const { password: _pw, ...publicUser } = user;
-    return publicUser as PublicUser;
+    return current;
   }
 
   async remove(id: number, operator: string): Promise<void> {
