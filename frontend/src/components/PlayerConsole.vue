@@ -25,7 +25,7 @@
  * 投影仪 (slot2) 已拆到独立页 ProjectorPage, 本页只管 LED (slot1)。
  */
 import { computed, onMounted, onScopeDispose, ref , watch } from 'vue';
-import { identityGeneration } from '@/services/identity-boundary';
+import { identityGeneration, captureIdentityGuard } from '@/services/identity-boundary';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
@@ -140,6 +140,10 @@ async function exitDocShow(): Promise<void> {
 }
 let consoleDisposed = false;
 onScopeDispose(() => { consoleDisposed = true; });
+function captureConsoleAction(): () => boolean {
+  const slot = SLOT.value;
+  return captureIdentityGuard(() => !consoleDisposed && SLOT.value === slot);
+}
 let pageBusy = false;
 async function gotoDocPage(p: number): Promise<void> {
   if (pageBusy) return;
@@ -187,6 +191,7 @@ const powerAllOn = computed(
 const powerBusy = ref(false);
 async function togglePower(): Promise<void> {
   if (!powerCircuits.value.length || powerBusy.value) return;
+  const isCurrent = captureConsoleAction();
   const on = powerAllOn.value;
   if (on) {
     try {
@@ -194,11 +199,13 @@ async function togglePower(): Promise<void> {
         { type: 'warning', confirmButtonText: '断电', cancelButtonText: '取消' });
     } catch { return; }
   }
+  if (!isCurrent()) return;
   powerBusy.value = true;
   try {
     // 逐个下发 (共用一条串口链路, 并发会互踩); 部分失败也把能做的做完, 最后统一报
     const failed: string[] = [];
     for (let i = 0; i < powerCircuits.value.length; i += 1) {
+      if (!isCurrent()) return;
       const c = powerCircuits.value[i];
       try {
         powerCircuits.value[i] = on ? await powerCircuitsService.off(c.id) : await powerCircuitsService.on(c.id);
@@ -206,6 +213,7 @@ async function togglePower(): Promise<void> {
         failed.push(`${c.name}: ${(e as Error).message}`);
       }
     }
+    if (!isCurrent()) return;
     if (failed.length) {
       ElMessage.error(`部分电源操作失败: ${failed.join('; ')}`);
     } else {
@@ -330,15 +338,18 @@ async function commitRename(it: PlaylistItemView): Promise<void> {
 }
 
 async function removeItem(it: PlaylistItemView): Promise<void> {
+  const isCurrent = captureConsoleAction();
   try {
     await ElMessageBox.confirm(`把「${it.title}」移出播放列表? (媒体库里的文件不会删)`, '移出播放列表', { type: 'warning' });
   } catch { return; }
+  if (!isCurrent()) return;
   try {
     await removeFromPlaylist(it.id);
+    if (!isCurrent()) return;
     await loadAll();
     ElMessage.success('已移出播放列表');
   } catch (e) {
-    ElMessage.error(`移出失败: ${(e as Error).message}`);
+    if (isCurrent()) ElMessage.error(`移出失败: ${(e as Error).message}`);
   }
 }
 
@@ -581,10 +592,12 @@ async function onFilePicked(ev: Event): Promise<void> {
   const f = (ev.target as HTMLInputElement).files?.[0];
   (ev.target as HTMLInputElement).value = '';    // 允许连续传同一个文件
   if (!f) return;
+  const isCurrent = captureConsoleAction();
   uploading.value = true;
   uploadPct.value = 0;
   try {
     const m = await mediaService.upload(f, { onProgress: (pct: number) => { uploadPct.value = pct; } });
+    if (!isCurrent()) return;
     // **只入媒体库, 不自动进播放列表** —— 业主: "媒体文件夹内容默认不加入播放列表,
     // 需经管理员确认后再手工加入"。所以这里问一句, 由人决定。
     try {
@@ -593,14 +606,16 @@ async function onFilePicked(ev: Event): Promise<void> {
         '上传完成',
         { confirmButtonText: '加入播放列表', cancelButtonText: '只放媒体库', type: 'success' },
       );
+      if (!isCurrent()) return;
       await addToPlaylist(SLOT.value, m.id);
+      if (!isCurrent()) return;
       await loadAll();
       ElMessage.success('已加入播放列表');
     } catch {
-      ElMessage.info('已保存到媒体库 (未加入播放列表)');
+      if (isCurrent()) ElMessage.info('已保存到媒体库 (未加入播放列表)');
     }
   } catch (e) {
-    ElMessage.error(`上传失败: ${(e as Error).message}`);
+    if (isCurrent()) ElMessage.error(`上传失败: ${(e as Error).message}`);
   } finally {
     uploading.value = false;
   }

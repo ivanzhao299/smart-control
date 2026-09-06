@@ -32,6 +32,19 @@ function load(fetch, axiosRequest = async () => ({ data: { data: {} } })) {
 }
 const response = (status = 200, data = { privateName: 'alice' }) => ({ status, ok: status === 200, headers: { get: () => 'application/json' }, json: async () => ({ success: true, data }) });
 
+test('deferred action guard rejects switched identity and disposed scope before the next request', () => {
+  const env = load(async () => response());
+  let active = true;
+  const isCurrent = env.boundary.captureIdentityGuard(() => active);
+  assert.equal(isCurrent(), true);
+  active = false; assert.equal(isCurrent(), false);
+  active = true;
+  env.boundary.invalidateIdentity();
+  env.boundary.invalidateIdentity();
+  assert.equal(isCurrent(), false);
+  assert.equal(env.boundary.captureIdentityGuard(() => active)(), true);
+});
+
 test('rejects an old response after A -> B -> A, without expiring the new session', async () => {
   let finish;
   const { http } = load(() => new Promise(resolve => { finish = resolve; }));

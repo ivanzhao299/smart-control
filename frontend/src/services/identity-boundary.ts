@@ -12,6 +12,11 @@ export function notifyServerChange(): void {
   }
 }
 export const identityGeneration = () => generation;
+/** Recheck after dialogs and between sequential requests, before starting work. */
+export function captureIdentityGuard(isActive: () => boolean = () => true): () => boolean {
+  const expected = generation;
+  return () => expected === generation && isActive();
+}
 export function invalidateIdentity(): void {
   generation += 1;
   for (const listener of listeners) {
