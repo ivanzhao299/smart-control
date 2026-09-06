@@ -10,6 +10,12 @@
 
 ## 工作队列
 
+### 删除账户的播放引用保护（2026-09-06）
+
+UsersService.remove改为条件DELETE：同一SQL核验用户ID、当前用户名不是默认admin、playback_channels不存在该initiator_user_id。任何仍保留发起者的通道（不因暂停而豁免）阻止删除；无affected返回409，不记成功删除日志。资料等原RESTRICT外键保护继续执行。控制器不代替用户停止现场播放。
+
+用户管理9项SQLite测试及后端构建通过，新增引用存在时保留、清除引用后可删、初次读用户后才新增通道引用仍拒绝的用例。已有非约束异常测试适配QueryBuilder。此为删除时刻的原子保护；播放发布写入侧与账户删除的完整双向竞态、生产完整schema和设备实测仍待验证，不声称已建立通道外键或完成整个播放生命周期。未部署。
+
 ### 用户更新防旧状态覆盖（2026-09-06）
 
 UsersService.update由save整份读取实体改为UPDATE本次明确提交的字段，更新affected=0则返回不存在，不允许删除后被旧更新插回；改密码不再携带旧role/enabled/storageQuotaBytes写回。更新后重新读取公开状态，用户列表及详情显式剔除password属性（测试发现实体未选择密码时仍存在undefined属性，现也移除）。

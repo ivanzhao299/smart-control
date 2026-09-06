@@ -112,7 +112,16 @@ export class UsersService {
     if (user.username === 'admin') {
       throw new ConflictException('默认 admin 账户不可删除');
     }
-    try { await this.repo.remove(user); }
+    try {
+      // Check inside DELETE, not in an earlier read: a channel or protected name
+      // may have changed while the user lookup was awaiting completion.
+      const result = await this.repo.createQueryBuilder().delete().from(User)
+        .where('id = :id', { id })
+        .andWhere('username != :protectedName', { protectedName: 'admin' })
+        .andWhere('NOT EXISTS (SELECT 1 FROM playback_channels WHERE initiator_user_id = :id)', { id })
+        .execute();
+      if (!result.affected) throw new ConflictException('账户状态已变化或仍有播放通道关联，请停止播放后刷新重试');
+    }
     catch (error) {
       // RESTRICT retains private media, playlists, history and upload reservations.
       // Never clear ownership or cascade files to make account deletion succeed.

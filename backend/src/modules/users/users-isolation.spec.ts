@@ -10,6 +10,7 @@ describe('user management attribution and retention', () => {
   beforeEach(async () => {
     db = await new DataSource({ type: 'better-sqlite3', database: ':memory:', entities: [User], synchronize: true }).initialize();
     await db.query('CREATE TABLE retained_fixture (id INTEGER PRIMARY KEY, owner_user_id INTEGER REFERENCES users(id) ON DELETE RESTRICT)');
+    await db.query('CREATE TABLE playback_channels (id INTEGER PRIMARY KEY, initiator_user_id INTEGER)');
     log = { record: jest.fn(async () => undefined) };
     service = new UsersService(db.getRepository(User), log, { info: jest.fn() } as any);
     controller = new UsersController(service);
@@ -50,7 +51,7 @@ describe('user management attribution and retention', () => {
   it('does not relabel unrelated storage failures as ownership conflicts', async () => {
     const user = await create();
     const repo = db.getRepository(User);
-    jest.spyOn(repo, 'remove').mockRejectedValueOnce(new Error('disk unavailable'));
+    jest.spyOn(repo, 'createQueryBuilder').mockImplementationOnce(() => { throw new Error('disk unavailable'); });
     await expect(service.remove(user.id, 'named-manager')).rejects.toThrow('disk unavailable');
   });
   it('does not recreate a user deleted between lookup and update', async () => {
@@ -75,5 +76,26 @@ describe('user management attribution and retention', () => {
     const result = await service.update(user.id, { password: 'new-synthetic-password' }, 'named-manager');
     expect(result).toMatchObject({ enabled: false, role: 'viewer', storageQuotaBytes: 123 });
     expect(result).not.toHaveProperty('password');
+  });
+  it('retains accounts referenced by any playback channel until the reference is cleared', async () => {
+    const user = await create();
+    await db.query('INSERT INTO playback_channels VALUES (3, ?)', [user.id]);
+    await expect(controller.remove(user.id, req)).rejects.toThrow('播放通道关联');
+    expect(await db.getRepository(User).count()).toBe(1);
+    expect(log.record.mock.calls.some(([entry]: any[]) => entry.action === 'user.delete')).toBe(false);
+    await db.query('UPDATE playback_channels SET initiator_user_id = NULL WHERE id = 3');
+    await controller.remove(user.id, req);
+    expect(await db.getRepository(User).count()).toBe(0);
+  });
+  it('checks channel references at deletion time even when absent in the initial user lookup', async () => {
+    const user = await create();
+    const repo = db.getRepository(User), findOne = repo.findOne.bind(repo);
+    jest.spyOn(repo, 'findOne').mockImplementationOnce(async options => {
+      const snapshot = await findOne(options);
+      await db.query('INSERT INTO playback_channels VALUES (1, ?)', [user.id]);
+      return snapshot;
+    });
+    await expect(controller.remove(user.id, req)).rejects.toThrow('播放通道关联');
+    expect(await repo.count()).toBe(1);
   });
 });
