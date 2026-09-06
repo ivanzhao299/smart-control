@@ -20,7 +20,7 @@ describe('playback ownership', () => {
   beforeEach(async () => {
     db = await new DataSource({ type: 'better-sqlite3', database: ':memory:', entities: [MediaAsset, PlaylistItem, PlaybackChannel, PlaybackHistory, User], synchronize: true }).initialize();
     await new AddUploadReservations1788618003000().up(db.createQueryRunner());
-    await db.getRepository(User).save([{ id: 1, username: 'alice', password: 'test' }, { id: 2, username: 'bob', password: 'test' }]);
+    await db.getRepository(User).save([{ id: 1, username: 'alice', password: 'test', role: 'operator' }, { id: 2, username: 'bob', password: 'test', role: 'operator' }]);
     await db.getRepository(PlaybackChannel).save({ slot: 1, name: 'Test LED', outputKind: 'led' });
     media = new MediaService(db.getRepository(MediaAsset), new ConfigService(), {} as any);
     service = new PlaybackService(db.getRepository(PlaybackChannel), db.getRepository(PlaylistItem), db.getRepository(PlaybackHistory), media, { publish: jest.fn() } as any, { info: jest.fn() } as any);
@@ -29,6 +29,27 @@ describe('playback ownership', () => {
     await db.getRepository(PlaylistItem).save([{ slot: 1, mediaId: aliceId, ownerUserId: 1 }, { slot: 1, mediaId: bobId, ownerUserId: 2 }]);
   });
   afterEach(async () => { await db.destroy(); });
+  it.each(['disabled', 'viewer', 'deleted'])('rejects an actor made %s after the request began', async state => {
+    const get = media.get.bind(media);
+    jest.spyOn(media, 'get').mockImplementationOnce(async id => {
+      const asset = await get(id);
+      if (state === 'deleted') await db.getRepository(User).delete(alice.userId!);
+      else await db.getRepository(User).update(alice.userId!, state === 'disabled' ? { enabled: false } : { role: 'viewer' });
+      return asset;
+    });
+    await expect(service.publishMedia(1, aliceId, alice)).rejects.toThrow();
+    expect((await db.getRepository(PlaybackChannel).findOneByOrFail({ slot: 1 })).currentMediaId).toBeNull();
+    expect(await db.getRepository(PlaybackHistory).count()).toBe(0);
+  });
+  it('rolls back channel and session when history persistence fails', async () => {
+    await service.publishMedia(1, aliceId, alice);
+    const before = await db.getRepository(PlaybackChannel).findOneByOrFail({ slot: 1 });
+    await db.query("CREATE TRIGGER fail_history BEFORE INSERT ON playback_history BEGIN SELECT RAISE(ABORT, 'history unavailable'); END");
+    await expect(service.publishMedia(1, bobId, bob)).rejects.toThrow('history unavailable');
+    const after = await db.getRepository(PlaybackChannel).findOneByOrFail({ slot: 1 });
+    expect(after).toEqual(before);
+    expect(await db.getRepository(PlaybackHistory).count()).toBe(1);
+  });
   it('records real publisher and rejects private-ID and viewer publishing', async () => {
     await expect(service.publishMedia(1, aliceId, bob)).rejects.toThrow();
     await expect(service.publishMedia(1, aliceId, { ...alice, role: 'viewer' })).rejects.toThrow();

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
@@ -9,6 +9,8 @@ import { Logger } from 'winston';
 import { PlaybackChannel, type PlaybackDisplayFit, type PlaybackPlayMode } from '../../entities/playback-channel.entity';
 import { PlaylistItem } from '../../entities/playlist-item.entity';
 import { PlaybackHistory } from '../../entities/playback-history.entity';
+import { User } from '../../entities/user.entity';
+import { MediaAsset } from '../../entities/media-asset.entity';
 import { MediaService } from '../media/media.service';
 import { ControlBus } from '../../services/control-bus';
 
@@ -139,25 +141,37 @@ export class PlaybackService implements OnModuleInit {
     const loopMode = opts.loopMode ?? 'loop';
     // 只写"推送新媒体"该动的这几个字段, 不整行 save —— 否则会把 playMode /
     // lastHeartbeatAt 这些不相干的字段一起写回旧值 (见 pause 上方注释)
-    const changed = await this.repo.update(opts.expectedSession ? { slot, playbackSession: opts.expectedSession, paused: false } : { slot }, {
-      playbackSession: randomUUID(),
-      currentMediaId: mediaId,
-      initiatorUserId: actor.userId,
-      docPage: 1, // 新内容从第一页开始 (文档投屏)
-      docZoom: 100, // 缩放回铺满
-      currentPlaylistId: null,
-      playlistIndex: 0,
-      startedAt: new Date(),
-      loopMode,
-      paused: false,
-    });
-    if (!changed.affected) throw new ConflictException('播放会话已变化');
+    await this.repo.manager.transaction(async manager => {
+      let currentActor = actor;
+      if (actor.userId !== null) {
+        const user = await manager.findOneBy(User, { id: actor.userId });
+        if (!user?.enabled) throw new ForbiddenException('账户已停用或不存在');
+        currentActor = { ...actor, role: user.role, username: user.username };
+      }
+      const currentMedia = await manager.findOneBy(MediaAsset, { id: mediaId });
+      if (!currentMedia) throw new NotFoundException('资料已不存在');
+      assertCanPublish(currentActor, currentMedia);
+      if (currentMedia.kind === 'video' && currentMedia.processingStatus !== 'ready') throw new ConflictException('资料处理状态已变化');
+      const changed = await manager.update(PlaybackChannel, opts.expectedSession ? { slot, playbackSession: opts.expectedSession, paused: false } : { slot }, {
+        playbackSession: randomUUID(),
+        currentMediaId: mediaId,
+        initiatorUserId: actor.userId,
+        docPage: 1, // 新内容从第一页开始 (文档投屏)
+        docZoom: 100, // 缩放回铺满
+        currentPlaylistId: null,
+        playlistIndex: 0,
+        startedAt: new Date(),
+        loopMode,
+        paused: false,
+      });
+      if (!changed.affected) throw new ConflictException('播放会话已变化');
 
-    // 记历史: 现场常有"刚才那片子叫啥来着, 再放一遍" —— 有历史就一点即回,
-    // 不用去媒体库翻。名字存快照, 媒体以后被删/改名, 历史仍看得到当时播的是什么。
-    await this.hisRepo.save(this.hisRepo.create({
-      slot, mediaId, ownerUserId: actor.userId, mediaName: m.originalName ?? `media ${mediaId}`,
-    }));
+      // 通道与历史同事务提交，历史写入失败时不留下半次发布。
+      await manager.save(PlaybackHistory, manager.create(PlaybackHistory, {
+        slot, mediaId, ownerUserId: actor.userId, mediaName: currentMedia.originalName ?? `media ${mediaId}`,
+      }));
+      actor = currentActor;
+    });
 
     const view = await this.getBySlot(slot, actor);
     this.broadcast(view);
