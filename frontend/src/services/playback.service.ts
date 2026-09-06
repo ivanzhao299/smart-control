@@ -26,8 +26,8 @@ export async function publishToChannel(slot: number, mediaId: number, loopMode: 
   return api.post<PlaybackChannelView>(`/playback/channels/${slot}/publish`, { mediaId, loopMode });
 }
 
-export async function stopChannel(slot: number): Promise<PlaybackChannelView> {
-  return api.post<PlaybackChannelView>(`/playback/channels/${slot}/stop`, null);
+export async function stopChannel(slot: number, expectedSession?: string): Promise<PlaybackChannelView> {
+  return api.post<PlaybackChannelView>(`/playback/channels/${slot}/stop`, expectedSession ? { expectedSession } : null);
 }
 
 /** 欢迎页一键投放: editable=动态欢迎页(称谓后台可编辑) / default=本屏内置静态欢迎图 */

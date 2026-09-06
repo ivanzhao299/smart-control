@@ -29,6 +29,17 @@ describe('playback ownership', () => {
     await db.getRepository(PlaylistItem).save([{ slot: 1, mediaId: aliceId, ownerUserId: 1 }, { slot: 1, mediaId: bobId, ownerUserId: 2 }]);
   });
   afterEach(async () => { await db.destroy(); });
+  it('rejects stale user stop while allowing explicit stop of the current paused session', async () => {
+    const old = await service.publishMedia(1, aliceId, alice);
+    const current = await service.publishMedia(1, bobId, bob);
+    await service.pause(1);
+    await expect(service.stop(1, old.playbackSession!, false)).rejects.toThrow('播放会话已变化');
+    expect((await db.getRepository(PlaybackChannel).findOneByOrFail({ slot: 1 })).currentMediaId).toBe(bobId);
+    // Device completion must not end a paused session.
+    await expect(service.stop(1, current.playbackSession!)).rejects.toThrow('播放会话已变化');
+    await service.stop(1, current.playbackSession!, false);
+    expect(await db.getRepository(PlaybackChannel).findOneByOrFail({ slot: 1 })).toMatchObject({ currentMediaId: null, playbackSession: null });
+  });
   it('rejects document controls carrying a previous session even before the server lookup', async () => {
     const first = await service.publishMedia(1, aliceId, alice);
     expect(first.playbackSession).toEqual(expect.any(String));

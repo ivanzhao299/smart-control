@@ -24,7 +24,8 @@
  *
  * 投影仪 (slot2) 已拆到独立页 ProjectorPage, 本页只管 LED (slot1)。
  */
-import { computed, onMounted, ref , watch } from 'vue';
+import { computed, onMounted, onScopeDispose, ref , watch } from 'vue';
+import { identityGeneration } from '@/services/identity-boundary';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
@@ -126,12 +127,19 @@ async function applyDocZoom(z: number): Promise<void> {
 }
 /** 退出放映 — 结束文档放映, 屏幕回到播放器待机/原内容 (对应业主"退出全屏") */
 async function exitDocShow(): Promise<void> {
+  const session = ch.value?.playbackSession;
+  const slot = SLOT.value;
+  const generation = identityGeneration();
+  if (!session) { ElMessage.warning('请刷新播放状态后重试'); return; }
   try {
     await ElMessageBox.confirm(`退出文档放映?${props.title}将回到待机画面。`, '退出放映',
       { type: 'warning', confirmButtonText: '退出', cancelButtonText: '取消' });
   } catch { return; }
-  await stopPlayback();
+  if (consoleDisposed || generation !== identityGeneration() || slot !== SLOT.value) return;
+  await stopPlayback(session);
 }
+let consoleDisposed = false;
+onScopeDispose(() => { consoleDisposed = true; });
 let pageBusy = false;
 async function gotoDocPage(p: number): Promise<void> {
   if (pageBusy) return;
@@ -258,10 +266,11 @@ async function togglePause(): Promise<void> {
 }
 
 /** 随时终止 (业主: "播放过程中应该随时可以点击终止") */
-async function stopPlayback(): Promise<void> {
+async function stopPlayback(expectedSession = ch.value?.playbackSession): Promise<void> {
+  if (!expectedSession) { ElMessage.warning('请刷新播放状态后重试'); return; }
   busy.value = true;
   try {
-    await playbackStore.stop(SLOT.value);
+    await playbackStore.stop(SLOT.value, expectedSession);
     ElMessage.success(`已终止, ${props.title}回到待机`);
   } catch (e) {
     ElMessage.error(`终止失败: ${(e as Error).message}`);
@@ -693,7 +702,7 @@ async function submitWebpage(): Promise<void> {
         <button class="pc-btn" :disabled="busy || playlist.length === 0" title="下一首" @click="step('next')">
           <SkipForward :size="20" />
         </button>
-        <button class="pc-btn stop" :disabled="busy || !ch?.currentMediaId" title="终止播放, 回到待机" @click="stopPlayback">
+        <button class="pc-btn stop" :disabled="busy || !ch?.currentMediaId" title="终止播放, 回到待机" @click="stopPlayback()">
           <Square :size="18" />
         </button>
       </div>

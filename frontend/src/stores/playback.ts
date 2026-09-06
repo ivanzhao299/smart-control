@@ -57,8 +57,8 @@ export const usePlaybackStore = defineStore('playback', () => {
     patchChannel(view);
   }
 
-  async function stop(slot: number): Promise<void> {
-    const view = await stopChannel(slot);
+  async function stop(slot: number, expectedSession?: string): Promise<void> {
+    const view = await stopChannel(slot, expectedSession);
     patchChannel(view);
   }
 

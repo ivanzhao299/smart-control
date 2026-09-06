@@ -4,6 +4,16 @@ import { PlaybackOperatorGuard } from './playback-operator.guard';
 import { PlaybackController } from './playback.controller';
 
 describe('playback control role boundary', () => {
+  it('forwards a user stop session without imposing the device pause condition', async () => {
+    const service = { stop: jest.fn() };
+    const controller = new PlaybackController(service as any, {} as any);
+    for (const expectedSession of ['', 5, 'x'.repeat(65)]) {
+      await expect(controller.stop(1, { expectedSession } as any)).rejects.toThrow();
+    }
+    expect(service.stop).not.toHaveBeenCalled();
+    await controller.stop(1, { expectedSession: 'confirmed-session' });
+    expect(service.stop).toHaveBeenCalledWith(1, 'confirmed-session', false);
+  });
   it('requires document control session and forwards it unchanged', async () => {
     const service = { setDocPage: jest.fn(), setDocZoom: jest.fn() };
     const controller = new PlaybackController(service as any, {} as any);

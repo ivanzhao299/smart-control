@@ -345,9 +345,9 @@ export class PlaybackService implements OnModuleInit {
   }
 
   /** 清掉当前播放, 回到待机 (PlayerPage 显示 logo + 系统名称) */
-  async stop(slot: number, expectedSession?: string): Promise<PlaybackChannelView> {
+  async stop(slot: number, expectedSession?: string, requirePlaying = true): Promise<PlaybackChannelView> {
     // 只清播放状态相关字段, 不碰 playMode / lastHeartbeatAt (见 pause 上方注释)
-    const res = await this.repo.update(expectedSession ? { slot, playbackSession: expectedSession, paused: false } : { slot }, {
+    const res = await this.repo.update(expectedSession ? { slot, playbackSession: expectedSession, ...(requirePlaying ? { paused: false } : {}) } : { slot }, {
       playbackSession: null,
       currentMediaId: null,
       initiatorUserId: null,

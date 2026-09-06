@@ -210,8 +210,10 @@ export class PlaybackController {
 
   /** 清掉当前播, 回待机 */
   @Post('channels/:slot/stop')
-  async stop(@Param('slot', ParseIntPipe) slot: number) {
-    const view = await this.service.stop(slot);
+  async stop(@Param('slot', ParseIntPipe) slot: number, @Body() body?: { expectedSession?: string }) {
+    const session = body?.expectedSession;
+    if (session !== undefined && (typeof session !== 'string' || !session || session.length > 64)) throw new BadRequestException('无效播放会话');
+    const view = await this.service.stop(slot, session, false);
     return { message: '已停止, 切回待机', data: view };
   }
 
