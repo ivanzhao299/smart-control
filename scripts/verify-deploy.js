@@ -162,7 +162,7 @@ function httpGet(port, p, hops = 3) {
         }
         let b = '';
         res.on('data', (c) => { b += c; });
-        res.on('end', () => resolve({ code: res.statusCode, body: b }));
+        res.on('end', () => resolve({ code: res.statusCode, body: b, headers: res.headers }));
       },
     );
     req.on('error', (e) => resolve({ code: 0, body: e.message }));
@@ -266,6 +266,41 @@ async function main() {
     }
     console.log('');
   }
+
+  // --- D2. Built-in park dashboard: disk + served HTML + real aerial image ---
+  console.log('[园区大屏 Demo] 构建产物 + HTTP 实测');
+  const parkDir = path.join(ROOT, 'frontend', 'dist', 'park-ops');
+  const parkHtml = path.join(parkDir, 'index.html');
+  const parkAerial = path.join(parkDir, 'park-aerial.jpg');
+  if (!fs.existsSync(parkHtml) || !fs.readFileSync(parkHtml, 'utf8').includes('window.PARK_DEMO')) {
+    bad('园区大屏 Demo 构建产物缺失或标记不正确: frontend/dist/park-ops/index.html');
+  } else {
+    ok('园区大屏 Demo HTML 已发布到 dist/park-ops');
+  }
+  if (!fs.existsSync(parkAerial)) {
+    bad('园区真实鸟瞰图构建产物缺失: frontend/dist/park-ops/park-aerial.jpg');
+  } else {
+    const aerial = fs.readFileSync(parkAerial);
+    if (aerial.length < 100000 || aerial[0] !== 0xff || aerial[1] !== 0xd8 || aerial[2] !== 0xff) {
+      bad(`园区鸟瞰图产物不是有效 JPEG (${aerial.length} bytes)`);
+    } else {
+      ok(`园区真实鸟瞰图已发布 (${aerial.length} bytes)`);
+    }
+  }
+  const parkPageResponse = await httpGet(5173, '/control/park-ops/index.html');
+  if (parkPageResponse.code !== 200 || !parkPageResponse.body.includes('window.PARK_DEMO')) {
+    bad(`园区大屏 Demo URL 未返回目标页面: HTTP ${parkPageResponse.code || '无响应'}`);
+  } else {
+    ok('GET /control/park-ops/index.html 返回目标 Demo');
+  }
+  const aerialResponse = await httpGet(5173, '/control/park-ops/park-aerial.jpg');
+  const aerialType = String(aerialResponse.headers?.['content-type'] || '');
+  if (aerialResponse.code !== 200 || !aerialType.startsWith('image/jpeg')) {
+    bad(`园区鸟瞰图 URL 未返回 JPEG: HTTP ${aerialResponse.code || '无响应'} Content-Type=${aerialType || '-'}`);
+  } else {
+    ok('GET /control/park-ops/park-aerial.jpg 返回 image/jpeg');
+  }
+  console.log('');
 
   // --- E. 重启计数不增长 (排除"起来了但在崩溃循环") ---
   console.log('[崩溃循环检测] 3s 后复采重启计数...');
@@ -404,8 +439,8 @@ async function main() {
   }
   console.log('');
 
-  // --- J. 媒体库健康 (信息性) —— 总数 / 测试素材在不在 / 有没有空 path 死行 ---
-  console.log('[媒体库] GET /api/media (信息性)');
+  // --- J. 媒体库健康 + built-in webpage source acceptance ---
+  console.log('[媒体库] GET /api/media + 园区大屏网页投放源');
   try {
     const r = await httpGet(3200, '/api/media');
     if (r.code !== 200) {
@@ -415,6 +450,15 @@ async function main() {
       const rows = payload.items || [];
       const test = rows.find((m) => m.originalName === '左右声道测试.wav');
       console.log(`  共 ${payload.total ?? rows.length} 个素材; 左右声道测试.wav: ${test ? `在 (#${test.id}, kind=${test.kind})` : RED('不在! (查 backend 日志里 [Media] 内置素材 行)')}`);
+      const parkDemo = rows.find((m) => m.originalName === '金湖科创产业园·智慧运营总览(DEMO)');
+      const expectedUrl = 'http://localhost:5173/control/park-ops/index.html';
+      if (!parkDemo) {
+        bad('媒体库缺少园区大屏 Demo 网页投放源');
+      } else if (parkDemo.kind !== 'webpage' || parkDemo.fileUrl !== expectedUrl) {
+        bad(`园区大屏投放源配置不正确: kind=${parkDemo.kind} fileUrl=${parkDemo.fileUrl || '-'}`);
+      } else {
+        ok(`园区大屏 Demo 已作为网页投放源入库 (#${parkDemo.id})`);
+      }
     }
   } catch (e) {
     console.log('  ' + RED('WARN') + ' 媒体库探测异常: ' + e.message);
