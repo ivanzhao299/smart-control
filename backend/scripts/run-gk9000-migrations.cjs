@@ -28,16 +28,44 @@ async function run() {
   };
   // Before loading config, opening SQLite or producing a backup.
   await assertWritersStopped();
+  const readRevision = () => {
+    const value = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 10000 }).trim();
+    if (!/^[a-f0-9]{40}$/.test(value)) throw new Error('Invalid candidate revision');
+    return value;
+  };
+  const candidateRevision = readRevision();
   process.chdir(path.join(root, 'backend'));
   const { main, loadEnvFile } = require('./run-migrations.js');
   loadEnvFile(process.cwd());
   if (!process.env.MEDIA_ROOT || !path.isAbsolute(process.env.MEDIA_ROOT)) {
     throw new Error('An explicit absolute production MEDIA_ROOT is required');
   }
-  await main({ destinationRoot, sourceRevision, mediaRoot: process.env.MEDIA_ROOT, assertWritersStopped });
+  const result = await main({ destinationRoot, sourceRevision, mediaRoot: process.env.MEDIA_ROOT, assertWritersStopped });
+  if (!result?.bundleDirectory || !result?.rehearsalDirectory) {
+    throw new Error('No new verified migration bundle; use an existing verified release receipt for recovery');
+  }
+  try {
+    await assertWritersStopped();
+    if (readRevision() !== candidateRevision) throw new Error('Candidate changed during migration');
+    const receipt = {
+      version: 1, kind: 'gk9000-migration-complete', completedAt: new Date().toISOString(),
+      sourceRevision, candidateRevision, databasePath: result.databasePath,
+      mediaRoot: process.env.MEDIA_ROOT, rehearsalDirectory: result.rehearsalDirectory,
+      migrations: result.migrations.map(m => m.name), productionActivated: false,
+    };
+    const receiptPath = path.join(result.bundleDirectory, 'migration-complete.json');
+    fs.writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
+    return { receiptPath, receipt };
+  } catch (error) {
+    error.bundleDirectory = result.bundleDirectory;
+    error.rehearsalDirectory = result.rehearsalDirectory;
+    throw error;
+  }
 }
 
-if (require.main === module) run().catch(error => {
+if (require.main === module) run().then(result => {
+  console.log(`Migration receipt (not activation): ${result.receiptPath}`);
+}).catch(error => {
   // Child-process errors can include command output; never dump the whole object.
   console.error('Controlled migration failed; keep release isolation and preserve recovery artifacts.');
   if (error.bundleDirectory) console.error(`Recovery bundle: ${error.bundleDirectory}`);

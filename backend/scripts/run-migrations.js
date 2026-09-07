@@ -63,6 +63,7 @@ async function main(recovery) {
   const ds = require(dsPath).default;
 
   await ds.initialize();
+  let recoveryResult;
   try {
     const hasPending = await ds.showMigrations();
     if (!hasPending) {
@@ -72,6 +73,7 @@ async function main(recovery) {
     // A database-only snapshot cannot restore private media safely. The deployment
     // controller must supply and continuously hold a real writer fence.
     const result = await migrateWithRecovery({ ...recovery, dataSource: ds, databasePath: dbPath });
+    recoveryResult = { ...result, databasePath: dbPath };
     const ran = result.migrations;
     console.log(`[migrate] 已验证配套恢复包及隔离恢复演练: ${result.bundleDirectory}`);
     console.log(`[migrate] 已执行 ${ran.length} 个迁移:`);
@@ -80,6 +82,7 @@ async function main(recovery) {
     await ds.destroy();
   }
   console.log('[migrate] 完成');
+  return recoveryResult;
 }
 
 if (require.main === module) main().catch((err) => {
