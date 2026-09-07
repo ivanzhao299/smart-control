@@ -26,6 +26,32 @@ describe('file ingestion compensation', () => {
     Object.defineProperty(media, 'mediaRoot', { value: root });
   });
   afterEach(async () => { jest.restoreAllMocks(); await db.destroy(); await fs.rm(root, { recursive: true, force: true }); });
+  it.each(['original.mov', 'playback.mp4', 'playback-converting.mp4'])('counts retained video bytes and preserves the original named %s', async name => {
+    const repo = db.getRepository(MediaAsset);
+    const item = await repo.save({ originalName: name, safeName: name, path: '', kind: 'video', mimeType: 'video/quicktime', sizeBytes: 8, ownerUserId: 1, visibility: 'private', uploader: 'alice' });
+    const directory = join(root, String(item.id));
+    await fs.mkdir(directory);
+    const source = join(directory, name);
+    await fs.writeFile(source, 'original');
+    const thumb = join(directory, 'thumb.png');
+    await fs.writeFile(thumb, 'thumbnail');
+    await repo.update(item.id, { path: source, thumbPath: thumb });
+    (media as any).logger = { info: jest.fn(), error: jest.fn() };
+    jest.spyOn(media as any, 'probeVideo').mockResolvedValue({ videoCodec: 'hevc', audioCodec: 'aac' });
+    jest.spyOn(media as any, 'runCommand').mockImplementation(async (...commandArgs: unknown[]) => {
+      const args = commandArgs[1] as string[];
+      const target = args[args.length - 1];
+      expect(target).not.toBe(source);
+      await fs.writeFile(target, 'converted');
+      return '';
+    });
+    await media.prepareVideo(item.id);
+    const result = await repo.findOneByOrFail({ id: item.id });
+    expect(result).toMatchObject({ processingStatus: 'ready', sourcePath: source, sizeBytes: 26 });
+    expect(result.path).not.toBe(source);
+    expect(await fs.readFile(source, 'utf8')).toBe('original');
+    expect(await fs.readFile(result.path, 'utf8')).toBe('converted');
+  });
   it('rejects hard-link aliases of managed or unregistered files without moving any link', async () => {
     const admin: Actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };
     await fs.mkdir(join(root, '1'));

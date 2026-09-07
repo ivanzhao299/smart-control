@@ -967,8 +967,9 @@ export class MediaService implements OnModuleInit {
       }
 
       const dir = join(this.mediaRoot, String(media.id));
-      const temp = join(dir, 'playback-converting.mp4');
-      const output = join(dir, 'playback.mp4');
+      const temp = join(dir, `playback-converting-${randomUUID()}.mp4`);
+      // An uploaded original may itself be named playback.mp4. Never replace it.
+      const output = join(dir, resolve(source) === resolve(dir, 'playback.mp4') ? 'playback-derived.mp4' : 'playback.mp4');
       await this.runCommand(this.ffmpegCommand(), [
         '-y', '-i', source, '-map', '0:v:0', '-map', '0:a?',
         '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-pix_fmt', 'yuv420p',
@@ -978,7 +979,17 @@ export class MediaService implements OnModuleInit {
       media.sourcePath = source;
       media.path = output;
       media.mimeType = 'video/mp4';
-      media.sizeBytes = (await fs.stat(output)).size;
+      const retainedPaths = new Set([source, output, media.thumbPath, media.docPdfPath]
+        .filter((value): value is string => !!value)
+        .map(value => resolve(this.mediaRoot, value)));
+      let retainedBytes = 0;
+      for (const file of retainedPaths) {
+        const stat = await fs.stat(file);
+        if (!stat.isFile()) throw new Error('媒体存储路径不是文件');
+        retainedBytes += stat.size;
+        if (!Number.isSafeInteger(retainedBytes)) throw new Error('媒体存储大小超出安全范围');
+      }
+      media.sizeBytes = retainedBytes;
       media.processingStatus = 'ready';
       media.processingError = null;
       await this.updateMediaFields(id, {
