@@ -606,10 +606,10 @@ export class MediaService implements OnModuleInit {
       durationSec: null,
       resolution: null,
       remark: null,
-      uploader: 'system',
+      uploader: actor?.username ?? 'system',
       lastPlayedAt: null,
     });
-    return this.repo.save(entity);
+    return this.saveInitialUpload(entity, actor);
   }
 
   async list(opts: { kind?: MediaKind; limit?: number; offset?: number; actor?: Actor; scope?: 'visible' | 'mine' | 'shared'; ownerUserId?: number; keyword?: string } = {}): Promise<{ items: MediaListItem[]; total: number }> {

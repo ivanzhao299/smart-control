@@ -26,6 +26,33 @@ describe('file ingestion compensation', () => {
     Object.defineProperty(media, 'mediaRoot', { value: root });
   });
   afterEach(async () => { jest.restoreAllMocks(); await db.destroy(); await fs.rm(root, { recursive: true, force: true }); });
+  it.each(['commit-revocation', 'rollback'])('coordinates webpage creation with another writer: %s', async outcome => {
+    let entered!: () => void, finish!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const held = new Promise<void>(resolve => { finish = resolve; });
+    const writer = serializedTransaction(db, async manager => {
+      await manager.update(User, 1, { enabled: false });
+      entered(); await held;
+      if (outcome === 'rollback') throw new Error('synthetic rollback');
+    });
+    await ready;
+    let settled = false;
+    const webpage = media.createWebpage('Private site', 'https://example.test/private', actor).finally(() => { settled = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    expect(settled).toBe(false);
+    finish();
+    const results = await Promise.allSettled([writer, webpage]);
+    if (outcome === 'commit-revocation') {
+      expect(results.map(result => result.status)).toEqual(['fulfilled', 'rejected']);
+      expect(await db.getRepository(MediaAsset).count()).toBe(0);
+    } else {
+      expect(results.map(result => result.status)).toEqual(['rejected', 'fulfilled']);
+      expect(await db.getRepository(MediaAsset).find()).toEqual([expect.objectContaining({
+        ownerUserId: 1, uploader: 'alice', visibility: 'private', source: 'webpage',
+      })]);
+    }
+    expect(await fs.readdir(root)).toEqual([]);
+  });
   it('rechecks import permission after waiting for another coordinated writer', async () => {
     let entered!: () => void, finish!: () => void;
     const ready = new Promise<void>(resolve => { entered = resolve; });
