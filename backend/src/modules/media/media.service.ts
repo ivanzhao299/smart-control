@@ -241,35 +241,19 @@ export class MediaService implements OnModuleInit {
         return;
       }
 
-      const safeName = this.safeFilename(originalName);
-      const saved = await this.repo.save(this.repo.create({
-        originalName,
-        safeName,
-        path: '',
-        thumbPath: null,
-        kind: b.kind,
-        mimeType: b.mime,
-        sizeBytes: stat.size,
-        durationSec: null,
-        resolution: null,
-        remark: b.remark,
-        uploader: 'system',
-        ownerUserId: null, visibility: 'shared', source: 'system',
-        lastPlayedAt: null,
-      }));
+      const actor: Actor = { kind: 'admin', userId: null, username: 'system', role: 'admin' };
+      const quota = new MediaQuotaService(this.repo.manager.connection);
+      const reservation = await quota.reserve(actor, stat.size, this.mediaRoot);
+      if (!reservation) throw new Error('内置素材预留未建立');
+      let handedToIngest = false;
       try {
-        const finalDir = join(this.mediaRoot, String(saved.id));
-        await fs.mkdir(finalDir, { recursive: true });
-        const finalPath = join(finalDir, safeName);
-        await fs.copyFile(src, finalPath);
-        saved.path = finalPath;
-        await this.repo.save(saved);
-      } catch (copyErr) {
-        // 拷贝失败不留 path='' 的死行 (会让媒体页报错), 删行下次启动重试
-        await this.repo.remove(saved).catch(() => {});
-        throw copyErr;
+        const bytes = await fs.readFile(src);
+        handedToIngest = true;
+        const saved = await this.ingestReservedBuffer(originalName, b.mime, bytes, actor, reservation, b.remark, 'system');
+        this.logger.info(`[Media] 内置素材已入库: ${originalName} (#${saved.id})`, { context: 'MediaService' });
+      } finally {
+        if (!handedToIngest) await quota.release(actor, reservation);
       }
-      this.logger.info(`[Media] 内置素材已入库: ${originalName} (#${saved.id})`, { context: 'MediaService' });
     }
   }
 
@@ -305,8 +289,9 @@ export class MediaService implements OnModuleInit {
   }
 
   /** Multer 落到 tmp 后, 调用本方法把文件挪到正式位置 + 创建 DB 记录 */
-  async ingest(file: Express.Multer.File, uploader: string, remark?: string, actor?: Actor, reservationId?: string | null, source: 'upload' | 'import' = 'upload'): Promise<MediaAsset> {
+  async ingest(file: Express.Multer.File, uploader: string, remark?: string, actor?: Actor, reservationId?: string | null, source: 'upload' | 'import' | 'system' = 'upload'): Promise<MediaAsset> {
     if (actor) assertCanUpload(actor);
+    if (source === 'system' && (actor?.kind !== 'admin' || actor.userId !== null)) throw new ForbiddenException('只有系统身份可创建内置素材');
     // multer 默认按 latin1 解码 originalname, 中文文件名会乱码 → 转回 utf8.
     // (纯 ASCII 文件名在 latin1/utf8 下字节一致, 转换是恒等, 不受影响)
     const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
@@ -338,7 +323,7 @@ export class MediaService implements OnModuleInit {
       remark: remark ?? null,
       uploader,
       ownerUserId: actor?.userId ?? null,
-      visibility: 'private',
+      visibility: source === 'system' ? 'shared' : 'private',
       source,
       processingStatus: kind === 'video' ? 'pending' : 'ready',
       processingError: null,
@@ -361,7 +346,7 @@ export class MediaService implements OnModuleInit {
   }
 
   /** 服务器侧来源 (在线曲库下载等) 从内存 buffer 入库 — 目录布局与 ingest 一致 */
-  async ingestReservedBuffer(originalName: string, mimeType: string, buf: Buffer, actor: Actor, reservationId: string, remark?: string): Promise<MediaAsset> {
+  async ingestReservedBuffer(originalName: string, mimeType: string, buf: Buffer, actor: Actor, reservationId: string, remark?: string, source: 'import' | 'system' = 'import'): Promise<MediaAsset> {
     const quota = new MediaQuotaService(this.repo.manager.connection);
     const directory = join(this.mediaRoot, '_tmp');
     const name = randomUUID() + '.upload';
@@ -378,7 +363,7 @@ export class MediaService implements OnModuleInit {
       owned = true;
       try { await handle.writeFile(buf); } finally { await handle.close(); }
       return await this.ingest({ path: temporary, originalname: Buffer.from(originalName, 'utf8').toString('latin1'), mimetype: mimeType, size: buf.length } as Express.Multer.File,
-        actor.username, remark, actor, reservationId, 'import');
+        actor.username, remark, actor, reservationId, source);
     } finally {
       // Keep the reservation if owned temporary bytes could not be removed.
       if (owned) await fs.unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; });

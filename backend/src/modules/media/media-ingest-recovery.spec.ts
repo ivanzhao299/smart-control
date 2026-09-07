@@ -13,6 +13,7 @@ import { AddUploadReservations1788618003000 } from '../../migrations/17886180030
 import { BindUploadTemporaryFiles1788618004000 } from '../../migrations/1788618004000-BindUploadTemporaryFiles';
 import { TrackUploadInstances1788618005000 } from '../../migrations/1788618005000-TrackUploadInstances';
 import { LinkUploadMedia1788618006000 } from '../../migrations/1788618006000-LinkUploadMedia';
+import { TrackSystemUploadReservations1788618008000 } from '../../migrations/1788618008000-TrackSystemUploadReservations';
 import { serializedTransaction } from '../../common/utils/serialized-transaction';
 
 describe('file ingestion compensation', () => {
@@ -27,6 +28,7 @@ describe('file ingestion compensation', () => {
   });
   afterEach(async () => { jest.restoreAllMocks(); await db.destroy(); await fs.rm(root, { recursive: true, force: true }); });
   it.each([true, false])('does not treat a same-name private asset as a bundled system asset (file exists=%s)', async exists => {
+    await conversionSchema();
     const name = '左右声道测试.wav';
     const privatePath = join(root, 'private.wav');
     if (exists) await fs.writeFile(privatePath, 'private-original');
@@ -42,12 +44,33 @@ describe('file ingestion compensation', () => {
     const system = rows.find(row => row.source === 'system')!;
     expect(system).toMatchObject({ ownerUserId: null, visibility: 'shared' });
     expect(await fs.readFile(system.path, 'utf8')).toBe('system-content');
+    expect(await db.query('SELECT * FROM upload_reservations')).toEqual([]);
     if (exists) expect(await fs.readFile(privatePath, 'utf8')).toBe('private-original');
     else await expect(fs.access(privatePath)).rejects.toThrow();
   });
   async function conversionSchema() {
     for (const migration of [new AddUploadReservations1788618003000(), new BindUploadTemporaryFiles1788618004000(), new TrackUploadInstances1788618005000(), new LinkUploadMedia1788618006000()]) await migration.up(db.createQueryRunner());
+    await new TrackSystemUploadReservations1788618008000().up(db.createQueryRunner());
   }
+  it('refuses new bundled copies before writing when no disk budget is available', async () => {
+    await conversionSchema();
+    const bundled = join(root, 'bundled.wav');
+    await fs.writeFile(bundled, 'system-content');
+    jest.spyOn(MediaQuotaService.prototype as any, 'availableDiskBytes').mockResolvedValue(0);
+    await expect((media as any).seedBundledFile({ file: bundled, originalName: 'system.wav', kind: 'audio', mime: 'audio/wav', remark: 'fixture' })).rejects.toThrow('磁盘');
+    expect(await db.getRepository(MediaAsset).count()).toBe(0);
+    expect(await db.query('SELECT * FROM upload_reservations')).toEqual([]);
+    expect(await fs.readdir(root)).toEqual(['bundled.wav']);
+  });
+  it('does not let a named user label reserved uploads as shared system assets', async () => {
+    await conversionSchema();
+    const quota = new MediaQuotaService(db);
+    const reservation = (await quota.reserve(actor, 10, root))!;
+    await expect(media.ingestReservedBuffer('a.mp3', 'audio/mpeg', Buffer.from('sample'), actor, reservation, undefined, 'system')).rejects.toThrow('系统身份');
+    expect(await db.getRepository(MediaAsset).count()).toBe(0);
+    expect(await db.query('SELECT * FROM upload_reservations')).toEqual([]);
+    expect(await fs.readdir(join(root, '_tmp'))).toEqual([]);
+  });
   it('does not let a private same-name webpage replace the system welcome page', async () => {
     const originalName = '金湖欢迎页·动态(称谓可编辑)';
     const privatePage = await media.createWebpage(originalName, 'https://example.test/private-welcome', actor);
