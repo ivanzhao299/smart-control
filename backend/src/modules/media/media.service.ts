@@ -346,13 +346,13 @@ export class MediaService implements OnModuleInit {
       lastPlayedAt: null,
     });
     const saved = reservationId ? await serializedTransaction(this.repo.manager.connection, async manager => {
-      if (!actor || actor.userId === null || resolve(file.path) !== join(this.mediaRoot, '_tmp', basename(file.path))) throw new ForbiddenException('上传绑定无效');
+      if (!actor || resolve(file.path) !== join(this.mediaRoot, '_tmp', basename(file.path))) throw new ForbiddenException('上传绑定无效');
       const created = await manager.save(MediaAsset, entity);
       const linked = await manager.createQueryBuilder().update('upload_reservations')
         .set({ target_media_id: created.id })
-        .where('id = :id AND owner_user_id = :owner AND temp_name = :name AND bytes = :bytes AND target_media_id IS NULL',
+        .where('id = :id AND owner_user_id IS :owner AND temp_name = :name AND bytes = :bytes AND target_media_id IS NULL',
           { id: reservationId, owner: actor.userId, name: basename(file.path), bytes: file.size })
-        .andWhere("EXISTS (SELECT 1 FROM users WHERE id = :owner AND enabled = 1 AND role IN ('admin', 'operator'))", { owner: actor.userId }).execute();
+        .andWhere("(:owner IS NULL OR EXISTS (SELECT 1 FROM users WHERE id = :owner AND enabled = 1 AND role IN ('admin', 'operator')))", { owner: actor.userId }).execute();
       if (!linked.affected) throw new ForbiddenException('上传绑定已失效');
       return created;
     }) : await this.saveInitialUpload(entity, actor);

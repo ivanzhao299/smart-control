@@ -9,6 +9,7 @@ import { serializedTransaction } from '../../common/utils/serialized-transaction
 import { BindUploadTemporaryFiles1788618004000 } from '../../migrations/1788618004000-BindUploadTemporaryFiles';
 import { TrackUploadInstances1788618005000 } from '../../migrations/1788618005000-TrackUploadInstances';
 import { LinkUploadMedia1788618006000 } from '../../migrations/1788618006000-LinkUploadMedia';
+import { TrackSystemUploadReservations1788618008000 } from '../../migrations/1788618008000-TrackSystemUploadReservations';
 
 describe('atomic upload capacity reservations', () => {
   let db: DataSource, quota: MediaQuotaService;
@@ -20,10 +21,35 @@ describe('atomic upload capacity reservations', () => {
     await new BindUploadTemporaryFiles1788618004000().up(db.createQueryRunner());
     await new TrackUploadInstances1788618005000().up(db.createQueryRunner());
     await new LinkUploadMedia1788618006000().up(db.createQueryRunner());
+    await new TrackSystemUploadReservations1788618008000().up(db.createQueryRunner());
     await db.getRepository(User).save([{ id: 1, username: 'alice', password: 'test', role: 'operator', storageQuotaBytes: 100 }, { id: 2, username: 'bob', password: 'test', role: 'operator', storageQuotaBytes: 100 }]);
     quota = new MediaQuotaService(db);
   });
   afterEach(async () => { await db.destroy(); });
+  it('preserves named reservations and their owner foreign key through the nullable-owner migration', async () => {
+    const id = await quota.reserve(alice, 30);
+    await quota.bindTemporary(alice, id, '01234567-1234-1234-1234-012345678901.upload');
+    const before = await db.query('SELECT * FROM upload_reservations');
+    const migration = new TrackSystemUploadReservations1788618008000();
+    await migration.down(db.createQueryRunner());
+    await migration.up(db.createQueryRunner());
+    expect(await db.query('SELECT * FROM upload_reservations')).toEqual(before);
+    await expect(db.getRepository(User).delete(1)).rejects.toThrow();
+    expect(await db.query('PRAGMA foreign_key_check')).toEqual([]);
+  });
+  it('persists system uploads, isolates their binding and release, and refuses unsafe rollback', async () => {
+    const admin: Actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };
+    const id = await quota.reserve(admin, 60);
+    expect(id).toEqual(expect.any(String));
+    await expect(quota.bindTemporary(alice, id, '01234567-1234-1234-1234-012345678901.upload')).rejects.toThrow();
+    await quota.bindTemporary(admin, id, '01234567-1234-1234-1234-012345678901.upload');
+    await quota.release(alice, id);
+    expect(await db.query('SELECT owner_user_id, bytes FROM upload_reservations WHERE id = ?', [id])).toEqual([{ owner_user_id: null, bytes: 60 }]);
+    const migration = new TrackSystemUploadReservations1788618008000();
+    await expect(migration.down(db.createQueryRunner())).rejects.toThrow('MULTIUSER_ROLLBACK_REQUIRES_ARCHIVE');
+    await quota.release(admin, id);
+    await migration.down(db.createQueryRunner());
+  });
   it('reserves encoder output from remaining capacity and blocks competing uploads or duplicate processing', async () => {
     const media = await db.getRepository(MediaAsset).save({ originalName: 'a.mov', safeName: 'a.mov', path: '/fixture/a.mov', kind: 'video', mimeType: 'video/quicktime', sizeBytes: 40, ownerUserId: 1, visibility: 'private', processingStatus: 'processing' });
     const conversion = await quota.reserveConversion(media.id, 1, 1000);

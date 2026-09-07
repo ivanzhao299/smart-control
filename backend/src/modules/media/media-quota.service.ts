@@ -18,14 +18,13 @@ export class MediaQuotaService {
     return serializedTransaction(this.db, async manager => {
       const asset = await manager.findOneByOrFail(MediaAsset, { id: mediaId });
       if (asset.ownerUserId !== expectedOwner || asset.processingStatus !== 'processing') throw new ForbiddenException('转码资料状态或归属已变化');
-      if (expectedOwner === null) return { id: null, bytes: maximum };
       const [capacity] = await manager.query(`SELECT storage_quota_bytes
         - COALESCE((SELECT SUM(sizeBytes) FROM media_assets WHERE owner_user_id = users.id), 0)
         - COALESCE((SELECT SUM(bytes) FROM upload_reservations WHERE owner_user_id = users.id), 0) AS available
         FROM users WHERE id = ? AND enabled = 1 AND role IN ('admin', 'operator')`, [expectedOwner]);
       const available = Number(capacity?.available);
-      if (!Number.isSafeInteger(available) || available < 1) throw new ForbiddenException('转码存储配额不足或账户已停用');
-      const bytes = Math.min(maximum, available);
+      if (expectedOwner !== null && (!Number.isSafeInteger(available) || available < 1)) throw new ForbiddenException('转码存储配额不足或账户已停用');
+      const bytes = expectedOwner === null ? maximum : Math.min(maximum, available);
       const id = randomUUID();
       await manager.query(`INSERT INTO upload_reservations (id, owner_user_id, bytes, target_media_id)
         SELECT ?, ?, ?, ? WHERE NOT EXISTS
@@ -44,8 +43,7 @@ export class MediaQuotaService {
   async bindTemporary(actor: Actor, id: string | null, name: string): Promise<void> {
     assertCanUpload(actor);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.upload$/.test(name)) throw new BadRequestException('无效临时文件名');
-    if (actor.userId === null && id === null) return;
-    if (actor.userId === null || !id) throw new ForbiddenException('上传预留不存在');
+    if (!id) throw new ForbiddenException('上传预留不存在');
     await serializedTransaction(this.db, async manager => {
       // Register together with the binding; a failed binding leaves no new record.
       // Metadata is evidence only: hostname/PID reuse must never trigger cleanup.
@@ -53,8 +51,8 @@ export class MediaQuotaService {
         [uploadInstance, uploadProcess.host, uploadProcess.pid, uploadProcess.startedAt]);
       const result = await manager.createQueryBuilder().update('upload_reservations')
         .set({ temp_name: name, instance_id: uploadInstance })
-        .where('id = :id AND owner_user_id = :owner AND temp_name IS NULL AND instance_id IS NULL', { id, owner: actor.userId })
-        .andWhere("EXISTS (SELECT 1 FROM users WHERE users.id = :owner AND enabled = 1 AND role IN ('admin', 'operator'))", { owner: actor.userId }).execute();
+        .where('id = :id AND owner_user_id IS :owner AND temp_name IS NULL AND instance_id IS NULL AND target_media_id IS NULL', { id, owner: actor.userId })
+        .andWhere("(:owner IS NULL OR EXISTS (SELECT 1 FROM users WHERE users.id = :owner AND enabled = 1 AND role IN ('admin', 'operator')))", { owner: actor.userId }).execute();
       if (!result.affected) throw new ForbiddenException('上传预留不存在、已绑定或账户已无上传权限');
     });
   }
@@ -62,10 +60,12 @@ export class MediaQuotaService {
   async reserve(actor: Actor, bytes: number): Promise<string | null> {
     assertCanUpload(actor);
     if (!Number.isSafeInteger(bytes) || bytes < 0) throw new BadRequestException('无效文件大小');
-    // Separate system-admin login has no personal quota; global disk guard remains separate.
-    if (actor.userId === null) return null;
     const id = randomUUID();
     return serializedTransaction(this.db, async (manager) => {
+      if (actor.userId === null) {
+        await manager.query('INSERT INTO upload_reservations (id, owner_user_id, bytes) VALUES (?, NULL, ?)', [id, bytes]);
+        return id;
+      }
       // A single INSERT...SELECT holds SQLite's writer lock for both check and reserve.
       // No await between a read of free bytes and the write that consumes them.
       await manager.query(
@@ -84,9 +84,9 @@ export class MediaQuotaService {
   }
 
   async release(actor: Actor, id: string | null): Promise<void> {
-    if (!id || actor.userId === null) return;
+    if (!id) return;
     await serializedTransaction(this.db, (manager) =>
-      manager.query('DELETE FROM upload_reservations WHERE id = ? AND owner_user_id = ?', [
+      manager.query('DELETE FROM upload_reservations WHERE id = ? AND owner_user_id IS ?', [
         id,
         actor.userId,
       ]),
