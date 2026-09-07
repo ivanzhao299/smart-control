@@ -79,7 +79,8 @@ export class MediaController {
       return { message: '未收到文件', data: null };
     }
     const actor = requireActor(req);
-    const asset = await this.media.ingest(file, actor.username, meta.remark, actor);
+    const asset = await this.media.ingest(file, actor.username, meta.remark, actor,
+      (req as AuthenticatedRequest & { uploadReservationId?: string | null }).uploadReservationId);
     await this.opLog.record({
       operator: actor.username,
       action: 'media.upload',

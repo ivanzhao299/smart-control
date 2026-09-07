@@ -8,6 +8,11 @@ import { User } from '../../entities/user.entity';
 import { MediaAsset } from '../../entities/media-asset.entity';
 import { MediaService } from './media.service';
 import { Actor } from '../../common/auth/actor';
+import { MediaQuotaService } from './media-quota.service';
+import { AddUploadReservations1788618003000 } from '../../migrations/1788618003000-AddUploadReservations';
+import { BindUploadTemporaryFiles1788618004000 } from '../../migrations/1788618004000-BindUploadTemporaryFiles';
+import { TrackUploadInstances1788618005000 } from '../../migrations/1788618005000-TrackUploadInstances';
+import { LinkUploadMedia1788618006000 } from '../../migrations/1788618006000-LinkUploadMedia';
 
 describe('file ingestion compensation', () => {
   let db: DataSource, root: string, media: MediaService;
@@ -20,6 +25,30 @@ describe('file ingestion compensation', () => {
     Object.defineProperty(media, 'mediaRoot', { value: root });
   });
   afterEach(async () => { jest.restoreAllMocks(); await db.destroy(); await fs.rm(root, { recursive: true, force: true }); });
+  it.each([true, false])('atomically links the initial asset to its upload reservation (valid binding=%s)', async valid => {
+    const runner = db.createQueryRunner();
+    for (const migration of [new AddUploadReservations1788618003000(), new BindUploadTemporaryFiles1788618004000(), new TrackUploadInstances1788618005000(), new LinkUploadMedia1788618006000()]) await migration.up(runner);
+    const quota = new MediaQuotaService(db);
+    const reservation = await quota.reserve(actor, 6);
+    const name = '01234567-1234-1234-1234-012345678901.upload';
+    await quota.bindTemporary(actor, reservation, name);
+    await fs.mkdir(join(root, '_tmp'));
+    const path = join(root, '_tmp', name);
+    await fs.writeFile(path, 'sample');
+    const file = { path, originalname: 'sample.mp3', mimetype: 'audio/mpeg', size: 6 } as Express.Multer.File;
+    if (!valid) {
+      await expect(media.ingest(file, actor.username, undefined, actor, 'wrong-reservation')).rejects.toThrow('绑定已失效');
+      expect(await db.getRepository(MediaAsset).count()).toBe(0);
+      expect(await fs.readFile(path, 'utf8')).toBe('sample');
+      return;
+    }
+    const asset = await media.ingest(file, actor.username, undefined, actor, reservation);
+    expect((await db.query('SELECT target_media_id FROM upload_reservations WHERE id = ?', [reservation]))[0].target_media_id).toBe(asset.id);
+    expect(await fs.readFile(asset.path, 'utf8')).toBe('sample');
+    await expect(new LinkUploadMedia1788618006000().down(runner)).rejects.toThrow('MULTIUSER_ROLLBACK_REQUIRES_ARCHIVE');
+    await quota.release(actor, reservation);
+    await new LinkUploadMedia1788618006000().down(runner);
+  });
   it('stores the final path and private owner on successful buffer ingestion', async () => {
     const item = await media.ingestFromBuffer('sample.mp3', 'audio/mpeg', Buffer.from('sample'), 'alice', actor);
     expect(item.ownerUserId).toBe(1);

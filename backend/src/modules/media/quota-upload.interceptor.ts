@@ -22,6 +22,7 @@ export class QuotaUploadInterceptor implements NestInterceptor {
       const maximum = Number(process.env.MEDIA_MAX_BYTES ?? 10 * 1024 ** 3);
       if (!Number.isSafeInteger(bytes) || bytes < 1 || !Number.isSafeInteger(maximum) || bytes > maximum) throw new BadRequestException('请提供有效的X-Upload-Size文件大小');
       const reservation = await this.quota.reserve(actor, bytes);
+      req.uploadReservationId = reservation;
       let path: string | undefined;
       let writing: Promise<void> = Promise.resolve();
       try {

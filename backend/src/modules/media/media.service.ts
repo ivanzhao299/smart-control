@@ -302,7 +302,7 @@ export class MediaService implements OnModuleInit {
   }
 
   /** Multer 落到 tmp 后, 调用本方法把文件挪到正式位置 + 创建 DB 记录 */
-  async ingest(file: Express.Multer.File, uploader: string, remark?: string, actor?: Actor): Promise<MediaAsset> {
+  async ingest(file: Express.Multer.File, uploader: string, remark?: string, actor?: Actor, reservationId?: string | null): Promise<MediaAsset> {
     if (actor) assertCanUpload(actor);
     // multer 默认按 latin1 解码 originalname, 中文文件名会乱码 → 转回 utf8.
     // (纯 ASCII 文件名在 latin1/utf8 下字节一致, 转换是恒等, 不受影响)
@@ -342,7 +342,17 @@ export class MediaService implements OnModuleInit {
       sourcePath: null,
       lastPlayedAt: null,
     });
-    const saved = await this.repo.save(entity);
+    const saved = reservationId ? await serializedTransaction(this.repo.manager.connection, async manager => {
+      if (!actor || actor.userId === null || resolve(file.path) !== join(this.mediaRoot, '_tmp', basename(file.path))) throw new ForbiddenException('上传绑定无效');
+      const created = await manager.save(MediaAsset, entity);
+      const linked = await manager.createQueryBuilder().update('upload_reservations')
+        .set({ target_media_id: created.id })
+        .where('id = :id AND owner_user_id = :owner AND temp_name = :name AND bytes = :bytes AND target_media_id IS NULL',
+          { id: reservationId, owner: actor.userId, name: basename(file.path), bytes: file.size })
+        .andWhere("EXISTS (SELECT 1 FROM users WHERE id = :owner AND enabled = 1 AND role IN ('admin', 'operator'))", { owner: actor.userId }).execute();
+      if (!linked.affected) throw new ForbiddenException('上传绑定已失效');
+      return created;
+    }) : await this.repo.save(entity);
 
     return this.finishNewAsset(saved, path => fs.rename(file.path, path));
   }
