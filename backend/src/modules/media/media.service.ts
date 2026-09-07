@@ -534,6 +534,7 @@ export class MediaService implements OnModuleInit {
   /** 把 scanOrphans() 列出的某一个文件正式收编成媒体库资源 (原地过户, 不重新写一份) */
   async importOrphan(relPath: string, uploader: string, actor: Actor, remark?: string): Promise<MediaAsset> {
     if (actor.role !== 'admin') throw new ForbiddenException('仅管理员可收编服务器资料');
+    await this.assertCurrentImportAdministrator(actor);
     const abs = resolve(join(this.mediaRoot, relPath));
     const rootResolved = resolve(this.mediaRoot);
     if (abs !== rootResolved && !abs.startsWith(rootResolved + sep)) {
@@ -578,7 +579,13 @@ export class MediaService implements OnModuleInit {
       sourcePath: null,
       lastPlayedAt: null,
     });
-    const saved = await this.repo.save(entity);
+    const saved = await serializedTransaction(this.repo.manager.connection, async manager => {
+      if (actor.userId !== null) {
+        const current = await manager.findOneBy(User, { id: actor.userId, enabled: true, role: 'admin' });
+        if (!current) throw new ForbiddenException('收编账户已停用或不再是管理员');
+      }
+      return manager.save(MediaAsset, entity);
+    });
 
     // 跟 ingest() 一样挪进 <mediaRoot>/<id>/ 标准布局, 这样 remove() 删目录才删得干净
     const finalDir = join(this.mediaRoot, String(saved.id));
@@ -592,6 +599,14 @@ export class MediaService implements OnModuleInit {
     const result = await this.repo.save(saved);
     if (guess.kind === 'video') void this.prepareVideo(result.id);
     return result;
+  }
+
+  private async assertCurrentImportAdministrator(actor: Actor): Promise<void> {
+    if (actor.userId === null) return;
+    await serializedTransaction(this.repo.manager.connection, async manager => {
+      const current = await manager.findOneBy(User, { id: actor.userId!, enabled: true, role: 'admin' });
+      if (!current) throw new ForbiddenException('收编账户已停用或不再是管理员');
+    });
   }
 
   /** 添加网页 URL 作为一条 kind='webpage' 的媒体记录 (无物理文件, 存 sourceUrl) */

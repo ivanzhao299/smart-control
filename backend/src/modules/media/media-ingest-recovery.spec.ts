@@ -26,6 +26,40 @@ describe('file ingestion compensation', () => {
     Object.defineProperty(media, 'mediaRoot', { value: root });
   });
   afterEach(async () => { jest.restoreAllMocks(); await db.destroy(); await fs.rm(root, { recursive: true, force: true }); });
+  it('rechecks orphan administrator permission at initial allocation after filesystem inspection', async () => {
+    await db.getRepository(User).update(1, { role: 'admin' });
+    const source = join(root, 'manual.mp3');
+    await fs.writeFile(source, 'preserve');
+    const stat = fs.stat.bind(fs);
+    jest.spyOn(fs, 'stat').mockImplementationOnce(async (...args: any[]) => {
+      const result = await (stat as any)(...args);
+      await serializedTransaction(db, manager => manager.update(User, 1, { role: 'operator' }));
+      return result;
+    });
+    await expect(media.importOrphan('manual.mp3', 'alice', { ...actor, role: 'admin' })).rejects.toThrow('不再是管理员');
+    expect(await db.getRepository(MediaAsset).count()).toBe(0);
+    expect(await fs.readFile(source, 'utf8')).toBe('preserve');
+    expect(await fs.readdir(root)).toEqual(['manual.mp3']);
+  });
+  it.each(['disabled', 'demoted'])('rejects a revoked named administrator before orphan filesystem access: %s', async state => {
+    await db.getRepository(User).update(1, { role: 'admin' });
+    let entered!: () => void, finish!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const held = new Promise<void>(resolve => { finish = resolve; });
+    const writer = serializedTransaction(db, async manager => {
+      entered(); await held;
+      await manager.update(User, 1, state === 'disabled' ? { enabled: false } : { role: 'operator' });
+    });
+    await ready;
+    const realpath = jest.spyOn(fs, 'realpath');
+    const imported = media.importOrphan('absent.mp3', 'alice', { ...actor, role: 'admin' });
+    await new Promise(resolve => setImmediate(resolve));
+    expect(realpath).not.toHaveBeenCalled();
+    finish();
+    expect((await Promise.allSettled([writer, imported])).map(result => result.status)).toEqual(['fulfilled', 'rejected']);
+    expect(realpath).not.toHaveBeenCalled();
+    expect(await db.getRepository(MediaAsset).count()).toBe(0);
+  });
   it('does not scan or import managed originals, derivatives, pending uploads or quarantine files', async () => {
     const admin: Actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };
     const paths = ['1/source.mp4', '2/playback-converting.mp4', '_tmp/inflight.mp3', '.delete-3-test/files/original.mp3'];
