@@ -924,13 +924,16 @@ export class MediaService implements OnModuleInit {
     else update.andWhere('owner_user_id = :previousOwner', { previousOwner });
     if (actor.role !== 'admin') update.andWhere("visibility = 'private'");
     if (dto.ownerUserId !== undefined && dto.ownerUserId !== previousOwner) {
+      // Failed conversion/cleanup can retain a reservation after processing stops.
+      // Keep its owner and the resource owner aligned until explicit recovery.
+      update.andWhere('NOT EXISTS (SELECT 1 FROM upload_reservations active WHERE active.target_media_id = :id)', { id });
       update.andWhere(`EXISTS (SELECT 1 FROM users u WHERE u.id = :target AND u.enabled = 1
         AND media_assets.sizeBytes <= u.storage_quota_bytes
           - COALESCE((SELECT SUM(m.sizeBytes) FROM media_assets m WHERE m.owner_user_id = u.id AND m.id <> :id), 0)
           - COALESCE((SELECT SUM(r.bytes) FROM upload_reservations r WHERE r.owner_user_id = u.id), 0))`, { target: dto.ownerUserId, id });
     }
     const result = await update.execute();
-    if (!result.affected) throw new ForbiddenException('资料归属已变化或目标用户配额不足');
+    if (!result.affected) throw new ForbiddenException('资料归属已变化、仍有待恢复预留或目标用户配额不足');
     return repo.findOneByOrFail({ id });
   }
 

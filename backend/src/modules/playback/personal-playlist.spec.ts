@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { serializedTransaction } from '../../common/utils/serialized-transaction';
 import { AddUploadReservations1788618003000 } from '../../migrations/1788618003000-AddUploadReservations';
+import { LinkUploadMedia1788618006000 } from '../../migrations/1788618006000-LinkUploadMedia';
 import { DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { MediaAsset } from '../../entities/media-asset.entity';
@@ -18,6 +19,7 @@ describe('personal playlists', () => {
   beforeEach(async () => {
     db = await new DataSource({ type: 'better-sqlite3', database: ':memory:', entities: [MediaAsset, PlaylistItem, User], synchronize: true }).initialize();
     await new AddUploadReservations1788618003000().up(db.createQueryRunner());
+    await new LinkUploadMedia1788618006000().up(db.createQueryRunner());
     await db.getRepository(User).save([{ id: 1, username: 'alice', password: 'test', role: 'operator' }, { id: 2, username: 'bob', password: 'test', role: 'operator' }]);
     media = new MediaService(db.getRepository(MediaAsset), new ConfigService(), {} as any);
     sharedId = (await media.createWebpage('Public', 'https://example.test', admin)).id;

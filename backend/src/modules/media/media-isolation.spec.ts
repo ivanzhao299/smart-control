@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { AddUploadReservations1788618003000 } from '../../migrations/1788618003000-AddUploadReservations';
+import { LinkUploadMedia1788618006000 } from '../../migrations/1788618006000-LinkUploadMedia';
 import { DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { MediaService } from './media.service';
@@ -17,6 +18,7 @@ describe('media isolation with SQLite repositories', () => {
   beforeEach(async () => {
     db = await new DataSource({ type: 'better-sqlite3', database: ':memory:', entities: [MediaAsset, User], synchronize: true }).initialize();
     await new AddUploadReservations1788618003000().up(db.createQueryRunner());
+    await new LinkUploadMedia1788618006000().up(db.createQueryRunner());
     await db.getRepository(User).save([
       { id: 1, username: 'alice', password: 'test', role: 'operator' },
       { id: 2, username: 'bob', password: 'test', role: 'operator' },
@@ -147,6 +149,17 @@ describe('media isolation with SQLite repositories', () => {
     const results = await Promise.allSettled([media.updateOwned(first.id, admin, { ownerUserId: 2 }), media.updateOwned(second.id, admin, { ownerUserId: 2 })]);
     expect(results.filter(x => x.status === 'fulfilled')).toHaveLength(1);
     expect(results.filter(x => x.status === 'rejected')).toHaveLength(1);
+  });
+  it.each(['ready', 'failed'])('retains ownership for %s media while a recovery reservation exists', async processingStatus => {
+    const item = await db.getRepository(MediaAsset).findOneByOrFail({ originalName: 'Alice private' });
+    await db.getRepository(MediaAsset).update(item.id, { processingStatus: processingStatus as 'ready' | 'failed' });
+    await db.query('INSERT INTO upload_reservations (id, owner_user_id, bytes, target_media_id) VALUES (?, ?, ?, ?)', ['retained', 1, 40, item.id]);
+    await expect(media.updateOwned(item.id, admin, { ownerUserId: 2, originalName: 'not-committed' })).rejects.toThrow('待恢复预留');
+    expect(await media.get(item.id)).toMatchObject({ ownerUserId: 1, originalName: 'Alice private' });
+    expect(await db.query('SELECT owner_user_id, bytes FROM upload_reservations WHERE id = ?', ['retained'])).toEqual([{ owner_user_id: 1, bytes: 40 }]);
+    await media.updateOwned(item.id, admin, { remark: 'can still annotate' });
+    await db.query('DELETE FROM upload_reservations WHERE id = ?', ['retained']);
+    expect((await media.updateOwned(item.id, admin, { ownerUserId: 2 })).ownerUserId).toBe(2);
   });
   it('checks direct IDs even when lists are bypassed', async () => {
     const item = await db.getRepository(MediaAsset).findOneByOrFail({ originalName: 'Alice private' });
