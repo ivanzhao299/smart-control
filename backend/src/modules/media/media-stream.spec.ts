@@ -1,6 +1,9 @@
 import { resolve } from 'path';
 import { ConfigService } from '@nestjs/config';
 import { MediaService } from './media.service';
+import { promises as fs } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 describe('actual media byte streams', () => {
   const root = resolve(__dirname, 'fixtures');
@@ -18,6 +21,52 @@ describe('actual media byte streams', () => {
     for await (const chunk of file.stream!) chunks.push(Buffer.from(chunk));
     return Buffer.concat(chunks).toString();
   };
+  it('keeps reading the verified file descriptor when the pathname is replaced after opening', async () => {
+    const temp = await fs.mkdtemp(join(tmpdir(), 'sc-stream-descriptor-'));
+    try {
+      Object.defineProperty(media, 'mediaRoot', { value: temp });
+      row.path = join(temp, 'source.txt');
+      await fs.writeFile(row.path, 'verified');
+      const file = await media.openStream(42);
+      await fs.rename(row.path, join(temp, 'original.txt'));
+      await fs.writeFile(row.path, 'replacement');
+      expect(await read(file)).toBe('verified');
+    } finally { await fs.rm(temp, { recursive: true, force: true }); }
+  });
+  it('bounds full responses to the opened size and returns no stream for empty files', async () => {
+    const temp = await fs.mkdtemp(join(tmpdir(), 'sc-stream-descriptor-'));
+    try {
+      Object.defineProperty(media, 'mediaRoot', { value: temp });
+      row.path = join(temp, 'source.txt');
+      await fs.writeFile(row.path, 'verified');
+      const file = await media.openStream(42);
+      await fs.appendFile(row.path, '-later');
+      expect(file.size).toBe(8);
+      expect(await read(file)).toBe('verified');
+      row.path = join(temp, 'empty.txt');
+      await fs.writeFile(row.path, '');
+      expect(await media.openStream(42)).toMatchObject({ status: 200, size: 0, stream: null });
+    } finally { await fs.rm(temp, { recursive: true, force: true }); }
+  });
+  it('rejects replacement between validation and open, closing the rejected handle', async () => {
+    const temp = await fs.mkdtemp(join(tmpdir(), 'sc-stream-descriptor-'));
+    const open = fs.open.bind(fs);
+    let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
+    try {
+      Object.defineProperty(media, 'mediaRoot', { value: temp });
+      row.path = join(temp, 'source.txt');
+      await fs.writeFile(row.path, 'verified');
+      jest.spyOn(fs, 'open').mockImplementationOnce(async (path, flags, mode) => {
+        await fs.rename(row.path, join(temp, 'original.txt'));
+        await fs.writeFile(row.path, 'replacement');
+        handle = await open(path, flags, mode);
+        return handle;
+      });
+      await expect(media.openStream(42)).rejects.toThrow('文件不存在');
+      expect(handle).toBeDefined();
+      await expect(handle!.stat()).rejects.toThrow();
+    } finally { jest.restoreAllMocks(); await handle?.close(); await fs.rm(temp, { recursive: true, force: true }); }
+  });
   it('returns exactly the requested bytes using disk size, not stale database size', async () => {
     const file = await media.openStream(42, false, 'bytes=2-5');
     expect(file.status).toBe(206);
