@@ -117,10 +117,6 @@ export class MediaService implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     await fs.mkdir(this.mediaRoot, { recursive: true });
-    // 与 migration 双保险，避免现场 watcher 先拉代码后迁移尚未执行时启动失败。
-    await this.repo.query(`ALTER TABLE "media_assets" ADD COLUMN "sourcePath" varchar(500)`).catch(() => {});
-    await this.repo.query(`ALTER TABLE "media_assets" ADD COLUMN "processingStatus" varchar(16) NOT NULL DEFAULT 'ready'`).catch(() => {});
-    await this.repo.query(`ALTER TABLE "media_assets" ADD COLUMN "processingError" varchar(1000)`).catch(() => {});
     this.logger.info(`MediaService ready, root=${this.mediaRoot}`, { context: 'MediaService' });
     await this.seedBundledAssets();
     // 存量 .m4v 行的 mime 自愈 (上面 EXT_KIND_MIME 已改标准 video/mp4, 老行补齐)
