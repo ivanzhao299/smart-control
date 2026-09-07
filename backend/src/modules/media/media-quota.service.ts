@@ -1,10 +1,12 @@
 import { Injectable, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { randomUUID } from 'crypto';
+import { hostname } from 'os';
 import { Actor } from '../../common/auth/actor';
 import { assertCanUpload } from '../../common/auth/resource-policy';
 import { serializedTransaction } from '../../common/utils/serialized-transaction';
 const uploadInstance = randomUUID();
+const uploadProcess = Object.freeze({ host: hostname(), pid: process.pid, startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString() });
 
 @Injectable()
 export class MediaQuotaService {
@@ -16,6 +18,10 @@ export class MediaQuotaService {
     if (actor.userId === null && id === null) return;
     if (actor.userId === null || !id) throw new ForbiddenException('上传预留不存在');
     await serializedTransaction(this.db, async manager => {
+      // Register together with the binding; a failed binding leaves no new record.
+      // Metadata is evidence only: hostname/PID reuse must never trigger cleanup.
+      await manager.query('INSERT OR IGNORE INTO upload_instances (id, hostname, pid, started_at) VALUES (?, ?, ?, ?)',
+        [uploadInstance, uploadProcess.host, uploadProcess.pid, uploadProcess.startedAt]);
       const result = await manager.createQueryBuilder().update('upload_reservations')
         .set({ temp_name: name, instance_id: uploadInstance })
         .where('id = :id AND owner_user_id = :owner AND temp_name IS NULL AND instance_id IS NULL', { id, owner: actor.userId })

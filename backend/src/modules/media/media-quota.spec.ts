@@ -7,6 +7,7 @@ import { MediaQuotaService } from './media-quota.service';
 import { Actor } from '../../common/auth/actor';
 import { serializedTransaction } from '../../common/utils/serialized-transaction';
 import { BindUploadTemporaryFiles1788618004000 } from '../../migrations/1788618004000-BindUploadTemporaryFiles';
+import { TrackUploadInstances1788618005000 } from '../../migrations/1788618005000-TrackUploadInstances';
 
 describe('atomic upload capacity reservations', () => {
   let db: DataSource, quota: MediaQuotaService;
@@ -16,6 +17,7 @@ describe('atomic upload capacity reservations', () => {
     db = await new DataSource({ type: 'better-sqlite3', database: ':memory:', entities: [User, MediaAsset], synchronize: true }).initialize();
     await new AddUploadReservations1788618003000().up(db.createQueryRunner());
     await new BindUploadTemporaryFiles1788618004000().up(db.createQueryRunner());
+    await new TrackUploadInstances1788618005000().up(db.createQueryRunner());
     await db.getRepository(User).save([{ id: 1, username: 'alice', password: 'test', role: 'operator', storageQuotaBytes: 100 }, { id: 2, username: 'bob', password: 'test', role: 'operator', storageQuotaBytes: 100 }]);
     quota = new MediaQuotaService(db);
   });
@@ -24,6 +26,7 @@ describe('atomic upload capacity reservations', () => {
     const id = await quota.reserve(alice, 10);
     await db.getRepository(User).update(1, state === 'disabled' ? { enabled: false } : { role: 'viewer' });
     await expect(quota.bindTemporary(alice, id, '01234567-1234-1234-1234-012345678901.upload')).rejects.toThrow('无上传权限');
+    expect(await db.query('SELECT id FROM upload_instances')).toEqual([]);
     expect(await db.query('SELECT temp_name, instance_id FROM upload_reservations WHERE id = ?', [id])).toEqual([{ temp_name: null, instance_id: null }]);
     // Revocation must not prevent failure cleanup from releasing the reservation.
     await quota.release(alice, id);
@@ -38,10 +41,16 @@ describe('atomic upload capacity reservations', () => {
     const [row] = await db.query('SELECT temp_name, instance_id FROM upload_reservations WHERE id = ?', [id]);
     expect(row.temp_name).toBe(name);
     expect(row.instance_id).toMatch(/^[0-9a-f-]{36}$/);
+    const [instance] = await db.query('SELECT id, pid, started_at FROM upload_instances');
+    expect(instance.id).toBe(row.instance_id);
+    expect(instance.pid).toBe(process.pid);
+    expect(Number.isFinite(Date.parse(instance.started_at))).toBe(true);
+    await expect(new TrackUploadInstances1788618005000().down(db.createQueryRunner())).rejects.toThrow('MULTIUSER_ROLLBACK_REQUIRES_ARCHIVE');
     await expect(quota.bindTemporary(alice, id, name)).rejects.toThrow('已绑定');
     const migration = new BindUploadTemporaryFiles1788618004000();
     await expect(migration.down(db.createQueryRunner())).rejects.toThrow('MULTIUSER_ROLLBACK_REQUIRES_ARCHIVE');
     await quota.release(alice, id);
+    await new TrackUploadInstances1788618005000().down(db.createQueryRunner());
     await migration.down(db.createQueryRunner());
   });
   it('waits for a coordinated transaction instead of exposing its uncommitted quota', async () => {
