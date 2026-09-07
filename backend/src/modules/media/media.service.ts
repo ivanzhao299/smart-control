@@ -305,7 +305,7 @@ export class MediaService implements OnModuleInit {
   }
 
   /** Multer 落到 tmp 后, 调用本方法把文件挪到正式位置 + 创建 DB 记录 */
-  async ingest(file: Express.Multer.File, uploader: string, remark?: string, actor?: Actor, reservationId?: string | null): Promise<MediaAsset> {
+  async ingest(file: Express.Multer.File, uploader: string, remark?: string, actor?: Actor, reservationId?: string | null, source: 'upload' | 'import' = 'upload'): Promise<MediaAsset> {
     if (actor) assertCanUpload(actor);
     // multer 默认按 latin1 解码 originalname, 中文文件名会乱码 → 转回 utf8.
     // (纯 ASCII 文件名在 latin1/utf8 下字节一致, 转换是恒等, 不受影响)
@@ -339,7 +339,7 @@ export class MediaService implements OnModuleInit {
       uploader,
       ownerUserId: actor?.userId ?? null,
       visibility: 'private',
-      source: 'upload',
+      source,
       processingStatus: kind === 'video' ? 'pending' : 'ready',
       processingError: null,
       sourcePath: null,

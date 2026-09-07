@@ -7,7 +7,7 @@ import * as https from 'https';
 import * as http from 'http';
 import { createWriteStream, promises as fsp } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
+import { randomUUID } from 'crypto';
 import { BaiduPanAuth } from '../../entities/baidu-pan-auth.entity';
 import { MediaService } from '../media/media.service';
 import { MediaQuotaService } from '../media/media-quota.service';
@@ -260,7 +260,7 @@ export class BaiduPanService implements OnModuleInit {
     if (this.activeDownload) throw new ConflictException('下载服务正忙');
     this.activeDownload = { name, receivedBytes: 0, totalBytes: size, startedAt: Date.now() };
     let reservation: string | null;
-    try { reservation = await this.quota.reserve(actor, size); }
+    try { reservation = await this.quota.reserve(actor, size, this.media.mediaRoot); }
     catch (error) { this.activeDownload = null; throw error; }
     // 后台跑, 不阻塞请求
     void this.runDownload(`${dlink}&access_token=${encodeURIComponent(tok)}`, name, actor, size, reservation)
@@ -277,18 +277,26 @@ export class BaiduPanService implements OnModuleInit {
   }
 
   private async runDownload(url: string, name: string, actor: import('../../common/auth/actor').Actor, expectedBytes: number, reservation: string | null): Promise<{ id: number; sizeBytes: number }> {
-    const tmp = join(tmpdir(), `baidupan-${Date.now()}-${Math.floor(Math.random() * 1e6)}`);
+    const directory = join(this.media.mediaRoot, '_tmp');
+    const filename = randomUUID() + '.upload';
+    const tmp = join(directory, filename);
+    let owned = false;
     try {
-      await this.streamToFile(url, tmp, 5, expectedBytes);
+      await fsp.mkdir(directory, { recursive: true });
+      const statDirectory = await fsp.lstat(directory);
+      const [realRoot, realDirectory] = await Promise.all([fsp.realpath(this.media.mediaRoot), fsp.realpath(directory)]);
+      if (!statDirectory.isDirectory() || statDirectory.isSymbolicLink() || realDirectory !== join(realRoot, '_tmp')) throw new Error('下载临时目录不安全');
+      await this.quota.bindTemporary(actor, reservation, filename);
+      await this.streamToFile(url, tmp, 5, expectedBytes, () => { owned = true; });
       const stat = await fsp.stat(tmp);
       if (stat.size < 1024) throw new Error('下载内容异常偏小, 已放弃入库');
       if (stat.size !== expectedBytes) throw new Error('下载大小与网盘元数据不一致');
       const mime = this.guessMime(name);
-      const saved = await this.media.ingestFromFile(name, mime, tmp, actor.username, actor,
-        `百度网盘下载 (${new Date().toISOString().slice(0, 10)})`);
+      const saved = await this.media.ingest({ path: tmp, originalname: Buffer.from(name, 'utf8').toString('latin1'), mimetype: mime, size: stat.size } as Express.Multer.File,
+        actor.username, `百度网盘下载 (${new Date().toISOString().slice(0, 10)})`, actor, reservation, 'import');
       return { id: saved.id, sizeBytes: saved.sizeBytes };
     } finally {
-      await fsp.unlink(tmp).catch(error => { if (error.code !== 'ENOENT') throw error; });
+      if (owned) await fsp.unlink(tmp).catch(error => { if (error.code !== 'ENOENT') throw error; });
       await this.quota.release(actor, reservation);
     }
   }
@@ -308,7 +316,7 @@ export class BaiduPanService implements OnModuleInit {
   }
 
   /** dlink 流式落盘 (UA 必须是 pan.baidu.com, 否则 403); 跟随重定向; 进度写 activeDownload */
-  private streamToFile(url: string, dest: string, redirects: number, maxBytes: number): Promise<void> {
+  private streamToFile(url: string, dest: string, redirects: number, maxBytes: number, onOpen?: () => void): Promise<void> {
     return new Promise((resolve, reject) => {
       let receiving = false;
       const mod = url.startsWith('http:') ? http : https;
@@ -316,7 +324,7 @@ export class BaiduPanService implements OnModuleInit {
         const code = res.statusCode ?? 0;
         if (code >= 300 && code < 400 && res.headers.location && redirects > 0) {
           res.resume();
-          this.streamToFile(new URL(res.headers.location, url).toString(), dest, redirects - 1, maxBytes).then(resolve, reject);
+          this.streamToFile(new URL(res.headers.location, url).toString(), dest, redirects - 1, maxBytes, onOpen).then(resolve, reject);
           return;
         }
         if (code < 200 || code >= 300) {
@@ -324,7 +332,8 @@ export class BaiduPanService implements OnModuleInit {
           reject(new Error(`下载被拒 HTTP ${code} (百度侧限制或链接过期, 重试一次通常可解)`));
           return;
         }
-        const out = createWriteStream(dest);
+        const out = createWriteStream(dest, { flags: 'wx', mode: 0o600 });
+        out.once('open', () => onOpen?.());
         receiving = true;
         let total = 0;
         const active = this;
