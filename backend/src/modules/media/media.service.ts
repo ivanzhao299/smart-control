@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Logger } from 'winston';
 import { Repository } from 'typeorm';
+import { serializedTransaction } from '../../common/utils/serialized-transaction';
 import { promises as fs, createReadStream, ReadStream, statSync } from 'fs';
 import { join, resolve, relative, basename, extname, sep, isAbsolute } from 'path';
 import { spawn } from 'child_process';
@@ -719,7 +720,7 @@ export class MediaService implements OnModuleInit {
       if (this.preparing.has(id) || m.processingStatus === 'processing' || m.processingStatus === 'pending') throw new ConflictException('资料正在转码，不能删除');
       const channels = await this.repo.query('SELECT id FROM playback_channels WHERE currentMediaId = ? LIMIT 1', [id]);
       if (channels.length) throw new ConflictException('资料正在播放或暂停，请先停止播放再删除');
-      const result = await recoverableDelete(this.mediaRoot, m.id, () => this.repo.manager.transaction(async manager => {
+      const result = await recoverableDelete(this.mediaRoot, m.id, () => serializedTransaction(this.repo.manager.connection, async manager => {
         const current = await manager.getRepository(MediaAsset).findOneBy({ id });
         if (!current) throw new NotFoundException('资料不存在');
         assertWriteResource(actor, current);

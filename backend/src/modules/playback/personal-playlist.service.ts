@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull, In } from 'typeorm';
+import { serializedTransaction } from '../../common/utils/serialized-transaction';
 import { PlaylistItem } from '../../entities/playlist-item.entity';
 import { Actor } from '../../common/auth/actor';
 import { assertCanUpload, assertReadResource } from '../../common/auth/resource-policy';
@@ -79,7 +80,7 @@ export class PersonalPlaylistService {
     for (const row of rows) this.writable(actor, row);
     if (new Set(rows.map(row => row.ownerUserId)).size !== 1) throw new BadRequestException('不能混排不同用户的列表');
     for (const row of rows) row.sortOrder = (ids.indexOf(row.id) + 1) * 10;
-    await this.repo.manager.transaction(async manager => {
+    await serializedTransaction(this.repo.manager.connection, async manager => {
       for (const row of rows) {
         const updated = await manager.update(PlaylistItem, row.id, { sortOrder: row.sortOrder });
         if (!updated.affected) throw new NotFoundException('播放列表项已删除');

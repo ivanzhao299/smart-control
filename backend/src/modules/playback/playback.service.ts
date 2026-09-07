@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { randomUUID } from 'crypto';
+import { serializedTransaction } from '../../common/utils/serialized-transaction';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Repository, In, IsNull } from 'typeorm';
@@ -149,7 +150,7 @@ export class PlaybackService implements OnModuleInit {
     const loopMode = opts.loopMode ?? 'loop';
     // 只写"推送新媒体"该动的这几个字段, 不整行 save —— 否则会把 playMode /
     // lastHeartbeatAt 这些不相干的字段一起写回旧值 (见 pause 上方注释)
-    await this.repo.manager.transaction(async manager => {
+    await serializedTransaction(this.repo.manager.connection, async manager => {
       let currentActor = actor;
       if (actor.userId !== null) {
         const user = await manager.findOneBy(User, { id: actor.userId });

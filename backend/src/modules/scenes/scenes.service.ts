@@ -11,6 +11,7 @@ import { RECOMMENDED_SCENE_ACTIONS } from '../../seed/recommended-scene-actions'
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { DataSource, FindOptionsWhere, Like, Repository } from 'typeorm';
+import { serializedTransaction } from '../../common/utils/serialized-transaction';
 import { Logger } from 'winston';
 import { Scene } from '../../entities/scene.entity';
 import { SceneAction } from '../../entities/scene-action.entity';
@@ -108,7 +109,7 @@ export class ScenesService implements OnModuleInit {
     const exists = await this.sceneRepo.findOne({ where: { code: dto.code } });
     if (exists) throw new ConflictException(`场景编码已存在: ${dto.code}`);
 
-    return this.dataSource.transaction(async (mgr) => {
+    return serializedTransaction(this.dataSource, async (mgr) => {
       const scene = mgr.create(Scene, {
         code: dto.code,
         name: dto.name,
@@ -138,7 +139,7 @@ export class ScenesService implements OnModuleInit {
   }
 
   async update(id: number, dto: UpdateSceneDto, operator = 'system'): Promise<Scene> {
-    return this.dataSource.transaction(async (mgr) => {
+    return serializedTransaction(this.dataSource, async (mgr) => {
       const scene = await mgr.findOne(Scene, { where: { id } });
       if (!scene) throw new NotFoundException(`场景不存在: id=${id}`);
 
