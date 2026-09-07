@@ -45,6 +45,18 @@ describe('multipart quota enforcement', () => {
     expect(await fs.readdir(join(root, '_tmp'))).toEqual([]);
     expect(quota.release).toHaveBeenCalledTimes(1);
   });
+  it('refuses a symlinked temporary directory before binding or writing outside the media root', async () => {
+    const outside = await fs.mkdtemp(join(tmpdir(), 'smart-control-outside-test-'));
+    try {
+      await fs.writeFile(join(outside, 'keep.txt'), 'unchanged');
+      await fs.symlink(outside, join(root, '_tmp'), 'dir');
+      expect((await upload(10, 10)).status).toBe(400);
+      expect(quota.bindTemporary).not.toHaveBeenCalled();
+      expect(quota.release).toHaveBeenCalledTimes(1);
+      expect(await fs.readdir(outside)).toEqual(['keep.txt']);
+      expect(await fs.readFile(join(outside, 'keep.txt'), 'utf8')).toBe('unchanged');
+    } finally { await fs.rm(outside, { recursive: true, force: true }); }
+  });
   it('rejects oversized and undersized bodies and cleans their partial files', async () => {
     expect((await upload(11, 10)).status).toBe(400);
     expect((await upload(9, 10)).status).toBe(400);

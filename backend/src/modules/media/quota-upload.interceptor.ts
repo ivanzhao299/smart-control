@@ -27,6 +27,11 @@ export class QuotaUploadInterceptor implements NestInterceptor {
       try {
         const directory = join(this.media.mediaRoot, '_tmp');
         await fs.mkdir(directory, { recursive: true });
+        const directoryStat = await fs.lstat(directory);
+        const [realRoot, realDirectory] = await Promise.all([fs.realpath(this.media.mediaRoot), fs.realpath(directory)]);
+        if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink() || realDirectory !== join(realRoot, '_tmp')) {
+          throw new BadRequestException('上传临时目录不安全，请管理员检查');
+        }
         const filename = randomUUID() + '.upload';
         // Persist exact ownership before any file handle can be opened.
         await this.quota.bindTemporary(actor, reservation, filename);
