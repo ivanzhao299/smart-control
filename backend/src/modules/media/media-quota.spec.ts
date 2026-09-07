@@ -20,6 +20,15 @@ describe('atomic upload capacity reservations', () => {
     quota = new MediaQuotaService(db);
   });
   afterEach(async () => { await db.destroy(); });
+  it.each(['disabled', 'viewer'])('does not bind or consume a temporary filename after the account becomes %s', async state => {
+    const id = await quota.reserve(alice, 10);
+    await db.getRepository(User).update(1, state === 'disabled' ? { enabled: false } : { role: 'viewer' });
+    await expect(quota.bindTemporary(alice, id, '01234567-1234-1234-1234-012345678901.upload')).rejects.toThrow('无上传权限');
+    expect(await db.query('SELECT temp_name, instance_id FROM upload_reservations WHERE id = ?', [id])).toEqual([{ temp_name: null, instance_id: null }]);
+    // Revocation must not prevent failure cleanup from releasing the reservation.
+    await quota.release(alice, id);
+    expect((await quota.usage(alice)).reservedBytes).toBe(0);
+  });
   it('binds one exact temporary name to its owner and refuses rebinding or destructive rollback', async () => {
     const id = await quota.reserve(alice, 10);
     const name = '01234567-1234-1234-1234-012345678901.upload';

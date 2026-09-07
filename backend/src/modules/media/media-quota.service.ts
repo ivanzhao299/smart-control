@@ -11,14 +11,16 @@ export class MediaQuotaService {
   constructor(private readonly db: DataSource) {}
 
   async bindTemporary(actor: Actor, id: string | null, name: string): Promise<void> {
+    assertCanUpload(actor);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.upload$/.test(name)) throw new BadRequestException('无效临时文件名');
     if (actor.userId === null && id === null) return;
     if (actor.userId === null || !id) throw new ForbiddenException('上传预留不存在');
     await serializedTransaction(this.db, async manager => {
       const result = await manager.createQueryBuilder().update('upload_reservations')
         .set({ temp_name: name, instance_id: uploadInstance })
-        .where('id = :id AND owner_user_id = :owner AND temp_name IS NULL AND instance_id IS NULL', { id, owner: actor.userId }).execute();
-      if (!result.affected) throw new ForbiddenException('上传预留不存在或已绑定');
+        .where('id = :id AND owner_user_id = :owner AND temp_name IS NULL AND instance_id IS NULL', { id, owner: actor.userId })
+        .andWhere("EXISTS (SELECT 1 FROM users WHERE users.id = :owner AND enabled = 1 AND role IN ('admin', 'operator'))", { owner: actor.userId }).execute();
+      if (!result.affected) throw new ForbiddenException('上传预留不存在、已绑定或账户已无上传权限');
     });
   }
 
