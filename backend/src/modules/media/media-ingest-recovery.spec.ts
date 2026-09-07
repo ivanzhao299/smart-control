@@ -29,6 +29,26 @@ describe('file ingestion compensation', () => {
   async function conversionSchema() {
     for (const migration of [new AddUploadReservations1788618003000(), new BindUploadTemporaryFiles1788618004000(), new TrackUploadInstances1788618005000(), new LinkUploadMedia1788618006000()]) await migration.up(db.createQueryRunner());
   }
+  it('binds reserved buffers at their actual size, preserves Chinese names and releases after finalization', async () => {
+    await conversionSchema();
+    const quota = new MediaQuotaService(db);
+    const reservation = await quota.reserve(actor, 100, root);
+    const result = await media.ingestReservedBuffer('中文曲目.mp3', 'audio/mpeg', Buffer.from('sample'), actor, reservation!);
+    expect(result).toMatchObject({ originalName: '中文曲目.mp3', ownerUserId: 1, source: 'import', sizeBytes: 6 });
+    expect(await fs.readFile(result.path, 'utf8')).toBe('sample');
+    expect(await fs.readdir(join(root, '_tmp'))).toEqual([]);
+    expect(await db.query('SELECT * FROM upload_reservations')).toEqual([]);
+  });
+  it('does not release the linked buffer reservation if temporary cleanup reports failure', async () => {
+    await conversionSchema();
+    const quota = new MediaQuotaService(db);
+    const reservation = await quota.reserve(actor, 100, root);
+    jest.spyOn(fs, 'unlink').mockRejectedValueOnce(Object.assign(new Error('cleanup denied'), { code: 'EACCES' }));
+    await expect(media.ingestReservedBuffer('sample.mp3', 'audio/mpeg', Buffer.from('sample'), actor, reservation!)).rejects.toThrow('cleanup denied');
+    const asset = await db.getRepository(MediaAsset).findOneByOrFail({ ownerUserId: 1 });
+    expect(await fs.readFile(asset.path, 'utf8')).toBe('sample');
+    expect(await db.query('SELECT bytes, target_media_id FROM upload_reservations WHERE id = ?', [reservation])).toEqual([{ bytes: 6, target_media_id: asset.id }]);
+  });
   it('removes only this failed conversion temporary file and preserves original and prior playback bytes', async () => {
     await conversionSchema();
     const repo = db.getRepository(MediaAsset);

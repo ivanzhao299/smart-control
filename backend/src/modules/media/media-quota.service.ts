@@ -80,6 +80,17 @@ export class MediaQuotaService {
     });
   }
 
+  async shrinkUnbound(actor: Actor, id: string, bytes: number): Promise<void> {
+    assertCanUpload(actor);
+    if (!Number.isSafeInteger(bytes) || bytes < 1) throw new BadRequestException('无效实际下载大小');
+    await serializedTransaction(this.db, async manager => {
+      const result = await manager.createQueryBuilder().update('upload_reservations').set({ bytes })
+        .where('id = :id AND owner_user_id IS :owner AND bytes >= :bytes AND temp_name IS NULL AND target_media_id IS NULL', { id, owner: actor.userId, bytes })
+        .andWhere("(:owner IS NULL OR EXISTS (SELECT 1 FROM users WHERE id = :owner AND enabled = 1 AND role IN ('admin', 'operator')))", { owner: actor.userId }).execute();
+      if (!result.affected) throw new ForbiddenException('下载预留已失效或实际大小超出预留');
+    });
+  }
+
   async reserve(actor: Actor, bytes: number, mediaRoot?: string): Promise<string | null> {
     assertCanUpload(actor);
     if (!Number.isSafeInteger(bytes) || bytes < 0) throw new BadRequestException('无效文件大小');

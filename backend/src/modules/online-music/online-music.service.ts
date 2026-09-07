@@ -80,19 +80,22 @@ export class OnlineMusicService {
     if (this.downloading) throw new ConflictException('下载服务正忙，请稍后重试');
     this.downloading = track.name;
     let reservation: string | null = null;
+    let handedToIngest = false;
     try {
       const usage = await this.quota.usage(actor);
       const allowance = usage.quotaBytes === null ? OnlineMusicService.MAX_BYTES
         : Math.min(OnlineMusicService.MAX_BYTES, Math.max(0, Number(usage.quotaBytes) - Number(usage.usedBytes) - Number(usage.reservedBytes)));
       if (allowance < 100 * 1024) throw new BadRequestException('剩余存储空间不足');
-      reservation = await this.quota.reserve(actor, allowance);
+      reservation = await this.quota.reserve(actor, allowance, this.media.mediaRoot);
+      if (!reservation) throw new BadRequestException('下载预留未建立');
       const url = `${this.baseUrl()}/${encodeURI(track.path)}`;
       const buf = await this.fetchBinary(url, allowance);
       if (buf.length < 100 * 1024) {
         throw new BadRequestException('下载内容异常偏小, 可能被网络设备拦截, 已放弃入库');
       }
-      const saved = await this.media.ingestFromBuffer(
-        originalName, 'audio/mpeg', buf, actor.username, actor,
+      handedToIngest = true;
+      const saved = await this.media.ingestReservedBuffer(
+        originalName, 'audio/mpeg', buf, actor, reservation,
         `在线曲库下载 (CC0 公有领域, freepd.com「${track.name}」) — 可商用免署名`,
       );
       this.logger.info(`[OnlineMusic] 已下载入库: ${originalName} (#${saved.id}, ${(buf.length / 1048576).toFixed(1)}MB)`, {
@@ -101,7 +104,7 @@ export class OnlineMusicService {
       return { id: saved.id, originalName: saved.originalName, sizeBytes: saved.sizeBytes };
     } finally {
       this.downloading = null;
-      await this.quota.release(actor, reservation);
+      if (!handedToIngest) await this.quota.release(actor, reservation);
     }
   }
 

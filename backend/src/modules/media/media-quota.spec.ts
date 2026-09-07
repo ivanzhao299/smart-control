@@ -27,6 +27,16 @@ describe('atomic upload capacity reservations', () => {
     jest.spyOn(quota as any, 'availableDiskBytes').mockResolvedValue(1_000_000);
   });
   afterEach(async () => { await db.destroy(); });
+  it('only shrinks an owned unbound download reservation and rejects enlargement or rebinding', async () => {
+    const id = (await quota.reserve(alice, 60))!;
+    await expect(quota.shrinkUnbound(bob, id, 30)).rejects.toThrow();
+    await expect(quota.shrinkUnbound(alice, id, 61)).rejects.toThrow();
+    await quota.shrinkUnbound(alice, id, 30);
+    expect((await quota.usage(alice)).reservedBytes).toBe(30);
+    await quota.bindTemporary(alice, id, '01234567-1234-1234-1234-012345678901.upload');
+    await expect(quota.shrinkUnbound(alice, id, 20)).rejects.toThrow();
+    expect((await quota.usage(alice)).reservedBytes).toBe(30);
+  });
   it('shares one disk budget between concurrent named and system uploads', async () => {
     (quota as any).availableDiskBytes.mockResolvedValue(100);
     const admin: Actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };

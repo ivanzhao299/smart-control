@@ -361,6 +361,31 @@ export class MediaService implements OnModuleInit {
   }
 
   /** 服务器侧来源 (在线曲库下载等) 从内存 buffer 入库 — 目录布局与 ingest 一致 */
+  async ingestReservedBuffer(originalName: string, mimeType: string, buf: Buffer, actor: Actor, reservationId: string, remark?: string): Promise<MediaAsset> {
+    const quota = new MediaQuotaService(this.repo.manager.connection);
+    const directory = join(this.mediaRoot, '_tmp');
+    const name = randomUUID() + '.upload';
+    const temporary = join(directory, name);
+    let owned = false;
+    try {
+      await quota.shrinkUnbound(actor, reservationId, buf.length);
+      await fs.mkdir(directory, { recursive: true });
+      const stat = await fs.lstat(directory);
+      const [root, actual] = await Promise.all([fs.realpath(this.mediaRoot), fs.realpath(directory)]);
+      if (!stat.isDirectory() || stat.isSymbolicLink() || actual !== join(root, '_tmp')) throw new BadRequestException('导入临时目录不安全');
+      await quota.bindTemporary(actor, reservationId, name);
+      const handle = await fs.open(temporary, 'wx', 0o600);
+      owned = true;
+      try { await handle.writeFile(buf); } finally { await handle.close(); }
+      return await this.ingest({ path: temporary, originalname: Buffer.from(originalName, 'utf8').toString('latin1'), mimetype: mimeType, size: buf.length } as Express.Multer.File,
+        actor.username, remark, actor, reservationId, 'import');
+    } finally {
+      // Keep the reservation if owned temporary bytes could not be removed.
+      if (owned) await fs.unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; });
+      await quota.release(actor, reservationId);
+    }
+  }
+
   async ingestFromBuffer(originalName: string, mimeType: string, buf: Buffer, uploader: string, actor: Actor, remark?: string): Promise<MediaAsset> {
     assertCanUpload(actor);
     const kind = this.classifyKind(mimeType, originalName);
