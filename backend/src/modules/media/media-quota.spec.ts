@@ -27,6 +27,39 @@ describe('atomic upload capacity reservations', () => {
     jest.spyOn(quota as any, 'availableDiskBytes').mockResolvedValue(1_000_000);
   });
   afterEach(async () => { await db.destroy(); });
+  async function word() {
+    return db.getRepository(MediaAsset).save({ originalName: 'brief.docx', safeName: 'brief.docx', kind: 'doc', mimeType: 'application/msword', path: '/fixture/brief.docx', ownerUserId: 1, visibility: 'private', processingStatus: 'ready', sizeBytes: 40 });
+  }
+  it('atomically reserves remaining document quota and marks it processing, rejecting duplicate requests', async () => {
+    const document = await word();
+    const results = await Promise.allSettled([
+      quota.reserveDocumentConversion(document.id, 1, 1000),
+      quota.reserveDocumentConversion(document.id, 1, 1000),
+    ]);
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter(result => result.status === 'rejected')).toHaveLength(1);
+    expect(await db.query('SELECT owner_user_id, bytes, target_media_id FROM upload_reservations')).toEqual([{ owner_user_id: 1, bytes: 60, target_media_id: document.id }]);
+    expect((await db.getRepository(MediaAsset).findOneByOrFail({ id: document.id })).processingStatus).toBe('processing');
+    expect((await quota.usage(alice)).reservedBytes).toBe(60);
+  });
+  it.each(['quota', 'disk', 'owner', 'disabled', 'existing-pdf', 'non-word'])('does not mark document processing or create a reservation when rejected for %s', async reason => {
+    const document = await word();
+    if (reason === 'quota') await db.getRepository(User).update(1, { storageQuotaBytes: 40 });
+    if (reason === 'disk') (quota as any).availableDiskBytes.mockResolvedValue(0);
+    if (reason === 'disabled') await db.getRepository(User).update(1, { enabled: false });
+    if (reason === 'existing-pdf') await db.getRepository(MediaAsset).update(document.id, { docPdfPath: 'brief.pdf' });
+    if (reason === 'non-word') await db.getRepository(MediaAsset).update(document.id, { safeName: 'brief.pptx' });
+    await expect(quota.reserveDocumentConversion(document.id, reason === 'owner' ? 2 : 1, 100)).rejects.toThrow();
+    expect((await db.getRepository(MediaAsset).findOneByOrFail({ id: document.id })).processingStatus).toBe('ready');
+    expect(await db.query('SELECT id FROM upload_reservations')).toEqual([]);
+  });
+  it('rolls back the document reservation if committing its processing state fails', async () => {
+    const document = await word();
+    await db.query("CREATE TRIGGER reject_document_processing BEFORE UPDATE OF processingStatus ON media_assets BEGIN SELECT RAISE(ABORT, 'state write failed'); END");
+    await expect(quota.reserveDocumentConversion(document.id, 1, 100)).rejects.toThrow('state write failed');
+    expect(await db.query('SELECT id FROM upload_reservations')).toEqual([]);
+    expect((await db.getRepository(MediaAsset).findOneByOrFail({ id: document.id })).processingStatus).toBe('ready');
+  });
   it('only shrinks an owned unbound download reservation and rejects enlargement or rebinding', async () => {
     const id = (await quota.reserve(alice, 60))!;
     await expect(quota.shrinkUnbound(bob, id, 30)).rejects.toThrow();

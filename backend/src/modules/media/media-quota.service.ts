@@ -3,6 +3,7 @@ import { DataSource, EntityManager } from 'typeorm';
 import { promises as fs } from 'fs';
 import { randomUUID } from 'crypto';
 import { hostname } from 'os';
+import { extname } from 'path';
 import { Actor } from '../../common/auth/actor';
 import { assertCanUpload } from '../../common/auth/resource-policy';
 import { serializedTransaction } from '../../common/utils/serialized-transaction';
@@ -35,10 +36,21 @@ export class MediaQuotaService {
   }
 
   async reserveConversion(mediaId: number, expectedOwner: number | null, maximum: number, mediaRoot?: string): Promise<{ id: string | null; bytes: number }> {
+    return this.reserveDerivative(mediaId, expectedOwner, maximum, mediaRoot, false);
+  }
+
+  async reserveDocumentConversion(mediaId: number, expectedOwner: number | null, maximum: number, mediaRoot?: string): Promise<{ id: string | null; bytes: number }> {
+    return this.reserveDerivative(mediaId, expectedOwner, maximum, mediaRoot, true);
+  }
+
+  private async reserveDerivative(mediaId: number, expectedOwner: number | null, maximum: number, mediaRoot: string | undefined, document: boolean): Promise<{ id: string | null; bytes: number }> {
     if (!Number.isSafeInteger(maximum) || maximum < 1) throw new BadRequestException('无效转码容量预算');
     return serializedTransaction(this.db, async manager => {
       const asset = await manager.findOneByOrFail(MediaAsset, { id: mediaId });
-      if (asset.ownerUserId !== expectedOwner || asset.processingStatus !== 'processing') throw new ForbiddenException('转码资料状态或归属已变化');
+      if (asset.ownerUserId !== expectedOwner || asset.processingStatus !== (document ? 'ready' : 'processing')) throw new ForbiddenException('转码资料状态或归属已变化');
+      if (document && (asset.kind !== 'doc' || !['.doc', '.docx'].includes(extname(asset.safeName).toLowerCase()) || asset.docPdfPath)) {
+        throw new ForbiddenException('仅未转换的Word文档可预留PDF转换空间');
+      }
       const disk = await this.remainingDisk(manager, mediaRoot);
       if (disk < 1) throw new ForbiddenException('媒体磁盘可用空间不足');
       const [capacity] = await manager.query(`SELECT storage_quota_bytes
@@ -53,6 +65,7 @@ export class MediaQuotaService {
         SELECT ?, ?, ?, ? WHERE NOT EXISTS
         (SELECT 1 FROM upload_reservations WHERE target_media_id = ? AND temp_name IS NULL)`, [id, expectedOwner, bytes, mediaId, mediaId]);
       if (!(await manager.query('SELECT id FROM upload_reservations WHERE id = ?', [id])).length) throw new ForbiddenException('资料已有待恢复转码预留');
+      if (document) await manager.update(MediaAsset, mediaId, { processingStatus: 'processing', processingError: null });
       return { id, bytes };
     });
   }
