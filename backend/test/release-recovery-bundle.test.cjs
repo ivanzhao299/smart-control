@@ -70,3 +70,15 @@ test('rejects a backup destination inside live media before creating any snapsho
     assert.deepEqual(await fs.readdir(nested), []);
   });
 });
+
+test('refuses to certify restored application paths outside the original media root', async () => {
+  await fixture(async (options, db, restores) => {
+    db.exec('CREATE TABLE media_assets (id INTEGER PRIMARY KEY, path TEXT)');
+    db.prepare('INSERT INTO media_assets VALUES (1, ?)').run(join(options.mediaRoot, '..', 'outside-private.bin'));
+    const bundle = await createReleaseBundle(options);
+    await assert.rejects(rehearseReleaseRestore(bundle.directory, restores), /escapes/);
+    const [partial] = await fs.readdir(restores);
+    await assert.rejects(fs.access(join(restores, partial, 'restore.json')));
+    await verifyReleaseBundle(bundle.directory);
+  });
+});

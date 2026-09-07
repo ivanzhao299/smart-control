@@ -77,6 +77,7 @@ async function createReleaseBundle({ databasePath, mediaRoot, destinationRoot, s
   const media = await verifiedMediaSnapshot(mediaRoot, directory);
   await checkFence();
   const manifest = { version: 1, kind: 'release-recovery-bundle', createdAt: new Date().toISOString(), sourceRevision,
+    sourceMediaRoot: path.resolve(mediaRoot),
     fence: 'external-caller-responsibility',
     database: { path: path.relative(directory, database.snapshot).split(path.sep).join('/'), sizeBytes: database.sizeBytes, sha256: database.sha256 },
     media: { path: path.basename(media.directory), manifestSha256: await checksum(path.join(media.directory, 'manifest.json')) } };
@@ -109,10 +110,50 @@ async function rehearseReleaseRestore(bundleDirectory, destinationRoot) {
   if (await checksum(path.join(media, 'manifest.json')) !== bundle.manifest.media.manifestSha256) {
     throw new Error('Restored media manifest checksum mismatch');
   }
+  const rebasedMediaRows = rebaseRestoredMedia(database, bundle.manifest.sourceMediaRoot, path.join(media, 'media'));
   const receipt = { version: 1, sourceRevision: bundle.manifest.sourceRevision, status: 'isolated-restore-verified',
+    rebasedMediaRows, restoredDatabaseSha256: await checksum(database),
     productionActivated: false, verifiedAt: new Date().toISOString() };
   await fs.writeFile(path.join(directory, 'restore.json'), JSON.stringify(receipt, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
   return { directory, database, mediaRoot: path.join(media, 'media'), receipt };
+}
+
+// The live DB stores absolute media paths. An isolated restored DB must never
+// continue reading/writing the live tree when an application is started on it.
+function rebaseRestoredMedia(database, originalRoot, restoredRoot) {
+  const db = new Database(database, { fileMustExist: true });
+  try {
+    if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='media_assets'").get()) return 0;
+    if (typeof originalRoot !== 'string' || !originalRoot) throw new Error('Original media root is required for application recovery');
+    const sourcePaths = /^[A-Za-z]:[\\/]|^\\\\/.test(originalRoot) ? path.win32 : path.posix;
+    if (!sourcePaths.isAbsolute(originalRoot)) throw new Error('Original media root must be absolute');
+    const columns = new Set(db.pragma('table_info(media_assets)').map(column => column.name));
+    const fields = ['path', 'sourcePath', 'thumbPath', 'docPdfPath'].filter(field => columns.has(field));
+    let updated = 0;
+    db.transaction(() => {
+      for (const row of db.prepare('SELECT * FROM media_assets').all()) {
+        const changes = [];
+        for (const field of fields) {
+          const value = row[field];
+          if (!value) continue;
+          if (typeof value !== 'string') throw new Error('Invalid media path in recovery database');
+          const rel = sourcePaths.isAbsolute(value) ? sourcePaths.relative(originalRoot, value) : value;
+          const normalized = sourcePaths.normalize(rel);
+          if (!normalized || normalized === '.' || normalized === '..' || normalized.startsWith('..' + sourcePaths.sep) || sourcePaths.isAbsolute(normalized)) {
+            throw new Error('Recovery media path escapes the original root');
+          }
+          if (sourcePaths.isAbsolute(value)) changes.push([field, path.join(restoredRoot, ...normalized.split(sourcePaths.sep))]);
+        }
+        if (changes.length) {
+          db.prepare(`UPDATE media_assets SET ${changes.map(([field]) => `"${field}" = ?`).join(', ')} WHERE id = ?`)
+            .run(...changes.map(([, value]) => value), row.id);
+          updated++;
+        }
+      }
+      if (db.pragma('foreign_key_check').length) throw new Error('Rebased recovery database foreign key check failed');
+    })();
+    return updated;
+  } finally { db.close(); }
 }
 
 module.exports = { createReleaseBundle, verifyReleaseBundle, rehearseReleaseRestore };
