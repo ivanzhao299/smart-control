@@ -25,6 +25,23 @@ describe('file ingestion compensation', () => {
     Object.defineProperty(media, 'mediaRoot', { value: root });
   });
   afterEach(async () => { jest.restoreAllMocks(); await db.destroy(); await fs.rm(root, { recursive: true, force: true }); });
+  it('holds the asset operation lock across file writing and releases it after finalization', async () => {
+    const asset = await db.getRepository(MediaAsset).save({ originalName: 'sample.mp3', safeName: 'sample.mp3', path: '', kind: 'audio', mimeType: 'audio/mpeg', sizeBytes: 6, ownerUserId: 1, visibility: 'private', uploader: 'alice' });
+    let entered!: () => void, releaseWrite!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const held = new Promise<void>(resolve => { releaseWrite = resolve; });
+    const pending = (media as any).finishNewAsset(asset, async (target: string) => {
+      entered(); await held; await fs.writeFile(target, 'sample');
+    });
+    await ready;
+    try {
+      await expect(media.remove(asset.id, actor)).rejects.toThrow('正在使用');
+      expect(() => media.acquireOperation(asset.id)).toThrow('正在使用');
+    } finally { releaseWrite(); }
+    const result = await pending;
+    expect(await fs.readFile(result.path, 'utf8')).toBe('sample');
+    media.acquireOperation(asset.id)();
+  });
   it.each([true, false])('atomically links the initial asset to its upload reservation (valid binding=%s)', async valid => {
     const runner = db.createQueryRunner();
     for (const migration of [new AddUploadReservations1788618003000(), new BindUploadTemporaryFiles1788618004000(), new TrackUploadInstances1788618005000(), new LinkUploadMedia1788618006000()]) await migration.up(runner);
@@ -80,12 +97,7 @@ describe('file ingestion compensation', () => {
   });
   it('finalizing the file path preserves admin edits made after initial insertion', async () => {
     await db.getRepository(User).save({ id: 2, username: 'bob', password: 'test', role: 'operator' });
-    const repo = db.getRepository(MediaAsset), update = repo.update.bind(repo);
-    jest.spyOn(repo, 'update').mockImplementationOnce(async (id, fields) => {
-      expect(Object.keys(fields)).toEqual(['path']);
-      await db.query("UPDATE media_assets SET owner_user_id = 2, visibility = 'shared', originalName = 'admin-renamed.mp3' WHERE id = ?", [id]);
-      return update(id, fields);
-    });
+    await db.query("CREATE TRIGGER edit_metadata BEFORE UPDATE OF path ON media_assets BEGIN UPDATE media_assets SET owner_user_id = 2, visibility = 'shared', originalName = 'admin-renamed.mp3' WHERE id = NEW.id; END");
     const result = await media.ingestFromBuffer('sample.mp3', 'audio/mpeg', Buffer.from('sample'), 'alice', actor);
     expect(result).toMatchObject({ ownerUserId: 2, visibility: 'shared', originalName: 'admin-renamed.mp3' });
     expect(await fs.readFile(result.path, 'utf8')).toBe('sample');

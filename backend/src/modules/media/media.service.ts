@@ -415,6 +415,15 @@ export class MediaService implements OnModuleInit {
   }
 
   private async finishNewAsset(saved: MediaAsset, write: (path: string) => Promise<void>): Promise<MediaAsset> {
+    const release = this.acquireOperation(saved.id);
+    let result: MediaAsset;
+    try { result = await this.finishNewAssetLocked(saved, write); }
+    finally { release(); }
+    if (result.kind === 'video') void this.prepareVideo(result.id);
+    return result;
+  }
+
+  private async finishNewAssetLocked(saved: MediaAsset, write: (path: string) => Promise<void>): Promise<MediaAsset> {
     const directory = join(this.mediaRoot, String(saved.id));
     const path = join(directory, saved.safeName);
     let created = false;
@@ -428,17 +437,18 @@ export class MediaService implements OnModuleInit {
       const fields: Partial<MediaAsset> = { path };
       if (saved.kind === 'doc' && extname(saved.originalName).toLowerCase() === '.pdf') fields.docPdfPath = relative(this.mediaRoot, path).split(sep).join('/');
       // Do not save the stale pre-upload entity over concurrent admin edits.
-      const updated = await this.repo.update(saved.id, fields);
-      if (!updated.affected) throw new NotFoundException('上传资料记录已不存在');
-      result = await this.repo.findOneByOrFail({ id: saved.id });
+      result = await serializedTransaction(this.repo.manager.connection, async manager => {
+        const updated = await manager.update(MediaAsset, saved.id, fields);
+        if (!updated.affected) throw new NotFoundException('上传资料记录已不存在');
+        return manager.findOneByOrFail(MediaAsset, { id: saved.id });
+      });
     } catch (error) {
       // Remove only the newly created asset directory. If cleanup fails, retain
       // its DB row so residual bytes continue counting against the owner's quota.
       if (created) await fs.rm(directory, { recursive: true, force: true });
-      await this.repo.delete(saved.id);
+      await serializedTransaction(this.repo.manager.connection, manager => manager.delete(MediaAsset, saved.id));
       throw error;
     }
-    if (result.kind === 'video') void this.prepareVideo(result.id);
     return result;
   }
 
