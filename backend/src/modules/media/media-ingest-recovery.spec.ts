@@ -57,11 +57,7 @@ describe('file ingestion compensation', () => {
   });
   it('removes newly written files and database rows when final save fails', async () => {
     const repo = db.getRepository(MediaAsset);
-    const save = repo.save.bind(repo);
-    jest.spyOn(repo, 'save').mockImplementation(async (entity: any) => {
-      if (entity.path) throw new Error('injected final-save failure');
-      return save(entity);
-    });
+    await db.query("CREATE TRIGGER fail_final_path BEFORE UPDATE OF path ON media_assets BEGIN SELECT RAISE(ABORT, 'injected final-save failure'); END");
     await expect(media.ingestFromBuffer('sample.mp3', 'audio/mpeg', Buffer.from('sample'), 'alice', actor)).rejects.toThrow('injected');
     expect(await repo.count()).toBe(0);
     expect(await fs.readdir(root)).toEqual([]);
@@ -75,13 +71,24 @@ describe('file ingestion compensation', () => {
   });
   it('retains accounting records if failed-ingest directory cleanup fails', async () => {
     const repo = db.getRepository(MediaAsset);
-    const save = repo.save.bind(repo);
-    jest.spyOn(repo, 'save').mockImplementation(async (entity: any) => { if (entity.path) throw new Error('save failed'); return save(entity); });
+    await db.query("CREATE TRIGGER fail_final_path BEFORE UPDATE OF path ON media_assets BEGIN SELECT RAISE(ABORT, 'save failed'); END");
     jest.spyOn(fs, 'rm').mockRejectedValueOnce(new Error('cleanup denied'));
     await expect(media.ingestFromBuffer('sample.mp3', 'audio/mpeg', Buffer.from('sample'), 'alice', actor)).rejects.toThrow('cleanup denied');
     expect(await repo.count()).toBe(1);
     expect((await repo.find())[0].sizeBytes).toBe(6);
     expect(await fs.readFile(join(root, '1', 'sample.mp3'), 'utf8')).toBe('sample');
+  });
+  it('finalizing the file path preserves admin edits made after initial insertion', async () => {
+    await db.getRepository(User).save({ id: 2, username: 'bob', password: 'test', role: 'operator' });
+    const repo = db.getRepository(MediaAsset), update = repo.update.bind(repo);
+    jest.spyOn(repo, 'update').mockImplementationOnce(async (id, fields) => {
+      expect(Object.keys(fields)).toEqual(['path']);
+      await db.query("UPDATE media_assets SET owner_user_id = 2, visibility = 'shared', originalName = 'admin-renamed.mp3' WHERE id = ?", [id]);
+      return update(id, fields);
+    });
+    const result = await media.ingestFromBuffer('sample.mp3', 'audio/mpeg', Buffer.from('sample'), 'alice', actor);
+    expect(result).toMatchObject({ ownerUserId: 2, visibility: 'shared', originalName: 'admin-renamed.mp3' });
+    expect(await fs.readFile(result.path, 'utf8')).toBe('sample');
   });
   it('does not restore stale ownership or visibility after asynchronous video probing', async () => {
     await db.getRepository(User).save({ id: 2, username: 'bob', password: 'test', role: 'operator' });

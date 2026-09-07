@@ -425,9 +425,12 @@ export class MediaService implements OnModuleInit {
       await fs.mkdir(directory);
       created = true;
       await write(path);
-      saved.path = path;
-      if (saved.kind === 'doc' && extname(saved.originalName).toLowerCase() === '.pdf') saved.docPdfPath = relative(this.mediaRoot, path).split(sep).join('/');
-      result = await this.repo.save(saved);
+      const fields: Partial<MediaAsset> = { path };
+      if (saved.kind === 'doc' && extname(saved.originalName).toLowerCase() === '.pdf') fields.docPdfPath = relative(this.mediaRoot, path).split(sep).join('/');
+      // Do not save the stale pre-upload entity over concurrent admin edits.
+      const updated = await this.repo.update(saved.id, fields);
+      if (!updated.affected) throw new NotFoundException('上传资料记录已不存在');
+      result = await this.repo.findOneByOrFail({ id: saved.id });
     } catch (error) {
       // Remove only the newly created asset directory. If cleanup fails, retain
       // its DB row so residual bytes continue counting against the owner's quota.
