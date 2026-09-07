@@ -211,8 +211,7 @@ export class MediaController {
     @Res() res: Response,
     @Query('variant') variant?: string,
   ): Promise<void> {
-    await this.media.authorized(id, requireActor(req));
-    this.sendFile(res, await this.media.openStream(id, variant === 'pdf', req.headers.range));
+    this.sendFile(res, await this.access.openDirect(req, id, variant === 'pdf', req.headers.range));
   }
 
   @Delete(':id')

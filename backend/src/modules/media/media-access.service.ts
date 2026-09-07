@@ -20,20 +20,47 @@ export class MediaAccessService {
   constructor(private readonly media: MediaService,
     private readonly clients: ClientAuthService, private readonly admins: AdminAuthService) {}
 
-  async issue(req: AuthenticatedRequest, mediaId: number, variant: 'file' | 'pdf') {
+  private credentials(req: AuthenticatedRequest) {
     const actor = requireActor(req);
-    await this.media.authorized(mediaId, actor);
     const bearer = typeof req.headers.authorization === 'string' && req.headers.authorization.startsWith('Bearer ')
       ? req.headers.authorization.slice(7).trim() : '';
     const client = typeof req.headers['x-client-token'] === 'string' ? req.headers['x-client-token'].trim() : '';
     const token = actor.kind === 'admin' ? bearer : client || bearer;
     if (!token) throw new UnauthorizedException('请重新登录');
+    return { token, admin: actor.kind === 'admin' };
+  }
+
+  private async currentActor(credentials: { token: string; admin: boolean }): Promise<Actor> {
+    const actor: Actor | null = credentials.admin
+      ? await this.admins.verifyToken(credentials.token)
+        ? { kind: 'admin', role: 'admin', userId: null, username: 'admin' } : null
+      : await this.clients.resolveActor(credentials.token);
+    if (!actor) throw new UnauthorizedException('登录已失效');
+    return actor;
+  }
+
+  async openDirect(req: AuthenticatedRequest, mediaId: number, pdf: boolean, range?: string) {
+    const credentials = this.credentials(req);
+    await this.media.authorized(mediaId, await this.currentActor(credentials));
+    const file = await this.media.openStream(mediaId, pdf, range);
+    try {
+      await this.media.authorized(mediaId, await this.currentActor(credentials));
+      return file;
+    } catch (error) {
+      file.stream?.destroy();
+      throw error;
+    }
+  }
+
+  async issue(req: AuthenticatedRequest, mediaId: number, variant: 'file' | 'pdf') {
+    await this.media.authorized(mediaId, requireActor(req));
+    const { token, admin } = this.credentials(req);
     const now = Date.now();
     for (const [key, value] of this.tickets) if (value.expiresAt <= now) this.tickets.delete(key);
     if (this.tickets.size >= 10000) this.tickets.delete(this.tickets.keys().next().value!);
     const key = randomBytes(32).toString('base64url');
     const expiresAt = now + 5 * 60 * 1000;
-    this.tickets.set(key, { mediaId, variant, token, admin: actor.kind === 'admin', expiresAt });
+    this.tickets.set(key, { mediaId, variant, token, admin, expiresAt });
     return { url: `/api/media/${mediaId}/stream?ticket=${key}`, expiresAt: new Date(expiresAt).toISOString() };
   }
 

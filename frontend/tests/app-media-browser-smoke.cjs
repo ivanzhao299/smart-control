@@ -52,6 +52,12 @@ async function api(route, method, body, token, admin = false) {
   const unsatisfied = await fetch(previewUrl, { headers: { Range: 'bytes=99999-' } });
   assert.equal(unsatisfied.status, 416);
   assert.equal((await unsatisfied.arrayBuffer()).byteLength, 0);
+  const ownerDirect = await fetch(backend + '/media/' + asset.id + '/file', {
+    headers: { 'X-Client-Token': accounts.operator.token, Range: 'bytes=2-6' },
+  });
+  assert.equal(ownerDirect.status, 206);
+  assert.equal(ownerDirect.headers.get('content-range'), `bytes 2-6/${png.length}`);
+  assert.deepEqual(Buffer.from(await ownerDirect.arrayBuffer()), png.subarray(2, 7));
   const anonymous = await fetch(backend + '/media/' + asset.id + '/file');
   assert.equal(anonymous.status, 401);
   await anonymous.arrayBuffer();

@@ -15,6 +15,38 @@ describe('short-lived media access', () => {
     service = new MediaAccessService(media, clients, admins);
   });
   const key = (url: string) => new URL(url, 'http://test').searchParams.get('ticket')!;
+  it.each(['session', 'ownership', 'admin'])('closes direct downloads revoked during opening: %s', async reason => {
+    const stream = new PassThrough();
+    const req = reason === 'admin'
+      ? { actor: { kind: 'admin' }, headers: { authorization: 'Bearer admin-secret', 'x-client-token': 'client-secret' } } as any
+      : request();
+    media.openStream = jest.fn(async () => {
+      if (reason === 'session') clients.resolveActor.mockResolvedValue(null);
+      if (reason === 'ownership') media.authorized.mockRejectedValue(new Error('ownership changed'));
+      if (reason === 'admin') admins.verifyToken.mockResolvedValue(false);
+      return { stream };
+    });
+    try {
+      await expect(service.openDirect(req, 42, true, 'bytes=0-2')).rejects.toThrow();
+      expect(stream.destroyed).toBe(true);
+      expect(media.openStream).toHaveBeenCalledWith(42, true, 'bytes=0-2');
+      if (reason === 'admin') {
+        expect(admins.verifyToken).toHaveBeenCalledWith('admin-secret');
+        expect(clients.resolveActor).not.toHaveBeenCalled();
+      }
+    } finally { stream.destroy(); }
+  });
+  it('rejects invalid direct credentials before opening and preserves valid streams', async () => {
+    const stream = new PassThrough();
+    media.openStream = jest.fn().mockResolvedValue({ stream });
+    clients.resolveActor.mockResolvedValue(null);
+    await expect(service.openDirect(request(), 42, false)).rejects.toThrow('登录已失效');
+    expect(media.openStream).not.toHaveBeenCalled();
+    clients.resolveActor.mockResolvedValue(actor);
+    expect((await service.openDirect(request(), 42, false)).stream).toBe(stream);
+    expect(stream.destroyed).toBe(false);
+    stream.destroy();
+  });
   it.each(['session', 'ownership', 'expiry'])('closes the opened stream when %s changes during file opening', async reason => {
     const issued = await service.issue(request(), 42, 'file');
     const stream = new PassThrough();
