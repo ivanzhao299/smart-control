@@ -23,7 +23,7 @@
 
 1. 生产运维连接已于2026-09-07实测恢复确认：显式使用历史跳板维护身份登录阿里云，再使用跳板上GK9000专用身份连接user@10.66.66.3，返回hostname=GK9000。D:/smart-control的Git HEAD为8d4ce521de50c6d2250027990760dd3933e38a00；这仅证明磁盘代码，不等于运行进程版本。局域网3200端口client-auth/ping返回有效在线JSON，5173前端返回200。默认SSH失败不能代表此双跳路线失败；不得用会自动修复/重启的verify入口冒充只读检查。
 2. 配置并验证PLAYER_DEVICE_CREDENTIALS、浏览器kiosk凭据及SMART_CONTROL_PLAYER_TOKEN_FILE。start-players.ps1目前并不自动配置它们，漏配会使既有播放器无法使用；这是实际兼容问题，不是可选增强。
-3. 接通一次可执行的停写、配套备份、迁移、启动流程。当前普通run-migrations CLI有待执行迁移时会拒绝；不能声称现有CI可直接完成发布，也不能只删除保护检查来放行。
+3. 串联定向暂停、配套备份、迁移、启动流程。已新增suspend-gk9000-release.ps1、assert-gk9000-writers-stopped.ps1和run-gk9000-migrations.cjs，并有只读及隔离测试；仍缺代码部署时序、任务原状态恢复和受控启动接线，真实暂停/迁移尚未执行。普通run-migrations CLI有待执行迁移时仍拒绝；不能声称现有CI可直接完成发布，也不能只删除保护检查来放行。
 4. 用两名普通用户及管理员执行上传、互不可见、本人推送、管理员管理、账户切换验收，确认LED/投影/BGM仍工作，再完成版本证明。
 
 ## 暂存改动

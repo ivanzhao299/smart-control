@@ -42,6 +42,9 @@ foreach ($process in $processes) {
     if ($command -match '(?i)(bgm-player|ppt-player|player-watchdog|start-players)\.ps1|smart-control-player-slot[123]') {
       throw 'A player or player launcher remains.'
     }
+    if ($command -match '(?i)[\\/]smart-control[\\/]scripts[\\/](update|backup|boot-pm2|deploy-from-ci)\.ps1') {
+      throw 'A maintenance writer or service launcher remains.'
+    }
   }
   # Do not claim stopped while an external converter could still write media.
   # This conservative rejection never terminates unrelated applications.
