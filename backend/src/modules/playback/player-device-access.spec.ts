@@ -1,5 +1,6 @@
 import { PlayerDeviceAccessService } from './player-device-access.service';
 import { join } from 'path';
+import { PassThrough } from 'stream';
 
 describe('device playback access grants', () => {
   let service: PlayerDeviceAccessService, row: any, user: any, devices: any, media: any, playback: any;
@@ -12,6 +13,24 @@ describe('device playback access grants', () => {
     service = new PlayerDeviceAccessService({ findOneByOrFail: async () => ({ ...row }) } as any, { findOneBy: async () => user } as any, devices, playback, media);
   });
   const ticketOf = (state: any) => new URL(state.currentMediaUrl, 'http://localhost').searchParams.get('ticket')!;
+  it.each(['session', 'device', 'account', 'ownership', 'expiry'])('closes the opened stream when %s changes during opening', async (change) => {
+    const ticket = ticketOf(await service.state(3, 'device-secret'));
+    const stream = new PassThrough();
+    let clock: jest.SpyInstance | undefined;
+    media.openStream.mockImplementation(async () => {
+      if (change === 'session') row.playbackSession = 'session-2';
+      if (change === 'device') devices.authenticate.mockImplementation(() => { throw new Error('revoked'); });
+      if (change === 'account') user.enabled = false;
+      if (change === 'ownership') media.authorized.mockRejectedValue(new Error('ownership changed'));
+      if (change === 'expiry') clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 301_000);
+      return { status: 200, stream };
+    });
+    try {
+      await expect(service.stream(3, ticket)).rejects.toThrow();
+      expect(stream.destroyed).toBe(true);
+      expect(media.openStream).toHaveBeenCalledTimes(1);
+    } finally { clock?.mockRestore(); stream.destroy(); }
+  });
   it('issues opaque reusable short-lived URLs and authorizes before opening range streams', async () => {
     const state = await service.state(3, 'device-secret');
     const ticket = ticketOf(state);

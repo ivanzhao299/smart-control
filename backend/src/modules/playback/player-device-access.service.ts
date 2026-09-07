@@ -67,14 +67,26 @@ export class PlayerDeviceAccessService {
     return { ...view, playbackSession: session };
   }
 
-  async stream(slot: number, ticket: string, range?: string) {
+  private async authorizeStream(slot: number, ticket: string) {
     const grant = this.grants.get(ticket);
     if (!grant || grant.slot !== slot || grant.expires <= Date.now()) throw new UnauthorizedException('播放凭证已失效');
     this.devices.authenticate(grant.token, slot);
     const row = await this.channels.findOneByOrFail({ slot });
     if (this.session(row) !== grant.session || row.currentMediaId !== grant.mediaId) throw new UnauthorizedException('播放会话已变化');
     await this.media.authorized(grant.mediaId, await this.initiator(row));
-    return this.media.openStream(grant.mediaId, grant.pdf, range);
+    return grant;
+  }
+
+  async stream(slot: number, ticket: string, range?: string) {
+    const grant = await this.authorizeStream(slot, ticket);
+    const file = await this.media.openStream(grant.mediaId, grant.pdf, range);
+    try {
+      await this.authorizeStream(slot, ticket);
+      return file;
+    } catch (error) {
+      file.stream?.destroy();
+      throw error;
+    }
   }
 
   async advance(slot: number, token: string, session: string) {
