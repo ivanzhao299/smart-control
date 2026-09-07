@@ -765,10 +765,19 @@ export class MediaService implements OnModuleInit {
   }
 
   async authorized(id: number, actor: Actor, write = false): Promise<MediaAsset> {
-    const media = await this.get(id);
-    if (write) assertWriteResource(actor, media);
-    else assertReadResource(actor, media);
-    return media;
+    return serializedTransaction(this.repo.manager.connection, async manager => {
+      let current = actor;
+      if (actor.userId !== null) {
+        const user = await manager.findOneBy(User, { id: actor.userId, enabled: true });
+        if (!user) throw new ForbiddenException('账户已停用');
+        current = { ...actor, role: user.role };
+      }
+      const media = await manager.findOneBy(MediaAsset, { id });
+      if (!media) throw new NotFoundException('资料不存在');
+      if (write) assertWriteResource(current, media);
+      else assertReadResource(current, media);
+      return media;
+    });
   }
 
   async updateOwned(id: number, actor: Actor, dto: UpdateMediaDto): Promise<MediaAsset> {

@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { MediaService } from './media.service';
 import { Actor } from '../../common/auth/actor';
+import { User } from '../../entities/user.entity';
 
 describe('media deletion lifecycle guards', () => {
   const actor: Actor = { kind: 'user', userId: 1, username: 'alice', role: 'operator' };
@@ -8,6 +9,8 @@ describe('media deletion lifecycle guards', () => {
   beforeEach(() => {
     asset = { id: 1, ownerUserId: 1, visibility: 'private', processingStatus: 'ready' };
     repo = { findOne: jest.fn(async () => asset), query: jest.fn(async () => []), remove: jest.fn() };
+    const manager = { findOneBy: jest.fn(async entity => entity === User ? { id: 1, enabled: true, role: 'operator' } : asset) };
+    repo.manager = { connection: { transaction: async (work: (manager: unknown) => Promise<unknown>) => work(manager) } };
     service = new MediaService(repo, new ConfigService(), {} as any);
   });
   it('rejects cross-user deletion inside the service', async () => {

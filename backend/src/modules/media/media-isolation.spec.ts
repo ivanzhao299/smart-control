@@ -28,6 +28,24 @@ describe('media isolation with SQLite repositories', () => {
     await db.getRepository(MediaAsset).update(shared.id, { visibility: 'shared' });
   });
   afterEach(async () => { if (db?.isInitialized) await db.destroy(); });
+  it.each(['disabled', 'demoted'])('rechecks direct media authorization after queued administrator revocation: %s', async state => {
+    const target = await db.getRepository(MediaAsset).findOneByOrFail({ originalName: 'Bob private' });
+    await db.getRepository(User).update(1, { role: 'admin' });
+    let entered!: () => void, finish!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const held = new Promise<void>(resolve => { finish = resolve; });
+    const writer = serializedTransaction(db, async manager => {
+      entered(); await held;
+      await manager.update(User, 1, state === 'disabled' ? { enabled: false } : { role: 'viewer' });
+    });
+    await ready;
+    let settled = 0;
+    const operations = [false, true].map(write => media.authorized(target.id, { ...alice, role: 'admin' }, write).finally(() => { settled++; }));
+    await new Promise(resolve => setImmediate(resolve));
+    expect(settled).toBe(0);
+    finish();
+    expect((await Promise.allSettled([writer, ...operations])).map(result => result.status)).toEqual(['fulfilled', 'rejected', 'rejected']);
+  });
   it.each(['disabled', 'demoted'])('rechecks queued media listing after administrator revocation: %s', async state => {
     await db.getRepository(User).update(1, { role: 'admin' });
     let entered!: () => void, finish!: () => void;
