@@ -51,4 +51,18 @@ export class MediaAccessService {
     await this.media.authorized(mediaId, actor);
     return ticket.variant;
   }
+
+  async open(key: string, mediaId: number, range?: string) {
+    const variant = await this.redeem(key, mediaId);
+    const file = await this.media.openStream(mediaId, variant === 'pdf', range);
+    try {
+      // Opening/statting the file is asynchronous. Recheck expiry, session and
+      // ownership before handing its descriptor to the HTTP response.
+      await this.redeem(key, mediaId);
+      return file;
+    } catch (error) {
+      file.stream?.destroy();
+      throw error;
+    }
+  }
 }

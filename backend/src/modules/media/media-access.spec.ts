@@ -1,4 +1,5 @@
 import { MediaAccessService } from './media-access.service';
+import { PassThrough } from 'stream';
 
 describe('short-lived media access', () => {
   let service: MediaAccessService;
@@ -14,6 +15,34 @@ describe('short-lived media access', () => {
     service = new MediaAccessService(media, clients, admins);
   });
   const key = (url: string) => new URL(url, 'http://test').searchParams.get('ticket')!;
+  it.each(['session', 'ownership', 'expiry'])('closes the opened stream when %s changes during file opening', async reason => {
+    const issued = await service.issue(request(), 42, 'file');
+    const stream = new PassThrough();
+    let clock: jest.SpyInstance | undefined;
+    media.openStream = jest.fn(async () => {
+      if (reason === 'session') clients.resolveActor.mockResolvedValue(null);
+      if (reason === 'ownership') media.authorized.mockRejectedValue(new Error('资料不存在'));
+      if (reason === 'expiry') clock = jest.spyOn(Date, 'now').mockReturnValue(Date.parse(issued.expiresAt) + 1);
+      return { stream };
+    });
+    try {
+      await expect(service.open(key(issued.url), 42, 'bytes=0-2')).rejects.toThrow();
+      expect(media.openStream).toHaveBeenCalledWith(42, false, 'bytes=0-2');
+      expect(stream.destroyed).toBe(true);
+    } finally { clock?.mockRestore(); stream.destroy(); }
+  });
+  it('does not open bytes for a rejected initial ticket and leaves valid streams available', async () => {
+    const stream = new PassThrough();
+    media.openStream = jest.fn().mockResolvedValue({ stream });
+    await expect(service.open('invented', 42)).rejects.toThrow();
+    expect(media.openStream).not.toHaveBeenCalled();
+    const issued = await service.issue(request(), 42, 'pdf');
+    const file = await service.open(key(issued.url), 42);
+    expect(file.stream).toBe(stream);
+    expect(stream.destroyed).toBe(false);
+    expect(media.openStream).toHaveBeenCalledWith(42, true, undefined);
+    stream.destroy();
+  });
   it('issues only after permission check and does not put login secrets in URL', async () => {
     const issued = await service.issue(request(), 42, 'pdf');
     expect(media.authorized).toHaveBeenCalledWith(42, actor);

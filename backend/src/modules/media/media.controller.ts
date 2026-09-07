@@ -196,8 +196,7 @@ export class MediaController {
   @Get(':id/stream')
   async stream(@Param('id', ParseIntPipe) id: number, @Query('ticket') ticket: string,
     @Res() res: Response, @Req() req: AuthenticatedRequest): Promise<void> {
-    const variant = await this.access.redeem(ticket, id);
-    const file = await this.media.openStream(id, variant === 'pdf', req.headers.range);
+    const file = await this.access.open(ticket, id, req.headers.range);
     this.sendFile(res, file);
   }
 
