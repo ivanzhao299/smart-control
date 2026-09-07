@@ -485,9 +485,7 @@ export class MediaService implements OnModuleInit {
    * 只列出来, 不自动入库 —— 跟"从媒体库选"同一个原则: 磁盘上的东西要经人确认。
    */
   async scanOrphans(): Promise<OrphanMediaItem[]> {
-    const known = new Set(
-      (await this.repo.find({ select: ['path'] })).map((r) => resolve(r.path)),
-    );
+    const known = await this.registeredMediaPaths(this.repo);
     const tmpRootResolved = resolve(this.tmpRoot);
     const results: OrphanMediaItem[] = [];
 
@@ -507,7 +505,7 @@ export class MediaService implements OnModuleInit {
           await walk(full);
         } else if (entry.isFile()) {
           const resolved = resolve(full);
-          if (known.has(resolved)) continue; // 已经在库里 (正常上传的文件), 不是孤儿
+          if (known.has(resolved) || known.has(await fs.realpath(full))) continue;
           const ext = extname(entry.name).toLowerCase();
           const guess = EXT_KIND_MIME[ext];
           const stat = await fs.stat(full);
@@ -530,6 +528,27 @@ export class MediaService implements OnModuleInit {
     // Numeric asset trees include originals, transcode outputs and incomplete
     // uploads. They require recovery, never a second ownership claim via import.
     return /^\d+$/.test(parts[0]) || parts.some(part => part === '_tmp' || part.startsWith('.delete-'));
+  }
+
+  private async registeredMediaPaths(repo: Repository<MediaAsset>): Promise<Set<string>> {
+    const rows = await repo.find({ select: ['path', 'sourcePath', 'thumbPath', 'docPdfPath'] });
+    const known = new Set<string>();
+    for (const row of rows) {
+      const candidates = [row.path, row.sourcePath,
+        row.thumbPath ? resolve(this.mediaRoot, row.thumbPath) : null,
+        row.docPdfPath ? resolve(this.mediaRoot, row.docPdfPath) : null];
+      for (const candidate of candidates) {
+        if (!candidate) continue;
+        known.add(resolve(candidate));
+        try { known.add(await fs.realpath(candidate)); }
+        catch (error) {
+          // Missing registered files still reserve their declared paths. Other
+          // filesystem failures must not relabel protected data as an orphan.
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
+      }
+    }
+    return known;
   }
 
   /** 把 scanOrphans() 列出的某一个文件正式收编成媒体库资源 (原地过户, 不重新写一份) */
@@ -582,6 +601,8 @@ export class MediaService implements OnModuleInit {
       lastPlayedAt: null,
     });
     const saved = await serializedTransaction(this.repo.manager.connection, async manager => {
+      const known = await this.registeredMediaPaths(manager.getRepository(MediaAsset));
+      if (known.has(abs) || known.has(realFile)) throw new ConflictException('文件已关联资料，不能重复收编');
       const reservationId = actor.userId === null ? null : randomUUID();
       if (actor.userId !== null) {
         const current = await manager.findOneBy(User, { id: actor.userId, enabled: true, role: 'admin' });

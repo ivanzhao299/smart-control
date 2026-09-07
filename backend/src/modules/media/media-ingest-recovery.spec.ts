@@ -26,6 +26,25 @@ describe('file ingestion compensation', () => {
     Object.defineProperty(media, 'mediaRoot', { value: root });
   });
   afterEach(async () => { jest.restoreAllMocks(); await db.destroy(); await fs.rm(root, { recursive: true, force: true }); });
+  it('excludes legacy registered originals, previews and derivatives from scan and direct orphan import', async () => {
+    const admin: Actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };
+    await fs.mkdir(join(root, 'legacy'));
+    for (const name of ['playback.mp4', 'original.mov', 'thumb.png', 'document.pdf']) {
+      await fs.writeFile(join(root, 'legacy', name), 'preserve');
+    }
+    await db.getRepository(MediaAsset).save({ originalName: 'Legacy', safeName: 'playback.mp4',
+      path: join(root, 'legacy', 'playback.mp4'), sourcePath: join(root, 'legacy', 'original.mov'),
+      thumbPath: 'legacy/thumb.png', docPdfPath: 'legacy/document.pdf', kind: 'video', mimeType: 'video/mp4',
+      sizeBytes: 8, ownerUserId: 1, visibility: 'private', uploader: 'alice' });
+    await fs.symlink(join(root, 'legacy'), join(root, 'alias'), 'dir');
+    expect(await media.scanOrphans()).toEqual([]);
+    for (const name of ['playback.mp4', 'original.mov', 'thumb.png', 'document.pdf']) {
+      await expect(media.importOrphan('legacy/' + name, admin.username, admin)).rejects.toThrow('不能重复收编');
+      await expect(media.importOrphan('alias/' + name, admin.username, admin)).rejects.toThrow('不能重复收编');
+      expect(await fs.readFile(join(root, 'legacy', name), 'utf8')).toBe('preserve');
+    }
+    expect(await db.getRepository(MediaAsset).count()).toBe(1);
+  });
   it('restores an orphan that grows after capacity was checked instead of undercounting it', async () => {
     await new AddUploadReservations1788618003000().up(db.createQueryRunner());
     await db.getRepository(User).update(1, { role: 'admin', storageQuotaBytes: 6 });
