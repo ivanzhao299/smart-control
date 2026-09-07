@@ -280,6 +280,11 @@ try {
           $frontendBundleMissing = -not (Test-Path $entryFile)
         }
       }
+      $parkOpsIndex = Join-Path $projectRoot 'frontend\dist\park-ops\index.html'
+      $parkOpsAerial = Join-Path $projectRoot 'frontend\dist\park-ops\park-aerial.jpg'
+      if (-not (Test-Path $parkOpsIndex) -or -not (Test-Path $parkOpsAerial)) {
+        $frontendBundleMissing = $true
+      }
       if ($frontendBundleMissing) {
         Write-DeployLog 'Frontend entry bundle is missing after Git fast-forward; rebuilding frontend before verification.'
         Push-Location (Join-Path $projectRoot 'frontend')
@@ -300,6 +305,12 @@ try {
           foreach ($rootFile in @('index.html', 'sw.js', 'registerSW.js', 'manifest.webmanifest')) {
             $source = Join-Path $repairDir $rootFile
             if (Test-Path $source) { Copy-Item -Path $source -Destination (Join-Path $productionDist $rootFile) -Force }
+          }
+          $repairParkOps = Join-Path $repairDir 'park-ops'
+          $productionParkOps = Join-Path $productionDist 'park-ops'
+          if (Test-Path $repairParkOps) {
+            New-Item -ItemType Directory -Force -Path $productionParkOps | Out-Null
+            Copy-Item -Path (Join-Path $repairParkOps '*') -Destination $productionParkOps -Recurse -Force
           }
           Remove-Item -Path $repairDir -Recurse -Force -ErrorAction SilentlyContinue
         } finally {
@@ -350,22 +361,20 @@ try {
         Pop-Location
       }
 
-      # Run DB migrations after build, before restart. With DB_SYNCHRONIZE=false the
-      # schema only changes through migrations, so this is where new ones get applied.
-      # run-migrations.js is a no-op when nothing is pending, backs up the DB before it
-      # touches anything, and exits non-zero on failure -> the catch below rolls back.
-      Push-Location (Join-Path $projectRoot 'backend')
-      try {
-        Write-DeployLog 'Running DB migrations (run-migrations.js).'
-        & node scripts/run-migrations.js 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
-        if ($LASTEXITCODE -ne 0) { throw "Database migration failed (exit $LASTEXITCODE)." }
-      } finally {
-        Pop-Location
-      }
-
       Write-DeployLog 'Restarting services through pm2.'
       Restart-Services
     }
+  }
+
+  # Always reconcile migrations. The on-box watcher may fast-forward Git before CI
+  # arrives, and an already-deployed source SHA does not prove its DB migration ran.
+  Push-Location (Join-Path $projectRoot 'backend')
+  try {
+    Write-DeployLog 'Reconciling DB migrations (run-migrations.js).'
+    & node scripts/run-migrations.js 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
+    if ($LASTEXITCODE -ne 0) { throw "Database migration failed (exit $LASTEXITCODE)." }
+  } finally {
+    Pop-Location
   }
 
   # Common path on purpose: the on-box watcher can fast-forward Git before CI
