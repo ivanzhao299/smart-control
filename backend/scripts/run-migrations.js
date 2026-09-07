@@ -7,7 +7,8 @@
  *
  * 设计要点:
  *   - 只有存在未执行迁移时才动手; 没有就直接跳过, 不留任何垃圾
- *   - 跑之前用SQLite在线备份包含WAL的完整快照, 重开做完整性校验并记录SHA256
+ *   - 需要部署控制方提供持续停写核验，建立数据库/媒体配套包并隔离恢复演练
+ *   - 普通CLI无停写控制方：有待执行迁移时拒绝，不用数据库单独备份放行
  *   - 不自动清理迁移备份; 保留策略需在确认不再需要恢复证据后单独执行
  *   - 每个迁移单独事务(SQLite DDL 支持事务): 中途失败只回滚那一个, 不留半吊子状态
  *   - 走 dist/data-source.js: 生产没有 ts-node, 也不该在部署热路径上依赖它
@@ -18,7 +19,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { verifiedSqliteBackup } = require('./verified-sqlite-backup.cjs');
+const { migrateWithRecovery } = require('./migrate-with-recovery.cjs');
 
 function loadEnvFile(cwd) {
   const p = path.resolve(cwd, '.env');
@@ -42,7 +43,7 @@ function loadEnvFile(cwd) {
   }
 }
 
-async function main() {
+async function main(recovery) {
   const cwd = process.cwd();
   loadEnvFile(cwd);
 
@@ -68,9 +69,11 @@ async function main() {
       console.log('[migrate] 无未执行迁移, 跳过');
       return;
     }
-    const backup = await verifiedSqliteBackup(dbPath);
-    console.log(`[migrate] 已验证SQLite完整备份: ${backup.snapshot} SHA256=${backup.sha256}`);
-    const ran = await ds.runMigrations({ transaction: 'each' });
+    // A database-only snapshot cannot restore private media safely. The deployment
+    // controller must supply and continuously hold a real writer fence.
+    const result = await migrateWithRecovery({ ...recovery, dataSource: ds, databasePath: dbPath });
+    const ran = result.migrations;
+    console.log(`[migrate] 已验证配套恢复包及隔离恢复演练: ${result.bundleDirectory}`);
     console.log(`[migrate] 已执行 ${ran.length} 个迁移:`);
     for (const m of ran) console.log(`  - ${m.name}`);
   } finally {
@@ -79,8 +82,12 @@ async function main() {
   console.log('[migrate] 完成');
 }
 
-main().catch((err) => {
+if (require.main === module) main().catch((err) => {
+  if (err?.bundleDirectory) console.error(`[migrate] 保留恢复包: ${err.bundleDirectory}`);
+  if (err?.rehearsalDirectory) console.error(`[migrate] 保留恢复演练: ${err.rehearsalDirectory}`);
   console.error(`[migrate] 失败: ${err && err.message ? err.message : err}`);
   console.error(err && err.stack ? err.stack : '');
   process.exit(1);
 });
+
+module.exports = { main };

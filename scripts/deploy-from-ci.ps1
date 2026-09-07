@@ -353,8 +353,10 @@ try {
 
       # Run DB migrations after build, before restart. With DB_SYNCHRONIZE=false the
       # schema only changes through migrations, so this is where new ones get applied.
-      # run-migrations.js is a no-op when nothing is pending, backs up the DB before it
-      # touches anything. Once attempted, code-only rollback is forbidden: old
+      # run-migrations.js is a no-op when nothing is pending. Pending migrations
+      # now require a continuous writer-fence controller and paired DB/media
+      # recovery rehearsal. This legacy CLI path fails closed until that controller
+      # is wired and verified on the target host. Once attempted, code-only rollback is forbidden: old
       # public media routes must never run against a possibly multiuser database.
       Push-Location (Join-Path $projectRoot 'backend')
       try {
