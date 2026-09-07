@@ -30,6 +30,20 @@ describe('playback ownership', () => {
     await db.getRepository(PlaylistItem).save([{ slot: 1, mediaId: aliceId, ownerUserId: 1 }, { slot: 1, mediaId: bobId, ownerUserId: 2 }]);
   });
   afterEach(async () => { await db.destroy(); });
+  it.each([[0, 20], [4, 20], [1.5, 20], [1, 0], [1, -1], [1, 201], [1, NaN], [1, Infinity]])(
+    'rejects invalid history bounds before querying: slot=%s limit=%s', async (slot, limit) => {
+      const query = jest.spyOn(db.createQueryRunner(), 'query');
+      await expect(service.listHistory(slot, alice, limit)).rejects.toThrow('无效历史查询范围');
+      expect(query).not.toHaveBeenCalled();
+      query.mockRestore();
+    },
+  );
+  it('propagates storage errors instead of exposing a misleading missing-media history snapshot', async () => {
+    await service.publishMedia(1, aliceId, alice);
+    // Real SQLite failure: the referenced table is unavailable, not an absent row.
+    await db.query('DROP TABLE media_assets');
+    await expect(service.listHistory(1, alice)).rejects.toThrow('no such table');
+  });
   it.each(['disabled', 'demoted'])('history rechecks a queued administrator identity: %s', async state => {
     await service.publishMedia(1, aliceId, alice);
     await service.publishMedia(1, bobId, bob);

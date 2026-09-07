@@ -25,6 +25,11 @@ describe('personal playlists', () => {
     service = new PersonalPlaylistService(db.getRepository(PlaylistItem), media);
   });
   afterEach(async () => { await db.destroy(); });
+  it('does not misclassify a media database failure as a deleted playlist asset', async () => {
+    await service.add(alice, 1, sharedId, 'private snapshot title');
+    await db.query('DROP TABLE media_assets');
+    await expect(service.list(alice, 1)).rejects.toThrow('no such table');
+  });
   it.each(['disabled', 'demoted'])('rejects queued all-user reads after administrator revocation: %s', async state => {
     await service.add(bob, 1, sharedId, 'Bob private title');
     await db.getRepository(User).update(1, { role: 'admin' });
