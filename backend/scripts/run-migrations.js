@@ -90,4 +90,4 @@ if (require.main === module) main().catch((err) => {
   process.exit(1);
 });
 
-module.exports = { main };
+module.exports = { main, loadEnvFile };
