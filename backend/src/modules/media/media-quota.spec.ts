@@ -5,6 +5,7 @@ import { MediaAsset } from '../../entities/media-asset.entity';
 import { AddUploadReservations1788618003000 } from '../../migrations/1788618003000-AddUploadReservations';
 import { MediaQuotaService } from './media-quota.service';
 import { Actor } from '../../common/auth/actor';
+import { serializedTransaction } from '../../common/utils/serialized-transaction';
 
 describe('atomic upload capacity reservations', () => {
   let db: DataSource, quota: MediaQuotaService;
@@ -17,6 +18,25 @@ describe('atomic upload capacity reservations', () => {
     quota = new MediaQuotaService(db);
   });
   afterEach(async () => { await db.destroy(); });
+  it('does not enlist a concurrent reservation in another service transaction rollback', async () => {
+    let started!: () => void, release!: () => void;
+    const ready = new Promise<void>(resolve => { started = resolve; });
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const other = serializedTransaction(db, async manager => {
+      await manager.query('UPDATE users SET storage_quota_bytes = 0 WHERE id = 1');
+      started(); await held;
+      throw new Error('other service rollback');
+    });
+    await ready;
+    let settled = false;
+    const pending = quota.reserve(alice, 60).finally(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    release();
+    const results = await Promise.allSettled([other, pending]);
+    expect(results.map(result => result.status)).toEqual(['rejected', 'fulfilled']);
+    expect(await quota.usage(alice)).toEqual({ quotaBytes: 100, usedBytes: 0, reservedBytes: 60 });
+  });
   it('allows only one of two concurrent reservations exceeding remaining space', async () => {
     const results = await Promise.allSettled([quota.reserve(alice, 60), quota.reserve(alice, 60)]);
     expect(results.filter(x => x.status === 'fulfilled')).toHaveLength(1);

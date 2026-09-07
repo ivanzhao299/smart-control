@@ -10,6 +10,12 @@
 
 ## 工作队列
 
+### 上传配额写入事务协调（2026-09-07）
+
+MediaQuotaService.reserve/release/setLimit接入同DataSource共享事务队列，回调通过所给manager执行；保留INSERT SELECT原子容量校验和按owner释放条件。避免配额SQL在别的服务显式事务内部执行后随其一起回滚。新增真实SQLite用例：另一事务临时改配额为0后等待，reserve排队不执行；前者回滚后reserve独立提交，最终原配额100/预留60不丢失。
+
+后端全量44组416项与构建通过。usage读取仍未排队，其它媒体写入/隐式save事务尚未全接入，仍不能称为全库写隔离；持久预留进程归属、临时文件绑定与崩溃恢复仍未实现。未部署生产。
+
 ### 跨服务显式事务共享排队（2026-09-07）
 
 新增serializedTransaction，以DataSource为WeakMap键共享队列，避免各服务EntityManager在同一SQLite连接交错事务。AsyncLocalStorage检测同连接嵌套并要求复用传入manager，明确报错不死锁；成功/失败均finally释放。已接入源代码搜索发现的5处显式事务：播放发布、资料删除提交、个人列表排序、场景创建/更新。搜索确认非测试src显式transaction调用仅剩协调器内部。
