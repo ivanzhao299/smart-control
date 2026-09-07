@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Logger } from 'winston';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { serializedTransaction } from '../../common/utils/serialized-transaction';
 import { boundedCommandFile } from '../../common/utils/bounded-command-file';
 import { MediaQuotaService } from './media-quota.service';
@@ -190,7 +190,7 @@ export class MediaService implements OnModuleInit {
     // system-branding.welcomeGuest, 后台改完 20s 内大屏自动变字。按名字判重。
     try {
       const wpName = '金湖欢迎页·动态(称谓可编辑)';
-      if (!(await this.repo.findOne({ where: { originalName: wpName } }))) {
+      if (!(await this.repo.findOne({ where: { originalName: wpName, ownerUserId: IsNull(), source: 'system' } }))) {
         await this.repo.save(this.repo.create({
           originalName: wpName,
           safeName: 'webpage',
@@ -222,7 +222,7 @@ export class MediaService implements OnModuleInit {
       const stat = await fs.stat(src).catch(() => null);
       if (!stat || !stat.isFile()) return; // 仓库里没带 (老部署), 静默跳过
 
-      const existing = await this.repo.findOne({ where: { originalName } });
+      const existing = await this.repo.findOne({ where: { originalName, ownerUserId: IsNull(), source: 'system' } });
       if (existing) {
         // 自修复 (2026-07-26): 行在但文件缺/path 为空 = 上次拷贝半途失败,
         // 库里留了个指向空的死行 —— 媒体页点开就报错、素材也"找不到"。重拷补齐。

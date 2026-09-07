@@ -26,9 +26,39 @@ describe('file ingestion compensation', () => {
     Object.defineProperty(media, 'mediaRoot', { value: root });
   });
   afterEach(async () => { jest.restoreAllMocks(); await db.destroy(); await fs.rm(root, { recursive: true, force: true }); });
+  it.each([true, false])('does not treat a same-name private asset as a bundled system asset (file exists=%s)', async exists => {
+    const name = '左右声道测试.wav';
+    const privatePath = join(root, 'private.wav');
+    if (exists) await fs.writeFile(privatePath, 'private-original');
+    const repo = db.getRepository(MediaAsset);
+    const privateAsset = await repo.save({ originalName: name, safeName: 'private.wav', path: privatePath, kind: 'audio', mimeType: 'audio/wav', sizeBytes: 16, ownerUserId: 1, visibility: 'private', source: 'upload' });
+    const bundled = join(root, 'bundled.wav');
+    await fs.writeFile(bundled, 'system-content');
+    (media as any).logger = { info: jest.fn(), warn: jest.fn() };
+    await (media as any).seedBundledFile({ file: bundled, originalName: name, kind: 'audio', mime: 'audio/wav', remark: 'fixture' });
+    const rows = await repo.find({ where: { originalName: name } });
+    expect(rows).toHaveLength(2);
+    expect(await repo.findOneByOrFail({ id: privateAsset.id })).toEqual(privateAsset);
+    const system = rows.find(row => row.source === 'system')!;
+    expect(system).toMatchObject({ ownerUserId: null, visibility: 'shared' });
+    expect(await fs.readFile(system.path, 'utf8')).toBe('system-content');
+    if (exists) expect(await fs.readFile(privatePath, 'utf8')).toBe('private-original');
+    else await expect(fs.access(privatePath)).rejects.toThrow();
+  });
   async function conversionSchema() {
     for (const migration of [new AddUploadReservations1788618003000(), new BindUploadTemporaryFiles1788618004000(), new TrackUploadInstances1788618005000(), new LinkUploadMedia1788618006000()]) await migration.up(db.createQueryRunner());
   }
+  it('does not let a private same-name webpage replace the system welcome page', async () => {
+    const originalName = '金湖欢迎页·动态(称谓可编辑)';
+    const privatePage = await media.createWebpage(originalName, 'https://example.test/private-welcome', actor);
+    jest.spyOn(media as any, 'seedBundledFile').mockResolvedValue(undefined);
+    (media as any).logger = { info: jest.fn(), warn: jest.fn() };
+    await (media as any).seedBundledAssets();
+    const rows = await db.getRepository(MediaAsset).find({ where: { originalName } });
+    expect(rows).toHaveLength(2);
+    expect(rows.find(row => row.id === privatePage.id)).toMatchObject({ ownerUserId: 1, visibility: 'private', sourceUrl: 'https://example.test/private-welcome' });
+    expect(rows.find(row => row.source === 'system')).toMatchObject({ ownerUserId: null, visibility: 'shared', sourceUrl: 'http://localhost:5173/control/welcome/index.html' });
+  });
   it('binds reserved buffers at their actual size, preserves Chinese names and releases after finalization', async () => {
     await conversionSchema();
     const quota = new MediaQuotaService(db);
