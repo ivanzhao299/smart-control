@@ -26,6 +26,41 @@ describe('file ingestion compensation', () => {
     Object.defineProperty(media, 'mediaRoot', { value: root });
   });
   afterEach(async () => { jest.restoreAllMocks(); await db.destroy(); await fs.rm(root, { recursive: true, force: true }); });
+  it('restores the hand-copied orphan source when final database commit fails', async () => {
+    const admin: Actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };
+    await fs.writeFile(join(root, 'manual.mp3'), 'manual');
+    await db.query("CREATE TRIGGER fail_orphan_path BEFORE UPDATE OF path ON media_assets BEGIN SELECT RAISE(ABORT, 'synthetic commit failure'); END");
+    await expect(media.importOrphan('manual.mp3', admin.username, admin)).rejects.toThrow('synthetic commit failure');
+    expect(await fs.readFile(join(root, 'manual.mp3'), 'utf8')).toBe('manual');
+    expect(await fs.readdir(root)).toEqual(['manual.mp3']);
+    expect(await db.getRepository(MediaAsset).count()).toBe(0);
+    media.acquireOperation(1)();
+  });
+  it('retains both files and accounting if the original orphan path is occupied during recovery', async () => {
+    const admin: Actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };
+    const source = join(root, 'manual.mp3');
+    await fs.writeFile(source, 'manual');
+    await db.query("CREATE TRIGGER fail_orphan_path BEFORE UPDATE OF path ON media_assets BEGIN SELECT RAISE(ABORT, 'synthetic commit failure'); END");
+    const rename = fs.rename.bind(fs);
+    jest.spyOn(fs, 'rename').mockImplementationOnce(async (from, to) => {
+      await rename(from, to);
+      await fs.writeFile(source, 'new unrelated file', { flag: 'wx' });
+    });
+    await expect(media.importOrphan('manual.mp3', admin.username, admin)).rejects.toThrow('自动恢复未完成');
+    expect(await fs.readFile(source, 'utf8')).toBe('new unrelated file');
+    expect(await fs.readFile(join(root, '1', 'manual.mp3'), 'utf8')).toBe('manual');
+    expect(await db.getRepository(MediaAsset).count()).toBe(1);
+    media.acquireOperation(1)();
+  });
+  it('cleans only the empty allocation when moving an orphan fails', async () => {
+    const admin: Actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };
+    await fs.writeFile(join(root, 'manual.mp3'), 'manual');
+    jest.spyOn(fs, 'rename').mockRejectedValueOnce(new Error('synthetic move failure'));
+    await expect(media.importOrphan('manual.mp3', admin.username, admin)).rejects.toThrow('synthetic move failure');
+    expect(await fs.readFile(join(root, 'manual.mp3'), 'utf8')).toBe('manual');
+    expect(await fs.readdir(root)).toEqual(['manual.mp3']);
+    expect(await db.getRepository(MediaAsset).count()).toBe(0);
+  });
   it('orphan finalization preserves concurrent metadata and returns the committed asset', async () => {
     const admin: Actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };
     await fs.writeFile(join(root, 'manual.mp3'), 'manual');

@@ -590,14 +590,16 @@ export class MediaService implements OnModuleInit {
     const release = this.acquireOperation(saved.id);
     let result: MediaAsset;
     let allocatedDirectory = false;
+    let moved = false;
+    const finalDir = join(this.mediaRoot, String(saved.id));
+    const finalPath = join(finalDir, safeName);
     try {
       // Never adopt an occupied ID directory, overwrite its files or restore
       // stale ownership from the initial entity during finalization.
-      const finalDir = join(this.mediaRoot, String(saved.id));
-      const finalPath = join(finalDir, safeName);
       await fs.mkdir(finalDir);
       allocatedDirectory = true;
       await fs.rename(abs, finalPath);
+      moved = true;
       const fields: Partial<MediaAsset> = { path: finalPath };
       if (guess.kind === 'doc' && ext === '.pdf') {
         fields.docPdfPath = relative(this.mediaRoot, finalPath).split(sep).join('/');
@@ -608,15 +610,24 @@ export class MediaService implements OnModuleInit {
         return manager.findOneByOrFail(MediaAsset, { id: saved.id });
       });
     } catch (error) {
-      // No directory was allocated, so the newly inserted row must not claim an
-      // existing ID tree (a later delete could otherwise erase unrelated files).
-      if (!allocatedDirectory) {
+      try {
+        if (allocatedDirectory) {
+          if (moved) {
+            // Exclusive hard-link restoration: rename could silently overwrite
+            // a new file placed at the original path while we were committing.
+            // If unsupported or occupied, preserve both row and staged file.
+            await fs.link(finalPath, abs);
+            await fs.unlink(finalPath);
+          }
+          // Never recursively erase unexpected files added to the directory.
+          await fs.rmdir(finalDir);
+        }
         await serializedTransaction(this.repo.manager.connection, manager => manager.delete(MediaAsset, saved.id));
+      } catch {
+        throw new ConflictException('收编失败且自动恢复未完成，已保留资料记录及现存文件，请管理员检查恢复');
       }
       throw error;
     } finally {
-      // On failure retain accounting row/files for recovery, never erase a
-      // pre-existing hand-copied source as ordinary upload cleanup would do.
       release();
     }
     if (guess.kind === 'video') void this.prepareVideo(result.id);
