@@ -943,6 +943,7 @@ export class MediaService implements OnModuleInit {
     if (this.preparing.has(id)) return;
     const release = this.acquireOperation(id);
     this.preparing.add(id);
+    let conversionTemp: string | undefined;
     try {
       const media = await serializedTransaction(this.repo.manager.connection, async manager => {
         const current = await manager.findOneBy(MediaAsset, { id });
@@ -968,6 +969,7 @@ export class MediaService implements OnModuleInit {
 
       const dir = join(this.mediaRoot, String(media.id));
       const temp = join(dir, `playback-converting-${randomUUID()}.mp4`);
+      conversionTemp = temp;
       // An uploaded original may itself be named playback.mp4. Never replace it.
       const output = join(dir, resolve(source) === resolve(dir, 'playback.mp4') ? 'playback-derived.mp4' : 'playback.mp4');
       await this.runCommand(this.ffmpegCommand(), [
@@ -1003,6 +1005,11 @@ export class MediaService implements OnModuleInit {
       await this.updateMediaFields(id, { processingStatus: 'failed', processingError: message }).catch(() => {});
       this.logger.error(`[Media] 视频 #${id} 兼容处理失败: ${message}`, { context: 'MediaService' });
     } finally {
+      if (conversionTemp) {
+        await fs.unlink(conversionTemp).catch(error => {
+          if (error.code !== 'ENOENT') this.logger.error(`[Media] 视频 #${id} 临时转码文件清理失败，保留待恢复`, { context: 'MediaService' });
+        });
+      }
       this.preparing.delete(id);
       release();
     }

@@ -26,6 +26,28 @@ describe('file ingestion compensation', () => {
     Object.defineProperty(media, 'mediaRoot', { value: root });
   });
   afterEach(async () => { jest.restoreAllMocks(); await db.destroy(); await fs.rm(root, { recursive: true, force: true }); });
+  it('removes only this failed conversion temporary file and preserves original and prior playback bytes', async () => {
+    const repo = db.getRepository(MediaAsset);
+    const item = await repo.save({ originalName: 'original.mov', safeName: 'original.mov', path: '', kind: 'video', mimeType: 'video/mp4', sizeBytes: 17, ownerUserId: 1, visibility: 'private', uploader: 'alice' });
+    const directory = join(root, String(item.id));
+    await fs.mkdir(directory);
+    const source = join(directory, 'original.mov'), previous = join(directory, 'playback.mp4');
+    await fs.writeFile(source, 'original'); await fs.writeFile(previous, 'converted');
+    await repo.update(item.id, { path: previous, sourcePath: source });
+    (media as any).logger = { info: jest.fn(), error: jest.fn() };
+    jest.spyOn(media as any, 'probeVideo').mockResolvedValue({ videoCodec: 'hevc' });
+    jest.spyOn(media as any, 'runCommand').mockImplementation(async (...commandArgs: unknown[]) => {
+      const args = commandArgs[1] as string[];
+      await fs.writeFile(args[args.length - 1], 'incomplete');
+      throw new Error('synthetic encoder failure');
+    });
+    await media.prepareVideo(item.id);
+    expect(await repo.findOneByOrFail({ id: item.id })).toMatchObject({ processingStatus: 'failed', path: previous, sourcePath: source, sizeBytes: 17 });
+    expect((await fs.readdir(directory)).sort()).toEqual(['original.mov', 'playback.mp4']);
+    expect(await fs.readFile(source, 'utf8')).toBe('original');
+    expect(await fs.readFile(previous, 'utf8')).toBe('converted');
+    media.acquireOperation(item.id)();
+  });
   it.each(['original.mov', 'playback.mp4', 'playback-converting.mp4'])('counts retained video bytes and preserves the original named %s', async name => {
     const repo = db.getRepository(MediaAsset);
     const item = await repo.save({ originalName: name, safeName: name, path: '', kind: 'video', mimeType: 'video/quicktime', sizeBytes: 8, ownerUserId: 1, visibility: 'private', uploader: 'alice' });
