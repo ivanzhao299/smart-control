@@ -13,6 +13,7 @@ import { hashPassword } from '../../common/utils/password.util';
 import { CreateUserDto, QueryUserDto, UpdateUserDto } from './dto/user.dto';
 import { OperationLogService } from '../logs/operation-log.service';
 import { PagedResult } from '../devices/devices.service';
+import { serializedTransaction } from '../../common/utils/serialized-transaction';
 
 export type PublicUser = Omit<User, 'password'>;
 
@@ -59,6 +60,10 @@ export class UsersService {
   }
 
   async create(dto: CreateUserDto, operator: string): Promise<PublicUser> {
+    return serializedTransaction(this.repo.manager.connection, () => this.createInTransaction(dto, operator));
+  }
+
+  private async createInTransaction(dto: CreateUserDto, operator: string): Promise<PublicUser> {
     const exists = await this.repo.findOne({ where: { username: dto.username } });
     if (exists) throw new ConflictException(`用户名已存在: ${dto.username}`);
 
@@ -85,6 +90,10 @@ export class UsersService {
   }
 
   async update(id: number, dto: UpdateUserDto, operator: string): Promise<PublicUser> {
+    return serializedTransaction(this.repo.manager.connection, () => this.updateInTransaction(id, dto, operator));
+  }
+
+  private async updateInTransaction(id: number, dto: UpdateUserDto, operator: string): Promise<PublicUser> {
     const user = await this.repo.findOne({ where: { id } });
     if (!user) throw new NotFoundException(`用户不存在: id=${id}`);
 
@@ -116,6 +125,10 @@ export class UsersService {
   }
 
   async remove(id: number, operator: string): Promise<void> {
+    return serializedTransaction(this.repo.manager.connection, () => this.removeInTransaction(id, operator));
+  }
+
+  private async removeInTransaction(id: number, operator: string): Promise<void> {
     const user = await this.repo.findOne({ where: { id } });
     if (!user) throw new NotFoundException(`用户不存在: id=${id}`);
     if (user.username === 'admin') {
