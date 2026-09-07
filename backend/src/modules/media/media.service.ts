@@ -8,6 +8,7 @@ import { serializedTransaction } from '../../common/utils/serialized-transaction
 import { promises as fs, createReadStream, ReadStream, statSync } from 'fs';
 import { join, resolve, relative, basename, extname, sep, isAbsolute } from 'path';
 import { spawn } from 'child_process';
+import { randomUUID } from 'crypto';
 import { MediaAsset, MediaKind } from '../../entities/media-asset.entity';
 import { PlaylistItem } from '../../entities/playlist-item.entity';
 import { MediaListItem, OrphanMediaItem, UpdateMediaDto } from './dto/media.dto';
@@ -554,6 +555,7 @@ export class MediaService implements OnModuleInit {
       throw new NotFoundException('文件不存在, 可能已被移动或删除, 请重新扫描');
     }
     if (!stat.isFile()) throw new BadRequestException('不是文件');
+    if (!Number.isSafeInteger(stat.size) || stat.size < 0) throw new BadRequestException('文件大小无效');
 
     const ext = extname(abs).toLowerCase();
     const guess = EXT_KIND_MIME[ext];
@@ -580,11 +582,25 @@ export class MediaService implements OnModuleInit {
       lastPlayedAt: null,
     });
     const saved = await serializedTransaction(this.repo.manager.connection, async manager => {
+      const reservationId = actor.userId === null ? null : randomUUID();
       if (actor.userId !== null) {
         const current = await manager.findOneBy(User, { id: actor.userId, enabled: true, role: 'admin' });
         if (!current) throw new ForbiddenException('收编账户已停用或不再是管理员');
+        // Atomically claim capacity before allocation; convert the reservation
+        // into the asset's accounted bytes within this same transaction.
+        await manager.query(`INSERT INTO upload_reservations (id, owner_user_id, bytes)
+          SELECT ?, u.id, ? FROM users u WHERE u.id = ? AND u.enabled = 1 AND u.role = 'admin'
+          AND ? <= u.storage_quota_bytes
+            - COALESCE((SELECT SUM(m.sizeBytes) FROM media_assets m WHERE m.owner_user_id = u.id), 0)
+            - COALESCE((SELECT SUM(r.bytes) FROM upload_reservations r WHERE r.owner_user_id = u.id), 0)`,
+          [reservationId, stat.size, actor.userId, stat.size]);
+        if (!(await manager.query('SELECT id FROM upload_reservations WHERE id = ?', [reservationId])).length) {
+          throw new ForbiddenException('收编账户存储配额不足或权限已变化');
+        }
       }
-      return manager.save(MediaAsset, entity);
+      const created = await manager.save(MediaAsset, entity);
+      if (reservationId) await manager.query('DELETE FROM upload_reservations WHERE id = ?', [reservationId]);
+      return created;
     });
 
     const release = this.acquireOperation(saved.id);
@@ -600,6 +616,10 @@ export class MediaService implements OnModuleInit {
       allocatedDirectory = true;
       await fs.rename(abs, finalPath);
       moved = true;
+      const finalStat = await fs.stat(finalPath);
+      if (!finalStat.isFile() || finalStat.size !== stat.size) {
+        throw new ConflictException('收编期间文件大小发生变化，请确认文件复制完成后重试');
+      }
       const fields: Partial<MediaAsset> = { path: finalPath };
       if (guess.kind === 'doc' && ext === '.pdf') {
         fields.docPdfPath = relative(this.mediaRoot, finalPath).split(sep).join('/');

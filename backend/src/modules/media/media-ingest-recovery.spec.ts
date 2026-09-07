@@ -26,6 +26,51 @@ describe('file ingestion compensation', () => {
     Object.defineProperty(media, 'mediaRoot', { value: root });
   });
   afterEach(async () => { jest.restoreAllMocks(); await db.destroy(); await fs.rm(root, { recursive: true, force: true }); });
+  it('restores an orphan that grows after capacity was checked instead of undercounting it', async () => {
+    await new AddUploadReservations1788618003000().up(db.createQueryRunner());
+    await db.getRepository(User).update(1, { role: 'admin', storageQuotaBytes: 6 });
+    const source = join(root, 'manual.mp3');
+    await fs.writeFile(source, 'manual');
+    const rename = fs.rename.bind(fs);
+    jest.spyOn(fs, 'rename').mockImplementationOnce(async (from, to) => {
+      await fs.appendFile(source, '-still-copying');
+      await rename(from, to);
+    });
+    await expect(media.importOrphan('manual.mp3', 'alice', { ...actor, role: 'admin' })).rejects.toThrow('文件大小发生变化');
+    expect(await fs.readFile(source, 'utf8')).toBe('manual-still-copying');
+    expect(await db.getRepository(MediaAsset).count()).toBe(0);
+    expect(await db.query('SELECT * FROM upload_reservations')).toEqual([]);
+  });
+  it('atomically accounts concurrent named-admin orphan imports and outstanding reservations', async () => {
+    await new AddUploadReservations1788618003000().up(db.createQueryRunner());
+    await db.getRepository(User).update(1, { role: 'admin', storageQuotaBytes: 6 });
+    const admin: Actor = { ...actor, role: 'admin' };
+    await fs.writeFile(join(root, 'one.mp3'), '1234');
+    await fs.writeFile(join(root, 'two.mp3'), '5678');
+    await db.query("INSERT INTO upload_reservations (id, owner_user_id, bytes) VALUES ('other-upload', 1, 3)");
+    await expect(media.importOrphan('one.mp3', admin.username, admin)).rejects.toThrow('配额不足');
+    expect(await db.getRepository(MediaAsset).count()).toBe(0);
+    expect(await fs.readFile(join(root, 'one.mp3'), 'utf8')).toBe('1234');
+    await db.query("DELETE FROM upload_reservations WHERE id = 'other-upload'");
+    const results = await Promise.allSettled(['one.mp3', 'two.mp3'].map(file => media.importOrphan(file, admin.username, admin)));
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter(result => result.status === 'rejected')).toHaveLength(1);
+    expect(await db.getRepository(MediaAsset).count()).toBe(1);
+    expect(await db.query('SELECT * FROM upload_reservations')).toEqual([]);
+    const success = results.find(result => result.status === 'fulfilled') as PromiseFulfilledResult<MediaAsset>;
+    expect(success.value.sizeBytes).toBe(4);
+    expect((await fs.readFile(success.value.path)).length).toBe(4);
+  });
+  it('rolls back the temporary quota claim if orphan initial allocation fails', async () => {
+    await new AddUploadReservations1788618003000().up(db.createQueryRunner());
+    await db.getRepository(User).update(1, { role: 'admin', storageQuotaBytes: 6 });
+    await fs.writeFile(join(root, 'manual.mp3'), 'manual');
+    await db.query("CREATE TRIGGER fail_orphan_insert BEFORE INSERT ON media_assets BEGIN SELECT RAISE(ABORT, 'synthetic allocation failure'); END");
+    await expect(media.importOrphan('manual.mp3', 'alice', { ...actor, role: 'admin' })).rejects.toThrow('synthetic allocation failure');
+    expect(await db.query('SELECT * FROM upload_reservations')).toEqual([]);
+    expect(await db.getRepository(MediaAsset).count()).toBe(0);
+    expect(await fs.readFile(join(root, 'manual.mp3'), 'utf8')).toBe('manual');
+  });
   it('restores the hand-copied orphan source when final database commit fails', async () => {
     const admin: Actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };
     await fs.writeFile(join(root, 'manual.mp3'), 'manual');
