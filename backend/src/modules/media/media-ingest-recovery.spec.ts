@@ -13,6 +13,7 @@ import { AddUploadReservations1788618003000 } from '../../migrations/17886180030
 import { BindUploadTemporaryFiles1788618004000 } from '../../migrations/1788618004000-BindUploadTemporaryFiles';
 import { TrackUploadInstances1788618005000 } from '../../migrations/1788618005000-TrackUploadInstances';
 import { LinkUploadMedia1788618006000 } from '../../migrations/1788618006000-LinkUploadMedia';
+import { serializedTransaction } from '../../common/utils/serialized-transaction';
 
 describe('file ingestion compensation', () => {
   let db: DataSource, root: string, media: MediaService;
@@ -25,6 +26,25 @@ describe('file ingestion compensation', () => {
     Object.defineProperty(media, 'mediaRoot', { value: root });
   });
   afterEach(async () => { jest.restoreAllMocks(); await db.destroy(); await fs.rm(root, { recursive: true, force: true }); });
+  it('rechecks import permission after waiting for another coordinated writer', async () => {
+    let entered!: () => void, finish!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const held = new Promise<void>(resolve => { finish = resolve; });
+    const writer = serializedTransaction(db, async manager => {
+      entered(); await held;
+      await manager.update(User, 1, { enabled: false });
+    });
+    await ready;
+    let settled = false;
+    const imported = media.ingestFromBuffer('sample.mp3', 'audio/mpeg', Buffer.from('sample'), 'alice', actor).finally(() => { settled = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    expect(settled).toBe(false);
+    finish();
+    const results = await Promise.allSettled([writer, imported]);
+    expect(results.map(result => result.status)).toEqual(['fulfilled', 'rejected']);
+    expect(await db.getRepository(MediaAsset).count()).toBe(0);
+    expect(await fs.readdir(root)).toEqual([]);
+  });
   it('holds the asset operation lock across file writing and releases it after finalization', async () => {
     const asset = await db.getRepository(MediaAsset).save({ originalName: 'sample.mp3', safeName: 'sample.mp3', path: '', kind: 'audio', mimeType: 'audio/mpeg', sizeBytes: 6, ownerUserId: 1, visibility: 'private', uploader: 'alice' });
     let entered!: () => void, releaseWrite!: () => void;

@@ -352,7 +352,7 @@ export class MediaService implements OnModuleInit {
         .andWhere("EXISTS (SELECT 1 FROM users WHERE id = :owner AND enabled = 1 AND role IN ('admin', 'operator'))", { owner: actor.userId }).execute();
       if (!linked.affected) throw new ForbiddenException('上传绑定已失效');
       return created;
-    }) : await this.repo.save(entity);
+    }) : await this.saveInitialUpload(entity, actor);
 
     return this.finishNewAsset(saved, path => fs.rename(file.path, path));
   }
@@ -360,21 +360,16 @@ export class MediaService implements OnModuleInit {
   /** 服务器侧来源 (在线曲库下载等) 从内存 buffer 入库 — 目录布局与 ingest 一致 */
   async ingestFromBuffer(originalName: string, mimeType: string, buf: Buffer, uploader: string, actor: Actor, remark?: string): Promise<MediaAsset> {
     assertCanUpload(actor);
-    if (actor.userId !== null) {
-      const current = await this.repo.manager.getRepository(User).findOneBy({ id: actor.userId, enabled: true });
-      if (!current) throw new ForbiddenException('导入账户已停用');
-      assertCanUpload({ ...actor, role: current.role });
-    }
     const kind = this.classifyKind(mimeType, originalName);
     if (!kind) throw new BadRequestException(`不支持的文件类型: ${mimeType}`);
     const safeName = this.safeFilename(originalName);
-    const saved = await this.repo.save(this.repo.create({
+    const saved = await this.saveInitialUpload(this.repo.create({
       originalName, safeName, path: '', thumbPath: null, kind, mimeType,
       sizeBytes: buf.length, durationSec: null, resolution: null,
       ownerUserId: actor.userId, visibility: 'private', source: 'import',
       remark: remark ?? null, uploader, lastPlayedAt: null,
       processingStatus: kind === 'video' ? 'pending' : 'ready', processingError: null, sourcePath: null,
-    }));
+    }), actor);
     return this.finishNewAsset(saved, path => fs.writeFile(path, buf));
   }
 
@@ -385,11 +380,6 @@ export class MediaService implements OnModuleInit {
    */
   async ingestFromFile(originalName: string, mimeType: string, tmpPath: string, uploader: string, actor: Actor, remark?: string): Promise<MediaAsset> {
     assertCanUpload(actor);
-    if (actor.userId !== null) {
-      const current = await this.repo.manager.getRepository(User).findOneBy({ id: actor.userId, enabled: true });
-      if (!current) throw new ForbiddenException('导入账户已停用');
-      assertCanUpload({ ...actor, role: current.role });
-    }
     const kind = this.classifyKind(mimeType, originalName);
     if (!kind) {
       await this.unlinkSafe(tmpPath);
@@ -397,13 +387,13 @@ export class MediaService implements OnModuleInit {
     }
     const stat = await fs.stat(tmpPath);
     const safeName = this.safeFilename(originalName);
-    const saved = await this.repo.save(this.repo.create({
+    const saved = await this.saveInitialUpload(this.repo.create({
       originalName, safeName, path: '', thumbPath: null, kind, mimeType,
       sizeBytes: stat.size, durationSec: null, resolution: null,
       ownerUserId: actor.userId, visibility: 'private', source: 'import',
       remark: remark ?? null, uploader, lastPlayedAt: null,
       processingStatus: kind === 'video' ? 'pending' : 'ready', processingError: null, sourcePath: null,
-    }));
+    }), actor);
     return this.finishNewAsset(saved, async path => {
       try { await fs.rename(tmpPath, path); }
       catch (error) {
@@ -411,6 +401,20 @@ export class MediaService implements OnModuleInit {
         await fs.copyFile(tmpPath, path);
         await fs.unlink(tmpPath);
       }
+    });
+  }
+
+  private async saveInitialUpload(entity: MediaAsset, actor?: Actor): Promise<MediaAsset> {
+    return serializedTransaction(this.repo.manager.connection, async manager => {
+      if (actor) {
+        assertCanUpload(actor);
+        if (actor.userId !== null) {
+          const current = await manager.findOneBy(User, { id: actor.userId, enabled: true });
+          if (!current) throw new ForbiddenException('导入账户已停用');
+          assertCanUpload({ ...actor, role: current.role });
+        }
+      }
+      return manager.save(MediaAsset, entity);
     });
   }
 
