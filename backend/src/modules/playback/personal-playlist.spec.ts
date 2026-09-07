@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { serializedTransaction } from '../../common/utils/serialized-transaction';
 import { AddUploadReservations1788618003000 } from '../../migrations/1788618003000-AddUploadReservations';
 import { DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -60,18 +61,42 @@ describe('personal playlists', () => {
     await expect(service.list(alice, 0)).rejects.toThrow();
     await expect(service.list(alice, 1, 'invalid' as any)).rejects.toThrow();
   });
-  it('does not resurrect an item deleted after rename read', async () => {
+  it('does not resurrect an item deleted while rename waits for the transaction queue', async () => {
     const item = await service.add(alice, 1, sharedId);
     const repo = db.getRepository(PlaylistItem);
-    const snapshot = await repo.findOneByOrFail({ id: item.id });
-    const read = jest.spyOn(repo, 'findOneBy').mockImplementationOnce(async () => {
-      await repo.delete(item.id);
-      return snapshot;
+    let entered!: () => void, finish!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const held = new Promise<void>(resolve => { finish = resolve; });
+    const writer = serializedTransaction(db, async manager => {
+      entered(); await held; await manager.delete(PlaylistItem, item.id);
     });
-    try {
-      await expect(service.rename(alice, item.id, 'late rename')).rejects.toThrow('已删除');
-      expect(await repo.count()).toBe(0);
-    } finally { read.mockRestore(); }
+    await ready;
+    const renamed = service.rename(alice, item.id, 'late rename');
+    finish();
+    expect((await Promise.allSettled([writer, renamed])).map(result => result.status)).toEqual(['fulfilled', 'rejected']);
+    expect(await repo.count()).toBe(0);
+  });
+  it.each(['disabled', 'viewer'])('rechecks all queued playlist writes after account revocation: %s', async state => {
+    const item = await service.add(alice, 1, sharedId, 'original');
+    const before = await db.getRepository(PlaylistItem).find();
+    let entered!: () => void, finish!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const held = new Promise<void>(resolve => { finish = resolve; });
+    const writer = serializedTransaction(db, async manager => {
+      entered(); await held;
+      await manager.update(User, 1, state === 'disabled' ? { enabled: false } : { role: 'viewer' });
+    });
+    await ready;
+    let settled = 0;
+    const operations = [service.add(alice, 2, sharedId), service.rename(alice, item.id, 'changed'),
+      service.remove(alice, item.id), service.reorder(alice, 1, [item.id])].map(pending => pending.finally(() => { settled++; }));
+    await new Promise(resolve => setImmediate(resolve));
+    expect(settled).toBe(0);
+    finish();
+    const results = await Promise.allSettled([writer, ...operations]);
+    expect(results.map(result => result.status)).toEqual(['fulfilled', 'rejected', 'rejected', 'rejected', 'rejected']);
+    expect(await db.getRepository(PlaylistItem).find()).toEqual(before);
+    media.acquireOperation(sharedId)();
   });
   it('refuses adding references while the asset lifecycle is locked', async () => {
     const release = media.acquireOperation(sharedId);

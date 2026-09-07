@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull, In } from 'typeorm';
 import { serializedTransaction } from '../../common/utils/serialized-transaction';
 import { PlaylistItem } from '../../entities/playlist-item.entity';
+import { User } from '../../entities/user.entity';
+import { MediaAsset } from '../../entities/media-asset.entity';
 import { Actor } from '../../common/auth/actor';
 import { assertCanUpload, assertReadResource } from '../../common/auth/resource-policy';
 import { MediaService } from '../media/media.service';
@@ -18,6 +20,19 @@ export class PersonalPlaylistService {
   private writable(actor: Actor, row: PlaylistItem): void {
     assertCanUpload(actor);
     if (actor.role !== 'admin' && (actor.userId === null || actor.userId !== row.ownerUserId)) throw new NotFoundException('播放列表项不存在');
+  }
+  private mutate<T>(actor: Actor, work: (current: Actor, repo: Repository<PlaylistItem>) => Promise<T>): Promise<T> {
+    assertCanUpload(actor);
+    return serializedTransaction(this.repo.manager.connection, async manager => {
+      let current = actor;
+      if (actor.userId !== null) {
+        const user = await manager.findOneBy(User, { id: actor.userId, enabled: true });
+        if (!user) throw new ForbiddenException('账户已停用');
+        current = { ...actor, role: user.role };
+      }
+      assertCanUpload(current);
+      return work(current, manager.getRepository(PlaylistItem));
+    });
   }
   async list(actor: Actor, slot: number, scope: 'mine' | 'shared' | 'all' = 'mine') {
     this.slot(slot);
@@ -45,47 +60,56 @@ export class PersonalPlaylistService {
     finally { release(); }
   }
   private async addLocked(actor: Actor, slot: number, mediaId: number, title?: string) {
-    await this.media.authorized(mediaId, actor);
-    const ownerUserId = this.owner(actor);
-    const where = { slot, ownerUserId: ownerUserId ?? IsNull() };
-    const existing = await this.repo.findOne({ where: { ...where, mediaId } });
-    if (existing) return { id: existing.id };
-    const last = await this.repo.find({ where, order: { sortOrder: 'DESC' }, take: 1 });
-    const saved = await this.repo.save(this.repo.create({ ownerUserId, slot, mediaId, title: title?.trim() || null, sortOrder: (last[0]?.sortOrder ?? 0) + 10 }));
-    return { id: saved.id };
+    return this.mutate(actor, async (current, repo) => {
+      const media = await repo.manager.findOneBy(MediaAsset, { id: mediaId });
+      if (!media) throw new NotFoundException('资料不存在');
+      assertReadResource(current, media);
+      const ownerUserId = this.owner(current);
+      const where = { slot, ownerUserId: ownerUserId ?? IsNull() };
+      const existing = await repo.findOne({ where: { ...where, mediaId } });
+      if (existing) return { id: existing.id };
+      const last = await repo.find({ where, order: { sortOrder: 'DESC' }, take: 1 });
+      const saved = await repo.save(repo.create({ ownerUserId, slot, mediaId, title: title?.trim() || null, sortOrder: (last[0]?.sortOrder ?? 0) + 10 }));
+      return { id: saved.id };
+    });
   }
   async rename(actor: Actor, id: number, title: string) {
     if (typeof title !== 'string' || title.length > 120) throw new BadRequestException('名称过长');
-    const row = await this.repo.findOneBy({ id });
-    if (!row) throw new NotFoundException('播放列表项不存在');
-    this.writable(actor, row);
-    row.title = title.trim() || null;
-    const updated = await this.repo.update(id, { title: row.title });
-    if (!updated.affected) throw new NotFoundException('播放列表项已删除');
-    return { id, title: row.title ?? '' };
+    return this.mutate(actor, async (current, repo) => {
+      const row = await repo.findOneBy({ id });
+      if (!row) throw new NotFoundException('播放列表项不存在');
+      this.writable(current, row);
+      row.title = title.trim() || null;
+      const updated = await repo.update(id, { title: row.title });
+      if (!updated.affected) throw new NotFoundException('播放列表项已删除');
+      return { id, title: row.title ?? '' };
+    });
   }
   async remove(actor: Actor, id: number) {
-    const row = await this.repo.findOneBy({ id });
-    if (!row) throw new NotFoundException('播放列表项不存在');
-    this.writable(actor, row);
-    await this.repo.remove(row);
-    return { id };
+    return this.mutate(actor, async (current, repo) => {
+      const row = await repo.findOneBy({ id });
+      if (!row) throw new NotFoundException('播放列表项不存在');
+      this.writable(current, row);
+      const deleted = await repo.delete(id);
+      if (!deleted.affected) throw new NotFoundException('播放列表项已删除');
+      return { id };
+    });
   }
   async reorder(actor: Actor, slot: number, ids: number[]) {
     this.slot(slot); assertCanUpload(actor);
     if (!Array.isArray(ids) || ids.length > 500 || ids.some(id => !Number.isInteger(id) || id < 1) || new Set(ids).size !== ids.length) throw new BadRequestException('列表项无效');
-    if (!ids.length) return { count: 0 };
-    const rows = await this.repo.findBy({ id: In(ids), slot });
-    if (rows.length !== ids.length) throw new NotFoundException('播放列表项不存在');
-    for (const row of rows) this.writable(actor, row);
-    if (new Set(rows.map(row => row.ownerUserId)).size !== 1) throw new BadRequestException('不能混排不同用户的列表');
-    for (const row of rows) row.sortOrder = (ids.indexOf(row.id) + 1) * 10;
-    await serializedTransaction(this.repo.manager.connection, async manager => {
+    return this.mutate(actor, async (current, repo) => {
+      if (!ids.length) return { count: 0 };
+      const rows = await repo.findBy({ id: In(ids), slot });
+      if (rows.length !== ids.length) throw new NotFoundException('播放列表项不存在');
+      for (const row of rows) this.writable(current, row);
+      if (new Set(rows.map(row => row.ownerUserId)).size !== 1) throw new BadRequestException('不能混排不同用户的列表');
+      for (const row of rows) row.sortOrder = (ids.indexOf(row.id) + 1) * 10;
       for (const row of rows) {
-        const updated = await manager.update(PlaylistItem, row.id, { sortOrder: row.sortOrder });
+        const updated = await repo.update(row.id, { sortOrder: row.sortOrder });
         if (!updated.affected) throw new NotFoundException('播放列表项已删除');
       }
+      return { count: rows.length };
     });
-    return { count: rows.length };
   }
 }
