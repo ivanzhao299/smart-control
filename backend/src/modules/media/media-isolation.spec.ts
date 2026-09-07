@@ -6,6 +6,7 @@ import { MediaService } from './media.service';
 import { MediaAsset } from '../../entities/media-asset.entity';
 import { User } from '../../entities/user.entity';
 import type { Actor } from '../../common/auth/actor';
+import { serializedTransaction } from '../../common/utils/serialized-transaction';
 
 describe('media isolation with SQLite repositories', () => {
   let db: DataSource;
@@ -27,6 +28,28 @@ describe('media isolation with SQLite repositories', () => {
     await db.getRepository(MediaAsset).update(shared.id, { visibility: 'shared' });
   });
   afterEach(async () => { if (db?.isInitialized) await db.destroy(); });
+  it.each(['disabled', 'viewer', 'transferred', 'rollback'])('rechecks queued media edits after another writer: %s', async state => {
+    const item = await db.getRepository(MediaAsset).findOneByOrFail({ originalName: 'Alice private' });
+    let entered!: () => void, finish!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const held = new Promise<void>(resolve => { finish = resolve; });
+    const writer = serializedTransaction(db, async manager => {
+      if (state === 'viewer') await manager.update(User, 1, { role: 'viewer' });
+      else if (state === 'transferred') await manager.update(MediaAsset, item.id, { ownerUserId: 2 });
+      else await manager.update(User, 1, { enabled: false });
+      entered(); await held;
+      if (state === 'rollback') throw new Error('synthetic rollback');
+    });
+    await ready;
+    let settled = false;
+    const edit = media.updateOwned(item.id, alice, { remark: 'queued edit' }).finally(() => { settled = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    expect(settled).toBe(false);
+    finish();
+    const results = await Promise.allSettled([writer, edit]);
+    expect(results.map(result => result.status)).toEqual(state === 'rollback' ? ['rejected', 'fulfilled'] : ['fulfilled', 'rejected']);
+    expect((await media.get(item.id)).remark).toBe(state === 'rollback' ? 'queued edit' : null);
+  });
   it('filters before pagination and count, not after returning all data', async () => {
     const a = await media.list({ actor: alice, limit: 1 });
     expect(a.total).toBe(2);

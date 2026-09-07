@@ -657,14 +657,29 @@ export class MediaService implements OnModuleInit {
   }
 
   async updateOwned(id: number, actor: Actor, dto: UpdateMediaDto): Promise<MediaAsset> {
-    const row = await this.authorized(id, actor, true);
+    assertCanUpload(actor);
+    return serializedTransaction(this.repo.manager.connection, async manager => {
+      let currentActor = actor;
+      if (actor.userId !== null) {
+        const current = await manager.findOneBy(User, { id: actor.userId, enabled: true });
+        if (!current) throw new ForbiddenException('账户已停用');
+        currentActor = { ...actor, role: current.role };
+      }
+      return this.updateOwnedInTransaction(manager.getRepository(MediaAsset), id, currentActor, dto);
+    });
+  }
+
+  private async updateOwnedInTransaction(repo: Repository<MediaAsset>, id: number, actor: Actor, dto: UpdateMediaDto): Promise<MediaAsset> {
+    const row = await repo.findOneBy({ id });
+    if (!row) throw new NotFoundException('资料不存在');
+    assertWriteResource(actor, row);
     const previousOwner = row.ownerUserId;
     if ((dto.visibility !== undefined || dto.ownerUserId !== undefined) && actor.role !== 'admin') {
       throw new ForbiddenException('仅管理员可调整资料归属或公共状态');
     }
     if (dto.ownerUserId !== undefined) {
       if (!Number.isInteger(dto.ownerUserId) || dto.ownerUserId! < 1) throw new BadRequestException('归属用户无效');
-      const owner = await this.repo.manager.getRepository(User).findOneBy({ id: dto.ownerUserId, enabled: true });
+      const owner = await repo.manager.getRepository(User).findOneBy({ id: dto.ownerUserId, enabled: true });
       if (!owner) throw new BadRequestException('目标用户不存在或已停用');
       row.ownerUserId = owner.id;
     }
@@ -686,7 +701,7 @@ export class MediaService implements OnModuleInit {
     if (dto.originalName !== undefined) changes.originalName = row.originalName;
     if (dto.remark !== undefined) changes.remark = row.remark;
     if (!Object.keys(changes).length) return row;
-    const update = this.repo.createQueryBuilder().update(MediaAsset).set(changes).where('id = :id', { id });
+    const update = repo.createQueryBuilder().update(MediaAsset).set(changes).where('id = :id', { id });
     if (previousOwner === null) update.andWhere('owner_user_id IS NULL');
     else update.andWhere('owner_user_id = :previousOwner', { previousOwner });
     if (actor.role !== 'admin') update.andWhere("visibility = 'private'");
@@ -698,7 +713,7 @@ export class MediaService implements OnModuleInit {
     }
     const result = await update.execute();
     if (!result.affected) throw new ForbiddenException('资料归属已变化或目标用户配额不足');
-    return this.get(id);
+    return repo.findOneByOrFail({ id });
   }
 
   /** 按原始文件名精确查 (playback 欢迎页一键投放按内置素材名定位) */
