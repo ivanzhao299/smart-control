@@ -61,6 +61,10 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Runtime service verification failed.' }
   & $pm2 save
   if ($LASTEXITCODE -ne 0) { throw 'Unable to retain new PM2 configuration.' }
+  # Configure the existing dedicated profiles headlessly while the Interactive
+  # watchdog is still disabled. No credential is placed in a launch argument.
+  & node (Join-Path $root 'backend\scripts\provision-kiosk-profiles.cjs')
+  if ($LASTEXITCODE -ne 0) { throw 'Dedicated kiosk profile configuration failed.' }
   foreach ($task in $snapshot.Tasks) {
     if ($task.Enabled) { Enable-ScheduledTask -TaskName $task.Name | Out-Null }
     else { Disable-ScheduledTask -TaskName $task.Name | Out-Null }

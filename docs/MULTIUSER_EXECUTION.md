@@ -10,6 +10,12 @@
 
 ## 工作队列
 
+### 专用浏览器profile自动配置接线（2026-09-08）
+
+新增provision-kiosk-profiles.cjs，使用现有ws依赖和浏览器仅loopback调试通道，在headless静音实例中配置专用profile；设备token仅在进程内存和CDP消息中传递，不放URL、启动参数或日志。验证设备state接口接受后才持久保存，退出浏览器后留给正常Interactive播放器使用。CLI限制GK9000/user，检查watchdog禁用且无现有专用浏览器进程，使用与start-players一致的浏览器优先级及profile路径。
+
+接入resume：新服务验证及PM2保存后、任务恢复前配置两个profile，失败不恢复播放器任务。本机真实Chrome临时profile测试通过：跨浏览器进程重启仍保留有效凭据、无效替换不覆盖、slot2不混用；合成数据临时目录已删除。尚未在Windows真实浏览器执行此新步骤，也未访问生产凭据或改生产profile，不能声称现场自动配置已完成。
+
 ### 受控启动及任务状态恢复候选入口（2026-09-08）
 
 新增resume-gk9000-release.ps1，核验任务快照白名单、迁移回执、候选/当前/fetched-main SHA、干净跟踪文件、停写状态、配套恢复包完整性及数据库/媒体路径未变化。默认只读；Apply分支停写期间重建候选，再保留并移走hold，从候选ecosystem以固定PM2_HOME脱离启动两个指定服务，不复用旧dump；通过原运行验证器后保存PM2并恢复任务原启用状态，只通过Interactive watchdog拉起屏幕。失败重建hold、禁用任务并尝试停止指定服务，不回滚旧代码，仍要求复查真实端口已停止。
