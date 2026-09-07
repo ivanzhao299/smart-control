@@ -320,11 +320,47 @@ export class MediaService implements OnModuleInit {
 
   /** 放映守护回写文档元数据 (页数 / Word 转出的 PDF 相对路径) */
   async setDocMeta(id: number, meta: { pageCount?: number; pdfRelPath?: string }): Promise<MediaAsset> {
-    const row = await this.repo.findOne({ where: { id } });
-    if (!row) throw new NotFoundException(`media #${id} 不存在`);
-    if (typeof meta.pageCount === 'number' && meta.pageCount > 0) row.pageCount = Math.floor(meta.pageCount);
-    if (meta.pdfRelPath) row.docPdfPath = meta.pdfRelPath;
-    return this.repo.save(row);
+    if (meta.pageCount !== undefined && (!Number.isInteger(meta.pageCount) || meta.pageCount < 1 || meta.pageCount > 100_000)) throw new BadRequestException('无效文档页数');
+    if (meta.pdfRelPath !== undefined && (typeof meta.pdfRelPath !== 'string' || !meta.pdfRelPath || isAbsolute(meta.pdfRelPath))) throw new BadRequestException('无效PDF相对路径');
+    return serializedTransaction(this.repo.manager.connection, async manager => {
+      const row = await manager.findOneByOrFail(MediaAsset, { id });
+      if (row.kind !== 'doc') throw new BadRequestException('资料不是文档');
+      const fields: Partial<MediaAsset> = {};
+      if (meta.pageCount !== undefined) fields.pageCount = meta.pageCount;
+      if (meta.pdfRelPath !== undefined) {
+        const root = await fs.realpath(this.mediaRoot);
+        const original = await fs.realpath(row.path);
+        const rel = relative(root, original);
+        if (!rel || rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel) || !['.doc', '.docx'].includes(extname(original).toLowerCase())) throw new BadRequestException('PDF必须属于当前Word文档');
+        const expected = original.slice(0, -extname(original).length) + '.pdf';
+        const requested = resolve(root, meta.pdfRelPath);
+        if (requested !== expected || await fs.realpath(requested) !== expected) throw new BadRequestException('PDF路径与当前文档不匹配');
+        const handle = await fs.open(requested, 'r');
+        try {
+          const header = Buffer.alloc(5);
+          await handle.read(header, 0, 5, 0);
+          if (header.toString() !== '%PDF-') throw new BadRequestException('转换结果不是PDF');
+        } finally { await handle.close(); }
+        const paths = new Set<string>();
+        let bytes = 0;
+        for (const value of [original, requested, row.sourcePath, row.thumbPath]) {
+          if (!value) continue;
+          const file = await fs.realpath(resolve(root, value));
+          const local = relative(root, file);
+          if (!local || local === '..' || local.startsWith('..' + sep) || isAbsolute(local)) throw new BadRequestException('文档文件超出媒体目录');
+          if (paths.has(file)) continue;
+          paths.add(file);
+          const stat = await fs.stat(file);
+          if (!stat.isFile()) throw new BadRequestException('文档路径不是文件');
+          bytes += stat.size;
+          if (!Number.isSafeInteger(bytes)) throw new BadRequestException('文档占用大小超出安全范围');
+        }
+        fields.docPdfPath = relative(root, requested).split(sep).join('/');
+        fields.sizeBytes = bytes;
+      }
+      if (Object.keys(fields).length) await manager.update(MediaAsset, id, fields);
+      return manager.findOneByOrFail(MediaAsset, { id });
+    });
   }
 
   /** Multer 落到 tmp 后, 调用本方法把文件挪到正式位置 + 创建 DB 记录 */

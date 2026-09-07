@@ -27,6 +27,38 @@ describe('file ingestion compensation', () => {
     Object.defineProperty(media, 'mediaRoot', { value: root });
   });
   afterEach(async () => { jest.restoreAllMocks(); await db.destroy(); await fs.rm(root, { recursive: true, force: true }); });
+  it('validates a document PDF and accounts original plus derivative without replacing metadata', async () => {
+    const original = join(root, 'document.docx'), pdf = join(root, 'document.pdf');
+    await fs.writeFile(original, 'original'); await fs.writeFile(pdf, '%PDF-synthetic');
+    const repo = db.getRepository(MediaAsset);
+    const item = await repo.save({ originalName: 'document.docx', safeName: 'document.docx', path: original, sourcePath: original, kind: 'doc', mimeType: 'application/msword', sizeBytes: 8, ownerUserId: 1, visibility: 'private', remark: 'keep this' });
+    await db.query("CREATE TRIGGER doc_metadata_edit BEFORE UPDATE OF pageCount ON media_assets BEGIN UPDATE media_assets SET originalName = 'admin-renamed.docx' WHERE id = NEW.id; END");
+    const updated = await media.setDocMeta(item.id, { pageCount: 4, pdfRelPath: 'document.pdf' });
+    expect(updated).toMatchObject({ ownerUserId: 1, visibility: 'private', remark: 'keep this', originalName: 'admin-renamed.docx', pageCount: 4, docPdfPath: 'document.pdf', sizeBytes: 8 + Buffer.byteLength('%PDF-synthetic') });
+  });
+  it('rejects invalid pages and foreign or non-PDF derivatives without changing a document', async () => {
+    const original = join(root, 'document.docx');
+    await fs.writeFile(original, 'original'); await fs.writeFile(join(root, 'other.pdf'), '%PDF-other');
+    await fs.writeFile(join(root, 'document.pdf'), 'not-pdf');
+    const repo = db.getRepository(MediaAsset);
+    const item = await repo.save({ originalName: 'document.docx', safeName: 'document.docx', path: original, kind: 'doc', mimeType: 'application/msword', sizeBytes: 8, ownerUserId: 1, visibility: 'private', pageCount: 2 });
+    for (const pageCount of [0, -1, 1.5, NaN, 100001]) await expect(media.setDocMeta(item.id, { pageCount })).rejects.toThrow();
+    await expect(media.setDocMeta(item.id, { pageCount: 5, pdfRelPath: 'other.pdf' })).rejects.toThrow('不匹配');
+    await expect(media.setDocMeta(item.id, { pageCount: 5, pdfRelPath: 'document.pdf' })).rejects.toThrow('不是PDF');
+    expect(await repo.findOneByOrFail({ id: item.id })).toMatchObject({ pageCount: 2, docPdfPath: null, sizeBytes: 8 });
+  });
+  it('does not resurrect a document deleted while metadata was waiting for a transaction', async () => {
+    const item = await db.getRepository(MediaAsset).save({ originalName: 'a.docx', safeName: 'a.docx', path: '/fixture/a.docx', kind: 'doc', mimeType: 'application/msword', sizeBytes: 8, ownerUserId: 1, visibility: 'private' });
+    let entered!: () => void, finish!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const held = new Promise<void>(resolve => { finish = resolve; });
+    const deleting = serializedTransaction(db, async manager => { entered(); await held; await manager.delete(MediaAsset, item.id); });
+    await ready;
+    const updating = media.setDocMeta(item.id, { pageCount: 4 });
+    finish();
+    expect((await Promise.allSettled([deleting, updating])).map(result => result.status)).toEqual(['fulfilled', 'rejected']);
+    expect(await db.getRepository(MediaAsset).count()).toBe(0);
+  });
   it.each([true, false])('does not treat a same-name private asset as a bundled system asset (file exists=%s)', async exists => {
     await conversionSchema();
     const name = '左右声道测试.wav';
