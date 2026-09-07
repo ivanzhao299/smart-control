@@ -13,6 +13,9 @@
 # 屏幕坐标: slot1 = 0,0 / slot2 = 1920,0 (与 start-players.ps1 kiosk 摆位一致)。
 # =====================================================================
 $ErrorActionPreference = 'Continue'
+$releaseRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+& (Join-Path $PSScriptRoot 'assert-release-not-held.ps1') -ReleaseProjectRoot $releaseRoot
+if (-not $?) { exit 1 }
 $api = 'http://127.0.0.1:3200/api'
 $logFile = 'D:\smart-control\logs\ppt-player.log'
 function Log([string]$m) {
@@ -30,8 +33,9 @@ function Get-PlayerHeaders {
 function Get-PlayerState([int]$slot) {
   return (Invoke-RestMethod -Uri ($api + '/player-device/' + $slot + '/state') -Headers (Get-PlayerHeaders) -TimeoutSec 5 -ErrorAction Stop).data
 }
-function Save-DocMeta([int]$slot, [string]$session, [int]$pages, [bool]$pdfReady) {
+function Save-DocMeta([int]$slot, [string]$session, [int]$pages, [bool]$pdfReady, [string]$reservationId = '') {
   $data = @{ playbackSession = $session; pdfReady = $pdfReady }
+  if ($reservationId) { $data.reservationId = $reservationId }
   if ($pages -gt 0) { $data.pageCount = $pages }
   Invoke-RestMethod -Uri ($api + '/player-device/' + $slot + '/doc-meta') -Headers (Get-PlayerHeaders) -Method Post -ContentType 'application/json' -Body ($data | ConvertTo-Json -Compress) -TimeoutSec 5 -ErrorAction Stop | Out-Null
 }
@@ -155,23 +159,44 @@ function Start-Show([int]$slot, [int]$mediaId, [string]$session, [string]$absPat
 }
 
 function Convert-WordToPdf([int]$slot, [int]$mediaId, [string]$session, [string]$absPath) {
+  $ErrorActionPreference = 'Stop'
   if ($convertTried.ContainsKey($session)) { return }
+  # One attempt per publish session. On uncertain failure keep the server-side
+  # reservation and any output for recovery; do not repeatedly overwrite PDFs.
+  $convertTried[$session] = $true
   Log ("[ppt] word2pdf start: media " + $mediaId)
   $word = $null
+  $doc = $null
   try {
-    $pdfAbs = [System.IO.Path]::ChangeExtension($absPath, '.pdf')
+    $request = @{ playbackSession = $session } | ConvertTo-Json -Compress
+    $grant = (Invoke-RestMethod -Uri ($api + '/player-device/' + $slot + '/doc-prepare') -Headers (Get-PlayerHeaders) -Method Post -ContentType 'application/json' -Body $request -TimeoutSec 30 -ErrorAction Stop).data
+    if (-not $grant -or [int]$grant.id -ne $mediaId -or [string]$grant.reservationId -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') { throw 'invalid document reservation' }
+    $maximum = [long]$grant.maxBytes
+    if ($maximum -lt 1 -or $maximum -gt 9007199254740991) { throw 'invalid document budget' }
+    $source = [System.IO.Path]::GetFullPath([string]$grant.absPath)
+    $pdfAbs = [System.IO.Path]::GetFullPath([string]$grant.pdfPath)
+    if ($source -ine [System.IO.Path]::GetFullPath($absPath) -or $pdfAbs -ine [System.IO.Path]::ChangeExtension($source, '.pdf')) { throw 'document path changed' }
+    if (Test-Path -LiteralPath $pdfAbs -ErrorAction Stop) { throw 'existing PDF requires recovery' }
     $word = New-Object -ComObject Word.Application
     $word.AutomationSecurity = 3
     $word.Visible = $false
-    $doc = $word.Documents.Open($absPath, $false, $true)
+    $word.DisplayAlerts = 0
+    $doc = $word.Documents.Open($source, $false, $true)
     $pages = 0; try { $pages = $doc.ComputeStatistics(2) } catch { }
     $doc.ExportAsFixedFormat($pdfAbs, 17)
     $doc.Close(0)
-    Save-DocMeta $slot $session $pages $true
-    $convertTried[$session] = $true
+    $doc = $null
+    # Post-write validation, not a hard bound during synchronous COM export.
+    # Oversized/uncertain output stays reserved for controlled recovery.
+    $pdfFile = Get-Item -LiteralPath $pdfAbs -ErrorAction Stop
+    if ($pdfFile.PSIsContainer -or $pdfFile.Length -lt 5 -or $pdfFile.Length -gt $maximum) { throw 'PDF exceeds reservation' }
+    Save-DocMeta $slot $session $pages $true ([string]$grant.reservationId)
     Log ("[ppt] word2pdf OK media=" + $mediaId + " pages=" + $pages)
-  } catch { Log '[ppt] word2pdf or authorization failed' }
-  finally { if ($word) { try { $word.Quit() } catch { } } }
+  } catch { Log ('[ppt] word2pdf failed; retain output and reservation for recovery, media=' + $mediaId) }
+  finally {
+    if ($doc) { try { $doc.Close(0) } catch { } }
+    if ($word) { try { $word.Quit() } catch { } }
+  }
 }
 
 while ($true) {
