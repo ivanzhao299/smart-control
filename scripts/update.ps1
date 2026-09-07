@@ -27,6 +27,8 @@ param(
 $ErrorActionPreference = 'Continue'
 $projectRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 Set-Location $projectRoot
+& (Join-Path $PSScriptRoot 'assert-release-not-held.ps1') -ReleaseProjectRoot $projectRoot
+if (-not $?) { exit 1 }
 
 # 固定 PM2_HOME, 和 boot-pm2.ps1 / auto-update-watcher.ps1 保持一致 (2026-07-26)。
 # 否则本脚本里的 `& pm2 delete/start/describe` 在非交互会话用默认家目录, 找不到

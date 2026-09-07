@@ -44,6 +44,8 @@ param(
 
 $ErrorActionPreference = 'Continue'
 $RepoRoot = Split-Path -Parent $PSScriptRoot
+& (Join-Path $PSScriptRoot 'assert-release-not-held.ps1') -ReleaseProjectRoot $RepoRoot
+if (-not $?) { exit 1 }
 $LogFile  = Join-Path $RepoRoot 'logs\player-watchdog.log'
 
 function Log([string]$msg) {

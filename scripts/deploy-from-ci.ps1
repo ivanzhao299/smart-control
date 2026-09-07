@@ -16,6 +16,7 @@ $projectRoot = if ($ProjectRoot) {
   (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 }
 $logsDir = Join-Path $projectRoot 'logs'
+& (Join-Path $projectRoot 'scripts\assert-release-not-held.ps1') -ReleaseProjectRoot $projectRoot
 $lockPath = Join-Path $env:ProgramData 'Anksen\smart-control-deploy.lock'
 $startedAt = (Get-Date).ToUniversalTime()
 $previousCommit = $null

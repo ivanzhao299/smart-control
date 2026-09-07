@@ -4,6 +4,9 @@
 # 文件: deploy\windows-startup\boot.ps1
 # =====================================================================
 $ErrorActionPreference = 'Continue'
+$releaseRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+& (Join-Path $releaseRoot 'scripts\assert-release-not-held.ps1') -ReleaseProjectRoot $releaseRoot
+if (-not $?) { exit 1 }
 $logDir = 'D:\smart-control\logs'
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
 $logFile = Join-Path $logDir 'boot.log'

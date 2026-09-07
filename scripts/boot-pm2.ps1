@@ -26,6 +26,9 @@
 # comments out real code. (2026-07-16: cost several rounds to diagnose.)
 # ==============================================================
 $ErrorActionPreference = 'Continue'
+$releaseRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+& (Join-Path $PSScriptRoot 'assert-release-not-held.ps1') -ReleaseProjectRoot $releaseRoot
+if (-not $?) { exit 1 }
 $logDir = 'D:\smart-control\logs'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $log = Join-Path $logDir 'boot-pm2.log'

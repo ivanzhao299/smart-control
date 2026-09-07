@@ -7,8 +7,10 @@ import { WsAdapter } from '@nestjs/platform-ws';
 import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
 import { AppModule } from './app.module';
 import { AppConfig, WebSocketConfig } from './common/config/configuration';
+import { assertReleaseNotHeld } from './common/config/release-hold';
 
 async function bootstrap(): Promise<void> {
+  assertReleaseNotHeld();
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
 
   const logger = app.get(WINSTON_MODULE_NEST_PROVIDER);

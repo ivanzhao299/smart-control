@@ -27,6 +27,8 @@ $ErrorActionPreference = 'Continue'
 $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
 $projectRoot = (Resolve-Path (Join-Path $scriptDir '..')).Path
 Set-Location $projectRoot
+& (Join-Path $scriptDir 'assert-release-not-held.ps1') -ReleaseProjectRoot $projectRoot
+if (-not $?) { exit 1 }
 
 # 关键 (2026-07-26): 固定 PM2_HOME, 和 boot-pm2.ps1 保持一致。
 # 根因: 本脚本作为计划任务在非交互会话跑, $env:USERPROFILE 为空, 下面的

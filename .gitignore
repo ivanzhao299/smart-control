@@ -65,6 +65,7 @@ coverage/
 backend/.env.bak*
 backend/.npmrc
 /tmp/
+/RELEASE_HOLD
 /logs/auto-update-*.log
 
 # Vite auto-generated, 每次 build 都会改 — 不该 track
