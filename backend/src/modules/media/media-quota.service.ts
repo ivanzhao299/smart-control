@@ -149,6 +149,12 @@ export class MediaQuotaService {
       throw new BadRequestException('无效配额参数');
     // Cannot lower beneath committed and in-flight storage, including concurrent reservations.
     await serializedTransaction(this.db, async (manager) => {
+      if (actor.kind === 'user') {
+        const [current] = await manager.query('SELECT id FROM users WHERE id = ? AND enabled = 1 AND role = ?', [actor.userId, 'admin']);
+        if (!current) throw new ForbiddenException('管理员权限已失效');
+      } else if (actor.kind !== 'admin' || actor.userId !== null) {
+        throw new ForbiddenException('仅管理员可修改配额');
+      }
       const result = await manager
         .createQueryBuilder()
         .update('users')

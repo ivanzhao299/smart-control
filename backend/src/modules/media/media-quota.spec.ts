@@ -217,4 +217,28 @@ describe('atomic upload capacity reservations', () => {
     expect((await quota.usage(alice)).quotaBytes).toBe(60);
     await expect(quota.reserve(alice, 1)).rejects.toThrow();
   });
+  it.each(['disabled', 'demoted', 'deleted'])('rejects a queued quota edit after the administrator is %s', async change => {
+    await db.getRepository(User).update(2, { role: 'admin' });
+    const administrator: Actor = { ...bob, role: 'admin' };
+    let entered!: () => void, finish!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const held = new Promise<void>(resolve => { finish = resolve; });
+    const revoking = serializedTransaction(db, async manager => {
+      entered(); await held;
+      if (change === 'deleted') await manager.delete(User, 2);
+      else await manager.update(User, 2, change === 'disabled' ? { enabled: false } : { role: 'viewer' });
+    });
+    await ready;
+    const updating = quota.setLimit(administrator, 1, 500);
+    finish();
+    const results = await Promise.allSettled([revoking, updating]);
+    expect(results[0].status).toBe('fulfilled');
+    expect(results[1]).toMatchObject({ status: 'rejected', reason: expect.objectContaining({ message: '管理员权限已失效' }) });
+    expect((await quota.usage(alice)).quotaBytes).toBe(100);
+  });
+  it('permits a currently enabled named administrator to change another user quota', async () => {
+    await db.getRepository(User).update(2, { role: 'admin' });
+    await quota.setLimit({ ...bob, role: 'admin' }, 1, 500);
+    expect((await quota.usage(alice)).quotaBytes).toBe(500);
+  });
 });
