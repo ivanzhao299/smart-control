@@ -52,6 +52,47 @@ describe('file ingestion compensation', () => {
     for (const migration of [new AddUploadReservations1788618003000(), new BindUploadTemporaryFiles1788618004000(), new TrackUploadInstances1788618005000(), new LinkUploadMedia1788618006000()]) await migration.up(db.createQueryRunner());
     await new TrackSystemUploadReservations1788618008000().up(db.createQueryRunner());
   }
+  it.each(['metadata', 'owner'])('rechecks bundled repair before commit and preserves concurrent %s edits', async change => {
+    await conversionSchema();
+    const repo = db.getRepository(MediaAsset);
+    const originalName = 'system.wav';
+    const existing = await repo.save({ originalName, safeName: 'system.wav', path: '', kind: 'audio', mimeType: 'audio/wav', sizeBytes: 14, ownerUserId: null, source: 'system', visibility: 'shared', remark: 'original remark' });
+    const source = join(root, 'bundled.wav');
+    await fs.writeFile(source, 'system-content');
+    (media as any).logger = { info: jest.fn(), warn: jest.fn() };
+    const open = fs.open.bind(fs);
+    jest.spyOn(fs, 'open').mockImplementationOnce(async (file, flags, mode) => {
+      await repo.update(existing.id, change === 'owner' ? { ownerUserId: 1, visibility: 'private' } : { remark: 'admin edit', visibility: 'private' });
+      return open(file, flags, mode);
+    });
+    const operation = (media as any).seedBundledFile({ file: source, originalName, kind: 'audio', mime: 'audio/wav', remark: 'fixture' });
+    if (change === 'owner') {
+      await expect(operation).rejects.toThrow('归属');
+      expect(await repo.findOneByOrFail({ id: existing.id })).toMatchObject({ ownerUserId: 1, visibility: 'private', path: '' });
+      expect(await fs.readdir(join(root, String(existing.id)))).toEqual([]);
+    } else {
+      await operation;
+      const result = await repo.findOneByOrFail({ id: existing.id });
+      expect(result).toMatchObject({ ownerUserId: null, visibility: 'private', remark: 'admin edit', sizeBytes: 14 });
+      expect(await fs.readFile(result.path, 'utf8')).toBe('system-content');
+    }
+    expect(await db.query('SELECT * FROM upload_reservations')).toEqual([]);
+    media.acquireOperation(existing.id)();
+  });
+  it('keeps a linked repair budget when failed-file cleanup cannot finish', async () => {
+    await conversionSchema();
+    const repo = db.getRepository(MediaAsset);
+    const item = await repo.save({ originalName: 'system.wav', safeName: 'system.wav', path: '', kind: 'audio', mimeType: 'audio/wav', sizeBytes: 14, ownerUserId: null, source: 'system', visibility: 'shared' });
+    const source = join(root, 'bundled.wav');
+    await fs.writeFile(source, 'system-content');
+    const open = fs.open.bind(fs);
+    jest.spyOn(fs, 'open').mockImplementationOnce(async (file, flags, mode) => { await repo.update(item.id, { ownerUserId: 1 }); return open(file, flags, mode); });
+    jest.spyOn(fs, 'unlink').mockRejectedValueOnce(new Error('cleanup denied'));
+    await expect((media as any).seedBundledFile({ file: source, originalName: 'system.wav', kind: 'audio', mime: 'audio/wav', remark: 'fixture' })).rejects.toThrow('cleanup denied');
+    expect(await db.query('SELECT target_media_id, bytes FROM upload_reservations')).toEqual([{ target_media_id: item.id, bytes: 14 }]);
+    expect(await fs.readdir(join(root, String(item.id)))).toHaveLength(1);
+    media.acquireOperation(item.id)();
+  });
   it('refuses new bundled copies before writing when no disk budget is available', async () => {
     await conversionSchema();
     const bundled = join(root, 'bundled.wav');

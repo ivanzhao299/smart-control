@@ -230,13 +230,7 @@ export class MediaService implements OnModuleInit {
           ? await fs.stat(existing.path).then((s) => s.isFile()).catch(() => false)
           : false;
         if (fileOk) return;
-        const dir = join(this.mediaRoot, String(existing.id));
-        await fs.mkdir(dir, { recursive: true });
-        const p = join(dir, existing.safeName || this.safeFilename(originalName));
-        await fs.copyFile(src, p);
-        existing.path = p;
-        existing.sizeBytes = stat.size;
-        await this.repo.save(existing);
+        await this.repairBundledFile(existing.id, src, stat.size, originalName);
         this.logger.info(`[Media] 内置素材死行已修复: ${originalName} (#${existing.id})`, { context: 'MediaService' });
         return;
       }
@@ -254,6 +248,51 @@ export class MediaService implements OnModuleInit {
       } finally {
         if (!handedToIngest) await quota.release(actor, reservation);
       }
+    }
+  }
+
+  private async repairBundledFile(id: number, source: string, bytes: number, originalName: string): Promise<void> {
+    const release = this.acquireOperation(id);
+    const actor: Actor = { kind: 'admin', userId: null, username: 'system', role: 'admin' };
+    const quota = new MediaQuotaService(this.repo.manager.connection);
+    let reservation: string | null = null;
+    let target: string | undefined;
+    let committed = false;
+    let owned = false;
+    try {
+      reservation = await quota.reserve(actor, bytes, this.mediaRoot);
+      if (!reservation) throw new Error('内置修复预留未建立');
+      const previousPath = await serializedTransaction(this.repo.manager.connection, async manager => {
+        const row = await manager.findOneByOrFail(MediaAsset, { id, ownerUserId: IsNull(), source: 'system' });
+        const linked = await manager.createQueryBuilder().update('upload_reservations').set({ target_media_id: id })
+          .where('id = :reservation AND owner_user_id IS NULL AND target_media_id IS NULL', { reservation })
+          .andWhere('NOT EXISTS (SELECT 1 FROM upload_reservations r WHERE r.target_media_id = :media AND r.temp_name IS NULL)', { media: id }).execute();
+        if (!linked.affected) throw new ConflictException('内置素材已有待恢复任务');
+        return row.path;
+      });
+      const directory = join(this.mediaRoot, String(id));
+      await fs.mkdir(directory, { recursive: true });
+      const [root, actual] = await Promise.all([fs.realpath(this.mediaRoot), fs.realpath(directory)]);
+      const dirStat = await fs.lstat(directory);
+      if (!dirStat.isDirectory() || dirStat.isSymbolicLink() || actual !== join(root, String(id))) throw new Error('内置素材修复目录不安全');
+      const buffer = await fs.readFile(source);
+      if (buffer.length !== bytes) throw new Error('内置素材在预留后发生变化');
+      target = join(directory, `restored-${randomUUID()}-${this.safeFilename(originalName)}`);
+      const handle = await fs.open(target, 'wx', 0o600);
+      owned = true;
+      try { await handle.writeFile(buffer); } finally { await handle.close(); }
+      await serializedTransaction(this.repo.manager.connection, async manager => {
+        const updated = await manager.createQueryBuilder().update(MediaAsset).set({ path: target, sizeBytes: bytes })
+          .where('id = :id AND owner_user_id IS NULL AND source = :source AND path = :previousPath', { id, source: 'system', previousPath }).execute();
+        if (!updated.affected) throw new ConflictException('内置素材归属或文件路径已变化');
+      });
+      committed = true;
+    } finally {
+      try {
+        // Exact owned candidate only; a failed cleanup retains its linked budget.
+        if (owned && !committed && target) await fs.unlink(target);
+        await quota.release(actor, reservation);
+      } finally { release(); }
     }
   }
 
