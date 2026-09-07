@@ -977,7 +977,7 @@ export class MediaService implements OnModuleInit {
       }
 
       const dir = join(this.mediaRoot, String(media.id));
-      conversionReservation = await quota.reserveConversion(id, media.ownerUserId, Number(process.env.MEDIA_TRANSCODE_MAX_BYTES ?? 10 * 1024 ** 3));
+      conversionReservation = await quota.reserveConversion(id, media.ownerUserId, Number(process.env.MEDIA_TRANSCODE_MAX_BYTES ?? 10 * 1024 ** 3), this.mediaRoot);
       const temp = join(dir, `playback-converting-${randomUUID()}.mp4`);
       conversionTemp = temp;
       // An uploaded original may itself be named playback.mp4. Never replace it.

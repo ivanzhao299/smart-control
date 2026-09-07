@@ -21,7 +21,7 @@ async function main() {
   const actor = stage.startsWith('system-') ? { kind: 'admin', userId: null, username: 'admin', role: 'admin' }
     : { kind: 'user', userId: user.id, username: user.username, role: user.role };
   const quota = new MediaQuotaService(db);
-  const id = await quota.reserve(actor, 100);
+  const id = await quota.reserve(actor, 100, join(root, 'media'));
   const name = id + '.upload';
   await quota.bindTemporary(actor, id, name);
   if (stage.endsWith('partial')) await fs.writeFile(join(root, 'media', '_tmp', name), 'interrupted-private-bytes', { flag: 'wx' });

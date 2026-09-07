@@ -24,8 +24,31 @@ describe('atomic upload capacity reservations', () => {
     await new TrackSystemUploadReservations1788618008000().up(db.createQueryRunner());
     await db.getRepository(User).save([{ id: 1, username: 'alice', password: 'test', role: 'operator', storageQuotaBytes: 100 }, { id: 2, username: 'bob', password: 'test', role: 'operator', storageQuotaBytes: 100 }]);
     quota = new MediaQuotaService(db);
+    jest.spyOn(quota as any, 'availableDiskBytes').mockResolvedValue(1_000_000);
   });
   afterEach(async () => { await db.destroy(); });
+  it('shares one disk budget between concurrent named and system uploads', async () => {
+    (quota as any).availableDiskBytes.mockResolvedValue(100);
+    const admin: Actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };
+    const result = await Promise.allSettled([quota.reserve(alice, 60), quota.reserve(admin, 60)]);
+    expect(result.filter(item => item.status === 'fulfilled')).toHaveLength(1);
+    expect(await db.query('SELECT SUM(bytes) AS total FROM upload_reservations')).toEqual([{ total: 60 }]);
+  });
+  it('limits system conversion to disk remaining after every existing reservation', async () => {
+    (quota as any).availableDiskBytes.mockResolvedValue(100);
+    await quota.reserve(alice, 60);
+    const media = await db.getRepository(MediaAsset).save({ originalName: 'system.mov', safeName: 'system.mov', path: '/fixture/system.mov', kind: 'video', mimeType: 'video/quicktime', sizeBytes: 10, ownerUserId: null, visibility: 'private', processingStatus: 'processing' });
+    const conversion = await quota.reserveConversion(media.id, null, 1000);
+    expect(conversion.bytes).toBe(40);
+    expect(conversion.id).toEqual(expect.any(String));
+    await expect(quota.reserve(bob, 1)).rejects.toThrow('磁盘');
+    expect(await db.query('SELECT SUM(bytes) AS total FROM upload_reservations')).toEqual([{ total: 100 }]);
+  });
+  it('does not record any reservation when disk availability cannot be verified', async () => {
+    (quota as any).availableDiskBytes.mockRejectedValue(new Error('disk unavailable'));
+    await expect(quota.reserve(alice, 10)).rejects.toThrow('disk unavailable');
+    expect(await db.query('SELECT * FROM upload_reservations')).toEqual([]);
+  });
   it('preserves named reservations and their owner foreign key through the nullable-owner migration', async () => {
     const id = await quota.reserve(alice, 30);
     await quota.bindTemporary(alice, id, '01234567-1234-1234-1234-012345678901.upload');

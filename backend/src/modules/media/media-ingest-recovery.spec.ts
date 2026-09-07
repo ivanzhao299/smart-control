@@ -353,7 +353,7 @@ describe('file ingestion compensation', () => {
     const runner = db.createQueryRunner();
     for (const migration of [new AddUploadReservations1788618003000(), new BindUploadTemporaryFiles1788618004000(), new TrackUploadInstances1788618005000(), new LinkUploadMedia1788618006000()]) await migration.up(runner);
     const quota = new MediaQuotaService(db);
-    const reservation = await quota.reserve(actor, 6);
+    const reservation = await quota.reserve(actor, 6, root);
     const name = '01234567-1234-1234-1234-012345678901.upload';
     await quota.bindTemporary(actor, reservation, name);
     await fs.mkdir(join(root, '_tmp'));

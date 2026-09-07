@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, ForbiddenException } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
+import { promises as fs } from 'fs';
 import { randomUUID } from 'crypto';
 import { hostname } from 'os';
 import { Actor } from '../../common/auth/actor';
@@ -13,18 +14,40 @@ const uploadProcess = Object.freeze({ host: hostname(), pid: process.pid, starte
 export class MediaQuotaService {
   constructor(private readonly db: DataSource) {}
 
-  async reserveConversion(mediaId: number, expectedOwner: number | null, maximum: number): Promise<{ id: string | null; bytes: number }> {
+  private async availableDiskBytes(mediaRoot?: string): Promise<number> {
+    const root = mediaRoot ?? process.env.MEDIA_ROOT ?? (process.platform === 'win32' ? 'D:\\Media' : '/var/lib/smart-control/media');
+    const margin = Number(process.env.MEDIA_DISK_RESERVE_BYTES ?? 512 * 1024 ** 2);
+    if (!Number.isSafeInteger(margin) || margin < 0) throw new BadRequestException('无效磁盘安全余量');
+    const stat = await fs.statfs(root, { bigint: true });
+    if (stat.bsize <= 0n || stat.bavail < 0n) throw new ForbiddenException('无法核验媒体磁盘可用空间');
+    const remaining = stat.bsize * stat.bavail - BigInt(margin);
+    return remaining <= 0n ? 0 : Number(remaining > BigInt(Number.MAX_SAFE_INTEGER) ? BigInt(Number.MAX_SAFE_INTEGER) : remaining);
+  }
+
+  private async remainingDisk(manager: EntityManager, mediaRoot?: string): Promise<number> {
+    const available = await this.availableDiskBytes(mediaRoot);
+    const [row] = await manager.query('SELECT COALESCE(SUM(bytes), 0) AS reserved FROM upload_reservations');
+    const reserved = Number(row.reserved);
+    if (!Number.isSafeInteger(reserved) || reserved < 0) throw new ForbiddenException('磁盘预留账目异常');
+    // Conservative: partially written reservations remain fully charged until
+    // released, even though statfs already reflects their written bytes.
+    return Math.max(0, available - reserved);
+  }
+
+  async reserveConversion(mediaId: number, expectedOwner: number | null, maximum: number, mediaRoot?: string): Promise<{ id: string | null; bytes: number }> {
     if (!Number.isSafeInteger(maximum) || maximum < 1) throw new BadRequestException('无效转码容量预算');
     return serializedTransaction(this.db, async manager => {
       const asset = await manager.findOneByOrFail(MediaAsset, { id: mediaId });
       if (asset.ownerUserId !== expectedOwner || asset.processingStatus !== 'processing') throw new ForbiddenException('转码资料状态或归属已变化');
+      const disk = await this.remainingDisk(manager, mediaRoot);
+      if (disk < 1) throw new ForbiddenException('媒体磁盘可用空间不足');
       const [capacity] = await manager.query(`SELECT storage_quota_bytes
         - COALESCE((SELECT SUM(sizeBytes) FROM media_assets WHERE owner_user_id = users.id), 0)
         - COALESCE((SELECT SUM(bytes) FROM upload_reservations WHERE owner_user_id = users.id), 0) AS available
         FROM users WHERE id = ? AND enabled = 1 AND role IN ('admin', 'operator')`, [expectedOwner]);
       const available = Number(capacity?.available);
       if (expectedOwner !== null && (!Number.isSafeInteger(available) || available < 1)) throw new ForbiddenException('转码存储配额不足或账户已停用');
-      const bytes = expectedOwner === null ? maximum : Math.min(maximum, available);
+      const bytes = Math.min(disk, expectedOwner === null ? maximum : Math.min(maximum, available));
       const id = randomUUID();
       await manager.query(`INSERT INTO upload_reservations (id, owner_user_id, bytes, target_media_id)
         SELECT ?, ?, ?, ? WHERE NOT EXISTS
@@ -57,11 +80,12 @@ export class MediaQuotaService {
     });
   }
 
-  async reserve(actor: Actor, bytes: number): Promise<string | null> {
+  async reserve(actor: Actor, bytes: number, mediaRoot?: string): Promise<string | null> {
     assertCanUpload(actor);
     if (!Number.isSafeInteger(bytes) || bytes < 0) throw new BadRequestException('无效文件大小');
     const id = randomUUID();
     return serializedTransaction(this.db, async (manager) => {
+      if (bytes > await this.remainingDisk(manager, mediaRoot)) throw new ForbiddenException('媒体磁盘可用空间不足');
       if (actor.userId === null) {
         await manager.query('INSERT INTO upload_reservations (id, owner_user_id, bytes) VALUES (?, NULL, ?)', [id, bytes]);
         return id;
