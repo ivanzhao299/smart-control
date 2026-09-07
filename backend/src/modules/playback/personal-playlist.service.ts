@@ -21,8 +21,8 @@ export class PersonalPlaylistService {
     assertCanUpload(actor);
     if (actor.role !== 'admin' && (actor.userId === null || actor.userId !== row.ownerUserId)) throw new NotFoundException('播放列表项不存在');
   }
-  private mutate<T>(actor: Actor, work: (current: Actor, repo: Repository<PlaylistItem>) => Promise<T>): Promise<T> {
-    assertCanUpload(actor);
+  private withCurrentActor<T>(actor: Actor, write: boolean, work: (current: Actor, repo: Repository<PlaylistItem>) => Promise<T>): Promise<T> {
+    if (write) assertCanUpload(actor);
     return serializedTransaction(this.repo.manager.connection, async manager => {
       let current = actor;
       if (actor.userId !== null) {
@@ -30,26 +30,28 @@ export class PersonalPlaylistService {
         if (!user) throw new ForbiddenException('账户已停用');
         current = { ...actor, role: user.role };
       }
-      assertCanUpload(current);
+      if (write) assertCanUpload(current);
       return work(current, manager.getRepository(PlaylistItem));
     });
   }
   async list(actor: Actor, slot: number, scope: 'mine' | 'shared' | 'all' = 'mine') {
     this.slot(slot);
     if (!['mine', 'shared', 'all'].includes(scope)) throw new BadRequestException('无效列表范围');
-    if (scope === 'all' && actor.role !== 'admin') throw new ForbiddenException('仅管理员可查看全部列表');
-    const owner = this.owner(actor);
-    const where = scope === 'all' ? { slot } : { slot, ownerUserId: scope === 'shared' || owner === null ? IsNull() : owner };
-    const rows = await this.repo.find({ where, order: { sortOrder: 'ASC', id: 'ASC' } });
-    const result = [];
-    for (const row of rows) {
-      const media = await this.media.get(row.mediaId).catch(() => null);
-      if (media) {
-        try { assertReadResource(actor, media); } catch { continue; }
+    return this.withCurrentActor(actor, false, async (current, repo) => {
+      if (scope === 'all' && current.role !== 'admin') throw new ForbiddenException('仅管理员可查看全部列表');
+      const owner = this.owner(current);
+      const where = scope === 'all' ? { slot } : { slot, ownerUserId: scope === 'shared' || owner === null ? IsNull() : owner };
+      const rows = await repo.find({ where, order: { sortOrder: 'ASC', id: 'ASC' } });
+      const result = [];
+      for (const row of rows) {
+        const media = await repo.manager.findOneBy(MediaAsset, { id: row.mediaId });
+        if (media) {
+          try { assertReadResource(current, media); } catch { continue; }
+        }
+        result.push({ id: row.id, ownerUserId: row.ownerUserId, mediaId: row.mediaId, title: row.title ?? media?.originalName ?? '资料已删除', sortOrder: row.sortOrder, kind: media?.kind ?? null, durationSec: media?.durationSec ?? null, missing: !media });
       }
-      result.push({ id: row.id, ownerUserId: row.ownerUserId, mediaId: row.mediaId, title: row.title ?? media?.originalName ?? '资料已删除', sortOrder: row.sortOrder, kind: media?.kind ?? null, durationSec: media?.durationSec ?? null, missing: !media });
-    }
-    return result;
+      return result;
+    });
   }
   async add(actor: Actor, slot: number, mediaId: number, title?: string) {
     this.slot(slot); assertCanUpload(actor);
@@ -60,7 +62,7 @@ export class PersonalPlaylistService {
     finally { release(); }
   }
   private async addLocked(actor: Actor, slot: number, mediaId: number, title?: string) {
-    return this.mutate(actor, async (current, repo) => {
+    return this.withCurrentActor(actor, true, async (current, repo) => {
       const media = await repo.manager.findOneBy(MediaAsset, { id: mediaId });
       if (!media) throw new NotFoundException('资料不存在');
       assertReadResource(current, media);
@@ -75,7 +77,7 @@ export class PersonalPlaylistService {
   }
   async rename(actor: Actor, id: number, title: string) {
     if (typeof title !== 'string' || title.length > 120) throw new BadRequestException('名称过长');
-    return this.mutate(actor, async (current, repo) => {
+    return this.withCurrentActor(actor, true, async (current, repo) => {
       const row = await repo.findOneBy({ id });
       if (!row) throw new NotFoundException('播放列表项不存在');
       this.writable(current, row);
@@ -86,7 +88,7 @@ export class PersonalPlaylistService {
     });
   }
   async remove(actor: Actor, id: number) {
-    return this.mutate(actor, async (current, repo) => {
+    return this.withCurrentActor(actor, true, async (current, repo) => {
       const row = await repo.findOneBy({ id });
       if (!row) throw new NotFoundException('播放列表项不存在');
       this.writable(current, row);
@@ -98,7 +100,7 @@ export class PersonalPlaylistService {
   async reorder(actor: Actor, slot: number, ids: number[]) {
     this.slot(slot); assertCanUpload(actor);
     if (!Array.isArray(ids) || ids.length > 500 || ids.some(id => !Number.isInteger(id) || id < 1) || new Set(ids).size !== ids.length) throw new BadRequestException('列表项无效');
-    return this.mutate(actor, async (current, repo) => {
+    return this.withCurrentActor(actor, true, async (current, repo) => {
       if (!ids.length) return { count: 0 };
       const rows = await repo.findBy({ id: In(ids), slot });
       if (rows.length !== ids.length) throw new NotFoundException('播放列表项不存在');

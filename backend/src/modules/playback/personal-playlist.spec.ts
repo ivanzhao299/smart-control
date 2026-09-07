@@ -25,6 +25,28 @@ describe('personal playlists', () => {
     service = new PersonalPlaylistService(db.getRepository(PlaylistItem), media);
   });
   afterEach(async () => { await db.destroy(); });
+  it.each(['disabled', 'demoted'])('rejects queued all-user reads after administrator revocation: %s', async state => {
+    await service.add(bob, 1, sharedId, 'Bob private title');
+    await db.getRepository(User).update(1, { role: 'admin' });
+    let entered!: () => void, finish!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const held = new Promise<void>(resolve => { finish = resolve; });
+    const writer = serializedTransaction(db, async manager => {
+      entered(); await held;
+      await manager.update(User, 1, state === 'disabled' ? { enabled: false } : { role: 'viewer' });
+    });
+    await ready;
+    let settled = false;
+    const reading = service.list({ ...alice, role: 'admin' }, 1, 'all').finally(() => { settled = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    expect(settled).toBe(false);
+    finish();
+    expect((await Promise.allSettled([writer, reading])).map(result => result.status)).toEqual(['fulfilled', 'rejected']);
+    if (state === 'demoted') {
+      expect(await service.list({ ...alice, role: 'admin' }, 1)).toEqual([]);
+      expect(await service.list({ ...alice, role: 'viewer' }, 1, 'shared')).toEqual([]);
+    }
+  });
   it('allows independent entries for one shared asset and hides other owners', async () => {
     const a = await service.add(alice, 1, sharedId, 'Alice title');
     const b = await service.add(bob, 1, sharedId, 'Bob title');
