@@ -26,6 +26,26 @@ describe('file ingestion compensation', () => {
     Object.defineProperty(media, 'mediaRoot', { value: root });
   });
   afterEach(async () => { jest.restoreAllMocks(); await db.destroy(); await fs.rm(root, { recursive: true, force: true }); });
+  it('video preparation waits for rollback before reading source paths or writing processing state', async () => {
+    const item = await db.getRepository(MediaAsset).save({ originalName: 'original.mp4', safeName: 'original.mp4', path: '/test/committed.mp4', kind: 'video', mimeType: 'video/mp4', sizeBytes: 10, ownerUserId: 1, visibility: 'private', uploader: 'alice' });
+    let entered!: () => void, finish!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const held = new Promise<void>(resolve => { finish = resolve; });
+    const writer = serializedTransaction(db, async manager => {
+      await manager.update(MediaAsset, item.id, { path: '/test/uncommitted.mp4' });
+      entered(); await held; throw new Error('synthetic rollback');
+    });
+    await ready;
+    const probe = jest.spyOn(media as any, 'probeVideo').mockResolvedValue({ videoCodec: 'h264', audioCodec: 'aac', duration: 10 });
+    const preparation = media.prepareVideo(item.id);
+    await new Promise(resolve => setImmediate(resolve));
+    expect(probe).not.toHaveBeenCalled();
+    finish();
+    expect((await Promise.allSettled([writer, preparation])).map(result => result.status)).toEqual(['rejected', 'fulfilled']);
+    expect(probe).toHaveBeenCalledWith('/test/committed.mp4');
+    expect(await media.get(item.id)).toMatchObject({ path: '/test/committed.mp4', processingStatus: 'ready', durationSec: 10 });
+    media.acquireOperation(item.id)();
+  });
   it.each(['commit-revocation', 'rollback'])('coordinates webpage creation with another writer: %s', async outcome => {
     let entered!: () => void, finish!: () => void;
     const ready = new Promise<void>(resolve => { entered = resolve; });

@@ -788,7 +788,14 @@ export class MediaService implements OnModuleInit {
   }
 
   async markPlayed(id: number): Promise<void> {
-    await this.repo.update(id, { lastPlayedAt: new Date() });
+    await this.updateMediaFields(id, { lastPlayedAt: new Date() });
+  }
+
+  private async updateMediaFields(id: number, fields: Partial<MediaAsset>): Promise<void> {
+    await serializedTransaction(this.repo.manager.connection, async manager => {
+      const result = await manager.update(MediaAsset, id, fields);
+      if (!result.affected) throw new NotFoundException('资料不存在');
+    });
   }
 
   async mediaToolStatus(): Promise<{ ffmpeg: boolean; ffprobe: boolean }> {
@@ -805,11 +812,13 @@ export class MediaService implements OnModuleInit {
     const release = this.acquireOperation(id);
     this.preparing.add(id);
     try {
-      const media = await this.get(id);
-      if (media.kind !== 'video') throw new BadRequestException('只有视频需要转码');
-      media.processingStatus = 'processing';
-      media.processingError = null;
-      await this.repo.update(id, { processingStatus: 'processing', processingError: null });
+      const media = await serializedTransaction(this.repo.manager.connection, async manager => {
+        const current = await manager.findOneBy(MediaAsset, { id });
+        if (!current) throw new NotFoundException('资料不存在');
+        if (current.kind !== 'video') throw new BadRequestException('只有视频需要转码');
+        await manager.update(MediaAsset, id, { processingStatus: 'processing', processingError: null });
+        return current;
+      });
 
       const source = media.sourcePath || media.path;
       const probe = await this.probeVideo(source);
@@ -821,7 +830,7 @@ export class MediaService implements OnModuleInit {
       if (browserReady) {
         media.mimeType = 'video/mp4';
         media.processingStatus = 'ready';
-        await this.repo.update(id, { mimeType: media.mimeType, processingStatus: 'ready', durationSec: media.durationSec, resolution: media.resolution });
+        await this.updateMediaFields(id, { mimeType: media.mimeType, processingStatus: 'ready', durationSec: media.durationSec, resolution: media.resolution });
         return;
       }
 
@@ -840,7 +849,7 @@ export class MediaService implements OnModuleInit {
       media.sizeBytes = (await fs.stat(output)).size;
       media.processingStatus = 'ready';
       media.processingError = null;
-      await this.repo.update(id, {
+      await this.updateMediaFields(id, {
         sourcePath: media.sourcePath, path: media.path, mimeType: media.mimeType,
         sizeBytes: media.sizeBytes, processingStatus: 'ready', processingError: null,
         durationSec: media.durationSec, resolution: media.resolution,
@@ -848,7 +857,7 @@ export class MediaService implements OnModuleInit {
       this.logger.info(`[Media] 视频 #${id} 已转为 H.264/AAC 播放副本`, { context: 'MediaService' });
     } catch (error) {
       const message = (error as Error).message.slice(0, 1000);
-      await this.repo.update(id, { processingStatus: 'failed', processingError: message }).catch(() => {});
+      await this.updateMediaFields(id, { processingStatus: 'failed', processingError: message }).catch(() => {});
       this.logger.error(`[Media] 视频 #${id} 兼容处理失败: ${message}`, { context: 'MediaService' });
     } finally {
       this.preparing.delete(id);
