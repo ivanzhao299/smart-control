@@ -39,11 +39,11 @@ export class MediaQuotaService {
     return this.reserveDerivative(mediaId, expectedOwner, maximum, mediaRoot, false);
   }
 
-  async reserveDocumentConversion(mediaId: number, expectedOwner: number | null, maximum: number, mediaRoot?: string): Promise<{ id: string | null; bytes: number }> {
-    return this.reserveDerivative(mediaId, expectedOwner, maximum, mediaRoot, true);
+  async reserveDocumentConversion(mediaId: number, expectedOwner: number | null, maximum: number, mediaRoot?: string, authorize?: (manager: EntityManager, asset: MediaAsset) => Promise<void>): Promise<{ id: string | null; bytes: number }> {
+    return this.reserveDerivative(mediaId, expectedOwner, maximum, mediaRoot, true, authorize);
   }
 
-  private async reserveDerivative(mediaId: number, expectedOwner: number | null, maximum: number, mediaRoot: string | undefined, document: boolean): Promise<{ id: string | null; bytes: number }> {
+  private async reserveDerivative(mediaId: number, expectedOwner: number | null, maximum: number, mediaRoot: string | undefined, document: boolean, authorize?: (manager: EntityManager, asset: MediaAsset) => Promise<void>): Promise<{ id: string | null; bytes: number }> {
     if (!Number.isSafeInteger(maximum) || maximum < 1) throw new BadRequestException('无效转码容量预算');
     return serializedTransaction(this.db, async manager => {
       const asset = await manager.findOneByOrFail(MediaAsset, { id: mediaId });
@@ -60,6 +60,7 @@ export class MediaQuotaService {
       const available = Number(capacity?.available);
       if (expectedOwner !== null && (!Number.isSafeInteger(available) || available < 1)) throw new ForbiddenException('转码存储配额不足或账户已停用');
       const bytes = Math.min(disk, expectedOwner === null ? maximum : Math.min(maximum, available));
+      if (authorize) await authorize(manager, asset);
       const id = randomUUID();
       await manager.query(`INSERT INTO upload_reservations (id, owner_user_id, bytes, target_media_id)
         SELECT ?, ?, ?, ? WHERE NOT EXISTS

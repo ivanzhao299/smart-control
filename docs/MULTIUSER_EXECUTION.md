@@ -10,6 +10,12 @@
 
 ## 工作队列
 
+### 设备文档预留接口及回写编号接线（2026-09-07）
+
+新增本机设备认证POST doc-prepare：验证当前Word文档路径，拒绝已存在未登记PDF，按MEDIA_DOC_MAX_BYTES（默认512MiB）申请预算；配额事务内回调再次验证设备凭据、播放会话、发起人权限、资料读取权及路径未变化。返回预留ID/预算/源和目标路径；doc-meta可传reservationId进入原子完成提交。预留授权拒绝时无预算消耗或状态变化。
+
+后端构建、设备/配额55项通过，覆盖会话/账户/路径变化、已有PDF及事务内授权失败；四角色原浏览器流程通过，证据`/var/folders/q2/kmbw23k57c1flhr06y5kwwmh0000gn/T/smart-control-browser-RhlCKc`。该浏览器流程不执行新文档接口或Windows COM。Word脚本尚未调用新接口，输出生成硬限制、失败恢复及生产接线仍待完成；仍不能宣称原Word转换已受完整配额约束，未推送部署。
+
 ### 文档预算完成提交与预留释放原子化（2026-09-07）
 
 setDocMeta新增内部reservationId参数：processing文档回写PDF必须带预留，须匹配资料ID、当前owner和非上传临时预留；验证PDF本身及总占用增长均不超过预算，历史已计大小也须合法。现有文件/path/header/授权检查通过后，同一事务局部提交sizeBytes/docPdfPath/pageCount/ready并删除关联预留。释放失败会回滚元数据，超额/错编号/授权失效保留文件与预留供恢复，不以删除未核实文件掩盖问题。

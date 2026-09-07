@@ -26,9 +26,17 @@ export class PlayerDeviceController {
 
   @Post('doc-meta')
   @UseGuards(PlayerDeviceGuard)
-  async docMeta(@Req() req: Request, @Param('slot', ParseIntPipe) slot: number, @Headers('x-player-token') token: string, @Body() body: { playbackSession?: string; pageCount?: number; pdfReady?: boolean }) {
+  async docMeta(@Req() req: Request, @Param('slot', ParseIntPipe) slot: number, @Headers('x-player-token') token: string, @Body() body: { playbackSession?: string; pageCount?: number; pdfReady?: boolean; reservationId?: string }) {
     this.requireLocal(req);
-    return { message: 'ok', data: await this.access.docMeta(slot, token, body?.playbackSession ?? '', body?.pageCount, body?.pdfReady) };
+    return { message: 'ok', data: await this.access.docMeta(slot, token, body?.playbackSession ?? '', body?.pageCount, body?.pdfReady, body?.reservationId) };
+  }
+
+  @Post('doc-prepare')
+  @UseGuards(PlayerDeviceGuard)
+  @Header('Cache-Control', 'private, no-store')
+  async prepareDocument(@Req() req: Request, @Param('slot', ParseIntPipe) slot: number, @Headers('x-player-token') token: string, @Body() body: { playbackSession?: string }) {
+    this.requireLocal(req);
+    return { message: 'ok', data: await this.access.prepareDocument(slot, token, body?.playbackSession ?? '') };
   }
 
   @Get('state')

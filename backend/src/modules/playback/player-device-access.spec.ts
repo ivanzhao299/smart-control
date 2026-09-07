@@ -1,16 +1,38 @@
 import { PlayerDeviceAccessService } from './player-device-access.service';
 import { join } from 'path';
 import { PassThrough } from 'stream';
+import { promises as fs } from 'fs';
+import { tmpdir } from 'os';
 
 describe('device playback access grants', () => {
-  let service: PlayerDeviceAccessService, row: any, user: any, devices: any, media: any, playback: any;
+  let service: PlayerDeviceAccessService, row: any, user: any, devices: any, media: any, playback: any, quota: any;
   beforeEach(() => {
     row = { slot: 3, currentMediaId: 7, initiatorUserId: 2, playbackSession: 'session-1', startedAt: new Date('2026-09-05T00:00:00Z') };
     user = { id: 2, username: 'owner', enabled: true, role: 'operator' };
     devices = { authenticate: jest.fn(() => ({ id: 'bgm', slots: [3] })) };
     media = { authorized: jest.fn(async () => ({})), openStream: jest.fn(async () => ({ status: 206 })) };
     playback = { getBySlot: jest.fn(async () => ({ currentMediaId: row.currentMediaId, currentMediaKind: 'audio', currentMediaUrl: '/api/media/7/file' })) };
-    service = new PlayerDeviceAccessService({ findOneByOrFail: async () => ({ ...row }) } as any, { findOneBy: async () => user } as any, devices, playback, media);
+    quota = { reserveDocumentConversion: jest.fn() };
+    service = new PlayerDeviceAccessService({ findOneByOrFail: async () => ({ ...row }) } as any, { findOneBy: async () => user } as any, devices, playback, media, quota);
+  });
+  it.each(['allowed', 'session', 'account', 'path', 'existing-pdf'])('prepares a budgeted document with final %s validation', async change => {
+    const root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'sc-doc-device-')));
+    try {
+      const path = join(root, 'brief.docx'); await fs.writeFile(path, 'fixture');
+      const item = { id: 7, kind: 'doc', path, ownerUserId: 2, visibility: 'private' };
+      media.mediaRoot = root; media.absPathOf = () => path; media.authorized.mockResolvedValue(item);
+      if (change === 'existing-pdf') await fs.writeFile(join(root, 'brief.pdf'), '%PDF-existing');
+      quota.reserveDocumentConversion.mockImplementation(async (_id: number, _owner: number | null, _max: number, _root: string, authorize: (manager: any, asset: any) => Promise<void>) => {
+        if (change === 'session') row.playbackSession = 'new';
+        if (change === 'account') user.enabled = false;
+        await authorize({ findOneByOrFail: async () => row, findOneBy: async () => user.enabled ? user : null }, { ...item, path: change === 'path' ? 'other.docx' : path });
+        return { id: '01234567-1234-1234-1234-012345678901', bytes: 20 };
+      });
+      const result = service.prepareDocument(3, 'device-secret', 'session-1');
+      if (change === 'allowed') await expect(result).resolves.toMatchObject({ id: 7, maxBytes: 20, absPath: path, pdfPath: join(root, 'brief.pdf') });
+      else await expect(result).rejects.toThrow();
+      expect(quota.reserveDocumentConversion).toHaveBeenCalledTimes(change === 'existing-pdf' ? 0 : 1);
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
   });
   const ticketOf = (state: any) => new URL(state.currentMediaUrl, 'http://localhost').searchParams.get('ticket')!;
   it.each(['session', 'device', 'account', 'role', 'ownership', 'allowed'])('rechecks %s inside the document metadata write transaction', async change => {
@@ -121,7 +143,7 @@ describe('device playback access grants', () => {
     await expect(service.docMeta(3, 'device-secret', 'session-1', 5, true)).rejects.toThrow('仅Word');
     expect(media.setDocMeta).not.toHaveBeenCalled();
     await service.docMeta(3, 'device-secret', 'session-1', 5);
-    expect(media.setDocMeta).toHaveBeenCalledWith(7, { pageCount: 5, pdfRelPath: undefined }, expect.any(Function));
+    expect(media.setDocMeta).toHaveBeenCalledWith(7, { pageCount: 5, pdfRelPath: undefined }, expect.any(Function), undefined);
     media.absPathOf.mockReturnValue(join(__dirname, '../../entities/user.entity.ts'));
     await expect(service.docInfo(3, 'device-secret', 'session-1')).rejects.toThrow('文档路径无效');
   });

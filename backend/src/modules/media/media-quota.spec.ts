@@ -60,6 +60,18 @@ describe('atomic upload capacity reservations', () => {
     expect(await db.query('SELECT id FROM upload_reservations')).toEqual([]);
     expect((await db.getRepository(MediaAsset).findOneByOrFail({ id: document.id })).processingStatus).toBe('ready');
   });
+  it('rejects lost device authorization inside the reservation transaction without consuming quota', async () => {
+    const document = await word();
+    const authorize = jest.fn(async (manager, asset) => {
+      expect(manager.queryRunner.isTransactionActive).toBe(true);
+      expect(asset.id).toBe(document.id);
+      throw new Error('device session revoked');
+    });
+    await expect(quota.reserveDocumentConversion(document.id, 1, 100, undefined, authorize)).rejects.toThrow('device session revoked');
+    expect(authorize).toHaveBeenCalledTimes(1);
+    expect(await db.query('SELECT id FROM upload_reservations')).toEqual([]);
+    expect((await db.getRepository(MediaAsset).findOneByOrFail({ id: document.id })).processingStatus).toBe('ready');
+  });
   it('only shrinks an owned unbound download reservation and rejects enlargement or rebinding', async () => {
     const id = (await quota.reserve(alice, 60))!;
     await expect(quota.shrinkUnbound(bob, id, 30)).rejects.toThrow();

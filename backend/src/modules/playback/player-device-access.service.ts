@@ -2,7 +2,9 @@ import { Injectable, UnauthorizedException, ConflictException, BadRequestExcepti
 import { promises as fs } from 'fs';
 import { relative, isAbsolute, extname } from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
+import { MediaAsset } from '../../entities/media-asset.entity';
+import { MediaQuotaService } from '../media/media-quota.service';
 import { randomBytes } from 'crypto';
 import { PlaybackChannel } from '../../entities/playback-channel.entity';
 import { User } from '../../entities/user.entity';
@@ -23,6 +25,7 @@ export class PlayerDeviceAccessService {
     private readonly devices: PlayerDeviceAuthService,
     private readonly playback: PlaybackService,
     private readonly media: MediaService,
+    private readonly quota: MediaQuotaService,
   ) {}
 
   private session(row: PlaybackChannel): string {
@@ -117,7 +120,24 @@ export class PlayerDeviceAccessService {
     return { id: media.id, ext: extname(path).slice(1).toLowerCase(), absPath: path, pageCount: media.pageCount, docPdfPath: media.docPdfPath };
   }
 
-  async docMeta(slot: number, token: string, session: string, pageCount?: number, pdfReady?: boolean) {
+  async prepareDocument(slot: number, token: string, session: string) {
+    const { media, path } = await this.document(slot, token, session);
+    if (!['.doc', '.docx'].includes(extname(path).toLowerCase())) throw new BadRequestException('仅Word文档可转换');
+    const pdfPath = path.slice(0, -extname(path).length) + '.pdf';
+    try {
+      await fs.lstat(pdfPath);
+      throw new ConflictException('已有PDF文件，请先核实并恢复转换状态');
+    } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    const maximum = Number(process.env.MEDIA_DOC_MAX_BYTES ?? 536870912);
+    const reservation = await this.quota.reserveDocumentConversion(media.id, media.ownerUserId, maximum, this.media.mediaRoot, async (manager, current) => {
+      await this.authorizeDocumentWrite(manager, current, slot, token, session, media.id);
+      if (current.path !== media.path) throw new ConflictException('文档路径已变化');
+    });
+    return { id: media.id, reservationId: reservation.id, maxBytes: reservation.bytes, absPath: path, pdfPath };
+  }
+
+  async docMeta(slot: number, token: string, session: string, pageCount?: number, pdfReady?: boolean, reservationId?: string) {
+    if (reservationId !== undefined && (typeof reservationId !== 'string' || !/^[0-9a-f-]{36}$/.test(reservationId) || !pdfReady)) throw new BadRequestException('无效文档转换预留');
     if (pageCount !== undefined && (!Number.isInteger(pageCount) || pageCount < 1 || pageCount > 100_000)) throw new BadRequestException('无效页数');
     if (pdfReady !== undefined && typeof pdfReady !== 'boolean') throw new BadRequestException('无效PDF状态');
     const { media, path, root } = await this.document(slot, token, session);
@@ -137,9 +157,15 @@ export class PlayerDeviceAccessService {
     }
     await this.document(slot, token, session);
     const updated = await this.media.setDocMeta(media.id, { pageCount, pdfRelPath }, async (manager, currentMedia) => {
+      await this.authorizeDocumentWrite(manager, currentMedia, slot, token, session, media.id);
+    }, reservationId);
+    return { id: updated.id, pageCount: updated.pageCount };
+  }
+
+  private async authorizeDocumentWrite(manager: EntityManager, currentMedia: MediaAsset, slot: number, token: string, session: string, mediaId: number) {
       this.devices.authenticate(token, slot);
       const channel = await manager.findOneByOrFail(PlaybackChannel, { slot });
-      if (this.session(channel) !== session || channel.currentMediaId !== media.id) throw new ConflictException('播放会话已变化');
+      if (this.session(channel) !== session || channel.currentMediaId !== mediaId) throw new ConflictException('播放会话已变化');
       let actor: Actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };
       if (channel.initiatorUserId !== null) {
         const user = await manager.findOneBy(User, { id: channel.initiatorUserId, enabled: true });
@@ -148,7 +174,5 @@ export class PlayerDeviceAccessService {
       }
       assertCanUpload(actor);
       assertReadResource(actor, currentMedia);
-    });
-    return { id: updated.id, pageCount: updated.pageCount };
   }
 }
