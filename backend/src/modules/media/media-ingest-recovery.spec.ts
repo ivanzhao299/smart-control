@@ -26,6 +26,26 @@ describe('file ingestion compensation', () => {
     Object.defineProperty(media, 'mediaRoot', { value: root });
   });
   afterEach(async () => { jest.restoreAllMocks(); await db.destroy(); await fs.rm(root, { recursive: true, force: true }); });
+  it('orphan finalization preserves concurrent metadata and returns the committed asset', async () => {
+    const admin: Actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };
+    await fs.writeFile(join(root, 'manual.mp3'), 'manual');
+    await db.query("CREATE TRIGGER edit_orphan BEFORE UPDATE OF path ON media_assets BEGIN UPDATE media_assets SET owner_user_id = 1, visibility = 'shared', originalName = 'edited.mp3' WHERE id = NEW.id; END");
+    const item = await media.importOrphan('manual.mp3', admin.username, admin);
+    expect(item).toMatchObject({ ownerUserId: 1, visibility: 'shared', originalName: 'edited.mp3' });
+    expect(await fs.readFile(item.path, 'utf8')).toBe('manual');
+    media.acquireOperation(item.id)();
+  });
+  it('orphan allocation collision preserves both the original file and existing ID directory', async () => {
+    const admin: Actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };
+    await fs.mkdir(join(root, '1'));
+    await fs.writeFile(join(root, '1', 'manual.mp3'), 'existing');
+    await fs.writeFile(join(root, 'manual.mp3'), 'manual');
+    await expect(media.importOrphan('manual.mp3', admin.username, admin)).rejects.toThrow();
+    expect(await fs.readFile(join(root, 'manual.mp3'), 'utf8')).toBe('manual');
+    expect(await fs.readFile(join(root, '1', 'manual.mp3'), 'utf8')).toBe('existing');
+    expect(await db.getRepository(MediaAsset).count()).toBe(0);
+    media.acquireOperation(1)();
+  });
   it('rechecks orphan administrator permission at initial allocation after filesystem inspection', async () => {
     await db.getRepository(User).update(1, { role: 'admin' });
     const source = join(root, 'manual.mp3');

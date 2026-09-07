@@ -587,16 +587,38 @@ export class MediaService implements OnModuleInit {
       return manager.save(MediaAsset, entity);
     });
 
-    // 跟 ingest() 一样挪进 <mediaRoot>/<id>/ 标准布局, 这样 remove() 删目录才删得干净
-    const finalDir = join(this.mediaRoot, String(saved.id));
-    const finalPath = join(finalDir, safeName);
-    await fs.mkdir(finalDir, { recursive: true });
-    await fs.rename(abs, finalPath);
-    saved.path = finalPath;
-    if (guess.kind === 'doc' && ext === '.pdf') {
-      saved.docPdfPath = relative(this.mediaRoot, finalPath).split(sep).join('/');
+    const release = this.acquireOperation(saved.id);
+    let result: MediaAsset;
+    let allocatedDirectory = false;
+    try {
+      // Never adopt an occupied ID directory, overwrite its files or restore
+      // stale ownership from the initial entity during finalization.
+      const finalDir = join(this.mediaRoot, String(saved.id));
+      const finalPath = join(finalDir, safeName);
+      await fs.mkdir(finalDir);
+      allocatedDirectory = true;
+      await fs.rename(abs, finalPath);
+      const fields: Partial<MediaAsset> = { path: finalPath };
+      if (guess.kind === 'doc' && ext === '.pdf') {
+        fields.docPdfPath = relative(this.mediaRoot, finalPath).split(sep).join('/');
+      }
+      result = await serializedTransaction(this.repo.manager.connection, async manager => {
+        const updated = await manager.update(MediaAsset, saved.id, fields);
+        if (!updated.affected) throw new NotFoundException('资料不存在');
+        return manager.findOneByOrFail(MediaAsset, { id: saved.id });
+      });
+    } catch (error) {
+      // No directory was allocated, so the newly inserted row must not claim an
+      // existing ID tree (a later delete could otherwise erase unrelated files).
+      if (!allocatedDirectory) {
+        await serializedTransaction(this.repo.manager.connection, manager => manager.delete(MediaAsset, saved.id));
+      }
+      throw error;
+    } finally {
+      // On failure retain accounting row/files for recovery, never erase a
+      // pre-existing hand-copied source as ordinary upload cleanup would do.
+      release();
     }
-    const result = await this.repo.save(saved);
     if (guess.kind === 'video') void this.prepareVideo(result.id);
     return result;
   }

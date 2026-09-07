@@ -17,7 +17,7 @@ describe('personal playlists', () => {
   beforeEach(async () => {
     db = await new DataSource({ type: 'better-sqlite3', database: ':memory:', entities: [MediaAsset, PlaylistItem, User], synchronize: true }).initialize();
     await new AddUploadReservations1788618003000().up(db.createQueryRunner());
-    await db.getRepository(User).save([{ id: 1, username: 'alice', password: 'test' }, { id: 2, username: 'bob', password: 'test' }]);
+    await db.getRepository(User).save([{ id: 1, username: 'alice', password: 'test', role: 'operator' }, { id: 2, username: 'bob', password: 'test', role: 'operator' }]);
     media = new MediaService(db.getRepository(MediaAsset), new ConfigService(), {} as any);
     sharedId = (await media.createWebpage('Public', 'https://example.test', admin)).id;
     await db.getRepository(MediaAsset).update(sharedId, { visibility: 'shared' });
