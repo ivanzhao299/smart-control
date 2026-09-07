@@ -23,6 +23,7 @@ $result = 'FAILED'
 $errorMessage = $null
 $lockStream = $null
 $worktreeUpdated = $false
+$migrationAttempted = $false
 $rollbackRoot = Join-Path $env:ProgramData ("Anksen\smart-control-rollback-{0}" -f $Commit)
 
 New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
@@ -353,10 +354,12 @@ try {
       # Run DB migrations after build, before restart. With DB_SYNCHRONIZE=false the
       # schema only changes through migrations, so this is where new ones get applied.
       # run-migrations.js is a no-op when nothing is pending, backs up the DB before it
-      # touches anything, and exits non-zero on failure -> the catch below rolls back.
+      # touches anything. Once attempted, code-only rollback is forbidden: old
+      # public media routes must never run against a possibly multiuser database.
       Push-Location (Join-Path $projectRoot 'backend')
       try {
         Write-DeployLog 'Running DB migrations (run-migrations.js).'
+        $migrationAttempted = $true
         & node scripts/run-migrations.js 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
         if ($LASTEXITCODE -ne 0) { throw "Database migration failed (exit $LASTEXITCODE)." }
       } finally {
@@ -506,7 +509,16 @@ try {
 } catch {
   $errorMessage = $_.Exception.Message
   Write-DeployLog "Deployment failed: $errorMessage"
-  if ($worktreeUpdated -and $previousCommit) {
+  if ($migrationAttempted) {
+    Write-DeployLog 'MIGRATION_RECOVERY_REQUIRED: preserving current code, database, media and rollback artifacts. Code-only rollback is forbidden.'
+    try {
+      # Fail closed after a possibly committed ownership migration. Recovery must
+      # archive post-migration data and restore a matched database/media/code set.
+      Invoke-Native 'pm2.cmd' @('stop', 'smart-control-backend', 'smart-control-frontend')
+    } catch {
+      Write-DeployLog 'CRITICAL: service stop failed; isolate external ingress immediately before recovery.'
+    }
+  } elseif ($worktreeUpdated -and $previousCommit) {
     Write-DeployLog "Rolling the worktree and build artifacts back to $previousCommit."
     try {
       Invoke-Native 'git' @('reset', '--hard', $previousCommit)
@@ -534,6 +546,8 @@ try {
     previousCommit = $previousCommit
     currentCommit = $currentCommit
     verifyOnly = [bool]$VerifyOnly
+    migrationAttempted = $migrationAttempted
+    recoveryRequired = ($migrationAttempted -and $result -ne 'PASS')
     result = $result
     error = $errorMessage
     startedAt = $startedAt.ToString('o')

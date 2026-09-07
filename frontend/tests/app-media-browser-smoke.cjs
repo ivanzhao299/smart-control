@@ -19,15 +19,36 @@ async function api(route, method, body, token, admin = false) {
   const admin = (await api('/admin/auth/login', 'POST', { password: process.env.SC_SMOKE_ADMIN_PASSWORD })).token;
   const nonce = crypto.randomBytes(5).toString('hex');
   const accounts = {};
-  for (const role of ['operator', 'viewer', 'admin']) {
+  for (const role of ['operator', 'otherOperator', 'viewer', 'admin']) {
     const username = `browser_${role}_${nonce}`, password = crypto.randomBytes(20).toString('hex');
-    await api('/users', 'POST', { username, password, role }, admin, true);
-    accounts[role] = await api('/client-auth/login', 'POST', { username, password });
+    await api('/users', 'POST', { username, password, role: role === 'otherOperator' ? 'operator' : role }, admin, true);
+    accounts[role] = { ...await api('/client-auth/login', 'POST', { username, password }), username, password };
   }
   const privateName = 'Private-' + nonce, sharedName = 'Shared-' + nonce;
   await api('/media/webpage', 'POST', { name: privateName, url: 'https://example.test/private' }, accounts.operator.token);
   const shared = await api('/media/webpage', 'POST', { name: sharedName, url: 'https://example.test/shared' }, admin, true);
   await api('/media/' + shared.id, 'PUT', { visibility: 'shared' }, admin, true);
+  const uploadName = `private-upload-${nonce}.png`;
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aRfkAAAAASUVORK5CYII=', 'base64');
+  const form = new FormData(); form.append('file', new Blob([png], { type: 'image/png' }), uploadName);
+  const uploaded = await fetch(backend + '/media/upload', { method: 'POST', body: form,
+    headers: { 'X-Client-Token': accounts.operator.token, 'X-Upload-Size': String(png.length) } });
+  assert.ok(uploaded.ok, `private upload: HTTP ${uploaded.status}`);
+  const asset = (await uploaded.json()).data;
+  const usage = await api('/media/storage/me', 'GET', undefined, accounts.operator.token);
+  assert.equal(Number(usage.usedBytes), png.length);
+  assert.equal(Number(usage.reservedBytes), 0);
+  for (const role of ['otherOperator', 'viewer']) {
+    const visible = await api('/media', 'GET', undefined, accounts[role].token);
+    assert.equal(visible.items.some(item => item.id === asset.id), false);
+    for (const method of ['PUT', 'DELETE']) {
+      const denied = await fetch(backend + '/media/' + asset.id, { method,
+        headers: { 'X-Client-Token': accounts[role].token, 'Content-Type': 'application/json' },
+        body: method === 'PUT' ? JSON.stringify({ originalName: 'not-permitted.png' }) : undefined });
+      assert.ok([403, 404].includes(denied.status), `${role} ${method} private media must be denied: HTTP ${denied.status}`);
+    }
+  }
+  console.log('PASS real multipart private upload, quota release, second-user isolation and denied mutations');
   const root = path.resolve(__dirname, '../dist');
   const server = http.createServer((req, res) => {
     if (req.url.startsWith('/api/')) {
@@ -49,23 +70,26 @@ async function api(route, method, body, token, admin = false) {
   try {
     browser = await chromium.launch({ channel: 'chrome', headless: true });
     const origin = `http://127.0.0.1:${server.address().port}`;
-    for (const role of ['operator', 'viewer', 'admin']) {
+    for (const role of ['operator', 'otherOperator', 'viewer', 'admin']) {
       const context = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
       await context.route('**/*', route => route.request().url().startsWith(origin + '/') ? route.continue() : route.abort());
-      await context.addInitScript(({ login, server }) => {
-        localStorage.setItem('sc.client.token', login.token);
-        localStorage.setItem('sc.client.token.expiresAt', login.expiresAt);
-        localStorage.setItem('sc.client.authServer', server);
-      }, { login: accounts[role], server: origin + '/api' });
       const page = await context.newPage();
-      await page.goto(origin + '/media');
+      await page.goto(origin + '/client-login?redirect=/media');
+      await page.getByPlaceholder('用户名（旧版访问密码可留空）').fill(accounts[role].username);
+      await page.getByPlaceholder('密码', { exact: true }).fill(accounts[role].password);
+      await page.getByPlaceholder('服务器地址 (e.g. http://192.168.124.11:3200)').fill(origin);
+      await page.locator('button[type="submit"]').click();
       await page.getByText(sharedName, { exact: true }).first().waitFor();
-      if (role !== 'viewer') {
+      if (role === 'operator' || role === 'admin') {
         await page.getByText(privateName, { exact: true }).first().waitFor();
+        await page.getByText(uploadName, { exact: true }).first().waitFor();
         assert.equal(await page.getByText('上传文件', { exact: true }).count(), 1);
       } else {
         assert.equal(await page.getByText(privateName, { exact: true }).count(), 0);
-        assert.equal(await page.getByText('上传文件', { exact: true }).count(), 0);
+        assert.equal(await page.getByText(uploadName, { exact: true }).count(), 0);
+        assert.equal(await page.getByText('上传文件', { exact: true }).count(), role === 'viewer' ? 0 : 1);
+      }
+      if (role === 'viewer') {
         assert.equal(await page.locator('button[title="删除"]').count(), 0);
         assert.equal(await page.locator('button[title="推送到"]').count(), 0);
       }

@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { User } from '../../entities/user.entity';
 import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
+import { ProtectLastAdministrator1788618007000 } from '../../migrations/1788618007000-ProtectLastAdministrator';
 
 describe('user management attribution and retention', () => {
   let db: DataSource, service: UsersService, controller: UsersController, log: any;
@@ -11,6 +12,7 @@ describe('user management attribution and retention', () => {
     db = await new DataSource({ type: 'better-sqlite3', database: ':memory:', entities: [User], synchronize: true }).initialize();
     await db.query('CREATE TABLE retained_fixture (id INTEGER PRIMARY KEY, owner_user_id INTEGER REFERENCES users(id) ON DELETE RESTRICT)');
     await db.query('CREATE TABLE playback_channels (id INTEGER PRIMARY KEY, initiator_user_id INTEGER)');
+    await new ProtectLastAdministrator1788618007000().up(db.createQueryRunner());
     log = { record: jest.fn(async () => undefined) };
     service = new UsersService(db.getRepository(User), log, { info: jest.fn() } as any);
     controller = new UsersController(service);
@@ -19,6 +21,29 @@ describe('user management attribution and retention', () => {
   async function create() {
     return (await controller.create({ username: 'alice', password: 'synthetic-password', role: 'operator' }, req)).data;
   }
+  it('rejects disabling, demoting or deleting the last enabled administrator without a success audit', async () => {
+    const admin = (await controller.create({ username: 'manager', password: 'synthetic-password', role: 'admin' }, req)).data;
+    await controller.create({ username: 'disabled-admin', password: 'synthetic-password', role: 'admin', enabled: false }, req);
+    log.record.mockClear();
+    await expect(controller.update(admin.id, { enabled: false }, req)).rejects.toThrow('至少保留一个');
+    await expect(controller.update(admin.id, { role: 'operator' }, req)).rejects.toThrow('至少保留一个');
+    await expect(controller.remove(admin.id, req)).rejects.toThrow('至少保留一个');
+    expect(await service.findOne(admin.id)).toMatchObject({ enabled: true, role: 'admin' });
+    expect(log.record).not.toHaveBeenCalled();
+    // Password and username changes remain available; the invariant is ID-based.
+    await controller.update(admin.id, { username: 'renamed-manager', password: 'new-synthetic-password' }, req);
+    await expect(controller.update(admin.id, { enabled: false }, req)).rejects.toThrow('至少保留一个');
+  });
+  it('permits administrator handover but rejects bulk removal of all enabled administrators atomically', async () => {
+    const first = (await controller.create({ username: 'first-manager', password: 'synthetic-password', role: 'admin' }, req)).data;
+    const second = (await controller.create({ username: 'second-manager', password: 'synthetic-password', role: 'admin' }, req)).data;
+    await expect(db.query("UPDATE users SET enabled = 0 WHERE role = 'admin'")).rejects.toThrow('LAST_ENABLED_ADMIN_REQUIRED');
+    expect(await db.getRepository(User).countBy({ enabled: true, role: 'admin' })).toBe(2);
+    await controller.update(first.id, { role: 'operator' }, req);
+    await expect(controller.remove(second.id, req)).rejects.toThrow('至少保留一个');
+    await controller.remove(first.id, req);
+    expect(await db.getRepository(User).countBy({ enabled: true, role: 'admin' })).toBe(1);
+  });
   it('attributes create, password change and delete to the verified named administrator', async () => {
     const user = await create();
     expect(user).not.toHaveProperty('password');

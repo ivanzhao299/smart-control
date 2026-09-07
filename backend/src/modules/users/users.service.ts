@@ -16,6 +16,15 @@ import { PagedResult } from '../devices/devices.service';
 
 export type PublicUser = Omit<User, 'password'>;
 
+function rethrowAdministratorConstraint(error: unknown): never {
+  const failure = error as { driverError?: { code?: unknown; message?: unknown }; code?: unknown; message?: unknown } | null;
+  const cause = failure?.driverError ?? failure;
+  if (cause?.code === 'SQLITE_CONSTRAINT_TRIGGER' && cause.message === 'LAST_ENABLED_ADMIN_REQUIRED') {
+    throw new ConflictException('至少保留一个启用的管理员账户，请先创建或启用其他管理员');
+  }
+  throw error;
+}
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -92,7 +101,7 @@ export class UsersService {
     if (!Object.keys(changes).length) return this.findOne(id);
     // UPDATE only submitted fields. save(staleEntity) could restore an old role /
     // enabled flag or insert a user deleted while this request was awaiting I/O.
-    const result = await this.repo.update(id, changes);
+    const result = await this.repo.update(id, changes).catch(rethrowAdministratorConstraint);
     if (!result.affected) throw new NotFoundException(`用户不存在: id=${id}`);
     const current = await this.findOne(id);
     this.logger.info(`User updated: #${id}`, { context: 'UsersService' });
@@ -132,7 +141,7 @@ export class UsersService {
         (cause?.code === 'SQLITE_CONSTRAINT_TRIGGER' && cause.message === 'FOREIGN KEY constraint failed')) {
         throw new ConflictException('该用户仍有关联资料、播放记录或上传任务，请停用账户以保留资料');
       }
-      throw error;
+      rethrowAdministratorConstraint(error);
     }
     this.logger.info(`User removed: #${id} ${user.username}`, { context: 'UsersService' });
     await this.logService.record({

@@ -380,6 +380,15 @@ export class MediaService implements OnModuleInit {
    */
   async ingestFromFile(originalName: string, mimeType: string, tmpPath: string, uploader: string, actor: Actor, remark?: string): Promise<MediaAsset> {
     assertCanUpload(actor);
+    // Reject revoked identities before stat or unsupported-file cleanup. This is
+    // deliberately additional to saveInitialUpload's in-transaction recheck.
+    if (actor.userId !== null) {
+      await serializedTransaction(this.repo.manager.connection, async manager => {
+        const current = await manager.findOneBy(User, { id: actor.userId!, enabled: true });
+        if (!current) throw new ForbiddenException('导入账户已停用');
+        assertCanUpload({ ...actor, role: current.role });
+      });
+    }
     const kind = this.classifyKind(mimeType, originalName);
     if (!kind) {
       await this.unlinkSafe(tmpPath);

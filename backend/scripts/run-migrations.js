@@ -7,16 +7,18 @@
  *
  * 设计要点:
  *   - 只有存在未执行迁移时才动手; 没有就直接跳过, 不留任何垃圾
- *   - 跑之前先备份整库(生产库不赌"迁移一定不出错"); 只留最近几个备份, 不无限堆
+ *   - 跑之前用SQLite在线备份包含WAL的完整快照, 重开做完整性校验并记录SHA256
+ *   - 不自动清理迁移备份; 保留策略需在确认不再需要恢复证据后单独执行
  *   - 每个迁移单独事务(SQLite DDL 支持事务): 中途失败只回滚那一个, 不留半吊子状态
  *   - 走 dist/data-source.js: 生产没有 ts-node, 也不该在部署热路径上依赖它
  *
- * 退出码非 0 时, deploy-from-ci.ps1 会当作部署失败并触发回滚。这也是我们坚持
- * "迁移只做加法(加表/加可空列)"的原因: 万一迁移成功但后续步骤失败、代码被回滚到
- * 旧版, 旧代码遇到多出来的表/列也不会崩, 数据不丢。
+ * 迁移尝试后部署失败必须停服务并保全现场, 禁止只回滚代码。即便只加列,
+ * 旧版公开接口也可能泄露新版本私人资料。此数据库快照不能替代媒体文件备份,
+ * 恢复必须配套停机期间取得的数据库/媒体/代码版本和迁移后的新增资料归档。
  */
 const fs = require('fs');
 const path = require('path');
+const { verifiedSqliteBackup } = require('./verified-sqlite-backup.cjs');
 
 function loadEnvFile(cwd) {
   const p = path.resolve(cwd, '.env');
@@ -37,28 +39,6 @@ function loadEnvFile(cwd) {
       v = v.slice(1, -1);
     }
     process.env[m[1]] = v;
-  }
-}
-
-function backupDb(dbPath) {
-  const dir = path.dirname(dbPath);
-  const base = path.basename(dbPath);
-  const bak = path.join(dir, `${base}.pre-migrate-${Date.now()}.bak`);
-  fs.copyFileSync(dbPath, bak);
-  console.log(`[migrate] 已备份: ${bak}`);
-  // 只留最近 3 个 pre-migrate 备份, 生产库几十 MB, 不能无限堆
-  const olds = fs
-    .readdirSync(dir)
-    .filter((f) => f.startsWith(`${base}.pre-migrate-`))
-    .sort()
-    .reverse()
-    .slice(3);
-  for (const f of olds) {
-    try {
-      fs.unlinkSync(path.join(dir, f));
-    } catch {
-      /* 删不掉不影响主流程 */
-    }
   }
 }
 
@@ -88,7 +68,8 @@ async function main() {
       console.log('[migrate] 无未执行迁移, 跳过');
       return;
     }
-    backupDb(dbPath);
+    const backup = await verifiedSqliteBackup(dbPath);
+    console.log(`[migrate] 已验证SQLite完整备份: ${backup.snapshot} SHA256=${backup.sha256}`);
     const ran = await ds.runMigrations({ transaction: 'each' });
     console.log(`[migrate] 已执行 ${ran.length} 个迁移:`);
     for (const m of ran) console.log(`  - ${m.name}`);
