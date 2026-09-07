@@ -26,6 +26,23 @@ describe('file ingestion compensation', () => {
     Object.defineProperty(media, 'mediaRoot', { value: root });
   });
   afterEach(async () => { jest.restoreAllMocks(); await db.destroy(); await fs.rm(root, { recursive: true, force: true }); });
+  it('rejects hard-link aliases of managed or unregistered files without moving any link', async () => {
+    const admin: Actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };
+    await fs.mkdir(join(root, '1'));
+    await fs.writeFile(join(root, '1', 'private.mp3'), 'private');
+    await fs.link(join(root, '1', 'private.mp3'), join(root, 'alias.mp3'));
+    await fs.writeFile(join(root, 'manual.mp3'), 'manual');
+    await fs.link(join(root, 'manual.mp3'), join(root, 'manual-copy.mp3'));
+    expect(await media.scanOrphans()).toEqual([]);
+    for (const file of ['alias.mp3', 'manual.mp3', 'manual-copy.mp3']) {
+      await expect(media.importOrphan(file, admin.username, admin)).rejects.toThrow('硬链接文件不能收编');
+    }
+    expect(await fs.readFile(join(root, '1', 'private.mp3'), 'utf8')).toBe('private');
+    expect(await fs.readFile(join(root, 'alias.mp3'), 'utf8')).toBe('private');
+    expect(await fs.readFile(join(root, 'manual.mp3'), 'utf8')).toBe('manual');
+    expect(await fs.readFile(join(root, 'manual-copy.mp3'), 'utf8')).toBe('manual');
+    expect(await db.getRepository(MediaAsset).count()).toBe(0);
+  });
   it('excludes legacy registered originals, previews and derivatives from scan and direct orphan import', async () => {
     const admin: Actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };
     await fs.mkdir(join(root, 'legacy'));

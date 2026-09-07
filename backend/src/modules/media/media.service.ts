@@ -509,6 +509,9 @@ export class MediaService implements OnModuleInit {
           const ext = extname(entry.name).toLowerCase();
           const guess = EXT_KIND_MIME[ext];
           const stat = await fs.stat(full);
+          // A hard-linked file can alias private managed content, including a
+          // not-yet-finalized upload. Do not treat any shared inode as an orphan.
+          if (stat.nlink !== 1) continue;
           results.push({
             relPath: relative(this.mediaRoot, full),
             name: entry.name,
@@ -574,6 +577,7 @@ export class MediaService implements OnModuleInit {
       throw new NotFoundException('文件不存在, 可能已被移动或删除, 请重新扫描');
     }
     if (!stat.isFile()) throw new BadRequestException('不是文件');
+    if (stat.nlink !== 1) throw new BadRequestException('硬链接文件不能收编，请先复制为独立文件');
     if (!Number.isSafeInteger(stat.size) || stat.size < 0) throw new BadRequestException('文件大小无效');
 
     const ext = extname(abs).toLowerCase();
@@ -638,8 +642,8 @@ export class MediaService implements OnModuleInit {
       await fs.rename(abs, finalPath);
       moved = true;
       const finalStat = await fs.stat(finalPath);
-      if (!finalStat.isFile() || finalStat.size !== stat.size) {
-        throw new ConflictException('收编期间文件大小发生变化，请确认文件复制完成后重试');
+      if (!finalStat.isFile() || finalStat.size !== stat.size || finalStat.nlink !== 1) {
+        throw new ConflictException('收编期间文件大小发生变化或新增硬链接，请确认文件复制完成后重试');
       }
       const fields: Partial<MediaAsset> = { path: finalPath };
       if (guess.kind === 'doc' && ext === '.pdf') {
