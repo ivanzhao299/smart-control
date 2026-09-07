@@ -14,7 +14,10 @@ test('initial provisioning gates all mutations behind explicit apply and stopped
 });
 test('directory protection precedes secrets and exact environment backup precedes replacement', () => {
   assert.ok(source.indexOf('$actualAcl.AreAccessRulesProtected') < source.indexOf('$rng.GetBytes'));
-  assert.ok(source.indexOf("'backend.env.before'") < source.indexOf('[IO.File]::WriteAllText($envPath'));
+  assert.ok(source.indexOf("'backend.env.before'") < source.indexOf('[IO.File]::Replace'));
+  assert.ok(source.indexOf('$stream.SetAccessControl') < source.indexOf('$stream.Write'));
+  assert.ok(source.indexOf('$stream.Flush($true)') < source.indexOf('[IO.File]::Replace'));
+  assert.ok(!source.includes('[IO.File]::WriteAllText($envPath'));
   assert.ok(source.includes('initial provisioning refuses overwrite'));
   assert.ok(source.includes('Existing device configuration requires'));
 });

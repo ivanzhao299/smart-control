@@ -1,6 +1,6 @@
 # Runs only the provisioning write section against synthetic files in a new temp
 # directory. The machine-environment setter is replaced with a test sink.
-param([Parameter(Mandatory = $true)][string]$ProvisionSource)
+param([Parameter(Mandatory = $true)][string]$ProvisionSource, [switch]$FailBeforeReplace)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $start = $ProvisionSource.IndexOf('# Install the directory ACL BEFORE')
@@ -9,7 +9,15 @@ $body = $ProvisionSource.Substring($start)
 $setter = "[Environment]::SetEnvironmentVariable('SMART_CONTROL_PLAYER_TOKEN_FILE',`n    (Join-Path `$CredentialDirectory 'native.token'), 'Machine')"
 if (-not $body.Contains($setter)) { throw 'Machine setter changed; review fixture before execution.' }
 $body = $body.Replace($setter, "Set-TestCredentialPath (Join-Path `$CredentialDirectory 'native.token')")
+# Preserve the original exception for diagnostics on synthetic files only.
+$body = $body.Replace("throw 'Provisioning incomplete. Preserve the protected directory and environment backup; do not deploy until reconciled.'", 'throw')
 if ($body.Contains('SetEnvironmentVariable')) { throw 'Unexpected environment mutation in fixture.' }
+$replace = '[IO.File]::Replace($stagedEnv, $envPath, [NullString]::Value)'
+if ($FailBeforeReplace) {
+  if (-not $body.Contains($replace)) { throw 'Atomic replacement changed; review fixture.' }
+  $body = $body.Replace($replace, "throw 'Synthetic replacement failure'")
+}
+$script:configuredPath = $null
 function Set-TestCredentialPath([string]$value) { $script:configuredPath = $value }
 $root = Join-Path ([IO.Path]::GetTempPath()) ('sc-player-provision-test-' + [Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($root) | Out-Null
@@ -20,6 +28,18 @@ try {
   $existing = "MOCK_MODE=true`r`nTEST_ONLY=synthetic`r`n"
   $bytes = [Text.Encoding]::UTF8.GetBytes($existing)
   [IO.File]::WriteAllBytes($envPath, $bytes)
+  if ($FailBeforeReplace) {
+    $failed = $false
+    try { & ([scriptblock]::Create($body)) | Out-Null } catch { $failed = $true }
+    if (-not $failed -or $script:configuredPath) { throw 'Failure did not stop configuration.' }
+    if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($envPath)) -ne [Convert]::ToBase64String($bytes)) {
+      throw 'Failed replacement changed original environment.'
+    }
+    $staged = @(Get-ChildItem -LiteralPath $root -Filter 'synthetic.env.provision-*')
+    if ($staged.Count -ne 1 -or $staged[0].Length -le $bytes.Length) { throw 'Expected staged evidence missing.' }
+    Write-Output 'PASS injected replacement failure preserves original environment and staged evidence; machine setter not called.'
+    return
+  }
   & ([scriptblock]::Create($body)) | Out-Null
   if ($script:configuredPath -ne (Join-Path $CredentialDirectory 'native.token')) { throw 'Wrong configured path.' }
   $backup = [IO.File]::ReadAllBytes((Join-Path $CredentialDirectory 'backend.env.before'))

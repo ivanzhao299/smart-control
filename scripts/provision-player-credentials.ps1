@@ -88,7 +88,20 @@ try {
   # Retain the exact original bytes in the already protected directory.
   [IO.File]::WriteAllBytes((Join-Path $CredentialDirectory 'backend.env.before'), $bytes)
   $line = 'PLAYER_DEVICE_CREDENTIALS=' + (ConvertTo-Json -InputObject $entries -Compress -Depth 4)
-  [IO.File]::WriteAllText($envPath, ($existing + "`r`n" + $line + "`r`n"), $utf8)
+  # Stage beside the destination with its existing ACL, then replace atomically.
+  # A failed write must not truncate the application's environment file.
+  $stagedEnv = $envPath + '.provision-' + [Guid]::NewGuid().ToString('N')
+  $stream = New-Object IO.FileStream($stagedEnv, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+  try {
+    $stream.SetAccessControl((Get-Acl -LiteralPath $envPath))
+    $updatedBytes = $utf8.GetBytes($existing + "`r`n" + $line + "`r`n")
+    $stream.Write($updatedBytes, 0, $updatedBytes.Length)
+    $stream.Flush($true)
+  } finally { $stream.Dispose() }
+  if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($envPath)) -ne [Convert]::ToBase64String($bytes)) {
+    throw 'Environment changed during provisioning; preserve staged file for reconciliation.'
+  }
+  [IO.File]::Replace($stagedEnv, $envPath, [NullString]::Value)
   [Environment]::SetEnvironmentVariable('SMART_CONTROL_PLAYER_TOKEN_FILE',
     (Join-Path $CredentialDirectory 'native.token'), 'Machine')
   Write-Output 'Provisioned three device identities. No tokens printed. Services and kiosks were not restarted.'
