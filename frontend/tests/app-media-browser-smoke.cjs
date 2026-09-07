@@ -96,6 +96,47 @@ async function api(route, method, body, token, admin = false) {
   try {
     browser = await chromium.launch({ channel: 'chrome', headless: true });
     const origin = `http://127.0.0.1:${server.address().port}`;
+    assert.ok(process.env.SC_SMOKE_PLAYER_TOKEN, 'Synthetic device credential required');
+    const kiosk = await browser.newContext({ serviceWorkers: 'block' });
+    await kiosk.route('**/*', async route => {
+      const url = route.request().url();
+      // PlayerPage intentionally forces localhost:3200. Redirect only inside this
+      // isolated test context, never touch a developer's real local backend.
+      if (url.startsWith('http://localhost:3200/api/')) {
+        const response = await route.fetch({ url: url.replace('http://localhost:3200/api', backend) });
+        return route.fulfill({ response });
+      }
+      return url.startsWith(origin + '/') ? route.continue() : route.abort();
+    });
+    let player = await kiosk.newPage();
+    await player.goto(origin + '/player?slot=1');
+    await player.locator('.device-setup').waitFor();
+    assert.equal(await player.locator('input[type="checkbox"]').isChecked(), false);
+    await player.locator('input[type="password"]').fill(process.env.SC_SMOKE_PLAYER_TOKEN);
+    const configured = player.waitForResponse(r => r.url().endsWith('/player-device/1/state') && r.status() === 200);
+    await player.getByRole('button', { name: '连接播放器' }).click();
+    await configured;
+    await player.close();
+    player = await kiosk.newPage();
+    await player.goto(origin + '/player?slot=1');
+    await player.locator('.device-setup').waitFor();
+    await player.locator('input[type="password"]').fill(process.env.SC_SMOKE_PLAYER_TOKEN);
+    await player.locator('input[type="checkbox"]').check();
+    const remembered = player.waitForResponse(r => r.url().endsWith('/player-device/1/state') && r.status() === 200);
+    await player.getByRole('button', { name: '连接播放器' }).click();
+    await remembered;
+    await player.close();
+    player = await kiosk.newPage();
+    const reconnected = player.waitForResponse(r => r.url().endsWith('/player-device/1/state') && r.status() === 200);
+    await player.goto(origin + '/player?slot=1');
+    await reconnected;
+    await player.locator('.device-setup').waitFor({ state: 'hidden' });
+    await player.close();
+    player = await kiosk.newPage();
+    await player.goto(origin + '/player?slot=2');
+    await player.locator('.device-setup').waitFor();
+    await kiosk.close();
+    console.log('PASS real kiosk window replacement: session-only expires, opt-in reconnects, channel stays isolated');
     for (const role of ['operator', 'otherOperator', 'viewer', 'admin']) {
       const context = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
       await context.addInitScript(() => {

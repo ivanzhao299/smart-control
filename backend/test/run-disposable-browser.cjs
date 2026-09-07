@@ -4,7 +4,7 @@ const { DataSource } = require('typeorm');
 const { mkdtemp, open } = require('node:fs/promises');
 const { tmpdir } = require('node:os');
 const { resolve, join } = require('node:path');
-const { randomBytes } = require('node:crypto');
+const { randomBytes, createHash } = require('node:crypto');
 const { spawn } = require('node:child_process');
 const { once } = require('node:events');
 const net = require('node:net');
@@ -17,6 +17,7 @@ async function main() {
   await new Promise(ok => probe.close(ok));
   const root = await mkdtemp(join(tmpdir(), 'smart-control-browser-'));
   const password = randomBytes(24).toString('hex');
+  const playerToken = randomBytes(32).toString('hex');
   const db = await new DataSource({ type: 'better-sqlite3', database: join(root, 'test.sqlite'),
     synchronize: false, entities: [resolve(__dirname, '../dist/entities/*.entity.js')],
     migrations: [resolve(__dirname, '../dist/migrations/*.js')],
@@ -28,7 +29,8 @@ async function main() {
   const output = await open(join(root, 'backend.log'), 'wx');
   const server = spawn(process.execPath, [resolve(__dirname, '../dist/main.js')], { cwd: root,
     env: { PATH: process.env.PATH, DB_PATH: join(root, 'test.sqlite'), MEDIA_ROOT: join(root, 'media'),
-      LOG_DIR: join(root, 'logs'), DB_SYNCHRONIZE: 'false', MOCK_MODE: 'true', BIND_HOST: '127.0.0.1', PORT: '33291' },
+      LOG_DIR: join(root, 'logs'), DB_SYNCHRONIZE: 'false', MOCK_MODE: 'true', BIND_HOST: '127.0.0.1', PORT: '33291',
+      PLAYER_DEVICE_CREDENTIALS: JSON.stringify([{ id: 'disposable-kiosk', sha256: createHash('sha256').update(playerToken).digest('hex'), slots: [1], enabled: true }]) },
     stdio: ['ignore', output.fd, output.fd],
   });
   const serverExit = once(server, 'exit');
@@ -45,7 +47,7 @@ async function main() {
     }
     if (!ready) throw new Error('Disposable backend readiness timed out');
     const runner = spawn(process.execPath, [resolve(__dirname, '../../frontend/tests/app-media-browser-smoke.cjs')], {
-      cwd: root, env: { ...process.env, SC_DISPOSABLE_BACKEND: 'yes', SC_SMOKE_ADMIN_PASSWORD: password }, stdio: 'inherit',
+      cwd: root, env: { ...process.env, SC_DISPOSABLE_BACKEND: 'yes', SC_SMOKE_ADMIN_PASSWORD: password, SC_SMOKE_PLAYER_TOKEN: playerToken }, stdio: 'inherit',
     });
     const [code] = await once(runner, 'exit');
     if (code !== 0) throw new Error('Built application browser acceptance failed');
