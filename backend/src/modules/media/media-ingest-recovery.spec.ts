@@ -26,6 +26,23 @@ describe('file ingestion compensation', () => {
     Object.defineProperty(media, 'mediaRoot', { value: root });
   });
   afterEach(async () => { jest.restoreAllMocks(); await db.destroy(); await fs.rm(root, { recursive: true, force: true }); });
+  it('does not scan or import managed originals, derivatives, pending uploads or quarantine files', async () => {
+    const admin: Actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };
+    const paths = ['1/source.mp4', '2/playback-converting.mp4', '_tmp/inflight.mp3', '.delete-3-test/files/original.mp3'];
+    for (const file of paths) {
+      await fs.mkdir(join(root, file, '..'), { recursive: true });
+      await fs.writeFile(join(root, file), 'preserve');
+    }
+    await fs.writeFile(join(root, 'manual.mp3'), 'manual');
+    expect((await media.scanOrphans()).map(item => item.relPath)).toEqual(['manual.mp3']);
+    for (const file of paths) {
+      await expect(media.importOrphan(file, admin.username, admin)).rejects.toThrow('不能收编');
+      expect(await fs.readFile(join(root, file), 'utf8')).toBe('preserve');
+    }
+    await fs.symlink(join(root, '1'), join(root, 'alias'), 'dir');
+    await expect(media.importOrphan('alias/source.mp4', admin.username, admin)).rejects.toThrow('不能收编');
+    expect(await db.getRepository(MediaAsset).count()).toBe(0);
+  });
   it('video preparation waits for rollback before reading source paths or writing processing state', async () => {
     const item = await db.getRepository(MediaAsset).save({ originalName: 'original.mp4', safeName: 'original.mp4', path: '/test/committed.mp4', kind: 'video', mimeType: 'video/mp4', sizeBytes: 10, ownerUserId: 1, visibility: 'private', uploader: 'alice' });
     let entered!: () => void, finish!: () => void;

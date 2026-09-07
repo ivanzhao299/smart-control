@@ -499,6 +499,7 @@ export class MediaService implements OnModuleInit {
       }
       for (const entry of entries) {
         const full = join(dir, entry.name);
+        if (this.isManagedMediaPath(relative(this.mediaRoot, full))) continue;
         if (entry.isDirectory()) {
           if (entry.name.startsWith('.delete-')) continue;
           if (resolve(full) === tmpRootResolved) continue; // _tmp 是上传中转站, 跳过
@@ -523,6 +524,13 @@ export class MediaService implements OnModuleInit {
     return results;
   }
 
+  private isManagedMediaPath(relPath: string): boolean {
+    const parts = relPath.split(sep);
+    // Numeric asset trees include originals, transcode outputs and incomplete
+    // uploads. They require recovery, never a second ownership claim via import.
+    return /^\d+$/.test(parts[0]) || parts.some(part => part === '_tmp' || part.startsWith('.delete-'));
+  }
+
   /** 把 scanOrphans() 列出的某一个文件正式收编成媒体库资源 (原地过户, 不重新写一份) */
   async importOrphan(relPath: string, uploader: string, actor: Actor, remark?: string): Promise<MediaAsset> {
     if (actor.role !== 'admin') throw new ForbiddenException('仅管理员可收编服务器资料');
@@ -535,7 +543,9 @@ export class MediaService implements OnModuleInit {
     const realFile = await fs.realpath(abs);
     const realRelative = relative(realRoot, realFile);
     if (!realRelative || realRelative.startsWith('..') || isAbsolute(realRelative)) throw new BadRequestException('非法路径');
-    if (realRelative.split(sep).some(part => part.startsWith('.delete-'))) throw new BadRequestException('删除隔离文件不能收编');
+    if (this.isManagedMediaPath(relative(rootResolved, abs)) || this.isManagedMediaPath(realRelative)) {
+      throw new BadRequestException('受管资料、上传临时文件或删除隔离文件不能收编，请使用恢复流程');
+    }
     let stat;
     try {
       stat = await fs.stat(abs);
