@@ -36,9 +36,8 @@ describe('file ingestion compensation', () => {
     await repo.update(item.id, { path: previous, sourcePath: source });
     (media as any).logger = { info: jest.fn(), error: jest.fn() };
     jest.spyOn(media as any, 'probeVideo').mockResolvedValue({ videoCodec: 'hevc' });
-    jest.spyOn(media as any, 'runCommand').mockImplementation(async (...commandArgs: unknown[]) => {
-      const args = commandArgs[1] as string[];
-      await fs.writeFile(args[args.length - 1], 'incomplete');
+    jest.spyOn(media as any, 'runTranscode').mockImplementation(async (...commandArgs: unknown[]) => {
+      await fs.writeFile(commandArgs[2] as string, 'incomplete');
       throw new Error('synthetic encoder failure');
     });
     await media.prepareVideo(item.id);
@@ -60,9 +59,8 @@ describe('file ingestion compensation', () => {
     await repo.update(item.id, { path: source, thumbPath: thumb });
     (media as any).logger = { info: jest.fn(), error: jest.fn() };
     jest.spyOn(media as any, 'probeVideo').mockResolvedValue({ videoCodec: 'hevc', audioCodec: 'aac' });
-    jest.spyOn(media as any, 'runCommand').mockImplementation(async (...commandArgs: unknown[]) => {
-      const args = commandArgs[1] as string[];
-      const target = args[args.length - 1];
+    jest.spyOn(media as any, 'runTranscode').mockImplementation(async (...commandArgs: unknown[]) => {
+      const target = commandArgs[2] as string;
       expect(target).not.toBe(source);
       await fs.writeFile(target, 'converted');
       return '';

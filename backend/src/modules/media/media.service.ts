@@ -5,6 +5,7 @@ import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Logger } from 'winston';
 import { Repository } from 'typeorm';
 import { serializedTransaction } from '../../common/utils/serialized-transaction';
+import { boundedCommandFile } from '../../common/utils/bounded-command-file';
 import { promises as fs, ReadStream } from 'fs';
 import { join, resolve, relative, basename, extname, sep, isAbsolute } from 'path';
 import { spawn } from 'child_process';
@@ -972,11 +973,11 @@ export class MediaService implements OnModuleInit {
       conversionTemp = temp;
       // An uploaded original may itself be named playback.mp4. Never replace it.
       const output = join(dir, resolve(source) === resolve(dir, 'playback.mp4') ? 'playback-derived.mp4' : 'playback.mp4');
-      await this.runCommand(this.ffmpegCommand(), [
-        '-y', '-i', source, '-map', '0:v:0', '-map', '0:a?',
+      await this.runTranscode(this.ffmpegCommand(), [
+        '-i', source, '-map', '0:v:0', '-map', '0:a?',
         '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-pix_fmt', 'yuv420p',
-        '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', temp,
-      ]);
+        '-c:a', 'aac', '-b:a', '192k', '-movflags', '+frag_keyframe+empty_moov', '-f', 'mp4', 'pipe:1',
+      ], temp, Number(process.env.MEDIA_TRANSCODE_MAX_BYTES ?? 10 * 1024 ** 3));
       await fs.rename(temp, output);
       media.sourcePath = source;
       media.path = output;
@@ -1001,6 +1002,8 @@ export class MediaService implements OnModuleInit {
       });
       this.logger.info(`[Media] 视频 #${id} 已转为 H.264/AAC 播放副本`, { context: 'MediaService' });
     } catch (error) {
+      // Exclusive creation failed: this path was not created by this attempt.
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') conversionTemp = undefined;
       const message = (error as Error).message.slice(0, 1000);
       await this.updateMediaFields(id, { processingStatus: 'failed', processingError: message }).catch(() => {});
       this.logger.error(`[Media] 视频 #${id} 兼容处理失败: ${message}`, { context: 'MediaService' });
@@ -1028,6 +1031,10 @@ export class MediaService implements OnModuleInit {
 
   private commandWorks(command: string, args: string[]): Promise<boolean> {
     return this.runCommand(command, args, true).then(() => true, () => false);
+  }
+
+  private runTranscode(command: string, args: string[], output: string, maxBytes: number): Promise<void> {
+    return boundedCommandFile(command, args, output, maxBytes);
   }
 
   private runCommand(command: string, args: string[], capture = false): Promise<string> {
