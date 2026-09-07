@@ -5,12 +5,41 @@ import { hostname } from 'os';
 import { Actor } from '../../common/auth/actor';
 import { assertCanUpload } from '../../common/auth/resource-policy';
 import { serializedTransaction } from '../../common/utils/serialized-transaction';
+import { MediaAsset } from '../../entities/media-asset.entity';
 const uploadInstance = randomUUID();
 const uploadProcess = Object.freeze({ host: hostname(), pid: process.pid, startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString() });
 
 @Injectable()
 export class MediaQuotaService {
   constructor(private readonly db: DataSource) {}
+
+  async reserveConversion(mediaId: number, expectedOwner: number | null, maximum: number): Promise<{ id: string | null; bytes: number }> {
+    if (!Number.isSafeInteger(maximum) || maximum < 1) throw new BadRequestException('无效转码容量预算');
+    return serializedTransaction(this.db, async manager => {
+      const asset = await manager.findOneByOrFail(MediaAsset, { id: mediaId });
+      if (asset.ownerUserId !== expectedOwner || asset.processingStatus !== 'processing') throw new ForbiddenException('转码资料状态或归属已变化');
+      if (expectedOwner === null) return { id: null, bytes: maximum };
+      const [capacity] = await manager.query(`SELECT storage_quota_bytes
+        - COALESCE((SELECT SUM(sizeBytes) FROM media_assets WHERE owner_user_id = users.id), 0)
+        - COALESCE((SELECT SUM(bytes) FROM upload_reservations WHERE owner_user_id = users.id), 0) AS available
+        FROM users WHERE id = ? AND enabled = 1 AND role IN ('admin', 'operator')`, [expectedOwner]);
+      const available = Number(capacity?.available);
+      if (!Number.isSafeInteger(available) || available < 1) throw new ForbiddenException('转码存储配额不足或账户已停用');
+      const bytes = Math.min(maximum, available);
+      const id = randomUUID();
+      await manager.query(`INSERT INTO upload_reservations (id, owner_user_id, bytes, target_media_id)
+        SELECT ?, ?, ?, ? WHERE NOT EXISTS
+        (SELECT 1 FROM upload_reservations WHERE target_media_id = ? AND temp_name IS NULL)`, [id, expectedOwner, bytes, mediaId, mediaId]);
+      if (!(await manager.query('SELECT id FROM upload_reservations WHERE id = ?', [id])).length) throw new ForbiddenException('资料已有待恢复转码预留');
+      return { id, bytes };
+    });
+  }
+
+  async releaseConversion(id: string | null, mediaId: number): Promise<void> {
+    if (!id) return;
+    await serializedTransaction(this.db, manager => manager.query(
+      'DELETE FROM upload_reservations WHERE id = ? AND target_media_id = ? AND temp_name IS NULL', [id, mediaId]));
+  }
 
   async bindTemporary(actor: Actor, id: string | null, name: string): Promise<void> {
     assertCanUpload(actor);

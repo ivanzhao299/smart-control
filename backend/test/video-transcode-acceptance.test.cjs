@@ -15,6 +15,7 @@ test('actual FFmpeg conversion preserves an original named playback.mp4 and acco
   const root = await fs.mkdtemp(join(tmpdir(), 'sc-real-transcode-'));
   let db;
   const oldRoot = process.env.MEDIA_ROOT;
+  const oldLimit = process.env.MEDIA_TRANSCODE_MAX_BYTES;
   try {
     db = await new DataSource({ type: 'better-sqlite3', database: join(root, 'test.sqlite'), synchronize: false,
       entities: [resolve(__dirname, '../dist/entities/*.entity.js')], migrations: [resolve(__dirname, '../dist/migrations/*.js')] }).initialize();
@@ -44,8 +45,20 @@ test('actual FFmpeg conversion preserves an original named playback.mp4 and acco
     const probe = JSON.parse(execFileSync(process.env.FFPROBE_PATH || 'ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_name', '-of', 'json', converted.path], { encoding: 'utf8', timeout: 10000 }));
     assert.equal(probe.streams[0].codec_name, 'h264');
     assert.equal((await fs.readdir(directory)).filter(name => name.startsWith('playback-converting-')).length, 0);
+    assert.deepEqual(await db.query('SELECT * FROM upload_reservations'), []);
+    const priorOutput = await fs.readFile(converted.path);
+    process.env.MEDIA_TRANSCODE_MAX_BYTES = '1';
+    await media.prepareVideo(asset.id);
+    const rejected = await repo.findOneByOrFail({ id: asset.id });
+    assert.equal(rejected.processingStatus, 'failed');
+    assert.equal(rejected.sizeBytes, converted.sizeBytes);
+    assert.deepEqual(await fs.readFile(source), originalBytes);
+    assert.deepEqual(await fs.readFile(converted.path), priorOutput);
+    assert.deepEqual(await db.query('SELECT * FROM upload_reservations'), []);
+    assert.equal((await fs.readdir(directory)).filter(name => name.startsWith('playback-converting-')).length, 0);
   } finally {
     if (oldRoot === undefined) delete process.env.MEDIA_ROOT; else process.env.MEDIA_ROOT = oldRoot;
+    if (oldLimit === undefined) delete process.env.MEDIA_TRANSCODE_MAX_BYTES; else process.env.MEDIA_TRANSCODE_MAX_BYTES = oldLimit;
     if (db?.isInitialized) await db.destroy();
     await fs.rm(root, { recursive: true, force: true });
   }

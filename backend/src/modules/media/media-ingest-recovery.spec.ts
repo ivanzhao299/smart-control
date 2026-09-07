@@ -26,7 +26,11 @@ describe('file ingestion compensation', () => {
     Object.defineProperty(media, 'mediaRoot', { value: root });
   });
   afterEach(async () => { jest.restoreAllMocks(); await db.destroy(); await fs.rm(root, { recursive: true, force: true }); });
+  async function conversionSchema() {
+    for (const migration of [new AddUploadReservations1788618003000(), new BindUploadTemporaryFiles1788618004000(), new TrackUploadInstances1788618005000(), new LinkUploadMedia1788618006000()]) await migration.up(db.createQueryRunner());
+  }
   it('removes only this failed conversion temporary file and preserves original and prior playback bytes', async () => {
+    await conversionSchema();
     const repo = db.getRepository(MediaAsset);
     const item = await repo.save({ originalName: 'original.mov', safeName: 'original.mov', path: '', kind: 'video', mimeType: 'video/mp4', sizeBytes: 17, ownerUserId: 1, visibility: 'private', uploader: 'alice' });
     const directory = join(root, String(item.id));
@@ -45,9 +49,11 @@ describe('file ingestion compensation', () => {
     expect((await fs.readdir(directory)).sort()).toEqual(['original.mov', 'playback.mp4']);
     expect(await fs.readFile(source, 'utf8')).toBe('original');
     expect(await fs.readFile(previous, 'utf8')).toBe('converted');
+    expect(await db.query('SELECT * FROM upload_reservations')).toEqual([]);
     media.acquireOperation(item.id)();
   });
   it.each(['original.mov', 'playback.mp4', 'playback-converting.mp4'])('counts retained video bytes and preserves the original named %s', async name => {
+    await conversionSchema();
     const repo = db.getRepository(MediaAsset);
     const item = await repo.save({ originalName: name, safeName: name, path: '', kind: 'video', mimeType: 'video/quicktime', sizeBytes: 8, ownerUserId: 1, visibility: 'private', uploader: 'alice' });
     const directory = join(root, String(item.id));
@@ -71,6 +77,7 @@ describe('file ingestion compensation', () => {
     expect(result.path).not.toBe(source);
     expect(await fs.readFile(source, 'utf8')).toBe('original');
     expect(await fs.readFile(result.path, 'utf8')).toBe('converted');
+    expect(await db.query('SELECT * FROM upload_reservations')).toEqual([]);
   });
   it('rejects hard-link aliases of managed or unregistered files without moving any link', async () => {
     const admin: Actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };

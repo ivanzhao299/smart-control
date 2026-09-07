@@ -8,6 +8,7 @@ import { Actor } from '../../common/auth/actor';
 import { serializedTransaction } from '../../common/utils/serialized-transaction';
 import { BindUploadTemporaryFiles1788618004000 } from '../../migrations/1788618004000-BindUploadTemporaryFiles';
 import { TrackUploadInstances1788618005000 } from '../../migrations/1788618005000-TrackUploadInstances';
+import { LinkUploadMedia1788618006000 } from '../../migrations/1788618006000-LinkUploadMedia';
 
 describe('atomic upload capacity reservations', () => {
   let db: DataSource, quota: MediaQuotaService;
@@ -18,10 +19,30 @@ describe('atomic upload capacity reservations', () => {
     await new AddUploadReservations1788618003000().up(db.createQueryRunner());
     await new BindUploadTemporaryFiles1788618004000().up(db.createQueryRunner());
     await new TrackUploadInstances1788618005000().up(db.createQueryRunner());
+    await new LinkUploadMedia1788618006000().up(db.createQueryRunner());
     await db.getRepository(User).save([{ id: 1, username: 'alice', password: 'test', role: 'operator', storageQuotaBytes: 100 }, { id: 2, username: 'bob', password: 'test', role: 'operator', storageQuotaBytes: 100 }]);
     quota = new MediaQuotaService(db);
   });
   afterEach(async () => { await db.destroy(); });
+  it('reserves encoder output from remaining capacity and blocks competing uploads or duplicate processing', async () => {
+    const media = await db.getRepository(MediaAsset).save({ originalName: 'a.mov', safeName: 'a.mov', path: '/fixture/a.mov', kind: 'video', mimeType: 'video/quicktime', sizeBytes: 40, ownerUserId: 1, visibility: 'private', processingStatus: 'processing' });
+    const conversion = await quota.reserveConversion(media.id, 1, 1000);
+    expect(conversion.bytes).toBe(60);
+    expect((await quota.usage(alice)).reservedBytes).toBe(60);
+    await expect(quota.reserve(alice, 1)).rejects.toThrow();
+    await expect(quota.reserveConversion(media.id, 1, 20)).rejects.toThrow();
+    await quota.releaseConversion(conversion.id, media.id + 1);
+    expect((await quota.usage(alice)).reservedBytes).toBe(60);
+    await quota.releaseConversion(conversion.id, media.id);
+    expect((await quota.usage(alice)).reservedBytes).toBe(0);
+  });
+  it('rejects a conversion after ownership or account permission changes', async () => {
+    const media = await db.getRepository(MediaAsset).save({ originalName: 'a.mov', safeName: 'a.mov', path: '/fixture/a.mov', kind: 'video', mimeType: 'video/quicktime', sizeBytes: 40, ownerUserId: 1, visibility: 'private', processingStatus: 'processing' });
+    await expect(quota.reserveConversion(media.id, 2, 20)).rejects.toThrow('归属');
+    await db.getRepository(User).update(1, { enabled: false });
+    await expect(quota.reserveConversion(media.id, 1, 20)).rejects.toThrow();
+    expect(await db.query('SELECT * FROM upload_reservations')).toEqual([]);
+  });
   it.each(['disabled', 'viewer'])('does not bind or consume a temporary filename after the account becomes %s', async state => {
     const id = await quota.reserve(alice, 10);
     await db.getRepository(User).update(1, state === 'disabled' ? { enabled: false } : { role: 'viewer' });

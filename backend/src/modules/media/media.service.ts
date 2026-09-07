@@ -6,6 +6,7 @@ import { Logger } from 'winston';
 import { Repository } from 'typeorm';
 import { serializedTransaction } from '../../common/utils/serialized-transaction';
 import { boundedCommandFile } from '../../common/utils/bounded-command-file';
+import { MediaQuotaService } from './media-quota.service';
 import { promises as fs, ReadStream } from 'fs';
 import { join, resolve, relative, basename, extname, sep, isAbsolute } from 'path';
 import { spawn } from 'child_process';
@@ -799,6 +800,9 @@ export class MediaService implements OnModuleInit {
     if (!row) throw new NotFoundException('资料不存在');
     assertWriteResource(actor, row);
     const previousOwner = row.ownerUserId;
+    if (dto.ownerUserId !== undefined && dto.ownerUserId !== previousOwner && ['pending', 'processing'].includes(row.processingStatus)) {
+      throw new ConflictException('资料转码期间不能转移归属');
+    }
     if ((dto.visibility !== undefined || dto.ownerUserId !== undefined) && actor.role !== 'admin') {
       throw new ForbiddenException('仅管理员可调整资料归属或公共状态');
     }
@@ -945,6 +949,10 @@ export class MediaService implements OnModuleInit {
     const release = this.acquireOperation(id);
     this.preparing.add(id);
     let conversionTemp: string | undefined;
+    let conversionReservation: { id: string | null; bytes: number } | undefined;
+    let outputInstalled = false;
+    let outputAccounted = false;
+    const quota = new MediaQuotaService(this.repo.manager.connection);
     try {
       const media = await serializedTransaction(this.repo.manager.connection, async manager => {
         const current = await manager.findOneBy(MediaAsset, { id });
@@ -969,6 +977,7 @@ export class MediaService implements OnModuleInit {
       }
 
       const dir = join(this.mediaRoot, String(media.id));
+      conversionReservation = await quota.reserveConversion(id, media.ownerUserId, Number(process.env.MEDIA_TRANSCODE_MAX_BYTES ?? 10 * 1024 ** 3));
       const temp = join(dir, `playback-converting-${randomUUID()}.mp4`);
       conversionTemp = temp;
       // An uploaded original may itself be named playback.mp4. Never replace it.
@@ -977,8 +986,9 @@ export class MediaService implements OnModuleInit {
         '-i', source, '-map', '0:v:0', '-map', '0:a?',
         '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-pix_fmt', 'yuv420p',
         '-c:a', 'aac', '-b:a', '192k', '-movflags', '+frag_keyframe+empty_moov', '-f', 'mp4', 'pipe:1',
-      ], temp, Number(process.env.MEDIA_TRANSCODE_MAX_BYTES ?? 10 * 1024 ** 3));
+      ], temp, conversionReservation.bytes);
       await fs.rename(temp, output);
+      outputInstalled = true;
       media.sourcePath = source;
       media.path = output;
       media.mimeType = 'video/mp4';
@@ -1000,6 +1010,7 @@ export class MediaService implements OnModuleInit {
         sizeBytes: media.sizeBytes, processingStatus: 'ready', processingError: null,
         durationSec: media.durationSec, resolution: media.resolution,
       });
+      outputAccounted = true;
       this.logger.info(`[Media] 视频 #${id} 已转为 H.264/AAC 播放副本`, { context: 'MediaService' });
     } catch (error) {
       // Exclusive creation failed: this path was not created by this attempt.
@@ -1008,9 +1019,18 @@ export class MediaService implements OnModuleInit {
       await this.updateMediaFields(id, { processingStatus: 'failed', processingError: message }).catch(() => {});
       this.logger.error(`[Media] 视频 #${id} 兼容处理失败: ${message}`, { context: 'MediaService' });
     } finally {
+      let cleanupComplete = true;
       if (conversionTemp) {
         await fs.unlink(conversionTemp).catch(error => {
-          if (error.code !== 'ENOENT') this.logger.error(`[Media] 视频 #${id} 临时转码文件清理失败，保留待恢复`, { context: 'MediaService' });
+          if (error.code !== 'ENOENT') {
+            cleanupComplete = false;
+            this.logger.error(`[Media] 视频 #${id} 临时转码文件清理失败，保留待恢复`, { context: 'MediaService' });
+          }
+        });
+      }
+      if (conversionReservation && cleanupComplete && (!outputInstalled || outputAccounted)) {
+        await quota.releaseConversion(conversionReservation.id, id).catch(() => {
+          this.logger.error(`[Media] 视频 #${id} 转码预留释放失败，保留待恢复`, { context: 'MediaService' });
         });
       }
       this.preparing.delete(id);
