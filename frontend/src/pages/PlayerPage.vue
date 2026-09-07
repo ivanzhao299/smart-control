@@ -35,11 +35,12 @@ const slot = computed<number>(() => {
 
 const channel = ref<PlayerDeviceState | null>(null);
 const credential = ref('');
+const rememberDevice = ref(false);
 const needsCredential = ref(false);
 let requestRevision = 0;
 async function saveCredential(): Promise<void> {
   try {
-    configurePlayer(slot.value, credential.value);
+    configurePlayer(slot.value, credential.value, rememberDevice.value);
     credential.value = '';
     needsCredential.value = false;
     await fetchChannel();
@@ -319,8 +320,9 @@ function onAudioEnded(): void {
   <div class="player">
     <form v-if="needsCredential" class="device-setup" @submit.prevent="saveCredential">
       <label>通道 {{ slot }} 设备凭据<input v-model="credential" type="password" autocomplete="off" /></label>
+      <label><input v-model="rememberDevice" type="checkbox" />记住此展厅专用播放器（重启后自动连接）</label>
       <button type="submit">连接播放器</button>
-      <p>凭据仅保存在当前浏览器会话中，不使用个人账户密码。</p>
+      <p>默认仅本次会话有效。仅在展厅专用电脑勾选记住设备；凭据不使用个人账户密码。</p>
     </form>
     <!-- 播放视频 -->
     <video
@@ -403,6 +405,7 @@ function onAudioEnded(): void {
 <style scoped>
 .device-setup { position: fixed; inset: 25% 15% auto; padding: 24px; z-index: 100; background: #20232b; color: white; cursor: auto; }
 .device-setup input { display: block; width: 100%; margin: 12px 0; }
+.device-setup input[type="checkbox"] { display: inline-block; width: auto; margin: 12px 8px 12px 0; }
 .player {
   position: fixed;
   inset: 0;
