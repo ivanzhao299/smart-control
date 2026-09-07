@@ -23,8 +23,10 @@ function Log([string]$m) {
   try { Add-Content -Path $logFile -Value $line -Encoding UTF8 } catch { }
 }
 Log '[ppt] daemon start'
-$credentialFile = $env:SMART_CONTROL_PLAYER_TOKEN_FILE
-if (-not $credentialFile) { Log '[ppt] missing device credential file'; exit 1 }
+try {
+  $credentialFile = & (Join-Path $PSScriptRoot 'resolve-player-token-file.ps1')
+  if (-not $?) { throw 'invalid player credential configuration' }
+} catch { Log '[ppt] invalid device credential file configuration'; exit 1 }
 function Get-PlayerHeaders {
   $token = [System.IO.File]::ReadAllText($credentialFile).Trim()
   if ($token.Length -lt 32 -or $token.Length -gt 512) { throw 'invalid device credential' }

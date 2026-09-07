@@ -10,6 +10,12 @@
 
 ## 工作队列
 
+### 原生播放器凭据路径与WMI环境兼容（2026-09-08）
+
+bgm/ppt守护原来只读取进程环境变量；WMI脱离启动可能继承配置前的旧环境。新增共享resolve-player-token-file.ps1，按Process、当前User、Machine读取路径配置，仅接受本地盘符绝对路径，拒绝相对路径和UNC，不读取或输出密钥。两守护启动时使用该解析器，读取密钥仍在原有逐请求逻辑中；没有设置生产环境变量或生成生产凭据。
+
+GK9000独立PowerShell进程内实测一个绝对路径及四种非法路径，全部符合预期，无文件读写；本测试只设置临时Process变量，不验证真实User/Machine配置或WMI播放器重启。三项启动源结构回归通过；完整后端48组584项通过。浏览器kiosk配置、实际设备凭据发放和迁移停写接线仍未完成，未推送部署。
+
 ### 现场启动器核验与停写入口补齐（2026-09-08）
 
 双跳只读核验任务类型：AutoUpdate和PlayerWatchdog为Interactive时间触发任务；DailyBackup为S4U每日任务；SmartControlBackend为S4U启动、登录及时间触发任务。现场存在Session 0和Session 1的Node进程、Session 1的Edge及PowerShell进程；未读取进程命令行或业务数据，尚不能把全部进程归属为本应用。不能把历史Session 2硬编码为当前物理会话。

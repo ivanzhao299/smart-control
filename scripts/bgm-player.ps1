@@ -66,8 +66,10 @@ function Invoke-MciChecked([string]$cmd, [string]$label) {
 $apiBase = 'http://127.0.0.1:3200'
 # Provision this file outside the checkout with an ACL limited to the player account.
 # Never put the credential in command arguments, URLs or logs.
-$credentialFile = $env:SMART_CONTROL_PLAYER_TOKEN_FILE
-if (-not $credentialFile) { Log 'missing player credential file configuration'; exit 1 }
+try {
+  $credentialFile = & (Join-Path $PSScriptRoot 'resolve-player-token-file.ps1')
+  if (-not $?) { throw 'invalid player credential configuration' }
+} catch { Log 'invalid player credential file configuration'; exit 1 }
 function Get-PlayerHeaders {
   $token = [System.IO.File]::ReadAllText($credentialFile).Trim()
   if ($token.Length -lt 32 -or $token.Length -gt 512) { throw 'invalid player credential file' }

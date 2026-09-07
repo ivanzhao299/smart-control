@@ -23,3 +23,12 @@ test('background music checks release hold before native initialization or log w
   assert.ok(failure < source.indexOf('Add-Type'));
   assert.ok(failure < source.indexOf('Add-Content'));
 });
+
+test('both native daemons use the shared path resolver without putting tokens in launch arguments', () => {
+  for (const name of ['bgm-player.ps1', 'ppt-player.ps1']) {
+    const source = script(name);
+    assert.ok(source.includes("'resolve-player-token-file.ps1'"));
+    assert.ok(!source.includes('$credentialFile = $env:SMART_CONTROL_PLAYER_TOKEN_FILE'));
+    assert.ok(source.includes('[System.IO.File]::ReadAllText($credentialFile).Trim()'));
+  }
+});
