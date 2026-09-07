@@ -63,3 +63,23 @@ test('retains preserved bytes and rolls back reservations if the fence fails aft
     await verifyReleaseBundle(join(options.destinationRoot, directory));
   });
 });
+
+for (const reason of ['processing', 'owner', 'missing', 'size', 'derived']) {
+  test(`holds linked reservations when finalized media validation fails: ${reason}`, async () => {
+    await fixture(async (options, db) => {
+      db.exec('CREATE TABLE media_assets (id INTEGER PRIMARY KEY, owner_user_id INTEGER, processingStatus TEXT, path TEXT, sizeBytes INTEGER, sourcePath TEXT)');
+      const file = join(options.mediaRoot, 'complete.mp3');
+      await fs.writeFile(file, 'abc');
+      let source = null;
+      if (reason === 'derived') { source = join(options.mediaRoot, 'original.mp3'); await fs.writeFile(source, 'original'); }
+      if (reason === 'missing') await fs.unlink(file);
+      db.prepare('INSERT INTO media_assets VALUES (42, ?, ?, ?, ?, ?)').run(
+        reason === 'owner' ? 17 : 23, reason === 'processing' ? 'processing' : 'ready', file, reason === 'size' ? 2 : 3, source);
+      const result = await recoverInterruptedUploads(options);
+      assert.deepEqual(result.heldIds, ['linked']);
+      assert.ok(db.prepare("SELECT id FROM upload_reservations WHERE id = 'linked'").get());
+      assert.ok(db.prepare('SELECT id FROM media_assets WHERE id = 42').get());
+      if (reason !== 'missing') assert.equal(await fs.readFile(file, 'utf8'), 'abc');
+    });
+  });
+}

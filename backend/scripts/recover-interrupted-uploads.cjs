@@ -14,7 +14,7 @@ async function hash(file) {
 /** Offline maintenance ONLY. Caller must continuously fence all application and
  * worker writers. No PID/hostname/age heuristic authorizes cleanup. A complete
  * verified DB/media bundle is retained before touching even one reservation.
- * Linked assets are deliberately held for media-processing recovery.
+ * Linked assets are held unless their finalized files and accounted size match.
  */
 async function recoverInterruptedUploads(options) {
   const bundle = await createReleaseBundle(options);
@@ -28,9 +28,15 @@ async function recoverInterruptedUploads(options) {
   try {
     if (await options.assertWritersStopped() !== true) throw new Error('Writer fence is not verified');
     db.exec('BEGIN IMMEDIATE'); transaction = true;
+    const hasMedia = !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='media_assets'").get();
     const rows = db.prepare('SELECT * FROM upload_reservations ORDER BY id').all();
     for (const row of rows) {
-      if (row.target_media_id !== null) { result.heldIds.push(row.id); continue; }
+      if (row.target_media_id !== null) {
+        const asset = hasMedia ? db.prepare('SELECT * FROM media_assets WHERE id = ?').get(row.target_media_id) : null;
+        if (!await finalizedAssetMatches(asset, row.owner_user_id, mediaRoot, entries)) {
+          result.heldIds.push(row.id); continue;
+        }
+      }
       if (row.temp_name !== null) {
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.upload$/.test(row.temp_name)) {
           throw new Error('Invalid bound upload name; recovery stopped');
@@ -50,7 +56,7 @@ async function recoverInterruptedUploads(options) {
         } else if (expected) throw new Error('Upload changed after backup; recovery stopped');
       }
       if (await options.assertWritersStopped() !== true) throw new Error('Writer fence is not verified');
-      db.prepare('DELETE FROM upload_reservations WHERE id = ? AND target_media_id IS NULL').run(row.id);
+      db.prepare('DELETE FROM upload_reservations WHERE id = ? AND target_media_id IS ?').run(row.id, row.target_media_id);
       result.releasedIds.push(row.id);
     }
     db.exec('COMMIT'); transaction = false;
@@ -62,6 +68,29 @@ async function recoverInterruptedUploads(options) {
     // leaves a reservation referring to an absent temp file. Never remove backup.
     throw error;
   } finally { db.close(); }
+}
+
+async function finalizedAssetMatches(asset, owner, mediaRoot, entries) {
+  if (!asset || asset.owner_user_id !== owner || asset.processingStatus !== 'ready' || !asset.path) return false;
+  const known = new Set();
+  let size = 0;
+  for (const value of [asset.path, asset.sourcePath, asset.thumbPath, asset.docPdfPath]) {
+    if (!value) continue;
+    const file = path.isAbsolute(value) ? value : path.join(mediaRoot, value);
+    let real, stat;
+    try { real = await fs.realpath(file); stat = await fs.lstat(file); }
+    catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+    const rel = path.relative(mediaRoot, real);
+    if (!rel || rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel) || !stat.isFile() || stat.isSymbolicLink()) return false;
+    if (known.has(real)) continue;
+    known.add(real);
+    const expected = entries.get(rel.split(path.sep).join('/'));
+    if (expected?.type !== 'file' || stat.size !== expected.sizeBytes || await hash(real) !== expected.sha256) return false;
+    size += stat.size;
+    if (!Number.isSafeInteger(size)) return false;
+  }
+  // Do not release a reservation masking unaccounted original/derived bytes.
+  return Number(asset.sizeBytes) === size;
 }
 
 module.exports = { recoverInterruptedUploads };

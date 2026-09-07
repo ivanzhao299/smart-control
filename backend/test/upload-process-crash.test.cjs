@@ -9,7 +9,7 @@ const Database = require('better-sqlite3');
 const { recoverInterruptedUploads } = require('../scripts/recover-interrupted-uploads.cjs');
 const { verifyReleaseBundle } = require('../scripts/release-recovery-bundle.cjs');
 
-for (const stage of ['bound', 'partial']) {
+for (const stage of ['bound', 'partial', 'finalized']) {
   test(`recovers actual quota-service state after SIGKILL at ${stage} stage`, { timeout: 20000 }, async () => {
     const root = await fs.mkdtemp(join(tmpdir(), 'sc-upload-process-crash-'));
     let child, exited, exitPromise;
@@ -37,7 +37,7 @@ for (const stage of ['bound', 'partial']) {
         assert.equal(row.bytes, 100);
         assert.equal(row.temp_name, ready.name);
         assert.ok(row.instance_id);
-        assert.equal(row.target_media_id, null);
+        assert.equal(row.target_media_id, ready.mediaId ?? null);
       } finally { before.close(); }
       const result = await recoverInterruptedUploads({ databasePath: dbPath, mediaRoot, destinationRoot,
         sourceRevision: 'c'.repeat(40), assertWritersStopped: async () => exited === true && child.signalCode === 'SIGKILL' });
@@ -46,6 +46,12 @@ for (const stage of ['bound', 'partial']) {
       try {
         assert.equal(after.prepare('SELECT COUNT(*) n FROM upload_reservations').get().n, 0);
         assert.ok(after.prepare('SELECT id FROM users WHERE id = ?').get(ready.userId));
+        if (stage === 'finalized') {
+          const asset = after.prepare('SELECT * FROM media_assets WHERE id = ?').get(ready.mediaId);
+          assert.equal(asset.owner_user_id, ready.userId);
+          assert.equal(asset.sizeBytes, 100);
+          assert.deepEqual(await fs.readFile(asset.path), Buffer.alloc(100, 65));
+        }
         assert.deepEqual(after.pragma('foreign_key_check'), []);
       } finally { after.close(); }
       const backup = await verifyReleaseBundle(result.backupDirectory);
