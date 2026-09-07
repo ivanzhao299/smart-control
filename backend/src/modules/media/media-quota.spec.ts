@@ -18,6 +18,26 @@ describe('atomic upload capacity reservations', () => {
     quota = new MediaQuotaService(db);
   });
   afterEach(async () => { await db.destroy(); });
+  it('waits for a coordinated transaction instead of exposing its uncommitted quota', async () => {
+    let started!: () => void, release!: () => void;
+    const ready = new Promise<void>(resolve => { started = resolve; });
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const writer = serializedTransaction(db, async manager => {
+      await manager.query('UPDATE users SET storage_quota_bytes = 999 WHERE id = 1');
+      started(); await held;
+      throw new Error('rollback temporary quota');
+    });
+    await ready;
+    let completed = false;
+    const reader = quota.usage(alice).then(value => { completed = true; return value; });
+    // Drain async microtasks while the writer deliberately remains open.
+    await new Promise(resolve => setImmediate(resolve));
+    expect(completed).toBe(false);
+    release();
+    const [writeResult, readResult] = await Promise.allSettled([writer, reader]);
+    expect(writeResult.status).toBe('rejected');
+    expect(readResult).toEqual({ status: 'fulfilled', value: { quotaBytes: 100, usedBytes: 0, reservedBytes: 0 } });
+  });
   it('does not enlist a concurrent reservation in another service transaction rollback', async () => {
     let started!: () => void, release!: () => void;
     const ready = new Promise<void>(resolve => { started = resolve; });

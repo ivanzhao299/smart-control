@@ -45,15 +45,17 @@ export class MediaQuotaService {
 
   async usage(actor: Actor) {
     if (actor.userId === null) return { quotaBytes: null, usedBytes: null, reservedBytes: null };
-    const [row] = await this.db.query(
-      `SELECT storage_quota_bytes AS quotaBytes,
+    return serializedTransaction(this.db, async (manager) => {
+      const [row] = await manager.query(
+        `SELECT storage_quota_bytes AS quotaBytes,
       COALESCE((SELECT SUM(sizeBytes) FROM media_assets WHERE owner_user_id = users.id), 0) AS usedBytes,
       COALESCE((SELECT SUM(bytes) FROM upload_reservations WHERE owner_user_id = users.id), 0) AS reservedBytes
       FROM users WHERE id = ?`,
-      [actor.userId],
-    );
-    if (!row) throw new ForbiddenException('账户不存在');
-    return row;
+        [actor.userId],
+      );
+      if (!row) throw new ForbiddenException('账户不存在');
+      return row;
+    });
   }
 
   async setLimit(actor: Actor, userId: number, bytes: number): Promise<void> {
