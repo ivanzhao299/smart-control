@@ -4,10 +4,12 @@ const { createHash } = require('node:crypto');
 const Database = require('better-sqlite3');
 
 /** SQLite online backup includes committed WAL pages; never copy a live .db file. */
-async function verifiedSqliteBackup(databasePath) {
+async function verifiedSqliteBackup(databasePath, destinationRoot) {
   const source = await fs.realpath(databasePath);
   if (!(await fs.stat(source)).isFile()) throw new Error('Backup source must be an existing database file');
-  const directory = await fs.mkdtemp(source + '.pre-migrate-');
+  const prefix = destinationRoot
+    ? path.join(await fs.realpath(destinationRoot), 'sqlite-') : source + '.pre-migrate-';
+  const directory = await fs.mkdtemp(prefix);
   await fs.chmod(directory, 0o700);
   const snapshot = path.join(directory, 'database.sqlite');
   const db = new Database(source, { readonly: true, fileMustExist: true });
@@ -27,3 +29,18 @@ async function verifiedSqliteBackup(databasePath) {
   return manifest;
 }
 module.exports = { verifiedSqliteBackup };
+
+if (require.main === module) {
+  const [source, destination] = process.argv.slice(2);
+  if (!source || !destination || process.argv.length !== 4) {
+    process.stderr.write('Usage: node verified-sqlite-backup.cjs DATABASE EXISTING_DESTINATION\n');
+    process.exitCode = 1;
+  } else {
+    verifiedSqliteBackup(source, destination)
+      .then(manifest => process.stdout.write(JSON.stringify(manifest) + '\n'))
+      .catch(() => {
+        process.stderr.write('Verified SQLite backup failed; deployment must not proceed.\n');
+        process.exitCode = 1;
+      });
+  }
+}

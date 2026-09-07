@@ -2,13 +2,11 @@
 # 用法:
 #   scripts\backup.ps1                            备份到 backups\YYYYMMDD-HHMMSS\
 #   scripts\backup.ps1 -Dest 'E:\sc-backups'      指定根目录
-#   scripts\backup.ps1 -Keep 30                   只保留最近 30 份
+#   历史快照不自动删除；本脚本不包含媒体文件，不是完整发布回滚快照。
 [CmdletBinding()]
 param(
   [string]$Dest = '',
-  # Default 7 (was 14): each snapshot is a full SQLite copy (~39MB). 7 = one-week
-  # rollback window, enough to catch "config got changed by mistake" and revert;
-  # anything older is never used and just eats disk.
+  # Compatibility only. Retention now requires a separate explicit operation.
   [int]$Keep = 7
 )
 
@@ -32,22 +30,22 @@ Write-Host "================================================" -ForegroundColor C
 Write-Host " 备份 → $snap" -ForegroundColor Cyan
 Write-Host "================================================" -ForegroundColor Cyan
 
-# 数据库 (SQLite 用 .backup 安全拷贝, 否则直接 Copy-Item)
+# 数据库：在线备份包含 WAL，校验失败必须中止，不允许退回文件复制。
 $dbPath = if ($env:DB_PATH) { $env:DB_PATH } else { Join-Path $projectRoot 'database\smart-control.db' }
 if (Test-Path $dbPath) {
-  $dbDest = Join-Path $snap 'smart-control.db'
-  $sqlite = Get-Command sqlite3 -ErrorAction SilentlyContinue
-  if ($sqlite) {
-    Write-Host "[1/3] 使用 sqlite3 .backup 在线安全拷贝..." -ForegroundColor Yellow
-    & sqlite3 $dbPath ".backup '$dbDest'"
-  } else {
-    Write-Host "[1/3] 文件复制 (sqlite3 未安装)..." -ForegroundColor Yellow
-    Copy-Item -Path $dbPath -Destination $dbDest -Force
+  $backupTool = Join-Path $projectRoot 'backend\scripts\verified-sqlite-backup.cjs'
+  Write-Host "[1/3] SQLite 在线备份及完整性校验..." -ForegroundColor Yellow
+  $backupJson = & node $backupTool $dbPath $snap
+  if ($LASTEXITCODE -ne 0) { throw 'Verified database backup failed; deployment must stop.' }
+  $manifest = $backupJson | ConvertFrom-Json
+  if ($manifest.integrity -ne 'ok' -or -not (Test-Path $manifest.snapshot)) {
+    throw 'Verified database backup returned invalid evidence.'
   }
+  $dbDest = $manifest.snapshot
   $size = [math]::Round((Get-Item $dbDest).Length / 1KB, 1)
   Write-Host "      saved: $dbDest ($size KB)" -ForegroundColor Green
 } else {
-  Write-Host "[1/3] 数据库不存在, 跳过: $dbPath" -ForegroundColor DarkYellow
+  throw "数据库不存在，不能建立发布备份: $dbPath"
 }
 
 # .env (敏感, 但备份保留 → 备份目录权限自管)
@@ -72,12 +70,8 @@ try {
   Write-Host "[3/3] UAT 导出跳过 (服务未运行或接口不可达)" -ForegroundColor DarkYellow
 }
 
-# 清理过期备份
-$old = Get-ChildItem -Path $Dest -Directory | Sort-Object Name -Descending | Select-Object -Skip $Keep
-foreach ($d in $old) {
-  Remove-Item -Path $d.FullName -Recurse -Force
-  Write-Host "  清理过期: $($d.Name)" -ForegroundColor DarkGray
-}
+# 不自动清理：保留迁移前后恢复证据，Keep 参数仅兼容旧调用。
+Write-Host '历史备份均保留；此快照未包含媒体文件，不能单独作为完整回滚依据。' -ForegroundColor Yellow
 
 Write-Host "`n=== 备份完成 ===" -ForegroundColor Cyan
 Get-ChildItem -Path $Dest -Directory | Sort-Object Name -Descending | Select-Object -First 5 |

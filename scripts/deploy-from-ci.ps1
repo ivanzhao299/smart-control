@@ -328,10 +328,10 @@ try {
       $backupScript = Join-Path $projectRoot 'scripts\backup.ps1'
       if (Test-Path $backupScript) {
         Write-DeployLog 'Creating the existing production backup before build.'
-        # Keep 7 (was 14): each snapshot is a full SQLite copy (~39MB), so 14 was ~550MB.
-        # 7 gives a one-week rollback window - enough to catch "config got changed by
-        # mistake" and revert; nobody ever reaches for anything older.
-        & $backupScript -Keep 7 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
+        # Snapshot evidence is retained; database-only backup is not a media rollback bundle.
+        & $backupScript 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
+      } else {
+        throw 'Required production backup script is missing.'
       }
 
       Push-Location (Join-Path $projectRoot 'backend')
