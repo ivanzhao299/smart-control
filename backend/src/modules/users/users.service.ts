@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -14,6 +15,7 @@ import { CreateUserDto, QueryUserDto, UpdateUserDto } from './dto/user.dto';
 import { OperationLogService } from '../logs/operation-log.service';
 import { PagedResult } from '../devices/devices.service';
 import { serializedTransaction } from '../../common/utils/serialized-transaction';
+import { Actor } from '../../common/auth/actor';
 
 export type PublicUser = Omit<User, 'password'>;
 
@@ -59,8 +61,18 @@ export class UsersService {
     return publicUser;
   }
 
-  async create(dto: CreateUserDto, operator: string): Promise<PublicUser> {
-    return serializedTransaction(this.repo.manager.connection, () => this.createInTransaction(dto, operator));
+  private async currentAdministrator(actor: Actor): Promise<string> {
+    if (actor.role !== 'admin') throw new ForbiddenException('仅管理员可管理用户');
+    if (actor.kind === 'admin' && actor.userId === null) return actor.username;
+    if (actor.kind === 'user' && actor.userId !== null) {
+      const current = await this.repo.findOneBy({ id: actor.userId, enabled: true, role: 'admin' });
+      if (current) return current.username;
+    }
+    throw new ForbiddenException('管理员权限已失效');
+  }
+
+  async create(dto: CreateUserDto, actor: Actor): Promise<PublicUser> {
+    return serializedTransaction(this.repo.manager.connection, async () => this.createInTransaction(dto, await this.currentAdministrator(actor)));
   }
 
   private async createInTransaction(dto: CreateUserDto, operator: string): Promise<PublicUser> {
@@ -89,8 +101,8 @@ export class UsersService {
     return publicUser as PublicUser;
   }
 
-  async update(id: number, dto: UpdateUserDto, operator: string): Promise<PublicUser> {
-    return serializedTransaction(this.repo.manager.connection, () => this.updateInTransaction(id, dto, operator));
+  async update(id: number, dto: UpdateUserDto, actor: Actor): Promise<PublicUser> {
+    return serializedTransaction(this.repo.manager.connection, async () => this.updateInTransaction(id, dto, await this.currentAdministrator(actor)));
   }
 
   private async updateInTransaction(id: number, dto: UpdateUserDto, operator: string): Promise<PublicUser> {
@@ -124,8 +136,8 @@ export class UsersService {
     return current;
   }
 
-  async remove(id: number, operator: string): Promise<void> {
-    return serializedTransaction(this.repo.manager.connection, () => this.removeInTransaction(id, operator));
+  async remove(id: number, actor: Actor): Promise<void> {
+    return serializedTransaction(this.repo.manager.connection, async () => this.removeInTransaction(id, await this.currentAdministrator(actor)));
   }
 
   private async removeInTransaction(id: number, operator: string): Promise<void> {

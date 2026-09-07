@@ -8,7 +8,7 @@ import { serializedTransaction } from '../../common/utils/serialized-transaction
 
 describe('user management attribution and retention', () => {
   let db: DataSource, service: UsersService, controller: UsersController, log: any;
-  const req = { actor: { kind: 'user', userId: 99, username: 'named-manager', role: 'admin' } } as any;
+  const req = { actor: { kind: 'admin', userId: null, username: 'named-manager', role: 'admin' } } as any;
   beforeEach(async () => {
     db = await new DataSource({ type: 'better-sqlite3', database: ':memory:', entities: [User], synchronize: true }).initialize();
     await db.query('CREATE TABLE retained_fixture (id INTEGER PRIMARY KEY, owner_user_id INTEGER REFERENCES users(id) ON DELETE RESTRICT)');
@@ -22,6 +22,38 @@ describe('user management attribution and retention', () => {
   async function create() {
     return (await controller.create({ username: 'alice', password: 'synthetic-password', role: 'operator' }, req)).data;
   }
+  it.each(['create', 'update', 'remove'].flatMap(action => ['disabled', 'demoted', 'deleted'].map(change => [action, change])))('rejects queued %s after administrator is %s', async (action, change) => {
+    const target = await create();
+    const repo = db.getRepository(User);
+    await repo.save([{ id: 99, username: 'manager', password: 'fixture', role: 'admin' }, { id: 100, username: 'spare', password: 'fixture', role: 'admin' }]);
+    const actor = { kind: 'user', userId: 99, username: 'manager', role: 'admin' } as const;
+    let entered!: () => void, finish!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const held = new Promise<void>(resolve => { finish = resolve; });
+    const revoke = serializedTransaction(db, async manager => {
+      entered(); await held;
+      if (change === 'deleted') await manager.delete(User, 99);
+      else await manager.update(User, 99, change === 'disabled' ? { enabled: false } : { role: 'viewer' });
+    });
+    await ready; log.record.mockClear();
+    const mutation = action === 'create' ? service.create({ username: 'forbidden', password: 'synthetic-password', role: 'operator' }, actor)
+      : action === 'update' ? service.update(target.id, { enabled: false }, actor) : service.remove(target.id, actor);
+    finish();
+    const results = await Promise.allSettled([revoke, mutation]);
+    expect(results[0].status).toBe('fulfilled');
+    expect(results[1]).toMatchObject({ status: 'rejected', reason: expect.objectContaining({ message: '管理员权限已失效' }) });
+    expect((await service.findOne(target.id)).enabled).toBe(true);
+    expect(await repo.countBy({ username: 'forbidden' })).toBe(0);
+    expect(log.record).not.toHaveBeenCalled();
+  });
+  it('records the current name of a real enabled named administrator', async () => {
+    await db.getRepository(User).save({ id: 99, username: 'renamed-manager', password: 'fixture', role: 'admin' });
+    const actor = { kind: 'user', userId: 99, username: 'old-manager', role: 'admin' } as const;
+    const user = await service.create({ username: 'alice', password: 'synthetic-password', role: 'operator' }, actor);
+    await service.update(user.id, { enabled: false }, actor);
+    await service.remove(user.id, actor);
+    expect(log.record.mock.calls.map(([entry]: any[]) => entry.operator)).toEqual(['renamed-manager', 'renamed-manager', 'renamed-manager']);
+  });
   it.each(['create', 'update', 'remove'])('keeps %s outside an unrelated transaction that rolls back', async action => {
     const user = await create();
     let entered!: () => void, finish!: () => void;
@@ -32,8 +64,8 @@ describe('user management attribution and retention', () => {
       entered(); await held; throw new Error('unrelated rollback');
     });
     await ready;
-    const mutation = action === 'create' ? service.create({ username: 'bob', password: 'test-password', role: 'operator' }, 'admin')
-      : action === 'update' ? service.update(user.id, { enabled: false }, 'admin') : service.remove(user.id, 'admin');
+    const mutation = action === 'create' ? service.create({ username: 'bob', password: 'test-password', role: 'operator' }, req.actor)
+      : action === 'update' ? service.update(user.id, { enabled: false }, req.actor) : service.remove(user.id, req.actor);
     finish();
     const results = await Promise.allSettled([rollback, mutation]);
     expect(results.map(result => result.status)).toEqual(['rejected', 'fulfilled']);
@@ -48,8 +80,8 @@ describe('user management attribution and retention', () => {
       await db.query('INSERT INTO retained_fixture VALUES (92, NULL)');
       throw new Error('audit unavailable');
     });
-    const mutation = action === 'create' ? service.create({ username: 'bob', password: 'test-password', role: 'operator' }, 'admin')
-      : action === 'update' ? service.update(user.id, { enabled: false }, 'admin') : service.remove(user.id, 'admin');
+    const mutation = action === 'create' ? service.create({ username: 'bob', password: 'test-password', role: 'operator' }, req.actor)
+      : action === 'update' ? service.update(user.id, { enabled: false }, req.actor) : service.remove(user.id, req.actor);
     await expect(mutation).rejects.toThrow('audit unavailable');
     expect(await db.getRepository(User).count()).toBe(1);
     expect((await service.findOne(user.id)).enabled).toBe(true);
@@ -78,7 +110,7 @@ describe('user management attribution and retention', () => {
     await controller.remove(first.id, req);
     expect(await db.getRepository(User).countBy({ enabled: true, role: 'admin' })).toBe(1);
   });
-  it('attributes create, password change and delete to the verified named administrator', async () => {
+  it('attributes create, password change and delete to the verified administrator', async () => {
     const user = await create();
     expect(user).not.toHaveProperty('password');
     const result = await controller.update(user.id, { password: 'new-synthetic-password' }, req);
@@ -111,7 +143,7 @@ describe('user management attribution and retention', () => {
     const user = await create();
     const repo = db.getRepository(User);
     jest.spyOn(repo, 'createQueryBuilder').mockImplementationOnce(() => { throw new Error('disk unavailable'); });
-    await expect(service.remove(user.id, 'named-manager')).rejects.toThrow('disk unavailable');
+    await expect(service.remove(user.id, req.actor)).rejects.toThrow('disk unavailable');
   });
   it('does not recreate a user deleted before a queued update', async () => {
     const user = await create();
@@ -122,7 +154,7 @@ describe('user management attribution and retention', () => {
       entered(); await held; await manager.delete(User, user.id);
     });
     await ready;
-    const updating = service.update(user.id, { enabled: false }, 'named-manager');
+    const updating = service.update(user.id, { enabled: false }, req.actor);
     finish();
     const results = await Promise.allSettled([deleting, updating]);
     expect(results[0].status).toBe('fulfilled');
@@ -138,7 +170,7 @@ describe('user management attribution and retention', () => {
       expect(Object.keys(changes)).toEqual(['password']);
       return update(id, changes);
     });
-    const result = await service.update(user.id, { password: 'new-synthetic-password' }, 'named-manager');
+    const result = await service.update(user.id, { password: 'new-synthetic-password' }, req.actor);
     expect(result).toMatchObject({ enabled: false, role: 'viewer', storageQuotaBytes: 123 });
     expect(result).not.toHaveProperty('password');
   });

@@ -36,20 +36,20 @@ export class UsersController {
 
   @Post()
   async create(@Body() dto: CreateUserDto, @Req() req: AuthenticatedRequest) {
-    const data = await this.service.create(dto, requireAdmin(req).username);
+    const data = await this.service.create(dto, requireAdmin(req));
     return { message: '创建成功', data };
   }
 
   @Put(':id')
   async update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateUserDto, @Req() req: AuthenticatedRequest) {
-    const data = await this.service.update(id, dto, requireAdmin(req).username);
+    const data = await this.service.update(id, dto, requireAdmin(req));
     return { message: '更新成功', data };
   }
 
   @Delete(':id')
   @HttpCode(200)
   async remove(@Param('id', ParseIntPipe) id: number, @Req() req: AuthenticatedRequest) {
-    await this.service.remove(id, requireAdmin(req).username);
+    await this.service.remove(id, requireAdmin(req));
     return { message: '删除成功', data: null };
   }
 }
