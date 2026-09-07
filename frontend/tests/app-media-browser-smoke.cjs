@@ -98,13 +98,25 @@ async function api(route, method, body, token, admin = false) {
     const origin = `http://127.0.0.1:${server.address().port}`;
     for (const role of ['operator', 'otherOperator', 'viewer', 'admin']) {
       const context = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+      await context.addInitScript(() => {
+        const schedule = window.setTimeout.bind(window);
+        window.setTimeout = (handler, delay, ...args) => schedule(handler, delay === 50 ? 1000 : delay, ...args);
+      });
       await context.route('**/*', route => route.request().url().startsWith(origin + '/') ? route.continue() : route.abort());
       const page = await context.newPage();
       await page.goto(origin + '/client-login?redirect=/media');
       await page.getByPlaceholder('用户名（旧版访问密码可留空）').fill(accounts[role].username);
       await page.getByPlaceholder('密码', { exact: true }).fill(accounts[role].password);
       await page.getByPlaceholder('服务器地址 (e.g. http://192.168.124.11:3200)').fill(origin);
+      await page.waitForTimeout(1100);
+      assert.ok(await page.getByPlaceholder('服务器地址 (e.g. http://192.168.124.11:3200)').evaluate(input => document.activeElement === input), `${role}: delayed autofocus must not steal server-field focus`);
+      const loginResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/client-auth/login' && response.request().method() === 'POST');
       await page.locator('button[type="submit"]').click();
+      const response = await loginResponse;
+      const submitted = response.request().postDataJSON();
+      assert.ok(submitted.username === accounts[role].username, `${role}: login form must submit the entered username`);
+      assert.ok(submitted.password === accounts[role].password, `${role}: login form must submit the entered password (server address substituted: ${submitted.password === origin})`);
+      assert.equal(response.status(), 200, `${role}: browser login must succeed before checking media`);
       await page.getByText(sharedName, { exact: true }).first().waitFor();
       if (role === 'operator' || role === 'admin') {
         await page.getByText(privateName, { exact: true }).first().waitFor();

@@ -27,6 +27,21 @@ describe('file ingestion compensation', () => {
     Object.defineProperty(media, 'mediaRoot', { value: root });
   });
   afterEach(async () => { jest.restoreAllMocks(); await db.destroy(); await fs.rm(root, { recursive: true, force: true }); });
+  it('does not commit document metadata when the final transaction authorization rejects', async () => {
+    const repo = db.getRepository(MediaAsset);
+    const item = await repo.save({ originalName: 'a.docx', safeName: 'a.docx', path: '/fixture/a.docx', kind: 'doc', mimeType: 'application/msword', sizeBytes: 8, ownerUserId: 1, visibility: 'private', pageCount: 2 });
+    const authorize = jest.fn(async (manager, current) => {
+      expect(manager.queryRunner.isTransactionActive).toBe(true);
+      expect(current.id).toBe(item.id);
+      throw new Error('session changed');
+    });
+    await expect(media.setDocMeta(item.id, { pageCount: 9 }, authorize)).rejects.toThrow('session changed');
+    expect(authorize).toHaveBeenCalledTimes(1);
+    await expect(media.setDocMeta(item.id, { pageCount: 9 }, { ...actor, role: 'admin' })).rejects.toThrow('管理员权限已失效');
+    expect((await repo.findOneByOrFail({ id: item.id })).pageCount).toBe(2);
+    await db.getRepository(User).update(1, { role: 'admin' });
+    expect((await media.setDocMeta(item.id, { pageCount: 9 }, { ...actor, role: 'admin' })).pageCount).toBe(9);
+  });
   it('validates a document PDF and accounts original plus derivative without replacing metadata', async () => {
     const original = join(root, 'document.docx'), pdf = join(root, 'document.pdf');
     await fs.writeFile(original, 'original'); await fs.writeFile(pdf, '%PDF-synthetic');

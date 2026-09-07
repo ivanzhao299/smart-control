@@ -13,6 +13,26 @@ describe('device playback access grants', () => {
     service = new PlayerDeviceAccessService({ findOneByOrFail: async () => ({ ...row }) } as any, { findOneBy: async () => user } as any, devices, playback, media);
   });
   const ticketOf = (state: any) => new URL(state.currentMediaUrl, 'http://localhost').searchParams.get('ticket')!;
+  it.each(['session', 'device', 'account', 'role', 'ownership', 'allowed'])('rechecks %s inside the document metadata write transaction', async change => {
+    media.mediaRoot = __dirname;
+    media.absPathOf = () => join(__dirname, 'player-device-access.spec.ts');
+    const item = { id: 7, kind: 'doc', ownerUserId: 2, visibility: 'private' };
+    media.authorized.mockResolvedValue(item);
+    media.setDocMeta = jest.fn(async (_id, _meta, authorize) => {
+      if (change === 'session') row.playbackSession = 'new-session';
+      if (change === 'device') devices.authenticate.mockImplementation(() => { throw new Error('revoked'); });
+      if (change === 'account') user.enabled = false;
+      if (change === 'role') user.role = 'viewer';
+      if (change === 'ownership') item.ownerUserId = 99;
+      const manager = { findOneByOrFail: async () => row, findOneBy: async () => user.enabled ? user : null };
+      await authorize(manager, item);
+      return { id: 7, pageCount: 5 };
+    });
+    const result = service.docMeta(3, 'device-secret', 'session-1', 5);
+    if (change === 'allowed') await expect(result).resolves.toEqual({ id: 7, pageCount: 5 });
+    else await expect(result).rejects.toThrow();
+    expect(media.setDocMeta).toHaveBeenCalledTimes(1);
+  });
   it.each(['session', 'device', 'account', 'ownership', 'expiry'])('closes the opened stream when %s changes during opening', async (change) => {
     const ticket = ticketOf(await service.state(3, 'device-secret'));
     const stream = new PassThrough();
@@ -101,7 +121,7 @@ describe('device playback access grants', () => {
     await expect(service.docMeta(3, 'device-secret', 'session-1', 5, true)).rejects.toThrow('仅Word');
     expect(media.setDocMeta).not.toHaveBeenCalled();
     await service.docMeta(3, 'device-secret', 'session-1', 5);
-    expect(media.setDocMeta).toHaveBeenCalledWith(7, { pageCount: 5, pdfRelPath: undefined });
+    expect(media.setDocMeta).toHaveBeenCalledWith(7, { pageCount: 5, pdfRelPath: undefined }, expect.any(Function));
     media.absPathOf.mockReturnValue(join(__dirname, '../../entities/user.entity.ts'));
     await expect(service.docInfo(3, 'device-secret', 'session-1')).rejects.toThrow('文档路径无效');
   });

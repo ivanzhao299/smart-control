@@ -7,7 +7,7 @@ import { randomBytes } from 'crypto';
 import { PlaybackChannel } from '../../entities/playback-channel.entity';
 import { User } from '../../entities/user.entity';
 import { Actor } from '../../common/auth/actor';
-import { assertCanUpload } from '../../common/auth/resource-policy';
+import { assertCanUpload, assertReadResource } from '../../common/auth/resource-policy';
 import { PlaybackService } from './playback.service';
 import { MediaService } from '../media/media.service';
 import { PlayerDeviceAuthService } from './player-device-auth.service';
@@ -136,7 +136,19 @@ export class PlayerDeviceAccessService {
       } finally { await handle.close(); }
     }
     await this.document(slot, token, session);
-    const updated = await this.media.setDocMeta(media.id, { pageCount, pdfRelPath });
+    const updated = await this.media.setDocMeta(media.id, { pageCount, pdfRelPath }, async (manager, currentMedia) => {
+      this.devices.authenticate(token, slot);
+      const channel = await manager.findOneByOrFail(PlaybackChannel, { slot });
+      if (this.session(channel) !== session || channel.currentMediaId !== media.id) throw new ConflictException('播放会话已变化');
+      let actor: Actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };
+      if (channel.initiatorUserId !== null) {
+        const user = await manager.findOneBy(User, { id: channel.initiatorUserId, enabled: true });
+        if (!user) throw new UnauthorizedException('播放发起账户已停用');
+        actor = { kind: 'user', userId: user.id, username: user.username, role: user.role };
+      }
+      assertCanUpload(actor);
+      assertReadResource(actor, currentMedia);
+    });
     return { id: updated.id, pageCount: updated.pageCount };
   }
 }

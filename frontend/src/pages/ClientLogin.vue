@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, nextTick } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { Lock, UserRound, Globe, Wifi, CheckCircle2, XCircle, Trash2, History, Loader, ScanFace } from 'lucide-vue-next';
 import { readSavedUsername, useClientAuthStore } from '@/stores/client-auth';
@@ -22,6 +22,13 @@ const username = ref(readSavedUsername());
 const password = ref('');
 const passwordInput = ref<HTMLInputElement | null>(null);
 const submitting = ref(false);
+
+function focusPasswordIfIdle(): void {
+  void nextTick(() => {
+    // Do not steal focus from a username/server field the user has started editing.
+    if (document.activeElement === document.body) passwordInput.value?.focus();
+  });
+}
 
 interface TestResult {
   state: 'idle' | 'testing' | 'ok' | 'fail';
@@ -80,7 +87,7 @@ onMounted(async () => {
     redirectToTarget();
     return;
   }
-  setTimeout(() => passwordInput.value?.focus(), 50);
+  focusPasswordIfIdle();
 });
 
 /** baseURL 带 /api 后缀, 显示/存历史用裸 origin */
@@ -146,7 +153,7 @@ async function doLogin(fromBiometric = false): Promise<void> {
       toast.error((e as Error).message || '登录失败');
     }
     password.value = '';
-    setTimeout(() => passwordInput.value?.focus(), 50);
+    focusPasswordIfIdle();
   } finally {
     submitting.value = false;
   }

@@ -259,9 +259,10 @@ export class MediaController {
   @HttpCode(200)
   async docMeta(
     @Param('id', ParseIntPipe) id: number,
+    @Req() req: AuthenticatedRequest,
     @Body() body: { pageCount?: number; pdfRelPath?: string } = {},
   ) {
-    const a = await this.media.setDocMeta(id, body);
+    const a = await this.media.setDocMeta(id, body, requireActor(req));
     return { message: 'ok', data: { id: a.id, pageCount: a.pageCount, docPdfPath: a.docPdfPath } };
   }
 

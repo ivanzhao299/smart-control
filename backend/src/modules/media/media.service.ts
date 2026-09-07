@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Logger } from 'winston';
-import { IsNull, Repository } from 'typeorm';
+import { EntityManager, IsNull, Repository } from 'typeorm';
 import { serializedTransaction } from '../../common/utils/serialized-transaction';
 import { boundedCommandFile } from '../../common/utils/bounded-command-file';
 import { MediaQuotaService } from './media-quota.service';
@@ -319,7 +319,7 @@ export class MediaService implements OnModuleInit {
   }
 
   /** 放映守护回写文档元数据 (页数 / Word 转出的 PDF 相对路径) */
-  async setDocMeta(id: number, meta: { pageCount?: number; pdfRelPath?: string }): Promise<MediaAsset> {
+  async setDocMeta(id: number, meta: { pageCount?: number; pdfRelPath?: string }, authorization?: Actor | ((manager: EntityManager, row: MediaAsset) => Promise<void>)): Promise<MediaAsset> {
     if (meta.pageCount !== undefined && (!Number.isInteger(meta.pageCount) || meta.pageCount < 1 || meta.pageCount > 100_000)) throw new BadRequestException('无效文档页数');
     if (meta.pdfRelPath !== undefined && (typeof meta.pdfRelPath !== 'string' || !meta.pdfRelPath || isAbsolute(meta.pdfRelPath))) throw new BadRequestException('无效PDF相对路径');
     return serializedTransaction(this.repo.manager.connection, async manager => {
@@ -357,6 +357,14 @@ export class MediaService implements OnModuleInit {
         }
         fields.docPdfPath = relative(root, requested).split(sep).join('/');
         fields.sizeBytes = bytes;
+      }
+      // Recheck after filesystem awaits, using this transaction rather than nesting another one.
+      if (typeof authorization === 'function') await authorization(manager, row);
+      else if (authorization) {
+        if (authorization.kind === 'user') {
+          const current = await manager.findOneBy(User, { id: authorization.userId!, enabled: true, role: 'admin' });
+          if (!current) throw new ForbiddenException('管理员权限已失效');
+        } else if (authorization.kind !== 'admin' || authorization.role !== 'admin') throw new ForbiddenException('需要管理员权限');
       }
       if (Object.keys(fields).length) await manager.update(MediaAsset, id, fields);
       return manager.findOneByOrFail(MediaAsset, { id });
