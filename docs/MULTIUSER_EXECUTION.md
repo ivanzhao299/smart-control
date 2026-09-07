@@ -10,6 +10,12 @@
 
 ## 工作队列
 
+### 文档预算完成提交与预留释放原子化（2026-09-07）
+
+setDocMeta新增内部reservationId参数：processing文档回写PDF必须带预留，须匹配资料ID、当前owner和非上传临时预留；验证PDF本身及总占用增长均不超过预算，历史已计大小也须合法。现有文件/path/header/授权检查通过后，同一事务局部提交sizeBytes/docPdfPath/pageCount/ready并删除关联预留。释放失败会回滚元数据，超额/错编号/授权失效保留文件与预留供恢复，不以删除未核实文件掩盖问题。
+
+新增五种真实Word/PDF文件、SQLite及真实reserveDocumentConversion测试；后端构建和文档/设备两组68项通过。尚未向设备HTTP端暴露reservationId或让Word脚本调用，此为完成阶段内部基础；现有ready文档旧回写行为仍在，不能宣称旧COM流程已受预算限制。实际生成中的硬容量限制、失败恢复和设备接线及生产验收继续待办，未推送部署。
+
 ### 文档转换前原子容量预留基础（2026-09-07）
 
 MediaQuotaService新增reserveDocumentConversion，共用视频衍生预留计算但仅接受当前归属一致、ready、无docPdfPath的doc/docx。事务内计算全局剩余盘空间及所有者可用额度，持久关联目标资料并标记processing；重复请求只允许一次成功，拒绝或状态更新失败则整个事务回滚。已有视频reserveConversion行为保持。新增成功并发、额度/磁盘/归属/停用/已有PDF/非Word拒绝及状态写失败回滚测试。

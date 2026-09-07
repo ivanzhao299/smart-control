@@ -315,12 +315,14 @@ export class MediaService implements OnModuleInit {
   }
 
   /** 放映守护回写文档元数据 (页数 / Word 转出的 PDF 相对路径) */
-  async setDocMeta(id: number, meta: { pageCount?: number; pdfRelPath?: string }, authorization?: Actor | ((manager: EntityManager, row: MediaAsset) => Promise<void>)): Promise<MediaAsset> {
+  async setDocMeta(id: number, meta: { pageCount?: number; pdfRelPath?: string }, authorization?: Actor | ((manager: EntityManager, row: MediaAsset) => Promise<void>), reservationId?: string): Promise<MediaAsset> {
     if (meta.pageCount !== undefined && (!Number.isInteger(meta.pageCount) || meta.pageCount < 1 || meta.pageCount > 100_000)) throw new BadRequestException('无效文档页数');
     if (meta.pdfRelPath !== undefined && (typeof meta.pdfRelPath !== 'string' || !meta.pdfRelPath || isAbsolute(meta.pdfRelPath))) throw new BadRequestException('无效PDF相对路径');
     return serializedTransaction(this.repo.manager.connection, async manager => {
       const row = await manager.findOneByOrFail(MediaAsset, { id });
       if (row.kind !== 'doc') throw new BadRequestException('资料不是文档');
+      if (reservationId !== undefined && (!reservationId || !meta.pdfRelPath || row.processingStatus !== 'processing')) throw new BadRequestException('文档转换预留或状态无效');
+      if (meta.pdfRelPath && row.processingStatus === 'processing' && !reservationId) throw new ForbiddenException('文档转换必须提交对应预留');
       const fields: Partial<MediaAsset> = {};
       if (meta.pageCount !== undefined) fields.pageCount = meta.pageCount;
       if (meta.pdfRelPath !== undefined) {
@@ -353,6 +355,15 @@ export class MediaService implements OnModuleInit {
         }
         fields.docPdfPath = relative(root, requested).split(sep).join('/');
         fields.sizeBytes = bytes;
+        if (reservationId) {
+          const [reservation] = await manager.query('SELECT bytes FROM upload_reservations WHERE id = ? AND target_media_id = ? AND owner_user_id IS ? AND temp_name IS NULL', [reservationId, id, row.ownerUserId]);
+          const budget = Number(reservation?.bytes);
+          const outputBytes = (await fs.stat(requested)).size;
+          const previousBytes = Number(row.sizeBytes);
+          if (!reservation || !Number.isSafeInteger(budget) || budget < 1 || !Number.isSafeInteger(previousBytes) || previousBytes < 0 || outputBytes > budget || bytes - previousBytes > budget) throw new ForbiddenException('PDF超出转换预算或预留已失效');
+          fields.processingStatus = 'ready';
+          fields.processingError = null;
+        }
       }
       // Recheck after filesystem awaits, using this transaction rather than nesting another one.
       if (typeof authorization === 'function') await authorization(manager, row);
@@ -363,6 +374,7 @@ export class MediaService implements OnModuleInit {
         } else if (authorization.kind !== 'admin' || authorization.role !== 'admin') throw new ForbiddenException('需要管理员权限');
       }
       if (Object.keys(fields).length) await manager.update(MediaAsset, id, fields);
+      if (reservationId) await manager.query('DELETE FROM upload_reservations WHERE id = ? AND target_media_id = ? AND owner_user_id IS ? AND temp_name IS NULL', [reservationId, id, row.ownerUserId]);
       return manager.findOneByOrFail(MediaAsset, { id });
     });
   }

@@ -27,6 +27,30 @@ describe('file ingestion compensation', () => {
     Object.defineProperty(media, 'mediaRoot', { value: root });
   });
   afterEach(async () => { jest.restoreAllMocks(); await db.destroy(); await fs.rm(root, { recursive: true, force: true }); });
+  it.each(['success', 'oversize', 'wrong-reservation', 'authorization', 'release-failure'])('commits document accounting and reservation release atomically: %s', async scenario => {
+    await conversionSchema();
+    const original = join(root, 'brief.docx'), pdf = join(root, 'brief.pdf');
+    await fs.writeFile(original, 'original');
+    const item = await db.getRepository(MediaAsset).save({ originalName: 'brief.docx', safeName: 'brief.docx', path: original, kind: 'doc', mimeType: 'application/msword', sizeBytes: 8, ownerUserId: 1, visibility: 'private', processingStatus: 'ready' });
+    const quota = new MediaQuotaService(db);
+    jest.spyOn(quota as any, 'availableDiskBytes').mockResolvedValue(10000);
+    const reservation = await quota.reserveDocumentConversion(item.id, 1, 20, root);
+    const output = scenario === 'oversize' ? '%PDF-' + 'x'.repeat(30) : '%PDF-test';
+    await fs.writeFile(pdf, output);
+    if (scenario === 'release-failure') await db.query("CREATE TRIGGER reject_release BEFORE DELETE ON upload_reservations BEGIN SELECT RAISE(ABORT, 'release failed'); END");
+    const authorize = async () => { if (scenario === 'authorization') throw new Error('revoked'); };
+    await expect(media.setDocMeta(item.id, { pdfRelPath: 'brief.pdf' }, authorize)).rejects.toThrow('对应预留');
+    const result = media.setDocMeta(item.id, { pdfRelPath: 'brief.pdf', pageCount: 3 }, authorize, scenario === 'wrong-reservation' ? 'wrong' : reservation.id!);
+    if (scenario === 'success') {
+      expect(await result).toMatchObject({ sizeBytes: 8 + Buffer.byteLength(output), docPdfPath: 'brief.pdf', processingStatus: 'ready', pageCount: 3 });
+      expect(await db.query('SELECT id FROM upload_reservations')).toEqual([]);
+    } else {
+      await expect(result).rejects.toThrow();
+      expect(await db.getRepository(MediaAsset).findOneByOrFail({ id: item.id })).toMatchObject({ sizeBytes: 8, docPdfPath: null, processingStatus: 'processing' });
+      expect(await db.query('SELECT id FROM upload_reservations')).toEqual([{ id: reservation.id }]);
+      expect(await fs.readFile(pdf, 'utf8')).toBe(output);
+    }
+  });
   it('does not commit document metadata when the final transaction authorization rejects', async () => {
     const repo = db.getRepository(MediaAsset);
     const item = await repo.save({ originalName: 'a.docx', safeName: 'a.docx', path: '/fixture/a.docx', kind: 'doc', mimeType: 'application/msword', sizeBytes: 8, ownerUserId: 1, visibility: 'private', pageCount: 2 });
