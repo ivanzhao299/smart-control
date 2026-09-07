@@ -10,6 +10,20 @@
 
 ## 工作队列
 
+### 现场启动器核验与停写入口补齐（2026-09-08）
+
+双跳只读核验任务类型：AutoUpdate和PlayerWatchdog为Interactive时间触发任务；DailyBackup为S4U每日任务；SmartControlBackend为S4U启动、登录及时间触发任务。现场存在Session 0和Session 1的Node进程、Session 1的Edge及PowerShell进程；未读取进程命令行或业务数据，尚不能把全部进程归属为本应用。不能把历史Session 2硬编码为当前物理会话。
+
+发现start-players和bgm-player未接入已有RELEASE_HOLD入口保护，补齐两处启动前检查；start-players明确-Stop仍允许停止，普通启动必须先检查，避免保护期间先杀播放器再错误启动。新增两项源结构回归测试通过；在GK9000 PowerShell解析器中只解析新增启动保护片段，两项无语法错误，未执行播放器或写生产文件。整份脚本经标准输入传输的解析尝试因编码/传输失败，不能计为全文件验证。仍需完整Windows行为测试及持续停写控制，不宣称仅加标记已完成生产隔离。
+
+### 核心交付收敛及生产连接更正（2026-09-07）
+
+以docs/MULTIUSER_RELEASE_CHECKLIST.md为当前收敛清单，停止新增配额、转码增强及通用恢复平台。此前以默认SSH认证失败认定生产连接受阻不准确：复用历史指定跳板身份及跳板保存的GK9000专用身份，已实际登录并返回GK9000；代码目录HEAD为8d4ce521de50c6d2250027990760dd3933e38a00。前后端在线不等于新功能部署或运行SHA证明。
+
+只读核验计划任务：AutoUpdate、DailyBackup、PlayerWatchdog、SmartControlBackend处于Ready，SmartControlFrontend处于Disabled。还需核验触发器和实际进程，才能接通持续停写和启动流程。不得直接在SSH Session 0运行start-players.ps1。设备凭据配置、迁移发布接线和真实设备验收尚未完成；本次没有生产写入。自动接续提示已调整为核心交付，不再重复把连接问题列为阻塞。
+
+文档接线状态更正：当前ppt-player.ps1已经调用doc-prepare并携reservationId回写；下面早期条目的“尚未调用”是历史状态。当前缺口是Windows/COM实测及核心发布接线，不应据旧条目重复开发同一接口。
+
 ### 设备文档预留接口及回写编号接线（2026-09-07）
 
 新增本机设备认证POST doc-prepare：验证当前Word文档路径，拒绝已存在未登记PDF，按MEDIA_DOC_MAX_BYTES（默认512MiB）申请预算；配额事务内回调再次验证设备凭据、播放会话、发起人权限、资料读取权及路径未变化。返回预留ID/预算/源和目标路径；doc-meta可传reservationId进入原子完成提交。预留授权拒绝时无预算消耗或状态变化。

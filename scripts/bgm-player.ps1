@@ -24,6 +24,9 @@
 # Start-AudioSlot, and on boot via the Startup folder).
 # =====================================================================
 $ErrorActionPreference = 'Continue'
+$releaseRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+& (Join-Path $PSScriptRoot 'assert-release-not-held.ps1') -ReleaseProjectRoot $releaseRoot
+if (-not $?) { exit 1 }
 
 Add-Type -MemberDefinition @'
 [DllImport("winmm.dll", CharSet=CharSet.Auto)]

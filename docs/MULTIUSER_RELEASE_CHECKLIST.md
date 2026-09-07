@@ -21,11 +21,13 @@
 
 ## 下一步必须处理的具体事项
 
-1. 恢复当前生产运维连接。已尝试默认SSH到跳板及GK9000，均认证失败；GitHub历史成功记录不能证明当前主机状态。不能拿会自动修复/重启的verify入口冒充只读检查。
+1. 生产运维连接已于2026-09-07实测恢复确认：显式使用历史跳板维护身份登录阿里云，再使用跳板上GK9000专用身份连接user@10.66.66.3，返回hostname=GK9000。D:/smart-control的Git HEAD为8d4ce521de50c6d2250027990760dd3933e38a00；这仅证明磁盘代码，不等于运行进程版本。局域网3200端口client-auth/ping返回有效在线JSON，5173前端返回200。默认SSH失败不能代表此双跳路线失败；不得用会自动修复/重启的verify入口冒充只读检查。
 2. 配置并验证PLAYER_DEVICE_CREDENTIALS、浏览器kiosk凭据及SMART_CONTROL_PLAYER_TOKEN_FILE。start-players.ps1目前并不自动配置它们，漏配会使既有播放器无法使用；这是实际兼容问题，不是可选增强。
 3. 接通一次可执行的停写、配套备份、迁移、启动流程。当前普通run-migrations CLI有待执行迁移时会拒绝；不能声称现有CI可直接完成发布，也不能只删除保护检查来放行。
 4. 用两名普通用户及管理员执行上传、互不可见、本人推送、管理员管理、账户切换验收，确认LED/投影/BGM仍工作，再完成版本证明。
 
 ## 暂存改动
+
+2026-09-07双跳只读查询确认计划任务SmartControl-AutoUpdate、SmartControl-DailyBackup、SmartControl-PlayerWatchdog、SmartControlBackend的State=3（Ready），SmartControlFrontend为State=1（Disabled）。Ready不证明进程已停止或正在运行；发布停写控制必须进一步核验这些任务的触发器及实际进程。start-players.ps1明确禁止在SSH会话直接启动播放器，应通过物理控制台交互任务执行，避免将正常屏幕替换为Session 0不可见窗口。本次未执行任何任务、重启、备份或迁移。
 
 ppt-player预留接线代码尚无Windows/COM实测。document-conversion-flow测试原失败是fixture缺少playback_channels.name/outputKind，已补齐并实测三条服务流程通过；这不等于PowerShell或现场验收通过。

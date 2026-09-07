@@ -50,6 +50,11 @@ param(
 )
 
 $ErrorActionPreference = 'Continue'
+if (-not $Stop) {
+  $releaseRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+  & (Join-Path $PSScriptRoot 'assert-release-not-held.ps1') -ReleaseProjectRoot $releaseRoot
+  if (-not $?) { exit 1 }
+}
 
 # Find Chromium / Edge (prefer Chrome, then Edge)
 function Find-Browser {
