@@ -28,6 +28,34 @@ describe('media isolation with SQLite repositories', () => {
     await db.getRepository(MediaAsset).update(shared.id, { visibility: 'shared' });
   });
   afterEach(async () => { if (db?.isInitialized) await db.destroy(); });
+  it.each(['disabled', 'demoted'])('rechecks queued media listing after administrator revocation: %s', async state => {
+    await db.getRepository(User).update(1, { role: 'admin' });
+    let entered!: () => void, finish!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const held = new Promise<void>(resolve => { finish = resolve; });
+    const writer = serializedTransaction(db, async manager => {
+      entered(); await held;
+      await manager.update(User, 1, state === 'disabled' ? { enabled: false } : { role: 'viewer' });
+    });
+    await ready;
+    let settled = false;
+    const staleAdmin = { ...alice, role: 'admin' } as Actor;
+    const reading = media.list({ actor: staleAdmin }).finally(() => { settled = true; });
+    const filtered = media.list({ actor: staleAdmin, ownerUserId: 2 });
+    await new Promise(resolve => setImmediate(resolve));
+    expect(settled).toBe(false);
+    finish();
+    const results = await Promise.allSettled([writer, reading, filtered]);
+    expect(results[0].status).toBe('fulfilled');
+    expect(results[2].status).toBe('rejected');
+    if (state === 'disabled') expect(results[1].status).toBe('rejected');
+    else {
+      expect(results[1].status).toBe('fulfilled');
+      const result = (results[1] as PromiseFulfilledResult<Awaited<ReturnType<MediaService['list']>>>).value;
+      expect(result.total).toBe(2);
+      expect(result.items.map(item => item.originalName).sort()).toEqual(['Alice private', 'Public']);
+    }
+  });
   it.each(['disabled', 'viewer', 'transferred', 'rollback'])('rechecks queued media edits after another writer: %s', async state => {
     const item = await db.getRepository(MediaAsset).findOneByOrFail({ originalName: 'Alice private' });
     let entered!: () => void, finish!: () => void;

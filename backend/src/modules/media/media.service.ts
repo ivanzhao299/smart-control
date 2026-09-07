@@ -716,6 +716,18 @@ export class MediaService implements OnModuleInit {
   }
 
   async list(opts: { kind?: MediaKind; limit?: number; offset?: number; actor?: Actor; scope?: 'visible' | 'mine' | 'shared'; ownerUserId?: number; keyword?: string } = {}): Promise<{ items: MediaListItem[]; total: number }> {
+    return serializedTransaction(this.repo.manager.connection, async manager => {
+      let actor = opts.actor;
+      if (actor && actor.userId !== null) {
+        const current = await manager.findOneBy(User, { id: actor.userId, enabled: true });
+        if (!current) throw new ForbiddenException('账户已停用');
+        actor = { ...actor, role: current.role };
+      }
+      return this.listInTransaction(manager.getRepository(MediaAsset), { ...opts, actor });
+    });
+  }
+
+  private async listInTransaction(repo: Repository<MediaAsset>, opts: NonNullable<Parameters<MediaService['list']>[0]>): Promise<{ items: MediaListItem[]; total: number }> {
     if (opts.keyword !== undefined && (typeof opts.keyword !== 'string' || opts.keyword.length > 200)) throw new BadRequestException('搜索文本过长');
     if (opts.scope && !['visible', 'mine', 'shared'].includes(opts.scope)) throw new BadRequestException('无效资料范围');
     if (opts.ownerUserId !== undefined) {
@@ -725,7 +737,7 @@ export class MediaService implements OnModuleInit {
     for (const [value, min] of [[opts.limit, 1], [opts.offset, 0]] as const) {
       if (value !== undefined && (!Number.isSafeInteger(value) || value < min)) throw new BadRequestException('无效分页参数');
     }
-    const qb = this.repo.createQueryBuilder('m').orderBy('m.createdAt', 'DESC').addOrderBy('m.id', 'DESC');
+    const qb = repo.createQueryBuilder('m').orderBy('m.createdAt', 'DESC').addOrderBy('m.id', 'DESC');
     if (opts.keyword?.trim()) qb.andWhere('instr(lower(m.originalName), lower(:keyword)) > 0', { keyword: opts.keyword.trim() });
     if (opts.actor && opts.actor.role !== 'admin') {
       qb.andWhere('(m.visibility = :shared OR m.ownerUserId = :owner)', {
