@@ -6,6 +6,7 @@ import { AddUploadReservations1788618003000 } from '../../migrations/17886180030
 import { MediaQuotaService } from './media-quota.service';
 import { Actor } from '../../common/auth/actor';
 import { serializedTransaction } from '../../common/utils/serialized-transaction';
+import { BindUploadTemporaryFiles1788618004000 } from '../../migrations/1788618004000-BindUploadTemporaryFiles';
 
 describe('atomic upload capacity reservations', () => {
   let db: DataSource, quota: MediaQuotaService;
@@ -14,10 +15,26 @@ describe('atomic upload capacity reservations', () => {
   beforeEach(async () => {
     db = await new DataSource({ type: 'better-sqlite3', database: ':memory:', entities: [User, MediaAsset], synchronize: true }).initialize();
     await new AddUploadReservations1788618003000().up(db.createQueryRunner());
+    await new BindUploadTemporaryFiles1788618004000().up(db.createQueryRunner());
     await db.getRepository(User).save([{ id: 1, username: 'alice', password: 'test', role: 'operator', storageQuotaBytes: 100 }, { id: 2, username: 'bob', password: 'test', role: 'operator', storageQuotaBytes: 100 }]);
     quota = new MediaQuotaService(db);
   });
   afterEach(async () => { await db.destroy(); });
+  it('binds one exact temporary name to its owner and refuses rebinding or destructive rollback', async () => {
+    const id = await quota.reserve(alice, 10);
+    const name = '01234567-1234-1234-1234-012345678901.upload';
+    await expect(quota.bindTemporary(bob, id, name)).rejects.toThrow();
+    await expect(quota.bindTemporary(alice, id, '../outside.upload')).rejects.toThrow();
+    await quota.bindTemporary(alice, id, name);
+    const [row] = await db.query('SELECT temp_name, instance_id FROM upload_reservations WHERE id = ?', [id]);
+    expect(row.temp_name).toBe(name);
+    expect(row.instance_id).toMatch(/^[0-9a-f-]{36}$/);
+    await expect(quota.bindTemporary(alice, id, name)).rejects.toThrow('已绑定');
+    const migration = new BindUploadTemporaryFiles1788618004000();
+    await expect(migration.down(db.createQueryRunner())).rejects.toThrow('MULTIUSER_ROLLBACK_REQUIRES_ARCHIVE');
+    await quota.release(alice, id);
+    await migration.down(db.createQueryRunner());
+  });
   it('waits for a coordinated transaction instead of exposing its uncommitted quota', async () => {
     let started!: () => void, release!: () => void;
     const ready = new Promise<void>(resolve => { started = resolve; });

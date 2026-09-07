@@ -3,7 +3,7 @@ import { defer, lastValueFrom } from 'rxjs';
 import multer = require('multer');
 import { randomUUID } from 'crypto';
 import { promises as fs, createWriteStream } from 'fs';
-import { join, extname } from 'path';
+import { join } from 'path';
 import { requireActor } from '../../common/auth/actor';
 import { MediaQuotaService } from './media-quota.service';
 import { MediaService } from './media.service';
@@ -27,11 +27,13 @@ export class QuotaUploadInterceptor implements NestInterceptor {
       try {
         const directory = join(this.media.mediaRoot, '_tmp');
         await fs.mkdir(directory, { recursive: true });
+        const filename = randomUUID() + '.upload';
+        // Persist exact ownership before any file handle can be opened.
+        await this.quota.bindTemporary(actor, reservation, filename);
         if (req.aborted || req.destroyed) throw new BadRequestException('上传连接已断开');
         const parser = multer({
           storage: {
             _handleFile: (_req, file, cb) => {
-              const filename = randomUUID() + extname(file.originalname).toLowerCase();
               const target = join(directory, filename);
               path = target;
               const output = createWriteStream(target, { flags: 'wx' });

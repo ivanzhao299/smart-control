@@ -25,7 +25,9 @@ describe('complete migration chain on an isolated database', () => {
     }
     expect(await db.runMigrations()).toEqual([]);
     // Empty new-feature state can return to the pre-multiuser schema without data loss.
-    for (let i = 0; i < 4; i++) await db.undoLastMigration();
+    expect((await runner.getTable('upload_reservations'))?.findColumnByName('temp_name')).toBeDefined();
+    expect((await runner.getTable('upload_reservations'))?.findColumnByName('instance_id')).toBeDefined();
+    for (let i = 0; i < 5; i++) await db.undoLastMigration();
     expect(await runner.hasTable('upload_reservations')).toBe(false);
     expect((await runner.getTable('media_assets'))?.findColumnByName('owner_user_id')).toBeUndefined();
   });

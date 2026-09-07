@@ -4,10 +4,23 @@ import { randomUUID } from 'crypto';
 import { Actor } from '../../common/auth/actor';
 import { assertCanUpload } from '../../common/auth/resource-policy';
 import { serializedTransaction } from '../../common/utils/serialized-transaction';
+const uploadInstance = randomUUID();
 
 @Injectable()
 export class MediaQuotaService {
   constructor(private readonly db: DataSource) {}
+
+  async bindTemporary(actor: Actor, id: string | null, name: string): Promise<void> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.upload$/.test(name)) throw new BadRequestException('无效临时文件名');
+    if (actor.userId === null && id === null) return;
+    if (actor.userId === null || !id) throw new ForbiddenException('上传预留不存在');
+    await serializedTransaction(this.db, async manager => {
+      const result = await manager.createQueryBuilder().update('upload_reservations')
+        .set({ temp_name: name, instance_id: uploadInstance })
+        .where('id = :id AND owner_user_id = :owner AND temp_name IS NULL AND instance_id IS NULL', { id, owner: actor.userId }).execute();
+      if (!result.affected) throw new ForbiddenException('上传预留不存在或已绑定');
+    });
+  }
 
   async reserve(actor: Actor, bytes: number): Promise<string | null> {
     assertCanUpload(actor);

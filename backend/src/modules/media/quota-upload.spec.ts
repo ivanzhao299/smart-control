@@ -9,7 +9,7 @@ describe('multipart quota enforcement', () => {
   let server: Server, root: string, url: string, quota: any;
   beforeEach(async () => {
     root = await fs.mkdtemp(join(tmpdir(), 'smart-control-upload-test-'));
-    quota = { reserve: jest.fn(async () => 'reservation'), release: jest.fn(async () => undefined) };
+    quota = { reserve: jest.fn(async () => 'reservation'), bindTemporary: jest.fn(async () => undefined), release: jest.fn(async () => undefined) };
     const interceptor = new QuotaUploadInterceptor(quota, { mediaRoot: root, classifyKind: () => 'audio' } as any);
     server = createServer(async (req, res) => {
       (req as any).actor = { kind: 'user', userId: 1, username: 'alice', role: 'operator' };
@@ -37,6 +37,13 @@ describe('multipart quota enforcement', () => {
     expect(await response.json()).toEqual({ size: 10 });
     expect(quota.release).toHaveBeenCalledWith(expect.objectContaining({ userId: 1 }), 'reservation');
     expect(await fs.readdir(join(root, '_tmp'))).toEqual([]);
+    expect(quota.bindTemporary).toHaveBeenCalledWith(expect.objectContaining({ userId: 1 }), 'reservation', expect.stringMatching(/^[0-9a-f-]{36}\.upload$/));
+  });
+  it('does not create a file when durable binding fails', async () => {
+    quota.bindTemporary.mockRejectedValueOnce(new Error('binding failed'));
+    expect((await upload(10, 10)).status).toBe(403);
+    expect(await fs.readdir(join(root, '_tmp'))).toEqual([]);
+    expect(quota.release).toHaveBeenCalledTimes(1);
   });
   it('rejects oversized and undersized bodies and cleans their partial files', async () => {
     expect((await upload(11, 10)).status).toBe(400);
