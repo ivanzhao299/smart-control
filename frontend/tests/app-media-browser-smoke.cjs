@@ -38,9 +38,29 @@ async function api(route, method, body, token, admin = false) {
   const usage = await api('/media/storage/me', 'GET', undefined, accounts.operator.token);
   assert.equal(Number(usage.usedBytes), png.length);
   assert.equal(Number(usage.reservedBytes), 0);
+  const preview = await api('/media/' + asset.id + '/access', 'POST', { variant: 'file' }, accounts.operator.token);
+  assert.ok(preview.url.startsWith(`/api/media/${asset.id}/stream?`));
+  const previewUrl = new URL(preview.url, backend).href;
+  const complete = await fetch(previewUrl);
+  assert.equal(complete.status, 200);
+  assert.equal(complete.headers.get('cache-control'), 'private, no-store');
+  assert.deepEqual(Buffer.from(await complete.arrayBuffer()), png);
+  const partial = await fetch(previewUrl, { headers: { Range: 'bytes=2-6' } });
+  assert.equal(partial.status, 206);
+  assert.equal(partial.headers.get('content-range'), `bytes 2-6/${png.length}`);
+  assert.deepEqual(Buffer.from(await partial.arrayBuffer()), png.subarray(2, 7));
+  const unsatisfied = await fetch(previewUrl, { headers: { Range: 'bytes=99999-' } });
+  assert.equal(unsatisfied.status, 416);
+  assert.equal((await unsatisfied.arrayBuffer()).byteLength, 0);
+  const anonymous = await fetch(backend + '/media/' + asset.id + '/file');
+  assert.equal(anonymous.status, 401);
+  await anonymous.arrayBuffer();
   for (const role of ['otherOperator', 'viewer']) {
     const visible = await api('/media', 'GET', undefined, accounts[role].token);
     assert.equal(visible.items.some(item => item.id === asset.id), false);
+    const directFile = await fetch(backend + '/media/' + asset.id + '/file', { headers: { 'X-Client-Token': accounts[role].token } });
+    assert.ok([403, 404].includes(directFile.status), 'Other accounts must not download private bytes');
+    await directFile.arrayBuffer();
     for (const method of ['PUT', 'DELETE']) {
       const denied = await fetch(backend + '/media/' + asset.id, { method,
         headers: { 'X-Client-Token': accounts[role].token, 'Content-Type': 'application/json' },
@@ -98,5 +118,11 @@ async function api(route, method, body, token, admin = false) {
       console.log(`PASS built application: ${role} media visibility and controls at 390px`);
       await context.close();
     }
+    const owner = await api('/client-auth/me', 'GET', undefined, accounts.operator.token);
+    await api('/users/' + owner.userId, 'PUT', { enabled: false }, admin, true);
+    const revoked = await fetch(previewUrl);
+    assert.equal(revoked.status, 401, 'Previously issued preview must reject a disabled owner');
+    await revoked.arrayBuffer();
+    console.log('PASS real HTTP private bytes, range/416, anonymous/other-user denial and preview revocation');
   } finally { if (browser) await browser.close(); await new Promise(resolve => server.close(resolve)); }
 })().catch(error => { console.error(error.message); process.exitCode = 1; });
