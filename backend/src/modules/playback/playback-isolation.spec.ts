@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { serializedTransaction } from '../../common/utils/serialized-transaction';
 import { AddUploadReservations1788618003000 } from '../../migrations/1788618003000-AddUploadReservations';
 import { DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -29,6 +30,32 @@ describe('playback ownership', () => {
     await db.getRepository(PlaylistItem).save([{ slot: 1, mediaId: aliceId, ownerUserId: 1 }, { slot: 1, mediaId: bobId, ownerUserId: 2 }]);
   });
   afterEach(async () => { await db.destroy(); });
+  it.each(['disabled', 'demoted'])('history rechecks a queued administrator identity: %s', async state => {
+    await service.publishMedia(1, aliceId, alice);
+    await service.publishMedia(1, bobId, bob);
+    await db.getRepository(User).update(1, { role: 'admin' });
+    let entered!: () => void, finish!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const held = new Promise<void>(resolve => { finish = resolve; });
+    const writer = serializedTransaction(db, async manager => {
+      entered(); await held;
+      await manager.update(User, 1, state === 'disabled' ? { enabled: false } : { role: 'viewer' });
+    });
+    await ready;
+    let settled = false;
+    const reading = service.listHistory(1, { ...alice, role: 'admin' }).finally(() => { settled = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    expect(settled).toBe(false);
+    finish();
+    const results = await Promise.allSettled([writer, reading]);
+    expect(results[0].status).toBe('fulfilled');
+    if (state === 'disabled') expect(results[1].status).toBe('rejected');
+    else {
+      expect(results[1].status).toBe('fulfilled');
+      const history = (results[1] as PromiseFulfilledResult<Awaited<ReturnType<PlaybackService['listHistory']>>>).value;
+      expect(history.map(item => item.mediaId)).toEqual([aliceId]);
+    }
+  });
   it('rejects stale user stop while allowing explicit stop of the current paused session', async () => {
     const old = await service.publishMedia(1, aliceId, alice);
     const current = await service.publishMedia(1, bobId, bob);

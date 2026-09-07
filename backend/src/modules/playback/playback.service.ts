@@ -330,19 +330,30 @@ export class PlaybackService implements OnModuleInit {
   async listHistory(slot: number, actor: Actor, limit = 20): Promise<Array<{
     mediaId: number; mediaName: string; playedAt: Date; missing: boolean; ownerUserId: number | null;
   }>> {
-    const rows = await this.hisRepo.find({ where: actor.role === 'admin' ? { slot } : { slot, ownerUserId: actor.userId ?? IsNull() }, order: { playedAt: 'DESC', id: 'DESC' }, take: 200 });
-    const seen = new Set<string>();
-    const out = [];
-    for (const r of rows) {
-      const key = `${r.ownerUserId}:${r.mediaId}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const m = await this.mediaService.get(r.mediaId).catch(() => null);
-      if (m && !canReadResource(actor, m)) continue;
-      out.push({ mediaId: r.mediaId, ownerUserId: r.ownerUserId, mediaName: m?.originalName ?? r.mediaName, playedAt: r.playedAt, missing: !m });
-      if (out.length >= limit) break;
+    if (!Number.isInteger(slot) || slot < 1 || slot > 3 || !Number.isInteger(limit) || limit < 1 || limit > 200) {
+      throw new BadRequestException('无效历史查询范围');
     }
-    return out;
+    return serializedTransaction(this.hisRepo.manager.connection, async manager => {
+      let current = actor;
+      if (actor.userId !== null) {
+        const user = await manager.findOneBy(User, { id: actor.userId, enabled: true });
+        if (!user) throw new ForbiddenException('账户已停用');
+        current = { ...actor, role: user.role };
+      }
+      const rows = await manager.find(PlaybackHistory, { where: current.role === 'admin' ? { slot } : { slot, ownerUserId: current.userId ?? IsNull() }, order: { playedAt: 'DESC', id: 'DESC' }, take: 200 });
+      const seen = new Set<string>();
+      const out = [];
+      for (const r of rows) {
+        const key = `${r.ownerUserId}:${r.mediaId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const m = await manager.findOneBy(MediaAsset, { id: r.mediaId });
+        if (m && !canReadResource(current, m)) continue;
+        out.push({ mediaId: r.mediaId, ownerUserId: r.ownerUserId, mediaName: m?.originalName ?? r.mediaName, playedAt: r.playedAt, missing: !m });
+        if (out.length >= limit) break;
+      }
+      return out;
+    });
   }
 
   /** 清掉当前播放, 回到待机 (PlayerPage 显示 logo + 系统名称) */
