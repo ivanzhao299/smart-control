@@ -4,6 +4,7 @@ import { PlayerDeviceAccessService } from './player-device-access.service';
 import { Public } from '../../common/decorators/public.decorator';
 import { PlayerDeviceGuard } from './player-device.guard';
 import { PlaybackService } from './playback.service';
+import { sendMediaFile } from '../../common/utils/send-media-file';
 
 /** Public skips user auth; state/heartbeat require device auth, stream validates its bound grant. */
 @Public()
@@ -40,19 +41,7 @@ export class PlayerDeviceController {
   @Get('stream')
   async stream(@Param('slot', ParseIntPipe) slot: number, @Query('ticket') ticket: string, @Headers('range') range: string | undefined, @Res() res: Response) {
     const file = await this.access.stream(slot, ticket, range);
-    res.setHeader('Cache-Control', 'private, no-store');
-    res.setHeader('Referrer-Policy', 'no-referrer');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Content-Type', file.mimeType);
-    res.setHeader('Content-Length', file.size);
-    res.setHeader('Accept-Ranges', 'bytes');
-    if (file.contentRange) res.setHeader('Content-Range', file.contentRange);
-    res.status(file.status);
-    if (!file.stream) { res.end(); return; }
-    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.filename)}"`);
-    file.stream.on('error', () => res.destroy());
-    res.on('close', () => file.stream?.destroy());
-    file.stream.pipe(res);
+    sendMediaFile(res, file);
   }
 
   @Post('heartbeat')
