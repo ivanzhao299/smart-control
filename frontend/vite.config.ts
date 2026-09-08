@@ -84,11 +84,19 @@ export default defineConfig(({ mode }) => {
 
           const dashboard = resolve(outputDir, 'index.html');
           const aerial = resolve(outputDir, 'park-aerial.jpg');
+          const relief = resolve(outputDir, 'park-aerial-relief.glb');
+          const viewer = resolve(outputDir, 'park-ops-3d.js');
           if (!existsSync(dashboard) || !readFileSync(dashboard, 'utf8').includes('window.PARK_DEMO')) {
             throw new Error('Required park-ops dashboard was not published into the frontend build.');
           }
           if (!existsSync(aerial) || statSync(aerial).size < 100_000) {
             throw new Error('Required park-ops aerial image was not published into the frontend build.');
+          }
+          if (!existsSync(relief) || statSync(relief).size < 100_000 || statSync(relief).size >= 1_000_000) {
+            throw new Error('Required compact park-ops GLB was not published into the frontend build.');
+          }
+          if (!existsSync(viewer) || !readFileSync(viewer, 'utf8').includes('static-fallback')) {
+            throw new Error('Required park-ops 3D viewer was not published into the frontend build.');
           }
         },
       },

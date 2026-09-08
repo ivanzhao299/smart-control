@@ -7,11 +7,47 @@ const dashboardPath = path.resolve(__dirname, '../public/park-ops/index.html');
 const html = fs.readFileSync(dashboardPath, 'utf8');
 const editorJs = fs.readFileSync(path.resolve(__dirname, '../public/park-ops/park-ops-editor.js'), 'utf8');
 const editorCss = fs.readFileSync(path.resolve(__dirname, '../public/park-ops/park-ops-editor.css'), 'utf8');
+const viewerJs = fs.readFileSync(path.resolve(__dirname, '../public/park-ops/park-ops-3d.js'), 'utf8');
+const glbPath = path.resolve(__dirname, '../public/park-ops/park-aerial-relief.glb');
 const adminLogin = fs.readFileSync(path.resolve(__dirname, '../src/pages/admin/AdminLogin.vue'), 'utf8');
 
 test('park dashboard keeps the real aerial image and has no remote runtime assets', () => {
   assert.match(html, /url\('\.\/park-aerial\.jpg'\)/);
   assert.doesNotMatch(html, /<(script|link)[^>]+https?:\/\//i);
+});
+
+test('park dashboard ships a compact glTF 2.0 relief model and local-only viewer', () => {
+  const glb = fs.readFileSync(glbPath);
+  assert.equal(glb.subarray(0, 4).toString('ascii'), 'glTF');
+  assert.equal(glb.readUInt32LE(4), 2);
+  assert.equal(glb.readUInt32LE(8), glb.length);
+  assert.ok(glb.length < 1_000_000, `expected sub-1MB GLB, got ${glb.length} bytes`);
+  const jsonLength = glb.readUInt32LE(12);
+  assert.equal(glb.readUInt32LE(16), 0x4e4f534a);
+  const model = JSON.parse(glb.subarray(20, 20 + jsonLength).toString('utf8').trim());
+  assert.equal(model.asset.version, '2.0');
+  assert.equal(model.meshes[0].extras.kind, 'single-image-2.5d-relief');
+  assert.equal(model.meshes[0].extras.vertices, 6528);
+  assert.equal(model.meshes[0].extras.triangles, 12730);
+  assert.equal(model.images[0].mimeType, 'image/jpeg');
+  assert.match(html, /type="importmap"/);
+  assert.match(html, /park-ops-3d\.js\?v=20260908-light-3d/);
+  assert.match(viewerJs, /\.\/park-aerial-relief\.glb/);
+  assert.match(viewerJs, /static-fallback/);
+  assert.match(viewerJs, /prefers-reduced-motion/);
+  assert.match(viewerJs, /document\.hidden/);
+  assert.match(viewerJs, /Math\.min\(window\.devicePixelRatio \|\| 1, 1\.5\)/);
+  assert.doesNotMatch(viewerJs, /https?:\/\//);
+  for (const runtimeAsset of [
+    'vendor/three.module.min.js',
+    'vendor/three.core.min.js',
+    'vendor/loaders/GLTFLoader.js',
+    'vendor/utils/BufferGeometryUtils.js',
+    'vendor/utils/SkeletonUtils.js',
+    'vendor/THREE-LICENSE.txt',
+  ]) {
+    assert.ok(fs.existsSync(path.resolve(__dirname, '../public/park-ops', runtimeAsset)), `missing local runtime asset ${runtimeAsset}`);
+  }
 });
 
 test('park dashboard exposes phase, building and day-night interactions', () => {
@@ -28,7 +64,7 @@ test('park dashboard exposes phase, building and day-night interactions', () => 
 test('park dashboard labels simulated business data and publishes a version marker', () => {
   assert.match(html, /企业名称为演示占位/);
   assert.match(html, /分区、楼栋、企业及业务指标均为演示标注/);
-  assert.match(html, /version:'2026-09-08-digital-twin'/);
+  assert.match(html, /version:'2026-09-08-lightweight-3d'/);
   assert.match(html, /buildingCount:buildings\.length/);
 });
 
@@ -77,11 +113,11 @@ test('dashboard exposes a visible calibration entry without editing the URL by h
   assert.match(editorJs, /localStorage\.getItem\('sc\.client\.token'\)/);
   assert.match(editorJs, /headers\['X-Client-Token'\]/);
   assert.match(editorJs, /\.\.\.authHeaders/);
-  assert.match(html, /park-ops-editor\.js\?v=20260908-keyboard/);
-  assert.match(html, /park-ops-editor\.css\?v=20260908-keyboard/);
+  assert.match(html, /park-ops-editor\.js\?v=20260908-light-3d/);
+  assert.match(html, /park-ops-editor\.css\?v=20260908-light-3d/);
   assert.match(adminLogin, /parkEditorTarget/);
   const systemBranding = fs.readFileSync(path.resolve(__dirname, '../src/pages/admin/SystemBrandingAdmin.vue'), 'utf8');
-  assert.match(systemBranding, /park-ops\/index\.html\?edit=1&v=20260908-keyboard/);
+  assert.match(systemBranding, /park-ops\/index\.html\?edit=1&v=20260908-light-3d/);
   assert.match(editorJs, /当前是本地文件预览，无法保存/);
   assert.match(adminLogin, /new URLSearchParams/);
   assert.match(adminLogin, /requested === '\/admin' \|\| requested\.startsWith\('\/admin\/'\)/);

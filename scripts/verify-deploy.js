@@ -272,6 +272,8 @@ async function main() {
   const parkDir = path.join(ROOT, 'frontend', 'dist', 'park-ops');
   const parkHtml = path.join(parkDir, 'index.html');
   const parkAerial = path.join(parkDir, 'park-aerial.jpg');
+  const parkRelief = path.join(parkDir, 'park-aerial-relief.glb');
+  const park3dViewer = path.join(parkDir, 'park-ops-3d.js');
   if (!fs.existsSync(parkHtml) || !fs.readFileSync(parkHtml, 'utf8').includes('window.PARK_DEMO')) {
     bad('园区大屏 Demo 构建产物缺失或标记不正确: frontend/dist/park-ops/index.html');
   } else {
@@ -287,6 +289,21 @@ async function main() {
       ok(`园区真实鸟瞰图已发布 (${aerial.length} bytes)`);
     }
   }
+  if (!fs.existsSync(parkRelief)) {
+    bad('园区轻量 3D 模型构建产物缺失: frontend/dist/park-ops/park-aerial-relief.glb');
+  } else {
+    const relief = fs.readFileSync(parkRelief);
+    if (relief.length >= 1000000 || relief.subarray(0, 4).toString('ascii') !== 'glTF' || relief.readUInt32LE(4) !== 2) {
+      bad(`园区 3D 模型不是小于 1MB 的 glTF 2.0 GLB (${relief.length} bytes)`);
+    } else {
+      ok(`园区轻量 3D 模型已发布 (${relief.length} bytes)`);
+    }
+  }
+  if (!fs.existsSync(park3dViewer) || !fs.readFileSync(park3dViewer, 'utf8').includes('static-fallback')) {
+    bad('园区 3D 查看器构建产物缺失或没有静态回退');
+  } else {
+    ok('园区 3D 查看器及静态回退已发布');
+  }
   const parkPageResponse = await httpGet(5173, '/control/park-ops/index.html');
   if (parkPageResponse.code !== 200 || !parkPageResponse.body.includes('window.PARK_DEMO')) {
     bad(`园区大屏 Demo URL 未返回目标页面: HTTP ${parkPageResponse.code || '无响应'}`);
@@ -299,6 +316,13 @@ async function main() {
     bad(`园区鸟瞰图 URL 未返回 JPEG: HTTP ${aerialResponse.code || '无响应'} Content-Type=${aerialType || '-'}`);
   } else {
     ok('GET /control/park-ops/park-aerial.jpg 返回 image/jpeg');
+  }
+  const reliefResponse = await httpGet(5173, '/control/park-ops/park-aerial-relief.glb');
+  const reliefType = String(reliefResponse.headers?.['content-type'] || '');
+  if (reliefResponse.code !== 200 || !reliefType.includes('gltf') || !reliefResponse.body.startsWith('glTF')) {
+    bad(`园区 3D 模型 URL 未返回 GLB: HTTP ${reliefResponse.code || '无响应'} Content-Type=${reliefType || '-'}`);
+  } else {
+    ok('GET /control/park-ops/park-aerial-relief.glb 返回 glTF 2.0 GLB');
   }
   console.log('');
 
