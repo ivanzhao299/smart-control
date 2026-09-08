@@ -284,7 +284,10 @@ try {
       }
       $parkOpsIndex = Join-Path $projectRoot 'frontend\dist\park-ops\index.html'
       $parkOpsAerial = Join-Path $projectRoot 'frontend\dist\park-ops\park-aerial.jpg'
-      if (-not (Test-Path $parkOpsIndex) -or -not (Test-Path $parkOpsAerial)) {
+      $parkOpsRelief = Join-Path $projectRoot 'frontend\dist\park-ops\park-aerial-relief.glb'
+      $parkOps3dViewer = Join-Path $projectRoot 'frontend\dist\park-ops\park-ops-3d.js'
+      if (-not (Test-Path $parkOpsIndex) -or -not (Test-Path $parkOpsAerial) -or
+          -not (Test-Path $parkOpsRelief) -or -not (Test-Path $parkOps3dViewer)) {
         $frontendBundleMissing = $true
       }
       if ($frontendBundleMissing) {
