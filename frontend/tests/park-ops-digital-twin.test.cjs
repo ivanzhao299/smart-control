@@ -5,6 +5,8 @@ const test = require('node:test');
 
 const dashboardPath = path.resolve(__dirname, '../public/park-ops/index.html');
 const html = fs.readFileSync(dashboardPath, 'utf8');
+const editorJs = fs.readFileSync(path.resolve(__dirname, '../public/park-ops/park-ops-editor.js'), 'utf8');
+const editorCss = fs.readFileSync(path.resolve(__dirname, '../public/park-ops/park-ops-editor.css'), 'utf8');
 
 test('park dashboard keeps the real aerial image and has no remote runtime assets', () => {
   assert.match(html, /url\('\.\/park-aerial\.jpg'\)/);
@@ -33,4 +35,28 @@ test('embedded dashboard script parses', () => {
   const script = html.match(/<script>([\s\S]*?)<\/script>/);
   assert.ok(script, 'expected an embedded script');
   assert.doesNotThrow(() => new Function(script[1]));
+});
+
+test('dashboard fills the viewport by default and removes moving scan lines', () => {
+  assert.match(html, /PARK_FIT_MODE\|\|'stretch'/);
+  assert.match(editorJs, /fitMode: 'stretch'/);
+  assert.doesNotMatch(html, /insertAdjacentHTML\('afterbegin','<i class="panel-scan/);
+  assert.doesNotMatch(html, /lineTo\(q\.x/);
+  assert.doesNotMatch(html, /@keyframes (scanY|camScan)/);
+  assert.match(html, /body:before\{display:none\}/);
+  assert.match(html, /\.cam:before,\.cam:after\{display:none\}/);
+});
+
+test('shared calibration editor supports phase vertices, buildings and text styles', () => {
+  assert.match(html, /park-ops-editor\.css/);
+  assert.match(html, /park-ops-editor\.js/);
+  assert.match(editorJs, /system-branding\/park-ops/);
+  assert.match(editorJs, /phase-handle/);
+  assert.match(editorJs, /dblclick/);
+  assert.match(editorJs, /contextmenu/);
+  assert.match(editorJs, /pe-building-company/);
+  assert.match(editorJs, /pe-text-size/);
+  assert.match(editorJs, /pe-text-color/);
+  assert.match(editorCss, /park-text-selected/);
+  assert.doesNotThrow(() => new Function(editorJs));
 });
