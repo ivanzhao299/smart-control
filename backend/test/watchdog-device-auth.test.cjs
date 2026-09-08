@@ -13,3 +13,9 @@ test('watchdog reads scoped device state with protected credential, not user-onl
   assert.ok(source.includes('$deviceToken = $null'));
   assert.ok(!source.includes("Log ('backend unreachable, skip: ' + $_.Exception.Message)"));
 });
+test('fullscreen window handle cannot overwrite case-insensitive height parameter', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../../scripts/start-players.ps1'), 'utf8');
+  const section = source.slice(source.indexOf('function Force-ExactFullscreen'), source.indexOf('function Start-Slot'));
+  assert.ok(!/\$h\s*=/i.test(section));
+  assert.ok(section.includes('SetWindowPos($windowHandle, [IntPtr]::Zero, $X, $Y, $W, $H,'));
+});

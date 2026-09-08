@@ -169,20 +169,20 @@ function Force-ExactFullscreen {
   while ((Get-Date) -lt $deadline) {
     $pids = Get-SlotPids -N $N
     if ($pids.Count -gt 0) {
-      $h = [Kiosk.Win]::GetTopWindow([IntPtr]::Zero)
-      while ($h -ne [IntPtr]::Zero) {
-        if ([Kiosk.Win]::IsWindowVisible($h)) {
+      $windowHandle = [Kiosk.Win]::GetTopWindow([IntPtr]::Zero)
+      while ($windowHandle -ne [IntPtr]::Zero) {
+        if ([Kiosk.Win]::IsWindowVisible($windowHandle)) {
           $wpid = 0
-          [Kiosk.Win]::GetWindowThreadProcessId($h, [ref]$wpid) | Out-Null
+          [Kiosk.Win]::GetWindowThreadProcessId($windowHandle, [ref]$wpid) | Out-Null
           if ($pids -contains [int]$wpid) {
             $r = New-Object Kiosk.Win+RECT
-            [Kiosk.Win]::GetWindowRect($h, [ref]$r) | Out-Null
+            [Kiosk.Win]::GetWindowRect($windowHandle, [ref]$r) | Out-Null
             # only the big content window, not tooltips / hidden helpers
             if (($r.R - $r.L) -gt 300 -and ($r.B - $r.T) -gt 300) {
-              [Kiosk.Win]::SetWindowPos($h, [IntPtr]::Zero, $X, $Y, $W, $H,
+              [Kiosk.Win]::SetWindowPos($windowHandle, [IntPtr]::Zero, $X, $Y, $W, $H,
                 ($SWP_NOZORDER -bor $SWP_NOACTIVATE -bor $SWP_FRAMECHANGED)) | Out-Null
               Start-Sleep -Milliseconds 400
-              [Kiosk.Win]::GetWindowRect($h, [ref]$r) | Out-Null
+              [Kiosk.Win]::GetWindowRect($windowHandle, [ref]$r) | Out-Null
               $got = ($r.R - $r.L).ToString() + 'x' + ($r.B - $r.T).ToString()
               $want = "${W}x${H}"
               if ($got -eq $want) {
@@ -194,7 +194,7 @@ function Force-ExactFullscreen {
             }
           }
         }
-        $h = [Kiosk.Win]::GetWindow($h, 2)   # GW_HWNDNEXT
+        $windowHandle = [Kiosk.Win]::GetWindow($windowHandle, 2)   # GW_HWNDNEXT
       }
     }
     Start-Sleep -Milliseconds 500
