@@ -77,15 +77,22 @@ test('dashboard exposes a visible calibration entry without editing the URL by h
   assert.match(editorJs, /localStorage\.getItem\('sc\.client\.token'\)/);
   assert.match(editorJs, /headers\['X-Client-Token'\]/);
   assert.match(editorJs, /\.\.\.authHeaders/);
-  assert.match(html, /park-ops-editor\.js\?v=20260908-named-admin/);
-  assert.match(html, /park-ops-editor\.css\?v=20260908-named-admin/);
+  assert.match(html, /park-ops-editor\.js\?v=20260908-keyboard/);
+  assert.match(html, /park-ops-editor\.css\?v=20260908-keyboard/);
   assert.match(adminLogin, /parkEditorTarget/);
   const systemBranding = fs.readFileSync(path.resolve(__dirname, '../src/pages/admin/SystemBrandingAdmin.vue'), 'utf8');
-  assert.match(systemBranding, /park-ops\/index\.html\?edit=1&v=20260908-named-admin/);
+  assert.match(systemBranding, /park-ops\/index\.html\?edit=1&v=20260908-keyboard/);
   assert.match(editorJs, /当前是本地文件预览，无法保存/);
   assert.match(adminLogin, /new URLSearchParams/);
   assert.match(adminLogin, /requested === '\/admin' \|\| requested\.startsWith\('\/admin\/'\)/);
   assert.match(editorCss, /park-editing #openCalibration\{display:none\}/);
+});
+
+test('page keyboard shortcuts do not intercept editor text input', () => {
+  assert.match(html, /document\.body\.classList\.contains\('park-editing'\)/);
+  assert.match(html, /target\.closest\('input,textarea,select,button,/);
+  assert.match(html, /e\.defaultPrevented\|\|e\.isComposing/);
+  assert.match(html, /if\(e\.key==='ArrowRight'\|\|e\.key===' '\)\{e\.preventDefault\(\);go\(idx\+1\)\}/);
 });
 
 test('calibration editor provides explicit create update delete controls', () => {
