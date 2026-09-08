@@ -7,6 +7,7 @@ const dashboardPath = path.resolve(__dirname, '../public/park-ops/index.html');
 const html = fs.readFileSync(dashboardPath, 'utf8');
 const editorJs = fs.readFileSync(path.resolve(__dirname, '../public/park-ops/park-ops-editor.js'), 'utf8');
 const editorCss = fs.readFileSync(path.resolve(__dirname, '../public/park-ops/park-ops-editor.css'), 'utf8');
+const adminLogin = fs.readFileSync(path.resolve(__dirname, '../src/pages/admin/AdminLogin.vue'), 'utf8');
 
 test('park dashboard keeps the real aerial image and has no remote runtime assets', () => {
   assert.match(html, /url\('\.\/park-aerial\.jpg'\)/);
@@ -63,7 +64,15 @@ test('shared calibration editor supports phase vertices, buildings and text styl
 
 test('dashboard exposes a visible calibration entry without editing the URL by hand', () => {
   assert.match(html, /id="openCalibration"[^>]*>⚙ 布局校准/);
-  assert.match(html, /searchParams\.set\('edit','1'\)/);
+  assert.match(html, /PARK_OPEN_CALIBRATION/);
+  assert.match(editorJs, /searchParams\.set\('edit', '1'\)/);
+  assert.match(editorJs, /admin\/login\?redirect=/);
+  assert.match(editorJs, /管理员登录后返回/);
+  assert.match(editorJs, /response\.status === 401/);
+  assert.match(editorJs, /当前是本地文件预览，无法保存/);
+  assert.match(adminLogin, /parkEditorTarget/);
+  assert.match(adminLogin, /new URLSearchParams/);
+  assert.match(adminLogin, /requested === '\/admin' \|\| requested\.startsWith\('\/admin\/'\)/);
   assert.match(editorCss, /park-editing #openCalibration\{display:none\}/);
 });
 
