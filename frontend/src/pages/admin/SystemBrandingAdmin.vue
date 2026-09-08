@@ -21,7 +21,9 @@ const submitting = ref(false);
 
 function openParkOpsEditor(): void {
   const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
-  window.location.assign(`${base}park-ops/index.html?edit=1`);
+  // Versioned navigation bypasses an older service-worker precache of the
+  // standalone editor, while same-tab navigation keeps the admin session.
+  window.location.assign(`${base}park-ops/index.html?edit=1&v=20260908-named-admin`);
 }
 
 const form = reactive({
