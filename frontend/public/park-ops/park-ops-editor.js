@@ -90,6 +90,40 @@
   let editor = null;
   let statusEl = null;
 
+  function calibrationUrl() {
+    const next = new URL(location.href);
+    next.searchParams.set('edit', '1');
+    return next;
+  }
+
+  function editorReturnPath() {
+    const next = calibrationUrl();
+    const marker = '/park-ops/index.html';
+    const start = next.pathname.lastIndexOf(marker);
+    return `${start >= 0 ? next.pathname.slice(start) : marker}${next.search}`;
+  }
+
+  function adminLoginUrl() {
+    const marker = '/park-ops/';
+    const start = location.pathname.lastIndexOf(marker);
+    const base = start >= 0 ? location.pathname.slice(0, start) : '';
+    return `${base}/admin/login?redirect=${encodeURIComponent(editorReturnPath())}`;
+  }
+
+  function openCalibration() {
+    if (location.protocol === 'file:') {
+      alert('当前是本地文件预览，不能读取生产系统的管理员会话。请打开生产端园区大屏，再点击“布局校准”。');
+      return;
+    }
+    if (sessionStorage.getItem('sc.adminToken')) {
+      location.href = calibrationUrl().toString();
+      return;
+    }
+    location.href = adminLoginUrl();
+  }
+
+  window.PARK_OPEN_CALIBRATION = openCalibration;
+
   function mergeConfig(input) {
     if (!input || input.version !== 1) return clone(defaults);
     const phases = Array.isArray(input.phases) && input.phases.length ? input.phases : defaults.phases;
@@ -636,7 +670,7 @@
           </div>
         </section>
       </div>
-      <div class="park-editor-actions"><button class="primary" id="pe-save">保存到所有大屏</button><button id="pe-reload">重新读取</button><button id="pe-reset">恢复内置初始值</button></div>
+      <div class="park-editor-actions"><button class="primary" id="pe-save">保存到所有大屏</button><button class="primary" id="pe-login" hidden>管理员登录后返回</button><button id="pe-reload">重新读取</button><button id="pe-reset">恢复内置初始值</button></div>
       <div class="park-editor-status">正在读取共享配置…</div>`;
     document.body.appendChild(editor);
     statusEl = editor.querySelector('.park-editor-status');
@@ -758,13 +792,24 @@
       if (!confirm('恢复内置初始布局？点击“保存到所有大屏”后才会覆盖服务端配置。')) return;
       applyConfig(defaults); setStatus('已恢复内置值，尚未保存', 'ok');
     };
+    const loginButton = editor.querySelector('#pe-login');
+    loginButton.hidden = location.protocol === 'file:' || Boolean(sessionStorage.getItem('sc.adminToken'));
+    loginButton.onclick = () => { location.href = adminLoginUrl(); };
     editor.querySelector('#pe-save').onclick = saveConfig;
     refreshEditorOptions(); syncEditorFields(); renderPhaseHandles();
   }
 
   async function saveConfig() {
+    if (location.protocol === 'file:') {
+      setStatus('当前是本地文件预览，无法保存。请打开生产端园区大屏并点击右上角“布局校准”。', 'error');
+      return;
+    }
     const token = sessionStorage.getItem('sc.adminToken');
-    if (!token) { setStatus('没有后台管理员会话，请从“系统设置 → 园区大屏布局”进入校准器', 'error'); return; }
+    if (!token) {
+      editor.querySelector('#pe-login').hidden = false;
+      setStatus('当前标签页尚未建立管理员会话，请点击“管理员登录后返回”。', 'error');
+      return;
+    }
     setStatus('正在保存…');
     try {
       const response = await fetch(`${apiBase()}/system-branding/park-ops`, {
@@ -773,6 +818,11 @@
         body: JSON.stringify(config),
       });
       const payload = await response.json().catch(() => ({}));
+      if (response.status === 401) {
+        sessionStorage.removeItem('sc.adminToken');
+        editor.querySelector('#pe-login').hidden = false;
+        throw new Error('管理员会话已失效，请点击“管理员登录后返回”');
+      }
       if (!response.ok) throw new Error(payload?.message || `HTTP ${response.status}`);
       applyConfig(payload?.data?.config || config);
       setStatus('保存成功；LED、投影和其它浏览器将在 15 秒内同步', 'ok');
