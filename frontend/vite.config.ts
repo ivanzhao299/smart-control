@@ -6,6 +6,19 @@ import { ElementPlusResolver } from 'unplugin-vue-components/resolvers';
 import { VitePWA } from 'vite-plugin-pwa';
 import { resolve } from 'path';
 import { cpSync, existsSync, readFileSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+
+function gitOutput(args: string[]): string | null {
+  try {
+    return execFileSync('git', args, {
+      cwd: __dirname,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
 
 export default defineConfig(({ mode }) => {
   // 加载 .env.production / .env.local / .env 文件 (Vite 不会自动注入 process.env)
@@ -44,6 +57,23 @@ export default defineConfig(({ mode }) => {
       },
     },
     plugins: [
+      {
+        name: 'publish-deployment-version',
+        apply: 'build',
+        generateBundle() {
+          const commit = gitOutput(['rev-parse', 'HEAD']);
+          const trackedChanges = gitOutput(['status', '--porcelain', '--untracked-files=no']);
+          this.emitFile({
+            type: 'asset',
+            fileName: 'deployment-version.json',
+            source: `${JSON.stringify({
+              commit,
+              clean: trackedChanges === '',
+              builtAt: new Date().toISOString(),
+            }, null, 2)}\n`,
+          });
+        },
+      },
       {
         name: 'publish-required-park-ops-assets',
         apply: 'build',
