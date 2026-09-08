@@ -90,6 +90,19 @@
   let editor = null;
   let statusEl = null;
 
+  function editorAuthHeaders() {
+    const headers = {};
+    const adminToken = sessionStorage.getItem('sc.adminToken');
+    const accountToken = localStorage.getItem('sc.client.token');
+    if (adminToken) headers.Authorization = `Bearer ${adminToken}`;
+    if (accountToken) headers['X-Client-Token'] = accountToken;
+    return headers;
+  }
+
+  function hasEditorSession() {
+    return Object.keys(editorAuthHeaders()).length > 0;
+  }
+
   function calibrationUrl() {
     const next = new URL(location.href);
     next.searchParams.set('edit', '1');
@@ -115,7 +128,7 @@
       alert('当前是本地文件预览，不能读取生产系统的管理员会话。请打开生产端园区大屏，再点击“布局校准”。');
       return;
     }
-    if (sessionStorage.getItem('sc.adminToken')) {
+    if (hasEditorSession()) {
       location.href = calibrationUrl().toString();
       return;
     }
@@ -811,7 +824,7 @@
       applyConfig(defaults); setStatus('已恢复内置值，尚未保存', 'ok');
     };
     const loginButton = editor.querySelector('#pe-login');
-    loginButton.hidden = location.protocol === 'file:' || Boolean(sessionStorage.getItem('sc.adminToken'));
+    loginButton.hidden = location.protocol === 'file:' || hasEditorSession();
     loginButton.onclick = () => { location.href = adminLoginUrl(); };
     editor.querySelector('#pe-save').onclick = saveConfig;
     refreshEditorOptions(); syncEditorFields(); renderPhaseHandles();
@@ -822,24 +835,24 @@
       setStatus('当前是本地文件预览，无法保存。请打开生产端园区大屏并点击右上角“布局校准”。', 'error');
       return;
     }
-    const token = sessionStorage.getItem('sc.adminToken');
-    if (!token) {
+    const authHeaders = editorAuthHeaders();
+    if (!Object.keys(authHeaders).length) {
       editor.querySelector('#pe-login').hidden = false;
-      setStatus('当前标签页尚未建立管理员会话，请点击“管理员登录后返回”。', 'error');
+      setStatus('当前页面没有可用的管理员会话，请点击“管理员登录后返回”。', 'error');
       return;
     }
     setStatus('正在保存…');
     try {
       const response = await fetch(`${apiBase()}/system-branding/park-ops`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify(config),
       });
       const payload = await response.json().catch(() => ({}));
       if (response.status === 401) {
-        sessionStorage.removeItem('sc.adminToken');
+        if (authHeaders.Authorization) sessionStorage.removeItem('sc.adminToken');
         editor.querySelector('#pe-login').hidden = false;
-        throw new Error('管理员会话已失效，请点击“管理员登录后返回”');
+        throw new Error('管理员会话已失效，请返回控制系统重新登录，或点击“管理员登录后返回”');
       }
       if (!response.ok) throw new Error(payload?.message || `HTTP ${response.status}`);
       applyConfig(payload?.data?.config || config);

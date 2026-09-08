@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
 <title>金湖科创产业园·智慧运营总览</title>
-<link rel="stylesheet" href="./park-ops-editor.css" />
+<link rel="stylesheet" href="./park-ops-editor.css?v=20260908-named-admin" />
 <style>
 :root{--bg:#06111e;--panel:rgba(9,30,49,.86);--line:rgba(76,194,255,.18);--cyan:#63d9ff;--blue:#4ca8ff;--green:#62e6a8;--gold:#d9b864;--text:#edf7ff;--muted:#83a6bd;--warn:#ffb45c;--danger:#ff6b6b}
 *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#020914;color:var(--text);font-family:"Microsoft YaHei","PingFang SC",Arial,sans-serif}
@@ -121,6 +121,6 @@ const canvas=document.getElementById('ambient'),ctx=canvas.getContext('2d'),part
 window.PARK_DEMO={version:'2026-09-08-digital-twin',resolution:'3612x1462',phases:['一期','二期','远期'],buildingCount:buildings.length,cameraSlots:['CAM-001','CAM-018','CAM-043','CAM-067']};
 window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buildings=value;renderBuildings()},renderBuildings,selectBuilding,fit,config:null};
 </script>
-<script src="./park-ops-editor.js"></script>
+<script src="./park-ops-editor.js?v=20260908-named-admin"></script>
 </body>
 </html>
