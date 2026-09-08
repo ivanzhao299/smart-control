@@ -77,6 +77,7 @@ export const useClientAuthStore = defineStore('client-auth', () => {
     lastError.value = null;
     try {
       const normalizedUsername = username.trim();
+      if (!normalizedUsername) throw new Error('请输入用户名；旧版访问密码不能用于设备控制，请使用用户管理中的账户');
       const data = await api.post<LoginResponse>('/client-auth/login', {
         username: normalizedUsername || undefined,
         password,
@@ -114,7 +115,7 @@ export const useClientAuthStore = defineStore('client-auth', () => {
     if (!isBoundToCurrentServer()) { clearSavedPassword(); return false; }
     let saved: string | null = null;
     try { saved = window.localStorage.getItem(SAVED_PASSWORD_KEY); } catch { /* ignore */ }
-    if (!saved) return false;
+    if (!saved || !readSavedUsername().trim()) return false;
     try {
       await login(readSavedUsername(), saved);
       return true;

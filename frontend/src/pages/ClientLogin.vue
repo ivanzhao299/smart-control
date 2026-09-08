@@ -51,6 +51,10 @@ function readShellBio(): void {
 }
 
 function faceLogin(): void {
+  if (!username.value.trim()) {
+    toast.warning('请先填写用户名，再使用面容登录；旧版面容只保存了密码');
+    return;
+  }
   shellBioLogin('client', (pwd) => {
     password.value = pwd;
     void doLogin(true);
@@ -130,6 +134,10 @@ async function doTest(): Promise<void> {
 }
 
 async function doLogin(fromBiometric = false): Promise<void> {
+  if (!username.value.trim()) {
+    toast.warning('请输入用户管理中的用户名');
+    return;
+  }
   if (!password.value) {
     toast.warning('请输入密码');
     return;
@@ -182,6 +190,9 @@ async function doLogin(fromBiometric = false): Promise<void> {
       </div>
 
       <form v-else class="form" @submit.prevent="doLogin(false)">
+        <p v-if="route.query.reason === 'account-required'" role="status">
+          当前保存的是旧版访问会话，尚未绑定用户。请使用用户管理中的用户名和密码登录，管理员账户即可控制设备。
+        </p>
         <!-- 服务器地址 -->
         <div class="server-row">
           <div class="field server-field">
@@ -236,14 +247,14 @@ async function doLogin(fromBiometric = false): Promise<void> {
           </div>
         </div>
 
-        <!-- 用户管理中配置的账户；留空兼容旧版“业主端访问密码” -->
+        <!-- 用户管理中配置的实名账户；旧版密码必须先绑定用户名 -->
         <div class="field">
           <UserRound :size="16" :stroke-width="1.8" class="field-icon" />
           <input
             v-model="username"
             type="text"
             class="field-input"
-            placeholder="用户名（旧版访问密码可留空）"
+            placeholder="用户名"
             autocomplete="username"
             autocapitalize="off"
             spellcheck="false"

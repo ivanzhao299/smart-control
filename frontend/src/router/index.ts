@@ -3,6 +3,7 @@ import { trackRouteChange } from '@/services/rum.service';
 import { useAdminAuthStore } from '@/stores/admin-auth';
 import { useClientAuthStore } from '@/stores/client-auth';
 import { usePermissionStore } from '@/stores/permission';
+import { api } from '@/services/http';
 
 const routes: RouteRecordRaw[] = [
   // 平板布局 (Sprint-05)
@@ -109,6 +110,17 @@ router.beforeEach(async (to) => {
   const admin = useAdminAuthStore();
   const adminAuthenticated = await admin.ensureChecked();
   if (typeof to.path === 'string' && to.path.startsWith('/admin')) return true;
+  if (client.isAuthed && !adminAuthenticated) {
+    // Old password-only sessions are valid but cannot identify a user. Migrate
+    // them explicitly instead of silently restoring a read-only device session.
+    try {
+      const actor = await api.get<{ kind: string }>('/client-auth/me');
+      if (actor.kind === 'legacy') {
+        client.logout();
+        return { name: 'client-login', query: { redirect: to.fullPath, reason: 'account-required' } };
+      }
+    } catch { /* Network errors must not erase a saved account. */ }
+  }
   if (!client.isAuthed && !adminAuthenticated) {
     return { name: 'client-login', query: { redirect: to.fullPath } };
   }

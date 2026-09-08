@@ -146,7 +146,7 @@ async function api(route, method, body, token, admin = false) {
       await context.route('**/*', route => route.request().url().startsWith(origin + '/') ? route.continue() : route.abort());
       const page = await context.newPage();
       await page.goto(origin + '/client-login?redirect=/media');
-      await page.getByPlaceholder('用户名（旧版访问密码可留空）').fill(accounts[role].username);
+      await page.getByPlaceholder('用户名', { exact: true }).fill(accounts[role].username);
       await page.getByPlaceholder('密码', { exact: true }).fill(accounts[role].password);
       await page.getByPlaceholder('服务器地址 (e.g. http://192.168.124.11:3200)').fill(origin);
       await page.waitForTimeout(1100);
@@ -197,6 +197,39 @@ async function api(route, method, body, token, admin = false) {
     // Reproduce the deployed regression: a legacy read-only token coexists with
     // a shared administrator login. Returning/reloading must preserve admin auth.
     const legacy = await api('/client-auth/login', 'POST', { password: '1234' });
+    const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+    await phone.addInitScript(({ token, expiresAt, origin, password }) => {
+      if (!sessionStorage.getItem('phone.initialized')) {
+        sessionStorage.setItem('phone.initialized', 'yes');
+        localStorage.setItem('sc.client.token', token);
+        localStorage.setItem('sc.client.token.expiresAt', expiresAt);
+        localStorage.setItem('sc.client.authServer', origin + '/api');
+        localStorage.setItem('sc.client.savedPassword', '1234');
+      }
+      window.bioCalls = 0;
+      window.JinhuShell = {
+        bioInfoScoped: () => JSON.stringify({ available: true, saved: true }),
+        requestBioLoginScoped: () => { window.bioCalls++; window.__jinhuBioLoginOk(password); },
+        saveBioPasswordScoped: () => {},
+      };
+    }, { ...legacy, origin, password: accounts.admin.password });
+    const mobile = await phone.newPage();
+    await mobile.goto(origin + '/lighting');
+    await mobile.waitForURL(url => url.pathname.endsWith('/client-login'));
+    await mobile.getByRole('status').filter({ hasText: '尚未绑定用户' }).waitFor();
+    const face = mobile.getByRole('button', { name: '面容 / 指纹登录' });
+    await face.click();
+    assert.equal(await mobile.evaluate(() => window.bioCalls), 0, 'Never request password-only Face ID without a username');
+    assert.equal(await mobile.evaluate(() => localStorage.getItem('sc.client.token')), null);
+    await mobile.getByPlaceholder('用户名', { exact: true }).fill(accounts.admin.username);
+    await face.click();
+    await mobile.waitForURL(url => url.pathname.endsWith('/lighting'));
+    await mobile.reload();
+    const migratedCommand = mobile.waitForResponse(r => /\/api\/lighting\/zone\/\d+\/(on|off)$/.test(r.url()) && r.request().method() === 'POST');
+    await mobile.locator('.v2-zone button.v2-toggle').first().click();
+    assert.equal((await (await migratedCommand).json()).data.ok, true);
+    await phone.close();
+    console.log('PASS 390px old phone session migration: no password-only auto-login, username required before Face ID, named admin controls MOCK lighting after reload');
     const management = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
     await management.route('**/*', route => route.request().url().startsWith(origin + '/') ? route.continue() : route.abort());
     await management.addInitScript(({ token, expiresAt, origin }) => {
