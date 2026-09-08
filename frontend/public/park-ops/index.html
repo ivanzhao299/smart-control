@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
 <title>金湖科创产业园·智慧运营总览</title>
-<link rel="stylesheet" href="./park-ops-editor.css?v=20260908-low-power-view" />
+<link rel="stylesheet" href="./park-ops-editor.css?v=20260908-camera-hotfix" />
 <script type="importmap">{"imports":{"three":"./vendor/three.module.min.js"}}</script>
 <style>
 :root{--bg:#06111e;--panel:rgba(9,30,49,.86);--line:rgba(76,194,255,.18);--cyan:#63d9ff;--blue:#4ca8ff;--green:#62e6a8;--gold:#d9b864;--text:#edf7ff;--muted:#83a6bd;--warn:#ffb45c;--danger:#ff6b6b}
@@ -47,10 +47,9 @@ body:before{display:none}
 #ambient{display:none}.header{background:linear-gradient(180deg,rgba(5,21,36,.99),rgba(5,19,32,.93));box-shadow:0 10px 28px rgba(0,0,0,.2)}.header:after{height:2px;left:34%;right:34%;opacity:.72;filter:none}.calibration-entry{box-shadow:none}.calibration-entry:hover{box-shadow:0 0 14px rgba(99,217,255,.18)}
 .kpi{clip-path:none;border-radius:8px;background:linear-gradient(145deg,rgba(8,31,50,.96),rgba(5,22,37,.94));border-color:rgba(99,217,255,.14);box-shadow:inset 3px 0 0 rgba(99,217,255,.38);transition:border-color .2s,background .2s}.kpi:hover{transform:none;background:linear-gradient(145deg,rgba(10,40,62,.98),rgba(6,26,43,.96));border-color:rgba(99,217,255,.36)}.kpi:before{content:none;display:none}.kpi:after{left:24px;right:58%;height:1px;background:linear-gradient(90deg,var(--cyan),transparent);opacity:.45}.kpi:nth-child(3n+2){box-shadow:inset 3px 0 0 rgba(98,230,168,.38)}.kpi:nth-child(3n){box-shadow:inset 3px 0 0 rgba(217,184,100,.38)}
 .panel{clip-path:none;border-radius:9px;background:linear-gradient(145deg,rgba(7,29,47,.95),rgba(4,19,32,.94));border-color:rgba(99,217,255,.14);box-shadow:inset 0 1px 0 rgba(255,255,255,.025),0 10px 28px rgba(0,0,0,.16)}.panel:before,.panel:after{width:18px;height:18px;border-width:2px;opacity:.65}.panel h3:before{box-shadow:none}.toolbar-group,.map-detail,.poi .label{backdrop-filter:none}
-.park .map{background:#06131f;border-color:rgba(99,217,255,.24);box-shadow:inset 0 0 0 1px rgba(255,255,255,.018)}.map-scene{position:absolute;inset:-3%;z-index:0;transform-origin:50% 50%;transition:transform .6s cubic-bezier(.2,.72,.25,1);will-change:transform}.map.view-reversed .map-scene{transform:rotateZ(180deg) scale(1.025)}.map.view-perspective .map-scene{transform:perspective(1600px) rotateX(6deg) scale(1.08)}.map.view-perspective.view-reversed .map-scene{transform:perspective(1600px) rotateX(6deg) rotateZ(180deg) scale(1.08)}
+.park .map{background:#06131f;border-color:rgba(99,217,255,.24);box-shadow:inset 0 0 0 1px rgba(255,255,255,.018)}.map-scene{position:absolute;inset:0;z-index:0;transform:none;transform-origin:50% 50%}
 .park .map-scene .aerial{inset:0;animation:none;transform:scale(1.025);transition:filter 1.7s ease,opacity .45s ease}.map:hover .map-scene .aerial{transform:scale(1.025)}.phase{animation:none;stroke-dasharray:10 8}.window-lights{animation:none}.cloud{display:none;animation:none}.park-3d{transition:opacity .45s ease,filter 1.7s ease}.live-dot{animation-duration:3.2s}
 .map-view-controls{position:absolute;z-index:10;left:18px;top:62px;align-items:center;padding:6px;background:rgba(2,15,26,.92)}.map-view-controls .view-label{padding:0 7px;color:#789daf;font-size:11px;letter-spacing:1px}.map-view-controls .map-chip{padding:6px 10px}.map-view-controls .map-chip.active{box-shadow:none}.map-view-controls .map-chip:disabled{opacity:.42}
-.map.view-reversed .phase-flag{transform:rotate(180deg)}.map.view-reversed .custom-map-text{transform:translate(-50%,-50%) rotate(180deg)}.map.view-reversed .building-marker .pin{transform:rotate(180deg)}.map.view-reversed .building-marker:hover .pin,.map.view-reversed .building-marker.selected .pin{transform:rotate(180deg) translateY(4px)}
 body.park-editing .map-scene{inset:0;transform:none!important;transition:none;will-change:auto}body.park-editing .map-view-controls{opacity:.55}.map-detail{background:linear-gradient(145deg,rgba(3,20,34,.97),rgba(5,34,49,.95));box-shadow:0 10px 26px rgba(0,0,0,.32)}
 @keyframes pulse{50%{opacity:.62;transform:scale(.82)}}@keyframes cardSweep{0%{transform:translateX(-80%) rotate(8deg)}38%,100%{transform:translateX(90%) rotate(8deg)}}@keyframes pageIn{from{opacity:0;transform:translateY(14px) scale(.995)}to{opacity:1;transform:none}}@keyframes mapDrift{from{transform:scale(1.02) translate3d(-.25%,0,0)}to{transform:scale(1.045) translate3d(.25%,-.35%,0)}}@keyframes lightsFlicker{50%{opacity:.42}}@keyframes cloudMove{from{transform:translateX(0)}to{transform:translateX(1500px)}}@keyframes dash{to{stroke-dashoffset:-180}}@keyframes growX{from{transform:scaleX(0)}}@keyframes growY{from{transform:scaleY(0)}}@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.001ms!important;animation-iteration-count:1!important}}
 @media(max-width:1200px){#app{transform-origin:0 0}}
@@ -130,10 +129,10 @@ document.getElementById('auto').onclick=function(){if(timer){clearInterval(timer
 document.getElementById('ambient').hidden=true;
 (async()=>{try{const r=await fetch('http://localhost:3200/api/system-branding',{cache:'no-store'});const j=await r.json();const g=(j?.data?.welcomeGuest||'').trim();if(g)document.getElementById('welcomeLine').textContent=`热烈欢迎 ${g} 莅临考察指导`}catch{}})();
 // 明日摄像头接入预留：把 HLS/WebRTC/厂商 SDK 地址映射到 CAM-001/018/043/067 即可。
-window.PARK_DEMO={version:'2026-09-08-low-power-perspective',resolution:'3612x1462',phases:['一期','二期','远期'],buildingCount:buildings.length,cameraSlots:['CAM-001','CAM-018','CAM-043','CAM-067']};
+window.PARK_DEMO={version:'2026-09-08-camera-hotfix',resolution:'3612x1462',phases:['一期','二期','远期'],buildingCount:buildings.length,cameraSlots:['CAM-001','CAM-018','CAM-043','CAM-067']};
 window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buildings=value;renderBuildings()},renderBuildings,selectBuilding,fit,config:null};
 </script>
-<script type="module" src="./park-ops-3d.js?v=20260908-low-power-view"></script>
-<script src="./park-ops-editor.js?v=20260908-low-power-view"></script>
+<script type="module" src="./park-ops-3d.js?v=20260908-camera-hotfix"></script>
+<script src="./park-ops-editor.js?v=20260908-camera-hotfix"></script>
 </body>
 </html>

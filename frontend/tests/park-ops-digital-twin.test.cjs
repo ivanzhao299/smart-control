@@ -31,7 +31,7 @@ test('park dashboard ships a compact glTF 2.0 relief model and local-only viewer
   assert.equal(model.meshes[0].extras.triangles, 12730);
   assert.equal(model.images[0].mimeType, 'image/jpeg');
   assert.match(html, /type="importmap"/);
-  assert.match(html, /park-ops-3d\.js\?v=20260908-low-power-view/);
+  assert.match(html, /park-ops-3d\.js\?v=20260908-camera-hotfix/);
   assert.match(viewerJs, /\.\/park-aerial-relief\.glb/);
   assert.match(viewerJs, /static-fallback/);
   assert.match(viewerJs, /prefers-reduced-motion/);
@@ -66,7 +66,7 @@ test('park dashboard exposes phase, building and day-night interactions', () => 
 test('park dashboard labels simulated business data and publishes a version marker', () => {
   assert.match(html, /企业名称为演示占位/);
   assert.match(html, /分区、楼栋、企业及业务指标均为演示标注/);
-  assert.match(html, /version:'2026-09-08-low-power-perspective'/);
+  assert.match(html, /version:'2026-09-08-camera-hotfix'/);
   assert.match(html, /buildingCount:buildings\.length/);
 });
 
@@ -104,17 +104,16 @@ test('low-power mode removes ambient and card sweep loops and caps 3D work', () 
   assert.match(viewerJs, /document\.hidden/);
 });
 
-test('3D scene supports perspective and 180 degree reverse viewing without breaking calibration', () => {
-  assert.match(viewerJs, /id="parkPerspectiveToggle"/);
-  assert.match(viewerJs, /id="parkReverseToggle"/);
-  assert.match(viewerJs, /perspective: true/);
-  assert.match(viewerJs, /rotation: 180/);
-  assert.match(viewerJs, /classList\.toggle\('view-perspective'/);
-  assert.match(viewerJs, /classList\.toggle\('view-reversed'/);
+test('dashboard restores the usable forward camera and removes the incorrect image rotation controls', () => {
+  assert.doesNotMatch(viewerJs, /id="parkPerspectiveToggle"/);
+  assert.doesNotMatch(viewerJs, /id="parkReverseToggle"/);
+  assert.match(viewerJs, /perspective: false/);
+  assert.match(viewerJs, /rotation: 0/);
+  assert.match(viewerJs, /classList\.remove\('view-perspective', 'view-reversed'\)/);
   assert.match(viewerJs, /document\.body\.classList\.contains\('park-editing'\)/);
   assert.match(html, /body\.park-editing \.map-scene\{[^}]*transform:none!important/);
-  assert.match(html, /\.map\.view-perspective\.view-reversed \.map-scene\{[^}]*rotateZ\(180deg\)/);
-  assert.match(html, /\.map\.view-reversed \.building-marker \.pin\{transform:rotate\(180deg\)\}/);
+  assert.match(html, /\.map-scene\{[^}]*inset:0[^}]*transform:none/);
+  assert.doesNotMatch(html, /\.map\.view-perspective\.view-reversed/);
 });
 
 test('shared calibration editor supports phase vertices, buildings and text styles', () => {
@@ -143,11 +142,11 @@ test('dashboard exposes a visible calibration entry without editing the URL by h
   assert.match(editorJs, /localStorage\.getItem\('sc\.client\.token'\)/);
   assert.match(editorJs, /headers\['X-Client-Token'\]/);
   assert.match(editorJs, /\.\.\.authHeaders/);
-  assert.match(html, /park-ops-editor\.js\?v=20260908-low-power-view/);
-  assert.match(html, /park-ops-editor\.css\?v=20260908-low-power-view/);
+  assert.match(html, /park-ops-editor\.js\?v=20260908-camera-hotfix/);
+  assert.match(html, /park-ops-editor\.css\?v=20260908-camera-hotfix/);
   assert.match(adminLogin, /parkEditorTarget/);
   const systemBranding = fs.readFileSync(path.resolve(__dirname, '../src/pages/admin/SystemBrandingAdmin.vue'), 'utf8');
-  assert.match(systemBranding, /park-ops\/index\.html\?edit=1&v=20260908-low-power-view/);
+  assert.match(systemBranding, /park-ops\/index\.html\?edit=1&v=20260908-camera-hotfix/);
   assert.match(editorJs, /当前是本地文件预览，无法保存/);
   assert.match(adminLogin, /new URLSearchParams/);
   assert.match(adminLogin, /requested === '\/admin' \|\| requested\.startsWith\('\/admin\/'\)/);
