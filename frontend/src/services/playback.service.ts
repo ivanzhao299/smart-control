@@ -1,4 +1,6 @@
-import { api } from './http';
+import { api, HttpError } from './http';
+import { mediaService } from './media.service';
+import { assertCurrentIdentity, identityGeneration } from './identity-boundary';
 import type { PlaybackChannelView } from '@/types/api';
 
 /**
@@ -38,7 +40,24 @@ export async function publishWelcome(slot: number, variant: WelcomeVariant): Pro
 
 /** 一键投放内置园区智慧运营大屏，不依赖环境里的媒体数字 ID。 */
 export async function publishParkDashboard(slot: number): Promise<PlaybackChannelView> {
-  return api.post<PlaybackChannelView>(`/playback/channels/${slot}/park-dashboard`, null);
+  const generation = identityGeneration();
+  try {
+    return await api.post<PlaybackChannelView>(`/playback/channels/${slot}/park-dashboard`, null);
+  } catch (error) {
+    assertCurrentIdentity(generation);
+    if (!(error instanceof HttpError) || error.status !== 404) throw error;
+
+    // 现场前后端可能按零停机方式错峰切换。旧后端还没有专用快捷接口时，
+    // 用既有媒体列表 + 通道投放接口完成同一动作；仍按稳定名称定位，不写死数据库 ID。
+    const name = '金湖科创产业园·智慧运营总览(DEMO)';
+    const result = await mediaService.list({
+      kind: 'webpage', scope: 'shared', keyword: name, limit: 100,
+    });
+    assertCurrentIdentity(generation);
+    const asset = result.items.find((item) => item.originalName === name);
+    if (!asset) throw new Error(`媒体库里找不到内置素材「${name}」`);
+    return publishToChannel(slot, asset.id, 'loop');
+  }
 }
 
 export async function pauseChannel(slot: number): Promise<PlaybackChannelView> {
