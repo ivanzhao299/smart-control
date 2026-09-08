@@ -44,6 +44,9 @@ test('dashboard fills the viewport by default and removes moving scan lines', ()
   assert.doesNotMatch(html, /insertAdjacentHTML\('afterbegin','<i class="panel-scan/);
   assert.doesNotMatch(html, /lineTo\(q\.x/);
   assert.doesNotMatch(html, /@keyframes (scanY|camScan)/);
+  assert.doesNotMatch(html, /class="flow(?:\s|")/);
+  assert.doesNotMatch(html, /flow-node|flowGradient|roadFlow|nodePulse/);
+  assert.match(html, /\.phase\{[^}]*pointer-events:all/);
   assert.match(html, /body:before\{display:none\}/);
   assert.match(html, /\.cam:before,\.cam:after\{display:none\}/);
 });
@@ -55,6 +58,8 @@ test('shared calibration editor supports phase vertices, buildings and text styl
   assert.match(editorJs, /phase-handle/);
   assert.match(editorJs, /dblclick/);
   assert.match(editorJs, /contextmenu/);
+  assert.match(editorJs, /function deletePhaseById/);
+  assert.match(editorJs, /event\.target\.closest\('\.phase'\)/);
   assert.match(editorJs, /pe-building-company/);
   assert.match(editorJs, /pe-text-size/);
   assert.match(editorJs, /pe-text-color/);

@@ -455,6 +455,26 @@
     return bestIndex;
   }
 
+  function deletePhaseById(id) {
+    if (config.phases.length <= 1) {
+      setStatus('至少保留 1 个分区', 'error');
+      return false;
+    }
+    const phase = config.phases.find(item => item.id === id);
+    if (!phase || !confirm(`确定删除“${phase.name} · ${phase.zoneName}”？该分区楼栋会自动转入第一个保留分区。`)) return false;
+    config.phases = config.phases.filter(item => item.id !== id);
+    selectedPhaseId = config.phases[0].id;
+    selectedPointIndex = 0;
+    config.buildings.forEach(item => { if (item.phase === phase.id) item.phase = selectedPhaseId; });
+    applyPhases();
+    applyBuildings();
+    refreshEditorOptions();
+    renderPhaseHandles();
+    syncEditorFields();
+    setStatus('已删除分区并迁移所属楼栋；尚未保存', 'ok');
+    return true;
+  }
+
   function bindMapEditing() {
     let draggingBuilding = null;
     let draggingPoint = null;
@@ -544,6 +564,8 @@
       refreshEditorOptions();
       syncEditorFields();
       renderPhaseHandles();
+      const phase = config.phases.find(item => item.id === selectedPhaseId);
+      if (phase) setStatus(`已选中“${phase.name} · ${phase.zoneName}”，可在右侧删除，或直接右键此区域删除`, 'ok');
     });
 
     svg.addEventListener('dblclick', event => {
@@ -562,8 +584,14 @@
 
     svg.addEventListener('contextmenu', event => {
       const handle = event.target.closest('.phase-handle');
-      if (!editing || !handle) return;
+      const polygon = event.target.closest('.phase');
+      if (!editing || (!handle && !polygon)) return;
       event.preventDefault();
+      if (polygon) {
+        selectedPhaseId = polygon.dataset.phase;
+        deletePhaseById(selectedPhaseId);
+        return;
+      }
       const phase = config.phases.find(item => item.id === selectedPhaseId);
       if (!phase || phase.points.length <= 3) return;
       phase.points.splice(Number(handle.dataset.pointIndex), 1);
@@ -636,7 +664,7 @@
           <div class="park-editor-field"><label>当前端点</label><select id="pe-point-select"></select></div>
           <div class="park-editor-row"><div class="park-editor-field"><label>端点 X</label><input id="pe-point-x" type="number" min="0" max="1000" step="0.1"></div><div class="park-editor-field"><label>端点 Y</label><input id="pe-point-y" type="number" min="0" max="690" step="0.1"></div></div>
           <div class="park-editor-row"><button class="park-editor-mini" id="pe-point-add">＋ 增加端点</button><button class="park-editor-mini danger" id="pe-point-delete">删除当前端点</button></div>
-          <p class="park-editor-help">拖动编号圆点可移动端点；按钮可精确增删。也保留双击边线新增、右键端点删除（至少 3 个）。分区文字可直接拖动。</p>
+          <p class="park-editor-help">单击闭合区域可选中，在右侧删除，或直接右键区域删除。拖动编号圆点可移动端点；双击边线新增端点，右键端点删除（至少 3 个）。分区文字可直接拖动。</p>
         </section>
         <section class="park-editor-section">
           <h4>03 · 楼栋和企业标注</h4>
@@ -699,17 +727,7 @@
       applyPhases(); refreshEditorOptions(); renderPhaseHandles(); syncEditorFields();
       setStatus('已新增分区，拖动端点和分区文字完成定位；尚未保存', 'ok');
     };
-    editor.querySelector('#pe-phase-delete').onclick = () => {
-      if (config.phases.length <= 1) { setStatus('至少保留 1 个分区', 'error'); return; }
-      const phase = config.phases.find(item => item.id === selectedPhaseId);
-      if (!phase || !confirm(`确定删除“${phase.name} · ${phase.zoneName}”？该分区楼栋会自动转入第一个保留分区。`)) return;
-      config.phases = config.phases.filter(item => item.id !== selectedPhaseId);
-      selectedPhaseId = config.phases[0].id;
-      selectedPointIndex = 0;
-      config.buildings.forEach(item => { if (item.phase === phase.id) item.phase = selectedPhaseId; });
-      applyPhases(); applyBuildings(); refreshEditorOptions(); renderPhaseHandles(); syncEditorFields();
-      setStatus('已删除分区并迁移所属楼栋；尚未保存', 'ok');
-    };
+    editor.querySelector('#pe-phase-delete').onclick = () => deletePhaseById(selectedPhaseId);
     editor.querySelector('#pe-point-select').onchange = event => { selectedPointIndex = Number(event.target.value); renderPhaseHandles(); syncEditorFields(); };
     const updatePoint = () => {
       const phase = config.phases.find(item => item.id === selectedPhaseId);
