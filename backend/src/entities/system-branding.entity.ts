@@ -93,6 +93,10 @@ export class SystemBranding {
   @Column({ type: 'integer', name: 'welcomeBgMediaId', nullable: true })
   welcomeBgMediaId!: number | null;
 
+  /** 园区运营大屏可视化校准配置。JSON 文本由服务层做严格结构和范围校验。 */
+  @Column({ type: 'text', name: 'parkOpsConfigJson', nullable: true })
+  parkOpsConfigJson!: string | null;
+
   @UpdateDateColumn()
   updatedAt!: Date;
 }

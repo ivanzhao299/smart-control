@@ -6,6 +6,7 @@ import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { SystemBranding } from '../../entities/system-branding.entity';
+import { normalizeParkOpsConfig, type ParkOpsConfigDocument } from './park-ops-config';
 
 export interface SystemBrandingDto {
   systemName: string;
@@ -57,6 +58,7 @@ export class SystemBrandingService implements OnModuleInit {
       `ALTER TABLE "system_branding_v2" ADD COLUMN "welcomeTitle" varchar(32)`,
       `ALTER TABLE "system_branding_v2" ADD COLUMN "welcomeTagline" varchar(64)`,
       `ALTER TABLE "system_branding_v2" ADD COLUMN "welcomeBgMediaId" integer`,
+      `ALTER TABLE "system_branding_v2" ADD COLUMN "parkOpsConfigJson" text`,
     ]) {
       await this.repo.query(ddl).catch(() => { /* duplicate column = 已存在, 正常 */ });
     }
@@ -132,6 +134,33 @@ export class SystemBrandingService implements OnModuleInit {
   async getWelcomeMediaId(): Promise<number | null> {
     const row = await this.repo.findOne({ where: { id: 1 } });
     return row?.welcomeMediaId ?? null;
+  }
+
+  async getParkOpsConfig(): Promise<{ config: ParkOpsConfigDocument | null; updatedAt: string | null }> {
+    const row = await this.repo.findOne({ where: { id: 1 } });
+    if (!row?.parkOpsConfigJson) return { config: null, updatedAt: row?.updatedAt?.toISOString?.() ?? null };
+    try {
+      return {
+        config: normalizeParkOpsConfig(JSON.parse(row.parkOpsConfigJson)),
+        updatedAt: row.updatedAt?.toISOString?.() ?? null,
+      };
+    } catch (error) {
+      this.logger.error(`[SystemBranding] 园区大屏配置损坏，已回退内置默认值: ${(error as Error).message}`);
+      return { config: null, updatedAt: row.updatedAt?.toISOString?.() ?? null };
+    }
+  }
+
+  async updateParkOpsConfig(input: unknown): Promise<{ config: ParkOpsConfigDocument; updatedAt: string | null }> {
+    const config = normalizeParkOpsConfig(input);
+    const current = await this.repo.findOne({ where: { id: 1 } });
+    if (current) {
+      await this.repo.update({ id: 1 }, { parkOpsConfigJson: JSON.stringify(config) });
+    } else {
+      await this.repo.save(this.repo.create({ id: 1, ...DEFAULTS, parkOpsConfigJson: JSON.stringify(config) }));
+    }
+    this.logger.info('[SystemBranding] 园区大屏布局配置已更新');
+    const saved = await this.getParkOpsConfig();
+    return { config, updatedAt: saved.updatedAt };
   }
 
   async update(input: Partial<SystemBrandingDto>): Promise<SystemBrandingDto> {

@@ -25,6 +25,24 @@ export class SystemBrandingController {
     return { message: '查询成功', data: await this.service.get() };
   }
 
+  /** 大屏和校准器共同读取；没有保存过时 config=null，页面使用内置默认值。 */
+  @Public()
+  @Get('park-ops')
+  async getParkOps() {
+    return { message: '查询成功', data: await this.service.getParkOpsConfig() };
+  }
+
+  /** 仅后台管理员可保存共享布局，避免 LED/投影播放页被误触修改。 */
+  @Put('park-ops')
+  @UseGuards(AdminGuard)
+  async updateParkOps(@Body() body: unknown): Promise<unknown> {
+    try {
+      return { message: '园区大屏布局已保存', data: await this.service.updateParkOpsConfig(body) };
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
+  }
+
   /**
    * 欢迎页内容编辑 (2026-07-28 业主: "编辑放到前端, 不用进后台") — 客户端 token
    * 即可改 (走全局 ClientAuthGuard, 与切灯/推片同级的日常操作), 但**只放行欢迎页

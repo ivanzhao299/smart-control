@@ -19,6 +19,11 @@ const brandingStore = useSystemBrandingStore();
 const formRef = ref<FormInstance>();
 const submitting = ref(false);
 
+function openParkOpsEditor(): void {
+  const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
+  window.location.assign(`${base}park-ops/index.html?edit=1`);
+}
+
 const form = reactive({
   systemName: '',
   systemSubtitle: '',
@@ -261,6 +266,7 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
         <h2>系统品牌</h2>
         <p class="hint">控制系统本身的 logo + 名称配置. 改完保存, 前台左上角 logo + 顶栏标题 + 浏览器 tab 全部实时同步.</p>
       </div>
+      <el-button type="primary" @click="openParkOpsEditor">园区大屏布局校准</el-button>
     </header>
 
     <div class="layout">
@@ -492,6 +498,10 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
 }
 .page-head {
   margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 .page-head h2 {
   margin: 0 0 4px;
