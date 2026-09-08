@@ -10,6 +10,16 @@
 
 ## 工作队列
 
+### 生产迁移与真实账户隔离验收（2026-09-08）
+
+已推送pre-multiuser-20260908-park-ops指向b98ddc5，保留旧标记。GitHub部署workflow暂时disabled_manually，五个主机任务暂停。原任务快照D:/smart-control/logs/release-pause-5239668673cc45e39490bc5bf480405e.json；第一次暂停遇到浏览器根进程退出连带子进程消失，逐个复核原快照PID/创建时间后完成剩余停止，停写检查通过。
+
+受限ACL发布目录C:/ProgramData/Anksen/smart-control-release-20260908-0055，保留previous-build-and-config.tar、previous-source.tar和previous-dump.pm2。真实数据库67条媒体记录无缺失或越界路径，D:/Media含66文件共4115674100字节。release-lZWwQC配套包与restore-uV9gkE隔离恢复演练验证通过，10项迁移完成，回执release-lZWwQC/migration-complete.json。cdb4262已推送main并在GK9000构建启动，运行验证器确认端口PID、产物新鲜度、健康和大屏静态资源通过。配置了三份受限设备凭据，未输出明文；首次kiosk配置失败导致入口停服，重启同一已验证候选后重试，两个真实profile配置成功，没有退回旧程序。
+
+生产HTTP验收通过：临时管理员经用户名密码登录、API创建两名operator、两次真实私有PNG上传、双方列表隔离及跨用户下载/修改/删除拒绝、管理员全量查看与修改、匿名拒绝、三路设备凭据访问。临时测试文件和三账户已清理（fixturePrefix=release_qa_4d6e19344ede）；旧账号密码和原资料未修改。
+
+发现看门狗仍匿名请求受保护的playback/channels，已改为读受限native凭据逐路请求player-device/state。Windows全文件解析、实际三路读取及结构回归通过，待更新看门狗并恢复原任务启用状态。GitHub API目前限流，恢复workflow时需核实，不把git push成功当作workflow恢复成功。三路真实播放与现场视听验收尚未完成，不能据API测试宣称全部交付。
+
 ### 集成当前生产园区大屏，独立发布候选（2026-09-08）
 
 生产双跳只读登录仍成功，磁盘HEAD与最近成功部署记录均为b98ddc53888f640ad32bdf943742fe2abd0aa098。原始pre-multiuser-20260905保留，但下一次发布前代码恢复基线必须包含此大屏版本，不能退回8d4ce521覆盖并行上线成果。

@@ -235,11 +235,21 @@ if ($consoleSession -ge 0 -and $mySession -ne $consoleSession) {
 #    and restarting them would just load another error page.
 $channels = $null
 try {
-  $resp = Invoke-RestMethod -Uri 'http://localhost:3200/api/playback/channels' -TimeoutSec 6
-  $channels = $resp.data
+  $credentialFile = & (Join-Path $PSScriptRoot 'resolve-player-token-file.ps1')
+  if (-not $?) { throw 'Device credential path unavailable.' }
+  $deviceToken = [IO.File]::ReadAllText($credentialFile).Trim()
+  if ($deviceToken -notmatch '^[a-f0-9]{64}$') { throw 'Invalid device credential.' }
+  $channels = @(foreach ($slot in @(1, 2, 3)) {
+    $resp = Invoke-RestMethod -Uri ('http://localhost:3200/api/player-device/' + $slot + '/state') `
+      -Headers @{'X-Player-Token'=$deviceToken} -TimeoutSec 6 -ErrorAction Stop
+    if (-not $resp.data -or $resp.data.slot -ne $slot) { throw 'Invalid device state.' }
+    $resp.data
+  })
 } catch {
-  Log ('backend unreachable, skip: ' + $_.Exception.Message)
+  Log 'authenticated device state unavailable, skip'
   exit 0
+} finally {
+  $deviceToken = $null
 }
 if (-not $channels) { Log 'no channel data, skip'; exit 0 }
 
