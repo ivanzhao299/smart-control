@@ -10,6 +10,12 @@
 
 ## 工作队列
 
+### Windows真实headless profile配置演练（2026-09-08）
+
+当前配置器在GK9000内存加载，使用主机已有浏览器、临时新profile和临时loopback HTTP服务进行真实headless测试。合成设备凭据首次接受后关闭浏览器，第二次启动读取到已持久化值，无效替换被拒绝。测试未读取生产凭据、不接触原播放器profile和业务API，生成的临时profile已清理；没有改动计划任务或播放状态。Windows自动profile配置的隔离测试缺口已关闭，不等于生产profile已发放。
+
+本轮重新完成前后端构建、后端48组584项及发布/存储29项测试。剩余为真实发布时序、生产备份、停写迁移和设备/账户验收；不能凭隔离演练直接标记已上线。
+
 ### 专用浏览器profile自动配置接线（2026-09-08）
 
 新增provision-kiosk-profiles.cjs，使用现有ws依赖和浏览器仅loopback调试通道，在headless静音实例中配置专用profile；设备token仅在进程内存和CDP消息中传递，不放URL、启动参数或日志。验证设备state接口接受后才持久保存，退出浏览器后留给正常Interactive播放器使用。CLI限制GK9000/user，检查watchdog禁用且无现有专用浏览器进程，使用与start-players一致的浏览器优先级及profile路径。
