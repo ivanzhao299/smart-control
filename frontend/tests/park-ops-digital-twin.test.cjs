@@ -60,3 +60,21 @@ test('shared calibration editor supports phase vertices, buildings and text styl
   assert.match(editorCss, /park-text-selected/);
   assert.doesNotThrow(() => new Function(editorJs));
 });
+
+test('dashboard exposes a visible calibration entry without editing the URL by hand', () => {
+  assert.match(html, /id="openCalibration"[^>]*>⚙ 布局校准/);
+  assert.match(html, /searchParams\.set\('edit','1'\)/);
+  assert.match(editorCss, /park-editing #openCalibration\{display:none\}/);
+});
+
+test('calibration editor provides explicit create update delete controls', () => {
+  for (const control of [
+    'pe-phase-add', 'pe-phase-delete',
+    'pe-point-add', 'pe-point-delete',
+    'pe-building-add', 'pe-building-delete',
+    'pe-custom-text-add', 'pe-custom-text-delete',
+  ]) assert.match(editorJs, new RegExp(`id="${control}"`));
+  assert.match(editorJs, /customTexts/);
+  assert.match(editorJs, /draggingPhaseFlag/);
+  assert.match(editorJs, /draggingCustomText/);
+});
