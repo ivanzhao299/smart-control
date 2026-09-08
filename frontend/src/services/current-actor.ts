@@ -32,7 +32,13 @@ export function useCurrentActor() {
       }
     }
   }
-  const unsubscribe = onIdentityChange(() => { revision++; actor.value = null; });
+  const unsubscribe = onIdentityChange(() => {
+    revision++;
+    actor.value = null;
+    // A successful admin unlock/account change should refresh mounted controls
+    // immediately rather than leave them read-only until the next 30s poll.
+    if (!disposed) void refreshActor();
+  });
   onMounted(() => { void refreshActor(); timer = setInterval(() => void refreshActor(), 30_000); });
   onScopeDispose(() => { disposed = true; revision++; actor.value = null; unsubscribe(); if (timer) clearInterval(timer); });
   const isAdmin = computed(() => actor.value?.role === 'admin');

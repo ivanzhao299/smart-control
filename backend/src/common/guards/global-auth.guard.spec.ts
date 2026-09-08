@@ -42,6 +42,17 @@ describe('global authentication boundary', () => {
     expect(req.actor).toMatchObject({ kind: 'admin', role: 'admin' });
   });
 
+  it('preserves administrator device control when a legacy viewer token also exists', async () => {
+    const boundary = new GlobalAuthGuard(
+      { getAllAndOverride: () => false } as any,
+      { resolveActor: async () => ({ kind: 'legacy', userId: null, username: 'legacy', role: 'viewer' }) } as any,
+      { verifyToken: async (token: string) => token === 'admin-token' } as any,
+    );
+    const req: any = { method: 'POST', headers: { authorization: 'Bearer admin-token', 'x-client-token': 'old-client-token' } };
+    expect(await boundary.canActivate(context(req))).toBe(true);
+    expect(req.actor).toMatchObject({ role: 'admin', kind: 'admin' });
+  });
+
   it('keeps explicitly public entry points available without creating an identity', async () => {
     const req: any = { headers: {} };
     expect(await guard(true).canActivate(context(req))).toBe(true);

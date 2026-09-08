@@ -10,6 +10,9 @@ const { once } = require('node:events');
 const net = require('node:net');
 const { hashPassword } = require('../dist/common/utils/password.util');
 const { AdminAuth } = require('../dist/entities/admin-auth.entity');
+const { HardwareUnit } = require('../dist/entities/hardware-unit.entity');
+const { LightZone } = require('../dist/entities/light-zone.entity');
+const { LightGroup } = require('../dist/entities/light-group.entity');
 
 async function main() {
   const probe = net.createServer();
@@ -25,6 +28,10 @@ async function main() {
   try {
     await db.runMigrations();
     await db.getRepository(AdminAuth).save({ id: 1, passwordHash: hashPassword(password), passwordChangedAt: new Date(), tokenSecret: randomBytes(32).toString('hex') });
+    // A real control-page fixture backed only by the explicitly MOCK adapter.
+    await db.getRepository(HardwareUnit).save({ code: 'BROWSER-MOCK-GW', name: 'Browser mock gateway', category: 'dali-gateway', vendor: 'test', model: 'mock', addressing: JSON.stringify({ slaveId: 1 }) });
+    await db.getRepository(LightZone).save({ code: 'browser-control-test', name: 'Browser test lighting', floor: '1F', enabled: true });
+    await db.getRepository(LightGroup).save({ gatewayCode: 'BROWSER-MOCK-GW', daliGroup: 1, zoneCode: 'browser-control-test', enabled: true });
   } finally { await db.destroy(); }
   const output = await open(join(root, 'backend.log'), 'wx');
   const server = spawn(process.execPath, [resolve(__dirname, '../dist/main.js')], { cwd: root,

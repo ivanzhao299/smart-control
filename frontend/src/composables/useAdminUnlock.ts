@@ -12,7 +12,7 @@ export function useAdminUnlock() {
   const store = useAdminAuthStore();
 
   async function ensureAdmin(what = '此操作'): Promise<boolean> {
-    if (store.isAuthenticated) return true;
+    if (await store.ensureChecked(true)) return true;
     try {
       const { value } = await ElMessageBox.prompt(
         `${what}仅管理员可用, 请输入后台管理密码验证身份 (本次登录 8 小时内免重复输入)。`,

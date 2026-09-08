@@ -2,6 +2,7 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { trackRouteChange } from '@/services/rum.service';
 import { useAdminAuthStore } from '@/stores/admin-auth';
 import { useClientAuthStore } from '@/stores/client-auth';
+import { usePermissionStore } from '@/stores/permission';
 
 const routes: RouteRecordRaw[] = [
   // 平板布局 (Sprint-05)
@@ -99,13 +100,16 @@ export const router = createRouter({
 // 注意: /admin/* 后台路径**不走**这个 guard — admin 有自己独立的 admin-auth.
 // 业主 / 管理员两套鉴权是平行的, 不应该叠加. 老业主装着 PWA 但没 client token,
 // 仍能去后台修复问题; client-auth 错配/服务器换地址不影响 admin 进入.
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   // 显式公开页: client-login (输密码 + 配地址), player (kiosk 全屏播放, 无 UI)
   if (to.meta?.clientPublic || to.name === 'player') return true;
-  // admin 路径自管 — 别拦
-  if (typeof to.path === 'string' && to.path.startsWith('/admin')) return true;
   const client = useClientAuthStore();
-  if (!client.isAuthed) {
+  // Hydrate the saved administrator session on control pages too. Otherwise a
+  // reload silently sends only the old read-only client token to device APIs.
+  const admin = useAdminAuthStore();
+  const adminAuthenticated = await admin.ensureChecked();
+  if (typeof to.path === 'string' && to.path.startsWith('/admin')) return true;
+  if (!client.isAuthed && !adminAuthenticated) {
     return { name: 'client-login', query: { redirect: to.fullPath } };
   }
   return true;
@@ -119,6 +123,9 @@ router.beforeEach(async (to) => {
     if (!ok) {
       return { name: 'admin-login', query: { redirect: to.fullPath } };
     }
+  }
+  if (!to.meta?.clientPublic && to.name !== 'player') {
+    await usePermissionStore().refresh();
   }
   return true;
 });

@@ -8,10 +8,10 @@ import { useSystemStore } from '@/stores/system';
 import { usePermissionStore } from '@/stores/permission';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { useAdminAuthStore } from '@/stores/admin-auth';
+import { useClientAuthStore } from '@/stores/client-auth';
 import { LogOut } from 'lucide-vue-next';
 import { ElMessageBox } from 'element-plus';
 import { adminNavIconFor } from '@/composables/useIcons';
-import type { UserRole } from '@/types/api';
 
 const route = useRoute();
 const router = useRouter();
@@ -116,20 +116,21 @@ function go(name: string): void {
   sidebarOpen.value = false;
 }
 
-function onRoleChange(v: UserRole): void {
-  perm.setRole(v);
+function returnToControl(): void {
+  void router.push({ name: 'dashboard' });
 }
 
-/** 退出后台 = 清 admin 登录态 + 返回前台首页. 再进后台会被 guard 拦, 需重新输密码. */
+/** Only an explicit logout clears identity; returning to controls preserves it. */
 async function exitToFront(): Promise<void> {
   try {
-    await ElMessageBox.confirm('退出后台并返回前台? 再次进入后台需要输入密码。', '退出后台', {
+    await ElMessageBox.confirm('退出当前登录？再次操作需要重新登录。', '退出登录', {
       confirmButtonText: '退出',
       cancelButtonText: '取消',
       type: 'warning',
     });
     await authStore.logout();
-    router.replace({ name: 'dashboard' });
+    useClientAuthStore().logout();
+    router.replace({ name: 'client-login' });
   } catch {
     // 取消, 不动
   }
@@ -168,8 +169,9 @@ async function exitToFront(): Promise<void> {
         </template>
       </nav>
       <div class="footer">
+        <button type="button" class="back" @click="returnToControl">返回设备控制</button>
         <button type="button" class="back" @click="exitToFront">
-          <LogOut :size="16" :stroke-width="2" /> 退出后台 · 返回前台
+          <LogOut :size="16" :stroke-width="2" /> 退出登录
         </button>
       </div>
     </aside>
@@ -196,11 +198,7 @@ async function exitToFront(): Promise<void> {
           <span class="v2-pill" :class="sys.info?.mockMode ? '' : 'idle'">
             <span class="v2-dot"></span>{{ sys.info?.mockMode ? 'MOCK 模式' : '真实模式' }}
           </span>
-          <el-select :model-value="perm.role" size="small" style="width: 120px;" @update:model-value="onRoleChange">
-            <el-option label="admin" value="admin" />
-            <el-option label="operator" value="operator" />
-            <el-option label="viewer" value="viewer" />
-          </el-select>
+          <span class="v2-pill">{{ perm.role === 'admin' ? '管理员' : perm.role === 'operator' ? '操作员' : '只读账户' }}</span>
           <button
             v-if="fsSupported"
             type="button"

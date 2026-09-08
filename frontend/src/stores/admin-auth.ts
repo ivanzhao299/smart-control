@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import { computed, ref, onScopeDispose } from 'vue';
 import { onServerChange } from '@/services/identity-boundary';
 import { adminLogin, adminLogout, adminMe } from '@/services/admin-auth.service';
-import { setAdminToken, getApiBaseURL } from '@/services/http';
+import { setAdminToken, getApiBaseURL, getClientToken } from '@/services/http';
 
 /**
  * 后台鉴权 store.
@@ -65,7 +65,11 @@ export const useAdminAuthStore = defineStore('admin-auth', () => {
   async function ensureChecked(force = false): Promise<boolean> {
     if (!token.value) {
       checked.value = true;
-      return false;
+      // Named administrators already authenticated through client login must
+      // not be asked for the separate shared administrator password.
+      if (!getClientToken()) return false;
+      try { return (await adminMe()).authenticated === true; }
+      catch { return false; }
     }
     if (checked.value && !force) return true;
     checking.value = true;

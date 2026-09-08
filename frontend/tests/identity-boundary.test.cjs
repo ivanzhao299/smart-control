@@ -32,6 +32,21 @@ function load(fetch, axiosRequest = async () => ({ data: { data: {} } })) {
 }
 const response = (status = 200, data = { privateName: 'alice' }) => ({ status, ok: status === 200, headers: { get: () => 'application/json' }, json: async () => ({ success: true, data }) });
 
+test('mounted controls refresh immediately after administrator unlock', async () => {
+  const env = load(async (_url, init) => response(200, {
+    kind: 'user', userId: 1, username: 'test', role: init.headers.Authorization ? 'admin' : 'viewer',
+  }));
+  env.http.setClientToken('viewer-token');
+  const state = env.useActor();
+  await state.refreshActor();
+  assert.equal(state.canOperate.value, false);
+  env.http.setAdminToken('verified-admin');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(state.isAdmin.value, true);
+  assert.equal(state.canOperate.value, true);
+  env.dispose();
+});
+
 test('closing and reopening a read scope cannot revive its previous deferred response', async () => {
   const env = load(async () => response());
   let open = true, finishOld, finishNew;

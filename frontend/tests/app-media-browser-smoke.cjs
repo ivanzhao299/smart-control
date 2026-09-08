@@ -174,9 +174,64 @@ async function api(route, method, body, token, admin = false) {
       }
       if (role === 'admin') await page.getByText('管理员内容管理', { exact: true }).waitFor();
       else assert.equal(await page.getByText('管理员内容管理', { exact: true }).count(), 0);
+      if (role === 'admin') {
+        await page.setViewportSize({ width: 1280, height: 900 });
+        await page.goto(origin + '/admin');
+        await page.getByRole('button', { name: '返回设备控制', exact: true }).waitFor();
+        assert.equal(await page.locator('.meta .el-select').count(), 0, 'No fake local role selector');
+        await page.getByRole('button', { name: '返回设备控制', exact: true }).click();
+        await page.goto(origin + '/lighting');
+        await page.reload();
+        try { await page.locator('.v2-zone button.v2-toggle').first().waitFor({ timeout: 10000 }); }
+        catch (error) { console.log('Device UI diagnostic', page.url(), (await page.locator('body').innerText()).slice(0, 700)); throw error; }
+        const command = page.waitForResponse(r => /\/api\/lighting\/zone\/\d+\/(on|off)$/.test(r.url()) && r.request().method() === 'POST');
+        await page.locator('.v2-zone button.v2-toggle').first().click();
+        const result = await command;
+        assert.ok(result.ok(), 'Named administrator controls devices after backend navigation and reload');
+        assert.equal((await result.json()).data.ok, true, 'MOCK lighting adapter actually accepted the operation');
+        console.log('PASS named administrator: enter management without second password, return, reload and actual lighting control request');
+      }
       console.log(`PASS built application: ${role} media visibility and controls at 390px`);
       await context.close();
     }
+    // Reproduce the deployed regression: a legacy read-only token coexists with
+    // a shared administrator login. Returning/reloading must preserve admin auth.
+    const legacy = await api('/client-auth/login', 'POST', { password: '1234' });
+    const management = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+    await management.route('**/*', route => route.request().url().startsWith(origin + '/') ? route.continue() : route.abort());
+    await management.addInitScript(({ token, expiresAt, origin }) => {
+      if (sessionStorage.getItem('test.initialized')) return;
+      sessionStorage.setItem('test.initialized', 'yes');
+      localStorage.setItem('sc.client.token', token);
+      localStorage.setItem('sc.client.token.expiresAt', expiresAt);
+      localStorage.setItem('sc.client.authServer', origin + '/api');
+      localStorage.setItem('sc.role', 'admin'); // Must not grant any authority.
+    }, { ...legacy, origin });
+    const control = await management.newPage();
+    await control.goto(origin + '/admin/login');
+    await control.getByPlaceholder('管理员密码', { exact: true }).fill(process.env.SC_SMOKE_ADMIN_PASSWORD);
+    await control.locator('button[type="submit"]').click();
+    await control.getByRole('button', { name: '返回设备控制', exact: true }).click();
+    await control.goto(origin + '/lighting');
+    await control.reload();
+    await control.locator('.v2-zone button.v2-toggle').first().waitFor();
+    const command = control.waitForResponse(r => /\/api\/lighting\/zone\/\d+\/(on|off)$/.test(r.url()) && r.request().method() === 'POST');
+    await control.locator('.v2-zone button.v2-toggle').first().click();
+    const executed = await command;
+    assert.ok(executed.ok(), 'Admin session must survive returning to controls and reload');
+    assert.equal((await executed.json()).data.ok, true, 'Shared admin reaches the MOCK lighting adapter');
+    assert.ok(executed.request().headers().authorization?.startsWith('Bearer '), 'Actual device request carries restored admin credential');
+    const denied = await fetch(backend + '/lighting/zone/1/on', { method: 'POST', headers: { 'X-Client-Token': legacy.token } });
+    assert.equal(denied.status, 403, 'Legacy-only access stays read-only');
+    const viewerDenied = await fetch(backend + '/lighting/zone/1/on', { method: 'POST', headers: { 'X-Client-Token': accounts.viewer.token } });
+    assert.equal(viewerDenied.status, 403, 'Named viewer stays read-only');
+    await control.goto(origin + '/admin');
+    await control.getByRole('button', { name: '退出登录', exact: true }).click();
+    await control.getByRole('button', { name: '退出', exact: true }).click();
+    await control.waitForURL(url => url.pathname.endsWith('/client-login'));
+    assert.deepEqual(await control.evaluate(() => ({ admin: sessionStorage.getItem('sc.adminToken'), client: localStorage.getItem('sc.client.token') })), { admin: null, client: null });
+    await management.close();
+    console.log('PASS shared administrator + old client session: return/reload preserves device authority; legacy/viewer remain denied');
     const owner = await api('/client-auth/me', 'GET', undefined, accounts.operator.token);
     await api('/users/' + owner.userId, 'PUT', { enabled: false }, admin, true);
     const revoked = await fetch(previewUrl);
