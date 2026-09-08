@@ -2,22 +2,56 @@ import * as THREE from 'three';
 import { GLTFLoader } from './vendor/loaders/GLTFLoader.js';
 
 const map = document.getElementById('parkMap');
+const mapPage = map?.closest('.page');
+const spatialSelectors = ['.aerial', '.window-lights', '.map-svg', '#phaseFlagLayer', '#buildingLayer', '#customTextLayer'];
+const sceneRoot = document.createElement('div');
+sceneRoot.className = 'map-scene';
+sceneRoot.setAttribute('aria-label', '可旋转园区空间层');
+for (const selector of spatialSelectors) {
+  const layer = map?.querySelector(selector);
+  if (layer) sceneRoot.appendChild(layer);
+}
+map?.prepend(sceneRoot);
+
 const canvas = document.createElement('canvas');
 canvas.id = 'park3dCanvas';
 canvas.className = 'park-3d';
 canvas.setAttribute('aria-label', '园区鸟瞰图轻量三维模型');
-map?.prepend(canvas);
-const toggle = document.createElement('button');
-toggle.id = 'park3dToggle';
-toggle.type = 'button';
-toggle.className = 'map-chip';
-toggle.textContent = '3D 加载中';
-document.getElementById('phaseFilters')?.append(toggle);
+sceneRoot.prepend(canvas);
+
+const controls = document.createElement('div');
+controls.id = 'parkViewControls';
+controls.className = 'toolbar-group map-view-controls';
+controls.setAttribute('aria-label', '园区模型视角');
+controls.innerHTML = `
+  <span class="view-label">观察视角</span>
+  <button id="park3dToggle" type="button" class="map-chip">3D 加载中</button>
+  <button id="parkPerspectiveToggle" type="button" class="map-chip active">透视</button>
+  <button id="parkReverseToggle" type="button" class="map-chip active">反向 180°</button>`;
+map?.appendChild(controls);
+const toggle = controls.querySelector('#park3dToggle');
+const perspectiveToggle = controls.querySelector('#parkPerspectiveToggle');
+const reverseToggle = controls.querySelector('#parkReverseToggle');
+
 const mapNote = map?.querySelector('.mapnote');
-if (mapNote) mapNote.textContent = '真实园区鸟瞰图 · 轻量 3D 地形 · 分区、楼栋号及企业名称可校准';
+if (mapNote) mapNote.textContent = '低功耗轻量 3D · 默认反向 180°展示已建区域 · 校准时自动恢复正视';
 const headingNote = map?.closest('.park')?.querySelector('h3 small');
-if (headingNote) headingNote.textContent = 'LIGHTWEIGHT 3D / EDITABLE PHASE MAP';
-const state = { ready: false, enabled: true, mode: 'loading', asset: './park-aerial-relief.glb', vertices: 6528, triangles: 12730, error: '' };
+if (headingNote) headingNote.textContent = 'LOW-POWER 3D / 180° PERSPECTIVE';
+
+const state = {
+  ready: false,
+  enabled: true,
+  mode: 'loading',
+  asset: './park-aerial-relief.glb',
+  vertices: 6528,
+  triangles: 12730,
+  error: '',
+  fpsCap: 8,
+  renderScale: 0.82,
+  perspective: true,
+  rotation: 180,
+  calibrationMode: false,
+};
 window.PARK_3D = state;
 
 function setToggle(label, disabled = false) {
@@ -26,6 +60,25 @@ function setToggle(label, disabled = false) {
   toggle.disabled = disabled;
   toggle.classList.toggle('active', state.ready && state.enabled);
 }
+
+function applyView() {
+  state.calibrationMode = document.body.classList.contains('park-editing');
+  map?.classList.toggle('view-perspective', state.perspective && !state.calibrationMode);
+  map?.classList.toggle('view-reversed', state.rotation === 180 && !state.calibrationMode);
+  perspectiveToggle?.classList.toggle('active', state.perspective && !state.calibrationMode);
+  reverseToggle?.classList.toggle('active', state.rotation === 180 && !state.calibrationMode);
+  for (const button of [perspectiveToggle, reverseToggle]) {
+    if (!button) continue;
+    button.disabled = state.calibrationMode;
+    button.title = state.calibrationMode ? '布局校准时锁定为正视图，保证坐标准确' : '';
+  }
+  if (mapNote) {
+    mapNote.textContent = state.calibrationMode
+      ? '校准模式 · 已锁定正视图，保存后退出即可恢复透视观察'
+      : `低功耗轻量 3D · ${state.perspective ? '透视' : '正视'} · ${state.rotation === 180 ? '反向 180°（已建区域在近端）' : '原始方向'}`;
+  }
+}
+applyView();
 
 function fallBack(error) {
   state.mode = 'static-fallback';
@@ -42,7 +95,7 @@ if (!map) {
 } else {
   let renderer;
   try {
-    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'low-power' });
   } catch (error) {
     fallBack(error);
   }
@@ -58,13 +111,42 @@ if (!map) {
     movingLight.position.set(-1.8, -1.2, 2.8);
     scene.add(sky, movingLight);
 
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    renderer.setPixelRatio(1);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.08;
 
     const sourceAspect = 1280 / 884;
     const coverZoom = 1.055;
+    let model = null;
+    let timer = 0;
+    let disposed = false;
+    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const interval = Math.round(1000 / state.fpsCap);
+
+    function isVisible() {
+      return !document.hidden && state.enabled && state.ready && (!mapPage || mapPage.classList.contains('active'));
+    }
+
+    function renderOnce(animateLight = false) {
+      if (!state.ready || disposed) return;
+      if (animateLight && !reducedMotion) {
+        const t = performance.now() / 1000;
+        movingLight.position.x = Math.sin(t * 0.14) * 2.25;
+        movingLight.position.y = Math.cos(t * 0.11) * 1.45;
+      }
+      renderer.render(scene, camera);
+    }
+
+    function scheduleRender() {
+      if (disposed || reducedMotion) return;
+      clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        if (isVisible()) renderOnce(true);
+        scheduleRender();
+      }, isVisible() ? interval : 750);
+    }
+
     function resize() {
       const width = Math.max(1, map.clientWidth);
       const height = Math.max(1, map.clientHeight);
@@ -83,7 +165,8 @@ if (!map) {
       camera.top = halfHeight;
       camera.bottom = -halfHeight;
       camera.updateProjectionMatrix();
-      renderer.setSize(width, height, false);
+      renderer.setSize(Math.round(width * state.renderScale), Math.round(height * state.renderScale), false);
+      renderOnce();
     }
     resize();
     const resizeObserver = new ResizeObserver(resize);
@@ -110,29 +193,24 @@ if (!map) {
         movingLight.color.set(0xffffff);
         renderer.toneMappingExposure = 1.08;
       }
+      renderOnce();
     }
     applySceneLighting();
-    new MutationObserver(applySceneLighting).observe(document.body, { attributes: true, attributeFilter: ['data-scene'] });
-
-    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    let model = null;
-    let frame = 0;
-    const clock = new THREE.Clock();
-    function render() {
-      frame = requestAnimationFrame(render);
-      if (document.hidden || !state.enabled || !state.ready) return;
-      if (!reducedMotion) {
-        const t = clock.getElapsedTime();
-        movingLight.position.x = Math.sin(t * 0.14) * 2.25;
-        movingLight.position.y = Math.cos(t * 0.11) * 1.45;
-        if (model) model.position.z = Math.sin(t * 0.18) * 0.0025;
+    const bodyObserver = new MutationObserver((records) => {
+      if (records.some(record => record.attributeName === 'data-scene')) applySceneLighting();
+      if (records.some(record => record.attributeName === 'class')) {
+        applyView();
+        renderOnce();
       }
-      renderer.render(scene, camera);
-    }
-    render();
+    });
+    bodyObserver.observe(document.body, { attributes: true, attributeFilter: ['data-scene', 'class'] });
+    const pageObserver = mapPage ? new MutationObserver(() => {
+      if (mapPage.classList.contains('active')) renderOnce();
+    }) : null;
+    pageObserver?.observe(mapPage, { attributes: true, attributeFilter: ['class'] });
 
     new GLTFLoader().load(
-      './park-aerial-relief.glb?v=20260908-light-3d',
+      './park-aerial-relief.glb?v=20260908-low-power-view',
       (gltf) => {
         model = gltf.scene;
         model.traverse((object) => {
@@ -141,17 +219,19 @@ if (!map) {
           const materials = Array.isArray(object.material) ? object.material : [object.material];
           for (const material of materials) {
             if (material?.map) {
-              material.map.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+              material.map.anisotropy = Math.min(2, renderer.capabilities.getMaxAnisotropy());
               material.map.needsUpdate = true;
             }
           }
         });
         scene.add(model);
         state.ready = true;
-        state.mode = '3d-relief';
+        state.mode = '3d-relief-low-power';
         map.classList.add('is-3d-ready');
         setToggle('3D 实景');
-        renderer.render(scene, camera);
+        resize();
+        renderOnce();
+        scheduleRender();
         window.dispatchEvent(new CustomEvent('park3d:ready', { detail: state }));
       },
       undefined,
@@ -163,13 +243,34 @@ if (!map) {
       state.enabled = !state.enabled;
       map.classList.toggle('is-3d-disabled', !state.enabled);
       setToggle(state.enabled ? '3D 实景' : '平面实景');
-      if (state.enabled) renderer.render(scene, camera);
+      if (state.enabled) renderOnce();
+    });
+
+    perspectiveToggle?.addEventListener('click', () => {
+      if (state.calibrationMode) return;
+      state.perspective = !state.perspective;
+      applyView();
+      renderOnce();
+    });
+
+    reverseToggle?.addEventListener('click', () => {
+      if (state.calibrationMode) return;
+      state.rotation = state.rotation === 180 ? 0 : 180;
+      applyView();
+      renderOnce();
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) renderOnce();
     });
 
     window.addEventListener('pagehide', (event) => {
       if (event.persisted) return;
-      cancelAnimationFrame(frame);
+      disposed = true;
+      clearTimeout(timer);
       resizeObserver.disconnect();
+      bodyObserver.disconnect();
+      pageObserver?.disconnect();
       renderer.dispose();
     }, { once: true });
   }
