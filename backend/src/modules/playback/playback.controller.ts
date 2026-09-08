@@ -208,6 +208,17 @@ export class PlaybackController {
     return { message: `已投放「${r.assetName}」`, data: r.view };
   }
 
+  /** Built-in park operations dashboard, exposed as a direct LED/projector input source. */
+  @Post('channels/:slot/park-dashboard')
+  @HttpCode(200)
+  async parkDashboard(
+    @Req() req: AuthenticatedRequest,
+    @Param('slot', ParseIntPipe) slot: number,
+  ) {
+    const r = await this.service.publishParkDashboard(slot, requireActor(req));
+    return { message: `已投放「${r.assetName}」`, data: r.view };
+  }
+
   /** 清掉当前播, 回待机 */
   @Post('channels/:slot/stop')
   async stop(@Param('slot', ParseIntPipe) slot: number, @Body() body?: { expectedSession?: string }) {
