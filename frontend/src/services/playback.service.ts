@@ -95,6 +95,7 @@ export async function channelHeartbeat(slot: number): Promise<void> {
 
 export interface PlaylistItemView {
   id: number;
+  ownerUserId: number | null;
   mediaId: number;
   /** 业主起的别名; 空则是媒体原名 */
   title: string;
@@ -113,7 +114,7 @@ export interface PlaybackHistoryView {
 }
 
 export const listPlaylist = (slot: number) =>
-  api.get<PlaylistItemView[]>(`/playback/playlist/${slot}`);
+  api.get<PlaylistItemView[]>(`/playback/playlist/${slot}?scope=visible`);
 
 /** 加入播放列表 —— 只能人工触发 (媒体库内容默认不进列表) */
 export const addToPlaylist = (slot: number, mediaId: number, title?: string) =>

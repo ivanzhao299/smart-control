@@ -179,6 +179,14 @@ describe('playback ownership', () => {
     await media.updateOwned(aliceId, admin, { ownerUserId: 2 });
     await expect(service.step(1, 1, alice)).rejects.toThrow('播放列表是空的');
   });
+  it('includes historical shared entries in manual and automatic playback after named login', async () => {
+    const shared = await media.createWebpage('Historical shared', 'https://example.test/shared', admin);
+    await media.updateOwned(shared.id, admin, { visibility: 'shared' });
+    await db.getRepository(PlaylistItem).save({ slot: 1, mediaId: shared.id, ownerUserId: null, sortOrder: -10 });
+    const visible = await (service as any).playablePlaylist(1, alice);
+    expect(visible.map((x: PlaylistItem) => x.mediaId)).toEqual([shared.id, aliceId]);
+    expect((await service.step(1, 1, alice)).currentMediaId).toBe(shared.id);
+  });
   it('filters history before limiting and never merges different publishers', async () => {
     await service.publishMedia(1, aliceId, alice);
     await service.publishMedia(1, bobId, bob);

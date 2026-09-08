@@ -6,6 +6,7 @@ import { PlaylistItem } from '../../entities/playlist-item.entity';
 import { User } from '../../entities/user.entity';
 import { MediaAsset } from '../../entities/media-asset.entity';
 import { Actor } from '../../common/auth/actor';
+import { visiblePlaylistWhere } from '../../common/auth/playlist-scope';
 import { assertCanUpload, assertReadResource } from '../../common/auth/resource-policy';
 import { MediaService } from '../media/media.service';
 
@@ -34,13 +35,13 @@ export class PersonalPlaylistService {
       return work(current, manager.getRepository(PlaylistItem));
     });
   }
-  async list(actor: Actor, slot: number, scope: 'mine' | 'shared' | 'all' = 'mine') {
+  async list(actor: Actor, slot: number, scope: 'mine' | 'shared' | 'all' | 'visible' = 'mine') {
     this.slot(slot);
-    if (!['mine', 'shared', 'all'].includes(scope)) throw new BadRequestException('无效列表范围');
+    if (!['mine', 'shared', 'all', 'visible'].includes(scope)) throw new BadRequestException('无效列表范围');
     return this.withCurrentActor(actor, false, async (current, repo) => {
       if (scope === 'all' && current.role !== 'admin') throw new ForbiddenException('仅管理员可查看全部列表');
       const owner = this.owner(current);
-      const where = scope === 'all' ? { slot } : { slot, ownerUserId: scope === 'shared' || owner === null ? IsNull() : owner };
+      const where = scope === 'visible' ? visiblePlaylistWhere(current, slot) : scope === 'all' ? { slot } : { slot, ownerUserId: scope === 'shared' || owner === null ? IsNull() : owner };
       const rows = await repo.find({ where, order: { sortOrder: 'ASC', id: 'ASC' } });
       const result = [];
       for (const row of rows) {

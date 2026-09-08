@@ -632,6 +632,10 @@ async function onDrop(target: PlaylistItemView): Promise<void> {
   const fi = list.findIndex((x) => x.id === from);
   const ti = list.findIndex((x) => x.id === target.id);
   if (fi < 0 || ti < 0) return;
+  if (new Set(list.map(item => item.ownerUserId)).size > 1) {
+    ElMessage.warning('当前包含共享及个人列表，不能混合排序');
+    return;
+  }
   const [moved] = list.splice(fi, 1);
   list.splice(ti, 0, moved);
   const before = playlist.value;

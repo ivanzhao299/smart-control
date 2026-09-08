@@ -5,6 +5,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Repository, In, IsNull } from 'typeorm';
 import { Actor } from '../../common/auth/actor';
+import { visiblePlaylistWhere } from '../../common/auth/playlist-scope';
 import { assertCanUpload, assertCanPublish, canReadResource } from '../../common/auth/resource-policy';
 import { Logger } from 'winston';
 import { PlaybackChannel, type PlaybackDisplayFit, type PlaybackPlayMode } from '../../entities/playback-channel.entity';
@@ -315,7 +316,7 @@ export class PlaybackService implements OnModuleInit {
   }
 
   private async playablePlaylist(slot: number, actor: Actor): Promise<PlaylistItem[]> {
-    const rows = await this.plRepo.find({ where: { slot, ownerUserId: actor.userId ?? IsNull() }, order: { sortOrder: 'ASC', id: 'ASC' } });
+    const rows = await this.plRepo.find({ where: visiblePlaylistWhere(actor, slot), order: { sortOrder: 'ASC', id: 'ASC' } });
     const visible: PlaylistItem[] = [];
     for (const row of rows) {
       const media = await this.mediaService.get(row.mediaId).catch(() => null);

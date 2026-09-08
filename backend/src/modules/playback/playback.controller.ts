@@ -42,7 +42,7 @@ export class PlaybackController {
   //    否则被 ParseIntPipe 吃掉 400 (light-zones 和 hvac 都踩过这个坑)。
 
   @Get('playlist/:slot')
-  async playlist(@Req() req: AuthenticatedRequest, @Param('slot', ParseIntPipe) slot: number, @Query('scope') scope?: 'mine' | 'shared' | 'all') {
+  async playlist(@Req() req: AuthenticatedRequest, @Param('slot', ParseIntPipe) slot: number, @Query('scope') scope?: 'mine' | 'shared' | 'all' | 'visible') {
     return { message: '查询成功', data: await this.playlists.list(requireActor(req), slot, scope) };
   }
 

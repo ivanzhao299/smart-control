@@ -27,6 +27,17 @@ describe('personal playlists', () => {
     service = new PersonalPlaylistService(db.getRepository(PlaylistItem), media);
   });
   afterEach(async () => { await db.destroy(); });
+  it.each([1, 2, 3])('keeps historical shared entries visible after named login on slot %s', async slot => {
+    await service.add(admin, slot, sharedId, 'Historical shared');
+    await service.add(alice, slot, sharedId, 'Alice list');
+    await service.add(bob, slot, sharedId, 'Bob list');
+    expect((await service.list(alice, slot, 'visible')).map(x => x.title)).toEqual(['Historical shared', 'Alice list']);
+    expect((await service.list(bob, slot, 'visible')).map(x => x.title)).toEqual(['Historical shared', 'Bob list']);
+    await db.getRepository(User).update(1, { role: 'admin' });
+    expect(await service.list({ ...alice, role: 'admin' }, slot, 'visible')).toHaveLength(3);
+    await db.getRepository(User).update(1, { role: 'viewer' });
+    expect((await service.list({ ...alice, role: 'admin' }, slot, 'visible')).map(x => x.title)).toEqual(['Historical shared', 'Alice list']);
+  });
   it('does not misclassify a media database failure as a deleted playlist asset', async () => {
     await service.add(alice, 1, sharedId, 'private snapshot title');
     await db.query('DROP TABLE media_assets');

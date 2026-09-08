@@ -28,6 +28,9 @@ async function api(route, method, body, token, admin = false) {
   await api('/media/webpage', 'POST', { name: privateName, url: 'https://example.test/private' }, accounts.operator.token);
   const shared = await api('/media/webpage', 'POST', { name: sharedName, url: 'https://example.test/shared' }, admin, true);
   await api('/media/' + shared.id, 'PUT', { visibility: 'shared' }, admin, true);
+  for (const slot of [1, 2, 3]) {
+    await api('/playback/playlist/' + slot, 'POST', { mediaId: shared.id, title: `Historical-list-${slot}-${nonce}` }, admin, true);
+  }
   const uploadName = `private-upload-${nonce}.png`;
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aRfkAAAAASUVORK5CYII=', 'base64');
   const form = new FormData(); form.append('file', new Blob([png], { type: 'image/png' }), uploadName);
@@ -175,6 +178,11 @@ async function api(route, method, body, token, admin = false) {
       if (role === 'admin') await page.getByText('管理员内容管理', { exact: true }).waitFor();
       else assert.equal(await page.getByText('管理员内容管理', { exact: true }).count(), 0);
       if (role === 'admin') {
+        for (const [route, slot] of [['led', 1], ['projector', 2], ['audio', 3]]) {
+          await page.goto(origin + '/' + route);
+          await page.getByText(`Historical-list-${slot}-${nonce}`, { exact: true }).first().waitFor();
+        }
+        console.log('PASS named admin at 390px sees historical shared LED, projector and music playlists');
         await page.setViewportSize({ width: 1280, height: 900 });
         await page.goto(origin + '/admin');
         await page.getByRole('button', { name: '返回设备控制', exact: true }).waitFor();
