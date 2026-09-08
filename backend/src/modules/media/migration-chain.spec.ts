@@ -14,6 +14,9 @@ describe('complete migration chain on an isolated database', () => {
     const applied = await db.runMigrations();
     expect(applied.length).toBeGreaterThan(4);
     expect(await db.showMigrations()).toBe(false);
+    expect(await db.query("SELECT visibility, source, owner_user_id FROM media_assets WHERE sourceUrl = ?", [
+      'http://localhost:5173/control/park-ops/index.html',
+    ])).toEqual([{ visibility: 'shared', source: 'system', owner_user_id: null }]);
     expect(() => assertSchemaReady((db.driver as any).databaseConnection)).not.toThrow();
     const runner = db.createQueryRunner();
     expect((await runner.getTable('media_assets'))?.findColumnByName('owner_user_id')).toBeDefined();
@@ -32,7 +35,8 @@ describe('complete migration chain on an isolated database', () => {
     expect(await runner.hasTable('upload_instances')).toBe(true);
     expect((await runner.getTable('upload_reservations'))?.findColumnByName('target_media_id')).toBeDefined();
     expect(await db.query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'protect_last_administrator_%'")).toHaveLength(2);
-    for (let i = 0; i < 9; i++) await db.undoLastMigration();
+    const multiuserAndLater = applied.filter(m => m.timestamp >= 1788618000000);
+    for (const _migration of multiuserAndLater) await db.undoLastMigration();
     expect(await db.query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'protect_last_administrator_%'")).toHaveLength(0);
     expect(await runner.hasTable('upload_reservations')).toBe(false);
     expect((await runner.getTable('media_assets'))?.findColumnByName('owner_user_id')).toBeUndefined();

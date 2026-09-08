@@ -6,6 +6,8 @@
 
 ## 当前证据与真正的发布缺口
 
+2026-09-08更新：使用独立候选/Users/mac/.codex/worktrees/smart-control-multiuser-release（codex/multiuser-release-integration），保留原工作区合并中改动。当前origin/main及生产磁盘代码已为b98ddc5，包含新园区大屏；下表的旧基线/旧接线描述为历史，发布前必须以此更新重新核验。暂停、凭据发放、迁移及恢复任务入口已有候选并经过隔离测试，但真实停写和生产迁移仍未执行。
+
 | 要求 | 当前证据 | 尚需完成 |
 | --- | --- | --- |
 | 资料归属与跨用户访问隔离 | MediaService SQLite测试及四角色真实浏览器上传、读取、越权拒绝测试 | 发布后用真实账户验收 |

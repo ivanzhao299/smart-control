@@ -10,6 +10,14 @@
 
 ## 工作队列
 
+### 集成当前生产园区大屏，独立发布候选（2026-09-08）
+
+生产双跳只读登录仍成功，磁盘HEAD与最近成功部署记录均为b98ddc53888f640ad32bdf943742fe2abd0aa098。原始pre-multiuser-20260905保留，但下一次发布前代码恢复基线必须包含此大屏版本，不能退回8d4ce521覆盖并行上线成果。
+
+当前候选迁至独立工作区/Users/mac/.codex/worktrees/smart-control-multiuser-release，分支codex/multiuser-release-integration；原/Users/mac/Documents/smart-control中的合并中状态完整保留，不从该目录部署。合并园区页面、鸟瞰图、必需静态产物验证和迁移协调；保留多用户API禁缓存规则。新增仅针对无归属内置园区网页的共享迁移，普通用户同名副本保持私有；完整迁移回退测试改为按实际迁移时间范围回退，不再写死九次。
+
+集成后前后端构建、49组585项Jest、发布/存储29项、全新数据库四角色浏览器验收通过。浏览器证据目录：/var/folders/q2/kmbw23k57c1flhr06y5kwwmh0000gn/T/smart-control-browser-stNize。生产当前监听3200/5173，五个计划任务启用状态未改；尚未暂停、真实备份或迁移。这些测试不等于生产账户及三路硬件验收。
+
 ### Windows真实headless profile配置演练（2026-09-08）
 
 当前配置器在GK9000内存加载，使用主机已有浏览器、临时新profile和临时loopback HTTP服务进行真实headless测试。合成设备凭据首次接受后关闭浏览器，第二次启动读取到已持久化值，无效替换被拒绝。测试未读取生产凭据、不接触原播放器profile和业务API，生成的临时profile已清理；没有改动计划任务或播放状态。Windows自动profile配置的隔离测试缺口已关闭，不等于生产profile已发放。

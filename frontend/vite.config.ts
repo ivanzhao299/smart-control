@@ -5,6 +5,7 @@ import Components from 'unplugin-vue-components/vite';
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers';
 import { VitePWA } from 'vite-plugin-pwa';
 import { resolve } from 'path';
+import { cpSync, existsSync, readFileSync, statSync } from 'node:fs';
 
 export default defineConfig(({ mode }) => {
   // 加载 .env.production / .env.local / .env 文件 (Vite 不会自动注入 process.env)
@@ -43,6 +44,24 @@ export default defineConfig(({ mode }) => {
       },
     },
     plugins: [
+      {
+        name: 'publish-required-park-ops-assets',
+        apply: 'build',
+        writeBundle(options) {
+          const sourceDir = resolve(__dirname, 'public', 'park-ops');
+          const outputDir = resolve(options.dir ?? resolve(__dirname, 'dist'), 'park-ops');
+          cpSync(sourceDir, outputDir, { recursive: true, force: true });
+
+          const dashboard = resolve(outputDir, 'index.html');
+          const aerial = resolve(outputDir, 'park-aerial.jpg');
+          if (!existsSync(dashboard) || !readFileSync(dashboard, 'utf8').includes('window.PARK_DEMO')) {
+            throw new Error('Required park-ops dashboard was not published into the frontend build.');
+          }
+          if (!existsSync(aerial) || statSync(aerial).size < 100_000) {
+            throw new Error('Required park-ops aerial image was not published into the frontend build.');
+          }
+        },
+      },
       // 2026-07-18 根因: 之前 preview.headers 是全局的, 把 index.html / sw.js /
       // manifest.webmanifest 全都跟着 hash 化的 /assets/*.js|css 一起缓成了
       // "一年不过期、免验证" —— 结果任何浏览器只要访问过一次这个页面, 之后不管
@@ -109,14 +128,14 @@ export default defineConfig(({ mode }) => {
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           skipWaiting: true,
-          globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+          globPatterns: ['**/*.{js,css,html,svg,png,jpg,jpeg,webp,ico,woff2}'],
           // C2 (2026-07-25): 离线预缓存只收业主侧 — 20+ 个后台管理页 chunk
           // (文件名含 Admin) 和只有 admin 用的 date-picker 不进每台手机的离线包。
           // admin 在线才用得上, 其 chunk 走浏览器 HTTP 缓存 (assets 带一年 immutable)。
           // 注意 admin.service (小写) 被业主侧状态页共享, 不匹配此模式, 不受影响。
           globIgnores: ['**/*Admin*', '**/el-date-picker*', 'welcome/**'],
           navigateFallback: `${SCOPE_PREFIX}/index.html`,
-          navigateFallbackDenylist: [/\/api(\/|$)/, /\/ws(\/|$)/],
+          navigateFallbackDenylist: [/\/api(\/|$)/, /\/ws(\/|$)/, /\/park-ops(\/|$)/],
           // Authenticated APIs must never fall back to another account's cache.
           runtimeCaching: [
             {
