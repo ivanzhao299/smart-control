@@ -198,6 +198,7 @@ export class PlaybackService implements OnModuleInit {
   // 素材是启动时自动入库的内置资源, 按 originalName 定位; 被改名/删除时报错并
   // 提示重启后端可自动重建 (seedBundledAssets 幂等)。
   static readonly WELCOME_EDITABLE_NAME = '金湖欢迎页·动态(称谓可编辑)';
+  static readonly PARK_DASHBOARD_NAME = '金湖科创产业园·智慧运营总览(DEMO)';
   static readonly WELCOME_DEFAULT_NAMES: Record<number, string> = {
     1: '金湖欢迎页·LED大屏.png',
     2: '金湖欢迎页·投影.png',
@@ -211,6 +212,18 @@ export class PlaybackService implements OnModuleInit {
     const media = await this.mediaService.findByOriginalName(name);
     if (!media) {
       throw new NotFoundException(`媒体库里找不到内置素材「${name}」(可能被改名或删除) — 重启后端会自动重建`);
+    }
+    const view = await this.publishMedia(slot, media.id, actor, { loopMode: 'loop' });
+    return { assetName: name, view };
+  }
+
+  /** Direct input-source card for the built-in park operations dashboard. */
+  async publishParkDashboard(slot: number, actor: Actor): Promise<{ assetName: string; view: PlaybackChannelView }> {
+    assertCanUpload(actor);
+    const name = PlaybackService.PARK_DASHBOARD_NAME;
+    const media = await this.mediaService.findByOriginalName(name);
+    if (!media) {
+      throw new NotFoundException(`媒体库里找不到内置素材「${name}」— 请恢复内置网页投放源`);
     }
     const view = await this.publishMedia(slot, media.id, actor, { loopMode: 'loop' });
     return { assetName: name, view };

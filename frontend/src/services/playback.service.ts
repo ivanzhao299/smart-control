@@ -36,6 +36,11 @@ export async function publishWelcome(slot: number, variant: WelcomeVariant): Pro
   return api.post<PlaybackChannelView>(`/playback/channels/${slot}/welcome`, { variant });
 }
 
+/** 一键投放内置园区智慧运营大屏，不依赖环境里的媒体数字 ID。 */
+export async function publishParkDashboard(slot: number): Promise<PlaybackChannelView> {
+  return api.post<PlaybackChannelView>(`/playback/channels/${slot}/park-dashboard`, null);
+}
+
 export async function pauseChannel(slot: number): Promise<PlaybackChannelView> {
   return api.post<PlaybackChannelView>(`/playback/channels/${slot}/pause`, null);
 }

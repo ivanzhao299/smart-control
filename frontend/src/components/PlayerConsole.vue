@@ -37,7 +37,7 @@ import {
 import { usePlaybackStore } from '@/stores/playback';
 import {
   listPlaylist, addToPlaylist, renamePlaylistItem, removeFromPlaylist, reorderPlaylist,
-  listHistory, setDisplayFit, setDocPage, setDocZoom, publishWelcome,
+  listHistory, setDisplayFit, setDocPage, setDocZoom, publishWelcome, publishParkDashboard,
   type DisplayFit, type PlaylistItemView, type PlaybackHistoryView,
 } from '@/services/playback.service';
 import { projectorService } from '@/services/projector.service';
@@ -465,18 +465,21 @@ const inPlaylist = computed(() => new Set(playlist.value.map((x) => x.mediaId)))
 //  HDMI 直通选项 2026-07-18 就因误切事故被业主要求删除, 经过见 git 历史。)
 const WELCOME_EDITABLE_NAME = '金湖欢迎页·动态(称谓可编辑)';
 const WELCOME_DEFAULT_NAMES = ['金湖欢迎页·LED大屏.png', '金湖欢迎页·投影.png'];
+const PARK_DASHBOARD_NAME = '金湖科创产业园·智慧运营总览(DEMO)';
 
-type SourceKey = 'content' | 'welcome-editable' | 'welcome-default';
+type SourceKey = 'content' | 'park-dashboard' | 'welcome-editable' | 'welcome-default';
 /** 当前源: 从通道在播媒体名判断 (内置素材按名定位, 业主改名后回退为"播放内容") */
 const activeSource = computed<SourceKey | null>(() => {
   const name = ch.value?.currentMediaName;
   if (!name || !ch.value?.currentMediaId) return null;
+  if (name === PARK_DASHBOARD_NAME) return 'park-dashboard';
   if (name === WELCOME_EDITABLE_NAME) return 'welcome-editable';
   if (WELCOME_DEFAULT_NAMES.includes(name)) return 'welcome-default';
   return 'content';
 });
 const SRC_HINTS: Record<SourceKey, string> = {
   'content': '正在播放列表内容',
+  'park-dashboard': '园区综合态势与运营指标 · 点击即可投放到当前屏幕',
   'welcome-editable': '动态欢迎页 · 点「编辑欢迎页」改文字/底图, 保存即生效',
   'welcome-default': '内置静态欢迎页 (本屏专用尺寸, 不可编辑)',
 };
@@ -532,6 +535,21 @@ async function selectWelcome(variant: 'editable' | 'default'): Promise<void> {
     ElMessage.success(variant === 'editable' ? '已投放动态欢迎页 (点「编辑欢迎页」可改内容)' : '已投放默认欢迎页');
   } catch (e) {
     if (isCurrent()) ElMessage.error(`投放欢迎页失败: ${(e as Error).message}`);
+  } finally { busy.value = false; }
+}
+
+async function selectParkDashboard(): Promise<void> {
+  const isCurrent = captureConsoleAction();
+  if (!isCurrent()) return;
+  busy.value = true;
+  try {
+    await ensureDisplayPath();
+    if (!isCurrent()) return;
+    await publishParkDashboard(SLOT.value);
+    if (!isCurrent()) return;
+    ElMessage.success(`已将园区运营大屏投放到${props.title}`);
+  } catch (e) {
+    if (isCurrent()) ElMessage.error(`投放园区运营大屏失败: ${(e as Error).message}`);
   } finally { busy.value = false; }
 }
 
@@ -824,6 +842,7 @@ async function submitWebpage(): Promise<void> {
     <section class="src-bar">
       <span class="src-label">输入源</span>
       <button class="src-btn" :class="{ on: activeSource === 'content' }" :disabled="busy" @click="selectContent">播放内容</button>
+      <button class="src-btn dashboard" :class="{ on: activeSource === 'park-dashboard' }" :disabled="busy" @click="selectParkDashboard"><Globe :size="13" /> 园区运营大屏</button>
       <button class="src-btn" :class="{ on: activeSource === 'welcome-editable' }" :disabled="busy" @click="selectWelcome('editable')">欢迎页·可编辑称谓</button>
       <button class="src-btn" :class="{ on: activeSource === 'welcome-default' }" :disabled="busy" @click="selectWelcome('default')">欢迎页·默认</button>
       <button class="src-btn edit" :disabled="busy" @click="openWelcomeEditor"><Pencil :size="13" /> 编辑欢迎页</button>
@@ -1111,6 +1130,7 @@ async function submitWebpage(): Promise<void> {
 }
 .src-btn.on { border-color: var(--v2-primary); background: var(--v2-primary); color: var(--v2-on-primary); }
 .src-btn:disabled { opacity: .4; cursor: not-allowed; }
+.src-btn.dashboard { display: inline-flex; align-items: center; gap: 5px; }
 .src-btn.edit { display: inline-flex; align-items: center; gap: 5px; color: var(--v2-primary); border-style: dashed; }
 .src-hint { font-size: 11px; color: var(--v2-text-3); }
 
