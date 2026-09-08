@@ -3,9 +3,10 @@ import { normalizeParkOpsConfig } from './park-ops-config';
 const valid = () => ({
   version: 1,
   fitMode: 'stretch',
-  phases: [{ id: '1', name: '一期', zoneName: '智造区', color: '#63d9ff', fontSize: 15, points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] }],
+  phases: [{ id: '1', name: '一期', zoneName: '智造区', color: '#63d9ff', fontSize: 15, labelX: 20, labelY: 30, points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] }],
   buildings: [{ id: 'b1', phase: '1', number: '01#', company: '示范企业', x: 10, y: 20, fontSize: 12, color: '#ffffff' }],
   textOverrides: { title: { text: '园区大屏', fontSize: 54, color: '#ffffff' } },
+  customTexts: [{ id: 'label-1', text: '南门', x: 50, y: 80, fontSize: 18, color: '#ffffff' }],
 });
 
 describe('park ops shared config validation', () => {
@@ -31,5 +32,9 @@ describe('park ops shared config validation', () => {
     const badText = valid();
     badText.textOverrides.title.text = 'x'.repeat(201);
     expect(() => normalizeParkOpsConfig(badText)).toThrow(/200/);
+
+    const badCustomText = valid();
+    badCustomText.customTexts[0].x = 101;
+    expect(() => normalizeParkOpsConfig(badCustomText)).toThrow(/0–100/);
   });
 });

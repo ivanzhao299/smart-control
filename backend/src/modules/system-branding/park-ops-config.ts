@@ -55,6 +55,8 @@ export function normalizeParkOpsConfig(input: unknown): ParkOpsConfigDocument {
     text(phase.zoneName, `phases[${phaseIndex}].zoneName`, 48);
     color(phase.color, `phases[${phaseIndex}].color`);
     numberIn(phase.fontSize, `phases[${phaseIndex}].fontSize`, 8, 48);
+    if (phase.labelX !== undefined) numberIn(phase.labelX, `phases[${phaseIndex}].labelX`, 0, 100);
+    if (phase.labelY !== undefined) numberIn(phase.labelY, `phases[${phaseIndex}].labelY`, 0, 100);
     if (!Array.isArray(phase.points) || phase.points.length < 3 || phase.points.length > 32) {
       throw new Error(`phases[${phaseIndex}].points 必须有 3–32 个端点`);
     }
@@ -90,6 +92,21 @@ export function normalizeParkOpsConfig(input: unknown): ParkOpsConfigDocument {
     numberIn(override.fontSize, `textOverrides.${key}.fontSize`, 8, 96);
     color(override.color, `textOverrides.${key}.color`);
   }
+
+  const customTexts = root.customTexts ?? [];
+  if (!Array.isArray(customTexts) || customTexts.length > 200) throw new Error('地图自由文字不能超过 200 项');
+  const customTextIds = new Set<string>();
+  customTexts.forEach((item, textIndex) => {
+    const label = record(item, `customTexts[${textIndex}]`);
+    const id = text(label.id, `customTexts[${textIndex}].id`, 36);
+    if (!id || customTextIds.has(id)) throw new Error('地图自由文字 id 不能为空且不能重复');
+    customTextIds.add(id);
+    text(label.text, `地图自由文字 ${id}`, 200);
+    numberIn(label.x, `地图自由文字 ${id} X`, 0, 100);
+    numberIn(label.y, `地图自由文字 ${id} Y`, 0, 100);
+    numberIn(label.fontSize, `地图自由文字 ${id} 字号`, 8, 96);
+    color(label.color, `地图自由文字 ${id} 颜色`);
+  });
 
   return root;
 }
