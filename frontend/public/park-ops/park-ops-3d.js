@@ -24,19 +24,15 @@ controls.id = 'parkViewControls';
 controls.className = 'toolbar-group map-view-controls';
 controls.setAttribute('aria-label', '园区模型视角');
 controls.innerHTML = `
-  <span class="view-label">观察视角</span>
-  <button id="park3dToggle" type="button" class="map-chip">3D 加载中</button>
-  <button id="parkPerspectiveToggle" type="button" class="map-chip active">透视</button>
-  <button id="parkReverseToggle" type="button" class="map-chip active">反向 180°</button>`;
+  <span class="view-label">模型显示</span>
+  <button id="park3dToggle" type="button" class="map-chip">3D 加载中</button>`;
 map?.appendChild(controls);
 const toggle = controls.querySelector('#park3dToggle');
-const perspectiveToggle = controls.querySelector('#parkPerspectiveToggle');
-const reverseToggle = controls.querySelector('#parkReverseToggle');
 
 const mapNote = map?.querySelector('.mapnote');
-if (mapNote) mapNote.textContent = '低功耗轻量 3D · 默认反向 180°展示已建区域 · 校准时自动恢复正视';
+if (mapNote) mapNote.textContent = '低功耗轻量 3D · 正向俯视 · 分区、楼栋和文字可校准';
 const headingNote = map?.closest('.park')?.querySelector('h3 small');
-if (headingNote) headingNote.textContent = 'LOW-POWER 3D / 180° PERSPECTIVE';
+if (headingNote) headingNote.textContent = 'LOW-POWER 3D / EDITABLE PHASE MAP';
 
 const state = {
   ready: false,
@@ -48,8 +44,8 @@ const state = {
   error: '',
   fpsCap: 8,
   renderScale: 0.82,
-  perspective: true,
-  rotation: 180,
+  perspective: false,
+  rotation: 0,
   calibrationMode: false,
 };
 window.PARK_3D = state;
@@ -63,19 +59,11 @@ function setToggle(label, disabled = false) {
 
 function applyView() {
   state.calibrationMode = document.body.classList.contains('park-editing');
-  map?.classList.toggle('view-perspective', state.perspective && !state.calibrationMode);
-  map?.classList.toggle('view-reversed', state.rotation === 180 && !state.calibrationMode);
-  perspectiveToggle?.classList.toggle('active', state.perspective && !state.calibrationMode);
-  reverseToggle?.classList.toggle('active', state.rotation === 180 && !state.calibrationMode);
-  for (const button of [perspectiveToggle, reverseToggle]) {
-    if (!button) continue;
-    button.disabled = state.calibrationMode;
-    button.title = state.calibrationMode ? '布局校准时锁定为正视图，保证坐标准确' : '';
-  }
+  map?.classList.remove('view-perspective', 'view-reversed');
   if (mapNote) {
     mapNote.textContent = state.calibrationMode
-      ? '校准模式 · 已锁定正视图，保存后退出即可恢复透视观察'
-      : `低功耗轻量 3D · ${state.perspective ? '透视' : '正视'} · ${state.rotation === 180 ? '反向 180°（已建区域在近端）' : '原始方向'}`;
+      ? '校准模式 · 正向俯视图，拖动端点和文字即可精确定位'
+      : '低功耗轻量 3D · 正向俯视 · 分区、楼栋和文字可校准';
   }
 }
 applyView();
@@ -210,7 +198,7 @@ if (!map) {
     pageObserver?.observe(mapPage, { attributes: true, attributeFilter: ['class'] });
 
     new GLTFLoader().load(
-      './park-aerial-relief.glb?v=20260908-low-power-view',
+      './park-aerial-relief.glb?v=20260908-camera-hotfix',
       (gltf) => {
         model = gltf.scene;
         model.traverse((object) => {
@@ -244,20 +232,6 @@ if (!map) {
       map.classList.toggle('is-3d-disabled', !state.enabled);
       setToggle(state.enabled ? '3D 实景' : '平面实景');
       if (state.enabled) renderOnce();
-    });
-
-    perspectiveToggle?.addEventListener('click', () => {
-      if (state.calibrationMode) return;
-      state.perspective = !state.perspective;
-      applyView();
-      renderOnce();
-    });
-
-    reverseToggle?.addEventListener('click', () => {
-      if (state.calibrationMode) return;
-      state.rotation = state.rotation === 180 ? 0 : 180;
-      applyView();
-      renderOnce();
     });
 
     document.addEventListener('visibilitychange', () => {
