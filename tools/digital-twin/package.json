@@ -1,0 +1,18 @@
+{
+  "name": "smart-control-digital-twin-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "preview": "node server.mjs",
+    "test": "node --test test-glb.mjs",
+    "test:browser": "node test-browser.mjs"
+  },
+  "dependencies": {
+    "@gltf-transform/cli": "4.5.0",
+    "three": "0.180.0",
+    "gltf-validator": "2.0.0-dev.3.10"
+  },
+  "devDependencies": { "playwright": "1.58.2" },
+  "engines": { "node": ">=22" }
+}

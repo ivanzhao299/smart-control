@@ -70,3 +70,9 @@ backend/.npmrc
 
 # Vite auto-generated, 每次 build 都会改 — 不该 track
 frontend/components.d.ts
+
+# Digital-twin assets stay in dedicated local job directories, never in the repo.
+/tools/digital-twin/jobs/
+/tools/digital-twin/.env
+/tools/digital-twin/__pycache__/
+/tools/digital-twin/test-results/

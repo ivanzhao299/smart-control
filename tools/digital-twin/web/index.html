@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>金湖 · 数字孪生工作台</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="importmap">{"imports":{"three":"/vendor/build/three.module.js","three/addons/":"/vendor/examples/jsm/"}}</script>
+</head>
+<body>
+  <header><div class="brand">JH <span>金湖 · 数字孪生工作台</span></div><span class="local">本地资产准备环境</span></header>
+  <main>
+    <aside>
+      <p class="eyebrow">ASSET WORKFLOW</p><h1>从模型到园区</h1>
+      <p class="muted">在这里检查资产、验证视角，并准备楼栋与业务数据的关联。</p>
+      <section><h2>当前资产</h2><div id="intake">正在读取检查结果…</div></section>
+      <section class="pipeline"><h2>处理进度</h2>
+        <p><i class="dot ready"></i>模型与贴图收集</p>
+        <p><i class="dot" id="textureDot"></i>网页贴图优化</p>
+        <p><i class="dot"></i>3ds Max 转换节点待接入</p>
+        <p><i class="dot"></i>真实园区反向视角待验收</p>
+      </section>
+      <section><h2>模型预览</h2><p class="muted">仅支持自包含 GLB。文件在本机浏览器中读取。</p>
+        <label class="file-button">选择 GLB 文件<input type="file" id="file" accept=".glb"></label>
+        <button id="fixture">打开工作流测试模型</button>
+        <div id="metrics" class="muted"></div>
+      </section>
+    </aside>
+    <div class="workspace">
+      <div class="toolbar"><div><strong>三维视角校验</strong><small id="assetLabel">尚未加载模型</small></div>
+        <nav aria-label="相机视角"><button id="front">正向</button><button id="opposite">另一侧 · 180°</button><button id="top">俯视</button></nav>
+      </div>
+      <div id="viewport"><div id="empty"><span>3D</span><h2>等待真实模型转换</h2><p>25 张贴图已准备。接入转换节点后，检查园区另一侧的建筑与材质。</p></div><div id="badge" hidden></div></div>
+      <footer><span id="message" role="status">拖动旋转相机 · 滚轮缩放 · 点击建筑检查标识</span><span id="renderState">按需渲染 / 像素比 ≤ 1</span></footer>
+    </div>
+    <aside class="inspector">
+      <p class="eyebrow">ENTITY MAPPING</p><h2>楼栋信息</h2><p class="muted">选择模型对象后编辑。先下载映射文件保存，后续接入管理后台。</p>
+      <label>选择对象<select id="entity"><option value="">请先加载模型</option></select></label>
+      <label>对象标识<input id="twinId" readonly></label>
+      <label>显示名称<input id="label" placeholder="例如：科创中心"></label>
+      <label>楼栋号<input id="buildingNumber" placeholder="例如：A01"></label>
+      <label>所属分区<select id="phase"><option value="">未分配</option><option value="phase-1">一期</option><option value="phase-2">二期</option><option value="future">远期</option></select></label>
+      <label>入驻企业<input id="tenantNames" placeholder="多个名称用逗号分隔"></label>
+      <label>设备标识<input id="deviceIds" placeholder="仅预留关联，不控制设备"></label>
+      <button id="save" class="primary" disabled>下载楼栋映射 JSON</button>
+      <label class="file-button">载入已保存的楼栋映射<input id="mappingFile" type="file" accept=".json"></label>
+      <section><h2>数据连接</h2><p class="disconnected">未连接实时设备</p><p class="muted">真实数据接入后需要显示更新时间、离线状态和数据来源。</p></section>
+    </aside>
+  </main>
+  <script type="module" src="/viewer.js"></script>
+</body>
+</html>
