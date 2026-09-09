@@ -20,6 +20,19 @@ python3 twin.py serve --job '/path/new-job'
 
 要在工作台显示真实园区按钮对应的模型，以 `TWIN_REAL_PREVIEW=/path/new-web-preview python3 twin.py serve --job /path/new-job` 启动。流程测试模型与真实几何版是两个独立入口，不能混淆。
 
+## 鸟瞰图同视角对照（当前验收步骤）
+
+先对齐参考图，未通过前不继续反向相机或生产替换。`/compare.html` 为静态图像对照页，支持并排、同尺寸透明叠加、单看原图/模型；不加载 GLB、不启动 WebGL。主页有可点击入口。
+
+1. `render_reference_match.py` 用 Blender 对完整导入几何离线渲染，不使用 AI 图像、图片变形或模型翻转。
+2. `fit_reference_camera.py` 通过首张几何图中人工选定的屋顶参照点、源几何射线交点、参考图对应像素拟合透视相机。目前选点和初始相机专用于本次园区，是人工近似校准，不是通用自动识图工具，也不是测绘配准。拟合误差只说明这些选点的内部一致性。
+3. `render_reference_match.py --fit /path/fit.json --textured --clean-frustum --save-scene` 在新目录产生 `matched.png`、`comparison.blend` 和详细裁切记录。相机画框外的几何仅从新副本裁掉，跨框对象保留框内部分，不覆盖原始 MAX 或完整导入模型。1280×884 保持参考图宽高比。画框范围不是园区地理边界。
+4. `validate_reference_scene.py --scene /path/comparison.blend --fit /path/fit.json --output /path/scene-validation.json` 检查真实 Blender 相机投影、分辨率及裁切后顶点范围。完整性与上线状态仍为未通过。
+5. `node package-reference-review.mjs /path/render /path/reference.jpg /path/fit.json` 生成仅供本地展示的记录。新增 `TWIN_COMPARISON=/path/render` 启动工作台。服务仅公开两张图片和脱敏摘要，不公开 `.blend`、原始 MAX 或包含源路径的详细记录。
+6. `TWIN_EVIDENCE=/path/browser-check node test-reference-browser.mjs` 验证对照、叠加比例、移动端溢出、无 WebGL/GLB 下载和源文件隔离。
+
+当前恢复后的模型与原图主体排布可对应，但植被缺失、湖面不可见、地面/道路材质异常和建筑细节仍是验收阻断项。不得以相机拟合成功或 HTTP 200 认定完整还原，更不能把离线高精度 `.blend` 直接投放到生产端。
+
 ## MAX 本地解析与实际限制
 
 `import-max` 输出 `imported.blend` 和 `import-report.json`，记录成功创建、跳过的源节点、异常、贴图请求、缺失贴图、面数和包围盒。禁止执行源文件脚本；原件不覆盖，不上传到第三方。适配层解决本次文件的 `_Compressed` 流名、Zstandard 压缩、新场景头包装，以及贴图 Windows 路径定位。每条解压流限制 1 GiB；大型输入仍可能占用数 GiB 内存，只在资产准备 Mac 上离线运行，不能在生产播放端运行。

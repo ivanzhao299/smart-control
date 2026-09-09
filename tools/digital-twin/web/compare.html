@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>金湖园区 · 鸟瞰图对照</title>
+  <link rel="stylesheet" href="/compare.css">
+</head>
+<body>
+  <header><div><p class="eyebrow">JINHU / REFERENCE MATCH</p><h1>先对齐同一座园区，再移动相机</h1></div><a href="/">返回三维工作台</a></header>
+  <main>
+    <div class="notice"><strong>本地对照候选 · 未通过验收</strong><span>未替换生产大屏。当前只核对原鸟瞰视角，不切换另一侧。</span></div>
+    <section class="controls" aria-label="对照方式">
+      <div class="modes"><button data-mode="split" aria-pressed="true">并排对照</button><button data-mode="overlay" aria-pressed="false">叠加对齐</button><button data-mode="reference" aria-pressed="false">只看原图</button><button data-mode="model" aria-pressed="false">只看模型</button></div>
+      <label id="opacityControl" hidden>模型透明度 <input id="opacity" type="range" min="0" max="100" value="50"><output id="opacityValue">50%</output></label>
+    </section>
+    <div id="stage" class="stage split">
+      <figure id="referenceFigure"><figcaption>01 / 你提供的鸟瞰图 <span>1280 × 884</span></figcaption><img id="referenceImage" src="/comparison/reference.jpg" width="1280" height="884" alt="用户提供的园区鸟瞰图"></figure>
+      <figure id="modelFigure"><figcaption>02 / MAX 实际几何渲染 <span>1280 × 884 · 非 AI 图片</span></figcaption><img id="modelImage" src="/comparison/matched.png" width="1280" height="884" alt="来自原始 MAX 几何的同视角近似渲染，景观和地面尚有缺失"></figure>
+    </div>
+    <p id="imageError" role="alert" hidden>对照图片尚未就绪，请确认本地服务已挂载本次对照结果。不会自动替换为其他模型。</p>
+    <section class="details">
+      <article><h2>本次怎么对齐</h2><p>用办公高楼、厂房和湖边小楼的屋顶地标，拟合真实透视相机。保持原图宽高比，不拉伸、翻转图片，也不变形模型。位置是人工近似选点，不能作为测绘精度。</p><p id="fitStatus">正在读取本地对照记录…</p></article>
+      <article><h2>仍未达到要求</h2><ul><li>树木和绿化景观尚未完整恢复。</li><li>湖面显示异常，不能认为水体已还原。</li><li>部分地面、道路及背景材质仍需修复。</li><li>个别建筑细节和轮廓还需逐项复核。</li></ul></article>
+      <article><h2>范围与下一步</h2><p id="cleanupStatus">视野外清理仅作用于独立比对副本，原始 MAX 与完整导入模型保留。画面边缘的可见背景仍保留供核对。</p><p>先完成这一视角的内容核对，再切到另一侧相机。网页轻量化和生产替换仍处于暂停状态。</p></article>
+    </section>
+    <footer>此页只加载两张本地图像，无三维渲染循环、自动轮播、外部上传或设备控制。</footer>
+  </main>
+  <script src="/compare.js" type="module"></script>
+</body>
+</html>
