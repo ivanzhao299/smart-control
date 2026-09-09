@@ -45,6 +45,8 @@ def main():
     sub.add_parser('doctor')
     a = sub.add_parser('intake'); a.add_argument('--model', required=True); a.add_argument('--textures', required=True); a.add_argument('--job', required=True)
     c = sub.add_parser('convert'); c.add_argument('--input', required=True); c.add_argument('--output', required=True); c.add_argument('--source-id', default='jinhu-park'); c.add_argument('--ratio', type=float, default=1)
+    m = sub.add_parser('import-max'); m.add_argument('--job', required=True); m.add_argument('--output', required=True)
+    m = sub.add_parser('max-preview'); m.add_argument('--input', required=True); m.add_argument('--output', required=True)
     s = sub.add_parser('smoke'); s.add_argument('--job', required=True)
     w = sub.add_parser('pack-worker'); w.add_argument('--job', required=True); w.add_argument('--output', required=True)
     v = sub.add_parser('serve'); v.add_argument('--job', required=True); v.add_argument('--port', type=int, default=5199)
@@ -53,7 +55,8 @@ def main():
         checks = {'architecture': platform.machine(), 'blenderInstalled': BLENDER.is_file(),
                   'pythonInstalled': PYTHON.is_file(), 'nodeInstalled': bool(shutil.which('node')),
                   'meshoptInstalled': (HERE / 'node_modules/.bin/gltf-transform').is_file(),
-                  'maxWorker': 'NOT_CONNECTED', 'apsCredentialsPresent': bool(os.environ.get('APS_CLIENT_ID') and os.environ.get('APS_CLIENT_SECRET'))}
+                  'localMaxParser': (ROOT / 'vendor/io_scene_max/source/import_max.py').is_file(),
+                  'maxWorker': 'OPTIONAL_NOT_CONNECTED', 'apsCredentialsPresent': bool(os.environ.get('APS_CLIENT_ID') and os.environ.get('APS_CLIENT_SECRET'))}
         if checks['blenderInstalled']:
             checks['blenderVersion'] = subprocess.check_output([str(BLENDER), '--version'], text=True).splitlines()[0]
         print(json.dumps(checks, indent=2))
@@ -61,6 +64,22 @@ def main():
         execute([PYTHON, HERE / 'intake.py', '--model', args.model, '--textures', args.textures, '--output', args.job])
     elif args.command == 'convert':
         convert(Path(args.input).resolve(), Path(args.output).resolve(), args.source_id, args.ratio)
+    elif args.command == 'import-max':
+        job = Path(args.job).resolve()
+        execute([BLENDER, '--background', '--factory-startup', '--disable-autoexec', '--python-exit-code', '1',
+                 '--python', HERE / 'import_max_local.py', '--', '--model', job / 'worker-input/scene.max',
+                 '--textures', job / 'worker-input/textures', '--plugin', ROOT / 'vendor/io_scene_max', '--output', args.output])
+    elif args.command == 'max-preview':
+        output = Path(args.output).resolve()
+        execute([BLENDER, '--background', '--factory-startup', '--disable-autoexec', '--python-exit-code', '1',
+                 '--python', HERE / 'max_web_preview.py', '--', '--input', args.input, '--output', output])
+        execute([HERE / 'node_modules/.bin/gltf-transform', 'meshopt', output / 'scene-source.glb', output / 'scene.glb'])
+        result = subprocess.run(['node', str(HERE / 'inspect-glb.mjs'), str(output / 'scene.glb')], text=True, capture_output=True)
+        (output / 'validation.json').write_text(result.stdout)
+        if result.returncode: raise RuntimeError('Preview did not pass delivery validation')
+        execute(['node', HERE / 'validate-batch.mjs', output / 'scene.glb', output / 'entity-validation.json'])
+        execute(['node', HERE / 'finalize-max-preview.mjs', output])
+        print(result.stdout)
     elif args.command == 'smoke':
         job = Path(args.job).resolve()
         execute([BLENDER, '--background', '--factory-startup', '--disable-autoexec', '--python-exit-code', '1', '--python', HERE / 'create_fixture.py', '--', job / 'test-input' / 'fixture.fbx'])

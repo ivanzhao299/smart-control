@@ -16,20 +16,21 @@
       <section class="pipeline"><h2>处理进度</h2>
         <p><i class="dot ready"></i>模型与贴图收集</p>
         <p><i class="dot" id="textureDot"></i>网页贴图优化</p>
-        <p><i class="dot"></i>3ds Max 转换节点待接入</p>
+        <p><i class="dot" id="maxDot"></i><span id="maxState">本地 MAX 开源解析工作流</span></p>
         <p><i class="dot"></i>真实园区反向视角待验收</p>
       </section>
       <section><h2>模型预览</h2><p class="muted">仅支持自包含 GLB。文件在本机浏览器中读取。</p>
         <label class="file-button">选择 GLB 文件<input type="file" id="file" accept=".glb"></label>
         <button id="fixture">打开工作流测试模型</button>
+        <button id="real">打开真实园区 · 几何验证版</button>
         <div id="metrics" class="muted"></div>
       </section>
     </aside>
     <div class="workspace">
       <div class="toolbar"><div><strong>三维视角校验</strong><small id="assetLabel">尚未加载模型</small></div>
-        <nav aria-label="相机视角"><button id="front">正向</button><button id="opposite">另一侧 · 180°</button><button id="top">俯视</button></nav>
+        <nav aria-label="相机视角"><button id="focus">园区主体</button><button id="all">全场景</button><button id="front">正向</button><button id="opposite">另一侧 · 180°</button><button id="top">俯视</button></nav>
       </div>
-      <div id="viewport"><div id="empty"><span>3D</span><h2>等待真实模型转换</h2><p>25 张贴图已准备。接入转换节点后，检查园区另一侧的建筑与材质。</p></div><div id="badge" hidden></div></div>
+      <div id="viewport"><div id="empty"><span>3D</span><h2>选择模型开始检查</h2><p>真实园区几何版来自 MAX 本地解析。材质、尺寸和完整性仍需核对。</p></div><div id="badge" hidden></div></div>
       <footer><span id="message" role="status">拖动旋转相机 · 滚轮缩放 · 点击建筑检查标识</span><span id="renderState">按需渲染 / 像素比 ≤ 1</span></footer>
     </div>
     <aside class="inspector">

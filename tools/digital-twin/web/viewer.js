@@ -16,7 +16,7 @@ window.TWIN_DEBUG = { renders: 0, camera: () => camera?.position.toArray(), tran
 fetch('/api/job').then(r => r.json()).then(report => {
   if (!report) { $('intake').textContent = '还没有资产检查报告'; return; }
   $('intake').replaceChildren();
-  for (const text of [`贴图匹配 ${report.matchedTextures} / ${report.matchedTextures}`, `原贴图 ${(report.sourceTextureBytes / 1048576).toFixed(1)} MiB`, `网页副本 ${(report.webTextureBytes / 1048576).toFixed(2)} MiB`, '状态：等待 MAX 导出']) {
+  for (const text of [`贴图匹配 ${report.matchedTextures} / ${report.matchedTextures}`, `原贴图 ${(report.sourceTextureBytes / 1048576).toFixed(1)} MiB`, `网页副本 ${(report.webTextureBytes / 1048576).toFixed(2)} MiB`, '纹理准备完成不等于材质恢复完成']) {
     const p = document.createElement('p'); p.textContent = text; $('intake').append(p);
   }
   $('textureDot').classList.add('ready');
@@ -60,6 +60,15 @@ function init() {
     const ray = new THREE.Raycaster();
     ray.setFromCamera(new THREE.Vector2((e.clientX - rect.left) / rect.width * 2 - 1, -(e.clientY - rect.top) / rect.height * 2 + 1), camera);
     const hit = ray.intersectObject(model, true)[0];
+    const attribute = hit?.object.geometry?.getAttribute('_entity_id');
+    if (attribute) {
+      let batch = hit.object;
+      while (batch && !batch.userData.sourceEntities) batch = batch.parent;
+      const vertex = hit.object.geometry.index ? hit.object.geometry.index.getX(hit.faceIndex * 3) : hit.faceIndex * 3;
+      const entity = batch?.userData.sourceEntities[attribute.getX(vertex)];
+      if (entity) select(entity.id);
+      return;
+    }
     let object = hit?.object;
     while (object && !object.userData.twinId) object = object.parent;
     if (object) select(object.userData.twinId);
@@ -79,6 +88,20 @@ function preset(azimuth, elevation = 40) {
 $('front').onclick = () => preset(0);
 $('opposite').onclick = () => preset(180);
 $('top').onclick = () => preset(0, 88);
+function frameBox(box) {
+  box.getCenter(target);
+  const size = box.getSize(new THREE.Vector3());
+  const fov = Math.min(THREE.MathUtils.degToRad(camera.fov), 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect));
+  radius = size.length() / (2 * Math.sin(fov / 2)) * 1.1;
+  if (!Number.isFinite(radius) || radius <= 0) throw Error('模型包围盒无效');
+  preset(0);
+}
+$('all').onclick = () => { if (model) frameBox(new THREE.Box3().setFromObject(model)); };
+$('focus').onclick = () => {
+  if (!model || !manifest?.reviewFocus) { status('当前模型未提供园区主体建议取景，可拖动和缩放相机。'); return; }
+  frameBox(new THREE.Box3(new THREE.Vector3(...manifest.reviewFocus.min), new THREE.Vector3(...manifest.reviewFocus.max)));
+  status('已对主体密集构件取景；这是相机建议范围，不是分期或地理边界。');
+};
 
 function dispose(root) {
   if (!root) return;
@@ -139,7 +162,10 @@ async function load(buffer, name, suppliedManifest = null, sequence = ++loadSequ
   model = gltf.scene;
   if (previous) { scene.remove(previous); dispose(previous); }
   entities.clear(); objects.clear();
-  manifest = suppliedManifest ?? { schemaVersion: 1, sourceId: 'local-unassigned', fixture: false, units: 'metres', upAxis: 'Y', entities: [], telemetry: { mode: 'disconnected', readOnly: true } };
+  const embeddedClay = json.nodes?.some(n => n.extras?.materialMode === 'clay-preview');
+  manifest = suppliedManifest ?? { schemaVersion: 1, sourceId: 'local-unassigned', fixture: false,
+    materialMode: embeddedClay ? 'clay-preview' : 'unreviewed', units: embeddedClay ? 'unverified-source-units' : 'metres',
+    upAxis: 'Y', entities: [], telemetry: { mode: 'disconnected', readOnly: true } };
   const supplied = new Map(manifest.entities.map(e => [e.id, e]));
   const register = (o, id) => {
     o.userData.twinId = id;
@@ -148,7 +174,13 @@ async function load(buffer, name, suppliedManifest = null, sequence = ++loadSequ
   };
   // GLTFLoader makes a Group for a multi-material mesh. The node ID belongs to that
   // group, not to each generated primitive child, so register explicit node IDs first.
-  model.traverse(o => { if (o.userData.twinId) register(o, o.userData.twinId); });
+  model.traverse(o => {
+    if (Array.isArray(o.userData.sourceEntities)) {
+      for (const entity of o.userData.sourceEntities) {
+        entities.set(entity.id, supplied.get(entity.id) ?? entity); objects.set(entity.id, o);
+      }
+    } else if (o.userData.twinId) register(o, o.userData.twinId);
+  });
   model.traverse(o => {
     if (!o.isMesh) return;
     let parent = o;
@@ -157,16 +189,10 @@ async function load(buffer, name, suppliedManifest = null, sequence = ++loadSequ
   });
   manifest.entities = [...entities.values()];
   scene.add(model);
-  const box = new THREE.Box3().setFromObject(model);
-  box.getCenter(target);
-  const size = box.getSize(new THREE.Vector3());
-  // Fit portrait/landscape views using the tighter horizontal/vertical field of view.
-  const fov = Math.min(THREE.MathUtils.degToRad(camera.fov), 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect));
-  radius = size.length() / (2 * Math.sin(fov / 2)) * 1.1;
-  if (!Number.isFinite(radius) || radius <= 0) throw Error('模型包围盒无效');
-  preset(0);
+  if (manifest.reviewFocus) $('focus').onclick();
+  else frameBox(new THREE.Box3().setFromObject(model));
   $('empty').style.display = 'none'; $('assetLabel').textContent = name;
-  $('badge').hidden = false; $('badge').textContent = manifest.fixture ? '流程测试模型 · 非真实园区' : '模型待验收 · 请核对比例、背面和材质';
+  $('badge').hidden = false; $('badge').textContent = manifest.fixture ? '流程测试模型 · 非真实园区' : manifest.materialMode === 'clay-preview' ? '真实 MAX 几何 · 简化白模 · 非原始材质 · 完整性待核对' : '模型待验收 · 请核对比例、背面和材质';
   $('entity').replaceChildren(...[...entities.values()].map(e => { const opt = document.createElement('option'); opt.value = e.id; opt.textContent = e.label; return opt; }));
   select(entities.keys().next().value); $('save').disabled = false;
   $('metrics').textContent = `${(buffer.byteLength / 1048576).toFixed(2)} MiB · ${entities.size} 对象 · ${triangles} 三角面`;
@@ -180,6 +206,16 @@ $('fixture').onclick = async () => {
     const [asset, metadata] = await Promise.all([fetch('/preview/scene.glb'), fetch('/preview/twin-manifest.json')]);
     if (!asset.ok || !metadata.ok) throw Error('还没有流程测试模型，请先运行本地验证工作流');
     await load(await asset.arrayBuffer(), '工作流测试模型', await metadata.json(), sequence);
+  } catch (e) { status(e.message); }
+};
+$('real').onclick = async () => {
+  if (version !== savedVersion && !confirm('楼栋信息尚未下载。放弃这次修改并切换模型？')) return;
+  const sequence = ++loadSequence;
+  try {
+    const [asset, metadata] = await Promise.all([fetch('/real/scene.glb'), fetch('/real/twin-manifest.json')]);
+    if (!asset.ok || !metadata.ok) throw Error('当前服务未挂载真实园区验证版，请设置 TWIN_REAL_PREVIEW');
+    await load(await asset.arrayBuffer(), '金湖园区 · MAX 实际几何验证版', await metadata.json(), sequence);
+    $('maxDot').classList.add('ready'); $('maxState').textContent = '真实 MAX 已在本机提取';
   } catch (e) { status(e.message); }
 };
 $('file').onchange = async e => {

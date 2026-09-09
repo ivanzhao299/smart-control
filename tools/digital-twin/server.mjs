@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const job = process.env.TWIN_JOB ? path.resolve(process.env.TWIN_JOB) : null;
+const realPreview = process.env.TWIN_REAL_PREVIEW ? path.resolve(process.env.TWIN_REAL_PREVIEW) : null;
 const port = Number(process.env.TWIN_PORT ?? 5199);
 const contentTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.json': 'application/json', '.glb': 'model/gltf-binary', '.css': 'text/css' };
 http.createServer(async (req, res) => {
@@ -21,6 +22,7 @@ http.createServer(async (req, res) => {
     let base, relative;
     if (route.startsWith('/vendor/')) { base = path.join(here, 'node_modules/three'); relative = route.slice('/vendor/'.length); }
     else if (['/preview/scene.glb', '/preview/twin-manifest.json'].includes(route) && job) { base = path.join(job, 'preview'); relative = route.slice('/preview/'.length); }
+    else if (['/real/scene.glb', '/real/twin-manifest.json', '/real/validation.json'].includes(route) && realPreview) { base = realPreview; relative = route.slice('/real/'.length); }
     else { base = path.join(here, 'web'); relative = route === '/' ? 'index.html' : route.slice(1); }
     const file = path.resolve(base, relative);
     if (!file.startsWith(base + path.sep)) { res.writeHead(403).end(); return; }

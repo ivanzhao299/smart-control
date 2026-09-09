@@ -1,18 +1,38 @@
 # 园区数字孪生资产工作流
 
-Mac 本地完成接收、纹理优化、FBX/GLB 转换、压缩、实体映射及相机验收。MAX 导出需要另外接入兼容的 Windows 工作节点；参见 [WINDOWS-WORKER.md](WINDOWS-WORKER.md) 和 [云端配置及费用准备单](CLOUD-PLAN.md)。这不是完整数字孪生系统，也没有连接生产设备。
+Mac 本地完成接收、MAX 开源解析、纹理优化、GLB 转换、压缩、实体映射及相机验收。**当前默认不使用云主机、Windows 或 3ds Max 授权**。采用 [nrgsille76/io_scene_max](https://github.com/nrgsille76/io_scene_max)，锁定提交 `37db107126f956f7219152671443080360565691`，另加本仓库的压缩流兼容层。这不是完整数字孪生系统，也没有连接生产设备。
+
+注意纠正旧结论：Blender 官方未原生支持 MAX，不代表不存在第三方解析器。此解析器是逆向兼容路线，不保证所有 MAX 版本、修改器、材质或插件对象无损还原。Windows 工作节点文档仅作未启用的旧备选，不是当前前置条件。
 
 ## 安装与运行
 
 ```sh
 cd tools/digital-twin
 bash setup-macos.sh
+bash setup-max-local.sh
 python3 twin.py doctor
 python3 twin.py intake --model '/path/模型归档.max' --textures '/path/贴图.zip' --job '/path/new-job'
-python3 twin.py pack-worker --job '/path/new-job' --output '/path/worker-package.zip'
+python3 twin.py import-max --job '/path/new-job' --output '/path/new-max-extraction'
+python3 twin.py max-preview --input '/path/new-max-extraction/imported.blend' --output '/path/new-web-preview'
 python3 twin.py smoke --job '/path/new-job'
 python3 twin.py serve --job '/path/new-job'
 ```
+
+要在工作台显示真实园区按钮对应的模型，以 `TWIN_REAL_PREVIEW=/path/new-web-preview python3 twin.py serve --job /path/new-job` 启动。流程测试模型与真实几何版是两个独立入口，不能混淆。
+
+## MAX 本地解析与实际限制
+
+`import-max` 输出 `imported.blend` 和 `import-report.json`，记录成功创建、跳过的源节点、异常、贴图请求、缺失贴图、面数和包围盒。禁止执行源文件脚本；原件不覆盖，不上传到第三方。适配层解决本次文件的 `_Compressed` 流名、Zstandard 压缩、新场景头包装，以及贴图 Windows 路径定位。每条解压流限制 1 GiB；大型输入仍可能占用数 GiB 内存，只在资产准备 Mac 上离线运行，不能在生产播放端运行。
+
+本次真实输入首次成功提取 1,522 个网格、11,798,436 个三角面；179 个源节点被跳过，主要为线类。只有部分原始材质被恢复，不能声称完整效果图。实际计数以各次 `import-report.json` 为准。
+
+`max-preview` 产生的是**真实 MAX 几何的简化白模验证版**，主动不用残缺材质冒充完整贴图。细小构件先按源单位聚类，再减面，外观与细节会损失；完整提取版保留在另一目录。默认门槛仍是 20 MiB / 30 万面 / 200 批次，任何失败都不发布。
+
+≤200 面的简单组件不减面，避免把背景建筑减成破碎三角片。主体取景使用密集构件的坐标分位数，仅是相机建议，不是已校准的园区或分期边界；“全场景”可恢复完整范围。导入报告的成功不是几何完整性验收。
+
+为避免 1,522 个构件变成同样数量的绘制调用，验证版合批后用 `_ENTITY_ID` 顶点属性保存源构件选择关系。Meshopt 重排时属性随顶点一起走，不能用会失效的三角面序号区间映射。这些 ID 是同一源文件修订内的组件标识，不是已标定楼栋号；跨 MAX 重新导出必须复核。地理位置、尺度、分期、楼栋与企业关联均未自动认定。
+
+开源导入器保存在用户本地 runtime/vendor，不捆绑进生产网页。上游仓库 LICENSE 与扩展 manifest 的 GPL 版本声明存在差异，重新分发前须核对并保留适用许可；当前只固定引用上游仓库，不内嵌其源代码。
 
 安装锁定 Blender 4.5.9 LTS Apple Silicon、其附带 Python 3.11 的独立 venv、Pillow、glTF Transform、Three.js 与浏览器测试依赖。默认安装至 `~/.local/share/smart-control-twin`，不改动系统 Python/Applications。`TWIN_HOME` 可以指定其它路径。
 
@@ -46,9 +66,10 @@ python3 twin.py convert --input '/path/max-export/scene.fbx' --output '/path/new
 Three.js 预览使用按需渲染、DPR≤1、无阴影贴图、无自动旋转、无后处理；切换模型释放几何、材质和纹理。相机预置改变相机，不变换模型。真实园区在部署前还要验收正面/背面/尺度/材质、可选择楼栋、长期运行时内存与实际生产机温度。
 
 ```sh
-"$HOME/.local/share/smart-control-twin/runtime/py311/bin/python" -m unittest test_intake.py
+"$HOME/.local/share/smart-control-twin/runtime/py311/bin/python" -m unittest test_intake.py test_max_streams.py
 npm test
 TWIN_EVIDENCE='/path/browser-evidence' npm run test:browser
+TWIN_EVIDENCE='/path/real-browser-evidence' node test-real-browser.mjs
 ```
 
 浏览器测试使用本机 Google Chrome，独立临时测试上下文。验证相机转到另一侧、模型变换不变、文字空格、不持续渲染、下载映射和原始 MAX 不可通过 HTTP 访问。实际园区相机验收状态默认均为 false。
