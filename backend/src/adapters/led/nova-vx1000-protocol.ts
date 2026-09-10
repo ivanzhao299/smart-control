@@ -26,6 +26,8 @@ const RESP_HEADER = Buffer.from([0xaa, 0x55]);
 
 /** 输入源代码 (Appendix II) */
 export const VX_SOURCE = {
+  /** V2460 背板 HDMI 2.0（现场实测卡槽 0） */
+  HDMI20: 0x90,
   HDMI1: 0x11,
   HDMI2: 0x12,
   DVI: 0x00,
@@ -35,6 +37,7 @@ export type VxSourceName = keyof typeof VX_SOURCE;
 
 /** 卡槽 (Appendix III) */
 export const VX_CARD_SLOT = {
+  HDMI20: 0x00,
   HDMI1: 0x00,
   HDMI2: 0x01,
   DVI: 0x02,
@@ -250,26 +253,27 @@ export function verifyResponse(resp: Buffer): { ok: true } | { ok: false; error:
 
 /**
  * 把项目里 LedInput 字符串映射到 VX1000 的物理动作:
- *   'HDMI1' / 'HDMI2' → 切换图层输入源到对应 HDMI
- *   'welcome' → 加载预设 1 (约定为欢迎页)
- *   'video'   → 加载预设 2 (约定为视频播放)
+ *   'HDMI1' / 'video' / 'welcome' → GK9000 主显示链路（V2460 HDMI 2.0）
+ *   'HDMI2' → 保留的第二路 HDMI 输入
  *
- * 现场可通过 .env 调整预设号:
- *   LED_PRESET_WELCOME=1
- *   LED_PRESET_VIDEO=2
+ * 预设仍由高级 loadPreset 操作单独调用；普通播放不再经过旧预设。
  */
 export type LedInputAction =
-  | { kind: 'layer'; source: number }
+  | { kind: 'layer'; source: number; cardSlot: number }
   | { kind: 'preset'; presetNumber: number };
 
 export function ledInputToAction(
   input: 'HDMI1' | 'HDMI2' | 'welcome' | 'video',
-  presets: { welcome: number; video: number },
+  _presets: { welcome: number; video: number },
 ): LedInputAction {
   switch (input) {
-    case 'HDMI1':   return { kind: 'layer', source: VX_SOURCE.HDMI1 };
-    case 'HDMI2':   return { kind: 'layer', source: VX_SOURCE.HDMI2 };
-    case 'welcome': return { kind: 'preset', presetNumber: presets.welcome };
-    case 'video':   return { kind: 'preset', presetNumber: presets.video };
+    // 这些名字是产品层语义：HDMI1=GK9000 的 LED 播放通道。现场物理线
+    // 已接到 V2460 HDMI 2.0，不能再加载旧预设（旧预设仍指向 0x11）。
+    case 'HDMI1':
+    case 'welcome':
+    case 'video':
+      return { kind: 'layer', source: VX_SOURCE.HDMI20, cardSlot: VX_CARD_SLOT.HDMI20 };
+    case 'HDMI2':
+      return { kind: 'layer', source: VX_SOURCE.HDMI2, cardSlot: VX_CARD_SLOT.HDMI2 };
   }
 }

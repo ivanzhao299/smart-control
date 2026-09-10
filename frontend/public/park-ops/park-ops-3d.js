@@ -43,7 +43,9 @@ const state = {
   triangles: 12730,
   error: '',
   fpsCap: 8,
-  renderScale: 0.82,
+  // Keep full raster resolution; save power through the existing 8fps/visibility
+  // limits instead of blurring the map with a reduced-size framebuffer.
+  renderScale: 1,
   perspective: false,
   rotation: 0,
   calibrationMode: false,

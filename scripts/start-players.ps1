@@ -34,7 +34,7 @@
 # slot heartbeat is stale for -StaleMinutes (default 3).
 #
 # Multi-monitor coords must match the real layout (Win+P / display settings).
-# Default: monitor1 (HDMI1) 0,0 1920x1080 ; monitor2 (HDMI2) 1920,0 1920x1080
+# Normal startup detects monitor bounds; numeric parameters are fallback/overrides.
 # =====================================================================
 [CmdletBinding()]
 param(
@@ -311,11 +311,42 @@ function Get-ProjectorRect {
   return $null
 }
 
+# LED is the primary display. Match its actual bounds as we already do for the
+# projector; a forced 1920x1080 window can rasterize the dashboard below the LED
+# pixel dimensions. This does NOT change Windows output mode or LED mapping.
+function Get-LedRect {
+  try {
+    $primary = [System.Windows.Forms.Screen]::AllScreens |
+      Where-Object { $_.Primary } | Select-Object -First 1
+    if ($primary -and $primary.Bounds.Width -gt 0 -and $primary.Bounds.Height -gt 0) {
+      return $primary.Bounds
+    }
+  } catch { return $null }
+  return $null
+}
+
 # slot1/2 fullscreen (LED + projector), then slot3 audio LAST so its small visible
 # window stays ON TOP in the LED bottom-right corner (it must stay visible or
 # Chromium pauses its audio).
 if ($Slot -eq 0 -or $Slot -eq 1) {
-  Start-Slot -N 1 -X $Slot1X -Y $Slot1Y -W $ScreenW -H $ScreenH
+  # Preserve explicit maintenance/calibration overrides. Normal watchdog/startup
+  # invocations follow the display's real geometry instead of the old FHD default.
+  $explicitLedRect = $PSBoundParameters.ContainsKey('Slot1X') -or
+    $PSBoundParameters.ContainsKey('Slot1Y') -or
+    $PSBoundParameters.ContainsKey('ScreenW') -or
+    $PSBoundParameters.ContainsKey('ScreenH')
+  $lr = $null
+  if (-not $explicitLedRect) { $lr = Get-LedRect }
+  if ($lr) {
+    Write-Host ("slot=1 -> LED primary display " + $lr.X + "," + $lr.Y + " " + $lr.Width + "x" + $lr.Height) -ForegroundColor Cyan
+    if ($lr.Width -ne 3612 -or $lr.Height -ne 1462) {
+      Write-Warning 'LED bounds differ from the confirmed 3612x1462 wall. Check DPI, desktop/active signal and processor mapping; window sizing alone cannot prove 1:1 pixels.'
+    }
+    Start-Slot -N 1 -X $lr.X -Y $lr.Y -W $lr.Width -H $lr.Height
+  } else {
+    Write-Host ("slot=1 -> explicit/fallback display " + $Slot1X + "," + $Slot1Y + " " + $ScreenW + "x" + $ScreenH) -ForegroundColor Yellow
+    Start-Slot -N 1 -X $Slot1X -Y $Slot1Y -W $ScreenW -H $ScreenH
+  }
 }
 if ($Slot -eq 0 -or $Slot -eq 2) {
   # slot2 = projector on the NON-primary display. Use its real bounds so it tracks

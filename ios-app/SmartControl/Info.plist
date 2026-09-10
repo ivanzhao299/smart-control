@@ -25,9 +25,6 @@
 	     回答一次"出口合规"问题, 构建才对测试员可用 —— 声明后永久免答。 -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
-	<!-- 面容 ID 应用锁 (2026-07-30): 缺这个 key 调 LocalAuthentication 会直接崩 -->
-	<key>NSFaceIDUsageDescription</key>
-	<string>用于解锁展厅中控, 防止他人误操作设备控制</string>
 	<!-- 启动画面 (2026-07-25 体验升级 A1): 深底 + logo, 与安卓壳/PWA 启动占位同语言 -->
 	<key>UILaunchScreen</key>
 	<dict>

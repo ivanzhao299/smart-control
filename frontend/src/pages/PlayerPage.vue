@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch , nextTick } from 'vue';
 import { useRoute } from 'vue-router';
-import { wsClient } from '@/services/websocket.service';
-import { getPlayerState, playerHeartbeat, playerAdvance, configurePlayer, hasPlayerCredential, type PlayerDeviceState } from '@/services/player-device.service';
+import { WsClient } from '@/services/websocket.service';
+import { getPlayerState, playerHeartbeat, playerAdvance, configurePlayer, hasPlayerCredential, playerSocketAuthentication, type PlayerDeviceState } from '@/services/player-device.service';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { absUrl, api, setApiBaseURL } from '@/services/http';
 import { forceThemeWithoutPersist, restoreStoredTheme } from '@/services/theme.service';
@@ -34,6 +34,8 @@ const slot = computed<number>(() => {
 });
 
 const channel = ref<PlayerDeviceState | null>(null);
+// Separate connection/identity from the control app's personal-account socket.
+const playerWs = new WsClient({ authentication: () => playerSocketAuthentication(slot.value) });
 const credential = ref('');
 const rememberDevice = ref(false);
 const needsCredential = ref(false);
@@ -43,11 +45,13 @@ async function saveCredential(): Promise<void> {
     configurePlayer(slot.value, credential.value, rememberDevice.value);
     credential.value = '';
     needsCredential.value = false;
+    playerWs.reconnect();
     await fetchChannel();
   } catch (e) { errorMsg.value = (e as Error).message; }
 }
 const errorMsg = ref<string>('');
 let unsubscribeWs: (() => void) | null = null;
+let unsubscribeWsState: (() => void) | null = null;
 let heartbeatTimer: number | undefined;
 
 async function fetchChannel(): Promise<void> {
@@ -90,8 +94,13 @@ onMounted(async () => {
   await brandingStore.load().catch(() => { /* branding failure must not prevent device initialization */ });
   await fetchChannel();
 
-  unsubscribeWs = wsClient.on(handleWs);
-  wsClient.connect();
+  unsubscribeWs = playerWs.on(handleWs);
+  // Also closes the startup/reconnect gap: events missed while offline are
+  // reconciled immediately after authenticated hello, not 30 seconds later.
+  unsubscribeWsState = playerWs.onState(state => {
+    if (state === 'open') void fetchChannel();
+  });
+  playerWs.connect();
 
   // 立刻一次心跳, 然后每 30s 一次。顺带每轮 fetchChannel 兜底: WS 是零延迟切素材
   // 的主路径, 但 WS 万一长时间断线 (网络抖动 / 后端重启后重连失败), 光靠 WS 就再也
@@ -119,6 +128,8 @@ onBeforeUnmount(() => {
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   if (audioRouteRetryTimer !== undefined) clearInterval(audioRouteRetryTimer);
   if (unsubscribeWs) unsubscribeWs();
+  if (unsubscribeWsState) unsubscribeWsState();
+  playerWs.disconnect();
   restoreStoredTheme();   // 离开大屏页, 回到业主自己选的主题
 });
 

@@ -117,12 +117,13 @@ describe('Nova 图层设置 (切输入源 + 尺寸, 32位小端拆字节)', () =
 
 describe('Nova LED 输入动作映射 ledInputToAction', () => {
   const presets = { welcome: 1, video: 2 };
-  it('HDMI1/HDMI2 → 切图层源', () => {
-    expect(ledInputToAction('HDMI1', presets)).toEqual({ kind: 'layer', source: VX_SOURCE.HDMI1 });
-    expect(ledInputToAction('HDMI2', presets)).toEqual({ kind: 'layer', source: VX_SOURCE.HDMI2 });
+  it('逻辑 HDMI1/播放/欢迎页 → V2460 HDMI 2.0 主显示链路', () => {
+    const expected = { kind: 'layer', source: VX_SOURCE.HDMI20, cardSlot: 0 };
+    expect(ledInputToAction('HDMI1', presets)).toEqual(expected);
+    expect(ledInputToAction('video', presets)).toEqual(expected);
+    expect(ledInputToAction('welcome', presets)).toEqual(expected);
   });
-  it('welcome/video → 调预设 (预设号可 .env 配)', () => {
-    expect(ledInputToAction('welcome', presets)).toEqual({ kind: 'preset', presetNumber: 1 });
-    expect(ledInputToAction('video', { welcome: 3, video: 4 })).toEqual({ kind: 'preset', presetNumber: 4 });
+  it('逻辑 HDMI2 仍映射第二路输入', () => {
+    expect(ledInputToAction('HDMI2', presets)).toEqual({ kind: 'layer', source: VX_SOURCE.HDMI2, cardSlot: 1 });
   });
 });

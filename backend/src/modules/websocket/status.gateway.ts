@@ -20,6 +20,10 @@ import { WebSocketConfig } from '../../common/config/configuration';
 import { ClientAuthService } from '../client-auth/client-auth.service';
 import { AdminAuthService } from '../admin-auth/admin-auth.service';
 import { Actor } from '../../common/auth/actor';
+import { PlayerDeviceAuthService } from '../playback/player-device-auth.service';
+
+type SocketSession = { kind: 'user'; token: string; admin: boolean } | { kind: 'player'; token: string; slot: number };
+type SocketIdentity = Actor | { kind: 'player'; slot: number };
 
 interface ClientHello {
   type: 'hello';
@@ -57,7 +61,7 @@ export class StatusGateway
   /** 每条连接上一轮是否回过 pong (WeakMap: 连接被回收时自动清, 不用手动删) */
   private readonly alive = new WeakMap<WebSocket, boolean>();
   private heartbeatTimer?: NodeJS.Timeout;
-  private readonly sessions = new WeakMap<WebSocket, { token: string; admin: boolean }>();
+  private readonly sessions = new WeakMap<WebSocket, SocketSession>();
   private readonly authTimers = new Map<WebSocket, NodeJS.Timeout>();
 
   constructor(
@@ -68,6 +72,7 @@ export class StatusGateway
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
     private readonly clientAuth: ClientAuthService,
     private readonly adminAuth: AdminAuthService,
+    private readonly playerAuth: PlayerDeviceAuthService,
   ) {
     this.wsCfg = config.getOrThrow<WebSocketConfig>('websocket');
   }
@@ -109,9 +114,27 @@ export class StatusGateway
     if (!input || typeof input.token !== 'string' || input.token.length > 8192 || typeof input.admin !== 'boolean') {
       client.close(4401, 'Invalid authentication'); return;
     }
-    this.sessions.set(client, { token: input.token, admin: input.admin });
+    this.sessions.set(client, { kind: 'user', token: input.token, admin: input.admin });
     const actor = await this.resolve(client);
-    if (!actor || client.readyState !== client.OPEN) return;
+    if (!actor || actor.kind === 'player' || client.readyState !== client.OPEN) return;
+    this.sendHello(client);
+    this.snapshot(client, actor);
+  }
+
+  @SubscribeMessage('authenticate_player')
+  async authenticatePlayer(@ConnectedSocket() client: WebSocket, @MessageBody() data: unknown): Promise<void> {
+    if (this.sessions.has(client)) { client.close(4401, 'Reconnect to change identity'); return; }
+    const input = data as { token?: unknown; slot?: unknown } | null;
+    try {
+      this.playerAuth.authenticate(input?.token, input?.slot as number);
+    } catch { client.close(4401, 'Invalid player authentication'); return; }
+    this.sessions.set(client, { kind: 'player', token: input!.token as string, slot: input!.slot as number });
+    // Devices never receive user, scene, or adapter snapshots. On hello they fetch
+    // their scoped REST state, which independently enforces media/user permissions.
+    this.sendHello(client);
+  }
+
+  private sendHello(client: WebSocket): void {
     clearTimeout(this.authTimers.get(client));
     this.authTimers.delete(client);
     const hello: ClientHello = {
@@ -120,7 +143,6 @@ export class StatusGateway
       serverTime: new Date().toISOString(),
     };
     this.safeSend(client, hello);
-    this.snapshot(client, actor);
     this.logger.info(`WS client connected (total=${this.server.clients.size})`, {
       context: 'StatusGateway',
     });
@@ -209,10 +231,15 @@ export class StatusGateway
     }
   }
 
-  private async resolve(client: WebSocket): Promise<Actor | null> {
+  private async resolve(client: WebSocket): Promise<SocketIdentity | null> {
     const session = this.sessions.get(client);
     try {
       if (session) {
+        if (session.kind === 'player') {
+          this.playerAuth.authenticate(session.token, session.slot);
+          if (this.sessions.get(client) === session) return { kind: 'player', slot: session.slot };
+          return null;
+        }
         const actor: Actor | null = session.admin
           ? await this.adminAuth.verifyToken(session.token) ? { kind: 'admin', userId: null, username: 'admin', role: 'admin' } : null
           : await this.clientAuth.resolveActor(session.token);
@@ -227,6 +254,12 @@ export class StatusGateway
   private async sendAuthorized(client: WebSocket, event: ControlEvent): Promise<void> {
     const actor = await this.resolve(client);
     if (!actor) return;
+    if (actor.kind === 'player') {
+      if (event.type === 'playback_channel_changed' && event.slot === actor.slot) {
+        this.safeSend(client, { type: event.type, slot: event.slot, at: event.at });
+      }
+      return;
+    }
     if (actor.role === 'admin') { this.safeSend(client, event); return; }
     // Never relay arbitrary adapter state, error messages or test results across users.
     if (event.type === 'playback_channel_changed') this.safeSend(client, { type: event.type, slot: event.slot, at: event.at });

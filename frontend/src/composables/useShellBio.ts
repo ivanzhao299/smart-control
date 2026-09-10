@@ -11,6 +11,7 @@ export type ShellBioScope = 'client' | 'admin';
 export interface ShellBioState { available: boolean; saved: boolean }
 
 interface ShellBridge {
+  platform?: string;
   bioInfo?: () => string;
   bioInfoScoped?: (scope: string) => string;
   saveBioPassword?: (pwd: string) => void;
@@ -23,12 +24,17 @@ interface ShellBridge {
 
 interface ShellWindow {
   JinhuShell?: ShellBridge;
+  webkit?: { messageHandlers?: { jinhuShell?: unknown } };
   __jinhuBioLoginOk?: (pwd: string) => void;
   __jinhuBioLoginFail?: () => void;
 }
 
 function shell(): ShellBridge | undefined {
-  return (window as unknown as ShellWindow).JinhuShell;
+  const w = window as unknown as ShellWindow;
+  // Stop calling Face ID even on already-installed iOS shells. Android remains
+  // unchanged. The old WKWebView bridge has no platform flag, hence the fallback.
+  if (w.JinhuShell?.platform === 'ios' || w.webkit?.messageHandlers?.jinhuShell) return undefined;
+  return w.JinhuShell;
 }
 
 /** 读壳里该槽位的状态; 无桥 / 老壳不支持该槽位 → null (界面不显示入口) */
