@@ -15,6 +15,10 @@ function playerCredential(slot: number): string | null {
   return sessionStorage.getItem(key(slot)) || localStorage.getItem(key(slot));
 }
 export function hasPlayerCredential(slot: number): boolean { return !!playerCredential(slot); }
+export function playerSocketAuthentication(slot: number) {
+  const token = playerCredential(slot);
+  return token ? { event: 'authenticate_player', data: { token, slot } } : null;
+}
 
 async function request<T>(slot: number, action: string, body?: unknown): Promise<T> {
   const token = playerCredential(slot);
