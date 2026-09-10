@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { defaults } from '../../frontend/public/park-ops/ops-data-model.mjs';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const origin = 'http://127.0.0.1:5200', errors = [], writes = [], requests = [];
+const origin = process.env.OPS_PREVIEW_ORIGIN || 'http://127.0.0.1:5200', errors = [], writes = [], requests = [];
+assert.ok(['127.0.0.1', 'localhost'].includes(new URL(origin).hostname), 'Mutation tests are permitted only on the local read-only preview server');
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 const context = await browser.newContext({ viewport: { width: 1920, height: 1080 }, reducedMotion: 'reduce' });
 await context.route('http://localhost:3200/**', route => route.fulfill({ json: { data: {} } }));

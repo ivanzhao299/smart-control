@@ -100,8 +100,8 @@ function fillForm(doc) {
 function openEditor() {
   lastFocus = document.activeElement;
   const auto = document.getElementById('auto'); if (auto.classList.contains('on')) auto.click();
-  dialog.innerHTML = `<form><header><h2 id="ops-title">运营数据 · 本地验收</h2><button type="button" data-close aria-label="关闭运营数据编辑器">关闭</button></header><main>
-    <p>保存只作用于当前浏览器，不上传生产，不修改中间区域的分区、楼栋、文字和布局。产值与税收采用本版数字；其他运营指标保留原占位，均可编辑。绑定已核实的数据后，可取消对应的“占位数据”标记。</p>
+  dialog.innerHTML = `<form><header><h2 id="ops-title">运营数据 · 浏览器草稿</h2><button type="button" data-close aria-label="关闭运营数据编辑器">关闭</button></header><main>
+    <p>保存只作用于当前浏览器，不修改服务端共享数据或中间区域的分区、楼栋、文字和布局。产值与税收采用本版数字；其他运营指标保留原占位，均可编辑。绑定已核实的数据后，可取消对应的“占位数据”标记。</p>
     <fieldset><legend>来源与日期</legend><div class="ops-form-grid"><label style="grid-column:span 2">数据来源<input name="source" maxlength="200" required></label><label>数据日期<input type="date" name="updatedAt" required></label></div></fieldset>
     ${[...new Set(fields.map(f => f[5]))].map(group => `<fieldset><legend>${group}</legend><div class="ops-form-grid">${fields.filter(f => f[5] === group).map(([key, label, unit]) => `<div><label>${label}（${unit}）<input type="number" name="${key}" min="0" max="${unit === '%' ? 100 : 1e9}" step="any" placeholder="输入数字"></label><label class="ops-checkbox"><input type="checkbox" name="placeholder-${key}">占位数据</label></div>`).join('')}</div></fieldset>`).join('')}
     <fieldset><legend>运营内容</legend><div class="ops-form-grid">${copyFields.map(([key, label]) => `<label>${label}<textarea name="${key}"></textarea></label>`).join('')}</div></fieldset>
@@ -114,7 +114,7 @@ function openEditor() {
     try {
       const next = formDocument();
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      data = next; mode = '本机草稿'; warning = ''; render(); feedback('已保存本机草稿；刷新页面仍保留，生产未改变。');
+      data = next; mode = '本机草稿'; warning = ''; render(); feedback('已保存本机草稿；刷新页面仍保留，服务端共享配置未改变。');
     } catch (error) { feedback(`未保存：${error.message}。可导出 JSON 备份。`, true); }
   };
   dialog.querySelector('[data-export]').onclick = () => {
