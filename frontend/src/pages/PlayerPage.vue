@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch , nextTick } from 'vue';
 import { useRoute } from 'vue-router';
-import { WsClient } from '@/services/websocket.service';
+import { WsClient, type WsConnectionState } from '@/services/websocket.service';
 import { getPlayerState, playerHeartbeat, playerAdvance, configurePlayer, hasPlayerCredential, playerSocketAuthentication, type PlayerDeviceState } from '@/services/player-device.service';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { absUrl, api, setApiBaseURL } from '@/services/http';
@@ -53,8 +53,18 @@ const errorMsg = ref<string>('');
 let unsubscribeWs: (() => void) | null = null;
 let unsubscribeWsState: (() => void) | null = null;
 let heartbeatTimer: number | undefined;
+let disconnectedReconcileTimer: number | undefined;
+let playerWsState: WsConnectionState = 'closed';
+let channelRequest: Promise<void> | null = null;
 
 async function fetchChannel(): Promise<void> {
+  // WS 重连与兜底轮询可能同时触发；同一时刻只保留一次设备状态读取，避免请求堆积。
+  if (channelRequest) return channelRequest;
+  channelRequest = fetchChannelOnce();
+  try { await channelRequest; } finally { channelRequest = null; }
+}
+
+async function fetchChannelOnce(): Promise<void> {
   const revision = ++requestRevision;
   try {
     const state = await getPlayerState(slot.value);
@@ -98,6 +108,7 @@ onMounted(async () => {
   // Also closes the startup/reconnect gap: events missed while offline are
   // reconciled immediately after authenticated hello, not 30 seconds later.
   unsubscribeWsState = playerWs.onState(state => {
+    playerWsState = state;
     if (state === 'open') void fetchChannel();
   });
   playerWs.connect();
@@ -108,6 +119,12 @@ onMounted(async () => {
   // 推的一样 (幂等无害), WS 断时它就是唯一能把新素材切上来的兜底。
   void sendHeartbeat();
   heartbeatTimer = window.setInterval(() => { void sendHeartbeat(); void fetchChannel(); }, 30_000);
+  // 现场控制按钮与播放器是两台浏览器。播放器 WS 暂时断开时，发布事件不会补发；旧版只能
+  // 等 30 秒心跳轮询，用户会误以为第一次点击无效而再次点击。断线期间用本机 2 秒轻量
+  // 状态对账，连接正常时完全停读，既保留实时 WS 主路径，也把断线切换上限压到 2 秒。
+  disconnectedReconcileTimer = window.setInterval(() => {
+    if (playerWsState !== 'open') void fetchChannel();
+  }, 2_000);
 
   // HDMI 音频路由重试: 只有 slot1/2 (视频) 需要, routeVideoAudio 内部已经检查过
   // slot, 这里无脑每 5s 试一次, 成功了自己会清掉这个定时器, 便宜且没有副作用
@@ -126,6 +143,7 @@ onBeforeUnmount(() => {
   ++requestRevision;
   channel.value = null;
   if (heartbeatTimer) clearInterval(heartbeatTimer);
+  if (disconnectedReconcileTimer) clearInterval(disconnectedReconcileTimer);
   if (audioRouteRetryTimer !== undefined) clearInterval(audioRouteRetryTimer);
   if (unsubscribeWs) unsubscribeWs();
   if (unsubscribeWsState) unsubscribeWsState();
@@ -392,6 +410,7 @@ function onAudioEnded(): void {
     <!-- 播放网页 (iframe 全屏渲染外部 URL) -->
     <iframe
       v-else-if="isWebpage && channel?.currentMediaUrl"
+      :key="channel.playbackSession"
       class="media-el web-frame"
       sandbox="allow-scripts allow-forms"
       :src="channel.currentMediaUrl"

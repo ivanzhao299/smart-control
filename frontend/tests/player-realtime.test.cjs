@@ -107,5 +107,9 @@ test('PlayerPage uses the dedicated connection, immediate reconnect reconciliati
   assert.match(source, /new WsClient\(\{ authentication: \(\) => playerSocketAuthentication\(slot.value\)/);
   assert.match(source, /if \(state === 'open'\) void fetchChannel\(\)/);
   assert.match(source, /playerWs.disconnect\(\)/);
+  assert.match(source, /if \(playerWsState !== 'open'\) void fetchChannel\(\)/);
+  assert.match(source, /}, 2_000\)/);
+  assert.match(source, /:key="channel\.playbackSession"/);
+  assert.match(source, /clearInterval\(disconnectedReconcileTimer\)/);
   assert.doesNotMatch(source, /wsClient\.connect\(\)/);
 });
