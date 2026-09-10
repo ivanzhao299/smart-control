@@ -10,6 +10,14 @@ test('Low-power camera pack is complete, bounded and hash verified',async()=>{
  assert.equal(m.views.find(v=>v.id==='opposite').azimuthDeltaDegrees,180);
  assert.notDeepEqual(m.views[0].camera,m.views[1].camera);
  assert.equal(m.landscapeSummary.sourceGeometryUnchanged,true);
+ assert.deepEqual(m.dimensions,[3000,2400]);assert.deepEqual(m.clayDimensions,m.dimensions);
+ assert.equal(m.geometryUnchanged,true);
+ for(const view of m.views){
+  const b=view.subjectBounds;assert.equal(b.length,4);
+  assert.ok(b.every(x=>Number.isFinite(x)&&x>=0&&x<=1));
+  assert.ok(b[2]>b[0]&&b[3]>b[1]);
+  assert.ok(Math.abs((b[0]+b[2])/2-.5)<.001&&Math.abs((b[1]+b[3])/2-.5)<.001);
+ }
  const files=m.views.flatMap(v=>[v.images.day,v.images.night,v.clayImage]);
  assert.equal(new Set(files).size,15);let total=0;
  for(const file of files){

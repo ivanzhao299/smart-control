@@ -48,7 +48,14 @@ function markers(){
   });$('markers').append(button);
  }
 }
-function resize(){const viewport=$('viewport');const ratio=1600/1105;const width=Math.min(viewport.clientWidth,Math.max(1,viewport.clientHeight)*ratio);$('picture').style.width=`${width}px`;$('picture').style.height=`${width/ratio}px`;}
+function resize(){
+ const viewport=$('viewport'),[iw,ih]=manifest?.dimensions||[1600,1105];
+ const region=manifest?.views.find(v=>v.id===activeView)?.subjectBounds;
+ const width=viewport.clientWidth,height=Math.max(1,viewport.clientHeight),padding=manifest?.responsiveFraming?.padding??.035;
+ // Fit the measured park, not its surrounding overscan. The viewport clips landscape only.
+ const scale=region?Math.min(width*(1-2*padding)/((region[2]-region[0])*iw),height*(1-2*padding)/((region[3]-region[1])*ih)):Math.min(width/iw,height/ih);
+ $('picture').style.width=`${iw*scale}px`;$('picture').style.height=`${ih*scale}px`;
+}
 new ResizeObserver(resize).observe($('viewport'));
 function controls(){for(const b of $('views').children)b.setAttribute('aria-pressed',String(b.dataset.view===activeView));$('clay').setAttribute('aria-pressed',String(mode==='clay'));for(const b of document.querySelectorAll('[data-light]'))b.setAttribute('aria-pressed',String(b.dataset.light===lightingMode));}
 function filename(view){return mode==='clay'?view.clayImage:view.images[lighting];}
@@ -60,11 +67,11 @@ async function loadView(id){
  try{
   const next=new Image();next.decoding='async';next.src=new URL(`./assets/${file}`,location.href).href;await next.decode();
   if(token!==sequence)return;
-  const expected=mode==='clay'?[1280,884]:manifest.dimensions;
+  const expected=mode==='clay'?(manifest.clayDimensions||[1280,884]):manifest.dimensions;
   if(next.naturalWidth!==expected[0]||next.naturalHeight!==expected[1])throw Error('图片尺寸与清单不符');
   const image=$('image');image.src=next.src;image.alt=`${names[id]}，${mode==='clay'?'真实模型白模':lighting==='night'?'夜景，补建绿化示意':'日景，补建绿化示意'}`;
   activeView=id;currentImageKey=key;successfulLoads++;selected='';markers();selectionForm();resize();controls();$('loading').hidden=true;$('edit').disabled=false;
-  announce(`${names[id]} · ${mode==='clay'?'白模检查':lighting==='night'?'夜景模拟':'日景模拟'} · 按需加载，无持续三维计算`);
+  announce(`${names[id]} · ${mode==='clay'?'白模检查':lighting==='night'?'夜景模拟':'日景模拟'} · ${manifest.responsiveFraming?'近景满幅 · ':''}按需加载，无持续三维计算`);
   parent.postMessage({type:'park-twin-state',view:id,mode,lighting},location.origin);
  }catch(error){if(token!==sequence)return;$('loading').textContent='视角加载失败，保留上一张有效画面。请重试。';$('retry').hidden=false;announce(error.message);controls();}
 }
@@ -96,6 +103,15 @@ async function initialize(){
   const response=await fetch('./assets/display-manifest.json');if(!response.ok)throw Error('模型视角包尚未就绪');
   manifest=await response.json();if(manifest.version!==1||manifest.renderMode!=='offline-real-3d-camera-cache')throw Error('不支持的模型视角包');
   draft=defaultDraft();try{const saved=localStorage.getItem(draftKey());if(saved)draft=validateDraft(JSON.parse(saved));}catch{$('saveStatus').textContent='本机旧草稿不可用，已载入默认标注；不会覆盖旧文件。';}
+  // Camera revision changed: never silently apply old image-space coordinates or erase old work.
+  try{
+   const previous=manifest.revision!=='jinhu-camera-20260910-v1'&&localStorage.getItem('park.twin.annotations.jinhu-camera-20260910-v1');
+   if(previous&&!$('legacyDraft')){
+    const backup=document.createElement('button');backup.id='legacyDraft';backup.textContent='下载旧视角标注备份';
+    backup.onclick=()=>{const url=URL.createObjectURL(new Blob([previous],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='jinhu-camera-20260910-v1-annotations.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+    $('inspector').append(backup);$('saveStatus').textContent='取景已更新，旧视角草稿原样保留，可下载备份；新构图需重新定位标注。';
+   }
+  }catch{/* Local-storage denial is handled by the regular download/save fallback. */}
   $('views').replaceChildren(...manifest.views.map(view=>{const button=document.createElement('button');button.dataset.view=view.id;button.textContent=names[view.id];button.onclick=()=>loadView(view.id);button.setAttribute('aria-pressed','false');return button;}));
   $('budget').textContent=`完整视角包 ${(manifest.totalImageBytes/1e6).toFixed(2)} MB · 当前仅加载所选视角`;
   setLighting(lightingMode);parent.postMessage({type:'park-twin-ready'},location.origin);

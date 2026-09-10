@@ -20,7 +20,32 @@ python3 twin.py serve --job '/path/new-job'
 
 要在工作台显示真实园区按钮对应的模型，以 `TWIN_REAL_PREVIEW=/path/new-web-preview python3 twin.py serve --job /path/new-job` 启动。流程测试模型与真实几何版是两个独立入口，不能混淆。
 
-## 2026-09-10：多视角低功耗大屏本地候选
+## 2026-09-10 当前版：主体近景满幅
+
+入口仍为 `http://127.0.0.1:5199/screen/index.html?twin=1`，刷新即可。当前资产修订 `jinhu-camera-20260910-v2-filled`，下节 v1 为历史记录。
+
+`render_filled_views.py` 加载既有景观副本，以 1,116 个主体细节网格的投影边界重新构图，移动真实相机、调整镜头与传感器偏移居中。俯视相机改用横向构图。保留原 MAX 与旧相机副本；不旋转、缩放、挪动或复制源建筑。主体选择排除大型地面、外围体块和植被；它是可复查的展示取景范围，不是地理边界或楼栋清单认证。
+
+原参考画框裁切外的空场补建连续地面和外围示意林地（13,476 个共享树实例，仅离线渲染使用），不新增建筑。输出 3000×2400 带外围余量的母画面，网页根据每一视角 `subjectBounds` 计算等比例缩放，裁去外围余量，使主体尽量占满实际展示区。普通屏和 LED 使用同一套资产，不需要常驻 3D 或尺寸切换时重复请求图片。
+
+新版 15 张 WebP 总计 **6,744,172 字节**；最大 **694,334 字节**，默认另一侧日景 **666,640 字节**。分辨率提高是为近景裁切后的清晰度，单张解码约 28.8 MB RGBA，不等同于文件下载体积；网页仍仅保留当前显示逻辑和临时加载对象，不预载整包。实际浏览器缓存与生产机温度需实机验证。
+
+```sh
+# 在新目录渲染日景、夜景、白模和相同相机下的标注坐标；--preview 可仅生成半分辨率日景。
+blender --background --threads 4 --python render_filled_views.py -- \
+  --input /path/landscape.blend --cameras /path/review.json \
+  --fit /path/reference-camera-fit.json --landscape /path/landscape.json --output /path/new-filled-render
+python package_display_views.py --input /path/new-filled-render --output /path/new-filled-web
+TWIN_EVIDENCE=/path/new-framing-evidence node test-filled-framing.mjs
+TWIN_EVIDENCE=/path/new-editor-evidence node test-twin-screen.mjs
+node --test test-display-assets.mjs
+```
+
+已检查 1920×1080、3612×1462、1366×768 × 五视角，共 15 种组合：背景覆盖展示区；所选主体边界未裁切；保持原始图片比例；限制放大的一轴占约 93%。这不是主体面积覆盖 93%，也不意味任何极端长宽比均能无留白且保留完整主体。日夜景、白模、标注交互和失败重试也已验证。
+
+新相机标注使用独立修订存储，旧 v1 草稿原样保留。有旧稿时编辑器显示“下载旧视角标注备份”，不会把旧像素坐标静默套用到新图上。原 `/compare.html` 保留旧同视角参照；当前“原鸟瞰视角”按钮保留观察方向但已重新近景构图，不再是像素等效对照。未发布生产。
+
+## 2026-09-10 v1：多视角低功耗大屏本地候选（历史）
 
 用户已认可原鸟瞰视角对应关系。新入口为 `http://127.0.0.1:5199/screen/index.html?twin=1`，独立模型检查为 `/screen/twin-view/index.html`。默认展示真实相机位于另一侧的视图，模型未旋转或镜像；另有原鸟瞰、侧向 A、侧向 B、俯视及五组白模。旧 `/compare.html` 保留为已认可的历史参照，不冒充最新绿化版。
 

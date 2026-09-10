@@ -11,7 +11,7 @@ new MutationObserver(sendLighting).observe(document.body,{attributes:true,attrib
 const entry=document.getElementById('openCalibration');entry.textContent='模型标注';entry.title='编辑当前相机视角标注，仅保存本机草稿';
 entry.onclick=()=>frame.contentWindow?.postMessage({type:'park-twin-edit'},location.origin);
 const title=map.closest('.park').querySelector('h3');title.textContent='园区空间总览';
-const small=document.createElement('small');small.textContent='真实模型 · 另一侧相机 · 低功耗视角切换';title.append(small);
+const small=document.createElement('small');small.textContent='真实模型 · 近景满幅 · 自适应取景';title.append(small);
 document.querySelector('.demo').textContent='本地候选 · 演示数据';
 document.querySelector('.status b').textContent='设备未连接';
 for(const badge of document.querySelectorAll('.cam .live'))badge.textContent='占位 / 未接入';

@@ -50,7 +50,7 @@ try{
  const frame=page.frameLocator('#parkTwinFrame');await frame.locator('#image').waitFor();
  await page.waitForFunction(()=>document.querySelector('#parkTwinFrame')?.contentWindow?.TWIN_VIEW_DEBUG?.state?.activeView==='opposite');
  await page.screenshot({path:path.join(out,'screen-1920.png'),fullPage:true});
- const ratio=await frame.locator('#image').evaluate(i=>{const r=i.getBoundingClientRect();return r.width/r.height;});assert.ok(Math.abs(ratio-1600/1105)<.001);
+ const ratioError=await frame.locator('#image').evaluate(i=>{const r=i.getBoundingClientRect();return Math.abs(r.width/r.height-i.naturalWidth/i.naturalHeight);});assert.ok(ratioError<.001);
  assert.equal(await page.locator('#app').evaluate(e=>getComputedStyle(e).transform),'none');
  await page.click('#sceneControls [data-mode=night]');await page.waitForFunction(()=>document.querySelector('#parkTwinFrame').contentWindow.TWIN_VIEW_DEBUG.state.currentImageKey.includes('night'));
  await page.screenshot({path:path.join(out,'screen-night.png'),fullPage:true});
@@ -77,8 +77,18 @@ try{
  await failed.unroute('**/display-manifest.json');await failed.click('#retry');
  await failed.waitForFunction(()=>TWIN_VIEW_DEBUG.state.activeView==='opposite');
  assert.equal(await failed.locator('#edit').isEnabled(),true);
+ const legacy=await browser.newPage();
+ const oldDraft=JSON.stringify({version:1,revision:'jinhu-camera-20260910-v1',views:{reference:[],opposite:[{id:'user-old',text:'原有企业文字',x:40,y:50,fontSize:12,color:'#ffffff'}],left:[],right:[],top:[]}});
+ await legacy.addInitScript(value=>localStorage.setItem('park.twin.annotations.jinhu-camera-20260910-v1',value),oldDraft);
+ await legacy.goto(base+'/screen/twin-view/index.html');await legacy.waitForFunction(()=>TWIN_VIEW_DEBUG.state.activeView==='opposite');
+ await legacy.click('#edit');await legacy.locator('#legacyDraft').waitFor({state:'visible'});
+ const oldDownload=legacy.waitForEvent('download');await legacy.click('#legacyDraft');
+ const backupFile=path.join(out,'legacy-backup.json');await(await oldDownload).saveAs(backupFile);
+ assert.equal(await fs.readFile(backupFile,'utf8'),oldDraft);
+ await legacy.click('#add');await legacy.fill('#labelText','新构图文字');
+ assert.equal(await legacy.evaluate(()=>localStorage.getItem('park.twin.annotations.jinhu-camera-20260910-v1')),oldDraft);
  const result={status:'PASS',fiveRealCameraViews:true,dayNight:true,clayComparison:true,annotationCrudDragUndoAndJson:true,
-   annotationSpaceNoPageTurn:true,lateImageRaceProtected:true,failedImageAndManifestRecovery:true,aspectRatioPreserved:true,nativeLedAnd1920Layouts:true,
+   annotationSpaceNoPageTurn:true,legacyDraftPreservedAndDownloadable:true,lateImageRaceProtected:true,failedImageAndManifestRecovery:true,aspectRatioPreserved:true,nativeLedAnd1920Layouts:true,
    idleImageSwaps:0,webglContexts:0,externalRequests:[],pageErrors:errors,productionEligible:false};
  await fs.writeFile(path.join(out,'browser-result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));
 }finally{await browser.close();}
