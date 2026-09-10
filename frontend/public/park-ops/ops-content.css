@@ -38,6 +38,65 @@
 .ops-status-text { font-size: 17px; color: #b6d3db; }
 .ops-source { font-size: 16px; color: #8aaaba; letter-spacing: 0; }
 .ops-panel a { color: #8fdcec; text-decoration-thickness: 1px; }
+/* Content-only layout: retain the original stage, center map and column sizes. */
+.kpis.ops-headlines { grid-template-columns: 880px repeat(6, minmax(0, 1fr)); }
+.ops-headlines .ops-kpi { display: flex; flex-direction: column; justify-content: center; padding: 12px 18px; }
+.ops-headlines .ops-kpi > b { font-size: 36px; color: #edfaff; white-space: nowrap; }
+.ops-headlines .ops-kpi .l { font-size: 18px; }
+.ops-headlines .ops-plan { padding: 12px 22px; }
+.ops-plan > .l { margin: 0 0 7px; color: #8eb9ca; font-size: 17px; letter-spacing: 3px; }
+.ops-compact-stats { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 12px; margin: 12px 0; }
+.ops-compact-stats > div { border-right: 1px solid #234352; padding-right: 10px; min-width: 0; }
+.ops-compact-stats > div:last-child { border-right: 0; }
+.ops-compact-stats b { display: block; color: #e0f6ff; font-size: 28px; white-space: nowrap; }
+.ops-compact-stats span { display: block; color: #8faebf; font-size: 16px; margin-top: 5px; }
+.ops-plan .ops-compact-stats { margin: 0; }
+.ops-plan .ops-compact-stats b { font-size: 32px; }
+.ops-honors .ops-awards { gap: 5px; margin: 12px 0 0; }
+.ops-honors li { padding: 5px 10px; font-size: 17px; }
+.ops-industry { display: grid; grid-template-columns: 190px 1fr; align-items: center; gap: 28px; }
+.ops-donut { width: 180px; height: 180px; border-radius: 50%; position: relative; }
+.ops-donut > span { position: absolute; inset: 25px; border-radius: 50%; background: #0a2234; display: flex; align-items: center; justify-content: center; flex-direction: column; color: #d8edf3; font-size: 20px; }
+.ops-donut small { color: #8daebb; font-size: 15px; margin-top: 8px; }
+.ops-legend { display: grid; gap: 12px; }
+.ops-legend > div { display: flex; gap: 10px; align-items: center; font-size: 19px; color: #b8d1db; }
+.ops-legend i { width: 9px; height: 9px; border-radius: 2px; }
+.ops-legend b { margin-left: auto; color: #e1f2f9; font-size: 21px; }
+.ops-events { padding: 0; margin: 13px 0 0; list-style: none; display: grid; gap: 8px; }
+.ops-events li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 9px 12px; font-size: 18px; line-height: 1.4; background: #ffffff04; border-left: 2px solid #366879; }
+.ops-events li > span { min-width: 0; overflow-wrap: anywhere; }
+.ops-events em { font-style: normal; white-space: nowrap; color: #89dbbe; font-size: 16px; border: 1px solid #31594f; padding: 3px 8px; border-radius: 3px; }
+.ops-events em.ops-event-warn { color: #e7c37f; border-color: #635536; }
+.ops-progress { display: grid; gap: 13px; margin-top: 16px; }
+.ops-progress label { display: flex; justify-content: space-between; font-size: 18px; color: #a6c2d0; }
+.ops-progress b { color: #c9f1f5; }
+.ops-progress > div > div { height: 5px; background: #1b3545; margin-top: 7px; border-radius: 4px; overflow: hidden; }
+.ops-progress i { display: block; height: 100%; background: #5ab3ca; border-radius: inherit; }
+.ops-trend { margin: 25px 0 32px; }
+.ops-trend figcaption { color: #94b2c2; font-size: 18px; margin-bottom: 16px; }
+.ops-bars { height: 212px; display: flex; align-items: end; gap: 24px; border-bottom: 1px solid #254759; padding: 0 12px 8px; }
+.ops-bars > div { display: flex; flex: 1; flex-direction: column; align-items: center; gap: 8px; min-width: 0; }
+.ops-bars i { width: 80%; background: linear-gradient(#67c6d8, #215774); border-radius: 4px 4px 0 0; }
+.ops-bars b, .ops-bars span { font-size: 18px; color: #aacbdc; }
+.ops-events + h3, .ops-panel > .ops-muted + h3, .ops-panel > p + h3 { margin-top: 28px; }
+.grid-main .ops-panel { padding: 22px; }
+.grid-main .ops-panel h3 { margin-bottom: 12px; }
+.grid-main .ops-compact-stats { margin: 8px 0; }
+.grid-main .ops-compact-stats b { font-size: 26px; }
+.grid-main .ops-compact-stats span { font-size: 15px; }
+.grid-main .ops-industry { grid-template-columns: 160px 1fr; }
+.grid-main .ops-donut { width: 150px; height: 150px; }
+.grid-main .ops-donut > span { inset: 22px; font-size: 18px; }
+.grid-main .ops-legend { gap: 9px; }
+.grid-main .ops-panel > .ops-muted { margin: 8px 0; font-size: 16px; }
+.grid-main .ops-events { gap: 6px; margin-top: 10px; }
+.grid-main .ops-events li { padding: 5px 10px; font-size: 17px; }
+.grid-main .ops-events em { padding: 2px 7px; font-size: 15px; }
+.grid-main .ops-progress { gap: 9px; margin-top: 12px; }
+.ops-headlines .ops-plan { padding: 10px 22px; }
+.ops-plan > .l { margin-bottom: 4px; }
+.ops-plan .ops-compact-stats b { font-size: 30px; line-height: 1.2; }
+.ops-plan .ops-compact-stats span { font-size: 14px; }
 .ops-dialog { width: min(1040px, 94vw); max-height: 92vh; padding: 0; border: 1px solid #3b7387; border-radius: 12px; color: #e3f1f5; background: #0b1e2c; box-shadow: 0 24px 80px #0009; font: 15px/1.5 'PingFang SC', sans-serif; }
 .ops-dialog::backdrop { background: #0009; }
 .ops-dialog header, .ops-dialog footer { padding: 18px 24px; position: sticky; background: #102b3b; z-index: 2; }

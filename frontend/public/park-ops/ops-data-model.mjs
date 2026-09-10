@@ -39,7 +39,17 @@ export const fields = [
   ['officeRate', '研发办公使用率', '%', 0, false, '经营与载体'],
   ...[4, 5, 6, 7, 8, 9].map(month => [`outputMonth${month}`, `${month}月产值`, '亿元', 2, false, '月度产值占位 · 不参与年度汇总']),
   ...[4, 5, 6, 7, 8, 9].map(month => [`safetyMonth${month}`, `${month}月安全趋势`, '项', 0, false, '安全趋势占位']),
+  ['industryManufacturing', '智能制造', '%', 0, false, '产业结构 · 原版占位'],
+  ['industryEquipment', '高端装备', '%', 0, false, '产业结构 · 原版占位'],
+  ['industryMaterials', '新材料', '%', 0, false, '产业结构 · 原版占位'],
+  ['industryElectronics', '电子信息', '%', 0, false, '产业结构 · 原版占位'],
+  ['industryServices', '数字服务', '%', 0, false, '产业结构 · 原版占位'],
+  ['workPending', '待处理工单', '项', 0, false, '服务工单 · 示例占位'],
+  ['workProgress', '处理中工单', '项', 0, false, '服务工单 · 示例占位'],
+  ['workCompleted', '已完成工单', '项', 0, false, '服务工单 · 示例占位'],
 ];
+export const industryKeys = fields.filter(f => f[5] === '产业结构 · 原版占位').map(f => f[0]);
+const addedMetricKeys = [...industryKeys, 'workPending', 'workProgress', 'workCompleted'];
 export const copyFields = [
   ['stage', '建设状态', false], ['focus', '产业方向', false],
   ['construction', '重点建设内容', false], ['flexibility', '空间使用说明', false],
@@ -49,6 +59,7 @@ export const copyFields = [
   ['fireSystems', '消防系统状态占位（每行一项）', true],
   ['inspectionEvents', '巡检事件占位（每行一项）', true],
   ['gateEvents', '门岗事件占位（每行一项）', true],
+  ['workOrderEvents', '工单示例（每行一项：事项 · 位置 · 状态）', true],
 ];
 export const defaults = {
   version: 1,
@@ -68,6 +79,8 @@ export const defaults = {
     usedFloor: 6.8, availableFloor: 3.2, standardRate: 74, gardenRate: 61, officeRate: 57,
     outputMonth4: 0.58, outputMonth5: 0.73, outputMonth6: 0.81, outputMonth7: 0.94, outputMonth8: 1.02, outputMonth9: 1.08,
     safetyMonth4: 7, safetyMonth5: 6, safetyMonth6: 5, safetyMonth7: 4, safetyMonth8: 3, safetyMonth9: 2,
+    industryManufacturing: 28, industryEquipment: 22, industryMaterials: 17, industryElectronics: 17, industryServices: 16,
+    workPending: 6, workProgress: 8, workCompleted: 42,
   },
   content: {
     stage: '一期、二期已经建成',
@@ -83,6 +96,7 @@ export const defaults = {
     fireSystems: ['火灾报警系统 · 在线', '消防水系统 · 正常', '应急照明系统 · 正常', '重点部位巡检 · 完成'],
     inspectionEvents: ['消防通道检查 · 6#厂房 · 已完成', '灭火器点检 · 展贸中心 · 已完成', '电气箱规范 · 9#厂房 · 整改中', '疏散标识检查 · 研发办公 · 已完成'],
     gateEvents: ['19:36 · 访客车辆 鲁Q·3***8 入园', '19:31 · 货运车辆 鲁Q·7***1 入园', '19:28 · 3#厂房预约来访 6 人', '19:22 · 员工车辆 鲁Q·2***6 离园'],
+    workOrderEvents: ['公共照明检修 · 园区道路 · 处理中', '空调设备报修 · 企业服务中心 · 待处理', '环境保洁服务 · 公共区域 · 已完成'],
   },
 };
 export function validate(input) {
@@ -94,13 +108,18 @@ export function validate(input) {
   if (typeof input.updatedAt !== 'string' || !Number.isFinite(Date.parse(input.updatedAt))) throw Error('数据日期无效');
   output.source = input.source.trim(); output.updatedAt = input.updatedAt;
   for (const [key, label, unit, digits] of fields) {
-    const value = input.metrics[key];
+    // Additive v1 migration: retain old drafts and mark only missing new fields as examples.
+    const missingNew = addedMetricKeys.includes(key) && !Object.hasOwn(input.metrics, key);
+    const value = missingNew ? defaults.metrics[key] : input.metrics[key];
+    if (missingNew && !output.placeholderKeys.includes(key)) output.placeholderKeys.push(key);
     if (value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1e9 || (unit === '%' && value > 100))) throw Error(`${label}须为非负数字${unit === '%' ? '，且不超过100' : ''}，未知请留空`);
     if (value !== null && ['人', '次', '辆', '路', '个', '起', '项', '家'].includes(unit) && !Number.isInteger(value)) throw Error(`${label}须为整数`);
     output.metrics[key] = value;
   }
+  const shares = industryKeys.map(key => output.metrics[key]);
+  if (shares.every(value => value !== null) && Math.abs(shares.reduce((sum, value) => sum + value, 0) - 100) > 0.001) throw Error('产业结构五项占比合计须为100%');
   for (const [key, label, list] of copyFields) {
-    const value = input.content[key];
+    const value = key === 'workOrderEvents' && !Object.hasOwn(input.content, key) ? defaults.content[key] : input.content[key];
     if (list) {
       if (!Array.isArray(value) || value.length > 100 || value.some(x => typeof x !== 'string' || !x.trim() || x.length > 120)) throw Error(`${label}格式错误（最多100项，每项120字）`);
       output.content[key] = value.map(x => x.trim());
