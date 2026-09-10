@@ -454,8 +454,10 @@ export class NovaLedAdapter extends BaseAdapter {
     await this.syncRuntime();
     try {
       // 不同型号响应长度不同 (VX1000 ReadDeviceID 22 字节, V2460 20 字节, 亮度/显示模式
-      // 命令 17-21 字节不等), 用 minBytes=4 容忍提前 EOF, 只要响应头 + 校验和能凑齐就算成功.
-      const resp = await this.tcp.sendAndExpect(frame, 64, signal, { minBytes: 4 });
+      // 命令 17-21 字节不等)。V2460 回完不会主动断开 TCP；旧实现固定等 64 字节，
+      // 因而每次切输入源即使已经收到了完整响应也要卡满 3 秒超时。用短静默窗口收齐
+      // 变长帧：最后一段回包后 120ms 即返回，整体仍受设备超时保护。
+      const resp = await this.tcp.sendAndReadAll(frame, 120, this.cfg.timeoutMs, signal);
       const verify = verifyResponse(resp);
       if (!verify.ok) {
         this.logger.warn(`Nova V/VX 响应校验失败: ${verify.error}`, { context: 'NovaLedAdapter' });
