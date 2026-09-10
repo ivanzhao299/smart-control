@@ -29,10 +29,9 @@ enum Prefs {
         }
     }
 
-    /// 面容 ID 应用锁 (2026-07-30 业主要求, 默认关) — 开着时启动/回前台超时先过系统验证
-    static var biometricLock: Bool {
-        get { UserDefaults.standard.bool(forKey: keyBiometricLock) }
-        set { UserDefaults.standard.set(newValue, forKey: keyBiometricLock) }
+    /// Retire the old app-lock flag on upgrade without touching normal login data.
+    static func removeLegacyBiometricLock() {
+        UserDefaults.standard.removeObject(forKey: keyBiometricLock)
     }
 
     static var dismissedVersion: Int {

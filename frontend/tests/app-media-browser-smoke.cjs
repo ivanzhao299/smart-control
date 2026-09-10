@@ -306,9 +306,10 @@ async function api(route, method, body, token, admin = false) {
       }
       window.bioCalls = 0;
       window.JinhuShell = {
-        bioInfoScoped: () => JSON.stringify({ available: true, saved: true }),
+        platform: 'ios',
+        bioInfoScoped: () => { window.bioCalls++; return JSON.stringify({ available: true, saved: true }); },
         requestBioLoginScoped: () => { window.bioCalls++; window.__jinhuBioLoginOk(password); },
-        saveBioPasswordScoped: () => {},
+        saveBioPasswordScoped: () => { window.bioCalls++; },
       };
     }, { ...legacy, origin, password: accounts.admin.password });
     const mobile = await phone.newPage();
@@ -316,18 +317,20 @@ async function api(route, method, body, token, admin = false) {
     await mobile.waitForURL(url => url.pathname.endsWith('/client-login'));
     await mobile.getByRole('status').filter({ hasText: '尚未绑定用户' }).waitFor();
     const face = mobile.getByRole('button', { name: '面容 / 指纹登录' });
-    await face.click();
-    assert.equal(await mobile.evaluate(() => window.bioCalls), 0, 'Never request password-only Face ID without a username');
+    assert.equal(await face.count(), 0, 'Face ID login is removed on iOS even with saved biometric credentials');
+    assert.equal(await mobile.evaluate(() => window.bioCalls), 0, 'Do not call the retired iOS biometric bridge');
     assert.equal(await mobile.evaluate(() => localStorage.getItem('sc.client.token')), null);
     await mobile.getByPlaceholder('用户名', { exact: true }).fill(accounts.admin.username);
-    await face.click();
+    await mobile.getByPlaceholder('密码', { exact: true }).fill(accounts.admin.password);
+    await mobile.locator('button[type="submit"]').click();
     await mobile.waitForURL(url => url.pathname.endsWith('/lighting'));
     await mobile.reload();
     const migratedCommand = mobile.waitForResponse(r => /\/api\/lighting\/zone\/\d+\/(on|off)$/.test(r.url()) && r.request().method() === 'POST');
     await mobile.locator('.v2-zone button.v2-toggle').first().click();
     assert.equal((await (await migratedCommand).json()).data.ok, true);
+    assert.equal(await mobile.evaluate(() => window.bioCalls), 0, 'Ordinary iOS login must not save biometric credentials');
     await phone.close();
-    console.log('PASS 390px old phone session migration: no password-only auto-login, username required before Face ID, named admin controls MOCK lighting after reload');
+    console.log('PASS 390px iOS: retired Face ID hidden, ordinary named-account login and control survive reload');
     const management = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
     await management.route('**/*', route => route.request().url().startsWith(origin + '/') ? route.continue() : route.abort());
     await management.addInitScript(({ token, expiresAt, origin }) => {

@@ -9,8 +9,6 @@ struct ConfigView: View {
     @State private var testing = false
     @State private var statusText: String?
     @State private var statusOk = false
-    @State private var biometricOn = Prefs.biometricLock
-    @State private var suppressToggle = false
     let onSave: (String) -> Void
 
     init(onSave: @escaping (String) -> Void) {
@@ -98,38 +96,6 @@ struct ConfigView: View {
             .background(Color(.tertiarySystemBackground))
             .cornerRadius(10)
             .padding(.horizontal, 28)
-
-            // 面容 ID 应用锁 (2026-07-30 业主要求, 默认关) — 开与关都先过一次系统验证
-            VStack(alignment: .leading, spacing: 4) {
-                Toggle("面容 ID 解锁", isOn: $biometricOn)
-                    .onChange(of: biometricOn) { newVal in
-                        if suppressToggle { return }
-                        guard newVal != Prefs.biometricLock else { return }
-                        func revert() {
-                            suppressToggle = true
-                            biometricOn = !newVal
-                            DispatchQueue.main.async { suppressToggle = false }
-                        }
-                        if newVal && !BiometricAuth.available {
-                            status("设备未设置锁屏密码或面容 ID, 无法开启", ok: false)
-                            revert()
-                            return
-                        }
-                        BiometricAuth.authenticate(reason: newVal ? "验证身份以开启面容 ID 解锁" : "验证身份以关闭面容 ID 解锁") { ok in
-                            if ok {
-                                Prefs.biometricLock = newVal
-                                status(newVal ? "面容 ID 解锁已开启" : "面容 ID 解锁已关闭", ok: true)
-                            } else {
-                                revert()
-                            }
-                        }
-                    }
-                Text("打开后, 每次启动或离开较久回来需先通过面容 ID (或锁屏密码) 验证")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-            }
-            .padding(.horizontal, 28)
-            .padding(.top, 4)
 
             Spacer()
             Text("v\(UpdateChecker.localVersionName) (\(UpdateChecker.localVersionCode))")

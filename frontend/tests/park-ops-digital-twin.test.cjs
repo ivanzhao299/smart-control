@@ -98,7 +98,7 @@ test('low-power mode removes ambient and card sweep loops and caps 3D work', () 
   assert.doesNotMatch(html, /requestAnimationFrame\(drawAmbient\)/);
   assert.doesNotMatch(viewerJs, /requestAnimationFrame/);
   assert.match(viewerJs, /fpsCap: 8/);
-  assert.match(viewerJs, /renderScale: 0\.82/);
+  assert.match(viewerJs, /renderScale: 1,/);
   assert.match(viewerJs, /renderer\.setSize\(Math\.round\(width \* state\.renderScale\)/);
   assert.match(viewerJs, /mapPage\.classList\.contains\('active'\)/);
   assert.match(viewerJs, /document\.hidden/);
