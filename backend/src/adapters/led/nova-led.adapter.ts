@@ -21,7 +21,6 @@ import {
   frameSetLayer,
   ledInputToAction,
   verifyResponse,
-  VX_CARD_SLOT,
   VX_DISPLAY_MODE,
 } from './nova-vx1000-protocol';
 
@@ -37,10 +36,9 @@ const GATEWAY_KEY = 'led-nova-vx1000';
  * 关键映射 (项目 LedInput → VX1000 物理操作):
  *   - powerOn  → 显示模式 NORMAL  (0x03)
  *   - powerOff → 显示模式 BLACKOUT (0x05, 黑屏)
- *   - HDMI1    → 切换图层 1 输入到 HDMI1 (Source 0x11)
+ *   - HDMI1    → 逻辑 LED 主通道，切换图层 1 到 V2460 HDMI 2.0 (Source 0x90)
  *   - HDMI2    → 切换图层 1 输入到 HDMI2 (Source 0x12)
- *   - welcome  → 加载预设 LED_PRESET_WELCOME (默认 1)
- *   - video    → 加载预设 LED_PRESET_VIDEO   (默认 2)
+ *   - welcome/video → 与 HDMI1 相同，保持 GK9000 浏览器主显示链路
  *
  * 媒体播放 (NUC 主机):
  *   VX1000 本身只是视频处理器, 不播放媒体文件. 真正播放视频/welcome 页面的是 Intel NUC,
@@ -52,8 +50,8 @@ const GATEWAY_KEY = 'led-nova-vx1000';
  *   LED_PORT=5200                    VX1000 TCP 端口
  *   LED_NUC_HOST=192.168.50.31      NUC 媒体主机 IP (可选)
  *   LED_NUC_PORT=8080                NUC HTTP API 端口
- *   LED_RESOLUTION_WIDTH=1920        全屏图层宽
- *   LED_RESOLUTION_HEIGHT=1080       全屏图层高
+ *   LED_RESOLUTION_WIDTH=3612        全屏图层宽
+ *   LED_RESOLUTION_HEIGHT=1462       全屏图层高
  *   LED_PRESET_WELCOME=1             welcome 对应预设号 (1-10)
  *   LED_PRESET_VIDEO=2               video 对应预设号
  *   LED_DEFAULT_BRIGHTNESS_PCT=80    powerOn 后默认亮度
@@ -108,8 +106,8 @@ export class NovaLedAdapter extends BaseAdapter {
       port,
       timeoutMs: Number.parseInt(process.env.DEVICE_TIMEOUT_MS ?? '3000', 10),
       retries: Number.parseInt(process.env.DEVICE_RETRIES ?? '3', 10),
-      width: Number.parseInt(process.env.LED_RESOLUTION_WIDTH ?? '1920', 10),
-      height: Number.parseInt(process.env.LED_RESOLUTION_HEIGHT ?? '1080', 10),
+      width: Number.parseInt(process.env.LED_RESOLUTION_WIDTH ?? '3612', 10),
+      height: Number.parseInt(process.env.LED_RESOLUTION_HEIGHT ?? '1462', 10),
       presetWelcome: Number.parseInt(process.env.LED_PRESET_WELCOME ?? '1', 10),
       presetVideo: Number.parseInt(process.env.LED_PRESET_VIDEO ?? '2', 10),
       defaultBrightnessPct: Number.parseInt(process.env.LED_DEFAULT_BRIGHTNESS_PCT ?? '80', 10),
@@ -199,8 +197,8 @@ export class NovaLedAdapter extends BaseAdapter {
       paramSchema: {
         ip:                   { type: 'string', label: '控制器 IP', required: true, placeholder: '192.168.x.x' },
         port:                 { type: 'number', label: 'TCP 端口', default: 5200, min: 1, max: 65535 },
-        resolutionWidth:      { type: 'number', label: '全屏图层宽 (px)', default: 1920 },
-        resolutionHeight:     { type: 'number', label: '全屏图层高 (px)', default: 1080 },
+        resolutionWidth:      { type: 'number', label: '全屏图层宽 (px)', default: 3612 },
+        resolutionHeight:     { type: 'number', label: '全屏图层高 (px)', default: 1462 },
         presetWelcome:        { type: 'number', label: '欢迎页预设号', default: 1, min: 1, max: 10 },
         presetVideo:          { type: 'number', label: '视频预设号', default: 2, min: 1, max: 10 },
         defaultBrightnessPct: { type: 'number', label: '开屏默认亮度 %', default: 80, min: 0, max: 100 },
@@ -304,16 +302,11 @@ export class NovaLedAdapter extends BaseAdapter {
         video: this.cfg.presetVideo,
       });
       if (action.kind === 'layer') {
-        const cardSlot =
-          action.source === 0x11 ? VX_CARD_SLOT.HDMI1
-          : action.source === 0x12 ? VX_CARD_SLOT.HDMI2
-          : action.source === 0x30 ? VX_CARD_SLOT.SDI
-          : VX_CARD_SLOT.DVI;
         await this.sendVx(
           frameSetLayer({
             layerNo: 1,
             source: action.source,
-            cardSlot,
+            cardSlot: action.cardSlot,
             width: this.cfg.width,
             height: this.cfg.height,
             startX: 0,
@@ -338,9 +331,26 @@ export class NovaLedAdapter extends BaseAdapter {
   ): Promise<AdapterResult<LedState>> {
     return this.run(deviceId, 'playMedia', ctx, async () => {
       const name = params.media ?? params.channel ?? 'default';
-      // 1) VX1000 切到 video 预设 (确保画面源是 NUC 那路 HDMI)
-      await this.sendVx(frameLoadPreset(this.cfg.presetVideo), ctx?.signal);
-      // 2) 若现场配了 NUC, 通知 NUC 播放指定文件; 否则只切预设
+      // 1) 拉正到 V2460 HDMI 2.0 主链路。不能加载历史 video 预设：
+      // 现场旧预设仍指向 HDMI 1.3，会让画面在“成功”提示后又黑掉/延迟切换。
+      const action = ledInputToAction('video', {
+        welcome: this.cfg.presetWelcome,
+        video: this.cfg.presetVideo,
+      });
+      if (action.kind !== 'layer') throw new DeviceProtocolError('led', 'video input is not a layer action');
+      await this.sendVx(frameSetLayer({
+        layerNo: 1,
+        source: action.source,
+        cardSlot: action.cardSlot,
+        width: this.cfg.width,
+        height: this.cfg.height,
+        startX: 0,
+        startY: 0,
+        priority: 0,
+        opacity: 0x64,
+        switchOn: true,
+      }), ctx?.signal);
+      // 2) 若现场配了独立 NUC, 再通知 NUC 播放指定文件；当前现场由 GK9000 浏览器播放。
       if (this.nucHttp) {
         try {
           await this.nucHttp.request(
@@ -364,7 +374,24 @@ export class NovaLedAdapter extends BaseAdapter {
     ctx?: AdapterContext,
   ): Promise<AdapterResult<LedState>> {
     return this.run(deviceId, 'showWelcome', ctx, async () => {
-      await this.sendVx(frameLoadPreset(this.cfg.presetWelcome), ctx?.signal);
+      // 欢迎页现在由 GK9000 浏览器渲染，显示链路与普通内容相同。
+      const action = ledInputToAction('welcome', {
+        welcome: this.cfg.presetWelcome,
+        video: this.cfg.presetVideo,
+      });
+      if (action.kind !== 'layer') throw new DeviceProtocolError('led', 'welcome input is not a layer action');
+      await this.sendVx(frameSetLayer({
+        layerNo: 1,
+        source: action.source,
+        cardSlot: action.cardSlot,
+        width: this.cfg.width,
+        height: this.cfg.height,
+        startX: 0,
+        startY: 0,
+        priority: 0,
+        opacity: 0x64,
+        switchOn: true,
+      }), ctx?.signal);
       if (this.nucHttp) {
         try {
           await this.nucHttp.request(
