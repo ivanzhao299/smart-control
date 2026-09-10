@@ -86,5 +86,16 @@ try {
   assert.equal(response.status(), 405, 'preview cannot write to production');
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.screenshot({ path: '/tmp/park-ops-content-overview.png' });
+  // Match the production player sandbox exactly; no allow-same-origin/CORS waiver.
+  const embedded = await context.newPage();
+  await embedded.goto(`${origin}/screen/ops-images/sources.html`);
+  await embedded.evaluate(() => { const f = document.createElement('iframe'); f.sandbox = 'allow-scripts allow-forms'; f.src = '/screen/index.html'; document.body.replaceChildren(f); });
+  await embedded.waitForSelector('iframe');
+  const frame = await embedded.locator('iframe').elementHandle().then(h => h.contentFrame());
+  await frame.waitForFunction(() => !!window.PARK_OPS_BUSINESS);
+  assert.equal(await frame.locator('.kpi .n').first().textContent(), '约 660');
+  assert.equal(await frame.locator('.page.active [data-ops-metric=annualOutput]').textContent(), '3.68 亿元');
+  assert.equal(await frame.locator('.page.active [data-ops-metric=annualTax]').textContent(), '2260 万元');
+  await embedded.close();
   console.log(JSON.stringify({ result: 'PASS', mapMatchesProductionSnapshot: true, phaseCount: baseline.config.phases.length, buildingCount: baseline.config.buildings.length, viewportCases: 10, pageErrors: errors, clientWrites: writes, screenshots: ['/tmp/park-ops-content-overview.png', '/tmp/park-ops-content-editor.png'] }, null, 2));
 } finally { await browser.close(); }

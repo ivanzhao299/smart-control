@@ -31,6 +31,8 @@
 
 右上角“运营数据”→修改数字/文本→“保存本机草稿”。可导出或导入 JSON。
 
+发布兼容性：页面加载预打包的普通脚本 `ops-content.js`，源代码继续维护在两个 `.mjs` 文件中。构建时自动校验包与源代码一致，避免 PlayerPage 的不透明来源 sandbox 阻止 ES 模块而留下旧数字。没有放宽播放器 sandbox 或静态服务器 CORS。数字编辑和持久保存应在直接打开的大屏页面进行；播放器受限框架只负责展示。
+
 - 数字、公司清单、配套、荣誉、事件占位均可编辑；数字可以标记/取消标记为占位。
 - 编辑对话框暂停轮播并隔离键盘事件，空格可正常输入。
 - 保存失败保留当前展示并提示导出备份；导入或接口读取先填表，不直接替换展示。
@@ -84,7 +86,7 @@ PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs node tools/park-ops/bro
 
 ## 后续发布白名单（本轮没有执行）
 
-仅 `index.html` 的欢迎语和业务模块入口增量、`ops-content.mjs`、`ops-content.css`、`ops-data-model.mjs`、`ops-images/`。
+仅 `index.html` 的欢迎语和业务模块入口增量、`ops-content.js`、`ops-content.mjs`、`ops-content.css`、`ops-data-model.mjs`、`ops-images/`。
 
 必须先本地确认，发布前重新只读备份并核对生产布局及中间文件哈希；不得写布局接口、重新初始化配置、整包替换 3D 文件或带入新数字孪生实验文件。生产发布后还需确认真实 LED/投影展示，不以本地测试通过代替现场验收。
 

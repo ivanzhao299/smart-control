@@ -3,7 +3,7 @@ import { defaults, fields, copyFields, validate, displayValue, apiURL, STORAGE_K
 // This module runs after park-ops-editor.js has registered the original DOM's
 // text keys. Do not change the map DOM, its coordinates, or shared layout store.
 const stylesheet = document.createElement('link');
-stylesheet.rel = 'stylesheet'; stylesheet.href = new URL('./ops-content.css', import.meta.url); document.head.append(stylesheet);
+stylesheet.rel = 'stylesheet'; stylesheet.href = new URL('./ops-content.css', document.currentScript?.src || document.baseURI); document.head.append(stylesheet);
 const clone = value => JSON.parse(JSON.stringify(value));
 async function readSmallJSON(response) {
   const reader = response.body.getReader(), chunks = []; let size = 0;
