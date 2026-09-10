@@ -42,7 +42,17 @@ const fields = [
   ['officeRate', '研发办公使用率', '%', 0, false, '经营与载体'],
   ...[4, 5, 6, 7, 8, 9].map(month => [`outputMonth${month}`, `${month}月产值`, '亿元', 2, false, '月度产值占位 · 不参与年度汇总']),
   ...[4, 5, 6, 7, 8, 9].map(month => [`safetyMonth${month}`, `${month}月安全趋势`, '项', 0, false, '安全趋势占位']),
+  ['industryManufacturing', '智能制造', '%', 0, false, '产业结构 · 原版占位'],
+  ['industryEquipment', '高端装备', '%', 0, false, '产业结构 · 原版占位'],
+  ['industryMaterials', '新材料', '%', 0, false, '产业结构 · 原版占位'],
+  ['industryElectronics', '电子信息', '%', 0, false, '产业结构 · 原版占位'],
+  ['industryServices', '数字服务', '%', 0, false, '产业结构 · 原版占位'],
+  ['workPending', '待处理工单', '项', 0, false, '服务工单 · 示例占位'],
+  ['workProgress', '处理中工单', '项', 0, false, '服务工单 · 示例占位'],
+  ['workCompleted', '已完成工单', '项', 0, false, '服务工单 · 示例占位'],
 ];
+const industryKeys = fields.filter(f => f[5] === '产业结构 · 原版占位').map(f => f[0]);
+const addedMetricKeys = [...industryKeys, 'workPending', 'workProgress', 'workCompleted'];
 const copyFields = [
   ['stage', '建设状态', false], ['focus', '产业方向', false],
   ['construction', '重点建设内容', false], ['flexibility', '空间使用说明', false],
@@ -52,6 +62,7 @@ const copyFields = [
   ['fireSystems', '消防系统状态占位（每行一项）', true],
   ['inspectionEvents', '巡检事件占位（每行一项）', true],
   ['gateEvents', '门岗事件占位（每行一项）', true],
+  ['workOrderEvents', '工单示例（每行一项：事项 · 位置 · 状态）', true],
 ];
 const defaults = {
   version: 1,
@@ -71,6 +82,8 @@ const defaults = {
     usedFloor: 6.8, availableFloor: 3.2, standardRate: 74, gardenRate: 61, officeRate: 57,
     outputMonth4: 0.58, outputMonth5: 0.73, outputMonth6: 0.81, outputMonth7: 0.94, outputMonth8: 1.02, outputMonth9: 1.08,
     safetyMonth4: 7, safetyMonth5: 6, safetyMonth6: 5, safetyMonth7: 4, safetyMonth8: 3, safetyMonth9: 2,
+    industryManufacturing: 28, industryEquipment: 22, industryMaterials: 17, industryElectronics: 17, industryServices: 16,
+    workPending: 6, workProgress: 8, workCompleted: 42,
   },
   content: {
     stage: '一期、二期已经建成',
@@ -86,6 +99,7 @@ const defaults = {
     fireSystems: ['火灾报警系统 · 在线', '消防水系统 · 正常', '应急照明系统 · 正常', '重点部位巡检 · 完成'],
     inspectionEvents: ['消防通道检查 · 6#厂房 · 已完成', '灭火器点检 · 展贸中心 · 已完成', '电气箱规范 · 9#厂房 · 整改中', '疏散标识检查 · 研发办公 · 已完成'],
     gateEvents: ['19:36 · 访客车辆 鲁Q·3***8 入园', '19:31 · 货运车辆 鲁Q·7***1 入园', '19:28 · 3#厂房预约来访 6 人', '19:22 · 员工车辆 鲁Q·2***6 离园'],
+    workOrderEvents: ['公共照明检修 · 园区道路 · 处理中', '空调设备报修 · 企业服务中心 · 待处理', '环境保洁服务 · 公共区域 · 已完成'],
   },
 };
 function validate(input) {
@@ -97,13 +111,18 @@ function validate(input) {
   if (typeof input.updatedAt !== 'string' || !Number.isFinite(Date.parse(input.updatedAt))) throw Error('数据日期无效');
   output.source = input.source.trim(); output.updatedAt = input.updatedAt;
   for (const [key, label, unit, digits] of fields) {
-    const value = input.metrics[key];
+    // Additive v1 migration: retain old drafts and mark only missing new fields as examples.
+    const missingNew = addedMetricKeys.includes(key) && !Object.hasOwn(input.metrics, key);
+    const value = missingNew ? defaults.metrics[key] : input.metrics[key];
+    if (missingNew && !output.placeholderKeys.includes(key)) output.placeholderKeys.push(key);
     if (value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1e9 || (unit === '%' && value > 100))) throw Error(`${label}须为非负数字${unit === '%' ? '，且不超过100' : ''}，未知请留空`);
     if (value !== null && ['人', '次', '辆', '路', '个', '起', '项', '家'].includes(unit) && !Number.isInteger(value)) throw Error(`${label}须为整数`);
     output.metrics[key] = value;
   }
+  const shares = industryKeys.map(key => output.metrics[key]);
+  if (shares.every(value => value !== null) && Math.abs(shares.reduce((sum, value) => sum + value, 0) - 100) > 0.001) throw Error('产业结构五项占比合计须为100%');
   for (const [key, label, list] of copyFields) {
-    const value = input.content[key];
+    const value = key === 'workOrderEvents' && !Object.hasOwn(input.content, key) ? defaults.content[key] : input.content[key];
     if (list) {
       if (!Array.isArray(value) || value.length > 100 || value.some(x => typeof x !== 'string' || !x.trim() || x.length > 120)) throw Error(`${label}格式错误（最多100项，每项120字）`);
       output.content[key] = value.map(x => x.trim());
@@ -160,29 +179,46 @@ const imageFiles = ['warehouse', 'road', 'loading', 'factory'];
 const imageLabels = ['产业厂房', '厂区道路', '仓储空间', '生产配套'];
 const cameras = large => `<div class="${large ? 'ops-video-wall' : 'cameras'}">${imageFiles.map((name, i) => `<div class="ops-camera"><img src="./ops-images/${name}.jpg" alt="${imageLabels[i]}素材示意，非本园区实拍" loading="lazy" decoding="async"><span class="ops-image-badge">图片示意 · 非实时</span><span class="ops-image-label">${imageLabels[i]}</span></div>`).join('')}</div>`;
 const rows = keys => `<div class="ops-data-rows">${keys.map(key => { const f = fields.find(x => x[0] === key); return `<div><span>${f[1]}${data.placeholderKeys.includes(key) ? ' · 占位' : ''}</span><b data-ops-metric="${key}">${displayValue(data, key)} ${f[2]}</b></div>`; }).join('')}</div>`;
+const metric = key => `<b data-ops-metric="${key}">${esc(displayValue(data, key))} ${fields.find(f => f[0] === key)[2]}</b>`;
+const compactStats = keys => `<div class="ops-compact-stats">${keys.map(key => `<div>${metric(key)}<span>${fields.find(f => f[0] === key)[1]}${data.placeholderKeys.includes(key) ? ' · 占位' : ''}</span></div>`).join('')}</div>`;
+const eventList = (items, limit = items.length) => `<ul class="ops-events">${items.slice(0, limit).map(text => {
+  const parts = text.split(' · '), status = parts.length > 1 ? parts.pop() : '记录';
+  return `<li><span>${esc(parts.join(' · ') || text)}</span><em class="${/整改|处理/.test(status) && !/已完成/.test(status) ? 'ops-event-warn' : ''}">${esc(status)}</em></li>`;
+}).join('')}</ul>`;
+function industryChart() {
+  const keys = fields.filter(f => f[5] === '产业结构 · 原版占位').map(f => f[0]);
+  const colors = ['#63d9ff', '#62e6a8', '#d9b864', '#4ca8ff', '#8b7dff'];
+  let start = 0;
+  const complete = keys.every(key => data.metrics[key] !== null);
+  const stops = keys.map((key, i) => { const end = start + (data.metrics[key] || 0); const stop = `${colors[i]} ${start}% ${end}%`; start = end; return stop; });
+  const source = keys.some(key => data.placeholderKeys.includes(key)) ? '占位比例' : '已录入比例';
+  return `<div class="ops-industry"><div class="ops-donut" role="img" aria-label="产业结构：${keys.map(key => `${fields.find(f => f[0] === key)[1]} ${displayValue(data, key)}%`).join('，')}" style="background:${complete ? `conic-gradient(${stops.join(',')})` : '#284456'}"><span>产业结构<small>${complete ? source : '比例未完整'}</small></span></div><div class="ops-legend">${keys.map((key, i) => `<div><i style="background:${colors[i]}"></i><span>${fields.find(f => f[0] === key)[1]}</span>${metric(key)}</div>`).join('')}</div></div>`;
+}
+const progress = keys => `<div class="ops-progress">${keys.map(key => `<div><label>${fields.find(f => f[0] === key)[1]}${data.placeholderKeys.includes(key) ? ' · 占位' : ''}${metric(key)}</label><div><i style="width:${data.metrics[key] ?? 0}%"></i></div></div>`).join('')}</div>`;
+function trend(prefix, caption) {
+  const keys = [4, 5, 6, 7, 8, 9].map(m => `${prefix}${m}`), max = Math.max(1, ...keys.map(key => data.metrics[key] ?? 0));
+  return `<figure class="ops-trend"><figcaption>${esc(caption)}</figcaption><div class="ops-bars">${keys.map((key, i) => `<div><b>${displayValue(data, key)}</b><i style="height:${(data.metrics[key] ?? 0) / max * 150}px"></i><span>${i + 4}月</span></div>`).join('')}</div></figure>`;
+}
 function panel(node, title, body) { node.classList.add('ops-panel'); node.innerHTML = `<h3>${esc(title)}</h3>${body}`; }
 const pageNodes = [...document.querySelectorAll('.page')];
 function render() {
-  document.querySelectorAll('.kpi').forEach((node, index) => {
-    node.classList.add('ops-kpi');
-    const [key, label, unit] = fields[index];
-    node.innerHTML = `<span class="n" data-ops-metric="${key}">${esc(displayValue(data, key))}</span><span class="u">${data.metrics[key] === null ? '' : unit}</span><div class="l">${label}</div>`;
-  });
+  const kpis = document.querySelector('.kpis'); kpis.classList.add('ops-headlines');
+  kpis.innerHTML = `<div class="kpi ops-plan"><div class="l">园区总体规划</div>${compactStats(['plannedLand', 'plannedFloor', 'plannedInvestment'])}</div>` + ['signedTenants', 'occupancy', 'annualOutput', 'annualTax', 'people', 'vehicles'].map(key => `<div class="kpi ops-kpi">${metric(key)}<div class="l">${fields.find(f => f[0] === key)[1]}${data.placeholderKeys.includes(key) ? ' · 占位' : ''}</div></div>`).join('');
   const c = data.content, left = pageNodes[0].querySelectorAll('.left > .panel'), right = pageNodes[0].querySelectorAll('.right > .panel');
-  panel(left[0], '建设进度 · 已建成规模', `<div class="ops-stage">${esc(c.stage)}</div>${cards(['builtLand', 'builtFloor'])}${para(`计容建筑面积：${displayValue(data, 'builtCountedFloor')} 万㎡。与总规划规模分别统计。`, true)}`);
-  panel(left[1], '产业空间 · 灵活组合', chips(c.factoryTypes) + para(c.flexibility));
-  panel(left[2], '省市重点 · 项目荣誉', list(c.awards));
-  panel(right[0], '招商与年度经营', cards(['signedTenants', 'occupancy', 'annualOutput', 'annualTax']));
+  panel(left[0], '建设进度 · 重点项目', `<div class="ops-stage">${esc(c.stage)}</div>${compactStats(['builtLand', 'builtFloor', 'builtCountedFloor'])}<div class="ops-honors">${list(c.awards)}</div>`);
+  panel(left[1], '产业结构 · 招商画像', industryChart());
+  panel(left[2], '服务工单 · 示例占位', compactStats(['workPending', 'workProgress', 'workCompleted']) + eventList(c.workOrderEvents, 3));
+  panel(right[0], '运营效率 · 人员通行', compactStats(['visitors', 'vehiclePasses', 'camerasOnline']) + progress(['outputTarget', 'taxTarget', 'activity']));
   panel(right[1], '视频安防 · 图片预览', cameras(false) + para('通用产业素材 · 非本园区实拍 · 非实时监控', true));
-  panel(right[2], '人员与车辆', cards(['people', 'visitors', 'vehicles', 'vehiclePasses']));
+  panel(right[2], '消防安全 · 事件占位', compactStats(['fireRate', 'safetyAlerts', 'hazards']) + eventList(c.inspectionEvents, 3));
   let p = pageNodes[1].querySelectorAll('.panel');
   panel(p[0], '部分入驻企业与招商载体', companies() + para(c.focus) + para('以上为部分入驻企业。以下载体数据保持原数字占位，可在运营数据中编辑。', true) + cards(['usedFloor', 'availableFloor']) + rows(['standardRate', 'gardenRate', 'officeRate']));
-  panel(p[1], '年度经营与运营指标', cards(['annualOutput', 'annualTax', 'signedTenants', 'occupancy']) + rows(['outputTarget', 'taxTarget', 'activity', 'aboveScale', 'highTech']) + para('月度数值保留原占位，不参与本年度产值汇总。', true) + rows([4, 5, 6, 7, 8, 9].map(m => `outputMonth${m}`)));
-  panel(p[2], '厂房与服务配套', chips(c.factoryTypes) + para(c.flexibility) + chips(c.facilities) + para(c.serviceSummary));
+  panel(p[1], '年度经营与产值趋势', cards(['annualOutput', 'annualTax', 'signedTenants', 'occupancy']) + trend('outputMonth', '月度产值 · 亿元 · 原占位，不参与年度汇总') + progress(['outputTarget', 'taxTarget', 'activity', 'aboveScale', 'highTech']));
+  panel(p[2], '厂房与服务配套', chips(c.factoryTypes) + para(c.flexibility) + chips(c.facilities) + para(c.serviceSummary) + '<h3>省市重点 · 项目荣誉</h3>' + list(c.awards));
   p = pageNodes[2].querySelectorAll('.panel');
   panel(p[0], '消防安全总览', cards(['fireRate', 'safetyAlerts', 'inspections', 'hazards']) + para('系统状态沿用演示占位，非现场设备检测结果。', true) + list(c.fireSystems));
-  panel(p[1], '隐患闭环 · 事件占位', list(c.inspectionEvents) + para('保留原巡检事件占位，文字与数字均可编辑；不代表实际巡检已完成。', true));
-  panel(p[2], '安全趋势 · 数字占位', rows([4, 5, 6, 7, 8, 9].map(m => `safetyMonth${m}`)) + '<h3>总体规划与建设</h3>' + cards(['plannedLand', 'plannedFloor', 'plannedInvestment', 'builtCountedFloor']) + para(c.construction) + para(c.stage));
+  panel(p[1], '隐患闭环 · 事件占位', eventList(c.inspectionEvents) + para('保留原巡检事件占位，文字与数字均可编辑；不代表实际巡检已完成。', true) + '<h3>服务工单 · 示例占位</h3>' + compactStats(['workPending', 'workProgress', 'workCompleted']) + eventList(c.workOrderEvents) + para('工单数字为示例汇总；列表为部分示例，不代表全部工单。', true));
+  panel(p[2], '安全趋势 · 数字占位', trend('safetyMonth', '月度安全趋势 · 项 · 原占位') + '<h3>总体规划与建设</h3>' + cards(['plannedLand', 'plannedFloor', 'plannedInvestment', 'builtCountedFloor']) + para(c.construction) + para(c.stage));
   p = pageNodes[3].querySelectorAll('.panel');
   panel(p[0], '人员态势', cards(['people', 'visitors', 'servicePeople', 'peoplePasses']) + para('本版保留原数字占位，可随时修改，后续绑定业务数据。', true));
   panel(p[1], '车辆态势', cards(['vehicles', 'vehiclePasses', 'freightVehicles', 'parkingRate']) + para('当前在场车辆与今日通行次数使用不同统计口径；本版为数字占位。', true));
@@ -228,7 +264,7 @@ function openEditor() {
   lastFocus = document.activeElement;
   const auto = document.getElementById('auto'); if (auto.classList.contains('on')) auto.click();
   dialog.innerHTML = `<form><header><h2 id="ops-title">运营数据 · 浏览器草稿</h2><button type="button" data-close aria-label="关闭运营数据编辑器">关闭</button></header><main>
-    <p>保存只作用于当前浏览器，不修改服务端共享数据或中间区域的分区、楼栋、文字和布局。产值与税收采用本版数字；其他运营指标保留原占位，均可编辑。绑定已核实的数据后，可取消对应的“占位数据”标记。</p>
+    <p>保存只作用于当前浏览器，不修改服务端共享数据或中间区域的分区、楼栋、文字和布局。产值与税收采用本版数字；其他运营指标保留原占位，均可编辑。绑定已核实的数据后，可取消对应的“占位数据”标记。产业结构五项占比合计须为100%；工单数量与部分示例列表分别编辑，首页最多显示3条，完整列表在“安全消防”页。</p>
     <fieldset><legend>来源与日期</legend><div class="ops-form-grid"><label style="grid-column:span 2">数据来源<input name="source" maxlength="200" required></label><label>数据日期<input type="date" name="updatedAt" required></label></div></fieldset>
     ${[...new Set(fields.map(f => f[5]))].map(group => `<fieldset><legend>${group}</legend><div class="ops-form-grid">${fields.filter(f => f[5] === group).map(([key, label, unit]) => `<div><label>${label}（${unit}）<input type="number" name="${key}" min="0" max="${unit === '%' ? 100 : 1e9}" step="any" placeholder="输入数字"></label><label class="ops-checkbox"><input type="checkbox" name="placeholder-${key}">占位数据</label></div>`).join('')}</div></fieldset>`).join('')}
     <fieldset><legend>运营内容</legend><div class="ops-form-grid">${copyFields.map(([key, label]) => `<label>${label}<textarea name="${key}"></textarea></label>`).join('')}</div></fieldset>
