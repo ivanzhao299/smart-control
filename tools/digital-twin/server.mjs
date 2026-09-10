@@ -8,7 +8,7 @@ const job = process.env.TWIN_JOB ? path.resolve(process.env.TWIN_JOB) : null;
 const realPreview = process.env.TWIN_REAL_PREVIEW ? path.resolve(process.env.TWIN_REAL_PREVIEW) : null;
 const comparison = process.env.TWIN_COMPARISON ? path.resolve(process.env.TWIN_COMPARISON) : null;
 const port = Number(process.env.TWIN_PORT ?? 5199);
-const contentTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.json': 'application/json', '.glb': 'model/gltf-binary', '.css': 'text/css', '.png':'image/png', '.jpg':'image/jpeg' };
+const contentTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.json': 'application/json', '.glb': 'model/gltf-binary', '.css': 'text/css', '.png':'image/png', '.jpg':'image/jpeg', '.webp':'image/webp' };
 http.createServer(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -25,6 +25,7 @@ http.createServer(async (req, res) => {
     else if (['/preview/scene.glb', '/preview/twin-manifest.json'].includes(route) && job) { base = path.join(job, 'preview'); relative = route.slice('/preview/'.length); }
     else if (['/real/scene.glb', '/real/twin-manifest.json', '/real/validation.json'].includes(route) && realPreview) { base = realPreview; relative = route.slice('/real/'.length); }
     else if (['/comparison/reference.jpg', '/comparison/matched.png', '/comparison/review.json'].includes(route) && comparison) { base = comparison; relative = route.slice('/comparison/'.length); }
+    else if (route.startsWith('/screen/')) { base = path.resolve(here, '../../frontend/public/park-ops'); relative = route.slice('/screen/'.length); }
     else { base = path.join(here, 'web'); relative = route === '/' ? 'index.html' : route.slice(1); }
     const file = path.resolve(base, relative);
     if (!file.startsWith(base + path.sep)) { res.writeHead(403).end(); return; }

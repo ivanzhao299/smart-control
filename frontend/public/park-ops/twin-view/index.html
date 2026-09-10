@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>金湖园区 · 多视角模型验收</title><link rel="stylesheet" href="./viewer.css"></head>
+<body>
+<header><div><small>JINHU / MODEL VIEWER</small><h1>同一座园区，不同的观察方向</h1></div><nav><a href="../index.html?twin=1">本地运营大屏</a><a href="/compare.html">原图对照</a></nav></header>
+<div class="notice">本地候选 · 未发布生产 <span>真实 MAX 几何渲染 / 绿化为补建示意 / 不是实时设备数据</span></div>
+<section class="toolbar" aria-label="模型显示控制">
+ <div id="views" class="group" aria-label="相机视角"></div>
+ <div class="group"><button id="clay" aria-pressed="false">检查白模</button><button id="labels" aria-pressed="true">显示标注</button><button id="edit" aria-pressed="false">编辑标注</button></div>
+ <div class="group lighting" aria-label="光照"><button data-light="auto">自动</button><button data-light="day">日景</button><button data-light="night">夜景</button></div>
+</section>
+<main id="workspace">
+ <section id="viewport" aria-label="园区模型渲染"><div id="picture"><img id="image" alt="正在加载园区另一侧真实相机视角" draggable="false"><div id="markers"></div></div><div id="loading" role="status">正在加载另一侧视角…</div></section>
+ <aside id="inspector" hidden>
+  <h2>当前视角的标注</h2><p>拖动标注可定位。保存到本机，不会修改生产布局；楼栋号、企业名称需正式资料确认。</p>
+  <label>选择标注<select id="selection"></select></label>
+  <label>文字<input id="labelText" maxlength="100"></label>
+  <div class="fields"><label>字号<input id="fontSize" type="number" min="8" max="40"></label><label>颜色<input id="color" type="color"></label></div>
+  <div class="fields"><label>横向 %<input id="posX" type="number" min="0" max="100" step="0.1"></label><label>纵向 %<input id="posY" type="number" min="0" max="100" step="0.1"></label></div>
+  <div class="fields"><button id="add">新增文字</button><button id="remove">删除选中</button></div>
+  <button id="undo">撤销上一步</button><button id="download">下载标注 JSON</button>
+  <label class="file">导入已保存标注<input id="import" type="file" accept=".json"></label>
+  <p id="saveStatus" role="status">初始标注是几何参照名称，不是正式楼栋编号。</p>
+ </aside>
+</main>
+<footer><span id="status" role="status">本地准备中</span><button id="retry" hidden>重试加载</button><span id="budget"></span></footer>
+<p class="explanation">相机已转到模型另一侧重新渲染；网页使用预渲染视角，不能自由拖拽环绕。无常驻 WebGL、无自动转动；白模与景观使用同一组相机。标注按视角分别保存。</p>
+<script type="module" src="./viewer.js"></script>
+</body></html>

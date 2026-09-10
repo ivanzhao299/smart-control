@@ -20,7 +20,33 @@ python3 twin.py serve --job '/path/new-job'
 
 要在工作台显示真实园区按钮对应的模型，以 `TWIN_REAL_PREVIEW=/path/new-web-preview python3 twin.py serve --job /path/new-job` 启动。流程测试模型与真实几何版是两个独立入口，不能混淆。
 
-## 鸟瞰图同视角对照（当前验收步骤）
+## 2026-09-10：多视角低功耗大屏本地候选
+
+用户已认可原鸟瞰视角对应关系。新入口为 `http://127.0.0.1:5199/screen/index.html?twin=1`，独立模型检查为 `/screen/twin-view/index.html`。默认展示真实相机位于另一侧的视图，模型未旋转或镜像；另有原鸟瞰、侧向 A、侧向 B、俯视及五组白模。旧 `/compare.html` 保留为已认可的历史参照，不冒充最新绿化版。
+
+处理链（每步输出至新的本地任务目录，不覆盖源件）：
+
+1. `inspect_max_scene.py` 读取原 MAX 参数，`prepare_review_scene.py` 根据源 Extrude capStart/capEnd 修复 45 个恢复对象，移除 9,216 个错误补盖面；显示背景底板下移 2 个未标定源单位，使湖面/草地/道路可见。其它对象变换保持不变。这是派生展示修复，不是测绘高程修订。
+2. `render_multiview_review.py` 离线输出五个真实相机白模；显式替换材质槽，避免 EEVEE 忽略 material_override。渲染前后几何指纹相同。人工视觉检查未发现主体建筑的大面积破损或翻面；仍有 47 个源线类节点未恢复，不能认定完整 MAX 插件效果、工程尺寸和全部细节已经无损验收。
+3. `build_landscape_scene.py` 在草地射线校验后补建 3,593 棵共享网格树，其中园内 1,196 棵。绿化为参考图启发的示意重建，不是原树逐株恢复，也不是现场调查。建筑原几何不变。
+4. `render_display_views.py` 离线生成五视角日/夜照明，`package_display_views.py` 编码 WebP 并保存逐文件 SHA-256、尺寸和字节预算。15 张图合计 1,764,356 字节，最大 237,932 字节；默认另一侧日景 172,774 字节。网页只加载所选视角，不下载完整场景，不使用 WebGL 或持续渲染。
+5. `frontend/public/park-ops/twin-view/` 提供视角、白模、日夜景及本机标注编辑。标注支持增删、拖动、文字、字号、颜色、撤销和 JSON 导入导出；按视角分别保存，不继承旧鸟瞰图坐标。不虚构官方楼栋号、企业或分期边界；现有四条预置仅是几何参照名。该入口不是旧生产分区端点校准器。
+
+`?twin=1` 是本地候选开关，未带此参数的既有大屏与旧校准器保持不变。候选显式标明业务数据为 DEMO、设备未接入；旧 3D 模块、生产布局 API 和管理员会话逻辑不加载。模型标注草稿只写浏览器本地存储，支持下载备份。关闭编辑后可投屏查看；未进行生产部署、输入源登记或生产草稿覆盖。
+
+这是**真实 3D 模型离线渲染的多视角网页展示**，不是网页自由环绕的实时 3D 模型。它满足固定多视角低负载投屏，完整三维资产继续留在本地用于后续数字孪生。整体页面自适应实际视口且无横纵不等比缩放；中间图片保持原比例，超宽屏允许两侧留出空间，不以拉伸或裁掉建筑换取铺满。
+
+验证：
+
+```sh
+npm test
+node --test test-display-assets.mjs
+TWIN_EVIDENCE=/path/new-browser-evidence node test-twin-screen.mjs
+```
+
+覆盖五视角、白模/日夜、文本空格、标注 CRUD/拖动/撤销/JSON、失败保留画面及重试、加载竞态、1920×1080 与 3612×1462、移动端无横溢出。空闲测试没有换图、WebGL 创建或外部请求；这不是生产硬件长期温度/内存验收。生产门槛仍为 `productionEligible: false`，必须先获得用户本地视觉验收，再单独进行发布同步、生产输入源及实机验证。
+
+## 鸟瞰图同视角对照（此前验收步骤）
 
 先对齐参考图，未通过前不继续反向相机或生产替换。`/compare.html` 为静态图像对照页，支持并排、同尺寸透明叠加、单看原图/模型；不加载 GLB、不启动 WebGL。主页有可点击入口。
 
@@ -31,7 +57,7 @@ python3 twin.py serve --job '/path/new-job'
 5. `node package-reference-review.mjs /path/render /path/reference.jpg /path/fit.json` 生成仅供本地展示的记录。新增 `TWIN_COMPARISON=/path/render` 启动工作台。服务仅公开两张图片和脱敏摘要，不公开 `.blend`、原始 MAX 或包含源路径的详细记录。
 6. `TWIN_EVIDENCE=/path/browser-check node test-reference-browser.mjs` 验证对照、叠加比例、移动端溢出、无 WebGL/GLB 下载和源文件隔离。
 
-当前恢复后的模型与原图主体排布可对应，但植被缺失、湖面不可见、地面/道路材质异常和建筑细节仍是验收阻断项。不得以相机拟合成功或 HTTP 200 认定完整还原，更不能把离线高精度 `.blend` 直接投放到生产端。
+该历史对照版本中植被缺失、湖面不可见、地面/道路材质异常；新候选的修复和剩余限制见上节。不得以相机拟合成功或 HTTP 200 认定完整还原，更不能把离线高精度 `.blend` 直接投放到生产端。
 
 ## MAX 本地解析与实际限制
 
@@ -89,6 +115,6 @@ TWIN_EVIDENCE='/path/real-browser-evidence' node test-real-browser.mjs
 
 ## 本地数据及发布
 
-模型、贴图、模型处理日志、截图、Windows 转换包全部放在本地任务目录，不进入 Git。仓库只保存工具、说明和锁文件。本地环境准备不会触发生产发布。
+原始模型、贴图、模型处理日志、诊断截图、Windows 转换包全部放在本地任务目录，不进入 Git。仓库保存工具、说明、锁文件及专门为网页生成的约 1.76 MB 发布候选 WebP 视角包和脱敏清单；不包含 MAX/BLEND 或完整纹理。本地环境准备不会触发生产发布。
 
 停止工作台：在启动它的终端按 Ctrl+C。重开时运行 `twin.py serve`，所有资产仍保存在原任务目录。此工具不安装开机常驻任务。

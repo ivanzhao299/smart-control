@@ -8,7 +8,7 @@
 <body>
   <header><div><p class="eyebrow">JINHU / REFERENCE MATCH</p><h1>先对齐同一座园区，再移动相机</h1></div><a href="/">返回三维工作台</a></header>
   <main>
-    <div class="notice"><strong>本地对照候选 · 未通过验收</strong><span>未替换生产大屏。当前只核对原鸟瞰视角，不切换另一侧。</span></div>
+    <div class="notice"><strong>原视角对应已获用户确认</strong><span>本页保留历史对照图；<a href="/screen/twin-view/index.html">查看最新另一侧、白模与绿化日夜景</a> · <a href="/screen/index.html?twin=1">本地运营大屏</a>。生产未替换。</span></div>
     <section class="controls" aria-label="对照方式">
       <div class="modes"><button data-mode="split" aria-pressed="true">并排对照</button><button data-mode="overlay" aria-pressed="false">叠加对齐</button><button data-mode="reference" aria-pressed="false">只看原图</button><button data-mode="model" aria-pressed="false">只看模型</button></div>
       <label id="opacityControl" hidden>模型透明度 <input id="opacity" type="range" min="0" max="100" value="50"><output id="opacityValue">50%</output></label>
@@ -20,8 +20,8 @@
     <p id="imageError" role="alert" hidden>对照图片尚未就绪，请确认本地服务已挂载本次对照结果。不会自动替换为其他模型。</p>
     <section class="details">
       <article><h2>本次怎么对齐</h2><p>用办公高楼、厂房和湖边小楼的屋顶地标，拟合真实透视相机。保持原图宽高比，不拉伸、翻转图片，也不变形模型。位置是人工近似选点，不能作为测绘精度。</p><p id="fitStatus">正在读取本地对照记录…</p></article>
-      <article><h2>仍未达到要求</h2><ul><li>树木和绿化景观尚未完整恢复。</li><li>湖面显示异常，不能认为水体已还原。</li><li>部分地面、道路及背景材质仍需修复。</li><li>个别建筑细节和轮廓还需逐项复核。</li></ul></article>
-      <article><h2>范围与下一步</h2><p id="cleanupStatus">视野外清理仅作用于独立比对副本，原始 MAX 与完整导入模型保留。画面边缘的可见背景仍保留供核对。</p><p>先完成这一视角的内容核对，再切到另一侧相机。网页轻量化和生产替换仍处于暂停状态。</p></article>
+      <article><h2>这张历史图的差异</h2><ul><li>本图尚未补树木；最新候选已补建景观示意。</li><li>本图湖面被遮挡；最新候选已按源封口参数修复。</li><li>新版已分离底盘并调整展示材质。</li><li>本页保留原始核对依据，不用新图覆盖已确认的对照过程。</li></ul></article>
+      <article><h2>范围与下一步</h2><p id="cleanupStatus">视野外清理仅作用于独立比对副本，原始 MAX 与完整导入模型保留。画面边缘的可见背景仍保留供核对。</p><p>多视角与轻量网页版本已进入本地验收；正式楼栋、企业资料和生产端验收尚未完成。</p></article>
     </section>
     <footer>此页只加载两张本地图像，无三维渲染循环、自动轮播、外部上传或设备控制。</footer>
   </main>

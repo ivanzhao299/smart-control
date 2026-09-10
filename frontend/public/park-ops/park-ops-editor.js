@@ -1,5 +1,7 @@
 (() => {
   'use strict';
+  // The new local candidate has camera-specific drafts; do not reuse 2D production coordinates.
+  if (window.PARK_TWIN_CANDIDATE) return;
 
   const runtime = window.PARK_RUNTIME;
   const params = new URLSearchParams(location.search);

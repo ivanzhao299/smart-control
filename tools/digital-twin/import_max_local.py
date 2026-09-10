@@ -15,6 +15,8 @@ from mathutils import Matrix, Vector
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from max_streams import PIN, install
+from max_materials import install as install_materials
+from max_splines import install as install_splines
 
 
 def main():
@@ -42,10 +44,12 @@ def main():
     aliases = {}
     for f in textures.values():
         alias = f.name.encode('utf-16le').replace(b'\0', b'').decode('utf-8', 'ignore').casefold()
-        aliases.setdefault(alias, []).append(f)
+        aliases.setdefault(PureWindowsPath(alias).name, []).append(f)
     report = {'importer': 'nrgsille76/io_scene_max', 'pin': PIN, 'state': 'IMPORTING',
               'scaleApplied': a.scale, 'scaleVerified': False, 'oppositeCameraVerified': False,
               'created': [], 'errors': [], 'skipped': [], 'missingTextures': [], 'textureRequests': []}
+    install_materials(importer, report)
+    install_splines(importer, report)
     original_loader = importer.load_image
     def local_image(name, dirname, **kwargs):
         base = PureWindowsPath(str(name)).name.casefold()

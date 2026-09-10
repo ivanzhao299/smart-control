@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
 <title>金湖科创产业园·智慧运营总览</title>
+<script>window.PARK_TWIN_CANDIDATE=new URLSearchParams(location.search).get('twin')==='1';</script>
 <link rel="stylesheet" href="./park-ops-editor.css?v=20260908-camera-hotfix" />
 <script type="importmap">{"imports":{"three":"./vendor/three.module.min.js"}}</script>
 <style>
@@ -127,12 +128,12 @@ function go(n){idx=(n+pages.length)%pages.length;render()}document.getElementByI
 document.getElementById('auto').onclick=function(){if(timer){clearInterval(timer);timer=null;this.textContent='自动轮播：关';this.classList.remove('on')}else{timer=setInterval(()=>go(idx+1),12000);this.textContent='自动轮播：开';this.classList.add('on')}};render();
 // 低功耗模式不启动全屏粒子 canvas；保留节点只为兼容旧版样式和校准器选择器。
 document.getElementById('ambient').hidden=true;
-(async()=>{try{const r=await fetch('http://localhost:3200/api/system-branding',{cache:'no-store'});const j=await r.json();const g=(j?.data?.welcomeGuest||'').trim();if(g)document.getElementById('welcomeLine').textContent=`热烈欢迎 ${g} 莅临考察指导`}catch{}})();
+(async()=>{if(window.PARK_TWIN_CANDIDATE)return;try{const r=await fetch('http://localhost:3200/api/system-branding',{cache:'no-store'});const j=await r.json();const g=(j?.data?.welcomeGuest||'').trim();if(g)document.getElementById('welcomeLine').textContent=`热烈欢迎 ${g} 莅临考察指导`}catch{}})();
 // 明日摄像头接入预留：把 HLS/WebRTC/厂商 SDK 地址映射到 CAM-001/018/043/067 即可。
 window.PARK_DEMO={version:'2026-09-08-camera-hotfix',resolution:'3612x1462',phases:['一期','二期','远期'],buildingCount:buildings.length,cameraSlots:['CAM-001','CAM-018','CAM-043','CAM-067']};
 window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buildings=value;renderBuildings()},renderBuildings,selectBuilding,fit,config:null};
 </script>
-<script type="module" src="./park-ops-3d.js?v=20260908-camera-hotfix"></script>
+<script type="module">if(window.PARK_TWIN_CANDIDATE){await import('./park-ops-twin.js');}else{await import('./park-ops-3d.js?v=20260908-camera-hotfix');}</script>
 <script src="./park-ops-editor.js?v=20260908-camera-hotfix"></script>
 </body>
 </html>
