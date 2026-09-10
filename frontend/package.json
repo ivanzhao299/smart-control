@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc -b && vite build",
-    "build:deploy": "vite build",
+    "build": "node ../tools/park-ops/build-content.cjs --check && vue-tsc -b && vite build",
+    "build:deploy": "node ../tools/park-ops/build-content.cjs --check && vite build",
     "preview": "vite preview --port 5173 --host",
     "icons": "node scripts/gen-icons.mjs",
     "typecheck": "vue-tsc --noEmit",

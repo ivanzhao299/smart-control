@@ -1,0 +1,63 @@
+/* Scoped to business content. Never change .park, #parkMap or the screen grid. */
+.ops-panel h3 { margin-bottom: 18px; }
+.ops-panel { overflow: auto; scrollbar-width: thin; scrollbar-color: #36596a transparent; }
+.ops-kpi { padding: 13px 24px; }
+.ops-kpi .n { font-size: 42px; }
+.ops-kpi .l { font-size: 20px; margin-top: 3px; }
+.ops-panel > .cameras .ops-camera { height: 102px; }
+.ops-panel p { color: #a8c6d5; font-size: 21px; line-height: 1.65; margin: 15px 0; }
+.ops-panel .ops-muted { color: #829cab; font-size: 17px; line-height: 1.55; }
+.ops-stage { color: #85e2b5; font-size: 23px; letter-spacing: 2px; }
+.ops-chips { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+.ops-chips span { padding: 12px 17px; border: 1px solid #265263; background: #0b2938; color: #bfe3e8; font-size: 20px; border-radius: 4px; }
+.ops-awards { display: grid; gap: 12px; list-style: none; padding: 0; margin: 12px 0; }
+.ops-awards li { padding: 11px 15px; background: #172d36; border-left: 3px solid #c7ae73; color: #ded2b0; font-size: 20px; line-height: 1.4; }
+.ops-companies { display: grid; gap: 12px; margin-top: 20px; }
+.ops-companies div { font-size: 24px; color: #d5e9f1; border-bottom: 1px solid #183e50; padding: 14px 6px; }
+.ops-panel .mini2 { gap: 12px; }
+.ops-panel .stat { padding: 12px 15px; }
+.right .ops-panel .stat { padding: 8px 15px; }
+.ops-panel .stat b { font-size: 29px; }
+.ops-panel .stat span { font-size: 18px; }
+.ops-data-rows { display: grid; gap: 11px; margin: 18px 0; font-size: 19px; color: #a9c7d7; }
+.ops-data-rows > div { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding-bottom: 9px; border-bottom: 1px solid #193c4b; }
+.ops-data-rows b { color: #ddf0f7; font-size: 23px; white-space: nowrap; }
+.ops-dialog .ops-checkbox { display: flex; align-items: center; gap: 7px; font-size: 12px; margin-top: 5px; color: #bdc4a4; }
+.ops-dialog .ops-checkbox input { width: 15px; height: 15px; }
+.ops-panel .ops-empty { border: 1px dashed #365462; padding: 30px; margin-top: 24px; color: #8daebb; font-size: 23px; line-height: 1.8; }
+.ops-camera { overflow: hidden; background: #061a29; position: relative; height: 150px; border: 1px solid #274655; }
+.ops-camera img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.ops-camera:after { content: ''; position: absolute; inset: 45% 0 0; background: linear-gradient(transparent, #031220dd); pointer-events: none; }
+.ops-camera .ops-image-label { position: absolute; left: 10px; bottom: 9px; z-index: 1; color: #fff; font-size: 17px; text-shadow: 0 1px 2px #000; }
+.ops-camera .ops-image-badge { position: absolute; top: 8px; right: 8px; color: #fff1c5; font-size: 14px; background: #15252dd9; padding: 5px 7px; }
+.ops-video-wall { display: grid; height: 810px; grid-template-columns: 1fr 1fr; gap: 20px; }
+.ops-video-wall .ops-camera { height: auto; }
+.ops-video-wall .ops-image-label { font-size: 25px; }
+.ops-video-wall .ops-image-badge { font-size: 20px; }
+.ops-open { padding: 8px 13px; font-size: 18px; margin-left: 12px; border: 1px solid #71d0dc; border-radius: 5px; color: #deffff; background: #0c3548; cursor: pointer; }
+.ops-status-text { font-size: 17px; color: #b6d3db; }
+.ops-source { font-size: 16px; color: #8aaaba; letter-spacing: 0; }
+.ops-panel a { color: #8fdcec; text-decoration-thickness: 1px; }
+.ops-dialog { width: min(1040px, 94vw); max-height: 92vh; padding: 0; border: 1px solid #3b7387; border-radius: 12px; color: #e3f1f5; background: #0b1e2c; box-shadow: 0 24px 80px #0009; font: 15px/1.5 'PingFang SC', sans-serif; }
+.ops-dialog::backdrop { background: #0009; }
+.ops-dialog header, .ops-dialog footer { padding: 18px 24px; position: sticky; background: #102b3b; z-index: 2; }
+.ops-dialog header { top: 0; display: flex; align-items: center; justify-content: space-between; }
+.ops-dialog h2 { font-size: 21px; margin: 0; }
+.ops-dialog footer { bottom: 0; border-top: 1px solid #315365; display: flex; flex-wrap: wrap; gap: 9px; align-items: center; }
+.ops-dialog main { padding: 18px 24px; }
+.ops-dialog p { color: #aec6d1; }
+.ops-dialog fieldset { border: 1px solid #264757; margin: 16px 0; padding: 16px; border-radius: 7px; }
+.ops-dialog legend { color: #88d4e5; padding: 0 7px; }
+.ops-form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.ops-dialog label { display: grid; gap: 7px; color: #b9d0dc; }
+.ops-dialog input, .ops-dialog textarea { width: 100%; box-sizing: border-box; font: inherit; color: #eef8fc; background: #051722; border: 1px solid #3a5969; border-radius: 4px; padding: 9px 11px; }
+.ops-dialog textarea { min-height: 80px; resize: vertical; }
+.ops-dialog button, .ops-import { font: inherit; border: 1px solid #467589; border-radius: 5px; padding: 8px 13px; color: #edfaff; background: #143d51; cursor: pointer; }
+.ops-dialog button[type=submit] { background: #22778b; }
+.ops-dialog button:focus-visible, .ops-dialog input:focus-visible, .ops-dialog textarea:focus-visible { outline: 2px solid #87e8ff; outline-offset: 2px; }
+.ops-feedback { margin-left: 6px; color: #c5e6df; flex: 1; min-width: 200px; }
+.ops-feedback[data-error=true] { color: #ffbb9d; }
+.ops-import { display: inline-block!important; }
+.ops-import input { display: none; }
+.ops-dialog details summary { cursor: pointer; color: #99ddeb; }
+@media (max-width: 650px) { .ops-form-grid { grid-template-columns: 1fr 1fr; } .ops-dialog main, .ops-dialog header, .ops-dialog footer { padding: 12px; } }
