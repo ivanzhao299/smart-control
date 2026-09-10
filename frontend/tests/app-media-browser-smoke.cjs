@@ -5,6 +5,7 @@ const http = require('node:http');
 const crypto = require('node:crypto');
 const assert = require('node:assert/strict');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright');
+const { WebSocket } = require('../../backend/node_modules/ws');
 const backend = 'http://127.0.0.1:33291/api';
 async function api(route, method, body, token, admin = false) {
   const response = await fetch(backend + route, { method, redirect: 'error', headers: {
@@ -101,6 +102,32 @@ async function api(route, method, body, token, admin = false) {
     const origin = `http://127.0.0.1:${server.address().port}`;
     assert.ok(process.env.SC_SMOKE_PLAYER_TOKEN, 'Synthetic device credential required');
     const kiosk = await browser.newContext({ serviceWorkers: 'block' });
+    const playerSockets = [];
+    const socketAttempts = [];
+    let playerHellos = 0;
+    await kiosk.routeWebSocket('**/*', socket => {
+      socketAttempts.push(socket.url());
+      if (socket.url() !== 'ws://localhost:3200/ws/status') { socket.close(); return; }
+      // Playwright connectToServer() cannot rewrite the destination URL. Bridge
+      // explicitly to the isolated backend; never connect to real port 3200.
+      const upstream = new WebSocket('ws://127.0.0.1:33291/ws/status');
+      const pending = [];
+      upstream.on('open', () => pending.splice(0).forEach(message => upstream.send(message)));
+      upstream.on('error', () => socket.close());
+      upstream.on('close', () => socket.close());
+      socket.onClose(() => upstream.close());
+      let device = false;
+      socket.onMessage(message => {
+        device = device || JSON.parse(String(message)).event === 'authenticate_player';
+        if (device && !playerSockets.some(pair => pair.socket === socket)) playerSockets.push({ socket, upstream });
+        if (upstream.readyState === WebSocket.OPEN) upstream.send(message);
+        else pending.push(message);
+      });
+      upstream.on('message', message => {
+        if (device && JSON.parse(String(message)).type === 'hello') playerHellos++;
+        socket.send(String(message));
+      });
+    });
     await kiosk.route('**/*', async route => {
       const url = route.request().url();
       // PlayerPage intentionally forces localhost:3200. Redirect only inside this
@@ -130,14 +157,77 @@ async function api(route, method, body, token, admin = false) {
     await remembered;
     await player.close();
     player = await kiosk.newPage();
+    const helloBeforeOpen = playerHellos;
     const reconnected = player.waitForResponse(r => r.url().endsWith('/player-device/1/state') && r.status() === 200);
     await player.goto(origin + '/player?slot=1');
     await reconnected;
     await player.locator('.device-setup').waitFor({ state: 'hidden' });
+    // Real authenticated WS + real REST + rendered image. The 30s fallback is
+    // unchanged, so a <2s result cannot be explained by shortening the poll.
+    await player.waitForFunction(() => !localStorage.getItem('sc.client.token'));
+    const helloDeadline = Date.now() + 5000;
+    while (playerHellos <= helloBeforeOpen && Date.now() < helloDeadline) await new Promise(r => setTimeout(r, 20));
+    assert.ok(playerHellos > helloBeforeOpen, `Dedicated device must authenticate its realtime socket (attempts: ${socketAttempts.join(', ')})`);
+    const publishAt = Date.now();
+    await api('/playback/channels/1/publish', 'POST', { mediaId: asset.id }, accounts.operator.token);
+    await player.waitForFunction(() => {
+      const img = document.querySelector('img.media-el');
+      return img && img.complete && img.naturalWidth > 0;
+    }, undefined, { timeout: 2000 });
+    console.log(`PASS device-only publish to rendered image: ${Date.now() - publishAt}ms`);
+    const replacementForm = new FormData();
+    replacementForm.append('file', new Blob([png], { type: 'image/png' }), `switch-target-${nonce}.png`);
+    const replacementResponse = await fetch(backend + '/media/upload', { method: 'POST', body: replacementForm,
+      headers: { 'X-Client-Token': accounts.operator.token, 'X-Upload-Size': String(png.length) } });
+    assert.ok(replacementResponse.ok, 'Synthetic replacement upload must succeed');
+    const replacementAsset = (await replacementResponse.json()).data;
+    for (const mediaId of [replacementAsset.id, asset.id, replacementAsset.id]) {
+      const oldSrc = await player.locator('img.media-el').getAttribute('src');
+      const started = Date.now();
+      await api('/playback/channels/1/publish', 'POST', { mediaId }, accounts.operator.token);
+      const accepted = Date.now();
+      await player.waitForFunction(previous => {
+        const img = document.querySelector('img.media-el');
+        return img && img.getAttribute('src') !== previous && img.complete && img.naturalWidth > 0;
+      }, oldSrc, { timeout: 2000 });
+      console.log(`PASS content replacement: ${Date.now() - started}ms total, ${Date.now() - accepted}ms after API success`);
+    }
+    // Stop while disconnected: authenticated hello must reconcile immediately.
+    const beforeReconnect = playerHellos;
+    const liveSocket = playerSockets.at(-1);
+    liveSocket.socket.close({ code: 1001 }); liveSocket.upstream.close();
+    const stopAt = Date.now();
+    await api('/playback/channels/1/stop', 'POST', {}, accounts.operator.token);
+    await player.locator('img.media-el').waitFor({ state: 'detached', timeout: 3000 });
+    assert.ok(playerHellos > beforeReconnect, 'Missed change reconciled by authenticated reconnect');
+    console.log(`PASS missed stop reconciled after reconnect: ${Date.now() - stopAt}ms`);
     await player.close();
     player = await kiosk.newPage();
     await player.goto(origin + '/player?slot=2');
     await player.locator('.device-setup').waitFor();
+    await player.close();
+    const extraTokens = JSON.parse(process.env.SC_SMOKE_EXTRA_PLAYER_TOKENS || '{}');
+    for (const slot of [2, 3]) {
+      assert.ok(extraTokens[slot], 'Separate synthetic credential required for each player channel');
+      player = await kiosk.newPage();
+      await player.goto(origin + '/player?slot=' + slot);
+      await player.locator('.device-setup').waitFor();
+      const previousHellos = playerHellos;
+      await player.locator('input[type="password"]').fill(extraTokens[slot]);
+      await player.getByRole('button', { name: '连接播放器' }).click();
+      const deadline = Date.now() + 5000;
+      while (playerHellos <= previousHellos && Date.now() < deadline) await new Promise(r => setTimeout(r, 20));
+      assert.ok(playerHellos > previousHellos, `Slot ${slot} needs authenticated realtime delivery`);
+      const started = Date.now();
+      await api(`/playback/channels/${slot}/publish`, 'POST', { mediaId: asset.id }, accounts.operator.token);
+      await player.waitForFunction(() => {
+        const img = document.querySelector('img.media-el');
+        return img && img.complete && img.naturalWidth > 0;
+      }, undefined, { timeout: 2000 });
+      console.log(`PASS browser slot ${slot} device-only publish to rendered image: ${Date.now() - started}ms`);
+      await api(`/playback/channels/${slot}/stop`, 'POST', {}, accounts.operator.token);
+      await player.close();
+    }
     await kiosk.close();
     console.log('PASS real kiosk window replacement: session-only expires, opt-in reconnects, channel stays isolated');
     for (const role of ['operator', 'otherOperator', 'viewer', 'admin']) {
@@ -216,9 +306,10 @@ async function api(route, method, body, token, admin = false) {
       }
       window.bioCalls = 0;
       window.JinhuShell = {
-        bioInfoScoped: () => JSON.stringify({ available: true, saved: true }),
+        platform: 'ios',
+        bioInfoScoped: () => { window.bioCalls++; return JSON.stringify({ available: true, saved: true }); },
         requestBioLoginScoped: () => { window.bioCalls++; window.__jinhuBioLoginOk(password); },
-        saveBioPasswordScoped: () => {},
+        saveBioPasswordScoped: () => { window.bioCalls++; },
       };
     }, { ...legacy, origin, password: accounts.admin.password });
     const mobile = await phone.newPage();
@@ -226,18 +317,20 @@ async function api(route, method, body, token, admin = false) {
     await mobile.waitForURL(url => url.pathname.endsWith('/client-login'));
     await mobile.getByRole('status').filter({ hasText: '尚未绑定用户' }).waitFor();
     const face = mobile.getByRole('button', { name: '面容 / 指纹登录' });
-    await face.click();
-    assert.equal(await mobile.evaluate(() => window.bioCalls), 0, 'Never request password-only Face ID without a username');
+    assert.equal(await face.count(), 0, 'Face ID login is removed on iOS even with saved biometric credentials');
+    assert.equal(await mobile.evaluate(() => window.bioCalls), 0, 'Do not call the retired iOS biometric bridge');
     assert.equal(await mobile.evaluate(() => localStorage.getItem('sc.client.token')), null);
     await mobile.getByPlaceholder('用户名', { exact: true }).fill(accounts.admin.username);
-    await face.click();
+    await mobile.getByPlaceholder('密码', { exact: true }).fill(accounts.admin.password);
+    await mobile.locator('button[type="submit"]').click();
     await mobile.waitForURL(url => url.pathname.endsWith('/lighting'));
     await mobile.reload();
     const migratedCommand = mobile.waitForResponse(r => /\/api\/lighting\/zone\/\d+\/(on|off)$/.test(r.url()) && r.request().method() === 'POST');
     await mobile.locator('.v2-zone button.v2-toggle').first().click();
     assert.equal((await (await migratedCommand).json()).data.ok, true);
+    assert.equal(await mobile.evaluate(() => window.bioCalls), 0, 'Ordinary iOS login must not save biometric credentials');
     await phone.close();
-    console.log('PASS 390px old phone session migration: no password-only auto-login, username required before Face ID, named admin controls MOCK lighting after reload');
+    console.log('PASS 390px iOS: retired Face ID hidden, ordinary named-account login and control survive reload');
     const management = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
     await management.route('**/*', route => route.request().url().startsWith(origin + '/') ? route.continue() : route.abort());
     await management.addInitScript(({ token, expiresAt, origin }) => {

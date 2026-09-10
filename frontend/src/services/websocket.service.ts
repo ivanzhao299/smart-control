@@ -12,9 +12,13 @@ export interface WsClientOptions {
   reconnectMinMs?: number;
   reconnectMaxMs?: number;
   heartbeatMs?: number;
+  /** Dedicated devices must never fall back to personal/admin credentials. */
+  authentication?: () => { event: string; data: unknown } | null;
 }
 
-class WsClient {
+export class WsClient {
+  private readonly authentication: NonNullable<WsClientOptions['authentication']>;
+  private readonly unsubscribeIdentity: () => void;
   private socket: WebSocket | null = null;
   private path: string;
   private reconnectMin: number;
@@ -36,7 +40,12 @@ class WsClient {
   private pongCheckTimer?: number;
 
   constructor(opts: WsClientOptions = {}) {
-    onIdentityChange(() => {
+    this.authentication = opts.authentication ?? (() => {
+      const admin = getAdminToken();
+      const token = admin || getClientToken();
+      return token ? { event: 'authenticate', data: { token, admin: Boolean(admin) } } : null;
+    });
+    this.unsubscribeIdentity = onIdentityChange(() => {
       if (this.socket) this.socket.close();
     });
     this.path = opts.path ?? '/ws/status';
@@ -47,7 +56,7 @@ class WsClient {
   }
 
   connect(): void {
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) return;
+    if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) return;
     if (this.destroyed) return;
     this.setState('connecting');
 
@@ -75,14 +84,13 @@ class WsClient {
       const ws = new WebSocket(url);
       this.socket = ws;
       let identity = '';
-      const currentIdentity = () => JSON.stringify([getAdminToken(), getClientToken()]);
+      const currentIdentity = () => JSON.stringify([getApiBaseURL(), this.authentication()]);
 
       ws.onopen = () => {
         identity = currentIdentity();
-        const admin = getAdminToken();
-        const token = admin || getClientToken();
-        if (!token) { ws.close(); return; }
-        ws.send(JSON.stringify({ event: 'authenticate', data: { token, admin: Boolean(admin) } }));
+        const authentication = this.authentication();
+        if (!authentication) { ws.close(); return; }
+        ws.send(JSON.stringify(authentication));
         this.reconnectDelay = this.reconnectMin;
       };
 
@@ -122,10 +130,17 @@ class WsClient {
 
   disconnect(): void {
     this.destroyed = true;
+    this.unsubscribeIdentity();
     if (this.reconnectTimer) window.clearTimeout(this.reconnectTimer);
     this.stopHeartbeat();
     this.socket?.close();
     this.socket = null;
+  }
+
+  reconnect(): void {
+    if (this.destroyed) return;
+    if (this.socket && this.socket.readyState < WebSocket.CLOSING) this.socket.close();
+    else this.connect();
   }
 
   on(handler: WsHandler): () => void {

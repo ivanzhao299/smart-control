@@ -28,22 +28,18 @@ struct WebView: UIViewRepresentable {
         config.websiteDataStore = .default()
 
         // A2 (2026-07-25): 触感桥 — window.JinhuShell.vibrate(ms) → UIImpactFeedback。
-        // 2026-07-31 扩展面容登录: bioInfo (同步读缓存态) / saveBioPassword /
-        // clearBioPassword / requestBioLogin (结果经 __jinhuBioLoginOk/Fail 回调)。
-        // WKWebView 消息通道天然异步, 所以 available/saved 在注入时算好嵌进脚本,
-        // save/clear 时 JS 侧乐观同步更新缓存 —— 与安卓壳的同步接口拉平。
-        let bioAvailable = BiometricAuth.available ? "true" : "false"
-        let bioSavedClient = KeychainStore.hasPassword(scope: "client") ? "true" : "false"
-        let bioSavedAdmin = KeychainStore.hasPassword(scope: "admin") ? "true" : "false"
+        // Face ID is retired. Keep inert bridge methods for cached web clients;
+        // do not access the biometric keychain or invoke system authentication.
         let bridge = WKUserScript(
             source: """
             window.JinhuShell={
+              platform:'ios',
               vibrate:function(ms){try{window.webkit.messageHandlers.haptic.postMessage(ms)}catch(e){}},
-              __bio:{available:\(bioAvailable),saved:{client:\(bioSavedClient),admin:\(bioSavedAdmin)}},
+              __bio:{available:false,saved:{client:false,admin:false}},
               bioInfoScoped:function(s){return JSON.stringify({available:this.__bio.available,saved:!!this.__bio.saved[s==='admin'?'admin':'client']})},
-              saveBioPasswordScoped:function(s,p){try{this.__bio.saved[s==='admin'?'admin':'client']=true;window.webkit.messageHandlers.jinhuShell.postMessage({type:'saveBio',scope:String(s),pwd:String(p)})}catch(e){}},
-              clearBioPasswordScoped:function(s){try{this.__bio.saved[s==='admin'?'admin':'client']=false;window.webkit.messageHandlers.jinhuShell.postMessage({type:'clearBio',scope:String(s)})}catch(e){}},
-              requestBioLoginScoped:function(s){try{window.webkit.messageHandlers.jinhuShell.postMessage({type:'bioLogin',scope:String(s)})}catch(e){}},
+              saveBioPasswordScoped:function(){},
+              clearBioPasswordScoped:function(){},
+              requestBioLoginScoped:function(){if(window.__jinhuBioLoginFail)window.__jinhuBioLoginFail()},
               bioInfo:function(){return this.bioInfoScoped('client')},
               saveBioPassword:function(p){this.saveBioPasswordScoped('client',p)},
               clearBioPassword:function(){this.clearBioPasswordScoped('client')},
@@ -151,33 +147,16 @@ struct WebView: UIViewRepresentable {
                   let body = message.body as? [String: Any],
                   let type = body["type"] as? String
             else { return }
-            let scope = (body["scope"] as? String) == "admin" ? "admin" : "client"
             switch type {
             case "pageReady":
                 DispatchQueue.main.async { self.parent.onReady() }
             case "pageError":
                 let detail = body["message"] as? String ?? "页面脚本启动失败"
                 DispatchQueue.main.async { self.parent.onError(detail) }
-            case "saveBio":
-                if let pwd = body["pwd"] as? String, !pwd.isEmpty { KeychainStore.set(pwd, scope: scope) }
-            case "clearBio":
-                KeychainStore.clear(scope: scope)
+            case "saveBio", "clearBio":
+                break
             case "bioLogin":
-                let wv = message.webView
-                guard let pwd = KeychainStore.password(scope: scope), BiometricAuth.available else {
-                    wv?.evaluateJavaScript("window.__jinhuBioLoginFail&&window.__jinhuBioLoginFail()")
-                    return
-                }
-                BiometricAuth.authenticate(reason: "面容登录展厅中控") { ok in
-                    guard ok else {
-                        wv?.evaluateJavaScript("window.__jinhuBioLoginFail&&window.__jinhuBioLoginFail()")
-                        return
-                    }
-                    // JSON 编码做 JS 字符串字面量转义 (密码可能含引号/反斜杠)
-                    let quoted = (try? JSONSerialization.data(withJSONObject: pwd, options: .fragmentsAllowed))
-                        .flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
-                    wv?.evaluateJavaScript("window.__jinhuBioLoginOk&&window.__jinhuBioLoginOk(\(quoted))")
-                }
+                message.webView?.evaluateJavaScript("window.__jinhuBioLoginFail&&window.__jinhuBioLoginFail()")
             default:
                 break
             }
