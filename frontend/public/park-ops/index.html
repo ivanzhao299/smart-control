@@ -188,6 +188,13 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
     const mock=cam.querySelector('.mock');
     if(!video)return;
 
+    // 防重复初始化：如果已经初始化过，直接返回（避免重试机制导致多个hls实例冲突）
+    if(video.dataset.hlsInitialized==='true'){
+      console.log(`[ParkOps] 视频已初始化，跳过 (${channel})`);
+      return;
+    }
+    video.dataset.hlsInitialized='true';
+
     const playlistUrl=`${API_BASE}/${channel}/hls/playlist.m3u8`;
 
     // 统一使用hls.js播放（避免Chrome canPlayType误判导致原生HLS失败）
