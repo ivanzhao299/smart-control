@@ -285,7 +285,31 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
     const videoPage=document.querySelector('[data-name="视频监控"]');
     if(videoPage&&videoPage.classList.contains('active')&&!hlsInitialized){
       hlsInitialized=true;
-      initAllCams();
+      initAllCams().then(()=>{
+        // 初始化完成后，主动触发所有视频播放（防止浏览器自动播放策略暂停）
+        setTimeout(()=>{
+          const videos=videoPage.querySelectorAll('.cam-hls video');
+          videos.forEach(v=>{
+            if(v.paused&&v.src){
+              v.play().catch(()=>{/* 忽略播放失败 */});
+            }
+          });
+        },500);
+        // 持续检测3秒，确保所有视频都在播放
+        let checkCount=0;
+        const playCheck=setInterval(()=>{
+          checkCount++;
+          const videos=videoPage.querySelectorAll('.cam-hls video');
+          let allPlaying=true;
+          videos.forEach(v=>{
+            if(v.paused&&v.src&&v.readyState>=2){
+              v.play().catch(()=>{});
+              allPlaying=false;
+            }
+          });
+          if(allPlaying||checkCount>=6) clearInterval(playCheck);
+        },500);
+      });
       observer.disconnect();
     }
   });
