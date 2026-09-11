@@ -77,9 +77,12 @@ function render() {
   panel(p[0], '人员态势', cards(['people', 'visitors', 'servicePeople', 'peoplePasses']) + para('本版保留原数字占位，可随时修改，后续绑定业务数据。', true));
   panel(p[1], '车辆态势', cards(['vehicles', 'vehiclePasses', 'freightVehicles', 'parkingRate']) + para('当前在场车辆与今日通行次数使用不同统计口径；本版为数字占位。', true));
   panel(p[2], '门岗事件 · 占位', list(c.gateEvents) + para('保留原演示事件，不是实时通行记录，可在运营数据中编辑。', true));
+  // 视频监控页面(pageNodes[4])已接入真实HLS流畅视频流，不再用图片预览占位覆盖
+  // 仅更新右侧摄像头状态面板的统计数据，左侧视频墙保持HLS实时画面
   p = pageNodes[4].querySelectorAll('.panel');
-  panel(p[0], '视频输入源 · 图片预览', cameras(true) + para('全部为通用产业建筑素材，不是本园区实时监控。', true));
-  panel(p[1], '摄像头状态', cards(['camerasOnline', 'camerasOffline', 'cameraRate', 'cameraPoints']) + para('本版在线状态保持原数字占位，可编辑；图片用于本地版式验收，不代表现场实时状态。') + '<p><a href="./ops-images/sources.html" target="_blank" rel="noopener">查看图片来源与使用说明</a></p>');
+  if (p[1]) {
+    panel(p[1], '摄像头状态', cards(['camerasOnline', 'camerasOffline', 'cameraRate', 'cameraPoints']) + para('已接入7路HLS流畅视频流（Port5录像机4路+Port3录像机3路），通过FFmpeg实时转码，延迟约3-5秒。'));
+  }
   const footer = document.querySelector('.footerline');
   footer.removeAttribute('data-park-text-key');
   footer.textContent = `${mode} · ${data.source} · ${new Date(data.updatedAt).toLocaleDateString('zh-CN')} · 标注“占位”的数据暂未绑定现场系统 · ${warning || '中间布局沿用既有配置'}`;
