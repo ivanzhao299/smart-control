@@ -76,25 +76,40 @@ function render() {
   // 优化：同时预启动视频监控页的2路额外通道（p3-d45、p3-d50）转码，切到视频页时6路都已就绪
   const initSmallCams = () => {
     try {
-      const firstPage = document.querySelector('.page.active');
-      if (!firstPage) return;
-      const smallCams = firstPage.querySelectorAll('.right .cam-hls');
-      console.log(`[OpsContent] 初始化第一页 ${smallCams.length} 路HLS视频 + 预启动2路额外通道`);
-      smallCams.forEach((cam, i) => {
-        const channel = cam.dataset.camera;
-        if (window.startHlsTranscoding) window.startHlsTranscoding(channel);
-        if (window.initHlsPlayer) window.initHlsPlayer(cam);
-      });
-      // 预启动视频监控页的2路额外通道转码（不初始化播放器，只启动转码）
-      const extraChannels = ['p3-d45', 'p3-d50'];
-      extraChannels.forEach(ch => {
-        if (window.startHlsTranscoding) {
-          window.startHlsTranscoding(ch).catch(e => console.warn(`[OpsContent] 预启动${ch}转码失败:`, e));
-        }
-      });
+      // 不依赖.page.active，直接查找所有页面中的视频元素
+      const smallCams = document.querySelectorAll('.page .right .cam-hls');
+      if (smallCams.length === 0) {
+        // 重试机制：DOM可能还没更新，最多重试5次
+        let retryCount = 0;
+        const retry = setInterval(() => {
+          retryCount++;
+          const cams = document.querySelectorAll('.page .right .cam-hls');
+          if (cams.length > 0 || retryCount >= 5) {
+            clearInterval(retry);
+            if (cams.length > 0) doInitCams(cams);
+          }
+        }, 500);
+        return;
+      }
+      doInitCams(smallCams);
     } catch (e) {
       console.warn('[OpsContent] HLS初始化失败:', e.message);
     }
+  };
+  const doInitCams = (smallCams) => {
+    console.log(`[OpsContent] 初始化第一页 ${smallCams.length} 路HLS视频 + 预启动2路额外通道`);
+    smallCams.forEach((cam, i) => {
+      const channel = cam.dataset.camera;
+      if (window.startHlsTranscoding) window.startHlsTranscoding(channel);
+      if (window.initHlsPlayer) window.initHlsPlayer(cam);
+    });
+    // 预启动视频监控页的2路额外通道转码（不初始化播放器，只启动转码）
+    const extraChannels = ['p3-d45', 'p3-d50'];
+    extraChannels.forEach(ch => {
+      if (window.startHlsTranscoding) {
+        window.startHlsTranscoding(ch).catch(e => console.warn(`[OpsContent] 预启动${ch}转码失败:`, e));
+      }
+    });
   };
   if (document.readyState === 'complete') {
     setTimeout(initSmallCams, 200);
