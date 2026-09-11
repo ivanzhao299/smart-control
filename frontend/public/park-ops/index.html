@@ -223,6 +223,17 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
 
       hls.on(window.Hls.Events.MANIFEST_PARSED,()=>{
         video.play().catch(()=>{});
+        // 持续检测5秒，确保视频稳定播放（防止浏览器自动播放策略暂停）
+        let playCheckCount=0;
+        const playCheck=setInterval(()=>{
+          playCheckCount++;
+          if(video.paused&&video.readyState>=2){
+            video.play().catch(()=>{});
+          }
+          if(playCheckCount>=10||(!video.paused&&video.currentTime>0)){
+            clearInterval(playCheck);
+          }
+        },500);
       });
 
       hls.on(window.Hls.Events.ERROR,(event,data)=>{
