@@ -8,6 +8,8 @@
 > 守护去重兜底)。以下三份是其后的权威补充, 读完本文务必接着读:
 > 仓库根 `CLAUDE.md` (工程记忆) → `docs/INCIDENTS.md` (故障档案: 症状→根因→根治) →
 > `docs/PROGRESS.md` (进展时间线 + 当前待办)。
+>
+> 📄 **2026-09-11 新增**: `docs/PARK_OPS_LED_FIX_AND_REMOTE_CONTROL.md` — 运营大屏LED亮线修复 + PWA播放控制卡片远程翻页控制（架构/API/部署/换电脑开发指南）。
 
 ---
 
