@@ -101,6 +101,20 @@ body:before{display:none}
 body.park-editing .map-scene{inset:0;transform:none!important;transition:none;will-change:auto}body.park-editing .map-view-controls{opacity:.55}.map-detail{background:linear-gradient(145deg,rgba(3,20,34,.97),rgba(5,34,49,.95));box-shadow:0 10px 26px rgba(0,0,0,.32)}
 @keyframes pulse{50%{opacity:.62;transform:scale(.82)}}@keyframes cardSweep{0%{transform:translateX(-80%) rotate(8deg)}38%,100%{transform:translateX(90%) rotate(8deg)}}@keyframes pageIn{from{opacity:0;transform:translateY(14px) scale(.995)}to{opacity:1;transform:none}}@keyframes mapDrift{from{transform:scale(1.02) translate3d(-.25%,0,0)}to{transform:scale(1.045) translate3d(.25%,-.35%,0)}}@keyframes lightsFlicker{50%{opacity:.42}}@keyframes cloudMove{from{transform:translateX(0)}to{transform:translateX(1500px)}}@keyframes dash{to{stroke-dashoffset:-180}}@keyframes growX{from{transform:scaleX(0)}}@keyframes growY{from{transform:scaleY(0)}}@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.001ms!important;animation-iteration-count:1!important}}
 @media(max-width:1200px){#app{transform-origin:0 0}}
+/* 数据编辑模式样式 */
+body.data-edit-mode{cursor:crosshair}
+body.data-edit-mode .editable-field{outline:1px dashed rgba(34,197,94,.5);outline-offset:2px;transition:outline-color .2s,background .2s}
+body.data-edit-mode .editable-field:hover{outline-color:rgba(34,197,94,.9);background:rgba(34,197,94,.08);cursor:text}
+body.data-edit-mode .editable-field.editing{outline:2px solid #22c55e;background:rgba(34,197,94,.12)}
+.data-edit-tip{position:fixed;top:12px;left:50%;transform:translateX(-50%);background:rgba(34,197,94,.95);color:#fff;padding:8px 20px;border-radius:8px;font-size:14px;z-index:99999;box-shadow:0 4px 20px rgba(34,197,94,.4);display:none}
+body.data-edit-mode .data-edit-tip{display:block}
+.data-edit-input{position:fixed;z-index:99998;background:#1e293b;border:1px solid #22c55e;border-radius:8px;padding:12px;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+.data-edit-input input{background:#0f172a;border:1px solid #334155;color:#fff;padding:8px 12px;border-radius:6px;font-size:14px;width:280px;outline:none}
+.data-edit-input input:focus{border-color:#22c55e}
+.data-edit-input .edit-actions{margin-top:8px;display:flex;gap:8px;justify-content:flex-end}
+.data-edit-input .edit-actions button{padding:6px 16px;border-radius:6px;font-size:13px;cursor:pointer;border:none}
+.data-edit-input .edit-actions .save-btn{background:#22c55e;color:#fff}
+.data-edit-input .edit-actions .cancel-btn{background:#334155;color:#94a3b8}
 </style>
 </head>
 <body data-scene="day"><canvas id="ambient" width="3612" height="1462"></canvas>
@@ -108,7 +122,7 @@ body.park-editing .map-scene{inset:0;transform:none!important;transition:none;wi
   <header class="header">
     <div class="brand">JINHU SCI-TECH INDUSTRIAL PARK<small>DIGITAL TWIN · 数字孪生运营中枢</small></div>
     <div class="title"><h1><img src="jinhupark-mark.svg" class="park-mark" alt="金湖科创产业园logo"><img src="jinhupark-text.svg" class="park-text" alt="金湖科创产业园"><span class="park-sep">·</span><span>智慧运营总览</span></h1><div class="sub" id="welcomeLine">热烈欢迎各位领导莅临检查指导</div></div>
-    <div class="status"><div class="status-row"><span class="live-dot"></span><b>运行正常</b><button class="calibration-entry" id="openCalibration" type="button">布局校准</button></div><div class="status-row"><span class="scene-mini"><i id="sceneIcon">☀</i> <span id="sceneName">自动日景</span></span><span id="clock"></span></div></div>
+    <div class="status"><div class="status-row"><span class="live-dot"></span><b>运行正常</b><button class="calibration-entry" id="openCalibration" type="button">布局校准</button><button class="calibration-entry" id="toggleDataEdit" type="button" style="background:rgba(34,197,94,.15);border-color:rgba(34,197,94,.4);color:#4ade80">✎ 数据编辑</button></div><div class="status-row"><span class="scene-mini"><i id="sceneIcon">☀</i> <span id="sceneName">自动日景</span></span><span id="clock"></span></div></div>
   </header>
   <section class="kpis">
     <div class="kpi"><span class="n">32</span><span class="u">家</span><div class="l">入驻企业</div></div>
@@ -457,5 +471,173 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
 <script src="./park-ops-editor.js?v=20260908-camera-hotfix"></script>
 <!-- Business content starts AFTER the existing editor registers its stable text keys. -->
 <script src="./ops-content.js?v=20260911-reliable-hls-init-v2"></script>
+<script>
+// 数据内联编辑功能
+(function(){
+  const STORAGE_KEY='park-ops-data-edits';
+  let editMode=false;
+  let currentEl=null;
+  let editPopup=null;
+
+  // 生成元素唯一路径
+  function getElementPath(el){
+    const path=[];
+    let node=el;
+    while(node&&node.nodeType===1&&node!==document.body){
+      let selector=node.tagName.toLowerCase();
+      if(node.id){selector+='#'+node.id;path.unshift(selector);break}
+      const parent=node.parentNode;
+      if(parent){
+        const siblings=Array.from(parent.children).filter(c=>c.tagName===node.tagName);
+        if(siblings.length>1){selector+=':nth-of-type('+(siblings.indexOf(node)+1)+')'}
+      }
+      path.unshift(selector);
+      node=node.parentNode;
+    }
+    return path.join('>');
+  }
+
+  // 加载保存的编辑
+  function loadEdits(){
+    try{
+      const edits=JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}');
+      Object.keys(edits).forEach(path=>{
+        try{
+          const el=document.querySelector(path);
+          if(el&&el.dataset.editable!=='false'){el.textContent=edits[path]}
+        }catch(e){}
+      });
+    }catch(e){}
+  }
+
+  // 保存编辑
+  function saveEdit(path,value){
+    try{
+      const edits=JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}');
+      edits[path]=value;
+      localStorage.setItem(STORAGE_KEY,JSON.stringify(edits));
+    }catch(e){}
+  }
+
+  // 判断元素是否可编辑
+  function isEditable(el){
+    if(!el||el.nodeType!==1)return false;
+    const tag=el.tagName.toLowerCase();
+    if(['button','input','textarea','select','video','canvas','svg','script','style','iframe'].includes(tag))return false;
+    if(el.closest('.data-edit-input,.data-edit-tip'))return false;
+    if(el.dataset.editable==='false')return false;
+    // 必须有直接文本子节点
+    const hasText=Array.from(el.childNodes).some(n=>n.nodeType===3&&n.textContent.trim());
+    return hasText;
+  }
+
+  // 标记所有可编辑元素
+  function markEditable(){
+    document.querySelectorAll('.editable-field').forEach(el=>el.classList.remove('editable-field'));
+    const all=document.querySelectorAll('#app *');
+    all.forEach(el=>{
+      if(isEditable(el)){
+        // 只标记最内层的可编辑元素，避免嵌套
+        const hasEditableChild=Array.from(el.children).some(c=>isEditable(c));
+        if(!hasEditableChild){el.classList.add('editable-field')}
+      }
+    });
+  }
+
+  // 创建编辑弹出框
+  function createEditPopup(el,rect){
+    removeEditPopup();
+    editPopup=document.createElement('div');
+    editPopup.className='data-edit-input';
+    editPopup.innerHTML=`<input type="text" value="${el.textContent.replace(/"/g,'&quot;')}" placeholder="输入新内容"><div class="edit-actions"><button class="cancel-btn">取消</button><button class="save-btn">保存</button></div>`;
+    document.body.appendChild(editPopup);
+    // 定位
+    const popupRect=editPopup.getBoundingClientRect();
+    let left=rect.left;
+    let top=rect.bottom+8;
+    if(left+popupRect.width>window.innerWidth)left=window.innerWidth-popupRect.width-10;
+    if(top+popupRect.height>window.innerHeight)top=rect.top-popupRect.height-8;
+    editPopup.style.left=left+'px';
+    editPopup.style.top=top+'px';
+    const input=editPopup.querySelector('input');
+    input.focus();
+    input.select();
+    // 事件
+    editPopup.querySelector('.save-btn').onclick=()=>{
+      const newValue=input.value.trim();
+      if(newValue){
+        el.textContent=newValue;
+        const path=getElementPath(el);
+        saveEdit(path,newValue);
+      }
+      removeEditPopup();
+    };
+    editPopup.querySelector('.cancel-btn').onclick=removeEditPopup;
+    input.onkeydown=(e)=>{
+      if(e.key==='Enter')editPopup.querySelector('.save-btn').click();
+      if(e.key==='Escape')removeEditPopup();
+    };
+  }
+
+  function removeEditPopup(){
+    if(editPopup){editPopup.remove();editPopup=null}
+    if(currentEl){currentEl.classList.remove('editing');currentEl=null}
+  }
+
+  // 切换编辑模式
+  function toggleEditMode(){
+    editMode=!editMode;
+    document.body.classList.toggle('data-edit-mode',editMode);
+    const btn=document.getElementById('toggleDataEdit');
+    if(btn){
+      btn.textContent=editMode?'✓ 完成编辑':'✎ 数据编辑';
+      btn.style.background=editMode?'rgba(239,68,68,.15)':'rgba(34,197,94,.15)';
+      btn.style.borderColor=editMode?'rgba(239,68,68,.4)':'rgba(34,197,94,.4)';
+      btn.style.color=editMode?'#f87171':'#4ade80';
+    }
+    if(editMode){
+      markEditable();
+      // 添加提示
+      let tip=document.querySelector('.data-edit-tip');
+      if(!tip){
+        tip=document.createElement('div');
+        tip.className='data-edit-tip';
+        tip.textContent='编辑模式：点击任意文字可修改内容，修改后自动保存';
+        document.body.appendChild(tip);
+      }
+    }else{
+      removeEditPopup();
+      document.querySelectorAll('.editable-field').forEach(el=>el.classList.remove('editable-field'));
+      const tip=document.querySelector('.data-edit-tip');
+      if(tip)tip.remove();
+    }
+  }
+
+  // 点击事件
+  document.addEventListener('click',(e)=>{
+    if(!editMode)return;
+    if(e.target.closest('.data-edit-input'))return;
+    const el=e.target.closest('.editable-field');
+    if(el){
+      e.preventDefault();
+      e.stopPropagation();
+      currentEl=el;
+      el.classList.add('editing');
+      const rect=el.getBoundingClientRect();
+      createEditPopup(el,rect);
+    }else{
+      removeEditPopup();
+    }
+  },true);
+
+  // 初始化
+  loadEdits();
+  const btn=document.getElementById('toggleDataEdit');
+  if(btn)btn.onclick=toggleEditMode;
+  // 页面内容动态加载后重新标记（如果在编辑模式）
+  const observer=new MutationObserver(()=>{if(editMode)markEditable()});
+  observer.observe(document.getElementById('app'),{childList:true,subtree:true});
+})();
+</script>
 </body>
 </html>
