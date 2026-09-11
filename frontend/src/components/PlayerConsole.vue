@@ -1448,5 +1448,44 @@ async function submitWebpage(): Promise<void> {
   .v2-toggle { width: 48px; height: 28px; }
   .v2-toggle::after { width: 24px; height: 24px; }
   .v2-toggle.on::after { transform: translateX(20px); }
+
+  /* 运营大屏翻页控制条 — 手机端紧凑样式 */
+  .park-ops-pager {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 8px;
+    margin: 4px var(--v2-sp-3) 0;
+    justify-content: center;
+  }
+  .park-ops-pager .pg-label {
+    flex-basis: 100%;
+    text-align: center;
+    font-size: 12px;
+    margin-right: 0;
+    margin-bottom: 2px;
+  }
+  .park-ops-pager .pg-btn {
+    padding: 6px 10px;
+    font-size: 12px;
+    gap: 3px;
+  }
+  .park-ops-pager .pg-btn.big {
+    padding: 7px 14px;
+    font-size: 13px;
+  }
+  .park-ops-pager .pg-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+  .park-ops-pager .pg-num {
+    font-size: 14px;
+    min-width: 50px;
+  }
+  .park-ops-pager .pg-num i {
+    font-size: 11px;
+  }
+  .park-ops-pager .pg-gap {
+    display: none;
+  }
 }
 </style>
