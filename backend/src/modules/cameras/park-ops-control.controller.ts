@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Body } from '@nestjs/common';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import { Public } from '../../common/decorators/public.decorator';
 
 /**
  * 运营大屏翻页控制 — 供PWA播放控制卡片远程控制LED大屏端运营大屏翻页
@@ -8,6 +9,7 @@ import { join } from 'path';
  * 通信方式: HTTP API + 运营大屏端短轮询 (500ms)
  * 后续可优化为 WebSocket 推送, 降低延迟
  */
+@Public()
 @Controller('park-ops-control')
 export class ParkOpsControlController {
   private statePath: string;
