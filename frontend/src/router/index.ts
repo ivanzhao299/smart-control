@@ -63,6 +63,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'test-center', name: 'admin-test-center', component: () => import('@/pages/admin/TestCenterAdmin.vue') },
       // Sprint-06 spec 命名别名: /admin/debug → TestCenterAdmin (含单设备测试 + Ping + 端口 + rawResponse)
       { path: 'debug', name: 'admin-debug', component: () => import('@/pages/admin/TestCenterAdmin.vue') },
+      // 视频绑定管理 — NVR录像机 + 摄像头通道 + 大屏显示布局可视化配置
+      { path: 'video-binding', name: 'admin-video-binding', component: () => import('@/pages/admin/VideoBindingAdmin.vue') },
       { path: 'uat', name: 'admin-uat', component: () => import('@/pages/admin/UatAdmin.vue') },
       // 日志中心 (合并页): 操作日志 + 场景执行 + 变更历史 — 三个只读历史流收成 tab
       { path: 'logs', name: 'admin-logs', component: () => import('@/pages/admin/LogsHubAdmin.vue') },

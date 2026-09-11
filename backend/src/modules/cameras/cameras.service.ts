@@ -48,6 +48,9 @@ const CHANNEL_MAP: Record<string, { nvrId: string; hikChannel: string; name: str
   'd10': { nvrId: 'nvr-port5', hikChannel: '1001', name: '通道10' },
   '10': { nvrId: 'nvr-port5', hikChannel: '1001', name: '通道10' },
   'p5-d10': { nvrId: 'nvr-port5', hikChannel: '1001', name: '通道10' },
+  'd57': { nvrId: 'nvr-port5', hikChannel: '5701', name: '通道57' },
+  '57': { nvrId: 'nvr-port5', hikChannel: '5701', name: '通道57' },
+  'p5-d57': { nvrId: 'nvr-port5', hikChannel: '5701', name: '通道57' },
   // Port3录像机 (192.168.1.19)
   'p3-d37': { nvrId: 'nvr-port3', hikChannel: '3701', name: 'Port3通道37' },
   // D45/D50在Port5录像机上（Port3上这两个通道返回503不存在）

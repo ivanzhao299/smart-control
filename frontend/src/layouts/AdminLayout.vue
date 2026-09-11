@@ -40,6 +40,7 @@ const groups: Array<{ section: string; items: Array<{ name: string; label: strin
     { name: 'admin-devices', label: '设备管理' },
     { name: 'admin-hardware', label: '硬件清单' },
     { name: 'admin-zones-config', label: '分区配置' },
+    { name: 'admin-video-binding', label: '视频绑定' },
   ] },
   { section: '日志与诊断', items: [
     { name: 'admin-logs', label: '日志中心' },
