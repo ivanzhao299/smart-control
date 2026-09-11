@@ -209,7 +209,14 @@ function render() {
   panel(left[1], '产业结构 · 招商画像', industryChart());
   panel(left[2], '服务工单 · 示例占位', compactStats(['workPending', 'workProgress', 'workCompleted']) + eventList(c.workOrderEvents, 3));
   panel(right[0], '运营效率 · 人员通行', compactStats(['visitors', 'vehiclePasses', 'camerasOnline']) + progress(['outputTarget', 'taxTarget', 'activity']));
-  panel(right[1], '视频安防 · 图片预览', cameras(false) + para('通用产业素材 · 非本园区实拍 · 非实时监控', true));
+  // 第一页视频安防面板：接入真实HLS流畅视频流（4路），不再用图片预览占位
+  const hlsCamerasSmall = [
+    { channel: 'd37', name: '大门', tag: 'CAM-001' },
+    { channel: 'd57', name: '通道57', tag: 'CAM-018' },
+    { channel: 'd02', name: '通道2', tag: 'CAM-043' },
+    { channel: 'p3-d37', name: 'Port3通道37', tag: 'CAM-068' },
+  ].map(c => `<div class="cam cam-hls" data-camera="${c.channel}" data-name="${c.name}"><span class="live">● LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><div class="mock">${c.name} · HLS连接中...</div><span class="tag">${c.tag} · ${c.name}</span></div>`).join('');
+  panel(right[1], '视频安防 · 实时监控', `<div class="cameras">${hlsCamerasSmall}</div>` + para('已接入4路HLS流畅视频流，通过FFmpeg实时转码，延迟约3-5秒。', true));
   panel(right[2], '消防安全 · 事件占位', compactStats(['fireRate', 'safetyAlerts', 'hazards']) + eventList(c.inspectionEvents, 3));
   let p = pageNodes[1].querySelectorAll('.panel');
   panel(p[0], '部分入驻企业与招商载体', companies() + para(c.focus) + para('以上为部分入驻企业。以下载体数据保持原数字占位，可在运营数据中编辑。', true) + cards(['usedFloor', 'availableFloor']) + rows(['standardRate', 'gardenRate', 'officeRate']));
@@ -227,7 +234,7 @@ function render() {
   // 仅更新右侧摄像头状态面板的统计数据，左侧视频墙保持HLS实时画面
   p = pageNodes[4].querySelectorAll('.panel');
   if (p[1]) {
-    panel(p[1], '摄像头状态', cards(['camerasOnline', 'camerasOffline', 'cameraRate', 'cameraPoints']) + para('已接入7路HLS流畅视频流（Port5录像机4路+Port3录像机3路），通过FFmpeg实时转码，延迟约3-5秒。'));
+    panel(p[1], '摄像头状态', cards(['camerasOnline', 'camerasOffline', 'cameraRate', 'cameraPoints']) + para('已接入6路HLS流畅视频流（Port5录像机5路+Port3录像机1路），通过FFmpeg实时转码，延迟约3-5秒。视频通道及布局可在后台「视频绑定」页面可视化配置，无需改代码。'));
   }
   const footer = document.querySelector('.footerline');
   footer.removeAttribute('data-park-text-key');
