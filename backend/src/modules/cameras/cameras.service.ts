@@ -35,29 +35,29 @@ const NVR_CONFIGS = [
  * channel参数 -> NVR + 海康通道号(格式: XXXX, 如3701=通道37主码流)
  */
 const CHANNEL_MAP: Record<string, { nvrId: string; hikChannel: string; name: string }> = {
-  // Port5录像机 (192.168.1.5)
-  'd37': { nvrId: 'nvr-port5', hikChannel: '3701', name: '大门' },
-  '37': { nvrId: 'nvr-port5', hikChannel: '3701', name: '大门' },
-  'p5-d37': { nvrId: 'nvr-port5', hikChannel: '3701', name: '大门' },
-  'd01': { nvrId: 'nvr-port5', hikChannel: '101', name: '通道1' },
-  '1': { nvrId: 'nvr-port5', hikChannel: '101', name: '通道1' },
-  'p5-d01': { nvrId: 'nvr-port5', hikChannel: '101', name: '通道1' },
-  'd02': { nvrId: 'nvr-port5', hikChannel: '201', name: '通道2' },
-  '2': { nvrId: 'nvr-port5', hikChannel: '201', name: '通道2' },
-  'p5-d02': { nvrId: 'nvr-port5', hikChannel: '201', name: '通道2' },
-  'd10': { nvrId: 'nvr-port5', hikChannel: '1001', name: '通道10' },
-  '10': { nvrId: 'nvr-port5', hikChannel: '1001', name: '通道10' },
-  'p5-d10': { nvrId: 'nvr-port5', hikChannel: '1001', name: '通道10' },
-  'd57': { nvrId: 'nvr-port5', hikChannel: '5701', name: '通道57' },
-  '57': { nvrId: 'nvr-port5', hikChannel: '5701', name: '通道57' },
-  'p5-d57': { nvrId: 'nvr-port5', hikChannel: '5701', name: '通道57' },
+  // Port5录像机 (192.168.1.5) — 使用子码流(XX02)降低码率和CPU负载
+  'd37': { nvrId: 'nvr-port5', hikChannel: '3702', name: '大门' },
+  '37': { nvrId: 'nvr-port5', hikChannel: '3702', name: '大门' },
+  'p5-d37': { nvrId: 'nvr-port5', hikChannel: '3702', name: '大门' },
+  'd01': { nvrId: 'nvr-port5', hikChannel: '102', name: '通道1' },
+  '1': { nvrId: 'nvr-port5', hikChannel: '102', name: '通道1' },
+  'p5-d01': { nvrId: 'nvr-port5', hikChannel: '102', name: '通道1' },
+  'd02': { nvrId: 'nvr-port5', hikChannel: '202', name: '通道2' },
+  '2': { nvrId: 'nvr-port5', hikChannel: '202', name: '通道2' },
+  'p5-d02': { nvrId: 'nvr-port5', hikChannel: '202', name: '通道2' },
+  'd10': { nvrId: 'nvr-port5', hikChannel: '1002', name: '通道10' },
+  '10': { nvrId: 'nvr-port5', hikChannel: '1002', name: '通道10' },
+  'p5-d10': { nvrId: 'nvr-port5', hikChannel: '1002', name: '通道10' },
+  'd57': { nvrId: 'nvr-port5', hikChannel: '5702', name: '通道57' },
+  '57': { nvrId: 'nvr-port5', hikChannel: '5702', name: '通道57' },
+  'p5-d57': { nvrId: 'nvr-port5', hikChannel: '5702', name: '通道57' },
   // Port3录像机 (192.168.1.19)
-  'p3-d37': { nvrId: 'nvr-port3', hikChannel: '3701', name: 'Port3通道37' },
+  'p3-d37': { nvrId: 'nvr-port3', hikChannel: '3702', name: 'Port3通道37' },
   // D45/D50在Port5录像机上（Port3上这两个通道返回503不存在）
-  'p3-d45': { nvrId: 'nvr-port5', hikChannel: '4501', name: 'Port5通道45' },
-  'p3-d50': { nvrId: 'nvr-port5', hikChannel: '5001', name: 'Port5通道50' },
-  'p5-d45': { nvrId: 'nvr-port5', hikChannel: '4501', name: 'Port5通道45' },
-  'p5-d50': { nvrId: 'nvr-port5', hikChannel: '5001', name: 'Port5通道50' },
+  'p3-d45': { nvrId: 'nvr-port5', hikChannel: '4502', name: 'Port5通道45' },
+  'p3-d50': { nvrId: 'nvr-port5', hikChannel: '5002', name: 'Port5通道50' },
+  'p5-d45': { nvrId: 'nvr-port5', hikChannel: '4502', name: 'Port5通道45' },
+  'p5-d50': { nvrId: 'nvr-port5', hikChannel: '5002', name: 'Port5通道50' },
 };
 
 /**
@@ -173,19 +173,23 @@ export class CamerasService implements OnModuleDestroy {
     this.logger.log(`启动HLS转码: ${channelKey} (${mapping.name}) -> ${outputDir}`);
     this.logger.log(`RTSP源: rtsp://${nvr.username}:****@${nvr.ip}:${nvr.rtspPort}/Streaming/Channels/${mapping.hikChannel}`);
 
-    // FFmpeg参数
+    // FFmpeg参数 — 最大化优化加载和切换速度
+    // 1. 视频流直接复制(-c:v copy)，不重新编码，CPU负载极低
+    // 2. 禁用音频(-an)，监控视频不需要
+    // 3. 子码流(XX02)低分辨率低码率
+    // 4. 1秒分片+3个分片，启动快延迟低
+    // 5. 低延迟模式+无缓冲
     const ffmpegArgs = [
       '-rtsp_transport', 'tcp',
+      '-fflags', 'nobuffer',
+      '-flags', 'low_delay',
       '-i', rtspUrl,
-      '-c:v', 'libx264',
-      '-preset', 'veryfast',
-      '-tune', 'zerolatency',
-      '-c:a', 'aac',
-      '-b:a', '128k',
+      '-c:v', 'copy',           // 直接复制H.264视频流，不重新编码
+      '-an',                      // 禁用音频
       '-f', 'hls',
-      '-hls_time', '2',
-      '-hls_list_size', '6',
-      '-hls_flags', 'delete_segments+append_list',
+      '-hls_time', '1',           // 分片1秒，启动更快
+      '-hls_list_size', '3',      // 保留3个分片，减少延迟
+      '-hls_flags', 'delete_segments+append_list+omit_endlist',
       '-hls_segment_filename', segmentPattern,
       '-y',
       playlistPath,

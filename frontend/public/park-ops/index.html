@@ -204,14 +204,18 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
       return;
     }
 
-    // 使用hls.js
+    // 使用hls.js — 低延迟优化配置
     if(window.Hls&&window.Hls.isSupported()){
       const hls=new window.Hls({
         enableWorker:true,
         lowLatencyMode:true,
-        backBufferLength:30,
-        maxBufferLength:10,
-        maxMaxBufferLength:20,
+        liveSyncDurationCount:1,      // 直播同步延迟1个分片（关键，减少延迟）
+        liveMaxLatencyDurationCount:3, // 直播最大延迟3个分片
+        backBufferLength:5,             // 后退缓冲5秒（减小内存占用）
+        maxBufferLength:5,               // 最大缓冲5秒（减少启动等待）
+        maxMaxBufferLength:10,           // 最大最大缓冲10秒
+        startLevel:-1,                   // 自动选择起始码率
+        abrEwmaDefaultEstimate:500000,  // 默认带宽估计500kbps（子码流）
       });
 
       hls.loadSource(playlistUrl);
@@ -252,17 +256,27 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
   }
 
   // 逐个启动HLS转码并初始化播放器（避免同时启动多个FFmpeg进程）
+  // 并行启动所有HLS转码（使用-c:v copy后CPU负载极低，可并行启动）
   async function initAllCams(){
-    for(const cam of cams){
+    console.log(`[ParkOps] 并行启动 ${cams.length} 路HLS转码...`);
+    // 第一步：并行启动所有FFmpeg转码进程
+    await Promise.all(Array.from(cams).map(async (cam) => {
       const channel=cam.dataset.camera;
       const name=cam.dataset.name||channel;
-      console.log(`[ParkOps] 启动HLS转码: ${channel} (${name})`);
-      await startHlsStream(channel);
-      // 等待1秒让FFmpeg生成第一个分片
-      await new Promise(resolve=>setTimeout(resolve,1000));
+      try{
+        await startHlsStream(channel);
+        console.log(`[ParkOps] 转码已启动: ${channel} (${name})`);
+      }catch(e){
+        console.warn(`[ParkOps] 转码启动失败: ${channel}`, e);
+      }
+    }));
+    // 第二步：等待500ms让FFmpeg生成第一个分片（-c:v copy启动很快）
+    await new Promise(resolve=>setTimeout(resolve,500));
+    // 第三步：并行初始化所有HLS播放器
+    await Promise.all(Array.from(cams).map(async (cam) => {
       initHlsPlayer(cam);
-    }
-    console.log(`[ParkOps] 已启动 ${cams.length} 路HLS流畅视频流`);
+    }));
+    console.log(`[ParkOps] 已并行启动 ${cams.length} 路HLS流畅视频流`);
   }
 
   // 页面切换到视频监控页时才启动（节省资源）
