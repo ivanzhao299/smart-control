@@ -188,9 +188,10 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
     const mock=cam.querySelector('.mock');
     if(!video)return;
 
-    // 防重复初始化：如果已经初始化过，直接返回（避免重试机制导致多个hls实例冲突）
-    if(video.dataset.hlsInitialized==='true'){
-      console.log(`[ParkOps] 视频已初始化，跳过 (${channel})`);
+    // 防重复初始化：如果已经成功加载过，直接返回（避免重试机制导致多个hls实例冲突）
+    // 注意：如果初始化过但未成功加载（readyState<2），允许重新初始化
+    if(video.dataset.hlsInitialized==='true' && video.readyState >= 2 && video.videoWidth > 0){
+      console.log(`[ParkOps] 视频已成功加载，跳过 (${channel})`);
       return;
     }
     video.dataset.hlsInitialized='true';

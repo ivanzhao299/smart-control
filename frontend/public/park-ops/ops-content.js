@@ -221,9 +221,11 @@ function render() {
   // 延迟到下一个事件循环，确保DOM已更新；通过document选择器查询，避免闭包变量失效
   // 优化：同时预启动视频监控页的2路额外通道（p3-d45、p3-d50）转码，切到视频页时6路都已就绪
   const initSmallCams = () => {
+    console.log('[OpsContent] initSmallCams 执行');
     try {
       // 不依赖.page.active，直接查找所有页面中的视频元素
       const smallCams = document.querySelectorAll('.page .right .cam-hls');
+      console.log(`[OpsContent] 找到 ${smallCams.length} 个视频元素`);
       if (smallCams.length === 0) {
         // 重试机制：DOM可能还没更新，最多重试5次
         let retryCount = 0;
