@@ -106,7 +106,7 @@ body.park-editing .map-scene{inset:0;transform:none!important;transition:none;wi
     </section>
 
     <section class="page fullgrid" data-name="视频监控">
-      <div class="panel bigpanel" style="grid-column:1/3"><h3>重点区域实时监控</h3><div class="cameras" style="grid-template-columns:1fr 1fr;height:840px"><div class="cam" style="height:auto"><span class="live">● LIVE</span><div class="mock">南门入口 · 等待流媒体 API</div><span class="tag">CAM-001</span></div><div class="cam" style="height:auto"><span class="live">● LIVE</span><div class="mock">园区主干道 · 等待流媒体 API</div><span class="tag">CAM-018</span></div><div class="cam" style="height:auto"><span class="live">● LIVE</span><div class="mock">展贸中心 · 等待流媒体 API</div><span class="tag">CAM-043</span></div><div class="cam" style="height:auto"><span class="live">● LIVE</span><div class="mock">重点厂房 · 等待流媒体 API</div><span class="tag">CAM-067</span></div></div></div>
+      <div class="panel bigpanel" style="grid-column:1/3"><h3>重点区域实时监控</h3><div class="cameras" style="grid-template-columns:1fr 1fr;height:840px"><div class="cam cam-live" style="height:auto" data-camera="d37"><span class="live">● LIVE</span><img class="cam-img" src="" alt="大门" style="width:100%;height:100%;object-fit:cover;display:none" onerror="this.style.display='none';this.parentElement.querySelector('.mock').style.display='flex'" onload="this.style.display='block';this.parentElement.querySelector('.mock').style.display='none'"><div class="mock">大门 · 连接中...</div><span class="tag">CAM-001 · D37大门</span></div><div class="cam" style="height:auto"><span class="live">● LIVE</span><div class="mock">园区主干道 · 等待流媒体 API</div><span class="tag">CAM-018</span></div><div class="cam" style="height:auto"><span class="live">● LIVE</span><div class="mock">展贸中心 · 等待流媒体 API</div><span class="tag">CAM-043</span></div><div class="cam" style="height:auto"><span class="live">● LIVE</span><div class="mock">重点厂房 · 等待流媒体 API</div><span class="tag">CAM-067</span></div></div></div>
       <div class="panel bigpanel"><h3>摄像头状态</h3><div class="mini2"><div class="stat"><b>86</b><span>在线</span></div><div class="stat"><b>2</b><span>离线</span></div><div class="stat"><b>97.7%</b><span>在线率</span></div><div class="stat"><b>12</b><span>重点点位</span></div></div><div style="margin-top:35px;color:#88a6b8;font-size:19px;line-height:1.8">明天拿到摄像头流媒体 API 后，在本页把四个占位容器替换为 HLS / WebRTC / 厂商 SDK 播放器。页面结构无需重做。</div></div>
     </section>
 
@@ -131,6 +131,23 @@ document.getElementById('ambient').hidden=true;
 // 明日摄像头接入预留：把 HLS/WebRTC/厂商 SDK 地址映射到 CAM-001/018/043/067 即可。
 window.PARK_DEMO={version:'2026-09-08-camera-hotfix',resolution:'3612x1462',phases:['一期','二期','远期'],buildingCount:buildings.length,cameraSlots:['CAM-001','CAM-018','CAM-043','CAM-067']};
 window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buildings=value;renderBuildings()},renderBuildings,selectBuilding,fit,config:null};
+
+// 摄像头实时快照刷新
+(function initCameraSnapshots(){
+  const cams=document.querySelectorAll('.cam-live[data-camera]');
+  if(!cams.length)return;
+  const refreshInterval=2000; // 2秒刷新一次
+  function refreshCam(cam){
+    const channel=cam.dataset.camera;
+    const img=cam.querySelector('.cam-img');
+    if(!img)return;
+    const timestamp=Date.now();
+    img.src=`/api/cameras/${channel}/snapshot?t=${timestamp}`;
+  }
+  cams.forEach(refreshCam);
+  setInterval(()=>cams.forEach(refreshCam),refreshInterval);
+  console.log(`[ParkOps] 已启用 ${cams.length} 路摄像头实时快照刷新 (间隔${refreshInterval}ms)`);
+})();
 </script>
 <script type="module" src="./park-ops-3d.js?v=20260908-camera-hotfix"></script>
 <script src="./park-ops-editor.js?v=20260908-camera-hotfix"></script>

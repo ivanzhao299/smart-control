@@ -45,6 +45,7 @@ import { AudioConfigModule } from './modules/audio-config/audio-config.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AdaptersModule } from './adapters/adapters.module';
 import { ServicesModule } from './services/services.module';
+import { CamerasModule } from './modules/cameras/cameras.module';
 
 @Module({
   imports: [
@@ -91,6 +92,7 @@ import { ServicesModule } from './services/services.module';
     AudioConfigModule,
     AuditModule,
     WebsocketModule,
+    CamerasModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
