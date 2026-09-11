@@ -190,21 +190,7 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
 
     const playlistUrl=`${API_BASE}/${channel}/hls/playlist.m3u8`;
 
-    // 检查是否支持原生HLS播放（Safari）
-    if(video.canPlayType('application/vnd.apple.mpegurl')){
-      video.src=playlistUrl;
-      video.addEventListener('loadedmetadata',()=>{
-        video.style.display='block';
-        if(mock)mock.style.display='none';
-      });
-      video.addEventListener('error',()=>{
-        console.warn(`[ParkOps] 原生HLS播放失败 (${channel})`);
-      });
-      console.log(`[ParkOps] 使用原生HLS播放 (${channel})`);
-      return;
-    }
-
-    // 使用hls.js — 低延迟优化配置
+    // 统一使用hls.js播放（避免Chrome canPlayType误判导致原生HLS失败）
     if(window.Hls&&window.Hls.isSupported()){
       const hls=new window.Hls({
         enableWorker:true,
