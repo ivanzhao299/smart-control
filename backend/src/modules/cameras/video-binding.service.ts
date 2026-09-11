@@ -39,7 +39,7 @@ export interface VideoBindingConfig {
 @Injectable()
 export class VideoBindingService implements OnModuleInit {
   private configPath: string;
-  private config: VideoBindingConfig;
+  private config!: VideoBindingConfig;
 
   constructor() {
     const dataDir = process.env.DATA_DIR || join(process.cwd(), 'data');
@@ -59,8 +59,8 @@ export class VideoBindingService implements OnModuleInit {
         const raw = readFileSync(this.configPath, 'utf-8');
         this.config = JSON.parse(raw);
         return;
-      } catch (e) {
-        console.warn('[VideoBinding] Failed to load config, using defaults:', e.message);
+      } catch (e: any) {
+        console.warn('[VideoBinding] Failed to load config, using defaults:', e?.message || e);
       }
     }
     // 默认配置
@@ -203,7 +203,7 @@ export class VideoBindingService implements OnModuleInit {
   getDisplayChannels(): Array<{ id: string; name: string; alias: string; nvrId: string; hikChannel: string }> {
     return this.config.displayLayout.channelIds
       .map(cid => this.config.channels.find(c => c.id === cid && c.enabled))
-      .filter(Boolean)
+      .filter((c): c is CameraChannel => c !== undefined)
       .map(c => ({
         id: c.id,
         name: c.name,
