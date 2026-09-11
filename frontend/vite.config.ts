@@ -26,7 +26,11 @@ export default defineConfig(({ mode }) => {
   const PUBLIC_BASE = env.VITE_PUBLIC_BASE ?? '/';
   const SCOPE = PUBLIC_BASE.replace(/\/+$/, '') || '/';
   const SCOPE_PREFIX = SCOPE === '/' ? '' : SCOPE; // 给 manifest icon path 用
-  const apiTarget = process.env.VITE_PROXY_API ?? 'http://localhost:3000';
+  // 生产环境(preview)后端默认3200端口, 开发环境(server)默认3000端口
+  const isProd = mode === 'production' || process.env.NODE_ENV === 'production';
+  const defaultApiPort = isProd ? 3200 : 3000;
+  const apiTarget = process.env.VITE_PROXY_API ?? `http://localhost:${defaultApiPort}`;
+  const wsTarget = apiTarget.replace(/^http/, 'ws');
 
   return {
     base: PUBLIC_BASE,
@@ -43,6 +47,16 @@ export default defineConfig(({ mode }) => {
       // vite 的 DNS-rebind 防护默认只放行 IP/localhost, 域名不加白会 403。
       // 注意: 本文件变更需重启 frontend 进程才生效 (update.ps1 6c.2 哈希戳记负责, delete+start)
       allowedHosts: ['.cnjinhu.top', 'erp.cnjinhu.top'],
+      // 生产环境必须配置 /api 和 /ws 代理, 否则前端请求无法到达后端3200端口
+      // (2026-09-11 根因: preview模式缺少代理导致摄像头HLS视频流无法接入)
+      proxy: {
+        '/api': { target: apiTarget, changeOrigin: true },
+        '/ws': {
+          target: wsTarget,
+          ws: true,
+          changeOrigin: true,
+        },
+      },
     },
     server: {
       host: '0.0.0.0',
@@ -50,7 +64,7 @@ export default defineConfig(({ mode }) => {
       proxy: {
         '/api': { target: apiTarget, changeOrigin: true },
         '/ws': {
-          target: apiTarget.replace(/^http/, 'ws'),
+          target: wsTarget,
           ws: true,
           changeOrigin: true,
         },
