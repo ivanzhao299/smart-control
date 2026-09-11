@@ -131,12 +131,43 @@ onMounted(async () => {
   audioRouteRetryTimer = window.setInterval(() => void routeVideoAudio(), 5_000);
 
   // 自动进入浏览器全屏 (kiosk 模式本来就 borderless 但有些环境 fullscreen API 还要单独触发)
-  try {
-    const el = document.documentElement;
-    if (el.requestFullscreen && !document.fullscreenElement) {
-      await el.requestFullscreen().catch(() => { /* 用户没交互过浏览器会拒, 忽略 */ });
-    }
-  } catch { /* ignore */ }
+  // 2026-09-11 增强全屏保障: 不只 onMounted 一次, 而是多重触发机制确保始终全屏
+  //   1. onMounted 立即请求一次
+  //   2. 每 5 秒定时检测, 不在全屏则重新请求
+  //   3. 用户交互(click/keydown)时请求, 绕过浏览器"无用户交互拒绝全屏"限制
+  //   4. 页面可见性变化(visibilitychange)时请求, RDP断开/重连后恢复
+  //   5. 窗口大小变化(resize)时请求, 窗口被移动或调整后恢复
+  let fullscreenCheckTimer: number | undefined;
+  async function ensureFullscreen(): Promise<void> {
+    try {
+      const el = document.documentElement;
+      if (el.requestFullscreen && !document.fullscreenElement) {
+        await el.requestFullscreen().catch(() => { /* 浏览器可能因无用户交互拒绝, 忽略, 下次重试 */ });
+      }
+    } catch { /* ignore */ }
+  }
+  // 立即请求一次
+  void ensureFullscreen();
+  // 定时检测: 每5秒检查一次, 不在全屏则重新请求
+  fullscreenCheckTimer = window.setInterval(() => { void ensureFullscreen(); }, 5000);
+  // 用户交互时请求: 绕过浏览器"无用户交互拒绝全屏"限制
+  const userInteractionHandler = () => { void ensureFullscreen(); };
+  document.addEventListener('click', userInteractionHandler);
+  document.addEventListener('keydown', userInteractionHandler);
+  // 页面可见性变化时请求: RDP断开/重连后, 或从后台切回前台时恢复
+  const visibilityHandler = () => { if (document.visibilityState === 'visible') void ensureFullscreen(); };
+  document.addEventListener('visibilitychange', visibilityHandler);
+  // 窗口大小变化时请求: 窗口被移动或调整大小后恢复
+  const resizeHandler = () => { void ensureFullscreen(); };
+  window.addEventListener('resize', resizeHandler);
+  // 保存清理函数引用, onBeforeUnmount 时清理
+  (window as any).__playerFullscreenCleanup = () => {
+    if (fullscreenCheckTimer) clearInterval(fullscreenCheckTimer);
+    document.removeEventListener('click', userInteractionHandler);
+    document.removeEventListener('keydown', userInteractionHandler);
+    document.removeEventListener('visibilitychange', visibilityHandler);
+    window.removeEventListener('resize', resizeHandler);
+  };
 });
 
 onBeforeUnmount(() => {
@@ -148,6 +179,11 @@ onBeforeUnmount(() => {
   if (unsubscribeWs) unsubscribeWs();
   if (unsubscribeWsState) unsubscribeWsState();
   playerWs.disconnect();
+  // 清理全屏保障机制的定时器和事件监听
+  if ((window as any).__playerFullscreenCleanup) {
+    (window as any).__playerFullscreenCleanup();
+    delete (window as any).__playerFullscreenCleanup;
+  }
   restoreStoredTheme();   // 离开大屏页, 回到业主自己选的主题
 });
 

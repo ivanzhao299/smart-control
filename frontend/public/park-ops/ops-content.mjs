@@ -73,16 +73,24 @@ function render() {
   panel(right[1], '视频安防 · 实时监控', `<div class="cameras">${hlsCamerasSmall}</div>` + para('已接入4路HLS流畅视频流，通过FFmpeg实时转码，延迟约3-5秒。', true));
   // 动态生成的HLS视频元素需要手动初始化（ops-content重新渲染后新元素不会被页面加载时的initAllCams覆盖）
   // 延迟到下一个事件循环，确保DOM已更新；通过document选择器查询，避免闭包变量失效
+  // 优化：同时预启动视频监控页的2路额外通道（p3-d45、p3-d50）转码，切到视频页时6路都已就绪
   const initSmallCams = () => {
     try {
       const firstPage = document.querySelector('.page.active');
       if (!firstPage) return;
       const smallCams = firstPage.querySelectorAll('.right .cam-hls');
-      console.log(`[OpsContent] 初始化第一页 ${smallCams.length} 路HLS视频`);
+      console.log(`[OpsContent] 初始化第一页 ${smallCams.length} 路HLS视频 + 预启动2路额外通道`);
       smallCams.forEach((cam, i) => {
         const channel = cam.dataset.camera;
         if (window.startHlsTranscoding) window.startHlsTranscoding(channel);
         if (window.initHlsPlayer) window.initHlsPlayer(cam);
+      });
+      // 预启动视频监控页的2路额外通道转码（不初始化播放器，只启动转码）
+      const extraChannels = ['p3-d45', 'p3-d50'];
+      extraChannels.forEach(ch => {
+        if (window.startHlsTranscoding) {
+          window.startHlsTranscoding(ch).catch(e => console.warn(`[OpsContent] 预启动${ch}转码失败:`, e));
+        }
       });
     } catch (e) {
       console.warn('[OpsContent] HLS初始化失败:', e.message);

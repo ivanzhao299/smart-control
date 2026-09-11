@@ -257,21 +257,21 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
 
   // 逐个启动HLS转码并初始化播放器（避免同时启动多个FFmpeg进程）
   // 并行启动所有HLS转码（使用-c:v copy后CPU负载极低，可并行启动）
+  // 优化：第一页已预启动4路+2路额外通道，切换到视频页时6路转码都已在运行
   async function initAllCams(){
-    console.log(`[ParkOps] 并行启动 ${cams.length} 路HLS转码...`);
-    // 第一步：并行启动所有FFmpeg转码进程
+    console.log(`[ParkOps] 启动 ${cams.length} 路HLS转码（大部分已在第一页预启动）...`);
+    // 第一步：并行启动所有FFmpeg转码进程（已运行的会直接返回）
     await Promise.all(Array.from(cams).map(async (cam) => {
       const channel=cam.dataset.camera;
       const name=cam.dataset.name||channel;
       try{
         await startHlsStream(channel);
-        console.log(`[ParkOps] 转码已启动: ${channel} (${name})`);
       }catch(e){
         console.warn(`[ParkOps] 转码启动失败: ${channel}`, e);
       }
     }));
-    // 第二步：等待500ms让FFmpeg生成第一个分片（-c:v copy启动很快）
-    await new Promise(resolve=>setTimeout(resolve,500));
+    // 第二步：等待200ms让FFmpeg生成第一个分片（大部分已在运行，减少等待）
+    await new Promise(resolve=>setTimeout(resolve,200));
     // 第三步：并行初始化所有HLS播放器
     await Promise.all(Array.from(cams).map(async (cam) => {
       initHlsPlayer(cam);
