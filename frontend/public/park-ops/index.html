@@ -148,39 +148,46 @@ function go(n){if(switching)return;const next=(n+pages.length)%pages.length;if(n
 if(oldPage.classList.contains('welcome-page')){const title=oldPage.querySelector('.welcome-title');if(title){
 // 获取大字实际字体大小和位置
 const titleFontSize=parseFloat(getComputedStyle(title).fontSize);
-const titleLetterSpacing=parseFloat(getComputedStyle(title).letterSpacing)||12;
 const initialRect=title.getBoundingClientRect();
-// 创建克隆元素，直接设为最终小字大小（与原welcomeLine完全一致）
+// 先获取原welcomeLine的准确位置和大小（临时显示）
+const welcomeLine=document.getElementById('welcomeLine');
+const wlDisplay=welcomeLine.style.display;
+const wlOpacity=welcomeLine.style.opacity;
+const wlTransform=welcomeLine.style.transform;
+welcomeLine.style.display='block';
+welcomeLine.style.opacity='1';
+welcomeLine.style.transform='none';
+const wlRect=welcomeLine.getBoundingClientRect();
+const wlStyle=getComputedStyle(welcomeLine);
+const wlFontSize=wlStyle.fontSize;
+const wlLetterSpacing=wlStyle.letterSpacing;
+const wlLineHeight=wlStyle.lineHeight;
+welcomeLine.style.display=wlDisplay;
+welcomeLine.style.opacity=wlOpacity;
+welcomeLine.style.transform=wlTransform;
+// 创建克隆元素，与原welcomeLine完全一致
 const clone=document.createElement('div');
 clone.className='welcome-clone';
 clone.textContent=title.textContent;
-clone.style.fontSize='22px';
-clone.style.letterSpacing='5px';
-clone.style.lineHeight='normal';
+clone.style.fontSize=wlFontSize;
+clone.style.letterSpacing=wlLetterSpacing;
+clone.style.lineHeight=wlLineHeight;
 clone.style.textAlign='center';
 clone.style.position='fixed';
 clone.style.zIndex='9999';
 clone.style.pointerEvents='none';
 clone.style.whiteSpace='nowrap';
 clone.style.transformOrigin='center';
-// 目标位置：与原welcomeLine完全一致 - h1下方4px，宽度与.title相同，居中
-const titleEl=document.querySelector('.title');
-const h1El=document.querySelector('.title h1');
-const titleRect=titleEl.getBoundingClientRect();
-const h1Rect=h1El.getBoundingClientRect();
-const targetLeft=titleRect.left;
-const targetWidth=titleRect.width;
-const targetTop=h1Rect.bottom+4;
-clone.style.width=targetWidth+'px';
-clone.style.left=targetLeft+'px';
-clone.style.top=targetTop+'px';
+clone.style.width=wlRect.width+'px';
+clone.style.left=wlRect.left+'px';
+clone.style.top=wlRect.top+'px';
 document.body.appendChild(clone);
 // 获取最终尺寸和中心点
 const finalRect=clone.getBoundingClientRect();
 const finalCenterX=finalRect.left+finalRect.width/2;
 const finalCenterY=finalRect.top+finalRect.height/2;
 // 计算缩放比例（从大字缩小到小字）
-const scale=titleFontSize/22;
+const scale=titleFontSize/parseFloat(wlFontSize);
 // 大字的中心点
 const initialCenterX=initialRect.left+initialRect.width/2;
 const initialCenterY=initialRect.top+initialRect.height/2;
