@@ -151,7 +151,7 @@ const header=document.querySelector('.header');const headerRect=header.getBoundi
 // 强制重排后开始动画
 clone.offsetHeight;clone.style.transition='transform 1.2s cubic-bezier(.4,0,.2,1), opacity 0.1s ease 1.1s';clone.style.transform=`translate(${targetLeft-rect.left}px, ${targetTop-rect.top}px) scale(${targetFontSize/rect.height})`;
 // 动画完成后保持
-setTimeout(()=>{clone.style.transition='none'},1250)}}}
+setTimeout(()=>{clone.style.transition='none'},1250)}}
 // 切回欢迎页：移除克隆大字
 if(newPage.classList.contains('welcome-page')){document.querySelectorAll('.welcome-clone').forEach(el=>el.remove());const title=newPage.querySelector('.welcome-title');if(title){title.classList.remove('zoom-out');title.style.animation='none';title.offsetHeight;title.style.animation=''}}
 oldPage.classList.remove('active');oldPage.classList.add(direction==='right'?'slide-out-left':'slide-out-right');newPage.classList.remove('slide-out-left','slide-out-right');newPage.classList.add('active');idx=next;render();setTimeout(()=>{oldPage.classList.remove('slide-out-left','slide-out-right');switching=false},550)}document.getElementById('prev').onclick=()=>go(idx-1);document.getElementById('next').onclick=()=>go(idx+1);document.addEventListener('keydown',e=>{const target=e.target;if(e.defaultPrevented||e.isComposing||document.body.classList.contains('park-editing')||(target instanceof Element&&target.closest('input,textarea,select,button,[contenteditable]:not([contenteditable="false"]),.park-editor-shell')))return;if(e.key==='ArrowLeft')go(idx-1);if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();go(idx+1)}});
