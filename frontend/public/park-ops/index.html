@@ -6,6 +6,7 @@
 <title>金湖科创产业园·智慧运营总览</title>
 <link rel="stylesheet" href="./park-ops-editor.css?v=20260908-camera-hotfix" />
 <script type="importmap">{"imports":{"three":"./vendor/three.module.min.js"}}</script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
 <style>
 :root{--bg:#06111e;--panel:rgba(9,30,49,.86);--line:rgba(76,194,255,.18);--cyan:#63d9ff;--blue:#4ca8ff;--green:#62e6a8;--gold:#d9b864;--text:#edf7ff;--muted:#83a6bd;--warn:#ffb45c;--danger:#ff6b6b}
 *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#020914;color:var(--text);font-family:"Microsoft YaHei","PingFang SC",Arial,sans-serif}
@@ -106,8 +107,18 @@ body.park-editing .map-scene{inset:0;transform:none!important;transition:none;wi
     </section>
 
     <section class="page fullgrid" data-name="视频监控">
-      <div class="panel bigpanel" style="grid-column:1/3"><h3>重点区域实时监控</h3><div class="cameras" style="grid-template-columns:1fr 1fr;height:840px"><div class="cam cam-live" style="height:auto" data-camera="d37"><span class="live">● LIVE</span><img class="cam-img" src="" alt="大门" style="width:100%;height:100%;object-fit:cover;display:none" onerror="this.style.display='none';this.parentElement.querySelector('.mock').style.display='flex'" onload="this.style.display='block';this.parentElement.querySelector('.mock').style.display='none'"><div class="mock">大门 · 连接中...</div><span class="tag">CAM-001 · D37大门</span></div><div class="cam" style="height:auto"><span class="live">● LIVE</span><div class="mock">园区主干道 · 等待流媒体 API</div><span class="tag">CAM-018</span></div><div class="cam" style="height:auto"><span class="live">● LIVE</span><div class="mock">展贸中心 · 等待流媒体 API</div><span class="tag">CAM-043</span></div><div class="cam" style="height:auto"><span class="live">● LIVE</span><div class="mock">重点厂房 · 等待流媒体 API</div><span class="tag">CAM-067</span></div></div></div>
-      <div class="panel bigpanel"><h3>摄像头状态</h3><div class="mini2"><div class="stat"><b>86</b><span>在线</span></div><div class="stat"><b>2</b><span>离线</span></div><div class="stat"><b>97.7%</b><span>在线率</span></div><div class="stat"><b>12</b><span>重点点位</span></div></div><div style="margin-top:35px;color:#88a6b8;font-size:19px;line-height:1.8">明天拿到摄像头流媒体 API 后，在本页把四个占位容器替换为 HLS / WebRTC / 厂商 SDK 播放器。页面结构无需重做。</div></div>
+      <div class="panel bigpanel" style="grid-column:1/3"><h3>重点区域实时监控</h3><div class="cameras" style="grid-template-columns:1fr 1fr 1fr;height:840px;gap:10px">
+        <div class="cam cam-hls" style="height:auto" data-camera="d37" data-name="大门"><span class="live">● LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><div class="mock">大门 · HLS连接中...</div><span class="tag">CAM-001 · D37大门</span></div>
+        <div class="cam cam-hls" style="height:auto" data-camera="d01" data-name="通道1"><span class="live">● LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><div class="mock">园区主干道 · HLS连接中...</div><span class="tag">CAM-018 · D01通道1</span></div>
+        <div class="cam cam-hls" style="height:auto" data-camera="d02" data-name="通道2"><span class="live">● LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><div class="mock">展贸中心 · HLS连接中...</div><span class="tag">CAM-043 · D02通道2</span></div>
+        <div class="cam cam-hls" style="height:auto" data-camera="d10" data-name="通道10"><span class="live">● LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><div class="mock">重点厂房 · HLS连接中...</div><span class="tag">CAM-067 · D10通道10</span></div>
+        <div class="cam cam-hls" style="height:auto" data-camera="p3-d37" data-name="Port3通道37"><span class="live">● LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><div class="mock">Port3通道37 · HLS连接中...</div><span class="tag">CAM-068 · P3-D37</span></div>
+        <div class="cam cam-hls" style="height:auto" data-camera="p3-d45" data-name="Port3通道45"><span class="live">● LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><div class="mock">Port3通道45 · HLS连接中...</div><span class="tag">CAM-069 · P3-D45</span></div>
+        <div class="cam cam-hls" style="height:auto" data-camera="p3-d50" data-name="Port3通道50"><span class="live">● LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><div class="mock">Port3通道50 · HLS连接中...</div><span class="tag">CAM-070 · P3-D50</span></div>
+        <div class="cam" style="height:auto"><span class="live" style="color:#54758b">● 预留</span><div class="mock">预留通道</div><span class="tag">CAM-071</span></div>
+        <div class="cam" style="height:auto"><span class="live" style="color:#54758b">● 预留</span><div class="mock">预留通道</div><span class="tag">CAM-072</span></div>
+      </div></div>
+      <div class="panel bigpanel"><h3>摄像头状态</h3><div class="mini2"><div class="stat"><b>86</b><span>在线</span></div><div class="stat"><b>2</b><span>离线</span></div><div class="stat"><b>97.7%</b><span>在线率</span></div><div class="stat"><b>7</b><span>已接入</span></div></div><div style="margin-top:35px;color:#88a6b8;font-size:19px;line-height:1.8">已接入7路HLS流畅视频流：Port5录像机4路（D37大门、D01、D02、D10），Port3录像机3路（D37、D45、D50），通过FFmpeg实时转码，延迟约3-5秒。</div></div>
     </section>
 
     <div class="tabs"><button class="btn" id="prev">‹ 上一页</button><button class="btn" id="auto">自动轮播：关</button><button class="btn" id="next">下一页 ›</button></div><div class="page-indicator" id="pageIndicator"></div><div class="footerline">金湖科创产业园智慧运营平台 · DIGITAL TWIN DEMO / 分区、楼栋、企业及业务指标均为演示标注</div>
@@ -132,21 +143,132 @@ document.getElementById('ambient').hidden=true;
 window.PARK_DEMO={version:'2026-09-08-camera-hotfix',resolution:'3612x1462',phases:['一期','二期','远期'],buildingCount:buildings.length,cameraSlots:['CAM-001','CAM-018','CAM-043','CAM-067']};
 window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buildings=value;renderBuildings()},renderBuildings,selectBuilding,fit,config:null};
 
-// 摄像头实时快照刷新
-(function initCameraSnapshots(){
-  const cams=document.querySelectorAll('.cam-live[data-camera]');
+// 摄像头HLS流畅视频流
+(function initCameraHls(){
+  const cams=document.querySelectorAll('.cam-hls[data-camera]');
   if(!cams.length)return;
-  const refreshInterval=2000; // 2秒刷新一次
-  function refreshCam(cam){
-    const channel=cam.dataset.camera;
-    const img=cam.querySelector('.cam-img');
-    if(!img)return;
-    const timestamp=Date.now();
-    img.src=`/api/cameras/${channel}/snapshot?t=${timestamp}`;
+
+  const API_BASE='/api/cameras';
+  const hlsInstances=new Map();
+
+  async function startHlsStream(channel){
+    try{
+      const response=await fetch(`${API_BASE}/${channel}/hls/start`,{method:'POST'});
+      const data=await response.json();
+      return data.success?data.data:null;
+    }catch(e){
+      console.warn(`[ParkOps] 启动HLS转码失败 (${channel}):`,e.message);
+      return null;
+    }
   }
-  cams.forEach(refreshCam);
-  setInterval(()=>cams.forEach(refreshCam),refreshInterval);
-  console.log(`[ParkOps] 已启用 ${cams.length} 路摄像头实时快照刷新 (间隔${refreshInterval}ms)`);
+
+  function initHlsPlayer(cam){
+    const channel=cam.dataset.camera;
+    const name=cam.dataset.name||channel;
+    const video=cam.querySelector('.cam-video');
+    const mock=cam.querySelector('.mock');
+    if(!video)return;
+
+    const playlistUrl=`${API_BASE}/${channel}/hls/playlist.m3u8`;
+
+    // 检查是否支持原生HLS播放（Safari）
+    if(video.canPlayType('application/vnd.apple.mpegurl')){
+      video.src=playlistUrl;
+      video.addEventListener('loadedmetadata',()=>{
+        video.style.display='block';
+        if(mock)mock.style.display='none';
+      });
+      video.addEventListener('error',()=>{
+        console.warn(`[ParkOps] 原生HLS播放失败 (${channel})`);
+      });
+      console.log(`[ParkOps] 使用原生HLS播放 (${channel})`);
+      return;
+    }
+
+    // 使用hls.js
+    if(window.Hls&&window.Hls.isSupported()){
+      const hls=new window.Hls({
+        enableWorker:true,
+        lowLatencyMode:true,
+        backBufferLength:30,
+        maxBufferLength:10,
+        maxMaxBufferLength:20,
+      });
+
+      hls.loadSource(playlistUrl);
+      hls.attachMedia(video);
+
+      hls.on(window.Hls.Events.MANIFEST_PARSED,()=>{
+        video.play().catch(()=>{});
+      });
+
+      hls.on(window.Hls.Events.ERROR,(event,data)=>{
+        if(data.fatal){
+          console.warn(`[ParkOps] HLS致命错误 (${channel}):`,data.type,data.details);
+          switch(data.type){
+            case window.Hls.ErrorTypes.NETWORK_ERROR:
+              hls.startLoad();
+              break;
+            case window.Hls.ErrorTypes.MEDIA_ERROR:
+              hls.recoverMediaError();
+              break;
+            default:
+              hls.destroy();
+              break;
+          }
+        }
+      });
+
+      video.addEventListener('playing',()=>{
+        video.style.display='block';
+        if(mock)mock.style.display='none';
+      });
+
+      hlsInstances.set(channel,hls);
+      console.log(`[ParkOps] 使用hls.js播放 (${channel})`);
+    }else{
+      console.warn(`[ParkOps] 浏览器不支持HLS播放 (${channel})`);
+      if(mock)mock.textContent=`${name} · 浏览器不支持HLS`;
+    }
+  }
+
+  // 逐个启动HLS转码并初始化播放器（避免同时启动多个FFmpeg进程）
+  async function initAllCams(){
+    for(const cam of cams){
+      const channel=cam.dataset.camera;
+      const name=cam.dataset.name||channel;
+      console.log(`[ParkOps] 启动HLS转码: ${channel} (${name})`);
+      await startHlsStream(channel);
+      // 等待1秒让FFmpeg生成第一个分片
+      await new Promise(resolve=>setTimeout(resolve,1000));
+      initHlsPlayer(cam);
+    }
+    console.log(`[ParkOps] 已启动 ${cams.length} 路HLS流畅视频流`);
+  }
+
+  // 页面切换到视频监控页时才启动（节省资源）
+  let hlsInitialized=false;
+  const observer=new MutationObserver(()=>{
+    const videoPage=document.querySelector('[data-name="视频监控"]');
+    if(videoPage&&videoPage.classList.contains('active')&&!hlsInitialized){
+      hlsInitialized=true;
+      initAllCams();
+      observer.disconnect();
+    }
+  });
+  observer.observe(document.body,{attributes:true,subtree:true,attributeFilter:['class']});
+
+  // 如果当前已经在视频监控页，直接启动
+  const currentVideoPage=document.querySelector('[data-name="视频监控"].active');
+  if(currentVideoPage){
+    hlsInitialized=true;
+    initAllCams();
+  }
+
+  // 页面卸载时清理
+  window.addEventListener('beforeunload',()=>{
+    hlsInstances.forEach(hls=>hls.destroy());
+  });
 })();
 </script>
 <script type="module" src="./park-ops-3d.js?v=20260908-camera-hotfix"></script>
