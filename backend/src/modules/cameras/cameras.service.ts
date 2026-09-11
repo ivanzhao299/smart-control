@@ -17,7 +17,7 @@ const NVR_CONFIGS = [
     port: 80,
     rtspPort: 554,
     username: 'admin',
-    password: 'jh666888',
+    password: 'Jh666888',
   },
   {
     id: 'nvr-port5',
