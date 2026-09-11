@@ -140,9 +140,6 @@ function render() {
   const footer = document.querySelector('.footerline');
   footer.removeAttribute('data-park-text-key');
   footer.textContent = `${mode} · ${data.source} · ${new Date(data.updatedAt).toLocaleDateString('zh-CN')} · 标注“占位”的数据暂未绑定现场系统 · ${warning || '中间布局沿用既有配置'}`;
-  document.querySelector('.status > b').textContent = '运营资料展示';
-  document.querySelector('.status > b').classList.add('ops-status-text');
-  document.querySelector('.demo').textContent = `${mode} + 占位`;
   document.documentElement.dataset.opsContentReady = 'true';
 }
 render();
