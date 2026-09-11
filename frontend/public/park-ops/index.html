@@ -266,11 +266,15 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
   window.addEventListener('beforeunload',()=>{
     hlsInstances.forEach(hls=>hls.destroy());
   });
+
+  // 暴露全局函数，供ops-content.js动态生成视频元素后调用（第一页4路安防画面）
+  window.startHlsTranscoding = startHlsStream;
+  window.initHlsPlayer = initHlsPlayer;
 })();
 </script>
 <script type="module" src="./park-ops-3d.js?v=20260908-camera-hotfix"></script>
 <script src="./park-ops-editor.js?v=20260908-camera-hotfix"></script>
 <!-- Business content starts AFTER the existing editor registers its stable text keys. -->
-<script src="./ops-content.js?v=20260911-floating-controls-hls-fix"></script>
+<script src="./ops-content.js?v=20260911-dynamic-hls-init-fix"></script>
 </body>
 </html>

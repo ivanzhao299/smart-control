@@ -71,6 +71,15 @@ function render() {
     { channel: 'p3-d37', name: 'Port3通道37', tag: 'CAM-068' },
   ].map(c => `<div class="cam cam-hls" data-camera="${c.channel}" data-name="${c.name}"><span class="live">● LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><div class="mock">${c.name} · HLS连接中...</div><span class="tag">${c.tag} · ${c.name}</span></div>`).join('');
   panel(right[1], '视频安防 · 实时监控', `<div class="cameras">${hlsCamerasSmall}</div>` + para('已接入4路HLS流畅视频流，通过FFmpeg实时转码，延迟约3-5秒。', true));
+  // 动态生成的HLS视频元素需要手动初始化（ops-content重新渲染后新元素不会被页面加载时的initAllCams覆盖）
+  setTimeout(() => {
+    const smallCams = right[1].querySelectorAll('.cam-hls');
+    smallCams.forEach((cam, i) => {
+      const channel = cam.dataset.camera;
+      if (window.startHlsTranscoding) window.startHlsTranscoding(channel);
+      if (window.initHlsPlayer) window.initHlsPlayer(cam);
+    });
+  }, 100);
   panel(right[2], '消防安全 · 事件占位', compactStats(['fireRate', 'safetyAlerts', 'hazards']) + eventList(c.inspectionEvents, 3));
   let p = pageNodes[1].querySelectorAll('.panel');
   panel(p[0], '部分入驻企业与招商载体', companies() + para(c.focus) + para('以上为部分入驻企业。以下载体数据保持原数字占位，可在运营数据中编辑。', true) + cards(['usedFloor', 'availableFloor']) + rows(['standardRate', 'gardenRate', 'officeRate']));
