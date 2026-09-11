@@ -162,6 +162,9 @@ const wlStyle=getComputedStyle(welcomeLine);
 const wlFontSize=wlStyle.fontSize;
 const wlLetterSpacing=wlStyle.letterSpacing;
 const wlLineHeight=wlStyle.lineHeight;
+const wlOffsetLeft=welcomeLine.offsetLeft;
+const wlOffsetTop=welcomeLine.offsetTop;
+const wlOffsetWidth=welcomeLine.offsetWidth;
 welcomeLine.style.display=wlDisplay;
 welcomeLine.style.opacity=wlOpacity;
 welcomeLine.style.transform=wlTransform;
@@ -179,9 +182,9 @@ clone.style.pointerEvents='none';
 clone.style.whiteSpace='nowrap';
 clone.style.transformOrigin='center';
 // 使用原welcomeLine的offset位置（相对于.title容器）
-clone.style.left=welcomeLine.offsetLeft+'px';
-clone.style.top=welcomeLine.offsetTop+'px';
-clone.style.width=welcomeLine.offsetWidth+'px';
+clone.style.left=wlOffsetLeft+'px';
+clone.style.top=wlOffsetTop+'px';
+clone.style.width=wlOffsetWidth+'px';
 welcomeLine.parentElement.appendChild(clone);
 // 获取最终尺寸和中心点（相对于#app容器）
 const finalRect=clone.getBoundingClientRect();
