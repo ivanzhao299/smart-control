@@ -150,37 +150,47 @@ if(oldPage.classList.contains('welcome-page')){const title=oldPage.querySelector
 const titleFontSize=parseFloat(getComputedStyle(title).fontSize);
 const titleLetterSpacing=parseFloat(getComputedStyle(title).letterSpacing)||12;
 const initialRect=title.getBoundingClientRect();
-// 创建克隆元素，直接设为最终小字大小
+// 创建克隆元素，直接设为最终小字大小（与原welcomeLine完全一致）
 const clone=document.createElement('div');
 clone.className='welcome-clone';
 clone.textContent=title.textContent;
-clone.style.fontSize='20px';
-clone.style.letterSpacing='6px';
-clone.style.lineHeight='1';
+clone.style.fontSize='22px';
+clone.style.letterSpacing='5px';
+clone.style.lineHeight='normal';
+clone.style.textAlign='center';
 clone.style.position='fixed';
 clone.style.zIndex='9999';
 clone.style.pointerEvents='none';
 clone.style.whiteSpace='nowrap';
-clone.style.transformOrigin='left top';
-document.body.appendChild(clone);
-// 获取最终尺寸
-const finalRect=clone.getBoundingClientRect();
-// 计算缩放比例（从大字缩小到小字）
-const scale=titleFontSize/20;
-// 目标位置：标题文字下方，基于.title元素居中
+clone.style.transformOrigin='center';
+// 目标位置：与原welcomeLine完全一致 - h1下方4px，宽度与.title相同，居中
 const titleEl=document.querySelector('.title');
 const h1El=document.querySelector('.title h1');
 const titleRect=titleEl.getBoundingClientRect();
 const h1Rect=h1El.getBoundingClientRect();
-const targetLeft=titleRect.left+(titleRect.width-finalRect.width)/2;
-const targetTop=h1Rect.bottom+8;
-// 设置初始状态：放大到大字大小，位置在大字位置
-clone.style.transform=`translate(${initialRect.left-finalRect.left}px,${initialRect.top-finalRect.top}px) scale(${scale})`;
+const targetLeft=titleRect.left;
+const targetWidth=titleRect.width;
+const targetTop=h1Rect.bottom+4;
+clone.style.width=targetWidth+'px';
+clone.style.left=targetLeft+'px';
+clone.style.top=targetTop+'px';
+document.body.appendChild(clone);
+// 获取最终尺寸和中心点
+const finalRect=clone.getBoundingClientRect();
+const finalCenterX=finalRect.left+finalRect.width/2;
+const finalCenterY=finalRect.top+finalRect.height/2;
+// 计算缩放比例（从大字缩小到小字）
+const scale=titleFontSize/22;
+// 大字的中心点
+const initialCenterX=initialRect.left+initialRect.width/2;
+const initialCenterY=initialRect.top+initialRect.height/2;
+// 初始transform：从最终位置移回大字位置，放大到大字大小（中心点对齐）
+clone.style.transform=`translate(${initialCenterX-finalCenterX}px,${initialCenterY-finalCenterY}px) scale(${scale})`;
 // 强制重排
 clone.offsetHeight;
-// 开始动画：过渡到目标位置，scale(1)
+// 开始动画：过渡到最终位置，scale(1)
 clone.style.transition='transform 1.2s cubic-bezier(.4,0,.2,1)';
-clone.style.transform=`translate(${targetLeft-finalRect.left}px,${targetTop-finalRect.top}px) scale(1)`;
+clone.style.transform='translate(0,0) scale(1)';
 // 动画完成后保持
 setTimeout(()=>{clone.style.transition='none'},1250)}}
 // 切回欢迎页：移除克隆大字
