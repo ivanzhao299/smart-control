@@ -32,7 +32,7 @@ import {
   ArrowLeft, MonitorPlay, Play, Pause, Square, SkipBack, SkipForward,
   Upload, ListMusic, History, Pencil, Trash2, Plus, Repeat, Repeat1, AlertTriangle, GripVertical, FolderOpen, X,
   Globe,
-  ChevronLeft, ChevronRight, Power, ZoomIn, ZoomOut, Maximize,
+  ChevronLeft, ChevronRight, Power, ZoomIn, ZoomOut, Maximize, RefreshCw,
 } from 'lucide-vue-next';
 import { usePlaybackStore } from '@/stores/playback';
 import {
@@ -548,9 +548,48 @@ async function selectParkDashboard(): Promise<void> {
     await publishParkDashboard(SLOT.value);
     if (!isCurrent()) return;
     ElMessage.success(`已将园区运营大屏投放到${props.title}`);
+    void syncParkOpsState();
   } catch (e) {
     if (isCurrent()) ElMessage.error(`投放园区运营大屏失败: ${(e as Error).message}`);
   } finally { busy.value = false; }
+}
+
+// ============ 运营大屏翻页控制 (PWA播放控制卡片 → LED大屏端运营大屏) ============
+const parkOpsPage = ref(0);
+const parkOpsAuto = ref(false);
+const parkOpsBusy = ref(false);
+
+async function parkOpsControl(action: 'next' | 'prev' | 'auto'): Promise<void> {
+  if (parkOpsBusy.value) return;
+  parkOpsBusy.value = true;
+  try {
+    const endpoint = action === 'auto' ? 'auto' : action;
+    const r = await fetch(`/api/park-ops-control/${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: action === 'auto' ? JSON.stringify({ enabled: !parkOpsAuto.value }) : undefined,
+    });
+    const j = await r.json();
+    if (j.success && j.data) {
+      parkOpsPage.value = j.data.page;
+      parkOpsAuto.value = j.data.autoPlay;
+      if (j.message) ElMessage.success(j.message);
+    }
+  } catch (e) {
+    ElMessage.error(`运营大屏控制失败: ${(e as Error).message}`);
+  } finally { parkOpsBusy.value = false; }
+}
+
+// 投放运营大屏时同步当前状态
+async function syncParkOpsState(): Promise<void> {
+  try {
+    const r = await fetch('/api/park-ops-control/state', { cache: 'no-store' });
+    const j = await r.json();
+    if (j.success && j.data) {
+      parkOpsPage.value = j.data.page;
+      parkOpsAuto.value = j.data.autoPlay;
+    }
+  } catch { /* ignore */ }
 }
 
 // ============ 欢迎页编辑器 (2026-07-28 业主: "编辑放到前端, 不用进后台") ============
@@ -838,6 +877,22 @@ async function submitWebpage(): Promise<void> {
         </button>
         <button class="pg-btn exit" title="退出放映, 回到待机画面" @click="exitDocShow">
           <X :size="15" /> 退出
+        </button>
+      </div>
+
+      <!-- 运营大屏翻页控制条 (PWA端看不见画面, 只有操作按钮) -->
+      <div v-if="activeSource === 'park-dashboard'" class="doc-pager park-ops-pager">
+        <span class="pg-label">运营大屏控制</span>
+        <button class="pg-btn big" :disabled="parkOpsBusy" @click="parkOpsControl('prev')">
+          <ChevronLeft :size="20" /> 上一页
+        </button>
+        <span class="pg-num v2-inter">{{ parkOpsPage + 1 }}<i>/ 5</i></span>
+        <button class="pg-btn big" :disabled="parkOpsBusy" @click="parkOpsControl('next')">
+          下一页 <ChevronRight :size="20" />
+        </button>
+        <span class="pg-gap"></span>
+        <button class="pg-btn" :class="{ on: parkOpsAuto }" :disabled="parkOpsBusy" @click="parkOpsControl('auto')">
+          <RefreshCw :size="15" /> {{ parkOpsAuto ? '自动轮播：开' : '自动轮播：关' }}
         </button>
       </div>
     </div><!-- /pc-sticky -->
@@ -1341,6 +1396,10 @@ async function submitWebpage(): Promise<void> {
 .pg-zoom.hot { color: var(--v2-warning); }
 .pg-btn.big { display: inline-flex; align-items: center; gap: 5px; }
 .pg-btn.exit { display: inline-flex; align-items: center; gap: 4px; color: var(--v2-danger); }
+/* 运营大屏翻页控制条 */
+.park-ops-pager { background: linear-gradient(135deg, rgba(18,91,126,.15), var(--v2-surf-1)); border-color: rgba(99,217,255,.3); }
+.park-ops-pager .pg-btn.on { background: var(--v2-primary); color: var(--v2-on-primary); border-color: var(--v2-primary); }
+.pg-label { font-size: 14px; font-weight: 700; color: var(--v2-primary); margin-right: 4px; white-space: nowrap; }
 /* ---- 电源开关 (标题栏"待机"行末尾, 时序器同款拨动开关) ---- */
 /* 报警插槽在卡片内占满整行, 显示在顶部 (投影融合器状态) */
 .now :deep(.out-bar) { flex-basis: 100%; width: 100%; }

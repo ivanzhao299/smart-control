@@ -10,7 +10,7 @@
 <style>
 :root{--bg:#06111e;--panel:rgba(9,30,49,.86);--line:rgba(76,194,255,.18);--cyan:#63d9ff;--blue:#4ca8ff;--green:#62e6a8;--gold:#d9b864;--text:#edf7ff;--muted:#83a6bd;--warn:#ffb45c;--danger:#ff6b6b}
 *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#020914;color:var(--text);font-family:"Microsoft YaHei","PingFang SC",Arial,sans-serif}
-body{position:relative;background:radial-gradient(1200px 650px at 50% 45%,rgba(20,84,125,.22),transparent 70%),linear-gradient(180deg,#071828 0%,#04101b 60%,#020914 100%)}
+body{position:relative;background:#020914}
 body:before{display:none}
 #app{position:absolute;left:0;top:0;width:3612px;height:1462px;transform-origin:0 0;overflow:hidden}
 .header{height:150px;padding:30px 66px 18px;display:grid;grid-template-columns:1fr 2.1fr 1fr;align-items:center;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(5,21,36,.98),rgba(5,21,36,.72))}
@@ -133,6 +133,28 @@ document.querySelectorAll('#sceneControls .map-chip').forEach(x=>x.classList.tog
 const pages=[...document.querySelectorAll('.page')];let idx=0,timer=null;function render(){pages.forEach((p,i)=>p.classList.toggle('active',i===idx));document.getElementById('pageIndicator').innerHTML=`${String(idx+1).padStart(2,'0')} / ${String(pages.length).padStart(2,'0')} · ${pages[idx].dataset.name}<span class="page-dots">${pages.map((_,i)=>`<i class="${i===idx?'on':''}"></i>`).join('')}</span>`}
 function go(n){idx=(n+pages.length)%pages.length;render()}document.getElementById('prev').onclick=()=>go(idx-1);document.getElementById('next').onclick=()=>go(idx+1);document.addEventListener('keydown',e=>{const target=e.target;if(e.defaultPrevented||e.isComposing||document.body.classList.contains('park-editing')||(target instanceof Element&&target.closest('input,textarea,select,button,[contenteditable]:not([contenteditable="false"]),.park-editor-shell')))return;if(e.key==='ArrowLeft')go(idx-1);if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();go(idx+1)}});
 document.getElementById('auto').onclick=function(){if(timer){clearInterval(timer);timer=null;this.textContent='自动轮播：关';this.classList.remove('on')}else{timer=setInterval(()=>go(idx+1),12000);this.textContent='自动轮播：开';this.classList.add('on')}};render();
+
+// 远程翻页控制 (PWA播放控制卡片 → 运营大屏)
+(function initRemoteControl(){
+  let lastPage = idx;
+  let lastAuto = !!timer;
+  async function poll(){
+    try{
+      const r = await fetch('/api/park-ops-control/state',{cache:'no-store'});
+      const j = await r.json();
+      if(!j.success||!j.data)return;
+      const {page, autoPlay} = j.data;
+      if(page !== lastPage){ lastPage = page; go(page); }
+      if(autoPlay !== lastAuto){
+        lastAuto = autoPlay;
+        const btn = document.getElementById('auto');
+        if(autoPlay && !timer){ timer=setInterval(()=>go(idx+1),12000); if(btn){btn.textContent='自动轮播：开';btn.classList.add('on');} }
+        else if(!autoPlay && timer){ clearInterval(timer); timer=null; if(btn){btn.textContent='自动轮播：关';btn.classList.remove('on');} }
+      }
+    }catch(e){/* 网络异常时静默, 不影响本地操作 */}
+  }
+  setInterval(poll, 500);
+})();
 // 低功耗模式不启动全屏粒子 canvas；保留节点只为兼容旧版样式和校准器选择器。
 document.getElementById('ambient').hidden=true;
 (async()=>{try{const r=await fetch('http://localhost:3200/api/system-branding',{cache:'no-store'});const j=await r.json();const g=(j?.data?.welcomeGuest||'').trim();if(g)document.getElementById('welcomeLine').textContent=`热烈欢迎 ${g} 莅临检查指导`}catch{}})();
