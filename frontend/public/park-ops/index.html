@@ -165,7 +165,7 @@ const wlLineHeight=wlStyle.lineHeight;
 welcomeLine.style.display=wlDisplay;
 welcomeLine.style.opacity=wlOpacity;
 welcomeLine.style.transform=wlTransform;
-// 创建克隆元素，放到#app缩放容器内部，与原welcomeLine完全一致
+// 创建克隆元素，放到.title容器内部，与原welcomeLine完全同位置同缩放
 const clone=document.createElement('div');
 clone.className='welcome-clone';
 clone.textContent=title.textContent;
@@ -178,13 +178,11 @@ clone.style.zIndex='9999';
 clone.style.pointerEvents='none';
 clone.style.whiteSpace='nowrap';
 clone.style.transformOrigin='center';
-clone.style.width=wlRect.width+'px';
-// 计算相对于#app容器的位置（从视口坐标转换）
-const appEl=document.getElementById('app');
-const appRect=appEl.getBoundingClientRect();
-clone.style.left=(wlRect.left-appRect.left)+'px';
-clone.style.top=(wlRect.top-appRect.top)+'px';
-appEl.appendChild(clone);
+// 使用原welcomeLine的offset位置（相对于.title容器）
+clone.style.left=welcomeLine.offsetLeft+'px';
+clone.style.top=welcomeLine.offsetTop+'px';
+clone.style.width=welcomeLine.offsetWidth+'px';
+welcomeLine.parentElement.appendChild(clone);
 // 获取最终尺寸和中心点（相对于#app容器）
 const finalRect=clone.getBoundingClientRect();
 const finalCenterX=finalRect.left+finalRect.width/2;
