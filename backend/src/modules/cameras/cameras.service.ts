@@ -298,16 +298,15 @@ export class CamerasService implements OnModuleDestroy {
 
     const ffmpegArgs = [
       '-rtsp_transport', 'tcp',
+      '-fflags', 'nobuffer',
+      '-flags', 'low_delay',
       '-i', rtspUrl,
-      '-c:v', 'libx264',
-      '-preset', 'veryfast',
-      '-tune', 'zerolatency',
-      '-c:a', 'aac',
-      '-b:a', '128k',
+      '-c:v', 'copy',           // 直接复制H.264视频流，不重新编码
+      '-an',                      // 禁用音频
       '-f', 'hls',
-      '-hls_time', '2',
-      '-hls_list_size', '6',
-      '-hls_flags', 'delete_segments+append_list',
+      '-hls_time', '1',           // 分片1秒，启动更快
+      '-hls_list_size', '3',      // 保留3个分片，减少延迟
+      '-hls_flags', 'delete_segments+append_list+omit_endlist',
       '-hls_segment_filename', segmentPattern,
       '-y',
       session.playlistPath,
