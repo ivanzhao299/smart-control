@@ -144,12 +144,43 @@ const requestedScene=new URLSearchParams(location.search).get('scene');let scene
 document.querySelectorAll('#sceneControls .map-chip').forEach(x=>x.classList.toggle('active',x.dataset.mode===sceneMode));document.getElementById('sceneControls').addEventListener('click',e=>{const btn=e.target.closest('[data-mode]');if(!btn)return;sceneMode=btn.dataset.mode;document.querySelectorAll('#sceneControls .map-chip').forEach(x=>x.classList.toggle('active',x===btn));lastScene='';applyScene()});function tick(){const d=new Date();document.getElementById('clock').textContent=d.toLocaleDateString('zh-CN')+'  '+d.toLocaleTimeString('zh-CN',{hour12:false});applyScene(d)}tick();setInterval(tick,1000);
 const pages=[...document.querySelectorAll('.page')];let idx=0,timer=null,switching=false;function render(){document.getElementById('pageIndicator').innerHTML=`${String(idx+1).padStart(2,'0')} / ${String(pages.length).padStart(2,'0')} · ${pages[idx].dataset.name}<span class="page-dots">${pages.map((_,i)=>`<i class="${i===idx?'on':''}"></i>`).join('')}</span>`}
 function go(n){if(switching)return;const next=(n+pages.length)%pages.length;if(next===idx)return;switching=true;const direction=next>idx?'right':'left';const oldPage=pages[idx],newPage=pages[next];
-// 从欢迎页切出：克隆大字飞升到标题栏位置
-if(oldPage.classList.contains('welcome-page')){const title=oldPage.querySelector('.welcome-title');if(title){const rect=title.getBoundingClientRect();const clone=document.createElement('div');clone.className='welcome-clone';clone.textContent=title.textContent;clone.style.left=rect.left+'px';clone.style.top=rect.top+'px';clone.style.fontSize=rect.height+'px';clone.style.lineHeight='1';document.body.appendChild(clone);
+// 从欢迎页切出：克隆大字飞升到标题栏位置（FLIP技术保持文字比例）
+if(oldPage.classList.contains('welcome-page')){const title=oldPage.querySelector('.welcome-title');if(title){
+// 获取大字实际字体大小和位置
+const titleFontSize=parseFloat(getComputedStyle(title).fontSize);
+const titleLetterSpacing=parseFloat(getComputedStyle(title).letterSpacing)||12;
+const initialRect=title.getBoundingClientRect();
+// 创建克隆元素，直接设为最终小字大小
+const clone=document.createElement('div');
+clone.className='welcome-clone';
+clone.textContent=title.textContent;
+clone.style.fontSize='20px';
+clone.style.letterSpacing='6px';
+clone.style.lineHeight='1';
+clone.style.position='fixed';
+clone.style.zIndex='9999';
+clone.style.pointerEvents='none';
+clone.style.whiteSpace='nowrap';
+clone.style.transformOrigin='left top';
+document.body.appendChild(clone);
+// 获取最终尺寸
+const finalRect=clone.getBoundingClientRect();
+// 计算缩放比例（从大字缩小到小字）
+const scale=titleFontSize/20;
 // 目标位置：标题文字下方，基于.title元素居中
-const titleEl=document.querySelector('.title');const h1El=document.querySelector('.title h1');const titleRect=titleEl.getBoundingClientRect();const h1Rect=h1El.getBoundingClientRect();const targetFontSize=20;const targetWidth=clone.offsetWidth*(targetFontSize/rect.height);const targetLeft=titleRect.left+(titleRect.width-targetWidth)/2;const targetTop=h1Rect.bottom+6;
-// 强制重排后开始动画
-clone.offsetHeight;clone.style.transition='transform 1.2s cubic-bezier(.4,0,.2,1), opacity 0.1s ease 1.1s';clone.style.transform=`translate(${targetLeft-rect.left}px, ${targetTop-rect.top}px) scale(${targetFontSize/rect.height})`;
+const titleEl=document.querySelector('.title');
+const h1El=document.querySelector('.title h1');
+const titleRect=titleEl.getBoundingClientRect();
+const h1Rect=h1El.getBoundingClientRect();
+const targetLeft=titleRect.left+(titleRect.width-finalRect.width)/2;
+const targetTop=h1Rect.bottom+8;
+// 设置初始状态：放大到大字大小，位置在大字位置
+clone.style.transform=`translate(${initialRect.left-finalRect.left}px,${initialRect.top-finalRect.top}px) scale(${scale})`;
+// 强制重排
+clone.offsetHeight;
+// 开始动画：过渡到目标位置，scale(1)
+clone.style.transition='transform 1.2s cubic-bezier(.4,0,.2,1)';
+clone.style.transform=`translate(${targetLeft-finalRect.left}px,${targetTop-finalRect.top}px) scale(1)`;
 // 动画完成后保持
 setTimeout(()=>{clone.style.transition='none'},1250)}}
 // 切回欢迎页：移除克隆大字
