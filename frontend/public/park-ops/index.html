@@ -186,8 +186,8 @@ body.data-edit-mode .data-edit-tip{display:block}
       <div class="panel bigpanel"><h3>摄像头状态 <small>CAMERA STATUS</small></h3><div class="mini2"><div class="stat"><b>125</b><span>在线</span></div><div class="stat"><b>3</b><span>离线</span></div><div class="stat"><b>97.7%</b><span>在线率</span></div><div class="stat"><b>6</b><span>已接入</span></div></div><div style="margin-top:25px;color:#88a6b8;font-size:17px;line-height:1.6">园区共2台64路硬盘录像机（128路），已接入6路HLS流畅视频流，通过FFmpeg实时转码，延迟约3-5秒。</div>
         <div id="aiAnalysisPanel" style="margin-top:25px;padding-top:20px;border-top:1px solid rgba(99,217,255,.12)"><h4 style="color:#e0f0f8;font-size:20px;margin:0 0 12px 0">人车AI分析 <small style="color:#6b8a9e;font-size:14px;font-weight:normal">AI TRAFFIC ANALYSIS</small></h4>
           <div class="mini2" style="margin-bottom:12px">
-            <div class="stat"><b id="aiTotalPeople" style="font-size:26px">0</b><span style="font-size:15px">当前在场人数</span></div>
-            <div class="stat"><b id="aiTotalVehicles" style="font-size:26px">0</b><span style="font-size:15px">当前在场车辆</span></div>
+            <div class="stat"><b id="aiTotalPeople" style="font-size:26px">0</b><span style="font-size:15px">今日人员通行</span></div>
+            <div class="stat"><b id="aiTotalVehicles" style="font-size:26px">0</b><span style="font-size:15px">今日车辆通行</span></div>
           </div>
           <div id="aiVehicleBreakdown" style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:15px;padding:10px;background:rgba(99,217,255,.04);border-radius:6px;border:1px solid rgba(99,217,255,.1)">
             <div style="text-align:center"><b id="aiCarCount" style="display:block;font-size:18px;color:#63d9ff">0</b><span style="font-size:12px;color:#8fb3c7">轿车</span></div>
@@ -552,32 +552,32 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
       totalBikeOut+=gateData.bicycle_out||0;
     });
 
-    // 更新汇总（当前在场=进-出，最低为0）
-    const currentPeople=Math.max(0,totalPersonIn-totalPersonOut);
-    const currentVehicles=Math.max(0,totalVehicleIn-totalVehicleOut);
+    // 更新汇总（显示累计通行量=进+出，确保数字随动不为0；当前在场=进-出受初始基准影响暂不准确）
+    const totalPeopleTraffic=totalPersonIn+totalPersonOut;
+    const totalVehicleTraffic=totalVehicleIn+totalVehicleOut;
 
     const peopleEl=document.getElementById('aiTotalPeople');
     const vehiclesEl=document.getElementById('aiTotalVehicles');
-    if(peopleEl) peopleEl.textContent=currentPeople;
-    if(vehiclesEl) vehiclesEl.textContent=currentVehicles;
+    if(peopleEl) peopleEl.textContent=totalPeopleTraffic;
+    if(vehiclesEl) vehiclesEl.textContent=totalVehicleTraffic;
 
-    // 更新车辆分类统计（当前在场数量）
+    // 更新车辆分类统计（显示累计通行量=进+出）
     const carEl=document.getElementById('aiCarCount');
     const truckEl=document.getElementById('aiTruckCount');
     const busEl=document.getElementById('aiBusCount');
     const motoEl=document.getElementById('aiMotoCount');
     const bikeEl=document.getElementById('aiBikeCount');
-    if(carEl) carEl.textContent=Math.max(0,totalCarIn-totalCarOut);
-    if(truckEl) truckEl.textContent=Math.max(0,totalTruckIn-totalTruckOut);
-    if(busEl) busEl.textContent=Math.max(0,totalBusIn-totalBusOut);
-    if(motoEl) motoEl.textContent=Math.max(0,totalMotoIn-totalMotoOut);
-    if(bikeEl) bikeEl.textContent=Math.max(0,totalBikeIn-totalBikeOut);
+    if(carEl) carEl.textContent=totalCarIn+totalCarOut;
+    if(truckEl) truckEl.textContent=totalTruckIn+totalTruckOut;
+    if(busEl) busEl.textContent=totalBusIn+totalBusOut;
+    if(motoEl) motoEl.textContent=totalMotoIn+totalMotoOut;
+    if(bikeEl) bikeEl.textContent=totalBikeIn+totalBikeOut;
 
-    // 更新顶栏KPI数据（AI实时数据优先，无数据时保持原值）
+    // 更新顶栏KPI数据（AI实时累计通行量，确保数字随动）
     const kpiPeopleEl=document.getElementById('kpiPeopleCount');
     const kpiVehicleEl=document.getElementById('kpiVehicleCount');
-    if(kpiPeopleEl&&(totalPersonIn+totalPersonOut)>0) kpiPeopleEl.textContent=currentPeople;
-    if(kpiVehicleEl&&(totalVehicleIn+totalVehicleOut)>0) kpiVehicleEl.textContent=currentVehicles;
+    if(kpiPeopleEl&&totalPeopleTraffic>0) kpiPeopleEl.textContent=totalPeopleTraffic;
+    if(kpiVehicleEl&&totalVehicleTraffic>0) kpiVehicleEl.textContent=totalVehicleTraffic;
   }
 
   // 启动AI数据定时获取（每3秒刷新一次）
