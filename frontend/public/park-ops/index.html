@@ -28,6 +28,7 @@ body:before{display:none}
 .rows{display:grid;gap:14px}.row{display:grid;grid-template-columns:1fr auto;align-items:center;font-size:21px;color:#c9ddea}.row b{font-size:24px;color:#fff}.bar{height:10px;background:rgba(255,255,255,.07);border-radius:6px;margin-top:7px;overflow:hidden}.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--blue),var(--cyan));border-radius:6px}.donut-wrap{display:grid;grid-template-columns:210px 1fr;gap:24px;align-items:center}.donut{width:180px;height:180px;border-radius:50%;background:conic-gradient(#63d9ff 0 28%,#62e6a8 28% 50%,#d9b864 50% 67%,#4ca8ff 67% 84%,#8b7dff 84% 100%);position:relative;margin:auto}.donut:after{content:"产业结构";position:absolute;inset:31px;border-radius:50%;background:#092039;display:flex;align-items:center;justify-content:center;color:#bfd8e8;font-size:20px}.legend{display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:18px;color:#bdd0dc}.dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;background:var(--cyan)}
 .mini2{display:grid;grid-template-columns:1fr 1fr;gap:14px}.stat{padding:15px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.05);border-radius:8px}.stat b{display:block;font-size:30px;color:#fff}.stat span{font-size:18px;color:var(--muted)}
 .cameras{display:grid;grid-template-columns:1fr 1fr;gap:12px}.cam{height:150px;border:1px solid rgba(99,217,255,.16);background:linear-gradient(135deg,#0e2a3c,#071722);position:relative;overflow:hidden}.cam:before{content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 8px,rgba(255,255,255,.012) 9px)}.cam .tag{position:absolute;left:10px;bottom:9px;font-size:16px;color:#b9d3e3}.cam .live{position:absolute;right:10px;top:8px;color:var(--green);font-size:15px}.cam .mock{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#54758b;font-size:18px}
+.ai-gate{padding:14px 16px;background:rgba(255,255,255,.03);border:1px solid rgba(99,217,255,.12);border-radius:8px}.ai-gate .gate-name{font-size:20px;color:#e0f0f8;font-weight:600;margin-bottom:10px}.ai-gate .gate-stats{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px}.ai-gate .gate-stats span{font-size:16px;color:#8fb3c7;text-align:center}.ai-gate .gate-stats b{display:block;font-size:22px;color:#63d9ff;margin-bottom:2px}.ai-gate .gate-stats .person-in{color:#62e6a8}.ai-gate .gate-stats .vehicle-in{color:#63d9ff}
 .alerts{display:grid;gap:12px}.alert{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:11px 13px;background:rgba(255,255,255,.035);border-radius:7px;font-size:18px}.badge{padding:4px 8px;border-radius:4px;background:rgba(98,230,168,.12);color:var(--green)}.time{color:#7394aa}
 .tabs{position:fixed;right:28px;bottom:28px;display:flex;gap:8px;z-index:100;padding:10px 14px;background:rgba(4,22,36,.82);border:1px solid rgba(99,217,255,.28);border-radius:12px;backdrop-filter:blur(12px);box-shadow:0 8px 32px rgba(0,0,0,.45);opacity:.72;transition:opacity .3s,transform .3s}.tabs:hover{opacity:1;transform:translateY(-2px)}.btn{border:1px solid rgba(99,217,255,.35);background:rgba(7,30,49,.9);color:#d8ecf7;border-radius:8px;padding:10px 18px;font-size:16px;cursor:pointer;transition:.25s;display:inline-flex;align-items:center;gap:6px;font-weight:600}.btn:hover{background:rgba(15,59,86,.95);border-color:var(--cyan);box-shadow:0 0 14px rgba(99,217,255,.2)}.btn.on{background:rgba(18,91,126,.85);border-color:var(--cyan);color:#fff}.page-indicator{position:fixed;left:50%;bottom:38px;transform:translateX(-50%);font-size:16px;color:#7394aa;letter-spacing:3px;z-index:99;background:rgba(4,22,36,.7);padding:6px 16px;border-radius:8px;backdrop-filter:blur(8px)}
 .fullgrid{grid-template-columns:1.25fr 1fr 1fr;gap:22px}.bigpanel{padding:30px}.table{width:100%;border-collapse:collapse;font-size:20px}.table th,.table td{padding:15px 14px;border-bottom:1px solid rgba(255,255,255,.06);text-align:left}.table th{color:#7ea4bb;font-weight:500}.table td{color:#d8e8f1}.ok{color:var(--green)}.warn{color:var(--warn)}
@@ -183,6 +184,42 @@ body.data-edit-mode .data-edit-tip{display:block}
         <div class="cam cam-hls" style="height:auto" data-camera="p3-d50" data-name="Port5通道50"><span class="live">● LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><div class="mock">Port5通道50 · HLS连接中...</div><span class="tag">CAM-070 · P5-D50</span></div>
       </div></div>
       <div class="panel bigpanel"><h3>摄像头状态 <small>CAMERA STATUS</small></h3><div class="mini2"><div class="stat"><b>86</b><span>在线</span></div><div class="stat"><b>2</b><span>离线</span></div><div class="stat"><b>97.7%</b><span>在线率</span></div><div class="stat"><b>6</b><span>已接入</span></div></div><div style="margin-top:35px;color:#88a6b8;font-size:19px;line-height:1.8">已接入6路HLS流畅视频流：Port5录像机4路（D37大门、D57、D02、D45、D50），Port3录像机1路（D37），通过FFmpeg实时转码，延迟约3-5秒。视频通道绑定可在后台「视频绑定」页面可视化配置。</div></div>
+      <div class="panel bigpanel" id="aiAnalysisPanel"><h3>人车AI分析 <small>AI TRAFFIC ANALYSIS</small></h3>
+        <div class="mini2" style="margin-bottom:20px">
+          <div class="stat"><b id="aiTotalPeople">0</b><span>当前在场人数</span></div>
+          <div class="stat"><b id="aiTotalVehicles">0</b><span>当前在场车辆</span></div>
+        </div>
+        <div id="aiGateList" style="display:flex;flex-direction:column;gap:12px">
+          <div class="ai-gate" data-gate="d37">
+            <div class="gate-name">北大门 · D37</div>
+            <div class="gate-stats">
+              <span><b class="person-in">0</b>人进</span>
+              <span><b class="person-out">0</b>人出</span>
+              <span><b class="vehicle-in">0</b>车进</span>
+              <span><b class="vehicle-out">0</b>车出</span>
+            </div>
+          </div>
+          <div class="ai-gate" data-gate="d57">
+            <div class="gate-name">西大门 · D57</div>
+            <div class="gate-stats">
+              <span><b class="person-in">0</b>人进</span>
+              <span><b class="person-out">0</b>人出</span>
+              <span><b class="vehicle-in">0</b>车进</span>
+              <span><b class="vehicle-out">0</b>车出</span>
+            </div>
+          </div>
+          <div class="ai-gate" data-gate="p3-d37">
+            <div class="gate-name">东大门 · P3-D37</div>
+            <div class="gate-stats">
+              <span><b class="person-in">0</b>人进</span>
+              <span><b class="person-out">0</b>人出</span>
+              <span><b class="vehicle-in">0</b>车进</span>
+              <span><b class="vehicle-out">0</b>车出</span>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:15px;color:#6b8a9e;font-size:16px;line-height:1.6">基于YOLOv8+ByteTrack实时越线计数，3秒刷新</div>
+      </div>
     </section>
 
     <div class="tabs"><button class="btn" id="prev">‹ 上一页</button><button class="btn" id="auto">自动轮播：关</button><button class="btn" id="next">下一页 ›</button></div><div class="page-indicator" id="pageIndicator"></div><div class="footerline">金湖科创产业园智慧运营平台 · DIGITAL TWIN DEMO / 分区、楼栋、企业及业务指标均为演示标注</div>
@@ -449,6 +486,70 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
     }
   });
   observer.observe(document.body,{attributes:true,subtree:true,attributeFilter:['class']});
+
+  // ==================== AI视频分析数据实时获取 ====================
+  const AI_API_BASE='http://10.66.66.3:8000';
+  const GATE_MAP={
+    'd37':{name:'北大门',element:null},
+    'd57':{name:'西大门',element:null},
+    'p3-d37':{name:'东大门',element:null}
+  };
+  let aiLastData=null;
+  let aiErrorCount=0;
+
+  async function fetchAiStats(){
+    try{
+      const response=await fetch(`${AI_API_BASE}/api/stats`,{cache:'no-store'});
+      if(!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data=await response.json();
+      aiLastData=data;
+      aiErrorCount=0;
+      updateAiPanel(data);
+    }catch(e){
+      aiErrorCount++;
+      if(aiErrorCount<=3){
+        console.warn(`[ParkOps] AI分析数据获取失败 (${aiErrorCount}/3):`,e.message);
+      }
+    }
+  }
+
+  function updateAiPanel(data){
+    if(!data) return;
+    let totalPersonIn=0,totalPersonOut=0,totalVehicleIn=0,totalVehicleOut=0;
+    
+    Object.keys(GATE_MAP).forEach(gateId=>{
+      const gateData=data[gateId];
+      const gateEl=document.querySelector(`.ai-gate[data-gate="${gateId}"]`);
+      if(!gateEl||!gateData) return;
+      
+      const pin=gateData.person_in||0,pout=gateData.person_out||0;
+      const vin=gateData.vehicle_in||0,vout=gateData.vehicle_out||0;
+      
+      gateEl.querySelector('.person-in').textContent=pin;
+      gateEl.querySelector('.person-out').textContent=pout;
+      gateEl.querySelector('.vehicle-in').textContent=vin;
+      gateEl.querySelector('.vehicle-out').textContent=vout;
+      
+      totalPersonIn+=pin;
+      totalPersonOut+=pout;
+      totalVehicleIn+=vin;
+      totalVehicleOut+=vout;
+    });
+    
+    // 更新汇总（当前在场=进-出，最低为0）
+    const currentPeople=Math.max(0,totalPersonIn-totalPersonOut);
+    const currentVehicles=Math.max(0,totalVehicleIn-totalVehicleOut);
+    
+    const peopleEl=document.getElementById('aiTotalPeople');
+    const vehiclesEl=document.getElementById('aiTotalVehicles');
+    if(peopleEl) peopleEl.textContent=currentPeople;
+    if(vehiclesEl) vehiclesEl.textContent=currentVehicles;
+  }
+
+  // 启动AI数据定时获取（每3秒刷新一次）
+  fetchAiStats();
+  setInterval(fetchAiStats,3000);
+  console.log('[ParkOps] AI视频分析数据实时获取已启动，3秒刷新');
 
   // 如果当前已经在视频监控页，直接启动
   const currentVideoPage=document.querySelector('[data-name="视频监控"].active');
