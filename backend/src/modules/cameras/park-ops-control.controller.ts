@@ -41,6 +41,11 @@ export class ParkOpsControlController {
 
   @Get('state')
   getState() {
+    // 自动清除过期的refresh请求（超过10秒），防止无限刷新循环
+    if (this.state.refreshRequested && this.state.refreshTimestamp && Date.now() - this.state.refreshTimestamp > 10000) {
+      this.state.refreshRequested = false;
+      this.saveState();
+    }
     return {
       success: true,
       data: this.state,
