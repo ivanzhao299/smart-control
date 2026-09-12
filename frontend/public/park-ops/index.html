@@ -125,6 +125,8 @@ body.data-edit-mode .data-edit-tip{display:block}
 .mock.signal-lost{color:#f87171!important;background:rgba(239,68,68,.1)!important;animation:signalLostPulse 2s ease-in-out infinite}
 .live.live-offline{color:#f87171!important}
 @keyframes signalLostPulse{0%,100%{opacity:.7}50%{opacity:1}}
+.ai-bar{height:4px;background:rgba(99,217,255,.1);border-radius:2px;margin-top:6px;overflow:hidden}
+.ai-bar i{display:block;height:100%;border-radius:2px;transition:width .5s ease}
 </style>
 </head>
 <body data-scene="day"><canvas id="ambient" width="3612" height="1462"></canvas>
@@ -215,11 +217,11 @@ body.data-edit-mode .data-edit-tip{display:block}
             <div class="stat"><b id="aiTotalVehicles" style="font-size:26px">0</b><span style="font-size:15px">今日车辆通行</span></div>
           </div>
           <div id="aiVehicleBreakdown" style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:15px;padding:10px;background:rgba(99,217,255,.04);border-radius:6px;border:1px solid rgba(99,217,255,.1)">
-            <div style="text-align:center"><b id="aiCarCount" style="display:block;font-size:18px;color:#63d9ff">0</b><span style="font-size:12px;color:#8fb3c7">轿车</span></div>
-            <div style="text-align:center"><b id="aiTruckCount" style="display:block;font-size:18px;color:#ff9f6b">0</b><span style="font-size:12px;color:#8fb3c7">货车</span></div>
-            <div style="text-align:center"><b id="aiBusCount" style="display:block;font-size:18px;color:#c7a8ff">0</b><span style="font-size:12px;color:#8fb3c7">客车</span></div>
-            <div style="text-align:center"><b id="aiMotoCount" style="display:block;font-size:18px;color:#62e6a8">0</b><span style="font-size:12px;color:#8fb3c7">电动车</span></div>
-            <div style="text-align:center"><b id="aiBikeCount" style="display:block;font-size:18px;color:#f0c040">0</b><span style="font-size:12px;color:#8fb3c7">自行车</span></div>
+            <div style="text-align:center"><b id="aiCarCount" style="display:block;font-size:18px;color:#63d9ff">0</b><span style="font-size:12px;color:#8fb3c7">轿车</span><div class="ai-bar"><i id="aiCarBar" style="width:0%;background:linear-gradient(90deg,#06b6d4,#63d9ff)"></i></div></div>
+            <div style="text-align:center"><b id="aiTruckCount" style="display:block;font-size:18px;color:#ff9f6b">0</b><span style="font-size:12px;color:#8fb3c7">货车</span><div class="ai-bar"><i id="aiTruckBar" style="width:0%;background:linear-gradient(90deg,#d97706,#ff9f6b)"></i></div></div>
+            <div style="text-align:center"><b id="aiBusCount" style="display:block;font-size:18px;color:#c7a8ff">0</b><span style="font-size:12px;color:#8fb3c7">客车</span><div class="ai-bar"><i id="aiBusBar" style="width:0%;background:linear-gradient(90deg,#8b5cf6,#c7a8ff)"></i></div></div>
+            <div style="text-align:center"><b id="aiMotoCount" style="display:block;font-size:18px;color:#62e6a8">0</b><span style="font-size:12px;color:#8fb3c7">电动车</span><div class="ai-bar"><i id="aiMotoBar" style="width:0%;background:linear-gradient(90deg,#059669,#62e6a8)"></i></div></div>
+            <div style="text-align:center"><b id="aiBikeCount" style="display:block;font-size:18px;color:#f0c040">0</b><span style="font-size:12px;color:#8fb3c7">自行车</span><div class="ai-bar"><i id="aiBikeBar" style="width:0%;background:linear-gradient(90deg,#d97706,#f0c040)"></i></div></div>
           </div>
           <div id="aiGateList" style="display:flex;flex-direction:column;gap:10px">
             <div class="ai-gate" data-gate="d37">
@@ -645,11 +647,30 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
     const busEl=document.getElementById('aiBusCount');
     const motoEl=document.getElementById('aiMotoCount');
     const bikeEl=document.getElementById('aiBikeCount');
-    if(carEl) carEl.textContent=totalCarIn+totalCarOut;
-    if(truckEl) truckEl.textContent=totalTruckIn+totalTruckOut;
-    if(busEl) busEl.textContent=totalBusIn+totalBusOut;
-    if(motoEl) motoEl.textContent=totalMotoIn+totalMotoOut;
-    if(bikeEl) bikeEl.textContent=totalBikeIn+totalBikeOut;
+    const carCount=totalCarIn+totalCarOut;
+    const truckCount=totalTruckIn+totalTruckOut;
+    const busCount=totalBusIn+totalBusOut;
+    const motoCount=totalMotoIn+totalMotoOut;
+    const bikeCount=totalBikeIn+totalBikeOut;
+    const totalVehicleClass=carCount+truckCount+busCount+motoCount+bikeCount;
+    if(carEl) carEl.textContent=carCount;
+    if(truckEl) truckEl.textContent=truckCount;
+    if(busEl) busEl.textContent=busCount;
+    if(motoEl) motoEl.textContent=motoCount;
+    if(bikeEl) bikeEl.textContent=bikeCount;
+    // 更新车辆分类进度条（按占比显示）
+    const carBar=document.getElementById('aiCarBar');
+    const truckBar=document.getElementById('aiTruckBar');
+    const busBar=document.getElementById('aiBusBar');
+    const motoBar=document.getElementById('aiMotoBar');
+    const bikeBar=document.getElementById('aiBikeBar');
+    if(totalVehicleClass>0){
+      if(carBar) carBar.style.width=`${Math.min(100,(carCount/totalVehicleClass)*100)}%`;
+      if(truckBar) truckBar.style.width=`${Math.min(100,(truckCount/totalVehicleClass)*100)}%`;
+      if(busBar) busBar.style.width=`${Math.min(100,(busCount/totalVehicleClass)*100)}%`;
+      if(motoBar) motoBar.style.width=`${Math.min(100,(motoCount/totalVehicleClass)*100)}%`;
+      if(bikeBar) bikeBar.style.width=`${Math.min(100,(bikeCount/totalVehicleClass)*100)}%`;
+    }
 
     // 更新顶栏KPI数据（AI实时累计通行量，确保数字随动）
     // 同时支持静态HTML的id和ops-content.js生成的data-ops-metric属性
