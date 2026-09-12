@@ -3,6 +3,10 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<meta name="app-version" content="20260912-v3-sw-auto-update" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
 <title>金湖科创产业园·智慧运营总览</title>
 <link rel="stylesheet" href="./park-ops-editor.css?v=20260912-rollback-fix" />
 <script type="importmap">{"imports":{"three":"./vendor/three.module.min.js"}}</script>
@@ -706,7 +710,7 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
 <script type="module" src="./park-ops-3d.js?v=20260912-rollback-fix"></script>
 <script src="./park-ops-editor.js?v=20260912-rollback-fix"></script>
 <!-- Business content starts AFTER the existing editor registers its stable text keys. -->
-<script src="./ops-content.js?v=20260912-rollback-fix"></script>
+<script src="./ops-content.js?v=20260912-v3-sw-auto-update"></script>
 <script>
 // 数据内联编辑功能
 (function(){
@@ -873,6 +877,46 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
   // 页面内容动态加载后重新标记（如果在编辑模式）
   const observer=new MutationObserver(()=>{if(editMode)markEditable()});
   observer.observe(document.getElementById('app'),{childList:true,subtree:true});
+})();
+</script>
+
+<!-- PWA Service Worker 自动更新检测 - 确保运营大屏每次部署后能自动加载最新版本 -->
+<script>
+(function(){
+  if (!('serviceWorker' in navigator)) return;
+  var pwaReloadKey = 'park-ops.pwa.updatedReload';
+  // 刷新后5秒解除锁，下一个版本仍能自动刷新
+  setTimeout(function(){ sessionStorage.removeItem(pwaReloadKey); }, 5000);
+  
+  // 监听Service Worker接管变化，新SW激活后自动刷新
+  navigator.serviceWorker.addEventListener('controllerchange', function(){
+    if (sessionStorage.getItem(pwaReloadKey)) return;
+    sessionStorage.setItem(pwaReloadKey, '1');
+    console.log('[ParkOps] Service Worker已更新，300ms后自动刷新页面...');
+    setTimeout(function(){ window.location.reload(); }, 300);
+  });
+  
+  // 主动检查Service Worker更新
+  function checkForPwaUpdate(){
+    navigator.serviceWorker.ready.then(function(registration){
+      registration.update();
+    }).catch(function(){ /* 离线时静默跳过 */ });
+  }
+  
+  // 页面加载完成后检查更新
+  if (document.readyState === 'complete') {
+    checkForPwaUpdate();
+  } else {
+    window.addEventListener('load', checkForPwaUpdate);
+  }
+  // 页面从后台回到前台时检查更新
+  document.addEventListener('visibilitychange', function(){
+    if (document.visibilityState === 'visible') checkForPwaUpdate();
+  });
+  // 每5分钟定时检查更新（大屏长时间运行场景）
+  setInterval(checkForPwaUpdate, 5 * 60 * 1000);
+  
+  console.log('[ParkOps] Service Worker自动更新检测已启动');
 })();
 </script>
 </body>
