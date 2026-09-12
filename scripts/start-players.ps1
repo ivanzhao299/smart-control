@@ -98,6 +98,23 @@ function Stop-Players {
     }
 }
 
+# Clear PWA/Service Worker cache so players always load the latest release.
+# 2026-09-12: LED wall showed stale cached pages after deployments.
+# Runs after killing old players and before launching new ones.
+function Clear-PlayerCache {
+  Write-Host 'Clearing player PWA cache...' -ForegroundColor Yellow
+  $userData = Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\User Data\Default'
+  $cacheDirs = @('Service Worker', 'Cache', 'Code Cache', 'GPUCache')
+  foreach ($dir in $cacheDirs) {
+    $path = Join-Path $userData $dir
+    if (Test-Path $path) {
+      Remove-Item -Recurse -Force $path -ErrorAction SilentlyContinue
+      Write-Host ("  cleared: " + $dir) -ForegroundColor Gray
+    }
+  }
+  Write-Host 'Player cache cleared.' -ForegroundColor Green
+}
+
 if ($Stop) { Stop-Players; exit 0 }
 
 $browser = Find-Browser
@@ -110,6 +127,8 @@ Write-Host ("Browser: " + $browser) -ForegroundColor Green
 # Kill old players first (avoid duplicates)
 Stop-Players
 Start-Sleep -Seconds 1
+Clear-PlayerCache
+Start-Sleep -Milliseconds 500
 
 # Start a video slot (fullscreen on the given monitor coords).
 #
