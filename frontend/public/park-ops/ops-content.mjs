@@ -65,11 +65,11 @@ function render() {
   panel(right[0], '运营效率 · 人员通行', compactStats(['visitors', 'vehiclePasses', 'camerasOnline']) + progress(['outputTarget', 'taxTarget', 'activity']));
   // 第一页视频安防面板：接入真实HLS流畅视频流（4路），不再用图片预览占位
   const hlsCamerasSmall = [
-    { channel: 'd37', name: '大门', tag: 'CAM-001' },
-    { channel: 'd57', name: '通道57', tag: 'CAM-018' },
-    { channel: 'd02', name: '通道2', tag: 'CAM-043' },
-    { channel: 'p3-d37', name: 'Port3通道37', tag: 'CAM-068' },
-  ].map(c => `<div class="cam cam-hls" data-camera="${c.channel}" data-name="${c.name}"><span class="live"><span class="live-indicator"></span>LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><div class="mock">${c.name} · HLS连接中...</div><span class="tag">${c.tag} · ${c.name}</span></div>`).join('');
+    { channel: 'd37', name: '北大门', tag: '北大门 · D37' },
+    { channel: 'd57', name: '西大门', tag: '西大门 · D57' },
+    { channel: 'd02', name: '展贸中心', tag: '展贸中心 · D02' },
+    { channel: 'p3-d37', name: '东大门', tag: '东大门 · P3-D37' },
+  ].map(c => `<div class="cam cam-hls" data-camera="${c.channel}" data-name="${c.name}"><span class="live"><span class="live-indicator"></span>LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><div class="mock">${c.name} · HLS连接中...</div><span class="tag">${c.tag}</span></div>`).join('');
   panel(right[1], '视频安防 · 实时监控', `<div class="cameras">${hlsCamerasSmall}</div>` + para('已接入4路HLS流畅视频流，通过FFmpeg实时转码，延迟约3-5秒。', true));
   // 动态生成的HLS视频元素需要手动初始化（ops-content重新渲染后新元素不会被页面加载时的initAllCams覆盖）
   // 延迟到下一个事件循环，确保DOM已更新；通过document选择器查询，避免闭包变量失效
