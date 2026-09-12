@@ -556,6 +556,7 @@ async function selectParkDashboard(): Promise<void> {
 
 // ============ 运营大屏翻页控制 (PWA播放控制卡片 → LED大屏端运营大屏) ============
 const parkOpsPage = ref(0);
+const parkOpsTotalPages = ref(6); // 运营大屏共6页，后端state会同步
 const parkOpsAuto = ref(false);
 const parkOpsBusy = ref(false);
 
@@ -573,6 +574,7 @@ async function parkOpsControl(action: 'next' | 'prev' | 'auto'): Promise<void> {
     if (j.success && j.data) {
       parkOpsPage.value = j.data.page;
       parkOpsAuto.value = j.data.autoPlay;
+      if (j.data.totalPages) parkOpsTotalPages.value = j.data.totalPages;
       if (j.message) ElMessage.success(j.message);
     }
   } catch (e) {
@@ -588,6 +590,7 @@ async function syncParkOpsState(): Promise<void> {
     if (j.success && j.data) {
       parkOpsPage.value = j.data.page;
       parkOpsAuto.value = j.data.autoPlay;
+      if (j.data.totalPages) parkOpsTotalPages.value = j.data.totalPages;
     }
   } catch { /* ignore */ }
 }
@@ -886,7 +889,7 @@ async function submitWebpage(): Promise<void> {
         <button class="pg-btn big" :disabled="parkOpsBusy" @click="parkOpsControl('prev')">
           <ChevronLeft :size="20" /> 上一页
         </button>
-        <span class="pg-num v2-inter">{{ parkOpsPage + 1 }}<i>/ 5</i></span>
+        <span class="pg-num v2-inter">{{ parkOpsPage + 1 }}<i>/ {{ parkOpsTotalPages }}</i></span>
         <button class="pg-btn big" :disabled="parkOpsBusy" @click="parkOpsControl('next')">
           下一页 <ChevronRight :size="20" />
         </button>

@@ -13,7 +13,7 @@ import { Public } from '../../common/decorators/public.decorator';
 @Controller('park-ops-control')
 export class ParkOpsControlController {
   private statePath: string;
-  private state: { page: number; autoPlay: boolean; timestamp: number };
+  private state: { page: number; autoPlay: boolean; timestamp: number; totalPages: number };
 
   constructor() {
     const dataDir = process.env.DATA_DIR || join(process.cwd(), 'data');
@@ -25,12 +25,13 @@ export class ParkOpsControlController {
   private loadState() {
     if (existsSync(this.statePath)) {
       try {
-        return JSON.parse(readFileSync(this.statePath, 'utf-8'));
+        const s = JSON.parse(readFileSync(this.statePath, 'utf-8'));
+        return { ...s, totalPages: 6 }; // 运营大屏共6页
       } catch {
         // ignore
       }
     }
-    return { page: 0, autoPlay: false, timestamp: Date.now() };
+    return { page: 0, autoPlay: false, timestamp: Date.now(), totalPages: 6 };
   }
 
   private saveState() {
@@ -48,21 +49,21 @@ export class ParkOpsControlController {
 
   @Post('next')
   nextPage() {
-    this.state.page = (this.state.page + 1) % 5; // 运营大屏共5页
+    this.state.page = (this.state.page + 1) % this.state.totalPages; // 运营大屏共6页
     this.saveState();
     return { success: true, message: '下一页', data: this.state };
   }
 
   @Post('prev')
   prevPage() {
-    this.state.page = (this.state.page + 4) % 5;
+    this.state.page = (this.state.page + this.state.totalPages - 1) % this.state.totalPages;
     this.saveState();
     return { success: true, message: '上一页', data: this.state };
   }
 
   @Post('goto')
   gotoPage(@Body() body: { page: number }) {
-    const page = Math.max(0, Math.min(4, Number(body.page) || 0));
+    const page = Math.max(0, Math.min(this.state.totalPages - 1, Number(body.page) || 0));
     this.state.page = page;
     this.saveState();
     return { success: true, message: `跳转到第${page + 1}页`, data: this.state };
