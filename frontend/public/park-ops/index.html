@@ -122,7 +122,7 @@ body.data-edit-mode .data-edit-tip{display:block}
   <header class="header">
     <div class="brand">JINHU SCI-TECH INDUSTRIAL PARK<small>DIGITAL TWIN · 数字孪生运营中枢</small></div>
     <div class="title"><h1><img src="jinhupark-mark.svg" class="park-mark" alt="金湖科创产业园logo"><img src="jinhupark-text.svg" class="park-text" alt="金湖科创产业园"><span class="park-sep">·</span><span>智慧运营总览</span></h1><div class="sub" id="welcomeLine">热烈欢迎各位领导莅临检查指导</div></div>
-    <div class="status"><div class="status-row"><span class="live-dot"></span><b>运行正常</b><button class="calibration-entry" id="openCalibration" type="button">布局校准</button><button class="calibration-entry" id="toggleDataEdit" type="button" style="background:rgba(34,197,94,.15);border-color:rgba(34,197,94,.4);color:#4ade80">✎ 数据编辑</button></div><div class="status-row"><span class="scene-mini"><i id="sceneIcon">☀</i> <span id="sceneName">自动日景</span></span><span id="clock"></span></div></div>
+    <div class="status"><div class="status-row"><span class="live-dot"></span><b>运行正常</b><button class="calibration-entry" id="openCalibration" type="button">布局校准</button><button class="calibration-entry" id="toggleDataEdit" type="button" style="background:rgba(34,197,94,.15);border-color:rgba(34,197,94,.4);color:#4ade80">✎ 更改数据</button></div><div class="status-row"><span class="scene-mini"><i id="sceneIcon">☀</i> <span id="sceneName">自动日景</span></span><span id="clock"></span></div></div>
   </header>
   <section class="kpis">
     <div class="kpi"><span class="n">32</span><span class="u">家</span><div class="l">入驻企业</div></div>
@@ -590,7 +590,7 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
     document.body.classList.toggle('data-edit-mode',editMode);
     const btn=document.getElementById('toggleDataEdit');
     if(btn){
-      btn.textContent=editMode?'✓ 完成编辑':'✎ 数据编辑';
+      btn.textContent=editMode?'✓ 完成编辑':'✎ 更改数据';
       btn.style.background=editMode?'rgba(239,68,68,.15)':'rgba(34,197,94,.15)';
       btn.style.borderColor=editMode?'rgba(239,68,68,.4)':'rgba(34,197,94,.4)';
       btn.style.color=editMode?'#f87171':'#4ade80';
