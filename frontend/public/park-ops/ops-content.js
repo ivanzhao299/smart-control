@@ -204,7 +204,7 @@ const pageNodes = [...document.querySelectorAll('.page')];
 function render() {
   const kpis = document.querySelector('.kpis'); kpis.classList.add('ops-headlines');
   kpis.innerHTML = `<div class="kpi ops-plan"><div class="l">园区总体规划</div>${compactStats(['plannedLand', 'plannedFloor', 'plannedInvestment'])}</div>` + ['signedTenants', 'occupancy', 'annualOutput', 'annualTax', 'people', 'vehicles'].map(key => `<div class="kpi ops-kpi">${metric(key)}<div class="l">${fields.find(f => f[0] === key)[1]}${data.placeholderKeys.includes(key) ? ' · 占位' : ''}</div></div>`).join('');
-  const c = data.content, left = pageNodes[0].querySelectorAll('.left > .panel'), right = pageNodes[0].querySelectorAll('.right > .panel');
+  const c = data.content, left = pageNodes[1].querySelectorAll('.left > .panel'), right = pageNodes[1].querySelectorAll('.right > .panel');
   panel(left[0], '建设进度 · 重点项目', `<div class="ops-stage">${esc(c.stage)}</div>${compactStats(['builtLand', 'builtFloor', 'builtCountedFloor'])}<div class="ops-honors">${list(c.awards)}</div>`);
   panel(left[1], '产业结构 · 招商画像', industryChart());
   panel(left[2], '服务工单 · 示例占位', compactStats(['workPending', 'workProgress', 'workCompleted']) + eventList(c.workOrderEvents, 3));
@@ -265,21 +265,21 @@ function render() {
     window.addEventListener('load', () => setTimeout(initSmallCams, 200), { once: true });
   }
   panel(right[2], '消防安全 · 事件占位', compactStats(['fireRate', 'safetyAlerts', 'hazards']) + eventList(c.inspectionEvents, 3));
-  let p = pageNodes[1].querySelectorAll('.panel');
+  let p = pageNodes[2].querySelectorAll('.panel');
   panel(p[0], '部分入驻企业与招商载体', companies() + para(c.focus) + para('以上为部分入驻企业。以下载体数据保持原数字占位，可在运营数据中编辑。', true) + cards(['usedFloor', 'availableFloor']) + rows(['standardRate', 'gardenRate', 'officeRate']));
   panel(p[1], '年度经营与产值趋势', cards(['annualOutput', 'annualTax', 'signedTenants', 'occupancy']) + trend('outputMonth', '月度产值 · 亿元 · 原占位，不参与年度汇总') + progress(['outputTarget', 'taxTarget', 'activity', 'aboveScale', 'highTech']));
   panel(p[2], '厂房与服务配套', chips(c.factoryTypes) + para(c.flexibility) + chips(c.facilities) + para(c.serviceSummary) + '<h3>省市重点 · 项目荣誉</h3>' + list(c.awards));
-  p = pageNodes[2].querySelectorAll('.panel');
+  p = pageNodes[3].querySelectorAll('.panel');
   panel(p[0], '消防安全总览', cards(['fireRate', 'safetyAlerts', 'inspections', 'hazards']) + para('系统状态沿用演示占位，非现场设备检测结果。', true) + list(c.fireSystems));
   panel(p[1], '隐患闭环 · 事件占位', eventList(c.inspectionEvents) + para('保留原巡检事件占位，文字与数字均可编辑；不代表实际巡检已完成。', true) + '<h3>服务工单 · 示例占位</h3>' + compactStats(['workPending', 'workProgress', 'workCompleted']) + eventList(c.workOrderEvents) + para('工单数字为示例汇总；列表为部分示例，不代表全部工单。', true));
   panel(p[2], '安全趋势 · 数字占位', trend('safetyMonth', '月度安全趋势 · 项 · 原占位') + '<h3>总体规划与建设</h3>' + cards(['plannedLand', 'plannedFloor', 'plannedInvestment', 'builtCountedFloor']) + para(c.construction) + para(c.stage));
-  p = pageNodes[3].querySelectorAll('.panel');
+  p = pageNodes[4].querySelectorAll('.panel');
   panel(p[0], '人员态势', cards(['people', 'visitors', 'servicePeople', 'peoplePasses']) + para('本版保留原数字占位，可随时修改，后续绑定业务数据。', true));
   panel(p[1], '车辆态势', cards(['vehicles', 'vehiclePasses', 'freightVehicles', 'parkingRate']) + para('当前在场车辆与今日通行次数使用不同统计口径；本版为数字占位。', true));
   panel(p[2], '门岗事件 · 占位', list(c.gateEvents) + para('保留原演示事件，不是实时通行记录，可在运营数据中编辑。', true));
-  // 视频监控页面(pageNodes[4])已接入真实HLS流畅视频流，不再用图片预览占位覆盖
+  // 视频监控页面(pageNodes[5])已接入真实HLS流畅视频流，不再用图片预览占位覆盖
   // 仅更新右侧摄像头状态面板的统计数据，左侧视频墙保持HLS实时画面
-  p = pageNodes[4].querySelectorAll('.panel');
+  p = pageNodes[5].querySelectorAll('.panel');
   if (p[1]) {
     panel(p[1], '摄像头状态', cards(['camerasOnline', 'camerasOffline', 'cameraRate', 'cameraPoints']) + para('已接入6路HLS流畅视频流（Port5录像机5路+Port3录像机1路），通过FFmpeg实时转码，延迟约3-5秒。视频通道及布局可在后台「视频绑定」页面可视化配置，无需改代码。'));
   }
