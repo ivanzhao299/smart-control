@@ -130,8 +130,8 @@ body.data-edit-mode .data-edit-tip{display:block}
     <div class="kpi"><span class="n">68</span><span class="u">%</span><div class="l">综合入驻率</div></div>
     <div class="kpi"><span class="n">8.76</span><span class="u">亿元</span><div class="l">本年度产值</div></div>
     <div class="kpi"><span class="n">4260</span><span class="u">万元</span><div class="l">本年度税收</div></div>
-    <div class="kpi"><span class="n">486</span><span class="u">人</span><div class="l">当前在园</div></div>
-    <div class="kpi"><span class="n">127</span><span class="u">辆</span><div class="l">当前车辆</div></div>
+    <div class="kpi"><span class="n" id="kpiPeopleCount">486</span><span class="u">人</span><div class="l">当前在园</div></div>
+    <div class="kpi"><span class="n" id="kpiVehicleCount">127</span><span class="u">辆</span><div class="l">当前车辆</div></div>
     <div class="kpi"><span class="n">86</span><span class="u">路</span><div class="l">视频在线</div></div>
     <div class="kpi"><span class="n">0</span><span class="u">起</span><div class="l">重大安全告警</div></div>
   </section>
@@ -579,6 +579,12 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
     if(busEl) busEl.textContent=Math.max(0,totalBusIn-totalBusOut);
     if(motoEl) motoEl.textContent=Math.max(0,totalMotoIn-totalMotoOut);
     if(bikeEl) bikeEl.textContent=Math.max(0,totalBikeIn-totalBikeOut);
+
+    // 更新顶栏KPI数据（AI实时数据优先，无数据时保持原值）
+    const kpiPeopleEl=document.getElementById('kpiPeopleCount');
+    const kpiVehicleEl=document.getElementById('kpiVehicleCount');
+    if(kpiPeopleEl&&(totalPersonIn+totalPersonOut)>0) kpiPeopleEl.textContent=currentPeople;
+    if(kpiVehicleEl&&(totalVehicleIn+totalVehicleOut)>0) kpiVehicleEl.textContent=currentVehicles;
   }
 
   // 启动AI数据定时获取（每3秒刷新一次）
