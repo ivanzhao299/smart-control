@@ -13,7 +13,7 @@ import { Public } from '../../common/decorators/public.decorator';
 @Controller('park-ops-control')
 export class ParkOpsControlController {
   private statePath: string;
-  private state: { page: number; autoPlay: boolean; timestamp: number; totalPages: number };
+  private state: { page: number; autoPlay: boolean; timestamp: number; totalPages: number; refreshRequested: boolean; refreshTimestamp: number };
 
   constructor() {
     const dataDir = process.env.DATA_DIR || join(process.cwd(), 'data');
@@ -26,12 +26,12 @@ export class ParkOpsControlController {
     if (existsSync(this.statePath)) {
       try {
         const s = JSON.parse(readFileSync(this.statePath, 'utf-8'));
-        return { ...s, totalPages: 6 }; // 运营大屏共6页
+        return { ...s, totalPages: 6, refreshRequested: s.refreshRequested || false, refreshTimestamp: s.refreshTimestamp || 0 }; // 运营大屏共6页
       } catch {
         // ignore
       }
     }
-    return { page: 0, autoPlay: false, timestamp: Date.now(), totalPages: 6 };
+    return { page: 0, autoPlay: false, timestamp: Date.now(), totalPages: 6, refreshRequested: false, refreshTimestamp: 0 };
   }
 
   private saveState() {
@@ -74,5 +74,13 @@ export class ParkOpsControlController {
     this.state.autoPlay = body.enabled !== undefined ? !!body.enabled : !this.state.autoPlay;
     this.saveState();
     return { success: true, message: this.state.autoPlay ? '自动轮播已开启' : '自动轮播已关闭', data: this.state };
+  }
+
+  @Post('refresh')
+  requestRefresh() {
+    this.state.refreshRequested = true;
+    this.state.refreshTimestamp = Date.now();
+    this.saveState();
+    return { success: true, message: '已发送强制刷新指令，运营大屏将在1秒内刷新', data: this.state };
   }
 }

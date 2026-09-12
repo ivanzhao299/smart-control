@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
 <title>金湖科创产业园·智慧运营总览</title>
-<link rel="stylesheet" href="./park-ops-editor.css?v=20260912-page-index-fix" />
+<link rel="stylesheet" href="./park-ops-editor.css?v=20260912-remote-refresh" />
 <script type="importmap">{"imports":{"three":"./vendor/three.module.min.js"}}</script>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
 <style>
@@ -318,12 +318,20 @@ document.getElementById('auto').onclick=function(){if(timer){clearInterval(timer
 (function initRemoteControl(){
   let lastPage = idx;
   let lastAuto = !!timer;
+  let lastRefreshTs = 0;
   async function poll(){
     try{
       const r = await fetch('/api/park-ops-control/state',{cache:'no-store'});
       const j = await r.json();
       if(!j.success||!j.data)return;
-      const {page, autoPlay} = j.data;
+      const {page, autoPlay, refreshRequested, refreshTimestamp} = j.data;
+      // 检测强制刷新指令
+      if(refreshRequested && refreshTimestamp && refreshTimestamp !== lastRefreshTs){
+        lastRefreshTs = refreshTimestamp;
+        // 延迟500ms执行刷新，确保API响应返回后再刷新
+        setTimeout(()=>{ window.location.reload(true); }, 500);
+        return;
+      }
       if(page !== lastPage){ lastPage = page; go(page); }
       if(autoPlay !== lastAuto){
         lastAuto = autoPlay;
@@ -704,10 +712,10 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
   window.initHlsPlayer = initHlsPlayer;
 })();
 </script>
-<script type="module" src="./park-ops-3d.js?v=20260912-page-index-fix"></script>
-<script src="./park-ops-editor.js?v=20260912-page-index-fix"></script>
+<script type="module" src="./park-ops-3d.js?v=20260912-remote-refresh"></script>
+<script src="./park-ops-editor.js?v=20260912-remote-refresh"></script>
 <!-- Business content starts AFTER the existing editor registers its stable text keys. -->
-<script src="./ops-content.js?v=20260912-page-index-fix"></script>
+<script src="./ops-content.js?v=20260912-remote-refresh"></script>
 <script>
 // 数据内联编辑功能
 (function(){

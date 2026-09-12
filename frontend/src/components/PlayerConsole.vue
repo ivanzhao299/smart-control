@@ -32,7 +32,7 @@ import {
   ArrowLeft, MonitorPlay, Play, Pause, Square, SkipBack, SkipForward,
   Upload, ListMusic, History, Pencil, Trash2, Plus, Repeat, Repeat1, AlertTriangle, GripVertical, FolderOpen, X,
   Globe,
-  ChevronLeft, ChevronRight, Power, ZoomIn, ZoomOut, Maximize, RefreshCw,
+  ChevronLeft, ChevronRight, Power, ZoomIn, ZoomOut, Maximize, RefreshCw, RotateCcw,
 } from 'lucide-vue-next';
 import { usePlaybackStore } from '@/stores/playback';
 import {
@@ -560,7 +560,7 @@ const parkOpsTotalPages = ref(6); // 运营大屏共6页，后端state会同步
 const parkOpsAuto = ref(false);
 const parkOpsBusy = ref(false);
 
-async function parkOpsControl(action: 'next' | 'prev' | 'auto'): Promise<void> {
+async function parkOpsControl(action: 'next' | 'prev' | 'auto' | 'refresh'): Promise<void> {
   if (parkOpsBusy.value) return;
   parkOpsBusy.value = true;
   try {
@@ -896,6 +896,10 @@ async function submitWebpage(): Promise<void> {
         <span class="pg-gap"></span>
         <button class="pg-btn" :class="{ on: parkOpsAuto }" :disabled="parkOpsBusy" @click="parkOpsControl('auto')">
           <RefreshCw :size="15" /> {{ parkOpsAuto ? '自动轮播：开' : '自动轮播：关' }}
+        </button>
+        <span class="pg-gap"></span>
+        <button class="pg-btn refresh-btn" :disabled="parkOpsBusy" @click="parkOpsControl('refresh')" title="强制刷新LED大屏浏览器，清除缓存加载最新代码">
+          <RotateCcw :size="15" /> 强制刷新
         </button>
       </div>
     </div><!-- /pc-sticky -->
@@ -1402,6 +1406,9 @@ async function submitWebpage(): Promise<void> {
 /* 运营大屏翻页控制条 */
 .park-ops-pager { background: linear-gradient(135deg, rgba(18,91,126,.15), var(--v2-surf-1)); border-color: rgba(99,217,255,.3); }
 .park-ops-pager .pg-btn.on { background: var(--v2-primary); color: var(--v2-on-primary); border-color: var(--v2-primary); }
+.park-ops-pager .pg-btn.refresh-btn { background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; border-color: #f59e0b; font-weight: 700; }
+.park-ops-pager .pg-btn.refresh-btn:hover { background: linear-gradient(135deg, #fbbf24, #f59e0b); box-shadow: 0 0 12px rgba(245,158,11,.4); }
+.park-ops-pager .pg-btn.refresh-btn:disabled { opacity: .5; cursor: not-allowed; }
 .pg-label { font-size: 14px; font-weight: 700; color: var(--v2-primary); margin-right: 4px; white-space: nowrap; }
 /* ---- 电源开关 (标题栏"待机"行末尾, 时序器同款拨动开关) ---- */
 /* 报警插槽在卡片内占满整行, 显示在顶部 (投影融合器状态) */
