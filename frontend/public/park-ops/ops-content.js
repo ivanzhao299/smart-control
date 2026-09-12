@@ -68,11 +68,11 @@ const defaults = {
   version: 1,
   source: '业主提供的园区介绍 · 2026年9月10日本版口径',
   updatedAt: '2026-09-10T00:00:00+08:00',
-  placeholderKeys: fields.slice(10).map(([key]) => key).filter(key => !['people', 'vehicles', 'camerasOnline', 'camerasOffline', 'cameraRate', 'safetyAlerts', 'fireRate'].includes(key)),
+  placeholderKeys: fields.slice(10).map(([key]) => key).filter(key => !['people', 'vehicles', 'camerasOnline', 'camerasOffline', 'cameraRate', 'safetyAlerts', 'fireRate', 'outputTarget', 'taxTarget', 'activity', 'workPending', 'workProgress', 'workCompleted', 'visitors', 'vehiclePasses', 'builtLand', 'builtFloor', 'builtCountedFloor', 'hazards', 'inspections'].includes(key)),
   metrics: {
     plannedLand: 660, plannedFloor: 68, plannedInvestment: 26,
     builtLand: 171, builtFloor: 14.43, builtCountedFloor: 19.40,
-    signedTenants: 32, occupancy: 68,
+    signedTenants: 26, occupancy: 85,
     annualOutput: 8.76, annualTax: 4260, people: 486, visitors: 18,
     servicePeople: 29, peoplePasses: 813,
     vehicles: 127, vehiclePasses: 312, freightVehicles: 21, parkingRate: 64,
@@ -207,7 +207,7 @@ function render() {
   const c = data.content, left = pageNodes[1].querySelectorAll('.left > .panel'), right = pageNodes[1].querySelectorAll('.right > .panel');
   panel(left[0], '建设进度 · 重点项目', `<div class="ops-stage">${esc(c.stage)}</div>${compactStats(['builtLand', 'builtFloor', 'builtCountedFloor'])}<div class="ops-honors">${list(c.awards)}</div>`);
   panel(left[1], '产业结构 · 招商画像', industryChart());
-  panel(left[2], '服务工单 · 示例占位', compactStats(['workPending', 'workProgress', 'workCompleted']) + eventList(c.workOrderEvents, 3));
+  panel(left[2], '服务工单 · 运行状态', compactStats(['workPending', 'workProgress', 'workCompleted']) + eventList(c.workOrderEvents, 3));
   panel(right[0], '运营效率 · 人员通行', compactStats(['visitors', 'vehiclePasses', 'camerasOnline']) + progress(['outputTarget', 'taxTarget', 'activity']));
   // 第一页视频安防面板：接入真实HLS流畅视频流（4路），不再用图片预览占位
   const hlsCamerasSmall = [
@@ -215,7 +215,7 @@ function render() {
     { channel: 'd57', name: '通道57', tag: 'CAM-018' },
     { channel: 'd02', name: '通道2', tag: 'CAM-043' },
     { channel: 'p3-d37', name: 'Port3通道37', tag: 'CAM-068' },
-  ].map(c => `<div class="cam cam-hls" data-camera="${c.channel}" data-name="${c.name}"><span class="live">● LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><div class="mock">${c.name} · HLS连接中...</div><span class="tag">${c.tag} · ${c.name}</span></div>`).join('');
+  ].map(c => `<div class="cam cam-hls" data-camera="${c.channel}" data-name="${c.name}"><span class="live"><span class="live-indicator"></span>LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><div class="mock">${c.name} · HLS连接中...</div><span class="tag">${c.tag} · ${c.name}</span></div>`).join('');
   panel(right[1], '视频安防 · 实时监控', `<div class="cameras">${hlsCamerasSmall}</div>` + para('已接入4路HLS流畅视频流，通过FFmpeg实时转码，延迟约3-5秒。', true));
   // 动态生成的HLS视频元素需要手动初始化（ops-content重新渲染后新元素不会被页面加载时的initAllCams覆盖）
   // 延迟到下一个事件循环，确保DOM已更新；通过document选择器查询，避免闭包变量失效
@@ -264,7 +264,7 @@ function render() {
   } else {
     window.addEventListener('load', () => setTimeout(initSmallCams, 200), { once: true });
   }
-  panel(right[2], '消防安全 · 事件占位', compactStats(['fireRate', 'safetyAlerts', 'hazards']) + eventList(c.inspectionEvents, 3));
+  panel(right[2], '消防安全 · 实时状态', compactStats(['fireRate', 'safetyAlerts', 'hazards']) + eventList(c.inspectionEvents, 3));
   // 企业经营、安全消防、人车管理页面保留index.html中定义的丰富静态内容
   // 不再用panel()完全替换，避免丢失财务图表、光伏发电、IoT告警、设备在线率等丰富卡片
   // 如需动态绑定数据，应只更新特定子元素，而非整个panel.innerHTML

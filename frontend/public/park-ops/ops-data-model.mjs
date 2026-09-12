@@ -65,11 +65,11 @@ export const defaults = {
   version: 1,
   source: '业主提供的园区介绍 · 2026年9月10日本版口径',
   updatedAt: '2026-09-10T00:00:00+08:00',
-  placeholderKeys: fields.slice(10).map(([key]) => key).filter(key => !['people', 'vehicles', 'camerasOnline', 'camerasOffline', 'cameraRate', 'safetyAlerts', 'fireRate'].includes(key)),
+  placeholderKeys: fields.slice(10).map(([key]) => key).filter(key => !['people', 'vehicles', 'camerasOnline', 'camerasOffline', 'cameraRate', 'safetyAlerts', 'fireRate', 'outputTarget', 'taxTarget', 'activity', 'workPending', 'workProgress', 'workCompleted', 'visitors', 'vehiclePasses', 'builtLand', 'builtFloor', 'builtCountedFloor', 'hazards', 'inspections'].includes(key)),
   metrics: {
     plannedLand: 660, plannedFloor: 68, plannedInvestment: 26,
     builtLand: 171, builtFloor: 14.43, builtCountedFloor: 19.40,
-    signedTenants: 32, occupancy: 68,
+    signedTenants: 26, occupancy: 85,
     annualOutput: 8.76, annualTax: 4260, people: 486, visitors: 18,
     servicePeople: 29, peoplePasses: 813,
     vehicles: 127, vehiclePasses: 312, freightVehicles: 21, parkingRate: 64,
