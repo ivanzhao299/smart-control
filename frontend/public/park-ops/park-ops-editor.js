@@ -862,11 +862,24 @@
     }
   }
 
-  prepareEditableText();
-  bindMapEditing();
-  bindTextEditing();
-  if (editing) createEditor();
-  loadRemoteConfig().finally(() => {
-    if (!editing) setInterval(() => loadRemoteConfig(true), 15000);
-  });
+  // 安全初始化：任何步骤失败都不应导致整个页面崩溃
+  function safeInit() {
+    try { prepareEditableText(); } catch (e) { console.warn('[ParkOps Editor] prepareEditableText failed:', e); }
+    try { bindMapEditing(); } catch (e) { console.warn('[ParkOps Editor] bindMapEditing failed:', e); }
+    try { bindTextEditing(); } catch (e) { console.warn('[ParkOps Editor] bindTextEditing failed:', e); }
+    if (editing) {
+      try { createEditor(); } catch (e) {
+        console.error('[ParkOps Editor] createEditor failed:', e);
+        // 创建编辑器失败时，显示友好提示而不是白屏
+        const fallback = document.createElement('div');
+        fallback.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.85);color:#fff;padding:24px 32px;border-radius:12px;text-align:center;z-index:99999;max-width:90vw';
+        fallback.innerHTML = `<h3 style="margin:0 0 12px;font-size:18px">布局校准加载失败</h3><p style="margin:0 0 16px;font-size:14px;color:#ccc">${e.message || '未知错误'}</p><button onclick="location.href=location.pathname" style="padding:8px 20px;background:#3b82f6;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">返回运营大屏</button>`;
+        document.body.appendChild(fallback);
+      }
+    }
+    loadRemoteConfig().finally(() => {
+      if (!editing) setInterval(() => { try { loadRemoteConfig(true); } catch (e) { /* 静默失败 */ } }, 15000);
+    }).catch(e => console.warn('[ParkOps Editor] loadRemoteConfig failed:', e));
+  }
+  safeInit();
 })();
