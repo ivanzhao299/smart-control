@@ -392,6 +392,14 @@ try {
   # arrives, and an already-deployed source SHA does not prove its DB migration ran.
   Push-Location (Join-Path $projectRoot 'backend')
   try {
+    # Guard: backend dist must exist before running migrations. The on-box watcher
+    # can fast-forward Git and leave dist stale/cleaned after a previous failed deploy.
+    $backendDataSource = Join-Path $projectRoot 'backend\dist\data-source.js'
+    if (-not (Test-Path $backendDataSource)) {
+      Write-DeployLog 'Backend dist/data-source.js missing; rebuilding backend before migrations.'
+      Invoke-Native 'pnpm.cmd' @('install', '--frozen-lockfile')
+      Invoke-Native 'pnpm.cmd' @('run', 'build')
+    }
     Write-DeployLog 'Reconciling DB migrations (run-migrations.js).'
     $migrationAttempted = $true
     & node scripts/run-migrations.js 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
