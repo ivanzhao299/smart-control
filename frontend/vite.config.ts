@@ -72,6 +72,27 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       {
+        name: 'park-ops-rewrite',
+        configureServer(server) {
+          server.middlewares.use((req, res, next) => {
+            if (req.url && /^\/control\/park-ops\/?(\?|$)/.test(req.url)) {
+              const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+              req.url = `/park-ops/index.html${query}`;
+            }
+            next();
+          });
+        },
+        configurePreviewServer(server) {
+          server.middlewares.use((req, res, next) => {
+            if (req.url && /^\/control\/park-ops\/?(\?|$)/.test(req.url)) {
+              const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+              req.url = `/park-ops/index.html${query}`;
+            }
+            next();
+          });
+        },
+      },
+      {
         name: 'publish-deployment-version',
         apply: 'build',
         generateBundle() {
