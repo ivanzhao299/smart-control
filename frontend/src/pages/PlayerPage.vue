@@ -486,7 +486,7 @@ function onAudioEnded(): void {
   background: #000;
   display: block;
 }
-.web-frame { object-fit: unset; border: 0; background: #fff; }
+.web-frame { object-fit: unset; border: 0; background: #000; }
 
 
 /* 音频播放可视化 (slot=3 背景音乐 — 这个 kiosk 窗口可见时显示) */
