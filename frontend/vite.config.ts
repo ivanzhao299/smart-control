@@ -74,7 +74,7 @@ export default defineConfig(({ mode }) => {
       {
         name: 'park-ops-rewrite',
         configureServer(server) {
-          server.middlewares.use((req, res, next) => {
+          server.middlewares.use((req, _res, next) => {
             if (req.url && /^\/control\/park-ops\/?(\?|$)/.test(req.url)) {
               const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
               req.url = `/park-ops/index.html${query}`;
@@ -83,7 +83,7 @@ export default defineConfig(({ mode }) => {
           });
         },
         configurePreviewServer(server) {
-          server.middlewares.use((req, res, next) => {
+          server.middlewares.use((req, _res, next) => {
             if (req.url && /^\/control\/park-ops\/?(\?|$)/.test(req.url)) {
               const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
               req.url = `/park-ops/index.html${query}`;
