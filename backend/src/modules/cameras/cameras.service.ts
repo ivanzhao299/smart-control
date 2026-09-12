@@ -79,6 +79,7 @@ export class CamerasService implements OnModuleDestroy {
   private hlsSessions = new Map<string, HlsSession>();
   private readonly hlsRootDir: string;
   private readonly ffmpegPath: string;
+  private healthCheckInterval: NodeJS.Timeout;
 
   constructor() {
     // HLS输出目录：项目根目录/tmp/hls
@@ -90,6 +91,68 @@ export class CamerasService implements OnModuleDestroy {
     // FFmpeg路径：优先使用环境变量，否则使用系统PATH
     this.ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
     this.logger.log(`HLS转码服务初始化，输出目录: ${this.hlsRootDir}, FFmpeg: ${this.ffmpegPath}`);
+
+    // 健康检查：每30秒检查所有HLS会话状态，异常自动重启
+    this.healthCheckInterval = setInterval(() => {
+      this.checkHlsHealth();
+    }, 30000);
+    this.logger.log('HLS健康检查守护已启动，每30秒检查一次');
+  }
+
+  /**
+   * 健康检查：监控FFmpeg进程状态和HLS分片更新，异常自动重启
+   */
+  private checkHlsHealth(): void {
+    for (const [channelKey, session] of this.hlsSessions.entries()) {
+      try {
+        // 检查1：进程是否还在运行
+        if (session.isRunning && session.process && session.process.killed) {
+          this.logger.warn(`[健康检查] ${channelKey} 进程已退出但标记为运行中，触发重启`);
+          session.isRunning = false;
+          if (session.restartCount < 10) {
+            session.restartCount++;
+            setTimeout(() => this.restartHlsStream(channelKey), 2000);
+          }
+          continue;
+        }
+
+        // 检查2：HLS分片是否在更新（超过30秒未更新则重启）
+        if (session.isRunning && fs.existsSync(session.playlistPath)) {
+          const stat = fs.statSync(session.playlistPath);
+          const age = Date.now() - stat.mtimeMs;
+          if (age > 30000) {
+            this.logger.warn(`[健康检查] ${channelKey} HLS分片超过${Math.round(age / 1000)}秒未更新，触发重启`);
+            session.process?.kill('SIGTERM');
+            session.isRunning = false;
+            if (session.restartCount < 10) {
+              session.restartCount++;
+              setTimeout(() => this.restartHlsStream(channelKey), 2000);
+            }
+          }
+        }
+
+        // 检查3：清理超过1小时的旧分片文件
+        if (fs.existsSync(session.outputDir)) {
+          const files = fs.readdirSync(session.outputDir);
+          const now = Date.now();
+          for (const file of files) {
+            if (file.endsWith('.ts')) {
+              const filePath = path.join(session.outputDir, file);
+              try {
+                const fstat = fs.statSync(filePath);
+                if (now - fstat.mtimeMs > 3600000) {
+                  fs.unlinkSync(filePath);
+                }
+              } catch (e) {
+                // 忽略删除错误
+              }
+            }
+          }
+        }
+      } catch (e) {
+        this.logger.error(`[健康检查] ${channelKey} 检查异常: ${(e as Error).message}`);
+      }
+    }
   }
 
   /**
@@ -97,6 +160,10 @@ export class CamerasService implements OnModuleDestroy {
    */
   onModuleDestroy() {
     this.logger.log('模块销毁，停止所有HLS转码会话');
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.logger.log('HLS健康检查守护已停止');
+    }
     for (const channel of this.hlsSessions.keys()) {
       this.stopHlsStream(channel);
     }
@@ -173,18 +240,22 @@ export class CamerasService implements OnModuleDestroy {
     this.logger.log(`启动HLS转码: ${channelKey} (${mapping.name}) -> ${outputDir}`);
     this.logger.log(`RTSP源: rtsp://${nvr.username}:****@${nvr.ip}:${nvr.rtspPort}/Streaming/Channels/${mapping.hikChannel}`);
 
-    // FFmpeg参数 — 最大化优化加载和切换速度
-    // 1. 视频流直接复制(-c:v copy)，不重新编码，CPU负载极低
-    // 2. 禁用音频(-an)，监控视频不需要
-    // 3. 子码流(XX02)低分辨率低码率
-    // 4. 1秒分片+3个分片，启动快延迟低
-    // 5. 低延迟模式+无缓冲
+    // FFmpeg参数 — HEVC/H.265转码为H.264，浏览器可播放
+    // 1. 录像机输出HEVC，浏览器hls.js不支持，必须转码为H.264
+    // 2. ultrafast preset + zerolatency tune，最低延迟
+    // 3. crf 28，质量和码率平衡
+    // 4. 禁用音频(-an)，监控视频不需要
+    // 5. 子码流(XX02)640x360低分辨率，降低转码CPU占用
+    // 6. 1秒分片+3个分片，启动快延迟低
     const ffmpegArgs = [
       '-rtsp_transport', 'tcp',
       '-fflags', 'nobuffer',
       '-flags', 'low_delay',
       '-i', rtspUrl,
-      '-c:v', 'copy',           // 直接复制H.264视频流，不重新编码
+      '-c:v', 'libx264',      // HEVC转码为H.264，浏览器可播放
+      '-preset', 'ultrafast',   // 最快编码速度
+      '-tune', 'zerolatency',   // 最低延迟
+      '-crf', '28',             // 质量和码率平衡
       '-an',                      // 禁用音频
       '-f', 'hls',
       '-hls_time', '1',           // 分片1秒，启动更快
@@ -228,15 +299,16 @@ export class CamerasService implements OnModuleDestroy {
       session.isRunning = false;
       this.logger.log(`[FFmpeg ${channelKey}] 进程退出，代码: ${code}`);
 
-      // 自动重启（最多重启5次）
-      if (session.restartCount < 5) {
+      // 自动重启（最多重启10次，指数退避）
+      if (session.restartCount < 10) {
         session.restartCount++;
-        this.logger.log(`[FFmpeg ${channelKey}] 自动重启 (第${session.restartCount}次)...`);
+        const delay = Math.min(3000 * session.restartCount, 15000);
+        this.logger.log(`[FFmpeg ${channelKey}] 自动重启 (第${session.restartCount}次，延迟${delay}ms)...`);
         setTimeout(() => {
           if (this.hlsSessions.has(channelKey)) {
             this.restartHlsStream(channelKey);
           }
-        }, 3000);
+        }, delay);
       } else {
         this.logger.error(`[FFmpeg ${channelKey}] 重启次数超限，停止自动重启`);
       }
@@ -301,7 +373,10 @@ export class CamerasService implements OnModuleDestroy {
       '-fflags', 'nobuffer',
       '-flags', 'low_delay',
       '-i', rtspUrl,
-      '-c:v', 'copy',           // 直接复制H.264视频流，不重新编码
+      '-c:v', 'libx264',      // HEVC转码为H.264，浏览器可播放
+      '-preset', 'ultrafast',   // 最快编码速度
+      '-tune', 'zerolatency',   // 最低延迟
+      '-crf', '28',             // 质量和码率平衡
       '-an',                      // 禁用音频
       '-f', 'hls',
       '-hls_time', '1',           // 分片1秒，启动更快
@@ -330,13 +405,14 @@ export class CamerasService implements OnModuleDestroy {
     process.on('close', (code) => {
       session.isRunning = false;
       this.logger.log(`[FFmpeg ${channelKey}] 进程退出，代码: ${code}`);
-      if (session.restartCount < 5) {
+      if (session.restartCount < 10) {
         session.restartCount++;
+        const delay = Math.min(3000 * session.restartCount, 15000);
         setTimeout(() => {
           if (this.hlsSessions.has(channelKey)) {
             this.restartHlsStream(channelKey);
           }
-        }, 3000);
+        }, delay);
       }
     });
   }
