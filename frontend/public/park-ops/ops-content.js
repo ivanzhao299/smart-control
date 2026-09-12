@@ -279,9 +279,20 @@ function render() {
   panel(p[2], '门岗事件 · 占位', list(c.gateEvents) + para('保留原演示事件，不是实时通行记录，可在运营数据中编辑。', true));
   // 视频监控页面(pageNodes[5])已接入真实HLS流畅视频流，不再用图片预览占位覆盖
   // 仅更新右侧摄像头状态面板的统计数据，左侧视频墙保持HLS实时画面
+  // 注意：不要用panel()完全替换整个panel，否则会覆盖掉aiAnalysisPanel（人车AI分析卡片）
   p = pageNodes[5].querySelectorAll('.panel');
   if (p[1]) {
-    panel(p[1], '摄像头状态', cards(['camerasOnline', 'camerasOffline', 'cameraRate', 'cameraPoints']) + para('已接入6路HLS流畅视频流（Port5录像机5路+Port3录像机1路），通过FFmpeg实时转码，延迟约3-5秒。视频通道及布局可在后台「视频绑定」页面可视化配置，无需改代码。'));
+    const cameraPanel = p[1];
+    // 只更新统计数据和描述文字，保留aiAnalysisPanel
+    const mini2 = cameraPanel.querySelector('.mini2');
+    if (mini2) {
+      mini2.innerHTML = cards(['camerasOnline', 'camerasOffline', 'cameraRate', 'cameraPoints']);
+    }
+    // 更新描述文字（在mini2之后、aiAnalysisPanel之前的那个div）
+    const descDiv = cameraPanel.querySelector(':scope > div[style*="margin-top:25px"]:not(#aiAnalysisPanel)');
+    if (descDiv) {
+      descDiv.innerHTML = '已接入6路HLS流畅视频流（Port5录像机5路+Port3录像机1路），通过FFmpeg实时转码，延迟约3-5秒。视频通道及布局可在后台「视频绑定」页面可视化配置，无需改代码。';
+    }
   }
   const footer = document.querySelector('.footerline');
   footer.removeAttribute('data-park-text-key');
