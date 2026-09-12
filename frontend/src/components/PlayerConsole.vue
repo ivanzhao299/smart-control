@@ -579,7 +579,14 @@ async function parkOpsControl(action: 'next' | 'prev' | 'auto' | 'refresh'): Pro
     }
   } catch (e) {
     ElMessage.error(`运营大屏控制失败: ${(e as Error).message}`);
-  } finally { parkOpsBusy.value = false; }
+  } finally {
+    // 刷新动作增加3秒冷却时间，防止快速点击多次发送刷新请求
+    if (action === 'refresh') {
+      setTimeout(() => { parkOpsBusy.value = false; }, 3000);
+    } else {
+      parkOpsBusy.value = false;
+    }
+  }
 }
 
 // 投放运营大屏时同步当前状态

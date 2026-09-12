@@ -40,16 +40,23 @@ export class ParkOpsControlController {
   }
 
   @Get('state')
-  getState() {
+  getState(@Query('consumeRefresh') consumeRefresh?: string) {
     // 自动清除过期的refresh请求（超过10秒），防止无限刷新循环
     if (this.state.refreshRequested && this.state.refreshTimestamp && Date.now() - this.state.refreshTimestamp > 10000) {
       this.state.refreshRequested = false;
       this.saveState();
     }
-    return {
+    const result = {
       success: true,
-      data: this.state,
+      data: { ...this.state },
     };
+    // 一次性消费：运营大屏端带 consumeRefresh=true 调用时，检测到刷新请求后立即重置
+    // 确保每次刷新请求只触发一次页面刷新，避免10秒内多次轮询导致重复刷新
+    if (consumeRefresh === 'true' && this.state.refreshRequested) {
+      this.state.refreshRequested = false;
+      this.saveState();
+    }
+    return result;
   }
 
   @Post('next')
