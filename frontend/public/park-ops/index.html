@@ -185,9 +185,16 @@ body.data-edit-mode .data-edit-tip{display:block}
       </div></div>
       <div class="panel bigpanel"><h3>摄像头状态 <small>CAMERA STATUS</small></h3><div class="mini2"><div class="stat"><b>86</b><span>在线</span></div><div class="stat"><b>2</b><span>离线</span></div><div class="stat"><b>97.7%</b><span>在线率</span></div><div class="stat"><b>6</b><span>已接入</span></div></div><div style="margin-top:25px;color:#88a6b8;font-size:17px;line-height:1.6">已接入6路HLS流畅视频流，通过FFmpeg实时转码，延迟约3-5秒。</div>
         <div id="aiAnalysisPanel" style="margin-top:25px;padding-top:20px;border-top:1px solid rgba(99,217,255,.12)"><h4 style="color:#e0f0f8;font-size:20px;margin:0 0 12px 0">人车AI分析 <small style="color:#6b8a9e;font-size:14px;font-weight:normal">AI TRAFFIC ANALYSIS</small></h4>
-          <div class="mini2" style="margin-bottom:15px">
+          <div class="mini2" style="margin-bottom:12px">
             <div class="stat"><b id="aiTotalPeople" style="font-size:26px">0</b><span style="font-size:15px">当前在场人数</span></div>
             <div class="stat"><b id="aiTotalVehicles" style="font-size:26px">0</b><span style="font-size:15px">当前在场车辆</span></div>
+          </div>
+          <div id="aiVehicleBreakdown" style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:15px;padding:10px;background:rgba(99,217,255,.04);border-radius:6px;border:1px solid rgba(99,217,255,.1)">
+            <div style="text-align:center"><b id="aiCarCount" style="display:block;font-size:18px;color:#63d9ff">0</b><span style="font-size:12px;color:#8fb3c7">轿车</span></div>
+            <div style="text-align:center"><b id="aiTruckCount" style="display:block;font-size:18px;color:#ff9f6b">0</b><span style="font-size:12px;color:#8fb3c7">货车</span></div>
+            <div style="text-align:center"><b id="aiBusCount" style="display:block;font-size:18px;color:#c7a8ff">0</b><span style="font-size:12px;color:#8fb3c7">客车</span></div>
+            <div style="text-align:center"><b id="aiMotoCount" style="display:block;font-size:18px;color:#62e6a8">0</b><span style="font-size:12px;color:#8fb3c7">电动车</span></div>
+            <div style="text-align:center"><b id="aiBikeCount" style="display:block;font-size:18px;color:#f0c040">0</b><span style="font-size:12px;color:#8fb3c7">自行车</span></div>
           </div>
           <div id="aiGateList" style="display:flex;flex-direction:column;gap:10px">
             <div class="ai-gate" data-gate="d37">
@@ -517,34 +524,61 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
   function updateAiPanel(data){
     if(!data) return;
     let totalPersonIn=0,totalPersonOut=0,totalVehicleIn=0,totalVehicleOut=0;
-    
+    let totalCarIn=0,totalCarOut=0,totalTruckIn=0,totalTruckOut=0;
+    let totalBusIn=0,totalBusOut=0,totalMotoIn=0,totalMotoOut=0;
+    let totalBikeIn=0,totalBikeOut=0;
+
     Object.keys(GATE_MAP).forEach(gateId=>{
       const gateData=data[gateId];
       const gateEl=document.querySelector(`.ai-gate[data-gate="${gateId}"]`);
       if(!gateEl||!gateData) return;
-      
+
       const pin=gateData.person_in||0,pout=gateData.person_out||0;
       const vin=gateData.vehicle_in||0,vout=gateData.vehicle_out||0;
-      
+
       gateEl.querySelector('.person-in').textContent=pin;
       gateEl.querySelector('.person-out').textContent=pout;
       gateEl.querySelector('.vehicle-in').textContent=vin;
       gateEl.querySelector('.vehicle-out').textContent=vout;
-      
+
       totalPersonIn+=pin;
       totalPersonOut+=pout;
       totalVehicleIn+=vin;
       totalVehicleOut+=vout;
+
+      // 累加细分车辆类型
+      totalCarIn+=gateData.car_in||0;
+      totalCarOut+=gateData.car_out||0;
+      totalTruckIn+=gateData.truck_in||0;
+      totalTruckOut+=gateData.truck_out||0;
+      totalBusIn+=gateData.bus_in||0;
+      totalBusOut+=gateData.bus_out||0;
+      totalMotoIn+=gateData.motorcycle_in||0;
+      totalMotoOut+=gateData.motorcycle_out||0;
+      totalBikeIn+=gateData.bicycle_in||0;
+      totalBikeOut+=gateData.bicycle_out||0;
     });
-    
+
     // 更新汇总（当前在场=进-出，最低为0）
     const currentPeople=Math.max(0,totalPersonIn-totalPersonOut);
     const currentVehicles=Math.max(0,totalVehicleIn-totalVehicleOut);
-    
+
     const peopleEl=document.getElementById('aiTotalPeople');
     const vehiclesEl=document.getElementById('aiTotalVehicles');
     if(peopleEl) peopleEl.textContent=currentPeople;
     if(vehiclesEl) vehiclesEl.textContent=currentVehicles;
+
+    // 更新车辆分类统计（当前在场数量）
+    const carEl=document.getElementById('aiCarCount');
+    const truckEl=document.getElementById('aiTruckCount');
+    const busEl=document.getElementById('aiBusCount');
+    const motoEl=document.getElementById('aiMotoCount');
+    const bikeEl=document.getElementById('aiBikeCount');
+    if(carEl) carEl.textContent=Math.max(0,totalCarIn-totalCarOut);
+    if(truckEl) truckEl.textContent=Math.max(0,totalTruckIn-totalTruckOut);
+    if(busEl) busEl.textContent=Math.max(0,totalBusIn-totalBusOut);
+    if(motoEl) motoEl.textContent=Math.max(0,totalMotoIn-totalMotoOut);
+    if(bikeEl) bikeEl.textContent=Math.max(0,totalBikeIn-totalBikeOut);
   }
 
   // 启动AI数据定时获取（每3秒刷新一次）
@@ -611,12 +645,19 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
       const w=(det.x2-det.x1)*canvas.width;
       const h=(det.y2-det.y1)*canvas.height;
 
-      // 根据类别选择颜色
+      // 根据类别选择颜色和标签
       let color='#00ff88'; // person - 绿色
       let label='人';
-      if(det.class==='car'||det.class==='truck'||det.class==='bus'||det.class==='motorcycle'){
-        color='#00bfff'; // vehicle - 蓝色
-        label=det.class==='car'?'车':det.class==='truck'?'货车':det.class==='bus'?'客车':'摩托';
+      if(det.class==='car'){
+        color='#00bfff'; label='轿车';
+      }else if(det.class==='truck'){
+        color='#ff9f6b'; label='货车';
+      }else if(det.class==='bus'){
+        color='#c7a8ff'; label='客车';
+      }else if(det.class==='motorcycle'){
+        color='#62e6a8'; label='电动车';
+      }else if(det.class==='bicycle'){
+        color='#f0c040'; label='自行车';
       }
 
       // 绘制框
