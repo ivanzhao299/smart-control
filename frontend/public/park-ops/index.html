@@ -176,49 +176,50 @@ body.data-edit-mode .data-edit-tip{display:block}
 
     <section class="page fullgrid" data-name="视频监控">
       <div class="panel bigpanel" style="grid-column:1/3"><h3>重点区域实时监控 <small>LIVE MONITORING</small></h3><div class="cameras" style="grid-template-columns:1fr 1fr 1fr;height:840px;gap:10px">
-        <div class="cam cam-hls" style="height:auto" data-camera="d37" data-name="大门"><span class="live">● LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><div class="mock">大门 · HLS连接中...</div><span class="tag">CAM-001 · D37大门</span></div>
-        <div class="cam cam-hls" style="height:auto" data-camera="d57" data-name="通道57"><span class="live">● LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><div class="mock">园区主干道 · HLS连接中...</div><span class="tag">CAM-018 · D57通道57</span></div>
+        <div class="cam cam-hls" style="height:auto" data-camera="d37" data-name="大门"><span class="live">● LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><canvas class="ai-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5"></canvas><div class="mock">大门 · HLS连接中...</div><span class="tag">CAM-001 · D37大门</span></div>
+        <div class="cam cam-hls" style="height:auto" data-camera="d57" data-name="通道57"><span class="live">● LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><canvas class="ai-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5"></canvas><div class="mock">园区主干道 · HLS连接中...</div><span class="tag">CAM-018 · D57通道57</span></div>
         <div class="cam cam-hls" style="height:auto" data-camera="d02" data-name="通道2"><span class="live">● LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><div class="mock">展贸中心 · HLS连接中...</div><span class="tag">CAM-043 · D02通道2</span></div>
-        <div class="cam cam-hls" style="height:auto" data-camera="p3-d37" data-name="Port3通道37"><span class="live">● LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><div class="mock">Port3通道37 · HLS连接中...</div><span class="tag">CAM-068 · P3-D37</span></div>
+        <div class="cam cam-hls" style="height:auto" data-camera="p3-d37" data-name="Port3通道37"><span class="live">● LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><canvas class="ai-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5"></canvas><div class="mock">Port3通道37 · HLS连接中...</div><span class="tag">CAM-068 · P3-D37</span></div>
         <div class="cam cam-hls" style="height:auto" data-camera="p3-d45" data-name="Port5通道45"><span class="live">● LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><div class="mock">Port5通道45 · HLS连接中...</div><span class="tag">CAM-069 · P5-D45</span></div>
         <div class="cam cam-hls" style="height:auto" data-camera="p3-d50" data-name="Port5通道50"><span class="live">● LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><div class="mock">Port5通道50 · HLS连接中...</div><span class="tag">CAM-070 · P5-D50</span></div>
       </div></div>
-      <div class="panel bigpanel"><h3>摄像头状态 <small>CAMERA STATUS</small></h3><div class="mini2"><div class="stat"><b>86</b><span>在线</span></div><div class="stat"><b>2</b><span>离线</span></div><div class="stat"><b>97.7%</b><span>在线率</span></div><div class="stat"><b>6</b><span>已接入</span></div></div><div style="margin-top:35px;color:#88a6b8;font-size:19px;line-height:1.8">已接入6路HLS流畅视频流：Port5录像机4路（D37大门、D57、D02、D45、D50），Port3录像机1路（D37），通过FFmpeg实时转码，延迟约3-5秒。视频通道绑定可在后台「视频绑定」页面可视化配置。</div></div>
-      <div class="panel bigpanel" id="aiAnalysisPanel"><h3>人车AI分析 <small>AI TRAFFIC ANALYSIS</small></h3>
-        <div class="mini2" style="margin-bottom:20px">
-          <div class="stat"><b id="aiTotalPeople">0</b><span>当前在场人数</span></div>
-          <div class="stat"><b id="aiTotalVehicles">0</b><span>当前在场车辆</span></div>
+      <div class="panel bigpanel"><h3>摄像头状态 <small>CAMERA STATUS</small></h3><div class="mini2"><div class="stat"><b>86</b><span>在线</span></div><div class="stat"><b>2</b><span>离线</span></div><div class="stat"><b>97.7%</b><span>在线率</span></div><div class="stat"><b>6</b><span>已接入</span></div></div><div style="margin-top:25px;color:#88a6b8;font-size:17px;line-height:1.6">已接入6路HLS流畅视频流，通过FFmpeg实时转码，延迟约3-5秒。</div>
+        <div id="aiAnalysisPanel" style="margin-top:25px;padding-top:20px;border-top:1px solid rgba(99,217,255,.12)"><h4 style="color:#e0f0f8;font-size:20px;margin:0 0 12px 0">人车AI分析 <small style="color:#6b8a9e;font-size:14px;font-weight:normal">AI TRAFFIC ANALYSIS</small></h4>
+          <div class="mini2" style="margin-bottom:15px">
+            <div class="stat"><b id="aiTotalPeople" style="font-size:26px">0</b><span style="font-size:15px">当前在场人数</span></div>
+            <div class="stat"><b id="aiTotalVehicles" style="font-size:26px">0</b><span style="font-size:15px">当前在场车辆</span></div>
+          </div>
+          <div id="aiGateList" style="display:flex;flex-direction:column;gap:10px">
+            <div class="ai-gate" data-gate="d37">
+              <div class="gate-name" style="font-size:17px;color:#c9ddea;margin-bottom:6px">北大门 · D37</div>
+              <div class="gate-stats" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px">
+                <span style="font-size:14px;color:#8fb3c7;text-align:center"><b class="person-in" style="display:block;font-size:18px;color:#62e6a8">0</b>人进</span>
+                <span style="font-size:14px;color:#8fb3c7;text-align:center"><b class="person-out" style="display:block;font-size:18px;color:#ff9f6b">0</b>人出</span>
+                <span style="font-size:14px;color:#8fb3c7;text-align:center"><b class="vehicle-in" style="display:block;font-size:18px;color:#63d9ff">0</b>车进</span>
+                <span style="font-size:14px;color:#8fb3c7;text-align:center"><b class="vehicle-out" style="display:block;font-size:18px;color:#c7a8ff">0</b>车出</span>
+              </div>
+            </div>
+            <div class="ai-gate" data-gate="d57">
+              <div class="gate-name" style="font-size:17px;color:#c9ddea;margin-bottom:6px">西大门 · D57</div>
+              <div class="gate-stats" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px">
+                <span style="font-size:14px;color:#8fb3c7;text-align:center"><b class="person-in" style="display:block;font-size:18px;color:#62e6a8">0</b>人进</span>
+                <span style="font-size:14px;color:#8fb3c7;text-align:center"><b class="person-out" style="display:block;font-size:18px;color:#ff9f6b">0</b>人出</span>
+                <span style="font-size:14px;color:#8fb3c7;text-align:center"><b class="vehicle-in" style="display:block;font-size:18px;color:#63d9ff">0</b>车进</span>
+                <span style="font-size:14px;color:#8fb3c7;text-align:center"><b class="vehicle-out" style="display:block;font-size:18px;color:#c7a8ff">0</b>车出</span>
+              </div>
+            </div>
+            <div class="ai-gate" data-gate="p3-d37">
+              <div class="gate-name" style="font-size:17px;color:#c9ddea;margin-bottom:6px">东大门 · P3-D37</div>
+              <div class="gate-stats" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px">
+                <span style="font-size:14px;color:#8fb3c7;text-align:center"><b class="person-in" style="display:block;font-size:18px;color:#62e6a8">0</b>人进</span>
+                <span style="font-size:14px;color:#8fb3c7;text-align:center"><b class="person-out" style="display:block;font-size:18px;color:#ff9f6b">0</b>人出</span>
+                <span style="font-size:14px;color:#8fb3c7;text-align:center"><b class="vehicle-in" style="display:block;font-size:18px;color:#63d9ff">0</b>车进</span>
+                <span style="font-size:14px;color:#8fb3c7;text-align:center"><b class="vehicle-out" style="display:block;font-size:18px;color:#c7a8ff">0</b>车出</span>
+              </div>
+            </div>
+          </div>
+          <div style="margin-top:12px;color:#6b8a9e;font-size:14px;line-height:1.5">基于YOLOv8+ByteTrack实时越线计数，3秒刷新</div>
         </div>
-        <div id="aiGateList" style="display:flex;flex-direction:column;gap:12px">
-          <div class="ai-gate" data-gate="d37">
-            <div class="gate-name">北大门 · D37</div>
-            <div class="gate-stats">
-              <span><b class="person-in">0</b>人进</span>
-              <span><b class="person-out">0</b>人出</span>
-              <span><b class="vehicle-in">0</b>车进</span>
-              <span><b class="vehicle-out">0</b>车出</span>
-            </div>
-          </div>
-          <div class="ai-gate" data-gate="d57">
-            <div class="gate-name">西大门 · D57</div>
-            <div class="gate-stats">
-              <span><b class="person-in">0</b>人进</span>
-              <span><b class="person-out">0</b>人出</span>
-              <span><b class="vehicle-in">0</b>车进</span>
-              <span><b class="vehicle-out">0</b>车出</span>
-            </div>
-          </div>
-          <div class="ai-gate" data-gate="p3-d37">
-            <div class="gate-name">东大门 · P3-D37</div>
-            <div class="gate-stats">
-              <span><b class="person-in">0</b>人进</span>
-              <span><b class="person-out">0</b>人出</span>
-              <span><b class="vehicle-in">0</b>车进</span>
-              <span><b class="vehicle-out">0</b>车出</span>
-            </div>
-          </div>
-        </div>
-        <div style="margin-top:15px;color:#6b8a9e;font-size:16px;line-height:1.6">基于YOLOv8+ByteTrack实时越线计数，3秒刷新</div>
       </div>
     </section>
 
@@ -488,7 +489,7 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
   observer.observe(document.body,{attributes:true,subtree:true,attributeFilter:['class']});
 
   // ==================== AI视频分析数据实时获取 ====================
-  const AI_API_BASE='http://10.66.66.3:8000';
+  const AI_API_BASE='http://localhost:8000';
   const GATE_MAP={
     'd37':{name:'北大门',element:null},
     'd57':{name:'西大门',element:null},
@@ -550,6 +551,95 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
   fetchAiStats();
   setInterval(fetchAiStats,3000);
   console.log('[ParkOps] AI视频分析数据实时获取已启动，3秒刷新');
+
+  // ==================== AI检测框可视化叠加 ====================
+  const AI_GATE_IDS=['d37','d57','p3-d37'];
+  let aiDetectionsData={};
+
+  async function fetchAiDetections(){
+    try{
+      const response=await fetch(`${AI_API_BASE}/api/detections`,{cache:'no-store'});
+      if(!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data=await response.json();
+      aiDetectionsData=data;
+      AI_GATE_IDS.forEach(camId=>{
+        if(data[camId]&&data[camId].detections){
+          drawAiDetections(camId,data[camId]);
+        }
+      });
+    }catch(e){
+      // 静默失败，不影响视频播放
+    }
+  }
+
+  function drawAiDetections(camId,camData){
+    const camEl=document.querySelector(`.cam[data-camera="${camId}"]`);
+    if(!camEl) return;
+    const canvas=camEl.querySelector('.ai-overlay');
+    if(!canvas) return;
+    const video=camEl.querySelector('.cam-video');
+    if(!video||video.style.display==='none') return;
+
+    // 设置Canvas尺寸为元素实际尺寸
+    const rect=camEl.getBoundingClientRect();
+    if(canvas.width!==rect.width||canvas.height!==rect.height){
+      canvas.width=rect.width;
+      canvas.height=rect.height;
+    }
+    const ctx=canvas.getContext('2d');
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    const detections=camData.detections||[];
+    const countLine=camData.count_line;
+
+    // 绘制虚拟计数线
+    if(countLine&&countLine.length===2){
+      ctx.strokeStyle='rgba(255,200,0,0.6)';
+      ctx.lineWidth=2;
+      ctx.setLineDash([6,4]);
+      ctx.beginPath();
+      ctx.moveTo(countLine[0].x*canvas.width,countLine[0].y*canvas.height);
+      ctx.lineTo(countLine[1].x*canvas.width,countLine[1].y*canvas.height);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // 绘制检测框
+    detections.forEach(det=>{
+      const x=det.x1*canvas.width;
+      const y=det.y1*canvas.height;
+      const w=(det.x2-det.x1)*canvas.width;
+      const h=(det.y2-det.y1)*canvas.height;
+
+      // 根据类别选择颜色
+      let color='#00ff88'; // person - 绿色
+      let label='人';
+      if(det.class==='car'||det.class==='truck'||det.class==='bus'||det.class==='motorcycle'){
+        color='#00bfff'; // vehicle - 蓝色
+        label=det.class==='car'?'车':det.class==='truck'?'货车':det.class==='bus'?'客车':'摩托';
+      }
+
+      // 绘制框
+      ctx.strokeStyle=color;
+      ctx.lineWidth=2;
+      ctx.strokeRect(x,y,w,h);
+
+      // 绘制标签背景
+      const labelText=`${label} ${Math.round(det.conf*100)}%`;
+      ctx.font='12px monospace';
+      const textWidth=ctx.measureText(labelText).width;
+      ctx.fillStyle=color;
+      ctx.fillRect(x,y-16,textWidth+8,16);
+
+      // 绘制标签文字
+      ctx.fillStyle='#000';
+      ctx.fillText(labelText,x+4,y-4);
+    });
+  }
+
+  // 启动检测框定时获取（每500ms刷新一次，轻量化）
+  setInterval(fetchAiDetections,500);
+  console.log('[ParkOps] AI检测框可视化叠加已启动，500ms刷新');
 
   // 如果当前已经在视频监控页，直接启动
   const currentVideoPage=document.querySelector('[data-name="视频监控"].active');
