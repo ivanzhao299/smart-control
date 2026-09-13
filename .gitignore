@@ -11,3 +11,6 @@ database/*.db
 database/*.db-journal
 database/*.db-shm
 database/*.db-wal
+
+# 视频绑定配置（包含敏感信息，不提交到仓库）
+backend/data/video-binding.json
