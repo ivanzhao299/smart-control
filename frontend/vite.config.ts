@@ -118,10 +118,13 @@ export default defineConfig(({ mode }) => {
           cpSync(sourceDir, outputDir, { recursive: true, force: true });
 
           const dashboard = resolve(outputDir, 'index.html');
+          const appJs = resolve(outputDir, 'js', 'app.js');
           const aerial = resolve(outputDir, 'park-aerial.jpg');
           const relief = resolve(outputDir, 'park-aerial-relief.glb');
           const viewer = resolve(outputDir, 'park-ops-3d.js');
-          if (!existsSync(dashboard) || !readFileSync(dashboard, 'utf8').includes('window.PARK_DEMO')) {
+          const hasParkDemo = (existsSync(dashboard) && readFileSync(dashboard, 'utf8').includes('window.PARK_DEMO')) ||
+                               (existsSync(appJs) && readFileSync(appJs, 'utf8').includes('window.PARK_DEMO'));
+          if (!existsSync(dashboard) || !hasParkDemo) {
             throw new Error('Required park-ops dashboard was not published into the frontend build.');
           }
           if (!existsSync(aerial) || statSync(aerial).size < 100_000) {
