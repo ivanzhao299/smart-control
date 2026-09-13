@@ -1,0 +1,39 @@
+{
+  "name": "smart-control-frontend",
+  "version": "0.5.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "node ../tools/park-ops/build-content.cjs --check && vue-tsc -b && vite build",
+    "build:deploy": "node ../tools/park-ops/build-content.cjs --check && vite build",
+    "preview": "vite preview --port 5173 --host",
+    "icons": "node scripts/gen-icons.mjs",
+    "typecheck": "vue-tsc --noEmit",
+    "preinstall": "npx only-allow pnpm"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
+    "axios": "^1.7.2",
+    "element-plus": "^2.7.7",
+    "lucide-vue-next": "^1.0.0",
+    "pdfjs-dist": "^4.10.38",
+    "pinia": "^2.2.0",
+    "vue": "^3.4.31",
+    "vue-router": "^4.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "@vitejs/plugin-vue": "^5.0.5",
+    "typescript": "^5.5.3",
+    "unplugin-auto-import": "^0.17.6",
+    "unplugin-vue-components": "^0.27.2",
+    "vite": "^5.3.3",
+    "vite-plugin-pwa": "^0.20.0",
+    "vue-tsc": "^2.0.26"
+  },
+  "packageManager": "pnpm@10.33.4",
+  "engines": {
+    "pnpm": ">=8"
+  }
+}

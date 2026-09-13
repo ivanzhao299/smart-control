@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>金湖展贸中心 · 应急操作卡</title>
+<style>
+  /* ============ 屏幕和打印通用 ============ */
+  @page {
+    size: A4 portrait;
+    margin: 12mm 14mm;
+  }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", sans-serif;
+    color: #1a1a1a;
+    background: #f0f0f0;
+  }
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    padding: 14mm 16mm;
+    background: #fff;
+    margin: 20px auto;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    box-sizing: border-box;
+  }
+
+  /* ============ 顶部品牌区 ============ */
+  .brand {
+    border-bottom: 4px solid #1e40af;
+    padding-bottom: 10px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .brand h1 {
+    font-size: 22pt;
+    color: #1e40af;
+    margin: 0;
+    letter-spacing: 1px;
+  }
+  .brand .sub {
+    font-size: 11pt;
+    color: #666;
+    margin-top: 4px;
+  }
+  .brand-right {
+    text-align: right;
+    font-size: 10pt;
+    color: #888;
+  }
+
+  h2 {
+    font-size: 14pt;
+    color: #fff;
+    background: linear-gradient(90deg, #1e40af, #2563eb);
+    padding: 6px 14px;
+    margin: 16px 0 10px;
+    border-radius: 4px;
+  }
+
+  /* ============ 现象卡片 ============ */
+  .case {
+    border: 2px solid #d4d4d8;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    background: #fafafa;
+    page-break-inside: avoid;
+  }
+  .case.crit { border-color: #dc2626; background: #fef2f2; }
+  .case.warn { border-color: #f59e0b; background: #fffbeb; }
+  .case.norm { border-color: #2563eb; background: #eff6ff; }
+
+  .case-title {
+    font-size: 13pt;
+    font-weight: bold;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 3px;
+    font-size: 9pt;
+    color: #fff;
+    font-weight: normal;
+    letter-spacing: 1px;
+  }
+  .badge.crit { background: #dc2626; }
+  .badge.warn { background: #f59e0b; }
+  .badge.norm { background: #2563eb; }
+  .badge.info { background: #6b7280; }
+
+  .case ol {
+    margin: 4px 0 0 0;
+    padding-left: 22px;
+    line-height: 1.6;
+    font-size: 11pt;
+  }
+  .case ol li { margin-bottom: 2px; }
+
+  /* ============ 关键信息块 ============ */
+  .keyinfo {
+    border: 2px solid #1e40af;
+    border-radius: 6px;
+    padding: 12px 16px;
+    background: #f0f6ff;
+    margin-bottom: 12px;
+  }
+  .keyinfo table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .keyinfo td {
+    padding: 4px 0;
+    font-size: 11pt;
+    vertical-align: top;
+  }
+  .keyinfo td:first-child {
+    color: #666;
+    width: 30%;
+    font-weight: normal;
+  }
+  .keyinfo td:last-child {
+    font-weight: bold;
+    font-family: "JetBrains Mono", "Cascadia Mono", "Source Code Pro", "SF Mono", Consolas, monospace;
+  }
+  .contact-fill {
+    display: inline-block;
+    border-bottom: 1px solid #1a1a1a;
+    min-width: 140px;
+    height: 14pt;
+  }
+
+  /* ============ 安全规则块 ============ */
+  .rules {
+    background: #fef3c7;
+    border-left: 6px solid #f59e0b;
+    padding: 10px 14px;
+    margin-top: 14px;
+    font-size: 11pt;
+    line-height: 1.6;
+  }
+  .rules strong { color: #b45309; }
+
+  /* ============ 底部 ============ */
+  .footer {
+    margin-top: 18px;
+    padding-top: 10px;
+    border-top: 1px dashed #999;
+    font-size: 9pt;
+    color: #888;
+    text-align: center;
+    line-height: 1.5;
+  }
+
+  /* ============ 打印时 ============ */
+  @media print {
+    body { background: #fff; }
+    .page {
+      width: auto;
+      min-height: auto;
+      margin: 0;
+      box-shadow: none;
+      padding: 0;
+    }
+    .no-print { display: none; }
+  }
+
+  /* 屏幕显示时的小按钮 */
+  .no-print {
+    text-align: center;
+    margin: 16px 0;
+  }
+  .no-print button {
+    background: #1e40af;
+    color: #fff;
+    border: none;
+    padding: 10px 24px;
+    font-size: 12pt;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .no-print button:hover { background: #1e3a8a; }
+</style>
+</head>
+<body>
+
+<div class="no-print">
+  <button onclick="window.print()">🖨 打印 / 保存为 PDF</button>
+</div>
+
+<div class="page">
+
+  <!-- ========== 顶部品牌区 ========== -->
+  <div class="brand">
+    <div>
+      <h1>金湖展贸中心 智能控制系统</h1>
+      <div class="sub">应急操作卡 · Emergency Operations Card</div>
+    </div>
+    <div class="brand-right">
+      请塑封后张贴<br>
+      主控室门内 / 控制台旁 / 弱电机柜<br>
+      共 3 处
+    </div>
+  </div>
+
+  <!-- ========== 现象 1: 平板打不开页面 ========== -->
+  <h2>故障排查 — 平板/控制端</h2>
+
+  <div class="case warn">
+    <div class="case-title">
+      <span class="badge warn">现象 1</span>
+      平板打不开 <code>http://192.168.50.10/control/</code>
+    </div>
+    <ol>
+      <li>看主控机 (1F 弱电机柜内) 电源指示灯是否常亮</li>
+      <li>看主控机后部 <strong>两根网线</strong>都插好, 网卡指示灯闪烁</li>
+      <li>平板/手机自身网络是否正常 (WiFi 显示正常)</li>
+      <li>仍不行 → 联系下方驻场工程师</li>
+    </ol>
+  </div>
+
+  <div class="case warn">
+    <div class="case-title">
+      <span class="badge warn">现象 2</span>
+      某区灯光 / 空调 / 音响打不开
+    </div>
+    <ol>
+      <li>看对应设备本体是否物理通电 (有指示灯)</li>
+      <li>平板上重试 1-2 次</li>
+      <li>后台 (<code>/admin/</code>) → 设备管理 → 查对应设备状态 (离线 / 在线)</li>
+      <li>仍异常 → 联系下方驻场工程师</li>
+    </ol>
+  </div>
+
+  <!-- ========== 现象 3: 主机死机 ========== -->
+  <h2>故障排查 — 主控机</h2>
+
+  <div class="case crit">
+    <div class="case-title">
+      <span class="badge crit">现象 3</span>
+      主控机死机 (远程也连不上, 平板全黑)
+    </div>
+    <ol>
+      <li>到 1F 弱电机柜找到 GK9000 主机</li>
+      <li><strong>长按电源键 10 秒</strong>强制关机, 等指示灯熄灭</li>
+      <li>等 30 秒, 再短按电源键开机</li>
+      <li>等待 2 分钟, 系统自动启动 (会自动登录 + 自动恢复服务)</li>
+      <li>平板试访问 <code>http://192.168.50.10/control/</code></li>
+      <li>仍不行 → 立即联系驻场工程师</li>
+    </ol>
+  </div>
+
+  <!-- ========== 现象 4: 紧急情况 ========== -->
+  <h2>火警 / 紧急情况</h2>
+
+  <div class="case crit">
+    <div class="case-title">
+      <span class="badge crit">现象 4</span>
+      火警 / 安全事故 / 人员紧急情况
+    </div>
+    <ol>
+      <li><strong>优先按消防 / 安全流程处置</strong>, 不要管中控系统</li>
+      <li>中控会随建筑断电自动安全关停, 无需额外操作</li>
+      <li>事后恢复供电, 系统会自动重启 (按 §现象 3 步骤恢复)</li>
+    </ol>
+  </div>
+
+  <!-- ========== 关键信息 ========== -->
+  <h2>关键信息</h2>
+
+  <div class="keyinfo">
+    <table>
+      <tr><td>主控机型号</td><td>占美 GIADA GK9000 (Windows 10)</td></tr>
+      <tr><td>主控机位置</td><td>1F 弱电机柜内</td></tr>
+      <tr><td>设备网 IP</td><td>192.168.50.10</td></tr>
+      <tr><td>平板入口</td><td>http://192.168.50.10/control/</td></tr>
+      <tr><td>管理后台</td><td>http://192.168.50.10/control/#/admin</td></tr>
+      <tr><td>默认账号</td><td>admin (现场已改密)</td></tr>
+    </table>
+  </div>
+
+  <!-- ========== 联系电话 ========== -->
+  <h2>紧急联系人</h2>
+
+  <div class="keyinfo">
+    <table>
+      <tr>
+        <td>驻场工程师</td>
+        <td>姓名 <span class="contact-fill"></span> &nbsp;&nbsp; 电话 <span class="contact-fill"></span></td>
+      </tr>
+      <tr>
+        <td>IT 支持</td>
+        <td>姓名 <span class="contact-fill"></span> &nbsp;&nbsp; 电话 <span class="contact-fill"></span></td>
+      </tr>
+      <tr>
+        <td>设施管理员</td>
+        <td>姓名 <span class="contact-fill"></span> &nbsp;&nbsp; 电话 <span class="contact-fill"></span></td>
+      </tr>
+      <tr>
+        <td>消防 / 安保</td>
+        <td>姓名 <span class="contact-fill"></span> &nbsp;&nbsp; 电话 <span class="contact-fill"></span></td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- ========== 黄金法则 ========== -->
+  <div class="rules">
+    <strong>⚠ 黄金法则</strong> &nbsp;
+    1) 任何不确定 → <strong>不要乱按</strong>, 联系工程师 &nbsp;|&nbsp;
+    2) 优先保人, 系统次之 &nbsp;|&nbsp;
+    3) 强制关机只在远程也连不上时用 &nbsp;|&nbsp;
+    4) 不要拔机柜里任何网线 (除非工程师远程指导)
+  </div>
+
+  <!-- ========== 底部 ========== -->
+  <div class="footer">
+    金湖展贸中心智能控制系统 · 版本 Sprint-10 · 更新日期 2026-05-20<br>
+    文档源: <code>docs/printable/emergency-card.html</code> · 完整运维手册见 <code>docs/HOST_OPERATIONS.md</code>
+  </div>
+
+</div>
+
+</body>
+</html>

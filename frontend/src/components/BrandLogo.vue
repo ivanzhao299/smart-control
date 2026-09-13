@@ -1,0 +1,130 @@
+<script setup lang="ts">
+import { computed, ref } from 'vue';
+import { useSystemBrandingStore } from '@/stores/system-branding';
+
+const props = withDefaults(
+  defineProps<{
+    /** 整块高度 (px); 宽度由 aspect 自动算 */
+    height?: number;
+    /** 显式 width (px), 仅在需要精确控件大小时传 */
+    width?: number;
+    /** 使用真实公司 LOGO 图片 (默认 true). 设 false 强制使用 SVG 几何标识 */
+    useImage?: boolean;
+    /**
+     * 图片路径 (优先级最高 — 显式传就用这个).
+     * 不传时按顺序回退: SystemBranding.logoUrl → BASE_URL + 'brand-logo.png'
+     */
+    src?: string;
+    alt?: string;
+    active?: boolean;
+  }>(),
+  {
+    height: 44,
+    width: undefined,
+    useImage: true,
+    src: undefined,
+    alt: undefined,
+    active: true,
+  },
+);
+
+const brandingStore = useSystemBrandingStore();
+const imageBroken = ref(false);
+
+// 优先级: 显式 props.src → SystemBranding.logoUrl → 默认 brand-logo.png
+const imageSrc = computed<string>(() => {
+  if (props.src) return props.src;
+  const fromBranding = brandingStore.branding.logoUrl;
+  if (fromBranding) return fromBranding;
+  return `${import.meta.env.BASE_URL}brand-logo.png`;
+});
+const altText = computed<string>(() => props.alt ?? brandingStore.branding.systemName);
+const showImage = computed<boolean>(() => props.useImage && !imageBroken.value);
+</script>
+
+<template>
+  <div
+    class="brand-logo"
+    :class="{ 'is-active': active, 'is-image': showImage }"
+    :style="{
+      height: height + 'px',
+      width: width ? width + 'px' : undefined,
+    }"
+    aria-hidden="true"
+  >
+    <!-- 公司 LOGO 图片 -->
+    <img
+      v-if="showImage"
+      :src="imageSrc"
+      :alt="altText"
+      class="logo-img"
+      @error="imageBroken = true"
+    />
+
+    <!-- 回退: SVG 几何标识 (图片缺失 / useImage=false) -->
+    <template v-else>
+      <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" class="logo-svg">
+        <defs>
+          <linearGradient id="bl-grad" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#4C9AFF" />
+            <stop offset="1" stop-color="#9BA1A9" />
+          </linearGradient>
+        </defs>
+        <rect x="0" y="0" width="48" height="48" rx="12" fill="url(#bl-grad)" />
+        <circle cx="24" cy="24" r="13.5" fill="none" stroke="rgba(255,255,255,0.85)" stroke-width="1.6" />
+        <circle cx="24" cy="24" r="8" fill="none" stroke="rgba(255,255,255,0.95)" stroke-width="1.6" />
+        <circle cx="24" cy="24" r="3.4" fill="#ffffff" />
+        <circle cx="24" cy="6"  r="1.6" fill="rgba(255,255,255,0.95)" />
+        <circle cx="42" cy="24" r="1.6" fill="rgba(255,255,255,0.95)" />
+      </svg>
+      <span v-if="active" class="pulse" />
+    </template>
+  </div>
+</template>
+
+<style scoped>
+.brand-logo {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo-img {
+  /* 之前 contain + 白底 padding: 图片比框小一圈, 看着像"外面圆角卡片、里面又是一张
+     方形小图" —— 改 cover 让图直接填满整个框, 圆角切在图片本身边缘上, 不再露白边。 */
+  height: 100%;
+  width: 100%;
+  aspect-ratio: 1;
+  /* 2026-07-30: cover→contain — 新版 brand-logo 是透明底宽幅图形, cover 会裁掉
+     两侧; contain 完整显示, 透明底也不再需要投影圈 (会显出一圈"鬼影"方框)。 */
+  object-fit: contain;
+  display: block;
+  border-radius: 12px;
+}
+
+.logo-svg {
+  height: 100%;
+  aspect-ratio: 1;
+  border-radius: 14px;
+  display: block;
+  box-shadow: 0 8px 20px -8px rgba(76, 154, 255, 0.55);
+}
+
+.pulse {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 8%; height: 8%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.65);
+  animation: bl-pulse 2.4s ease-out infinite;
+  pointer-events: none;
+}
+.brand-logo.is-image .pulse { display: none; }
+@keyframes bl-pulse {
+  0%   { transform: translate(-50%, -50%) scale(1);   opacity: 0.7; }
+  70%  { transform: translate(-50%, -50%) scale(4);   opacity: 0;   }
+  100% { transform: translate(-50%, -50%) scale(4);   opacity: 0;   }
+}
+</style>

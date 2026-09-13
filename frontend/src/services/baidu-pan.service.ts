@@ -1,0 +1,51 @@
+import { api } from './http';
+
+/**
+ * 百度网盘接入 — 配置(AppKey/SecretKey) → 设备码授权(手机输码) → 浏览文件夹 →
+ * GK9000 服务器代下载入媒体库 (流式落盘, 前端轮询进度)。
+ */
+
+export interface PanFile {
+  fsId: number;
+  path: string;
+  name: string;
+  isDir: boolean;
+  sizeBytes: number;
+  category: number;
+  downloaded: boolean;
+  ingestible: boolean;
+}
+
+export interface PanStatus {
+  configured: boolean;
+  authorized: boolean;
+  /** 可见根目录 (null=全盘可见) — 浏览/下载被服务端钳制在此目录内 */
+  rootPath: string | null;
+  download: {
+    active: { name: string; receivedBytes: number; totalBytes: number | null; startedAt: number } | null;
+    last: { ok: boolean; name: string; message: string; at: number } | null;
+  };
+}
+
+export interface PanAuthStart {
+  userCode: string;
+  verificationUrl: string;
+  qrcodeUrl: string | null;
+  expiresIn: number;
+  interval: number;
+}
+
+// 远程 WireGuard 链路慢 (媒体缩略图会占满并发连接), 默认 15s 超时不够用 —— 统一放宽 30s
+const SLOW_LINK_TIMEOUT = 30_000;
+
+export const baiduPanService = {
+  status: () => api.get<PanStatus>('/baidu-pan/status', { timeout: SLOW_LINK_TIMEOUT }),
+  saveConfig: (appKey: string, secretKey: string) =>
+    api.post<null>('/baidu-pan/config', { appKey, secretKey }, { timeout: SLOW_LINK_TIMEOUT }),
+  authStart: () => api.post<PanAuthStart>('/baidu-pan/auth/start', undefined, { timeout: SLOW_LINK_TIMEOUT }),
+  authPoll: () =>
+    api.post<{ authorized: boolean; pending: string | null }>('/baidu-pan/auth/poll', undefined, { timeout: SLOW_LINK_TIMEOUT }),
+  list: (dir: string) => api.get<{ dir: string; entries: PanFile[]; rootPath: string | null }>('/baidu-pan/list', { params: { dir }, timeout: 30_000 }),
+  setRoot: (path: string | null) => api.post<null>('/baidu-pan/root', { path }, { timeout: SLOW_LINK_TIMEOUT }),
+  download: (fsId: number, name: string) => api.post<{ started: boolean }>('/baidu-pan/download', { fsId, name }, { timeout: 60_000 }),
+};

@@ -1,0 +1,193 @@
+import { defineStore } from 'pinia';
+import { computed, ref, onScopeDispose } from 'vue';
+import { onServerChange } from '@/services/identity-boundary';
+import { api, setApiBaseURL, getApiBaseURL, setClientToken } from '@/services/http';
+
+/**
+ * 客户端鉴权 store — 业主级别 (跟 admin-auth 独立).
+ *
+ * 持久化:
+ *   - localStorage 'sc.client.token'    : 30 天 TTL token
+ *   - localStorage 'sc.client.baseURL'  : 业主输入的服务器地址 (http.ts setApiBaseURL 管这个)
+ *   - localStorage 'sc.client.savedPassword' : 密码正确登录过就存下来, 下次自动登录用
+ *     (见 tryAutoLogin) —— token 是 30 天 TTL 没错, 但 backend 每次重启/重新部署,
+ *     session 表 (内存 Map) 会清空, token 没到期也会失效, 业主就得重新输一遍密码。
+ *     存密码本地自动重登, 免得每次部署完业主都要摸出手机重新登录。
+ *     跟 token 同样存在 localStorage, 暴露面不比已经在存的 token 更大。
+ *
+ * 登录页 ClientLoginPage 用这个 store:
+ *   1. 输入服务器地址 → setBaseURL(url) → 测试连接
+ *   2. 输入用户名和密码 → login(username, pw) → 服务端返 token → setToken(token) → 顺带存凭据
+ *   3. 路由 guard 看 isAuthed → 放行; 没 token 时登录页会先试 tryAutoLogin()
+ */
+
+const TOKEN_STORAGE_KEY = 'sc.client.token';
+const TOKEN_EXPIRY_KEY = 'sc.client.token.expiresAt';
+const SAVED_PASSWORD_KEY = 'sc.client.savedPassword';
+const SAVED_USERNAME_KEY = 'sc.client.savedUsername';
+const SERVER_KEY = 'sc.client.authServer';
+
+interface LoginResponse {
+  token: string;
+  expiresAt: string;
+}
+
+export const useClientAuthStore = defineStore('client-auth', () => {
+  const token = ref<string | null>(readToken());
+  const expiresAt = ref<string | null>(readExpiry());
+  const baseURL = ref<string>(getApiBaseURL());
+  const loggingIn = ref(false);
+  const lastError = ref<string | null>(null);
+
+  // 启动时把 token 同步到 http.ts
+  setClientToken(token.value);
+  onScopeDispose(onServerChange(() => {
+    logout();
+    baseURL.value = getApiBaseURL();
+  }));
+
+  const isAuthed = computed<boolean>(() => {
+    if (!token.value) return false;
+    if (expiresAt.value) {
+      try {
+        if (new Date(expiresAt.value).getTime() < Date.now()) return false;
+      } catch { /* 时间字符串坏 */ }
+    }
+    return true;
+  });
+
+  /** 改服务器地址 — 同时持久化 + 同步到 http.ts */
+  function setBaseURL(url: string): void {
+    setApiBaseURL(url);
+    baseURL.value = getApiBaseURL();
+  }
+
+  /** 测试连接 — 调 /api/client-auth/ping, 验证 backend 在线 + 路径对 */
+  async function testConnection(): Promise<{ ok: boolean; error?: string; serverTime?: string }> {
+    try {
+      const data = await api.get<{ ok: true; serverTime: string }>('/client-auth/ping', { timeout: 5000 });
+      return { ok: true, serverTime: data.serverTime };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  }
+
+  async function login(username: string, password: string, opts: { remember?: boolean } = {}): Promise<void> {
+    loggingIn.value = true;
+    lastError.value = null;
+    try {
+      const normalizedUsername = username.trim();
+      if (!normalizedUsername) throw new Error('请输入用户名；旧版访问密码不能用于设备控制，请使用用户管理中的账户');
+      const data = await api.post<LoginResponse>('/client-auth/login', {
+        username: normalizedUsername || undefined,
+        password,
+      });
+      token.value = data.token;
+      expiresAt.value = data.expiresAt;
+      try {
+        window.localStorage.setItem(TOKEN_STORAGE_KEY, data.token);
+        window.localStorage.setItem(TOKEN_EXPIRY_KEY, data.expiresAt);
+        window.localStorage.setItem(SERVER_KEY, getApiBaseURL());
+        // Never retain another account's saved password when remember is disabled.
+        window.localStorage.removeItem(SAVED_PASSWORD_KEY);
+        window.localStorage.removeItem(SAVED_USERNAME_KEY);
+        if (opts.remember !== false) {
+          window.localStorage.setItem(SAVED_PASSWORD_KEY, password);
+          if (normalizedUsername) window.localStorage.setItem(SAVED_USERNAME_KEY, normalizedUsername);
+          else window.localStorage.removeItem(SAVED_USERNAME_KEY);
+        }
+      } catch { /* localStorage 不可用 */ }
+      setClientToken(data.token);
+    } catch (e) {
+      lastError.value = (e as Error).message;
+      throw e;
+    } finally {
+      loggingIn.value = false;
+    }
+  }
+
+  /**
+   * 登录页挂载时先试这个: 本地存过密码就悄悄重登一次, 登上了直接跳走, 业主感觉不到
+   * "又要登一次"。密码后来被改过 (admin 强制重置过客户端密码) 会登失败, 这时清掉存的
+   * 密码 —— 不然每次都要打一遍失败请求, 而且旧密码摆在 localStorage 里也没意义了。
+   */
+  async function tryAutoLogin(): Promise<boolean> {
+    if (!isBoundToCurrentServer()) { clearSavedPassword(); return false; }
+    let saved: string | null = null;
+    try { saved = window.localStorage.getItem(SAVED_PASSWORD_KEY); } catch { /* ignore */ }
+    if (!saved || !readSavedUsername().trim()) return false;
+    try {
+      await login(readSavedUsername(), saved);
+      return true;
+    } catch {
+      clearSavedPassword();
+      return false;
+    }
+  }
+
+  function clearSavedPassword(): void {
+    try {
+      window.localStorage.removeItem(SAVED_PASSWORD_KEY);
+      window.localStorage.removeItem(SAVED_USERNAME_KEY);
+    } catch { /* ignore */ }
+  }
+
+  function logout(): void {
+    token.value = null;
+    expiresAt.value = null;
+    setClientToken(null);
+    try {
+      window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+      window.localStorage.removeItem(TOKEN_EXPIRY_KEY);
+      window.localStorage.removeItem(SERVER_KEY);
+    } catch { /* ignore */ }
+    clearSavedPassword();
+  }
+
+  /**
+   * token 被后端判失效 (最常见: 后端重启/重新部署清了内存 session 表, token 没到期也不认了)。
+   * 清掉 token 让 isAuthed 变 false, 但**保留存的密码** —— 好让登录页 tryAutoLogin 悄悄重登,
+   * 业主无感。跟 logout() 的区别就是不清密码 (logout 是业主主动退出, 该清干净)。
+   */
+  function markSessionExpired(): void {
+    token.value = null;
+    expiresAt.value = null;
+    setClientToken(null);
+    try {
+      window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+      window.localStorage.removeItem(TOKEN_EXPIRY_KEY);
+    } catch { /* ignore */ }
+  }
+
+  return {
+    token,
+    expiresAt,
+    baseURL,
+    loggingIn,
+    lastError,
+    isAuthed,
+    setBaseURL,
+    testConnection,
+    login,
+    tryAutoLogin,
+    clearSavedPassword,
+    logout,
+    markSessionExpired,
+  };
+});
+
+function readToken(): string | null {
+  if (!isBoundToCurrentServer()) return null;
+  try { return window.localStorage.getItem(TOKEN_STORAGE_KEY); } catch { return null; }
+}
+function readExpiry(): string | null {
+  if (!isBoundToCurrentServer()) return null;
+  try { return window.localStorage.getItem(TOKEN_EXPIRY_KEY); } catch { return null; }
+}
+export function readSavedUsername(): string {
+  if (!isBoundToCurrentServer()) return '';
+  try { return window.localStorage.getItem(SAVED_USERNAME_KEY) ?? ''; } catch { return ''; }
+}
+function isBoundToCurrentServer(): boolean {
+  try { return window.localStorage.getItem(SERVER_KEY) === getApiBaseURL(); } catch { return false; }
+}

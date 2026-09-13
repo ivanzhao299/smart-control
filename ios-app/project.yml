@@ -1,0 +1,37 @@
+# XcodeGen 工程定义 — CI 里 `xcodegen generate` 生成 SmartControl.xcodeproj
+# (仓库不入 .xcodeproj, 免手维护 pbxproj; 本地开发装 xcodegen 后同样一条命令)
+name: SmartControl
+options:
+  bundleIdPrefix: com.jinhu
+  deploymentTarget:
+    iOS: "15.0"
+  xcodeVersion: "15.0"
+targets:
+  SmartControl:
+    type: application
+    platform: iOS
+    sources:
+      - SmartControl
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jinhu.smartcontrol
+        PRODUCT_NAME: SmartControl
+        # 壳代码恢复自 ios-shell-v1.1.10-build7；版本号必须高于已发布的原生 2.1.0，
+        # TestFlight 才会把回滚壳作为更新提供给已安装原生版的设备。
+        MARKETING_VERSION: "2.1.5"
+        CURRENT_PROJECT_VERSION: "7"
+        GENERATE_INFOPLIST_FILE: "NO"
+        INFOPLIST_FILE: SmartControl/Info.plist
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.9"
+        ENABLE_BITCODE: "NO"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+
+# TestFlight (A7): archive 需要 shared scheme; xcodegen 按此生成
+schemes:
+  SmartControl:
+    build:
+      targets:
+        SmartControl: all
+    archive:
+      config: Release

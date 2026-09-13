@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- 关掉所有缩放: PWA standalone 模式下浏览器本来就忽略, 这是给业主浏览器
+         访问 URL 时的兜底. iOS Safari 13+ 即使设 user-scalable=no 也允许双指缩放,
+         配合 main.ts 里的 gesturestart/gestureend preventDefault 才彻底禁掉 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#111827" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="金湖展贸中控" />
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%icons/app.svg" />
+    <link rel="apple-touch-icon" href="%BASE_URL%icons/pwa-192x192.png" />
+    <title>金湖展贸中心智能控制系统</title>
+  </head>
+  <body>
+    <!-- 启动占位 (2026-07-25 体验升级 A1): JS 下载/解析期间不再白屏/黑屏 —
+         深底 + logo 呼吸, 与 APP 壳启动画面同语言; main.ts 挂载完成后淡出移除。
+         内联样式: 它必须在任何 CSS 下载之前就能渲染。 -->
+    <div id="boot-splash" style="position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:#060818;transition:opacity .28s ease">
+      <img src="%BASE_URL%icons/app.svg" alt="" style="width:96px;animation:bootPulse 1.6s ease-in-out infinite" />
+      <div style="font:500 13px/1 -apple-system,'PingFang SC','Microsoft YaHei',sans-serif;color:#5d6b80;letter-spacing:.35em">金湖智控</div>
+      <style>@keyframes bootPulse{0%,100%{opacity:1}50%{opacity:.55}}@media (prefers-reduced-motion:reduce){#boot-splash img{animation:none}}</style>
+    </div>
+    <!-- JS bundle 缺失或缓存错配时 main.ts 根本不会执行，不能让启动层永久遮屏。 -->
+    <script>
+      window.setTimeout(function () {
+        var splash = document.getElementById('boot-splash');
+        if (!splash) return;
+        splash.innerHTML = '<div style="font:600 20px -apple-system,\'PingFang SC\',sans-serif;color:#fff">系统页面未能启动</div>' +
+          '<div style="font:14px -apple-system,\'PingFang SC\',sans-serif;color:#7f8da3">请检查网络后重试</div>' +
+          '<button onclick="location.reload()" style="margin-top:10px;padding:12px 32px;border:0;border-radius:10px;background:#168cf0;color:#fff;font-size:16px">重新加载</button>';
+      }, 10000);
+    </script>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

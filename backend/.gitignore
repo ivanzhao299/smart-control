@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Build
+dist/
+build/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs (注意: 'logs/' 不带前导斜杠会匹配任意层级的 logs/ 目录,
+# 误伤源码 backend/src/modules/logs/)
+/logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Database
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# PM2
+.pm2/
+
+
+# 强制使用 pnpm, npm install 误生成的 lock 不入库
+package-lock.json

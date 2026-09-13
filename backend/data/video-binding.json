@@ -1,0 +1,102 @@
+{
+  "nvrs": [
+    {
+      "id": "nvr-port5",
+      "name": "消防控制室Port5录像机",
+      "ip": "192.168.1.5",
+      "port": 80,
+      "rtspPort": 554,
+      "username": "admin",
+      "password": "jh666888",
+      "brand": "hikvision",
+      "enabled": true,
+      "createdAt": "2026-09-13T08:16:07.187Z"
+    },
+    {
+      "id": "nvr-port3",
+      "name": "消防控制室Port3录像机",
+      "ip": "192.168.1.19",
+      "port": 80,
+      "rtspPort": 554,
+      "username": "admin",
+      "password": "Jh666888",
+      "brand": "hikvision",
+      "enabled": true,
+      "createdAt": "2026-09-13T08:16:07.187Z"
+    }
+  ],
+  "channels": [
+    {
+      "id": "d37",
+      "nvrId": "nvr-port5",
+      "hikChannel": "3701",
+      "name": "大门",
+      "alias": "D37大门",
+      "enabled": true,
+      "sortOrder": 1,
+      "createdAt": "2026-09-13T08:16:07.187Z"
+    },
+    {
+      "id": "d57",
+      "nvrId": "nvr-port5",
+      "hikChannel": "5701",
+      "name": "通道57",
+      "alias": "D57通道57",
+      "enabled": true,
+      "sortOrder": 2,
+      "createdAt": "2026-09-13T08:16:07.187Z"
+    },
+    {
+      "id": "d02",
+      "nvrId": "nvr-port5",
+      "hikChannel": "201",
+      "name": "通道2",
+      "alias": "D02通道2",
+      "enabled": true,
+      "sortOrder": 3,
+      "createdAt": "2026-09-13T08:16:07.187Z"
+    },
+    {
+      "id": "p3-d37",
+      "nvrId": "nvr-port3",
+      "hikChannel": "3701",
+      "name": "Port3通道37",
+      "alias": "P3-D37",
+      "enabled": true,
+      "sortOrder": 4,
+      "createdAt": "2026-09-13T08:16:07.187Z"
+    },
+    {
+      "id": "p3-d45",
+      "nvrId": "nvr-port5",
+      "hikChannel": "4501",
+      "name": "Port5通道45",
+      "alias": "P5-D45",
+      "enabled": true,
+      "sortOrder": 5,
+      "createdAt": "2026-09-13T08:16:07.187Z"
+    },
+    {
+      "id": "p3-d50",
+      "nvrId": "nvr-port5",
+      "hikChannel": "5001",
+      "name": "Port5通道50",
+      "alias": "P5-D50",
+      "enabled": true,
+      "sortOrder": 6,
+      "createdAt": "2026-09-13T08:16:07.187Z"
+    }
+  ],
+  "displayLayout": {
+    "columns": 3,
+    "channelIds": [
+      "d37",
+      "d57",
+      "d02",
+      "p3-d37",
+      "p3-d45",
+      "p3-d50"
+    ]
+  },
+  "updatedAt": "2026-09-13T08:16:07.187Z"
+}

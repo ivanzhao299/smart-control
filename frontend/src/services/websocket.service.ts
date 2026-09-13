@@ -1,0 +1,216 @@
+import type { WsEvent } from '@/types/api';
+import { getApiBaseURL, getAdminToken, getClientToken } from './http';
+import { onIdentityChange } from './identity-boundary';
+
+export type WsHandler = (event: WsEvent) => void;
+export type WsStateHandler = (state: WsConnectionState) => void;
+
+export type WsConnectionState = 'connecting' | 'open' | 'closed' | 'error';
+
+export interface WsClientOptions {
+  path?: string;
+  reconnectMinMs?: number;
+  reconnectMaxMs?: number;
+  heartbeatMs?: number;
+  /** Dedicated devices must never fall back to personal/admin credentials. */
+  authentication?: () => { event: string; data: unknown } | null;
+}
+
+export class WsClient {
+  private readonly authentication: NonNullable<WsClientOptions['authentication']>;
+  private readonly unsubscribeIdentity: () => void;
+  private socket: WebSocket | null = null;
+  private path: string;
+  private reconnectMin: number;
+  private reconnectMax: number;
+  private heartbeatMs: number;
+  private reconnectDelay: number;
+  private heartbeatTimer?: number;
+  private reconnectTimer?: number;
+  private destroyed = false;
+  private state: WsConnectionState = 'closed';
+
+  private eventHandlers = new Set<WsHandler>();
+  private stateHandlers = new Set<WsStateHandler>();
+
+  // PERFORMANCE_AUDIT P2-#15:
+  //   25s 心跳 → 10s, 加 pong 等待超时 (12s 没收 pong 就主动 close 重连),
+  //   死连接检测从 25-50s → 10-12s.
+  private lastPongAt = 0;
+  private pongCheckTimer?: number;
+
+  constructor(opts: WsClientOptions = {}) {
+    this.authentication = opts.authentication ?? (() => {
+      const admin = getAdminToken();
+      const token = admin || getClientToken();
+      return token ? { event: 'authenticate', data: { token, admin: Boolean(admin) } } : null;
+    });
+    this.unsubscribeIdentity = onIdentityChange(() => {
+      if (this.socket) this.socket.close();
+    });
+    this.path = opts.path ?? '/ws/status';
+    this.reconnectMin = opts.reconnectMinMs ?? 1000;
+    this.reconnectMax = opts.reconnectMaxMs ?? 15000;
+    this.heartbeatMs = opts.heartbeatMs ?? 10_000;
+    this.reconnectDelay = this.reconnectMin;
+  }
+
+  connect(): void {
+    if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) return;
+    if (this.destroyed) return;
+    this.setState('connecting');
+
+    // WS 地址优先级 (2026-07-11 改):
+    // 1) 运行时 API baseURL 是绝对地址 → 从它推导 (业主在服务器设置框填的地址,
+    //    平板/手机场景. 旧逻辑 VITE_WS_URL 优先, 但 GK9000 构建里那是
+    //    ws://localhost:3200 — 平板会去连平板自己, 永远断线)
+    // 2) VITE_WS_URL 绝对地址 (build 时定制的场景)
+    // 3) page host + path (cnjinhu.top nginx 反代场景)
+    const apiBase = getApiBaseURL(); // e.g. "http://192.168.77.54:3200/api" 或 "/api"
+    const apiOrigin = /^(https?):\/\/([^/]+)/.exec(apiBase);
+    const absUrl = import.meta.env.VITE_WS_URL as string | undefined;
+    let url: string;
+    if (apiOrigin) {
+      const wsProto = apiOrigin[1] === 'https' ? 'wss' : 'ws';
+      url = `${wsProto}://${apiOrigin[2]}${this.path}`;
+    } else if (absUrl && /^wss?:\/\//.test(absUrl)) {
+      url = absUrl;
+    } else {
+      const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      url = `${proto}://${window.location.host}${this.path}`;
+    }
+
+    try {
+      const ws = new WebSocket(url);
+      this.socket = ws;
+      let identity = '';
+      const currentIdentity = () => JSON.stringify([getApiBaseURL(), this.authentication()]);
+
+      ws.onopen = () => {
+        identity = currentIdentity();
+        const authentication = this.authentication();
+        if (!authentication) { ws.close(); return; }
+        ws.send(JSON.stringify(authentication));
+        this.reconnectDelay = this.reconnectMin;
+      };
+
+      ws.onmessage = (msg) => {
+        if (identity !== currentIdentity()) { ws.close(); return; }
+        try {
+          const event = JSON.parse(msg.data) as WsEvent;
+          if (event.type === 'hello') { this.setState('open'); this.startHeartbeat(); }
+          // pong 也走这条 — 收到任何消息都视为对端活着
+          this.lastPongAt = Date.now();
+          this.eventHandlers.forEach((h) => {
+            try {
+              h(event);
+            } catch (err) {
+              // eslint-disable-next-line no-console
+              console.warn('ws handler error', err);
+            }
+          });
+        } catch {
+          // ignore non-JSON
+        }
+      };
+
+      ws.onerror = () => {
+        this.setState('error');
+      };
+
+      ws.onclose = () => {
+        this.stopHeartbeat();
+        this.setState('closed');
+        if (!this.destroyed) this.scheduleReconnect();
+      };
+    } catch {
+      this.scheduleReconnect();
+    }
+  }
+
+  disconnect(): void {
+    this.destroyed = true;
+    this.unsubscribeIdentity();
+    if (this.reconnectTimer) window.clearTimeout(this.reconnectTimer);
+    this.stopHeartbeat();
+    this.socket?.close();
+    this.socket = null;
+  }
+
+  reconnect(): void {
+    if (this.destroyed) return;
+    if (this.socket && this.socket.readyState < WebSocket.CLOSING) this.socket.close();
+    else this.connect();
+  }
+
+  on(handler: WsHandler): () => void {
+    this.eventHandlers.add(handler);
+    return () => this.eventHandlers.delete(handler);
+  }
+
+  onState(handler: WsStateHandler): () => void {
+    this.stateHandlers.add(handler);
+    handler(this.state);
+    return () => this.stateHandlers.delete(handler);
+  }
+
+  getState(): WsConnectionState {
+    return this.state;
+  }
+
+  private setState(s: WsConnectionState): void {
+    this.state = s;
+    this.stateHandlers.forEach((h) => h(s));
+  }
+
+  private scheduleReconnect(): void {
+    if (this.destroyed) return;
+    if (this.reconnectTimer) window.clearTimeout(this.reconnectTimer);
+    const delay = this.reconnectDelay;
+    // 审计 P2: 翻倍必须在 connect() 之前落账 — connect() 同步抛错会立刻再进
+    // 本函数, 若翻倍写在 connect() 后面, 该路径的退避永远停在最小值
+    this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.reconnectMax);
+    this.reconnectTimer = window.setTimeout(() => {
+      this.connect();
+    }, delay);
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.lastPongAt = Date.now();
+    this.heartbeatTimer = window.setInterval(() => {
+      if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+        try {
+          this.socket.send(JSON.stringify({ event: 'ping' }));
+        } catch {
+          // ignore
+        }
+      }
+    }, this.heartbeatMs);
+    // pong 检测: 2× 心跳间隔没收到任何消息就认为死连接, 主动 close 触发重连
+    this.pongCheckTimer = window.setInterval(() => {
+      const since = Date.now() - this.lastPongAt;
+      const limit = this.heartbeatMs * 2 + 2_000; // 默认 22s
+      if (since > limit && this.socket && this.socket.readyState === WebSocket.OPEN) {
+        // eslint-disable-next-line no-console
+        console.warn(`ws no pong for ${since}ms, force reconnect`);
+        try { this.socket.close(); } catch { /* ignore */ }
+      }
+    }, this.heartbeatMs);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      window.clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = undefined;
+    }
+    if (this.pongCheckTimer) {
+      window.clearInterval(this.pongCheckTimer);
+      this.pongCheckTimer = undefined;
+    }
+  }
+}
+
+export const wsClient = new WsClient({
+  path: import.meta.env.VITE_WS_PATH ?? '/ws/status',
+});

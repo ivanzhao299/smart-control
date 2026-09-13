@@ -1,0 +1,15 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 14
+    },
+    "auditLog": "/Users/mac/projects/smart-control/logs/.89849ef496ee1b345a3e5bc6444f9c86761de122-audit.json",
+    "files": [
+        {
+            "date": 1789287237801,
+            "name": "/Users/mac/projects/smart-control/logs/app-2026-09-13.log",
+            "hash": "b0303d4dbc6b3944b095e965b98b997a93fcd2b1e6de1ffb0b0a5b8f028ef3ba"
+        }
+    ],
+    "hashType": "sha256"
+}

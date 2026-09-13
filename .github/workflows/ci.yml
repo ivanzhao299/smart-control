@@ -1,0 +1,82 @@
+# =====================================================================
+# CI - 类型检查 + 构建 (无部署)
+# 触发: push 任意分支, PR 进入 main
+# 用途: 保护 main 分支质量, 阻止破坏性合并
+# =====================================================================
+name: CI
+
+on:
+  push:
+    branches-ignore:
+      - 'no-ci/**'
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend · typecheck + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      - run: pnpm run build
+
+      - name: Upload frontend dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 7
+
+  backend:
+    name: Backend · build & test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: backend/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+      # 协议编解码层单测: 改错一个字节/大小端/换算, 这里先红, 不流到现场硬件
+      #
+      # ⚠️ 必须用 `pnpm exec jest`, 不能写 `pnpm test -- --ci`:
+      # pnpm 不像 npm 需要 `--` 转义额外参数, 那个 `--` 会**原样传给 jest**, 于是
+      # `--ci --reporters=default` 被 jest 当成**测试路径匹配模式**(日志里是
+      # `Pattern: --ci|--reporters=default - 0 matches`), 匹配不到任何文件 →
+      # "No tests found, exiting with code 1" → CI 红, 而测试本身根本没跑。
+      # 2026-07-19 踩过一次: testMatch 明明 5 matches, 却报没找到测试。
+      - run: pnpm exec jest --ci --reporters=default
+      - run: pnpm run build

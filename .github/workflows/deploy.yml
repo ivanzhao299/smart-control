@@ -1,0 +1,380 @@
+# =====================================================================
+# Deploy - 手动部署到 cnjinhu.top
+#
+# 2026-05-31 改: 默认部署目标是现场 GK9000 (走 watcher 自动拉), 云端
+# cnjinhu.top 不再每次 push 都跟着同步. 业主要看公网时再手动触发.
+# 这样省云端空间 + 省 CI 时间 + 避免现场和云端长期不一致带来的混乱.
+#
+# 触发:
+#   - workflow_dispatch 手动触发 (GitHub Actions 页面点 Run, 或者 AI 用
+#     gh workflow run 触发, 仅当用户明确要 "推到云端" 时)
+# 流程:
+#   build → upload tarballs (artifact) → ssh + scp deploy → health check → 失败回滚
+# 服务器路径:
+#   前端: /srv/www/cnjinhu.top/control/current/ (release.sh 管理)
+#   后端: /srv/app/smart-control/releases/<TS>/  + current 软链
+# Release 保留策略 (--keep 1 / KEEP_RELEASES=1):
+#   只保留当前 1 个 release. 出问题就重新跑这个 workflow 部署上一个
+#   commit. 不再留 5 个备份占空间.
+# =====================================================================
+name: Deploy
+
+on:
+  # 2026-05-31: 不再 push 自动触发. push main 只把代码同步到 GitHub +
+  # GK9000 watcher (watcher 自己 poll, 不依赖 CI), 云端发布要手动.
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: '要部署的 git ref (commit / branch / tag), 默认当前分支'
+        required: false
+        default: ''
+      rollback:
+        description: '回滚而非部署 (true = 切到 current 之前的最近一个 release)'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-cnjinhu-top
+  cancel-in-progress: false
+
+jobs:
+  # ---------- 构建 (skip on rollback) ----------
+  build:
+    if: ${{ github.event.inputs.rollback != 'true' }}
+    name: Build artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Frontend - install + typecheck + build
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run typecheck
+          pnpm run build
+
+      - name: Frontend - tar dist
+        run: tar czf /tmp/control-dist.tgz -C frontend/dist .
+
+      - name: Backend - tar source (服务器跑 pnpm install --frozen-lockfile)
+        run: |
+          tar czf /tmp/backend-src.tgz \
+            --exclude='backend/node_modules' \
+            --exclude='backend/dist' \
+            --exclude='backend/.env' \
+            --exclude='backend/.env.local' \
+            --exclude='backend/database' \
+            --exclude='backend/coverage' \
+            backend
+
+      - name: Compose version.json
+        run: |
+          mkdir -p /tmp/deploy-meta/deploy/configs
+          jq -n \
+            --arg version "$(jq -r .version frontend/package.json)" \
+            --arg sprint "Sprint-10" \
+            --arg buildTime "$(date -Iseconds)" \
+            --arg commit "${{ github.sha }}" \
+            --arg ref "${{ github.ref_name }}" \
+            '{
+              version: $version,
+              sprint: $sprint,
+              buildTime: $buildTime,
+              commit: $commit,
+              ref: $ref,
+              platform: "linux",
+              host: "cnjinhu.top (demo)"
+            }' > /tmp/deploy-meta/deploy/configs/version.json
+          tar czf /tmp/deploy-meta.tgz -C /tmp/deploy-meta .
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-bundle
+          path: |
+            /tmp/control-dist.tgz
+            /tmp/backend-src.tgz
+            /tmp/deploy-meta.tgz
+          retention-days: 14
+
+  # ---------- 部署 / 回滚 ----------
+  deploy:
+    name: Deploy to cnjinhu.top
+    needs: [ build ]
+    if: ${{ always() && (needs.build.result == 'success' || github.event.inputs.rollback == 'true') }}
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://cnjinhu.top/control/
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          sparse-checkout: |
+            scripts
+            deploy
+
+      - name: Download artifacts
+        if: ${{ github.event.inputs.rollback != 'true' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: deploy-bundle
+          path: /tmp/
+
+      # ---------- SSH 自诊断准备 ----------
+      - name: Setup SSH (with diagnostics)
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || vars.DEPLOY_HOST || '47.236.122.224' }}
+        run: |
+          set -u
+          fail() { echo "::error::$1" >&2; exit 1; }
+
+          # 1) Secret presence
+          [ -n "${DEPLOY_KEY:-}" ] || fail "secret DEPLOY_SSH_KEY 为空 (未设置或值为空字符串)"
+          [ -n "${DEPLOY_HOST:-}" ] || fail "secret DEPLOY_HOST 为空"
+          echo "✅ secrets present (KEY ${#DEPLOY_KEY}B / HOST '$DEPLOY_HOST')"
+
+          # 2) 写入 key 文件: 去 CRLF + 剥尾部空行 + 强制 trailing newline
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          # awk: 跟踪最后一个非空行号, 只输出到那一行, 然后补 \n
+          printf '%s\n' "$DEPLOY_KEY" | tr -d '\r' \
+            | awk 'NF{p=NR} {a[NR]=$0} END{for(i=1;i<=p;i++) print a[i]}' \
+            > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          # 3) Key 格式校验 (脱敏: 只看头尾行 + 行数)
+          HEAD=$(head -1 ~/.ssh/deploy_key)
+          TAIL=$(tail -1 ~/.ssh/deploy_key)
+          LINES=$(wc -l < ~/.ssh/deploy_key)
+          echo "key head: $HEAD"
+          echo "key tail: $TAIL"
+          echo "key lines: $LINES"
+          case "$HEAD" in
+            "-----BEGIN OPENSSH PRIVATE KEY-----") : ;;
+            "-----BEGIN RSA PRIVATE KEY-----") : ;;
+            "-----BEGIN EC PRIVATE KEY-----") : ;;
+            *) fail "key 首行不是 PEM 头 → secret 粘贴时丢了 BEGIN 行。重新粘贴, 含 -----BEGIN ... PRIVATE KEY----- 这行。" ;;
+          esac
+          case "$TAIL" in
+            "-----END OPENSSH PRIVATE KEY-----"*) : ;;
+            "-----END RSA PRIVATE KEY-----"*) : ;;
+            "-----END EC PRIVATE KEY-----"*) : ;;
+            *) fail "key 末行不是 PEM 尾 → secret 粘贴时丢了 END 行。重新粘贴包括 -----END ... PRIVATE KEY----- 行。" ;;
+          esac
+
+          # 4) ssh-keygen 解析检查 (不会输出私钥内容)
+          if ! ssh-keygen -y -f ~/.ssh/deploy_key > ~/.ssh/deploy_key.pub 2>/tmp/keygen.err; then
+            cat /tmp/keygen.err
+            fail "ssh-keygen 解析私钥失败, 看上面 stderr (常见: 中间有空行 / Windows CRLF / 多余字符)"
+          fi
+          echo "✅ key parses OK, public key fingerprint:"
+          ssh-keygen -lf ~/.ssh/deploy_key.pub
+
+          # 5) Host key 写入 known_hosts
+          ssh-keyscan -H -t ed25519,rsa "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/tmp/keyscan.err
+          if [ ! -s ~/.ssh/known_hosts ]; then
+            cat /tmp/keyscan.err
+            fail "ssh-keyscan 抓不到 host key (主机不通 / SSH 端口被防火墙挡)"
+          fi
+          echo "✅ ssh-keyscan got $(wc -l < ~/.ssh/known_hosts) entries for $DEPLOY_HOST"
+
+          # 6) 实际连通性测试
+          if ! ssh -o IdentitiesOnly=yes \
+                  -o BatchMode=yes \
+                  -o ConnectTimeout=10 \
+                  -i ~/.ssh/deploy_key \
+                  "root@$DEPLOY_HOST" 'echo "connected from $(hostname) at $(date -Iseconds)"'; then
+            fail "SSH 连接失败 (常见: pubkey 没写入 server authorized_keys / IP 写错 / 服务器 sshd 拒绝该 key)"
+          fi
+
+      # ---------- 部署路径 ----------
+      - name: Upload artifacts to server
+        if: ${{ github.event.inputs.rollback != 'true' }}
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || vars.DEPLOY_HOST || '47.236.122.224' }}
+        run: |
+          scp -o IdentitiesOnly=yes -i ~/.ssh/deploy_key \
+              /tmp/control-dist.tgz \
+              /tmp/backend-src.tgz \
+              /tmp/deploy-meta.tgz \
+              scripts/deploy-backend-remote.sh \
+              deploy/nginx-cnjinhu.conf \
+              "root@$DEPLOY_HOST:/tmp/"
+
+      - name: Deploy frontend (release.sh)
+        if: ${{ github.event.inputs.rollback != 'true' }}
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || vars.DEPLOY_HOST || '47.236.122.224' }}
+        run: |
+          ssh -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "root@$DEPLOY_HOST" '
+            set -e
+            rm -rf /tmp/stage && mkdir /tmp/stage
+            tar xzf /tmp/control-dist.tgz -C /tmp/stage
+            # KEEP_RELEASES=1: 部署完只保留当前这次, 旧的删. 省云端空间.
+            KEEP_RELEASES=1 /srv/www/cnjinhu.top/bin/release.sh control /tmp/stage
+          '
+
+      - name: Deploy backend
+        if: ${{ github.event.inputs.rollback != 'true' }}
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || vars.DEPLOY_HOST || '47.236.122.224' }}
+        run: |
+          ssh -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "root@$DEPLOY_HOST" '
+            set -e
+            chmod +x /tmp/deploy-backend-remote.sh
+            /tmp/deploy-backend-remote.sh \
+              --backend-tarball /tmp/backend-src.tgz \
+              --meta-tarball /tmp/deploy-meta.tgz \
+              --app-root /srv/app/smart-control \
+              --pm2-name smart-control-backend \
+              --keep 1
+          '
+
+      # ---------- Nginx 配置: 自动 diff + reload (有改动才 reload, 防误炸) ----------
+      - name: Deploy nginx config (with diff + test + reload)
+        if: ${{ github.event.inputs.rollback != 'true' }}
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || vars.DEPLOY_HOST || '47.236.122.224' }}
+        run: |
+          ssh -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "root@$DEPLOY_HOST" '
+            set -e
+            # 1) 找到当前生效的 cnjinhu.top nginx 配置文件 (适配 Debian/Ubuntu sites-enabled 或 CentOS conf.d)
+            TARGET=$(grep -l "server_name cnjinhu.top" \
+              /etc/nginx/sites-enabled/* /etc/nginx/sites-available/* /etc/nginx/conf.d/*.conf \
+              2>/dev/null | head -1)
+            if [ -z "$TARGET" ]; then
+              echo "::warning::找不到 cnjinhu.top nginx 现有配置, 默认写到 /etc/nginx/sites-available/cnjinhu.top"
+              TARGET=/etc/nginx/sites-available/cnjinhu.top
+              # 如果 sites-enabled 目录存在, 加 symlink
+              [ -d /etc/nginx/sites-enabled ] && ln -sfn "$TARGET" /etc/nginx/sites-enabled/cnjinhu.top
+            fi
+            echo "→ nginx 配置目标: $TARGET"
+
+            # 2) diff: 没改动就跳过 reload (避免每次 push 都 reload 服务)
+            if cmp -s /tmp/nginx-cnjinhu.conf "$TARGET"; then
+              echo "✓ nginx 配置无变化, 跳过 reload"
+              exit 0
+            fi
+            echo "→ nginx 配置有变化:"
+            diff "$TARGET" /tmp/nginx-cnjinhu.conf | head -40 || true
+
+            # 3) 备份当前配置 (失败回滚用)
+            BACKUP="${TARGET}.bak.$(date +%s)"
+            cp "$TARGET" "$BACKUP"
+            echo "→ 旧配置备份到 $BACKUP"
+
+            # 4) 写入新配置 + 语法验证 + reload, 任何一步失败立即回滚
+            cp /tmp/nginx-cnjinhu.conf "$TARGET"
+            if ! nginx -t 2>&1; then
+              echo "::error::nginx -t 失败, 回滚 $TARGET"
+              cp "$BACKUP" "$TARGET"
+              nginx -t && nginx -s reload  # 回滚后必须验旧的还能跑
+              exit 1
+            fi
+            nginx -s reload
+            echo "✓ nginx 已 reload, 新配置生效"
+
+            # 5) 清理 1 周前的备份 (保留最近的, 方便手动回滚)
+            find "$(dirname "$TARGET")" -name "$(basename "$TARGET").bak.*" -mtime +7 -delete 2>/dev/null || true
+          '
+
+      # ---------- 回滚路径 ----------
+      - name: Rollback (switch current symlink to previous release)
+        if: ${{ github.event.inputs.rollback == 'true' }}
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || vars.DEPLOY_HOST || '47.236.122.224' }}
+        run: |
+          ssh -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "root@$DEPLOY_HOST" '
+            set -e
+            cd /srv/app/smart-control
+            CURRENT=$(readlink current)
+            PREV=$(ls -1t releases | grep -v "^$(basename $CURRENT)\$" | head -1)
+            if [ -z "$PREV" ]; then
+              echo "没有可回滚的旧 release" >&2
+              exit 1
+            fi
+            echo "回滚: $(basename $CURRENT) → $PREV"
+            ln -sfn releases/$PREV current.tmp
+            mv -T current.tmp current
+            # 同 deploy-backend-remote.sh: delete + start 而不是 reload (reload 不动 errored)
+            pm2 delete smart-control-backend 2>&1 | tail -1 || true
+            sleep 1
+            ECOSYSTEM="/srv/app/smart-control/current/deploy/ecosystem.config.js"
+            if [ -f "$ECOSYSTEM" ]; then
+              pm2 start "$ECOSYSTEM" --only smart-control-backend --update-env
+            else
+              cd /srv/app/smart-control/current/backend
+              pm2 start dist/main.js --name smart-control-backend --update-env
+            fi
+            pm2 save
+            echo "回滚完成: $PREV (pm2 强制 start)"
+          '
+
+      # ---------- 健康验收 + 失败回滚 ----------
+      - name: Health check (with auto-rollback on failure)
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || vars.DEPLOY_HOST || '47.236.122.224' }}
+        run: |
+          set +e
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            sleep 3
+            BODY=$(curl -fsS --max-time 5 https://cnjinhu.top/control/api/system/health || true)
+            # 判 .data.status 而不是 .data.apiStatus:
+            # apiStatus 在 health.service 里是**硬编码常量 'up'** (`const apiStatus = 'up'`),
+            # 只要接口能应答就恒真 —— 等于健康门形同虚设, DB 挂了照样判通过。
+            # status 才是真算出来的: db 挂 = down, ws/scheduler 没起 = degraded, 全好才 ok。
+            STATUS=$(echo "$BODY" | jq -r .data.status 2>/dev/null)
+            if [ "$STATUS" = "ok" ]; then
+              echo "✅ Health OK (attempt $i)"
+              echo "$BODY" | jq .data
+              exit 0
+            fi
+            # 失败时打细分项, 免得只看到一个 degraded 不知道是谁拖的
+            echo "⏳ health attempt $i: status=$STATUS db=$(echo "$BODY" | jq -r .data.databaseStatus 2>/dev/null) ws=$(echo "$BODY" | jq -r .data.websocketStatus 2>/dev/null) scheduler=$(echo "$BODY" | jq -r .data.schedulerStatus 2>/dev/null)"
+          done
+          echo "❌ Health check 失败, 自动回滚..."
+          ssh -o IdentitiesOnly=yes -i ~/.ssh/deploy_key "root@$DEPLOY_HOST" '
+            set -e
+            cd /srv/app/smart-control
+            CURRENT=$(readlink current)
+            PREV=$(ls -1t releases | grep -v "^$(basename $CURRENT)\$" | head -1)
+            if [ -n "$PREV" ]; then
+              ln -sfn releases/$PREV current.tmp
+              mv -T current.tmp current
+              # delete + start, 不用 reload (reload 不动 errored)
+              pm2 delete smart-control-backend 2>&1 | tail -1 || true
+              sleep 1
+              ECOSYSTEM="/srv/app/smart-control/current/deploy/ecosystem.config.js"
+              if [ -f "$ECOSYSTEM" ]; then
+                pm2 start "$ECOSYSTEM" --only smart-control-backend --update-env
+              else
+                cd /srv/app/smart-control/current/backend
+                pm2 start dist/main.js --name smart-control-backend --update-env
+              fi
+              pm2 save
+              echo "已回滚到 $PREV (pm2 强制 start)"
+            fi
+          '
+          exit 1
+
+      - name: Verify deployed version
+        run: |
+          curl -sS https://cnjinhu.top/control/api/system/info | jq '.data | {version, sprint, buildTime, commit: .host, nodeVersion}'

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 夜间模式 — 跟日间一样, 我们整体就是深色主题 -->
+    <style name="Theme.JinhuControl" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorPrimaryDark">@color/primary_dark</item>
+        <item name="colorAccent">@color/purple</item>
+        <item name="android:windowBackground">@color/bg_0</item>
+        <item name="android:statusBarColor">@color/bg_0</item>
+        <item name="android:navigationBarColor">@color/bg_0</item>
+    </style>
+</resources>

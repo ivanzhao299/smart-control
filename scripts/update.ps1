@@ -1,0 +1,445 @@
+﻿# 现场更新脚本 (Windows 10 / GK9000)
+# 把 cnjinhu.top 上已部署的最新代码同步到展厅本地主控机
+# 2026-05-30: 触发 cycle, 让 watcher 跑 6c.1 自动 pm2 注册 smart-control-frontend
+#
+# 用法:
+#   .\scripts\update.ps1            # 标准: pull + build + reload
+#   .\scripts\update.ps1 -SkipPull  # 跳过 git pull (代码已手动同步过)
+#   .\scripts\update.ps1 -Hard      # 强制重启 (而非 reload), 慢但更彻底
+#   .\scripts\update.ps1 -DryRun    # 只看会做什么, 不执行
+#
+# 安全机制:
+#   1. 先备份 (调用 backup.ps1)
+#   2. 工作区有未提交改动会拒绝运行 (除非 -Force)
+#   3. 任何一步失败立即中止, .env 和数据库不会被动到
+#   4. 失败后给出回滚命令
+
+[CmdletBinding()]
+param(
+  [switch]$SkipPull,
+  [switch]$Hard,
+  [switch]$DryRun,
+  [switch]$Force
+)
+
+# 注意: 不要用 'Stop' — git 等 native command 会把正常 stderr ("From github.com:...")
+# 也算 error, PS 直接抛 RemoteException 把脚本掀掉. 改 Continue 后只看 $LASTEXITCODE.
+$ErrorActionPreference = 'Continue'
+$projectRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
+Set-Location $projectRoot
+& (Join-Path $PSScriptRoot 'assert-release-not-held.ps1') -ReleaseProjectRoot $projectRoot
+if (-not $?) { exit 1 }
+
+# 固定 PM2_HOME, 和 boot-pm2.ps1 / auto-update-watcher.ps1 保持一致 (2026-07-26)。
+# 否则本脚本里的 `& pm2 delete/start/describe` 在非交互会话用默认家目录, 找不到
+# boot 起的守护, 会 spawn 孤儿 daemon。详见 auto-update-watcher.ps1 同段注释。
+$env:PM2_HOME = 'C:\Users\user\.pm2'
+
+function Run($cmd) {
+  Write-Host "  > $cmd" -ForegroundColor DarkGray
+  if (-not $DryRun) {
+    # 把 stderr 合并到 stdout — 即使 native command 在 stderr 写正常进度也不会被当 error 抛
+    Invoke-Expression "$cmd 2>&1" | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+    if ($LASTEXITCODE -ne 0) {
+      throw "命令失败 (exit=$LASTEXITCODE): $cmd"
+    }
+  }
+}
+
+Write-Host "================================================" -ForegroundColor Cyan
+Write-Host " 现场主控机 - 增量更新" -ForegroundColor Cyan
+Write-Host " 项目根: $projectRoot" -ForegroundColor Gray
+if ($DryRun) { Write-Host " *** DRY RUN MODE - 不执行实际命令 ***" -ForegroundColor Yellow }
+Write-Host "================================================" -ForegroundColor Cyan
+
+# 0) 记录当前 commit, 用于失败回滚
+$beforeCommit = (git rev-parse HEAD 2>$null)
+Write-Host "`n[0/6] 当前版本: $beforeCommit" -ForegroundColor Gray
+
+# 1) 检查工作区干净 — 只阻塞 tracked-modified, untracked 无害放行
+# (现场会有 backend/dist / logs / tmp / *.bak / npmrc 等本地产物, 一刀切 throw 会
+# 让自治链路死锁: update.ps1 抛 dirty → watcher 抓 → 拉不到新 update.ps1.)
+Write-Host "`n[1/6] 检查工作区状态..." -ForegroundColor Yellow
+$dirty = git status --porcelain
+if ($dirty) {
+  $tracked = @($dirty | Where-Object { $_ -notmatch '^\?\?' })
+  $untracked = @($dirty | Where-Object { $_ -match '^\?\?' })
+  if ($untracked.Count -gt 0) {
+    Write-Host "  忽略 $($untracked.Count) 个 untracked 文件 (pull 不会动它们)" -ForegroundColor DarkGray
+  }
+  if ($tracked.Count -gt 0 -and -not $Force) {
+    Write-Host "  tracked 文件被改过:" -ForegroundColor Red
+    $tracked | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+    Write-Host "  pull 可能冲突. 加 -Force 强制覆盖, 或先 git stash" -ForegroundColor Yellow
+    throw "工作区 tracked 文件不干净, 拒绝更新"
+  }
+  if ($tracked.Count -gt 0) {
+    Write-Host "  -Force 模式: 忽略 $($tracked.Count) 个 tracked-modified 文件, 强行 pull" -ForegroundColor Yellow
+  }
+} else {
+  Write-Host "  工作区干净 OK" -ForegroundColor Green
+}
+
+# 2) git pull (顺序重要: 先 pull 再 backup, 这样 backup.ps1 等子脚本永远是最新版.
+#    之前先 backup 后 pull, 一旦 backup.ps1 本身有问题 (e.g. BOM 缺失 parse 错),
+#    update 就死在第一步, pull 永远跑不到 — 出过现场鸡生蛋死锁, 别再倒回去)
+if (-not $SkipPull) {
+  Write-Host "`n[2/6] 拉取最新代码..." -ForegroundColor Yellow
+  Run "git fetch origin main"
+  Run "git pull --ff-only origin main"
+  $afterCommit = if ($DryRun) { 'N/A' } else { (git rev-parse HEAD) }
+  if ($beforeCommit -eq $afterCommit) {
+    Write-Host "  已是最新, 无变化. 退出." -ForegroundColor Green
+    exit 0
+  }
+  Write-Host "  $beforeCommit -> $afterCommit" -ForegroundColor Green
+} else {
+  Write-Host "`n[2/6] 跳过 git pull (-SkipPull)" -ForegroundColor Gray
+}
+
+# 3) 备份 (数据库 + .env + UAT 快照). 失败只警告不阻塞 — backup 不是 update 的硬依赖,
+#    update 失败可以靠 git reset --hard $beforeCommit 回滚源码, 数据库本身 build/pm2
+#    reload 不会动. backup 价值是 "万一你想恢复到 update 前的数据库快照".
+Write-Host "`n[3/6] 更新前备份..." -ForegroundColor Yellow
+$backupScript = Join-Path $projectRoot 'scripts\backup.ps1'
+if (Test-Path $backupScript) {
+  if (-not $DryRun) {
+    try {
+      & $backupScript -Keep 14
+    } catch {
+      Write-Host "  ! backup.ps1 失败 (继续 update, 不阻塞): $_" -ForegroundColor Yellow
+    }
+  }
+} else {
+  Write-Host "  backup.ps1 不存在, 跳过备份" -ForegroundColor Yellow
+}
+
+# 4) 安装/更新依赖 (只在 package.json 变化时)
+Write-Host "`n[4/6] 检查依赖变化..." -ForegroundColor Yellow
+$pkgChanged = git diff --name-only "$beforeCommit" HEAD 2>$null | Select-String -Pattern 'package(-lock)?\.json|pnpm-lock\.yaml'
+if ($pkgChanged -or $Force) {
+  Write-Host "  package 文件有变化, 重装依赖..." -ForegroundColor Yellow
+  Push-Location (Join-Path $projectRoot 'backend')
+  if (Get-Command pnpm -ErrorAction SilentlyContinue) {
+    Run "pnpm install --frozen-lockfile"
+  } else {
+    Run "npm ci --no-audit --no-fund"
+  }
+  Pop-Location
+
+  Push-Location (Join-Path $projectRoot 'frontend')
+  if (Get-Command pnpm -ErrorAction SilentlyContinue) {
+    Run "pnpm install --frozen-lockfile"
+  } else {
+    Run "npm ci --no-audit --no-fund"
+  }
+  Pop-Location
+} else {
+  Write-Host "  package 无变化, 跳过依赖安装" -ForegroundColor Green
+}
+
+# 4.5) .env 一次性修复 — 2026-05-27 我用 RDC Notepad 不小心把 DALI_RTU_HOST
+# 改成了 192.168.0.7 (USR 出厂默认 IP), 但用户后来把 USR IP 改回了 192.168.50.20,
+# 现在 .env 跟 USR 实际 IP 对不上, gateway 一直 offline. 这块只针对那个错值,
+# 不会动用户主动设的别的 IP — 安全且幂等.
+$envFile = Join-Path $projectRoot 'backend\.env'
+if (Test-Path $envFile) {
+  $envText = Get-Content $envFile -Raw
+  if ($envText -match 'DALI_RTU_HOST\s*=\s*192\.168\.0\.7') {
+    Write-Host "`n[env-repair] 发现 DALI_RTU_HOST=192.168.0.7, 改回 192.168.50.20..." -ForegroundColor Yellow
+    $newText = $envText -replace 'DALI_RTU_HOST\s*=\s*192\.168\.0\.7', 'DALI_RTU_HOST=192.168.50.20'
+    Set-Content -Path $envFile -Value $newText -NoNewline
+    Write-Host "  ok" -ForegroundColor Green
+  }
+}
+
+# 5) 重新构建 (backend + frontend) —— 按改动路径条件化 (2026-07-30)
+# 之前无脑全量重建+硬重启: 文档/脚本/纯前端提交也会刷新 backend dist 时间戳
+# (verify 的"进程比产物旧"就此误报) 并把生产 backend delete+start 一遍 (无谓
+# 停机 15-30s), 还会和 CI 部署的重启并发打架孵僵尸守护。现在只有 backend/
+# (或 deploy/) 真有改动才碰 backend; frontend/ 有改动才重建前端。-Force 全做。
+$changedFiles = @(git diff --name-only "$beforeCommit" HEAD 2>$null)
+$backendChanged = @($changedFiles | Where-Object { $_ -match '^(backend|deploy)/' }).Count -gt 0
+$frontendChanged = @($changedFiles | Where-Object { $_ -match '^frontend/' }).Count -gt 0
+if ($Force -or $changedFiles.Count -eq 0) {
+  # -Force 或差异不可知 (如 -SkipPull 手动跑) → 保守全做
+  $backendChanged = $true; $frontendChanged = $true
+}
+Write-Host "`n[5/6] 重新构建 (backend=$backendChanged frontend=$frontendChanged)..." -ForegroundColor Yellow
+if ($backendChanged) {
+  Push-Location (Join-Path $projectRoot 'backend')
+  Run "npm run build"
+  Pop-Location
+} else {
+  Write-Host "  backend/ 无改动, 跳过 backend 构建 (保时间戳, 防 verify 假过期)" -ForegroundColor Gray
+}
+
+# 前端在生产机上跳过 vue-tsc 类型检查, 只跑 vite build。
+# 2026-07-25: pdfjs-dist 引入后 vue-tsc 在 GK9000 上 OOM ("Zone Allocation failed"),
+# 把 08d607b 的前端构建整个打挂 (dist 只剩 public 静态件, 全靠 PWA 缓存硬撑)。
+# 类型检查本地开发和 CI 都会跑, 生产机只需要产物。
+if ($frontendChanged) {
+  Push-Location (Join-Path $projectRoot 'frontend')
+  Run "npm run build:deploy"
+  Pop-Location
+} else {
+  Write-Host "  frontend/ 无改动, 跳过前端构建" -ForegroundColor Gray
+}
+Write-Host "  构建完成" -ForegroundColor Green
+
+# 5.4) 数据库迁移 —— 2026-07-27 补上这一环 (生产事故: watcher 抢跑部署了带新列
+# 的代码但没跑 migrations, 后端查不到列启动崩溃循环; CI 到场又因"已部署"短路
+# 跳过迁移, 两条路都没跑成)。run-migrations.js 无待办时是 no-op, 多跑无害。
+Write-Host "`n[5.4/6] 应用数据库迁移 (run-migrations.js)..." -ForegroundColor Yellow
+Push-Location (Join-Path $projectRoot 'backend')
+Run "node scripts/run-migrations.js"
+Pop-Location
+
+# 5.5) seed — 应用 entity / 硬件 / 场景的更新.
+# seed 本身是幂等的 (record 已存在就跳过), 安全多跑.
+# 例外: 末尾的 HW_IP_FIXES 段会把错的 IP 主动更新成正确值 (一次性自愈).
+Write-Host "`n[5.5/6] 应用 seed (硬件/场景/设备 idempotent 更新)..." -ForegroundColor Yellow
+if ($backendChanged) {
+  Push-Location (Join-Path $projectRoot 'backend')
+  Run "npm run seed"
+  Pop-Location
+} else {
+  Write-Host "  backend/ 无改动, 跳过 seed" -ForegroundColor Gray
+}
+
+# 6) 强制重启 backend: pm2 delete + 杀残留 + pm2 start
+# 之前用 pm2 restart 实测在某些情形 (pm2 daemon 卡 / 进程脱钩) 下不真换进程,
+# dist/main.js 是新的, 但 backend 进程是几小时前的, 跑老 .env. 用 delete+start
+# 强制清干净, 加上端口残留进程显式 kill.
+Write-Host "`n[6/6] 强制重启服务 (pm2 delete + kill :3200 + pm2 start)..." -ForegroundColor Yellow
+
+if ($backendChanged) {
+# 6a: pm2 delete 把记录清掉 (即使进程没了也无害)
+try { & pm2 delete smart-control-backend 2>&1 | Out-Null } catch { }
+
+# 6b: 杀掉任何还占着 3200 / 3000 端口的 node (脱钩遗留进程)
+# Stop-Process -Force 在 cross-user 场景下会失败 (watcher=user, 老 backend=admin),
+# 改用 taskkill /F 双保险, 它在用户有 SeDebugPrivilege 时能强杀.
+foreach ($targetPort in @(3200, 3000)) {
+  try {
+    $conns = Get-NetTCPConnection -LocalPort $targetPort -State Listen -ErrorAction SilentlyContinue
+    foreach ($c in $conns) {
+      $tpid = $c.OwningProcess
+      Write-Host "  -> 杀掉占用 :$targetPort 的 PID $tpid" -ForegroundColor Yellow
+      Stop-Process -Id $tpid -Force -ErrorAction SilentlyContinue
+      # 兜底: taskkill 在某些 cross-user 场景下成功率更高
+      & taskkill /F /PID $tpid 2>&1 | Out-Null
+    }
+  } catch { }
+}
+Start-Sleep -Milliseconds 800
+} else {
+  Write-Host "  backend/ 无改动, 跳过 backend 硬重启 (生产不停机)" -ForegroundColor Gray
+}
+
+# 6c-pre: pm2 daemon 绝不能在本 SSH 会话里被顺手拉起 —— SSH 一断 daemon 连同
+# 两个服务全死 (CI 部署时红时绿的根因, 2026-07-25)。daemon 不在就先用 WMI 脱离
+# 方式复活它 (boot-pm2.ps1 同款), 之后再正常对话。
+& pm2 ping *>$null
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "  -> pm2 daemon 不在, 用 WMI 脱离方式拉起 (session 陷阱)" -ForegroundColor Yellow
+  $pm2cmdPath = Join-Path $env:APPDATA 'npm\pm2.cmd'
+  try {
+    # 2026-07-27: WMI 不传调用者环境, 必须在命令行里注入 PM2_HOME, 否则这个脱离
+    # 守护会用别的家目录/管道名, 谁也找不到它 (孤儿守护堆积的一环)。注意 && 必须
+    # 紧贴变量值 —— cmd 会把 "=" 到 "&&" 之间的空格算进值里, 带尾随空格的
+    # PM2_HOME 拼出的命名管道名同样谁也对不上 (boot-pm2.ps1 同款修复)。
+    ([wmiclass]'\\.\root\cimv2:Win32_Process').Create("cmd /c `"set PM2_HOME=C:\Users\user\.pm2&& $pm2cmdPath ping`"", $env:USERPROFILE, $null) | Out-Null
+  } catch { Write-Host "  -> WMI 拉起失败: $($_.Exception.Message)" -ForegroundColor Red }
+  Start-Sleep -Seconds 5
+}
+
+# 6c: 用 ecosystem 重新起, 读最新 .env (仅 backend 有改动时 — 无改动没 delete 过, 不用重起)
+$ecosystem = Join-Path $projectRoot 'deploy\ecosystem.config.js'
+if ($backendChanged) {
+  try { & pm2 start "$ecosystem" --only smart-control-backend --update-env 2>&1 | Out-Null } catch { }
+}
+
+# 6c.1: smart-control-frontend (vite preview) 自动注册到 pm2 (一次性 + 幂等)
+# 之前 vite preview 是手动 npm run preview 起的孤儿, PS 一关就死, 无人值守不可能.
+# 这里逻辑:
+#   - 已经在 pm2 里: 跳过 (pm2 已经在守, autorestart 自己处理 crash, 不用插手)
+#   - 不在 pm2 里: 杀掉占着 :5173 的手动起的进程, 用 ecosystem 起, save 到 dump.pm2
+# 这样 watcher 任意一次轮询都能自愈, 不需要 RDC 进去人工注册.
+Write-Host "  -> 检查 smart-control-frontend 是否在 pm2..." -ForegroundColor Yellow
+$fePresent = $false
+try {
+  & pm2 describe smart-control-frontend *>$null
+  if ($LASTEXITCODE -eq 0) { $fePresent = $true }
+} catch { }
+if ($fePresent) {
+  Write-Host "    smart-control-frontend 已在 pm2 守护中, 跳过 (autorestart 会处理 crash)" -ForegroundColor Green
+} else {
+  Write-Host "    smart-control-frontend 不在 pm2, 注册中..." -ForegroundColor Cyan
+  # 清掉占着 5173 的手动起的 vite preview (历史孤儿). watcher 用户身份杀不动
+  # SYSTEM/admin 进程是正常的, 不阻塞 — pm2 start 拿不到端口会 retry 退避.
+  try {
+    $conns5173 = Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue
+    foreach ($c in $conns5173) {
+      $tpid = $c.OwningProcess
+      Write-Host "    -> 尝试杀占着 :5173 的 PID $tpid (孤儿 vite preview)" -ForegroundColor Yellow
+      Stop-Process -Id $tpid -Force -ErrorAction SilentlyContinue
+      & taskkill /F /PID $tpid 2>&1 | Out-Null
+    }
+  } catch { }
+  Start-Sleep -Milliseconds 800
+  try { & pm2 start "$ecosystem" --only smart-control-frontend --update-env 2>&1 | Out-Null } catch { }
+  Start-Sleep -Seconds 2
+  # 验证: pm2 list 里能看到才算 OK
+  try {
+    & pm2 describe smart-control-frontend *>$null
+    if ($LASTEXITCODE -eq 0) {
+      Write-Host "    ✓ smart-control-frontend 已注册到 pm2" -ForegroundColor Green
+    } else {
+      Write-Host "    !! pm2 start --only smart-control-frontend 没成功 (可能 :5173 占着 / 权限). 下次 watcher 再试." -ForegroundColor Yellow
+    }
+  } catch { }
+}
+
+# 6c.2: vite.config.ts 变更 → 必须重启 frontend (2026-07-30)
+# vite preview 只在进程启动时读配置; "零停机换 dist 文件"模式覆盖不到配置变更
+# (公网直连的 allowedHosts 白名单就是这么漏掉的: 配置到了磁盘, 进程没吃进)。
+# 哈希戳记比对, 变了才重启 — 平时零停机模式不受影响。
+try {
+  $viteCfg = Join-Path $projectRoot 'frontend\vite.config.ts'
+  $stampDir = Join-Path $projectRoot 'logs'
+  $stampFile = Join-Path $stampDir 'vite-config.applied.sha'
+  # 遮蔽配置清理: vite 找配置时 .js/.mjs/.cjs 优先于 .ts, 箱上散落的旧配置会
+  # 静默遮蔽仓库的 vite.config.ts (仓库只跟踪 .ts, 其余都是历史遗留)。删掉并强制重启。
+  $strayRemoved = $false
+  foreach ($ext in @('js', 'mjs', 'cjs', 'mts')) {
+    $strayPath = Join-Path $projectRoot "frontend\vite.config.$ext"
+    if (Test-Path $strayPath) {
+      Remove-Item $strayPath -Force -ErrorAction SilentlyContinue
+      Write-Host "  !! 删除遮蔽配置 vite.config.$ext (它会让 vite 忽略 vite.config.ts)" -ForegroundColor Yellow
+      $strayRemoved = $true
+    }
+  }
+  if (Test-Path $viteCfg) {
+    $vh = (Get-FileHash $viteCfg -Algorithm SHA256).Hash
+    $old = ''
+    if (Test-Path $stampFile) { $old = (Get-Content $stampFile -ErrorAction SilentlyContinue | Select-Object -First 1) }
+    if ($strayRemoved -or ($vh -ne $old)) {
+      Write-Host "  -> vite.config.ts 有变更, delete+start smart-control-frontend 使配置生效..." -ForegroundColor Yellow
+      # 用 delete+start 而非 restart: 6 号段注释里踩过 "pm2 restart 某些情形不真换进程"
+      try { & pm2 delete smart-control-frontend 2>&1 | Out-Null } catch { }
+      Start-Sleep -Milliseconds 800
+      & pm2 start "$ecosystem" --only smart-control-frontend --update-env 2>&1 | Out-Null
+      if ($LASTEXITCODE -eq 0) {
+        # 只在重启真成功时记哈希 — 失败要留着下次重试
+        if (-not (Test-Path $stampDir)) { New-Item -ItemType Directory -Path $stampDir -Force | Out-Null }
+        Set-Content -Path $stampFile -Value $vh
+        Write-Host "    frontend 已重启 (配置哈希已记录)" -ForegroundColor Green
+      } else {
+        Write-Host "    !! pm2 restart frontend 失败 (exit=$LASTEXITCODE), 不记哈希, 下次 watcher 重试" -ForegroundColor Yellow
+      }
+    }
+  }
+} catch {
+  Write-Host "  (vite.config 变更检查失败: $($_.Exception.Message))" -ForegroundColor DarkGray
+}
+
+try { & pm2 save 2>&1 | Out-Null } catch { }
+
+# 6c.2 【2026-07-26 根治孤儿守护泄漏】
+# 部署过程中的 `& pm2 delete/start/describe/save` 在 Windows 上跨会话时可能各自
+# fork 出孤儿 pm2 守护 —— pm2 CLI 靠命名管道找守护、管道按会话隔离, 看不到 boot-pm2
+# 用 WMI 脱离启动的那个守护就自建一个 (详见 auto-update-watcher.ps1 同类注释)。
+# 每次部署收尾在这里归零: 只留真正在托管 backend/frontend 的那个守护 (被托管的
+# ProcessContainerFork.js 进程的父进程就是它), 其余 Daemon.js 一律杀掉。
+# 只在找得到被托管进程时才动手, 绝不盲杀 (托管进程为空时保守跳过)。
+#
+# v2 (2026-07-26 修): 带重试。v1 紧跟 pm2 start 就跑, 此刻被托管进程
+# (ProcessContainerFork) 往往还没起来 -> keep 集空 -> "保守跳过" -> 没清 ->
+# 每次部署漏几个、十来次累积到几十个又把机器拖到崩 (实测 10 次部署堆到 46)。
+# v2 最多轮询 24s 等托管进程出现, 出现即清; 真没起来(backend 挂了)才跳过。
+$deduped = $false
+for ($try = 0; $try -lt 12; $try++) {
+  try {
+    $managed = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction Stop |
+      Where-Object { $_.CommandLine -match 'ProcessContainerFork' })
+    $keep = @($managed | ForEach-Object { [int]$_.ParentProcessId } | Sort-Object -Unique)
+    if ($keep.Count -gt 0) {
+      $daemons = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction Stop |
+        Where-Object { $_.CommandLine -match 'Daemon\.js' })
+      $killed = 0
+      foreach ($d in $daemons) {
+        if ($keep -notcontains [int]$d.ProcessId) {
+          try { Stop-Process -Id ([int]$d.ProcessId) -Force -ErrorAction Stop; $killed++ } catch { }
+        }
+      }
+      Write-Host "  [daemon-dedup] 保留在管守护 $($keep -join ','); 清掉孤儿 $killed 个 (第 $($try + 1) 轮)" -ForegroundColor DarkGray
+      $deduped = $true
+      break
+    }
+  } catch {
+    Write-Host "  [daemon-dedup] 探测出错: $($_.Exception.Message)" -ForegroundColor DarkGray
+  }
+  Start-Sleep -Seconds 2
+}
+if (-not $deduped) {
+  Write-Host "  [daemon-dedup] 等 24s 仍无被托管进程 (backend 未起?), 保守跳过" -ForegroundColor Yellow
+}
+
+# 6d: 兜底 — 假设上面 pm2 命令因权限不通 (watcher 用 user 身份, pm2 daemon
+# 可能归 admin), 调一下 backend 自己提供的 loopback 重启 endpoint. 它会
+# process.exit(0), 然后 admin 持有的 pm2 daemon 看到进程死掉会 autorestart,
+# 拉起的新进程读最新 dist + 最新 .env. 这是绕开权限边界的关键.
+if ($backendChanged) {
+Start-Sleep -Seconds 3   # 给上面的 pm2 start (若成功) 一点时间
+try {
+  if (-not $env:SMART_CONTROL_OPERATIONS_TOKEN_FILE) { throw 'Missing operations credential file' }
+  $opsToken = [IO.File]::ReadAllText($env:SMART_CONTROL_OPERATIONS_TOKEN_FILE).Trim()
+  if ($opsToken.Length -lt 32 -or $opsToken.Length -gt 512) { throw 'Invalid operations credential' }
+  $body = '{}'
+  Invoke-RestMethod -Uri 'http://localhost:3200/api/system/admin-restart' `
+    -Method Post -ContentType 'application/json' -Headers @{ 'X-Operations-Token' = $opsToken } -Body $body -TimeoutSec 5 -MaximumRedirection 0 | Out-Null
+  Write-Host "  ✓ admin-restart 已触发, backend 200ms 后自退出 + pm2 autorestart" -ForegroundColor Green
+} catch {
+  # 老版本 backend 没这个 endpoint (404), 不影响
+  Write-Host "  (admin-restart 未完成，请检查运维凭据和后端状态；不得据此认定新版本已启动)" -ForegroundColor Yellow
+}
+} else {
+  Write-Host "  backend/ 无改动, 跳过 admin-restart 兜底 (生产不停机)" -ForegroundColor Gray
+}
+
+# ============================================================
+# 部署验证 — 判据全在 scripts/verify-deploy.js 里, 这里只负责调它
+#
+# 原来这里是"探一下 backend 的 /api/system/health, 200 就算成功"。那个判据
+# 挡不住现场真实发生过的两类故障:
+#   1) 前端崩溃循环 421 次、死了一整天, 而这里只看后端 → 每次都报"更新完成"
+#   2) 孤儿进程霸占端口跑旧代码, health 打到它身上照样 200 ok → 报成功,
+#      但业主拿到的还是旧版本
+# 所以验证必须包含: 端口持有者 PID == pm2 PID (查孤儿)、进程启动时间晚于构建
+# 产物 (查是不是真跑了新代码)、前端也要探、重启计数不增长 (查崩溃循环)。
+# ============================================================
+Write-Host "`n等待服务起来 (6s)..." -ForegroundColor Gray
+if (-not $DryRun) { Start-Sleep -Seconds 6 }
+
+if ($DryRun) {
+  Write-Host "`n(DryRun: 跳过部署验证)" -ForegroundColor DarkGray
+} else {
+  Write-Host "`n部署验证..." -ForegroundColor Yellow
+  $verifier = Join-Path $PSScriptRoot 'verify-deploy.js'
+  & node $verifier
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "`n  X 部署验证未通过 — 服务没有跑绿, 不能算部署成功" -ForegroundColor Red
+    Write-Host "`n回滚命令:" -ForegroundColor Yellow
+    Write-Host "  git reset --hard $beforeCommit" -ForegroundColor Yellow
+    Write-Host "  pm2 restart smart-control-backend smart-control-frontend" -ForegroundColor Yellow
+    throw "部署验证失败 (详见上面的失败项)"
+  }
+}
+
+Write-Host "`n================================================" -ForegroundColor Cyan
+Write-Host " 更新完成 (已验证跑绿)" -ForegroundColor Green
+Write-Host "================================================" -ForegroundColor Cyan
+
+# 心跳已移到 watcher 里 (finally 块), 每次轮询都报, 不只 update 成功时
+# update.ps1 本身不再单独报 — 避免重复

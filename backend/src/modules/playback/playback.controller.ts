@@ -1,0 +1,253 @@
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Logger, Param, ParseIntPipe, Post, Put, Req, Query, UseGuards } from '@nestjs/common';
+import { PlaybackOperatorGuard } from './playback-operator.guard';
+import { AuthenticatedRequest, requireActor } from '../../common/auth/actor';
+import { PersonalPlaylistService } from './personal-playlist.service';
+import { PlaybackService } from './playback.service';
+
+/**
+ * 鉴权策略 (Sprint-A 修正):
+ *   推送 / 停止媒体属于"日常操作", 跟切灯切场景一个级别, 操作员在平板上随时
+ *   要做. 不卡 admin token (admin token 是给"改系统配置"那种用的, 比如改 logo /
+ *   改密码 / 改用户). 现场进入展厅 = 物理接触, 已经过了安全边界.
+ */
+@Controller('playback')
+@UseGuards(PlaybackOperatorGuard)
+export class PlaybackController {
+  constructor(private readonly service: PlaybackService, private readonly playlists: PersonalPlaylistService) {}
+
+  private readonly logger = new Logger('AudioRouteDebug');
+
+  /**
+   * 临时调试 (2026-07-24): PlayerPage 上报它 enumerateDevices() 看到的音频输出设备
+   * 标签 + 它给这个 slot 挑中的那个, 落进 pm2-out.log, 用来定位投影(slot2) setSinkId
+   * 到底指到了哪、为什么没落到 HDMI2 那口。定位完删。
+   */
+  @Post('audio-debug')
+  @HttpCode(200)
+  audioDebug(@Body() body: { slot?: number; labels?: string[]; picked?: string | null } = {}) {
+    this.logger.warn(
+      `[audio-route] slot=${body.slot} picked=${JSON.stringify(body.picked)} labels=${JSON.stringify(body.labels)}`,
+    );
+    return { ok: true };
+  }
+
+  /** 拿所有通道状态. PlayerPage 起来时第一次拉 + 后台监控也读 */
+
+  // ============ 播放列表 / 历史 / 上下曲 (2026-07-17) ============
+  // 业主: "播放过的内容应该有播放历史, 平时经常播放的内容应该在播放列表里面, 随时可以
+  //       切换播放列表内的内容, 在播放列表里面可以更改文件名字"
+  //       "背景音乐及大屏播放都应该有播放控制功能, 不能一直无脑播放"
+  //
+  // ⚠️ 路由顺序: 这些两段/三段路径必须在 ':slot' 之类的单段参数路由**之前**声明,
+  //    否则被 ParseIntPipe 吃掉 400 (light-zones 和 hvac 都踩过这个坑)。
+
+  @Get('playlist/:slot')
+  async playlist(@Req() req: AuthenticatedRequest, @Param('slot', ParseIntPipe) slot: number, @Query('scope') scope?: 'mine' | 'shared' | 'all' | 'visible') {
+    return { message: '查询成功', data: await this.playlists.list(requireActor(req), slot, scope) };
+  }
+
+  /** 加进播放列表 —— 必须人工调用 (媒体库内容默认不进列表, 需管理员确认) */
+  @Post('playlist/:slot')
+  @HttpCode(200)
+  async addPlaylist(
+    @Req() req: AuthenticatedRequest,
+    @Param('slot', ParseIntPipe) slot: number,
+    @Body() body: { mediaId?: number; title?: string } = {},
+  ) {
+    if (typeof body?.mediaId !== 'number') throw new BadRequestException('mediaId 必填');
+    return { message: '已加入播放列表', data: await this.playlists.add(requireActor(req), slot, body.mediaId, body.title) };
+  }
+
+  /** 本人或管理员改列表别名，不修改素材原文件。 */
+  @Put('playlist/item/:id')
+  async renamePlaylist(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { title?: string } = {},
+  ) {
+    if (typeof body?.title !== 'string') throw new BadRequestException('title 必填');
+    return { message: '已改名', data: await this.playlists.rename(requireActor(req), id, body.title) };
+  }
+
+  @Delete('playlist/item/:id')
+  @HttpCode(200)
+  async removePlaylist(@Req() req: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number) {
+    return { message: '已移出播放列表', data: await this.playlists.remove(requireActor(req), id) };
+  }
+
+  @Put('playlist/:slot/reorder')
+  async reorderPlaylist(@Req() req: AuthenticatedRequest, @Param('slot', ParseIntPipe) slot: number, @Body() body: { ids?: number[] } = {}) {
+    if (!Array.isArray(body?.ids)) throw new BadRequestException('ids 必填');
+    return { message: '顺序已保存', data: await this.playlists.reorder(requireActor(req), slot, body.ids) };
+  }
+
+  @Get('history/:slot')
+  async history(@Req() req: AuthenticatedRequest, @Param('slot', ParseIntPipe) slot: number) {
+    return { message: '查询成功', data: await this.service.listHistory(slot, requireActor(req)) };
+  }
+
+  /** 上一个 / 下一个 — 在播放列表里环形切换 */
+  /** 文档翻页 (2026-07-25 文档投屏): 手机翻页条 → 这里 → WS → PPT 守护/kiosk */
+  @Post('channels/:slot/doc-page')
+  @HttpCode(200)
+  async docPage(
+    @Param('slot', ParseIntPipe) slot: number,
+    @Body() body: { page?: number; expectedSession?: string } = {},
+  ) {
+    const page = Number(body?.page);
+    if (!Number.isFinite(page) || page < 1) throw new BadRequestException('page 必须是 >=1 的数字');
+    if (typeof body.expectedSession !== 'string' || !body.expectedSession || body.expectedSession.length > 64) throw new BadRequestException('请刷新播放状态后重试');
+    return { message: '已翻页', data: await this.service.setDocPage(slot, page, body.expectedSession) };
+  }
+
+  /** 文档画面缩放 (2026-07-29 业主: PPT 要能全屏/放大缩小)。100=铺满, 50-200 */
+  @Post('channels/:slot/doc-zoom')
+  @HttpCode(200)
+  async docZoom(
+    @Param('slot', ParseIntPipe) slot: number,
+    @Body() body: { zoom?: number; expectedSession?: string } = {},
+  ) {
+    const zoom = Number(body?.zoom);
+    if (!Number.isFinite(zoom)) throw new BadRequestException('zoom 必须是数字 (50-200)');
+    if (typeof body.expectedSession !== 'string' || !body.expectedSession || body.expectedSession.length > 64) throw new BadRequestException('请刷新播放状态后重试');
+    return { message: '缩放已更新', data: await this.service.setDocZoom(slot, zoom, body.expectedSession) };
+  }
+
+  /** 画面铺放模式 (业主 2026-07-25): fill=铺满拉伸(默认)/contain=保持比例/cover=裁切铺满 */
+  @Post('channels/:slot/display-fit')
+  @HttpCode(200)
+  async displayFit(
+    @Param('slot', ParseIntPipe) slot: number,
+    @Body() body: { fit?: string } = {},
+  ) {
+    const fit = body?.fit;
+    if (fit !== 'fill' && fit !== 'contain' && fit !== 'cover') {
+      throw new BadRequestException('fit 必须是 fill / contain / cover');
+    }
+    return { message: '铺放模式已更新', data: await this.service.setDisplayFit(slot, fit) };
+  }
+
+  @Post('channels/:slot/next')
+  @HttpCode(200)
+  async next(@Req() req: AuthenticatedRequest, @Param('slot', ParseIntPipe) slot: number) {
+    return { message: '已切到下一个', data: await this.service.step(slot, 1, requireActor(req)) };
+  }
+
+  @Post('channels/:slot/prev')
+  @HttpCode(200)
+  async prev(@Req() req: AuthenticatedRequest, @Param('slot', ParseIntPipe) slot: number) {
+    return { message: '已切到上一个', data: await this.service.step(slot, -1, requireActor(req)) };
+  }
+
+  /**
+   * 一首播完自动推进 —— bgm-player.ps1 播完当前曲就调这个, 后端按 playMode 决定
+   * 下一首。这是"背景音乐不靠任何人开网页也能一直放"的核心 (见 service.advance)。
+   */
+  @Post('channels/:slot/advance')
+  @HttpCode(200)
+  async advance(@Req() req: AuthenticatedRequest, @Param('slot', ParseIntPipe) slot: number) {
+    return { message: '已推进', data: await this.service.advance(slot, requireActor(req)) };
+  }
+
+  /** 设背景音乐播放模式 (顺序/单曲/列表/随机). 前端点模式按钮时调, 存后端. */
+  @Post('channels/:slot/play-mode')
+  @HttpCode(200)
+  async playMode(
+    @Param('slot', ParseIntPipe) slot: number,
+    @Body() body: { mode?: string } = {},
+  ) {
+    const valid = ['seq', 'loop1', 'loopAll', 'shuffle'];
+    if (!body?.mode || !valid.includes(body.mode)) {
+      throw new BadRequestException(`mode 必须是 ${valid.join('/')}`);
+    }
+    return { message: '播放模式已保存', data: await this.service.setPlayMode(slot, body.mode as 'seq' | 'loop1' | 'loopAll' | 'shuffle') };
+  }
+
+  @Get('channels')
+  async list(@Req() req: AuthenticatedRequest) {
+    return { message: '查询成功', data: await this.service.list(requireActor(req)) };
+  }
+
+  /** 拿指定 slot 当前状态. PlayerPage 启动时按 ?slot=N 拉 */
+  @Get('channels/:slot')
+  async getOne(@Req() req: AuthenticatedRequest, @Param('slot', ParseIntPipe) slot: number) {
+    return { message: '查询成功', data: await this.service.getBySlot(slot, requireActor(req)) };
+  }
+
+  /**
+   * 把媒体推到 slot. MediaPage / LedPage 用. 调用后 service 写库 + WS 广播,
+   * PlayerPage 收到事件就切 video / image.
+   */
+  @Post('channels/:slot/publish')
+  async publish(
+    @Req() req: AuthenticatedRequest,
+    @Param('slot', ParseIntPipe) slot: number,
+    @Body() body: { mediaId?: number; loopMode?: 'once' | 'loop' } = {},
+  ) {
+    if (typeof body?.mediaId !== 'number') {
+      throw new BadRequestException('mediaId 必填');
+    }
+    const view = await this.service.publishMedia(slot, body.mediaId, requireActor(req), { loopMode: body.loopMode });
+    return { message: '已推送', data: view };
+  }
+
+  /**
+   * 欢迎页一键投放 (2026-07-28 业主: LED/投影输入源统一, 指向明确)。
+   * variant: editable=动态欢迎页(称谓后台可编辑) / default=本屏内置静态欢迎图。
+   * 指向逻辑见 PlaybackService.publishWelcome 注释。
+   */
+  @Post('channels/:slot/welcome')
+  @HttpCode(200)
+  async welcome(
+    @Req() req: AuthenticatedRequest,
+    @Param('slot', ParseIntPipe) slot: number,
+    @Body() body: { variant?: 'editable' | 'default' } = {},
+  ) {
+    const variant = body?.variant === 'default' ? 'default' : 'editable';
+    const r = await this.service.publishWelcome(slot, variant, requireActor(req));
+    return { message: `已投放「${r.assetName}」`, data: r.view };
+  }
+
+  /** Built-in park operations dashboard, exposed as a direct LED/projector input source. */
+  @Post('channels/:slot/park-dashboard')
+  @HttpCode(200)
+  async parkDashboard(
+    @Req() req: AuthenticatedRequest,
+    @Param('slot', ParseIntPipe) slot: number,
+  ) {
+    const r = await this.service.publishParkDashboard(slot, requireActor(req));
+    return { message: `已投放「${r.assetName}」`, data: r.view };
+  }
+
+  /** 清掉当前播, 回待机 */
+  @Post('channels/:slot/stop')
+  async stop(@Param('slot', ParseIntPipe) slot: number, @Body() body?: { expectedSession?: string }) {
+    const session = body?.expectedSession;
+    if (session !== undefined && (typeof session !== 'string' || !session || session.length > 64)) throw new BadRequestException('无效播放会话');
+    const view = await this.service.stop(slot, session, false);
+    return { message: '已停止, 切回待机', data: view };
+  }
+
+  /** 暂停 slot3 BGM (bgm-player.ps1 下次轮询到后执行 MCI pause) */
+  @Post('channels/:slot/pause')
+  async pause(@Param('slot', ParseIntPipe) slot: number) {
+    const view = await this.service.pause(slot);
+    return { message: '已暂停', data: view };
+  }
+
+  /** 恢复 slot3 BGM (bgm-player.ps1 下次轮询到后执行 MCI resume) */
+  @Post('channels/:slot/resume')
+  async resume(@Param('slot', ParseIntPipe) slot: number) {
+    const view = await this.service.resume(slot);
+    return { message: '已恢复', data: view };
+  }
+
+  /**
+   * PlayerPage 心跳上报. 不要 guard — kiosk 浏览器不会有 admin token.
+   * 频率: 每 30s 一次. 服务端只看时间戳, 不广播 WS.
+   */
+  @Post('channels/:slot/heartbeat')
+  async heartbeat() {
+    throw new BadRequestException('播放器请使用带设备凭据的 player-device/:slot/heartbeat');
+  }
+}

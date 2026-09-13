@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- v3 视觉同款 -->
+    <color name="bg_0">#060818</color>
+    <color name="bg_1">#0E0F2A</color>
+    <color name="surf_1">#1A1F3A</color>
+    <color name="primary">#00E5FF</color>
+    <color name="primary_dark">#00B8D4</color>
+    <color name="purple">#A855F7</color>
+    <color name="text_1">#F8F9FF</color>
+    <color name="text_2">#B8C2E6</color>
+    <color name="text_3">#7782A8</color>
+    <color name="success">#00E78A</color>
+    <color name="danger">#FF4757</color>
+</resources>
