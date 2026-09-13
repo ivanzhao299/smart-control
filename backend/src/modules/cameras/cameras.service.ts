@@ -269,6 +269,9 @@ export class CamerasService implements OnModuleDestroy {
     // 启动FFmpeg进程
     const process = spawn(this.ffmpegPath, ffmpegArgs, {
       stdio: ['ignore', 'pipe', 'pipe'],
+      // GK9000(Windows) 上 ffmpeg.exe 是控制台子程序，必须隐藏窗口，
+      // 否则后端每拉起一路/每次崩溃重拉都会在现场桌面弹一个黑窗并层层堆叠。
+      windowsHide: true,
     });
 
     const session: HlsSession = {
@@ -389,6 +392,9 @@ export class CamerasService implements OnModuleDestroy {
 
     const process = spawn(this.ffmpegPath, ffmpegArgs, {
       stdio: ['ignore', 'pipe', 'pipe'],
+      // GK9000(Windows) 上 ffmpeg.exe 是控制台子程序，必须隐藏窗口，
+      // 否则后端每拉起一路/每次崩溃重拉都会在现场桌面弹一个黑窗并层层堆叠。
+      windowsHide: true,
     });
 
     session.process = process;
