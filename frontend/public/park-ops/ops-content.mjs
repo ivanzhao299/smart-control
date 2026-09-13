@@ -67,7 +67,7 @@ function render() {
   const hlsCamerasSmall = [
     { channel: 'd37', name: '北大门', tag: '北大门 · D37' },
     { channel: 'd57', name: '西大门', tag: '西大门 · D57' },
-    { channel: 'd02', name: '展贸中心', tag: '展贸中心 · D02' },
+    { channel: 'd02', name: '东区通道', tag: '东区通道 · D02' },
     { channel: 'p3-d37', name: '东大门', tag: '东大门 · P3-D37' },
   ].map(c => `<div class="cam cam-hls" data-camera="${c.channel}" data-name="${c.name}"><span class="live"><span class="live-indicator"></span>LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><div class="mock">${c.name} · HLS连接中...</div><span class="tag">${c.tag}</span></div>`).join('');
   panel(right[1], '视频安防 · 实时监控', `<div class="cameras">${hlsCamerasSmall}</div>` + para('已接入4路HLS流畅视频流，通过FFmpeg实时转码，延迟约3-5秒。', true));
