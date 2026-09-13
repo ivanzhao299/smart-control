@@ -337,6 +337,16 @@ try {
         }
       }
 
+      # 清理可能被merge覆盖的未跟踪文件（2026-09-13 根因：GK9000上backend/data/video-binding.json未跟踪导致merge失败）
+      $untrackedFiles = @(git status --porcelain --untracked-files=all | Where-Object { $_ -match '^\?\?' } | ForEach-Object { $_.Substring(3).Trim() })
+      if ($untrackedFiles.Count -gt 0) {
+        Write-DeployLog "Removing $($untrackedFiles.Count) untracked files that would be overwritten by merge: $($untrackedFiles -join ', ')"
+        foreach ($relativeFile in $untrackedFiles) {
+          $fullPath = Join-Path $projectRoot $relativeFile
+          Remove-Item -Path $fullPath -Force -ErrorAction SilentlyContinue
+        }
+      }
+
       Invoke-Native 'git' @('merge', '--ff-only', $Commit)
       $worktreeUpdated = $true
 
