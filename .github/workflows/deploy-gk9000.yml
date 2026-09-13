@@ -62,6 +62,20 @@ jobs:
           printf '%s\n' "$JUMP_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/gk9000-deploy-jump" "$HOME/.ssh/known_hosts"
 
+      - name: Clean untracked files on GK9000 before deploy
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          ssh \
+            -i "$HOME/.ssh/gk9000-deploy-jump" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=4 \
+            root@123.57.220.65 \
+            "gk9000-clean" || true
+
       - name: Deploy requested commit through Aliyun
         env:
           COMMIT_SHA: ${{ github.sha }}
