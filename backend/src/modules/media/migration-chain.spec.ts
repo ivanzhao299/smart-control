@@ -1,0 +1,60 @@
+import 'reflect-metadata';
+import { DataSource } from 'typeorm';
+import { resolve } from 'path';
+import { assertSchemaReady } from '../../common/config/schema-readiness';
+
+describe('complete migration chain on an isolated database', () => {
+  let db: DataSource;
+  afterEach(async () => { if (db?.isInitialized) await db.destroy(); });
+  it('creates the multiuser tables through real migrations without synchronize', async () => {
+    db = await new DataSource({ type: 'better-sqlite3', database: ':memory:', synchronize: false,
+      migrations: [resolve(__dirname, '../../migrations/*.ts')],
+      entities: [resolve(__dirname, '../../entities/*.entity.ts')],
+    }).initialize();
+    const applied = await db.runMigrations();
+    expect(applied.length).toBeGreaterThan(4);
+    expect(await db.showMigrations()).toBe(false);
+    expect(await db.query("SELECT visibility, source, owner_user_id FROM media_assets WHERE sourceUrl = ?", [
+      'http://localhost:5173/control/park-ops/index.html',
+    ])).toEqual([{ visibility: 'shared', source: 'system', owner_user_id: null }]);
+    expect(() => assertSchemaReady((db.driver as any).databaseConnection)).not.toThrow();
+    const runner = db.createQueryRunner();
+    expect((await runner.getTable('media_assets'))?.findColumnByName('owner_user_id')).toBeDefined();
+    expect((await runner.getTable('playlist_item'))?.indices.map(i => i.name)).toContain('uq_playlist_user_slot_media');
+    expect((await runner.getTable('playback_channels'))?.findColumnByName('playback_session')).toBeDefined();
+    expect(await runner.hasTable('upload_reservations')).toBe(true);
+    for (const entity of db.entityMetadatas) {
+      const table = await runner.getTable(entity.tableName);
+      expect(table).toBeDefined();
+      for (const column of entity.columns) expect(table?.findColumnByName(column.databaseName)).toBeDefined();
+    }
+    expect(await db.runMigrations()).toEqual([]);
+    // Empty new-feature state can return to the pre-multiuser schema without data loss.
+    expect((await runner.getTable('upload_reservations'))?.findColumnByName('temp_name')).toBeDefined();
+    expect((await runner.getTable('upload_reservations'))?.findColumnByName('instance_id')).toBeDefined();
+    expect(await runner.hasTable('upload_instances')).toBe(true);
+    expect((await runner.getTable('upload_reservations'))?.findColumnByName('target_media_id')).toBeDefined();
+    expect(await db.query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'protect_last_administrator_%'")).toHaveLength(2);
+    const multiuserAndLater = applied.filter(m => m.timestamp >= 1788618000000);
+    for (const _migration of multiuserAndLater) await db.undoLastMigration();
+    expect(await db.query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'protect_last_administrator_%'")).toHaveLength(0);
+    expect(await runner.hasTable('upload_reservations')).toBe(false);
+    expect((await runner.getTable('media_assets'))?.findColumnByName('owner_user_id')).toBeUndefined();
+    expect(() => assertSchemaReady((db.driver as any).databaseConnection)).toThrow('schema is not ready');
+  });
+  it.each(['empty', 'ledger', 'column', 'trigger'])('rejects %s schema without silently repairing it', async damage => {
+    db = await new DataSource({ type: 'better-sqlite3', database: ':memory:', synchronize: false,
+      migrations: [resolve(__dirname, '../../migrations/*.ts')],
+    }).initialize();
+    if (damage !== 'empty') await db.runMigrations();
+    if (damage === 'ledger') await db.query("DELETE FROM migrations WHERE name = 'TrackSystemUploadReservations1788618008000'");
+    if (damage === 'column') await db.query('ALTER TABLE media_assets DROP COLUMN processingError');
+    if (damage === 'trigger') {
+      const [trigger] = await db.query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'protect_last_administrator_%'");
+      await db.query(`DROP TRIGGER "${trigger.name}"`);
+    }
+    const before = await db.query('SELECT type, name, sql FROM sqlite_master ORDER BY name');
+    expect(() => assertSchemaReady((db.driver as any).databaseConnection)).toThrow('schema is not ready');
+    expect(await db.query('SELECT type, name, sql FROM sqlite_master ORDER BY name')).toEqual(before);
+  });
+});
