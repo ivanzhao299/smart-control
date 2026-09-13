@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Optional, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
@@ -17,6 +17,7 @@ import {
   frameBrightness,
   frameDisplayMode,
   frameLoadPreset,
+  frameSavePreset,
   frameReadDeviceId,
   frameSetLayer,
   ledInputToAction,
@@ -57,7 +58,7 @@ const GATEWAY_KEY = 'led-nova-vx1000';
  *   LED_DEFAULT_BRIGHTNESS_PCT=80    powerOn 后默认亮度
  */
 @Injectable()
-export class NovaLedAdapter extends BaseAdapter {
+export class NovaLedAdapter extends BaseAdapter implements OnModuleInit, OnModuleDestroy {
   get deviceType(): string {
     return 'led';
   }
@@ -89,6 +90,12 @@ export class NovaLedAdapter extends BaseAdapter {
   /** DB 配置缓存 — 5s TTL, 避免每次发命令都查 */
   private dbCache: { host?: string; port?: number; at: number } = { at: 0 };
   private readonly DB_CACHE_TTL_MS = 5000;
+
+  // ---- V2460 图层断电/掉配置自愈：启动后 + 周期性把图层1幂等拉回全屏 1:1 ----
+  private ensureBootTimer?: ReturnType<typeof setTimeout>;
+  private ensureIntervalTimer?: ReturnType<typeof setInterval>;
+  private ensureInFlight = false;
+  private presetSaved = false;
 
   constructor(
     config: ConfigService,
@@ -191,7 +198,8 @@ export class NovaLedAdapter extends BaseAdapter {
       protocol: 'nova-vx-tcp',
       capabilities: [
         'power_on', 'power_off', 'switch_input', 'set_brightness',
-        'load_preset', 'play_media', 'show_welcome', 'get_status', 'health_check',
+        'load_preset', 'save_preset', 'ensure_fullscreen_layer',
+        'play_media', 'show_welcome', 'get_status', 'health_check',
       ],
       defaultAddressing: { box: '1', port: 5200 },
       paramSchema: {
@@ -250,6 +258,92 @@ export class NovaLedAdapter extends BaseAdapter {
       const dErr = classifyError('led', err);
       this.registry.markFailure(GATEWAY_KEY, dErr.message, false);
       throw dErr;
+    }
+  }
+
+  // ============ V2460 全屏图层断电自愈 ============
+
+  /**
+   * 后端启动即安排"全屏图层自愈"：
+   *   - 启动延迟 LED_ENSURE_BOOT_DELAY_MS（默认 15s，等网络/设备就绪）后校正一次；
+   *   - 之后每 LED_ENSURE_INTERVAL_MS（默认 5min，设 0 关闭周期校正）幂等校正一次。
+   * 作用：V2460 断电重启或被现场软件改动后，图层窗口可能丢失/非全屏；后端会自动把
+   * 图层1拉回"HDMI2.0 输入、(0,0) 起、整屏 1:1、正常显示"，无需人工到现场。
+   * 设 LED_ENSURE_LAYER=off 可整体关闭；mock/本地开发模式自动跳过。
+   */
+  onModuleInit(): void {
+    if (this.isMock()) return;
+    if ((process.env.LED_ENSURE_LAYER ?? 'on').toLowerCase() === 'off') return;
+    const bootDelay = Number.parseInt(process.env.LED_ENSURE_BOOT_DELAY_MS ?? '15000', 10) || 15000;
+    const intervalMs = Number.parseInt(process.env.LED_ENSURE_INTERVAL_MS ?? String(5 * 60 * 1000), 10);
+    this.ensureBootTimer = setTimeout(() => { void this.ensureFullscreenLayer('boot'); }, Math.max(0, bootDelay));
+    if (Number.isFinite(intervalMs) && intervalMs > 0) {
+      this.ensureIntervalTimer = setInterval(() => { void this.ensureFullscreenLayer('periodic'); }, intervalMs);
+    }
+    this.logger.info(
+      `V2460 全屏图层自愈已启用 (bootDelay=${bootDelay}ms, interval=${intervalMs}ms)`,
+      { context: 'NovaLedAdapter' },
+    );
+  }
+
+  onModuleDestroy(): void {
+    if (this.ensureBootTimer) clearTimeout(this.ensureBootTimer);
+    if (this.ensureIntervalTimer) clearInterval(this.ensureIntervalTimer);
+  }
+
+  /**
+   * 幂等把 V2460 图层1拉回到全屏 1:1 并置为正常显示；首次成功时把当前配置存为预设
+   * （设备层快照，双保险）。任何失败只记录、不抛，绝不影响后端主流程。返回是否成功。
+   * 也可由运维接口/手动调用。
+   */
+  async ensureFullscreenLayer(reason = 'manual'): Promise<boolean> {
+    if (this.ensureInFlight) return false;
+    this.ensureInFlight = true;
+    try {
+      await this.ping(); // 探活；设备不在线会抛错，进入 catch 安静跳过
+      const action = ledInputToAction('video', {
+        welcome: this.cfg.presetWelcome,
+        video: this.cfg.presetVideo,
+      });
+      if (action.kind !== 'layer') return false;
+      await this.sendVx(frameSetLayer({
+        layerNo: 1,
+        source: action.source,
+        cardSlot: action.cardSlot,
+        width: this.cfg.width,
+        height: this.cfg.height,
+        startX: 0,
+        startY: 0,
+        priority: 0,
+        opacity: 0x64,
+        switchOn: true,
+      }));
+      await this.sendVx(frameDisplayMode(VX_DISPLAY_MODE.NORMAL));
+      // 首次成功后把当前正确的全屏配置固化进设备预设槽（只存一次，幂等）
+      if (!this.presetSaved) {
+        try {
+          await this.sendVx(frameSavePreset(this.cfg.presetVideo));
+          this.presetSaved = true;
+        } catch (presetErr) {
+          this.logger.warn(
+            `V2460 保存预设失败（不影响图层校正）: ${(presetErr as Error).message}`,
+            { context: 'NovaLedAdapter' },
+          );
+        }
+      }
+      this.logger.info(
+        `V2460 全屏图层已确保 (${reason}, ${this.cfg.width}x${this.cfg.height})`,
+        { context: 'NovaLedAdapter' },
+      );
+      return true;
+    } catch (err) {
+      this.logger.debug(
+        `V2460 图层自愈本次跳过 (${reason}): ${(err as Error).message}`,
+        { context: 'NovaLedAdapter' },
+      );
+      return false;
+    } finally {
+      this.ensureInFlight = false;
     }
   }
 
