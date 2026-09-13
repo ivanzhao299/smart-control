@@ -238,11 +238,13 @@ try {
   } else {
     $rawChanges = @(git status --porcelain --untracked-files=no)
     if ($LASTEXITCODE -ne 0) { throw 'Unable to inspect the Git worktree.' }
-    # 豁免"已被 .gitignore 声明、却在历史上被误跟踪"的运行时文件（SQLite 的
-    # *.db-shm/*.db-wal、日志等）：服务运行期间它们必然变化，拦截没有保护意义，
-    # 只会让每次部署误红（2026-09-13 #522/#523 根因）。用 --no-index 只按忽略规则
-    # 判断而不看索引（这些文件当前仍被跟踪，普通 check-ignore 对跟踪文件不命中）。
-    # 源码/锁文件/配置等不在 .gitignore 内的真实改动，仍然严格拦截，门禁不放松。
+    # Exempt runtime files that ARE declared in .gitignore but were historically
+    # tracked by mistake (SQLite *.db-shm/*.db-wal, logs): they always change while
+    # the service runs, so blocking on them has no protective value and only turns
+    # every deploy red (root cause of #522/#523 on 2026-09-13). --no-index matches
+    # ignore rules without consulting the index (plain check-ignore never matches a
+    # tracked path). Real changes (source/lock/config) are NOT in .gitignore and are
+    # still blocked hard; the gate is not loosened for them. ASCII-only on purpose.
     $trackedChanges = @()
     $ignoredRuntime = @()
     foreach ($line in $rawChanges) {
