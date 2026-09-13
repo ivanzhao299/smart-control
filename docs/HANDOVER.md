@@ -507,8 +507,14 @@ pm2 restart all
 ### 9.2 LED 大屏播控
 
 **两条独立路径**:
-1. **诺瓦 V2460 内置 preset**: 老路径. backend 发 VX 协议 frame `LoadPreset(N)`, V2460 切到自己内存里的预设画面 (在 NovaLCT 软件里预先做). preset 1 = 欢迎页 (老), preset 2 = 视频...
-2. **PlayerPage kiosk 浏览器**: 新路径 (Sprint A 起). GK9000 上 Chromium 全屏窗口 (?slot=1 → HDMI1 → V2460 → LED, ?slot=2 → HDMI2 → 投影). backend `playback.service` 写 `playback_channel_v1` 表 + WS 广播 → PlayerPage 切媒体. 业主在 MediaPage 推什么就播什么.
+1. **运营大屏主显示（当前现场常态）**: GK9000 主屏 DISPLAY2(3612×1462) 上 Edge 全屏渲染 `/control/park-ops/`，经 **HDMI 2.0(源0x90)** 进 V2460，后端 `NovaLedAdapter.ensureFullscreenLayer()` 启动15s+每5min幂等把图层1拉回整屏 3612×1462/NORMAL 并存预设槽2。权威参数与排障见 [LED_V2460_FULLSCREEN_RUNBOOK.md](LED_V2460_FULLSCREEN_RUNBOOK.md)。
+2. **V2460 内置 preset / PlayerPage kiosk（媒体通道）**: backend 可发 VX 协议 `LoadPreset(N)`（preset 1=欢迎, 2=视频/运营大屏，需在 NovaLCT 预置）；PlayerPage 是 Chromium 全屏窗口（?slot=1→V2460→LED，?slot=2→投影），`playback.service` 写 `playback_channel_v1` 表 + WS 广播 → PlayerPage 切媒体。注意：现场 LED 以路径1的 park-ops 整屏为准，别让 PlayerPage 待机页盖住主屏。
+
+### 9.2.1 视频链路（2026-09-14 固化，绝不许删）
+现场视频分两条独立链路，权威配置与排障见 **[VIDEO_STREAM_RUNBOOK.md](VIDEO_STREAM_RUNBOOK.md)**：
+- **大屏 6 路**：两台海康 NVR 子码流（末两位 02，640×360）经 netsh portproxy（本机 5545→192.168.1.5、5546→192.168.1.19）→ 后端 ffmpeg 把 HEVC 转封装为 H.264/HLS（`tmp/hls/<ch>`，1s 片、windowsHide）→ hls.js；`POST /api/cameras/:ch/hls/start` 幂等拉流，后端重启不自动拉，前端到视频页按需触发。
+- **AI 3 路**：`D:\video-ai-analyzer`（venv+YOLOv8n）OpenCV 直连真实 NVR IP 子码流推理，**不经 ffmpeg/不转码**，FastAPI :8000；计划任务 `VideoAI-Run`（直接托管，无限时长）+ `VideoAI-Watchdog`（AtLogon+每1分钟）保证重启自启；CPU 降载参数 torch 4 线程 / FRAME_SKIP=8 / imgsz=320 必须保留。
+- 2026-09-13 整晚应急的错误与根治见 **[INCIDENT_2026-09-13_RECAP.md](INCIDENT_2026-09-13_RECAP.md)**；最高铁律：删除必请示且只进回收站、本地验收经同意才部署、配置四处一致。
 
 LED 控制页的 **"欢迎页"按钮** 2026-06-01 后改成:
 - 优先看 `system-branding.welcomeMediaId` (业主在媒体库设的)

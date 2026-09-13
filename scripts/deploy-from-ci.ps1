@@ -205,15 +205,26 @@ function Test-FrontendHealth {
 }
 
 try {
-  try {
-    $lockStream = [System.IO.File]::Open(
-      $lockPath,
-      [System.IO.FileMode]::OpenOrCreate,
-      [System.IO.FileAccess]::ReadWrite,
-      [System.IO.FileShare]::None
-    )
-  } catch {
-    throw 'Another GK9000 deployment is already running.'
+  # Wait for the on-box watcher (update.ps1 now shares this SAME lock) instead
+  # of failing red the instant it is busy. A watcher build can take a couple of
+  # minutes, so poll up to ~150s; only give up if the lock never frees. ASCII.
+  $lockStream = $null
+  for ($lockTry = 0; $lockTry -lt 30; $lockTry++) {
+    try {
+      $lockStream = [System.IO.File]::Open(
+        $lockPath,
+        [System.IO.FileMode]::OpenOrCreate,
+        [System.IO.FileAccess]::ReadWrite,
+        [System.IO.FileShare]::None
+      )
+      break
+    } catch {
+      $lockStream = $null
+      Start-Sleep -Seconds 5
+    }
+  }
+  if (-not $lockStream) {
+    throw 'Another GK9000 deployment is still running after waiting 150s.'
   }
 
   Set-Location $projectRoot

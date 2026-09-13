@@ -35,6 +35,27 @@ if (-not $?) { exit 1 }
 # boot 起的守护, 会 spawn 孤儿 daemon。详见 auto-update-watcher.ps1 同段注释。
 $env:PM2_HOME = 'C:\Users\user\.pm2'
 
+# --- Shared deployment mutex (ASCII-only). deploy-from-ci.ps1 (CI) uses the
+# SAME lock file. The on-box watcher (this script) and CI must never build and
+# restart pm2 concurrently: two parallel rimraf-dist + pm2 delete/start races
+# killed each other's processes and left both services stopped (2026-09-13).
+# If CI holds the lock, skip this watcher round cleanly (exit 0); the scheduled
+# task tries again in ~90s. The stream stays open until this process exits,
+# which releases the OS lock automatically.
+$sharedLockPath = Join-Path $env:ProgramData 'Anksen\smart-control-deploy.lock'
+$null = New-Item -ItemType Directory -Force -Path (Split-Path $sharedLockPath)
+$script:sharedLockStream = $null
+try {
+  $script:sharedLockStream = [System.IO.File]::Open($sharedLockPath, [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+} catch {
+  Write-Host "  Another deployment holds $sharedLockPath (CI running) - skip this watcher round." -ForegroundColor Yellow
+  exit 0
+}
+if (-not $script:sharedLockStream) {
+  Write-Host "  Deployment lock busy - skip this watcher round." -ForegroundColor Yellow
+  exit 0
+}
+
 function Run($cmd) {
   Write-Host "  > $cmd" -ForegroundColor DarkGray
   if (-not $DryRun) {
@@ -46,6 +67,32 @@ function Run($cmd) {
   }
 }
 
+function Test-PortListening([int]$PortNum) {
+  try { return [bool](Get-NetTCPConnection -LocalPort $PortNum -State Listen -ErrorAction SilentlyContinue) }
+  catch { return $false }
+}
+
+function Ensure-ServicesOnline {
+  # Safety net (ASCII-only): regardless of which pull/build/migration/seed/verify
+  # step throws, production must never end with both pm2 services stopped. If a
+  # listening port is missing, resurrect pm2 + both apps DETACHED through WMI so
+  # the recovery survives this script (and its scheduled-task session) exiting.
+  try {
+    if ((Test-PortListening 3200) -and (Test-PortListening 5173)) { return }
+    Write-Host "  [ensure] backend/frontend port missing -> detached pm2 resurrect" -ForegroundColor Yellow
+    $pm2rescue = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
+    if (-not (Test-Path $pm2rescue)) { $pm2rescue = 'pm2' }
+    $ecoConfig = Join-Path $projectRoot 'deploy\ecosystem.config.js'
+    # NO space before '&&' after the set value, else PM2_HOME keeps a trailing
+    # space and pm2 computes wrong named-pipe names (orphan-daemon trap).
+    $rescueCmd = "cmd /c `"set PM2_HOME=C:\Users\user\.pm2&& $pm2rescue resurrect & $pm2rescue start $ecoConfig --env production & $pm2rescue save`""
+    ([wmiclass]'\\.\root\cimv2:Win32_Process').Create($rescueCmd, 'C:\Users\user', $null) | Out-Null
+  } catch {
+    Write-Host "  [ensure] detached resurrect failed: $($_.Exception.Message)" -ForegroundColor Red
+  }
+}
+
+try {
 Write-Host "================================================" -ForegroundColor Cyan
 Write-Host " 现场主控机 - 增量更新" -ForegroundColor Cyan
 Write-Host " 项目根: $projectRoot" -ForegroundColor Gray
@@ -443,3 +490,8 @@ Write-Host "================================================" -ForegroundColor C
 
 # 心跳已移到 watcher 里 (finally 块), 每次轮询都报, 不只 update 成功时
 # update.ps1 本身不再单独报 — 避免重复
+} finally {
+  # Never leave production down after a failed/partial auto-update (2026-09-13).
+  Ensure-ServicesOnline
+  if ($script:sharedLockStream) { try { $script:sharedLockStream.Close() } catch { } }
+}
