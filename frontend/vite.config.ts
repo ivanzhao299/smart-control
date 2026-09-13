@@ -75,18 +75,24 @@ export default defineConfig(({ mode }) => {
         name: 'park-ops-rewrite',
         configureServer(server) {
           server.middlewares.use((req, _res, next) => {
-            if (req.url && /^\/control\/park-ops\/?(\?|$)/.test(req.url)) {
-              const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
-              req.url = `/park-ops/index.html${query}`;
+            // 仅修正"无尾斜杠裸目录" /control/park-ops[?query]：补上尾斜杠并保留 /control base，
+            // 交给 vite 静态服务命中 park-ops/index.html。带文件名请求(index.html、*.jpg/*.glb)
+            // 与带尾斜杠目录 vite 原生已正确 serve，切勿改写——去掉 /control base 反而会 404。
+            if (req.url && /^\/control\/park-ops(?=\?|$)/.test(req.url)) {
+              const qi = req.url.indexOf('?');
+              req.url = `/control/park-ops/${qi >= 0 ? req.url.slice(qi) : ''}`;
             }
             next();
           });
         },
         configurePreviewServer(server) {
           server.middlewares.use((req, _res, next) => {
-            if (req.url && /^\/control\/park-ops\/?(\?|$)/.test(req.url)) {
-              const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
-              req.url = `/park-ops/index.html${query}`;
+            // 仅修正"无尾斜杠裸目录" /control/park-ops[?query]：补上尾斜杠并保留 /control base，
+            // 交给 vite 静态服务命中 park-ops/index.html。带文件名请求(index.html、*.jpg/*.glb)
+            // 与带尾斜杠目录 vite 原生已正确 serve，切勿改写——去掉 /control base 反而会 404。
+            if (req.url && /^\/control\/park-ops(?=\?|$)/.test(req.url)) {
+              const qi = req.url.indexOf('?');
+              req.url = `/control/park-ops/${qi >= 0 ? req.url.slice(qi) : ''}`;
             }
             next();
           });
