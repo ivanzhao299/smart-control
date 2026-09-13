@@ -236,8 +236,25 @@ try {
       }
     }
   } else {
-    $trackedChanges = @(git status --porcelain --untracked-files=no)
+    $rawChanges = @(git status --porcelain --untracked-files=no)
     if ($LASTEXITCODE -ne 0) { throw 'Unable to inspect the Git worktree.' }
+    # 豁免"已被 .gitignore 声明、却在历史上被误跟踪"的运行时文件（SQLite 的
+    # *.db-shm/*.db-wal、日志等）：服务运行期间它们必然变化，拦截没有保护意义，
+    # 只会让每次部署误红（2026-09-13 #522/#523 根因）。用 --no-index 只按忽略规则
+    # 判断而不看索引（这些文件当前仍被跟踪，普通 check-ignore 对跟踪文件不命中）。
+    # 源码/锁文件/配置等不在 .gitignore 内的真实改动，仍然严格拦截，门禁不放松。
+    $trackedChanges = @()
+    $ignoredRuntime = @()
+    foreach ($line in $rawChanges) {
+      if ($null -eq $line -or $line.Length -le 3) { continue }
+      $path = $line.Substring(3).Trim('"')
+      if ($path -match ' -> ') { $path = ($path -split ' -> ')[-1] }
+      $null = & git check-ignore --no-index --quiet -- $path 2>$null
+      if ($LASTEXITCODE -eq 0) { $ignoredRuntime += $line } else { $trackedChanges += $line }
+    }
+    if ($ignoredRuntime.Count -gt 0) {
+      Write-DeployLog "Ignoring runtime files already declared in .gitignore: $($ignoredRuntime -join '; ')"
+    }
     if ($trackedChanges.Count -gt 0) {
       throw "Tracked files are modified on GK9000: $($trackedChanges -join '; ')"
     }
