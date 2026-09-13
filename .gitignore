@@ -14,3 +14,8 @@ database/*.db-wal
 
 # 视频绑定配置（包含敏感信息，不提交到仓库）
 backend/data/video-binding.json
+
+# 数据库备份目录（禁止git clean删除）
+backups/
+*.backup
+*.bak

@@ -14,9 +14,16 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 Set-Location $projectRoot
 
-# 默认备份目录: <项目根>\backups
+# 默认备份目录: 项目目录之外，避免被 git clean 删除
+# 优先级: 环境变量 BACKUP_DIR > D:\smart-control-backups > 项目内backups（兼容旧版）
 if ([string]::IsNullOrWhiteSpace($Dest)) {
-  $Dest = Join-Path $projectRoot 'backups'
+  if ($env:BACKUP_DIR) {
+    $Dest = $env:BACKUP_DIR
+  } elseif (Test-Path 'D:\') {
+    $Dest = 'D:\smart-control-backups'
+  } else {
+    $Dest = Join-Path $projectRoot 'backups'
+  }
 }
 if (-not (Test-Path $Dest)) {
   New-Item -ItemType Directory -Path $Dest | Out-Null
