@@ -2,7 +2,9 @@
 
 > 现场主机：`GIADA GK9000 / Windows 10`
 > 部署根：`D:\smart-control\`
-> 远程方式：**Tailscale + RDP**（无 SSH）
+> 远程方式：RDP 人工接管；自动化统一走跳板机 `root@123.57.220.65` SSH 双跳到 GK（`user@10.66.66.3`），
+> 并使用 `scripts/remote-exec/gk9000_exec.sh <本地.py>`（base64 传 Python、子进程参数数组调 PowerShell，
+> 彻底规避引号/`&&`/`$_` 转义问题）。CI 受限 key 只允许经跳板机网关白名单动作。
 
 ---
 
@@ -25,8 +27,8 @@ deploy\scripts\health.ps1
 # 2) 看磁盘 (D 盘日志/备份不要塞满)
 Get-PSDrive D | Format-Table Name, Used, Free
 
-# 3) 看备份保留情况 (默认 -Keep 14)
-Get-ChildItem D:\smart-control\backups | Sort-Object Name -Descending | Select-Object -First 20
+# 3) 看备份快照 (目录 D:\smart-control-backups；脚本不自动删除，需人工评估占用)
+Get-ChildItem D:\smart-control-backups -Directory | Sort-Object Name -Descending | Select-Object -First 20
 
 # 4) 当前报警
 curl http://127.0.0.1/api/alerts?status=active
@@ -116,9 +118,8 @@ sqlite3 D:\smart-control\database\smart-control.db ".tables"
 ### 5.1 手工备份
 
 ```powershell
-scripts\backup.ps1                       # 默认 backups\YYYYMMDD-HHMMSS\
-scripts\backup.ps1 -Keep 30              # 保留 30 份
-scripts\backup.ps1 -Dest E:\sc-backups   # 备份到 E 盘
+scripts\backup.ps1                       # 默认 D:\smart-control-backups\YYYYMMDD-HHMMSS\
+scripts\backup.ps1 -Dest E:\sc-backups   # 备份到 E 盘（-Keep 仅兼容旧调用，脚本不会自动删除旧快照）
 ```
 
 ### 5.2 定时备份（任务计划程序）
@@ -132,6 +133,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\smart-control\scripts\reg
 # 自定义时刻，例如每 4 小时
 powershell -NoProfile -ExecutionPolicy Bypass -File D:\smart-control\scripts\register-backup-task.ps1 -AtHours 0,4,8,12,16,20
 ```
+
+> **现网任务真名是 `SmartControl-DailyBackup`**（不是 SmartControl-Backup）：它原先每天 04:00 跑一次，
+> 2026-09-14 用 `register-backup-task.ps1 -TaskName SmartControl-DailyBackup` **原地 -Force 升级**为
+> 00/06/12/18 共 4 次（SYSTEM、wscript 隐藏、NextRun 为下一个整点），避免新建出重复的备份任务；
+> 注册脚本默认任务名也已对齐为 SmartControl-DailyBackup。
+>
+> **`scripts\run-hidden.vbs` 必须纳入 git 版本管理、禁止删除**：它是 SmartControl-AutoUpdate /
+> SmartControl-PlayerWatchdog / WeeklyReboot / SmartControl-DailyBackup 四个计划任务共用的隐藏启动器。
+> 早期它只在运行时临时生成、未入库，每次部署前清理未跟踪文件都会把它删掉，留下任务空转隐患；现已作为
+> 权威文件入库（透传脚本全部参数），各 register 脚本只在文件意外缺失时兜底再生成。
 
 历史快照不自动删除（删除属于需单独授权的显式操作）；SQLite 快照很小，
 请定期查看 `D:\smart-control-backups` 磁盘占用，而不是让脚本静默清理。
@@ -147,6 +158,41 @@ deploy\scripts\restore.ps1 -Snapshot 20260519-030000  # 指定快照
 ```
 
 恢复时会自动：停 PM2 → 当前 DB 备份到 `pre-restore-*/` → 覆盖 → 重启 PM2。
+
+### 5.4 优雅周重启（WeeklyReboot，每周一 00:00）
+
+旧任务是硬 `shutdown /r /t 0 /f`，会瞬间杀掉 PM2/Node，叠加 AI 无自启导致重启后分析掉线（见
+`docs/INCIDENT_2026-09-13_RECAP.md`）。现已改为 `scripts\weekly-graceful-reboot.ps1` 的优雅序列：
+
+1. `pm2 save`：持久化当前 PM2 进程列表，供开机 resurrect；
+2. 等待 `-GraceSeconds`（默认 30s）排空在途 HTTP 请求、刷 SQLite WAL；
+3. `Restart-Computer -Force`（失败回退 `shutdown /r /t 5 /f`）。
+
+任务以 **SYSTEM** 运行（现场无自动登录，午夜无人登录也要触发），脚本内部把 `PM2_HOME` 指向
+`C:\Users\user\.pm2`、并用绝对路径调 `pm2.cmd`。
+
+```powershell
+# 幂等注册（-Force 原地把硬重启替换为优雅重启，默认周一 00:00 / Grace 30s / Pm2User user）
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\smart-control\scripts\register-weekly-reboot.ps1
+# 演练：只 pm2 save + 倒计时，不真正重启
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\smart-control\scripts\weekly-graceful-reboot.ps1 -DryRun -GraceSeconds 3
+```
+
+运行日志：`D:\smart-control\logs\weekly-graceful-reboot.log`。2026-09-14 已注册并 DryRun 通过，
+NextRun 为下周一 00:00。
+
+### 5.5 只读巡检（gk9000-status，每 30 分钟）
+
+- `.github/workflows/check-gk9000-status.yml`：`*/30 * * * *` 定时 + `workflow_dispatch` 手动，经跳板机
+  网关的只读动作 `gk9000-status` 采集 CPU / 内存 / C·D 盘 / Top 进程，**不改 GK 任何状态**。
+- 跳板机网关 `/usr/local/sbin/smart-control-gk9000-jump-deploy` 用 `authorized_keys command=` 白名单
+  （`gk9000-deploy` / `gk9000-verify` / `gk9000-status` / `gk9000-clean`）；新增只读动作必须命令写死、
+  在 commit SHA 校验前 `exec` 退出，且仓库源副本 `deploy/aliyun-gk9000-jump-deploy.sh` 要与线上同步。
+- 两个已踩过的坑（改网关/巡检内联命令时务必遵守）：
+  - 穿越 jump bash → Windows OpenSSH → PowerShell 的内联命令**禁止 `$` 变量与内层双引号**（`$_` 会被外层
+    展开为空导致 ParserError），只用原始属性和单引号；
+  - ssh 续行参数序列**中间禁止插 `#` 注释行**（注释行无续行反斜杠会提前切断远程命令，使 GK 掉进交互式
+    PowerShell 挂起），注释全部放到 `exec ssh` 之前。
 
 ---
 
