@@ -247,6 +247,30 @@ pm2 save
 
 平板首页 → 设置 → "清除站点数据"；或 Chrome 强刷 (Ctrl+Shift+R)。Nginx 已为 `sw.js`/`manifest.webmanifest` 设了 `no-cache`，下次访问会拉到新版。
 
+### 7.6 部署中途失败、生产 dist 被清空 / 回滚卡死（#531，2026-09-14）
+
+**现象**：Deploy 在 frontend `vite build` 阶段报 `EPERM / ENOTEMPTY ... dist\park-ops\index.html`，失败回滚又报 `unable to unlink 'database/smart-control.db-shm/-wal': Invalid argument`，最终留下半部署、现场大屏 404。
+
+**两层根因**：
+1. 构建时 pm2 frontend 仍在静态 serve 旧 dist（服务原本在构建之后才重启），叠加 Defender 实时扫描短暂锁定 dist 文件，Vite `emptyOutDir` 清空目录即撞锁（Windows 偶发，#529/#530 未撞上、#531 撞上）。
+2. `database/smart-control.db-shm` / `.db-wal` 是 SQLite WAL 模式的运行时文件，历史被 git 误跟踪；失败回滚 `git reset --hard` 要 unlink 它们，而它们正被运行中的 backend 持锁，导致回滚也失败、卡在 "requires operator attention"。
+
+**已修复（commit 951fc91，`scripts/deploy-from-ci.ps1`）**：
+- 正常部署分支在 frontend 构建前先 `pm2 stop smart-control-frontend` 释放 dist 句柄，backend 全程不动，构建后由 Restart-Services 统一拉起（#532 实测 build 22.33s 零 EPERM、health 一次通过）。
+- 回滚分支在 `git reset --hard` 前先停 backend+frontend 释放锁；reset 后把可重建的 shm/wal 运行时文件**移动（非删除）**到回滚点。主库 `smart-control.db` 未被 git 跟踪，数据不受影响。
+
+**现场应急（若再次遇到半部署 / 大屏 404）**：
+1. `pm2 stop smart-control-frontend`（backend 不动）；
+2. 残缺 `frontend\dist` 改名保留（如 `dist.broken-<时间>`，**不要直接删**，需要清理只移动到 `D:\smart-control-backups`）；
+3. 在 `frontend` 目录 `pnpm install --frozen-lockfile` 后 `pnpm run build`；
+4. `pm2 start smart-control-frontend`，回验 `http://localhost:5173/control/park-ops/index.html` 返回 200 且字节数正常；
+5. 用 `git checkout <HEAD> -- <被改乱的代码文件>` 把工作区代码对齐回当前 HEAD，**不要**对 database 目录做 reset/checkout。
+
+**遗留技术债（涉及生产 DB，动手前必须评审并安排停 backend 短窗口，禁止擅自处理）**：
+- `database/smart-control.db-shm` / `.db-wal` 仍被 git 跟踪。彻底治理需 `git rm --cached` 这两个运行时文件并补 `.gitignore`；GK 对齐该提交时 git 会尝试删除工作区文件，必须在停 backend 的短窗口内进行，否则同样撞锁。主库 `smart-control.db` 未被跟踪、安全。
+
+**红线**：生产数据库、`D:\smart-control-backups` 备份目录、`backend/.env`、运行时 wal/shm 的任何删除/清理，必须先获明确授权，且只进回收站或移动保留，禁止物理删除。
+
 ---
 
 ## 8. 升级流程
