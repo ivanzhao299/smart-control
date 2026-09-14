@@ -204,6 +204,86 @@ function Test-FrontendHealth {
   }
 }
 
+# --- Minimal deployment scope detection (2026-09-14) ---
+# Classify files changed between two commits. Static assets and single-tier
+# code changes deploy with minimal blast radius; anything touching deps,
+# config, migrations, deploy scripts, or both tiers falls back to full deploy.
+# ASCII-only on purpose (GBK console on Chinese Windows).
+function Get-DeployScope([string]$FromCommit, [string]$ToCommit) {
+  $files = @(git diff --name-only $FromCommit $ToCommit)
+  $s = [ordered]@{
+    docs = $false
+    parkOpsStatic = $false
+    frontendPublic = $false
+    frontendCode = $false
+    backendCode = $false
+    highRisk = $false
+    files = $files
+  }
+  $highRiskPattern = '(package\.json|pnpm-lock\.yaml|\.env|ecosystem\.config|migrations?/|deploy/|scripts/(deploy|backup|update|boot|ensure|run-migrations|assert-release))'
+  foreach ($f in $files) {
+    if ($f -match $highRiskPattern) { $s.highRisk = $true }
+    elseif ($f -match '^frontend/public/park-ops/') { $s.parkOpsStatic = $true }
+    elseif ($f -match '^frontend/public/') { $s.frontendPublic = $true }
+    elseif ($f -match '^frontend/(src/|index\.html|vite\.config|tsconfig)') { $s.frontendCode = $true }
+    elseif ($f -match '^backend/src/') { $s.backendCode = $true }
+    elseif ($f -match '^docs/' -or $f -match '(^|/)(README|CHANGELOG|HANDOVER|MEMORY)\.md$') { $s.docs = $true }
+    else { $s.highRisk = $true }
+  }
+  return $s
+}
+
+function Deploy-StaticAssets($scope, $projectRoot) {
+  $publicDir = Join-Path $projectRoot 'frontend\public'
+  $distDir = Join-Path $projectRoot 'frontend\dist'
+  foreach ($f in $scope.files) {
+    if ($f -match '^frontend/public/') {
+      $relative = $f.Substring('frontend/public/'.Length)
+      $src = Join-Path $publicDir ($relative -replace '/', '\')
+      $dst = Join-Path $distDir ($relative -replace '/', '\')
+      $dstDir = Split-Path $dst -Parent
+      if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Force -Path $dstDir | Out-Null }
+      if (Test-Path $src) {
+        Copy-Item -Path $src -Destination $dst -Force
+        Write-DeployLog "  static: $relative"
+      }
+    }
+  }
+}
+
+function Deploy-FrontendOnly($projectRoot) {
+  # Side-build to dist-repair then swap into production dist. vite preview
+  # reads from disk on every request (ecosystem.config.js), so no restart
+  # is needed - zero-downtime frontend update.
+  Push-Location (Join-Path $projectRoot 'frontend')
+  try {
+    Invoke-Native 'pnpm.cmd' @('install', '--frozen-lockfile')
+    $repairDir = Join-Path $projectRoot 'frontend\dist-repair'
+    Remove-Item -Path $repairDir -Recurse -Force -ErrorAction SilentlyContinue
+    Invoke-Native 'pnpm.cmd' @('exec', 'vite', 'build', '--outDir', 'dist-repair')
+    $productionDist = Join-Path $projectRoot 'frontend\dist'
+    Copy-Item -Path (Join-Path $repairDir '*') -Destination $productionDist -Recurse -Force
+    Remove-Item -Path $repairDir -Recurse -Force -ErrorAction SilentlyContinue
+  } finally {
+    Pop-Location
+  }
+}
+
+function Deploy-BackendOnly($projectRoot) {
+  Push-Location (Join-Path $projectRoot 'backend')
+  try {
+    Invoke-Native 'pnpm.cmd' @('install', '--frozen-lockfile')
+    Invoke-Native 'pnpm.cmd' @('run', 'build')
+  } finally {
+    Pop-Location
+  }
+  $pm2 = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
+  if (-not (Test-Path $pm2)) { $pm2 = 'pm2' }
+  $env:PM2_HOME = 'C:\Users\user\.pm2'
+  Invoke-Native $pm2 @('restart', 'smart-control-backend', '--update-env')
+  Invoke-Native $pm2 @('save')
+}
+
 try {
   # Wait for the on-box watcher (update.ps1 now shares this SAME lock) instead
   # of failing red the instant it is busy. A watcher build can take a couple of
@@ -389,53 +469,73 @@ try {
         throw 'Required production backup script is missing.'
       }
 
-      Push-Location (Join-Path $projectRoot 'backend')
-      try {
-        Invoke-Native 'pnpm.cmd' @('install', '--frozen-lockfile')
-        Invoke-Native 'pnpm.cmd' @('run', 'build')
-      } finally {
-        Pop-Location
+      # --- Minimal deployment scope detection (2026-09-14) ---
+      $scope = Get-DeployScope $previousCommit $Commit
+      $staticOnly = (-not $scope.frontendCode -and -not $scope.backendCode -and -not $scope.highRisk)
+      $frontendOnly = ($scope.frontendCode -and -not $scope.backendCode -and -not $scope.highRisk)
+      $backendOnly = ($scope.backendCode -and -not $scope.frontendCode -and -not $scope.highRisk)
+      Write-DeployLog ("Deploy scope: staticOnly={0} frontendOnly={1} backendOnly={2} highRisk={3} files=[{4}]" -f $staticOnly, $frontendOnly, $backendOnly, $scope.highRisk, ($scope.files -join ','))
+
+      if ($staticOnly) {
+        Write-DeployLog 'MINIMAL deploy: static assets only - copying to dist, skipping build and service restart.'
+        Deploy-StaticAssets $scope $projectRoot
+      } elseif ($frontendOnly) {
+        Write-DeployLog 'MINIMAL deploy: frontend code only - side-building frontend, skipping backend and restart (vite preview reads disk, zero-downtime).'
+        Deploy-FrontendOnly $projectRoot
+      } elseif ($backendOnly) {
+        Write-DeployLog 'MINIMAL deploy: backend code only - building and restarting backend only, skipping frontend.'
+        Deploy-BackendOnly $projectRoot
+      } else {
+        Write-DeployLog 'FULL deploy: multi-tier or high-risk changes - running complete deployment.'
+
+        Push-Location (Join-Path $projectRoot 'backend')
+        try {
+          Invoke-Native 'pnpm.cmd' @('install', '--frozen-lockfile')
+          Invoke-Native 'pnpm.cmd' @('run', 'build')
+        } finally {
+          Pop-Location
+        }
+
+        # Stop the frontend BEFORE Vite empties dist: a still-running pm2 static
+        # server (plus Defender real-time scan) can hold dist/park-ops/index.html
+        # and make Vite prepareOutDir fail with EPERM/ENOTEMPTY (Deploy #531,
+        # 2026-09-14). Backend stays up throughout; Restart-Services below brings
+        # the frontend back after the build. Literal paths, ASCII-only.
+        $pm2Fe = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
+        if (-not (Test-Path $pm2Fe)) { $pm2Fe = 'pm2' }
+        $env:PM2_HOME = 'C:\Users\user\.pm2'
+        & $pm2Fe stop smart-control-frontend 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
+        Start-Sleep -Seconds 2
+
+        Push-Location (Join-Path $projectRoot 'frontend')
+        try {
+          Invoke-Native 'pnpm.cmd' @('install', '--frozen-lockfile')
+          Invoke-Native 'pnpm.cmd' @('run', 'typecheck')
+          Invoke-Native 'pnpm.cmd' @('run', 'build')
+        } finally {
+          Pop-Location
+        }
+
+        # Run DB migrations after build, before restart. With DB_SYNCHRONIZE=false the
+        # schema only changes through migrations, so this is where new ones get applied.
+        # run-migrations.js is a no-op when nothing is pending. Pending migrations
+        # now require a continuous writer-fence controller and paired DB/media
+        # recovery rehearsal. This legacy CLI path fails closed until that controller
+        # is wired and verified on the target host. Once attempted, code-only rollback is forbidden: old
+        # public media routes must never run against a possibly multiuser database.
+        Push-Location (Join-Path $projectRoot 'backend')
+        try {
+          Write-DeployLog 'Running DB migrations (run-migrations.js).'
+          $migrationAttempted = $true
+          & node scripts/run-migrations.js 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
+          if ($LASTEXITCODE -ne 0) { throw "Database migration failed (exit $LASTEXITCODE)." }
+        } finally {
+          Pop-Location
+        }
+
+        Write-DeployLog 'Restarting services through pm2.'
+        Restart-Services
       }
-
-      # Stop the frontend BEFORE Vite empties dist: a still-running pm2 static
-      # server (plus Defender real-time scan) can hold dist/park-ops/index.html
-      # and make Vite prepareOutDir fail with EPERM/ENOTEMPTY (Deploy #531,
-      # 2026-09-14). Backend stays up throughout; Restart-Services below brings
-      # the frontend back after the build. Literal paths, ASCII-only.
-      $pm2Fe = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
-      if (-not (Test-Path $pm2Fe)) { $pm2Fe = 'pm2' }
-      $env:PM2_HOME = 'C:\Users\user\.pm2'
-      & $pm2Fe stop smart-control-frontend 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
-      Start-Sleep -Seconds 2
-
-      Push-Location (Join-Path $projectRoot 'frontend')
-      try {
-        Invoke-Native 'pnpm.cmd' @('install', '--frozen-lockfile')
-        Invoke-Native 'pnpm.cmd' @('run', 'typecheck')
-        Invoke-Native 'pnpm.cmd' @('run', 'build')
-      } finally {
-        Pop-Location
-      }
-
-      # Run DB migrations after build, before restart. With DB_SYNCHRONIZE=false the
-      # schema only changes through migrations, so this is where new ones get applied.
-      # run-migrations.js is a no-op when nothing is pending. Pending migrations
-      # now require a continuous writer-fence controller and paired DB/media
-      # recovery rehearsal. This legacy CLI path fails closed until that controller
-      # is wired and verified on the target host. Once attempted, code-only rollback is forbidden: old
-      # public media routes must never run against a possibly multiuser database.
-      Push-Location (Join-Path $projectRoot 'backend')
-      try {
-        Write-DeployLog 'Running DB migrations (run-migrations.js).'
-        $migrationAttempted = $true
-        & node scripts/run-migrations.js 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
-        if ($LASTEXITCODE -ne 0) { throw "Database migration failed (exit $LASTEXITCODE)." }
-      } finally {
-        Pop-Location
-      }
-
-      Write-DeployLog 'Restarting services through pm2.'
-      Restart-Services
     }
   }
 

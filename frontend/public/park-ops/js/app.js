@@ -7,8 +7,8 @@ document.getElementById('phaseFilters').addEventListener('click',e=>{const btn=e
 const requestedScene=new URLSearchParams(location.search).get('scene');let sceneMode=['day','night'].includes(requestedScene)?requestedScene:'auto',lastScene='';function sceneForTime(d){const h=d.getHours()+d.getMinutes()/60;if(h>=7&&h<17.5)return'day';if((h>=5.3&&h<7)||(h>=17.5&&h<19.2))return'dusk';return'night'}function applyScene(d=new Date()){const scene=sceneMode==='auto'?sceneForTime(d):sceneMode;if(scene===lastScene&&sceneMode!=='auto')return;lastScene=scene;document.body.dataset.scene=scene;const names={day:'日景运行',dusk:'晨昏过渡',night:'夜景运行'};document.getElementById('sceneName').textContent=(sceneMode==='auto'?'自动 · ':'')+names[scene];document.getElementById('sceneIcon').className='scene-icon scene-'+scene;document.getElementById('sceneReadout').textContent=sceneMode==='auto'?`系统时间 ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')} · ${names[scene]}`:`手动预览 · ${names[scene]}`}
 document.querySelectorAll('#sceneControls .map-chip').forEach(x=>x.classList.toggle('active',x.dataset.mode===sceneMode));document.getElementById('sceneControls').addEventListener('click',e=>{const btn=e.target.closest('[data-mode]');if(!btn)return;sceneMode=btn.dataset.mode;document.querySelectorAll('#sceneControls .map-chip').forEach(x=>x.classList.toggle('active',x===btn));lastScene='';applyScene()});function tick(){const d=new Date();const y=d.getFullYear();const m=String(d.getMonth()+1).padStart(2,'0');const day=String(d.getDate()).padStart(2,'0');const h=String(d.getHours()).padStart(2,'0');const min=String(d.getMinutes()).padStart(2,'0');const s=String(d.getSeconds()).padStart(2,'0');document.getElementById('clock').textContent=`${y}年${m}月${day}日 ${h}:${min}:${s}`;const updateEl=document.getElementById('dataUpdateTime');if(updateEl)updateEl.textContent=`${h}:${min}:${s}`;applyScene(d)}tick();setInterval(tick,1000);
 const pages=[...document.querySelectorAll('.page')];let idx=0,timer=null,switching=false;function render(){document.getElementById('pageIndicator').innerHTML=`${String(idx+1).padStart(2,'0')} / ${String(pages.length).padStart(2,'0')} · ${pages[idx].dataset.name}<span class="page-dots">${pages.map((_,i)=>`<i class="${i===idx?'on':''}"></i>`).join('')}</span>`}
-// 科技感翻页音效（Web Audio API生成，5种风格可选）
-let audioCtx=null;let currentSoundType=2; // 默认使用第2种柔和滑动风
+// 科技感翻页音效（Web Audio API生成5种 + 玻璃敲击音频1种，共6种风格可选）
+let audioCtx=null;let currentSoundType=6; // 默认使用第6种玻璃敲击音效
 function ensureAudio(){if(!audioCtx){audioCtx=new(window.AudioContext||window.webkitAudioContext)()}if(audioCtx.state==='suspended'){audioCtx.resume()}return audioCtx}
 // 音效1：科技UI风 - 清脆双音电子音，科幻电影界面切换感
 function playSound1(){const ctx=ensureAudio();const t=ctx.currentTime;
@@ -29,12 +29,15 @@ const o=ctx.createOscillator(),g=ctx.createGain();o.type='sine';o.frequency.setV
 function playSound5(){const ctx=ensureAudio();const t=ctx.currentTime;
 const o=ctx.createOscillator(),g=ctx.createGain();o.type='square';o.frequency.setValueAtTime(200,t);o.frequency.exponentialRampToValueAtTime(100,t+0.04);g.gain.setValueAtTime(0.03,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.06);o.connect(g);g.connect(ctx.destination);o.start(t);o.stop(t+0.06);
 const noise=ctx.createBufferSource(),buf=ctx.createBuffer(1,ctx.sampleRate*0.03,ctx.sampleRate),data=buf.getChannelData(0);for(let i=0;i<data.length;i++){data[i]=(Math.random()*2-1)*Math.exp(-i/(ctx.sampleRate*0.01))}noise.buffer=buf;const ng=ctx.createGain();ng.gain.value=0.02;noise.connect(ng);ng.connect(ctx.destination);noise.start(t)}
+// 音效6：玻璃敲击 - 两声清脆水晶玻璃音，高端触屏反馈（默认）
+let pageTurnAudio=null;
+function playSound6(){if(!pageTurnAudio){pageTurnAudio=new Audio('./sounds/page-turn-glass-tap.wav');pageTurnAudio.preload='auto'}try{pageTurnAudio.currentTime=0;pageTurnAudio.volume=0.7;pageTurnAudio.play()}catch(e){}}
 // 统一播放接口
-function playPageSwitchSound(){try{const fns=[playSound1,playSound2,playSound3,playSound4,playSound5];fns[(currentSoundType-1+5)%5]()}catch(e){}}
-// 测试函数：在控制台输入 playTestSounds() 依次试听5种音效
-function playTestSounds(){console.log('依次播放5种翻页音效...');const names=['1-科技UI风','2-柔和滑动风(推荐)','3-未来脉冲风','4-极简水滴风','5-机械按键风'];const fns=[playSound1,playSound2,playSound3,playSound4,playSound5];fns.forEach((fn,i)=>{setTimeout(()=>{console.log(`正在播放: ${names[i]}`);fn()},i*500)})}
-// 切换音效类型：在控制台输入 setSoundType(1~5)
-function setSoundType(n){currentSoundType=Math.max(1,Math.min(5,parseInt(n)||2));console.log(`已切换到音效${currentSoundType}`);playPageSwitchSound()}
+function playPageSwitchSound(){try{const fns=[playSound1,playSound2,playSound3,playSound4,playSound5,playSound6];fns[(currentSoundType-1+6)%6]()}catch(e){}}
+// 测试函数：在控制台输入 playTestSounds() 依次试听6种音效
+function playTestSounds(){console.log('依次播放6种翻页音效...');const names=['1-科技UI风','2-柔和滑动风','3-未来脉冲风','4-极简水滴风','5-机械按键风','6-玻璃敲击(默认)'];const fns=[playSound1,playSound2,playSound3,playSound4,playSound5,playSound6];fns.forEach((fn,i)=>{setTimeout(()=>{console.log(`正在播放: ${names[i]}`);fn()},i*500)})}
+// 切换音效类型：在控制台输入 setSoundType(1~6)
+function setSoundType(n){currentSoundType=Math.max(1,Math.min(6,parseInt(n)||6));console.log(`已切换到音效${currentSoundType}`);playPageSwitchSound()}
 function go(n){if(switching)return;const next=(n+pages.length)%pages.length;if(next===idx)return;try{playPageSwitchSound();switching=true;const direction=next>idx?'right':'left';const oldPage=pages[idx],newPage=pages[next];
 // 从欢迎页切出：克隆大字飞升到标题栏位置（FLIP技术保持文字比例）
 if(oldPage.classList.contains('welcome-page')){const title=oldPage.querySelector('.welcome-title');if(title){
