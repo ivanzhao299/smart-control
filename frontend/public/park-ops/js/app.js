@@ -469,10 +469,26 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
     'p3-d37':{name:'东大门',element:null}
   };
   // “当前在园人数 / 当前在场车辆”以该基线为锚点，叠加各门实时净增(进-出)做动态变化。
-  // AI 的 in/out 为分析服务启动以来累计计数，净增即这段时间相对基线的增减；可用
-  // window.PARK_OPS_BASELINE={people,vehicles} 覆盖基线。下限钳制为 0，避免出现负数。
-  const ONSITE_PEOPLE_BASELINE=Number(window.PARK_OPS_BASELINE?.people??486);
-  const ONSITE_VEHICLE_BASELINE=Number(window.PARK_OPS_BASELINE?.vehicles??127);
+  // AI 的 in/out 为分析服务启动以来累计计数，净增即这段时间相对基线的增减。
+  // 基线来自服务端共享运营数据 (PWA「运营数据」卡片可改, GET /api/park-ops-metrics),
+  // 拉取前用 window.PARK_OPS_BASELINE 或内置 486/127 兜底；下限钳制为 0，不出现负数。
+  let ONSITE_PEOPLE_BASELINE=Number(window.PARK_OPS_BASELINE?.people??486);
+  let ONSITE_VEHICLE_BASELINE=Number(window.PARK_OPS_BASELINE?.vehicles??127);
+  async function loadOpsBaseline(){
+    try{
+      const br=await fetch('/api/park-ops-metrics',{cache:'no-store',headers:{'Accept':'application/json'}});
+      if(!br.ok)return;
+      const bj=await br.json(),bm=bj?.data?.metrics;
+      if(!bm)return;
+      let changed=false;
+      if(Number.isFinite(Number(bm.people))&&ONSITE_PEOPLE_BASELINE!==Number(bm.people)){ONSITE_PEOPLE_BASELINE=Number(bm.people);changed=true;}
+      if(Number.isFinite(Number(bm.vehicles))&&ONSITE_VEHICLE_BASELINE!==Number(bm.vehicles)){ONSITE_VEHICLE_BASELINE=Number(bm.vehicles);changed=true;}
+      window.PARK_OPS_BASELINE={people:ONSITE_PEOPLE_BASELINE,vehicles:ONSITE_VEHICLE_BASELINE};
+      // 基线首次到达/被PWA修改时可能晚于首帧AI数据; 用最近一帧AI数据立即重算, 避免onsite停在旧基线
+      if(changed&&aiLastData&&typeof updateAiPanel==='function'){try{updateAiPanel(aiLastData);}catch{/* noop */}}
+    }catch{/* 服务端不可用时保留当前/默认基线 */}
+  }
+  loadOpsBaseline(); setInterval(loadOpsBaseline,15000);
   let aiLastData=null;
   let aiErrorCount=0;
   let aiFetching=false;
@@ -596,7 +612,7 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
       if(bikeBar) bikeBar.style.width=`${Math.min(100,(bikeCount/totalVehicleClass)*100)}%`;
     }
 
-    // 顶栏 + 各面板“当前在园人数 / 当前在场车辆”：以 486 人 / 127 车为基线，
+    // 顶栏 + 各面板“当前在园人数 / 当前在场车辆”：以服务端共享运营数据为基线（PWA「运营数据」可配，缺省 486/127），
     // 叠加各门实时净增(进-出)动态变化，而非显示累计通行量(进+出)。
     const onsitePeople=Math.max(0, ONSITE_PEOPLE_BASELINE+(totalPersonIn-totalPersonOut));
     const onsiteVehicles=Math.max(0, ONSITE_VEHICLE_BASELINE+(totalVehicleIn-totalVehicleOut));

@@ -84,6 +84,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'users', name: 'admin-users', component: () => import('@/pages/admin/UsersAdmin.vue') },
       // 系统设置 (合并页): 常规设置 + 系统品牌
       { path: 'settings', name: 'admin-settings', component: () => import('@/pages/admin/SettingsHubAdmin.vue') },
+      // 运营大屏业务数字 (JSON 共享文档, 人/车为 AI 基线)
+      { path: 'park-ops-metrics', name: 'admin-park-ops-metrics', component: () => import('@/pages/admin/ParkOpsMetricsAdmin.vue') },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },

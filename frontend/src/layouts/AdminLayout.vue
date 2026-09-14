@@ -47,6 +47,7 @@ const groups: Array<{ section: string; items: Array<{ name: string; label: strin
     { name: 'admin-test-center', label: '测试 / 调试' },
   ] },
   { section: '系统管理', items: [
+    { name: 'admin-park-ops-metrics', label: '运营数据' },
     { name: 'admin-users', label: '用户管理' },
     { name: 'admin-settings', label: '系统设置' },
   ] },

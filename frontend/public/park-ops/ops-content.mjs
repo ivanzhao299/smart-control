@@ -137,7 +137,7 @@ function render() {
   // 视频监控页面(pageNodes[5])已接入真实HLS流畅视频流，不再用图片预览占位覆盖
   // 仅更新右侧摄像头状态面板的统计数据，左侧视频墙保持HLS实时画面
   // 注意：不要用panel()完全替换整个panel，否则会覆盖掉aiAnalysisPanel（人车AI分析卡片）
-  p = pageNodes[5].querySelectorAll('.panel');
+  const p = pageNodes[5].querySelectorAll('.panel');
   if (p[1]) {
     const cameraPanel = p[1];
     // 只更新统计数据和描述文字，保留aiAnalysisPanel
@@ -152,8 +152,10 @@ function render() {
     }
   }
   const footer = document.querySelector('.footerline');
-  footer.removeAttribute('data-park-text-key');
-  footer.textContent = `${mode} · ${data.source} · ${new Date(data.updatedAt).toLocaleDateString('zh-CN')} · 标注“占位”的数据暂未绑定现场系统 · ${warning || '中间布局沿用既有配置'}`;
+  if (footer) {
+    footer.removeAttribute('data-park-text-key');
+    footer.textContent = `${mode} · ${data.source} · ${new Date(data.updatedAt).toLocaleDateString('zh-CN')} · 标注“占位”的数据暂未绑定现场系统 · ${warning || '中间布局沿用既有配置'}`;
+  }
   document.documentElement.dataset.opsContentReady = 'true';
 }
 render();
@@ -186,12 +188,12 @@ function openEditor() {
   lastFocus = document.activeElement;
   const auto = document.getElementById('auto'); if (auto.classList.contains('on')) auto.click();
   dialog.innerHTML = `<form><header><h2 id="ops-title">运营数据 · 浏览器草稿</h2><button type="button" data-close aria-label="关闭运营数据编辑器">关闭</button></header><main>
-    <p>保存只作用于当前浏览器，不修改服务端共享数据或中间区域的分区、楼栋、文字和布局。产值与税收采用本版数字；其他运营指标保留原占位，均可编辑。绑定已核实的数据后，可取消对应的“占位数据”标记。产业结构五项占比合计须为100%；工单数量与部分示例列表分别编辑，首页最多显示3条，完整列表在“安全消防”页。</p>
+    <p>此处仅作<strong>本机预览</strong>，正式共享请在 PWA 后台「运营数据」卡片发布；一旦发布，大屏以服务端共享数据为准（本机预览会被覆盖）。「当前在园人员 / 在场车辆」是 AI 实时数的<strong>基线</strong>，大屏显示 = 基线 + 各门实时净增。产业结构五项占比合计须为100%；工单数量与部分示例列表分别编辑，首页最多显示3条，完整列表在“安全消防”页。</p>
     <fieldset><legend>来源与日期</legend><div class="ops-form-grid"><label style="grid-column:span 2">数据来源<input name="source" maxlength="200" required></label><label>数据日期<input type="date" name="updatedAt" required></label></div></fieldset>
     ${[...new Set(fields.map(f => f[5]))].map(group => `<fieldset><legend>${group}</legend><div class="ops-form-grid">${fields.filter(f => f[5] === group).map(([key, label, unit]) => `<div><label>${label}（${unit}）<input type="number" name="${key}" min="0" max="${unit === '%' ? 100 : 1e9}" step="any" placeholder="输入数字"></label><label class="ops-checkbox"><input type="checkbox" name="placeholder-${key}">占位数据</label></div>`).join('')}</div></fieldset>`).join('')}
     <fieldset><legend>运营内容</legend><div class="ops-form-grid">${copyFields.map(([key, label]) => `<label>${label}<textarea name="${key}"></textarea></label>`).join('')}</div></fieldset>
-    <details><summary>后续数据接口 · 只读手动刷新</summary><p>默认不连接接口。仅允许本站独立业务数据接口，返回完整 version 1 数据文档；失败保留上次有效数据。接入后如需持久保留，请再保存本机草稿。</p><label>接口地址<input name="endpoint" placeholder="/api/park-ops/metrics"></label><button type="button" data-refresh>从接口读取到表单</button></details>
-    </main><footer><button type="submit">保存本机草稿</button><button type="button" data-export>导出 JSON</button><label class="ops-import">导入 JSON<input type="file" accept=".json,application/json" data-import></label><button type="button" data-reset>载入本版默认值</button><output class="ops-feedback" role="status">修改后保存即可预览；不会发布。</output></footer></form>`;
+    <details><summary>从服务端共享数据读取（只读）</summary><p>读取 PWA「运营数据」卡片发布的共享文档（version 1）；失败保留当前数据。正式发布请在 PWA 后台操作。</p><label>接口地址<input name="endpoint" value="/api/park-ops-metrics"></label><button type="button" data-refresh>从服务端读取到表单</button></details>
+    </main><footer><button type="submit">保存本机预览</button><button type="button" data-export>导出 JSON</button><label class="ops-import">导入 JSON<input type="file" accept=".json,application/json" data-import></label><button type="button" data-reset>载入本版默认值</button><output class="ops-feedback" role="status">此处仅本机预览；正式共享请用 PWA「运营数据」发布。</output></footer></form>`;
   fillForm(data);
   dialog.querySelector('[data-close]').onclick = () => dialog.close();
   dialog.querySelector('form').onsubmit = event => {
@@ -199,7 +201,7 @@ function openEditor() {
     try {
       const next = formDocument();
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      data = next; mode = '本机草稿'; warning = ''; render(); feedback('已保存本机草稿；刷新页面仍保留，服务端共享配置未改变。');
+      data = next; mode = '本机草稿'; warning = ''; applySharedBaseline(next); render(); feedback('已保存本机预览；正式共享请用 PWA 后台「运营数据」发布，已发布时大屏以共享数据为准。');
     } catch (error) { feedback(`未保存：${error.message}。可导出 JSON 备份。`, true); }
   };
   dialog.querySelector('[data-export]').onclick = () => {
@@ -236,6 +238,35 @@ function openEditor() {
 dialog.addEventListener('keydown', event => event.stopPropagation());
 dialog.addEventListener('close', () => lastFocus?.focus());
 button.onclick = openEditor;
+
+// === 服务端共享运营数据为权威值 (PWA 后台「运营数据」卡片发布) ===
+// 启动先用 localStorage 草稿/内置默认同步渲染首屏(不阻塞), 再异步拉服务端;
+// 服务端发布过就以它为准 (并回写一份本地缓存作离线兜底), 从未发布(data:null)则保留本地视图。
+// 人/车基线同步给 app.js 的 AI 实时循环 (实时显示 = 基线 + 各门净增)。
+function applySharedBaseline(doc) {
+  const people = Number(doc?.metrics?.people), vehicles = Number(doc?.metrics?.vehicles);
+  const baseline = {};
+  if (Number.isFinite(people)) baseline.people = people;
+  if (Number.isFinite(vehicles)) baseline.vehicles = vehicles;
+  if (baseline.people !== undefined || baseline.vehicles !== undefined) window.PARK_OPS_BASELINE = baseline;
+}
+async function pullSharedDoc() {
+  try {
+    const r = await fetch('/api/park-ops-metrics', { cache: 'no-store', credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    if (!r.ok) return;
+    const j = await r.json();
+    const shared = j?.data;
+    if (!shared) return; // 服务端从未发布 → 保持本地草稿/默认
+    const next = validate(shared);
+    data = next; mode = '服务端共享'; warning = '';
+    applySharedBaseline(next);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* 离线缓存写失败可忽略 */ }
+    if (!dialog.open) render();
+  } catch { /* 服务端不可用或数据非法: 保留当前有效视图, 不清空 */ }
+}
+pullSharedDoc();
+setInterval(pullSharedDoc, 15000);
+
 // A failed cross-tab update must not wipe a valid in-memory view.
 addEventListener('storage', event => {
   if (event.key !== STORAGE_KEY || dialog.open || !event.newValue) return;
