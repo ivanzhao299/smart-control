@@ -120,13 +120,16 @@ const P = require('D:/smart-control/backend/dist/adapters/led/nova-vx1000-protoc
   主流程 try/finally 保证服务最终 online；CI 等锁改为轮询等待而非立即失败。
 
 ### 5.4 每周一 00:00 自动重启（预期行为，非故障）
-- 计划任务 `\WeeklyReboot`：`shutdown /r /t 0 /f`，每周一 00:00 执行（NextRun 见任务计划器）。
-  系统事件 1074 会记录 `shutdown.EXE / NT AUTHORITY\SYSTEM / 重启`。这是按需求配置的维护重启，
-  不是 Windows Update、不是蓝屏断电（后两者对应 41/1001/6008）。
+- 计划任务 `\WeeklyReboot` 每周一 00:00 执行，已改为**优雅重启**：由
+  `scripts/weekly-graceful-reboot.ps1` 先 `pm2 save`、等待 30s 排空在途请求并落 SQLite WAL，
+  再 `Restart-Computer -Force`（任务以 SYSTEM 运行，脚本内显式指向 user 的 PM2_HOME 与 pm2.cmd
+  全路径）。用 `scripts/register-weekly-reboot.ps1` 可幂等注册/更新该任务。系统事件 1074 会记录
+  本次维护重启，这是按需求配置的维护重启，不是 Windows Update、不是蓝屏断电（后两者对应 41/1001/6008）。
 - 重启后靠开机自启自动恢复：`SmartControlBackend`(boot-pm2) → 前后端 → 浏览器 Kiosk →
-  后端 15s V2460 自愈 → `SmartControl-PlayerWatchdog` 兜底。**注意后端重启不会自动拉 HLS**，
-  前端轮播到视频页会按需 POST `/api/cameras/:ch/hls/start`，也可手动补拉。
-- `/f` 为强制重启；如需更优雅可改为先 `pm2 save`、`shutdown /r /t 30`（改动需经评审）。
+  后端 15s V2460 自愈 → `SmartControl-PlayerWatchdog` 兜底。**后端启动时会经 `OnApplicationBootstrap`
+  延迟错峰自动拉起默认 6 路 HLS**（`HLS_AUTOSTART` / `HLS_AUTOSTART_CHANNELS` / `HLS_AUTOSTART_DELAY_MS`
+  等环境变量可配，单路失败不阻塞启动）；前端轮播到视频页仍会按需 POST `/api/cameras/:ch/hls/start`
+  （接口幂等），也可手动补拉。
 
 ## 6. 一键自检清单
 

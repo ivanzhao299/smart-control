@@ -395,6 +395,11 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
     'd57':{name:'西大门',element:null},
     'p3-d37':{name:'东大门',element:null}
   };
+  // “当前在园人数 / 当前在场车辆”以该基线为锚点，叠加各门实时净增(进-出)做动态变化。
+  // AI 的 in/out 为分析服务启动以来累计计数，净增即这段时间相对基线的增减；可用
+  // window.PARK_OPS_BASELINE={people,vehicles} 覆盖基线。下限钳制为 0，避免出现负数。
+  const ONSITE_PEOPLE_BASELINE=Number(window.PARK_OPS_BASELINE?.people??486);
+  const ONSITE_VEHICLE_BASELINE=Number(window.PARK_OPS_BASELINE?.vehicles??127);
   let aiLastData=null;
   let aiErrorCount=0;
   let aiFetching=false;
@@ -518,12 +523,18 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
       if(bikeBar) bikeBar.style.width=`${Math.min(100,(bikeCount/totalVehicleClass)*100)}%`;
     }
 
-    // 更新顶栏KPI数据（AI实时累计通行量，确保数字随动）
-    // 同时支持静态HTML的id和ops-content.js生成的data-ops-metric属性
+    // 顶栏 + 各面板“当前在园人数 / 当前在场车辆”：以 486 人 / 127 车为基线，
+    // 叠加各门实时净增(进-出)动态变化，而非显示累计通行量(进+出)。
+    const onsitePeople=Math.max(0, ONSITE_PEOPLE_BASELINE+(totalPersonIn-totalPersonOut));
+    const onsiteVehicles=Math.max(0, ONSITE_VEHICLE_BASELINE+(totalVehicleIn-totalVehicleOut));
+    // 顶栏 KPI（同时兼容静态 HTML 的 id 与 ops-content.js 生成的 data-ops-metric 属性）
     const kpiPeopleEl=document.getElementById('kpiPeopleCount')||document.querySelector('[data-ops-metric="people"]');
     const kpiVehicleEl=document.getElementById('kpiVehicleCount')||document.querySelector('[data-ops-metric="vehicles"]');
-    if(kpiPeopleEl&&totalPeopleTraffic>0) kpiPeopleEl.textContent=totalPeopleTraffic;
-    if(kpiVehicleEl&&totalVehicleTraffic>0) kpiVehicleEl.textContent=totalVehicleTraffic;
+    if(kpiPeopleEl) kpiPeopleEl.textContent=onsitePeople;
+    if(kpiVehicleEl) kpiVehicleEl.textContent=onsiteVehicles;
+    // 综合态势 / 人车管理各面板内同名指标统一随动（data-onsite-people / data-onsite-vehicle）
+    document.querySelectorAll('[data-onsite-people]').forEach(el=>{el.textContent=onsitePeople;});
+    document.querySelectorAll('[data-onsite-vehicle]').forEach(el=>{el.textContent=onsiteVehicles;});
   }
 
   // 启动AI数据定时获取（优化版：5秒刷新，增量更新，指数退避）

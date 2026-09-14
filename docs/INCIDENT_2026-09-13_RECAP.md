@@ -103,7 +103,8 @@
 ## 四、遗留 / 待办（需评审或授权后执行，不擅自上线）
 
 - [ ] 部署并发根治：`update.ps1`/`deploy-from-ci.ps1` 在 GK 只解析校验语法 → 经同意 commit/push → 无并发重跑 Deploy 变绿 → 才重新启用 AutoUpdate。
-- [ ] 数据库备份：缩短备份间隔、扩大保留窗口并做一次恢复演练，避免"最近几天无备份"重演。
-- [ ] WeeklyReboot 是否改优雅重启（先 pm2 save、`/t 30`）待拍板。
+- [x] 数据库备份：已新增 `scripts/register-backup-task.ps1`（默认每天 00/06/12/18 点共 4 次，历史快照仍不自动删除，删除需单独授权），并在本地临时副本完成一次恢复演练（39 张表逐表一致、integrity_check=ok）。待部署阶段在 GK 重新注册任务。
+- [x] WeeklyReboot 已拍板改优雅重启：`scripts/weekly-graceful-reboot.ps1`（pm2 save → 等待 30s 排空请求/落 WAL → Restart-Computer，以 SYSTEM 运行并显式指向 user 的 PM2_HOME），`scripts/register-weekly-reboot.ps1` 幂等把 `\WeeklyReboot` 重指到该脚本。待部署阶段在 GK 注册。
 - [ ] 旧一次性 AI 任务 `VideoAIService`/`VideoAIAnalyzer` 当前保留（Next 为空不会触发），确认无影响后可禁用（不删除）。
-- [ ] 运营 KPI 静态基线（ops-content.js）默认不接接口、不自动随动；只有 AI 卡片/顶栏（累计>0 覆盖）走 :8000。是否把在园人数/在场车辆也接到真实数据源，需产品决策。
+- [x] 在园人数/在场车辆已接真实源：以 486 人 / 127 车为基线，叠加三个门实时净增(进-出)动态变化，顶栏与综合态势/人车管理面板共 5 处统一随动（`app.js` 基线公式 + `index.html` 的 `data-onsite-*` 标记）；AI 不可达时保持基线显示，不会出现 0 或占位。
+- [x] HLS 启动自恢复：`cameras.service.ts` 实现 `OnApplicationBootstrap`，后端启动后延迟错峰自动拉起默认 6 路（`HLS_AUTOSTART*` 环境变量可配、单路失败不阻塞），补齐"后端重启后 hlsSessions 清空、大屏未刷新则 6 路停滞"的缺口。

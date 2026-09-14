@@ -370,7 +370,7 @@ if (Test-Path $resTokenFile) {
     $resTarget = 'auto'
     if ($rtoken -match 'restore') { $resTarget = 'restore' }
     try {
-      & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'set-projector-res.ps1') -Target $resTarget 2>&1 |
+      & powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File (Join-Path $PSScriptRoot 'set-projector-res.ps1') -Target $resTarget 2>&1 |
         ForEach-Object { Log ('  [set-res] ' + $_) }
     } catch { Log ('  [set-res] FAILED: ' + $_.Exception.Message) }
     $forceRelaunch = $true
@@ -397,6 +397,9 @@ $launcher = Join-Path $PSScriptRoot 'start-players.ps1'
 # sees (Get-ProjectorRect prints every screen's primary flag + bounds), the rect
 # it chose for slot2, and the Force-ExactFullscreen pin result are all visible
 # from SSH. Without this the projector-window placement is invisible off-console.
-$spOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher *>&1
+# -WindowStyle Hidden: this child runs in the interactive session; without it a
+# visible "Administrator: powershell.exe" console flashes onto the LED wall for
+# the whole relaunch (same hidden pattern bgm/ppt daemons already use).
+$spOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File $launcher *>&1
 foreach ($line in $spOut) { Log ('  [start-players] ' + $line) }
 Log 'start-players.ps1 issued'

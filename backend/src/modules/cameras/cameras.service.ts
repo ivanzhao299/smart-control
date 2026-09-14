@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnApplicationBootstrap } from '@nestjs/common';
 import * as https from 'https';
 import * as http from 'http';
 import { spawn, ChildProcess } from 'child_process';
@@ -61,6 +61,13 @@ const CHANNEL_MAP: Record<string, { nvrId: string; hikChannel: string; name: str
 };
 
 /**
+ * 后端启动后默认自动拉起的 HLS 直播通道（运营大屏实际使用的 6 路，
+ * 与 D:\smart-control\tmp\hls 下的子目录名一一对应）。
+ * 可用环境变量 HLS_AUTOSTART_CHANNELS 覆盖（逗号分隔）。
+ */
+const DEFAULT_AUTOSTART_CHANNELS = ['d02', 'd37', 'd57', 'p3-d37', 'p3-d45', 'p3-d50'];
+
+/**
  * HLS转码会话状态
  */
 interface HlsSession {
@@ -74,7 +81,7 @@ interface HlsSession {
 }
 
 @Injectable()
-export class CamerasService implements OnModuleDestroy {
+export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
   private readonly logger = new Logger(CamerasService.name);
   private hlsSessions = new Map<string, HlsSession>();
   private readonly hlsRootDir: string;
@@ -167,6 +174,55 @@ export class CamerasService implements OnModuleDestroy {
     for (const channel of this.hlsSessions.keys()) {
       this.stopHlsStream(channel);
     }
+  }
+
+  /**
+   * 应用启动完成后自动恢复 HLS 直播流。
+   *
+   * 背景：HLS 是"按需启动"（前端调用 start 才会 spawn ffmpeg），健康检查只守护
+   * 已存在的会话。后端因部署/崩溃/WeeklyReboot 重启后 hlsSessions 被清空，若现场
+   * 大屏页面未刷新就不会再触发 start，表现为 ffmpeg=0、6 路画面全部停滞。这里在
+   * 启动后等网络/HTTP 就绪，再错峰逐路拉起默认通道，彻底补齐该缺口。
+   * - HLS_AUTOSTART=0/false/off 可整体关闭
+   * - HLS_AUTOSTART_CHANNELS 可覆盖默认通道列表（逗号分隔）
+   * - HLS_AUTOSTART_DELAY_MS 首路延迟（默认 8000ms）
+   * - HLS_AUTOSTART_STAGGER_MS 各路错峰间隔（默认 2000ms，避免同时 spawn 冲击 CPU）
+   * 单路失败只记录、不影响其它通道，也绝不阻塞应用启动。
+   */
+  onApplicationBootstrap(): void {
+    const flag = (process.env.HLS_AUTOSTART ?? '1').toLowerCase();
+    if (flag === '0' || flag === 'false' || flag === 'off') {
+      this.logger.log('HLS 启动自动恢复已通过环境变量 HLS_AUTOSTART 关闭');
+      return;
+    }
+
+    const rawChannels = process.env.HLS_AUTOSTART_CHANNELS?.trim();
+    const channels = rawChannels
+      ? rawChannels.split(',').map((c) => c.trim().toLowerCase()).filter(Boolean)
+      : [...DEFAULT_AUTOSTART_CHANNELS];
+    if (channels.length === 0) {
+      this.logger.warn('HLS 启动自动恢复通道列表为空，跳过');
+      return;
+    }
+
+    const delayMs = Number.isFinite(parseInt(process.env.HLS_AUTOSTART_DELAY_MS || '', 10))
+      ? Math.max(0, parseInt(process.env.HLS_AUTOSTART_DELAY_MS || '8000', 10))
+      : 8000;
+    const staggerMs = Number.isFinite(parseInt(process.env.HLS_AUTOSTART_STAGGER_MS || '', 10))
+      ? Math.max(0, parseInt(process.env.HLS_AUTOSTART_STAGGER_MS || '2000', 10))
+      : 2000;
+
+    channels.forEach((channel, idx) => {
+      const wait = delayMs + idx * staggerMs;
+      setTimeout(() => {
+        this.startHlsStream(channel)
+          .then(() => this.logger.log(`[启动自恢复] 通道 ${channel} HLS 已拉起`))
+          .catch((e) => this.logger.error(
+            `[启动自恢复] 通道 ${channel} 拉起失败（健康检查/前端手动 start 仍可重试）: ${(e as Error).message}`,
+          ));
+      }, wait);
+    });
+    this.logger.log(`HLS 启动自动恢复已调度：${channels.join(', ')}（首路延迟 ${delayMs}ms，错峰 ${staggerMs}ms）`);
   }
 
   /**

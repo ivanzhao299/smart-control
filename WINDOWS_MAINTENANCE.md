@@ -123,12 +123,20 @@ scripts\backup.ps1 -Dest E:\sc-backups   # 备份到 E 盘
 
 ### 5.2 定时备份（任务计划程序）
 
+推荐用幂等注册脚本，默认每天 00/06/12/18 点共 4 次（每 6 小时；可用 `-AtHours` 调整），
+通过 wscript 隐藏启动、以 SYSTEM 运行、无人登录也会执行：
+
 ```powershell
-$action  = New-ScheduledTaskAction -Execute 'powershell.exe' `
-            -Argument '-NoProfile -ExecutionPolicy Bypass -File D:\smart-control\scripts\backup.ps1'
-$trigger = New-ScheduledTaskTrigger -Daily -At 3am
-Register-ScheduledTask -TaskName 'SmartControl-Backup' -Action $action -Trigger $trigger -RunLevel Highest
+# 默认每 6 小时
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\smart-control\scripts\register-backup-task.ps1
+# 自定义时刻，例如每 4 小时
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\smart-control\scripts\register-backup-task.ps1 -AtHours 0,4,8,12,16,20
 ```
+
+历史快照不自动删除（删除属于需单独授权的显式操作）；SQLite 快照很小，
+请定期查看 `D:\smart-control-backups` 磁盘占用，而不是让脚本静默清理。
+恢复演练方法：对 `verified-sqlite-backup.cjs` 产出的 `database.sqlite` 只读重开，
+跑 `integrity_check` 并逐表计数比对，验证可独立打开即代表可恢复。
 
 ### 5.3 恢复
 
