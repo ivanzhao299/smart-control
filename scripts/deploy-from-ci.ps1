@@ -397,6 +397,17 @@ try {
         Pop-Location
       }
 
+      # Stop the frontend BEFORE Vite empties dist: a still-running pm2 static
+      # server (plus Defender real-time scan) can hold dist/park-ops/index.html
+      # and make Vite prepareOutDir fail with EPERM/ENOTEMPTY (Deploy #531,
+      # 2026-09-14). Backend stays up throughout; Restart-Services below brings
+      # the frontend back after the build. Literal paths, ASCII-only.
+      $pm2Fe = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
+      if (-not (Test-Path $pm2Fe)) { $pm2Fe = 'pm2' }
+      $env:PM2_HOME = 'C:\Users\user\.pm2'
+      & $pm2Fe stop smart-control-frontend 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
+      Start-Sleep -Seconds 2
+
       Push-Location (Join-Path $projectRoot 'frontend')
       try {
         Invoke-Native 'pnpm.cmd' @('install', '--frozen-lockfile')
@@ -598,7 +609,29 @@ try {
   } elseif ($worktreeUpdated -and $previousCommit) {
     Write-DeployLog "Rolling the worktree and build artifacts back to $previousCommit."
     try {
+      # Stop BOTH services first so 'git reset --hard' can replace tracked files:
+      # the running backend locks database/*.db-shm/*.db-wal (historically tracked)
+      # and made reset fail with "unable to unlink ... Invalid argument", leaving a
+      # half-deployed tree with an emptied dist (Deploy #531, 2026-09-14). ASCII.
+      $pm2Rb = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
+      if (-not (Test-Path $pm2Rb)) { $pm2Rb = 'pm2' }
+      $env:PM2_HOME = 'C:\Users\user\.pm2'
+      & $pm2Rb stop smart-control-backend smart-control-frontend 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
+      Start-Sleep -Seconds 2
       Invoke-Native 'git' @('reset', '--hard', $previousCommit)
+      # Reset restores the historically-tracked SQLite runtime files from the old
+      # commit. They are regenerable shared-memory/WAL files: MOVE (never delete)
+      # them aside so the backend rebuilds them cleanly against the untouched main
+      # smart-control.db (which is not tracked and therefore never reset).
+      $dbDir = Join-Path $projectRoot 'database'
+      foreach ($runtimeDb in @('smart-control.db-shm', 'smart-control.db-wal')) {
+        $runtimePath = Join-Path $dbDir $runtimeDb
+        if (Test-Path $runtimePath) {
+          $movedPath = Join-Path $rollbackRoot ($runtimeDb + '.rollback-moved')
+          Move-Item -Path $runtimePath -Destination $movedPath -Force -ErrorAction SilentlyContinue
+          Write-DeployLog "Moved runtime $runtimeDb to the rollback point (moved, not deleted)."
+        }
+      }
       foreach ($relativeDist in @('backend\dist', 'frontend\dist')) {
         $targetDist = Join-Path $projectRoot $relativeDist
         $backupDist = Join-Path $rollbackRoot $relativeDist
