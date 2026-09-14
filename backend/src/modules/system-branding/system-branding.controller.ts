@@ -1,7 +1,9 @@
-import { BadRequestException, Body, Controller, Get, Put, Res, UseGuards } from '@nestjs/common';
-import type { Response } from 'express';
+import { BadRequestException, Body, Controller, Get, NotFoundException, Put, Req, Res, UseGuards } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { SystemBrandingDto, SystemBrandingService } from './system-branding.service';
 import { AdminGuard } from '../admin-auth/admin-auth.guard';
+import { MediaService } from '../media/media.service';
+import { sendMediaFile } from '../../common/utils/send-media-file';
 import { Public } from '../../common/decorators/public.decorator';
 
 /**
@@ -17,12 +19,29 @@ import { Public } from '../../common/decorators/public.decorator';
  */
 @Controller('system-branding')
 export class SystemBrandingController {
-  constructor(private readonly service: SystemBrandingService) {}
+  constructor(
+    private readonly service: SystemBrandingService,
+    private readonly media: MediaService,
+  ) {}
 
   @Public()
   @Get()
   async get() {
     return { message: '查询成功', data: await this.service.get() };
+  }
+
+  /**
+   * 匿名公开文件路由 —— 只放行"当前被绑定为来访者上墙照片"的那一张媒体。
+   * 大屏本机无 token、参观者手机扫码也无 token；普通 /api/media/:id/file 需要登录,
+   * 不能开放全部媒体。撤下或被新照片覆盖后, 旧 id 不再是当前绑定, 这里立即 404。
+   */
+  @Public()
+  @Get('welcome-photo/file')
+  async welcomePhotoFile(@Req() req: Request, @Res() res: Response): Promise<void> {
+    const id = await this.service.getWelcomePhotoMediaId();
+    if (!id) throw new NotFoundException('当前没有上墙照片');
+    const file = await this.media.openStream(id, false, req.headers.range);
+    sendMediaFile(res, file);
   }
 
   /** 大屏和校准器共同读取；没有保存过时 config=null，页面使用内置默认值。 */
@@ -51,7 +70,7 @@ export class SystemBrandingController {
   @UseGuards(AdminGuard)
   @Put('welcome')
   async updateWelcome(
-    @Body() body: Partial<Pick<SystemBrandingDto, 'welcomeGuest' | 'welcomeTitle' | 'welcomeTagline' | 'welcomeBgMediaId'>>,
+    @Body() body: Partial<Pick<SystemBrandingDto, 'welcomeGuest' | 'welcomeTitle' | 'welcomeTagline' | 'welcomeBgMediaId' | 'welcomePhotoMediaId'>>,
   ): Promise<unknown> {
     if (!body || typeof body !== 'object') {
       throw new BadRequestException('请求体必须是 JSON 对象');
@@ -61,6 +80,7 @@ export class SystemBrandingController {
     if ('welcomeTitle' in body) patch.welcomeTitle = body.welcomeTitle ?? null;
     if ('welcomeTagline' in body) patch.welcomeTagline = body.welcomeTagline ?? null;
     if ('welcomeBgMediaId' in body) patch.welcomeBgMediaId = body.welcomeBgMediaId ?? null;
+    if ('welcomePhotoMediaId' in body) patch.welcomePhotoMediaId = body.welcomePhotoMediaId ?? null;
     if (!Object.keys(patch).length) throw new BadRequestException('没有可保存的欢迎页字段');
     try {
       const updated = await this.service.update(patch);

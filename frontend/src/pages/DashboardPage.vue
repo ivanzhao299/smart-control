@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { useActivePolling } from '@/composables/useActivePolling';
+import { useWelcomePhoto } from '@/composables/useWelcomePhoto';
 import { useToastStore } from '@/stores/toast';
 import { useRouter } from 'vue-router';
 import {
   CheckCircle2, BarChart3, Clock,
   Sparkles, Calendar, Users, Presentation, Wrench, Moon,
-  Lightbulb, MonitorPlay, Speaker, Snowflake, Zap,
+  Lightbulb, MonitorPlay, Speaker, Snowflake, Zap, Camera, X,
 } from 'lucide-vue-next';
 import { haptics } from '@/services/haptics';
 import { powerCircuitsService } from '@/services/power-circuits.service';
@@ -209,6 +210,18 @@ const subsystems = computed(() => {
 function goTo(name: string): void {
   router.push({ name });
 }
+
+// ============ 来访者拍照上墙 (LED 大屏欢迎页) ============
+const {
+  fileInput: welcomePhotoInput,
+  busy: welcomePhotoBusy,
+  hasPhoto: welcomeHasPhoto,
+  openCamera: openWelcomeCamera,
+  onPick: onWelcomePick,
+  takeDown: takeWelcomePhotoDown,
+  loadCurrent: loadWelcomePhoto,
+} = useWelcomePhoto();
+onMounted(loadWelcomePhoto);
 </script>
 
 <template>
@@ -322,6 +335,20 @@ function goTo(name: string): void {
         :data-status="sub.status"
         @click="goTo(sub.route)"
       >
+        <span v-if="sub.kind === 'led'" class="v2-sub-welcome">
+          <span
+            class="welcome-cam-btn"
+            :class="{ busy: welcomePhotoBusy }"
+            title="拍照上墙到 LED 欢迎页"
+            @click.stop.prevent="openWelcomeCamera"
+          ><Camera :size="15" :stroke-width="2.2" /></span>
+          <span
+            v-if="welcomeHasPhoto"
+            class="welcome-cam-btn take-down"
+            title="撤下上墙照片，恢复默认欢迎页"
+            @click.stop.prevent="takeWelcomePhotoDown"
+          ><X :size="11" :stroke-width="2.4" /></span>
+        </span>
         <div class="v2-sub-ico"><component :is="sub.ico" :size="16" :stroke-width="2" /></div>
         <div class="v2-sub-body">
           <div class="v2-sub-name">{{ sub.name }}</div>
@@ -331,6 +358,16 @@ function goTo(name: string): void {
         </div>
       </button>
     </div>
+
+    <!-- 来访者拍照上墙: 调系统相机; 原画留本机, 仅上传 LED 压缩版 -->
+    <input
+      ref="welcomePhotoInput"
+      class="welcome-photo-input"
+      type="file"
+      accept="image/*"
+      capture="environment"
+      @change="onWelcomePick"
+    />
   </section>
 </template>
 
@@ -674,6 +711,23 @@ function goTo(name: string): void {
   transition: color 0.22s ease;
 }
 .v2-sub:hover .v2-sub-ico { color: var(--v2-text-1); }
+/* 来访者拍照上墙: LED 卡片右上角金色相机钮 + 撤下小钮 */
+.v2-sub-welcome { position: absolute; top: 5px; right: 6px; display: flex; gap: 3px; z-index: 2; }
+.welcome-cam-btn {
+  width: 24px; height: 24px; border-radius: 50%;
+  display: grid; place-items: center; cursor: pointer;
+  color: #3a2400; background: linear-gradient(135deg, #ffd873, #ffb020);
+  box-shadow: 0 2px 8px rgba(255, 176, 32, .45);
+  transition: transform .15s ease, filter .15s ease;
+}
+.welcome-cam-btn:active { transform: scale(.9); }
+.welcome-cam-btn.busy { opacity: .55; pointer-events: none; }
+.welcome-cam-btn.take-down {
+  width: 18px; height: 18px;
+  background: rgba(20, 34, 48, .92); color: #cfe3f2;
+  border: 1px solid rgba(120, 160, 190, .4); box-shadow: none;
+}
+.welcome-photo-input { display: none; }
 .v2-sub-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .v2-sub-name {
   font-size: var(--v2-fs-sm);

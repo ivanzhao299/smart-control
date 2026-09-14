@@ -93,6 +93,17 @@ export class SystemBranding {
   @Column({ type: 'integer', name: 'welcomeBgMediaId', nullable: true })
   welcomeBgMediaId!: number | null;
 
+  /**
+   * 欢迎页"来访者拍照上墙"照片 (媒体库图片 id, 2026-09-14)。
+   * - null = 没上传 → 欢迎页保持默认欢迎语布局
+   * - 有值 → 欢迎页在欢迎语上方按照片原始方向/比例完整展示 (不裁切、不变形),
+   *   只保留最新一张, 换新时由 PWA 端可恢复删除上一张。
+   * 匿名读取走专门的公开路由 GET /api/system-branding/welcome-photo/file
+   * (只放行当前绑定的这一张; 普通 /api/media/:id/file 需登录, 不开放)。
+   */
+  @Column({ type: 'integer', name: 'welcomePhotoMediaId', nullable: true })
+  welcomePhotoMediaId!: number | null;
+
   /** 园区运营大屏可视化校准配置。JSON 文本由服务层做严格结构和范围校验。 */
   @Column({ type: 'text', name: 'parkOpsConfigJson', nullable: true })
   parkOpsConfigJson!: string | null;

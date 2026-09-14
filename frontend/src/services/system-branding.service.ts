@@ -37,6 +37,10 @@ export interface SystemBranding {
   welcomeBgMediaId: number | null;
   /** 只读: 底图直链 (后端由 welcomeBgMediaId 算出; 展示需 absUrl() 拼绝对地址) */
   welcomeBgUrl?: string | null;
+  /** 欢迎页"来访者拍照上墙"照片媒体 id (空 = 默认欢迎布局) */
+  welcomePhotoMediaId?: number | null;
+  /** 只读: 上墙照片直链 (后端由 welcomePhotoMediaId 算出) */
+  welcomePhotoUrl?: string | null;
 }
 
 export type SystemBrandingPatch = Partial<SystemBranding>;
@@ -49,8 +53,8 @@ export async function saveSystemBranding(patch: SystemBrandingPatch): Promise<Sy
   return api.put<SystemBranding>('/system-branding', patch);
 }
 
-/** 欢迎页字段专用保存 — 客户端 token 即可 (无需后台登录), 只收欢迎页四字段 */
-export type WelcomePatch = Partial<Pick<SystemBranding, 'welcomeGuest' | 'welcomeTitle' | 'welcomeTagline' | 'welcomeBgMediaId'>>;
+/** 欢迎页字段专用保存 — 客户端 token 即可 (无需后台登录), 只收欢迎页字段 */
+export type WelcomePatch = Partial<Pick<SystemBranding, 'welcomeGuest' | 'welcomeTitle' | 'welcomeTagline' | 'welcomeBgMediaId' | 'welcomePhotoMediaId'>>;
 export async function saveWelcomeConfig(patch: WelcomePatch): Promise<SystemBranding> {
   return api.put<SystemBranding>('/system-branding/welcome', patch);
 }

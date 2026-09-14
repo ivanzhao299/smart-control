@@ -1,4 +1,5 @@
 import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { promises as fs } from 'fs';
 import { resolve } from 'path';
@@ -6,6 +7,7 @@ import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { SystemBranding } from '../../entities/system-branding.entity';
+import { lanOrigin } from '../../common/utils/lan-origin';
 import { normalizeParkOpsConfig, type ParkOpsConfigDocument } from './park-ops-config';
 
 export interface SystemBrandingDto {
@@ -27,6 +29,12 @@ export interface SystemBrandingDto {
   welcomeBgMediaId: number | null;
   /** 只读: 底图直链 (由 welcomeBgMediaId 算出, 欢迎页/编辑器预览直接用) */
   welcomeBgUrl?: string | null;
+  /** 欢迎页"来访者拍照上墙"照片媒体 id (空 = 保持默认欢迎语布局) */
+  welcomePhotoMediaId: number | null;
+  /** 只读: 上墙照片公开直链 (由 welcomePhotoMediaId 算出, 大屏轮询直接用; 走匿名公开路由) */
+  welcomePhotoUrl?: string | null;
+  /** 只读: 手机可访问的本机局域网 origin (拼照片下载二维码绝对地址; env PUBLIC_ORIGIN 可覆盖) */
+  serverOrigin?: string;
 }
 
 const DEFAULTS: SystemBrandingDto = {
@@ -41,6 +49,7 @@ const DEFAULTS: SystemBrandingDto = {
   welcomeTitle: null,
   welcomeTagline: null,
   welcomeBgMediaId: null,
+  welcomePhotoMediaId: null,
 };
 
 @Injectable()
@@ -48,6 +57,7 @@ export class SystemBrandingService implements OnModuleInit {
   constructor(
     @InjectRepository(SystemBranding) private readonly repo: Repository<SystemBranding>,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
+    private readonly config: ConfigService,
   ) {}
 
   /** 启动时确保 id=1 这条记录存在 (没有就插默认), 后续都直接 update id=1 */
@@ -58,6 +68,7 @@ export class SystemBrandingService implements OnModuleInit {
       `ALTER TABLE "system_branding_v2" ADD COLUMN "welcomeTitle" varchar(32)`,
       `ALTER TABLE "system_branding_v2" ADD COLUMN "welcomeTagline" varchar(64)`,
       `ALTER TABLE "system_branding_v2" ADD COLUMN "welcomeBgMediaId" integer`,
+      `ALTER TABLE "system_branding_v2" ADD COLUMN "welcomePhotoMediaId" integer`,
       `ALTER TABLE "system_branding_v2" ADD COLUMN "parkOpsConfigJson" text`,
     ]) {
       await this.repo.query(ddl).catch(() => { /* duplicate column = 已存在, 正常 */ });
@@ -127,7 +138,21 @@ export class SystemBrandingService implements OnModuleInit {
       welcomeBgMediaId: row.welcomeBgMediaId,
       // 底图直链: /api/media/:id/file 是 @Public 路由, kiosk 欢迎页无鉴权可读
       welcomeBgUrl: row.welcomeBgMediaId ? `/api/media/${row.welcomeBgMediaId}/file` : null,
+      welcomePhotoMediaId: row.welcomePhotoMediaId ?? null,
+      // 上墙照片走"仅当前绑定照片"的匿名公开路由 (普通 /api/media/:id/file 需登录,
+      // 大屏与扫码手机都没有 token); 加 updatedAt 版本参数让轮询拿到新图而非旧缓存
+      welcomePhotoUrl: row.welcomePhotoMediaId
+        ? `/api/system-branding/welcome-photo/file?v=${(row.updatedAt?.getTime?.() ?? Date.now())}`
+        : null,
+      serverOrigin: lanOrigin(this.config.get<number>('app.port') ?? 3000),
     };
+  }
+
+  /** 直接读当前上墙照片媒体 id (给匿名公开文件路由用, 无绑定返回 null) */
+  async getWelcomePhotoMediaId(): Promise<number | null> {
+    const row = await this.repo.findOne({ where: { id: 1 } });
+    const v = row?.welcomePhotoMediaId;
+    return typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null;
   }
 
   /** 直接读 welcomeMediaId (给 LedController.welcome 用, 不需要拼整个 DTO) */
@@ -220,6 +245,11 @@ export class SystemBrandingService implements OnModuleInit {
     if (input.welcomeBgMediaId !== undefined) {
       const v = input.welcomeBgMediaId;
       patch.welcomeBgMediaId = typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null;
+    }
+    if (input.welcomePhotoMediaId !== undefined) {
+      // null/非正整数都视为撤下, 回到默认欢迎语布局
+      const v = input.welcomePhotoMediaId;
+      patch.welcomePhotoMediaId = typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null;
     }
 
     if (current) {

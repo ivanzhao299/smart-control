@@ -59,6 +59,10 @@
     <section class="page welcome-page active" data-name="欢迎莅临">
       <div class="welcome-bg"></div>
       <div class="welcome-content">
+        <div class="welcome-photo" id="welcomePhoto" hidden>
+          <img id="welcomePhotoImg" alt="来访嘉宾照片" />
+          <div class="welcome-qr" id="welcomeQr" hidden><div class="qr-box" id="welcomeQrBox"></div><div class="qr-tip">扫码下载照片</div></div>
+        </div>
         <h1 class="welcome-title">热烈欢迎各位领导莅临检查指导</h1>
         <div class="welcome-english">JINHU SCI-TECH INDUSTRIAL PARK · INTELLIGENT OPERATION MANAGEMENT PLATFORM</div>
       </div>
@@ -163,6 +167,7 @@
     <div class="tabs"><button class="btn btn-arrow" id="prev">‹</button><button class="btn btn-auto" id="auto">A</button><button class="btn btn-arrow" id="next">›</button></div><div class="page-indicator" id="pageIndicator"></div>
   </main>
 </div>
+<script src="./js/qrcode.js?v=20260914"></script>
 <script src="./js/app.js?v=20260913-refactor"></script>
 <script type="module" src="./park-ops-3d.js?v=20260913-v4-performance-optimized" defer></script>
 <script src="./park-ops-editor.js?v=20260913-v4-performance-optimized" defer></script>
