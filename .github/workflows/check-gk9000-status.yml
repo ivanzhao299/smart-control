@@ -2,8 +2,9 @@ name: Check GK9000 System Status
 
 # Read-only health patrol. Runs every 30 minutes on a schedule, can be
 # triggered manually, and also re-runs when this workflow itself changes.
-# It ONLY queries CPU / processes / memory / disk over the restricted jump
-# host and never mutates GK9000 state.
+# It ONLY queries CPU / processes / memory / disk through the restricted jump
+# host action `gk9000-status` (a fixed read-only command baked into the jump
+# gateway) and never mutates GK9000 state.
 on:
   schedule:
     - cron: '*/30 * * * *'
@@ -36,8 +37,11 @@ jobs:
           printf '%s\n' "$JUMP_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/gk9000-deploy-jump" "$HOME/.ssh/known_hosts"
 
-      - name: Check CPU and top processes
+      - name: Check GK9000 health (read-only)
         run: |
+          # The jump host only allows a fixed allow-list of actions. We invoke
+          # the read-only `gk9000-status` action; the gateway itself runs the
+          # baked-in CPU/process/memory/disk query and rejects anything else.
           ssh \
             -i "$HOME/.ssh/gk9000-deploy-jump" \
             -o BatchMode=yes \
@@ -45,17 +49,4 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -o ServerAliveInterval=15 \
             -o ServerAliveCountMax=4 \
-            root@123.57.220.65 \
-            "ssh -i /root/.ssh/anksen-gk9000-deploy -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes user@10.66.66.3 \"powershell.exe -NoProfile -Command \\\"Write-Output '=== CPU Usage ==='; Get-CimInstance Win32_Processor | Select-Object -ExpandProperty LoadPercentage; Write-Output '=== Top 15 Processes by CPU ==='; Get-Process | Sort-Object CPU -Descending | Select-Object -First 15 Name, Id, @{N='CPU(s)';E={[math]::Round(\\$_.CPU,2)}}, @{N='Memory(MB)';E={[math]::Round(\\$_.WorkingSet64/1MB,2)}} | Format-Table -AutoSize\\\"\""
-
-      - name: Check memory and disk
-        run: |
-          ssh \
-            -i "$HOME/.ssh/gk9000-deploy-jump" \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
-            -o ServerAliveInterval=15 \
-            -o ServerAliveCountMax=4 \
-            root@123.57.220.65 \
-            "ssh -i /root/.ssh/anksen-gk9000-deploy -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes user@10.66.66.3 \"powershell.exe -NoProfile -Command \\\"Write-Output '=== Memory ==='; \\$os = Get-CimInstance Win32_OperatingSystem; Write-Output \\\"Total: \\$([math]::Round(\\$os.TotalVisibleMemorySize/1MB,2)) GB\\\"; Write-Output \\\"Free: \\$([math]::Round(\\$os.FreePhysicalMemory/1MB,2)) GB\\\"; Write-Output '=== Disk ==='; Get-PSDrive -PSProvider FileSystem | Select-Object Name, @{N='Used(GB)';E={[math]::Round(\\$_.Used/1GB,2)}}, @{N='Free(GB)';E={[math]::Round(\\$_.Free/1GB,2)}} | Format-Table -AutoSize\\\"\""
+            root@123.57.220.65 'gk9000-status'
