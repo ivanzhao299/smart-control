@@ -15,6 +15,19 @@ export interface NvrDevice {
   createdAt: string;
 }
 
+/** 归一化坐标点（0~1，与画面分辨率无关，便于拖拽编辑器与 AI 端共用） */
+export interface NormPoint {
+  x: number;
+  y: number;
+}
+
+/** 单路 AI 分析配置：是否分析、越线计数线（2 点）、检测区域多边形 ROI（区域外不检测） */
+export interface ChannelAiConfig {
+  aiEnabled?: boolean;
+  countLine?: NormPoint[];
+  roiPolygon?: NormPoint[];
+}
+
 export interface CameraChannel {
   id: string;
   nvrId: string;
@@ -24,6 +37,13 @@ export interface CameraChannel {
   enabled: boolean;
   sortOrder: number;
   createdAt: string;
+  // —— AI 分析相关（可选，老配置缺失时由 migrateConfig 补默认）——
+  /** 该路是否送入 AI 分析/计数 */
+  aiEnabled?: boolean;
+  /** 越线计数线，恰 2 个归一化点；缺省为画面垂直中线 */
+  countLine?: NormPoint[];
+  /** 检测区域多边形顶点（归一化）；为空表示全画面检测，>=3 点时区域外目标不检测不输出 */
+  roiPolygon?: NormPoint[];
 }
 
 export interface VideoBindingConfig {
@@ -33,8 +53,15 @@ export interface VideoBindingConfig {
     columns: number;
     channelIds: string[];
   };
+  /** 全局：运营大屏/投影/手机是否叠加 AI 检测框与计数线（后台统一开关，默认开） */
+  aiBoxEnabled?: boolean;
   updatedAt: string;
 }
+
+/** 默认接入 AI 分析的三路大门，以及它们的默认垂直计数线（与 AI 服务内置默认保持一致） */
+const DEFAULT_AI_CAMERA_IDS = ['d37', 'd57', 'p3-d37'];
+const DEFAULT_COUNT_LINE: NormPoint[] = [{ x: 0.5, y: 0.2 }, { x: 0.5, y: 0.8 }];
+const MAX_ROI_POINTS = 16;
 
 @Injectable()
 export class VideoBindingService implements OnModuleInit {
@@ -58,6 +85,7 @@ export class VideoBindingService implements OnModuleInit {
       try {
         const raw = readFileSync(this.configPath, 'utf-8');
         this.config = JSON.parse(raw);
+        this.migrateConfig();
         return;
       } catch (e: any) {
         console.warn('[VideoBinding] Failed to load config, using defaults:', e?.message || e);
@@ -103,8 +131,10 @@ export class VideoBindingService implements OnModuleInit {
         columns: 3,
         channelIds: ['d37', 'd57', 'd02', 'p3-d37', 'p3-d45', 'p3-d50'],
       },
+      aiBoxEnabled: true,
       updatedAt: new Date().toISOString(),
     };
+    this.migrateConfig();
     this.saveConfig();
   }
 
@@ -197,6 +227,103 @@ export class VideoBindingService implements OnModuleInit {
     }
     this.saveConfig();
     return this.config.displayLayout;
+  }
+
+  // ========== AI 检测范围 / 全局框开关 ==========
+  /** 老配置补齐新字段（不覆盖已存在的值），坐标统一钳制到 0~1 */
+  private migrateConfig(): void {
+    if (this.config.aiBoxEnabled === undefined) this.config.aiBoxEnabled = true;
+    if (!Array.isArray(this.config.channels)) this.config.channels = [];
+    for (const ch of this.config.channels) {
+      const isDefaultAi = DEFAULT_AI_CAMERA_IDS.includes(ch.id);
+      if (ch.aiEnabled === undefined) ch.aiEnabled = isDefaultAi;
+      if (!Array.isArray(ch.countLine) || ch.countLine.length !== 2) {
+        ch.countLine = isDefaultAi ? DEFAULT_COUNT_LINE.map(p => ({ ...p })) : undefined;
+      } else {
+        ch.countLine = ch.countLine.map(p => this.clampPoint(p));
+      }
+      if (Array.isArray(ch.roiPolygon) && ch.roiPolygon.length) {
+        ch.roiPolygon = ch.roiPolygon.slice(0, MAX_ROI_POINTS).map(p => this.clampPoint(p));
+      } else {
+        ch.roiPolygon = [];
+      }
+    }
+  }
+
+  private clampPoint(p: any): NormPoint {
+    const num = (v: any) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return 0;
+      return Math.min(1, Math.max(0, n));
+    };
+    return { x: num(p?.x), y: num(p?.y) };
+  }
+
+  getAiBoxEnabled(): boolean {
+    // 缺省视为开（只有显式 false 才关）
+    return this.config.aiBoxEnabled !== false;
+  }
+
+  setAiBoxEnabled(enabled: boolean): boolean {
+    this.config.aiBoxEnabled = !!enabled;
+    this.saveConfig();
+    return this.config.aiBoxEnabled;
+  }
+
+  /** 保存单路 AI 配置（是否分析 / 计数线 / ROI 区域） */
+  updateChannelAi(id: string, patch: ChannelAiConfig): CameraChannel | null {
+    const idx = this.config.channels.findIndex(c => c.id === id);
+    if (idx === -1) return null;
+    const next: Partial<CameraChannel> = {};
+    if (patch.aiEnabled !== undefined) next.aiEnabled = !!patch.aiEnabled;
+    if (patch.countLine !== undefined) {
+      next.countLine =
+        Array.isArray(patch.countLine) && patch.countLine.length === 2
+          ? patch.countLine.map(p => this.clampPoint(p))
+          : DEFAULT_COUNT_LINE.map(p => ({ ...p }));
+    }
+    if (patch.roiPolygon !== undefined) {
+      const poly = Array.isArray(patch.roiPolygon) ? patch.roiPolygon : [];
+      next.roiPolygon = poly.length >= 3 ? poly.slice(0, MAX_ROI_POINTS).map(p => this.clampPoint(p)) : [];
+    }
+    this.config.channels[idx] = { ...this.config.channels[idx], ...next };
+    this.saveConfig();
+    return this.config.channels[idx];
+  }
+
+  /** 组装下发给 AI Python（POST /api/config）的载荷，坐标为数组形式 */
+  buildAiPayload(): {
+    cameras: Record<
+      string,
+      { enabled: boolean; count_line: [[number, number], [number, number]] | null; roi_polygon: [number, number][] }
+    >;
+  } {
+    const cameras: Record<string, any> = {};
+    for (const ch of this.config.channels) {
+      const line = Array.isArray(ch.countLine) && ch.countLine.length === 2 ? ch.countLine : null;
+      cameras[ch.id] = {
+        enabled: !!ch.aiEnabled,
+        count_line: line ? [[line[0].x, line[0].y], [line[1].x, line[1].y]] : null,
+        roi_polygon: Array.isArray(ch.roiPolygon) ? ch.roiPolygon.map(p => [p.x, p.y] as [number, number]) : [],
+      };
+    }
+    return { cameras };
+  }
+
+  /** 大屏匿名只读：全局框开关 + 每路计数线/ROI（不含任何凭据） */
+  getOverlayConfig() {
+    const cameras: Record<
+      string,
+      { aiEnabled: boolean; countLine: NormPoint[] | null; roiPolygon: NormPoint[] }
+    > = {};
+    for (const ch of this.config.channels) {
+      cameras[ch.id] = {
+        aiEnabled: !!ch.aiEnabled,
+        countLine: Array.isArray(ch.countLine) && ch.countLine.length === 2 ? ch.countLine : null,
+        roiPolygon: Array.isArray(ch.roiPolygon) ? ch.roiPolygon : [],
+      };
+    }
+    return { aiBoxEnabled: this.getAiBoxEnabled(), cameras };
   }
 
   // 获取用于运营大屏的视频配置

@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Plus, RefreshCw, Trash2, Video, Settings, Play } from 'lucide-vue-next';
 import { api } from '@/services/http';
+import AiRegionEditor from './AiRegionEditor.vue';
 
 /**
  * 视频绑定管理 — NVR录像机 + 摄像头通道 + 大屏显示布局
@@ -35,6 +36,9 @@ const nvrForm = ref<Partial<NvrDevice>>({});
 const nvrEditing = ref(false);
 const testingNvrId = ref<string | null>(null);
 
+// 归一化坐标点（0~1）
+interface NormPoint { x: number; y: number; }
+
 // 摄像头通道
 interface CameraChannel {
   id: string;
@@ -45,12 +49,22 @@ interface CameraChannel {
   enabled: boolean;
   sortOrder: number;
   createdAt: string;
+  // AI 检测范围（后端 migrate 补默认，可能缺省）
+  aiEnabled?: boolean;
+  countLine?: NormPoint[] | null;
+  roiPolygon?: NormPoint[];
 }
 
 const channels = ref<CameraChannel[]>([]);
 const channelDialogVisible = ref(false);
 const channelForm = ref<Partial<CameraChannel>>({});
 const channelEditing = ref(false);
+
+// AI：全局框开关 + 检测范围编辑器 + 下发状态
+const aiBoxEnabled = ref(true);
+const aiPushing = ref(false);
+const editorVisible = ref(false);
+const editorTarget = ref<CameraChannel | null>(null);
 
 // 显示布局
 const layoutColumns = ref(3);
@@ -67,6 +81,7 @@ async function loadData() {
     channels.value = (data.channels || []).sort((a: CameraChannel, b: CameraChannel) => a.sortOrder - b.sortOrder);
     layoutColumns.value = data.displayLayout?.columns || 3;
     layoutChannelIds.value = data.displayLayout?.channelIds || [];
+    aiBoxEnabled.value = data.aiBoxEnabled !== false;
   } catch (e: any) {
     ElMessage.error('加载视频绑定配置失败: ' + (e.message || e));
   } finally {
@@ -222,6 +237,55 @@ async function saveLayout() {
   }
 }
 
+// ========== AI 全局框开关 / 检测范围 / 下发 ==========
+async function saveAiBox(v: boolean) {
+  aiBoxEnabled.value = v;
+  try {
+    await api.put('/video-binding/ai/box', { enabled: v });
+    ElMessage.success(v ? 'AI 检测框已全局开启（LED/投影/手机统一生效）' : 'AI 检测框已全局关闭');
+  } catch (e: any) {
+    ElMessage.error('全局开关保存失败: ' + (e.message || e));
+  }
+}
+
+function openAiEditor(ch: CameraChannel) {
+  editorTarget.value = ch;
+  editorVisible.value = true;
+}
+
+async function onAiSaved(payload: { aiEnabled: boolean; countLine: NormPoint[]; roiPolygon: NormPoint[] }) {
+  if (!editorTarget.value) return;
+  const id = editorTarget.value.id;
+  try {
+    const res: any = await api.put(`/video-binding/channels/${id}/ai`, payload);
+    const body = res?.data ?? res;
+    ElMessage.success(body?.message || '检测范围已保存并下发');
+    await loadData();
+  } catch (e: any) {
+    ElMessage.error('检测范围保存失败: ' + (e.message || e));
+  }
+}
+
+async function pushAiConfig() {
+  aiPushing.value = true;
+  try {
+    const res: any = await api.post('/video-binding/ai/push');
+    const body = res?.data ?? res;
+    if (body?.success) ElMessage.success('已把当前检测范围重新下发到 AI');
+    else ElMessage.warning(body?.message || 'AI 暂不可达，配置已保存');
+  } catch (e: any) {
+    ElMessage.error('下发失败: ' + (e.message || e));
+  } finally {
+    aiPushing.value = false;
+  }
+}
+
+function aiSummary(ch: CameraChannel): string {
+  if (ch.aiEnabled === false) return '未分析';
+  const n = Array.isArray(ch.roiPolygon) ? ch.roiPolygon.length : 0;
+  return n >= 3 ? `区域 ${n} 点` : '全画面';
+}
+
 function getNvrName(nvrId: string): string {
   return nvrs.value.find(n => n.id === nvrId)?.name || '未知';
 }
@@ -292,6 +356,11 @@ onMounted(() => {
           <el-button @click="loadData()" :loading="loading">
             <RefreshCw :size="16" /> 刷新
           </el-button>
+          <span class="ai-box-switch">
+            AI 检测框全局显示
+            <el-switch :model-value="aiBoxEnabled" @change="saveAiBox" />
+          </span>
+          <el-button :loading="aiPushing" @click="pushAiConfig">重新下发 AI</el-button>
         </div>
 
         <div class="vb-table-wrap">
@@ -312,8 +381,14 @@ onMounted(() => {
               <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '禁用' }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="180">
+          <el-table-column label="AI 检测范围" width="120">
             <template #default="{ row }">
+              <el-tag size="small" :type="row.aiEnabled === false ? 'info' : 'success'">{{ aiSummary(row) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="280">
+            <template #default="{ row }">
+              <el-button size="small" @click="openAiEditor(row)">检测范围</el-button>
               <el-button size="small" type="primary" @click="openChannelDialog(row)">编辑</el-button>
               <el-button size="small" type="danger" @click="deleteChannel(row)">
                 <Trash2 :size="14" />
@@ -454,6 +529,17 @@ onMounted(() => {
         <el-button type="primary" @click="saveChannel">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- AI 检测范围编辑器（计数线 + 多边形 ROI，拖拽为主、数值兜底） -->
+    <AiRegionEditor
+      v-model="editorVisible"
+      :channel-id="editorTarget?.id || ''"
+      :title="editorTarget?.alias || editorTarget?.name || ''"
+      :ai-enabled="editorTarget?.aiEnabled"
+      :count-line="editorTarget?.countLine"
+      :roi-polygon="editorTarget?.roiPolygon"
+      @save="onAiSaved"
+    />
   </div>
 </template>
 
@@ -468,13 +554,35 @@ onMounted(() => {
   width: 100%;
   max-width: 100%;
   overflow-x: auto;
+  overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
-  border-radius: 10px;
+  /* 右侧收口的关键: 外框/圆角/裁剪交给“固定不动的滚动容器”, 视口右缘永远有完整
+     竖线和圆角; 旧方案把框画在随内容横滚、宽 1200 的 .el-table 上, 滚到最右时
+     1px 右边框与圆角正好压在容器裁剪线上被切掉, 表现为右侧开口/直角/缺竖线。 */
+  border: 1px solid var(--v2-border-soft, rgba(120, 150, 180, .22));
+  border-radius: 12px;
+  background: var(--v2-surface-1, rgba(13, 28, 44, .35));
 }
-/* 让表格按列宽总和撑开, 横滚由外层 wrap 承载(手机触摸可靠), 避免 el-table 内部滚动卡死 */
+/* 内部表不再画随横滚移动的外框, 统一由外层 .vb-table-wrap 收口, 避免双框/错位 */
+.vb-table-wrap :deep(.el-table) {
+  border: 0 !important;
+  border-radius: 0 !important;
+}
+.vb-table-wrap :deep(.el-table::before),
+.vb-table-wrap :deep(.el-table::after) { display: none !important; }
+/* 让表按列宽总和撑开, 横滚由外层 wrap 承载(手机触摸可靠), 避免 el-table 内部滚动卡死 */
 .vb-table-wrap :deep(.el-table.vb-w-nvr) { min-width: 1060px; }
-.vb-table-wrap :deep(.el-table.vb-w-ch) { min-width: 960px; }
+.vb-table-wrap :deep(.el-table.vb-w-ch) { min-width: 1200px; }
+
+.ai-box-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--v2-text-2);
+  margin-left: auto;
+}
 
 .page-header {
   margin-bottom: 20px;
@@ -682,6 +790,7 @@ onMounted(() => {
   .page-header .desc { font-size: 13px; }
   .toolbar { gap: 8px; }
   .toolbar :deep(.el-button) { margin-left: 0; }
+  .ai-box-switch { margin-left: 0; width: 100%; justify-content: space-between; }
   .layout-settings { padding: 14px; }
   /* 通道卡片 / 预览在手机上强制 1~2 列, 覆盖组件内联的 3~4 列, 避免文字挤爆 */
   .channel-grid { grid-template-columns: 1fr !important; gap: 8px; }

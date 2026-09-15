@@ -14,10 +14,10 @@ import { useToastStore } from '@/stores/toast';
  *   脆弱时刻自动弹系统面板(连续前后台切换会让 standalone PWA 被系统回收, 表现为闪退)。
  * 只保留最新一张: 换新时可恢复删除上一张; 撤下则置空回默认欢迎布局。
  *
- * LED 点对点分辨率 3612x1462, 照片位长边 2200px 已足够清晰,
- * JPEG 0.82 单张约 300-500KB, 不增加网络与服务器负担。
+ * LED 点对点分辨率 3612x1462, 照片位并非整屏宽, 上墙小图长边 1920px 已足够清晰,
+ * JPEG 0.82 单张约 250-400KB, 不增加网络与服务器负担; 同时压低解码内存峰值防 iOS 闪退。
  */
-const LED_LONG_EDGE = 2200;
+const LED_LONG_EDGE = 1920;
 const JPEG_QUALITY = 0.82;
 
 type AnyBitmap = ImageBitmap | (HTMLImageElement & { __objectUrl?: string });
@@ -81,6 +81,54 @@ async function idbDel(): Promise<void> {
 }
 /** 让出一帧: 等相机返回的前后台切换 UI 落定后再做重解码, 降低 standalone 被回收概率 */
 const nextFrame = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()));
+/** 纯延时: iOS standalone 从系统相机返回时, WebKit 需要一小段时间恢复视图, 立刻重解码易被 jetsam 杀 */
+const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * 仅解析 JPEG 标记段读取宽高, 不解码任何像素(只读取文件前 512KB), 内存开销可忽略。
+ * 用途: 拿到原始宽高后让 createImageBitmap 的 resizeWidth/Height 一次降采样到位,
+ * 避免"先全尺寸解码探尺寸 → 再二次降采样"造成的上百 MB 瞬时峰值(iOS 拍照闪退主因)。
+ * 非 JPEG(如 HEIC/PNG) reject, 由调用方走 HTMLImageElement 回退。
+ */
+function readJpegSize(file: File): Promise<{ w: number; h: number }> {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => {
+      try {
+        const dv = new DataView(fr.result as ArrayBuffer);
+        if (dv.getUint16(0) !== 0xffd8) { reject(new Error('not-jpeg')); return; }
+        let off = 2;
+        while (off + 9 < dv.byteLength) {
+          if (dv.getUint8(off++) !== 0xff) continue;
+          const marker = dv.getUint8(off++);
+          // SOF0..SOF15，排除 DHT(C4)/JPG(C8)/DAC(CC)
+          if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+            const h = dv.getUint16(off + 3);
+            const w = dv.getUint16(off + 5);
+            if (w > 0 && h > 0) { resolve({ w, h }); return; }
+            reject(new Error('bad-sof')); return;
+          }
+          off += dv.getUint16(off);
+        }
+        reject(new Error('sof-not-found'));
+      } catch (e) { reject(e); }
+    };
+    fr.onerror = () => reject(fr.error);
+    fr.readAsArrayBuffer(file.slice(0, 512 * 1024));
+  });
+}
+
+async function decodeViaImage(source: File): Promise<AnyBitmap> {
+  const url = URL.createObjectURL(source);
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error('图片解码失败'));
+    el.src = url;
+  });
+  (img as HTMLImageElement & { __objectUrl?: string }).__objectUrl = url;
+  return img;
+}
 
 export function useWelcomePhoto() {
   const toast = useToastStore();
@@ -112,41 +160,34 @@ export function useWelcomePhoto() {
   }
 
   /**
-   * 解码为可 drawImage 的位图, 并在解码阶段就降采样到长边 LED_LONG_EDGE。
-   * 手机原图常为 4000px 级, 全尺寸解码 + canvas 峰值上百 MB, 是 standalone PWA
-   * 被系统回收(闪退)的主要内存来源; createImageBitmap 的 resize* 选项可在解码期降采样。
-   * 不支持 resize 或 createImageBitmap(如部分 WebView 对 HEIC) 时回退 HTMLImageElement。
+   * 解码为可 drawImage 的位图，并在解码阶段就降采样到长边 LED_LONG_EDGE。
+   * 关键：先用 readJpegSize 只读 JPEG 头拿原始宽高(不解码像素)，再让 createImageBitmap
+   * 一次性按比例 resize 到位 —— 全程只解码一次、且直接是小图，把内存峰值压到最低
+   * (旧实现先全尺寸解码探尺寸、再二次解码，是 iPhone 相机返回瞬间闪退的主因)。
+   * JPEG 头解析失败(HEIC/PNG)或不支持 resize 时，回退 HTMLImageElement 单次解码。
    */
   async function decodeBitmap(source: File): Promise<AnyBitmap> {
-    try {
-      const probe = await createImageBitmap(source, { imageOrientation: 'from-image' });
-      const long = Math.max(probe.width, probe.height);
-      if (long <= LED_LONG_EDGE) return probe;
-      const ratio = LED_LONG_EDGE / long;
-      const resizeOpts = {
-        imageOrientation: 'from-image' as ImageOrientation,
-        resizeWidth: Math.max(1, Math.round(probe.width * ratio)),
-        resizeHeight: Math.max(1, Math.round(probe.height * ratio)),
-        resizeQuality: 'high' as ResizeQuality,
-      };
-      probe.close?.();
-      try {
-        return await createImageBitmap(source, resizeOpts);
-      } catch {
-        // 浏览器忽略/不支持 resize 选项: 普通解码后由 canvas 缩放
-        return await createImageBitmap(source, { imageOrientation: 'from-image' });
+    if (typeof createImageBitmap === 'function') {
+      const head = await readJpegSize(source).catch(() => null);
+      if (head) {
+        const long = Math.max(head.w, head.h);
+        const base = { imageOrientation: 'from-image' as ImageOrientation };
+        if (long <= LED_LONG_EDGE) {
+          try { return await createImageBitmap(source, base); } catch { /* 回退 */ }
+        } else {
+          const ratio = LED_LONG_EDGE / long;
+          try {
+            return await createImageBitmap(source, {
+              ...base,
+              resizeWidth: Math.max(1, Math.round(head.w * ratio)),
+              resizeHeight: Math.max(1, Math.round(head.h * ratio)),
+              resizeQuality: 'high' as ResizeQuality,
+            });
+          } catch { /* 不支持 resize，回退 */ }
+        }
       }
-    } catch {
-      const url = URL.createObjectURL(source);
-      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const el = new Image();
-        el.onload = () => resolve(el);
-        el.onerror = () => reject(new Error('图片解码失败'));
-        el.src = url;
-      });
-      (img as HTMLImageElement & { __objectUrl?: string }).__objectUrl = url;
-      return img;
     }
+    return decodeViaImage(source);
   }
 
   function releaseBitmap(bmp: AnyBitmap): void {
@@ -279,9 +320,10 @@ export function useWelcomePhoto() {
     busy.value = true;
     let oldId: number | null = null;
     try {
-      // 相机返回 WebView 的瞬间先让出一帧, 等前后台切换 UI 落定再开始重解码,
-      // 避免与系统回收进程的敏感时刻叠加 (缓解 standalone 闪退)
+      // 相机返回 WebView 的瞬间先让出一帧并额外等待 250ms, 等前后台切换/视图恢复完全落定
+      // 再开始解码, 避开系统回收进程的敏感时刻 (缓解 standalone 闪退)
       await nextFrame();
+      await delay(250);
       // 1) 先在前台尽快把原图压成小图(尽早释放解码内存), 不在此处弹任何系统面板
       const led = await compressForLed(original);
       // 2) 上传 + 绑定 + 大屏回欢迎页
@@ -295,10 +337,14 @@ export function useWelcomePhoto() {
         await mediaService.remove(oldId).catch(() => undefined);
       }
       // 3) 原画: 内存暂存 + IDB 持久(整页重载后仍可点下载), 等用户手势点「保存原画」,
-      //    不自动弹 share 以免 PWA 闪退; 只留最新一张
+      //    不自动弹 share 以免 PWA 闪退; 只留最新一张。IDB 写入是数 MB File 落库,
+      //    延后 400ms 避开相机返回后的敏感窗口, 不阻塞成功提示。
       pendingOriginal.value = original;
-      void idbSet({ mediaId: media.id, ts: Date.now(), file: original });
       hasPhoto.value = true;
+      const idForIdb = media.id;
+      setTimeout(() => {
+        void idbSet({ mediaId: idForIdb, ts: Date.now(), file: original });
+      }, 400);
       toast.success('照片已上墙，大屏已切到欢迎页');
     } catch (e) {
       console.error('welcome photo upload failed', e);

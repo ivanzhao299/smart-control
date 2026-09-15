@@ -1,9 +1,13 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query } from '@nestjs/common';
-import { VideoBindingService, NvrDevice, CameraChannel } from './video-binding.service';
+import { VideoBindingService, NvrDevice, CameraChannel, ChannelAiConfig } from './video-binding.service';
+import { AiConfigPusher } from './ai-config.pusher';
 
 @Controller('video-binding')
 export class VideoBindingController {
-  constructor(private readonly videoBindingService: VideoBindingService) {}
+  constructor(
+    private readonly videoBindingService: VideoBindingService,
+    private readonly aiPusher: AiConfigPusher,
+  ) {}
 
   // 获取完整配置
   @Get()
@@ -135,5 +139,34 @@ export class VideoBindingController {
       message: '显示布局已更新',
       data: layout,
     };
+  }
+
+  // ========== AI 检测范围 / 全局框开关（写操作，走登录鉴权） ==========
+  // 全局：运营大屏/投影/手机是否叠加 AI 检测框与计数线，一处设置全终端统一
+  @Put('ai/box')
+  setAiBox(@Body() body: { enabled: boolean }) {
+    const enabled = this.videoBindingService.setAiBoxEnabled(!!body?.enabled);
+    return { success: true, message: 'AI 分析框全局开关已更新', data: { aiBoxEnabled: enabled } };
+  }
+
+  // 单路：保存计数线 / ROI 区域 / 是否分析，并热下发给 AI（无需重启 AI）
+  @Put('channels/:id/ai')
+  async saveChannelAi(@Param('id') id: string, @Body() body: ChannelAiConfig) {
+    const channel = this.videoBindingService.updateChannelAi(id, body || {});
+    if (!channel) return { success: false, message: '摄像头通道不存在' };
+    const push = await this.aiPusher.pushAll();
+    return {
+      success: true,
+      message: push.ok ? '检测范围已保存并热下发到 AI' : `检测范围已保存；${push.message}`,
+      data: channel,
+      push,
+    };
+  }
+
+  // 手动把当前全部 AI 配置重新下发一次（AI 服务重启 / 曾不可达后补推）
+  @Post('ai/push')
+  async pushAiConfig() {
+    const push = await this.aiPusher.pushAll();
+    return { success: push.ok, ...push };
   }
 }

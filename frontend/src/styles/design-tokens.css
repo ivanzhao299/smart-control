@@ -681,6 +681,43 @@ select:focus-visible,
   background-color: transparent !important;
 }
 
+/* ============================================================
+ * 可横向滚动表格的右侧收口 (2026-09-15)
+ * 症状: 后台多数宽表(外层 wrap overflow-x:auto + 内表 min-width 撑开, 或
+ *       el-table 内部横滚)滑到最右时, 右侧呈直角开口、缺右边框竖线、圆角
+ *       丢失, 最后一列文字紧贴边缘(0 间距)。
+ * 根因: .el-table 根盒 1px 边框在多层样式覆盖后 computed 为 0/none, 根盒
+ *       背景又被置透明, 横滚到最右时视口右缘没有任何元素收口。
+ * 修法(纯样式, 不动结构/功能): 强制根盒边框+圆角+裁剪; 单元格统一气口;
+ *       最右列不再重复画竖线, 由根盒右边框统一收口; fixed-right 浮层对齐。
+ * ============================================================ */
+.el-table {
+  border: 1px solid var(--v2-border-soft) !important;
+  border-radius: 12px !important;
+  overflow: hidden !important;
+}
+/* 内部包裹/滚动层保持透明, 由根盒统一画边框, 避免横滚时出现两块色/双线 */
+.el-table__inner-wrapper,
+.el-table__header-wrapper,
+.el-table__body-wrapper {
+  background-color: transparent !important;
+}
+/* 单元格文字与竖线之间统一保留气口(部分表此前被压到 0) */
+.el-table .el-table__cell .cell {
+  padding-left: 12px !important;
+  padding-right: 12px !important;
+}
+/* 根盒已有右边框后, 最右列不再重复画右边竖线, 避免横滚双线/错位 */
+.el-table--border .el-table__cell:last-child {
+  border-right: 0 !important;
+}
+/* 右侧固定列浮层: 让出 1px 给根盒右边框, 右侧圆角与根盒 12px 对齐 */
+.el-table__fixed-right {
+  right: 1px !important;
+  border-radius: 0 11px 11px 0 !important;
+  overflow: hidden !important;
+}
+
 /* Element Plus el-button[type=primary] 升级成实色发光. 重要: 必须排除
  * .is-link / .is-text — 否则文字按钮被加 gradient bg, 跟字同色就完全看不见. */
 .el-button--primary:not(.is-link):not(.is-text) {
@@ -980,6 +1017,14 @@ select:focus-visible,
     -webkit-overflow-scrolling: touch;
   }
   .el-table__inner-wrapper { min-width: 600px; }
+
+  /* 后台页头窄屏换行(变更历史/驱动/品牌等多页共性): 右侧固定宽筛选器会把左侧
+     标题块压成逐字竖排并撑高容器。窄屏让标题独占一行、筛选区换行弹性排布。 */
+  .page-head { flex-wrap: wrap !important; align-items: stretch !important; row-gap: 10px; }
+  .page-head > div:first-child { flex: 1 1 100%; min-width: 0; }
+  .page-head .actions { flex-wrap: wrap; width: 100%; }
+  .page-head .actions .el-select,
+  .page-head .actions .el-input { width: auto !important; flex: 1 1 calc(50% - 6px); min-width: 0; }
 
   /* el-form-item 标签换行避免太挤 */
   .el-form-item__label {

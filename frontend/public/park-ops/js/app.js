@@ -639,42 +639,33 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
   let aiDetLastTime=0;
   const AI_DET_INTERVAL=1000; // 优化：从500ms改为1秒，减少CPU占用
   const AI_DET_TIMEOUT=3000;
-  // AI 检测框显式开关（默认开，localStorage 持久化）。只控制浏览器端 canvas 叠加，不影响后端 AI 分析。
+  // AI 检测框全局开关：由后台「视频绑定」统一配置（LED/投影/手机一处设置全终端一致），
+  // 大屏不再保留本机悬浮按钮。每 12s 从后端只读口同步（读后端 JSON、不依赖 AI 是否在线），
+  // 默认开，拉取失败保持上次状态。只控制浏览器端 canvas 叠加，不影响后端 AI 分析。
   let AI_BOX_ENABLED=true;
-  try{ AI_BOX_ENABLED=localStorage.getItem('parkops.aiBox')!=='0'; }catch{ AI_BOX_ENABLED=true; }
-  let aiBoxToggleBtn=null;
+  let aiOverlayCfg={cameras:{}};
+  async function fetchAiOverlayConfig(){
+    try{
+      const r=await fetch(`${AI_API_BASE}/overlay-config`,{cache:'no-store',headers:{'Accept':'application/json'}});
+      if(!r.ok) return;
+      const j=await r.json();
+      const d=j&&j.data?j.data:j;
+      if(d&&typeof d.aiBoxEnabled==='boolean') AI_BOX_ENABLED=d.aiBoxEnabled;
+      if(d&&d.cameras) aiOverlayCfg=d.cameras;
+      if(!AI_BOX_ENABLED) clearAiBoxes();
+    }catch{/* 保持上次状态 */}
+  }
+  fetchAiOverlayConfig();
+  setInterval(fetchAiOverlayConfig,12000);
   function clearAiBoxes(){
     AI_GATE_IDS.forEach(cid=>{
       const c=document.querySelector(`.cam[data-camera="${cid}"] .ai-overlay`);
       const x=c&&c.getContext('2d'); if(c&&x)x.clearRect(0,0,c.width,c.height);
     });
   }
-  // 悬浮开关：position:fixed 不占文档流，绝不挤压大屏栅格；仅在视频监控页显示
-  function ensureAiBoxToggle(onVideoPage){
-    if(!aiBoxToggleBtn){
-      const btn=document.createElement('button');
-      btn.type='button';
-      Object.assign(btn.style,{position:'fixed',right:'18px',bottom:'56px',zIndex:'9999',padding:'5px 12px',
-        fontSize:'13px',lineHeight:'1.4',borderRadius:'14px',cursor:'pointer',
-        border:'1px solid rgba(0,191,255,.55)',background:'rgba(6,20,40,.72)',backdropFilter:'blur(2px)',fontFamily:'inherit'});
-      const paint=()=>{btn.textContent=AI_BOX_ENABLED?'AI 分析框：开':'AI 分析框：关';btn.style.color=AI_BOX_ENABLED?'#37e6ff':'#9fb3c8';};
-      btn.addEventListener('click',()=>{
-        AI_BOX_ENABLED=!AI_BOX_ENABLED;
-        try{localStorage.setItem('parkops.aiBox',AI_BOX_ENABLED?'1':'0');}catch{/* 隐私模式忽略 */}
-        paint();
-        if(!AI_BOX_ENABLED)clearAiBoxes();
-      });
-      paint();
-      document.body.appendChild(btn);
-      aiBoxToggleBtn=btn;
-    }
-    aiBoxToggleBtn.style.display=onVideoPage?'block':'none';
-  }
-
   async function fetchAiDetections(){
     // 只在视频监控页激活时获取检测数据
     const videoPage=document.querySelector('[data-name="视频监控"].active');
-    ensureAiBoxToggle(!!videoPage);
     if(!videoPage) return;
     // 开关关闭：不请求数据并清空残留框线
     if(!AI_BOX_ENABLED){ clearAiBoxes(); return; }
@@ -744,6 +735,24 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
       ctx.beginPath();
       ctx.moveTo(countLine[0].x*canvas.width,countLine[0].y*canvas.height);
       ctx.lineTo(countLine[1].x*canvas.width,countLine[1].y*canvas.height);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // 绘制检测区域 ROI（青色多边形；区域外目标 AI 本就不下发，这里只做可视化对位）
+    const roiPoly=camData.roi_polygon;
+    if(Array.isArray(roiPoly)&&roiPoly.length>=3){
+      ctx.beginPath();
+      roiPoly.forEach((pp,i)=>{
+        const px=pp.x*canvas.width, py=pp.y*canvas.height;
+        if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+      });
+      ctx.closePath();
+      ctx.fillStyle='rgba(74,222,210,0.07)';
+      ctx.fill();
+      ctx.strokeStyle='rgba(74,222,210,0.55)';
+      ctx.lineWidth=1.5;
+      ctx.setLineDash([5,4]);
       ctx.stroke();
       ctx.setLineDash([]);
     }

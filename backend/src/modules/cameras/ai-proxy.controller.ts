@@ -1,6 +1,7 @@
 import { Controller, Get, Param, Res, Logger } from '@nestjs/common';
 import type { Response } from 'express';
 import { Public } from '../../common/decorators/public.decorator';
+import { VideoBindingService } from './video-binding.service';
 
 /**
  * AI 视频分析服务同源代理。
@@ -16,10 +17,21 @@ import { Public } from '../../common/decorators/public.decorator';
 const AI_BASE = (process.env.AI_ANALYZER_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '');
 const ALLOWED = new Set(['health', 'stats', 'detections']);
 
-@Public() // 大屏匿名可读（仅三个只读接口，且控制器内另有白名单限定）
+@Public() // 大屏匿名可读（仅只读接口，且控制器内另有白名单限定）
 @Controller('ai')
 export class AiProxyController {
   private readonly logger = new Logger(AiProxyController.name);
+
+  constructor(private readonly binding: VideoBindingService) {}
+
+  /**
+   * 大屏叠加层配置（匿名只读）：全局框开关 + 每路计数线 / ROI。
+   * 数据来自后端 video-binding.json，不依赖 AI 服务在线；静态路由必须声明在 ':name' 之前。
+   */
+  @Get('overlay-config')
+  overlayConfig() {
+    return { success: true, data: this.binding.getOverlayConfig() };
+  }
 
   @Get(':name')
   async proxy(@Param('name') name: string, @Res() res: Response): Promise<void> {

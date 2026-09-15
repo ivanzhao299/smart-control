@@ -6,6 +6,7 @@ import { VideoBindingService } from './video-binding.service';
 import { ParkOpsControlController } from './park-ops-control.controller';
 import { ParkOpsMetricsController } from './park-ops-metrics.controller';
 import { AiProxyController } from './ai-proxy.controller';
+import { AiConfigPusher } from './ai-config.pusher';
 import { AdminAuthModule } from '../admin-auth/admin-auth.module';
 
 @Module({
@@ -17,7 +18,7 @@ import { AdminAuthModule } from '../admin-auth/admin-auth.module';
     ParkOpsMetricsController,
     AiProxyController,
   ],
-  providers: [CamerasService, VideoBindingService],
-  exports: [CamerasService, VideoBindingService],
+  providers: [CamerasService, VideoBindingService, AiConfigPusher],
+  exports: [CamerasService, VideoBindingService, AiConfigPusher],
 })
 export class CamerasModule {}
