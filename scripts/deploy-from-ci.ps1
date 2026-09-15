@@ -511,21 +511,36 @@ try {
                ($r -match '\.(db|db-wal|db-shm|sqlite|bak)$')
       }
 
-      # 清理可能被merge覆盖的未跟踪文件（2026-09-13 根因：GK9000上backend/data/video-binding.json未跟踪导致merge失败）
+      # Only paths present in the target tree can block a fast-forward merge.
+      # Preserve every unrelated untracked file. Move true conflicts into this
+      # commit's rollback snapshot so the operation is reversible and auditable.
       $untrackedFiles = @(git status --porcelain --untracked-files=all | Where-Object { $_ -match '^\?\?' } | ForEach-Object { $_.Substring(3).Trim('"') })
       $protectedKept = @()
-      $toRemove = @()
+      $conflicts = @()
       foreach ($u in $untrackedFiles) {
-        if (Test-ProtectedRuntime $u) { $protectedKept += $u } else { $toRemove += $u }
+        $gitPath = $u.Replace('\', '/')
+        $previousPreference = $ErrorActionPreference
+        try {
+          $ErrorActionPreference = 'Continue'
+          & git cat-file -e ("{0}:{1}" -f $Commit, $gitPath) 2>$null
+          $existsInTarget = ($LASTEXITCODE -eq 0)
+        } finally {
+          $ErrorActionPreference = $previousPreference
+        }
+        if (-not $existsInTarget) { continue }
+        if (Test-ProtectedRuntime $u) { $protectedKept += $u } else { $conflicts += $u }
       }
       if ($protectedKept.Count -gt 0) {
-        Write-DeployLog "Keeping protected runtime/db files (never delete): $($protectedKept -join ', ')"
+        throw "Target commit conflicts with protected runtime/db files: $($protectedKept -join ', ')"
       }
-      if ($toRemove.Count -gt 0) {
-        Write-DeployLog "Removing $($toRemove.Count) untracked files that would be overwritten by merge: $($toRemove -join ', ')"
-        foreach ($relativeFile in $toRemove) {
+      if ($conflicts.Count -gt 0) {
+        $quarantineRoot = Join-Path $rollbackRoot 'untracked-conflicts'
+        Write-DeployLog "Quarantining $($conflicts.Count) untracked merge conflict(s): $($conflicts -join ', ')"
+        foreach ($relativeFile in $conflicts) {
           $fullPath = Join-Path $projectRoot $relativeFile
-          Remove-Item -Path $fullPath -Force -ErrorAction SilentlyContinue
+          $quarantinePath = Join-Path $quarantineRoot $relativeFile
+          New-Item -ItemType Directory -Force -Path (Split-Path $quarantinePath -Parent) | Out-Null
+          Move-Item -Path $fullPath -Destination $quarantinePath -Force
         }
       }
 
@@ -789,19 +804,17 @@ try {
     }
     Write-DeployLog 'verify-deploy.js passed.'
   } else {
-    Write-DeployLog 'WARN: scripts\verify-deploy.js not found - authoritative verification skipped.'
+    throw 'Required deployment verifier scripts\verify-deploy.js is missing.'
   }
 
-  # Prune stale rollback snapshots - keep only the current one.
-  # The directory name carries the commit ($ProgramData\Anksen\smart-control-rollback-<sha>)
-  # and the block above only removes the SAME-named one, so every new commit left behind a
-  # full copy of backend+frontend dist that was never reclaimed - it grew with every deploy.
-  # By this point the deploy has passed verify-deploy, so older rollback points are worthless:
-  # to go back a version just redeploy that commit (everything is in git).
+  # Keep three verified snapshots. This bounds disk use while preserving two prior
+  # recovery points in case the newest release has a delayed operational failure.
   $rollbackParent = Join-Path $env:ProgramData 'Anksen'
   if (Test-Path $rollbackParent) {
     $stale = Get-ChildItem -Path $rollbackParent -Directory -Filter 'smart-control-rollback-*' -ErrorAction SilentlyContinue |
-      Where-Object { $_.FullName -ne $rollbackRoot }
+      Where-Object { $_.FullName -ne $rollbackRoot } |
+      Sort-Object LastWriteTime -Descending |
+      Select-Object -Skip 2
     foreach ($d in $stale) {
       Write-DeployLog "Pruning stale rollback snapshot: $($d.Name)"
       Remove-Item -Path $d.FullName -Recurse -Force -ErrorAction SilentlyContinue

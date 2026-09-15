@@ -4,9 +4,9 @@
 
 ## 当前基线
 
-- Git 基线：`14515e7`；该提交的 CI 与 GK9000 部署均已成功。
-- 当前重点：运营大屏 HLS 生命周期已修复；AI 计数线/ROI 可编辑并热更新；来访照片上墙兼容 iOS PWA；运行时 JSON 已迁移到仓库外目录。
-- 工作区存在一批未提交的运行时数据保护、备份与部署改动，以及本地数据库/日志文件。它们是正在进行的现场保护工作，后续开发必须保留，不能用清理命令处理。
+- 本轮开发前 Git 基线：`53de69d`；该提交的 CI 与 GK9000 部署均已成功。
+- 当前重点：运营大屏 HLS 生命周期已修复；AI 计数线/ROI 可编辑并热更新；来访照片上墙使用页内相机绕开 iOS PWA 系统相机边界；运行时 JSON 已迁移到仓库外目录。
+- 本地数据库、日志、备份和恢复目录可能处于未提交状态；它们是现场数据或恢复证据，后续开发必须保留，不能用清理命令处理。
 
 ## 系统分层与代码入口
 
@@ -36,6 +36,7 @@
 - 媒体：普通文件、网页、文档转换、在线音乐与百度网盘导入统一进入 `MediaService`，存储根目录与数据库记录共同决定可读范围。
 - 运营大屏：`ops-data-model.mjs` 与 `ops-content.mjs` 是源文件，`ops-content.js` 是生成物。修改源文件后必须运行 `node tools/park-ops/build-content.cjs`，否则 CI 的一致性检查失败。
 - 摄像头配置、运营 KPI、翻页状态分别通过 `VideoBindingService`、`ParkOpsMetricsController`、`ParkOpsControlController` 管理。它们是现场运行数据，不是版本化源码。
+- 来访照片入口在 `DashboardPage.vue`，页内取景与抓帧在 `WelcomeCameraModal.vue`，上传与欢迎页绑定在 `useWelcomePhoto.ts`。主流程不得重新改回 `<input type="file" capture>`；iOS 主屏幕 PWA 在该系统相机边界存在长期 WebKit 生命周期问题。文件框只用于相册兜底。
 
 ## 现场设备事实
 
@@ -50,7 +51,8 @@
 
 - 唯一生产代码路径：本地提交到 `main` → GitHub Actions → 阿里云跳板/WireGuard → GK9000 的 `deploy-from-ci.ps1`。不要直接改生产仓库文件。
 - 部署按静态资源、前端、后端和全量变更分级；无法明确分类的改动视为全量。CI 与部署均成功，才算发布完成。
-- 现场运行数据和备份绝不删除。真实 JSON 应位于 `DATA_DIR`（GK9000 为 `D:\\smart-control-runtime\\data`），仓库内 `backend/data/` 只留脱敏模板。部署 merge 前需迁移旧数据，未跟踪清理必须跳过数据库、备份和运行时目录。
+- 现场运行数据和备份绝不删除。真实 JSON 应位于 `DATA_DIR`（GK9000 为 `D:\\smart-control-runtime\\data`），仓库内 `backend/data/` 只留脱敏模板。跳板机与 Windows 调度器只校验和转发动作，不得清理工作区。版本化部署脚本只隔离目标提交中确实存在的同路径冲突；无关未跟踪文件保持不动，受保护路径冲突则失败关闭。
+- 生产部署工作流必须先完成后端全量测试、前端类型检查与双端构建；上线后 `verify-deploy.js` 必须存在并通过。保留最近三个已验证构建快照，禁止把缺少校验器降级成警告。
 - PM2 是前后端唯一进程属主。任何 Windows 脚本调用 PM2 都要固定 `PM2_HOME=C:\\Users\\user\\.pm2`；不能从 SSH 会话直接启动播放器，播放器必须走交互会话的 watchdog。
 - PowerShell 5.1 文件要遵守编码规则：无 UTF-8 BOM 的 `.ps1` 仅允许 ASCII，否则中文注释可能吞掉下一行代码。
 - `RELEASE_HOLD` 是持续发布暂停标记，不代表已经停止所有写入进程。涉及数据库恢复、迁移或生产停写时，必须按受控发布脚本的真实进程核验流程执行。

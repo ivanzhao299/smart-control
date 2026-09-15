@@ -37,6 +37,7 @@ jobs:
         working-directory: backend
         run: |
           pnpm install --frozen-lockfile
+          pnpm exec jest --ci --reporters=default
           pnpm run build
 
       - name: Validate frontend

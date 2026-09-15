@@ -19,23 +19,6 @@ if (-not (Test-Path $script)) {
   throw "No GK9000 deployment script is installed: $script"
 }
 
-# 清理可能被merge覆盖的未跟踪文件（2026-09-13 根因：GK9000上backend/data/video-binding.json未跟踪导致merge失败）
-if ($Action -eq 'gk9000-deploy' -and (Test-Path $repoRoot)) {
-  Push-Location $repoRoot
-  try {
-    $untrackedFiles = @(git status --porcelain --untracked-files=all 2>$null | Where-Object { $_ -match '^\?\?' } | ForEach-Object { $_.Substring(3).Trim() })
-    if ($untrackedFiles.Count -gt 0) {
-      Write-Output "Removing $($untrackedFiles.Count) untracked files that would be overwritten by merge: $($untrackedFiles -join ', ')"
-      foreach ($relativeFile in $untrackedFiles) {
-        $fullPath = Join-Path $repoRoot $relativeFile
-        Remove-Item -Path $fullPath -Force -ErrorAction SilentlyContinue
-      }
-    }
-  } finally {
-    Pop-Location
-  }
-}
-
 $arguments = @{
   Commit = $Commit
   ProjectRoot = $repoRoot

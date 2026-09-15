@@ -2,6 +2,7 @@
 import { computed, ref, onMounted, onBeforeUnmount, onDeactivated } from 'vue';
 import { useActivePolling } from '@/composables/useActivePolling';
 import { useWelcomePhoto } from '@/composables/useWelcomePhoto';
+import WelcomeCameraModal from '@/components/WelcomeCameraModal.vue';
 import { useToastStore } from '@/stores/toast';
 import { useRouter } from 'vue-router';
 import {
@@ -217,24 +218,25 @@ const {
   busy: welcomePhotoBusy,
   hasPhoto: welcomeHasPhoto,
   pendingOriginal: welcomePendingOriginal,
-  openCamera: openWelcomeCamera,
+  openAlbum: openWelcomeAlbum,
   onPick: onWelcomePick,
+  onCaptured: onWelcomeCaptured,
   takeDown: takeWelcomePhotoDown,
   saveOriginal: saveWelcomeOriginal,
   loadCurrent: loadWelcomePhoto,
 } = useWelcomePhoto();
-// iOS/iPadOS(含 iPadOS 报 Macintosh)主屏幕 standalone PWA: input 带 capture 会“直进相机”,
-// 该路径在 WKWebView 反复存在崩溃 bug(选相机即闪退、选图库/文件不崩; Apple 开发者论坛与
-// WebKit bugzilla 多帖确认, 且在多个 iOS 版本回归)。故 Apple 设备不写 capture —— 点按弹
-// 系统菜单(拍照/照片图库/选取文件)再选“拍照”, 更稳, 且保留图库这条不会崩的兜底门;
-// Android/桌面保留 capture=environment 直接打开后置相机。
-const isAppleDevice =
-  /iphone|ipad|ipod/i.test(navigator.userAgent) ||
-  (/macintosh|mac os x/i.test(navigator.userAgent) && (navigator.maxTouchPoints ?? 0) > 1);
+const welcomeCameraOpen = ref(false);
+function openWelcomeCamera(): void {
+  if (!welcomePhotoBusy.value) welcomeCameraOpen.value = true;
+}
 onMounted(loadWelcomePhoto);
 // keep-alive 切走(不卸载)或真正卸载时, 取消可能残留的长按进度环 RAF, 避免后台空转
 onDeactivated(resetHold);
-onBeforeUnmount(resetHold);
+onDeactivated(() => { welcomeCameraOpen.value = false; });
+onBeforeUnmount(() => {
+  resetHold();
+  welcomeCameraOpen.value = false;
+});
 </script>
 
 <template>
@@ -366,13 +368,10 @@ onBeforeUnmount(resetHold);
         role="button"
         tabindex="0"
         title="拍照上墙到 LED 欢迎页"
+        @click="openWelcomeCamera"
         @keydown.enter.prevent="openWelcomeCamera"
         @keydown.space.prevent="openWelcomeCamera"
       >
-        <!-- 原生 label[for] 关联隐藏文件框: 点按由浏览器内部直接拉起相机, 不经过 JS 合成
-             click(), 这是 iOS 主屏幕 PWA(WKWebView) 最稳的唤起路径, 规避 div 合成手势 +
-             display:none 文件框程序化触发导致的闪退。触摸/鼠标只走这一条原生路径(故外层
-             不再绑 @click, 避免 label 原生 + JS 各触发一次); 键盘无障碍仍由上面 keydown 兜底。 -->
         <div class="v2-sub-cam-main">
           <div class="v2-sub-ico cam-ico"><Camera :size="17" :stroke-width="2.1" /></div>
           <div class="v2-sub-body">
@@ -381,17 +380,11 @@ onBeforeUnmount(resetHold);
               <span class="online">{{ welcomePhotoBusy ? '处理中…' : welcomeHasPhoto ? '已上墙 · 重拍' : '点击拍照' }}</span>
             </div>
           </div>
-          <!-- 两道防闪退: ①input 本体透明铺满主热区、保持在屏内可渲染, 手指“直接命中”
-               (旧 label[for] 间接激活一个移出屏幕的 input 会让 WebProcess 闪退、相机都不弹);
-               ②iOS 不写 capture(见上方 script), 点按走系统菜单选“拍照”, 规避直进相机崩溃路径,
-               Android/桌面才用 capture=environment。右侧小操作钮层级更高, 不被 input 盖住。 -->
           <input
-            id="welcome-photo-capture-input"
             ref="welcomePhotoInput"
             class="welcome-photo-input"
             type="file"
             accept="image/*"
-            :capture="isAppleDevice ? undefined : 'environment'"
             @change="onWelcomePick"
           />
         </div>
@@ -414,6 +407,11 @@ onBeforeUnmount(resetHold);
       </div>
     </div>
   </section>
+  <WelcomeCameraModal
+    v-model:open="welcomeCameraOpen"
+    @capture="onWelcomeCaptured"
+    @fallback="openWelcomeAlbum"
+  />
 </template>
 
 <style scoped>
@@ -784,22 +782,18 @@ onBeforeUnmount(resetHold);
 .cam-mini.save-orig {
   background: linear-gradient(135deg, #63d9ff, #2b8fd6); color: #032235; border-color: transparent;
 }
-/* 主热区: 图标/文字层(z1), file input 透明覆盖其上(z2) 由手指“直接命中”。
-   iOS 主屏幕 PWA(WKWebView) 只有直接点中“在屏内、可渲染、启用”的 file input 才能稳定
-   拉起相机; 移出屏幕 / pointer-events:none / label[for] 间接激活都会让 WebProcess 闪退。 */
 .v2-sub-cam-main {
   position: relative; flex: 1 1 auto; min-width: 0;
   display: flex; align-items: center; gap: var(--v2-sp-3);
 }
 .v2-sub-cam-main .cam-ico,
-.v2-sub-cam-main .v2-sub-body { position: relative; z-index: 1; }
+.v2-sub-cam-main .v2-sub-body { position: relative; }
 .welcome-photo-input {
-  position: absolute; inset: 0;
-  width: 100%; height: 100%;
-  opacity: 0; border: 0; padding: 0; margin: 0;
-  cursor: pointer; z-index: 2;
-  font-size: 0; line-height: 0;
-  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  position: fixed;
+  width: 1px; height: 1px;
+  left: 0; top: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 .v2-sub-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .v2-sub-name {

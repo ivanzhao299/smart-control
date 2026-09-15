@@ -7,9 +7,9 @@ import { useToastStore } from '@/stores/toast';
 /**
  * 来访者拍照上墙 (2026-09-14; 2026-09-15 修复 PWA 拍照闪退)
  *
- * 流程: PWA 调系统相机 → 前端按原比例等比压缩出 LED 优化版(不裁切/不变形)
+ * 流程: PWA 页内相机(getUserMedia)抓帧，或从相册选择 → 生成 LED 优化版
  *   → 上传媒体库 → 绑定欢迎页 welcomePhotoMediaId → 大屏立刻回第 1 页展示。
- * 原画: capture 拍摄时安卓通常已自动入相册; iOS 网页拍摄不入相册, 改为上墙成功后
+ * 原画: 页内相机拍摄不自动进入系统相册, 改为上墙成功后
  *   由用户点「保存原画」在自己的手势下调系统分享/下载 —— 绝不在相机返回 WebView 的
  *   脆弱时刻自动弹系统面板(连续前后台切换会让 standalone PWA 被系统回收, 表现为闪退)。
  * 只保留最新一张: 换新时可恢复删除上一张; 撤下则置空回默认欢迎布局。
@@ -23,8 +23,8 @@ const JPEG_QUALITY = 0.82;
 type AnyBitmap = ImageBitmap | (HTMLImageElement & { __objectUrl?: string });
 
 // ===== 原画本机暂存 (IndexedDB) =====
-// standalone PWA 调系统相机要前后台切换, 返回时整页可能被系统回收重载, 内存 ref
-// 随之丢失 → "保存原画"蓝色按钮再也不出现。把最近一张原画存 IDB, 重载后按当前
+// standalone PWA 可能因系统回收而重载, 内存 ref 随之丢失 → "保存原画"按钮消失。
+// 把最近一张原画存 IDB, 重载后按当前
 // 绑定的 mediaId 恢复; 只保留最新一张, 撤下/换新即清。隐私模式 IDB 不可用时静默降级。
 const IDB_NAME = 'smart-control';
 const IDB_STORE = 'welcomePhoto';
@@ -79,11 +79,6 @@ async function idbDel(): Promise<void> {
     db.close();
   } catch { /* ignore */ }
 }
-/** 让出一帧: 等相机返回的前后台切换 UI 落定后再做重解码, 降低 standalone 被回收概率 */
-const nextFrame = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()));
-/** 纯延时: iOS standalone 从系统相机返回时, WebKit 需要一小段时间恢复视图, 立刻重解码易被 jetsam 杀 */
-const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
-
 /**
  * 仅解析 JPEG 标记段读取宽高, 不解码任何像素(只读取文件前 512KB), 内存开销可忽略。
  * 用途: 拿到原始宽高后让 createImageBitmap 的 resizeWidth/Height 一次降采样到位,
@@ -132,7 +127,7 @@ async function decodeViaImage(source: File): Promise<AnyBitmap> {
 
 export function useWelcomePhoto() {
   const toast = useToastStore();
-  /** 绑定到模板里隐藏的 <input type="file" capture> */
+  /** 绑定到模板里仅用于相册兜底的 <input type="file"> */
   const fileInput = ref<HTMLInputElement | null>(null);
   const busy = ref(false);
   /** 当前是否已有上墙照片, 决定是否显示"撤下"按钮 */
@@ -154,7 +149,7 @@ export function useWelcomePhoto() {
     }
   }
 
-  function openCamera(): void {
+  function openAlbum(): void {
     if (busy.value) return;
     fileInput.value?.click();
   }
@@ -312,21 +307,9 @@ export function useWelcomePhoto() {
     throw last;
   }
 
-  async function onPick(event: Event): Promise<void> {
-    const input = event.target as HTMLInputElement;
-    const original = input.files?.[0];
-    input.value = ''; // 复位, 允许连续拍摄同一张图
-    if (!original) return;
-    busy.value = true;
+  async function publishPhoto(led: File, original: File): Promise<void> {
     let oldId: number | null = null;
     try {
-      // 相机返回 WebView 的瞬间先让出一帧并额外等待 250ms, 等前后台切换/视图恢复完全落定
-      // 再开始解码, 避开系统回收进程的敏感时刻 (缓解 standalone 闪退)
-      await nextFrame();
-      await delay(250);
-      // 1) 先在前台尽快把原图压成小图(尽早释放解码内存), 不在此处弹任何系统面板
-      const led = await compressForLed(original);
-      // 2) 上传 + 绑定 + 大屏回欢迎页
       const cur = await fetchSystemBranding().catch(() => null);
       oldId = cur?.welcomePhotoMediaId ?? null;
       const media = await uploadWithRetry(led);
@@ -336,20 +319,45 @@ export function useWelcomePhoto() {
         // 只保留最新一张: 删除走后端可恢复删除, 不是物理清除
         await mediaService.remove(oldId).catch(() => undefined);
       }
-      // 3) 原画: 内存暂存 + IDB 持久(整页重载后仍可点下载), 等用户手势点「保存原画」,
-      //    不自动弹 share 以免 PWA 闪退; 只留最新一张。IDB 写入是数 MB File 落库,
-      //    延后 400ms 避开相机返回后的敏感窗口, 不阻塞成功提示。
+      // 原画只保存在本机；分享/下载仍由用户稍后主动触发。
       pendingOriginal.value = original;
       hasPhoto.value = true;
       const idForIdb = media.id;
       setTimeout(() => {
         void idbSet({ mediaId: idForIdb, ts: Date.now(), file: original });
-      }, 400);
+      }, 0);
       toast.success('照片已上墙，大屏已切到欢迎页');
     } catch (e) {
       console.error('welcome photo upload failed', e);
       pendingOriginal.value = null;
       toast.error('照片上墙失败，请重试');
+    }
+  }
+
+  /** 页内相机已经输出 LED 版，直接发布，避免再次解码和占用内存。 */
+  async function onCaptured(led: File, original: File): Promise<void> {
+    if (busy.value) return;
+    busy.value = true;
+    try {
+      await publishPhoto(led, original);
+    } finally {
+      busy.value = false;
+    }
+  }
+
+  /** 相册兜底仍需在前端按比例生成 LED 版。 */
+  async function onPick(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const original = input.files?.[0];
+    input.value = '';
+    if (!original || busy.value) return;
+    busy.value = true;
+    try {
+      const led = await compressForLed(original);
+      await publishPhoto(led, original);
+    } catch (e) {
+      console.error('welcome photo decode failed', e);
+      toast.error('无法读取这张照片，请换一张重试');
     } finally {
       busy.value = false;
     }
@@ -376,6 +384,6 @@ export function useWelcomePhoto() {
 
   return {
     fileInput, busy, hasPhoto, pendingOriginal,
-    openCamera, onPick, takeDown, saveOriginal, loadCurrent,
+    openAlbum, onPick, onCaptured, takeDown, saveOriginal, loadCurrent,
   };
 }
