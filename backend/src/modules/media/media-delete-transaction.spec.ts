@@ -45,4 +45,21 @@ describe('transactional media/reference deletion', () => {
     expect(await fs.readFile(join(root, String(id), 'data.txt'), 'utf8')).toBe('original');
     expect(await fs.readdir(root)).toEqual([String(id)]);
   });
+  it('deletes a welcome photo from its dedicated managed directory', async () => {
+    const photo = await db.getRepository(MediaAsset).save({
+      originalName: 'welcome-led.jpg', safeName: 'welcome-led.jpg', path: '', kind: 'image',
+      mimeType: 'image/jpeg', sizeBytes: 5, ownerUserId: 1, visibility: 'private',
+      source: 'upload', remark: 'welcome-photo', uploader: 'alice', processingStatus: 'ready',
+    });
+    const directory = join(root, 'welcome-photos', String(photo.id));
+    const path = join(directory, 'welcome-led.jpg');
+    await fs.mkdir(directory, { recursive: true });
+    await fs.writeFile(path, 'photo');
+    await db.getRepository(MediaAsset).update(photo.id, { path });
+
+    await service.remove(photo.id, actor);
+
+    await expect(fs.access(directory)).rejects.toThrow();
+    expect(await fs.readdir(join(root, 'welcome-photos'))).toEqual([]);
+  });
 });

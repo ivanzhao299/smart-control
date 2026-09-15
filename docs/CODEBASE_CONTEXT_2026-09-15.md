@@ -37,6 +37,7 @@
 - 运营大屏：`ops-data-model.mjs` 与 `ops-content.mjs` 是源文件，`ops-content.js` 是生成物。修改源文件后必须运行 `node tools/park-ops/build-content.cjs`，否则 CI 的一致性检查失败。
 - 摄像头配置、运营 KPI、翻页状态分别通过 `VideoBindingService`、`ParkOpsMetricsController`、`ParkOpsControlController` 管理。它们是现场运行数据，不是版本化源码。
 - 来访照片入口在 `DashboardPage.vue`，页内取景与抓帧在 `WelcomeCameraModal.vue`，上传与欢迎页绑定在 `useWelcomePhoto.ts`。主流程不得重新改回 `<input type="file" capture>`；iOS 主屏幕 PWA 在该系统相机边界存在长期 WebKit 生命周期问题。文件框只用于相册兜底。
+- 来访照片物理文件统一放在媒体数据盘的独立目录：GK9000 为 `D:\\Media\\welcome-photos\\<mediaId>\\<filename>`。数据库保存绝对路径，上传临时文件仍在 `D:\\Media\\_tmp`，读取、删除和孤儿扫描均把该目录视为受管媒体，不能手工移动单个编号目录。
 
 ## 现场设备事实
 

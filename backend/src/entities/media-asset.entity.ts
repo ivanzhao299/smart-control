@@ -8,7 +8,8 @@ export type MediaProcessingStatus = 'ready' | 'pending' | 'processing' | 'failed
  * 媒体资源 (上传到展厅中控的视频/图片)
  *
  * 物理存储: <MEDIA_ROOT>/<id>/<safe-filename>
- *   e.g. D:\Media\42\welcome.mp4
+ * 拍照上屏: <MEDIA_ROOT>/welcome-photos/<id>/<safe-filename>
+ *   e.g. D:\Media\welcome-photos\42\welcome-led.jpg
  *
  * 用途:
  *   - 上传到 GK9000 主控

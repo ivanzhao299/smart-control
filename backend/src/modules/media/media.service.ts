@@ -19,6 +19,14 @@ import { byteRange } from './byte-range';
 import { recoverableDelete } from './recoverable-delete';
 import type { Actor } from '../../common/auth/actor';
 import { assertCanUpload, assertReadResource, assertWriteResource } from '../../common/auth/resource-policy';
+import {
+  WELCOME_PHOTO_FOLDER,
+  WELCOME_PHOTO_REMARK,
+  isManagedMediaRelativePath,
+  mediaAssetContainerForStoredPath,
+  mediaAssetDirectory,
+  mediaAssetParent,
+} from './media-storage-layout';
 
 const VIDEO_MIME_PREFIXES = ['video/'];
 const IMAGE_MIME_PREFIXES = ['image/'];
@@ -117,6 +125,7 @@ export class MediaService implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     await fs.mkdir(this.mediaRoot, { recursive: true });
+    await this.ensureAssetParent({ id: 0, kind: 'image', remark: WELCOME_PHOTO_REMARK });
     this.logger.info(`MediaService ready, root=${this.mediaRoot}`, { context: 'MediaService' });
     await this.seedBundledAssets();
     // 存量 .m4v 行的 mime 自愈 (上面 EXT_KIND_MIME 已改标准 video/mp4, 老行补齐)
@@ -541,12 +550,13 @@ export class MediaService implements OnModuleInit {
   }
 
   private async finishNewAssetLocked(saved: MediaAsset, write: (path: string) => Promise<void>): Promise<MediaAsset> {
-    const directory = join(this.mediaRoot, String(saved.id));
+    const directory = mediaAssetDirectory(this.mediaRoot, saved);
     const path = join(directory, saved.safeName);
     let created = false;
     let result: MediaAsset;
     try {
-      await fs.mkdir(this.mediaRoot, { recursive: true });
+      const parent = await this.ensureAssetParent(saved);
+      await fs.mkdir(parent, { recursive: true });
       // Never adopt or remove an existing ID directory during failed ingestion.
       await fs.mkdir(directory);
       created = true;
@@ -630,10 +640,20 @@ export class MediaService implements OnModuleInit {
   }
 
   private isManagedMediaPath(relPath: string): boolean {
-    const parts = relPath.split(sep);
-    // Numeric asset trees include originals, transcode outputs and incomplete
-    // uploads. They require recovery, never a second ownership claim via import.
-    return /^\d+$/.test(parts[0]) || parts.some(part => part === '_tmp' || part.startsWith('.delete-'));
+    return isManagedMediaRelativePath(relPath);
+  }
+
+  private async ensureAssetParent(asset: Pick<MediaAsset, 'id' | 'kind' | 'remark'>): Promise<string> {
+    await fs.mkdir(this.mediaRoot, { recursive: true });
+    const parent = mediaAssetParent(this.mediaRoot, asset);
+    if (resolve(parent) === resolve(this.mediaRoot)) return this.mediaRoot;
+    await fs.mkdir(parent, { recursive: true });
+    const stat = await fs.lstat(parent);
+    const [realRoot, realParent] = await Promise.all([fs.realpath(this.mediaRoot), fs.realpath(parent)]);
+    if (!stat.isDirectory() || stat.isSymbolicLink() || realParent !== join(realRoot, WELCOME_PHOTO_FOLDER)) {
+      throw new Error('Unsafe welcome photo storage directory');
+    }
+    return parent;
   }
 
   private async registeredMediaPaths(repo: Repository<MediaAsset>): Promise<Set<string>> {
@@ -735,11 +755,15 @@ export class MediaService implements OnModuleInit {
     let result: MediaAsset;
     let allocatedDirectory = false;
     let moved = false;
-    const finalDir = join(this.mediaRoot, String(saved.id));
-    const finalPath = join(finalDir, safeName);
+    let finalDir = '';
+    let finalPath = '';
     try {
       // Never adopt an occupied ID directory, overwrite its files or restore
       // stale ownership from the initial entity during finalization.
+      const finalParent = await this.ensureAssetParent(saved);
+      finalDir = mediaAssetDirectory(this.mediaRoot, saved);
+      finalPath = join(finalDir, safeName);
+      await fs.mkdir(finalParent, { recursive: true });
       await fs.mkdir(finalDir);
       allocatedDirectory = true;
       await fs.rename(abs, finalPath);
@@ -1012,7 +1036,8 @@ export class MediaService implements OnModuleInit {
       if (this.preparing.has(id) || m.processingStatus === 'processing' || m.processingStatus === 'pending') throw new ConflictException('资料正在转码，不能删除');
       const channels = await this.repo.query('SELECT id FROM playback_channels WHERE currentMediaId = ? LIMIT 1', [id]);
       if (channels.length) throw new ConflictException('资料正在播放或暂停，请先停止播放再删除');
-      const result = await recoverableDelete(this.mediaRoot, m.id, () => serializedTransaction(this.repo.manager.connection, async manager => {
+      const assetContainer = mediaAssetContainerForStoredPath(this.mediaRoot, m.id, m.path);
+      const result = await recoverableDelete(assetContainer, m.id, () => serializedTransaction(this.repo.manager.connection, async manager => {
         const current = await manager.getRepository(MediaAsset).findOneBy({ id });
         if (!current) throw new NotFoundException('资料不存在');
         assertWriteResource(actor, current);

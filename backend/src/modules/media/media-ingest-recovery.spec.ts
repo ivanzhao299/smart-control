@@ -564,6 +564,27 @@ describe('file ingestion compensation', () => {
     expect(item.visibility).toBe('private');
     expect(await fs.readFile(item.path, 'utf8')).toBe('sample');
   });
+  it('stores welcome-photo images in the dedicated managed directory', async () => {
+    const item = await media.ingestFromBuffer(
+      'welcome-led.jpg', 'image/jpeg', Buffer.from('photo'), 'alice', actor, 'welcome-photo',
+    );
+    expect(item.path).toBe(join(root, 'welcome-photos', String(item.id), 'welcome-led.jpg'));
+    expect(await fs.readFile(item.path, 'utf8')).toBe('photo');
+    expect(await media.scanOrphans()).toEqual([]);
+  });
+  it('refuses a welcome-photo directory redirected outside the media disk', async () => {
+    const outside = await fs.mkdtemp(join(tmpdir(), 'smart-control-photo-escape-'));
+    try {
+      await fs.symlink(outside, join(root, 'welcome-photos'), 'dir');
+      await expect(media.ingestFromBuffer(
+        'welcome-led.jpg', 'image/jpeg', Buffer.from('photo'), 'alice', actor, 'welcome-photo',
+      )).rejects.toThrow('Unsafe welcome photo storage directory');
+      expect(await fs.readdir(outside)).toEqual([]);
+      expect(await db.getRepository(MediaAsset).count()).toBe(0);
+    } finally {
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
   it('removes newly written files and database rows when final save fails', async () => {
     const repo = db.getRepository(MediaAsset);
     await db.query("CREATE TRIGGER fail_final_path BEFORE UPDATE OF path ON media_assets BEGIN SELECT RAISE(ABORT, 'injected final-save failure'); END");
