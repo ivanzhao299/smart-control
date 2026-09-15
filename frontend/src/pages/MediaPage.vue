@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useActivePolling } from '@/composables/useActivePolling';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter, useRoute } from 'vue-router';
 import {
@@ -725,12 +726,20 @@ async function clearWelcome(): Promise<void> {
 
 onMounted(async () => {
   await brandingStore.load();   // 拉 welcomeMediaId 用来标记当前欢迎页卡片
-  void refresh();
 });
-let processingRefreshTimer = window.setInterval(() => {
-  if (items.value.some((item) => item.processingStatus === 'pending' || item.processingStatus === 'processing')) void refresh();
-}, 5000);
-onBeforeUnmount(() => { disposed = true; uploadQueue.value = []; window.clearInterval(processingRefreshTimer); });
+// keep-alive 切页卡顿根治: 处理态轮询只在本页运行, 切走(deactivated)即清, 回页立即刷一次并重启
+let processingRefreshTimer: number | undefined;
+function startProcessingPoll(): void {
+  if (processingRefreshTimer !== undefined) return; // mounted+activated 双触发, 幂等
+  processingRefreshTimer = window.setInterval(() => {
+    if (items.value.some((item) => item.processingStatus === 'pending' || item.processingStatus === 'processing')) void refresh();
+  }, 5000);
+}
+function stopProcessingPoll(): void {
+  if (processingRefreshTimer !== undefined) { window.clearInterval(processingRefreshTimer); processingRefreshTimer = undefined; }
+}
+useActivePolling(() => { void refresh(); startProcessingPoll(); }, stopProcessingPoll);
+onBeforeUnmount(() => { disposed = true; uploadQueue.value = []; stopProcessingPoll(); });
 </script>
 
 <template>

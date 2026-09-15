@@ -526,12 +526,18 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
       <router-view v-slot="{ Component, route }">
         <!-- 崩溃自恢复: ErrorBoundary 包住所有页面, 单页报错降级不白屏整机 -->
         <ErrorBoundary>
-          <!-- 切页转场 (2026-07-25 D2): 120ms 淡入+8px 上移, mode=out-in 防重叠;
-               reduced-motion 下 token 层已退化为无动画 -->
-          <transition name="v2-page" mode="out-in">
-            <!-- PERFORMANCE_AUDIT P1-#7: max 6 → 10 覆盖 8 项主菜单 +
-                 admin 入口缓冲, 切页 100% 命中缓存 (60-100ms vs 重 mount 200-400ms) -->
-            <keep-alive :max="10">
+          <!-- 切页转场 (2026-07-25 D2): 淡入 70ms / 淡出 50ms, mode=out-in 防重叠;
+               reduced-motion 下 token 层退化为无动画。
+               显式 :duration 与 design-tokens.css 的 .v2-page 时长严格对齐: Vue 改用定时器
+               结束过渡, 不依赖 transitionend —— 杜绝个别 WebView/卡顿场景下过渡事件丢失,
+               导致 out-in 旧页停在 leave、新页永不挂载(切页卡死)。(2026-09-15) -->
+          <transition name="v2-page" mode="out-in" :duration="{ enter: 70, leave: 50 }">
+            <!-- keep-alive 上限权衡 (2026-09-15 卡顿复盘): 曾为"100% 命中缓存"把 max 提到 10,
+                 9 个控制页逛一圈后全部常驻不卸载 —— 音响(WebAudio/BGM)、媒体(上传队列)、空调等
+                 重页面的 DOM/解码器/组件实例都不释放, 中低端 PWA WebView 内存吃紧、GC 与合成掉帧,
+                 表现为切页不丝滑。调回 6: 高频相邻页互切仍命中, 最冷页被 LRU 淘汰真正 unmount
+                 释放内存 (各页后台轮询已由 useActivePolling 在切走时停止)。 -->
+            <keep-alive :max="6">
               <component :is="Component" :key="route.name" />
             </keep-alive>
           </transition>
@@ -735,9 +741,10 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   justify-content: space-between;
   padding: 0 var(--v2-sp-5);
   border-bottom: 1px solid var(--v2-border-soft);
-  background: var(--v2-chrome-bg);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  /* 顶栏是独立 grid cell, 内容只在 .v2-main 内滚动、不会从顶栏下方经过 ——
+     backdrop-filter 透出的永远是固定底色, 模糊零视觉收益却在中低端机上常驻重算合成。
+     改用近实色(同 AdminLayout/StatusCard 的去毛玻璃方案), 文字对比也更稳。(2026-09-15) */
+  background: var(--v2-chrome-bg-solid);
 }
 .v2-brand {
   /* logo 已挪到侧栏, 这里就是纵向 title + sub 块 */
@@ -1003,7 +1010,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
     border-top: 1px solid var(--v2-border-soft);
     border-right: none;
     background: var(--v2-chrome-bg-solid);
-    backdrop-filter: blur(8px);
+    /* 底栏背景已是 0.94 近实色且内容不会从其下方经过, blur 无视觉收益, 去掉以省手机端常驻 GPU */
     /* safe area 底部 (iOS home indicator) —— 封顶 34px, 不是随便挑的整数: 所有
        Face ID 机型 (iPhone X 到最新款) 的 Home 指示条手势区都固定是 34pt, 不随
        屏幕尺寸变 (这是 Apple HIG 写死的常量, 不是"最大约 34px 左右")。微信这类

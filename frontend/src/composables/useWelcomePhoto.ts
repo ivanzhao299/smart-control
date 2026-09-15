@@ -22,6 +22,66 @@ const JPEG_QUALITY = 0.82;
 
 type AnyBitmap = ImageBitmap | (HTMLImageElement & { __objectUrl?: string });
 
+// ===== 原画本机暂存 (IndexedDB) =====
+// standalone PWA 调系统相机要前后台切换, 返回时整页可能被系统回收重载, 内存 ref
+// 随之丢失 → "保存原画"蓝色按钮再也不出现。把最近一张原画存 IDB, 重载后按当前
+// 绑定的 mediaId 恢复; 只保留最新一张, 撤下/换新即清。隐私模式 IDB 不可用时静默降级。
+const IDB_NAME = 'smart-control';
+const IDB_STORE = 'welcomePhoto';
+const IDB_KEY = 'original';
+interface StoredOriginal { mediaId: number; ts: number; file: File; }
+
+function openIdb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbSet(value: StoredOriginal): Promise<void> {
+  try {
+    const db = await openIdb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(value, IDB_KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  } catch { /* IDB 不可用不阻断主流程 */ }
+}
+async function idbGet(): Promise<StoredOriginal | null> {
+  try {
+    const db = await openIdb();
+    const v = await new Promise<StoredOriginal | undefined>((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const r = tx.objectStore(IDB_STORE).get(IDB_KEY);
+      r.onsuccess = () => resolve(r.result as StoredOriginal | undefined);
+      r.onerror = () => reject(r.error);
+    });
+    db.close();
+    return v ?? null;
+  } catch { return null; }
+}
+async function idbDel(): Promise<void> {
+  try {
+    const db = await openIdb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).delete(IDB_KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  } catch { /* ignore */ }
+}
+/** 让出一帧: 等相机返回的前后台切换 UI 落定后再做重解码, 降低 standalone 被回收概率 */
+const nextFrame = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()));
+
 export function useWelcomePhoto() {
   const toast = useToastStore();
   /** 绑定到模板里隐藏的 <input type="file" capture> */
@@ -34,7 +94,16 @@ export function useWelcomePhoto() {
 
   async function loadCurrent(): Promise<void> {
     const cur = await fetchSystemBranding().catch(() => null);
-    hasPhoto.value = !!(cur?.welcomePhotoMediaId);
+    const id = cur?.welcomePhotoMediaId ?? null;
+    hasPhoto.value = !!id;
+    // 相机返回若整页被回收重载, 内存原画已丢: 仅当 IDB 里正是当前上墙这张才恢复下载入口
+    const saved = await idbGet();
+    if (saved && id && saved.mediaId === id) {
+      pendingOriginal.value = saved.file;
+    } else if (saved) {
+      pendingOriginal.value = null;
+      void idbDel();
+    }
   }
 
   function openCamera(): void {
@@ -130,13 +199,20 @@ export function useWelcomePhoto() {
     }
   }
 
-  /** 用户手势: 把本次原画保存到本机相册/下载。 */
+  /** 用户手势: 把本次原画保存到本机相册/下载。内存没有时回退 IDB(整页重载后仍可下载)。 */
   async function saveOriginal(): Promise<void> {
-    const f = pendingOriginal.value;
-    if (!f) return;
+    let f = pendingOriginal.value;
+    if (!f) {
+      const saved = await idbGet();
+      f = saved?.file ?? null;
+    }
+    if (!f) {
+      toast.info('原画已不在本机，请重新拍摄');
+      return;
+    }
     try {
       await keepOriginal(f);
-      pendingOriginal.value = null;
+      // 保留在 IDB 允许再次下载, 直到撤下/换新覆盖, 不在此清空
       toast.success('原画已保存到本机');
     } catch {
       // 用户取消分享/下载不算错误
@@ -203,6 +279,9 @@ export function useWelcomePhoto() {
     busy.value = true;
     let oldId: number | null = null;
     try {
+      // 相机返回 WebView 的瞬间先让出一帧, 等前后台切换 UI 落定再开始重解码,
+      // 避免与系统回收进程的敏感时刻叠加 (缓解 standalone 闪退)
+      await nextFrame();
       // 1) 先在前台尽快把原图压成小图(尽早释放解码内存), 不在此处弹任何系统面板
       const led = await compressForLed(original);
       // 2) 上传 + 绑定 + 大屏回欢迎页
@@ -215,8 +294,10 @@ export function useWelcomePhoto() {
         // 只保留最新一张: 删除走后端可恢复删除, 不是物理清除
         await mediaService.remove(oldId).catch(() => undefined);
       }
-      // 3) 原画只暂存, 等用户点「保存原画」(用户手势), 不自动弹 share 以免 PWA 闪退
+      // 3) 原画: 内存暂存 + IDB 持久(整页重载后仍可点下载), 等用户手势点「保存原画」,
+      //    不自动弹 share 以免 PWA 闪退; 只留最新一张
       pendingOriginal.value = original;
+      void idbSet({ mediaId: media.id, ts: Date.now(), file: original });
       hasPhoto.value = true;
       toast.success('照片已上墙，大屏已切到欢迎页');
     } catch (e) {
@@ -237,6 +318,7 @@ export function useWelcomePhoto() {
       await saveWelcomeConfig({ welcomePhotoMediaId: null });
       if (id) await mediaService.remove(id).catch(() => undefined);
       pendingOriginal.value = null;
+      void idbDel();
       toast.info('已撤下照片，恢复默认欢迎页');
       hasPhoto.value = false;
     } catch {

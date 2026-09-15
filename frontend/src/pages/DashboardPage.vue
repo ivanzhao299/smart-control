@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue';
+import { computed, ref, onMounted, onBeforeUnmount, onDeactivated } from 'vue';
 import { useActivePolling } from '@/composables/useActivePolling';
 import { useWelcomePhoto } from '@/composables/useWelcomePhoto';
 import { useToastStore } from '@/stores/toast';
@@ -224,6 +224,9 @@ const {
   loadCurrent: loadWelcomePhoto,
 } = useWelcomePhoto();
 onMounted(loadWelcomePhoto);
+// keep-alive 切走(不卸载)或真正卸载时, 取消可能残留的长按进度环 RAF, 避免后台空转
+onDeactivated(resetHold);
+onBeforeUnmount(resetHold);
 </script>
 
 <template>
@@ -341,21 +344,33 @@ onMounted(loadWelcomePhoto);
           <span
             class="welcome-cam-btn"
             :class="{ busy: welcomePhotoBusy }"
+            role="button"
             title="拍照上墙到 LED 欢迎页"
+            @pointerdown.stop
+            @touchstart.stop
+            @contextmenu.stop.prevent
             @click.stop.prevent="openWelcomeCamera"
-          ><Camera :size="15" :stroke-width="2.2" /></span>
+          ><Camera :size="20" :stroke-width="2.2" /></span>
           <span
             v-if="welcomeHasPhoto"
             class="welcome-cam-btn take-down"
+            role="button"
             title="撤下上墙照片，恢复默认欢迎页"
+            @pointerdown.stop
+            @touchstart.stop
+            @contextmenu.stop.prevent
             @click.stop.prevent="takeWelcomePhotoDown"
-          ><X :size="11" :stroke-width="2.4" /></span>
+          ><X :size="15" :stroke-width="2.4" /></span>
           <span
             v-if="welcomePendingOriginal"
             class="welcome-cam-btn save-orig"
+            role="button"
             title="把相机原画保存到本机相册（原画不上传）"
+            @pointerdown.stop
+            @touchstart.stop
+            @contextmenu.stop.prevent
             @click.stop.prevent="saveWelcomeOriginal"
-          ><Download :size="11" :stroke-width="2.4" /></span>
+          ><Download :size="15" :stroke-width="2.4" /></span>
         </span>
         <div class="v2-sub-ico"><component :is="sub.ico" :size="16" :stroke-width="2" /></div>
         <div class="v2-sub-body">
@@ -719,26 +734,32 @@ onMounted(loadWelcomePhoto);
   transition: color 0.22s ease;
 }
 .v2-sub:hover .v2-sub-ico { color: var(--v2-text-1); }
-/* 来访者拍照上墙: LED 卡片右上角金色相机钮 + 撤下小钮 */
-.v2-sub-welcome { position: absolute; top: 5px; right: 6px; display: flex; gap: 3px; z-index: 2; }
+/* 来访者拍照上墙: LED 卡片右上角金色相机钮 + 撤下/存原画小钮
+   触摸目标 >= 38/30px (高于 Apple HIG 44pt 下限附近, 远好于原 24/18),
+   触摸起点在模板里 stopPropagation, 不触发外层卡片跳转。 */
+.v2-sub-welcome { position: absolute; top: 6px; right: 7px; display: flex; align-items: center; gap: 5px; z-index: 3; pointer-events: none; }
 .welcome-cam-btn {
-  width: 24px; height: 24px; border-radius: 50%;
-  display: grid; place-items: center; cursor: pointer;
+  width: 38px; height: 38px; border-radius: 50%;
+  display: grid; place-items: center; cursor: pointer; flex-shrink: 0;
+  pointer-events: auto;
   color: #3a2400; background: linear-gradient(135deg, #ffd873, #ffb020);
-  box-shadow: 0 2px 8px rgba(255, 176, 32, .45);
+  box-shadow: 0 2px 10px rgba(255, 176, 32, .5);
   transition: transform .15s ease, filter .15s ease;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  user-select: none; -webkit-user-select: none;
 }
 .welcome-cam-btn:active { transform: scale(.9); }
-.welcome-cam-btn.busy { opacity: .55; pointer-events: none; }
+.welcome-cam-btn.busy { opacity: .55; pointer-events: none; animation: welcomeCamSpin 1s linear infinite; }
+@keyframes welcomeCamSpin { to { transform: rotate(360deg); } }
 .welcome-cam-btn.take-down {
-  width: 18px; height: 18px;
+  width: 30px; height: 30px;
   background: rgba(20, 34, 48, .92); color: #cfe3f2;
   border: 1px solid rgba(120, 160, 190, .4); box-shadow: none;
 }
 .welcome-cam-btn.save-orig {
-  width: 18px; height: 18px;
+  width: 30px; height: 30px;
   background: linear-gradient(135deg, #63d9ff, #2b8fd6); color: #032235;
-  box-shadow: 0 2px 8px rgba(99, 217, 255, .4);
+  box-shadow: 0 2px 10px rgba(99, 217, 255, .5);
 }
 .welcome-photo-input { display: none; }
 .v2-sub-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
@@ -857,5 +878,10 @@ onMounted(loadWelcomePhoto);
   .v2-sub { padding: 8px 10px; }
   .v2-sub-ico { width: 30px; height: 30px; }
   .v2-sub-name { font-size: 12px; }
+  /* 拍照三按钮在窄卡片(2 列)上收紧, 总宽约 94px, 不压住左侧图标/文字 */
+  .v2-sub-welcome { top: 5px; right: 6px; gap: 4px; }
+  .welcome-cam-btn { width: 34px; height: 34px; }
+  .welcome-cam-btn.take-down,
+  .welcome-cam-btn.save-orig { width: 26px; height: 26px; }
 }
 </style>

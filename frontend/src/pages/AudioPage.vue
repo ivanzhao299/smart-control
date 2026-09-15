@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, onDeactivated, ref, watch } from 'vue';
 import { useActivePolling } from '@/composables/useActivePolling';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter, useRoute } from 'vue-router';
@@ -436,6 +436,12 @@ onUnmounted(() => {
   if (matrixTimer) clearTimeout(matrixTimer); // 不清会在切页面后继续打设备
   if (reconcileTimer) clearTimeout(reconcileTimer); // 同上: 切走后别再对账
   // 拖推子过程中切页 → 别把锁滚动的全局监听漏在 document 上
+  document.removeEventListener('touchmove', preventScrollWhileDragging);
+});
+// keep-alive 切走(组件被缓存、不卸载, 不触发 onUnmounted): 轮询由 useActivePolling
+// 停止, 这里补取消长按进度环 RAF 与拖动全局锁; 不置 matrixPollStopped 以便回来能恢复
+onDeactivated(() => {
+  if (holdRaf) cancelAnimationFrame(holdRaf);
   document.removeEventListener('touchmove', preventScrollWhileDragging);
 });
 async function refreshCurrentScene(): Promise<void> {
