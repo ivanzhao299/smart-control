@@ -34,5 +34,8 @@ describe('GK9000 deployment gates', () => {
 
     expect(testPosition).toBeGreaterThan(-1);
     expect(testPosition).toBeLessThan(backendBuildPosition);
+    expect(workflow).toContain('actions/checkout@v7');
+    expect(workflow).toContain('actions/setup-node@v7');
+    expect(workflow).toContain('pnpm/action-setup@v6');
   });
 });
