@@ -232,6 +232,22 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
     }
   }
 
+  // 销毁某个 <video> 上绑定的 Hls 实例及其定时器/监听（内存泄漏根治）。
+  // 背景：ops-content 每 15s 用 innerHTML 重建第一页视频面板、视频健康检查也会重建，
+  // 若不显式 destroy，旧实例的 transmuxer Worker / MSE SourceBuffer / 已缓冲分片会变成
+  // 孤儿无法 GC（曾因此约 52 分钟泄漏 5.6GB，渲染进程 OOM 崩溃，LED 白屏“此页存在问题”）。
+  function destroyHlsForVideo(video){
+    if(!video)return;
+    if(video._hls){ try{video._hls.destroy()}catch(e){} video._hls=null }
+    if(video._playAbort){ try{video._playAbort.abort()}catch(e){} video._playAbort=null }
+    if(Array.isArray(video._hlsTimers)){ video._hlsTimers.forEach(t=>{clearTimeout(t);clearInterval(t)}); video._hlsTimers=[] }
+  }
+  // 供 ops-content.js 在 innerHTML 重建视频容器“之前”调用：释放容器内所有旧实例。
+  window.teardownHlsWithin=function(root){
+    if(!root||!root.querySelectorAll)return;
+    root.querySelectorAll('video').forEach(destroyHlsForVideo);
+  };
+
   function initHlsPlayer(cam){
     const channel=cam.dataset.camera;
     const name=cam.dataset.name||channel;
@@ -247,8 +263,13 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
     }
     video.dataset.hlsInitialized='true';
 
+    // 同一 video 重建/重入前，先彻底释放旧实例（按 video 精确销毁，不影响同 channel 其它页面的 video）
+    destroyHlsForVideo(video);
+    video._hlsTimers=[];
+    const trackTimer=(id)=>{video._hlsTimers.push(id);return id};
+
     // 15秒超时处理：如果视频未成功播放，显示"信号中断"状态
-    const connectTimeout=setTimeout(()=>{
+    const connectTimeout=trackTimer(setTimeout(()=>{
       if(video.readyState<2||video.videoWidth===0){
         console.warn(`[ParkOps] HLS连接超时 (${channel})，显示信号中断`);
         if(mock){mock.textContent=`${name} · 信号中断`;mock.style.display='block';mock.classList.add('signal-lost')}
@@ -256,7 +277,7 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
         const liveEl=cam.querySelector('.live');
         if(liveEl){liveEl.classList.add('live-offline');liveEl.innerHTML='<span class="live-indicator" style="background:#ef4444;box-shadow:0 0 8px rgba(239,68,68,.8)"></span>OFFLINE'}
       }
-    },15000);
+    },15000));
 
     const playlistUrl=`${API_BASE}/${channel}/hls/playlist.m3u8`;
 
@@ -304,7 +325,7 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
         video.play().catch(()=>{});
         // 持续检测5秒，确保视频稳定播放（防止浏览器自动播放策略暂停）
         let playCheckCount=0;
-        const playCheck=setInterval(()=>{
+        const playCheck=trackTimer(setInterval(()=>{
           playCheckCount++;
           if(video.paused&&video.readyState>=2){
             video.play().catch(()=>{});
@@ -312,7 +333,7 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
           if(playCheckCount>=10||(!video.paused&&video.currentTime>0)){
             clearInterval(playCheck);
           }
-        },500);
+        },500));
       });
 
       hls.on(window.Hls.Events.ERROR,(event,data)=>{
@@ -332,14 +353,16 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
         }
       });
 
+      const playAbort=new AbortController(); video._playAbort=playAbort;
       video.addEventListener('playing',()=>{
         clearTimeout(connectTimeout);
         video.style.display='block';
         if(mock){mock.style.display='none';mock.classList.remove('signal-lost')}
         const liveEl=cam.querySelector('.live');
         if(liveEl){liveEl.classList.remove('live-offline');liveEl.innerHTML='<span class="live-indicator"></span>LIVE'}
-      });
+      },{signal:playAbort.signal});
 
+      video._hls=hls;
       hlsInstances.set(channel,hls);
       console.log(`[ParkOps] 使用hls.js播放 (${channel})`);
     }else{
@@ -423,14 +446,9 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
           console.warn(`[ParkOps] 视频流卡顿，尝试恢复 (${channel})`);
           // 尝试重新播放
           video.play().catch(()=>{
-            // 如果播放失败，重新初始化HLS
-            const hls=hlsInstances.get(channel);
-            if(hls){
-              try{
-                hls.destroy();
-              }catch(e){}
-              hlsInstances.delete(channel);
-            }
+            // 播放失败：按 video 精确销毁旧实例后重建（不影响同 channel 其它页面的 video）
+            destroyHlsForVideo(video);
+            hlsInstances.delete(channel);
             video.dataset.hlsInitialized='false';
             // 延迟重新初始化
             setTimeout(()=>{
@@ -808,10 +826,18 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
     initAllCams();
   }
 
-  // 页面卸载时清理
+  // 页面卸载时清理：实例表 + 每个 video 绑定的实例/定时器/监听，全部释放
   window.addEventListener('beforeunload',()=>{
-    hlsInstances.forEach(hls=>hls.destroy());
+    hlsInstances.forEach(hls=>{try{hls.destroy()}catch(e){}});
+    document.querySelectorAll('.cam-hls video').forEach(destroyHlsForVideo);
   });
+
+  // Kiosk 兜底：无人值守大屏长期运行，每 4 小时在非编辑状态静默重载一次，
+  // 回收任何潜在累积内存，规避渲染进程长期膨胀崩溃（编辑/校准中不打断）。
+  setInterval(()=>{
+    if(document.body.classList.contains('park-editing'))return;
+    window.location.reload();
+  },4*60*60*1000);
 
   // 暴露全局函数，供ops-content.js动态生成视频元素后调用（第一页4路安防画面）
   window.startHlsTranscoding = startHlsStream;
