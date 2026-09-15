@@ -64,6 +64,31 @@ if (Test-Path $envFile) {
   Write-Host "[2/3] backend\.env 不存在, 跳过" -ForegroundColor DarkYellow
 }
 
+# 现场可写运行时业务/设备数据 (KPI、视频绑定+AI 计数线/ROI、播控状态) 必须与数据库一起备份,
+# 否则会重演 2026-09-15 "部署后 KPI/AI 框丢失且无备份可恢复"。路径解析与
+# deploy/ecosystem.config.js、deploy-from-ci.ps1 保持一致; 同时兜底备份旧的仓库内
+# backend\data。纯复制、去重、目录不存在或无 json 时跳过。
+$runtimeDirs = @()
+if ($env:DATA_DIR) { $runtimeDirs += $env:DATA_DIR }
+if (Test-Path 'D:\') { $runtimeDirs += 'D:\smart-control-runtime\data' }
+$runtimeDirs += (Join-Path $projectRoot '.runtime\data')
+$runtimeDirs += (Join-Path $projectRoot 'backend\data')
+$seenRuntime = @{}
+foreach ($rd in $runtimeDirs) {
+  if ([string]::IsNullOrWhiteSpace($rd)) { continue }
+  if (-not (Test-Path $rd)) { continue }
+  $runtimeKey = (Resolve-Path $rd).Path.TrimEnd('\').ToLower()
+  if ($seenRuntime.ContainsKey($runtimeKey)) { continue }
+  $seenRuntime[$runtimeKey] = $true
+  $runtimeJson = @(Get-ChildItem -Path $rd -Filter *.json -File -ErrorAction SilentlyContinue)
+  if ($runtimeJson.Count -eq 0) { continue }
+  $runtimeLabel = if ($rd -like '*backend\data') { 'legacy-backend-data' } else { 'runtime-data' }
+  $runtimeSnap = Join-Path $snap $runtimeLabel
+  New-Item -ItemType Directory -Force -Path $runtimeSnap | Out-Null
+  Copy-Item (Join-Path $rd '*') $runtimeSnap -Recurse -Force -ErrorAction SilentlyContinue
+  Write-Host "Runtime config backed up: $rd -> $runtimeLabel ($($runtimeJson.Count) json)" -ForegroundColor Green
+}
+
 # Seed (UAT 数据用过的可保留)
 $uatExport = Join-Path $snap 'uat-snapshot.json'
 try {

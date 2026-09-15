@@ -17,6 +17,10 @@
 | **后端代码** | `backend/src/**` | 构建后端 → 仅重启 backend | 后端短暂重启（~5s） |
 | **全量部署** | 以下任一命中则强制全量：<br>• `package.json` / `pnpm-lock.yaml`<br>• `.env*` / `ecosystem.config.js`<br>• `migrations/` 目录<br>• `deploy/` 目录<br>• `scripts/deploy*`、`backup*`、`update*`、`boot*`、`ensure*`、`run-migrations*`、`assert-release*`<br>• 前后端代码同时变更<br>• 其他未识别路径 | 完整流程：构建双端 + 迁移 + 重启双服务 | 前端停服构建 |
 
+## 运行时数据保护（任何部署范围都生效）
+
+KPI、视频绑定+AI 计数线/ROI、播控状态等现场写入的 JSON 一律存放在 git 仓库之外（Windows `D:\smart-control-runtime\data`，即 `DATA_DIR`）。部署 merge 前先抢救、清理未跟踪文件时按白名单永不删除、并随每次 verified 备份一并备份。详见 **`docs/RUNTIME_DATA_PROTECTION.md`**；任何部署都不得删除现场运行时数据与备份。
+
 ## 各范围详细说明
 
 ### 1. 静态资源部署（零停机）

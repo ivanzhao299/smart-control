@@ -1,0 +1,13 @@
+{
+  "_comment": "运营大屏业务数字文档模板。真实文件 park-ops-metrics.json 由后端写入 DATA_DIR(仓库外), 不提交 git; 经 PUT /api/park-ops-metrics(管理员) 原子保存, 大屏每 15s 轮询。缺失时前端回退内置默认。",
+  "version": 1,
+  "source": "数据来源说明, 例如: 业主提供的园区介绍 · 口径日期",
+  "updatedAt": "2026-01-01T00:00:00+08:00",
+  "placeholderKeys": [],
+  "metrics": {
+    "exampleKey": 0
+  },
+  "content": {
+    "exampleText": "示例文案"
+  }
+}

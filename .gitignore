@@ -12,8 +12,13 @@ database/*.db-journal
 database/*.db-shm
 database/*.db-wal
 
-# 视频绑定配置（包含敏感信息，不提交到仓库）
-backend/data/video-binding.json
+# 现场可写的运行时业务/设备数据 (KPI、视频绑定+AI ROI、播控状态)。
+# 一律不提交；部署脚本也禁止删除/覆盖 (见 scripts/deploy-from-ci.ps1 白名单)。
+# 注意: 必须忽略"目录内容"(backend/data/*) 而非目录本身, 否则 ! 例外无法重新包含模板。
+backend/data/*
+!backend/data/*.example.json
+# 非 Windows 平台的仓库外运行时数据回退目录
+.runtime/
 
 # 数据库备份目录（禁止git clean删除）
 backups/

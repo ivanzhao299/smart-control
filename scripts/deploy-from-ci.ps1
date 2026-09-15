@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)]
   [ValidatePattern('^[0-9a-f]{40}$')]
@@ -447,17 +447,80 @@ try {
         }
       }
 
+      # === Runtime-data protection (root-cause fix 2026-09-15: KPI and AI
+      # count-line/ROI were lost because runtime JSON lived INSIDE the git tree
+      # and got deleted/reset by deploy). Resolve the out-of-tree DATA_DIR exactly
+      # like deploy/ecosystem.config.js does. ASCII-only on purpose. ===
+      $runtimeDataDir = $env:DATA_DIR
+      if ([string]::IsNullOrWhiteSpace($runtimeDataDir)) {
+        if (Test-Path 'D:\') { $runtimeDataDir = 'D:\smart-control-runtime\data' }
+        else { $runtimeDataDir = Join-Path $projectRoot '.runtime\data' }
+      }
+      New-Item -ItemType Directory -Force -Path $runtimeDataDir | Out-Null
+      $legacyDataDir = Join-Path $projectRoot 'backend\data'
+
+      # BEFORE merge: rescue on-box runtime data out of the tree. Copy EVERY runtime
+      # *.json under backend\data (except *.example.json templates), not a fixed name
+      # list, so future runtime files are migrated too. Copy only, never delete
+      # source, never overwrite a newer existing target. video-binding.json used to be
+      # tracked and is removed from the repo by this change, so ff-merge would drop
+      # the in-tree copy - the out-of-tree DATA_DIR copy is what survives.
+      if (Test-Path $legacyDataDir) {
+        Get-ChildItem -Path $legacyDataDir -Filter '*.json' -File -ErrorAction SilentlyContinue |
+          Where-Object { $_.Name -notlike '*.example.json' } |
+          ForEach-Object {
+            $safePath = Join-Path $runtimeDataDir $_.Name
+            if (-not (Test-Path $safePath)) {
+              Copy-Item -Path $_.FullName -Destination $safePath -Force
+              Write-DeployLog "Protected runtime $($_.Name) copied to DATA_DIR before merge ($runtimeDataDir)."
+            }
+          }
+      }
+
+      # Protected on-box paths that must NEVER be removed as untracked files.
+      # Keep logs too: they are operational evidence and never a merge conflict target.
+      function Test-ProtectedRuntime([string]$rel) {
+        if ([string]::IsNullOrWhiteSpace($rel)) { return $false }
+        $r = $rel.Replace('/', '\')
+        return ($r -like 'backend\data\*') -or ($r -like '.runtime\*') -or `
+               ($r -like 'database\*') -or ($r -like 'backups\*') -or `
+               ($r -like 'logs\*') -or `
+               ($r -match '\.(db|db-wal|db-shm|sqlite|bak)$')
+      }
+
       # 清理可能被merge覆盖的未跟踪文件（2026-09-13 根因：GK9000上backend/data/video-binding.json未跟踪导致merge失败）
-      $untrackedFiles = @(git status --porcelain --untracked-files=all | Where-Object { $_ -match '^\?\?' } | ForEach-Object { $_.Substring(3).Trim() })
-      if ($untrackedFiles.Count -gt 0) {
-        Write-DeployLog "Removing $($untrackedFiles.Count) untracked files that would be overwritten by merge: $($untrackedFiles -join ', ')"
-        foreach ($relativeFile in $untrackedFiles) {
+      $untrackedFiles = @(git status --porcelain --untracked-files=all | Where-Object { $_ -match '^\?\?' } | ForEach-Object { $_.Substring(3).Trim('"') })
+      $protectedKept = @()
+      $toRemove = @()
+      foreach ($u in $untrackedFiles) {
+        if (Test-ProtectedRuntime $u) { $protectedKept += $u } else { $toRemove += $u }
+      }
+      if ($protectedKept.Count -gt 0) {
+        Write-DeployLog "Keeping protected runtime/db files (never delete): $($protectedKept -join ', ')"
+      }
+      if ($toRemove.Count -gt 0) {
+        Write-DeployLog "Removing $($toRemove.Count) untracked files that would be overwritten by merge: $($toRemove -join ', ')"
+        foreach ($relativeFile in $toRemove) {
           $fullPath = Join-Path $projectRoot $relativeFile
           Remove-Item -Path $fullPath -Force -ErrorAction SilentlyContinue
         }
       }
 
       Invoke-Native 'git' @('merge', '--ff-only', $Commit)
+
+      # After merge: best-effort migrate any runtime *.json still missing from
+      # DATA_DIR (whole legacy dir, skip templates; copy only, never overwrite).
+      if (Test-Path $legacyDataDir) {
+        Get-ChildItem -Path $legacyDataDir -Filter '*.json' -File -ErrorAction SilentlyContinue |
+          Where-Object { $_.Name -notlike '*.example.json' } |
+          ForEach-Object {
+            $safePath = Join-Path $runtimeDataDir $_.Name
+            if (-not (Test-Path $safePath)) {
+              Copy-Item -Path $_.FullName -Destination $safePath -Force
+              Write-DeployLog "Post-merge migrated runtime $($_.Name) -> DATA_DIR."
+            }
+          }
+      }
       $worktreeUpdated = $true
 
       $backupScript = Join-Path $projectRoot 'scripts\backup.ps1'
@@ -573,6 +636,27 @@ try {
   # Common path on purpose: the on-box watcher can fast-forward Git before CI
   # arrives, so required host tooling must not live only in the "new commit"
   # branch above.
+
+  # CI-only deployment policy (2026-09-15): the legacy SmartControl-AutoUpdate
+  # scheduled task + auto-update-watcher raced CI and repeatedly reset on-box
+  # runtime config. Idempotently keep it disabled and stop any watcher process
+  # on every deploy, regardless of deploy scope. ASCII-only.
+  try {
+    $auTask = Get-ScheduledTask -TaskName 'SmartControl-AutoUpdate' -ErrorAction SilentlyContinue
+    if ($auTask -and $auTask.State -ne 'Disabled') {
+      Disable-ScheduledTask -TaskName 'SmartControl-AutoUpdate' | Out-Null
+      Write-DeployLog 'SmartControl-AutoUpdate disabled (deployment is CI-only).'
+    }
+    $auProcs = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+      Where-Object { $_.CommandLine -match 'auto-update-watcher' })
+    foreach ($auP in $auProcs) {
+      Stop-Process -Id $auP.ProcessId -Force -ErrorAction SilentlyContinue
+      Write-DeployLog ("Stopped AutoUpdate watcher pid {0}." -f $auP.ProcessId)
+    }
+  } catch {
+    Write-DeployLog "AutoUpdate disable step skipped: $($_.Exception.Message)"
+  }
+
   $mediaToolsScript = Join-Path $projectRoot 'scripts\ensure-media-tools.ps1'
   if (Test-Path $mediaToolsScript) {
     Write-DeployLog 'Ensuring verified FFmpeg media compatibility tools are installed.'

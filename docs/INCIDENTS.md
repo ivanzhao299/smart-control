@@ -4,7 +4,7 @@
 > 接手人排障前先查这里——现场出的错十有八九在这张表里出现过。
 > 配套阅读：`CLAUDE.md`（仓库根，工程记忆）、`docs/PROGRESS.md`（进展时间线）。
 >
-> 最后更新：2026-09-14（09-13 整晚应急详见 `docs/INCIDENT_2026-09-13_RECAP.md`）
+> 最后更新：2026-09-15（运行时数据丢失根治见 `docs/RUNTIME_DATA_PROTECTION.md`；09-13 整晚应急详见 `docs/INCIDENT_2026-09-13_RECAP.md`）
 
 ## 速查表
 
@@ -34,6 +34,8 @@
 | 09-14 | 重启后 AI 分析 :8000 丢失 | 一次性任务无开机自启 | ✅ Run+Watchdog 守护 |
 | 09-14 | GK9000 CPU 稳态 90% | YOLO 未限线程/推理过密 | ✅ 限4线程+跳帧+imgsz320 降到~50% |
 | 09-14 | 00:00 电脑"异常重启"误判 | WeeklyReboot 计划维护重启 | ✅ 排查法（事件1074） |
+| 09-15 | LED 大屏白屏"此页存在问题" | 轮询 innerHTML 重建视频、Hls 实例未 destroy 泄漏撑爆内存 | ✅ commit 14515e7 根治 |
+| 09-15 | KPI 保存被重置、AI 计数线/ROI 变回默认竖线 | 运行时 JSON 在 git 仓库内，被部署清理未跟踪文件/merge 覆盖，AutoUpdate 双路再冲 | ✅ 移出仓库到 DATA_DIR+取消跟踪+部署白名单+纳入备份+停 AutoUpdate（见 RUNTIME_DATA_PROTECTION.md） |
 
 ---
 
