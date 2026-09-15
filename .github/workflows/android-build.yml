@@ -51,7 +51,12 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        # v4: v3 在新版 runner(cmdline-tools 16)上仍 sdkmanager 装已废弃的 'tools'
+        # 包, 报 "Failed to find package 'tools'" 直接失败; v4 不再装 legacy tools。
+        # 显式声明 compileSdk=34 所需 platform/build-tools, 避免 runner 预装差异。
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
 
       - name: Generate Gradle wrapper
         working-directory: android-app
