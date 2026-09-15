@@ -223,6 +223,12 @@ const {
   saveOriginal: saveWelcomeOriginal,
   loadCurrent: loadWelcomePhoto,
 } = useWelcomePhoto();
+// iOS(iPhone/iPad, 含 iPadOS 报 Macintosh)主屏幕 PWA: 文件框带 capture 属性经 JS 唤起易致
+// WKWebView 闪退, 且 iOS 本就忽略 capture(仍可选"拍照"); 故对 Apple 设备移除 capture,
+// Android/其他保留 capture=environment 以直接打开后置相机。
+const isAppleDevice =
+  /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+  (/macintosh|mac os x/i.test(navigator.userAgent) && (navigator.maxTouchPoints ?? 0) > 1);
 onMounted(loadWelcomePhoto);
 // keep-alive 切走(不卸载)或真正卸载时, 取消可能残留的长按进度环 RAF, 避免后台空转
 onDeactivated(resetHold);
@@ -358,17 +364,22 @@ onBeforeUnmount(resetHold);
         role="button"
         tabindex="0"
         title="拍照上墙到 LED 欢迎页"
-        @click="openWelcomeCamera"
         @keydown.enter.prevent="openWelcomeCamera"
         @keydown.space.prevent="openWelcomeCamera"
       >
-        <div class="v2-sub-ico cam-ico"><Camera :size="17" :stroke-width="2.1" /></div>
-        <div class="v2-sub-body">
-          <div class="v2-sub-name">拍照上屏</div>
-          <div class="v2-sub-stats v2-inter">
-            <span class="online">{{ welcomePhotoBusy ? '处理中…' : welcomeHasPhoto ? '已上墙 · 重拍' : '点击拍照' }}</span>
+        <!-- 原生 label[for] 关联隐藏文件框: 点按由浏览器内部直接拉起相机, 不经过 JS 合成
+             click(), 这是 iOS 主屏幕 PWA(WKWebView) 最稳的唤起路径, 规避 div 合成手势 +
+             display:none 文件框程序化触发导致的闪退。触摸/鼠标只走这一条原生路径(故外层
+             不再绑 @click, 避免 label 原生 + JS 各触发一次); 键盘无障碍仍由上面 keydown 兜底。 -->
+        <label class="v2-sub-cam-label" for="welcome-photo-capture-input">
+          <div class="v2-sub-ico cam-ico"><Camera :size="17" :stroke-width="2.1" /></div>
+          <div class="v2-sub-body">
+            <div class="v2-sub-name">拍照上屏</div>
+            <div class="v2-sub-stats v2-inter">
+              <span class="online">{{ welcomePhotoBusy ? '处理中…' : welcomeHasPhoto ? '已上墙 · 重拍' : '点击拍照' }}</span>
+            </div>
           </div>
-        </div>
+        </label>
         <span class="v2-sub-cam-actions" @pointerdown.stop @touchstart.stop @click.stop>
           <button
             v-if="welcomeHasPhoto"
@@ -388,13 +399,16 @@ onBeforeUnmount(resetHold);
       </div>
     </div>
 
-    <!-- 来访者拍照上墙: 调系统相机; 原画留本机, 仅上传 LED 压缩版 -->
+    <!-- 来访者拍照上墙: 调系统相机; 原画留本机, 仅上传 LED 压缩版。
+         绝不能用 display:none / visibility:hidden / disabled, 否则 iOS standalone PWA
+         经 label 唤起时会闪退; 用移出屏幕的 1px 可视隐藏(仍可渲染、enabled)。 -->
     <input
+      id="welcome-photo-capture-input"
       ref="welcomePhotoInput"
       class="welcome-photo-input"
       type="file"
       accept="image/*"
-      capture="environment"
+      :capture="isAppleDevice ? undefined : 'environment'"
       @change="onWelcomePick"
     />
   </section>
@@ -768,7 +782,20 @@ onBeforeUnmount(resetHold);
 .cam-mini.save-orig {
   background: linear-gradient(135deg, #63d9ff, #2b8fd6); color: #032235; border-color: transparent;
 }
-.welcome-photo-input { display: none; }
+/* 文件框绝不能 display:none / visibility:hidden, 否则 iOS standalone PWA 经 label 唤起会闪退;
+   用移出屏幕的 1px 可视隐藏(仍可渲染、enabled), label[for] 即可正常原生拉起相机。 */
+.welcome-photo-input {
+  position: fixed; left: -9999px; top: -9999px;
+  width: 1px; height: 1px; opacity: 0;
+  border: 0; padding: 0; margin: 0;
+  pointer-events: none; z-index: -1;
+}
+/* label 占满整张拍照卡, 内部布局与 .v2-sub 一致; 点按由浏览器原生关联到文件框 */
+.v2-sub-cam-label {
+  display: flex; align-items: center; gap: var(--v2-sp-3);
+  flex: 1 1 auto; min-width: 0; cursor: pointer; color: inherit;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
 .v2-sub-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .v2-sub-name {
   font-size: var(--v2-fs-sm);
