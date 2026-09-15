@@ -483,8 +483,19 @@ try {
         Write-DeployLog 'MINIMAL deploy: frontend code only - side-building frontend, skipping backend and restart (vite preview reads disk, zero-downtime).'
         Deploy-FrontendOnly $projectRoot
       } elseif ($backendOnly) {
-        Write-DeployLog 'MINIMAL deploy: backend code only - building and restarting backend only, skipping frontend.'
+        Write-DeployLog 'MINIMAL deploy: backend code only - building and restarting backend, skipping frontend build.'
         Deploy-BackendOnly $projectRoot
+        # A backend-only commit may ALSO carry frontend/public static assets (park-ops demo,
+        # icons, etc.). Deploy-BackendOnly skips the frontend build, so copy those static
+        # files straight into dist afterwards - vite preview reads disk on every request,
+        # so this is zero-downtime. Without this sync the static half of a mixed
+        # (backend + public) commit was silently dropped: git updated public/ but dist/ stayed
+        # stale and preview kept serving the old asset (root cause of "frontend change not
+        # live after deploy" on 2026-09-15).
+        if ($scope.parkOpsStatic -or $scope.frontendPublic) {
+          Write-DeployLog 'Mixed commit also carries frontend/public assets - syncing them into dist (no frontend build).'
+          Deploy-StaticAssets $scope $projectRoot
+        }
       } else {
         Write-DeployLog 'FULL deploy: multi-tier or high-risk changes - running complete deployment.'
 
