@@ -810,35 +810,65 @@ async function submitWebpage(): Promise<void> {
           {{ ch?.restricted ? '其他用户的内容正在使用此设备' : (currentInList?.title || ch?.currentMediaName || '— 待机中 —') }}
         </div>
         <div class="now-sub">
-          <span v-if="ch?.loopMode === 'loop'"><Repeat :size="13" /> 循环</span>
-          <span v-else><Repeat1 :size="13" /> 播一遍</span>
-          <span v-if="ch?.currentMediaId && !currentInList" class="tmp">· 临时推送 (不在播放列表里)</span>
+          <template v-if="activeSource === 'park-dashboard'">
+            <span class="v2-inter">第 {{ parkOpsPage + 1 }} / {{ parkOpsTotalPages }} 页</span>
+            <span>· {{ parkOpsAuto ? '自动轮播中' : '手动翻页' }}</span>
+          </template>
+          <template v-else>
+            <span v-if="ch?.loopMode === 'loop'"><Repeat :size="13" /> 循环</span>
+            <span v-else><Repeat1 :size="13" /> 播一遍</span>
+            <span v-if="ch?.currentMediaId && !currentInList" class="tmp">· 临时推送 (不在播放列表里)</span>
+          </template>
         </div>
       </div>
       <!-- 业主: "暂停、切换、上下内容等均可控制" + "随时可以点击终止" -->
       <div class="now-ctrl">
-        <button class="pc-btn" :disabled="busy || playlist.length === 0" title="上一首" @click="step('prev')">
-          <SkipBack :size="20" />
-        </button>
-        <!-- 待机时必须是「播放」而不是一个被禁用的「暂停」(2026-07-17 业主:
-             "有停止和暂停按钮, 但是没有播放按钮")。原来 disabled 挂在
-             !ch.currentMediaId 上 —— 恰恰在最需要它的时候(待机)把它锁死了。
-             口径对齐音响页 BGM 那个已验证好用的: disabled 只看列表空不空。 -->
-        <button
-          class="pc-btn main"
-          :disabled="busy || (!ch?.currentMediaId && playlist.length === 0)"
-          :title="!ch?.currentMediaId ? '播放' : (ch.paused ? '继续' : '暂停')"
-          @click="togglePause"
-        >
-          <Pause v-if="ch?.currentMediaId && !ch.paused" :size="22" />
-          <Play v-else :size="22" />
-        </button>
-        <button class="pc-btn" :disabled="busy || playlist.length === 0" title="下一首" @click="step('next')">
-          <SkipForward :size="20" />
-        </button>
-        <button class="pc-btn stop" :disabled="busy || !ch?.currentMediaId" title="终止播放, 回到待机" @click="stopPlayback()">
-          <Square :size="18" />
-        </button>
+        <!-- 输入源=园区运营大屏时, 复用这四个主按钮为:
+             上一页 / 自动轮播(开关) / 下一页 / 强制刷新, 纯图标, 不再另弹控制条 (2026-09-15) -->
+        <template v-if="activeSource === 'park-dashboard'">
+          <button class="pc-btn" :disabled="parkOpsBusy" title="运营大屏 · 上一页" @click="parkOpsControl('prev')">
+            <ChevronLeft :size="20" />
+          </button>
+          <button
+            class="pc-btn main"
+            :class="{ on: parkOpsAuto }"
+            :disabled="parkOpsBusy"
+            :title="parkOpsAuto ? '自动轮播：开（点击关闭）' : '自动轮播：关（点击开启）'"
+            @click="parkOpsControl('auto')"
+          >
+            <RefreshCw :size="20" />
+          </button>
+          <button class="pc-btn" :disabled="parkOpsBusy" title="运营大屏 · 下一页" @click="parkOpsControl('next')">
+            <ChevronRight :size="20" />
+          </button>
+          <button class="pc-btn refresh" :disabled="parkOpsBusy" title="强制刷新：让大屏清缓存加载最新前端构建" @click="parkOpsControl('refresh')">
+            <RotateCcw :size="18" />
+          </button>
+        </template>
+        <template v-else>
+          <button class="pc-btn" :disabled="busy || playlist.length === 0" title="上一首" @click="step('prev')">
+            <SkipBack :size="20" />
+          </button>
+          <!-- 待机时必须是「播放」而不是一个被禁用的「暂停」(2026-07-17 业主:
+               "有停止和暂停按钮, 但是没有播放按钮")。原来 disabled 挂在
+               !ch.currentMediaId 上 —— 恰恰在最需要它的时候(待机)把它锁死了。
+               口径对齐音响页 BGM 那个已验证好用的: disabled 只看列表空不空。 -->
+          <button
+            class="pc-btn main"
+            :disabled="busy || (!ch?.currentMediaId && playlist.length === 0)"
+            :title="!ch?.currentMediaId ? '播放' : (ch.paused ? '继续' : '暂停')"
+            @click="togglePause"
+          >
+            <Pause v-if="ch?.currentMediaId && !ch.paused" :size="22" />
+            <Play v-else :size="22" />
+          </button>
+          <button class="pc-btn" :disabled="busy || playlist.length === 0" title="下一首" @click="step('next')">
+            <SkipForward :size="20" />
+          </button>
+          <button class="pc-btn stop" :disabled="busy || !ch?.currentMediaId" title="终止播放, 回到待机" @click="stopPlayback()">
+            <Square :size="18" />
+          </button>
+        </template>
       </div>
 
       <!-- 画面铺放 (业主 2026-07-25): 图片/视频都吃, 默认铺满; 改完即时生效并记住 -->
@@ -890,25 +920,8 @@ async function submitWebpage(): Promise<void> {
         </button>
       </div>
 
-      <!-- 运营大屏翻页控制条 (PWA端看不见画面, 只有操作按钮) -->
-      <div v-if="activeSource === 'park-dashboard'" class="doc-pager park-ops-pager">
-        <span class="pg-label">运营大屏控制</span>
-        <button class="pg-btn big" :disabled="parkOpsBusy" @click="parkOpsControl('prev')">
-          <ChevronLeft :size="20" /> 上一页
-        </button>
-        <span class="pg-num v2-inter">{{ parkOpsPage + 1 }}<i>/ {{ parkOpsTotalPages }}</i></span>
-        <button class="pg-btn big" :disabled="parkOpsBusy" @click="parkOpsControl('next')">
-          下一页 <ChevronRight :size="20" />
-        </button>
-        <span class="pg-gap"></span>
-        <button class="pg-btn" :class="{ on: parkOpsAuto }" :disabled="parkOpsBusy" @click="parkOpsControl('auto')">
-          <RefreshCw :size="15" /> {{ parkOpsAuto ? '自动轮播：开' : '自动轮播：关' }}
-        </button>
-        <span class="pg-gap"></span>
-        <button class="pg-btn refresh-btn" :disabled="parkOpsBusy" @click="parkOpsControl('refresh')" title="强制刷新LED大屏浏览器，清除缓存加载最新代码">
-          <RotateCcw :size="15" /> 强制刷新
-        </button>
-      </div>
+      <!-- 运营大屏的 上一页/自动轮播/下一页/强制刷新 已并入上方 .now-ctrl 四个主按钮,
+           不再在切源后另弹一条控制按钮 (2026-09-15 应业主要求精简) -->
     </div><!-- /pc-sticky -->
 
     <!-- 输入源 — LED/投影两页统一出现 (2026-07-28 业主), 按钮指向见 script 注释 -->
@@ -1175,6 +1188,10 @@ async function submitWebpage(): Promise<void> {
 .pc-btn:disabled { opacity: .35; cursor: not-allowed; }
 .pc-btn.main { width: 60px; height: 60px; background: var(--v2-primary); border-color: var(--v2-primary); color: var(--v2-on-primary); }
 .pc-btn.stop:not(:disabled):hover { border-color: #E5645D; color: #E5645D; }
+/* 运营大屏复用主按钮: 自动轮播激活=绿色高亮, 强制刷新=醒目琥珀色 */
+.pc-btn.main.on { background: var(--v2-success, #3FBF87); border-color: var(--v2-success, #3FBF87); color: #04101f; box-shadow: 0 0 14px rgba(63,191,135,.45); }
+.pc-btn.refresh:not(:disabled) { background: linear-gradient(135deg, #f59e0b, #d97706); border-color: #f59e0b; color: #fff; }
+.pc-btn.refresh:not(:disabled):hover { background: linear-gradient(135deg, #fbbf24, #f59e0b); box-shadow: 0 0 12px rgba(245,158,11,.45); }
 
 .fit-row {
   display: flex;
@@ -1410,12 +1427,6 @@ async function submitWebpage(): Promise<void> {
 .pg-zoom.hot { color: var(--v2-warning); }
 .pg-btn.big { display: inline-flex; align-items: center; gap: 5px; }
 .pg-btn.exit { display: inline-flex; align-items: center; gap: 4px; color: var(--v2-danger); }
-/* 运营大屏翻页控制条 */
-.park-ops-pager { background: linear-gradient(135deg, rgba(18,91,126,.15), var(--v2-surf-1)); border-color: rgba(99,217,255,.3); }
-.park-ops-pager .pg-btn.on { background: var(--v2-primary); color: var(--v2-on-primary); border-color: var(--v2-primary); }
-.park-ops-pager .pg-btn.refresh-btn { background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; border-color: #f59e0b; font-weight: 700; }
-.park-ops-pager .pg-btn.refresh-btn:hover { background: linear-gradient(135deg, #fbbf24, #f59e0b); box-shadow: 0 0 12px rgba(245,158,11,.4); }
-.park-ops-pager .pg-btn.refresh-btn:disabled { opacity: .5; cursor: not-allowed; }
 .pg-label { font-size: 14px; font-weight: 700; color: var(--v2-primary); margin-right: 4px; white-space: nowrap; }
 /* ---- 电源开关 (标题栏"待机"行末尾, 时序器同款拨动开关) ---- */
 /* 报警插槽在卡片内占满整行, 显示在顶部 (投影融合器状态) */
@@ -1465,44 +1476,5 @@ async function submitWebpage(): Promise<void> {
   .v2-toggle { width: 48px; height: 28px; }
   .v2-toggle::after { width: 24px; height: 24px; }
   .v2-toggle.on::after { transform: translateX(20px); }
-
-  /* 运营大屏翻页控制条 — 手机端紧凑样式 */
-  .park-ops-pager {
-    flex-wrap: wrap;
-    gap: 6px;
-    padding: 6px 8px;
-    margin: 4px var(--v2-sp-3) 0;
-    justify-content: center;
-  }
-  .park-ops-pager .pg-label {
-    flex-basis: 100%;
-    text-align: center;
-    font-size: 12px;
-    margin-right: 0;
-    margin-bottom: 2px;
-  }
-  .park-ops-pager .pg-btn {
-    padding: 6px 10px;
-    font-size: 12px;
-    gap: 3px;
-  }
-  .park-ops-pager .pg-btn.big {
-    padding: 7px 14px;
-    font-size: 13px;
-  }
-  .park-ops-pager .pg-btn svg {
-    width: 14px;
-    height: 14px;
-  }
-  .park-ops-pager .pg-num {
-    font-size: 14px;
-    min-width: 50px;
-  }
-  .park-ops-pager .pg-num i {
-    font-size: 11px;
-  }
-  .park-ops-pager .pg-gap {
-    display: none;
-  }
 }
 </style>

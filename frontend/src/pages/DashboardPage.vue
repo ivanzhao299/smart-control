@@ -7,7 +7,7 @@ import { useRouter } from 'vue-router';
 import {
   CheckCircle2, BarChart3, Clock,
   Sparkles, Calendar, Users, Presentation, Wrench, Moon,
-  Lightbulb, MonitorPlay, Speaker, Snowflake, Zap, Camera, X,
+  Lightbulb, MonitorPlay, Speaker, Snowflake, Zap, Camera, X, Download,
 } from 'lucide-vue-next';
 import { haptics } from '@/services/haptics';
 import { powerCircuitsService } from '@/services/power-circuits.service';
@@ -216,9 +216,11 @@ const {
   fileInput: welcomePhotoInput,
   busy: welcomePhotoBusy,
   hasPhoto: welcomeHasPhoto,
+  pendingOriginal: welcomePendingOriginal,
   openCamera: openWelcomeCamera,
   onPick: onWelcomePick,
   takeDown: takeWelcomePhotoDown,
+  saveOriginal: saveWelcomeOriginal,
   loadCurrent: loadWelcomePhoto,
 } = useWelcomePhoto();
 onMounted(loadWelcomePhoto);
@@ -348,6 +350,12 @@ onMounted(loadWelcomePhoto);
             title="撤下上墙照片，恢复默认欢迎页"
             @click.stop.prevent="takeWelcomePhotoDown"
           ><X :size="11" :stroke-width="2.4" /></span>
+          <span
+            v-if="welcomePendingOriginal"
+            class="welcome-cam-btn save-orig"
+            title="把相机原画保存到本机相册（原画不上传）"
+            @click.stop.prevent="saveWelcomeOriginal"
+          ><Download :size="11" :stroke-width="2.4" /></span>
         </span>
         <div class="v2-sub-ico"><component :is="sub.ico" :size="16" :stroke-width="2" /></div>
         <div class="v2-sub-body">
@@ -726,6 +734,11 @@ onMounted(loadWelcomePhoto);
   width: 18px; height: 18px;
   background: rgba(20, 34, 48, .92); color: #cfe3f2;
   border: 1px solid rgba(120, 160, 190, .4); box-shadow: none;
+}
+.welcome-cam-btn.save-orig {
+  width: 18px; height: 18px;
+  background: linear-gradient(135deg, #63d9ff, #2b8fd6); color: #032235;
+  box-shadow: 0 2px 8px rgba(99, 217, 255, .4);
 }
 .welcome-photo-input { display: none; }
 .v2-sub-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }

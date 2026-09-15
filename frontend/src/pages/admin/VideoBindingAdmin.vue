@@ -250,7 +250,8 @@ onMounted(() => {
           </el-button>
         </div>
 
-        <el-table :data="nvrs" v-loading="loading" border stripe>
+        <div class="vb-table-wrap">
+        <el-table :data="nvrs" v-loading="loading" border stripe class="vb-table vb-w-nvr" style="width: 100%">
           <el-table-column prop="name" label="设备名称" width="200" />
           <el-table-column prop="ip" label="IP地址" width="140" />
           <el-table-column prop="port" label="HTTP端口" width="100" />
@@ -267,7 +268,7 @@ onMounted(() => {
               <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '禁用' }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="220" fixed="right">
+          <el-table-column label="操作" width="220">
             <template #default="{ row }">
               <el-button size="small" @click="testNvrConnection(row)" :loading="testingNvrId === row.id">
                 测试连接
@@ -279,6 +280,7 @@ onMounted(() => {
             </template>
           </el-table-column>
         </el-table>
+        </div>
       </el-tab-pane>
 
       <!-- 摄像头通道管理 -->
@@ -292,7 +294,8 @@ onMounted(() => {
           </el-button>
         </div>
 
-        <el-table :data="channels" v-loading="loading" border stripe>
+        <div class="vb-table-wrap">
+        <el-table :data="channels" v-loading="loading" border stripe class="vb-table vb-w-ch" style="width: 100%">
           <el-table-column prop="alias" label="通道别名" width="140" />
           <el-table-column prop="name" label="通道名称" width="160" />
           <el-table-column label="所属NVR" width="200">
@@ -309,7 +312,7 @@ onMounted(() => {
               <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '禁用' }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="180" fixed="right">
+          <el-table-column label="操作" width="180">
             <template #default="{ row }">
               <el-button size="small" type="primary" @click="openChannelDialog(row)">编辑</el-button>
               <el-button size="small" type="danger" @click="deleteChannel(row)">
@@ -318,6 +321,7 @@ onMounted(() => {
             </template>
           </el-table-column>
         </el-table>
+        </div>
       </el-tab-pane>
 
       <!-- 显示布局配置 -->
@@ -383,7 +387,7 @@ onMounted(() => {
     </el-tabs>
 
     <!-- NVR编辑对话框 -->
-    <el-dialog v-model="nvrDialogVisible" :title="nvrEditing ? '编辑NVR录像机' : '添加NVR录像机'" width="500px">
+    <el-dialog v-model="nvrDialogVisible" :title="nvrEditing ? '编辑NVR录像机' : '添加NVR录像机'" width="500px" class="vb-dialog">
       <el-form :model="nvrForm" label-width="100px">
         <el-form-item label="设备名称" required>
           <el-input v-model="nvrForm.name" placeholder="如：消防控制室Port5录像机" />
@@ -421,7 +425,7 @@ onMounted(() => {
     </el-dialog>
 
     <!-- 通道编辑对话框 -->
-    <el-dialog v-model="channelDialogVisible" :title="channelEditing ? '编辑摄像头通道' : '添加摄像头通道'" width="500px">
+    <el-dialog v-model="channelDialogVisible" :title="channelEditing ? '编辑摄像头通道' : '添加摄像头通道'" width="500px" class="vb-dialog">
       <el-form :model="channelForm" label-width="100px">
         <el-form-item label="所属NVR" required>
           <el-select v-model="channelForm.nvrId" placeholder="选择NVR录像机">
@@ -456,7 +460,21 @@ onMounted(() => {
 <style scoped>
 .video-binding-admin {
   padding: 20px;
+  min-width: 0;
 }
+
+/* 表格在窄屏交给容器做触摸横滑 (列宽固定、合计超 1000px), 而不是把整页撑出横向滚动 */
+.vb-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  border-radius: 10px;
+}
+/* 让表格按列宽总和撑开, 横滚由外层 wrap 承载(手机触摸可靠), 避免 el-table 内部滚动卡死 */
+.vb-table-wrap :deep(.el-table.vb-w-nvr) { min-width: 1060px; }
+.vb-table-wrap :deep(.el-table.vb-w-ch) { min-width: 960px; }
 
 .page-header {
   margin-bottom: 20px;
@@ -472,7 +490,7 @@ onMounted(() => {
 
 .page-header .desc {
   margin: 0;
-  color: #909399;
+  color: var(--v2-text-3);
   font-size: 14px;
 }
 
@@ -483,17 +501,22 @@ onMounted(() => {
 .toolbar {
   margin-bottom: 16px;
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
 .layout-config {
   display: grid;
-  grid-template-columns: 300px 1fr;
-  gap: 20px;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+@media (min-width: 760px) {
+  .layout-config { grid-template-columns: 300px 1fr; gap: 20px; }
 }
 
 .layout-settings {
-  background: #f5f7fa;
+  background: var(--v2-surf-1);
+  border: 1px solid var(--v2-border-soft);
   padding: 20px;
   border-radius: 8px;
 }
@@ -512,12 +535,13 @@ onMounted(() => {
   margin-bottom: 16px;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
 .setting-row .count {
   font-weight: 600;
-  color: #409eff;
+  color: var(--v2-primary);
 }
 
 .channel-selector {
@@ -525,7 +549,7 @@ onMounted(() => {
 }
 
 .hint {
-  color: #909399;
+  color: var(--v2-text-3);
   font-size: 13px;
   margin: 0 0 12px 0;
 }
@@ -536,7 +560,8 @@ onMounted(() => {
 }
 
 .channel-card {
-  border: 2px solid #e4e7ed;
+  border: 2px solid var(--v2-border-soft);
+  background: var(--v2-surf-1);
   border-radius: 8px;
   padding: 12px;
   cursor: pointer;
@@ -548,12 +573,12 @@ onMounted(() => {
 }
 
 .channel-card:hover {
-  border-color: #c0c4cc;
+  border-color: var(--v2-border-strong);
 }
 
 .channel-card.selected {
-  border-color: #409eff;
-  background: #ecf5ff;
+  border-color: var(--v2-primary);
+  background: var(--v2-primary-soft);
 }
 
 .channel-check {
@@ -573,13 +598,13 @@ onMounted(() => {
 
 .channel-name {
   font-size: 13px;
-  color: #606266;
+  color: var(--v2-text-2);
   margin-bottom: 2px;
 }
 
 .channel-nvr {
   font-size: 12px;
-  color: #909399;
+  color: var(--v2-text-3);
 }
 
 .channel-order {
@@ -588,7 +613,7 @@ onMounted(() => {
   right: 8px;
   width: 24px;
   height: 24px;
-  background: #409eff;
+  background: var(--v2-primary);
   color: white;
   border-radius: 50%;
   display: flex;
@@ -605,7 +630,8 @@ onMounted(() => {
 .preview-grid {
   display: grid;
   gap: 8px;
-  background: #1a1a2e;
+  background: var(--v2-surf-2);
+  border: 1px solid var(--v2-border-soft);
   padding: 12px;
   border-radius: 8px;
   min-height: 200px;
@@ -613,14 +639,14 @@ onMounted(() => {
 
 .preview-cell {
   aspect-ratio: 16/9;
-  background: #16213e;
-  border: 1px solid #0f3460;
+  background: var(--v2-inset-bg);
+  border: 1px solid var(--v2-primary-soft);
   border-radius: 4px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: #e94560;
+  color: var(--v2-primary);
 }
 
 .preview-num {
@@ -631,7 +657,7 @@ onMounted(() => {
 
 .preview-name {
   font-size: 12px;
-  color: #a0a0a0;
+  color: var(--v2-text-3);
 }
 
 .preview-empty {
@@ -639,13 +665,37 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #606266;
+  color: var(--v2-text-3);
   min-height: 150px;
 }
 
 .form-tip {
   font-size: 12px;
-  color: #909399;
+  color: var(--v2-text-3);
   margin-top: 4px;
+}
+
+/* ============ 手机端 (≤600px) ============ */
+@media (max-width: 600px) {
+  .video-binding-admin { padding: 12px 10px; }
+  .page-header h2 { font-size: 18px; }
+  .page-header .desc { font-size: 13px; }
+  .toolbar { gap: 8px; }
+  .toolbar :deep(.el-button) { margin-left: 0; }
+  .layout-settings { padding: 14px; }
+  /* 通道卡片 / 预览在手机上强制 1~2 列, 覆盖组件内联的 3~4 列, 避免文字挤爆 */
+  .channel-grid { grid-template-columns: 1fr !important; gap: 8px; }
+  .preview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .channel-card { padding: 10px; }
+}
+</style>
+
+<!-- 非 scoped: el-dialog 会 teleport 到 body, scoped 选择器命中不了, 单独用全局类控窄屏宽度 -->
+<style>
+.vb-dialog { width: 92vw !important; max-width: 500px; }
+@media (max-width: 600px) {
+  .vb-dialog .el-form-item__label {
+    justify-content: flex-start;
+  }
 }
 </style>
