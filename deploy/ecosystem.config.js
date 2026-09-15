@@ -21,19 +21,6 @@ const path = require('path');
 // 默认日志目录: 优先 env LOG_DIR (Windows 现场推荐 D:\smart-control\logs)
 const defaultLogDir = process.env.LOG_DIR || path.resolve(__dirname, '..', 'logs');
 
-// 现场可写的"运行时业务/设备数据"目录 (video-binding / park-ops-metrics /
-// park-ops-control 等 JSON)。必须落在 git 仓库之外, 否则部署时的
-// git merge/reset/清理未跟踪文件会覆盖或删除现场保存的值。
-// 根因事故 2026-09-15: 这些文件原本在 backend/data(仓库内), 部署后 KPI 与 AI
-// 计数线/ROI 被重置。后端三处读写均已支持 process.env.DATA_DIR, 这里统一注入。
-// Windows 现场固定到 D:\smart-control-runtime\data; 其它平台回退仓库内 .runtime
-// (已在 .gitignore); 也允许外部用环境变量 DATA_DIR 显式覆盖。
-const runtimeDataDir =
-  process.env.DATA_DIR ||
-  (process.platform === 'win32'
-    ? 'D:\\smart-control-runtime\\data'
-    : path.resolve(__dirname, '..', '.runtime', 'data'));
-
 module.exports = {
   apps: [
     {
@@ -71,8 +58,6 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: 3200,
-        // 运行时业务/设备数据写到仓库外, 防止部署覆盖现场配置 (见上方 runtimeDataDir)
-        DATA_DIR: runtimeDataDir,
         FFMPEG_PATH: 'D:\\smart-control-tools\\ffmpeg\\bin\\ffmpeg.exe',
         FFPROBE_PATH: 'D:\\smart-control-tools\\ffmpeg\\bin\\ffprobe.exe',
       },
@@ -82,9 +67,6 @@ module.exports = {
         // 的 /control/api), PWA 直连此端口, 不能再用 3000.
         NODE_ENV: 'production',
         PORT: 3200,
-        // 与 env 保持一致, --env production 时同样把运行时数据放到仓库外。
-        // 注意: 若 backend/.env 内也设置了 DATA_DIR, .env 优先级更高, 二者必须一致。
-        DATA_DIR: runtimeDataDir,
         // Windows 现场推荐 (在 backend/.env 中覆盖):
         //   DB_PATH=D:\\smart-control\\database\\smart-control.db
         //   LOG_DIR=D:\\smart-control\\logs

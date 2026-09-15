@@ -486,7 +486,7 @@ try {
           Where-Object { ($_ -notmatch '^\?\?') -and $_.Length -gt 3 } |
           ForEach-Object { $_.Substring(3).Trim('"') } |
           Where-Object {
-            $candidate = $_.Replace('/', '\\')
+            $candidate = $_.Replace('/', '\')
             ($candidate -like 'backend\data\*.json') -and ($candidate -notlike '*.example.json')
           }
       )
