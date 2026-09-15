@@ -306,13 +306,17 @@ async function exitToFront(): Promise<void> {
   padding: 11px 16px;
   border-bottom: 1px solid var(--v2-border-soft);
 }
+/* 品牌文字区可收缩: 长系统名单行省略, 不换行把侧栏头部撑高 */
+.brand-text { min-width: 0; flex: 1; }
 .title {
   font-weight: 600; font-size: 16px;
   color: var(--v2-text-1); letter-spacing: 0.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .sub {
   font-size: 11px; color: var(--v2-text-3);
   margin-top: 2px; letter-spacing: 1px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 .menu {

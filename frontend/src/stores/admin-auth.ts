@@ -16,14 +16,53 @@ import { setAdminToken, getApiBaseURL, getClientToken } from '@/services/http';
 
 const STORAGE_KEY = 'sc.adminToken';
 const SERVER_KEY = 'sc.adminAuthServer';
+// 同源 localStorage 镜像: sessionStorage 在 iOS standalone PWA「整页跳到独立静态文档」
+// (园区大屏布局校准 park-ops/index.html?edit=1) 时可能被清, 导致明明已登录却被踢回登录页。
+// 镜像带过期时间 + 服务器绑定, 到点/切服务器/登出即失效, 不放宽安全边界。
+const PERSIST_KEY = 'sc.adminToken.persist';
+
+function readPersistedAdmin(): { token: string; expiresAt: string } | null {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    const data = JSON.parse(localStorage.getItem(PERSIST_KEY) || 'null') as
+      { token?: string; expiresAt?: string; server?: string } | null;
+    if (!data?.token || !data.expiresAt || data.server !== getApiBaseURL()) return null;
+    const expMs = Date.parse(data.expiresAt);
+    if (!Number.isFinite(expMs) || expMs <= Date.now()) return null; // 已过期
+    return { token: data.token, expiresAt: data.expiresAt };
+  } catch { return null; }
+}
+function writePersistedAdmin(token: string, expiresAt: string): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(PERSIST_KEY, JSON.stringify({ token, expiresAt, server: getApiBaseURL() }));
+  } catch { /* 隐私模式/配额失败忽略 */ }
+}
+function clearPersistedAdmin(): void {
+  if (typeof localStorage === 'undefined') return;
+  try { localStorage.removeItem(PERSIST_KEY); } catch { /* ignore */ }
+}
 
 export const useAdminAuthStore = defineStore('admin-auth', () => {
   if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(SERVER_KEY) !== getApiBaseURL()) {
     sessionStorage.removeItem(STORAGE_KEY);
     sessionStorage.removeItem(STORAGE_KEY + ':exp');
   }
-  const token = ref<string | null>(typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(STORAGE_KEY) : null);
-  const expiresAt = ref<string | null>(typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(STORAGE_KEY + ':exp') : null);
+  // Hydrate: sessionStorage 没有时, 用未过期且同服务器的 localStorage 镜像恢复
+  let initialToken: string | null = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(STORAGE_KEY) : null;
+  let initialExp: string | null = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(STORAGE_KEY + ':exp') : null;
+  if (!initialToken) {
+    const persisted = readPersistedAdmin();
+    if (persisted && typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem(STORAGE_KEY, persisted.token);
+      sessionStorage.setItem(STORAGE_KEY + ':exp', persisted.expiresAt);
+      sessionStorage.setItem(SERVER_KEY, getApiBaseURL());
+      initialToken = persisted.token;
+      initialExp = persisted.expiresAt;
+    }
+  }
+  const token = ref<string | null>(initialToken);
+  const expiresAt = ref<string | null>(initialExp);
   const checking = ref(false);
   const checked = ref(false);
 
@@ -36,6 +75,7 @@ export const useAdminAuthStore = defineStore('admin-auth', () => {
     sessionStorage.removeItem(STORAGE_KEY);
     sessionStorage.removeItem(STORAGE_KEY + ':exp');
     sessionStorage.removeItem(SERVER_KEY);
+    clearPersistedAdmin();
   }));
 
   const isAuthenticated = computed<boolean>(() => !!token.value);
@@ -47,6 +87,7 @@ export const useAdminAuthStore = defineStore('admin-auth', () => {
     sessionStorage.setItem(STORAGE_KEY, res.token);
     sessionStorage.setItem(STORAGE_KEY + ':exp', res.expiresAt);
     sessionStorage.setItem(SERVER_KEY, getApiBaseURL());
+    writePersistedAdmin(res.token, res.expiresAt);
     setAdminToken(res.token);
     checked.value = true;
   }
@@ -57,6 +98,7 @@ export const useAdminAuthStore = defineStore('admin-auth', () => {
     expiresAt.value = null;
     sessionStorage.removeItem(STORAGE_KEY);
     sessionStorage.removeItem(STORAGE_KEY + ':exp');
+    clearPersistedAdmin();
     setAdminToken(null);
     checked.value = false;
   }
@@ -83,6 +125,7 @@ export const useAdminAuthStore = defineStore('admin-auth', () => {
       expiresAt.value = null;
       sessionStorage.removeItem(STORAGE_KEY);
       sessionStorage.removeItem(STORAGE_KEY + ':exp');
+      clearPersistedAdmin();
       setAdminToken(null);
       checked.value = true;
       return false;

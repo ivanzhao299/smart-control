@@ -114,6 +114,9 @@ textarea {
   font-size: 12.5px;
   border-bottom: 1px solid var(--border-soft) !important;
 }
+/* 表头一律单行: 固定列宽下超长用省略号, 不再因表头 label 换行把表头行/容器撑高
+   (日志中心-变更历史「配置变更历史」等页面) */
+.el-table th.el-table__cell .cell { white-space: nowrap; }
 .el-table td.el-table__cell {
   background: var(--bg-panel) !important;
   color: var(--text-primary) !important;
@@ -133,6 +136,13 @@ textarea {
 .el-table__fixed-right::before,
 .el-table__fixed::before {
   background: var(--border-soft) !important;
+}
+/* 横向滚动时右侧 fixed 列浮层会贴住根盒右缘、用不透明背景压住 1px 右边框并顶破圆角:
+   浮层整体让出 1px(露出根盒右边框) 并继承右侧圆角, 保证右侧圆角与边框线完整 */
+.el-table__fixed-right {
+  right: 1px;
+  border-radius: 0 13px 13px 0;
+  overflow: hidden;
 }
 .el-table__empty-block { background: var(--bg-panel) !important; }
 .el-table__empty-text { color: var(--text-secondary) !important; }

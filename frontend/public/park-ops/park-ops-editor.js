@@ -90,9 +90,27 @@
   let editor = null;
   let statusEl = null;
 
+  // 与 SPA stores/admin-auth.ts 对齐: admin token 主存 sessionStorage, 另有一份带
+  // 过期 + 服务器绑定的 localStorage 镜像, 兜住 iOS standalone PWA 整页跳到本静态页时
+  // sessionStorage 被清、明明已登录却被踢回登录页的问题。
+  function readStoredAdminToken() {
+    try {
+      const fromSession = sessionStorage.getItem('sc.adminToken');
+      if (fromSession) return fromSession;
+    } catch (e) { /* sessionStorage 不可用 */ }
+    try {
+      const data = JSON.parse(localStorage.getItem('sc.adminToken.persist') || 'null');
+      if (data && data.token && data.expiresAt && (!data.server || data.server === apiBase())) {
+        const exp = Date.parse(data.expiresAt);
+        if (!Number.isFinite(exp) || exp > Date.now()) return data.token; // 未过期才用
+      }
+    } catch (e) { /* 镜像损坏忽略 */ }
+    return null;
+  }
+
   function editorAuthHeaders() {
     const headers = {};
-    const adminToken = sessionStorage.getItem('sc.adminToken');
+    const adminToken = readStoredAdminToken();
     const accountToken = localStorage.getItem('sc.client.token');
     if (adminToken) headers.Authorization = `Bearer ${adminToken}`;
     if (accountToken) headers['X-Client-Token'] = accountToken;
@@ -850,7 +868,10 @@
       });
       const payload = await response.json().catch(() => ({}));
       if (response.status === 401) {
-        if (authHeaders.Authorization) sessionStorage.removeItem('sc.adminToken');
+        if (authHeaders.Authorization) {
+          sessionStorage.removeItem('sc.adminToken');
+          localStorage.removeItem('sc.adminToken.persist');
+        }
         editor.querySelector('#pe-login').hidden = false;
         throw new Error('管理员会话已失效，请返回控制系统重新登录，或点击“管理员登录后返回”');
       }
