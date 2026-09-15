@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnApplicationBootstrap } from '@nestjs/common';
 import * as https from 'https';
 import * as http from 'http';
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, spawnSync, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -78,6 +78,13 @@ interface HlsSession {
   startedAt: number;
   restartCount: number;
   isRunning: boolean;
+  // 代际：每次(重)启动 +1。旧进程的 close 回调只有在“仍是当前代际”时才允许自动重启，
+  // 被 restart 替换掉的旧进程退出时直接忽略，杜绝“旧进程 close 又 spawn 一个”的越重启越多。
+  generation: number;
+  // 是否被主动停止：stop 后置 true，其 close 不再自动拉起。
+  stopped: boolean;
+  // 分片停滞连续命中次数：连续 2 次才判死重启，避免一次网络抖动就 kill+spawn 制造孤儿。
+  stallCount: number;
 }
 
 @Injectable()
@@ -123,18 +130,23 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
           continue;
         }
 
-        // 检查2：HLS分片是否在更新（超过30秒未更新则重启）
+        // 检查2：HLS分片是否在更新。连续 2 个检查周期(约60s)停滞才判死，
+        // 避免一次网络抖动就 kill+spawn（Windows 上易残留孤儿、并形成 CPU 脉冲）。
         if (session.isRunning && fs.existsSync(session.playlistPath)) {
           const stat = fs.statSync(session.playlistPath);
           const age = Date.now() - stat.mtimeMs;
           if (age > 30000) {
-            this.logger.warn(`[健康检查] ${channelKey} HLS分片超过${Math.round(age / 1000)}秒未更新，触发重启`);
-            session.process?.kill('SIGTERM');
-            session.isRunning = false;
-            if (session.restartCount < 10) {
+            session.stallCount = (session.stallCount || 0) + 1;
+            this.logger.warn(`[健康检查] ${channelKey} 分片停滞${Math.round(age / 1000)}s（连续${session.stallCount}次）`);
+            if (session.stallCount >= 2 && session.restartCount < 10) {
+              session.stallCount = 0;
               session.restartCount++;
+              this.logger.warn(`[健康检查] ${channelKey} 连续2次停滞，安全重启（强杀旧进程树后重拉）`);
+              // restartHlsStream 内部负责换代、强杀旧进程树、清残留，这里无需先 kill
               setTimeout(() => this.restartHlsStream(channelKey), 2000);
             }
+          } else {
+            session.stallCount = 0;
           }
         }
 
@@ -291,92 +303,29 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
     }
 
     const playlistPath = path.join(outputDir, 'playlist.m3u8');
-    const segmentPattern = path.join(outputDir, 'segment_%03d.ts');
 
     this.logger.log(`启动HLS转码: ${channelKey} (${mapping.name}) -> ${outputDir}`);
     this.logger.log(`RTSP源: rtsp://${nvr.username}:****@${nvr.ip}:${nvr.rtspPort}/Streaming/Channels/${mapping.hikChannel}`);
 
-    // FFmpeg参数 — HEVC/H.265转码为H.264，浏览器可播放
-    // 1. 录像机输出HEVC，浏览器hls.js不支持，必须转码为H.264
-    // 2. ultrafast preset + zerolatency tune，最低延迟
-    // 3. crf 28，质量和码率平衡
-    // 4. 禁用音频(-an)，监控视频不需要
-    // 5. 子码流(XX02)640x360低分辨率，降低转码CPU占用
-    // 6. 1秒分片+3个分片，启动快延迟低
-    const ffmpegArgs = [
-      '-rtsp_transport', 'tcp',
-      '-fflags', 'nobuffer',
-      '-flags', 'low_delay',
-      '-i', rtspUrl,
-      '-c:v', 'libx264',      // HEVC转码为H.264，浏览器可播放
-      '-preset', 'ultrafast',   // 最快编码速度
-      '-tune', 'zerolatency',   // 最低延迟
-      '-crf', '28',             // 质量和码率平衡
-      '-an',                      // 禁用音频
-      '-f', 'hls',
-      '-hls_time', '1',           // 分片1秒，启动更快
-      '-hls_list_size', '3',      // 保留3个分片，减少延迟
-      '-hls_flags', 'delete_segments+append_list+omit_endlist',
-      '-hls_segment_filename', segmentPattern,
-      '-y',
-      playlistPath,
-    ];
-
-    // 启动FFmpeg进程
-    const process = spawn(this.ffmpegPath, ffmpegArgs, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      // GK9000(Windows) 上 ffmpeg.exe 是控制台子程序，必须隐藏窗口，
-      // 否则后端每拉起一路/每次崩溃重拉都会在现场桌面弹一个黑窗并层层堆叠。
-      windowsHide: true,
-    });
-
+    // FFmpeg：HEVC 子码流(XX02,640x360) -> H.264/HLS；参数统一收敛到 buildFfmpegArgs，
+    // start / restart 不再各维护一份，避免两处漂移。
     const session: HlsSession = {
       channel: channelKey,
-      process,
+      process: undefined as unknown as ChildProcess, // spawnSessionFfmpeg 内立即回填
       outputDir,
       playlistPath,
       startedAt: Date.now(),
       restartCount: 0,
       isRunning: true,
+      generation: 1,
+      stopped: false,
+      stallCount: 0,
     };
-
     this.hlsSessions.set(channelKey, session);
-
-    // 处理FFmpeg输出
-    process.stderr?.on('data', (data) => {
-      const msg = data.toString().trim();
-      if (msg && (msg.includes('error') || msg.includes('Error'))) {
-        this.logger.warn(`[FFmpeg ${channelKey}] ${msg.substring(0, 200)}`);
-      }
-    });
-
-    process.stdout?.on('data', () => {
-      // 忽略stdout输出
-    });
-
-    process.on('close', (code) => {
-      session.isRunning = false;
-      this.logger.log(`[FFmpeg ${channelKey}] 进程退出，代码: ${code}`);
-
-      // 自动重启（最多重启10次，指数退避）
-      if (session.restartCount < 10) {
-        session.restartCount++;
-        const delay = Math.min(3000 * session.restartCount, 15000);
-        this.logger.log(`[FFmpeg ${channelKey}] 自动重启 (第${session.restartCount}次，延迟${delay}ms)...`);
-        setTimeout(() => {
-          if (this.hlsSessions.has(channelKey)) {
-            this.restartHlsStream(channelKey);
-          }
-        }, delay);
-      } else {
-        this.logger.error(`[FFmpeg ${channelKey}] 重启次数超限，停止自动重启`);
-      }
-    });
-
-    process.on('error', (err) => {
-      this.logger.error(`[FFmpeg ${channelKey}] 进程错误: ${err.message}`);
-      session.isRunning = false;
-    });
+    // 启动前清理同一输出目录的历史孤儿 ffmpeg（后端重启后内存 Map 已空，旧 ffmpeg 可能仍在写），
+    // 再 spawn，保证每路全局唯一，杜绝两个 ffmpeg 写同一 HLS 目录互相踩踏。
+    this.clearOrphanFfmpeg(channelKey);
+    session.process = this.spawnSessionFfmpeg(channelKey, session, rtspUrl, session.generation);
 
     // 等待播放列表文件生成
     await this.waitForFile(playlistPath, 15000);
@@ -385,6 +334,133 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
       playlistUrl: `/api/cameras/${channelKey}/hls/playlist.m3u8`,
       outputDir,
     };
+  }
+
+  /** 统一构造 ffmpeg 参数（start / restart 共用，避免两份参数漂移） */
+  private buildFfmpegArgs(rtspUrl: string, segmentPattern: string, playlistPath: string): string[] {
+    return [
+      '-rtsp_transport', 'tcp',
+      '-fflags', 'nobuffer',
+      '-flags', 'low_delay',
+      '-i', rtspUrl,
+      '-c:v', 'libx264',      // HEVC/H.265 -> H.264，浏览器 hls.js 可播
+      '-preset', 'ultrafast', // 最快编码速度
+      '-tune', 'zerolatency', // 最低延迟
+      '-crf', '28',           // 质量/码率平衡
+      '-an',                  // 监控视频禁音频
+      '-f', 'hls',
+      '-hls_time', '1',
+      '-hls_list_size', '3',
+      '-hls_flags', 'delete_segments+append_list+omit_endlist',
+      '-hls_segment_filename', segmentPattern,
+      '-y',
+      playlistPath,
+    ];
+  }
+
+  /** spawn 一路 ffmpeg 并绑定（带代际约束的）事件处理 */
+  private spawnSessionFfmpeg(
+    channelKey: string,
+    session: HlsSession,
+    rtspUrl: string,
+    generation: number,
+  ): ChildProcess {
+    const segmentPattern = path.join(session.outputDir, 'segment_%03d.ts');
+    const args = this.buildFfmpegArgs(rtspUrl, segmentPattern, session.playlistPath);
+    const proc = spawn(this.ffmpegPath, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      // GK9000(Windows) 上 ffmpeg.exe 是控制台子程序，必须隐藏窗口，避免现场桌面黑窗堆叠
+      windowsHide: true,
+    });
+    this.bindFfmpegHandlers(channelKey, session, proc, generation);
+    return proc;
+  }
+
+  /**
+   * 绑定 ffmpeg 事件。关键：close 自动重启带"代际 + stopped"双闸门，
+   * 被 restart 替换掉的旧进程、被 stop 的进程退出时不再 spawn，根除孤儿累积。
+   */
+  private bindFfmpegHandlers(
+    channelKey: string,
+    session: HlsSession,
+    proc: ChildProcess,
+    generation: number,
+  ): void {
+    proc.stderr?.on('data', (data) => {
+      const msg = data.toString().trim();
+      if (msg && (msg.includes('error') || msg.includes('Error'))) {
+        this.logger.warn(`[FFmpeg ${channelKey}] ${msg.substring(0, 200)}`);
+      }
+    });
+    proc.stdout?.on('data', () => { /* 忽略 stdout */ });
+
+    proc.on('close', (code) => {
+      if (session.stopped || session.generation !== generation || session.process !== proc) {
+        this.logger.log(`[FFmpeg ${channelKey}] 旧代际(gen=${generation})进程退出 code=${code}，不再自动拉起`);
+        return;
+      }
+      session.isRunning = false;
+      this.logger.log(`[FFmpeg ${channelKey}] 进程退出，代码: ${code}`);
+      if (session.restartCount < 10) {
+        session.restartCount++;
+        const delay = Math.min(3000 * session.restartCount, 15000);
+        this.logger.log(`[FFmpeg ${channelKey}] 自动重启 (第${session.restartCount}次，延迟${delay}ms)...`);
+        setTimeout(() => {
+          const cur = this.hlsSessions.get(channelKey);
+          if (cur && !cur.stopped && cur.generation === generation) {
+            this.restartHlsStream(channelKey);
+          }
+        }, delay);
+      } else {
+        this.logger.error(`[FFmpeg ${channelKey}] 重启次数超限，停止自动重启`);
+      }
+    });
+
+    proc.on('error', (err) => {
+      this.logger.error(`[FFmpeg ${channelKey}] 进程错误: ${err.message}`);
+      if (session.generation === generation) session.isRunning = false;
+    });
+  }
+
+  /**
+   * 强杀 ffmpeg 进程树。Windows 上 child.kill('SIGTERM') 对阻塞在 RTSP 读取的
+   * ffmpeg 可能杀不干净、留下孤儿继续写同一 HLS 目录；统一 taskkill /T /F 杀整棵树，
+   * 其它平台回退 SIGKILL。
+   */
+  private killProcessTree(proc: ChildProcess | undefined): void {
+    if (!proc || proc.killed || typeof proc.pid !== 'number') return;
+    try {
+      if (process.platform === 'win32') {
+        spawnSync('taskkill', ['/PID', String(proc.pid), '/T', '/F'], { windowsHide: true });
+      } else {
+        proc.kill('SIGKILL');
+      }
+    } catch (e) {
+      this.logger.warn(`强杀 ffmpeg 进程树失败，回退普通 kill: ${(e as Error).message}`);
+      try { proc.kill('SIGKILL'); } catch { /* ignore */ }
+    }
+  }
+
+  /**
+   * 启动/重启前清理同一输出子目录的系统级残留 ffmpeg（历史孤儿兜底）。
+   * 后端重启/pm2 reload 后内存 Map 已空，但上一代 ffmpeg 可能仍在写同一目录，
+   * 这里按命令行包含的输出目录名在系统层面去重，保证每路全局最多一个 ffmpeg。
+   */
+  private clearOrphanFfmpeg(channelKey: string): void {
+    if (process.platform !== 'win32') return;
+    try {
+      const like = `*tmp\\hls\\${channelKey}\\*`; // TS 中 \\ => 一个反斜杠；通道名对 -like 无特殊含义
+      const ps =
+        "Get-CimInstance Win32_Process -Filter \"Name='ffmpeg.exe'\" | " +
+        `Where-Object { $_.CommandLine -like '${like}' } | ` +
+        'ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }';
+      spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], {
+        windowsHide: true,
+        timeout: 8000,
+      });
+    } catch (e) {
+      this.logger.warn(`[${channelKey}] 清理残留 ffmpeg 失败（忽略，不影响启动）: ${(e as Error).message}`);
+    }
   }
 
   /**
@@ -396,8 +472,11 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
 
     if (session) {
       this.logger.log(`停止HLS转码: ${channelKey}`);
+      // 先标记 stopped：该进程 close 回调将因 stopped / 代际不匹配而跳过自动重启
+      session.stopped = true;
       session.isRunning = false;
-      session.process.kill('SIGTERM');
+      // Windows 上 SIGTERM 可能杀不死阻塞在 RTSP 读取中的 ffmpeg，统一强杀整棵进程树，避免留孤儿
+      this.killProcessTree(session.process);
 
       // 清理输出目录
       try {
@@ -418,65 +497,26 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
   private restartHlsStream(channel: string): void {
     const channelKey = channel.toLowerCase();
     const session = this.hlsSessions.get(channelKey);
-    if (!session) return;
+    if (!session || session.stopped) return;
 
     const mapping = CHANNEL_MAP[channelKey];
-    const nvr = NVR_CONFIGS.find((n) => n.id === mapping.nvrId);
+    const nvr = NVR_CONFIGS.find((n) => n.id === mapping?.nvrId);
     if (!mapping || !nvr) return;
 
     const rtspUrl = `rtsp://${nvr.username}:${encodeURIComponent(nvr.password)}@${nvr.ip}:${nvr.rtspPort}/Streaming/Channels/${mapping.hikChannel}`;
-    const segmentPattern = path.join(session.outputDir, 'segment_%03d.ts');
 
-    const ffmpegArgs = [
-      '-rtsp_transport', 'tcp',
-      '-fflags', 'nobuffer',
-      '-flags', 'low_delay',
-      '-i', rtspUrl,
-      '-c:v', 'libx264',      // HEVC转码为H.264，浏览器可播放
-      '-preset', 'ultrafast',   // 最快编码速度
-      '-tune', 'zerolatency',   // 最低延迟
-      '-crf', '28',             // 质量和码率平衡
-      '-an',                      // 禁用音频
-      '-f', 'hls',
-      '-hls_time', '1',           // 分片1秒，启动更快
-      '-hls_list_size', '3',      // 保留3个分片，减少延迟
-      '-hls_flags', 'delete_segments+append_list+omit_endlist',
-      '-hls_segment_filename', segmentPattern,
-      '-y',
-      session.playlistPath,
-    ];
+    // 代际 +1：旧进程即使稍后才真正退出，其 close 回调因 generation 不匹配会直接跳过、
+    // 不再 spawn；先强杀旧进程树并清理同目录残留，再启动新进程，
+    // 保证同一路在任何时刻都只有一个 ffmpeg 在写 HLS 目录。
+    const generation = session.generation + 1;
+    session.generation = generation;
+    session.stallCount = 0;
+    this.killProcessTree(session.process);
+    this.clearOrphanFfmpeg(channelKey);
 
-    const process = spawn(this.ffmpegPath, ffmpegArgs, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      // GK9000(Windows) 上 ffmpeg.exe 是控制台子程序，必须隐藏窗口，
-      // 否则后端每拉起一路/每次崩溃重拉都会在现场桌面弹一个黑窗并层层堆叠。
-      windowsHide: true,
-    });
-
-    session.process = process;
+    session.process = this.spawnSessionFfmpeg(channelKey, session, rtspUrl, generation);
     session.isRunning = true;
     session.startedAt = Date.now();
-
-    process.stderr?.on('data', (data) => {
-      const msg = data.toString().trim();
-      if (msg && (msg.includes('error') || msg.includes('Error'))) {
-        this.logger.warn(`[FFmpeg ${channelKey}] ${msg.substring(0, 200)}`);
-      }
-    });
-
-    process.on('close', (code) => {
-      session.isRunning = false;
-      this.logger.log(`[FFmpeg ${channelKey}] 进程退出，代码: ${code}`);
-      if (session.restartCount < 10) {
-        session.restartCount++;
-        const delay = Math.min(3000 * session.restartCount, 15000);
-        setTimeout(() => {
-          if (this.hlsSessions.has(channelKey)) {
-            this.restartHlsStream(channelKey);
-          }
-        }, delay);
-      }
-    });
   }
 
   /**

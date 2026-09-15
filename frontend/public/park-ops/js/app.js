@@ -462,7 +462,8 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
   });
 
   // ==================== AI视频分析数据实时获取（优化版：增量更新+指数退避+防抖） ====================
-  const AI_API_BASE='http://localhost:8000';
+  // 同源：走后端 /api/ai 反代到 AI 分析器（生产 GK 同源可达；本地经 SSH 隧道 + AI_ANALYZER_URL 也能看）
+  const AI_API_BASE='/api/ai';
   const GATE_MAP={
     'd37':{name:'北大门',element:null},
     'd57':{name:'西大门',element:null},
@@ -507,7 +508,7 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
     try{
       const controller=new AbortController();
       const timeoutId=setTimeout(()=>controller.abort(),AI_FETCH_TIMEOUT);
-      const response=await fetch(`${AI_API_BASE}/api/stats`,{
+      const response=await fetch(`${AI_API_BASE}/stats`,{
         cache:'no-store',
         signal:controller.signal,
         headers:{'Accept':'application/json'}
@@ -638,11 +639,45 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
   let aiDetLastTime=0;
   const AI_DET_INTERVAL=1000; // 优化：从500ms改为1秒，减少CPU占用
   const AI_DET_TIMEOUT=3000;
+  // AI 检测框显式开关（默认开，localStorage 持久化）。只控制浏览器端 canvas 叠加，不影响后端 AI 分析。
+  let AI_BOX_ENABLED=true;
+  try{ AI_BOX_ENABLED=localStorage.getItem('parkops.aiBox')!=='0'; }catch{ AI_BOX_ENABLED=true; }
+  let aiBoxToggleBtn=null;
+  function clearAiBoxes(){
+    AI_GATE_IDS.forEach(cid=>{
+      const c=document.querySelector(`.cam[data-camera="${cid}"] .ai-overlay`);
+      const x=c&&c.getContext('2d'); if(c&&x)x.clearRect(0,0,c.width,c.height);
+    });
+  }
+  // 悬浮开关：position:fixed 不占文档流，绝不挤压大屏栅格；仅在视频监控页显示
+  function ensureAiBoxToggle(onVideoPage){
+    if(!aiBoxToggleBtn){
+      const btn=document.createElement('button');
+      btn.type='button';
+      Object.assign(btn.style,{position:'fixed',right:'18px',bottom:'56px',zIndex:'9999',padding:'5px 12px',
+        fontSize:'13px',lineHeight:'1.4',borderRadius:'14px',cursor:'pointer',
+        border:'1px solid rgba(0,191,255,.55)',background:'rgba(6,20,40,.72)',backdropFilter:'blur(2px)',fontFamily:'inherit'});
+      const paint=()=>{btn.textContent=AI_BOX_ENABLED?'AI 分析框：开':'AI 分析框：关';btn.style.color=AI_BOX_ENABLED?'#37e6ff':'#9fb3c8';};
+      btn.addEventListener('click',()=>{
+        AI_BOX_ENABLED=!AI_BOX_ENABLED;
+        try{localStorage.setItem('parkops.aiBox',AI_BOX_ENABLED?'1':'0');}catch{/* 隐私模式忽略 */}
+        paint();
+        if(!AI_BOX_ENABLED)clearAiBoxes();
+      });
+      paint();
+      document.body.appendChild(btn);
+      aiBoxToggleBtn=btn;
+    }
+    aiBoxToggleBtn.style.display=onVideoPage?'block':'none';
+  }
 
   async function fetchAiDetections(){
     // 只在视频监控页激活时获取检测数据
     const videoPage=document.querySelector('[data-name="视频监控"].active');
+    ensureAiBoxToggle(!!videoPage);
     if(!videoPage) return;
+    // 开关关闭：不请求数据并清空残留框线
+    if(!AI_BOX_ENABLED){ clearAiBoxes(); return; }
 
     // 防抖：避免并发请求
     if(aiDetFetching) return;
@@ -654,7 +689,7 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
     try{
       const controller=new AbortController();
       const timeoutId=setTimeout(()=>controller.abort(),AI_DET_TIMEOUT);
-      const response=await fetch(`${AI_API_BASE}/api/detections`,{
+      const response=await fetch(`${AI_API_BASE}/detections`,{
         cache:'no-store',
         signal:controller.signal,
         headers:{'Accept':'application/json'}
@@ -676,7 +711,13 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
   }
 
   function drawAiDetections(camId,camData){
-    const camEl=document.querySelector(`.cam[data-camera="${camId}"]`);
+    if(!AI_BOX_ENABLED) return;
+    // 只在“视频监控”页作用域内定位：其它页（综合态势/人车管理等）也可能有同名 data-camera
+    // 的小预览窗且排在 DOM 前面、内部并无 ai-overlay；全局选择器会误命中它然后 return，导致框画不上。
+    const videoRoot=document.querySelector('[data-name="视频监控"]');
+    const camEl=videoRoot
+      ? videoRoot.querySelector(`.cam[data-camera="${camId}"]`)
+      : document.querySelector(`.cam[data-camera="${camId}"]`);
     if(!camEl) return;
     const canvas=camEl.querySelector('.ai-overlay');
     if(!canvas) return;
