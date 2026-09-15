@@ -70,6 +70,10 @@ function render() {
     { channel: 'd02', name: '东区通道', tag: '东区通道 · D02' },
     { channel: 'p3-d37', name: '东大门', tag: '东大门 · P3-D37' },
   ].map(c => `<div class="cam cam-hls" data-camera="${c.channel}" data-name="${c.name}"><span class="live"><span class="live-indicator"></span>LIVE</span><video class="cam-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video><div class="mock">${c.name} · HLS连接中...</div><span class="tag">${c.tag}</span></div>`).join('');
+  // 内存泄漏根治：panel() 用 innerHTML 重建会删除旧 <video>，重建前必须先销毁其绑定的
+  // Hls 实例（Worker/MSE/缓冲）。render() 每 15s 随运营数据轮询执行一次，此前漏掉这步会
+  // 每轮泄漏 4 个孤儿 Hls，约 1 小时把渲染进程撑爆导致 LED 白屏。
+  if (window.teardownHlsWithin) window.teardownHlsWithin(right[1]);
   panel(right[1], '视频安防 · 实时监控', `<div class="cameras">${hlsCamerasSmall}</div>` + para('已接入4路HLS流畅视频流，通过FFmpeg实时转码，延迟约3-5秒。', true));
   // 动态生成的HLS视频元素需要手动初始化（ops-content重新渲染后新元素不会被页面加载时的initAllCams覆盖）
   // 延迟到下一个事件循环，确保DOM已更新；通过document选择器查询，避免闭包变量失效
