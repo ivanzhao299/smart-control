@@ -477,6 +477,29 @@ try {
           }
       }
 
+      # A modified tracked legacy JSON would block a later commit that removes it
+      # from the repository. Once the same file is confirmed in DATA_DIR, restore
+      # only the in-tree working copy from HEAD so merge can proceed. DATA_DIR is
+      # never overwritten or removed here.
+      $trackedRuntimeFiles = @(
+        git status --porcelain |
+          Where-Object { ($_ -notmatch '^\?\?') -and $_.Length -gt 3 } |
+          ForEach-Object { $_.Substring(3).Trim('"') } |
+          Where-Object {
+            $candidate = $_.Replace('/', '\\')
+            ($candidate -like 'backend\data\*.json') -and ($candidate -notlike '*.example.json')
+          }
+      )
+      foreach ($relativeFile in $trackedRuntimeFiles) {
+        $safePath = Join-Path $runtimeDataDir (Split-Path $relativeFile -Leaf)
+        if (Test-Path $safePath) {
+          Invoke-Native 'git' @('restore', '--worktree', '--', $relativeFile)
+          Write-DeployLog "Restored tracked legacy runtime copy after DATA_DIR protection: $relativeFile"
+        } else {
+          throw "Refusing to restore tracked runtime file without DATA_DIR copy: $relativeFile"
+        }
+      }
+
       # Protected on-box paths that must NEVER be removed as untracked files.
       # Keep logs too: they are operational evidence and never a merge conflict target.
       function Test-ProtectedRuntime([string]$rel) {
