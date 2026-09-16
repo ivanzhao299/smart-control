@@ -46,10 +46,11 @@ async function refresh(): Promise<void> {
 async function saveZone(z: AudioOutputZone): Promise<void> {
   savingId.value = `z${z.id}`;
   try {
-    await audioConfigService.updateZone(z.id, {
+    const saved = await audioConfigService.updateZone(z.id, {
       name: z.name, floor: z.floor, color: z.color, enabled: z.enabled, sortOrder: z.sortOrder,
     });
-    ElMessage.success(`已保存 OUT${z.channel + 1}: ${z.name}`);
+    await refresh();
+    ElMessage.success(`已保存 OUT${saved.channel + 1}: ${saved.name}`);
   } catch (e) {
     ElMessage.error(`保存失败: ${(e as Error).message}`);
   } finally {
