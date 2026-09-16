@@ -80,9 +80,7 @@ describe('GK9000 deployment gates', () => {
     expect(workflow).toContain('actions: write');
     expect(workflow).toContain('gh workflow run deploy-gk9000.yml --ref main');
     expect(workflow).not.toContain('git push origin HEAD:main && exit 0');
-    expect(workflow).toContain(
-      'B8E4BCFCE594FB84C1280BA7C260A767492D747CA86CA0DD51A577CCE1870D04',
-    );
+    expect(workflow).toContain('B8E4BCFCE594FB84C1280BA7C260A767492D747CA86CA0DD51A577CCE1870D04');
   });
 
   it('keeps destructive workspace cleanup out of the jump host and dispatcher', () => {
@@ -145,6 +143,7 @@ describe('GK9000 deployment gates', () => {
     const suspend = readRepositoryFile('scripts/suspend-gk9000-release.ps1');
     const assertStopped = readRepositoryFile('scripts/assert-gk9000-writers-stopped.ps1');
     const resume = readRepositoryFile('scripts/resume-gk9000-release.ps1');
+    const reconcile = readRepositoryFile('scripts/reconcile-held-gk9000-release.ps1');
     const tasks = readRepositoryFile('scripts/gk9000-release-tasks.ps1');
 
     expect(deploy).toContain('scripts/run-migrations.js --check-only');
@@ -158,10 +157,21 @@ describe('GK9000 deployment gates', () => {
     expect(deploy).not.toContain('& node scripts/run-migrations.js 2>&1');
     expect(deploy).toContain('-AbortBeforeMigration -Apply');
     expect(suspend).toContain(". (Join-Path $PSScriptRoot 'gk9000-release-tasks.ps1')");
-    expect(suspend).toContain("$process.ParentProcessId -in $owners");
-    expect(suspend).toContain("$managedExternal += $process");
+    expect(suspend).toContain('$process.ParentProcessId -in $owners');
+    expect(suspend).toContain('$managedExternal += $process');
     expect(assertStopped).toContain('Get-Gk9000ReleaseTasks');
+    expect(assertStopped).toContain("throw 'Unexpected migration controller.'");
+    expect(assertStopped).toContain('$controllerPid = $controller.ProcessId');
+    expect(assertStopped).toContain('reconcile-held-gk9000-release');
+    expect(deploy).toContain("$pm2FailClosed = 'C:\\Users\\user\\AppData\\Roaming\\npm\\pm2.cmd'");
+    expect(deploy).toContain("Invoke-Native $pm2FailClosed @('kill')");
     expect(resume).toContain("ParameterSetName='Aborted'");
+    expect(reconcile).toContain('if (-not $Apply)');
+    expect(reconcile).toContain('scripts/run-gk9000-migrations.cjs');
+    expect(reconcile).toContain('scripts\\resume-gk9000-release.ps1');
+    expect(reconcile.indexOf('run-gk9000-migrations.cjs')).toBeLessThan(
+      reconcile.indexOf('resume-gk9000-release.ps1'),
+    );
     expect(tasks).toContain('$script:Gk9000RequiredReleaseTasks');
     expect(tasks).toContain("$script:Gk9000OptionalReleaseTasks = @('SmartControlFrontend')");
   });
@@ -203,9 +213,7 @@ describe('GK9000 deployment gates', () => {
     const deployWorkflow = readRepositoryFile('.github/workflows/deploy-gk9000.yml');
 
     expect(supplyChain).toContain('pnpm install --frozen-lockfile --prod --ignore-scripts');
-    expect(supplyChain).toContain(
-      'anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26',
-    );
+    expect(supplyChain).toContain('anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26');
     expect(supplyChain).toContain('syft-version: v1.51.1');
     expect(supplyChain).toContain('github.event.pull_request.head.sha || github.sha');
     expect(supplyChain).toContain('Validate SBOM completeness and provenance');
@@ -231,7 +239,14 @@ describe('GK9000 deployment gates', () => {
 
     const workflows = execFileSync(
       'git',
-      ['grep', '-h', '-E', 'uses: (actions/(checkout|setup-node|upload-artifact|download-artifact)|pnpm/action-setup)@', '--', '.github/workflows'],
+      [
+        'grep',
+        '-h',
+        '-E',
+        'uses: (actions/(checkout|setup-node|upload-artifact|download-artifact)|pnpm/action-setup)@',
+        '--',
+        '.github/workflows',
+      ],
       { cwd: repositoryRoot, encoding: 'utf8' },
     );
     expect(workflows).not.toMatch(/@(v4|v5)\b/);
