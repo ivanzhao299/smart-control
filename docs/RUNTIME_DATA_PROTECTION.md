@@ -11,9 +11,9 @@
 | 文件 | 内容 | 后端读写点 |
 | --- | --- | --- |
 | SQLite `video.binding` | NVR/通道绑定、AI 开关、**计数线 countLine、检测区域 roiPolygon**、分屏布局 | `RuntimeConfigStore` + `cameras/video-binding.service.ts` |
-| `video-binding.json(.bak)` | 首次迁移输入与恢复对账证据；迁移后禁止写入 | 仅迁移与空库初始化读取 |
+| `video-binding.json(.bak)` | 已执行迁移与恢复对账证据；迁移后禁止写入 | 仅历史迁移读取；应用启动不读取 |
 | SQLite `park.ops.metrics` | 运营大屏顶部 KPI / 业务数字文档（PWA“运营数据”保存） | `RuntimeConfigStore` + `cameras/park-ops-metrics.service.ts` |
-| `park-ops-metrics.json(.bak)` | 首次迁移输入与恢复对账证据；迁移后禁止写入 | 仅迁移与空库初始化读取 |
+| `park-ops-metrics.json(.bak)` | 已执行迁移与恢复对账证据；迁移后禁止写入 | 仅历史迁移读取；应用启动不读取 |
 | SQLite `park.ops.visual` | 园区大屏分区、楼栋、文字与坐标布局 | `RuntimeConfigStore` + `system-branding/system-branding.service.ts` |
 | `system_branding_v2.parkOpsConfigJson` | 园区布局首次迁移前快照；迁移后禁止写入 | 仅迁移读取和恢复对账 |
 | `ParkOpsControlService` 进程内状态 | 大屏页码、自动轮播和一次性刷新指令；重启恢复安全默认值 | `cameras/park-ops-control.service.ts` |
@@ -87,3 +87,9 @@
 - `system_branding_v2.parkOpsConfigJson` 保留为只读恢复快照。应用读写只走 `RuntimeConfigStore`，保存相同文档不制造修订，真实变更递增 revision 并记录 SHA-256、操作者和来源。
 - 编辑器加载时记录 revision，保存时提交期望版本；过期页面收到 409 并要求刷新，避免覆盖另一位管理员的新布局。旧客户端直接提交文档仍可兼容。
 - 品牌默认行由迁移幂等建立，服务启动不再读取仓库 Logo、覆盖数据库 Logo 或写 `branding-logo-transparent.done`；生产现有 Logo 和历史哨兵均未删除。
+
+## 10. 2026-09-17 旧 JSON 启动回退退役
+
+- `VideoBindingService` 和 `ParkOpsMetricsService` 启动时只读 `RuntimeConfigStore`，不再探测或解析旧 JSON；旧文件损坏、变化或被恢复均不能覆盖 SQLite。
+- `EnsureVideoBindingRuntimeConfig1789590000000` 只为没有导入文件且没有权威文档的新库建立固定时间戳的默认 revision 1；目标键已存在时严格不写。视频文档异常缺失会阻止应用启动，避免以静默默认值掩盖迁移故障。
+- 生产第 31 个迁移执行前后三份配置的 revision、历史条数和 SHA-256 全部不变。旧 JSON 继续随恢复包保留，但仅用于离线审计和配套恢复，不是应用回退源。
