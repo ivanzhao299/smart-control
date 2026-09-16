@@ -1,4 +1,15 @@
-import { BadRequestException, Body, Controller, Get, NotFoundException, Put, Req, Res, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  HttpException,
+  NotFoundException,
+  Put,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { SystemBrandingDto, SystemBrandingService } from './system-branding.service';
 import { AdminGuard } from '../admin-auth/admin-auth.guard';
@@ -56,8 +67,28 @@ export class SystemBrandingController {
   @UseGuards(AdminGuard)
   async updateParkOps(@Body() body: unknown): Promise<unknown> {
     try {
-      return { message: '园区大屏布局已保存', data: await this.service.updateParkOpsConfig(body) };
+      const request = body as { config?: unknown; expectedRevision?: unknown };
+      const versioned =
+        !!request &&
+        typeof request === 'object' &&
+        !Array.isArray(request) &&
+        Object.prototype.hasOwnProperty.call(request, 'config');
+      let expectedRevision: number | undefined;
+      if (versioned) {
+        if (!Number.isInteger(request.expectedRevision) || Number(request.expectedRevision) < 0) {
+          throw new BadRequestException('expectedRevision 必须是非负整数');
+        }
+        expectedRevision = Number(request.expectedRevision);
+      }
+      return {
+        message: '园区大屏布局已保存',
+        data: await this.service.updateParkOpsConfig(
+          versioned ? request.config : body,
+          expectedRevision,
+        ),
+      };
     } catch (error) {
+      if (error instanceof HttpException) throw error;
       throw new BadRequestException((error as Error).message);
     }
   }
@@ -70,7 +101,17 @@ export class SystemBrandingController {
   @UseGuards(AdminGuard)
   @Put('welcome')
   async updateWelcome(
-    @Body() body: Partial<Pick<SystemBrandingDto, 'welcomeGuest' | 'welcomeTitle' | 'welcomeTagline' | 'welcomeBgMediaId' | 'welcomePhotoMediaId'>>,
+    @Body()
+    body: Partial<
+      Pick<
+        SystemBrandingDto,
+        | 'welcomeGuest'
+        | 'welcomeTitle'
+        | 'welcomeTagline'
+        | 'welcomeBgMediaId'
+        | 'welcomePhotoMediaId'
+      >
+    >,
   ): Promise<unknown> {
     if (!body || typeof body !== 'object') {
       throw new BadRequestException('请求体必须是 JSON 对象');

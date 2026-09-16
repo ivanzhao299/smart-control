@@ -1,10 +1,14 @@
 export type ParkOpsConfigDocument = Record<string, unknown>;
 
+export const PARK_OPS_VISUAL_CONFIG_KEY = 'park.ops.visual';
+export const PARK_OPS_VISUAL_SCHEMA_VERSION = 1;
+
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 const FIT_MODES = new Set(['stretch', 'cover', 'contain']);
 
 function record(value: unknown, name: string): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${name} 必须是对象`);
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new Error(`${name} 必须是对象`);
   return value as Record<string, unknown>;
 }
 
@@ -22,7 +26,8 @@ function numberIn(value: unknown, name: string, min: number, max: number): numbe
 }
 
 function color(value: unknown, name: string): string {
-  if (typeof value !== 'string' || !HEX_COLOR.test(value)) throw new Error(`${name} 必须是 #RRGGBB 色值`);
+  if (typeof value !== 'string' || !HEX_COLOR.test(value))
+    throw new Error(`${name} 必须是 #RRGGBB 色值`);
   return value;
 }
 
@@ -40,7 +45,8 @@ export function normalizeParkOpsConfig(input: unknown): ParkOpsConfigDocument {
 
   const root = record(cloned, '配置');
   if (root.version !== 1) throw new Error('仅支持 version=1 的园区大屏配置');
-  if (!FIT_MODES.has(String(root.fitMode))) throw new Error('fitMode 必须是 stretch、cover 或 contain');
+  if (!FIT_MODES.has(String(root.fitMode)))
+    throw new Error('fitMode 必须是 stretch、cover 或 contain');
 
   if (!Array.isArray(root.phases) || root.phases.length < 1 || root.phases.length > 8) {
     throw new Error('分区数量必须在 1–8 之间');
@@ -67,7 +73,8 @@ export function normalizeParkOpsConfig(input: unknown): ParkOpsConfigDocument {
     });
   });
 
-  if (!Array.isArray(root.buildings) || root.buildings.length > 200) throw new Error('楼栋数量不能超过 200');
+  if (!Array.isArray(root.buildings) || root.buildings.length > 200)
+    throw new Error('楼栋数量不能超过 200');
   const buildingIds = new Set<string>();
   root.buildings.forEach((item, buildingIndex) => {
     const building = record(item, `buildings[${buildingIndex}]`);
@@ -94,7 +101,8 @@ export function normalizeParkOpsConfig(input: unknown): ParkOpsConfigDocument {
   }
 
   const customTexts = root.customTexts ?? [];
-  if (!Array.isArray(customTexts) || customTexts.length > 200) throw new Error('地图自由文字不能超过 200 项');
+  if (!Array.isArray(customTexts) || customTexts.length > 200)
+    throw new Error('地图自由文字不能超过 200 项');
   const customTextIds = new Set<string>();
   customTexts.forEach((item, textIndex) => {
     const label = record(item, `customTexts[${textIndex}]`);

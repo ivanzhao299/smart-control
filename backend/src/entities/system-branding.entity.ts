@@ -6,7 +6,7 @@ import { Column, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeor
  * 区别于 brand.entity.ts (那是硬件厂商目录, NovaStar / DALI 等),
  * 这张是 *本系统* 的品牌身份: 左上角 logo + 标题 + 副标题.
  *
- * 单行表 (id=1), 服务 lazy 初始化默认值, 后台直接 PUT 更新. 前台所有 layout
+ * 单行表 (id=1), 数据库迁移初始化默认值, 后台直接 PUT 更新. 前台所有 layout
  * (MainLayout 平板 / AdminLayout 后台 / BrandLogo 组件) 都从 /api/system-branding
  * 读取, 不再硬编码 "金湖展贸中心". 这样不同项目 / 不同业主只换数据库一条
  * 记录就完事, 不用动代码.
@@ -104,7 +104,10 @@ export class SystemBranding {
   @Column({ type: 'integer', name: 'welcomePhotoMediaId', nullable: true })
   welcomePhotoMediaId!: number | null;
 
-  /** 园区运营大屏可视化校准配置。JSON 文本由服务层做严格结构和范围校验。 */
+  /**
+   * 园区运营大屏可视化校准配置的迁移前快照。
+   * 自 ImportParkOpsVisualRuntimeConfig 起仅作恢复证据，业务读写以 park.ops.visual 为准。
+   */
   @Column({ type: 'text', name: 'parkOpsConfigJson', nullable: true })
   parkOpsConfigJson!: string | null;
 

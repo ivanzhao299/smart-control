@@ -1,14 +1,18 @@
-import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
+import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { promises as fs } from 'fs';
-import { resolve } from 'path';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Repository } from 'typeorm';
 import { Logger } from 'winston';
+import { RuntimeConfigStore } from '../../common/runtime-config/runtime-config.store';
 import { SystemBranding } from '../../entities/system-branding.entity';
 import { lanOrigin } from '../../common/utils/lan-origin';
-import { normalizeParkOpsConfig, type ParkOpsConfigDocument } from './park-ops-config';
+import {
+  normalizeParkOpsConfig,
+  PARK_OPS_VISUAL_CONFIG_KEY,
+  PARK_OPS_VISUAL_SCHEMA_VERSION,
+  type ParkOpsConfigDocument,
+} from './park-ops-config';
 
 export interface SystemBrandingDto {
   systemName: string;
@@ -53,64 +57,20 @@ const DEFAULTS: SystemBrandingDto = {
 };
 
 @Injectable()
-export class SystemBrandingService implements OnModuleInit {
+export class SystemBrandingService {
+  private parkOpsMutationQueue: Promise<void> = Promise.resolve();
+
   constructor(
     @InjectRepository(SystemBranding) private readonly repo: Repository<SystemBranding>,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
     private readonly config: ConfigService,
+    private readonly runtimeConfig: RuntimeConfigStore,
   ) {}
-
-  /** 启动时确保 id=1 这条记录存在 (没有就插默认), 后续都直接 update id=1 */
-  async onModuleInit(): Promise<void> {
-    const existing = await this.repo.findOne({ where: { id: 1 } });
-    if (!existing) {
-      const seed = this.repo.create({ id: 1, ...DEFAULTS });
-      await this.repo.save(seed);
-      this.logger.info('[SystemBranding] 初始化默认配置 (id=1)');
-    }
-    await this.healTransparentLogo();
-  }
-
-  /**
-   * 一次性割接 (2026-07-26): logo 换成透明底版本。
-   *
-   * 业主投诉 (带投影待机页照片): "外面圆角里面方角图片非常丑, 必须解决" ——
-   * 库里存的 logo 是白底图, 待机页/图标把它放进圆角容器里就是白方块怼蓝底。
-   * 仓库 frontend/public/brand-logo.png 是同一枚 logo 的**全透明底**版 (本次
-   * 已重新裁切居中), 启动时把它以 data URI 写进 logoUrl。
-   *
-   * 一次性哨兵 = logs/branding-logo-transparent.done 标记文件 (不入 git):
-   * 割接过一次就永不再动 —— 业主以后在后台上传新 logo 不会被这里冲掉。
-   */
-  private async healTransparentLogo(): Promise<void> {
-    try {
-      const flag = resolve(process.cwd(), '..', 'logs', 'branding-logo-transparent.done');
-      if (await fs.access(flag).then(() => true).catch(() => false)) return;
-      const asset = resolve(process.cwd(), '..', 'frontend', 'public', 'brand-logo.png');
-      const buf = await fs.readFile(asset).catch(() => null);
-      if (!buf) return; // 老部署没这文件, 跳过
-      const dataUri = `data:image/png;base64,${buf.toString('base64')}`;
-      const row = await this.repo.findOne({ where: { id: 1 } });
-      if (row && row.logoUrl !== dataUri) {
-        row.logoUrl = dataUri;
-        await this.repo.save(row);
-        this.logger.warn('[SystemBranding] logo 已替换为透明底版本 (2026-07-26 割接)', {
-          context: 'SystemBranding',
-        });
-      }
-      await fs.mkdir(resolve(process.cwd(), '..', 'logs'), { recursive: true }).catch(() => {});
-      await fs.writeFile(flag, new Date().toISOString()).catch(() => {});
-    } catch (e) {
-      this.logger.warn(`[SystemBranding] 透明 logo 割接失败: ${(e as Error).message}`, {
-        context: 'SystemBranding',
-      });
-    }
-  }
 
   async get(): Promise<SystemBrandingDto> {
     const row = await this.repo.findOne({ where: { id: 1 } });
     if (!row) {
-      // onModuleInit 出错可能没塞, 兜底返默认值 (不写库)
+      // 迁移门禁异常时仍给公开页面安全默认值，不在读取路径写库。
       return { ...DEFAULTS };
     }
     return {
@@ -131,7 +91,7 @@ export class SystemBrandingService implements OnModuleInit {
       // 上墙照片走"仅当前绑定照片"的匿名公开路由 (普通 /api/media/:id/file 需登录,
       // 大屏与扫码手机都没有 token); 加 updatedAt 版本参数让轮询拿到新图而非旧缓存
       welcomePhotoUrl: row.welcomePhotoMediaId
-        ? `/api/system-branding/welcome-photo/file?v=${(row.updatedAt?.getTime?.() ?? Date.now())}`
+        ? `/api/system-branding/welcome-photo/file?v=${row.updatedAt?.getTime?.() ?? Date.now()}`
         : null,
       serverOrigin: lanOrigin(this.config.get<number>('app.port') ?? 3000),
     };
@@ -150,31 +110,100 @@ export class SystemBrandingService implements OnModuleInit {
     return row?.welcomeMediaId ?? null;
   }
 
-  async getParkOpsConfig(): Promise<{ config: ParkOpsConfigDocument | null; updatedAt: string | null }> {
-    const row = await this.repo.findOne({ where: { id: 1 } });
-    if (!row?.parkOpsConfigJson) return { config: null, updatedAt: row?.updatedAt?.toISOString?.() ?? null };
-    try {
-      return {
-        config: normalizeParkOpsConfig(JSON.parse(row.parkOpsConfigJson)),
-        updatedAt: row.updatedAt?.toISOString?.() ?? null,
-      };
-    } catch (error) {
-      this.logger.error(`[SystemBranding] 园区大屏配置损坏，已回退内置默认值: ${(error as Error).message}`);
-      return { config: null, updatedAt: row.updatedAt?.toISOString?.() ?? null };
-    }
+  async getParkOpsConfig(): Promise<{
+    config: ParkOpsConfigDocument | null;
+    revision: number;
+    checksum: string | null;
+    updatedAt: string | null;
+  }> {
+    const snapshot = await this.runtimeConfig.read(
+      PARK_OPS_VISUAL_CONFIG_KEY,
+      normalizeParkOpsConfig,
+    );
+    return snapshot
+      ? {
+          config: snapshot.value,
+          revision: snapshot.revision,
+          checksum: snapshot.checksum,
+          updatedAt: snapshot.updatedAt,
+        }
+      : { config: null, revision: 0, checksum: null, updatedAt: null };
   }
 
-  async updateParkOpsConfig(input: unknown): Promise<{ config: ParkOpsConfigDocument; updatedAt: string | null }> {
+  async updateParkOpsConfig(
+    input: unknown,
+    expectedRevision?: number,
+  ): Promise<{
+    config: ParkOpsConfigDocument;
+    revision: number;
+    checksum: string;
+    updatedAt: string;
+  }> {
     const config = normalizeParkOpsConfig(input);
-    const current = await this.repo.findOne({ where: { id: 1 } });
-    if (current) {
-      await this.repo.update({ id: 1 }, { parkOpsConfigJson: JSON.stringify(config) });
-    } else {
-      await this.repo.save(this.repo.create({ id: 1, ...DEFAULTS, parkOpsConfigJson: JSON.stringify(config) }));
+    const operation = this.parkOpsMutationQueue.then(() =>
+      this.saveParkOpsConfig(config, expectedRevision),
+    );
+    this.parkOpsMutationQueue = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
+  }
+
+  private async saveParkOpsConfig(
+    config: ParkOpsConfigDocument,
+    expectedRevision?: number,
+  ): Promise<{
+    config: ParkOpsConfigDocument;
+    revision: number;
+    checksum: string;
+    updatedAt: string;
+  }> {
+    const current = await this.runtimeConfig.read(
+      PARK_OPS_VISUAL_CONFIG_KEY,
+      normalizeParkOpsConfig,
+    );
+    const actualRevision = current?.revision ?? 0;
+    if (expectedRevision !== undefined && expectedRevision !== actualRevision) {
+      throw new ConflictException({
+        code: 'RUNTIME_CONFIG_REVISION_CONFLICT',
+        key: PARK_OPS_VISUAL_CONFIG_KEY,
+        expectedRevision,
+        actualRevision,
+      });
     }
-    this.logger.info('[SystemBranding] 园区大屏布局配置已更新');
-    const saved = await this.getParkOpsConfig();
-    return { config, updatedAt: saved.updatedAt };
+    try {
+      const saved = current
+        ? await this.runtimeConfig.update({
+            key: PARK_OPS_VISUAL_CONFIG_KEY,
+            schemaVersion: PARK_OPS_VISUAL_SCHEMA_VERSION,
+            expectedRevision: current.revision,
+            value: config,
+            normalize: normalizeParkOpsConfig,
+            actor: 'admin-api',
+            source: 'PUT /api/system-branding/park-ops',
+          })
+        : await this.runtimeConfig.initialize({
+            key: PARK_OPS_VISUAL_CONFIG_KEY,
+            schemaVersion: PARK_OPS_VISUAL_SCHEMA_VERSION,
+            value: config,
+            normalize: normalizeParkOpsConfig,
+            actor: 'admin-api',
+            source: 'PUT /api/system-branding/park-ops',
+          });
+      this.logger.info(`[SystemBranding] 园区大屏布局配置已更新 (revision=${saved.revision})`);
+      return {
+        config: saved.value,
+        revision: saved.revision,
+        checksum: saved.checksum,
+        updatedAt: saved.updatedAt,
+      };
+    } catch (error) {
+      if (error instanceof ConflictException) {
+        this.logger.warn('[SystemBranding] 园区大屏布局保存发生版本冲突，已拒绝旧写入');
+      }
+      throw error;
+    }
   }
 
   async update(input: Partial<SystemBrandingDto>): Promise<SystemBrandingDto> {
