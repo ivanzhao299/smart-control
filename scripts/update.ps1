@@ -165,21 +165,16 @@ if (Test-Path $backupScript) {
 Write-Host "`n[4/6] 检查依赖变化..." -ForegroundColor Yellow
 $pkgChanged = git diff --name-only "$beforeCommit" HEAD 2>$null | Select-String -Pattern 'package(-lock)?\.json|pnpm-lock\.yaml'
 if ($pkgChanged -or $Force) {
+  if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
+    throw '未检测到 pnpm。依赖版本只允许由 pnpm@10.33.4 和 pnpm-lock.yaml 管理。'
+  }
   Write-Host "  package 文件有变化, 重装依赖..." -ForegroundColor Yellow
   Push-Location (Join-Path $projectRoot 'backend')
-  if (Get-Command pnpm -ErrorAction SilentlyContinue) {
-    Run "pnpm install --frozen-lockfile"
-  } else {
-    Run "npm ci --no-audit --no-fund"
-  }
+  Run "pnpm install --frozen-lockfile"
   Pop-Location
 
   Push-Location (Join-Path $projectRoot 'frontend')
-  if (Get-Command pnpm -ErrorAction SilentlyContinue) {
-    Run "pnpm install --frozen-lockfile"
-  } else {
-    Run "npm ci --no-audit --no-fund"
-  }
+  Run "pnpm install --frozen-lockfile"
   Pop-Location
 } else {
   Write-Host "  package 无变化, 跳过依赖安装" -ForegroundColor Green
@@ -215,7 +210,7 @@ if ($Force -or $changedFiles.Count -eq 0) {
 Write-Host "`n[5/6] 重新构建 (backend=$backendChanged frontend=$frontendChanged)..." -ForegroundColor Yellow
 if ($backendChanged) {
   Push-Location (Join-Path $projectRoot 'backend')
-  Run "npm run build"
+  Run "pnpm run build"
   Pop-Location
 } else {
   Write-Host "  backend/ 无改动, 跳过 backend 构建 (保时间戳, 防 verify 假过期)" -ForegroundColor Gray
@@ -227,7 +222,7 @@ if ($backendChanged) {
 # 类型检查本地开发和 CI 都会跑, 生产机只需要产物。
 if ($frontendChanged) {
   Push-Location (Join-Path $projectRoot 'frontend')
-  Run "npm run build:deploy"
+  Run "pnpm run build:deploy"
   Pop-Location
 } else {
   Write-Host "  frontend/ 无改动, 跳过前端构建" -ForegroundColor Gray
@@ -248,7 +243,7 @@ Pop-Location
 Write-Host "`n[5.5/6] 应用 seed (硬件/场景/设备 idempotent 更新)..." -ForegroundColor Yellow
 if ($backendChanged) {
   Push-Location (Join-Path $projectRoot 'backend')
-  Run "npm run seed"
+  Run "pnpm run seed"
   Pop-Location
 } else {
   Write-Host "  backend/ 无改动, 跳过 seed" -ForegroundColor Gray

@@ -11,6 +11,10 @@ $projectRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 Set-Location $projectRoot
 
 Write-Host "================================================" -ForegroundColor Cyan
+
+if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
+  throw '未检测到 pnpm。请先安装项目声明的 pnpm@10.33.4，禁止改用 npm 生成第二份锁文件。'
+}
 Write-Host " 启动 smart-control-backend [$Env]" -ForegroundColor Cyan
 Write-Host " 项目根: $projectRoot" -ForegroundColor Gray
 Write-Host "================================================" -ForegroundColor Cyan
@@ -20,11 +24,7 @@ $nodeModules = Join-Path $projectRoot 'backend\node_modules'
 if (-not (Test-Path $nodeModules)) {
   Write-Host "`n[1/3] node_modules 不存在, 安装依赖..." -ForegroundColor Yellow
   Push-Location (Join-Path $projectRoot 'backend')
-  if (Get-Command pnpm -ErrorAction SilentlyContinue) {
-    pnpm install --frozen-lockfile
-  } else {
-    npm ci --no-audit --no-fund
-  }
+  pnpm install --frozen-lockfile
   Pop-Location
 } else {
   Write-Host "`n[1/3] node_modules 已存在, 跳过安装" -ForegroundColor Green
@@ -35,11 +35,7 @@ $dist = Join-Path $projectRoot 'backend\dist'
 if (-not (Test-Path (Join-Path $dist 'main.js'))) {
   Write-Host "[2/3] 编译 backend (dist 不存在)" -ForegroundColor Yellow
   Push-Location (Join-Path $projectRoot 'backend')
-  if (Get-Command pnpm -ErrorAction SilentlyContinue) {
-    pnpm build
-  } else {
-    npm run build
-  }
+  pnpm build
   Pop-Location
 } else {
   Write-Host "[2/3] dist/main.js 已存在, 跳过编译 (若有源码修改请先运行 scripts\restart.ps1 -Build)" -ForegroundColor Green
