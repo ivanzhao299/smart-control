@@ -2,7 +2,8 @@
 
 > 金湖展贸中心智能控制系统 · 14 个功能区, 覆盖 22 台物理内机
 > 用于: 场景动作配置 / 平板分组控制 / 区级批量操作
-> 配置源: `backend/src/adapters/hvac/hvac-zones.ts`
+> 运行时唯一配置源: SQLite `hvac_zone` + `hvac_indoor.zone_code`
+> 本文表格是新安装默认目录参考；现场名称、分区和成员以数据库为准。
 
 ---
 
@@ -21,7 +22,7 @@
 
 ---
 
-## 1. 区总览 (14 个)
+## 1. 新安装默认区总览 (14 个)
 
 | code | 区名 | 楼层 | 内机数 | 内机型号 | indoorIdx |
 | --- | --- | --- | --- | --- | --- |
@@ -171,7 +172,9 @@ POST /api/hvac/{indoorIdx}/fan-speed     { speed: "mid" }
 
 - code 用**小写下划线**, URL 安全, 不含数字下标 (区是逻辑分组, 内机数会变)
 - 改 code → 已配的场景动作 deviceId 会失效, 必须同步改场景配置
-- 加新区 → 修改 `hvac-zones.ts` 后重启后端
+- 新建、改名、删除功能区以及调整内机归属统一通过 PWA 空调页或管理接口完成，提交后立即生效。
+- 运行时读取和场景执行都查询同一组数据库表；应用启动和查询不会补回管理员删除的区、内机或播放通道。
+- 新安装默认目录冻结在 `EstablishHvacPlaybackCatalog1789670000000` 的版本 1 快照中。后续产品默认值变更必须新增显式迁移，不能恢复启动同步。
 
 ---
 
@@ -181,5 +184,5 @@ POST /api/hvac/{indoorIdx}/fan-speed     { speed: "mid" }
 | --- | --- |
 | [HVAC_FIELD_INSTALL.md](HVAC_FIELD_INSTALL.md) | 物理接线 / 拨码 / 寄存器表 |
 | [EQUIPMENT_LIST.md](EQUIPMENT_LIST.md) | 设备清单 |
-| `backend/src/adapters/hvac/hvac-zones.ts` | 区代号 → 内机映射的代码定义 |
-| `backend/src/services/command-dispatcher.service.ts` | `hvac-zone` 类型动作分发 |
+| `backend/src/migrations/catalogs/hvac-playback-catalog-v1.json` | 新安装默认目录的不可变快照 |
+| `backend/src/services/command-dispatcher.service.ts` | 从数据库读取成员并分发 `hvac-zone` 场景动作 |

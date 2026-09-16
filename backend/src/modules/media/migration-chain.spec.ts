@@ -39,9 +39,13 @@ describe('complete migration chain on an isolated database', () => {
     expect(await runner.hasTable('upload_instances')).toBe(true);
     expect((await runner.getTable('upload_reservations'))?.findColumnByName('target_media_id')).toBeDefined();
     expect(await db.query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'protect_last_administrator_%'")).toHaveLength(2);
-    // Operational catalog and named identity are forward-only: remove only their ledger
+    // HVAC/playback and operational catalogs are forward-only: remove only their ledger
     // entries in this disposable fixture after proving the rollback fences, so earlier
     // rollback fences remain testable.
+    await expect(db.undoLastMigration()).rejects.toThrow(
+      'HVAC_PLAYBACK_CATALOG_ROLLBACK_REQUIRES_ARCHIVE',
+    );
+    await db.query("DELETE FROM migrations WHERE name = 'EstablishHvacPlaybackCatalog1789670000000'");
     await expect(db.undoLastMigration()).rejects.toThrow(
       'OPERATIONAL_CATALOG_ROLLBACK_REQUIRES_ARCHIVE',
     );
@@ -105,6 +109,7 @@ describe('complete migration chain on an isolated database', () => {
           'EstablishAppReleaseCatalog1789640000000',
           'EstablishNamedIdentityAuthority1789650000000',
           'EstablishOperationalCatalog1789660000000',
+          'EstablishHvacPlaybackCatalog1789670000000',
         ].includes(m.name),
     );
     for (const _migration of multiuserAndLater) await db.undoLastMigration();

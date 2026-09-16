@@ -151,7 +151,7 @@ export class ModbusHvacAdapter extends BaseAdapter {
    * 前端/场景按"楼层内机序号"下发 (1..22), 但适配器要 {gwHost,n} 地址.
    * 查 devices 表 category='hvac', 按 (楼层, n) 排序建立序号→address:
    *   1F 内机 (n=1..10) 排前 → 序号 1..10; 2F 接续 → 序号 11..22.
-   * 跟目录迁移 / HVAC_ZONES 的 indoorIdx 定义一致. address 用 DB 实时值,
+   * 跟版本化目录迁移的 indoorIdx 定义一致. address 用 DB 实时值,
    * 网关换 IP 时其 gwHost 自动跟随 (配合 HardwareService 的 gwHost 联动).
    */
   private async getIdxAddressMap(): Promise<Map<number, string>> {

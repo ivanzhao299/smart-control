@@ -11,8 +11,8 @@ import {
  * 空调内机 (HvacIndoor) — 2026-07-16.
  *
  * 为什么要有这张表:
- *   之前只有 hvac_zone, 分区成员 (indoors: [1,2,3]) 是从代码常量 HVAC_ZONES
- *   灌进去就锁死的 —— 前端只能改区名, 改不了"这个区里到底是哪几台内机", 也建
+ *   之前只有 hvac_zone, 分区成员 (indoors: [1,2,3]) 从运行时代码
+ *   灌进去就锁死 —— 前端只能改区名, 改不了"这个区里到底是哪几台内机", 也建
  *   不了新区。而现场的实际情况是: 分区图纸本来就跟现场对不上, 所以"能改名但改
  *   不了成员"等于没用 —— 给一个内容错误的盒子换标签而已。业主原话:
  *   "根本就不可能实现, 也没法操作, 除了在代码改, 别的地方都无法改"。
@@ -26,7 +26,7 @@ import {
  *   被写进两个区怎么办?), 而 zoneCode 天然保证一台内机只属于一个区.
  *
  * idx 是什么:
- *   "楼层内机序号" 1..22 (1F=1-10, 2F=11-22), 跟 HVAC_ZONES / 场景动作 / 前端
+ *   "楼层内机序号" 1..22 (1F=1-10, 2F=11-22), 跟数据库分区 / 场景动作 / 前端
  *   下发的口径完全一致。它 **不是** 网关上的物理内机号 n (1F n=1..10 / 2F
  *   n=1..12) —— 序号→{gwHost,n} 的换算由 ModbusHvacAdapter.listIndoorMeta()
  *   查 devices 表完成, 那里是唯一的排序口径 (2026-07-11 踩过内机号错位的坑,
@@ -58,7 +58,7 @@ export class HvacIndoor {
   @Column({ type: 'varchar', length: 64, name: 'zone_code', nullable: true })
   zoneCode!: string | null;
 
-  /** 机型 e.g. 'DLR-63F' — 灌种子时从 devices.address 抄一份, 仅供显示 */
+  /** 机型 e.g. 'DLR-63F' — 新安装目录由迁移写入, 仅供显示 */
   @Column({ type: 'varchar', length: 64, nullable: true })
   model!: string | null;
 
