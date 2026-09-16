@@ -7,7 +7,7 @@
 
 ## 当前代码上下文（2026-09-17，优先于以下历史快照）
 
-- 当前生产 Git 基线为 `4f097bf`（PR #67）。后端 3200、前端 5173、PM2 守护和计划任务均通过权威验证；`RELEASE_HOLD` 不存在。生产健康接口为 200，38 台设备在线、0 离线，六路 HLS 均运行且重启计数为 0。
+- 当前生产 Git 基线为 `098f631`（PR #69）。后端 3200、前端 5173、PM2 守护和计划任务均通过权威验证；`RELEASE_HOLD` 不存在。生产健康接口为 200，38 台设备在线、0 离线，六路 HLS 均运行且重启计数为 0。
 - 阶段 P1-A3 已完成：视频绑定、2 台 NVR、6 路通道、HLS、截图、检测线与 ROI 收敛到 SQLite 的 `video.binding` 单一权威文档；后台编辑只写数据库并保留 revision、校验和及操作者历史，旧 JSON 仅作为已冻结的迁移来源。
 - 生产已执行 `ImportVideoBindingRuntimeConfig1789560000000`，迁移总数 28；`video.binding` 为 schema v1 / revision 1，当前文档与唯一历史记录校验和一致，`integrity_check=ok`、外键违规 0。源 `video-binding.json` SHA-256 保持 `febfdd42ad95319a5b993bf6ffeb65a38a52695b32d50f195092bf03abddac2f`，其归一化内容与 SQLite 逐字段一致。
 - PR #40（`f7ddd8d`）首次真实迁移在停写复核处安全失败，未改数据库；PR #41/#42/#43 分别修正控制器父进程判定、PowerShell 5.1 原生错误采集和绝对迁移入口。随后在原 hold 下完成同一次恢复演练、迁移、回执和激活，未删除 hold 重跑、未回滚数据。
@@ -32,8 +32,10 @@
 - P1-A14 发布前备份为 `D:\smart-control-backups\20260917-020733`（SQLite `sqlite-FgmwGb\database.sqlite`），迁移恢复包与回执为 `D:\smart-control-backups\migration-recovery\release-q7WJ1S`。备份库为 32 个迁移、生产库为 33 个迁移，两者 8 条驱动模板 SHA-256 均为 `51af7d60…e1960`；4 场景/142 动作/81 媒体、14 条电源回路和三份运行配置均不变，完整性 `ok`、外键违规 0。PR #65 与部署任务：https://github.com/ivanzhao299/smart-control/pull/65、https://github.com/ivanzhao299/smart-control/actions/runs/35132094732。
 - 阶段 P1-A15 已完成：`BrandsService` 启动只读，不再扫描硬件与驱动后延迟补品牌。第 34 个迁移建立 12 条产品品牌快照并补齐已有引用，只插入缺失名称；已有品牌的启用状态、Logo、联系方式、备注及自定义品牌完整保留。新增/修改硬件厂商和新增自定义驱动时，在同一业务操作中即时补齐品牌目录。
 - P1-A15 发布前备份为 `D:\smart-control-backups\20260917-022829`（SQLite `sqlite-feijSH\database.sqlite`），迁移恢复包与回执为 `D:\smart-control-backups\migration-recovery\release-RT80Vp`。备份与生产的 12 条品牌语义 SHA-256 均为 `58bd22ed…d036`，品牌、8 条驱动模板、14 条电源回路、4 场景/142 动作、三份运行配置和 81 条媒体记录逐表一致；数据库完整性 `ok`、外键违规 0。PR #67 与部署任务：https://github.com/ivanzhao299/smart-control/pull/67、https://github.com/ivanzhao299/smart-control/actions/runs/35134334223。
+- 阶段 P1-A16 已完成：`AudioConfigService` 启动只读，不再为空表灌入默认输出/输入/场景/路由，不再按旧输入名清空重建接线，也不再在重启时修正立体声名称。第 35 个迁移建立全新库音频目录并承接精确历史签名修复；管理员修改 OUT1-4 名称时改为在单个数据库事务中同步左右声道。
+- P1-A16 发布前备份为 `D:\smart-control-backups\20260917-025436`（SQLite `sqlite-5Jmr2a\database.sqlite`），迁移恢复包与回执为 `D:\smart-control-backups\migration-recovery\release-taRrPn`。备份与生产的 8 输出、8 输入、12 场景、64 路由逐字段一致；语义 SHA-256 分别为 `73d5dea9…a1f0`、`94354736…056e`、`7179abb9…a744`、`4a34c524…ae1a`。其他受保护表不变，完整性 `ok`、外键违规 0。PR #69 与部署任务：https://github.com/ivanzhao299/smart-control/pull/69、https://github.com/ivanzhao299/smart-control/actions/runs/35136973551。
 - 现场权威路径：SQLite=`D:\smart-control\database\smart-control.db`，运行时数据=`D:\smart-control-runtime\data`，媒体=`D:\Media`，拍照上墙照片=`D:\Media\welcome-photos`。以上目录与代码仓库分离，发布不得删除或覆盖。
-- 当前阶段没有待发布运行时代码。启动写入审计已将设备状态恢复、WebSocket/站点心跳、灯具扫描、音频设备对账、LED 图层校正归为运行态恢复或设备对账；场景动作、电源回路、内置驱动和品牌目录的启动覆盖已经退役。剩余待迁出的权威数据变更包括音频接线重建、鉴权初始化和应用版本写入，部署 `SeedService` 的历史修复仍需分域收敛。下一批优先审计音频配置启动重建，先读取生产音频分区、输入、场景和接线的全量指纹与引用关系；禁止与账户密钥或应用版本混合发布。
+- 当前阶段没有待发布运行时代码。启动写入审计已将设备状态恢复、WebSocket/站点心跳、灯具扫描、音频设备对账、LED 图层校正归为运行态恢复或设备对账；场景动作、电源回路、内置驱动、品牌目录和音频配置的启动覆盖已经退役。剩余待审计的权威数据变更包括鉴权初始化和应用版本写入，部署 `SeedService` 的历史修复仍需分域收敛。下一批优先审计 `AppReleaseService` 的启动版本写入，先对齐构建清单、数据库发布记录和客户端更新协议；禁止与账户密钥初始化混合发布。
 
 ## 当前状态快照（2026-07-28）
 

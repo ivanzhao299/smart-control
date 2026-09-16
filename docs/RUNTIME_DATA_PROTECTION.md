@@ -125,3 +125,11 @@
 - 新增硬件、修改硬件厂商或新增自定义驱动时，同一业务操作即时调用 `ensureReferenced`。该写入用单条条件插入规避先查后写竞态，不覆盖管理员维护的 Logo、联系方式、备注和禁用状态。
 - 有任何权威品牌时迁移拒绝无归档降级。生产升级只增加第 34 条迁移账本；12 条品牌语义 SHA-256 在备份和生产均为 `58bd22ed134e119565623ae4c5fcb27943fd5b2ee7eb37254a29180ce794d036`，所有硬件/驱动厂商引用均能解析到品牌。
 - 发布前快照位于 `D:\smart-control-backups\20260917-022829\sqlite-feijSH\database.sqlite`，配套恢复包和回执位于 `D:\smart-control-backups\migration-recovery\release-RT80Vp`。
+
+## 15. 2026-09-17 音频配置启动重建退役
+
+- `audio_output_zone`、`audio_input_source`、`audio_scene` 和 `audio_desired_link` 分别是输出、输入、场景和 8×8 期望路由的唯一权威源；`AudioConfigService` 启动只读。
+- `EstablishAudioConfigCatalog1789630000000` 只在对应表为空时建立全新安装默认值。现有非空域不会补缺失通道，避免重建管理员明确删除或调整的数据。
+- 2026-07-26 接线修复只在 IN1 名称精确等于旧签名“中控主机”时执行一次；立体声历史修复也只在迁移中执行一次。此后管理员修改 OUT1-4 名称时，在同一事务规范“·左/·右”并同步另一声道，不依赖重启改库。
+- 任一音频权威表有数据时迁移拒绝无归档降级。生产旧签名不匹配，第 35 个迁移只增加账本；备份与生产的输出、输入、场景、路由语义 SHA-256 分别保持 `73d5dea914de9a04ab9b3dbb148a7e3384fb81e3663ee49fc2456d670e9aa1f0`、`9435473655c49f7b07b4eeaab94959eced1e217f943760040f88913e1d72056e`、`7179abb961a2efa549c93880f40b072e602c8cdba54b883a1dce444ed8c7a744`、`4a34c5245196174ca87943ee7509cbda6b5e64fca95d64af49f25efc07c0ae1a`。
+- 发布前快照位于 `D:\smart-control-backups\20260917-025436\sqlite-5Jmr2a\database.sqlite`，配套恢复包和回执位于 `D:\smart-control-backups\migration-recovery\release-taRrPn`。
