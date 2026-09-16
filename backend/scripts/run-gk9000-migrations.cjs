@@ -99,6 +99,15 @@ async function run() {
       );
     }
     try {
+      stage = 'bundled-media-reconciliation';
+      await assertWritersStopped();
+      const { reconcile } = require('./reconcile-bundled-media.cjs');
+      const bundledMedia = reconcile({
+        manifestPath: path.join(root, 'deploy', 'assets', 'bundled-media-manifest.json'),
+        databasePath: result.databasePath,
+        mediaRoot,
+        checkOnly: false,
+      });
       stage = 'receipt-fence';
       await assertWritersStopped();
       if (readRevision() !== candidateRevision)
@@ -113,6 +122,11 @@ async function run() {
         mediaRoot,
         rehearsalDirectory: result.rehearsalDirectory,
         migrations: result.migrations.map((m) => m.name),
+        bundledMedia: {
+          catalogVersion: 1,
+          count: bundledMedia.count,
+          state: bundledMedia.state,
+        },
         productionActivated: false,
       };
       const receiptPath = path.join(result.bundleDirectory, 'migration-complete.json');

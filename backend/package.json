@@ -22,6 +22,7 @@
     "migration:show": "typeorm-ts-node-commonjs migration:show -d src/data-source.ts",
     "schema:log": "typeorm-ts-node-commonjs schema:log -d src/data-source.ts",
     "test": "jest",
+    "test:ops": "node --test test/*.test.cjs",
     "pm2:start": "pm2 start ../deploy/ecosystem.config.js",
     "pm2:stop": "pm2 stop smart-control-backend",
     "pm2:restart": "pm2 restart smart-control-backend",

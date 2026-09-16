@@ -73,6 +73,13 @@ function fixture({
             : undefined;
         },
       };
+    if (name === './reconcile-bundled-media.cjs')
+      return {
+        reconcile: (options) => {
+          events.push(['media', options]);
+          return { state: 'updated', count: 15 };
+        },
+      };
     throw new Error('Unexpected import');
   };
   vm.runInNewContext(source, {
@@ -101,7 +108,7 @@ test('controlled entry passes real checker callback and explicit recovery inputs
   await h.run();
   assert.deepEqual(
     h.events.map((e) => e[0]),
-    ['check', 'revision', 'cwd', 'config', 'migration', 'check', 'check', 'revision', 'receipt'],
+    ['check', 'revision', 'cwd', 'config', 'migration', 'check', 'check', 'media', 'check', 'revision', 'receipt'],
   );
   const options = h.events.find((e) => e[0] === 'migration')[1];
   assert.equal(options.destinationRoot, 'E:\\recovery');
@@ -111,6 +118,7 @@ test('controlled entry passes real checker callback and explicit recovery inputs
   const receipt = h.events.find((e) => e[0] === 'receipt');
   assert.equal(receipt[2].candidateRevision, 'b'.repeat(40));
   assert.equal(receipt[2].productionActivated, false);
+  assert.deepEqual(receipt[2].bundledMedia, { catalogVersion: 1, count: 15, state: 'updated' });
   assert.equal(receipt[3].flag, 'wx');
 });
 test('controlled entry uses the application media default when env is absent', async () => {

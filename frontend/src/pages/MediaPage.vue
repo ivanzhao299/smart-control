@@ -876,7 +876,7 @@ onBeforeUnmount(() => { disposed = true; uploadQueue.value = []; stopProcessingP
             <span v-if="m.kind === 'video'" class="duration">{{ fmtDuration(m.durationSec) || '—' }}</span>
           </div>
           <div class="meta">
-            <div class="name" :title="m.originalName">{{ m.originalName }}</div>
+            <div class="name" :title="m.originalName">{{ m.originalName }}<span v-if="m.source === 'system'"> · 内置</span></div>
             <div class="info"><span>{{ fmtSize(m.sizeBytes) }}</span><span v-if="m.resolution">· {{ m.resolution }}</span></div>
             <div v-if="m.kind === 'video' && m.processingStatus !== 'ready'" class="info">
               {{ m.processingStatus === 'failed' ? '兼容转换失败' : '正在生成兼容版本…' }}
@@ -926,7 +926,7 @@ onBeforeUnmount(() => { disposed = true; uploadQueue.value = []; stopProcessingP
             <ImageIcon v-else :size="11" :stroke-width="2" />
             {{ m.kind === 'video' ? '视频' : m.kind === 'audio' ? '音频' : m.kind === 'webpage' ? '网页' : m.kind === 'doc' ? '文档' : '图片' }}
           </span>
-          <div class="lr-name" :title="m.originalName">{{ m.originalName }}</div>
+          <div class="lr-name" :title="m.originalName">{{ m.originalName }}<span v-if="m.source === 'system'"> · 内置</span></div>
           <div class="lr-badges">
             <span v-if="isWelcome(m)" class="lr-badge welcome"><Home :size="10" :stroke-width="2" /> 欢迎页</span>
             <span v-if="currentSlotFor(m.id)" class="lr-badge playing"><Send :size="10" :stroke-width="2" /> {{ currentSlotFor(m.id) }}</span>
@@ -983,7 +983,7 @@ onBeforeUnmount(() => { disposed = true; uploadQueue.value = []; stopProcessingP
             <span v-if="isWelcome(m)" class="dv-badge welcome" title="欢迎页"><Home :size="9" /></span>
             <span v-if="currentSlotFor(m.id)" class="dv-badge playing" title="播放中"><Send :size="9" /></span>
           </div>
-          <div class="dv-col dv-c-name" :title="m.originalName">{{ m.originalName }}</div>
+          <div class="dv-col dv-c-name" :title="m.originalName">{{ m.originalName }}<span v-if="m.source === 'system'"> · 内置</span></div>
           <div class="dv-col dv-c-kind">
             <span class="kind-tag" :class="m.kind">
               {{ m.kind === 'video' ? '视频' : m.kind === 'audio' ? '音频' : m.kind === 'webpage' ? '网页' : m.kind === 'doc' ? '文档' : '图片' }}
@@ -1239,7 +1239,7 @@ onBeforeUnmount(() => { disposed = true; uploadQueue.value = []; stopProcessingP
           <img v-else :src="absUrl(previewItem.fileUrl)" :alt="previewItem.originalName" style="max-width:100%; max-height: 70vh;" />
         </div>
         <div class="preview-info">
-          <h3>{{ previewItem.originalName }}</h3>
+          <h3>{{ previewItem.originalName }}<span v-if="previewItem.source === 'system'"> · 内置资料</span></h3>
           <div class="meta-row">
             <span class="kind-tag" :class="previewItem.kind">
               {{ previewItem.kind === 'video' ? '视频' : previewItem.kind === 'audio' ? '音频' : previewItem.kind === 'doc' ? '文档' : '图片' }}

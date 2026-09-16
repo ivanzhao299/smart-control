@@ -82,4 +82,8 @@ jobs:
       # "No tests found, exiting with code 1" → CI 红, 而测试本身根本没跑。
       # 2026-07-19 踩过一次: testMatch 明明 5 matches, 却报没找到测试。
       - run: pnpm exec jest --ci --reporters=default
+      # Deployment/recovery contracts are plain Node tests and are intentionally
+      # separate from ts-jest. Run them explicitly so a broken release fence
+      # cannot merge while application tests remain green.
+      - run: pnpm run test:ops
       - run: pnpm run build

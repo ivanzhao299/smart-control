@@ -34,6 +34,7 @@ async function searchUsers() {
   } catch { ElMessage.error('无法读取用户列表'); }
 }
 function edit(item: MediaItem) {
+  if (item.source === 'system') return;
   editing.value = item; name.value = item.originalName; visibility.value = item.visibility; owner.value = item.ownerUserId ?? undefined;
 }
 async function save() {
@@ -81,8 +82,8 @@ watch(isAdmin, async allowed => {
       <table>
         <thead><tr><th>资料</th><th>归属</th><th>范围</th><th>操作</th></tr></thead>
         <tbody><tr v-for="item in items" :key="item.id">
-          <td>{{ item.originalName }}</td><td>{{ users.find(u => u.id === item.ownerUserId)?.username || (item.ownerUserId ? `用户 #${item.ownerUserId}` : '系统／历史资料') }}</td>
-          <td>{{ item.visibility === 'shared' ? '公共' : '私人' }}</td><td><button @click="edit(item)">编辑</button></td>
+          <td>{{ item.originalName }}{{ item.source === 'system' ? '（内置）' : '' }}</td><td>{{ users.find(u => u.id === item.ownerUserId)?.username || (item.ownerUserId ? `用户 #${item.ownerUserId}` : '系统／历史资料') }}</td>
+          <td>{{ item.visibility === 'shared' ? '公共' : '私人' }}</td><td><button :disabled="item.source === 'system'" :title="item.source === 'system' ? '内置资料由版本发布统一管理' : '编辑资料'" @click="edit(item)">{{ item.source === 'system' ? '受保护' : '编辑' }}</button></td>
         </tr></tbody>
       </table>
     </div>

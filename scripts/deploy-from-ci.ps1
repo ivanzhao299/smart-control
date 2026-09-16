@@ -195,6 +195,21 @@ function Invoke-AppReleaseReconciliation([switch]$CheckOnly) {
   }
 }
 
+function Assert-BundledMediaCurrent {
+  $entry = Join-Path $projectRoot 'backend\scripts\reconcile-bundled-media.cjs'
+  $manifest = Join-Path $projectRoot 'deploy\assets\bundled-media-manifest.json'
+  if (-not (Test-Path -LiteralPath $entry -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $manifest -PathType Leaf)) {
+    throw 'Required bundled media catalog is missing.'
+  }
+  Push-Location (Join-Path $projectRoot 'backend')
+  try {
+    Invoke-Native 'node' @($entry, '--manifest', $manifest, '--check-only')
+  } finally {
+    Pop-Location
+  }
+}
+
 function Invoke-DetachedResurrect {
   # Bring pm2 (daemon + both apps) back WITHOUT tying the daemon to this SSH
   # session. An in-session `pm2 resurrect` respawns the daemon INSIDE the SSH
@@ -1132,6 +1147,8 @@ try {
       }
     }
   }
+  Write-DeployLog 'Checking immutable bundled media records and data-disk files.'
+  Assert-BundledMediaCurrent
   if ($VerifyOnly) {
     Write-DeployLog 'Checking authoritative Android app release metadata without writing.'
     Invoke-AppReleaseReconciliation -CheckOnly

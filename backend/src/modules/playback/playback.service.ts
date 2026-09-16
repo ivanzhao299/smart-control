@@ -168,7 +168,7 @@ export class PlaybackService implements OnModuleInit {
   //   default  → 本屏专用尺寸的内置静态图 (slot1=LED版 / slot2=投影版), 不可编辑,
   //              作为兜底画面。
   // 素材是启动时自动入库的内置资源, 按 originalName 定位; 被改名/删除时报错并
-  // 提示重启后端可自动重建 (seedBundledAssets 幂等)。
+  // 内置资料由受控发布清单建立；运行中的服务不会补写或重建目录。
   static readonly WELCOME_EDITABLE_NAME = '金湖欢迎页·动态(称谓可编辑)';
   static readonly PARK_DASHBOARD_NAME = '金湖科创产业园·智慧运营总览(DEMO)';
   static readonly WELCOME_DEFAULT_NAMES: Record<number, string> = {

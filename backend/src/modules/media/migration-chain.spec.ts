@@ -39,9 +39,17 @@ describe('complete migration chain on an isolated database', () => {
     expect(await runner.hasTable('upload_instances')).toBe(true);
     expect((await runner.getTable('upload_reservations'))?.findColumnByName('target_media_id')).toBeDefined();
     expect(await db.query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'protect_last_administrator_%'")).toHaveLength(2);
-    // HVAC/playback and operational catalogs are forward-only: remove only their ledger
+    // Bundled media, HVAC/playback and operational catalogs are forward-only: remove only their ledger
     // entries in this disposable fixture after proving the rollback fences, so earlier
     // rollback fences remain testable.
+    await expect(db.undoLastMigration()).rejects.toThrow(
+      'BUNDLED_MEDIA_AUTHORITY_ROLLBACK_REQUIRES_ARCHIVE',
+    );
+    // Simulate the matched archive restore in this disposable fixture. The park
+    // dashboard belongs to its earlier migration; only the newly introduced
+    // dynamic webpage must be removed here.
+    await db.query("DELETE FROM media_assets WHERE system_key = 'web.welcome-dynamic'");
+    await db.query("DELETE FROM migrations WHERE name = 'EstablishBundledMediaAuthority1789680000000'");
     await expect(db.undoLastMigration()).rejects.toThrow(
       'HVAC_PLAYBACK_CATALOG_ROLLBACK_REQUIRES_ARCHIVE',
     );
@@ -110,6 +118,7 @@ describe('complete migration chain on an isolated database', () => {
           'EstablishNamedIdentityAuthority1789650000000',
           'EstablishOperationalCatalog1789660000000',
           'EstablishHvacPlaybackCatalog1789670000000',
+          'EstablishBundledMediaAuthority1789680000000',
         ].includes(m.name),
     );
     for (const _migration of multiuserAndLater) await db.undoLastMigration();
