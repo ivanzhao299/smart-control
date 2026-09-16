@@ -7,7 +7,7 @@
 
 ## 当前代码上下文（2026-09-17，优先于以下历史快照）
 
-- 当前生产 Git 基线为 `c300fbb`（PR #55）。后端 3200、前端 5173、PM2 守护和计划任务均通过权威验证；`RELEASE_HOLD` 不存在。生产健康接口为 200，38 台设备在线、0 离线，六路 HLS 均运行且重启计数为 0。
+- 当前生产 Git 基线为 `358bb4a`（PR #57）。后端 3200、前端 5173、PM2 守护和计划任务均通过权威验证；`RELEASE_HOLD` 不存在。生产健康接口为 200，38 台设备在线、0 离线，六路 HLS 均运行且重启计数为 0。
 - 阶段 P1-A3 已完成：视频绑定、2 台 NVR、6 路通道、HLS、截图、检测线与 ROI 收敛到 SQLite 的 `video.binding` 单一权威文档；后台编辑只写数据库并保留 revision、校验和及操作者历史，旧 JSON 仅作为已冻结的迁移来源。
 - 生产已执行 `ImportVideoBindingRuntimeConfig1789560000000`，迁移总数 28；`video.binding` 为 schema v1 / revision 1，当前文档与唯一历史记录校验和一致，`integrity_check=ok`、外键违规 0。源 `video-binding.json` SHA-256 保持 `febfdd42ad95319a5b993bf6ffeb65a38a52695b32d50f195092bf03abddac2f`，其归一化内容与 SQLite 逐字段一致。
 - PR #40（`f7ddd8d`）首次真实迁移在停写复核处安全失败，未改数据库；PR #41/#42/#43 分别修正控制器父进程判定、PowerShell 5.1 原生错误采集和绝对迁移入口。随后在原 hold 下完成同一次恢复演练、迁移、回执和激活，未删除 hold 重跑、未回滚数据。
@@ -18,10 +18,12 @@
 - P1-A4 发布前备份为 `D:\smart-control-backups\20260916-174947`，迁移恢复包与回执为 `D:\smart-control-backups\migration-recovery\release-jviFeA`。生产数据库 `integrity_check=ok`、外键违规 0；六路 HLS 均为 200/运行中/零重启。上述证据以及 P1-A3 的 `release-HT0Ypw` 均须保留。
 - 阶段 P1-A5 已完成：音频矩阵期望状态只保留 SQLite `audio_desired_link`。生产 `matrix-state.json` 原本就不存在；旧只读接口现从数据库映射兼容格式，旧写接口返回 410 `AUDIO_MATRIX_LEGACY_WRITE_RETIRED`，不能重新生成第二份文件源。生产 64 条 8×8 期望路由、8 条启用项均未改变，迁移仍为 29，数据库完整性与六路 HLS 均正常。
 - 阶段 P1-A6 已完成：园区大屏页码、自动播放和一次性刷新均为 `ParkOpsControlService` 进程内短期状态，重启恢复安全默认值，不再写 `park-ops-control.json(.bak)`。生产预检和发布后均确认两个文件不存在，无历史状态需要迁移。仅大屏轮询 GET 公开，所有变更接口仍需登录；PWA 控制与拍照上屏后的回首页请求已统一通过共享 API 客户端携带身份。生产匿名 POST 返回 401，公开 GET 返回 6 页安全默认状态。
-- 阶段 P1-A7 已完成：`/api/system/info` 从环境、Git 和仓库外发布清单解析准确提交、分支和发布时间，不再返回空 commit/ref，也不再用静态模板伪造平台和主机名。管理员运行摘要统一输出实际 SQLite 路径/版本、29 个迁移、pending 状态、运行配置文档数、数据目录、媒体根和日志目录；配置路径与真实连接路径分叉时启动失败。生产发布清单为 `D:\smart-control-runtime\data\release.json`，提交与 Git HEAD 均为 `c300fbb`。
+- 阶段 P1-A7 已完成：`/api/system/info` 从环境、Git 和仓库外发布清单解析准确提交、分支和发布时间，不再返回空 commit/ref，也不再用静态模板伪造平台和主机名。管理员运行摘要统一输出实际 SQLite 路径/版本、迁移状态、运行配置文档数、数据目录、媒体根和日志目录；配置路径与真实连接路径分叉时启动失败。生产发布清单为 `D:\smart-control-runtime\data\release.json`，当前提交与 Git HEAD 均为 `358bb4a`。
 - 阶段 P1-A8/A9 已完成：修复固定 Windows 调度器使用上一版部署脚本导致门禁改动晚一轮生效的问题。调度器先验证目标提交属于 `origin/main`，从该提交提取并解析部署脚本；发布验证后再原子同步自身。Windows `File.Replace` 使用同目录临时备份路径，禁止空备份路径。生产仓库与系统调度器 SHA-256 均为 `90e18a0d73660b919ddf36f3fe7bb7e318cc98e61e4c6d9540c6dea18f18fd63`，无 `.tmp/.previous` 残留。
+- 阶段 P1-A10 已完成：系统品牌与场景动作原本已分别以 SQLite `system_branding_v2`、`scenes/scene_actions` 为权威源；其中混在品牌表的园区大屏布局已迁入版本化 `park.ops.visual` 文档。生产为 schema v1 / revision 1，当前文档、唯一历史和冻结旧字段的 SHA-256 均为 `ae26406019afad20848797177f22453e1c2c9fd88693d98c781bbeddf65589a9`。品牌默认行改由第 30 个迁移幂等建立，服务启动不再读写 Logo 资产或哨兵文件；旧编辑器仍兼容，新编辑器携带 revision，过期写入返回 409。
+- P1-A10 发布前备份为 `D:\smart-control-backups\20260917-002713`，配套恢复包与迁移回执为 `D:\smart-control-backups\migration-recovery\release-Tnr3QE`。生产数据库 30 个迁移、完整性 `ok`、外键违规 0；Logo 校验和、4 个场景、142 个动作和 81 条媒体记录迁移前后不变。PR #57 部署任务为 https://github.com/ivanzhao299/smart-control/actions/runs/35121736551。
 - 现场权威路径：SQLite=`D:\smart-control\database\smart-control.db`，运行时数据=`D:\smart-control-runtime\data`，媒体=`D:\Media`，拍照上墙照片=`D:\Media\welcome-photos`。以上目录与代码仓库分离，发布不得删除或覆盖。
-- 当前阶段没有待发布运行时代码。阶段 1 的统一生产数据库路径、代码身份、迁移版本和数据目录摘要已经完成；下一批继续收敛系统品牌、场景动作及其余配置域。每批只处理一个边界，继续执行“单一权威源→可逆迁移→历史审计→生产对账”。
+- 当前阶段没有待发布运行时代码。阶段 1 已完成已知 JSON 配置域、系统品牌、场景动作、数据库路径和发布身份收敛；下一批审计其余 `onModuleInit` 启动写入与业务种子，把仍属权威数据修复/初始化的逻辑迁入版本化迁移，并区分可重建缓存与持久配置。每批只处理一个边界，继续执行“单一权威源→可逆迁移→历史审计→生产对账”。
 
 ## 当前状态快照（2026-07-28）
 
