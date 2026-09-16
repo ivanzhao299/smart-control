@@ -109,3 +109,11 @@
 - 历史修复被限制为可审计的精确签名：LED 只匹配 `RELAY-1F-1` 第 4 路旧配置；时序器只匹配 `seq-4=5` 与 `seq-5=4` 同时成立的旧对调。其他人工通道和值全部保留。
 - 有任何电源回路时迁移拒绝无归档降级。生产迁移前两个修复条件均不成立，第 32 个迁移只增加账本；14 条回路逐字段 SHA-256 保持 `72d65fe09ab81f5280879a433225301fc5e0425b4f4d8c98d732ac4cb56bd61d`。
 - 发布前快照位于 `D:\smart-control-backups\20260917-013621\sqlite-dcXP3V\database.sqlite`，配套恢复包和回执位于 `D:\smart-control-backups\migration-recovery\release-nvnwgD`。
+
+## 13. 2026-09-17 内置驱动目录启动写入退役
+
+- `driver_templates` 是驱动展示名、厂商、协议、能力和参数表单的唯一权威目录；`DriverRegistryService` 启动只读，不再覆盖内置模板的字段、启用状态或更新时间。
+- `EstablishBuiltinDriverTemplates1789610000000` 保存八条内置目录的不可变快照，只插入不存在的 kind。已有同名模板即使被现场定制或禁用也完整保留，非内置模板不受影响。
+- 各 adapter 内重复的 `static describe()` 已删除，避免代码常量与数据库形成两份会漂移的元数据。新增驱动或调整目录时必须新增显式迁移，不能恢复启动同步。
+- 有任何内置目录时迁移拒绝无归档降级。生产升级只增加第 33 条迁移账本；发布前快照与生产 8 条目录逐字段 SHA-256 均为 `51af7d60c4404318768f96b691aeaa418300b45490b52d5a93b6e6bed92e1960`。
+- 发布前快照位于 `D:\smart-control-backups\20260917-020733\sqlite-FgmwGb\database.sqlite`，配套恢复包和回执位于 `D:\smart-control-backups\migration-recovery\release-q7WJ1S`。
