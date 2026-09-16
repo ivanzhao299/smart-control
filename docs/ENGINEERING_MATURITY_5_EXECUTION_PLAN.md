@@ -68,7 +68,8 @@
 2. [x] 建立 SQLite 统一 `RuntimeConfigStore`，以数据库事务锁提供原子写入、修订号、SHA-256 校验、历史快照、审计来源和并发冲突检测；避免再形成一套长期文件数据库。
 3. 把视频绑定、园区运营内容、系统品牌、场景动作等 JSON 配置逐域迁移到统一存储接口。
    - [x] 视频绑定、NVR、通道、检测线与 ROI：一次性导入 SQLite，旧 JSON 只读保留，所有后续写入均生成带校验和的数据库修订。
-   - [ ] 园区运营内容及其余配置域。
+   - [x] 园区运营指标、文案与占位标记：一次性导入 SQLite，旧 JSON 只读保留，后台更新只生成数据库修订。
+   - [ ] 音频矩阵重复状态、园区大屏短期控制状态及其余配置域。
 4. [x] NVR 与摄像头通道只保留视频绑定配置一个权威源；摄像头拉流服务通过该服务解析通道，已移除重复硬编码密码和通道表；海康 `..01` 到 HLS `..02` 子码流的转换成为显式、受测试的规则。
 5. 统一生产数据库路径和启动检查，所有环境输出相同的数据库版本、迁移版本和数据目录摘要。
 6. [x] 将认证、系统品牌、播放和百度网盘服务中的启动 DDL 移除，由现有 TypeORM 迁移和只读启动门禁负责。
@@ -127,3 +128,4 @@
 | P1-A1 | SQLite 统一运行时配置仓储、修订历史、校验和与并发控制基础 | 新增两张空表，不读取或改写现有 JSON；迁移向前兼容，表内出现配置后禁止无归档降级 | 后端 61 套件/651 项；全新库 27 个迁移可重复执行；现有库副本升级前后 38 张业务表行数一致、完整性 `ok`、外键无违规；真实应用启动与健康检查通过 | `67faf2c`；[#38](https://github.com/ivanzhao299/smart-control/pull/38)；生产备份 `D:\smart-control-backups\20260916-143539`，配套恢复演练与迁移回执位于 `release-4qG9Uv`；生产现库 27 个迁移、完整性 `ok`、外键无违规，两张新表均为 0 行；双服务权威验证通过 |
 | P1-A2 | 部署迁移状态机、真实计划任务清单、生产路径解析统一 | 不新增迁移、不改写业务数据；只读预检确认现库为 `MIGRATIONS_CURRENT` | 后端 61 套件/652 项；脚本测试 56 项通过、2 项按环境跳过；Windows PowerShell 5.1 五个脚本零语法错误；生产只读预检后后端健康、前端 200 | `0c2adc2`；[#39](https://github.com/ivanzhao299/smart-control/pull/39)；[部署任务](https://github.com/ivanzhao299/smart-control/actions/runs/35068535988)及主分支 CI 通过；生产发布审计 `PASS`、迁移为 current、恢复锁未激活 |
 | P1-A3 | 视频绑定、NVR、通道、检测线与 ROI 收敛到 SQLite 单一权威源；HLS/截图合并到同一解析服务 | 新迁移只在目标键不存在时读取旧 JSON；主文件无效时校验 `.bak`；两者无效则事务失败；旧文件不删除、不改写 | 后端 63 套件/663 项与构建、前端 52 项与 PWA 构建通过；生产在线一致性副本仅执行目标迁移至 28 项，重复执行 0 项；完整性 `ok`、外键违规 0；源 JSON SHA-256 为 `febfdd42…c2f`；SQLite 文档与规范化源逐字段一致，6 路 HLS 均解析为 `..02` 子码流 | `f7ddd8d`、`5f26367`、`51e1a01`、`52f4279`、`874bd9a`；[#40](https://github.com/ivanzhao299/smart-control/pull/40)、[#41](https://github.com/ivanzhao299/smart-control/pull/41)、[#42](https://github.com/ivanzhao299/smart-control/pull/42)、[#43](https://github.com/ivanzhao299/smart-control/pull/43)、[#44](https://github.com/ivanzhao299/smart-control/pull/44)；恢复包 `release-HT0Ypw` 完成隔离演练、迁移与回执；[最终生产部署](https://github.com/ivanzhao299/smart-control/actions/runs/35077879545)全绿，六路 HLS 状态均为 200/运行中/零重启 |
+| P1-A4 | 园区运营指标、文案与占位标记收敛到 SQLite `park.ops.metrics`；自动迁移门禁识别受控 CI 调度器 | 新迁移仅在目标键不存在时导入有效主文件或备份；旧 JSON 不删除、不改写；首次发布在迁移前安全停住，沿用原 hold 前向恢复 | 后端 66 套件/678 项、脚本 56 项通过/2 项环境跳过、双端构建、生产依赖 high/critical 0；生产副本仅执行目标迁移，重复执行 0 项；PowerShell 5.1 解析与真实调度器命令行夹具通过 | `d943bb0`、`5e401c8`；[#46](https://github.com/ivanzhao299/smart-control/pull/46)、[#47](https://github.com/ivanzhao299/smart-control/pull/47)；[主分支 CI](https://github.com/ivanzhao299/smart-control/actions/runs/35082335909)通过；备份 `20260916-174947`，恢复包 `release-jviFeA`；生产 29 个迁移、完整性 `ok`、外键违规 0，数据库/历史/旧文件/API 校验一致，六路 HLS 200/运行中/零重启 |
