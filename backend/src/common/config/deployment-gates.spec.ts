@@ -33,6 +33,8 @@ describe('GK9000 deployment gates', () => {
     const deploy = readRepositoryFile('scripts/deploy-from-ci.ps1');
 
     expect(deploy).toContain('git diff --diff-filter=D --name-only');
+    expect(deploy).toContain('function Test-MutableRuntimePath');
+    expect(deploy).toContain('$isMutableRuntime = Test-MutableRuntimePath $path');
     expect(deploy).toContain('Preparing safe runtime untracking for:');
     expect(deploy).toContain("Join-Path $rollbackRoot 'tracked-runtime-untracking'");
     expect(deploy).toContain(

@@ -50,6 +50,14 @@ function Test-ProtectedRuntime([string]$RelativePath) {
          ($normalized -match '\.(db|db-wal|db-shm|sqlite|bak)$')
 }
 
+function Test-MutableRuntimePath([string]$RelativePath) {
+  if ([string]::IsNullOrWhiteSpace($RelativePath)) { return $false }
+  $normalized = $RelativePath.Replace('/', '\')
+  if ($normalized -like 'logs\*' -or $normalized -like '.runtime\*') { return $true }
+  if ($normalized -match '^database\.*\.(db|db-journal|db-wal|db-shm|sqlite)$') { return $true }
+  return ($normalized -like 'backend\data\*.json') -and ($normalized -notlike '*.example.json')
+}
+
 function Restore-ArchivedRuntimeFiles([string]$ArchiveRoot, [string[]]$RelativePaths) {
   if ([string]::IsNullOrWhiteSpace($ArchiveRoot)) { return }
   foreach ($relativePath in $RelativePaths) {
@@ -410,8 +418,12 @@ try {
       if ($null -eq $line -or $line.Length -le 3) { continue }
       $path = $line.Substring(3).Trim('"')
       if ($path -match ' -> ') { $path = ($path -split ' -> ')[-1] }
-      $null = & git check-ignore --no-index --quiet -- $path 2>$null
-      if ($LASTEXITCODE -eq 0) { $ignoredRuntime += $line } else { $trackedChanges += $line }
+      $isMutableRuntime = Test-MutableRuntimePath $path
+      if (-not $isMutableRuntime) {
+        $null = & git check-ignore --no-index --quiet -- $path 2>$null
+        $isMutableRuntime = ($LASTEXITCODE -eq 0)
+      }
+      if ($isMutableRuntime) { $ignoredRuntime += $line } else { $trackedChanges += $line }
     }
     if ($ignoredRuntime.Count -gt 0) {
       Write-DeployLog "Ignoring runtime files already declared in .gitignore: $($ignoredRuntime -join '; ')"
