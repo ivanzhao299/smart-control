@@ -164,6 +164,11 @@ test('page keyboard shortcuts do not intercept editor text input', () => {
   assert.match(appJs, /if\(e\.key==='ArrowRight'\|\|e\.key===' '\)\{e\.preventDefault\(\);go\(idx\+1\)\}/);
 });
 
+test('anonymous dashboard can only idempotently ensure registered HLS streams', () => {
+  assert.match(appJs, /\/hls\/ensure/);
+  assert.doesNotMatch(appJs, /\/hls\/(start|stop)/);
+});
+
 test('calibration editor provides explicit create update delete controls', () => {
   for (const control of [
     'pe-phase-add', 'pe-phase-delete',

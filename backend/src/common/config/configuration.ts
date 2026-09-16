@@ -1,4 +1,5 @@
 import { isAbsolute, resolve } from 'path';
+import { parseCorsAllowedOrigins } from './cors';
 
 export interface AppConfig {
   port: number;
@@ -6,6 +7,7 @@ export interface AppConfig {
   appName: string;
   apiPrefix: string;
   apiTimeout: number;
+  corsAllowedOrigins: string[];
   /** Sprint-01 现场部署: 主机型号 (例 GIADA GK9000) */
   hostMachine: string;
   /** 平台标识 (windows / linux / darwin), 优先取 env, 默认 process.platform */
@@ -68,6 +70,10 @@ export default (): RootConfig => ({
     appName: process.env.APP_NAME ?? 'smart-control-backend',
     apiPrefix: process.env.API_PREFIX ?? '/api',
     apiTimeout: parseInt10(process.env.API_TIMEOUT, 30000),
+    corsAllowedOrigins: parseCorsAllowedOrigins(process.env.CORS_ALLOWED_ORIGINS, [
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+    ]),
     hostMachine: process.env.HOST_MACHINE ?? '',
     platform: (process.env.PLATFORM ?? process.platform).toLowerCase(),
   },

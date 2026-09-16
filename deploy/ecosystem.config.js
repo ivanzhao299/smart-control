@@ -73,6 +73,7 @@ module.exports = {
         PORT: 3200,
         // 运行时业务/设备数据写到仓库外, 防止部署覆盖现场配置 (见上方 runtimeDataDir)
         DATA_DIR: runtimeDataDir,
+        CORS_ALLOWED_ORIGINS: 'http://localhost:5173,http://127.0.0.1:5173,http://192.168.77.54:5173,http://192.168.50.10:5173,https://erp.cnjinhu.top',
         FFMPEG_PATH: 'D:\\smart-control-tools\\ffmpeg\\bin\\ffmpeg.exe',
         FFPROBE_PATH: 'D:\\smart-control-tools\\ffmpeg\\bin\\ffprobe.exe',
       },
@@ -85,6 +86,7 @@ module.exports = {
         // 与 env 保持一致, --env production 时同样把运行时数据放到仓库外。
         // 注意: 若 backend/.env 内也设置了 DATA_DIR, .env 优先级更高, 二者必须一致。
         DATA_DIR: runtimeDataDir,
+        CORS_ALLOWED_ORIGINS: 'http://localhost:5173,http://127.0.0.1:5173,http://192.168.77.54:5173,http://192.168.50.10:5173,https://erp.cnjinhu.top',
         // Windows 现场推荐 (在 backend/.env 中覆盖):
         //   DB_PATH=D:\\smart-control\\database\\smart-control.db
         //   LOG_DIR=D:\\smart-control\\logs
