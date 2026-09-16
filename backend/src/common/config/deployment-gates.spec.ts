@@ -68,6 +68,8 @@ describe('GK9000 deployment gates', () => {
     expect(verify).toContain('SKIP 未配置 VERIFY_CLIENT_TOKEN');
     expect(verify).toContain('new BetterSqlite3(dbPath, { readonly: true, fileMustExist: true })');
     expect(verify).toContain("db.pragma('query_only = ON')");
+    expect(verify).toContain("path.join(ROOT, 'database', 'smart-control.db')");
+    expect(verify).toContain('candidates.find((candidate) => fs.existsSync(candidate))');
     expect(verify).toContain('expectedPidToName.get(pid)');
     expect(verify).toContain("cmd.includes('verify-deploy.js')");
   });

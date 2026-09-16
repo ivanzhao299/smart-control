@@ -199,9 +199,14 @@ function readEnvValue(file, key) {
 function inspectParkDashboardSource() {
   const backendDir = path.join(ROOT, 'backend');
   const configured = process.env.DB_PATH || readEnvValue(path.join(backendDir, '.env'), 'DB_PATH');
-  const dbPath = configured
-    ? (path.isAbsolute(configured) ? configured : path.resolve(backendDir, configured))
-    : path.join(backendDir, 'database', 'smart-control.db');
+  const candidates = [
+    configured && (path.isAbsolute(configured) ? configured : path.resolve(backendDir, configured)),
+    // Production backup/restore scripts use this canonical repository-external data path.
+    path.join(ROOT, 'database', 'smart-control.db'),
+    // Keep the historical process.cwd()-relative layout discoverable for development installs.
+    path.join(backendDir, 'database', 'smart-control.db'),
+  ].filter(Boolean);
+  const dbPath = candidates.find((candidate) => fs.existsSync(candidate)) || candidates[0];
   const BetterSqlite3 = require(path.join(backendDir, 'node_modules', 'better-sqlite3'));
   const db = new BetterSqlite3(dbPath, { readonly: true, fileMustExist: true });
   try {
