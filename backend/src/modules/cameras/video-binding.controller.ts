@@ -163,13 +163,15 @@ export class VideoBindingController {
   // 单路：保存计数线 / ROI 区域 / 是否分析，并热下发给 AI（无需重启 AI）
   @Put('channels/:id/ai')
   async saveChannelAi(@Param('id') id: string, @Body() body: ChannelAiConfigDto) {
-    const channel = await this.videoBindingService.updateChannelAi(id, body || {});
+    const { expectedRevision, ...patch } = body || {};
+    const channel = await this.videoBindingService.updateChannelAi(id, patch, expectedRevision);
     if (!channel) return { success: false, message: '摄像头通道不存在' };
     const push = await this.aiPusher.pushAll();
     return {
       success: true,
       message: push.ok ? '检测范围已保存并热下发到 AI' : `检测范围已保存；${push.message}`,
       data: channel,
+      revision: this.videoBindingService.getConfigView().revision,
       push,
     };
   }

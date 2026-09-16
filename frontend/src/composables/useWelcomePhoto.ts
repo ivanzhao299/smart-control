@@ -4,6 +4,7 @@ import { getApiBaseURL, getAdminToken, getClientToken } from '@/services/http';
 import { fetchSystemBranding, saveWelcomeConfig } from '@/services/system-branding.service';
 import { useToastStore } from '@/stores/toast';
 import { parkOpsControlService } from '@/services/park-ops-control.service';
+import { publishWelcomePhoto } from '@/services/welcome-photo-publisher';
 
 /**
  * 来访者拍照上墙 (2026-09-14; 2026-09-15 修复 PWA 拍照闪退)
@@ -305,21 +306,24 @@ export function useWelcomePhoto() {
   }
 
   async function publishPhoto(led: File, original: File): Promise<void> {
-    let oldId: number | null = null;
     try {
-      const cur = await fetchSystemBranding().catch(() => null);
-      oldId = cur?.welcomePhotoMediaId ?? null;
-      const media = await uploadWithRetry(led);
-      await saveWelcomeConfig({ welcomePhotoMediaId: media.id });
-      await gotoWelcomePage();
-      if (oldId && oldId !== media.id) {
-        // 只保留最新一张: 删除走后端可恢复删除, 不是物理清除
-        await mediaService.remove(oldId).catch(() => undefined);
-      }
+      const published = await publishWelcomePhoto(led, {
+        readCurrentMediaId: async () =>
+          (await fetchSystemBranding()).welcomePhotoMediaId ?? null,
+        uploadLedPhoto: uploadWithRetry,
+        bindWelcomePhoto: async mediaId => {
+          await saveWelcomeConfig({ welcomePhotoMediaId: mediaId });
+        },
+        showWelcomePage: gotoWelcomePage,
+        // 删除走后端可恢复删除，不物理清除；失败不破坏当前绑定。
+        removeMedia: async mediaId => {
+          await mediaService.remove(mediaId);
+        },
+      });
       // 原画只保存在本机；分享/下载仍由用户稍后主动触发。
       pendingOriginal.value = original;
       hasPhoto.value = true;
-      const idForIdb = media.id;
+      const idForIdb = published.mediaId;
       setTimeout(() => {
         void idbSet({ mediaId: idForIdb, ts: Date.now(), file: original });
       }, 0);

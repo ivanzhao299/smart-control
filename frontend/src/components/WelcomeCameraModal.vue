@@ -49,7 +49,9 @@ function stopStream(): void {
 
 async function start(): Promise<void> {
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-    errMsg.value = '当前不是安全上下文(HTTPS)，无法启用页内相机';
+    errMsg.value = window.isSecureContext
+      ? '当前浏览器不支持页内相机，请改用相册选择'
+      : '当前入口使用 HTTP，iPhone 会阻止网页相机。请打开 HTTPS 安全版；首次使用需重新登录并重新添加到主屏幕。';
     phase.value = 'error';
     return;
   }

@@ -22,6 +22,7 @@ const props = defineProps<{
   aiEnabled?: boolean;
   countLine?: Pt[] | null;
   roiPolygon?: Pt[] | null;
+  saving?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -167,10 +168,12 @@ function setNum(target: 'la' | 'lb' | 'roi', idx: number, axis: 'x' | 'y', raw: 
 }
 
 function close() {
+  if (props.saving) return;
   emit('update:modelValue', false);
 }
 
 function save() {
+  if (props.saving) return;
   const outLine: Pt[] = [
     { x: clamp01(line.value[0].x), y: clamp01(line.value[0].y) },
     { x: clamp01(line.value[1].x), y: clamp01(line.value[1].y) },
@@ -178,7 +181,11 @@ function save() {
   // 不足 3 点不构成区域，按“全画面”处理
   const outRoi = roi.value.length >= 3 ? roi.value.map(p => ({ x: clamp01(p.x), y: clamp01(p.y) })) : [];
   emit('save', { aiEnabled: enabled.value, countLine: outLine, roiPolygon: outRoi });
-  emit('update:modelValue', false);
+}
+
+function updateOpen(value: boolean) {
+  if (!value && props.saving) return;
+  emit('update:modelValue', value);
 }
 </script>
 
@@ -189,7 +196,7 @@ function save() {
     class="ai-region-dialog"
     width="860px"
     :close-on-click-modal="false"
-    @update:model-value="(v: boolean) => emit('update:modelValue', v)"
+    @update:model-value="updateOpen"
   >
     <div class="are-topbar">
       <label class="are-enable">
@@ -297,8 +304,8 @@ function save() {
     </div>
 
     <template #footer>
-      <el-button @click="close">取消</el-button>
-      <el-button type="primary" @click="save">保存并下发 AI</el-button>
+      <el-button :disabled="saving" @click="close">取消</el-button>
+      <el-button type="primary" :loading="saving" @click="save">{{ saving ? '正在保存并复核…' : '保存并下发 AI' }}</el-button>
     </template>
   </el-dialog>
 </template>
