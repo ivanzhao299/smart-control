@@ -11,9 +11,9 @@
 
 ```bash
 cd frontend
-npm install
-npm run icons          # 生成 PWA 图标 (192/512)
-npm run dev            # http://localhost:5173 (代理 /api /ws 到 backend)
+pnpm install --frozen-lockfile
+pnpm run icons          # 生成 PWA 图标 (192/512)
+pnpm run dev            # http://localhost:5173 (代理 /api /ws 到 backend)
 ```
 
 环境变量 (可选)：
@@ -26,8 +26,8 @@ VITE_WS_PATH=/ws/status                    # WebSocket 路径
 ## 构建 / 预览
 
 ```bash
-npm run build          # 输出 dist/ (含 sw.js / manifest.webmanifest)
-npm run preview        # 起 4173 预览
+pnpm run build          # 输出 dist/ (含 sw.js / manifest.webmanifest)
+pnpm run preview        # 起 4173 预览
 ```
 
 ## 目录
@@ -56,7 +56,8 @@ frontend/src/
 │   ├── device.ts                 # 设备/runtime/gateways
 │   └── system.ts                 # WS 状态/报警/系统信息/时钟
 ├── services/
-│   ├── http.ts                   # Axios + ApiOk<T> 解包 + 错误统一
+│   ├── http.ts                   # 原生 fetch + ApiOk<T> 解包 + 错误统一
+│   ├── media.service.ts          # 媒体 API；上传进度暂使用 Axios fetch adapter
 │   ├── websocket.service.ts      # WS 客户端 (心跳/重连/事件分发)
 │   ├── scene.service.ts
 │   ├── device.service.ts
@@ -86,7 +87,7 @@ frontend/src/
 通过 `vite-plugin-pwa` 自动生成：
 - `manifest.webmanifest` — display: fullscreen, orientation: landscape
 - `sw.js` + workbox 缓存 (排除 `/api` `/ws`)
-- 图标：`public/icons/pwa-{192,512}x{192,512}.png` (由 `npm run icons` 生成)
+- 图标：`public/icons/pwa-{192,512}x{192,512}.png` (由 `pnpm run icons` 生成)
 
 平板首次访问后点 “添加到主屏” → 全屏启动。
 

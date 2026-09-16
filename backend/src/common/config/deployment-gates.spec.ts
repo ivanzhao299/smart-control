@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import { execFileSync } from 'child_process';
 
@@ -16,6 +16,31 @@ describe('GK9000 deployment gates', () => {
     expect(packageJson.dependencies['better-sqlite3']).toBeDefined();
     expect(packageJson.dependencies.sqlite3).toBeUndefined();
     expect(lockfile).not.toMatch(/^  sqlite3@\d/m);
+  });
+
+  it('uses one pnpm version source for frontend installs', () => {
+    const backendPackage = JSON.parse(readRepositoryFile('backend/package.json')) as {
+      packageManager: string;
+    };
+    const frontendPackage = JSON.parse(readRepositoryFile('frontend/package.json')) as {
+      packageManager: string;
+    };
+
+    expect(frontendPackage.packageManager).toBe(backendPackage.packageManager);
+    expect(frontendPackage.packageManager).toBe('pnpm@10.33.4');
+    expect(existsSync(resolve(repositoryRoot, 'frontend/package-lock.json'))).toBe(false);
+    for (const script of [
+      'scripts/start.ps1',
+      'scripts/restart.ps1',
+      'scripts/update.ps1',
+      'scripts/start-prod.sh',
+      'scripts/start-dev.sh',
+    ]) {
+      const source = readRepositoryFile(script);
+      expect(source).not.toContain('npm ci');
+      expect(source).not.toMatch(/Run "npm run/);
+      expect(source).not.toMatch(/^npm run/m);
+    }
   });
 
   it('keeps generated database sidecars and logs out of the version tree', () => {
@@ -120,6 +145,10 @@ describe('GK9000 deployment gates', () => {
     const auditPosition = workflow.indexOf('pnpm audit --prod --audit-level high');
     const testPosition = workflow.indexOf('pnpm exec jest --ci --reporters=default');
     const backendBuildPosition = workflow.indexOf('pnpm run build');
+    const frontendAuditPosition = workflow.indexOf(
+      'pnpm audit --prod --audit-level high',
+      auditPosition + 1,
+    );
     const frontendTestPosition = workflow.indexOf('pnpm run test');
     const frontendTypecheckPosition = workflow.indexOf('pnpm run typecheck');
     const frontendBuildPosition = workflow.indexOf('pnpm run build', backendBuildPosition + 1);
@@ -128,6 +157,8 @@ describe('GK9000 deployment gates', () => {
     expect(auditPosition).toBeLessThan(testPosition);
     expect(testPosition).toBeGreaterThan(-1);
     expect(testPosition).toBeLessThan(backendBuildPosition);
+    expect(frontendAuditPosition).toBeGreaterThan(backendBuildPosition);
+    expect(frontendAuditPosition).toBeLessThan(frontendTestPosition);
     expect(frontendTestPosition).toBeGreaterThan(backendBuildPosition);
     expect(frontendTestPosition).toBeLessThan(frontendTypecheckPosition);
     expect(frontendTypecheckPosition).toBeLessThan(frontendBuildPosition);

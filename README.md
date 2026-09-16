@@ -142,8 +142,7 @@ pm2 守护 backend(3200) + frontend(5173)，三路播放 kiosk（LED 大屏 / �
 cd D:\smart-control\frontend
 
 # 一次性安装依赖
-pnpm install
-# 或 npm ci
+pnpm install --frozen-lockfile
 
 # 构建生产产物
 pnpm build
@@ -649,10 +648,10 @@ backend/src/adapters/
 ### Mock 模式（默认，无真实设备）
 ```bash
 cd backend
-npm install
+pnpm install --frozen-lockfile
 cp .env.example .env
-npm run build && npm run seed
-npm run start:dev          # MOCK_MODE=true
+pnpm run build && pnpm run seed
+pnpm run start:dev          # MOCK_MODE=true
 ```
 
 ### 真实模式
@@ -660,7 +659,7 @@ npm run start:dev          # MOCK_MODE=true
 cp .env.example .env
 sed -i '' 's/MOCK_MODE=true/MOCK_MODE=false/' .env
 # 按现场修改: DALI_GATEWAY_HOST / LED_HOST / AUDIO_HOST / HVAC_HOST 等
-npm run start:dev
+pnpm run start:dev
 ```
 
 或直接命令行覆盖：
@@ -671,7 +670,7 @@ MOCK_MODE=false \
   AUDIO_HOST=192.168.50.40 \
   HVAC_HOST=192.168.50.50 \
   DEVICE_TIMEOUT_MS=3000 DEVICE_RETRIES=3 \
-  npm run start:prod
+  pnpm run start:prod
 ```
 
 ### 切换方式总结
@@ -704,7 +703,7 @@ curl -X POST http://localhost:3000/api/lighting/zone/2/brightness \
 
 ### 2. 真实超时 (无网关时)
 ```bash
-MOCK_MODE=false DEVICE_TIMEOUT_MS=1500 DEVICE_RETRIES=2 npm run start:prod
+MOCK_MODE=false DEVICE_TIMEOUT_MS=1500 DEVICE_RETRIES=2 pnpm run start:prod
 sleep 8
 curl http://localhost:3000/api/system/runtime/gateways
 # → 4 个 gateway 均 offline, lastError 显示具体超时/连接拒绝原因
@@ -723,7 +722,7 @@ http.createServer((q,r)=>{
 }).listen(18020);
 '
 # 另一终端启动后端指向 fake:
-MOCK_MODE=false DALI_GATEWAY_HOST=127.0.0.1 DALI_GATEWAY_PORT=18020 npm run start:prod
+MOCK_MODE=false DALI_GATEWAY_HOST=127.0.0.1 DALI_GATEWAY_PORT=18020 pnpm run start:prod
 # 期望: 健康检查前 2 次 500 后第 3 次成功, gateway 转 online
 ```
 
