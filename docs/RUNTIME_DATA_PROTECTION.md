@@ -174,3 +174,14 @@
 - 正式发布先保存 `D:\smart-control-backups\20260917-054502\sqlite-diWIgb\database.sqlite`，再于 `D:\smart-control-backups\migration-recovery\restore-uBi16p` 完成数据库与媒体隔离恢复演练，恢复包和迁移回执位于 `D:\smart-control-backups\migration-recovery\release-lo47Nf`。
 - PR #78 以合并提交 `acfbd56a4e69aa8008c56e4c4c46cc4998ba9d05` 发布成功。生产 13 个区、22 台内机和 3 个播放通道的语义 SHA-256 分别保持 `9c13259066650e49c449d43069e61f5dd960206fe7e855d0b83a86a11fe8b756`、`9bbbcc9db499d902fa48d0904a8bc6843a94080504618e80ffced0330cbe2a31`、`d590d08a9d4b70383e64a6dd48ff0eb88ebd8783303cb6eebdb3d315ad9bc392`；15 条系统媒体指纹也保持 `e3c420c076ec64245c21edba3cf665b2c4d03e0a48e4db9fbf718791f1f7f6d7`。
 - Git HEAD、`origin/main`、发布清单和运行 API 提交一致，工作区干净，`RELEASE_HOLD` 不存在；数据库 39 个迁移、完整性 `ok`、外键违规 0。38 台设备在线，后端/前端零重启，六路 HLS 均运行中且零重启，PWA 与园区大屏入口返回 200。
+
+## 20. 2026-09-17 内置媒体启动建档退役
+
+- `deploy/assets/bundled-media-manifest.json` 是 15 条随包系统媒体的版本化制品清单：13 个文件记录大小与 SHA-256，2 个网页记录固定本地 URL；`media_assets` 是运行时目录，`D:\Media` 是生产文件权威位置。
+- `EstablishBundledMediaAuthority1789680000000` 增加稳定 `system_key` 和 `artifact_sha256`，建立系统键唯一索引，并把旧启动 M4V MIME 修复迁入第 40 个显式迁移。已有同名行只有在来源、归属和业务元数据与清单精确一致时才接管；冲突、重复或未登记系统媒体会阻断发布。
+- `MediaService` 启动不再建档、复制、修复内置文件或改 MIME。部署 reconciler 只在持有连续写入隔离、数据库与媒体配套恢复证据时执行；日常发布末尾和迁移回执验证均使用只读 `--check-only`。新安装缺失文件写入 `MEDIA_ROOT/_system/<system_key>/`，已有文件摘要匹配时原路径和字节保持不动。
+- 系统媒体在通用 API 中不可编辑、不可删除，事务内再次校验来源；前端标记“内置/受保护”并隐藏编辑删除入口。按原始名称查询限定 `source=system AND owner_user_id IS NULL`，用户上传同名文件不能遮蔽内置资产。
+- 发布前生产审计确认 15 条系统记录、13 个文件均与清单元数据、大小和 SHA-256 一致。生产副本执行迁移和对账后，原有业务列逐字段保持；缺文件只读检查无写入，符号链接目录在越界写入前失败，失败清理只处理本次新建的文件和目录。
+- PR #80 以合并提交 `28e6f6caedca3b110fdd3e095257c0c37a35e459` 发布成功。正式备份为 `D:\smart-control-backups\20260917-062105\sqlite-6OuZOa\database.sqlite`，恢复包、迁移回执和隔离恢复演练位于 `D:\smart-control-backups\migration-recovery\release-lyzijF`；回执记录清单版本 1、15 条资产和 `updated` 状态。
+- 发布后独立只读验收确认：Git HEAD、`origin/main`、发布清单均为目标提交，跟踪工作区干净且无 `RELEASE_HOLD`；数据库 40 个迁移、完整性 `ok`、外键违规 0；15 个 `system_key` 唯一，13 个摘要完整，全部 13 个文件仍使用既有路径，未创建 `_system`；`BUNDLED_MEDIA_CURRENT 15`。后端和前端 HTTP 200，两个 PM2 进程均在线且重启数为 0。
+- CI 和生产部署现在都在后端构建后运行 `backend/test/*.test.cjs` 运维测试，避免恢复、迁移、凭据存储和部署门禁脚本只存在于本地而未进入发布判定。

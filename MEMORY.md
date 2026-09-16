@@ -44,7 +44,9 @@
 - 现场权威路径：SQLite=`D:\smart-control\database\smart-control.db`，运行时数据=`D:\smart-control-runtime\data`，媒体=`D:\Media`，拍照上墙照片=`D:\Media\welcome-photos`。以上目录与代码仓库分离，发布不得删除或覆盖。
 - 阶段 P1-A20 已完成：`hvac_zone`、`hvac_indoor.zone_code` 与 `playback_channels` 分别成为空调分区/成员和物理播放通道的唯一权威目录。第 39 个迁移只在对应整表为空时建立 14/22/3 条新安装默认值，非空、部分、禁用和定制目录零改写；读取与启动不再补行。`hvac-zone` 场景动作改为查询数据库成员，已删除第二份运行时代码常量；遗留 `hvac_zone.indoors` 不再承载成员关系。
 - P1-A20 生产发布前在线一致性副本的 40 张业务表指纹全部不变；正式备份为 `D:\smart-control-backups\20260917-054502\sqlite-diWIgb\database.sqlite`，恢复包为 `D:\smart-control-backups\migration-recovery\release-lo47Nf`，隔离恢复演练为 `D:\smart-control-backups\migration-recovery\restore-uBi16p`。PR #78 合并提交 `acfbd56a4e69aa8008c56e4c4c46cc4998ba9d05`，生产部署 https://github.com/ivanzhao299/smart-control/actions/runs/35153802363 全绿。
-- 当前阶段没有待发布运行时代码。启动写入审计已将设备状态恢复、WebSocket/站点心跳、灯具扫描、音频设备对账、LED 图层校正和播放重启回待机归为运行态恢复或设备对账；场景动作、电源回路、内置驱动、品牌目录、音频配置、应用版本、身份初始化、旧部署 seed、HVAC 目录和播放通道建档已经退役。下一批单独审计内置媒体的数据库记录与数据盘文件对账，先建立系统资产保护、制品清单和配套媒体恢复演练，再决定如何退役启动建档。
+- 阶段 P1-A21 已完成：15 条内置媒体纳入 `bundled-media-manifest.json` 版本 1 清单；第 40 个迁移建立稳定 `system_key`、制品 SHA-256 与唯一索引，并承接旧 M4V MIME 修复。`MediaService` 启动只读，不再建档、复制或修复文件；系统媒体禁止通用 API 编辑删除，前端显示“内置/受保护”。部署 reconciler 只在数据库/媒体配套恢复门禁内写入，发布和回执复核使用只读检查。
+- P1-A21 正式备份为 `D:\smart-control-backups\20260917-062105\sqlite-6OuZOa\database.sqlite`，恢复包/回执/隔离演练为 `D:\smart-control-backups\migration-recovery\release-lyzijF`。PR #80 合并提交 `28e6f6caedca3b110fdd3e095257c0c37a35e459`，生产部署 https://github.com/ivanzhao299/smart-control/actions/runs/35156942185 全绿；生产 40 个迁移、15 个唯一系统键、13 个文件摘要，文件全部保留原路径且未创建 `_system`，完整性 `ok`、外键违规 0，双服务 HTTP 200/在线/零重启。
+- 阶段 1 的已知启动目录建档已经全部退役。下一批 P1-A22 做阶段 1 退出审计：再次枚举所有启动写入和旧 JSON 兼容读取，给仍保留的迁移桥梁设置归档/删除条件，核验数据盘异机备份与恢复目标，并确认不存在双写、无期限兼容源或绕过版本迁移的数据库写入；通过后再进入阶段 2 的模块和 API 收敛。
 
 ## 当前状态快照（2026-07-28）
 
