@@ -190,6 +190,18 @@ describe('GK9000 deployment gates', () => {
     expect(dependabot).not.toContain('automerge');
     expect(deployWorkflow).toContain("- '.github/**'");
     expect(deployWorkflow).toContain("- 'docs/**'");
+    expect(deployWorkflow).toContain("- 'backend/**/*.spec.ts'");
+    expect(deployWorkflow).toContain("- 'frontend/tests/**'");
+    expect(deployWorkflow).toContain("- 'tools/ci/**'");
+
+    const iosWorkflow = readRepositoryFile('.github/workflows/ios-build.yml');
+    const iosPushBlock = iosWorkflow.slice(
+      iosWorkflow.indexOf('  push:'),
+      iosWorkflow.indexOf('  pull_request:'),
+    );
+    expect(iosPushBlock).toContain("- 'ios-app/**'");
+    expect(iosPushBlock).not.toContain('.github/workflows/ios-build.yml');
+    expect(iosWorkflow).toContain("github.event_name == 'workflow_dispatch'");
 
     const workflows = execFileSync(
       'git',
