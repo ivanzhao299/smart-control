@@ -114,6 +114,7 @@ body:before{display:none}
 .park .map-scene .aerial{inset:0;animation:none;transform:scale(1.025);transition:filter 1.7s ease,opacity .45s ease}.map:hover .map-scene .aerial{transform:scale(1.025)}.phase{animation:none;stroke-dasharray:10 8}.window-lights{animation:none}.cloud{display:none;animation:none}.park-3d{transition:opacity .45s ease,filter 1.7s ease}.live-dot{animation-duration:3.2s}
 .map-view-controls{position:absolute;z-index:10;left:18px;top:62px;align-items:center;padding:6px;background:rgba(2,15,26,.92)}.map-view-controls .view-label{padding:0 7px;color:#789daf;font-size:11px;letter-spacing:1px}.map-view-controls .map-chip{padding:6px 10px}.map-view-controls .map-chip.active{box-shadow:none}.map-view-controls .map-chip:disabled{opacity:.42}
 body.park-editing .map-scene{inset:0;transform:none!important;transition:none;will-change:auto}body.park-editing .map-view-controls{opacity:.55}.map-detail{background:linear-gradient(145deg,rgba(3,20,34,.97),rgba(5,34,49,.95));box-shadow:0 10px 26px rgba(0,0,0,.32)}
+.demo-disclaimer{position:absolute;right:34px;bottom:11px;z-index:20;color:rgba(143,179,199,.72);font-size:10px;letter-spacing:.4px;pointer-events:none}
 /* ============================================================
  * 统一Design系统 v1.0
  * 功能：统一颜色、布局、组件样式，替代内联样式

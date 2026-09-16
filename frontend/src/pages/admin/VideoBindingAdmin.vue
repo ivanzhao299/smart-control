@@ -24,7 +24,7 @@ interface NvrDevice {
   port: number;
   rtspPort: number;
   username: string;
-  password: string;
+  hasPassword: boolean;
   brand: string;
   enabled: boolean;
   createdAt: string;
@@ -32,7 +32,8 @@ interface NvrDevice {
 
 const nvrs = ref<NvrDevice[]>([]);
 const nvrDialogVisible = ref(false);
-const nvrForm = ref<Partial<NvrDevice>>({});
+type NvrForm = Partial<NvrDevice> & { password?: string };
+const nvrForm = ref<NvrForm>({});
 const nvrEditing = ref(false);
 const testingNvrId = ref<string | null>(null);
 
@@ -92,7 +93,7 @@ async function loadData() {
 // NVR CRUD
 function openNvrDialog(nvr?: NvrDevice) {
   if (nvr) {
-    nvrForm.value = { ...nvr };
+    nvrForm.value = { ...nvr, password: '' };
     nvrEditing.value = true;
   } else {
     nvrForm.value = {
@@ -115,12 +116,26 @@ async function saveNvr() {
     ElMessage.warning('请填写设备名称和IP地址');
     return;
   }
+  if (!nvrEditing.value && !nvrForm.value.password) {
+    ElMessage.warning('新建NVR设备必须填写密码');
+    return;
+  }
   try {
+    const payload = {
+      name: nvrForm.value.name,
+      ip: nvrForm.value.ip,
+      port: nvrForm.value.port,
+      rtspPort: nvrForm.value.rtspPort,
+      username: nvrForm.value.username,
+      brand: nvrForm.value.brand,
+      enabled: nvrForm.value.enabled,
+      ...(nvrForm.value.password ? { password: nvrForm.value.password } : {}),
+    };
     if (nvrEditing.value && nvrForm.value.id) {
-      await api.put(`/video-binding/nvrs/${nvrForm.value.id}`, nvrForm.value);
+      await api.put(`/video-binding/nvrs/${nvrForm.value.id}`, payload);
       ElMessage.success('NVR设备已更新');
     } else {
-      await api.post('/video-binding/nvrs', nvrForm.value);
+      await api.post('/video-binding/nvrs', payload);
       ElMessage.success('NVR设备已创建');
     }
     nvrDialogVisible.value = false;
@@ -186,11 +201,19 @@ async function saveChannel() {
     return;
   }
   try {
+    const payload = {
+      nvrId: channelForm.value.nvrId,
+      hikChannel: channelForm.value.hikChannel,
+      name: channelForm.value.name,
+      alias: channelForm.value.alias || '',
+      enabled: channelForm.value.enabled,
+      sortOrder: channelForm.value.sortOrder,
+    };
     if (channelEditing.value && channelForm.value.id) {
-      await api.put(`/video-binding/channels/${channelForm.value.id}`, channelForm.value);
+      await api.put(`/video-binding/channels/${channelForm.value.id}`, payload);
       ElMessage.success('摄像头通道已更新');
     } else {
-      await api.post('/video-binding/channels', channelForm.value);
+      await api.post('/video-binding/channels', payload);
       ElMessage.success('摄像头通道已创建');
     }
     channelDialogVisible.value = false;
@@ -480,7 +503,13 @@ onMounted(() => {
           <el-input v-model="nvrForm.username" />
         </el-form-item>
         <el-form-item label="密码">
-          <el-input v-model="nvrForm.password" type="password" show-password />
+          <el-input
+            v-model="nvrForm.password"
+            type="password"
+            show-password
+            :placeholder="nvrEditing && nvrForm.hasPassword ? '已配置，留空保持不变' : '请输入密码'"
+          />
+          <div v-if="nvrEditing" class="form-tip">出于安全原因不回显现有密码；留空保存时沿用原密码。</div>
         </el-form-item>
         <el-form-item label="品牌">
           <el-select v-model="nvrForm.brand">

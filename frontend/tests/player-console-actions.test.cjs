@@ -25,6 +25,7 @@ for (const action of names) {
       playbackStore: { next: async () => calls.push('next') },
       publishWelcome: async () => calls.push('welcome'),
       publishParkDashboard: async () => calls.push('park-dashboard'),
+      syncParkOpsState: async () => undefined,
       ElMessage: { success: () => calls.push('success'), error: () => calls.push('error'), info: () => calls.push('info') },
     });
     vm.runInContext(js, context);

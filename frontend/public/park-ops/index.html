@@ -13,12 +13,6 @@
 <!-- 部署门禁自描述标记：verify-deploy 静态校验本页即运营大屏；运行时完整元数据由末尾 js/app.js 的 window.PARK_DEMO 覆盖提供 -->
 <script>window.PARK_DEMO=window.PARK_DEMO||{page:'jinhu-park-ops-dashboard',resolution:'3612x1462',static:true};</script>
 
-<!-- 资源预加载：关键字体 -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Share+Tech+Mono&family=VT323&display=swap">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Share+Tech+Mono&family=VT323&display=swap" media="print" onload="this.media='all'">
-
 <!-- 资源预加载：关键CSS -->
 <link rel="preload" as="style" href="./park-ops-editor.css?v=20260913-v4-performance-optimized">
 <link rel="stylesheet" href="./park-ops-editor.css?v=20260913-v4-performance-optimized" />
@@ -33,9 +27,6 @@
 <!-- Three.js：懒加载，仅在需要3D时加载 -->
 <script type="importmap">{"imports":{"three":"./vendor/three.module.min.js"}}</script>
 
-<!-- DNS预解析：AI分析服务 -->
-<link rel="dns-prefetch" href="http://localhost:8000">
-<link rel="dns-prefetch" href="http://localhost:3200">
 <link rel="stylesheet" href="./css/style.css?v=20260913-refactor">
 </head>
 <body data-scene="day"><canvas id="ambient" width="3612" height="1462"></canvas>
@@ -164,6 +155,7 @@
       </div>
     </section>
 
+    <div class="demo-disclaimer">企业名称为演示占位 · 分区、楼栋、企业及业务指标均为演示标注</div>
     <div class="tabs"><button class="btn btn-arrow" id="prev">‹</button><button class="btn btn-auto" id="auto">A</button><button class="btn btn-arrow" id="next">›</button></div><div class="page-indicator" id="pageIndicator"></div>
   </main>
 </div>

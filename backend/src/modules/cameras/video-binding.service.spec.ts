@@ -4,7 +4,18 @@ import { join } from 'path';
 import { VideoBindingConfig, VideoBindingService } from './video-binding.service';
 
 const fixture = (): VideoBindingConfig => ({
-  nvrs: [],
+  nvrs: [{
+    id: 'nvr',
+    name: 'Recorder',
+    ip: '192.168.1.10',
+    port: 80,
+    rtspPort: 554,
+    username: 'admin',
+    password: 'existing-secret',
+    brand: 'hikvision',
+    enabled: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  }],
   channels: [{
     id: 'gate',
     nvrId: 'nvr',
@@ -63,5 +74,55 @@ describe('VideoBindingService runtime persistence', () => {
 
     expect(service.getConfig().channels[0].countLine?.[0]).toEqual({ x: 0.2, y: 0.3 });
     expect(() => JSON.parse(readFileSync(path, 'utf8'))).not.toThrow();
+  });
+
+  it('never exposes an NVR password in management views', () => {
+    const path = join(directory, 'video-binding.json');
+    writeFileSync(path, JSON.stringify(fixture()));
+    const service = new VideoBindingService();
+    service.onModuleInit();
+
+    const view = service.getConfigView();
+
+    expect(view.nvrs[0]).toMatchObject({ id: 'nvr', hasPassword: true });
+    expect(view.nvrs[0]).not.toHaveProperty('password');
+    expect(JSON.stringify(view)).not.toContain('existing-secret');
+  });
+
+  it('preserves the stored password when an edit submits a blank password', () => {
+    const path = join(directory, 'video-binding.json');
+    writeFileSync(path, JSON.stringify(fixture()));
+    const service = new VideoBindingService();
+    service.onModuleInit();
+
+    const view = service.updateNvr('nvr', { name: 'Renamed Recorder', password: '' });
+
+    expect(view).toMatchObject({ name: 'Renamed Recorder', hasPassword: true });
+    expect(view).not.toHaveProperty('password');
+    const stored = JSON.parse(readFileSync(path, 'utf8')) as VideoBindingConfig;
+    expect(stored.nvrs[0].password).toBe('existing-secret');
+  });
+
+  it('ignores immutable and AI fields echoed by a cached legacy channel editor', () => {
+    const path = join(directory, 'video-binding.json');
+    writeFileSync(path, JSON.stringify(fixture()));
+    const service = new VideoBindingService();
+    service.onModuleInit();
+
+    const updated = service.updateChannel('gate', {
+      id: 'stale-id',
+      createdAt: 'stale-date',
+      name: 'Renamed Gate',
+      aiEnabled: false,
+      roiPolygon: [{ x: 0.1, y: 0.1 }],
+    });
+
+    expect(updated).toMatchObject({
+      id: 'gate',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      name: 'Renamed Gate',
+      aiEnabled: true,
+      roiPolygon: [],
+    });
   });
 });

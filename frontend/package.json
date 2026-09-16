@@ -8,6 +8,7 @@
     "build": "node ../tools/park-ops/build-content.cjs --check && vue-tsc -b && vite build",
     "build:deploy": "node ../tools/park-ops/build-content.cjs --check && vite build",
     "preview": "vite preview --port 5173 --host",
+    "test": "node --test tests/*.test.cjs",
     "icons": "node scripts/gen-icons.mjs",
     "typecheck": "vue-tsc --noEmit",
     "preinstall": "npx only-allow pnpm"
