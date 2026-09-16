@@ -7,14 +7,17 @@
 
 ## 当前代码上下文（2026-09-16，优先于以下历史快照）
 
-- 当前生产 Git 基线为 `874bd9a`（PR #44）。后端 3200、前端 5173、PM2 守护和计划任务均通过权威验证；`RELEASE_HOLD` 不存在。任务恢复为发布前状态：AutoUpdate/PlayerWatchdog 禁用，DailyBackup/SmartControlBackend 启用。
+- 当前生产 Git 基线为 `5e401c8`（PR #47）。后端 3200、前端 5173、PM2 守护和计划任务均通过权威验证；`RELEASE_HOLD` 不存在。任务恢复为发布前状态：AutoUpdate/PlayerWatchdog 禁用，DailyBackup/SmartControlBackend 启用。
 - 阶段 P1-A3 已完成：视频绑定、2 台 NVR、6 路通道、HLS、截图、检测线与 ROI 收敛到 SQLite 的 `video.binding` 单一权威文档；后台编辑只写数据库并保留 revision、校验和及操作者历史，旧 JSON 仅作为已冻结的迁移来源。
 - 生产已执行 `ImportVideoBindingRuntimeConfig1789560000000`，迁移总数 28；`video.binding` 为 schema v1 / revision 1，当前文档与唯一历史记录校验和一致，`integrity_check=ok`、外键违规 0。源 `video-binding.json` SHA-256 保持 `febfdd42ad95319a5b993bf6ffeb65a38a52695b32d50f195092bf03abddac2f`，其归一化内容与 SQLite 逐字段一致。
 - PR #40（`f7ddd8d`）首次真实迁移在停写复核处安全失败，未改数据库；PR #41/#42/#43 分别修正控制器父进程判定、PowerShell 5.1 原生错误采集和绝对迁移入口。随后在原 hold 下完成同一次恢复演练、迁移、回执和激活，未删除 hold 重跑、未回滚数据。
 - 迁移恢复包与回执位于 `D:\smart-control-backups\migration-recovery\release-HT0Ypw`；发布前备份 `D:\smart-control-backups\20260916-163442` 以及旧恢复证据 `D:\smart-control-backups\20260916-143539`、`release-4qG9Uv` 必须永久保留。
 - PR #44 修复 HLS 固定状态路由被通用 `:filename` 路由遮蔽的问题。生产六路 `hls/status` 均为 HTTP 200、`isRunning=true`、`restartCount=0`；六路播放列表各有 3 个新鲜分片，对外接口不泄露 NVR 密码。
+- 阶段 P1-A4 已完成：园区运营指标、文案和占位标记收敛到 SQLite 的 `park.ops.metrics` 单一权威文档。生产迁移总数 29；schema v1 / revision 1，唯一历史记录来源为 `legacy-json:park-ops-metrics.json`，旧文件只读保留且 SHA-256 仍为 `8d4fb387b9944907c7ea73d77ca871d929f4408db0b3f608ed2e78ecda8dc938`。数据库文档、历史修订、规范化旧文件和公开 API 完全一致，保留 56 个指标、14 组文案和 29 个占位标记。
+- PR #46 首次自动发布在迁移开始前被写入者门禁安全拦截，数据库保持 28 个迁移。根因是已安装 CI 调度器在同一 PowerShell 进程内调用仓库脚本，父进程命令行不含仓库脚本路径。PR #47 仅接受固定调度器路径、`gk9000-deploy` 动作及当前 40 位提交号三重匹配；在原 hold 与暂停快照下完成恢复，未删除 hold 重跑。
+- P1-A4 发布前备份为 `D:\smart-control-backups\20260916-174947`，迁移恢复包与回执为 `D:\smart-control-backups\migration-recovery\release-jviFeA`。生产数据库 `integrity_check=ok`、外键违规 0；六路 HLS 均为 200/运行中/零重启。上述证据以及 P1-A3 的 `release-HT0Ypw` 均须保留。
 - 现场权威路径：SQLite=`D:\smart-control\database\smart-control.db`，运行时数据=`D:\smart-control-runtime\data`，媒体=`D:\Media`，拍照上墙照片=`D:\Media\welcome-photos`。以上目录与代码仓库分离，发布不得删除或覆盖。
-- 当前阶段没有待发布代码。下一步按成熟度计划进入 P1-A4：盘点剩余运行时 JSON/环境配置域，按“单一权威源→可逆迁移→历史审计→生产对账”逐域收敛；每批只迁移一个边界，禁止大爆炸式改库。
+- 当前阶段没有待发布运行时代码。下一步继续阶段 1：先对账并退役音频 `matrix-state.json` 与 SQLite `audio_desired_link` 的重复期望状态，再把 `park-ops-control.json` 明确收敛为可重建短期状态；每批只处理一个边界，继续执行“单一权威源→可逆迁移→历史审计→生产对账”。
 
 ## 当前状态快照（2026-07-28）
 
