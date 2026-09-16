@@ -20,6 +20,15 @@ describe('camera stream configuration source', () => {
     expect(source).toContain('videoBinding.resolveStreamBinding');
   });
 
+  it('registers the fixed HLS status route before the generic segment route', () => {
+    const source = readFileSync(resolve(__dirname, 'cameras.controller.ts'), 'utf8');
+    const statusRoute = source.indexOf("@Get(':channel/hls/status')");
+    const segmentRoute = source.indexOf("@Get(':channel/hls/:filename')");
+
+    expect(statusRoute).toBeGreaterThanOrEqual(0);
+    expect(segmentRoute).toBeGreaterThan(statusRoute);
+  });
+
   it('keeps NVR credentials out of code defaults and AI reference URLs', () => {
     const projectRoot = resolve(__dirname, '../../../..');
     for (const file of [
