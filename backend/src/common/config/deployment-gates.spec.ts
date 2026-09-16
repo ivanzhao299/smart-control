@@ -106,7 +106,12 @@ describe('GK9000 deployment gates', () => {
     expect(dispatcher).toContain('[IO.File]::Delete($targetScript)');
     expect(deploy).toContain("Join-Path $projectRoot 'deploy\\windows-ci-dispatch.ps1'");
     expect(deploy).toContain('Windows CI dispatcher updated from verified commit');
-    expect(deploy).toContain('[IO.File]::Replace($dispatcherTemp, $dispatcherTarget, $null)');
+    expect(deploy).toContain(
+      '[IO.File]::Replace($dispatcherTemp, $dispatcherTarget, $dispatcherPrevious)',
+    );
+    expect(deploy).not.toContain(
+      '[IO.File]::Replace($dispatcherTemp, $dispatcherTarget, $null)',
+    );
     expect(deploy.indexOf('$dispatcherSource =')).toBeGreaterThan(
       deploy.indexOf("Write-DeployLog 'verify-deploy.js passed.'"),
     );
@@ -164,7 +169,12 @@ describe('GK9000 deployment gates', () => {
     expect(manifestGuard).toBeGreaterThan(-1);
     expect(manifestWrite).toBeGreaterThan(manifestGuard);
     expect(deploy).toContain('commit = $deployedCommit');
-    expect(deploy).toContain('[IO.File]::Replace');
+    expect(deploy).toContain(
+      '[IO.File]::Replace($releaseManifestTemp, $releaseManifestPath, $releaseManifestPrevious)',
+    );
+    expect(deploy).not.toContain(
+      '[IO.File]::Replace($releaseManifestTemp, $releaseManifestPath, $null)',
+    );
     expect(deploy).toContain('Text.UTF8Encoding($false)');
     expect(deploy).toContain('WARNING: release manifest was not recorded');
     expect(deploy).toContain('Never roll back');
