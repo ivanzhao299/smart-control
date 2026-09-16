@@ -12,6 +12,10 @@ interface ImportMetaEnv {
   readonly VITE_WS_PATH?: string;
   /** 绝对 WS URL (优先级高于 VITE_WS_PATH) — 用于 frontend 跟 backend 在不同 host/port */
   readonly VITE_WS_URL?: string;
+  /** Trusted HTTPS entry used by iOS camera capture. */
+  readonly VITE_SECURE_PUBLIC_URL?: string;
+  /** Comma-separated reverse-proxy hosts that expose the API below the PWA base. */
+  readonly VITE_SCOPED_API_HOSTS?: string;
 }
 
 interface ImportMeta {

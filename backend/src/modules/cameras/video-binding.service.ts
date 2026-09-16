@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join, dirname } from 'path';
+import { copyFileSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
+import { join } from 'path';
+import { ensureRuntimeDataDir } from '../../common/storage/runtime-data-path';
 
 export interface NvrDevice {
   id: string;
@@ -66,14 +67,13 @@ const MAX_ROI_POINTS = 16;
 @Injectable()
 export class VideoBindingService implements OnModuleInit {
   private configPath: string;
+  private readonly backupPath: string;
   private config!: VideoBindingConfig;
 
   constructor() {
-    const dataDir = process.env.DATA_DIR || join(process.cwd(), 'data');
-    if (!existsSync(dataDir)) {
-      mkdirSync(dataDir, { recursive: true });
-    }
+    const dataDir = ensureRuntimeDataDir();
     this.configPath = join(dataDir, 'video-binding.json');
+    this.backupPath = `${this.configPath}.bak`;
   }
 
   onModuleInit() {
@@ -81,14 +81,20 @@ export class VideoBindingService implements OnModuleInit {
   }
 
   private loadConfig() {
-    if (existsSync(this.configPath)) {
+    for (const candidate of [this.configPath, this.backupPath]) {
+      if (!existsSync(candidate)) continue;
       try {
-        const raw = readFileSync(this.configPath, 'utf-8');
+        const raw = readFileSync(candidate, 'utf-8');
         this.config = JSON.parse(raw);
         this.migrateConfig();
+        if (candidate === this.backupPath) {
+          rmSync(this.configPath, { force: true });
+          this.saveConfig();
+        }
+        console.info(`[VideoBinding] Loaded runtime config: ${this.configPath}`);
         return;
       } catch (e: any) {
-        console.warn('[VideoBinding] Failed to load config, using defaults:', e?.message || e);
+        console.warn(`[VideoBinding] Failed to load ${candidate}:`, e?.message || e);
       }
     }
     // 默认配置
@@ -140,7 +146,15 @@ export class VideoBindingService implements OnModuleInit {
 
   private saveConfig() {
     this.config.updatedAt = new Date().toISOString();
-    writeFileSync(this.configPath, JSON.stringify(this.config, null, 2), 'utf-8');
+    const payload = JSON.stringify(this.config, null, 2);
+    const temporaryPath = `${this.configPath}.${process.pid}.tmp`;
+    try {
+      writeFileSync(temporaryPath, payload, { encoding: 'utf-8', flush: true });
+      if (existsSync(this.configPath)) copyFileSync(this.configPath, this.backupPath);
+      renameSync(temporaryPath, this.configPath);
+    } finally {
+      rmSync(temporaryPath, { force: true });
+    }
   }
 
   getConfig(): VideoBindingConfig {

@@ -24,6 +24,8 @@ const emit = defineEmits<{
 }>();
 
 const LED_LONG_EDGE = 1920;
+const securePublicUrl = (import.meta.env.VITE_SECURE_PUBLIC_URL ?? '').trim();
+const secureContext = window.isSecureContext;
 type Phase = 'idle' | 'loading' | 'live' | 'capturing' | 'preview' | 'error';
 
 const phase = ref<Phase>('idle');
@@ -189,6 +191,11 @@ function useAlbum(): void {
   close();
 }
 
+function openSecureVersion(): void {
+  if (!securePublicUrl) return;
+  window.location.assign(securePublicUrl);
+}
+
 function close(): void {
   startGeneration += 1;
   stopStream();
@@ -252,6 +259,7 @@ onBeforeUnmount(() => {
           <div v-if="phase === 'error'" class="wcm-error">
             <p class="wcm-err-text">{{ errMsg }}</p>
             <div class="wcm-error-btns">
+              <button v-if="!secureContext && securePublicUrl" type="button" class="wcm-btn primary" @click="openSecureVersion">打开安全版并拍照</button>
               <button type="button" class="wcm-btn ghost" @click="start">重试</button>
               <button type="button" class="wcm-btn primary" @click="useAlbum">从相册选择（勿点拍照）</button>
             </div>

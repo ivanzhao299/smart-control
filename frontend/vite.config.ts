@@ -4,7 +4,7 @@ import AutoImport from 'unplugin-auto-import/vite';
 import Components from 'unplugin-vue-components/vite';
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers';
 import { VitePWA } from 'vite-plugin-pwa';
-import { resolve } from 'path';
+import { resolve, sep } from 'path';
 import { cpSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
@@ -46,7 +46,7 @@ export default defineConfig(({ mode }) => {
       // 公网直连: 跳板机 nginx 反代 erp.cnjinhu.top 过来的请求带域名 Host,
       // vite 的 DNS-rebind 防护默认只放行 IP/localhost, 域名不加白会 403。
       // 注意: 本文件变更需重启 frontend 进程才生效 (update.ps1 6c.2 哈希戳记负责, delete+start)
-      allowedHosts: ['.cnjinhu.top', 'erp.cnjinhu.top'],
+      allowedHosts: ['.cnjinhu.top', '.cnjinhu.com', 'erp.cnjinhu.top', 'park.cnjinhu.com'],
       // 生产环境必须配置 /api 和 /ws 代理, 否则前端请求无法到达后端3200端口
       // (2026-09-11 根因: preview模式缺少代理导致摄像头HLS视频流无法接入)
       proxy: {
@@ -71,6 +71,30 @@ export default defineConfig(({ mode }) => {
       },
     },
     plugins: [
+      {
+        name: 'missing-built-asset-404',
+        configurePreviewServer(server) {
+          server.middlewares.use((req, res, next) => {
+            if (!req.url) return next();
+            let pathname = '';
+            try {
+              pathname = decodeURIComponent(new URL(req.url, 'http://preview.local').pathname);
+            } catch {
+              return next();
+            }
+            const assetPrefix = `${SCOPE_PREFIX}/assets/`;
+            if (!pathname.startsWith(assetPrefix)) return next();
+            const relativePath = pathname.slice(`${SCOPE_PREFIX}/`.length);
+            const distRoot = resolve(__dirname, 'dist');
+            const requestedFile = resolve(distRoot, relativePath);
+            if (requestedFile.startsWith(`${distRoot}${sep}`) && existsSync(requestedFile)) return next();
+            res.statusCode = 404;
+            res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+            res.setHeader('Cache-Control', 'no-store');
+            res.end('Built asset not found');
+          });
+        },
+      },
       {
         name: 'park-ops-rewrite',
         configureServer(server) {

@@ -118,7 +118,7 @@ function Invoke-DetachedResurrect {
   # ever computes -> every later pm2 call misses it and hatches yet another
   # daemon. That was the source of the 128-idle-daemon herd found 2026-07-27.
   $eco = Join-Path $projectRoot 'deploy\ecosystem.config.js'
-  $cmd = "cmd /c `"set PM2_HOME=$pm2Home&& $pm2 resurrect & $pm2 start $eco --env production & $pm2 save`""
+  $cmd = "cmd /c `"set PM2_HOME=$pm2Home&& $pm2 resurrect & $pm2 start $eco --env production --update-env & $pm2 save`""
   Write-DeployLog "WMI detached recover: $cmd"
   $r = ([wmiclass]'\\.\root\cimv2:Win32_Process').Create($cmd, 'C:\Users\user', $null)
   Write-DeployLog ("  WMI ProcessId={0} ReturnValue={1}" -f $r.ProcessId, $r.ReturnValue)
@@ -146,12 +146,15 @@ function Restart-Services {
   $env:PM2_HOME = 'C:\Users\user\.pm2'
   Write-DeployLog "pm2 = $pm2 ; PM2_HOME = $env:PM2_HOME"
 
-  # Happy path: the daemon is alive and already owns both apps.
-  # Only the restart may fall through to recovery -- do NOT put `pm2 save` in this
+  # Happy path: reconcile the running apps from the declarative ecosystem file.
+  # A name-only restart keeps stale environment variables from dump.pm2, which
+  # previously dropped DATA_DIR and sent runtime writes back into backend/data.
+  # Only the start may fall through to recovery -- do NOT put `pm2 save` in this
   # try, or a hiccup in save would send us into the port-killing branch below.
   $needsRecovery = $false
   try {
-    Invoke-Native $pm2 @('restart', 'smart-control-backend', 'smart-control-frontend', '--update-env')
+    $eco = Join-Path $projectRoot 'deploy\ecosystem.config.js'
+    Invoke-Native $pm2 @('start', $eco, '--env', 'production', '--update-env')
   } catch {
     Write-DeployLog "pm2 restart failed: $($_.Exception.Message)"
     $needsRecovery = $true
@@ -197,8 +200,21 @@ function Test-BackendHealth {
 
 function Test-FrontendHealth {
   try {
-    $response = Invoke-WebRequest 'http://127.0.0.1:5173/' -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
-    return $response.StatusCode -eq 200
+    $response = Invoke-WebRequest 'http://127.0.0.1:5173/control/' -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+    $entryMatch = [regex]::Match($response.Content, 'src="(/control/assets/[^"?]+\.js)"')
+    if ($response.StatusCode -ne 200 -or -not $entryMatch.Success) {
+      return $false
+    }
+    $entry = Invoke-WebRequest ("http://127.0.0.1:5173{0}" -f $entryMatch.Groups[1].Value) -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+    if ($entry.StatusCode -ne 200 -or $entry.Headers['Content-Type'] -notmatch 'javascript') {
+      return $false
+    }
+    try {
+      Invoke-WebRequest 'http://127.0.0.1:5173/control/assets/__deploy-probe-missing__.js' -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop | Out-Null
+      return $false
+    } catch {
+      return [int]$_.Exception.Response.StatusCode -eq 404
+    }
   } catch {
     return $false
   }
@@ -251,6 +267,26 @@ function Deploy-StaticAssets($scope, $projectRoot) {
   }
 }
 
+function Copy-PreviousFrontendAssets([string]$SourceDist, [string]$TargetDist) {
+  $sourceWorker = Join-Path $SourceDist 'sw.js'
+  if (-not (Test-Path $sourceWorker)) { return }
+  $workerText = Get-Content -Path $sourceWorker -Raw
+  $matches = [regex]::Matches($workerText, '"url":"([^"?]+)"')
+  $copied = 0
+  foreach ($match in $matches) {
+    $relative = $match.Groups[1].Value.Replace('/', '\')
+    if ($relative -notlike 'assets\*') { continue }
+    $source = Join-Path $SourceDist $relative
+    $target = Join-Path $TargetDist $relative
+    if ((Test-Path $source) -and -not (Test-Path $target)) {
+      New-Item -ItemType Directory -Force -Path (Split-Path $target -Parent) | Out-Null
+      Copy-Item -Path $source -Destination $target -Force
+      $copied++
+    }
+  }
+  Write-DeployLog "Preserved $copied asset(s) from the previous PWA release."
+}
+
 function Deploy-FrontendOnly($projectRoot) {
   # Side-build to dist-repair then swap into production dist. vite preview
   # reads from disk on every request (ecosystem.config.js), so no restart
@@ -262,6 +298,7 @@ function Deploy-FrontendOnly($projectRoot) {
     Remove-Item -Path $repairDir -Recurse -Force -ErrorAction SilentlyContinue
     Invoke-Native 'pnpm.cmd' @('exec', 'vite', 'build', '--outDir', 'dist-repair')
     $productionDist = Join-Path $projectRoot 'frontend\dist'
+    Copy-PreviousFrontendAssets $productionDist $repairDir
     Copy-Item -Path (Join-Path $repairDir '*') -Destination $productionDist -Recurse -Force
     Remove-Item -Path $repairDir -Recurse -Force -ErrorAction SilentlyContinue
   } finally {
@@ -280,7 +317,8 @@ function Deploy-BackendOnly($projectRoot) {
   $pm2 = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
   if (-not (Test-Path $pm2)) { $pm2 = 'pm2' }
   $env:PM2_HOME = 'C:\Users\user\.pm2'
-  Invoke-Native $pm2 @('restart', 'smart-control-backend', '--update-env')
+  $eco = Join-Path $projectRoot 'deploy\ecosystem.config.js'
+  Invoke-Native $pm2 @('start', $eco, '--env', 'production', '--only', 'smart-control-backend', '--update-env')
   Invoke-Native $pm2 @('save')
 }
 
@@ -352,9 +390,9 @@ try {
       throw "Tracked files are modified on GK9000: $($trackedChanges -join '; ')"
     }
 
-    # git fetch 竞态容忍 (2026-07-30 #52ec765 现场): watcher 的 fetch 可能与本脚本
-    # 同时更新 origin/main 的 ref, git 报 "cannot lock ref ... but expected ..." —
-    # ref 其实已被对方更到位, 等一拍重试即可, 不该让整次部署红掉。
+    # Tolerate a git fetch ref race (2026-07-30 #52ec765). A watcher fetch may
+    # update origin/main concurrently and report "cannot lock ref ... but expected ...".
+    # The other fetch may already have completed the update, so retry once.
     $fetched = $false
     for ($fi = 0; $fi -lt 3; $fi++) {
       try {
@@ -473,6 +511,26 @@ try {
             if (-not (Test-Path $safePath)) {
               Copy-Item -Path $_.FullName -Destination $safePath -Force
               Write-DeployLog "Protected runtime $($_.Name) copied to DATA_DIR before merge ($runtimeDataDir)."
+            }
+          }
+      }
+
+      # Recover a valid legacy previous copy only when the protected primary is
+      # absent. This repairs the park-ops metrics document lost before DATA_DIR
+      # migration without overwriting any newer runtime value.
+      if (Test-Path $legacyDataDir) {
+        Get-ChildItem -Path $legacyDataDir -Filter '*.json.bak' -File -ErrorAction SilentlyContinue |
+          ForEach-Object {
+            $targetName = $_.Name.Substring(0, $_.Name.Length - 4)
+            $safePath = Join-Path $runtimeDataDir $targetName
+            if (-not (Test-Path $safePath)) {
+              try {
+                Get-Content -Path $_.FullName -Raw | ConvertFrom-Json | Out-Null
+                Copy-Item -Path $_.FullName -Destination $safePath -Force
+                Write-DeployLog "Recovered valid runtime document from backup: $targetName"
+              } catch {
+                Write-DeployLog "Skipped invalid legacy runtime backup: $($_.Name)"
+              }
             }
           }
       }
@@ -627,6 +685,9 @@ try {
         } finally {
           Pop-Location
         }
+        $previousFrontendDist = Join-Path $rollbackRoot 'frontend\dist'
+        $currentFrontendDist = Join-Path $projectRoot 'frontend\dist'
+        Copy-PreviousFrontendAssets $previousFrontendDist $currentFrontendDist
 
         # Run DB migrations after build, before restart. With DB_SYNCHRONIZE=false the
         # schema only changes through migrations, so this is where new ones get applied.
@@ -767,7 +828,8 @@ try {
       try {
         # No space before '&&' - see Invoke-DetachedResurrect for why (trailing
         # space would poison PM2_HOME and hatch an orphan daemon).
-        ([wmiclass]'\\.\root\cimv2:Win32_Process').Create("cmd /c `"set PM2_HOME=C:\Users\user\.pm2&& $pm2cmd restart smart-control-backend --update-env`"", 'C:\Users\user', $null) | Out-Null
+        $eco = Join-Path $projectRoot 'deploy\ecosystem.config.js'
+        ([wmiclass]'\\.\root\cimv2:Win32_Process').Create("cmd /c `"set PM2_HOME=C:\Users\user\.pm2&& $pm2cmd start $eco --env production --only smart-control-backend --update-env & $pm2cmd save`"", 'C:\Users\user', $null) | Out-Null
       } catch {
         Write-DeployLog "WMI detached restart failed: $($_.Exception.Message)"
       }

@@ -4,6 +4,7 @@ import { useAdminAuthStore } from '@/stores/admin-auth';
 import { useClientAuthStore } from '@/stores/client-auth';
 import { usePermissionStore } from '@/stores/permission';
 import { api } from '@/services/http';
+import { isStalePwaAssetError, recoverFromStalePwa } from '@/services/pwa-recovery';
 
 const routes: RouteRecordRaw[] = [
   // 平板布局 (Sprint-05)
@@ -174,13 +175,7 @@ router.afterEach((to) => {
  * 检查更新), 30s 冷却防刷新循环。除此之外的路由错误照旧抛出, 不吞。
  */
 router.onError((err, to) => {
-  const msg = String((err as Error)?.message ?? err);
-  const isChunkError = /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module|Unable to preload CSS|ChunkLoadError/i.test(msg);
-  if (!isChunkError) return;
-  const KEY = 'sc-chunk-reload-at';
-  const last = Number(sessionStorage.getItem(KEY) ?? 0);
-  if (Date.now() - last < 30_000) return; // 30s 内已重载过一次还失败 → 别循环刷
-  sessionStorage.setItem(KEY, String(Date.now()));
+  if (!isStalePwaAssetError(err)) return;
   const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-  window.location.assign(base + (to?.fullPath ?? '/'));
+  void recoverFromStalePwa(base + (to?.fullPath ?? '/'));
 });

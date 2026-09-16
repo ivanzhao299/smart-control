@@ -16,6 +16,7 @@ import './styles/design-tokens.css';
 import './styles/industrial-hardening.css';
 import { initTheme } from './services/theme.service';
 import { autoSelectServer } from './services/server-autoselect';
+import { recoverFromStalePwa } from './services/pwa-recovery';
 
 // 主题必须在 mount 之前应用, 否则会先渲染一帧深色再跳浅色 (闪一下)
 initTheme();
@@ -113,7 +114,8 @@ function startBlankScreenWatchdog(): void {
   const KEY = 'sc.watchdog.reloads';
   let blankSince = 0;
   window.setInterval(() => {
-    const blank = appEl.childElementCount === 0;
+    const mainEl = appEl.querySelector<HTMLElement>('.v2-main');
+    const blank = appEl.childElementCount === 0 || (!!mainEl && mainEl.childElementCount === 0);
     if (!blank) {
       blankSince = 0;
       if (sessionStorage.getItem(KEY)) sessionStorage.removeItem(KEY);
@@ -125,7 +127,7 @@ function startBlankScreenWatchdog(): void {
       const n = Number(sessionStorage.getItem(KEY) ?? '0');
       if (n < 3) {
         sessionStorage.setItem(KEY, String(n + 1));
-        window.location.reload();
+        void recoverFromStalePwa();
       }
     }
   }, 3000);

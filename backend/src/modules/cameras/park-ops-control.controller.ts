@@ -1,7 +1,8 @@
 import { Controller, Get, Post, Body, Query } from '@nestjs/common';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { copyFileSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { Public } from '../../common/decorators/public.decorator';
+import { ensureRuntimeDataDir } from '../../common/storage/runtime-data-path';
 
 /**
  * 运营大屏翻页控制 — 供PWA播放控制卡片远程控制LED大屏端运营大屏翻页
@@ -9,26 +10,25 @@ import { Public } from '../../common/decorators/public.decorator';
  * 通信方式: HTTP API + 运营大屏端短轮询 (500ms)
  * 后续可优化为 WebSocket 推送, 降低延迟
  */
-@Public()
 @Controller('park-ops-control')
 export class ParkOpsControlController {
   private statePath: string;
   private state: { page: number; autoPlay: boolean; timestamp: number; totalPages: number; refreshRequested: boolean; refreshTimestamp: number };
 
   constructor() {
-    const dataDir = process.env.DATA_DIR || join(process.cwd(), 'data');
-    if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
+    const dataDir = ensureRuntimeDataDir();
     this.statePath = join(dataDir, 'park-ops-control.json');
     this.state = this.loadState();
   }
 
   private loadState() {
-    if (existsSync(this.statePath)) {
+    for (const candidate of [this.statePath, `${this.statePath}.bak`]) {
+      if (!existsSync(candidate)) continue;
       try {
-        const s = JSON.parse(readFileSync(this.statePath, 'utf-8'));
+        const s = JSON.parse(readFileSync(candidate, 'utf-8'));
         return { ...s, totalPages: 6, refreshRequested: s.refreshRequested || false, refreshTimestamp: s.refreshTimestamp || 0 }; // 运营大屏共6页
       } catch {
-        // ignore
+        // Try the previous valid copy.
       }
     }
     return { page: 0, autoPlay: false, timestamp: Date.now(), totalPages: 6, refreshRequested: false, refreshTimestamp: 0 };
@@ -36,9 +36,17 @@ export class ParkOpsControlController {
 
   private saveState() {
     this.state.timestamp = Date.now();
-    writeFileSync(this.statePath, JSON.stringify(this.state), 'utf-8');
+    const temporaryPath = `${this.statePath}.${process.pid}.tmp`;
+    try {
+      writeFileSync(temporaryPath, JSON.stringify(this.state), { encoding: 'utf-8', flush: true });
+      if (existsSync(this.statePath)) copyFileSync(this.statePath, `${this.statePath}.bak`);
+      renameSync(temporaryPath, this.statePath);
+    } finally {
+      rmSync(temporaryPath, { force: true });
+    }
   }
 
+  @Public()
   @Get('state')
   getState(@Query('consumeRefresh') consumeRefresh?: string) {
     // 自动清除过期的refresh请求（超过10秒），防止无限刷新循环

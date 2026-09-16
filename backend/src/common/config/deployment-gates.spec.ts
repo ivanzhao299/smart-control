@@ -27,6 +27,16 @@ describe('GK9000 deployment gates', () => {
     expect(deploy).toContain("throw 'Required deployment verifier scripts\\verify-deploy.js is missing.'");
   });
 
+  it('reconciles PM2 environment and keeps the previous PWA asset generation', () => {
+    const deploy = readRepositoryFile('scripts/deploy-from-ci.ps1');
+
+    expect(deploy).toContain("@('start', $eco, '--env', 'production', '--update-env')");
+    expect(deploy).toContain("@('start', $eco, '--env', 'production', '--only', 'smart-control-backend', '--update-env')");
+    expect(deploy).toContain('function Copy-PreviousFrontendAssets');
+    expect(deploy).toContain('Copy-PreviousFrontendAssets $previousFrontendDist $currentFrontendDist');
+    expect(deploy).toContain("Get-ChildItem -Path $legacyDataDir -Filter '*.json.bak'");
+  });
+
   it('runs backend tests in the production validation job before building', () => {
     const workflow = readRepositoryFile('.github/workflows/deploy-gk9000.yml');
     const testPosition = workflow.indexOf('pnpm exec jest --ci --reporters=default');

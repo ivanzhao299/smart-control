@@ -1,7 +1,8 @@
 import { BadRequestException, Body, Controller, Get, Put, UseGuards } from '@nestjs/common';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, copyFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, renameSync, copyFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { Public } from '../../common/decorators/public.decorator';
+import { ensureRuntimeDataDir } from '../../common/storage/runtime-data-path';
 import { AdminGuard } from '../admin-auth/admin-auth.guard';
 
 /**
@@ -26,8 +27,7 @@ export class ParkOpsMetricsController {
   private static readonly KEY_RE = /^[A-Za-z][A-Za-z0-9]{0,40}$/;
 
   constructor() {
-    const dataDir = process.env.DATA_DIR || join(process.cwd(), 'data');
-    if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
+    const dataDir = ensureRuntimeDataDir();
     this.filePath = join(dataDir, 'park-ops-metrics.json');
     this.bakPath = `${this.filePath}.bak`;
   }
@@ -52,26 +52,34 @@ export class ParkOpsMetricsController {
   }
 
   private read(): unknown {
-    if (!existsSync(this.filePath)) return null;
-    try {
-      return JSON.parse(readFileSync(this.filePath, 'utf-8'));
-    } catch {
-      return null;
+    for (const candidate of [this.filePath, this.bakPath]) {
+      if (!existsSync(candidate)) continue;
+      try {
+        return JSON.parse(readFileSync(candidate, 'utf-8'));
+      } catch {
+        // Try the verified previous copy before falling back to built-in data.
+      }
     }
+    return null;
   }
 
   private writeAtomic(doc: Record<string, unknown>): void {
     const payload = JSON.stringify(doc);
     if (existsSync(this.filePath)) {
       try {
+        JSON.parse(readFileSync(this.filePath, 'utf-8'));
         copyFileSync(this.filePath, this.bakPath);
       } catch {
-        // .bak 仅为兜底, 失败不阻断主写入
+        // Never replace a valid backup with a corrupt primary.
       }
     }
     const tmp = `${this.filePath}.tmp`;
-    writeFileSync(tmp, payload, { encoding: 'utf-8' });
-    renameSync(tmp, this.filePath);
+    try {
+      writeFileSync(tmp, payload, { encoding: 'utf-8', flush: true });
+      renameSync(tmp, this.filePath);
+    } finally {
+      rmSync(tmp, { force: true });
+    }
   }
 
   private asRecord(value: unknown, name: string): Record<string, unknown> {
