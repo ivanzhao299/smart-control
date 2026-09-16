@@ -223,7 +223,7 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
 
   async function startHlsStream(channel){
     try{
-      const response=await fetch(`${API_BASE}/${channel}/hls/start`,{method:'POST'});
+      const response=await fetch(`${API_BASE}/${channel}/hls/ensure`,{method:'POST'});
       const data=await response.json();
       return data.success?data.data:null;
     }catch(e){

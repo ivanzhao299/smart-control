@@ -24,16 +24,22 @@ describe('GK9000 deployment gates', () => {
     expect(deploy).toContain('if (-not $existsInTarget) { continue }');
     expect(deploy).toContain("$quarantineRoot = Join-Path $rollbackRoot 'untracked-conflicts'");
     expect(deploy).toContain('Move-Item -Path $fullPath -Destination $quarantinePath -Force');
-    expect(deploy).toContain("throw 'Required deployment verifier scripts\\verify-deploy.js is missing.'");
+    expect(deploy).toContain(
+      "throw 'Required deployment verifier scripts\\verify-deploy.js is missing.'",
+    );
   });
 
   it('reconciles PM2 environment and keeps the previous PWA asset generation', () => {
     const deploy = readRepositoryFile('scripts/deploy-from-ci.ps1');
 
     expect(deploy).toContain("@('start', $eco, '--env', 'production', '--update-env')");
-    expect(deploy).toContain("@('start', $eco, '--env', 'production', '--only', 'smart-control-backend', '--update-env')");
+    expect(deploy).toContain(
+      "@('start', $eco, '--env', 'production', '--only', 'smart-control-backend', '--update-env')",
+    );
     expect(deploy).toContain('function Copy-PreviousFrontendAssets');
-    expect(deploy).toContain('Copy-PreviousFrontendAssets $previousFrontendDist $currentFrontendDist');
+    expect(deploy).toContain(
+      'Copy-PreviousFrontendAssets $previousFrontendDist $currentFrontendDist',
+    );
     expect(deploy).toContain("Get-ChildItem -Path $legacyDataDir -Filter '*.json.bak'");
   });
 
@@ -41,11 +47,28 @@ describe('GK9000 deployment gates', () => {
     const workflow = readRepositoryFile('.github/workflows/deploy-gk9000.yml');
     const testPosition = workflow.indexOf('pnpm exec jest --ci --reporters=default');
     const backendBuildPosition = workflow.indexOf('pnpm run build');
+    const frontendTestPosition = workflow.indexOf('pnpm run test');
+    const frontendTypecheckPosition = workflow.indexOf('pnpm run typecheck');
+    const frontendBuildPosition = workflow.indexOf('pnpm run build', backendBuildPosition + 1);
 
     expect(testPosition).toBeGreaterThan(-1);
     expect(testPosition).toBeLessThan(backendBuildPosition);
+    expect(frontendTestPosition).toBeGreaterThan(backendBuildPosition);
+    expect(frontendTestPosition).toBeLessThan(frontendTypecheckPosition);
+    expect(frontendTypecheckPosition).toBeLessThan(frontendBuildPosition);
     expect(workflow).toContain('actions/checkout@v7');
     expect(workflow).toContain('actions/setup-node@v7');
     expect(workflow).toContain('pnpm/action-setup@v6');
+  });
+
+  it('keeps production verification truthful and read only', () => {
+    const verify = readRepositoryFile('scripts/verify-deploy.js');
+
+    expect(verify).toContain('VERIFY_CLIENT_TOKEN');
+    expect(verify).toContain('SKIP 未配置 VERIFY_CLIENT_TOKEN');
+    expect(verify).toContain('new BetterSqlite3(dbPath, { readonly: true, fileMustExist: true })');
+    expect(verify).toContain("db.pragma('query_only = ON')");
+    expect(verify).toContain('expectedPidToName.get(pid)');
+    expect(verify).toContain("cmd.includes('verify-deploy.js')");
   });
 });

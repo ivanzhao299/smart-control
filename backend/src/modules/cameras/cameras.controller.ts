@@ -1,7 +1,17 @@
-import { Controller, Get, Param, Post, Res, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  Post,
+  Res,
+  BadRequestException,
+  NotFoundException,
+  UseGuards,
+} from '@nestjs/common';
 import type { Response } from 'express';
 import { CamerasService } from './cameras.service';
 import { Public } from '../../common/decorators/public.decorator';
+import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 
 /**
  * /api/cameras
@@ -48,14 +58,29 @@ export class CamerasController {
   }
 
   /**
-   * 启动HLS转码
+   * 匿名大屏只允许幂等地确保已登记通道正在运行。限流避免外部请求反复拉起进程。
    */
   @Public()
+  @UseGuards(RateLimitGuard)
+  @RateLimit({ max: 30, windowMs: 60_000 })
+  @Post(':channel/hls/ensure')
+  async ensureHls(@Param('channel') channel: string) {
+    try {
+      const result = await this.service.startHlsStream(channel);
+      return { message: 'HLS转码已就绪', data: { playlistUrl: result.playlistUrl } };
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
+  }
+
+  /** 登录用户手动启动 HLS；返回值不暴露服务器文件系统路径。 */
+  @UseGuards(RateLimitGuard)
+  @RateLimit({ max: 10, windowMs: 60_000 })
   @Post(':channel/hls/start')
   async startHls(@Param('channel') channel: string) {
     try {
       const result = await this.service.startHlsStream(channel);
-      return { message: 'HLS转码已启动', data: result };
+      return { message: 'HLS转码已启动', data: { playlistUrl: result.playlistUrl } };
     } catch (error) {
       throw new BadRequestException((error as Error).message);
     }
@@ -64,7 +89,8 @@ export class CamerasController {
   /**
    * 停止HLS转码
    */
-  @Public()
+  @UseGuards(RateLimitGuard)
+  @RateLimit({ max: 10, windowMs: 60_000 })
   @Post(':channel/hls/stop')
   async stopHls(@Param('channel') channel: string) {
     try {
@@ -130,7 +156,6 @@ export class CamerasController {
   /**
    * 获取所有HLS会话
    */
-  @Public()
   @Get('hls/sessions')
   async getAllHlsSessions() {
     return { message: '查询成功', data: this.service.getAllHlsSessions() };

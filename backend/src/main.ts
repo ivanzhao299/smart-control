@@ -3,6 +3,7 @@ import compression from 'compression';
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { ValidationPipe } from '@nestjs/common';
+import { createCorsOriginValidator } from './common/config/cors';
 import { WsAdapter } from '@nestjs/platform-ws';
 import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
 import { AppModule } from './app.module';
@@ -48,7 +49,26 @@ async function bootstrap(): Promise<void> {
       forbidNonWhitelisted: true,
     }),
   );
-  app.enableCors();
+  app.enableCors({
+    origin: createCorsOriginValidator(appCfg.corsAllowedOrigins),
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Accept',
+      'Authorization',
+      'Cache-Control',
+      'Content-Type',
+      'If-Modified-Since',
+      'If-None-Match',
+      'Pragma',
+      'Range',
+      'X-Admin-Token',
+      'X-Client-Token',
+      'X-Player-Token',
+      'X-Requested-With',
+    ],
+    exposedHeaders: ['Accept-Ranges', 'Content-Length', 'Content-Range', 'ETag'],
+    maxAge: 600,
+  });
   // gzip 压缩 JSON/文本响应 (远程 WireGuard/公网慢链路上状态轮询立省 70-90% 流量)。
   // compression 默认按 content-type 过滤: 视频/图片等已压缩格式不会二次压, 媒体流不受影响。
   app.use(compression({ threshold: 1024 }));
