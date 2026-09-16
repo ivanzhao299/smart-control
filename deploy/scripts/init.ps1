@@ -105,6 +105,8 @@ if (-not $SkipBuild) {
   pnpm run build
   node scripts/run-migrations.js
   if ($LASTEXITCODE -ne 0) { throw '数据库迁移失败' }
+  node scripts/reconcile-bundled-media.cjs --manifest ..\deploy\assets\bundled-media-manifest.json
+  if ($LASTEXITCODE -ne 0) { throw '内置媒体目录初始化失败' }
   if ([string]::IsNullOrWhiteSpace($env:SC_ADMIN_USERNAME) -or
       [string]::IsNullOrWhiteSpace($env:SC_ADMIN_PASSWORD)) {
     throw '首次安装必须先在当前会话设置 SC_ADMIN_USERNAME 和 SC_ADMIN_PASSWORD，初始化脚本不会创建默认管理员。'

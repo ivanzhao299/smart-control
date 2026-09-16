@@ -225,6 +225,7 @@ test('operator can edit only own private media; viewer cannot edit', async () =>
   assert.equal(state.canEditMedia({ ownerUserId: 1, visibility: 'private' }), true);
   assert.equal(state.canEditMedia({ ownerUserId: 2, visibility: 'private' }), false);
   assert.equal(state.canEditMedia({ ownerUserId: 1, visibility: 'shared' }), false);
+  assert.equal(state.canEditMedia({ ownerUserId: 1, visibility: 'private', source: 'system' }), false);
   role = 'viewer'; await state.refreshActor(); await state.refreshActor();
   assert.equal(state.canEditMedia({ ownerUserId: 1, visibility: 'private' }), false);
   env.dispose();

@@ -83,3 +83,7 @@ jobs:
       # 2026-07-19 踩过一次: testMatch 明明 5 matches, 却报没找到测试。
       - run: pnpm exec jest --ci --reporters=default
       - run: pnpm run build
+      # Deployment/recovery contracts are plain Node tests and are intentionally
+      # separate from ts-jest. Several restore tests exercise compiled entities,
+      # so they run after build and before the job can pass.
+      - run: pnpm run test:ops

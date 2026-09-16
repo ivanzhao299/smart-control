@@ -7,7 +7,7 @@ describe('media deletion lifecycle guards', () => {
   const actor: Actor = { kind: 'user', userId: 1, username: 'alice', role: 'operator' };
   let service: MediaService, repo: any, asset: any;
   beforeEach(() => {
-    asset = { id: 1, ownerUserId: 1, visibility: 'private', processingStatus: 'ready' };
+    asset = { id: 1, ownerUserId: 1, visibility: 'private', source: 'upload', processingStatus: 'ready' };
     repo = { findOne: jest.fn(async () => asset), query: jest.fn(async () => []), remove: jest.fn() };
     const manager = { findOneBy: jest.fn(async entity => entity === User ? { id: 1, enabled: true, role: 'operator' } : asset) };
     repo.manager = { connection: { transaction: async (work: (manager: unknown) => Promise<unknown>) => work(manager) } };
@@ -28,6 +28,11 @@ describe('media deletion lifecycle guards', () => {
     repo.query.mockResolvedValue([{ id: 3 }]);
     await expect(service.remove(1, actor)).rejects.toThrow('先停止');
     expect(repo.remove).not.toHaveBeenCalled();
+  });
+  it('rejects deletion of deployment-owned system media before touching references or files', async () => {
+    asset.source = 'system';
+    await expect(service.remove(1, { ...actor, role: 'admin' })).rejects.toThrow('版本发布统一管理');
+    expect(repo.query).not.toHaveBeenCalled();
   });
   it('excludes concurrent publish/transcode/delete work and releases once', async () => {
     const release = service.acquireOperation(1);

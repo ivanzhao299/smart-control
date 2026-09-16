@@ -98,82 +98,10 @@ describe('file ingestion compensation', () => {
     expect((await Promise.allSettled([deleting, updating])).map(result => result.status)).toEqual(['fulfilled', 'rejected']);
     expect(await db.getRepository(MediaAsset).count()).toBe(0);
   });
-  it.each([true, false])('does not treat a same-name private asset as a bundled system asset (file exists=%s)', async exists => {
-    await conversionSchema();
-    const name = '左右声道测试.wav';
-    const privatePath = join(root, 'private.wav');
-    if (exists) await fs.writeFile(privatePath, 'private-original');
-    const repo = db.getRepository(MediaAsset);
-    const privateAsset = await repo.save({ originalName: name, safeName: 'private.wav', path: privatePath, kind: 'audio', mimeType: 'audio/wav', sizeBytes: 16, ownerUserId: 1, visibility: 'private', source: 'upload' });
-    const bundled = join(root, 'bundled.wav');
-    await fs.writeFile(bundled, 'system-content');
-    (media as any).logger = { info: jest.fn(), warn: jest.fn() };
-    await (media as any).seedBundledFile({ file: bundled, originalName: name, kind: 'audio', mime: 'audio/wav', remark: 'fixture' });
-    const rows = await repo.find({ where: { originalName: name } });
-    expect(rows).toHaveLength(2);
-    expect(await repo.findOneByOrFail({ id: privateAsset.id })).toEqual(privateAsset);
-    const system = rows.find(row => row.source === 'system')!;
-    expect(system).toMatchObject({ ownerUserId: null, visibility: 'shared' });
-    expect(await fs.readFile(system.path, 'utf8')).toBe('system-content');
-    expect(await db.query('SELECT * FROM upload_reservations')).toEqual([]);
-    if (exists) expect(await fs.readFile(privatePath, 'utf8')).toBe('private-original');
-    else await expect(fs.access(privatePath)).rejects.toThrow();
-  });
   async function conversionSchema() {
     for (const migration of [new AddUploadReservations1788618003000(), new BindUploadTemporaryFiles1788618004000(), new TrackUploadInstances1788618005000(), new LinkUploadMedia1788618006000()]) await migration.up(db.createQueryRunner());
     await new TrackSystemUploadReservations1788618008000().up(db.createQueryRunner());
   }
-  it.each(['metadata', 'owner'])('rechecks bundled repair before commit and preserves concurrent %s edits', async change => {
-    await conversionSchema();
-    const repo = db.getRepository(MediaAsset);
-    const originalName = 'system.wav';
-    const existing = await repo.save({ originalName, safeName: 'system.wav', path: '', kind: 'audio', mimeType: 'audio/wav', sizeBytes: 14, ownerUserId: null, source: 'system', visibility: 'shared', remark: 'original remark' });
-    const source = join(root, 'bundled.wav');
-    await fs.writeFile(source, 'system-content');
-    (media as any).logger = { info: jest.fn(), warn: jest.fn() };
-    const open = fs.open.bind(fs);
-    jest.spyOn(fs, 'open').mockImplementationOnce(async (file, flags, mode) => {
-      await repo.update(existing.id, change === 'owner' ? { ownerUserId: 1, visibility: 'private' } : { remark: 'admin edit', visibility: 'private' });
-      return open(file, flags, mode);
-    });
-    const operation = (media as any).seedBundledFile({ file: source, originalName, kind: 'audio', mime: 'audio/wav', remark: 'fixture' });
-    if (change === 'owner') {
-      await expect(operation).rejects.toThrow('归属');
-      expect(await repo.findOneByOrFail({ id: existing.id })).toMatchObject({ ownerUserId: 1, visibility: 'private', path: '' });
-      expect(await fs.readdir(join(root, String(existing.id)))).toEqual([]);
-    } else {
-      await operation;
-      const result = await repo.findOneByOrFail({ id: existing.id });
-      expect(result).toMatchObject({ ownerUserId: null, visibility: 'private', remark: 'admin edit', sizeBytes: 14 });
-      expect(await fs.readFile(result.path, 'utf8')).toBe('system-content');
-    }
-    expect(await db.query('SELECT * FROM upload_reservations')).toEqual([]);
-    media.acquireOperation(existing.id)();
-  });
-  it('keeps a linked repair budget when failed-file cleanup cannot finish', async () => {
-    await conversionSchema();
-    const repo = db.getRepository(MediaAsset);
-    const item = await repo.save({ originalName: 'system.wav', safeName: 'system.wav', path: '', kind: 'audio', mimeType: 'audio/wav', sizeBytes: 14, ownerUserId: null, source: 'system', visibility: 'shared' });
-    const source = join(root, 'bundled.wav');
-    await fs.writeFile(source, 'system-content');
-    const open = fs.open.bind(fs);
-    jest.spyOn(fs, 'open').mockImplementationOnce(async (file, flags, mode) => { await repo.update(item.id, { ownerUserId: 1 }); return open(file, flags, mode); });
-    jest.spyOn(fs, 'unlink').mockRejectedValueOnce(new Error('cleanup denied'));
-    await expect((media as any).seedBundledFile({ file: source, originalName: 'system.wav', kind: 'audio', mime: 'audio/wav', remark: 'fixture' })).rejects.toThrow('cleanup denied');
-    expect(await db.query('SELECT target_media_id, bytes FROM upload_reservations')).toEqual([{ target_media_id: item.id, bytes: 14 }]);
-    expect(await fs.readdir(join(root, String(item.id)))).toHaveLength(1);
-    media.acquireOperation(item.id)();
-  });
-  it('refuses new bundled copies before writing when no disk budget is available', async () => {
-    await conversionSchema();
-    const bundled = join(root, 'bundled.wav');
-    await fs.writeFile(bundled, 'system-content');
-    jest.spyOn(MediaQuotaService.prototype as any, 'availableDiskBytes').mockResolvedValue(0);
-    await expect((media as any).seedBundledFile({ file: bundled, originalName: 'system.wav', kind: 'audio', mime: 'audio/wav', remark: 'fixture' })).rejects.toThrow('磁盘');
-    expect(await db.getRepository(MediaAsset).count()).toBe(0);
-    expect(await db.query('SELECT * FROM upload_reservations')).toEqual([]);
-    expect(await fs.readdir(root)).toEqual(['bundled.wav']);
-  });
   it('does not let a named user label reserved uploads as shared system assets', async () => {
     await conversionSchema();
     const quota = new MediaQuotaService(db);
@@ -182,17 +110,6 @@ describe('file ingestion compensation', () => {
     expect(await db.getRepository(MediaAsset).count()).toBe(0);
     expect(await db.query('SELECT * FROM upload_reservations')).toEqual([]);
     expect(await fs.readdir(join(root, '_tmp'))).toEqual([]);
-  });
-  it('does not let a private same-name webpage replace the system welcome page', async () => {
-    const originalName = '金湖欢迎页·动态(称谓可编辑)';
-    const privatePage = await media.createWebpage(originalName, 'https://example.test/private-welcome', actor);
-    jest.spyOn(media as any, 'seedBundledFile').mockResolvedValue(undefined);
-    (media as any).logger = { info: jest.fn(), warn: jest.fn() };
-    await (media as any).seedBundledAssets();
-    const rows = await db.getRepository(MediaAsset).find({ where: { originalName } });
-    expect(rows).toHaveLength(2);
-    expect(rows.find(row => row.id === privatePage.id)).toMatchObject({ ownerUserId: 1, visibility: 'private', sourceUrl: 'https://example.test/private-welcome' });
-    expect(rows.find(row => row.source === 'system')).toMatchObject({ ownerUserId: null, visibility: 'shared', sourceUrl: 'http://localhost:5173/control/welcome/index.html' });
   });
   it('binds reserved buffers at their actual size, preserves Chinese names and releases after finalization', async () => {
     await conversionSchema();

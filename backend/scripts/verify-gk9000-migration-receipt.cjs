@@ -3,6 +3,7 @@ const path = require('node:path');
 const { verifyReleaseBundle } = require('./release-recovery-bundle.cjs');
 const { loadEnvFile } = require('./run-migrations.js');
 const { resolveProductionMediaRoot, resolveProductionDatabasePath } = require('./production-paths.cjs');
+const { reconcile } = require('./reconcile-bundled-media.cjs');
 
 async function verify(receiptPath, candidateRevision, root) {
   const receipt = JSON.parse(await fs.readFile(receiptPath, 'utf8'));
@@ -20,6 +21,15 @@ async function verify(receiptPath, candidateRevision, root) {
   const normalize = value => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
   if (normalize(db) !== normalize(receipt.databasePath) ||
       normalize(mediaRoot) !== normalize(receipt.mediaRoot)) throw new Error('Production paths changed after migration');
+  if (receipt.bundledMedia?.catalogVersion !== 1 || receipt.bundledMedia?.count !== 15) {
+    throw new Error('Bundled media reconciliation evidence is missing');
+  }
+  reconcile({
+    manifestPath: path.join(root, 'deploy', 'assets', 'bundled-media-manifest.json'),
+    databasePath: db,
+    mediaRoot,
+    checkOnly: true,
+  });
   return true;
 }
 if (require.main === module) {

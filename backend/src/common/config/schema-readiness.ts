@@ -28,6 +28,7 @@ export const REQUIRED_SCHEMA_MIGRATIONS = [
   'EstablishNamedIdentityAuthority1789650000000',
   'EstablishOperationalCatalog1789660000000',
   'EstablishHvacPlaybackCatalog1789670000000',
+  'EstablishBundledMediaAuthority1789680000000',
 ] as const;
 
 export const REQUIRED_SCHEMA_COLUMNS: Record<string, string[]> = {
@@ -61,6 +62,8 @@ export const REQUIRED_SCHEMA_COLUMNS: Record<string, string[]> = {
     'sourcePath',
     'processingStatus',
     'processingError',
+    'system_key',
+    'artifact_sha256',
   ],
   users: ['storage_quota_bytes'],
   playlist_item: ['owner_user_id'],

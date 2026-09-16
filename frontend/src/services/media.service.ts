@@ -61,6 +61,7 @@ const base = (): string => getApiBaseURL();
 export interface MediaItem {
   ownerUserId: number | null;
   visibility: 'private' | 'shared';
+  source: 'upload' | 'legacy' | 'system' | 'webpage' | 'import';
   id: number;
   originalName: string;
   kind: 'video' | 'image' | 'audio' | 'webpage' | 'doc';

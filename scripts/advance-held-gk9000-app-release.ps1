@@ -103,6 +103,7 @@ try {
     mediaRoot = [string]$receipt.mediaRoot
     rehearsalDirectory = [string]$receipt.rehearsalDirectory
     migrations = @($receipt.migrations)
+    bundledMedia = $receipt.bundledMedia
     productionActivated = $false
     advancedAt = (Get-Date).ToUniversalTime().ToString('o')
     advancedFromCandidate = $previousCandidate

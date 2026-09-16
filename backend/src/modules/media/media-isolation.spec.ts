@@ -185,4 +185,14 @@ describe('media isolation with SQLite repositories', () => {
     await expect(media.authorized(item.id, alice)).rejects.toThrow();
     expect((await media.authorized(item.id, bob)).remark).toBe('My note');
   });
+
+  it('exposes source classification and prevents administrators editing system assets', async () => {
+    const item = await db.getRepository(MediaAsset).findOneByOrFail({ originalName: 'Public' });
+    await db.getRepository(MediaAsset).update(item.id, { source: 'system' });
+    const listed = (await media.list({ actor: admin })).items.find((row) => row.id === item.id);
+    expect(listed?.source).toBe('system');
+    await expect(media.authorized(item.id, admin, true)).rejects.toThrow('版本发布统一管理');
+    await expect(media.updateOwned(item.id, admin, { originalName: 'renamed' })).rejects.toThrow('版本发布统一管理');
+    expect((await media.get(item.id)).originalName).toBe('Public');
+  });
 });

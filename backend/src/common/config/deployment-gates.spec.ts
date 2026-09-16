@@ -266,6 +266,9 @@ describe('GK9000 deployment gates', () => {
       "$migrationEntry = Join-Path $projectRoot 'backend\\scripts\\run-gk9000-migrations.cjs'",
     );
     expect(deploy).toContain('$migrationLines = @(& node $migrationEntry');
+    expect(deploy.lastIndexOf('Assert-BundledMediaCurrent')).toBeGreaterThan(
+      deploy.lastIndexOf('Invoke-ControlledMigrationReconciliation'),
+    );
     expect(resume).toContain("ParameterSetName='Aborted'");
     expect(reconcile).toContain('if (-not $Apply)');
     expect(reconcile).toContain('scripts\\run-gk9000-migrations.cjs');
@@ -304,16 +307,17 @@ describe('GK9000 deployment gates', () => {
     );
   });
 
-  it('runs backend tests in the production validation job before building', () => {
+  it('runs application tests, build-dependent operational tests and frontend validation before deployment', () => {
     const workflow = readRepositoryFile('.github/workflows/deploy-gk9000.yml');
     const auditPosition = workflow.indexOf('pnpm audit --prod --audit-level high');
     const testPosition = workflow.indexOf('pnpm exec jest --ci --reporters=default');
+    const opsTestPosition = workflow.indexOf('pnpm run test:ops');
     const backendBuildPosition = workflow.indexOf('pnpm run build');
     const frontendAuditPosition = workflow.indexOf(
       'pnpm audit --prod --audit-level high',
       auditPosition + 1,
     );
-    const frontendTestPosition = workflow.indexOf('pnpm run test');
+    const frontendTestPosition = workflow.indexOf('pnpm run test\n', frontendAuditPosition);
     const frontendTypecheckPosition = workflow.indexOf('pnpm run typecheck');
     const frontendBuildPosition = workflow.indexOf('pnpm run build', backendBuildPosition + 1);
 
@@ -321,6 +325,7 @@ describe('GK9000 deployment gates', () => {
     expect(auditPosition).toBeLessThan(testPosition);
     expect(testPosition).toBeGreaterThan(-1);
     expect(testPosition).toBeLessThan(backendBuildPosition);
+    expect(opsTestPosition).toBeGreaterThan(backendBuildPosition);
     expect(frontendAuditPosition).toBeGreaterThan(backendBuildPosition);
     expect(frontendAuditPosition).toBeLessThan(frontendTestPosition);
     expect(frontendTestPosition).toBeGreaterThan(backendBuildPosition);

@@ -32,6 +32,15 @@ export class MediaAsset {
   @Column({ type: 'varchar', default: 'upload' })
   source!: 'upload' | 'legacy' | 'system' | 'webpage' | 'import';
 
+  /** Stable deployment-owned identity for immutable bundled assets. */
+  @Index('ux_media_assets_system_key', { unique: true, where: 'system_key IS NOT NULL' })
+  @Column({ name: 'system_key', type: 'varchar', length: 100, nullable: true })
+  systemKey!: string | null;
+
+  /** Expected repository artifact digest for a bundled file; null for webpages. */
+  @Column({ name: 'artifact_sha256', type: 'varchar', length: 64, nullable: true })
+  artifactSha256!: string | null;
+
   @PrimaryGeneratedColumn()
   id!: number;
 

@@ -43,7 +43,7 @@ export function useCurrentActor() {
   onScopeDispose(() => { disposed = true; revision++; actor.value = null; unsubscribe(); if (timer) clearInterval(timer); });
   const isAdmin = computed(() => actor.value?.role === 'admin');
   const canOperate = computed(() => isAdmin.value || actor.value?.role === 'operator');
-  const canEditMedia = (media: MediaItem) => isAdmin.value ||
-    (actor.value?.role === 'operator' && actor.value.userId !== null && media.ownerUserId === actor.value.userId && media.visibility === 'private');
+  const canEditMedia = (media: MediaItem) => media.source !== 'system' && (isAdmin.value ||
+    (actor.value?.role === 'operator' && actor.value.userId !== null && media.ownerUserId === actor.value.userId && media.visibility === 'private'));
   return { actor, isAdmin, canOperate, canEditMedia, refreshActor };
 }
