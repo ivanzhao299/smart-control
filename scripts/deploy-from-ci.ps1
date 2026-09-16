@@ -527,7 +527,7 @@ try {
             $safePath = Join-Path $runtimeDataDir $targetName
             if (-not (Test-Path $safePath)) {
               try {
-                Get-Content -Path $_.FullName -Raw | ConvertFrom-Json | Out-Null
+                Get-Content -Path $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json | Out-Null
                 Copy-Item -Path $_.FullName -Destination $safePath -Force
                 Write-DeployLog "Recovered valid runtime document from backup: $targetName"
               } catch {
