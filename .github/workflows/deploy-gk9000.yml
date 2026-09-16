@@ -47,8 +47,8 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm audit --prod --audit-level high
           pnpm exec jest --ci --reporters=default
-          pnpm run test:ops
           pnpm run build
+          pnpm run test:ops
 
       - name: Validate frontend
         working-directory: frontend

@@ -307,7 +307,7 @@ describe('GK9000 deployment gates', () => {
     );
   });
 
-  it('runs backend tests in the production validation job before building', () => {
+  it('runs application tests, build-dependent operational tests and frontend validation before deployment', () => {
     const workflow = readRepositoryFile('.github/workflows/deploy-gk9000.yml');
     const auditPosition = workflow.indexOf('pnpm audit --prod --audit-level high');
     const testPosition = workflow.indexOf('pnpm exec jest --ci --reporters=default');
@@ -324,8 +324,8 @@ describe('GK9000 deployment gates', () => {
     expect(auditPosition).toBeGreaterThan(-1);
     expect(auditPosition).toBeLessThan(testPosition);
     expect(testPosition).toBeGreaterThan(-1);
-    expect(testPosition).toBeLessThan(opsTestPosition);
-    expect(opsTestPosition).toBeLessThan(backendBuildPosition);
+    expect(testPosition).toBeLessThan(backendBuildPosition);
+    expect(opsTestPosition).toBeGreaterThan(backendBuildPosition);
     expect(frontendAuditPosition).toBeGreaterThan(backendBuildPosition);
     expect(frontendAuditPosition).toBeLessThan(frontendTestPosition);
     expect(frontendTestPosition).toBeGreaterThan(backendBuildPosition);
