@@ -1,8 +1,6 @@
-import { ConflictException, Inject, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Repository } from 'typeorm';
-import { Logger } from 'winston';
 import { Brand } from '../../entities/brand.entity';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
 import { DriverTemplate } from '../../entities/driver-template.entity';
@@ -39,45 +37,25 @@ export interface BrandUpsertDto {
 }
 
 @Injectable()
-export class BrandsService implements OnModuleInit {
+export class BrandsService {
   constructor(
     @InjectRepository(Brand) private readonly brandRepo: Repository<Brand>,
     @InjectRepository(HardwareUnit) private readonly hwRepo: Repository<HardwareUnit>,
     @InjectRepository(DriverTemplate) private readonly driverRepo: Repository<DriverTemplate>,
-    @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
   /**
-   * 启动时把 hardware_unit / driver_template 里已用到的 vendor 字符串自动
-   * 注入 brand 表 (跟 DriverRegistry 同模式). 已存在的不覆盖, 让 admin 加完
-   * logo / 联系方式后保留.
+   * 在新增引用的同一个业务操作中补齐品牌目录。单条 INSERT ... SELECT 既避免
+   * 先查后写竞态，也严格保留已有品牌的启用状态和维护字段。
    */
-  async onModuleInit(): Promise<void> {
-    const hwVendors = await this.hwRepo
-      .createQueryBuilder('h')
-      .select('DISTINCT h.vendor', 'vendor')
-      .getRawMany<{ vendor: string }>();
-    const driverVendors = await this.driverRepo
-      .createQueryBuilder('d')
-      .select('DISTINCT d.vendor', 'vendor')
-      .getRawMany<{ vendor: string }>();
-    const all = new Set([
-      ...hwVendors.map((r) => r.vendor).filter(Boolean),
-      ...driverVendors.map((r) => r.vendor).filter(Boolean),
-    ]);
-    let added = 0;
-    for (const name of all) {
-      const existing = await this.brandRepo.findOne({ where: { name } });
-      if (!existing) {
-        await this.brandRepo.save(this.brandRepo.create({ name, enabled: true }));
-        added += 1;
-      }
-    }
-    if (added > 0) {
-      this.logger.info(`BrandsService bootstrap: 自动注入 ${added} 个 vendor 到 brands 表`, {
-        context: 'BrandsService',
-      });
-    }
+  async ensureReferenced(name: string): Promise<void> {
+    if (!name.trim()) return;
+    await this.brandRepo.query(
+      `INSERT INTO brands (name, enabled, created_at, updated_at)
+       SELECT ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+       WHERE NOT EXISTS (SELECT 1 FROM brands WHERE name = ?)`,
+      [name, name],
+    );
   }
 
   async list(): Promise<BrandView[]> {
