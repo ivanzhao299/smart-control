@@ -51,6 +51,10 @@
 - 阶段 P2-A1 已完成：主 PWA 的 11 个页面路由、9 个可见导航项、空闲/指针分块预取和 API 预取统一由 `main-route-manifest.ts` 生成，两个 DALI 深链保留，`App.vue` 重复导入表已删除。PR #84 合并提交 `0af96e8ddbe1515b6ae81a3d6d609dd0f66ed438` 已发布；发布前备份为 `D:\smart-control-backups\20260917-071034\sqlite-Yw29Hx\database.sqlite`。
 - 阶段 P2-A2 已完成：发现旧部署门禁只识别 Workbox 的 `"url":"..."`，真实压缩产物使用 `url:"..."`，因而错误报告保留 0 个上一代分块，可能让持有旧 Service Worker 的 iPhone 只显示底部壳而页面黑屏。先从只读回滚快照追加恢复 44 个缺失分块，再让门禁兼容两种格式，并对空清单、源文件缺失、路径越界和复制后缺失全部失败关闭。PR #85 合并提交 `7a97b8e5a8b5d76d61df1528666b95b8db3d15a2` 已发布；备份为 `D:\smart-control-backups\20260917-071639\sqlite-6djZm3\database.sqlite`。
 - P2-A2 生产验收：当前和上一代 Service Worker 各引用 88 个资源，均在前端发布目录且通过 HTTP 200 与 JS/CSS MIME 核验；9 个 PWA 页面入口均为 200。发布前后 17 张权威表逐表计数和规范化 SHA-256 一致，迁移 40、`integrity_check=ok`、外键违规 0。GitHub Actions 因账户 Billing 在任务开始前零步骤失败，本批使用完整本地门禁和受限生产网关完成验证。阶段 2 尚未完成，下一批建立登录、灯光、大屏投放、拍照上屏、媒体上传、视频绑定与检测范围保存的关键旅程门禁，再按行为边界拆分大模块。
+- 阶段 P2-A3 已完成：iPhone 页内相机只能在 HTTPS 安全上下文使用，生产规范入口为 `https://park.cnjinhu.com/control/`；HTTP 入口无法由页面绕过浏览器限制，错误页现明确引导重新登录并重新添加 HTTPS PWA。继续使用 `getUserMedia + canvas`，不恢复曾触发 iOS PWA 闪退的 `input capture` 系统相机路径。
+- 拍照上屏发布已提取为可测试事务边界：读取旧绑定→上传新图→绑定新图→切换欢迎页→可恢复删除旧图。绑定失败时只尽力回收新上传，旧绑定和旧照片不动；切屏或旧图回收失败不撤销已确认的新绑定。生产照片目录仍为数据盘 `D:\Media\welcome-photos`。
+- 视频检测范围编辑器现在携带 SQLite 配置修订号，过期保存返回 `VIDEO_BINDING_REVISION_CONFLICT`；只有服务端保存成功且重新读取的检测线、ROI、AI 状态完全一致后才关闭。请求失败、并发冲突或回读不一致均保留当前画布，避免“保存失败却关闭编辑器”造成误以为数据丢失。旧 PWA 可缺省修订号，保持滚动升级兼容。
+- P2-A3 对应 PR #87，合并提交 `33c5e363101b7d5937b7e3b98de72bb0da81d328` 已发布；备份为 `D:\smart-control-backups\20260917-073157\sqlite-c8j8DJ\database.sqlite`。前端 66 项、后端 86 套件/730 项、双端构建、运维 67 项（65 通过/2 环境跳过）和双端生产依赖审计均通过。生产独立验收确认 17 张权威表零变化，`video.binding` revision 1/history 1、6 路状态和几何点数与备份一致，数据库迁移 40/完整性 `ok`/外键违规 0；新旧 PWA 各 88 个资源、9 个入口和公网 HTTPS 均通过。GitHub Actions 仍因账户 Billing 在任务开始前零步骤失败。阶段 2 下一批继续登录、灯光、大屏投放、通用媒体上传与视频绑定其他写入路径。
 
 ## 当前状态快照（2026-07-28）
 
