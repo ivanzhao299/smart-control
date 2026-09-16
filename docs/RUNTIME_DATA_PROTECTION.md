@@ -133,3 +133,12 @@
 - 2026-07-26 接线修复只在 IN1 名称精确等于旧签名“中控主机”时执行一次；立体声历史修复也只在迁移中执行一次。此后管理员修改 OUT1-4 名称时，在同一事务规范“·左/·右”并同步另一声道，不依赖重启改库。
 - 任一音频权威表有数据时迁移拒绝无归档降级。生产旧签名不匹配，第 35 个迁移只增加账本；备份与生产的输出、输入、场景、路由语义 SHA-256 分别保持 `73d5dea914de9a04ab9b3dbb148a7e3384fb81e3663ee49fc2456d670e9aa1f0`、`9435473655c49f7b07b4eeaab94959eced1e217f943760040f88913e1d72056e`、`7179abb961a2efa549c93880f40b072e602c8cdba54b883a1dce444ed8c7a744`、`4a34c5245196174ca87943ee7509cbda6b5e64fca95d64af49f25efc07c0ae1a`。
 - 发布前快照位于 `D:\smart-control-backups\20260917-025436\sqlite-5Jmr2a\database.sqlite`，配套恢复包和回执位于 `D:\smart-control-backups\migration-recovery\release-taRrPn`。
+
+## 16. 2026-09-17 APP 发布目录启动写入退役
+
+- `app_release_v1` 是客户端版本查询和管理员发布策略的唯一运行时来源；`AppReleaseService` 启动不再读取 `deploy/assets/app/manifest.json`，也不再写版本、下载地址、说明、强制更新、最低版本或启用状态。
+- `EstablishAppReleaseCatalog1789640000000` 增加 `release_source`、`artifact_commit`、`artifact_sha256`、`artifact_size` 和 `artifact_built_at`。已有 Android 行只在下载地址精确等于内置地址时标记为 `bundled`；自定义行保持 `manual`，不存在时才建立当前随包版本。
+- 随包 Android 的版本号、版本名、下载地址和产物字段只能由 `reconcile-app-release.cjs` 在校验 manifest schema、APK SHA-256/大小、提交与版本单调性后，以 `BEGIN IMMEDIATE` 单事务更新；发布说明、强制更新、最低支持版本和启用状态保持管理员控制。客户端只查询数据库，不直接读取 manifest。
+- 管理后台对 bundled 元数据只读，防止 UI 制造数据库与 APK 不一致；manual 平台仍可编辑。下载文件名从数据库版本读取，manifest 只作为不可变部署制品的证明。
+- 生产从 35 升至 36 个迁移；原版本 v1.1.14/code 22、下载地址、说明和策略均保留。最终产物提交 `564de946…14a0`，SHA-256 `79229763bcdf8a082e83b852e51fc16441cf93445307480ab3189c09fc196fa1`，大小 5,893,727 字节，与数据库和 APK 完全一致。发布前快照为 `D:\smart-control-backups\20260917-033608\sqlite-VXziBu\database.sqlite`；恢复包与原始/前滚回执为 `D:\smart-control-backups\migration-recovery\release-coIVpz`。
+- 安卓产物工作流不再监听自身 manifest/APK，GK9000 部署忽略 Android 源提交并等待产物提交后显式调度。若迁移期间远端 main 仅因 manifest+APK 前进，受控恢复脚本验证祖先关系、严格差异和原迁移回执后前滚激活；任何其他差异继续保留 hold。

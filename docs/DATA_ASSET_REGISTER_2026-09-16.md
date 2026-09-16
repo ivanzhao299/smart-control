@@ -23,6 +23,7 @@
 | 发布身份清单 | `D:\smart-control-runtime\data\release.json` | 已验证发布的提交、分支与时间证据；Git/环境变量仍是运行代码身份首选来源 | 随 `runtime-data` 进入发布备份；丢失时由下一次验证通过的发布重建 | 不作为业务数据源；只在权威部署验证后原子更新 |
 | 发布备份 | `D:\smart-control-backups` | 只读恢复证据 | SQLite 快照、`.env`、运行时 JSON、UAT 快照 | 增加离机副本，避免源数据与唯一备份同盘 |
 | 服务密钥与外部凭据 | `backend\.env` 与 SQLite 中的认证记录 | 环境配置 / 数据库 | `.env` 随发布快照保护，接口响应必须脱敏 | 逐步迁入 CI/主机密钥存储；数据库只保存运行必需密文 |
+| APP 发布目录与随包 Android 制品 | SQLite `app_release_v1`；仓库 `deploy/assets/app/manifest.json` 与 `smart-control-latest.apk` | 客户端和管理员只使用 SQLite；manifest/APK 是不可变部署输入，只有发布 reconciler 可把已校验元数据写入 bundled 行 | SQLite 随发布快照和迁移恢复包保存；APK/manifest 随 Git 提交；部署核对提交、SHA-256、大小和版本 | 禁止服务启动回灌和后台修改 bundled 元数据；说明与更新策略仍由管理员维护；manual 平台不受随包对账覆盖 |
 | Android 签名私钥 | GitHub Actions `ANDROID_SIGNING_*` secrets | 加密 CI 密钥；仓库仅记录公开指纹 | Git 历史仍存在旧副本，当前版本已移除 | 保持现有证书以兼容覆盖升级；疑似泄露时冻结发布并按设备清单维护重装 |
 
 ## 2. 数据分类规则
