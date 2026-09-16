@@ -5,9 +5,9 @@
 > 长期工程知识（架构/部署坑/铁律）在 `CLAUDE.md`；故障档案在 `docs/INCIDENTS.md`；
 > 历史时间线在 `docs/PROGRESS.md`。本文件只放**当前状态与进行中的事**。
 
-## 当前代码上下文（2026-09-16，优先于以下历史快照）
+## 当前代码上下文（2026-09-17，优先于以下历史快照）
 
-- 当前生产 Git 基线为 `9605fb1`（PR #51）。后端 3200、前端 5173、PM2 守护和计划任务均通过权威验证；`RELEASE_HOLD` 不存在。生产健康接口为 200，38 台设备在线、0 离线，六路 HLS 均运行且重启计数为 0。
+- 当前生产 Git 基线为 `c300fbb`（PR #55）。后端 3200、前端 5173、PM2 守护和计划任务均通过权威验证；`RELEASE_HOLD` 不存在。生产健康接口为 200，38 台设备在线、0 离线，六路 HLS 均运行且重启计数为 0。
 - 阶段 P1-A3 已完成：视频绑定、2 台 NVR、6 路通道、HLS、截图、检测线与 ROI 收敛到 SQLite 的 `video.binding` 单一权威文档；后台编辑只写数据库并保留 revision、校验和及操作者历史，旧 JSON 仅作为已冻结的迁移来源。
 - 生产已执行 `ImportVideoBindingRuntimeConfig1789560000000`，迁移总数 28；`video.binding` 为 schema v1 / revision 1，当前文档与唯一历史记录校验和一致，`integrity_check=ok`、外键违规 0。源 `video-binding.json` SHA-256 保持 `febfdd42ad95319a5b993bf6ffeb65a38a52695b32d50f195092bf03abddac2f`，其归一化内容与 SQLite 逐字段一致。
 - PR #40（`f7ddd8d`）首次真实迁移在停写复核处安全失败，未改数据库；PR #41/#42/#43 分别修正控制器父进程判定、PowerShell 5.1 原生错误采集和绝对迁移入口。随后在原 hold 下完成同一次恢复演练、迁移、回执和激活，未删除 hold 重跑、未回滚数据。
@@ -18,8 +18,10 @@
 - P1-A4 发布前备份为 `D:\smart-control-backups\20260916-174947`，迁移恢复包与回执为 `D:\smart-control-backups\migration-recovery\release-jviFeA`。生产数据库 `integrity_check=ok`、外键违规 0；六路 HLS 均为 200/运行中/零重启。上述证据以及 P1-A3 的 `release-HT0Ypw` 均须保留。
 - 阶段 P1-A5 已完成：音频矩阵期望状态只保留 SQLite `audio_desired_link`。生产 `matrix-state.json` 原本就不存在；旧只读接口现从数据库映射兼容格式，旧写接口返回 410 `AUDIO_MATRIX_LEGACY_WRITE_RETIRED`，不能重新生成第二份文件源。生产 64 条 8×8 期望路由、8 条启用项均未改变，迁移仍为 29，数据库完整性与六路 HLS 均正常。
 - 阶段 P1-A6 已完成：园区大屏页码、自动播放和一次性刷新均为 `ParkOpsControlService` 进程内短期状态，重启恢复安全默认值，不再写 `park-ops-control.json(.bak)`。生产预检和发布后均确认两个文件不存在，无历史状态需要迁移。仅大屏轮询 GET 公开，所有变更接口仍需登录；PWA 控制与拍照上屏后的回首页请求已统一通过共享 API 客户端携带身份。生产匿名 POST 返回 401，公开 GET 返回 6 页安全默认状态。
+- 阶段 P1-A7 已完成：`/api/system/info` 从环境、Git 和仓库外发布清单解析准确提交、分支和发布时间，不再返回空 commit/ref，也不再用静态模板伪造平台和主机名。管理员运行摘要统一输出实际 SQLite 路径/版本、29 个迁移、pending 状态、运行配置文档数、数据目录、媒体根和日志目录；配置路径与真实连接路径分叉时启动失败。生产发布清单为 `D:\smart-control-runtime\data\release.json`，提交与 Git HEAD 均为 `c300fbb`。
+- 阶段 P1-A8/A9 已完成：修复固定 Windows 调度器使用上一版部署脚本导致门禁改动晚一轮生效的问题。调度器先验证目标提交属于 `origin/main`，从该提交提取并解析部署脚本；发布验证后再原子同步自身。Windows `File.Replace` 使用同目录临时备份路径，禁止空备份路径。生产仓库与系统调度器 SHA-256 均为 `90e18a0d73660b919ddf36f3fe7bb7e318cc98e61e4c6d9540c6dea18f18fd63`，无 `.tmp/.previous` 残留。
 - 现场权威路径：SQLite=`D:\smart-control\database\smart-control.db`，运行时数据=`D:\smart-control-runtime\data`，媒体=`D:\Media`，拍照上墙照片=`D:\Media\welcome-photos`。以上目录与代码仓库分离，发布不得删除或覆盖。
-- 当前阶段没有待发布运行时代码。下一步继续阶段 1：统一生产数据库路径、代码提交号、迁移版本和数据目录摘要。部署后确认磁盘 Git 为 `9605fb1`，但 `/api/system/info` 的 `commit/ref` 仍为 `null`，这是下一批要消除的可观测性缺口；每批只处理一个边界，继续执行“单一权威源→可逆迁移→历史审计→生产对账”。
+- 当前阶段没有待发布运行时代码。阶段 1 的统一生产数据库路径、代码身份、迁移版本和数据目录摘要已经完成；下一批继续收敛系统品牌、场景动作及其余配置域。每批只处理一个边界，继续执行“单一权威源→可逆迁移→历史审计→生产对账”。
 
 ## 当前状态快照（2026-07-28）
 

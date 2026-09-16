@@ -16,6 +16,7 @@
 | `park-ops-metrics.json(.bak)` | 首次迁移输入与恢复对账证据；迁移后禁止写入 | 仅迁移与空库初始化读取 |
 | `ParkOpsControlService` 进程内状态 | 大屏页码、自动轮播和一次性刷新指令；重启恢复安全默认值 | `cameras/park-ops-control.service.ts` |
 | `database/smart-control.db` | 主数据库（含视频绑定文档、修订历史和拍照上屏照片的元数据引用） | TypeORM |
+| `release.json` | 已验证发布的提交、分支与发布时间；可重建运行证据，不是业务配置 | 仅 `deploy-from-ci.ps1` 在权威验证后原子写入 |
 
 > 新增或改造的设备配置统一进入版本化数据库配置仓储。剩余 JSON 是有期限的只读迁移源，不再作为长期架构扩展；可重建控制信号留在内存，不伪装成持久数据。
 

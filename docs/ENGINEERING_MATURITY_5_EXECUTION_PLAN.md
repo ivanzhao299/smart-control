@@ -73,7 +73,7 @@
    - [x] 园区大屏短期控制状态：确认为可重建进程内信号，停止 JSON 写入，PWA 变更统一走鉴权客户端。
    - [ ] 系统品牌、场景动作及其余配置域。
 4. [x] NVR 与摄像头通道只保留视频绑定配置一个权威源；摄像头拉流服务通过该服务解析通道，已移除重复硬编码密码和通道表；海康 `..01` 到 HLS `..02` 子码流的转换成为显式、受测试的规则。
-5. 统一生产数据库路径和启动检查，所有环境输出相同的数据库版本、迁移版本和数据目录摘要。
+5. [x] 统一生产数据库路径和启动检查，所有环境输出相同的数据库版本、迁移版本和数据目录摘要；生产发布身份、外部清单与实际 Git 提交完成对账。
 6. [x] 将认证、系统品牌、播放和百度网盘服务中的启动 DDL 移除，由现有 TypeORM 迁移和只读启动门禁负责。
 7. [x] 在生产数据副本上执行升级、重复执行、故障中断和恢复演练，记录校验和与行数对账；后续每个配置域迁移仍须重复此门禁。
 
@@ -133,3 +133,5 @@
 | P1-A4 | 园区运营指标、文案与占位标记收敛到 SQLite `park.ops.metrics`；自动迁移门禁识别受控 CI 调度器 | 新迁移仅在目标键不存在时导入有效主文件或备份；旧 JSON 不删除、不改写；首次发布在迁移前安全停住，沿用原 hold 前向恢复 | 后端 66 套件/678 项、脚本 56 项通过/2 项环境跳过、双端构建、生产依赖 high/critical 0；生产副本仅执行目标迁移，重复执行 0 项；PowerShell 5.1 解析与真实调度器命令行夹具通过 | `d943bb0`、`5e401c8`；[#46](https://github.com/ivanzhao299/smart-control/pull/46)、[#47](https://github.com/ivanzhao299/smart-control/pull/47)；[主分支 CI](https://github.com/ivanzhao299/smart-control/actions/runs/35082335909)通过；备份 `20260916-174947`，恢复包 `release-jviFeA`；生产 29 个迁移、完整性 `ok`、外键违规 0，数据库/历史/旧文件/API 校验一致，六路 HLS 200/运行中/零重启 |
 | P1-A5 | 退役音频 `matrix-state.json` 重复源，统一使用 SQLite `audio_desired_link` | 不新增迁移、不改写现有路由、不操作音频设备；生产旧文件原本不存在；兼容 GET 改读 SQLite，旧 POST 返回 410 | 后端 67 套件/680 项、前端 52 项、类型检查、双端构建及 high/critical 审计通过；专项测试覆盖 64 路兼容投影和写入退役 | `115ae23`；[#49](https://github.com/ivanzhao299/smart-control/pull/49)；[生产部署](https://github.com/ivanzhao299/smart-control/actions/runs/35083928289)通过；生产 64 条路由/8 条启用项保持不变，兼容投影 64/8，旧写入 410，迁移 29、完整性 `ok`、外键违规 0 |
 | P1-A6 | 园区大屏翻页、自动播放和刷新收敛为进程内短期状态；PWA 控制与拍照回首页统一使用鉴权客户端 | 不新增迁移、不改写业务数据、不操作设备；生产预检确认旧状态文件及备份均不存在；重启恢复安全默认值 | 后端 68 套件/684 项、专项 5 项；前端 53 项、类型检查、PWA 构建；双端生产依赖审计 0 项 | `9605fb1`；[#51](https://github.com/ivanzhao299/smart-control/pull/51)；[生产部署](https://github.com/ivanzhao299/smart-control/actions/runs/35107810217)通过；运行提交一致，健康接口 200，迁移 29、完整性 `ok`、外键违规 0，匿名写入 401，状态文件不存在，六路 HLS 运行中/零重启 |
+| P1-A7 | 统一运行代码身份、实际数据库/迁移版本与数据目录摘要；配置库路径分叉时启动失败 | 不新增迁移、不改写业务数据、不操作设备；发布清单是仓库外运行证据，不作为业务源 | 后端 69 套件/689 项、前端 53 项、类型检查和双端构建；新库 29 个迁移真实启动；PowerShell 5.1 解析通过 | `d0e8d9f`；[#53](https://github.com/ivanzhao299/smart-control/pull/53)；[生产部署](https://github.com/ivanzhao299/smart-control/actions/runs/35113245580)与[清单收敛](https://github.com/ivanzhao299/smart-control/actions/runs/35116112769)通过；生产 info/manifest/Git 提交一致，管理员摘要匿名访问 401 |
+| P1-A8/A9 | 部署调度器从目标提交引导门禁脚本；修复 Windows 已存在文件的原子替换 | 不新增迁移、不读写业务数据、不操作设备；只更新仓库外发布清单和固定调度器 | 门禁专项 14 项、双端 CI；真实 Windows PowerShell 5.1 解析、按提交提取和原子替换临时目录实测通过 | `ecb1e48`、`c300fbb`；[#54](https://github.com/ivanzhao299/smart-control/pull/54)、[#55](https://github.com/ivanzhao299/smart-control/pull/55)；[最终收敛发布](https://github.com/ivanzhao299/smart-control/actions/runs/35119506924)无告警；调度器哈希一致、临时文件零残留，数据库 29 个迁移/完整性 `ok`/外键违规 0，38 台设备在线，六路 HLS 零重启 |
