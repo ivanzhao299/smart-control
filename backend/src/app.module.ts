@@ -46,6 +46,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { AdaptersModule } from './adapters/adapters.module';
 import { ServicesModule } from './services/services.module';
 import { CamerasModule } from './modules/cameras/cameras.module';
+import { RuntimeConfigModule } from './common/runtime-config/runtime-config.module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { CamerasModule } from './modules/cameras/cameras.module';
     }),
     LoggerModule,
     TypeOrmModule.forRootAsync({ useClass: TypeOrmConfigService }),
+    RuntimeConfigModule,
     AdaptersModule,
     ServicesModule,
     HealthModule,

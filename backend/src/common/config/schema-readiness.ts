@@ -20,6 +20,7 @@ export const REQUIRED_SCHEMA_MIGRATIONS = [
   'TrackSystemUploadReservations1788618008000',
   'AddParkOpsConfig1788790002000',
   'AddWelcomePhoto1789300000000',
+  'AddRuntimeConfigStore1789470000000',
 ] as const;
 
 export const REQUIRED_SCHEMA_COLUMNS: Record<string, string[]> = {
@@ -60,18 +61,45 @@ export const REQUIRED_SCHEMA_COLUMNS: Record<string, string[]> = {
   playback_channels: ['displayFit', 'docPage', 'docZoom', 'initiator_user_id', 'playback_session'],
   upload_reservations: ['owner_user_id', 'bytes', 'temp_name', 'instance_id', 'target_media_id'],
   upload_instances: ['id'],
+  runtime_config_documents: [
+    'config_key',
+    'schema_version',
+    'revision',
+    'document',
+    'document_sha256',
+    'created_at',
+    'updated_at',
+  ],
+  runtime_config_revisions: [
+    'id',
+    'config_key',
+    'schema_version',
+    'revision',
+    'document',
+    'document_sha256',
+    'actor',
+    'source',
+    'created_at',
+  ],
 };
 
 /** Read-only startup gate. Schema changes belong to the explicit, backed-up migration step. */
+interface SchemaQueryRow {
+  name?: string;
+  notnull?: number;
+  [column: string]: unknown;
+}
+
 export function assertSchemaReady(db: {
-  prepare(sql: string): { all(...args: unknown[]): any[] };
+  prepare(sql: string): { all(...args: unknown[]): SchemaQueryRow[] };
 }): void {
   try {
     const applied = new Set(
       db
         .prepare('SELECT name FROM migrations')
         .all()
-        .map((row) => row.name),
+        .map((row) => row.name)
+        .filter((name): name is string => typeof name === 'string'),
     );
     if (REQUIRED_SCHEMA_MIGRATIONS.some((name) => !applied.has(name)))
       throw new Error('missing migration');
