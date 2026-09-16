@@ -22,6 +22,7 @@ export const REQUIRED_SCHEMA_MIGRATIONS = [
   'AddWelcomePhoto1789300000000',
   'AddRuntimeConfigStore1789470000000',
   'ImportVideoBindingRuntimeConfig1789560000000',
+  'ImportParkOpsMetricsRuntimeConfig1789570000000',
 ] as const;
 
 export const REQUIRED_SCHEMA_COLUMNS: Record<string, string[]> = {
