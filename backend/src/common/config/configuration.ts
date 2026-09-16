@@ -78,13 +78,15 @@ export default (): RootConfig => ({
     platform: (process.env.PLATFORM ?? process.platform).toLowerCase(),
   },
   database: {
-    path: resolvePath(process.env.DB_PATH, './database/smart-control.db'),
+    // Runtime cwd is backend/. Keep the default identical to the CLI, backup,
+    // restore and deployment verifier so every process opens the same database.
+    path: resolvePath(process.env.DB_PATH, '../database/smart-control.db'),
     synchronize: parseBool(process.env.DB_SYNCHRONIZE, false),
     logging: parseBool(process.env.DB_LOGGING, false),
   },
   logger: {
     level: process.env.LOG_LEVEL ?? 'info',
-    dir: resolvePath(process.env.LOG_DIR, './logs'),
+    dir: resolvePath(process.env.LOG_DIR, '../logs'),
     maxFiles: process.env.LOG_MAX_FILES ?? '14d',
     maxSize: process.env.LOG_MAX_SIZE ?? '20m',
   },

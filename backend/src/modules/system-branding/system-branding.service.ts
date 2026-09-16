@@ -62,17 +62,6 @@ export class SystemBrandingService implements OnModuleInit {
 
   /** 启动时确保 id=1 这条记录存在 (没有就插默认), 后续都直接 update id=1 */
   async onModuleInit(): Promise<void> {
-    // 欢迎页编辑器三列自愈 (2026-07-28): 与迁移双保险 —— watcher 部署曾因不跑
-    // 迁移把生产打崩过 (INCIDENTS #22), 列缺失时先补上, 重复加列错误直接吞。
-    for (const ddl of [
-      `ALTER TABLE "system_branding_v2" ADD COLUMN "welcomeTitle" varchar(32)`,
-      `ALTER TABLE "system_branding_v2" ADD COLUMN "welcomeTagline" varchar(64)`,
-      `ALTER TABLE "system_branding_v2" ADD COLUMN "welcomeBgMediaId" integer`,
-      `ALTER TABLE "system_branding_v2" ADD COLUMN "welcomePhotoMediaId" integer`,
-      `ALTER TABLE "system_branding_v2" ADD COLUMN "parkOpsConfigJson" text`,
-    ]) {
-      await this.repo.query(ddl).catch(() => { /* duplicate column = 已存在, 正常 */ });
-    }
     const existing = await this.repo.findOne({ where: { id: 1 } });
     if (!existing) {
       const seed = this.repo.create({ id: 1, ...DEFAULTS });
