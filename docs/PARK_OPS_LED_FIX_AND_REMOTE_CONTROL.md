@@ -74,8 +74,8 @@ PWA端（平板/手机）投放园区运营大屏画面时，播放界面看不�
 │  (翻页按钮)      │ <────────────────── │  Controller     │
 └─────────────────┘     JSON响应         └────────┬────────┘
                                                     │
-                                           写入 JSON 文件
-                                           (data/park-ops-control.json)
+                                         进程内短期控制状态
+                                         (重启恢复安全默认值)
                                                     │
 ┌─────────────────┐     HTTP GET 500ms轮询         │
 │  LED大屏端       │ <──────────────────────────────┘
@@ -92,32 +92,33 @@ PWA端（平板/手机）投放园区运营大屏画面时，播放界面看不�
 
 #### 3.3.1 文件位置
 
-`backend/src/modules/cameras/park-ops-control.controller.ts`
+`backend/src/modules/cameras/park-ops-control.controller.ts` 与
+`backend/src/modules/cameras/park-ops-control.service.ts`
 
 #### 3.3.2 数据存储
 
-使用 JSON 文件存储当前状态：
-- 路径: `data/park-ops-control.json`（由 `DATA_DIR` 环境变量决定，默认 `process.cwd()/data`）
-- 内容: `{ "page": 0, "autoPlay": false, "timestamp": 1789118632974 }`
+页码、自动播放和一次性刷新都是可重建控制信号，由 `ParkOpsControlService` 保存在后端进程内。后端重启后恢复第 1 页、关闭自动播放且无待刷新指令；不创建 JSON 或数据库副本。
 
 #### 3.3.3 API 文档
 
-所有接口均添加 `@Public()` 装饰器，**无需登录认证**（运营大屏是独立静态页面，无登录态）。
+无人值守运营大屏只需公开读取状态，因此仅 `GET state` 使用 `@Public()`。所有 POST 变更必须通过全局身份门禁，PWA 统一使用共享 API 客户端自动附带管理员或客户端令牌。
 
 | 方法 | 路径 | 说明 | 请求体 | 响应 |
 |------|------|------|--------|------|
 | GET | `/api/park-ops-control/state` | 获取当前状态 | - | `{ success, data: { page, autoPlay, timestamp } }` |
 | POST | `/api/park-ops-control/next` | 下一页（循环） | - | `{ success, message, data }` |
 | POST | `/api/park-ops-control/prev` | 上一页（循环） | - | `{ success, message, data }` |
-| POST | `/api/park-ops-control/goto` | 跳转到指定页 | `{ page: number }` (0-4) | `{ success, message, data }` |
+| POST | `/api/park-ops-control/goto` | 跳转到指定页 | `{ page: number }` (0-5) | `{ success, message, data }` |
 | POST | `/api/park-ops-control/auto` | 切换自动轮播 | `{ enabled?: boolean }` 不传则切换 | `{ success, message, data }` |
+| POST | `/api/park-ops-control/refresh` | 请求大屏强制刷新（10 秒内一次性消费） | - | `{ success, message, data }` |
 
-**页码范围**: 0-4（运营大屏共5页）
-- 0: 综合态势
-- 1: 企业经营
-- 2: 安防监控
-- 3: 能耗管理
+**页码范围**: 0-5（运营大屏共 6 页）
+- 0: 欢迎莅临
+- 1: 综合态势
+- 2: 企业经营
+- 3: 安全消防
 - 4: 人车管理
+- 5: 视频监控
 
 #### 3.3.4 模块注册
 
@@ -125,10 +126,11 @@ PWA端（平板/手机）投放园区运营大屏画面时，播放界面看不�
 
 ```typescript
 import { ParkOpsControlController } from './park-ops-control.controller';
+import { ParkOpsControlService } from './park-ops-control.service';
 
 @Module({
   controllers: [CamerasController, VideoBindingController, ParkOpsControlController],
-  // ...
+  providers: [CamerasService, VideoBindingService, ParkOpsControlService],
 })
 ```
 
@@ -195,7 +197,7 @@ async function syncParkOpsState(): Promise<void>  // 投放后同步当前状态
   <button class="pg-btn big" :disabled="parkOpsBusy" @click="parkOpsControl('prev')">
     <ChevronLeft :size="20" /> 上一页
   </button>
-  <span class="pg-num v2-inter">{{ parkOpsPage + 1 }}<i>/ 5</i></span>
+  <span class="pg-num v2-inter">{{ parkOpsPage + 1 }}<i>/ {{ parkOpsTotalPages }}</i></span>
   <button class="pg-btn big" :disabled="parkOpsBusy" @click="parkOpsControl('next')">
     下一页 <ChevronRight :size="20" />
   </button>
@@ -235,9 +237,11 @@ async function syncParkOpsState(): Promise<void>  // 投放后同步当前状态
 
 | 层级 | 文件 | 修改类型 |
 |------|------|----------|
-| 后端 | `backend/src/modules/cameras/park-ops-control.controller.ts` | 新建 |
+| 后端 | `backend/src/modules/cameras/park-ops-control.controller.ts` | API 与鉴权边界 |
+| 后端 | `backend/src/modules/cameras/park-ops-control.service.ts` | 进程内短期状态 |
 | 后端 | `backend/src/modules/cameras/cameras.module.ts` | 修改（注册Controller） |
 | 运营大屏 | `frontend/public/park-ops/index.html` | 修改（body背景+轮询逻辑） |
+| PWA前端 | `frontend/src/services/park-ops-control.service.ts` | 共享鉴权 API 客户端 |
 | PWA前端 | `frontend/src/components/PlayerConsole.vue` | 修改（翻页控制条+状态函数+样式+图标导入） |
 
 ---

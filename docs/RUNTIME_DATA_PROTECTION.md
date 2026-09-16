@@ -12,15 +12,16 @@
 | --- | --- | --- |
 | SQLite `video.binding` | NVR/通道绑定、AI 开关、**计数线 countLine、检测区域 roiPolygon**、分屏布局 | `RuntimeConfigStore` + `cameras/video-binding.service.ts` |
 | `video-binding.json(.bak)` | 首次迁移输入与恢复对账证据；迁移后禁止写入 | 仅迁移与空库初始化读取 |
-| `park-ops-metrics.json` | 运营大屏顶部 KPI / 业务数字文档（PWA"运营数据"保存） | `cameras/park-ops-metrics.controller.ts` |
-| `park-ops-control.json` | 大屏播控状态（输入源、轮播等） | `cameras/park-ops-control.controller.ts` |
+| SQLite `park.ops.metrics` | 运营大屏顶部 KPI / 业务数字文档（PWA“运营数据”保存） | `RuntimeConfigStore` + `cameras/park-ops-metrics.service.ts` |
+| `park-ops-metrics.json(.bak)` | 首次迁移输入与恢复对账证据；迁移后禁止写入 | 仅迁移与空库初始化读取 |
+| `ParkOpsControlService` 进程内状态 | 大屏页码、自动轮播和一次性刷新指令；重启恢复安全默认值 | `cameras/park-ops-control.service.ts` |
 | `database/smart-control.db` | 主数据库（含视频绑定文档、修订历史和拍照上屏照片的元数据引用） | TypeORM |
 
-> 新增或改造的设备配置统一进入版本化数据库配置仓储。剩余 JSON 是有期限的迁移源，不再作为长期架构扩展。
+> 新增或改造的设备配置统一进入版本化数据库配置仓储。剩余 JSON 是有期限的只读迁移源，不再作为长期架构扩展；可重建控制信号留在内存，不伪装成持久数据。
 
 ## 2. 存放位置：必须在 git 仓库之外
 
-仍未迁移的运行时文件，以及只读保留的旧视频绑定文件，统一按以下优先级解析目录：
+只读保留的旧迁移文件统一按以下优先级解析目录：
 
 1. 环境变量 `DATA_DIR`（最高优先级）；
 2. Windows 现场固定：`D:\smart-control-runtime\data`（由 `deploy/ecosystem.config.js` 注入）；
@@ -70,3 +71,9 @@
 - 当前值与修订 1 在同一 SQLite 事务中写入，带 SHA-256、来源和修订号；服务重启后只读数据库，旧 JSON 后续变化不会回灌。
 - 后台编辑、HLS、截图、AI 热下发和展示读取均通过 `VideoBindingService`；`CamerasService` 不再维护第二套 NVR 密码和通道表。
 - 旧 JSON 不删除、不改写，继续随发布恢复包归档，用于审计和灾难恢复对账。
+
+## 8. 2026-09-16 运营指标与大屏控制收敛
+
+- 运营指标已经导入 SQLite `park.ops.metrics`，后台更新只产生数据库修订；旧 JSON 只读保留。
+- 大屏页码、自动播放与刷新属于可重建控制信号，统一由进程内 `ParkOpsControlService` 管理；生产部署前后均确认 `park-ops-control.json(.bak)` 不存在。
+- 大屏轮询 GET 保持公开以服务无人值守页面；PWA 的翻页、自动播放、刷新和拍照回首页统一走共享鉴权客户端，匿名写请求返回 401。
