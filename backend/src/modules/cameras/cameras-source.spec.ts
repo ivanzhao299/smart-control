@@ -29,6 +29,16 @@ describe('camera stream configuration source', () => {
     expect(segmentRoute).toBeGreaterThan(statusRoute);
   });
 
+  it('keeps park operations metrics writes behind the versioned runtime store', () => {
+    const controller = readFileSync(resolve(__dirname, 'park-ops-metrics.controller.ts'), 'utf8');
+    const service = readFileSync(resolve(__dirname, 'park-ops-metrics.service.ts'), 'utf8');
+
+    expect(controller).not.toMatch(/writeFile|renameSync|copyFile/);
+    expect(controller).toContain('this.metrics.update');
+    expect(service).toContain('this.store.update');
+    expect(service).not.toMatch(/writeFile|renameSync|copyFile/);
+  });
+
   it('keeps NVR credentials out of code defaults and AI reference URLs', () => {
     const projectRoot = resolve(__dirname, '../../../..');
     for (const file of [
