@@ -117,3 +117,11 @@
 - 各 adapter 内重复的 `static describe()` 已删除，避免代码常量与数据库形成两份会漂移的元数据。新增驱动或调整目录时必须新增显式迁移，不能恢复启动同步。
 - 有任何内置目录时迁移拒绝无归档降级。生产升级只增加第 33 条迁移账本；发布前快照与生产 8 条目录逐字段 SHA-256 均为 `51af7d60c4404318768f96b691aeaa418300b45490b52d5a93b6e6bed92e1960`。
 - 发布前快照位于 `D:\smart-control-backups\20260917-020733\sqlite-FgmwGb\database.sqlite`，配套恢复包和回执位于 `D:\smart-control-backups\migration-recovery\release-q7WJ1S`。
+
+## 14. 2026-09-17 品牌目录启动派生写入退役
+
+- `brands` 是硬件和驱动厂商名称、展示资料、联系信息与启用状态的唯一权威目录；`BrandsService` 启动只读，不再扫描引用表后写入缺失品牌。
+- `EstablishBrandCatalog1789620000000` 保存十二条产品品牌快照，并从迁移当时的 `hardware_units`、`driver_templates` 补齐其他已引用厂商；只插入不存在的名称，已有品牌的全部字段逐字节保留。
+- 新增硬件、修改硬件厂商或新增自定义驱动时，同一业务操作即时调用 `ensureReferenced`。该写入用单条条件插入规避先查后写竞态，不覆盖管理员维护的 Logo、联系方式、备注和禁用状态。
+- 有任何权威品牌时迁移拒绝无归档降级。生产升级只增加第 34 条迁移账本；12 条品牌语义 SHA-256 在备份和生产均为 `58bd22ed134e119565623ae4c5fcb27943fd5b2ee7eb37254a29180ce794d036`，所有硬件/驱动厂商引用均能解析到品牌。
+- 发布前快照位于 `D:\smart-control-backups\20260917-022829\sqlite-feijSH\database.sqlite`，配套恢复包和回执位于 `D:\smart-control-backups\migration-recovery\release-RT80Vp`。
