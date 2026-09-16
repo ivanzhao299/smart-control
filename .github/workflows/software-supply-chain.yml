@@ -67,10 +67,10 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile --prod --ignore-scripts
 
-      # Third-party action is pinned to the immutable v0.24.0 commit. Syft is
+      # Third-party action is pinned to the immutable v0.24.2 commit. Syft is
       # pinned separately so the same lockfile always uses the same cataloger.
       - name: Generate backend SPDX SBOM
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           path: backend
           format: spdx-json
@@ -82,7 +82,7 @@ jobs:
           config: tools/ci/syft-production.yaml
 
       - name: Generate frontend SPDX SBOM
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           path: frontend
           format: spdx-json
