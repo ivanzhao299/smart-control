@@ -94,6 +94,24 @@ describe('GK9000 deployment gates', () => {
     expect(dispatcher).not.toContain('Remove-Item');
   });
 
+  it('bootstraps each deployment with the script from the requested main commit', () => {
+    const dispatcher = readRepositoryFile('deploy/windows-ci-dispatch.ps1');
+    const deploy = readRepositoryFile('scripts/deploy-from-ci.ps1');
+
+    expect(dispatcher).toContain('fetch --prune origin main');
+    expect(dispatcher).toContain('$attempt -lt 3');
+    expect(dispatcher).toContain('merge-base --is-ancestor $Commit origin/main');
+    expect(dispatcher).toContain('${Commit}:scripts/deploy-from-ci.ps1');
+    expect(dispatcher).toContain('System.Management.Automation.Language.Parser');
+    expect(dispatcher).toContain('[IO.File]::Delete($targetScript)');
+    expect(deploy).toContain("Join-Path $projectRoot 'deploy\\windows-ci-dispatch.ps1'");
+    expect(deploy).toContain('Windows CI dispatcher updated from verified commit');
+    expect(deploy).toContain('[IO.File]::Replace($dispatcherTemp, $dispatcherTarget, $null)');
+    expect(deploy.indexOf('$dispatcherSource =')).toBeGreaterThan(
+      deploy.indexOf("Write-DeployLog 'verify-deploy.js passed.'"),
+    );
+  });
+
   it('quarantines only untracked paths that conflict with the target commit', () => {
     const deploy = readRepositoryFile('scripts/deploy-from-ci.ps1');
 

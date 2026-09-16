@@ -1054,6 +1054,52 @@ try {
       }
     }
   }
+  if (-not $VerifyOnly) {
+    $dispatcherTemp = $null
+    try {
+      $dispatcherSource = Join-Path $projectRoot 'deploy\windows-ci-dispatch.ps1'
+      $dispatcherTarget = 'C:\ProgramData\Anksen\smart-control-ci-dispatch.ps1'
+      if (Test-Path -LiteralPath $dispatcherSource -PathType Leaf) {
+        $dispatcherTokens = $null
+        $dispatcherErrors = $null
+        [System.Management.Automation.Language.Parser]::ParseFile(
+          $dispatcherSource,
+          [ref]$dispatcherTokens,
+          [ref]$dispatcherErrors
+        ) | Out-Null
+        if ($dispatcherErrors.Count -gt 0) {
+          throw "Dispatcher failed PowerShell parsing: $($dispatcherErrors[0].Message)"
+        }
+        $dispatcherChanged = -not (Test-Path -LiteralPath $dispatcherTarget -PathType Leaf)
+        if (-not $dispatcherChanged) {
+          $sourceHash = (Get-FileHash -LiteralPath $dispatcherSource -Algorithm SHA256).Hash
+          $targetHash = (Get-FileHash -LiteralPath $dispatcherTarget -Algorithm SHA256).Hash
+          $dispatcherChanged = $sourceHash -ne $targetHash
+        }
+        if ($dispatcherChanged) {
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dispatcherTarget) | Out-Null
+          $dispatcherTemp = "$dispatcherTarget.$PID.tmp"
+          [IO.File]::WriteAllBytes($dispatcherTemp, [IO.File]::ReadAllBytes($dispatcherSource))
+          if (Test-Path -LiteralPath $dispatcherTarget) {
+            [IO.File]::Replace($dispatcherTemp, $dispatcherTarget, $null)
+          } else {
+            Move-Item -LiteralPath $dispatcherTemp -Destination $dispatcherTarget
+          }
+          Write-DeployLog "Windows CI dispatcher updated from verified commit: $deployedCommit"
+        } else {
+          Write-DeployLog 'Windows CI dispatcher already matches the verified commit.'
+        }
+      }
+    } catch {
+      # The application release is already verified. Do not roll it back because
+      # the out-of-worktree bootstrap copy could not be refreshed.
+      Write-DeployLog "WARNING: Windows CI dispatcher was not updated: $($_.Exception.Message)"
+    } finally {
+      if ($dispatcherTemp -and (Test-Path -LiteralPath $dispatcherTemp)) {
+        Remove-Item -LiteralPath $dispatcherTemp -Force -ErrorAction SilentlyContinue
+      }
+    }
+  }
   $result = 'PASS'
   Write-DeployLog "Deployment complete: $deployedCommit"
 } catch {

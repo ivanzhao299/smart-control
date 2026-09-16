@@ -80,7 +80,7 @@ KPI、播控状态等尚未迁移的现场 JSON 一律存放在 git 仓库之外
 
 ## CI 工作流
 
-`.github/workflows/deploy-gk9000.yml` 的 validate 阶段仍会构建双端（作为代码质量门禁），deploy 阶段调用 `gk9000-deploy <SHA>` → GK9000 上的 `deploy-from-ci.ps1` 自动判断范围并执行对应部署路径。
+`.github/workflows/deploy-gk9000.yml` 的 validate 阶段仍会构建双端（作为代码质量门禁），deploy 阶段调用 `gk9000-deploy <SHA>`。GK9000 的固定调度器先确认该 SHA 属于 `origin/main`，再直接提取并解析该 SHA 内的 `deploy-from-ci.ps1`，由它自动判断范围并执行对应部署路径。发布验证通过后，版本库中的调度器会原子同步到系统目录，避免部署脚本或调度器修改晚一个发布周期才生效。
 
 ## 手动覆盖
 
