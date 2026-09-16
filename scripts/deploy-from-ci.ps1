@@ -25,6 +25,12 @@ $errorMessage = $null
 $lockStream = $null
 $worktreeUpdated = $false
 $migrationAttempted = $false
+$migrationState = 'not-checked'
+$releaseIsolationRequested = $false
+$releaseIsolationStarted = $false
+$controlledActivationCompleted = $false
+$migrationTaskSnapshot = $null
+$migrationReceipt = $null
 $runtimeUntrackServicesStopped = $false
 $runtimeUntrackPaths = @()
 $runtimeUntrackArchiveRoot = $null
@@ -87,6 +93,81 @@ function Invoke-Native([string]$FilePath, [string[]]$Arguments) {
   if ($exitCode -ne 0) {
     throw "Command failed with exit code ${exitCode}: $FilePath"
   }
+}
+
+function Get-DatabaseMigrationStatus {
+  $script:databaseMigrationStatus = $null
+  Push-Location (Join-Path $projectRoot 'backend')
+  try {
+    $lines = @(& node scripts/run-migrations.js --check-only 2>&1)
+    $exitCode = $LASTEXITCODE
+    foreach ($line in $lines) { Write-DeployLog "  $line" }
+    if ($exitCode -ne 0) { throw "Database migration preflight failed (exit $exitCode)." }
+    if ($lines -contains 'MIGRATIONS_PENDING') { $script:databaseMigrationStatus = 'pending'; return }
+    if ($lines -contains 'MIGRATIONS_CURRENT') { $script:databaseMigrationStatus = 'current'; return }
+    throw 'Database migration preflight returned no recognized status.'
+  } finally {
+    Pop-Location
+  }
+}
+
+function Invoke-ControlledMigrationReconciliation {
+  $backendDataSource = Join-Path $projectRoot 'backend\dist\data-source.js'
+  if (-not (Test-Path $backendDataSource)) {
+    Write-DeployLog 'Backend dist/data-source.js missing; rebuilding before migration preflight.'
+    Push-Location (Join-Path $projectRoot 'backend')
+    try {
+      Invoke-Native 'pnpm.cmd' @('install', '--frozen-lockfile')
+      Invoke-Native 'pnpm.cmd' @('run', 'build')
+    } finally { Pop-Location }
+  }
+  Write-DeployLog 'Checking database migration status without changing schema.'
+  Get-DatabaseMigrationStatus
+  $status = $script:databaseMigrationStatus
+  $script:migrationState = $status
+  if ($status -eq 'current') {
+    Write-DeployLog 'Database schema is current; no release isolation is needed.'
+    return
+  }
+  if ($VerifyOnly) { throw 'Pending database migration requires a normal controlled deployment.' }
+
+  $script:migrationTaskSnapshot = Join-Path $logsDir ('release-pause-' + [Guid]::NewGuid().ToString('N') + '.json')
+  $recoveryRoot = 'D:\smart-control-backups\migration-recovery'
+  New-Item -ItemType Directory -Force -Path $recoveryRoot | Out-Null
+  $script:releaseIsolationRequested = $true
+  $script:migrationState = 'isolation-requested'
+  Write-DeployLog 'Pending migration found; establishing continuous writer isolation.'
+  & (Join-Path $projectRoot 'scripts\suspend-gk9000-release.ps1') -Apply `
+    -SnapshotPath $script:migrationTaskSnapshot -PreReleaseRevision $previousCommit 2>&1 |
+    ForEach-Object { Write-DeployLog "  $_" }
+  if ($LASTEXITCODE -ne 0) { throw "Release isolation failed (exit $LASTEXITCODE)." }
+  $script:releaseIsolationStarted = $true
+  $script:migrationState = 'isolated'
+
+  Push-Location (Join-Path $projectRoot 'backend')
+  try {
+    $script:migrationAttempted = $true
+    $script:migrationState = 'controller-started'
+    Write-DeployLog 'Running controlled migration with paired database/media recovery rehearsal.'
+    $migrationLines = @(& node scripts/run-gk9000-migrations.cjs $recoveryRoot $previousCommit 2>&1)
+    $migrationExit = $LASTEXITCODE
+    foreach ($line in $migrationLines) { Write-DeployLog "  $line" }
+    if ($migrationExit -ne 0) { throw "Controlled database migration failed (exit $migrationExit)." }
+    $receiptLine = @($migrationLines | Where-Object { $_ -match '^Migration receipt \(not activation\): (.+)$' }) | Select-Object -Last 1
+    if (-not $receiptLine) { throw 'Controlled migration returned no activation receipt.' }
+    $script:migrationReceipt = ([regex]::Match([string]$receiptLine, '^Migration receipt \(not activation\): (.+)$')).Groups[1].Value.Trim()
+    if (-not (Test-Path -LiteralPath $script:migrationReceipt -PathType Leaf)) { throw 'Migration receipt file is missing.' }
+    $script:migrationState = 'committed'
+  } finally { Pop-Location }
+
+  Write-DeployLog 'Activating the verified candidate from its migration receipt.'
+  & (Join-Path $projectRoot 'scripts\resume-gk9000-release.ps1') -Commit $Commit `
+    -TaskSnapshot $script:migrationTaskSnapshot -MigrationReceipt $script:migrationReceipt -Apply 2>&1 |
+    ForEach-Object { Write-DeployLog "  $_" }
+  if ($LASTEXITCODE -ne 0) { throw "Controlled activation failed (exit $LASTEXITCODE)." }
+  $script:migrationState = 'activated'
+  $script:controlledActivationCompleted = $true
+  $script:releaseIsolationStarted = $false
 }
 
 function Invoke-DetachedResurrect {
@@ -740,6 +821,11 @@ try {
           Pop-Location
         }
 
+        # Detect pending schema work while both services still have their normal
+        # topology. A pending migration owns the stop/build/activate sequence.
+        Invoke-ControlledMigrationReconciliation
+        if (-not $controlledActivationCompleted) {
+
         # Stop the frontend BEFORE Vite empties dist: a still-running pm2 static
         # server (plus Defender real-time scan) can hold dist/park-ops/index.html
         # and make Vite prepareOutDir fail with EPERM/ENOTEMPTY (Deploy #531,
@@ -763,48 +849,16 @@ try {
         $currentFrontendDist = Join-Path $projectRoot 'frontend\dist'
         Copy-PreviousFrontendAssets $previousFrontendDist $currentFrontendDist
 
-        # Run DB migrations after build, before restart. With DB_SYNCHRONIZE=false the
-        # schema only changes through migrations, so this is where new ones get applied.
-        # run-migrations.js is a no-op when nothing is pending. Pending migrations
-        # now require a continuous writer-fence controller and paired DB/media
-        # recovery rehearsal. This legacy CLI path fails closed until that controller
-        # is wired and verified on the target host. Once attempted, code-only rollback is forbidden: old
-        # public media routes must never run against a possibly multiuser database.
-        Push-Location (Join-Path $projectRoot 'backend')
-        try {
-          Write-DeployLog 'Running DB migrations (run-migrations.js).'
-          $migrationAttempted = $true
-          & node scripts/run-migrations.js 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
-          if ($LASTEXITCODE -ne 0) { throw "Database migration failed (exit $LASTEXITCODE)." }
-        } finally {
-          Pop-Location
-        }
-
         Write-DeployLog 'Restarting services through pm2.'
         Restart-Services
+        }
       }
     }
   }
 
   # Always reconcile migrations. The on-box watcher may fast-forward Git before CI
   # arrives, and an already-deployed source SHA does not prove its DB migration ran.
-  Push-Location (Join-Path $projectRoot 'backend')
-  try {
-    # Guard: backend dist must exist before running migrations. The on-box watcher
-    # can fast-forward Git and leave dist stale/cleaned after a previous failed deploy.
-    $backendDataSource = Join-Path $projectRoot 'backend\dist\data-source.js'
-    if (-not (Test-Path $backendDataSource)) {
-      Write-DeployLog 'Backend dist/data-source.js missing; rebuilding backend before migrations.'
-      Invoke-Native 'pnpm.cmd' @('install', '--frozen-lockfile')
-      Invoke-Native 'pnpm.cmd' @('run', 'build')
-    }
-    Write-DeployLog 'Reconciling DB migrations (run-migrations.js).'
-    $migrationAttempted = $true
-    & node scripts/run-migrations.js 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
-    if ($LASTEXITCODE -ne 0) { throw "Database migration failed (exit $LASTEXITCODE)." }
-  } finally {
-    Pop-Location
-  }
+  if (-not $controlledActivationCompleted) { Invoke-ControlledMigrationReconciliation }
 
   # Common path on purpose: the on-box watcher can fast-forward Git before CI
   # arrives, so required host tooling must not live only in the "new commit"
@@ -964,7 +1018,20 @@ try {
 } catch {
   $errorMessage = $_.Exception.Message
   Write-DeployLog "Deployment failed: $errorMessage"
-  if ($migrationAttempted) {
+  $abortResumeScript = $null
+  if (-not $migrationAttempted -and $releaseIsolationRequested -and
+      (Test-Path -LiteralPath (Join-Path $projectRoot 'RELEASE_HOLD')) -and
+      $migrationTaskSnapshot -and (Test-Path -LiteralPath $migrationTaskSnapshot)) {
+    # Preserve the candidate's recovery tools before a Git rollback replaces them.
+    $releaseToolRoot = Join-Path $rollbackRoot 'release-tools'
+    New-Item -ItemType Directory -Force -Path $releaseToolRoot | Out-Null
+    foreach ($tool in @('resume-gk9000-release.ps1','assert-gk9000-writers-stopped.ps1','gk9000-release-tasks.ps1')) {
+      Copy-Item -LiteralPath (Join-Path $projectRoot "scripts\$tool") -Destination (Join-Path $releaseToolRoot $tool) -Force
+    }
+    $abortResumeScript = Join-Path $releaseToolRoot 'resume-gk9000-release.ps1'
+    $releaseIsolationStarted = $true
+  }
+  if ($migrationAttempted -and $migrationState -ne 'activated') {
     Write-DeployLog 'MIGRATION_RECOVERY_REQUIRED: preserving current code, database, media and rollback artifacts. Code-only rollback is forbidden.'
     try {
       # Fail closed after a possibly committed ownership migration. Recovery must
@@ -973,6 +1040,8 @@ try {
     } catch {
       Write-DeployLog 'CRITICAL: service stop failed; isolate external ingress immediately before recovery.'
     }
+  } elseif ($migrationState -eq 'activated') {
+    Write-DeployLog 'Candidate was already activated from a committed migration; preserving the matched code/database/media set and running services.'
   } elseif ($worktreeUpdated -and $previousCommit) {
     Write-DeployLog "Rolling the worktree and build artifacts back to $previousCommit."
     try {
@@ -1021,10 +1090,28 @@ try {
           Copy-Item -Path $backupDist -Destination $targetDist -Recurse -Force
         }
       }
-      Restart-Services
+      if ($releaseIsolationStarted -and $abortResumeScript) {
+        Write-DeployLog 'Migration did not start; rebuilding and reactivating the verified pre-migration revision.'
+        & $abortResumeScript -Commit $previousCommit -TaskSnapshot $migrationTaskSnapshot -AbortBeforeMigration -Apply 2>&1 |
+          ForEach-Object { Write-DeployLog "  $_" }
+        if ($LASTEXITCODE -ne 0) { throw "Pre-migration activation recovery failed (exit $LASTEXITCODE)." }
+        $releaseIsolationStarted = $false
+      } else {
+        Restart-Services
+      }
       Write-DeployLog 'Rollback completed.'
     } catch {
       Write-DeployLog "Rollback failed and requires operator attention: $($_.Exception.Message)"
+    }
+  } elseif ($releaseIsolationStarted -and $abortResumeScript -and $previousCommit) {
+    try {
+      Write-DeployLog 'Migration did not start; reactivating the unchanged pre-migration revision.'
+      & $abortResumeScript -Commit $previousCommit -TaskSnapshot $migrationTaskSnapshot -AbortBeforeMigration -Apply 2>&1 |
+        ForEach-Object { Write-DeployLog "  $_" }
+      if ($LASTEXITCODE -ne 0) { throw "Pre-migration activation recovery failed (exit $LASTEXITCODE)." }
+      $releaseIsolationStarted = $false
+    } catch {
+      Write-DeployLog "Pre-migration activation recovery failed; release hold retained: $($_.Exception.Message)"
     }
   } elseif ($runtimeUntrackServicesStopped) {
     # Failure before Git changed the worktree: put the archived runtime files
@@ -1048,7 +1135,10 @@ try {
     currentCommit = $currentCommit
     verifyOnly = [bool]$VerifyOnly
     migrationAttempted = $migrationAttempted
-    recoveryRequired = ($migrationAttempted -and $result -ne 'PASS')
+    migrationState = $migrationState
+    migrationReceipt = $migrationReceipt
+    releaseIsolationActive = $releaseIsolationStarted
+    recoveryRequired = ($migrationAttempted -and $migrationState -ne 'activated' -and $result -ne 'PASS')
     result = $result
     error = $errorMessage
     startedAt = $startedAt.ToString('o')

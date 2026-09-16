@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { execFileSync } = require('node:child_process');
+const { resolveProductionMediaRoot } = require('./production-paths.cjs');
 
 async function run() {
   if (process.platform !== 'win32' || os.hostname().toUpperCase() !== 'GK9000') {
@@ -37,10 +38,9 @@ async function run() {
   process.chdir(path.join(root, 'backend'));
   const { main, loadEnvFile } = require('./run-migrations.js');
   loadEnvFile(process.cwd());
-  if (!process.env.MEDIA_ROOT || !path.isAbsolute(process.env.MEDIA_ROOT)) {
-    throw new Error('An explicit absolute production MEDIA_ROOT is required');
-  }
-  const result = await main({ destinationRoot, sourceRevision, mediaRoot: process.env.MEDIA_ROOT, assertWritersStopped });
+  const mediaRoot = resolveProductionMediaRoot({ cwd: process.cwd() });
+  if (!path.isAbsolute(mediaRoot)) throw new Error('Production MEDIA_ROOT must resolve to an absolute path');
+  const result = await main({ destinationRoot, sourceRevision, mediaRoot, assertWritersStopped });
   if (!result?.bundleDirectory || !result?.rehearsalDirectory) {
     throw new Error('No new verified migration bundle; use an existing verified release receipt for recovery');
   }
@@ -50,7 +50,7 @@ async function run() {
     const receipt = {
       version: 1, kind: 'gk9000-migration-complete', completedAt: new Date().toISOString(),
       sourceRevision, candidateRevision, databasePath: result.databasePath,
-      mediaRoot: process.env.MEDIA_ROOT, rehearsalDirectory: result.rehearsalDirectory,
+      mediaRoot, rehearsalDirectory: result.rehearsalDirectory,
       migrations: result.migrations.map(m => m.name), productionActivated: false,
     };
     const receiptPath = path.join(result.bundleDirectory, 'migration-complete.json');

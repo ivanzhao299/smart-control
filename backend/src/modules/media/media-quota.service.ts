@@ -8,6 +8,10 @@ import { Actor } from '../../common/auth/actor';
 import { assertCanUpload } from '../../common/auth/resource-policy';
 import { serializedTransaction } from '../../common/utils/serialized-transaction';
 import { MediaAsset } from '../../entities/media-asset.entity';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { resolveProductionMediaRoot } = require('../../../scripts/production-paths.cjs') as {
+  resolveProductionMediaRoot: () => string;
+};
 const uploadInstance = randomUUID();
 const uploadProcess = Object.freeze({ host: hostname(), pid: process.pid, startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString() });
 
@@ -16,7 +20,7 @@ export class MediaQuotaService {
   constructor(private readonly db: DataSource) {}
 
   private async availableDiskBytes(mediaRoot?: string): Promise<number> {
-    const root = mediaRoot ?? process.env.MEDIA_ROOT ?? (process.platform === 'win32' ? 'D:\\Media' : '/var/lib/smart-control/media');
+    const root = mediaRoot ?? resolveProductionMediaRoot();
     const margin = Number(process.env.MEDIA_DISK_RESERVE_BYTES ?? 512 * 1024 ** 2);
     if (!Number.isSafeInteger(margin) || margin < 0) throw new BadRequestException('无效磁盘安全余量');
     const stat = await fs.statfs(root, { bigint: true });

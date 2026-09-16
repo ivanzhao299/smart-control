@@ -28,6 +28,11 @@ import {
   mediaAssetParent,
 } from './media-storage-layout';
 
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { resolveProductionMediaRoot } = require('../../../scripts/production-paths.cjs') as {
+  resolveProductionMediaRoot: () => string;
+};
+
 const VIDEO_MIME_PREFIXES = ['video/'];
 const IMAGE_MIME_PREFIXES = ['image/'];
 const AUDIO_MIME_PREFIXES = ['audio/'];
@@ -113,14 +118,7 @@ export class MediaService implements OnModuleInit {
     @Inject(WINSTON_MODULE_PROVIDER)
     private readonly logger: Logger,
   ) {
-    const fromEnv = process.env.MEDIA_ROOT;
-    if (fromEnv) {
-      this.mediaRoot = resolve(fromEnv);
-    } else if (process.platform === 'win32') {
-      this.mediaRoot = 'D:\\Media';
-    } else {
-      this.mediaRoot = '/var/lib/smart-control/media';
-    }
+    this.mediaRoot = resolveProductionMediaRoot();
   }
 
   async onModuleInit(): Promise<void> {

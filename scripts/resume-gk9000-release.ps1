@@ -1,34 +1,42 @@
 # Controlled activation after a verified offline migration. Default: read-only.
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName='Migrated')]
 param(
   [Parameter(Mandatory=$true)][ValidatePattern('^[a-f0-9]{40}$')][string]$Commit,
   [Parameter(Mandatory=$true)][string]$TaskSnapshot,
-  [Parameter(Mandatory=$true)][string]$MigrationReceipt,
+  [Parameter(Mandatory=$true,ParameterSetName='Migrated')][string]$MigrationReceipt,
+  [Parameter(Mandatory=$true,ParameterSetName='Aborted')][switch]$AbortBeforeMigration,
   [switch]$Apply
 )
 $ErrorActionPreference = 'Stop'
 $root = 'D:\smart-control'
 if ($env:COMPUTERNAME -ne 'GK9000') { throw 'GK9000 only.' }
-$names = @('SmartControl-AutoUpdate','SmartControl-DailyBackup','SmartControl-PlayerWatchdog','SmartControlBackend','SmartControlFrontend')
+. (Join-Path $PSScriptRoot 'gk9000-release-tasks.ps1')
 $snapshot = [IO.File]::ReadAllText($TaskSnapshot) | ConvertFrom-Json
-$receipt = [IO.File]::ReadAllText($MigrationReceipt) | ConvertFrom-Json
-if ($snapshot.Version -ne 1 -or @($snapshot.Tasks).Count -ne $names.Count -or
-    @($snapshot.Tasks.Name | Sort-Object -Unique).Count -ne $names.Count) { throw 'Invalid task snapshot.' }
-foreach ($task in $snapshot.Tasks) {
-  if ($task.Name -notin $names -or $task.Enabled -isnot [bool]) { throw 'Unexpected task restoration entry.' }
+if ($snapshot.Version -ne 1 -or $snapshot.SourceRevision -notmatch '^[a-f0-9]{40}$') {
+  throw 'Invalid task snapshot.'
 }
-if ($receipt.version -ne 1 -or $receipt.kind -ne 'gk9000-migration-complete' -or
-    $receipt.candidateRevision -ne $Commit -or $receipt.productionActivated -ne $false) { throw 'Invalid migration handoff.' }
-$head = & git -C $root rev-parse HEAD
-if ($LASTEXITCODE -ne 0 -or $head -ne $Commit) { throw 'Checkout does not match candidate.' }
-$main = & git -C $root rev-parse origin/main
-if ($LASTEXITCODE -ne 0 -or $main -ne $Commit) { throw 'Candidate is not the fetched main revision.' }
+Assert-Gk9000TaskSnapshot $snapshot
+if ($AbortBeforeMigration) {
+  if ($snapshot.SourceRevision -ne $Commit) { throw 'Abort revision does not match the pre-migration snapshot.' }
+} else {
+  $receipt = [IO.File]::ReadAllText($MigrationReceipt) | ConvertFrom-Json
+  if ($receipt.version -ne 1 -or $receipt.kind -ne 'gk9000-migration-complete' -or
+      $receipt.candidateRevision -ne $Commit -or $receipt.productionActivated -ne $false) { throw 'Invalid migration handoff.' }
+}
+$head = (& git -C $root rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $head -ne $Commit) { throw 'Checkout does not match activation revision.' }
+if (-not $AbortBeforeMigration) {
+  $main = (& git -C $root rev-parse origin/main).Trim()
+  if ($LASTEXITCODE -ne 0 -or $main -ne $Commit) { throw 'Candidate is not the fetched main revision.' }
+}
 $dirty = & git -C $root status --porcelain --untracked-files=no
 if ($LASTEXITCODE -ne 0 -or $dirty) { throw 'Tracked checkout changes prevent activation.' }
 & (Join-Path $PSScriptRoot 'assert-gk9000-writers-stopped.ps1') -ProjectRoot $root | Out-Null
 if (-not $?) { throw 'Release is not stopped.' }
-& node (Join-Path $root 'backend\scripts\verify-gk9000-migration-receipt.cjs') $MigrationReceipt $Commit $root
-if ($LASTEXITCODE -ne 0) { throw 'Recovery bundle verification failed.' }
+if (-not $AbortBeforeMigration) {
+  & node (Join-Path $root 'backend\scripts\verify-gk9000-migration-receipt.cjs') $MigrationReceipt $Commit $root
+  if ($LASTEXITCODE -ne 0) { throw 'Recovery bundle verification failed.' }
+}
 if (-not $Apply) { Write-Output 'Activation preflight passed. No files, tasks or services changed.'; return }
 # Rebuild the exact tracked candidate while services and scheduled tasks are stopped.
 foreach ($component in @('backend','frontend')) {
@@ -77,9 +85,9 @@ try {
 } catch {
   # No code/data rollback: preserve private uploads and stop known services.
   if (-not (Test-Path -LiteralPath $hold)) { [IO.File]::WriteAllText($hold, 'Activation failed; retain isolation.') }
-  foreach ($name in $names) {
-    Disable-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue | Out-Null
-    Stop-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+  foreach ($task in @(Get-Gk9000ReleaseTasks)) {
+    Disable-ScheduledTask -TaskName $task.TaskName -ErrorAction SilentlyContinue | Out-Null
+    Stop-ScheduledTask -TaskName $task.TaskName -ErrorAction SilentlyContinue
   }
   & $pm2 stop smart-control-backend smart-control-frontend 2>&1 | Out-Null
   throw 'Activation failed; RELEASE_HOLD restored. Verify actual port owners are stopped; no old-code rollback was attempted.'

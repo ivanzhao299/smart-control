@@ -20,6 +20,7 @@
 const fs = require('fs');
 const path = require('path');
 const { migrateWithRecovery } = require('./migrate-with-recovery.cjs');
+const { resolveProductionDatabasePath } = require('./production-paths.cjs');
 
 function loadEnvFile(cwd) {
   const p = path.resolve(cwd, '.env');
@@ -47,8 +48,7 @@ async function main(recovery) {
   const cwd = process.cwd();
   loadEnvFile(cwd);
 
-  const rawPath = process.env.DB_PATH || '../database/smart-control.db';
-  const dbPath = path.isAbsolute(rawPath) ? rawPath : path.resolve(cwd, rawPath);
+  const dbPath = resolveProductionDatabasePath({ cwd });
   console.log(`[migrate] cwd=${cwd}  库=${dbPath}`);
   if (!fs.existsSync(dbPath)) {
     console.error(`[migrate] 数据库不存在: ${dbPath} —— 拒绝执行(避免凭空造空库)`);
@@ -66,6 +66,10 @@ async function main(recovery) {
   let recoveryResult;
   try {
     const hasPending = await ds.showMigrations();
+    if (recovery?.checkOnly) {
+      console.log(hasPending ? 'MIGRATIONS_PENDING' : 'MIGRATIONS_CURRENT');
+      return { pending: hasPending, databasePath: dbPath };
+    }
     if (!hasPending) {
       console.log('[migrate] 无未执行迁移, 跳过');
       return;
@@ -85,7 +89,7 @@ async function main(recovery) {
   return recoveryResult;
 }
 
-if (require.main === module) main().catch((err) => {
+if (require.main === module) main({ checkOnly: process.argv.slice(2).includes('--check-only') }).catch((err) => {
   if (err?.bundleDirectory) console.error(`[migrate] 保留恢复包: ${err.bundleDirectory}`);
   if (err?.rehearsalDirectory) console.error(`[migrate] 保留恢复演练: ${err.rehearsalDirectory}`);
   console.error(`[migrate] 失败: ${err && err.message ? err.message : err}`);
