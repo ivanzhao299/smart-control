@@ -15,6 +15,7 @@ import AiRegionEditor from './AiRegionEditor.vue';
 
 const loading = ref(false);
 const activeTab = ref<'nvrs' | 'channels' | 'layout'>('nvrs');
+const configRevision = ref(0);
 
 // NVR设备
 interface NvrDevice {
@@ -64,6 +65,7 @@ const channelEditing = ref(false);
 // AI：全局框开关 + 检测范围编辑器 + 下发状态
 const aiBoxEnabled = ref(true);
 const aiPushing = ref(false);
+const aiSaving = ref(false);
 const editorVisible = ref(false);
 const editorTarget = ref<CameraChannel | null>(null);
 
@@ -73,7 +75,7 @@ const layoutChannelIds = ref<string[]>([]);
 const availableChannels = computed(() => channels.value.filter(c => c.enabled));
 
 // 加载数据
-async function loadData() {
+async function loadData(): Promise<boolean> {
   loading.value = true;
   try {
     const res: any = await api.get('/video-binding');
@@ -83,8 +85,13 @@ async function loadData() {
     layoutColumns.value = data.displayLayout?.columns || 3;
     layoutChannelIds.value = data.displayLayout?.channelIds || [];
     aiBoxEnabled.value = data.aiBoxEnabled !== false;
+    configRevision.value = Number.isInteger(data.revision) && data.revision > 0
+      ? data.revision
+      : 0;
+    return true;
   } catch (e: any) {
     ElMessage.error('加载视频绑定配置失败: ' + (e.message || e));
+    return false;
   } finally {
     loading.value = false;
   }
@@ -277,16 +284,51 @@ function openAiEditor(ch: CameraChannel) {
 }
 
 async function onAiSaved(payload: { aiEnabled: boolean; countLine: NormPoint[]; roiPolygon: NormPoint[] }) {
-  if (!editorTarget.value) return;
+  if (!editorTarget.value || aiSaving.value) return;
   const id = editorTarget.value.id;
+  let saved = false;
+  aiSaving.value = true;
   try {
-    const res: any = await api.put(`/video-binding/channels/${id}/ai`, payload);
+    const res: any = await api.put(`/video-binding/channels/${id}/ai`, {
+      ...payload,
+      ...(configRevision.value > 0 ? { expectedRevision: configRevision.value } : {}),
+    });
+    saved = true;
     const body = res?.data ?? res;
-    ElMessage.success(body?.message || '检测范围已保存并下发');
-    await loadData();
+    if (!(await loadData())) throw new Error('保存成功，但读取复核失败');
+    const persisted = channels.value.find(channel => channel.id === id);
+    if (!persisted || !sameAiPayload(persisted, payload)) {
+      throw new Error('保存成功，但服务器返回的检测范围与本次编辑不一致');
+    }
+    editorVisible.value = false;
+    editorTarget.value = persisted;
+    ElMessage.success(body?.message || '检测范围已保存、回读确认并下发');
   } catch (e: any) {
-    ElMessage.error('检测范围保存失败: ' + (e.message || e));
+    if (!saved) {
+      await loadData();
+      ElMessage.error('检测范围未保存，编辑内容已保留，请确认最新配置后重试: ' + (e.message || e));
+    } else {
+      ElMessage.warning('检测范围已写入，但自动回读复核未完成；编辑内容已保留，请刷新确认: ' + (e.message || e));
+    }
+  } finally {
+    aiSaving.value = false;
   }
+}
+
+function samePoints(actual: NormPoint[] | null | undefined, expected: NormPoint[]): boolean {
+  if (!Array.isArray(actual) || actual.length !== expected.length) return false;
+  return actual.every((point, index) =>
+    Math.abs(Number(point.x) - expected[index].x) < 1e-9
+    && Math.abs(Number(point.y) - expected[index].y) < 1e-9);
+}
+
+function sameAiPayload(
+  channel: CameraChannel,
+  expected: { aiEnabled: boolean; countLine: NormPoint[]; roiPolygon: NormPoint[] },
+): boolean {
+  return (channel.aiEnabled !== false) === expected.aiEnabled
+    && samePoints(channel.countLine, expected.countLine)
+    && samePoints(channel.roiPolygon, expected.roiPolygon);
 }
 
 async function pushAiConfig() {
@@ -567,6 +609,7 @@ onMounted(() => {
       :ai-enabled="editorTarget?.aiEnabled"
       :count-line="editorTarget?.countLine"
       :roi-polygon="editorTarget?.roiPolygon"
+      :saving="aiSaving"
       @save="onAiSaved"
     />
   </div>

@@ -48,6 +48,8 @@ export interface VideoBindingConfig {
 
 export type VideoBindingConfigView = Omit<VideoBindingConfig, 'nvrs'> & {
   nvrs: NvrDeviceView[];
+  /** SQLite 权威文档修订号；写入方据此拒绝覆盖更新后的配置。 */
+  revision: number;
 };
 
 export const VIDEO_BINDING_CONFIG_KEY = 'video.binding';

@@ -82,6 +82,9 @@ export class NormPointDto {
 }
 
 export class ChannelAiConfigDto {
+  /** 兼容旧 PWA 时可缺省；新版编辑器始终提交，过期修订会返回 409。 */
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) expectedRevision?: number;
+
   @IsOptional() @IsBoolean() aiEnabled?: boolean;
 
   @IsOptional()

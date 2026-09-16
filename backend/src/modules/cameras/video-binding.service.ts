@@ -78,8 +78,20 @@ export class VideoBindingService implements OnModuleInit {
     return structuredClone(config);
   }
 
-  private mutate<T>(source: string, apply: (draft: VideoBindingConfig) => Mutation<T>): Promise<T> {
+  private mutate<T>(
+    source: string,
+    apply: (draft: VideoBindingConfig) => Mutation<T>,
+    expectedRevision?: number,
+  ): Promise<T> {
     const operation = this.mutationQueue.then(async () => {
+      if (expectedRevision !== undefined && expectedRevision !== this.configRevision) {
+        throw new ConflictException({
+          code: 'VIDEO_BINDING_REVISION_CONFLICT',
+          message: '视频绑定配置已被其他操作更新，请刷新后确认再保存',
+          expectedRevision,
+          currentRevision: this.configRevision,
+        });
+      }
       const draft = this.cloneConfig();
       const mutation = apply(draft);
       if (!mutation.changed) return mutation.select(this.config);
@@ -133,6 +145,7 @@ export class VideoBindingService implements OnModuleInit {
       },
       aiBoxEnabled: this.config.aiBoxEnabled,
       updatedAt: this.config.updatedAt,
+      revision: this.configRevision,
     };
   }
 
@@ -294,7 +307,11 @@ export class VideoBindingService implements OnModuleInit {
     });
   }
 
-  updateChannelAi(id: string, patch: ChannelAiConfig): Promise<CameraChannel | null> {
+  updateChannelAi(
+    id: string,
+    patch: ChannelAiConfig,
+    expectedRevision?: number,
+  ): Promise<CameraChannel | null> {
     return this.mutate(`PUT /api/video-binding/channels/${id}/ai`, (draft) => {
       const index = draft.channels.findIndex((channel) => channel.id === id);
       if (index === -1) return { changed: false, select: () => null };
@@ -316,7 +333,7 @@ export class VideoBindingService implements OnModuleInit {
         changed: true,
         select: (config) => structuredClone(config.channels.find((channel) => channel.id === id)!),
       };
-    });
+    }, expectedRevision);
   }
 
   buildAiPayload(): {

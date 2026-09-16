@@ -211,4 +211,34 @@ describe('VideoBindingService database persistence', () => {
     expect(snapshot?.value.channels[0].roiPolygon).toHaveLength(3);
     expect(await dataSource.getRepository(RuntimeConfigRevision).count()).toBe(3);
   });
+
+  it('rejects a stale detection-range editor revision without changing stored geometry', async () => {
+    await initializeFixture();
+    const service = await startService();
+    const openedRevision = service.getConfigView().revision;
+
+    await service.updateChannel('gate', { name: 'Newer Gate Name' });
+
+    await expect(
+      service.updateChannelAi(
+        'gate',
+        {
+          countLine: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
+          roiPolygon: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }],
+        },
+        openedRevision,
+      ),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'VIDEO_BINDING_REVISION_CONFLICT' }),
+    });
+
+    const snapshot = await store.read(VIDEO_BINDING_CONFIG_KEY, normalizeVideoBindingConfig);
+    expect(snapshot).toMatchObject({ revision: openedRevision + 1 });
+    expect(snapshot?.value.channels[0]).toMatchObject({
+      name: 'Newer Gate Name',
+      countLine: [{ x: 0.2, y: 0.3 }, { x: 0.8, y: 0.7 }],
+      roiPolygon: [],
+    });
+    expect(await dataSource.getRepository(RuntimeConfigRevision).count()).toBe(2);
+  });
 });
