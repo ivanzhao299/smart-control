@@ -29,6 +29,22 @@ describe('GK9000 deployment gates', () => {
     );
   });
 
+  it('preserves historically tracked runtime files while removing them from Git', () => {
+    const deploy = readRepositoryFile('scripts/deploy-from-ci.ps1');
+
+    expect(deploy).toContain('git diff --diff-filter=D --name-only');
+    expect(deploy).toContain('Preparing safe runtime untracking for:');
+    expect(deploy).toContain("Join-Path $rollbackRoot 'tracked-runtime-untracking'");
+    expect(deploy).toContain(
+      'Restore-ArchivedRuntimeFiles $runtimeUntrackArchiveRoot $runtimeUntrackPaths',
+    );
+    expect(deploy).toContain("Join-Path $rollbackRoot 'live-runtime-before-code-rollback'");
+    expect(deploy).toContain("Join-Path $rollbackRoot 'stale-tracked-runtime-from-old-commit'");
+    expect(deploy).toContain(
+      'Using the verified backup created immediately before runtime untracking.',
+    );
+  });
+
   it('reconciles PM2 environment and keeps the previous PWA asset generation', () => {
     const deploy = readRepositoryFile('scripts/deploy-from-ci.ps1');
 

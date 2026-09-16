@@ -25,6 +25,10 @@ $errorMessage = $null
 $lockStream = $null
 $worktreeUpdated = $false
 $migrationAttempted = $false
+$runtimeUntrackServicesStopped = $false
+$runtimeUntrackPaths = @()
+$runtimeUntrackArchiveRoot = $null
+$preMergeBackupCreated = $false
 $rollbackRoot = Join-Path $env:ProgramData ("Anksen\smart-control-rollback-{0}" -f $Commit)
 
 New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
@@ -35,6 +39,30 @@ function Write-DeployLog([string]$Message) {
   $line = '[{0}] {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message
   Add-Content -Path $logPath -Value $line -Encoding UTF8
   Write-Output $line
+}
+
+function Test-ProtectedRuntime([string]$RelativePath) {
+  if ([string]::IsNullOrWhiteSpace($RelativePath)) { return $false }
+  $normalized = $RelativePath.Replace('/', '\')
+  return ($normalized -like 'backend\data\*') -or ($normalized -like '.runtime\*') -or `
+         ($normalized -like 'database\*') -or ($normalized -like 'backups\*') -or `
+         ($normalized -like 'logs\*') -or `
+         ($normalized -match '\.(db|db-wal|db-shm|sqlite|bak)$')
+}
+
+function Restore-ArchivedRuntimeFiles([string]$ArchiveRoot, [string[]]$RelativePaths) {
+  if ([string]::IsNullOrWhiteSpace($ArchiveRoot)) { return }
+  foreach ($relativePath in $RelativePaths) {
+    $archivedPath = Join-Path $ArchiveRoot $relativePath
+    if (-not (Test-Path $archivedPath)) { continue }
+    $livePath = Join-Path $projectRoot $relativePath
+    New-Item -ItemType Directory -Force -Path (Split-Path $livePath -Parent) | Out-Null
+    if (Test-Path $livePath) {
+      throw "Refusing to overwrite a live runtime file while restoring: $relativePath"
+    }
+    Move-Item -Path $archivedPath -Destination $livePath -Force
+    Write-DeployLog "Restored protected runtime file after Git operation: $relativePath"
+  }
 }
 
 function Invoke-Native([string]$FilePath, [string[]]$Arguments) {
@@ -560,17 +588,6 @@ try {
         }
       }
 
-      # Protected on-box paths that must NEVER be removed as untracked files.
-      # Keep logs too: they are operational evidence and never a merge conflict target.
-      function Test-ProtectedRuntime([string]$rel) {
-        if ([string]::IsNullOrWhiteSpace($rel)) { return $false }
-        $r = $rel.Replace('/', '\')
-        return ($r -like 'backend\data\*') -or ($r -like '.runtime\*') -or `
-               ($r -like 'database\*') -or ($r -like 'backups\*') -or `
-               ($r -like 'logs\*') -or `
-               ($r -match '\.(db|db-wal|db-shm|sqlite|bak)$')
-      }
-
       # Only paths present in the target tree can block a fast-forward merge.
       # Preserve every unrelated untracked file. Move true conflicts into this
       # commit's rollback snapshot so the operation is reversible and auditable.
@@ -604,7 +621,50 @@ try {
         }
       }
 
+      # A runtime file can be ignored and still be tracked by an old commit. A
+      # target commit that removes such a path makes Git unlink the live file.
+      # SQLite WAL/SHM may also be locked by the backend. Before that one-time
+      # transition, create a verified SQLite snapshot, stop both applications,
+      # and move every affected runtime file outside the worktree. The exact
+      # files are restored after the merge as untracked runtime state.
+      $runtimeUntrackPaths = @(
+        git diff --diff-filter=D --name-only $previousCommit $Commit |
+          Where-Object { Test-ProtectedRuntime $_ }
+      )
+      if ($runtimeUntrackPaths.Count -gt 0) {
+        $backupScript = Join-Path $projectRoot 'scripts\backup.ps1'
+        if (-not (Test-Path $backupScript)) {
+          throw 'Required production backup script is missing before runtime untracking.'
+        }
+        Write-DeployLog "Preparing safe runtime untracking for: $($runtimeUntrackPaths -join ', ')"
+        & $backupScript 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
+        if ($LASTEXITCODE -ne 0) { throw 'Verified pre-merge backup failed.' }
+        $preMergeBackupCreated = $true
+
+        $pm2Runtime = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
+        if (-not (Test-Path $pm2Runtime)) { $pm2Runtime = 'pm2' }
+        $env:PM2_HOME = 'C:\Users\user\.pm2'
+        Invoke-Native $pm2Runtime @('stop', 'smart-control-backend', 'smart-control-frontend')
+        $runtimeUntrackServicesStopped = $true
+        Start-Sleep -Seconds 2
+
+        $runtimeUntrackArchiveRoot = Join-Path $rollbackRoot 'tracked-runtime-untracking'
+        foreach ($relativePath in $runtimeUntrackPaths) {
+          $livePath = Join-Path $projectRoot $relativePath
+          if (-not (Test-Path $livePath)) { continue }
+          $archivedPath = Join-Path $runtimeUntrackArchiveRoot $relativePath
+          New-Item -ItemType Directory -Force -Path (Split-Path $archivedPath -Parent) | Out-Null
+          Move-Item -Path $livePath -Destination $archivedPath -Force
+          Write-DeployLog "Archived protected runtime file before Git merge: $relativePath"
+        }
+      }
+
       Invoke-Native 'git' @('merge', '--ff-only', $Commit)
+      $worktreeUpdated = $true
+
+      if ($runtimeUntrackPaths.Count -gt 0) {
+        Restore-ArchivedRuntimeFiles $runtimeUntrackArchiveRoot $runtimeUntrackPaths
+      }
 
       # After merge: best-effort migrate any runtime *.json still missing from
       # DATA_DIR (whole legacy dir, skip templates; copy only, never overwrite).
@@ -619,10 +679,10 @@ try {
             }
           }
       }
-      $worktreeUpdated = $true
-
       $backupScript = Join-Path $projectRoot 'scripts\backup.ps1'
-      if (Test-Path $backupScript) {
+      if ($preMergeBackupCreated) {
+        Write-DeployLog 'Using the verified backup created immediately before runtime untracking.'
+      } elseif (Test-Path $backupScript) {
         Write-DeployLog 'Creating the existing production backup before build.'
         # Snapshot evidence is retained; database-only backup is not a media rollback bundle.
         & $backupScript 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
@@ -913,19 +973,33 @@ try {
       $env:PM2_HOME = 'C:\Users\user\.pm2'
       & $pm2Rb stop smart-control-backend smart-control-frontend 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
       Start-Sleep -Seconds 2
-      Invoke-Native 'git' @('reset', '--hard', $previousCommit)
-      # Reset restores the historically-tracked SQLite runtime files from the old
-      # commit. They are regenerable shared-memory/WAL files: MOVE (never delete)
-      # them aside so the backend rebuilds them cleanly against the untouched main
-      # smart-control.db (which is not tracked and therefore never reset).
-      $dbDir = Join-Path $projectRoot 'database'
-      foreach ($runtimeDb in @('smart-control.db-shm', 'smart-control.db-wal')) {
-        $runtimePath = Join-Path $dbDir $runtimeDb
-        if (Test-Path $runtimePath) {
-          $movedPath = Join-Path $rollbackRoot ($runtimeDb + '.rollback-moved')
-          Move-Item -Path $runtimePath -Destination $movedPath -Force -ErrorAction SilentlyContinue
-          Write-DeployLog "Moved runtime $runtimeDb to the rollback point (moved, not deleted)."
+
+      # If this release untracked live runtime paths, keep their current bytes
+      # outside the worktree while reset restores the old commit's stale tracked
+      # copies. Move those stale copies aside, then put the live files back.
+      $liveRuntimeRollbackRoot = $null
+      if ($runtimeUntrackPaths.Count -gt 0) {
+        $liveRuntimeRollbackRoot = Join-Path $rollbackRoot 'live-runtime-before-code-rollback'
+        foreach ($relativePath in $runtimeUntrackPaths) {
+          $livePath = Join-Path $projectRoot $relativePath
+          if (-not (Test-Path $livePath)) { continue }
+          $preservedPath = Join-Path $liveRuntimeRollbackRoot $relativePath
+          New-Item -ItemType Directory -Force -Path (Split-Path $preservedPath -Parent) | Out-Null
+          Move-Item -Path $livePath -Destination $preservedPath -Force
         }
+      }
+      Invoke-Native 'git' @('reset', '--hard', $previousCommit)
+      if ($runtimeUntrackPaths.Count -gt 0) {
+        $staleTrackedRoot = Join-Path $rollbackRoot 'stale-tracked-runtime-from-old-commit'
+        foreach ($relativePath in $runtimeUntrackPaths) {
+          $restoredByGit = Join-Path $projectRoot $relativePath
+          if (Test-Path $restoredByGit) {
+            $stalePath = Join-Path $staleTrackedRoot $relativePath
+            New-Item -ItemType Directory -Force -Path (Split-Path $stalePath -Parent) | Out-Null
+            Move-Item -Path $restoredByGit -Destination $stalePath -Force
+          }
+        }
+        Restore-ArchivedRuntimeFiles $liveRuntimeRollbackRoot $runtimeUntrackPaths
       }
       foreach ($relativeDist in @('backend\dist', 'frontend\dist')) {
         $targetDist = Join-Path $projectRoot $relativeDist
@@ -939,6 +1013,16 @@ try {
       Write-DeployLog 'Rollback completed.'
     } catch {
       Write-DeployLog "Rollback failed and requires operator attention: $($_.Exception.Message)"
+    }
+  } elseif ($runtimeUntrackServicesStopped) {
+    # Failure before Git changed the worktree: put the archived runtime files
+    # back and restore service availability. No code rollback is needed.
+    try {
+      Restore-ArchivedRuntimeFiles $runtimeUntrackArchiveRoot $runtimeUntrackPaths
+      Restart-Services
+      Write-DeployLog 'Pre-merge runtime preparation was safely reversed.'
+    } catch {
+      Write-DeployLog "Runtime preparation recovery failed and requires operator attention: $($_.Exception.Message)"
     }
   }
   throw
