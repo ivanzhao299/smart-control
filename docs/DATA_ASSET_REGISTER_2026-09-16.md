@@ -18,10 +18,10 @@
 | 园区大屏翻页控制状态 | 后端 `ParkOpsControlService` 进程内存 | 可重建短期控制信号；不是业务数据 | 不备份；进程重启恢复第 1 页、关闭自动播放且无待刷新指令 | 禁止创建 JSON 或数据库副本；仅公开状态轮询，变更必须鉴权 |
 | 音频配置与矩阵期望状态 | SQLite `audio_output_zone`、`audio_input_source`、`audio_scene`、`audio_desired_link` | 四张关系表分别保存输出、输入、场景和完整 8×8 期望路由；默认目录与精确历史修复由版本化迁移建立；服务启动只读 | 随 SQLite 在线备份和迁移恢复包保存；任一音频域含权威数据时禁止无归档降级 | 旧 `matrix-state.json` 写入已退役；管理员改名和矩阵操作直接写数据库，立体声成对名称在写入事务中保持一致 |
 | 媒体元数据 | SQLite `media_assets` | SQLite | 随数据库在线备份 | 保持唯一来源；文件与记录通过事务式补偿保持一致 |
-| 媒体文件与拍照上屏照片 | `D:\Media`；照片位于 `D:\Media\welcome-photos\<id>` | 数据盘文件，SQLite 保存索引 | 当前发布备份不复制全部媒体；删除走可恢复目录 | 增加独立媒体清单、校验和与异盘/远端增量备份 |
+| 媒体文件与拍照上屏照片 | `D:\Media`；照片位于 `D:\Media\welcome-photos\<id>` | 数据盘文件，SQLite 保存索引 | 普通 6 小时 SQLite 快照不复制媒体；涉及迁移的发布会建立数据库与媒体配套恢复包、逐文件清单和 SHA-256，并把验证后的恢复包复制到跳板机 `/var/backups/smart-control` | 已有异机迁移基线；阶段 3 增加不依赖迁移触发的周期增量媒体备份与保留策略 |
 | 应用日志 | `D:\smart-control\logs` | 滚动日志 | 不参与业务数据恢复 | 统一版本、请求号和部署号字段；按保留周期归档 |
 | 发布身份清单 | `D:\smart-control-runtime\data\release.json` | 已验证发布的提交、分支与时间证据；Git/环境变量仍是运行代码身份首选来源 | 随 `runtime-data` 进入发布备份；丢失时由下一次验证通过的发布重建 | 不作为业务数据源；只在权威部署验证后原子更新 |
-| 发布备份 | `D:\smart-control-backups` | 只读恢复证据 | SQLite 快照、`.env`、运行时 JSON、UAT 快照 | 增加离机副本，避免源数据与唯一备份同盘 |
+| 发布备份 | 现场 `D:\smart-control-backups`；异机 `/var/backups/smart-control` | 现场快照和追加式异机恢复包均为只读恢复证据 | 每次发布保存 SQLite、`.env`、运行时证据和 UAT 快照；发生数据迁移时保存数据库/媒体配套恢复包，生产验证后按提交号复制到异机并重新校验数据库、外键、媒体清单和 SHA-256 | 禁止覆盖或自动清理既有恢复包；阶段 3 为普通定时备份补齐异机复制、保留周期和恢复演练告警 |
 | 用户身份与登录凭据 | SQLite `users` | `users` 是新登录唯一凭据源；角色与启用状态每次验令牌时实时读取 | 随 SQLite 在线备份；管理员保护触发器禁止移除最后一个启用管理员 | 禁止 seed、启动钩子和共享默认密码创建身份；`client_auth_v1` 仅保存签名密钥及旧客户端令牌兼容时间，`admin_auth_v1` 仅验证过渡期旧后台令牌；两者不再签发共享身份 |
 | 服务密钥与外部凭据 | `backend\.env` 与 SQLite 中的认证记录 | 环境配置 / 数据库 | `.env` 随发布快照保护，接口响应必须脱敏 | 逐步迁入 CI/主机密钥存储；数据库只保存运行必需密文 |
 | APP 发布目录与随包 Android 制品 | SQLite `app_release_v1`；仓库 `deploy/assets/app/manifest.json` 与 `smart-control-latest.apk` | 客户端和管理员只使用 SQLite；manifest/APK 是不可变部署输入，只有发布 reconciler 可把已校验元数据写入 bundled 行 | SQLite 随发布快照和迁移恢复包保存；APK/manifest 随 Git 提交；部署核对提交、SHA-256、大小和版本 | 禁止服务启动回灌和后台修改 bundled 元数据；说明与更新策略仍由管理员维护；manual 平台不受随包对账覆盖 |

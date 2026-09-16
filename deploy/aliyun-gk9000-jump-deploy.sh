@@ -9,7 +9,7 @@ gk9000_key="${GK9000_KEY:-/root/.ssh/anksen-gk9000-deploy}"
 
 read -r action commit_sha unexpected <<< "${SSH_ORIGINAL_COMMAND:-}"
 
-if [[ "$action" != "gk9000-deploy" && "$action" != "gk9000-verify" && "$action" != "gk9000-status" ]]; then
+if [[ "$action" != "gk9000-deploy" && "$action" != "gk9000-verify" && "$action" != "gk9000-status" && "$action" != "gk9000-offsite-backup" ]]; then
   printf 'Rejected: unsupported GK9000 action.\n' >&2
   exit 64
 fi
@@ -34,6 +34,10 @@ fi
 if [[ ! "$commit_sha" =~ ^[0-9a-f]{40}$ || -n "${unexpected:-}" ]]; then
   printf 'Rejected: expected one full commit SHA.\n' >&2
   exit 64
+fi
+
+if [[ "$action" == "gk9000-offsite-backup" ]]; then
+  exec /usr/local/sbin/smart-control-gk9000-offsite-backup "$commit_sha"
 fi
 
 exec ssh \

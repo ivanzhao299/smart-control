@@ -273,8 +273,9 @@ export class SystemBrandingService {
     if (current) {
       await this.repo.update({ id: 1 }, patch);
     } else {
-      // onModuleInit 出错的兜底路径
-      await this.repo.save(this.repo.create({ id: 1, ...DEFAULTS, ...patch }));
+      throw new ConflictException(
+        '系统品牌权威记录缺失，请先恢复数据库；保存操作未执行',
+      );
     }
     this.logger.info(`[SystemBranding] 已更新 (${Object.keys(patch).join(', ')})`);
     return this.get();

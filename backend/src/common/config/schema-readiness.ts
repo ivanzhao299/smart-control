@@ -1,3 +1,5 @@
+import { createHash } from 'crypto';
+
 export const REQUIRED_SCHEMA_MIGRATIONS = [
   'AddDisplayFit1785030000000',
   'AddDocScreening1785120000000',
@@ -147,9 +149,44 @@ export function assertSchemaReady(db: {
       .prepare("SELECT id FROM users WHERE role = 'admin' AND enabled = 1 LIMIT 1")
       .all();
     if (administrators.length !== 1) throw new Error('named administrator missing');
+    const branding = db.prepare('SELECT id FROM system_branding_v2').all();
+    if (branding.length !== 1 || branding[0]?.id !== 1) {
+      throw new Error('system branding authority missing');
+    }
+    const videoDocuments = db
+      .prepare(
+        `SELECT schema_version, revision, document, document_sha256
+         FROM runtime_config_documents WHERE config_key = ?`,
+      )
+      .all('video.binding');
+    const video = videoDocuments[0];
+    if (
+      videoDocuments.length !== 1 ||
+      video?.schema_version !== 1 ||
+      typeof video.revision !== 'number' ||
+      video.revision < 1 ||
+      typeof video.document !== 'string' ||
+      typeof video.document_sha256 !== 'string' ||
+      createHash('sha256').update(video.document, 'utf8').digest('hex') !==
+        video.document_sha256
+    ) {
+      throw new Error('video binding authority missing or damaged');
+    }
+    const matchingRevision = db
+      .prepare(
+        `SELECT document_sha256 FROM runtime_config_revisions
+         WHERE config_key = ? AND revision = ?`,
+      )
+      .all('video.binding', video.revision);
+    if (
+      matchingRevision.length !== 1 ||
+      matchingRevision[0]?.document_sha256 !== video.document_sha256
+    ) {
+      throw new Error('video binding revision history mismatch');
+    }
   } catch {
     throw new Error(
-      'Database identity/schema is not ready. Back up the target database and media, run migration:run, then provision the first named administrator if needed. Startup will not repair or create credentials automatically.',
+      'Database schema is not ready: identity, schema, or authority records failed validation. Back up the target database and media, run migration:run, then restore required authority records or provision the first named administrator if needed. Startup will not repair or create business data automatically.',
     );
   }
 }

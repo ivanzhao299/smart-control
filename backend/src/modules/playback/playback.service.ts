@@ -183,7 +183,9 @@ export class PlaybackService implements OnModuleInit {
       : (PlaybackService.WELCOME_DEFAULT_NAMES[slot] ?? PlaybackService.WELCOME_DEFAULT_NAMES[1]);
     const media = await this.mediaService.findByOriginalName(name);
     if (!media) {
-      throw new NotFoundException(`媒体库里找不到内置素材「${name}」(可能被改名或删除) — 重启后端会自动重建`);
+      throw new NotFoundException(
+        `系统内置素材「${name}」缺失，请联系管理员执行内置媒体恢复检查`,
+      );
     }
     const view = await this.publishMedia(slot, media.id, actor, { loopMode: 'loop' });
     return { assetName: name, view };

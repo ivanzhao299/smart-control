@@ -1066,7 +1066,7 @@ export class MediaService implements OnModuleInit {
   private safeFilename(name: string): string {
     // 保留扩展名, 去掉路径符号 / 控制字符 / 引号
     return name
-      .replace(/[ -\\/:*?"<>|]+/g, '_')
+      .replace(/[\x00-\\/:*?"<>|]+/g, '_')
       .replace(/\s+/g, '_')
       .slice(0, 200) || 'unnamed';
   }

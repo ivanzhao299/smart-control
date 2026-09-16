@@ -185,3 +185,12 @@
 - PR #80 以合并提交 `28e6f6caedca3b110fdd3e095257c0c37a35e459` 发布成功。正式备份为 `D:\smart-control-backups\20260917-062105\sqlite-6OuZOa\database.sqlite`，恢复包、迁移回执和隔离恢复演练位于 `D:\smart-control-backups\migration-recovery\release-lyzijF`；回执记录清单版本 1、15 条资产和 `updated` 状态。
 - 发布后独立只读验收确认：Git HEAD、`origin/main`、发布清单均为目标提交，跟踪工作区干净且无 `RELEASE_HOLD`；数据库 40 个迁移、完整性 `ok`、外键违规 0；15 个 `system_key` 唯一，13 个摘要完整，全部 13 个文件仍使用既有路径，未创建 `_system`；`BUNDLED_MEDIA_CURRENT 15`。后端和前端 HTTP 200，两个 PM2 进程均在线且重启数为 0。
 - CI 和生产部署现在都在后端构建后运行 `backend/test/*.test.cjs` 运维测试，避免恢复、迁移、凭据存储和部署门禁脚本只存在于本地而未进入发布判定。
+
+## 21. 2026-09-17 阶段 1 退出审计与异机迁移基线
+
+- 非迁移生产代码禁止引用 `video-binding.json`、`park-ops-metrics.json`、`matrix-state.json` 和 `park-ops-control.json`，也禁止执行数据库结构 DDL；自动门禁会在 CI 和生产发布前检查。
+- 15 个启动生命周期钩子已建立精确白名单，只允许设备/任务/缓存恢复、只读权威校验和媒体目录拓扑建立。新增启动钩子必须显式审查，不能静默恢复建档、seed 或默认值覆盖。
+- 启动门禁会校验品牌 singleton、`video.binding` 当前文档 SHA-256、revision 和对应历史记录。品牌行缺失时保存返回 409；应用不再用默认值掩盖丢失。
+- 数据迁移恢复包在生产验证成功后，通过受限动作按目标提交号复制到跳板机 `/var/backups/smart-control`。复制端重新校验 SQLite 完整性/外键、数据库与媒体 SHA-256、逐文件清单，追加写入且不覆盖或清理已有证据。
+- P1-A21 的 `release-lyzijF` 已完成首份真实异机基线：87 个文件、4,220,164,447 字节；首次复制为 `VERIFIED`，重复执行为 `CURRENT`，提交关联和三类摘要字段一致，未留下临时传输目录。
+- 这项异机复制覆盖“发生数据迁移的发布恢复包”。普通 6 小时 SQLite 快照和迁移后新增媒体的连续异机备份仍在阶段 3 实现，不能据此宣称已有连续媒体 RPO。

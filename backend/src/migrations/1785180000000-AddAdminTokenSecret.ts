@@ -13,7 +13,7 @@ export class AddAdminTokenSecret1785180000000 implements MigrationInterface {
     name = 'AddAdminTokenSecret1785180000000'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
-        // 幂等: 后端启动自愈可能先把列补上了 (watcher 部署不跑 migrations 的历史窗口)
+        // 幂等：兼容历史版本曾提前补列的数据库；当前应用启动不执行 DDL。
         const cols = await queryRunner.query(`PRAGMA table_info("admin_auth_v1")`) as Array<{ name: string }>;
         if (!cols.some((c) => c.name === 'tokenSecret')) {
             await queryRunner.query(`ALTER TABLE "admin_auth_v1" ADD COLUMN "tokenSecret" varchar(64)`);
