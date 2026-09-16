@@ -1,4 +1,3 @@
-import { createHash } from 'crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -6,7 +5,7 @@ import { DataSource } from 'typeorm';
 import { RuntimeConfigStore } from '../../common/runtime-config/runtime-config.store';
 import { RuntimeConfigDocument } from '../../entities/runtime-config-document.entity';
 import { RuntimeConfigRevision } from '../../entities/runtime-config-revision.entity';
-import { PARK_OPS_METRICS_CONFIG_KEY } from './park-ops-metrics-config';
+import { normalizeParkOpsMetrics, PARK_OPS_METRICS_CONFIG_KEY } from './park-ops-metrics-config';
 import { ParkOpsMetricsService } from './park-ops-metrics.service';
 
 const fixture = (source = '园区月报', occupancy = 95) => ({
@@ -44,59 +43,44 @@ describe('ParkOpsMetricsService', () => {
     rmSync(directory, { recursive: true, force: true });
   });
 
-  it('imports the legacy document once and never rewrites it', async () => {
+  it('loads SQLite only and leaves legacy files untouched', async () => {
     const original = JSON.stringify(fixture(), null, 2);
     const path = join(directory, 'park-ops-metrics.json');
     writeFileSync(path, original);
+    await store.initialize({
+      key: PARK_OPS_METRICS_CONFIG_KEY,
+      schemaVersion: 1,
+      value: fixture('数据库'),
+      normalize: normalizeParkOpsMetrics,
+      actor: 'migration',
+      source: 'test-fixture',
+    });
     const service = new ParkOpsMetricsService(store);
 
     await service.onModuleInit();
 
-    expect(service.get()).toEqual(fixture());
+    expect(service.get()).toEqual(fixture('数据库'));
     expect(readFileSync(path, 'utf8')).toBe(original);
     const revision = await dataSource.getRepository(RuntimeConfigRevision).findOneByOrFail({
       key: PARK_OPS_METRICS_CONFIG_KEY,
       revision: 1,
     });
-    expect(revision).toMatchObject({
-      actor: 'migration',
-      source: 'legacy-json:park-ops-metrics.json',
-    });
-    expect(revision.documentSha256).toBe(
-      createHash('sha256').update(revision.document, 'utf8').digest('hex'),
-    );
+    expect(revision).toMatchObject({ actor: 'migration', source: 'test-fixture' });
   });
 
-  it('uses a valid backup without replacing a corrupt primary', async () => {
+  it('does not resurrect a corrupt primary or valid backup during application startup', async () => {
     const primary = join(directory, 'park-ops-metrics.json');
     const backup = `${primary}.bak`;
     writeFileSync(primary, '{invalid');
-    writeFileSync(backup, JSON.stringify(fixture('备份')));
+    writeFileSync(backup, JSON.stringify(fixture('旧备份')));
     const service = new ParkOpsMetricsService(store);
 
     await service.onModuleInit();
 
-    expect(service.get()?.source).toBe('备份');
+    expect(service.get()).toBeNull();
     expect(readFileSync(primary, 'utf8')).toBe('{invalid');
-    expect(
-      await dataSource.getRepository(RuntimeConfigRevision).findOneByOrFail({
-        key: PARK_OPS_METRICS_CONFIG_KEY,
-        revision: 1,
-      }),
-    ).toMatchObject({ source: 'legacy-json:park-ops-metrics.json.bak' });
-  });
-
-  it('fails closed when every existing legacy copy is invalid', async () => {
-    writeFileSync(join(directory, 'park-ops-metrics.json'), '{invalid');
-    writeFileSync(join(directory, 'park-ops-metrics.json.bak'), '{also-invalid');
-    const service = new ParkOpsMetricsService(store);
-
-    await expect(service.onModuleInit()).rejects.toThrow('PARK_OPS_METRICS_IMPORT_FAILED');
-    await expect(
-      dataSource.getRepository(RuntimeConfigDocument).findOneBy({
-        key: PARK_OPS_METRICS_CONFIG_KEY,
-      }),
-    ).resolves.toBeNull();
+    expect(readFileSync(backup, 'utf8')).toBe(JSON.stringify(fixture('旧备份')));
+    expect(await dataSource.getRepository(RuntimeConfigDocument).count()).toBe(0);
   });
 
   it('keeps an unpublished domain null, then serializes API revisions in SQLite only', async () => {

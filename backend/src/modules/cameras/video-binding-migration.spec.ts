@@ -7,7 +7,8 @@ import { RuntimeConfigDocument } from '../../entities/runtime-config-document.en
 import { RuntimeConfigRevision } from '../../entities/runtime-config-revision.entity';
 import { AddRuntimeConfigStore1789470000000 } from '../../migrations/1789470000000-AddRuntimeConfigStore';
 import { ImportVideoBindingRuntimeConfig1789560000000 } from '../../migrations/1789560000000-ImportVideoBindingRuntimeConfig';
-import { normalizeVideoBindingConfig } from './video-binding-config';
+import { EnsureVideoBindingRuntimeConfig1789590000000 } from '../../migrations/1789590000000-EnsureVideoBindingRuntimeConfig';
+import { defaultVideoBindingConfig, normalizeVideoBindingConfig } from './video-binding-config';
 
 describe('ImportVideoBindingRuntimeConfig migration', () => {
   const originalDataDir = process.env.DATA_DIR;
@@ -24,6 +25,7 @@ describe('ImportVideoBindingRuntimeConfig migration', () => {
       migrations: [
         AddRuntimeConfigStore1789470000000,
         ImportVideoBindingRuntimeConfig1789560000000,
+        EnsureVideoBindingRuntimeConfig1789590000000,
       ],
       migrationsTableName: 'migrations',
       synchronize: false,
@@ -85,6 +87,7 @@ describe('ImportVideoBindingRuntimeConfig migration', () => {
     expect((await dataSource.runMigrations()).map((migration) => migration.name)).toEqual([
       'AddRuntimeConfigStore1789470000000',
       'ImportVideoBindingRuntimeConfig1789560000000',
+      'EnsureVideoBindingRuntimeConfig1789590000000',
     ]);
 
     const document = await dataSource.getRepository(RuntimeConfigDocument).findOneByOrFail({
@@ -113,6 +116,24 @@ describe('ImportVideoBindingRuntimeConfig migration', () => {
     ]);
     expect(normalized.channels[0].roiPolygon?.[2]).toEqual({ x: 1, y: 1 });
     expect(await dataSource.showMigrations()).toBe(false);
+    expect(await dataSource.runMigrations()).toEqual([]);
+  });
+
+  it('creates one deterministic default revision when no legacy file exists', async () => {
+    await dataSource.initialize();
+    await dataSource.runMigrations();
+
+    const document = await dataSource.getRepository(RuntimeConfigDocument).findOneByOrFail({
+      key: 'video.binding',
+    });
+    const revision = await dataSource.getRepository(RuntimeConfigRevision).findOneByOrFail({
+      key: 'video.binding',
+      revision: 1,
+    });
+    const expected = JSON.stringify(defaultVideoBindingConfig('1970-01-01T00:00:00.000Z'));
+
+    expect(document).toMatchObject({ revision: 1, document: expected });
+    expect(revision).toMatchObject({ actor: 'migration', source: 'built-in-default' });
     expect(await dataSource.runMigrations()).toEqual([]);
   });
 });
