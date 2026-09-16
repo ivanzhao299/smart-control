@@ -1,5 +1,8 @@
 # 智慧中控生产事故与架构审计报告
 
+> 工程结构、安全、测试、数据与发布体系的完整审计及分阶段整改路线，见
+> [ENGINEERING_ARCHITECTURE_AUDIT_2026-09-16.md](./ENGINEERING_ARCHITECTURE_AUDIT_2026-09-16.md)。
+
 日期：2026-09-16
 范围：主 PWA、iPhone 拍照上墙、视频绑定/运营数据、GK9000 发布链、运行数据与数据库、后续产品化方向
 
