@@ -101,3 +101,11 @@
 - `D:\smart-control\logs\scene-actions-v2.done` 保留为历史审计证据，应用不再读取或写入它；删除、恢复或修改该文件均不会改变数据库。
 - 新安装默认能力由部署 seed 保留：仅当对应场景的动作数为零时创建推荐动作，已有任意动作即跳过。后续如需升级场景模板，必须使用显式版本化迁移或管理员操作，不能恢复启动重写。
 - 生产发布前后四个场景共 142 个动作的规范化 SHA-256 完全一致；数据库 31 个迁移、完整性 `ok`、外键违规 0。发布前快照位于 `D:\smart-control-backups\20260917-011550\sqlite-urufJS\database.sqlite`。
+
+## 12. 2026-09-17 电源回路启动写入退役
+
+- `power_circuit` 是电源回路名称、网关、通道和额定参数的唯一权威源；`PowerCircuitsService` 启动只读，不再按固定编码补行或把后台配置改回常量。
+- `EstablishPowerCircuitDefaults1789600000000` 仅在整表为空时建立 14 条新安装默认回路。表内已有任何权威记录时不补缺失编码，避免重新创建管理员明确删除的回路。
+- 历史修复被限制为可审计的精确签名：LED 只匹配 `RELAY-1F-1` 第 4 路旧配置；时序器只匹配 `seq-4=5` 与 `seq-5=4` 同时成立的旧对调。其他人工通道和值全部保留。
+- 有任何电源回路时迁移拒绝无归档降级。生产迁移前两个修复条件均不成立，第 32 个迁移只增加账本；14 条回路逐字段 SHA-256 保持 `72d65fe09ab81f5280879a433225301fc5e0425b4f4d8c98d732ac4cb56bd61d`。
+- 发布前快照位于 `D:\smart-control-backups\20260917-013621\sqlite-dcXP3V\database.sqlite`，配套恢复包和回执位于 `D:\smart-control-backups\migration-recovery\release-nvnwgD`。
