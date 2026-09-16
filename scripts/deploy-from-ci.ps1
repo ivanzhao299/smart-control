@@ -1022,6 +1022,7 @@ try {
   $deployedCommit = (git rev-parse HEAD).Trim()
   if (-not $VerifyOnly) {
     $releaseManifestTemp = $null
+    $releaseManifestPrevious = $null
     try {
       $releaseDataDir = $env:DATA_DIR
       if ([string]::IsNullOrWhiteSpace($releaseDataDir)) {
@@ -1039,7 +1040,10 @@ try {
       } | ConvertTo-Json
       [IO.File]::WriteAllText($releaseManifestTemp, $releaseManifest, (New-Object Text.UTF8Encoding($false)))
       if (Test-Path -LiteralPath $releaseManifestPath) {
-        [IO.File]::Replace($releaseManifestTemp, $releaseManifestPath, $null)
+        $releaseManifestPrevious = "$releaseManifestPath.$PID.previous"
+        [IO.File]::Delete($releaseManifestPrevious)
+        [IO.File]::Replace($releaseManifestTemp, $releaseManifestPath, $releaseManifestPrevious)
+        [IO.File]::Delete($releaseManifestPrevious)
       } else {
         Move-Item -LiteralPath $releaseManifestTemp -Destination $releaseManifestPath
       }
@@ -1052,10 +1056,14 @@ try {
       if ($releaseManifestTemp -and (Test-Path -LiteralPath $releaseManifestTemp)) {
         Remove-Item -LiteralPath $releaseManifestTemp -Force -ErrorAction SilentlyContinue
       }
+      if ($releaseManifestPrevious -and (Test-Path -LiteralPath $releaseManifestPrevious)) {
+        Remove-Item -LiteralPath $releaseManifestPrevious -Force -ErrorAction SilentlyContinue
+      }
     }
   }
   if (-not $VerifyOnly) {
     $dispatcherTemp = $null
+    $dispatcherPrevious = $null
     try {
       $dispatcherSource = Join-Path $projectRoot 'deploy\windows-ci-dispatch.ps1'
       $dispatcherTarget = 'C:\ProgramData\Anksen\smart-control-ci-dispatch.ps1'
@@ -1081,7 +1089,10 @@ try {
           $dispatcherTemp = "$dispatcherTarget.$PID.tmp"
           [IO.File]::WriteAllBytes($dispatcherTemp, [IO.File]::ReadAllBytes($dispatcherSource))
           if (Test-Path -LiteralPath $dispatcherTarget) {
-            [IO.File]::Replace($dispatcherTemp, $dispatcherTarget, $null)
+            $dispatcherPrevious = "$dispatcherTarget.$PID.previous"
+            [IO.File]::Delete($dispatcherPrevious)
+            [IO.File]::Replace($dispatcherTemp, $dispatcherTarget, $dispatcherPrevious)
+            [IO.File]::Delete($dispatcherPrevious)
           } else {
             Move-Item -LiteralPath $dispatcherTemp -Destination $dispatcherTarget
           }
@@ -1097,6 +1108,9 @@ try {
     } finally {
       if ($dispatcherTemp -and (Test-Path -LiteralPath $dispatcherTemp)) {
         Remove-Item -LiteralPath $dispatcherTemp -Force -ErrorAction SilentlyContinue
+      }
+      if ($dispatcherPrevious -and (Test-Path -LiteralPath $dispatcherPrevious)) {
+        Remove-Item -LiteralPath $dispatcherPrevious -Force -ErrorAction SilentlyContinue
       }
     }
   }
