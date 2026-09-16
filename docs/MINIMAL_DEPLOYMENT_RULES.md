@@ -15,7 +15,7 @@
 | **静态资源** | `frontend/public/**`（含 park-ops 的 JS/CSS/图片/音效） | 直接复制到 `frontend/dist/` | 无 |
 | **前端代码** | `frontend/src/**`、`index.html`、`vite.config`、`tsconfig` | 侧构建到 `dist-repair` 后交换到生产 dist | 无（vite preview 读盘，零停机） |
 | **后端代码** | `backend/src/**` | 构建后端 → 仅重启 backend | 后端短暂重启（~5s） |
-| **全量部署** | 以下任一命中则强制全量：<br>• `package.json` / `pnpm-lock.yaml`<br>• `.env*` / `ecosystem.config.js`<br>• `migrations/` 目录<br>• `deploy/` 目录<br>• `scripts/deploy*`、`backup*`、`update*`、`boot*`、`ensure*`、`run-migrations*`、`assert-release*`<br>• 前后端代码同时变更<br>• 其他未识别路径 | 完整流程：构建双端 + 迁移 + 重启双服务 | 前端停服构建 |
+| **全量部署** | 以下任一命中则强制全量：<br>• `package.json` / `pnpm-lock.yaml`<br>• `.env*` / `ecosystem.config.js`<br>• `migrations/` 目录<br>• `deploy/` 目录<br>• `scripts/deploy*`、`backup*`、`update*`、`boot*`、`ensure*`、`run-migrations*`、`assert-release*`<br>• 前后端代码同时变更<br>• 其他未识别路径 | 构建后先只读检查迁移；无迁移时按普通全量流程，有迁移时进入停写、配套恢复包、隔离恢复演练、迁移回执和受控激活流程 | 仅在构建交换或受控迁移窗口停服 |
 
 ## 运行时数据保护（任何部署范围都生效）
 
@@ -59,15 +59,23 @@ KPI、视频绑定+AI 计数线/ROI、播控状态等现场写入的 JSON 一律
 - 前后端同时改代码
 - 任何未被上述规则识别的文件变更
 
-全量部署沿用原有完整流程，包含备份、双端构建、迁移、双服务重启。
+全量部署先构建后端并以 `--check-only` 只读检查迁移状态。没有待执行迁移时继续构建前端和重启双服务；存在待执行迁移时必须按以下状态机执行：
+
+1. 读取生产真实计划任务清单并保存启用状态；`SmartControlFrontend` 仅在任务实际存在时纳入，不再假定现场有该任务。
+2. 建立 `RELEASE_HOLD`，禁用计划任务，验证 PM2、端口、播放器和外部转换进程均已停写。
+3. 同时生成数据库与媒体恢复包，在隔离目录完成恢复演练后才运行 TypeORM 迁移。
+4. 迁移成功写入绑定源提交、候选提交、数据库路径和媒体根目录的回执；没有回执不得激活。
+5. 激活脚本重新构建准确候选，验证回执与恢复包，启动服务并通过 `verify-deploy.js` 后恢复原计划任务状态。
+
+普通预检失败或停写完成前失败，不得标记为“已尝试迁移”；部署应恢复旧提交和服务。迁移控制器开始后禁止只回退代码，必须保留代码、数据库、媒体与恢复证据的匹配集合。
 
 ## 安全机制
 
-1. **回滚不变**：无论最小还是全量部署，失败时都走原有回滚逻辑（git reset --hard + 恢复 dist 备份 + 重启服务）
+1. **按迁移边界恢复**：迁移控制器开始前可恢复旧提交、旧构建和服务；控制器开始后禁止代码单独回退；候选已经凭回执激活后保留匹配版本并继续运行
 2. **备份不变**：每次部署前都运行 `scripts/backup.ps1` 生产备份
 3. **部署锁不变**：`ProgramData\Anksen\smart-control-deploy.lock` 互斥锁防止并发部署
 4. **健康检查不变**：部署后双端口健康检查（3200/5173）+ verify-deploy.js 权威验证
-5. **迁移 reconcile 不变**：部署后始终运行 `run-migrations.js`（无待执行时为 no-op）
+5. **迁移只读预检**：每次部署都运行 `run-migrations.js --check-only`；只有受控停写流程可以执行待处理迁移
 6. **高风险兜底**：任何无法明确分类的变更自动归入全量部署，不会漏构建
 
 ## CI 工作流
@@ -85,3 +93,4 @@ scripts\deploy-from-ci.ps1 -Commit <SHA>
 ## 变更记录
 
 - 2026-09-14：初始版本。由 09-13 生产事故复盘和运营大屏黑窗修复后提出，目标是减少部署停机时间和事故面。
+- 2026-09-16：迁移发布改为显式状态机；统一生产任务清单与数据库/媒体路径解析，修复“只读预检失败也被当成迁移已执行并停止双服务”的门禁缺陷。

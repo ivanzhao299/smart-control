@@ -2,6 +2,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { verifyReleaseBundle } = require('./release-recovery-bundle.cjs');
 const { loadEnvFile } = require('./run-migrations.js');
+const { resolveProductionMediaRoot, resolveProductionDatabasePath } = require('./production-paths.cjs');
 
 async function verify(receiptPath, candidateRevision, root) {
   const receipt = JSON.parse(await fs.readFile(receiptPath, 'utf8'));
@@ -14,10 +15,11 @@ async function verify(receiptPath, candidateRevision, root) {
   if (bundle.manifest.sourceRevision !== receipt.sourceRevision) throw new Error('Recovery revision mismatch');
   const backend = path.join(root, 'backend');
   loadEnvFile(backend);
-  const db = path.resolve(backend, process.env.DB_PATH || '../database/smart-control.db');
+  const db = resolveProductionDatabasePath({ cwd: backend });
+  const mediaRoot = resolveProductionMediaRoot({ cwd: backend });
   const normalize = value => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
-  if (normalize(db) !== normalize(receipt.databasePath) || !process.env.MEDIA_ROOT ||
-      normalize(process.env.MEDIA_ROOT) !== normalize(receipt.mediaRoot)) throw new Error('Production paths changed after migration');
+  if (normalize(db) !== normalize(receipt.databasePath) ||
+      normalize(mediaRoot) !== normalize(receipt.mediaRoot)) throw new Error('Production paths changed after migration');
   return true;
 }
 if (require.main === module) {

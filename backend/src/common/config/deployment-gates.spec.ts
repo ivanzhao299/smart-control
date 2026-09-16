@@ -140,6 +140,32 @@ describe('GK9000 deployment gates', () => {
     expect(deploy).toContain("Get-ChildItem -Path $legacyDataDir -Filter '*.json.bak'");
   });
 
+  it('uses a controlled migration state machine and the real host task inventory', () => {
+    const deploy = readRepositoryFile('scripts/deploy-from-ci.ps1');
+    const suspend = readRepositoryFile('scripts/suspend-gk9000-release.ps1');
+    const assertStopped = readRepositoryFile('scripts/assert-gk9000-writers-stopped.ps1');
+    const resume = readRepositoryFile('scripts/resume-gk9000-release.ps1');
+    const tasks = readRepositoryFile('scripts/gk9000-release-tasks.ps1');
+
+    expect(deploy).toContain('scripts/run-migrations.js --check-only');
+    expect(deploy).toContain('scripts/run-gk9000-migrations.cjs');
+    expect(deploy).toContain('scripts\\suspend-gk9000-release.ps1');
+    expect(deploy).toContain('scripts\\resume-gk9000-release.ps1');
+    expect(deploy).toContain("$script:migrationState = 'controller-started'");
+    expect(deploy.indexOf('$script:migrationAttempted = $true')).toBeGreaterThan(
+      deploy.indexOf("$script:migrationState = 'isolated'"),
+    );
+    expect(deploy).not.toContain('& node scripts/run-migrations.js 2>&1');
+    expect(deploy).toContain('-AbortBeforeMigration -Apply');
+    expect(suspend).toContain(". (Join-Path $PSScriptRoot 'gk9000-release-tasks.ps1')");
+    expect(suspend).toContain("$process.ParentProcessId -in $owners");
+    expect(suspend).toContain("$managedExternal += $process");
+    expect(assertStopped).toContain('Get-Gk9000ReleaseTasks');
+    expect(resume).toContain("ParameterSetName='Aborted'");
+    expect(tasks).toContain('$script:Gk9000RequiredReleaseTasks');
+    expect(tasks).toContain("$script:Gk9000OptionalReleaseTasks = @('SmartControlFrontend')");
+  });
+
   it('runs backend tests in the production validation job before building', () => {
     const workflow = readRepositoryFile('.github/workflows/deploy-gk9000.yml');
     const auditPosition = workflow.indexOf('pnpm audit --prod --audit-level high');

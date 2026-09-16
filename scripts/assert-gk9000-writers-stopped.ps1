@@ -11,10 +11,9 @@ if ((Resolve-Path -LiteralPath $ProjectRoot).Path.TrimEnd('\') -ne 'D:\smart-con
 if (-not (Test-Path -LiteralPath (Join-Path $ProjectRoot 'RELEASE_HOLD') -PathType Leaf)) {
   throw 'Release hold is not present.'
 }
+. (Join-Path $PSScriptRoot 'gk9000-release-tasks.ps1')
 # Check every known restart/backup entry, not merely the nominal backend task.
-foreach ($name in @('SmartControl-AutoUpdate', 'SmartControl-DailyBackup',
-    'SmartControl-PlayerWatchdog', 'SmartControlBackend', 'SmartControlFrontend')) {
-  $task = Get-ScheduledTask -TaskName $name -ErrorAction Stop
+foreach ($task in @(Get-Gk9000ReleaseTasks)) {
   if ($task.State -ne 'Disabled') { throw 'A Smart Control scheduled task is not disabled.' }
 }
 $listeners = @(Get-NetTCPConnection -State Listen -ErrorAction Stop |

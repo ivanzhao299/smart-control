@@ -17,6 +17,10 @@ function fixture({ changedPath = false, wrongRevision = false, damaged = false }
     if (name === './run-migrations.js') return { loadEnvFile: () => {
       events.push('config'); process.env.MEDIA_ROOT = changedPath ? '/different/media' : '/fixture/media';
     } };
+    if (name === './production-paths.cjs') return {
+      resolveProductionDatabasePath: () => '/fixture/database/smart-control.db',
+      resolveProductionMediaRoot: () => changedPath ? '/different/media' : '/fixture/media',
+    };
     throw new Error('Unexpected dependency');
   };
   vm.runInNewContext(source, { module, require, process });

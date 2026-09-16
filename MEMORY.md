@@ -5,13 +5,15 @@
 > 长期工程知识（架构/部署坑/铁律）在 `CLAUDE.md`；故障档案在 `docs/INCIDENTS.md`；
 > 历史时间线在 `docs/PROGRESS.md`。本文件只放**当前状态与进行中的事**。
 
-## 当前代码上下文（2026-09-15，优先于以下历史快照）
+## 当前代码上下文（2026-09-16，优先于以下历史快照）
 
-- 当前 Git 基线为 `14515e7`，其 CI 与 GK9000 部署均成功。完整代码导航见 `docs/CODEBASE_CONTEXT_2026-09-15.md`。
-- 9 月真实状态已超出下方 7 月记录：多用户资源隔离、个人播放列表、专用播放器凭据、配额与可恢复媒体操作均已上线；不要把下方的“规划中/待迁移”历史描述当作当前事实。
-- 运营大屏最近完成 HLS 生命周期泄漏修复（此前会逐轮累积 Hls Worker/MSE，最终白屏）；AI 计数线与 ROI 可在后台编辑并热推；来访照片上墙兼容 iOS PWA。
-- 现场可写 JSON（视频绑定/AI ROI、运营 KPI、翻页状态）必须使用仓库外 `DATA_DIR`。工作区中关于运行时数据保护的未提交改动、数据库备份及日志均须原样保留，禁止清理。
-- 当前权威现场基线：LED=V2460、3612×1462、HDMI 2.0；视频=6 路子码流 HLS + 3 路独立 AI；生产唯一发布路径=GitHub CI→WireGuard→GK9000。细节分别见 LED、视频、最小部署和运行时数据保护文档。
+- 当前生产 Git 基线为 `67faf2c`（PR #38）。GK9000 后端 3200、前端 5173 已通过 PM2/端口/构建指纹/健康/重启稳定性权威验证；生产 SQLite 为 27 个迁移，`integrity_check=ok`、外键违规 0。
+- 阶段 1 的 `RuntimeConfigStore` 基础已经上线：`runtime_config_documents` 与 `runtime_config_revisions` 当前均为 0 行，尚未导入或改写视频绑定等 JSON。后续必须逐域迁移，禁止直接删除原 JSON。
+- PR #38 首次部署暴露发布门禁缺陷：普通 `run-migrations.js` 正确拒绝无停写迁移，但 `deploy-from-ci.ps1` 提前把它标为“已尝试迁移”并停止双服务；暂停/恢复脚本还硬编码了现场不存在的 `SmartControlFrontend` 计划任务。数据库当时尚未迁移。
+- 生产已在 `RELEASE_HOLD` 和连续停写校验下完成配套数据库/媒体恢复包、隔离恢复演练、单次迁移和凭据激活。备份根为 `D:\smart-control-backups\20260916-143539`，迁移/激活证据在 `release-4qG9Uv`；不得删除。
+- 当前整改分支 `codex/maturity-phase-1b-deploy-state-machine`：迁移发布改为只读预检→真实任务清单停写→配套恢复演练→迁移回执→受控激活；应用、容量检查、迁移与回执验证共用生产数据库/媒体路径解析。完整测试为后端 61 套件/652 项、脚本测试 56 项通过（2 项环境跳过），Windows PowerShell 5.1 语法解析通过。
+- 现场权威数据位置：SQLite=`D:\smart-control\database\smart-control.db`，运行时 JSON=`D:\smart-control-runtime\data`，媒体/拍照上墙=`D:\Media`（照片在 `welcome-photos` 子目录）。生产发布唯一通道为 GitHub CI→阿里云跳板→WireGuard→GK9000。
+- 下一步：先合并并部署 P1-A2 门禁修复，确认不再停机；随后迁移视频绑定/AI 检测线和 ROI 到 `RuntimeConfigStore`，做 JSON→SQLite 一次性导入、双源对账、切读、停写 JSON 和生产恢复演练。
 
 ## 当前状态快照（2026-07-28）
 
