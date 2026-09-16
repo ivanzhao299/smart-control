@@ -3,6 +3,7 @@ import { mediaService } from '@/services/media.service';
 import { getApiBaseURL, getAdminToken, getClientToken } from '@/services/http';
 import { fetchSystemBranding, saveWelcomeConfig } from '@/services/system-branding.service';
 import { useToastStore } from '@/stores/toast';
+import { parkOpsControlService } from '@/services/park-ops-control.service';
 
 /**
  * 来访者拍照上墙 (2026-09-14; 2026-09-15 修复 PWA 拍照闪退)
@@ -259,11 +260,7 @@ export function useWelcomePhoto() {
   /** 通过现有翻页通道让大屏立刻回到第 1 页(欢迎页)。 */
   async function gotoWelcomePage(): Promise<void> {
     try {
-      await fetch('/api/park-ops-control/goto', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ page: 0 }),
-      });
+      await parkOpsControlService.goto(0);
     } catch {
       /* 跳页失败不阻断照片上墙 */
     }

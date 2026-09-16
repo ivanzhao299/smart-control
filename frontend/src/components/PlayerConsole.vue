@@ -47,6 +47,7 @@ import { useAdminUnlock } from '@/composables/useAdminUnlock';
 import { powerCircuitsService, type PowerCircuitView } from '@/services/power-circuits.service';
 import { mediaService, MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
 import { ledService } from '@/services/led.service';
+import { parkOpsControlService } from '@/services/park-ops-control.service';
 
 const props = defineProps<{
   /** 1 = LED 大屏 (HDMI1), 2 = 投影仪 (HDMI2) */
@@ -564,19 +565,24 @@ async function parkOpsControl(action: 'next' | 'prev' | 'auto' | 'refresh'): Pro
   if (parkOpsBusy.value) return;
   parkOpsBusy.value = true;
   try {
-    const endpoint = action === 'auto' ? 'auto' : action;
-    const r = await fetch(`/api/park-ops-control/${endpoint}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: action === 'auto' ? JSON.stringify({ enabled: !parkOpsAuto.value }) : undefined,
-    });
-    const j = await r.json();
-    if (j.success && j.data) {
-      parkOpsPage.value = j.data.page;
-      parkOpsAuto.value = j.data.autoPlay;
-      if (j.data.totalPages) parkOpsTotalPages.value = j.data.totalPages;
-      if (j.message) ElMessage.success(j.message);
-    }
+    const state = action === 'next'
+      ? await parkOpsControlService.next()
+      : action === 'prev'
+        ? await parkOpsControlService.prev()
+        : action === 'auto'
+          ? await parkOpsControlService.setAuto(!parkOpsAuto.value)
+          : await parkOpsControlService.refresh();
+    parkOpsPage.value = state.page;
+    parkOpsAuto.value = state.autoPlay;
+    parkOpsTotalPages.value = state.totalPages;
+    const successMessage = action === 'next'
+      ? '已切到下一页'
+      : action === 'prev'
+        ? '已切到上一页'
+        : action === 'auto'
+          ? state.autoPlay ? '自动轮播已开启' : '自动轮播已关闭'
+          : '已发送强制刷新指令';
+    ElMessage.success(successMessage);
   } catch (e) {
     ElMessage.error(`运营大屏控制失败: ${(e as Error).message}`);
   } finally {
@@ -592,13 +598,10 @@ async function parkOpsControl(action: 'next' | 'prev' | 'auto' | 'refresh'): Pro
 // 投放运营大屏时同步当前状态
 async function syncParkOpsState(): Promise<void> {
   try {
-    const r = await fetch('/api/park-ops-control/state', { cache: 'no-store' });
-    const j = await r.json();
-    if (j.success && j.data) {
-      parkOpsPage.value = j.data.page;
-      parkOpsAuto.value = j.data.autoPlay;
-      if (j.data.totalPages) parkOpsTotalPages.value = j.data.totalPages;
-    }
+    const state = await parkOpsControlService.state();
+    parkOpsPage.value = state.page;
+    parkOpsAuto.value = state.autoPlay;
+    parkOpsTotalPages.value = state.totalPages;
   } catch { /* ignore */ }
 }
 
