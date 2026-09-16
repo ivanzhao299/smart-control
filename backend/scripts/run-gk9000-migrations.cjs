@@ -30,22 +30,45 @@ async function run() {
       throw new Error('Unexpected deployment checkout');
     }
     const assertWritersStopped = async () => {
-      const result = execFileSync(
-        'powershell.exe',
-        [
-          '-NoProfile',
-          '-NonInteractive',
-          '-ExecutionPolicy',
-          'Bypass',
-          '-File',
-          path.join(root, 'scripts', 'assert-gk9000-writers-stopped.ps1'),
-          '-ProjectRoot',
-          root,
-          '-MigrationPid',
-          String(process.pid),
-        ],
-        { encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] },
-      );
+      let result;
+      try {
+        result = execFileSync(
+          'powershell.exe',
+          [
+            '-NoProfile',
+            '-NonInteractive',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-File',
+            path.join(root, 'scripts', 'assert-gk9000-writers-stopped.ps1'),
+            '-ProjectRoot',
+            root,
+            '-MigrationPid',
+            String(process.pid),
+          ],
+          { encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] },
+        );
+      } catch (error) {
+        const diagnostic = `${error?.stderr || ''}\n${error?.stdout || ''}`;
+        const safeReasons = [
+          'Release hold is not present.',
+          'A Smart Control scheduled task is not disabled.',
+          'A production service port is still listening.',
+          'Unexpected migration caller.',
+          'Unexpected migration controller.',
+          'Cannot classify a Node process.',
+          'A service or PM2 process remains.',
+          'Cannot classify a possible player process.',
+          'A player or player launcher remains.',
+          'A maintenance writer or service launcher remains.',
+          'An external media/document process remains.',
+        ];
+        const wrapped = new Error('Production writer fence rejected the migration');
+        wrapped.safeReason =
+          safeReasons.find((candidate) => diagnostic.includes(candidate)) ||
+          'Unclassified writer-fence rejection.';
+        throw wrapped;
+      }
       if (result.trim() !== 'GK9000_WRITERS_STOPPED')
         throw new Error('No verified stopped-writer result');
       return true;
@@ -120,6 +143,7 @@ if (require.main === module)
         'Controlled migration failed; keep release isolation and preserve recovery artifacts.',
       );
       if (error.migrationStage) console.error(`Failure stage: ${error.migrationStage}`);
+      if (error.safeReason) console.error(`Failure reason: ${error.safeReason}`);
       if (error.bundleDirectory) console.error(`Recovery bundle: ${error.bundleDirectory}`);
       if (error.rehearsalDirectory) console.error(`Restore rehearsal: ${error.rehearsalDirectory}`);
       process.exitCode = 1;
