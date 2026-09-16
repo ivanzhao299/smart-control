@@ -7,16 +7,14 @@
 
 ## 当前代码上下文（2026-09-16，优先于以下历史快照）
 
-- 当前生产 Git 基线为 `0c2adc2`（PR #39）。迁移发布状态机已上线并验证：只读预检→停止真实写入任务→配套恢复包与隔离恢复演练→迁移回执→受控激活；生产后端 3200、前端 5173 和计划任务均健康，SQLite 为 27 个迁移，`integrity_check=ok`、外键违规 0。
-- 阶段 1 的 `RuntimeConfigStore` 基础已经上线：`runtime_config_documents` 与 `runtime_config_revisions` 当前仍为 0 行。生产尚未导入或改写视频绑定 JSON，旧文件仍是当前权威来源。
-- 当前整改分支为 `codex/maturity-phase-1c-video-binding-store`。已把视频绑定、NVR、HLS 通道、AI 检测线与 ROI 收敛到 `video.binding` 单一数据库文档；新增一次性、幂等迁移，保留完整修订历史和校验和；旧 JSON 仅在数据库为空时读取，迁移后不再写回。
-- 视频流不再维护第二份硬编码 NVR/通道表；HLS、快照、自动启动和后台管理共用数据库配置。对外接口去除密码，空密码编辑保留原凭据，陈旧基础信息编辑不会覆盖刚保存的 AI 区域；仓库内旧 NVR 明文凭据已经移除。
-- 已用生产数据库一致性快照和生产 `video-binding.json` 做本地迁移演练：只新增 `ImportVideoBindingRuntimeConfig1789560000000`，重复执行无变更，导入前后归一化文档完全一致；2 台 NVR、6 路通道、布局、检测线和 ROI 均对账通过。完整 Nest 应用也已在隔离端口启动并验证匿名接口无凭据泄露。
-- 本分支最终本地验证：后端 63 套件/663 项、前端 52 项全部通过；后端与 PWA 生产构建通过，生产依赖高危审计为 0，Python 参考程序语法检查通过。
-- PR #40 已合并为 `f7ddd8d`，首次部署在迁移前停写复核处安全失败：控制器父进程被误判为残留写入者，数据库仍为 27 个迁移；`RELEASE_HOLD`、暂停快照 `release-pause-92a8050ace5f4d85a4ac89cc3a3a075b.json` 和发布前备份 `D:\smart-control-backups\20260916-163442` 均保留，双服务与四个写入任务当前保持停止。空 PM2 守护已清除，现场停写断言通过。
-- 当前修复分支 `codex/maturity-phase-1c-migration-controller-fix`：严格允许唯一父控制器、修正失败分支 PM2 身份、增加失败阶段证据，并新增继续既有 hold 的受控恢复入口。脚本级 56 项通过（2 项环境跳过）、部署门禁 12 项与后端构建通过，三份 PowerShell 已在 GK9000 的 Windows PowerShell 5.1 解析器验证零语法错误。
-- 生产恢复证据必须保留：备份根 `D:\smart-control-backups\20260916-143539`，迁移/激活证据 `release-4qG9Uv`；不得删除。现场权威路径：SQLite=`D:\smart-control\database\smart-control.db`，运行时数据=`D:\smart-control-runtime\data`，媒体/拍照上墙=`D:\Media`（照片在 `welcome-photos` 子目录）。
-- 下一步：合并迁移控制器修复，在现有 hold 下把生产安全快进到修复后的 main，使用原暂停快照继续同一次恢复演练、迁移和回执激活；生产应从 27 增至 28 个迁移，并生成 `video.binding` 当前文档与 revision 1。部署后必须核对旧 JSON 哈希不变、数据库文档校验和/历史一致、2 台 NVR/6 路通道/检测区域完整、HLS 子码流与匿名接口正常，再进入下一运行时配置域收敛。
+- 当前生产 Git 基线为 `874bd9a`（PR #44）。后端 3200、前端 5173、PM2 守护和计划任务均通过权威验证；`RELEASE_HOLD` 不存在。任务恢复为发布前状态：AutoUpdate/PlayerWatchdog 禁用，DailyBackup/SmartControlBackend 启用。
+- 阶段 P1-A3 已完成：视频绑定、2 台 NVR、6 路通道、HLS、截图、检测线与 ROI 收敛到 SQLite 的 `video.binding` 单一权威文档；后台编辑只写数据库并保留 revision、校验和及操作者历史，旧 JSON 仅作为已冻结的迁移来源。
+- 生产已执行 `ImportVideoBindingRuntimeConfig1789560000000`，迁移总数 28；`video.binding` 为 schema v1 / revision 1，当前文档与唯一历史记录校验和一致，`integrity_check=ok`、外键违规 0。源 `video-binding.json` SHA-256 保持 `febfdd42ad95319a5b993bf6ffeb65a38a52695b32d50f195092bf03abddac2f`，其归一化内容与 SQLite 逐字段一致。
+- PR #40（`f7ddd8d`）首次真实迁移在停写复核处安全失败，未改数据库；PR #41/#42/#43 分别修正控制器父进程判定、PowerShell 5.1 原生错误采集和绝对迁移入口。随后在原 hold 下完成同一次恢复演练、迁移、回执和激活，未删除 hold 重跑、未回滚数据。
+- 迁移恢复包与回执位于 `D:\smart-control-backups\migration-recovery\release-HT0Ypw`；发布前备份 `D:\smart-control-backups\20260916-163442` 以及旧恢复证据 `D:\smart-control-backups\20260916-143539`、`release-4qG9Uv` 必须永久保留。
+- PR #44 修复 HLS 固定状态路由被通用 `:filename` 路由遮蔽的问题。生产六路 `hls/status` 均为 HTTP 200、`isRunning=true`、`restartCount=0`；六路播放列表各有 3 个新鲜分片，对外接口不泄露 NVR 密码。
+- 现场权威路径：SQLite=`D:\smart-control\database\smart-control.db`，运行时数据=`D:\smart-control-runtime\data`，媒体=`D:\Media`，拍照上墙照片=`D:\Media\welcome-photos`。以上目录与代码仓库分离，发布不得删除或覆盖。
+- 当前阶段没有待发布代码。下一步按成熟度计划进入 P1-A4：盘点剩余运行时 JSON/环境配置域，按“单一权威源→可逆迁移→历史审计→生产对账”逐域收敛；每批只迁移一个边界，禁止大爆炸式改库。
 
 ## 当前状态快照（2026-07-28）
 
