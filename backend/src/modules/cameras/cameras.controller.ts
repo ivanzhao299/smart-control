@@ -117,6 +117,21 @@ export class CamerasController {
   }
 
   /**
+   * 获取HLS转码状态
+   *
+   * 固定路径必须声明在 :filename 之前，否则 Express 会把 status 当成分片文件名。
+   */
+  @Public()
+  @Get(':channel/hls/status')
+  async getHlsStatus(@Param('channel') channel: string) {
+    const status = this.service.getHlsStatus(channel);
+    if (!status) {
+      return { message: '查询成功', data: { isRunning: false, channel } };
+    }
+    return { message: '查询成功', data: { channel, ...status } };
+  }
+
+  /**
    * 获取HLS分片文件
    */
   @Public()
@@ -138,19 +153,6 @@ export class CamerasController {
     res.setHeader('Content-Type', result.contentType);
     res.setHeader('Cache-Control', 'public, max-age=300');
     res.send(result.buffer);
-  }
-
-  /**
-   * 获取HLS转码状态
-   */
-  @Public()
-  @Get(':channel/hls/status')
-  async getHlsStatus(@Param('channel') channel: string) {
-    const status = this.service.getHlsStatus(channel);
-    if (!status) {
-      return { message: '查询成功', data: { isRunning: false, channel } };
-    }
-    return { message: '查询成功', data: { channel, ...status } };
   }
 
   /**
