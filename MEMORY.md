@@ -42,7 +42,9 @@
 - 阶段 P1-A19 已完成：旧 `SeedService` 的场景/动作、逻辑设备、硬件、灯光分区/组和 UAT 目录冻结为 `EstablishOperationalCatalog1789660000000` 不可变快照。第 38 个迁移只补缺失行、只为空动作场景建立推荐动作、只对精确旧签名修复；不删除任何已有场景、分区或自定义数据。发布、包脚本和人工运维均不再存在 seed 入口。
 - P1-A19 发布前在生产在线一致性副本上演练，第 38 个迁移除迁移账本外 40 张业务表指纹全部不变，重复执行为 0 项。正式恢复包为 `D:\smart-control-backups\migration-recovery\release-87e6u8`，隔离恢复演练为 `D:\smart-control-backups\migration-recovery\restore-lbiONb`，发布前备份为 `D:\smart-control-backups\20260917-051004\sqlite-ThRC7w\database.sqlite`。PR #76 合并提交 `18b138be`，生产部署 https://github.com/ivanzhao299/smart-control/actions/runs/35150526034 全绿。
 - 现场权威路径：SQLite=`D:\smart-control\database\smart-control.db`，运行时数据=`D:\smart-control-runtime\data`，媒体=`D:\Media`，拍照上墙照片=`D:\Media\welcome-photos`。以上目录与代码仓库分离，发布不得删除或覆盖。
-- 当前阶段没有待发布运行时代码。启动写入审计已将设备状态恢复、WebSocket/站点心跳、灯具扫描、音频设备对账、LED 图层校正归为运行态恢复或设备对账；场景动作、电源回路、内置驱动、品牌目录、音频配置、应用版本、身份初始化和旧部署 seed 已经退役。下一批继续审计 HVAC 分区/内机、播放通道及内置媒体的按需或启动建档，逐项区分权威目录、设备对账和可重建缓存；任何现有生产数据先做只读指纹和恢复演练，再决定是否迁入版本化迁移。
+- 阶段 P1-A20 已完成：`hvac_zone`、`hvac_indoor.zone_code` 与 `playback_channels` 分别成为空调分区/成员和物理播放通道的唯一权威目录。第 39 个迁移只在对应整表为空时建立 14/22/3 条新安装默认值，非空、部分、禁用和定制目录零改写；读取与启动不再补行。`hvac-zone` 场景动作改为查询数据库成员，已删除第二份运行时代码常量；遗留 `hvac_zone.indoors` 不再承载成员关系。
+- P1-A20 生产发布前在线一致性副本的 40 张业务表指纹全部不变；正式备份为 `D:\smart-control-backups\20260917-054502\sqlite-diWIgb\database.sqlite`，恢复包为 `D:\smart-control-backups\migration-recovery\release-lo47Nf`，隔离恢复演练为 `D:\smart-control-backups\migration-recovery\restore-uBi16p`。PR #78 合并提交 `acfbd56a4e69aa8008c56e4c4c46cc4998ba9d05`，生产部署 https://github.com/ivanzhao299/smart-control/actions/runs/35153802363 全绿。
+- 当前阶段没有待发布运行时代码。启动写入审计已将设备状态恢复、WebSocket/站点心跳、灯具扫描、音频设备对账、LED 图层校正和播放重启回待机归为运行态恢复或设备对账；场景动作、电源回路、内置驱动、品牌目录、音频配置、应用版本、身份初始化、旧部署 seed、HVAC 目录和播放通道建档已经退役。下一批单独审计内置媒体的数据库记录与数据盘文件对账，先建立系统资产保护、制品清单和配套媒体恢复演练，再决定如何退役启动建档。
 
 ## 当前状态快照（2026-07-28）
 

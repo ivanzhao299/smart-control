@@ -171,3 +171,6 @@
 - 播放服务启动仍按现场要求清理三路瞬态播放会话，使重启后回到待机；该恢复只处理当前播放状态，不建立或修复物理通道目录。
 - 生产在线一致性副本从 38 个迁移升级到 39 个迁移时，除迁移账本外 40 张业务表的行数和逐行 SHA-256 全部不变；第二次执行无待处理迁移。副本保持 13 个现场定制区、22 台内机、3 个播放通道，完整性 `ok`、外键违规 0。
 - 内置媒体同时涉及 SQLite 记录与数据盘文件，继续作为下一独立批次处理；本迁移不读取、复制、删除或重建任何媒体文件和记录。
+- 正式发布先保存 `D:\smart-control-backups\20260917-054502\sqlite-diWIgb\database.sqlite`，再于 `D:\smart-control-backups\migration-recovery\restore-uBi16p` 完成数据库与媒体隔离恢复演练，恢复包和迁移回执位于 `D:\smart-control-backups\migration-recovery\release-lo47Nf`。
+- PR #78 以合并提交 `acfbd56a4e69aa8008c56e4c4c46cc4998ba9d05` 发布成功。生产 13 个区、22 台内机和 3 个播放通道的语义 SHA-256 分别保持 `9c13259066650e49c449d43069e61f5dd960206fe7e855d0b83a86a11fe8b756`、`9bbbcc9db499d902fa48d0904a8bc6843a94080504618e80ffced0330cbe2a31`、`d590d08a9d4b70383e64a6dd48ff0eb88ebd8783303cb6eebdb3d315ad9bc392`；15 条系统媒体指纹也保持 `e3c420c076ec64245c21edba3cf665b2c4d03e0a48e4db9fbf718791f1f7f6d7`。
+- Git HEAD、`origin/main`、发布清单和运行 API 提交一致，工作区干净，`RELEASE_HOLD` 不存在；数据库 39 个迁移、完整性 `ok`、外键违规 0。38 台设备在线，后端/前端零重启，六路 HLS 均运行中且零重启，PWA 与园区大屏入口返回 200。
