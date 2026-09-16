@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, Injectable, OnModuleInit } from '@nestjs/common';
 import { copyFileSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { ensureRuntimeDataDir } from '../../common/storage/runtime-data-path';
@@ -15,6 +15,9 @@ export interface NvrDevice {
   enabled: boolean;
   createdAt: string;
 }
+
+export type NvrDeviceView = Omit<NvrDevice, 'password'> & { hasPassword: boolean };
+export type VideoBindingConfigView = Omit<VideoBindingConfig, 'nvrs'> & { nvrs: NvrDeviceView[] };
 
 /** 归一化坐标点（0~1，与画面分辨率无关，便于拖拽编辑器与 AI 端共用） */
 export interface NormPoint {
@@ -161,12 +164,32 @@ export class VideoBindingService implements OnModuleInit {
     return this.config;
   }
 
-  // NVR CRUD
-  getNvrs(): NvrDevice[] {
-    return this.config.nvrs;
+  /** 管理端可读视图：只暴露密码是否已配置，绝不把凭据发到浏览器。 */
+  getConfigView(): VideoBindingConfigView {
+    return {
+      nvrs: this.getNvrs(),
+      channels: this.getChannels().map(channel => ({ ...channel })),
+      displayLayout: {
+        columns: this.config.displayLayout.columns,
+        channelIds: [...this.config.displayLayout.channelIds],
+      },
+      aiBoxEnabled: this.config.aiBoxEnabled,
+      updatedAt: this.config.updatedAt,
+    };
   }
 
-  createNvr(data: Omit<NvrDevice, 'id' | 'createdAt'>): NvrDevice {
+  private toNvrView(nvr: NvrDevice): NvrDeviceView {
+    const { password, ...view } = nvr;
+    return { ...view, hasPassword: password.length > 0 };
+  }
+
+  // NVR CRUD
+  getNvrs(): NvrDeviceView[] {
+    return this.config.nvrs.map(nvr => this.toNvrView(nvr));
+  }
+
+  createNvr(data: Omit<NvrDevice, 'id' | 'createdAt'>): NvrDeviceView {
+    if (!data.password) throw new BadRequestException('新建NVR设备必须设置密码');
     const nvr: NvrDevice = {
       ...data,
       id: `nvr-${Date.now()}`,
@@ -174,15 +197,23 @@ export class VideoBindingService implements OnModuleInit {
     };
     this.config.nvrs.push(nvr);
     this.saveConfig();
-    return nvr;
+    return this.toNvrView(nvr);
   }
 
-  updateNvr(id: string, data: Partial<NvrDevice>): NvrDevice | null {
+  updateNvr(id: string, data: Partial<Omit<NvrDevice, 'id' | 'createdAt'>>): NvrDeviceView | null {
     const idx = this.config.nvrs.findIndex(n => n.id === id);
     if (idx === -1) return null;
-    this.config.nvrs[idx] = { ...this.config.nvrs[idx], ...data };
+    const current = this.config.nvrs[idx];
+    const next: NvrDevice = { ...current };
+    for (const field of ['name', 'ip', 'port', 'rtspPort', 'username', 'brand', 'enabled'] as const) {
+      const value = data[field];
+      if (value !== undefined) (next[field] as typeof value) = value;
+    }
+    // 编辑页不会回显密码；空字符串明确表示沿用原值。
+    if (typeof data.password === 'string' && data.password.length > 0) next.password = data.password;
+    this.config.nvrs[idx] = next;
     this.saveConfig();
-    return this.config.nvrs[idx];
+    return this.toNvrView(next);
   }
 
   deleteNvr(id: string): boolean {
@@ -217,9 +248,16 @@ export class VideoBindingService implements OnModuleInit {
   updateChannel(id: string, data: Partial<CameraChannel>): CameraChannel | null {
     const idx = this.config.channels.findIndex(c => c.id === id);
     if (idx === -1) return null;
-    this.config.channels[idx] = { ...this.config.channels[idx], ...data };
+    const next = { ...this.config.channels[idx] };
+    // 旧版 PWA 会回传完整通道视图；这里只接收本编辑接口负责的基础字段，
+    // AI 范围必须通过 updateChannelAi 更新，避免陈旧页面覆盖刚保存的 ROI。
+    for (const field of ['nvrId', 'hikChannel', 'name', 'alias', 'enabled', 'sortOrder'] as const) {
+      const value = data[field];
+      if (value !== undefined) (next[field] as typeof value) = value;
+    }
+    this.config.channels[idx] = next;
     this.saveConfig();
-    return this.config.channels[idx];
+    return next;
   }
 
   deleteChannel(id: string): boolean {

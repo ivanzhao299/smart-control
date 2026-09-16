@@ -44,6 +44,7 @@ jobs:
         working-directory: frontend
         run: |
           pnpm install --frozen-lockfile
+          pnpm run test
           pnpm run typecheck
           pnpm run build
 
