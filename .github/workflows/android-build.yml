@@ -6,8 +6,8 @@
 #   - workflow_dispatch 手动触发
 #
 # 链路 (业主零操作):
-#   1. assembleRelease — 用仓库内固定签名 (android-app/signing/internal.p12),
-#      每次构建同签名, 终端可直接覆盖安装
+#   1. assembleRelease — 用 GitHub Actions secrets 托管的固定签名,
+#      每次构建同一证书, 终端可直接覆盖安装
 #   2. APK + manifest.json 自动提交到 deploy/assets/app/
 #      (路径过滤不含 deploy/**, 不会自触发本工作流)
 #   3. 该提交照常走 deploy-gk9000 部署链 → APK 随 git 落到 GK9000
@@ -39,16 +39,16 @@ jobs:
     name: Build & publish APK
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
           java-version: '17'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Set up Android SDK
         # v4: v3 在新版 runner(cmdline-tools 16)上仍 sdkmanager 装已废弃的 'tools'
@@ -62,11 +62,39 @@ jobs:
         working-directory: android-app
         run: gradle wrapper --gradle-version 8.7
 
-      - name: Build release APK (fixed internal signing)
-        working-directory: android-app
+      - name: Materialize protected signing key
+        env:
+          ANDROID_SIGNING_KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
         run: |
+          set -euo pipefail
+          test -n "$ANDROID_SIGNING_KEYSTORE_BASE64"
+          SIGNING_FILE="$RUNNER_TEMP/smart-control-internal.p12"
+          printf '%s' "$ANDROID_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$SIGNING_FILE"
+          chmod 600 "$SIGNING_FILE"
+          echo "ANDROID_SIGNING_STORE_FILE=$SIGNING_FILE" >> "$GITHUB_ENV"
+
+      - name: Build release APK (protected fixed signing)
+        working-directory: android-app
+        env:
+          ANDROID_SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
           chmod +x ./gradlew
           ./gradlew assembleRelease --no-daemon
+
+      - name: Verify release signing certificate
+        run: |
+          set -euo pipefail
+          APK=android-app/app/build/outputs/apk/release/app-release.apk
+          EXPECTED=B8E4BCFCE594FB84C1280BA7C260A767492D747CA86CA0DD51A577CCE1870D04
+          ACTUAL=$("$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs "$APK" \
+            | awk -F': ' '/Signer #1 certificate SHA-256 digest/{print $2; exit}' \
+            | tr '[:lower:]' '[:upper:]' | tr -d ':')
+          test -n "$ACTUAL"
+          test "$ACTUAL" = "$EXPECTED"
+          echo "Verified Android signing certificate SHA-256: $ACTUAL"
 
       - name: Read version from gradle
         id: ver
@@ -78,13 +106,14 @@ jobs:
           echo "versionCode=$VC versionName=$VN"
 
       - name: Upload APK artifact (兜底手动下载)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: smart-control-v${{ steps.ver.outputs.vn }}-apk
           path: android-app/app/build/outputs/apk/release/app-release.apk
           retention-days: 30
 
       - name: Commit APK into deploy/assets/app (自动发布到展厅)
+        if: github.ref == 'refs/heads/main'
         run: |
           set -e
           # 先把 APK 挪出工作区, 再打扫: "Generate Gradle wrapper" 步骤会改动

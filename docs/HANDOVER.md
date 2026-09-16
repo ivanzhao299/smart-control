@@ -158,7 +158,8 @@ smart-control/
 - `backend/database/*.db` — SQLite 数据
 - `frontend/components.d.ts` — vite-plugin-vue 自动生成, 每次 build 会变, 已 .gitignore (历史 commit 过, 现在拉新分支会冲突, update.ps1 会先 `git checkout` 这个文件)
 - `*.apk`, `*.aab` — Android 产物
-- `*.jks`, `*.keystore` — 签名密钥 (目前用 debug 签名, 没生产 keystore)
+- `*.p12`, `*.jks`, `*.keystore` — 签名私钥不得提交；Android 发布签名由
+  GitHub Actions 的 `ANDROID_SIGNING_*` 加密密钥注入并校验证书指纹
 
 ---
 
@@ -547,7 +548,7 @@ backend 返 `fileUrl: "/api/media/N/file"` 相对路径, 但 frontend 5173 跟 b
 | 中 | **PlayerPage kiosk 是否在跑** | 业主升级后大屏没显示一般是 Chromium 进程挂了. SSH 进 GK9000 看 `pm2 list` 有没有 `sc-player-1/2`, 没有就 `.\scripts\start-players.ps1` |
 | 中 | **Sprint G2 真电表接入** | 当前 power adapter 是 Mock. 现场计划接 DDS866 智能电表, 走 Modbus-RTU. RealPowerAdapter 框架已搭好, 接入只需填寄存器映射 (DDS866 datasheet 业主有) |
 | 中 | **DALI 2F 测试灯调试** | Sprint E 把 LightZone 升格成 DB, "全开/全关 没控制到 2F 测试灯"已修, 但具体灯具的 group 编号要核实 |
-| 低 | **APK 上架 Google Play / 国内应用市场** | 当前用 debug 签名, 装 APK 系统警告"未知来源". 上架要生产 keystore + signingConfigs |
+| 低 | **APK 上架 Google Play / 国内应用市场** | 当前为受控内部签名和内部分发；上架前需规划商店签名托管及现场证书迁移 |
 | 低 | **iOS APP** | 后台 AppRelease 表预留 platform='ios', 但还没写 iOS 壳. 业主当前只 Android |
 | 低 | **代码 DEFAULT_PASSWORD 改成首次随机** | 永远不在 git 里写默认密码. 现已要求接手改. 也可改 backend 让首次启动随机 generate + console 打印 + 强制业主第一次登录改 |
 
