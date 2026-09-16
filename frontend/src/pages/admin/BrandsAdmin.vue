@@ -140,7 +140,7 @@ onMounted(refresh);
     <header class="page-head">
       <div>
         <h2>品牌维护</h2>
-        <p class="sub">设备厂商目录. 启动时自动从硬件清单 / 驱动模板里已有的 vendor 注入, 后台再补 logo / 联系方式 / 备注.</p>
+        <p class="sub">设备厂商目录。新增硬件或自定义驱动时同步建档，可在这里补充 logo、联系方式和备注。</p>
       </div>
       <div class="actions">
         <el-input v-model="search" placeholder="搜索品牌 / 国家" clearable style="width: 240px;" />

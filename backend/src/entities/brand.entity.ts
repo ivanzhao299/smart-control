@@ -16,8 +16,8 @@ import {
  *
  * 这张表把 vendor 升格成一等公民:
  *   - name 跟 hardware_unit.vendor 同字符串匹配 (软关联, 不上 FK 约束)
- *   - 启动时 BrandsService 把现有 hardware_unit / driver_template 里
- *     已用到的 vendor 自动 upsert 进来, 后台再补 logo / 联系方式
+ *   - 默认品牌由版本化迁移建立；新增 hardware_unit / driver_template 引用时
+ *     在同一业务操作中补齐目录，后台再补 logo / 联系方式
  *   - 后续 hardware_unit 表单可以下拉选 brand, 一致性更强
  *
  * 不强制 FK 是为了:

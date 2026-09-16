@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DriverTemplate } from '../../entities/driver-template.entity';
 import type { DriverDescriptor } from '../../adapters/driver-descriptor';
+import { BrandsService } from '../brands/brands.service';
 
 /**
  * 驱动模板的日常查询与非内置模板管理。
@@ -14,6 +15,7 @@ import type { DriverDescriptor } from '../../adapters/driver-descriptor';
 export class DriverRegistryService {
   constructor(
     @InjectRepository(DriverTemplate) private readonly repo: Repository<DriverTemplate>,
+    private readonly brandsService: BrandsService,
   ) {}
 
   /** 列所有 enabled driver, builtin 优先排在前面 */
@@ -32,6 +34,7 @@ export class DriverRegistryService {
   async createNonBuiltin(d: DriverDescriptor): Promise<DriverTemplate> {
     const exists = await this.repo.findOne({ where: { kind: d.kind } });
     if (exists) throw new Error(`driver_template kind 已存在: ${d.kind}`);
+    await this.brandsService.ensureReferenced(d.vendor);
     const row = this.repo.create({
       kind: d.kind,
       displayName: d.displayName,
