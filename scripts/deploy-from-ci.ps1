@@ -399,6 +399,7 @@ function Get-DeployScope([string]$FromCommit, [string]$ToCommit) {
     if ($f -match $highRiskPattern) { $s.highRisk = $true }
     elseif ($f -match '^frontend/public/park-ops/') { $s.parkOpsStatic = $true }
     elseif ($f -match '^frontend/public/') { $s.frontendPublic = $true }
+    elseif ($f -match '^frontend/tests/' -or $f -match '^backend/test/' -or $f -match '^backend/src/.+\.spec\.ts$') { $s.docs = $true }
     elseif ($f -match '^frontend/(src/|index\.html|vite\.config|tsconfig)') { $s.frontendCode = $true }
     elseif ($f -match '^backend/src/') { $s.backendCode = $true }
     elseif ($f -match '^docs/' -or $f -match '(^|/)(README|CHANGELOG|HANDOVER|MEMORY)\.md$') { $s.docs = $true }
@@ -429,20 +430,44 @@ function Copy-PreviousFrontendAssets([string]$SourceDist, [string]$TargetDist) {
   $sourceWorker = Join-Path $SourceDist 'sw.js'
   if (-not (Test-Path $sourceWorker)) { return }
   $workerText = Get-Content -Path $sourceWorker -Raw
-  $matches = [regex]::Matches($workerText, '"url":"([^"?]+)"')
+  # Workbox currently minifies entries as {url:"..."}; older output and tests may
+  # use {"url":"..."}. Accept both property forms or the retention gate silently
+  # finds zero assets and an already-open PWA loses its old lazy chunks.
+  $matches = [regex]::Matches($workerText, '(?:"url"|url)\s*:\s*"([^"?]+)"')
+  $sourceRoot = [IO.Path]::GetFullPath($SourceDist).TrimEnd('\') + '\'
+  $targetRoot = [IO.Path]::GetFullPath($TargetDist).TrimEnd('\') + '\'
+  $expected = 0
   $copied = 0
   foreach ($match in $matches) {
     $relative = $match.Groups[1].Value.Replace('/', '\')
     if ($relative -notlike 'assets\*') { continue }
-    $source = Join-Path $SourceDist $relative
-    $target = Join-Path $TargetDist $relative
-    if ((Test-Path $source) -and -not (Test-Path $target)) {
+    $expected++
+    $source = [IO.Path]::GetFullPath((Join-Path $SourceDist $relative))
+    $target = [IO.Path]::GetFullPath((Join-Path $TargetDist $relative))
+    if (-not $source.StartsWith($sourceRoot, [StringComparison]::OrdinalIgnoreCase) -or
+        -not $target.StartsWith($targetRoot, [StringComparison]::OrdinalIgnoreCase)) {
+      throw "Previous PWA asset path escapes dist: $relative"
+    }
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+      throw "Previous PWA asset is missing from rollback snapshot: $relative"
+    }
+    if (-not (Test-Path -LiteralPath $target)) {
       New-Item -ItemType Directory -Force -Path (Split-Path $target -Parent) | Out-Null
-      Copy-Item -Path $source -Destination $target -Force
+      Copy-Item -LiteralPath $source -Destination $target
       $copied++
     }
   }
-  Write-DeployLog "Preserved $copied asset(s) from the previous PWA release."
+  if ($expected -eq 0) {
+    throw 'Previous PWA service worker contains no local asset entries.'
+  }
+  foreach ($match in $matches) {
+    $relative = $match.Groups[1].Value.Replace('/', '\')
+    if ($relative -like 'assets\*' -and
+        -not (Test-Path -LiteralPath (Join-Path $TargetDist $relative) -PathType Leaf)) {
+      throw "Previous PWA asset was not retained: $relative"
+    }
+  }
+  Write-DeployLog "Preserved $copied of $expected asset(s) from the previous PWA release."
 }
 
 function Deploy-FrontendOnly($projectRoot) {

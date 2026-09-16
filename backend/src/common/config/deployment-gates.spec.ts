@@ -205,6 +205,9 @@ describe('GK9000 deployment gates', () => {
 
   it('reconciles PM2 environment and keeps the previous PWA asset generation', () => {
     const deploy = readRepositoryFile('scripts/deploy-from-ci.ps1');
+    const matcherSource = deploy.match(
+      /\$matches = \[regex\]::Matches\(\$workerText, '([^']+)'\)/,
+    )?.[1];
 
     expect(deploy).toContain("@('start', $eco, '--env', 'production', '--update-env')");
     expect(deploy).toContain(
@@ -214,7 +217,30 @@ describe('GK9000 deployment gates', () => {
     expect(deploy).toContain(
       'Copy-PreviousFrontendAssets $previousFrontendDist $currentFrontendDist',
     );
+    expect(matcherSource).toBeDefined();
+    const matcher = new RegExp(matcherSource!, 'g');
+    const fixture =
+      'precacheAndRoute([{url:"assets/new.js",revision:null},{"url":"assets/legacy.css","revision":null}])';
+    expect(Array.from(fixture.matchAll(matcher), (match) => match[1])).toEqual([
+      'assets/new.js',
+      'assets/legacy.css',
+    ]);
+    expect(deploy).toContain("if ($expected -eq 0) {");
+    expect(deploy).toContain('Previous PWA asset path escapes dist');
+    expect(deploy).toContain('Previous PWA asset is missing from rollback snapshot');
+    expect(deploy).toContain('Previous PWA asset was not retained');
     expect(deploy).toContain("Get-ChildItem -Path $legacyDataDir -Filter '*.json.bak'");
+  });
+
+  it('does not escalate non-runtime tests into a full production restart', () => {
+    const deploy = readRepositoryFile('scripts/deploy-from-ci.ps1');
+    const testClassification = deploy.indexOf("$f -match '^frontend/tests/'");
+    const backendSourceClassification = deploy.indexOf("$f -match '^backend/src/'");
+
+    expect(testClassification).toBeGreaterThan(-1);
+    expect(deploy).toContain("$f -match '^backend/test/'");
+    expect(deploy).toContain("$f -match '^backend/src/.+\\.spec\\.ts$'");
+    expect(testClassification).toBeLessThan(backendSourceClassification);
   });
 
   it('records the verified release outside the worktree without mutating verify-only runs', () => {
