@@ -22,7 +22,7 @@
 
 | 阶段 | 范围 | 交付门槛 | 状态 |
 |---|---|---|---|
-| 0 | 安全与质量基线 | 前后端测试进入 CI；敏感配置不回传；配置写入仅管理员；离线资源无外网依赖 | 进行中（依赖分批治理） |
+| 0 | 安全与质量基线 | 前后端测试进入 CI；敏感配置不回传；配置写入仅管理员；离线资源无外网依赖 | 进行中（P0-C4 远端验收） |
 | 1 | 数据单一来源与数据库收敛 | 数据目录清单唯一；JSON 写入统一；SQLite 迁移版本化；移除启动 DDL；恢复演练通过 | 进行中 |
 | 2 | 模块、API 与前端结构收敛 | 拆分超大模块；统一 DTO/错误/权限；路由与预取单一声明；契约测试覆盖关键链路 | 待开始 |
 | 3 | 发布与可观测性成熟化 | 不可变制品；分离代码与数据；部署状态机；指标、日志、告警和审计链完整 | 待开始 |
@@ -54,7 +54,7 @@
 - [x] 制定签名密钥轮换和已安装客户端升级方案。
 - [x] 生产部署在代码切换前保护历史上被 Git 跟踪的 WAL、SHM、日志标记文件。
 - [x] 安全部署脚本验证通过后，从版本库移除运行时 WAL、SHM、日志和标记文件。
-- [ ] 按[兼容矩阵](./DEPENDENCY_COMPATIBILITY_MATRIX_2026-09-16.md)分批升级依赖，每批独立运行全量验证（后端 P0-C1、前端 P0-C2 已上线；Nest 11 P0-C3 已完成本地验证，待远端与生产验证；P0-C4 补齐 SBOM）。
+- [ ] 按[兼容矩阵](./DEPENDENCY_COMPATIBILITY_MATRIX_2026-09-16.md)分批升级依赖，每批独立运行全量验证（P0-C1、P0-C2、P0-C3 已上线；P0-C4 已实现 SBOM 与定期更新，待远端验收）。
 
 ### 0D. 公共接口最小化
 
@@ -120,4 +120,5 @@
 | P0-B | CORS 允许列表、HLS 控制面收口、部署验收纠偏 | 不迁移；部署前 SQLite 与运行时 JSON 已备份 | 前端 52 项；后端 633 项；双端构建通过 | `769564b`、`3bcc63f`；[#23](https://github.com/ivanzhao299/smart-control/pull/23)、[#24](https://github.com/ivanzhao299/smart-control/pull/24)；[生产部署通过](https://github.com/ivanzhao299/smart-control/actions/runs/35050942659) |
 | P0-C1 | 后端生产依赖安全升级、删除冗余 `sqlite3` 驱动、critical/high 审计门禁 | 不迁移、不改写生产数据；仍使用同一 `better-sqlite3` 驱动和迁移链 | 后端 640 项；构建通过；空库 26 个迁移、40 张表、完整性 `ok`；生产审计由 1 critical/23 high 降为 0/0 | `17fc232`；[#31](https://github.com/ivanzhao299/smart-control/pull/31)；[生产部署通过](https://github.com/ivanzhao299/smart-control/actions/runs/35059184185)，备份 `D:\smart-control-backups\20260916-132423\sqlite-SVKzz4\database.sqlite` |
 | P0-C2 | 前端生产依赖安全升级、删除 npm 重复锁文件、双端 critical/high 审计门禁 | 不迁移、不改写生产数据；上传和 PWA 运行逻辑不变 | 前端审计 15 条降为 0；52 项测试、类型检查、PWA 构建；后端门禁回归与构建通过 | `87006f9`；[#32](https://github.com/ivanzhao299/smart-control/pull/32)；[生产部署通过](https://github.com/ivanzhao299/smart-control/actions/runs/35060409150)，备份 `D:\smart-control-backups\20260916-134235\sqlite-vHTojs\database.sqlite` |
-| P0-C3 | Nest 10 升级至 Nest 11.2.5，Express 运行时与类型统一到 5.x，消除最后一项后端公告 | 不迁移、不改写生产数据；API、实体与迁移链不变 | 后端审计 0 项；60 套件/642 项；构建；空库 26 个迁移、39 张非内部表、完整性 `ok`；真实启动、健康接口、关闭钩子；前端 52 项、类型检查、PWA 构建 | 待 PR、远端 CI 和生产部署完成后补充 |
+| P0-C3 | Nest 10 升级至 Nest 11.2.5，Express 运行时与类型统一到 5.x，消除最后一项后端公告 | 不迁移、不改写生产数据；API、实体与迁移链不变 | 后端审计 0 项；60 套件/642 项；构建；空库 26 个迁移、39 张非内部表、完整性 `ok`；真实启动、健康接口、关闭钩子；前端 52 项、类型检查、PWA 构建 | `f887d98`；[#33](https://github.com/ivanzhao299/smart-control/pull/33)；[生产部署通过](https://github.com/ivanzhao299/smart-control/actions/runs/35061455797)，备份 `D:\smart-control-backups\20260916-135811\sqlite-4b2Yhg\database.sqlite` |
+| P0-C4 | SPDX SBOM、每周受控依赖更新、GitHub Actions 与 pnpm 版本统一 | 不迁移、不改写生产数据；自动更新只提 PR、不自动合并；纯文档/工作流变更不触发现场部署 | 后端 SBOM 310 包/619 关系，前端 82 包/163 关系；双端生产审计 0 项；后端 643 项、前端 52 项、类型检查和双端构建通过 | 待 PR 与远端任务完成后补充 |

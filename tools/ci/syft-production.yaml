@@ -1,0 +1,8 @@
+# The production node_modules trees are materialized before scanning. Reading
+# pnpm-lock.yaml as well would add dev-only entries and duplicate installed
+# packages, so the SBOM intentionally uses installed package manifests only.
+select-catalogers:
+  - +javascript-package-cataloger
+  - -javascript-lock-cataloger
+  - -github-action-workflow-usage-cataloger
+  - -github-actions-usage-cataloger
