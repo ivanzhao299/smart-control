@@ -54,7 +54,7 @@
 - [x] 制定签名密钥轮换和已安装客户端升级方案。
 - [x] 生产部署在代码切换前保护历史上被 Git 跟踪的 WAL、SHM、日志标记文件。
 - [x] 安全部署脚本验证通过后，从版本库移除运行时 WAL、SHM、日志和标记文件。
-- [ ] 按[兼容矩阵](./DEPENDENCY_COMPATIBILITY_MATRIX_2026-09-16.md)分批升级高危依赖，每批独立运行全量验证（后端 P0-C1 已上线，前端 P0-C2 已完成本地验证，Nest 中危框架项继续）。
+- [ ] 按[兼容矩阵](./DEPENDENCY_COMPATIBILITY_MATRIX_2026-09-16.md)分批升级依赖，每批独立运行全量验证（后端 P0-C1、前端 P0-C2 已上线；Nest 11 P0-C3 已完成本地验证，待远端与生产验证；P0-C4 补齐 SBOM）。
 
 ### 0D. 公共接口最小化
 
@@ -119,4 +119,5 @@
 | P0-A | 前端测试门禁、运营大屏离线资源、视频绑定权限与密码脱敏 | 不迁移、不改写现有运行时数据 | 前端 51 项、类型检查、生产构建；后端 624 项、生产构建通过 | `ad35bc5`；[远端 CI 通过](https://github.com/ivanzhao299/smart-control/actions/runs/35048118648) |
 | P0-B | CORS 允许列表、HLS 控制面收口、部署验收纠偏 | 不迁移；部署前 SQLite 与运行时 JSON 已备份 | 前端 52 项；后端 633 项；双端构建通过 | `769564b`、`3bcc63f`；[#23](https://github.com/ivanzhao299/smart-control/pull/23)、[#24](https://github.com/ivanzhao299/smart-control/pull/24)；[生产部署通过](https://github.com/ivanzhao299/smart-control/actions/runs/35050942659) |
 | P0-C1 | 后端生产依赖安全升级、删除冗余 `sqlite3` 驱动、critical/high 审计门禁 | 不迁移、不改写生产数据；仍使用同一 `better-sqlite3` 驱动和迁移链 | 后端 640 项；构建通过；空库 26 个迁移、40 张表、完整性 `ok`；生产审计由 1 critical/23 high 降为 0/0 | `17fc232`；[#31](https://github.com/ivanzhao299/smart-control/pull/31)；[生产部署通过](https://github.com/ivanzhao299/smart-control/actions/runs/35059184185)，备份 `D:\smart-control-backups\20260916-132423\sqlite-SVKzz4\database.sqlite` |
-| P0-C2 | 前端生产依赖安全升级、删除 npm 重复锁文件、双端 critical/high 审计门禁 | 不迁移、不改写生产数据；上传和 PWA 运行逻辑不变 | 前端审计 15 条降为 0；52 项测试、类型检查、PWA 构建；后端门禁回归与构建通过 | 待 PR、远端 CI 和生产部署完成后补充 |
+| P0-C2 | 前端生产依赖安全升级、删除 npm 重复锁文件、双端 critical/high 审计门禁 | 不迁移、不改写生产数据；上传和 PWA 运行逻辑不变 | 前端审计 15 条降为 0；52 项测试、类型检查、PWA 构建；后端门禁回归与构建通过 | `87006f9`；[#32](https://github.com/ivanzhao299/smart-control/pull/32)；[生产部署通过](https://github.com/ivanzhao299/smart-control/actions/runs/35060409150)，备份 `D:\smart-control-backups\20260916-134235\sqlite-vHTojs\database.sqlite` |
+| P0-C3 | Nest 10 升级至 Nest 11.2.5，Express 运行时与类型统一到 5.x，消除最后一项后端公告 | 不迁移、不改写生产数据；API、实体与迁移链不变 | 后端审计 0 项；60 套件/642 项；构建；空库 26 个迁移、39 张非内部表、完整性 `ok`；真实启动、健康接口、关闭钩子；前端 52 项、类型检查、PWA 构建 | 待 PR、远端 CI 和生产部署完成后补充 |
