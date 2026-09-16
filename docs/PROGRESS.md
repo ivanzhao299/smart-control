@@ -58,7 +58,7 @@ Windows 生产部署体系（GK9000 工控机, `D:\smart-control\`）。
 
 ## 阶段五：双端 App 发布链（2026-07-27~28）
 
-- **Android v1.1.3**：CI 固定签名（`android-app/signing/internal.p12`）→ APK 自动
+- **Android v1.1.3**：CI 加密密钥托管固定签名并校验证书指纹 → APK 自动
   提交 `deploy/assets/app/` → 随部署链落 GK9000 → 后端 `/api/app/android/download`
   内网直发 + 启动自愈升版本记录 → 终端 App 弹更新。注意：签名切换版，
   终端首次需卸载旧版再装，之后可覆盖升级。

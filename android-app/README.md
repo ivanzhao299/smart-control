@@ -25,9 +25,9 @@
 
 仓库已配 `.github/workflows/android-build.yml`, push 改动后全自动:
 
-1. `assembleRelease` — 用仓库内**固定签名** `signing/internal.p12`
-   (内部分发密钥, 非机密; 每次构建同签名, 终端可直接覆盖安装升级。
-   此前用 assembleDebug, 每台 CI runner 的 debug 签名都不同, 覆盖安装必失败)
+1. `assembleRelease` — 使用 GitHub Actions 加密密钥托管的固定内部签名。
+   每次构建后校验证书 SHA-256，保持与已安装终端相同，可直接覆盖升级；
+   私钥和口令不进入仓库、构建产物或日志。
 2. APK + manifest.json 自动提交到 `deploy/assets/app/` → 随部署链落到 GK9000
 3. 后端启动自愈: 仓库带的版本比库里新 → 更新 `app_release` 表,
    downloadUrl 指向展厅本地 `/api/app/android/download`
@@ -45,18 +45,11 @@ push main, 等两轮 CI 跑绿即可。Actions 页面仍留 artifact 兜底。
 4. Build → Build Bundle(s) / APK(s) → Build APK(s)
 5. APK 输出: `app/build/outputs/apk/debug/app-debug.apk`
 
-### Release 签名 (上架 Google Play 或正式分发)
+### Release 签名
 
-```bash
-# 1. 生成 keystore (一次性, 妥善保管)
-keytool -genkey -v -keystore jinhu-release.jks \
-  -keyalg RSA -keysize 2048 -validity 10000 \
-  -alias jinhu
-
-# 2. app/build.gradle.kts 加 signingConfigs (查 Android 文档)
-# 3. ./gradlew assembleRelease
-# 4. 输出: app/build/outputs/apk/release/app-release.apk
-```
+CI 使用四个 `ANDROID_SIGNING_*` 仓库密钥注入 PKCS#12 文件与口令，详情见
+`signing/README.md`。本地默认只构建采用 Android Studio 调试证书的 debug APK；
+本地 release 构建必须显式提供同名环境变量，缺失或配置不完整会直接失败。
 
 ## 业主操作
 
@@ -97,7 +90,8 @@ android-app/
 
 - **不能强制全屏**: Android 系统 immersive mode 业主上滑能调出状态栏 (Android 设计如此, 不能根本禁)
 - **HTTP cleartext**: 默认允许任意 HTTP. 正式上线 Play Store 应限定到具体域名 (改 network_security_config.xml)
-- **签名**: 当前 debug build, 用 Android 默认 debug keystore. 生产分发需自签
+- **签名轮换**: 当前证书已安装在现场终端。更换证书前必须验证真实设备升级路径；
+  Android 7+ 全量兼容方案通常需要维护窗口卸载重装并先导出必要配置。
 
 ## 后续可加
 

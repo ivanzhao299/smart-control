@@ -19,6 +19,33 @@ describe('GK9000 deployment gates', () => {
     expect(tracked).toEqual([]);
   });
 
+  it('keeps Android release signing material in encrypted CI secrets', () => {
+    const trackedSigningFiles = execFileSync('git', ['ls-files', 'android-app/signing'], {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+    })
+      .trim()
+      .split('\n')
+      .filter(Boolean);
+    const gradle = readRepositoryFile('android-app/app/build.gradle.kts');
+    const workflow = readRepositoryFile('.github/workflows/android-build.yml');
+
+    expect(trackedSigningFiles).toEqual(['android-app/signing/README.md']);
+    expect(gradle).not.toContain('signing/internal.p12');
+    expect(gradle).not.toContain('jinhu-internal');
+    expect(gradle).toContain('ANDROID_SIGNING_STORE_FILE');
+    expect(workflow).toContain('secrets.ANDROID_SIGNING_KEYSTORE_BASE64');
+    expect(workflow).toContain('Verify release signing certificate');
+    expect(workflow).toContain("if: github.ref == 'refs/heads/main'");
+    expect(workflow).toContain('actions/checkout@v7');
+    expect(workflow).toContain('actions/setup-java@v6');
+    expect(workflow).toContain('gradle/actions/setup-gradle@v6');
+    expect(workflow).toContain('actions/upload-artifact@v7');
+    expect(workflow).toContain(
+      'B8E4BCFCE594FB84C1280BA7C260A767492D747CA86CA0DD51A577CCE1870D04',
+    );
+  });
+
   it('keeps destructive workspace cleanup out of the jump host and dispatcher', () => {
     const jump = readRepositoryFile('deploy/aliyun-gk9000-jump-deploy.sh');
     const dispatcher = readRepositoryFile('deploy/windows-ci-dispatch.ps1');
