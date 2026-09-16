@@ -20,6 +20,12 @@ import { useSystemStore } from '@/stores/system';
 import { useSceneStore } from '@/stores/scene';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { useToastStore } from '@/stores/toast';
+import {
+  idleMainRouteNames,
+  loadMainRoute,
+  mainNavigationItems,
+  mainRoutePrefetchApis,
+} from '@/router/main-route-manifest';
 
 const route = useRoute();
 const router = useRouter();
@@ -33,28 +39,16 @@ const conn = useConnectionStore();
 
 /**
  * 2026-05-31 性能优化: 应用 mount 后 idle 预取常用页 chunk.
- * 业主进入首页 800ms 后浏览器空闲, 偷偷把灯光/LED/音响/空调/电源/媒体/状态
- * 6 个常用页 chunk 都下载下来. 之后切菜单是"打开缓存", 不再有 300ms 黑屏.
+ * 业主进入首页 800ms 后浏览器空闲, 按路由清单依次下载所有非首页可见页 chunk.
+ * 之后切菜单是"打开缓存", 不再有 300ms 黑屏；新增页面不会再漏配预取项.
  * 不阻塞首屏渲染, 失败也无所谓 (路由懒加载兜底).
  */
 function prefetchMainPages(): void {
-  const tasks = [
-    () => import('@/pages/LightingPage.vue'),
-    () => import('@/pages/LedPage.vue'),
-    // 2026-07-27 业主: "投影仪页面切不过去"。根因: 本列表漏了投影仪页 —— 部署换掉
-    // 带哈希的 chunk 文件名后, 其他页早已预取进内存照常能切, 唯独投影仪页点击时才
-    // 按旧文件名去拿 → 404 → 路由静默中止。主菜单页必须全部进预取名单。
-    () => import('@/pages/ProjectorPage.vue'),
-    () => import('@/pages/AudioPage.vue'),
-    () => import('@/pages/HvacPage.vue'),
-    () => import('@/pages/PowerPage.vue'),
-    () => import('@/pages/MediaPage.vue'),
-    () => import('@/pages/StatusPage.vue'),
-  ];
+  const tasks = idleMainRouteNames.map((name) => () => loadMainRoute(name));
   const runNext = () => {
     const t = tasks.shift();
     if (!t) return;
-    t().catch(() => { /* 失败无所谓 */ }).finally(() => {
+    t()?.catch(() => { /* 失败无所谓 */ }).finally(() => {
       const ric = (window as unknown as { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback;
       if (typeof ric === 'function') ric(runNext);
       else setTimeout(runNext, 400);
@@ -201,40 +195,17 @@ function onVisibleRecheck(): void {
 }
 
 /** hover/touch 时立刻 prefetch 对应路由 chunk — 比 click 早 ~200ms */
-const ROUTE_PREFETCH: Record<string, () => Promise<unknown>> = {
-  dashboard: () => import('@/pages/DashboardPage.vue'),
-  lighting: () => import('@/pages/LightingPage.vue'),
-  led: () => import('@/pages/LedPage.vue'),
-  projector: () => import('@/pages/ProjectorPage.vue'),
-  audio: () => import('@/pages/AudioPage.vue'),
-  hvac: () => import('@/pages/HvacPage.vue'),
-  power: () => import('@/pages/PowerPage.vue'),
-  media: () => import('@/pages/MediaPage.vue'),
-  status: () => import('@/pages/StatusPage.vue'),
-  'admin-devices': () => import('@/layouts/AdminLayout.vue'),
-};
 const prefetched = new Set<string>();
-/** hover/touch 时同时 prefetch chunk + 数据 — 等 click 时两者都已 ready */
-const NAV_API_PREFETCH: Record<string, string[]> = {
-  lighting: ['/control/api/light-zones'],
-  power: ['/control/api/power-circuits'],
-  hvac: ['/control/api/devices?category=hvac-zone'],
-  led: ['/control/api/devices?category=led'],
-  audio: ['/control/api/devices?category=audio-zone'],
-  media: ['/control/api/media?pageSize=50'],
-  status: ['/control/api/system/info'],
-};
 function prefetchRoute(name: string): void {
   if (prefetched.has(name)) return;
-  const fn = ROUTE_PREFETCH[name];
-  if (!fn) return;
+  const pending = name === 'admin-devices'
+    ? import('@/layouts/AdminLayout.vue')
+    : loadMainRoute(name);
+  if (!pending) return;
   prefetched.add(name);
-  fn().catch(() => { prefetched.delete(name); });
+  pending.catch(() => { prefetched.delete(name); });
   // 同时 prefetch 该页用到的 API
-  const apis = NAV_API_PREFETCH[name];
-  if (apis) {
-    for (const url of apis) fetch(url).catch(() => {});
-  }
+  for (const url of mainRoutePrefetchApis(name)) fetch(url).catch(() => {});
 }
 
 // Auto-enter 全屏: 用户首次 click/touch/keydown 后自动 request fullscreen.
@@ -246,17 +217,9 @@ const fsSupported = fs.isSupported;
 function toggleFullscreen(): void { void fs.toggle(); }
 
 // v2 侧导航 - 只 icon (跟 mockup 一致), title 给 hover tooltip
-const navItems: Array<{ name: string; label: string; section?: 'main' | 'tools' }> = [
-  { name: 'dashboard', label: '首页', section: 'main' },
-  { name: 'lighting', label: '灯光', section: 'main' },
-  { name: 'led', label: 'LED 大屏', section: 'main' },
-  { name: 'projector', label: '投影仪', section: 'main' },
-  { name: 'audio', label: '音响', section: 'main' },
-  { name: 'hvac', label: '空调', section: 'main' },
-  { name: 'power', label: '电源', section: 'main' },
-  { name: 'media', label: '媒体', section: 'tools' },
-  { name: 'status', label: '状态', section: 'tools' },
-  { name: 'admin-devices', label: '后台', section: 'tools' },
+const navItems = [
+  ...mainNavigationItems,
+  { name: 'admin-devices', label: '后台', section: 'tools' as const },
 ];
 const mainNavs = navItems.filter((n) => n.section === 'main');
 const toolNavs = navItems.filter((n) => n.section === 'tools');
