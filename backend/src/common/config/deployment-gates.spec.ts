@@ -170,6 +170,35 @@ describe('GK9000 deployment gates', () => {
     );
   });
 
+  it('publishes validated production SBOMs without redeploying workflow-only changes', () => {
+    const supplyChain = readRepositoryFile('.github/workflows/software-supply-chain.yml');
+    const syftConfig = readRepositoryFile('tools/ci/syft-production.yaml');
+    const dependabot = readRepositoryFile('.github/dependabot.yml');
+    const deployWorkflow = readRepositoryFile('.github/workflows/deploy-gk9000.yml');
+
+    expect(supplyChain).toContain('pnpm install --frozen-lockfile --prod --ignore-scripts');
+    expect(supplyChain).toContain(
+      'anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610',
+    );
+    expect(supplyChain).toContain('syft-version: v1.51.1');
+    expect(supplyChain).toContain('github.event.pull_request.head.sha || github.sha');
+    expect(supplyChain).toContain('Validate SBOM completeness and provenance');
+    expect(supplyChain).toContain('if-no-files-found: error');
+    expect(syftConfig).toContain('-javascript-lock-cataloger');
+    expect(syftConfig).toContain('-github-actions-usage-cataloger');
+    expect(dependabot).toContain('interval: weekly');
+    expect(dependabot).not.toContain('automerge');
+    expect(deployWorkflow).toContain("- '.github/**'");
+    expect(deployWorkflow).toContain("- 'docs/**'");
+
+    const workflows = execFileSync(
+      'git',
+      ['grep', '-h', '-E', 'uses: (actions/(checkout|setup-node|upload-artifact|download-artifact)|pnpm/action-setup)@', '--', '.github/workflows'],
+      { cwd: repositoryRoot, encoding: 'utf8' },
+    );
+    expect(workflows).not.toMatch(/@(v4|v5)\b/);
+  });
+
   it('keeps production verification truthful and read only', () => {
     const verify = readRepositoryFile('scripts/verify-deploy.js');
 

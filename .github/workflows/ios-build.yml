@@ -36,7 +36,7 @@ jobs:
     # project file format"), 2026-07-24 首跑就是这么挂的。
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -68,7 +68,7 @@ jobs:
           ls -la SmartControl-unsigned.ipa
 
       - name: Upload IPA artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: SmartControl-unsigned-ipa
           path: ios-app/SmartControl-unsigned.ipa
@@ -100,7 +100,7 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: steps.gate.outputs.run == 'true'
 
       - name: Install XcodeGen
