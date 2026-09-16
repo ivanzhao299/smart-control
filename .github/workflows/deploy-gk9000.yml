@@ -8,6 +8,7 @@ on:
       - '.github/**'
       - 'docs/**'
       - '*.md'
+      - 'android-app/**'
       - 'backend/**/*.spec.ts'
       - 'frontend/tests/**'
       - 'tools/ci/**'
