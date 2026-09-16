@@ -163,6 +163,8 @@ describe('GK9000 deployment gates', () => {
     expect(assertStopped).toContain("throw 'Unexpected migration controller.'");
     expect(assertStopped).toContain('$controllerPid = $controller.ProcessId');
     expect(assertStopped).toContain('reconcile-held-gk9000-release');
+    expect(assertStopped).toContain('smart-control-ci-dispatch\\.ps1');
+    expect(assertStopped).toContain('$dispatcherMatch.Groups[1].Value -eq $currentRevision');
     expect(deploy).toContain("$pm2FailClosed = 'C:\\Users\\user\\AppData\\Roaming\\npm\\pm2.cmd'");
     expect(deploy).toContain("Invoke-Native $pm2FailClosed @('kill')");
     expect(deploy).toContain(

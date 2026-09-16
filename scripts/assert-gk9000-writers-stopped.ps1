@@ -33,8 +33,15 @@ if ($MigrationPid) {
   # the candidate. Allow only its verified direct parent; every other deployment,
   # update or backup process is still rejected below.
   $controller = $processes | Where-Object { $_.ProcessId -eq $caller.ParentProcessId }
+  $controllerCommand = [string]$controller.CommandLine
+  $repoController = $controllerCommand -match '(?i)[\\/]smart-control[\\/]scripts[\\/](deploy-from-ci|reconcile-held-gk9000-release)\.ps1[''"]?(?:\s|$)'
+  $dispatcherPattern = '(?i)(?:^|\s)-File\s+[''"]?C:\\ProgramData\\Anksen\\smart-control-ci-dispatch\.ps1[''"]?\s+-Action\s+gk9000-deploy\s+-Commit\s+[''"]?([a-f0-9]{40})[''"]?(?:\s|$)'
+  $dispatcherMatch = [regex]::Match($controllerCommand, $dispatcherPattern)
+  $currentRevision = (& git -C $ProjectRoot rev-parse HEAD).Trim()
+  $verifiedDispatcher = $dispatcherMatch.Success -and
+    $dispatcherMatch.Groups[1].Value -eq $currentRevision
   if ($controller.Name -notin @('powershell.exe', 'pwsh.exe') -or
-      [string]$controller.CommandLine -notmatch '(?i)[\\/]smart-control[\\/]scripts[\\/](deploy-from-ci|reconcile-held-gk9000-release)\.ps1(?:\s|$)') {
+      (-not $repoController -and -not $verifiedDispatcher)) {
     throw 'Unexpected migration controller.'
   }
   $controllerPid = $controller.ProcessId
