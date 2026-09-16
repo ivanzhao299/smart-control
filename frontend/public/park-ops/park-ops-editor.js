@@ -82,6 +82,7 @@
 
   const defaults = defaultConfig();
   let config = clone(defaults);
+  let remoteRevision = 0;
   let selectedPhaseId = config.phases[0].id;
   let selectedBuildingId = config.buildings[0]?.id || '';
   let selectedPointIndex = 0;
@@ -304,6 +305,7 @@
       const response = await fetch(`${apiBase()}/system-branding/park-ops`, { cache: 'no-store' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const payload = await response.json();
+      remoteRevision = Number.isInteger(payload?.data?.revision) ? payload.data.revision : 0;
       applyConfig(payload?.data?.config || defaults);
       if (!quiet) setStatus(payload?.data?.config ? '已加载服务端共享配置' : '尚未保存，当前使用内置初始配置', 'ok');
     } catch (error) {
@@ -864,7 +866,7 @@
       const response = await fetch(`${apiBase()}/system-branding/park-ops`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify(config),
+        body: JSON.stringify({ config, expectedRevision: remoteRevision }),
       });
       const payload = await response.json().catch(() => ({}));
       if (response.status === 401) {
@@ -875,7 +877,11 @@
         editor.querySelector('#pe-login').hidden = false;
         throw new Error('管理员会话已失效，请返回控制系统重新登录，或点击“管理员登录后返回”');
       }
+      if (response.status === 409) {
+        throw new Error('服务端布局已被其他管理员更新，请刷新页面后再编辑');
+      }
       if (!response.ok) throw new Error(payload?.message || `HTTP ${response.status}`);
+      remoteRevision = Number.isInteger(payload?.data?.revision) ? payload.data.revision : remoteRevision;
       applyConfig(payload?.data?.config || config);
       setStatus('保存成功；LED、投影和其它浏览器将在 15 秒内同步', 'ok');
     } catch (error) {
