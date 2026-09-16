@@ -24,7 +24,7 @@ const emit = defineEmits<{
 }>();
 
 const LED_LONG_EDGE = 1920;
-const securePublicUrl = (import.meta.env.VITE_SECURE_PUBLIC_URL ?? '').trim();
+const securePublicUrl = (import.meta.env.VITE_SECURE_PUBLIC_URL ?? 'https://park.cnjinhu.com/control/').trim();
 const secureContext = window.isSecureContext;
 type Phase = 'idle' | 'loading' | 'live' | 'capturing' | 'preview' | 'error';
 

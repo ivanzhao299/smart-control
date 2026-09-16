@@ -70,7 +70,7 @@ function readInitialBaseURL(): string {
       // 反代域名场景 (公网 erp.cnjinhu.top:8443 等): 页面不在 5173 上说明走的是
       // nginx 统一入口, /api 由同一入口反代到 backend — API 直接同源, 零配置。
       if (port !== '5173') {
-        const scopedHosts = (import.meta.env.VITE_SCOPED_API_HOSTS ?? '')
+        const scopedHosts = (import.meta.env.VITE_SCOPED_API_HOSTS ?? 'park.cnjinhu.com')
           .split(',')
           .map((host) => host.trim().toLowerCase())
           .filter(Boolean);
