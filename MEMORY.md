@@ -7,7 +7,7 @@
 
 ## 当前代码上下文（2026-09-17，优先于以下历史快照）
 
-- 当前生产 Git 基线为 `6804d6f`（PR #72）。后端 3200、前端 5173、PM2 守护和计划任务均通过权威验证；`RELEASE_HOLD` 不存在。生产健康接口为 200，38 台设备在线、0 离线，六路 HLS 持续出片。SQLite 共 36 个迁移，`integrity_check=ok`、外键违规 0。
+- 当前生产 Git 基线为 `65d67d0`（PR #74）。后端 3200、前端 5173、PM2 守护和计划任务均通过权威验证；`RELEASE_HOLD` 不存在。生产健康接口为 200，38 台设备在线、0 离线，六路 HLS 运行中且零重启。SQLite 共 37 个迁移，`integrity_check=ok`、外键违规 0。
 - 阶段 P1-A3 已完成：视频绑定、2 台 NVR、6 路通道、HLS、截图、检测线与 ROI 收敛到 SQLite 的 `video.binding` 单一权威文档；后台编辑只写数据库并保留 revision、校验和及操作者历史，旧 JSON 仅作为已冻结的迁移来源。
 - 生产已执行 `ImportVideoBindingRuntimeConfig1789560000000`，迁移总数 28；`video.binding` 为 schema v1 / revision 1，当前文档与唯一历史记录校验和一致，`integrity_check=ok`、外键违规 0。源 `video-binding.json` SHA-256 保持 `febfdd42ad95319a5b993bf6ffeb65a38a52695b32d50f195092bf03abddac2f`，其归一化内容与 SQLite 逐字段一致。
 - PR #40（`f7ddd8d`）首次真实迁移在停写复核处安全失败，未改数据库；PR #41/#42/#43 分别修正控制器父进程判定、PowerShell 5.1 原生错误采集和绝对迁移入口。随后在原 hold 下完成同一次恢复演练、迁移、回执和激活，未删除 hold 重跑、未回滚数据。
@@ -36,8 +36,11 @@
 - P1-A16 发布前备份为 `D:\smart-control-backups\20260917-025436`（SQLite `sqlite-5Jmr2a\database.sqlite`），迁移恢复包与回执为 `D:\smart-control-backups\migration-recovery\release-taRrPn`。备份与生产的 8 输出、8 输入、12 场景、64 路由逐字段一致；语义 SHA-256 分别为 `73d5dea9…a1f0`、`94354736…056e`、`7179abb9…a744`、`4a34c524…ae1a`。其他受保护表不变，完整性 `ok`、外键违规 0。PR #69 与部署任务：https://github.com/ivanzhao299/smart-control/pull/69、https://github.com/ivanzhao299/smart-control/actions/runs/35136973551。
 - 阶段 P1-A17 已完成：`app_release_v1` 是客户端查询与管理员维护发布策略的唯一运行时来源；`AppReleaseService` 启动只读，不再读取仓库 manifest 或重写版本、说明和启用状态。第 36 个迁移增加产物来源、提交、SHA-256、大小与构建时间；随包 Android 元数据只允许部署 reconciler 在校验 APK 后原子更新，管理员仍可维护发布说明、强制更新和最低版本策略。
 - P1-A17 首次发布已成功完成迁移和回执，但安卓工作流在迁移期间为同一版本提交了新 APK，使远端 main 前进；门禁正确保留 `RELEASE_HOLD` 并停止激活，没有代码或数据回滚。恢复脚本只接受祖先关系成立且差异严格为 manifest+APK 的目标提交，验证原回执后前滚到 `ed69863`；随后 PR #72 消除工作流自触发和双发布竞态，标准部署到 `6804d6f` 全绿。原备份 `D:\smart-control-backups\20260917-033608\sqlite-VXziBu\database.sqlite`、恢复包/两份回执 `D:\smart-control-backups\migration-recovery\release-coIVpz` 和暂停快照必须保留。生产发布记录保持 v1.1.14/code 22、原说明与策略，产物 SHA-256 为 `79229763…6fa1`，大小 5,893,727 字节；PR #71/#72 与最终部署：https://github.com/ivanzhao299/smart-control/pull/71、https://github.com/ivanzhao299/smart-control/pull/72、https://github.com/ivanzhao299/smart-control/actions/runs/35142909288。
+- 阶段 P1-A18 已完成：`users` 是 PWA 与后台新登录的唯一凭据源；共享客户端/后台密码不再提供登录、修改或重置，旧令牌只按原有效期兼容。后台要求个人 `admin` 角色并签发 8 小时令牌，PWA 个人令牌保持 30 天；全局鉴权优先解析显式后台 bearer，避免并存的操作员 PWA 会话遮蔽管理员身份。
+- P1-A18 删除两个认证服务的启动写入和 seed 的 `admin/admin123`，第 37 个迁移只为缺失的新库建立不可登录占位配置；首次管理员改由 `pnpm run admin:provision` 显式、原子创建。生产已有 4 个启用账号（1 管理员、3 操作员）以及 `admin_auth_v1`、`client_auth_v1` 的密码哈希、签名密钥和时间字段，与发布前恢复库逐字段一致。两张认证表各恰有 id=1 且密钥长度 64，最后管理员保护触发器完整。
+- P1-A18 恢复包为 `D:\smart-control-backups\migration-recovery\release-ifx7MU`，隔离恢复演练为 `D:\smart-control-backups\migration-recovery\restore-2wTp5V`。PR #74 合并提交 `65d67d0`，生产部署 https://github.com/ivanzhao299/smart-control/actions/runs/35147034133 全绿；数据库 37 个迁移、完整性 `ok`、外键违规 0，密码单字段登录均返回 400，PWA 控制/灯光/大屏页面均为 200，38 台设备在线，六路 HLS 运行中且零重启。
 - 现场权威路径：SQLite=`D:\smart-control\database\smart-control.db`，运行时数据=`D:\smart-control-runtime\data`，媒体=`D:\Media`，拍照上墙照片=`D:\Media\welcome-photos`。以上目录与代码仓库分离，发布不得删除或覆盖。
-- 当前阶段没有待发布运行时代码。启动写入审计已将设备状态恢复、WebSocket/站点心跳、灯具扫描、音频设备对账、LED 图层校正归为运行态恢复或设备对账；场景动作、电源回路、内置驱动、品牌目录、音频配置和应用版本的启动覆盖已经退役。下一批优先审计鉴权初始化与部署 `SeedService` 的历史修复；账户密钥、管理员和客户端身份属于高风险域，必须先完成只读生产盘点、空库行为测试和恢复设计，再决定迁移边界。
+- 当前阶段没有待发布运行时代码。启动写入审计已将设备状态恢复、WebSocket/站点心跳、灯具扫描、音频设备对账、LED 图层校正归为运行态恢复或设备对账；场景动作、电源回路、内置驱动、品牌目录、音频配置、应用版本和身份初始化的启动覆盖已经退役。下一批继续审计 `SeedService` 剩余业务种子，逐项区分全新安装默认值、历史数据修复、设备对账和可重建缓存；任何现有生产数据先做只读指纹和恢复演练，再决定是否迁入版本化迁移。
 
 ## 当前状态快照（2026-07-28）
 
