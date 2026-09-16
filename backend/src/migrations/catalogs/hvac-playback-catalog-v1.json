@@ -1,0 +1,298 @@
+{
+  "version": 1,
+  "zones": [
+    {
+      "code": "enterprise_booth",
+      "name": "企业展位",
+      "floor": "1F",
+      "sortOrder": 10,
+      "description": "3 个独立展位单元, DLR-63F × 3"
+    },
+    {
+      "code": "livestream",
+      "name": "直播间",
+      "floor": "1F",
+      "sortOrder": 20,
+      "description": "DLR-71F × 1"
+    },
+    {
+      "code": "foreign_trade",
+      "name": "外贸交易展示区",
+      "floor": "1F",
+      "sortOrder": 30,
+      "description": "DLR-71F + DLR-80F"
+    },
+    {
+      "code": "park_display",
+      "name": "园区展示",
+      "floor": "1F",
+      "sortOrder": 40,
+      "description": "DLR-90F × 1"
+    },
+    {
+      "code": "roadshow",
+      "name": "路演发布洽谈区",
+      "floor": "1F",
+      "sortOrder": 50,
+      "description": "DLR-100F + DLR-112F"
+    },
+    {
+      "code": "showcase",
+      "name": "企业综合展销区",
+      "floor": "1F",
+      "sortOrder": 60,
+      "description": "DLR-125F × 1"
+    },
+    {
+      "code": "group_mgmt",
+      "name": "集团产业管理中心",
+      "floor": "2F",
+      "sortOrder": 70,
+      "description": "DLR-90F × 1"
+    },
+    {
+      "code": "decision_center",
+      "name": "投资决策中心",
+      "floor": "2F",
+      "sortOrder": 80,
+      "description": "DLR-90F × 1"
+    },
+    {
+      "code": "meeting_room",
+      "name": "会议室",
+      "floor": "2F",
+      "sortOrder": 90,
+      "description": "DLR-90F × 1"
+    },
+    {
+      "code": "shared_office",
+      "name": "共享办公室",
+      "floor": "2F",
+      "sortOrder": 100,
+      "description": "DLR-90F × 2"
+    },
+    {
+      "code": "service_center",
+      "name": "企业服务中心",
+      "floor": "2F",
+      "sortOrder": 110,
+      "description": "DLR-90F × 2"
+    },
+    {
+      "code": "command_center",
+      "name": "园区运营指挥中心",
+      "floor": "2F",
+      "sortOrder": 120,
+      "description": "DLR-90F × 2"
+    },
+    {
+      "code": "lobby_2f",
+      "name": "二层前厅",
+      "floor": "2F",
+      "sortOrder": 130,
+      "description": "DLR-100F × 2"
+    },
+    {
+      "code": "research_center",
+      "name": "产业研究中心",
+      "floor": "2F",
+      "sortOrder": 140,
+      "description": "DLR-100F × 1"
+    }
+  ],
+  "indoors": [
+    {
+      "idx": 1,
+      "name": "1F-01",
+      "floor": "1F",
+      "zoneCode": "enterprise_booth",
+      "model": "DLR-63F",
+      "sortOrder": 1
+    },
+    {
+      "idx": 2,
+      "name": "1F-02",
+      "floor": "1F",
+      "zoneCode": "enterprise_booth",
+      "model": "DLR-63F",
+      "sortOrder": 2
+    },
+    {
+      "idx": 3,
+      "name": "1F-03",
+      "floor": "1F",
+      "zoneCode": "enterprise_booth",
+      "model": "DLR-63F",
+      "sortOrder": 3
+    },
+    {
+      "idx": 4,
+      "name": "1F-04",
+      "floor": "1F",
+      "zoneCode": "livestream",
+      "model": "DLR-71F",
+      "sortOrder": 4
+    },
+    {
+      "idx": 5,
+      "name": "1F-05",
+      "floor": "1F",
+      "zoneCode": "foreign_trade",
+      "model": "DLR-71F",
+      "sortOrder": 5
+    },
+    {
+      "idx": 6,
+      "name": "1F-06",
+      "floor": "1F",
+      "zoneCode": "foreign_trade",
+      "model": "DLR-80F",
+      "sortOrder": 6
+    },
+    {
+      "idx": 7,
+      "name": "1F-07",
+      "floor": "1F",
+      "zoneCode": "park_display",
+      "model": "DLR-90F",
+      "sortOrder": 7
+    },
+    {
+      "idx": 8,
+      "name": "1F-08",
+      "floor": "1F",
+      "zoneCode": "roadshow",
+      "model": "DLR-100F",
+      "sortOrder": 8
+    },
+    {
+      "idx": 9,
+      "name": "1F-09",
+      "floor": "1F",
+      "zoneCode": "roadshow",
+      "model": "DLR-112F",
+      "sortOrder": 9
+    },
+    {
+      "idx": 10,
+      "name": "1F-10",
+      "floor": "1F",
+      "zoneCode": "showcase",
+      "model": "DLR-125F",
+      "sortOrder": 10
+    },
+    {
+      "idx": 11,
+      "name": "2F-01",
+      "floor": "2F",
+      "zoneCode": "group_mgmt",
+      "model": "DLR-90F",
+      "sortOrder": 11
+    },
+    {
+      "idx": 12,
+      "name": "2F-02",
+      "floor": "2F",
+      "zoneCode": "decision_center",
+      "model": "DLR-90F",
+      "sortOrder": 12
+    },
+    {
+      "idx": 13,
+      "name": "2F-03",
+      "floor": "2F",
+      "zoneCode": "meeting_room",
+      "model": "DLR-90F",
+      "sortOrder": 13
+    },
+    {
+      "idx": 14,
+      "name": "2F-04",
+      "floor": "2F",
+      "zoneCode": "shared_office",
+      "model": "DLR-90F",
+      "sortOrder": 14
+    },
+    {
+      "idx": 15,
+      "name": "2F-05",
+      "floor": "2F",
+      "zoneCode": "shared_office",
+      "model": "DLR-90F",
+      "sortOrder": 15
+    },
+    {
+      "idx": 16,
+      "name": "2F-06",
+      "floor": "2F",
+      "zoneCode": "service_center",
+      "model": "DLR-90F",
+      "sortOrder": 16
+    },
+    {
+      "idx": 17,
+      "name": "2F-07",
+      "floor": "2F",
+      "zoneCode": "service_center",
+      "model": "DLR-90F",
+      "sortOrder": 17
+    },
+    {
+      "idx": 18,
+      "name": "2F-08",
+      "floor": "2F",
+      "zoneCode": "command_center",
+      "model": "DLR-90F",
+      "sortOrder": 18
+    },
+    {
+      "idx": 19,
+      "name": "2F-09",
+      "floor": "2F",
+      "zoneCode": "command_center",
+      "model": "DLR-90F",
+      "sortOrder": 19
+    },
+    {
+      "idx": 20,
+      "name": "2F-10",
+      "floor": "2F",
+      "zoneCode": "lobby_2f",
+      "model": "DLR-100F",
+      "sortOrder": 20
+    },
+    {
+      "idx": 21,
+      "name": "2F-11",
+      "floor": "2F",
+      "zoneCode": "lobby_2f",
+      "model": "DLR-100F",
+      "sortOrder": 21
+    },
+    {
+      "idx": 22,
+      "name": "2F-12",
+      "floor": "2F",
+      "zoneCode": "research_center",
+      "model": "DLR-100F",
+      "sortOrder": 22
+    }
+  ],
+  "playbackChannels": [
+    {
+      "slot": 1,
+      "name": "LED 大屏 (HDMI1)",
+      "outputKind": "led"
+    },
+    {
+      "slot": 2,
+      "name": "投影仪 (HDMI2)",
+      "outputKind": "projector"
+    },
+    {
+      "slot": 3,
+      "name": "背景音乐 (声卡→音响)",
+      "outputKind": "audio"
+    }
+  ]
+}

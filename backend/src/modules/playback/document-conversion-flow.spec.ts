@@ -22,7 +22,10 @@ describe('document device reservation through completed media accounting', () =>
     await db.getRepository(User).save({ id: 1, username: 'owner', password: 'fixture', role: 'operator', storageQuotaBytes: 24 });
     await fs.writeFile(join(root, 'brief.docx'), 'original');
     item = await db.getRepository(MediaAsset).save({ originalName: 'brief.docx', safeName: 'brief.docx', path: join(root, 'brief.docx'), kind: 'doc', mimeType: 'application/msword', sizeBytes: 8, ownerUserId: 1, visibility: 'private', processingStatus: 'ready' });
-    await db.getRepository(PlaybackChannel).save({ slot: 1, name: 'Fixture LED', outputKind: 'led', currentMediaId: item.id, initiatorUserId: 1, playbackSession: 'document-session' });
+    await db.getRepository(PlaybackChannel).update(
+      { slot: 1 },
+      { name: 'Fixture LED', currentMediaId: item.id, initiatorUserId: 1, playbackSession: 'document-session' },
+    );
     media = new MediaService(db.getRepository(MediaAsset), new ConfigService(), {} as any);
     Object.defineProperty(media, 'mediaRoot', { value: root });
     quota = new MediaQuotaService(db);

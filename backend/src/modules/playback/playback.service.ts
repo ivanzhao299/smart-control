@@ -65,34 +65,8 @@ export class PlaybackService implements OnModuleInit {
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
-  /** 启动时确保 slot=1 + slot=2 两条记录存在 (现场硬件就两路). 没有就插默认 */
+  /** 启动恢复只清理瞬态播放状态；物理通道目录由版本化迁移建立。 */
   async onModuleInit(): Promise<void> {
-    const seeds: Array<Pick<PlaybackChannel, 'slot' | 'name' | 'outputKind'>> = [
-      { slot: 1, name: 'LED 大屏 (HDMI1)', outputKind: 'led' },
-      { slot: 2, name: '投影仪 (HDMI2)', outputKind: 'projector' },
-      // slot 3: GK9000 声卡输出 → EKX 音响输入. PlayerPage?slot=3 用 HTML5 audio
-      // 播音频, Chromium 声卡输出走 GK9000 3.5mm → EKX IN.
-      { slot: 3, name: '背景音乐 (声卡→音响)', outputKind: 'audio' },
-    ];
-    for (const s of seeds) {
-      const exists = await this.repo.findOne({ where: { slot: s.slot } });
-      if (!exists) {
-        await this.repo.save(
-          this.repo.create({
-            slot: s.slot,
-            name: s.name,
-            outputKind: s.outputKind,
-            currentMediaId: null,
-            currentPlaylistId: null,
-            playlistIndex: 0,
-            startedAt: null,
-            loopMode: 'once',
-            lastHeartbeatAt: null,
-          }),
-        );
-        this.logger.info(`[PlaybackChannel] seeded slot=${s.slot} (${s.outputKind})`);
-      }
-    }
     // 2026-07-25 业主: "LED/背景音乐/投影默认不要自动播, 有人操作才播"。
     // 后端每次启动(开机/部署重启)把三路播放状态清空回待机 —— 重启后无人操作
     // 就该是待机。要放内容: 媒体页/播放控制台人为推送。

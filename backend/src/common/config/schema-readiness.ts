@@ -27,6 +27,7 @@ export const REQUIRED_SCHEMA_MIGRATIONS = [
   'EstablishAppReleaseCatalog1789640000000',
   'EstablishNamedIdentityAuthority1789650000000',
   'EstablishOperationalCatalog1789660000000',
+  'EstablishHvacPlaybackCatalog1789670000000',
 ] as const;
 
 export const REQUIRED_SCHEMA_COLUMNS: Record<string, string[]> = {

@@ -5,6 +5,8 @@ import { DeviceState } from '../entities/device-state.entity';
 import { Scene } from '../entities/scene.entity';
 import { SceneAction } from '../entities/scene-action.entity';
 import { SceneExecution } from '../entities/scene-execution.entity';
+import { HvacZone } from '../entities/hvac-zone.entity';
+import { HvacIndoor } from '../entities/hvac-indoor.entity';
 import { AdaptersModule } from '../adapters/adapters.module';
 import { LogsModule } from '../modules/logs/logs.module';
 import { AlertModule } from '../modules/alerts/alert.module';
@@ -16,7 +18,7 @@ import { DeviceHealthService } from './device-health.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Device, DeviceState, Scene, SceneAction, SceneExecution]),
+    TypeOrmModule.forFeature([Device, DeviceState, Scene, SceneAction, SceneExecution, HvacZone, HvacIndoor]),
     ServicesPrimitivesModule,
     AdaptersModule,
     LogsModule,
