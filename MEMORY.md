@@ -7,13 +7,14 @@
 
 ## 当前代码上下文（2026-09-16，优先于以下历史快照）
 
-- 当前生产 Git 基线为 `67faf2c`（PR #38）。GK9000 后端 3200、前端 5173 已通过 PM2/端口/构建指纹/健康/重启稳定性权威验证；生产 SQLite 为 27 个迁移，`integrity_check=ok`、外键违规 0。
-- 阶段 1 的 `RuntimeConfigStore` 基础已经上线：`runtime_config_documents` 与 `runtime_config_revisions` 当前均为 0 行，尚未导入或改写视频绑定等 JSON。后续必须逐域迁移，禁止直接删除原 JSON。
-- PR #38 首次部署暴露发布门禁缺陷：普通 `run-migrations.js` 正确拒绝无停写迁移，但 `deploy-from-ci.ps1` 提前把它标为“已尝试迁移”并停止双服务；暂停/恢复脚本还硬编码了现场不存在的 `SmartControlFrontend` 计划任务。数据库当时尚未迁移。
-- 生产已在 `RELEASE_HOLD` 和连续停写校验下完成配套数据库/媒体恢复包、隔离恢复演练、单次迁移和凭据激活。备份根为 `D:\smart-control-backups\20260916-143539`，迁移/激活证据在 `release-4qG9Uv`；不得删除。
-- 当前整改分支 `codex/maturity-phase-1b-deploy-state-machine`：迁移发布改为只读预检→真实任务清单停写→配套恢复演练→迁移回执→受控激活；应用、容量检查、迁移与回执验证共用生产数据库/媒体路径解析。完整测试为后端 61 套件/652 项、脚本测试 56 项通过（2 项环境跳过），Windows PowerShell 5.1 语法解析通过。
-- 现场权威数据位置：SQLite=`D:\smart-control\database\smart-control.db`，运行时 JSON=`D:\smart-control-runtime\data`，媒体/拍照上墙=`D:\Media`（照片在 `welcome-photos` 子目录）。生产发布唯一通道为 GitHub CI→阿里云跳板→WireGuard→GK9000。
-- 下一步：先合并并部署 P1-A2 门禁修复，确认不再停机；随后迁移视频绑定/AI 检测线和 ROI 到 `RuntimeConfigStore`，做 JSON→SQLite 一次性导入、双源对账、切读、停写 JSON 和生产恢复演练。
+- 当前生产 Git 基线为 `0c2adc2`（PR #39）。迁移发布状态机已上线并验证：只读预检→停止真实写入任务→配套恢复包与隔离恢复演练→迁移回执→受控激活；生产后端 3200、前端 5173 和计划任务均健康，SQLite 为 27 个迁移，`integrity_check=ok`、外键违规 0。
+- 阶段 1 的 `RuntimeConfigStore` 基础已经上线：`runtime_config_documents` 与 `runtime_config_revisions` 当前仍为 0 行。生产尚未导入或改写视频绑定 JSON，旧文件仍是当前权威来源。
+- 当前整改分支为 `codex/maturity-phase-1c-video-binding-store`。已把视频绑定、NVR、HLS 通道、AI 检测线与 ROI 收敛到 `video.binding` 单一数据库文档；新增一次性、幂等迁移，保留完整修订历史和校验和；旧 JSON 仅在数据库为空时读取，迁移后不再写回。
+- 视频流不再维护第二份硬编码 NVR/通道表；HLS、快照、自动启动和后台管理共用数据库配置。对外接口去除密码，空密码编辑保留原凭据，陈旧基础信息编辑不会覆盖刚保存的 AI 区域；仓库内旧 NVR 明文凭据已经移除。
+- 已用生产数据库一致性快照和生产 `video-binding.json` 做本地迁移演练：只新增 `ImportVideoBindingRuntimeConfig1789560000000`，重复执行无变更，导入前后归一化文档完全一致；2 台 NVR、6 路通道、布局、检测线和 ROI 均对账通过。完整 Nest 应用也已在隔离端口启动并验证匿名接口无凭据泄露。
+- 本分支最终本地验证：后端 63 套件/663 项、前端 52 项全部通过；后端与 PWA 生产构建通过，生产依赖高危审计为 0，Python 参考程序语法检查通过。
+- 生产恢复证据必须保留：备份根 `D:\smart-control-backups\20260916-143539`，迁移/激活证据 `release-4qG9Uv`；不得删除。现场权威路径：SQLite=`D:\smart-control\database\smart-control.db`，运行时数据=`D:\smart-control-runtime\data`，媒体/拍照上墙=`D:\Media`（照片在 `welcome-photos` 子目录）。
+- 下一步：提交并合并当前分支，通过 PR #39 已上线的安全状态机部署；生产应从 27 增至 28 个迁移，并生成 `video.binding` 当前文档与 revision 1。部署后必须核对旧 JSON 哈希不变、数据库文档校验和/历史一致、2 台 NVR/6 路通道/检测区域完整、HLS 子码流与匿名接口正常，再进入下一运行时配置域收敛。
 
 ## 当前状态快照（2026-07-28）
 

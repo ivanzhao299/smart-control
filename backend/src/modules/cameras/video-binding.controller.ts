@@ -48,8 +48,8 @@ export class VideoBindingController {
   }
 
   @Post('nvrs')
-  createNvr(@Body() data: CreateNvrDto) {
-    const nvr = this.videoBindingService.createNvr(data);
+  async createNvr(@Body() data: CreateNvrDto) {
+    const nvr = await this.videoBindingService.createNvr(data);
     return {
       success: true,
       message: 'NVR设备已创建',
@@ -58,8 +58,8 @@ export class VideoBindingController {
   }
 
   @Put('nvrs/:id')
-  updateNvr(@Param('id') id: string, @Body() data: UpdateNvrDto) {
-    const nvr = this.videoBindingService.updateNvr(id, data);
+  async updateNvr(@Param('id') id: string, @Body() data: UpdateNvrDto) {
+    const nvr = await this.videoBindingService.updateNvr(id, data);
     if (!nvr) {
       return { success: false, message: 'NVR设备不存在' };
     }
@@ -71,8 +71,8 @@ export class VideoBindingController {
   }
 
   @Delete('nvrs/:id')
-  deleteNvr(@Param('id') id: string) {
-    const result = this.videoBindingService.deleteNvr(id);
+  async deleteNvr(@Param('id') id: string) {
+    const result = await this.videoBindingService.deleteNvr(id);
     if (!result) {
       return { success: false, message: 'NVR设备不存在' };
     }
@@ -99,8 +99,8 @@ export class VideoBindingController {
   }
 
   @Post('channels')
-  createChannel(@Body() data: CreateCameraChannelDto) {
-    const channel = this.videoBindingService.createChannel(data);
+  async createChannel(@Body() data: CreateCameraChannelDto) {
+    const channel = await this.videoBindingService.createChannel(data);
     return {
       success: true,
       message: '摄像头通道已创建',
@@ -109,8 +109,8 @@ export class VideoBindingController {
   }
 
   @Put('channels/:id')
-  updateChannel(@Param('id') id: string, @Body() data: UpdateCameraChannelDto) {
-    const channel = this.videoBindingService.updateChannel(id, data);
+  async updateChannel(@Param('id') id: string, @Body() data: UpdateCameraChannelDto) {
+    const channel = await this.videoBindingService.updateChannel(id, data);
     if (!channel) {
       return { success: false, message: '摄像头通道不存在' };
     }
@@ -122,8 +122,8 @@ export class VideoBindingController {
   }
 
   @Delete('channels/:id')
-  deleteChannel(@Param('id') id: string) {
-    const result = this.videoBindingService.deleteChannel(id);
+  async deleteChannel(@Param('id') id: string) {
+    const result = await this.videoBindingService.deleteChannel(id);
     if (!result) {
       return { success: false, message: '摄像头通道不存在' };
     }
@@ -143,8 +143,8 @@ export class VideoBindingController {
   }
 
   @Put('layout')
-  updateDisplayLayout(@Body() data: UpdateDisplayLayoutDto) {
-    const layout = this.videoBindingService.updateDisplayLayout(data);
+  async updateDisplayLayout(@Body() data: UpdateDisplayLayoutDto) {
+    const layout = await this.videoBindingService.updateDisplayLayout(data);
     return {
       success: true,
       message: '显示布局已更新',
@@ -155,15 +155,15 @@ export class VideoBindingController {
   // ========== AI 检测范围 / 全局框开关（写操作，走登录鉴权） ==========
   // 全局：运营大屏/投影/手机是否叠加 AI 检测框与计数线，一处设置全终端统一
   @Put('ai/box')
-  setAiBox(@Body() body: AiBoxDto) {
-    const enabled = this.videoBindingService.setAiBoxEnabled(!!body?.enabled);
+  async setAiBox(@Body() body: AiBoxDto) {
+    const enabled = await this.videoBindingService.setAiBoxEnabled(!!body?.enabled);
     return { success: true, message: 'AI 分析框全局开关已更新', data: { aiBoxEnabled: enabled } };
   }
 
   // 单路：保存计数线 / ROI 区域 / 是否分析，并热下发给 AI（无需重启 AI）
   @Put('channels/:id/ai')
   async saveChannelAi(@Param('id') id: string, @Body() body: ChannelAiConfigDto) {
-    const channel = this.videoBindingService.updateChannelAi(id, body || {});
+    const channel = await this.videoBindingService.updateChannelAi(id, body || {});
     if (!channel) return { success: false, message: '摄像头通道不存在' };
     const push = await this.aiPusher.pushAll();
     return {

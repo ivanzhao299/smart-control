@@ -221,8 +221,8 @@ if (-not (Test-Path $backendDataSource)) {
 - 本地验证隧道：`ssh -i ~/.ssh/jinhu_github_actions_deploy -N -L 5174:10.66.66.3:5173 root@123.57.220.65`
 
 ### 视频流配置
-- Port5录像机：IP `192.168.1.5`，admin/`jh666888`（小写j）
-- Port3录像机：IP `192.168.1.19`，admin/`Jh666888`（大写J）
+- Port5录像机：IP `192.168.1.5`；凭据由 SQLite `video.binding` 配置保存，文档禁止记录明文
+- Port3录像机：IP `192.168.1.19`；凭据由 SQLite `video.binding` 配置保存，文档禁止记录明文
 - 6路视频绑定：d37（北大门）、d57（西大门）、d02、p3-d37（东大门）、p3-d45、p3-d50
 - 摄像头总数：2台64路NVR共128路，125在线3离线，在线率97.7%
 

@@ -1,5 +1,5 @@
 {
-  "_comment": "视频绑定 + AI 计数线/ROI 配置模板。真实文件 video-binding.json 由后端写入 DATA_DIR(仓库外), 不提交 git; 首次启动若缺失, 后端用内置默认生成。password 请在现场填写, 切勿提交真实凭据。",
+  "_comment": "视频绑定 + AI 计数线/ROI 旧格式示例，仅用于迁移/恢复说明。当前权威源是 SQLite video.binding；服务不再写 video-binding.json。password 仅可在后台现场配置，切勿提交真实凭据。",
   "nvrs": [
     {
       "id": "nvr-port5",

@@ -28,9 +28,21 @@ import uvicorn
 import threading
 import time
 import json
+from urllib.parse import quote
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, Optional
+
+def required_env(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise RuntimeError(f"Required environment variable is missing: {name}")
+    return value
+
+NVR_PORT5_USER = os.getenv("NVR_PORT5_USERNAME", "admin")
+NVR_PORT3_USER = os.getenv("NVR_PORT3_USERNAME", "admin")
+NVR_PORT5_PASSWORD = quote(required_env("NVR_PORT5_PASSWORD"), safe="")
+NVR_PORT3_PASSWORD = quote(required_env("NVR_PORT3_PASSWORD"), safe="")
 
 # ==================== 配置 ====================
 @dataclass
@@ -49,19 +61,19 @@ class CameraConfig:
 CAMERAS: Dict[str, CameraConfig] = {
     "d37": CameraConfig(
         name="北大门",
-        rtsp_url="rtsp://admin:jh666888@192.168.1.5:554/Streaming/Channels/3702",
+        rtsp_url=f"rtsp://{NVR_PORT5_USER}:{NVR_PORT5_PASSWORD}@192.168.1.5:554/Streaming/Channels/3702",
         count_line=((0.5, 0.2), (0.5, 0.8)),  # 中间竖线
         enabled=True,
     ),
     "d57": CameraConfig(
         name="西大门",
-        rtsp_url="rtsp://admin:jh666888@192.168.1.5:554/Streaming/Channels/5702",
+        rtsp_url=f"rtsp://{NVR_PORT5_USER}:{NVR_PORT5_PASSWORD}@192.168.1.5:554/Streaming/Channels/5702",
         count_line=((0.5, 0.2), (0.5, 0.8)),
         enabled=True,
     ),
     "p3-d37": CameraConfig(
         name="东大门",
-        rtsp_url="rtsp://admin:Jh666888@192.168.1.19:554/Streaming/Channels/3702",
+        rtsp_url=f"rtsp://{NVR_PORT3_USER}:{NVR_PORT3_PASSWORD}@192.168.1.19:554/Streaming/Channels/3702",
         count_line=((0.5, 0.2), (0.5, 0.8)),
         enabled=True,
     ),
