@@ -105,7 +105,7 @@ DALI 已经做了(commit 9e612d4),推广到其它三个 adapter。
   - `capabilitiesJson`
   - `defaultAddressingJson`
   - `paramSchemaJson`
-- backend 启动时扫描代码里的所有 `*.driver.ts`,自动登记到 `driver_template`(代码是事实来源,DB 是镜像)
+- 内置驱动目录通过版本化迁移登记到 `driver_templates`；运行时只读数据库，目录升级必须有显式迁移
 - 后台 `/admin/drivers` 页面 — 只读浏览,用户能看"系统支持哪些品牌哪些型号,各自能做什么"
 
 **产出**:用户在 UI 上能看 "我要加一台 LTECH LT-84A,系统支持吗?",而不是要问开发。
@@ -167,7 +167,7 @@ DALI 已经做了(commit 9e612d4),推广到其它三个 adapter。
 
 - ✅ Phase 1(完整) — DALI(9e612d4) + LED/Audio/HVAC(a169598):所有 adapter 都从 DB 读 IP+端口,5s TTL,后台改 IP 立即 rewire 不重启
 - ✅ 硬件清单 UI(cca0cef):addressing / channels 结构化表单
-- ✅ Phase 2(f83dfd8):driver_template 表 + 4 个 builtin describe() + DriverRegistryService.onModuleInit upsert + /api/drivers + /admin/drivers 浏览页(表格 + 详情抽屉, 列 paramSchema)
+- ✅ Phase 2(f83dfd8):driver_template 表 + /api/drivers + /admin/drivers 浏览页(表格 + 详情抽屉, 列 paramSchema)；内置目录后续已从启动 upsert 收敛为版本化迁移
 - ✅ Phase 3(5e85a82):hardware_unit.driverKind 外键(软引用) + HW_DRIVER_FIXES 自愈 + HardwareAdmin 表单加驱动模板下拉 → 选完自动填默认 addressing / vendor / category
 - ✅ Phase 4(1a54dad):/admin/drivers 加"新建驱动"表单 — UI 自助创建非 builtin 模板(已有协议族下挂壳, 不允许凭空生成代码)
 - ✅ Phase 5:audit_log 表 + AuditService(record / list / detail / rollback) + /api/audit-log + /admin/audit 历史页 + 回滚按钮(仅 hardware_unit, 写回前自动清 adapter cache)

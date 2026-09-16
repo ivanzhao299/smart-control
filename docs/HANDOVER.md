@@ -336,7 +336,7 @@ light_zone  (前厅/东展区/走廊区…)   业主看得见的名字, 前端�
 2. **`seedHardware` 是 `if (exists) continue`** —— 改 seed 里的硬件字段对**已有**
    生产库无效, 只影响全新安装. 已有记录要走后台硬件清单改.
 
-每个 adapter 都自描述 (driver-descriptor.ts), backend 启动时自动注册到 `driver_template` 表, 后台 `/admin/drivers` 能浏览.
+内置 adapter 目录由版本化迁移登记到 `driver_templates` 表，backend 启动只读，后台 `/admin/drivers` 能浏览。
 
 ### 6.3 Frontend pages
 

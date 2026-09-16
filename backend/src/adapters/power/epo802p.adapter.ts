@@ -259,22 +259,4 @@ export class Epo802pAdapter extends BaseAdapter {
     });
   }
 
-  /** P2 — 给 DriverRegistryService 注册用 */
-  static describe(): import('../driver-descriptor').DriverDescriptor {
-    return {
-      kind: 'takstar-epo802p',
-      displayName: '得胜 EPO-802P 8 路电源时序器',
-      vendor: '得胜 TAKSTAR',
-      category: 'audio-power',
-      protocol: 'serial',
-      capabilities: ['turn_on', 'turn_off', 'get_status', 'health_check'],
-      defaultAddressing: { baud: 19200, devAddr: 0, channels: 8 },
-      paramSchema: {
-        ip: { type: 'string', label: '串口号', required: true, placeholder: 'COM1' },
-        baud: { type: 'number', label: '波特率', default: 19200, min: 1200, max: 115200 },
-        devAddr: { type: 'number', label: '机器 ID', default: 0, min: 0, max: 255 },
-      },
-      remark: '8 路时序上电保护功放. GK9000 板载 COM1 直连, 19200 8N1. 全开/全关走 b3 由设备按延时依次动作.',
-    };
-  }
 }

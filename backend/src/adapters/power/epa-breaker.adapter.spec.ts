@@ -1,8 +1,8 @@
 /**
- * EpaBreakerAdapter —— describe() 契约 + mock 路径行为。
+ * EpaBreakerAdapter —— mock 路径行为。
  *
  * 真机路径(真实 Modbus 收发)靠 epa-breaker-registers.spec.ts 的 16 个金标准测试
- * 保证编解码正确; 这里只测 adapter 层能装配、describe() 契约稳定、mock 态自洽。
+ * 保证编解码正确；驱动目录契约由迁移测试覆盖，这里只测 adapter 层能装配、mock 态自洽。
  */
 import type { Logger } from 'winston';
 import type { ConfigService } from '@nestjs/config';
@@ -21,33 +21,6 @@ function mockConfig(): ConfigService {
 function makeAdapter(): EpaBreakerAdapter {
   return new EpaBreakerAdapter(mockConfig(), fakeLogger());
 }
-
-describe('EpaBreakerAdapter · describe() 驱动目录契约', () => {
-  const d = EpaBreakerAdapter.describe();
-
-  it('kind 稳定为 epa-breaker(改名会破坏外键关联)', () => {
-    expect(d.kind).toBe('epa-breaker');
-  });
-  it('category=power-breaker, protocol=modbus-rtu', () => {
-    expect(d.category).toBe('power-breaker');
-    expect(d.protocol).toBe('modbus-rtu');
-  });
-  it('能力含合闸/分闸/读状态/计量', () => {
-    expect(d.capabilities).toEqual(
-      expect.arrayContaining(['turn_on', 'turn_off', 'get_status', 'get_measurements']),
-    );
-  });
-  it('paramSchema 必填 IP, 有端口/从机号默认值(前端据此生成表单)', () => {
-    expect(d.paramSchema?.ip?.required).toBe(true);
-    expect(d.paramSchema?.port?.default).toBe(502);
-    expect(d.paramSchema?.slaveId?.default).toBe(255);
-  });
-  it('slaveId 上限放到 255 —— 出厂从机号就是 0xFF, 卡在 247 会填不进去', () => {
-    // 2026-07-22 现场实测: 扫 1..247 全部无应答, 只有 255 应答(厂家实测帧里的 FF)
-    expect(d.paramSchema?.slaveId?.max).toBe(255);
-    expect(d.defaultAddressing).toMatchObject({ slaveId: 255 });
-  });
-});
 
 describe('EpaBreakerAdapter · mock 路径自洽', () => {
   it('合闸后 getStatus=on/closed, 分闸后 off/open', async () => {
