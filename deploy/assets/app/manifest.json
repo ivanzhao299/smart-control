@@ -3,8 +3,8 @@
   "platform": "android",
   "versionCode": 22,
   "versionName": "1.1.14",
-  "commit": "25860efe01bae4b9b72b0f65eca3ac5433157735",
-  "builtAt": "2026-09-16T05:00:03Z",
-  "apkSha256": "59d5c885cceb3b8d3aff257ede0f112a006b91d5357bcd62132c0a17d12d805b",
+  "commit": "564de946f97daf3eaba79d9c295b20a280f214a0",
+  "builtAt": "2026-09-16T19:34:21Z",
+  "apkSha256": "79229763bcdf8a082e83b852e51fc16441cf93445307480ab3189c09fc196fa1",
   "apkSize": 5893727
 }
