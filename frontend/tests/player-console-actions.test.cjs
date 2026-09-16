@@ -6,6 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const ts = require('typescript');
 const vue = fs.readFileSync(path.join(__dirname, '../src/components/PlayerConsole.vue'), 'utf8');
+const welcomePhoto = fs.readFileSync(path.join(__dirname, '../src/composables/useWelcomePhoto.ts'), 'utf8');
 const script = vue.match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1];
 const ast = ts.createSourceFile('console.ts', script, ts.ScriptTarget.Latest, true);
 const names = ['selectContent', 'selectWelcome', 'selectParkDashboard'];
@@ -45,4 +46,11 @@ test('park dashboard is rendered as a direct input-source card', () => {
   assert.match(vue, /@click="selectParkDashboard"/);
   assert.match(vue, /> 园区运营大屏<\/button>/);
   assert.match(vue, /activeSource === 'park-dashboard'/);
+});
+
+test('park dashboard mutations use the authenticated shared API client', () => {
+  assert.match(vue, /parkOpsControlService\.(next|prev|setAuto|refresh)/);
+  assert.doesNotMatch(vue, /fetch\(['"`]\/api\/park-ops-control/);
+  assert.match(welcomePhoto, /parkOpsControlService\.goto\(0\)/);
+  assert.doesNotMatch(welcomePhoto, /fetch\(['"`]\/api\/park-ops-control/);
 });
