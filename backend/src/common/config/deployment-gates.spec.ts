@@ -1,11 +1,24 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { execFileSync } from 'child_process';
 
 const repositoryRoot = resolve(__dirname, '../../../..');
 const readRepositoryFile = (relativePath: string): string =>
   readFileSync(resolve(repositoryRoot, relativePath), 'utf8');
 
 describe('GK9000 deployment gates', () => {
+  it('keeps generated database sidecars and logs out of the version tree', () => {
+    const tracked = execFileSync('git', ['ls-files', 'database', 'logs'], {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+    })
+      .trim()
+      .split('\n')
+      .filter(Boolean);
+
+    expect(tracked).toEqual([]);
+  });
+
   it('keeps destructive workspace cleanup out of the jump host and dispatcher', () => {
     const jump = readRepositoryFile('deploy/aliyun-gk9000-jump-deploy.sh');
     const dispatcher = readRepositoryFile('deploy/windows-ci-dispatch.ps1');

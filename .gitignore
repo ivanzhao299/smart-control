@@ -4,6 +4,7 @@ dist/
 .tmp/
 tmp/
 *.log
+/logs/
 .env
 .env.local
 .DS_Store
