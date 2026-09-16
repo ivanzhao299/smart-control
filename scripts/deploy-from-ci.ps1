@@ -1020,6 +1020,40 @@ try {
   }
 
   $deployedCommit = (git rev-parse HEAD).Trim()
+  if (-not $VerifyOnly) {
+    $releaseManifestTemp = $null
+    try {
+      $releaseDataDir = $env:DATA_DIR
+      if ([string]::IsNullOrWhiteSpace($releaseDataDir)) {
+        if (Test-Path 'D:\') { $releaseDataDir = 'D:\smart-control-runtime\data' }
+        else { $releaseDataDir = Join-Path $projectRoot '.runtime\data' }
+      }
+      New-Item -ItemType Directory -Force -Path $releaseDataDir | Out-Null
+      $releaseManifestPath = Join-Path $releaseDataDir 'release.json'
+      $releaseManifestTemp = "$releaseManifestPath.$PID.tmp"
+      $releaseManifest = [ordered]@{
+        schemaVersion = 1
+        commit = $deployedCommit
+        ref = 'main'
+        releasedAt = (Get-Date).ToUniversalTime().ToString('o')
+      } | ConvertTo-Json
+      [IO.File]::WriteAllText($releaseManifestTemp, $releaseManifest, (New-Object Text.UTF8Encoding($false)))
+      if (Test-Path -LiteralPath $releaseManifestPath) {
+        [IO.File]::Replace($releaseManifestTemp, $releaseManifestPath, $null)
+      } else {
+        Move-Item -LiteralPath $releaseManifestTemp -Destination $releaseManifestPath
+      }
+      Write-DeployLog "Release manifest recorded: $releaseManifestPath ($deployedCommit)"
+    } catch {
+      # Release identity still falls back to the verified Git HEAD. Never roll back
+      # activated code or migrated data because a supplementary manifest could not be written.
+      Write-DeployLog "WARNING: release manifest was not recorded: $($_.Exception.Message)"
+    } finally {
+      if ($releaseManifestTemp -and (Test-Path -LiteralPath $releaseManifestTemp)) {
+        Remove-Item -LiteralPath $releaseManifestTemp -Force -ErrorAction SilentlyContinue
+      }
+    }
+  }
   $result = 'PASS'
   Write-DeployLog "Deployment complete: $deployedCommit"
 } catch {

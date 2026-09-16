@@ -138,6 +138,20 @@ describe('GK9000 deployment gates', () => {
     expect(deploy).toContain("Get-ChildItem -Path $legacyDataDir -Filter '*.json.bak'");
   });
 
+  it('records the verified release outside the worktree without mutating verify-only runs', () => {
+    const deploy = readRepositoryFile('scripts/deploy-from-ci.ps1');
+    const manifestGuard = deploy.indexOf('if (-not $VerifyOnly)');
+    const manifestWrite = deploy.indexOf("Join-Path $releaseDataDir 'release.json'");
+
+    expect(manifestGuard).toBeGreaterThan(-1);
+    expect(manifestWrite).toBeGreaterThan(manifestGuard);
+    expect(deploy).toContain('commit = $deployedCommit');
+    expect(deploy).toContain('[IO.File]::Replace');
+    expect(deploy).toContain('Text.UTF8Encoding($false)');
+    expect(deploy).toContain('WARNING: release manifest was not recorded');
+    expect(deploy).toContain('Never roll back');
+  });
+
   it('uses a controlled migration state machine and the real host task inventory', () => {
     const deploy = readRepositoryFile('scripts/deploy-from-ci.ps1');
     const suspend = readRepositoryFile('scripts/suspend-gk9000-release.ps1');

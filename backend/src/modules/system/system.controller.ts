@@ -44,6 +44,8 @@ export class SystemController {
         buildTime: meta.buildTime,
         commit: meta.commit ?? null,
         ref: meta.ref ?? null,
+        releasedAt: meta.releasedAt ?? null,
+        identitySource: meta.identitySource ?? 'unknown',
         nodeVersion: process.version,
         platform: meta.platform || app.platform,
         host: meta.host || app.hostMachine || 'unknown',
@@ -57,6 +59,13 @@ export class SystemController {
         apiPrefix: app.apiPrefix,
       },
     };
+  }
+
+  /** 管理员可见的运行实例摘要：代码身份、实际数据库和独立数据目录必须一致可查。 */
+  @Get('runtime-summary')
+  @UseGuards(ActorAdminGuard)
+  async runtimeSummary() {
+    return { message: '运行实例摘要', data: await this.system.runtimeSummary() };
   }
 
   @Get('runtime/devices')
