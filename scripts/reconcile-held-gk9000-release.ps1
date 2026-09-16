@@ -58,7 +58,8 @@ try {
     $previousPreference = $ErrorActionPreference
     try {
       $ErrorActionPreference = 'Continue'
-      $migrationLines = @(& node scripts/run-gk9000-migrations.cjs $recoveryRoot $snapshot.SourceRevision 2>&1)
+      $migrationEntry = Join-Path $root 'backend\scripts\run-gk9000-migrations.cjs'
+      $migrationLines = @(& node $migrationEntry $recoveryRoot $snapshot.SourceRevision 2>&1)
       $migrationExit = $LASTEXITCODE
     } finally {
       $ErrorActionPreference = $previousPreference
