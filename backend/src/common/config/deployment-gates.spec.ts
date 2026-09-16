@@ -125,6 +125,31 @@ describe('GK9000 deployment gates', () => {
     expect(dispatcher).not.toContain('Remove-Item');
   });
 
+  it('copies migration recovery bundles off host only after production verification', () => {
+    const jump = readRepositoryFile('deploy/aliyun-gk9000-jump-deploy.sh');
+    const offsite = readRepositoryFile('deploy/aliyun-gk9000-offsite-backup.sh');
+    const workflow = readRepositoryFile('.github/workflows/deploy-gk9000.yml');
+    const verifier = readRepositoryFile('scripts/offsite-release-backup.py');
+    const verifyPosition = workflow.indexOf('Verify through the WireGuard jump host');
+    const offsitePosition = workflow.indexOf('Copy migration recovery bundle off host');
+
+    expect(jump).toContain('gk9000-offsite-backup');
+    expect(jump).toContain(
+      'exec /usr/local/sbin/smart-control-gk9000-offsite-backup "$commit_sha"',
+    );
+    expect(offsite).toContain('candidateRevision');
+    expect(offsite).toContain('migration-complete.json');
+    expect(offsite).toContain('StrictHostKeyChecking=yes');
+    expect(offsite).toContain('OFFSITE_BUNDLE_NOT_REQUIRED');
+    expect(verifier).toContain('PRAGMA integrity_check');
+    expect(verifier).toContain('PRAGMA foreign_key_check');
+    expect(verifier).toContain('OFFSITE_BUNDLE_VERIFIED');
+    expect(verifier).toContain('offsite-release-backup-receipt');
+    expect(verifyPosition).toBeGreaterThan(-1);
+    expect(offsitePosition).toBeGreaterThan(verifyPosition);
+    expect(workflow).toContain('timeout-minutes: 60');
+  });
+
   it('bootstraps each deployment with the script from the requested main commit', () => {
     const dispatcher = readRepositoryFile('deploy/windows-ci-dispatch.ps1');
     const deploy = readRepositoryFile('scripts/deploy-from-ci.ps1');

@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import {
@@ -8,9 +9,21 @@ import {
 
 type Row = Record<string, string | number>;
 
-const readyDatabase = (options: { missingMigration?: string; missingColumn?: string } = {}) => ({
+const videoDocument = JSON.stringify({ version: 1, nvrs: [], channels: [] });
+const videoChecksum = createHash('sha256')
+  .update(videoDocument, 'utf8')
+  .digest('hex');
+
+const readyDatabase = (
+  options: {
+    missingMigration?: string;
+    missingColumn?: string;
+    missingBranding?: boolean;
+    damagedVideoAuthority?: boolean;
+  } = {},
+) => ({
   prepare: (sql: string) => ({
-    all: (): Row[] => {
+    all: (...args: unknown[]): Row[] => {
       if (sql === 'SELECT name FROM migrations') {
         return REQUIRED_SCHEMA_MIGRATIONS.filter((name) => name !== options.missingMigration).map(
           (name) => ({ name }),
@@ -34,6 +47,24 @@ const readyDatabase = (options: { missingMigration?: string; missingColumn?: str
       if (sql === "SELECT id FROM users WHERE role = 'admin' AND enabled = 1 LIMIT 1") {
         return [{ id: 1 }];
       }
+      if (sql === 'SELECT id FROM system_branding_v2') {
+        return options.missingBranding ? [] : [{ id: 1 }];
+      }
+      if (sql.includes('FROM runtime_config_documents WHERE config_key = ?')) {
+        expect(args).toEqual(['video.binding']);
+        return [
+          {
+            schema_version: 1,
+            revision: 3,
+            document: videoDocument,
+            document_sha256: options.damagedVideoAuthority ? '0'.repeat(64) : videoChecksum,
+          },
+        ];
+      }
+      if (sql.includes('FROM runtime_config_revisions')) {
+        expect(args).toEqual(['video.binding', 3]);
+        return [{ document_sha256: videoChecksum }];
+      }
       throw new Error(`Unexpected SQL: ${sql}`);
     },
   }),
@@ -50,6 +81,15 @@ describe('database schema readiness', () => {
     ).toThrow(/run migration:run/);
     expect(() => assertSchemaReady(readyDatabase({ missingColumn: 'tokenSecret' }))).toThrow(
       /run migration:run/,
+    );
+  });
+
+  it('rejects missing singleton and damaged authority records instead of recreating them', () => {
+    expect(() => assertSchemaReady(readyDatabase({ missingBranding: true }))).toThrow(
+      /restore required authority records/,
+    );
+    expect(() => assertSchemaReady(readyDatabase({ damagedVideoAuthority: true }))).toThrow(
+      /restore required authority records/,
     );
   });
 

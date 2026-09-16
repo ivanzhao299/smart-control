@@ -5,8 +5,8 @@ import { MigrationInterface, QueryRunner, TableColumn } from 'typeorm';
  *
  * - 只在 system_branding_v2(单行 id=1) 增加一个可空整数列 welcomePhotoMediaId,
  *   指向 media_assets.id; NULL = 未上传, 欢迎页保持默认欢迎语布局。
- * - 幂等: SystemBrandingService.onModuleInit 也有一条自愈 ALTER (watcher 部署不跑
- *   migration 的历史窗口), 列已存在时这里不得重复 ADD 把迁移打挂。
+ * - 幂等：兼容曾在历史版本中提前加列的数据库；当前应用启动不执行 DDL，
+ *   列已存在时这里不得重复 ADD 把迁移打挂。
  * - 纯新增列, 不动任何旧数据, 可安全回滚 (仅删本列)。
  */
 export class AddWelcomePhoto1789300000000 implements MigrationInterface {

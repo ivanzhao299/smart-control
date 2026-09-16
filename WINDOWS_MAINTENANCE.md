@@ -186,13 +186,26 @@ NextRun 为下周一 00:00。
 - `.github/workflows/check-gk9000-status.yml`：`*/30 * * * *` 定时 + `workflow_dispatch` 手动，经跳板机
   网关的只读动作 `gk9000-status` 采集 CPU / 内存 / C·D 盘 / Top 进程，**不改 GK 任何状态**。
 - 跳板机网关 `/usr/local/sbin/smart-control-gk9000-jump-deploy` 用 `authorized_keys command=` 白名单
-  （`gk9000-deploy` / `gk9000-verify` / `gk9000-status` / `gk9000-clean`）；新增只读动作必须命令写死、
+  （`gk9000-deploy` / `gk9000-verify` / `gk9000-status` / `gk9000-offsite-backup`）；新增动作必须参数受限、命令写死、
   在 commit SHA 校验前 `exec` 退出，且仓库源副本 `deploy/aliyun-gk9000-jump-deploy.sh` 要与线上同步。
 - 两个已踩过的坑（改网关/巡检内联命令时务必遵守）：
   - 穿越 jump bash → Windows OpenSSH → PowerShell 的内联命令**禁止 `$` 变量与内层双引号**（`$_` 会被外层
     展开为空导致 ParserError），只用原始属性和单引号；
   - ssh 续行参数序列**中间禁止插 `#` 注释行**（注释行无续行反斜杠会提前切断远程命令，使 GK 掉进交互式
     PowerShell 挂起），注释全部放到 `exec ssh` 之前。
+
+### 5.6 迁移恢复包异机副本
+
+- 数据迁移发布完成生产验证后，工作流调用受限动作 `gk9000-offsite-backup <40位提交号>`。跳板机只查找
+  `migration-complete.json.candidateRevision` 与提交一致的 `release-*` 恢复包；没有迁移包时返回
+  `OFFSITE_BUNDLE_NOT_REQUIRED`，不会扫描或复制其他目录。
+- 异机目录为跳板机 `/var/backups/smart-control/<release-id>`。目标采用追加式保存：同名目录存在时只重新验证并返回
+  `OFFSITE_BUNDLE_CURRENT`，禁止覆盖、合并或自动删除。
+- 验证包括 SQLite 大小/SHA-256/完整性/外键、媒体 manifest SHA-256、每个媒体文件的大小和 SHA-256。
+  全部通过后才原子发布目录并写 `offsite-receipt.json`。
+- 恢复时先核对异机回执，再把整个 `release-*` 目录复制回独立暂存盘，按恢复包既有演练流程恢复 SQLite 与媒体；
+  禁止只恢复数据库或只恢复媒体。
+- 该动作只覆盖发生迁移的发布基线。普通 6 小时 SQLite 快照和迁移后新增媒体的周期异机增量备份属于阶段 3。
 
 ---
 

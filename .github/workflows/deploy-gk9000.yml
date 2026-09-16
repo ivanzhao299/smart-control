@@ -63,7 +63,7 @@ jobs:
     name: Deploy to GK9000
     needs: validate
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Configure restricted jump-host identity
         env:
@@ -100,3 +100,17 @@ jobs:
             -o StrictHostKeyChecking=yes \
             root@123.57.220.65 \
             "gk9000-verify ${COMMIT_SHA}"
+
+      - name: Copy migration recovery bundle off host
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          ssh \
+            -i "$HOME/.ssh/gk9000-deploy-jump" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=8 \
+            root@123.57.220.65 \
+            "gk9000-offsite-backup ${COMMIT_SHA}"

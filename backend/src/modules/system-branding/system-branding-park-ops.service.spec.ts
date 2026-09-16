@@ -100,3 +100,26 @@ describe('SystemBrandingService park ops runtime configuration', () => {
     ]);
   });
 });
+
+describe('SystemBrandingService singleton authority', () => {
+  it('refuses an update when the migrated singleton is missing', async () => {
+    const repository = {
+      findOne: jest.fn().mockResolvedValue(null),
+      update: jest.fn(),
+      save: jest.fn(),
+      create: jest.fn(),
+    } as unknown as Repository<SystemBranding>;
+    const service = new SystemBrandingService(
+      repository,
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() } as never,
+      new ConfigService(),
+      {} as RuntimeConfigStore,
+    );
+
+    await expect(service.update({ systemName: '不会静默重建' })).rejects.toMatchObject({
+      status: 409,
+    });
+    expect(repository.update).not.toHaveBeenCalled();
+    expect(repository.save).not.toHaveBeenCalled();
+  });
+});
