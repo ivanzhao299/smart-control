@@ -26,7 +26,7 @@ export class AiProxyController {
 
   /**
    * 大屏叠加层配置（匿名只读）：全局框开关 + 每路计数线 / ROI。
-   * 数据来自后端 video-binding.json，不依赖 AI 服务在线；静态路由必须声明在 ':name' 之前。
+   * 数据来自后端 RuntimeConfigStore，不依赖 AI 服务在线；静态路由必须声明在 ':name' 之前。
    */
   @Get('overlay-config')
   overlayConfig() {

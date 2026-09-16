@@ -8,7 +8,7 @@
 | 数据域 | 当前生产位置 | 当前权威源 | 备份与恢复 | 收敛动作 |
 |---|---|---|---|---|
 | 业务与配置数据库 | `D:\smart-control\database\smart-control.db` | SQLite | 发布前在线备份到 `D:\smart-control-backups\<timestamp>\sqlite-*\database.sqlite`，执行完整性校验 | 保持唯一数据库；所有结构变化只走 TypeORM 迁移 |
-| 视频绑定、NVR、通道与 AI 区域 | `D:\smart-control-runtime\data\video-binding.json` | 运行时 JSON（阶段 1 过渡源） | 发布前连同 `.bak` 一起复制到快照的 `runtime-data` | 迁入 SQLite；摄像头拉流与后台编辑共同读取同一仓储 |
+| 视频绑定、NVR、通道与 AI 区域 | SQLite `runtime_config_documents` 的 `video.binding` 文档 | 版本化数据库配置；`video-binding.json(.bak)` 仅保留为首迁导入和恢复证据 | SQLite 配套备份包含当前值与修订历史；旧 JSON 继续随 `runtime-data` 归档 | 后台编辑、AI 下发和摄像头读取均通过 `VideoBindingService`；禁止恢复文件写入 |
 | 园区运营指标与文案 | `D:\smart-control-runtime\data\park-ops-metrics.json` | 运行时 JSON（阶段 1 过渡源） | 发布前复制到 `runtime-data` | 迁入统一配置表；保留一次性导入桥梁后停写 JSON |
 | 园区大屏翻页控制状态 | `D:\smart-control-runtime\data\park-ops-control.json` | 运行时状态文件 | 发布前复制到 `runtime-data` | 归类为可重建短期状态；统一原子状态存储接口 |
 | 音频矩阵状态 | 与数据库同目录的 `matrix-state.json` | 兼容状态文件 | 随数据库目录单独核验 | 对账 `audio_desired_link` 后，以 SQLite 为唯一期望状态 |
@@ -22,7 +22,7 @@
 ## 2. 数据分类规则
 
 1. **权威业务数据**：SQLite 与媒体文件。必须备份、校验、可恢复，不允许由部署覆盖。
-2. **过渡配置数据**：`video-binding.json`、`park-ops-metrics.json`。迁移期间只允许现有服务写入，迁入 SQLite 后停止写文件。
+2. **过渡配置数据**：`park-ops-metrics.json` 仍待迁移；`video-binding.json(.bak)` 已停止写入，仅保留为首迁导入和恢复对账证据。
 3. **可重建运行状态**：大屏当前页、进程状态、缓存与 PWA 缓存。故障时允许重建，但不得伪装成业务配置。
 4. **审计与运行证据**：日志、迁移表、部署回执和备份清单。必须关联提交号和时间，不作为业务主数据回写。
 5. **秘密材料**：密码、令牌签名密钥、OAuth 密钥和签名私钥。不得进入响应、日志或新提交。

@@ -2,7 +2,7 @@
 
 > 最后核实：2026-09-14。本页是 GK9000 现场视频链路的**唯一权威配置**。
 > **【最高红线 · 绝不许删 / 不得改回旧值】**
-> 1. 本文件、`docs/LED_V2460_FULLSCREEN_RUNBOOK.md`、`backend/data/video-binding.json`、
+> 1. 本文件、`docs/LED_V2460_FULLSCREEN_RUNBOOK.md`、SQLite `video.binding` 配置及旧 JSON 恢复证据、
 >    `D:\video-ai-analyzer\`（主程序 / venv / yolov8n.pt / run_ai_service.bat / ai-watchdog.ps1）
 >    都是现场可运行的命脉，**任何清理、`git clean`、重装、迁移都不得删除**，清理临时文件只允许进回收站。
 > 2. 摄像头一律走**子码流（海康通道号末两位 `02`，640×360）**，不准改回主码流；NVR 地址、端口转发、
@@ -28,15 +28,15 @@
 
 ## 1. 两台 NVR 与端口转发（系统级，持久）
 
-| NVR | 真实内网 IP | 用户名/密码 | 经本机 portproxy 转发 |
+| NVR | 真实内网 IP | 凭据来源 | 经本机 portproxy 转发 |
 | --- | --- | --- | --- |
-| Port5 录像机（192.168.1.5，主力，5 路来源） | **192.168.1.5:554** | admin / **jh666888**（全小写） | `0.0.0.0:5545 → 192.168.1.5:554` |
-| Port3 录像机（192.168.1.19，1 路来源） | **192.168.1.19:554** | admin / **Jh666888**（J 大写，其余小写） | `0.0.0.0:5546 → 192.168.1.19:554` |
+| Port5 录像机（192.168.1.5，主力，5 路来源） | **192.168.1.5:554** | SQLite `video.binding`；禁止在代码/文档记录明文 | `0.0.0.0:5545 → 192.168.1.5:554` |
+| Port3 录像机（192.168.1.19，1 路来源） | **192.168.1.19:554** | SQLite `video.binding`；禁止在代码/文档记录明文 | `0.0.0.0:5546 → 192.168.1.19:554` |
 
 - 转发由 Windows **`netsh interface portproxy`** 提供（iphlpsvc 服务，配置持久化在注册表，重启仍在，
   **不是易断的 SSH 隧道**）。查看：`netsh interface portproxy show v4tov4`。
-- 后端 `backend/data/video-binding.json` 里 NVR 的 `ip` 写 `127.0.0.1`、`rtspPort` 写 **5545/5546**，
-  就是走这两条 portproxy；**AI 服务则直接用真实 IP 192.168.1.5 / 192.168.1.19**（见 §4）。
+- 后端统一从 SQLite `video.binding` 读取 NVR 地址、端口与凭据；如需走 portproxy，应在后台把地址/端口配置为
+  `127.0.0.1:5545/5546`。**AI 服务直接用真实 IP 192.168.1.5 / 192.168.1.19**（见 §4）。
 - 排查连通：`Test-NetConnection 192.168.1.5 -Port 554`、`...1.19...`，以及确认 5545/5546 在监听。
 - 摄像头总口径：**2 台 64 路 NVR 共 128 路，在线约 125、离线 3，当前接入大屏 6 路、接入 AI 3 路。**
 
@@ -52,8 +52,8 @@
 | `p3-d50` | Port5(1.5) | 5002 | 是 | 餐厅南（原"研发楼 B"） |
 
 - 海康通道号规则：`xxxx01`=主码流、**`xxxx02`=子码流**。本表全部用 `02`，640×360，省带宽/CPU。
-- 绑定事实源是 `backend/data/video-binding.json`（nvrs + channels + displayLayout 3×2），
-  代码里的 `CHANNEL_MAP`（`cameras.service.ts`）做兼容别名（如 `37`/`p5-d37`→`d37`）。**改通道改这两处并保持一致。**
+- 绑定唯一事实源是 SQLite `video.binding`（nvrs + channels + displayLayout 3×2）；`VideoBindingService`
+  统一提供后台编辑、HLS、截图、AI 下发和兼容别名解析。HLS 对海康 `..01` 通道确定性转换为 `..02` 子码流。
 
 ## 3. A 链路：ffmpeg 转封装 HLS（后端 cameras 模块）
 
@@ -89,10 +89,9 @@
   - `yolov8n.pt`（最轻量模型 6.5MB）、`run_ai_service.bat`（正式启动脚本，重定向日志）
   - `ai-watchdog.ps1`（守护：:8000 没监听就 Start-ScheduledTask VideoAI-Run）
   - `service.log` / `service-error.log`；改码前的回滚备份 `video_ai_analyzer.py.bak-*` 保留。
-- 3 路**子码流直连真实 NVR（不走 portproxy、不经 ffmpeg）**：
-  - d37 = `rtsp://admin:jh666888@192.168.1.5:554/Streaming/Channels/3702`
-  - d57 = `rtsp://admin:jh666888@192.168.1.5:554/Streaming/Channels/5702`
-  - p3-d37 = `rtsp://admin:Jh666888@192.168.1.19:554/Streaming/Channels/3702`
+- 3 路**子码流直连真实 NVR（不走 portproxy、不经 ffmpeg）**：d37=`3702`、d57=`5702`、
+  p3-d37=`3702`。用户名可由 `NVR_PORT5_USERNAME`/`NVR_PORT3_USERNAME` 提供，密码必须通过
+  `NVR_PORT5_PASSWORD`/`NVR_PORT3_PASSWORD` 安全注入；禁止写进脚本或文档。
 - 接口（FastAPI，绑 0.0.0.0:8000）：`/api/health`、`/api/stats`（各门岗 in/out、车型分类、total.current_*）、
   `/api/detections`（实时检测框）。
 - 前端消费：运营大屏 `frontend/public/park-ops/js/app.js` 每 **5s** 拉 `/api/stats` 刷 AI 卡片，
@@ -136,5 +135,5 @@ pm2 status --no-color   # 两个都 online、restart 不增长
 3. **AI :8000 拒绝连接(10061)**：VideoAI-Run 是否 Running、venv python 是否存在、service-error.log；
    开机后没起多为守护问题，用 §4.1 排查，不要重装依赖（venv 是好的）。
 4. **CPU 打满**：先按进程归因（AI python / ffmpeg / msedge）；AI 高就确认 §4 的三项降载参数还在，别拉主码流。
-5. **密码大小写**：Port5=jh666888、Port3=Jh666888，写反会 401/拉不起流。
-6. **绝不许删**：`tmp\hls\`、`D:\video-ai-analyzer\`、`video-binding.json`、本手册与 LED 手册。
+5. **凭据错误**：出现 401 时在后台视频绑定或 AI 服务环境变量中核对，禁止把凭据复制到日志、代码或文档。
+6. **绝不许删**：`tmp\hls\`、`D:\video-ai-analyzer\`、SQLite 配置、旧 JSON 恢复证据、本手册与 LED 手册。

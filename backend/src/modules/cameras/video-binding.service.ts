@@ -1,174 +1,184 @@
-import { BadRequestException, Injectable, OnModuleInit } from '@nestjs/common';
-import { copyFileSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
+import { BadRequestException, ConflictException, Injectable, OnModuleInit } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { RuntimeConfigStore } from '../../common/runtime-config/runtime-config.store';
 import { ensureRuntimeDataDir } from '../../common/storage/runtime-data-path';
+import {
+  CameraChannel,
+  ChannelAiConfig,
+  clampVideoPoint,
+  defaultVideoBindingConfig,
+  MAX_ROI_POINTS,
+  NormPoint,
+  normalizeVideoBindingConfig,
+  NvrDevice,
+  NvrDeviceView,
+  VideoBindingConfig,
+  VideoBindingConfigView,
+  VIDEO_BINDING_CONFIG_KEY,
+  VIDEO_BINDING_SCHEMA_VERSION,
+} from './video-binding-config';
 
-export interface NvrDevice {
+export {
+  CameraChannel,
+  ChannelAiConfig,
+  NormPoint,
+  NvrDevice,
+  NvrDeviceView,
+  VideoBindingConfig,
+  VideoBindingConfigView,
+} from './video-binding-config';
+
+interface LegacyConfig {
+  value: VideoBindingConfig;
+  source: string;
+}
+
+interface Mutation<T> {
+  changed: boolean;
+  select: (config: VideoBindingConfig) => T;
+}
+
+export interface CameraStreamBinding {
   id: string;
-  name: string;
-  ip: string;
-  port: number;
-  rtspPort: number;
-  username: string;
-  password: string;
-  brand: string;
-  enabled: boolean;
-  createdAt: string;
-}
-
-export type NvrDeviceView = Omit<NvrDevice, 'password'> & { hasPassword: boolean };
-export type VideoBindingConfigView = Omit<VideoBindingConfig, 'nvrs'> & { nvrs: NvrDeviceView[] };
-
-/** 归一化坐标点（0~1，与画面分辨率无关，便于拖拽编辑器与 AI 端共用） */
-export interface NormPoint {
-  x: number;
-  y: number;
-}
-
-/** 单路 AI 分析配置：是否分析、越线计数线（2 点）、检测区域多边形 ROI（区域外不检测） */
-export interface ChannelAiConfig {
-  aiEnabled?: boolean;
-  countLine?: NormPoint[];
-  roiPolygon?: NormPoint[];
-}
-
-export interface CameraChannel {
-  id: string;
-  nvrId: string;
-  hikChannel: string;
   name: string;
   alias: string;
-  enabled: boolean;
-  sortOrder: number;
-  createdAt: string;
-  // —— AI 分析相关（可选，老配置缺失时由 migrateConfig 补默认）——
-  /** 该路是否送入 AI 分析/计数 */
-  aiEnabled?: boolean;
-  /** 越线计数线，恰 2 个归一化点；缺省为画面垂直中线 */
-  countLine?: NormPoint[];
-  /** 检测区域多边形顶点（归一化）；为空表示全画面检测，>=3 点时区域外目标不检测不输出 */
-  roiPolygon?: NormPoint[];
+  hikChannel: string;
+  nvr: Pick<NvrDevice, 'id' | 'name' | 'ip' | 'port' | 'rtspPort' | 'username' | 'password'>;
 }
 
-export interface VideoBindingConfig {
-  nvrs: NvrDevice[];
-  channels: CameraChannel[];
-  displayLayout: {
-    columns: number;
-    channelIds: string[];
-  };
-  /** 全局：运营大屏/投影/手机是否叠加 AI 检测框与计数线（后台统一开关，默认开） */
-  aiBoxEnabled?: boolean;
-  updatedAt: string;
-}
-
-/** 默认接入 AI 分析的三路大门，以及它们的默认垂直计数线（与 AI 服务内置默认保持一致） */
-const DEFAULT_AI_CAMERA_IDS = ['d37', 'd57', 'p3-d37'];
-const DEFAULT_COUNT_LINE: NormPoint[] = [{ x: 0.5, y: 0.2 }, { x: 0.5, y: 0.8 }];
-const MAX_ROI_POINTS = 16;
+const LEGACY_CHANNEL_ALIASES: Readonly<Record<string, string>> = {
+  '37': 'd37',
+  'p5-d37': 'd37',
+  '1': 'd01',
+  'p5-d01': 'd01',
+  '2': 'd02',
+  'p5-d02': 'd02',
+  '10': 'd10',
+  'p5-d10': 'd10',
+  '57': 'd57',
+  'p5-d57': 'd57',
+  'p5-d45': 'p3-d45',
+  'p5-d50': 'p3-d50',
+};
 
 @Injectable()
 export class VideoBindingService implements OnModuleInit {
-  private configPath: string;
+  private readonly configPath: string;
   private readonly backupPath: string;
   private config!: VideoBindingConfig;
+  private configRevision = 0;
+  private mutationQueue: Promise<void> = Promise.resolve();
 
-  constructor() {
+  constructor(private readonly store: RuntimeConfigStore) {
     const dataDir = ensureRuntimeDataDir();
     this.configPath = join(dataDir, 'video-binding.json');
     this.backupPath = `${this.configPath}.bak`;
   }
 
-  onModuleInit() {
-    this.loadConfig();
+  async onModuleInit(): Promise<void> {
+    const current = await this.store.read(VIDEO_BINDING_CONFIG_KEY, normalizeVideoBindingConfig);
+    if (current) {
+      this.config = current.value;
+      this.configRevision = current.revision;
+      console.info(
+        `[VideoBinding] Loaded ${VIDEO_BINDING_CONFIG_KEY} revision ${current.revision}`,
+      );
+      return;
+    }
+
+    const legacy = this.readLegacyConfig();
+    const initialized = await this.store.initialize({
+      key: VIDEO_BINDING_CONFIG_KEY,
+      schemaVersion: VIDEO_BINDING_SCHEMA_VERSION,
+      value: legacy.value,
+      normalize: normalizeVideoBindingConfig,
+      actor: 'migration',
+      source: legacy.source,
+    });
+    this.config = initialized.value;
+    this.configRevision = initialized.revision;
+    console.info(
+      `[VideoBinding] Initialized ${VIDEO_BINDING_CONFIG_KEY} revision ${initialized.revision} from ${legacy.source}`,
+    );
   }
 
-  private loadConfig() {
+  private readLegacyConfig(): LegacyConfig {
+    let lastError: unknown;
+    let found = false;
     for (const candidate of [this.configPath, this.backupPath]) {
       if (!existsSync(candidate)) continue;
+      found = true;
       try {
-        const raw = readFileSync(candidate, 'utf-8');
-        this.config = JSON.parse(raw);
-        this.migrateConfig();
-        if (candidate === this.backupPath) {
-          rmSync(this.configPath, { force: true });
-          this.saveConfig();
-        }
-        console.info(`[VideoBinding] Loaded runtime config: ${this.configPath}`);
-        return;
-      } catch (e: any) {
-        console.warn(`[VideoBinding] Failed to load ${candidate}:`, e?.message || e);
+        return {
+          value: normalizeVideoBindingConfig(JSON.parse(readFileSync(candidate, 'utf8'))),
+          source:
+            candidate === this.backupPath
+              ? 'legacy-json:video-binding.json.bak'
+              : 'legacy-json:video-binding.json',
+        };
+      } catch (error) {
+        lastError = error;
       }
     }
-    // 默认配置
-    this.config = {
-      nvrs: [
-        {
-          id: 'nvr-port5',
-          name: '消防控制室Port5录像机',
-          ip: '192.168.1.5',
-          port: 80,
-          rtspPort: 554,
-          username: 'admin',
-          password: 'jh666888',
-          brand: 'hikvision',
-          enabled: true,
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: 'nvr-port3',
-          name: '消防控制室Port3录像机',
-          ip: '192.168.1.19',
-          port: 80,
-          rtspPort: 554,
-          username: 'admin',
-          password: 'Jh666888',
-          brand: 'hikvision',
-          enabled: true,
-          createdAt: new Date().toISOString(),
-        },
-      ],
-      channels: [
-        { id: 'd37', nvrId: 'nvr-port5', hikChannel: '3701', name: '大门', alias: 'D37大门', enabled: true, sortOrder: 1, createdAt: new Date().toISOString() },
-        { id: 'd57', nvrId: 'nvr-port5', hikChannel: '5701', name: '通道57', alias: 'D57通道57', enabled: true, sortOrder: 2, createdAt: new Date().toISOString() },
-        { id: 'd02', nvrId: 'nvr-port5', hikChannel: '201', name: '通道2', alias: 'D02通道2', enabled: true, sortOrder: 3, createdAt: new Date().toISOString() },
-        { id: 'p3-d37', nvrId: 'nvr-port3', hikChannel: '3701', name: 'Port3通道37', alias: 'P3-D37', enabled: true, sortOrder: 4, createdAt: new Date().toISOString() },
-        { id: 'p3-d45', nvrId: 'nvr-port5', hikChannel: '4501', name: 'Port5通道45', alias: 'P5-D45', enabled: true, sortOrder: 5, createdAt: new Date().toISOString() },
-        { id: 'p3-d50', nvrId: 'nvr-port5', hikChannel: '5001', name: 'Port5通道50', alias: 'P5-D50', enabled: true, sortOrder: 6, createdAt: new Date().toISOString() },
-      ],
-      displayLayout: {
-        columns: 3,
-        channelIds: ['d37', 'd57', 'd02', 'p3-d37', 'p3-d45', 'p3-d50'],
-      },
-      aiBoxEnabled: true,
-      updatedAt: new Date().toISOString(),
-    };
-    this.migrateConfig();
-    this.saveConfig();
+    if (found) throw new Error(`VIDEO_BINDING_IMPORT_FAILED: ${String(lastError)}`);
+    return { value: defaultVideoBindingConfig(), source: 'built-in-default' };
   }
 
-  private saveConfig() {
-    this.config.updatedAt = new Date().toISOString();
-    const payload = JSON.stringify(this.config, null, 2);
-    const temporaryPath = `${this.configPath}.${process.pid}.tmp`;
-    try {
-      writeFileSync(temporaryPath, payload, { encoding: 'utf-8', flush: true });
-      if (existsSync(this.configPath)) copyFileSync(this.configPath, this.backupPath);
-      renameSync(temporaryPath, this.configPath);
-    } finally {
-      rmSync(temporaryPath, { force: true });
-    }
+  private cloneConfig(config = this.config): VideoBindingConfig {
+    return structuredClone(config);
+  }
+
+  private mutate<T>(source: string, apply: (draft: VideoBindingConfig) => Mutation<T>): Promise<T> {
+    const operation = this.mutationQueue.then(async () => {
+      const draft = this.cloneConfig();
+      const mutation = apply(draft);
+      if (!mutation.changed) return mutation.select(this.config);
+
+      draft.updatedAt = new Date().toISOString();
+      try {
+        const saved = await this.store.update({
+          key: VIDEO_BINDING_CONFIG_KEY,
+          schemaVersion: VIDEO_BINDING_SCHEMA_VERSION,
+          expectedRevision: this.configRevision,
+          value: draft,
+          normalize: normalizeVideoBindingConfig,
+          actor: 'admin-api',
+          source,
+        });
+        this.config = saved.value;
+        this.configRevision = saved.revision;
+        return mutation.select(this.config);
+      } catch (error) {
+        if (error instanceof ConflictException) {
+          const latest = await this.store.read(
+            VIDEO_BINDING_CONFIG_KEY,
+            normalizeVideoBindingConfig,
+          );
+          if (latest) {
+            this.config = latest.value;
+            this.configRevision = latest.revision;
+          }
+        }
+        throw error;
+      }
+    });
+    this.mutationQueue = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
   }
 
   getConfig(): VideoBindingConfig {
-    return this.config;
+    return this.cloneConfig();
   }
 
-  /** 管理端可读视图：只暴露密码是否已配置，绝不把凭据发到浏览器。 */
   getConfigView(): VideoBindingConfigView {
     return {
       nvrs: this.getNvrs(),
-      channels: this.getChannels().map(channel => ({ ...channel })),
+      channels: this.getChannels(),
       displayLayout: {
         columns: this.config.displayLayout.columns,
         channelIds: [...this.config.displayLayout.channelIds],
@@ -183,241 +193,348 @@ export class VideoBindingService implements OnModuleInit {
     return { ...view, hasPassword: password.length > 0 };
   }
 
-  // NVR CRUD
   getNvrs(): NvrDeviceView[] {
-    return this.config.nvrs.map(nvr => this.toNvrView(nvr));
+    return this.config.nvrs.map((nvr) => this.toNvrView(nvr));
   }
 
-  createNvr(data: Omit<NvrDevice, 'id' | 'createdAt'>): NvrDeviceView {
+  createNvr(data: Omit<NvrDevice, 'id' | 'createdAt'>): Promise<NvrDeviceView> {
     if (!data.password) throw new BadRequestException('新建NVR设备必须设置密码');
-    const nvr: NvrDevice = {
-      ...data,
-      id: `nvr-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-    };
-    this.config.nvrs.push(nvr);
-    this.saveConfig();
-    return this.toNvrView(nvr);
+    const id = `nvr-${randomUUID()}`;
+    return this.mutate('POST /api/video-binding/nvrs', (draft) => {
+      draft.nvrs.push({ ...data, id, createdAt: new Date().toISOString() });
+      return {
+        changed: true,
+        select: (config) => this.toNvrView(config.nvrs.find((nvr) => nvr.id === id)!),
+      };
+    });
   }
 
-  updateNvr(id: string, data: Partial<Omit<NvrDevice, 'id' | 'createdAt'>>): NvrDeviceView | null {
-    const idx = this.config.nvrs.findIndex(n => n.id === id);
-    if (idx === -1) return null;
-    const current = this.config.nvrs[idx];
-    const next: NvrDevice = { ...current };
-    for (const field of ['name', 'ip', 'port', 'rtspPort', 'username', 'brand', 'enabled'] as const) {
-      const value = data[field];
-      if (value !== undefined) (next[field] as typeof value) = value;
-    }
-    // 编辑页不会回显密码；空字符串明确表示沿用原值。
-    if (typeof data.password === 'string' && data.password.length > 0) next.password = data.password;
-    this.config.nvrs[idx] = next;
-    this.saveConfig();
-    return this.toNvrView(next);
+  updateNvr(
+    id: string,
+    data: Partial<Omit<NvrDevice, 'id' | 'createdAt'>>,
+  ): Promise<NvrDeviceView | null> {
+    return this.mutate(`PUT /api/video-binding/nvrs/${id}`, (draft) => {
+      const index = draft.nvrs.findIndex((nvr) => nvr.id === id);
+      if (index === -1) return { changed: false, select: () => null };
+      const next = { ...draft.nvrs[index] };
+      for (const field of [
+        'name',
+        'ip',
+        'port',
+        'rtspPort',
+        'username',
+        'brand',
+        'enabled',
+      ] as const) {
+        const value = data[field];
+        if (value !== undefined) (next[field] as typeof value) = value;
+      }
+      if (typeof data.password === 'string' && data.password.length > 0)
+        next.password = data.password;
+      draft.nvrs[index] = next;
+      return {
+        changed: true,
+        select: (config) => this.toNvrView(config.nvrs.find((nvr) => nvr.id === id)!),
+      };
+    });
   }
 
-  deleteNvr(id: string): boolean {
-    const idx = this.config.nvrs.findIndex(n => n.id === id);
-    if (idx === -1) return false;
-    this.config.nvrs.splice(idx, 1);
-    // 同时删除关联的通道
-    this.config.channels = this.config.channels.filter(c => c.nvrId !== id);
-    this.config.displayLayout.channelIds = this.config.displayLayout.channelIds.filter(cid =>
-      this.config.channels.some(c => c.id === cid)
-    );
-    this.saveConfig();
-    return true;
+  deleteNvr(id: string): Promise<boolean> {
+    return this.mutate(`DELETE /api/video-binding/nvrs/${id}`, (draft) => {
+      const index = draft.nvrs.findIndex((nvr) => nvr.id === id);
+      if (index === -1) return { changed: false, select: () => false };
+      draft.nvrs.splice(index, 1);
+      draft.channels = draft.channels.filter((channel) => channel.nvrId !== id);
+      const channelIds = new Set(draft.channels.map((channel) => channel.id));
+      draft.displayLayout.channelIds = draft.displayLayout.channelIds.filter((channelId) =>
+        channelIds.has(channelId),
+      );
+      return { changed: true, select: () => true };
+    });
   }
 
-  // Channel CRUD
   getChannels(): CameraChannel[] {
-    return [...this.config.channels].sort((a, b) => a.sortOrder - b.sortOrder);
+    return this.config.channels
+      .map((channel) => structuredClone(channel))
+      .sort((left, right) => left.sortOrder - right.sortOrder);
   }
 
-  createChannel(data: Omit<CameraChannel, 'id' | 'createdAt'>): CameraChannel {
-    const channel: CameraChannel = {
-      ...data,
-      id: data.alias || `ch-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-    };
-    this.config.channels.push(channel);
-    this.saveConfig();
-    return channel;
-  }
-
-  updateChannel(id: string, data: Partial<CameraChannel>): CameraChannel | null {
-    const idx = this.config.channels.findIndex(c => c.id === id);
-    if (idx === -1) return null;
-    const next = { ...this.config.channels[idx] };
-    // 旧版 PWA 会回传完整通道视图；这里只接收本编辑接口负责的基础字段，
-    // AI 范围必须通过 updateChannelAi 更新，避免陈旧页面覆盖刚保存的 ROI。
-    for (const field of ['nvrId', 'hikChannel', 'name', 'alias', 'enabled', 'sortOrder'] as const) {
-      const value = data[field];
-      if (value !== undefined) (next[field] as typeof value) = value;
-    }
-    this.config.channels[idx] = next;
-    this.saveConfig();
-    return next;
-  }
-
-  deleteChannel(id: string): boolean {
-    const idx = this.config.channels.findIndex(c => c.id === id);
-    if (idx === -1) return false;
-    this.config.channels.splice(idx, 1);
-    this.config.displayLayout.channelIds = this.config.displayLayout.channelIds.filter(cid => cid !== id);
-    this.saveConfig();
-    return true;
-  }
-
-  // Display layout
-  updateDisplayLayout(layout: { columns?: number; channelIds?: string[] }): VideoBindingConfig['displayLayout'] {
-    if (layout.columns !== undefined) {
-      this.config.displayLayout.columns = layout.columns;
-    }
-    if (layout.channelIds !== undefined) {
-      this.config.displayLayout.channelIds = layout.channelIds;
-    }
-    this.saveConfig();
-    return this.config.displayLayout;
-  }
-
-  // ========== AI 检测范围 / 全局框开关 ==========
-  /** 老配置补齐新字段（不覆盖已存在的值），坐标统一钳制到 0~1 */
-  private migrateConfig(): void {
-    if (this.config.aiBoxEnabled === undefined) this.config.aiBoxEnabled = true;
-    if (!Array.isArray(this.config.channels)) this.config.channels = [];
-    for (const ch of this.config.channels) {
-      const isDefaultAi = DEFAULT_AI_CAMERA_IDS.includes(ch.id);
-      if (ch.aiEnabled === undefined) ch.aiEnabled = isDefaultAi;
-      if (!Array.isArray(ch.countLine) || ch.countLine.length !== 2) {
-        ch.countLine = isDefaultAi ? DEFAULT_COUNT_LINE.map(p => ({ ...p })) : undefined;
-      } else {
-        ch.countLine = ch.countLine.map(p => this.clampPoint(p));
+  createChannel(data: Omit<CameraChannel, 'id' | 'createdAt'>): Promise<CameraChannel> {
+    const id = data.alias || `ch-${randomUUID()}`;
+    return this.mutate('POST /api/video-binding/channels', (draft) => {
+      if (!draft.nvrs.some((nvr) => nvr.id === data.nvrId)) {
+        throw new BadRequestException('关联的NVR设备不存在');
       }
-      if (Array.isArray(ch.roiPolygon) && ch.roiPolygon.length) {
-        ch.roiPolygon = ch.roiPolygon.slice(0, MAX_ROI_POINTS).map(p => this.clampPoint(p));
-      } else {
-        ch.roiPolygon = [];
+      if (draft.channels.some((channel) => channel.id === id)) {
+        throw new BadRequestException('摄像头通道标识已存在');
       }
-    }
+      draft.channels.push({ ...data, id, createdAt: new Date().toISOString() });
+      return {
+        changed: true,
+        select: (config) => structuredClone(config.channels.find((channel) => channel.id === id)!),
+      };
+    });
   }
 
-  private clampPoint(p: any): NormPoint {
-    const num = (v: any) => {
-      const n = Number(v);
-      if (!Number.isFinite(n)) return 0;
-      return Math.min(1, Math.max(0, n));
-    };
-    return { x: num(p?.x), y: num(p?.y) };
+  updateChannel(id: string, data: Partial<CameraChannel>): Promise<CameraChannel | null> {
+    return this.mutate(`PUT /api/video-binding/channels/${id}`, (draft) => {
+      const index = draft.channels.findIndex((channel) => channel.id === id);
+      if (index === -1) return { changed: false, select: () => null };
+      const next = { ...draft.channels[index] };
+      for (const field of [
+        'nvrId',
+        'hikChannel',
+        'name',
+        'alias',
+        'enabled',
+        'sortOrder',
+      ] as const) {
+        const value = data[field];
+        if (value !== undefined) (next[field] as typeof value) = value;
+      }
+      if (!draft.nvrs.some((nvr) => nvr.id === next.nvrId)) {
+        throw new BadRequestException('关联的NVR设备不存在');
+      }
+      draft.channels[index] = next;
+      return {
+        changed: true,
+        select: (config) => structuredClone(config.channels.find((channel) => channel.id === id)!),
+      };
+    });
+  }
+
+  deleteChannel(id: string): Promise<boolean> {
+    return this.mutate(`DELETE /api/video-binding/channels/${id}`, (draft) => {
+      const index = draft.channels.findIndex((channel) => channel.id === id);
+      if (index === -1) return { changed: false, select: () => false };
+      draft.channels.splice(index, 1);
+      draft.displayLayout.channelIds = draft.displayLayout.channelIds.filter(
+        (channelId) => channelId !== id,
+      );
+      return { changed: true, select: () => true };
+    });
+  }
+
+  updateDisplayLayout(layout: {
+    columns?: number;
+    channelIds?: string[];
+  }): Promise<VideoBindingConfig['displayLayout']> {
+    return this.mutate('PUT /api/video-binding/layout', (draft) => {
+      if (layout.columns !== undefined) draft.displayLayout.columns = layout.columns;
+      if (layout.channelIds !== undefined) {
+        const known = new Set(draft.channels.map((channel) => channel.id));
+        if (layout.channelIds.some((channelId) => !known.has(channelId))) {
+          throw new BadRequestException('显示布局包含不存在的摄像头通道');
+        }
+        draft.displayLayout.channelIds = [...new Set(layout.channelIds)];
+      }
+      return {
+        changed: true,
+        select: (config) => structuredClone(config.displayLayout),
+      };
+    });
   }
 
   getAiBoxEnabled(): boolean {
-    // 缺省视为开（只有显式 false 才关）
     return this.config.aiBoxEnabled !== false;
   }
 
-  setAiBoxEnabled(enabled: boolean): boolean {
-    this.config.aiBoxEnabled = !!enabled;
-    this.saveConfig();
-    return this.config.aiBoxEnabled;
+  setAiBoxEnabled(enabled: boolean): Promise<boolean> {
+    return this.mutate('PUT /api/video-binding/ai/box', (draft) => {
+      draft.aiBoxEnabled = !!enabled;
+      return { changed: true, select: (config) => config.aiBoxEnabled !== false };
+    });
   }
 
-  /** 保存单路 AI 配置（是否分析 / 计数线 / ROI 区域） */
-  updateChannelAi(id: string, patch: ChannelAiConfig): CameraChannel | null {
-    const idx = this.config.channels.findIndex(c => c.id === id);
-    if (idx === -1) return null;
-    const next: Partial<CameraChannel> = {};
-    if (patch.aiEnabled !== undefined) next.aiEnabled = !!patch.aiEnabled;
-    if (patch.countLine !== undefined) {
-      next.countLine =
-        Array.isArray(patch.countLine) && patch.countLine.length === 2
-          ? patch.countLine.map(p => this.clampPoint(p))
-          : DEFAULT_COUNT_LINE.map(p => ({ ...p }));
-    }
-    if (patch.roiPolygon !== undefined) {
-      const poly = Array.isArray(patch.roiPolygon) ? patch.roiPolygon : [];
-      next.roiPolygon = poly.length >= 3 ? poly.slice(0, MAX_ROI_POINTS).map(p => this.clampPoint(p)) : [];
-    }
-    this.config.channels[idx] = { ...this.config.channels[idx], ...next };
-    this.saveConfig();
-    return this.config.channels[idx];
+  updateChannelAi(id: string, patch: ChannelAiConfig): Promise<CameraChannel | null> {
+    return this.mutate(`PUT /api/video-binding/channels/${id}/ai`, (draft) => {
+      const index = draft.channels.findIndex((channel) => channel.id === id);
+      if (index === -1) return { changed: false, select: () => null };
+      const next = { ...draft.channels[index] };
+      if (patch.aiEnabled !== undefined) next.aiEnabled = !!patch.aiEnabled;
+      if (patch.countLine !== undefined) {
+        next.countLine =
+          Array.isArray(patch.countLine) && patch.countLine.length === 2
+            ? patch.countLine.map(clampVideoPoint)
+            : undefined;
+      }
+      if (patch.roiPolygon !== undefined) {
+        const polygon = Array.isArray(patch.roiPolygon) ? patch.roiPolygon : [];
+        next.roiPolygon =
+          polygon.length >= 3 ? polygon.slice(0, MAX_ROI_POINTS).map(clampVideoPoint) : [];
+      }
+      draft.channels[index] = next;
+      return {
+        changed: true,
+        select: (config) => structuredClone(config.channels.find((channel) => channel.id === id)!),
+      };
+    });
   }
 
-  /** 组装下发给 AI Python（POST /api/config）的载荷，坐标为数组形式 */
   buildAiPayload(): {
     cameras: Record<
       string,
-      { enabled: boolean; count_line: [[number, number], [number, number]] | null; roi_polygon: [number, number][] }
+      {
+        enabled: boolean;
+        count_line: [[number, number], [number, number]] | null;
+        roi_polygon: [number, number][];
+      }
     >;
   } {
-    const cameras: Record<string, any> = {};
-    for (const ch of this.config.channels) {
-      const line = Array.isArray(ch.countLine) && ch.countLine.length === 2 ? ch.countLine : null;
-      cameras[ch.id] = {
-        enabled: !!ch.aiEnabled,
-        count_line: line ? [[line[0].x, line[0].y], [line[1].x, line[1].y]] : null,
-        roi_polygon: Array.isArray(ch.roiPolygon) ? ch.roiPolygon.map(p => [p.x, p.y] as [number, number]) : [],
+    const cameras: Record<
+      string,
+      {
+        enabled: boolean;
+        count_line: [[number, number], [number, number]] | null;
+        roi_polygon: [number, number][];
+      }
+    > = {};
+    for (const channel of this.config.channels) {
+      const line =
+        Array.isArray(channel.countLine) && channel.countLine.length === 2
+          ? channel.countLine
+          : null;
+      cameras[channel.id] = {
+        enabled: !!channel.aiEnabled,
+        count_line: line
+          ? [
+              [line[0].x, line[0].y],
+              [line[1].x, line[1].y],
+            ]
+          : null,
+        roi_polygon: Array.isArray(channel.roiPolygon)
+          ? channel.roiPolygon.map((point) => [point.x, point.y])
+          : [],
       };
     }
     return { cameras };
   }
 
-  /** 大屏匿名只读：全局框开关 + 每路计数线/ROI（不含任何凭据） */
-  getOverlayConfig() {
+  getOverlayConfig(): {
+    aiBoxEnabled: boolean;
+    cameras: Record<
+      string,
+      { aiEnabled: boolean; countLine: NormPoint[] | null; roiPolygon: NormPoint[] }
+    >;
+  } {
     const cameras: Record<
       string,
       { aiEnabled: boolean; countLine: NormPoint[] | null; roiPolygon: NormPoint[] }
     > = {};
-    for (const ch of this.config.channels) {
-      cameras[ch.id] = {
-        aiEnabled: !!ch.aiEnabled,
-        countLine: Array.isArray(ch.countLine) && ch.countLine.length === 2 ? ch.countLine : null,
-        roiPolygon: Array.isArray(ch.roiPolygon) ? ch.roiPolygon : [],
+    for (const channel of this.config.channels) {
+      cameras[channel.id] = {
+        aiEnabled: !!channel.aiEnabled,
+        countLine:
+          Array.isArray(channel.countLine) && channel.countLine.length === 2
+            ? channel.countLine.map((point) => ({ ...point }))
+            : null,
+        roiPolygon: Array.isArray(channel.roiPolygon)
+          ? channel.roiPolygon.map((point) => ({ ...point }))
+          : [],
       };
     }
     return { aiBoxEnabled: this.getAiBoxEnabled(), cameras };
   }
 
-  // 获取用于运营大屏的视频配置
-  getDisplayChannels(): Array<{ id: string; name: string; alias: string; nvrId: string; hikChannel: string }> {
+  getDisplayChannels(): Array<{
+    id: string;
+    name: string;
+    alias: string;
+    nvrId: string;
+    hikChannel: string;
+  }> {
     return this.config.displayLayout.channelIds
-      .map(cid => this.config.channels.find(c => c.id === cid && c.enabled))
-      .filter((c): c is CameraChannel => c !== undefined)
-      .map(c => ({
-        id: c.id,
-        name: c.name,
-        alias: c.alias,
-        nvrId: c.nvrId,
-        hikChannel: c.hikChannel,
+      .map((channelId) =>
+        this.config.channels.find((channel) => channel.id === channelId && channel.enabled),
+      )
+      .filter((channel): channel is CameraChannel => channel !== undefined)
+      .map((channel) => ({
+        id: channel.id,
+        name: channel.name,
+        alias: channel.alias,
+        nvrId: channel.nvrId,
+        hikChannel: channel.hikChannel,
       }));
   }
 
-  // 测试NVR连接
+  /** Internal stream resolver. Credentials never leave the backend service boundary. */
+  resolveStreamBinding(requestedId: string): CameraStreamBinding | null {
+    const key = requestedId.trim().toLowerCase();
+    const canonicalId = LEGACY_CHANNEL_ALIASES[key] ?? key;
+    const channel = this.config.channels.find(
+      (candidate) => candidate.id.toLowerCase() === canonicalId && candidate.enabled,
+    );
+    if (!channel) return null;
+    const nvr = this.config.nvrs.find(
+      (candidate) => candidate.id === channel.nvrId && candidate.enabled,
+    );
+    if (!nvr) return null;
+    return {
+      id: channel.id,
+      name: channel.name,
+      alias: channel.alias,
+      hikChannel: channel.hikChannel,
+      nvr: {
+        id: nvr.id,
+        name: nvr.name,
+        ip: nvr.ip,
+        port: nvr.port,
+        rtspPort: nvr.rtspPort,
+        username: nvr.username,
+        password: nvr.password,
+      },
+    };
+  }
+
+  getStreamChannelViews(): Array<{
+    channel: string;
+    name: string;
+    nvr: string;
+    hikChannel: string;
+  }> {
+    return this.config.channels
+      .filter((channel) => channel.enabled)
+      .flatMap((channel) => {
+        const nvr = this.config.nvrs.find(
+          (candidate) => candidate.id === channel.nvrId && candidate.enabled,
+        );
+        return nvr
+          ? [
+              {
+                channel: channel.id,
+                name: channel.name,
+                nvr: nvr.name,
+                hikChannel: channel.hikChannel,
+              },
+            ]
+          : [];
+      });
+  }
+
   async testNvrConnection(id: string): Promise<{ success: boolean; message: string }> {
-    const nvr = this.config.nvrs.find(n => n.id === id);
-    if (!nvr) {
-      return { success: false, message: 'NVR设备不存在' };
-    }
+    const nvr = this.config.nvrs.find((device) => device.id === id);
+    if (!nvr) return { success: false, message: 'NVR设备不存在' };
     try {
       const url = `http://${nvr.ip}:${nvr.port}/ISAPI/System/deviceInfo`;
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': 'Basic ' + Buffer.from(`${nvr.username}:${nvr.password}`).toString('base64'),
-        },
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-      if (response.status === 200) {
-        return { success: true, message: '连接成功' };
-      } else if (response.status === 401) {
-        return { success: false, message: '认证失败，请检查用户名密码' };
-      } else {
+      try {
+        const response = await fetch(url, {
+          headers: {
+            Authorization: `Basic ${Buffer.from(`${nvr.username}:${nvr.password}`).toString('base64')}`,
+          },
+          signal: controller.signal,
+        });
+        if (response.status === 200) return { success: true, message: '连接成功' };
+        if (response.status === 401)
+          return { success: false, message: '认证失败，请检查用户名密码' };
         return { success: false, message: `连接失败，HTTP状态码: ${response.status}` };
+      } finally {
+        clearTimeout(timeout);
       }
-    } catch (e: any) {
-      return { success: false, message: `连接异常: ${e?.message || String(e)}` };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, message: `连接异常: ${message}` };
     }
   }
 }

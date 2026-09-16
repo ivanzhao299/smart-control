@@ -4,68 +4,12 @@ import * as http from 'http';
 import { spawn, spawnSync, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import { CameraStreamBinding, VideoBindingService } from './video-binding.service';
 
-/**
- * 海康威视NVR配置
- * 两台NVR都已迁移到1网段(VLAN101)
- */
-const NVR_CONFIGS = [
-  {
-    id: 'nvr-port3',
-    name: '消防控制室Port3录像机',
-    ip: process.env.NVR_PORT3_IP || '192.168.1.19',
-    port: 80,
-    rtspPort: parseInt(process.env.NVR_PORT3_RTSP_PORT || '554', 10),
-    username: 'admin',
-    password: 'Jh666888',
-  },
-  {
-    id: 'nvr-port5',
-    name: '消防控制室Port5录像机',
-    ip: process.env.NVR_PORT5_IP || '192.168.1.5',
-    port: 80,
-    rtspPort: parseInt(process.env.NVR_PORT5_RTSP_PORT || '554', 10),
-    username: 'admin',
-    password: 'jh666888',
-  },
-];
-
-/**
- * 摄像头通道映射
- * channel参数 -> NVR + 海康通道号(格式: XXXX, 如3701=通道37主码流)
- */
-const CHANNEL_MAP: Record<string, { nvrId: string; hikChannel: string; name: string }> = {
-  // Port5录像机 (192.168.1.5) — 使用子码流(XX02)降低码率和CPU负载
-  'd37': { nvrId: 'nvr-port5', hikChannel: '3702', name: '大门' },
-  '37': { nvrId: 'nvr-port5', hikChannel: '3702', name: '大门' },
-  'p5-d37': { nvrId: 'nvr-port5', hikChannel: '3702', name: '大门' },
-  'd01': { nvrId: 'nvr-port5', hikChannel: '102', name: '通道1' },
-  '1': { nvrId: 'nvr-port5', hikChannel: '102', name: '通道1' },
-  'p5-d01': { nvrId: 'nvr-port5', hikChannel: '102', name: '通道1' },
-  'd02': { nvrId: 'nvr-port5', hikChannel: '202', name: '通道2' },
-  '2': { nvrId: 'nvr-port5', hikChannel: '202', name: '通道2' },
-  'p5-d02': { nvrId: 'nvr-port5', hikChannel: '202', name: '通道2' },
-  'd10': { nvrId: 'nvr-port5', hikChannel: '1002', name: '通道10' },
-  '10': { nvrId: 'nvr-port5', hikChannel: '1002', name: '通道10' },
-  'p5-d10': { nvrId: 'nvr-port5', hikChannel: '1002', name: '通道10' },
-  'd57': { nvrId: 'nvr-port5', hikChannel: '5702', name: '通道57' },
-  '57': { nvrId: 'nvr-port5', hikChannel: '5702', name: '通道57' },
-  'p5-d57': { nvrId: 'nvr-port5', hikChannel: '5702', name: '通道57' },
-  // Port3录像机 (192.168.1.19)
-  'p3-d37': { nvrId: 'nvr-port3', hikChannel: '3702', name: 'Port3通道37' },
-  // D45/D50在Port5录像机上（Port3上这两个通道返回503不存在）
-  'p3-d45': { nvrId: 'nvr-port5', hikChannel: '4502', name: 'Port5通道45' },
-  'p3-d50': { nvrId: 'nvr-port5', hikChannel: '5002', name: 'Port5通道50' },
-  'p5-d45': { nvrId: 'nvr-port5', hikChannel: '4502', name: 'Port5通道45' },
-  'p5-d50': { nvrId: 'nvr-port5', hikChannel: '5002', name: 'Port5通道50' },
-};
-
-/**
- * 后端启动后默认自动拉起的 HLS 直播通道（运营大屏实际使用的 6 路，
- * 与 D:\smart-control\tmp\hls 下的子目录名一一对应）。
- * 可用环境变量 HLS_AUTOSTART_CHANNELS 覆盖（逗号分隔）。
- */
-const DEFAULT_AUTOSTART_CHANNELS = ['d02', 'd37', 'd57', 'p3-d37', 'p3-d45', 'p3-d50'];
+/** Hikvision channel suffix 01 is the main stream; HLS always consumes suffix 02 substreams. */
+export function toHikvisionSubstreamChannel(channel: string): string {
+  return /^\d+01$/.test(channel) ? `${channel.slice(0, -2)}02` : channel;
+}
 
 /**
  * HLS转码会话状态
@@ -95,7 +39,7 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
   private readonly ffmpegPath: string;
   private healthCheckInterval: NodeJS.Timeout;
 
-  constructor() {
+  constructor(private readonly videoBinding: VideoBindingService) {
     // HLS输出目录：项目根目录/tmp/hls
     this.hlsRootDir = path.resolve(process.cwd(), '..', 'tmp', 'hls');
     if (!fs.existsSync(this.hlsRootDir)) {
@@ -137,11 +81,15 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
           const age = Date.now() - stat.mtimeMs;
           if (age > 30000) {
             session.stallCount = (session.stallCount || 0) + 1;
-            this.logger.warn(`[健康检查] ${channelKey} 分片停滞${Math.round(age / 1000)}s（连续${session.stallCount}次）`);
+            this.logger.warn(
+              `[健康检查] ${channelKey} 分片停滞${Math.round(age / 1000)}s（连续${session.stallCount}次）`,
+            );
             if (session.stallCount >= 2 && session.restartCount < 10) {
               session.stallCount = 0;
               session.restartCount++;
-              this.logger.warn(`[健康检查] ${channelKey} 连续2次停滞，安全重启（强杀旧进程树后重拉）`);
+              this.logger.warn(
+                `[健康检查] ${channelKey} 连续2次停滞，安全重启（强杀旧进程树后重拉）`,
+              );
               // restartHlsStream 内部负责换代、强杀旧进程树、清残留，这里无需先 kill
               setTimeout(() => this.restartHlsStream(channelKey), 2000);
             }
@@ -210,8 +158,11 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
 
     const rawChannels = process.env.HLS_AUTOSTART_CHANNELS?.trim();
     const channels = rawChannels
-      ? rawChannels.split(',').map((c) => c.trim().toLowerCase()).filter(Boolean)
-      : [...DEFAULT_AUTOSTART_CHANNELS];
+      ? rawChannels
+          .split(',')
+          .map((c) => c.trim().toLowerCase())
+          .filter(Boolean)
+      : this.videoBinding.getDisplayChannels().map((channel) => channel.id);
     if (channels.length === 0) {
       this.logger.warn('HLS 启动自动恢复通道列表为空，跳过');
       return;
@@ -229,12 +180,16 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
       setTimeout(() => {
         this.startHlsStream(channel)
           .then(() => this.logger.log(`[启动自恢复] 通道 ${channel} HLS 已拉起`))
-          .catch((e) => this.logger.error(
-            `[启动自恢复] 通道 ${channel} 拉起失败（健康检查/前端手动 start 仍可重试）: ${(e as Error).message}`,
-          ));
+          .catch((e) =>
+            this.logger.error(
+              `[启动自恢复] 通道 ${channel} 拉起失败（健康检查/前端手动 start 仍可重试）: ${(e as Error).message}`,
+            ),
+          );
       }, wait);
     });
-    this.logger.log(`HLS 启动自动恢复已调度：${channels.join(', ')}（首路延迟 ${delayMs}ms，错峰 ${staggerMs}ms）`);
+    this.logger.log(
+      `HLS 启动自动恢复已调度：${channels.join(', ')}（首路延迟 ${delayMs}ms，错峰 ${staggerMs}ms）`,
+    );
   }
 
   /**
@@ -242,19 +197,12 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
    */
   async getSnapshot(channel: string): Promise<{ buffer: Buffer; contentType: string }> {
     const channelKey = channel.toLowerCase();
-    const mapping = CHANNEL_MAP[channelKey];
+    const binding = this.resolveBinding(channelKey);
+    const nvr = binding.nvr;
+    const hikChannel = toHikvisionSubstreamChannel(binding.hikChannel);
 
-    if (!mapping) {
-      throw new Error(`未知通道: ${channel}，支持的通道: ${Object.keys(CHANNEL_MAP).join(', ')}`);
-    }
-
-    const nvr = NVR_CONFIGS.find((n) => n.id === mapping.nvrId);
-    if (!nvr) {
-      throw new Error(`NVR配置不存在: ${mapping.nvrId}`);
-    }
-
-    const url = `http://${nvr.ip}:${nvr.port}/ISAPI/Streaming/channels/${mapping.hikChannel}/picture`;
-    this.logger.log(`获取快照: ${url} (通道: ${channel} -> ${mapping.name})`);
+    const url = `http://${nvr.ip}:${nvr.port}/ISAPI/Streaming/channels/${hikChannel}/picture`;
+    this.logger.log(`获取快照: ${url} (通道: ${channel} -> ${binding.name})`);
 
     try {
       const buffer = await this.httpGetWithDigestAuth(url, nvr.username, nvr.password);
@@ -271,7 +219,8 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
    * @returns HLS播放列表路径
    */
   async startHlsStream(channel: string): Promise<{ playlistUrl: string; outputDir: string }> {
-    const channelKey = channel.toLowerCase();
+    const binding = this.resolveBinding(channel.toLowerCase());
+    const channelKey = binding.id.toLowerCase();
 
     // 如果已经在运行，直接返回
     const existing = this.hlsSessions.get(channelKey);
@@ -283,18 +232,11 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
       };
     }
 
-    const mapping = CHANNEL_MAP[channelKey];
-    if (!mapping) {
-      throw new Error(`未知通道: ${channel}`);
-    }
-
-    const nvr = NVR_CONFIGS.find((n) => n.id === mapping.nvrId);
-    if (!nvr) {
-      throw new Error(`NVR配置不存在: ${mapping.nvrId}`);
-    }
+    const nvr = binding.nvr;
+    const hikChannel = toHikvisionSubstreamChannel(binding.hikChannel);
 
     // 构造RTSP地址
-    const rtspUrl = `rtsp://${nvr.username}:${encodeURIComponent(nvr.password)}@${nvr.ip}:${nvr.rtspPort}/Streaming/Channels/${mapping.hikChannel}`;
+    const rtspUrl = `rtsp://${nvr.username}:${encodeURIComponent(nvr.password)}@${nvr.ip}:${nvr.rtspPort}/Streaming/Channels/${hikChannel}`;
 
     // 输出目录
     const outputDir = path.join(this.hlsRootDir, channelKey);
@@ -304,8 +246,10 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
 
     const playlistPath = path.join(outputDir, 'playlist.m3u8');
 
-    this.logger.log(`启动HLS转码: ${channelKey} (${mapping.name}) -> ${outputDir}`);
-    this.logger.log(`RTSP源: rtsp://${nvr.username}:****@${nvr.ip}:${nvr.rtspPort}/Streaming/Channels/${mapping.hikChannel}`);
+    this.logger.log(`启动HLS转码: ${channelKey} (${binding.name}) -> ${outputDir}`);
+    this.logger.log(
+      `RTSP源: rtsp://${nvr.username}:****@${nvr.ip}:${nvr.rtspPort}/Streaming/Channels/${hikChannel}`,
+    );
 
     // FFmpeg：HEVC 子码流(XX02,640x360) -> H.264/HLS；参数统一收敛到 buildFfmpegArgs，
     // start / restart 不再各维护一份，避免两处漂移。
@@ -339,20 +283,33 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
   /** 统一构造 ffmpeg 参数（start / restart 共用，避免两份参数漂移） */
   private buildFfmpegArgs(rtspUrl: string, segmentPattern: string, playlistPath: string): string[] {
     return [
-      '-rtsp_transport', 'tcp',
-      '-fflags', 'nobuffer',
-      '-flags', 'low_delay',
-      '-i', rtspUrl,
-      '-c:v', 'libx264',      // HEVC/H.265 -> H.264，浏览器 hls.js 可播
-      '-preset', 'ultrafast', // 最快编码速度
-      '-tune', 'zerolatency', // 最低延迟
-      '-crf', '28',           // 质量/码率平衡
-      '-an',                  // 监控视频禁音频
-      '-f', 'hls',
-      '-hls_time', '1',
-      '-hls_list_size', '3',
-      '-hls_flags', 'delete_segments+append_list+omit_endlist',
-      '-hls_segment_filename', segmentPattern,
+      '-rtsp_transport',
+      'tcp',
+      '-fflags',
+      'nobuffer',
+      '-flags',
+      'low_delay',
+      '-i',
+      rtspUrl,
+      '-c:v',
+      'libx264', // HEVC/H.265 -> H.264，浏览器 hls.js 可播
+      '-preset',
+      'ultrafast', // 最快编码速度
+      '-tune',
+      'zerolatency', // 最低延迟
+      '-crf',
+      '28', // 质量/码率平衡
+      '-an', // 监控视频禁音频
+      '-f',
+      'hls',
+      '-hls_time',
+      '1',
+      '-hls_list_size',
+      '3',
+      '-hls_flags',
+      'delete_segments+append_list+omit_endlist',
+      '-hls_segment_filename',
+      segmentPattern,
       '-y',
       playlistPath,
     ];
@@ -392,11 +349,15 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
         this.logger.warn(`[FFmpeg ${channelKey}] ${msg.substring(0, 200)}`);
       }
     });
-    proc.stdout?.on('data', () => { /* 忽略 stdout */ });
+    proc.stdout?.on('data', () => {
+      /* 忽略 stdout */
+    });
 
     proc.on('close', (code) => {
       if (session.stopped || session.generation !== generation || session.process !== proc) {
-        this.logger.log(`[FFmpeg ${channelKey}] 旧代际(gen=${generation})进程退出 code=${code}，不再自动拉起`);
+        this.logger.log(
+          `[FFmpeg ${channelKey}] 旧代际(gen=${generation})进程退出 code=${code}，不再自动拉起`,
+        );
         return;
       }
       session.isRunning = false;
@@ -404,7 +365,9 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
       if (session.restartCount < 10) {
         session.restartCount++;
         const delay = Math.min(3000 * session.restartCount, 15000);
-        this.logger.log(`[FFmpeg ${channelKey}] 自动重启 (第${session.restartCount}次，延迟${delay}ms)...`);
+        this.logger.log(
+          `[FFmpeg ${channelKey}] 自动重启 (第${session.restartCount}次，延迟${delay}ms)...`,
+        );
         setTimeout(() => {
           const cur = this.hlsSessions.get(channelKey);
           if (cur && !cur.stopped && cur.generation === generation) {
@@ -437,7 +400,11 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
       }
     } catch (e) {
       this.logger.warn(`强杀 ffmpeg 进程树失败，回退普通 kill: ${(e as Error).message}`);
-      try { proc.kill('SIGKILL'); } catch { /* ignore */ }
+      try {
+        proc.kill('SIGKILL');
+      } catch {
+        /* ignore */
+      }
     }
   }
 
@@ -451,7 +418,7 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
     try {
       const like = `*tmp\\hls\\${channelKey}\\*`; // TS 中 \\ => 一个反斜杠；通道名对 -like 无特殊含义
       const ps =
-        "Get-CimInstance Win32_Process -Filter \"Name='ffmpeg.exe'\" | " +
+        'Get-CimInstance Win32_Process -Filter "Name=\'ffmpeg.exe\'" | ' +
         `Where-Object { $_.CommandLine -like '${like}' } | ` +
         'ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }';
       spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], {
@@ -459,7 +426,9 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
         timeout: 8000,
       });
     } catch (e) {
-      this.logger.warn(`[${channelKey}] 清理残留 ffmpeg 失败（忽略，不影响启动）: ${(e as Error).message}`);
+      this.logger.warn(
+        `[${channelKey}] 清理残留 ffmpeg 失败（忽略，不影响启动）: ${(e as Error).message}`,
+      );
     }
   }
 
@@ -467,7 +436,7 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
    * 停止HLS转码流
    */
   stopHlsStream(channel: string): void {
-    const channelKey = channel.toLowerCase();
+    const channelKey = this.canonicalSessionKey(channel);
     const session = this.hlsSessions.get(channelKey);
 
     if (session) {
@@ -499,11 +468,12 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
     const session = this.hlsSessions.get(channelKey);
     if (!session || session.stopped) return;
 
-    const mapping = CHANNEL_MAP[channelKey];
-    const nvr = NVR_CONFIGS.find((n) => n.id === mapping?.nvrId);
-    if (!mapping || !nvr) return;
+    const binding = this.videoBinding.resolveStreamBinding(channelKey);
+    if (!binding) return;
+    const nvr = binding.nvr;
+    const hikChannel = toHikvisionSubstreamChannel(binding.hikChannel);
 
-    const rtspUrl = `rtsp://${nvr.username}:${encodeURIComponent(nvr.password)}@${nvr.ip}:${nvr.rtspPort}/Streaming/Channels/${mapping.hikChannel}`;
+    const rtspUrl = `rtsp://${nvr.username}:${encodeURIComponent(nvr.password)}@${nvr.ip}:${nvr.rtspPort}/Streaming/Channels/${hikChannel}`;
 
     // 代际 +1：旧进程即使稍后才真正退出，其 close 回调因 generation 不匹配会直接跳过、
     // 不再 spawn；先强杀旧进程树并清理同目录残留，再启动新进程，
@@ -523,7 +493,7 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
    * 获取HLS文件内容
    */
   getHlsFile(channel: string, filename: string): { buffer: Buffer; contentType: string } | null {
-    const channelKey = channel.toLowerCase();
+    const channelKey = this.canonicalSessionKey(channel);
     const session = this.hlsSessions.get(channelKey);
 
     if (!session) {
@@ -545,8 +515,10 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
   /**
    * 获取HLS转码状态
    */
-  getHlsStatus(channel: string): { isRunning: boolean; restartCount: number; uptime: number } | null {
-    const channelKey = channel.toLowerCase();
+  getHlsStatus(
+    channel: string,
+  ): { isRunning: boolean; restartCount: number; uptime: number } | null {
+    const channelKey = this.canonicalSessionKey(channel);
     const session = this.hlsSessions.get(channelKey);
 
     if (!session) {
@@ -634,7 +606,9 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
             const ha2 = this.md5(`GET:${parsedUrl.pathname}`);
             const nonceCount = '00000001';
             const cnonce = this.generateCnonce();
-            const response = this.md5(`${ha1}:${authParams.nonce}:${nonceCount}:${cnonce}:auth:${ha2}`);
+            const response = this.md5(
+              `${ha1}:${authParams.nonce}:${nonceCount}:${cnonce}:auth:${ha2}`,
+            );
 
             const authHeader = `Digest username="${username}", realm="${authParams.realm}", nonce="${authParams.nonce}", uri="${parsedUrl.pathname}", qop=auth, nc=${nonceCount}, cnonce="${cnonce}", response="${response}", opaque="${authParams.opaque || ''}"`;
 
@@ -705,11 +679,21 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
    * 获取支持的通道列表
    */
   getSupportedChannels() {
-    return Object.entries(CHANNEL_MAP).map(([key, value]) => ({
-      channel: key,
-      name: value.name,
-      nvr: NVR_CONFIGS.find((n) => n.id === value.nvrId)?.name,
-      hikChannel: value.hikChannel,
+    return this.videoBinding.getStreamChannelViews().map((channel) => ({
+      ...channel,
+      hikChannel: toHikvisionSubstreamChannel(channel.hikChannel),
     }));
+  }
+
+  private resolveBinding(channel: string): CameraStreamBinding {
+    const binding = this.videoBinding.resolveStreamBinding(channel);
+    if (!binding) throw new Error(`未知或已停用通道: ${channel}`);
+    return binding;
+  }
+
+  private canonicalSessionKey(channel: string): string {
+    return (
+      this.videoBinding.resolveStreamBinding(channel)?.id.toLowerCase() ?? channel.toLowerCase()
+    );
   }
 }

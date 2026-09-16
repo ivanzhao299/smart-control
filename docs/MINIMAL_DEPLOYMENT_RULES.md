@@ -19,7 +19,7 @@
 
 ## 运行时数据保护（任何部署范围都生效）
 
-KPI、视频绑定+AI 计数线/ROI、播控状态等现场写入的 JSON 一律存放在 git 仓库之外（Windows `D:\smart-control-runtime\data`，即 `DATA_DIR`）。部署 merge 前先抢救、清理未跟踪文件时按白名单永不删除、并随每次 verified 备份一并备份。详见 **`docs/RUNTIME_DATA_PROTECTION.md`**；任何部署都不得删除现场运行时数据与备份。
+KPI、播控状态等尚未迁移的现场 JSON 一律存放在 git 仓库之外（Windows `D:\smart-control-runtime\data`，即 `DATA_DIR`）。视频绑定、NVR、AI 计数线/ROI 已以 SQLite `video.binding` 为唯一权威源，旧 JSON 仅作只读迁移与恢复证据。部署 merge 前先抢救、清理未跟踪文件时按白名单永不删除、并随每次 verified 备份一并备份。详见 **`docs/RUNTIME_DATA_PROTECTION.md`**；任何部署都不得删除现场运行时数据与备份。
 
 ## 各范围详细说明
 

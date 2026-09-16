@@ -6,20 +6,21 @@
 
 ## 1. 什么是"运行时数据"
 
-现场运行过程中由用户/系统写入、每次部署都必须原样保留的数据：
+现场运行过程中由用户/系统写入、每次部署都必须原样保留的数据。视频绑定域已收敛到 SQLite，旧文件只读归档：
 
 | 文件 | 内容 | 后端读写点 |
 | --- | --- | --- |
-| `video-binding.json` | NVR/通道绑定、AI 开关、**计数线 countLine、检测区域 roiPolygon**、分屏布局 | `cameras/video-binding.service.ts` |
+| SQLite `video.binding` | NVR/通道绑定、AI 开关、**计数线 countLine、检测区域 roiPolygon**、分屏布局 | `RuntimeConfigStore` + `cameras/video-binding.service.ts` |
+| `video-binding.json(.bak)` | 首次迁移输入与恢复对账证据；迁移后禁止写入 | 仅迁移与空库初始化读取 |
 | `park-ops-metrics.json` | 运营大屏顶部 KPI / 业务数字文档（PWA"运营数据"保存） | `cameras/park-ops-metrics.controller.ts` |
 | `park-ops-control.json` | 大屏播控状态（输入源、轮播等） | `cameras/park-ops-control.controller.ts` |
-| `database/smart-control.db` | 主数据库（含"拍照上屏"照片，存 `system-branding` 表） | TypeORM |
+| `database/smart-control.db` | 主数据库（含视频绑定文档、修订历史和拍照上屏照片的元数据引用） | TypeORM |
 
-> 纯展示/设备配置走 JSON 文件，**不做数据库迁移**；需要事务/多用户关系的数据才入库。
+> 新增或改造的设备配置统一进入版本化数据库配置仓储。剩余 JSON 是有期限的迁移源，不再作为长期架构扩展。
 
 ## 2. 存放位置：必须在 git 仓库之外
 
-后端三处读写统一按以下优先级解析目录（`process.env.DATA_DIR || <cwd>/data`）：
+仍未迁移的运行时文件，以及只读保留的旧视频绑定文件，统一按以下优先级解析目录：
 
 1. 环境变量 `DATA_DIR`（最高优先级）；
 2. Windows 现场固定：`D:\smart-control-runtime\data`（由 `deploy/ecosystem.config.js` 注入）；
@@ -42,12 +43,14 @@
 每次发布前的 verified 备份，除 SQLite 在线备份、`.env`、UAT 快照外，**额外把 `DATA_DIR`（及旧 `backend/data` 兜底）整体复制进快照的 `runtime-data/`（旧位置为 `legacy-backend-data/`）**，去重、目录缺失自动跳过。
 
 - 备份根：`BACKUP_DIR` > `D:\smart-control-backups` > 仓库内 `backups/`。
-- 手动恢复：把目标快照里的 `runtime-data\*.json` 复制回 `D:\smart-control-runtime\data`，再 `pm2 restart smart-control-backend --update-env`。
-- 数据库恢复走 `backend/scripts/verified-sqlite-backup.cjs` 的配套流程，先备份当前库再覆盖。
+- 手动恢复必须按同一发布快照配套恢复 SQLite、媒体与 `runtime-data`，再启动准确代码版本；不得只恢复旧
+  `video-binding.json` 覆盖数据库中的新修订。
+- 数据库恢复走 `backend/scripts/verified-sqlite-backup.cjs` 的配套流程，先备份当前库再覆盖，并核对
+  `runtime_config_documents` 与 `runtime_config_revisions`。
 
 ## 5. 以后新增"现场可写文件"的规约（必须同时做）
 
-1. 后端读写一律走 `process.env.DATA_DIR || join(process.cwd(),'data')`，不要写死仓库内相对路径；
+1. 新配置域优先接入 `RuntimeConfigStore`；确需文件的二进制/大对象才使用数据盘路径，禁止另建 JSON 数据库；
 2. 在 `deploy-from-ci.ps1` 的 `$runtimeFileNames` 与白名单 `Test-ProtectedRuntime` 里登记；
 3. 在 `backup.ps1` 的运行时目录备份中能被覆盖到（默认整目录复制，一般无需改）；
 4. 提供脱敏 `*.example.json` 模板，真实文件保持被 `.gitignore` 忽略、不被 git 跟踪；
@@ -60,3 +63,10 @@
 - AI 路径：`video-binding.json` 早年被 git 跟踪，`.gitignore` 对已跟踪文件无效；`git merge/reset` 用仓库 HEAD 旧版覆盖现场写入，AutoUpdate 每 90s 再冲一次。
 - 根治：数据移出仓库到 `D:\smart-control-runtime\data` + 取消 git 跟踪（留脱敏模板）+ 部署白名单与 merge 前抢救 + 纳入 verified 备份 + 停用 AutoUpdate 统一走 CI。
 - 无法自动补回：被覆盖前的最新 AI ROI 现场值无磁盘副本，需在"后台-视频绑定"重画一次（根治后不再丢）；KPI 只能恢复到最近备份口径后由运营在 PWA 补填。
+
+## 7. 2026-09-16 视频绑定收敛
+
+- 迁移 `ImportVideoBindingRuntimeConfig1789560000000` 在目标键不存在时读取主文件，主文件无效再校验 `.bak`；发现文件但均无效时整项迁移失败。
+- 当前值与修订 1 在同一 SQLite 事务中写入，带 SHA-256、来源和修订号；服务重启后只读数据库，旧 JSON 后续变化不会回灌。
+- 后台编辑、HLS、截图、AI 热下发和展示读取均通过 `VideoBindingService`；`CamerasService` 不再维护第二套 NVR 密码和通道表。
+- 旧 JSON 不删除、不改写，继续随发布恢复包归档，用于审计和灾难恢复对账。

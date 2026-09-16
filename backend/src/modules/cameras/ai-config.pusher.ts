@@ -5,7 +5,7 @@ import { VideoBindingService } from './video-binding.service';
  * AI 检测配置热下发。
  *
  * 后台「视频绑定」里配置的每路计数线 / ROI 区域 / 是否分析，先持久化到
- * video-binding.json，再由本服务 POST 给独立运行的 AI Python（/api/config）做内存热更新，
+ * RuntimeConfigStore，再由本服务 POST 给独立运行的 AI Python（/api/config）做内存热更新，
  * 全程不重启 AI、不触碰拉子码流 / 转码链路。AI 暂不可达时不阻断保存，只返回告警，
  * 后台可在 AI 恢复后手动「重新下发」。
  */
@@ -36,12 +36,20 @@ export class AiConfigPusher {
       const text = await r.text().catch(() => '');
       if (!r.ok) {
         this.logger.warn(`AI config 下发失败 HTTP ${r.status}: ${text.slice(0, 200)}`);
-        return { ok: false, message: `AI 服务返回 ${r.status}，配置已保存但未热生效`, cameras: count };
+        return {
+          ok: false,
+          message: `AI 服务返回 ${r.status}，配置已保存但未热生效`,
+          cameras: count,
+        };
       }
       return { ok: true, message: '已热下发到 AI 分析服务', cameras: count };
     } catch (e: any) {
       this.logger.warn(`AI config 下发异常 -> ${AI_BASE}: ${e?.message || e}`);
-      return { ok: false, message: 'AI 服务暂不可达，配置已保存，待其在线后可手动重新下发', cameras: count };
+      return {
+        ok: false,
+        message: 'AI 服务暂不可达，配置已保存，待其在线后可手动重新下发',
+        cameras: count,
+      };
     }
   }
 }
