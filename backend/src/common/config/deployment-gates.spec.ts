@@ -79,6 +79,7 @@ describe('GK9000 deployment gates', () => {
     expect(workflow).toContain('actions/upload-artifact@v7');
     expect(workflow).toContain('actions: write');
     expect(workflow).toContain('gh workflow run deploy-gk9000.yml --ref main');
+    expect(workflow).not.toContain("- '.github/workflows/android-build.yml'");
     expect(workflow).not.toContain('git push origin HEAD:main && exit 0');
     expect(workflow).toContain('B8E4BCFCE594FB84C1280BA7C260A767492D747CA86CA0DD51A577CCE1870D04');
   });
@@ -248,6 +249,29 @@ describe('GK9000 deployment gates', () => {
     );
     expect(tasks).toContain('$script:Gk9000RequiredReleaseTasks');
     expect(tasks).toContain("$script:Gk9000OptionalReleaseTasks = @('SmartControlFrontend')");
+  });
+
+  it('advances a held migration only across the generated Android artifact commit', () => {
+    const advance = readRepositoryFile('scripts/advance-held-gk9000-app-release.ps1');
+    const deployWorkflow = readRepositoryFile('.github/workflows/deploy-gk9000.yml');
+
+    expect(deployWorkflow).toContain("- 'android-app/**'");
+    expect(advance).toContain("'deploy/assets/app/manifest.json'");
+    expect(advance).toContain("'deploy/assets/app/smart-control-latest.apk'");
+    expect(advance).toContain('Compare-Object $allowedPaths $changedPaths');
+    expect(advance).toContain('merge-base --is-ancestor $previousCandidate $Commit');
+    expect(advance).toContain('verify-gk9000-migration-receipt.cjs');
+    expect(advance).toContain('git -C $root merge --ff-only $Commit');
+    expect(advance).toContain('scripts\\reconcile-app-release.cjs');
+    expect(advance).toContain('migration-complete-advanced-{0}.json');
+    expect(advance).toContain('resume-gk9000-release.ps1');
+    expect(advance).toContain('if (-not $Apply)');
+    expect(advance.indexOf('verify-gk9000-migration-receipt.cjs')).toBeLessThan(
+      advance.indexOf('git -C $root merge --ff-only $Commit'),
+    );
+    expect(advance.indexOf('scripts\\reconcile-app-release.cjs')).toBeLessThan(
+      advance.indexOf('resume-gk9000-release.ps1'),
+    );
   });
 
   it('runs backend tests in the production validation job before building', () => {
