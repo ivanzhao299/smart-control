@@ -144,7 +144,7 @@ export class AudioAdapter extends BaseAdapter {
    * 读单通道实时电平 (dB). io: 0=输入 1=输出 2=其它.
    *
    * 这是判断"信号到底有没有进/出矩阵"的唯一客观手段 —— 注意
-   * GET /api/audio/matrix/state 读的是本地 JSON 文件 (前端点击记录),
+   * GET /api/audio/matrix/state 只是 SQLite 期望状态的兼容投影，
    * **不是设备真实状态**, 不能用它下结论。
    * 现场排查用: 放音乐时读 IN1 电平, 有跳动=信号进来了, 恒 -128=没进来。
    */

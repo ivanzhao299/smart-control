@@ -1,8 +1,6 @@
-import { BadRequestException, Body, Controller, Get, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, GoneException, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { readFile, writeFile } from 'fs/promises';
-import { dirname, join } from 'path';
 import { AudioAdapter } from '../../adapters/audio/audio.adapter';
 import { OperationLogService } from '../logs/operation-log.service';
 import { AudioConfigService } from '../audio-config/audio-config.service';
@@ -21,8 +19,6 @@ import { percentToDb } from '../../adapters/audio/ekx808-protocol';
 @UseGuards(RateLimitGuard)
 @RateLimit({ max: 6, windowMs: 1000 })
 export class AudioController {
-  private readonly matrixStatePath: string;
-
   constructor(
     private readonly audio: AudioAdapter,
     private readonly logService: OperationLogService,
@@ -32,12 +28,7 @@ export class AudioController {
     private readonly linkRepo: Repository<AudioDesiredLink>,
     @InjectRepository(AudioInputSource)
     private readonly inputRepo: Repository<AudioInputSource>,
-  ) {
-    const dbPath = process.env.DB_PATH;
-    this.matrixStatePath = dbPath
-      ? join(dirname(dbPath), 'matrix-state.json')
-      : join(process.cwd(), '..', 'database', 'matrix-state.json');
-  }
+  ) {}
 
   // ============ EKX-808 场景预设 ============
 
@@ -122,24 +113,25 @@ export class AudioController {
   }
 
   /**
-   * @deprecated 本地 JSON 文件里的矩阵点击记录 — **不是设备状态**.
-   * 保留只为兼容老前端; 新代码一律用 GET matrix/live 问设备本人.
+   * @deprecated 旧前端兼容投影。数据直接来自 SQLite 期望状态，不再读取本地文件。
+   * 新代码一律用 GET matrix/live 读取设备实际状态。
    */
   @Get('matrix/state')
   async getMatrixState() {
-    try {
-      const raw = await readFile(this.matrixStatePath, 'utf8');
-      return { message: 'ok', data: JSON.parse(raw) as Record<string, boolean> };
-    } catch {
-      return { message: 'ok', data: {} };
-    }
+    const links = await this.linkRepo.find();
+    const data = Object.fromEntries(
+      links.map((link) => [`${link.outCh}_${link.inCh}`, link.enabled]),
+    );
+    return { message: 'ok', data };
   }
 
-  /** @deprecated 同上 — 写本地文件, 不代表设备真的接通了 */
+  /** @deprecated 旧文件写入已退役，避免重新形成第二份期望状态。 */
   @Post('matrix/state')
-  async saveMatrixState(@Body() body: Record<string, boolean>) {
-    await writeFile(this.matrixStatePath, JSON.stringify(body), 'utf8');
-    return { message: '已保存', data: null };
+  saveMatrixState(): never {
+    throw new GoneException({
+      code: 'AUDIO_MATRIX_LEGACY_WRITE_RETIRED',
+      message: '旧矩阵状态写入已停用，请通过矩阵控制接口更新 SQLite 期望状态',
+    });
   }
 
   /**
@@ -253,8 +245,8 @@ export class AudioController {
   /**
    * 读实时电平 (dB) — 现场排查"信号有没有真的进/出矩阵"用.
    *
-   * ⚠️ 不要用 GET matrix/state 判断设备状态: 那个读的是本地 JSON 文件
-   * (前端点交叉点的记录), 不是设备真实状态。电平表才是问设备本人。
+   * ⚠️ 不要用 GET matrix/state 判断设备状态: 那个只投影 SQLite 期望状态，
+   * 不是设备真实状态。电平表才是问设备本人。
    *
    * GET /api/audio/level?io=0&ch=0   → IN1 电平 (io: 0=输入 1=输出)
    * 放音乐时电平有跳动 = 信号进来了; 恒 -128 = 没进来。
