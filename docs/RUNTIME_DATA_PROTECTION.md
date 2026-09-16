@@ -14,6 +14,8 @@
 | `video-binding.json(.bak)` | 首次迁移输入与恢复对账证据；迁移后禁止写入 | 仅迁移与空库初始化读取 |
 | SQLite `park.ops.metrics` | 运营大屏顶部 KPI / 业务数字文档（PWA“运营数据”保存） | `RuntimeConfigStore` + `cameras/park-ops-metrics.service.ts` |
 | `park-ops-metrics.json(.bak)` | 首次迁移输入与恢复对账证据；迁移后禁止写入 | 仅迁移与空库初始化读取 |
+| SQLite `park.ops.visual` | 园区大屏分区、楼栋、文字与坐标布局 | `RuntimeConfigStore` + `system-branding/system-branding.service.ts` |
+| `system_branding_v2.parkOpsConfigJson` | 园区布局首次迁移前快照；迁移后禁止写入 | 仅迁移读取和恢复对账 |
 | `ParkOpsControlService` 进程内状态 | 大屏页码、自动轮播和一次性刷新指令；重启恢复安全默认值 | `cameras/park-ops-control.service.ts` |
 | `database/smart-control.db` | 主数据库（含视频绑定文档、修订历史和拍照上屏照片的元数据引用） | TypeORM |
 | `release.json` | 已验证发布的提交、分支与发布时间；可重建运行证据，不是业务配置 | 仅 `deploy-from-ci.ps1` 在权威验证后原子写入 |
@@ -78,3 +80,10 @@
 - 运营指标已经导入 SQLite `park.ops.metrics`，后台更新只产生数据库修订；旧 JSON 只读保留。
 - 大屏页码、自动播放与刷新属于可重建控制信号，统一由进程内 `ParkOpsControlService` 管理；生产部署前后均确认 `park-ops-control.json(.bak)` 不存在。
 - 大屏轮询 GET 保持公开以服务无人值守页面；PWA 的翻页、自动播放、刷新和拍照回首页统一走共享鉴权客户端，匿名写请求返回 401。
+
+## 9. 2026-09-17 园区大屏视觉布局与品牌启动写入收敛
+
+- 迁移 `ImportParkOpsVisualRuntimeConfig1789580000000` 只在 `park.ops.visual` 不存在时读取品牌表旧字段，严格校验后在同一事务建立当前文档和不可变修订；旧字段损坏会停止迁移，已有版本文档永不被覆盖。
+- `system_branding_v2.parkOpsConfigJson` 保留为只读恢复快照。应用读写只走 `RuntimeConfigStore`，保存相同文档不制造修订，真实变更递增 revision 并记录 SHA-256、操作者和来源。
+- 编辑器加载时记录 revision，保存时提交期望版本；过期页面收到 409 并要求刷新，避免覆盖另一位管理员的新布局。旧客户端直接提交文档仍可兼容。
+- 品牌默认行由迁移幂等建立，服务启动不再读取仓库 Logo、覆盖数据库 Logo 或写 `branding-logo-transparent.done`；生产现有 Logo 和历史哨兵均未删除。

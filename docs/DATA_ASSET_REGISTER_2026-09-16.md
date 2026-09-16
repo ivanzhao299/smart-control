@@ -10,6 +10,8 @@
 | 业务与配置数据库 | `D:\smart-control\database\smart-control.db` | SQLite | 发布前在线备份到 `D:\smart-control-backups\<timestamp>\sqlite-*\database.sqlite`，执行完整性校验 | 保持唯一数据库；所有结构变化只走 TypeORM 迁移 |
 | 视频绑定、NVR、通道与 AI 区域 | SQLite `runtime_config_documents` 的 `video.binding` 文档 | 版本化数据库配置；`video-binding.json(.bak)` 仅保留为首迁导入和恢复证据 | SQLite 配套备份包含当前值与修订历史；旧 JSON 继续随 `runtime-data` 归档 | 后台编辑、AI 下发和摄像头读取均通过 `VideoBindingService`；禁止恢复文件写入 |
 | 园区运营指标与文案 | SQLite `runtime_config_documents` 的 `park.ops.metrics` 文档 | 版本化数据库配置；`park-ops-metrics.json(.bak)` 仅保留为首迁导入和恢复证据 | SQLite 配套备份包含当前值与修订历史；旧 JSON 继续随 `runtime-data` 归档 | 后台编辑和运营大屏读取均通过 `ParkOpsMetricsService`；禁止恢复文件写入 |
+| 园区大屏视觉布局 | SQLite `runtime_config_documents` 的 `park.ops.visual` 文档 | 版本化数据库配置；`system_branding_v2.parkOpsConfigJson` 仅保留为首迁前快照 | SQLite 配套备份包含当前值与修订历史；旧字段随数据库归档 | 读取和保存均通过 `RuntimeConfigStore`；编辑器携带 revision，旧写入冲突返回 409；禁止恢复旧字段写入 |
+| 系统品牌与场景动作 | SQLite `system_branding_v2`、`scenes`、`scene_actions` | 关系表；品牌默认行由迁移建立，场景动作参数受 JSON 解析校验 | 随 SQLite 在线备份和迁移恢复包保存 | 禁止启动时从仓库文件覆盖 Logo 或品牌；场景动作不另建 JSON 副本 |
 | 园区大屏翻页控制状态 | 后端 `ParkOpsControlService` 进程内存 | 可重建短期控制信号；不是业务数据 | 不备份；进程重启恢复第 1 页、关闭自动播放且无待刷新指令 | 禁止创建 JSON 或数据库副本；仅公开状态轮询，变更必须鉴权 |
 | 音频矩阵期望状态 | SQLite `audio_desired_link` | SQLite；旧 `matrix-state.json` 写入已退役，生产文件不存在 | 随数据库在线备份；兼容 GET 只从 SQLite 映射 | 当前前端与对账器均使用 SQLite；旧 POST 固定返回 410，禁止重新形成文件源 |
 | 媒体元数据 | SQLite `media_assets` | SQLite | 随数据库在线备份 | 保持唯一来源；文件与记录通过事务式补偿保持一致 |
@@ -23,7 +25,7 @@
 ## 2. 数据分类规则
 
 1. **权威业务数据**：SQLite 与媒体文件。必须备份、校验、可恢复，不允许由部署覆盖。
-2. **冻结迁移来源**：`video-binding.json(.bak)` 与 `park-ops-metrics.json(.bak)` 均已停止写入，仅保留为首迁导入和恢复对账证据，不再是运行时权威源。
+2. **冻结迁移来源**：`video-binding.json(.bak)`、`park-ops-metrics.json(.bak)` 与 `system_branding_v2.parkOpsConfigJson` 均已停止写入，仅保留为首迁导入和恢复对账证据，不再是运行时权威源。
 3. **可重建运行状态**：大屏当前页、进程状态、缓存与 PWA 缓存。故障时允许重建，但不得伪装成业务配置。
 4. **审计与运行证据**：日志、迁移表、部署回执和备份清单。必须关联提交号和时间，不作为业务主数据回写。
 5. **秘密材料**：密码、令牌签名密钥、OAuth 密钥和签名私钥。不得进入响应、日志或新提交。
