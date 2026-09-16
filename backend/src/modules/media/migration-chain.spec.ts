@@ -17,6 +17,10 @@ describe('complete migration chain on an isolated database', () => {
     expect(await db.query("SELECT visibility, source, owner_user_id FROM media_assets WHERE sourceUrl = ?", [
       'http://localhost:5173/control/park-ops/index.html',
     ])).toEqual([{ visibility: 'shared', source: 'system', owner_user_id: null }]);
+    await db.query(
+      `INSERT INTO users (username, password, role, enabled, created_at, updated_at)
+       VALUES ('test-admin', 'test-only-non-login-hash', 'admin', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+    );
     expect(() => assertSchemaReady((db.driver as any).databaseConnection)).not.toThrow();
     const runner = db.createQueryRunner();
     expect((await runner.getTable('media_assets'))?.findColumnByName('owner_user_id')).toBeDefined();
@@ -35,6 +39,12 @@ describe('complete migration chain on an isolated database', () => {
     expect(await runner.hasTable('upload_instances')).toBe(true);
     expect((await runner.getTable('upload_reservations'))?.findColumnByName('target_media_id')).toBeDefined();
     expect(await db.query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'protect_last_administrator_%'")).toHaveLength(2);
+    // Named identity is forward-only: remove only its ledger entry in this disposable
+    // fixture after proving the rollback fence, so earlier rollback fences remain testable.
+    await expect(db.undoLastMigration()).rejects.toThrow(
+      'NAMED_IDENTITY_AUTHORITY_ROLLBACK_PROHIBITED',
+    );
+    await db.query("DELETE FROM migrations WHERE name = 'EstablishNamedIdentityAuthority1789650000000'");
     // App release, audio, brand and driver catalogs, power configuration and runtime documents are authoritative:
     // each rollback boundary requires a matched archive before its data can be removed.
     await expect(db.undoLastMigration()).rejects.toThrow(
@@ -86,6 +96,7 @@ describe('complete migration chain on an isolated database', () => {
           'EstablishBrandCatalog1789620000000',
           'EstablishAudioConfigCatalog1789630000000',
           'EstablishAppReleaseCatalog1789640000000',
+          'EstablishNamedIdentityAuthority1789650000000',
         ].includes(m.name),
     );
     for (const _migration of multiuserAndLater) await db.undoLastMigration();

@@ -2,16 +2,17 @@
 import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { Lock, X, ScanFace } from 'lucide-vue-next';
+import { Lock, UserRound, X, ScanFace } from 'lucide-vue-next';
 import { useAdminAuthStore } from '@/stores/admin-auth';
 import { useSystemBrandingStore } from '@/stores/system-branding';
-import { shellBioRead, shellBioSave, shellBioLogin, type ShellBioState } from '@/composables/useShellBio';
+import { shellBioClear, shellBioRead, shellBioSave, shellBioLogin, type ShellBioState } from '@/composables/useShellBio';
 
 const router = useRouter();
 const route = useRoute();
 const authStore = useAdminAuthStore();
 const brandingStore = useSystemBrandingStore();
 
+const username = ref('');
 const password = ref('');
 const submitting = ref(false);
 const passwordInput = ref<HTMLInputElement | null>(null);
@@ -21,9 +22,18 @@ const passwordInput = ref<HTMLInputElement | null>(null);
 const shellBio = ref<ShellBioState | null>(null);
 
 function faceLogin(): void {
-  shellBioLogin('admin', (pwd) => {
-    password.value = pwd;
-    void submit();
+  shellBioLogin('admin', (credential) => {
+    try {
+      const parsed = JSON.parse(credential) as { version?: number; username?: string; password?: string };
+      if (parsed.version !== 2 || !parsed.username || !parsed.password) throw new Error('旧凭据');
+      username.value = parsed.username;
+      password.value = parsed.password;
+      void submit();
+    } catch {
+      shellBioClear('admin');
+      shellBio.value = shellBioRead('admin');
+      ElMessage.warning('原后台面容凭据已停用，请用个人管理员账号登录一次后重新保存');
+    }
   }, () => {
     ElMessage.warning('面容验证未通过, 可重试或输入密码登录');
   });
@@ -65,14 +75,17 @@ function goBack(): void {
 }
 
 async function submit(): Promise<void> {
-  if (!password.value) {
-    ElMessage.warning('请输入密码');
+  if (!username.value.trim() || !password.value) {
+    ElMessage.warning('请输入用户名和密码');
     return;
   }
   submitting.value = true;
   try {
-    await authStore.login(password.value);
-    if (shellBio.value?.available) shellBioSave('admin', password.value);
+    const normalizedUsername = username.value.trim();
+    await authStore.login(normalizedUsername, password.value);
+    if (shellBio.value?.available) {
+      shellBioSave('admin', JSON.stringify({ version: 2, username: normalizedUsername, password: password.value }));
+    }
     ElMessage.success('登录成功');
     redirectToTarget();
   } catch (e) {
@@ -99,11 +112,22 @@ async function submit(): Promise<void> {
         </div>
         <div class="brand-text">
           <div class="brand-title">{{ brandingStore.branding.systemName }}</div>
-          <div class="brand-sub">后台管理 · 请输入密码</div>
+          <div class="brand-sub">后台管理 · 个人管理员账号</div>
         </div>
       </div>
 
       <form class="form" @submit.prevent="submit">
+        <div class="field">
+          <UserRound :size="16" :stroke-width="1.8" class="field-icon" />
+          <input
+            v-model="username"
+            type="text"
+            class="field-input"
+            placeholder="管理员用户名"
+            autocomplete="username"
+            :disabled="submitting"
+          />
+        </div>
         <div class="field">
           <Lock :size="16" :stroke-width="1.8" class="field-icon" />
           <input
@@ -117,7 +141,7 @@ async function submit(): Promise<void> {
           />
         </div>
 
-        <button type="submit" class="submit-btn" :disabled="submitting || !password">
+        <button type="submit" class="submit-btn" :disabled="submitting || !username.trim() || !password">
           {{ submitting ? '登录中...' : '登 录' }}
         </button>
 

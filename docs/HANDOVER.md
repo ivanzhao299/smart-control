@@ -229,21 +229,23 @@ ssh user@192.168.77.54
 - `cnjinhu.top` 主域 (在阿里云)
 - `erp.cnjinhu.top` → 反代到 GK9000:5173 (frontend) + 3200 (API + WS)
 - 详见 memory 索引: `~/.claude/projects/-Users-mac-jinhu-ERP/memory/server_cnjinhu_top.md`
-- ⚠️ **外网域名公开, admin 后台一旦默认密码没改就有风险, 见 §5.1**
+- 外网域名公开，登录只接受已启用的个人账户，并按 IP 限流。
 
 ---
 
 ## 5. 关键账号 / 凭据 / 安全
 
-### 5.1 ⚠️ 系统内置密码 (接手人**第一件事**就是改)
+### 5.1 系统账户
 
-| 用途 | 默认密码 | 改的方法 |
+| 用途 | 身份来源 | 管理方法 |
 |---|---|---|
-| **后台管理员** (admin) | `jinhu888` | 进后台 → `/admin/system-branding` → 右下"改密码"板块 |
-| **业主侧 PWA** (client) | `1234` | 进 `/admin/system-branding` 同页 (业主侧密码也可改) |
+| **后台管理员** | `users` 中已启用的 `admin` 个人账户 | 后台 `/admin/users` |
+| **业主侧 PWA** | `users` 中已启用的 `admin/operator/viewer` 个人账户 | 后台 `/admin/users` |
 | **GK9000 OS 登录** | 业主告知 | Windows 设置 → 账户 |
 
-如果当前业主已经改过, 接手时让业主告知新密码或者再改一次. **不要把密码写进 git**.
+系统不再内置或在启动时生成可登录的默认密码。全新数据库迁移后，在服务首次启动前通过
+`SC_ADMIN_USERNAME`、`SC_ADMIN_PASSWORD` 和 `pnpm run admin:provision` 显式创建首个管理员；
+该命令只在没有启用管理员时执行一次，不输出密码或哈希。**不要把密码写进 Git、命令参数或文档。**
 
 ### 5.2 GitHub repo 权限
 
@@ -265,8 +267,8 @@ ssh user@192.168.77.54
 
 | 模块 | 作用 |
 |---|---|
-| **admin-auth** | 后台管理员 scrypt 密码 + 8h token |
-| **client-auth** | 业主侧 X-Client-Token, 30 天 TTL, 默认密码 1234 |
+| **admin-auth** | 后台个人管理员登录与 8 小时令牌；兼容验证过渡期旧令牌 |
+| **client-auth** | 个人账户登录、角色实时解析与 30 天 PWA 令牌 |
 | **system-branding** | 系统 logo / 名称 / 欢迎页媒体 ID |
 | **brands** | 硬件厂商目录 (NovaStar/DALI/etc, 跟 system-branding 区别开) |
 | **devices** | 设备总表 (CRUD) |
@@ -471,10 +473,11 @@ pm2 restart smart-control-backend
 
 ⚠️ ENV 改了**必须重启** backend (NestJS 读 env 在启动期).
 
-### 8.3 改密码 (业主侧 / 后台)
+### 8.3 管理账户与密码
 
-- 后台密码: 进 `/admin/system-branding` 改密码板块
-- 改不了 (忘了原密码): SSH 进 GK9000, 用 better-sqlite3 直接 UPDATE admin_auth_v1 表的 password_hash. 算法: scrypt N=16384, r=8, p=1. 工具函数在 `backend/src/common/utils/password.util.ts`
+- 登录后台后，在 `/admin/users` 创建、停用或修改个人账户和密码。
+- 系统由数据库触发器保证至少保留一个启用的管理员，禁止直接修改认证表绕过审计与保护。
+- 只有全新数据库且尚无启用管理员时，才使用 `pnpm run admin:provision` 创建首个管理员。
 
 ### 8.4 看 DB
 
@@ -498,11 +501,12 @@ pm2 restart all
 
 ## 9. 关键链路 / 易混淆点
 
-### 9.1 双鉴权 (业主 vs 后台)
+### 9.1 统一个人身份与两种会话载体
 
 - 业主侧: `useClientAuthStore`, localStorage `sc.client.token`, 30 天, `X-Client-Token` header
 - 后台: `useAdminAuthStore`, sessionStorage `sc.adminToken`, 8h, `Authorization: Bearer` header
-- 两者**完全独立**. router/index.ts 里两个 guard 分别管 (注意 `/admin/*` 路径**不走** client-auth guard)
+- 两者都由同一 `users` 账户与同一服务端角色决定权限；仅存储位置、请求头和有效期不同。
+- 收敛前已签发的旧共享令牌只在原有效期内兼容：旧客户端令牌限只读，旧后台令牌不再签发。
 
 ### 9.2 LED 大屏播控
 
@@ -543,13 +547,11 @@ backend 返 `fileUrl: "/api/media/N/file"` 相对路径, 但 frontend 5173 跟 b
 | 优先级 | 项 | 简述 |
 |---|---|---|
 | 🔥 高 | **1F DALI 网关连通问题** | L1 TCP 通, L2 Modbus 超时. 现场硬件问题, 让业主有空查 CY-DALI64A LED1/LED2 状态. 见 `docs/DALI_FIELD_INSTALL.md` |
-| 🔥 高 | **改默认密码** | admin `jinhu888` / client `1234` 都是默认值, 私库虽然安全但接手人**第一件事就改** |
 | 中 | **PlayerPage kiosk 是否在跑** | 业主升级后大屏没显示一般是 Chromium 进程挂了. SSH 进 GK9000 看 `pm2 list` 有没有 `sc-player-1/2`, 没有就 `.\scripts\start-players.ps1` |
 | 中 | **Sprint G2 真电表接入** | 当前 power adapter 是 Mock. 现场计划接 DDS866 智能电表, 走 Modbus-RTU. RealPowerAdapter 框架已搭好, 接入只需填寄存器映射 (DDS866 datasheet 业主有) |
 | 中 | **DALI 2F 测试灯调试** | Sprint E 把 LightZone 升格成 DB, "全开/全关 没控制到 2F 测试灯"已修, 但具体灯具的 group 编号要核实 |
 | 低 | **APK 上架 Google Play / 国内应用市场** | 当前为受控内部签名和内部分发；上架前需规划商店签名托管及现场证书迁移 |
 | 低 | **iOS APP** | 后台 AppRelease 表预留 platform='ios', 但还没写 iOS 壳. 业主当前只 Android |
-| 低 | **代码 DEFAULT_PASSWORD 改成首次随机** | 永远不在 git 里写默认密码. 现已要求接手改. 也可改 backend 让首次启动随机 generate + console 打印 + 强制业主第一次登录改 |
 
 ---
 

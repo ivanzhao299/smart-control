@@ -80,8 +80,8 @@ export const useAdminAuthStore = defineStore('admin-auth', () => {
 
   const isAuthenticated = computed<boolean>(() => !!token.value);
 
-  async function login(password: string): Promise<void> {
-    const res = await adminLogin(password);
+  async function login(username: string, password: string): Promise<void> {
+    const res = await adminLogin(username.trim(), password);
     token.value = res.token;
     expiresAt.value = res.expiresAt;
     sessionStorage.setItem(STORAGE_KEY, res.token);

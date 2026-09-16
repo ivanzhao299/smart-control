@@ -15,6 +15,7 @@
     "start:prod": "node dist/main.js",
     "seed": "node dist/seed/seed.js",
     "seed:dev": "ts-node -r tsconfig-paths/register src/seed/seed.ts",
+    "admin:provision": "node scripts/provision-first-admin.cjs",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "typeorm": "typeorm-ts-node-commonjs -d src/data-source.ts",
     "migration:generate": "typeorm-ts-node-commonjs migration:generate -d src/data-source.ts",

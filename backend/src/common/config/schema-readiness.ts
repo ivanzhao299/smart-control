@@ -25,6 +25,7 @@ export const REQUIRED_SCHEMA_MIGRATIONS = [
   'ImportParkOpsMetricsRuntimeConfig1789570000000',
   'ImportParkOpsVisualRuntimeConfig1789580000000',
   'EstablishAppReleaseCatalog1789640000000',
+  'EstablishNamedIdentityAuthority1789650000000',
 ] as const;
 
 export const REQUIRED_SCHEMA_COLUMNS: Record<string, string[]> = {
@@ -130,9 +131,20 @@ export function assertSchemaReady(db: {
       )
       .all();
     if (triggers.length !== 2) throw new Error('administrator protection missing');
+    for (const table of ['client_auth_v1', 'admin_auth_v1']) {
+      const rows = db.prepare(`SELECT id, tokenSecret FROM "${table}"`).all();
+      if (
+        rows.length !== 1 || rows[0]?.id !== 1 ||
+        typeof rows[0]?.tokenSecret !== 'string' || !/^[a-f0-9]{64}$/.test(rows[0].tokenSecret)
+      ) throw new Error('identity signing configuration missing');
+    }
+    const administrators = db
+      .prepare("SELECT id FROM users WHERE role = 'admin' AND enabled = 1 LIMIT 1")
+      .all();
+    if (administrators.length !== 1) throw new Error('named administrator missing');
   } catch {
     throw new Error(
-      'Database schema is not ready for multiuser service. Back up the target database and media, then run migration:run before starting. Startup will not repair schema automatically.',
+      'Database identity/schema is not ready. Back up the target database and media, run migration:run, then provision the first named administrator if needed. Startup will not repair or create credentials automatically.',
     );
   }
 }

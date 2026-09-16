@@ -28,6 +28,12 @@ const readyDatabase = (options: { missingMigration?: string; missingColumn?: str
           { name: 'protect_last_administrator_demotion' },
         ];
       }
+      if (/^SELECT id, tokenSecret FROM "(?:client_auth_v1|admin_auth_v1)"$/.test(sql)) {
+        return [{ id: 1, tokenSecret: 'a'.repeat(64) }];
+      }
+      if (sql === "SELECT id FROM users WHERE role = 'admin' AND enabled = 1 LIMIT 1") {
+        return [{ id: 1 }];
+      }
       throw new Error(`Unexpected SQL: ${sql}`);
     },
   }),

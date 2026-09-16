@@ -1,6 +1,5 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, Post, Put, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, Post, UseGuards } from '@nestjs/common';
 import { ClientAuthService } from './client-auth.service';
-import { AdminGuard } from '../admin-auth/admin-auth.guard';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { Public } from '../../common/decorators/public.decorator';
 import { Req } from '@nestjs/common';
@@ -10,8 +9,7 @@ import { AuthenticatedRequest, requireActor } from '../../common/auth/actor';
  * /api/client-auth
  *
  * - GET /ping — 公开, 让登录页"测试连接"能验证 backend 在线
- * - POST /login — 公开, 用户名密码或兼容访问密码 → 拿 token
- * - PUT /password — 需 admin token, 在后台改/重置客户端密码 (不要求旧密码)
+ * - POST /login — 公开, 个人用户名密码 → 拿 token
  */
 @Controller('client-auth')
 export class ClientAuthController {
@@ -37,30 +35,12 @@ export class ClientAuthController {
   @UseGuards(RateLimitGuard)
   @RateLimit({ max: 10, windowMs: 60_000 })
   async login(@Body() body: { username?: string; password?: string }) {
-    if (!body?.password) {
-      throw new BadRequestException('请输入密码');
+    const username = body?.username?.trim();
+    if (!username || !body?.password) {
+      throw new BadRequestException('请输入用户名和密码');
     }
-    try {
-      const result = await this.service.login(body.password, body.username?.trim());
-      return { message: '登录成功', data: result };
-    } catch (e) {
-      if (e instanceof UnauthorizedException) throw e;
-      throw new BadRequestException((e as Error).message);
-    }
+    const result = await this.service.login(username, body.password);
+    return { message: '登录成功', data: result };
   }
 
-  @Put('password')
-  @UseGuards(AdminGuard)
-  async changePassword(@Body() body: { newPassword?: string }) {
-    if (!body?.newPassword) {
-      throw new BadRequestException('请输入新密码');
-    }
-    try {
-      await this.service.resetPassword(body.newPassword);
-      return { message: '密码已更新, 所有客户端需要重新登录', data: null };
-    } catch (e) {
-      if (e instanceof UnauthorizedException) throw e;
-      throw new BadRequestException((e as Error).message);
-    }
-  }
 }

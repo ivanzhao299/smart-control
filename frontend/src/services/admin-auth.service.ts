@@ -3,10 +3,7 @@ import { api } from './http';
 /**
  * 后台鉴权 API.
  *
- * 当前是"单密码门禁" — 业主把 admin 密码交给现场维护方就行, 不是多用户体系.
- * (多用户体系走 user.entity / UsersModule, 跟这套并行不冲突.)
- *
- * token 由后端内存维护 8 小时. backend 重启 / 改密码会让全员失效, 需要重登.
+ * 后台使用 users 中的个人管理员账户，令牌由持久化签名密钥签发，有效期 8 小时。
  */
 
 export interface LoginResult {
@@ -14,8 +11,8 @@ export interface LoginResult {
   expiresAt: string; // ISO string
 }
 
-export async function adminLogin(password: string): Promise<LoginResult> {
-  return api.post<LoginResult>('/admin/auth/login', { password });
+export async function adminLogin(username: string, password: string): Promise<LoginResult> {
+  return api.post<LoginResult>('/admin/auth/login', { username, password });
 }
 
 /** 检查当前 token 还有效. 如果不行 (401), 接口层会 throw HttpError */
@@ -25,13 +22,4 @@ export async function adminMe(): Promise<{ authenticated: boolean }> {
 
 export async function adminLogout(): Promise<void> {
   await api.post<null>('/admin/auth/logout', null);
-}
-
-export async function adminChangePassword(oldPassword: string, newPassword: string): Promise<void> {
-  await api.post<null>('/admin/auth/change-password', { oldPassword, newPassword });
-}
-
-/** 管理员重置业主端(平板/手机)登录密码 — PUT /client-auth/password (AdminGuard) */
-export async function adminResetClientPassword(newPassword: string): Promise<void> {
-  await api.put<null>('/client-auth/password', { newPassword });
 }

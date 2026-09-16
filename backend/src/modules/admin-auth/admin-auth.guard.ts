@@ -3,7 +3,7 @@ import { AuthenticatedRequest, requireAdmin } from '../../common/auth/actor';
 import { AdminAuthService } from './admin-auth.service';
 
 /**
- * AdminGuard — 检查 Authorization: Bearer <token> 是否在 service 内存 session 表里.
+ * AdminGuard — 优先使用全局门禁解析出的个人管理员身份，并在过渡期兼容旧后台令牌。
  *
  * 用法 (在 controller / 方法上加):
  *   @UseGuards(AdminGuard)
@@ -12,7 +12,7 @@ import { AdminAuthService } from './admin-auth.service';
  *
  * 保护范围 (本期):
  *   - PUT /api/system-branding (改 logo / 名称)
- *   - POST /api/admin/change-password
+ *   - 管理配置与用户管理写接口
  *   - 后续逐步加到 用户管理 / 设备管理 / 场景管理 / 系统设置 等写接口
  *
  * 不加给:

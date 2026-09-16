@@ -1,27 +1,33 @@
-import { BadRequestException, Body, Controller, Get, Headers, Post, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, HttpCode, Post, UseGuards } from '@nestjs/common';
 import { AdminAuthService } from './admin-auth.service';
+import { ClientAuthService } from '../client-auth/client-auth.service';
 import { AdminGuard } from './admin-auth.guard';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { Public } from '../../common/decorators/public.decorator';
 
 @Controller('admin/auth')
 export class AdminAuthController {
-  constructor(private readonly service: AdminAuthService) {}
+  constructor(
+    private readonly legacyAuth: AdminAuthService,
+    private readonly identityAuth: ClientAuthService,
+  ) {}
 
   /**
-   * POST /api/admin/auth/login — 公开. 输 password → 拿 token.
+   * POST /api/admin/auth/login — 公开. 管理员个人账号登录.
    * 前端进 /admin 路由前 / 进入后没 token 时调.
    */
   @Public()
   @Post('login')
+  @HttpCode(200)
   // 防爆破 (2026-07-19 加固): 按 IP 限流 10 次/分, 挡住对后台口令的枚举。
   @UseGuards(RateLimitGuard)
   @RateLimit({ max: 10, windowMs: 60_000 })
-  async login(@Body() body: { password?: string } = {}) {
-    if (!body?.password || typeof body.password !== 'string') {
-      throw new BadRequestException('password 必填');
+  async login(@Body() body: { username?: string; password?: string } = {}) {
+    const username = body?.username?.trim();
+    if (!username || !body?.password || typeof body.password !== 'string') {
+      throw new BadRequestException('username + password 都必填');
     }
-    const { token, expiresAt } = await this.service.login(body.password);
+    const { token, expiresAt } = await this.identityAuth.loginAdministrator(username, body.password);
     return { message: '登录成功', data: { token, expiresAt } };
   }
 
@@ -43,22 +49,10 @@ export class AdminAuthController {
   @Post('logout')
   async logout(@Headers('authorization') auth?: string) {
     if (auth && auth.startsWith('Bearer ')) {
-      this.service.logout(auth.slice('Bearer '.length).trim());
+      const token = auth.slice('Bearer '.length).trim();
+      this.legacyAuth.logout(token);
+      this.identityAuth.logout(token);
     }
     return { message: '已注销', data: null };
-  }
-
-  /**
-   * POST /api/admin/auth/change-password — 改密码. 要登录态 + 旧密码.
-   * 改完后 service 清掉所有 session, 包括当前这个, 前端会被踢到登录页.
-   */
-  @Post('change-password')
-  @UseGuards(AdminGuard)
-  async changePassword(@Body() body: { oldPassword?: string; newPassword?: string } = {}) {
-    if (!body?.oldPassword || !body?.newPassword) {
-      throw new BadRequestException('oldPassword + newPassword 都必填');
-    }
-    await this.service.changePassword(body.oldPassword, body.newPassword);
-    return { message: '密码已修改, 所有登录 session 已失效', data: null };
   }
 }
