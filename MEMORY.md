@@ -48,6 +48,9 @@
 - P1-A21 正式备份为 `D:\smart-control-backups\20260917-062105\sqlite-6OuZOa\database.sqlite`，恢复包/回执/隔离演练为 `D:\smart-control-backups\migration-recovery\release-lyzijF`。PR #80 合并提交 `28e6f6caedca3b110fdd3e095257c0c37a35e459`，生产部署 https://github.com/ivanzhao299/smart-control/actions/runs/35156942185 全绿；生产 40 个迁移、15 个唯一系统键、13 个文件摘要，文件全部保留原路径且未创建 `_system`，完整性 `ok`、外键违规 0，双服务 HTTP 200/在线/零重启。
 - 阶段 P1-A22 已完成并退出阶段 1：非迁移运行代码禁止退役 JSON 和结构 DDL，15 个启动钩子固定为精确白名单；品牌 singleton 与 `video.binding` 当前/历史修订在启动前校验，缺失时拒绝启动或保存，不再默认重建。PR #82 合并提交 `a4bd519dc0460526daba399a9f3c21cd68c94476` 已通过受限网关发布。发布前备份为 `D:\smart-control-backups\20260917-065958\sqlite-c1HbNJ\database.sqlite`；生产 40 个迁移、17 张权威表与备份逐表计数/SHA-256 一致，完整性 `ok`、外键违规 0，代码/远端/发布清单一致，5 个入口 HTTP 200。
 - `release-lyzijF` 已复制到跳板机 `/var/backups/smart-control`，87 个文件、4,220,164,447 字节；首次 `OFFSITE_BUNDLE_VERIFIED`、重复执行 `OFFSITE_BUNDLE_CURRENT`，提交关联和三类摘要一致，无临时目录。该基线覆盖发生迁移的发布；普通 6 小时快照和新增媒体的持续异机 RPO 留在阶段 3。GitHub Actions 当次因账户 Billing 在任务启动前拒绝运行，代码已在本地和生产完整门禁验证；需修复 Billing 恢复远端自动执行。下一批进入阶段 2 的模块、API 与关键用户旅程收敛。
+- 阶段 P2-A1 已完成：主 PWA 的 11 个页面路由、9 个可见导航项、空闲/指针分块预取和 API 预取统一由 `main-route-manifest.ts` 生成，两个 DALI 深链保留，`App.vue` 重复导入表已删除。PR #84 合并提交 `0af96e8ddbe1515b6ae81a3d6d609dd0f66ed438` 已发布；发布前备份为 `D:\smart-control-backups\20260917-071034\sqlite-Yw29Hx\database.sqlite`。
+- 阶段 P2-A2 已完成：发现旧部署门禁只识别 Workbox 的 `"url":"..."`，真实压缩产物使用 `url:"..."`，因而错误报告保留 0 个上一代分块，可能让持有旧 Service Worker 的 iPhone 只显示底部壳而页面黑屏。先从只读回滚快照追加恢复 44 个缺失分块，再让门禁兼容两种格式，并对空清单、源文件缺失、路径越界和复制后缺失全部失败关闭。PR #85 合并提交 `7a97b8e5a8b5d76d61df1528666b95b8db3d15a2` 已发布；备份为 `D:\smart-control-backups\20260917-071639\sqlite-6djZm3\database.sqlite`。
+- P2-A2 生产验收：当前和上一代 Service Worker 各引用 88 个资源，均在前端发布目录且通过 HTTP 200 与 JS/CSS MIME 核验；9 个 PWA 页面入口均为 200。发布前后 17 张权威表逐表计数和规范化 SHA-256 一致，迁移 40、`integrity_check=ok`、外键违规 0。GitHub Actions 因账户 Billing 在任务开始前零步骤失败，本批使用完整本地门禁和受限生产网关完成验证。阶段 2 尚未完成，下一批建立登录、灯光、大屏投放、拍照上屏、媒体上传、视频绑定与检测范围保存的关键旅程门禁，再按行为边界拆分大模块。
 
 ## 当前状态快照（2026-07-28）
 
