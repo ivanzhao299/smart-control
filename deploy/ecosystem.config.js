@@ -21,11 +21,11 @@ const path = require('path');
 // 默认日志目录: 优先 env LOG_DIR (Windows 现场推荐 D:\smart-control\logs)
 const defaultLogDir = process.env.LOG_DIR || path.resolve(__dirname, '..', 'logs');
 
-// 现场可写的"运行时业务/设备数据"目录 (video-binding / park-ops-metrics /
-// park-ops-control 等 JSON)。必须落在 git 仓库之外, 否则部署时的
+// 现场只读迁移来源与发布清单目录 (video-binding / park-ops-metrics 旧 JSON、
+// release.json)。必须落在 git 仓库之外, 否则部署时的
 // git merge/reset/清理未跟踪文件会覆盖或删除现场保存的值。
 // 根因事故 2026-09-15: 这些文件原本在 backend/data(仓库内), 部署后 KPI 与 AI
-// 计数线/ROI 被重置。后端三处读写均已支持 process.env.DATA_DIR, 这里统一注入。
+// 计数线/ROI 被重置。后端统一通过 process.env.DATA_DIR 解析旧迁移来源和发布清单。
 // Windows 现场固定到 D:\smart-control-runtime\data; 其它平台回退仓库内 .runtime
 // (已在 .gitignore); 也允许外部用环境变量 DATA_DIR 显式覆盖。
 const runtimeDataDir =
