@@ -152,7 +152,8 @@ function Invoke-ControlledMigrationReconciliation {
     $previousPreference = $ErrorActionPreference
     try {
       $ErrorActionPreference = 'Continue'
-      $migrationLines = @(& node scripts/run-gk9000-migrations.cjs $recoveryRoot $previousCommit 2>&1)
+      $migrationEntry = Join-Path $projectRoot 'backend\scripts\run-gk9000-migrations.cjs'
+      $migrationLines = @(& node $migrationEntry $recoveryRoot $previousCommit 2>&1)
       $migrationExit = $LASTEXITCODE
     } finally {
       $ErrorActionPreference = $previousPreference
