@@ -9,6 +9,7 @@ const source = fs.readFileSync(
 );
 function fixture({
   stopped = true,
+  stoppedReason = '',
   checkout = 'D:\\smart-control',
   changed = false,
   pending = true,
@@ -45,7 +46,11 @@ function fixture({
             return (changed && ++revisions > 1 ? 'c' : 'b').repeat(40);
           }
           events.push(['check', file, args]);
-          if (!stopped) throw new Error('still running');
+          if (!stopped) {
+            const error = new Error('still running');
+            error.stderr = stoppedReason;
+            throw error;
+          }
           return 'GK9000_WRITERS_STOPPED\r\n';
         },
       };
@@ -79,10 +84,11 @@ function fixture({
   return { run: module.exports.run, process, events };
 }
 test('running host cannot load configuration or start migration', async () => {
-  const h = fixture({ stopped: false });
+  const h = fixture({ stopped: false, stoppedReason: 'A service or PM2 process remains.' });
   await assert.rejects(h.run(), (error) => {
-    assert.match(error.message, /still running/);
+    assert.match(error.message, /writer fence rejected/);
     assert.equal(error.migrationStage, 'initial-writer-fence');
+    assert.equal(error.safeReason, 'A service or PM2 process remains.');
     return true;
   });
   assert.deepEqual(

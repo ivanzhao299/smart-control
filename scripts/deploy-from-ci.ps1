@@ -149,8 +149,14 @@ function Invoke-ControlledMigrationReconciliation {
     $script:migrationAttempted = $true
     $script:migrationState = 'controller-started'
     Write-DeployLog 'Running controlled migration with paired database/media recovery rehearsal.'
-    $migrationLines = @(& node scripts/run-gk9000-migrations.cjs $recoveryRoot $previousCommit 2>&1)
-    $migrationExit = $LASTEXITCODE
+    $previousPreference = $ErrorActionPreference
+    try {
+      $ErrorActionPreference = 'Continue'
+      $migrationLines = @(& node scripts/run-gk9000-migrations.cjs $recoveryRoot $previousCommit 2>&1)
+      $migrationExit = $LASTEXITCODE
+    } finally {
+      $ErrorActionPreference = $previousPreference
+    }
     foreach ($line in $migrationLines) { Write-DeployLog "  $line" }
     if ($migrationExit -ne 0) { throw "Controlled database migration failed (exit $migrationExit)." }
     $receiptLine = @($migrationLines | Where-Object { $_ -match '^Migration receipt \(not activation\): (.+)$' }) | Select-Object -Last 1

@@ -165,10 +165,12 @@ describe('GK9000 deployment gates', () => {
     expect(assertStopped).toContain('reconcile-held-gk9000-release');
     expect(deploy).toContain("$pm2FailClosed = 'C:\\Users\\user\\AppData\\Roaming\\npm\\pm2.cmd'");
     expect(deploy).toContain("Invoke-Native $pm2FailClosed @('kill')");
+    expect(deploy).toContain('$migrationLines = @(& node scripts/run-gk9000-migrations.cjs');
     expect(resume).toContain("ParameterSetName='Aborted'");
     expect(reconcile).toContain('if (-not $Apply)');
     expect(reconcile).toContain('scripts/run-gk9000-migrations.cjs');
     expect(reconcile).toContain('scripts\\resume-gk9000-release.ps1');
+    expect(reconcile).toContain("$ErrorActionPreference = 'Continue'");
     expect(reconcile.indexOf('run-gk9000-migrations.cjs')).toBeLessThan(
       reconcile.indexOf('resume-gk9000-release.ps1'),
     );

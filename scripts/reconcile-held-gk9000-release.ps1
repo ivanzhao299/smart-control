@@ -55,8 +55,14 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Locked backend dependency install failed.' }
     & pnpm.cmd run build
     if ($LASTEXITCODE -ne 0) { throw 'Backend candidate build failed.' }
-    $migrationLines = @(& node scripts/run-gk9000-migrations.cjs $recoveryRoot $snapshot.SourceRevision 2>&1)
-    $migrationExit = $LASTEXITCODE
+    $previousPreference = $ErrorActionPreference
+    try {
+      $ErrorActionPreference = 'Continue'
+      $migrationLines = @(& node scripts/run-gk9000-migrations.cjs $recoveryRoot $snapshot.SourceRevision 2>&1)
+      $migrationExit = $LASTEXITCODE
+    } finally {
+      $ErrorActionPreference = $previousPreference
+    }
     foreach ($line in $migrationLines) { Write-Output $line }
     if ($migrationExit -ne 0) { throw "Controlled database migration failed (exit $migrationExit)." }
   } finally {
