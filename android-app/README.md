@@ -29,8 +29,8 @@
    每次构建后校验证书 SHA-256，保持与已安装终端相同，可直接覆盖升级；
    私钥和口令不进入仓库、构建产物或日志。
 2. APK + manifest.json 自动提交到 `deploy/assets/app/` → 随部署链落到 GK9000
-3. 后端启动自愈: 仓库带的版本比库里新 → 更新 `app_release` 表,
-   downloadUrl 指向展厅本地 `/api/app/android/download`
+3. 生产部署完成健康验证后，校验 APK 的 SHA-256、大小和防降级条件，再原子更新
+   `app_release` 表；普通后端启动不会修改发布数据
 4. 各终端 App 启动检查 `/api/app/android/latest` → 弹"发现新版本" →
    内网直接下载安装 (不再依赖 GitHub)
 

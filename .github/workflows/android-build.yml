@@ -12,8 +12,8 @@
 #      (路径过滤不含 deploy/**, 不会自触发本工作流)
 #   3. 该提交推送成功后显式调度 deploy-gk9000（GITHUB_TOKEN 的 push 不会
 #      递归触发其他 push 工作流）→ APK 随 git 落到 GK9000
-#   4. 后端启动自愈读 manifest — 版本比库里新就更新 app_release 表,
-#      downloadUrl 指向展厅本地 /api/app/android/download
+#   4. 生产部署在健康验证后校验 APK 哈希/大小并原子更新 app_release 表,
+#      普通后端启动不写发布数据
 #   5. 各终端 App 启动检查 latest → 弹"发现新版本" → 内网直接下载安装
 #
 # Artifact 仍然上传一份 (Actions 页面手动下载兜底)。
@@ -134,13 +134,18 @@ jobs:
             echo "APK unchanged, skip commit"; exit 0
           fi
           cp "$APK_TMP" deploy/assets/app/smart-control-latest.apk
+          APK_SHA256=$(sha256sum "$APK_TMP" | awk '{print $1}')
+          APK_SIZE=$(stat -c '%s' "$APK_TMP")
           cat > deploy/assets/app/manifest.json <<EOF
           {
+            "schemaVersion": 1,
             "platform": "android",
             "versionCode": ${{ steps.ver.outputs.vc }},
             "versionName": "${{ steps.ver.outputs.vn }}",
             "commit": "${GITHUB_SHA}",
-            "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "apkSha256": "$APK_SHA256",
+            "apkSize": $APK_SIZE
           }
           EOF
           git config user.name 'github-actions[bot]'

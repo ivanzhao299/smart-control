@@ -1,7 +1,10 @@
 {
+  "schemaVersion": 1,
   "platform": "android",
   "versionCode": 22,
   "versionName": "1.1.14",
   "commit": "25860efe01bae4b9b72b0f65eca3ac5433157735",
-  "builtAt": "2026-09-16T05:00:03Z"
+  "builtAt": "2026-09-16T05:00:03Z",
+  "apkSha256": "59d5c885cceb3b8d3aff257ede0f112a006b91d5357bcd62132c0a17d12d805b",
+  "apkSize": 5893727
 }

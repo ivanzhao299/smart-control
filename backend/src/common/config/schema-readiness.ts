@@ -24,6 +24,7 @@ export const REQUIRED_SCHEMA_MIGRATIONS = [
   'ImportVideoBindingRuntimeConfig1789560000000',
   'ImportParkOpsMetricsRuntimeConfig1789570000000',
   'ImportParkOpsVisualRuntimeConfig1789580000000',
+  'EstablishAppReleaseCatalog1789640000000',
 ] as const;
 
 export const REQUIRED_SCHEMA_COLUMNS: Record<string, string[]> = {
@@ -83,6 +84,13 @@ export const REQUIRED_SCHEMA_COLUMNS: Record<string, string[]> = {
     'actor',
     'source',
     'created_at',
+  ],
+  app_release_v1: [
+    'release_source',
+    'artifact_commit',
+    'artifact_sha256',
+    'artifact_size',
+    'artifact_built_at',
   ],
 };
 

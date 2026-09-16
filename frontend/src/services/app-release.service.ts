@@ -9,6 +9,11 @@ export interface AppReleaseView {
   forceUpdate: boolean;
   minSupportedVersionCode: number;
   enabled: boolean;
+  releaseSource: 'bundled' | 'manual';
+  artifactCommit: string | null;
+  artifactSha256: string | null;
+  artifactSize: number | null;
+  artifactBuiltAt: string | null;
   updatedAt: string;
 }
 

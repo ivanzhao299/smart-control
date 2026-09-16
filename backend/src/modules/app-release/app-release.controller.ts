@@ -37,12 +37,10 @@ export class AppReleaseController {
     const apk = resolve(process.cwd(), '..', 'deploy', 'assets', 'app', 'smart-control-latest.apk');
     const stat = await fs.stat(apk).catch(() => null);
     if (!stat) throw new NotFoundException('APK 尚未发布 (deploy/assets/app 下没有安装包)');
-    // 文件名带版本号, 下载列表里一眼可辨
-    let name = 'smart-control-latest.apk';
-    try {
-      const mf = JSON.parse(await fs.readFile(resolve(apk, '..', 'manifest.json'), 'utf8')) as { versionName?: string };
-      if (mf.versionName) name = `smart-control-v${mf.versionName}.apk`;
-    } catch { /* manifest 缺失就用默认名 */ }
+    // 文件名同样只读数据库权威记录；部署清单不是运行时数据源。
+    const release = await this.service.getLatest('android');
+    const safeVersion = release?.versionName.replace(/[^0-9A-Za-z._-]/g, '');
+    const name = safeVersion ? `smart-control-v${safeVersion}.apk` : 'smart-control-latest.apk';
     res.setHeader('Content-Type', 'application/vnd.android.package-archive');
     res.setHeader('Content-Length', stat.size);
     res.setHeader('Content-Disposition', `attachment; filename="${name}"`);

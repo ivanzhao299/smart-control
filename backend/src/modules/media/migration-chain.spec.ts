@@ -35,8 +35,13 @@ describe('complete migration chain on an isolated database', () => {
     expect(await runner.hasTable('upload_instances')).toBe(true);
     expect((await runner.getTable('upload_reservations'))?.findColumnByName('target_media_id')).toBeDefined();
     expect(await db.query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'protect_last_administrator_%'")).toHaveLength(2);
-    // Audio, brand and driver catalogs, power configuration and runtime documents are authoritative:
+    // App release, audio, brand and driver catalogs, power configuration and runtime documents are authoritative:
     // each rollback boundary requires a matched archive before its data can be removed.
+    await expect(db.undoLastMigration()).rejects.toThrow(
+      'APP_RELEASE_CATALOG_ROLLBACK_REQUIRES_ARCHIVE',
+    );
+    await db.query('DELETE FROM app_release_v1');
+    await db.undoLastMigration();
     await expect(db.undoLastMigration()).rejects.toThrow(
       'AUDIO_CONFIG_CATALOG_ROLLBACK_REQUIRES_ARCHIVE',
     );
@@ -80,6 +85,7 @@ describe('complete migration chain on an isolated database', () => {
           'EstablishBuiltinDriverTemplates1789610000000',
           'EstablishBrandCatalog1789620000000',
           'EstablishAudioConfigCatalog1789630000000',
+          'EstablishAppReleaseCatalog1789640000000',
         ].includes(m.name),
     );
     for (const _migration of multiuserAndLater) await db.undoLastMigration();

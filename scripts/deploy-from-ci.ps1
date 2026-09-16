@@ -31,6 +31,7 @@ $releaseIsolationStarted = $false
 $controlledActivationCompleted = $false
 $migrationTaskSnapshot = $null
 $migrationReceipt = $null
+$appReleaseReconciled = $false
 $runtimeUntrackServicesStopped = $false
 $runtimeUntrackPaths = @()
 $runtimeUntrackArchiveRoot = $null
@@ -175,6 +176,23 @@ function Invoke-ControlledMigrationReconciliation {
   $script:migrationState = 'activated'
   $script:controlledActivationCompleted = $true
   $script:releaseIsolationStarted = $false
+}
+
+function Invoke-AppReleaseReconciliation([switch]$CheckOnly) {
+  $entry = Join-Path $projectRoot 'backend\scripts\reconcile-app-release.cjs'
+  $manifest = Join-Path $projectRoot 'deploy\assets\app\manifest.json'
+  $artifact = Join-Path $projectRoot 'deploy\assets\app\smart-control-latest.apk'
+  if (-not (Test-Path -LiteralPath $entry -PathType Leaf)) {
+    throw 'Required app release reconciler is missing.'
+  }
+  Push-Location (Join-Path $projectRoot 'backend')
+  try {
+    $arguments = @($entry, '--manifest', $manifest, '--artifact', $artifact)
+    if ($CheckOnly) { $arguments += '--check-only' }
+    Invoke-Native 'node' $arguments
+  } finally {
+    Pop-Location
+  }
 }
 
 function Invoke-DetachedResurrect {
@@ -1114,6 +1132,17 @@ try {
       }
     }
   }
+  if ($VerifyOnly) {
+    Write-DeployLog 'Checking authoritative Android app release metadata without writing.'
+    Invoke-AppReleaseReconciliation -CheckOnly
+  } else {
+    # This is deliberately the last release mutation. The verified backup already
+    # exists, services and the downloadable APK have passed health checks, and the
+    # reconciler validates the artifact before its single-row SQLite transaction.
+    Write-DeployLog 'Reconciling authoritative Android app release metadata.'
+    Invoke-AppReleaseReconciliation
+    $appReleaseReconciled = $true
+  }
   $result = 'PASS'
   Write-DeployLog "Deployment complete: $deployedCommit"
 } catch {
@@ -1152,6 +1181,8 @@ try {
     }
   } elseif ($migrationState -eq 'activated') {
     Write-DeployLog 'Candidate was already activated from a committed migration; preserving the matched code/database/media set and running services.'
+  } elseif ($appReleaseReconciled) {
+    Write-DeployLog 'Verified app release metadata was already committed; preserving the matching code, artifact and database record.'
   } elseif ($worktreeUpdated -and $previousCommit) {
     Write-DeployLog "Rolling the worktree and build artifacts back to $previousCommit."
     try {
@@ -1247,6 +1278,7 @@ try {
     migrationAttempted = $migrationAttempted
     migrationState = $migrationState
     migrationReceipt = $migrationReceipt
+    appReleaseReconciled = $appReleaseReconciled
     releaseIsolationActive = $releaseIsolationStarted
     recoveryRequired = ($migrationAttempted -and $migrationState -ne 'activated' -and $result -ne 'PASS')
     result = $result
