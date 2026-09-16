@@ -7,6 +7,17 @@ const readRepositoryFile = (relativePath: string): string =>
   readFileSync(resolve(repositoryRoot, relativePath), 'utf8');
 
 describe('GK9000 deployment gates', () => {
+  it('uses one SQLite driver and keeps the legacy native driver out of the lockfile', () => {
+    const packageJson = JSON.parse(readRepositoryFile('backend/package.json')) as {
+      dependencies: Record<string, string>;
+    };
+    const lockfile = readRepositoryFile('backend/pnpm-lock.yaml');
+
+    expect(packageJson.dependencies['better-sqlite3']).toBeDefined();
+    expect(packageJson.dependencies.sqlite3).toBeUndefined();
+    expect(lockfile).not.toMatch(/^  sqlite3@\d/m);
+  });
+
   it('keeps generated database sidecars and logs out of the version tree', () => {
     const tracked = execFileSync('git', ['ls-files', 'database', 'logs'], {
       cwd: repositoryRoot,
@@ -106,12 +117,15 @@ describe('GK9000 deployment gates', () => {
 
   it('runs backend tests in the production validation job before building', () => {
     const workflow = readRepositoryFile('.github/workflows/deploy-gk9000.yml');
+    const auditPosition = workflow.indexOf('pnpm audit --prod --audit-level high');
     const testPosition = workflow.indexOf('pnpm exec jest --ci --reporters=default');
     const backendBuildPosition = workflow.indexOf('pnpm run build');
     const frontendTestPosition = workflow.indexOf('pnpm run test');
     const frontendTypecheckPosition = workflow.indexOf('pnpm run typecheck');
     const frontendBuildPosition = workflow.indexOf('pnpm run build', backendBuildPosition + 1);
 
+    expect(auditPosition).toBeGreaterThan(-1);
+    expect(auditPosition).toBeLessThan(testPosition);
     expect(testPosition).toBeGreaterThan(-1);
     expect(testPosition).toBeLessThan(backendBuildPosition);
     expect(frontendTestPosition).toBeGreaterThan(backendBuildPosition);
@@ -120,6 +134,9 @@ describe('GK9000 deployment gates', () => {
     expect(workflow).toContain('actions/checkout@v7');
     expect(workflow).toContain('actions/setup-node@v7');
     expect(workflow).toContain('pnpm/action-setup@v6');
+    expect(readRepositoryFile('.github/workflows/ci.yml')).toContain(
+      'pnpm audit --prod --audit-level high',
+    );
   });
 
   it('keeps production verification truthful and read only', () => {

@@ -71,6 +71,7 @@ jobs:
           cache-dependency-path: backend/pnpm-lock.yaml
 
       - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --prod --audit-level high
       # 协议编解码层单测: 改错一个字节/大小端/换算, 这里先红, 不流到现场硬件
       #
       # ⚠️ 必须用 `pnpm exec jest`, 不能写 `pnpm test -- --ci`:
