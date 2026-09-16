@@ -419,9 +419,8 @@ cd android-app && ./gradlew assembleDebug --no-daemon
 # APK 在 android-app/app/build/outputs/apk/debug/app-debug.apk
 gh release create v1.0.6-android android-app/app/build/outputs/apk/debug/app-debug.apk
 
-# 5. 更新后台 AppRelease (业主 APP 看到新版提示)
-# 进 /admin/app-release → 高级折叠 → 改 versionCode + downloadUrl 指新 release
-# 或 SSH 进 GK9000 跑 sqlite UPDATE (脚本见历史 commit /tmp/update-105.js)
+# 5. 生产部署门禁自动同步版本号、下载地址和制品校验信息
+# /admin/app-release 只维护启停、强制更新、最低兼容版本和更新说明
 ```
 
 ⚠️ Maven 镜像 (中国大陆 dl.google.com 慢, 见 `android-app/settings.gradle.kts` 阿里云 mirror 已加)

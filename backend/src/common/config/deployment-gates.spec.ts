@@ -180,6 +180,28 @@ describe('GK9000 deployment gates', () => {
     expect(deploy).toContain('Never roll back');
   });
 
+  it('reconciles Android release metadata only after production verification', () => {
+    const deploy = readRepositoryFile('scripts/deploy-from-ci.ps1');
+    const reconciler = readRepositoryFile('backend/scripts/reconcile-app-release.cjs');
+    const workflow = readRepositoryFile('.github/workflows/android-build.yml');
+
+    expect(deploy).toContain('function Invoke-AppReleaseReconciliation');
+    expect(deploy).toContain('Invoke-AppReleaseReconciliation -CheckOnly');
+    expect(deploy).toContain('$appReleaseReconciled = $true');
+    expect(deploy.indexOf("Write-DeployLog 'verify-deploy.js passed.'")).toBeLessThan(
+      deploy.indexOf("Write-DeployLog 'Reconciling authoritative Android app release metadata.'"),
+    );
+    expect(deploy.indexOf('Invoke-AppReleaseReconciliation\n')).toBeLessThan(
+      deploy.indexOf("$result = 'PASS'"),
+    );
+    expect(reconciler).toContain('readonly: Boolean(options.checkOnly)');
+    expect(reconciler).toContain('db.transaction(inspectOrUpdate).immediate()');
+    expect(reconciler).toContain('Bundled Android artifact checksum mismatch');
+    expect(reconciler).toContain('Bundled Android artifact is older than the authoritative release');
+    expect(workflow).toContain('APK_SHA256=$(sha256sum');
+    expect(workflow).toContain('"apkSize": $APK_SIZE');
+  });
+
   it('uses a controlled migration state machine and the real host task inventory', () => {
     const deploy = readRepositoryFile('scripts/deploy-from-ci.ps1');
     const suspend = readRepositoryFile('scripts/suspend-gk9000-release.ps1');

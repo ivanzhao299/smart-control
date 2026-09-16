@@ -60,7 +60,7 @@ Windows 生产部署体系（GK9000 工控机, `D:\smart-control\`）。
 
 - **Android v1.1.3**：CI 加密密钥托管固定签名并校验证书指纹 → APK 自动
   提交 `deploy/assets/app/` → 随部署链落 GK9000 → 后端 `/api/app/android/download`
-  内网直发 + 启动自愈升版本记录 → 终端 App 弹更新。注意：签名切换版，
+  内网直发 + 部署门禁校验制品并同步版本记录 → 终端 App 弹更新。注意：签名切换版，
   终端首次需卸载旧版再装，之后可覆盖升级。
 - **iOS v1.1.3 TestFlight 全自动链**（打通记录，共闯五关）：Admin 角色 API 密钥
   （App 管理角色云签名权限不足）→ 归档跳过签名 `CODE_SIGNING_ALLOWED=NO`

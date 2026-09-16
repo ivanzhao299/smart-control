@@ -14,8 +14,8 @@ import {
  * 这是方案 A: APP 启动 → 调 GET /api/app/:platform/latest → 比对 versionCode →
  * 不一致弹对话框 → 点击跳浏览器下载新 APK.
  *
- * 一个 platform 一条 (单行 upsert). onModuleInit 默认写 android 当前最新版.
- * 业主在后台 "APP 版本" 页改 versionCode / downloadUrl / notes 即可.
+ * 一个 platform 一条。Android 版本元数据由部署门禁写入，后台只维护发布策略；
+ * 手工发布的平台仍可在后台维护完整记录。
  */
 @Entity({ name: 'app_release_v1' })
 export class AppRelease {
@@ -57,6 +57,22 @@ export class AppRelease {
   /** 启用 — 关掉就 endpoint 返回 disabled, APP 不弹更新提示 (业主想停服时用) */
   @Column({ type: 'boolean', default: true })
   enabled!: boolean;
+
+  /** bundled = deployment-owned artifact metadata; manual = operator-owned release. */
+  @Column({ type: 'varchar', length: 16, default: 'manual', name: 'release_source' })
+  releaseSource!: 'bundled' | 'manual';
+
+  @Column({ type: 'varchar', length: 40, nullable: true, name: 'artifact_commit' })
+  artifactCommit!: string | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true, name: 'artifact_sha256' })
+  artifactSha256!: string | null;
+
+  @Column({ type: 'integer', nullable: true, name: 'artifact_size' })
+  artifactSize!: number | null;
+
+  @Column({ type: 'datetime', nullable: true, name: 'artifact_built_at' })
+  artifactBuiltAt!: Date | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
