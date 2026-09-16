@@ -14,7 +14,7 @@ import {
  * 不是设备实例(实例在 hardware_unit), 而是设备类的"说明书".
  *
  * 两种来源:
- *   - builtin = true:  代码里有 driver class, 启动时 upsert 进 DB. 用户不能编辑.
+ *   - builtin = true:  代码里有 driver class, 由版本化迁移写入 DB. 用户不能编辑.
  *   - builtin = false: UI 创建的"挂壳"模板, 协议帧编解码必须仍由代码里某个 adapter 提供
  *                       (P4 阶段加, 用来给同协议族下的新品牌做轻量配置而不写代码).
  *
@@ -83,7 +83,7 @@ export class DriverTemplate {
   @Column({ type: 'text', nullable: true })
   remark!: string | null;
 
-  /** 代码内置 (启动时由 adapter.describe() 同步) 还是 UI 创建 */
+  /** 代码内置 (由版本化迁移维护) 还是 UI 创建 */
   @Column({ type: 'boolean', default: true })
   builtin!: boolean;
 

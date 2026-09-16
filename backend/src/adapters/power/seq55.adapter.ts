@@ -203,21 +203,4 @@ export class Seq55Adapter extends BaseAdapter {
     });
   }
 
-  static describe(): import('../driver-descriptor').DriverDescriptor {
-    return {
-      kind: 'generic-seq55',
-      displayName: '通用 8 路电源时序器 (55/AA 协议)',
-      vendor: '通用',
-      category: 'power-seq55',
-      protocol: 'serial',
-      capabilities: ['turn_on', 'turn_off', 'health_check'],
-      defaultAddressing: { baud: SEQ55_DEFAULT_BAUD, devAddr: SEQ55_DEFAULT_ADDR, channels: 8 },
-      paramSchema: {
-        ip: { type: 'string', label: '串口号', required: true, placeholder: 'COM2' },
-        baud: { type: 'number', label: '波特率', default: SEQ55_DEFAULT_BAUD, min: 1200, max: 115200 },
-        devAddr: { type: 'number', label: '机器地址', default: SEQ55_DEFAULT_ADDR, min: 1, max: 255 },
-      },
-      remark: '6 字节 55…AA 协议, 9600 8N1, 与 EPO-802P 不能共串口。面板电源按键须置关才受控; 读状态回帧格式待到货实测。',
-    };
-  }
 }

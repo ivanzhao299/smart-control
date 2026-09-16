@@ -45,7 +45,7 @@ const GATEWAY_KEY = 'projector-fusion';
  * 【当前状态: 就绪待联调 —— 设备还没到货 (淘宝下单中)】
  * 协议层已金标准测试, adapter 结构完整, mock 路径可跑。但真机没到, 所以:
  *   - 暂不注册为 NestJS provider、不接执行路由、不动投影仪页
- *   - DriverRegistryService 只调它的 static describe(), 让它出现在 driver 目录
+ *   - 驱动目录元数据由版本化迁移登记
  * 到货后: IP 从出厂 192.168.2.168 挪到 50 网段 → 注册 provider → 接执行 → 改投影仪页 → 联调。
  *
  * 连接参数从 hardware_unit(category='projector-fusion') 的 ip + addressing.port 读, 5s TTL,
@@ -445,32 +445,4 @@ export class FusionPlayerAdapter extends BaseAdapter {
     return { ok: true };
   }
 
-  /** 给 DriverRegistryService 注册进 driver 目录用 */
-  static describe(): import('../driver-descriptor').DriverDescriptor {
-    return {
-      kind: 'fusion-player',
-      displayName: '投影视频融合器 (播控协议)',
-      vendor: 'JBT',
-      category: 'projector-fusion',
-      protocol: 'tcp-text',
-      capabilities: [
-        'enum_windows', 'open_window', 'close_window', 'replace_window',
-        'move_window', 'resize_window', 'play_window', 'pause_window',
-        'enum_modes', 'run_mode', 'get_running_plan', 'stop_plan',
-        'set_window_volume', 'mute_window', 'get_playlist', 'set_playlist_current',
-        'health_check',
-      ],
-      defaultAddressing: { port: FUSION_TCP_PORT, canvas: DEFAULT_CANVAS },
-      paramSchema: {
-        ip: { type: 'string', label: '融合器 IP', required: true, placeholder: '192.168.1.168' },
-        port: { type: 'number', label: 'TCP 端口', default: FUSION_TCP_PORT, min: 1, max: 65535 },
-        canvas: { type: 'number', label: '画布/屏索引 (open/close 前置字段)', default: DEFAULT_CANVAS, min: 0, max: 7 },
-      },
-      remark:
-        '投影仪 4K 二通道融合处理器 (JBT-SK-HD02). 网口直连 TCP 文本协议《播控中控》, 端口 63426. ' +
-        '开/关/移动/缩放窗口 + 切源 + 音量 + 播放列表. 坐标归一化 0~1. ' +
-        '2026-07-23 现场实机验通核心命令(固件 2.4.25.268 比文档新, open/close 有前置画布字段). ' +
-        'run_mode(调预设)待设备里配好模式 + 拿厂家新版文档后补.',
-    };
-  }
 }

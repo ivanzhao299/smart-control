@@ -35,8 +35,13 @@ describe('complete migration chain on an isolated database', () => {
     expect(await runner.hasTable('upload_instances')).toBe(true);
     expect((await runner.getTable('upload_reservations'))?.findColumnByName('target_media_id')).toBeDefined();
     expect(await db.query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'protect_last_administrator_%'")).toHaveLength(2);
-    // Power configuration and runtime documents are authoritative: each rollback
-    // boundary requires a matched archive before its data can be removed.
+    // Driver catalog, power configuration and runtime documents are authoritative:
+    // each rollback boundary requires a matched archive before its data can be removed.
+    await expect(db.undoLastMigration()).rejects.toThrow(
+      'BUILTIN_DRIVER_TEMPLATE_ROLLBACK_REQUIRES_ARCHIVE',
+    );
+    await db.query('DELETE FROM driver_templates');
+    await db.undoLastMigration();
     await expect(db.undoLastMigration()).rejects.toThrow(
       'POWER_CIRCUIT_ROLLBACK_REQUIRES_ARCHIVE',
     );
@@ -53,7 +58,12 @@ describe('complete migration chain on an isolated database', () => {
     await db.query("DELETE FROM runtime_config_documents WHERE config_key = 'video.binding'");
     await db.undoLastMigration();
     const multiuserAndLater = applied.filter(
-      m => m.timestamp >= 1788618000000 && m.name !== 'EnsureVideoBindingRuntimeConfig1789590000000',
+      m =>
+        m.timestamp >= 1788618000000 &&
+        ![
+          'EnsureVideoBindingRuntimeConfig1789590000000',
+          'EstablishBuiltinDriverTemplates1789610000000',
+        ].includes(m.name),
     );
     for (const _migration of multiuserAndLater) await db.undoLastMigration();
     expect(await db.query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'protect_last_administrator_%'")).toHaveLength(0);

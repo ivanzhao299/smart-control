@@ -263,26 +263,4 @@ export class EpaBreakerAdapter extends BaseAdapter {
     };
   }
 
-  /** 给 DriverRegistryService 注册进 driver 目录用 */
-  static describe(): import('../driver-descriptor').DriverDescriptor {
-    return {
-      kind: 'epa-breaker',
-      displayName: 'ePa 智能断路器 / 远程空开 (485 Modbus)',
-      vendor: 'ePa',
-      category: 'power-breaker',
-      protocol: 'modbus-rtu',
-      capabilities: ['turn_on', 'turn_off', 'get_status', 'get_measurements', 'health_check'],
-      defaultAddressing: { port: 502, slaveId: 255 },
-      paramSchema: {
-        ip: { type: 'string', label: 'RTU↔TCP 转换器 IP', required: true, placeholder: '192.168.50.21' },
-        port: { type: 'number', label: 'TCP 端口', default: 502, min: 1, max: 65535 },
-        // 出厂从机号是 255(0xFF), 超出 Modbus 常规 1-247 —— 现场实测只有 255 应答, 别改回 247
-        slaveId: { type: 'number', label: 'Modbus 从机号', default: 255, min: 1, max: 255 },
-      },
-      remark:
-        '给大屏做远程物理总闸: 合闸/分闸 + 计量. 485 标准 Modbus-RTU(115200/8N1/CRC16), ' +
-        '经有人 RTU-TCP 转换器接入(别与 DALI 那台共用, 波特率不同). 分合闸写寄存器 0x0101(1合/2分). ' +
-        '2026-07-22 现场联调通过: 转换器 192.168.50.21:502, 从机号 255.',
-    };
-  }
 }
