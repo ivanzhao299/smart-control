@@ -454,9 +454,8 @@ export class EkxDspAdapter extends BaseAdapter {
   /**
    * 读设备**真实**的 8×8 路由表 — 一条命令 (0x61), 实测 ~284ms.
    *
-   * 这是前端矩阵界面唯一该信的数据源。以前前端点一下就把结果存进本地 JSON
-   * 文件 (GET/POST /api/audio/matrix/state), 那记的是"谁点过什么", 不是设备
-   * 状态 —— 而且命令失败时照样存, 于是界面亮着一个从没接通过的交叉点。
+   * 这是前端矩阵界面唯一该信的数据源。旧版曾把点击结果存进本地 JSON，
+   * 那记的是"谁点过什么", 不是设备状态；该文件写入现已退役。
    *
    * 别逐点读: 64 个点 × ~280ms ≈ 18s (EKX 单客户端 + 串行锁, 快不了)。
    */
@@ -649,7 +648,7 @@ export class EkxDspAdapter extends BaseAdapter {
    *   "BGM 从 3.5mm 出来了、GK9000 也能听见, 但矩阵收不到" 这类问题, 光读电平
    *   表判断不了 —— EKX 预设常把输入增益压到 -60dB, 信号进来了也会被压成本底
    *   噪声 (IN1 读数恒 -70dB), 看起来跟"没接线"一模一样。
-   *   而 GET /api/audio/matrix/state 读的是本地 JSON 文件, 不是设备状态。
+   *   而 GET /api/audio/matrix/state 只是数据库期望状态的兼容投影，不是设备状态。
    *   这里直接问设备: 增益多少 / 静音没 / 路由通没通。
    */
   async diagnoseInput(channel: ChannelIndex, ctx?: AdapterContext): Promise<AdapterResult<{
