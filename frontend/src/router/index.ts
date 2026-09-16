@@ -5,26 +5,18 @@ import { useClientAuthStore } from '@/stores/client-auth';
 import { usePermissionStore } from '@/stores/permission';
 import { api } from '@/services/http';
 import { isStalePwaAssetError, recoverFromStalePwa } from '@/services/pwa-recovery';
+import { mainRouteManifest } from './main-route-manifest';
 
 const routes: RouteRecordRaw[] = [
   // 平板布局 (Sprint-05)
   {
     path: '/',
     component: () => import('@/layouts/MainLayout.vue'),
-    children: [
-      { path: '', name: 'dashboard', component: () => import('@/pages/DashboardPage.vue') },
-      { path: 'lighting', name: 'lighting', component: () => import('@/pages/LightingPage.vue') },
-      { path: 'dali-lights', name: 'dali-lights', component: () => import('@/pages/DaliLightsPage.vue') },
-      { path: 'dali-diagnose', name: 'dali-diagnose', component: () => import('@/pages/DaliDiagnosePage.vue') },
-      { path: 'led', name: 'led', component: () => import('@/pages/LedPage.vue') },
-      // 2026-07-17 业主: "把投影仪页面单独摘出来" —— 原来跟 LED 挤在一页, 容易推错屏
-      { path: 'projector', name: 'projector', component: () => import('@/pages/ProjectorPage.vue') },
-      { path: 'audio', name: 'audio', component: () => import('@/pages/AudioPage.vue') },
-      { path: 'hvac', name: 'hvac', component: () => import('@/pages/HvacPage.vue') },
-      { path: 'power', name: 'power', component: () => import('@/pages/PowerPage.vue') },
-      { path: 'media', name: 'media', component: () => import('@/pages/MediaPage.vue') },
-      { path: 'status', name: 'status', component: () => import('@/pages/StatusPage.vue') },
-    ],
+    children: mainRouteManifest.map((route) => ({
+      path: route.path,
+      name: route.name,
+      component: route.load,
+    })),
   },
   // 客户端登录页 (业主级别访问门禁 + 服务器地址配置)
   {

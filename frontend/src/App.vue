@@ -126,18 +126,6 @@ onMounted(async () => {
   // 登录态一旦变 true (登录成功 / 自动重登成功) → 立即补拉一次业务数据
   watch(() => clientAuth.isAuthed, (authed) => { if (authed) fetchAuthedData(); });
 
-  // PERFORMANCE_AUDIT P1-#8: idle 时预取所有主菜单 chunk, 切页瞬开
-  const ric =
-    (window as Window & { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback ??
-    ((cb: () => void) => window.setTimeout(cb, 1500));
-  ric(() => {
-    void import('@/pages/LightingPage.vue');
-    void import('@/pages/LedPage.vue');
-    void import('@/pages/AudioPage.vue');
-    void import('@/pages/HvacPage.vue');
-    void import('@/pages/MediaPage.vue');
-    void import('@/pages/StatusPage.vue');
-  });
 });
 
 onBeforeUnmount(() => {
