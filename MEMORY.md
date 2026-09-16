@@ -7,7 +7,7 @@
 
 ## 当前代码上下文（2026-09-17，优先于以下历史快照）
 
-- 当前生产 Git 基线为 `65d67d0`（PR #74）。后端 3200、前端 5173、PM2 守护和计划任务均通过权威验证；`RELEASE_HOLD` 不存在。生产健康接口为 200，38 台设备在线、0 离线，六路 HLS 运行中且零重启。SQLite 共 37 个迁移，`integrity_check=ok`、外键违规 0。
+- 当前生产 Git 基线为 `18b138be42b9750316161d0070c1f0a40fa3d64f`（PR #76）。后端 3200、前端 5173、PM2 守护和计划任务均通过权威验证；`RELEASE_HOLD` 不存在。生产健康接口为 200，38 台设备在线、0 离线，六路 HLS 运行中且零重启。SQLite 共 38 个迁移，`integrity_check=ok`、外键违规 0。
 - 阶段 P1-A3 已完成：视频绑定、2 台 NVR、6 路通道、HLS、截图、检测线与 ROI 收敛到 SQLite 的 `video.binding` 单一权威文档；后台编辑只写数据库并保留 revision、校验和及操作者历史，旧 JSON 仅作为已冻结的迁移来源。
 - 生产已执行 `ImportVideoBindingRuntimeConfig1789560000000`，迁移总数 28；`video.binding` 为 schema v1 / revision 1，当前文档与唯一历史记录校验和一致，`integrity_check=ok`、外键违规 0。源 `video-binding.json` SHA-256 保持 `febfdd42ad95319a5b993bf6ffeb65a38a52695b32d50f195092bf03abddac2f`，其归一化内容与 SQLite 逐字段一致。
 - PR #40（`f7ddd8d`）首次真实迁移在停写复核处安全失败，未改数据库；PR #41/#42/#43 分别修正控制器父进程判定、PowerShell 5.1 原生错误采集和绝对迁移入口。随后在原 hold 下完成同一次恢复演练、迁移、回执和激活，未删除 hold 重跑、未回滚数据。
@@ -39,8 +39,10 @@
 - 阶段 P1-A18 已完成：`users` 是 PWA 与后台新登录的唯一凭据源；共享客户端/后台密码不再提供登录、修改或重置，旧令牌只按原有效期兼容。后台要求个人 `admin` 角色并签发 8 小时令牌，PWA 个人令牌保持 30 天；全局鉴权优先解析显式后台 bearer，避免并存的操作员 PWA 会话遮蔽管理员身份。
 - P1-A18 删除两个认证服务的启动写入和 seed 的 `admin/admin123`，第 37 个迁移只为缺失的新库建立不可登录占位配置；首次管理员改由 `pnpm run admin:provision` 显式、原子创建。生产已有 4 个启用账号（1 管理员、3 操作员）以及 `admin_auth_v1`、`client_auth_v1` 的密码哈希、签名密钥和时间字段，与发布前恢复库逐字段一致。两张认证表各恰有 id=1 且密钥长度 64，最后管理员保护触发器完整。
 - P1-A18 恢复包为 `D:\smart-control-backups\migration-recovery\release-ifx7MU`，隔离恢复演练为 `D:\smart-control-backups\migration-recovery\restore-2wTp5V`。PR #74 合并提交 `65d67d0`，生产部署 https://github.com/ivanzhao299/smart-control/actions/runs/35147034133 全绿；数据库 37 个迁移、完整性 `ok`、外键违规 0，密码单字段登录均返回 400，PWA 控制/灯光/大屏页面均为 200，38 台设备在线，六路 HLS 运行中且零重启。
+- 阶段 P1-A19 已完成：旧 `SeedService` 的场景/动作、逻辑设备、硬件、灯光分区/组和 UAT 目录冻结为 `EstablishOperationalCatalog1789660000000` 不可变快照。第 38 个迁移只补缺失行、只为空动作场景建立推荐动作、只对精确旧签名修复；不删除任何已有场景、分区或自定义数据。发布、包脚本和人工运维均不再存在 seed 入口。
+- P1-A19 发布前在生产在线一致性副本上演练，第 38 个迁移除迁移账本外 40 张业务表指纹全部不变，重复执行为 0 项。正式恢复包为 `D:\smart-control-backups\migration-recovery\release-87e6u8`，隔离恢复演练为 `D:\smart-control-backups\migration-recovery\restore-lbiONb`，发布前备份为 `D:\smart-control-backups\20260917-051004\sqlite-ThRC7w\database.sqlite`。PR #76 合并提交 `18b138be`，生产部署 https://github.com/ivanzhao299/smart-control/actions/runs/35150526034 全绿。
 - 现场权威路径：SQLite=`D:\smart-control\database\smart-control.db`，运行时数据=`D:\smart-control-runtime\data`，媒体=`D:\Media`，拍照上墙照片=`D:\Media\welcome-photos`。以上目录与代码仓库分离，发布不得删除或覆盖。
-- 当前阶段没有待发布运行时代码。启动写入审计已将设备状态恢复、WebSocket/站点心跳、灯具扫描、音频设备对账、LED 图层校正归为运行态恢复或设备对账；场景动作、电源回路、内置驱动、品牌目录、音频配置、应用版本和身份初始化的启动覆盖已经退役。下一批继续审计 `SeedService` 剩余业务种子，逐项区分全新安装默认值、历史数据修复、设备对账和可重建缓存；任何现有生产数据先做只读指纹和恢复演练，再决定是否迁入版本化迁移。
+- 当前阶段没有待发布运行时代码。启动写入审计已将设备状态恢复、WebSocket/站点心跳、灯具扫描、音频设备对账、LED 图层校正归为运行态恢复或设备对账；场景动作、电源回路、内置驱动、品牌目录、音频配置、应用版本、身份初始化和旧部署 seed 已经退役。下一批继续审计 HVAC 分区/内机、播放通道及内置媒体的按需或启动建档，逐项区分权威目录、设备对账和可重建缓存；任何现有生产数据先做只读指纹和恢复演练，再决定是否迁入版本化迁移。
 
 ## 当前状态快照（2026-07-28）
 
