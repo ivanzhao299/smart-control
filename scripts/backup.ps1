@@ -89,7 +89,7 @@ foreach ($rd in $runtimeDirs) {
   Write-Host "Runtime config backed up: $rd -> $runtimeLabel ($($runtimeJson.Count) json)" -ForegroundColor Green
 }
 
-# Seed (UAT 数据用过的可保留)
+# UAT 验收记录快照
 $uatExport = Join-Path $snap 'uat-snapshot.json'
 try {
   # Port 3200 - production backend listens on 3200. The old 3000 was an early port and

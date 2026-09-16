@@ -7,7 +7,7 @@
  * 数据来源: 《F1楼-一层二层空调位置明细》2026-05-21
  *
  * 物理内机的 indoorIdx 见:
- *   - backend/src/seed/seed.service.ts (设备表)
+ *   - backend/src/migrations/catalogs/operational-catalog-v1.json (新安装设备目录)
  *   - docs/HVAC_FIELD_INSTALL.md (§3 内机地址规划)
  */
 

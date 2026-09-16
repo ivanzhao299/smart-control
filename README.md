@@ -650,7 +650,9 @@ backend/src/adapters/
 cd backend
 pnpm install --frozen-lockfile
 cp .env.example .env
-pnpm run build && pnpm run seed
+pnpm run build
+node scripts/run-migrations.js
+# 首次安装还需以 SC_ADMIN_USERNAME / SC_ADMIN_PASSWORD 运行 pnpm run admin:provision
 pnpm run start:dev          # MOCK_MODE=true
 ```
 

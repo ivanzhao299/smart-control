@@ -21,7 +21,7 @@ import {
  *   - 后续 hardware_unit 表单可以下拉选 brand, 一致性更强
  *
  * 不强制 FK 是为了:
- *   1) seed 数据先有 vendor 字符串, 后有 brand 表, 避免循环
+ *   1) 目录迁移先有 vendor 字符串, 后有 brand 表, 避免循环
  *   2) 删一个 brand 时不至于级联破坏 hardware_unit
  */
 @Entity({ name: 'brands' })

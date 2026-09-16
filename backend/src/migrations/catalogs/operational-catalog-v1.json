@@ -1,0 +1,2011 @@
+{
+  "version": 1,
+  "UAT_ITEMS": [
+    {
+      "itemName": "场景: 开馆模式",
+      "category": "scene",
+      "testStep": "后台或平板点击「开馆模式」",
+      "expectedResult": "所有楼层主灯打开, LED 显示欢迎页, 背景音乐播放, 空调正常运行"
+    },
+    {
+      "itemName": "场景: 接待模式",
+      "category": "scene",
+      "testStep": "点击「接待模式」",
+      "expectedResult": "主区灯光柔和, LED 切换演示内容, 音响适中, 空调舒适温度"
+    },
+    {
+      "itemName": "场景: 会议模式",
+      "category": "scene",
+      "testStep": "点击「会议模式」",
+      "expectedResult": "会议区灯光合适, LED 切换 HDMI 笔记本输入, 音响音量适中"
+    },
+    {
+      "itemName": "场景: 路演模式",
+      "category": "scene",
+      "testStep": "点击「路演模式」",
+      "expectedResult": "舞台灯亮, LED 播放预设视频, 音响开启"
+    },
+    {
+      "itemName": "场景: 清洁模式",
+      "category": "scene",
+      "testStep": "点击「清洁模式」",
+      "expectedResult": "所有照明开到 100%, LED/音响关闭"
+    },
+    {
+      "itemName": "场景: 闭馆模式",
+      "category": "scene",
+      "testStep": "点击「闭馆模式」",
+      "expectedResult": "主灯关闭, 仅安防应急照明, LED/音响关闭, 空调关闭"
+    },
+    {
+      "itemName": "设备: 灯光开关",
+      "category": "device",
+      "testStep": "灯光页点击 1F/2F 开/关按钮",
+      "expectedResult": "设备实际开关, 后台状态同步刷新"
+    },
+    {
+      "itemName": "设备: 灯光调光",
+      "category": "device",
+      "testStep": "拖动亮度滑条至 30/60/100",
+      "expectedResult": "DALI 指令下发, 实际亮度跟随"
+    },
+    {
+      "itemName": "设备: LED 开关屏",
+      "category": "device",
+      "testStep": "LED 页点击开屏/关屏",
+      "expectedResult": "LED 实际开关, NUC 输出生效"
+    },
+    {
+      "itemName": "设备: LED 播放视频",
+      "category": "device",
+      "testStep": "选择视频或播放欢迎页",
+      "expectedResult": "LED 切换至对应输入并播放, 无黑屏"
+    },
+    {
+      "itemName": "设备: 音响音量控制",
+      "category": "device",
+      "testStep": "音响页拖动音量滑条 / 切换静音",
+      "expectedResult": "DSP 音量实际变化, 静音生效, 取消静音恢复"
+    },
+    {
+      "itemName": "设备: 空调温度控制",
+      "category": "device",
+      "testStep": "空调页设置 20/24/28 ℃ 并切换制冷/制热",
+      "expectedResult": "Modbus 指令下发, 空调实际温度模式跟随"
+    },
+    {
+      "itemName": "稳定性: 断网恢复",
+      "category": "stability",
+      "testStep": "拔掉网关网线 30s 后插回",
+      "expectedResult": "设备显示 reconnecting → online, 报警自动 resolve"
+    },
+    {
+      "itemName": "稳定性: 断电恢复",
+      "category": "stability",
+      "testStep": "断开网关电源 1 分钟后供电",
+      "expectedResult": "PM2 自动恢复连接, 网关回到 online"
+    },
+    {
+      "itemName": "稳定性: 设备离线提示",
+      "category": "stability",
+      "testStep": "强制某网关离线 (改 IP 错误)",
+      "expectedResult": "报警中心创建 critical alert, 平板顶部红色提示"
+    },
+    {
+      "itemName": "稳定性: 场景执行日志",
+      "category": "stability",
+      "testStep": "执行任意场景后查看后台→执行记录",
+      "expectedResult": "记录完整, 失败设备明细可见, 成功/失败计数准确"
+    }
+  ],
+  "SCENES": [
+    {
+      "code": "opening",
+      "name": "开馆模式",
+      "description": "展馆开放期间常规灯光与音响"
+    },
+    {
+      "code": "reception",
+      "name": "接待模式",
+      "description": "重要客户接待场景"
+    },
+    {
+      "code": "roadshow",
+      "name": "路演模式",
+      "description": "展品路演与互动展示"
+    },
+    {
+      "code": "closing",
+      "name": "闭馆模式",
+      "description": "闭馆后基础安防与节能照明"
+    }
+  ],
+  "DEVICES": [
+    {
+      "name": "light_1f_lobby",
+      "category": "lighting",
+      "protocol": "dali-modbus-rtu",
+      "adapter": "cy-dali64a",
+      "floor": "1F",
+      "zone": "lobby",
+      "address": "{\"slaveId\":1,\"group\":1}"
+    },
+    {
+      "name": "light_1f_roadshow",
+      "category": "lighting",
+      "protocol": "dali-modbus-rtu",
+      "adapter": "cy-dali64a",
+      "floor": "1F",
+      "zone": "roadshow",
+      "address": "{\"slaveId\":1,\"group\":2}"
+    },
+    {
+      "name": "light_1f_corridor",
+      "category": "lighting",
+      "protocol": "dali-modbus-rtu",
+      "adapter": "cy-dali64a",
+      "floor": "1F",
+      "zone": "corridor",
+      "address": "{\"slaveId\":1,\"group\":3}"
+    },
+    {
+      "name": "light_1f_accent",
+      "category": "lighting",
+      "protocol": "dali-modbus-rtu",
+      "adapter": "cy-dali64a",
+      "floor": "1F",
+      "zone": "accent",
+      "address": "{\"slaveId\":1,\"group\":4}"
+    },
+    {
+      "name": "light_1f_exhibit",
+      "category": "lighting",
+      "protocol": "dali-modbus-rtu",
+      "adapter": "cy-dali64a",
+      "floor": "1F",
+      "zone": "f102_exhibit",
+      "address": "{\"slaveId\":1,\"group\":5}"
+    },
+    {
+      "name": "light_1f_showroom",
+      "category": "lighting",
+      "protocol": "dali-modbus-rtu",
+      "adapter": "cy-dali64a",
+      "floor": "1F",
+      "zone": "f103_showroom",
+      "address": "{\"slaveId\":1,\"group\":6}"
+    },
+    {
+      "name": "light_1f_trade",
+      "category": "lighting",
+      "protocol": "dali-modbus-rtu",
+      "adapter": "cy-dali64a",
+      "floor": "1F",
+      "zone": "f104_trade",
+      "address": "{\"slaveId\":1,\"group\":7}"
+    },
+    {
+      "name": "light_2f_lobby",
+      "category": "lighting",
+      "protocol": "dali-modbus-rtu",
+      "adapter": "cy-dali64a",
+      "floor": "2F",
+      "zone": "lobby_corridor",
+      "address": "{\"slaveId\":2,\"group\":8}"
+    },
+    {
+      "name": "light_2f_service",
+      "category": "lighting",
+      "protocol": "dali-modbus-rtu",
+      "adapter": "cy-dali64a",
+      "floor": "2F",
+      "zone": "service_center",
+      "address": "{\"slaveId\":2,\"group\":9}"
+    },
+    {
+      "name": "light_2f_office",
+      "category": "lighting",
+      "protocol": "dali-modbus-rtu",
+      "adapter": "cy-dali64a",
+      "floor": "2F",
+      "zone": "shared_office",
+      "address": "{\"slaveId\":2,\"group\":10}"
+    },
+    {
+      "name": "light_2f_research",
+      "category": "lighting",
+      "protocol": "dali-modbus-rtu",
+      "adapter": "cy-dali64a",
+      "floor": "2F",
+      "zone": "research_center",
+      "address": "{\"slaveId\":2,\"group\":11}"
+    },
+    {
+      "name": "light_2f_command",
+      "category": "lighting",
+      "protocol": "dali-modbus-rtu",
+      "adapter": "cy-dali64a",
+      "floor": "2F",
+      "zone": "command_center",
+      "address": "{\"slaveId\":2,\"group\":12}"
+    },
+    {
+      "name": "led_1f_main",
+      "category": "led",
+      "protocol": "tcp",
+      "adapter": "mock",
+      "floor": "1F",
+      "zone": "main"
+    },
+    {
+      "name": "led_2f_main",
+      "category": "led",
+      "protocol": "tcp",
+      "adapter": "mock",
+      "floor": "2F",
+      "zone": "main"
+    },
+    {
+      "name": "audio_1f",
+      "category": "audio",
+      "protocol": "tcp",
+      "adapter": "mock",
+      "floor": "1F",
+      "zone": "main"
+    },
+    {
+      "name": "audio_2f",
+      "category": "audio",
+      "protocol": "tcp",
+      "adapter": "mock",
+      "floor": "2F",
+      "zone": "main"
+    },
+    {
+      "name": "hvac_1f_exhibit_1",
+      "category": "hvac",
+      "protocol": "modbus-tcp",
+      "adapter": "zhonghong-mbt",
+      "floor": "1F",
+      "zone": "enterprise_booth_1",
+      "address": "{\"gwHost\":\"192.168.50.66\",\"n\":1,\"model\":\"DLR-63F\",\"kw\":1.8}"
+    },
+    {
+      "name": "hvac_1f_exhibit_2",
+      "category": "hvac",
+      "protocol": "modbus-tcp",
+      "adapter": "zhonghong-mbt",
+      "floor": "1F",
+      "zone": "enterprise_booth_2",
+      "address": "{\"gwHost\":\"192.168.50.66\",\"n\":2,\"model\":\"DLR-63F\",\"kw\":1.8}"
+    },
+    {
+      "name": "hvac_1f_exhibit_3",
+      "category": "hvac",
+      "protocol": "modbus-tcp",
+      "adapter": "zhonghong-mbt",
+      "floor": "1F",
+      "zone": "enterprise_booth_3",
+      "address": "{\"gwHost\":\"192.168.50.66\",\"n\":3,\"model\":\"DLR-63F\",\"kw\":1.8}"
+    },
+    {
+      "name": "hvac_1f_livestream",
+      "category": "hvac",
+      "protocol": "modbus-tcp",
+      "adapter": "zhonghong-mbt",
+      "floor": "1F",
+      "zone": "livestream",
+      "address": "{\"gwHost\":\"192.168.50.66\",\"n\":4,\"model\":\"DLR-71F\",\"kw\":2.0}"
+    },
+    {
+      "name": "hvac_1f_trade_1",
+      "category": "hvac",
+      "protocol": "modbus-tcp",
+      "adapter": "zhonghong-mbt",
+      "floor": "1F",
+      "zone": "foreign_trade_1",
+      "address": "{\"gwHost\":\"192.168.50.66\",\"n\":5,\"model\":\"DLR-71F\",\"kw\":2.0}"
+    },
+    {
+      "name": "hvac_1f_trade_2",
+      "category": "hvac",
+      "protocol": "modbus-tcp",
+      "adapter": "zhonghong-mbt",
+      "floor": "1F",
+      "zone": "foreign_trade_2",
+      "address": "{\"gwHost\":\"192.168.50.66\",\"n\":6,\"model\":\"DLR-80F\",\"kw\":2.0}"
+    },
+    {
+      "name": "hvac_1f_park_display",
+      "category": "hvac",
+      "protocol": "modbus-tcp",
+      "adapter": "zhonghong-mbt",
+      "floor": "1F",
+      "zone": "park_display",
+      "address": "{\"gwHost\":\"192.168.50.66\",\"n\":7,\"model\":\"DLR-90F\",\"kw\":2.2}"
+    },
+    {
+      "name": "hvac_1f_roadshow_1",
+      "category": "hvac",
+      "protocol": "modbus-tcp",
+      "adapter": "zhonghong-mbt",
+      "floor": "1F",
+      "zone": "roadshow_1",
+      "address": "{\"gwHost\":\"192.168.50.66\",\"n\":8,\"model\":\"DLR-100F\",\"kw\":2.2}"
+    },
+    {
+      "name": "hvac_1f_roadshow_2",
+      "category": "hvac",
+      "protocol": "modbus-tcp",
+      "adapter": "zhonghong-mbt",
+      "floor": "1F",
+      "zone": "roadshow_2",
+      "address": "{\"gwHost\":\"192.168.50.66\",\"n\":9,\"model\":\"DLR-112F\",\"kw\":2.2}"
+    },
+    {
+      "name": "hvac_1f_showcase",
+      "category": "hvac",
+      "protocol": "modbus-tcp",
+      "adapter": "zhonghong-mbt",
+      "floor": "1F",
+      "zone": "enterprise_showcase",
+      "address": "{\"gwHost\":\"192.168.50.66\",\"n\":10,\"model\":\"DLR-125F\",\"kw\":2.2}"
+    },
+    {
+      "name": "hvac_2f_group_mgmt",
+      "category": "hvac",
+      "protocol": "modbus-tcp",
+      "adapter": "zhonghong-mbt",
+      "floor": "2F",
+      "zone": "group_mgmt",
+      "address": "{\"gwHost\":\"192.168.50.67\",\"n\":1,\"model\":\"DLR-90F\",\"kw\":2.2}"
+    },
+    {
+      "name": "hvac_2f_decision",
+      "category": "hvac",
+      "protocol": "modbus-tcp",
+      "adapter": "zhonghong-mbt",
+      "floor": "2F",
+      "zone": "decision_center",
+      "address": "{\"gwHost\":\"192.168.50.67\",\"n\":2,\"model\":\"DLR-90F\",\"kw\":2.2}"
+    },
+    {
+      "name": "hvac_2f_meeting",
+      "category": "hvac",
+      "protocol": "modbus-tcp",
+      "adapter": "zhonghong-mbt",
+      "floor": "2F",
+      "zone": "meeting_room",
+      "address": "{\"gwHost\":\"192.168.50.67\",\"n\":3,\"model\":\"DLR-90F\",\"kw\":2.2}"
+    },
+    {
+      "name": "hvac_2f_shared_1",
+      "category": "hvac",
+      "protocol": "modbus-tcp",
+      "adapter": "zhonghong-mbt",
+      "floor": "2F",
+      "zone": "shared_office_1",
+      "address": "{\"gwHost\":\"192.168.50.67\",\"n\":4,\"model\":\"DLR-90F\",\"kw\":2.2}"
+    },
+    {
+      "name": "hvac_2f_shared_2",
+      "category": "hvac",
+      "protocol": "modbus-tcp",
+      "adapter": "zhonghong-mbt",
+      "floor": "2F",
+      "zone": "shared_office_2",
+      "address": "{\"gwHost\":\"192.168.50.67\",\"n\":5,\"model\":\"DLR-90F\",\"kw\":2.2}"
+    },
+    {
+      "name": "hvac_2f_service_1",
+      "category": "hvac",
+      "protocol": "modbus-tcp",
+      "adapter": "zhonghong-mbt",
+      "floor": "2F",
+      "zone": "service_center_1",
+      "address": "{\"gwHost\":\"192.168.50.67\",\"n\":6,\"model\":\"DLR-90F\",\"kw\":2.2}"
+    },
+    {
+      "name": "hvac_2f_service_2",
+      "category": "hvac",
+      "protocol": "modbus-tcp",
+      "adapter": "zhonghong-mbt",
+      "floor": "2F",
+      "zone": "service_center_2",
+      "address": "{\"gwHost\":\"192.168.50.67\",\"n\":7,\"model\":\"DLR-90F\",\"kw\":2.2}"
+    },
+    {
+      "name": "hvac_2f_command_1",
+      "category": "hvac",
+      "protocol": "modbus-tcp",
+      "adapter": "zhonghong-mbt",
+      "floor": "2F",
+      "zone": "command_center_1",
+      "address": "{\"gwHost\":\"192.168.50.67\",\"n\":8,\"model\":\"DLR-90F\",\"kw\":2.2}"
+    },
+    {
+      "name": "hvac_2f_command_2",
+      "category": "hvac",
+      "protocol": "modbus-tcp",
+      "adapter": "zhonghong-mbt",
+      "floor": "2F",
+      "zone": "command_center_2",
+      "address": "{\"gwHost\":\"192.168.50.67\",\"n\":9,\"model\":\"DLR-90F\",\"kw\":2.2}"
+    },
+    {
+      "name": "hvac_2f_lobby_1",
+      "category": "hvac",
+      "protocol": "modbus-tcp",
+      "adapter": "zhonghong-mbt",
+      "floor": "2F",
+      "zone": "lobby_1",
+      "address": "{\"gwHost\":\"192.168.50.67\",\"n\":10,\"model\":\"DLR-100F\",\"kw\":2.2}"
+    },
+    {
+      "name": "hvac_2f_lobby_2",
+      "category": "hvac",
+      "protocol": "modbus-tcp",
+      "adapter": "zhonghong-mbt",
+      "floor": "2F",
+      "zone": "lobby_2",
+      "address": "{\"gwHost\":\"192.168.50.67\",\"n\":11,\"model\":\"DLR-100F\",\"kw\":2.2}"
+    },
+    {
+      "name": "hvac_2f_research",
+      "category": "hvac",
+      "protocol": "modbus-tcp",
+      "adapter": "zhonghong-mbt",
+      "floor": "2F",
+      "zone": "research_center",
+      "address": "{\"gwHost\":\"192.168.50.67\",\"n\":12,\"model\":\"DLR-100F\",\"kw\":2.2}"
+    }
+  ],
+  "ZONES": [
+    {
+      "code": "front-hall",
+      "name": "前厅",
+      "sortOrder": 10,
+      "icon": "Lightbulb"
+    },
+    {
+      "code": "park-show",
+      "name": "园区展示",
+      "sortOrder": 20,
+      "icon": "Lightbulb"
+    },
+    {
+      "code": "east-hall",
+      "name": "东展区",
+      "sortOrder": 30,
+      "icon": "Lightbulb"
+    },
+    {
+      "code": "south-hall",
+      "name": "南展区",
+      "sortOrder": 40,
+      "icon": "Lightbulb"
+    },
+    {
+      "code": "west-hall",
+      "name": "西展区",
+      "sortOrder": 50,
+      "icon": "Lightbulb"
+    },
+    {
+      "code": "release-hall",
+      "name": "发布厅",
+      "sortOrder": 60,
+      "icon": "Sparkles"
+    },
+    {
+      "code": "corridor",
+      "name": "走廊区",
+      "sortOrder": 70,
+      "icon": "Lightbulb"
+    }
+  ],
+  "GROUPS": [
+    {
+      "gatewayCode": "GW-DALI-2",
+      "daliGroup": 1,
+      "zoneCode": "front-hall",
+      "sortOrder": 10
+    },
+    {
+      "gatewayCode": "GW-DALI-2",
+      "daliGroup": 2,
+      "zoneCode": "park-show",
+      "sortOrder": 20
+    },
+    {
+      "gatewayCode": "GW-DALI-2",
+      "daliGroup": 3,
+      "zoneCode": "east-hall",
+      "sortOrder": 30
+    },
+    {
+      "gatewayCode": "GW-DALI-1",
+      "daliGroup": 5,
+      "zoneCode": "south-hall",
+      "sortOrder": 40
+    },
+    {
+      "gatewayCode": "GW-DALI-1",
+      "daliGroup": 6,
+      "zoneCode": "west-hall",
+      "sortOrder": 50
+    },
+    {
+      "gatewayCode": "GW-DALI-1",
+      "daliGroup": 7,
+      "zoneCode": "release-hall",
+      "sortOrder": 60
+    },
+    {
+      "gatewayCode": "GW-DALI-1",
+      "daliGroup": 8,
+      "zoneCode": "corridor",
+      "sortOrder": 70
+    },
+    {
+      "gatewayCode": "GW-DALI-1",
+      "daliGroup": 9,
+      "zoneCode": "corridor",
+      "sortOrder": 80
+    },
+    {
+      "gatewayCode": "GW-DALI-1",
+      "daliGroup": 10,
+      "zoneCode": "corridor",
+      "sortOrder": 90
+    },
+    {
+      "gatewayCode": "GW-DALI-1",
+      "daliGroup": 11,
+      "zoneCode": "corridor",
+      "sortOrder": 100
+    }
+  ],
+  "HARDWARE": [
+    {
+      "code": "HOST-GK9000",
+      "name": "中控主机 (GK9000)",
+      "category": "other",
+      "vendor": "占美 GIADA",
+      "model": "GK9000",
+      "floor": "1F",
+      "location": "1F 主控室 / 弱电机柜",
+      "addressing": "{\"cpu\":\"Intel i7-10750H (6C12T)\",\"ram\":\"16GB DDR4\",\"ssd\":\"1TB\",\"serialPorts\":6,\"nics\":2,\"os\":\"Windows 10 Pro\"}",
+      "remark": "Windows 10 + Node.js 20 + PM2 + Nginx, D:\\smart-control\\; NIC1=DeviceLAN 192.168.50.10, NIC2=MgmtLAN(DHCP), 6 COM 闲置备用"
+    },
+    {
+      "code": "CONV-RTU-1",
+      "name": "RS485 RTU↔TCP 转换器",
+      "category": "rtu-tcp-converter",
+      "vendor": "有人 USR",
+      "model": "USR-TCP232-410S",
+      "driverKind": "cy-dali64a",
+      "ip": "192.168.50.20",
+      "floor": "1F",
+      "location": "1F 弱电机柜 / 公共电箱 F101 附近",
+      "addressing": "{\"port\":502,\"baud\":9600,\"parity\":\"N\",\"stop\":1}",
+      "remark": "RS485 端接 CY-DALI64A 控制串口 (非调试串口). IP 跟 .env DALI_RTU_HOST 一致."
+    },
+    {
+      "code": "GW-DALI-1",
+      "name": "DALI 网关 #1",
+      "category": "dali-gateway",
+      "vendor": "元创智控",
+      "model": "CY-DALI64A",
+      "floor": "1F",
+      "location": "弱电机柜",
+      "addressing": "{\"slaveId\":1,\"baud\":9600,\"frameIntervalMs\":200,\"groups\":[5,6,7,8,9,10,11]}",
+      "remark": "DALI 总线 16V/250mA, 拨码盘地址 1, RS485 控制串口接 CONV-RTU-1. 实测组 5-11."
+    },
+    {
+      "code": "GW-DALI-2",
+      "name": "DALI 网关 #2",
+      "category": "dali-gateway",
+      "vendor": "元创智控",
+      "model": "CY-DALI64A",
+      "floor": "1F",
+      "location": "弱电机柜",
+      "addressing": "{\"slaveId\":2,\"baud\":9600,\"frameIntervalMs\":200,\"groups\":[1,2,3]}",
+      "remark": "拨码盘地址 2, 跟 #1 共用 CONV-RTU-1 RS485 串口. 实测组 1-3."
+    },
+    {
+      "code": "DRV-HLG-1",
+      "name": "1F F101-R1 前厅灯带电源",
+      "category": "led-driver",
+      "vendor": "MEANWELL 明纬",
+      "model": "HLG-480H-24DA",
+      "floor": "1F",
+      "location": "1F 公共电箱 F101",
+      "addressing": "{\"daliShort\":1,\"daliGroup\":1,\"output\":\"DC 24V 480W\",\"load\":\"300W\",\"headroom\":\"38%\"}",
+      "remark": "前厅灯带 30m / 300W, DALI 2.0 (480H 选型保 38% 余量)"
+    },
+    {
+      "code": "DRV-HLG-2",
+      "name": "1F F101-R2 灯带电源",
+      "category": "led-driver",
+      "vendor": "MEANWELL 明纬",
+      "model": "HLG-185H-24DA",
+      "floor": "1F",
+      "location": "1F 公共电箱 F101",
+      "addressing": "{\"daliShort\":2,\"daliGroup\":4,\"output\":\"DC 24V 185W\"}",
+      "remark": "重点照明灯带 15m / 150W (同回路含筒灯, 独立 DALI 地址)"
+    },
+    {
+      "code": "DRV-HLG-3",
+      "name": "1F F101-R3 灯带电源",
+      "category": "led-driver",
+      "vendor": "MEANWELL 明纬",
+      "model": "HLG-150H-24DA",
+      "floor": "1F",
+      "location": "1F 公共电箱 F101",
+      "addressing": "{\"daliShort\":3,\"daliGroup\":4,\"output\":\"DC 24V 150W\",\"load\":\"120W\",\"headroom\":\"20%\"}",
+      "remark": "园区展示灯带 12m / 120W (升 150H 留 20% 余量)"
+    },
+    {
+      "code": "DRV-HLG-4",
+      "name": "1F F101-R4 走廊灯带电源 #1/3",
+      "category": "led-driver",
+      "vendor": "MEANWELL 明纬",
+      "model": "HLG-480H-24DA",
+      "floor": "1F",
+      "location": "1F 公共电箱 F101",
+      "addressing": "{\"daliShort\":4,\"daliGroup\":3,\"output\":\"DC 24V 480W\",\"parallelGroup\":\"F101-R4\"}",
+      "remark": "走廊 130m 灯带分 3 台并联中段注入, 同 Group 3 同步调光"
+    },
+    {
+      "code": "DRV-HLG-5",
+      "name": "1F F101-R4 走廊灯带电源 #2/3",
+      "category": "led-driver",
+      "vendor": "MEANWELL 明纬",
+      "model": "HLG-480H-24DA",
+      "floor": "1F",
+      "location": "1F 走廊中段电箱",
+      "addressing": "{\"daliShort\":5,\"daliGroup\":3,\"output\":\"DC 24V 480W\",\"parallelGroup\":\"F101-R4\"}",
+      "remark": "走廊 130m 灯带 #2, 中段 65m 处注入"
+    },
+    {
+      "code": "DRV-HLG-6",
+      "name": "1F F101-R4 走廊灯带电源 #3/3",
+      "category": "led-driver",
+      "vendor": "MEANWELL 明纬",
+      "model": "HLG-480H-24DA",
+      "floor": "1F",
+      "location": "1F 走廊尾端电箱",
+      "addressing": "{\"daliShort\":6,\"daliGroup\":3,\"output\":\"DC 24V 480W\",\"parallelGroup\":\"F101-R4\"}",
+      "remark": "走廊 130m 灯带 #3, 尾端注入"
+    },
+    {
+      "code": "DRV-HLG-7",
+      "name": "1F F101-R7 灯带电源 #1/2",
+      "category": "led-driver",
+      "vendor": "MEANWELL 明纬",
+      "model": "HLG-480H-24DA",
+      "floor": "1F",
+      "location": "1F 公共电箱 F101",
+      "addressing": "{\"daliShort\":7,\"daliGroup\":4,\"output\":\"DC 24V 480W\",\"parallelGroup\":\"F101-R7\"}",
+      "remark": "重点照明灯带 80m / 800W 拆 2 台并联"
+    },
+    {
+      "code": "DRV-HLG-8",
+      "name": "1F F101-R7 灯带电源 #2/2",
+      "category": "led-driver",
+      "vendor": "MEANWELL 明纬",
+      "model": "HLG-480H-24DA",
+      "floor": "1F",
+      "location": "1F 公共电箱 F101",
+      "addressing": "{\"daliShort\":8,\"daliGroup\":4,\"output\":\"DC 24V 480W\",\"parallelGroup\":\"F101-R7\"}",
+      "remark": "重点照明灯带 #2"
+    },
+    {
+      "code": "DRV-HLG-9",
+      "name": "1F F102-R1 灯带电源",
+      "category": "led-driver",
+      "vendor": "MEANWELL 明纬",
+      "model": "HLG-240H-24DA",
+      "floor": "1F",
+      "location": "1F 企业展位区电箱 F102",
+      "addressing": "{\"daliShort\":9,\"daliGroup\":5,\"output\":\"DC 24V 240W\"}",
+      "remark": "企业展位灯带 20m / 200W"
+    },
+    {
+      "code": "DRV-HLG-10",
+      "name": "1F F104-R1 灯带电源",
+      "category": "led-driver",
+      "vendor": "MEANWELL 明纬",
+      "model": "HLG-240H-24DA",
+      "floor": "1F",
+      "location": "1F 物贸交易电箱 F104",
+      "addressing": "{\"daliShort\":10,\"daliGroup\":7,\"output\":\"DC 24V 240W\"}",
+      "remark": "物贸交易展示区灯带 20m / 200W"
+    },
+    {
+      "code": "DRV-HLG-11",
+      "name": "2F F201-R4 灯带电源 #1/2",
+      "category": "led-driver",
+      "vendor": "MEANWELL 明纬",
+      "model": "HLG-480H-24DA",
+      "floor": "2F",
+      "location": "2F 公共电箱 F201",
+      "addressing": "{\"daliShort\":11,\"daliGroup\":8,\"output\":\"DC 24V 480W\",\"parallelGroup\":\"F201-R4\"}",
+      "remark": "2F 走廊灯带 85m / 900W 拆 2 台并联"
+    },
+    {
+      "code": "DRV-HLG-12",
+      "name": "2F F201-R4 灯带电源 #2/2",
+      "category": "led-driver",
+      "vendor": "MEANWELL 明纬",
+      "model": "HLG-480H-24DA",
+      "floor": "2F",
+      "location": "2F 公共电箱 F201",
+      "addressing": "{\"daliShort\":12,\"daliGroup\":8,\"output\":\"DC 24V 480W\",\"parallelGroup\":\"F201-R4\"}",
+      "remark": "2F 走廊灯带 #2"
+    },
+    {
+      "code": "DRV-HLG-13a",
+      "name": "1F F101-R3 灯箱电源 #1/2",
+      "category": "led-driver",
+      "vendor": "MEANWELL 明纬",
+      "model": "HLG-320H-24DA",
+      "floor": "1F",
+      "location": "1F 公共电箱 F101",
+      "addressing": "{\"daliShort\":13,\"daliGroup\":4,\"output\":\"DC 24V 320W\",\"parallelGroup\":\"F101-R3-灯箱\"}",
+      "remark": "灯箱 12㎡ / 600W 拆 2 台并联 (640W 总, 余 6%)"
+    },
+    {
+      "code": "DRV-HLG-13b",
+      "name": "1F F101-R3 灯箱电源 #2/2",
+      "category": "led-driver",
+      "vendor": "MEANWELL 明纬",
+      "model": "HLG-320H-24DA",
+      "floor": "1F",
+      "location": "1F 公共电箱 F101",
+      "addressing": "{\"daliShort\":14,\"daliGroup\":4,\"output\":\"DC 24V 320W\",\"parallelGroup\":\"F101-R3-灯箱\"}",
+      "remark": "灯箱 #2, 与 #1 并联同 Group 4 同步"
+    },
+    {
+      "code": "CONV-DA4V10-1",
+      "name": "1F DALI→0-10V 转换器 #1",
+      "category": "dali-converter",
+      "vendor": "LTECH 雷特",
+      "model": "LT-84A",
+      "floor": "1F",
+      "location": "1F 公共电箱 F101",
+      "addressing": "{\"daliStart\":15,\"daliCount\":4,\"mode\":\"4×0-10V\"}",
+      "channels": "[{\"ch\":1,\"daliShort\":15,\"label\":\"F101-R2 筒+射 (9+13)\",\"powerW\":450,\"daliGroup\":4},{\"ch\":2,\"daliShort\":16,\"label\":\"F101-R3 筒灯 (14)\",\"powerW\":880,\"daliGroup\":4},{\"ch\":3,\"daliShort\":17,\"label\":\"F101-R5 走廊筒+射 (29+10)\",\"powerW\":800,\"daliGroup\":3},{\"ch\":4,\"daliShort\":18,\"label\":\"F101-R6 吸顶灯 (2)\",\"powerW\":60,\"daliGroup\":3}]",
+      "remark": "灯具需 0-10V 调光款"
+    },
+    {
+      "code": "CONV-DA4V10-2",
+      "name": "1F DALI→0-10V 转换器 #2",
+      "category": "dali-converter",
+      "vendor": "LTECH 雷特",
+      "model": "LT-84A",
+      "floor": "1F",
+      "location": "1F 综合展销电箱 F103",
+      "addressing": "{\"daliStart\":19,\"daliCount\":4,\"mode\":\"4×0-10V\"}",
+      "channels": "[{\"ch\":1,\"daliShort\":19,\"label\":\"F101-R7 格栅长条灯 35m\",\"powerW\":700,\"daliGroup\":4},{\"ch\":2,\"daliShort\":20,\"label\":\"F103-R1 筒+射 (7+12)\",\"powerW\":400,\"daliGroup\":6},{\"ch\":3,\"daliShort\":21,\"label\":\"F201-R1 筒灯 (30)\",\"powerW\":600,\"daliGroup\":8},{\"ch\":4,\"daliShort\":22,\"label\":\"F201-R2 筒灯 (10)\",\"powerW\":1200,\"daliGroup\":8}]",
+      "remark": "灯具需 0-10V 调光款"
+    },
+    {
+      "code": "CONV-DA4V10-3",
+      "name": "2F DALI→0-10V 转换器 #3",
+      "category": "dali-converter",
+      "vendor": "LTECH 雷特",
+      "model": "LT-84A",
+      "floor": "2F",
+      "location": "2F 公共电箱 F201",
+      "addressing": "{\"daliStart\":23,\"daliCount\":4,\"mode\":\"4×0-10V\"}",
+      "channels": "[{\"ch\":1,\"daliShort\":23,\"label\":\"F201-R3 筒+射 (16+3)\",\"powerW\":1000,\"daliGroup\":9},{\"ch\":2,\"daliShort\":24,\"label\":\"F202-R1 吸顶 (13)\",\"powerW\":800,\"daliGroup\":10},{\"ch\":3,\"daliShort\":25,\"label\":\"F203-R1 吸顶 (16)\",\"powerW\":1000,\"daliGroup\":11},{\"ch\":4,\"daliShort\":26,\"label\":\"F204-R1 吸顶 (15)\",\"powerW\":900,\"daliGroup\":12}]",
+      "remark": "灯具需 0-10V 调光款"
+    },
+    {
+      "code": "LED-NOVA-1",
+      "name": "1F LED 大屏控制器",
+      "category": "led-controller",
+      "vendor": "诺瓦 NovaStar",
+      "model": "V2460",
+      "driverKind": "nova-vx",
+      "ip": "192.168.50.30",
+      "floor": "1F",
+      "location": "1F 主控室机柜",
+      "addressing": "{\"box\":\"1\",\"port\":5200}",
+      "remark": "V 系列 2-in-1 控制器. HDMI1 输入接 GK9000 中控主机 HDMI 输出 (视频源直接来自中控主机)"
+    },
+    {
+      "code": "BREAKER-LED-1",
+      "name": "LED 大屏远程总闸 (智能断路器)",
+      "category": "power-breaker",
+      "vendor": "ePa",
+      "model": "3P-40A 智能断路器",
+      "driverKind": "epa-breaker",
+      "ip": "192.168.50.21",
+      "floor": "1F",
+      "location": "1F 大屏配电箱",
+      "addressing": "{\"port\":502,\"slaveId\":255,\"baud\":115200,\"parity\":\"N\",\"stop\":1}",
+      "remark": "19KW/三相 LED 大屏物理总闸, 485 标准 Modbus-RTU 经 CONV-RTU-2 接入. 分合闸写寄存器 0x0101 (1合/2分), 计量读 0x0000 起 40 个寄存器. 被控回路不含 GK9000 中控主机 (否则远程分闸=自锁死锁)."
+    },
+    {
+      "code": "CONV-RTU-2",
+      "name": "RS485 RTU↔TCP 转换器 #2 (空开专用)",
+      "category": "rtu-tcp-converter",
+      "vendor": "有人 USR",
+      "model": "USR-DR304-C7",
+      "driverKind": "epa-breaker",
+      "ip": "192.168.50.21",
+      "floor": "1F",
+      "location": "1F 大屏配电箱",
+      "addressing": "{\"port\":502,\"baud\":115200,\"parity\":\"N\",\"stop\":1,\"mode\":\"TCP Server\"}",
+      "remark": "专供智能断路器, **不能跟 CONV-RTU-1 共用**: 空开 115200, DALI 锁死 9600, 波特率冲突. 工作方式 TCP Server / 本地端口 502 / 透传 (Modbus 网关功能关闭, 后端自己发 RTU 帧带 CRC). Web 配置 http://192.168.50.21 admin/admin. 出厂 IP 是 192.168.0.7, 2026-07-22 改到 50 网段."
+    },
+    {
+      "code": "FUSION-PROJ-1",
+      "name": "投影视频融合器",
+      "category": "projector-fusion",
+      "vendor": "JBT",
+      "model": "JBT-SK-HD02",
+      "driverKind": "fusion-player",
+      "ip": "192.168.1.168",
+      "floor": "1F",
+      "location": "1F 投影配套机柜",
+      "addressing": "{\"port\":63426,\"canvas\":0}",
+      "remark": "4K 二通道投影融合处理器. 网口直连 TCP 文本播控协议, 端口 63426. 出厂 192.168.2.168, 现场在 192.168.1.168(admin/admin, web SPA 配置). **待挪到 50 网段统一管理**. 固件 2.4.25.268 比文档 V1.1 新, open/close 有前置画布字段. 核心命令(开窗/切源/移动/缩放/音量)已实机验通; run_mode 待设备里配模式."
+    },
+    {
+      "code": "AUDIO-DSP-1",
+      "name": "音响 DSP 处理器 (8×8 矩阵)",
+      "category": "audio-dsp",
+      "vendor": "得胜 TAKSTAR",
+      "model": "EKX-808",
+      "driverKind": "ekx-808",
+      "ip": "192.168.50.61",
+      "floor": "1F",
+      "location": "1F 主控室机柜",
+      "addressing": "{\"devAddr\":1,\"tcpPort\":null,\"inputs\":8,\"outputs\":8,\"presets\":{\"factory\":13,\"user\":12}}",
+      "remark": "32位DSP/96kHz · 以太网 TCP 控制 · 8 路 In + 8 路 Out 任意矩阵 · 4 群组 · F00-F12 + U01-U12 预设"
+    },
+    {
+      "code": "AUDIO-WTG-1",
+      "name": "智能分区导览 (跟随讲解员)",
+      "category": "audio-guide",
+      "vendor": "得胜 TAKSTAR",
+      "model": "WTG-800 (1T + 8R)",
+      "floor": "1F-2F",
+      "location": "8 个分区天花/墙面",
+      "addressing": "{\"transmitter\":1,\"receivers\":8,\"channels\":23,\"rangePerZone\":\"0.5-18m (0-9 档功率)\",\"builtInAmp\":\"60W per receiver\"}",
+      "remark": "UHF 数字加密, RSSI 自动连接, 接收器内置 60W 数字功放可直推喇叭"
+    },
+    {
+      "code": "AUDIO-PWR-SEQ-1",
+      "name": "音响电源时序器",
+      "category": "audio-power",
+      "vendor": "得胜 TAKSTAR",
+      "model": "EPO-802P",
+      "floor": "1F",
+      "location": "1F 主控室机柜",
+      "addressing": "{\"channels\":8,\"control\":\"RS232/485\"}",
+      "remark": "8 路时序上电, 保护功放设备 · 支持 RS232/485 远程通断"
+    },
+    {
+      "code": "HVAC-ODU-1F",
+      "name": "1F 中央空调外机 (商用 VRF)",
+      "category": "hvac-outdoor",
+      "vendor": "奥克斯",
+      "model": "DLR-785W5/DCM-ARVX9",
+      "floor": "1F",
+      "location": "楼顶设备平台",
+      "addressing": "{\"capacityKw\":35.5,\"currentA\":57,\"series\":\"ARV-X9\",\"subType\":\"超低温全直流变频\"}",
+      "remark": "一层专用外机, 制冷量 35.5kW, 57A, R410A, 带 10 台内机 (indoorIdx 1-10)"
+    },
+    {
+      "code": "HVAC-ODU-2F",
+      "name": "2F 中央空调外机 (商用 VRF)",
+      "category": "hvac-outdoor",
+      "vendor": "奥克斯",
+      "model": "DLR-1015W5/DCM-ARVX9",
+      "floor": "2F",
+      "location": "楼顶设备平台",
+      "addressing": "{\"capacityKw\":40.8,\"currentA\":64,\"series\":\"ARV-X9\",\"subType\":\"超低温全直流变频\"}",
+      "remark": "二层专用外机, 制冷量 40.8kW, 64A, R410A, 带 12 台内机 (indoorIdx 11-22)"
+    },
+    {
+      "code": "HVAC-GW-1F",
+      "name": "1F 中央空调通讯网关 (TCP)",
+      "category": "hvac-gateway",
+      "vendor": "中弘 ZHONGHONG",
+      "model": "B 集控网关 TCP 款",
+      "driverKind": "zhonghong-mbt",
+      "ip": "192.168.50.66",
+      "floor": "1F",
+      "location": "1F 弱电机柜",
+      "addressing": "{\"slaveId\":1,\"port\":502,\"maxIndoor\":64,\"protocol\":\"MODBUS-TCP (MBT v3.2)\",\"auxBrandCode\":15}",
+      "remark": "直接接交换机 (RJ45 + Modbus TCP), 不需要 USR-TCP232. 挂 1F 外机, 10 内机 (n=1..10). 单价 ~¥1,200"
+    },
+    {
+      "code": "HVAC-GW-2F",
+      "name": "2F 中央空调通讯网关 (TCP)",
+      "category": "hvac-gateway",
+      "vendor": "中弘 ZHONGHONG",
+      "model": "B 集控网关 TCP 款",
+      "driverKind": "zhonghong-mbt",
+      "ip": "192.168.50.67",
+      "floor": "2F",
+      "location": "2F 公共电箱 F201 或 1F 主控室 (二选一, XYE 总线就近)",
+      "addressing": "{\"slaveId\":1,\"port\":502,\"maxIndoor\":64,\"protocol\":\"MODBUS-TCP (MBT v3.2)\",\"auxBrandCode\":15}",
+      "remark": "挂 2F 外机, 12 内机 (n=1..12). 跟 1F 网关同型号, 不同 IP"
+    },
+    {
+      "code": "TABLET-1F",
+      "name": "1F 控制平板",
+      "category": "tablet",
+      "vendor": "通用",
+      "model": "iPad Pro 12.9 / Android 平板",
+      "floor": "1F",
+      "location": "1F 前厅控制台",
+      "remark": "PWA 网址 https://cnjinhu.top/control/ 添加到主屏"
+    }
+  ],
+  "HW_IP_FIXES": [
+    {
+      "code": "CONV-RTU-1",
+      "oldIp": "192.168.0.7",
+      "newIp": "192.168.50.20"
+    }
+  ],
+  "HW_MODEL_FIXES": [
+    {
+      "code": "LED-NOVA-1",
+      "oldModel": "VX1000",
+      "newModel": "V2460"
+    }
+  ],
+  "HW_DRIVER_FIXES": [
+    {
+      "code": "CONV-RTU-1",
+      "driverKind": "cy-dali64a"
+    },
+    {
+      "code": "LED-NOVA-1",
+      "driverKind": "nova-vx"
+    },
+    {
+      "code": "AUDIO-DSP-1",
+      "driverKind": "ekx-808"
+    },
+    {
+      "code": "HVAC-GW-1F",
+      "driverKind": "zhonghong-mbt"
+    },
+    {
+      "code": "HVAC-GW-2F",
+      "driverKind": "zhonghong-mbt"
+    }
+  ],
+  "DALI_GROUP_FIXES": [
+    {
+      "code": "GW-DALI-1",
+      "groups": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "code": "GW-DALI-2",
+      "groups": [
+        8,
+        9,
+        10,
+        11,
+        12
+      ]
+    }
+  ],
+  "SCENE_ACTIONS": {
+    "opening": [
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":5}",
+        "command": "setBrightness",
+        "params": {
+          "value": 80,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":6}",
+        "command": "setBrightness",
+        "params": {
+          "value": 80,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":7}",
+        "command": "setBrightness",
+        "params": {
+          "value": 80,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":8}",
+        "command": "setBrightness",
+        "params": {
+          "value": 80,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":9}",
+        "command": "setBrightness",
+        "params": {
+          "value": 80,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":10}",
+        "command": "setBrightness",
+        "params": {
+          "value": 80,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":11}",
+        "command": "setBrightness",
+        "params": {
+          "value": 80,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":2,\"group\":1}",
+        "command": "setBrightness",
+        "params": {
+          "value": 80,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":2,\"group\":2}",
+        "command": "setBrightness",
+        "params": {
+          "value": 80,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":2,\"group\":3}",
+        "command": "setBrightness",
+        "params": {
+          "value": 80,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "led",
+        "deviceId": "led_1f_main",
+        "command": "powerOn"
+      },
+      {
+        "deviceType": "led",
+        "deviceId": "led_1f_main",
+        "command": "showWelcome",
+        "delayMs": 800
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out1",
+        "command": "unmute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out1",
+        "command": "setVolume",
+        "params": {
+          "value": 55
+        }
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out2",
+        "command": "unmute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out2",
+        "command": "setVolume",
+        "params": {
+          "value": 55
+        }
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out3",
+        "command": "unmute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out3",
+        "command": "setVolume",
+        "params": {
+          "value": 55
+        }
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out4",
+        "command": "unmute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out4",
+        "command": "setVolume",
+        "params": {
+          "value": 55
+        }
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out5",
+        "command": "unmute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out5",
+        "command": "setVolume",
+        "params": {
+          "value": 45
+        }
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out6",
+        "command": "unmute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out6",
+        "command": "setVolume",
+        "params": {
+          "value": 45
+        }
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out7",
+        "command": "unmute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out7",
+        "command": "setVolume",
+        "params": {
+          "value": 45
+        }
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out8",
+        "command": "unmute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out8",
+        "command": "setVolume",
+        "params": {
+          "value": 45
+        }
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "park_display",
+        "command": "turnOn"
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "park_display",
+        "command": "setMode",
+        "params": {
+          "mode": "cool"
+        }
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "park_display",
+        "command": "setTemperature",
+        "params": {
+          "value": 25
+        }
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "enterprise_booth",
+        "command": "turnOn"
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "enterprise_booth",
+        "command": "setMode",
+        "params": {
+          "mode": "cool"
+        }
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "enterprise_booth",
+        "command": "setTemperature",
+        "params": {
+          "value": 25
+        }
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "foreign_trade",
+        "command": "turnOn"
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "foreign_trade",
+        "command": "setMode",
+        "params": {
+          "mode": "cool"
+        }
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "foreign_trade",
+        "command": "setTemperature",
+        "params": {
+          "value": 25
+        }
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "showcase",
+        "command": "turnOn"
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "showcase",
+        "command": "setMode",
+        "params": {
+          "mode": "cool"
+        }
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "showcase",
+        "command": "setTemperature",
+        "params": {
+          "value": 25
+        }
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "service_center",
+        "command": "turnOn"
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "service_center",
+        "command": "setMode",
+        "params": {
+          "mode": "cool"
+        }
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "service_center",
+        "command": "setTemperature",
+        "params": {
+          "value": 25
+        }
+      }
+    ],
+    "reception": [
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":5}",
+        "command": "setBrightness",
+        "params": {
+          "value": 70,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":6}",
+        "command": "setBrightness",
+        "params": {
+          "value": 70,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":7}",
+        "command": "setBrightness",
+        "params": {
+          "value": 70,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":8}",
+        "command": "setBrightness",
+        "params": {
+          "value": 70,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":9}",
+        "command": "setBrightness",
+        "params": {
+          "value": 70,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":10}",
+        "command": "setBrightness",
+        "params": {
+          "value": 70,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":11}",
+        "command": "setBrightness",
+        "params": {
+          "value": 70,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":2,\"group\":1}",
+        "command": "setBrightness",
+        "params": {
+          "value": 70,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":2,\"group\":2}",
+        "command": "setBrightness",
+        "params": {
+          "value": 70,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":2,\"group\":3}",
+        "command": "setBrightness",
+        "params": {
+          "value": 70,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "led",
+        "deviceId": "led_1f_main",
+        "command": "powerOn"
+      },
+      {
+        "deviceType": "led",
+        "deviceId": "led_1f_main",
+        "command": "showWelcome",
+        "delayMs": 800
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out1",
+        "command": "unmute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out1",
+        "command": "setVolume",
+        "params": {
+          "value": 50
+        }
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out2",
+        "command": "unmute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out2",
+        "command": "setVolume",
+        "params": {
+          "value": 50
+        }
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out3",
+        "command": "unmute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out3",
+        "command": "setVolume",
+        "params": {
+          "value": 50
+        }
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out4",
+        "command": "unmute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out4",
+        "command": "setVolume",
+        "params": {
+          "value": 50
+        }
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out5",
+        "command": "unmute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out5",
+        "command": "setVolume",
+        "params": {
+          "value": 35
+        }
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out6",
+        "command": "unmute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out6",
+        "command": "setVolume",
+        "params": {
+          "value": 35
+        }
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out7",
+        "command": "unmute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out7",
+        "command": "setVolume",
+        "params": {
+          "value": 35
+        }
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out8",
+        "command": "unmute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out8",
+        "command": "setVolume",
+        "params": {
+          "value": 35
+        }
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "decision_center",
+        "command": "turnOn"
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "decision_center",
+        "command": "setMode",
+        "params": {
+          "mode": "cool"
+        }
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "decision_center",
+        "command": "setTemperature",
+        "params": {
+          "value": 24
+        }
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "group_mgmt",
+        "command": "turnOn"
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "group_mgmt",
+        "command": "setMode",
+        "params": {
+          "mode": "cool"
+        }
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "group_mgmt",
+        "command": "setTemperature",
+        "params": {
+          "value": 24
+        }
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "service_center",
+        "command": "turnOn"
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "service_center",
+        "command": "setMode",
+        "params": {
+          "mode": "cool"
+        }
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "service_center",
+        "command": "setTemperature",
+        "params": {
+          "value": 24
+        }
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "meeting_room",
+        "command": "turnOn"
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "meeting_room",
+        "command": "setMode",
+        "params": {
+          "mode": "cool"
+        }
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "meeting_room",
+        "command": "setTemperature",
+        "params": {
+          "value": 24
+        }
+      }
+    ],
+    "roadshow": [
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":5}",
+        "command": "setBrightness",
+        "params": {
+          "value": 40,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":6}",
+        "command": "setBrightness",
+        "params": {
+          "value": 40,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":7}",
+        "command": "setBrightness",
+        "params": {
+          "value": 40,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":8}",
+        "command": "setBrightness",
+        "params": {
+          "value": 40,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":9}",
+        "command": "setBrightness",
+        "params": {
+          "value": 40,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":10}",
+        "command": "setBrightness",
+        "params": {
+          "value": 40,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":11}",
+        "command": "setBrightness",
+        "params": {
+          "value": 40,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":2,\"group\":1}",
+        "command": "setBrightness",
+        "params": {
+          "value": 40,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":2,\"group\":2}",
+        "command": "setBrightness",
+        "params": {
+          "value": 40,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":2,\"group\":3}",
+        "command": "setBrightness",
+        "params": {
+          "value": 40,
+          "fadeSec": 2
+        }
+      },
+      {
+        "deviceType": "led",
+        "deviceId": "led_1f_main",
+        "command": "powerOn"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out1",
+        "command": "unmute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out1",
+        "command": "setVolume",
+        "params": {
+          "value": 70
+        }
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out2",
+        "command": "unmute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out2",
+        "command": "setVolume",
+        "params": {
+          "value": 70
+        }
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out3",
+        "command": "unmute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out3",
+        "command": "setVolume",
+        "params": {
+          "value": 70
+        }
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out4",
+        "command": "unmute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out4",
+        "command": "setVolume",
+        "params": {
+          "value": 70
+        }
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out5",
+        "command": "mute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out6",
+        "command": "mute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out7",
+        "command": "mute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out8",
+        "command": "mute"
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "roadshow",
+        "command": "turnOn"
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "roadshow",
+        "command": "setMode",
+        "params": {
+          "mode": "cool"
+        }
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "roadshow",
+        "command": "setTemperature",
+        "params": {
+          "value": 23
+        }
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "livestream",
+        "command": "turnOn"
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "livestream",
+        "command": "setMode",
+        "params": {
+          "mode": "cool"
+        }
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "livestream",
+        "command": "setTemperature",
+        "params": {
+          "value": 23
+        }
+      }
+    ],
+    "closing": [
+      {
+        "deviceType": "audio",
+        "deviceId": "out1",
+        "command": "mute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out2",
+        "command": "mute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out3",
+        "command": "mute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out4",
+        "command": "mute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out5",
+        "command": "mute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out6",
+        "command": "mute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out7",
+        "command": "mute"
+      },
+      {
+        "deviceType": "audio",
+        "deviceId": "out8",
+        "command": "mute"
+      },
+      {
+        "deviceType": "led",
+        "deviceId": "led_1f_main",
+        "command": "powerOff",
+        "delayMs": 500
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":5}",
+        "command": "turnOff",
+        "params": {
+          "fadeSec": 3
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":6}",
+        "command": "turnOff",
+        "params": {
+          "fadeSec": 3
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":7}",
+        "command": "turnOff",
+        "params": {
+          "fadeSec": 3
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":8}",
+        "command": "turnOff",
+        "params": {
+          "fadeSec": 3
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":9}",
+        "command": "turnOff",
+        "params": {
+          "fadeSec": 3
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":10}",
+        "command": "turnOff",
+        "params": {
+          "fadeSec": 3
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":1,\"group\":11}",
+        "command": "turnOff",
+        "params": {
+          "fadeSec": 3
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":2,\"group\":1}",
+        "command": "turnOff",
+        "params": {
+          "fadeSec": 3
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":2,\"group\":2}",
+        "command": "turnOff",
+        "params": {
+          "fadeSec": 3
+        }
+      },
+      {
+        "deviceType": "lighting",
+        "deviceId": "{\"slaveId\":2,\"group\":3}",
+        "command": "turnOff",
+        "params": {
+          "fadeSec": 3
+        }
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "enterprise_booth",
+        "command": "turnOff"
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "livestream",
+        "command": "turnOff"
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "foreign_trade",
+        "command": "turnOff"
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "park_display",
+        "command": "turnOff"
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "roadshow",
+        "command": "turnOff"
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "showcase",
+        "command": "turnOff"
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "group_mgmt",
+        "command": "turnOff"
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "decision_center",
+        "command": "turnOff"
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "meeting_room",
+        "command": "turnOff"
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "shared_office",
+        "command": "turnOff"
+      },
+      {
+        "deviceType": "hvac-zone",
+        "deviceId": "service_center",
+        "command": "turnOff"
+      }
+    ]
+  }
+}

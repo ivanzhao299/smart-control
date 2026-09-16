@@ -61,7 +61,7 @@ cd frontend && pnpm install && pnpm dev   # :5173, 路径 /control/
 - **部署验证竞态**：盒上 watcher 常抢在 CI 前把 GK9000 推到目标提交甚至更新，`deploy-from-ci.ps1` 对此有两道容忍——deploy 分支"already deployed or superseded"短路、VerifyOnly 分支按祖先关系放行（请求的提交已包含在当前 HEAD 即绿）。严格相等比对会产生"生产健康、CI 报红"的误报（#214/#227），勿回退。
 - **排障探针**：`verify-deploy.js` 附带信息性体检（node 进程分类、守护抽样、pm2 管道清单、boot-pm2.log/pm2.log 尾、schtasks 触发器、磁盘），每次 CI verify 自动输出——远程排障先看最近一次 Actions 日志，别急着上机。
 - **`frontend/components.d.ts`** 自动生成且历史上 tracked，拉代码常冲突；update.ps1 会先 `git checkout` 它。**别手改**。
-- **CI 不跑 seed**。新增分区/灯组等种子数据要手工 `node dist/seed/seed.js`；且 `seedHardware` 遇已存在记录直接 skip，改已有生产数据走后台 UI。
+- **业务目录只走版本化迁移**。场景、动作、设备、硬件、灯光分区/组和 UAT 默认值冻结在迁移快照中；部署和人工运维都不得再运行 seed。修改已有生产数据走后台 UI，产品默认值升级新增前向迁移。
 - 监控心跳 payload 有封顶（治 "request entity too large" 失联），别在心跳里塞大对象；watcher 心跳里**不准调 `pm2 jlist`**（会孵化孤儿守护）。
 
 ## 关键领域知识
@@ -72,7 +72,7 @@ cd frontend && pnpm install && pnpm dev   # :5173, 路径 /control/
 - **投影融合器**（2026-07 新）：`adapters/projector/fusion-player-protocol.ts`（带 spec 测试），ProjectorPage 业主侧控制；融合器报警以文字警示行呈现。
 - **音响**：分区立体声配对 UI；输入源现实接线 IN4=LED / IN5=投影（2026-07-24 对齐）。
 - **电源时序器**：Modbus parseStatus 通道段偏移是**左移 1 字节**，曾因偏移方向修反导致"开了又弹回"，动这段先看 `114c6e4`/`714243f`。
-- **双鉴权完全独立**：业主 `X-Client-Token`（localStorage, 30 天）vs 后台 `Bearer`（sessionStorage, 8h）。
+- **个人账号统一鉴权**：PWA `X-Client-Token`（localStorage, 30 天）和后台 `Bearer`（sessionStorage, 8h）都由 `users` 个人账号签发；后台还要求实时 `admin` 角色。
 - **fileUrl 必须 `absUrl()` 拼接**（frontend 5173 与 backend 3200 跨端口，原生 `<img>/<video>` src 不走 axios baseURL）。
 - **UI 铁律**（业主 11+ 批验收整改沉淀）：页面固定壳——顶栏固定、内容区滚动、全局禁橡皮筋（但内部滚动容器/横向手势要放行）；卡片固定高度不被内容撑破（行高用 `minmax(基准, auto)` 而非定死）；浅色主题对比度要过验收；危险操作要确认弹窗；后台按钮触摸目标 ≥36px。改页面布局前先看 `0548395` 与 DESIGN_SYSTEM.md。
 - **keep-alive 轮询铁律**（2026-07-27 切页卡顿根治）：功能页都被 `keep-alive(max=10)` 缓存，切走只触发 `onDeactivated`——**`onUnmounted` 永远不来**，只在 unmount 清理的定时器会在后台永续运行（曾同时 5 路轮询把切页搞卡）。任何页面轮询必须走 `composables/useActivePolling.ts`（进页启动/切走即停，start/stop 幂等）。全局 sticky 页头补丁与固定壳页面互斥（会把头部渲染下移压住内容顶，见 INCIDENTS #20-21）。

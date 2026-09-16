@@ -365,5 +365,5 @@ R7 同一回路里同时有 LED 灯带 80m 和格栅长条灯 35m, 是两种不�
 | --- | --- |
 | 现场施工 | [DALI_FIELD_INSTALL.md](DALI_FIELD_INSTALL.md) |
 | 设备总清单 | [EQUIPMENT_LIST.md](EQUIPMENT_LIST.md) |
-| 后台灯光控制 zone 配置 | `backend/src/seed/seed.service.ts` light_* 设备 |
+| 后台灯光控制 zone 配置 | `backend/src/migrations/catalogs/operational-catalog-v1.json`（新安装快照；生产修改走后台） |
 | 原始数据 | [references/金湖照明灯具明细-2026-05-21-v3.xls](references/金湖照明灯具明细-2026-05-21-v3.xls) |
