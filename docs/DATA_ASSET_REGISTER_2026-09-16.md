@@ -13,6 +13,7 @@
 | 园区大屏视觉布局 | SQLite `runtime_config_documents` 的 `park.ops.visual` 文档 | 版本化数据库配置；`system_branding_v2.parkOpsConfigJson` 仅保留为首迁前快照 | SQLite 配套备份包含当前值与修订历史；旧字段随数据库归档 | 读取和保存均通过 `RuntimeConfigStore`；编辑器携带 revision，旧写入冲突返回 409；禁止恢复旧字段写入 |
 | 系统品牌与场景动作 | SQLite `system_branding_v2`、`scenes`、`scene_actions` | 关系表；品牌默认行由迁移建立，场景动作参数受 JSON 解析校验 | 随 SQLite 在线备份和迁移恢复包保存 | 禁止启动时从仓库文件覆盖 Logo、品牌或场景动作；历史场景哨兵只作证据；部署 seed 仅为空场景建立新安装默认值 |
 | 电源回路与时序器通道 | SQLite `power_circuit` | 关系表；服务启动只读；新库默认值与精确历史修复由版本化迁移建立 | 随 SQLite 在线备份和迁移恢复包保存；含权威回路时禁止无归档降级 | 禁止启动时补建固定编码或覆盖网关/通道；后台增删改是日常配置入口 |
+| 驱动模板目录 | SQLite `driver_templates` | 关系表；内置目录由版本化迁移建立，现场非内置模板由管理接口建立；服务启动只读 | 随 SQLite 在线备份和迁移恢复包保存；含内置目录时禁止无归档降级 | 禁止从 adapter 常量启动覆盖；新增或升级内置驱动必须有显式迁移，已有同名及启用状态保留 |
 | 园区大屏翻页控制状态 | 后端 `ParkOpsControlService` 进程内存 | 可重建短期控制信号；不是业务数据 | 不备份；进程重启恢复第 1 页、关闭自动播放且无待刷新指令 | 禁止创建 JSON 或数据库副本；仅公开状态轮询，变更必须鉴权 |
 | 音频矩阵期望状态 | SQLite `audio_desired_link` | SQLite；旧 `matrix-state.json` 写入已退役，生产文件不存在 | 随数据库在线备份；兼容 GET 只从 SQLite 映射 | 当前前端与对账器均使用 SQLite；旧 POST 固定返回 410，禁止重新形成文件源 |
 | 媒体元数据 | SQLite `media_assets` | SQLite | 随数据库在线备份 | 保持唯一来源；文件与记录通过事务式补偿保持一致 |
