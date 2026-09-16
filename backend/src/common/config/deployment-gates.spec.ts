@@ -178,7 +178,7 @@ describe('GK9000 deployment gates', () => {
 
     expect(supplyChain).toContain('pnpm install --frozen-lockfile --prod --ignore-scripts');
     expect(supplyChain).toContain(
-      'anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610',
+      'anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26',
     );
     expect(supplyChain).toContain('syft-version: v1.51.1');
     expect(supplyChain).toContain('github.event.pull_request.head.sha || github.sha');
