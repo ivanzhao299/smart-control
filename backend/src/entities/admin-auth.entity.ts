@@ -1,15 +1,8 @@
 import { Column, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 
 /**
- * 后台鉴权配置 — 单行表 (id=1), 存"管理员密码哈希".
- *
- * 跟 user.entity.ts 的多用户系统刻意分开:
- *   - user.entity: 给将来的多角色 / 多账户 / 操作审计用 (admin / operator / viewer)
- *   - admin-auth: 当前是单密码门禁, 谁都进 /admin 要先输这个口令.
- *     业主把口令交给现场维护方就行, 不用一人一账号.
- *
- * 启动时 service 检查没有就插默认 (hash("jinhu888")), 业主进后台第一件事
- * 改成自己的. 改密码也走这张表的 update.
+ * 旧后台共享口令兼容表。新登录统一使用 users 个人账户；本表仅用于验证
+ * 收敛前已经签发、尚未过期的后台令牌，迁移期结束后再移除。
  *
  * 所有 nullable 字段都显式 type:'varchar' (踩过 string|null 反射成 Object 的坑).
  */
@@ -18,7 +11,7 @@ export class AdminAuth {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  /** scrypt 哈希后的密码, 格式 scrypt$N$salt$hash, 同 users 表那套 */
+  /** 已停用的共享口令哈希；新部署写入不可登录的占位值。 */
   @Column({ type: 'varchar', length: 255 })
   passwordHash!: string;
 

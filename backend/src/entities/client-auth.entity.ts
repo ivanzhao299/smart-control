@@ -1,25 +1,15 @@
 import { Column, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 
 /**
- * 客户端鉴权 — 业主访问 PWA / 未来 APP 时的密码门禁.
- *
- * 跟 admin-auth 的区别:
- *   - admin-auth: 进 /admin 后台前的管理员口令 (维护方持)
- *   - client-auth: 进 PWA 主界面前的业主口令 (业主持, 也分给现场操作人员)
- *
- * 设计: 单行表 (id=1), 启动时如不存在写默认密码 1234.
- * 业主进后台后改成自己的, 也分给手机/平板用. 改了之后已 login 的 session
- * 全部失效, 强制全员重登 (passwordChangedAt > token.issuedAt 即失效).
- *
- * 为啥前端要这个: 业主原话 "为后续生成 APP 作准备" — APP 装到不同设备,
- * 不能让任何人开 APP 就直接控展厅设备, 加道密码门是基本.
+ * 用户令牌签名配置。身份凭据统一存放在 users；本表只保存签名密钥以及
+ * 兼容期所需的旧共享会话失效时间，不再提供共享密码登录。
  */
 @Entity({ name: 'client_auth_v1' })
 export class ClientAuth {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  /** scrypt 哈希后密码, 跟 admin-auth 同套 */
+  /** 已停用的共享口令哈希；新部署写入不可登录的占位值。 */
   @Column({ type: 'varchar', length: 255 })
   passwordHash!: string;
 

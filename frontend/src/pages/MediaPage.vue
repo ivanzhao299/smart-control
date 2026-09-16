@@ -505,8 +505,9 @@ const panDir = ref('/');
 const panEntries = ref<PanFile[]>([]);
 const panLoading = ref(false);
 const panErr = ref('');
-// 2026-07-30 业主隐私收紧: 网盘仅管理员可用 — 弹窗内就地验证后台密码
+// 网盘仅管理员可用；弹窗内使用同一套个人管理员账户验证。
 const panNeedAdmin = ref(false);
+const panAdminUsername = ref('');
 const panAdminPwd = ref('');
 const panAdminBusy = ref(false);
 const adminAuthStore = useAdminAuthStore();
@@ -540,10 +541,11 @@ async function refreshPanStatus(): Promise<void> {
 
 /** 弹窗内验证后台管理密码 → 拿 admin 令牌后放行网盘操作 */
 async function panVerifyAdmin(): Promise<void> {
-  if (!panAdminPwd.value) { ElMessage.warning('请输入后台管理密码'); return; }
+  if (!panAdminUsername.value.trim() || !panAdminPwd.value) { ElMessage.warning('请输入管理员用户名和密码'); return; }
   panAdminBusy.value = true;
   try {
-    await adminAuthStore.login(panAdminPwd.value);
+    await adminAuthStore.login(panAdminUsername.value, panAdminPwd.value);
+    panAdminUsername.value = '';
     panAdminPwd.value = '';
     panNeedAdmin.value = false;
     await refreshPanStatus();
@@ -1081,12 +1083,13 @@ onBeforeUnmount(() => { disposed = true; uploadQueue.value = []; stopProcessingP
       <div class="webpage-box om-box">
         <div class="wb-title"><FolderOpen :size="18" :stroke-width="1.8" /> 百度网盘</div>
 
-        <!-- 态0: 仅管理员 — 就地验证后台密码 -->
+        <!-- 态0: 仅管理员 — 就地验证个人管理员账户 -->
         <template v-if="panNeedAdmin">
           <div class="wb-hint">
-            百度网盘关联的是业主私人账号, <b>仅管理员可访问</b>。请输入后台管理密码验证身份。
+            百度网盘关联的是业主私人账号, <b>仅管理员可访问</b>。请输入个人管理员账号验证身份。
           </div>
-          <input v-model="panAdminPwd" type="password" class="wb-input" placeholder="后台管理密码" @keyup.enter="panVerifyAdmin" />
+          <input v-model="panAdminUsername" class="wb-input" placeholder="管理员用户名" autocomplete="username" />
+          <input v-model="panAdminPwd" type="password" class="wb-input" placeholder="管理员密码" autocomplete="current-password" @keyup.enter="panVerifyAdmin" />
           <div class="wb-actions">
             <button class="v2-quick" @click="closePanDialog">关闭</button>
             <button class="v2-quick primary" :disabled="panAdminBusy" @click="panVerifyAdmin">{{ panAdminBusy ? '验证中…' : '验证' }}</button>

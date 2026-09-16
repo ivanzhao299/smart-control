@@ -8,12 +8,10 @@ import { Device, DeviceCategory } from '../entities/device.entity';
 import { Scene } from '../entities/scene.entity';
 import { SceneAction } from '../entities/scene-action.entity';
 import { SceneExecution } from '../entities/scene-execution.entity';
-import { User } from '../entities/user.entity';
 import { UatCategory, UatRecord } from '../entities/uat-record.entity';
 import { HardwareCategory, HardwareUnit } from '../entities/hardware-unit.entity';
 import { LightZone } from '../entities/light-zone.entity';
 import { LightGroup } from '../entities/light-group.entity';
-import { hashPassword } from '../common/utils/password.util';
 
 interface UatSeed {
   itemName: string;
@@ -140,7 +138,6 @@ const SCENE_ACTIONS = RECOMMENDED_SCENE_ACTIONS;
 @Injectable()
 export class SeedService {
   constructor(
-    @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(Scene) private readonly sceneRepo: Repository<Scene>,
     @InjectRepository(SceneAction) private readonly actionRepo: Repository<SceneAction>,
     @InjectRepository(Device) private readonly deviceRepo: Repository<Device>,
@@ -152,7 +149,6 @@ export class SeedService {
   ) {}
 
   async run(): Promise<void> {
-    await this.seedAdmin();
     await this.seedScenes();
     await this.seedSceneActions();
     await this.seedDevices();
@@ -330,25 +326,6 @@ export class SeedService {
       await this.uatRepo.save(r);
       this.logger.info(`Seeded UAT: ${u.itemName}`, { context: 'SeedService' });
     }
-  }
-
-  private async seedAdmin(): Promise<void> {
-    const username = 'admin';
-    const exists = await this.userRepo.findOne({ where: { username } });
-    if (exists) {
-      this.logger.info(`User '${username}' already exists, skip`, { context: 'SeedService' });
-      return;
-    }
-    const user = this.userRepo.create({
-      username,
-      password: hashPassword('admin123'),
-      role: 'admin',
-      enabled: true,
-    });
-    await this.userRepo.save(user);
-    this.logger.info(`Seeded user: ${username} (default password: admin123)`, {
-      context: 'SeedService',
-    });
   }
 
   private async seedScenes(): Promise<void> {
