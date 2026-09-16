@@ -41,6 +41,9 @@ describe('GK9000 deployment gates', () => {
     expect(workflow).toContain('actions/setup-java@v6');
     expect(workflow).toContain('gradle/actions/setup-gradle@v6');
     expect(workflow).toContain('actions/upload-artifact@v7');
+    expect(workflow).toContain('actions: write');
+    expect(workflow).toContain('gh workflow run deploy-gk9000.yml --ref main');
+    expect(workflow).not.toContain('git push origin HEAD:main && exit 0');
     expect(workflow).toContain(
       'B8E4BCFCE594FB84C1280BA7C260A767492D747CA86CA0DD51A577CCE1870D04',
     );
