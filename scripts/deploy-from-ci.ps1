@@ -155,6 +155,7 @@ function Restart-Services {
   try {
     $eco = Join-Path $projectRoot 'deploy\ecosystem.config.js'
     Invoke-Native $pm2 @('start', $eco, '--env', 'production', '--update-env')
+    Write-DeployLog 'PM2 applications reconciled from ecosystem configuration.'
   } catch {
     Write-DeployLog "pm2 restart failed: $($_.Exception.Message)"
     $needsRecovery = $true
@@ -319,6 +320,7 @@ function Deploy-BackendOnly($projectRoot) {
   $env:PM2_HOME = 'C:\Users\user\.pm2'
   $eco = Join-Path $projectRoot 'deploy\ecosystem.config.js'
   Invoke-Native $pm2 @('start', $eco, '--env', 'production', '--only', 'smart-control-backend', '--update-env')
+  Write-DeployLog 'Backend PM2 environment reconciled from ecosystem configuration.'
   Invoke-Native $pm2 @('save')
 }
 
