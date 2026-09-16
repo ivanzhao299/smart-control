@@ -41,13 +41,6 @@ export class ClientAuthService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
-    // 【2026-07-27 生产事故补丁】schema 自愈: watcher 的 update.ps1 历史上不跑
-    // migrations, 抢跑部署本次代码后 tokenSecret 列不存在, findOne 的 SELECT 直接
-    // 抛错 → 后端启动崩溃循环、全站 3200 无监听。这里在任何查询之前裸 SQL 补列,
-    // 列已存在时 SQLite 抛 duplicate column 被吞掉 —— 与迁移 1785140000000 幂等共存。
-    await this.repo.query(`ALTER TABLE "client_auth_v1" ADD COLUMN "tokenSecret" varchar(64)`)
-      .then(() => this.logger.warn('[ClientAuth] tokenSecret 列缺失, 已自愈补上 (migrations 未跑?)'))
-      .catch(() => { /* 列已在 — 正常路径 */ });
     let row = await this.repo.findOne({ where: { id: 1 } });
     if (!row) {
       row = await this.repo.save(

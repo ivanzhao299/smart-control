@@ -67,9 +67,6 @@ export class PlaybackService implements OnModuleInit {
 
   /** 启动时确保 slot=1 + slot=2 两条记录存在 (现场硬件就两路). 没有就插默认 */
   async onModuleInit(): Promise<void> {
-    // docZoom 列自愈 (2026-07-29): 与迁移双保险, 防 watcher 部署不跑迁移复发 #22
-    await this.repo.query(`ALTER TABLE "playback_channels" ADD COLUMN "docZoom" integer NOT NULL DEFAULT 100`)
-      .catch(() => { /* duplicate column = 已存在, 正常 */ });
     const seeds: Array<Pick<PlaybackChannel, 'slot' | 'name' | 'outputKind'>> = [
       { slot: 1, name: 'LED 大屏 (HDMI1)', outputKind: 'led' },
       { slot: 2, name: '投影仪 (HDMI2)', outputKind: 'projector' },

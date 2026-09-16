@@ -31,10 +31,6 @@ export class AdminAuthService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
-    // 列自愈 (与迁移 1785180000000 双保险, 防 watcher 部署不跑迁移复发 #22)
-    await this.repo.query(`ALTER TABLE "admin_auth_v1" ADD COLUMN "tokenSecret" varchar(64)`)
-      .catch(() => { /* 列已存在 */ });
-
     let row = await this.repo.findOne({ where: { id: 1 } });
     if (!row) {
       row = await this.repo.save(
