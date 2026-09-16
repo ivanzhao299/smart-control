@@ -1,14 +1,10 @@
 import { BadRequestException, ConflictException, Injectable, OnModuleInit } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
 import { RuntimeConfigStore } from '../../common/runtime-config/runtime-config.store';
-import { ensureRuntimeDataDir } from '../../common/storage/runtime-data-path';
 import {
   CameraChannel,
   ChannelAiConfig,
   clampVideoPoint,
-  defaultVideoBindingConfig,
   MAX_ROI_POINTS,
   NormPoint,
   normalizeVideoBindingConfig,
@@ -29,11 +25,6 @@ export {
   VideoBindingConfig,
   VideoBindingConfigView,
 } from './video-binding-config';
-
-interface LegacyConfig {
-  value: VideoBindingConfig;
-  source: string;
-}
 
 interface Mutation<T> {
   changed: boolean;
@@ -65,65 +56,22 @@ const LEGACY_CHANNEL_ALIASES: Readonly<Record<string, string>> = {
 
 @Injectable()
 export class VideoBindingService implements OnModuleInit {
-  private readonly configPath: string;
-  private readonly backupPath: string;
   private config!: VideoBindingConfig;
   private configRevision = 0;
   private mutationQueue: Promise<void> = Promise.resolve();
 
-  constructor(private readonly store: RuntimeConfigStore) {
-    const dataDir = ensureRuntimeDataDir();
-    this.configPath = join(dataDir, 'video-binding.json');
-    this.backupPath = `${this.configPath}.bak`;
-  }
+  constructor(private readonly store: RuntimeConfigStore) {}
 
   async onModuleInit(): Promise<void> {
     const current = await this.store.read(VIDEO_BINDING_CONFIG_KEY, normalizeVideoBindingConfig);
-    if (current) {
-      this.config = current.value;
-      this.configRevision = current.revision;
-      console.info(
-        `[VideoBinding] Loaded ${VIDEO_BINDING_CONFIG_KEY} revision ${current.revision}`,
+    if (!current) {
+      throw new Error(
+        `VIDEO_BINDING_CONFIG_MISSING: run database migrations before starting the application`,
       );
-      return;
     }
-
-    const legacy = this.readLegacyConfig();
-    const initialized = await this.store.initialize({
-      key: VIDEO_BINDING_CONFIG_KEY,
-      schemaVersion: VIDEO_BINDING_SCHEMA_VERSION,
-      value: legacy.value,
-      normalize: normalizeVideoBindingConfig,
-      actor: 'migration',
-      source: legacy.source,
-    });
-    this.config = initialized.value;
-    this.configRevision = initialized.revision;
-    console.info(
-      `[VideoBinding] Initialized ${VIDEO_BINDING_CONFIG_KEY} revision ${initialized.revision} from ${legacy.source}`,
-    );
-  }
-
-  private readLegacyConfig(): LegacyConfig {
-    let lastError: unknown;
-    let found = false;
-    for (const candidate of [this.configPath, this.backupPath]) {
-      if (!existsSync(candidate)) continue;
-      found = true;
-      try {
-        return {
-          value: normalizeVideoBindingConfig(JSON.parse(readFileSync(candidate, 'utf8'))),
-          source:
-            candidate === this.backupPath
-              ? 'legacy-json:video-binding.json.bak'
-              : 'legacy-json:video-binding.json',
-        };
-      } catch (error) {
-        lastError = error;
-      }
-    }
-    if (found) throw new Error(`VIDEO_BINDING_IMPORT_FAILED: ${String(lastError)}`);
-    return { value: defaultVideoBindingConfig(), source: 'built-in-default' };
+    this.config = current.value;
+    this.configRevision = current.revision;
+    console.info(`[VideoBinding] Loaded ${VIDEO_BINDING_CONFIG_KEY} revision ${current.revision}`);
   }
 
   private cloneConfig(config = this.config): VideoBindingConfig {

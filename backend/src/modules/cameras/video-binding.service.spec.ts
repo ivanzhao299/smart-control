@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { DataSource } from 'typeorm';
@@ -81,29 +81,19 @@ describe('VideoBindingService database persistence', () => {
     return service;
   }
 
-  it('imports legacy JSON once and records the authoritative first revision', async () => {
-    const path = join(directory, 'video-binding.json');
-    const original = JSON.stringify(fixture(), null, 2);
-    writeFileSync(path, original);
-
-    const service = await startService();
-    const snapshot = await store.read(VIDEO_BINDING_CONFIG_KEY, normalizeVideoBindingConfig);
-    const history = await dataSource.getRepository(RuntimeConfigRevision).find();
-
-    expect(service.getConfig().channels[0].countLine?.[0]).toEqual({ x: 0.2, y: 0.3 });
-    expect(snapshot).toMatchObject({ revision: 1, value: fixture() });
-    expect(history).toHaveLength(1);
-    expect(history[0]).toMatchObject({
+  async function initializeFixture(): Promise<void> {
+    await store.initialize({
+      key: VIDEO_BINDING_CONFIG_KEY,
+      schemaVersion: 1,
+      value: fixture(),
+      normalize: normalizeVideoBindingConfig,
       actor: 'migration',
-      source: 'legacy-json:video-binding.json',
+      source: 'test-fixture',
     });
-    expect(readFileSync(path, 'utf8')).toBe(original);
-  });
+  }
 
-  it('keeps legacy JSON read-only and persists edits as immutable database revisions', async () => {
-    const path = join(directory, 'video-binding.json');
-    const original = JSON.stringify(fixture());
-    writeFileSync(path, original);
+  it('loads the authoritative database revision and persists edits as immutable revisions', async () => {
+    await initializeFixture();
     const service = await startService();
 
     await service.updateChannelAi('gate', {
@@ -114,7 +104,6 @@ describe('VideoBindingService database persistence', () => {
       ],
     });
 
-    expect(readFileSync(path, 'utf8')).toBe(original);
     expect(
       (await store.read(VIDEO_BINDING_CONFIG_KEY, normalizeVideoBindingConfig))?.value.channels[0]
         .roiPolygon,
@@ -122,8 +111,9 @@ describe('VideoBindingService database persistence', () => {
     expect(await dataSource.getRepository(RuntimeConfigRevision).count()).toBe(2);
   });
 
-  it('uses the database after restart and never reimports changed or corrupt legacy JSON', async () => {
+  it('uses the database after restart and ignores changed or corrupt legacy JSON', async () => {
     const path = join(directory, 'video-binding.json');
+    await initializeFixture();
     writeFileSync(path, JSON.stringify(fixture()));
     const first = await startService();
     await first.updateChannelAi('gate', {
@@ -141,35 +131,14 @@ describe('VideoBindingService database persistence', () => {
     expect(await dataSource.getRepository(RuntimeConfigRevision).count()).toBe(2);
   });
 
-  it('imports a valid backup when the primary is corrupt without rewriting either file', async () => {
-    const path = join(directory, 'video-binding.json');
-    const backup = JSON.stringify(fixture());
-    writeFileSync(path, '{invalid');
-    writeFileSync(`${path}.bak`, backup);
-
-    const service = await startService();
-    const history = await dataSource
-      .getRepository(RuntimeConfigRevision)
-      .findOneByOrFail({ revision: 1 });
-
-    expect(service.getConfig().channels[0].id).toBe('gate');
-    expect(history.source).toBe('legacy-json:video-binding.json.bak');
-    expect(readFileSync(path, 'utf8')).toBe('{invalid');
-    expect(readFileSync(`${path}.bak`, 'utf8')).toBe(backup);
-  });
-
-  it('fails closed when all discovered legacy documents are corrupt', async () => {
-    const path = join(directory, 'video-binding.json');
-    writeFileSync(path, '{invalid');
-    writeFileSync(`${path}.bak`, '{also-invalid');
-
-    await expect(startService()).rejects.toThrow('VIDEO_BINDING_IMPORT_FAILED');
+  it('fails closed when migrations did not establish the authoritative document', async () => {
+    await expect(startService()).rejects.toThrow('VIDEO_BINDING_CONFIG_MISSING');
     expect(await dataSource.getRepository(RuntimeConfigDocument).count()).toBe(0);
     expect(await dataSource.getRepository(RuntimeConfigRevision).count()).toBe(0);
   });
 
   it('never exposes passwords and preserves a stored password on a blank edit', async () => {
-    writeFileSync(join(directory, 'video-binding.json'), JSON.stringify(fixture()));
+    await initializeFixture();
     const service = await startService();
 
     const view = service.getConfigView();
@@ -184,7 +153,7 @@ describe('VideoBindingService database persistence', () => {
   });
 
   it('resolves stream aliases from the same authoritative binding document', async () => {
-    writeFileSync(join(directory, 'video-binding.json'), JSON.stringify(fixture()));
+    await initializeFixture();
     const service = await startService();
 
     const binding = service.resolveStreamBinding('gate');
@@ -201,7 +170,7 @@ describe('VideoBindingService database persistence', () => {
   });
 
   it('does not let a cached base editor overwrite AI fields or immutable fields', async () => {
-    writeFileSync(join(directory, 'video-binding.json'), JSON.stringify(fixture()));
+    await initializeFixture();
     const service = await startService();
 
     const updated = await service.updateChannel('gate', {
@@ -222,7 +191,7 @@ describe('VideoBindingService database persistence', () => {
   });
 
   it('serializes simultaneous edits so both survive with consecutive revisions', async () => {
-    writeFileSync(join(directory, 'video-binding.json'), JSON.stringify(fixture()));
+    await initializeFixture();
     const service = await startService();
 
     await Promise.all([
