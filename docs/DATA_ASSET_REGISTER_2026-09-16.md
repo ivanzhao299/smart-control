@@ -10,7 +10,7 @@
 | 业务与配置数据库 | `D:\smart-control\database\smart-control.db` | SQLite | 发布前在线备份到 `D:\smart-control-backups\<timestamp>\sqlite-*\database.sqlite`，执行完整性校验 | 保持唯一数据库；所有结构变化只走 TypeORM 迁移 |
 | 视频绑定、NVR、通道与 AI 区域 | SQLite `runtime_config_documents` 的 `video.binding` 文档 | 版本化数据库配置；`video-binding.json(.bak)` 仅保留为首迁导入和恢复证据 | SQLite 配套备份包含当前值与修订历史；旧 JSON 继续随 `runtime-data` 归档 | 后台编辑、AI 下发和摄像头读取均通过 `VideoBindingService`；禁止恢复文件写入 |
 | 园区运营指标与文案 | SQLite `runtime_config_documents` 的 `park.ops.metrics` 文档 | 版本化数据库配置；`park-ops-metrics.json(.bak)` 仅保留为首迁导入和恢复证据 | SQLite 配套备份包含当前值与修订历史；旧 JSON 继续随 `runtime-data` 归档 | 后台编辑和运营大屏读取均通过 `ParkOpsMetricsService`；禁止恢复文件写入 |
-| 园区大屏翻页控制状态 | `D:\smart-control-runtime\data\park-ops-control.json` | 运行时状态文件 | 发布前复制到 `runtime-data` | 归类为可重建短期状态；统一原子状态存储接口 |
+| 园区大屏翻页控制状态 | 后端 `ParkOpsControlService` 进程内存 | 可重建短期控制信号；不是业务数据 | 不备份；进程重启恢复第 1 页、关闭自动播放且无待刷新指令 | 禁止创建 JSON 或数据库副本；仅公开状态轮询，变更必须鉴权 |
 | 音频矩阵期望状态 | SQLite `audio_desired_link` | SQLite；旧 `matrix-state.json` 写入已退役，生产文件不存在 | 随数据库在线备份；兼容 GET 只从 SQLite 映射 | 当前前端与对账器均使用 SQLite；旧 POST 固定返回 410，禁止重新形成文件源 |
 | 媒体元数据 | SQLite `media_assets` | SQLite | 随数据库在线备份 | 保持唯一来源；文件与记录通过事务式补偿保持一致 |
 | 媒体文件与拍照上屏照片 | `D:\Media`；照片位于 `D:\Media\welcome-photos\<id>` | 数据盘文件，SQLite 保存索引 | 当前发布备份不复制全部媒体；删除走可恢复目录 | 增加独立媒体清单、校验和与异盘/远端增量备份 |
@@ -31,7 +31,7 @@
 
 - 数据库结构：只允许 `backend/src/migrations` 和发布迁移步骤写入。
 - SQLite 业务数据：只允许对应 Nest 服务仓储写入，脚本验收统一使用只读连接和 `query_only`。
-- 尚未收敛的运行时 JSON：阶段 1 迁移完成前只允许统一存储接口写入，写入必须采用临时文件、刷盘、原子替换和修订号；已迁移的旧 JSON 禁止写回。
+- 冻结的运行时 JSON：只允许首迁和恢复对账读取；已迁移的旧 JSON 禁止写回。瞬时控制信号不得为“持久化”另建 JSON 副本。
 - 媒体文件：只允许媒体服务在数据盘目录内创建、移动和可恢复删除。
 - 部署脚本：只复制和备份数据，不得删除、重置或用 Git 内容覆盖权威数据。
 
