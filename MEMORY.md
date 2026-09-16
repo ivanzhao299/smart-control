@@ -46,7 +46,8 @@
 - P1-A20 生产发布前在线一致性副本的 40 张业务表指纹全部不变；正式备份为 `D:\smart-control-backups\20260917-054502\sqlite-diWIgb\database.sqlite`，恢复包为 `D:\smart-control-backups\migration-recovery\release-lo47Nf`，隔离恢复演练为 `D:\smart-control-backups\migration-recovery\restore-uBi16p`。PR #78 合并提交 `acfbd56a4e69aa8008c56e4c4c46cc4998ba9d05`，生产部署 https://github.com/ivanzhao299/smart-control/actions/runs/35153802363 全绿。
 - 阶段 P1-A21 已完成：15 条内置媒体纳入 `bundled-media-manifest.json` 版本 1 清单；第 40 个迁移建立稳定 `system_key`、制品 SHA-256 与唯一索引，并承接旧 M4V MIME 修复。`MediaService` 启动只读，不再建档、复制或修复文件；系统媒体禁止通用 API 编辑删除，前端显示“内置/受保护”。部署 reconciler 只在数据库/媒体配套恢复门禁内写入，发布和回执复核使用只读检查。
 - P1-A21 正式备份为 `D:\smart-control-backups\20260917-062105\sqlite-6OuZOa\database.sqlite`，恢复包/回执/隔离演练为 `D:\smart-control-backups\migration-recovery\release-lyzijF`。PR #80 合并提交 `28e6f6caedca3b110fdd3e095257c0c37a35e459`，生产部署 https://github.com/ivanzhao299/smart-control/actions/runs/35156942185 全绿；生产 40 个迁移、15 个唯一系统键、13 个文件摘要，文件全部保留原路径且未创建 `_system`，完整性 `ok`、外键违规 0，双服务 HTTP 200/在线/零重启。
-- 阶段 1 的已知启动目录建档已经全部退役。下一批 P1-A22 做阶段 1 退出审计：再次枚举所有启动写入和旧 JSON 兼容读取，给仍保留的迁移桥梁设置归档/删除条件，核验数据盘异机备份与恢复目标，并确认不存在双写、无期限兼容源或绕过版本迁移的数据库写入；通过后再进入阶段 2 的模块和 API 收敛。
+- 阶段 P1-A22 已完成并退出阶段 1：非迁移运行代码禁止退役 JSON 和结构 DDL，15 个启动钩子固定为精确白名单；品牌 singleton 与 `video.binding` 当前/历史修订在启动前校验，缺失时拒绝启动或保存，不再默认重建。PR #82 合并提交 `a4bd519dc0460526daba399a9f3c21cd68c94476` 已通过受限网关发布。发布前备份为 `D:\smart-control-backups\20260917-065958\sqlite-c1HbNJ\database.sqlite`；生产 40 个迁移、17 张权威表与备份逐表计数/SHA-256 一致，完整性 `ok`、外键违规 0，代码/远端/发布清单一致，5 个入口 HTTP 200。
+- `release-lyzijF` 已复制到跳板机 `/var/backups/smart-control`，87 个文件、4,220,164,447 字节；首次 `OFFSITE_BUNDLE_VERIFIED`、重复执行 `OFFSITE_BUNDLE_CURRENT`，提交关联和三类摘要一致，无临时目录。该基线覆盖发生迁移的发布；普通 6 小时快照和新增媒体的持续异机 RPO 留在阶段 3。GitHub Actions 当次因账户 Billing 在任务启动前拒绝运行，代码已在本地和生产完整门禁验证；需修复 Billing 恢复远端自动执行。下一批进入阶段 2 的模块、API 与关键用户旅程收敛。
 
 ## 当前状态快照（2026-07-28）
 
