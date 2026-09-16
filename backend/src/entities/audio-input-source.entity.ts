@@ -22,7 +22,7 @@ export class AudioInputSource {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  /** EKX 输入通道索引 0-7 (0=IN1 ... 7=IN8). 唯一. seed/升级走这字段不动 id. */
+  /** EKX 输入通道索引 0-7 (0=IN1 ... 7=IN8). 唯一. 迁移/升级走这字段不动 id. */
   @Index({ unique: true })
   @Column({ type: 'int' })
   channel!: number;
