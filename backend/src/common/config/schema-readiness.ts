@@ -26,6 +26,7 @@ export const REQUIRED_SCHEMA_MIGRATIONS = [
   'ImportParkOpsVisualRuntimeConfig1789580000000',
   'EstablishAppReleaseCatalog1789640000000',
   'EstablishNamedIdentityAuthority1789650000000',
+  'EstablishOperationalCatalog1789660000000',
 ] as const;
 
 export const REQUIRED_SCHEMA_COLUMNS: Record<string, string[]> = {

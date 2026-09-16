@@ -11,7 +11,7 @@
 | 视频绑定、NVR、通道与 AI 区域 | SQLite `runtime_config_documents` 的 `video.binding` 文档 | 版本化数据库配置；`video-binding.json(.bak)` 仅保留为已执行迁移和恢复证据，应用启动不读取 | SQLite 配套备份包含当前值与修订历史；旧 JSON 继续随 `runtime-data` 归档 | 后台编辑、AI 下发和摄像头读取均通过 `VideoBindingService`；新库默认文档只由迁移建立；禁止恢复文件写入 |
 | 园区运营指标与文案 | SQLite `runtime_config_documents` 的 `park.ops.metrics` 文档 | 版本化数据库配置；`park-ops-metrics.json(.bak)` 仅保留为已执行迁移和恢复证据，应用启动不读取 | SQLite 配套备份包含当前值与修订历史；旧 JSON 继续随 `runtime-data` 归档 | 后台编辑和运营大屏读取均通过 `ParkOpsMetricsService`；未发布时保持空值；禁止恢复文件写入 |
 | 园区大屏视觉布局 | SQLite `runtime_config_documents` 的 `park.ops.visual` 文档 | 版本化数据库配置；`system_branding_v2.parkOpsConfigJson` 仅保留为首迁前快照 | SQLite 配套备份包含当前值与修订历史；旧字段随数据库归档 | 读取和保存均通过 `RuntimeConfigStore`；编辑器携带 revision，旧写入冲突返回 409；禁止恢复旧字段写入 |
-| 系统品牌与场景动作 | SQLite `system_branding_v2`、`scenes`、`scene_actions` | 关系表；品牌默认行由迁移建立，场景动作参数受 JSON 解析校验 | 随 SQLite 在线备份和迁移恢复包保存 | 禁止启动时从仓库文件覆盖 Logo、品牌或场景动作；历史场景哨兵只作证据；部署 seed 仅为空场景建立新安装默认值 |
+| 系统品牌与场景动作 | SQLite `system_branding_v2`、`scenes`、`scene_actions` | 关系表；品牌默认行和新安装推荐场景/动作均由不可变迁移快照建立，场景动作参数受 JSON 解析校验 | 随 SQLite 在线备份和迁移恢复包保存 | 禁止启动或部署时从仓库文件覆盖 Logo、品牌或场景动作；历史场景哨兵只作证据；已有场景动作只能由管理员维护 |
 | 电源回路与时序器通道 | SQLite `power_circuit` | 关系表；服务启动只读；新库默认值与精确历史修复由版本化迁移建立 | 随 SQLite 在线备份和迁移恢复包保存；含权威回路时禁止无归档降级 | 禁止启动时补建固定编码或覆盖网关/通道；后台增删改是日常配置入口 |
 | 驱动模板目录 | SQLite `driver_templates` | 关系表；内置目录由版本化迁移建立，现场非内置模板由管理接口建立；服务启动只读 | 随 SQLite 在线备份和迁移恢复包保存；含内置目录时禁止无归档降级 | 禁止从 adapter 常量启动覆盖；新增或升级内置驱动必须有显式迁移，已有同名及启用状态保留 |
 | 硬件与驱动厂商品牌目录 | SQLite `brands` | 关系表；产品品牌与已有引用由版本化迁移建立，新增硬件/自定义驱动在引用写入时即时建档；服务启动只读 | 随 SQLite 在线备份和迁移恢复包保存；含品牌目录时禁止无归档降级 | 禁止启动扫描派生写入；只补缺失名称，不覆盖 Logo、联系方式、备注、自定义品牌或禁用状态 |

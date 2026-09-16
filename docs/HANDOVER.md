@@ -101,7 +101,7 @@ smart-control/
 │   │   ├── modules/       # NestJS 模块 (28 个)
 │   │   ├── services/      # 跨模块服务 (command-dispatcher 等)
 │   │   ├── common/        # 守卫 / 配置 / 工具
-│   │   ├── seed/          # 启动时 seed 默认数据
+│   │   ├── migrations/    # 结构迁移与不可变业务目录快照
 │   │   └── main.ts
 │   ├── .env.example       # 配置模板, 部署时复制到 .env
 │   └── package.json
@@ -331,12 +331,11 @@ light_zone  (前厅/东展区/走廊区…)   业主看得见的名字, 前端�
 - 实测组分布 (扫组亮度寄存器): 网关#1(拨码1) = 组 5-11, 网关#2(拨码2) = 组 1-3.
   业主说共 11 组, 扫到 10 组, 差的那组现场补一条 light_group 记录即可.
 
-**两个部署坑** (2026-07-16 踩过):
-1. **CI 不跑 seed**. `deploy-from-ci.ps1` 只有 install/build/pm2 restart. 新增的
-   分区/灯组这类**数据**不会自己上生产, 要手工 `cd backend && node dist/seed/seed.js`
-   (winston 在生产写文件不写 stdout, 所以跑完屏幕上什么都没有是正常的, 用 API 验).
-2. **`seedHardware` 是 `if (exists) continue`** —— 改 seed 里的硬件字段对**已有**
-   生产库无效, 只影响全新安装. 已有记录要走后台硬件清单改.
+**数据目录发布规则**：
+1. 场景、动作、设备、硬件、灯光分区/组和 UAT 默认目录只由 TypeORM 前向迁移建立；
+   生产发布先建立数据库/媒体恢复包并完成隔离恢复演练，再执行迁移。
+2. 不再存在部署 seed 或人工 seed 命令。已有记录走后台维护；默认目录升级新增迁移，
+   禁止把“缺失即重建”放回每次发布路径，以免恢复管理员主动删除的数据。
 
 内置 adapter 目录由版本化迁移登记到 `driver_templates` 表，backend 启动只读，后台 `/admin/drivers` 能浏览。
 

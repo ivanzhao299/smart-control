@@ -1,4 +1,4 @@
-# =====================================================================
+﻿# =====================================================================
 # 展贸中心智能化中控系统 - 系统初始化脚本 (Sprint-10 Task-19)
 # 文件: deploy\scripts\init.ps1
 # 用途: 首次部署到 Windows 10 现场主机时执行
@@ -7,7 +7,7 @@
 #   2) 校验前置软件: Node 20+ / pnpm / pm2 / nginx
 #   3) 落地 backend\.env (从 backend\.env.example 复制, 不覆盖)
 #   4) pnpm install (backend + frontend)
-#   5) backend 构建 + 数据库迁移(自动 synchronize) + UAT seed
+#   5) backend 构建；业务目录由显式数据库迁移建立
 #   6) frontend 构建 (vite build → frontend\dist)
 #   7) 注册 PM2 进程 + pm2 save
 #   8) 提示后续步骤 (nginx 加载 + pm2-windows-startup)
@@ -103,6 +103,14 @@ if (-not $SkipBuild) {
   Step 5 "backend 构建"
   Push-Location (Join-Path $projectRoot 'backend')
   pnpm run build
+  node scripts/run-migrations.js
+  if ($LASTEXITCODE -ne 0) { throw '数据库迁移失败' }
+  if ([string]::IsNullOrWhiteSpace($env:SC_ADMIN_USERNAME) -or
+      [string]::IsNullOrWhiteSpace($env:SC_ADMIN_PASSWORD)) {
+    throw '首次安装必须先在当前会话设置 SC_ADMIN_USERNAME 和 SC_ADMIN_PASSWORD，初始化脚本不会创建默认管理员。'
+  }
+  pnpm run admin:provision
+  if ($LASTEXITCODE -ne 0) { throw '首次管理员创建失败' }
   Pop-Location
 
   Step 6 "frontend 构建 (vite build)"

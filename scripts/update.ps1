@@ -73,7 +73,7 @@ function Test-PortListening([int]$PortNum) {
 }
 
 function Ensure-ServicesOnline {
-  # Safety net (ASCII-only): regardless of which pull/build/migration/seed/verify
+  # Safety net (ASCII-only): regardless of which pull/build/migration/verify
   # step throws, production must never end with both pm2 services stopped. If a
   # listening port is missing, resurrect pm2 + both apps DETACHED through WMI so
   # the recovery survives this script (and its scheduled-task session) exiting.
@@ -180,21 +180,6 @@ if ($pkgChanged -or $Force) {
   Write-Host "  package 无变化, 跳过依赖安装" -ForegroundColor Green
 }
 
-# 4.5) .env 一次性修复 — 2026-05-27 我用 RDC Notepad 不小心把 DALI_RTU_HOST
-# 改成了 192.168.0.7 (USR 出厂默认 IP), 但用户后来把 USR IP 改回了 192.168.50.20,
-# 现在 .env 跟 USR 实际 IP 对不上, gateway 一直 offline. 这块只针对那个错值,
-# 不会动用户主动设的别的 IP — 安全且幂等.
-$envFile = Join-Path $projectRoot 'backend\.env'
-if (Test-Path $envFile) {
-  $envText = Get-Content $envFile -Raw
-  if ($envText -match 'DALI_RTU_HOST\s*=\s*192\.168\.0\.7') {
-    Write-Host "`n[env-repair] 发现 DALI_RTU_HOST=192.168.0.7, 改回 192.168.50.20..." -ForegroundColor Yellow
-    $newText = $envText -replace 'DALI_RTU_HOST\s*=\s*192\.168\.0\.7', 'DALI_RTU_HOST=192.168.50.20'
-    Set-Content -Path $envFile -Value $newText -NoNewline
-    Write-Host "  ok" -ForegroundColor Green
-  }
-}
-
 # 5) 重新构建 (backend + frontend) —— 按改动路径条件化 (2026-07-30)
 # 之前无脑全量重建+硬重启: 文档/脚本/纯前端提交也会刷新 backend dist 时间戳
 # (verify 的"进程比产物旧"就此误报) 并把生产 backend delete+start 一遍 (无谓
@@ -236,18 +221,6 @@ Write-Host "`n[5.4/6] 应用数据库迁移 (run-migrations.js)..." -ForegroundC
 Push-Location (Join-Path $projectRoot 'backend')
 Run "node scripts/run-migrations.js"
 Pop-Location
-
-# 5.5) seed — 应用 entity / 硬件 / 场景的更新.
-# seed 本身是幂等的 (record 已存在就跳过), 安全多跑.
-# 例外: 末尾的 HW_IP_FIXES 段会把错的 IP 主动更新成正确值 (一次性自愈).
-Write-Host "`n[5.5/6] 应用 seed (硬件/场景/设备 idempotent 更新)..." -ForegroundColor Yellow
-if ($backendChanged) {
-  Push-Location (Join-Path $projectRoot 'backend')
-  Run "pnpm run seed"
-  Pop-Location
-} else {
-  Write-Host "  backend/ 无改动, 跳过 seed" -ForegroundColor Gray
-}
 
 # 6) 强制重启 backend: pm2 delete + 杀残留 + pm2 start
 # 之前用 pm2 restart 实测在某些情形 (pm2 daemon 卡 / 进程脱钩) 下不真换进程,

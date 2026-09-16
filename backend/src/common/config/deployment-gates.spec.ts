@@ -55,6 +55,36 @@ describe('GK9000 deployment gates', () => {
     expect(tracked).toEqual([]);
   });
 
+  it('uses migrations and explicit account provisioning instead of deployment seeds', () => {
+    const backendPackage = JSON.parse(readRepositoryFile('backend/package.json')) as {
+      scripts: Record<string, string>;
+    };
+    const update = readRepositoryFile('scripts/update.ps1');
+    const init = readRepositoryFile('deploy/scripts/init.ps1');
+
+    expect(backendPackage.scripts.seed).toBeUndefined();
+    expect(backendPackage.scripts['seed:dev']).toBeUndefined();
+    const liveTrackedSeedFiles = execFileSync('git', ['ls-files', 'backend/src/seed'], {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+    })
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .filter((file) => existsSync(resolve(repositoryRoot, file)));
+    expect(liveTrackedSeedFiles).toEqual([]);
+    expect(update).toContain('node scripts/run-migrations.js');
+    expect(update).not.toContain('pnpm run seed');
+    expect(update).not.toContain('DALI_RTU_HOST=192.168.50.20');
+    expect(init).toContain('node scripts/run-migrations.js');
+    expect(init).toContain('pnpm run admin:provision');
+    expect(init).toContain('$env:SC_ADMIN_USERNAME');
+    expect(init).toContain('$env:SC_ADMIN_PASSWORD');
+    expect(
+      readFileSync(resolve(repositoryRoot, 'deploy/scripts/init.ps1')).subarray(0, 3),
+    ).toEqual(Buffer.from([0xef, 0xbb, 0xbf]));
+  });
+
   it('keeps Android release signing material in encrypted CI secrets', () => {
     const trackedSigningFiles = execFileSync('git', ['ls-files', 'android-app/signing'], {
       cwd: repositoryRoot,
