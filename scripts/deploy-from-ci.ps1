@@ -1036,7 +1036,16 @@ try {
     try {
       # Fail closed after a possibly committed ownership migration. Recovery must
       # archive post-migration data and restore a matched database/media/code set.
-      Invoke-Native 'pm2.cmd' @('stop', 'smart-control-backend', 'smart-control-frontend')
+      # The SSH session has no reliable APPDATA/USERPROFILE. An unqualified pm2
+      # command creates an empty daemon under the wrong home and still leaves a
+      # writer-class Node process behind, so use the fixed production identity
+      # and remove the daemon itself after the release pause stopped its children.
+      $pm2FailClosed = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
+      if (-not (Test-Path -LiteralPath $pm2FailClosed)) { throw 'Expected PM2 executable missing.' }
+      $env:PM2_HOME = 'C:\Users\user\.pm2'
+      Invoke-Native $pm2FailClosed @('kill')
+      & (Join-Path $projectRoot 'scripts\assert-gk9000-writers-stopped.ps1') -ProjectRoot $projectRoot | Out-Null
+      if (-not $?) { throw 'Fail-closed writer isolation could not be verified.' }
     } catch {
       Write-DeployLog 'CRITICAL: service stop failed; isolate external ingress immediately before recovery.'
     }
