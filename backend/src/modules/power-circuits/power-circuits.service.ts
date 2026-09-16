@@ -3,7 +3,6 @@ import {
   Inject,
   Injectable,
   NotFoundException,
-  OnModuleInit,
   Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -59,54 +58,8 @@ export interface PowerCircuitUpsertDto {
   enabled?: boolean;
 }
 
-/** 启动自动 seed — 没有 power_circuit 行时灌入 6 条示例 */
-const SEED_CIRCUITS: Array<Omit<PowerCircuitUpsertDto, 'enabled'> & { enabled?: boolean }> = [
-  { code: '1f-main', name: '一层总闸', floor: '1F', category: 'misc',
-    gatewayCode: 'RELAY-1F-1', relayChannel: 1,
-    ratedVoltage: 380, ratedCurrent: 63, ratedPower: 24000,
-    sortOrder: 1, icon: 'Zap', description: '一层进线总开关 (3 相)' },
-  { code: '1f-lighting', name: '一层照明回路', floor: '1F', category: 'lighting',
-    gatewayCode: 'RELAY-1F-1', relayChannel: 2,
-    ratedVoltage: 220, ratedCurrent: 16, ratedPower: 2200,
-    sortOrder: 10, icon: 'Lightbulb' },
-  { code: '1f-socket', name: '一层插座回路', floor: '1F', category: 'socket',
-    gatewayCode: 'RELAY-1F-1', relayChannel: 3,
-    ratedVoltage: 220, ratedCurrent: 16, ratedPower: 1500,
-    sortOrder: 20, icon: 'Plug' },
-  // LED 大屏总闸走 ePa 智能断路器 (三相 40A), 不是继电器通道 —— relayChannel 留空
-  { code: '1f-led', name: '一层 LED 大屏', floor: '1F', category: 'led',
-    gatewayCode: 'BREAKER-LED-1', relayChannel: null,
-    ratedVoltage: 380, ratedCurrent: 40, ratedPower: 19000,
-    sortOrder: 30, icon: 'MonitorPlay', description: 'LED 大屏远程总闸 (ePa 智能断路器, 三相 40A)' },
-  { code: '2f-lighting', name: '二层照明回路', floor: '2F', category: 'lighting',
-    gatewayCode: 'RELAY-2F-1', relayChannel: 1,
-    ratedVoltage: 220, ratedCurrent: 16, ratedPower: 1800,
-    sortOrder: 10, icon: 'Lightbulb' },
-  { code: '2f-hvac', name: '二层空调回路', floor: '2F', category: 'hvac',
-    gatewayCode: 'RELAY-2F-1', relayChannel: 2,
-    ratedVoltage: 380, ratedCurrent: 40, ratedPower: 12000,
-    sortOrder: 20, icon: 'Snowflake' },
-  // ---- 音响电源时序器 EPO-802P (COM1 直连, 2026-07-24 端口实测通) ----
-  // 8 路时序上电保护功放。名字是占位, 业主在电源页可直接改 (rename 端点),
-  // seed 按 code 幂等, 改过的名字不会被冲掉。
-  ...Array.from({ length: 8 }, (_, i) => ({
-    code: `seq-${i + 1}`,
-    name: `时序 ${i + 1} 路`,
-    floor: '音响',
-    category: 'audio-seq',
-    gatewayCode: 'AUDIO-PWR-SEQ-1',
-    relayChannel: i + 1,
-    ratedVoltage: 220,
-    ratedCurrent: 16,
-    ratedPower: 2000,
-    sortOrder: 100 + i,
-    icon: 'Plug',
-    description: `EPO-802P 时序器通道 ${i + 1}`,
-  })),
-];
-
 @Injectable()
-export class PowerCircuitsService implements OnModuleInit {
+export class PowerCircuitsService {
   constructor(
     @InjectRepository(PowerCircuit) private readonly repo: Repository<PowerCircuit>,
     @InjectRepository(HardwareUnit) private readonly hwRepo: Repository<HardwareUnit>,
@@ -134,89 +87,6 @@ export class PowerCircuitsService implements OnModuleInit {
    */
   private seqCache: { at: number; channels: boolean[] } | null = null;
   private readonly SEQ_CACHE_TTL_MS = 3000;
-
-  async onModuleInit(): Promise<void> {
-    let created = 0;
-    for (const c of SEED_CIRCUITS) {
-      const exists = await this.repo.findOne({ where: { code: c.code } });
-      if (exists) continue;
-      await this.repo.save(this.repo.create({
-        code: c.code,
-        name: c.name,
-        floor: c.floor,
-        category: c.category ?? 'misc',
-        gatewayCode: c.gatewayCode ?? null,
-        relayChannel: c.relayChannel ?? null,
-        meterAddress: c.meterAddress ?? null,
-        ratedVoltage: c.ratedVoltage ?? 220,
-        ratedCurrent: c.ratedCurrent ?? 16,
-        ratedPower: c.ratedPower ?? 0,
-        sortOrder: c.sortOrder ?? 100,
-        icon: c.icon ?? 'Zap',
-        description: c.description ?? null,
-        enabled: c.enabled ?? true,
-      }));
-      created += 1;
-    }
-    if (created > 0) {
-      this.logger.info(`PowerCircuitsService bootstrap: 自动注入 ${created} 条电源回路`, {
-        context: 'PowerCircuitsService',
-      });
-    }
-    await this.healLedCircuitToBreaker();
-    await this.healProjectorSeqChannel();
-  }
-
-  /**
-   * 2026-07-26 投影/拼接器路号纠正。业主先说"投影仪在 4 路", 本方法 v1 据此把
-   * 「投影仪」(seq-5) 改到 4、原 4 路「视频融和器」对调到 5 —— 随后业主纠正:
-   * **投影仪 = 第 5 路, 视频拼接器(融和器) = 第 4 路**, 即种子的 code↔路号
-   * 本来就是对的。这里把这两行恢复成 code↔relayChannel 一致, 顺带把 v1 已在
-   * 生产上造成的对调纠正回来。幂等: 已一致则不写库; 只碰 seq-4/seq-5 两行。
-   */
-  private async healProjectorSeqChannel(): Promise<void> {
-    try {
-      for (const [code, ch] of [['seq-4', 4], ['seq-5', 5]] as Array<[string, number]>) {
-        const row = await this.repo.findOne({ where: { code } });
-        if (row && row.relayChannel !== ch) {
-          const old = row.relayChannel;
-          row.relayChannel = ch;
-          await this.repo.save(row);
-          this.logger.warn(
-            `[PowerCircuits] ${code}「${row.name}」时序路号 ${old} → ${ch} (投影=5/拼接器=4 纠正)`,
-            { context: 'PowerCircuitsService' },
-          );
-        }
-      }
-    } catch (e) {
-      this.logger.warn(`[PowerCircuits] 投影/拼接器时序路号纠正失败: ${(e as Error).message}`, {
-        context: 'PowerCircuitsService',
-      });
-    }
-  }
-
-  /**
-   * 一次性自愈 (2026-07-22): LED 大屏回路原来指向 RELAY-1F-1 通道 4 —— 那是一台从没到货的
-   * 继电器, 点了没有任何反应。现在真闸装好了 (ePa 智能断路器 + CONV-RTU-2), 把这条回路
-   * 改指 BREAKER-LED-1, 顺便把额定值从占位的 220V/20A/3500W 改成实际的三相 380V/40A/19KW。
-   *
-   * 上面的 seed 遇到已存在的 code 就跳过, 所以生产库的旧行不会被改 —— 只能在这里补。
-   * 只在"值还是当初那个占位值"时才动, 人工调过的一律不碰。
-   */
-  private async healLedCircuitToBreaker(): Promise<void> {
-    const row = await this.repo.findOne({ where: { code: '1f-led' } });
-    if (!row || row.gatewayCode !== 'RELAY-1F-1') return;
-    row.gatewayCode = 'BREAKER-LED-1';
-    row.relayChannel = null;
-    if (row.ratedVoltage === 220) row.ratedVoltage = 380;
-    if (row.ratedCurrent === 20) row.ratedCurrent = 40;
-    if (row.ratedPower === 3500) row.ratedPower = 19000;
-    if (!row.description) row.description = 'LED 大屏远程总闸 (ePa 智能断路器, 三相 40A)';
-    await this.repo.save(row);
-    this.logger.info('电源回路自愈: 1f-led RELAY-1F-1 → BREAKER-LED-1 (真空开已装机)', {
-      context: 'PowerCircuitsService',
-    });
-  }
 
   async list(opts: { includeDisabled?: boolean } = {}): Promise<PowerCircuitView[]> {
     const where = opts.includeDisabled ? {} : { enabled: true };

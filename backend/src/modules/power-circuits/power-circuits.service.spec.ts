@@ -56,10 +56,6 @@ function makeService(opts: {
 } = {}) {
   const row = opts.row ?? circuitRow();
   const repo = {
-    // 按 code 匹配, 不匹配返回 null —— 2026-07-27 修: 原来无条件返回 row,
-    // onModuleInit 里 healProjectorSeqChannel 查 seq-4/seq-5 也拿到这行
-    // 1f-led 测试数据, 把它的 relayChannel 改成 5, CI 每次推送都红一次。
-    // 生产不受影响 (真库按 code 各查各行), 纯测试桩失真。
     findOne: jest.fn(async (q?: { where?: { code?: string } }) =>
       (q?.where?.code === undefined || q.where.code === row.code ? row : null)),
     find: jest.fn().mockResolvedValue([row]),
@@ -92,30 +88,6 @@ function makeService(opts: {
   );
   return { svc, repo, hwRepo, breaker, epo, adapter, row };
 }
-
-describe('PowerCircuitsService · 1f-led 回路自愈到真空开', () => {
-  it('还指着从没到货的 RELAY-1F-1 → 改指 BREAKER-LED-1 并修额定值', async () => {
-    const old = circuitRow({
-      gatewayCode: 'RELAY-1F-1', relayChannel: 4,
-      ratedVoltage: 220, ratedCurrent: 20, ratedPower: 3500, description: null,
-    });
-    const { svc, repo } = makeService({ row: old });
-    await svc.onModuleInit();
-    expect(old.gatewayCode).toBe('BREAKER-LED-1');
-    expect(old.relayChannel).toBeNull();
-    expect(old.ratedVoltage).toBe(380);
-    expect(old.ratedCurrent).toBe(40);
-    expect(old.ratedPower).toBe(19000);
-    expect(repo.save).toHaveBeenCalled();
-  });
-
-  it('已经指向空开(或被人工改过) → 不再动它', async () => {
-    const already = circuitRow({ gatewayCode: 'BREAKER-LED-1', ratedVoltage: 400 });
-    const { svc } = makeService({ row: already });
-    await svc.onModuleInit();
-    expect(already.ratedVoltage).toBe(400); // 人工值保留
-  });
-});
 
 describe('PowerCircuitsService · 断路器回路路由', () => {
   it('gatewayCode 指向 power-breaker 硬件 → 打真闸, 不碰时序器', async () => {
