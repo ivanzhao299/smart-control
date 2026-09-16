@@ -154,3 +154,11 @@
 - 发布前恢复库与生产库逐字段比较确认：4 个 `users` 账号（1 个管理员、3 个操作员）、`admin_auth_v1`、`client_auth_v1` 的密码哈希、签名密钥、时间字段均未改变；两张认证表仍各恰有 id=1、密钥长度 64，最后管理员更新/删除保护触发器均存在。
 - 生产数据库 `integrity_check=ok`、外键违规 0；仅新增 `EstablishNamedIdentityAuthority1789650000000` 迁移账本。密码单字段请求对 PWA 和后台登录均返回 400，证明共享口令入口不再签发新令牌；现有个人账号凭据未用于审计探测，也未被重置。
 - 运行提交、`origin/main`、发布清单与 `/api/system/info` 均为 `65d67d0…7d9a`。后端、前端进程与端口归属正确且无重启循环；38 台设备在线，六路 HLS 均为 200、运行中、零重启，PWA 控制、灯光和大屏页面均为 200。
+
+## 18. 2026-09-17 旧部署 seed 退役
+
+- `EstablishOperationalCatalog1789660000000` 将旧 `SeedService` 中的场景/动作、逻辑设备、硬件、灯光分区/组和 UAT 新安装目录冻结为版本 1 不可变 JSON 快照；快照语义 SHA-256 为 `6b715cec7340877627bb1268becda68c182ba114c1f62d1d2d4a216180651bee`。
+- 迁移只插入缺失唯一键，只对没有任何动作的已有场景建立推荐动作，只对精确旧 IP/型号或空驱动类型执行历史修复。已有场景、动作、执行历史、灯区、灯组、自定义记录和管理员删除意图都不会被重建或覆盖。
+- 生产在线一致性副本从 37 个迁移升级到 38 个迁移时，除迁移账本外 40 张业务表的行数和逐行 SHA-256 全部不变；第二次执行为 0 项，前后完整性均为 `ok`、外键违规 0。
+- 正式发布先保存 `D:\smart-control-backups\20260917-051004\sqlite-ThRC7w\database.sqlite`，再于 `D:\smart-control-backups\migration-recovery\restore-lbiONb` 完成数据库与媒体隔离恢复演练，恢复包和迁移回执位于 `D:\smart-control-backups\migration-recovery\release-87e6u8`。
+- PR #76 以合并提交 `18b138be42b9750316161d0070c1f0a40fa3d64f` 发布成功。Git HEAD、`origin/main`、发布清单和运行 API 提交一致，工作区干净，`RELEASE_HOLD` 不存在；数据库 38 个迁移、完整性 `ok`、外键违规 0。38 台设备在线，六路 HLS 均运行中且零重启，PWA 控制、灯光和大屏入口均返回 200。
