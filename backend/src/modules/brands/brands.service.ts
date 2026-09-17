@@ -1,6 +1,12 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
+import { serializedTransaction } from '../../common/utils/serialized-transaction';
 import { Brand } from '../../entities/brand.entity';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
 import { DriverTemplate } from '../../entities/driver-template.entity';
@@ -44,18 +50,31 @@ export class BrandsService {
     @InjectRepository(DriverTemplate) private readonly driverRepo: Repository<DriverTemplate>,
   ) {}
 
-  /**
-   * 在新增引用的同一个业务操作中补齐品牌目录。单条 INSERT ... SELECT 既避免
-   * 先查后写竞态，也严格保留已有品牌的启用状态和维护字段。
-   */
+  /** Standalone catalog maintenance only; reference writers must use withReference. */
   async ensureReferenced(name: string): Promise<void> {
-    if (!name.trim()) return;
-    await this.brandRepo.query(
-      `INSERT INTO brands (name, enabled, created_at, updated_at)
-       SELECT ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-       WHERE NOT EXISTS (SELECT 1 FROM brands WHERE name = ?)`,
-      [name, name],
-    );
+    await this.withReference(name, async () => undefined);
+  }
+
+  /**
+   * Catalog establishment and its referencing row are one transaction. Callers must
+   * use the supplied manager, and keep physical I/O and post-commit logging outside.
+   * Exact vendor strings are intentional: never normalize an existing soft-link key.
+   */
+  async withReference<T>(
+    name: string | undefined,
+    writeReference: (manager: EntityManager) => Promise<T>,
+  ): Promise<T> {
+    return serializedTransaction(this.brandRepo.manager.connection, async (manager) => {
+      if (name?.trim()) {
+        await manager.query(
+          `INSERT INTO brands (name, enabled, created_at, updated_at)
+           SELECT ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+           WHERE NOT EXISTS (SELECT 1 FROM brands WHERE name = ?)`,
+          [name, name],
+        );
+      }
+      return writeReference(manager);
+    });
   }
 
   async list(): Promise<BrandView[]> {
@@ -79,68 +98,99 @@ export class BrandsService {
   }
 
   async detail(id: number): Promise<BrandView> {
-    const row = await this.brandRepo.findOne({ where: { id } });
+    return this.detailWithManager(id, this.brandRepo.manager);
+  }
+
+  private async detailWithManager(id: number, manager: EntityManager): Promise<BrandView> {
+    const row = await manager.findOneBy(Brand, { id });
     if (!row) throw new NotFoundException(`brand#${id} 不存在`);
     const [hwCount, driverCount] = await Promise.all([
-      this.hwRepo.count({ where: { vendor: row.name } }),
-      this.driverRepo.count({ where: { vendor: row.name } }),
+      manager.countBy(HardwareUnit, { vendor: row.name }),
+      manager.countBy(DriverTemplate, { vendor: row.name }),
     ]);
     return this.toView(row, hwCount, driverCount);
   }
 
   async create(dto: BrandUpsertDto): Promise<BrandView> {
-    const dup = await this.brandRepo.findOne({ where: { name: dto.name } });
-    if (dup) throw new ConflictException(`品牌名已存在: ${dto.name}`);
-    const row = this.brandRepo.create({
-      name: dto.name,
-      displayName: dto.displayName ?? null,
-      logoUrl: dto.logoUrl ?? null,
-      country: dto.country ?? null,
-      website: dto.website ?? null,
-      salesContact: dto.salesContact ?? null,
-      techContact: dto.techContact ?? null,
-      remark: dto.remark ?? null,
-      enabled: dto.enabled ?? true,
+    this.assertValidName(dto.name);
+    return serializedTransaction(this.brandRepo.manager.connection, async (manager) => {
+      const repo = manager.getRepository(Brand);
+      const dup = await repo.findOne({ where: { name: dto.name } });
+      if (dup) throw new ConflictException(`品牌名已存在: ${dto.name}`);
+      const row = repo.create({
+        name: dto.name,
+        displayName: dto.displayName ?? null,
+        logoUrl: dto.logoUrl ?? null,
+        country: dto.country ?? null,
+        website: dto.website ?? null,
+        salesContact: dto.salesContact ?? null,
+        techContact: dto.techContact ?? null,
+        remark: dto.remark ?? null,
+        enabled: dto.enabled ?? true,
+      });
+      const saved = await repo.save(row);
+      return this.toView(saved, 0, 0);
     });
-    const saved = await this.brandRepo.save(row);
-    return this.toView(saved, 0, 0);
   }
 
   async update(id: number, dto: Partial<BrandUpsertDto>): Promise<BrandView> {
-    const row = await this.brandRepo.findOne({ where: { id } });
-    if (!row) throw new NotFoundException(`brand#${id} 不存在`);
-    if (dto.name && dto.name !== row.name) {
-      const dup = await this.brandRepo.findOne({ where: { name: dto.name } });
-      if (dup && dup.id !== id) throw new ConflictException(`品牌名已存在: ${dto.name}`);
-    }
-    Object.assign(row, {
-      ...(dto.name !== undefined && { name: dto.name }),
-      ...(dto.displayName !== undefined && { displayName: dto.displayName }),
-      ...(dto.logoUrl !== undefined && { logoUrl: dto.logoUrl }),
-      ...(dto.country !== undefined && { country: dto.country }),
-      ...(dto.website !== undefined && { website: dto.website }),
-      ...(dto.salesContact !== undefined && { salesContact: dto.salesContact }),
-      ...(dto.techContact !== undefined && { techContact: dto.techContact }),
-      ...(dto.remark !== undefined && { remark: dto.remark }),
-      ...(dto.enabled !== undefined && { enabled: dto.enabled }),
+    if (dto.name !== undefined) this.assertValidName(dto.name);
+    return serializedTransaction(this.brandRepo.manager.connection, async (manager) => {
+      const repo = manager.getRepository(Brand);
+      const row = await repo.findOne({ where: { id } });
+      if (!row) throw new NotFoundException(`brand#${id} 不存在`);
+      if (dto.name !== undefined && dto.name !== row.name) {
+        await this.assertUnreferenced(row, manager);
+        const dup = await repo.findOne({ where: { name: dto.name } });
+        if (dup && dup.id !== id) throw new ConflictException(`品牌名已存在: ${dto.name}`);
+      }
+      Object.assign(row, {
+        ...(dto.name !== undefined && { name: dto.name }),
+        ...(dto.displayName !== undefined && { displayName: dto.displayName }),
+        ...(dto.logoUrl !== undefined && { logoUrl: dto.logoUrl }),
+        ...(dto.country !== undefined && { country: dto.country }),
+        ...(dto.website !== undefined && { website: dto.website }),
+        ...(dto.salesContact !== undefined && { salesContact: dto.salesContact }),
+        ...(dto.techContact !== undefined && { techContact: dto.techContact }),
+        ...(dto.remark !== undefined && { remark: dto.remark }),
+        ...(dto.enabled !== undefined && { enabled: dto.enabled }),
+      });
+      const saved = await repo.save(row);
+      return this.detailWithManager(saved.id, manager);
     });
-    const saved = await this.brandRepo.save(row);
-    return this.detail(saved.id);
   }
 
   async remove(id: number): Promise<void> {
-    const row = await this.brandRepo.findOne({ where: { id } });
-    if (!row) return;
+    return serializedTransaction(this.brandRepo.manager.connection, async (manager) => {
+      const row = await manager.findOneBy(Brand, { id });
+      if (!row) return;
+      await this.assertUnreferenced(row, manager);
+      await manager.delete(Brand, { id });
+    });
+  }
+
+  private async assertUnreferenced(row: Brand, manager: EntityManager): Promise<void> {
     const [hwCount, driverCount] = await Promise.all([
-      this.hwRepo.count({ where: { vendor: row.name } }),
-      this.driverRepo.count({ where: { vendor: row.name } }),
+      manager.countBy(HardwareUnit, { vendor: row.name }),
+      manager.countBy(DriverTemplate, { vendor: row.name }),
     ]);
     if (hwCount + driverCount > 0) {
-      throw new ConflictException(
-        `不能删除: 品牌 "${row.name}" 还被 ${hwCount} 台设备 / ${driverCount} 个驱动引用. 先把那些记录的 vendor 改掉.`,
-      );
+      throw new ConflictException({
+        code: 'BRAND_REFERENCED',
+        message: `品牌 "${row.name}" 被 ${hwCount} 台设备 / ${driverCount} 个驱动引用，不能改标识或删除；可修改显示名称。`,
+        hardwareCount: hwCount,
+        driverCount,
+      });
     }
-    await this.brandRepo.delete({ id });
+  }
+
+  private assertValidName(name: unknown): void {
+    if (typeof name !== 'string' || !name.trim() || name.length > 128) {
+      throw new BadRequestException({
+        code: 'BRAND_NAME_INVALID',
+        message: '品牌标识必须是 1–128 字符的非空文本',
+      });
+    }
   }
 
   private toView(row: Brand, hardwareCount: number, driverCount: number): BrandView {

@@ -1,9 +1,4 @@
-import {
-  ConflictException,
-  Inject,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { FindOptionsWhere, Like, Repository } from 'typeorm';
@@ -13,11 +8,7 @@ import { HardwareUnit } from '../../entities/hardware-unit.entity';
 import { OperationLogService } from '../logs/operation-log.service';
 import { BrandsService } from '../brands/brands.service';
 import { PagedResult } from '../devices/devices.service';
-import {
-  CreateHardwareDto,
-  QueryHardwareDto,
-  UpdateHardwareDto,
-} from './dto/hardware.dto';
+import { CreateHardwareDto, QueryHardwareDto, UpdateHardwareDto } from './dto/hardware.dto';
 
 @Injectable()
 export class HardwareService {
@@ -76,31 +67,33 @@ export class HardwareService {
   }
 
   async create(dto: CreateHardwareDto, operator = 'admin'): Promise<HardwareUnit> {
-    const exists = await this.repo.findOne({ where: { code: dto.code } });
-    if (exists) throw new ConflictException(`硬件编号已存在: ${dto.code}`);
-    await this.brandsService.ensureReferenced(dto.vendor);
+    const saved = await this.brandsService.withReference(dto.vendor, async (manager) => {
+      const repo = manager.getRepository(HardwareUnit);
+      const exists = await repo.findOne({ where: { code: dto.code } });
+      if (exists) throw new ConflictException(`硬件编号已存在: ${dto.code}`);
 
-    const entity = this.repo.create({
-      code: dto.code,
-      name: dto.name,
-      category: dto.category,
-      vendor: dto.vendor,
-      model: dto.model,
-      driverKind: dto.driverKind ?? null,
-      serialNo: dto.serialNo ?? null,
-      firmwareVersion: dto.firmwareVersion ?? null,
-      location: dto.location ?? null,
-      floor: dto.floor ?? null,
-      ip: dto.ip ?? null,
-      macAddress: dto.macAddress ?? null,
-      addressing: dto.addressing ?? null,
-      channels: dto.channels ?? null,
-      status: dto.status ?? 'normal',
-      enabled: dto.enabled ?? true,
-      remark: dto.remark ?? null,
-      installedAt: dto.installedAt ?? null,
+      const entity = repo.create({
+        code: dto.code,
+        name: dto.name,
+        category: dto.category,
+        vendor: dto.vendor,
+        model: dto.model,
+        driverKind: dto.driverKind ?? null,
+        serialNo: dto.serialNo ?? null,
+        firmwareVersion: dto.firmwareVersion ?? null,
+        location: dto.location ?? null,
+        floor: dto.floor ?? null,
+        ip: dto.ip ?? null,
+        macAddress: dto.macAddress ?? null,
+        addressing: dto.addressing ?? null,
+        channels: dto.channels ?? null,
+        status: dto.status ?? 'normal',
+        enabled: dto.enabled ?? true,
+        remark: dto.remark ?? null,
+        installedAt: dto.installedAt ?? null,
+      });
+      return repo.save(entity);
     });
-    const saved = await this.repo.save(entity);
     this.logger.info(`Hardware created: ${saved.code} ${saved.model}`, {
       context: 'HardwareService',
     });
@@ -115,34 +108,38 @@ export class HardwareService {
   }
 
   async update(id: number, dto: UpdateHardwareDto, operator = 'admin'): Promise<HardwareUnit> {
-    const h = await this.findOne(id);
-    if (dto.code && dto.code !== h.code) {
-      const dup = await this.repo.findOne({ where: { code: dto.code } });
-      if (dup && dup.id !== id) throw new ConflictException(`硬件编号已存在: ${dto.code}`);
-    }
-    if (dto.vendor !== undefined) await this.brandsService.ensureReferenced(dto.vendor);
-    const oldIp = h.ip;
-    Object.assign(h, {
-      ...(dto.code !== undefined && { code: dto.code }),
-      ...(dto.name !== undefined && { name: dto.name }),
-      ...(dto.category !== undefined && { category: dto.category }),
-      ...(dto.vendor !== undefined && { vendor: dto.vendor }),
-      ...(dto.model !== undefined && { model: dto.model }),
-      ...(dto.driverKind !== undefined && { driverKind: dto.driverKind }),
-      ...(dto.serialNo !== undefined && { serialNo: dto.serialNo }),
-      ...(dto.firmwareVersion !== undefined && { firmwareVersion: dto.firmwareVersion }),
-      ...(dto.location !== undefined && { location: dto.location }),
-      ...(dto.floor !== undefined && { floor: dto.floor }),
-      ...(dto.ip !== undefined && { ip: dto.ip }),
-      ...(dto.macAddress !== undefined && { macAddress: dto.macAddress }),
-      ...(dto.addressing !== undefined && { addressing: dto.addressing }),
-      ...(dto.channels !== undefined && { channels: dto.channels }),
-      ...(dto.status !== undefined && { status: dto.status }),
-      ...(dto.enabled !== undefined && { enabled: dto.enabled }),
-      ...(dto.remark !== undefined && { remark: dto.remark }),
-      ...(dto.installedAt !== undefined && { installedAt: dto.installedAt }),
+    const { saved, oldIp } = await this.brandsService.withReference(dto.vendor, async (manager) => {
+      const repo = manager.getRepository(HardwareUnit);
+      // Read inside the transaction; a queued edit must not resurrect an older vendor.
+      const h = await repo.findOneBy({ id });
+      if (!h) throw new NotFoundException(`硬件不存在: id=${id}`);
+      if (dto.code && dto.code !== h.code) {
+        const dup = await repo.findOne({ where: { code: dto.code } });
+        if (dup && dup.id !== id) throw new ConflictException(`硬件编号已存在: ${dto.code}`);
+      }
+      const oldIp = h.ip;
+      Object.assign(h, {
+        ...(dto.code !== undefined && { code: dto.code }),
+        ...(dto.name !== undefined && { name: dto.name }),
+        ...(dto.category !== undefined && { category: dto.category }),
+        ...(dto.vendor !== undefined && { vendor: dto.vendor }),
+        ...(dto.model !== undefined && { model: dto.model }),
+        ...(dto.driverKind !== undefined && { driverKind: dto.driverKind }),
+        ...(dto.serialNo !== undefined && { serialNo: dto.serialNo }),
+        ...(dto.firmwareVersion !== undefined && { firmwareVersion: dto.firmwareVersion }),
+        ...(dto.location !== undefined && { location: dto.location }),
+        ...(dto.floor !== undefined && { floor: dto.floor }),
+        ...(dto.ip !== undefined && { ip: dto.ip }),
+        ...(dto.macAddress !== undefined && { macAddress: dto.macAddress }),
+        ...(dto.addressing !== undefined && { addressing: dto.addressing }),
+        ...(dto.channels !== undefined && { channels: dto.channels }),
+        ...(dto.status !== undefined && { status: dto.status }),
+        ...(dto.enabled !== undefined && { enabled: dto.enabled }),
+        ...(dto.remark !== undefined && { remark: dto.remark }),
+        ...(dto.installedAt !== undefined && { installedAt: dto.installedAt }),
+      });
+      return { saved: await repo.save(h), oldIp };
     });
-    const saved = await this.repo.save(h);
     this.logger.info(`Hardware updated: #${id} ${saved.code}`, { context: 'HardwareService' });
     await this.logService.record({
       operator,
@@ -184,8 +181,13 @@ export class HardwareService {
   }
 
   async remove(id: number, operator = 'admin'): Promise<void> {
-    const h = await this.findOne(id);
-    await this.repo.remove(h);
+    const h = await this.brandsService.withReference(undefined, async (manager) => {
+      const repo = manager.getRepository(HardwareUnit);
+      const row = await repo.findOneBy({ id });
+      if (!row) throw new NotFoundException(`硬件不存在: id=${id}`);
+      await repo.delete({ id });
+      return row;
+    });
     this.logger.info(`Hardware removed: #${id} ${h.code}`, { context: 'HardwareService' });
     await this.logService.record({
       operator,

@@ -10,6 +10,7 @@ const { verifyAudioMatrix } = require('./audio-matrix-browser.cjs');
 const { verifyAudioConfigEditor } = require('./audio-config-browser.cjs');
 const { verifyParkOpsLayout } = require('./park-ops-layout-browser.cjs');
 const { verifyPowerConfiguration } = require('./power-config-browser.cjs');
+const { verifyBrandReferenceIntegrity } = require('./brand-reference-browser.cjs');
 const backend = 'http://127.0.0.1:33291/api';
 function nodeFetch(url, init = {}) {
   const headers = new Headers(init.headers);
@@ -364,6 +365,7 @@ async function api(route, method, body, token, admin = false) {
         await verifyAudioConfigEditor(page, appBase, { api, admin, operator: accounts.operator.token, backend, nodeFetch });
         await verifyParkOpsLayout(context, appBase, { api, admin, operator: accounts.operator.token, backend, nodeFetch });
         await verifyPowerConfiguration(page, appBase, { api, admin, operator: accounts.operator.token, backend, nodeFetch });
+        await verifyBrandReferenceIntegrity(page, appBase, { api, admin, operator: accounts.operator.token, backend, nodeFetch });
 
         // Two editors cannot silently overwrite each other. This only writes the disposable SQLite domain.
         await page.goto(appBase + '/admin/park-ops-metrics');
