@@ -12,6 +12,7 @@ import { audioConfigService } from '@/services/audio-config.service';
 import { usePlaybackStore } from '@/stores/playback';
 import { addToPlaylist as apiAddToPlaylist } from '@/services/playback.service';
 import { BGM_SLOT, useBgmPlaylist } from '@/features/useBgmPlaylist';
+import { useAudioMatrix } from '@/features/useAudioMatrix';
 
 const router = useRouter();
 const route = useRoute();
@@ -20,40 +21,7 @@ const playbackStore = usePlaybackStore();
 const { ensureAdmin } = useAdminUnlock();
 const { bgmChannel, playlist, plIdx, playMode, plProgress, plPickerOpen, audioAssets, loadPlaylist, loadAudioAssets, stopPlTimer, syncPlaybackFromChannel, plCurrentItem, stopBgm, playAt, plTogglePause, plPrev, plNext, setPlayModeAndSave, fmtDuration, plEditingId, plEditingText, onPlRowClick, startRenamePl, commitRenamePl, clearPlaylist, addToPlaylist, removeFromPlaylist } = useBgmPlaylist({ playbackStore, ensureAdmin });
 
-/**
- * 从**设备**读真实路由表.
- *
- * 以前这里读的是 GET /audio/matrix/state —— 后端一个本地 JSON 文件, 记的是
- * "谁点过哪个交叉点", 不是设备状态。而且下发失败时前端照样存进去, 界面就会
- * 亮着一个从没接通过的交叉点。现在直接问设备 (一条命令, ~284ms)。
- *
- * 读不到时**保持上次的值并标记 matrixStale**, 不要清空 —— 清空会让界面看起来
- * "全部断开", 那同样是假的。
- */
-const matrixStale = ref(false);
-/** 矩阵设备离线(EKX-808 连不上) —— 跟"偶发读失败"分开, 单独给一条醒目提示 */
-const matrixOffline = ref(false);
-const matrixErrMsg = ref('');
-async function loadMatrixState(): Promise<void> {
-  try {
-    const r = await audioService.getLiveMatrix();
-    if (!r.ok || !r.data?.matrix) throw new Error(r.error || '读矩阵失败');
-    const next: Record<string, boolean> = {};
-    r.data.matrix.forEach((row, out) => {
-      row.forEach((on, inCh) => { next[`${out}_${inCh}`] = on; });
-    });
-    matrixOn.value = next;
-    matrixStale.value = false;
-    matrixOffline.value = false;
-    matrixErrMsg.value = '';
-  } catch (e) {
-    matrixStale.value = true;
-    const msg = (e as Error).message || '';
-    matrixErrMsg.value = msg;
-    // 后端离线快速失败会带"离线/连不上"; 超时类也归为离线
-    matrixOffline.value = /离线|连不上|offline|timed?\s*out|timeout/i.test(msg);
-  }
-}
+const { matrixStale, matrixOffline, matrixErrMsg, isMatrixOn, loadMatrixState, toggleMatrix, startMatrixPolling, stopMatrixPolling } = useAudioMatrix(message => ElMessage.error(message));
 
 // ============ EKX-808 一键场景 ============
 // 场景从后台配置拉 (业主可自定义名字), id = EKX 预设号 1-12
@@ -125,16 +93,13 @@ function onHoldEnd(): void {
   if (p >= 10 && p < 100) ElMessage.info('按住直到进度环走满才会执行');
 }
 onUnmounted(() => {
-  matrixPollStopped = true; // 见 scheduleMatrixPoll: 防 await 后又排一个孤儿 timer
   if (holdRaf) cancelAnimationFrame(holdRaf);
   stopPlTimer();
-  if (matrixTimer) clearTimeout(matrixTimer); // 不清会在切页面后继续打设备
-  if (reconcileTimer) clearTimeout(reconcileTimer); // 同上: 切走后别再对账
   // 拖推子过程中切页 → 别把锁滚动的全局监听漏在 document 上
   document.removeEventListener('touchmove', preventScrollWhileDragging);
 });
 // keep-alive 切走(组件被缓存、不卸载, 不触发 onUnmounted): 轮询由 useActivePolling
-// 停止, 这里补取消长按进度环 RAF 与拖动全局锁; 不置 matrixPollStopped 以便回来能恢复
+// 停止, 这里补取消长按进度环 RAF 与拖动全局锁
 onDeactivated(() => {
   if (holdRaf) cancelAnimationFrame(holdRaf);
   document.removeEventListener('touchmove', preventScrollWhileDragging);
@@ -145,27 +110,6 @@ async function refreshCurrentScene(): Promise<void> {
     const preset = wrapped?.data?.data?.preset;
     if (typeof preset === 'number' && preset >= 1 && preset <= 12) currentScene.value = preset;
   } catch { /* 静默 */ }
-}
-/**
- * 矩阵轮询 — 一条命令 ~284ms, 8s 一轮.
- * 这样别人用厂家 PC Editor 改了路由, 这边也能跟上; 更重要的是: 切页面回来
- * 看到的永远是设备当前的真实路由, 而不是本地记忆。
- */
-const MATRIX_POLL_MS = 8000;
-let matrixTimer: ReturnType<typeof setTimeout> | null = null;
-// 2026-07-19 加固: 同 HvacPage, 防切页时 await 后重排出孤儿轮询, 持续打单客户端矩阵。
-let matrixPollStopped = false;
-function scheduleMatrixPoll(): void {
-  matrixTimer = setTimeout(async () => {
-    // 有在途写入 / 正等着对账时别读: 设备可能还没落到最新值, 读回来会把用户刚点
-    // 的状态覆盖掉 (界面闪一下弹回去)。跳过这轮, 8s 后再来, 反正 scheduleReconcile
-    // 会在这批点完后对一次账。
-    if (!document.hidden && pendingWrites.value === 0 && reconcileTimer === null) {
-      // C3: 页面在后台不打设备 (plTimer 进度条是纯本地 UI, 不用管)
-      await loadMatrixState();
-    }
-    if (!matrixPollStopped) scheduleMatrixPoll();
-  }, MATRIX_POLL_MS);
 }
 
 onMounted(async () => {
@@ -227,18 +171,16 @@ let firstActivation = true;
 function startAudioPolling(): void {
   if (audioPollActive) return; // mounted+activated 双触发, 幂等
   audioPollActive = true;
-  matrixPollStopped = false;
+  startMatrixPolling();
   if (!firstActivation) {
     void loadMatrixState();
     void syncPlaybackFromChannel(bgmChannel.value?.currentMediaId); // 重启进度秒针
   }
   firstActivation = false; // 首次进页 onMounted 已做全量加载, 不重复
-  scheduleMatrixPoll();
 }
 function stopAudioPolling(): void {
   audioPollActive = false;
-  matrixPollStopped = true;
-  if (matrixTimer) { clearTimeout(matrixTimer); matrixTimer = null; }
+  stopMatrixPolling();
   stopPlTimer(); // 进度秒针纯视觉, 回页由上面的 sync 重算
 }
 useActivePolling(startAudioPolling, stopAudioPolling);
@@ -404,71 +346,7 @@ async function loadInputs(): Promise<void> {
     inputs.value = rows.map((s) => ({ channel: s.channel, name: s.name }));
   } catch { /* 拉不到就空 */ }
 }
-// 矩阵本地状态: key = `${outCh}_${inCh}` → 接通与否. 乐观更新 (不回读设备真实矩阵).
-const matrixOn = ref<Record<string, boolean>>({});
-function isMatrixOn(outCh: number, inCh: number): boolean {
-  return !!matrixOn.value[`${outCh}_${inCh}`];
-}
-/**
- * 点交叉点 → 立即变色 → 后台下发 → 一批点完后**统一复读一次**设备.
- *
- * 失败就回滚成点击前的样子, 不留假连接 (以前失败会 saveMatrixState 把"已接通"
- * 存进本地文件, 提示还写"界面已保存" —— 等于显示一个设备上不存在的连接)。
- *
- * 2026-07-17 性能返工 (业主: "选择和取消动作太迟钝")。原来每点一下要跑两条
- * 设备命令: setMatrix(~287ms) + 收尾的整表复读(~287ms) ≈ 600ms, 而这 600ms
- * 里 matrixBusy 把这个点锁死、**再点直接被静默吞掉**(手感=点了没反应)。
- * EKX808 又是单客户端串行锁, 连点 5 下 = 10 条命令排队 ≈ 3 秒; 后端限流还是
- * 6 次/秒, 而每次点击发两个请求 -> 连点三下就撞限流报错。
- *
- * 现在: 每次点击只发**一条**命令, 不再逐次复读 (交给下面的防抖复读 + 8s 轮询);
- * 同一个点连点用"最后一次为准"合并, 不吞点击。
- */
-// 同一个交叉点的目标态 (最后一次点击为准); 有在途请求时不重复起循环
-const desiredCross = new Map<string, boolean>();
-const inFlightCross = new Set<string>();
-const pendingWrites = ref<number>(0);
 
-// 一批点完后再复读一次设备对账 —— 别每点一下都读
-let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
-function scheduleReconcile(): void {
-  if (reconcileTimer) clearTimeout(reconcileTimer);
-  reconcileTimer = setTimeout(() => {
-    reconcileTimer = null;
-    if (pendingWrites.value === 0) void loadMatrixState();
-  }, 1200);
-}
-
-async function toggleMatrix(outCh: number, inCh: number): Promise<void> {
-  const key = `${outCh}_${inCh}`;
-  const before = !!matrixOn.value[key];
-  const want = !before;
-  matrixOn.value = { ...matrixOn.value, [key]: want };   // 乐观: 点击瞬间跟手
-  desiredCross.set(key, want);
-
-  // 已有在途循环: 它会读走最新的 desiredCross, 这里直接返回 (但界面已经翻好了)
-  if (inFlightCross.has(key)) return;
-  inFlightCross.add(key);
-  pendingWrites.value += 1;
-  try {
-    // 排空: 期间又被点了就只发最后那个值, 中间的跳过 —— 少打设备
-    while (desiredCross.has(key)) {
-      const v = desiredCross.get(key) as boolean;
-      desiredCross.delete(key);
-      const res = await audioService.setMatrix(outCh, inCh, v);
-      if (!res.ok) throw new Error(res.error || '设备未确认');
-    }
-  } catch (err) {
-    desiredCross.delete(key);
-    matrixOn.value = { ...matrixOn.value, [key]: before }; // 失败=回到原样
-    ElMessage.error(`路由 OUT${outCh + 1}←IN${inCh + 1} 失败: ${(err as Error).message}`);
-    void loadMatrixState();                                // 失败才立刻对账
-  } finally {
-    inFlightCross.delete(key);
-    pendingWrites.value -= 1;
-    scheduleReconcile();
-  }
-}
 
 /**
  * 输入增益 — **读设备真实值**, 不再是"默认 80% 的本地状态".
