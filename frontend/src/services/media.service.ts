@@ -26,6 +26,11 @@ async function mediaRequest(method: 'GET' | 'POST' | 'DELETE', url: string, data
       signal: controller.signal,
       headers: {
         ...config.headers,
+        // Axios 1.20 injects its own User-Agent in the fetch adapter. Safari
+        // preserves it (unlike Chromium), adding a disallowed CORS preflight
+        // header even for list reads. false prevents Axios from re-inserting it;
+        // the browser must supply its own User-Agent. Keep redirect/auth isolation.
+        'User-Agent': false,
         ...(clientToken ? { 'X-Client-Token': clientToken } : {}),
         ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}),
       },

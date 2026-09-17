@@ -182,6 +182,37 @@ test('media requests release identity listeners after successful completion', as
   assert.equal(captured.signal.aborted, false);
 });
 
+test('real media fetch adapter does not inject a User-Agent that Safari adds to CORS preflight', async () => {
+  const axios = require('axios');
+  const sent = [];
+  const { http, media } = load(async () => response(), config => axios.request({
+    ...config,
+    env: { fetch: async request => {
+      sent.push(request);
+      // Safari preserves custom User-Agent and therefore preflights it. Production
+      // deliberately does not allow callers to replace browser-owned identity headers.
+      if (request.headers.has('User-Agent')) throw new TypeError('Load failed');
+      return new Response(JSON.stringify({ data: { items: [], total: 0, id: 1 } }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } },
+  }));
+  http.setClientToken('local-user-fixture');
+  http.setAdminToken('local-admin-fixture');
+  assert.equal((await media.list({ scope: 'visible', limit: 50 })).total, 0);
+  await media.upload(new Blob(['fixture']));
+  assert.equal(sent.length, 2);
+  for (const request of sent) {
+    assert.equal(request.headers.has('User-Agent'), false);
+    assert.equal(request.headers.get('Authorization'), 'Bearer local-admin-fixture');
+    assert.equal(request.headers.get('X-Client-Token'), 'local-user-fixture');
+    assert.equal(request.redirect, 'error');
+    assert.equal(request.cache, 'no-store');
+    assert.equal(request.credentials, 'omit');
+  }
+  assert.equal(sent[1].headers.get('X-Upload-Size'), '7');
+});
+
 test('role downgrade invalidates rendered data and stops permitting admin actions', async () => {
   let role = 'admin';
   const env = load(async () => response(200, { kind: 'user', userId: 1, username: 'alice', role }));
