@@ -9,12 +9,19 @@ import {
   Post,
   Put,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import { PowerCircuitsService } from './power-circuits.service';
+import { AuthenticatedRequest, requireAdmin } from '../../common/auth/actor';
 import {
-  PowerCircuitsService,
-  type PowerCircuitUpsertDto,
-} from './power-circuits.service';
+  CreatePowerConfigDto,
+  UpdatePowerConfigDto,
+  LegacyUpdatePowerConfigDto,
+  RenamePowerConfigDto,
+  PowerConfigRevisionQueryDto,
+  LegacyPowerConfigRevisionQueryDto,
+} from './power-config.dto';
 import { AdminGuard } from '../admin-auth/admin-auth.guard';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 
@@ -28,6 +35,53 @@ import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard'
 @Controller('power-circuits')
 export class PowerCircuitsController {
   constructor(private readonly service: PowerCircuitsService) {}
+
+  @Get('configuration')
+  @UseGuards(AdminGuard)
+  async configurationList(@Req() req: AuthenticatedRequest) {
+    requireAdmin(req);
+    return { data: await this.service.listConfiguration() };
+  }
+
+  @Get('configuration/:id')
+  @UseGuards(AdminGuard)
+  async configuration(@Req() req: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number) {
+    requireAdmin(req);
+    return { data: await this.service.configuration(id) };
+  }
+
+  @Post('configuration')
+  @UseGuards(AdminGuard)
+  async createConfiguration(@Req() req: AuthenticatedRequest, @Body() dto: CreatePowerConfigDto) {
+    return {
+      message: '配置已保存',
+      data: await this.service.saveConfiguration(null, dto, requireAdmin(req)),
+    };
+  }
+
+  @Put('configuration/:id')
+  @UseGuards(AdminGuard)
+  async updateConfiguration(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdatePowerConfigDto,
+  ) {
+    return {
+      message: '配置已保存',
+      data: await this.service.saveConfiguration(id, dto, requireAdmin(req)),
+    };
+  }
+
+  @Delete('configuration/:id')
+  @UseGuards(AdminGuard)
+  async removeConfiguration(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Query() query: PowerConfigRevisionQueryDto,
+  ) {
+    await this.service.remove(id, query.expectedRevision, requireAdmin(req));
+    return { message: '配置已删除', data: null };
+  }
 
   @Get()
   async list(@Query('includeDisabled') includeDisabled?: string) {
@@ -64,8 +118,15 @@ export class PowerCircuitsController {
   @UseGuards(AdminGuard)
   @UseGuards(RateLimitGuard)
   @RateLimit({ max: 4, windowMs: 1000 })
-  async rename(@Param('id', ParseIntPipe) id: number, @Body() body: { name?: string } = {}) {
-    return { message: '已改名', data: await this.service.rename(id, body.name ?? '') };
+  async rename(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: RenamePowerConfigDto,
+  ) {
+    return {
+      message: '已改名',
+      data: await this.service.rename(id, body.name, body.expectedRevision, requireAdmin(req)),
+    };
   }
 
   @Get(':id')
@@ -81,24 +142,29 @@ export class PowerCircuitsController {
 
   @Post()
   @UseGuards(AdminGuard)
-  async create(@Body() dto: PowerCircuitUpsertDto) {
-    return { message: '创建成功', data: await this.service.create(dto) };
+  async create(@Req() req: AuthenticatedRequest, @Body() dto: CreatePowerConfigDto) {
+    return { message: '创建成功', data: await this.service.create(dto, requireAdmin(req)) };
   }
 
   @Put(':id')
   @UseGuards(AdminGuard)
   async update(
+    @Req() req: AuthenticatedRequest,
     @Param('id', ParseIntPipe) id: number,
-    @Body() dto: Partial<PowerCircuitUpsertDto>,
+    @Body() dto: LegacyUpdatePowerConfigDto,
   ) {
-    return { message: '更新成功', data: await this.service.update(id, dto) };
+    return { message: '更新成功', data: await this.service.update(id, dto, requireAdmin(req)) };
   }
 
   @Delete(':id')
   @UseGuards(AdminGuard)
   @HttpCode(200)
-  async remove(@Param('id', ParseIntPipe) id: number) {
-    await this.service.remove(id);
+  async remove(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Query() query: LegacyPowerConfigRevisionQueryDto,
+  ) {
+    await this.service.remove(id, query.expectedRevision, requireAdmin(req));
     return { message: '删除成功', data: null };
   }
 

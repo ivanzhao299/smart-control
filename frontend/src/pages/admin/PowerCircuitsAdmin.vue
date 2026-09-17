@@ -1,165 +1,28 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import AppSkeleton from '@/components/AppSkeleton.vue';
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
-import {
-  powerCircuitsService,
-  type PowerCircuitView,
-  type PowerCircuitUpsertDto,
-} from '@/services/power-circuits.service';
-
+import { type FormInstance, type FormRules } from 'element-plus';
+import { usePowerConfigEditor } from '@/features/usePowerConfigEditor';
+const { list, loading, saving, needsReload, editVisible, editMode, form, refresh, openCreate, openEdit, submit: saveConfig, remove, toggleEnabled } = usePowerConfigEditor();
 const CATEGORIES = [
-  { value: 'lighting', label: '照明' },
-  { value: 'socket',   label: '插座' },
-  { value: 'hvac',     label: '空调' },
-  { value: 'led',      label: 'LED 大屏' },
-  { value: 'audio',    label: '音响' },
-  { value: 'misc',     label: '其它' },
+  { value: 'lighting', label: '照明' }, { value: 'socket', label: '插座' },
+  { value: 'hvac', label: '空调' }, { value: 'led', label: 'LED 大屏' },
+  { value: 'audio', label: '音响' }, { value: 'misc', label: '其它' },
 ];
-
-const list = ref<PowerCircuitView[]>([]);
-const loading = ref(false);
-const search = ref('');
-const floorFilter = ref<string>('');
-
-const floorOptions = computed<string[]>(() => {
-  const set = new Set<string>();
-  for (const c of list.value) set.add(c.floor);
-  return Array.from(set).sort();
-});
-
-const filtered = computed<PowerCircuitView[]>(() => {
-  let rows = list.value;
-  if (floorFilter.value) rows = rows.filter((c) => c.floor === floorFilter.value);
-  if (search.value.trim()) {
-    const q = search.value.trim().toLowerCase();
-    rows = rows.filter((c) =>
-      c.name.toLowerCase().includes(q) ||
-      c.code.toLowerCase().includes(q) ||
-      (c.gatewayCode ?? '').toLowerCase().includes(q)
-    );
-  }
-  return rows;
-});
-
-async function refresh(): Promise<void> {
-  loading.value = true;
-  try {
-    list.value = await powerCircuitsService.list(true);
-  } catch (err) {
-    ElMessage.error(`加载失败: ${(err as Error).message}`);
-  } finally {
-    loading.value = false;
-  }
-}
-
-const editVisible = ref(false);
-const editMode = ref<'create' | 'edit'>('create');
+const search = ref(''), floorFilter = ref('');
 const formRef = ref<FormInstance>();
-
-interface FormState extends PowerCircuitUpsertDto { id?: number }
-const form = reactive<FormState>({
-  code: '', name: '', floor: '1F', category: 'misc',
-  gatewayCode: '', relayChannel: 1, meterAddress: null,
-  ratedVoltage: 220, ratedCurrent: 16, ratedPower: 0,
-  sortOrder: 100, icon: 'Zap', description: '', enabled: true,
-});
-
+const floorOptions = computed(() => [...new Set(list.value.map(row => row.floor))].sort());
+const filtered = computed(() => list.value.filter(row => (!floorFilter.value || row.floor === floorFilter.value) &&
+  (!search.value.trim() || [row.name, row.code, row.gatewayCode || ''].some(value => value.toLowerCase().includes(search.value.trim().toLowerCase())))));
 const rules: FormRules = {
   code: [{ required: true, message: 'code 必填', trigger: 'blur' }],
   name: [{ required: true, message: '显示名必填', trigger: 'blur' }],
   floor: [{ required: true, message: '楼层必填', trigger: 'blur' }],
-  category: [{ required: true, message: '类型必填', trigger: 'change' }],
 };
-
-function openCreate(): void {
-  editMode.value = 'create';
-  Object.assign(form, {
-    id: undefined,
-    code: '', name: '', floor: floorFilter.value || '1F', category: 'misc',
-    gatewayCode: '', relayChannel: 1, meterAddress: null,
-    ratedVoltage: 220, ratedCurrent: 16, ratedPower: 0,
-    sortOrder: 100, icon: 'Zap', description: '', enabled: true,
-  });
-  editVisible.value = true;
+async function submit() {
+  if (!formRef.value || saving.value || loading.value || needsReload.value) return;
+  if (await formRef.value.validate().catch(() => false)) await saveConfig();
 }
-
-function openEdit(row: PowerCircuitView): void {
-  editMode.value = 'edit';
-  Object.assign(form, {
-    id: row.id,
-    code: row.code, name: row.name, floor: row.floor, category: row.category,
-    gatewayCode: row.gatewayCode ?? '', relayChannel: row.relayChannel ?? 1,
-    meterAddress: row.meterAddress, ratedVoltage: row.ratedVoltage,
-    ratedCurrent: row.ratedCurrent, ratedPower: row.ratedPower,
-    sortOrder: row.sortOrder, icon: row.icon ?? 'Zap',
-    description: row.description ?? '', enabled: row.enabled,
-  });
-  editVisible.value = true;
-}
-
-async function submit(): Promise<void> {
-  if (!formRef.value) return;
-  await formRef.value.validate(async (valid) => {
-    if (!valid) return;
-    const payload: PowerCircuitUpsertDto = {
-      code: form.code.trim(),
-      name: form.name.trim(),
-      floor: form.floor.trim(),
-      category: form.category,
-      gatewayCode: (form.gatewayCode || '').trim() || null,
-      relayChannel: Number(form.relayChannel ?? 1) || null,
-      meterAddress: form.meterAddress != null ? Number(form.meterAddress) : null,
-      ratedVoltage: Number(form.ratedVoltage ?? 220),
-      ratedCurrent: Number(form.ratedCurrent ?? 16),
-      ratedPower: Number(form.ratedPower ?? 0),
-      sortOrder: Number(form.sortOrder ?? 100),
-      icon: (form.icon || 'Zap').trim() || null,
-      description: (form.description || '').trim() || null,
-      enabled: form.enabled ?? true,
-    };
-    try {
-      if (editMode.value === 'create') {
-        await powerCircuitsService.create(payload);
-        ElMessage.success('已新增电源回路');
-      } else if (form.id) {
-        await powerCircuitsService.update(form.id, payload);
-        ElMessage.success('已更新电源回路');
-      }
-      editVisible.value = false;
-      await refresh();
-    } catch (err) {
-      ElMessage.error(`保存失败: ${(err as Error).message}`);
-    }
-  });
-}
-
-async function remove(row: PowerCircuitView): Promise<void> {
-  try {
-    await ElMessageBox.confirm(
-      `删除电源回路 "${row.name}" (${row.code})?`,
-      '确认删除',
-      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
-    );
-  } catch { return; }
-  try {
-    await powerCircuitsService.remove(row.id);
-    ElMessage.success('已删除');
-    await refresh();
-  } catch (err) {
-    ElMessage.error(`删除失败: ${(err as Error).message}`);
-  }
-}
-
-async function toggleEnabled(row: PowerCircuitView): Promise<void> {
-  try {
-    await powerCircuitsService.update(row.id, { enabled: !row.enabled });
-    await refresh();
-  } catch (err) {
-    ElMessage.error(`切换状态失败: ${(err as Error).message}`);
-  }
-}
-
 onMounted(refresh);
 </script>
 
@@ -171,12 +34,13 @@ onMounted(refresh);
         <el-option v-for="f in floorOptions" :key="f" :label="f" :value="f" />
       </el-select>
       <el-input v-model="search" placeholder="搜索名称 / code / 继电器" clearable class="search-inp" />
-      <el-button type="primary" class="head-add" @click="openCreate">新增回路</el-button>
-      <el-button @click="refresh" :loading="loading">刷新</el-button>
+      <el-button type="primary" class="head-add" :disabled="loading || saving || needsReload" @click="openCreate(floorFilter || '1F')">新增回路</el-button>
+      <el-button @click="refresh" :loading="loading" :disabled="saving">重新读取</el-button>
     </header>
     <p class="sub">
-      每条回路 = 一路强电继电器通道 + 可选电能表. 通断走 gatewayCode/relayChannel, 实时数据走 meterAddress (留空则 mock 模拟).
+      此页只管理回路配置，保存、启用和删除均不发送通断电命令，也不等待硬件读数。实时状态请在电源控制页查看。
     </p>
+    <el-alert v-if="needsReload" title="尚未取得可保存的最新版本。草稿已保留，请重新读取。" type="warning" :closable="false" />
 
     <AppSkeleton v-if="loading && filtered.length === 0" variant="table" :rows="8" />
     <el-table v-else :data="filtered" v-loading="loading" stripe class="circuits-table">
@@ -210,17 +74,16 @@ onMounted(refresh);
           <code class="gw-code">{{ row.ratedVoltage }}V · {{ row.ratedCurrent }}A · {{ row.ratedPower }}W</code>
         </template>
       </el-table-column>
-      <el-table-column label="状态" width="80" align="center">
+      <el-table-column label="配置版本" width="90" align="center">
         <template #default="{ row }">
-          <el-tag size="default" :type="row.reading.on ? 'success' : 'info'">
-            {{ row.reading.on ? '通电' : '断电' }}
-          </el-tag>
+          <el-tag size="default">{{ row.configRevision }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="启用" width="84" align="center">
         <template #default="{ row }">
           <el-switch
             :model-value="row.enabled"
+            :disabled="loading || saving || needsReload"
             @change="toggleEnabled(row)"
             inline-prompt
             active-text="启用"
@@ -230,8 +93,8 @@ onMounted(refresh);
       </el-table-column>
       <el-table-column label="操作" width="110" fixed="right">
         <template #default="{ row }">
-          <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-          <el-button link type="danger" @click="remove(row)">删除</el-button>
+          <el-button link type="primary" :disabled="loading || saving || needsReload" @click="openEdit(row)">编辑</el-button>
+          <el-button link type="danger" :disabled="loading || saving || needsReload" @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -241,6 +104,7 @@ onMounted(refresh);
       :title="editMode === 'create' ? '新增电源回路' : `编辑 — ${form.name}`"
       size="40%" direction="rtl"
     >
+      <el-alert v-if="needsReload" title="草稿已保留；复制需要保留的内容后，重新读取最新配置。" type="warning" :closable="false" />
       <el-form ref="formRef" :model="form" :rules="rules" label-width="110px" label-position="right" class="form">
         <el-form-item label="业务 code" prop="code">
           <el-input v-model="form.code" :disabled="editMode === 'edit'" placeholder="e.g. 1f-main, 2f-hvac" />
@@ -258,7 +122,7 @@ onMounted(refresh);
         </el-form-item>
         <el-form-item label="继电器 code">
           <el-input v-model="form.gatewayCode" placeholder="对应 硬件清单 power-relay 设备 code, e.g. RELAY-1F-1" />
-          <div class="hint">没装继电器留空, 操作不会真打硬件</div>
+          <div class="hint">此项决定后续控制目标，必须依据现场接线配置；保存本身不操作设备。</div>
         </el-form-item>
         <el-form-item label="通道号">
           <el-input-number v-model="form.relayChannel" :min="1" :max="32" controls-position="right" />
@@ -292,7 +156,8 @@ onMounted(refresh);
       </el-form>
       <template #footer>
         <el-button @click="editVisible = false">取消</el-button>
-        <el-button type="primary" @click="submit">保存</el-button>
+        <el-button @click="refresh" :disabled="saving || loading">重新读取</el-button>
+        <el-button type="primary" :loading="saving" :disabled="loading || saving || needsReload" @click="submit">保存</el-button>
       </template>
     </el-drawer>
   </section>

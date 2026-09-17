@@ -13,6 +13,7 @@ export interface PowerReading {
 
 export interface PowerCircuitView {
   id: number;
+  configRevision: number;
   code: string;
   name: string;
   floor: string;
@@ -76,8 +77,21 @@ export interface PowerCircuitUpsertDto {
 }
 
 const PC = 'power-circuits:list';
+export type PowerCircuitConfigView = Omit<PowerCircuitView, 'reading' | 'isBreaker'>;
+/** Late telemetry may refresh readings, never roll metadata back to an older revision. */
+export function mergePowerCircuitView(incoming: PowerCircuitView, current?: PowerCircuitView): PowerCircuitView {
+  if (!current || !Number.isSafeInteger(current.configRevision) || incoming.configRevision >= current.configRevision) return incoming;
+  const { reading: _reading, isBreaker: _isBreaker, ...metadata } = current;
+  return { ...incoming, ...metadata };
+}
+const revision = (value: number) => {
+  if (!Number.isSafeInteger(value) || value < 1) throw new Error('未取得有效配置版本，请重新读取');
+  return value;
+};
 
 export const powerCircuitsService = {
+  configurationList: () => api.get<PowerCircuitConfigView[]>('/power-circuits/configuration'),
+  configuration: (id: number) => api.get<PowerCircuitConfigView>(`/power-circuits/configuration/${id}`),
   // SWR 缓存; on/off 也 invalidate (它们改 reading.on, 列表"状态"列要刷新)
   list: (includeDisabled = false) =>
     queryOnce(`${PC}:${includeDisabled}`, () =>
@@ -86,20 +100,20 @@ export const powerCircuitsService = {
       })),
   detail: (id: number) => api.get<PowerCircuitView>(`/power-circuits/${id}`),
   create: (dto: PowerCircuitUpsertDto) =>
-    api.post<PowerCircuitView>('/power-circuits', dto).then((r) => { invalidate(PC); return r; }),
-  update: (id: number, dto: Partial<PowerCircuitUpsertDto>) =>
-    api.put<PowerCircuitView>(`/power-circuits/${id}`, dto).then((r) => { invalidate(PC); return r; }),
-  remove: (id: number) =>
-    api.del<null>(`/power-circuits/${id}`).then((r) => { invalidate(PC); return r; }),
+    api.post<PowerCircuitConfigView>('/power-circuits/configuration', dto).then((r) => { invalidate(PC); return r; }),
+  update: (id: number, dto: Partial<PowerCircuitUpsertDto> & { expectedRevision: number }) =>
+    api.put<PowerCircuitConfigView>(`/power-circuits/configuration/${id}`, { ...dto, expectedRevision: revision(dto.expectedRevision) }).then((r) => { invalidate(PC); return r; }),
+  remove: (id: number, expectedRevision: number) =>
+    api.del<null>(`/power-circuits/configuration/${id}?expectedRevision=${revision(expectedRevision)}`).then((r) => { invalidate(PC); return r; }),
   on: (id: number) =>
     api.post<PowerCircuitView>(`/power-circuits/${id}/on`).then((r) => { invalidate(PC); return r; }),
   off: (id: number) =>
     api.post<PowerCircuitView>(`/power-circuits/${id}/off`).then((r) => { invalidate(PC); return r; }),
   /** 空开专属: 三相分相 + 4 路温度 + 漏电 + 报警位 (只对 isBreaker 回路有意义) */
   breaker: (id: number) => api.get<BreakerMeasurements>(`/power-circuits/${id}/breaker`),
-  /** 改名 (电源页行内编辑, 不需要 admin) */
-  rename: (id: number, name: string) =>
-    api.post<PowerCircuitView>(`/power-circuits/${id}/rename`, { name }).then((r) => { invalidate(PC); return r; }),
+  /** Administrator rename changes metadata only, never waits for telemetry. */
+  rename: (id: number, name: string, expectedRevision: number) =>
+    api.put<PowerCircuitConfigView>(`/power-circuits/configuration/${id}`, { name, expectedRevision: revision(expectedRevision) }).then((r) => { invalidate(PC); return r; }),
   /** 时序器全开 (b3) — 设备按各路延时依次上电 */
   seqAllOn: () =>
     api.post<{ on: boolean }>('/power-circuits/sequencer/all-on').then((r) => { invalidate(PC); return r; }),

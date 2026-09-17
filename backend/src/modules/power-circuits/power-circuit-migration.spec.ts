@@ -5,6 +5,7 @@ import { DataSource } from 'typeorm';
 import { PowerCircuit } from '../../entities/power-circuit.entity';
 import { InitialBaseline1784561601801 } from '../../migrations/1784561601801-InitialBaseline';
 import { EstablishPowerCircuitDefaults1789600000000 } from '../../migrations/1789600000000-EstablishPowerCircuitDefaults';
+import { AddPowerConfigRevision1789700000000 } from '../../migrations/1789700000000-AddPowerConfigRevision';
 
 describe('EstablishPowerCircuitDefaults migration', () => {
   let directory: string;
@@ -16,7 +17,11 @@ describe('EstablishPowerCircuitDefaults migration', () => {
       type: 'better-sqlite3',
       database: join(directory, 'migration.sqlite'),
       entities: [PowerCircuit],
-      migrations: [InitialBaseline1784561601801, EstablishPowerCircuitDefaults1789600000000],
+      migrations: [
+        InitialBaseline1784561601801,
+        EstablishPowerCircuitDefaults1789600000000,
+        AddPowerConfigRevision1789700000000,
+      ],
       migrationsTableName: 'migrations',
       synchronize: false,
     });

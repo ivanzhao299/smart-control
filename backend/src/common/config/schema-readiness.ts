@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 
 export const REQUIRED_SCHEMA_MIGRATIONS = [
+  'AddPowerConfigRevision1789700000000',
   'AddAudioConfigRevisions1789690000000',
   'AddDisplayFit1785030000000',
   'AddDocScreening1785120000000',
@@ -35,6 +36,7 @@ export const REQUIRED_SCHEMA_MIGRATIONS = [
 ] as const;
 
 export const REQUIRED_SCHEMA_COLUMNS: Record<string, string[]> = {
+  power_circuit: ['config_revision'],
   audio_output_zone: ['config_revision'],
   audio_input_source: ['config_revision'],
   audio_scene: ['config_revision'],

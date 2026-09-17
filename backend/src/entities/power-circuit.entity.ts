@@ -29,6 +29,9 @@ export class PowerCircuit {
   @PrimaryGeneratedColumn()
   id!: number;
 
+  @Column({ name: 'config_revision', type: 'integer', default: 1 })
+  configRevision!: number;
+
   /** 业务编码 e.g. '1f-main', '1f-lighting', '2f-hvac', 唯一. */
   @Index({ unique: true })
   @Column({ type: 'varchar', length: 64 })

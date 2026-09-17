@@ -31,6 +31,8 @@
 
 2026-09-17 本地候选补充（未部署）：第 41 个迁移为三张音频目录表增加 `config_revision`，目录和实时期望字段仍在原关系表；命名操作者及变更快照进入既有 `audit_logs` 并随 SQLite 配套备份。修订和审计不构成第二份业务权威源。详见 [音响配置编辑契约](./AUDIO_CONFIG_EDITOR_CONTRACT.md)；旧生产资产表结论不据此改为已迁移。
 
+2026-09-17 本地候选第七批补充（未部署）：第 42 个迁移仅为 `power_circuit` 增加 `config_revision`，旧接线、名称、额定值和启用字段不变。电源配置与 `audit_logs` 同事务，纯配置接口不读取或操纵硬件。候选累计包含第 41、42 两项未发布迁移；历史生产清单不能据此标为已升级。详见 [电源配置契约](./POWER_CONFIGURATION_CONTRACT.md)。
+
 1. **权威业务数据**：SQLite 与媒体文件。必须备份、校验、可恢复，不允许由部署覆盖。
 2. **冻结迁移来源**：`video-binding.json(.bak)`、`park-ops-metrics.json(.bak)` 与 `system_branding_v2.parkOpsConfigJson` 均已停止写入，仅保留为首迁导入和恢复对账证据，不再是运行时权威源。
 3. **可重建运行状态**：大屏当前页、进程状态、缓存与 PWA 缓存。故障时允许重建，但不得伪装成业务配置。

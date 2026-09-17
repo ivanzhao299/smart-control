@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useActivePolling } from '@/composables/useActivePolling';
+import { useAdminUnlock } from '@/composables/useAdminUnlock';
+import { usePowerCircuitRename } from '@/features/usePowerCircuitRename';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { haptics } from '@/services/haptics';
 import { useRouter } from 'vue-router';
@@ -11,6 +13,7 @@ import {
 } from 'lucide-vue-next';
 import {
   powerCircuitsService,
+  mergePowerCircuitView,
   type PowerCircuitView,
   type BreakerMeasurements,
 } from '@/services/power-circuits.service';
@@ -32,7 +35,8 @@ async function loadCircuits(): Promise<void> {
   loading.value = true;
   loadError.value = null;
   try {
-    circuits.value = await powerCircuitsService.list();
+    const incoming = await powerCircuitsService.list();
+    circuits.value = incoming.map(row => mergePowerCircuitView(row, circuits.value.find(current => current.id === row.id)));
     const floors = floorOptions.value;
     if (!floors.includes(floorTab.value) && floors.length > 0) {
       floorTab.value = floors[0];
@@ -72,7 +76,7 @@ async function dispatchOne(c: PowerCircuitView, op: 'on' | 'off'): Promise<void>
       ? await powerCircuitsService.on(c.id)
       : await powerCircuitsService.off(c.id);
     const idx = circuits.value.findIndex((x) => x.id === c.id);
-    if (idx >= 0) circuits.value[idx] = updated;
+    if (idx >= 0) circuits.value[idx] = mergePowerCircuitView(updated, circuits.value[idx]);
   } catch (err) {
     const idx = circuits.value.findIndex((x) => x.id === c.id);
     if (idx >= 0) circuits.value[idx] = { ...circuits.value[idx], reading: { ...circuits.value[idx].reading, on: prevOn } };
@@ -104,25 +108,8 @@ async function seqAll(on: boolean): Promise<void> {
 // ============ 行内改名 (每一路名称业主可自定义) ============
 // script setup 里的局部指令: <input v-focus> 挂载即聚焦 (动态插入的输入框 autofocus 不可靠)
 const vFocus = { mounted: (el: HTMLElement) => el.focus() };
-const renamingId = ref<number | null>(null);
-const renameDraft = ref('');
-function startRename(c: PowerCircuitView): void {
-  renamingId.value = c.id;
-  renameDraft.value = c.name;
-}
-async function commitRename(c: PowerCircuitView): Promise<void> {
-  const name = renameDraft.value.trim();
-  renamingId.value = null;
-  if (!name || name === c.name) return;
-  try {
-    const updated = await powerCircuitsService.rename(c.id, name);
-    const idx = circuits.value.findIndex((x) => x.id === c.id);
-    if (idx >= 0) circuits.value[idx] = updated;
-    ElMessage.success('已改名');
-  } catch (err) {
-    ElMessage.error(`改名失败: ${(err as Error).message}`);
-  }
-}
+const { ensureAdmin } = useAdminUnlock();
+const { renamingId, renameDraft, renameNeedsReload, startRename, commitRename, cancelRename } = usePowerCircuitRename(circuits, ensureAdmin);
 
 // 空开专属详情 (三相分相 + 温度 + 漏电 + 报警) — 只对 isBreaker 回路, 点开才拉
 const expandedId = ref<number | null>(null);
@@ -337,10 +324,11 @@ useActivePolling(startPolling, stopRefresh);
                 maxlength="32"
                 @keyup.enter="commitRename(c)"
                 @blur="commitRename(c)"
-                @keyup.esc="renamingId = null"
+                @keyup.esc="cancelRename"
                 v-focus
               />
               <span v-else class="name-text" title="点击改名" @click="startRename(c)">{{ c.name }}</span>
+              <button v-if="renameNeedsReload && renamingId === c.id" @click.stop="startRename(c)">重新读取名称（草稿已保留）</button>
               <span v-if="c.isBreaker" class="breaker-badge" title="智能断路器 · 远程物理总闸">总闸</span>
             </div>
             <div class="card-floor">{{ c.floor }} · {{ c.ratedVoltage }}V {{ c.ratedCurrent }}A</div>

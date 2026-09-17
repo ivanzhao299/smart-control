@@ -1,10 +1,4 @@
-import {
-  ConflictException,
-  Inject,
-  Injectable,
-  NotFoundException,
-  Optional,
-} from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Repository } from 'typeorm';
@@ -16,9 +10,13 @@ import { Seq55Adapter } from '../../adapters/power/seq55.adapter';
 import { EpaBreakerAdapter } from '../../adapters/power/epa-breaker.adapter';
 import type { BreakerMeasurements } from '../../adapters/power/epa-breaker-registers';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
+import type { Actor } from '../../common/auth/actor';
+import { CreatePowerConfigDto, LegacyUpdatePowerConfigDto } from './power-config.dto';
+import { writePowerConfig } from './power-config-write';
 
 export interface PowerCircuitView {
   id: number;
+  configRevision: number;
   code: string;
   name: string;
   floor: string;
@@ -41,22 +39,8 @@ export interface PowerCircuitView {
   updatedAt: Date;
 }
 
-export interface PowerCircuitUpsertDto {
-  code: string;
-  name: string;
-  floor: string;
-  category?: string;
-  gatewayCode?: string | null;
-  relayChannel?: number | null;
-  meterAddress?: number | null;
-  ratedVoltage?: number;
-  ratedCurrent?: number;
-  ratedPower?: number;
-  sortOrder?: number;
-  icon?: string | null;
-  description?: string | null;
-  enabled?: boolean;
-}
+export type PowerCircuitConfigView = Omit<PowerCircuitView, 'isBreaker' | 'reading'>;
+export type PowerCircuitUpsertDto = CreatePowerConfigDto;
 
 @Injectable()
 export class PowerCircuitsService {
@@ -108,59 +92,53 @@ export class PowerCircuitsService {
     return this.toView(row);
   }
 
-  async create(dto: PowerCircuitUpsertDto): Promise<PowerCircuitView> {
-    this.validate(dto);
-    const dup = await this.repo.findOne({ where: { code: dto.code } });
-    if (dup) throw new ConflictException(`circuit code 已存在: ${dto.code}`);
-    const row = this.repo.create({
-      code: dto.code, name: dto.name, floor: dto.floor,
-      category: dto.category ?? 'misc',
-      gatewayCode: dto.gatewayCode ?? null,
-      relayChannel: dto.relayChannel ?? null,
-      meterAddress: dto.meterAddress ?? null,
-      ratedVoltage: dto.ratedVoltage ?? 220,
-      ratedCurrent: dto.ratedCurrent ?? 16,
-      ratedPower: dto.ratedPower ?? 0,
-      sortOrder: dto.sortOrder ?? 100,
-      icon: dto.icon ?? 'Zap',
-      description: dto.description ?? null,
-      enabled: dto.enabled ?? true,
-    });
-    const saved = await this.repo.save(row);
-    return this.toView(saved);
+  /** Administrator metadata reads never wait for hardware telemetry. */
+  async listConfiguration(): Promise<PowerCircuitConfigView[]> {
+    return (await this.repo.find({ order: { floor: 'ASC', sortOrder: 'ASC', id: 'ASC' } })).map(
+      (row) => this.baseView(row),
+    );
   }
 
-  async update(id: number, dto: Partial<PowerCircuitUpsertDto>): Promise<PowerCircuitView> {
-    const row = await this.repo.findOne({ where: { id } });
-    if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
-    if (dto.code && dto.code !== row.code) {
-      const dup = await this.repo.findOne({ where: { code: dto.code } });
-      if (dup && dup.id !== id) throw new ConflictException(`circuit code 已存在: ${dto.code}`);
-    }
-    Object.assign(row, {
-      ...(dto.code !== undefined && { code: dto.code }),
-      ...(dto.name !== undefined && { name: dto.name }),
-      ...(dto.floor !== undefined && { floor: dto.floor }),
-      ...(dto.category !== undefined && { category: dto.category }),
-      ...(dto.gatewayCode !== undefined && { gatewayCode: dto.gatewayCode }),
-      ...(dto.relayChannel !== undefined && { relayChannel: dto.relayChannel }),
-      ...(dto.meterAddress !== undefined && { meterAddress: dto.meterAddress }),
-      ...(dto.ratedVoltage !== undefined && { ratedVoltage: dto.ratedVoltage }),
-      ...(dto.ratedCurrent !== undefined && { ratedCurrent: dto.ratedCurrent }),
-      ...(dto.ratedPower !== undefined && { ratedPower: dto.ratedPower }),
-      ...(dto.sortOrder !== undefined && { sortOrder: dto.sortOrder }),
-      ...(dto.icon !== undefined && { icon: dto.icon }),
-      ...(dto.description !== undefined && { description: dto.description }),
-      ...(dto.enabled !== undefined && { enabled: dto.enabled }),
-    });
-    const saved = await this.repo.save(row);
-    return this.toView(saved);
+  async configuration(id: number): Promise<PowerCircuitConfigView> {
+    const row = await this.repo.findOneBy({ id });
+    if (!row)
+      throw new NotFoundException({
+        code: 'POWER_CONFIG_NOT_FOUND',
+        message: '电源配置不存在或已删除',
+      });
+    return this.baseView(row);
   }
 
-  async remove(id: number): Promise<void> {
-    const row = await this.repo.findOne({ where: { id } });
-    if (!row) return;
-    await this.repo.delete({ id });
+  async saveConfiguration(
+    id: number | null,
+    dto: CreatePowerConfigDto | LegacyUpdatePowerConfigDto,
+    actor?: Actor,
+  ): Promise<PowerCircuitConfigView> {
+    const row = await writePowerConfig(this.repo, id, dto, actor);
+    this.breakerCache.delete(row.id);
+    this.seqCache = null;
+    return this.baseView(row);
+  }
+
+  async remove(id: number, expectedRevision?: number, actor?: Actor): Promise<void> {
+    await writePowerConfig(this.repo, id, { expectedRevision }, actor, true);
+    this.breakerCache.delete(id);
+    this.seqCache = null;
+  }
+
+  // Legacy response shape remains available during rolling upgrades. Telemetry is outside the transaction.
+  async create(dto: CreatePowerConfigDto, actor?: Actor): Promise<PowerCircuitView> {
+    const saved = await this.saveConfiguration(null, dto, actor);
+    return this.detail(saved.id);
+  }
+
+  async update(
+    id: number,
+    dto: LegacyUpdatePowerConfigDto,
+    actor?: Actor,
+  ): Promise<PowerCircuitView> {
+    const saved = await this.saveConfiguration(id, dto, actor);
+    return this.detail(saved.id);
   }
 
   /**
@@ -192,9 +170,7 @@ export class PowerCircuitsService {
 
     if (await this.isBreakerCircuit(row)) {
       // 真·物理总闸: 失败必须抛出去, 绝不能让前端显示"断电成功"而闸没动
-      const r = on
-        ? await this.breaker.turnOn(row.code)
-        : await this.breaker.turnOff(row.code);
+      const r = on ? await this.breaker.turnOn(row.code) : await this.breaker.turnOff(row.code);
       if (!r.ok) {
         throw new ConflictException(`空开${on ? '合闸' : '分闸'}失败: ${r.error ?? '未知错误'}`);
       }
@@ -270,10 +246,17 @@ export class PowerCircuitsService {
       this.logger.warn(`空开读数失败 circuit=${row.code}: ${r.error ?? '无数据'}`, {
         context: 'PowerCircuitsService',
       });
-      return cached?.reading ?? {
-        on: false, current: 0, voltage: 0, power: 0, powerFactor: 0, energy: 0,
-        lastReadAt: new Date().toISOString(),
-      };
+      return (
+        cached?.reading ?? {
+          on: false,
+          current: 0,
+          voltage: 0,
+          power: 0,
+          powerFactor: 0,
+          energy: 0,
+          lastReadAt: new Date().toISOString(),
+        }
+      );
     }
     const m: BreakerMeasurements = r.data;
     const reading: PowerReading = {
@@ -326,7 +309,11 @@ export class PowerCircuitsService {
     }
     return {
       on: channels?.[ch] ?? false,
-      current: 0, voltage: 0, power: 0, powerFactor: 0, energy: 0,
+      current: 0,
+      voltage: 0,
+      power: 0,
+      powerFactor: 0,
+      energy: 0,
       lastReadAt: new Date().toISOString(),
     };
   }
@@ -341,15 +328,14 @@ export class PowerCircuitsService {
     this.seqCache = null; // 状态马上要变, 缓存作废
   }
 
-  /** 改名 (业主在电源页直接改, 不需要 admin) */
-  async rename(id: number, name: string): Promise<PowerCircuitView> {
-    const row = await this.repo.findOne({ where: { id } });
-    if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
-    const trimmed = (name ?? '').trim();
-    if (!trimmed) throw new ConflictException('名称不能为空');
-    if (trimmed.length > 32) throw new ConflictException('名称最长 32 字');
-    row.name = trimmed;
-    return this.toView(await this.repo.save(row));
+  /** Legacy rename response; new clients use the versioned configuration endpoint. */
+  async rename(
+    id: number,
+    name: string,
+    expectedRevision?: number,
+    actor?: Actor,
+  ): Promise<PowerCircuitView> {
+    return this.update(id, { name, expectedRevision }, actor);
   }
 
   /** 这条回路是不是挂在 EPO-802P 时序器上 */
@@ -376,12 +362,6 @@ export class PowerCircuitsService {
 
   // ============ 内部 ============
 
-  private validate(dto: PowerCircuitUpsertDto): void {
-    if (!dto.code) throw new ConflictException('code 必填');
-    if (!dto.name) throw new ConflictException('name 必填');
-    if (!dto.floor) throw new ConflictException('floor 必填');
-  }
-
   private async toView(row: PowerCircuit): Promise<PowerCircuitView> {
     const isBreaker = await this.isBreakerCircuit(row);
     // 智能断路器回路: 读真机 (电压/电流/功率/电量都是实测), 不用 mock 的模拟值
@@ -397,9 +377,18 @@ export class PowerCircuitsService {
       current: row.ratedCurrent,
       power: row.ratedPower,
     });
-    const reading: PowerReading = result.ok && result.data
-      ? result.data
-      : { on: false, current: 0, voltage: 0, power: 0, powerFactor: 0, energy: 0, lastReadAt: new Date().toISOString() };
+    const reading: PowerReading =
+      result.ok && result.data
+        ? result.data
+        : {
+            on: false,
+            current: 0,
+            voltage: 0,
+            power: 0,
+            powerFactor: 0,
+            energy: 0,
+            lastReadAt: new Date().toISOString(),
+          };
     return { ...this.baseView(row), isBreaker, reading };
   }
 
@@ -407,6 +396,7 @@ export class PowerCircuitsService {
   private baseView(row: PowerCircuit): Omit<PowerCircuitView, 'reading' | 'isBreaker'> {
     return {
       id: row.id,
+      configRevision: row.configRevision,
       code: row.code,
       name: row.name,
       floor: row.floor,

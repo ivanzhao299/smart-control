@@ -39,6 +39,8 @@ describe('complete migration chain on an isolated database', () => {
     expect(await runner.hasTable('upload_instances')).toBe(true);
     expect((await runner.getTable('upload_reservations'))?.findColumnByName('target_media_id')).toBeDefined();
     expect(await db.query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'protect_last_administrator_%'")).toHaveLength(2);
+    await expect(db.undoLastMigration()).rejects.toThrow('POWER_CONFIG_REVISION_ROLLBACK_REQUIRES_ARCHIVE');
+    await db.query("DELETE FROM migrations WHERE name = 'AddPowerConfigRevision1789700000000'");
     await expect(db.undoLastMigration()).rejects.toThrow('AUDIO_CONFIG_REVISION_ROLLBACK_REQUIRES_ARCHIVE');
     await db.query("DELETE FROM migrations WHERE name = 'AddAudioConfigRevisions1789690000000'");
     // Bundled media, HVAC/playback and operational catalogs are forward-only: remove only their ledger
