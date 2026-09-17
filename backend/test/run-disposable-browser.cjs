@@ -4,12 +4,12 @@ const { DataSource } = require('typeorm');
 const { mkdtemp, open } = require('node:fs/promises');
 const { tmpdir } = require('node:os');
 const { resolve, join } = require('node:path');
-const { randomBytes, createHash } = require('node:crypto');
+const { randomBytes, createHash, createHmac } = require('node:crypto');
 const { spawn } = require('node:child_process');
 const { once } = require('node:events');
 const net = require('node:net');
-const { hashPassword } = require('../dist/common/utils/password.util');
-const { AdminAuth } = require('../dist/entities/admin-auth.entity');
+const { provisionFirstAdmin } = require('../scripts/provision-first-admin.cjs');
+const { ClientAuth } = require('../dist/entities/client-auth.entity');
 const { HardwareUnit } = require('../dist/entities/hardware-unit.entity');
 const { LightZone } = require('../dist/entities/light-zone.entity');
 const { LightGroup } = require('../dist/entities/light-group.entity');
@@ -19,7 +19,10 @@ async function main() {
   await new Promise((ok, fail) => { probe.once('error', fail); probe.listen(33291, '127.0.0.1', ok); });
   await new Promise(ok => probe.close(ok));
   const root = await mkdtemp(join(tmpdir(), 'smart-control-browser-'));
-  const password = randomBytes(24).toString('hex');
+  const password = `Test1-${randomBytes(24).toString('hex')}`;
+  const adminUsername = 'browser_owner';
+  let legacyClientToken = '';
+  let legacyClientExpiresAt = '';
   const playerToken = randomBytes(32).toString('hex');
   const extraPlayerTokens = { 2: randomBytes(32).toString('hex'), 3: randomBytes(32).toString('hex') };
   const db = await new DataSource({ type: 'better-sqlite3', database: join(root, 'test.sqlite'),
@@ -28,12 +31,20 @@ async function main() {
   }).initialize();
   try {
     await db.runMigrations();
-    await db.getRepository(AdminAuth).save({ id: 1, passwordHash: hashPassword(password), passwordChangedAt: new Date(), tokenSecret: randomBytes(32).toString('hex') });
+    const legacyAuthority = await db.getRepository(ClientAuth).findOneByOrFail({ id: 1 });
+    const issuedAt = Date.now();
+    legacyClientExpiresAt = new Date(issuedAt + 60 * 60 * 1000).toISOString();
+    const payload = Buffer.from(JSON.stringify({ iat: issuedAt, exp: Date.parse(legacyClientExpiresAt) })).toString('base64url');
+    legacyClientToken = `${payload}.${createHmac('sha256', legacyAuthority.tokenSecret).update(payload).digest('hex')}`;
     // A real control-page fixture backed only by the explicitly MOCK adapter.
     await db.getRepository(HardwareUnit).save({ code: 'BROWSER-MOCK-GW', name: 'Browser mock gateway', category: 'dali-gateway', vendor: 'test', model: 'mock', addressing: JSON.stringify({ slaveId: 1 }) });
     await db.getRepository(LightZone).save({ code: 'browser-control-test', name: 'Browser test lighting', floor: '1F', enabled: true });
     await db.getRepository(LightGroup).save({ gatewayCode: 'BROWSER-MOCK-GW', daliGroup: 1, zoneCode: 'browser-control-test', enabled: true });
   } finally { await db.destroy(); }
+  // Fresh databases must satisfy the same explicit identity authority gate as
+  // production. Provision through the supported one-time path; never bypass
+  // startup readiness checks just because this database is disposable.
+  provisionFirstAdmin({ databasePath: join(root, 'test.sqlite'), username: adminUsername, password });
   const output = await open(join(root, 'backend.log'), 'wx');
   const server = spawn(process.execPath, [resolve(__dirname, '../dist/main.js')], { cwd: root,
     env: { PATH: process.env.PATH, DB_PATH: join(root, 'test.sqlite'), MEDIA_ROOT: join(root, 'media'),
@@ -58,6 +69,8 @@ async function main() {
     if (!ready) throw new Error('Disposable backend readiness timed out');
     const runner = spawn(process.execPath, [resolve(__dirname, '../../frontend/tests/app-media-browser-smoke.cjs')], {
       cwd: root, env: { ...process.env, SC_DISPOSABLE_BACKEND: 'yes', SC_SMOKE_ADMIN_PASSWORD: password, SC_SMOKE_PLAYER_TOKEN: playerToken,
+        SC_SMOKE_ADMIN_USERNAME: adminUsername, SC_SMOKE_LEGACY_TOKEN: legacyClientToken,
+        SC_SMOKE_LEGACY_TOKEN_EXPIRES_AT: legacyClientExpiresAt,
         SC_SMOKE_EXTRA_PLAYER_TOKENS: JSON.stringify(extraPlayerTokens) }, stdio: 'inherit',
     });
     const [code] = await once(runner, 'exit');
@@ -72,4 +85,4 @@ async function main() {
     console.log(`Disposable evidence retained: ${root}`);
   }
 }
-main().catch(error => { console.error(error.message); process.exitCode = 1; });
+main().catch(error => { console.error(error?.stack || error?.message || error); process.exitCode = 1; });

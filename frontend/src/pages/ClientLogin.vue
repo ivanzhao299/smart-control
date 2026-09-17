@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { Lock, UserRound, Globe, Wifi, CheckCircle2, XCircle, Trash2, History, Loader, ScanFace } from 'lucide-vue-next';
+import { Lock, UserRound, Globe, Wifi, CheckCircle2, XCircle, Trash2, History, ScanFace } from 'lucide-vue-next';
 import { readSavedUsername, useClientAuthStore } from '@/stores/client-auth';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { useToastStore } from '@/stores/toast';
 import { getServerHistory, addServerHistory, removeServerHistory } from '@/services/server-history';
 import { shellBioRead, shellBioSave, shellBioClear, shellBioLogin, type ShellBioState } from '@/composables/useShellBio';
 import { HttpError } from '@/services/http';
+import { normalizeClientRedirect } from '@/services/client-login-journey';
 
 const router = useRouter();
 const route = useRoute();
@@ -36,10 +37,6 @@ interface TestResult {
 }
 const test = ref<TestResult>({ state: 'idle' });
 const history = ref<string[]>([]);
-/** 本地存过密码, 正在悄悄试自动登录 —— 这段时间不露登录表单, 免得先闪一下密码框
-    再跳走, 业主会以为自己又要手动登一次 */
-const autoLoggingIn = ref(false);
-
 // ============ 面容登录 (2026-07-31, 仅壳 App 内) ============
 // 壳 (Android/iOS v1.1.9+) 注入 window.JinhuShell 桥: 密码存在壳的加密存储
 // (Keystore/Keychain), 清除页面缓存也不丢; 点"面容登录"→ 壳弹系统面容验证
@@ -80,17 +77,6 @@ onMounted(async () => {
     redirectToTarget();
     return;
   }
-  // token 是 30 天 TTL 没错, 但 backend 常年跟着部署重启, session 表在内存里,
-  // 重启就清空, token 没到期也会失效 —— 存过密码的话先悄悄试一次自动登录,
-  // 不用每次部署完业主都要摸出手机重新输密码。
-  autoLoggingIn.value = true;
-  const ok = await auth.tryAutoLogin();
-  autoLoggingIn.value = false;
-  if (ok) {
-    toast.success('已自动登录');
-    redirectToTarget();
-    return;
-  }
   focusPasswordIfIdle();
 });
 
@@ -110,10 +96,7 @@ function deleteHistoryEntry(url: string): void {
 }
 
 function redirectToTarget(): void {
-  const target = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
-    ? route.query.redirect
-    : '/';
-  router.replace(target);
+  router.replace(normalizeClientRedirect(route.query.redirect));
 }
 
 async function doTest(): Promise<void> {
@@ -183,13 +166,7 @@ async function doLogin(fromBiometric = false): Promise<void> {
         </div>
       </div>
 
-      <!-- 本地存过密码, 悄悄自动登录中 — 不闪一下登录表单再跳走 -->
-      <div v-if="autoLoggingIn" class="auto-login-box">
-        <Loader :size="22" :stroke-width="2" class="auto-login-spin" />
-        <span>自动登录中…</span>
-      </div>
-
-      <form v-else class="form" @submit.prevent="doLogin(false)">
+      <form class="form" @submit.prevent="doLogin(false)">
         <p v-if="route.query.reason === 'account-required'" role="status">
           当前保存的是旧版访问会话，尚未绑定用户。请使用用户管理中的用户名和密码登录，管理员账户即可控制设备。
         </p>
@@ -387,15 +364,6 @@ async function doLogin(fromBiometric = false): Promise<void> {
 }
 
 .form { display: flex; flex-direction: column; gap: 12px; }
-
-.auto-login-box {
-  display: flex; align-items: center; justify-content: center; gap: 10px;
-  padding: 32px 0;
-  color: var(--v2-text-2);
-  font-size: 14px;
-}
-.auto-login-spin { animation: auto-login-spin 1s linear infinite; }
-@keyframes auto-login-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
 .server-row {
   display: grid;

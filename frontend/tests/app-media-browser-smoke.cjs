@@ -7,8 +7,13 @@ const assert = require('node:assert/strict');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright');
 const { WebSocket } = require('../../backend/node_modules/ws');
 const backend = 'http://127.0.0.1:33291/api';
+function nodeFetch(url, init = {}) {
+  const headers = new Headers(init.headers);
+  headers.set('Connection', 'close');
+  return fetch(url, { ...init, headers });
+}
 async function api(route, method, body, token, admin = false) {
-  const response = await fetch(backend + route, { method, redirect: 'error', headers: {
+  const response = await nodeFetch(backend + route, { method, redirect: 'error', headers: {
     'Content-Type': 'application/json', ...(token ? admin ? { Authorization: `Bearer ${token}` } : { 'X-Client-Token': token } : {}),
   }, body: body === undefined ? undefined : JSON.stringify(body) });
   assert.ok(response.ok, `${route}: HTTP ${response.status}`);
@@ -16,8 +21,12 @@ async function api(route, method, body, token, admin = false) {
 }
 (async () => {
   assert.equal(process.env.SC_DISPOSABLE_BACKEND, 'yes', 'Explicit disposable backend confirmation required');
+  assert.ok(process.env.SC_SMOKE_ADMIN_USERNAME, 'Synthetic named administrator required');
   assert.ok(process.env.SC_SMOKE_ADMIN_PASSWORD, 'Synthetic backend admin password required');
-  const admin = (await api('/admin/auth/login', 'POST', { password: process.env.SC_SMOKE_ADMIN_PASSWORD })).token;
+  const admin = (await api('/admin/auth/login', 'POST', {
+    username: process.env.SC_SMOKE_ADMIN_USERNAME,
+    password: process.env.SC_SMOKE_ADMIN_PASSWORD,
+  })).token;
   const nonce = crypto.randomBytes(5).toString('hex');
   const accounts = {};
   for (const role of ['operator', 'otherOperator', 'viewer', 'admin']) {
@@ -35,7 +44,7 @@ async function api(route, method, body, token, admin = false) {
   const uploadName = `private-upload-${nonce}.png`;
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aRfkAAAAASUVORK5CYII=', 'base64');
   const form = new FormData(); form.append('file', new Blob([png], { type: 'image/png' }), uploadName);
-  const uploaded = await fetch(backend + '/media/upload', { method: 'POST', body: form,
+  const uploaded = await nodeFetch(backend + '/media/upload', { method: 'POST', body: form,
     headers: { 'X-Client-Token': accounts.operator.token, 'X-Upload-Size': String(png.length) } });
   assert.ok(uploaded.ok, `private upload: HTTP ${uploaded.status}`);
   const asset = (await uploaded.json()).data;
@@ -45,34 +54,34 @@ async function api(route, method, body, token, admin = false) {
   const preview = await api('/media/' + asset.id + '/access', 'POST', { variant: 'file' }, accounts.operator.token);
   assert.ok(preview.url.startsWith(`/api/media/${asset.id}/stream?`));
   const previewUrl = new URL(preview.url, backend).href;
-  const complete = await fetch(previewUrl);
+  const complete = await nodeFetch(previewUrl);
   assert.equal(complete.status, 200);
   assert.equal(complete.headers.get('cache-control'), 'private, no-store');
   assert.deepEqual(Buffer.from(await complete.arrayBuffer()), png);
-  const partial = await fetch(previewUrl, { headers: { Range: 'bytes=2-6' } });
+  const partial = await nodeFetch(previewUrl, { headers: { Range: 'bytes=2-6' } });
   assert.equal(partial.status, 206);
   assert.equal(partial.headers.get('content-range'), `bytes 2-6/${png.length}`);
   assert.deepEqual(Buffer.from(await partial.arrayBuffer()), png.subarray(2, 7));
-  const unsatisfied = await fetch(previewUrl, { headers: { Range: 'bytes=99999-' } });
+  const unsatisfied = await nodeFetch(previewUrl, { headers: { Range: 'bytes=99999-' } });
   assert.equal(unsatisfied.status, 416);
   assert.equal((await unsatisfied.arrayBuffer()).byteLength, 0);
-  const ownerDirect = await fetch(backend + '/media/' + asset.id + '/file', {
+  const ownerDirect = await nodeFetch(backend + '/media/' + asset.id + '/file', {
     headers: { 'X-Client-Token': accounts.operator.token, Range: 'bytes=2-6' },
   });
   assert.equal(ownerDirect.status, 206);
   assert.equal(ownerDirect.headers.get('content-range'), `bytes 2-6/${png.length}`);
   assert.deepEqual(Buffer.from(await ownerDirect.arrayBuffer()), png.subarray(2, 7));
-  const anonymous = await fetch(backend + '/media/' + asset.id + '/file');
+  const anonymous = await nodeFetch(backend + '/media/' + asset.id + '/file');
   assert.equal(anonymous.status, 401);
   await anonymous.arrayBuffer();
   for (const role of ['otherOperator', 'viewer']) {
     const visible = await api('/media', 'GET', undefined, accounts[role].token);
     assert.equal(visible.items.some(item => item.id === asset.id), false);
-    const directFile = await fetch(backend + '/media/' + asset.id + '/file', { headers: { 'X-Client-Token': accounts[role].token } });
+    const directFile = await nodeFetch(backend + '/media/' + asset.id + '/file', { headers: { 'X-Client-Token': accounts[role].token } });
     assert.ok([403, 404].includes(directFile.status), 'Other accounts must not download private bytes');
     await directFile.arrayBuffer();
     for (const method of ['PUT', 'DELETE']) {
-      const denied = await fetch(backend + '/media/' + asset.id, { method,
+      const denied = await nodeFetch(backend + '/media/' + asset.id, { method,
         headers: { 'X-Client-Token': accounts[role].token, 'Content-Type': 'application/json' },
         body: method === 'PUT' ? JSON.stringify({ originalName: 'not-permitted.png' }) : undefined });
       assert.ok([403, 404].includes(denied.status), `${role} ${method} private media must be denied: HTTP ${denied.status}`);
@@ -82,7 +91,10 @@ async function api(route, method, body, token, admin = false) {
   const root = path.resolve(__dirname, '../dist');
   const server = http.createServer((req, res) => {
     if (req.url.startsWith('/api/')) {
-      const upstream = http.request('http://127.0.0.1:33291' + req.url, { method: req.method, headers: req.headers }, response => {
+      const upstream = http.request('http://127.0.0.1:33291' + req.url, {
+        method: req.method,
+        headers: { ...req.headers, connection: 'close' },
+      }, response => {
         res.writeHead(response.statusCode, response.headers); response.pipe(res);
       });
       upstream.on('error', () => { res.writeHead(502); res.end(); }); req.pipe(upstream); return;
@@ -100,11 +112,15 @@ async function api(route, method, body, token, admin = false) {
   try {
     browser = await chromium.launch({ channel: 'chrome', headless: true });
     const origin = `http://127.0.0.1:${server.address().port}`;
+    const appBase = `${origin}/control`;
     assert.ok(process.env.SC_SMOKE_PLAYER_TOKEN, 'Synthetic device credential required');
     const kiosk = await browser.newContext({ serviceWorkers: 'block' });
     const playerSockets = [];
     const socketAttempts = [];
-    let playerHellos = 0;
+    const playerHellos = new Map();
+    const playerChanges = new Map();
+    const helloCount = slot => playerHellos.get(slot) || 0;
+    const changeCount = slot => playerChanges.get(slot) || 0;
     await kiosk.routeWebSocket('**/*', socket => {
       socketAttempts.push(socket.url());
       if (socket.url() !== 'ws://localhost:3200/ws/status') { socket.close(); return; }
@@ -117,14 +133,25 @@ async function api(route, method, body, token, admin = false) {
       upstream.on('close', () => socket.close());
       socket.onClose(() => upstream.close());
       let device = false;
+      let deviceSlot = null;
       socket.onMessage(message => {
-        device = device || JSON.parse(String(message)).event === 'authenticate_player';
-        if (device && !playerSockets.some(pair => pair.socket === socket)) playerSockets.push({ socket, upstream });
+        const parsed = JSON.parse(String(message));
+        if (parsed.event === 'authenticate_player') {
+          device = true;
+          deviceSlot = Number(parsed.data?.slot);
+        }
+        if (device && !playerSockets.some(pair => pair.socket === socket)) playerSockets.push({ socket, upstream, slot: deviceSlot });
         if (upstream.readyState === WebSocket.OPEN) upstream.send(message);
         else pending.push(message);
       });
       upstream.on('message', message => {
-        if (device && JSON.parse(String(message)).type === 'hello') playerHellos++;
+        const parsed = JSON.parse(String(message));
+        if (device && Number.isInteger(deviceSlot) && parsed.type === 'hello') {
+          playerHellos.set(deviceSlot, helloCount(deviceSlot) + 1);
+        }
+        if (device && Number.isInteger(deviceSlot) && parsed.type === 'playback_channel_changed') {
+          playerChanges.set(deviceSlot, changeCount(deviceSlot) + 1);
+        }
         socket.send(String(message));
       });
     });
@@ -139,7 +166,7 @@ async function api(route, method, body, token, admin = false) {
       return url.startsWith(origin + '/') ? route.continue() : route.abort();
     });
     let player = await kiosk.newPage();
-    await player.goto(origin + '/player?slot=1');
+    await player.goto(appBase + '/player?slot=1');
     await player.locator('.device-setup').waitFor();
     assert.equal(await player.locator('input[type="checkbox"]').isChecked(), false);
     await player.locator('input[type="password"]').fill(process.env.SC_SMOKE_PLAYER_TOKEN);
@@ -148,7 +175,7 @@ async function api(route, method, body, token, admin = false) {
     await configured;
     await player.close();
     player = await kiosk.newPage();
-    await player.goto(origin + '/player?slot=1');
+    await player.goto(appBase + '/player?slot=1');
     await player.locator('.device-setup').waitFor();
     await player.locator('input[type="password"]').fill(process.env.SC_SMOKE_PLAYER_TOKEN);
     await player.locator('input[type="checkbox"]').check();
@@ -157,17 +184,17 @@ async function api(route, method, body, token, admin = false) {
     await remembered;
     await player.close();
     player = await kiosk.newPage();
-    const helloBeforeOpen = playerHellos;
+    const helloBeforeOpen = helloCount(1);
     const reconnected = player.waitForResponse(r => r.url().endsWith('/player-device/1/state') && r.status() === 200);
-    await player.goto(origin + '/player?slot=1');
+    await player.goto(appBase + '/player?slot=1');
     await reconnected;
     await player.locator('.device-setup').waitFor({ state: 'hidden' });
     // Real authenticated WS + real REST + rendered image. The 30s fallback is
     // unchanged, so a <2s result cannot be explained by shortening the poll.
     await player.waitForFunction(() => !localStorage.getItem('sc.client.token'));
     const helloDeadline = Date.now() + 5000;
-    while (playerHellos <= helloBeforeOpen && Date.now() < helloDeadline) await new Promise(r => setTimeout(r, 20));
-    assert.ok(playerHellos > helloBeforeOpen, `Dedicated device must authenticate its realtime socket (attempts: ${socketAttempts.join(', ')})`);
+    while (helloCount(1) <= helloBeforeOpen && Date.now() < helloDeadline) await new Promise(r => setTimeout(r, 20));
+    assert.ok(helloCount(1) > helloBeforeOpen, `Dedicated device must authenticate its realtime socket (attempts: ${socketAttempts.join(', ')})`);
     const publishAt = Date.now();
     await api('/playback/channels/1/publish', 'POST', { mediaId: asset.id }, accounts.operator.token);
     await player.waitForFunction(() => {
@@ -177,7 +204,7 @@ async function api(route, method, body, token, admin = false) {
     console.log(`PASS device-only publish to rendered image: ${Date.now() - publishAt}ms`);
     const replacementForm = new FormData();
     replacementForm.append('file', new Blob([png], { type: 'image/png' }), `switch-target-${nonce}.png`);
-    const replacementResponse = await fetch(backend + '/media/upload', { method: 'POST', body: replacementForm,
+    const replacementResponse = await nodeFetch(backend + '/media/upload', { method: 'POST', body: replacementForm,
       headers: { 'X-Client-Token': accounts.operator.token, 'X-Upload-Size': String(png.length) } });
     assert.ok(replacementResponse.ok, 'Synthetic replacement upload must succeed');
     const replacementAsset = (await replacementResponse.json()).data;
@@ -193,37 +220,43 @@ async function api(route, method, body, token, admin = false) {
       console.log(`PASS content replacement: ${Date.now() - started}ms total, ${Date.now() - accepted}ms after API success`);
     }
     // Stop while disconnected: authenticated hello must reconcile immediately.
-    const beforeReconnect = playerHellos;
-    const liveSocket = playerSockets.at(-1);
+    const beforeReconnect = helloCount(1);
+    const liveSocket = playerSockets.findLast(pair => pair.slot === 1);
     liveSocket.socket.close({ code: 1001 }); liveSocket.upstream.close();
     const stopAt = Date.now();
     await api('/playback/channels/1/stop', 'POST', {}, accounts.operator.token);
     await player.locator('img.media-el').waitFor({ state: 'detached', timeout: 3000 });
-    assert.ok(playerHellos > beforeReconnect, 'Missed change reconciled by authenticated reconnect');
+    assert.ok(helloCount(1) > beforeReconnect, 'Missed change reconciled by authenticated reconnect');
     console.log(`PASS missed stop reconciled after reconnect: ${Date.now() - stopAt}ms`);
     await player.close();
     player = await kiosk.newPage();
-    await player.goto(origin + '/player?slot=2');
+    await player.goto(appBase + '/player?slot=2');
     await player.locator('.device-setup').waitFor();
     await player.close();
     const extraTokens = JSON.parse(process.env.SC_SMOKE_EXTRA_PLAYER_TOKENS || '{}');
     for (const slot of [2, 3]) {
       assert.ok(extraTokens[slot], 'Separate synthetic credential required for each player channel');
       player = await kiosk.newPage();
-      await player.goto(origin + '/player?slot=' + slot);
+      await player.goto(appBase + '/player?slot=' + slot);
       await player.locator('.device-setup').waitFor();
-      const previousHellos = playerHellos;
+      const previousHellos = helloCount(slot);
       await player.locator('input[type="password"]').fill(extraTokens[slot]);
       await player.getByRole('button', { name: '连接播放器' }).click();
       const deadline = Date.now() + 5000;
-      while (playerHellos <= previousHellos && Date.now() < deadline) await new Promise(r => setTimeout(r, 20));
-      assert.ok(playerHellos > previousHellos, `Slot ${slot} needs authenticated realtime delivery`);
+      while (helloCount(slot) <= previousHellos && Date.now() < deadline) await new Promise(r => setTimeout(r, 20));
+      assert.ok(helloCount(slot) > previousHellos, `Slot ${slot} needs authenticated realtime delivery`);
       const started = Date.now();
+      const previousChanges = changeCount(slot);
       await api(`/playback/channels/${slot}/publish`, 'POST', { mediaId: asset.id }, accounts.operator.token);
-      await player.waitForFunction(() => {
-        const img = document.querySelector('img.media-el');
-        return img && img.complete && img.naturalWidth > 0;
-      }, undefined, { timeout: 2000 });
+      try {
+        await player.waitForFunction(() => {
+          const img = document.querySelector('img.media-el');
+          return img && img.complete && img.naturalWidth > 0;
+        }, undefined, { timeout: 2000 });
+      } catch (error) {
+        const diagnostic = await player.evaluate(() => ({ body: document.body.innerText.slice(0, 500), url: location.href }));
+        throw new Error(`Slot ${slot} did not render after ${changeCount(slot) - previousChanges} realtime changes: ${JSON.stringify(diagnostic)}`, { cause: error });
+      }
       console.log(`PASS browser slot ${slot} device-only publish to rendered image: ${Date.now() - started}ms`);
       await api(`/playback/channels/${slot}/stop`, 'POST', {}, accounts.operator.token);
       await player.close();
@@ -238,7 +271,7 @@ async function api(route, method, body, token, admin = false) {
       });
       await context.route('**/*', route => route.request().url().startsWith(origin + '/') ? route.continue() : route.abort());
       const page = await context.newPage();
-      await page.goto(origin + '/client-login?redirect=/media');
+      await page.goto(appBase + '/client-login?redirect=/media');
       await page.getByPlaceholder('用户名', { exact: true }).fill(accounts[role].username);
       await page.getByPlaceholder('密码', { exact: true }).fill(accounts[role].password);
       await page.getByPlaceholder('服务器地址 (e.g. http://192.168.124.11:3200)').fill(origin);
@@ -269,16 +302,16 @@ async function api(route, method, body, token, admin = false) {
       else assert.equal(await page.getByText('管理员内容管理', { exact: true }).count(), 0);
       if (role === 'admin') {
         for (const [route, slot] of [['led', 1], ['projector', 2], ['audio', 3]]) {
-          await page.goto(origin + '/' + route);
+          await page.goto(appBase + '/' + route);
           await page.getByText(`Historical-list-${slot}-${nonce}`, { exact: true }).first().waitFor();
         }
         console.log('PASS named admin at 390px sees historical shared LED, projector and music playlists');
         await page.setViewportSize({ width: 1280, height: 900 });
-        await page.goto(origin + '/admin');
+        await page.goto(appBase + '/admin');
         await page.getByRole('button', { name: '返回设备控制', exact: true }).waitFor();
         assert.equal(await page.locator('.meta .el-select').count(), 0, 'No fake local role selector');
         await page.getByRole('button', { name: '返回设备控制', exact: true }).click();
-        await page.goto(origin + '/lighting');
+        await page.goto(appBase + '/lighting');
         await page.reload();
         try { await page.locator('.v2-zone button.v2-toggle').first().waitFor({ timeout: 10000 }); }
         catch (error) { console.log('Device UI diagnostic', page.url(), (await page.locator('body').innerText()).slice(0, 700)); throw error; }
@@ -292,9 +325,14 @@ async function api(route, method, body, token, admin = false) {
       console.log(`PASS built application: ${role} media visibility and controls at 390px`);
       await context.close();
     }
-    // Reproduce the deployed regression: a legacy read-only token coexists with
-    // a shared administrator login. Returning/reloading must preserve admin auth.
-    const legacy = await api('/client-auth/login', 'POST', { password: '1234' });
+    // Reproduce the deployed regression: a compatibility-period read-only token
+    // coexists with named administrator login. Returning/reloading must preserve
+    // the named session while removing retired browser password storage.
+    const legacy = {
+      token: process.env.SC_SMOKE_LEGACY_TOKEN,
+      expiresAt: process.env.SC_SMOKE_LEGACY_TOKEN_EXPIRES_AT,
+    };
+    assert.ok(legacy.token && legacy.expiresAt, 'Synthetic legacy read-only token required');
     const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
     await phone.addInitScript(({ token, expiresAt, origin, password }) => {
       if (!sessionStorage.getItem('phone.initialized')) {
@@ -313,13 +351,15 @@ async function api(route, method, body, token, admin = false) {
       };
     }, { ...legacy, origin, password: accounts.admin.password });
     const mobile = await phone.newPage();
-    await mobile.goto(origin + '/lighting');
+    await mobile.goto(appBase + '/lighting');
     await mobile.waitForURL(url => url.pathname.endsWith('/client-login'));
     await mobile.getByRole('status').filter({ hasText: '尚未绑定用户' }).waitFor();
     const face = mobile.getByRole('button', { name: '面容 / 指纹登录' });
     assert.equal(await face.count(), 0, 'Face ID login is removed on iOS even with saved biometric credentials');
     assert.equal(await mobile.evaluate(() => window.bioCalls), 0, 'Do not call the retired iOS biometric bridge');
     assert.equal(await mobile.evaluate(() => localStorage.getItem('sc.client.token')), null);
+    assert.equal(await mobile.evaluate(() => localStorage.getItem('sc.client.savedPassword')), null,
+      'Legacy browser plaintext passwords must be purged during session migration');
     await mobile.getByPlaceholder('用户名', { exact: true }).fill(accounts.admin.username);
     await mobile.getByPlaceholder('密码', { exact: true }).fill(accounts.admin.password);
     await mobile.locator('button[type="submit"]').click();
@@ -342,35 +382,75 @@ async function api(route, method, body, token, admin = false) {
       localStorage.setItem('sc.role', 'admin'); // Must not grant any authority.
     }, { ...legacy, origin });
     const control = await management.newPage();
-    await control.goto(origin + '/admin/login');
+    await control.goto(appBase + '/admin/login');
+    await control.getByPlaceholder('管理员用户名', { exact: true }).fill(process.env.SC_SMOKE_ADMIN_USERNAME);
     await control.getByPlaceholder('管理员密码', { exact: true }).fill(process.env.SC_SMOKE_ADMIN_PASSWORD);
     await control.locator('button[type="submit"]').click();
     await control.getByRole('button', { name: '返回设备控制', exact: true }).click();
-    await control.goto(origin + '/lighting');
+    await control.waitForURL(url => url.pathname.endsWith('/control/'));
+    const returnState = await control.evaluate(() => ({
+      hasAdmin: !!sessionStorage.getItem('sc.adminToken'),
+      hasPersistedAdmin: !!localStorage.getItem('sc.adminToken.persist'),
+      hasClient: !!localStorage.getItem('sc.client.token'),
+    }));
+    assert.deepEqual(returnState, { hasAdmin: true, hasPersistedAdmin: true, hasClient: true },
+      'Returning to controls must preserve both named admin and compatibility client sessions');
+    await control.goto(appBase + '/lighting');
+    const lightingState = await control.evaluate(() => ({
+      hasAdmin: !!sessionStorage.getItem('sc.adminToken'),
+      hasPersistedAdmin: !!localStorage.getItem('sc.adminToken.persist'),
+      hasClient: !!localStorage.getItem('sc.client.token'),
+      adminServer: sessionStorage.getItem('sc.adminAuthServer'),
+      persistedServer: JSON.parse(localStorage.getItem('sc.adminToken.persist') || 'null')?.server || null,
+      clientServer: localStorage.getItem('sc.client.authServer'),
+      pageApi: location.origin + '/api',
+    }));
+    assert.equal(lightingState.hasAdmin, true, `Direct control navigation lost admin session: ${JSON.stringify(lightingState)}`);
+    assert.equal(lightingState.hasPersistedAdmin, true, `Direct control navigation lost persisted admin session: ${JSON.stringify(lightingState)}`);
+    assert.equal(lightingState.hasClient, true, `Direct control navigation lost client session: ${JSON.stringify(lightingState)}`);
+    assert.equal(lightingState.adminServer, lightingState.pageApi, `Admin session server drifted: ${JSON.stringify(lightingState)}`);
+    assert.equal(lightingState.persistedServer, lightingState.pageApi, `Persisted admin server drifted: ${JSON.stringify(lightingState)}`);
+    assert.equal(lightingState.clientServer, lightingState.pageApi, `Client session server drifted: ${JSON.stringify(lightingState)}`);
     await control.reload();
-    await control.locator('.v2-zone button.v2-toggle').first().waitFor();
+    try {
+      await control.locator('.v2-zone button.v2-toggle').first().waitFor({ timeout: 10000 });
+    } catch (error) {
+      const pageDiagnostic = await control.evaluate(() => ({
+        body: document.body.innerText.slice(0, 800),
+        url: location.href,
+        hasAdmin: !!sessionStorage.getItem('sc.adminToken'),
+        hasClient: !!localStorage.getItem('sc.client.token'),
+      }));
+      throw new Error(`Named administrator could not return to lighting: ${JSON.stringify(pageDiagnostic)}`, { cause: error });
+    }
     const command = control.waitForResponse(r => /\/api\/lighting\/zone\/\d+\/(on|off)$/.test(r.url()) && r.request().method() === 'POST');
     await control.locator('.v2-zone button.v2-toggle').first().click();
     const executed = await command;
     assert.ok(executed.ok(), 'Admin session must survive returning to controls and reload');
-    assert.equal((await executed.json()).data.ok, true, 'Shared admin reaches the MOCK lighting adapter');
+    assert.equal((await executed.json()).data.ok, true, 'Named admin reaches the MOCK lighting adapter');
     assert.ok(executed.request().headers().authorization?.startsWith('Bearer '), 'Actual device request carries restored admin credential');
-    const denied = await fetch(backend + '/lighting/zone/1/on', { method: 'POST', headers: { 'X-Client-Token': legacy.token } });
+    const denied = await nodeFetch(backend + '/lighting/zone/1/on', { method: 'POST', headers: { 'X-Client-Token': legacy.token } });
     assert.equal(denied.status, 403, 'Legacy-only access stays read-only');
-    const viewerDenied = await fetch(backend + '/lighting/zone/1/on', { method: 'POST', headers: { 'X-Client-Token': accounts.viewer.token } });
+    const viewerDenied = await nodeFetch(backend + '/lighting/zone/1/on', { method: 'POST', headers: { 'X-Client-Token': accounts.viewer.token } });
     assert.equal(viewerDenied.status, 403, 'Named viewer stays read-only');
-    await control.goto(origin + '/admin');
+    await control.goto(appBase + '/admin');
     await control.getByRole('button', { name: '退出登录', exact: true }).click();
     await control.getByRole('button', { name: '退出', exact: true }).click();
     await control.waitForURL(url => url.pathname.endsWith('/client-login'));
     assert.deepEqual(await control.evaluate(() => ({ admin: sessionStorage.getItem('sc.adminToken'), client: localStorage.getItem('sc.client.token') })), { admin: null, client: null });
     await management.close();
-    console.log('PASS shared administrator + old client session: return/reload preserves device authority; legacy/viewer remain denied');
+    console.log('PASS named administrator + old client session: return/reload preserves device authority; legacy/viewer remain denied');
     const owner = await api('/client-auth/me', 'GET', undefined, accounts.operator.token);
     await api('/users/' + owner.userId, 'PUT', { enabled: false }, admin, true);
-    const revoked = await fetch(previewUrl);
+    const revoked = await nodeFetch(previewUrl);
     assert.equal(revoked.status, 401, 'Previously issued preview must reject a disabled owner');
     await revoked.arrayBuffer();
     console.log('PASS real HTTP private bytes, range/416, anonymous/other-user denial and preview revocation');
-  } finally { if (browser) await browser.close(); await new Promise(resolve => server.close(resolve)); }
-})().catch(error => { console.error(error.message); process.exitCode = 1; });
+  } finally {
+    if (browser) await browser.close();
+    await new Promise((resolve, reject) => {
+      server.close(error => error ? reject(error) : resolve());
+      server.closeAllConnections?.();
+    });
+  }
+})().catch(error => { console.error(error?.stack || error?.message || error); process.exitCode = 1; });

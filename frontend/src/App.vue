@@ -54,12 +54,11 @@ function fetchAuthedData(): void {
   void playbackStore.load();
 }
 
-// 全局 401 兜底 (2026-07-21, 配合后端全局鉴权门). token 失效 (最常见: 后端重启/重新部署
-// 清了内存 session 表, token 没到期也不认了) 时后端回 401。
+// 全局 401 兜底。签名 token 在部署/重启后仍有效；401 表示密码/签名密钥轮换、
+// 账号停用或令牌本身失效，应清除会话并重新认证。
 //   - 后台 /admin 路由 + kiosk /player: 各自处理, 不插手。
-//   - 业主侧: markSessionExpired 清掉失效 token (isAuthed→false → watch 停掉业务轮询,
-//     401 风暴消失, 但保留存的密码) → 推回登录页, 登录页 onMounted 会 tryAutoLogin 用
-//     存的密码悄悄重登, 登上了自动跳回来。单飞 + 短关窗防并发 401 反复触发。
+//   - 业主侧: markSessionExpired 清掉失效 token（isAuthed→false，业务轮询停止）并回登录页。
+// 浏览器不保存明文密码；壳 App 的生物认证密码留在系统加密存储并由用户主动触发。
 let reauthing = false;
 setUnauthorizedHandler(() => {
   if (reauthing) return;
@@ -67,19 +66,10 @@ setUnauthorizedHandler(() => {
   if (cur.path.startsWith('/admin') || cur.path === '/player') return;
   reauthing = true;
   clientAuth.markSessionExpired();
-  // 2026-07-27 加固 (业主: "iPhone 上 PWA 经常退出"): 老流程是 401 直接踢回登录页,
-  // 再靠登录页 tryAutoLogin 跳回来 —— 业主看到的就是"动不动被退出"。改为**原地**
-  // 静默重登: 存过密码就先悄悄换一块新令牌, 成功则业主完全无感 (只补拉一次数据);
-  // 只有重登也失败 (密码被改/网络断) 才真正回登录页。
-  void (async () => {
-    const ok = await clientAuth.tryAutoLogin().catch(() => false);
-    if (ok) {
-      fetchAuthedData();
-    } else if (router.currentRoute.value.name !== 'client-login') {
-      void router.push({ name: 'client-login', query: { redirect: cur.fullPath } });
-    }
-    window.setTimeout(() => { reauthing = false; }, 800);
-  })();
+  if (router.currentRoute.value.name !== 'client-login') {
+    void router.push({ name: 'client-login', query: { redirect: cur.fullPath } });
+  }
+  window.setTimeout(() => { reauthing = false; }, 800);
 });
 
 onMounted(async () => {

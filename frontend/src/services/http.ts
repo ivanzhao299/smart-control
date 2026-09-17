@@ -173,9 +173,8 @@ export function setClientToken(t: string | null): void {
 export function getClientToken(): string | null { return clientToken; }
 
 /**
- * 401 兜底钩子 (2026-07-21, 配合后端全局鉴权门).
- * 任何非登录端点返回 401 (token 失效/被清, 常见于后端重启清了内存 session 表) 时触发,
- * 由 App.vue 注册: 业主侧用存的密码悄悄自动重登, 登不上才推回登录页。
+ * 401 兜底钩子。签名令牌可跨部署和重启；非登录端点返回 401 时，App.vue 清除
+ * 已失效令牌并回登录页重新认证。浏览器不保存密码做静默重登。
  */
 let onUnauthorized: (() => void) | null = null;
 export function setUnauthorizedHandler(fn: (() => void) | null): void { onUnauthorized = fn; }
