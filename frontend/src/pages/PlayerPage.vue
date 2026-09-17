@@ -57,6 +57,7 @@ let heartbeatTimer: number | undefined;
 let disconnectedReconcileTimer: number | undefined;
 let playerWsState: WsConnectionState = 'closed';
 let channelRequest: Promise<void> | null = null;
+let channelRefreshQueued = false;
 // keep-alive 生命周期: start/stop 幂等配对, 切走(deactivated)即停后台任务, 回页重建
 let started = false;
 let fullscreenCheckTimer: number | undefined;
@@ -65,10 +66,22 @@ let visibilityHandler: (() => void) | null = null;
 let resizeHandler: (() => void) | null = null;
 
 async function fetchChannel(): Promise<void> {
-  // WS 重连与兜底轮询可能同时触发；同一时刻只保留一次设备状态读取，避免请求堆积。
-  if (channelRequest) return channelRequest;
-  channelRequest = fetchChannelOnce();
-  try { await channelRequest; } finally { channelRequest = null; }
+  // WS 重连与兜底轮询可能同时触发。同一时刻只执行一次读取，但不能直接
+  // 丢弃在途期间到达的播放变更，否则较早的 idle 响应会覆盖最新推送并让屏幕
+  // 保持待机直到下一轮 30 秒轮询。记下一次补读，当前请求完成后立刻收敛到最新状态。
+  if (channelRequest) {
+    channelRefreshQueued = true;
+    await channelRequest;
+    return;
+  }
+  do {
+    channelRefreshQueued = false;
+    const current = fetchChannelOnce();
+    channelRequest = current;
+    try { await current; } finally {
+      if (channelRequest === current) channelRequest = null;
+    }
+  } while (channelRefreshQueued);
 }
 
 async function fetchChannelOnce(): Promise<void> {

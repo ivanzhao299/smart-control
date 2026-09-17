@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
 import { ArrowLeft, Lightbulb, Power, X, Sparkles, Layers, RefreshCw, GripVertical, Pencil, FolderPlus, Search } from 'lucide-vue-next';
 import { lightingService } from '@/services/lighting.service';
+import { runLightingCommand } from '@/services/lighting-command-journey';
 import { api } from '@/services/http';
 import { useAdminUnlock } from '@/composables/useAdminUnlock';
 import {
@@ -24,6 +25,8 @@ interface ZoneRow {
   groupCount: number;
   brightness: number;
   on: boolean;
+  confirmedBrightness: number;
+  confirmedOn: boolean;
   busy: boolean;
   error: string | null;
 }
@@ -58,6 +61,8 @@ async function loadZones(): Promise<void> {
       groupCount: z.groups?.length ?? 0,
       brightness: 80,        // 后端没存运行时亮度, 默认 80, 用户操作后更新
       on: false,             // 默认关 — 不再硬编码"假装亮着"
+      confirmedBrightness: 80,
+      confirmedOn: false,
       busy: false,
       error: null,
     }));
@@ -188,35 +193,23 @@ function onZoneDragEnd(): void {
 
 // ============ 操作 ============
 async function toggleZone(z: ZoneRow): Promise<void> {
-  // 乐观更新: 点击瞬间翻转 UI, 后台异步下发 DALI, 失败回滚. 消除"等硬件下发"的迟缓感.
-  const prevOn = z.on;
-  const prevBri = z.brightness;
-  z.on = !z.on;
-  if (z.on && z.brightness === 0) z.brightness = 80;
-  z.error = null;
-  try {
-    const res = z.on ? await lightingService.zoneOn(z.id) : await lightingService.zoneOff(z.id);
-    if (!res.ok) throw new Error(res.error || '执行失败');
-  } catch (err) {
-    z.on = prevOn; z.brightness = prevBri;       // 回滚
-    z.error = (err as Error).message;
-    ElMessage.error(`${z.name} 操作失败: ${z.error}`);
+  const desiredOn = !z.confirmedOn;
+  const outcome = await runLightingCommand(z, {
+    on: desiredOn,
+    brightness: desiredOn && z.confirmedBrightness === 0 ? 80 : z.confirmedBrightness,
+  }, () => desiredOn ? lightingService.zoneOn(z.id) : lightingService.zoneOff(z.id));
+  if (outcome.accepted && !outcome.ok) {
+    ElMessage.error(`${z.name} 操作失败: ${outcome.error}`);
   }
 }
 
 async function applyBrightness(z: ZoneRow, value: number): Promise<void> {
-  // 乐观: 滑条/预设值立即生效, 后台异步下发, 失败回滚
-  const prevOn = z.on;
-  z.brightness = value;
-  z.on = value > 0;
-  z.error = null;
-  try {
-    const res = await lightingService.setBrightness(z.id, value);
-    if (!res.ok) throw new Error(res.error || '执行失败');
-  } catch (err) {
-    z.on = prevOn;
-    z.error = (err as Error).message;
-    ElMessage.error(`${z.name} 亮度调节失败: ${z.error}`);
+  const outcome = await runLightingCommand(z, {
+    on: value > 0,
+    brightness: value,
+  }, () => lightingService.setBrightness(z.id, value));
+  if (outcome.accepted && !outcome.ok) {
+    ElMessage.error(`${z.name} 亮度调节失败: ${outcome.error}`);
   }
 }
 
@@ -255,19 +248,15 @@ async function dispatchMany(targets: ZoneRow[], op: 'on' | 'off'): Promise<void>
   try {
     for (let i = 0; i < targets.length; i++) {
       const z = targets[i];
-      // 乐观翻卡挪进循环: 卡片随 1.5s 节奏逐个亮/灭, 界面节奏 = 现场灯的节奏
-      z.error = null;
-      z.on = want;
-      if (want && z.brightness === 0) z.brightness = 80;
-      try {
-        const res = want ? await lightingService.zoneOn(z.id) : await lightingService.zoneOff(z.id);
-        if (!res.ok) throw new Error(res.error || '执行失败');
+      const outcome = await runLightingCommand(z, {
+        on: want,
+        brightness: want && z.confirmedBrightness === 0 ? 80 : z.confirmedBrightness,
+      }, () => want ? lightingService.zoneOn(z.id) : lightingService.zoneOff(z.id));
+      if (outcome.accepted && outcome.ok) {
         okCount += 1;
-        if (res.mock) mockCount += 1;
-      } catch (err) {
+        if (outcome.response?.mock) mockCount += 1;
+      } else {
         failCount += 1;
-        z.on = !want;                 // 个别回滚
-        z.error = (err as Error).message;
       }
       // 2026-07-31 业主: 全开/全关逐区间隔 1.5s —— 错峰上电减小冲击电流,
       // 也让整馆灯光有"依次点亮/熄灭"的仪式感。最后一区后不再等。
@@ -462,6 +451,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
             v-if="!grouping"
             class="v2-toggle"
             :class="{ on: z.on }"
+            :disabled="z.busy"
             @click="toggleZone(z)"
             :title="z.on ? '关闭' : '开启'"
           ></button>
