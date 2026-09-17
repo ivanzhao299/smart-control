@@ -489,21 +489,12 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
       <router-view v-slot="{ Component, route }">
         <!-- 崩溃自恢复: ErrorBoundary 包住所有页面, 单页报错降级不白屏整机 -->
         <ErrorBoundary>
-          <!-- 切页转场 (2026-07-25 D2): 淡入 70ms / 淡出 50ms, mode=out-in 防重叠;
-               reduced-motion 下 token 层退化为无动画。
-               显式 :duration 与 design-tokens.css 的 .v2-page 时长严格对齐: Vue 改用定时器
-               结束过渡, 不依赖 transitionend —— 杜绝个别 WebView/卡顿场景下过渡事件丢失,
-               导致 out-in 旧页停在 leave、新页永不挂载(切页卡死)。(2026-09-15) -->
-          <transition name="v2-page" mode="out-in" :duration="{ enter: 70, leave: 50 }">
-            <!-- keep-alive 上限权衡 (2026-09-15 卡顿复盘): 曾为"100% 命中缓存"把 max 提到 10,
-                 9 个控制页逛一圈后全部常驻不卸载 —— 音响(WebAudio/BGM)、媒体(上传队列)、空调等
-                 重页面的 DOM/解码器/组件实例都不释放, 中低端 PWA WebView 内存吃紧、GC 与合成掉帧,
-                 表现为切页不丝滑。调回 6: 高频相邻页互切仍命中, 最冷页被 LRU 淘汰真正 unmount
-                 释放内存 (各页后台轮询已由 useActivePolling 在切走时停止)。 -->
-            <keep-alive :max="6">
-              <component :is="Component" :key="route.name" />
-            </keep-alive>
-          </transition>
+          <!-- iOS WKWebView 会在后台恢复或主线程繁忙时丢失 transition 收尾，
+               mode="out-in" 因而可能永久停在旧页已移除、新页尚未挂载的空档。
+               控制页以可靠显示为先，直接切换组件；KeepAlive 继续保留相邻页状态。 -->
+          <keep-alive :max="6">
+            <component :is="Component" :key="route.name" />
+          </keep-alive>
         </ErrorBoundary>
       </router-view>
     </main>
