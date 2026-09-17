@@ -17,6 +17,7 @@ import './styles/industrial-hardening.css';
 import { initTheme } from './services/theme.service';
 import { autoSelectServer } from './services/server-autoselect';
 import { recoverFromStalePwa } from './services/pwa-recovery';
+import { startPwaUpdateMonitor } from './services/pwa-update-monitor';
 
 // 主题必须在 mount 之前应用, 否则会先渲染一帧深色再跳浅色 (闪一下)
 initTheme();
@@ -165,29 +166,10 @@ startBlankScreenWatchdog();
 // 每次启动及从后台回到前台时主动检查 sw.js；新 SW 接管后自动刷新一次，让当前
 // WebView 立即加载新版 index/chunk，而不是只提示“下次打开生效”。sessionStorage
 // 防止少数 WebView 的 controllerchange 重复触发造成刷新循环。
-if ('serviceWorker' in navigator) {
-  const hadController = !!navigator.serviceWorker.controller;
-  const pwaReloadKey = 'sc.pwa.updatedReload';
-  // 刷新后的新页面稳定运行数秒就解除锁；下一个版本仍能自动刷新。
-  window.setTimeout(() => sessionStorage.removeItem(pwaReloadKey), 5000);
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (!hadController) return;
-    if (sessionStorage.getItem(pwaReloadKey)) return;
-    sessionStorage.setItem(pwaReloadKey, '1');
-    ElMessage.success({ message: '系统已更新，正在刷新', duration: 1600 });
-    window.setTimeout(() => window.location.reload(), 300);
-  });
-
-  const checkForPwaUpdate = (): void => {
-    void navigator.serviceWorker.ready.then((registration) => registration.update()).catch(() => {
-      // 离线或旧 WebView 不支持主动 update 时静默跳过，不能影响中控使用。
-    });
-  };
-  checkForPwaUpdate();
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') checkForPwaUpdate();
-  });
-}
+const stopPwaUpdateMonitor = startPwaUpdateMonitor(() => {
+  ElMessage.success({ message: '系统已更新，正在刷新', duration: 1600 });
+});
+if (import.meta.hot) import.meta.hot.dispose(stopPwaUpdateMonitor);
 
 // 服务器地址自动选择: 当前地址 ping 不通就自动切到历史里能通的那个 (现场↔隧道
 // 两个网络环境不用再手输 IP)。异步跑, 不挡首屏。
