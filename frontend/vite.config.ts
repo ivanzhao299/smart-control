@@ -7,6 +7,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 import { resolve, sep } from 'path';
 import { cpSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 
 function gitOutput(args: string[]): string | null {
   try {
@@ -31,9 +32,14 @@ export default defineConfig(({ mode }) => {
   const defaultApiPort = isProd ? 3200 : 3000;
   const apiTarget = process.env.VITE_PROXY_API ?? `http://localhost:${defaultApiPort}`;
   const wsTarget = apiTarget.replace(/^http/, 'ws');
+  const frontendBuildId = randomUUID();
 
   return {
     base: PUBLIC_BASE,
+    define: {
+      __FRONTEND_BUILD_ID__: JSON.stringify(frontendBuildId),
+      __FRONTEND_VERSION_URL__: JSON.stringify(`${SCOPE_PREFIX}/deployment-version.json`),
+    },
     resolve: {
       alias: { '@': resolve(__dirname, 'src') },
     },
@@ -133,6 +139,7 @@ export default defineConfig(({ mode }) => {
             fileName: 'deployment-version.json',
             source: `${JSON.stringify({
               commit,
+              frontendBuildId,
               clean: trackedChanges === '',
               builtAt: new Date().toISOString(),
             }, null, 2)}\n`,

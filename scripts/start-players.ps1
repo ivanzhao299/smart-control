@@ -103,19 +103,18 @@ function Stop-Players {
 # Runs after killing old players and before launching new ones.
 function Clear-PlayerCache {
   Write-Host 'Clearing player PWA cache...' -ForegroundColor Yellow
-  $userData = Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\User Data\Default'
-  $cacheDirs = @('Service Worker', 'Cache', 'Code Cache', 'GPUCache')
-  foreach ($dir in $cacheDirs) {
-    $path = Join-Path $userData $dir
-    if (Test-Path $path) {
-      Remove-Item -Recurse -Force $path -ErrorAction SilentlyContinue
-      Write-Host ("  cleared: " + $dir) -ForegroundColor Gray
-    }
+  $running = Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='msedge.exe'" -ErrorAction Stop |
+    Where-Object { $_.CommandLine -and $_.CommandLine -match 'smart-control-player-slot[123]' }
+  if ($running) { throw 'Player processes are still running; refusing cache cleanup.' }
+  foreach ($n in @(1, 2, 3)) {
+    Clear-PlayerProfileCache -Slot $n
   }
   Write-Host 'Player cache cleared.' -ForegroundColor Green
 }
 
 if ($Stop) { Stop-Players; exit 0 }
+
+. (Join-Path $PSScriptRoot 'player-profile-path.ps1')
 
 $browser = Find-Browser
 if (-not $browser) {
@@ -224,7 +223,7 @@ function Force-ExactFullscreen {
 
 function Start-Slot {
   param([int]$N, [int]$X, [int]$Y, [int]$W, [int]$H)
-  $dataDir = "$env:LOCALAPPDATA\smart-control-player-slot$N"
+  $dataDir = Get-PlayerProfilePath -Slot $N
   $url = "${BaseUrl}?slot=$N"
   $chromeArgs = @(
     "--app=$url",

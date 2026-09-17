@@ -1,6 +1,7 @@
 import type { WsEvent } from '@/types/api';
 import { getApiBaseURL, getAdminToken, getClientToken } from './http';
 import { onIdentityChange } from './identity-boundary';
+import { notifyFrontendBuild } from './pwa-update-monitor';
 
 export type WsHandler = (event: WsEvent) => void;
 export type WsStateHandler = (state: WsConnectionState) => void;
@@ -98,6 +99,7 @@ export class WsClient {
         if (identity !== currentIdentity()) { ws.close(); return; }
         try {
           const event = JSON.parse(msg.data) as WsEvent;
+          if (event.type === 'hello' || event.type === 'frontend_release') notifyFrontendBuild(event.frontendBuildId);
           if (event.type === 'hello') { this.setState('open'); this.startHeartbeat(); }
           // pong 也走这条 — 收到任何消息都视为对端活着
           this.lastPongAt = Date.now();

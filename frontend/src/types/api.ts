@@ -535,7 +535,8 @@ export interface PlaybackChannelChangedWsEvent {
 }
 
 export type WsEvent =
-  | { type: 'hello'; message: string; serverTime: string }
+  | { type: 'hello'; message: string; serverTime: string; frontendBuildId?: string }
+  | { type: 'frontend_release'; frontendBuildId: string }
   | TestWsEvent
   | UatUpdatedWsEvent
   | { type: 'device_status'; device: string; status: string; state?: Record<string, unknown>; at: string }

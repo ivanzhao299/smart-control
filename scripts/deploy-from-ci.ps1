@@ -1108,9 +1108,17 @@ try {
       New-Item -ItemType Directory -Force -Path $releaseDataDir | Out-Null
       $releaseManifestPath = Join-Path $releaseDataDir 'release.json'
       $releaseManifestTemp = "$releaseManifestPath.$PID.tmp"
+      # Use the actual deployed build identity; backend/docs-only releases retain it.
+      # The manifest is published only after the verification gates above.
+      $frontendVersionPath = Join-Path $projectRoot 'frontend\dist\deployment-version.json'
+      $frontendBuildId = $null
+      if (Test-Path -LiteralPath $frontendVersionPath) {
+        $frontendBuildId = (Get-Content -LiteralPath $frontendVersionPath -Raw | ConvertFrom-Json).frontendBuildId
+      }
       $releaseManifest = [ordered]@{
         schemaVersion = 1
         commit = $deployedCommit
+        frontendBuildId = $frontendBuildId
         ref = 'main'
         releasedAt = (Get-Date).ToUniversalTime().ToString('o')
       } | ConvertTo-Json

@@ -251,6 +251,9 @@ describe('GK9000 deployment gates', () => {
     expect(manifestGuard).toBeGreaterThan(-1);
     expect(manifestWrite).toBeGreaterThan(manifestGuard);
     expect(deploy).toContain('commit = $deployedCommit');
+    expect(deploy).toContain('frontendBuildId = $frontendBuildId');
+    expect(deploy).toContain("'frontend\\dist\\deployment-version.json'");
+    expect(deploy.indexOf("Write-DeployLog 'verify-deploy.js passed.'")).toBeLessThan(manifestWrite);
     expect(deploy).toContain(
       '[IO.File]::Replace($releaseManifestTemp, $releaseManifestPath, $releaseManifestPrevious)',
     );
