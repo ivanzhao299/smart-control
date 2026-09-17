@@ -13,6 +13,7 @@ import { usePlaybackStore } from '@/stores/playback';
 import { addToPlaylist as apiAddToPlaylist } from '@/services/playback.service';
 import { BGM_SLOT, useBgmPlaylist } from '@/features/useBgmPlaylist';
 import { useAudioMatrix } from '@/features/useAudioMatrix';
+import { useAudioZoneRename } from '@/features/useAudioZoneRename';
 
 const router = useRouter();
 const route = useRoute();
@@ -189,6 +190,7 @@ useActivePolling(startAudioPolling, stopAudioPolling);
 interface AudioRow {
   /** 后端 audio_output_zone 主键 — 改名要用它 (下面的 id 是 'audio_out1' 这种展示用字符串) */
   dbId: number;
+  configRevision: number;
   id: string; name: string; zone: string; channel: number;
   volume: number; muted: boolean; bgm: string;
   bgmPlaying: boolean; mic: boolean;
@@ -204,6 +206,7 @@ async function loadZones(): Promise<void> {
     const rows = await audioConfigService.listZones();
     channels.value = rows.map((z) => ({
       dbId: z.id,
+      configRevision: z.configRevision,
       id: `audio_out${z.channel + 1}`,
       name: z.name,
       zone: `out${z.channel + 1}`,
@@ -285,53 +288,7 @@ const audioTab = ref<'scene' | 'bgm' | 'zones' | 'matrix'>('bgm');
 // 2026-07-17 业主: "分区音量里的输出通道推子名称应该和上传的照片名称一致, 并且可以编辑"。
 // 名字本来就存在 audio_output_zone 表、也早按机柜标签配好了 (一楼门厅…二楼办公区),
 // 缺的只是就地编辑。改完落库, 矩阵页的输出名来自同一张表, 会一起变。
-const editingCh = ref<number | null>(null);
-const editingChText = ref('');
-async function startRenameCh(z: AudioRow): Promise<void> {
-  if (!(await ensureAdmin('通道改名'))) return;
-  editingCh.value = z.dbId;
-  // 立体声卡编辑的是"基名" (不带 ·左/·右) —— 后缀是配对标识, 由代码维护,
-  // 业主改掉后缀会导致左右两卡分离/联动失效 (2026-07-26 现场踩过)。
-  editingChText.value = isStereo(z) ? z.name.slice(0, -2) : z.name;
-}
-async function commitRenameCh(z: AudioRow): Promise<void> {
-  const raw = editingChText.value.trim();
-  editingCh.value = null;
-  if (!raw) return;
-  const mate = partnerOf(z);
-  if (mate && z.name.endsWith('·左')) {
-    // 立体声对: 基名 + 后缀两路一起改, 保证配对约定永不被改名打破
-    const base = raw.replace(/·[左右]$/u, '').trim();
-    if (!base) return;
-    const newL = `${base}·左`;
-    const newR = `${base}·右`;
-    if (newL === z.name && newR === mate.name) return;
-    const beforeL = z.name;
-    const beforeR = mate.name;
-    z.name = newL;
-    mate.name = newR;
-    try {
-      await audioConfigService.updateZone(z.dbId, { name: newL });
-      await audioConfigService.updateZone(mate.dbId, { name: newR });
-      ElMessage.success(`已改名为「${base}」(左/右两路已同步)`);
-    } catch (err) {
-      z.name = beforeL;
-      mate.name = beforeR;
-      ElMessage.error(`改名失败: ${(err as Error).message}`);
-    }
-    return;
-  }
-  if (raw === z.name) return;
-  const before = z.name;
-  z.name = raw;                        // 乐观: 立刻显示
-  try {
-    await audioConfigService.updateZone(z.dbId, { name: raw });
-    ElMessage.success(`已改名为「${raw}」`);
-  } catch (err) {
-    z.name = before;                   // 失败回滚, 不留后端不认的假名字
-    ElMessage.error(`改名失败: ${(err as Error).message}`);
-  }
-}
+const { editingCh, editingChText, startRenameCh, commitRenameCh } = useAudioZoneRename(channels, ensureAdmin, isStereo);
 
 // ============ 音源矩阵 (EKX-808 8x8 路由) ============
 /** BGM 音源的矩阵输入口 = IN5 (0-based 4, USB 声卡←GK9000 主机, 2026-07-26 割接接线固定) */

@@ -43,6 +43,10 @@ export class AudioInputSource {
   @Column({ type: 'boolean', default: true })
   enabled!: boolean;
 
+  /** Configuration metadata only; live gain/mute intent does not increment this revision. */
+  @Column({ type: 'int', name: 'config_revision', default: 1 })
+  configRevision!: number;
+
   /**
    * **期望增益 (dB)** — null = 不管这一路, 由现场/厂家软件说了算。
    *

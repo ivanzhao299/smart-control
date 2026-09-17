@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 
 export const REQUIRED_SCHEMA_MIGRATIONS = [
+  'AddAudioConfigRevisions1789690000000',
   'AddDisplayFit1785030000000',
   'AddDocScreening1785120000000',
   'AddWelcomeGuest1785130000000',
@@ -34,6 +35,9 @@ export const REQUIRED_SCHEMA_MIGRATIONS = [
 ] as const;
 
 export const REQUIRED_SCHEMA_COLUMNS: Record<string, string[]> = {
+  audio_output_zone: ['config_revision'],
+  audio_input_source: ['config_revision'],
+  audio_scene: ['config_revision'],
   client_auth_v1: ['tokenSecret'],
   admin_auth_v1: ['tokenSecret'],
   baidu_pan_auth: [

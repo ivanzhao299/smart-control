@@ -46,6 +46,9 @@ export class AudioOutputZone {
   @Column({ type: 'boolean', default: true })
   enabled!: boolean;
 
+  @Column({ type: 'int', name: 'config_revision', default: 1 })
+  configRevision!: number;
+
   @CreateDateColumn()
   createdAt!: Date;
 

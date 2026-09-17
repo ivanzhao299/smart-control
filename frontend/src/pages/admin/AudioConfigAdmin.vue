@@ -1,176 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
-import { ElMessage } from 'element-plus';
+import { onMounted } from 'vue';
 import { Speaker, Sparkles, Save, Mic, Grid3x3, Send } from 'lucide-vue-next';
-import {
-  audioConfigService,
-  parseSceneContent,
-  type AudioOutputZone,
-  type AudioInputSource,
-  type AudioScene,
-  type SceneContent,
-} from '@/services/audio-config.service';
-
-/**
- * 音响配置 — 业主自定义输出/输入名 + 一键场景(含真实矩阵路由+音量).
- * 输出 8 路 (OUT1-8) / 输入 8 路 (IN1-8) channel 硬件固定; 场景 12 个 (U01-12 固定).
- * 场景"内容"(哪路输入→哪路输出+音量+静音)存我们 DB, 切场景时后端逐条下发到矩阵,
- * 不依赖厂家 PC Editor.
- */
-
-const zones = ref<AudioOutputZone[]>([]);
-const inputs = ref<AudioInputSource[]>([]);
-const scenes = ref<AudioScene[]>([]);
-const loading = ref(false);
-const savingId = ref<string | null>(null);
-
-const enabledInputs = computed(() =>
-  [...inputs.value].filter((i) => i.enabled).sort((a, b) => a.sortOrder - b.sortOrder || a.channel - b.channel),
-);
-
-async function refresh(): Promise<void> {
-  loading.value = true;
-  try {
-    [zones.value, inputs.value, scenes.value] = await Promise.all([
-      audioConfigService.listZones(true),
-      audioConfigService.listInputs(true),
-      audioConfigService.listScenes(true),
-    ]);
-  } catch (e) {
-    ElMessage.error(`加载失败: ${(e as Error).message}`);
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function saveZone(z: AudioOutputZone): Promise<void> {
-  savingId.value = `z${z.id}`;
-  try {
-    const saved = await audioConfigService.updateZone(z.id, {
-      name: z.name, floor: z.floor, color: z.color, enabled: z.enabled, sortOrder: z.sortOrder,
-    });
-    await refresh();
-    ElMessage.success(`已保存 OUT${saved.channel + 1}: ${saved.name}`);
-  } catch (e) {
-    ElMessage.error(`保存失败: ${(e as Error).message}`);
-  } finally {
-    savingId.value = null;
-  }
-}
-
-async function saveInput(s: AudioInputSource): Promise<void> {
-  savingId.value = `i${s.id}`;
-  try {
-    await audioConfigService.updateInput(s.id, {
-      name: s.name, color: s.color, enabled: s.enabled, sortOrder: s.sortOrder,
-    });
-    ElMessage.success(`已保存 IN${s.channel + 1}: ${s.name}`);
-  } catch (e) {
-    ElMessage.error(`保存失败: ${(e as Error).message}`);
-  } finally {
-    savingId.value = null;
-  }
-}
-
-async function saveScene(s: AudioScene): Promise<void> {
-  savingId.value = `s${s.id}`;
-  try {
-    await audioConfigService.updateScene(s.id, {
-      name: s.name, hint: s.hint, enabled: s.enabled, sortOrder: s.sortOrder,
-    });
-    ElMessage.success(`已保存 U${String(s.presetNum).padStart(2, '0')}: ${s.name}`);
-  } catch (e) {
-    ElMessage.error(`保存失败: ${(e as Error).message}`);
-  } finally {
-    savingId.value = null;
-  }
-}
-
-/** 某场景已配几路输出 (有路由的) */
-function sceneRouteCount(s: AudioScene): number {
-  const c = parseSceneContent(s);
-  if (!c) return 0;
-  return c.outputs.filter((o) => (o.inputs?.length ?? 0) > 0 || typeof o.volume === 'number' || typeof o.muted === 'boolean').length;
-}
-
-// ============ 矩阵路由编辑器 ============
-
-interface EditorRow { ch: number; name: string; inputs: number[]; volume: number; muted: boolean }
-
-const editorVisible = ref(false);
-const editingScene = ref<AudioScene | null>(null);
-const editorRows = ref<EditorRow[]>([]);
-const applying = ref(false);
-const savingContent = ref(false);
-
-function openEditor(scene: AudioScene): void {
-  editingScene.value = scene;
-  const content = parseSceneContent(scene);
-  const byCh = new Map(content?.outputs?.map((o) => [o.ch, o]) ?? []);
-  editorRows.value = [...zones.value]
-    .filter((z) => z.enabled)
-    .sort((a, b) => a.sortOrder - b.sortOrder || a.channel - b.channel)
-    .map((z) => {
-      const c = byCh.get(z.channel);
-      return {
-        ch: z.channel,
-        name: z.name,
-        inputs: c?.inputs ? [...c.inputs] : [],
-        volume: typeof c?.volume === 'number' ? c.volume : 80,
-        muted: c?.muted ?? false,
-      };
-    });
-  editorVisible.value = true;
-}
-
-function toggleCell(row: EditorRow, ch: number, checked: boolean): void {
-  const has = row.inputs.includes(ch);
-  if (checked && !has) row.inputs.push(ch);
-  else if (!checked && has) row.inputs = row.inputs.filter((c) => c !== ch);
-}
-
-function buildContent(): SceneContent {
-  return {
-    outputs: editorRows.value.map((r) => ({
-      ch: r.ch,
-      inputs: [...r.inputs].sort((a, b) => a - b),
-      volume: r.volume,
-      muted: r.muted,
-    })),
-  };
-}
-
-async function saveContent(): Promise<void> {
-  if (!editingScene.value) return;
-  savingContent.value = true;
-  try {
-    await audioConfigService.updateScene(editingScene.value.id, { content: buildContent() });
-    ElMessage.success('场景路由已保存');
-    await refresh();
-    editorVisible.value = false;
-  } catch (e) {
-    ElMessage.error(`保存失败: ${(e as Error).message}`);
-  } finally {
-    savingContent.value = false;
-  }
-}
-
-async function applyNow(): Promise<void> {
-  if (!editingScene.value) return;
-  applying.value = true;
-  try {
-    // 先存当前编辑内容, 再下发, 保证听到的就是屏幕上配的
-    await audioConfigService.updateScene(editingScene.value.id, { content: buildContent() });
-    await audioConfigService.applyScene(editingScene.value.presetNum);
-    ElMessage.success('已下发到矩阵 — 现场接好喇叭即可试听');
-  } catch (e) {
-    ElMessage.error(`下发失败: ${(e as Error).message}`);
-  } finally {
-    applying.value = false;
-  }
-}
-
-onMounted(refresh);
+import { useAudioConfigEditor } from '@/features/useAudioConfigEditor';
+const { zones, inputs, scenes, loading, needsReload, savingId, busy, enabledInputs, editorVisible, editingScene, editorRows, applying, savingContent,
+  refresh, saveZone, saveInput, saveScene, sceneRouteCount, openEditor, toggleCell, saveContent, applyNow } = useAudioConfigEditor();
+onMounted(() => refresh(false));
 </script>
 
 <template>
@@ -184,8 +18,9 @@ onMounted(refresh);
           不用厂家 PC Editor. 通道号 (OUT/IN 1-8) / 预设号 (U01-12) 是硬件固定, 不可改.
         </p>
       </div>
-      <el-button @click="refresh" :loading="loading">刷新</el-button>
+      <el-button @click="refresh()" :disabled="busy" :loading="loading">刷新</el-button>
     </header>
+    <el-alert v-if="needsReload" title="尚未取得可保存的最新版本；草稿不会自动覆盖服务器，请先重新载入。" type="warning" :closable="false" show-icon />
 
     <!-- 输出通道 -->
     <section class="block">
@@ -209,7 +44,7 @@ onMounted(refresh);
         </el-table-column>
         <el-table-column label="操作" width="100">
           <template #default="{ row }">
-            <el-button type="primary" size="small" :loading="savingId === `z${row.id}`" @click="saveZone(row)">
+            <el-button type="primary" size="small" :disabled="busy || needsReload" :loading="savingId === `z${row.id}`" @click="saveZone(row)">
               <Save :size="13" :stroke-width="2" style="margin-right:4px" /> 保存
             </el-button>
           </template>
@@ -234,7 +69,7 @@ onMounted(refresh);
         </el-table-column>
         <el-table-column label="操作" width="100">
           <template #default="{ row }">
-            <el-button type="primary" size="small" :loading="savingId === `i${row.id}`" @click="saveInput(row)">
+            <el-button type="primary" size="small" :disabled="busy || needsReload" :loading="savingId === `i${row.id}`" @click="saveInput(row)">
               <Save :size="13" :stroke-width="2" style="margin-right:4px" /> 保存
             </el-button>
           </template>
@@ -274,10 +109,10 @@ onMounted(refresh);
         </el-table-column>
         <el-table-column label="操作" width="190">
           <template #default="{ row }">
-            <el-button size="small" @click="openEditor(row)">
+            <el-button size="small" :disabled="busy || needsReload" @click="openEditor(row)">
               <Grid3x3 :size="13" :stroke-width="2" style="margin-right:4px" /> 编辑路由
             </el-button>
-            <el-button type="primary" size="small" :loading="savingId === `s${row.id}`" @click="saveScene(row)">
+            <el-button type="primary" size="small" :disabled="busy || needsReload" :loading="savingId === `s${row.id}`" @click="saveScene(row)">
               <Save :size="13" :stroke-width="2" />
             </el-button>
           </template>
@@ -330,10 +165,10 @@ onMounted(refresh);
       </div>
       <template #footer>
         <el-button @click="editorVisible = false">取消</el-button>
-        <el-button :loading="applying" @click="applyNow">
+        <el-button :disabled="busy || needsReload" :loading="applying" @click="applyNow">
           <Send :size="14" :stroke-width="2" style="margin-right:5px" /> 下发试听
         </el-button>
-        <el-button type="primary" :loading="savingContent" @click="saveContent">
+        <el-button type="primary" :disabled="busy || needsReload" :loading="savingContent" @click="saveContent">
           <Save :size="14" :stroke-width="2" style="margin-right:5px" /> 保存
         </el-button>
       </template>

@@ -8,6 +8,7 @@ const ACS = 'audio-config:scenes';
 /** 音响输出通道 (后台可配置名称) */
 export interface AudioOutputZone {
   id: number;
+  configRevision: number;
   channel: number;        // EKX 0-based 输出索引 (0=OUT1)
   name: string;
   floor: string | null;
@@ -19,6 +20,7 @@ export interface AudioOutputZone {
 /** 音响输入源 (后台可配置名称) */
 export interface AudioInputSource {
   id: number;
+  configRevision: number;
   channel: number;        // EKX 0-based 输入索引 (0=IN1)
   name: string;
   color: string | null;
@@ -42,6 +44,7 @@ export interface SceneContent {
 /** 音响一键场景 (后台可配置名称 + 内容) */
 export interface AudioScene {
   id: number;
+  configRevision: number;
   presetNum: number;      // EKX 用户预设号 1-12
   name: string;
   hint: string | null;
@@ -50,8 +53,8 @@ export interface AudioScene {
   enabled: boolean;
 }
 
-export type AudioZonePatch = Partial<Omit<AudioOutputZone, 'id'>>;
-export type AudioInputPatch = Partial<Omit<AudioInputSource, 'id'>>;
+export type AudioZonePatch = Partial<Omit<AudioOutputZone, 'id' | 'configRevision'>>;
+export type AudioInputPatch = Partial<Omit<AudioInputSource, 'id' | 'configRevision'>>;
 /** 场景写入 patch — content 传对象 (后端序列化), 其余跟实体一致 */
 export type AudioScenePatch = Partial<{
   presetNum: number;
@@ -73,30 +76,37 @@ export function parseSceneContent(scene: Pick<AudioScene, 'content'>): SceneCont
   }
 }
 
+type Versioned<T> = T & { expectedRevision: number };
+export type AudioZoneSaveResult = AudioOutputZone & { pairedZone?: AudioOutputZone };
+function versioned<T extends { expectedRevision: number }>(dto: T): T {
+  if (!Number.isSafeInteger(dto.expectedRevision) || dto.expectedRevision < 1) throw new Error('尚未取得有效配置版本，请重新载入');
+  return dto;
+}
+
 export const audioConfigService = {
   // 输出通道
   // SWR 缓存: list 命中立返 + 后台 revalidate; 增删改后 invalidate 对应 key
-  listZones: (includeDisabled = false) =>
-    queryOnce(`${ACZ}:${includeDisabled}`, () =>
+  listZones: (includeDisabled = false, fresh = false) =>
+    fresh ? api.get<AudioOutputZone[]>(`/audio-config/zones${includeDisabled ? '?includeDisabled=1' : ''}`) : queryOnce(`${ACZ}:${includeDisabled}`, () =>
       api.get<AudioOutputZone[]>(`/audio-config/zones${includeDisabled ? '?includeDisabled=1' : ''}`)),
   createZone: (dto: AudioZonePatch) => api.post<AudioOutputZone>('/audio-config/zones', dto).then((r) => { invalidate(ACZ); return r; }),
-  updateZone: (id: number, dto: AudioZonePatch) => api.put<AudioOutputZone>(`/audio-config/zones/${id}`, dto).then((r) => { invalidate(ACZ); return r; }),
-  deleteZone: (id: number) => api.del<{ removedId: number }>(`/audio-config/zones/${id}`).then((r) => { invalidate(ACZ); return r; }),
+  updateZone: (id: number, dto: Versioned<AudioZonePatch>) => api.put<AudioZoneSaveResult>(`/audio-config/zones/${id}`, versioned(dto)).then((r) => { invalidate(ACZ); return r; }),
+  deleteZone: (id: number, expectedRevision: number) => api.del<{ removedId: number }>(`/audio-config/zones/${id}?expectedRevision=${versioned({ expectedRevision }).expectedRevision}`).then((r) => { invalidate(ACZ); return r; }),
   // 输入源
-  listInputs: (includeDisabled = false) =>
-    queryOnce(`${ACI}:${includeDisabled}`, () =>
+  listInputs: (includeDisabled = false, fresh = false) =>
+    fresh ? api.get<AudioInputSource[]>(`/audio-config/inputs${includeDisabled ? '?includeDisabled=1' : ''}`) : queryOnce(`${ACI}:${includeDisabled}`, () =>
       api.get<AudioInputSource[]>(`/audio-config/inputs${includeDisabled ? '?includeDisabled=1' : ''}`)),
   createInput: (dto: AudioInputPatch) => api.post<AudioInputSource>('/audio-config/inputs', dto).then((r) => { invalidate(ACI); return r; }),
-  updateInput: (id: number, dto: AudioInputPatch) => api.put<AudioInputSource>(`/audio-config/inputs/${id}`, dto).then((r) => { invalidate(ACI); return r; }),
-  deleteInput: (id: number) => api.del<{ removedId: number }>(`/audio-config/inputs/${id}`).then((r) => { invalidate(ACI); return r; }),
+  updateInput: (id: number, dto: Versioned<AudioInputPatch>) => api.put<AudioInputSource>(`/audio-config/inputs/${id}`, versioned(dto)).then((r) => { invalidate(ACI); return r; }),
+  deleteInput: (id: number, expectedRevision: number) => api.del<{ removedId: number }>(`/audio-config/inputs/${id}?expectedRevision=${versioned({ expectedRevision }).expectedRevision}`).then((r) => { invalidate(ACI); return r; }),
   // 场景
-  listScenes: (includeDisabled = false) =>
-    queryOnce(`${ACS}:${includeDisabled}`, () =>
+  listScenes: (includeDisabled = false, fresh = false) =>
+    fresh ? api.get<AudioScene[]>(`/audio-config/scenes${includeDisabled ? '?includeDisabled=1' : ''}`) : queryOnce(`${ACS}:${includeDisabled}`, () =>
       api.get<AudioScene[]>(`/audio-config/scenes${includeDisabled ? '?includeDisabled=1' : ''}`)),
   createScene: (dto: AudioScenePatch) => api.post<AudioScene>('/audio-config/scenes', dto).then((r) => { invalidate(ACS); return r; }),
-  updateScene: (id: number, dto: AudioScenePatch) => api.put<AudioScene>(`/audio-config/scenes/${id}`, dto).then((r) => { invalidate(ACS); return r; }),
-  deleteScene: (id: number) => api.del<{ removedId: number }>(`/audio-config/scenes/${id}`).then((r) => { invalidate(ACS); return r; }),
+  updateScene: (id: number, dto: Versioned<AudioScenePatch>) => api.put<AudioScene>(`/audio-config/scenes/${id}`, versioned(dto)).then((r) => { invalidate(ACS); return r; }),
+  deleteScene: (id: number, expectedRevision: number) => api.del<{ removedId: number }>(`/audio-config/scenes/${id}?expectedRevision=${versioned({ expectedRevision }).expectedRevision}`).then((r) => { invalidate(ACS); return r; }),
   // 场景下发 (走 /audio 控制端点, 不是 /audio-config)
-  applyScene: (preset: number) => api.post<{ ok: boolean }>(`/audio/scene/apply/${preset}`, {}),
+  applyScene: (preset: number, expectedRevision: number) => api.post<{ ok: boolean }>(`/audio/scene/apply/${preset}`, versioned({ expectedRevision })),
   resetSceneCache: () => api.post<{ ok: boolean }>('/audio/scene/reset-cache', {}),
 };

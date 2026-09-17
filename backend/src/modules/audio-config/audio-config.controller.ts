@@ -8,20 +8,23 @@ import {
   Post,
   Put,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import { AudioConfigService } from './audio-config.service';
 import {
-  AudioConfigService,
-  type AudioInputUpsertDto,
-  type AudioSceneUpsertDto,
-  type AudioZoneUpsertDto,
-} from './audio-config.service';
+  AudioDeleteQueryDto,
+  AudioInputUpsertDto,
+  AudioSceneUpsertDto,
+  AudioZoneUpsertDto,
+} from './dto/audio-config.dto';
+import { AuthenticatedRequest, requireAdmin } from '../../common/auth/actor';
 import { AdminGuard } from '../admin-auth/admin-auth.guard';
 
 /**
  * 音响配置 — 输出通道 + 一键场景的自定义名称.
  *
- * 读: GET (不要 token) — AudioPage 拉这个渲染通道卡 + 场景按钮
+ * 读: GET 沿用全局访问策略 — AudioPage 拉这个渲染通道卡 + 场景按钮
  * 写: POST/PUT/DELETE (admin token) — 后台 AudioConfigAdmin 编辑
  */
 @Controller('audio-config')
@@ -36,20 +39,34 @@ export class AudioConfigController {
 
   @Post('zones')
   @UseGuards(AdminGuard)
-  async createZone(@Body() dto: AudioZoneUpsertDto) {
-    return { message: '创建成功', data: await this.service.upsertZone(null, dto) };
+  async createZone(@Req() req: AuthenticatedRequest, @Body() dto: AudioZoneUpsertDto) {
+    return {
+      message: '创建成功',
+      data: await this.service.upsertZone(null, dto, requireAdmin(req)),
+    };
   }
 
   @Put('zones/:id')
   @UseGuards(AdminGuard)
-  async updateZone(@Param('id', ParseIntPipe) id: number, @Body() dto: AudioZoneUpsertDto) {
-    return { message: '更新成功', data: await this.service.upsertZone(id, dto) };
+  async updateZone(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AudioZoneUpsertDto,
+  ) {
+    return { message: '更新成功', data: await this.service.upsertZone(id, dto, requireAdmin(req)) };
   }
 
   @Delete('zones/:id')
   @UseGuards(AdminGuard)
-  async deleteZone(@Param('id', ParseIntPipe) id: number) {
-    return { message: '已删除', data: await this.service.deleteZone(id) };
+  async deleteZone(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Query() query: AudioDeleteQueryDto,
+  ) {
+    return {
+      message: '已删除',
+      data: await this.service.deleteZone(id, query.expectedRevision, requireAdmin(req)),
+    };
   }
 
   // ---- 输入源 ----
@@ -60,20 +77,37 @@ export class AudioConfigController {
 
   @Post('inputs')
   @UseGuards(AdminGuard)
-  async createInput(@Body() dto: AudioInputUpsertDto) {
-    return { message: '创建成功', data: await this.service.upsertInput(null, dto) };
+  async createInput(@Req() req: AuthenticatedRequest, @Body() dto: AudioInputUpsertDto) {
+    return {
+      message: '创建成功',
+      data: await this.service.upsertInput(null, dto, requireAdmin(req)),
+    };
   }
 
   @Put('inputs/:id')
   @UseGuards(AdminGuard)
-  async updateInput(@Param('id', ParseIntPipe) id: number, @Body() dto: AudioInputUpsertDto) {
-    return { message: '更新成功', data: await this.service.upsertInput(id, dto) };
+  async updateInput(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AudioInputUpsertDto,
+  ) {
+    return {
+      message: '更新成功',
+      data: await this.service.upsertInput(id, dto, requireAdmin(req)),
+    };
   }
 
   @Delete('inputs/:id')
   @UseGuards(AdminGuard)
-  async deleteInput(@Param('id', ParseIntPipe) id: number) {
-    return { message: '已删除', data: await this.service.deleteInput(id) };
+  async deleteInput(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Query() query: AudioDeleteQueryDto,
+  ) {
+    return {
+      message: '已删除',
+      data: await this.service.deleteInput(id, query.expectedRevision, requireAdmin(req)),
+    };
   }
 
   // ---- 场景 ----
@@ -84,19 +118,36 @@ export class AudioConfigController {
 
   @Post('scenes')
   @UseGuards(AdminGuard)
-  async createScene(@Body() dto: AudioSceneUpsertDto) {
-    return { message: '创建成功', data: await this.service.upsertScene(null, dto) };
+  async createScene(@Req() req: AuthenticatedRequest, @Body() dto: AudioSceneUpsertDto) {
+    return {
+      message: '创建成功',
+      data: await this.service.upsertScene(null, dto, requireAdmin(req)),
+    };
   }
 
   @Put('scenes/:id')
   @UseGuards(AdminGuard)
-  async updateScene(@Param('id', ParseIntPipe) id: number, @Body() dto: AudioSceneUpsertDto) {
-    return { message: '更新成功', data: await this.service.upsertScene(id, dto) };
+  async updateScene(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AudioSceneUpsertDto,
+  ) {
+    return {
+      message: '更新成功',
+      data: await this.service.upsertScene(id, dto, requireAdmin(req)),
+    };
   }
 
   @Delete('scenes/:id')
   @UseGuards(AdminGuard)
-  async deleteScene(@Param('id', ParseIntPipe) id: number) {
-    return { message: '已删除', data: await this.service.deleteScene(id) };
+  async deleteScene(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Query() query: AudioDeleteQueryDto,
+  ) {
+    return {
+      message: '已删除',
+      data: await this.service.deleteScene(id, query.expectedRevision, requireAdmin(req)),
+    };
   }
 }

@@ -1,9 +1,10 @@
-import { BadRequestException, Body, Controller, Get, GoneException, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Get, GoneException, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AudioAdapter } from '../../adapters/audio/audio.adapter';
 import { OperationLogService } from '../logs/operation-log.service';
 import { AudioConfigService } from '../audio-config/audio-config.service';
+import { AudioRevisionDto } from '../audio-config/dto/audio-config.dto';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { AudioBgmDto, AudioMatrixDto, AudioMicDto, AudioMuteDto, AudioVolumeDto } from './dto/audio.dto';
 import { AdapterResult } from '../../adapters/adapter.types';
@@ -13,6 +14,7 @@ import { AudioInputSource } from '../../entities/audio-input-source.entity';
 // 跟 adapter 下发用的是同一个函数 —— 两边各抄一份公式的话, 对账器会每 30 秒
 // 把业主刚拖好的滑条"纠正"回差之毫厘的值, 表现为音量自己跳。
 import { percentToDb } from '../../adapters/audio/ekx808-protocol';
+import { serializedTransaction } from '../../common/utils/serialized-transaction';
 
 // 音量滑条会拖出连续命令, 6 次/秒/客户端给点余量
 @Controller('audio')
@@ -38,8 +40,11 @@ export class AudioController {
    * 没配 content 的场景 → 回退调设备内置预设 U0N (老行为, 兼容).
    */
   @Post('scene/apply/:preset')
-  async applyScene(@Param('preset', ParseIntPipe) preset: number) {
+  async applyScene(@Param('preset', ParseIntPipe) preset: number, @Body() dto: AudioRevisionDto = {}) {
     const scene = await this.audioConfig.getSceneByPreset(preset);
+    if (dto.expectedRevision !== undefined && scene?.configRevision !== dto.expectedRevision) {
+      throw new ConflictException({ code: 'AUDIO_CONFIG_REVISION_CONFLICT', message: '场景配置已变化，未下发设备，请重新载入后确认' });
+    }
     const content = this.audioConfig.parseSceneContent(scene);
     if (content && content.outputs.length > 0) {
       return this.wrap('audio-dsp', `scene.apply.U${preset}`,
@@ -153,13 +158,12 @@ export class AudioController {
   }
 
   private async rememberLink(outCh: number, inCh: number, enabled: boolean): Promise<void> {
-    const row = await this.linkRepo.findOne({ where: { outCh, inCh } });
-    if (row) {
-      row.enabled = enabled;
-      await this.linkRepo.save(row);
-    } else {
-      await this.linkRepo.save(this.linkRepo.create({ outCh, inCh, enabled }));
-    }
+    await serializedTransaction(this.linkRepo.manager.connection, async manager => {
+      const repo = manager.getRepository(AudioDesiredLink);
+      const row = await repo.findOneBy({ outCh, inCh });
+      if (row) await repo.update(row.id, { enabled });
+      else await repo.save(repo.create({ outCh, inCh, enabled }));
+    });
   }
 
   // ============ 期望状态 / 对账 ============
@@ -232,10 +236,10 @@ export class AudioController {
     for (const inp of inputs) {
       const cur = await this.audio.diagnoseInput(inp.channel);
       if (cur.ok && cur.data && cur.data.gainDb !== null) {
-        inp.desiredGainDb = cur.data.gainDb;
-        inp.desiredMuted = cur.data.muted;
-        await this.inputRepo.save(inp);
-        g += 1;
+        const fields = { desiredGainDb: cur.data.gainDb, desiredMuted: cur.data.muted };
+        const result = await serializedTransaction(this.inputRepo.manager.connection, manager =>
+          manager.update(AudioInputSource, { id: inp.id, channel: inp.channel }, fields));
+        if (result.affected) g += 1;
       }
     }
     this.reconciler.noteWrite();
@@ -287,13 +291,9 @@ export class AudioController {
    */
   @Post('input/:ch/gain')
   async setInputGain(@Param('ch', ParseIntPipe) ch: number, @Body() dto: AudioVolumeDto) {
-    const row = await this.inputRepo.findOne({ where: { channel: ch } });
-    if (row) {
-      // 存 dB 而不是百分比: 设备读回来的是 dB, 存百分比每轮对账都要来回换算,
-      // 而 percentToDb 是非线性的, 换算误差会让对账器反复"纠正"一个已经对的值。
-      row.desiredGainDb = percentToDb(dto.value);
-      await this.inputRepo.save(row);
-    }
+    // Only live intent is updated; never save a whole stale configuration row.
+    await serializedTransaction(this.inputRepo.manager.connection, manager =>
+      manager.update(AudioInputSource, { channel: ch }, { desiredGainDb: percentToDb(dto.value) }));
     this.reconciler.noteWrite();
     return this.wrap('audio-dsp', `inputGain.I${ch}`,
       () => this.audio.setInputVolume(ch, dto.value),

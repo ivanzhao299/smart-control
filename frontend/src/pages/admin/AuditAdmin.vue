@@ -16,7 +16,7 @@ const filterEntityType = ref<string>('');
 const filterAction = ref<AuditAction | ''>('');
 const filterOperator = ref<string>('');
 
-const ENTITY_OPTIONS = ['hardware_unit', 'driver_template', 'device', 'scene'];
+const ENTITY_OPTIONS = ['hardware_unit', 'driver_template', 'device', 'scene', 'audio_output_zone', 'audio_input_source', 'audio_scene'];
 const ACTION_OPTIONS: AuditAction[] = ['create', 'update', 'delete', 'rollback'];
 
 async function refresh(): Promise<void> {

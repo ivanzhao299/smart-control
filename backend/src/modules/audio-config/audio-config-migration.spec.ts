@@ -10,6 +10,8 @@ import { AudioScene } from '../../entities/audio-scene.entity';
 import { InitialBaseline1784561601801 } from '../../migrations/1784561601801-InitialBaseline';
 import { EstablishAudioConfigCatalog1789630000000 } from '../../migrations/1789630000000-EstablishAudioConfigCatalog';
 import { AudioConfigService } from './audio-config.service';
+import { AuditLog } from '../../entities/audit-log.entity';
+import { AddAudioConfigRevisions1789690000000 } from '../../migrations/1789690000000-AddAudioConfigRevisions';
 
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
@@ -43,7 +45,7 @@ describe('EstablishAudioConfigCatalog migration', () => {
     dataSource = new DataSource({
       type: 'better-sqlite3',
       database: join(directory, 'migration.sqlite'),
-      entities: [AudioOutputZone, AudioInputSource, AudioScene, AudioDesiredLink],
+      entities: [AudioOutputZone, AudioInputSource, AudioScene, AudioDesiredLink, AuditLog],
       migrations: [InitialBaseline1784561601801, EstablishAudioConfigCatalog1789630000000],
       migrationsTableName: 'migrations',
       synchronize: false,
@@ -145,6 +147,8 @@ describe('EstablishAudioConfigCatalog migration', () => {
 
     await dataSource.runMigrations();
 
+    // Historical catalog assertions remain unchanged; current entities need the additive revision metadata.
+    await new AddAudioConfigRevisions1789690000000().up(dataSource.createQueryRunner());
     expect(await dataSource.getRepository(AudioInputSource).count()).toBe(8);
     expect(await dataSource.getRepository(AudioOutputZone).count()).toBe(8);
     expect(await dataSource.getRepository(AudioDesiredLink).count()).toBe(64);
@@ -178,6 +182,7 @@ describe('EstablishAudioConfigCatalog migration', () => {
   it('keeps stereo names valid and updates both sides in one write transaction', async () => {
     await dataSource.initialize();
     await dataSource.runMigrations();
+    await new AddAudioConfigRevisions1789690000000().up(dataSource.createQueryRunner());
     const service = new AudioConfigService(
       dataSource.getRepository(AudioOutputZone),
       dataSource.getRepository(AudioInputSource),
