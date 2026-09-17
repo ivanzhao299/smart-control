@@ -988,6 +988,24 @@ try {
   }
   if (-not $healthy) { throw 'GK9000 backend or frontend did not become healthy (even after detached pm2 resurrect).' }
 
+  # The LED player is an Interactive Edge window, not a PM2 process. A controlled
+  # migration intentionally stops it with the other writers. In September 2026
+  # the watchdog had already been disabled, so activation faithfully restored the
+  # broken state and every service-only verification still passed while the wall
+  # stayed blank. Heal through the Interactive task and require a fresh slot-1
+  # heartbeat before a deployment can be accepted.
+  $playerRuntimeGate = Join-Path $projectRoot 'scripts\ensure-player-runtime.ps1'
+  if (-not (Test-Path -LiteralPath $playerRuntimeGate -PathType Leaf)) {
+    throw 'Required player runtime gate scripts\ensure-player-runtime.ps1 is missing.'
+  }
+  Write-DeployLog 'Checking physical-console LED player recovery gate.'
+  if ($VerifyOnly) {
+    & $playerRuntimeGate 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
+  } else {
+    & $playerRuntimeGate -Apply 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
+  }
+  Write-DeployLog 'Physical-console LED player recovery gate passed.'
+
   # Authoritative deploy verification. The health loop above only proves "something is
   # answering on 3200/5173" - it cannot prove the NEW code is live: an orphaned old
   # process still holding the port answers 200 just the same (that was the root cause of

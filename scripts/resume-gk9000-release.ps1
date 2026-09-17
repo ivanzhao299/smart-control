@@ -74,14 +74,19 @@ try {
   & node (Join-Path $root 'backend\scripts\provision-kiosk-profiles.cjs')
   if ($LASTEXITCODE -ne 0) { throw 'Dedicated kiosk profile configuration failed.' }
   foreach ($task in $snapshot.Tasks) {
-    if ($task.Enabled) { Enable-ScheduledTask -TaskName $task.Name | Out-Null }
-    else { Disable-ScheduledTask -TaskName $task.Name | Out-Null }
+    # A disabled player watchdog is an operational fault, not a desired release
+    # state. MAINTENANCE.flag is the supported way to suppress recovery safely.
+    # Always restore this task enabled so a release cannot strand the LED player
+    # after the isolation phase stopped its console window.
+    if ($task.Name -eq 'SmartControl-PlayerWatchdog' -or $task.Enabled) {
+      Enable-ScheduledTask -TaskName $task.Name | Out-Null
+    } else {
+      Disable-ScheduledTask -TaskName $task.Name | Out-Null
+    }
   }
   # This is an Interactive task; never run start-players.ps1 in SSH Session 0.
-  if (@($snapshot.Tasks | Where-Object { $_.Name -eq 'SmartControl-PlayerWatchdog' -and $_.Enabled }).Count) {
-    Start-ScheduledTask -TaskName 'SmartControl-PlayerWatchdog'
-  }
-  Write-Output 'Candidate services verified and original task enablement restored. Physical player and user acceptance are still required.'
+  Start-ScheduledTask -TaskName 'SmartControl-PlayerWatchdog'
+  Write-Output 'Candidate services verified; task enablement restored and the interactive player watchdog triggered.'
 } catch {
   # No code/data rollback: preserve private uploads and stop known services.
   if (-not (Test-Path -LiteralPath $hold)) { [IO.File]::WriteAllText($hold, 'Activation failed; retain isolation.') }
