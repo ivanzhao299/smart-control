@@ -27,8 +27,12 @@ import {
 } from 'lucide-vue-next';
 import { haptics } from '@/services/haptics';
 import {
-  hvacService, type HvacFan, type HvacIndoor, type HvacMode, type HvacZone,
+  hvacService, type HvacFan, type HvacMode, type HvacZone,
 } from '@/services/hvac.service';
+import {
+  buildGroupedSections, buildOverview, buildZoneCard, commonStateValue, selectedTemperature, unknownState,
+  type IndoorRow, type IndoorState, type ZoneCard,
+} from '@/features/hvac-view-state';
 
 const router = useRouter();
 function goBack(): void { void router.push({ name: 'dashboard' }); }
@@ -39,20 +43,6 @@ function goBack(): void { void router.push({ name: 'dashboard' }); }
  * known=false = 这一轮没读到 (网关超时 / 内机离线)。必须跟"关机"区分开:
  * 把读不到画成关机, 会让人以为空调停了而实际在跑, 比不显示更糟。
  */
-interface IndoorState {
-  known: boolean;
-  on: boolean;
-  temperature: number;
-  mode: HvacMode;
-  fan: HvacFan;
-  /** 实测室温 (设定温度是 temperature, 这个是屋里实际多少度) */
-  roomTemp?: number;
-  online: boolean;
-  faultCode: number;
-}
-interface IndoorRow extends HvacIndoor {
-  state: IndoorState;
-}
 
 /** 状态轮询间隔 — 2 次 Modbus 往返约 0.2-1s, 5s 一轮既跟手又不压网关 */
 const POLL_MS = 5000;
@@ -82,11 +72,6 @@ const fans: Array<{ value: HvacFan; label: string }> = [
   { value: 'mid',  label: '中' },
   { value: 'high', label: '高' },
 ];
-
-/** 还没读到真机状态时的占位 —— known=false, 界面显示"未知"而不是"关机" */
-function unknownState(): IndoorState {
-  return { known: false, on: false, temperature: 24, mode: 'auto', fan: 'auto', online: false, faultCode: 0 };
-}
 
 async function loadAll(): Promise<void> {
   loading.value = true;
@@ -257,23 +242,7 @@ const ungroupedCount = computed(() => visibleIndoors.value.filter((i) => !i.zone
  * 改成按组分段后: 结构直接摆在眼前, 把内机移过去 -> 它立刻出现在那一段里, 动作和
  * 结果在同一个地方发生。底部那堵按钮墙也就不需要了。
  */
-const groupedSections = computed<Array<{ code: string | null; name: string; zone: HvacZone | null; rows: IndoorRow[] }>>(() => {
-  const byCode = new Map<string | null, IndoorRow[]>();
-  for (const row of visibleIndoors.value) {
-    const k = row.zoneCode ?? null;
-    const list = byCode.get(k) ?? [];
-    list.push(row);
-    byCode.set(k, list);
-  }
-  const out: Array<{ code: string | null; name: string; zone: HvacZone | null; rows: IndoorRow[] }> = [];
-  // 空组也要显示 —— 否则新建的组无处安放, 又回到那个"建了看不见 -> 放不进去"的死锁
-  for (const z of visibleZones.value) {
-    out.push({ code: z.code, name: z.name, zone: z, rows: byCode.get(z.code) ?? [] });
-  }
-  const un = byCode.get(null) ?? [];
-  if (un.length) out.push({ code: null, name: '未分组', zone: null, rows: un });
-  return out;
-});
+const groupedSections = computed(() => buildGroupedSections(visibleIndoors.value, visibleZones.value));
 
 const zoneNameOf = computed(() => {
   const m = new Map(zones.value.map((z) => [z.code, z.name]));
@@ -283,42 +252,16 @@ const zoneNameOf = computed(() => {
 const selectedRows = computed(() => indoors.value.filter((i) => selected.value.has(i.idx)));
 const selectedIdxs = computed(() => selectedRows.value.map((i) => i.idx));
 
-const overview = computed(() => {
-  const list = visibleIndoors.value;
-  // 只统计真读到状态的 —— 未知的既不算开也不算关, 单独报出来
-  const known = list.filter((i) => i.state.known);
-  const on = known.filter((i) => i.state.on);
-  const rt = known.map((i) => i.state.roomTemp).filter((t): t is number => typeof t === 'number');
-  return {
-    onCount: on.length,
-    knownCount: known.length,
-    unknownCount: list.length - known.length,
-    total: list.length,
-    faultCount: known.filter((i) => i.state.faultCode > 0).length,
-    // 显示实测室温均值 (设定温度是人设的, 室温才是现场真实情况)
-    avgRoomT: rt.length ? Math.round((rt.reduce((s, t) => s + t, 0) / rt.length) * 10) / 10 : null,
-    zoneCount: visibleZones.value.length,
-  };
-});
+const overview = computed(() => buildOverview(visibleIndoors.value, visibleZones.value.length));
 
 /**
  * 控制条显示的值: 只看**读到状态**的那些选中项, 一致就显示该值, 不一致显示 null
  * (界面上不高亮任何一个). 未知的不参与 —— 拿占位值凑数会显示出一个假的共识.
  */
-function commonOf<K extends keyof IndoorState>(key: K): IndoorState[K] | null {
-  const rows = selectedRows.value.filter((r) => r.state.known);
-  if (!rows.length) return null;
-  const first = rows[0].state[key];
-  return rows.every((r) => r.state[key] === first) ? first : null;
-}
-const selMode = computed(() => commonOf('mode'));
-const selFan = computed(() => commonOf('fan'));
-const selOn = computed(() => commonOf('on'));
-const selTemp = computed(() => {
-  const rows = selectedRows.value.filter((r) => r.state.known);
-  if (!rows.length) return 24;
-  return Math.round(rows.reduce((s, r) => s + r.state.temperature, 0) / rows.length);
-});
+const selMode = computed(() => commonStateValue(selectedRows.value, 'mode'));
+const selFan = computed(() => commonStateValue(selectedRows.value, 'fan'));
+const selOn = computed(() => commonStateValue(selectedRows.value, 'on'));
+const selTemp = computed(() => selectedTemperature(selectedRows.value));
 
 // ============ 选择 ============
 
@@ -425,32 +368,6 @@ function adjustTemp(delta: number): void {
 const viewTab = ref<'zones' | 'units'>('zones');
 const zkey = (c: string | null): string => c ?? '__none__';
 
-interface ZoneCard {
-  code: string | null;   // null = 未分组
-  name: string;
-  members: IndoorRow[];
-  onCount: number;
-  temp: number;          // 组设定温度: 开机内机平均, 无开机 → 已知内机平均, 都没有 → 26
-  mode: HvacMode | null; // 开机内机模式一致才亮
-  avgRoomT: number | null;
-}
-function buildZoneCard(code: string | null, name: string, members: IndoorRow[]): ZoneCard {
-  const known = members.filter((m) => m.state.known);
-  const on = known.filter((m) => m.state.on);
-  const tempSrc = on.length ? on : known;
-  const temp = tempSrc.length
-    ? Math.round(tempSrc.reduce((s, m) => s + m.state.temperature, 0) / tempSrc.length)
-    : 26;
-  const mode = on.length && on.every((m) => m.state.mode === on[0].state.mode) ? on[0].state.mode : null;
-  const rt = known.map((m) => m.state.roomTemp).filter((t): t is number => typeof t === 'number');
-  return {
-    code, name, members,
-    onCount: on.length,
-    temp: Math.max(16, Math.min(30, temp)),
-    mode,
-    avgRoomT: rt.length ? Math.round((rt.reduce((s, t) => s + t, 0) / rt.length) * 10) / 10 : null,
-  };
-}
 const zoneCards = computed<ZoneCard[]>(() => {
   const cards = visibleZones.value.map((z) =>
     buildZoneCard(z.code, z.name, visibleIndoors.value.filter((i) => i.zoneCode === z.code)));

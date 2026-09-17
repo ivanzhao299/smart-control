@@ -12,6 +12,7 @@ import { useClientAuthStore } from '@/stores/client-auth';
 import { LogOut } from 'lucide-vue-next';
 import { ElMessageBox } from 'element-plus';
 import { adminNavIconFor } from '@/composables/useIcons';
+import { adminMenuName, adminNavigationGroups, prefetchAdminRoutes } from '@/router/admin-route-manifest';
 
 const route = useRoute();
 const router = useRouter();
@@ -27,48 +28,9 @@ const fsActive = fs.isActive;
 const fsSupported = fs.isSupported;
 function toggleFullscreen(): void { void fs.toggle(); }
 
-// 2026-06-14 菜单重排: 按使用频次分 4 组 + 同类页合并 (tab). 16 项扁平 → 12 项分组.
-// 合并: 日志中心(操作/执行/变更) · 硬件清单(设备/驱动/品牌) · 分区配置(灯光/电源/音响) · 系统设置(常规/品牌)
-const groups: Array<{ section: string; items: Array<{ name: string; label: string }> }> = [
-  { section: '日常运行', items: [
-    { name: 'admin-monitor', label: '运维监控' },
-    { name: 'admin-alerts', label: '报警中心' },
-    { name: 'admin-scenes', label: '场景管理' },
-    { name: 'admin-scheduler', label: '定时任务' },
-  ] },
-  { section: '设备与分区', items: [
-    { name: 'admin-devices', label: '设备管理' },
-    { name: 'admin-hardware', label: '硬件清单' },
-    { name: 'admin-zones-config', label: '分区配置' },
-    { name: 'admin-video-binding', label: '视频绑定' },
-  ] },
-  { section: '日志与诊断', items: [
-    { name: 'admin-logs', label: '日志中心' },
-    { name: 'admin-test-center', label: '测试 / 调试' },
-  ] },
-  { section: '系统管理', items: [
-    { name: 'admin-park-ops-metrics', label: '运营数据' },
-    { name: 'admin-users', label: '用户管理' },
-    { name: 'admin-settings', label: '系统设置' },
-  ] },
-];
+const groups = adminNavigationGroups;
 /** 扁平列表 — crumb / 查找用 */
 const flatItems = groups.flatMap((g) => g.items);
-/** 子页/深链 → 高亮哪个菜单项 (合并后, 子页归到它的合并页) */
-const MENU_ALIAS: Record<string, string> = {
-  'admin-scene-actions': 'admin-scenes',
-  'admin-debug': 'admin-test-center',
-  'admin-uat': 'admin-test-center',
-  'admin-scene-executions': 'admin-logs',
-  'admin-audit': 'admin-logs',
-  'admin-drivers': 'admin-hardware',
-  'admin-brands': 'admin-hardware',
-  'admin-light-zones': 'admin-zones-config',
-  'admin-power-circuits': 'admin-zones-config',
-  'admin-audio-config': 'admin-zones-config',
-  'admin-system-branding': 'admin-settings',
-  'admin-app-release': 'admin-settings',
-};
 
 const timeLabel = computed(() => {
   const d = new Date(sys.now);
@@ -78,7 +40,7 @@ const timeLabel = computed(() => {
 
 const currentName = computed(() => {
   const cur = route.name?.toString() ?? '';
-  return MENU_ALIAS[cur] ?? cur;
+  return adminMenuName(cur);
 });
 
 /** 手机抽屉开关状态 (≤600px 才生效) */
@@ -103,13 +65,7 @@ onMounted(() => {
     (window as Window & { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback ??
     ((cb: () => void) => window.setTimeout(cb, 1200));
   ric(() => {
-    void import('@/pages/admin/MonitorAdmin.vue');
-    void import('@/pages/admin/ScenesAdmin.vue');
-    void import('@/pages/admin/DevicesAdmin.vue');
-    void import('@/pages/admin/HardwareHubAdmin.vue');
-    void import('@/pages/admin/ZonesConfigAdmin.vue');
-    void import('@/pages/admin/LogsHubAdmin.vue');
-    void import('@/pages/admin/SettingsHubAdmin.vue');
+    prefetchAdminRoutes();
   });
 });
 
