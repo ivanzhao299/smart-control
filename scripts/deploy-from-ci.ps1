@@ -1097,55 +1097,6 @@ try {
 
   $deployedCommit = (git rev-parse HEAD).Trim()
   if (-not $VerifyOnly) {
-    $releaseManifestTemp = $null
-    $releaseManifestPrevious = $null
-    try {
-      $releaseDataDir = $env:DATA_DIR
-      if ([string]::IsNullOrWhiteSpace($releaseDataDir)) {
-        if (Test-Path 'D:\') { $releaseDataDir = 'D:\smart-control-runtime\data' }
-        else { $releaseDataDir = Join-Path $projectRoot '.runtime\data' }
-      }
-      New-Item -ItemType Directory -Force -Path $releaseDataDir | Out-Null
-      $releaseManifestPath = Join-Path $releaseDataDir 'release.json'
-      $releaseManifestTemp = "$releaseManifestPath.$PID.tmp"
-      # Use the actual deployed build identity; backend/docs-only releases retain it.
-      # The manifest is published only after the verification gates above.
-      $frontendVersionPath = Join-Path $projectRoot 'frontend\dist\deployment-version.json'
-      $frontendBuildId = $null
-      if (Test-Path -LiteralPath $frontendVersionPath) {
-        $frontendBuildId = (Get-Content -LiteralPath $frontendVersionPath -Raw | ConvertFrom-Json).frontendBuildId
-      }
-      $releaseManifest = [ordered]@{
-        schemaVersion = 1
-        commit = $deployedCommit
-        frontendBuildId = $frontendBuildId
-        ref = 'main'
-        releasedAt = (Get-Date).ToUniversalTime().ToString('o')
-      } | ConvertTo-Json
-      [IO.File]::WriteAllText($releaseManifestTemp, $releaseManifest, (New-Object Text.UTF8Encoding($false)))
-      if (Test-Path -LiteralPath $releaseManifestPath) {
-        $releaseManifestPrevious = "$releaseManifestPath.$PID.previous"
-        [IO.File]::Delete($releaseManifestPrevious)
-        [IO.File]::Replace($releaseManifestTemp, $releaseManifestPath, $releaseManifestPrevious)
-        [IO.File]::Delete($releaseManifestPrevious)
-      } else {
-        Move-Item -LiteralPath $releaseManifestTemp -Destination $releaseManifestPath
-      }
-      Write-DeployLog "Release manifest recorded: $releaseManifestPath ($deployedCommit)"
-    } catch {
-      # Release identity still falls back to the verified Git HEAD. Never roll back
-      # activated code or migrated data because a supplementary manifest could not be written.
-      Write-DeployLog "WARNING: release manifest was not recorded: $($_.Exception.Message)"
-    } finally {
-      if ($releaseManifestTemp -and (Test-Path -LiteralPath $releaseManifestTemp)) {
-        Remove-Item -LiteralPath $releaseManifestTemp -Force -ErrorAction SilentlyContinue
-      }
-      if ($releaseManifestPrevious -and (Test-Path -LiteralPath $releaseManifestPrevious)) {
-        Remove-Item -LiteralPath $releaseManifestPrevious -Force -ErrorAction SilentlyContinue
-      }
-    }
-  }
-  if (-not $VerifyOnly) {
     $dispatcherTemp = $null
     $dispatcherPrevious = $null
     try {
@@ -1204,12 +1155,64 @@ try {
     Write-DeployLog 'Checking authoritative Android app release metadata without writing.'
     Invoke-AppReleaseReconciliation -CheckOnly
   } else {
-    # This is deliberately the last release mutation. The verified backup already
+    # This is the last database release mutation. The publication receipt follows.
+    # The verified backup already
     # exists, services and the downloadable APK have passed health checks, and the
     # reconciler validates the artifact before its single-row SQLite transaction.
     Write-DeployLog 'Reconciling authoritative Android app release metadata.'
     Invoke-AppReleaseReconciliation
     $appReleaseReconciled = $true
+  }
+  # Publication is the final gate: clients must not refresh before bundled media
+  # and app metadata reconciliation have also succeeded.
+  if (-not $VerifyOnly) {
+    $releaseManifestTemp = $null
+    $releaseManifestPrevious = $null
+    try {
+      $releaseDataDir = $env:DATA_DIR
+      if ([string]::IsNullOrWhiteSpace($releaseDataDir)) {
+        if (Test-Path 'D:\') { $releaseDataDir = 'D:\smart-control-runtime\data' }
+        else { $releaseDataDir = Join-Path $projectRoot '.runtime\data' }
+      }
+      New-Item -ItemType Directory -Force -Path $releaseDataDir | Out-Null
+      $releaseManifestPath = Join-Path $releaseDataDir 'release.json'
+      $releaseManifestTemp = "$releaseManifestPath.$PID.tmp"
+      # Use the actual deployed build identity; backend/docs-only releases retain it.
+      # The manifest is published only after the verification gates above.
+      $frontendVersionPath = Join-Path $projectRoot 'frontend\dist\deployment-version.json'
+      $frontendBuildId = $null
+      if (Test-Path -LiteralPath $frontendVersionPath) {
+        $frontendBuildId = (Get-Content -LiteralPath $frontendVersionPath -Raw | ConvertFrom-Json).frontendBuildId
+      }
+      $releaseManifest = [ordered]@{
+        schemaVersion = 1
+        commit = $deployedCommit
+        frontendBuildId = $frontendBuildId
+        ref = 'main'
+        releasedAt = (Get-Date).ToUniversalTime().ToString('o')
+      } | ConvertTo-Json
+      [IO.File]::WriteAllText($releaseManifestTemp, $releaseManifest, (New-Object Text.UTF8Encoding($false)))
+      if (Test-Path -LiteralPath $releaseManifestPath) {
+        $releaseManifestPrevious = "$releaseManifestPath.$PID.previous"
+        [IO.File]::Delete($releaseManifestPrevious)
+        [IO.File]::Replace($releaseManifestTemp, $releaseManifestPath, $releaseManifestPrevious)
+        [IO.File]::Delete($releaseManifestPrevious)
+      } else {
+        Move-Item -LiteralPath $releaseManifestTemp -Destination $releaseManifestPath
+      }
+      Write-DeployLog "Release manifest recorded: $releaseManifestPath ($deployedCommit)"
+    } catch {
+      # Release identity still falls back to the verified Git HEAD. Never roll back
+      # activated code or migrated data because a supplementary manifest could not be written.
+      Write-DeployLog "WARNING: release manifest was not recorded: $($_.Exception.Message)"
+    } finally {
+      if ($releaseManifestTemp -and (Test-Path -LiteralPath $releaseManifestTemp)) {
+        Remove-Item -LiteralPath $releaseManifestTemp -Force -ErrorAction SilentlyContinue
+      }
+      if ($releaseManifestPrevious -and (Test-Path -LiteralPath $releaseManifestPrevious)) {
+        Remove-Item -LiteralPath $releaseManifestPrevious -Force -ErrorAction SilentlyContinue
+      }
+    }
   }
   $result = 'PASS'
   Write-DeployLog "Deployment complete: $deployedCommit"
