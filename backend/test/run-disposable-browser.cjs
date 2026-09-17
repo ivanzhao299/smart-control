@@ -75,6 +75,22 @@ async function main() {
     });
     const [code] = await once(runner, 'exit');
     if (code !== 0) throw new Error('Built application browser acceptance failed');
+    const evidenceDb = await new DataSource({ type: 'better-sqlite3', database: join(root, 'test.sqlite'),
+      synchronize: false, entities: [resolve(__dirname, '../dist/entities/*.entity.js')],
+    }).initialize();
+    try {
+      const [latest] = await evidenceDb.query(
+        `SELECT actor, source FROM runtime_config_revisions
+         WHERE config_key = ? ORDER BY revision DESC LIMIT 1`,
+        ['video.binding'],
+      );
+      if (!latest || !String(latest.actor).includes(adminUsername)) {
+        throw new Error('Video binding revision did not retain the named administrator audit actor');
+      }
+      if (latest.source !== 'PUT /api/video-binding/ai/box') {
+        throw new Error('Video binding revision did not retain the stable API source');
+      }
+    } finally { await evidenceDb.destroy(); }
     console.log('PASS fresh migrations + real loopback backend + built application browser acceptance');
   } finally {
     if (server.exitCode === null) server.kill('SIGTERM');
