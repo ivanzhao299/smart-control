@@ -7,7 +7,9 @@
 
 ## 当前代码上下文（2026-09-17，优先于以下历史快照）
 
-- 当前生产前端代码内容基线为 `0f96acc9ae532c6ca82a2ef60702f52bcc666bab`（PR #94）；后端代码内容仍为 `72b0fb736d10317a0cf067532038664c346f99e9`，因为 P2-A6 被门禁正确分类为纯前端发布，未重建或重启后端。后续纯文档发布只允许快进仓库与发布清单，不改变这两个运行时内容基线。后端 3200、前端 5173 由 PM2 唯一进程持有，权威 `verify-deploy.js` 通过，无崩溃循环；迁移仍为 40。
+- 当前生产仓库与发布清单均为 `68031a2b19829e82c2e340287a652e1a2b803c0e`（PR #99）；前端运行内容为该提交，后端运行内容仍为 `e545793d4a90001f812eb93f63dcbce9a9251786` 发布时的构建，因为 PR #99 被门禁正确分类为纯前端发布，未重建或重启后端。后端 3200、前端 5173 由 PM2 唯一进程持有，播放器槽位 1 心跳在线，`SmartControl-PlayerWatchdog` 已启用；迁移仍为 40。
+- 2026-09-17 LED 现场连续故障已根治：播放器离线由发布隔离停止窗口后恢复了快照中的错误 Disabled watchdog 状态造成；PR #98（合并 `e545793`）使激活始终启用并触发交互式 watchdog，部署门禁现在必须看到 slot1 新鲜心跳才成功。运营大屏播控翻页失效则由 iframe 缺少 `allow-same-origin`、安全收紧后轮询请求成为 `Origin: null` 并被 CORS 拦截造成；PR #99 只给同源内置 `park-ops/index.html` 恢复同源能力，外部网页继续隔离，并修复翻页动画窗口吞指令。
+- PR #98 全量发布备份为 `D:\smart-control-backups\20260917-094159\sqlite-rpCHEh\database.sqlite`；PR #99 前端旁路发布备份为 `D:\smart-control-backups\20260917-095611\sqlite-jboNfh\database.sqlite`。后者发布前后 41 张表仅 `dali_light` 与 `playback_channels` 的探活字段变化，完整性 `ok`、外键违规 0；现场翻页控制回环 `1→2→1` 通过。PR #98 本地后端 87 套件/735 项、前端 80 项和运维 66 项通过；PR #99 前端 82 项、类型检查和 129 资源 PWA 构建通过。GitHub Actions 仍因 Billing 在任务启动前零步骤失败。
 - 阶段 P2-A6 已完成首批模块边界拆分：`MediaPage` 内重复的音频、视频、文档扩展名、拖放校验、大小/时长格式化和目录递归已收敛到 `media-file-intake.ts` 纯模块；媒体库页面直接使用该模块，`media.service` 只保留兼容转发，使 `PlayerConsole` 与媒体页继续共享同一文件选择策略。页面减少 73 行内嵌职责，契约测试禁止两处重新定义扩展名权威。
 - P2-A6 本地门禁：前端 79 项、类型检查和生产构建，后端 87 套件/735 项及构建，运维 67 项（65 通过/2 环境跳过），全新临时数据库、真实后端和真实浏览器验收全部通过。PR #94 代码提交 `e0c5dc782e719a5111531460b4db078eaf824dff`、合并提交 `0f96acc9ae532c6ca82a2ef60702f52bcc666bab` 已发布；备份为 `D:\smart-control-backups\20260917-085434\sqlite-ITjDsW\database.sqlite`。生产当前 PWA 89 个资源、上一代 88 个资源、9 个页面、后端健康和公网 HTTPS 通过；17 张权威表与备份一致，`video.binding` revision 1/history 1 及 6 路几何不变，完整性 `ok`、外键违规 0。GitHub Actions 仍因 Billing 在任务启动前零步骤失败；阶段 2 下一批继续按行为边界拆分超大模块。
 - 阶段 P2-A5 已完成：NVR、通道、删除、布局、AI 全局开关和检测几何共用同一 `expectedRevision` 并发契约；新前端所有持久化写入都提交当前修订，过期写入稳定返回 HTTP 409 + `VIDEO_BINDING_REVISION_CONFLICT`。错误过滤器只传递白名单机器码与修订元数据，不回显任意异常字段；缺失资源使用稳定 404，无变化写入不再新增修订，新修订记录命名管理员和稳定 API 来源。
