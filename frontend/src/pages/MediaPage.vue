@@ -20,7 +20,14 @@ import {
   LayoutGrid,
   AlignJustify,
 } from 'lucide-vue-next';
-import { mediaService, type MediaItem, type OrphanMediaItem, MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
+import { mediaService, type MediaItem, type OrphanMediaItem } from '@/services/media.service';
+import {
+  collectFilesFromEntry,
+  formatMediaDuration as fmtDuration,
+  formatMediaSize as fmtSize,
+  isAllowedMediaFile,
+  MEDIA_UPLOAD_ACCEPT,
+} from '@/features/media-file-intake';
 import { onlineMusicService, type OnlineTrack } from '@/services/online-music.service';
 import { baiduPanService, type PanFile, type PanStatus, type PanAuthStart } from '@/services/baidu-pan.service';
 import { usePlaybackStore } from '@/stores/playback';
@@ -144,20 +151,6 @@ const uploadEta = computed(() => {
   return `剩约 ${Math.ceil(remainMs / 60_000)}分钟`;
 });
 
-function fmtSize(b: number): string {
-  if (b < 1024) return `${b} B`;
-  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
-  if (b < 1024 * 1024 * 1024) return `${(b / 1024 / 1024).toFixed(1)} MB`;
-  return `${(b / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
-
-function fmtDuration(sec: number | null): string {
-  if (!sec) return '';
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
-
 let mediaRequestRevision = 0;
 async function refresh(): Promise<void> {
   const revision = ++mediaRequestRevision;
@@ -181,58 +174,12 @@ async function refresh(): Promise<void> {
 
 const UPLOAD_MAX_GB = 10;
 
-// 扩展名兜底：Windows 对 .ape/.flac 等有时报 application/octet-stream
-const AUDIO_EXTS = new Set([
-  '.mp3', '.wav', '.aac', '.m4a', '.ogg', '.flac', '.wma',
-  '.opus', '.aiff', '.aif', '.ape', '.mp2', '.mka', '.wv',
-  '.mid', '.midi', '.spx', '.dsf', '.dff', '.au', '.ra',
-]);
-// 同理视频兜底: .m4v/.mkv 在 Windows 上常拿到空 mime (2026-07-31 业主: m4v 要能播)
-const VIDEO_EXTS = new Set([
-  '.mp4', '.m4v', '.mov', '.mkv', '.avi', '.webm', '.flv', '.wmv',
-  '.mpg', '.mpeg', '.3gp', '.ts', '.vob', '.rmvb',
-]);
-const DOC_EXTS = new Set(['.ppt', '.pptx', '.doc', '.docx', '.pdf']);
-function isAllowedFile(f: File): boolean {
-  if (f.type.startsWith('video/') || f.type.startsWith('image/') || f.type.startsWith('audio/')) return true;
-  const dot = f.name.lastIndexOf('.');
-  if (dot < 0) return false;
-  const ext = f.name.slice(dot).toLowerCase();
-  return AUDIO_EXTS.has(ext) || VIDEO_EXTS.has(ext) || DOC_EXTS.has(ext);
-}
-
-// 递归读取 FileSystemDirectoryReader (每次 readEntries 最多 100 条, 需循环)
-async function readAllEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
-  const all: FileSystemEntry[] = [];
-  let batch: FileSystemEntry[];
-  do {
-    batch = await new Promise<FileSystemEntry[]>((res) => reader.readEntries(res, () => res([])));
-    all.push(...batch);
-  } while (batch.length > 0);
-  return all;
-}
-
-// 从单个 FileSystemEntry 递归收集所有 File 对象
-async function collectFromEntry(entry: FileSystemEntry): Promise<File[]> {
-  if (entry.isFile) {
-    return new Promise<File[]>((res) =>
-      (entry as FileSystemFileEntry).file((f) => res([f]), () => res([])),
-    );
-  }
-  if (entry.isDirectory) {
-    const entries = await readAllEntries((entry as FileSystemDirectoryEntry).createReader());
-    const nested = await Promise.all(entries.map(collectFromEntry));
-    return nested.flat();
-  }
-  return [];
-}
-
 // 校验 + 入队 + 启动串行上传
 async function queueFiles(rawFiles: File[]): Promise<void> {
   if (disposed || !canOperate.value) return;
   const valid: File[] = [];
   for (const f of rawFiles) {
-    if (!isAllowedFile(f)) {
+    if (!isAllowedMediaFile(f)) {
       if (f.size > 0) ElMessage.warning(`已跳过: ${f.name} (类型不支持)`);
       continue;
     }
@@ -331,7 +278,7 @@ async function onDrop(e: DragEvent): Promise<void> {
       if (entry) entries.push(entry);
     }
     if (entries.length > 0) {
-      const files = (await Promise.all(entries.map(collectFromEntry))).flat();
+      const files = (await Promise.all(entries.map(collectFilesFromEntry))).flat();
       if (files.length > 0) { void queueFiles(files); return; }
     }
   }
