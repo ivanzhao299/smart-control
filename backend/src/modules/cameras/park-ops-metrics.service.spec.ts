@@ -108,4 +108,64 @@ describe('ParkOpsMetricsService', () => {
       [2, 'admin-api', 'PUT /api/park-ops-metrics'],
     ]);
   });
+
+  it('records named actors, rejects stale editors and suppresses unchanged revisions', async () => {
+    const service = new ParkOpsMetricsService(store);
+    await service.onModuleInit();
+    expect(await service.getSnapshot()).toMatchObject({ document: null, revision: 0 });
+    const first = await service.updateSnapshot(fixture(), {
+      expectedRevision: 0,
+      actor: 'user:42:admin-one',
+    });
+    expect(first).toMatchObject({ revision: 1, checksum: expect.stringMatching(/^[a-f0-9]{64}$/) });
+    await expect(
+      service.updateSnapshot(fixture(), { expectedRevision: 1, actor: 'user:43:admin-two' }),
+    ).resolves.toEqual(first);
+    await expect(
+      service.updateSnapshot(fixture('旧编辑器'), {
+        expectedRevision: 0,
+        actor: 'user:43:admin-two',
+      }),
+    ).rejects.toMatchObject({
+      response: { code: 'PARK_OPS_METRICS_REVISION_CONFLICT', actualRevision: 1 },
+    });
+    expect(await service.getSnapshot()).toEqual(first);
+    const history = await dataSource.getRepository(RuntimeConfigRevision).find();
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({
+      actor: 'user:42:admin-one',
+      source: 'PUT /api/park-ops-metrics/editor',
+    });
+  });
+
+  it('two service instances racing to first-save cannot overwrite the winner', async () => {
+    const a = new ParkOpsMetricsService(store),
+      b = new ParkOpsMetricsService(store);
+    await Promise.all([a.onModuleInit(), b.onModuleInit()]);
+    const results = await Promise.allSettled([
+      a.updateSnapshot(fixture('甲'), { expectedRevision: 0 }),
+      b.updateSnapshot(fixture('乙'), { expectedRevision: 0 }),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find(
+      (result) => result.status === 'rejected',
+    ) as PromiseRejectedResult;
+    expect(rejected.reason.response.code).toBe('PARK_OPS_METRICS_REVISION_CONFLICT');
+    expect(await dataSource.getRepository(RuntimeConfigRevision).count()).toBe(1);
+    expect(await a.getSnapshot()).toEqual(await b.getSnapshot());
+  });
+
+  it('checks the persisted revision instead of trusting an old service cache', async () => {
+    const a = new ParkOpsMetricsService(store),
+      b = new ParkOpsMetricsService(store);
+    await Promise.all([a.onModuleInit(), b.onModuleInit()]);
+    await a.updateSnapshot(fixture('甲'), { expectedRevision: 0 });
+    await b.updateSnapshot(fixture('乙'), { expectedRevision: 1 });
+    await expect(a.updateSnapshot(fixture('过期'), { expectedRevision: 1 })).rejects.toMatchObject({
+      response: { actualRevision: 2 },
+    });
+    expect(a.get()).toEqual(fixture('乙'));
+    // Existing display contract is the document, not the editor envelope.
+    expect(a.get()).not.toHaveProperty('revision');
+  });
 });

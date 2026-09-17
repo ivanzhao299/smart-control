@@ -61,10 +61,16 @@ describe('camera HLS access boundary', () => {
     const controller = new ParkOpsMetricsController(service as any);
 
     expect(controller.get()).toEqual({ success: true, data: document });
-    await expect(controller.update(document)).resolves.toEqual({
+    await expect(
+      controller.update(
+        { actor: { kind: 'user', userId: 1, username: 'test-admin', role: 'admin' } } as any,
+        document,
+      ),
+    ).resolves.toEqual({
       success: true,
       message: '运营数据已保存并发布到运营大屏',
       data: document,
     });
+    expect(service.update).toHaveBeenCalledWith(document, { actor: 'user:1:test-admin' });
   });
 });

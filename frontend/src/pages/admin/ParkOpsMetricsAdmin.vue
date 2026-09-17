@@ -59,25 +59,27 @@
 
       <footer class="ma-actions">
         <button type="button" class="ma-btn ghost" :disabled="saving" @click="resetDefault">载入出厂默认</button>
-        <button type="button" class="ma-btn primary" :disabled="saving" @click="save">
+        <button type="button" class="ma-btn ghost" :disabled="saving" @click="reload">重新载入最新版本</button>
+        <button type="button" class="ma-btn primary" :disabled="saving || revision === null || needsReload" @click="save">
           {{ saving ? '正在发布…' : '保存并发布到大屏' }}
         </button>
       </footer>
-      <p class="ma-foot-note">数字仅保存在服务器共享文档中（JSON），不改动数据库；产业结构五项合计须为 100%。</p>
+      <p v-if="needsReload" class="ma-foot-note" role="alert">尚未取得可保存的最新版本，发布已暂停；当前编辑内容仍保留。</p>
+      <p class="ma-foot-note">数据保存在服务器 SQLite 版本文档中，记录修改人和修订历史；产业结构五项合计须为 100%。</p>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { reactive, ref, onMounted } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
+import { useParkOpsMetricsEditor } from '@/features/useParkOpsMetricsEditor';
+import { captureIdentityGuard } from '@/services/identity-boundary';
 import {
   FIELDS, FIELD_GROUPS, COPY_FIELDS, buildDefaultDoc, validateDoc,
-  fetchParkOpsMetrics, saveParkOpsMetrics, type ParkOpsMetricsDoc, type FieldMeta,
+  type ParkOpsMetricsDoc, type FieldMeta,
 } from '@/services/park-ops-metrics.service';
 
-const loading = ref(true);
-const saving = ref(false);
 const source = ref('');
 const date = ref('');
 const metricText = reactive<Record<string, string>>({});
@@ -104,22 +106,25 @@ function fill(doc: ParkOpsMetricsDoc) {
   }
 }
 
-async function load() {
-  loading.value = true;
-  try {
-    const remote = await fetchParkOpsMetrics();
-    if (remote) {
-      fill(remote);
-    } else {
-      fill(buildDefaultDoc());
-      ElMessage.info('尚未发布过运营数据，已载入出厂默认值，修改后点「保存并发布」。');
+const { loading, saving, revision, needsReload, load, save } = useParkOpsMetricsEditor({
+  fill, collect,
+  clear: () => {
+    source.value = ''; date.value = '';
+    for (const values of [metricText, placeholderOn, contentText]) {
+      for (const key of Object.keys(values)) delete values[key];
     }
-  } catch (e) {
-    fill(buildDefaultDoc());
-    ElMessage.warning('读取服务端数据失败，已载入出厂默认值供编辑。');
-  } finally {
-    loading.value = false;
-  }
+  },
+});
+
+async function reload(): Promise<void> {
+  if (saving.value) return;
+  const isCurrent = captureIdentityGuard();
+  try { await ElMessageBox.confirm('重新载入会替换当前表单，请先复制需要保留的修改。继续吗？', '重新载入', {
+    type: 'warning', confirmButtonText: '重新载入', cancelButtonText: '取消',
+  }); }
+  catch { return; }
+  if (!isCurrent()) return;
+  await load();
 }
 
 function collect(): ParkOpsMetricsDoc {
@@ -139,25 +144,6 @@ function collect(): ParkOpsMetricsDoc {
   }
   const updatedAt = date.value ? `${date.value}T00:00:00+08:00` : new Date().toISOString();
   return validateDoc({ version: 1, source: source.value, updatedAt, placeholderKeys, metrics, content });
-}
-
-async function save() {
-  let doc: ParkOpsMetricsDoc;
-  try {
-    doc = collect();
-  } catch (e) {
-    ElMessage.error((e as Error).message);
-    return;
-  }
-  saving.value = true;
-  try {
-    await saveParkOpsMetrics(doc);
-    ElMessage.success('已发布，运营大屏约 15 秒内自动更新（或点强制刷新立即生效）。');
-  } catch (e) {
-    ElMessage.error(`发布失败：${(e as Error).message || '请检查是否已用管理员登录'}`);
-  } finally {
-    saving.value = false;
-  }
 }
 
 function resetDefault() {

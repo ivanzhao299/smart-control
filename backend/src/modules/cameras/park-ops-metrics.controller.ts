@@ -5,11 +5,14 @@ import {
   Get,
   HttpException,
   Put,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { Public } from '../../common/decorators/public.decorator';
 import { AdminGuard } from '../admin-auth/admin-auth.guard';
 import { ParkOpsMetricsService } from './park-ops-metrics.service';
+import { AuthenticatedRequest, requireAdmin } from '../../common/auth/actor';
+import { UpdateParkOpsMetricsDto } from './dto/park-ops-metrics.dto';
 
 /**
  * 运营大屏「业务数字文档」API。权威数据由 RuntimeConfigStore 版本化保存，
@@ -35,13 +38,48 @@ export class ParkOpsMetricsController {
     return { success: true, data: this.metrics.get() };
   }
 
+  private actor(req: AuthenticatedRequest): string {
+    const actor = requireAdmin(req);
+    return `${actor.kind}:${actor.userId ?? 'shared'}:${actor.username}`;
+  }
+
+  @Get('editor')
+  @UseGuards(AdminGuard)
+  async editor(@Req() req: AuthenticatedRequest) {
+    this.actor(req);
+    return { success: true, data: await this.metrics.getSnapshot() };
+  }
+
+  @Put('editor')
+  @UseGuards(AdminGuard)
+  async saveEditor(@Req() req: AuthenticatedRequest, @Body() body: UpdateParkOpsMetricsDto) {
+    const actor = this.actor(req);
+    try {
+      return {
+        success: true,
+        message: '运营数据已保存并发布到运营大屏',
+        data: await this.metrics.updateSnapshot(body.document, {
+          expectedRevision: body.expectedRevision,
+          actor,
+        }),
+      };
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      throw new BadRequestException({
+        code: 'PARK_OPS_METRICS_INVALID',
+        message: (error as Error).message,
+      });
+    }
+  }
+
   @Put()
   @UseGuards(AdminGuard)
   async update(
+    @Req() req: AuthenticatedRequest,
     @Body() body: unknown,
   ): Promise<{ success: boolean; message: string; data: unknown }> {
     try {
-      const doc = await this.metrics.update(body);
+      const doc = await this.metrics.update(body, { actor: this.actor(req) });
       return { success: true, message: '运营数据已保存并发布到运营大屏', data: doc };
     } catch (error) {
       if (error instanceof HttpException) throw error;

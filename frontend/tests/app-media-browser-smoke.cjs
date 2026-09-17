@@ -355,6 +355,42 @@ async function api(route, method, body, token, admin = false) {
         assert.ok(result.ok(), 'Named administrator controls devices after backend navigation and reload');
         assert.equal((await result.json()).data.ok, true, 'MOCK lighting adapter actually accepted the operation');
         console.log('PASS named administrator: enter management without second password, return, reload and actual lighting control request');
+
+        // Two editors cannot silently overwrite each other. This only writes the disposable SQLite domain.
+        await page.goto(appBase + '/admin/park-ops-metrics');
+        const sourceInput = page.locator('input[maxlength="200"]');
+        const saveMetrics = page.getByRole('button', { name: '保存并发布到大屏', exact: true });
+        await sourceInput.waitFor();
+        await sourceInput.fill('Synthetic operations first editor');
+        const savedMetrics = page.waitForResponse(r => r.url().endsWith('/park-ops-metrics/editor') && r.request().method() === 'PUT');
+        await saveMetrics.click();
+        assert.equal((await savedMetrics).status(), 200);
+        await page.getByText('已发布，运营大屏约 15 秒内自动更新（或点强制刷新立即生效）。', { exact: true }).waitFor();
+        const firstSnapshot = await api('/park-ops-metrics/editor', 'GET', undefined, admin, true);
+        assert.ok(firstSnapshot.revision > 0);
+        await api('/park-ops-metrics/editor', 'PUT', {
+          document: { ...firstSnapshot.document, source: 'Synthetic concurrent administrator' },
+          expectedRevision: firstSnapshot.revision,
+        }, admin, true);
+        await sourceInput.fill('Keep this conflicting draft');
+        const conflictMetrics = page.waitForResponse(r => r.url().endsWith('/park-ops-metrics/editor') && r.request().method() === 'PUT');
+        await saveMetrics.click();
+        assert.equal((await conflictMetrics).status(), 409);
+        await page.getByRole('alert').filter({ hasText: '尚未取得可保存的最新版本' }).waitFor();
+        assert.equal(await sourceInput.inputValue(), 'Keep this conflicting draft');
+        assert.equal(await saveMetrics.isDisabled(), true);
+        const displayedMetrics = await api('/park-ops-metrics', 'GET');
+        assert.equal(displayedMetrics.source, 'Synthetic concurrent administrator');
+        assert.equal('document' in displayedMetrics, false, 'Public LED document contract remains unchanged');
+        await page.getByRole('button', { name: '重新载入最新版本', exact: true }).click();
+        await page.getByRole('button', { name: '重新载入', exact: true }).click();
+        await page.waitForFunction(() => document.querySelector('input[maxlength="200"]')?.value === 'Synthetic concurrent administrator');
+        assert.equal(await saveMetrics.isDisabled(), false);
+        await context.route('**/api/park-ops-metrics/editor', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{"message":"synthetic offline"}' }));
+        await page.reload();
+        await page.getByRole('alert').filter({ hasText: '尚未取得可保存的最新版本' }).waitFor();
+        assert.equal(await saveMetrics.isDisabled(), true);
+        console.log('PASS real operations editor: versioned save, 409 retains draft, explicit reload, failed read blocks defaults, public display contract retained');
       }
       console.log(`PASS built application: ${role} media visibility and controls at 390px`);
       await context.close();

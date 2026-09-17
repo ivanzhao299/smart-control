@@ -64,14 +64,27 @@ export class RuntimeConfigStore {
   }
 
   /** Creates revision 1 once. Existing data always wins, making legacy imports repeatable. */
-  async initialize<T>(options: RuntimeConfigWriteOptions<T>): Promise<RuntimeConfigSnapshot<T>> {
+  async initialize<T>(
+    options: RuntimeConfigWriteOptions<T> & { expectedRevision?: 0 },
+  ): Promise<RuntimeConfigSnapshot<T>> {
     this.assertOptions(options);
     const encoded = this.encode(options.value, options.normalize);
     return serializedTransaction(this.dataSource, async (manager) => {
       const existing = await manager.findOne(RuntimeConfigDocument, {
         where: { key: options.key },
       });
-      if (existing) return this.decode(existing, options.normalize);
+      if (existing) {
+        // Interactive first-save is a compare-and-swap, unlike idempotent migration import.
+        if (options.expectedRevision === 0) {
+          throw new ConflictException({
+            code: 'RUNTIME_CONFIG_REVISION_CONFLICT',
+            key: options.key,
+            expectedRevision: 0,
+            actualRevision: existing.revision,
+          });
+        }
+        return this.decode(existing, options.normalize);
+      }
 
       const now = new Date();
       const row = manager.create(RuntimeConfigDocument, {

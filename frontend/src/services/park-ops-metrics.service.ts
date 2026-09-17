@@ -4,8 +4,8 @@ import { api } from './http';
  * 运营大屏「业务数字文档」——与 backend park-ops-metrics.controller、
  * frontend/public/park-ops/ops-data-model.mjs 三处对齐。
  *
- * 用 JSON 文件在服务端共享存储 (不走数据库迁移):
- *   GET /api/park-ops-metrics 公开 (大屏轮询); PUT 需管理员 (PWA 本页保存)。
+ * 权威数据为 SQLite 版本文档，不再写 JSON 文件：
+ *   GET /api/park-ops-metrics 保持大屏公开读取契约；编辑器走管理员 /editor 版本接口。
  * 人/车(people/vehicles)语义为「AI 实时数的基线」: 大屏显示 = 基线 + 各门净增。
  */
 export interface ParkOpsMetricsDoc {
@@ -196,8 +196,19 @@ export async function fetchParkOpsMetrics(): Promise<ParkOpsMetricsDoc | null> {
   return api.get<ParkOpsMetricsDoc | null>('/park-ops-metrics');
 }
 
-export async function saveParkOpsMetrics(doc: ParkOpsMetricsDoc): Promise<ParkOpsMetricsDoc> {
-  return api.put<ParkOpsMetricsDoc>('/park-ops-metrics', doc);
+export interface ParkOpsMetricsSnapshot {
+  document: ParkOpsMetricsDoc | null;
+  revision: number;
+  checksum: string | null;
+  updatedAt: string | null;
+}
+
+export async function fetchParkOpsMetricsSnapshot(): Promise<ParkOpsMetricsSnapshot> {
+  return api.get<ParkOpsMetricsSnapshot>('/park-ops-metrics/editor');
+}
+
+export async function saveParkOpsMetrics(doc: ParkOpsMetricsDoc, expectedRevision: number): Promise<ParkOpsMetricsSnapshot> {
+  return api.put<ParkOpsMetricsSnapshot>('/park-ops-metrics/editor', { document: doc, expectedRevision });
 }
 
 /** 页面按字段表分组后的有序分组名 */

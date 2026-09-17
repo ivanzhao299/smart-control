@@ -10,24 +10,45 @@ import {
 @Injectable()
 export class ParkOpsMetricsService implements OnModuleInit {
   private current: ParkOpsMetricsDocument | null = null;
-  private revision = 0;
+  private cachedRevision = 0;
   private mutationQueue: Promise<void> = Promise.resolve();
 
   constructor(private readonly store: RuntimeConfigStore) {}
 
   async onModuleInit(): Promise<void> {
-    const stored = await this.store.read(PARK_OPS_METRICS_CONFIG_KEY, normalizeParkOpsMetrics);
-    this.current = stored?.value ?? null;
-    this.revision = stored?.revision ?? 0;
+    await this.getSnapshot();
   }
 
   get(): ParkOpsMetricsDocument | null {
     return this.current ? structuredClone(this.current) : null;
   }
 
-  update(input: unknown): Promise<ParkOpsMetricsDocument> {
+  async getSnapshot() {
+    const stored = await this.store.read(PARK_OPS_METRICS_CONFIG_KEY, normalizeParkOpsMetrics);
+    if ((stored?.revision ?? 0) >= this.cachedRevision) {
+      this.current = stored?.value ?? null;
+      this.cachedRevision = stored?.revision ?? 0;
+    }
+    return {
+      document: stored ? structuredClone(stored.value) : null,
+      revision: stored?.revision ?? 0,
+      checksum: stored?.checksum ?? null,
+      updatedAt: stored?.updatedAt ?? null,
+    };
+  }
+
+  /** Compatibility bridge for already-open old PWA editors. */
+  async update(
+    input: unknown,
+    context: { expectedRevision?: number; actor?: string } = {},
+  ): Promise<ParkOpsMetricsDocument> {
+    return (await this.updateSnapshot(input, context)).document;
+  }
+
+  updateSnapshot(input: unknown, context: { expectedRevision?: number; actor?: string } = {}) {
     const normalized = normalizeParkOpsMetrics(input);
-    const operation = this.mutationQueue.then(() => this.save(normalized));
+    const boundContext = { ...context };
+    const operation = this.mutationQueue.then(() => this.save(normalized, boundContext));
     this.mutationQueue = operation.then(
       () => undefined,
       () => undefined,
@@ -35,44 +56,51 @@ export class ParkOpsMetricsService implements OnModuleInit {
     return operation;
   }
 
-  private async save(value: ParkOpsMetricsDocument): Promise<ParkOpsMetricsDocument> {
+  private async save(
+    value: ParkOpsMetricsDocument,
+    context: { expectedRevision?: number; actor?: string },
+  ) {
     try {
-      if (this.revision === 0) {
-        const initialized = await this.store.initialize({
-          key: PARK_OPS_METRICS_CONFIG_KEY,
-          schemaVersion: PARK_OPS_METRICS_SCHEMA_VERSION,
-          value,
-          normalize: normalizeParkOpsMetrics,
-          actor: 'admin-api',
-          source: 'PUT /api/park-ops-metrics',
+      const current = await this.getSnapshot();
+      if (context.expectedRevision !== undefined && context.expectedRevision !== current.revision) {
+        throw new ConflictException({
+          code: 'PARK_OPS_METRICS_REVISION_CONFLICT',
+          expectedRevision: context.expectedRevision,
+          actualRevision: current.revision,
         });
-        this.current = initialized.value;
-        this.revision = initialized.revision;
-
-        if (JSON.stringify(initialized.value) === JSON.stringify(value)) {
-          return structuredClone(initialized.value);
-        }
       }
-
-      const saved = await this.store.update({
+      const options = {
         key: PARK_OPS_METRICS_CONFIG_KEY,
         schemaVersion: PARK_OPS_METRICS_SCHEMA_VERSION,
-        expectedRevision: this.revision,
         value,
         normalize: normalizeParkOpsMetrics,
-        actor: 'admin-api',
-        source: 'PUT /api/park-ops-metrics',
-      });
+        actor: context.actor ?? 'admin-api',
+        source:
+          context.expectedRevision === undefined
+            ? 'PUT /api/park-ops-metrics'
+            : 'PUT /api/park-ops-metrics/editor',
+      };
+      const saved =
+        current.revision === 0
+          ? await this.store.initialize({ ...options, expectedRevision: 0 })
+          : await this.store.update({ ...options, expectedRevision: current.revision });
       this.current = saved.value;
-      this.revision = saved.revision;
-      return structuredClone(saved.value);
+      this.cachedRevision = saved.revision;
+      return {
+        document: structuredClone(saved.value),
+        revision: saved.revision,
+        checksum: saved.checksum,
+        updatedAt: saved.updatedAt,
+      };
     } catch (error) {
       if (error instanceof ConflictException) {
-        const latest = await this.store.read(PARK_OPS_METRICS_CONFIG_KEY, normalizeParkOpsMetrics);
-        if (latest) {
-          this.current = latest.value;
-          this.revision = latest.revision;
-        }
+        const latest = await this.getSnapshot();
+        throw new ConflictException({
+          code: 'PARK_OPS_METRICS_REVISION_CONFLICT',
+          message: '运营数据已被其他管理员更新，请重新载入后再保存；当前编辑内容未覆盖服务端。',
+          expectedRevision: context.expectedRevision,
+          actualRevision: latest.revision,
+        });
       }
       throw error;
     }
