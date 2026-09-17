@@ -9,6 +9,8 @@ tmp/
 .env.local
 .DS_Store
 media/
+# This is source code, not the writable media asset directory.
+!backend/src/modules/media/
 database/*.db
 database/*.db-journal
 database/*.db-shm

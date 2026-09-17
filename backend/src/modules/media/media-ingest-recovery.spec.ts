@@ -7,6 +7,7 @@ import { join } from 'path';
 import { User } from '../../entities/user.entity';
 import { MediaAsset } from '../../entities/media-asset.entity';
 import { MediaService } from './media.service';
+import { FfmpegMediaTools } from './media-video-tools';
 import { Actor } from '../../common/auth/actor';
 import { MediaQuotaService } from './media-quota.service';
 import { AddUploadReservations1788618003000 } from '../../migrations/1788618003000-AddUploadReservations';
@@ -23,7 +24,7 @@ describe('file ingestion compensation', () => {
     db = await new DataSource({ type: 'better-sqlite3', database: ':memory:', entities: [User, MediaAsset], synchronize: true }).initialize();
     await db.getRepository(User).save({ id: 1, username: 'alice', password: 'test', role: 'operator' });
     root = await fs.mkdtemp(join(tmpdir(), 'smart-control-ingest-test-'));
-    media = new MediaService(db.getRepository(MediaAsset), new ConfigService(), {} as any);
+    media = new MediaService(db.getRepository(MediaAsset), new ConfigService(), { info: jest.fn(), error: jest.fn(), warn: jest.fn() } as any);
     Object.defineProperty(media, 'mediaRoot', { value: root });
   });
   afterEach(async () => { jest.restoreAllMocks(); await db.destroy(); await fs.rm(root, { recursive: true, force: true }); });
@@ -141,9 +142,9 @@ describe('file ingestion compensation', () => {
     await fs.writeFile(source, 'original'); await fs.writeFile(previous, 'converted');
     await repo.update(item.id, { path: previous, sourcePath: source });
     (media as any).logger = { info: jest.fn(), error: jest.fn() };
-    jest.spyOn(media as any, 'probeVideo').mockResolvedValue({ videoCodec: 'hevc' });
-    jest.spyOn(media as any, 'runTranscode').mockImplementation(async (...commandArgs: unknown[]) => {
-      await fs.writeFile(commandArgs[2] as string, 'incomplete');
+    jest.spyOn(FfmpegMediaTools.prototype, 'probe').mockResolvedValue({ videoCodec: 'hevc' });
+    jest.spyOn(FfmpegMediaTools.prototype, 'transcode').mockImplementation(async (...commandArgs: unknown[]) => {
+      await fs.writeFile(commandArgs[1] as string, 'incomplete');
       throw new Error('synthetic encoder failure');
     });
     await media.prepareVideo(item.id);
@@ -166,12 +167,11 @@ describe('file ingestion compensation', () => {
     await fs.writeFile(thumb, 'thumbnail');
     await repo.update(item.id, { path: source, thumbPath: thumb });
     (media as any).logger = { info: jest.fn(), error: jest.fn() };
-    jest.spyOn(media as any, 'probeVideo').mockResolvedValue({ videoCodec: 'hevc', audioCodec: 'aac' });
-    jest.spyOn(media as any, 'runTranscode').mockImplementation(async (...commandArgs: unknown[]) => {
-      const target = commandArgs[2] as string;
+    jest.spyOn(FfmpegMediaTools.prototype, 'probe').mockResolvedValue({ videoCodec: 'hevc', audioCodec: 'aac' });
+    jest.spyOn(FfmpegMediaTools.prototype, 'transcode').mockImplementation(async (...commandArgs: unknown[]) => {
+      const target = commandArgs[1] as string;
       expect(target).not.toBe(source);
       await fs.writeFile(target, 'converted');
-      return '';
     });
     await media.prepareVideo(item.id);
     const result = await repo.findOneByOrFail({ id: item.id });
@@ -378,7 +378,7 @@ describe('file ingestion compensation', () => {
       entered(); await held; throw new Error('synthetic rollback');
     });
     await ready;
-    const probe = jest.spyOn(media as any, 'probeVideo').mockResolvedValue({ videoCodec: 'h264', audioCodec: 'aac', duration: 10 });
+    const probe = jest.spyOn(FfmpegMediaTools.prototype, 'probe').mockResolvedValue({ videoCodec: 'h264', audioCodec: 'aac', duration: 10 });
     const preparation = media.prepareVideo(item.id);
     await new Promise(resolve => setImmediate(resolve));
     expect(probe).not.toHaveBeenCalled();
@@ -536,11 +536,26 @@ describe('file ingestion compensation', () => {
     await db.getRepository(User).save({ id: 2, username: 'bob', password: 'test', role: 'operator' });
     const repo = db.getRepository(MediaAsset);
     const item = await repo.save({ originalName: 'original.mp4', safeName: 'original.mp4', path: '/test/original.mp4', kind: 'video', mimeType: 'video/mp4', sizeBytes: 10, ownerUserId: 1, visibility: 'private', uploader: 'alice' });
-    jest.spyOn(media as any, 'probeVideo').mockImplementation(async () => {
+    jest.spyOn(FfmpegMediaTools.prototype, 'probe').mockImplementation(async () => {
       await repo.update(item.id, { ownerUserId: 2, visibility: 'shared', originalName: 'Administrator renamed.mp4' });
       return { videoCodec: 'h264', audioCodec: 'aac', duration: 10 };
     });
     await media.prepareVideo(item.id);
     expect(await repo.findOneByOrFail({ id: item.id })).toMatchObject({ ownerUserId: 2, visibility: 'shared', originalName: 'Administrator renamed.mp4', processingStatus: 'ready' });
+  });
+
+  it('deduplicates preparation while sharing the catalog operation lock until probing finishes', async () => {
+    const repo = db.getRepository(MediaAsset);
+    const item = await repo.save({ originalName: 'ready.mp4', safeName: 'ready.mp4', path: '/fixture/ready.mp4', kind: 'video', mimeType: 'video/mp4', sizeBytes: 10, ownerUserId: 1, visibility: 'private' });
+    let finish!: (value: { videoCodec: string }) => void;
+    const probe = jest.spyOn(FfmpegMediaTools.prototype, 'probe').mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const pending = media.prepareVideo(item.id);
+    while (!finish) await new Promise(resolve => setImmediate(resolve));
+    await media.prepareVideo(item.id);
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(() => media.acquireOperation(item.id)).toThrow('资料正在使用');
+    finish({ videoCodec: 'h264' }); await pending;
+    expect((await repo.findOneByOrFail({ id: item.id })).processingStatus).toBe('ready');
+    media.acquireOperation(item.id)();
   });
 });
