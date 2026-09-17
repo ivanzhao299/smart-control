@@ -134,7 +134,9 @@ router.beforeEach(async (to) => {
     }
   }
   if (!to.meta?.clientPublic && to.name !== 'player') {
-    await usePermissionStore().refresh();
+    // 权限默认是 viewer，服务端仍是最终授权边界。角色刷新不能阻塞页面挂载：
+    // iOS 从后台恢复时网络请求可能延迟，等待它会让主壳存在而 router-view 为空。
+    void usePermissionStore().refresh();
   }
   return true;
 });

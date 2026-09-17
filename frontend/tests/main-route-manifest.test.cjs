@@ -58,3 +58,14 @@ test('router and layouts consume the manifest instead of maintaining page import
   assert.match(layout, /loadMainRoute\(name\)/);
   assert.doesNotMatch(`${router}\n${app}\n${layout}`, /import\('@\/pages\/(?:Dashboard|Lighting|DaliLights|DaliDiagnose|Led|Projector|Audio|Hvac|Power|Media|Status)Page\.vue'\)/);
 });
+
+test('main PWA pages cannot be held blank by transition or permission refresh', () => {
+  const router = read('src/router/index.ts');
+  const layout = read('src/layouts/MainLayout.vue');
+  const outlet = layout.slice(layout.indexOf('<router-view'), layout.indexOf('</router-view>'));
+
+  assert.doesNotMatch(outlet, /<transition\b/);
+  assert.match(outlet, /<keep-alive :max="6">/);
+  assert.match(router, /void usePermissionStore\(\)\.refresh\(\)/);
+  assert.doesNotMatch(router, /await usePermissionStore\(\)\.refresh\(\)/);
+});
