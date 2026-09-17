@@ -6,6 +6,7 @@ import { WsClient, type WsConnectionState } from '@/services/websocket.service';
 import { getPlayerState, playerHeartbeat, playerAdvance, configurePlayer, hasPlayerCredential, playerSocketAuthentication, type PlayerDeviceState } from '@/services/player-device.service';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { absUrl, api, setApiBaseURL } from '@/services/http';
+import { webpageSandbox } from '@/services/webpage-sandbox';
 import { forceThemeWithoutPersist, restoreStoredTheme } from '@/services/theme.service';
 import type { WsEvent } from '@/types/api';
 
@@ -35,6 +36,10 @@ const slot = computed<number>(() => {
 });
 
 const channel = ref<PlayerDeviceState | null>(null);
+const currentWebpageSandbox = computed(() => webpageSandbox(
+  channel.value?.currentMediaUrl,
+  window.location.href,
+));
 // Separate connection/identity from the control app's personal-account socket.
 const playerWs = new WsClient({ authentication: () => playerSocketAuthentication(slot.value) });
 const credential = ref('');
@@ -468,7 +473,7 @@ function onAudioEnded(): void {
       v-else-if="isWebpage && channel?.currentMediaUrl"
       :key="channel.playbackSession"
       class="media-el web-frame"
-      sandbox="allow-scripts allow-forms"
+      :sandbox="currentWebpageSandbox"
       :src="channel.currentMediaUrl"
       referrerpolicy="no-referrer"
     />

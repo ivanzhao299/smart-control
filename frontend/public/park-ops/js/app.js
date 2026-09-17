@@ -125,7 +125,10 @@ document.getElementById('auto').onclick=function(){if(timer){clearInterval(timer
         setTimeout(()=>{ window.location.reload(true); }, 500);
         return;
       }
-      if(page !== lastPage){ lastPage = page; go(page); }
+      // Only acknowledge a remote page after go() accepted it. During the
+      // 550ms transition go() deliberately returns early; acknowledging first
+      // permanently dropped a command that arrived in that window.
+      if(page !== lastPage){ go(page); if(idx === page) lastPage = page; }
       if(autoPlay !== lastAuto){
         lastAuto = autoPlay;
         const btn = document.getElementById('auto');
