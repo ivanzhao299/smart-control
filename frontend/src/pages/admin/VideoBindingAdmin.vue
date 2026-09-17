@@ -74,6 +74,25 @@ const layoutColumns = ref(3);
 const layoutChannelIds = ref<string[]>([]);
 const availableChannels = computed(() => channels.value.filter(c => c.enabled));
 
+function withExpectedRevision<T extends Record<string, unknown>>(payload: T): T & { expectedRevision?: number } {
+  return configRevision.value > 0
+    ? { ...payload, expectedRevision: configRevision.value }
+    : payload;
+}
+
+function revisionParams(): { expectedRevision?: number } {
+  return configRevision.value > 0 ? { expectedRevision: configRevision.value } : {};
+}
+
+async function showWriteError(prefix: string, error: any): Promise<void> {
+  if (error?.status === 409) {
+    await loadData();
+    ElMessage.error(`${prefix}：配置已被其他管理员更新，当前表单已保留，请核对最新数据后重试`);
+    return;
+  }
+  ElMessage.error(`${prefix}: ${error?.message || error}`);
+}
+
 // 加载数据
 async function loadData(): Promise<boolean> {
   loading.value = true;
@@ -128,7 +147,7 @@ async function saveNvr() {
     return;
   }
   try {
-    const payload = {
+    const payload = withExpectedRevision({
       name: nvrForm.value.name,
       ip: nvrForm.value.ip,
       port: nvrForm.value.port,
@@ -137,7 +156,7 @@ async function saveNvr() {
       brand: nvrForm.value.brand,
       enabled: nvrForm.value.enabled,
       ...(nvrForm.value.password ? { password: nvrForm.value.password } : {}),
-    };
+    });
     if (nvrEditing.value && nvrForm.value.id) {
       await api.put(`/video-binding/nvrs/${nvrForm.value.id}`, payload);
       ElMessage.success('NVR设备已更新');
@@ -148,7 +167,7 @@ async function saveNvr() {
     nvrDialogVisible.value = false;
     await loadData();
   } catch (e: any) {
-    ElMessage.error('保存失败: ' + (e.message || e));
+    await showWriteError('保存失败', e);
   }
 }
 
@@ -157,12 +176,12 @@ async function deleteNvr(nvr: NvrDevice) {
     await ElMessageBox.confirm(`确定删除NVR设备"${nvr.name}"吗？关联的摄像头通道也会被删除。`, '确认删除', {
       type: 'warning',
     });
-    await api.del(`/video-binding/nvrs/${nvr.id}`);
+    await api.del(`/video-binding/nvrs/${nvr.id}`, { params: revisionParams() });
     ElMessage.success('NVR设备已删除');
     await loadData();
   } catch (e: any) {
     if (e !== 'cancel') {
-      ElMessage.error('删除失败: ' + (e.message || e));
+      await showWriteError('删除失败', e);
     }
   }
 }
@@ -208,14 +227,14 @@ async function saveChannel() {
     return;
   }
   try {
-    const payload = {
+    const payload = withExpectedRevision({
       nvrId: channelForm.value.nvrId,
       hikChannel: channelForm.value.hikChannel,
       name: channelForm.value.name,
       alias: channelForm.value.alias || '',
       enabled: channelForm.value.enabled,
       sortOrder: channelForm.value.sortOrder,
-    };
+    });
     if (channelEditing.value && channelForm.value.id) {
       await api.put(`/video-binding/channels/${channelForm.value.id}`, payload);
       ElMessage.success('摄像头通道已更新');
@@ -226,7 +245,7 @@ async function saveChannel() {
     channelDialogVisible.value = false;
     await loadData();
   } catch (e: any) {
-    ElMessage.error('保存失败: ' + (e.message || e));
+    await showWriteError('保存失败', e);
   }
 }
 
@@ -235,12 +254,12 @@ async function deleteChannel(channel: CameraChannel) {
     await ElMessageBox.confirm(`确定删除摄像头通道"${channel.name}"吗？`, '确认删除', {
       type: 'warning',
     });
-    await api.del(`/video-binding/channels/${channel.id}`);
+    await api.del(`/video-binding/channels/${channel.id}`, { params: revisionParams() });
     ElMessage.success('摄像头通道已删除');
     await loadData();
   } catch (e: any) {
     if (e !== 'cancel') {
-      ElMessage.error('删除失败: ' + (e.message || e));
+      await showWriteError('删除失败', e);
     }
   }
 }
@@ -257,24 +276,28 @@ function toggleChannelInLayout(channelId: string) {
 
 async function saveLayout() {
   try {
-    await api.put('/video-binding/layout', {
+    await api.put('/video-binding/layout', withExpectedRevision({
       columns: layoutColumns.value,
       channelIds: layoutChannelIds.value,
-    });
+    }));
+    await loadData();
     ElMessage.success('显示布局已保存，运营大屏将自动更新');
   } catch (e: any) {
-    ElMessage.error('保存布局失败: ' + (e.message || e));
+    await showWriteError('保存布局失败', e);
   }
 }
 
 // ========== AI 全局框开关 / 检测范围 / 下发 ==========
 async function saveAiBox(v: boolean) {
+  const previous = aiBoxEnabled.value;
   aiBoxEnabled.value = v;
   try {
-    await api.put('/video-binding/ai/box', { enabled: v });
+    await api.put('/video-binding/ai/box', withExpectedRevision({ enabled: v }));
+    await loadData();
     ElMessage.success(v ? 'AI 检测框已全局开启（LED/投影/手机统一生效）' : 'AI 检测框已全局关闭');
   } catch (e: any) {
-    ElMessage.error('全局开关保存失败: ' + (e.message || e));
+    aiBoxEnabled.value = previous;
+    await showWriteError('全局开关保存失败', e);
   }
 }
 
@@ -289,10 +312,10 @@ async function onAiSaved(payload: { aiEnabled: boolean; countLine: NormPoint[]; 
   let saved = false;
   aiSaving.value = true;
   try {
-    const res: any = await api.put(`/video-binding/channels/${id}/ai`, {
-      ...payload,
-      ...(configRevision.value > 0 ? { expectedRevision: configRevision.value } : {}),
-    });
+    const res: any = await api.put(
+      `/video-binding/channels/${id}/ai`,
+      withExpectedRevision(payload),
+    );
     saved = true;
     const body = res?.data ?? res;
     if (!(await loadData())) throw new Error('保存成功，但读取复核失败');

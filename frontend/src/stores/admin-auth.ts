@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import { computed, ref, onScopeDispose } from 'vue';
 import { onServerChange } from '@/services/identity-boundary';
 import { adminLogin, adminLogout, adminMe } from '@/services/admin-auth.service';
-import { setAdminToken, getApiBaseURL, getClientToken } from '@/services/http';
+import { HttpError, setAdminToken, getApiBaseURL, getClientToken } from '@/services/http';
 
 /**
  * 后台鉴权 store.
@@ -65,6 +65,7 @@ export const useAdminAuthStore = defineStore('admin-auth', () => {
   const expiresAt = ref<string | null>(initialExp);
   const checking = ref(false);
   const checked = ref(false);
+  let activeCheck: { token: string; promise: Promise<boolean> } | null = null;
 
   // 启动时同步当前 token 到 http.ts 模块变量
   if (token.value) setAdminToken(token.value);
@@ -103,7 +104,7 @@ export const useAdminAuthStore = defineStore('admin-auth', () => {
     checked.value = false;
   }
 
-  /** 验证当前 token 是否还有效. 没 token / 401 都清掉. 返回是否登录. */
+  /** 验证当前 token 是否还有效；只有服务端明确拒绝才清除凭据。 */
   async function ensureChecked(force = false): Promise<boolean> {
     if (!token.value) {
       checked.value = true;
@@ -113,24 +114,54 @@ export const useAdminAuthStore = defineStore('admin-auth', () => {
       try { return (await adminMe()).authenticated === true; }
       catch { return false; }
     }
+    // The store is the persisted source of truth. Startup can hydrate the
+    // client and administrator stores in either order; resync the HTTP module
+    // before both the fast path and a verification request.
+    const expectedToken = token.value;
+    setAdminToken(expectedToken);
     if (checked.value && !force) return true;
+    if (activeCheck?.token === expectedToken) return activeCheck.promise;
     checking.value = true;
-    try {
-      await adminMe();
-      checked.value = true;
-      return true;
-    } catch {
-      // 401 / 网络都视为失效, 清状态
-      token.value = null;
-      expiresAt.value = null;
-      sessionStorage.removeItem(STORAGE_KEY);
-      sessionStorage.removeItem(STORAGE_KEY + ':exp');
-      clearPersistedAdmin();
-      setAdminToken(null);
-      checked.value = true;
+    const promise = (async (): Promise<boolean> => {
+      // Setting the concurrently restored client identity deliberately aborts
+      // older HTTP reads. Retry that identity-boundary abort once instead of
+      // mistaking it for an invalid administrator credential.
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        if (token.value !== expectedToken) return false;
+        setAdminToken(expectedToken);
+        try {
+          await adminMe();
+          if (token.value !== expectedToken) return false;
+          checked.value = true;
+          return true;
+        } catch (error) {
+          if (token.value !== expectedToken) return false;
+          if ((error as Error)?.name === 'AbortError' && attempt === 0) continue;
+
+          // Only an authoritative authentication response may erase a saved
+          // credential. Transient network failures and identity-boundary aborts
+          // leave it available for a later retry.
+          const rejected = error instanceof HttpError && [401, 403].includes(error.status);
+          if (!rejected) return false;
+          token.value = null;
+          expiresAt.value = null;
+          sessionStorage.removeItem(STORAGE_KEY);
+          sessionStorage.removeItem(STORAGE_KEY + ':exp');
+          clearPersistedAdmin();
+          setAdminToken(null);
+          checked.value = true;
+          return false;
+        }
+      }
       return false;
-    } finally {
-      checking.value = false;
+    })();
+    activeCheck = { token: expectedToken, promise };
+    try { return await promise; }
+    finally {
+      if (activeCheck?.promise === promise) {
+        activeCheck = null;
+        checking.value = false;
+      }
     }
   }
 

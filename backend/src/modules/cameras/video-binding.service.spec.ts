@@ -223,10 +223,17 @@ describe('VideoBindingService database persistence', () => {
       service.updateChannelAi(
         'gate',
         {
-          countLine: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
-          roiPolygon: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }],
+          countLine: [
+            { x: 0, y: 0 },
+            { x: 1, y: 1 },
+          ],
+          roiPolygon: [
+            { x: 0, y: 0 },
+            { x: 1, y: 0 },
+            { x: 1, y: 1 },
+          ],
         },
-        openedRevision,
+        { expectedRevision: openedRevision },
       ),
     ).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'VIDEO_BINDING_REVISION_CONFLICT' }),
@@ -236,9 +243,90 @@ describe('VideoBindingService database persistence', () => {
     expect(snapshot).toMatchObject({ revision: openedRevision + 1 });
     expect(snapshot?.value.channels[0]).toMatchObject({
       name: 'Newer Gate Name',
-      countLine: [{ x: 0.2, y: 0.3 }, { x: 0.8, y: 0.7 }],
+      countLine: [
+        { x: 0.2, y: 0.3 },
+        { x: 0.8, y: 0.7 },
+      ],
       roiPolygon: [],
     });
     expect(await dataSource.getRepository(RuntimeConfigRevision).count()).toBe(2);
+  });
+
+  it('applies revision conflicts to every write path and preserves the newer document', async () => {
+    await initializeFixture();
+    const service = await startService();
+    const openedRevision = service.getConfigView().revision;
+
+    await service.updateDisplayLayout(
+      { columns: 2 },
+      { expectedRevision: openedRevision, actor: 'user:1:owner' },
+    );
+
+    await expect(
+      service.updateNvr(
+        'nvr',
+        { name: 'Stale Recorder Name' },
+        { expectedRevision: openedRevision, actor: 'user:2:stale-admin' },
+      ),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'VIDEO_BINDING_REVISION_CONFLICT',
+        expectedRevision: openedRevision,
+        currentRevision: openedRevision + 1,
+      }),
+    });
+
+    const snapshot = await store.read(VIDEO_BINDING_CONFIG_KEY, normalizeVideoBindingConfig);
+    expect(snapshot).toMatchObject({ revision: openedRevision + 1 });
+    expect(snapshot?.value.displayLayout.columns).toBe(2);
+    expect(snapshot?.value.nvrs[0].name).toBe('Recorder');
+  });
+
+  it('records the named administrator and does not create revisions for identical writes', async () => {
+    await initializeFixture();
+    const service = await startService();
+
+    await service.updateDisplayLayout(
+      { columns: 2 },
+      { expectedRevision: 1, actor: 'user:1:owner' },
+    );
+    await service.updateDisplayLayout(
+      { columns: 2 },
+      { expectedRevision: 2, actor: 'user:1:owner' },
+    );
+
+    const history = await dataSource.getRepository(RuntimeConfigRevision).find({
+      order: { revision: 'ASC' },
+    });
+    expect(history).toHaveLength(2);
+    expect(history[1]).toMatchObject({
+      revision: 2,
+      actor: 'user:1:owner',
+      source: 'PUT /api/video-binding/layout',
+    });
+    expect(service.getConfigView().revision).toBe(2);
+  });
+
+  it('returns stable API error codes for missing resources and invalid references', async () => {
+    await initializeFixture();
+    const service = await startService();
+
+    await expect(service.updateChannel('missing', { name: 'Nope' })).rejects.toMatchObject({
+      status: 404,
+      response: expect.objectContaining({ code: 'VIDEO_BINDING_CHANNEL_NOT_FOUND' }),
+    });
+    await expect(
+      service.createChannel({
+        nvrId: 'missing',
+        hikChannel: '101',
+        name: 'Unknown recorder',
+        alias: 'unknown-recorder',
+        enabled: true,
+        sortOrder: 2,
+      }),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: expect.objectContaining({ code: 'VIDEO_BINDING_NVR_NOT_FOUND' }),
+    });
   });
 });

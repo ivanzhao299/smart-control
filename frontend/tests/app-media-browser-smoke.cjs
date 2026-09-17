@@ -27,6 +27,40 @@ async function api(route, method, body, token, admin = false) {
     username: process.env.SC_SMOKE_ADMIN_USERNAME,
     password: process.env.SC_SMOKE_ADMIN_PASSWORD,
   })).token;
+  const originalVideoBinding = await api('/video-binding', 'GET', undefined, admin, true);
+  const toggledAiBox = originalVideoBinding.aiBoxEnabled === false;
+  await api('/video-binding/ai/box', 'PUT', {
+    enabled: toggledAiBox,
+    expectedRevision: originalVideoBinding.revision,
+  }, admin, true);
+  const staleVideoWrite = await nodeFetch(backend + '/video-binding/layout', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${admin}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      columns: originalVideoBinding.displayLayout.columns,
+      channelIds: originalVideoBinding.displayLayout.channelIds,
+      expectedRevision: originalVideoBinding.revision,
+    }),
+  });
+  assert.equal(staleVideoWrite.status, 409);
+  assert.equal((await staleVideoWrite.json()).code, 'VIDEO_BINDING_REVISION_CONFLICT');
+  const changedVideoBinding = await api('/video-binding', 'GET', undefined, admin, true);
+  assert.equal(changedVideoBinding.revision, originalVideoBinding.revision + 1);
+  assert.equal(changedVideoBinding.aiBoxEnabled, toggledAiBox);
+  await api('/video-binding/ai/box', 'PUT', {
+    enabled: originalVideoBinding.aiBoxEnabled !== false,
+    expectedRevision: changedVideoBinding.revision,
+  }, admin, true);
+  const restoredVideoBinding = await api('/video-binding', 'GET', undefined, admin, true);
+  assert.equal(restoredVideoBinding.revision, originalVideoBinding.revision + 2);
+  assert.equal(restoredVideoBinding.aiBoxEnabled, originalVideoBinding.aiBoxEnabled !== false);
+  await api('/video-binding/ai/box', 'PUT', {
+    enabled: restoredVideoBinding.aiBoxEnabled,
+    expectedRevision: restoredVideoBinding.revision,
+  }, admin, true);
+  const noOpVideoBinding = await api('/video-binding', 'GET', undefined, admin, true);
+  assert.equal(noOpVideoBinding.revision, restoredVideoBinding.revision);
+  console.log('PASS video-binding revision conflict, reversible write and no-op suppression through real API');
   const nonce = crypto.randomBytes(5).toString('hex');
   const accounts = {};
   for (const role of ['operator', 'otherOperator', 'viewer', 'admin']) {

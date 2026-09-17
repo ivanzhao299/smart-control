@@ -20,9 +20,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
 
     const status =
-      exception instanceof HttpException
-        ? exception.getStatus()
-        : HttpStatus.INTERNAL_SERVER_ERROR;
+      exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
 
     const message = this.resolveMessage(exception);
     const stack = exception instanceof Error ? exception.stack : undefined;
@@ -43,7 +41,31 @@ export class AllExceptionsFilter implements ExceptionFilter {
     response.status(status).json({
       success: false,
       message,
+      ...this.resolveMetadata(exception),
     });
+  }
+
+  /** Preserve reviewed machine-readable fields without echoing arbitrary exception payloads. */
+  private resolveMetadata(exception: unknown): Record<string, unknown> {
+    if (!(exception instanceof HttpException)) return {};
+    const value = exception.getResponse();
+    if (typeof value !== 'object' || value === null) return {};
+    const source = value as Record<string, unknown>;
+    const metadata: Record<string, unknown> = {};
+    if (
+      typeof source.code === 'string' &&
+      source.code.length <= 128 &&
+      /^[A-Z][A-Z0-9_]*$/.test(source.code)
+    ) {
+      metadata.code = source.code;
+    }
+    for (const field of ['expectedRevision', 'currentRevision', 'actualRevision'] as const) {
+      const candidate = source[field];
+      if (candidate === null || (Number.isInteger(candidate) && Number(candidate) >= 0)) {
+        metadata[field] = candidate;
+      }
+    }
+    return metadata;
   }
 
   private resolveMessage(exception: unknown): string {

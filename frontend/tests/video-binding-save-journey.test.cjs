@@ -15,7 +15,7 @@ const editorSource = fs.readFileSync(
 );
 const adminScript = adminSource.match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1];
 const adminAst = ts.createSourceFile('video-binding-admin.ts', adminScript, ts.ScriptTarget.Latest, true);
-const functionNames = ['samePoints', 'sameAiPayload', 'onAiSaved'];
+const functionNames = ['withExpectedRevision', 'samePoints', 'sameAiPayload', 'onAiSaved'];
 const functions = adminAst.statements
   .filter(node => ts.isFunctionDeclaration(node) && functionNames.includes(node.name?.text))
   .map(node => node.getText(adminAst));
@@ -115,4 +115,25 @@ test('the region editor never dismisses itself before its parent confirms persis
   assert.doesNotMatch(body, /emit\('update:modelValue'/);
   assert.match(body, /props\.saving/);
   assert.match(editorSource, /:loading="saving"/);
+});
+
+test('every persistent video-binding write carries the opened configuration revision', () => {
+  const persistentWrites = {
+    saveNvr: /withExpectedRevision/,
+    deleteNvr: /revisionParams/,
+    saveChannel: /withExpectedRevision/,
+    deleteChannel: /revisionParams/,
+    saveLayout: /withExpectedRevision/,
+    saveAiBox: /withExpectedRevision/,
+    onAiSaved: /withExpectedRevision/,
+  };
+  for (const [name, pattern] of Object.entries(persistentWrites)) {
+    const fn = adminAst.statements.find(
+      node => ts.isFunctionDeclaration(node) && node.name?.text === name,
+    );
+    assert.ok(fn, `${name} must exist`);
+    assert.match(fn.getText(adminAst), pattern, `${name} must submit expectedRevision`);
+  }
+  assert.match(adminSource, /error\?\.status === 409/);
+  assert.match(adminSource, /当前表单已保留/);
 });
