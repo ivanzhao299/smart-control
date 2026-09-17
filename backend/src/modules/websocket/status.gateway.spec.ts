@@ -25,6 +25,16 @@ describe('status socket identity and disclosure', () => {
     gateway.server = { clients: new Set([client]) } as any;
   });
   afterEach(() => gateway.onModuleDestroy());
+  it('sends content-free release notifications to authenticated devices and rejects revoked devices', async () => {
+    await gateway.authenticatePlayer(client, { token: deviceToken, slot: 1 });
+    client.send.mockClear();
+    const release = { type: 'frontend_release', frontendBuildId: '11111111-1111-4111-8111-111111111111' };
+    await (gateway as any).sendAuthorized(client, release);
+    expect(JSON.parse(client.send.mock.calls[0][0])).toEqual(release);
+    devices[0].enabled = false; client.send.mockClear();
+    await (gateway as any).sendAuthorized(client, release);
+    expect(client.send).not.toHaveBeenCalled();
+  });
   it('authenticates a dedicated player without any personal login and sends no global snapshot', async () => {
     await gateway.authenticatePlayer(client, { token: deviceToken, slot: 1 });
     expect(client.close).not.toHaveBeenCalled();

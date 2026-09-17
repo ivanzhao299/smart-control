@@ -21,6 +21,9 @@ import { ClientAuthService } from '../client-auth/client-auth.service';
 import { AdminAuthService } from '../admin-auth/admin-auth.service';
 import { Actor } from '../../common/auth/actor';
 import { PlayerDeviceAuthService } from '../playback/player-device-auth.service';
+import { join, resolve } from 'path';
+import { resolveRuntimeDataDir } from '../../common/storage/runtime-data-path';
+import { FrontendRelease, FrontendReleaseWatcher } from './frontend-release';
 
 type SocketSession = { kind: 'user'; token: string; admin: boolean } | { kind: 'player'; token: string; slot: number };
 type SocketIdentity = Actor | { kind: 'player'; slot: number };
@@ -29,6 +32,7 @@ interface ClientHello {
   type: 'hello';
   message: string;
   serverTime: string;
+  frontendBuildId?: string;
 }
 
 interface PongMessage {
@@ -63,6 +67,7 @@ export class StatusGateway
   private heartbeatTimer?: NodeJS.Timeout;
   private readonly sessions = new WeakMap<WebSocket, SocketSession>();
   private readonly authTimers = new Map<WebSocket, NodeJS.Timeout>();
+  private releaseWatcher?: FrontendReleaseWatcher;
 
   constructor(
     config: ConfigService,
@@ -79,6 +84,12 @@ export class StatusGateway
 
   onModuleInit(): void {
     this.unsubscribe = this.bus.subscribe((event) => this.broadcast(event));
+    this.releaseWatcher = new FrontendReleaseWatcher(
+      resolve(process.env.RELEASE_MANIFEST_PATH?.trim() || join(resolveRuntimeDataDir(), 'release.json')),
+      release => this.broadcast(release),
+      message => this.logger.warn(message, { context: 'StatusGateway' }),
+    );
+    this.releaseWatcher.start();
     if (Number.isFinite(this.heartbeatMs) && this.heartbeatMs > 0) {
       this.heartbeatTimer = setInterval(() => this.sweepDeadClients(), this.heartbeatMs);
       this.heartbeatTimer.unref?.();
@@ -87,6 +98,7 @@ export class StatusGateway
 
   onModuleDestroy(): void {
     this.unsubscribe?.();
+    this.releaseWatcher?.stop();
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     for (const timer of this.authTimers.values()) clearTimeout(timer);
     this.authTimers.clear();
@@ -141,6 +153,7 @@ export class StatusGateway
       type: 'hello',
       message: 'smart-control status stream',
       serverTime: new Date().toISOString(),
+      frontendBuildId: this.releaseWatcher?.refresh()?.frontendBuildId,
     };
     this.safeSend(client, hello);
     this.logger.info(`WS client connected (total=${this.server.clients.size})`, {
@@ -224,7 +237,7 @@ export class StatusGateway
     }
   }
 
-  private broadcast(event: ControlEvent): void {
+  private broadcast(event: ControlEvent | FrontendRelease): void {
     if (!this.server) return;
     for (const client of this.server.clients) {
       if (client.readyState === client.OPEN && this.sessions.has(client)) void this.sendAuthorized(client, event);
@@ -251,9 +264,10 @@ export class StatusGateway
     return null;
   }
 
-  private async sendAuthorized(client: WebSocket, event: ControlEvent): Promise<void> {
+  private async sendAuthorized(client: WebSocket, event: ControlEvent | FrontendRelease): Promise<void> {
     const actor = await this.resolve(client);
     if (!actor) return;
+    if (event.type === 'frontend_release') { this.safeSend(client, event); return; }
     if (actor.kind === 'player') {
       if (event.type === 'playback_channel_changed' && event.slot === actor.slot) {
         this.safeSend(client, { type: event.type, slot: event.slot, at: event.at });
