@@ -25,10 +25,10 @@ import {
   collectFilesFromEntry,
   formatMediaDuration as fmtDuration,
   formatMediaSize as fmtSize,
-  isAllowedMediaFile,
   MEDIA_UPLOAD_ACCEPT,
 } from '@/features/media-file-intake';
 import { onlineMusicService, type OnlineTrack } from '@/services/online-music.service';
+import { useMediaUploadQueue } from '@/features/useMediaUploadQueue';
 import { baiduPanService, type PanFile, type PanStatus, type PanAuthStart } from '@/services/baidu-pan.service';
 import { usePlaybackStore } from '@/stores/playback';
 import { useSystemBrandingStore } from '@/stores/system-branding';
@@ -104,10 +104,6 @@ async function pickAndPush(m: MediaItem): Promise<void> {
 
 const items = ref<MediaItem[]>([]);
 const loading = ref(false);
-const uploading = ref(false);
-const uploadPct = ref(0);
-const uploadName = ref('');
-const uploadStartAt = ref(0);
 const filter = ref<'all' | 'video' | 'image' | 'audio' | 'webpage' | 'doc' | 'doc'>('all');
 const resourceScope = ref<'visible' | 'mine' | 'shared'>('visible');
 const ownerFilter = ref<number | undefined>();
@@ -129,27 +125,16 @@ const viewMode = ref<'list' | 'grid' | 'detail'>('list');
 const previewItem = ref<MediaItem | null>(null);
 const isDragging = ref(false);
 
-// 批量上传队列
-const uploadQueue = ref<File[]>([]);
-const uploadBatchTotal = ref(0);
-const uploadBatchDone = ref(0);
-let processingQueue = false;
+const { uploading, uploadPct, uploadName, uploadEta, uploadBatchTotal, uploadBatchDone, queueFiles } = useMediaUploadQueue({
+  canUpload: () => !disposed && canOperate.value,
+  onUploaded: () => refresh(),
+});
 
 const filtered = computed(() => {
   if (filter.value === 'all') return items.value;
   return items.value.filter((m) => m.kind === filter.value);
 });
 
-const uploadEta = computed(() => {
-  if (!uploading.value || uploadPct.value === 0 || !uploadStartAt.value) return '';
-  const elapsedMs = Date.now() - uploadStartAt.value;
-  const remainPct = 100 - uploadPct.value;
-  if (remainPct <= 0) return '收尾...';
-  const totalMs = elapsedMs / uploadPct.value * 100;
-  const remainMs = totalMs - elapsedMs;
-  if (remainMs < 60_000) return `剩约 ${Math.ceil(remainMs / 1000)}秒`;
-  return `剩约 ${Math.ceil(remainMs / 60_000)}分钟`;
-});
 
 let mediaRequestRevision = 0;
 async function refresh(): Promise<void> {
@@ -172,79 +157,6 @@ async function refresh(): Promise<void> {
   }
 }
 
-const UPLOAD_MAX_GB = 10;
-
-// 校验 + 入队 + 启动串行上传
-async function queueFiles(rawFiles: File[]): Promise<void> {
-  if (disposed || !canOperate.value) return;
-  const valid: File[] = [];
-  for (const f of rawFiles) {
-    if (!isAllowedMediaFile(f)) {
-      if (f.size > 0) ElMessage.warning(`已跳过: ${f.name} (类型不支持)`);
-      continue;
-    }
-    if (f.size > UPLOAD_MAX_GB * 1024 * 1024 * 1024) {
-      ElMessage.error(`已跳过: ${f.name} (超过 ${UPLOAD_MAX_GB}GB 上限)`);
-      continue;
-    }
-    valid.push(f);
-  }
-  if (valid.length === 0) return;
-
-  // 单个大文件才弹确认
-  if (valid.length === 1 && valid[0].size > 500 * 1024 * 1024) {
-    const file = valid[0];
-    const estMin = Math.ceil(file.size / (10 * 1024 * 1024) / 60);
-    try {
-      await ElMessageBox.confirm(
-        `文件 ${file.name} (${fmtSize(file.size)}) 较大, 预估 ${estMin} 分钟. 上传期间请保持页面打开. 继续?`,
-        '大文件上传',
-        { type: 'info', confirmButtonText: '开始上传', cancelButtonText: '取消' },
-      );
-    } catch { return; }
-  }
-
-  const wasIdle = !processingQueue;
-  if (disposed || !canOperate.value) return;
-  uploadQueue.value.push(...valid);
-  if (wasIdle) { uploadBatchTotal.value = valid.length; uploadBatchDone.value = 0; }
-  else uploadBatchTotal.value += valid.length;
-
-  if (wasIdle) void startQueue();
-}
-
-async function startQueue(): Promise<void> {
-  processingQueue = true;
-  while (!disposed && canOperate.value && uploadQueue.value.length > 0) {
-    const file = uploadQueue.value[0];
-    await doUploadOne(file);
-    uploadQueue.value.shift();
-    uploadBatchDone.value++;
-  }
-  processingQueue = false;
-  uploadBatchTotal.value = 0;
-  uploadBatchDone.value = 0;
-}
-
-async function doUploadOne(file: File): Promise<void> {
-  uploading.value = true;
-  uploadPct.value = 0;
-  uploadName.value = file.name;
-  uploadStartAt.value = Date.now();
-  try {
-    await mediaService.upload(file, { onProgress: (p) => { uploadPct.value = p; } });
-    if (disposed) return;
-    ElMessage.success(`上传成功: ${file.name}`);
-    await refresh();
-  } catch (e) {
-    if (!disposed) ElMessage.error(`上传失败 ${file.name}: ${(e as Error).message}`);
-  } finally {
-    uploading.value = false;
-    uploadPct.value = 0;
-    uploadName.value = '';
-    uploadStartAt.value = 0;
-  }
-}
 
 function onFileInput(e: Event): void {
   const target = e.target as HTMLInputElement;
@@ -688,7 +600,7 @@ function stopProcessingPoll(): void {
   if (processingRefreshTimer !== undefined) { window.clearInterval(processingRefreshTimer); processingRefreshTimer = undefined; }
 }
 useActivePolling(() => { void refresh(); startProcessingPoll(); }, stopProcessingPoll);
-onBeforeUnmount(() => { disposed = true; uploadQueue.value = []; stopProcessingPoll(); });
+onBeforeUnmount(() => { disposed = true; stopProcessingPoll(); });
 </script>
 
 <template>

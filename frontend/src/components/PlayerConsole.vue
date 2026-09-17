@@ -48,6 +48,7 @@ import { powerCircuitsService, type PowerCircuitView } from '@/services/power-ci
 import { mediaService, MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
 import { ledService } from '@/services/led.service';
 import { parkOpsControlService } from '@/services/park-ops-control.service';
+import { usePlayerMediaIntake } from '@/features/usePlayerMediaIntake';
 
 const props = defineProps<{
   /** 1 = LED 大屏 (HDMI1), 2 = 投影仪 (HDMI2) */
@@ -704,68 +705,13 @@ function onDragEnd(): void {
   dragOverId.value = null;
 }
 
-// ============ 本页直接上传 (业主: "在 LED 大屏播放页面就可以直接点击上传内容") ============
-const fileInput = ref<HTMLInputElement | null>(null);
-const uploading = ref(false);
-const uploadPct = ref(0);
-function pickFile(): void { fileInput.value?.click(); }
-
-async function onFilePicked(ev: Event): Promise<void> {
-  const f = (ev.target as HTMLInputElement).files?.[0];
-  (ev.target as HTMLInputElement).value = '';    // 允许连续传同一个文件
-  if (!f) return;
-  const isCurrent = captureConsoleAction();
-  uploading.value = true;
-  uploadPct.value = 0;
-  try {
-    const m = await mediaService.upload(f, { onProgress: (pct: number) => { uploadPct.value = pct; } });
-    if (!isCurrent()) return;
-    // **只入媒体库, 不自动进播放列表** —— 业主: "媒体文件夹内容默认不加入播放列表,
-    // 需经管理员确认后再手工加入"。所以这里问一句, 由人决定。
-    try {
-      await ElMessageBox.confirm(
-        `「${m.originalName}」已上传到媒体库。要现在加入播放列表吗?`,
-        '上传完成',
-        { confirmButtonText: '加入播放列表', cancelButtonText: '只放媒体库', type: 'success' },
-      );
-      if (!isCurrent()) return;
-      await addToPlaylist(SLOT.value, m.id);
-      if (!isCurrent()) return;
-      await loadAll();
-      ElMessage.success('已加入播放列表');
-    } catch {
-      if (isCurrent()) ElMessage.info('已保存到媒体库 (未加入播放列表)');
-    }
-  } catch (e) {
-    if (isCurrent()) ElMessage.error(`上传失败: ${(e as Error).message}`);
-  } finally {
-    uploading.value = false;
-  }
-}
-
-// ============ 添加网页 (业主: "说的可以播放网页内容也没加上吗") ============
-// "从媒体库选"的网页 tab 只能挑**已经存在**的网页条目 —— 库里一条没有的话形同虚设,
-// 得先去媒体页用"添加网页"建一条再回来选, 业主感受就是"没加上"。跟"上传内容"
-// 同一个道理, 本页直接能建, 不用跳走 (业主: "播放页面不应该点击按钮跳转到其他页面")。
-const webpageDialog = ref(false);
-const webpageForm = ref<{ name: string; url: string }>({ name: '', url: '' });
-function openWebpageDialog(): void {
-  webpageForm.value = { name: '', url: '' };
-  webpageDialog.value = true;
-}
-async function submitWebpage(): Promise<void> {
-  const url = webpageForm.value.url.trim();
-  if (!/^https?:\/\//i.test(url)) { ElMessage.warning('网址要以 http:// 或 https:// 开头'); return; }
-  try {
-    const m = await mediaService.createWebpage(webpageForm.value.name.trim() || url, url);
-    await addToPlaylist(SLOT.value, m.id);
-    await loadAll();
-    webpageDialog.value = false;
-    ElMessage.success(`「${m.originalName}」已加入播放列表`);
-  } catch (e) {
-    ElMessage.error(`添加失败: ${(e as Error).message}`);
-  }
-}
+// Intake owns upload/create/confirmation; this console supplies the current screen boundary.
+const { fileInput, uploading, uploadPct, pickFile, onFilePicked, webpageDialog, webpageForm,
+  webpageBusy, openWebpageDialog, submitWebpage } = usePlayerMediaIntake({
+  slot: () => SLOT.value,
+  captureAction: captureConsoleAction,
+  reload: loadAll,
+});
 </script>
 
 <template>
@@ -1132,7 +1078,7 @@ async function submitWebpage(): Promise<void> {
         <input v-model="webpageForm.url" class="wb-input" placeholder="https://..." @keyup.enter="submitWebpage" />
         <div class="wb-actions">
           <button class="v2-quick" @click="webpageDialog = false">取消</button>
-          <button class="v2-quick primary" @click="submitWebpage">添加</button>
+          <button class="v2-quick primary" :disabled="webpageBusy" @click="submitWebpage">{{ webpageBusy ? '添加中…' : '添加' }}</button>
         </div>
       </div>
     </div>

@@ -42,10 +42,9 @@ test('every navigable non-dashboard page is covered by idle and pointer prefetch
   assert.deepEqual(Array.from(moduleExports.idleMainRouteNames), navigable);
   for (const name of navigable) {
     assert.equal(typeof moduleExports.mainRouteManifest.find(route => route.name === name)?.load, 'function');
-    assert.ok(Array.isArray(moduleExports.mainRoutePrefetchApis(name)));
+    assert.equal('prefetchApis' in moduleExports.mainRouteManifest.find(route => route.name === name), false);
   }
   assert.equal(moduleExports.loadMainRoute('missing'), undefined);
-  assert.deepEqual([...moduleExports.mainRoutePrefetchApis('missing')], []);
 });
 
 test('router and layouts consume the manifest instead of maintaining page import lists', () => {

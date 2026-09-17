@@ -20,11 +20,11 @@ import { useSystemStore } from '@/stores/system';
 import { useSceneStore } from '@/stores/scene';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { useToastStore } from '@/stores/toast';
+import { createRouteWarmup } from '@/features/route-warmup';
 import {
   idleMainRouteNames,
   loadMainRoute,
   mainNavigationItems,
-  mainRoutePrefetchApis,
 } from '@/router/main-route-manifest';
 
 const route = useRoute();
@@ -37,46 +37,23 @@ const toast = useToastStore();
 const toastMsg = computed(() => toast.current);
 const conn = useConnectionStore();
 
-/**
- * 2026-05-31 性能优化: 应用 mount 后 idle 预取常用页 chunk.
- * 业主进入首页 800ms 后浏览器空闲, 按路由清单依次下载所有非首页可见页 chunk.
- * 之后切菜单是"打开缓存", 不再有 300ms 黑屏；新增页面不会再漏配预取项.
- * 不阻塞首屏渲染, 失败也无所谓 (路由懒加载兜底).
- */
-function prefetchMainPages(): void {
-  const tasks = idleMainRouteNames.map((name) => () => loadMainRoute(name));
-  const runNext = () => {
-    const t = tasks.shift();
-    if (!t) return;
-    t()?.catch(() => { /* 失败无所谓 */ }).finally(() => {
-      const ric = (window as unknown as { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback;
-      if (typeof ric === 'function') ric(runNext);
-      else setTimeout(runNext, 400);
-    });
-  };
-  // 800ms 后启动, 给首屏渲染让路
-  setTimeout(runNext, 800);
-}
-
-/**
- * 数据层预热: chunk 下完了但页面进去仍要拉 API 一遭, 是用户感知卡顿的真凶.
- * 这里在 idle 时偷偷把各子系统的 list API 也拉一遍, 走 workbox NetworkFirst
- * cache (60s). 之后切菜单, 拉 API 命中 cache 即时返回, 不再 200-400ms 网络等待.
- */
-async function prefetchData(): Promise<void> {
-  // 关键 list API, 放进 cache. 用裸 fetch + GET, 不经业务 service (失败也无所谓)
-  const apis = [
-    '/control/api/light-zones',
-    '/control/api/power-circuits',
-    '/control/api/devices?pageSize=200',
-    '/control/api/scenes?pageSize=200',
-    '/control/api/system/info',
-  ];
-  for (const url of apis) {
-    fetch(url).catch(() => { /* 失败无所谓 */ });
-    await new Promise<void>((r) => setTimeout(r, 80));
-  }
-}
+// Only JavaScript assets are preloaded. Authenticated data stays NetworkOnly.
+const warmup = createRouteWarmup({
+  names: idleMainRouteNames,
+  load: (name) => name === 'admin-devices' ? import('@/layouts/AdminLayout.vue') : loadMainRoute(name),
+  defer: (run, delay) => {
+    const timer = window.setTimeout(run, delay);
+    return () => window.clearTimeout(timer);
+  },
+  idle: (run) => {
+    if (window.requestIdleCallback && window.cancelIdleCallback) {
+      const idle = window.requestIdleCallback(run);
+      return () => window.cancelIdleCallback(idle);
+    }
+    const timer = window.setTimeout(run, 400);
+    return () => window.clearTimeout(timer);
+  },
+});
 
 /**
  * iOS 橡皮筋锁死 (2026-07-25 业主: "向下滑动时顶部还是橡皮筋随动")。
@@ -126,14 +103,16 @@ onMounted(() => {
     mainEl.addEventListener('touchstart', onMainTouchStart, { passive: true });
     mainEl.addEventListener('touchmove', onMainTouchMove, { passive: false });
   }
-  prefetchMainPages();
-  setTimeout(() => { void prefetchData(); }, 1200);
+  warmup.start();
   // 连通性监听: 每个 API 请求结束都报告到 connection store
   setConnectivityListener(conn.report);
   // iOS 回前台快速探活 (2026-07-27, 见 onVisibleRecheck 注释)
   document.addEventListener('visibilitychange', onVisibleRecheck);
 });
 onUnmounted(() => {
+  warmup.stop();
+  window.clearTimeout(reconnT);
+  window.clearTimeout(offlineRecheckT);
   if (mainEl) {
     mainEl.removeEventListener('touchstart', onMainTouchStart);
     mainEl.removeEventListener('touchmove', onMainTouchMove);
@@ -194,19 +173,8 @@ function onVisibleRecheck(): void {
     .catch(() => { /* 失败交给正常判定链 */ });
 }
 
-/** hover/touch 时立刻 prefetch 对应路由 chunk — 比 click 早 ~200ms */
-const prefetched = new Set<string>();
-function prefetchRoute(name: string): void {
-  if (prefetched.has(name)) return;
-  const pending = name === 'admin-devices'
-    ? import('@/layouts/AdminLayout.vue')
-    : loadMainRoute(name);
-  if (!pending) return;
-  prefetched.add(name);
-  pending.catch(() => { prefetched.delete(name); });
-  // 同时 prefetch 该页用到的 API
-  for (const url of mainRoutePrefetchApis(name)) fetch(url).catch(() => {});
-}
+/** Pointer prefetch shares the same deduplicated, retryable asset loader. */
+function prefetchRoute(name: string): void { void warmup.warm(name); }
 
 // Auto-enter 全屏: 用户首次 click/touch/keydown 后自动 request fullscreen.
 // 同时暴露 toggle/isActive 给顶栏全屏按钮 (业主反馈要手动按钮).
