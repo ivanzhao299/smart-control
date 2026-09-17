@@ -254,6 +254,9 @@ describe('GK9000 deployment gates', () => {
     expect(deploy).toContain('frontendBuildId = $frontendBuildId');
     expect(deploy).toContain("'frontend\\dist\\deployment-version.json'");
     expect(deploy.indexOf("Write-DeployLog 'verify-deploy.js passed.'")).toBeLessThan(manifestWrite);
+    expect(deploy.lastIndexOf('\n  Assert-BundledMediaCurrent')).toBeLessThan(manifestWrite);
+    expect(deploy.indexOf('Invoke-AppReleaseReconciliation\n')).toBeLessThan(manifestWrite);
+    expect(deploy.indexOf('$appReleaseReconciled = $true')).toBeLessThan(manifestWrite);
     expect(deploy).toContain(
       '[IO.File]::Replace($releaseManifestTemp, $releaseManifestPath, $releaseManifestPrevious)',
     );
