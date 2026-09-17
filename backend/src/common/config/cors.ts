@@ -36,3 +36,26 @@ export const createCorsOriginValidator = (allowedOrigins: readonly string[]) => 
     callback(null, normalized !== null && allowed.has(normalized));
   };
 };
+
+export const createCorsOptions = (allowedOrigins: readonly string[]) => ({
+  origin: createCorsOriginValidator(allowedOrigins),
+  methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: [
+    'Accept',
+    'Authorization',
+    'Cache-Control',
+    'Content-Type',
+    'If-Modified-Since',
+    'If-None-Match',
+    'Pragma',
+    'Range',
+    'X-Admin-Token',
+    'X-Client-Token',
+    'X-Player-Token',
+    'X-Requested-With',
+    // Required by the existing authenticated upload quota precheck.
+    'X-Upload-Size',
+  ],
+  exposedHeaders: ['Accept-Ranges', 'Content-Length', 'Content-Range', 'ETag'],
+  maxAge: 600,
+});
