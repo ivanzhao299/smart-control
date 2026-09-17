@@ -74,12 +74,12 @@ describe('SystemBrandingService park ops runtime configuration', () => {
   });
 
   it('keeps one current document and immutable revisions for real changes', async () => {
-    const first = await service.updateParkOpsConfig(fixture('企业甲'));
+    const first = await service.updateParkOpsConfig(fixture('企业甲'), 0, 'user:42:editor');
     const unchanged = await service.updateParkOpsConfig(fixture('企业甲'), 1);
     await expect(service.updateParkOpsConfig(fixture('旧页面覆盖'), 0)).rejects.toMatchObject({
       status: 409,
     });
-    const second = await service.updateParkOpsConfig(fixture('企业乙'), 1);
+    const second = await service.updateParkOpsConfig(fixture('企业乙'), 1, 'user:43:second');
 
     expect(first.revision).toBe(1);
     expect(unchanged.revision).toBe(1);
@@ -95,9 +95,41 @@ describe('SystemBrandingService park ops runtime configuration', () => {
         order: { revision: 'ASC' },
       }),
     ).toMatchObject([
-      { revision: 1, actor: 'admin-api', source: 'PUT /api/system-branding/park-ops' },
-      { revision: 2, actor: 'admin-api', source: 'PUT /api/system-branding/park-ops' },
+      { revision: 1, actor: 'user:42:editor', source: 'PUT /api/system-branding/park-ops' },
+      { revision: 2, actor: 'user:43:second', source: 'PUT /api/system-branding/park-ops' },
     ]);
+  });
+
+  it('only one service instance can win concurrent first-save and later same-version writes', async () => {
+    const other = new SystemBrandingService(
+      {} as Repository<SystemBranding>,
+      { info: jest.fn(), warn: jest.fn() } as never,
+      new ConfigService(),
+      new RuntimeConfigStore(dataSource),
+    );
+    for (const expectedRevision of [0, 1]) {
+      const results = await Promise.allSettled([
+        service.updateParkOpsConfig(fixture('甲' + expectedRevision), expectedRevision),
+        other.updateParkOpsConfig(fixture('乙' + expectedRevision), expectedRevision),
+      ]);
+      expect(results.filter((item) => item.status === 'fulfilled')).toHaveLength(1);
+      expect(results.find((item) => item.status === 'rejected')).toMatchObject({
+        reason: { status: 409 },
+      });
+      expect((await service.getParkOpsConfig()).revision).toBe(expectedRevision + 1);
+      expect(await dataSource.getRepository(RuntimeConfigRevision).count()).toBe(
+        expectedRevision + 1,
+      );
+    }
+  });
+
+  it('rejects invalid revision values even for internal callers without writing', async () => {
+    for (const revision of [-1, NaN, 1.2, Number.MAX_SAFE_INTEGER + 1]) {
+      await expect(service.updateParkOpsConfig(fixture('无效'), revision)).rejects.toMatchObject({
+        status: 400,
+      });
+    }
+    expect(await dataSource.getRepository(RuntimeConfigDocument).count()).toBe(0);
   });
 });
 

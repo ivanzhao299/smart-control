@@ -82,7 +82,6 @@
 
   const defaults = defaultConfig();
   let config = clone(defaults);
-  let remoteRevision = 0;
   let selectedPhaseId = config.phases[0].id;
   let selectedBuildingId = config.buildings[0]?.id || '';
   let selectedPointIndex = 0;
@@ -90,6 +89,24 @@
   let selectedText = null;
   let editor = null;
   let statusEl = null;
+  const editorState = window.createParkOpsEditorState({
+    identity: () => editing ? JSON.stringify(editorAuthHeaders()) : '',
+    draft: () => config,
+    apply: value => applyConfig(value || defaults),
+    status: setStatus,
+    read: async () => {
+      const response = await fetch(`${apiBase()}/system-branding/park-ops`, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return (await response.json()).data;
+    },
+    write: writeConfig,
+    changed: ({ busy, revision, needsReload }) => {
+      if (!editor) return;
+      editor.querySelector('#pe-save').disabled = busy || revision === null || needsReload;
+      editor.querySelector('#pe-reload').disabled = busy;
+    },
+  });
+  window.addEventListener('pagehide', event => { if (!event.persisted) editorState.dispose(); });
 
   // 与 SPA stores/admin-auth.ts 对齐: admin token 主存 sessionStorage, 另有一份带
   // 过期 + 服务器绑定的 localStorage 镜像, 兜住 iOS standalone PWA 整页跳到本静态页时
@@ -301,17 +318,7 @@
   }
 
   async function loadRemoteConfig(quiet = false) {
-    try {
-      const response = await fetch(`${apiBase()}/system-branding/park-ops`, { cache: 'no-store' });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const payload = await response.json();
-      remoteRevision = Number.isInteger(payload?.data?.revision) ? payload.data.revision : 0;
-      applyConfig(payload?.data?.config || defaults);
-      if (!quiet) setStatus(payload?.data?.config ? '已加载服务端共享配置' : '尚未保存，当前使用内置初始配置', 'ok');
-    } catch (error) {
-      applyConfig(config);
-      if (!quiet) setStatus(`配置服务暂不可用：${error.message}`, 'error');
-    }
+    return editorState.load(quiet);
   }
 
   function setStatus(message, type = '') {
@@ -838,7 +845,9 @@
       delete config.textOverrides[selectedText.dataset.parkTextKey];
       applyTextOverrides(); syncTextFields();
     };
-    editor.querySelector('#pe-reload').onclick = () => loadRemoteConfig();
+    editor.querySelector('#pe-reload').onclick = () => {
+      if (confirm('重新读取会替换当前未保存的布局草稿，确定继续？')) loadRemoteConfig();
+    };
     editor.querySelector('#pe-reset').onclick = () => {
       if (!confirm('恢复内置初始布局？点击“保存到所有大屏”后才会覆盖服务端配置。')) return;
       applyConfig(defaults); setStatus('已恢复内置值，尚未保存', 'ok');
@@ -855,38 +864,31 @@
       setStatus('当前是本地文件预览，无法保存。请打开生产端园区大屏并点击右上角“布局校准”。', 'error');
       return;
     }
+    return editorState.save();
+  }
+
+  async function writeConfig(draft, expectedRevision) {
     const authHeaders = editorAuthHeaders();
     if (!Object.keys(authHeaders).length) {
       editor.querySelector('#pe-login').hidden = false;
-      setStatus('当前页面没有可用的管理员会话，请点击“管理员登录后返回”。', 'error');
-      return;
+      throw new Error('当前页面没有可用的管理员会话，请点击“管理员登录后返回”。');
     }
-    setStatus('正在保存…');
-    try {
-      const response = await fetch(`${apiBase()}/system-branding/park-ops`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ config, expectedRevision: remoteRevision }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (response.status === 401) {
-        if (authHeaders.Authorization) {
-          sessionStorage.removeItem('sc.adminToken');
-          localStorage.removeItem('sc.adminToken.persist');
-        }
-        editor.querySelector('#pe-login').hidden = false;
-        throw new Error('管理员会话已失效，请返回控制系统重新登录，或点击“管理员登录后返回”');
-      }
-      if (response.status === 409) {
-        throw new Error('服务端布局已被其他管理员更新，请刷新页面后再编辑');
-      }
-      if (!response.ok) throw new Error(payload?.message || `HTTP ${response.status}`);
-      remoteRevision = Number.isInteger(payload?.data?.revision) ? payload.data.revision : remoteRevision;
-      applyConfig(payload?.data?.config || config);
-      setStatus('保存成功；LED、投影和其它浏览器将在 15 秒内同步', 'ok');
-    } catch (error) {
-      setStatus(`保存失败：${error.message}`, 'error');
+    const response = await fetch(`${apiBase()}/system-branding/park-ops/editor`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify({ config: draft, expectedRevision }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (response.status === 401) {
+      // Do not erase credentials here: another tab may have replaced the session in flight.
+      editor.querySelector('#pe-login').hidden = false;
+      throw new Error('管理员会话已失效，请返回控制系统重新登录，或点击“管理员登录后返回”');
     }
+    if (response.status === 409) {
+      throw new Error('服务端布局已被其他管理员更新，请先保留所需内容，再点击“重新读取”');
+    }
+    if (!response.ok) throw new Error(payload?.message || `HTTP ${response.status}`);
+    return payload?.data;
   }
 
   // 安全初始化：任何步骤失败都不应导致整个页面崩溃

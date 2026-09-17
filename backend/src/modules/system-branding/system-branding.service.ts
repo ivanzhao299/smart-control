@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
@@ -133,15 +133,22 @@ export class SystemBrandingService {
   async updateParkOpsConfig(
     input: unknown,
     expectedRevision?: number,
+    actor = 'system',
   ): Promise<{
     config: ParkOpsConfigDocument;
     revision: number;
     checksum: string;
     updatedAt: string;
   }> {
+    if (
+      expectedRevision !== undefined &&
+      (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)
+    ) {
+      throw new BadRequestException('expectedRevision 必须是非负安全整数');
+    }
     const config = normalizeParkOpsConfig(input);
     const operation = this.parkOpsMutationQueue.then(() =>
-      this.saveParkOpsConfig(config, expectedRevision),
+      this.saveParkOpsConfig(config, expectedRevision, actor),
     );
     this.parkOpsMutationQueue = operation.then(
       () => undefined,
@@ -153,6 +160,7 @@ export class SystemBrandingService {
   private async saveParkOpsConfig(
     config: ParkOpsConfigDocument,
     expectedRevision?: number,
+    actor = 'system',
   ): Promise<{
     config: ParkOpsConfigDocument;
     revision: number;
@@ -180,15 +188,16 @@ export class SystemBrandingService {
             expectedRevision: current.revision,
             value: config,
             normalize: normalizeParkOpsConfig,
-            actor: 'admin-api',
+            actor,
             source: 'PUT /api/system-branding/park-ops',
           })
         : await this.runtimeConfig.initialize({
             key: PARK_OPS_VISUAL_CONFIG_KEY,
             schemaVersion: PARK_OPS_VISUAL_SCHEMA_VERSION,
+            expectedRevision: 0,
             value: config,
             normalize: normalizeParkOpsConfig,
-            actor: 'admin-api',
+            actor,
             source: 'PUT /api/system-branding/park-ops',
           });
       this.logger.info(`[SystemBranding] 园区大屏布局配置已更新 (revision=${saved.revision})`);
@@ -273,9 +282,7 @@ export class SystemBrandingService {
     if (current) {
       await this.repo.update({ id: 1 }, patch);
     } else {
-      throw new ConflictException(
-        '系统品牌权威记录缺失，请先恢复数据库；保存操作未执行',
-      );
+      throw new ConflictException('系统品牌权威记录缺失，请先恢复数据库；保存操作未执行');
     }
     this.logger.info(`[SystemBranding] 已更新 (${Object.keys(patch).join(', ')})`);
     return this.get();

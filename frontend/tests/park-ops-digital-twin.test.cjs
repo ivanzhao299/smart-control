@@ -132,7 +132,7 @@ test('shared calibration editor supports phase vertices, buildings and text styl
   assert.match(editorJs, /pe-building-company/);
   assert.match(editorJs, /pe-text-size/);
   assert.match(editorJs, /pe-text-color/);
-  assert.match(editorJs, /expectedRevision: remoteRevision/);
+  assert.match(editorJs, /JSON.stringify\(\{ config: draft, expectedRevision \}\)/);
   assert.match(editorJs, /response\.status === 409/);
   assert.match(editorJs, /服务端布局已被其他管理员更新/);
   assert.match(editorCss, /park-text-selected/);

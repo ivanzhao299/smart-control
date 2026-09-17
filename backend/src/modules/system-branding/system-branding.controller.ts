@@ -16,6 +16,8 @@ import { AdminGuard } from '../admin-auth/admin-auth.guard';
 import { MediaService } from '../media/media.service';
 import { sendMediaFile } from '../../common/utils/send-media-file';
 import { Public } from '../../common/decorators/public.decorator';
+import { AuthenticatedRequest, requireAdmin } from '../../common/auth/actor';
+import { UpdateParkOpsLayoutDto } from './park-ops-editor.dto';
 
 /**
  * /api/system-branding
@@ -62,10 +64,18 @@ export class SystemBrandingController {
     return { message: '查询成功', data: await this.service.getParkOpsConfig() };
   }
 
+  /** Strict editor route. The older raw/envelope route below is retained during rollout. */
+  @Put('park-ops/editor')
+  @UseGuards(AdminGuard)
+  async saveParkOpsEditor(@Req() req: AuthenticatedRequest, @Body() body: UpdateParkOpsLayoutDto) {
+    return this.updateParkOps(req, body);
+  }
+
   /** 仅后台管理员可保存共享布局，避免 LED/投影播放页被误触修改。 */
   @Put('park-ops')
   @UseGuards(AdminGuard)
-  async updateParkOps(@Body() body: unknown): Promise<unknown> {
+  async updateParkOps(@Req() req: AuthenticatedRequest, @Body() body: unknown): Promise<unknown> {
+    const actor = requireAdmin(req);
     try {
       const request = body as { config?: unknown; expectedRevision?: unknown };
       const versioned =
@@ -75,7 +85,10 @@ export class SystemBrandingController {
         Object.prototype.hasOwnProperty.call(request, 'config');
       let expectedRevision: number | undefined;
       if (versioned) {
-        if (!Number.isInteger(request.expectedRevision) || Number(request.expectedRevision) < 0) {
+        if (
+          !Number.isSafeInteger(request.expectedRevision) ||
+          Number(request.expectedRevision) < 0
+        ) {
           throw new BadRequestException('expectedRevision 必须是非负整数');
         }
         expectedRevision = Number(request.expectedRevision);
@@ -85,11 +98,15 @@ export class SystemBrandingController {
         data: await this.service.updateParkOpsConfig(
           versioned ? request.config : body,
           expectedRevision,
+          `${actor.kind}:${actor.userId ?? 'shared'}:${actor.username}`,
         ),
       };
     } catch (error) {
       if (error instanceof HttpException) throw error;
-      throw new BadRequestException((error as Error).message);
+      throw new BadRequestException({
+        code: 'PARK_OPS_LAYOUT_INVALID',
+        message: (error as Error).message,
+      });
     }
   }
 
