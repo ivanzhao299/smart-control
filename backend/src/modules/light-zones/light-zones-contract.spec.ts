@@ -59,4 +59,36 @@ describe('light zone CAS and audit boundary', () => {
     await service.remove(created.id, 2, actor);
     expect(await db.getRepository(AuditLog).count()).toBe(3);
   });
+
+  it('protects group assignment, order, and measured shorts with per-row CAS', async () => {
+    db = new DataSource({
+      type: 'better-sqlite3', database: ':memory:', synchronize: true,
+      entities: [LightZone, LightGroup, HardwareUnit, AuditLog],
+    });
+    await db.initialize();
+    const service = new LightZonesService(
+      db.getRepository(LightZone), db.getRepository(LightGroup), db.getRepository(HardwareUnit),
+      db.getRepository(AuditLog), { warn: jest.fn() } as any,
+    );
+    const actor = { kind: 'user', userId: 1, username: 'named-admin', role: 'admin' } as const;
+    const first = await service.createGroup({ gatewayCode: 'GW-1', daliGroup: 1 }, actor);
+    const second = await service.createGroup({ gatewayCode: 'GW-1', daliGroup: 2 }, actor);
+    await service.create({ code: 'zone-a', name: 'Zone A', floor: '1F' }, actor);
+    const current = await service.listGroups();
+    const assigned = await service.assignGroups([first.id, second.id], 'zone-a', {
+      [first.id]: current.find((row) => row.id === first.id)!.configRevision,
+      [second.id]: current.find((row) => row.id === second.id)!.configRevision,
+    }, actor);
+    expect(assigned.count).toBe(2);
+    const firstAssigned = (await service.listGroups()).find((row) => row.id === first.id)!;
+    const updated = await service.setGroupShorts(first.id, [1, 4], firstAssigned.configRevision, actor);
+    expect(updated.configRevision).toBe(firstAssigned.configRevision + 1);
+    await expect(service.setGroupShorts(first.id, [2], firstAssigned.configRevision, actor)).rejects.toMatchObject({
+      response: { code: 'LIGHT_GROUP_REVISION_CONFLICT' },
+    });
+    await expect(service.reorderGroups([first.id], { [first.id]: firstAssigned.configRevision }, actor)).rejects.toMatchObject({
+      response: { code: 'LIGHT_GROUP_REVISION_CONFLICT' },
+    });
+    expect(await db.getRepository(AuditLog).count()).toBe(6);
+  });
 });

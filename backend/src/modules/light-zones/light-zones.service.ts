@@ -310,31 +310,28 @@ export class LightZonesService {
    * 组号本来就存在或不存在, 我们只是让系统"认识"它)。
    * (gatewayCode, daliGroup) 唯一, 建重了给友好报错而不是让 DB 唯一约束抛裸异常。
    */
-  async createGroup(dto: { gatewayCode: string; daliGroup: number; zoneCode?: string | null }): Promise<LightGroupView> {
+  async createGroup(dto: { gatewayCode: string; daliGroup: number; zoneCode?: string | null }, actor?: Actor): Promise<LightGroupView> {
     const gatewayCode = dto.gatewayCode.trim();
     if (!gatewayCode) throw new ConflictException('gatewayCode 不能为空');
-
-    const dup = await this.groupRepo.findOne({ where: { gatewayCode, daliGroup: dto.daliGroup } });
-    if (dup) throw new ConflictException(`${gatewayCode} 上的 ${dto.daliGroup} 组已经登记过了`);
-
-    let zoneCode: string | null = null;
-    const target = (dto.zoneCode ?? '').trim();
-    if (target) {
-      const zone = await this.zoneRepo.findOne({ where: { code: target } });
-      if (!zone) throw new NotFoundException(`分区 "${target}" 不存在`);
-      zoneCode = zone.code;
-    }
-
-    const saved = await this.groupRepo.save(
-      this.groupRepo.create({
-        gatewayCode,
-        daliGroup: dto.daliGroup,
-        zoneCode,
-        shorts: null,
-        sortOrder: 100,
-        enabled: true,
-      }),
-    );
+    const saved = await serializedTransaction(this.groupRepo.manager.connection, async (manager) => {
+      const groups = manager.getRepository(LightGroup);
+      const zones = manager.getRepository(LightZone);
+      const dup = await groups.findOne({ where: { gatewayCode, daliGroup: dto.daliGroup } });
+      if (dup) throw new ConflictException(`${gatewayCode} 上的 ${dto.daliGroup} 组已经登记过了`);
+      let zoneCode: string | null = null;
+      const target = (dto.zoneCode ?? '').trim();
+      if (target) {
+        const zone = await zones.findOne({ where: { code: target } });
+        if (!zone) throw new NotFoundException(`分区 "${target}" 不存在`);
+        zoneCode = zone.code;
+      }
+      const row = await groups.save(groups.create({
+        configRevision: 1, gatewayCode, daliGroup: dto.daliGroup, zoneCode,
+        shorts: null, sortOrder: 100, enabled: true,
+      }));
+      await this.writeGroupAudit(manager, 'create', row.id, null, row, actor, 'light-group:create');
+      return row;
+    });
     const hw = await this.gatewayMap([saved.gatewayCode]);
     return this.groupToView(saved, hw);
   }
@@ -342,19 +339,37 @@ export class LightZonesService {
   // ============ 组归属 ============
 
   /** 把若干组划进某分区; zoneCode 传空 = 移出分区 */
-  async assignGroups(groupIds: number[], zoneCode: string | null): Promise<{ count: number; zoneCode: string | null }> {
-    const target = (zoneCode ?? '').trim();
-    let normalized: string | null = null;
-    if (target) {
-      const zone = await this.zoneRepo.findOne({ where: { code: target } });
-      if (!zone) throw new NotFoundException(`分区 "${target}" 不存在`);
-      normalized = zone.code;
-    }
-    const rows = await this.groupRepo.find({ where: { id: In(groupIds) } });
-    if (rows.length === 0) throw new NotFoundException('选中的组都不存在');
-    for (const r of rows) r.zoneCode = normalized;
-    await this.groupRepo.save(rows);
-    return { count: rows.length, zoneCode: normalized };
+  async assignGroups(
+    groupIds: number[], zoneCode: string | null, expectedRevisions: Record<string, number>, actor?: Actor,
+  ): Promise<{ count: number; zoneCode: string | null }> {
+    return serializedTransaction(this.groupRepo.manager.connection, async (manager) => {
+      const groups = manager.getRepository(LightGroup);
+      const zones = manager.getRepository(LightZone);
+      const target = (zoneCode ?? '').trim();
+      let normalized: string | null = null;
+      if (target) {
+        const zone = await zones.findOne({ where: { code: target } });
+        if (!zone) throw new NotFoundException(`分区 "${target}" 不存在`);
+        normalized = zone.code;
+      }
+      const ids = Array.from(new Set(groupIds));
+      const rows = await groups.find({ where: { id: In(ids) } });
+      if (rows.length !== ids.length) throw new NotFoundException('部分选中的组不存在');
+      this.assertGroupRevisions(rows, expectedRevisions);
+      let changed = 0;
+      for (const row of rows) {
+        if (row.zoneCode === normalized) continue;
+        const before = { ...row };
+        const result = await groups.update({ id: row.id, configRevision: row.configRevision }, {
+          zoneCode: normalized, configRevision: row.configRevision + 1,
+        });
+        if (result.affected !== 1) throw this.groupRevisionConflict();
+        const saved = await groups.findOneByOrFail({ id: row.id });
+        await this.writeGroupAudit(manager, 'update', row.id, before, saved, actor, 'light-group:assign-zone');
+        changed += 1;
+      }
+      return { count: changed, zoneCode: normalized };
+    });
   }
 
   // ============ 排序 ============
@@ -384,26 +399,78 @@ export class LightZonesService {
   }
 
   /** 同上, 重排某分区内的灯组 (跨分区拖动请用 assignGroups, 这里只管顺序) */
-  async reorderGroups(orderedIds: number[]): Promise<{ count: number }> {
-    const rows = await this.groupRepo.find({ where: { id: In(orderedIds) } });
-    const byId = new Map(rows.map((r) => [r.id, r]));
-    const touched: LightGroup[] = [];
-    orderedIds.forEach((id, i) => {
-      const row = byId.get(id);
-      if (row) { row.sortOrder = (i + 1) * 10; touched.push(row); }
+  async reorderGroups(orderedIds: number[], expectedRevisions: Record<string, number>, actor?: Actor): Promise<{ count: number }> {
+    return serializedTransaction(this.groupRepo.manager.connection, async (manager) => {
+      const groups = manager.getRepository(LightGroup);
+      const ids = Array.from(new Set(orderedIds));
+      const rows = await groups.find({ where: { id: In(ids) } });
+      if (rows.length !== ids.length) throw new NotFoundException('部分选中的组不存在');
+      this.assertGroupRevisions(rows, expectedRevisions);
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      let changed = 0;
+      for (let i = 0; i < orderedIds.length; i += 1) {
+        const row = byId.get(orderedIds[i]);
+        if (!row) continue;
+        const nextOrder = (i + 1) * 10;
+        if (row.sortOrder === nextOrder) continue;
+        const before = { ...row };
+        const result = await groups.update({ id: row.id, configRevision: row.configRevision }, {
+          sortOrder: nextOrder, configRevision: row.configRevision + 1,
+        });
+        if (result.affected !== 1) throw this.groupRevisionConflict();
+        const saved = await groups.findOneByOrFail({ id: row.id });
+        await this.writeGroupAudit(manager, 'update', row.id, before, saved, actor, 'light-group:reorder');
+        changed += 1;
+      }
+      return { count: changed };
     });
-    if (touched.length) await this.groupRepo.save(touched);
-    return { count: touched.length };
   }
 
   /** 记录某组实测出来的灯具短地址 (逐组点亮回读扫描的结果) */
-  async setGroupShorts(groupId: number, shorts: number[]): Promise<LightGroupView> {
-    const row = await this.groupRepo.findOne({ where: { id: groupId } });
-    if (!row) throw new NotFoundException(`light group #${groupId} 不存在`);
-    row.shorts = JSON.stringify(shorts);
-    await this.groupRepo.save(row);
-    const hw = await this.gatewayMap([row.gatewayCode]);
-    return this.groupToView(row, hw);
+  async setGroupShorts(groupId: number, shorts: number[], expectedRevision: number, actor?: Actor): Promise<LightGroupView> {
+    const saved = await serializedTransaction(this.groupRepo.manager.connection, async (manager) => {
+      const groups = manager.getRepository(LightGroup);
+      const row = await groups.findOne({ where: { id: groupId } });
+      if (!row) throw new NotFoundException(`light group #${groupId} 不存在`);
+      this.assertGroupRevision(row, expectedRevision);
+      const nextShorts = JSON.stringify(shorts);
+      if (row.shorts === nextShorts) return row;
+      const before = { ...row };
+      const result = await groups.update({ id: row.id, configRevision: expectedRevision }, {
+        shorts: nextShorts, configRevision: expectedRevision + 1,
+      });
+      if (result.affected !== 1) throw this.groupRevisionConflict();
+      const next = await groups.findOneByOrFail({ id: row.id });
+      await this.writeGroupAudit(manager, 'update', row.id, before, next, actor, 'light-group:set-shorts');
+      return next;
+    });
+    const hw = await this.gatewayMap([saved.gatewayCode]);
+    return this.groupToView(saved, hw);
+  }
+
+  private assertGroupRevision(row: LightGroup, expected: number): void {
+    if (!Number.isSafeInteger(expected) || expected < 1 || row.configRevision !== expected) throw this.groupRevisionConflict();
+  }
+
+  private assertGroupRevisions(rows: LightGroup[], expected: Record<string, number>): void {
+    if (!expected || typeof expected !== 'object') throw this.groupRevisionConflict();
+    for (const row of rows) this.assertGroupRevision(row, expected[String(row.id)]);
+  }
+
+  private groupRevisionConflict(): ConflictException {
+    return new ConflictException({ code: 'LIGHT_GROUP_REVISION_CONFLICT', message: '灯光组已被其他管理员修改，请重新读取后再保存' });
+  }
+
+  private async writeGroupAudit(
+    manager: EntityManager, action: 'create' | 'update' | 'delete', id: number,
+    before: unknown, after: unknown, actor: Actor | undefined, remark: string,
+  ): Promise<void> {
+    await manager.insert(AuditLog, {
+      entityType: 'light_group', entityId: String(id), action,
+      operator: actor?.username ?? 'system',
+      snapshotBefore: before == null ? null : JSON.stringify(before),
+      snapshotAfter: after == null ? null : JSON.stringify(after), remark,
+    });
   }
 
   private toView(

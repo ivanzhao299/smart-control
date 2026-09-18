@@ -75,8 +75,8 @@ export class LightZonesController {
 
   @Put('reorder/groups')
   @UseGuards(ConfigurationWriteGuard)
-  async reorderGroups(@Body() dto: ReorderDto) {
-    return { message: '顺序已保存', data: await this.service.reorderGroups(dto.ids) };
+  async reorderGroups(@Body() dto: ReorderDto, @Req() req: AuthenticatedRequest) {
+    return { message: '顺序已保存', data: await this.service.reorderGroups(dto.ids, dto.expectedRevisions ?? {}, requireAdmin(req)) };
   }
 
   /**
@@ -85,8 +85,8 @@ export class LightZonesController {
    */
   @Post('groups')
   @UseGuards(ConfigurationWriteGuard)
-  async createGroup(@Body() dto: CreateGroupDto) {
-    const data = await this.service.createGroup(dto);
+  async createGroup(@Body() dto: CreateGroupDto, @Req() req: AuthenticatedRequest) {
+    const data = await this.service.createGroup(dto, requireAdmin(req));
     return { message: '组已登记', data };
   }
 
@@ -97,8 +97,8 @@ export class LightZonesController {
   @Post('groups/assign')
   @UseGuards(ConfigurationWriteGuard)
   @HttpCode(200)
-  async assignGroups(@Body() dto: AssignGroupsDto) {
-    const data = await this.service.assignGroups(dto.groupIds, dto.zoneCode ?? null);
+  async assignGroups(@Body() dto: AssignGroupsDto, @Req() req: AuthenticatedRequest) {
+    const data = await this.service.assignGroups(dto.groupIds, dto.zoneCode ?? null, dto.expectedRevisions, requireAdmin(req));
     return { message: '分配成功', data };
   }
 
@@ -108,8 +108,9 @@ export class LightZonesController {
   async setGroupShorts(
     @Param('groupId', ParseIntPipe) groupId: number,
     @Body() dto: GroupShortsDto,
+    @Req() req: AuthenticatedRequest,
   ) {
-    return { message: '更新成功', data: await this.service.setGroupShorts(groupId, dto.shorts) };
+    return { message: '更新成功', data: await this.service.setGroupShorts(groupId, dto.shorts, dto.expectedRevision, requireAdmin(req)) };
   }
 
   @Post()

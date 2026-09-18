@@ -59,6 +59,12 @@ Context Mode 之前实际 cwd 为 `/Users/mac/Documents/smart conrtol`，不匹�
 - 前端单灯命名/分区与场景删除携带当前版本；设备控制、扫描、辨识、分区控制、场景召回仍保持独立，新增测试使用空适配器且未调用现场硬件。
 - 新增 DALI DTO/CAS/审计测试；后端构建通过，DALI 契约测试通过。C07 仍未完全关闭：灯组批量归属/排序/短地址尚未完整纳入版本审计，真实本地 API 浏览器旅程、生产副本升级/恢复和现场验收仍未执行。
 
+## 2026-09-18 续批：C07 灯组逐行 CAS 与审计
+
+- 灯组登记、批量归属、拖拽排序和短地址写入均在串行事务中执行；批量接口要求按组 id 提供 `expectedRevisions`，单组短地址要求 `expectedRevision`，版本冲突统一返回 `LIGHT_GROUP_REVISION_CONFLICT`。
+- 仅实际变化的组递增 `configRevision` 并写入 `audit_logs`；无变化不制造新版本。组登记也写入创建审计，且分区存在性、组完整性和 CAS 校验在同一事务边界内完成。
+- 新增灯组 CAS/审计契约测试；本批未触碰 DALI 总线或现场设备。C07 仍未完全关闭：真实本地 API 编辑浏览器旅程、生产副本升级/恢复和现场验收仍未执行。
+
 ## 2026-09-18 续批：系统品牌、欢迎页与媒体绑定编辑器
 
 - C06 的三个剩余编辑入口已迁入严格版本路径：后台系统品牌使用 `/system-branding/editor`；LED 欢迎页使用 `/system-branding/welcome/editor`；媒体页设定/取消欢迎资源先读取严格基线，再携带 `expectedRevision` 写入。公共启动 fallback 不会再成为可写基线。

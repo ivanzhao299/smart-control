@@ -1,4 +1,4 @@
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsInt, IsOptional, IsString, Max, Min, MaxLength, ValidateIf } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsInt, IsObject, IsOptional, IsString, Max, Min, MaxLength, ValidateIf } from 'class-validator';
 
 export class AssignGroupsDto {
   @IsArray()
@@ -15,9 +15,18 @@ export class AssignGroupsDto {
   @IsString()
   @IsOptional()
   zoneCode?: string | null;
+
+  /** One revision per selected group, keyed by group id. */
+  @IsObject()
+  expectedRevisions!: Record<string, number>;
 }
 
 export class GroupShortsDto {
+  @IsInt()
+  @Min(1)
+  @Max(Number.MAX_SAFE_INTEGER)
+  expectedRevision!: number;
+
   /** DALI 短地址合法范围 0..63 */
   @IsArray()
   @ArrayMaxSize(64)
@@ -34,6 +43,11 @@ export class ReorderDto {
   @ArrayMaxSize(200)
   @IsInt({ each: true })
   ids!: number[];
+
+  /** Required for group reorders; zone reorder keeps its existing route contract. */
+  @IsOptional()
+  @IsObject()
+  expectedRevisions?: Record<string, number>;
 }
 
 /**

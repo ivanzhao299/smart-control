@@ -109,15 +109,15 @@ export const lightZonesService = {
   reorderZones: (ids: number[]) =>
     api.put<{ count: number }>('/light-zones/reorder/zones', { ids })
       .then((r) => { invalidateAll(); return r; }),
-  reorderGroups: (ids: number[]) =>
-    api.put<{ count: number }>('/light-zones/reorder/groups', { ids })
+  reorderGroups: (ids: number[], expectedRevisions: Record<number, number>) =>
+    api.put<{ count: number }>('/light-zones/reorder/groups', { ids, expectedRevisions })
       .then((r) => { invalidateAll(); return r; }),
   /** zoneCode=null 表示把这些组从分区里移出 */
-  assignGroups: (groupIds: number[], zoneCode: string | null) =>
-    api.post<{ count: number; zoneCode: string | null }>('/light-zones/groups/assign', { groupIds, zoneCode })
+  assignGroups: (groupIds: number[], zoneCode: string | null, expectedRevisions: Record<number, number>) =>
+    api.post<{ count: number; zoneCode: string | null }>('/light-zones/groups/assign', { groupIds, zoneCode, expectedRevisions })
       .then((r) => { invalidateAll(); return r; }),
-  setGroupShorts: (groupId: number, shorts: number[]) =>
-    api.put<LightGroupView>(`/light-zones/groups/${groupId}/shorts`, { shorts })
+  setGroupShorts: (groupId: number, shorts: number[], expectedRevision: number) =>
+    api.put<LightGroupView>(`/light-zones/groups/${groupId}/shorts`, { shorts, expectedRevision })
       .then((r) => { invalidateAll(); return r; }),
   test: (id: number) => api.post<LightZoneTestResult>(`/light-zones/${id}/test`),
 };
