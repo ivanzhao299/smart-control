@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   NotFoundException,
@@ -8,13 +9,16 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
-import { In, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { LightingAdapter } from '../../adapters/lighting/lighting.adapter';
 import { DaliLight } from '../../entities/dali-light.entity';
 import { LightScene } from '../../entities/light-scene.entity';
 import { LightSceneItem } from '../../entities/light-scene-item.entity';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
+import { AuditLog } from '../../entities/audit-log.entity';
+import type { Actor } from '../../common/auth/actor';
+import { serializedTransaction } from '../../common/utils/serialized-transaction';
 
 export interface LightCmd {
   on?: boolean;
@@ -53,6 +57,7 @@ export class DaliLightsService implements OnModuleInit, OnModuleDestroy {
     @InjectRepository(LightScene) private readonly sceneRepo: Repository<LightScene>,
     @InjectRepository(LightSceneItem) private readonly sceneItemRepo: Repository<LightSceneItem>,
     @InjectRepository(HardwareUnit) private readonly hwRepo: Repository<HardwareUnit>,
+    @InjectRepository(AuditLog) private readonly auditRepo: Repository<AuditLog>,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
@@ -165,24 +170,65 @@ export class DaliLightsService implements OnModuleInit, OnModuleDestroy {
 
   // ============ 命名 / 分组 ============
 
-  async rename(id: number, name: string): Promise<DaliLight> {
-    const l = await this.getLightOrThrow(id);
-    l.name = (name ?? '').trim() || null;
-    return this.lightRepo.save(l);
+  async rename(id: number, name: string, expectedRevision: number, actor?: Actor): Promise<DaliLight> {
+    return serializedTransaction(this.lightRepo.manager.connection, async (manager) => {
+      const repo = manager.getRepository(DaliLight);
+      const l = await repo.findOne({ where: { id } });
+      if (!l) throw new NotFoundException(`灯不存在: id=${id}`);
+      this.assertRevision(l.configRevision, expectedRevision, 'DALI_LIGHT_REVISION_CONFLICT');
+      const next = (name ?? '').trim() || null;
+      if (l.name === next) return l;
+      const before = { ...l };
+      const result = await repo.update({ id, configRevision: expectedRevision }, { name: next, configRevision: expectedRevision + 1 });
+      if (result.affected !== 1) throw this.revisionConflict('DALI_LIGHT_REVISION_CONFLICT', 'DALI 灯具已被其他管理员修改，请重新读取');
+      const saved = await repo.findOneByOrFail({ id });
+      await this.writeAudit(manager, 'dali_light', id, before, saved, actor, 'dali-light:rename');
+      return saved;
+    });
   }
 
   /** 分到某分区(light_zone.code); null 或空 = 移出分区 */
-  async assignZone(id: number, zoneCode: string | null): Promise<DaliLight> {
-    const l = await this.getLightOrThrow(id);
-    l.zoneCode = (zoneCode ?? '').trim() || null;
-    return this.lightRepo.save(l);
+  async assignZone(id: number, zoneCode: string | null, expectedRevision: number, actor?: Actor): Promise<DaliLight> {
+    return serializedTransaction(this.lightRepo.manager.connection, async (manager) => {
+      const repo = manager.getRepository(DaliLight);
+      const l = await repo.findOne({ where: { id } });
+      if (!l) throw new NotFoundException(`灯不存在: id=${id}`);
+      this.assertRevision(l.configRevision, expectedRevision, 'DALI_LIGHT_REVISION_CONFLICT');
+      const next = (zoneCode ?? '').trim() || null;
+      if (l.zoneCode === next) return l;
+      const before = { ...l };
+      const result = await repo.update({ id, configRevision: expectedRevision }, { zoneCode: next, configRevision: expectedRevision + 1 });
+      if (result.affected !== 1) throw this.revisionConflict('DALI_LIGHT_REVISION_CONFLICT', 'DALI 灯具已被其他管理员修改，请重新读取');
+      const saved = await repo.findOneByOrFail({ id });
+      await this.writeAudit(manager, 'dali_light', id, before, saved, actor, 'dali-light:assign-zone');
+      return saved;
+    });
   }
 
   /** 批量分区 (前端多选后一次性分组) */
-  async assignZoneBatch(ids: number[], zoneCode: string | null): Promise<number> {
+  async assignZoneBatch(ids: number[], zoneCode: string | null, expectedRevisions?: Record<string, number>, actor?: Actor): Promise<number> {
     const z = (zoneCode ?? '').trim() || null;
-    const res = await this.lightRepo.update(ids.length ? { id: In(ids) } : {}, { zoneCode: z });
-    return res.affected ?? 0;
+    return serializedTransaction(this.lightRepo.manager.connection, async (manager) => {
+      const repo = manager.getRepository(DaliLight);
+      const rows = await repo.find({ where: { id: In(ids) } });
+      if (rows.length !== ids.length) throw new NotFoundException('部分 DALI 灯具不存在');
+      for (const row of rows) {
+        const expected = expectedRevisions?.[String(row.id)];
+        if (expected !== undefined) this.assertRevision(row.configRevision, expected, 'DALI_LIGHT_REVISION_CONFLICT');
+      }
+      let changed = 0;
+      for (const row of rows) {
+        if (row.zoneCode === z) continue;
+        const before = { ...row };
+        const expected = expectedRevisions?.[String(row.id)] ?? row.configRevision;
+        const result = await repo.update({ id: row.id, configRevision: expected }, { zoneCode: z, configRevision: expected + 1 });
+        if (result.affected !== 1) throw this.revisionConflict('DALI_LIGHT_REVISION_CONFLICT', 'DALI 灯具已被其他管理员修改，请重新读取');
+        const saved = await repo.findOneByOrFail({ id: row.id });
+        await this.writeAudit(manager, 'dali_light', row.id, before, saved, actor, 'dali-light:assign-zone-batch');
+        changed += 1;
+      }
+      return changed;
+    });
   }
 
   // ============ 控制 ============
@@ -320,6 +366,27 @@ export class DaliLightsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private assertRevision(actual: number, expected: number, code: string): void {
+    if (!Number.isSafeInteger(expected) || expected < 1 || actual !== expected)
+      throw this.revisionConflict(code, 'DALI 元数据已被其他管理员修改，请重新读取');
+  }
+
+  private revisionConflict(code: string, message: string): Error {
+    return new ConflictException({ code, message });
+  }
+
+  private async writeAudit(
+    manager: EntityManager, entityType: 'dali_light' | 'light_scene', entityId: number | string,
+    before: unknown, after: unknown, actor: Actor | undefined, remark: string,
+  ): Promise<void> {
+    await manager.insert(AuditLog, {
+      entityType, entityId: String(entityId), action: before == null ? 'create' : after == null ? 'delete' : 'update',
+      operator: actor?.username ?? 'system',
+      snapshotBefore: before == null ? null : JSON.stringify(before),
+      snapshotAfter: after == null ? null : JSON.stringify(after), remark,
+    });
+  }
+
   // ============ 场景 ============
 
   async listScenes(): Promise<Array<LightScene & { items: LightSceneItem[] }>> {
@@ -343,15 +410,19 @@ export class DaliLightsService implements OnModuleInit, OnModuleDestroy {
       brightness?: number | null;
       kelvin?: number | null;
     }>;
-  }): Promise<LightScene> {
+  }, actor?: Actor): Promise<LightScene> {
     const name = (input.name ?? '').trim();
     if (!name) throw new BadRequestException('场景名必填');
     const code = `ls-${Date.now()}`;
-    const scene = await this.sceneRepo.save(
-      this.sceneRepo.create({ code, name, floor: input.floor ?? null, icon: input.icon ?? null }),
-    );
-    await this.saveSceneItems(code, input.items ?? []);
-    return scene;
+    return serializedTransaction(this.sceneRepo.manager.connection, async (manager) => {
+      const scenes = manager.getRepository(LightScene);
+      const items = manager.getRepository(LightSceneItem);
+      const scene = await scenes.save(scenes.create({ code, configRevision: 1, name, floor: input.floor ?? null, icon: input.icon ?? null }));
+      await this.saveSceneItems(code, input.items ?? [], items);
+      const savedItems = await items.find({ where: { sceneCode: code } });
+      await this.writeAudit(manager, 'light_scene', scene.id, null, { scene, items: savedItems }, actor, 'dali-scene:create');
+      return scene;
+    });
   }
 
   async updateScene(
@@ -367,24 +438,47 @@ export class DaliLightsService implements OnModuleInit, OnModuleDestroy {
         brightness?: number | null;
         kelvin?: number | null;
       }>;
-    },
-  ): Promise<LightScene> {
-    const scene = await this.sceneRepo.findOne({ where: { code } });
-    if (!scene) throw new NotFoundException(`场景不存在: ${code}`);
-    if (input.name != null) scene.name = input.name.trim() || scene.name;
-    if (input.floor !== undefined) scene.floor = input.floor;
-    if (input.icon !== undefined) scene.icon = input.icon;
-    await this.sceneRepo.save(scene);
-    if (input.items) {
-      await this.sceneItemRepo.delete({ sceneCode: code });
-      await this.saveSceneItems(code, input.items);
-    }
-    return scene;
+    }, expectedRevision: number, actor?: Actor): Promise<LightScene> {
+    return serializedTransaction(this.sceneRepo.manager.connection, async (manager) => {
+      const scenes = manager.getRepository(LightScene);
+      const items = manager.getRepository(LightSceneItem);
+      const scene = await scenes.findOne({ where: { code } });
+      if (!scene) throw new NotFoundException(`场景不存在: ${code}`);
+      this.assertRevision(scene.configRevision, expectedRevision, 'LIGHT_SCENE_REVISION_CONFLICT');
+      const beforeItems = await items.find({ where: { sceneCode: code } });
+      const before = { ...scene, items: beforeItems };
+      if (input.name != null) scene.name = input.name.trim() || scene.name;
+      if (input.floor !== undefined) scene.floor = input.floor;
+      if (input.icon !== undefined) scene.icon = input.icon;
+      if (input.items) {
+        await items.delete({ sceneCode: code });
+        await this.saveSceneItems(code, input.items, items);
+      }
+      scene.configRevision += 1;
+      const result = await scenes.update({ id: scene.id, configRevision: expectedRevision }, {
+        name: scene.name, floor: scene.floor, icon: scene.icon, configRevision: scene.configRevision,
+      });
+      if (result.affected !== 1) throw this.revisionConflict('LIGHT_SCENE_REVISION_CONFLICT', '场景已被其他管理员修改，请重新读取');
+      const saved = await scenes.findOneByOrFail({ id: scene.id });
+      const afterItems = await items.find({ where: { sceneCode: code } });
+      await this.writeAudit(manager, 'light_scene', scene.id, before, { scene: saved, items: afterItems }, actor, 'dali-scene:update');
+      return saved;
+    });
   }
 
-  async deleteScene(code: string): Promise<void> {
-    await this.sceneItemRepo.delete({ sceneCode: code });
-    await this.sceneRepo.delete({ code });
+  async deleteScene(code: string, expectedRevision: number, actor?: Actor): Promise<void> {
+    await serializedTransaction(this.sceneRepo.manager.connection, async (manager) => {
+      const scenes = manager.getRepository(LightScene);
+      const items = manager.getRepository(LightSceneItem);
+      const scene = await scenes.findOne({ where: { code } });
+      if (!scene) throw new NotFoundException(`场景不存在: ${code}`);
+      this.assertRevision(scene.configRevision, expectedRevision, 'LIGHT_SCENE_REVISION_CONFLICT');
+      const beforeItems = await items.find({ where: { sceneCode: code } });
+      await items.delete({ sceneCode: code });
+      const result = await scenes.delete({ id: scene.id, configRevision: expectedRevision });
+      if (result.affected !== 1) throw this.revisionConflict('LIGHT_SCENE_REVISION_CONFLICT', '场景已被其他管理员修改，请重新读取');
+      await this.writeAudit(manager, 'light_scene', scene.id, { scene, items: beforeItems }, null, actor, 'dali-scene:delete');
+    });
   }
 
   private async saveSceneItems(
@@ -396,10 +490,11 @@ export class DaliLightsService implements OnModuleInit, OnModuleDestroy {
       brightness?: number | null;
       kelvin?: number | null;
     }>,
+    repository: Repository<LightSceneItem> = this.sceneItemRepo,
   ): Promise<void> {
     for (const it of items) {
-      await this.sceneItemRepo.save(
-        this.sceneItemRepo.create({
+      await repository.save(
+        repository.create({
           sceneCode,
           targetType: it.targetType,
           targetRef: it.targetRef,

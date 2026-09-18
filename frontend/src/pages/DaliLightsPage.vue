@@ -12,6 +12,7 @@ import { useAdminUnlock } from '@/composables/useAdminUnlock';
 
 interface DaliLight {
   id: number;
+  configRevision: number;
   gatewayCode: string;
   shortAddr: number;
   name: string | null;
@@ -22,7 +23,7 @@ interface DaliLight {
 interface Gateway { code: string; slaveId: number }
 interface Zone { code: string; name: string; floor?: string | null }
 interface SceneItem { targetType: string; targetRef: string; on: boolean; brightness: number | null; kelvin: number | null }
-interface Scene { code: string; name: string; items?: SceneItem[] }
+interface Scene { code: string; name: string; configRevision: number; items?: SceneItem[] }
 
 const router = useRouter();
 const { ensureAdmin } = useAdminUnlock();
@@ -122,7 +123,7 @@ async function rename(l: DaliLight): Promise<void> {
       confirmButtonText: '保存',
       cancelButtonText: '取消',
     });
-    const updated = await api.put<DaliLight>(`/dali-lights/${l.id}/name`, { name: value ?? '' });
+    const updated = await api.put<DaliLight>(`/dali-lights/${l.id}/name`, { name: value ?? '', expectedRevision: l.configRevision });
     Object.assign(l, updated);
     ElMessage.success('已命名');
   } catch {
@@ -133,7 +134,7 @@ async function rename(l: DaliLight): Promise<void> {
 async function assignZone(l: DaliLight, zoneCode: string | null): Promise<void> {
   if (!(await ensureAdmin('灯具分区'))) return;
   try {
-    const updated = await api.put<DaliLight>(`/dali-lights/${l.id}/zone`, { zoneCode });
+    const updated = await api.put<DaliLight>(`/dali-lights/${l.id}/zone`, { zoneCode, expectedRevision: l.configRevision });
     Object.assign(l, updated);
     ElMessage.success(zoneCode ? `已归入 ${zoneName(zoneCode)}` : '已移出分区');
   } catch (err) {
@@ -240,7 +241,7 @@ async function deleteScene(s: Scene): Promise<void> {
   if (!(await ensureAdmin('删除场景'))) return;
   try {
     await ElMessageBox.confirm(`删除场景「${s.name}」?`, '确认', { type: 'warning' });
-    await api.del(`/dali-lights/scenes/${s.code}`);
+    await api.del(`/dali-lights/scenes/${s.code}`, { params: { expectedRevision: s.configRevision } });
     scenes.value = scenes.value.filter((x) => x.code !== s.code);
     ElMessage.success('已删除');
   } catch {

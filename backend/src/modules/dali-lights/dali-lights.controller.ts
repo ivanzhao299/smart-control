@@ -12,6 +12,7 @@ import {
   Post,
   Put,
   Query,
+  Req,
 } from '@nestjs/common';
 import { DaliLightsService, LightCmd } from './dali-lights.service';
 import {
@@ -20,7 +21,9 @@ import {
   CreateDaliSceneDto,
   RenameDaliLightDto,
   UpdateDaliSceneDto,
+  DaliSceneRevisionQueryDto,
 } from './dto/dali-metadata.dto';
+import { AuthenticatedRequest, requireAdmin } from '../../common/auth/actor';
 
 /**
  * DALI 单灯管理 API —— 现场调试/命名/分组/场景。
@@ -103,23 +106,23 @@ export class DaliLightsController {
   /** 命名 */
   @Put(':id/name')
   @UseGuards(ActorAdminGuard)
-  async rename(@Param('id', ParseIntPipe) id: number, @Body() body: RenameDaliLightDto) {
-    return { message: '已改名', data: await this.service.rename(id, body.name) };
+  async rename(@Param('id', ParseIntPipe) id: number, @Body() body: RenameDaliLightDto, @Req() req: AuthenticatedRequest) {
+    return { message: '已改名', data: await this.service.rename(id, body.name, body.expectedRevision, requireAdmin(req)) };
   }
 
   /** 分到分区(zoneCode 传 null/空 = 移出) */
   @Put(':id/zone')
   @UseGuards(ActorAdminGuard)
-  async assignZone(@Param('id', ParseIntPipe) id: number, @Body() body: AssignDaliLightZoneDto) {
-    return { message: '已分配', data: await this.service.assignZone(id, body?.zoneCode ?? null) };
+  async assignZone(@Param('id', ParseIntPipe) id: number, @Body() body: AssignDaliLightZoneDto, @Req() req: AuthenticatedRequest) {
+    return { message: '已分配', data: await this.service.assignZone(id, body?.zoneCode ?? null, body.expectedRevision, requireAdmin(req)) };
   }
 
   /** 批量分区 */
   @Post('assign-zone')
   @UseGuards(ActorAdminGuard)
   @HttpCode(200)
-  async assignZoneBatch(@Body() body: AssignDaliLightBatchDto) {
-    const n = await this.service.assignZoneBatch(body.ids, body.zoneCode ?? null);
+  async assignZoneBatch(@Body() body: AssignDaliLightBatchDto, @Req() req: AuthenticatedRequest) {
+    const n = await this.service.assignZoneBatch(body.ids, body.zoneCode ?? null, body.expectedRevisions, requireAdmin(req));
     return { message: `已分配 ${n} 盏`, data: { affected: n } };
   }
 
@@ -140,8 +143,8 @@ export class DaliLightsController {
   @Post('scenes')
   @UseGuards(ActorAdminGuard)
   @HttpCode(200)
-  async createScene(@Body() body: CreateDaliSceneDto) {
-    return { message: '场景已创建', data: await this.service.createScene(body) };
+  async createScene(@Body() body: CreateDaliSceneDto, @Req() req: AuthenticatedRequest) {
+    return { message: '场景已创建', data: await this.service.createScene(body, requireAdmin(req)) };
   }
 
   @Put('scenes/:code')
@@ -149,15 +152,16 @@ export class DaliLightsController {
   async updateScene(
     @Param('code') code: string,
     @Body() body: UpdateDaliSceneDto,
+    @Req() req: AuthenticatedRequest,
   ) {
-    return { message: '场景已保存', data: await this.service.updateScene(code, body) };
+    return { message: '场景已保存', data: await this.service.updateScene(code, body, body.expectedRevision, requireAdmin(req)) };
   }
 
   @Delete('scenes/:code')
   @UseGuards(ActorAdminGuard)
   @HttpCode(200)
-  async deleteScene(@Param('code') code: string) {
-    await this.service.deleteScene(code);
+  async deleteScene(@Param('code') code: string, @Query() query: DaliSceneRevisionQueryDto, @Req() req: AuthenticatedRequest) {
+    await this.service.deleteScene(code, query.expectedRevision, requireAdmin(req));
     return { message: '场景已删除', data: null };
   }
 

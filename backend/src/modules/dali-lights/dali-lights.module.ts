@@ -7,10 +7,11 @@ import { HardwareUnit } from '../../entities/hardware-unit.entity';
 import { AdaptersModule } from '../../adapters/adapters.module';
 import { DaliLightsController } from './dali-lights.controller';
 import { DaliLightsService } from './dali-lights.service';
+import { AuditLog } from '../../entities/audit-log.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([DaliLight, LightScene, LightSceneItem, HardwareUnit]),
+    TypeOrmModule.forFeature([DaliLight, LightScene, LightSceneItem, HardwareUnit, AuditLog]),
     AdaptersModule,
   ],
   controllers: [DaliLightsController],

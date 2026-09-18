@@ -6,6 +6,7 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsObject,
   IsOptional,
   IsString,
   Length,
@@ -15,12 +16,22 @@ import {
 } from 'class-validator';
 
 export class RenameDaliLightDto {
+  @IsInt()
+  @Min(1)
+  @Max(Number.MAX_SAFE_INTEGER)
+  expectedRevision!: number;
+
   @IsString()
   @Length(0, 128)
   name!: string;
 }
 
 export class AssignDaliLightZoneDto {
+  @IsInt()
+  @Min(1)
+  @Max(Number.MAX_SAFE_INTEGER)
+  expectedRevision!: number;
+
   @IsOptional()
   @IsString()
   @Length(0, 64)
@@ -40,6 +51,11 @@ export class AssignDaliLightBatchDto {
   @IsString()
   @Length(0, 64)
   zoneCode?: string | null;
+
+  /** Optional per-row CAS map for batch editors; omitted only for legacy callers. */
+  @IsOptional()
+  @IsObject()
+  expectedRevisions?: Record<string, number>;
 }
 
 export class DaliSceneItemDto {
@@ -91,6 +107,11 @@ export class CreateDaliSceneDto {
 }
 
 export class UpdateDaliSceneDto {
+  @IsInt()
+  @Min(1)
+  @Max(Number.MAX_SAFE_INTEGER)
+  expectedRevision!: number;
+
   @IsOptional()
   @IsString()
   @Length(1, 128)
@@ -112,4 +133,11 @@ export class UpdateDaliSceneDto {
   @ValidateNested({ each: true })
   @Type(() => DaliSceneItemDto)
   items?: DaliSceneItemDto[];
+}
+
+export class DaliSceneRevisionQueryDto {
+  @IsInt()
+  @Min(1)
+  @Max(Number.MAX_SAFE_INTEGER)
+  expectedRevision!: number;
 }
