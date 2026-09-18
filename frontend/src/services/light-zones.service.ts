@@ -16,6 +16,7 @@ import { queryOnce, invalidate } from './query.service';
 /** 一个 DALI 组 = (网关, 组号); 这是灯光的最小可控单位 */
 export interface LightGroupView {
   id: number;
+  configRevision: number;
   gatewayCode: string;
   daliGroup: number;
   /** 归属分区; null = 尚未分配 */
@@ -30,6 +31,7 @@ export interface LightGroupView {
 
 export interface LightZoneView {
   id: number;
+  configRevision: number;
   code: string;
   name: string;
   floor: string;
@@ -51,6 +53,8 @@ export interface LightZoneUpsertDto {
   icon?: string | null;
   description?: string | null;
   enabled?: boolean;
+  /** Required by update/delete once a row has been loaded; omitted for create. */
+  expectedRevision?: number;
 }
 
 /** 后台 "测试此分区" 返回 — 逐组点灯, 让操作员核对分组是否正确 */
@@ -93,8 +97,8 @@ export const lightZonesService = {
     api.post<LightZoneView>('/light-zones', dto).then((r) => { invalidateAll(); return r; }),
   update: (id: number, dto: Partial<LightZoneUpsertDto>) =>
     api.put<LightZoneView>(`/light-zones/${id}`, dto).then((r) => { invalidateAll(); return r; }),
-  remove: (id: number) =>
-    api.del<null>(`/light-zones/${id}`).then((r) => { invalidateAll(); return r; }),
+  remove: (id: number, expectedRevision: number) =>
+    api.del<null>(`/light-zones/${id}`, { params: { expectedRevision } }).then((r) => { invalidateAll(); return r; }),
   /**
    * 拖拽排序 — 传全量有序 id。
    *

@@ -37,6 +37,11 @@ export class CreateLightZoneDto {
 }
 
 export class UpdateLightZoneDto {
+  @IsInt()
+  @Min(1)
+  @Max(Number.MAX_SAFE_INTEGER)
+  expectedRevision!: number;
+
   @IsOptional()
   @IsString()
   @Length(1, 64)
@@ -71,4 +76,11 @@ export class UpdateLightZoneDto {
   @IsOptional()
   @IsBoolean()
   enabled?: boolean;
+}
+
+export class LightZoneRevisionQueryDto {
+  @IsInt()
+  @Min(1)
+  @Max(Number.MAX_SAFE_INTEGER)
+  expectedRevision!: number;
 }

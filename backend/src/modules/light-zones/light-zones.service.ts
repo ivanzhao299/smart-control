@@ -6,16 +6,20 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
-import { In, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { LightZone } from '../../entities/light-zone.entity';
 import { LightGroup } from '../../entities/light-group.entity';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
 import { CreateLightZoneDto, UpdateLightZoneDto } from './dto/light-zone.dto';
+import { AuditLog } from '../../entities/audit-log.entity';
+import type { Actor } from '../../common/auth/actor';
+import { serializedTransaction } from '../../common/utils/serialized-transaction';
 
 /** 一个物理 DALI 组 (网关 + 组号唯一确定) */
 export interface LightGroupView {
   id: number;
+  configRevision: number;
   gatewayCode: string;
   daliGroup: number;
   zoneCode: string | null;
@@ -38,6 +42,7 @@ export interface LightGroupView {
  */
 export interface LightZoneView {
   id: number;
+  configRevision: number;
   code: string;
   name: string;
   floor: string;
@@ -65,6 +70,7 @@ export class LightZonesService {
     @InjectRepository(LightZone) private readonly zoneRepo: Repository<LightZone>,
     @InjectRepository(LightGroup) private readonly groupRepo: Repository<LightGroup>,
     @InjectRepository(HardwareUnit) private readonly hwRepo: Repository<HardwareUnit>,
+    @InjectRepository(AuditLog) private readonly auditRepo: Repository<AuditLog>,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
@@ -106,6 +112,7 @@ export class LightZonesService {
     const info = hw.get(g.gatewayCode);
     return {
       id: g.id,
+      configRevision: g.configRevision,
       gatewayCode: g.gatewayCode,
       daliGroup: g.daliGroup,
       zoneCode: g.zoneCode,
@@ -205,56 +212,95 @@ export class LightZonesService {
 
   // ============ 分区增删改 ============
 
-  async create(dto: CreateLightZoneDto): Promise<LightZoneView> {
+  async create(dto: CreateLightZoneDto, actor?: Actor): Promise<LightZoneView> {
     if (!dto.code?.trim()) throw new ConflictException('code 不能为空');
     if (!dto.name?.trim()) throw new ConflictException('name 不能为空');
-    const dup = await this.zoneRepo.findOne({ where: { code: dto.code } });
-    if (dup) throw new ConflictException(`zone code 已存在: ${dto.code}`);
-    const saved = await this.zoneRepo.save(
-      this.zoneRepo.create({
-        code: dto.code.trim(),
-        name: dto.name.trim(),
-        floor: dto.floor ?? '1F',
-        gatewayCode: null,
-        daliGroup: null,
-        sortOrder: dto.sortOrder ?? 100,
-        icon: dto.icon ?? 'Lightbulb',
-        description: dto.description ?? null,
+    const saved = await serializedTransaction(this.zoneRepo.manager.connection, async (manager) => {
+      const repo = manager.getRepository(LightZone);
+      const dup = await repo.findOne({ where: { code: dto.code.trim() } });
+      if (dup) throw new ConflictException(`zone code 已存在: ${dto.code}`);
+      const row = await repo.save(repo.create({
+        configRevision: 1,
+        code: dto.code.trim(), name: dto.name.trim(), floor: dto.floor ?? '1F',
+        gatewayCode: null, daliGroup: null, sortOrder: dto.sortOrder ?? 100,
+        icon: dto.icon ?? 'Lightbulb', description: dto.description ?? null,
         enabled: dto.enabled ?? true,
-      }),
-    );
+      }));
+      await this.writeAudit(manager, 'create', row.id, null, row, actor, 'light-zone:create');
+      return row;
+    });
     return this.detail(saved.id);
   }
 
-  async update(id: number, dto: UpdateLightZoneDto): Promise<LightZoneView> {
-    const row = await this.zoneRepo.findOne({ where: { id } });
-    if (!row) throw new NotFoundException(`light zone #${id} 不存在`);
-    if (dto.code && dto.code !== row.code) {
-      const dup = await this.zoneRepo.findOne({ where: { code: dto.code } });
-      if (dup && dup.id !== id) throw new ConflictException(`zone code 已存在: ${dto.code}`);
-      // 改 code 会让成员组的 zoneCode 指向虚空, 一并迁过去
-      await this.groupRepo.update({ zoneCode: row.code }, { zoneCode: dto.code });
-      row.code = dto.code;
-    }
-    if (dto.name !== undefined) row.name = dto.name;
-    if (dto.floor !== undefined) row.floor = dto.floor;
-    if (dto.sortOrder !== undefined) row.sortOrder = dto.sortOrder;
-    if (dto.icon !== undefined) row.icon = dto.icon;
-    if (dto.description !== undefined) row.description = dto.description;
-    if (dto.enabled !== undefined) row.enabled = dto.enabled;
-    await this.zoneRepo.save(row);
+  async update(id: number, dto: UpdateLightZoneDto, actor?: Actor): Promise<LightZoneView> {
+    await serializedTransaction(this.zoneRepo.manager.connection, async (manager) => {
+      const repo = manager.getRepository(LightZone);
+      const groups = manager.getRepository(LightGroup);
+      const row = await repo.findOne({ where: { id } });
+      if (!row) throw new NotFoundException(`light zone #${id} 不存在`);
+      this.assertRevision(row.configRevision, dto.expectedRevision);
+      const before = { ...row };
+      const nextCode = dto.code?.trim();
+      if (nextCode && nextCode !== row.code) {
+        const dup = await repo.findOne({ where: { code: nextCode } });
+        if (dup && dup.id !== id) throw new ConflictException(`zone code 已存在: ${nextCode}`);
+        const members = await groups.find({ where: { zoneCode: row.code } });
+        for (const member of members) { member.zoneCode = nextCode; member.configRevision += 1; }
+        if (members.length) await groups.save(members);
+        row.code = nextCode;
+      }
+      if (dto.name !== undefined) row.name = dto.name.trim();
+      if (dto.floor !== undefined) row.floor = dto.floor.trim();
+      if (dto.sortOrder !== undefined) row.sortOrder = dto.sortOrder;
+      if (dto.icon !== undefined) row.icon = dto.icon?.trim() || null;
+      if (dto.description !== undefined) row.description = dto.description?.trim() || null;
+      if (dto.enabled !== undefined) row.enabled = dto.enabled;
+      if (JSON.stringify(before) === JSON.stringify(row)) return;
+      row.configRevision += 1;
+      const result = await repo.update({ id, configRevision: dto.expectedRevision }, row);
+      if (result.affected !== 1) throw this.revisionConflict();
+      const saved = await repo.findOneByOrFail({ id });
+      await this.writeAudit(manager, 'update', id, before, saved, actor, 'light-zone:update');
+    });
     return this.detail(id);
   }
 
   /** 删分区 — 成员组不删, 只是变回"未分配" */
-  async remove(id: number): Promise<{ code: string; releasedGroups: number }> {
-    const row = await this.zoneRepo.findOne({ where: { id } });
-    if (!row) throw new NotFoundException(`light zone #${id} 不存在`);
-    const members = await this.groupRepo.find({ where: { zoneCode: row.code } });
-    for (const m of members) m.zoneCode = null;
-    if (members.length > 0) await this.groupRepo.save(members);
-    await this.zoneRepo.remove(row);
-    return { code: row.code, releasedGroups: members.length };
+  async remove(id: number, expectedRevision: number, actor?: Actor): Promise<{ code: string; releasedGroups: number }> {
+    return serializedTransaction(this.zoneRepo.manager.connection, async (manager) => {
+      const repo = manager.getRepository(LightZone);
+      const groups = manager.getRepository(LightGroup);
+      const row = await repo.findOne({ where: { id } });
+      if (!row) throw new NotFoundException(`light zone #${id} 不存在`);
+      this.assertRevision(row.configRevision, expectedRevision);
+      const members = await groups.find({ where: { zoneCode: row.code } });
+      for (const member of members) { member.zoneCode = null; member.configRevision += 1; }
+      if (members.length) await groups.save(members);
+      const result = await repo.delete({ id, configRevision: expectedRevision });
+      if (result.affected !== 1) throw this.revisionConflict();
+      await this.writeAudit(manager, 'delete', id, row, null, actor, 'light-zone:delete');
+      return { code: row.code, releasedGroups: members.length };
+    });
+  }
+
+  private assertRevision(actual: number, expected: number): void {
+    if (!Number.isSafeInteger(expected) || expected < 1 || actual !== expected) throw this.revisionConflict();
+  }
+
+  private revisionConflict(): ConflictException {
+    return new ConflictException({ code: 'LIGHT_ZONE_REVISION_CONFLICT', message: '灯光分区已被其他管理员修改，请重新读取后再保存' });
+  }
+
+  private async writeAudit(
+    manager: EntityManager, action: 'create' | 'update' | 'delete', id: number,
+    before: unknown, after: unknown, actor: Actor | undefined, remark: string,
+  ): Promise<void> {
+    await manager.insert(AuditLog, {
+      entityType: 'light_zone', entityId: String(id), action,
+      operator: actor?.username ?? 'system',
+      snapshotBefore: before == null ? null : JSON.stringify(before),
+      snapshotAfter: after == null ? null : JSON.stringify(after), remark,
+    });
   }
 
   // ============ 组新建 ============
@@ -367,6 +413,7 @@ export class LightZonesService {
   ): LightZoneView {
     return {
       id: row.id,
+      configRevision: row.configRevision,
       code: row.code,
       name: row.name,
       floor: row.floor,

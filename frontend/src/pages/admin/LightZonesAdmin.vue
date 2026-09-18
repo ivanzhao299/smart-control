@@ -79,7 +79,7 @@ const editVisible = ref(false);
 const editMode = ref<'create' | 'edit'>('create');
 const formRef = ref<FormInstance>();
 
-interface FormState extends LightZoneUpsertDto { id?: number }
+interface FormState extends LightZoneUpsertDto { id?: number; configRevision?: number }
 const form = reactive<FormState>({
   code: '',
   name: '',
@@ -100,6 +100,7 @@ function openCreate(): void {
   editMode.value = 'create';
   Object.assign(form, {
     id: undefined,
+    configRevision: undefined,
     code: '',
     name: '',
     floor: floorFilter.value || '1F',
@@ -115,6 +116,7 @@ function openEdit(row: LightZoneView): void {
   editMode.value = 'edit';
   Object.assign(form, {
     id: row.id,
+    configRevision: row.configRevision,
     code: row.code,
     name: row.name,
     floor: row.floor,
@@ -144,7 +146,7 @@ async function submit(): Promise<void> {
         await lightZonesService.create(payload);
         ElMessage.success('已新增灯光分区');
       } else if (form.id) {
-        await lightZonesService.update(form.id, payload);
+        await lightZonesService.update(form.id, { ...payload, expectedRevision: form.configRevision });
         ElMessage.success('已更新灯光分区');
       }
       editVisible.value = false;
@@ -164,7 +166,7 @@ async function remove(row: LightZoneView): Promise<void> {
     );
   } catch { return; }
   try {
-    await lightZonesService.remove(row.id);
+    await lightZonesService.remove(row.id, row.configRevision);
     ElMessage.success('已删除');
     await refresh();
   } catch (err) {
@@ -174,7 +176,7 @@ async function remove(row: LightZoneView): Promise<void> {
 
 async function toggleEnabled(row: LightZoneView): Promise<void> {
   try {
-    await lightZonesService.update(row.id, { enabled: !row.enabled });
+    await lightZonesService.update(row.id, { enabled: !row.enabled, expectedRevision: row.configRevision });
     await refresh();
   } catch (err) {
     ElMessage.error(`切换状态失败: ${(err as Error).message}`);

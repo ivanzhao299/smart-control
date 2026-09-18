@@ -9,14 +9,16 @@ import {
   Post,
   Put,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { LightZonesService } from './light-zones.service';
 import { AdminGuard } from '../admin-auth/admin-auth.guard';
 import { LightingAdapter } from '../../adapters/lighting/lighting.adapter';
 import { AssignGroupsDto, CreateGroupDto, GroupShortsDto, ReorderDto } from './dto/group.dto';
-import { CreateLightZoneDto, UpdateLightZoneDto } from './dto/light-zone.dto';
+import { CreateLightZoneDto, LightZoneRevisionQueryDto, UpdateLightZoneDto } from './dto/light-zone.dto';
 import { ConfigurationWriteGuard } from '../../common/guards/configuration-write.guard';
+import { AuthenticatedRequest, requireAdmin } from '../../common/auth/actor';
 
 /**
  * 灯光分区 CRUD.
@@ -112,8 +114,8 @@ export class LightZonesController {
 
   @Post()
   @UseGuards(ConfigurationWriteGuard)
-  async create(@Body() dto: CreateLightZoneDto) {
-    return { message: '创建成功', data: await this.service.create(dto) };
+  async create(@Body() dto: CreateLightZoneDto, @Req() req: AuthenticatedRequest) {
+    return { message: '创建成功', data: await this.service.create(dto, requireAdmin(req)) };
   }
 
   @Put(':id')
@@ -121,15 +123,16 @@ export class LightZonesController {
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateLightZoneDto,
+    @Req() req: AuthenticatedRequest,
   ) {
-    return { message: '更新成功', data: await this.service.update(id, dto) };
+    return { message: '更新成功', data: await this.service.update(id, dto, requireAdmin(req)) };
   }
 
   @Delete(':id')
   @UseGuards(AdminGuard)
   @HttpCode(200)
-  async remove(@Param('id', ParseIntPipe) id: number) {
-    await this.service.remove(id);
+  async remove(@Param('id', ParseIntPipe) id: number, @Query() query: LightZoneRevisionQueryDto, @Req() req: AuthenticatedRequest) {
+    await this.service.remove(id, query.expectedRevision, requireAdmin(req));
     return { message: '删除成功', data: null };
   }
 

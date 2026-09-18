@@ -39,6 +39,8 @@ describe('complete migration chain on an isolated database', () => {
     expect(await runner.hasTable('upload_instances')).toBe(true);
     expect((await runner.getTable('upload_reservations'))?.findColumnByName('target_media_id')).toBeDefined();
     expect(await db.query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'protect_last_administrator_%'")).toHaveLength(2);
+    await expect(db.undoLastMigration()).rejects.toThrow('LIGHTING_CONFIG_REVISION_ROLLBACK_REQUIRES_ARCHIVE');
+    await db.query("DELETE FROM migrations WHERE name = 'AddLightingConfigRevisions1789730000000'");
     await expect(db.undoLastMigration()).rejects.toThrow('SYSTEM_BRANDING_REVISION_ROLLBACK_REQUIRES_ARCHIVE');
     await db.query("DELETE FROM migrations WHERE name = 'AddSystemBrandingRevision1789720000000'");
     await expect(db.undoLastMigration()).rejects.toThrow('BRAND_CONFIG_REVISION_ROLLBACK_REQUIRES_ARCHIVE');

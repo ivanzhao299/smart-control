@@ -37,6 +37,10 @@ export class LightGroup {
   @PrimaryGeneratedColumn()
   id!: number;
 
+  /** Incremented when membership/order/short-address metadata changes. */
+  @Column({ type: 'integer', name: 'config_revision', default: 1 })
+  configRevision!: number;
+
   /** 所在网关 code (对应 hardware_unit.code), e.g. 'GW-DALI-1' / 'GW-DALI-2' */
   @Index()
   @Column({ type: 'varchar', length: 64, name: 'gateway_code' })

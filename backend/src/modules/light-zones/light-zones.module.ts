@@ -7,9 +7,10 @@ import { LightZonesController } from './light-zones.controller';
 import { LightZonesService } from './light-zones.service';
 import { AdminAuthModule } from '../admin-auth/admin-auth.module';
 import { AdaptersModule } from '../../adapters/adapters.module';
+import { AuditLog } from '../../entities/audit-log.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([LightZone, LightGroup, HardwareUnit]), AdminAuthModule, AdaptersModule],
+  imports: [TypeOrmModule.forFeature([LightZone, LightGroup, HardwareUnit, AuditLog]), AdminAuthModule, AdaptersModule],
   controllers: [LightZonesController],
   providers: [LightZonesService],
   exports: [LightZonesService],

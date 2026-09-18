@@ -18,6 +18,7 @@ import {
  */
 interface ZoneRow {
   id: number;
+  configRevision: number;
   code: string;
   name: string;
   floor: string;
@@ -55,6 +56,7 @@ async function loadZones(): Promise<void> {
     totalLights.value = lights.length;
     zones.value = list.map((z: LightZoneView): ZoneRow => ({
       id: z.id,
+      configRevision: z.configRevision,
       code: z.code,
       name: z.name,
       floor: z.floor,
@@ -141,8 +143,9 @@ async function commitRenameZone(z: ZoneRow): Promise<void> {
   editingZone.value = null;
   if (!name || name === z.name) return;
   try {
-    await lightZonesService.update(z.id, { name });
-    z.name = name;                    // 乐观: 立刻显示, 不等重拉
+    const saved = await lightZonesService.update(z.id, { name, expectedRevision: z.configRevision });
+    z.name = saved.name;
+    z.configRevision = saved.configRevision;
     ElMessage.success(`已改名为「${name}」`);
   } catch (err) {
     ElMessage.error(`改名失败: ${(err as Error).message}`);

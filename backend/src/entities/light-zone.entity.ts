@@ -38,6 +38,10 @@ export class LightZone {
   @PrimaryGeneratedColumn()
   id!: number;
 
+  /** Optimistic-concurrency revision for shared metadata editors. */
+  @Column({ type: 'integer', name: 'config_revision', default: 1 })
+  configRevision!: number;
+
   /** 业务编码, e.g. '1f-front-hall', '2f-test-a'. 唯一. 迁移/升级走这字段不动 id. */
   @Index({ unique: true })
   @Column({ type: 'varchar', length: 64 })

@@ -21,6 +21,10 @@ export class LightScene {
   @PrimaryGeneratedColumn()
   id!: number;
 
+  /** Shared scene-editor CAS revision. */
+  @Column({ type: 'integer', name: 'config_revision', default: 1 })
+  configRevision!: number;
+
   /** 业务编码, 唯一; 迁移/改名走这字段不动 id */
   @Index({ unique: true })
   @Column({ type: 'varchar', length: 64 })
