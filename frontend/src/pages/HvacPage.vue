@@ -200,7 +200,7 @@ async function onIndoorDrop(target: IndoorRow): Promise<void> {
   const before = indoors.value;
   indoors.value = list; // 乐观: 松手立刻就位, 不等网络
   try {
-    await hvacService.reorderIndoors(list.map((i) => i.idx));
+    await hvacService.reorderIndoors(list.map((i) => i.idx), Object.fromEntries(before.map((i) => [i.idx, i.configRevision])));
   } catch (err) {
     indoors.value = before; // 失败回滚, 不留后端不认的假顺序
     ElMessage.error(`排序保存失败: ${(err as Error).message}`);
@@ -480,7 +480,7 @@ async function commitRenameIndoor(row: IndoorRow): Promise<void> {
   const old = row.name;
   row.name = name; // 乐观
   try {
-    await hvacService.updateIndoor(row.idx, { name });
+    await hvacService.updateIndoor(row.idx, { name, expectedRevision: row.configRevision });
   } catch (err) {
     row.name = old;
     ElMessage.error('改名失败: ' + (err as Error).message);
@@ -500,7 +500,7 @@ async function commitRenameZone(z: HvacZone): Promise<void> {
   const old = z.name;
   z.name = name;
   try {
-    await hvacService.renameZone(z.code, name);
+    await hvacService.renameZone(z.code, name, z.configRevision);
   } catch (err) {
     z.name = old;
     ElMessage.error('改名失败: ' + (err as Error).message);
@@ -512,7 +512,14 @@ async function commitRenameZone(z: HvacZone): Promise<void> {
 async function assignTo(zoneCode: string | null): Promise<void> {
   if (!selectedIdxs.value.length) { ElMessage.warning('请先选中内机'); return; }
   try {
-    await hvacService.assignIndoors(selectedIdxs.value, zoneCode);
+    await hvacService.assignIndoors(
+      selectedIdxs.value,
+      zoneCode,
+      Object.fromEntries(selectedIdxs.value.map((idx) => {
+        const row = indoors.value.find((item) => item.idx === idx);
+        return [idx, row?.configRevision ?? 0];
+      })),
+    );
     await loadAll();
     ElMessage.success(zoneCode ? `已归入「${zoneNameOf.value(zoneCode)}」` : '已移出分组');
   } catch (err) {
@@ -543,7 +550,7 @@ async function removeZone(z: HvacZone): Promise<void> {
       n > 0 ? `删除「${z.name}」? 组里 ${n} 台内机会变成"未分组", 内机本身不会被删。` : `删除「${z.name}」?`,
       '删除分组', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
     );
-    await hvacService.deleteZone(z.code);
+    await hvacService.deleteZone(z.code, z.configRevision);
     await loadAll();
     ElMessage.success('已删除');
   } catch (err) {

@@ -6,6 +6,7 @@ export type HvacFan = 'auto' | 'low' | 'mid' | 'high';
 
 export interface HvacZone {
   code: string;
+  configRevision: number;
   name: string;
   floor: '1F' | '2F';
   indoors: number[];
@@ -20,6 +21,7 @@ export interface HvacZone {
  */
 export interface HvacIndoor {
   idx: number;
+  configRevision: number;
   name: string;
   floor: '1F' | '2F';
   zoneCode: string | null;
@@ -100,14 +102,14 @@ export const hvacService = {
   /** 真实状态 — 轮询用. 后端按网关合并成一次 Modbus 读, 22 台只要 2 次往返 */
   listStates: () => api.get<HvacIndoorState[]>('/hvac/states'),
   /** 改内机名字 / 归属组; zoneCode 传 '' = 移出分组 */
-  updateIndoor: (idx: number, patch: { name?: string; zoneCode?: string | null }) =>
+  updateIndoor: (idx: number, patch: { name?: string; zoneCode?: string | null; expectedRevision: number }) =>
     api.put<HvacIndoor>(`/hvac/indoors/${idx}`, patch),
   /** 批量归组: 选中的几台一次划进某组 */
-  assignIndoors: (indoors: number[], zoneCode: string | null) =>
-    api.post<{ count: number; zoneCode: string | null }>('/hvac/indoors/assign', { indoors, zoneCode }),
+  assignIndoors: (indoors: number[], zoneCode: string | null, expectedRevisions: Record<number, number>) =>
+    api.post<{ count: number; zoneCode: string | null }>('/hvac/indoors/assign', { indoors, zoneCode, expectedRevisions }),
   /** 内机拖动排序: 传全量有序 idx 列表, 后端按顺序写 sortOrder (只动显示顺序, 不碰 idx) */
-  reorderIndoors: (idxs: number[]) =>
-    api.put<{ count: number }>('/hvac/indoors/reorder', { idxs }),
+  reorderIndoors: (idxs: number[], expectedRevisions: Record<number, number>) =>
+    api.put<{ count: number }>('/hvac/indoors/reorder', { idxs, expectedRevisions }),
 
   // ---- 批量控制: 选中集合 (单机/组/楼层/全部 都走这里) ----
   batchOn: (indoors: number[]) => api.post<HvacBatchResult>('/hvac/batch/on', { indoors }),
@@ -122,14 +124,14 @@ export const hvacService = {
   // 功能区 (code = "roadshow" / "meeting_room" / ...)
   listZones: () => api.get<HvacZone[]>('/hvac/zones'),
   /** 改功能区名字 — 业主在空调页直接改, 不用进后台 */
-  renameZone: (code: string, name: string) =>
-    api.put<HvacZone>(`/hvac/zones/${code}`, { name }),
+  renameZone: (code: string, name: string, expectedRevision: number) =>
+    api.put<HvacZone>(`/hvac/zones/${code}`, { name, expectedRevision }),
   /** 新建功能区 */
   createZone: (name: string, floor: '1F' | '2F') =>
     api.post<HvacZone>('/hvac/zones', { name, floor }),
   /** 删除功能区 — 组内内机不删, 只变回未分组 */
-  deleteZone: (code: string) =>
-    api.del<{ code: string; releasedIndoors: number[] }>(`/hvac/zones/${code}`),
+  deleteZone: (code: string, expectedRevision: number) =>
+    api.del<{ code: string; releasedIndoors: number[] }>(`/hvac/zones/${code}`, { params: { expectedRevision } }),
   /** 扫描网关实际挂载的内机 (现场校准用) */
   scanGateways: () => api.get<HvacGatewayScan[]>('/hvac/gateways/scan'),
   zoneOn: (code: string) => api.post<HvacZoneResult>(`/hvac/zone/${code}/on`),

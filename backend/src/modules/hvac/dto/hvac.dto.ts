@@ -6,6 +6,7 @@ import {
   IsIn,
   IsInt,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   Length,
@@ -38,6 +39,11 @@ export class HvacFanDto {
 
 /** 业主在 PWA 空调页改功能区名字 */
 export class HvacZoneRenameDto {
+  @IsInt()
+  @Min(1)
+  @Max(Number.MAX_SAFE_INTEGER)
+  expectedRevision!: number;
+
   @IsString()
   @Length(1, 32, { message: '名称长度需在 1-32 字之间' })
   name!: string;
@@ -55,6 +61,11 @@ export class HvacZoneCreateDto {
 
 /** 改内机: 名字 / 归属组. 两个都可选, 只传哪个改哪个 */
 export class HvacIndoorUpdateDto {
+  @IsInt()
+  @Min(1)
+  @Max(Number.MAX_SAFE_INTEGER)
+  expectedRevision!: number;
+
   @IsOptional()
   @IsString()
   @Length(1, 32, { message: '名称长度需在 1-32 字之间' })
@@ -111,4 +122,27 @@ export class HvacAssignDto extends HvacBatchTargetDto {
   @IsString()
   @Length(0, 64)
   zoneCode?: string | null;
+
+  @IsObject()
+  expectedRevisions!: Record<string, number>;
+}
+
+export class HvacReorderDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(64)
+  @Type(() => Number)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  idxs!: number[];
+
+  @IsObject()
+  expectedRevisions!: Record<string, number>;
+}
+
+export class HvacZoneRevisionQueryDto {
+  @IsInt()
+  @Min(1)
+  @Max(Number.MAX_SAFE_INTEGER)
+  expectedRevision!: number;
 }

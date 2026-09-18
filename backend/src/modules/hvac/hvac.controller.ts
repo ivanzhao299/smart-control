@@ -1,6 +1,7 @@
 import { ActorAdminGuard } from '../../common/guards/actor-admin.guard';
 import {
   BadRequestException,
+  ConflictException,
   Body,
   Controller,
   Delete,
@@ -11,10 +12,11 @@ import {
   Post,
   Put,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import { HvacAdapter } from '../../adapters/hvac/hvac.adapter';
 import { ModbusHvacAdapter } from '../../adapters/hvac/modbus-hvac.adapter';
 import { OperationLogService } from '../logs/operation-log.service';
@@ -30,11 +32,17 @@ import {
   HvacModeDto,
   HvacTempDto,
   HvacZoneCreateDto,
+  HvacReorderDto,
+  HvacZoneRevisionQueryDto,
   HvacZoneRenameDto,
 } from './dto/hvac.dto';
 import { AdapterResult } from '../../adapters/adapter.types';
 import { HvacZone } from '../../entities/hvac-zone.entity';
 import { HvacIndoor } from '../../entities/hvac-indoor.entity';
+import { AuditLog } from '../../entities/audit-log.entity';
+import type { Actor, AuthenticatedRequest } from '../../common/auth/actor';
+import { requireAdmin } from '../../common/auth/actor';
+import { serializedTransaction } from '../../common/utils/serialized-transaction';
 
 // 温度按 +/- 步进调, 6 次/秒/客户端
 @Controller('hvac')
@@ -64,6 +72,7 @@ export class HvacController {
       message: 'OK',
       data: rows.map((i) => ({
         idx: i.idx,
+        configRevision: i.configRevision,
         name: i.name,
         floor: i.floor,
         zoneCode: i.zoneCode,
@@ -117,19 +126,31 @@ export class HvacController {
   @Put('indoors/reorder')
   @UseGuards(ActorAdminGuard)
   @RateLimit({ max: 20, windowMs: 5000 })
-  async reorderIndoors(@Body() dto: { idxs?: number[] }) {
-    if (!Array.isArray(dto?.idxs) || dto.idxs.length === 0) {
-      throw new BadRequestException('idxs 必填');
-    }
-    const rows = await this.indoorRepo.find({ where: { idx: In(dto.idxs) } });
-    const byIdx = new Map(rows.map((r) => [r.idx, r]));
-    const touched: HvacIndoor[] = [];
-    dto.idxs.forEach((idx, i) => {
-      const r = byIdx.get(idx);
-      if (r) { r.sortOrder = (i + 1) * 10; touched.push(r); }
+  async reorderIndoors(@Body() dto: HvacReorderDto, @Req() req: AuthenticatedRequest) {
+    const actor = requireAdmin(req);
+    const count = await serializedTransaction(this.indoorRepo.manager.connection, async (manager) => {
+      const repo = manager.getRepository(HvacIndoor);
+      const ids = Array.from(new Set(dto.idxs));
+      const rows = await repo.find({ where: { idx: In(ids) } });
+      if (rows.length !== ids.length) throw new NotFoundException('部分选中的内机不存在');
+      for (const row of rows) this.assertRevision(row.configRevision, dto.expectedRevisions[String(row.idx)], 'HVAC_INDOOR_REVISION_CONFLICT');
+      const byIdx = new Map(rows.map((r) => [r.idx, r]));
+      let changed = 0;
+      for (let i = 0; i < dto.idxs.length; i += 1) {
+        const row = byIdx.get(dto.idxs[i]);
+        if (!row) continue;
+        const nextOrder = (i + 1) * 10;
+        if (row.sortOrder === nextOrder) continue;
+        const before = { ...row };
+        const result = await repo.update({ id: row.id, configRevision: row.configRevision }, { sortOrder: nextOrder, configRevision: row.configRevision + 1 });
+        if (result.affected !== 1) throw this.revisionConflict('HVAC_INDOOR_REVISION_CONFLICT');
+        const saved = await repo.findOneByOrFail({ id: row.id });
+        await this.writeAudit(manager, 'hvac_indoor', row.id, 'update', before, saved, actor, 'hvac-indoor:reorder');
+        changed += 1;
+      }
+      return changed;
     });
-    if (touched.length) await this.indoorRepo.save(touched);
-    return { message: '顺序已保存', data: { count: touched.length } };
+    return { message: '顺序已保存', data: { count } };
   }
 
   /**
@@ -139,27 +160,40 @@ export class HvacController {
   @Put('indoors/:idx')
   @UseGuards(ActorAdminGuard)
   @RateLimit({ max: 20, windowMs: 5000 })
-  async updateIndoor(@Param('idx', ParseIntPipe) idx: number, @Body() dto: HvacIndoorUpdateDto) {
-    const indoor = await this.indoorRepo.findOne({ where: { idx } });
-    if (!indoor) throw new NotFoundException(`内机序号 ${idx} 不存在`);
-
-    const before = { name: indoor.name, zoneCode: indoor.zoneCode };
-    if (dto.name !== undefined) indoor.name = dto.name.trim();
-    if (dto.zoneCode !== undefined) indoor.zoneCode = await this.normalizeZoneCode(dto.zoneCode);
-    const saved = await this.indoorRepo.save(indoor);
+  async updateIndoor(@Param('idx', ParseIntPipe) idx: number, @Body() dto: HvacIndoorUpdateDto, @Req() req: AuthenticatedRequest) {
+    const actor = requireAdmin(req);
+    const saved = await serializedTransaction(this.indoorRepo.manager.connection, async (manager) => {
+      const repo = manager.getRepository(HvacIndoor);
+      const indoor = await repo.findOne({ where: { idx } });
+      if (!indoor) throw new NotFoundException(`内机序号 ${idx} 不存在`);
+      this.assertRevision(indoor.configRevision, dto.expectedRevision, 'HVAC_INDOOR_REVISION_CONFLICT');
+      const before = { ...indoor };
+      if (dto.name !== undefined) indoor.name = dto.name.trim();
+      if (dto.zoneCode !== undefined) indoor.zoneCode = await this.normalizeZoneCode(dto.zoneCode, manager);
+      if (JSON.stringify(before) === JSON.stringify(indoor)) return indoor;
+      const result = await repo.update(
+        { id: indoor.id, configRevision: dto.expectedRevision },
+        { name: indoor.name, zoneCode: indoor.zoneCode, configRevision: dto.expectedRevision + 1 },
+      );
+      if (result.affected !== 1) throw this.revisionConflict('HVAC_INDOOR_REVISION_CONFLICT');
+      const next = await repo.findOneByOrFail({ id: indoor.id });
+      await this.writeAudit(manager, 'hvac_indoor', indoor.id, 'update', before, next, actor, 'hvac-indoor:update');
+      return next;
+    });
 
     await this.logService.record({
-      operator: 'client',
+      operator: actor.username,
       action: 'hvac.indoor.update',
       targetType: 'hvac-indoor',
       targetId: String(idx),
       result: 'success',
-      message: JSON.stringify({ from: before, to: { name: saved.name, zoneCode: saved.zoneCode } }),
+      message: JSON.stringify({ to: { name: saved.name, zoneCode: saved.zoneCode } }),
     });
     return {
       message: '已保存',
       data: {
         idx: saved.idx,
+        configRevision: saved.configRevision,
         name: saved.name,
         floor: saved.floor,
         zoneCode: saved.zoneCode,
@@ -175,31 +209,65 @@ export class HvacController {
   @Post('indoors/assign')
   @UseGuards(ActorAdminGuard)
   @RateLimit({ max: 20, windowMs: 5000 })
-  async assignIndoors(@Body() dto: HvacAssignDto) {
-    const zoneCode = await this.normalizeZoneCode(dto.zoneCode);
-    const rows = await this.indoorRepo.find({ where: { idx: In(dto.indoors) } });
-    if (rows.length === 0) throw new NotFoundException('选中的内机都不存在');
-    for (const r of rows) r.zoneCode = zoneCode;
-    await this.indoorRepo.save(rows);
+  async assignIndoors(@Body() dto: HvacAssignDto, @Req() req: AuthenticatedRequest) {
+    const actor = requireAdmin(req);
+    const { zoneCode, count } = await serializedTransaction(this.indoorRepo.manager.connection, async (manager) => {
+      const repo = manager.getRepository(HvacIndoor);
+      const zoneCode = await this.normalizeZoneCode(dto.zoneCode, manager);
+      const ids = Array.from(new Set(dto.indoors));
+      const rows = await repo.find({ where: { idx: In(ids) } });
+      if (rows.length !== ids.length) throw new NotFoundException('部分选中的内机不存在');
+      for (const row of rows) this.assertRevision(row.configRevision, dto.expectedRevisions[String(row.idx)], 'HVAC_INDOOR_REVISION_CONFLICT');
+      let changed = 0;
+      for (const row of rows) {
+        if (row.zoneCode === zoneCode) continue;
+        const before = { ...row };
+        const result = await repo.update({ id: row.id, configRevision: row.configRevision }, { zoneCode, configRevision: row.configRevision + 1 });
+        if (result.affected !== 1) throw this.revisionConflict('HVAC_INDOOR_REVISION_CONFLICT');
+        const next = await repo.findOneByOrFail({ id: row.id });
+        await this.writeAudit(manager, 'hvac_indoor', row.id, 'update', before, next, actor, 'hvac-indoor:assign-zone');
+        changed += 1;
+      }
+      return { zoneCode, count: changed };
+    });
 
     await this.logService.record({
-      operator: 'client',
+      operator: actor.username,
       action: 'hvac.indoor.assign',
       targetType: 'hvac-indoor',
       targetId: dto.indoors.join(','),
       result: 'success',
-      message: JSON.stringify({ indoors: dto.indoors, zoneCode }),
+      message: JSON.stringify({ indoors: dto.indoors, zoneCode, count }),
     });
-    return { message: zoneCode ? '已归组' : '已移出分组', data: { count: rows.length, zoneCode } };
+    return { message: zoneCode ? '已归组' : '已移出分组', data: { count, zoneCode } };
   }
 
   /** 组 code 校验: 空 → null (未分组); 非空必须是已存在的组, 否则会造出指向虚空的孤儿 */
-  private async normalizeZoneCode(raw: string | null | undefined): Promise<string | null> {
+  private async normalizeZoneCode(raw: string | null | undefined, manager?: EntityManager): Promise<string | null> {
     const code = (raw ?? '').trim();
     if (!code) return null;
-    const zone = await this.zoneRepo.findOne({ where: { code } });
+    const zone = await (manager?.getRepository(HvacZone) ?? this.zoneRepo).findOne({ where: { code } });
     if (!zone) throw new NotFoundException(`功能区 "${code}" 不存在`);
     return zone.code;
+  }
+
+  private assertRevision(actual: number, expected: number, code: string): void {
+    if (!Number.isSafeInteger(expected) || expected < 1 || actual !== expected) throw this.revisionConflict(code);
+  }
+
+  private revisionConflict(code: string): ConflictException {
+    return new ConflictException({ code, message: '空调配置已被其他管理员修改，请重新读取后再保存' });
+  }
+
+  private async writeAudit(
+    manager: EntityManager, entityType: 'hvac_zone' | 'hvac_indoor', entityId: number,
+    action: 'create' | 'update' | 'delete', before: unknown, after: unknown, actor: Actor, remark: string,
+  ): Promise<void> {
+    await manager.insert(AuditLog, {
+      entityType, entityId: String(entityId), action, operator: actor.username,
+      snapshotBefore: before == null ? null : JSON.stringify(before),
+      snapshotAfter: after == null ? null : JSON.stringify(after), remark,
+    });
   }
 
   /** 运行时只读权威目录；新安装默认值由版本化迁移建立。 */
@@ -226,6 +294,7 @@ export class HvacController {
       message: 'OK',
       data: rows.map((z) => ({
         code: z.code,
+        configRevision: z.configRevision,
         name: z.name,
         floor: z.floor as '1F' | '2F',
         indoors: indoors.filter((i) => i.zoneCode === z.code).map((i) => i.idx),
@@ -241,37 +310,32 @@ export class HvacController {
   @Post('zones')
   @UseGuards(ActorAdminGuard)
   @RateLimit({ max: 10, windowMs: 5000 })
-  async createZone(@Body() dto: HvacZoneCreateDto) {
+  async createZone(@Body() dto: HvacZoneCreateDto, @Req() req: AuthenticatedRequest) {
+    const actor = requireAdmin(req);
     const name = dto.name.trim();
-    // code 只是内部标识, 业主看不到 —— 用时间戳生成, 免得让人取英文 code.
-    // 不从中文名转拼音: 那会引入依赖, 且重名/生僻字都是坑.
-    const code = `zone_${Date.now().toString(36)}`;
-    const maxSort = await this.zoneRepo
-      .createQueryBuilder('z')
-      .select('MAX(z.sortOrder)', 'max')
-      .where('z.floor = :floor', { floor: dto.floor })
-      .getRawOne<{ max: number | null }>();
-    const zone = await this.zoneRepo.save(
-      this.zoneRepo.create({
-        code,
-        name,
-        floor: dto.floor,
-        indoors: '[]', // 遗留列, 不参与逻辑; 成员看 hvac_indoor.zoneCode
-        sortOrder: (maxSort?.max ?? 0) + 10,
-        enabled: true,
-      }),
-    );
+    const zone = await serializedTransaction(this.zoneRepo.manager.connection, async (manager) => {
+      const repo = manager.getRepository(HvacZone);
+      const code = `zone_${Date.now().toString(36)}`;
+      const maxSort = await repo.createQueryBuilder('z').select('MAX(z.sortOrder)', 'max')
+        .where('z.floor = :floor', { floor: dto.floor }).getRawOne<{ max: number | null }>();
+      const row = await repo.save(repo.create({
+        code, configRevision: 1, name, floor: dto.floor, indoors: '[]',
+        sortOrder: (maxSort?.max ?? 0) + 10, enabled: true,
+      }));
+      await this.writeAudit(manager, 'hvac_zone', row.id, 'create', null, row, actor, 'hvac-zone:create');
+      return row;
+    });
     await this.logService.record({
-      operator: 'client',
+      operator: actor.username,
       action: 'hvac.zone.create',
       targetType: 'hvac-zone',
-      targetId: code,
+      targetId: zone.code,
       result: 'success',
       message: JSON.stringify({ name, floor: dto.floor }),
     });
     return {
       message: '已新建',
-      data: { code: zone.code, name: zone.name, floor: zone.floor, indoors: [] },
+      data: { code: zone.code, configRevision: zone.configRevision, name: zone.name, floor: zone.floor, indoors: [] },
     };
   }
 
@@ -282,24 +346,37 @@ export class HvacController {
   @Delete('zones/:code')
   @UseGuards(ActorAdminGuard)
   @RateLimit({ max: 10, windowMs: 5000 })
-  async deleteZone(@Param('code') code: string) {
-    const zone = await this.zoneRepo.findOne({ where: { code } });
-    if (!zone) throw new NotFoundException(`功能区 "${code}" 不存在`);
-    // 先摘干净成员再删组, 否则内机的 zoneCode 会指向一个不存在的组
-    const members = await this.indoorRepo.find({ where: { zoneCode: code } });
-    for (const m of members) m.zoneCode = null;
-    if (members.length > 0) await this.indoorRepo.save(members);
-    await this.zoneRepo.remove(zone);
+  async deleteZone(@Param('code') code: string, @Query() query: HvacZoneRevisionQueryDto, @Req() req: AuthenticatedRequest) {
+    const actor = requireAdmin(req);
+    const result = await serializedTransaction(this.zoneRepo.manager.connection, async (manager) => {
+      const zones = manager.getRepository(HvacZone);
+      const indoors = manager.getRepository(HvacIndoor);
+      const zone = await zones.findOne({ where: { code } });
+      if (!zone) throw new NotFoundException(`功能区 "${code}" 不存在`);
+      this.assertRevision(zone.configRevision, query.expectedRevision, 'HVAC_ZONE_REVISION_CONFLICT');
+      const members = await indoors.find({ where: { zoneCode: code } });
+      const before = { ...zone };
+      for (const member of members) {
+        const updated = await indoors.update({ id: member.id, configRevision: member.configRevision }, { zoneCode: null, configRevision: member.configRevision + 1 });
+        if (updated.affected !== 1) throw this.revisionConflict('HVAC_INDOOR_REVISION_CONFLICT');
+        const next = await indoors.findOneByOrFail({ id: member.id });
+        await this.writeAudit(manager, 'hvac_indoor', member.id, 'update', { ...member }, next, actor, 'hvac-indoor:release-zone');
+      }
+      const deleted = await zones.delete({ id: zone.id, configRevision: query.expectedRevision });
+      if (deleted.affected !== 1) throw this.revisionConflict('HVAC_ZONE_REVISION_CONFLICT');
+      await this.writeAudit(manager, 'hvac_zone', zone.id, 'delete', before, null, actor, 'hvac-zone:delete');
+      return { code, releasedIndoors: members.map((member) => member.idx) };
+    });
 
     await this.logService.record({
-      operator: 'client',
+      operator: actor.username,
       action: 'hvac.zone.delete',
       targetType: 'hvac-zone',
       targetId: code,
       result: 'success',
-      message: JSON.stringify({ name: zone.name, releasedIndoors: members.map((m) => m.idx) }),
+      message: JSON.stringify({ releasedIndoors: result.releasedIndoors }),
     });
-    return { message: '已删除', data: { code, releasedIndoors: members.map((m) => m.idx) } };
+    return { message: '已删除', data: result };
   }
 
   /**
@@ -309,19 +386,29 @@ export class HvacController {
   @Put('zones/:code')
   @UseGuards(ActorAdminGuard)
   @RateLimit({ max: 10, windowMs: 5000 })
-  async renameZone(@Param('code') code: string, @Body() dto: HvacZoneRenameDto) {
-    const zone = await this.zoneRepo.findOne({ where: { code } });
-    if (!zone) throw new NotFoundException(`hvac zone "${code}" 不存在`);
-    const oldName = zone.name;
-    zone.name = dto.name.trim();
-    const saved = await this.zoneRepo.save(zone);
+  async renameZone(@Param('code') code: string, @Body() dto: HvacZoneRenameDto, @Req() req: AuthenticatedRequest) {
+    const actor = requireAdmin(req);
+    const saved = await serializedTransaction(this.zoneRepo.manager.connection, async (manager) => {
+      const repo = manager.getRepository(HvacZone);
+      const zone = await repo.findOne({ where: { code } });
+      if (!zone) throw new NotFoundException(`hvac zone "${code}" 不存在`);
+      this.assertRevision(zone.configRevision, dto.expectedRevision, 'HVAC_ZONE_REVISION_CONFLICT');
+      const before = { ...zone };
+      const nextName = dto.name.trim();
+      if (zone.name === nextName) return zone;
+      const result = await repo.update({ id: zone.id, configRevision: dto.expectedRevision }, { name: nextName, configRevision: dto.expectedRevision + 1 });
+      if (result.affected !== 1) throw this.revisionConflict('HVAC_ZONE_REVISION_CONFLICT');
+      const next = await repo.findOneByOrFail({ id: zone.id });
+      await this.writeAudit(manager, 'hvac_zone', zone.id, 'update', before, next, actor, 'hvac-zone:rename');
+      return next;
+    });
     await this.logService.record({
-      operator: 'client',
+      operator: actor.username,
       action: 'hvac.zone.rename',
       targetType: 'hvac-zone',
       targetId: code,
       result: 'success',
-      message: JSON.stringify({ from: oldName, to: saved.name }),
+      message: JSON.stringify({ to: saved.name }),
     });
     const members = await this.indoorRepo.find({
       where: { zoneCode: code, enabled: true },
@@ -331,6 +418,7 @@ export class HvacController {
       message: '已更名',
       data: {
         code: saved.code,
+        configRevision: saved.configRevision,
         name: saved.name,
         floor: saved.floor,
         indoors: members.map((m) => m.idx),

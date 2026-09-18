@@ -40,6 +40,10 @@ export class HvacIndoor {
   @PrimaryGeneratedColumn()
   id!: number;
 
+  /** Incremented when name, group, or display-order metadata changes. */
+  @Column({ type: 'integer', name: 'config_revision', default: 1 })
+  configRevision!: number;
+
   /** 楼层内机序号 1..22 — 前端/场景下发用的就是它 */
   @Index({ unique: true })
   @Column({ type: 'integer' })

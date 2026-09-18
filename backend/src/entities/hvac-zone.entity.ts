@@ -30,6 +30,10 @@ export class HvacZone {
   @PrimaryGeneratedColumn()
   id!: number;
 
+  /** Incremented when zone metadata changes. */
+  @Column({ type: 'integer', name: 'config_revision', default: 1 })
+  configRevision!: number;
+
   /** 区代号 e.g. 'enterprise_booth' / 'meeting_room'. 唯一, 场景动作按它引用 */
   @Index({ unique: true })
   @Column({ type: 'varchar', length: 64 })
