@@ -11,6 +11,7 @@ import { Logger } from 'winston';
 import { LightZone } from '../../entities/light-zone.entity';
 import { LightGroup } from '../../entities/light-group.entity';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
+import { CreateLightZoneDto, UpdateLightZoneDto } from './dto/light-zone.dto';
 
 /** 一个物理 DALI 组 (网关 + 组号唯一确定) */
 export interface LightGroupView {
@@ -50,15 +51,7 @@ export interface LightZoneView {
   updatedAt: Date;
 }
 
-export interface LightZoneUpsertDto {
-  code: string;
-  name: string;
-  floor?: string;
-  sortOrder?: number;
-  icon?: string | null;
-  description?: string | null;
-  enabled?: boolean;
-}
+export type LightZoneUpsertDto = CreateLightZoneDto;
 
 /** resolveForCommand 的结果: 分区 + 它下面每个组的实际下发目标 */
 export interface ZoneCommandTargets {
@@ -212,7 +205,7 @@ export class LightZonesService {
 
   // ============ 分区增删改 ============
 
-  async create(dto: LightZoneUpsertDto): Promise<LightZoneView> {
+  async create(dto: CreateLightZoneDto): Promise<LightZoneView> {
     if (!dto.code?.trim()) throw new ConflictException('code 不能为空');
     if (!dto.name?.trim()) throw new ConflictException('name 不能为空');
     const dup = await this.zoneRepo.findOne({ where: { code: dto.code } });
@@ -233,7 +226,7 @@ export class LightZonesService {
     return this.detail(saved.id);
   }
 
-  async update(id: number, dto: Partial<LightZoneUpsertDto>): Promise<LightZoneView> {
+  async update(id: number, dto: UpdateLightZoneDto): Promise<LightZoneView> {
     const row = await this.zoneRepo.findOne({ where: { id } });
     if (!row) throw new NotFoundException(`light zone #${id} 不存在`);
     if (dto.code && dto.code !== row.code) {

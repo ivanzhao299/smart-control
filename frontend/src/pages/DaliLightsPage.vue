@@ -8,6 +8,7 @@ import {
   ArrowLeft, Lightbulb, ScanLine, Activity, Zap, Plus, X, Check,
 } from 'lucide-vue-next';
 import { api } from '@/services/http';
+import { useAdminUnlock } from '@/composables/useAdminUnlock';
 
 interface DaliLight {
   id: number;
@@ -24,6 +25,7 @@ interface SceneItem { targetType: string; targetRef: string; on: boolean; bright
 interface Scene { code: string; name: string; items?: SceneItem[] }
 
 const router = useRouter();
+const { ensureAdmin } = useAdminUnlock();
 const tab = ref<'lights' | 'zones' | 'scenes'>('lights');
 
 const lights = ref<DaliLight[]>([]);
@@ -112,6 +114,7 @@ async function control(l: DaliLight, cmd: { on?: boolean; brightness?: number })
 }
 
 async function rename(l: DaliLight): Promise<void> {
+  if (!(await ensureAdmin('灯具命名'))) return;
   try {
     const { value } = await ElMessageBox.prompt('给这盏灯起个名字', `命名 #${l.shortAddr}`, {
       inputValue: l.name ?? '',
@@ -128,6 +131,7 @@ async function rename(l: DaliLight): Promise<void> {
 }
 
 async function assignZone(l: DaliLight, zoneCode: string | null): Promise<void> {
+  if (!(await ensureAdmin('灯具分区'))) return;
   try {
     const updated = await api.put<DaliLight>(`/dali-lights/${l.id}/zone`, { zoneCode });
     Object.assign(l, updated);
@@ -145,6 +149,7 @@ function closeZoneDialog(): void {
 }
 /** 对话框内当场新建分区, 建完自动选中 —— 保证名称一致、不用切到分区页 */
 async function createZoneInDialog(): Promise<void> {
+  if (!(await ensureAdmin('新建分区'))) return;
   const name = zoneDlg.value.newName.trim();
   if (!name || zoneDlg.value.busy) return;
   zoneDlg.value.busy = true;
@@ -181,6 +186,7 @@ async function controlZone(z: Zone, cmd: { on?: boolean; brightness?: number }):
 }
 
 async function newZone(): Promise<void> {
+  if (!(await ensureAdmin('新建分区'))) return;
   try {
     const { value } = await ElMessageBox.prompt('新分区名字', '新建分区', {
       inputPlaceholder: '例如: 一层前厅',
@@ -207,6 +213,7 @@ async function recallScene(s: Scene): Promise<void> {
 }
 
 async function newScene(): Promise<void> {
+  if (!(await ensureAdmin('新建场景'))) return;
   if (zones.value.length === 0) {
     ElMessage.warning('先建分区, 场景是把分区调到某个状态');
     return;
@@ -230,6 +237,7 @@ async function newScene(): Promise<void> {
 }
 
 async function deleteScene(s: Scene): Promise<void> {
+  if (!(await ensureAdmin('删除场景'))) return;
   try {
     await ElMessageBox.confirm(`删除场景「${s.name}」?`, '确认', { type: 'warning' });
     await api.del(`/dali-lights/scenes/${s.code}`);

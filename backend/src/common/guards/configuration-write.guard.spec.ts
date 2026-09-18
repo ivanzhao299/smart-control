@@ -19,6 +19,7 @@ import { LogsController } from '../../modules/logs/logs.controller';
 import { TestCenterController } from '../../modules/test-center/test-center.controller';
 import { UatController } from '../../modules/uat/uat.controller';
 import { VideoBindingController } from '../../modules/cameras/video-binding.controller';
+import { LightZonesController } from '../../modules/light-zones/light-zones.controller';
 
 describe('configuration versus shared equipment usage', () => {
   const guard = new ConfigurationWriteGuard();
@@ -61,6 +62,7 @@ describe('configuration versus shared equipment usage', () => {
   it.each([
     [HvacController, ['indoors/reorder', 'indoors/:idx', 'indoors/assign', 'zones', 'zones/:code', 'gateways/scan']],
     [DaliLightsController, ['scan', 'diagnose', 'diagnose/identify', 'diagnose/control', ':id/identify', ':id/name', ':id/zone', 'assign-zone', 'scenes', 'scenes/:code']],
+    [LightZonesController, ['reorder/zones', 'reorder/groups', 'groups', 'groups/assign', 'groups/:groupId/shorts', '', ':id']],
   ] as const)('protects %p configuration while preserving ordinary controls', (controller, protectedPaths) => {
     let checked = 0, ordinary = 0;
     for (const name of Object.getOwnPropertyNames(controller.prototype)) {
@@ -72,7 +74,10 @@ describe('configuration versus shared equipment usage', () => {
       const guards = Reflect.getMetadata(GUARDS_METADATA, method) ?? [];
       const configuration = (protectedPaths as readonly string[]).includes(path) &&
         (verb !== RequestMethod.GET || path === 'diagnose' || path === 'gateways/scan');
-      if (configuration) { expect(guards).toContain(ActorAdminGuard); checked++; }
+      if (configuration) {
+        expect(guards.some((g: unknown) => g === ActorAdminGuard || g === ConfigurationWriteGuard || g === AdminGuard)).toBe(true);
+        checked++;
+      }
       else { expect(guards).not.toContain(ActorAdminGuard); ordinary++; }
     }
     expect(checked).toBeGreaterThanOrEqual(7);

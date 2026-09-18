@@ -11,21 +11,19 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { LightZonesService, type LightZoneUpsertDto } from './light-zones.service';
+import { LightZonesService } from './light-zones.service';
 import { AdminGuard } from '../admin-auth/admin-auth.guard';
 import { LightingAdapter } from '../../adapters/lighting/lighting.adapter';
 import { AssignGroupsDto, CreateGroupDto, GroupShortsDto, ReorderDto } from './dto/group.dto';
+import { CreateLightZoneDto, UpdateLightZoneDto } from './dto/light-zone.dto';
+import { ConfigurationWriteGuard } from '../../common/guards/configuration-write.guard';
 
 /**
  * 灯光分区 CRUD.
  *
- * 权限口径 (2026-07-17 修正, 对齐 hvac.controller —— 那边实测可用):
- *   读 + **业主日常操作** (建分区/改名/编组/排序/记短地址) — 不要 admin token。
- *     这些就是 LightingPage 上的常规操作, 要 admin 密码等于没法用:
- *     操作员登录 (ClientLogin) 根本不设 adminToken, 只有后台登录才设 ->
- *     2026-07-16 做的"编组"功能在操作员页面上一直是 401, 等于废的。
- *     空调那边 POST /hvac/indoors/assign 从来就没有 guard, 实测好用。
- *   删分区 / :id/test (会真点灯) — 保留 admin token, 破坏性和会动现场设备的才拦。
+ * 读接口允许已登录角色；所有分区/分组/短地址元数据写入统一走
+ * ConfigurationWriteGuard，仅管理员可写。删除和测试仍额外保留 AdminGuard；测试会触碰
+ * 现场设备，不能混入纯配置写入契约。
  */
 @Controller('light-zones')
 export class LightZonesController {
@@ -68,20 +66,23 @@ export class LightZonesController {
    * 排序存后端而不是前端: 现场有主控机+平板+手机, 只存前端的话每台设备顺序都不一样。
    */
   @Put('reorder/zones')
+  @UseGuards(ConfigurationWriteGuard)
   async reorderZones(@Body() dto: ReorderDto) {
     return { message: '顺序已保存', data: await this.service.reorderZones(dto.ids) };
   }
 
   @Put('reorder/groups')
+  @UseGuards(ConfigurationWriteGuard)
   async reorderGroups(@Body() dto: ReorderDto) {
     return { message: '顺序已保存', data: await this.service.reorderGroups(dto.ids) };
   }
 
   /**
    * 登记一个新的物理 DALI 组 (网关 + 组号). 前端"编组模式"的"新建组"就调这个。
-   * 跟建分区 (下面 @Post()) 同一档权限 —— 业主日常现场接线登记, 不要 admin token。
+   * 跟建分区 (下面 @Post()) 同一档配置权限 —— 仅管理员可登记元数据, 不触碰总线。
    */
   @Post('groups')
+  @UseGuards(ConfigurationWriteGuard)
   async createGroup(@Body() dto: CreateGroupDto) {
     const data = await this.service.createGroup(dto);
     return { message: '组已登记', data };
@@ -89,9 +90,10 @@ export class LightZonesController {
 
   /**
    * 把若干个组归到某个分区 (zoneCode=null 表示从分区里移出, 变成未分配).
-   * 前端"编组模式"就调这个。
+   * 前端编组模式就调这个; 这是配置写入, 不调用硬件。
    */
   @Post('groups/assign')
+  @UseGuards(ConfigurationWriteGuard)
   @HttpCode(200)
   async assignGroups(@Body() dto: AssignGroupsDto) {
     const data = await this.service.assignGroups(dto.groupIds, dto.zoneCode ?? null);
@@ -100,6 +102,7 @@ export class LightZonesController {
 
   /** 记录某组实测到的灯具短地址 (现场点灯时逐个填) */
   @Put('groups/:groupId/shorts')
+  @UseGuards(ConfigurationWriteGuard)
   async setGroupShorts(
     @Param('groupId', ParseIntPipe) groupId: number,
     @Body() dto: GroupShortsDto,
@@ -108,15 +111,16 @@ export class LightZonesController {
   }
 
   @Post()
-  async create(@Body() dto: LightZoneUpsertDto) {
+  @UseGuards(ConfigurationWriteGuard)
+  async create(@Body() dto: CreateLightZoneDto) {
     return { message: '创建成功', data: await this.service.create(dto) };
   }
 
   @Put(':id')
-  @UseGuards(AdminGuard)
+  @UseGuards(ConfigurationWriteGuard)
   async update(
     @Param('id', ParseIntPipe) id: number,
-    @Body() dto: Partial<LightZoneUpsertDto>,
+    @Body() dto: UpdateLightZoneDto,
   ) {
     return { message: '更新成功', data: await this.service.update(id, dto) };
   }

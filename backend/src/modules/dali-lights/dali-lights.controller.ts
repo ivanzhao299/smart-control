@@ -14,6 +14,13 @@ import {
   Query,
 } from '@nestjs/common';
 import { DaliLightsService, LightCmd } from './dali-lights.service';
+import {
+  AssignDaliLightBatchDto,
+  AssignDaliLightZoneDto,
+  CreateDaliSceneDto,
+  RenameDaliLightDto,
+  UpdateDaliSceneDto,
+} from './dto/dali-metadata.dto';
 
 /**
  * DALI 单灯管理 API —— 现场调试/命名/分组/场景。
@@ -96,15 +103,14 @@ export class DaliLightsController {
   /** 命名 */
   @Put(':id/name')
   @UseGuards(ActorAdminGuard)
-  async rename(@Param('id', ParseIntPipe) id: number, @Body() body: { name?: string } = {}) {
-    if (typeof body?.name !== 'string') throw new BadRequestException('name 必填');
+  async rename(@Param('id', ParseIntPipe) id: number, @Body() body: RenameDaliLightDto) {
     return { message: '已改名', data: await this.service.rename(id, body.name) };
   }
 
   /** 分到分区(zoneCode 传 null/空 = 移出) */
   @Put(':id/zone')
   @UseGuards(ActorAdminGuard)
-  async assignZone(@Param('id', ParseIntPipe) id: number, @Body() body: { zoneCode?: string | null } = {}) {
+  async assignZone(@Param('id', ParseIntPipe) id: number, @Body() body: AssignDaliLightZoneDto) {
     return { message: '已分配', data: await this.service.assignZone(id, body?.zoneCode ?? null) };
   }
 
@@ -112,9 +118,8 @@ export class DaliLightsController {
   @Post('assign-zone')
   @UseGuards(ActorAdminGuard)
   @HttpCode(200)
-  async assignZoneBatch(@Body() body: { ids?: number[]; zoneCode?: string | null } = {}) {
-    if (!Array.isArray(body?.ids)) throw new BadRequestException('ids 必填');
-    const n = await this.service.assignZoneBatch(body.ids, body?.zoneCode ?? null);
+  async assignZoneBatch(@Body() body: AssignDaliLightBatchDto) {
+    const n = await this.service.assignZoneBatch(body.ids, body.zoneCode ?? null);
     return { message: `已分配 ${n} 盏`, data: { affected: n } };
   }
 
@@ -135,7 +140,7 @@ export class DaliLightsController {
   @Post('scenes')
   @UseGuards(ActorAdminGuard)
   @HttpCode(200)
-  async createScene(@Body() body: Parameters<DaliLightsService['createScene']>[0]) {
+  async createScene(@Body() body: CreateDaliSceneDto) {
     return { message: '场景已创建', data: await this.service.createScene(body) };
   }
 
@@ -143,7 +148,7 @@ export class DaliLightsController {
   @UseGuards(ActorAdminGuard)
   async updateScene(
     @Param('code') code: string,
-    @Body() body: Parameters<DaliLightsService['updateScene']>[1],
+    @Body() body: UpdateDaliSceneDto,
   ) {
     return { message: '场景已保存', data: await this.service.updateScene(code, body) };
   }

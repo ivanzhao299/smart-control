@@ -111,6 +111,7 @@ const grouping = ref<boolean>(false);
 // 后端 POST /light-zones 早就支持, 之前前端只在空状态写了"到后台加" —— 那是死路,
 // 现在编组面板和空状态都能直接建。建完是空分区, 切"编组"把灯组放进去。
 async function createLightZone(): Promise<void> {
+  if (!(await ensureAdmin('新建分区'))) return;
   try {
     const { value } = await ElMessageBox.prompt('新建灯光分区', '新建分区', {
       inputPlaceholder: '例如: 会议室 / 前厅 / 走廊',

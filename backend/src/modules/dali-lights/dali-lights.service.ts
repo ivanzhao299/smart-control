@@ -336,7 +336,13 @@ export class DaliLightsService implements OnModuleInit, OnModuleDestroy {
     name: string;
     floor?: string | null;
     icon?: string | null;
-    items?: Array<Pick<LightSceneItem, 'targetType' | 'targetRef' | 'on' | 'brightness' | 'kelvin'>>;
+    items?: Array<{
+      targetType: 'light' | 'zone';
+      targetRef: string;
+      on?: boolean;
+      brightness?: number | null;
+      kelvin?: number | null;
+    }>;
   }): Promise<LightScene> {
     const name = (input.name ?? '').trim();
     if (!name) throw new BadRequestException('场景名必填');
@@ -354,7 +360,13 @@ export class DaliLightsService implements OnModuleInit, OnModuleDestroy {
       name?: string;
       floor?: string | null;
       icon?: string | null;
-      items?: Array<Pick<LightSceneItem, 'targetType' | 'targetRef' | 'on' | 'brightness' | 'kelvin'>>;
+      items?: Array<{
+        targetType: 'light' | 'zone';
+        targetRef: string;
+        on?: boolean;
+        brightness?: number | null;
+        kelvin?: number | null;
+      }>;
     },
   ): Promise<LightScene> {
     const scene = await this.sceneRepo.findOne({ where: { code } });
@@ -377,7 +389,13 @@ export class DaliLightsService implements OnModuleInit, OnModuleDestroy {
 
   private async saveSceneItems(
     sceneCode: string,
-    items: Array<Pick<LightSceneItem, 'targetType' | 'targetRef' | 'on' | 'brightness' | 'kelvin'>>,
+    items: Array<{
+      targetType: 'light' | 'zone';
+      targetRef: string;
+      on?: boolean;
+      brightness?: number | null;
+      kelvin?: number | null;
+    }>,
   ): Promise<void> {
     for (const it of items) {
       await this.sceneItemRepo.save(
