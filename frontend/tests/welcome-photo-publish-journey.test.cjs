@@ -38,7 +38,7 @@ test('photo publishing binds the new data-disk asset before switching the screen
 
   const result = await publishWelcomePhoto(led, deps.value);
 
-  assert.deepEqual(JSON.parse(JSON.stringify(result)), { mediaId: 42, previousMediaId: 41, shown: true });
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { mediaId: 42, previousMediaId: 41, shown: true, revision: 8 });
   assert.deepEqual(deps.calls, [
     ['read'], ['upload', led], ['bind', 42, 7], ['show'], ['remove', 41],
   ]);

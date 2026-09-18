@@ -8,7 +8,7 @@ export interface WelcomePhotoPublishDependencies {
   /** 跨异步步骤核对原账号/服务器；失效即停止后续副作用。 */
   assertActive: () => void;
   uploadLedPhoto: (file: File) => Promise<{ id: number }>;
-  bindWelcomePhoto: (mediaId: number, expectedRevision: number) => Promise<WelcomePhotoSnapshot>;
+  bindWelcomePhoto: (mediaId: number | null, expectedRevision: number) => Promise<WelcomePhotoSnapshot>;
   showWelcomePage: () => Promise<void>;
   removeMedia: (mediaId: number) => Promise<void>;
 }
@@ -17,6 +17,7 @@ export interface WelcomePhotoPublishResult {
   mediaId: number;
   previousMediaId: number | null;
   shown: boolean;
+  revision: number;
 }
 
 export class WelcomePhotoBindingUnconfirmedError extends Error {
@@ -52,10 +53,12 @@ export async function publishWelcomePhoto(
   dependencies.assertActive();
   const confirmsBinding = (snapshot: WelcomePhotoSnapshot) =>
     snapshot.mediaId === uploaded.id && requireRevision(snapshot) > expectedRevision;
+  let revision: number;
   try {
     const confirmed = await dependencies.bindWelcomePhoto(uploaded.id, expectedRevision);
     dependencies.assertActive();
     if (!confirmsBinding(confirmed)) throw new Error('绑定回执不匹配');
+    revision = requireRevision(confirmed);
   } catch {
     dependencies.assertActive();
     let current: WelcomePhotoSnapshot;
@@ -63,6 +66,7 @@ export async function publishWelcomePhoto(
       current = await dependencies.readCurrent();
       dependencies.assertActive();
       if (!confirmsBinding(current)) throw new Error('绑定未确认');
+      revision = requireRevision(current);
     } catch {
       dependencies.assertActive();
       throw new WelcomePhotoBindingUnconfirmedError(uploaded.id);
@@ -78,5 +82,31 @@ export async function publishWelcomePhoto(
     await dependencies.removeMedia(previousMediaId).catch(() => undefined);
   }
   dependencies.assertActive();
-  return { mediaId: uploaded.id, previousMediaId, shown };
+  return { mediaId: uploaded.id, previousMediaId, shown, revision };
+}
+
+/** Withdraw only the photo/version the user actually saw; no automatic fresh-baseline overwrite. */
+export async function takeDownWelcomePhoto(
+  before: WelcomePhotoSnapshot,
+  dependencies: Pick<WelcomePhotoPublishDependencies, 'assertActive' | 'readCurrent' | 'bindWelcomePhoto' | 'removeMedia'>,
+): Promise<WelcomePhotoSnapshot> {
+  dependencies.assertActive();
+  const revision = requireRevision(before);
+  if (!before.mediaId) return before;
+  let confirmed: WelcomePhotoSnapshot;
+  const confirmsRemoval = (value: WelcomePhotoSnapshot) => value.mediaId === null && requireRevision(value) > revision;
+  try {
+    confirmed = await dependencies.bindWelcomePhoto(null, revision);
+    dependencies.assertActive();
+    if (!confirmsRemoval(confirmed)) throw Error('撤下回执不匹配');
+  } catch {
+    dependencies.assertActive();
+    confirmed = await dependencies.readCurrent();
+    dependencies.assertActive();
+    if (!confirmsRemoval(confirmed)) throw Error('撤下结果未确认，请刷新核对');
+  }
+  dependencies.assertActive();
+  await dependencies.removeMedia(before.mediaId).catch(() => undefined);
+  dependencies.assertActive();
+  return confirmed;
 }

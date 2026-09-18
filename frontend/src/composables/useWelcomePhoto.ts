@@ -1,11 +1,12 @@
-import { ref } from 'vue';
+import { ref, onScopeDispose, onDeactivated, onActivated } from 'vue';
 import { mediaService } from '@/services/media.service';
 import { getApiBaseURL, getAdminToken, getClientToken } from '@/services/http';
-import { fetchSystemBranding, saveWelcomeConfig, saveWelcomeConfigVersioned } from '@/services/system-branding.service';
-import { identityGeneration, assertCurrentIdentity } from '@/services/identity-boundary';
+import { fetchSystemBranding, saveWelcomeConfigVersioned } from '@/services/system-branding.service';
+import { captureIdentityGuard, onIdentityChange } from '@/services/identity-boundary';
 import { useToastStore } from '@/stores/toast';
 import { parkOpsControlService } from '@/services/park-ops-control.service';
-import { publishWelcomePhoto, WelcomePhotoBindingUnconfirmedError } from '@/services/welcome-photo-publisher';
+import { publishWelcomePhoto, takeDownWelcomePhoto, WelcomePhotoBindingUnconfirmedError, type WelcomePhotoSnapshot } from '@/services/welcome-photo-publisher';
+import { welcomeOriginalScope, readWelcomeOriginal, writeWelcomeOriginal, removeWelcomeOriginal } from '@/services/welcome-photo-original';
 
 /**
  * 来访者拍照上墙 (2026-09-14; 2026-09-15 修复 PWA 拍照闪退)
@@ -25,63 +26,6 @@ const JPEG_QUALITY = 0.82;
 
 type AnyBitmap = ImageBitmap | (HTMLImageElement & { __objectUrl?: string });
 
-// ===== 原画本机暂存 (IndexedDB) =====
-// standalone PWA 可能因系统回收而重载, 内存 ref 随之丢失 → "保存原画"按钮消失。
-// 把最近一张原画存 IDB, 重载后按当前
-// 绑定的 mediaId 恢复; 只保留最新一张, 撤下/换新即清。隐私模式 IDB 不可用时静默降级。
-const IDB_NAME = 'smart-control';
-const IDB_STORE = 'welcomePhoto';
-const IDB_KEY = 'original';
-interface StoredOriginal { mediaId: number; ts: number; file: File; }
-
-function openIdb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(IDB_NAME, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-async function idbSet(value: StoredOriginal): Promise<void> {
-  try {
-    const db = await openIdb();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(IDB_STORE, 'readwrite');
-      tx.objectStore(IDB_STORE).put(value, IDB_KEY);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-    db.close();
-  } catch { /* IDB 不可用不阻断主流程 */ }
-}
-async function idbGet(): Promise<StoredOriginal | null> {
-  try {
-    const db = await openIdb();
-    const v = await new Promise<StoredOriginal | undefined>((resolve, reject) => {
-      const tx = db.transaction(IDB_STORE, 'readonly');
-      const r = tx.objectStore(IDB_STORE).get(IDB_KEY);
-      r.onsuccess = () => resolve(r.result as StoredOriginal | undefined);
-      r.onerror = () => reject(r.error);
-    });
-    db.close();
-    return v ?? null;
-  } catch { return null; }
-}
-async function idbDel(): Promise<void> {
-  try {
-    const db = await openIdb();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(IDB_STORE, 'readwrite');
-      tx.objectStore(IDB_STORE).delete(IDB_KEY);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-    db.close();
-  } catch { /* ignore */ }
-}
 /**
  * 仅解析 JPEG 标记段读取宽高, 不解码任何像素(只读取文件前 512KB), 内存开销可忽略。
  * 用途: 拿到原始宽高后让 createImageBitmap 的 resizeWidth/Height 一次降采样到位,
@@ -137,23 +81,72 @@ export function useWelcomePhoto() {
   const hasPhoto = ref(false);
   /** 暂存本次原画, 供用户在自己手势下点「保存原画」; 不自动弹系统面板 */
   const pendingOriginal = ref<File | null>(null);
+  const needsReload = ref(true);
+  let baseline: WelcomePhotoSnapshot | null = null;
+  let alive = true;
+  let pageEpoch = 0;
+  let operation = 0;
+  let read = 0;
+  let captureActive: (() => boolean) | null = null;
+  const uploads = new Set<AbortController>();
+  const current = () => {
+    const epoch = pageEpoch;
+    return captureIdentityGuard(() => alive && epoch === pageEpoch);
+  };
+  const scope = () => welcomeOriginalScope(getApiBaseURL(), getAdminToken(), getClientToken());
+  const requireActive = (active: () => boolean) => {
+    if (!active()) throw new DOMException('账号、服务器或页面已切换', 'AbortError');
+  };
+  const reset = () => {
+    pageEpoch += 1;
+    operation += 1; read += 1; captureActive = null; baseline = null;
+    pendingOriginal.value = null; hasPhoto.value = false; busy.value = false; needsReload.value = true;
+    for (const controller of uploads) controller.abort();
+  };
+  const unsubscribe = onIdentityChange(reset);
+  onScopeDispose(() => { alive = false; reset(); unsubscribe(); });
+  onDeactivated(() => { alive = false; reset(); });
+  onActivated(() => { if (!alive) { alive = true; void loadCurrent(); } });
+
+  async function readSnapshot(): Promise<WelcomePhotoSnapshot> {
+    const config = await fetchSystemBranding();
+    if (!Number.isSafeInteger(config.configRevision) || (config.configRevision ?? 0) < 1) {
+      throw new Error('欢迎页配置版本不可用');
+    }
+    return { mediaId: config.welcomePhotoMediaId ?? null, revision: config.configRevision };
+  }
 
   async function loadCurrent(): Promise<void> {
-    const cur = await fetchSystemBranding().catch(() => null);
-    const id = cur?.welcomePhotoMediaId ?? null;
-    hasPhoto.value = !!id;
-    // 相机返回若整页被回收重载, 内存原画已丢: 仅当 IDB 里正是当前上墙这张才恢复下载入口
-    const saved = await idbGet();
-    if (saved && id && saved.mediaId === id) {
-      pendingOriginal.value = saved.file;
-    } else if (saved) {
-      pendingOriginal.value = null;
-      void idbDel();
+    if (busy.value || !alive) return;
+    const ticket = ++read;
+    const identity = current();
+    const active = () => identity() && ticket === read;
+    needsReload.value = true;
+    try {
+      const snapshot = await readSnapshot();
+      if (!active()) return;
+      const key = await scope();
+      const saved = await readWelcomeOriginal(key, active);
+      if (!active()) return;
+      baseline = snapshot;
+      hasPhoto.value = !!snapshot.mediaId;
+      pendingOriginal.value = saved?.mediaId === snapshot.mediaId ? saved.file : null;
+      needsReload.value = false;
+    } catch {
+      if (!active()) return;
+      baseline = null; pendingOriginal.value = null;
+      toast.error('欢迎页读取失败，请刷新核对后再操作');
     }
   }
 
+  function beginCapture(): boolean {
+    if (busy.value || needsReload.value || !alive) return false;
+    captureActive = current();
+    return true;
+  }
+
   function openAlbum(): void {
-    if (busy.value) return;
+    if (!beginCapture()) return;
     fileInput.value?.click();
   }
 
@@ -238,13 +231,11 @@ export function useWelcomePhoto() {
     }
   }
 
-  /** 用户手势: 把本次原画保存到本机相册/下载。内存没有时回退 IDB(整页重载后仍可下载)。 */
+  /** 原画仅由已核对的当前会话缓存恢复；用户手势直接分享，不临时读取无归属原画。 */
   async function saveOriginal(): Promise<void> {
-    let f = pendingOriginal.value;
-    if (!f) {
-      const saved = await idbGet();
-      f = saved?.file ?? null;
-    }
+    if (busy.value || needsReload.value || !alive) return;
+    const active = current();
+    const f = pendingOriginal.value;
     if (!f) {
       toast.info('原画已不在本机，请重新拍摄');
       return;
@@ -252,10 +243,10 @@ export function useWelcomePhoto() {
     try {
       await keepOriginal(f);
       // 保留在 IDB 允许再次下载, 直到撤下/换新覆盖, 不在此清空
-      toast.success('原画已保存到本机');
+      if (active()) toast.success('已完成原画分享或下载操作');
     } catch {
       // 用户取消分享/下载不算错误
-      toast.info('未保存原画（不影响照片上墙）');
+      if (active()) toast.info('未保存原画（不影响照片上墙）');
     }
   }
 
@@ -270,7 +261,8 @@ export function useWelcomePhoto() {
    * ERR_ALPN / Network Error, 而原生 fetch 正常)。小图无需上传进度回调。
    * 未有服务端幂等键前不自动重试：网络断开不代表上传未成功。
    */
-  async function uploadLedPhoto(file: File): Promise<{ id: number }> {
+  async function uploadLedPhoto(file: File, active: () => boolean): Promise<{ id: number }> {
+    requireActive(active);
     const fd = new FormData();
     fd.append('file', file);
     fd.append('remark', 'welcome-photo');
@@ -279,24 +271,33 @@ export function useWelcomePhoto() {
     const clientToken = getClientToken();
     if (adminToken) headers.Authorization = `Bearer ${adminToken}`;
     if (clientToken) headers['X-Client-Token'] = clientToken;
-    const r = await fetch(`${getApiBaseURL()}/media/upload`, {
-      method: 'POST', headers, body: fd, credentials: 'omit',
-    });
-    const j = await r.json().catch(() => null) as { success?: boolean; message?: string; data?: { id: number } } | null;
-    if (!r.ok || !j?.data?.id) throw new Error(j?.message || `上传失败 (${r.status})`);
-    return j.data;
+    const controller = new AbortController();
+    uploads.add(controller);
+    const timer = setTimeout(() => controller.abort(), 60_000);
+    try {
+      const r = await fetch(`${getApiBaseURL()}/media/upload`, {
+        method: 'POST', headers, body: fd, credentials: 'omit', redirect: 'error', signal: controller.signal,
+      });
+      requireActive(active);
+      const j = await r.json().catch(() => null) as { success?: boolean; message?: string; data?: { id: number } } | null;
+      requireActive(active);
+      if (!r.ok || !Number.isSafeInteger(j?.data?.id) || (j?.data?.id ?? 0) < 1) throw new Error(j?.message || `上传失败 (${r.status})`);
+      return j!.data!;
+    } finally {
+      clearTimeout(timer);
+      uploads.delete(controller);
+    }
   }
 
-  async function publishPhoto(led: File, original: File, generation: number): Promise<void> {
+  async function publishPhoto(led: File, original: File, active: () => boolean): Promise<void> {
     try {
-      assertCurrentIdentity(generation);
+      requireActive(active);
+      const originalScope = await scope();
+      requireActive(active);
       const published = await publishWelcomePhoto(led, {
-        assertActive: () => assertCurrentIdentity(generation),
-        readCurrent: async () => {
-          const current = await fetchSystemBranding();
-          return { mediaId: current.welcomePhotoMediaId ?? null, revision: current.configRevision };
-        },
-        uploadLedPhoto,
+        assertActive: () => requireActive(active),
+        readCurrent: readSnapshot,
+        uploadLedPhoto: file => uploadLedPhoto(file, active),
         bindWelcomePhoto: async (mediaId, expectedRevision) => {
           const confirmed = await saveWelcomeConfigVersioned({ welcomePhotoMediaId: mediaId }, expectedRevision);
           return { mediaId: confirmed.welcomePhotoMediaId ?? null, revision: confirmed.configRevision };
@@ -307,19 +308,19 @@ export function useWelcomePhoto() {
           await mediaService.remove(mediaId);
         },
       });
-      assertCurrentIdentity(generation);
+      requireActive(active);
       // 原画只保存在本机；分享/下载仍由用户稍后主动触发。
       pendingOriginal.value = original;
       hasPhoto.value = true;
-      const idForIdb = published.mediaId;
-      setTimeout(() => {
-        if (generation !== identityGeneration()) return;
-        void idbSet({ mediaId: idForIdb, ts: Date.now(), file: original });
-      }, 0);
+      baseline = { mediaId: published.mediaId, revision: published.revision };
+      needsReload.value = false;
+      if (originalScope) await writeWelcomeOriginal({ scope: originalScope, mediaId: published.mediaId, ts: Date.now(), file: original }, active);
+      requireActive(active);
       if (published.shown) toast.success('照片已上墙，已发送切到欢迎页指令');
       else toast.info('照片已绑定，但切页指令未确认，请手动切到欢迎页');
     } catch (e) {
-      if (generation !== identityGeneration()) return;
+      if (!active()) return;
+      needsReload.value = true;
       console.error('welcome photo upload failed', e);
       if (e instanceof WelcomePhotoBindingUnconfirmedError) toast.error(e.message);
       else toast.error('照片发布未确认，请先刷新核对，不要重复上传');
@@ -328,12 +329,16 @@ export function useWelcomePhoto() {
 
   /** 页内相机已经输出 LED 版，直接发布，避免再次解码和占用内存。 */
   async function onCaptured(led: File, original: File): Promise<void> {
-    if (busy.value) return;
+    const active = captureActive;
+    captureActive = null;
+    if (busy.value || needsReload.value || !active?.()) return;
+    const ticket = ++operation;
+    read += 1;
     busy.value = true;
     try {
-      await publishPhoto(led, original, identityGeneration());
+      await publishPhoto(led, original, active);
     } finally {
-      busy.value = false;
+      if (ticket === operation) busy.value = false;
     }
   }
 
@@ -342,41 +347,61 @@ export function useWelcomePhoto() {
     const input = event.target as HTMLInputElement;
     const original = input.files?.[0];
     input.value = '';
-    if (!original || busy.value) return;
-    const generation = identityGeneration();
+    const active = captureActive;
+    captureActive = null;
+    if (!original || busy.value || needsReload.value || !active?.()) return;
+    const ticket = ++operation;
+    read += 1;
     busy.value = true;
     try {
       const led = await compressForLed(original);
-      await publishPhoto(led, original, generation);
+      await publishPhoto(led, original, active);
     } catch (e) {
+      if (!active()) return;
       console.error('welcome photo decode failed', e);
       toast.error('无法读取这张照片，请换一张重试');
     } finally {
-      busy.value = false;
+      if (ticket === operation) busy.value = false;
     }
   }
 
   /** 手动撤下, 恢复默认欢迎布局。 */
   async function takeDown(): Promise<void> {
+    if (busy.value || needsReload.value || !baseline?.mediaId || !alive) return;
+    const ticket = ++operation;
+    read += 1;
+    const active = current();
+    const before = { ...baseline };
     busy.value = true;
     try {
-      const cur = await fetchSystemBranding().catch(() => null);
-      const id = cur?.welcomePhotoMediaId ?? null;
-      await saveWelcomeConfig({ welcomePhotoMediaId: null });
-      if (id) await mediaService.remove(id).catch(() => undefined);
+      const key = await scope();
+      requireActive(active);
+      const confirmed = await takeDownWelcomePhoto(before, {
+        assertActive: () => requireActive(active),
+        readCurrent: readSnapshot,
+        bindWelcomePhoto: async (mediaId, revision) => {
+          const config = await saveWelcomeConfigVersioned({ welcomePhotoMediaId: mediaId }, revision);
+          return { mediaId: config.welcomePhotoMediaId ?? null, revision: config.configRevision };
+        },
+        removeMedia: id => mediaService.remove(id),
+      });
+      requireActive(active);
+      baseline = confirmed;
       pendingOriginal.value = null;
-      void idbDel();
-      toast.info('已撤下照片，恢复默认欢迎页');
       hasPhoto.value = false;
+      await removeWelcomeOriginal(key, before.mediaId!, active);
+      if (active()) toast.info('已撤下照片，恢复默认欢迎页');
     } catch {
-      toast.error('撤下失败，请重试');
+      if (!active()) return;
+      needsReload.value = true;
+      toast.error('撤下结果未确认，请刷新核对后再操作');
     } finally {
-      busy.value = false;
+      if (ticket === operation) busy.value = false;
     }
   }
 
   return {
-    fileInput, busy, hasPhoto, pendingOriginal,
-    openAlbum, onPick, onCaptured, takeDown, saveOriginal, loadCurrent,
+    fileInput, busy, hasPhoto, pendingOriginal, needsReload,
+    beginCapture, openAlbum, onPick, onCaptured, takeDown, saveOriginal, loadCurrent,
   };
 }

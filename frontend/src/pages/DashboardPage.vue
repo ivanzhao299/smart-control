@@ -218,6 +218,8 @@ const {
   busy: welcomePhotoBusy,
   hasPhoto: welcomeHasPhoto,
   pendingOriginal: welcomePendingOriginal,
+  needsReload: welcomePhotoNeedsReload,
+  beginCapture: beginWelcomeCapture,
   openAlbum: openWelcomeAlbum,
   onPick: onWelcomePick,
   onCaptured: onWelcomeCaptured,
@@ -227,7 +229,7 @@ const {
 } = useWelcomePhoto();
 const welcomeCameraOpen = ref(false);
 function openWelcomeCamera(): void {
-  if (!welcomePhotoBusy.value) welcomeCameraOpen.value = true;
+  if (beginWelcomeCapture()) welcomeCameraOpen.value = true;
 }
 onMounted(loadWelcomePhoto);
 // keep-alive 切走(不卸载)或真正卸载时, 取消可能残留的长按进度环 RAF, 避免后台空转
@@ -377,7 +379,7 @@ onBeforeUnmount(() => {
           <div class="v2-sub-body">
             <div class="v2-sub-name">拍照上屏</div>
             <div class="v2-sub-stats v2-inter">
-              <span class="online">{{ welcomePhotoBusy ? '处理中…' : welcomeHasPhoto ? '已上墙 · 重拍' : '点击拍照' }}</span>
+              <span class="online">{{ welcomePhotoBusy ? '处理中…' : welcomePhotoNeedsReload ? '请刷新核对' : welcomeHasPhoto ? '已上墙 · 重拍' : '点击拍照' }}</span>
             </div>
           </div>
           <input
@@ -390,9 +392,17 @@ onBeforeUnmount(() => {
         </div>
         <span class="v2-sub-cam-actions" @pointerdown.stop @touchstart.stop @click.stop>
           <button
+            v-if="welcomePhotoNeedsReload"
+            type="button"
+            class="cam-mini"
+            :disabled="welcomePhotoBusy"
+            @click.stop.prevent="loadWelcomePhoto"
+          >刷新</button>
+          <button
             v-if="welcomeHasPhoto"
             type="button"
             class="cam-mini take-down"
+            :disabled="welcomePhotoBusy || welcomePhotoNeedsReload"
             title="撤下上墙照片，恢复默认欢迎页"
             @click.stop.prevent="takeWelcomePhotoDown"
           ><X :size="14" :stroke-width="2.4" /></button>
@@ -400,6 +410,7 @@ onBeforeUnmount(() => {
             v-if="welcomePendingOriginal"
             type="button"
             class="cam-mini save-orig"
+            :disabled="welcomePhotoBusy || welcomePhotoNeedsReload"
             title="把相机原画保存到本机相册（原画不上传）"
             @click.stop.prevent="saveWelcomeOriginal"
           ><Download :size="14" :stroke-width="2.4" /></button>

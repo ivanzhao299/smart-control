@@ -15,6 +15,7 @@
  */
 import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import { X, SwitchCamera } from 'lucide-vue-next';
+import { onIdentityChange } from '@/services/identity-boundary';
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{
@@ -121,6 +122,7 @@ function canvasToBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob>
 async function snap(): Promise<void> {
   const v = videoEl.value;
   if (phase.value !== 'live' || !v || !v.videoWidth || !v.videoHeight) return;
+  const generation = startGeneration;
   phase.value = 'capturing';
   const vw = v.videoWidth;
   const vh = v.videoHeight;
@@ -154,7 +156,9 @@ async function snap(): Promise<void> {
   stopStream(); // Pixels are copied; release the camera before JPEG encoding.
   try {
     const origBlob = await canvasToBlob(c0, 0.92);
+    if (generation !== startGeneration || !props.open) return;
     const ledBlob = long <= LED_LONG_EDGE ? origBlob : await canvasToBlob(c1, 0.82);
+    if (generation !== startGeneration || !props.open) return;
     const ts = Date.now();
     capturedOrig = new File([origBlob], `welcome-original-${ts}.jpg`, { type: 'image/jpeg' });
     capturedLed = new File([ledBlob], `welcome-led-${ts}.jpg`, { type: 'image/jpeg' });
@@ -162,6 +166,7 @@ async function snap(): Promise<void> {
     previewUrl.value = URL.createObjectURL(capturedOrig);
     phase.value = 'preview';
   } catch {
+    if (generation !== startGeneration || !props.open) return;
     errMsg.value = '照片处理失败，请重拍或改用相册选择';
     phase.value = 'error';
   } finally {
@@ -226,8 +231,10 @@ function handleVisibilityChange(): void {
 }
 
 onMounted(() => document.addEventListener('visibilitychange', handleVisibilityChange));
+const stopIdentityListener = onIdentityChange(close);
 
 onBeforeUnmount(() => {
+  stopIdentityListener();
   startGeneration += 1;
   stopStream();
   if (previewUrl.value) URL.revokeObjectURL(previewUrl.value);

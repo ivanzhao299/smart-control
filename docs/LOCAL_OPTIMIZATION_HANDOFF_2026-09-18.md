@@ -20,7 +20,7 @@
 2. `frontend/src/stores/system-branding.ts` 与 `pages/admin/SystemBrandingAdmin.vue`：读取失败不能把 fallback 当作可写基线；冻结提交，保存期间继续输入保留；明确确认重读，身份/服务器切换使晚回执失效。Logo 压缩异步回调也必须有身份/草稿边界。Favicon 缓存参数仍按长度计算，需要改为确认修订号。
 3. `frontend/src/components/PlayerConsole.vue` 欢迎编辑段：独立版本与草稿生命周期，先保存配置；现有“正在欢迎页时重推”属设备操作，Mock 验证与真实现场验收分开。`MediaPage.vue` 的设为/取消欢迎页也要明确旧基线。
 4. `frontend/src/services/welcome-photo-publisher.ts` / `composables/useWelcomePhoto.ts`：下方续批已修复发布阶段的读取失败禁写、一次带版本绑定、回执不确定时只读核实，不盲删/自动重试。剩余：完整 UI/IDB 生命周期、撤下流程、冲突/不确定状态的明确重读入口及浏览器联合验收。
-5. 拍照全过程与撤下要绑定原账号/服务器，IDB 原画状态不可跨身份泄漏；保持长边 1920 / JPEG 0.82 与原画只留本机、不自动弹分享的现有 iPhone 防闪退措施。
+5. 照片生命周期/撤下与 IDB 隔离已在下方续批实现并单测，仍需真实浏览器与 iPhone 验收；保持长边 1920 / JPEG 0.82 与原画只留本机、不自动弹分享的现有 iPhone 防闪退措施。
 6. 补前端单测和实际浏览器保存/409/读取失败/换身份/上传绑定回执丢失/撤下/并发回收。`welcome-photo-publish-journey.test.cjs` 已替换“任何绑定失败都删新文件”的错误断言；不代表完整页面或真机旅程通过。
 7. 核对 C06 固定退出证据后再进入 C07；继续保留 C07–C12、结构拆分/依赖方向及阶段 3/4，不缩减目标。
 
@@ -36,3 +36,12 @@ Context Mode 之前实际 cwd 为 `/Users/mac/Documents/smart conrtol`，不匹�
 - Node 20：照片旅程与现有身份边界合计 28/28 通过；`pnpm@10.33.4 exec vue-tsc --noEmit` 通过；`git diff --check` 通过。此次没有重跑全量或浏览器，不沿用之前全量通过证明新改动。
 - 尚未闭合：组件卸载/拍摄开始时的身份边界、原生上传取消与超时、IDB 按账号/服务器隔离、`loadCurrent` 与 `saveOriginal` 晚回执/读取失败、`takeDown` 版本与不确定状态流程、所有编辑页统一版本入口及真实浏览器验证。这些是下一批的确定入口，C06 仍未完成。
 - 未推送、部署、重启或访问生产设备；保持 OpenAI/ChatGPT 配置不变。
+
+## 后续批次：照片生命周期、原画隔离与撤下
+
+- `useWelcomePhoto` 现有明确的已读基线和 `needsReload` 门禁；Dashboard 提供“刷新”核对入口，失败/不确定期间禁止重拍、撤下、保存原画。读取、操作和页面分别使用序号/身份边界；账号变化、卸载、keep-alive 离开清理状态，中止原生上传，旧操作完成不能解锁新操作。
+- 相机/相册打开时捕获身份；相机在身份改变时关闭，JPEG 编码晚回调按相机 generation 丢弃。上传 60 秒超时、禁止凭据重定向，保持单次上传无自动重试。
+- 撤下携带界面原始版本，禁止双击；丢失回执只读确认 null 和版本推进后才回收旧图/原画。409 或读取失败锁住等待显式核对，不自动以新基线重试。
+- `welcome-photo-original.ts` 保存服务器+登录凭据组合的 SHA-256 隔离标识，不保存明文凭据，不上传原画。相同登录会话重载可恢复；重新登录或更换服务器不会恢复前一会话原画。旧无标记记录不自动恢复、不盲删。无 WebCrypto 时仅内存暂存。删除在 IDB 同一事务比较 scope+mediaId，不能删除其他会话或新照片。
+- 本地全量前端测试 221 项（照片旅程 9、生命周期 12、缓存事件桩 4）；正式 `pnpm@10.33.4 run build`（含 vue-tsc -b、Vite、PWA）通过。最终全量日志 `/tmp/smart-control-photos-final.kmakYw`，最终构建日志 `/tmp/smart-control-photos-build-final.5uk7v5`。缓存单测是确定性 IDB 事件桩，不冒充真实浏览器存储或 iOS 测试。
+- 下一步准确入口：其余 C06 编辑器（SystemBrandingAdmin/store、PlayerConsole 欢迎文字、MediaPage 欢迎资源）迁移严格版本/草稿边界；然后以合成 Mock 浏览器联合验证新照片 UI/IDB/超时/冲突/迟到回执及其他编辑器。C06、C07–C12、阶段 3/4 与生产副本升级/恢复/部署门禁均未关闭。
