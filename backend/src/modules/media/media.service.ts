@@ -759,6 +759,9 @@ export class MediaService implements OnModuleInit {
       if (this.videoProcessor.isPreparing(id) || m.processingStatus === 'processing' || m.processingStatus === 'pending') throw new ConflictException('资料正在转码，不能删除');
       const channels = await this.repo.query('SELECT id FROM playback_channels WHERE currentMediaId = ? LIMIT 1', [id]);
       if (channels.length) throw new ConflictException('资料正在播放或暂停，请先停止播放再删除');
+      const welcomeBindingQuery = 'SELECT id FROM system_branding_v2 WHERE welcome_media_id = ? OR welcomeBgMediaId = ? OR welcomePhotoMediaId = ? LIMIT 1';
+      const bound = () => new ConflictException({ code: 'MEDIA_BOUND_TO_WELCOME', message: '资料正在欢迎页使用，请先更换或撤下绑定再删除' });
+      if ((await this.repo.query(welcomeBindingQuery, [id, id, id])).length) throw bound();
       const assetContainer = mediaAssetContainerForStoredPath(this.mediaRoot, m.id, m.path);
       const result = await recoverableDelete(assetContainer, m.id, () => serializedTransaction(this.repo.manager.connection, async manager => {
         const current = await manager.getRepository(MediaAsset).findOneBy({ id });
@@ -767,6 +770,9 @@ export class MediaService implements OnModuleInit {
         assertWriteResource(actor, current);
         if (current.processingStatus === 'processing' || current.processingStatus === 'pending') throw new ConflictException('资料正在转码');
         if ((await manager.query('SELECT id FROM playback_channels WHERE currentMediaId = ? LIMIT 1', [id])).length) throw new ConflictException('请先停止播放再删除');
+        // The same serialized transaction queue as welcome binding closes the
+        // precheck/delete race. recoverableDelete restores staged files on rejection.
+        if ((await manager.query(welcomeBindingQuery, [id, id, id])).length) throw bound();
         // Remove every now-unplayable reference atomically; historical snapshots remain
         // owned by their original actor and cannot be replayed without a live asset.
         await manager.delete(PlaylistItem, { mediaId: id });

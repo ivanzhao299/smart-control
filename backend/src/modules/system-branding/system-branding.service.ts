@@ -7,6 +7,8 @@ import { Logger } from 'winston';
 import { RuntimeConfigStore } from '../../common/runtime-config/runtime-config.store';
 import { SystemBranding } from '../../entities/system-branding.entity';
 import { lanOrigin } from '../../common/utils/lan-origin';
+import type { Actor } from '../../common/auth/actor';
+import { writeSystemBranding } from './system-branding-config.writer';
 import {
   normalizeParkOpsConfig,
   PARK_OPS_VISUAL_CONFIG_KEY,
@@ -15,6 +17,8 @@ import {
 } from './park-ops-config';
 
 export interface SystemBrandingDto {
+  /** null means the public fallback is not a writable configuration baseline. */
+  configRevision: number | null;
   systemName: string;
   systemSubtitle: string | null;
   logoText: string;
@@ -42,6 +46,7 @@ export interface SystemBrandingDto {
 }
 
 const DEFAULTS: SystemBrandingDto = {
+  configRevision: null,
   systemName: '金湖展贸中心 · 智能控制',
   systemSubtitle: '智慧展厅中控',
   logoText: '金',
@@ -73,7 +78,12 @@ export class SystemBrandingService {
       // 迁移门禁异常时仍给公开页面安全默认值，不在读取路径写库。
       return { ...DEFAULTS };
     }
+    return this.toView(row);
+  }
+
+  private toView(row: SystemBranding): SystemBrandingDto {
     return {
+      configRevision: row.configRevision,
       systemName: row.systemName,
       systemSubtitle: row.systemSubtitle,
       logoText: row.logoText,
@@ -85,13 +95,15 @@ export class SystemBrandingService {
       welcomeTitle: row.welcomeTitle,
       welcomeTagline: row.welcomeTagline,
       welcomeBgMediaId: row.welcomeBgMediaId,
-      // 底图直链: /api/media/:id/file 是 @Public 路由, kiosk 欢迎页无鉴权可读
-      welcomeBgUrl: row.welcomeBgMediaId ? `/api/media/${row.welcomeBgMediaId}/file` : null,
+      // Only the currently bound background is public; general media still requires login.
+      welcomeBgUrl: row.welcomeBgMediaId
+        ? `/api/system-branding/welcome-background/file?v=${row.configRevision}`
+        : null,
       welcomePhotoMediaId: row.welcomePhotoMediaId ?? null,
       // 上墙照片走"仅当前绑定照片"的匿名公开路由 (普通 /api/media/:id/file 需登录,
-      // 大屏与扫码手机都没有 token); 加 updatedAt 版本参数让轮询拿到新图而非旧缓存
+      // 大屏与扫码手机都没有 token); 修订号避免同一秒内改图仍命中旧缓存
       welcomePhotoUrl: row.welcomePhotoMediaId
-        ? `/api/system-branding/welcome-photo/file?v=${row.updatedAt?.getTime?.() ?? Date.now()}`
+        ? `/api/system-branding/welcome-photo/file?v=${row.configRevision}`
         : null,
       serverOrigin: lanOrigin(this.config.get<number>('app.port') ?? 3000),
     };
@@ -102,6 +114,12 @@ export class SystemBrandingService {
     const row = await this.repo.findOne({ where: { id: 1 } });
     const v = row?.welcomePhotoMediaId;
     return typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null;
+  }
+
+  async getWelcomeBackgroundMediaId(): Promise<number | null> {
+    const row = await this.repo.findOneBy({ id: 1 });
+    const id = row?.welcomeBgMediaId;
+    return typeof id === 'number' && Number.isSafeInteger(id) && id > 0 ? id : null;
   }
 
   /** 直接读 welcomeMediaId (给 LedController.welcome 用, 不需要拼整个 DTO) */
@@ -215,76 +233,13 @@ export class SystemBrandingService {
     }
   }
 
-  async update(input: Partial<SystemBrandingDto>): Promise<SystemBrandingDto> {
-    // 规整: 空字符串视为 null (避免数据库里塞 ""), trim 前后空格
-    const norm = <T extends string | null | undefined>(v: T): string | null => {
-      if (v === undefined || v === null) return null;
-      const t = String(v).trim();
-      return t === '' ? null : t;
-    };
-
-    const current = await this.repo.findOne({ where: { id: 1 } });
-    const patch: Partial<SystemBranding> = {};
-
-    if (input.systemName !== undefined) {
-      const v = norm(input.systemName);
-      if (!v) throw new Error('systemName 不能为空');
-      if (v.length > 80) throw new Error('systemName 不能超过 80 字符');
-      patch.systemName = v;
-    }
-    if (input.systemSubtitle !== undefined) {
-      const v = norm(input.systemSubtitle);
-      if (v && v.length > 60) throw new Error('systemSubtitle 不能超过 60 字符');
-      patch.systemSubtitle = v;
-    }
-    if (input.logoText !== undefined) {
-      const v = norm(input.logoText);
-      if (!v) throw new Error('logoText 不能为空');
-      if (v.length > 4) throw new Error('logoText 不能超过 4 字符 (建议 1-2 个汉字)');
-      patch.logoText = v;
-    }
-    if (input.logoUrl !== undefined) {
-      patch.logoUrl = norm(input.logoUrl);
-    }
-    if (input.browserTitle !== undefined) {
-      patch.browserTitle = norm(input.browserTitle);
-    }
-    if (input.copyright !== undefined) {
-      patch.copyright = norm(input.copyright);
-    }
-    if (input.welcomeMediaId !== undefined) {
-      // null / undefined / 非整数都视为清空
-      const v = input.welcomeMediaId;
-      patch.welcomeMediaId = typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null;
-    }
-    if (input.welcomeGuest !== undefined) {
-      const v = norm(input.welcomeGuest);
-      patch.welcomeGuest = v ? v.slice(0, 64) : null;
-    }
-    if (input.welcomeTitle !== undefined) {
-      const v = norm(input.welcomeTitle);
-      patch.welcomeTitle = v ? v.slice(0, 32) : null;
-    }
-    if (input.welcomeTagline !== undefined) {
-      const v = norm(input.welcomeTagline);
-      patch.welcomeTagline = v ? v.slice(0, 64) : null;
-    }
-    if (input.welcomeBgMediaId !== undefined) {
-      const v = input.welcomeBgMediaId;
-      patch.welcomeBgMediaId = typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null;
-    }
-    if (input.welcomePhotoMediaId !== undefined) {
-      // null/非正整数都视为撤下, 回到默认欢迎语布局
-      const v = input.welcomePhotoMediaId;
-      patch.welcomePhotoMediaId = typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null;
-    }
-
-    if (current) {
-      await this.repo.update({ id: 1 }, patch);
-    } else {
-      throw new ConflictException('系统品牌权威记录缺失，请先恢复数据库；保存操作未执行');
-    }
-    this.logger.info(`[SystemBranding] 已更新 (${Object.keys(patch).join(', ')})`);
-    return this.get();
+  async update(
+    input: unknown,
+    actor: Actor,
+    welcomeOnly = false,
+    strict = false,
+  ): Promise<SystemBrandingDto> {
+    // Return the row acknowledged by this transaction, not a later unrelated writer's revision.
+    return this.toView(await writeSystemBranding(this.repo, input, actor, welcomeOnly, strict));
   }
 }

@@ -11,7 +11,16 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { SystemBrandingDto, SystemBrandingService } from './system-branding.service';
+import { SystemBrandingService } from './system-branding.service';
+import { createHash } from 'crypto';
+import {
+  LegacySystemBrandingDto,
+  LegacyWelcomeDto,
+  UpdateSystemBrandingDto,
+  UpdateWelcomeDto,
+  inlineLogo,
+  safeLogoUrl,
+} from './system-branding-config.dto';
 import { AdminGuard } from '../admin-auth/admin-auth.guard';
 import { MediaService } from '../media/media.service';
 import { sendMediaFile } from '../../common/utils/send-media-file';
@@ -53,8 +62,26 @@ export class SystemBrandingController {
   async welcomePhotoFile(@Req() req: Request, @Res() res: Response): Promise<void> {
     const id = await this.service.getWelcomePhotoMediaId();
     if (!id) throw new NotFoundException('当前没有上墙照片');
+    await this.assertPublicImage(id);
     const file = await this.media.openStream(id, false, req.headers.range);
     sendMediaFile(res, file);
+  }
+
+  @Public()
+  @Get('welcome-background/file')
+  async welcomeBackgroundFile(@Req() req: Request, @Res() res: Response): Promise<void> {
+    const id = await this.service.getWelcomeBackgroundMediaId();
+    if (!id) throw new NotFoundException('当前没有欢迎页底图');
+    await this.assertPublicImage(id);
+    const file = await this.media.openStream(id, false, req.headers.range);
+    sendMediaFile(res, file);
+  }
+
+  private async assertPublicImage(id: number): Promise<void> {
+    const media = await this.media.get(id);
+    if (media.kind !== 'image' || media.processingStatus !== 'ready') {
+      throw new NotFoundException('当前绑定不是可展示图片');
+    }
   }
 
   /** 大屏和校准器共同读取；没有保存过时 config=null，页面使用内置默认值。 */
@@ -110,56 +137,45 @@ export class SystemBrandingController {
     }
   }
 
-  /**
-   * 欢迎页内容编辑 (2026-07-28 业主: "编辑放到前端, 不用进后台") — 客户端 token
-   * 即可改 (走全局 ClientAuthGuard, 与切灯/推片同级的日常操作), 但**只放行欢迎页
-   * 四个字段**, logo/系统名等品牌配置仍必须走下面的 AdminGuard PUT。
-   */
+  /** Strict editors require an explicit baseline. Legacy routes remain rollout bridges. */
+  @UseGuards(AdminGuard)
+  @Put('welcome/editor')
+  async updateWelcomeEditor(@Body() body: UpdateWelcomeDto, @Req() req: AuthenticatedRequest) {
+    return {
+      message: '欢迎页已保存',
+      data: await this.service.update(body, requireAdmin(req), true, true),
+    };
+  }
+
+  @UseGuards(AdminGuard)
+  @Put('editor')
+  async updateEditor(@Body() body: UpdateSystemBrandingDto, @Req() req: AuthenticatedRequest) {
+    return {
+      message: '已保存',
+      data: await this.service.update(body, requireAdmin(req), false, true),
+    };
+  }
+
+  /** Administrator-only, welcome fields only; never silently accept branding/readonly fields. */
   @UseGuards(AdminGuard)
   @Put('welcome')
   async updateWelcome(
-    @Body()
-    body: Partial<
-      Pick<
-        SystemBrandingDto,
-        | 'welcomeGuest'
-        | 'welcomeTitle'
-        | 'welcomeTagline'
-        | 'welcomeBgMediaId'
-        | 'welcomePhotoMediaId'
-      >
-    >,
+    @Body() body: LegacyWelcomeDto,
+    @Req() req: AuthenticatedRequest,
   ): Promise<unknown> {
-    if (!body || typeof body !== 'object') {
-      throw new BadRequestException('请求体必须是 JSON 对象');
-    }
-    const patch: Partial<SystemBrandingDto> = {};
-    if ('welcomeGuest' in body) patch.welcomeGuest = body.welcomeGuest ?? null;
-    if ('welcomeTitle' in body) patch.welcomeTitle = body.welcomeTitle ?? null;
-    if ('welcomeTagline' in body) patch.welcomeTagline = body.welcomeTagline ?? null;
-    if ('welcomeBgMediaId' in body) patch.welcomeBgMediaId = body.welcomeBgMediaId ?? null;
-    if ('welcomePhotoMediaId' in body) patch.welcomePhotoMediaId = body.welcomePhotoMediaId ?? null;
-    if (!Object.keys(patch).length) throw new BadRequestException('没有可保存的欢迎页字段');
-    try {
-      const updated = await this.service.update(patch);
-      return { message: '欢迎页已保存', data: updated };
-    } catch (e) {
-      throw new BadRequestException((e as Error).message);
-    }
+    return {
+      message: '欢迎页已保存',
+      data: await this.service.update(body, requireAdmin(req), true),
+    };
   }
 
   @Put()
   @UseGuards(AdminGuard)
-  async update(@Body() body: Partial<SystemBrandingDto>): Promise<unknown> {
-    if (!body || typeof body !== 'object') {
-      throw new BadRequestException('请求体必须是 JSON 对象');
-    }
-    try {
-      const updated = await this.service.update(body);
-      return { message: '已保存', data: updated };
-    } catch (e) {
-      throw new BadRequestException((e as Error).message);
-    }
+  async update(
+    @Body() body: LegacySystemBrandingDto,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return { message: '已保存', data: await this.service.update(body, requireAdmin(req)) };
   }
 
   /**
@@ -194,23 +210,24 @@ export class SystemBrandingController {
   async logo(@Res() res: Response): Promise<void> {
     const b = await this.service.get();
     const logoUrl = b.logoUrl;
-    if (!logoUrl) {
+    if (!logoUrl || !safeLogoUrl(logoUrl)) {
       // 没上传 logo, 重定向到默认 PWA icon
       res.redirect(302, '/control/icons/pwa-512x512.png');
       return;
     }
     // 解析 data URL
-    const m = /^data:(image\/[a-z0-9+.-]+);base64,(.+)$/i.exec(logoUrl);
+    const m = inlineLogo(logoUrl);
     if (m) {
-      const contentType = m[1];
-      const buf = Buffer.from(m[2], 'base64');
-      // ETag 用内容长度 + 前 8 字节 hex 做 cheap hash (业主换图就变)
-      const etag = `"${buf.length.toString(16)}-${buf.slice(0, 8).toString('hex')}"`;
+      const contentType = m.mime;
+      const buf = m.bytes;
+      // Same-size images commonly share a header; hash all bytes to avoid stale logos.
+      const etag = `"${createHash('sha256').update(buf).digest('hex')}"`;
       if (res.req.headers['if-none-match'] === etag) {
         res.status(304).end();
         return;
       }
       res.setHeader('Content-Type', contentType);
+      res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
       res.setHeader('ETag', etag);
       res.send(buf);

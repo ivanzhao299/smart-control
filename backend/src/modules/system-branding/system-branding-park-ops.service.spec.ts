@@ -135,12 +135,13 @@ describe('SystemBrandingService park ops runtime configuration', () => {
 
 describe('SystemBrandingService singleton authority', () => {
   it('refuses an update when the migrated singleton is missing', async () => {
-    const repository = {
-      findOne: jest.fn().mockResolvedValue(null),
-      update: jest.fn(),
-      save: jest.fn(),
-      create: jest.fn(),
-    } as unknown as Repository<SystemBranding>;
+    const db = await new DataSource({
+      type: 'better-sqlite3',
+      database: ':memory:',
+      entities: [SystemBranding],
+      synchronize: true,
+    }).initialize();
+    const repository = db.getRepository(SystemBranding);
     const service = new SystemBrandingService(
       repository,
       { info: jest.fn(), warn: jest.fn(), error: jest.fn() } as never,
@@ -148,10 +149,22 @@ describe('SystemBrandingService singleton authority', () => {
       {} as RuntimeConfigStore,
     );
 
-    await expect(service.update({ systemName: '不会静默重建' })).rejects.toMatchObject({
-      status: 409,
-    });
-    expect(repository.update).not.toHaveBeenCalled();
-    expect(repository.save).not.toHaveBeenCalled();
+    try {
+      expect((await service.get()).configRevision).toBeNull();
+      await expect(
+        service.update(
+          { systemName: '不会静默重建' },
+          {
+            kind: 'admin',
+            userId: null,
+            username: 'fixture-admin',
+            role: 'admin',
+          },
+        ),
+      ).rejects.toMatchObject({ status: 409, response: { code: 'SYSTEM_BRANDING_MISSING' } });
+      expect(await repository.count()).toBe(0);
+    } finally {
+      await db.destroy();
+    }
   });
 });

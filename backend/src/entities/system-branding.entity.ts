@@ -22,6 +22,9 @@ export class SystemBranding {
   @PrimaryGeneratedColumn()
   id!: number;
 
+  @Column({ name: 'config_revision', type: 'integer', default: 1 })
+  configRevision!: number;
+
   /** 系统主标题, 平板顶栏 + 后台侧栏顶部. 默认 "金湖展贸中心 · 智能控制" */
   @Column({ type: 'varchar', length: 80 })
   systemName!: string;

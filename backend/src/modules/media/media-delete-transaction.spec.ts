@@ -11,13 +11,16 @@ import { PlaylistItem } from '../../entities/playlist-item.entity';
 import { PlaybackChannel } from '../../entities/playback-channel.entity';
 import { PlaybackHistory } from '../../entities/playback-history.entity';
 import { Actor } from '../../common/auth/actor';
+import { SystemBranding } from '../../entities/system-branding.entity';
+import { AuditLog } from '../../entities/audit-log.entity';
+import { writeSystemBranding } from '../system-branding/system-branding-config.writer';
 
 describe('transactional media/reference deletion', () => {
   let db: DataSource, root: string, service: MediaService, id: number;
   const actor: Actor = { kind: 'user', userId: 1, username: 'alice', role: 'operator' };
   beforeEach(async () => {
     root = await fs.mkdtemp(join(tmpdir(), 'sc-delete-db-'));
-    db = await new DataSource({ type: 'better-sqlite3', database: ':memory:', entities: [MediaAsset, User, PlaylistItem, PlaybackChannel, PlaybackHistory], synchronize: true }).initialize();
+    db = await new DataSource({ type: 'better-sqlite3', database: ':memory:', entities: [MediaAsset, User, PlaylistItem, PlaybackChannel, PlaybackHistory, SystemBranding, AuditLog], synchronize: true }).initialize();
     await db.getRepository(User).save({ id: 1, username: 'alice', password: 'test', role: 'operator' });
     service = new MediaService(db.getRepository(MediaAsset), new ConfigService({ media: { root } }), { warn() {} } as any);
     Object.defineProperty(service, 'mediaRoot', { value: root });
@@ -61,5 +64,37 @@ describe('transactional media/reference deletion', () => {
 
     await expect(fs.access(directory)).rejects.toThrow();
     expect(await fs.readdir(join(root, 'welcome-photos'))).toEqual([]);
+  });
+  it.each(['welcomeMediaId', 'welcomeBgMediaId', 'welcomePhotoMediaId'])('preserves files and references while bound as %s', async field => {
+    await db.getRepository(SystemBranding).save({ id: 1, systemName: 'fixture', logoText: 'T', [field]: id });
+    await expect(service.remove(id, actor)).rejects.toMatchObject({ status: 409, response: { code: 'MEDIA_BOUND_TO_WELCOME' } });
+    expect(await fs.readFile(join(root, String(id), 'data.txt'), 'utf8')).toBe('original');
+    expect(await db.getRepository(MediaAsset).count()).toBe(1);
+    expect(await db.getRepository(PlaylistItem).count()).toBe(1);
+  });
+  it('rechecks a binding established after the initial deletion check and restores staged files', async () => {
+    await db.getRepository(SystemBranding).save({ id: 1, systemName: 'fixture', logoText: 'T' });
+    const repo = db.getRepository(MediaAsset), query = repo.query.bind(repo);
+    jest.spyOn(repo, 'query').mockImplementation(async (sql, params) => {
+      const result = await query(sql, params);
+      if (sql.includes('FROM system_branding_v2')) {
+        await writeSystemBranding(db.getRepository(SystemBranding), { welcomeMediaId: id, expectedRevision: 1 },
+          { kind: 'admin', userId: null, username: 'race-admin', role: 'admin' });
+      }
+      return result;
+    });
+    await expect(service.remove(id, actor)).rejects.toMatchObject({ status: 409, response: { code: 'MEDIA_BOUND_TO_WELCOME' } });
+    expect(await fs.readFile(join(root, String(id), 'data.txt'), 'utf8')).toBe('original');
+    expect(await fs.readdir(root)).toEqual([String(id)]);
+    expect((await db.getRepository(SystemBranding).findOneByOrFail({ id: 1 })).welcomeMediaId).toBe(id);
+    expect(await db.getRepository(MediaAsset).count()).toBe(1);
+  });
+  it('refuses a binding to an asset already deleted by the serialized writer', async () => {
+    await db.getRepository(SystemBranding).save({ id: 1, systemName: 'fixture', logoText: 'T' });
+    await service.remove(id, actor);
+    await expect(writeSystemBranding(db.getRepository(SystemBranding), { welcomeMediaId: id, expectedRevision: 1 },
+      { kind: 'admin', userId: null, username: 'race-admin', role: 'admin' })).rejects.toMatchObject({ status: 400, response: { code: 'SYSTEM_BRANDING_MEDIA_INVALID' } });
+    expect((await db.getRepository(SystemBranding).findOneByOrFail({ id: 1 })).configRevision).toBe(1);
+    expect(await db.getRepository(AuditLog).count()).toBe(0);
   });
 });

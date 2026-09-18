@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 
 export const REQUIRED_SCHEMA_MIGRATIONS = [
+  'AddSystemBrandingRevision1789720000000',
   'AddBrandConfigRevision1789710000000',
   'AddPowerConfigRevision1789700000000',
   'AddAudioConfigRevisions1789690000000',
@@ -56,6 +57,7 @@ export const REQUIRED_SCHEMA_COLUMNS: Record<string, string[]> = {
     'updatedAt',
   ],
   system_branding_v2: [
+    'config_revision',
     'welcomeGuest',
     'welcomeTitle',
     'welcomeTagline',
