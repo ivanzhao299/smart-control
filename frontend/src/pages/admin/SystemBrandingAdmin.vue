@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
-import { ElMessage, type FormInstance, type FormRules } from 'element-plus';
+import { computed, onMounted, onScopeDispose, reactive, ref } from 'vue';
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
 import { Upload, Trash2 } from 'lucide-vue-next';
 import { useSystemBrandingStore } from '@/stores/system-branding';
+import { captureIdentityGuard, createLatestIdentityRead, onIdentityChange } from '@/services/identity-boundary';
 
 /**
  * 系统品牌后台 — 编辑当前系统的 logo / 名称 / 副标题 / 浏览器 title.
@@ -15,6 +16,19 @@ import { useSystemBrandingStore } from '@/stores/system-branding';
 const brandingStore = useSystemBrandingStore();
 const formRef = ref<FormInstance>();
 const submitting = ref(false);
+const loadingBaseline = ref(false);
+const needsReload = ref(true);
+const expectedRevision = ref<number | null>(null);
+let disposed = false;
+let editorSession = 0;
+let saveSession = 0;
+const beginEditorRead = createLatestIdentityRead(() => !disposed);
+const stopIdentityListener = onIdentityChange(() => {
+  editorSession += 1; saveSession += 1;
+  submitting.value = false; uploading.value = false; loadingBaseline.value = false;
+  expectedRevision.value = null; needsReload.value = true;
+});
+onScopeDispose(() => { disposed = true; editorSession += 1; stopIdentityListener(); });
 
 function openParkOpsEditor(): void {
   const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
@@ -110,6 +124,8 @@ function resizeToWebP(img: HTMLImageElement): string {
 
 /** el-upload 的 :before-upload 拦截 — 不真去 POST, 而是本地处理后塞到 form */
 async function handleFileSelected(file: File): Promise<boolean> {
+  if (submitting.value || needsReload.value || disposed) return false;
+  const currentAction = captureIdentityGuard(() => !disposed && !needsReload.value);
   if (!file.type.startsWith('image/')) {
     ElMessage.error('只支持图片格式 (PNG / JPG / WebP / SVG)');
     return false;
@@ -121,19 +137,22 @@ async function handleFileSelected(file: File): Promise<boolean> {
   uploading.value = true;
   try {
     const img = await loadImage(file);
+    if (!currentAction()) return false;
     const dataUrl = resizeToWebP(img);
+    if (!currentAction()) return false;
     form.logoUrl = dataUrl;
     const kb = Math.round(dataUrl.length * 0.75 / 1024); // base64 → 字节 = len*0.75
     ElMessage.success(`图片已压缩到 ${TARGET_SIZE_PX}px, 约 ${kb} KB, 保存后生效`);
   } catch (e) {
     ElMessage.error(`图片处理失败: ${(e as Error).message}`);
   } finally {
-    uploading.value = false;
+    if (currentAction()) uploading.value = false;
   }
   return false; // false → 阻止 el-upload 真去 POST, 我们走 save() 统一提交
 }
 
 function clearLogoImage(): void {
+  if (submitting.value || needsReload.value) return;
   form.logoUrl = '';
 }
 
@@ -147,33 +166,90 @@ function loadFormFromStore(): void {
   form.copyright = b.copyright ?? '';
 }
 
-onMounted(async () => {
-  await brandingStore.load();
-  loadFormFromStore();
-});
+function formSnapshot(): Record<string, string | null> {
+  return {
+    systemName: form.systemName.trim(), systemSubtitle: form.systemSubtitle.trim() || null,
+    logoText: form.logoText.trim(), logoUrl: form.logoUrl.trim() || null,
+    browserTitle: form.browserTitle.trim() || null, copyright: form.copyright.trim() || null,
+  };
+}
+function sameSnapshot(a: Record<string, string | null>, b: Record<string, string | null>): boolean {
+  return Object.keys(a).every(key => a[key] === b[key]);
+}
+function requireRevision(revision: number | null | undefined): number {
+  if (!Number.isSafeInteger(revision) || (revision ?? 0) < 1) throw new Error('系统配置版本不可用，请重新加载');
+  return revision as number;
+}
+
+async function reloadBaseline(confirmDiscard = false): Promise<void> {
+  if (submitting.value || loadingBaseline.value || disposed) return;
+  // This page has no destructive auto-refresh: callers choose a fresh baseline explicitly.
+  if (confirmDiscard && !needsReload.value) {
+    try {
+      await ElMessageBox.confirm('刷新会放弃当前未保存的品牌草稿，是否继续？', '重新读取配置', {
+        type: 'warning',
+      });
+    } catch {
+      return;
+    }
+  }
+  const session = ++editorSession;
+  const currentRead = beginEditorRead();
+  const currentAction = captureIdentityGuard(() => !disposed);
+  loadingBaseline.value = true;
+  needsReload.value = true;
+  try {
+    const baseline = await brandingStore.loadEditorBaseline();
+    if (!currentRead() || !currentAction() || session !== editorSession) return;
+    expectedRevision.value = requireRevision(baseline.configRevision);
+    loadFormFromStore();
+    needsReload.value = false;
+  } catch (e) {
+    if (currentRead() && currentAction() && session === editorSession) {
+      expectedRevision.value = null;
+      ElMessage.error(`读取系统品牌配置失败: ${(e as Error).message}`);
+    }
+  } finally {
+    if (currentRead() && currentAction() && session === editorSession) loadingBaseline.value = false;
+  }
+}
+
+onMounted(() => { void reloadBaseline(false); });
 
 async function save(): Promise<void> {
+  if (submitting.value || needsReload.value || uploading.value) return;
   const ok = await formRef.value?.validate().catch(() => false);
   if (!ok) return;
+  let revision: number;
+  try { revision = requireRevision(expectedRevision.value); } catch (e) {
+    needsReload.value = true; ElMessage.error((e as Error).message); return;
+  }
+  const currentAction = captureIdentityGuard(() => !disposed);
+  const session = editorSession;
+  const saveId = ++saveSession;
+  const submitted = formSnapshot();
   submitting.value = true;
   try {
-    await brandingStore.save({
-      systemName: form.systemName.trim(),
-      systemSubtitle: form.systemSubtitle.trim() || null,
-      logoText: form.logoText.trim(),
-      logoUrl: form.logoUrl.trim() || null,
-      browserTitle: form.browserTitle.trim() || null,
-      copyright: form.copyright.trim() || null,
-    });
-    ElMessage.success('已保存, 前台所有 logo + 标题已实时更新');
+    const confirmed = await brandingStore.saveVersioned(submitted, revision);
+    if (!currentAction() || session !== editorSession || saveId !== saveSession) return;
+    expectedRevision.value = requireRevision(confirmed.configRevision);
+    if (sameSnapshot(submitted, formSnapshot())) {
+      ElMessage.success('已保存，前台 Logo 和标题将按新版本刷新');
+    } else {
+      ElMessage.info('已保存上一版草稿；你继续输入的内容仍在，请再次保存');
+    }
   } catch (e) {
-    ElMessage.error(`保存失败: ${(e as Error).message}`);
+    if (currentAction() && session === editorSession && saveId === saveSession) {
+      needsReload.value = true;
+      ElMessage.error(`保存结果未确认，请刷新核对: ${(e as Error).message}`);
+    }
   } finally {
-    submitting.value = false;
+    if (currentAction() && session === editorSession && saveId === saveSession) submitting.value = false;
   }
 }
 
 function reset(): void {
+  if (needsReload.value || submitting.value) return;
   loadFormFromStore();
   ElMessage.info('已还原到当前已保存的配置');
 }
@@ -192,17 +268,29 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
         <h2>系统品牌</h2>
         <p class="hint">控制系统本身的 logo + 名称配置. 改完保存, 前台左上角 logo + 顶栏标题 + 浏览器 tab 全部实时同步.</p>
       </div>
-      <el-button type="primary" @click="openParkOpsEditor">园区大屏布局校准</el-button>
+      <div class="page-head-actions">
+        <el-button :loading="loadingBaseline" :disabled="submitting" @click="reloadBaseline(true)">刷新核对</el-button>
+        <el-button type="primary" @click="openParkOpsEditor">园区大屏布局校准</el-button>
+      </div>
     </header>
 
     <div class="layout">
       <!-- 左: 表单 + 改密码 -->
       <div class="left-col">
       <el-card class="form-card" shadow="never">
+        <el-alert
+          v-if="needsReload"
+          title="当前品牌配置尚未核实，保存已锁定"
+          description="请先刷新核对，避免覆盖其他终端刚保存的配置。"
+          type="warning"
+          :closable="false"
+          class="config-warning"
+        />
         <el-form
           ref="formRef"
           :model="form"
           :rules="rules"
+          :disabled="submitting || uploading || needsReload"
           label-position="top"
           @submit.prevent="save"
         >
@@ -256,6 +344,7 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
 
               <!-- 上传 -->
               <el-upload
+                :disabled="submitting || uploading || needsReload"
                 :accept="ACCEPT_TYPES"
                 :before-upload="handleFileSelected"
                 :show-file-list="false"
@@ -302,8 +391,8 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
           </el-form-item>
 
           <el-form-item>
-            <el-button type="primary" :loading="submitting" @click="save">保存</el-button>
-            <el-button :disabled="submitting" @click="reset">还原</el-button>
+            <el-button type="primary" :loading="submitting" :disabled="needsReload || uploading" @click="save">保存</el-button>
+            <el-button :disabled="submitting || needsReload" @click="reset">还原</el-button>
           </el-form-item>
         </el-form>
       </el-card>

@@ -55,6 +55,17 @@ export async function saveSystemBranding(patch: SystemBrandingPatch): Promise<Sy
   return api.put<SystemBranding>('/system-branding', patch);
 }
 
+/** 严格后台编辑入口：调用方必须使用自己打开时读取的配置版本。 */
+export async function saveSystemBrandingVersioned(
+  patch: SystemBrandingPatch,
+  expectedRevision: number,
+): Promise<SystemBranding> {
+  if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
+    throw new Error('系统配置版本不可用，请重新加载');
+  }
+  return api.put<SystemBranding>('/system-branding/editor', { ...patch, expectedRevision });
+}
+
 /** 欢迎页字段专用保存 — 客户端 token 即可 (无需后台登录), 只收欢迎页字段 */
 export type WelcomePatch = Partial<Pick<SystemBranding, 'welcomeGuest' | 'welcomeTitle' | 'welcomeTagline' | 'welcomeBgMediaId' | 'welcomePhotoMediaId'>>;
 export async function saveWelcomeConfig(patch: WelcomePatch): Promise<SystemBranding> {

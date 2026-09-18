@@ -1,6 +1,12 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { fetchSystemBranding, saveSystemBranding, type SystemBranding, type SystemBrandingPatch } from '@/services/system-branding.service';
+import {
+  fetchSystemBranding,
+  saveSystemBranding,
+  saveSystemBrandingVersioned,
+  type SystemBranding,
+  type SystemBrandingPatch,
+} from '@/services/system-branding.service';
 
 /**
  * 系统品牌 store — App 启动时 load() 一次, 全局 reactive 复用.
@@ -22,6 +28,7 @@ const FALLBACK: SystemBranding = {
   welcomeTitle: null,
   welcomeTagline: null,
   welcomeBgMediaId: null,
+  configRevision: null,
 };
 
 export const useSystemBrandingStore = defineStore('system-branding', () => {
@@ -54,6 +61,36 @@ export const useSystemBrandingStore = defineStore('system-branding', () => {
     applyFavicon();
   }
 
+  /**
+   * 仅供有管理员编辑权限的页面调用。公共启动读取失败时的 FALLBACK 从不进入这里，
+   * 因而不会把默认名称/Logo 当作可写基线覆盖服务器配置。
+   */
+  async function loadEditorBaseline(): Promise<SystemBranding> {
+    const current = await fetchSystemBranding();
+    if (!Number.isSafeInteger(current.configRevision) || (current.configRevision ?? 0) < 1) {
+      throw new Error('系统配置版本不可用，请重新加载');
+    }
+    branding.value = current;
+    loaded.value = true;
+    lastError.value = null;
+    applyBrowserTitle();
+    applyFavicon();
+    return current;
+  }
+
+  async function saveVersioned(patch: SystemBrandingPatch, expectedRevision: number): Promise<SystemBranding> {
+    const confirmed = await saveSystemBrandingVersioned(patch, expectedRevision);
+    if (!Number.isSafeInteger(confirmed.configRevision) || (confirmed.configRevision ?? 0) <= expectedRevision) {
+      throw new Error('服务器未确认系统配置的新版本');
+    }
+    branding.value = confirmed;
+    loaded.value = true;
+    lastError.value = null;
+    applyBrowserTitle();
+    applyFavicon();
+    return confirmed;
+  }
+
   /** 把 browserTitle 实际写到 document.title, App.vue + 改完都调一下 */
   function applyBrowserTitle(): void {
     if (typeof document !== 'undefined' && branding.value.browserTitle) {
@@ -74,10 +111,12 @@ export const useSystemBrandingStore = defineStore('system-branding', () => {
   function applyFavicon(): void {
     if (typeof document === 'undefined') return;
     // 业主有没有上传 logo 都走这个端点 — 没上传时 backend 自己 redirect 到默认.
-    // 加 cache-bust 参数防止浏览器死板拿旧缓存; 业主刚改完 logo 立刻能看到新图.
+    // 使用服务端确认版本而非 data URL 长度：同长度换图、远程 URL 换图都必须刷新。
     const base = import.meta.env.BASE_URL ?? '/';
-    const ts = branding.value.logoUrl ? branding.value.logoUrl.length : 0;
-    const url = `${base}api/system-branding/logo.png?v=${ts}`.replace(/\/+/g, '/');
+    const revision = Number.isSafeInteger(branding.value.configRevision)
+      ? branding.value.configRevision
+      : 0;
+    const url = `${base}api/system-branding/logo.png?v=${revision}`.replace(/\/+/g, '/');
 
     // 标准 favicon
     let icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
@@ -109,5 +148,9 @@ export const useSystemBrandingStore = defineStore('system-branding', () => {
     shortcut.href = url;
   }
 
-  return { branding, loaded, loading, lastError, load, save, applyBrowserTitle, applyFavicon };
+  return {
+    branding, loaded, loading, lastError,
+    load, save, loadEditorBaseline, saveVersioned,
+    applyBrowserTitle, applyFavicon,
+  };
 });

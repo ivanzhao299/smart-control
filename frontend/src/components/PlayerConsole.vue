@@ -25,7 +25,7 @@
  * 投影仪 (slot2) 已拆到独立页 ProjectorPage, 本页只管 LED (slot1)。
  */
 import { computed, onMounted, onScopeDispose, ref , watch } from 'vue';
-import { identityGeneration, captureIdentityGuard, createLatestIdentityRead } from '@/services/identity-boundary';
+import { identityGeneration, captureIdentityGuard, createLatestIdentityRead, onIdentityChange } from '@/services/identity-boundary';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
@@ -41,7 +41,7 @@ import {
   type DisplayFit, type PlaylistItemView, type PlaybackHistoryView,
 } from '@/services/playback.service';
 import { projectorService } from '@/services/projector.service';
-import { fetchSystemBranding, saveWelcomeConfig } from '@/services/system-branding.service';
+import { fetchSystemBranding, saveWelcomeConfigVersioned } from '@/services/system-branding.service';
 import { absUrl } from '@/services/http';
 import { useAdminUnlock } from '@/composables/useAdminUnlock';
 import { powerCircuitsService, type PowerCircuitView } from '@/services/power-circuits.service';
@@ -614,18 +614,90 @@ async function syncParkOpsState(): Promise<void> {
 const welcomeEditOpen = ref(false);
 const welcomeSaving = ref(false);
 const welcomeLoading = ref(false);
+const welcomeNeedsReload = ref(true);
+const welcomeRevision = ref<number | null>(null);
 const welcomeForm = ref({ welcomeTitle: '', welcomeGuest: '', welcomeTagline: '', welcomeBgMediaId: null as number | null });
 const bgAssets = ref<Array<{ id: number; originalName: string; thumbUrl: string | null; fileUrl: string }>>([]);
+const beginWelcomeEditorRead = createLatestIdentityRead(() => !consoleDisposed && welcomeEditOpen.value);
+let welcomeEditorSession = 0;
+let welcomeSaveSession = 0;
+
+type WelcomeEditorDraft = typeof welcomeForm.value;
+function welcomeDraft(): WelcomeEditorDraft {
+  return {
+    welcomeTitle: welcomeForm.value.welcomeTitle.trim(),
+    welcomeGuest: welcomeForm.value.welcomeGuest.trim(),
+    welcomeTagline: welcomeForm.value.welcomeTagline.trim(),
+    welcomeBgMediaId: welcomeForm.value.welcomeBgMediaId,
+  };
+}
+function sameWelcomeDraft(a: WelcomeEditorDraft, b: WelcomeEditorDraft): boolean {
+  return a.welcomeTitle === b.welcomeTitle && a.welcomeGuest === b.welcomeGuest &&
+    a.welcomeTagline === b.welcomeTagline && a.welcomeBgMediaId === b.welcomeBgMediaId;
+}
+function requireWelcomeRevision(value: number | null | undefined): number {
+  if (!Number.isSafeInteger(value) || (value ?? 0) < 1) throw new Error('欢迎页配置版本不可用，请重新加载');
+  return value as number;
+}
+function closeWelcomeEditorNow(): void {
+  welcomeEditorSession += 1;
+  beginWelcomeEditorRead();
+  welcomeEditOpen.value = false;
+  welcomeLoading.value = false;
+  welcomeSaving.value = false;
+  welcomeNeedsReload.value = true;
+  welcomeRevision.value = null;
+  bgAssets.value = [];
+}
+function closeWelcomeEditor(): void {
+  // A confirmed write cannot be cancelled by merely closing the drawer. Keep its
+  // state visible until the request settles, rather than presenting an uncertain
+  // outcome as a discarded draft.
+  if (welcomeSaving.value) return;
+  closeWelcomeEditorNow();
+}
+
+// PlayerConsole stays mounted while the operator changes account/session. A
+// stale write must not leave the next identity permanently in a "saving" state.
+const stopWelcomeIdentityListener = onIdentityChange(() => {
+  welcomeEditorSession += 1;
+  welcomeSaveSession += 1;
+  welcomeSaving.value = false;
+  welcomeLoading.value = false;
+  welcomeNeedsReload.value = true;
+  welcomeRevision.value = null;
+  bgAssets.value = [];
+});
+onScopeDispose(stopWelcomeIdentityListener);
 
 async function openWelcomeEditor(): Promise<void> {
-  if (!(await ensureAdmin('编辑欢迎页'))) return;
+  const currentAction = captureConsoleAction();
+  if (!(await ensureAdmin('编辑欢迎页')) || !currentAction()) return;
   welcomeEditOpen.value = true;
+  await loadWelcomeEditor(false);
+}
+
+async function loadWelcomeEditor(confirmDiscard: boolean): Promise<void> {
+  if (!welcomeEditOpen.value || welcomeSaving.value) return;
+  if (confirmDiscard && !welcomeNeedsReload.value) {
+    try {
+      await ElMessageBox.confirm('刷新会放弃当前未保存的欢迎页草稿，是否继续？', '重新读取配置', {
+        type: 'warning', confirmButtonText: '刷新', cancelButtonText: '取消',
+      });
+    } catch { return; }
+  }
+  const session = ++welcomeEditorSession;
+  const currentRead = beginWelcomeEditorRead();
+  const currentAction = captureConsoleAction();
   welcomeLoading.value = true;
+  welcomeNeedsReload.value = true;
   try {
     const [branding, imgs] = await Promise.all([
       fetchSystemBranding(),
       mediaService.list({ kind: 'image' }),
     ]);
+    if (!currentRead() || !currentAction() || session !== welcomeEditorSession) return;
+    const revision = requireWelcomeRevision(branding.configRevision);
     welcomeForm.value = {
       welcomeTitle: branding.welcomeTitle ?? '',
       welcomeGuest: branding.welcomeGuest ?? '',
@@ -633,29 +705,59 @@ async function openWelcomeEditor(): Promise<void> {
       welcomeBgMediaId: branding.welcomeBgMediaId ?? null,
     };
     bgAssets.value = imgs.items.map((m) => ({ id: m.id, originalName: m.originalName, thumbUrl: m.thumbUrl, fileUrl: m.fileUrl }));
+    welcomeRevision.value = revision;
+    welcomeNeedsReload.value = false;
   } catch (e) {
-    ElMessage.error(`读取欢迎页配置失败: ${(e as Error).message}`);
-  } finally { welcomeLoading.value = false; }
+    if (currentRead() && currentAction() && session === welcomeEditorSession) {
+      welcomeRevision.value = null;
+      ElMessage.error(`读取欢迎页配置失败: ${(e as Error).message}`);
+    }
+  } finally {
+    if (currentRead() && currentAction() && session === welcomeEditorSession) welcomeLoading.value = false;
+  }
 }
 
 async function saveWelcomeEdit(): Promise<void> {
+  if (welcomeSaving.value || welcomeNeedsReload.value) return;
+  let revision: number;
+  try { revision = requireWelcomeRevision(welcomeRevision.value); } catch {
+    welcomeNeedsReload.value = true;
+    ElMessage.error('欢迎页配置版本不可用，请刷新核对');
+    return;
+  }
+  const currentAction = captureConsoleAction();
+  const session = welcomeEditorSession;
+  const saveId = ++welcomeSaveSession;
+  const submitted = welcomeDraft();
   welcomeSaving.value = true;
   try {
-    await saveWelcomeConfig({
-      welcomeTitle: welcomeForm.value.welcomeTitle.trim() || null,
-      welcomeGuest: welcomeForm.value.welcomeGuest.trim() || null,
-      welcomeTagline: welcomeForm.value.welcomeTagline.trim() || null,
-      welcomeBgMediaId: welcomeForm.value.welcomeBgMediaId,
-    });
+    const confirmed = await saveWelcomeConfigVersioned({
+      welcomeTitle: submitted.welcomeTitle || null,
+      welcomeGuest: submitted.welcomeGuest || null,
+      welcomeTagline: submitted.welcomeTagline || null,
+      welcomeBgMediaId: submitted.welcomeBgMediaId,
+    }, revision);
+    if (!currentAction() || session !== welcomeEditorSession || saveId !== welcomeSaveSession) return;
+    welcomeRevision.value = requireWelcomeRevision(confirmed.configRevision);
     // 本屏正在播欢迎页 → 重推强制 kiosk 刷新, 立即生效; 没在播就不打扰当前内容
     if (activeSource.value === 'welcome-editable') {
       await publishWelcome(SLOT.value, 'editable').catch(() => {});
     }
-    welcomeEditOpen.value = false;
-    ElMessage.success('欢迎页已保存, 大屏几秒内更新');
+    if (!currentAction() || session !== welcomeEditorSession || saveId !== welcomeSaveSession) return;
+    if (sameWelcomeDraft(submitted, welcomeDraft())) {
+      closeWelcomeEditorNow();
+      ElMessage.success('欢迎页已保存，已发送刷新指令');
+    } else {
+      ElMessage.info('已保存上一版草稿；你继续输入的内容仍在，请再次保存');
+    }
   } catch (e) {
-    ElMessage.error(`保存失败: ${(e as Error).message}`);
-  } finally { welcomeSaving.value = false; }
+    if (currentAction() && session === welcomeEditorSession && saveId === welcomeSaveSession) {
+      welcomeNeedsReload.value = true;
+      ElMessage.error(`保存结果未确认，请刷新核对后再操作: ${(e as Error).message}`);
+    }
+  } finally {
+    if (currentAction() && session === welcomeEditorSession && saveId === welcomeSaveSession) welcomeSaving.value = false;
+  }
 }
 
 // ============ 拖拽排序 ============
@@ -1025,31 +1127,35 @@ const { fileInput, uploading, uploadPct, pickFile, onFilePicked, webpageDialog, 
     </div>
 
     <!-- 欢迎页编辑器 (2026-07-28 业主: "编辑放到前端"): 文字 + 底图就地编辑, 保存立即生效 -->
-    <div v-if="welcomeEditOpen" class="pick-mask" @click.self="welcomeEditOpen = false">
+    <div v-if="welcomeEditOpen" class="pick-mask" @click.self="closeWelcomeEditor">
       <div class="pick-box we-box">
         <header class="pick-head">
           <span class="pick-title"><Pencil :size="16" /> 编辑欢迎页</span>
-          <button class="pick-close" @click="welcomeEditOpen = false"><X :size="18" /></button>
+          <button class="pick-close" :disabled="welcomeSaving" @click="closeWelcomeEditor"><X :size="18" /></button>
         </header>
         <div v-if="welcomeLoading" class="pick-empty">读取中…</div>
         <template v-else>
+          <div v-if="welcomeNeedsReload" class="pick-empty">
+            当前配置尚未核实，不能保存或覆盖。
+            <button class="v2-quick" :disabled="welcomeSaving" @click="loadWelcomeEditor(false)">刷新核对</button>
+          </div>
           <div class="we-scroll">
             <label class="wb-label">主标题 (空 = 默认「热烈欢迎」)</label>
-            <input v-model="welcomeForm.welcomeTitle" class="wb-input" maxlength="16" placeholder="热烈欢迎" />
+            <input v-model="welcomeForm.welcomeTitle" class="wb-input" :disabled="welcomeSaving || welcomeNeedsReload" maxlength="16" placeholder="热烈欢迎" />
             <label class="wb-label">嘉宾称谓 (显示为 恭迎 ×× 莅临参观指导)</label>
-            <input v-model="welcomeForm.welcomeGuest" class="wb-input" maxlength="64" placeholder="各位领导嘉宾" />
+            <input v-model="welcomeForm.welcomeGuest" class="wb-input" :disabled="welcomeSaving || welcomeNeedsReload" maxlength="64" placeholder="各位领导嘉宾" />
             <label class="wb-label">底部标语 (空 = 默认「智慧展厅 · 数字展贸 · 科创未来」)</label>
-            <input v-model="welcomeForm.welcomeTagline" class="wb-input" maxlength="64" placeholder="智慧展厅 · 数字展贸 · 科创未来" />
+            <input v-model="welcomeForm.welcomeTagline" class="wb-input" :disabled="welcomeSaving || welcomeNeedsReload" maxlength="64" placeholder="智慧展厅 · 数字展贸 · 科创未来" />
             <label class="wb-label">底图模板 — 选媒体库图片当底图; 想用新图先在本页「上传内容」传一张</label>
             <div class="we-bg-grid">
               <button
                 class="we-bg-item" :class="{ on: welcomeForm.welcomeBgMediaId === null }"
-                title="内置鎏金夜湖底图" @click="welcomeForm.welcomeBgMediaId = null"
+                :disabled="welcomeSaving || welcomeNeedsReload" title="内置鎏金夜湖底图" @click="welcomeForm.welcomeBgMediaId = null"
               ><span class="we-bg-default">默认底图<br>「鎏金夜湖」</span></button>
               <button
                 v-for="a in bgAssets" :key="a.id"
                 class="we-bg-item" :class="{ on: welcomeForm.welcomeBgMediaId === a.id }"
-                :title="a.originalName" @click="welcomeForm.welcomeBgMediaId = a.id"
+                :disabled="welcomeSaving || welcomeNeedsReload" :title="a.originalName" @click="welcomeForm.welcomeBgMediaId = a.id"
               >
                 <img :src="absUrl(a.thumbUrl || a.fileUrl)" alt="" loading="lazy" />
                 <span class="we-bg-name">{{ a.originalName }}</span>
@@ -1057,8 +1163,9 @@ const { fileInput, uploading, uploadPct, pickFile, onFilePicked, webpageDialog, 
             </div>
           </div>
           <div class="wb-actions">
-            <button class="v2-quick" @click="welcomeEditOpen = false">取消</button>
-            <button class="v2-quick primary" :disabled="welcomeSaving" @click="saveWelcomeEdit">{{ welcomeSaving ? '保存中…' : '保存并生效' }}</button>
+            <button class="v2-quick" :disabled="welcomeSaving" @click="closeWelcomeEditor">取消</button>
+            <button class="v2-quick" :disabled="welcomeSaving" @click="loadWelcomeEditor(true)">重新读取</button>
+            <button class="v2-quick primary" :disabled="welcomeSaving || welcomeNeedsReload" @click="saveWelcomeEdit">{{ welcomeSaving ? '保存中…' : '保存并生效' }}</button>
           </div>
         </template>
       </div>

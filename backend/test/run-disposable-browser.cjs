@@ -49,6 +49,11 @@ async function main() {
   const server = spawn(process.execPath, [resolve(__dirname, '../dist/main.js')], { cwd: root,
     env: { PATH: process.env.PATH, DB_PATH: join(root, 'test.sqlite'), MEDIA_ROOT: join(root, 'media'),
       LOG_DIR: join(root, 'logs'), DB_SYNCHRONIZE: 'false', MOCK_MODE: 'true', BIND_HOST: '127.0.0.1', PORT: '33291',
+      // Migration fixtures contain historic camera addressing. Browser acceptance
+      // must never let camera widgets or normal boot-time HLS recovery contact
+      // a field endpoint, even read-only, so both paths are explicitly off.
+      HLS_AUTOSTART: 'off',
+      CAMERA_NETWORK_DISABLED: 'true',
       PLAYER_DEVICE_CREDENTIALS: JSON.stringify(Object.entries({ 1: playerToken, ...extraPlayerTokens }).map(([slot, token]) => ({
         id: `disposable-kiosk-${slot}`, sha256: createHash('sha256').update(token).digest('hex'), slots: [Number(slot)], enabled: true,
       }))) },

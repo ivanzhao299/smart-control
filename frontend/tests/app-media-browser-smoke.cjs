@@ -12,6 +12,7 @@ const { verifyParkOpsLayout } = require('./park-ops-layout-browser.cjs');
 const { verifyPowerConfiguration } = require('./power-config-browser.cjs');
 const { verifyBrandReferenceIntegrity } = require('./brand-reference-browser.cjs');
 const { verifySystemBrandingApi } = require('./system-branding-api.cjs');
+const { verifySystemBrandingEditors } = require('./system-branding-editors-browser.cjs');
 const backend = 'http://127.0.0.1:33291/api';
 function nodeFetch(url, init = {}) {
   const headers = new Headers(init.headers);
@@ -368,6 +369,9 @@ async function api(route, method, body, token, admin = false) {
         await verifyPowerConfiguration(page, appBase, { api, admin, operator: accounts.operator.token, backend, nodeFetch });
         await verifyBrandReferenceIntegrity(page, appBase, { api, admin, operator: accounts.operator.token, backend, nodeFetch });
         await verifySystemBrandingApi({ api, admin, operator: accounts.operator.token, backend, nodeFetch });
+        await verifySystemBrandingEditors({
+          page, appBase, api, admin, backend, nodeFetch,
+        });
 
         // Two editors cannot silently overwrite each other. This only writes the disposable SQLite domain.
         await page.goto(appBase + '/admin/park-ops-metrics');

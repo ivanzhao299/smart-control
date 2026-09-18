@@ -58,6 +58,19 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
   }
 
   /**
+   * Explicit isolation switch for disposable/browser acceptance environments.
+   * MOCK_MODE models control adapters, but historical camera bindings still
+   * contain LAN addresses; never let a test process open a snapshot or RTSP
+   * connection merely because a rendered page mounts a camera widget.
+   */
+  private assertCameraNetworkEnabled(): void {
+    const flag = (process.env.CAMERA_NETWORK_DISABLED ?? '').trim().toLowerCase();
+    if (flag === '1' || flag === 'true' || flag === 'on') {
+      throw new Error('摄像头网络已在当前隔离环境中禁用');
+    }
+  }
+
+  /**
    * 健康检查：监控FFmpeg进程状态和HLS分片更新，异常自动重启
    */
   private checkHlsHealth(): void {
@@ -196,6 +209,7 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
    * 获取指定通道的快照
    */
   async getSnapshot(channel: string): Promise<{ buffer: Buffer; contentType: string }> {
+    this.assertCameraNetworkEnabled();
     const channelKey = channel.toLowerCase();
     const binding = this.resolveBinding(channelKey);
     const nvr = binding.nvr;
@@ -219,6 +233,7 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
    * @returns HLS播放列表路径
    */
   async startHlsStream(channel: string): Promise<{ playlistUrl: string; outputDir: string }> {
+    this.assertCameraNetworkEnabled();
     const binding = this.resolveBinding(channel.toLowerCase());
     const channelKey = binding.id.toLowerCase();
 

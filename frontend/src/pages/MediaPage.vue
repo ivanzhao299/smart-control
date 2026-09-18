@@ -35,6 +35,7 @@ import { useSystemBrandingStore } from '@/stores/system-branding';
 import { absUrl, HttpError, api } from '@/services/http';
 import { useAdminAuthStore } from '@/stores/admin-auth';
 import { useCurrentActor } from '@/services/current-actor';
+import { captureIdentityGuard, onIdentityChange } from '@/services/identity-boundary';
 const { isAdmin: actorIsAdmin, canOperate, canEditMedia } = useCurrentActor();
 let disposed = false;
 import MediaAdminPanel from '@/components/MediaAdminPanel.vue';
@@ -559,30 +560,46 @@ function currentSlotFor(mediaId: number): string {
 
 /** 是不是当前欢迎页 — 用来给卡片加"欢迎页"标记 */
 const welcomeMediaId = computed<number | null>(() => brandingStore.branding.welcomeMediaId);
+const welcomeBindingBusy = ref(false);
 function isWelcome(m: MediaItem): boolean {
   return welcomeMediaId.value === m.id;
 }
 
 /** 设为欢迎页 — 写到 system-branding.welcomeMediaId, LED 欢迎页按钮后续就播这个 */
 async function setAsWelcome(m: MediaItem): Promise<void> {
-  if (disposed || !actorIsAdmin.value) return;
+  if (disposed || !actorIsAdmin.value || welcomeBindingBusy.value) return;
+  const currentAction = captureIdentityGuard(() => !disposed && actorIsAdmin.value);
+  welcomeBindingBusy.value = true;
   try {
-    await brandingStore.save({ welcomeMediaId: m.id });
+    const baseline = await brandingStore.loadEditorBaseline();
+    if (!currentAction()) return;
+    await brandingStore.saveVersioned({ welcomeMediaId: m.id }, baseline.configRevision!);
+    if (!currentAction()) return;
     ElMessage.success(`已把「${m.originalName}」设为欢迎页, LED 点欢迎页就播这个`);
   } catch (e) {
-    ElMessage.error(`设置失败: ${(e as Error).message}`);
-  }
+    if (currentAction()) ElMessage.error(`设置结果未确认，请刷新核对: ${(e as Error).message}`);
+  } finally { if (currentAction()) welcomeBindingBusy.value = false; }
 }
 
 /** 取消欢迎页绑定 → LED 欢迎页按钮回落到 V2460 内置 preset (老逻辑) */
 async function clearWelcome(): Promise<void> {
-  if (disposed || !actorIsAdmin.value) return;
+  if (disposed || !actorIsAdmin.value || welcomeBindingBusy.value) return;
+  const expectedMediaId = welcomeMediaId.value;
+  if (!expectedMediaId) return;
+  const currentAction = captureIdentityGuard(() => !disposed && actorIsAdmin.value);
+  welcomeBindingBusy.value = true;
   try {
-    await brandingStore.save({ welcomeMediaId: null });
+    const baseline = await brandingStore.loadEditorBaseline();
+    if (!currentAction()) return;
+    if (baseline.welcomeMediaId !== expectedMediaId) {
+      throw new Error('欢迎页绑定已由其他终端变更');
+    }
+    await brandingStore.saveVersioned({ welcomeMediaId: null }, baseline.configRevision!);
+    if (!currentAction()) return;
     ElMessage.success('已取消欢迎页绑定, 后续 LED 欢迎页走控制器内置预设');
   } catch (e) {
-    ElMessage.error(`取消失败: ${(e as Error).message}`);
-  }
+    if (currentAction()) ElMessage.error(`取消结果未确认，请刷新核对: ${(e as Error).message}`);
+  } finally { if (currentAction()) welcomeBindingBusy.value = false; }
 }
 
 onMounted(async () => {
@@ -600,7 +617,16 @@ function stopProcessingPoll(): void {
   if (processingRefreshTimer !== undefined) { window.clearInterval(processingRefreshTimer); processingRefreshTimer = undefined; }
 }
 useActivePolling(() => { void refresh(); startProcessingPoll(); }, stopProcessingPoll);
-onBeforeUnmount(() => { disposed = true; stopProcessingPoll(); });
+const stopWelcomeBindingIdentityListener = onIdentityChange(() => {
+  // An old identity's in-flight request is ignored by its guard. Release this
+  // page's visual lock so the next identity can read a fresh baseline.
+  welcomeBindingBusy.value = false;
+});
+onBeforeUnmount(() => {
+  disposed = true;
+  stopWelcomeBindingIdentityListener();
+  stopProcessingPoll();
+});
 </script>
 
 <template>
@@ -754,7 +780,7 @@ onBeforeUnmount(() => { disposed = true; stopProcessingPoll(); });
                   <el-dropdown-item :command="1">推到 LED 大屏 (HDMI1)</el-dropdown-item>
                   <el-dropdown-item :command="2">推到投影仪 (HDMI2)</el-dropdown-item>
                   <el-dropdown-item :command="'both'" divided>同时推两路</el-dropdown-item>
-                  <el-dropdown-item v-if="actorIsAdmin && m.kind !== 'webpage' && m.kind !== 'audio'" :command="'welcome'" divided :disabled="isWelcome(m)">{{ isWelcome(m) ? '✓ 已是欢迎页' : '设为欢迎页' }}</el-dropdown-item>
+                  <el-dropdown-item v-if="actorIsAdmin && m.kind !== 'webpage' && m.kind !== 'audio'" :command="'welcome'" divided :disabled="isWelcome(m) || welcomeBindingBusy">{{ isWelcome(m) ? '✓ 已是欢迎页' : welcomeBindingBusy ? '正在核对…' : '设为欢迎页' }}</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
@@ -804,7 +830,7 @@ onBeforeUnmount(() => { disposed = true; stopProcessingPoll(); });
                   <el-dropdown-item :command="1">推到 LED 大屏 (HDMI1)</el-dropdown-item>
                   <el-dropdown-item :command="2">推到投影仪 (HDMI2)</el-dropdown-item>
                   <el-dropdown-item :command="'both'" divided>同时推两路</el-dropdown-item>
-                  <el-dropdown-item v-if="actorIsAdmin && m.kind !== 'webpage' && m.kind !== 'audio'" :command="'welcome'" divided :disabled="isWelcome(m)">{{ isWelcome(m) ? '✓ 已是欢迎页' : '设为欢迎页' }}</el-dropdown-item>
+                  <el-dropdown-item v-if="actorIsAdmin && m.kind !== 'webpage' && m.kind !== 'audio'" :command="'welcome'" divided :disabled="isWelcome(m) || welcomeBindingBusy">{{ isWelcome(m) ? '✓ 已是欢迎页' : welcomeBindingBusy ? '正在核对…' : '设为欢迎页' }}</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
@@ -861,7 +887,7 @@ onBeforeUnmount(() => { disposed = true; stopProcessingPoll(); });
                   <el-dropdown-item :command="1">推到 LED 大屏 (HDMI1)</el-dropdown-item>
                   <el-dropdown-item :command="2">推到投影仪 (HDMI2)</el-dropdown-item>
                   <el-dropdown-item :command="'both'" divided>同时推两路</el-dropdown-item>
-                  <el-dropdown-item v-if="actorIsAdmin && m.kind !== 'webpage' && m.kind !== 'audio'" :command="'welcome'" divided :disabled="isWelcome(m)">{{ isWelcome(m) ? '✓ 已是欢迎页' : '设为欢迎页' }}</el-dropdown-item>
+                  <el-dropdown-item v-if="actorIsAdmin && m.kind !== 'webpage' && m.kind !== 'audio'" :command="'welcome'" divided :disabled="isWelcome(m) || welcomeBindingBusy">{{ isWelcome(m) ? '✓ 已是欢迎页' : welcomeBindingBusy ? '正在核对…' : '设为欢迎页' }}</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
@@ -1135,7 +1161,7 @@ onBeforeUnmount(() => { disposed = true; stopProcessingPoll(); });
             </button>
             <button
               class="v2-quick"
-              :disabled="!actorIsAdmin || isWelcome(previewItem)"
+              :disabled="!actorIsAdmin || isWelcome(previewItem) || welcomeBindingBusy"
               :title="isWelcome(previewItem) ? '已是欢迎页, 点 LED 欢迎页按钮就播这个' : '点 LED 欢迎页按钮时就播这个'"
               @click="setAsWelcome(previewItem)"
             >
