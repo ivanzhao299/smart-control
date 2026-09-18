@@ -10,6 +10,8 @@ import { api } from './http';
  */
 
 export interface SystemBranding {
+  /** 服务端确认版本；缺失/null 的兼容或降级响应不可作为编辑基线。 */
+  readonly configRevision?: number | null;
   systemName: string;
   systemSubtitle: string | null;
   logoText: string;
@@ -43,7 +45,7 @@ export interface SystemBranding {
   welcomePhotoUrl?: string | null;
 }
 
-export type SystemBrandingPatch = Partial<SystemBranding>;
+export type SystemBrandingPatch = Partial<Omit<SystemBranding, 'configRevision' | 'welcomeBgUrl' | 'welcomePhotoUrl'>>;
 
 export async function fetchSystemBranding(): Promise<SystemBranding> {
   return api.get<SystemBranding>('/system-branding');
@@ -57,4 +59,12 @@ export async function saveSystemBranding(patch: SystemBrandingPatch): Promise<Sy
 export type WelcomePatch = Partial<Pick<SystemBranding, 'welcomeGuest' | 'welcomeTitle' | 'welcomeTagline' | 'welcomeBgMediaId' | 'welcomePhotoMediaId'>>;
 export async function saveWelcomeConfig(patch: WelcomePatch): Promise<SystemBranding> {
   return api.put<SystemBranding>('/system-branding/welcome', patch);
+}
+
+/** 不在保存时重读版本，调用方必须提交其原始快照版本。 */
+export async function saveWelcomeConfigVersioned(patch: WelcomePatch, expectedRevision: number): Promise<SystemBranding> {
+  if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
+    throw new Error('欢迎页配置版本不可用，请重新加载');
+  }
+  return api.put<SystemBranding>('/system-branding/welcome/editor', { ...patch, expectedRevision });
 }

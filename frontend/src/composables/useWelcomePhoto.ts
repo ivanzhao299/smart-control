@@ -1,10 +1,11 @@
 import { ref } from 'vue';
 import { mediaService } from '@/services/media.service';
 import { getApiBaseURL, getAdminToken, getClientToken } from '@/services/http';
-import { fetchSystemBranding, saveWelcomeConfig } from '@/services/system-branding.service';
+import { fetchSystemBranding, saveWelcomeConfig, saveWelcomeConfigVersioned } from '@/services/system-branding.service';
+import { identityGeneration, assertCurrentIdentity } from '@/services/identity-boundary';
 import { useToastStore } from '@/stores/toast';
 import { parkOpsControlService } from '@/services/park-ops-control.service';
-import { publishWelcomePhoto } from '@/services/welcome-photo-publisher';
+import { publishWelcomePhoto, WelcomePhotoBindingUnconfirmedError } from '@/services/welcome-photo-publisher';
 
 /**
  * 来访者拍照上墙 (2026-09-14; 2026-09-15 修复 PWA 拍照闪退)
@@ -260,18 +261,14 @@ export function useWelcomePhoto() {
 
   /** 通过现有翻页通道让大屏立刻回到第 1 页(欢迎页)。 */
   async function gotoWelcomePage(): Promise<void> {
-    try {
-      await parkOpsControlService.goto(0);
-    } catch {
-      /* 跳页失败不阻断照片上墙 */
-    }
+    await parkOpsControlService.goto(0);
   }
 
   /**
    * 上墙小图走原生 fetch 上传(绕开 media.service 里 axios 的 adapter:'fetch' ——
    * 该流式 adapter 对 multipart 在部分 WebView / Chrome localhost 下会报
    * ERR_ALPN / Network Error, 而原生 fetch 正常)。小图无需上传进度回调。
-   * 带一次"仅网络层/5xx"自动重试, 提升真机弱网成功率; 业务 4xx 不重试。
+   * 未有服务端幂等键前不自动重试：网络断开不代表上传未成功。
    */
   async function uploadLedPhoto(file: File): Promise<{ id: number }> {
     const fd = new FormData();
@@ -290,29 +287,19 @@ export function useWelcomePhoto() {
     return j.data;
   }
 
-  async function uploadWithRetry(file: File, tries = 2): Promise<{ id: number }> {
-    let last: unknown;
-    for (let i = 0; i < tries; i += 1) {
-      try {
-        return await uploadLedPhoto(file);
-      } catch (e) {
-        last = e;
-        const status = (e as { status?: number })?.status;
-        if (typeof status === 'number' && status < 500) throw e;
-        await new Promise((r) => setTimeout(r, 400));
-      }
-    }
-    throw last;
-  }
-
-  async function publishPhoto(led: File, original: File): Promise<void> {
+  async function publishPhoto(led: File, original: File, generation: number): Promise<void> {
     try {
+      assertCurrentIdentity(generation);
       const published = await publishWelcomePhoto(led, {
-        readCurrentMediaId: async () =>
-          (await fetchSystemBranding()).welcomePhotoMediaId ?? null,
-        uploadLedPhoto: uploadWithRetry,
-        bindWelcomePhoto: async mediaId => {
-          await saveWelcomeConfig({ welcomePhotoMediaId: mediaId });
+        assertActive: () => assertCurrentIdentity(generation),
+        readCurrent: async () => {
+          const current = await fetchSystemBranding();
+          return { mediaId: current.welcomePhotoMediaId ?? null, revision: current.configRevision };
+        },
+        uploadLedPhoto,
+        bindWelcomePhoto: async (mediaId, expectedRevision) => {
+          const confirmed = await saveWelcomeConfigVersioned({ welcomePhotoMediaId: mediaId }, expectedRevision);
+          return { mediaId: confirmed.welcomePhotoMediaId ?? null, revision: confirmed.configRevision };
         },
         showWelcomePage: gotoWelcomePage,
         // 删除走后端可恢复删除，不物理清除；失败不破坏当前绑定。
@@ -320,18 +307,22 @@ export function useWelcomePhoto() {
           await mediaService.remove(mediaId);
         },
       });
+      assertCurrentIdentity(generation);
       // 原画只保存在本机；分享/下载仍由用户稍后主动触发。
       pendingOriginal.value = original;
       hasPhoto.value = true;
       const idForIdb = published.mediaId;
       setTimeout(() => {
+        if (generation !== identityGeneration()) return;
         void idbSet({ mediaId: idForIdb, ts: Date.now(), file: original });
       }, 0);
-      toast.success('照片已上墙，大屏已切到欢迎页');
+      if (published.shown) toast.success('照片已上墙，已发送切到欢迎页指令');
+      else toast.info('照片已绑定，但切页指令未确认，请手动切到欢迎页');
     } catch (e) {
+      if (generation !== identityGeneration()) return;
       console.error('welcome photo upload failed', e);
-      pendingOriginal.value = null;
-      toast.error('照片上墙失败，请重试');
+      if (e instanceof WelcomePhotoBindingUnconfirmedError) toast.error(e.message);
+      else toast.error('照片发布未确认，请先刷新核对，不要重复上传');
     }
   }
 
@@ -340,7 +331,7 @@ export function useWelcomePhoto() {
     if (busy.value) return;
     busy.value = true;
     try {
-      await publishPhoto(led, original);
+      await publishPhoto(led, original, identityGeneration());
     } finally {
       busy.value = false;
     }
@@ -352,10 +343,11 @@ export function useWelcomePhoto() {
     const original = input.files?.[0];
     input.value = '';
     if (!original || busy.value) return;
+    const generation = identityGeneration();
     busy.value = true;
     try {
       const led = await compressForLed(original);
-      await publishPhoto(led, original);
+      await publishPhoto(led, original, generation);
     } catch (e) {
       console.error('welcome photo decode failed', e);
       toast.error('无法读取这张照片，请换一张重试');

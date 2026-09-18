@@ -1,7 +1,14 @@
+export interface WelcomePhotoSnapshot {
+  mediaId: number | null;
+  revision: number | null | undefined;
+}
+
 export interface WelcomePhotoPublishDependencies {
-  readCurrentMediaId: () => Promise<number | null>;
+  readCurrent: () => Promise<WelcomePhotoSnapshot>;
+  /** 跨异步步骤核对原账号/服务器；失效即停止后续副作用。 */
+  assertActive: () => void;
   uploadLedPhoto: (file: File) => Promise<{ id: number }>;
-  bindWelcomePhoto: (mediaId: number) => Promise<void>;
+  bindWelcomePhoto: (mediaId: number, expectedRevision: number) => Promise<WelcomePhotoSnapshot>;
   showWelcomePage: () => Promise<void>;
   removeMedia: (mediaId: number) => Promise<void>;
 }
@@ -9,30 +16,67 @@ export interface WelcomePhotoPublishDependencies {
 export interface WelcomePhotoPublishResult {
   mediaId: number;
   previousMediaId: number | null;
+  shown: boolean;
+}
+
+export class WelcomePhotoBindingUnconfirmedError extends Error {
+  constructor(public readonly mediaId: number) {
+    super('照片已上传，但绑定结果未确认；请先刷新核对，勿重复上传');
+    this.name = 'WelcomePhotoBindingUnconfirmedError';
+  }
+}
+
+function requireRevision(snapshot: WelcomePhotoSnapshot): number {
+  if (!Number.isSafeInteger(snapshot.revision) || (snapshot.revision ?? 0) < 1) {
+    throw new Error('欢迎页配置版本不可用，请重新加载');
+  }
+  return snapshot.revision as number;
 }
 
 /**
  * 拍照上墙的可测试业务边界。
  *
- * 新文件先进入媒体库，绑定成功后才切换大屏和回收旧文件。绑定失败时尽力回收
- * 本次新上传，绝不删除仍在欢迎页使用的旧文件。
+ * 读取成功且版本有效才上传；以原始版本绑定一次。回执丢失时只读核实，
+ * 不重试写入、不盲删新图。不确定的文件保留在媒体库，后续由用户核对处理。
  */
 export async function publishWelcomePhoto(
   ledPhoto: File,
   dependencies: WelcomePhotoPublishDependencies,
 ): Promise<WelcomePhotoPublishResult> {
-  const previousMediaId = await dependencies.readCurrentMediaId().catch(() => null);
+  dependencies.assertActive();
+  const before = await dependencies.readCurrent();
+  dependencies.assertActive();
+  const expectedRevision = requireRevision(before);
+  const previousMediaId = before.mediaId;
   const uploaded = await dependencies.uploadLedPhoto(ledPhoto);
+  dependencies.assertActive();
+  const confirmsBinding = (snapshot: WelcomePhotoSnapshot) =>
+    snapshot.mediaId === uploaded.id && requireRevision(snapshot) > expectedRevision;
   try {
-    await dependencies.bindWelcomePhoto(uploaded.id);
-  } catch (error) {
-    await dependencies.removeMedia(uploaded.id).catch(() => undefined);
-    throw error;
+    const confirmed = await dependencies.bindWelcomePhoto(uploaded.id, expectedRevision);
+    dependencies.assertActive();
+    if (!confirmsBinding(confirmed)) throw new Error('绑定回执不匹配');
+  } catch {
+    dependencies.assertActive();
+    let current: WelcomePhotoSnapshot;
+    try {
+      current = await dependencies.readCurrent();
+      dependencies.assertActive();
+      if (!confirmsBinding(current)) throw new Error('绑定未确认');
+    } catch {
+      dependencies.assertActive();
+      throw new WelcomePhotoBindingUnconfirmedError(uploaded.id);
+    }
   }
 
-  await dependencies.showWelcomePage().catch(() => undefined);
+  dependencies.assertActive();
+  let shown = true;
+  await dependencies.showWelcomePage().catch(() => { shown = false; });
+  dependencies.assertActive();
   if (previousMediaId && previousMediaId !== uploaded.id) {
+    // 后端仍须在删除事务中保护所有欢迎页引用，客户端预检不能消除并发绑定。
     await dependencies.removeMedia(previousMediaId).catch(() => undefined);
   }
-  return { mediaId: uploaded.id, previousMediaId };
+  dependencies.assertActive();
+  return { mediaId: uploaded.id, previousMediaId, shown };
 }
