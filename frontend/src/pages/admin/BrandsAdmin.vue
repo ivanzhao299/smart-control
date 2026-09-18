@@ -1,137 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
-import { brandService, type Brand, type BrandUpsertPayload } from '@/services/brand.service';
+import { computed, onMounted, ref } from 'vue';
+import type { Brand } from '@/services/brand.service';
+import { useBrandConfigEditor } from '@/features/useBrandConfigEditor';
+import { safeBrandLink } from '@/features/brand-links';
 
-const list = ref<Brand[]>([]);
-const loading = ref(false);
+const { list, loading, saving, needsReload, editVisible, editMode, expectedRevision, form,
+  refresh, openCreate, openEdit, submit, remove, toggleEnabled } = useBrandConfigEditor();
 const search = ref('');
-
+const disabled = computed(() => loading.value || saving.value || needsReload.value);
 const filtered = computed<Brand[]>(() => {
-  if (!search.value.trim()) return list.value;
   const q = search.value.trim().toLowerCase();
-  return list.value.filter(
-    (b) =>
-      b.name.toLowerCase().includes(q) ||
-      (b.displayName ?? '').toLowerCase().includes(q) ||
-      (b.country ?? '').toLowerCase().includes(q),
-  );
+  return !q ? list.value : list.value.filter(b =>
+    b.name.toLowerCase().includes(q) || (b.displayName ?? '').toLowerCase().includes(q) ||
+    (b.country ?? '').toLowerCase().includes(q));
 });
-
-async function refresh(): Promise<void> {
-  loading.value = true;
-  try {
-    list.value = await brandService.list();
-  } catch (err) {
-    ElMessage.error(`加载失败: ${(err as Error).message}`);
-  } finally {
-    loading.value = false;
-  }
-}
-
-// ============ 新增/编辑 drawer ============
-const editVisible = ref(false);
-const editMode = ref<'create' | 'edit'>('create');
-const formRef = ref<FormInstance>();
-const form = reactive<BrandUpsertPayload & { id?: number }>({
-  name: '',
-  displayName: '',
-  logoUrl: '',
-  country: '',
-  website: '',
-  salesContact: '',
-  techContact: '',
-  remark: '',
-  enabled: true,
-});
-
-const rules: FormRules = {
-  name: [{ required: true, message: '品牌名必填 (跟硬件清单 vendor 字段对应)', trigger: 'blur' }],
-};
-
-function openCreate(): void {
-  editMode.value = 'create';
-  Object.assign(form, {
-    id: undefined, name: '', displayName: '', logoUrl: '', country: '', website: '',
-    salesContact: '', techContact: '', remark: '', enabled: true,
-  });
-  editVisible.value = true;
-}
-
-function openEdit(row: Brand): void {
-  editMode.value = 'edit';
-  Object.assign(form, {
-    id: row.id,
-    name: row.name,
-    displayName: row.displayName ?? '',
-    logoUrl: row.logoUrl ?? '',
-    country: row.country ?? '',
-    website: row.website ?? '',
-    salesContact: row.salesContact ?? '',
-    techContact: row.techContact ?? '',
-    remark: row.remark ?? '',
-    enabled: row.enabled,
-  });
-  editVisible.value = true;
-}
-
-async function submit(): Promise<void> {
-  if (!formRef.value) return;
-  await formRef.value.validate(async (valid) => {
-    if (!valid) return;
-    const payload: BrandUpsertPayload = {
-      name: form.name.trim(),
-      displayName: form.displayName?.trim() || null,
-      logoUrl: form.logoUrl?.trim() || null,
-      country: form.country?.trim() || null,
-      website: form.website?.trim() || null,
-      salesContact: form.salesContact?.trim() || null,
-      techContact: form.techContact?.trim() || null,
-      remark: form.remark?.trim() || null,
-      enabled: form.enabled,
-    };
-    try {
-      if (editMode.value === 'create') {
-        await brandService.create(payload);
-        ElMessage.success('已新增品牌');
-      } else if (form.id) {
-        await brandService.update(form.id, payload);
-        ElMessage.success('已更新品牌');
-      }
-      editVisible.value = false;
-      await refresh();
-    } catch (err) {
-      ElMessage.error(`保存失败: ${(err as Error).message}`);
-    }
-  });
-}
-
-async function remove(row: Brand): Promise<void> {
-  try {
-    await ElMessageBox.confirm(
-      `删除品牌 "${row.name}"? 当前 ${row.hardwareCount} 台设备 / ${row.driverCount} 个驱动引用此品牌, 若不为 0 后端会拒绝.`,
-      '确认删除',
-      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
-    );
-  } catch { return; }
-  try {
-    await brandService.remove(row.id);
-    ElMessage.success('已删除');
-    await refresh();
-  } catch (err) {
-    ElMessage.error(`删除失败: ${(err as Error).message}`);
-  }
-}
-
-async function toggleEnabled(row: Brand): Promise<void> {
-  try {
-    await brandService.update(row.id, { enabled: !row.enabled });
-    await refresh();
-  } catch (err) {
-    ElMessage.error(`切换状态失败: ${(err as Error).message}`);
-  }
-}
-
 onMounted(refresh);
 </script>
 
@@ -144,15 +26,16 @@ onMounted(refresh);
       </div>
       <div class="actions">
         <el-input v-model="search" placeholder="搜索品牌 / 国家" clearable style="width: 240px;" />
-        <el-button type="primary" @click="openCreate">新增品牌</el-button>
-        <el-button @click="refresh" :loading="loading">刷新</el-button>
+        <el-button type="primary" @click="openCreate" :disabled="disabled || editVisible">新增品牌</el-button>
+        <el-button @click="refresh" :loading="loading" :disabled="saving">刷新</el-button>
       </div>
     </header>
 
+    <el-alert v-if="needsReload" title="请重新读取品牌配置后再保存；未确认的草稿会保留。" type="warning" :closable="false" />
     <el-table :data="filtered" v-loading="loading" stripe class="brands-table">
       <el-table-column label="Logo" width="80">
         <template #default="{ row }">
-          <img v-if="row.logoUrl" :src="row.logoUrl" :alt="row.name" class="logo-thumb" loading="lazy" decoding="async" />
+          <img v-if="safeBrandLink(row.logoUrl, true)" :src="safeBrandLink(row.logoUrl, true)!" :alt="row.name" class="logo-thumb" loading="lazy" decoding="async" />
           <span v-else class="no-logo">—</span>
         </template>
       </el-table-column>
@@ -172,7 +55,7 @@ onMounted(refresh);
       </el-table-column>
       <el-table-column label="官网" width="140">
         <template #default="{ row }">
-          <a v-if="row.website" :href="row.website" target="_blank" rel="noopener" class="link-cell">访问 ↗</a>
+          <a v-if="safeBrandLink(row.website)" :href="safeBrandLink(row.website)!" target="_blank" rel="noopener noreferrer" class="link-cell">访问 ↗</a>
           <span v-else class="muted">—</span>
         </template>
       </el-table-column>
@@ -186,6 +69,7 @@ onMounted(refresh);
         <template #default="{ row }">
           <el-switch
             :model-value="row.enabled"
+            :disabled="disabled || editVisible"
             @change="toggleEnabled(row)"
             inline-prompt
             active-text="启用"
@@ -195,8 +79,8 @@ onMounted(refresh);
       </el-table-column>
       <el-table-column label="操作" width="140" fixed="right">
         <template #default="{ row }">
-          <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-          <el-button link type="danger" @click="remove(row)">删除</el-button>
+          <el-button link type="primary" @click="openEdit(row)" :disabled="disabled || editVisible">编辑</el-button>
+          <el-button link type="danger" @click="remove(row)" :disabled="disabled || editVisible">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -207,7 +91,7 @@ onMounted(refresh);
       size="40%"
       direction="rtl"
     >
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="100px" label-position="right" class="form">
+      <el-form :model="form" label-width="100px" label-position="right" class="form">
         <el-form-item label="品牌标识" prop="name">
           <el-input v-model="form.name" placeholder="跟硬件清单 vendor 字段一致, e.g. 诺瓦 NovaStar" :disabled="editMode === 'edit'" />
           <div class="hint">编辑模式下不能改, 改了会跟硬件清单脱钩</div>
@@ -217,8 +101,8 @@ onMounted(refresh);
         </el-form-item>
         <el-form-item label="Logo URL">
           <el-input v-model="form.logoUrl" placeholder="https://... 或 /media/brand-logos/xxx.png" />
-          <div v-if="form.logoUrl" class="logo-preview">
-            <img :src="form.logoUrl" alt="preview" />
+          <div v-if="safeBrandLink(form.logoUrl, true)" class="logo-preview">
+            <img :src="safeBrandLink(form.logoUrl, true)!" alt="preview" />
           </div>
         </el-form-item>
         <el-form-item label="国家/地区">
@@ -242,7 +126,9 @@ onMounted(refresh);
       </el-form>
       <template #footer>
         <el-button @click="editVisible = false">取消</el-button>
-        <el-button type="primary" @click="submit">保存</el-button>
+        <span v-if="expectedRevision">配置版本 {{ expectedRevision }}</span>
+        <el-button @click="refresh" :disabled="saving" :loading="loading">重新读取</el-button>
+        <el-button type="primary" @click="submit" :loading="saving" :disabled="disabled">保存</el-button>
       </template>
     </el-drawer>
   </section>

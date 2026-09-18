@@ -10,8 +10,18 @@ import {
   ParseIntPipe,
   Post,
   Put,
+  Query,
+  Req,
 } from '@nestjs/common';
-import { BrandsService, type BrandUpsertDto } from './brands.service';
+import { BrandsService } from './brands.service';
+import { AuthenticatedRequest, requireAdmin } from '../../common/auth/actor';
+import {
+  CreateBrandConfigDto,
+  UpdateBrandConfigDto,
+  LegacyUpdateBrandConfigDto,
+  BrandRevisionQueryDto,
+  LegacyBrandRevisionQueryDto,
+} from './brand-config.dto';
 
 @Controller('brands')
 @UseGuards(ConfigurationWriteGuard)
@@ -29,19 +39,47 @@ export class BrandsController {
   }
 
   @Post()
-  async create(@Body() dto: BrandUpsertDto) {
-    return { message: '创建成功', data: await this.service.create(dto) };
+  async create(@Body() dto: CreateBrandConfigDto, @Req() req: AuthenticatedRequest) {
+    return { message: '创建成功', data: await this.service.create(dto, requireAdmin(req)) };
+  }
+
+  @Put('editor/:id')
+  async updateEditor(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateBrandConfigDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return { message: '更新成功', data: await this.service.update(id, dto, requireAdmin(req)) };
+  }
+
+  @Delete('editor/:id')
+  @HttpCode(200)
+  async removeEditor(
+    @Param('id', ParseIntPipe) id: number,
+    @Query() query: BrandRevisionQueryDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    await this.service.remove(id, query.expectedRevision, requireAdmin(req));
+    return { message: '删除成功', data: null };
   }
 
   @Put(':id')
-  async update(@Param('id', ParseIntPipe) id: number, @Body() dto: Partial<BrandUpsertDto>) {
-    return { message: '更新成功', data: await this.service.update(id, dto) };
+  async update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: LegacyUpdateBrandConfigDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return { message: '更新成功', data: await this.service.update(id, dto, requireAdmin(req)) };
   }
 
   @Delete(':id')
   @HttpCode(200)
-  async remove(@Param('id', ParseIntPipe) id: number) {
-    await this.service.remove(id);
+  async remove(
+    @Param('id', ParseIntPipe) id: number,
+    @Query() query: LegacyBrandRevisionQueryDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    await this.service.remove(id, query.expectedRevision, requireAdmin(req));
     return { message: '删除成功', data: null };
   }
 }

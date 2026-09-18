@@ -9,6 +9,7 @@ import { CyDali64aAdapter } from '../../adapters/lighting/cy-dali64a.adapter';
 import { NovaLedAdapter } from '../../adapters/led/nova-led.adapter';
 import { EkxDspAdapter } from '../../adapters/audio/ekx808.adapter';
 import { ModbusHvacAdapter } from '../../adapters/hvac/modbus-hvac.adapter';
+import { BrandsService } from '../brands/brands.service';
 
 export interface RecordParams {
   entityType: 'hardware_unit' | 'driver_template' | 'device' | 'scene';
@@ -30,6 +31,7 @@ export class AuditService {
     private readonly audioAdapter: EkxDspAdapter,
     private readonly hvacAdapter: ModbusHvacAdapter,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
+    private readonly brands: BrandsService,
   ) {}
 
   async record(p: RecordParams): Promise<AuditLog> {
@@ -60,7 +62,9 @@ export class AuditService {
     if (filters.entityId) qb.andWhere('a.entityId = :id', { id: filters.entityId });
     if (filters.action) qb.andWhere('a.action = :ac', { ac: filters.action });
     if (filters.operator) qb.andWhere('a.operator = :op', { op: filters.operator });
-    qb.orderBy('a.createdAt', 'DESC').skip((page - 1) * pageSize).take(pageSize);
+    qb.orderBy('a.createdAt', 'DESC')
+      .skip((page - 1) * pageSize)
+      .take(pageSize);
     const [list, total] = await qb.getManyAndCount();
     return { list, total, page, pageSize };
   }
@@ -86,25 +90,28 @@ export class AuditService {
     const id = target.id ?? Number(audit.entityId);
     if (!id) throw new Error(`audit#${auditId} 缺少 entityId, 无法定位回滚目标`);
 
-    const current = await this.hwRepo.findOne({ where: { id } });
-    if (!current) throw new Error(`hardware_unit#${id} 已删除, 无法回滚`);
-
     // 不允许从 audit 改 id / createdAt 这些 immutable 字段
     delete (target as { id?: number }).id;
     delete (target as { createdAt?: unknown }).createdAt;
     delete (target as { updatedAt?: unknown }).updatedAt;
 
-    const before = JSON.parse(JSON.stringify(current));
-    Object.assign(current, target);
-    const saved = await this.hwRepo.save(current);
-    await this.record({
-      entityType: 'hardware_unit',
-      entityId: id,
-      action: 'rollback',
-      operator,
-      snapshotBefore: before,
-      snapshotAfter: JSON.parse(JSON.stringify(saved)),
-      remark: `rollback from audit#${auditId}`,
+    const saved = await this.brands.withReference(target.vendor, async (manager) => {
+      const repo = manager.getRepository(HardwareUnit);
+      const current = await repo.findOneBy({ id });
+      if (!current) throw new Error(`hardware_unit#${id} 已删除, 无法回滚`);
+      const before = JSON.stringify(current);
+      Object.assign(current, target);
+      const restored = await repo.save(current);
+      await manager.insert(AuditLog, {
+        entityType: 'hardware_unit',
+        entityId: String(id),
+        action: 'rollback',
+        operator,
+        snapshotBefore: before,
+        snapshotAfter: JSON.stringify(restored),
+        remark: `rollback from audit#${auditId}`,
+      });
+      return restored;
     });
 
     // 清掉对应 adapter 的 DB cache, 让 IO 立即用回滚后的值
@@ -117,7 +124,11 @@ export class AuditService {
   }
 
   private invalidateAdaptersFor(code: string, category: string): void {
-    if (code === 'CONV-RTU-1' || category === 'rtu-tcp-converter' || category === 'dali-converter') {
+    if (
+      code === 'CONV-RTU-1' ||
+      category === 'rtu-tcp-converter' ||
+      category === 'dali-converter'
+    ) {
       this.daliAdapter.invalidateConfigCache();
     }
     if (code === 'LED-NOVA-1' || category === 'led-controller') {

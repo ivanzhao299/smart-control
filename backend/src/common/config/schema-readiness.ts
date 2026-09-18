@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 
 export const REQUIRED_SCHEMA_MIGRATIONS = [
+  'AddBrandConfigRevision1789710000000',
   'AddPowerConfigRevision1789700000000',
   'AddAudioConfigRevisions1789690000000',
   'AddDisplayFit1785030000000',
@@ -36,6 +37,7 @@ export const REQUIRED_SCHEMA_MIGRATIONS = [
 ] as const;
 
 export const REQUIRED_SCHEMA_COLUMNS: Record<string, string[]> = {
+  brands: ['config_revision'],
   power_circuit: ['config_revision'],
   audio_output_zone: ['config_revision'],
   audio_input_source: ['config_revision'],
@@ -147,9 +149,12 @@ export function assertSchemaReady(db: {
     for (const table of ['client_auth_v1', 'admin_auth_v1']) {
       const rows = db.prepare(`SELECT id, tokenSecret FROM "${table}"`).all();
       if (
-        rows.length !== 1 || rows[0]?.id !== 1 ||
-        typeof rows[0]?.tokenSecret !== 'string' || !/^[a-f0-9]{64}$/.test(rows[0].tokenSecret)
-      ) throw new Error('identity signing configuration missing');
+        rows.length !== 1 ||
+        rows[0]?.id !== 1 ||
+        typeof rows[0]?.tokenSecret !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(rows[0].tokenSecret)
+      )
+        throw new Error('identity signing configuration missing');
     }
     const administrators = db
       .prepare("SELECT id FROM users WHERE role = 'admin' AND enabled = 1 LIMIT 1")
@@ -173,8 +178,7 @@ export function assertSchemaReady(db: {
       video.revision < 1 ||
       typeof video.document !== 'string' ||
       typeof video.document_sha256 !== 'string' ||
-      createHash('sha256').update(video.document, 'utf8').digest('hex') !==
-        video.document_sha256
+      createHash('sha256').update(video.document, 'utf8').digest('hex') !== video.document_sha256
     ) {
       throw new Error('video binding authority missing or damaged');
     }

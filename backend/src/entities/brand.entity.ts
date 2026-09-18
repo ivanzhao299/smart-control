@@ -66,6 +66,9 @@ export class Brand {
   @Column({ type: 'boolean', default: true })
   enabled!: boolean;
 
+  @Column({ name: 'config_revision', type: 'integer', default: 1 })
+  configRevision!: number;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 

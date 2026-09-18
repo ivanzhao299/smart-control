@@ -14,7 +14,7 @@ describe('Power config revision upgrade from the previous full migration chain',
       database: ':memory:',
       synchronize: false,
       migrations: readdirSync(directory)
-        .filter((name) => name.endsWith('.ts') && !name.startsWith('1789700000000'))
+        .filter((name) => name.endsWith('.ts') && name < '1789700000000')
         .map((name) => resolve(directory, name)),
     }).initialize();
     await db.runMigrations();

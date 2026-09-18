@@ -11,6 +11,7 @@ export interface Brand {
   techContact: string | null;
   remark: string | null;
   enabled: boolean;
+  configRevision: number;
   hardwareCount: number;
   driverCount: number;
   createdAt: string;
@@ -33,6 +34,6 @@ export const brandService = {
   list: () => api.get<Brand[]>('/brands'),
   detail: (id: number) => api.get<Brand>(`/brands/${id}`),
   create: (body: BrandUpsertPayload) => api.post<Brand>('/brands', body),
-  update: (id: number, body: Partial<BrandUpsertPayload>) => api.put<Brand>(`/brands/${id}`, body),
-  remove: (id: number) => api.del<null>(`/brands/${id}`),
+  update: (id: number, body: Partial<BrandUpsertPayload> & { expectedRevision: number }) => api.put<Brand>(`/brands/editor/${id}`, body),
+  remove: (id: number, expectedRevision: number) => api.del<null>(`/brands/editor/${id}?expectedRevision=${expectedRevision}`),
 };

@@ -1,11 +1,18 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
+import { plainToInstance } from 'class-transformer';
+import { validateSync } from 'class-validator';
+import type { Actor } from '../../common/auth/actor';
+import { AuditLog } from '../../entities/audit-log.entity';
+import { User } from '../../entities/user.entity';
+import { CreateBrandConfigDto, LegacyUpdateBrandConfigDto, safeBrandUrl } from './brand-config.dto';
 import { serializedTransaction } from '../../common/utils/serialized-transaction';
 import { Brand } from '../../entities/brand.entity';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
@@ -22,6 +29,7 @@ export interface BrandView {
   techContact: string | null;
   remark: string | null;
   enabled: boolean;
+  configRevision: number;
   /** 统计: 这个品牌在 hardware_unit 表里被多少台设备引用 */
   hardwareCount: number;
   /** 统计: 在 driver_template 表里被多少个驱动引用 */
@@ -30,17 +38,7 @@ export interface BrandView {
   updatedAt: Date;
 }
 
-export interface BrandUpsertDto {
-  name: string;
-  displayName?: string | null;
-  logoUrl?: string | null;
-  country?: string | null;
-  website?: string | null;
-  salesContact?: string | null;
-  techContact?: string | null;
-  remark?: string | null;
-  enabled?: boolean;
-}
+export type BrandUpsertDto = CreateBrandConfigDto;
 
 @Injectable()
 export class BrandsService {
@@ -65,13 +63,12 @@ export class BrandsService {
     writeReference: (manager: EntityManager) => Promise<T>,
   ): Promise<T> {
     return serializedTransaction(this.brandRepo.manager.connection, async (manager) => {
-      if (name?.trim()) {
-        await manager.query(
-          `INSERT INTO brands (name, enabled, created_at, updated_at)
-           SELECT ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-           WHERE NOT EXISTS (SELECT 1 FROM brands WHERE name = ?)`,
-          [name, name],
+      if (name?.trim() && !(await manager.findOneBy(Brand, { name }))) {
+        const saved = await manager.save(
+          Brand,
+          manager.create(Brand, { name, enabled: true, configRevision: 1 }),
         );
+        await this.audit(manager, null, saved, undefined, 'brand-reference:create');
       }
       return writeReference(manager);
     });
@@ -103,7 +100,11 @@ export class BrandsService {
 
   private async detailWithManager(id: number, manager: EntityManager): Promise<BrandView> {
     const row = await manager.findOneBy(Brand, { id });
-    if (!row) throw new NotFoundException(`brand#${id} 不存在`);
+    if (!row)
+      throw new NotFoundException({
+        code: 'BRAND_CONFIG_NOT_FOUND',
+        message: '品牌不存在或已删除',
+      });
     const [hwCount, driverCount] = await Promise.all([
       manager.countBy(HardwareUnit, { vendor: row.name }),
       manager.countBy(DriverTemplate, { vendor: row.name }),
@@ -111,61 +112,149 @@ export class BrandsService {
     return this.toView(row, hwCount, driverCount);
   }
 
-  async create(dto: BrandUpsertDto): Promise<BrandView> {
-    this.assertValidName(dto.name);
-    return serializedTransaction(this.brandRepo.manager.connection, async (manager) => {
-      const repo = manager.getRepository(Brand);
-      const dup = await repo.findOne({ where: { name: dto.name } });
-      if (dup) throw new ConflictException(`品牌名已存在: ${dto.name}`);
-      const row = repo.create({
-        name: dto.name,
-        displayName: dto.displayName ?? null,
-        logoUrl: dto.logoUrl ?? null,
-        country: dto.country ?? null,
-        website: dto.website ?? null,
-        salesContact: dto.salesContact ?? null,
-        techContact: dto.techContact ?? null,
-        remark: dto.remark ?? null,
-        enabled: dto.enabled ?? true,
-      });
-      const saved = await repo.save(row);
-      return this.toView(saved, 0, 0);
-    });
+  async create(dto: CreateBrandConfigDto, actor?: Actor): Promise<BrandView> {
+    return this.write(null, dto, actor) as Promise<BrandView>;
   }
 
-  async update(id: number, dto: Partial<BrandUpsertDto>): Promise<BrandView> {
-    if (dto.name !== undefined) this.assertValidName(dto.name);
-    return serializedTransaction(this.brandRepo.manager.connection, async (manager) => {
-      const repo = manager.getRepository(Brand);
-      const row = await repo.findOne({ where: { id } });
-      if (!row) throw new NotFoundException(`brand#${id} 不存在`);
-      if (dto.name !== undefined && dto.name !== row.name) {
-        await this.assertUnreferenced(row, manager);
-        const dup = await repo.findOne({ where: { name: dto.name } });
-        if (dup && dup.id !== id) throw new ConflictException(`品牌名已存在: ${dto.name}`);
-      }
-      Object.assign(row, {
-        ...(dto.name !== undefined && { name: dto.name }),
-        ...(dto.displayName !== undefined && { displayName: dto.displayName }),
-        ...(dto.logoUrl !== undefined && { logoUrl: dto.logoUrl }),
-        ...(dto.country !== undefined && { country: dto.country }),
-        ...(dto.website !== undefined && { website: dto.website }),
-        ...(dto.salesContact !== undefined && { salesContact: dto.salesContact }),
-        ...(dto.techContact !== undefined && { techContact: dto.techContact }),
-        ...(dto.remark !== undefined && { remark: dto.remark }),
-        ...(dto.enabled !== undefined && { enabled: dto.enabled }),
-      });
-      const saved = await repo.save(row);
-      return this.detailWithManager(saved.id, manager);
-    });
+  async update(id: number, dto: LegacyUpdateBrandConfigDto, actor?: Actor): Promise<BrandView> {
+    return this.write(id, dto, actor) as Promise<BrandView>;
   }
 
-  async remove(id: number): Promise<void> {
-    return serializedTransaction(this.brandRepo.manager.connection, async (manager) => {
-      const row = await manager.findOneBy(Brand, { id });
-      if (!row) return;
-      await this.assertUnreferenced(row, manager);
-      await manager.delete(Brand, { id });
+  async remove(id: number, expectedRevision?: number, actor?: Actor): Promise<void> {
+    await this.write(id, { expectedRevision }, actor, true);
+  }
+
+  private async write(
+    id: number | null,
+    input: CreateBrandConfigDto | LegacyUpdateBrandConfigDto,
+    actor?: Actor,
+    remove = false,
+  ): Promise<BrandView | null> {
+    if (!input || typeof input !== 'object' || Array.isArray(input))
+      throw new BadRequestException('品牌配置必须是对象');
+    const type: new () => LegacyUpdateBrandConfigDto =
+      id === null ? CreateBrandConfigDto : LegacyUpdateBrandConfigDto;
+    const dto = plainToInstance(type, input);
+    if (validateSync(dto, { whitelist: true, forbidNonWhitelisted: true }).length)
+      throw new BadRequestException({
+        code: 'BRAND_CONFIG_INVALID',
+        message: '品牌字段、链接或修订号无效',
+      });
+    const { expectedRevision, ...fields } = dto;
+    const patch = Object.fromEntries(
+      Object.entries(fields)
+        .filter(([, value]) => value !== undefined)
+        .map(([key, value]) => [
+          key,
+          key !== 'name' && typeof value === 'string' ? value.trim() || null : value,
+        ]),
+    );
+    const conflict = () =>
+      new ConflictException({
+        code: 'BRAND_CONFIG_REVISION_CONFLICT',
+        message: '品牌已被修改，请保留草稿并重新读取',
+      });
+    try {
+      return await serializedTransaction(this.brandRepo.manager.connection, async (manager) => {
+        if (actor) {
+          if (actor.role !== 'admin' || actor.kind === 'legacy')
+            throw new ForbiddenException('仅管理员可修改品牌配置');
+          if (
+            actor.kind === 'user' &&
+            !(await manager.findOneBy(User, { id: actor.userId!, role: 'admin', enabled: true }))
+          )
+            throw new ForbiddenException('管理员权限已失效');
+        }
+        const repo = manager.getRepository(Brand);
+        const before = id === null ? null : await repo.findOneBy({ id });
+        if (id !== null && !before) {
+          if (remove && expectedRevision === undefined) return null; // Explicit legacy idempotent delete.
+          throw new NotFoundException({
+            code: 'BRAND_CONFIG_NOT_FOUND',
+            message: '品牌不存在或已删除',
+          });
+        }
+        if (before && expectedRevision !== undefined && expectedRevision !== before.configRevision)
+          throw conflict();
+        let saved: Brand | null;
+        if (before && remove) {
+          await this.assertUnreferenced(before, manager);
+          if (
+            (await repo.delete({ id: before.id, configRevision: before.configRevision }))
+              .affected !== 1
+          )
+            throw conflict();
+          saved = null;
+        } else if (!before) {
+          saved = await repo.save(
+            repo.create({
+              ...patch,
+              configRevision: 1,
+              enabled: (patch.enabled as boolean) ?? true,
+            }),
+          );
+        } else {
+          if (patch.name !== undefined && patch.name !== before.name)
+            await this.assertUnreferenced(before, manager);
+          const changes = Object.fromEntries(
+            Object.entries(patch).filter(([key, value]) => before[key as keyof Brand] !== value),
+          );
+          if (!Object.keys(changes).length) return this.detailWithManager(before.id, manager);
+          if (
+            !Number.isSafeInteger(before.configRevision) ||
+            before.configRevision < 1 ||
+            before.configRevision >= Number.MAX_SAFE_INTEGER
+          )
+            throw new BadRequestException({
+              code: 'BRAND_CONFIG_INVALID',
+              message: '品牌修订号超出安全范围',
+            });
+          if (
+            (
+              await repo.update(
+                { id: before.id, configRevision: before.configRevision },
+                { ...changes, configRevision: before.configRevision + 1 },
+              )
+            ).affected !== 1
+          )
+            throw conflict();
+          saved = await repo.findOneByOrFail({ id: before.id });
+        }
+        await this.audit(manager, before, saved, actor);
+        return saved ? this.detailWithManager(saved.id, manager) : null;
+      });
+    } catch (error) {
+      if (/UNIQUE constraint failed: brands\.name/.test((error as Error).message))
+        throw new ConflictException({
+          code: 'BRAND_CONFIG_KEY_CONFLICT',
+          message: '品牌标识已被使用',
+        });
+      throw error;
+    }
+  }
+
+  private async audit(
+    manager: EntityManager,
+    before: Brand | null,
+    after: Brand | null,
+    actor?: Actor,
+    source = 'brand-config:write',
+  ): Promise<void> {
+    // URLs may contain private signed query parameters; audit changes without retaining those tokens.
+    const link = (value: string | null, media = false) =>
+      !value ? null : safeBrandUrl(value, media) ? value.split(/[?#]/)[0] : '[invalid-url]';
+    const snapshot = (row: Brand | null) =>
+      row
+        ? JSON.stringify({ ...row, logoUrl: link(row.logoUrl, true), website: link(row.website) })
+        : null;
+    await manager.insert(AuditLog, {
+      entityType: 'brand',
+      entityId: String((after ?? before)!.id),
+      action: !after ? 'delete' : before ? 'update' : 'create',
+      operator: actor?.username || 'system',
+      snapshotBefore: snapshot(before),
+      snapshotAfter: snapshot(after),
+      remark: source,
     });
   }
 
@@ -184,15 +273,6 @@ export class BrandsService {
     }
   }
 
-  private assertValidName(name: unknown): void {
-    if (typeof name !== 'string' || !name.trim() || name.length > 128) {
-      throw new BadRequestException({
-        code: 'BRAND_NAME_INVALID',
-        message: '品牌标识必须是 1–128 字符的非空文本',
-      });
-    }
-  }
-
   private toView(row: Brand, hardwareCount: number, driverCount: number): BrandView {
     return {
       id: row.id,
@@ -205,6 +285,7 @@ export class BrandsService {
       techContact: row.techContact,
       remark: row.remark,
       enabled: row.enabled,
+      configRevision: row.configRevision,
       hardwareCount,
       driverCount,
       createdAt: row.createdAt,

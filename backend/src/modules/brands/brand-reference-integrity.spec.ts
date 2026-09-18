@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { DataSource } from 'typeorm';
 import { Brand } from '../../entities/brand.entity';
+import { AuditLog } from '../../entities/audit-log.entity';
 import { Device } from '../../entities/device.entity';
 import { DriverTemplate } from '../../entities/driver-template.entity';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
@@ -42,7 +43,7 @@ describe('brand reference transaction boundary (synthetic SQLite, no hardware I/
       type: 'better-sqlite3',
       database: ':memory:',
       synchronize: true,
-      entities: [Brand, HardwareUnit, DriverTemplate, Device],
+      entities: [Brand, HardwareUnit, DriverTemplate, Device, AuditLog],
     }).initialize();
     brands = new BrandsService(
       db.getRepository(Brand),
