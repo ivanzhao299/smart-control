@@ -37,6 +37,7 @@ test('runtime services cannot read retired JSON authorities or execute schema DD
 test('every startup lifecycle hook stays on the reviewed runtime-state allowlist', () => {
   const expected = [
     'backend/src/adapters/led/nova-led.adapter.ts',
+    'backend/src/adapters/power/epa-mqtt-breaker.adapter.ts',
     'backend/src/modules/audio/audio-reconciler.service.ts',
     'backend/src/modules/cameras/cameras.service.ts',
     'backend/src/modules/cameras/park-ops-metrics.service.ts',

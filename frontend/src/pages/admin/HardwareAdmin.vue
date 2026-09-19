@@ -36,6 +36,10 @@ const categoryMeta: Record<HardwareCategory, { label: string; icon: unknown; col
   'audio-dsp':          { label: '音响 DSP',      icon: Speaker,     color: '#9BA1A9' },
   'audio-guide':        { label: '分区跟随导览',  icon: Speaker,     color: '#9BA1A9' },
   'audio-power':        { label: '音响时序器',    icon: Zap,         color: '#fb923c' },
+  'power-seq55':        { label: '备用电源时序器', icon: Zap,         color: '#fb923c' },
+  'power-breaker':      { label: '485 智能断路器', icon: Zap,         color: '#eab308' },
+  'power-breaker-4g':   { label: '4G 智能断路器', icon: Zap,         color: '#22c55e' },
+  'projector-fusion':   { label: '投影融合器',    icon: MonitorPlay, color: '#a78bfa' },
   'hvac-outdoor':       { label: '空调外机',      icon: Snowflake,   color: '#0891b2' },
   'hvac-gateway':       { label: '空调网关',      icon: Snowflake,   color: '#06b6d4' },
   'power-relay':        { label: '强电继电器',    icon: Zap,         color: '#eab308' },
@@ -166,12 +170,14 @@ function onDriverPick(kind: string): void {
 
 // 结构化的"寻址"字段, 替代裸 JSON. 提交前序列化回 form.addressing.
 interface AddressingFields {
-  slaveId?: number;        // Modbus 从机地址 1-247
+  slaveId?: number;        // Modbus 从机地址 1-255 (ePa 出厂地址为 255)
   baud?: number;           // 波特率
   frameIntervalMs?: number;
   port?: number;           // TCP 端口
   daliStart?: number;      // 多通道驱动器起始短地址
   daliCount?: number;      // 占用短地址数
+  gatewayId?: string;      // 4G ePa 网关编号
+  clientId?: string;       // 4G ePa 子设备/SN
 }
 const addressingFields = reactive<AddressingFields>({});
 const BAUD_OPTIONS = [4800, 9600, 19200, 38400, 57600, 115200];
@@ -197,17 +203,21 @@ function parseAddressing(json: string | null | undefined): AddressingFields {
       port: typeof o.port === 'number' ? o.port : undefined,
       daliStart: typeof o.daliStart === 'number' ? o.daliStart : undefined,
       daliCount: typeof o.daliCount === 'number' ? o.daliCount : undefined,
+      gatewayId: typeof o.gatewayId === 'string' ? o.gatewayId : undefined,
+      clientId: typeof o.clientId === 'string' ? o.clientId : undefined,
     };
   } catch { return {}; }
 }
 function serializeAddressing(f: AddressingFields): string | undefined {
-  const o: Record<string, number> = {};
+  const o: Record<string, number | string> = {};
   if (f.slaveId != null) o.slaveId = f.slaveId;
   if (f.baud != null) o.baud = f.baud;
   if (f.frameIntervalMs != null) o.frameIntervalMs = f.frameIntervalMs;
   if (f.port != null) o.port = f.port;
   if (f.daliStart != null) o.daliStart = f.daliStart;
   if (f.daliCount != null) o.daliCount = f.daliCount;
+  if (f.gatewayId?.trim()) o.gatewayId = f.gatewayId.trim();
+  if (f.clientId?.trim()) o.clientId = f.clientId.trim();
   return Object.keys(o).length === 0 ? undefined : JSON.stringify(o);
 }
 
@@ -265,6 +275,8 @@ function syncStructuredFromForm(): void {
   addressingFields.port = a.port;
   addressingFields.daliStart = a.daliStart;
   addressingFields.daliCount = a.daliCount;
+  addressingFields.gatewayId = a.gatewayId;
+  addressingFields.clientId = a.clientId;
   channelsArr.splice(0, channelsArr.length, ...parseChannels(form.channels));
 }
 
@@ -351,6 +363,32 @@ async function remove(row: HardwareUnit): Promise<void> {
     if ((err as Error).message !== 'cancel') {
       ElMessage.error('删除失败: ' + (err as Error).message);
     }
+  }
+}
+
+const addressDialogVisible = ref(false);
+const addressTarget = ref<HardwareUnit | null>(null);
+const newSlaveId = ref(1);
+
+function openAddressChange(row: HardwareUnit): void {
+  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  addressTarget.value = row;
+  newSlaveId.value = parseAddressing(row.addressing).slaveId ?? 255;
+  addressDialogVisible.value = true;
+}
+
+async function changeBreakerAddress(): Promise<void> {
+  const target = addressTarget.value;
+  if (!target) return;
+  try {
+    const result = await adminHardwareService.changeBreakerAddress(target.id, newSlaveId.value);
+    ElMessage.success(
+      `485 地址 ${result.oldSlaveId} → ${result.newSlaveId}${result.verified ? '，新地址读取正常' : '，设备已回显，等待上线'}`,
+    );
+    addressDialogVisible.value = false;
+    await refresh();
+  } catch (err) {
+    ElMessage.error(`修改失败: ${(err as Error).message}`);
   }
 }
 
@@ -471,8 +509,11 @@ onMounted(refresh);
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="160" align="right">
+      <el-table-column label="操作" width="250" align="right">
         <template #default="{ row }">
+          <button v-if="row.category === 'power-breaker'" class="row-btn" @click="openAddressChange(row)">
+            修改485地址
+          </button>
           <button class="row-btn" @click="openEdit(row)">
             <Pencil :size="14" :stroke-width="2" /> 编辑
           </button>
@@ -573,10 +614,18 @@ onMounted(refresh);
         <el-divider content-position="left">寻址参数 <span class="muted">(只填用得到的, 其它留空)</span></el-divider>
         <div class="form-row">
           <el-form-item label="Modbus 从机地址" style="flex:1;">
-            <el-input-number v-model="addressingFields.slaveId" :min="1" :max="247" placeholder="1" controls-position="right" style="width:100%" />
+            <el-input-number v-model="addressingFields.slaveId" :min="1" :max="255" placeholder="1" controls-position="right" style="width:100%" />
           </el-form-item>
           <el-form-item label="TCP 端口" style="flex:1;">
             <el-input-number v-model="addressingFields.port" :min="1" :max="65535" placeholder="502" controls-position="right" style="width:100%" />
+          </el-form-item>
+        </div>
+        <div v-if="form.category === 'power-breaker-4g'" class="form-row">
+          <el-form-item label="4G 网关 ID" style="flex:1;">
+            <el-input v-model="addressingFields.gatewayId" placeholder="GW00000001" />
+          </el-form-item>
+          <el-form-item label="设备 ClientID" style="flex:1;">
+            <el-input v-model="addressingFields.clientId" placeholder="设备 SN / ClientID" />
           </el-form-item>
         </div>
         <div class="form-row">
@@ -658,6 +707,24 @@ onMounted(refresh);
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="submit">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="addressDialogVisible" title="修改断路器 485 地址" width="520px">
+      <el-alert type="warning" :closable="false" show-icon>
+        新断路器出厂地址通常都是 255。改址时同一条 485 总线上只能接入一台尚未改址的设备，确认成功后再接下一台。
+      </el-alert>
+      <div v-if="addressTarget" style="margin:18px 0 8px;">
+        <b>{{ addressTarget.name }}</b> · <code>{{ addressTarget.code }}</code>
+      </div>
+      <el-form label-width="110px">
+        <el-form-item label="新从机地址">
+          <el-input-number v-model="newSlaveId" :min="1" :max="255" controls-position="right" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="addressDialogVisible = false">取消</el-button>
+        <el-button type="danger" @click="changeBreakerAddress">确认写入设备</el-button>
       </template>
     </el-dialog>
   </section>

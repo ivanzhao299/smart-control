@@ -8,6 +8,7 @@ import type { Logger } from 'winston';
 import type { ConfigService } from '@nestjs/config';
 import { EpaBreakerAdapter } from './epa-breaker.adapter';
 import { TcpClient } from '../transports/tcp-client';
+import { ModbusRtuClient } from '../transports/modbus-rtu';
 
 const fakeLogger = (): Logger =>
   ({ info: jest.fn(), warn: jest.fn(), error: jest.fn() }) as unknown as Logger;
@@ -190,5 +191,70 @@ describe('EpaBreakerAdapter · 多断路器精确寻址', () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain('slaveId 都是 255');
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it('安全改址：先写物理地址、用新地址验读，再保存硬件台账', async () => {
+    const row = {
+      id: 11,
+      code: 'BREAKER-NEW',
+      category: 'power-breaker',
+      enabled: true,
+      ip: '192.168.50.21',
+      addressing: '{"port":502,"slaveId":255,"cabinet":"A"}',
+    };
+    const repo = {
+      findOne: jest.fn().mockResolvedValue(row),
+      find: jest.fn().mockResolvedValue([row]),
+      save: jest.fn(async (value: unknown) => value),
+    };
+    const frames: Buffer[] = [];
+    jest.spyOn(TcpClient.prototype, 'sendAndExpect').mockImplementation(async (payload) => {
+      const frame = Buffer.from(payload as Buffer);
+      frames.push(frame);
+      if (frame[1] === 0x06) return frame;
+      const pdu = Buffer.from([1, 0x03, 0x04, 0x00, 0x32, 0x00, 0x01]);
+      return Buffer.concat([pdu, ModbusRtuClient.crc16(pdu)]);
+    });
+
+    const adapter = new EpaBreakerAdapter(realConfig(), fakeLogger(), undefined, repo as never);
+    const result = await adapter.changeSlaveId('BREAKER-NEW', 1);
+
+    expect(result.ok).toBe(true);
+    expect(result.data).toEqual({ oldSlaveId: 255, newSlaveId: 1, verified: true });
+    expect(frames[0].subarray(0, 6)).toEqual(Buffer.from([255, 0x06, 0x01, 0x03, 0x00, 0x01]));
+    expect(frames[1][0]).toBe(1);
+    expect(JSON.parse(row.addressing)).toEqual({ port: 502, slaveId: 1, cabinet: 'A' });
+    expect(repo.save).toHaveBeenCalledWith(row);
+  });
+
+  it('目标地址在同一 485 总线上已占用时拒绝改址', async () => {
+    const target = {
+      code: 'BREAKER-NEW',
+      category: 'power-breaker',
+      enabled: true,
+      ip: '192.168.50.21',
+      addressing: '{"port":502,"slaveId":255}',
+    };
+    const occupied = {
+      code: 'BREAKER-EXISTING',
+      category: 'power-breaker',
+      enabled: true,
+      ip: '192.168.50.21',
+      addressing: '{"port":502,"slaveId":1}',
+    };
+    const repo = {
+      findOne: jest.fn().mockResolvedValue(target),
+      find: jest.fn().mockResolvedValue([target, occupied]),
+      save: jest.fn(),
+    };
+    const send = jest.spyOn(TcpClient.prototype, 'sendAndExpect');
+    const adapter = new EpaBreakerAdapter(realConfig(), fakeLogger(), undefined, repo as never);
+
+    const result = await adapter.changeSlaveId('BREAKER-NEW', 1);
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('slaveId 都是 1');
+    expect(send).not.toHaveBeenCalled();
+    expect(repo.save).not.toHaveBeenCalled();
   });
 });

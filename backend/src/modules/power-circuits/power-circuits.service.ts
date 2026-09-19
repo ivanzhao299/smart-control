@@ -1,10 +1,4 @@
-import {
-  ConflictException,
-  Inject,
-  Injectable,
-  NotFoundException,
-  Optional,
-} from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Repository } from 'typeorm';
@@ -14,6 +8,7 @@ import { PowerAdapter, PowerReading } from '../../adapters/power/power.adapter';
 import { Epo802pAdapter } from '../../adapters/power/epo802p.adapter';
 import { Seq55Adapter } from '../../adapters/power/seq55.adapter';
 import { EpaBreakerAdapter } from '../../adapters/power/epa-breaker.adapter';
+import { EpaMqttBreakerAdapter } from '../../adapters/power/epa-mqtt-breaker.adapter';
 import type { BreakerMeasurements } from '../../adapters/power/epa-breaker-registers';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
 
@@ -66,11 +61,13 @@ export class PowerCircuitsService {
     private readonly adapter: PowerAdapter,
     /** 电源时序器真机 — 挂在它上面的回路走真设备, 其余走 mock */
     private readonly epo: Epo802pAdapter,
-    /** 智能断路器真机 — LED 大屏总闸 */
+    /** 485 智能断路器 — LED 大屏总闸及同总线扩展回路 */
     private readonly breaker: EpaBreakerAdapter,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
     /** 第二台时序器 (55…AA 协议, 2026-07-29 备) — Optional: 既有单测桩不传也能构造 */
     @Optional() private readonly seq55?: Seq55Adapter,
+    /** 4G/MQTT 智能断路器 — 未启用时仍可安全保存设备配置，但不会下发 */
+    @Optional() private readonly cloudBreaker?: EpaMqttBreakerAdapter,
   ) {}
 
   /**
@@ -113,7 +110,9 @@ export class PowerCircuitsService {
     const dup = await this.repo.findOne({ where: { code: dto.code } });
     if (dup) throw new ConflictException(`circuit code 已存在: ${dto.code}`);
     const row = this.repo.create({
-      code: dto.code, name: dto.name, floor: dto.floor,
+      code: dto.code,
+      name: dto.name,
+      floor: dto.floor,
       category: dto.category ?? 'misc',
       gatewayCode: dto.gatewayCode ?? null,
       relayChannel: dto.relayChannel ?? null,
@@ -190,11 +189,12 @@ export class PowerCircuitsService {
     if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
     if (!row.enabled) throw new ConflictException(`circuit ${row.name} 已禁用`);
 
-    if (await this.isBreakerCircuit(row)) {
+    const breakerAdapter = await this.resolveBreakerAdapter(row);
+    if (breakerAdapter) {
       // 真·物理总闸: 失败必须抛出去, 绝不能让前端显示"断电成功"而闸没动
       const r = on
-        ? await this.breaker.turnOn(row.gatewayCode as string)
-        : await this.breaker.turnOff(row.gatewayCode as string);
+        ? await breakerAdapter.turnOn(row.gatewayCode as string)
+        : await breakerAdapter.turnOff(row.gatewayCode as string);
       if (!r.ok) {
         throw new ConflictException(`空开${on ? '合闸' : '分闸'}失败: ${r.error ?? '未知错误'}`);
       }
@@ -206,7 +206,7 @@ export class PowerCircuitsService {
       const wanted = on ? 'closed' : 'open';
       for (let i = 0; i < 10; i += 1) {
         await new Promise((res) => setTimeout(res, 400));
-        const m = await this.breaker.getMeasurements(row.gatewayCode as string);
+        const m = await breakerAdapter.getMeasurements(row.gatewayCode as string);
         if (m.ok && m.data?.switchState === wanted) break;
       }
       this.breakerCache.delete(row.id); // 轮询期间 breakerReading 可能又缓存了旧值
@@ -243,15 +243,18 @@ export class PowerCircuitsService {
     return this.toView(row);
   }
 
-  /** 这条回路是不是挂在 ePa 智能断路器上 (不吃 relayChannel, 整台闸就是一条回路) */
-  private async isBreakerCircuit(row: PowerCircuit): Promise<boolean> {
-    if (!row.gatewayCode) return false;
-    try {
-      const hw = await this.hwRepo.findOne({ where: { code: row.gatewayCode } });
-      return hw?.category === 'power-breaker' && hw.enabled;
-    } catch {
-      return false;
+  private async resolveBreakerAdapter(
+    row: PowerCircuit,
+  ): Promise<EpaBreakerAdapter | EpaMqttBreakerAdapter | null> {
+    if (!row.gatewayCode) return null;
+    const hw = await this.hwRepo.findOne({ where: { code: row.gatewayCode } });
+    if (!hw?.enabled) return null;
+    if (hw.category === 'power-breaker') return this.breaker;
+    if (hw.category === 'power-breaker-4g') {
+      if (!this.cloudBreaker) throw new ConflictException('4G 智能断路器适配器未装载');
+      return this.cloudBreaker;
     }
+    return null;
   }
 
   /**
@@ -261,24 +264,34 @@ export class PowerCircuitsService {
    *   power / energy = 总量 (第 4 个元素就是总)
    * 读不到就回落到缓存里上一次的好值, 再没有就返回全 0 + on=false, 不让电源页崩。
    */
-  private async breakerReading(row: PowerCircuit): Promise<PowerReading> {
+  private async breakerReading(
+    row: PowerCircuit,
+    breakerAdapter: EpaBreakerAdapter | EpaMqttBreakerAdapter,
+  ): Promise<PowerReading> {
     const cached = this.breakerCache.get(row.id);
     if (cached && Date.now() - cached.at < this.BREAKER_CACHE_TTL_MS) return cached.reading;
 
-    const r = await this.breaker.getMeasurements(row.gatewayCode as string);
+    const r = await breakerAdapter.getMeasurements(row.gatewayCode as string);
     if (!r.ok || !r.data) {
       this.logger.warn(`空开读数失败 circuit=${row.code}: ${r.error ?? '无数据'}`, {
         context: 'PowerCircuitsService',
       });
-      return cached?.reading ?? {
-        on: false, current: 0, voltage: 0, power: 0, powerFactor: 0, energy: 0,
-        lastReadAt: new Date().toISOString(),
-      };
+      return (
+        cached?.reading ?? {
+          on: false,
+          current: 0,
+          voltage: 0,
+          power: 0,
+          powerFactor: 0,
+          energy: 0,
+          lastReadAt: new Date().toISOString(),
+        }
+      );
     }
     const m: BreakerMeasurements = r.data;
     const reading: PowerReading = {
       on: m.switchState === 'closed',
-      voltage: Number((m.voltages.reduce((a, b) => a + b, 0) / 3).toFixed(1)),
+      voltage: Number(this.averagePresentPhases(m.voltages).toFixed(1)),
       current: Number(Math.max(...m.currents).toFixed(3)),
       power: m.powers[3],
       powerFactor: m.powerFactor,
@@ -293,10 +306,11 @@ export class PowerCircuitsService {
   async breakerMeasurements(id: number): Promise<BreakerMeasurements> {
     const row = await this.repo.findOne({ where: { id } });
     if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
-    if (!(await this.isBreakerCircuit(row))) {
+    const breakerAdapter = await this.resolveBreakerAdapter(row);
+    if (!breakerAdapter) {
       throw new ConflictException(`circuit ${row.name} 不是智能断路器回路`);
     }
-    const r = await this.breaker.getMeasurements(row.gatewayCode as string);
+    const r = await breakerAdapter.getMeasurements(row.gatewayCode as string);
     if (!r.ok || !r.data) {
       throw new ConflictException(`读空开失败: ${r.error ?? '无数据'}`);
     }
@@ -326,7 +340,11 @@ export class PowerCircuitsService {
     }
     return {
       on: channels?.[ch] ?? false,
-      current: 0, voltage: 0, power: 0, powerFactor: 0, energy: 0,
+      current: 0,
+      voltage: 0,
+      power: 0,
+      powerFactor: 0,
+      energy: 0,
       lastReadAt: new Date().toISOString(),
     };
   }
@@ -383,10 +401,15 @@ export class PowerCircuitsService {
   }
 
   private async toView(row: PowerCircuit): Promise<PowerCircuitView> {
-    const isBreaker = await this.isBreakerCircuit(row);
+    const breakerAdapter = await this.resolveBreakerAdapter(row);
+    const isBreaker = breakerAdapter !== null;
     // 智能断路器回路: 读真机 (电压/电流/功率/电量都是实测), 不用 mock 的模拟值
-    if (isBreaker) {
-      return { ...this.baseView(row), isBreaker, reading: await this.breakerReading(row) };
+    if (breakerAdapter) {
+      return {
+        ...this.baseView(row),
+        isBreaker,
+        reading: await this.breakerReading(row, breakerAdapter),
+      };
     }
     // 时序器回路: 开关状态读真机 (0xac 一帧带全部 8 路), 电量指标时序器没有 → 0
     if (await this.isSequencerCircuit(row)) {
@@ -397,10 +420,26 @@ export class PowerCircuitsService {
       current: row.ratedCurrent,
       power: row.ratedPower,
     });
-    const reading: PowerReading = result.ok && result.data
-      ? result.data
-      : { on: false, current: 0, voltage: 0, power: 0, powerFactor: 0, energy: 0, lastReadAt: new Date().toISOString() };
+    const reading: PowerReading =
+      result.ok && result.data
+        ? result.data
+        : {
+            on: false,
+            current: 0,
+            voltage: 0,
+            power: 0,
+            powerFactor: 0,
+            energy: 0,
+            lastReadAt: new Date().toISOString(),
+          };
     return { ...this.baseView(row), isBreaker, reading };
+  }
+
+  /** 单相 MQTT 设备只填 A 相；三相设备取三相平均。 */
+  private averagePresentPhases(values: [number, number, number]): number {
+    const present = values.filter((value) => Number.isFinite(value) && value > 0);
+    if (present.length === 0) return 0;
+    return present.reduce((sum, value) => sum + value, 0) / present.length;
   }
 
   /** 行字段 → view (不含 reading / isBreaker, 两条读数路径共用) */
