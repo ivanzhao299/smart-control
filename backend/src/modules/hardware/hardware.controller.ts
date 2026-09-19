@@ -1,4 +1,4 @@
-import { UseGuards } from '@nestjs/common';
+import { ConflictException, UseGuards } from '@nestjs/common';
 import { ConfigurationWriteGuard } from '../../common/guards/configuration-write.guard';
 import {
   Body,
@@ -16,16 +16,27 @@ import { CyDali64aAdapter } from '../../adapters/lighting/cy-dali64a.adapter';
 import { NovaLedAdapter } from '../../adapters/led/nova-led.adapter';
 import { EkxDspAdapter } from '../../adapters/audio/ekx808.adapter';
 import { ModbusHvacAdapter } from '../../adapters/hvac/modbus-hvac.adapter';
+import { EpaBreakerAdapter } from '../../adapters/power/epa-breaker.adapter';
+import { EpaMqttBreakerAdapter } from '../../adapters/power/epa-mqtt-breaker.adapter';
 import { AuditService } from '../audit/audit.service';
 import { HardwareService } from './hardware.service';
-import { CreateHardwareDto, QueryHardwareDto, UpdateHardwareDto } from './dto/hardware.dto';
+import {
+  ChangeBreakerAddressDto,
+  CreateHardwareDto,
+  QueryHardwareDto,
+  UpdateHardwareDto,
+} from './dto/hardware.dto';
 
 /**
  * hardware_unit 编辑成功后 → 通知对应 adapter 清 DB 缓存 → 下次 IO 用新 IP/端口
  * 这张表把 code / category 映射到要清缓存的 adapter 实例.
  * P3 之后会用 driver_template kind 来路由, 不再写死 code/category.
  */
-type AdapterCacheTarget = { codes: string[]; categories: string[]; adapter: { invalidateConfigCache(): void } };
+type AdapterCacheTarget = {
+  codes: string[];
+  categories: string[];
+  adapter: { invalidateConfigCache(): void };
+};
 
 @Controller('hardware')
 @UseGuards(ConfigurationWriteGuard)
@@ -38,13 +49,21 @@ export class HardwareController {
     private readonly ledAdapter: NovaLedAdapter,
     private readonly audioAdapter: EkxDspAdapter,
     private readonly hvacAdapter: ModbusHvacAdapter,
+    private readonly breakerAdapter: EpaBreakerAdapter,
+    private readonly mqttBreakerAdapter: EpaMqttBreakerAdapter,
     private readonly audit: AuditService,
   ) {
     this.adapterTargets = [
-      { codes: ['CONV-RTU-1'], categories: ['dali-converter', 'rtu-tcp-converter'], adapter: this.daliAdapter },
+      {
+        codes: ['CONV-RTU-1'],
+        categories: ['dali-converter', 'rtu-tcp-converter'],
+        adapter: this.daliAdapter,
+      },
       { codes: ['LED-NOVA-1'], categories: ['led-controller'], adapter: this.ledAdapter },
       { codes: ['AUDIO-DSP-1'], categories: ['audio-dsp'], adapter: this.audioAdapter },
       { codes: [], categories: ['hvac-gateway'], adapter: this.hvacAdapter },
+      { codes: [], categories: ['power-breaker'], adapter: this.breakerAdapter },
+      { codes: [], categories: ['power-breaker-4g'], adapter: this.mqttBreakerAdapter },
     ];
   }
 
@@ -77,6 +96,31 @@ export class HardwareController {
       remark: 'POST /api/hardware',
     });
     return { message: '创建成功', data };
+  }
+
+  @Post(':id/breaker-address')
+  async changeBreakerAddress(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ChangeBreakerAddressDto,
+  ) {
+    const before = await this.service.findOne(id);
+    if (before.category !== 'power-breaker') {
+      throw new ConflictException(`${before.code} 不是 485 智能断路器`);
+    }
+    const result = await this.breakerAdapter.changeSlaveId(before.code, dto.slaveId);
+    if (!result.ok || !result.data) {
+      throw new ConflictException(result.error ?? '修改 485 地址失败');
+    }
+    const after = await this.service.findOne(id);
+    await this.audit.record({
+      entityType: 'hardware_unit',
+      entityId: id,
+      action: 'update',
+      snapshotBefore: before,
+      snapshotAfter: after,
+      remark: `POST /api/hardware/:id/breaker-address ${result.data.oldSlaveId}->${result.data.newSlaveId}`,
+    });
+    return { message: '485 地址修改成功', data: result.data };
   }
 
   @Put(':id')

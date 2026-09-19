@@ -1,12 +1,5 @@
 import { Transform, Type } from 'class-transformer';
-import {
-  IsBoolean,
-  IsInt,
-  IsOptional,
-  IsString,
-  Length,
-  Min,
-} from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
 import {
   HARDWARE_CATEGORIES,
   HardwareCategory,
@@ -77,6 +70,14 @@ export class QueryHardwareDto {
   @Transform(({ value }) => value === true || value === 'true' || value === '1')
   @IsBoolean()
   enabled?: boolean;
+}
+
+export class ChangeBreakerAddressDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(255)
+  slaveId!: number;
 }
 
 export const HARDWARE_CATEGORY_LIST = HARDWARE_CATEGORIES;

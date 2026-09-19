@@ -294,6 +294,11 @@ export const adminHardwareService = {
   create: (body: HardwareCreatePayload) => api.post<HardwareUnit>('/hardware', body),
   update: (id: number, body: HardwareUpdatePayload) => api.put<HardwareUnit>(`/hardware/${id}`, body),
   remove: (id: number) => api.del<null>(`/hardware/${id}`),
+  changeBreakerAddress: (id: number, slaveId: number) =>
+    api.post<{ oldSlaveId: number; newSlaveId: number; verified: boolean }>(
+      `/hardware/${id}/breaker-address`,
+      { slaveId },
+    ),
 };
 
 /* ---------- System Backup / Restore (Sprint-10) ---------- */

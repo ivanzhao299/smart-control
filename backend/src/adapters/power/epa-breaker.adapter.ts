@@ -42,6 +42,12 @@ export interface BreakerState {
   switchState: SwitchState;
 }
 
+export interface BreakerAddressChange {
+  oldSlaveId: number;
+  newSlaveId: number;
+  verified: boolean;
+}
+
 /**
  * ePa 智能断路器 / 远程空开适配器 —— RS485 标准 Modbus-RTU, 经有人 RTU-TCP 转换器接入。
  *
@@ -89,6 +95,11 @@ export class EpaBreakerAdapter extends BaseAdapter {
   }
 
   // ============ 对外命令 ============
+
+  invalidateConfigCache(deviceId?: string): void {
+    if (deviceId) this.dbCache.delete(deviceId);
+    else this.dbCache.clear();
+  }
 
   /** 合闸(送电) */
   async turnOn(
@@ -175,6 +186,69 @@ export class EpaBreakerAdapter extends BaseAdapter {
         await this.readWithFault(deviceId, modbus, slaveId, WORD.PF_FREQ, 2, ctx?.signal);
       }
       return { ok: true as const };
+    });
+  }
+
+  /**
+   * 修改物理断路器的 485 地址 (FC06 / 0x0103)，收到设备回显后同步硬件台账。
+   * 新设备出厂都为 255 时，必须一次只接一台进行改址。
+   */
+  async changeSlaveId(
+    deviceId: string,
+    newSlaveId: number,
+    ctx?: AdapterContext,
+  ): Promise<AdapterResult<BreakerAddressChange>> {
+    return this.run(deviceId, 'changeSlaveId', ctx, async () => {
+      if (this.isMock()) throw new Error('模拟模式不允许修改物理 485 地址');
+      if (!this.hwRepo) throw new Error('断路器硬件仓库未装载');
+      const current = await this.getConfig(deviceId);
+      const next = this.validateConfig(deviceId, { ...current, slaveId: newSlaveId });
+      if (current.slaveId === next.slaveId) {
+        return { oldSlaveId: current.slaveId, newSlaveId: next.slaveId, verified: true };
+      }
+      await this.assertUniqueBusAddress(deviceId, next);
+      const row = await this.hwRepo.findOne({
+        where: { code: deviceId, category: 'power-breaker', enabled: true },
+      });
+      if (!row) throw new Error(`断路器硬件 ${deviceId} 不存在、类型不符或已禁用`);
+      const { modbus } = await this.ensureClient(deviceId);
+      await modbus.writeSingleRegister(CTRL.SLAVE_ID, next.slaveId, current.slaveId, ctx?.signal);
+
+      let verified = false;
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        try {
+          await modbus.readHoldingRegisters(WORD.PF_FREQ, 2, next.slaveId, ctx?.signal);
+          verified = true;
+          break;
+        } catch {
+          // 地址切换后设备可能短暂重启，继续探测；写回显已证明设备接受了修改。
+        }
+      }
+
+      const addressing = this.parseAddressing(deviceId, row.addressing);
+      row.addressing = JSON.stringify({ ...addressing, slaveId: next.slaveId });
+      try {
+        await this.hwRepo.save(row);
+      } catch (saveError) {
+        try {
+          await modbus.writeSingleRegister(
+            CTRL.SLAVE_ID,
+            current.slaveId,
+            next.slaveId,
+            ctx?.signal,
+          );
+        } catch (rollbackError) {
+          throw new Error(
+            `485 地址已改为 ${next.slaveId}，但台账保存和设备回退均失败: ${(saveError as Error).message}; ${(rollbackError as Error).message}`,
+          );
+        }
+        throw new Error(
+          `台账保存失败，设备地址已回退为 ${current.slaveId}: ${(saveError as Error).message}`,
+        );
+      }
+      this.invalidateConfigCache(deviceId);
+      return { oldSlaveId: current.slaveId, newSlaveId: next.slaveId, verified };
     });
   }
 

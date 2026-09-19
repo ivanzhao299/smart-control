@@ -7,6 +7,8 @@ import {
   type PowerCircuitView,
   type PowerCircuitUpsertDto,
 } from '@/services/power-circuits.service';
+import { adminHardwareService } from '@/services/admin.service';
+import type { HardwareUnit } from '@/types/api';
 
 const CATEGORIES = [
   { value: 'lighting', label: '照明' },
@@ -18,6 +20,7 @@ const CATEGORIES = [
 ];
 
 const list = ref<PowerCircuitView[]>([]);
+const controllerHardware = ref<HardwareUnit[]>([]);
 const loading = ref(false);
 const search = ref('');
 const floorFilter = ref<string>('');
@@ -45,7 +48,15 @@ const filtered = computed<PowerCircuitView[]>(() => {
 async function refresh(): Promise<void> {
   loading.value = true;
   try {
-    list.value = await powerCircuitsService.list(true);
+    const [circuits, hardware] = await Promise.all([
+      powerCircuitsService.list(true),
+      adminHardwareService.list({ enabled: true }),
+    ]);
+    list.value = circuits;
+    controllerHardware.value = hardware.list.filter((item) =>
+      ['power-breaker', 'power-breaker-4g', 'power-relay', 'audio-power', 'power-seq55']
+        .includes(item.category),
+    );
   } catch (err) {
     ElMessage.error(`加载失败: ${(err as Error).message}`);
   } finally {
@@ -71,6 +82,19 @@ const rules: FormRules = {
   floor: [{ required: true, message: '楼层必填', trigger: 'blur' }],
   category: [{ required: true, message: '类型必填', trigger: 'change' }],
 };
+
+const selectedController = computed(() =>
+  controllerHardware.value.find((item) => item.code === form.gatewayCode) ?? null,
+);
+const breakerSelected = computed(() =>
+  selectedController.value?.category === 'power-breaker' ||
+  selectedController.value?.category === 'power-breaker-4g',
+);
+
+function onControllerChange(): void {
+  if (breakerSelected.value) form.relayChannel = null;
+  else if (form.relayChannel == null) form.relayChannel = 1;
+}
 
 function openCreate(): void {
   editMode.value = 'create';
@@ -108,7 +132,7 @@ async function submit(): Promise<void> {
       floor: form.floor.trim(),
       category: form.category,
       gatewayCode: (form.gatewayCode || '').trim() || null,
-      relayChannel: Number(form.relayChannel ?? 1) || null,
+      relayChannel: breakerSelected.value ? null : Number(form.relayChannel ?? 1) || null,
       meterAddress: form.meterAddress != null ? Number(form.meterAddress) : null,
       ratedVoltage: Number(form.ratedVoltage ?? 220),
       ratedCurrent: Number(form.ratedCurrent ?? 16),
@@ -175,7 +199,7 @@ onMounted(refresh);
       <el-button @click="refresh" :loading="loading">刷新</el-button>
     </header>
     <p class="sub">
-      每条回路 = 一路强电继电器通道 + 可选电能表. 通断走 gatewayCode/relayChannel, 实时数据走 meterAddress (留空则 mock 模拟).
+      每条回路绑定一台控制设备。多路继电器/时序器还需选择通道；485 或 4G 智能断路器本身就是独立回路，无需通道号。
     </p>
 
     <AppSkeleton v-if="loading && filtered.length === 0" variant="table" :rows="8" />
@@ -199,9 +223,11 @@ onMounted(refresh);
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="继电器" min-width="120">
+      <el-table-column label="控制设备" min-width="150">
         <template #default="{ row }">
-          <code v-if="row.gatewayCode" class="gw-code">{{ row.gatewayCode }} · CH{{ row.relayChannel ?? '?' }}</code>
+          <code v-if="row.gatewayCode" class="gw-code">
+            {{ row.gatewayCode }}<template v-if="!row.isBreaker"> · CH{{ row.relayChannel ?? '?' }}</template>
+          </code>
           <span v-else class="muted">未配置</span>
         </template>
       </el-table-column>
@@ -256,11 +282,30 @@ onMounted(refresh);
             <el-option v-for="c in CATEGORIES" :key="c.value" :label="c.label" :value="c.value" />
           </el-select>
         </el-form-item>
-        <el-form-item label="继电器 code">
-          <el-input v-model="form.gatewayCode" placeholder="对应 硬件清单 power-relay 设备 code, e.g. RELAY-1F-1" />
-          <div class="hint">没装继电器留空, 操作不会真打硬件</div>
+        <el-form-item label="控制设备">
+          <el-select
+            v-model="form.gatewayCode"
+            filterable
+            clearable
+            allow-create
+            default-first-option
+            placeholder="从硬件清单选择"
+            style="width:100%;"
+            @change="onControllerChange"
+          >
+            <el-option
+              v-for="item in controllerHardware"
+              :key="item.code"
+              :value="item.code"
+              :label="`${item.name} (${item.code})`"
+            >
+              <span>{{ item.name }}</span>
+              <span class="option-hint">{{ item.code }} · {{ item.category }}</span>
+            </el-option>
+          </el-select>
+          <div class="hint">设备先在“硬件清单”登记；留空时不会向真实设备下发。</div>
         </el-form-item>
-        <el-form-item label="通道号">
+        <el-form-item v-if="!breakerSelected" label="通道号">
           <el-input-number v-model="form.relayChannel" :min="1" :max="32" controls-position="right" />
           <span class="hint inline">继电器的第几路 (1-32)</span>
         </el-form-item>
@@ -336,4 +381,5 @@ onMounted(refresh);
 .form { padding: 16px 0; }
 .hint { font-size: 12px; color: var(--v2-text-2); margin-top: 4px; line-height: 1.5; }
 .hint.inline { margin-left: 8px; }
+.option-hint { float: right; color: var(--v2-text-3); font-size: 12px; margin-left: 16px; }
 </style>
