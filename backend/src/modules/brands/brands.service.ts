@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { Brand } from '../../entities/brand.entity';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
 import { DriverTemplate } from '../../entities/driver-template.entity';
@@ -48,9 +48,10 @@ export class BrandsService {
    * 在新增引用的同一个业务操作中补齐品牌目录。单条 INSERT ... SELECT 既避免
    * 先查后写竞态，也严格保留已有品牌的启用状态和维护字段。
    */
-  async ensureReferenced(name: string): Promise<void> {
+  async ensureReferenced(name: string, manager?: EntityManager): Promise<void> {
     if (!name.trim()) return;
-    await this.brandRepo.query(
+    const repo = manager?.getRepository(Brand) ?? this.brandRepo;
+    await repo.query(
       `INSERT INTO brands (name, enabled, created_at, updated_at)
        SELECT ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
        WHERE NOT EXISTS (SELECT 1 FROM brands WHERE name = ?)`,

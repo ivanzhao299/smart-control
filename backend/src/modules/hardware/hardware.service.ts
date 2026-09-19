@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
-import { FindOptionsWhere, Like, Repository } from 'typeorm';
+import { EntityManager, FindOptionsWhere, Like, Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { Device } from '../../entities/device.entity';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
@@ -81,9 +81,9 @@ export class HardwareService {
   async create(dto: CreateHardwareDto, operator = 'admin'): Promise<HardwareUnit> {
     const exists = await this.repo.findOne({ where: { code: dto.code } });
     if (exists) throw new ConflictException(`硬件编号已存在: ${dto.code}`);
-    await this.brandsService.ensureReferenced(dto.vendor);
     return serializedTransaction(this.repo.manager.connection, async (manager) => {
       const repo = manager.getRepository(HardwareUnit);
+      await this.brandsService.ensureReferenced(dto.vendor, manager);
       const entity = repo.create({
       code: dto.code,
       name: dto.name,
@@ -128,7 +128,7 @@ export class HardwareService {
         const dup = await repo.findOne({ where: { code: dto.code } });
         if (dup && dup.id !== id) throw new ConflictException(`硬件编号已存在: ${dto.code}`);
       }
-      if (dto.vendor !== undefined) await this.brandsService.ensureReferenced(dto.vendor);
+      if (dto.vendor !== undefined) await this.brandsService.ensureReferenced(dto.vendor, manager);
       const before = { ...h };
       const oldIp = h.ip;
       Object.assign(h, {
@@ -158,7 +158,7 @@ export class HardwareService {
       await manager.insert(AuditLog, { entityType: 'hardware_unit', entityId: String(id), action: 'update', operator,
         snapshotBefore: JSON.stringify(before), snapshotAfter: JSON.stringify(saved), remark: 'hardware configuration' });
       await this.logService.record({ operator, action: 'hardware.update', targetType: 'hardware', targetId: String(id), message: `${saved.code} revision=${saved.configRevision}` }, manager);
-      await this.propagateHvacGatewayIp(saved, oldIp);
+      await this.propagateHvacGatewayIp(manager, saved, oldIp);
       return saved;
     });
   }
@@ -170,12 +170,12 @@ export class HardwareService {
    * ({"gwHost":"x.x.x.x","n":0}), 不是 hardware_units.ip. 只改 hardware
    * 行的话, 后台设备网络页看着改成功了, 空调实际还在连旧 IP.
    */
-  private async propagateHvacGatewayIp(saved: HardwareUnit, oldIp: string | null): Promise<void> {
+  private async propagateHvacGatewayIp(manager: EntityManager, saved: HardwareUnit, oldIp: string | null): Promise<void> {
     const ipRe = /^(\d{1,3}\.){3}\d{1,3}$/;
     if (saved.category !== 'hvac-gateway') return;
     if (!oldIp || !saved.ip || saved.ip === oldIp) return;
     if (!ipRe.test(oldIp) || !ipRe.test(saved.ip)) return;
-    const result = await this.deviceRepo
+    const result = await manager.getRepository(Device)
       .createQueryBuilder()
       .update(Device)
       .set({
