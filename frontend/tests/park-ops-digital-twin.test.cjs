@@ -66,10 +66,11 @@ test('park dashboard exposes phase, building and day-night interactions', () => 
   assert.match(appJs, /const scene=sceneMode==='auto'\?sceneForTime\(d\):sceneMode/);
 });
 
-test('park dashboard labels simulated business data and publishes a version marker', () => {
+test('park dashboard omits the fixed demo disclaimer and publishes a version marker', () => {
   const runtime = `${html}\n${appJs}`;
-  assert.match(runtime, /企业名称为演示占位/);
-  assert.match(runtime, /分区、楼栋、企业及业务指标均为演示标注/);
+  assert.doesNotMatch(runtime, /企业名称为演示占位/);
+  assert.doesNotMatch(runtime, /分区、楼栋、企业及业务指标均为演示标注/);
+  assert.doesNotMatch(styleCss, /\.demo-disclaimer/);
   assert.match(appJs, /version:'[^']+'/);
   assert.match(appJs, /buildingCount:buildings\.length/);
 });
