@@ -49,6 +49,7 @@ const groups: Array<{ section: string; items: Array<{ name: string; label: strin
   { section: '系统管理', items: [
     { name: 'admin-park-ops-metrics', label: '运营数据' },
     { name: 'admin-users', label: '用户管理' },
+    { name: 'admin-testflight', label: 'iOS 测试' },
     { name: 'admin-settings', label: '系统设置' },
   ] },
 ];

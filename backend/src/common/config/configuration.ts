@@ -1,4 +1,5 @@
 import { isAbsolute, resolve } from 'path';
+import { readFileSync } from 'fs';
 import { parseCorsAllowedOrigins } from './cors';
 
 export interface AppConfig {
@@ -36,12 +37,35 @@ export interface WebSocketConfig {
   path: string;
 }
 
+/**
+ * TestFlight 内部测试员邀请 (后台「iOS 测试」页)。
+ * 服务端常驻一把 App Manager 专用 App Store Connect API 密钥, 直接调 ASC API。
+ */
+export interface TestFlightConfig {
+  /** 密钥三要素齐全且未被 TESTFLIGHT_ENABLED=false 显式停用, 功能才真正可用 */
+  enabled: boolean;
+  /** 密钥三要素是否齐全 (用于后台页提示「未配置」) */
+  configured: boolean;
+  issuerId: string;
+  keyId: string;
+  /** PEM 形式的 P-8 私钥 (由 base64 / 文件路径 / 内联三种 env 之一解析) */
+  privateKeyPem: string;
+  /** ASC App AdamID, 默认金湖智控 */
+  appId: string;
+  bundleId: string;
+  /** 内部 TestFlight 组名 */
+  internalGroupName: string;
+  /** 授予内部测试员的团队角色, 固定最小权限 MARKETING */
+  testerRole: string;
+}
+
 export interface RootConfig {
   app: AppConfig;
   database: DatabaseConfig;
   logger: LoggerConfig;
   adapter: AdapterConfig;
   websocket: WebSocketConfig;
+  testflight: TestFlightConfig;
 }
 
 const parseBool = (v: string | undefined, fallback: boolean): boolean => {
@@ -62,6 +86,60 @@ const resolvePath = (raw: string | undefined, fallback: string): string => {
   const p = raw ?? fallback;
   return isAbsolute(p) ? p : resolve(process.cwd(), p);
 };
+
+const firstNonEmpty = (...vals: Array<string | undefined>): string =>
+  vals.map((v) => (v ?? '').trim()).find((v) => v.length > 0) ?? '';
+
+/**
+ * 解析苹果 P-8 私钥, 三种给法按优先级:
+ *   1) TESTFLIGHT_P8_BASE64 / APPSTORE_P8_BASE64 —— base64(整份 PEM), 部署推荐 (不进 git)
+ *   2) TESTFLIGHT_P8_PATH / APPSTORE_P8_PATH     —— 服务器上的 .p8 文件绝对路径
+ *   3) TESTFLIGHT_P8 / APPSTORE_P8               —— 内联 PEM (允许用 \n 表示换行)
+ */
+function loadApplePrivateKey(): string {
+  const b64 = firstNonEmpty(process.env.TESTFLIGHT_P8_BASE64, process.env.APPSTORE_P8_BASE64);
+  if (b64) {
+    try {
+      const pem = Buffer.from(b64, 'base64').toString('utf8');
+      if (pem.includes('PRIVATE KEY')) return pem;
+    } catch {
+      /* fall through to path */
+    }
+  }
+  const p = firstNonEmpty(process.env.TESTFLIGHT_P8_PATH, process.env.APPSTORE_P8_PATH);
+  if (p) {
+    try {
+      return readFileSync(resolvePath(p, p), 'utf8');
+    } catch {
+      /* fall through */
+    }
+  }
+  const inline = firstNonEmpty(process.env.TESTFLIGHT_P8, process.env.APPSTORE_P8);
+  return inline ? inline.replace(/\\n/g, '\n') : '';
+}
+
+function buildTestFlightConfig(): TestFlightConfig {
+  const issuerId = firstNonEmpty(process.env.TESTFLIGHT_ISSUER_ID, process.env.APPSTORE_ISSUER_ID);
+  const keyId = firstNonEmpty(process.env.TESTFLIGHT_KEY_ID, process.env.APPSTORE_KEY_ID);
+  const privateKeyPem = loadApplePrivateKey();
+  const appId = firstNonEmpty(process.env.TESTFLIGHT_APP_ID) || '6795375392';
+  const bundleId = firstNonEmpty(process.env.TESTFLIGHT_BUNDLE_ID) || 'com.jinhu.smartcontrol';
+  const internalGroupName = firstNonEmpty(process.env.TESTFLIGHT_INTERNAL_GROUP_NAME) || '内部测试';
+  const testerRole = (firstNonEmpty(process.env.TESTFLIGHT_TESTER_ROLE) || 'MARKETING').toUpperCase();
+  const configured = Boolean(issuerId && keyId && privateKeyPem.includes('PRIVATE KEY'));
+  const explicitlyDisabled = (process.env.TESTFLIGHT_ENABLED ?? '').toLowerCase() === 'false';
+  return {
+    enabled: configured && !explicitlyDisabled,
+    configured,
+    issuerId,
+    keyId,
+    privateKeyPem,
+    appId,
+    bundleId,
+    internalGroupName,
+    testerRole,
+  };
+}
 
 export default (): RootConfig => ({
   app: {
@@ -97,4 +175,5 @@ export default (): RootConfig => ({
   websocket: {
     path: process.env.WS_PATH ?? '/ws/status',
   },
+  testflight: buildTestFlightConfig(),
 });

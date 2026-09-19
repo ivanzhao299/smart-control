@@ -33,6 +33,7 @@ import {
   Tag,
   Palette,
   SlidersHorizontal,
+  Rocket,
   type LucideIcon, Projector } from 'lucide-vue-next';
 
 /** 平板侧边导航 */
@@ -65,6 +66,7 @@ export const ADMIN_NAV_ICON: Record<string, LucideIcon> = {
   'admin-power-circuits': Zap,
   'admin-zones-config': SlidersHorizontal,
   'admin-app-release': Settings,
+  'admin-testflight': Rocket,
   'admin-drivers': Cpu,
   'admin-brands': Tag,
   'admin-system-branding': Palette,

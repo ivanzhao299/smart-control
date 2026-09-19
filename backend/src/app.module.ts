@@ -40,6 +40,7 @@ import { SystemBrandingModule } from './modules/system-branding/system-branding.
 import { AdminAuthModule } from './modules/admin-auth/admin-auth.module';
 import { ClientAuthModule } from './modules/client-auth/client-auth.module';
 import { AppReleaseModule } from './modules/app-release/app-release.module';
+import { TestFlightModule } from './modules/testflight/testflight.module';
 import { PlaybackModule } from './modules/playback/playback.module';
 import { AudioConfigModule } from './modules/audio-config/audio-config.module';
 import { AuditModule } from './modules/audit/audit.module';
@@ -90,6 +91,7 @@ import { RuntimeConfigModule } from './common/runtime-config/runtime-config.modu
     AdminAuthModule,
     ClientAuthModule,
     AppReleaseModule,
+    TestFlightModule,
     PlaybackModule,
     AudioConfigModule,
     AuditModule,

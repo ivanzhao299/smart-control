@@ -70,6 +70,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'power-circuits', name: 'admin-power-circuits', component: () => import('@/pages/admin/PowerCircuitsAdmin.vue') },
       { path: 'audio-config', name: 'admin-audio-config', component: () => import('@/pages/admin/AudioConfigAdmin.vue') },
       { path: 'app-release', name: 'admin-app-release', component: () => import('@/pages/admin/AppReleaseAdmin.vue') },
+      // iOS TestFlight 内部测试员邀请 (服务端持 App Manager 密钥直接调 ASC API)
+      { path: 'testflight', name: 'admin-testflight', component: () => import('@/pages/admin/TestFlightAdmin.vue') },
       { path: 'drivers', name: 'admin-drivers', component: () => import('@/pages/admin/DriversAdmin.vue') },
       { path: 'brands', name: 'admin-brands', component: () => import('@/pages/admin/BrandsAdmin.vue') },
       { path: 'system-branding', name: 'admin-system-branding', component: () => import('@/pages/admin/SystemBrandingAdmin.vue') },
