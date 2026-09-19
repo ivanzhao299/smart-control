@@ -5,6 +5,18 @@
 > 长期工程知识（架构/部署坑/铁律）在 `CLAUDE.md`；故障档案在 `docs/INCIDENTS.md`；
 > 历史时间线在 `docs/PROGRESS.md`。本文件只放**当前状态与进行中的事**。
 
+## 当前代码上下文（2026-09-19 晚，TestFlight 内部测试员 ASC 对账同步已上线，优先于以下历史快照）
+
+- 生产/远端 `main` 与分支 `feat/testflight-tester-admin` 同点 **`a8e01a692397febef2674df9199f18e3ac734fb1`**；GK9000 `D:\smart-control` 已用**无迁移最小部署**到该提交（上一生产点 `2640905`，中间仅多本次 5 个源文件 + MEMORY.md）。后端 3200（pid 5252，↺1）、前端 5173（pid 18768）PM2 在线、健康 200；**迁移总数仍 41，本次无迁移、未走持锁三步、未碰播放器**。
+- **新功能：ASC→本地单向对账同步**。后台「系统管理→iOS 测试」进页面自动与 App Store Connect 对账一次（60s 节流），另有手动按钮「与 App Store Connect 同步」（force 绕节流）。新增路由 `POST /api/testflight/sync`（AdminGuard，HttpCode 200）；`GET /api/testflight/testers` 内部先 `syncFromApple(false)` 再返回，苹果失败降级本地台账。苹果客户端新增只读枚举 `listInternalBetaTesters(internalGroupId)`（`GET /v1/betaGroups/{id}/betaTesters`，**已接受权威来源**）、`listTeamUsers()`（`/v1/users`，补角色）、`listPendingInvitations()`（`/v1/userInvitations`）。
+  - **死路勿再用**：`GET /v1/apps/{appId}/betaTesters?filter[inviteType]=INTERNAL` 对 App Manager 钥返回 **403 GET_RELATED only DELETE**。内部组成员的 `inviteType` 实测是 `EMAIL` 不是 `INTERNAL`，不能按它过滤。
+  - 对账口径：已接受=内部组 betaTesters（照实镜像，含管理员等团队成员）；待接受=userInvitations 中**含 MARKETING 且不含 ACCOUNT_HOLDER/ADMIN/APP_MANAGER**；按 email upsert，新导入行 `invited_by='apple-sync'`、`invitedAt` 留空；**不删本地、不反向改苹果**；苹果侧查不到的本地行保留（过期由 effectiveStatus 推导，FAILED 保留）。`role` 列 varchar(32) 装不下多角色，用 `primaryRole()` 按 ROLE_RANK 存单一主要角色（无迁移）。
+  - 实测对账结果（2026-09-19）：本地 4 行=已接受 3（宋乾昌 805331163/ADMIN、zhaoyongwei 344066039/ACCOUNT_HOLDER、黑眼臭臭 940300755/MARKETING）+ 待接受 1（许万玺 662119@163.com，MARKETING，有效期 2026-09-22 15:05 CST，可重发）。UI 总览 总数4/待接受1/已接受3/失败0。
+- **无迁移最小部署实操（本次验证可行，作为以后样式/代码小改标准）**：服务器 `git fetch` + `git merge --ff-only origin/main`（生产 main 跟踪区干净时只落增量文件，未跟踪的 `.env.bak-*` 不挡）。后端改→`backend` 下 `pnpm run build`（nest）后仅 `pm2 restart smart-control-backend --update-env`；前端改→见下条换发后仅重启 frontend；都 `pm2 save`。无 lock 变化不跑 install、不跑迁移、不碰播放器/计划任务。
+  - **前端 Windows 文件锁坑（重要）**：vite preview 运行中直接 `vite build` 会在 `dist\deployment-version.json` 上 **EPERM**（emptyOutDir/写文件均失败，重试也不行）。可靠做法=**前端不停机先 `pnpm exec vite build --outDir dist-deploy --emptyOutDir`，再 `pm2 stop smart-control-frontend`，把 `dist` 改名 `dist.bak-<ts>`、`dist-deploy` 改名 `dist`，`pm2 restart smart-control-frontend`，pm2 save**，停机仅数秒；验证 200 后删 dist.bak。前端构建 GK9000 需 `$env:NODE_OPTIONS='--max-old-space-size=4096'`。现场另有原生存放目录 `frontend\dist-live`（非本次产物，勿删）。
+  - 运维事实：GK9000 实时应用日志是 `D:\smart-control\logs\app-YYYY-MM-DD.log`（JSON）与 `error-*.log`，不是 `C:\Users\user\.pm2\logs\*.log`（那两个停在历史日期）；慢请求由 context=`Latency` 以 warn 记录（testflight 枚举约 1–2s 属正常 SLOW，非错误）。PowerShell 5.1 非交互 ssh 的表格/中文输出会被本地管道吞，复杂逻辑写 .ps1（UTF-8）scp 后 `powershell -NoProfile -ExecutionPolicy Bypass -File` 执行，输出尽量纯 ASCII/Write-Host。
+- 本轮临时脚本与只读探针已从服务器 `C:\Users\user\` 全部删除（probe-enum.cjs、tf-dbcheck.cjs、tf-logs.ps1、gk-*-deploy*.ps1、tf-cleanup/verify.ps1）；备份与恢复包、`backend\.env.bak-tf-20260919163639` 全部保留。
+
 ## 当前代码上下文（2026-09-19，iOS TestFlight 内部测试员邀请后台已上线，优先于以下历史快照）
 
 - 生产/远端 `main` 与分支 `feat/testflight-tester-admin` 同点 `2640905e52c7ed11a678c3a2a3423a72fa3b64fb`；GK9000 `D:\smart-control` 已用持锁发布到该提交。后端 3200/前端 5173 由 PM2 唯一进程持有（激活后重启 0、无孤儿），迁移总数 **41**（新增 `CreateTestFlightInvitations1789700000000`，表 `testflight_invitation_v1`，email 唯一索引 `IDX_testflight_invitation_email`，integrity ok/FK 0）；根目录无 `RELEASE_HOLD`（归档 `logs\activated-hold-*`）；PlayerWatchdog/DailyBackup/Backend 计划任务 Ready 且播放器已拉回，AutoUpdate 维持此前要求的禁用。
