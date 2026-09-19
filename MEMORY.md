@@ -5,6 +5,12 @@
 > 长期工程知识（架构/部署坑/铁律）在 `CLAUDE.md`；故障档案在 `docs/INCIDENTS.md`；
 > 历史时间线在 `docs/PROGRESS.md`。本文件只放**当前状态与进行中的事**。
 
+## 当前代码上下文（2026-09-19 深夜，GitHub Actions 计费已恢复、CI 转绿，优先于以下历史快照）
+
+- **GitHub Actions 已恢复可用**。停摆根因不是 Billing 失效而是**个人账户 Actions 月度预算用满**：`github.com/settings/billing/budgets` 里 Actions account budget 显示 `$50 spent / $50 budget`、100%、Stop usage=Yes，达顶后所有 workflow 在零步骤被拦（run 注解原文 "The job was not started because recent account payments have failed or your spending limit needs to be increased"，与支付失败同文案，易误判）。业主已把 Actions 预算从 **$50 提到 $100**（保留「达顶停用」硬顶 + 75/90/100% 告警）。验证：重跑旧 run 两 job 立即 in_progress；修复后新 run **35438371225（head 9d6ea51）前后端全绿**。Codespaces/Packages/LFS/AI 预算均 $0 未动。查账接口 `/users/{u}/settings/billing/actions` 需 token 带 `user` scope（默认 gh token 404），直接看 Budgets 页更快。
+- **顺带修复一个被计费掩盖的 main 测试回归**（commit **`9d6ea51`**，仅改 2 个 *.spec.ts，**无运行时改动、不需要部署生产**）：迁移 #41 `CreateTestFlightInvitations1789700000000` 排在最后一个只进不退目录迁移 `EstablishBundledMediaAuthority1789680000000` 之后，破坏 `src/modules/media/migration-chain.spec.ts` 的回滚栅栏顺序（首个 `undoLastMigration` 期望抛 BUNDLED_MEDIA_AUTHORITY_ROLLBACK_REQUIRES_ARCHIVE，却先回滚了 TestFlight 普通表而 resolve）。修法：①首个栅栏断言前先回滚所有 `timestamp>1789680000000` 的普通迁移（当前仅 TestFlight 表），最终 `multiuserAndLater` 批量回环加上界 `<=1789680000000` 避免重复计数；②给该全链测试 `beforeAll` 建独立空 `DATA_DIR`(mkdtemp)，杜绝同 worker 其它用例泄漏的 DATA_DIR/损坏 park-ops JSON 污染全链（CI 曾因此报 `PARK_OPS_METRICS_IMPORT_FAILED ... JSON position 1`，本地单跑不复现、属顺序相关）；③`park-ops-metrics-migration.spec.ts` 的 afterEach 改 try/catch destroy + 必还原 env/必删临时目录。本地全量 **88 套件 / 739 测试全绿、nest build 绿**。
+- 当前 **origin/main = feat/testflight-tester-admin = `9d6ea51`**；生产 GK9000 仍部署在 `a8e01a6`（`9d6ea51` 纯测试、`be37cdf` 纯文档，均无需下发，符合最小部署）。TestFlight 续期「一键」的 CI 前置已扫清；真做后台按钮仍需在后端 env 配一把带 `repo`+`workflow` 权限的 GitHub PAT，用于触发 `.github/workflows/ios-build.yml` 的 `workflow_dispatch`（testflight job：macos-26 云签名归档上传，build 号取 GITHUB_RUN_NUMBER；workflow_dispatch 在 main 上会同时跑签名上传，会真的传新构建，验证 runner 时别误触发，用 CI 的 Linux run 验证即可）。
+
 ## 当前代码上下文（2026-09-19 晚，TestFlight 内部测试员 ASC 对账同步已上线，优先于以下历史快照）
 
 - 生产/远端 `main` 与分支 `feat/testflight-tester-admin` 同点 **`a8e01a692397febef2674df9199f18e3ac734fb1`**；GK9000 `D:\smart-control` 已用**无迁移最小部署**到该提交（上一生产点 `2640905`，中间仅多本次 5 个源文件 + MEMORY.md）。后端 3200（pid 5252，↺1）、前端 5173（pid 18768）PM2 在线、健康 200；**迁移总数仍 41，本次无迁移、未走持锁三步、未碰播放器**。
