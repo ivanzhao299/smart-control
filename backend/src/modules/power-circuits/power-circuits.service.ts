@@ -193,8 +193,8 @@ export class PowerCircuitsService {
     if (await this.isBreakerCircuit(row)) {
       // 真·物理总闸: 失败必须抛出去, 绝不能让前端显示"断电成功"而闸没动
       const r = on
-        ? await this.breaker.turnOn(row.code)
-        : await this.breaker.turnOff(row.code);
+        ? await this.breaker.turnOn(row.gatewayCode as string)
+        : await this.breaker.turnOff(row.gatewayCode as string);
       if (!r.ok) {
         throw new ConflictException(`空开${on ? '合闸' : '分闸'}失败: ${r.error ?? '未知错误'}`);
       }
@@ -206,7 +206,7 @@ export class PowerCircuitsService {
       const wanted = on ? 'closed' : 'open';
       for (let i = 0; i < 10; i += 1) {
         await new Promise((res) => setTimeout(res, 400));
-        const m = await this.breaker.getMeasurements(row.code);
+        const m = await this.breaker.getMeasurements(row.gatewayCode as string);
         if (m.ok && m.data?.switchState === wanted) break;
       }
       this.breakerCache.delete(row.id); // 轮询期间 breakerReading 可能又缓存了旧值
@@ -265,7 +265,7 @@ export class PowerCircuitsService {
     const cached = this.breakerCache.get(row.id);
     if (cached && Date.now() - cached.at < this.BREAKER_CACHE_TTL_MS) return cached.reading;
 
-    const r = await this.breaker.getMeasurements(row.code);
+    const r = await this.breaker.getMeasurements(row.gatewayCode as string);
     if (!r.ok || !r.data) {
       this.logger.warn(`空开读数失败 circuit=${row.code}: ${r.error ?? '无数据'}`, {
         context: 'PowerCircuitsService',
@@ -296,7 +296,7 @@ export class PowerCircuitsService {
     if (!(await this.isBreakerCircuit(row))) {
       throw new ConflictException(`circuit ${row.name} 不是智能断路器回路`);
     }
-    const r = await this.breaker.getMeasurements(row.code);
+    const r = await this.breaker.getMeasurements(row.gatewayCode as string);
     if (!r.ok || !r.data) {
       throw new ConflictException(`读空开失败: ${r.error ?? '无数据'}`);
     }

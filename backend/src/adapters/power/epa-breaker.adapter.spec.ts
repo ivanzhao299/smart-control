@@ -7,6 +7,7 @@
 import type { Logger } from 'winston';
 import type { ConfigService } from '@nestjs/config';
 import { EpaBreakerAdapter } from './epa-breaker.adapter';
+import { TcpClient } from '../transports/tcp-client';
 
 const fakeLogger = (): Logger =>
   ({ info: jest.fn(), warn: jest.fn(), error: jest.fn() }) as unknown as Logger;
@@ -15,6 +16,12 @@ const fakeLogger = (): Logger =>
 function mockConfig(): ConfigService {
   return {
     getOrThrow: () => ({ mock: true, mockLatencyMs: 0 }),
+  } as unknown as ConfigService;
+}
+
+function realConfig(): ConfigService {
+  return {
+    getOrThrow: () => ({ mock: false, mockLatencyMs: 0 }),
   } as unknown as ConfigService;
 }
 
@@ -68,5 +75,120 @@ describe('EpaBreakerAdapter · mock 路径自洽', () => {
     const h = await a.healthCheck();
     expect(h.ok).toBe(true);
     expect(h.data).toEqual({ ok: true });
+  });
+});
+
+describe('EpaBreakerAdapter · 多断路器精确寻址', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('按 hardware code 查配置，并把同一转换器上的命令发给各自 slaveId', async () => {
+    const rows = new Map([
+      [
+        'BREAKER-A',
+        {
+          code: 'BREAKER-A',
+          category: 'power-breaker',
+          enabled: true,
+          ip: '192.168.50.21',
+          addressing: '{"port":502,"slaveId":1}',
+        },
+      ],
+      [
+        'BREAKER-B',
+        {
+          code: 'BREAKER-B',
+          category: 'power-breaker',
+          enabled: true,
+          ip: '192.168.50.21',
+          addressing: '{"port":502,"slaveId":2}',
+        },
+      ],
+    ]);
+    const repo = {
+      findOne: jest.fn(
+        async (query: { where: { code: string } }) => rows.get(query.where.code) ?? null,
+      ),
+      find: jest.fn().mockResolvedValue(Array.from(rows.values())),
+    };
+    const frames: Buffer[] = [];
+    jest.spyOn(TcpClient.prototype, 'sendAndExpect').mockImplementation(async (payload) => {
+      const frame = Buffer.from(payload as Buffer);
+      frames.push(frame);
+      return frame;
+    });
+
+    const adapter = new EpaBreakerAdapter(realConfig(), fakeLogger(), undefined, repo as never);
+    expect((await adapter.turnOn('BREAKER-A')).ok).toBe(true);
+    expect((await adapter.turnOff('BREAKER-B')).ok).toBe(true);
+
+    expect(frames.map((frame) => frame.readUInt8(0))).toEqual([1, 2]);
+    expect(frames.map((frame) => frame.readUInt16BE(4))).toEqual([1, 2]);
+    expect(repo.findOne).toHaveBeenNthCalledWith(1, {
+      where: { code: 'BREAKER-A', category: 'power-breaker', enabled: true },
+    });
+    expect(repo.findOne).toHaveBeenNthCalledWith(2, {
+      where: { code: 'BREAKER-B', category: 'power-breaker', enabled: true },
+    });
+  });
+
+  it('未知或禁用的硬件编号直接拒绝，不回落到旧断路器', async () => {
+    const repo = { findOne: jest.fn().mockResolvedValue(null) };
+    const send = jest.spyOn(TcpClient.prototype, 'sendAndExpect');
+    const adapter = new EpaBreakerAdapter(realConfig(), fakeLogger(), undefined, repo as never);
+
+    const result = await adapter.turnOn('BREAKER-NOT-FOUND');
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('不存在、类型不符或已禁用');
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('地址配置不合法时拒绝下发', async () => {
+    const repo = {
+      findOne: jest.fn().mockResolvedValue({
+        code: 'BREAKER-BAD',
+        category: 'power-breaker',
+        enabled: true,
+        ip: '192.168.50.21',
+        addressing: '{"port":502,"slaveId":0}',
+      }),
+    };
+    const send = jest.spyOn(TcpClient.prototype, 'sendAndExpect');
+    const adapter = new EpaBreakerAdapter(realConfig(), fakeLogger(), undefined, repo as never);
+
+    const result = await adapter.turnOn('BREAKER-BAD');
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('slaveId 无效');
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('同一转换器下 slaveId 重复时拒绝下发，避免多台同时动作', async () => {
+    const target = {
+      code: 'BREAKER-A',
+      category: 'power-breaker',
+      enabled: true,
+      ip: '192.168.50.21',
+      addressing: '{"port":502,"slaveId":255}',
+    };
+    const duplicate = {
+      code: 'BREAKER-B',
+      category: 'power-breaker',
+      enabled: true,
+      ip: '192.168.50.21',
+      addressing: '{"port":502,"slaveId":255}',
+    };
+    const repo = {
+      findOne: jest.fn().mockResolvedValue(target),
+      find: jest.fn().mockResolvedValue([target, duplicate]),
+    };
+    const send = jest.spyOn(TcpClient.prototype, 'sendAndExpect');
+    const adapter = new EpaBreakerAdapter(realConfig(), fakeLogger(), undefined, repo as never);
+
+    const result = await adapter.turnOn('BREAKER-A');
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('slaveId 都是 255');
+    expect(send).not.toHaveBeenCalled();
   });
 });

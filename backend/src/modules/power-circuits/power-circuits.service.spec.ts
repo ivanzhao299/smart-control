@@ -93,14 +93,14 @@ describe('PowerCircuitsService · 断路器回路路由', () => {
   it('gatewayCode 指向 power-breaker 硬件 → 打真闸, 不碰时序器', async () => {
     const { svc, breaker, epo } = makeService();
     await svc.turnOn(4);
-    expect(breaker.turnOn).toHaveBeenCalledWith('1f-led');
+    expect(breaker.turnOn).toHaveBeenCalledWith('BREAKER-LED-1');
     expect(epo.setChannel).not.toHaveBeenCalled();
   });
 
   it('分闸走 turnOff', async () => {
     const { svc, breaker } = makeService();
     await svc.turnOff(4);
-    expect(breaker.turnOff).toHaveBeenCalledWith('1f-led');
+    expect(breaker.turnOff).toHaveBeenCalledWith('BREAKER-LED-1');
     expect(breaker.turnOn).not.toHaveBeenCalled();
   });
 
@@ -198,11 +198,11 @@ describe('PowerCircuitsService · 断路器实时读数', () => {
   });
 
   it('断路器回路能拿到分相/温度/报警全量', async () => {
-    const { svc } = makeService();
+    const { svc, breaker } = makeService();
     const m = await svc.breakerMeasurements(4);
+    expect(breaker.getMeasurements).toHaveBeenCalledWith('BREAKER-LED-1');
     expect(m.temperatures).toHaveLength(4);
     expect(m.leakageCurrent).toBe(0.003);
     expect(m.alarms.any).toBe(false);
   });
 });
-

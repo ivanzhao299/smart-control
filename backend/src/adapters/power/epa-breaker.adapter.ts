@@ -25,6 +25,17 @@ import {
 
 const GATEWAY_KEY = 'power-epa-breaker';
 
+interface BreakerConnectionConfig {
+  host: string;
+  port: number;
+  slaveId: number;
+}
+
+interface BreakerTransport {
+  tcp: TcpClient;
+  modbus: ModbusRtuClient;
+}
+
 export interface BreakerState {
   /** 合闸(送电)= true, 分闸(断电)= false */
   on: boolean;
@@ -46,8 +57,9 @@ export interface BreakerState {
  * **从机地址是 255(0xFF)**, 不是 1 —— 厂家实测帧 FF06010100010DE8 里的 FF 就是它的出厂地址,
  * 现场扫 1..247 全部无应答, 只有 255 应答。所以 paramSchema 的 slaveId 放开到 255。
  *
- * 连接参数从 hardware_unit(category='power-breaker')的 ip + addressing 读, 5s TTL,
- * 后台改转换器 IP 不重启生效 —— 跟其它 adapter 一致。
+ * 每台断路器按 hardware_unit.code 精确寻址，连接参数从该行的 ip + addressing 读取。
+ * 多台断路器可以共用一个 RTU-TCP 转换器，但必须配置不同 slaveId；相同 endpoint
+ * 复用同一条串行通信队列，避免并发帧在同一条 485 总线上碰撞。
  */
 @Injectable()
 export class EpaBreakerAdapter extends BaseAdapter {
@@ -55,13 +67,8 @@ export class EpaBreakerAdapter extends BaseAdapter {
     return 'power';
   }
 
-  private modbus: ModbusRtuClient | null = null;
-  private host = '';
-  private port = 502;
-  private slaveId = 255;
-  private endpoint = '';
-
-  private dbCache: { host?: string; port?: number; slaveId?: number; at: number } = { at: 0 };
+  private readonly transports = new Map<string, BreakerTransport>();
+  private readonly dbCache = new Map<string, { config: BreakerConnectionConfig; at: number }>();
   private readonly DB_CACHE_TTL_MS = 5000;
   private readonly timeoutMs: number;
   private readonly frameIntervalMs: number;
@@ -84,7 +91,11 @@ export class EpaBreakerAdapter extends BaseAdapter {
   // ============ 对外命令 ============
 
   /** 合闸(送电) */
-  async turnOn(deviceId: string, _p: Record<string, unknown> = {}, ctx?: AdapterContext): Promise<AdapterResult<BreakerState>> {
+  async turnOn(
+    deviceId: string,
+    _p: Record<string, unknown> = {},
+    ctx?: AdapterContext,
+  ): Promise<AdapterResult<BreakerState>> {
     return this.run(deviceId, 'turnOn', ctx, async () => {
       if (this.isMock()) {
         this.mockOn.set(deviceId, true);
@@ -96,7 +107,11 @@ export class EpaBreakerAdapter extends BaseAdapter {
   }
 
   /** 分闸(断电) */
-  async turnOff(deviceId: string, _p: Record<string, unknown> = {}, ctx?: AdapterContext): Promise<AdapterResult<BreakerState>> {
+  async turnOff(
+    deviceId: string,
+    _p: Record<string, unknown> = {},
+    ctx?: AdapterContext,
+  ): Promise<AdapterResult<BreakerState>> {
     return this.run(deviceId, 'turnOff', ctx, async () => {
       if (this.isMock()) {
         this.mockOn.set(deviceId, false);
@@ -114,22 +129,39 @@ export class EpaBreakerAdapter extends BaseAdapter {
         const on = this.mockOn.get(deviceId) ?? false;
         return { on, switchState: (on ? 'closed' : 'open') as SwitchState };
       }
-      const modbus = await this.ensureClient();
+      const { modbus, slaveId } = await this.ensureClient(deviceId);
       // 至少读 2 个寄存器(0x0026, 0x0027); 开关状态在 0x0027 低字节
-      const words = await this.readWithFault(modbus, WORD.PF_FREQ, 2, ctx?.signal);
+      const words = await this.readWithFault(
+        deviceId,
+        modbus,
+        slaveId,
+        WORD.PF_FREQ,
+        2,
+        ctx?.signal,
+      );
       const st = decodeSwitchState(words[1]);
       return { on: st === 'closed', switchState: st };
     });
   }
 
   /** 读全套计量(电压/电流/功率/温度/漏电/电气状态) */
-  async getMeasurements(deviceId: string, ctx?: AdapterContext): Promise<AdapterResult<BreakerMeasurements>> {
+  async getMeasurements(
+    deviceId: string,
+    ctx?: AdapterContext,
+  ): Promise<AdapterResult<BreakerMeasurements>> {
     return this.run(deviceId, 'getMeasurements', ctx, async () => {
       if (this.isMock()) {
         return this.mockMeasurements(deviceId);
       }
-      const modbus = await this.ensureClient();
-      const words = await this.readWithFault(modbus, DATA_BASE, DATA_WORD_COUNT, ctx?.signal);
+      const { modbus, slaveId } = await this.ensureClient(deviceId);
+      const words = await this.readWithFault(
+        deviceId,
+        modbus,
+        slaveId,
+        DATA_BASE,
+        DATA_WORD_COUNT,
+        ctx?.signal,
+      );
       return decodeMeasurements(words);
     });
   }
@@ -137,8 +169,11 @@ export class EpaBreakerAdapter extends BaseAdapter {
   async healthCheck(ctx?: AdapterContext): Promise<AdapterResult<{ ok: true }>> {
     return this.run(GATEWAY_KEY, 'healthCheck', ctx, async () => {
       if (this.isMock()) return { ok: true as const };
-      const modbus = await this.ensureClient();
-      await this.readWithFault(modbus, WORD.PF_FREQ, 2, ctx?.signal);
+      const deviceIds = await this.enabledBreakerCodes();
+      for (const deviceId of deviceIds) {
+        const { modbus, slaveId } = await this.ensureClient(deviceId);
+        await this.readWithFault(deviceId, modbus, slaveId, WORD.PF_FREQ, 2, ctx?.signal);
+      }
       return { ok: true as const };
     });
   }
@@ -146,95 +181,159 @@ export class EpaBreakerAdapter extends BaseAdapter {
   // ============ 内部 ============
 
   private async writeOp(deviceId: string, op: number, signal?: AbortSignal): Promise<void> {
-    const modbus = await this.ensureClient();
+    const { modbus, slaveId } = await this.ensureClient(deviceId);
+    const registryKey = this.registryKey(deviceId);
     try {
-      await modbus.writeSingleRegister(CTRL.MOTOR_OP, op, this.slaveId, signal);
-      this.registry?.markOnline(GATEWAY_KEY);
+      await modbus.writeSingleRegister(CTRL.MOTOR_OP, op, slaveId, signal);
+      this.registry?.markOnline(registryKey);
     } catch (err) {
       const dErr = classifyError('power', err);
-      this.registry?.markFailure(GATEWAY_KEY, dErr.message, true);
+      this.registry?.markFailure(registryKey, dErr.message, true);
       throw dErr;
     }
   }
 
   private async readWithFault(
+    deviceId: string,
     modbus: ModbusRtuClient,
+    slaveId: number,
     address: number,
     qty: number,
     signal?: AbortSignal,
   ): Promise<number[]> {
+    const registryKey = this.registryKey(deviceId);
     try {
-      const out = await modbus.readHoldingRegisters(address, qty, this.slaveId, signal);
-      this.registry?.markOnline(GATEWAY_KEY);
+      const out = await modbus.readHoldingRegisters(address, qty, slaveId, signal);
+      this.registry?.markOnline(registryKey);
       return out;
     } catch (err) {
       const dErr = classifyError('power', err);
-      this.registry?.markFailure(GATEWAY_KEY, dErr.message, true);
+      this.registry?.markFailure(registryKey, dErr.message, true);
       throw dErr;
     }
   }
 
-  /** DB > env > default 三级取连接参数, 变了就重建 client(热切换) */
-  private async ensureClient(): Promise<ModbusRtuClient> {
-    const db = await this.getConfigFromDb();
-    const host = db?.host ?? process.env.EPA_RTU_HOST ?? '192.168.50.21';
-    const port = db?.port ?? Number.parseInt(process.env.EPA_RTU_PORT ?? '502', 10);
-    // 出厂从机号 255(0xFF) —— 见类注释, 不是常规的 1
-    this.slaveId = db?.slaveId ?? Number.parseInt(process.env.EPA_RTU_SLAVE_ID ?? '255', 10);
-
-    if (this.modbus && host === this.host && port === this.port) return this.modbus;
-
-    if (this.modbus) {
-      this.logger.info(`EpaBreakerAdapter rewiring: ${this.host}:${this.port} → ${host}:${port}`, {
-        context: 'EpaBreakerAdapter',
+  /** DB 按硬件编号精确取配置；只有没有 Repository 的独立运行场景才允许 env 兼容配置。 */
+  private async ensureClient(deviceId: string): Promise<BreakerTransport & { slaveId: number }> {
+    const config = await this.getConfig(deviceId);
+    const endpoint = `tcp://${config.host}:${config.port}`;
+    let transport = this.transports.get(endpoint);
+    if (!transport) {
+      const tcp = new TcpClient({
+        host: config.host,
+        port: config.port,
+        timeoutMs: this.timeoutMs,
+        deviceType: 'power',
+        keepAlive: true,
+        idleTimeoutMs: 30_000,
       });
+      transport = {
+        tcp,
+        // slaveId 每次调用显式传入；默认值只用于兜底，不决定实际目标设备。
+        modbus: new ModbusRtuClient(tcp, config.slaveId, this.frameIntervalMs),
+      };
+      this.transports.set(endpoint, transport);
     }
-    this.host = host;
-    this.port = port;
-    this.endpoint = `tcp://${host}:${port}`;
-    const tcp = new TcpClient({
-      host,
-      port,
-      timeoutMs: this.timeoutMs,
-      deviceType: 'power',
-      keepAlive: true,
-      idleTimeoutMs: 30_000,
-    });
-    this.modbus = new ModbusRtuClient(tcp, this.slaveId, this.frameIntervalMs);
-    if (!this.isMock()) this.registry?.register(GATEWAY_KEY, this.endpoint);
-    return this.modbus;
+    this.registry?.register(this.registryKey(deviceId), endpoint);
+    return { ...transport, slaveId: config.slaveId };
   }
 
-  private async getConfigFromDb(): Promise<{ host?: string; port?: number; slaveId?: number } | null> {
-    if (!this.hwRepo) return null;
+  private async getConfig(deviceId: string): Promise<BreakerConnectionConfig> {
+    if (!this.hwRepo) {
+      return this.validateConfig(deviceId, {
+        host: process.env.EPA_RTU_HOST ?? '192.168.50.21',
+        port: Number.parseInt(process.env.EPA_RTU_PORT ?? '502', 10),
+        slaveId: Number.parseInt(process.env.EPA_RTU_SLAVE_ID ?? '255', 10),
+      });
+    }
+
     const now = Date.now();
-    if (now - this.dbCache.at < this.DB_CACHE_TTL_MS) {
-      return { host: this.dbCache.host, port: this.dbCache.port, slaveId: this.dbCache.slaveId };
-    }
+    const cached = this.dbCache.get(deviceId);
+    if (cached && now - cached.at < this.DB_CACHE_TTL_MS) return cached.config;
+
+    let row: HardwareUnit | null;
     try {
-      const row = await this.hwRepo.findOne({ where: { category: 'power-breaker' } });
-      if (!row) {
-        this.dbCache = { at: now };
-        return null;
-      }
-      let port: number | undefined;
-      let slaveId: number | undefined;
-      if (row.addressing) {
-        try {
-          const a = JSON.parse(row.addressing) as { port?: number; slaveId?: number };
-          port = a.port;
-          slaveId = a.slaveId;
-        } catch {
-          /* addressing 不是 JSON 也 OK */
-        }
-      }
-      this.dbCache = { host: row.ip ?? undefined, port, slaveId, at: now };
-      return { host: row.ip ?? undefined, port, slaveId };
+      row = await this.hwRepo.findOne({
+        where: { code: deviceId, category: 'power-breaker', enabled: true },
+      });
     } catch (err) {
-      this.logger.warn(`getConfigFromDb 失败: ${(err as Error).message}`, { context: 'EpaBreakerAdapter' });
-      this.dbCache = { at: now };
-      return null;
+      throw new Error(`读取断路器 ${deviceId} 配置失败: ${(err as Error).message}`);
     }
+    if (!row) throw new Error(`断路器硬件 ${deviceId} 不存在、类型不符或已禁用`);
+
+    const addressing = this.parseAddressing(deviceId, row.addressing);
+    const config = this.validateConfig(deviceId, {
+      host: row.ip ?? '',
+      port: addressing.port ?? 502,
+      slaveId: addressing.slaveId ?? 255,
+    });
+    await this.assertUniqueBusAddress(deviceId, config);
+    this.dbCache.set(deviceId, { config, at: now });
+    return config;
+  }
+
+  private parseAddressing(
+    deviceId: string,
+    raw: string | null,
+  ): { port?: number; slaveId?: number } {
+    if (!raw) return {};
+    try {
+      return JSON.parse(raw) as { port?: number; slaveId?: number };
+    } catch {
+      throw new Error(`断路器 ${deviceId} 的 addressing 不是有效 JSON`);
+    }
+  }
+
+  private validateConfig(
+    deviceId: string,
+    config: BreakerConnectionConfig,
+  ): BreakerConnectionConfig {
+    if (!config.host.trim()) throw new Error(`断路器 ${deviceId} 未配置转换器 IP`);
+    if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) {
+      throw new Error(`断路器 ${deviceId} 的端口无效: ${config.port}`);
+    }
+    // 厂家设备出厂地址为 0xFF，因此这里允许 1..255，而不是常见的 1..247。
+    if (!Number.isInteger(config.slaveId) || config.slaveId < 1 || config.slaveId > 255) {
+      throw new Error(`断路器 ${deviceId} 的 slaveId 无效: ${config.slaveId}`);
+    }
+    return config;
+  }
+
+  /** 同一条 RTU-TCP/485 总线上地址重复会造成多台同时响应，必须在下发前拦截。 */
+  private async assertUniqueBusAddress(
+    deviceId: string,
+    config: BreakerConnectionConfig,
+  ): Promise<void> {
+    if (!this.hwRepo) return;
+    const rows = await this.hwRepo.find({
+      where: { category: 'power-breaker', enabled: true },
+    });
+    for (const row of rows) {
+      if (row.code === deviceId) continue;
+      const addressing = this.parseAddressing(row.code, row.addressing);
+      const host = row.ip?.trim() ?? '';
+      const port = addressing.port ?? 502;
+      const slaveId = addressing.slaveId ?? 255;
+      if (host === config.host && port === config.port && slaveId === config.slaveId) {
+        throw new Error(
+          `断路器 ${deviceId} 与 ${row.code} 共用 ${host}:${port} 且 slaveId 都是 ${slaveId}`,
+        );
+      }
+    }
+  }
+
+  private async enabledBreakerCodes(): Promise<string[]> {
+    if (!this.hwRepo) return [GATEWAY_KEY];
+    const rows = await this.hwRepo.find({
+      where: { category: 'power-breaker', enabled: true },
+      order: { id: 'ASC' },
+    });
+    if (rows.length === 0) throw new Error('没有已启用的智能断路器');
+    return rows.map((row) => row.code);
+  }
+
+  private registryKey(deviceId: string): string {
+    return `${GATEWAY_KEY}:${deviceId}`;
   }
 
   private mockMeasurements(deviceId: string): BreakerMeasurements {
@@ -262,5 +361,4 @@ export class EpaBreakerAdapter extends BaseAdapter {
       },
     };
   }
-
 }
