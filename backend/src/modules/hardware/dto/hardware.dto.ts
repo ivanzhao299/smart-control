@@ -1,5 +1,15 @@
 import { Transform, Type } from 'class-transformer';
-import { IsBoolean, IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsJSON,
+  IsOptional,
+  IsString,
+  Length,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import {
   HARDWARE_CATEGORIES,
   HardwareCategory,
@@ -9,43 +19,45 @@ import {
 export class CreateHardwareDto {
   @IsString() @Length(1, 64) code!: string;
   @IsString() @Length(1, 128) name!: string;
-  @IsString() category!: HardwareCategory;
+  @IsIn(HARDWARE_CATEGORIES) category!: HardwareCategory;
   @IsString() @Length(1, 64) vendor!: string;
   @IsString() @Length(1, 64) model!: string;
   @IsOptional() @IsString() @Length(1, 64) driverKind?: string;
-  @IsOptional() @IsString() serialNo?: string;
-  @IsOptional() @IsString() firmwareVersion?: string;
-  @IsOptional() @IsString() location?: string;
-  @IsOptional() @IsString() floor?: string;
-  @IsOptional() @IsString() ip?: string;
-  @IsOptional() @IsString() macAddress?: string;
-  @IsOptional() @IsString() addressing?: string;
-  @IsOptional() @IsString() channels?: string;
-  @IsOptional() @IsString() status?: HardwareStatus;
+  @IsOptional() @IsString() @MaxLength(128) serialNo?: string;
+  @IsOptional() @IsString() @MaxLength(64) firmwareVersion?: string;
+  @IsOptional() @IsString() @MaxLength(128) location?: string;
+  @IsOptional() @IsString() @MaxLength(16) floor?: string;
+  @IsOptional() @IsString() @MaxLength(64) ip?: string;
+  @IsOptional() @IsString() @MaxLength(32) macAddress?: string;
+  @IsOptional() @IsJSON() @MaxLength(16384) addressing?: string;
+  @IsOptional() @IsJSON() @MaxLength(16384) channels?: string;
+  @IsOptional() @IsIn(['normal', 'fault', 'offline', 'maintenance', 'retired']) status?: HardwareStatus;
   @IsOptional() @IsBoolean() enabled?: boolean;
-  @IsOptional() @IsString() remark?: string;
-  @IsOptional() @IsString() installedAt?: string;
+  @IsOptional() @IsString() @MaxLength(8192) remark?: string;
+  @IsOptional() @IsString() @MaxLength(32) installedAt?: string;
 }
 
 export class UpdateHardwareDto {
+  @Type(() => Number)
+  @IsInt() @Min(1) expectedRevision!: number;
   @IsOptional() @IsString() @Length(1, 64) code?: string;
   @IsOptional() @IsString() @Length(1, 128) name?: string;
-  @IsOptional() @IsString() category?: HardwareCategory;
+  @IsOptional() @IsIn(HARDWARE_CATEGORIES) category?: HardwareCategory;
   @IsOptional() @IsString() @Length(1, 64) vendor?: string;
   @IsOptional() @IsString() @Length(1, 64) model?: string;
   @IsOptional() @IsString() @Length(1, 64) driverKind?: string;
-  @IsOptional() @IsString() serialNo?: string;
-  @IsOptional() @IsString() firmwareVersion?: string;
-  @IsOptional() @IsString() location?: string;
-  @IsOptional() @IsString() floor?: string;
-  @IsOptional() @IsString() ip?: string;
-  @IsOptional() @IsString() macAddress?: string;
-  @IsOptional() @IsString() addressing?: string;
-  @IsOptional() @IsString() channels?: string;
-  @IsOptional() @IsString() status?: HardwareStatus;
+  @IsOptional() @IsString() @MaxLength(128) serialNo?: string;
+  @IsOptional() @IsString() @MaxLength(64) firmwareVersion?: string;
+  @IsOptional() @IsString() @MaxLength(128) location?: string;
+  @IsOptional() @IsString() @MaxLength(16) floor?: string;
+  @IsOptional() @IsString() @MaxLength(64) ip?: string;
+  @IsOptional() @IsString() @MaxLength(32) macAddress?: string;
+  @IsOptional() @IsJSON() @MaxLength(16384) addressing?: string;
+  @IsOptional() @IsJSON() @MaxLength(16384) channels?: string;
+  @IsOptional() @IsIn(['normal', 'fault', 'offline', 'maintenance', 'retired']) status?: HardwareStatus;
   @IsOptional() @IsBoolean() enabled?: boolean;
-  @IsOptional() @IsString() remark?: string;
-  @IsOptional() @IsString() installedAt?: string;
+  @IsOptional() @IsString() @MaxLength(8192) remark?: string;
+  @IsOptional() @IsString() @MaxLength(32) installedAt?: string;
 }
 
 export class QueryHardwareDto {
@@ -61,9 +73,9 @@ export class QueryHardwareDto {
   @Min(1)
   pageSize?: number;
 
-  @IsOptional() @IsString() category?: HardwareCategory;
+  @IsOptional() @IsIn(HARDWARE_CATEGORIES) category?: HardwareCategory;
   @IsOptional() @IsString() floor?: string;
-  @IsOptional() @IsString() status?: HardwareStatus;
+  @IsOptional() @IsIn(['normal', 'fault', 'offline', 'maintenance', 'retired']) status?: HardwareStatus;
   @IsOptional() @IsString() keyword?: string;
 
   @IsOptional()

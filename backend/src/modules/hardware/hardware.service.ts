@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  BadRequestException,
   Inject,
   Injectable,
   NotFoundException,
@@ -10,6 +11,8 @@ import { FindOptionsWhere, Like, Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { Device } from '../../entities/device.entity';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
+import { AuditLog } from '../../entities/audit-log.entity';
+import { serializedTransaction } from '../../common/utils/serialized-transaction';
 import { OperationLogService } from '../logs/operation-log.service';
 import { BrandsService } from '../brands/brands.service';
 import { PagedResult } from '../devices/devices.service';
@@ -79,8 +82,9 @@ export class HardwareService {
     const exists = await this.repo.findOne({ where: { code: dto.code } });
     if (exists) throw new ConflictException(`硬件编号已存在: ${dto.code}`);
     await this.brandsService.ensureReferenced(dto.vendor);
-
-    const entity = this.repo.create({
+    return serializedTransaction(this.repo.manager.connection, async (manager) => {
+      const repo = manager.getRepository(HardwareUnit);
+      const entity = repo.create({
       code: dto.code,
       name: dto.name,
       category: dto.category,
@@ -99,30 +103,35 @@ export class HardwareService {
       enabled: dto.enabled ?? true,
       remark: dto.remark ?? null,
       installedAt: dto.installedAt ?? null,
+      });
+      const saved = await repo.save(entity);
+      await manager.insert(AuditLog, { entityType: 'hardware_unit', entityId: String(saved.id), action: 'create', operator,
+        snapshotBefore: null, snapshotAfter: JSON.stringify(saved), remark: 'hardware configuration' });
+      await this.logService.record({ operator, action: 'hardware.create', targetType: 'hardware', targetId: String(saved.id), message: `${saved.code} (${saved.vendor} ${saved.model})` }, manager);
+      this.logger.info(`Hardware created: ${saved.code} ${saved.model}`, { context: 'HardwareService' });
+      return saved;
     });
-    const saved = await this.repo.save(entity);
-    this.logger.info(`Hardware created: ${saved.code} ${saved.model}`, {
-      context: 'HardwareService',
-    });
-    await this.logService.record({
-      operator,
-      action: 'hardware.create',
-      targetType: 'hardware',
-      targetId: String(saved.id),
-      message: `${saved.code} (${saved.vendor} ${saved.model})`,
-    });
-    return saved;
   }
 
   async update(id: number, dto: UpdateHardwareDto, operator = 'admin'): Promise<HardwareUnit> {
-    const h = await this.findOne(id);
-    if (dto.code && dto.code !== h.code) {
-      const dup = await this.repo.findOne({ where: { code: dto.code } });
-      if (dup && dup.id !== id) throw new ConflictException(`硬件编号已存在: ${dto.code}`);
+    if (!Number.isInteger(dto.expectedRevision) || dto.expectedRevision < 1) {
+      throw new BadRequestException('expectedRevision must be a positive integer');
     }
-    if (dto.vendor !== undefined) await this.brandsService.ensureReferenced(dto.vendor);
-    const oldIp = h.ip;
-    Object.assign(h, {
+    return serializedTransaction(this.repo.manager.connection, async (manager) => {
+      const repo = manager.getRepository(HardwareUnit);
+      const h = await repo.findOne({ where: { id } });
+      if (!h) throw new NotFoundException(`硬件不存在: id=${id}`);
+      if (h.configRevision !== dto.expectedRevision) {
+        throw new ConflictException({ code: 'HARDWARE_REVISION_CONFLICT', expectedRevision: dto.expectedRevision, currentRevision: h.configRevision });
+      }
+      if (dto.code && dto.code !== h.code) {
+        const dup = await repo.findOne({ where: { code: dto.code } });
+        if (dup && dup.id !== id) throw new ConflictException(`硬件编号已存在: ${dto.code}`);
+      }
+      if (dto.vendor !== undefined) await this.brandsService.ensureReferenced(dto.vendor);
+      const before = { ...h };
+      const oldIp = h.ip;
+      Object.assign(h, {
       ...(dto.code !== undefined && { code: dto.code }),
       ...(dto.name !== undefined && { name: dto.name }),
       ...(dto.category !== undefined && { category: dto.category }),
@@ -141,18 +150,17 @@ export class HardwareService {
       ...(dto.enabled !== undefined && { enabled: dto.enabled }),
       ...(dto.remark !== undefined && { remark: dto.remark }),
       ...(dto.installedAt !== undefined && { installedAt: dto.installedAt }),
+      });
+      const changed = JSON.stringify(before) !== JSON.stringify(h);
+      if (!changed) return h;
+      h.configRevision += 1;
+      const saved = await repo.save(h);
+      await manager.insert(AuditLog, { entityType: 'hardware_unit', entityId: String(id), action: 'update', operator,
+        snapshotBefore: JSON.stringify(before), snapshotAfter: JSON.stringify(saved), remark: 'hardware configuration' });
+      await this.logService.record({ operator, action: 'hardware.update', targetType: 'hardware', targetId: String(id), message: `${saved.code} revision=${saved.configRevision}` }, manager);
+      await this.propagateHvacGatewayIp(saved, oldIp);
+      return saved;
     });
-    const saved = await this.repo.save(h);
-    this.logger.info(`Hardware updated: #${id} ${saved.code}`, { context: 'HardwareService' });
-    await this.logService.record({
-      operator,
-      action: 'hardware.update',
-      targetType: 'hardware',
-      targetId: String(id),
-      message: `${saved.code} status=${saved.status} enabled=${saved.enabled}`,
-    });
-    await this.propagateHvacGatewayIp(saved, oldIp);
-    return saved;
   }
 
   /**
@@ -184,15 +192,15 @@ export class HardwareService {
   }
 
   async remove(id: number, operator = 'admin'): Promise<void> {
-    const h = await this.findOne(id);
-    await this.repo.remove(h);
-    this.logger.info(`Hardware removed: #${id} ${h.code}`, { context: 'HardwareService' });
-    await this.logService.record({
-      operator,
-      action: 'hardware.delete',
-      targetType: 'hardware',
-      targetId: String(id),
-      message: h.code,
+    await serializedTransaction(this.repo.manager.connection, async (manager) => {
+      const repo = manager.getRepository(HardwareUnit);
+      const h = await repo.findOne({ where: { id } });
+      if (!h) throw new NotFoundException(`硬件不存在: id=${id}`);
+      await repo.remove(h);
+      await manager.insert(AuditLog, { entityType: 'hardware_unit', entityId: String(id), action: 'delete', operator,
+        snapshotBefore: JSON.stringify(h), snapshotAfter: null, remark: 'hardware configuration' });
+      await this.logService.record({ operator, action: 'hardware.delete', targetType: 'hardware', targetId: String(id), message: h.code }, manager);
+      this.logger.info(`Hardware removed: #${id} ${h.code}`, { context: 'HardwareService' });
     });
   }
 }

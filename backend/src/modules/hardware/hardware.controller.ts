@@ -12,6 +12,7 @@ import {
   Post,
   Put,
   Query,
+  Req,
 } from '@nestjs/common';
 import { CyDali64aAdapter } from '../../adapters/lighting/cy-dali64a.adapter';
 import { NovaLedAdapter } from '../../adapters/led/nova-led.adapter';
@@ -20,6 +21,7 @@ import { ModbusHvacAdapter } from '../../adapters/hvac/modbus-hvac.adapter';
 import { EpaBreakerAdapter } from '../../adapters/power/epa-breaker.adapter';
 import { EpaMqttBreakerAdapter } from '../../adapters/power/epa-mqtt-breaker.adapter';
 import { AuditService } from '../audit/audit.service';
+import { AuthenticatedRequest, requireAdmin } from '../../common/auth/actor';
 import { HardwareService } from './hardware.service';
 import {
   ChangeBreakerAddressDto,
@@ -88,15 +90,8 @@ export class HardwareController {
   }
 
   @Post()
-  async create(@Body() dto: CreateHardwareDto) {
-    const data = await this.service.create(dto);
-    await this.audit.record({
-      entityType: 'hardware_unit',
-      entityId: data.id,
-      action: 'create',
-      snapshotAfter: data,
-      remark: 'POST /api/hardware',
-    });
+  async create(@Body() dto: CreateHardwareDto, @Req() req: AuthenticatedRequest) {
+    const data = await this.service.create(dto, requireAdmin(req).username);
     return { message: '创建成功', data };
   }
 
@@ -126,20 +121,12 @@ export class HardwareController {
   }
 
   @Put(':id')
-  async update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateHardwareDto) {
+  async update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateHardwareDto, @Req() req: AuthenticatedRequest) {
     const before = await this.service.findOne(id);
-    const data = await this.service.update(id, dto);
-    await this.audit.record({
-      entityType: 'hardware_unit',
-      entityId: id,
-      action: 'update',
-      snapshotBefore: before,
-      snapshotAfter: data,
-      remark: 'PUT /api/hardware/:id',
-    });
+    const data = await this.service.update(id, dto, requireAdmin(req).username);
     // 命中任何已知 code / category 就清对应 adapter 的 DB 缓存, 下次 IO 立刻用新 IP
-    const code = data?.code ?? dto.code;
-    const category = data?.category ?? dto.category;
+    const code = data?.code ?? dto.code ?? before.code;
+    const category = data?.category ?? dto.category ?? before.category;
     for (const target of this.adapterTargets) {
       const hitCode = code && target.codes.includes(code);
       const hitCategory = category && target.categories.includes(category);
@@ -150,17 +137,11 @@ export class HardwareController {
 
   @Delete(':id')
   @HttpCode(200)
-  async remove(@Param('id', ParseIntPipe) id: number) {
-    const before = await this.service.findOne(id).catch(() => null);
-    await this.service.remove(id);
-    if (before) {
-      await this.audit.record({
-        entityType: 'hardware_unit',
-        entityId: id,
-        action: 'delete',
-        snapshotBefore: before,
-        remark: 'DELETE /api/hardware/:id',
-      });
+  async remove(@Param('id', ParseIntPipe) id: number, @Req() req: AuthenticatedRequest) {
+    const before = await this.service.findOne(id);
+    await this.service.remove(id, requireAdmin(req).username);
+    for (const target of this.adapterTargets) {
+      if (target.codes.includes(before.code) || target.categories.includes(before.category)) target.adapter.invalidateConfigCache();
     }
     return { message: '删除成功', data: null };
   }
