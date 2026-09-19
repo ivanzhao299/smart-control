@@ -284,7 +284,7 @@ export interface HardwareCreatePayload {
   installedAt?: string;
 }
 
-export type HardwareUpdatePayload = Partial<HardwareCreatePayload>;
+export type HardwareUpdatePayload = Partial<HardwareCreatePayload> & { expectedRevision: number };
 
 export const adminHardwareService = {
   list: (params?: { category?: HardwareCategory; floor?: string; status?: HardwareStatus; keyword?: string; enabled?: boolean }) =>

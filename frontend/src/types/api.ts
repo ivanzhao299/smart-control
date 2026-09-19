@@ -665,6 +665,7 @@ export interface HardwareUnit {
   addressing: string | null;
   channels: string | null;
   status: HardwareStatus;
+  configRevision: number;
   enabled: boolean;
   remark: string | null;
   installedAt: string | null;
