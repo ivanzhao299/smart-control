@@ -9,6 +9,7 @@ import {
   Post,
   Put,
   Query,
+  Req,
 } from '@nestjs/common';
 import { ScenesService } from './scenes.service';
 import { UseGuards } from '@nestjs/common';
@@ -20,6 +21,7 @@ import { CreateSceneDto } from './dto/create-scene.dto';
 import { UpdateSceneDto } from './dto/update-scene.dto';
 import { QuerySceneDto } from './dto/query-scene.dto';
 import { SceneEngineService } from '../../services/scene-engine.service';
+import { AuthenticatedRequest, requireActor } from '../../common/auth/actor';
 
 @Controller('scenes')
 export class ScenesController {
@@ -43,16 +45,16 @@ export class ScenesController {
   @Post()
   @UseGuards(ModuleAccessGuard)
   @ModuleAccess('scenes')
-  async create(@Body() dto: CreateSceneDto) {
-    const data = await this.service.create(dto);
+  async create(@Body() dto: CreateSceneDto, @Req() req: AuthenticatedRequest) {
+    const data = await this.service.create(dto, requireActor(req).username);
     return { message: '创建成功', data };
   }
 
   @Put(':id')
   @UseGuards(ModuleAccessGuard)
   @ModuleAccess('scenes')
-  async update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateSceneDto) {
-    const data = await this.service.update(id, dto);
+  async update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateSceneDto, @Req() req: AuthenticatedRequest) {
+    const data = await this.service.update(id, dto, requireActor(req).username);
     return { message: '更新成功', data };
   }
 
@@ -60,8 +62,8 @@ export class ScenesController {
   @UseGuards(ModuleAccessGuard)
   @ModuleAccess('scenes')
   @HttpCode(200)
-  async remove(@Param('id', ParseIntPipe) id: number) {
-    await this.service.remove(id);
+  async remove(@Param('id', ParseIntPipe) id: number, @Query('expectedRevision', ParseIntPipe) expectedRevision: number, @Req() req: AuthenticatedRequest) {
+    await this.service.remove(id, expectedRevision, requireAdmin(req).username);
     return { message: '删除成功', data: null };
   }
 
