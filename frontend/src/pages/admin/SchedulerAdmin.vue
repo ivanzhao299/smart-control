@@ -101,10 +101,25 @@ async function submit(): Promise<void> {
     if (!valid) return;
     try {
       if (dialogMode.value === 'create') {
-        await adminSchedulerService.create(form);
+        await adminSchedulerService.create({
+          name: form.name,
+          code: form.code,
+          cron: form.cron,
+          sceneCode: form.sceneCode,
+          description: form.description,
+          enabled: form.enabled,
+        });
         ElMessage.success('已创建');
       } else if (form.id) {
-        await adminSchedulerService.update(form.id, { ...form, expectedRevision: form.configRevision ?? 0 });
+        await adminSchedulerService.update(form.id, {
+          name: form.name,
+          code: form.code,
+          cron: form.cron,
+          sceneCode: form.sceneCode,
+          description: form.description,
+          enabled: form.enabled,
+          expectedRevision: form.configRevision ?? 0,
+        });
         ElMessage.success('已更新');
       }
       dialogVisible.value = false;

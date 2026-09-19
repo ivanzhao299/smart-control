@@ -18,7 +18,7 @@ const rows = ref<SceneSummary[]>([]);
 const dialogVisible = ref(false);
 const dialogMode = ref<'create' | 'edit'>('create');
 const formRef = ref<FormInstance>();
-const form = reactive<SceneCreatePayload & { id?: number }>({
+const form = reactive<SceneCreatePayload & { id?: number; configRevision?: number }>({
   code: '',
   name: '',
   description: '',
@@ -48,7 +48,7 @@ async function refresh(): Promise<void> {
 function openCreate(): void {
   if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   dialogMode.value = 'create';
-  Object.assign(form, { id: undefined, code: '', name: '', description: '', enabled: true });
+  Object.assign(form, { id: undefined, configRevision: undefined, code: '', name: '', description: '', enabled: true });
   dialogVisible.value = true;
 }
 function openEdit(row: SceneSummary): void {
@@ -56,6 +56,7 @@ function openEdit(row: SceneSummary): void {
   dialogMode.value = 'edit';
   Object.assign(form, {
     id: row.id,
+    configRevision: row.configRevision,
     code: row.code,
     name: row.name,
     description: row.description ?? '',
@@ -70,10 +71,16 @@ async function submit(): Promise<void> {
     if (!valid) return;
     try {
       if (dialogMode.value === 'create') {
-        await adminSceneService.create(form);
+        await adminSceneService.create({ code: form.code, name: form.name, description: form.description, enabled: form.enabled });
         ElMessage.success('已创建');
       } else if (form.id) {
-        await adminSceneService.update(form.id, form);
+        await adminSceneService.update(form.id, {
+          code: form.code,
+          name: form.name,
+          description: form.description,
+          enabled: form.enabled,
+          expectedRevision: form.configRevision ?? 0,
+        });
         ElMessage.success('已更新');
       }
       dialogVisible.value = false;
@@ -87,7 +94,7 @@ async function submit(): Promise<void> {
 async function toggleEnabled(row: SceneSummary): Promise<void> {
   if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   try {
-    await adminSceneService.update(row.id, { enabled: !row.enabled });
+    await adminSceneService.update(row.id, { enabled: !row.enabled, expectedRevision: row.configRevision });
     await refresh();
   } catch (err) {
     ElMessage.error('操作失败: ' + (err as Error).message);
@@ -100,7 +107,7 @@ async function remove(row: SceneSummary): Promise<void> {
     await ElMessageBox.confirm(`确认删除场景「${row.name}」?`, '删除确认', { type: 'warning' });
   } catch { return; }
   try {
-    await adminSceneService.remove(row.id);
+    await adminSceneService.remove(row.id, row.configRevision);
     ElMessage.success('已删除');
     await refresh();
   } catch (err) {

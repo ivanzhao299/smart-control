@@ -61,6 +61,7 @@ export interface SceneCreatePayload {
   description?: string;
   enabled?: boolean;
 }
+export type SceneUpdatePayload = Partial<SceneCreatePayload> & { expectedRevision: number };
 
 export interface SceneActionPayload {
   deviceType: string;
@@ -77,9 +78,9 @@ export const adminSceneService = {
   list: () => api.get<Paged<SceneSummary>>('/scenes', { params: { pageSize: 200 } }),
   detail: (id: number) => api.get<Scene>(`/scenes/${id}`),
   create: (body: SceneCreatePayload) => api.post<Scene>('/scenes', body),
-  update: (id: number, body: Partial<SceneCreatePayload>) =>
+  update: (id: number, body: SceneUpdatePayload) =>
     api.put<Scene>(`/scenes/${id}`, body),
-  remove: (id: number) => api.del<null>(`/scenes/${id}`),
+  remove: (id: number, expectedRevision: number) => api.del<null>(`/scenes/${id}`, { params: { expectedRevision } }),
   execute: (code: string) => api.post(`/scenes/${code}/execute`),
 };
 

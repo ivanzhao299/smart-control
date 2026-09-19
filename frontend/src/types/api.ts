@@ -41,6 +41,7 @@ export interface SceneSummary {
   name: string;
   description: string | null;
   enabled: boolean;
+  configRevision: number;
 }
 
 export interface Scene extends SceneSummary {
