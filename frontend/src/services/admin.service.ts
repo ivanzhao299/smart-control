@@ -71,6 +71,7 @@ export interface SceneActionPayload {
   sortOrder?: number;
   enabled?: boolean;
 }
+export type SceneActionUpdatePayload = Partial<SceneActionPayload> & { expectedRevision: number };
 
 export const adminSceneService = {
   list: () => api.get<Paged<SceneSummary>>('/scenes', { params: { pageSize: 200 } }),
@@ -89,9 +90,9 @@ export const adminSceneActionService = {
     api.post<{ ok: boolean; error?: string; data?: unknown }>(`/scene-actions/${actionId}/test`),
   create: (sceneId: number, body: SceneActionPayload) =>
     api.post<SceneAction>(`/scenes/${sceneId}/actions`, body),
-  update: (actionId: number, body: Partial<SceneActionPayload>) =>
+  update: (actionId: number, body: SceneActionUpdatePayload) =>
     api.put<SceneAction>(`/scene-actions/${actionId}`, body),
-  remove: (actionId: number) => api.del<null>(`/scene-actions/${actionId}`),
+  remove: (actionId: number, expectedRevision: number) => api.del<null>(`/scene-actions/${actionId}`, { params: { expectedRevision } }),
 };
 
 /* ---------- Scheduler ---------- */
@@ -103,18 +104,19 @@ export interface SchedulerPayload {
   description?: string;
   enabled?: boolean;
 }
+export type SchedulerUpdatePayload = Partial<SchedulerPayload> & { expectedRevision: number };
 
 export const adminSchedulerService = {
   list: (params?: { keyword?: string; enabled?: boolean }) =>
     api.get<Paged<SchedulerTask>>('/scheduler', { params: { pageSize: 200, ...params } }),
   detail: (id: number) => api.get<SchedulerTask>(`/scheduler/${id}`),
   create: (body: SchedulerPayload) => api.post<SchedulerTask>('/scheduler', body),
-  update: (id: number, body: Partial<SchedulerPayload>) =>
+  update: (id: number, body: SchedulerUpdatePayload) =>
     api.put<SchedulerTask>(`/scheduler/${id}`, body),
-  remove: (id: number) => api.del<null>(`/scheduler/${id}`),
+  remove: (id: number, expectedRevision: number) => api.del<null>(`/scheduler/${id}`, { params: { expectedRevision } }),
   runNow: (id: number) => api.post<null>(`/scheduler/${id}/run`),
-  enable: (id: number) => api.post<SchedulerTask>(`/scheduler/${id}/enable`),
-  disable: (id: number) => api.post<SchedulerTask>(`/scheduler/${id}/disable`),
+  enable: (id: number, expectedRevision: number) => api.post<SchedulerTask>(`/scheduler/${id}/enable`, undefined, { params: { expectedRevision } }),
+  disable: (id: number, expectedRevision: number) => api.post<SchedulerTask>(`/scheduler/${id}/disable`, undefined, { params: { expectedRevision } }),
 };
 
 /* ---------- Scene Executions ---------- */

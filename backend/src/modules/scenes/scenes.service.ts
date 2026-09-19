@@ -75,7 +75,7 @@ export class ScenesService {
         targetType: 'scene',
         targetId: String(saved.id),
         message: saved.code,
-      });
+      }, mgr);
 
       const reload = await mgr.findOne(Scene, { where: { id: saved.id } });
       if (!reload) throw new NotFoundException(`场景创建后未找到: id=${saved.id}`);
@@ -127,7 +127,7 @@ export class ScenesService {
         targetType: 'scene',
         targetId: String(id),
         message: scene.code,
-      });
+      }, mgr);
 
       const reload = after;
       if (!reload) throw new NotFoundException(`场景更新后未找到: id=${id}`);

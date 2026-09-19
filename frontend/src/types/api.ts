@@ -57,6 +57,7 @@ export interface SceneAction {
   delayMs: number;
   sortOrder: number;
   enabled: boolean;
+  configRevision: number;
 }
 
 export interface SceneExecution {
@@ -146,6 +147,7 @@ export interface SchedulerTask {
   cron: string;
   sceneCode: string;
   enabled: boolean;
+  configRevision: number;
   lastRunAt: string | null;
   nextRunAt: string | null;
   lastRunStatus: string | null;

@@ -33,6 +33,9 @@ export class SchedulerTask {
   @Column({ type: 'boolean', default: true })
   enabled!: boolean;
 
+  @Column({ name: 'config_revision', type: 'integer', default: 1 })
+  configRevision!: number;
+
   @Column({ name: 'last_run_at', type: 'datetime', nullable: true })
   lastRunAt!: Date | null;
 

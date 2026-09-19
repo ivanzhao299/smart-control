@@ -41,6 +41,7 @@ const formRef = ref<FormInstance>();
 
 interface ActionForm {
   id?: number;
+  configRevision?: number;
   deviceType: string;
   deviceId: string;
   command: string;
@@ -156,6 +157,7 @@ function openCreate(): void {
   const maxSort = rows.value.reduce((m, a) => Math.max(m, a.sortOrder), 0);
   Object.assign(form, {
     id: undefined,
+    configRevision: undefined,
     deviceType: 'lighting',
     deviceId: '',
     command: 'turnOn',
@@ -185,6 +187,7 @@ function openEdit(row: SceneAction): void {
 
   Object.assign(form, {
     id: row.id,
+    configRevision: row.configRevision,
     deviceType: row.deviceType,
     deviceId: row.deviceId,
     command: row.command,
@@ -239,7 +242,10 @@ async function submit(): Promise<void> {
         await adminSceneActionService.create(sceneId.value, payload);
         ElMessage.success('已添加');
       } else if (form.id) {
-        await adminSceneActionService.update(form.id, payload);
+        await adminSceneActionService.update(form.id, {
+          ...payload,
+          expectedRevision: form.configRevision ?? 0,
+        });
         ElMessage.success('已更新');
       }
       dialogVisible.value = false;
@@ -256,7 +262,7 @@ async function remove(row: SceneAction): Promise<void> {
     await ElMessageBox.confirm(`确认删除动作 #${row.id}?`, '删除确认', { type: 'warning' });
   } catch { return; }
   try {
-    await adminSceneActionService.remove(row.id);
+    await adminSceneActionService.remove(row.id, row.configRevision);
     ElMessage.success('已删除');
     await refresh();
   } catch (err) {
@@ -265,14 +271,14 @@ async function remove(row: SceneAction): Promise<void> {
 }
 
 async function move(row: SceneAction, delta: number): Promise<void> {
-  if (!canEdit) return;
-  await adminSceneActionService.update(row.id, { sortOrder: row.sortOrder + delta });
+  if (!canEdit.value) return;
+  await adminSceneActionService.update(row.id, { sortOrder: row.sortOrder + delta, expectedRevision: row.configRevision });
   await refresh();
 }
 
 async function toggleEnabled(row: SceneAction): Promise<void> {
-  if (!canEdit) return;
-  await adminSceneActionService.update(row.id, { enabled: !row.enabled });
+  if (!canEdit.value) return;
+  await adminSceneActionService.update(row.id, { enabled: !row.enabled, expectedRevision: row.configRevision });
   await refresh();
 }
 

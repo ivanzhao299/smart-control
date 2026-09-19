@@ -44,4 +44,9 @@ export class CreateSingleActionDto {
   enabled?: boolean;
 }
 
-export class UpdateSingleActionDto extends PartialType(CreateSingleActionDto) {}
+export class UpdateSingleActionDto extends PartialType(CreateSingleActionDto) {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  expectedRevision!: number;
+}

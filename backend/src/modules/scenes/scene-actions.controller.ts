@@ -11,12 +11,15 @@ import {
   ParseIntPipe,
   Post,
   Put,
+  Req,
+  Query,
 } from '@nestjs/common';
 import { SceneActionsService } from './scene-actions.service';
 import {
   CreateSingleActionDto,
   UpdateSingleActionDto,
 } from './dto/single-action.dto';
+import { AuthenticatedRequest, requireAdmin } from '../../common/auth/actor';
 
 @Controller()
 @UseGuards(ModuleAccessGuard)
@@ -36,8 +39,9 @@ export class SceneActionsController {
   async create(
     @Param('id', ParseIntPipe) sceneId: number,
     @Body() dto: CreateSingleActionDto,
+    @Req() req: AuthenticatedRequest,
   ) {
-    const data = await this.service.create(sceneId, dto);
+    const data = await this.service.create(sceneId, dto, requireAdmin(req).username);
     return { message: '创建成功', data };
   }
 
@@ -46,16 +50,17 @@ export class SceneActionsController {
   async update(
     @Param('id', ParseIntPipe) actionId: number,
     @Body() dto: UpdateSingleActionDto,
+    @Req() req: AuthenticatedRequest,
   ) {
-    const data = await this.service.update(actionId, dto);
+    const data = await this.service.update(actionId, dto, requireAdmin(req).username);
     return { message: '更新成功', data };
   }
 
   /** 删除单个动作 */
   @Delete('scene-actions/:id')
   @HttpCode(200)
-  async remove(@Param('id', ParseIntPipe) actionId: number) {
-    await this.service.remove(actionId);
+  async remove(@Param('id', ParseIntPipe) actionId: number, @Query('expectedRevision', ParseIntPipe) expectedRevision: number, @Req() req: AuthenticatedRequest) {
+    await this.service.remove(actionId, expectedRevision, requireAdmin(req).username);
     return { message: '删除成功', data: null };
   }
 
