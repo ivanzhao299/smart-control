@@ -27,7 +27,7 @@ export class DeviceStatusService implements OnModuleInit {
    *
    * 处理: 读取时惰性降级 (不改 cache、不加定时器、零副作用). 超时回落到 'online' 而不是
    * 'offline' —— 命令刚成功过说明链路是通的, 只是不再"运行中"; 真离线由
-   * DeviceHealthService 的 probe 判, 这里不抢它的活 (自愈机制不跟人抢控制权).
+   * 后续实际控制或人工网关检测确认, 这里不凭时间猜测设备已经离线.
    */
   private readonly runningTtlMs = Number.parseInt(
     process.env.DEVICE_RUNNING_TTL_MS ?? '120000',
@@ -118,8 +118,7 @@ export class DeviceStatusService implements OnModuleInit {
     });
 
     // 持久化到 device_states —— fire-and-forget, 绝不阻塞控制热路径。
-    // 只在**状态转换**或**命令类更新**时落库, 不然健康检查每几秒对每台设备写一次,
-    // 纯写放大且没有价值(状态没变, 重启后从设备重新读也一样)。
+    // 只在**状态转换**或**命令类更新**时落库，避免相同状态重复写入。
     const isCommand = state != null && typeof state === 'object' && 'lastCommand' in state;
     if (!prev || prev.status !== status || isCommand) {
       void this.persistState(deviceName, status, state, isCommand);
@@ -142,7 +141,7 @@ export class DeviceStatusService implements OnModuleInit {
   /**
    * upsert 一行设备状态。命令类更新额外记 lastCommandAt / lastCommandResult;
    * 非命令更新只带 status/state/updatedAt 三列 —— upsert 不覆盖没提供的列, 所以
-   * 一次健康检查不会把上一次的命令记录冲掉。
+   * 一次人工检测不会把上一次的命令记录冲掉。
    */
   private async persistState(
     deviceName: string,

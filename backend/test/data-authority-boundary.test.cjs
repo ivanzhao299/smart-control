@@ -50,7 +50,6 @@ test('every startup lifecycle hook stays on the reviewed runtime-state allowlist
     'backend/src/modules/system/site-heartbeat.service.ts',
     'backend/src/modules/system/system.service.ts',
     'backend/src/modules/websocket/status.gateway.ts',
-    'backend/src/services/device-health.service.ts',
     'backend/src/services/device-status.service.ts',
   ];
   const actual = runtimeSources()
