@@ -40,10 +40,17 @@ describe('ImportParkOpsMetricsRuntimeConfig migration', () => {
   });
 
   afterEach(async () => {
-    if (dataSource.isInitialized) await dataSource.destroy();
+    // The corrupt-copy case intentionally leaves a failed migration transaction; destroy()
+    // can reject, but teardown must still restore DATA_DIR and remove the temp dir, otherwise
+    // the corrupt fixture leaks into any later spec that shares the jest worker.
+    try {
+      if (dataSource.isInitialized) await dataSource.destroy();
+    } catch {
+      // connection already unusable after the expected migration failure
+    }
     if (originalDataDir === undefined) delete process.env.DATA_DIR;
     else process.env.DATA_DIR = originalDataDir;
-    rmSync(directory, { recursive: true, force: true });
+    if (directory) rmSync(directory, { recursive: true, force: true });
   });
 
   it('imports a normalized current document and matching immutable revision', async () => {
