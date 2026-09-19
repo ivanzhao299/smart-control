@@ -293,7 +293,7 @@ export const adminHardwareService = {
   detail: (id: number) => api.get<HardwareUnit>(`/hardware/${id}`),
   create: (body: HardwareCreatePayload) => api.post<HardwareUnit>('/hardware', body),
   update: (id: number, body: HardwareUpdatePayload) => api.put<HardwareUnit>(`/hardware/${id}`, body),
-  remove: (id: number) => api.del<null>(`/hardware/${id}`),
+  remove: (id: number, expectedRevision: number) => api.del<null>(`/hardware/${id}`, { params: { expectedRevision } }),
   changeBreakerAddress: (id: number, slaveId: number) =>
     api.post<{ oldSlaveId: number; newSlaveId: number; verified: boolean }>(
       `/hardware/${id}/breaker-address`,

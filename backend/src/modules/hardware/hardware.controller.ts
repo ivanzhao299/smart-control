@@ -137,9 +137,9 @@ export class HardwareController {
 
   @Delete(':id')
   @HttpCode(200)
-  async remove(@Param('id', ParseIntPipe) id: number, @Req() req: AuthenticatedRequest) {
+  async remove(@Param('id', ParseIntPipe) id: number, @Query('expectedRevision', ParseIntPipe) expectedRevision: number, @Req() req: AuthenticatedRequest) {
     const before = await this.service.findOne(id);
-    await this.service.remove(id, requireAdmin(req).username);
+    await this.service.remove(id, expectedRevision, requireAdmin(req).username);
     for (const target of this.adapterTargets) {
       if (target.codes.includes(before.code) || target.categories.includes(before.category)) target.adapter.invalidateConfigCache();
     }

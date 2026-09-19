@@ -361,7 +361,7 @@ async function remove(row: HardwareUnit): Promise<void> {
   if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   try {
     await ElMessageBox.confirm(`删除硬件 ${row.code} (${row.name})?`, '确认', { type: 'warning' });
-    await adminHardwareService.remove(row.id);
+      await adminHardwareService.remove(row.id, row.configRevision);
     ElMessage.success('已删除');
     await refresh();
   } catch (err) {

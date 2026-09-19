@@ -191,11 +191,17 @@ export class HardwareService {
     }
   }
 
-  async remove(id: number, operator = 'admin'): Promise<void> {
+  async remove(id: number, expectedRevision: number, operator = 'admin'): Promise<void> {
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 1) {
+      throw new BadRequestException('expectedRevision must be a positive integer');
+    }
     await serializedTransaction(this.repo.manager.connection, async (manager) => {
       const repo = manager.getRepository(HardwareUnit);
       const h = await repo.findOne({ where: { id } });
       if (!h) throw new NotFoundException(`硬件不存在: id=${id}`);
+      if (h.configRevision !== expectedRevision) {
+        throw new ConflictException({ code: 'HARDWARE_REVISION_CONFLICT', expectedRevision, currentRevision: h.configRevision });
+      }
       await repo.remove(h);
       await manager.insert(AuditLog, { entityType: 'hardware_unit', entityId: String(id), action: 'delete', operator,
         snapshotBefore: JSON.stringify(h), snapshotAfter: null, remark: 'hardware configuration' });

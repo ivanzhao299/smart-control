@@ -60,6 +60,10 @@ export class UpdateHardwareDto {
   @IsOptional() @IsString() @MaxLength(32) installedAt?: string;
 }
 
+export class DeleteHardwareDto {
+  @IsInt() @Min(1) expectedRevision!: number;
+}
+
 export class QueryHardwareDto {
   @IsOptional()
   @Type(() => Number)
