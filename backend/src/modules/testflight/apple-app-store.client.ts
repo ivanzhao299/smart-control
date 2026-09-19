@@ -57,6 +57,33 @@ export interface AppleTesterState {
   expirationDate: string | null;
 }
 
+/** 内部组在册测试员 (betaTesters of the internal beta group), 即当前可参与内部测试的人 */
+export interface AppleInternalTester {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+}
+
+/** 团队成员 (/v1/users), 用于给在册内部测试员补全角色与姓名 */
+export interface AppleTeamUser {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  roles: string[];
+}
+
+/** 尚未接受的团队用户邀请 (/v1/userInvitations) */
+export interface ApplePendingInvitation {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  roles: string[];
+  expirationDate: string | null;
+}
+
 /**
  * 极简 App Store Connect REST 客户端: 只用 node:crypto 签 ES256 JWT, 不引新依赖。
  * 权限范围由密钥角色决定 —— 生产常驻的是 App Manager 专用钥 (仅可管理 TestFlight),
@@ -163,6 +190,61 @@ export class AppleAppStoreClient {
       processingState: String(build.attributes.processingState ?? ''),
       uploadedDate: (build.attributes.uploadedDate as string) ?? null,
     };
+  }
+
+  /**
+   * 内部组在册测试员 (已接受、当前可内测)。
+   * 注意: /v1/apps/{id}/betaTesters 的 GET_RELATED 对本钥返回 403, 权威来源是
+   * 内部组关系 /v1/betaGroups/{internalGroupId}/betaTesters。
+   */
+  async listInternalBetaTesters(internalGroupId: string): Promise<AppleInternalTester[]> {
+    const r = await this.request<AppleListResponse>(
+      'GET',
+      `/v1/betaGroups/${internalGroupId}/betaTesters?limit=200&fields[betaTesters]=firstName,lastName,email,inviteType`,
+    );
+    return (r.data ?? [])
+      .map((t) => ({
+        id: t.id,
+        email: String(t.attributes.email ?? '').trim().toLowerCase(),
+        firstName: String(t.attributes.firstName ?? ''),
+        lastName: String(t.attributes.lastName ?? ''),
+      }))
+      .filter((t) => t.email);
+  }
+
+  /** 全部团队成员 (内部测试组人数上限 100, limit=200 单页足够)。 */
+  async listTeamUsers(): Promise<AppleTeamUser[]> {
+    const r = await this.request<AppleListResponse>(
+      'GET',
+      `/v1/users?limit=200&fields[users]=username,firstName,lastName,roles,allAppsVisible`,
+    );
+    return (r.data ?? [])
+      .map((u) => ({
+        id: u.id,
+        email: String(u.attributes.username ?? '').trim().toLowerCase(),
+        firstName: String(u.attributes.firstName ?? ''),
+        lastName: String(u.attributes.lastName ?? ''),
+        roles: (u.attributes.roles as string[]) ?? [],
+      }))
+      .filter((u) => u.email);
+  }
+
+  /** 全部待接受团队用户邀请 (调用方按角色/可见 App 过滤出本系统发起的最小权限测试员)。 */
+  async listPendingInvitations(): Promise<ApplePendingInvitation[]> {
+    const r = await this.request<AppleListResponse>(
+      'GET',
+      `/v1/userInvitations?limit=200&fields[userInvitations]=email,firstName,lastName,roles,allAppsVisible,provisioningAllowed,expirationDate`,
+    );
+    return (r.data ?? [])
+      .map((i) => ({
+        id: i.id,
+        email: String(i.attributes.email ?? '').trim().toLowerCase(),
+        firstName: String(i.attributes.firstName ?? ''),
+        lastName: String(i.attributes.lastName ?? ''),
+        roles: (i.attributes.roles as string[]) ?? [],
+        expirationDate: (i.attributes.expirationDate as string) ?? null,
+      }))
+      .filter((i) => i.email);
   }
 
   /** 已接受邀请、成为正式团队用户 */

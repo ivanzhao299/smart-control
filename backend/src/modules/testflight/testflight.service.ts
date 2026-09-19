@@ -12,8 +12,38 @@ import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
 import { TestFlightInvitation, type TestFlightInvitationStatus } from '../../entities/testflight-invitation.entity';
 import type { RootConfig, TestFlightConfig } from '../../common/config/configuration';
-import { AppleApiException, AppleAppStoreClient, type AppleTesterState } from './apple-app-store.client';
+import {
+  AppleApiException,
+  AppleAppStoreClient,
+  type AppleTeamUser,
+  type AppleTesterState,
+} from './apple-app-store.client';
 import { InviteTesterDto } from './dto/invite-tester.dto';
+
+/** 与 App Store Connect 对账结果。 */
+export interface TestFlightSyncSummary {
+  syncedAt: string;
+  /** 内部组在册(已接受)测试员数 */
+  accepted: number;
+  /** 待接受的最小权限测试员邀请数 */
+  pending: number;
+  /** 本次新落入本地台账的邮箱 (在 ASC 存在但本地原本没有) */
+  imported: string[];
+  /** 对账后本地台账总行数 */
+  totalLocal: number;
+  /** true=命中 60s 节流, 未真正请求苹果 */
+  throttled: boolean;
+}
+
+/** 管理类角色: 待接受邀请里若含这些角色, 视为团队管理账号而非本系统邀请的测试员, 不入台账。 */
+const PRIVILEGED_ROLES = new Set(['ACCOUNT_HOLDER', 'ADMIN', 'APP_MANAGER']);
+/** 角色展示优先级 (role 列只有 varchar(32), 多角色只存一个主要角色)。 */
+const ROLE_RANK = ['ACCOUNT_HOLDER', 'ADMIN', 'APP_MANAGER', 'DEVELOPER', 'MARKETING', 'SALES', 'CUSTOMER_SUPPORT', 'FINANCE', 'REPORTING'];
+
+function primaryRole(roles: string[], fallback: string): string {
+  for (const r of ROLE_RANK) if (roles.includes(r)) return r;
+  return roles[0] ?? fallback;
+}
 
 export interface TestFlightTesterView {
   id: number;
@@ -54,6 +84,10 @@ export interface TestFlightOverview {
 @Injectable()
 export class TestFlightService {
   private readonly logger = new Logger(TestFlightService.name);
+  /** 进页面自动对账的节流窗口: 60s 内不重复请求苹果 (手动同步用 force 绕过)。 */
+  private static readonly SYNC_THROTTLE_MS = 60_000;
+  private lastSyncAt = 0;
+  private lastSyncSummary: TestFlightSyncSummary | null = null;
 
   constructor(
     @InjectRepository(TestFlightInvitation) private readonly repo: Repository<TestFlightInvitation>,
@@ -119,13 +153,125 @@ export class TestFlightService {
     return base;
   }
 
-  /** 列表；live=true 时用苹果侧实时状态校准（个别失败保留库里的最近状态）。 */
+  /**
+   * 列表；live=true 时先与 App Store Connect 自动对账一次 (60s 节流),
+   * 让在 ASC 直接添加/接受的测试员也能自动出现。苹果侧失败不拖垮页面, 降级返回本地台账。
+   */
   async list(live = true): Promise<TestFlightTesterView[]> {
-    const rows = await this.repo.find({ order: { id: 'DESC' } });
     if (live && this.cfg.configured && this.cfg.enabled) {
-      await Promise.all(rows.map((r) => this.syncRow(r).catch(() => undefined)));
+      try {
+        await this.syncFromApple(false);
+      } catch (err) {
+        this.logger.warn(`进页面自动同步失败，降级展示本地台账: ${(err as Error).message}`);
+      }
     }
+    const rows = await this.repo.find({ order: { id: 'DESC' } });
     return rows.map((r) => this.toView(r));
+  }
+
+  /**
+   * 与 App Store Connect 单向对账 (Apple → 本地), 不反向改苹果、不删除本地行:
+   *   已接受 = 内部组 betaTesters; 待接受 = userInvitations 中本系统发起的最小权限(MARKETING)邀请。
+   * 按 email upsert 进本地台账; 苹果侧已查不到的本地行保留 (过期由 effectiveStatus 推导, 失败行保留)。
+   * @param force true=手动同步, 绕过 60s 节流
+   */
+  async syncFromApple(force = false): Promise<TestFlightSyncSummary> {
+    this.ensureReady();
+    const now = Date.now();
+    if (!force && this.lastSyncSummary && now - this.lastSyncAt < TestFlightService.SYNC_THROTTLE_MS) {
+      return { ...this.lastSyncSummary, throttled: true };
+    }
+
+    const group = await this.apple.getInternalGroup();
+    if (!group) {
+      throw new BadGatewayException('未在 App Store Connect 找到内部测试组（isInternalGroup=true），无法同步。');
+    }
+    const [testers, users, invitations] = await Promise.all([
+      this.apple.listInternalBetaTesters(group.id),
+      this.apple.listTeamUsers().catch((err): AppleTeamUser[] => {
+        this.logger.warn(`同步时读取团队成员失败 (角色将留空): ${(err as Error).message}`);
+        return [];
+      }),
+      this.apple.listPendingInvitations(),
+    ]);
+
+    const userByEmail = new Map(users.map((u) => [u.email, u]));
+    const acceptedEmails = new Set(testers.map((t) => t.email));
+    // 只收本系统口径的待接受测试员: 含 MARKETING 且不含任何管理类角色。
+    const pending = invitations.filter(
+      (i) => i.roles.includes(this.cfg.testerRole) && !i.roles.some((r) => PRIVILEGED_ROLES.has(r)),
+    );
+
+    const existing = await this.repo.find();
+    const byEmail = new Map(existing.map((r) => [r.email, r]));
+    const imported: string[] = [];
+    const toSave: TestFlightInvitation[] = [];
+
+    const obtain = (email: string): TestFlightInvitation => {
+      let row = byEmail.get(email);
+      if (!row) {
+        row = this.repo.create({
+          email,
+          firstName: '',
+          lastName: '',
+          role: this.cfg.testerRole,
+          appId: this.cfg.appId,
+          status: 'PENDING',
+          invitedBy: 'apple-sync',
+        });
+        byEmail.set(email, row);
+        imported.push(email);
+      }
+      return row;
+    };
+
+    // 1) 已接受 (内部组在册) —— 优先于待接受。
+    for (const t of testers) {
+      const row = obtain(t.email);
+      if (t.firstName) row.firstName = t.firstName;
+      if (t.lastName) row.lastName = t.lastName;
+      const meta = userByEmail.get(t.email);
+      if (meta?.roles.length) row.role = primaryRole(meta.roles, this.cfg.testerRole);
+      row.appId = this.cfg.appId;
+      row.status = 'ACCEPTED';
+      row.appleInvitationId = null;
+      row.expirationDate = null;
+      row.lastError = null;
+      toSave.push(row);
+    }
+
+    // 2) 待接受 (本系统发起的最小权限邀请, 且尚未进入内部组)。
+    let pendingCount = 0;
+    for (const inv of pending) {
+      if (acceptedEmails.has(inv.email)) continue;
+      const row = obtain(inv.email);
+      if (inv.firstName) row.firstName = inv.firstName;
+      if (inv.lastName) row.lastName = inv.lastName;
+      row.role = primaryRole(inv.roles, this.cfg.testerRole);
+      row.appId = this.cfg.appId;
+      row.status = 'PENDING';
+      row.appleInvitationId = inv.id;
+      row.expirationDate = inv.expirationDate ? new Date(inv.expirationDate) : null;
+      row.lastError = null;
+      toSave.push(row);
+      pendingCount += 1;
+    }
+
+    if (toSave.length) await this.repo.save(toSave);
+
+    const totalLocal = await this.repo.count();
+    const summary: TestFlightSyncSummary = {
+      syncedAt: new Date().toISOString(),
+      accepted: testers.length,
+      pending: pendingCount,
+      imported,
+      totalLocal,
+      throttled: false,
+    };
+    this.lastSyncAt = Date.now();
+    this.lastSyncSummary = summary;
+    this.logger.log(`与 App Store Connect 对账完成: 已接受 ${testers.length}、待接受 ${pendingCount}、新导入 ${imported.length}、本地共 ${totalLocal}`);
+    return summary;
   }
 
   /**
@@ -238,21 +384,6 @@ export class TestFlightService {
         await this.repo.save(row).catch(() => undefined);
       }
       throw this.mapApple(err);
-    }
-  }
-
-  /** 用苹果侧实时状态校准单条记录，有变化才落库。 */
-  private async syncRow(row: TestFlightInvitation): Promise<void> {
-    const live = await this.resolveLiveState(row.email);
-    if (!live) return; // 既非成员也无待接受邀请: 可能已过期, 保留现状由 effectiveStatus 推导
-    const before = { status: row.status, appleInvitationId: row.appleInvitationId, expirationDate: row.expirationDate };
-    this.applyState(row, live);
-    if (
-      before.status !== row.status ||
-      before.appleInvitationId !== row.appleInvitationId ||
-      String(before.expirationDate) !== String(row.expirationDate)
-    ) {
-      await this.repo.save(row);
     }
   }
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus';
-import { Rocket, RefreshCw, Send, AlertCircle, CheckCircle2, Clock, XCircle } from 'lucide-vue-next';
+import { Rocket, RefreshCw, RefreshCcw, Send, AlertCircle, CheckCircle2, Clock, XCircle } from 'lucide-vue-next';
 import {
   testflightService,
   type TestFlightOverview,
@@ -18,6 +18,7 @@ import {
 
 const loading = ref(false);
 const inviting = ref(false);
+const syncing = ref(false);
 const resendingId = ref<number | null>(null);
 const overview = ref<TestFlightOverview | null>(null);
 const testers = ref<TestFlightTester[]>([]);
@@ -73,16 +74,33 @@ function buildLabel(): string {
 async function refresh(): Promise<void> {
   loading.value = true;
   try {
-    const [ov, list] = await Promise.all([
-      testflightService.overview(),
-      testflightService.testers().catch(() => [] as TestFlightTester[]),
-    ]);
-    overview.value = ov;
+    // 先拉列表（后端会顺带与 App Store Connect 自动对账一次），再读总览，保证计数反映同步结果
+    const list = await testflightService.testers().catch(() => [] as TestFlightTester[]);
     testers.value = list;
+    overview.value = await testflightService.overview();
   } catch (err) {
     ElMessage.error(`加载失败: ${(err as Error).message}`);
   } finally {
     loading.value = false;
+  }
+}
+
+async function syncNow(): Promise<void> {
+  syncing.value = true;
+  try {
+    const r = await testflightService.sync();
+    if (r.throttled) {
+      ElMessage.info('刚刚已同步过（60 秒内），当前已是最新结果');
+    } else {
+      ElMessage.success(
+        `已同步：已接受 ${r.accepted}、待接受 ${r.pending}${r.imported.length ? `，新发现 ${r.imported.length} 个测试员` : ''}`,
+      );
+    }
+    await refresh();
+  } catch (err) {
+    ElMessage.error(`同步失败: ${(err as Error).message}`);
+  } finally {
+    syncing.value = false;
   }
 }
 
@@ -144,6 +162,9 @@ onMounted(refresh);
         </p>
       </div>
       <div class="actions">
+        <el-button type="primary" plain :loading="syncing" :disabled="!configured" @click="syncNow">
+          <RefreshCcw :size="15" :stroke-width="2" /> 与 App Store Connect 同步
+        </el-button>
         <el-button :loading="loading" @click="refresh">
           <RefreshCw :size="15" :stroke-width="2" /> 刷新
         </el-button>
@@ -215,6 +236,9 @@ onMounted(refresh);
     <!-- 测试员列表 -->
     <div class="table-card">
       <h3 class="form-title">测试员（{{ testers.length }}）</h3>
+      <p class="form-hint" style="margin: -6px 0 12px">
+        列表进页面时自动与 App Store Connect 对账一次（60 秒内不重复请求），也可点右上角「与 App Store Connect 同步」手动刷新；在 ASC 直接添加、或已接受邀请的内部测试员都会自动出现在这里。
+      </p>
       <el-table :data="testers" v-loading="loading" size="default" style="width: 100%">
         <el-table-column label="姓名" min-width="110">
           <template #default="{ row }">{{ fullName(row) }}</template>

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Req, UseGuards } from '@nestjs/common';
 import { AdminGuard } from '../admin-auth/admin-auth.guard';
 import type { AuthenticatedRequest } from '../../common/auth/actor';
 import { TestFlightService } from './testflight.service';
@@ -19,10 +19,17 @@ export class TestFlightController {
     return { message: '查询成功', data: await this.service.overview() };
   }
 
-  /** 邀请记录列表 (默认用苹果侧实时状态校准) */
+  /** 邀请记录列表 (进页面自动与 App Store Connect 对账一次, 60s 节流) */
   @Get('testers')
   async testers() {
     return { message: '查询成功', data: await this.service.list(true) };
+  }
+
+  /** 手动强制与 App Store Connect 同步 (绕过节流), 把 ASC 现有内部测试员/待接受邀请对账进本地台账 */
+  @Post('sync')
+  @HttpCode(200)
+  async sync() {
+    return { message: '已与 App Store Connect 同步', data: await this.service.syncFromApple(true) };
   }
 
   /** 邀请一名内部测试员 (幂等: 已邀请/已接受会直接回到对应状态) */

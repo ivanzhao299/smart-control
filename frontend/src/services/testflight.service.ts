@@ -57,11 +57,23 @@ export interface ResendTesterResult {
   tester: TestFlightTester;
 }
 
+/** 与 App Store Connect 单向对账结果 */
+export interface TestFlightSyncResult {
+  syncedAt: string;
+  accepted: number;
+  pending: number;
+  imported: string[];
+  totalLocal: number;
+  throttled: boolean;
+}
+
 export const testflightService = {
   /** 配置/密钥状态 + App、内部组、最新构建 + 计数 */
   overview: () => api.get<TestFlightOverview>('/testflight/overview'),
-  /** 邀请记录列表（后端用苹果侧实时状态校准） */
+  /** 邀请记录列表（进页面后端自动与 App Store Connect 对账一次，60s 节流） */
   testers: () => api.get<TestFlightTester[]>('/testflight/testers'),
+  /** 手动强制与 App Store Connect 同步（绕过节流） */
+  sync: () => api.post<TestFlightSyncResult>('/testflight/sync'),
   /** 邀请内部测试员（幂等：已邀请/已接受直接回到对应状态） */
   invite: (payload: InviteTesterPayload) =>
     api.post<InviteTesterResult>('/testflight/testers', payload),
