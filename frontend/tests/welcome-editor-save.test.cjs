@@ -20,7 +20,7 @@ test('welcome editor separates draft saving from publishing and carries the open
 test('welcome editor uploads logo and background in place and remains scrollable on iPhone', () => {
   assert.match(playerConsole, /welcomeLogoUploadInput/);
   assert.match(playerConsole, /welcomeBgUploadInput/);
-  assert.match(playerConsole, /mediaService\.upload\(file/);
+  assert.match(playerConsole, /mediaService\.upload\(uploadFile/);
   assert.match(playerConsole, /welcomeLogoMediaId/);
   assert.match(playerConsole, /ElScrollbar class="we-scroll" always/);
   assert.match(playerConsole, /class="we-upload-row"/);
@@ -40,6 +40,13 @@ test('welcome editor keeps uploaded logos and backgrounds in separate libraries 
   assert.match(playerConsole, /deleteWelcomeImage\('logo', a\)/);
   assert.match(playerConsole, /deleteWelcomeImage\('background', a\)/);
   assert.doesNotMatch(playerConsole, /v-for="a in imageAssets"/);
+});
+
+test('welcome editor converts every new or legacy background before selection', () => {
+  assert.match(playerConsole, /normalizeWelcomeBackground\(file\)/);
+  assert.match(playerConsole, /selectWelcomeBackground\(a\)/);
+  assert.match(playerConsole, /旧底图已转换为 LED 原生尺寸并选中/);
+  assert.doesNotMatch(playerConsole, /:disabled="a\.resolution\?\.toLowerCase\(\) !== LED_CANVAS_RESOLUTION"/);
 });
 
 test('welcome save contract documents its administrator boundary', () => {

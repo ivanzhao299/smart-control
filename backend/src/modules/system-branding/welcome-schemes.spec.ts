@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { NotFoundException } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { RuntimeConfigStore } from '../../common/runtime-config/runtime-config.store';
 import { RuntimeConfigDocument } from '../../entities/runtime-config-document.entity';
@@ -187,5 +188,34 @@ describe('SystemBrandingService welcome schemes', () => {
       { welcomeBgMediaId: null },
     );
     expect(media.remove).toHaveBeenCalledWith(7, expect.objectContaining({ role: 'admin' }));
+  });
+
+  it('treats an already absent welcome image as an idempotent delete', async () => {
+    const media = {
+      ensureImageResolution: jest.fn().mockResolvedValue({
+        id: 7,
+        kind: 'image',
+        resolution: '3612x1462',
+      }),
+      remove: jest.fn().mockRejectedValue(new NotFoundException('资料不存在')),
+    } as unknown as MediaService;
+    const subject = new SystemBrandingService(
+      repository,
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() } as never,
+      new ConfigService(),
+      new RuntimeConfigStore(dataSource),
+      media,
+    );
+    await subject.updateWelcomeSchemes(schemes, 0);
+
+    await expect(subject.removeWelcomeAsset(7, 1, {
+      kind: 'admin', userId: null, username: 'admin', role: 'admin',
+    })).resolves.toMatchObject({
+      removedId: 7,
+      cleanupPending: false,
+      schemes: {
+        config: { schemes: [{ welcomeBgMediaId: null }] },
+      },
+    });
   });
 });
