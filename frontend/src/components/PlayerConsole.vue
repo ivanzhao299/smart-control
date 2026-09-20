@@ -26,7 +26,7 @@
  */
 import { computed, onMounted, onScopeDispose, ref , watch } from 'vue';
 import { identityGeneration, captureIdentityGuard, createLatestIdentityRead } from '@/services/identity-boundary';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessage, ElMessageBox, ElScrollbar } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
   ArrowLeft, MonitorPlay, Play, Pause, Square, SkipBack, SkipForward,
@@ -1335,7 +1335,8 @@ async function submitWebpage(): Promise<void> {
         />
         <div v-if="welcomeLoading" class="pick-empty">读取中…</div>
         <template v-else>
-          <div class="we-scroll">
+          <ElScrollbar class="we-scroll" always>
+            <div class="we-scroll-content">
             <div class="we-resolution">
               <strong>LED 原生画布 {{ LED_CANVAS_RESOLUTION }}</strong>
               <span>输出、浏览器、V2460 与屏体像素点对点，正式画面不缩放、不裁切。</span>
@@ -1364,6 +1365,17 @@ async function submitWebpage(): Promise<void> {
                 <em v-if="publishedWelcomeSchemeId === scheme.id">正在使用</em>
               </button>
             </div>
+            <div class="we-upload-row" aria-label="欢迎页图片上传">
+              <button class="v2-quick secondary" :disabled="!!welcomeAssetUploading" @click="pickWelcomeAsset('logo')">
+                <Upload :size="14" />
+                {{ welcomeAssetUploading === 'logo' ? `Logo 上传中 ${welcomeAssetUploadPct}%` : '上传 Logo' }}
+              </button>
+              <button class="v2-quick secondary" :disabled="!!welcomeAssetUploading" @click="pickWelcomeAsset('background')">
+                <Upload :size="14" />
+                {{ welcomeAssetUploading === 'background' ? `底图上传中 ${welcomeAssetUploadPct}%` : '上传底图' }}
+              </button>
+              <span>Logo 推荐透明底 PNG/WebP；底图必须为 {{ LED_CANVAS_RESOLUTION }}</span>
+            </div>
             <div class="we-preview" aria-label="LED 欢迎页实时预览">
               <iframe
                 ref="welcomePreviewFrame"
@@ -1381,13 +1393,7 @@ async function submitWebpage(): Promise<void> {
             <input v-model="welcomeForm.welcomeGuest" class="wb-input" maxlength="64" placeholder="各位领导嘉宾" />
             <label class="wb-label">底部标语 (空 = 默认「智慧展厅 · 数字展贸 · 科创未来」)</label>
             <input v-model="welcomeForm.welcomeTagline" class="wb-input" maxlength="64" placeholder="智慧展厅 · 数字展贸 · 科创未来" />
-            <div class="we-asset-title">
-              <label class="wb-label">Logo 图片 — 推荐透明底 PNG 或 WebP</label>
-              <button class="v2-quick" :disabled="!!welcomeAssetUploading" @click="pickWelcomeAsset('logo')">
-                <Upload :size="14" />
-                {{ welcomeAssetUploading === 'logo' ? `上传中 ${welcomeAssetUploadPct}%` : '上传 Logo' }}
-              </button>
-            </div>
+            <label class="wb-label we-asset-label">Logo 图片</label>
             <div v-if="incompatibleSelectedLogo" class="we-warning">
               原 Logo 图片已不可用，预览和大屏已回退内置场馆 Logo；保存后会清除旧绑定。
             </div>
@@ -1405,13 +1411,7 @@ async function submitWebpage(): Promise<void> {
                 <span class="we-bg-name">{{ a.originalName }}</span>
               </button>
             </div>
-            <div class="we-asset-title">
-              <label class="wb-label">底图模板 — 必须是 {{ LED_CANVAS_RESOLUTION }} 原图</label>
-              <button class="v2-quick" :disabled="!!welcomeAssetUploading" @click="pickWelcomeAsset('background')">
-                <Upload :size="14" />
-                {{ welcomeAssetUploading === 'background' ? `上传中 ${welcomeAssetUploadPct}%` : '上传底图' }}
-              </button>
-            </div>
+            <label class="wb-label we-asset-label">底图模板 — 必须是 {{ LED_CANVAS_RESOLUTION }} 原图</label>
             <div v-if="incompatibleSelectedBackground" class="we-warning">
               原底图不是 {{ LED_CANVAS_RESOLUTION }}，预览和大屏已回退默认底图；保存后会清除旧绑定。
             </div>
@@ -1432,10 +1432,11 @@ async function submitWebpage(): Promise<void> {
                 <span class="we-bg-name">{{ a.originalName }} · {{ a.resolution }}</span>
               </button>
             </div>
-          </div>
+            </div>
+          </ElScrollbar>
           <div class="wb-actions">
             <button class="v2-quick" @click="welcomeEditOpen = false">取消</button>
-            <button class="v2-quick" :disabled="welcomeSaving || welcomePublishing" @click="saveWelcomeScheme">
+            <button class="v2-quick secondary" :disabled="welcomeSaving || welcomePublishing" @click="saveWelcomeScheme">
               {{ welcomeSaving ? '保存中…' : '保存方案' }}
             </button>
             <button class="v2-quick primary" :disabled="welcomeSaving || welcomePublishing" @click="publishSelectedWelcomeScheme">
@@ -1556,17 +1557,30 @@ async function submitWebpage(): Promise<void> {
 .src-hint { font-size: 11px; color: var(--v2-text-3); }
 
 /* 欢迎页编辑器 (2026-07-28) */
-.we-box {
-  width: min(920px, 94vw); height: 90vh; max-height: calc(100vh - 20px);
+.pick-box.we-box {
+  width: min(920px, calc(100vw - 32px));
+  height: min(90vh, 900px); max-height: calc(100vh - 20px);
   height: min(90dvh, 900px); max-height: calc(100dvh - 20px);
-  display: flex; flex-direction: column; overflow: hidden;
+  min-height: 0; display: flex; flex-direction: column; overflow: hidden;
 }
 .we-box > .pick-head, .we-box > .wb-actions { flex: 0 0 auto; }
 .we-scroll {
-  flex: 1 1 0; overflow-y: auto; min-height: 0; padding-right: 4px;
-  -webkit-overflow-scrolling: touch; touch-action: pan-y; overscroll-behavior-y: contain;
+  flex: 1 1 0; min-height: 0;
+}
+.we-scroll-content {
+  min-height: 100%; padding-right: 18px;
   display: flex; flex-direction: column; gap: 6px;   /* label 是 inline 元素, 不排 flex 会挤成一行 */
 }
+.we-scroll :deep(.el-scrollbar__wrap) {
+  overflow-x: hidden; -webkit-overflow-scrolling: touch;
+  touch-action: pan-y; overscroll-behavior-y: contain;
+}
+.we-scroll :deep(.el-scrollbar__bar.is-vertical) { width: 12px; right: 1px; opacity: 1; }
+.we-scroll :deep(.el-scrollbar__thumb) {
+  min-height: 48px; opacity: 1;
+  background: color-mix(in srgb, var(--v2-primary) 72%, var(--v2-text-3));
+}
+.we-scroll :deep(.el-scrollbar__thumb:hover) { background: var(--v2-primary); }
 .we-resolution {
   display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
   padding: 10px 12px; border-radius: 9px;
@@ -1598,14 +1612,15 @@ async function submitWebpage(): Promise<void> {
   color: var(--v2-text-1); border-color: var(--v2-primary);
   background: color-mix(in srgb, var(--v2-primary) 10%, var(--v2-surf-2));
 }
-.we-asset-title {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px;
+.we-upload-row {
+  display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 8px;
+  padding: 9px 10px; border: 1px solid var(--v2-border-soft); border-radius: 9px;
+  background: var(--v2-surf-2);
 }
-.we-asset-title .wb-label { margin-top: 0; }
-.we-asset-title .v2-quick {
-  flex: none; display: inline-flex; align-items: center; gap: 5px; min-height: 34px; padding: 6px 10px;
-}
-.we-logo-grid { max-height: 190px; overflow-y: auto; }
+.we-upload-row .v2-quick { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+.we-upload-row span { color: var(--v2-text-3); font-size: 11px; line-height: 1.35; }
+.we-asset-label { margin-top: 10px; }
+.we-logo-grid { overflow: visible; }
 .we-logo-image { object-fit: contain !important; padding: 7px; background: rgba(255,255,255,.92); }
 .we-logo-default {
   position: absolute; inset: 0; display: grid; place-items: center; padding: 8px;
@@ -1645,8 +1660,8 @@ async function submitWebpage(): Promise<void> {
   position: absolute; inset: 0; display: grid; place-items: center;
 }
 @media (max-width: 640px) {
-  .welcome-mask { padding: 0; align-items: stretch; }
-  .welcome-mask .we-box {
+  .welcome-mask { padding: 0; align-items: stretch; overflow: hidden; }
+  .welcome-mask .pick-box.we-box {
     width: 100%; height: 100vh; max-height: 100vh; height: 100dvh; max-height: 100dvh; border-radius: 0;
     padding: max(10px, env(safe-area-inset-top)) 10px max(8px, env(safe-area-inset-bottom));
   }
@@ -1658,7 +1673,10 @@ async function submitWebpage(): Promise<void> {
   .we-resolution { align-items: flex-start; flex-direction: column; gap: 3px; }
   .we-resolution span { text-align: left; }
   .we-preview { flex: 0 0 auto; }
-  .we-asset-title { align-items: flex-start; }
+  .we-upload-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .we-upload-row span { grid-column: 1 / -1; }
+  .we-scroll-content { padding-right: 10px; }
+  .we-scroll :deep(.el-scrollbar__bar.is-vertical) { width: 7px; }
   .we-bg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 

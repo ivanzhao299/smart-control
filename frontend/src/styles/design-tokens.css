@@ -473,6 +473,67 @@ textarea:focus-visible,
 .src-btn:active,
 .v2-back-btn:active { transform: scale(0.97); }
 
+/* Shared compact action button. Feature pages may adjust layout, but color,
+   hierarchy, focus and interaction states stay consistent across the PWA. */
+.v2-quick {
+  appearance: none;
+  min-height: 38px;
+  padding: 8px 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--v2-border-strong);
+  border-radius: var(--v2-r-sm);
+  background: var(--v2-surf-2);
+  color: var(--v2-text-1);
+  font-size: var(--v2-fs-sm);
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.v2-quick:hover:not(:disabled):not(.disabled) {
+  border-color: var(--v2-primary);
+  background: var(--v2-surf-1-hover);
+  color: var(--v2-text-1);
+}
+.v2-quick.secondary {
+  border-color: rgba(var(--v2-primary-rgb), 0.34);
+  background: var(--v2-primary-soft);
+  color: var(--v2-primary);
+}
+.v2-quick.secondary:hover:not(:disabled):not(.disabled) {
+  border-color: var(--v2-primary);
+  background: rgba(var(--v2-primary-rgb), 0.18);
+  color: var(--v2-primary-dark);
+}
+.v2-quick.primary {
+  border-color: var(--v2-primary);
+  background: var(--v2-primary);
+  color: var(--v2-on-primary);
+}
+.v2-quick.primary:hover:not(:disabled):not(.disabled) {
+  border-color: var(--v2-primary-hover);
+  background: var(--v2-primary-hover);
+  color: var(--v2-on-primary);
+}
+.v2-quick.danger {
+  border-color: rgba(201, 54, 43, 0.3);
+  background: var(--v2-danger-soft);
+  color: var(--v2-danger);
+}
+.v2-quick.danger:hover:not(:disabled):not(.disabled) {
+  border-color: var(--v2-danger);
+  background: rgba(201, 54, 43, 0.16);
+}
+.v2-quick:disabled,
+.v2-quick.disabled {
+  opacity: 0.46;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .v2-page-enter-active { transition: opacity 70ms ease-out; }
 .v2-page-leave-active { transition: opacity 50ms ease; }
 .v2-page-enter-from,
