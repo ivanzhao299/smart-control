@@ -22,8 +22,11 @@ test('welcome editor uploads logo and background in place and remains scrollable
   assert.match(playerConsole, /welcomeBgUploadInput/);
   assert.match(playerConsole, /mediaService\.upload\(file/);
   assert.match(playerConsole, /welcomeLogoMediaId/);
+  assert.match(playerConsole, /ElScrollbar class="we-scroll" always/);
+  assert.match(playerConsole, /class="we-upload-row"/);
   assert.match(playerConsole, /height: 100dvh/);
-  assert.match(playerConsole, /flex: 1 1 0; overflow-y: auto/);
+  assert.match(playerConsole, /\.pick-box\.we-box/);
+  assert.match(playerConsole, /\.el-scrollbar__thumb/);
   assert.match(playerConsole, /touch-action: pan-y/);
   assert.match(welcomePage, /id="logoImg"/);
   assert.match(welcomePage, /welcomeLogoUrl/);
