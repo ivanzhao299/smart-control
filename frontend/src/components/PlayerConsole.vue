@@ -42,8 +42,9 @@ import {
 } from '@/services/playback.service';
 import { projectorService } from '@/services/projector.service';
 import {
+  DEFAULT_WELCOME_PRESENTATION,
   fetchWelcomeSchemes, publishWelcomeScheme, removeWelcomeAsset, saveWelcomeSchemes,
-  type WelcomeScheme, type WelcomeSchemesSnapshot,
+  type WelcomePresentation, type WelcomeScheme, type WelcomeSchemesSnapshot,
 } from '@/services/system-branding.service';
 import { absUrl } from '@/services/http';
 import { useAdminUnlock } from '@/composables/useAdminUnlock';
@@ -57,6 +58,11 @@ import {
   type WelcomeImageAsset,
 } from '@/features/welcome-image-assets';
 import { normalizeWelcomeBackground } from '@/features/welcome-background-image';
+import {
+  changeWelcomePresentation,
+  chooseWelcomeBackground,
+  chooseWelcomeLogo,
+} from '@/features/welcome-scheme-draft';
 
 const props = defineProps<{
   /** 1 = LED 大屏 (HDMI1), 2 = 投影仪 (HDMI2) */
@@ -625,6 +631,7 @@ const welcomeForm = ref({
   welcomeTitle: '', welcomeGuest: '', welcomeTagline: '',
   welcomeBgMediaId: null as number | null,
   welcomeLogoMediaId: null as number | null,
+  presentation: { ...DEFAULT_WELCOME_PRESENTATION } as WelcomePresentation,
 });
 const welcomeSchemeName = ref('');
 const welcomeSchemes = ref<WelcomeScheme[]>([]);
@@ -649,6 +656,38 @@ const welcomeAssetUploadPct = ref(0);
 const welcomeAssetDeletingId = ref<number | null>(null);
 const lastWelcomeSaveRevision = ref<number | null>(null);
 const LAST_WELCOME_SCHEME_KEY = 'sc.welcome.lastSelectedSchemeId';
+const welcomeLayoutOptions = [
+  { value: 'ceremony', name: '居中典礼', hint: '正式接待、深色或建筑底图' },
+  { value: 'editorial', name: '左文右景', hint: '画面中心较杂，左侧需要稳定文字区' },
+  { value: 'minimal', name: '极简留白', hint: '浅色品牌底图、简洁活动画面' },
+] as const;
+const welcomeToneOptions = [
+  { value: 'light', name: '浅色文字' },
+  { value: 'dark', name: '深色文字' },
+] as const;
+const welcomeOverlayOptions = [
+  { value: 'none', name: '无遮罩' },
+  { value: 'soft', name: '柔和' },
+  { value: 'strong', name: '较强' },
+] as const;
+const welcomePositionOptions = [
+  { value: 'upper', name: '偏上' },
+  { value: 'center', name: '居中' },
+  { value: 'lower', name: '偏下' },
+] as const;
+const welcomeLogoSizeOptions = [
+  { value: 'small', name: '小' },
+  { value: 'medium', name: '中' },
+  { value: 'large', name: '大' },
+] as const;
+
+function cloneWelcomePresentation(value?: WelcomePresentation): WelcomePresentation {
+  return { ...(value ?? DEFAULT_WELCOME_PRESENTATION) };
+}
+
+function markWelcomeDraftChanged(): void {
+  lastWelcomeSaveRevision.value = null;
+}
 
 function rememberedWelcomeSchemeId(): string {
   try { return window.localStorage.getItem(LAST_WELCOME_SCHEME_KEY) ?? ''; }
@@ -672,6 +711,7 @@ function pushWelcomePreview(): void {
       welcomeTagline: welcomeForm.value.welcomeTagline,
       welcomeBgUrl: selected ? absUrl(selected.fileUrl) : null,
       welcomeLogoUrl: selectedLogo ? absUrl(selectedLogo.fileUrl) : null,
+      welcomePresentation: cloneWelcomePresentation(welcomeForm.value.presentation),
     },
   }, window.location.origin);
 }
@@ -694,6 +734,7 @@ function applyWelcomeScheme(id: string): void {
     welcomeTagline: scheme.welcomeTagline ?? '',
     welcomeBgMediaId: incompatibleSelectedBackground.value ? null : scheme.welcomeBgMediaId,
     welcomeLogoMediaId: incompatibleSelectedLogo.value ? null : scheme.welcomeLogoMediaId,
+    presentation: cloneWelcomePresentation(scheme.presentation),
   };
 }
 
@@ -723,6 +764,7 @@ function syncSelectedWelcomeDraft(): boolean {
     welcomeTagline: welcomeForm.value.welcomeTagline.trim() || null,
     welcomeBgMediaId: welcomeForm.value.welcomeBgMediaId,
     welcomeLogoMediaId: welcomeForm.value.welcomeLogoMediaId,
+    presentation: cloneWelcomePresentation(welcomeForm.value.presentation),
   };
   return true;
 }
@@ -753,8 +795,20 @@ async function openWelcomeEditor(): Promise<void> {
       source: m.source,
     }));
     const libraries = classifyWelcomeImageAssets(assets, snapshot.config.schemes);
-    bgAssets.value = libraries.backgrounds;
-    logoAssets.value = libraries.logos;
+    // 普通媒体文件地址需要鉴权，原生 <img> 不会自动附带 token。编辑器打开时
+    // 为欢迎页素材换取短期访问地址，否则重开页面后缩略图会失效，看起来像 Logo 不能切换。
+    const hydrate = async (asset: WelcomeImageAsset): Promise<WelcomeImageAsset> => {
+      try {
+        const access = await mediaService.access(asset.id);
+        return { ...asset, thumbUrl: null, fileUrl: access.url };
+      } catch {
+        return asset;
+      }
+    };
+    [bgAssets.value, logoAssets.value] = await Promise.all([
+      Promise.all(libraries.backgrounds.map(hydrate)),
+      Promise.all(libraries.logos.map(hydrate)),
+    ]);
     welcomeSchemes.value = snapshot.config.schemes.map((item) => ({ ...item }));
     welcomeSchemesRevision.value = snapshot.revision;
     publishedWelcomeSchemeId.value = snapshot.publishedSchemeId;
@@ -824,11 +878,13 @@ async function onWelcomeAssetPicked(kind: 'background' | 'logo', event: Event): 
         ElMessage.warning(`底图必须是 ${LED_CANVAS_RESOLUTION}，当前为 ${asset.resolution || '未知尺寸'}；图片已保存在媒体库，但没有绑定`);
         return;
       }
-      welcomeForm.value.welcomeBgMediaId = asset.id;
+      welcomeForm.value = chooseWelcomeBackground(welcomeForm.value, asset.id);
+      markWelcomeDraftChanged();
       incompatibleSelectedBackground.value = false;
       ElMessage.success('底图已转换为 LED 原生尺寸并选中，保存方案后保留');
     } else {
-      welcomeForm.value.welcomeLogoMediaId = asset.id;
+      welcomeForm.value = chooseWelcomeLogo(welcomeForm.value, asset.id);
+      markWelcomeDraftChanged();
       incompatibleSelectedLogo.value = false;
       ElMessage.success('Logo 已上传并选中，保存方案后保留');
     }
@@ -843,8 +899,9 @@ async function onWelcomeAssetPicked(kind: 'background' | 'logo', event: Event): 
 async function selectWelcomeBackground(asset: WelcomeImageAsset): Promise<void> {
   if (welcomeAssetUploading.value || welcomeAssetDeletingId.value !== null) return;
   if (asset.resolution?.toLowerCase() === LED_CANVAS_RESOLUTION) {
-    welcomeForm.value.welcomeBgMediaId = asset.id;
+    welcomeForm.value = chooseWelcomeBackground(welcomeForm.value, asset.id);
     incompatibleSelectedBackground.value = false;
+    markWelcomeDraftChanged();
     return;
   }
   if (!(await ensureAdmin('转换欢迎页底图'))) return;
@@ -892,7 +949,8 @@ async function selectWelcomeBackground(asset: WelcomeImageAsset): Promise<void> 
       ElMessage.info('底图已转换保存；当前已切换方案，因此没有自动绑定');
       return;
     }
-    welcomeForm.value.welcomeBgMediaId = converted.id;
+    welcomeForm.value = chooseWelcomeBackground(welcomeForm.value, converted.id);
+    markWelcomeDraftChanged();
     incompatibleSelectedBackground.value = false;
     ElMessage.success('旧底图已转换为 LED 原生尺寸并选中，保存方案后生效');
   } catch (error) {
@@ -959,7 +1017,13 @@ async function persistWelcomeSchemes(checkAdmin = true): Promise<WelcomeSchemesS
   try {
     const selectedId = selectedWelcomeSchemeId.value;
     const saved = await saveWelcomeSchemes(
-      { version: 1, schemes: welcomeSchemes.value },
+      {
+        version: 2,
+        schemes: welcomeSchemes.value.map((scheme) => ({
+          ...scheme,
+          presentation: cloneWelcomePresentation(scheme.presentation),
+        })),
+      },
       welcomeSchemesRevision.value,
     );
     // A 200 response is not enough: immediately read the server document back so
@@ -1003,7 +1067,8 @@ async function publishSelectedWelcomeScheme(): Promise<void> {
       && published.branding.welcomeGuest === selected.welcomeGuest
       && published.branding.welcomeTagline === selected.welcomeTagline
       && published.branding.welcomeBgMediaId === selected.welcomeBgMediaId
-      && published.branding.welcomeLogoMediaId === selected.welcomeLogoMediaId;
+      && published.branding.welcomeLogoMediaId === selected.welcomeLogoMediaId
+      && JSON.stringify(published.branding.welcomePresentation) === JSON.stringify(selected.presentation);
     if (!confirmed) throw new Error('服务器未确认发布结果，原大屏画面保持不变，请重试');
     publishedWelcomeSchemeId.value = selectedId;
     let refreshFailed = false;
@@ -1016,6 +1081,28 @@ async function publishSelectedWelcomeScheme(): Promise<void> {
   } catch (e) {
     ElMessage.error(`发布失败: ${(e as Error).message}`);
   } finally { welcomePublishing.value = false; }
+}
+
+function selectWelcomeLogo(mediaId: number | null): void {
+  if (welcomeAssetUploading.value || welcomeAssetDeletingId.value !== null) return;
+  welcomeForm.value = chooseWelcomeLogo(welcomeForm.value, mediaId);
+  incompatibleSelectedLogo.value = false;
+  markWelcomeDraftChanged();
+}
+
+function selectDefaultWelcomeBackground(): void {
+  if (welcomeAssetUploading.value || welcomeAssetDeletingId.value !== null) return;
+  welcomeForm.value = chooseWelcomeBackground(welcomeForm.value, null);
+  incompatibleSelectedBackground.value = false;
+  markWelcomeDraftChanged();
+}
+
+function updateWelcomePresentation<K extends keyof WelcomePresentation>(
+  key: K,
+  value: WelcomePresentation[K],
+): void {
+  welcomeForm.value = changeWelcomePresentation(welcomeForm.value, key, value);
+  markWelcomeDraftChanged();
 }
 
 function duplicateWelcomeScheme(): void {
@@ -1543,26 +1630,90 @@ async function submitWebpage(): Promise<void> {
               ></iframe>
             </div>
             <label class="wb-label">方案名称</label>
-            <input v-model="welcomeSchemeName" class="wb-input" maxlength="40" placeholder="如：某公司来访" />
+            <input v-model="welcomeSchemeName" class="wb-input" maxlength="40" placeholder="如：某公司来访" @input="markWelcomeDraftChanged" />
             <label class="wb-label">主标题 (空 = 默认「热烈欢迎」)</label>
-            <input v-model="welcomeForm.welcomeTitle" class="wb-input" maxlength="16" placeholder="热烈欢迎" />
+            <input v-model="welcomeForm.welcomeTitle" class="wb-input" maxlength="16" placeholder="热烈欢迎" @input="markWelcomeDraftChanged" />
             <label class="wb-label">嘉宾称谓 (显示为 恭迎 ×× 莅临参观指导)</label>
-            <input v-model="welcomeForm.welcomeGuest" class="wb-input" maxlength="64" placeholder="各位领导嘉宾" />
+            <input v-model="welcomeForm.welcomeGuest" class="wb-input" maxlength="64" placeholder="各位领导嘉宾" @input="markWelcomeDraftChanged" />
             <label class="wb-label">底部标语 (空 = 默认「智慧展厅 · 数字展贸 · 科创未来」)</label>
-            <input v-model="welcomeForm.welcomeTagline" class="wb-input" maxlength="64" placeholder="智慧展厅 · 数字展贸 · 科创未来" />
+            <input v-model="welcomeForm.welcomeTagline" class="wb-input" maxlength="64" placeholder="智慧展厅 · 数字展贸 · 科创未来" @input="markWelcomeDraftChanged" />
+            <div class="we-presentation-head">
+              <strong>画面版式</strong>
+              <span>版式随方案独立保存，切换底图和 Logo 后不会继续套用一张固定模板</span>
+            </div>
+            <div class="we-layout-grid" role="radiogroup" aria-label="欢迎页画面版式">
+              <button
+                v-for="option in welcomeLayoutOptions"
+                :key="option.value"
+                type="button"
+                class="we-layout-option"
+                :class="{ on: welcomeForm.presentation.layout === option.value }"
+                role="radio"
+                :aria-checked="welcomeForm.presentation.layout === option.value"
+                @click="updateWelcomePresentation('layout', option.value)"
+              >
+                <span class="we-layout-swatch" :data-layout="option.value"><i></i><b></b></span>
+                <strong>{{ option.name }}</strong>
+                <small>{{ option.hint }}</small>
+              </button>
+            </div>
+            <div class="we-style-controls">
+              <div class="we-style-control">
+                <span>文字色调</span>
+                <div>
+                  <button
+                    v-for="option in welcomeToneOptions" :key="option.value" type="button"
+                    :class="{ on: welcomeForm.presentation.tone === option.value }"
+                    @click="updateWelcomePresentation('tone', option.value)"
+                  >{{ option.name }}</button>
+                </div>
+              </div>
+              <div class="we-style-control">
+                <span>背景遮罩</span>
+                <div>
+                  <button
+                    v-for="option in welcomeOverlayOptions" :key="option.value" type="button"
+                    :class="{ on: welcomeForm.presentation.overlay === option.value }"
+                    @click="updateWelcomePresentation('overlay', option.value)"
+                  >{{ option.name }}</button>
+                </div>
+              </div>
+              <div class="we-style-control">
+                <span>文字位置</span>
+                <div>
+                  <button
+                    v-for="option in welcomePositionOptions" :key="option.value" type="button"
+                    :class="{ on: welcomeForm.presentation.contentPosition === option.value }"
+                    @click="updateWelcomePresentation('contentPosition', option.value)"
+                  >{{ option.name }}</button>
+                </div>
+              </div>
+              <div class="we-style-control">
+                <span>Logo 尺寸</span>
+                <div>
+                  <button
+                    v-for="option in welcomeLogoSizeOptions" :key="option.value" type="button"
+                    :class="{ on: welcomeForm.presentation.logoSize === option.value }"
+                    @click="updateWelcomePresentation('logoSize', option.value)"
+                  >{{ option.name }}</button>
+                </div>
+              </div>
+            </div>
             <label class="wb-label we-asset-label">Logo 图片</label>
             <div v-if="incompatibleSelectedLogo" class="we-warning">
               原 Logo 图片已不可用，预览和大屏已回退内置场馆 Logo；保存后会清除旧绑定。
             </div>
             <div class="we-bg-grid we-logo-grid">
               <button
+                type="button"
                 class="we-bg-item" :class="{ on: welcomeForm.welcomeLogoMediaId === null }"
-                title="使用内置场馆 Logo" @click="welcomeForm.welcomeLogoMediaId = null"
+                title="使用内置场馆 Logo" @click="selectWelcomeLogo(null)"
               ><span class="we-logo-default">内置场馆 Logo</span></button>
               <div v-for="a in logoAssets" :key="`logo-${a.id}`" class="we-asset-card">
                 <button
+                  type="button"
                   class="we-bg-item" :class="{ on: welcomeForm.welcomeLogoMediaId === a.id }"
-                  :title="a.originalName" @click="welcomeForm.welcomeLogoMediaId = a.id"
+                  :title="a.originalName" @click="selectWelcomeLogo(a.id)"
                 >
                   <img class="we-logo-image" :src="absUrl(a.thumbUrl || a.fileUrl)" alt="" loading="lazy" />
                   <span class="we-bg-name">{{ a.originalName }}</span>
@@ -1586,8 +1737,9 @@ async function submitWebpage(): Promise<void> {
             </div>
             <div class="we-bg-grid">
               <button
+                type="button"
                 class="we-bg-item" :class="{ on: welcomeForm.welcomeBgMediaId === null }"
-                title="内置品牌底图" @click="welcomeForm.welcomeBgMediaId = null"
+                title="内置品牌底图" @click="selectDefaultWelcomeBackground"
               ><span class="we-bg-default">默认品牌底图</span></button>
               <div v-for="a in bgAssets" :key="`background-${a.id}`" class="we-asset-card">
                 <button
@@ -1621,10 +1773,10 @@ async function submitWebpage(): Promise<void> {
               已保存到服务器 · 版本 {{ lastWelcomeSaveRevision }}
             </span>
             <button class="v2-quick" @click="welcomeEditOpen = false">取消</button>
-            <button class="v2-quick secondary" :disabled="welcomeSaving || welcomePublishing" @click="saveWelcomeScheme">
+            <button class="v2-quick secondary" :disabled="welcomeSaving || welcomePublishing || !!welcomeAssetUploading || welcomeAssetDeletingId !== null" @click="saveWelcomeScheme">
               {{ welcomeSaving ? '保存并校验中…' : '仅保存方案' }}
             </button>
-            <button class="v2-quick primary" :disabled="welcomeSaving || welcomePublishing" @click="publishSelectedWelcomeScheme">
+            <button class="v2-quick primary" :disabled="welcomeSaving || welcomePublishing || !!welcomeAssetUploading || welcomeAssetDeletingId !== null" @click="publishSelectedWelcomeScheme">
               {{ welcomePublishing ? '发布中…' : '保存并发布到 LED' }}
             </button>
           </div>
@@ -1806,6 +1958,63 @@ async function submitWebpage(): Promise<void> {
 .we-upload-row .v2-quick { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
 .we-upload-row span { color: var(--v2-text-3); font-size: 11px; line-height: 1.35; }
 .we-asset-label { margin-top: 10px; }
+.we-presentation-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin-top: 10px;
+}
+.we-presentation-head strong { color: var(--v2-text-1); font-size: 13px; }
+.we-presentation-head span { color: var(--v2-text-3); font-size: 11px; text-align: right; }
+.we-layout-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.we-layout-option {
+  min-width: 0; padding: 9px; border-radius: 10px; cursor: pointer; text-align: left;
+  color: var(--v2-text-2); background: var(--v2-surf-2); border: 1px solid var(--v2-border-soft);
+}
+.we-layout-option.on {
+  color: var(--v2-text-1); border-color: var(--v2-primary);
+  background: color-mix(in srgb, var(--v2-primary) 9%, var(--v2-surf-2));
+}
+.we-layout-option:focus-visible, .we-style-control button:focus-visible {
+  outline: 2px solid var(--v2-primary); outline-offset: 2px;
+}
+.we-layout-option > strong { display: block; margin-top: 7px; font-size: 12px; }
+.we-layout-option > small { display: block; margin-top: 2px; color: var(--v2-text-3); font-size: 10px; line-height: 1.4; }
+.we-layout-swatch {
+  position: relative; display: block; height: 42px; overflow: hidden; border-radius: 6px;
+  background: #102942;
+}
+.we-layout-swatch::before, .we-layout-swatch i, .we-layout-swatch b {
+  content: ''; position: absolute; display: block; background: rgba(236,245,255,.9);
+}
+.we-layout-swatch::before { width: 22%; height: 4px; top: 8px; left: 39%; border-radius: 2px; }
+.we-layout-swatch i { width: 48%; height: 5px; top: 19px; left: 26%; border-radius: 2px; }
+.we-layout-swatch b { width: 32%; height: 2px; top: 30px; left: 34%; opacity: .65; }
+.we-layout-swatch[data-layout="editorial"]::before,
+.we-layout-swatch[data-layout="editorial"] i,
+.we-layout-swatch[data-layout="editorial"] b { left: 12%; }
+.we-layout-swatch[data-layout="editorial"]::before { width: 18%; }
+.we-layout-swatch[data-layout="editorial"] i { width: 42%; }
+.we-layout-swatch[data-layout="editorial"] b { width: 28%; }
+.we-layout-swatch[data-layout="minimal"] { background: #e9eff5; }
+.we-layout-swatch[data-layout="minimal"]::before,
+.we-layout-swatch[data-layout="minimal"] i,
+.we-layout-swatch[data-layout="minimal"] b { background: #173b60; }
+.we-layout-swatch[data-layout="minimal"]::before { width: 16%; left: 42%; }
+.we-layout-swatch[data-layout="minimal"] i { width: 36%; left: 32%; }
+.we-layout-swatch[data-layout="minimal"] b { width: 22%; left: 39%; }
+.we-style-controls {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
+  padding: 9px; border: 1px solid var(--v2-border-soft); border-radius: 10px;
+}
+.we-style-control { min-width: 0; }
+.we-style-control > span { display: block; margin-bottom: 5px; color: var(--v2-text-3); font-size: 10px; }
+.we-style-control > div { display: flex; gap: 4px; }
+.we-style-control button {
+  flex: 1 1 0; min-height: 32px; padding: 5px 7px; border-radius: 7px; cursor: pointer;
+  color: var(--v2-text-2); background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft);
+  font-size: 11px;
+}
+.we-style-control button.on {
+  color: var(--v2-on-primary); background: var(--v2-primary); border-color: var(--v2-primary);
+}
 .we-logo-grid { overflow: visible; }
 .we-logo-image { object-fit: contain !important; padding: 7px; background: rgba(255,255,255,.92); }
 .we-logo-default {
@@ -1873,6 +2082,13 @@ async function submitWebpage(): Promise<void> {
   .we-preview { flex: 0 0 auto; }
   .we-upload-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .we-upload-row span { grid-column: 1 / -1; }
+  .we-presentation-head { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .we-presentation-head span { text-align: left; }
+  .we-layout-grid { grid-template-columns: 1fr; }
+  .we-layout-option { display: grid; grid-template-columns: 90px 1fr; column-gap: 9px; align-items: center; }
+  .we-layout-option .we-layout-swatch { grid-row: 1 / 3; }
+  .we-layout-option > strong { margin-top: 0; }
+  .we-style-controls { grid-template-columns: 1fr; }
   .we-scroll-content { padding-right: 10px; }
   .we-scroll :deep(.el-scrollbar__bar.is-vertical) { width: 7px; }
   .we-bg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

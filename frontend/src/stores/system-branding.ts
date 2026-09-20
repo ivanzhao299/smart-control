@@ -1,6 +1,12 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { fetchSystemBranding, saveSystemBranding, type SystemBranding, type SystemBrandingPatch } from '@/services/system-branding.service';
+import {
+  DEFAULT_WELCOME_PRESENTATION,
+  fetchSystemBranding,
+  saveSystemBranding,
+  type SystemBranding,
+  type SystemBrandingPatch,
+} from '@/services/system-branding.service';
 
 /**
  * 系统品牌 store — App 启动时 load() 一次, 全局 reactive 复用.
@@ -23,6 +29,7 @@ const FALLBACK: SystemBranding = {
   welcomeTagline: null,
   welcomeBgMediaId: null,
   welcomeLogoMediaId: null,
+  welcomePresentation: { ...DEFAULT_WELCOME_PRESENTATION },
 };
 
 export const useSystemBrandingStore = defineStore('system-branding', () => {

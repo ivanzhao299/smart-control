@@ -17,13 +17,16 @@ import { MediaService } from '../media/media.service';
 import type { Actor } from '../../common/auth/actor';
 import {
   buildDefaultWelcomeSchemes,
+  DEFAULT_WELCOME_PRESENTATION,
   matchesPublishedWelcome,
+  normalizeWelcomePresentation,
   normalizeWelcomeSchemes,
   WELCOME_SCHEMES_CONFIG_KEY,
   WELCOME_SCHEMES_SCHEMA_VERSION,
   type PublishedWelcomeFields,
   type WelcomeScheme,
   type WelcomeSchemesDocument,
+  type WelcomePresentation,
 } from './welcome-schemes';
 
 const LED_WELCOME_RESOLUTION = '3612x1462';
@@ -51,6 +54,8 @@ export interface SystemBrandingDto {
   welcomeLogoMediaId: number | null;
   /** 只读: 当前欢迎页 Logo 匿名直链 */
   welcomeLogoUrl?: string | null;
+  /** 当前已发布欢迎方案的确定性版式快照。 */
+  welcomePresentation: WelcomePresentation;
   /** 欢迎页"来访者拍照上墙"照片媒体 id (空 = 保持默认欢迎语布局) */
   welcomePhotoMediaId: number | null;
   /** 只读: 上墙照片公开直链 (由 welcomePhotoMediaId 算出, 大屏轮询直接用; 走匿名公开路由) */
@@ -72,6 +77,7 @@ const DEFAULTS: SystemBrandingDto = {
   welcomeTagline: null,
   welcomeBgMediaId: null,
   welcomeLogoMediaId: null,
+  welcomePresentation: { ...DEFAULT_WELCOME_PRESENTATION },
   welcomePhotoMediaId: null,
 };
 
@@ -114,6 +120,7 @@ export class SystemBrandingService {
       welcomeLogoUrl: row.welcomeLogoMediaId
         ? `/api/system-branding/welcome-logo/file?v=${row.updatedAt?.getTime?.() ?? Date.now()}`
         : null,
+      welcomePresentation: this.parsePublishedWelcomePresentation(row.welcomePresentationJson),
       welcomePhotoMediaId: row.welcomePhotoMediaId ?? null,
       // 上墙照片走"仅当前绑定照片"的匿名公开路由 (普通 /api/media/:id/file 需登录,
       // 大屏与扫码手机都没有 token); 加 updatedAt 版本参数让轮询拿到新图而非旧缓存
@@ -222,9 +229,8 @@ export class SystemBrandingService {
     updatedAt: string;
     publishedSchemeId: string | null;
   }> {
-    const config = normalizeWelcomeSchemes(input);
     const operation = this.welcomeSchemesMutationQueue.then(() =>
-      this.saveWelcomeSchemes(config, expectedRevision),
+      this.saveWelcomeSchemes(input, expectedRevision),
     );
     this.welcomeSchemesMutationQueue = operation.then(
       () => undefined,
@@ -234,7 +240,7 @@ export class SystemBrandingService {
   }
 
   private async saveWelcomeSchemes(
-    config: WelcomeSchemesDocument,
+    input: unknown,
     expectedRevision: number,
   ): Promise<{
     config: WelcomeSchemesDocument;
@@ -256,6 +262,9 @@ export class SystemBrandingService {
         actualRevision,
       });
     }
+    // Installed PWAs can briefly run the previous editor after a deployment. Preserve the
+    // per-scheme presentation when that v1 client submits fields it does not understand.
+    const config = normalizeWelcomeSchemes(input, current?.value);
     await this.validateWelcomeSchemeImages(config.schemes);
     const saved = current
       ? await this.runtimeConfig.update({
@@ -325,6 +334,7 @@ export class SystemBrandingService {
         welcomeTagline: scheme.welcomeTagline,
         welcomeBgMediaId: scheme.welcomeBgMediaId,
         welcomeLogoMediaId: scheme.welcomeLogoMediaId,
+        welcomePresentation: scheme.presentation,
       });
       this.logger.info(`[SystemBranding] 欢迎方案已发布 (${scheme.id})`);
       return { scheme, branding: updated };
@@ -371,7 +381,7 @@ export class SystemBrandingService {
         this.publishedWelcomeFields(branding),
       );
       const next: WelcomeSchemesDocument = {
-        version: 1,
+        version: 2,
         schemes: current.schemes.map((scheme) => ({
           ...scheme,
           welcomeBgMediaId:
@@ -416,6 +426,7 @@ export class SystemBrandingService {
       welcomeTagline: branding.welcomeTagline,
       welcomeBgMediaId: branding.welcomeBgMediaId,
       welcomeLogoMediaId: branding.welcomeLogoMediaId,
+      presentation: branding.welcomePresentation,
     };
   }
 
@@ -580,6 +591,11 @@ export class SystemBrandingService {
         patch.welcomeLogoMediaId = null;
       }
     }
+    if (input.welcomePresentation !== undefined) {
+      patch.welcomePresentationJson = JSON.stringify(
+        normalizeWelcomePresentation(input.welcomePresentation),
+      );
+    }
     if (input.welcomePhotoMediaId !== undefined) {
       // null/非正整数都视为撤下, 回到默认欢迎语布局
       const v = input.welcomePhotoMediaId;
@@ -593,5 +609,17 @@ export class SystemBrandingService {
     }
     this.logger.info(`[SystemBranding] 已更新 (${Object.keys(patch).join(', ')})`);
     return this.get();
+  }
+
+  private parsePublishedWelcomePresentation(value: string | null | undefined): WelcomePresentation {
+    if (!value) return { ...DEFAULT_WELCOME_PRESENTATION };
+    try {
+      return normalizeWelcomePresentation(JSON.parse(value));
+    } catch (error) {
+      this.logger.warn(
+        `[SystemBranding] 已发布欢迎页版式损坏，已使用安全默认值: ${(error as Error).message}`,
+      );
+      return { ...DEFAULT_WELCOME_PRESENTATION };
+    }
   }
 }

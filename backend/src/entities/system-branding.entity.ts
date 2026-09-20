@@ -98,6 +98,13 @@ export class SystemBranding {
   welcomeLogoMediaId!: number | null;
 
   /**
+   * 当前已发布欢迎方案的版式快照。草稿方案仍保存在 runtime_config_documents，只有
+   * 明确发布时才复制到这里，避免“保存草稿”意外改变正在接待的大屏画面。
+   */
+  @Column({ type: 'text', name: 'welcomePresentationJson', nullable: true })
+  welcomePresentationJson!: string | null;
+
+  /**
    * 欢迎页"来访者拍照上墙"照片 (媒体库图片 id, 2026-09-14)。
    * - null = 没上传 → 欢迎页保持默认欢迎语布局
    * - 有值 → 欢迎页在欢迎语上方按照片原始方向/比例完整展示 (不裁切、不变形),
