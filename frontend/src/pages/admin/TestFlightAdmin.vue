@@ -1,12 +1,26 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, onBeforeUnmount, reactive, ref } from 'vue';
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus';
-import { Rocket, RefreshCw, RefreshCcw, Send, AlertCircle, CheckCircle2, Clock, XCircle } from 'lucide-vue-next';
+import {
+  Rocket,
+  RefreshCw,
+  RefreshCcw,
+  Send,
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  XCircle,
+  CalendarClock,
+  UploadCloud,
+  ExternalLink,
+} from 'lucide-vue-next';
 import {
   testflightService,
   type TestFlightOverview,
   type TestFlightTester,
   type TestFlightEffectiveStatus,
+  type TestFlightRenewal,
+  type RenewalStage,
 } from '@/services/testflight.service';
 
 /**
@@ -35,6 +49,101 @@ const rules: FormRules = {
 };
 
 const configured = computed(() => overview.value?.configured === true && overview.value?.enabled !== false);
+
+/* ---------- TestFlight 90 天到期 + 一键续期 ---------- */
+const renewal = ref<TestFlightRenewal | null>(null);
+const renewing = ref(false);
+let renewalTimer: ReturnType<typeof setInterval> | null = null;
+
+const renewConfigured = computed(() => renewal.value?.configured === true);
+const renewalRunning = computed(() => renewal.value?.status === 'running');
+const currentBuild = computed(() => overview.value?.latestBuild ?? null);
+
+const BUILD_STATE_META: Record<string, { label: string; type: 'success' | 'warning' | 'info' | 'danger' }> = {
+  VALID: { label: '有效', type: 'success' },
+  PROCESSING: { label: '苹果处理中', type: 'warning' },
+  EXPIRED: { label: '已过期', type: 'danger' },
+  UNKNOWN: { label: '未知', type: 'info' },
+};
+
+const RENEW_STEPS = ['等待 runner', '归档构建', '签名上传', 'ASC 处理'];
+const STAGE_STEP: Partial<Record<RenewalStage, number>> = {
+  dispatching: 0,
+  queued: 0,
+  building: 1,
+  uploading: 2,
+  processing: 3,
+};
+const renewStepActive = computed(() => {
+  const s = renewal.value?.stage;
+  if (s === 'succeeded') return RENEW_STEPS.length;
+  if (s && s in STAGE_STEP) return STAGE_STEP[s] ?? 0;
+  return 0;
+});
+
+const countdownText = computed(() => {
+  const b = currentBuild.value;
+  if (!b) return '暂无构建';
+  if (b.state === 'PROCESSING') return '新构建处理中';
+  if (b.state === 'EXPIRED') return '已过期，请立即续期';
+  if (b.daysRemaining === null) return '—';
+  return `剩余 ${b.daysRemaining} 天`;
+});
+const countdownType = computed<'success' | 'warning' | 'danger' | 'info'>(() => {
+  const b = currentBuild.value;
+  if (!b || b.daysRemaining === null) return 'info';
+  if (b.state === 'EXPIRED') return 'danger';
+  if (b.daysRemaining <= 14) return 'danger';
+  if (b.daysRemaining <= 30) return 'warning';
+  return 'success';
+});
+
+async function loadRenewal(): Promise<void> {
+  try {
+    renewal.value = await testflightService.renewal();
+  } catch {
+    /* 状态查询失败不打扰页面 */
+  }
+}
+
+function stopRenewalTimer(): void {
+  if (renewalTimer) {
+    clearInterval(renewalTimer);
+    renewalTimer = null;
+  }
+}
+
+function startRenewalTimer(): void {
+  stopRenewalTimer();
+  renewalTimer = setInterval(async () => {
+    await loadRenewal();
+    if (renewal.value && renewal.value.status !== 'running') {
+      stopRenewalTimer();
+      if (renewal.value.status === 'succeeded') {
+        ElMessage.success('TestFlight 续期完成，新构建已生效');
+        await refresh();
+      } else {
+        ElMessage.error(`续期失败：${renewal.value.error ?? '未知错误'}`);
+      }
+    }
+  }, 4000);
+}
+
+async function renewNow(): Promise<void> {
+  renewing.value = true;
+  try {
+    renewal.value = await testflightService.renew();
+    ElMessage.info('已触发续期构建，macOS 云签名约需数分钟，可离开本页，进度会自动刷新');
+    startRenewalTimer();
+  } catch (err) {
+    ElMessage.error(`触发续期失败: ${(err as Error).message}`);
+    await loadRenewal();
+  } finally {
+    renewing.value = false;
+  }
+}
+
+onBeforeUnmount(stopRenewalTimer);
 
 const STATUS_META: Record<TestFlightEffectiveStatus, { label: string; type: 'success' | 'warning' | 'info' | 'danger' }> = {
   PENDING: { label: '待接受', type: 'warning' },
@@ -148,7 +257,12 @@ async function resend(t: TestFlightTester): Promise<void> {
   }
 }
 
-onMounted(refresh);
+onMounted(async () => {
+  await refresh();
+  await loadRenewal();
+  // 页面打开时若已有续期任务在跑（例如刷新页面），自动接续轮询
+  if (renewal.value?.status === 'running') startRenewalTimer();
+});
 </script>
 
 <template>
@@ -206,6 +320,73 @@ onMounted(refresh);
         <div class="count pending"><b>{{ overview?.counts.pending ?? 0 }}</b><span>待接受</span></div>
         <div class="count accepted"><b>{{ overview?.counts.accepted ?? 0 }}</b><span>已接受</span></div>
         <div class="count failed"><b>{{ overview?.counts.failed ?? 0 }}</b><span>失败</span></div>
+      </div>
+    </div>
+
+    <!-- 构建有效期 + 一键续期 -->
+    <div class="renew-card">
+      <h3 class="form-title"><CalendarClock :size="16" /> TestFlight 构建有效期（每个构建 90 天）</h3>
+      <div class="renew-grid">
+        <div class="renew-info">
+          <div class="renew-build">
+            <span class="renew-build-name">
+              当前内测构建：<b v-if="currentBuild">v{{ currentBuild.version || '—' }} · build #{{ currentBuild.build }}</b><b v-else>暂无</b>
+            </span>
+            <el-tag v-if="currentBuild" :type="BUILD_STATE_META[currentBuild.state]?.type ?? 'info'" size="small">
+              {{ BUILD_STATE_META[currentBuild.state]?.label ?? currentBuild.processingState }}
+            </el-tag>
+          </div>
+          <div class="renew-dates">
+            <span>上传：{{ formatDate(currentBuild?.uploadedDate ?? null) }}</span>
+            <span>到期：{{ formatDate(currentBuild?.expirationDate ?? null) }}</span>
+          </div>
+          <div class="renew-countdown" :class="`is-${countdownType}`">{{ countdownText }}</div>
+          <p class="form-hint">
+            TestFlight 不支持延长旧构建，到期后该 build 无法打开。续期 = 在 macOS 云端重新归档、签名并上传一个新 build（号自动递增）；内部测试员免审核、无需重新接受邀请。
+          </p>
+        </div>
+        <div class="renew-action">
+          <el-button
+            type="primary"
+            size="large"
+            :loading="renewing"
+            :disabled="!configured || !renewConfigured || renewalRunning"
+            @click="renewNow"
+          >
+            <UploadCloud :size="16" />
+            {{ renewalRunning ? '续期进行中…' : '一键续期（上传新构建）' }}
+          </el-button>
+          <el-alert
+            v-if="!renewConfigured"
+            class="renew-cfg"
+            type="warning"
+            :closable="false"
+            show-icon
+            title="未配置 GitHub Token"
+            description="在服务器 backend/.env 设置 TESTFLIGHT_RENEW_TOKEN（classic PAT 需 repo+workflow 权限）并重启后端后，可在此一键触发续期；当前仅展示到期倒计时。"
+          />
+          <p v-else class="form-hint renew-target">
+            触发 {{ renewal?.repository }} 的 {{ renewal?.workflow }}（{{ renewal?.ref }}），约 5–15 分钟完成。
+          </p>
+        </div>
+      </div>
+
+      <!-- 续期进度 -->
+      <div v-if="renewal && renewal.status !== 'idle'" class="renew-progress">
+        <el-steps :active="renewStepActive" :processStatus="renewal.status === 'failed' ? 'error' : 'process'" align-center>
+          <el-step v-for="label in RENEW_STEPS" :key="label" :title="label" />
+          <el-step v-if="renewal.status === 'succeeded'" title="完成" status="success" />
+        </el-steps>
+        <div class="renew-msg" :class="{ failed: renewal.status === 'failed', ok: renewal.status === 'succeeded' }">
+          <component
+            :is="renewal.status === 'succeeded' ? CheckCircle2 : renewal.status === 'failed' ? XCircle : Clock"
+            :size="15"
+          />
+          <span>{{ renewal.message || '准备中…' }}</span>
+          <a v-if="renewal.runUrl" :href="renewal.runUrl" target="_blank" rel="noreferrer" class="renew-link">
+            查看 Actions 运行 <ExternalLink :size="12" />
+          </a>
+        </div>
       </div>
     </div>
 
@@ -402,8 +583,66 @@ onMounted(refresh);
 .err-list { margin: 12px 0 0; color: var(--v2-warning); font-size: 12px; }
 .err-item { display: block; margin-top: 4px; word-break: break-all; }
 
+.renew-card {
+  background: var(--v2-surf-1);
+  border: 1px solid var(--v2-border-soft);
+  border-radius: var(--v2-r-md);
+  padding: 18px 22px;
+  margin-bottom: 18px;
+}
+.renew-grid {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.renew-info { flex: 1; min-width: 300px; }
+.renew-build { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.renew-build-name { font-size: 14px; color: var(--v2-text-1); }
+.renew-dates {
+  display: flex;
+  gap: 24px;
+  margin-top: 10px;
+  color: var(--v2-text-2);
+  font-size: 12.5px;
+}
+.renew-countdown {
+  margin-top: 12px;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.renew-countdown.is-success { color: #67c23a; }
+.renew-countdown.is-warning { color: #e6a23c; }
+.renew-countdown.is-danger { color: #f56c6c; }
+.renew-countdown.is-info { color: var(--v2-text-2); }
+.renew-action { min-width: 260px; display: flex; flex-direction: column; gap: 12px; align-items: stretch; }
+.renew-cfg :deep(.el-alert__description) { font-size: 11.5px; line-height: 1.5; }
+.renew-target { margin: 0; }
+.renew-progress { margin-top: 18px; padding-top: 8px; }
+.renew-msg {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--v2-text-2);
+}
+.renew-msg.failed { color: #f56c6c; }
+.renew-msg.ok { color: #67c23a; }
+.renew-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  color: var(--el-color-primary);
+  text-decoration: none;
+}
+
 @media (max-width: 600px) {
   .tf-admin { padding: 12px 14px; }
   .ov-card { flex-direction: column; }
+  .renew-grid { flex-direction: column; }
 }
 </style>

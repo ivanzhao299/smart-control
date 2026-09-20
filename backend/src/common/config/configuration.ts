@@ -57,6 +57,22 @@ export interface TestFlightConfig {
   internalGroupName: string;
   /** 授予内部测试员的团队角色, 固定最小权限 MARKETING */
   testerRole: string;
+  /** TestFlight 90 天到期「一键续期」: 触发 GitHub Actions 云签名重新归档上传 */
+  github: TestFlightGitHubRenewConfig;
+}
+
+/** GitHub Actions 续期构建配置 (后台一键触发 ios-build.yml workflow_dispatch)。 */
+export interface TestFlightGitHubRenewConfig {
+  /** 触发 CI 的 PAT 是否配置, 未配置时后台只展示倒计时、禁用续期按钮 */
+  configured: boolean;
+  /** classic PAT(repo+workflow) 或 fine-grained(Actions 读写), 仅存服务器 env, 不进 git */
+  token: string;
+  /** owner/repo */
+  repository: string;
+  /** workflow 文件名 (ios-build.yml) 或数字 ID */
+  workflow: string;
+  /** 触发分支, 固定 main */
+  ref: string;
 }
 
 export interface RootConfig {
@@ -128,6 +144,8 @@ function buildTestFlightConfig(): TestFlightConfig {
   const testerRole = (firstNonEmpty(process.env.TESTFLIGHT_TESTER_ROLE) || 'MARKETING').toUpperCase();
   const configured = Boolean(issuerId && keyId && privateKeyPem.includes('PRIVATE KEY'));
   const explicitlyDisabled = (process.env.TESTFLIGHT_ENABLED ?? '').toLowerCase() === 'false';
+  // 一键续期触发 GitHub Actions 用的 PAT; 不用 GITHUB_TOKEN (那是 Actions 运行时内置的只读临时令牌)。
+  const githubToken = firstNonEmpty(process.env.TESTFLIGHT_RENEW_TOKEN, process.env.GITHUB_PAT);
   return {
     enabled: configured && !explicitlyDisabled,
     configured,
@@ -138,6 +156,13 @@ function buildTestFlightConfig(): TestFlightConfig {
     bundleId,
     internalGroupName,
     testerRole,
+    github: {
+      configured: Boolean(githubToken),
+      token: githubToken,
+      repository: firstNonEmpty(process.env.TESTFLIGHT_RENEW_REPO) || 'ivanzhao299/smart-control',
+      workflow: firstNonEmpty(process.env.TESTFLIGHT_RENEW_WORKFLOW) || 'ios-build.yml',
+      ref: firstNonEmpty(process.env.TESTFLIGHT_RENEW_REF) || 'main',
+    },
   };
 }
 

@@ -57,6 +57,22 @@ export interface AppleTesterState {
   expirationDate: string | null;
 }
 
+/** 最近一次构建 (含 TestFlight 90 天到期字段)。 */
+export interface AppleLatestBuild {
+  id: string;
+  /** 营销版本 (CFBundleShortVersionString), 来自 preReleaseVersion */
+  version: string;
+  /** build 号 (CFBundleVersion) */
+  build: string;
+  /** PROCESSING / VALID 等 */
+  processingState: string;
+  uploadedDate: string | null;
+  /** ASC 标记是否已过期 */
+  expired: boolean;
+  /** 90 天到期时间 (ISO, 带时区) */
+  expirationDate: string | null;
+}
+
 /** 内部组在册测试员 (betaTesters of the internal beta group), 即当前可参与内部测试的人 */
 export interface AppleInternalTester {
   id: string;
@@ -174,21 +190,25 @@ export class AppleAppStoreClient {
     );
   }
 
-  /** 最近一次上传的构建版本 (含营销版本), 给后台展示「内测中版本」。 */
-  async getLatestBuild(): Promise<{ version: string; build: string; processingState: string; uploadedDate: string | null } | null> {
+  /** 最近一次上传的构建版本 (含营销版本、90 天到期字段), 给后台展示「内测中版本 / 到期倒计时」。 */
+  async getLatestBuild(): Promise<AppleLatestBuild | null> {
     const r = await this.request<AppleListResponse>(
       'GET',
-      `/v1/builds?filter[app]=${this.cfg.appId}&sort=-uploadedDate&limit=1&include=preReleaseVersion&fields[builds]=version,processingState,uploadedDate`,
+      `/v1/builds?filter[app]=${this.cfg.appId}&sort=-uploadedDate&limit=1&include=preReleaseVersion` +
+        `&fields[builds]=version,processingState,uploadedDate,expired,expirationDate&fields[preReleaseVersions]=version`,
     );
     const build = r.data?.[0];
     if (!build) return null;
     const preRelId = (build.relationships?.preReleaseVersion as { data?: { id: string } } | undefined)?.data?.id;
     const preRel = preRelId ? r.included?.find((i) => i.id === preRelId) : undefined;
     return {
+      id: build.id,
       version: (preRel?.attributes.version as string) ?? '',
       build: String(build.attributes.version ?? ''),
       processingState: String(build.attributes.processingState ?? ''),
       uploadedDate: (build.attributes.uploadedDate as string) ?? null,
+      expired: build.attributes.expired === true,
+      expirationDate: (build.attributes.expirationDate as string) ?? null,
     };
   }
 

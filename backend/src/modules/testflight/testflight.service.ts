@@ -1,6 +1,7 @@
 import {
   BadGatewayException,
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -15,9 +16,11 @@ import type { RootConfig, TestFlightConfig } from '../../common/config/configura
 import {
   AppleApiException,
   AppleAppStoreClient,
+  type AppleLatestBuild,
   type AppleTeamUser,
   type AppleTesterState,
 } from './apple-app-store.client';
+import { GitHubActionsClient, GitHubActionsException } from './github-actions.client';
 import { InviteTesterDto } from './dto/invite-tester.dto';
 
 /** 与 App Store Connect 对账结果。 */
@@ -65,6 +68,41 @@ export interface TestFlightTesterView {
   updatedAt: string;
 }
 
+/** 当前内测构建 + 90 天到期倒计时视图。 */
+export interface BuildRenewInfo {
+  id: string;
+  version: string;
+  build: string;
+  processingState: string;
+  uploadedDate: string | null;
+  expired: boolean;
+  expirationDate: string | null;
+  /** 距到期的完整自然天 (向上取整); 已过期为负; 拿不到到期时间为 null */
+  daysRemaining: number | null;
+  /** VALID 有效 / PROCESSING 苹果处理中 / EXPIRED 已过期 / UNKNOWN 未知 */
+  state: 'VALID' | 'PROCESSING' | 'EXPIRED' | 'UNKNOWN';
+}
+
+/** 一键续期后台任务状态 (内存态, 后端重启后回到 idle)。 */
+export interface RenewalState {
+  configured: boolean;
+  repository: string;
+  workflow: string;
+  ref: string;
+  status: 'idle' | 'running' | 'succeeded' | 'failed';
+  /** dispatching→queued→building→uploading→processing→succeeded/failed */
+  stage: 'idle' | 'dispatching' | 'queued' | 'building' | 'uploading' | 'processing' | 'succeeded' | 'failed';
+  message: string;
+  startedAt: string | null;
+  updatedAt: string | null;
+  finishedAt: string | null;
+  fromBuild: string | null;
+  targetBuild: string | null;
+  runId: number | null;
+  runUrl: string | null;
+  error: string | null;
+}
+
 export interface TestFlightOverview {
   configured: boolean;
   enabled: boolean;
@@ -76,10 +114,31 @@ export interface TestFlightOverview {
   internalGroupName: string;
   app: { id: string; name: string; bundleId: string } | null;
   internalGroup: { id: string; name: string } | null;
-  latestBuild: { version: string; build: string; processingState: string; uploadedDate: string | null } | null;
+  latestBuild: BuildRenewInfo | null;
+  /** 一键续期 (GitHub Actions) 配置与默认目标 */
+  renewal: { configured: boolean; repository: string; workflow: string; ref: string };
   counts: { total: number; pending: number; accepted: number; failed: number };
   error: string | null;
 }
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** 由 ASC build 推导到期倒计时与展示状态 (纯函数, 便于测试)。 */
+export function summarizeBuild(b: AppleLatestBuild | null, now: number = Date.now()): BuildRenewInfo | null {
+  if (!b) return null;
+  let daysRemaining: number | null = null;
+  if (b.expirationDate) {
+    const ms = new Date(b.expirationDate).getTime();
+    if (!Number.isNaN(ms)) daysRemaining = Math.ceil((ms - now) / DAY_MS);
+  }
+  let state: BuildRenewInfo['state'] = 'UNKNOWN';
+  if (b.processingState && b.processingState !== 'VALID') state = 'PROCESSING';
+  else if (b.expired || (daysRemaining !== null && daysRemaining < 0)) state = 'EXPIRED';
+  else if (b.processingState === 'VALID') state = 'VALID';
+  return { ...b, daysRemaining, state };
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 @Injectable()
 export class TestFlightService {
@@ -88,12 +147,38 @@ export class TestFlightService {
   private static readonly SYNC_THROTTLE_MS = 60_000;
   private lastSyncAt = 0;
   private lastSyncSummary: TestFlightSyncSummary | null = null;
+  /** 续期任务内存态 */
+  private renewalJob: RenewalState;
 
   constructor(
     @InjectRepository(TestFlightInvitation) private readonly repo: Repository<TestFlightInvitation>,
     private readonly apple: AppleAppStoreClient,
+    private readonly github: GitHubActionsClient,
     private readonly config: ConfigService,
-  ) {}
+  ) {
+    this.renewalJob = this.idleRenewal();
+  }
+
+  private idleRenewal(): RenewalState {
+    const gh = this.cfg.github;
+    return {
+      configured: gh.configured,
+      repository: gh.repository,
+      workflow: gh.workflow,
+      ref: gh.ref,
+      status: 'idle',
+      stage: 'idle',
+      message: '',
+      startedAt: null,
+      updatedAt: null,
+      finishedAt: null,
+      fromBuild: null,
+      targetBuild: null,
+      runId: null,
+      runUrl: null,
+      error: null,
+    };
+  }
 
   private get cfg(): TestFlightConfig {
     return this.config.getOrThrow<RootConfig['testflight']>('testflight');
@@ -132,6 +217,12 @@ export class TestFlightService {
       app: null,
       internalGroup: null,
       latestBuild: null,
+      renewal: {
+        configured: cfg.github.configured,
+        repository: cfg.github.repository,
+        workflow: cfg.github.workflow,
+        ref: cfg.github.ref,
+      },
       counts,
       error: null,
     };
@@ -145,12 +236,188 @@ export class TestFlightService {
       };
       const group = await this.apple.getInternalGroup();
       base.internalGroup = group ? { id: group.id, name: String(group.attributes.name ?? '') } : null;
-      base.latestBuild = await this.apple.getLatestBuild();
+      base.latestBuild = summarizeBuild(await this.apple.getLatestBuild());
     } catch (err) {
       base.error = err instanceof AppleApiException ? err.message : (err as Error).message;
       this.logger.warn(`总览读取苹果侧信息失败: ${base.error}`);
     }
     return base;
+  }
+
+  /** 当前续期任务状态 (前端轮询); 顺带刷新配置标记, 便于补配 token 后无需重启即可看到。 */
+  getRenewalState(): RenewalState {
+    const gh = this.cfg.github;
+    Object.assign(this.renewalJob, {
+      configured: gh.configured,
+      repository: gh.repository,
+      workflow: gh.workflow,
+      ref: gh.ref,
+    });
+    return { ...this.renewalJob };
+  }
+
+  /**
+   * 一键续期: TestFlight 每个 build 只有 90 天有效期且无法延长, 续期 = 触发 GitHub Actions
+   * 在 macOS 上重新归档、云签名并上传新 build (build 号自动递增)。内部测试员对新 build 免审核、
+   * 内部组自动指向最新有效 build, 无需重新邀请。dispatch 同步执行 (权限错误立即返回), 随后后台轮询。
+   */
+  async renewBuild(operator: string): Promise<RenewalState> {
+    this.ensureReady();
+    if (!this.cfg.github.configured) {
+      throw new ServiceUnavailableException(
+        '后台尚未配置 GitHub Token：请在服务器 backend/.env 设置 TESTFLIGHT_RENEW_TOKEN（classic PAT 需 repo+workflow 权限，或 fine-grained 仅授本仓库 Actions 读写）后重启后端。',
+      );
+    }
+    if (this.renewalJob.status === 'running') {
+      throw new ConflictException('已有续期构建在执行中，请等待其完成，或查看 GitHub Actions 运行状态。');
+    }
+
+    let fromBuild: string | null = null;
+    try {
+      fromBuild = summarizeBuild(await this.apple.getLatestBuild())?.build ?? null;
+    } catch {
+      /* 读不到当前 build 不阻断触发, fromBuild 留空 */
+    }
+
+    const startedAt = new Date().toISOString();
+    Object.assign(this.renewalJob, {
+      status: 'running',
+      stage: 'dispatching',
+      message: '正在触发 GitHub Actions 续期工作流…',
+      startedAt,
+      updatedAt: startedAt,
+      finishedAt: null,
+      fromBuild,
+      targetBuild: null,
+      runId: null,
+      runUrl: null,
+      error: null,
+    });
+
+    try {
+      await this.github.dispatchWorkflow();
+    } catch (err) {
+      const mapped = err instanceof GitHubActionsException ? this.mapGitHub(err) : (err as Error);
+      const msg = mapped.message ?? (err as Error).message;
+      this.patchRenewal({
+        status: 'failed',
+        stage: 'failed',
+        finishedAt: new Date().toISOString(),
+        error: msg,
+        message: `触发失败：${msg}`,
+      });
+      throw mapped;
+    }
+
+    this.logger.log(`管理员 ${operator} 触发 TestFlight 一键续期，当前 build=${fromBuild ?? '?'}`);
+    this.patchRenewal({ stage: 'queued', message: '已触发，等待 GitHub 分配 macOS runner…' });
+    void this.pollRenewal(fromBuild, Date.parse(startedAt));
+    return { ...this.renewalJob };
+  }
+
+  private patchRenewal(patch: Partial<RenewalState>): void {
+    Object.assign(this.renewalJob, patch, { updatedAt: new Date().toISOString() });
+  }
+
+  /** 触发后的后台轮询: 找到本次 run → 等 CI 成功 → 等 ASC 处理出新的有效 build。 */
+  private async pollRenewal(fromBuild: string | null, dispatchMs: number): Promise<void> {
+    const job = this.renewalJob;
+    try {
+      // 1) 定位本次 workflow_dispatch 对应的 run (最多等约 3 分钟)
+      let run: Awaited<ReturnType<GitHubActionsClient['getRun']>> | null = null;
+      for (let i = 0; i < 12 && !run; i += 1) {
+        await sleep(15_000);
+        const runs = await this.github.listDispatchRuns(8).catch(() => []);
+        run =
+          runs.find(
+            (r) =>
+              r.event === 'workflow_dispatch' &&
+              r.headBranch === this.cfg.github.ref &&
+              !Number.isNaN(Date.parse(r.createdAt)) &&
+              Date.parse(r.createdAt) >= dispatchMs - 60_000,
+          ) ?? null;
+      }
+      if (!run) throw new Error('已触发，但 3 分钟内未在 GitHub 查到对应运行，请打开 Actions 页面确认。');
+      this.patchRenewal({
+        runId: run.id,
+        runUrl: run.htmlUrl,
+        stage: 'building',
+        message: 'macOS runner 正在重新归档、签名（约需数分钟）…',
+      });
+
+      // 2) 等 CI 跑完 (最多 30 分钟), 期间按 job 名区分构建/上传阶段
+      const ciDeadline = Date.now() + 30 * 60_000;
+      while (Date.now() < ciDeadline) {
+        await sleep(15_000);
+        run = await this.github.getRun(run.id);
+        this.patchRenewal({ runUrl: run.htmlUrl });
+        if (run.status === 'completed') break;
+        const jobs = await this.github.listJobs(run.id).catch(() => []);
+        const uploading = jobs.some((j) => /testflight|upload|sign|archive/i.test(j.name) && j.status === 'in_progress');
+        if (uploading) {
+          this.patchRenewal({ stage: 'uploading', message: '正在导出归档并上传新构建到 App Store Connect…' });
+        } else if (job.stage !== 'building') {
+          this.patchRenewal({ stage: 'building' });
+        }
+      }
+      if (!run || run.status !== 'completed') {
+        throw new Error('CI 运行超过 30 分钟仍未结束，请打开 Actions 页面查看。');
+      }
+      if (run.conclusion !== 'success') {
+        throw new Error(`CI 运行未成功（${run.conclusion ?? 'unknown'}），请查看 Actions 日志。`);
+      }
+
+      // 3) 等 ASC 处理出 build 号更大且 VALID 的新构建 (最多 20 分钟)
+      this.patchRenewal({ stage: 'processing', message: 'CI 已上传，等待 App Store Connect 处理新构建…' });
+      const ascDeadline = Date.now() + 20 * 60_000;
+      const fromNum = Number.parseInt(fromBuild ?? '0', 10) || 0;
+      let target: BuildRenewInfo | null = null;
+      while (Date.now() < ascDeadline) {
+        await sleep(20_000);
+        const latest = summarizeBuild(await this.apple.getLatestBuild().catch(() => null));
+        const num = Number.parseInt(latest?.build ?? '0', 10) || 0;
+        if (latest && num > fromNum) {
+          if (latest.processingState === 'VALID') {
+            target = latest;
+            break;
+          }
+          this.patchRenewal({ targetBuild: latest.build, message: `新 build #${latest.build} 已上传，苹果处理中…` });
+        }
+      }
+      if (!target) {
+        throw new Error('未在 20 分钟内等到处理完成的新构建；构建可能仍在 App Store Connect 处理，可稍后刷新本页查看。');
+      }
+      this.patchRenewal({
+        status: 'succeeded',
+        stage: 'succeeded',
+        targetBuild: target.build,
+        finishedAt: new Date().toISOString(),
+        error: null,
+        message: `续期完成：新 build #${target.build} 已生效，内部测试员无需重新接受邀请；到期时间更新为 ${target.expirationDate ?? '—'}。`,
+      });
+      this.logger.log(`TestFlight 续期成功: build ${fromBuild ?? '?'} -> ${target.build}`);
+    } catch (err) {
+      const msg = err instanceof GitHubActionsException ? this.mapGitHub(err).message : (err as Error).message;
+      this.patchRenewal({
+        status: 'failed',
+        stage: 'failed',
+        finishedAt: new Date().toISOString(),
+        error: msg,
+        message: `续期失败：${msg}`,
+      });
+      this.logger.warn(`TestFlight 一键续期失败: ${msg}`);
+    }
+  }
+
+  private mapGitHub(err: GitHubActionsException): Error {
+    if (err.httpStatus === 0) return new ServiceUnavailableException(`服务器连不上 GitHub：${err.message}`);
+    if (err.httpStatus === 401 || err.httpStatus === 403) {
+      return new ForbiddenException('GitHub Token 无效或权限不足：classic PAT 需勾选 repo 与 workflow，fine-grained 需对该仓库授予 Actions 读写。');
+    }
+    if (err.httpStatus === 404) {
+      return new BadGatewayException(`GitHub 找不到仓库或工作流（${this.cfg.github.repository} / ${this.cfg.github.workflow}），请检查 TESTFLIGHT_RENEW_* 配置与 token 权限。`);
+    }
+    return new BadGatewayException(`GitHub API 错误 (HTTP ${err.httpStatus})：${err.message}`);
   }
 
   /**

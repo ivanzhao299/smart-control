@@ -32,6 +32,23 @@ export class TestFlightController {
     return { message: '已与 App Store Connect 同步', data: await this.service.syncFromApple(true) };
   }
 
+  /** 当前一键续期任务状态 (前端在触发后轮询) */
+  @Get('renewal')
+  async renewal() {
+    return { message: '查询成功', data: this.service.getRenewalState() };
+  }
+
+  /**
+   * 一键续期: 触发 GitHub Actions 在 macOS 重新归档/云签名/上传新 TestFlight build。
+   * 仅触发, 进度通过 GET /renewal 轮询。
+   */
+  @Post('renew')
+  @HttpCode(200)
+  async renew(@Req() req: AuthenticatedRequest) {
+    const operator = req.actor?.username ?? 'admin';
+    return { message: '已触发 TestFlight 续期构建', data: await this.service.renewBuild(operator) };
+  }
+
   /** 邀请一名内部测试员 (幂等: 已邀请/已接受会直接回到对应状态) */
   @Post('testers')
   async invite(@Body() dto: InviteTesterDto, @Req() req: AuthenticatedRequest) {
