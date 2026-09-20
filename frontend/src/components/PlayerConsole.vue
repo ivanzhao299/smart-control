@@ -43,7 +43,7 @@ import {
 import { projectorService } from '@/services/projector.service';
 import {
   fetchWelcomeSchemes, publishWelcomeScheme, removeWelcomeAsset, saveWelcomeSchemes,
-  type WelcomeScheme,
+  type WelcomeScheme, type WelcomeSchemesSnapshot,
 } from '@/services/system-branding.service';
 import { absUrl } from '@/services/http';
 import { useAdminUnlock } from '@/composables/useAdminUnlock';
@@ -647,6 +647,19 @@ const welcomeLogoUploadInput = ref<HTMLInputElement | null>(null);
 const welcomeAssetUploading = ref<'background' | 'logo' | null>(null);
 const welcomeAssetUploadPct = ref(0);
 const welcomeAssetDeletingId = ref<number | null>(null);
+const lastWelcomeSaveRevision = ref<number | null>(null);
+const LAST_WELCOME_SCHEME_KEY = 'sc.welcome.lastSelectedSchemeId';
+
+function rememberedWelcomeSchemeId(): string {
+  try { return window.localStorage.getItem(LAST_WELCOME_SCHEME_KEY) ?? ''; }
+  catch { return ''; }
+}
+
+function rememberWelcomeSchemeId(id: string): void {
+  if (!id) return;
+  try { window.localStorage.setItem(LAST_WELCOME_SCHEME_KEY, id); }
+  catch { /* private mode or disabled storage */ }
+}
 
 function pushWelcomePreview(): void {
   const selected = compatibleBgAssets.value.find((item) => item.id === welcomeForm.value.welcomeBgMediaId);
@@ -669,6 +682,7 @@ function applyWelcomeScheme(id: string): void {
   const scheme = welcomeSchemes.value.find((item) => item.id === id);
   if (!scheme) return;
   selectedWelcomeSchemeId.value = id;
+  rememberWelcomeSchemeId(id);
   welcomeSchemeName.value = scheme.name;
   incompatibleSelectedBackground.value = scheme.welcomeBgMediaId !== null
     && !compatibleBgAssets.value.some((item) => item.id === scheme.welcomeBgMediaId);
@@ -723,6 +737,7 @@ async function openWelcomeEditor(): Promise<void> {
   if (!(await ensureAdmin('编辑欢迎页'))) return;
   welcomeEditOpen.value = true;
   welcomeLoading.value = true;
+  lastWelcomeSaveRevision.value = null;
   try {
     const [snapshot, imgs] = await Promise.all([
       fetchWelcomeSchemes(),
@@ -743,7 +758,11 @@ async function openWelcomeEditor(): Promise<void> {
     welcomeSchemes.value = snapshot.config.schemes.map((item) => ({ ...item }));
     welcomeSchemesRevision.value = snapshot.revision;
     publishedWelcomeSchemeId.value = snapshot.publishedSchemeId;
-    applyWelcomeScheme(snapshot.publishedSchemeId ?? snapshot.config.schemes[0].id);
+    const preferredId = selectedWelcomeSchemeId.value || rememberedWelcomeSchemeId();
+    const initialId = snapshot.config.schemes.some((item) => item.id === preferredId)
+      ? preferredId
+      : (snapshot.publishedSchemeId ?? snapshot.config.schemes[0].id);
+    applyWelcomeScheme(initialId);
   } catch (e) {
     ElMessage.error(`读取欢迎页配置失败: ${(e as Error).message}`);
   } finally { welcomeLoading.value = false; }
@@ -899,13 +918,19 @@ async function deleteWelcomeImage(kind: 'background' | 'logo', asset: WelcomeIma
     await ElMessageBox.confirm(
       `确定永久删除“${asset.originalName}”吗？${referenceHint}`,
       kind === 'background' ? '删除欢迎页底图' : '删除欢迎页 Logo',
-      { confirmButtonText: '删除图片', cancelButtonText: '取消', type: 'warning' },
+      {
+        confirmButtonText: '删除图片',
+        cancelButtonText: '取消',
+        type: 'warning',
+        modalClass: 'welcome-image-delete-confirm',
+      },
     );
   } catch { return; }
 
   const selectedId = selectedWelcomeSchemeId.value;
   const isCurrent = captureConsoleAction();
   welcomeAssetDeletingId.value = asset.id;
+  lastWelcomeSaveRevision.value = null;
   try {
     const result = await removeWelcomeAsset(asset.id, welcomeSchemesRevision.value);
     if (!isCurrent()) return;
@@ -927,9 +952,9 @@ async function deleteWelcomeImage(kind: 'background' | 'logo', asset: WelcomeIma
   }
 }
 
-async function persistWelcomeSchemes(checkAdmin = true): Promise<boolean> {
-  if (!syncSelectedWelcomeDraft()) return false;
-  if (checkAdmin && !(await ensureAdmin('保存欢迎方案'))) return false;
+async function persistWelcomeSchemes(checkAdmin = true): Promise<WelcomeSchemesSnapshot | null> {
+  if (!syncSelectedWelcomeDraft()) return null;
+  if (checkAdmin && !(await ensureAdmin('保存欢迎方案'))) return null;
   welcomeSaving.value = true;
   try {
     const selectedId = selectedWelcomeSchemeId.value;
@@ -937,19 +962,32 @@ async function persistWelcomeSchemes(checkAdmin = true): Promise<boolean> {
       { version: 1, schemes: welcomeSchemes.value },
       welcomeSchemesRevision.value,
     );
-    welcomeSchemes.value = saved.config.schemes.map((item) => ({ ...item }));
-    welcomeSchemesRevision.value = saved.revision;
-    publishedWelcomeSchemeId.value = saved.publishedSchemeId;
+    // A 200 response is not enough: immediately read the server document back so
+    // the UI cannot claim success while displaying a stale or different revision.
+    const confirmed = await fetchWelcomeSchemes();
+    if (confirmed.revision !== saved.revision
+      || confirmed.checksum !== saved.checksum
+      || JSON.stringify(confirmed.config) !== JSON.stringify(saved.config)) {
+      throw new Error('服务器回读结果与本次保存不一致，请重新打开后再保存');
+    }
+    welcomeSchemes.value = confirmed.config.schemes.map((item) => ({ ...item }));
+    welcomeSchemesRevision.value = confirmed.revision;
+    publishedWelcomeSchemeId.value = confirmed.publishedSchemeId;
+    lastWelcomeSaveRevision.value = confirmed.revision;
     applyWelcomeScheme(selectedId);
-    return true;
+    return confirmed;
   } catch (e) {
     ElMessage.error(`保存失败: ${(e as Error).message}`);
-    return false;
+    return null;
   } finally { welcomeSaving.value = false; }
 }
 
 async function saveWelcomeScheme(): Promise<void> {
-  if (await persistWelcomeSchemes()) ElMessage.success('方案已保存，当前大屏画面未改变');
+  const schemeName = welcomeSchemeName.value.trim();
+  const saved = await persistWelcomeSchemes();
+  if (saved) {
+    ElMessage.success(`“${schemeName}”已保存到服务器方案库（版本 ${saved.revision}），当前 LED 画面未切换`);
+  }
 }
 
 async function publishSelectedWelcomeScheme(): Promise<void> {
@@ -1579,12 +1617,15 @@ async function submitWebpage(): Promise<void> {
             </div>
           </ElScrollbar>
           <div class="wb-actions">
+            <span v-if="lastWelcomeSaveRevision !== null" class="we-save-receipt">
+              已保存到服务器 · 版本 {{ lastWelcomeSaveRevision }}
+            </span>
             <button class="v2-quick" @click="welcomeEditOpen = false">取消</button>
             <button class="v2-quick secondary" :disabled="welcomeSaving || welcomePublishing" @click="saveWelcomeScheme">
-              {{ welcomeSaving ? '保存中…' : '保存方案' }}
+              {{ welcomeSaving ? '保存并校验中…' : '仅保存方案' }}
             </button>
             <button class="v2-quick primary" :disabled="welcomeSaving || welcomePublishing" @click="publishSelectedWelcomeScheme">
-              {{ welcomePublishing ? '发布中…' : '发布到 LED 大屏' }}
+              {{ welcomePublishing ? '发布中…' : '保存并发布到 LED' }}
             </button>
           </div>
         </template>
@@ -1708,6 +1749,7 @@ async function submitWebpage(): Promise<void> {
   min-height: 0; display: flex; flex-direction: column; overflow: hidden;
 }
 .we-box > .pick-head, .we-box > .wb-actions { flex: 0 0 auto; }
+.we-save-receipt { margin-right: auto; color: var(--v2-success); font-size: 12px; }
 .we-scroll {
   flex: 1 1 0; min-height: 0;
 }
