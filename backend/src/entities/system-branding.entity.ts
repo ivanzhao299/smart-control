@@ -93,6 +93,10 @@ export class SystemBranding {
   @Column({ type: 'integer', name: 'welcomeBgMediaId', nullable: true })
   welcomeBgMediaId!: number | null;
 
+  /** 欢迎页独立 Logo 图片；空值继续使用内置场馆 Logo。 */
+  @Column({ type: 'integer', name: 'welcomeLogoMediaId', nullable: true })
+  welcomeLogoMediaId!: number | null;
+
   /**
    * 欢迎页"来访者拍照上墙"照片 (媒体库图片 id, 2026-09-14)。
    * - null = 没上传 → 欢迎页保持默认欢迎语布局

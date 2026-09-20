@@ -25,6 +25,7 @@ const current = {
   welcomeTitle: '原欢迎标题',
   welcomeTagline: '原欢迎标语',
   welcomeBgMediaId: null,
+  welcomeLogoMediaId: null,
   welcomePhotoMediaId: null,
   updatedAt: new Date(0),
 } as SystemBranding;
@@ -39,6 +40,7 @@ const schemes: WelcomeSchemesDocument = {
       welcomeGuest: '企业甲代表团',
       welcomeTagline: '欢迎莅临参观指导',
       welcomeBgMediaId: 7,
+      welcomeLogoMediaId: null,
     },
   ],
 };
@@ -130,6 +132,7 @@ describe('SystemBrandingService welcome schemes', () => {
         welcomeGuest: '企业甲代表团',
         welcomeTagline: '欢迎莅临参观指导',
         welcomeBgMediaId: 7,
+        welcomeLogoMediaId: null,
       },
     );
   });

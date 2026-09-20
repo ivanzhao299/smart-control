@@ -31,6 +31,7 @@ export const REQUIRED_SCHEMA_MIGRATIONS = [
   'EstablishOperationalCatalog1789660000000',
   'EstablishHvacPlaybackCatalog1789670000000',
   'EstablishBundledMediaAuthority1789680000000',
+  'AddWelcomeLogo1789720000000',
 ] as const;
 
 export const REQUIRED_SCHEMA_COLUMNS: Record<string, string[]> = {
@@ -52,6 +53,7 @@ export const REQUIRED_SCHEMA_COLUMNS: Record<string, string[]> = {
     'welcomeTitle',
     'welcomeTagline',
     'welcomeBgMediaId',
+    'welcomeLogoMediaId',
     'welcomePhotoMediaId',
     'parkOpsConfigJson',
   ],
