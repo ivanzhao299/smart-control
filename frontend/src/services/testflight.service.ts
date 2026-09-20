@@ -89,8 +89,8 @@ export interface InviteTesterResult {
 }
 
 export interface ResendTesterResult {
-  /** invited=已重新发起；accepted=已是团队成员；pending=原邀请仍有效（无权撤销，见 notice） */
-  state: 'invited' | 'accepted' | 'pending';
+  /** 团队账号邀请与手机 TestFlight 安装邀请是两个独立阶段。 */
+  state: 'team-invited' | 'testflight-invited' | 'accepted' | 'pending';
   tester: TestFlightTester;
   /** state=pending 时的引导说明（App Manager 密钥无权撤销团队邀请） */
   notice?: string;
