@@ -148,7 +148,7 @@ onBeforeUnmount(stopRenewalTimer);
 const STATUS_META: Record<TestFlightEffectiveStatus, { label: string; type: 'success' | 'warning' | 'info' | 'danger' }> = {
   PENDING: { label: '待接受', type: 'warning' },
   EXPIRED: { label: '已过期', type: 'info' },
-  ACCEPTED: { label: '已接受 · 可内测', type: 'success' },
+  ACCEPTED: { label: '已加入内部组', type: 'success' },
   FAILED: { label: '邀请失败', type: 'danger' },
 };
 
@@ -202,7 +202,7 @@ async function syncNow(): Promise<void> {
       ElMessage.info('刚刚已同步过（60 秒内），当前已是最新结果');
     } else {
       ElMessage.success(
-        `已同步：已接受 ${r.accepted}、待接受 ${r.pending}${r.imported.length ? `，新发现 ${r.imported.length} 个测试员` : ''}`,
+        `已同步：内部组成员 ${r.accepted}、待接受团队邀请 ${r.pending}${r.imported.length ? `，新发现 ${r.imported.length} 个测试员` : ''}`,
       );
     }
     await refresh();
@@ -225,9 +225,9 @@ async function submit(): Promise<void> {
         email: form.email.trim().toLowerCase(),
       });
       if (result.state === 'invited') {
-        ElMessage.success(`已向 ${form.email.trim()} 发送 TestFlight 内部测试邀请`);
+        ElMessage.success(`已向 ${form.email.trim()} 发送 App Store Connect 团队邀请`);
       } else if (result.state === 'accepted') {
-        ElMessage.info(`${form.email.trim()} 已是团队成员，可直接参与内部测试`);
+        ElMessage.info(`${form.email.trim()} 已是团队成员；如手机未显示 App，可在列表中重发 TestFlight 邀请`);
       } else {
         ElMessage.warning(`${form.email.trim()} 的邀请已存在，当前为待接受状态`);
       }
@@ -248,13 +248,13 @@ async function resend(t: TestFlightTester): Promise<void> {
   resendingId.value = t.id;
   try {
     const result = await testflightService.resend(t.id);
-    if (result.state === 'pending' && result.notice) {
+    if (result.state === 'testflight-invited') {
+      ElMessage.success(`已向 ${t.email} 重发 TestFlight 安装邀请，请在 iPhone 上打开邮件`);
+    } else if (result.state === 'team-invited') {
+      ElMessage.success(`已向 ${t.email} 重发 App Store Connect 团队邀请`);
+    } else if (result.notice) {
       // 原邀请仍有效、App Manager 密钥无权撤销：不是失败，用警告样式展示人工处理引导
       ElMessage.warning({ message: result.notice, duration: 10000 });
-    } else if (result.state === 'accepted') {
-      ElMessage.info(`${t.email} 已是团队成员，无需重发`);
-    } else {
-      ElMessage.success(`已重新向 ${t.email} 发送邀请`);
     }
     await refresh();
   } catch (err) {
@@ -278,8 +278,8 @@ onMounted(async () => {
       <div>
         <h2><Rocket :size="20" :stroke-width="2" /> iOS TestFlight 内部测试</h2>
         <p class="sub">
-          填写受邀人姓名与邮箱（其 Apple ID），服务端直接通过 App Store Connect 发起内部测试邀请。
-          内部测试员为最小权限（Marketing），仅可见「金湖智控」，免审核、构建立即可测；受邀人接受邮件后即可在 TestFlight 安装。
+          填写受邀人姓名与邮箱（其 Apple ID），服务端先发 App Store Connect 团队邀请。
+          对方完成账号激活后，再通过 TestFlight 安装邀请进入手机端；两封邮件属于两个独立阶段。
         </p>
       </div>
       <div class="actions">
@@ -325,7 +325,7 @@ onMounted(async () => {
       <div class="ov-counts">
         <div class="count"><b>{{ overview?.counts.total ?? 0 }}</b><span>总数</span></div>
         <div class="count pending"><b>{{ overview?.counts.pending ?? 0 }}</b><span>待接受</span></div>
-        <div class="count accepted"><b>{{ overview?.counts.accepted ?? 0 }}</b><span>已接受</span></div>
+        <div class="count accepted"><b>{{ overview?.counts.accepted ?? 0 }}</b><span>内部组成员</span></div>
         <div class="count failed"><b>{{ overview?.counts.failed ?? 0 }}</b><span>失败</span></div>
       </div>
     </div>
@@ -399,7 +399,7 @@ onMounted(async () => {
 
     <!-- 邀请表单 -->
     <div class="form-card">
-      <h3 class="form-title"><Send :size="16" /> 邀请内部测试员</h3>
+      <h3 class="form-title"><Send :size="16" /> 添加内部测试员</h3>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="80px" inline>
         <el-form-item label="姓" prop="lastName">
           <el-input v-model="form.lastName" placeholder="许" maxlength="80" style="width: 140px" />
@@ -412,12 +412,12 @@ onMounted(async () => {
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="inviting" :disabled="!configured" @click="submit">
-            <Send :size="15" /> 发送邀请
+            <Send :size="15" /> 发送团队邀请
           </el-button>
         </el-form-item>
       </el-form>
       <p class="form-hint">
-        受邀人会收到 Apple 的团队邀请邮件，需用该邮箱作为 Apple ID 登录 iPhone 并点击接受；接受后由管理员将其加入内部测试组，App 即出现在 TestFlight 中（内部测试无兑换码）。团队邀请在接受前长期有效；若邮件丢失需重发，因后台 App Manager 密钥无权撤销旧邀请，请在 App Store Connect「用户和访问」中处理。
+        第一步邮件用于激活 App Store Connect 团队账号；激活后如 TestFlight 没有显示「金湖智控」，点击右侧“重发 TestFlight 邀请”，并在 iPhone 上用同一 Apple 账户打开新邮件。iPhone 不需要手工输入兑换码。
       </p>
     </div>
 
@@ -425,7 +425,7 @@ onMounted(async () => {
     <div class="table-card">
       <h3 class="form-title">测试员（{{ testers.length }}）</h3>
       <p class="form-hint" style="margin: -6px 0 12px">
-        列表进页面时自动与 App Store Connect 对账一次（60 秒内不重复请求），也可点右上角「与 App Store Connect 同步」手动刷新；在 ASC 直接添加、或已接受邀请的内部测试员都会自动出现在这里。
+        列表进页面时自动与 App Store Connect 对账一次（60 秒内不重复请求），也可点右上角「与 App Store Connect 同步」手动刷新；“已加入内部组”只表示苹果侧已授权，不等于手机已经安装。
       </p>
       <el-table :data="testers" v-loading="loading" size="default" style="width: 100%">
         <el-table-column label="姓名" min-width="110">
@@ -449,14 +449,13 @@ onMounted(async () => {
             <div class="cell-sub">{{ formatDate(row.invitedAt) }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="110" fixed="right">
+        <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
             <el-button
               size="small"
               :loading="resendingId === row.id"
-              :disabled="row.effectiveStatus === 'ACCEPTED'"
               @click="resend(row)"
-            >重发</el-button>
+            >{{ row.effectiveStatus === 'ACCEPTED' ? '重发 TestFlight 邀请' : '重发团队邀请' }}</el-button>
           </template>
         </el-table-column>
         <template #empty>
