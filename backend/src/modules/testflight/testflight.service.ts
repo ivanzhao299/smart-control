@@ -1,6 +1,5 @@
 import {
   BadGatewayException,
-  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -69,9 +68,9 @@ export interface TestFlightTesterView {
   updatedAt: string;
 }
 
-/** 重发邀请结果：invited=已重新发起；accepted=已是团队成员；pending=原邀请仍有效（无权撤销，见 notice）。 */
+/** 团队账号邀请与手机 TestFlight 安装邀请是两个独立阶段。 */
 export interface ResendTesterOutcome {
-  state: 'invited' | 'accepted' | 'pending';
+  state: 'team-invited' | 'testflight-invited' | 'accepted' | 'pending';
   tester: TestFlightTesterView;
   /** state=pending 时给管理员的引导说明（原邀请仍有效 / 当前密钥无权撤销）。 */
   notice?: string;
@@ -628,9 +627,12 @@ export class TestFlightService {
   }
 
   /**
-   * 重发邀请。苹果没有单独的 resend 接口，常规做法=先 DELETE 旧邀请再 POST；
+   * 重发邀请分两层：已成为团队用户时调用 betaTesterInvitations 重发手机安装邀请；
+   * 尚未成为团队用户时处理 userInvitations 团队账号邀请。
+   *
+   * 团队邀请没有单独的 resend 接口，常规做法=先 DELETE 旧邀请再 POST；
    * 但常驻服务器的 App Manager 密钥无权撤销团队邀请（DELETE /v1/userInvitations/{id} → 403）。分支：
-   *   - 已接受团队邀请：拒绝（无需重发）；
+   *   - 已接受团队邀请：查找内部组 betaTester 并重发 TestFlight 安装邀请；
    *   - 仍有 pending 邀请且当前密钥无权撤销：不改状态、不报错，返回引导性 notice（原邀请长期有效）；
    *   - 旧邀请已撤销/过期（查无 pending，或 DELETE 返回 404）：直接 POST 一封新邀请（App Manager 有权限）。
    */
@@ -643,8 +645,30 @@ export class TestFlightService {
       const user = await this.apple.findUser(row.email);
       if (user) {
         this.applyState(row, user);
-        await this.repo.save(row);
-        throw new BadRequestException('该测试员已接受邀请并成为团队成员，无需重发。');
+        const group = await this.apple.getInternalGroup();
+        if (!group) {
+          throw new BadGatewayException('未找到 TestFlight 内部测试组，无法重发手机端安装邀请。');
+        }
+        const betaTester = (await this.apple.listInternalBetaTesters(group.id)).find(
+          (tester) => tester.email === row.email.trim().toLowerCase(),
+        );
+        if (!betaTester) {
+          const saved = await this.repo.save(row);
+          return {
+            state: 'accepted',
+            tester: this.toView(saved),
+            notice: '该邮箱已成为团队成员，但尚未进入 TestFlight 内部测试组。请先在 App Store Connect 将其加入内部测试组，再重发 TestFlight 邀请。',
+          };
+        }
+        await this.apple.sendBetaTesterInvitation(betaTester.id);
+        row.appleInvitationId = null;
+        row.expirationDate = null;
+        row.lastError = null;
+        row.invitedBy = operator;
+        row.invitedAt = new Date();
+        const saved = await this.repo.save(row);
+        this.logger.log(`重发 TestFlight 安装邀请: ${row.email} by ${operator}, betaTester=${betaTester.id}`);
+        return { state: 'testflight-invited', tester: this.toView(saved) };
       }
 
       const inv = await this.apple.findInvitation(row.email);
@@ -680,9 +704,8 @@ export class TestFlightService {
       row.invitedAt = new Date();
       const saved = await this.repo.save(row);
       this.logger.log(`重发内部测试邀请: ${row.email} by ${operator}, apple=${created.id}`);
-      return { state: 'invited', tester: this.toView(saved) };
+      return { state: 'team-invited', tester: this.toView(saved) };
     } catch (err) {
-      if (err instanceof BadRequestException) throw err;
       if (err instanceof AppleApiException && err.isDuplicate) {
         // 创建时苹果报重复（邀请/成员其实已存在，常见于列表过滤的最终一致性），按实时状态归一。
         const live = await this.resolveLiveState(row.email);

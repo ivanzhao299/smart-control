@@ -56,9 +56,9 @@ export class TestFlightController {
     const result = await this.service.invite(dto, operator);
     const message =
       result.state === 'invited'
-        ? `已向 ${dto.email} 发送 TestFlight 内部测试邀请`
+        ? `已向 ${dto.email} 发送 App Store Connect 团队邀请`
         : result.state === 'accepted'
-          ? `${dto.email} 已是团队成员，可直接参与内部测试`
+          ? `${dto.email} 已是团队成员，可在内部测试组中重发 TestFlight 安装邀请`
           : `${dto.email} 的邀请已存在，当前为待接受状态`;
     return { message, data: result };
   }
@@ -72,10 +72,12 @@ export class TestFlightController {
     const operator = req.actor?.username ?? 'admin';
     const result = await this.service.resend(id, operator);
     const message =
-      result.state === 'invited'
-        ? `已重新向 ${result.tester.email} 发送邀请`
+      result.state === 'testflight-invited'
+        ? `已重新向 ${result.tester.email} 发送 TestFlight 安装邀请`
+        : result.state === 'team-invited'
+          ? `已重新向 ${result.tester.email} 发送 App Store Connect 团队邀请`
         : result.state === 'accepted'
-          ? `${result.tester.email} 已是团队成员，无需重发`
+          ? (result.notice ?? `${result.tester.email} 已是团队成员`)
           : (result.notice ?? `${result.tester.email} 的邀请仍处于待接受状态`);
     return { message, data: result };
   }
