@@ -46,6 +46,10 @@ export interface SystemBrandingDto {
   welcomeBgMediaId: number | null;
   /** 只读: 底图直链 (由 welcomeBgMediaId 算出, 欢迎页/编辑器预览直接用) */
   welcomeBgUrl?: string | null;
+  /** 欢迎页独立 Logo 媒体 id (空 = 内置场馆 Logo) */
+  welcomeLogoMediaId: number | null;
+  /** 只读: 当前欢迎页 Logo 匿名直链 */
+  welcomeLogoUrl?: string | null;
   /** 欢迎页"来访者拍照上墙"照片媒体 id (空 = 保持默认欢迎语布局) */
   welcomePhotoMediaId: number | null;
   /** 只读: 上墙照片公开直链 (由 welcomePhotoMediaId 算出, 大屏轮询直接用; 走匿名公开路由) */
@@ -66,6 +70,7 @@ const DEFAULTS: SystemBrandingDto = {
   welcomeTitle: null,
   welcomeTagline: null,
   welcomeBgMediaId: null,
+  welcomeLogoMediaId: null,
   welcomePhotoMediaId: null,
 };
 
@@ -100,8 +105,14 @@ export class SystemBrandingService {
       welcomeTitle: row.welcomeTitle,
       welcomeTagline: row.welcomeTagline,
       welcomeBgMediaId: row.welcomeBgMediaId,
-      // 底图直链: /api/media/:id/file 是 @Public 路由, kiosk 欢迎页无鉴权可读
-      welcomeBgUrl: row.welcomeBgMediaId ? `/api/media/${row.welcomeBgMediaId}/file` : null,
+      // 只公开当前已发布的底图与 Logo；普通媒体文件端点仍要求登录。
+      welcomeBgUrl: row.welcomeBgMediaId
+        ? `/api/system-branding/welcome-background/file?v=${row.updatedAt?.getTime?.() ?? Date.now()}`
+        : null,
+      welcomeLogoMediaId: row.welcomeLogoMediaId ?? null,
+      welcomeLogoUrl: row.welcomeLogoMediaId
+        ? `/api/system-branding/welcome-logo/file?v=${row.updatedAt?.getTime?.() ?? Date.now()}`
+        : null,
       welcomePhotoMediaId: row.welcomePhotoMediaId ?? null,
       // 上墙照片走"仅当前绑定照片"的匿名公开路由 (普通 /api/media/:id/file 需登录,
       // 大屏与扫码手机都没有 token); 加 updatedAt 版本参数让轮询拿到新图而非旧缓存
@@ -117,6 +128,18 @@ export class SystemBrandingService {
     const row = await this.repo.findOne({ where: { id: 1 } });
     const v = row?.welcomePhotoMediaId;
     return typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null;
+  }
+
+  async getWelcomeBackgroundMediaId(): Promise<number | null> {
+    const row = await this.repo.findOne({ where: { id: 1 } });
+    const value = row?.welcomeBgMediaId;
+    return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
+  }
+
+  async getWelcomeLogoMediaId(): Promise<number | null> {
+    const row = await this.repo.findOne({ where: { id: 1 } });
+    const value = row?.welcomeLogoMediaId;
+    return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
   }
 
   /** 直接读 welcomeMediaId (给 LedController.welcome 用, 不需要拼整个 DTO) */
@@ -232,7 +255,7 @@ export class SystemBrandingService {
         actualRevision,
       });
     }
-    await this.validateWelcomeSchemeBackgrounds(config.schemes);
+    await this.validateWelcomeSchemeImages(config.schemes);
     const saved = current
       ? await this.runtimeConfig.update({
           key: WELCOME_SCHEMES_CONFIG_KEY,
@@ -300,6 +323,7 @@ export class SystemBrandingService {
         welcomeGuest: scheme.welcomeGuest,
         welcomeTagline: scheme.welcomeTagline,
         welcomeBgMediaId: scheme.welcomeBgMediaId,
+        welcomeLogoMediaId: scheme.welcomeLogoMediaId,
       });
       this.logger.info(`[SystemBranding] 欢迎方案已发布 (${scheme.id})`);
       return { scheme, branding: updated };
@@ -317,16 +341,17 @@ export class SystemBrandingService {
       welcomeGuest: branding.welcomeGuest,
       welcomeTagline: branding.welcomeTagline,
       welcomeBgMediaId: branding.welcomeBgMediaId,
+      welcomeLogoMediaId: branding.welcomeLogoMediaId,
     };
   }
 
-  private async validateWelcomeSchemeBackgrounds(schemes: WelcomeScheme[]): Promise<void> {
-    const ids = [
+  private async validateWelcomeSchemeImages(schemes: WelcomeScheme[]): Promise<void> {
+    const backgroundIds = [
       ...new Set(
         schemes.map((item) => item.welcomeBgMediaId).filter((id): id is number => id !== null),
       ),
     ];
-    for (const id of ids) {
+    for (const id of backgroundIds) {
       const background = await this.media.ensureImageResolution(id);
       if (
         background.kind !== 'image' ||
@@ -334,6 +359,15 @@ export class SystemBrandingService {
       ) {
         throw new Error(`欢迎页底图必须是 ${LED_WELCOME_RESOLUTION} 图片`);
       }
+    }
+    const logoIds = [
+      ...new Set(
+        schemes.map((item) => item.welcomeLogoMediaId).filter((id): id is number => id !== null),
+      ),
+    ];
+    for (const id of logoIds) {
+      const logo = await this.media.ensureImageResolution(id);
+      if (logo.kind !== 'image') throw new Error('欢迎页 Logo 必须是图片');
     }
   }
 
@@ -460,6 +494,16 @@ export class SystemBrandingService {
         patch.welcomeBgMediaId = v;
       } else {
         patch.welcomeBgMediaId = null;
+      }
+    }
+    if (input.welcomeLogoMediaId !== undefined) {
+      const v = input.welcomeLogoMediaId;
+      if (typeof v === 'number' && Number.isInteger(v) && v > 0) {
+        const logo = await this.media.ensureImageResolution(v);
+        if (logo.kind !== 'image') throw new Error('欢迎页 Logo 必须是图片');
+        patch.welcomeLogoMediaId = v;
+      } else {
+        patch.welcomeLogoMediaId = null;
       }
     }
     if (input.welcomePhotoMediaId !== undefined) {

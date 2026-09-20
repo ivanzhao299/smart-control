@@ -5,6 +5,7 @@ const path = require('node:path');
 
 const playerConsole = fs.readFileSync(path.join(__dirname, '../src/components/PlayerConsole.vue'), 'utf8');
 const brandingService = fs.readFileSync(path.join(__dirname, '../src/services/system-branding.service.ts'), 'utf8');
+const welcomePage = fs.readFileSync(path.join(__dirname, '../public/welcome/index.html'), 'utf8');
 
 test('welcome editor separates draft saving from publishing and carries the opened revision', () => {
   assert.match(playerConsole, /ensureAdmin\('保存欢迎方案'\)/);
@@ -14,6 +15,18 @@ test('welcome editor separates draft saving from publishing and carries the open
   assert.match(playerConsole, /publishWelcomeScheme\(selectedId, welcomeSchemesRevision\.value\)/);
   assert.match(playerConsole, /服务器未确认发布结果/);
   assert.match(playerConsole, /发布到 LED 大屏/);
+});
+
+test('welcome editor uploads logo and background in place and remains scrollable on iPhone', () => {
+  assert.match(playerConsole, /welcomeLogoUploadInput/);
+  assert.match(playerConsole, /welcomeBgUploadInput/);
+  assert.match(playerConsole, /mediaService\.upload\(file/);
+  assert.match(playerConsole, /welcomeLogoMediaId/);
+  assert.match(playerConsole, /height: 100dvh/);
+  assert.match(playerConsole, /flex: 1 1 0; overflow-y: auto/);
+  assert.match(playerConsole, /touch-action: pan-y/);
+  assert.match(welcomePage, /id="logoImg"/);
+  assert.match(welcomePage, /welcomeLogoUrl/);
 });
 
 test('welcome save contract documents its administrator boundary', () => {

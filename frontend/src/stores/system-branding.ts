@@ -22,6 +22,7 @@ const FALLBACK: SystemBranding = {
   welcomeTitle: null,
   welcomeTagline: null,
   welcomeBgMediaId: null,
+  welcomeLogoMediaId: null,
 };
 
 export const useSystemBrandingStore = defineStore('system-branding', () => {

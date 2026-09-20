@@ -56,6 +56,22 @@ export class SystemBrandingController {
     sendMediaFile(res, file);
   }
 
+  @Public()
+  @Get('welcome-background/file')
+  async welcomeBackgroundFile(@Req() req: Request, @Res() res: Response): Promise<void> {
+    const id = await this.service.getWelcomeBackgroundMediaId();
+    if (!id) throw new NotFoundException('当前欢迎页没有自定义底图');
+    sendMediaFile(res, await this.media.openStream(id, false, req.headers.range));
+  }
+
+  @Public()
+  @Get('welcome-logo/file')
+  async welcomeLogoFile(@Req() req: Request, @Res() res: Response): Promise<void> {
+    const id = await this.service.getWelcomeLogoMediaId();
+    if (!id) throw new NotFoundException('当前欢迎页没有自定义 Logo');
+    sendMediaFile(res, await this.media.openStream(id, false, req.headers.range));
+  }
+
   /** 大屏和校准器共同读取；没有保存过时 config=null，页面使用内置默认值。 */
   @Public()
   @Get('park-ops')
@@ -162,6 +178,7 @@ export class SystemBrandingController {
         | 'welcomeTitle'
         | 'welcomeTagline'
         | 'welcomeBgMediaId'
+        | 'welcomeLogoMediaId'
         | 'welcomePhotoMediaId'
       >
     >,
@@ -174,6 +191,7 @@ export class SystemBrandingController {
     if ('welcomeTitle' in body) patch.welcomeTitle = body.welcomeTitle ?? null;
     if ('welcomeTagline' in body) patch.welcomeTagline = body.welcomeTagline ?? null;
     if ('welcomeBgMediaId' in body) patch.welcomeBgMediaId = body.welcomeBgMediaId ?? null;
+    if ('welcomeLogoMediaId' in body) patch.welcomeLogoMediaId = body.welcomeLogoMediaId ?? null;
     if ('welcomePhotoMediaId' in body) patch.welcomePhotoMediaId = body.welcomePhotoMediaId ?? null;
     if (!Object.keys(patch).length) throw new BadRequestException('没有可保存的欢迎页字段');
     try {

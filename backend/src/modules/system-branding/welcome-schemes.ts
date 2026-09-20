@@ -11,6 +11,7 @@ export interface WelcomeScheme {
   welcomeGuest: string | null;
   welcomeTagline: string | null;
   welcomeBgMediaId: number | null;
+  welcomeLogoMediaId: number | null;
 }
 
 export interface WelcomeSchemesDocument {
@@ -23,6 +24,7 @@ export interface PublishedWelcomeFields {
   welcomeGuest: string | null;
   welcomeTagline: string | null;
   welcomeBgMediaId: number | null;
+  welcomeLogoMediaId: number | null;
 }
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -44,10 +46,10 @@ function optionalText(input: unknown, maxLength: number, label: string): string 
   return value;
 }
 
-function backgroundId(input: unknown): number | null {
+function imageMediaId(input: unknown, label: string): number | null {
   if (input === null || input === undefined) return null;
   if (!Number.isInteger(input) || Number(input) <= 0) {
-    throw new BadRequestException('欢迎页底图媒体 ID 必须是正整数或 null');
+    throw new BadRequestException(`${label}媒体 ID 必须是正整数或 null`);
   }
   return Number(input);
 }
@@ -81,7 +83,8 @@ export function normalizeWelcomeSchemes(input: unknown): WelcomeSchemesDocument 
       welcomeTitle: optionalText(raw.welcomeTitle, 32, '主标题'),
       welcomeGuest: optionalText(raw.welcomeGuest, 64, '嘉宾称谓'),
       welcomeTagline: optionalText(raw.welcomeTagline, 64, '底部标语'),
-      welcomeBgMediaId: backgroundId(raw.welcomeBgMediaId),
+      welcomeBgMediaId: imageMediaId(raw.welcomeBgMediaId, '欢迎页底图'),
+      welcomeLogoMediaId: imageMediaId(raw.welcomeLogoMediaId, '欢迎页 Logo'),
     };
   });
 
@@ -102,6 +105,7 @@ export function buildDefaultWelcomeSchemes(
         welcomeGuest: '各位领导嘉宾',
         welcomeTagline: '欢迎莅临参观指导',
         welcomeBgMediaId: null,
+        welcomeLogoMediaId: null,
       },
       {
         id: 'conference',
@@ -110,6 +114,7 @@ export function buildDefaultWelcomeSchemes(
         welcomeGuest: '各位会议嘉宾',
         welcomeTagline: '同心聚力 · 共创未来',
         welcomeBgMediaId: null,
+        welcomeLogoMediaId: null,
       },
       {
         id: 'signing',
@@ -118,6 +123,7 @@ export function buildDefaultWelcomeSchemes(
         welcomeGuest: '各位领导嘉宾',
         welcomeTagline: '携手同行 · 共启新程',
         welcomeBgMediaId: null,
+        welcomeLogoMediaId: null,
       },
     ],
   };
@@ -131,6 +137,7 @@ export function matchesPublishedWelcome(
     scheme.welcomeTitle === published.welcomeTitle &&
     scheme.welcomeGuest === published.welcomeGuest &&
     scheme.welcomeTagline === published.welcomeTagline &&
-    scheme.welcomeBgMediaId === published.welcomeBgMediaId
+    scheme.welcomeBgMediaId === published.welcomeBgMediaId &&
+    scheme.welcomeLogoMediaId === published.welcomeLogoMediaId
   );
 }

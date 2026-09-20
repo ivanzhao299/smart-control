@@ -141,6 +141,7 @@ describe('SystemBrandingService LED welcome background geometry', () => {
     welcomeTitle: null,
     welcomeTagline: null,
     welcomeBgMediaId: null,
+    welcomeLogoMediaId: null,
     welcomePhotoMediaId: null,
     updatedAt: new Date(0),
   } as SystemBranding;
@@ -173,5 +174,29 @@ describe('SystemBrandingService LED welcome background geometry', () => {
     const { repository, service } = subject('3612x1462');
     await expect(service.update({ welcomeBgMediaId: 7 })).resolves.toBeDefined();
     expect(repository.update).toHaveBeenCalledWith({ id: 1 }, { welcomeBgMediaId: 7 });
+  });
+
+  it('returns bound-only public URLs for the published background and logo', async () => {
+    const repository = {
+      findOne: jest.fn().mockResolvedValue({
+        ...current,
+        welcomeBgMediaId: 7,
+        welcomeLogoMediaId: 8,
+      }),
+    } as unknown as Repository<SystemBranding>;
+    const service = new SystemBrandingService(
+      repository,
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() } as never,
+      new ConfigService(),
+      {} as RuntimeConfigStore,
+      {} as MediaService,
+    );
+
+    await expect(service.get()).resolves.toMatchObject({
+      welcomeBgMediaId: 7,
+      welcomeBgUrl: expect.stringContaining('/api/system-branding/welcome-background/file'),
+      welcomeLogoMediaId: 8,
+      welcomeLogoUrl: expect.stringContaining('/api/system-branding/welcome-logo/file'),
+    });
   });
 });
