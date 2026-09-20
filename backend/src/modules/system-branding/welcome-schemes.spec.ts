@@ -136,4 +136,56 @@ describe('SystemBrandingService welcome schemes', () => {
       },
     );
   });
+
+  it('removes a welcome image only after clearing every draft and published reference', async () => {
+    const currentRow = {
+      ...current,
+      welcomeBgMediaId: 7,
+      welcomeLogoMediaId: 8,
+    } as SystemBranding;
+    const repositoryWithState = {
+      findOne: jest.fn(async () => currentRow),
+      update: jest.fn(async (_where, patch: Partial<SystemBranding>) => {
+        Object.assign(currentRow, patch);
+        return { affected: 1 };
+      }),
+    } as unknown as Repository<SystemBranding>;
+    const media = {
+      ensureImageResolution: jest.fn(async (id: number) => ({
+        id,
+        kind: 'image',
+        resolution: id === 7 ? '3612x1462' : '1200x400',
+      })),
+      remove: jest.fn().mockResolvedValue({ removedId: 7, cleanupPending: false }),
+    } as unknown as MediaService;
+    const subject = new SystemBrandingService(
+      repositoryWithState,
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() } as never,
+      new ConfigService(),
+      new RuntimeConfigStore(dataSource),
+      media,
+    );
+    const document: WelcomeSchemesDocument = {
+      version: 1,
+      schemes: [
+        { ...schemes.schemes[0], welcomeBgMediaId: 7, welcomeLogoMediaId: 8 },
+        { ...schemes.schemes[0], id: 'company-b', name: '企业乙', welcomeBgMediaId: 7 },
+      ],
+    };
+    await subject.updateWelcomeSchemes(document, 0);
+
+    const result = await subject.removeWelcomeAsset(7, 1, {
+      kind: 'admin', userId: null, username: 'admin', role: 'admin',
+    });
+
+    expect(result.removedId).toBe(7);
+    expect(result.schemes.revision).toBe(2);
+    expect(result.schemes.config.schemes.every((item) => item.welcomeBgMediaId === null)).toBe(true);
+    expect(result.schemes.config.schemes.map((item) => item.welcomeLogoMediaId)).toEqual([8, null]);
+    expect(repositoryWithState.update).toHaveBeenCalledWith(
+      { id: 1 },
+      { welcomeBgMediaId: null },
+    );
+    expect(media.remove).toHaveBeenCalledWith(7, expect.objectContaining({ role: 'admin' }));
+  });
 });

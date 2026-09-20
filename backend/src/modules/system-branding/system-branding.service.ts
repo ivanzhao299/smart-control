@@ -14,6 +14,7 @@ import {
   type ParkOpsConfigDocument,
 } from './park-ops-config';
 import { MediaService } from '../media/media.service';
+import type { Actor } from '../../common/auth/actor';
 import {
   buildDefaultWelcomeSchemes,
   matchesPublishedWelcome,
@@ -327,6 +328,71 @@ export class SystemBrandingService {
       });
       this.logger.info(`[SystemBranding] 欢迎方案已发布 (${scheme.id})`);
       return { scheme, branding: updated };
+    });
+    this.welcomeSchemesMutationQueue = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
+  }
+
+  async removeWelcomeAsset(
+    mediaId: number,
+    expectedRevision: number,
+    actor: Actor,
+  ): Promise<{
+    removedId: number;
+    cleanupPending: boolean;
+    schemes: Awaited<ReturnType<SystemBrandingService['getWelcomeSchemes']>>;
+  }> {
+    if (!Number.isInteger(mediaId) || mediaId <= 0) {
+      throw new ConflictException('欢迎页图片 ID 不正确');
+    }
+    const operation = this.welcomeSchemesMutationQueue.then(async () => {
+      const branding = await this.get();
+      if (branding.welcomePhotoMediaId === mediaId || branding.welcomeMediaId === mediaId) {
+        throw new ConflictException('该图片正在用于拍照上屏或旧欢迎页，请先撤下后再删除');
+      }
+
+      const snapshot = await this.runtimeConfig.read(
+        WELCOME_SCHEMES_CONFIG_KEY,
+        normalizeWelcomeSchemes,
+      );
+      const actualRevision = snapshot?.revision ?? 0;
+      if (expectedRevision !== actualRevision) {
+        throw new ConflictException({
+          code: 'RUNTIME_CONFIG_REVISION_CONFLICT',
+          key: WELCOME_SCHEMES_CONFIG_KEY,
+          expectedRevision,
+          actualRevision,
+        });
+      }
+      const current = snapshot?.value ?? buildDefaultWelcomeSchemes(
+        this.publishedWelcomeFields(branding),
+      );
+      const next: WelcomeSchemesDocument = {
+        version: 1,
+        schemes: current.schemes.map((scheme) => ({
+          ...scheme,
+          welcomeBgMediaId:
+            scheme.welcomeBgMediaId === mediaId ? null : scheme.welcomeBgMediaId,
+          welcomeLogoMediaId:
+            scheme.welcomeLogoMediaId === mediaId ? null : scheme.welcomeLogoMediaId,
+        })),
+      };
+      await this.saveWelcomeSchemes(next, expectedRevision);
+
+      const publishedPatch: Partial<SystemBrandingDto> = {};
+      if (branding.welcomeBgMediaId === mediaId) publishedPatch.welcomeBgMediaId = null;
+      if (branding.welcomeLogoMediaId === mediaId) publishedPatch.welcomeLogoMediaId = null;
+      if (Object.keys(publishedPatch).length) await this.update(publishedPatch);
+
+      const removed = await this.media.remove(mediaId, actor);
+      return {
+        removedId: removed.removedId,
+        cleanupPending: removed.cleanupPending,
+        schemes: await this.getWelcomeSchemes(),
+      };
     });
     this.welcomeSchemesMutationQueue = operation.then(
       () => undefined,
