@@ -614,7 +614,27 @@ const welcomeEditOpen = ref(false);
 const welcomeSaving = ref(false);
 const welcomeLoading = ref(false);
 const welcomeForm = ref({ welcomeTitle: '', welcomeGuest: '', welcomeTagline: '', welcomeBgMediaId: null as number | null });
-const bgAssets = ref<Array<{ id: number; originalName: string; thumbUrl: string | null; fileUrl: string }>>([]);
+const LED_CANVAS_RESOLUTION = '3612x1462';
+const welcomePreviewUrl = `${import.meta.env.DEV ? '/' : import.meta.env.BASE_URL}welcome/index.html?preview=1`;
+const welcomePreviewFrame = ref<HTMLIFrameElement | null>(null);
+const bgAssets = ref<Array<{ id: number; originalName: string; thumbUrl: string | null; fileUrl: string; resolution: string }>>([]);
+const rejectedBgAssetCount = ref(0);
+const incompatibleSelectedBackground = ref(false);
+
+function pushWelcomePreview(): void {
+  const selected = bgAssets.value.find((item) => item.id === welcomeForm.value.welcomeBgMediaId);
+  welcomePreviewFrame.value?.contentWindow?.postMessage({
+    type: 'smart-control:welcome-preview',
+    payload: {
+      welcomeTitle: welcomeForm.value.welcomeTitle,
+      welcomeGuest: welcomeForm.value.welcomeGuest,
+      welcomeTagline: welcomeForm.value.welcomeTagline,
+      welcomeBgUrl: selected ? absUrl(selected.fileUrl) : null,
+    },
+  }, window.location.origin);
+}
+
+watch(welcomeForm, pushWelcomePreview, { deep: true });
 
 async function openWelcomeEditor(): Promise<void> {
   if (!(await ensureAdmin('编辑欢迎页'))) return;
@@ -625,19 +645,35 @@ async function openWelcomeEditor(): Promise<void> {
       fetchSystemBranding(),
       mediaService.list({ kind: 'image' }),
     ]);
+    const compatible = imgs.items.filter((m) => m.resolution?.toLowerCase() === LED_CANVAS_RESOLUTION);
+    const selectedBackgroundIsCompatible = branding.welcomeBgMediaId === null
+      || compatible.some((m) => m.id === branding.welcomeBgMediaId);
+    incompatibleSelectedBackground.value = !selectedBackgroundIsCompatible;
     welcomeForm.value = {
       welcomeTitle: branding.welcomeTitle ?? '',
       welcomeGuest: branding.welcomeGuest ?? '',
       welcomeTagline: branding.welcomeTagline ?? '',
-      welcomeBgMediaId: branding.welcomeBgMediaId ?? null,
+      welcomeBgMediaId: selectedBackgroundIsCompatible ? (branding.welcomeBgMediaId ?? null) : null,
     };
-    bgAssets.value = imgs.items.map((m) => ({ id: m.id, originalName: m.originalName, thumbUrl: m.thumbUrl, fileUrl: m.fileUrl }));
+    bgAssets.value = compatible.map((m) => ({
+      id: m.id,
+      originalName: m.originalName,
+      thumbUrl: m.thumbUrl,
+      fileUrl: m.fileUrl,
+      resolution: m.resolution!,
+    }));
+    rejectedBgAssetCount.value = imgs.items.length - compatible.length;
   } catch (e) {
     ElMessage.error(`读取欢迎页配置失败: ${(e as Error).message}`);
   } finally { welcomeLoading.value = false; }
 }
 
 async function saveWelcomeEdit(): Promise<void> {
+  if (welcomeForm.value.welcomeBgMediaId !== null
+    && !bgAssets.value.some((item) => item.id === welcomeForm.value.welcomeBgMediaId)) {
+    ElMessage.error(`欢迎页底图必须是 LED 原生分辨率 ${LED_CANVAS_RESOLUTION}`);
+    return;
+  }
   welcomeSaving.value = true;
   try {
     await saveWelcomeConfig({
@@ -1088,13 +1124,32 @@ async function submitWebpage(): Promise<void> {
         <div v-if="welcomeLoading" class="pick-empty">读取中…</div>
         <template v-else>
           <div class="we-scroll">
+            <div class="we-resolution">
+              <strong>LED 原生画布 {{ LED_CANVAS_RESOLUTION }}</strong>
+              <span>输出、浏览器、V2460 与屏体像素点对点，正式画面不缩放、不裁切。</span>
+            </div>
+            <div class="we-preview" aria-label="LED 欢迎页实时预览">
+              <iframe
+                ref="welcomePreviewFrame"
+                :src="welcomePreviewUrl"
+                title="LED 欢迎页实时预览"
+                tabindex="-1"
+                @load="pushWelcomePreview"
+              ></iframe>
+            </div>
             <label class="wb-label">主标题 (空 = 默认「热烈欢迎」)</label>
             <input v-model="welcomeForm.welcomeTitle" class="wb-input" maxlength="16" placeholder="热烈欢迎" />
             <label class="wb-label">嘉宾称谓 (显示为 恭迎 ×× 莅临参观指导)</label>
             <input v-model="welcomeForm.welcomeGuest" class="wb-input" maxlength="64" placeholder="各位领导嘉宾" />
             <label class="wb-label">底部标语 (空 = 默认「智慧展厅 · 数字展贸 · 科创未来」)</label>
             <input v-model="welcomeForm.welcomeTagline" class="wb-input" maxlength="64" placeholder="智慧展厅 · 数字展贸 · 科创未来" />
-            <label class="wb-label">底图模板 — 选媒体库图片当底图; 想用新图先在本页「上传内容」传一张</label>
+            <label class="wb-label">底图模板 — 仅列出 {{ LED_CANVAS_RESOLUTION }} 原图；想用新图先在本页「上传内容」传一张同尺寸图片</label>
+            <div v-if="incompatibleSelectedBackground" class="we-warning">
+              原底图不是 {{ LED_CANVAS_RESOLUTION }}，预览和大屏已回退默认底图；保存后会清除旧绑定。
+            </div>
+            <div v-else-if="rejectedBgAssetCount > 0" class="we-note">
+              已隐藏 {{ rejectedBgAssetCount }} 张尺寸不符的图片，避免上屏时拉伸或裁切。
+            </div>
             <div class="we-bg-grid">
               <button
                 class="we-bg-item" :class="{ on: welcomeForm.welcomeBgMediaId === null }"
@@ -1106,7 +1161,7 @@ async function submitWebpage(): Promise<void> {
                 :title="a.originalName" @click="welcomeForm.welcomeBgMediaId = a.id"
               >
                 <img :src="absUrl(a.thumbUrl || a.fileUrl)" alt="" loading="lazy" />
-                <span class="we-bg-name">{{ a.originalName }}</span>
+                <span class="we-bg-name">{{ a.originalName }} · {{ a.resolution }}</span>
               </button>
             </div>
           </div>
@@ -1228,11 +1283,28 @@ async function submitWebpage(): Promise<void> {
 .src-hint { font-size: 11px; color: var(--v2-text-3); }
 
 /* 欢迎页编辑器 (2026-07-28) */
-.we-box { width: min(680px, 94vw); max-height: 86vh; display: flex; flex-direction: column; }
+.we-box { width: min(920px, 94vw); max-height: 90vh; display: flex; flex-direction: column; }
 .we-scroll {
   overflow-y: auto; min-height: 0; padding-right: 4px; -webkit-overflow-scrolling: touch;
   display: flex; flex-direction: column; gap: 6px;   /* label 是 inline 元素, 不排 flex 会挤成一行 */
 }
+.we-resolution {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+  padding: 10px 12px; border-radius: 9px;
+  color: var(--v2-text-2); background: color-mix(in srgb, var(--v2-primary) 9%, var(--v2-surf-2));
+  border: 1px solid color-mix(in srgb, var(--v2-primary) 28%, var(--v2-border-soft));
+}
+.we-resolution strong { color: var(--v2-primary); font-size: 13px; white-space: nowrap; }
+.we-resolution span { font-size: 12px; text-align: right; }
+.we-preview {
+  position: relative; width: 100%; aspect-ratio: 3612 / 1462; overflow: hidden;
+  margin: 4px 0 8px; border-radius: 10px; background: #06101f;
+  border: 1px solid var(--v2-border-soft); box-shadow: inset 0 0 0 1px rgba(255,255,255,.025);
+}
+.we-preview iframe { width: 100%; height: 100%; display: block; border: 0; pointer-events: none; }
+.we-warning, .we-note { padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.45; }
+.we-warning { color: var(--v2-warning); background: color-mix(in srgb, var(--v2-warning) 10%, transparent); }
+.we-note { color: var(--v2-text-3); background: var(--v2-surf-2); }
 .we-bg-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
   gap: 8px; margin-top: 6px;

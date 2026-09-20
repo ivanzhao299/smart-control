@@ -13,6 +13,9 @@ import {
   PARK_OPS_VISUAL_SCHEMA_VERSION,
   type ParkOpsConfigDocument,
 } from './park-ops-config';
+import { MediaService } from '../media/media.service';
+
+const LED_WELCOME_RESOLUTION = '3612x1462';
 
 export interface SystemBrandingDto {
   systemName: string;
@@ -65,6 +68,7 @@ export class SystemBrandingService {
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
     private readonly config: ConfigService,
     private readonly runtimeConfig: RuntimeConfigStore,
+    private readonly media: MediaService,
   ) {}
 
   async get(): Promise<SystemBrandingDto> {
@@ -262,7 +266,15 @@ export class SystemBrandingService {
     }
     if (input.welcomeBgMediaId !== undefined) {
       const v = input.welcomeBgMediaId;
-      patch.welcomeBgMediaId = typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null;
+      if (typeof v === 'number' && Number.isInteger(v) && v > 0) {
+        const background = await this.media.get(v);
+        if (background.kind !== 'image' || background.resolution?.toLowerCase() !== LED_WELCOME_RESOLUTION) {
+          throw new Error(`欢迎页底图必须是 ${LED_WELCOME_RESOLUTION} 图片`);
+        }
+        patch.welcomeBgMediaId = v;
+      } else {
+        patch.welcomeBgMediaId = null;
+      }
     }
     if (input.welcomePhotoMediaId !== undefined) {
       // null/非正整数都视为撤下, 回到默认欢迎语布局

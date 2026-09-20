@@ -6,6 +6,7 @@ import { RuntimeConfigRevision } from '../../entities/runtime-config-revision.en
 import { SystemBranding } from '../../entities/system-branding.entity';
 import { PARK_OPS_VISUAL_CONFIG_KEY } from './park-ops-config';
 import { SystemBrandingService } from './system-branding.service';
+import { MediaService } from '../media/media.service';
 
 const fixture = (company: string) => ({
   version: 1,
@@ -57,6 +58,7 @@ describe('SystemBrandingService park ops runtime configuration', () => {
       { info: jest.fn(), warn: jest.fn(), error: jest.fn() } as never,
       new ConfigService(),
       new RuntimeConfigStore(dataSource),
+      {} as MediaService,
     );
   });
 
@@ -114,6 +116,7 @@ describe('SystemBrandingService singleton authority', () => {
       { info: jest.fn(), warn: jest.fn(), error: jest.fn() } as never,
       new ConfigService(),
       {} as RuntimeConfigStore,
+      {} as MediaService,
     );
 
     await expect(service.update({ systemName: '不会静默重建' })).rejects.toMatchObject({
@@ -121,5 +124,54 @@ describe('SystemBrandingService singleton authority', () => {
     });
     expect(repository.update).not.toHaveBeenCalled();
     expect(repository.save).not.toHaveBeenCalled();
+  });
+});
+
+describe('SystemBrandingService LED welcome background geometry', () => {
+  const current = {
+    id: 1,
+    systemName: '金湖展贸中心 · 智能控制',
+    systemSubtitle: null,
+    logoText: '金',
+    logoUrl: null,
+    browserTitle: null,
+    copyright: null,
+    welcomeMediaId: null,
+    welcomeGuest: null,
+    welcomeTitle: null,
+    welcomeTagline: null,
+    welcomeBgMediaId: null,
+    welcomePhotoMediaId: null,
+    updatedAt: new Date(0),
+  } as SystemBranding;
+
+  function subject(resolution: string) {
+    const repository = {
+      findOne: jest.fn().mockResolvedValue(current),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+    } as unknown as Repository<SystemBranding>;
+    const media = {
+      get: jest.fn().mockResolvedValue({ id: 7, kind: 'image', resolution }),
+    } as unknown as MediaService;
+    const service = new SystemBrandingService(
+      repository,
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() } as never,
+      new ConfigService(),
+      {} as RuntimeConfigStore,
+      media,
+    );
+    return { repository, service };
+  }
+
+  it('rejects a background that would be resized or cropped on the LED wall', async () => {
+    const { repository, service } = subject('1920x1080');
+    await expect(service.update({ welcomeBgMediaId: 7 })).rejects.toThrow('3612x1462');
+    expect(repository.update).not.toHaveBeenCalled();
+  });
+
+  it('accepts a native 3612x1462 background', async () => {
+    const { repository, service } = subject('3612x1462');
+    await expect(service.update({ welcomeBgMediaId: 7 })).resolves.toBeDefined();
+    expect(repository.update).toHaveBeenCalledWith({ id: 1 }, { welcomeBgMediaId: 7 });
   });
 });
