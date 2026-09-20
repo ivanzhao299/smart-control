@@ -64,3 +64,39 @@ describe('SystemBrandingController welcome writes', () => {
     await expect(controller.updateWelcome({ welcomeTitle: '欢迎光临' })).rejects.toBe(conflict);
   });
 });
+
+describe('SystemBrandingController welcome scheme writes', () => {
+  const config = {
+    version: 1 as const,
+    schemes: [{
+      id: 'company-a', name: '企业甲', welcomeTitle: '欢迎', welcomeGuest: null,
+      welcomeTagline: null, welcomeBgMediaId: null,
+    }],
+  };
+
+  it('passes the editor revision when saving and publishing', async () => {
+    const service = {
+      updateWelcomeSchemes: jest.fn().mockResolvedValue({ config, revision: 3 }),
+      publishWelcomeScheme: jest.fn().mockResolvedValue({ scheme: config.schemes[0] }),
+    } as unknown as SystemBrandingService;
+    const controller = new SystemBrandingController(service, {} as MediaService);
+
+    await controller.updateWelcomeSchemes({ config, expectedRevision: 2 });
+    await controller.publishWelcomeScheme('company-a', { expectedRevision: 3 });
+
+    expect(service.updateWelcomeSchemes).toHaveBeenCalledWith(config, 2);
+    expect(service.publishWelcomeScheme).toHaveBeenCalledWith('company-a', 3);
+  });
+
+  it('rejects malformed revision metadata before saving', async () => {
+    const service = {
+      updateWelcomeSchemes: jest.fn(),
+    } as unknown as SystemBrandingService;
+    const controller = new SystemBrandingController(service, {} as MediaService);
+
+    await expect(controller.updateWelcomeSchemes({ config })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(service.updateWelcomeSchemes).not.toHaveBeenCalled();
+  });
+});
