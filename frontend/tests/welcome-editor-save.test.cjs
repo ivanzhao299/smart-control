@@ -56,6 +56,27 @@ test('welcome editor reopens the last edited saved scheme instead of hiding it b
   assert.match(playerConsole, /rememberWelcomeSchemeId\(id\)/);
 });
 
+test('welcome schemes save their presentation and the live renderer applies the same bounded options', () => {
+  assert.match(brandingService, /export interface WelcomePresentation/);
+  assert.match(brandingService, /version:\s*2/);
+  assert.match(playerConsole, /welcomeLayoutOptions/);
+  assert.match(playerConsole, /updateWelcomePresentation\('layout'/);
+  assert.match(playerConsole, /welcomePresentation:\s*cloneWelcomePresentation/);
+  assert.match(playerConsole, /JSON\.stringify\(published\.branding\.welcomePresentation\)/);
+  assert.match(welcomePage, /function applyPresentation\(input\)/);
+  assert.match(welcomePage, /document\.body\.dataset\.layout/);
+  assert.match(welcomePage, /body\[data-layout="editorial"\]/);
+  assert.match(welcomePage, /body\[data-layout="minimal"\]/);
+});
+
+test('logo selection uses fresh authorized image URLs and an explicit state transition', () => {
+  assert.match(playerConsole, /const access = await mediaService\.access\(asset\.id\)/);
+  assert.match(playerConsole, /function selectWelcomeLogo\(mediaId: number \| null\)/);
+  assert.match(playerConsole, /@click="selectWelcomeLogo\(a\.id\)"/);
+  assert.match(playerConsole, /welcomeForm\.value = chooseWelcomeLogo\(welcomeForm\.value, mediaId\)/);
+  assert.match(playerConsole, /welcomeAssetUploading \|\| welcomeAssetDeletingId/);
+});
+
 test('welcome editor converts every new or legacy background before selection', () => {
   assert.match(playerConsole, /normalizeWelcomeBackground\(file\)/);
   assert.match(playerConsole, /selectWelcomeBackground\(a\)/);

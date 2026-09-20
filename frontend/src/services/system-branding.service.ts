@@ -41,11 +41,35 @@ export interface SystemBranding {
   welcomeLogoMediaId: number | null;
   /** 只读: 当前欢迎页 Logo 匿名直链 */
   welcomeLogoUrl?: string | null;
+  /** 当前正式上屏方案的版式快照。 */
+  welcomePresentation: WelcomePresentation;
   /** 欢迎页"来访者拍照上墙"照片媒体 id (空 = 默认欢迎布局) */
   welcomePhotoMediaId?: number | null;
   /** 只读: 上墙照片直链 (后端由 welcomePhotoMediaId 算出) */
   welcomePhotoUrl?: string | null;
 }
+
+export type WelcomeLayout = 'ceremony' | 'editorial' | 'minimal';
+export type WelcomeTone = 'light' | 'dark';
+export type WelcomeOverlay = 'none' | 'soft' | 'strong';
+export type WelcomeContentPosition = 'upper' | 'center' | 'lower';
+export type WelcomeLogoSize = 'small' | 'medium' | 'large';
+
+export interface WelcomePresentation {
+  layout: WelcomeLayout;
+  tone: WelcomeTone;
+  overlay: WelcomeOverlay;
+  contentPosition: WelcomeContentPosition;
+  logoSize: WelcomeLogoSize;
+}
+
+export const DEFAULT_WELCOME_PRESENTATION: WelcomePresentation = {
+  layout: 'ceremony',
+  tone: 'light',
+  overlay: 'soft',
+  contentPosition: 'center',
+  logoSize: 'medium',
+};
 
 export type SystemBrandingPatch = Partial<SystemBranding>;
 
@@ -71,10 +95,11 @@ export interface WelcomeScheme {
   welcomeTagline: string | null;
   welcomeBgMediaId: number | null;
   welcomeLogoMediaId: number | null;
+  presentation: WelcomePresentation;
 }
 
 export interface WelcomeSchemesDocument {
-  version: 1;
+  version: 2;
   schemes: WelcomeScheme[];
 }
 

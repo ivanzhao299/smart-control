@@ -30,6 +30,10 @@
   .custom-bg::after { content: ''; position: absolute; inset: 0;
     background: linear-gradient(180deg, rgba(4,19,38,0.56), rgba(5,28,52,0.30) 42%, rgba(4,16,31,0.68));
   }
+  body[data-overlay="none"] .custom-bg::after { background: transparent; }
+  body[data-overlay="strong"] .custom-bg::after {
+    background: linear-gradient(180deg, rgba(3,15,29,0.74), rgba(4,24,45,0.48) 42%, rgba(3,13,26,0.80));
+  }
   body.has-bg .custom-bg { display: block; }
   body.has-bg .grid { display: none; }
   body {
@@ -41,7 +45,10 @@
       radial-gradient(1900px 760px at 50% -16%, rgba(52, 132, 236, 0.24), transparent 72%),
       linear-gradient(180deg, #081b32 0%, #07182c 44%, #061426 100%);
     color: #f4f8ff;
+    --logo-height: 206px;
   }
+  body[data-logo-size="small"] { --logo-height: 150px; }
+  body[data-logo-size="large"] { --logo-height: 260px; }
 
   .grid {
     position: absolute; inset: 0;
@@ -64,7 +71,7 @@
   /* 徽记组: logo 与场馆名紧贴为一个组合 (2026-07-26 业主: 不要分离在外) */
   .crest { position: absolute; top: 98px; left: 0; right: 0; text-align: center; }
   .crest img {
-    height: 206px; width: auto; max-width: 900px; object-fit: contain; display: inline-block;
+    height: var(--logo-height); width: auto; max-width: 900px; object-fit: contain; display: inline-block;
     opacity: 1;
   }
   .crest .venue {
@@ -136,6 +143,75 @@
     font-size: 22px; letter-spacing: 9px; text-indent: 9px;
     color: rgba(148, 178, 213, 0.58);
   }
+
+  /* 每套方案保存自己的受控版式。所有数值仍落在 3612×1462 原生安全区内。 */
+  body[data-position="upper"] .hero { top: 490px; }
+  body[data-position="lower"] .hero { top: 610px; }
+
+  body[data-layout="editorial"] .crest {
+    top: 112px; left: 240px; right: auto; width: 1540px; text-align: left;
+  }
+  body[data-layout="editorial"] .crest .venue,
+  body[data-layout="editorial"] .crest .venue-en { text-indent: 0; }
+  body[data-layout="editorial"] .thread {
+    top: 470px; left: 240px; transform: none; width: 720px; text-align: left;
+  }
+  body[data-layout="editorial"] .hero {
+    top: 548px; left: 240px; right: auto; width: 2280px; text-align: left;
+  }
+  body[data-layout="editorial"][data-position="upper"] .hero { top: 490px; }
+  body[data-layout="editorial"][data-position="lower"] .hero { top: 630px; }
+  body[data-layout="editorial"] .hero .main {
+    font-size: 176px; letter-spacing: 28px; text-indent: 0;
+  }
+  body[data-layout="editorial"] .hero .guest {
+    justify-content: flex-start; gap: 36px; margin-top: 42px; font-size: 60px;
+    letter-spacing: 10px; text-indent: 0;
+  }
+  body[data-layout="editorial"] .hero .guest .flank:first-child { display: none; }
+  body[data-layout="editorial"] .hero .guest .flank { flex-basis: 120px; }
+  body[data-layout="editorial"] .inscription {
+    left: 240px; right: auto; width: 2280px; text-align: left;
+  }
+  body[data-layout="editorial"] .inscription .orgs { justify-content: flex-start; }
+  body[data-layout="editorial"] .inscription .hairline { margin-left: 0; }
+
+  body[data-layout="minimal"] .grid,
+  body[data-layout="minimal"] .corner,
+  body[data-layout="minimal"] .thread { display: none; }
+  body[data-layout="minimal"] .crest { top: 154px; }
+  body[data-layout="minimal"] .crest .venue-en { display: none; }
+  body[data-layout="minimal"] .hero { top: 520px; }
+  body[data-layout="minimal"][data-position="upper"] .hero { top: 440px; }
+  body[data-layout="minimal"][data-position="lower"] .hero { top: 610px; }
+  body[data-layout="minimal"] .hero .main {
+    font-size: 166px; letter-spacing: 28px; text-indent: 28px;
+  }
+  body[data-layout="minimal"] .hero .guest { margin-top: 42px; font-size: 58px; }
+  body[data-layout="minimal"] .inscription { bottom: 142px; }
+  body[data-layout="minimal"] .inscription .orgs,
+  body[data-layout="minimal"] .inscription .hairline { display: none; }
+  body[data-layout="minimal"] .inscription .marks { font-size: 25px; }
+
+  body[data-tone="dark"] { color: #102e4d; }
+  body[data-tone="dark"] .custom-bg::after {
+    background: linear-gradient(180deg, rgba(244,248,252,0.48), rgba(239,246,251,0.24) 48%, rgba(231,240,247,0.54));
+  }
+  body[data-tone="dark"][data-overlay="none"] .custom-bg::after { background: transparent; }
+  body[data-tone="dark"][data-overlay="strong"] .custom-bg::after {
+    background: linear-gradient(180deg, rgba(246,249,252,0.72), rgba(238,245,250,0.50) 48%, rgba(226,237,246,0.76));
+  }
+  body[data-tone="dark"] .crest .venue { color: rgba(15,48,80,.90); }
+  body[data-tone="dark"] .crest .venue-en,
+  body[data-tone="dark"] .inscription .marks { color: rgba(24,68,108,.66); }
+  body[data-tone="dark"] .hero .main {
+    background: none; color: #123a62; filter: drop-shadow(0 5px 18px rgba(255,255,255,.50));
+  }
+  body[data-tone="dark"] .hero .guest {
+    color: rgba(19,54,87,.92); text-shadow: 0 3px 16px rgba(255,255,255,.56);
+  }
+  body[data-tone="dark"] .hero .guest .name { color: #0d5ca4; }
+  body[data-tone="dark"] .inscription .orgs { color: rgba(19,54,87,.86); }
 </style>
 </head>
 <body>
@@ -198,7 +274,8 @@
     function fitGuest() {
       const g = document.querySelector('.hero .guest');
       const t = g.querySelector('.text');
-      let size = 68;
+      const layout = document.body.dataset.layout || 'ceremony';
+      let size = layout === 'ceremony' ? 68 : layout === 'editorial' ? 60 : 58;
       g.style.fontSize = size + 'px';
       const max = LED_WIDTH - 2 * (150 + 52) - 120; // 两侧装饰线+间距+安全边
       while (size > 42 && t.scrollWidth > max) {
@@ -209,9 +286,11 @@
 
     function fitTitle() {
       const title = document.getElementById('mainTitle');
-      let size = 216;
+      const layout = document.body.dataset.layout || 'ceremony';
+      let size = layout === 'ceremony' ? 216 : layout === 'editorial' ? 176 : 166;
       title.style.fontSize = size + 'px';
-      while (size > 116 && title.scrollWidth > LED_WIDTH - 440) {
+      const maxWidth = layout === 'editorial' ? 2280 : LED_WIDTH - 440;
+      while (size > 116 && title.scrollWidth > maxWidth) {
         size -= 4;
         title.style.fontSize = size + 'px';
       }
@@ -230,6 +309,28 @@
     let bgRevision = 0;
     const DEFAULT_LOGO_URL = '../brand-logo.png';
     let lastLogoUrl = DEFAULT_LOGO_URL;
+    const DEFAULT_PRESENTATION = {
+      layout: 'ceremony', tone: 'light', overlay: 'soft', contentPosition: 'center', logoSize: 'medium',
+    };
+    const PRESENTATION_VALUES = {
+      layout: ['ceremony', 'editorial', 'minimal'],
+      tone: ['light', 'dark'],
+      overlay: ['none', 'soft', 'strong'],
+      contentPosition: ['upper', 'center', 'lower'],
+      logoSize: ['small', 'medium', 'large'],
+    };
+    function applyPresentation(input) {
+      const value = input && typeof input === 'object' ? input : DEFAULT_PRESENTATION;
+      const safe = {};
+      for (const [key, allowed] of Object.entries(PRESENTATION_VALUES)) {
+        safe[key] = allowed.includes(value[key]) ? value[key] : DEFAULT_PRESENTATION[key];
+      }
+      document.body.dataset.layout = safe.layout;
+      document.body.dataset.tone = safe.tone;
+      document.body.dataset.overlay = safe.overlay;
+      document.body.dataset.position = safe.contentPosition;
+      document.body.dataset.logoSize = safe.logoSize;
+    }
     function applyBackground(url) {
       if (url === lastBgUrl) return;
       lastBgUrl = url;
@@ -273,6 +374,7 @@
       const title = (d.welcomeTitle || '').trim() || '热烈欢迎';
       document.getElementById('mainTitle').textContent = title;
       document.getElementById('tagline').textContent = (d.welcomeTagline || '').trim() || '智慧展厅 · 数字展贸 · 科创未来';
+      applyPresentation(d.welcomePresentation);
       applyBackground(bgUrl || null);
       applyLogo(logoUrl || null);
       requestAnimationFrame(fitTypography);

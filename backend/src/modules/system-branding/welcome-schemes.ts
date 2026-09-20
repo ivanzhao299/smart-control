@@ -1,8 +1,30 @@
 import { BadRequestException } from '@nestjs/common';
 
 export const WELCOME_SCHEMES_CONFIG_KEY = 'welcome.schemes';
-export const WELCOME_SCHEMES_SCHEMA_VERSION = 1;
+export const WELCOME_SCHEMES_SCHEMA_VERSION = 2;
 export const MAX_WELCOME_SCHEMES = 20;
+
+export const WELCOME_LAYOUTS = ['ceremony', 'editorial', 'minimal'] as const;
+export const WELCOME_TONES = ['light', 'dark'] as const;
+export const WELCOME_OVERLAYS = ['none', 'soft', 'strong'] as const;
+export const WELCOME_CONTENT_POSITIONS = ['upper', 'center', 'lower'] as const;
+export const WELCOME_LOGO_SIZES = ['small', 'medium', 'large'] as const;
+
+export interface WelcomePresentation {
+  layout: (typeof WELCOME_LAYOUTS)[number];
+  tone: (typeof WELCOME_TONES)[number];
+  overlay: (typeof WELCOME_OVERLAYS)[number];
+  contentPosition: (typeof WELCOME_CONTENT_POSITIONS)[number];
+  logoSize: (typeof WELCOME_LOGO_SIZES)[number];
+}
+
+export const DEFAULT_WELCOME_PRESENTATION: WelcomePresentation = {
+  layout: 'ceremony',
+  tone: 'light',
+  overlay: 'soft',
+  contentPosition: 'center',
+  logoSize: 'medium',
+};
 
 export interface WelcomeScheme {
   id: string;
@@ -12,10 +34,11 @@ export interface WelcomeScheme {
   welcomeTagline: string | null;
   welcomeBgMediaId: number | null;
   welcomeLogoMediaId: number | null;
+  presentation: WelcomePresentation;
 }
 
 export interface WelcomeSchemesDocument {
-  version: 1;
+  version: 2;
   schemes: WelcomeScheme[];
 }
 
@@ -25,6 +48,7 @@ export interface PublishedWelcomeFields {
   welcomeTagline: string | null;
   welcomeBgMediaId: number | null;
   welcomeLogoMediaId: number | null;
+  presentation: WelcomePresentation;
 }
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -54,9 +78,47 @@ function imageMediaId(input: unknown, label: string): number | null {
   return Number(input);
 }
 
-export function normalizeWelcomeSchemes(input: unknown): WelcomeSchemesDocument {
+function enumValue<T extends string>(
+  input: unknown,
+  allowed: readonly T[],
+  fallback: T,
+  label: string,
+): T {
+  if (input === undefined || input === null) return fallback;
+  if (typeof input !== 'string' || !allowed.includes(input as T)) {
+    throw new BadRequestException(`${label}不受支持`);
+  }
+  return input as T;
+}
+
+export function normalizeWelcomePresentation(
+  input: unknown,
+  fallback: WelcomePresentation = DEFAULT_WELCOME_PRESENTATION,
+): WelcomePresentation {
+  if (input === undefined || input === null) return { ...fallback };
+  const raw = objectValue(input, '欢迎页版式');
+  return {
+    layout: enumValue(raw.layout, WELCOME_LAYOUTS, fallback.layout, '欢迎页版式'),
+    tone: enumValue(raw.tone, WELCOME_TONES, fallback.tone, '欢迎页文字色调'),
+    overlay: enumValue(raw.overlay, WELCOME_OVERLAYS, fallback.overlay, '欢迎页背景遮罩'),
+    contentPosition: enumValue(
+      raw.contentPosition,
+      WELCOME_CONTENT_POSITIONS,
+      fallback.contentPosition,
+      '欢迎页内容位置',
+    ),
+    logoSize: enumValue(raw.logoSize, WELCOME_LOGO_SIZES, fallback.logoSize, '欢迎页 Logo 尺寸'),
+  };
+}
+
+export function normalizeWelcomeSchemes(
+  input: unknown,
+  fallback?: WelcomeSchemesDocument,
+): WelcomeSchemesDocument {
   const document = objectValue(input, '欢迎方案配置');
-  if (document.version !== 1) throw new BadRequestException('欢迎方案配置版本必须为 1');
+  if (document.version !== 1 && document.version !== 2) {
+    throw new BadRequestException('欢迎方案配置版本必须为 1 或 2');
+  }
   if (!Array.isArray(document.schemes)) throw new BadRequestException('欢迎方案列表必须是数组');
   if (document.schemes.length < 1 || document.schemes.length > MAX_WELCOME_SCHEMES) {
     throw new BadRequestException(`欢迎方案数量必须为 1-${MAX_WELCOME_SCHEMES} 套`);
@@ -76,6 +138,7 @@ export function normalizeWelcomeSchemes(input: unknown): WelcomeSchemesDocument 
     }
     const name = raw.name.trim();
     if (name.length > 40) throw new BadRequestException('欢迎方案名称不能超过 40 个字符');
+    const fallbackPresentation = fallback?.schemes.find((scheme) => scheme.id === raw.id)?.presentation;
 
     return {
       id: raw.id,
@@ -85,17 +148,21 @@ export function normalizeWelcomeSchemes(input: unknown): WelcomeSchemesDocument 
       welcomeTagline: optionalText(raw.welcomeTagline, 64, '底部标语'),
       welcomeBgMediaId: imageMediaId(raw.welcomeBgMediaId, '欢迎页底图'),
       welcomeLogoMediaId: imageMediaId(raw.welcomeLogoMediaId, '欢迎页 Logo'),
+      presentation: normalizeWelcomePresentation(
+        raw.presentation,
+        fallbackPresentation ?? DEFAULT_WELCOME_PRESENTATION,
+      ),
     };
   });
 
-  return { version: 1, schemes };
+  return { version: 2, schemes };
 }
 
 export function buildDefaultWelcomeSchemes(
   current: PublishedWelcomeFields,
 ): WelcomeSchemesDocument {
   return {
-    version: 1,
+    version: 2,
     schemes: [
       { id: 'current', name: '当前接待', ...current },
       {
@@ -106,6 +173,7 @@ export function buildDefaultWelcomeSchemes(
         welcomeTagline: '欢迎莅临参观指导',
         welcomeBgMediaId: null,
         welcomeLogoMediaId: null,
+        presentation: { ...DEFAULT_WELCOME_PRESENTATION },
       },
       {
         id: 'conference',
@@ -115,6 +183,11 @@ export function buildDefaultWelcomeSchemes(
         welcomeTagline: '同心聚力 · 共创未来',
         welcomeBgMediaId: null,
         welcomeLogoMediaId: null,
+        presentation: {
+          ...DEFAULT_WELCOME_PRESENTATION,
+          layout: 'editorial',
+          contentPosition: 'center',
+        },
       },
       {
         id: 'signing',
@@ -124,6 +197,7 @@ export function buildDefaultWelcomeSchemes(
         welcomeTagline: '携手同行 · 共启新程',
         welcomeBgMediaId: null,
         welcomeLogoMediaId: null,
+        presentation: { ...DEFAULT_WELCOME_PRESENTATION, layout: 'minimal' },
       },
     ],
   };
@@ -138,6 +212,7 @@ export function matchesPublishedWelcome(
     scheme.welcomeGuest === published.welcomeGuest &&
     scheme.welcomeTagline === published.welcomeTagline &&
     scheme.welcomeBgMediaId === published.welcomeBgMediaId &&
-    scheme.welcomeLogoMediaId === published.welcomeLogoMediaId
+    scheme.welcomeLogoMediaId === published.welcomeLogoMediaId &&
+    JSON.stringify(scheme.presentation) === JSON.stringify(published.presentation)
   );
 }

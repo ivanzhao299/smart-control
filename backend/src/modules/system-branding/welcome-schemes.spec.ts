@@ -8,6 +8,7 @@ import { SystemBranding } from '../../entities/system-branding.entity';
 import { MediaService } from '../media/media.service';
 import { SystemBrandingService } from './system-branding.service';
 import {
+  DEFAULT_WELCOME_PRESENTATION,
   normalizeWelcomeSchemes,
   WELCOME_SCHEMES_CONFIG_KEY,
   type WelcomeSchemesDocument,
@@ -27,12 +28,13 @@ const current = {
   welcomeTagline: '原欢迎标语',
   welcomeBgMediaId: null,
   welcomeLogoMediaId: null,
+  welcomePresentationJson: null,
   welcomePhotoMediaId: null,
   updatedAt: new Date(0),
 } as SystemBranding;
 
 const schemes: WelcomeSchemesDocument = {
-  version: 1,
+  version: 2,
   schemes: [
     {
       id: 'company-a',
@@ -42,6 +44,7 @@ const schemes: WelcomeSchemesDocument = {
       welcomeTagline: '欢迎莅临参观指导',
       welcomeBgMediaId: 7,
       welcomeLogoMediaId: null,
+      presentation: { ...DEFAULT_WELCOME_PRESENTATION },
     },
   ],
 };
@@ -60,6 +63,37 @@ describe('welcome scheme document', () => {
         schemes: [schemes.schemes[0], schemes.schemes[0]],
       }),
     ).toThrow('ID 重复');
+  });
+
+  it('upgrades legacy schemes and preserves a saved presentation for old PWA clients', () => {
+    const legacy = {
+      version: 1,
+      schemes: [{
+        ...schemes.schemes[0],
+        presentation: undefined,
+      }],
+    };
+    const fallback = {
+      ...schemes,
+      schemes: [{
+        ...schemes.schemes[0],
+        presentation: { ...DEFAULT_WELCOME_PRESENTATION, layout: 'editorial' as const },
+      }],
+    };
+    expect(normalizeWelcomeSchemes(legacy, fallback)).toMatchObject({
+      version: 2,
+      schemes: [{ presentation: { layout: 'editorial' } }],
+    });
+  });
+
+  it('rejects unbounded presentation values before they reach the LED renderer', () => {
+    expect(() => normalizeWelcomeSchemes({
+      ...schemes,
+      schemes: [{
+        ...schemes.schemes[0],
+        presentation: { ...DEFAULT_WELCOME_PRESENTATION, layout: 'free-drag' },
+      }],
+    })).toThrow('欢迎页版式不受支持');
   });
 });
 
@@ -134,6 +168,7 @@ describe('SystemBrandingService welcome schemes', () => {
         welcomeTagline: '欢迎莅临参观指导',
         welcomeBgMediaId: 7,
         welcomeLogoMediaId: null,
+        welcomePresentationJson: JSON.stringify(DEFAULT_WELCOME_PRESENTATION),
       },
     );
   });
@@ -167,7 +202,7 @@ describe('SystemBrandingService welcome schemes', () => {
       media,
     );
     const document: WelcomeSchemesDocument = {
-      version: 1,
+      version: 2,
       schemes: [
         { ...schemes.schemes[0], welcomeBgMediaId: 7, welcomeLogoMediaId: 8 },
         { ...schemes.schemes[0], id: 'company-b', name: '企业乙', welcomeBgMediaId: 7 },
