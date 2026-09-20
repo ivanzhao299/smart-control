@@ -151,7 +151,7 @@ describe('SystemBrandingService LED welcome background geometry', () => {
       update: jest.fn().mockResolvedValue({ affected: 1 }),
     } as unknown as Repository<SystemBranding>;
     const media = {
-      get: jest.fn().mockResolvedValue({ id: 7, kind: 'image', resolution }),
+      ensureImageResolution: jest.fn().mockResolvedValue({ id: 7, kind: 'image', resolution }),
     } as unknown as MediaService;
     const service = new SystemBrandingService(
       repository,

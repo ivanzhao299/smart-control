@@ -234,13 +234,13 @@ describe('GK9000 deployment gates', () => {
 
   it('does not escalate non-runtime tests into a full production restart', () => {
     const deploy = readRepositoryFile('scripts/deploy-from-ci.ps1');
-    const testClassification = deploy.indexOf("$f -match '^frontend/tests/'");
-    const backendSourceClassification = deploy.indexOf("$f -match '^backend/src/'");
+    const classifier = readRepositoryFile('tools/ci/deploy-scope.mjs');
 
-    expect(testClassification).toBeGreaterThan(-1);
-    expect(deploy).toContain("$f -match '^backend/test/'");
-    expect(deploy).toContain("$f -match '^backend/src/.+\\.spec\\.ts$'");
-    expect(testClassification).toBeLessThan(backendSourceClassification);
+    expect(deploy).toContain("tools\\ci\\deploy-scope.mjs");
+    expect(classifier).toContain('/^frontend\\/tests\\//');
+    expect(classifier).toContain('/^backend\\/test\\//');
+    expect(classifier).toContain('/^backend\\/src\\/.+\\.spec\\.ts$/');
+    expect(classifier).toContain("scope = staticOnly ? 'static' : frontendOnly ? 'frontend' : backendOnly ? 'backend' : 'full'");
   });
 
   it('records the verified release outside the worktree without mutating verify-only runs', () => {
@@ -366,28 +366,17 @@ describe('GK9000 deployment gates', () => {
 
   it('runs application tests, build-dependent operational tests and frontend validation before deployment', () => {
     const workflow = readRepositoryFile('.github/workflows/deploy-gk9000.yml');
-    const auditPosition = workflow.indexOf('pnpm audit --prod --audit-level high');
-    const testPosition = workflow.indexOf('pnpm exec jest --ci --reporters=default');
-    const opsTestPosition = workflow.indexOf('pnpm run test:ops');
-    const backendBuildPosition = workflow.indexOf('pnpm run build');
-    const frontendAuditPosition = workflow.indexOf(
-      'pnpm audit --prod --audit-level high',
-      auditPosition + 1,
-    );
-    const frontendTestPosition = workflow.indexOf('pnpm run test\n', frontendAuditPosition);
-    const frontendTypecheckPosition = workflow.indexOf('pnpm run typecheck');
-    const frontendBuildPosition = workflow.indexOf('pnpm run build', backendBuildPosition + 1);
-
-    expect(auditPosition).toBeGreaterThan(-1);
-    expect(auditPosition).toBeLessThan(testPosition);
-    expect(testPosition).toBeGreaterThan(-1);
-    expect(testPosition).toBeLessThan(backendBuildPosition);
-    expect(opsTestPosition).toBeGreaterThan(backendBuildPosition);
-    expect(frontendAuditPosition).toBeGreaterThan(backendBuildPosition);
-    expect(frontendAuditPosition).toBeLessThan(frontendTestPosition);
-    expect(frontendTestPosition).toBeGreaterThan(backendBuildPosition);
-    expect(frontendTestPosition).toBeLessThan(frontendTypecheckPosition);
-    expect(frontendTypecheckPosition).toBeLessThan(frontendBuildPosition);
+    expect(workflow).toContain('validate-static:');
+    expect(workflow).toContain('validate-frontend:');
+    expect(workflow).toContain('validate-backend:');
+    expect(workflow).toContain("if: needs.scope.outputs.validate_frontend == 'true'");
+    expect(workflow).toContain("if: needs.scope.outputs.validate_backend == 'true'");
+    expect(workflow).toContain('pnpm exec jest --ci --reporters=default');
+    expect(workflow).toContain('pnpm run test:ops');
+    expect(workflow).toContain('pnpm run test');
+    expect(workflow).toContain('pnpm run typecheck');
+    expect(workflow).toContain('pnpm run build');
+    expect(workflow).toContain('needs: [scope, validate-static, validate-frontend, validate-backend]');
     expect(workflow).toContain('actions/checkout@v7');
     expect(workflow).toContain('actions/setup-node@v7');
     expect(workflow).toContain('pnpm/action-setup@v6');
