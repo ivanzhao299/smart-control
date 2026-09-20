@@ -7,6 +7,7 @@ import {
   Logger,
   NotFoundException,
   ServiceUnavailableException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -66,6 +67,14 @@ export interface TestFlightTesterView {
   invitedAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** 重发邀请结果：invited=已重新发起；accepted=已是团队成员；pending=原邀请仍有效（无权撤销，见 notice）。 */
+export interface ResendTesterOutcome {
+  state: 'invited' | 'accepted' | 'pending';
+  tester: TestFlightTesterView;
+  /** state=pending 时给管理员的引导说明（原邀请仍有效 / 当前密钥无权撤销）。 */
+  notice?: string;
 }
 
 /** 当前内测构建 + 90 天到期倒计时视图。 */
@@ -139,6 +148,15 @@ export function summarizeBuild(b: AppleLatestBuild | null, now: number = Date.no
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * App Manager 密钥无权撤销一条已发出的团队邀请（DELETE /v1/userInvitations/{id} 返回 403），
+ * 而团队邀请在被接受前长期有效，此时「重发」无可动作，给管理员明确的人工处理引导。
+ */
+const PENDING_INVITATION_NOTICE =
+  '该邀请仍处于“待接受”状态且持续有效，无需重发。后台所用 App Manager 密钥无权撤销已发出的团队邀请' +
+  '（苹果返回 403），因此不能原地重发。请让受邀人在原邀请邮件（含“垃圾邮件”文件夹）中点击“激活账号/接受邀请”；' +
+  '若邮件确已丢失，需 Account Holder/管理员在 App Store Connect“用户和访问”中撤销该邀请后重新添加。';
 
 @Injectable()
 export class TestFlightService {
@@ -605,12 +623,18 @@ export class TestFlightService {
         row.lastError = err.message.slice(0, 1000);
         await this.repo.save(row).catch(() => undefined);
       }
-      throw this.mapApple(err);
+      throw this.mapApple(err, '发起邀请');
     }
   }
 
-  /** 重发邀请：已接受则拒绝；有待接受邀请先撤销再重新发起。 */
-  async resend(id: number, operator: string): Promise<{ state: 'invited' | 'accepted'; tester: TestFlightTesterView }> {
+  /**
+   * 重发邀请。苹果没有单独的 resend 接口，常规做法=先 DELETE 旧邀请再 POST；
+   * 但常驻服务器的 App Manager 密钥无权撤销团队邀请（DELETE /v1/userInvitations/{id} → 403）。分支：
+   *   - 已接受团队邀请：拒绝（无需重发）；
+   *   - 仍有 pending 邀请且当前密钥无权撤销：不改状态、不报错，返回引导性 notice（原邀请长期有效）；
+   *   - 旧邀请已撤销/过期（查无 pending，或 DELETE 返回 404）：直接 POST 一封新邀请（App Manager 有权限）。
+   */
+  async resend(id: number, operator: string): Promise<ResendTesterOutcome> {
     this.ensureReady();
     const row = await this.repo.findOne({ where: { id } });
     if (!row) throw new NotFoundException(`邀请记录 #${id} 不存在`);
@@ -622,13 +646,27 @@ export class TestFlightService {
         await this.repo.save(row);
         throw new BadRequestException('该测试员已接受邀请并成为团队成员，无需重发。');
       }
+
       const inv = await this.apple.findInvitation(row.email);
       if (inv) {
+        let revokeForbidden = false;
         await this.apple.deleteInvitation(inv.id).catch((e) => {
-          if (e instanceof AppleApiException && e.httpStatus === 404) return;
+          if (e instanceof AppleApiException && e.httpStatus === 404) return; // 已不存在，可直接重建
+          if (e instanceof AppleApiException && e.httpStatus === 403) {
+            // App Manager 无权撤销团队邀请：不能原地重发，保留原 pending 邀请并引导人工处理。
+            revokeForbidden = true;
+            return;
+          }
           throw e;
         });
+        if (revokeForbidden) {
+          this.applyState(row, inv); // 恢复/保持 PENDING，清掉历史 FAILED 标记
+          const saved = await this.repo.save(row);
+          this.logger.warn(`重发中止：App Manager 密钥无权撤销 pending 团队邀请，保留原邀请: ${row.email}`);
+          return { state: 'pending', tester: this.toView(saved), notice: PENDING_INVITATION_NOTICE };
+        }
       }
+
       const created = await this.apple.createInvitation({
         email: row.email,
         firstName: row.firstName,
@@ -645,12 +683,26 @@ export class TestFlightService {
       return { state: 'invited', tester: this.toView(saved) };
     } catch (err) {
       if (err instanceof BadRequestException) throw err;
+      if (err instanceof AppleApiException && err.isDuplicate) {
+        // 创建时苹果报重复（邀请/成员其实已存在，常见于列表过滤的最终一致性），按实时状态归一。
+        const live = await this.resolveLiveState(row.email);
+        if (live?.kind === 'user') {
+          this.applyState(row, live);
+          const saved = await this.repo.save(row);
+          return { state: 'accepted', tester: this.toView(saved) };
+        }
+        if (live?.kind === 'invitation') {
+          this.applyState(row, live);
+          const saved = await this.repo.save(row);
+          return { state: 'pending', tester: this.toView(saved), notice: PENDING_INVITATION_NOTICE };
+        }
+      }
       if (err instanceof AppleApiException) {
         row.status = 'FAILED';
         row.lastError = err.message.slice(0, 1000);
         await this.repo.save(row).catch(() => undefined);
       }
-      throw this.mapApple(err);
+      throw this.mapApple(err, '重发邀请');
     }
   }
 
@@ -673,16 +725,28 @@ export class TestFlightService {
     }
   }
 
-  private mapApple(err: unknown): Error {
+  /**
+   * 把苹果错误翻译成给管理员看的中文异常。刻意区分 401（密钥本身无效/被撤销）与 403（密钥有效但
+   * 当前角色无权做此操作，例如 App Manager 不能撤销团队邀请），避免过去把 403 也笼统报成「密钥无效」。
+   */
+  private mapApple(err: unknown, operation = '调用 App Store Connect'): Error {
     if (!(err instanceof AppleApiException)) return err as Error;
     if (err.httpStatus === 0) {
       return new ServiceUnavailableException(`服务器连不上 App Store Connect（请检查主控机外网/DNS）：${err.message}`);
     }
-    if (err.httpStatus === 401 || err.httpStatus === 403) {
-      return new ForbiddenException('App Store Connect 密钥无效或权限不足：请确认使用的是可管理 TestFlight 的 App Manager 及以上密钥，且未被撤销。');
+    if (err.httpStatus === 401) {
+      return new UnauthorizedException(
+        `App Store Connect 密钥无效、已过期或被撤销（401 未授权）：请检查 TESTFLIGHT_KEY_ID、Issuer ID 与 .p8 私钥是否匹配，且该密钥在 App Store Connect 仍为 Active。（操作：${operation}）`,
+      );
+    }
+    if (err.httpStatus === 403) {
+      return new ForbiddenException(
+        `App Store Connect 密钥权限不足（403 禁止访问）：当前 App Manager 密钥可创建、查询内部测试邀请，但无权执行“${operation}”` +
+          `（撤销团队邀请等操作需 Admin/Account Holder，或改在 App Store Connect 网页处理）。苹果详情：${err.message}`,
+      );
     }
     if (err.httpStatus === 409) {
-      return new BadRequestException(`苹果返回冲突：${err.message}`);
+      return new ConflictException(`苹果返回冲突：${err.message}`);
     }
     return new BadGatewayException(`App Store Connect 返回错误 (HTTP ${err.httpStatus})：${err.message}`);
   }

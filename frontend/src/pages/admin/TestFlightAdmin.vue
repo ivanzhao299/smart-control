@@ -247,11 +247,18 @@ async function submit(): Promise<void> {
 async function resend(t: TestFlightTester): Promise<void> {
   resendingId.value = t.id;
   try {
-    await testflightService.resend(t.id);
-    ElMessage.success(`已重新向 ${t.email} 发送邀请`);
+    const result = await testflightService.resend(t.id);
+    if (result.state === 'pending' && result.notice) {
+      // 原邀请仍有效、App Manager 密钥无权撤销：不是失败，用警告样式展示人工处理引导
+      ElMessage.warning({ message: result.notice, duration: 10000 });
+    } else if (result.state === 'accepted') {
+      ElMessage.info(`${t.email} 已是团队成员，无需重发`);
+    } else {
+      ElMessage.success(`已重新向 ${t.email} 发送邀请`);
+    }
     await refresh();
   } catch (err) {
-    ElMessage.error(`重发失败: ${(err as Error).message}`);
+    ElMessage.error({ message: `重发失败：${(err as Error).message}`, duration: 10000 });
   } finally {
     resendingId.value = null;
   }
@@ -410,7 +417,7 @@ onMounted(async () => {
         </el-form-item>
       </el-form>
       <p class="form-hint">
-        受邀人会收到 Apple 的 TestFlight 邀请邮件；需用该邮箱作为 Apple ID 登录 iPhone 并接受。邀请约 72 小时有效，过期可在右侧「重发」。
+        受邀人会收到 Apple 的团队邀请邮件，需用该邮箱作为 Apple ID 登录 iPhone 并点击接受；接受后由管理员将其加入内部测试组，App 即出现在 TestFlight 中（内部测试无兑换码）。团队邀请在接受前长期有效；若邮件丢失需重发，因后台 App Manager 密钥无权撤销旧邀请，请在 App Store Connect「用户和访问」中处理。
       </p>
     </div>
 

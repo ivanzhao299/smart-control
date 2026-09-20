@@ -63,11 +63,20 @@ export class TestFlightController {
     return { message, data: result };
   }
 
-  /** 重发邀请 */
+  /**
+   * 重发邀请。旧邀请已失效（被撤销/过期）时重新发起；仍待接受且 App Manager 密钥无权撤销时，
+   * 返回 state=pending + notice 引导人工处理（不报错、不把记录标记为失败）。
+   */
   @Post('testers/:id/resend')
   async resend(@Param('id', ParseIntPipe) id: number, @Req() req: AuthenticatedRequest) {
     const operator = req.actor?.username ?? 'admin';
     const result = await this.service.resend(id, operator);
-    return { message: `已重新向 ${result.tester.email} 发送邀请`, data: result };
+    const message =
+      result.state === 'invited'
+        ? `已重新向 ${result.tester.email} 发送邀请`
+        : result.state === 'accepted'
+          ? `${result.tester.email} 已是团队成员，无需重发`
+          : (result.notice ?? `${result.tester.email} 的邀请仍处于待接受状态`);
+    return { message, data: result };
   }
 }

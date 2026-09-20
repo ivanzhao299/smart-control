@@ -89,8 +89,11 @@ export interface InviteTesterResult {
 }
 
 export interface ResendTesterResult {
-  state: 'invited' | 'accepted';
+  /** invited=已重新发起；accepted=已是团队成员；pending=原邀请仍有效（无权撤销，见 notice） */
+  state: 'invited' | 'accepted' | 'pending';
   tester: TestFlightTester;
+  /** state=pending 时的引导说明（App Manager 密钥无权撤销团队邀请） */
+  notice?: string;
 }
 
 /** 与 App Store Connect 单向对账结果 */
