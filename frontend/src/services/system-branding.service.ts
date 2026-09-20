@@ -109,3 +109,17 @@ export async function publishWelcomeScheme(
     { expectedRevision },
   );
 }
+
+export async function removeWelcomeAsset(
+  mediaId: number,
+  expectedRevision: number,
+): Promise<{
+  removedId: number;
+  cleanupPending: boolean;
+  schemes: WelcomeSchemesSnapshot;
+}> {
+  return api.del(
+    `/system-branding/welcome-assets/${mediaId}`,
+    { params: { expectedRevision } },
+  );
+}

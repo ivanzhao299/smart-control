@@ -42,7 +42,8 @@ import {
 } from '@/services/playback.service';
 import { projectorService } from '@/services/projector.service';
 import {
-  fetchWelcomeSchemes, publishWelcomeScheme, saveWelcomeSchemes, type WelcomeScheme,
+  fetchWelcomeSchemes, publishWelcomeScheme, removeWelcomeAsset, saveWelcomeSchemes,
+  type WelcomeScheme,
 } from '@/services/system-branding.service';
 import { absUrl } from '@/services/http';
 import { useAdminUnlock } from '@/composables/useAdminUnlock';
@@ -50,6 +51,11 @@ import { powerCircuitsService, type PowerCircuitView } from '@/services/power-ci
 import { mediaService, MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
 import { ledService } from '@/services/led.service';
 import { parkOpsControlService } from '@/services/park-ops-control.service';
+import {
+  addWelcomeImageAsset,
+  classifyWelcomeImageAssets,
+  type WelcomeImageAsset,
+} from '@/features/welcome-image-assets';
 
 const props = defineProps<{
   /** 1 = LED 大屏 (HDMI1), 2 = 投影仪 (HDMI2) */
@@ -627,26 +633,23 @@ const publishedWelcomeSchemeId = ref<string | null>(null);
 const LED_CANVAS_RESOLUTION = '3612x1462';
 const welcomePreviewUrl = `${import.meta.env.DEV ? '/' : import.meta.env.BASE_URL}welcome/index.html?preview=1`;
 const welcomePreviewFrame = ref<HTMLIFrameElement | null>(null);
-type WelcomeImageAsset = {
-  id: number;
-  originalName: string;
-  thumbUrl: string | null;
-  fileUrl: string;
-  resolution: string | null;
-};
-const imageAssets = ref<WelcomeImageAsset[]>([]);
+const logoAssets = ref<WelcomeImageAsset[]>([]);
 const bgAssets = ref<WelcomeImageAsset[]>([]);
-const rejectedBgAssetCount = ref(0);
+const compatibleBgAssets = computed(() =>
+  bgAssets.value.filter((item) => item.resolution?.toLowerCase() === LED_CANVAS_RESOLUTION),
+);
+const rejectedBgAssetCount = computed(() => bgAssets.value.length - compatibleBgAssets.value.length);
 const incompatibleSelectedBackground = ref(false);
 const incompatibleSelectedLogo = ref(false);
 const welcomeBgUploadInput = ref<HTMLInputElement | null>(null);
 const welcomeLogoUploadInput = ref<HTMLInputElement | null>(null);
 const welcomeAssetUploading = ref<'background' | 'logo' | null>(null);
 const welcomeAssetUploadPct = ref(0);
+const welcomeAssetDeletingId = ref<number | null>(null);
 
 function pushWelcomePreview(): void {
-  const selected = bgAssets.value.find((item) => item.id === welcomeForm.value.welcomeBgMediaId);
-  const selectedLogo = imageAssets.value.find((item) => item.id === welcomeForm.value.welcomeLogoMediaId);
+  const selected = compatibleBgAssets.value.find((item) => item.id === welcomeForm.value.welcomeBgMediaId);
+  const selectedLogo = logoAssets.value.find((item) => item.id === welcomeForm.value.welcomeLogoMediaId);
   welcomePreviewFrame.value?.contentWindow?.postMessage({
     type: 'smart-control:welcome-preview',
     payload: {
@@ -667,9 +670,9 @@ function applyWelcomeScheme(id: string): void {
   selectedWelcomeSchemeId.value = id;
   welcomeSchemeName.value = scheme.name;
   incompatibleSelectedBackground.value = scheme.welcomeBgMediaId !== null
-    && !bgAssets.value.some((item) => item.id === scheme.welcomeBgMediaId);
+    && !compatibleBgAssets.value.some((item) => item.id === scheme.welcomeBgMediaId);
   incompatibleSelectedLogo.value = scheme.welcomeLogoMediaId !== null
-    && !imageAssets.value.some((item) => item.id === scheme.welcomeLogoMediaId);
+    && !logoAssets.value.some((item) => item.id === scheme.welcomeLogoMediaId);
   welcomeForm.value = {
     welcomeTitle: scheme.welcomeTitle ?? '',
     welcomeGuest: scheme.welcomeGuest ?? '',
@@ -688,12 +691,12 @@ function syncSelectedWelcomeDraft(): boolean {
     return false;
   }
   if (welcomeForm.value.welcomeBgMediaId !== null
-    && !bgAssets.value.some((item) => item.id === welcomeForm.value.welcomeBgMediaId)) {
+    && !compatibleBgAssets.value.some((item) => item.id === welcomeForm.value.welcomeBgMediaId)) {
     ElMessage.error(`欢迎页底图必须是 LED 原生分辨率 ${LED_CANVAS_RESOLUTION}`);
     return false;
   }
   if (welcomeForm.value.welcomeLogoMediaId !== null
-    && !imageAssets.value.some((item) => item.id === welcomeForm.value.welcomeLogoMediaId)) {
+    && !logoAssets.value.some((item) => item.id === welcomeForm.value.welcomeLogoMediaId)) {
     ElMessage.error('欢迎页 Logo 必须是已上传的图片');
     return false;
   }
@@ -724,16 +727,18 @@ async function openWelcomeEditor(): Promise<void> {
       fetchWelcomeSchemes(),
       mediaService.list({ kind: 'image' }),
     ]);
-    const compatible = imgs.items.filter((m) => m.resolution?.toLowerCase() === LED_CANVAS_RESOLUTION);
-    imageAssets.value = imgs.items.map((m) => ({
+    const assets = imgs.items.map((m) => ({
       id: m.id,
       originalName: m.originalName,
       thumbUrl: m.thumbUrl,
       fileUrl: m.fileUrl,
       resolution: m.resolution,
+      remark: m.remark,
+      source: m.source,
     }));
-    bgAssets.value = imageAssets.value.filter((item) => item.resolution?.toLowerCase() === LED_CANVAS_RESOLUTION);
-    rejectedBgAssetCount.value = imgs.items.length - compatible.length;
+    const libraries = classifyWelcomeImageAssets(assets, snapshot.config.schemes);
+    bgAssets.value = libraries.backgrounds;
+    logoAssets.value = libraries.logos;
     welcomeSchemes.value = snapshot.config.schemes.map((item) => ({ ...item }));
     welcomeSchemesRevision.value = snapshot.revision;
     publishedWelcomeSchemeId.value = snapshot.publishedSchemeId;
@@ -777,18 +782,22 @@ async function onWelcomeAssetPicked(kind: 'background' | 'logo', event: Event): 
       thumbUrl: null,
       fileUrl: access.url,
       resolution: uploaded.resolution,
+      remark: uploaded.remark,
+      source: uploaded.source,
     };
-    imageAssets.value = [asset, ...imageAssets.value.filter((item) => item.id !== asset.id)];
-    if (asset.resolution?.toLowerCase() === LED_CANVAS_RESOLUTION) {
-      bgAssets.value = [asset, ...bgAssets.value.filter((item) => item.id !== asset.id)];
-    }
+    const libraries = addWelcomeImageAsset(
+      { backgrounds: bgAssets.value, logos: logoAssets.value },
+      kind,
+      asset,
+    );
+    bgAssets.value = libraries.backgrounds;
+    logoAssets.value = libraries.logos;
     if (selectedWelcomeSchemeId.value !== targetSchemeId) {
       ElMessage.info('图片已上传到媒体库；当前已切换方案，因此没有自动绑定');
       return;
     }
     if (kind === 'background') {
       if (asset.resolution?.toLowerCase() !== LED_CANVAS_RESOLUTION) {
-        rejectedBgAssetCount.value += 1;
         ElMessage.warning(`底图必须是 ${LED_CANVAS_RESOLUTION}，当前为 ${asset.resolution || '未知尺寸'}；图片已保存在媒体库，但没有绑定`);
         return;
       }
@@ -805,6 +814,49 @@ async function onWelcomeAssetPicked(kind: 'background' | 'logo', event: Event): 
   } finally {
     welcomeAssetUploading.value = null;
     welcomeAssetUploadPct.value = 0;
+  }
+}
+
+async function deleteWelcomeImage(kind: 'background' | 'logo', asset: WelcomeImageAsset): Promise<void> {
+  if (asset.source === 'system' || welcomeAssetDeletingId.value !== null) return;
+  if (!(await ensureAdmin(kind === 'background' ? '删除欢迎页底图' : '删除欢迎页 Logo'))) return;
+  const referencedCount = welcomeSchemes.value.filter((scheme) =>
+    kind === 'background'
+      ? scheme.welcomeBgMediaId === asset.id
+      : scheme.welcomeLogoMediaId === asset.id,
+  ).length;
+  const referenceHint = referencedCount
+    ? `\n该图片已被 ${referencedCount} 套方案使用，删除后这些方案会自动改用默认${kind === 'background' ? '底图' : '场馆 Logo'}。`
+    : '';
+  try {
+    await ElMessageBox.confirm(
+      `确定永久删除“${asset.originalName}”吗？${referenceHint}`,
+      kind === 'background' ? '删除欢迎页底图' : '删除欢迎页 Logo',
+      { confirmButtonText: '删除图片', cancelButtonText: '取消', type: 'warning' },
+    );
+  } catch { return; }
+
+  const selectedId = selectedWelcomeSchemeId.value;
+  const isCurrent = captureConsoleAction();
+  welcomeAssetDeletingId.value = asset.id;
+  try {
+    const result = await removeWelcomeAsset(asset.id, welcomeSchemesRevision.value);
+    if (!isCurrent()) return;
+    welcomeSchemes.value = result.schemes.config.schemes.map((item) => ({ ...item }));
+    welcomeSchemesRevision.value = result.schemes.revision;
+    publishedWelcomeSchemeId.value = result.schemes.publishedSchemeId;
+    bgAssets.value = bgAssets.value.filter((item) => item.id !== asset.id);
+    logoAssets.value = logoAssets.value.filter((item) => item.id !== asset.id);
+    applyWelcomeScheme(
+      welcomeSchemes.value.some((item) => item.id === selectedId)
+        ? selectedId
+        : welcomeSchemes.value[0].id,
+    );
+    ElMessage.success(result.cleanupPending ? '图片记录已删除，服务器正在清理文件' : '图片已删除');
+  } catch (error) {
+    ElMessage.error(`删除失败: ${(error as Error).message}`);
+  } finally {
+    welcomeAssetDeletingId.value = null;
   }
 }
 
@@ -1402,14 +1454,23 @@ async function submitWebpage(): Promise<void> {
                 class="we-bg-item" :class="{ on: welcomeForm.welcomeLogoMediaId === null }"
                 title="使用内置场馆 Logo" @click="welcomeForm.welcomeLogoMediaId = null"
               ><span class="we-logo-default">内置场馆 Logo</span></button>
-              <button
-                v-for="a in imageAssets" :key="`logo-${a.id}`"
-                class="we-bg-item" :class="{ on: welcomeForm.welcomeLogoMediaId === a.id }"
-                :title="a.originalName" @click="welcomeForm.welcomeLogoMediaId = a.id"
-              >
-                <img class="we-logo-image" :src="absUrl(a.thumbUrl || a.fileUrl)" alt="" loading="lazy" />
-                <span class="we-bg-name">{{ a.originalName }}</span>
-              </button>
+              <div v-for="a in logoAssets" :key="`logo-${a.id}`" class="we-asset-card">
+                <button
+                  class="we-bg-item" :class="{ on: welcomeForm.welcomeLogoMediaId === a.id }"
+                  :title="a.originalName" @click="welcomeForm.welcomeLogoMediaId = a.id"
+                >
+                  <img class="we-logo-image" :src="absUrl(a.thumbUrl || a.fileUrl)" alt="" loading="lazy" />
+                  <span class="we-bg-name">{{ a.originalName }}</span>
+                </button>
+                <button
+                  v-if="a.source !== 'system'"
+                  class="we-asset-delete"
+                  :disabled="welcomeAssetDeletingId !== null"
+                  :title="`删除 Logo：${a.originalName}`"
+                  :aria-label="`删除 Logo：${a.originalName}`"
+                  @click.stop="deleteWelcomeImage('logo', a)"
+                ><Trash2 :size="13" /></button>
+              </div>
             </div>
             <label class="wb-label we-asset-label">底图模板 — 必须是 {{ LED_CANVAS_RESOLUTION }} 原图</label>
             <div v-if="incompatibleSelectedBackground" class="we-warning">
@@ -1423,14 +1484,31 @@ async function submitWebpage(): Promise<void> {
                 class="we-bg-item" :class="{ on: welcomeForm.welcomeBgMediaId === null }"
                 title="内置品牌底图" @click="welcomeForm.welcomeBgMediaId = null"
               ><span class="we-bg-default">默认品牌底图</span></button>
-              <button
-                v-for="a in bgAssets" :key="a.id"
-                class="we-bg-item" :class="{ on: welcomeForm.welcomeBgMediaId === a.id }"
-                :title="a.originalName" @click="welcomeForm.welcomeBgMediaId = a.id"
-              >
-                <img :src="absUrl(a.thumbUrl || a.fileUrl)" alt="" loading="lazy" />
-                <span class="we-bg-name">{{ a.originalName }} · {{ a.resolution }}</span>
-              </button>
+              <div v-for="a in bgAssets" :key="`background-${a.id}`" class="we-asset-card">
+                <button
+                  class="we-bg-item"
+                  :class="{
+                    on: welcomeForm.welcomeBgMediaId === a.id,
+                    invalid: a.resolution?.toLowerCase() !== LED_CANVAS_RESOLUTION,
+                  }"
+                  :disabled="a.resolution?.toLowerCase() !== LED_CANVAS_RESOLUTION"
+                  :title="a.resolution?.toLowerCase() === LED_CANVAS_RESOLUTION
+                    ? a.originalName
+                    : `${a.originalName}：尺寸不符，只能删除`"
+                  @click="welcomeForm.welcomeBgMediaId = a.id"
+                >
+                  <img :src="absUrl(a.thumbUrl || a.fileUrl)" alt="" loading="lazy" />
+                  <span class="we-bg-name">{{ a.originalName }} · {{ a.resolution || '未知尺寸' }}</span>
+                </button>
+                <button
+                  v-if="a.source !== 'system'"
+                  class="we-asset-delete"
+                  :disabled="welcomeAssetDeletingId !== null"
+                  :title="`删除底图：${a.originalName}`"
+                  :aria-label="`删除底图：${a.originalName}`"
+                  @click.stop="deleteWelcomeImage('background', a)"
+                ><Trash2 :size="13" /></button>
+              </div>
             </div>
             </div>
           </ElScrollbar>
@@ -1645,6 +1723,18 @@ async function submitWebpage(): Promise<void> {
   background: var(--v2-surf-2, #1A1D22); border: 2px solid var(--v2-border-soft, #23262C);
   padding: 0; display: grid; place-items: center;
 }
+.we-asset-card { position: relative; min-width: 0; }
+.we-asset-card .we-bg-item { width: 100%; }
+.we-bg-item.invalid { opacity: .58; cursor: not-allowed; border-style: dashed; }
+.we-asset-delete {
+  position: absolute; z-index: 2; top: 5px; right: 5px;
+  width: 28px; height: 28px; padding: 0; border-radius: 8px;
+  display: grid; place-items: center; cursor: pointer;
+  color: #fff; background: rgba(127, 29, 29, .9); border: 1px solid rgba(255,255,255,.22);
+  box-shadow: 0 3px 12px rgba(0,0,0,.28);
+}
+.we-asset-delete:hover { background: var(--v2-danger); }
+.we-asset-delete:disabled { opacity: .5; cursor: wait; }
 .we-bg-item.on { border-color: var(--v2-primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--v2-primary) 35%, transparent); }
 .we-bg-item img { width: 100%; height: 100%; object-fit: cover; }
 .we-bg-name {

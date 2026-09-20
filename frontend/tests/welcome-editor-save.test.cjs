@@ -32,6 +32,16 @@ test('welcome editor uploads logo and background in place and remains scrollable
   assert.match(welcomePage, /welcomeLogoUrl/);
 });
 
+test('welcome editor keeps uploaded logos and backgrounds in separate libraries and lets admins delete them', () => {
+  assert.match(playerConsole, /const logoAssets = ref<WelcomeImageAsset\[]>\(\[]\)/);
+  assert.match(playerConsole, /classifyWelcomeImageAssets\(assets, snapshot\.config\.schemes\)/);
+  assert.match(playerConsole, /addWelcomeImageAsset\(/);
+  assert.match(playerConsole, /removeWelcomeAsset\(asset\.id, welcomeSchemesRevision\.value\)/);
+  assert.match(playerConsole, /deleteWelcomeImage\('logo', a\)/);
+  assert.match(playerConsole, /deleteWelcomeImage\('background', a\)/);
+  assert.doesNotMatch(playerConsole, /v-for="a in imageAssets"/);
+});
+
 test('welcome save contract documents its administrator boundary', () => {
   assert.match(brandingService, /后端仍要求管理员身份/);
   assert.match(brandingService, /expectedRevision/);

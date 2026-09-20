@@ -2,11 +2,14 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpException,
   NotFoundException,
   Param,
+  ParseIntPipe,
   Put,
+  Query,
   Req,
   Res,
   UseGuards,
@@ -17,6 +20,7 @@ import { AdminGuard } from '../admin-auth/admin-auth.guard';
 import { MediaService } from '../media/media.service';
 import { sendMediaFile } from '../../common/utils/send-media-file';
 import { Public } from '../../common/decorators/public.decorator';
+import type { Actor, AuthenticatedRequest } from '../../common/auth/actor';
 
 /**
  * /api/system-branding
@@ -159,6 +163,38 @@ export class SystemBrandingController {
       return {
         message: '欢迎方案已发布',
         data: await this.service.publishWelcomeScheme(schemeId, Number(request.expectedRevision)),
+      };
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      throw new BadRequestException((error as Error).message);
+    }
+  }
+
+  /**
+   * 删除欢迎页图片时由服务端先清理全部方案及已发布快照中的引用，再删除媒体文件。
+   * 这样不会留下“方案仍指向已删除文件”的悬空配置。
+   */
+  @Delete('welcome-assets/:mediaId')
+  @UseGuards(AdminGuard)
+  async removeWelcomeAsset(
+    @Param('mediaId', ParseIntPipe) mediaId: number,
+    @Query('expectedRevision') expectedRevisionRaw: string,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const expectedRevision = Number(expectedRevisionRaw);
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
+      throw new BadRequestException('expectedRevision 必须是非负整数');
+    }
+    const actor: Actor = req.actor ?? {
+      kind: 'admin',
+      userId: null,
+      username: 'legacy-admin',
+      role: 'admin',
+    };
+    try {
+      return {
+        message: '欢迎页图片已删除',
+        data: await this.service.removeWelcomeAsset(mediaId, expectedRevision, actor),
       };
     } catch (error) {
       if (error instanceof HttpException) throw error;

@@ -417,7 +417,7 @@ onMounted(async () => {
         </el-form-item>
       </el-form>
       <p class="form-hint">
-        第一步邮件用于激活 App Store Connect 团队账号；激活后如 TestFlight 没有显示「金湖智控」，点击右侧“重发 TestFlight 邀请”，并在 iPhone 上用同一 Apple 账户打开新邮件。iPhone 不需要手工输入兑换码。
+        第一步邮件用于激活 App Store Connect 团队账号；激活后如 TestFlight 没有显示「金湖智控」，点击右侧“重发 TestFlight 邀请”。收到测试邮件后可直接点击链接打开 TestFlight，也可在 TestFlight 中输入邮件里的兑换码。
       </p>
     </div>
 
