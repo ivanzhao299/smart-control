@@ -250,6 +250,12 @@ textarea:focus-visible,
 }
 :root:root[data-theme='light'] { --el-mask-color: rgba(20, 32, 51, 0.42); }
 
+/* Welcome editor is a fixed overlay at z-index 3000. Its destructive-action
+   confirmation is teleported to body, so it must sit above that editor. */
+.el-overlay.welcome-image-delete-confirm {
+  z-index: 4000 !important;
+}
+
 .el-dialog,
 .el-drawer,
 .el-message-box,
