@@ -53,7 +53,7 @@ export async function saveSystemBranding(patch: SystemBrandingPatch): Promise<Sy
   return api.put<SystemBranding>('/system-branding', patch);
 }
 
-/** 欢迎页字段专用保存 — 客户端 token 即可 (无需后台登录), 只收欢迎页字段 */
+/** 欢迎页字段专用保存；前台就地编辑，后端仍要求管理员身份。 */
 export type WelcomePatch = Partial<Pick<SystemBranding, 'welcomeGuest' | 'welcomeTitle' | 'welcomeTagline' | 'welcomeBgMediaId' | 'welcomePhotoMediaId'>>;
 export async function saveWelcomeConfig(patch: WelcomePatch): Promise<SystemBranding> {
   return api.put<SystemBranding>('/system-branding/welcome', patch);

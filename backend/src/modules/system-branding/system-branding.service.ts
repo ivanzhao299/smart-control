@@ -267,7 +267,7 @@ export class SystemBrandingService {
     if (input.welcomeBgMediaId !== undefined) {
       const v = input.welcomeBgMediaId;
       if (typeof v === 'number' && Number.isInteger(v) && v > 0) {
-        const background = await this.media.get(v);
+        const background = await this.media.ensureImageResolution(v);
         if (background.kind !== 'image' || background.resolution?.toLowerCase() !== LED_WELCOME_RESOLUTION) {
           throw new Error(`欢迎页底图必须是 ${LED_WELCOME_RESOLUTION} 图片`);
         }

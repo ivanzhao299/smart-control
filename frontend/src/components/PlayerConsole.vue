@@ -607,8 +607,8 @@ async function syncParkOpsState(): Promise<void> {
 
 // ============ 欢迎页编辑器 (2026-07-28 业主: "编辑放到前端, 不用进后台") ============
 // 就地编辑动态欢迎页: 主标题 / 嘉宾称谓 / 底部标语 三段文字 + 底图 (媒体库图片
-// 当模板, 不选 = 内置"鎏金夜湖"底)。保存走 PUT /system-branding/welcome (客户端
-// token 即可); 欢迎页本体 8s 轮询, 保存后若本屏正在播欢迎页再重推一次强制刷新,
+// 当模板, 不选 = 内置"鎏金夜湖"底)。保存走管理员保护的 PUT /system-branding/welcome;
+// 欢迎页本体 8s 轮询, 保存后若本屏正在播欢迎页再重推一次强制刷新,
 // 业主看到的效果就是"保存立即生效"。
 const welcomeEditOpen = ref(false);
 const welcomeSaving = ref(false);
@@ -674,20 +674,34 @@ async function saveWelcomeEdit(): Promise<void> {
     ElMessage.error(`欢迎页底图必须是 LED 原生分辨率 ${LED_CANVAS_RESOLUTION}`);
     return;
   }
+  // 编辑器打开后管理员会话可能过期；写入前再次确认，避免把鉴权失败
+  // 误报成“内容保存失败”。失败时保留弹窗与输入，不清空草稿。
+  if (!(await ensureAdmin('保存欢迎页'))) return;
+  const patch = {
+    welcomeTitle: welcomeForm.value.welcomeTitle.trim() || null,
+    welcomeGuest: welcomeForm.value.welcomeGuest.trim() || null,
+    welcomeTagline: welcomeForm.value.welcomeTagline.trim() || null,
+    welcomeBgMediaId: welcomeForm.value.welcomeBgMediaId,
+  };
   welcomeSaving.value = true;
   try {
-    await saveWelcomeConfig({
-      welcomeTitle: welcomeForm.value.welcomeTitle.trim() || null,
-      welcomeGuest: welcomeForm.value.welcomeGuest.trim() || null,
-      welcomeTagline: welcomeForm.value.welcomeTagline.trim() || null,
-      welcomeBgMediaId: welcomeForm.value.welcomeBgMediaId,
-    });
+    // The response is produced by SystemBrandingService.get() after the DB
+    // update, so comparing it is a real persistence acknowledgement.
+    const saved = await saveWelcomeConfig(patch);
+    const confirmed = saved.welcomeTitle === patch.welcomeTitle
+      && saved.welcomeGuest === patch.welcomeGuest
+      && saved.welcomeTagline === patch.welcomeTagline
+      && saved.welcomeBgMediaId === patch.welcomeBgMediaId;
+    if (!confirmed) throw new Error('服务器未确认保存结果，编辑内容已保留，请重试');
     // 本屏正在播欢迎页 → 重推强制 kiosk 刷新, 立即生效; 没在播就不打扰当前内容
+    let refreshFailed = false;
     if (activeSource.value === 'welcome-editable') {
-      await publishWelcome(SLOT.value, 'editable').catch(() => {});
+      try { await publishWelcome(SLOT.value, 'editable'); }
+      catch { refreshFailed = true; }
     }
     welcomeEditOpen.value = false;
-    ElMessage.success('欢迎页已保存, 大屏几秒内更新');
+    if (refreshFailed) ElMessage.warning('欢迎页已保存；大屏重推失败，将在轮询后自动更新');
+    else ElMessage.success('欢迎页已保存, 大屏几秒内更新');
   } catch (e) {
     ElMessage.error(`保存失败: ${(e as Error).message}`);
   } finally { welcomeSaving.value = false; }

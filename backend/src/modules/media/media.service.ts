@@ -100,6 +100,7 @@ export class MediaService implements OnModuleInit {
   readonly mediaRoot: string;
   private readonly preparing = new Set<number>();
   private readonly activeOperations = new Set<number>();
+  private readonly imageResolutionCache = new Map<number, string>();
   acquireOperation(id: number): () => void {
     if (this.activeOperations.has(id)) throw new ConflictException('资料正在使用，请稍后重试');
     this.activeOperations.add(id);
@@ -372,6 +373,12 @@ export class MediaService implements OnModuleInit {
     try { result = await this.finishNewAssetLocked(saved, write); }
     finally { release(); }
     if (result.kind === 'video') void this.prepareVideo(result.id);
+    if (result.kind === 'image') {
+      try { result = await this.ensureImageResolution(result.id); }
+      catch (error) {
+        this.logger.warn?.(`[Media] 图片 #${result.id} 尺寸探测失败: ${(error as Error).message}`, { context: 'MediaService' });
+      }
+    }
     return result;
   }
 
@@ -669,7 +676,7 @@ export class MediaService implements OnModuleInit {
   }
 
   async list(opts: { kind?: MediaKind; limit?: number; offset?: number; actor?: Actor; scope?: 'visible' | 'mine' | 'shared'; ownerUserId?: number; keyword?: string } = {}): Promise<{ items: MediaListItem[]; total: number }> {
-    return serializedTransaction(this.repo.manager.connection, async manager => {
+    const result = await serializedTransaction(this.repo.manager.connection, async manager => {
       let actor = opts.actor;
       if (actor && actor.userId !== null) {
         const current = await manager.findOneBy(User, { id: actor.userId, enabled: true });
@@ -678,6 +685,49 @@ export class MediaService implements OnModuleInit {
       }
       return this.listInTransaction(manager.getRepository(MediaAsset), { ...opts, actor });
     });
+    // Old image rows predate dimension metadata. Inspect them outside the
+    // transaction so the media list and LED editor agree on geometry without
+    // turning a GET into a database write. The next explicit save persists it.
+    for (const item of result.items) {
+      if (item.kind !== 'image' || item.resolution) continue;
+      try {
+        const resolved = await this.ensureImageResolution(item.id, false);
+        item.resolution = resolved.resolution;
+      } catch (error) {
+        this.logger.warn?.(`[Media] 图片 #${item.id} 尺寸补录失败: ${(error as Error).message}`, { context: 'MediaService' });
+      }
+    }
+    return result;
+  }
+
+  /** Inspect missing image geometry; explicit writes may persist the repaired metadata. */
+  async ensureImageResolution(id: number, persist = true): Promise<MediaAsset> {
+    const media = await this.get(id);
+    if (media.kind !== 'image') throw new BadRequestException('资料不是图片');
+    if (/^\d+x\d+$/i.test(media.resolution ?? '')) return media;
+    const cached = this.imageResolutionCache.get(id);
+    if (cached) {
+      if (persist) await this.updateMediaFields(id, { resolution: cached });
+      return { ...media, resolution: cached };
+    }
+
+    const root = await fs.realpath(this.mediaRoot);
+    const file = await fs.realpath(media.path);
+    const rel = relative(root, file);
+    if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+      throw new BadRequestException('图片文件超出媒体目录');
+    }
+    const stat = await fs.stat(file);
+    if (!stat.isFile()) throw new BadRequestException('图片文件不存在');
+    const probe = await this.probeVideo(file);
+    if (!Number.isInteger(probe.width) || !Number.isInteger(probe.height)
+      || probe.width! < 1 || probe.height! < 1) {
+      throw new BadRequestException('无法读取图片尺寸');
+    }
+    const resolution = `${probe.width}x${probe.height}`;
+    this.imageResolutionCache.set(id, resolution);
+    if (persist) await this.updateMediaFields(id, { resolution });
+    return { ...media, resolution };
   }
 
   private async listInTransaction(repo: Repository<MediaAsset>, opts: NonNullable<Parameters<MediaService['list']>[0]>): Promise<{ items: MediaListItem[]; total: number }> {

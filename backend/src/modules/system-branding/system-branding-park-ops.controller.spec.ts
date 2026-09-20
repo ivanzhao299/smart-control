@@ -45,3 +45,22 @@ describe('SystemBrandingController park ops writes', () => {
     expect(service.updateParkOpsConfig).not.toHaveBeenCalled();
   });
 });
+
+describe('SystemBrandingController welcome writes', () => {
+  it('returns the database-backed saved value', async () => {
+    const saved = { welcomeTitle: '欢迎光临', welcomeGuest: null, welcomeTagline: null, welcomeBgMediaId: null };
+    const service = { update: jest.fn().mockResolvedValue(saved) } as unknown as SystemBrandingService;
+    const controller = new SystemBrandingController(service, {} as MediaService);
+
+    await expect(controller.updateWelcome({ welcomeTitle: '欢迎光临' })).resolves.toMatchObject({ data: saved });
+    expect(service.update).toHaveBeenCalledWith({ welcomeTitle: '欢迎光临' });
+  });
+
+  it('preserves service conflicts instead of disguising them as validation errors', async () => {
+    const conflict = new ConflictException('系统品牌权威记录缺失');
+    const service = { update: jest.fn().mockRejectedValue(conflict) } as unknown as SystemBrandingService;
+    const controller = new SystemBrandingController(service, {} as MediaService);
+
+    await expect(controller.updateWelcome({ welcomeTitle: '欢迎光临' })).rejects.toBe(conflict);
+  });
+});

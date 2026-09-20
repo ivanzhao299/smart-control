@@ -384,28 +384,16 @@ function Test-FrontendHealth {
 # config, migrations, deploy scripts, or both tiers falls back to full deploy.
 # ASCII-only on purpose (GBK console on Chinese Windows).
 function Get-DeployScope([string]$FromCommit, [string]$ToCommit) {
-  $files = @(git diff --name-only $FromCommit $ToCommit)
-  $s = [ordered]@{
-    docs = $false
-    parkOpsStatic = $false
-    frontendPublic = $false
-    frontendCode = $false
-    backendCode = $false
-    highRisk = $false
-    files = $files
+  $classifier = Join-Path $projectRoot 'tools\ci\deploy-scope.mjs'
+  if (-not (Test-Path -LiteralPath $classifier -PathType Leaf)) {
+    throw 'Shared deployment scope classifier is missing.'
   }
-  $highRiskPattern = '(package\.json|pnpm-lock\.yaml|\.env|ecosystem\.config|migrations?/|deploy/|scripts/(deploy|backup|update|boot|ensure|run-migrations|assert-release))'
-  foreach ($f in $files) {
-    if ($f -match $highRiskPattern) { $s.highRisk = $true }
-    elseif ($f -match '^frontend/public/park-ops/') { $s.parkOpsStatic = $true }
-    elseif ($f -match '^frontend/public/') { $s.frontendPublic = $true }
-    elseif ($f -match '^frontend/tests/' -or $f -match '^backend/test/' -or $f -match '^backend/src/.+\.spec\.ts$') { $s.docs = $true }
-    elseif ($f -match '^frontend/(src/|index\.html|vite\.config|tsconfig)') { $s.frontendCode = $true }
-    elseif ($f -match '^backend/src/') { $s.backendCode = $true }
-    elseif ($f -match '^docs/' -or $f -match '(^|/)(README|CHANGELOG|HANDOVER|MEMORY)\.md$') { $s.docs = $true }
-    else { $s.highRisk = $true }
+  $json = (& node $classifier --base $FromCommit --head $ToCommit 2>&1 | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($json)) {
+    throw 'Shared deployment scope classifier failed.'
   }
-  return $s
+  try { return $json | ConvertFrom-Json }
+  catch { throw "Shared deployment scope classifier returned invalid JSON: $($_.Exception.Message)" }
 }
 
 function Deploy-StaticAssets($scope, $projectRoot) {
@@ -837,23 +825,32 @@ try {
             }
           }
       }
+      # Use the same fail-closed classifier in CI and on the production host.
+      # The production result remains authoritative because it is calculated
+      # from the commits that are actually present on this host.
+      $scope = Get-DeployScope $previousCommit $Commit
+      $staticOnly = $scope.scope -eq 'static'
+      $frontendOnly = $scope.scope -eq 'frontend'
+      $backendOnly = $scope.scope -eq 'backend'
+      Write-DeployLog ("Deploy scope: staticOnly={0} frontendOnly={1} backendOnly={2} highRisk={3} files=[{4}]" -f $staticOnly, $frontendOnly, $backendOnly, $scope.highRisk, ($scope.files -join ','))
+
+      # Static and frontend-only releases cannot mutate the database. Their
+      # rollback snapshot still contains the previous dist, while the migration
+      # preflight below remains able to create its own paired recovery bundle if
+      # it discovers unfinished schema work from an earlier release.
+      $requiresDatabaseBackup = $backendOnly -or (-not $staticOnly -and -not $frontendOnly)
       $backupScript = Join-Path $projectRoot 'scripts\backup.ps1'
       if ($preMergeBackupCreated) {
         Write-DeployLog 'Using the verified backup created immediately before runtime untracking.'
-      } elseif (Test-Path $backupScript) {
-        Write-DeployLog 'Creating the existing production backup before build.'
-        # Snapshot evidence is retained; database-only backup is not a media rollback bundle.
+      } elseif ($requiresDatabaseBackup -and (Test-Path $backupScript)) {
+        Write-DeployLog 'Creating the production database backup before a backend-capable release.'
         & $backupScript 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
-      } else {
+        if ($LASTEXITCODE -ne 0) { throw 'Verified pre-build backup failed.' }
+      } elseif ($requiresDatabaseBackup) {
         throw 'Required production backup script is missing.'
+      } else {
+        Write-DeployLog 'No database backup needed: this release cannot change backend data or schema.'
       }
-
-      # --- Minimal deployment scope detection (2026-09-14) ---
-      $scope = Get-DeployScope $previousCommit $Commit
-      $staticOnly = (-not $scope.frontendCode -and -not $scope.backendCode -and -not $scope.highRisk)
-      $frontendOnly = ($scope.frontendCode -and -not $scope.backendCode -and -not $scope.highRisk)
-      $backendOnly = ($scope.backendCode -and -not $scope.frontendCode -and -not $scope.highRisk)
-      Write-DeployLog ("Deploy scope: staticOnly={0} frontendOnly={1} backendOnly={2} highRisk={3} files=[{4}]" -f $staticOnly, $frontendOnly, $backendOnly, $scope.highRisk, ($scope.files -join ','))
 
       if ($staticOnly) {
         Write-DeployLog 'MINIMAL deploy: static assets only - copying to dist, skipping build and service restart.'

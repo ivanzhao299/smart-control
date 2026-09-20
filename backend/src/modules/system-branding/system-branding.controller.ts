@@ -93,11 +93,7 @@ export class SystemBrandingController {
     }
   }
 
-  /**
-   * 欢迎页内容编辑 (2026-07-28 业主: "编辑放到前端, 不用进后台") — 客户端 token
-   * 即可改 (走全局 ClientAuthGuard, 与切灯/推片同级的日常操作), 但**只放行欢迎页
-   * 四个字段**, logo/系统名等品牌配置仍必须走下面的 AdminGuard PUT。
-   */
+  /** 欢迎页就地编辑；入口在前台，写入仍只允许管理员。 */
   @UseGuards(AdminGuard)
   @Put('welcome')
   async updateWelcome(
@@ -127,6 +123,7 @@ export class SystemBrandingController {
       const updated = await this.service.update(patch);
       return { message: '欢迎页已保存', data: updated };
     } catch (e) {
+      if (e instanceof HttpException) throw e;
       throw new BadRequestException((e as Error).message);
     }
   }
