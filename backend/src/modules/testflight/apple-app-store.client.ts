@@ -232,6 +232,23 @@ export class AppleAppStoreClient {
       .filter((t) => t.email);
   }
 
+  /**
+   * 向现有 betaTester 发送或重发真正的 TestFlight App 安装邀请。
+   * 这和 /v1/userInvitations 的团队账号邀请是两条独立链路。
+   */
+  async sendBetaTesterInvitation(betaTesterId: string): Promise<{ id: string }> {
+    const r = await this.request<AppleSingleResponse>('POST', '/v1/betaTesterInvitations', {
+      data: {
+        type: 'betaTesterInvitations',
+        relationships: {
+          app: { data: { type: 'apps', id: this.cfg.appId } },
+          betaTester: { data: { type: 'betaTesters', id: betaTesterId } },
+        },
+      },
+    });
+    return { id: r.data.id };
+  }
+
   /** 全部团队成员 (内部测试组人数上限 100, limit=200 单页足够)。 */
   async listTeamUsers(): Promise<AppleTeamUser[]> {
     const r = await this.request<AppleListResponse>(

@@ -1,11 +1,11 @@
-import { BadRequestException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { TestFlightService } from './testflight.service';
 import { AppleApiException, type AppleTesterState } from './apple-app-store.client';
 
 /**
  * 方案 B：常驻服务器使用最小权限 App Manager 钥。该钥能创建/查询团队邀请，
  * 但无权撤销（DELETE）一条已发出的团队邀请（苹果返回 403）。本组测试锁定重发分支语义：
- *  - 已接受：拒绝；
+ *  - 已接受且已在内部组：调用 betaTesterInvitations 重发手机 TestFlight 安装邀请；
  *  - 仍 pending 且 DELETE 403：不报错、不标失败，返回 state=pending + 引导 notice，不再尝试创建；
  *  - 旧邀请已不存在（DELETE 404 或查无 pending）：直接重新创建邀请；
  *  - 401（密钥无效/被撤销）与 403（权限不足）给出不同文案，不再笼统报「密钥无效或权限不足」。
@@ -65,6 +65,9 @@ function harness(overrides: Record<string, unknown> = {}) {
     findInvitation: jest.fn(async () => null),
     deleteInvitation: jest.fn(async () => undefined),
     createInvitation: jest.fn(async () => ({ id: 'new-inv', expirationDate: null })),
+    getInternalGroup: jest.fn(async () => ({ id: 'group-1', attributes: { name: '内部测试' } })),
+    listInternalBetaTesters: jest.fn(async () => [{ id: 'beta-1', email: EMAIL, firstName: '万玺', lastName: '许' }]),
+    sendBetaTesterInvitation: jest.fn(async () => ({ id: 'beta-invite-1' })),
     ...overrides,
   };
   const config = { getOrThrow: jest.fn(() => cfg) };
@@ -73,10 +76,25 @@ function harness(overrides: Record<string, unknown> = {}) {
 }
 
 describe('TestFlightService.resend（方案 B：App Manager 最小权限）', () => {
-  it('已接受团队邀请 → 拒绝重发，且不调用创建/撤销', async () => {
+  it('已接受团队邀请且在内部组 → 重发手机 TestFlight 安装邀请', async () => {
     const h = harness({ findUser: jest.fn(async () => teamUser) });
-    await expect(h.service.resend(4, 'admin')).rejects.toBeInstanceOf(BadRequestException);
+    const result = await h.service.resend(4, 'admin');
+    expect(result.state).toBe('testflight-invited');
+    expect(h.apple.sendBetaTesterInvitation).toHaveBeenCalledWith('beta-1');
     expect(h.apple.deleteInvitation).not.toHaveBeenCalled();
+    expect(h.apple.createInvitation).not.toHaveBeenCalled();
+    expect(h.row.status).toBe('ACCEPTED');
+  });
+
+  it('已接受团队邀请但尚未加入内部组 → 返回明确引导且不误发团队邀请', async () => {
+    const h = harness({
+      findUser: jest.fn(async () => teamUser),
+      listInternalBetaTesters: jest.fn(async () => []),
+    });
+    const result = await h.service.resend(4, 'admin');
+    expect(result.state).toBe('accepted');
+    expect(result.notice).toContain('尚未进入 TestFlight 内部测试组');
+    expect(h.apple.sendBetaTesterInvitation).not.toHaveBeenCalled();
     expect(h.apple.createInvitation).not.toHaveBeenCalled();
   });
 
@@ -107,7 +125,7 @@ describe('TestFlightService.resend（方案 B：App Manager 最小权限）', ()
       }),
     });
     const result = await h.service.resend(4, 'admin');
-    expect(result.state).toBe('invited');
+    expect(result.state).toBe('team-invited');
     expect(h.apple.deleteInvitation).toHaveBeenCalledWith('inv-1');
     expect(h.apple.createInvitation).toHaveBeenCalledTimes(1);
     expect(h.row.appleInvitationId).toBe('new-inv');
@@ -116,7 +134,7 @@ describe('TestFlightService.resend（方案 B：App Manager 最小权限）', ()
   it('查无 pending 邀请（已过期/被撤销）→ 直接创建新邀请，无需先 DELETE', async () => {
     const h = harness();
     const result = await h.service.resend(4, 'admin');
-    expect(result.state).toBe('invited');
+    expect(result.state).toBe('team-invited');
     expect(h.apple.deleteInvitation).not.toHaveBeenCalled();
     expect(h.apple.createInvitation).toHaveBeenCalledTimes(1);
   });
