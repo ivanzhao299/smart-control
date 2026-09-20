@@ -5,6 +5,7 @@ import {
   Get,
   HttpException,
   NotFoundException,
+  Param,
   Put,
   Req,
   Res,
@@ -86,6 +87,62 @@ export class SystemBrandingController {
           versioned ? request.config : body,
           expectedRevision,
         ),
+      };
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      throw new BadRequestException((error as Error).message);
+    }
+  }
+
+  /** 多套欢迎方案只供管理员编辑；正式欢迎页仍由公开 GET 返回已发布快照。 */
+  @Get('welcome-schemes')
+  @UseGuards(AdminGuard)
+  async getWelcomeSchemes(): Promise<unknown> {
+    return { message: '查询成功', data: await this.service.getWelcomeSchemes() };
+  }
+
+  @Put('welcome-schemes')
+  @UseGuards(AdminGuard)
+  async updateWelcomeSchemes(@Body() body: unknown): Promise<unknown> {
+    try {
+      const request = body as { config?: unknown; expectedRevision?: unknown };
+      if (!request || typeof request !== 'object' || Array.isArray(request)) {
+        throw new BadRequestException('请求体必须是 JSON 对象');
+      }
+      if (!Number.isInteger(request.expectedRevision) || Number(request.expectedRevision) < 0) {
+        throw new BadRequestException('expectedRevision 必须是非负整数');
+      }
+      return {
+        message: '欢迎方案已保存',
+        data: await this.service.updateWelcomeSchemes(
+          request.config,
+          Number(request.expectedRevision),
+        ),
+      };
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      throw new BadRequestException((error as Error).message);
+    }
+  }
+
+  @Put('welcome-schemes/:schemeId/publish')
+  @UseGuards(AdminGuard)
+  async publishWelcomeScheme(
+    @Param('schemeId') schemeId: string,
+    @Body() body: unknown,
+  ): Promise<unknown> {
+    try {
+      const request = body as { expectedRevision?: unknown };
+      if (
+        !request ||
+        !Number.isInteger(request.expectedRevision) ||
+        Number(request.expectedRevision) < 0
+      ) {
+        throw new BadRequestException('expectedRevision 必须是非负整数');
+      }
+      return {
+        message: '欢迎方案已发布',
+        data: await this.service.publishWelcomeScheme(schemeId, Number(request.expectedRevision)),
       };
     } catch (error) {
       if (error instanceof HttpException) throw error;

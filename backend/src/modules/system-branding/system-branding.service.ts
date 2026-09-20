@@ -14,6 +14,16 @@ import {
   type ParkOpsConfigDocument,
 } from './park-ops-config';
 import { MediaService } from '../media/media.service';
+import {
+  buildDefaultWelcomeSchemes,
+  matchesPublishedWelcome,
+  normalizeWelcomeSchemes,
+  WELCOME_SCHEMES_CONFIG_KEY,
+  WELCOME_SCHEMES_SCHEMA_VERSION,
+  type PublishedWelcomeFields,
+  type WelcomeScheme,
+  type WelcomeSchemesDocument,
+} from './welcome-schemes';
 
 const LED_WELCOME_RESOLUTION = '3612x1462';
 
@@ -62,6 +72,7 @@ const DEFAULTS: SystemBrandingDto = {
 @Injectable()
 export class SystemBrandingService {
   private parkOpsMutationQueue: Promise<void> = Promise.resolve();
+  private welcomeSchemesMutationQueue: Promise<void> = Promise.resolve();
 
   constructor(
     @InjectRepository(SystemBranding) private readonly repo: Repository<SystemBranding>,
@@ -152,6 +163,178 @@ export class SystemBrandingService {
       () => undefined,
     );
     return operation;
+  }
+
+  async getWelcomeSchemes(): Promise<{
+    config: WelcomeSchemesDocument;
+    revision: number;
+    checksum: string | null;
+    updatedAt: string | null;
+    publishedSchemeId: string | null;
+  }> {
+    const [snapshot, branding] = await Promise.all([
+      this.runtimeConfig.read(WELCOME_SCHEMES_CONFIG_KEY, normalizeWelcomeSchemes),
+      this.get(),
+    ]);
+    const published = this.publishedWelcomeFields(branding);
+    const config = snapshot?.value ?? buildDefaultWelcomeSchemes(published);
+    return {
+      config,
+      revision: snapshot?.revision ?? 0,
+      checksum: snapshot?.checksum ?? null,
+      updatedAt: snapshot?.updatedAt ?? null,
+      publishedSchemeId:
+        config.schemes.find((item) => matchesPublishedWelcome(item, published))?.id ?? null,
+    };
+  }
+
+  async updateWelcomeSchemes(
+    input: unknown,
+    expectedRevision: number,
+  ): Promise<{
+    config: WelcomeSchemesDocument;
+    revision: number;
+    checksum: string;
+    updatedAt: string;
+    publishedSchemeId: string | null;
+  }> {
+    const config = normalizeWelcomeSchemes(input);
+    const operation = this.welcomeSchemesMutationQueue.then(() =>
+      this.saveWelcomeSchemes(config, expectedRevision),
+    );
+    this.welcomeSchemesMutationQueue = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
+  }
+
+  private async saveWelcomeSchemes(
+    config: WelcomeSchemesDocument,
+    expectedRevision: number,
+  ): Promise<{
+    config: WelcomeSchemesDocument;
+    revision: number;
+    checksum: string;
+    updatedAt: string;
+    publishedSchemeId: string | null;
+  }> {
+    const current = await this.runtimeConfig.read(
+      WELCOME_SCHEMES_CONFIG_KEY,
+      normalizeWelcomeSchemes,
+    );
+    const actualRevision = current?.revision ?? 0;
+    if (expectedRevision !== actualRevision) {
+      throw new ConflictException({
+        code: 'RUNTIME_CONFIG_REVISION_CONFLICT',
+        key: WELCOME_SCHEMES_CONFIG_KEY,
+        expectedRevision,
+        actualRevision,
+      });
+    }
+    await this.validateWelcomeSchemeBackgrounds(config.schemes);
+    const saved = current
+      ? await this.runtimeConfig.update({
+          key: WELCOME_SCHEMES_CONFIG_KEY,
+          schemaVersion: WELCOME_SCHEMES_SCHEMA_VERSION,
+          expectedRevision: current.revision,
+          value: config,
+          normalize: normalizeWelcomeSchemes,
+          actor: 'admin-api',
+          source: 'PUT /api/system-branding/welcome-schemes',
+        })
+      : await this.runtimeConfig.initialize({
+          key: WELCOME_SCHEMES_CONFIG_KEY,
+          schemaVersion: WELCOME_SCHEMES_SCHEMA_VERSION,
+          value: config,
+          normalize: normalizeWelcomeSchemes,
+          actor: 'admin-api',
+          source: 'PUT /api/system-branding/welcome-schemes',
+        });
+    if (JSON.stringify(saved.value) !== JSON.stringify(config)) {
+      throw new ConflictException({
+        code: 'RUNTIME_CONFIG_REVISION_CONFLICT',
+        key: WELCOME_SCHEMES_CONFIG_KEY,
+        expectedRevision,
+        actualRevision: saved.revision,
+      });
+    }
+    const branding = await this.get();
+    const published = this.publishedWelcomeFields(branding);
+    this.logger.info(`[SystemBranding] 欢迎方案已保存 (revision=${saved.revision})`);
+    return {
+      config: saved.value,
+      revision: saved.revision,
+      checksum: saved.checksum,
+      updatedAt: saved.updatedAt,
+      publishedSchemeId:
+        saved.value.schemes.find((item) => matchesPublishedWelcome(item, published))?.id ?? null,
+    };
+  }
+
+  async publishWelcomeScheme(
+    schemeId: string,
+    expectedRevision: number,
+  ): Promise<{ scheme: WelcomeScheme; branding: SystemBrandingDto }> {
+    const operation = this.welcomeSchemesMutationQueue.then(async () => {
+      const snapshot = await this.runtimeConfig.read(
+        WELCOME_SCHEMES_CONFIG_KEY,
+        normalizeWelcomeSchemes,
+      );
+      const actualRevision = snapshot?.revision ?? 0;
+      if (expectedRevision !== actualRevision) {
+        throw new ConflictException({
+          code: 'RUNTIME_CONFIG_REVISION_CONFLICT',
+          key: WELCOME_SCHEMES_CONFIG_KEY,
+          expectedRevision,
+          actualRevision,
+        });
+      }
+      const branding = await this.get();
+      const config =
+        snapshot?.value ?? buildDefaultWelcomeSchemes(this.publishedWelcomeFields(branding));
+      const scheme = config.schemes.find((item) => item.id === schemeId);
+      if (!scheme) throw new ConflictException('欢迎方案已被其他终端修改，请刷新后重试');
+      const updated = await this.update({
+        welcomeTitle: scheme.welcomeTitle,
+        welcomeGuest: scheme.welcomeGuest,
+        welcomeTagline: scheme.welcomeTagline,
+        welcomeBgMediaId: scheme.welcomeBgMediaId,
+      });
+      this.logger.info(`[SystemBranding] 欢迎方案已发布 (${scheme.id})`);
+      return { scheme, branding: updated };
+    });
+    this.welcomeSchemesMutationQueue = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
+  }
+
+  private publishedWelcomeFields(branding: SystemBrandingDto): PublishedWelcomeFields {
+    return {
+      welcomeTitle: branding.welcomeTitle,
+      welcomeGuest: branding.welcomeGuest,
+      welcomeTagline: branding.welcomeTagline,
+      welcomeBgMediaId: branding.welcomeBgMediaId,
+    };
+  }
+
+  private async validateWelcomeSchemeBackgrounds(schemes: WelcomeScheme[]): Promise<void> {
+    const ids = [
+      ...new Set(
+        schemes.map((item) => item.welcomeBgMediaId).filter((id): id is number => id !== null),
+      ),
+    ];
+    for (const id of ids) {
+      const background = await this.media.ensureImageResolution(id);
+      if (
+        background.kind !== 'image' ||
+        background.resolution?.toLowerCase() !== LED_WELCOME_RESOLUTION
+      ) {
+        throw new Error(`欢迎页底图必须是 ${LED_WELCOME_RESOLUTION} 图片`);
+      }
+    }
   }
 
   private async saveParkOpsConfig(
@@ -268,7 +451,10 @@ export class SystemBrandingService {
       const v = input.welcomeBgMediaId;
       if (typeof v === 'number' && Number.isInteger(v) && v > 0) {
         const background = await this.media.ensureImageResolution(v);
-        if (background.kind !== 'image' || background.resolution?.toLowerCase() !== LED_WELCOME_RESOLUTION) {
+        if (
+          background.kind !== 'image' ||
+          background.resolution?.toLowerCase() !== LED_WELCOME_RESOLUTION
+        ) {
           throw new Error(`欢迎页底图必须是 ${LED_WELCOME_RESOLUTION} 图片`);
         }
         patch.welcomeBgMediaId = v;
@@ -285,9 +471,7 @@ export class SystemBrandingService {
     if (current) {
       await this.repo.update({ id: 1 }, patch);
     } else {
-      throw new ConflictException(
-        '系统品牌权威记录缺失，请先恢复数据库；保存操作未执行',
-      );
+      throw new ConflictException('系统品牌权威记录缺失，请先恢复数据库；保存操作未执行');
     }
     this.logger.info(`[SystemBranding] 已更新 (${Object.keys(patch).join(', ')})`);
     return this.get();

@@ -58,3 +58,49 @@ export type WelcomePatch = Partial<Pick<SystemBranding, 'welcomeGuest' | 'welcom
 export async function saveWelcomeConfig(patch: WelcomePatch): Promise<SystemBranding> {
   return api.put<SystemBranding>('/system-branding/welcome', patch);
 }
+
+export interface WelcomeScheme {
+  id: string;
+  name: string;
+  welcomeTitle: string | null;
+  welcomeGuest: string | null;
+  welcomeTagline: string | null;
+  welcomeBgMediaId: number | null;
+}
+
+export interface WelcomeSchemesDocument {
+  version: 1;
+  schemes: WelcomeScheme[];
+}
+
+export interface WelcomeSchemesSnapshot {
+  config: WelcomeSchemesDocument;
+  revision: number;
+  checksum: string | null;
+  updatedAt: string | null;
+  publishedSchemeId: string | null;
+}
+
+export async function fetchWelcomeSchemes(): Promise<WelcomeSchemesSnapshot> {
+  return api.get<WelcomeSchemesSnapshot>('/system-branding/welcome-schemes');
+}
+
+export async function saveWelcomeSchemes(
+  config: WelcomeSchemesDocument,
+  expectedRevision: number,
+): Promise<WelcomeSchemesSnapshot> {
+  return api.put<WelcomeSchemesSnapshot>('/system-branding/welcome-schemes', {
+    config,
+    expectedRevision,
+  });
+}
+
+export async function publishWelcomeScheme(
+  schemeId: string,
+  expectedRevision: number,
+): Promise<{ scheme: WelcomeScheme; branding: SystemBranding }> {
+  return api.put<{ scheme: WelcomeScheme; branding: SystemBranding }>(
+    `/system-branding/welcome-schemes/${encodeURIComponent(schemeId)}/publish`,
+    { expectedRevision },
+  );
+}

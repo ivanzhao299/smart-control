@@ -41,7 +41,9 @@ import {
   type DisplayFit, type PlaylistItemView, type PlaybackHistoryView,
 } from '@/services/playback.service';
 import { projectorService } from '@/services/projector.service';
-import { fetchSystemBranding, saveWelcomeConfig } from '@/services/system-branding.service';
+import {
+  fetchWelcomeSchemes, publishWelcomeScheme, saveWelcomeSchemes, type WelcomeScheme,
+} from '@/services/system-branding.service';
 import { absUrl } from '@/services/http';
 import { useAdminUnlock } from '@/composables/useAdminUnlock';
 import { powerCircuitsService, type PowerCircuitView } from '@/services/power-circuits.service';
@@ -606,14 +608,18 @@ async function syncParkOpsState(): Promise<void> {
 }
 
 // ============ 欢迎页编辑器 (2026-07-28 业主: "编辑放到前端, 不用进后台") ============
-// 就地编辑动态欢迎页: 主标题 / 嘉宾称谓 / 底部标语 三段文字 + 底图 (媒体库图片
-// 当模板, 不选 = 内置"鎏金夜湖"底)。保存走管理员保护的 PUT /system-branding/welcome;
-// 欢迎页本体 8s 轮询, 保存后若本屏正在播欢迎页再重推一次强制刷新,
-// 业主看到的效果就是"保存立即生效"。
+// 一套 3612x1462 渲染器承载多套欢迎方案。保存只写带版本号的方案库，发布才更新
+// 当前欢迎页快照；因此准备下一场接待不会误改正在播放的画面。
 const welcomeEditOpen = ref(false);
 const welcomeSaving = ref(false);
+const welcomePublishing = ref(false);
 const welcomeLoading = ref(false);
 const welcomeForm = ref({ welcomeTitle: '', welcomeGuest: '', welcomeTagline: '', welcomeBgMediaId: null as number | null });
+const welcomeSchemeName = ref('');
+const welcomeSchemes = ref<WelcomeScheme[]>([]);
+const welcomeSchemesRevision = ref(0);
+const selectedWelcomeSchemeId = ref('');
+const publishedWelcomeSchemeId = ref<string | null>(null);
 const LED_CANVAS_RESOLUTION = '3612x1462';
 const welcomePreviewUrl = `${import.meta.env.DEV ? '/' : import.meta.env.BASE_URL}welcome/index.html?preview=1`;
 const welcomePreviewFrame = ref<HTMLIFrameElement | null>(null);
@@ -636,25 +642,61 @@ function pushWelcomePreview(): void {
 
 watch(welcomeForm, pushWelcomePreview, { deep: true });
 
+function applyWelcomeScheme(id: string): void {
+  const scheme = welcomeSchemes.value.find((item) => item.id === id);
+  if (!scheme) return;
+  selectedWelcomeSchemeId.value = id;
+  welcomeSchemeName.value = scheme.name;
+  incompatibleSelectedBackground.value = scheme.welcomeBgMediaId !== null
+    && !bgAssets.value.some((item) => item.id === scheme.welcomeBgMediaId);
+  welcomeForm.value = {
+    welcomeTitle: scheme.welcomeTitle ?? '',
+    welcomeGuest: scheme.welcomeGuest ?? '',
+    welcomeTagline: scheme.welcomeTagline ?? '',
+    welcomeBgMediaId: incompatibleSelectedBackground.value ? null : scheme.welcomeBgMediaId,
+  };
+}
+
+function syncSelectedWelcomeDraft(): boolean {
+  const index = welcomeSchemes.value.findIndex((item) => item.id === selectedWelcomeSchemeId.value);
+  if (index < 0) return false;
+  const name = welcomeSchemeName.value.trim();
+  if (!name) {
+    ElMessage.error('方案名称不能为空');
+    return false;
+  }
+  if (welcomeForm.value.welcomeBgMediaId !== null
+    && !bgAssets.value.some((item) => item.id === welcomeForm.value.welcomeBgMediaId)) {
+    ElMessage.error(`欢迎页底图必须是 LED 原生分辨率 ${LED_CANVAS_RESOLUTION}`);
+    return false;
+  }
+  welcomeSchemes.value[index] = {
+    id: selectedWelcomeSchemeId.value,
+    name,
+    welcomeTitle: welcomeForm.value.welcomeTitle.trim() || null,
+    welcomeGuest: welcomeForm.value.welcomeGuest.trim() || null,
+    welcomeTagline: welcomeForm.value.welcomeTagline.trim() || null,
+    welcomeBgMediaId: welcomeForm.value.welcomeBgMediaId,
+  };
+  return true;
+}
+
+function selectWelcomeScheme(id: string): void {
+  if (id === selectedWelcomeSchemeId.value) return;
+  if (!syncSelectedWelcomeDraft()) return;
+  applyWelcomeScheme(id);
+}
+
 async function openWelcomeEditor(): Promise<void> {
   if (!(await ensureAdmin('编辑欢迎页'))) return;
   welcomeEditOpen.value = true;
   welcomeLoading.value = true;
   try {
-    const [branding, imgs] = await Promise.all([
-      fetchSystemBranding(),
+    const [snapshot, imgs] = await Promise.all([
+      fetchWelcomeSchemes(),
       mediaService.list({ kind: 'image' }),
     ]);
     const compatible = imgs.items.filter((m) => m.resolution?.toLowerCase() === LED_CANVAS_RESOLUTION);
-    const selectedBackgroundIsCompatible = branding.welcomeBgMediaId === null
-      || compatible.some((m) => m.id === branding.welcomeBgMediaId);
-    incompatibleSelectedBackground.value = !selectedBackgroundIsCompatible;
-    welcomeForm.value = {
-      welcomeTitle: branding.welcomeTitle ?? '',
-      welcomeGuest: branding.welcomeGuest ?? '',
-      welcomeTagline: branding.welcomeTagline ?? '',
-      welcomeBgMediaId: selectedBackgroundIsCompatible ? (branding.welcomeBgMediaId ?? null) : null,
-    };
     bgAssets.value = compatible.map((m) => ({
       id: m.id,
       originalName: m.originalName,
@@ -663,48 +705,101 @@ async function openWelcomeEditor(): Promise<void> {
       resolution: m.resolution!,
     }));
     rejectedBgAssetCount.value = imgs.items.length - compatible.length;
+    welcomeSchemes.value = snapshot.config.schemes.map((item) => ({ ...item }));
+    welcomeSchemesRevision.value = snapshot.revision;
+    publishedWelcomeSchemeId.value = snapshot.publishedSchemeId;
+    applyWelcomeScheme(snapshot.publishedSchemeId ?? snapshot.config.schemes[0].id);
   } catch (e) {
     ElMessage.error(`读取欢迎页配置失败: ${(e as Error).message}`);
   } finally { welcomeLoading.value = false; }
 }
 
-async function saveWelcomeEdit(): Promise<void> {
-  if (welcomeForm.value.welcomeBgMediaId !== null
-    && !bgAssets.value.some((item) => item.id === welcomeForm.value.welcomeBgMediaId)) {
-    ElMessage.error(`欢迎页底图必须是 LED 原生分辨率 ${LED_CANVAS_RESOLUTION}`);
-    return;
-  }
-  // 编辑器打开后管理员会话可能过期；写入前再次确认，避免把鉴权失败
-  // 误报成“内容保存失败”。失败时保留弹窗与输入，不清空草稿。
-  if (!(await ensureAdmin('保存欢迎页'))) return;
-  const patch = {
-    welcomeTitle: welcomeForm.value.welcomeTitle.trim() || null,
-    welcomeGuest: welcomeForm.value.welcomeGuest.trim() || null,
-    welcomeTagline: welcomeForm.value.welcomeTagline.trim() || null,
-    welcomeBgMediaId: welcomeForm.value.welcomeBgMediaId,
-  };
+async function persistWelcomeSchemes(checkAdmin = true): Promise<boolean> {
+  if (!syncSelectedWelcomeDraft()) return false;
+  if (checkAdmin && !(await ensureAdmin('保存欢迎方案'))) return false;
   welcomeSaving.value = true;
   try {
-    // The response is produced by SystemBrandingService.get() after the DB
-    // update, so comparing it is a real persistence acknowledgement.
-    const saved = await saveWelcomeConfig(patch);
-    const confirmed = saved.welcomeTitle === patch.welcomeTitle
-      && saved.welcomeGuest === patch.welcomeGuest
-      && saved.welcomeTagline === patch.welcomeTagline
-      && saved.welcomeBgMediaId === patch.welcomeBgMediaId;
-    if (!confirmed) throw new Error('服务器未确认保存结果，编辑内容已保留，请重试');
-    // 本屏正在播欢迎页 → 重推强制 kiosk 刷新, 立即生效; 没在播就不打扰当前内容
+    const selectedId = selectedWelcomeSchemeId.value;
+    const saved = await saveWelcomeSchemes(
+      { version: 1, schemes: welcomeSchemes.value },
+      welcomeSchemesRevision.value,
+    );
+    welcomeSchemes.value = saved.config.schemes.map((item) => ({ ...item }));
+    welcomeSchemesRevision.value = saved.revision;
+    publishedWelcomeSchemeId.value = saved.publishedSchemeId;
+    applyWelcomeScheme(selectedId);
+    return true;
+  } catch (e) {
+    ElMessage.error(`保存失败: ${(e as Error).message}`);
+    return false;
+  } finally { welcomeSaving.value = false; }
+}
+
+async function saveWelcomeScheme(): Promise<void> {
+  if (await persistWelcomeSchemes()) ElMessage.success('方案已保存，当前大屏画面未改变');
+}
+
+async function publishSelectedWelcomeScheme(): Promise<void> {
+  if (!(await ensureAdmin('发布欢迎页'))) return;
+  if (!(await persistWelcomeSchemes(false))) return;
+  welcomePublishing.value = true;
+  try {
+    const selectedId = selectedWelcomeSchemeId.value;
+    const selected = welcomeSchemes.value.find((item) => item.id === selectedId);
+    if (!selected) throw new Error('当前方案不存在，请重新打开编辑器');
+    const published = await publishWelcomeScheme(selectedId, welcomeSchemesRevision.value);
+    const confirmed = published.branding.welcomeTitle === selected.welcomeTitle
+      && published.branding.welcomeGuest === selected.welcomeGuest
+      && published.branding.welcomeTagline === selected.welcomeTagline
+      && published.branding.welcomeBgMediaId === selected.welcomeBgMediaId;
+    if (!confirmed) throw new Error('服务器未确认发布结果，原大屏画面保持不变，请重试');
+    publishedWelcomeSchemeId.value = selectedId;
     let refreshFailed = false;
     if (activeSource.value === 'welcome-editable') {
       try { await publishWelcome(SLOT.value, 'editable'); }
       catch { refreshFailed = true; }
     }
-    welcomeEditOpen.value = false;
-    if (refreshFailed) ElMessage.warning('欢迎页已保存；大屏重推失败，将在轮询后自动更新');
-    else ElMessage.success('欢迎页已保存, 大屏几秒内更新');
+    if (refreshFailed) ElMessage.warning('方案已发布；大屏重推失败，将在轮询后自动更新');
+    else ElMessage.success('方案已发布到 LED 大屏');
   } catch (e) {
-    ElMessage.error(`保存失败: ${(e as Error).message}`);
-  } finally { welcomeSaving.value = false; }
+    ElMessage.error(`发布失败: ${(e as Error).message}`);
+  } finally { welcomePublishing.value = false; }
+}
+
+function duplicateWelcomeScheme(): void {
+  if (!syncSelectedWelcomeDraft()) return;
+  if (welcomeSchemes.value.length >= 20) {
+    ElMessage.warning('最多保存 20 套欢迎方案');
+    return;
+  }
+  const source = welcomeSchemes.value.find((item) => item.id === selectedWelcomeSchemeId.value);
+  if (!source) return;
+  const copy: WelcomeScheme = {
+    ...source,
+    id: `scheme-${Date.now().toString(36)}`,
+    name: `${source.name} 副本`.slice(0, 40),
+  };
+  welcomeSchemes.value.push(copy);
+  applyWelcomeScheme(copy.id);
+}
+
+async function deleteWelcomeScheme(): Promise<void> {
+  if (welcomeSchemes.value.length <= 1) {
+    ElMessage.warning('至少保留一套欢迎方案');
+    return;
+  }
+  if (selectedWelcomeSchemeId.value === publishedWelcomeSchemeId.value) {
+    ElMessage.warning('当前正在使用这套方案，请先发布另一套方案');
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(`确定删除“${welcomeSchemeName.value}”吗？`, '删除欢迎方案', {
+      confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning',
+    });
+  } catch { return; }
+  const index = welcomeSchemes.value.findIndex((item) => item.id === selectedWelcomeSchemeId.value);
+  welcomeSchemes.value.splice(index, 1);
+  applyWelcomeScheme(welcomeSchemes.value[Math.max(0, index - 1)].id);
 }
 
 // ============ 拖拽排序 ============
@@ -1128,7 +1223,7 @@ async function submitWebpage(): Promise<void> {
       </div>
     </div>
 
-    <!-- 欢迎页编辑器 (2026-07-28 业主: "编辑放到前端"): 文字 + 底图就地编辑, 保存立即生效 -->
+    <!-- 欢迎页编辑器：多套方案可先保存草稿，明确发布后才更新 LED 画面。 -->
     <div v-if="welcomeEditOpen" class="pick-mask" @click.self="welcomeEditOpen = false">
       <div class="pick-box we-box">
         <header class="pick-head">
@@ -1142,6 +1237,30 @@ async function submitWebpage(): Promise<void> {
               <strong>LED 原生画布 {{ LED_CANVAS_RESOLUTION }}</strong>
               <span>输出、浏览器、V2460 与屏体像素点对点，正式画面不缩放、不裁切。</span>
             </div>
+            <div class="we-scheme-head">
+              <div>
+                <strong>欢迎方案</strong>
+                <span>保存草稿不会改变大屏，点击发布后才正式上屏</span>
+              </div>
+              <div class="we-scheme-tools">
+                <button class="v2-quick" :disabled="welcomeSchemes.length >= 20" @click="duplicateWelcomeScheme">复制为新方案</button>
+                <button class="v2-quick danger" :disabled="welcomeSchemes.length <= 1" @click="deleteWelcomeScheme">删除</button>
+              </div>
+            </div>
+            <div class="we-scheme-list" role="tablist" aria-label="欢迎方案列表">
+              <button
+                v-for="scheme in welcomeSchemes"
+                :key="scheme.id"
+                class="we-scheme-item"
+                :class="{ on: selectedWelcomeSchemeId === scheme.id }"
+                role="tab"
+                :aria-selected="selectedWelcomeSchemeId === scheme.id"
+                @click="selectWelcomeScheme(scheme.id)"
+              >
+                <span>{{ scheme.name }}</span>
+                <em v-if="publishedWelcomeSchemeId === scheme.id">正在使用</em>
+              </button>
+            </div>
             <div class="we-preview" aria-label="LED 欢迎页实时预览">
               <iframe
                 ref="welcomePreviewFrame"
@@ -1151,6 +1270,8 @@ async function submitWebpage(): Promise<void> {
                 @load="pushWelcomePreview"
               ></iframe>
             </div>
+            <label class="wb-label">方案名称</label>
+            <input v-model="welcomeSchemeName" class="wb-input" maxlength="40" placeholder="如：某公司来访" />
             <label class="wb-label">主标题 (空 = 默认「热烈欢迎」)</label>
             <input v-model="welcomeForm.welcomeTitle" class="wb-input" maxlength="16" placeholder="热烈欢迎" />
             <label class="wb-label">嘉宾称谓 (显示为 恭迎 ×× 莅临参观指导)</label>
@@ -1181,7 +1302,12 @@ async function submitWebpage(): Promise<void> {
           </div>
           <div class="wb-actions">
             <button class="v2-quick" @click="welcomeEditOpen = false">取消</button>
-            <button class="v2-quick primary" :disabled="welcomeSaving" @click="saveWelcomeEdit">{{ welcomeSaving ? '保存中…' : '保存并生效' }}</button>
+            <button class="v2-quick" :disabled="welcomeSaving || welcomePublishing" @click="saveWelcomeScheme">
+              {{ welcomeSaving ? '保存中…' : '保存方案' }}
+            </button>
+            <button class="v2-quick primary" :disabled="welcomeSaving || welcomePublishing" @click="publishSelectedWelcomeScheme">
+              {{ welcomePublishing ? '发布中…' : '发布到 LED 大屏' }}
+            </button>
           </div>
         </template>
       </div>
@@ -1310,6 +1436,29 @@ async function submitWebpage(): Promise<void> {
 }
 .we-resolution strong { color: var(--v2-primary); font-size: 13px; white-space: nowrap; }
 .we-resolution span { font-size: 12px; text-align: right; }
+.we-scheme-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 4px;
+}
+.we-scheme-head > div:first-child { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.we-scheme-head strong { font-size: 14px; color: var(--v2-text-1); }
+.we-scheme-head span { font-size: 11px; color: var(--v2-text-3); }
+.we-scheme-tools { display: flex; gap: 6px; flex: none; }
+.we-scheme-tools .v2-quick { min-height: 32px; padding: 6px 10px; font-size: 12px; }
+.we-scheme-tools .danger { color: var(--v2-danger); }
+.we-scheme-list {
+  display: flex; gap: 7px; overflow-x: auto; padding: 2px 2px 5px; scrollbar-width: thin;
+}
+.we-scheme-item {
+  min-width: 120px; min-height: 43px; padding: 7px 10px; border-radius: 9px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px;
+  color: var(--v2-text-2); background: var(--v2-surf-2); border: 1px solid var(--v2-border-soft);
+}
+.we-scheme-item span { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.we-scheme-item em { font-size: 10px; font-style: normal; color: var(--v2-primary); }
+.we-scheme-item.on {
+  color: var(--v2-text-1); border-color: var(--v2-primary);
+  background: color-mix(in srgb, var(--v2-primary) 10%, var(--v2-surf-2));
+}
 .we-preview {
   position: relative; width: 100%; aspect-ratio: 3612 / 1462; overflow: hidden;
   margin: 4px 0 8px; border-radius: 10px; background: #06101f;
@@ -1341,6 +1490,12 @@ async function submitWebpage(): Promise<void> {
   background: radial-gradient(120px 70px at 50% 110%, rgba(212, 175, 55, 0.25), transparent 70%),
     radial-gradient(160px 90px at 50% 50%, #0d2038, #06101f);
   position: absolute; inset: 0; display: grid; place-items: center;
+}
+@media (max-width: 640px) {
+  .we-scheme-head { align-items: flex-start; flex-direction: column; }
+  .we-scheme-head > div:first-child { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .we-resolution { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .we-resolution span { text-align: left; }
 }
 
 /* align-items: start (不是默认的 stretch) —— 列表/历史内容短的时候(比如只有 2 条),
