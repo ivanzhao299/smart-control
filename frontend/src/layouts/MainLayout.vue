@@ -595,14 +595,14 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background: linear-gradient(135deg, var(--v2-primary) 0%, var(--v2-info) 100%);
+  background: var(--v2-primary);
   display: grid;
   place-items: center;
   font-weight: 700;
   font-size: 18px;
   color: white;
   letter-spacing: 0;
-  box-shadow: 0 4px 14px -4px rgba(76, 154, 255, 0.6);
+  box-shadow: none;
   overflow: hidden;
 }
 /* 有自定义 logo 图时去掉写死的蓝渐变底与光晕, 图完整显示 */
@@ -642,32 +642,23 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   background: var(--v2-surf-1-hover);
   color: var(--v2-text-1);
 }
-.v2-nav-item:hover svg {
-  filter: drop-shadow(0 0 6px var(--v2-primary));
-}
 .v2-nav-item.is-active {
-  background: linear-gradient(90deg, rgba(76, 154, 255, 0.20) 0%, rgba(76, 154, 255, 0.04) 100%);
-  color: var(--v2-primary-hover);
-  box-shadow: inset 0 1px 0 rgba(76, 154, 255, 0.4);
+  background: var(--v2-primary-soft);
+  color: var(--v2-primary);
 }
-.v2-nav-item.is-active svg {
-  filter: drop-shadow(0 0 10px var(--v2-primary));
-}
-/* 选中项左边一条电光青光柱 — v3 蔚来车机标志 */
 .v2-nav-item.is-active::before {
   content: '';
   position: absolute;
   left: -10px;
   top: 50%;
   transform: translateY(-50%);
-  width: 4px;
-  height: 30px;
-  background: linear-gradient(180deg, transparent, var(--v2-primary) 30%, var(--v2-primary-hover) 50%, var(--v2-primary) 70%, transparent);
-  border-radius: 0 4px 4px 0;
-  box-shadow: 0 0 12px var(--v2-primary), 0 0 24px var(--v2-primary-soft);
+  width: 3px;
+  height: 24px;
+  background: var(--v2-primary);
+  border-radius: 0 3px 3px 0;
 }
 .v2-nav-label {
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.5px;
   font-weight: 500;
   line-height: 1;
@@ -676,7 +667,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 .v2-nav-divider {
   width: 36px;
   height: 1px;
-  background: linear-gradient(90deg, transparent, var(--v2-border-strong), transparent);
+  background: var(--v2-border-soft);
   margin: 2px 0;
   flex-shrink: 0;
 }
@@ -710,7 +701,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 /* .v2-logo 留着, 现在只被 .v2-nav-brand .v2-logo 用 (已覆盖尺寸) */
 .v2-logo {
   border-radius: var(--v2-r-sm);
-  background: linear-gradient(135deg, var(--v2-primary) 0%, var(--v2-info) 100%);
+  background: var(--v2-primary);
   display: grid;
   place-items: center;
   font-weight: 700;
@@ -718,17 +709,15 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   letter-spacing: 0;
 }
 .v2-brand-title {
-  /* 业主 2026-07-26: 字号加大 + 金色/琥珀醒目标题色。文字仍来自 branding.systemName,
-     后台"系统品牌"页可改。金色在深/浅主题各取一档保证对比度。 */
   font-size: 26px;
   font-weight: 800;
   letter-spacing: 1.5px;
-  color: #E7B84E;
-  text-shadow: 0 0 16px rgba(231, 184, 78, 0.35);
+  color: var(--v2-text-1);
+  text-shadow: none;
 }
 :root[data-theme="light"] .v2-brand-title {
-  color: #B8860B;
-  text-shadow: 0 0 10px rgba(184, 134, 11, 0.22);
+  color: var(--v2-text-1);
+  text-shadow: none;
 }
 .v2-brand-sub {
   font-size: var(--v2-fs-xs);
@@ -762,19 +751,19 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 }
 .v2-inline-toast.is-error {
   color: var(--v2-danger);
-  text-shadow: 0 0 8px rgba(229, 100, 93, 0.55);
+  text-shadow: none;
 }
 .v2-inline-toast.is-warning {
   color: var(--v2-warning);
-  text-shadow: 0 0 8px rgba(224, 160, 48, 0.55);
+  text-shadow: none;
 }
 .v2-inline-toast.is-success {
   color: var(--v2-success);
-  text-shadow: 0 0 8px rgba(63, 191, 135, 0.55);
+  text-shadow: none;
 }
 .v2-inline-toast.is-info {
   color: var(--v2-info);
-  text-shadow: 0 0 8px rgba(76, 154, 255, 0.45);
+  text-shadow: none;
 }
 
 /* 渐显 / 渐隐 */
@@ -807,7 +796,6 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   border-color: rgba(76, 154, 255, 0.4);
 }
 .v2-fs-btn:active { transform: scale(0.94); }
-/* 顶栏时钟 — Tesla / NIO 中控感: JetBrains Mono + tabular-nums + cyan glow + 冒号闪烁 */
 .v2-clock {
   font-size: 22px;
   font-weight: 600;
@@ -816,7 +804,6 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   font-variant-numeric: tabular-nums;
   letter-spacing: 2px;
   text-shadow: var(--v2-text-glow-primary);
-  /* 冒号 (在 22:38) 用 animation 闪烁, 实现"心跳秒" 效果 */
   position: relative;
 }
 .v2-clock::first-letter {
@@ -827,13 +814,8 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   color: var(--v2-primary);
   margin-left: 5px;
   letter-spacing: 1px;
-  text-shadow: 0 0 8px var(--v2-primary);
+  text-shadow: none;
   font-weight: 500;
-  animation: v3-sec-pulse 1s ease-in-out infinite;
-}
-@keyframes v3-sec-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.45; }
 }
 /* .v2-fs-btn 已删 — 全屏按钮 2026-05-31 去掉 */
 

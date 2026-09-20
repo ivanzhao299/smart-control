@@ -162,8 +162,6 @@ async function submit(): Promise<void> {
 </template>
 
 <style scoped>
-/* 登录页用 isolation 屏蔽全局 body::before 的 aurora 漂浮动画,
- * 同时整个容器铺实色, 卡片背景静止不抖. */
 .admin-login {
   min-height: 100vh;
   min-height: 100dvh;
@@ -179,13 +177,8 @@ async function submit(): Promise<void> {
 .login-bg {
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(ellipse 60% 50% at 30% 20%, rgba(76, 154, 255, 0.16) 0%, transparent 60%),
-    radial-gradient(ellipse 50% 40% at 80% 80%, rgba(255, 255, 255, 0.08) 0%, transparent 55%),
-    linear-gradient(180deg, var(--v2-bg-0) 0%, var(--v2-bg-1) 100%);
+  background: var(--v2-bg-0);
   z-index: 0;
-  /* 静止 — 不跟全局 aurora-drift 同步漂移 */
-  animation: none;
 }
 
 .login-card {
@@ -198,7 +191,6 @@ async function submit(): Promise<void> {
   border: 1px solid var(--v2-border-soft);
   border-radius: var(--v2-r-lg);
   box-shadow: var(--v2-elev-3);
-  backdrop-filter: blur(8px);
 }
 /* 右上角关闭按钮 — 让业主进了登录页能退出. 36×36 方形, 跟 dialog 关闭按钮一致 */
 .back-btn {
@@ -222,14 +214,6 @@ async function submit(): Promise<void> {
   color: var(--v2-text-1);
   border-color: var(--v2-primary);
 }
-.login-card::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 10%; right: 10%;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(76, 154, 255, 0.7) 50%, transparent);
-}
-
 .brand {
   display: flex;
   align-items: center;
@@ -240,13 +224,13 @@ async function submit(): Promise<void> {
   width: 48px;
   height: 48px;
   border-radius: 12px;
-  background: linear-gradient(135deg, var(--v2-primary) 0%, var(--v2-info) 100%);
+  background: var(--v2-primary);
   display: grid;
   place-items: center;
   color: white;
   font-weight: 700;
   font-size: 20px;
-  box-shadow: 0 6px 18px -4px rgba(76, 154, 255, 0.65);
+  box-shadow: none;
   overflow: hidden;
   flex-shrink: 0;
 }
@@ -306,19 +290,19 @@ async function submit(): Promise<void> {
   margin-top: 6px;
   padding: 12px 16px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: linear-gradient(135deg, var(--v2-primary) 0%, var(--v2-primary-dark) 100%);
-  color: white;
+  border: 1px solid var(--v2-primary);
+  background: var(--v2-primary);
+  color: var(--v2-on-primary);
   font-size: 15px;
   font-weight: 500;
   letter-spacing: 0.4em;
   cursor: pointer;
-  box-shadow: var(--v2-glow-primary);
+  box-shadow: none;
   transition: filter 0.18s, transform 0.12s;
 }
 .submit-btn:hover:not(:disabled) {
   filter: brightness(1.1);
-  box-shadow: var(--v2-glow-primary-strong);
+  background: var(--v2-primary-hover);
 }
 .submit-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 

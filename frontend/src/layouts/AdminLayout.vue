@@ -315,7 +315,7 @@ async function exitToFront(): Promise<void> {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .sub {
-  font-size: 11px; color: var(--v2-text-3);
+  font-size: 13px; color: var(--v2-text-3);
   margin-top: 2px; letter-spacing: 1px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
@@ -329,7 +329,7 @@ async function exitToFront(): Promise<void> {
 .menu::-webkit-scrollbar { width: 0; height: 0; }
 /* 分组小标题 — 收紧上下间距 */
 .menu-section {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 1.5px;
   color: var(--v2-text-3);
@@ -360,26 +360,18 @@ async function exitToFront(): Promise<void> {
   background: var(--v2-surf-1-hover);
   color: var(--v2-text-1);
 }
-.menu-item:hover .ico {
-  filter: drop-shadow(0 0 6px var(--v2-primary));
-}
 .menu-item.is-active {
-  background: linear-gradient(90deg, rgba(76, 154, 255, 0.20) 0%, rgba(76, 154, 255, 0.04) 100%);
-  color: var(--v2-primary-hover);
-  box-shadow: inset 0 1px 0 rgba(76, 154, 255, 0.4);
-}
-.menu-item.is-active .ico {
-  filter: drop-shadow(0 0 10px var(--v2-primary));
+  background: var(--v2-primary-soft);
+  color: var(--v2-primary);
 }
 .menu-item.is-active::before {
   content: '';
   position: absolute;
   left: -10px; top: 50%;
   transform: translateY(-50%);
-  width: 4px; height: 30px;
-  background: linear-gradient(180deg, transparent, var(--v2-primary) 30%, var(--v2-primary-hover) 50%, var(--v2-primary) 70%, transparent);
-  border-radius: 0 4px 4px 0;
-  box-shadow: 0 0 12px var(--v2-primary), 0 0 24px var(--v2-primary-soft);
+  width: 3px; height: 24px;
+  background: var(--v2-primary);
+  border-radius: 0 3px 3px 0;
 }
 .menu-item .ico {
   display: flex; align-items: center; justify-content: center;
@@ -453,10 +445,10 @@ async function exitToFront(): Promise<void> {
   padding: var(--v2-sp-5);
 }
 
-/* 切页过渡: 只动 opacity/transform (GPU 合成层, 不掉帧); 离场快、入场略缓, 跟手不拖沓 */
-.page-enter-from { opacity: 0; transform: translateY(4px); }
+/* A short fade keeps navigation calm and avoids content movement. */
+.page-enter-from { opacity: 0; }
 .page-leave-to { opacity: 0; }
-.page-enter-active { transition: opacity 0.14s ease, transform 0.14s ease; }
+.page-enter-active { transition: opacity 0.1s ease; }
 .page-leave-active { transition: opacity 0.09s ease; }
 
 /* ============ 折叠态: 侧栏收成 64px 图标栏 (仅 >600px, 手机不受影响) ============ */
