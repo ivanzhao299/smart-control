@@ -56,6 +56,7 @@ import {
   classifyWelcomeImageAssets,
   type WelcomeImageAsset,
 } from '@/features/welcome-image-assets';
+import { normalizeWelcomeBackground } from '@/features/welcome-background-image';
 
 const props = defineProps<{
   /** 1 = LED 大屏 (HDMI1), 2 = 投影仪 (HDMI2) */
@@ -768,7 +769,10 @@ async function onWelcomeAssetPicked(kind: 'background' | 'logo', event: Event): 
   welcomeAssetUploading.value = kind;
   welcomeAssetUploadPct.value = 0;
   try {
-    const uploaded = await mediaService.upload(file, {
+    const uploadFile = kind === 'background'
+      ? await normalizeWelcomeBackground(file)
+      : file;
+    const uploaded = await mediaService.upload(uploadFile, {
       remark: kind === 'background' ? '欢迎页底图' : '欢迎页 Logo',
       onProgress: (pct: number) => { welcomeAssetUploadPct.value = pct; },
     });
@@ -803,7 +807,7 @@ async function onWelcomeAssetPicked(kind: 'background' | 'logo', event: Event): 
       }
       welcomeForm.value.welcomeBgMediaId = asset.id;
       incompatibleSelectedBackground.value = false;
-      ElMessage.success('底图已上传并选中，保存方案后保留');
+      ElMessage.success('底图已转换为 LED 原生尺寸并选中，保存方案后保留');
     } else {
       welcomeForm.value.welcomeLogoMediaId = asset.id;
       incompatibleSelectedLogo.value = false;
@@ -811,6 +815,69 @@ async function onWelcomeAssetPicked(kind: 'background' | 'logo', event: Event): 
     }
   } catch (error) {
     ElMessage.error(`上传失败: ${(error as Error).message}`);
+  } finally {
+    welcomeAssetUploading.value = null;
+    welcomeAssetUploadPct.value = 0;
+  }
+}
+
+async function selectWelcomeBackground(asset: WelcomeImageAsset): Promise<void> {
+  if (welcomeAssetUploading.value || welcomeAssetDeletingId.value !== null) return;
+  if (asset.resolution?.toLowerCase() === LED_CANVAS_RESOLUTION) {
+    welcomeForm.value.welcomeBgMediaId = asset.id;
+    incompatibleSelectedBackground.value = false;
+    return;
+  }
+  if (!(await ensureAdmin('转换欢迎页底图'))) return;
+  const targetSchemeId = selectedWelcomeSchemeId.value;
+  const isCurrent = captureConsoleAction();
+  welcomeAssetUploading.value = 'background';
+  welcomeAssetUploadPct.value = 0;
+  try {
+    const access = await mediaService.access(asset.id);
+    const response = await fetch(absUrl(access.url), { cache: 'no-store' });
+    if (!response.ok) throw new Error(`读取原底图失败 (${response.status})`);
+    const blob = await response.blob();
+    const source = new File([blob], asset.originalName, {
+      type: blob.type || 'image/jpeg',
+      lastModified: Date.now(),
+    });
+    const normalized = await normalizeWelcomeBackground(source);
+    const uploaded = await mediaService.upload(normalized, {
+      remark: '欢迎页底图',
+      onProgress: (pct: number) => { welcomeAssetUploadPct.value = pct; },
+    });
+    if (!isCurrent()) return;
+    if (uploaded.kind !== 'image' || uploaded.resolution?.toLowerCase() !== LED_CANVAS_RESOLUTION) {
+      throw new Error(`服务器未确认 ${LED_CANVAS_RESOLUTION} 底图`);
+    }
+    const uploadedAccess = await mediaService.access(uploaded.id);
+    if (!isCurrent()) return;
+    const converted: WelcomeImageAsset = {
+      id: uploaded.id,
+      originalName: uploaded.originalName,
+      thumbUrl: null,
+      fileUrl: uploadedAccess.url,
+      resolution: uploaded.resolution,
+      remark: uploaded.remark,
+      source: uploaded.source,
+    };
+    const libraries = addWelcomeImageAsset(
+      { backgrounds: bgAssets.value, logos: logoAssets.value },
+      'background',
+      converted,
+    );
+    bgAssets.value = libraries.backgrounds;
+    logoAssets.value = libraries.logos;
+    if (selectedWelcomeSchemeId.value !== targetSchemeId) {
+      ElMessage.info('底图已转换保存；当前已切换方案，因此没有自动绑定');
+      return;
+    }
+    welcomeForm.value.welcomeBgMediaId = converted.id;
+    incompatibleSelectedBackground.value = false;
+    ElMessage.success('旧底图已转换为 LED 原生尺寸并选中，保存方案后生效');
+  } catch (error) {
+    ElMessage.error(`底图转换失败: ${(error as Error).message}`);
   } finally {
     welcomeAssetUploading.value = null;
     welcomeAssetUploadPct.value = 0;
@@ -1426,7 +1493,7 @@ async function submitWebpage(): Promise<void> {
                 <Upload :size="14" />
                 {{ welcomeAssetUploading === 'background' ? `底图上传中 ${welcomeAssetUploadPct}%` : '上传底图' }}
               </button>
-              <span>Logo 推荐透明底 PNG/WebP；底图必须为 {{ LED_CANVAS_RESOLUTION }}</span>
+              <span>Logo 推荐透明底 PNG/WebP；底图上传后自动居中裁切并转换为 {{ LED_CANVAS_RESOLUTION }}</span>
             </div>
             <div class="we-preview" aria-label="LED 欢迎页实时预览">
               <iframe
@@ -1472,12 +1539,12 @@ async function submitWebpage(): Promise<void> {
                 ><Trash2 :size="13" /></button>
               </div>
             </div>
-            <label class="wb-label we-asset-label">底图模板 — 必须是 {{ LED_CANVAS_RESOLUTION }} 原图</label>
+            <label class="wb-label we-asset-label">底图模板 — 上屏文件统一为 {{ LED_CANVAS_RESOLUTION }}</label>
             <div v-if="incompatibleSelectedBackground" class="we-warning">
               原底图不是 {{ LED_CANVAS_RESOLUTION }}，预览和大屏已回退默认底图；保存后会清除旧绑定。
             </div>
             <div v-else-if="rejectedBgAssetCount > 0" class="we-note">
-              已隐藏 {{ rejectedBgAssetCount }} 张尺寸不符的图片，避免上屏时拉伸或裁切。
+              有 {{ rejectedBgAssetCount }} 张旧底图尺寸不符；点击后会生成 LED 原生尺寸副本并选中。
             </div>
             <div class="we-bg-grid">
               <button
@@ -1491,11 +1558,10 @@ async function submitWebpage(): Promise<void> {
                     on: welcomeForm.welcomeBgMediaId === a.id,
                     invalid: a.resolution?.toLowerCase() !== LED_CANVAS_RESOLUTION,
                   }"
-                  :disabled="a.resolution?.toLowerCase() !== LED_CANVAS_RESOLUTION"
                   :title="a.resolution?.toLowerCase() === LED_CANVAS_RESOLUTION
                     ? a.originalName
-                    : `${a.originalName}：尺寸不符，只能删除`"
-                  @click="welcomeForm.welcomeBgMediaId = a.id"
+                    : `${a.originalName}：点击自动转换为 ${LED_CANVAS_RESOLUTION}`"
+                  @click="selectWelcomeBackground(a)"
                 >
                   <img :src="absUrl(a.thumbUrl || a.fileUrl)" alt="" loading="lazy" />
                   <span class="we-bg-name">{{ a.originalName }} · {{ a.resolution || '未知尺寸' }}</span>
@@ -1725,10 +1791,10 @@ async function submitWebpage(): Promise<void> {
 }
 .we-asset-card { position: relative; min-width: 0; }
 .we-asset-card .we-bg-item { width: 100%; }
-.we-bg-item.invalid { opacity: .58; cursor: not-allowed; border-style: dashed; }
+.we-bg-item.invalid { opacity: .72; cursor: pointer; border-style: dashed; }
 .we-asset-delete {
   position: absolute; z-index: 2; top: 5px; right: 5px;
-  width: 28px; height: 28px; padding: 0; border-radius: 8px;
+  width: 40px; height: 40px; padding: 0; border-radius: 9px;
   display: grid; place-items: center; cursor: pointer;
   color: #fff; background: rgba(127, 29, 29, .9); border: 1px solid rgba(255,255,255,.22);
   box-shadow: 0 3px 12px rgba(0,0,0,.28);
@@ -1768,6 +1834,7 @@ async function submitWebpage(): Promise<void> {
   .we-scroll-content { padding-right: 10px; }
   .we-scroll :deep(.el-scrollbar__bar.is-vertical) { width: 7px; }
   .we-bg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .we-asset-delete { width: 44px; height: 44px; top: 4px; right: 4px; }
 }
 
 /* align-items: start (不是默认的 stretch) —— 列表/历史内容短的时候(比如只有 2 条),

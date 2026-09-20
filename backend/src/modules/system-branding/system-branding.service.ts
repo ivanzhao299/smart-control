@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import { ConflictException, HttpException, Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
@@ -387,7 +387,15 @@ export class SystemBrandingService {
       if (branding.welcomeLogoMediaId === mediaId) publishedPatch.welcomeLogoMediaId = null;
       if (Object.keys(publishedPatch).length) await this.update(publishedPatch);
 
-      const removed = await this.media.remove(mediaId, actor);
+      let removed: { removedId: number; cleanupPending: boolean };
+      try {
+        removed = await this.media.remove(mediaId, actor);
+      } catch (error) {
+        // The editor can stay open while another page or user removes the upload.
+        // References are already clear, so deleting an absent record is successful.
+        if (!(error instanceof HttpException) || error.getStatus() !== 404) throw error;
+        removed = { removedId: mediaId, cleanupPending: false };
+      }
       return {
         removedId: removed.removedId,
         cleanupPending: removed.cleanupPending,

@@ -28,5 +28,6 @@ test('authored LED pages and editable backgrounds use the native 3612x1462 canva
   assert.match(parkCss, /#app\{[^}]*width:3612px;height:1462px/);
   assert.match(parkJs, /const BASE_W=3612,BASE_H=1462/);
   assert.match(editor, /const LED_CANVAS_RESOLUTION = '3612x1462'/);
-  assert.match(editor, /m\.resolution\?\.toLowerCase\(\) === LED_CANVAS_RESOLUTION/);
+  assert.match(editor, /resolution\?\.toLowerCase\(\) === LED_CANVAS_RESOLUTION/);
+  assert.match(editor, /normalizeWelcomeBackground\(file\)/);
 });
