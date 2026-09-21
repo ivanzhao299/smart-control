@@ -1,7 +1,9 @@
 export interface LatestCommandQueueOptions<Key, Value> {
   execute: (key: Key, value: Value) => Promise<void>;
+  onStart?: (key: Key) => void;
   onSuccess?: (key: Key, value: Value) => void;
   onError?: (key: Key, error: unknown, value: Value) => void;
+  onIdle?: (key: Key) => void;
 }
 
 interface PendingCommand<Value> {
@@ -38,11 +40,16 @@ export function createLatestCommandQueue<Key, Value>(
       } catch (error) {
         state.pending = undefined;
         state.running = false;
-        options.onError?.(key, error, command.value);
+        try {
+          options.onError?.(key, error, command.value);
+        } finally {
+          options.onIdle?.(key);
+        }
         return;
       }
     }
     state.running = false;
+    options.onIdle?.(key);
   }
 
   function enqueue(key: Key, value: Value): void {
@@ -54,6 +61,7 @@ export function createLatestCommandQueue<Key, Value>(
     state.pending = { value };
     if (state.running) return;
     state.running = true;
+    options.onStart?.(key);
     void drain(key, state);
   }
 

@@ -36,6 +36,7 @@ import {
   summarizeAudioOutputs,
 } from '@/features/audio-view-model';
 import { createLatestCommandQueue } from '@/features/latest-command-queue';
+import { createAudioMatrixCommandController } from '@/features/audio-matrix-command-controller';
 
 const router = useRouter();
 const route = useRoute();
@@ -124,6 +125,7 @@ async function loadMatrixState(): Promise<void> {
       row.forEach((on, inCh) => { next[`${out}_${inCh}`] = on; });
     });
     matrixOn.value = next;
+    matrixController.confirmSnapshot(next);
     matrixStale.value = false;
     matrixOffline.value = false;
     matrixErrMsg.value = '';
@@ -706,7 +708,8 @@ async function loadInputs(): Promise<void> {
     inputs.value = rows.map((s) => ({ channel: s.channel, name: s.name }));
   } catch { /* 拉不到就空 */ }
 }
-// 矩阵本地状态: key = `${outCh}_${inCh}` → 接通与否. 乐观更新 (不回读设备真实矩阵).
+// 矩阵界面状态: key = `${outCh}_${inCh}` → 接通与否。设备回读是权威来源，
+// 点击期间先乐观更新，再由已确认命令和防抖回读收敛。
 const matrixOn = ref<Record<string, boolean>>({});
 function isMatrixOn(outCh: number, inCh: number): boolean {
   return !!matrixOn.value[`${outCh}_${inCh}`];
@@ -726,9 +729,6 @@ function isMatrixOn(outCh: number, inCh: number): boolean {
  * 现在: 每次点击只发**一条**命令, 不再逐次复读 (交给下面的防抖复读 + 8s 轮询);
  * 同一个点连点用"最后一次为准"合并, 不吞点击。
  */
-// 同一个交叉点的目标态 (最后一次点击为准); 有在途请求时不重复起循环
-const desiredCross = new Map<string, boolean>();
-const inFlightCross = new Set<string>();
 const pendingWrites = ref<number>(0);
 
 // 一批点完后再复读一次设备对账 —— 别每点一下都读
@@ -741,35 +741,33 @@ function scheduleReconcile(): void {
   }, 1200);
 }
 
-async function toggleMatrix(outCh: number, inCh: number): Promise<void> {
-  const key = `${outCh}_${inCh}`;
-  const before = !!matrixOn.value[key];
-  const want = !before;
-  matrixOn.value = { ...matrixOn.value, [key]: want };   // 乐观: 点击瞬间跟手
-  desiredCross.set(key, want);
+function matrixCoordinates(key: string): [number, number] {
+  const [outCh, inCh] = key.split('_').map(Number);
+  return [outCh, inCh];
+}
 
-  // 已有在途循环: 它会读走最新的 desiredCross, 这里直接返回 (但界面已经翻好了)
-  if (inFlightCross.has(key)) return;
-  inFlightCross.add(key);
-  pendingWrites.value += 1;
-  try {
-    // 排空: 期间又被点了就只发最后那个值, 中间的跳过 —— 少打设备
-    while (desiredCross.has(key)) {
-      const v = desiredCross.get(key) as boolean;
-      desiredCross.delete(key);
-      const res = await audioService.setMatrix(outCh, inCh, v);
-      if (!res.ok) throw new Error(res.error || '设备未确认');
-    }
-  } catch (err) {
-    desiredCross.delete(key);
-    matrixOn.value = { ...matrixOn.value, [key]: before }; // 失败=回到原样
-    ElMessage.error(`路由 OUT${outCh + 1}←IN${inCh + 1} 失败: ${(err as Error).message}`);
-    void loadMatrixState();                                // 失败才立刻对账
-  } finally {
-    inFlightCross.delete(key);
+const matrixController = createAudioMatrixCommandController({
+  read: (key) => !!matrixOn.value[key],
+  apply: (key, value) => { matrixOn.value = { ...matrixOn.value, [key]: value }; },
+  execute: async (key, value) => {
+    const [outCh, inCh] = matrixCoordinates(key);
+    const res = await audioService.setMatrix(outCh, inCh, value);
+    if (!res.ok) throw new Error(res.error || '设备未确认');
+  },
+  onStart: () => { pendingWrites.value += 1; },
+  onError: (key, error) => {
+    const [outCh, inCh] = matrixCoordinates(key);
+    ElMessage.error(`路由 OUT${outCh + 1}←IN${inCh + 1} 失败: ${(error as Error).message}`);
+    void loadMatrixState();
+  },
+  onIdle: () => {
     pendingWrites.value -= 1;
     scheduleReconcile();
-  }
+  },
+});
+
+function toggleMatrix(outCh: number, inCh: number): void {
+  matrixController.toggle(`${outCh}_${inCh}`);
 }
 
 /**
