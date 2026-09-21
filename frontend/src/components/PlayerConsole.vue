@@ -25,7 +25,7 @@
  * 投影仪 (slot2) 已拆到独立页 ProjectorPage, 本页只管 LED (slot1)。
  */
 import { computed, onMounted, onScopeDispose, ref } from 'vue';
-import { identityGeneration, captureIdentityGuard } from '@/services/identity-boundary';
+import { captureIdentityGuard } from '@/services/identity-boundary';
 import { ElMessage, ElMessageBox, ElScrollbar } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
@@ -35,13 +35,12 @@ import {
   ChevronLeft, ChevronRight, Power, ZoomIn, ZoomOut, Maximize, RefreshCw, RotateCcw,
 } from 'lucide-vue-next';
 import { usePlaybackStore } from '@/stores/playback';
-import {
-  setDocPage, setDocZoom, publishWelcome,
-} from '@/services/playback.service';
+import { publishWelcome } from '@/services/playback.service';
 import { useAdminUnlock } from '@/composables/useAdminUnlock';
 import { useWelcomeEditor } from '@/composables/useWelcomeEditor';
 import { usePlayerInputSources } from '@/composables/usePlayerInputSources';
 import { usePlayerPlaylist } from '@/composables/usePlayerPlaylist';
+import { usePlayerDocumentControls } from '@/composables/usePlayerDocumentControls';
 import { WELCOME_PICK_DEFAULT, detectPlayerInputSource } from '@/features/player-input-source';
 import { powerCircuitsService, type PowerCircuitView } from '@/services/power-circuits.service';
 import { MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
@@ -81,40 +80,6 @@ const { ensureAdmin } = useAdminUnlock();
 const playbackStore = usePlaybackStore();
 const ch = computed(() => (props.slot === 1 ? playbackStore.slot1 : playbackStore.slot2));
 
-// ============ 文档翻页 (2026-07-25 文档投屏) ============
-const isDocPlaying = computed(() => ch.value?.currentMediaKind === 'doc' && !!ch.value?.currentMediaId);
-const docPage = computed(() => ch.value?.docPage ?? 1);
-const docTotal = computed(() => ch.value?.currentMediaPageCount ?? null);
-/** 文档画面缩放 (2026-07-29 业主: PPT 要能全屏/放大缩小/退出):
- *  改 docZoom → WS → PPT 守护重摆放映窗口 / kiosk PDF 跟随 CSS 缩放。
- *  100=铺满整屏 ("全屏"按钮即回 100); 步进 ±15, 范围 50-200。 */
-const docZoom = computed(() => ch.value?.docZoom ?? 100);
-let zoomBusy = false;
-async function applyDocZoom(z: number): Promise<void> {
-  if (zoomBusy) return;
-  const session = ch.value?.playbackSession;
-  if (!session) { ElMessage.warning('请刷新播放状态后重试'); return; }
-  zoomBusy = true;
-  try {
-    const v = await setDocZoom(SLOT.value, z, session);
-    playbackStore.handleWs({ type: 'playback_channel_changed', data: v } as never);
-  } catch (e) {
-    ElMessage.error(`缩放失败: ${(e as Error).message}`);
-  } finally { zoomBusy = false; }
-}
-/** 退出放映 — 结束文档放映, 屏幕回到播放器待机/原内容 (对应业主"退出全屏") */
-async function exitDocShow(): Promise<void> {
-  const session = ch.value?.playbackSession;
-  const slot = SLOT.value;
-  const generation = identityGeneration();
-  if (!session) { ElMessage.warning('请刷新播放状态后重试'); return; }
-  try {
-    await ElMessageBox.confirm(`退出文档放映?${props.title}将回到待机画面。`, '退出放映',
-      { type: 'warning', confirmButtonText: '退出', cancelButtonText: '取消' });
-  } catch { return; }
-  if (consoleDisposed || generation !== identityGeneration() || slot !== SLOT.value) return;
-  await stopPlayback(session);
-}
 let consoleDisposed = false;
 onScopeDispose(() => {
   consoleDisposed = true;
@@ -172,22 +137,21 @@ const {
   ensureAdmin,
   captureAction: captureConsoleAction,
 });
-let pageBusy = false;
-async function gotoDocPage(p: number): Promise<void> {
-  if (pageBusy) return;
-  const session = ch.value?.playbackSession;
-  if (!session) { ElMessage.warning('请刷新播放状态后重试'); return; }
-  const max = docTotal.value ?? Number.MAX_SAFE_INTEGER;
-  const target = Math.max(1, Math.min(p, max));
-  if (target === docPage.value) return;
-  pageBusy = true;
-  try {
-    const v = await setDocPage(SLOT.value, target, session);
-    playbackStore.handleWs({ type: 'playback_channel_changed', data: v } as never);
-  } catch (e) {
-    ElMessage.error(`翻页失败: ${(e as Error).message}`);
-  } finally { pageBusy = false; }
-}
+const {
+  isDocPlaying,
+  docPage,
+  docTotal,
+  docZoom,
+  applyDocZoom,
+  gotoDocPage,
+  exitDocShow,
+} = usePlayerDocumentControls({
+  slot: SLOT,
+  title: () => props.title,
+  channel: ch,
+  captureAction: captureConsoleAction,
+  stopPlayback,
+});
 
 // ============ 屏幕电源开关 ============
 // powerCode 支持逗号分隔多个回路 code (2026-07-26 业主: 投影仪与视频拼接器
