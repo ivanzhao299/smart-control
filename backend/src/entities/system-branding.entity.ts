@@ -90,6 +90,19 @@ export class SystemBranding {
   @Column({ type: 'varchar', length: 64, nullable: true, name: 'welcomeTagline' })
   welcomeTagline!: string | null;
 
+  // 场馆名(中/英)与两行落款; 三态: NULL=内置默认, ''=隐藏该行, 非空=自定义
+  @Column({ type: 'varchar', length: 40, nullable: true, name: 'welcomeVenue' })
+  welcomeVenue!: string | null;
+
+  @Column({ type: 'varchar', length: 96, nullable: true, name: 'welcomeVenueEn' })
+  welcomeVenueEn!: string | null;
+
+  @Column({ type: 'varchar', length: 40, nullable: true, name: 'welcomeOrg1' })
+  welcomeOrg1!: string | null;
+
+  @Column({ type: 'varchar', length: 40, nullable: true, name: 'welcomeOrg2' })
+  welcomeOrg2!: string | null;
+
   @Column({ type: 'integer', name: 'welcomeBgMediaId', nullable: true })
   welcomeBgMediaId!: number | null;
 

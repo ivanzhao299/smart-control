@@ -683,10 +683,24 @@ const welcomePublishing = ref(false);
 const welcomeLoading = ref(false);
 const welcomeForm = ref({
   welcomeTitle: '', welcomeGuest: '', welcomeTagline: '',
+  welcomeVenue: '', welcomeVenueEn: '', welcomeOrg1: '', welcomeOrg2: '',
   welcomeBgMediaId: null as number | null,
   welcomeLogoMediaId: null as number | null,
   presentation: { ...DEFAULT_WELCOME_PRESENTATION } as WelcomePresentation,
 });
+// 场馆名/英文/两行落款的"隐藏该行"勾选, 与输入框共同表达三态 (null=默认 / ''=隐藏 / 文本=自定义)
+const welcomeHidden = reactive({ venue: false, venueEn: false, org1: false, org2: false });
+type WelcomeDisplayFormKey = 'welcomeVenue' | 'welcomeVenueEn' | 'welcomeOrg1' | 'welcomeOrg2';
+type WelcomeDisplayHideKey = keyof typeof welcomeHidden;
+function welcomeDisplayValue(formKey: WelcomeDisplayFormKey, hideKey: WelcomeDisplayHideKey): string | null {
+  if (welcomeHidden[hideKey]) return '';
+  const t = welcomeForm.value[formKey].trim();
+  return t === '' ? null : t;
+}
+function applyWelcomeDisplay(value: string | null, formKey: WelcomeDisplayFormKey, hideKey: WelcomeDisplayHideKey): void {
+  if (value === '') { welcomeForm.value[formKey] = ''; welcomeHidden[hideKey] = true; }
+  else { welcomeForm.value[formKey] = value ?? ''; welcomeHidden[hideKey] = false; }
+}
 const welcomeSchemeName = ref('');
 const welcomeSchemes = ref<WelcomeScheme[]>([]);
 const welcomeSchemesRevision = ref(0);
@@ -733,6 +747,13 @@ const welcomeLogoSizeOptions = [
   { value: 'small', name: '小' },
   { value: 'medium', name: '中' },
   { value: 'large', name: '大' },
+] as const;
+const welcomeTitleEffectOptions = [
+  { value: 'blue', name: '科技蓝', hint: '深色底 · 默认' },
+  { value: 'gold', name: '鎏金', hint: '政务接待 / 喜庆深底' },
+  { value: 'white', name: '纯白描边', hint: '明暗混杂 / 复杂照片底' },
+  { value: 'ink', name: '墨蓝', hint: '浅色留白底' },
+  { value: 'neon', name: '霓虹青', hint: '深色科技底' },
 ] as const;
 
 function cloneWelcomePresentation(value?: WelcomePresentation): WelcomePresentation {
@@ -889,6 +910,10 @@ async function pushWelcomePreview(): Promise<void> {
       welcomeTitle: welcomeForm.value.welcomeTitle,
       welcomeGuest: welcomeForm.value.welcomeGuest,
       welcomeTagline: welcomeForm.value.welcomeTagline,
+      welcomeVenue: welcomeDisplayValue('welcomeVenue', 'venue'),
+      welcomeVenueEn: welcomeDisplayValue('welcomeVenueEn', 'venueEn'),
+      welcomeOrg1: welcomeDisplayValue('welcomeOrg1', 'org1'),
+      welcomeOrg2: welcomeDisplayValue('welcomeOrg2', 'org2'),
       welcomeBgUrl: bgUrl,
       welcomeLogoUrl: logoUrl,
       welcomePresentation: cloneWelcomePresentation(welcomeForm.value.presentation),
@@ -897,6 +922,7 @@ async function pushWelcomePreview(): Promise<void> {
 }
 
 watch(welcomeForm, pushWelcomePreview, { deep: true });
+watch(welcomeHidden, pushWelcomePreview, { deep: true });
 
 function applyWelcomeScheme(id: string): void {
   const scheme = welcomeSchemes.value.find((item) => item.id === id);
@@ -912,10 +938,15 @@ function applyWelcomeScheme(id: string): void {
     welcomeTitle: scheme.welcomeTitle ?? '',
     welcomeGuest: scheme.welcomeGuest ?? '',
     welcomeTagline: scheme.welcomeTagline ?? '',
+    welcomeVenue: '', welcomeVenueEn: '', welcomeOrg1: '', welcomeOrg2: '',
     welcomeBgMediaId: incompatibleSelectedBackground.value ? null : scheme.welcomeBgMediaId,
     welcomeLogoMediaId: incompatibleSelectedLogo.value ? null : scheme.welcomeLogoMediaId,
     presentation: cloneWelcomePresentation(scheme.presentation),
   };
+  applyWelcomeDisplay(scheme.welcomeVenue ?? null, 'welcomeVenue', 'venue');
+  applyWelcomeDisplay(scheme.welcomeVenueEn ?? null, 'welcomeVenueEn', 'venueEn');
+  applyWelcomeDisplay(scheme.welcomeOrg1 ?? null, 'welcomeOrg1', 'org1');
+  applyWelcomeDisplay(scheme.welcomeOrg2 ?? null, 'welcomeOrg2', 'org2');
 }
 
 function syncSelectedWelcomeDraft(): boolean {
@@ -942,6 +973,10 @@ function syncSelectedWelcomeDraft(): boolean {
     welcomeTitle: welcomeForm.value.welcomeTitle.trim() || null,
     welcomeGuest: welcomeForm.value.welcomeGuest.trim() || null,
     welcomeTagline: welcomeForm.value.welcomeTagline.trim() || null,
+    welcomeVenue: welcomeDisplayValue('welcomeVenue', 'venue'),
+    welcomeVenueEn: welcomeDisplayValue('welcomeVenueEn', 'venueEn'),
+    welcomeOrg1: welcomeDisplayValue('welcomeOrg1', 'org1'),
+    welcomeOrg2: welcomeDisplayValue('welcomeOrg2', 'org2'),
     welcomeBgMediaId: welcomeForm.value.welcomeBgMediaId,
     welcomeLogoMediaId: welcomeForm.value.welcomeLogoMediaId,
     presentation: cloneWelcomePresentation(welcomeForm.value.presentation),
@@ -1244,6 +1279,10 @@ async function publishSelectedWelcomeScheme(): Promise<void> {
     const confirmed = published.branding.welcomeTitle === selected.welcomeTitle
       && published.branding.welcomeGuest === selected.welcomeGuest
       && published.branding.welcomeTagline === selected.welcomeTagline
+      && published.branding.welcomeVenue === selected.welcomeVenue
+      && published.branding.welcomeVenueEn === selected.welcomeVenueEn
+      && published.branding.welcomeOrg1 === selected.welcomeOrg1
+      && published.branding.welcomeOrg2 === selected.welcomeOrg2
       && published.branding.welcomeBgMediaId === selected.welcomeBgMediaId
       && published.branding.welcomeLogoMediaId === selected.welcomeLogoMediaId
       && JSON.stringify(published.branding.welcomePresentation) === JSON.stringify(selected.presentation);
@@ -1829,6 +1868,34 @@ async function submitWebpage(): Promise<void> {
             <input v-model="welcomeForm.welcomeGuest" class="wb-input" maxlength="64" placeholder="各位领导嘉宾" @input="markWelcomeDraftChanged" />
             <label class="wb-label">底部标语 (空 = 默认「智慧展厅 · 数字展贸 · 科创未来」)</label>
             <input v-model="welcomeForm.welcomeTagline" class="wb-input" maxlength="64" placeholder="智慧展厅 · 数字展贸 · 科创未来" @input="markWelcomeDraftChanged" />
+            <div class="wb-display-row">
+              <div class="wb-display-main">
+                <label class="wb-label">场馆中文名（空 = 默认，勾选 = 隐藏该行）</label>
+                <input v-model="welcomeForm.welcomeVenue" class="wb-input" maxlength="40" :disabled="welcomeHidden.venue" placeholder="金湖展贸中心" @input="markWelcomeDraftChanged" />
+              </div>
+              <label class="wb-hide-check"><input type="checkbox" v-model="welcomeHidden.venue" @change="markWelcomeDraftChanged" />隐藏</label>
+            </div>
+            <div class="wb-display-row">
+              <div class="wb-display-main">
+                <label class="wb-label">场馆英文名（空 = 默认，勾选 = 隐藏该行）</label>
+                <input v-model="welcomeForm.welcomeVenueEn" class="wb-input" maxlength="96" :disabled="welcomeHidden.venueEn" placeholder="JINHU EXPOSITION &amp; TRADE CENTER" @input="markWelcomeDraftChanged" />
+              </div>
+              <label class="wb-hide-check"><input type="checkbox" v-model="welcomeHidden.venueEn" @change="markWelcomeDraftChanged" />隐藏</label>
+            </div>
+            <div class="wb-display-row">
+              <div class="wb-display-main">
+                <label class="wb-label">落款单位一（空 = 默认，勾选 = 隐藏该行）</label>
+                <input v-model="welcomeForm.welcomeOrg1" class="wb-input" maxlength="40" :disabled="welcomeHidden.org1" placeholder="山东金湖集团" @input="markWelcomeDraftChanged" />
+              </div>
+              <label class="wb-hide-check"><input type="checkbox" v-model="welcomeHidden.org1" @change="markWelcomeDraftChanged" />隐藏</label>
+            </div>
+            <div class="wb-display-row">
+              <div class="wb-display-main">
+                <label class="wb-label">落款单位二（空 = 默认，勾选 = 隐藏该行）</label>
+                <input v-model="welcomeForm.welcomeOrg2" class="wb-input" maxlength="40" :disabled="welcomeHidden.org2" placeholder="金湖科创产业园" @input="markWelcomeDraftChanged" />
+              </div>
+              <label class="wb-hide-check"><input type="checkbox" v-model="welcomeHidden.org2" @change="markWelcomeDraftChanged" />隐藏</label>
+            </div>
             <div class="we-presentation-head">
               <strong>画面版式</strong>
               <span>版式随方案独立保存，切换底图和 Logo 后不会继续套用一张固定模板</span>
@@ -1887,6 +1954,17 @@ async function submitWebpage(): Promise<void> {
                     v-for="option in welcomeLogoSizeOptions" :key="option.value" type="button"
                     :class="{ on: welcomeForm.presentation.logoSize === option.value }"
                     @click="updateWelcomePresentation('logoSize', option.value)"
+                  >{{ option.name }}</button>
+                </div>
+              </div>
+              <div class="we-style-control we-title-effect">
+                <span>主标题效果</span>
+                <div>
+                  <button
+                    v-for="option in welcomeTitleEffectOptions" :key="option.value" type="button"
+                    :class="{ on: welcomeForm.presentation.titleEffect === option.value }"
+                    :title="option.hint"
+                    @click="updateWelcomePresentation('titleEffect', option.value)"
                   >{{ option.name }}</button>
                 </div>
               </div>
@@ -2393,6 +2471,16 @@ async function submitWebpage(): Promise<void> {
   padding: 10px 12px; color: var(--v2-text-1); font-size: 14px; outline: none; font-family: inherit;
 }
 .wb-input:focus { border-color: var(--v2-primary); }
+.wb-input:disabled { opacity: .45; cursor: not-allowed; }
+.wb-display-row { display: flex; align-items: flex-end; gap: 8px; }
+.wb-display-main { flex: 1 1 auto; min-width: 0; }
+.wb-hide-check {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px;
+  padding-bottom: 9px; font-size: 12px; color: var(--v2-text-3); white-space: nowrap; cursor: pointer; user-select: none;
+}
+.wb-hide-check input { margin: 0; cursor: pointer; }
+.we-title-effect > div { flex-wrap: wrap; gap: 5px; }
+.we-title-effect button { flex: 0 0 auto; white-space: nowrap; padding: 5px 11px; }
 .wb-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
 .pick-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .pick-title { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; color: var(--v2-text-1); }

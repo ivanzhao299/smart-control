@@ -24,10 +24,15 @@ const draft = () => ({
   welcomeTitle: '热烈欢迎',
   welcomeGuest: '各位嘉宾',
   welcomeTagline: '欢迎莅临',
+  welcomeVenue: '金湖展贸中心',
+  welcomeVenueEn: 'JINHU EXPOSITION & TRADE CENTER',
+  welcomeOrg1: '山东金湖集团',
+  welcomeOrg2: '金湖科创产业园',
   welcomeBgMediaId: 10,
   welcomeLogoMediaId: 20,
   presentation: {
-    layout: 'ceremony', tone: 'light', overlay: 'soft', contentPosition: 'center', logoSize: 'medium',
+    layout: 'ceremony', tone: 'light', overlay: 'soft', contentPosition: 'center',
+    logoSize: 'medium', titleEffect: 'blue',
   },
 });
 
@@ -39,6 +44,9 @@ test('switching a logo or background creates a complete saveable draft without m
   assert.equal(logoChanged.welcomeLogoMediaId, 21);
   assert.equal(backgroundChanged.welcomeBgMediaId, null);
   assert.equal(backgroundChanged.welcomeLogoMediaId, 21);
+  // editable venue/org text rides along unchanged when only the asset binding changes
+  assert.equal(backgroundChanged.welcomeVenue, '金湖展贸中心');
+  assert.equal(backgroundChanged.welcomeOrg2, '金湖科创产业园');
 });
 
 test('presentation changes keep content and asset bindings together in the same draft', () => {
@@ -47,4 +55,12 @@ test('presentation changes keep content and asset bindings together in the same 
   assert.equal(changed.presentation.tone, 'light');
   assert.equal(changed.welcomeLogoMediaId, 20);
   assert.equal(changed.welcomeTitle, '热烈欢迎');
+});
+
+test('titleEffect is a presentation dimension kept alongside other presentation keys', () => {
+  const gold = changeWelcomePresentation(draft(), 'titleEffect', 'gold');
+  assert.equal(gold.presentation.titleEffect, 'gold');
+  // untouched presentation keys and display text survive
+  assert.equal(gold.presentation.layout, 'ceremony');
+  assert.equal(gold.welcomeVenueEn, 'JINHU EXPOSITION & TRADE CENTER');
 });

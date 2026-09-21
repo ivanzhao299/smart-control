@@ -89,3 +89,48 @@ test('welcome save contract documents its administrator boundary', () => {
   assert.match(brandingService, /expectedRevision/);
   assert.doesNotMatch(brandingService, /客户端 token 即可/);
 });
+
+
+test('welcome venue/org lines are editable, hideable, and published; title offers five effects', () => {
+  // editor state: four display text inputs + per-line hide checkbox + three-state helpers
+  assert.match(playerConsole, /const welcomeHidden = reactive\(/);
+  assert.match(playerConsole, /function welcomeDisplayValue\(/);
+  assert.match(playerConsole, /function applyWelcomeDisplay\(/);
+  assert.match(playerConsole, /class="wb-display-row"/);
+  assert.match(playerConsole, /场馆中文名/);
+  assert.match(playerConsole, /落款单位一/);
+  assert.match(playerConsole, /v-model="welcomeHidden\.venue"/);
+  assert.match(playerConsole, /:disabled="welcomeHidden\.venue"/);
+  assert.match(playerConsole, /watch\(welcomeHidden, pushWelcomePreview/);
+  // title effect picker wired through the generic presentation update
+  assert.match(playerConsole, /const welcomeTitleEffectOptions = \[/);
+  assert.match(playerConsole, /updateWelcomePresentation\('titleEffect', option\.value\)/);
+  // hidden/custom/default rides the publish verification comparison
+  assert.match(playerConsole, /published\.branding\.welcomeVenue === selected\.welcomeVenue/);
+  assert.match(playerConsole, /published\.branding\.welcomeOrg2 === selected\.welcomeOrg2/);
+  // service contract exposes the enum and the new nullable display fields
+  assert.match(brandingService, /WelcomeTitleEffect/);
+  assert.match(brandingService, /titleEffect\??:/);
+  assert.match(brandingService, /welcomeVenue\??: string \| null/);
+});
+
+test('LED welcome renderer hides or defaults venue/org lines and ships five title effects', () => {
+  // editable line ids + three-state render helpers
+  assert.match(welcomePage, /id="venueName"/);
+  assert.match(welcomePage, /id="venueEnName"/);
+  assert.match(welcomePage, /id="orgName1"/);
+  assert.match(welcomePage, /id="orgName2"/);
+  assert.match(welcomePage, /const displayText = \(value, fallback\)/);
+  assert.match(welcomePage, /const setLine = \(id, text\)/);
+  assert.match(welcomePage, /DEFAULT_VENUE_CN/);
+  // organizer dot/separator only render when both bylines are visible
+  assert.match(welcomePage, /id="orgDotBefore"/);
+  assert.match(welcomePage, /id="orgDotAfter"/);
+  // effect applied to <body> and one CSS block per effect, placed after tone rules
+  assert.match(welcomePage, /document\.body\.dataset\.titleEffect = safe\.titleEffect/);
+  assert.match(welcomePage, /body\[data-title-effect="blue"\]/);
+  assert.match(welcomePage, /body\[data-title-effect="gold"\]/);
+  assert.match(welcomePage, /body\[data-title-effect="white"\]/);
+  assert.match(welcomePage, /body\[data-title-effect="ink"\]/);
+  assert.match(welcomePage, /body\[data-title-effect="neon"\]/);
+});

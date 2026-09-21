@@ -42,6 +42,10 @@ const schemes: WelcomeSchemesDocument = {
       welcomeTitle: '热烈欢迎',
       welcomeGuest: '企业甲代表团',
       welcomeTagline: '欢迎莅临参观指导',
+      welcomeVenue: null,
+      welcomeVenueEn: null,
+      welcomeOrg1: null,
+      welcomeOrg2: null,
       welcomeBgMediaId: 7,
       welcomeLogoMediaId: null,
       presentation: { ...DEFAULT_WELCOME_PRESENTATION },
@@ -94,6 +98,65 @@ describe('welcome scheme document', () => {
         presentation: { ...DEFAULT_WELCOME_PRESENTATION, layout: 'free-drag' },
       }],
     })).toThrow('欢迎页版式不受支持');
+  });
+
+  it('normalizes the title effect enum and defaults legacy presentations to blue', () => {
+    const gold = normalizeWelcomeSchemes({
+      version: 2,
+      schemes: [{ ...schemes.schemes[0], presentation: { ...DEFAULT_WELCOME_PRESENTATION, titleEffect: 'gold' } }],
+    });
+    expect(gold.schemes[0].presentation.titleEffect).toBe('gold');
+    expect(() => normalizeWelcomeSchemes({
+      version: 2,
+      schemes: [{ ...schemes.schemes[0], presentation: { ...DEFAULT_WELCOME_PRESENTATION, titleEffect: 'rainbow' } }],
+    })).toThrow('主标题文字效果不受支持');
+    const legacy = normalizeWelcomeSchemes({
+      version: 2,
+      schemes: [{
+        ...schemes.schemes[0],
+        presentation: { layout: 'ceremony', tone: 'light', overlay: 'soft', contentPosition: 'center', logoSize: 'medium' },
+      }],
+    });
+    expect(legacy.schemes[0].presentation.titleEffect).toBe('blue');
+  });
+
+  it('supports three-state venue/org text: null default, empty string hidden, custom trimmed', () => {
+    const doc = normalizeWelcomeSchemes({
+      version: 2,
+      schemes: [{
+        ...schemes.schemes[0],
+        welcomeVenue: '  自定义场馆  ',
+        welcomeVenueEn: '',
+        welcomeOrg1: null,
+        welcomeOrg2: '   ',
+      }],
+    }).schemes[0];
+    expect(doc.welcomeVenue).toBe('自定义场馆');
+    expect(doc.welcomeVenueEn).toBe('');
+    expect(doc.welcomeOrg1).toBeNull();
+    expect(doc.welcomeOrg2).toBe('');
+  });
+
+  it('rejects over-long or non-string venue/org text', () => {
+    expect(() => normalizeWelcomeSchemes({
+      version: 2,
+      schemes: [{ ...schemes.schemes[0], welcomeVenue: 'x'.repeat(41) }],
+    })).toThrow('场馆名称不能超过 40 个字符');
+    expect(() => normalizeWelcomeSchemes({
+      version: 2,
+      schemes: [{ ...schemes.schemes[0], welcomeVenueEn: 123 }],
+    })).toThrow('场馆英文名 必须是文本或 null');
+  });
+
+  it('fills missing venue/org fields on legacy schemes with null', () => {
+    const legacyScheme = { ...schemes.schemes[0] };
+    delete (legacyScheme as { welcomeVenue?: string | null }).welcomeVenue;
+    delete (legacyScheme as { welcomeVenueEn?: string | null }).welcomeVenueEn;
+    delete (legacyScheme as { welcomeOrg1?: string | null }).welcomeOrg1;
+    delete (legacyScheme as { welcomeOrg2?: string | null }).welcomeOrg2;
+    const out = normalizeWelcomeSchemes({ version: 2, schemes: [legacyScheme] }).schemes[0];
+    expect([out.welcomeVenue, out.welcomeVenueEn, out.welcomeOrg1, out.welcomeOrg2])
+      .toEqual([null, null, null, null]);
   });
 });
 
@@ -166,6 +229,10 @@ describe('SystemBrandingService welcome schemes', () => {
         welcomeTitle: '热烈欢迎',
         welcomeGuest: '企业甲代表团',
         welcomeTagline: '欢迎莅临参观指导',
+        welcomeVenue: null,
+        welcomeVenueEn: null,
+        welcomeOrg1: null,
+        welcomeOrg2: null,
         welcomeBgMediaId: 7,
         welcomeLogoMediaId: null,
         welcomePresentationJson: JSON.stringify(DEFAULT_WELCOME_PRESENTATION),

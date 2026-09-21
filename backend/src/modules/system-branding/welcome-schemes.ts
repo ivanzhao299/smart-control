@@ -9,6 +9,8 @@ export const WELCOME_TONES = ['light', 'dark'] as const;
 export const WELCOME_OVERLAYS = ['none', 'soft', 'strong'] as const;
 export const WELCOME_CONTENT_POSITIONS = ['upper', 'center', 'lower'] as const;
 export const WELCOME_LOGO_SIZES = ['small', 'medium', 'large'] as const;
+// 主标题文字渲染效果: blue=科技蓝(默认) gold=鎏金 white=纯白描边(复杂照片底) ink=墨蓝(浅色底) neon=霓虹青(深色科技底)
+export const WELCOME_TITLE_EFFECTS = ['blue', 'gold', 'white', 'ink', 'neon'] as const;
 
 export interface WelcomePresentation {
   layout: (typeof WELCOME_LAYOUTS)[number];
@@ -16,6 +18,7 @@ export interface WelcomePresentation {
   overlay: (typeof WELCOME_OVERLAYS)[number];
   contentPosition: (typeof WELCOME_CONTENT_POSITIONS)[number];
   logoSize: (typeof WELCOME_LOGO_SIZES)[number];
+  titleEffect: (typeof WELCOME_TITLE_EFFECTS)[number];
 }
 
 export const DEFAULT_WELCOME_PRESENTATION: WelcomePresentation = {
@@ -24,6 +27,7 @@ export const DEFAULT_WELCOME_PRESENTATION: WelcomePresentation = {
   overlay: 'soft',
   contentPosition: 'center',
   logoSize: 'medium',
+  titleEffect: 'blue',
 };
 
 export interface WelcomeScheme {
@@ -32,6 +36,11 @@ export interface WelcomeScheme {
   welcomeTitle: string | null;
   welcomeGuest: string | null;
   welcomeTagline: string | null;
+  // 场馆名/英文/两行落款, 三态: null=内置默认, ''(空串)=该行隐藏, 非空=自定义
+  welcomeVenue: string | null;
+  welcomeVenueEn: string | null;
+  welcomeOrg1: string | null;
+  welcomeOrg2: string | null;
   welcomeBgMediaId: number | null;
   welcomeLogoMediaId: number | null;
   presentation: WelcomePresentation;
@@ -46,6 +55,10 @@ export interface PublishedWelcomeFields {
   welcomeTitle: string | null;
   welcomeGuest: string | null;
   welcomeTagline: string | null;
+  welcomeVenue: string | null;
+  welcomeVenueEn: string | null;
+  welcomeOrg1: string | null;
+  welcomeOrg2: string | null;
   welcomeBgMediaId: number | null;
   welcomeLogoMediaId: number | null;
   presentation: WelcomePresentation;
@@ -65,6 +78,20 @@ function optionalText(input: unknown, maxLength: number, label: string): string 
   if (typeof input !== 'string') throw new BadRequestException(`${label} 必须是文本或 null`);
   const value = input.trim();
   if (!value) return null;
+  if (value.length > maxLength)
+    throw new BadRequestException(`${label}不能超过 ${maxLength} 个字符`);
+  return value;
+}
+
+/**
+ * 可隐藏的展示文案 (场馆名/落款):
+ * undefined/null = 未设置 → 渲染内置默认; 空串/纯空格 = 显式隐藏该行; 非空 = 自定义文本。
+ */
+function optionalDisplayText(input: unknown, maxLength: number, label: string): string | null {
+  if (input === undefined || input === null) return null;
+  if (typeof input !== 'string') throw new BadRequestException(`${label} 必须是文本或 null`);
+  const value = input.trim();
+  if (!value) return '';
   if (value.length > maxLength)
     throw new BadRequestException(`${label}不能超过 ${maxLength} 个字符`);
   return value;
@@ -108,6 +135,12 @@ export function normalizeWelcomePresentation(
       '欢迎页内容位置',
     ),
     logoSize: enumValue(raw.logoSize, WELCOME_LOGO_SIZES, fallback.logoSize, '欢迎页 Logo 尺寸'),
+    titleEffect: enumValue(
+      raw.titleEffect,
+      WELCOME_TITLE_EFFECTS,
+      fallback.titleEffect,
+      '主标题文字效果',
+    ),
   };
 }
 
@@ -146,6 +179,10 @@ export function normalizeWelcomeSchemes(
       welcomeTitle: optionalText(raw.welcomeTitle, 32, '主标题'),
       welcomeGuest: optionalText(raw.welcomeGuest, 64, '嘉宾称谓'),
       welcomeTagline: optionalText(raw.welcomeTagline, 64, '底部标语'),
+      welcomeVenue: optionalDisplayText(raw.welcomeVenue, 40, '场馆名称'),
+      welcomeVenueEn: optionalDisplayText(raw.welcomeVenueEn, 96, '场馆英文名'),
+      welcomeOrg1: optionalDisplayText(raw.welcomeOrg1, 40, '落款单位一'),
+      welcomeOrg2: optionalDisplayText(raw.welcomeOrg2, 40, '落款单位二'),
       welcomeBgMediaId: imageMediaId(raw.welcomeBgMediaId, '欢迎页底图'),
       welcomeLogoMediaId: imageMediaId(raw.welcomeLogoMediaId, '欢迎页 Logo'),
       presentation: normalizeWelcomePresentation(
@@ -171,6 +208,10 @@ export function buildDefaultWelcomeSchemes(
         welcomeTitle: '热烈欢迎',
         welcomeGuest: '各位领导嘉宾',
         welcomeTagline: '欢迎莅临参观指导',
+        welcomeVenue: null,
+        welcomeVenueEn: null,
+        welcomeOrg1: null,
+        welcomeOrg2: null,
         welcomeBgMediaId: null,
         welcomeLogoMediaId: null,
         presentation: { ...DEFAULT_WELCOME_PRESENTATION },
@@ -181,6 +222,10 @@ export function buildDefaultWelcomeSchemes(
         welcomeTitle: '欢迎参加',
         welcomeGuest: '各位会议嘉宾',
         welcomeTagline: '同心聚力 · 共创未来',
+        welcomeVenue: null,
+        welcomeVenueEn: null,
+        welcomeOrg1: null,
+        welcomeOrg2: null,
         welcomeBgMediaId: null,
         welcomeLogoMediaId: null,
         presentation: {
@@ -195,6 +240,10 @@ export function buildDefaultWelcomeSchemes(
         welcomeTitle: '合作共赢',
         welcomeGuest: '各位领导嘉宾',
         welcomeTagline: '携手同行 · 共启新程',
+        welcomeVenue: null,
+        welcomeVenueEn: null,
+        welcomeOrg1: null,
+        welcomeOrg2: null,
         welcomeBgMediaId: null,
         welcomeLogoMediaId: null,
         presentation: { ...DEFAULT_WELCOME_PRESENTATION, layout: 'minimal' },
@@ -211,6 +260,10 @@ export function matchesPublishedWelcome(
     scheme.welcomeTitle === published.welcomeTitle &&
     scheme.welcomeGuest === published.welcomeGuest &&
     scheme.welcomeTagline === published.welcomeTagline &&
+    scheme.welcomeVenue === published.welcomeVenue &&
+    scheme.welcomeVenueEn === published.welcomeVenueEn &&
+    scheme.welcomeOrg1 === published.welcomeOrg1 &&
+    scheme.welcomeOrg2 === published.welcomeOrg2 &&
     scheme.welcomeBgMediaId === published.welcomeBgMediaId &&
     scheme.welcomeLogoMediaId === published.welcomeLogoMediaId &&
     JSON.stringify(scheme.presentation) === JSON.stringify(published.presentation)
