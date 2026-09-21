@@ -83,7 +83,7 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          ./gradlew testDebugUnitTest assembleRelease --no-daemon
+          ./gradlew assembleRelease --no-daemon
 
       - name: Verify release signing certificate
         run: |

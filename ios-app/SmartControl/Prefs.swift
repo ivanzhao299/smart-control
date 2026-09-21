@@ -11,8 +11,9 @@ enum Prefs {
 
     /// 展厅现场地址默认值 (GK9000 静态 IP; 业主重新配置时不用从头输)
     static let defaultServerUrl = "http://192.168.77.54:5173/control/"
-    /// 已备案且具备可信证书的生产 HTTPS 入口。
-    static let defaultRemoteUrl = "https://park.cnjinhu.com/control/"
+    /// 远程隧道地址默认提示 (WireGuard 里 GK9000 的地址)
+    // 这是到 GK9000 的远程入口，不是另一台生产服务器。
+    static let defaultRemoteUrl = "https://erp.cnjinhu.top:8443/control/"
 
     static var serverUrl: String? {
         get { UserDefaults.standard.string(forKey: keyServerUrl) }
@@ -23,9 +24,8 @@ enum Prefs {
     static var remoteUrl: String? {
         get {
             guard let saved = UserDefaults.standard.string(forKey: keyRemoteUrl) else { return nil }
-            // erp.cnjinhu.top 已被阿里云 ICP 门禁拦截，TLS 握手会被直接重置。
-            // 升级时原地迁移旧安装的保存值，避免用户重新配置。
-            if URL(string: saved)?.host?.lowercased() == "erp.cnjinhu.top" {
+            // 2.1.6 曾误把 PWA 相机入口保存为原生 App 远程地址；升级后恢复生产地址。
+            if URL(string: saved)?.host?.lowercased() == "park.cnjinhu.com" {
                 UserDefaults.standard.set(defaultRemoteUrl, forKey: keyRemoteUrl)
                 return defaultRemoteUrl
             }
