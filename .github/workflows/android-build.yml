@@ -42,6 +42,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Verify production remote address
+        run: node tools/ci/verify-production-remote-address.mjs
+
       - name: Set up JDK 17
         uses: actions/setup-java@v6
         with:
