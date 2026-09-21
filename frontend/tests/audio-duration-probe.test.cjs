@@ -125,9 +125,11 @@ test('timeout remains a bounded fallback when a browser rejects the VBR seek', a
   assert.equal(h.audio.listenerCount(), 0);
 });
 
-test('AudioPage delegates browser duration probing to the shared boundary', () => {
+test('audio playlist delegates browser duration probing to the shared boundary', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../src/pages/AudioPage.vue'), 'utf8');
-  assert.match(page, /probeAudioDuration\(absUrl\(`/);
-  assert.doesNotMatch(page, /new Audio\(\)/);
-  assert.doesNotMatch(page, /audio\.currentTime = 1e7/);
+  const playlist = fs.readFileSync(path.resolve(__dirname, '../src/composables/useAudioPlaylist.ts'), 'utf8');
+  assert.match(page, /useAudioPlaylist\(\{ ensureAdmin \}\)/);
+  assert.match(playlist, /probeAudioDuration\(absUrl\(`/);
+  assert.doesNotMatch(playlist, /new Audio\(\)/);
+  assert.doesNotMatch(playlist, /audio\.currentTime = 1e7/);
 });
