@@ -152,7 +152,9 @@ struct ConfigView: View {
         }
         Prefs.serverUrl = t
         Prefs.remoteUrl = remote.isEmpty ? nil : remote
-        onSave(t)
+        // Prefs 在写入时会纠正历史误填的 PWA 地址；当前会话也必须使用纠正后的值，
+        // 不能等到下次启动才生效。
+        onSave(Prefs.serverUrl ?? Prefs.defaultServerUrl)
     }
 
     private func status(_ s: String, ok: Bool) {
