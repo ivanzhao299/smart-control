@@ -829,16 +829,18 @@ try {
       # The production result remains authoritative because it is calculated
       # from the commits that are actually present on this host.
       $scope = Get-DeployScope $previousCommit $Commit
+      $noRuntime = $scope.scope -eq 'none'
       $staticOnly = $scope.scope -eq 'static'
       $frontendOnly = $scope.scope -eq 'frontend'
       $backendOnly = $scope.scope -eq 'backend'
-      Write-DeployLog ("Deploy scope: staticOnly={0} frontendOnly={1} backendOnly={2} highRisk={3} files=[{4}]" -f $staticOnly, $frontendOnly, $backendOnly, $scope.highRisk, ($scope.files -join ','))
+      $fullDeploy = $scope.scope -eq 'full'
+      Write-DeployLog ("Deploy scope: noRuntime={0} staticOnly={1} frontendOnly={2} backendOnly={3} fullDeploy={4} releaseControl={5} highRisk={6} files=[{7}]" -f $noRuntime, $staticOnly, $frontendOnly, $backendOnly, $fullDeploy, $scope.releaseControl, $scope.highRisk, ($scope.files -join ','))
 
       # Static and frontend-only releases cannot mutate the database. Their
       # rollback snapshot still contains the previous dist, while the migration
       # preflight below remains able to create its own paired recovery bundle if
       # it discovers unfinished schema work from an earlier release.
-      $requiresDatabaseBackup = $backendOnly -or (-not $staticOnly -and -not $frontendOnly)
+      $requiresDatabaseBackup = $backendOnly -or $fullDeploy
       $backupScript = Join-Path $projectRoot 'scripts\backup.ps1'
       if ($preMergeBackupCreated) {
         Write-DeployLog 'Using the verified backup created immediately before runtime untracking.'
@@ -852,7 +854,9 @@ try {
         Write-DeployLog 'No database backup needed: this release cannot change backend data or schema.'
       }
 
-      if ($staticOnly) {
+      if ($noRuntime) {
+        Write-DeployLog 'NO-RUNTIME deploy: release-control, native-app, test, or documentation files only - skipping build, database backup, and service restart.'
+      } elseif ($staticOnly) {
         Write-DeployLog 'MINIMAL deploy: static assets only - copying to dist, skipping build and service restart.'
         Deploy-StaticAssets $scope $projectRoot
       } elseif ($frontendOnly) {
