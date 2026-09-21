@@ -95,6 +95,25 @@ test('reports success for every dispatched value', async () => {
   assert.equal(queue.isRunning(1), false);
 });
 
+test('reports one active lifecycle for a coalesced run', async () => {
+  const first = deferred();
+  const events = [];
+  const queue = createLatestCommandQueue({
+    execute: async (_key, value) => {
+      if (value === 10) await first.promise;
+    },
+    onStart: (key) => events.push(`start:${key}`),
+    onIdle: (key) => events.push(`idle:${key}`),
+  });
+
+  queue.enqueue('out3', 10);
+  queue.enqueue('out3', 20);
+  assert.deepEqual(events, ['start:out3']);
+  first.resolve();
+  await settle();
+  assert.deepEqual(events, ['start:out3', 'idle:out3']);
+});
+
 test('stops a failed key, drops its stale wait, and restarts on the next enqueue', async () => {
   const first = deferred();
   const sent = [];
