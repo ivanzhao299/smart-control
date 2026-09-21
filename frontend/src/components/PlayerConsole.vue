@@ -24,8 +24,8 @@
  *
  * 投影仪 (slot2) 已拆到独立页 ProjectorPage, 本页只管 LED (slot1)。
  */
-import { computed, onMounted, onScopeDispose, ref, watch } from 'vue';
-import { identityGeneration, captureIdentityGuard, createLatestIdentityRead } from '@/services/identity-boundary';
+import { computed, onMounted, onScopeDispose, ref } from 'vue';
+import { identityGeneration, captureIdentityGuard } from '@/services/identity-boundary';
 import { ElMessage, ElMessageBox, ElScrollbar } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
@@ -36,16 +36,15 @@ import {
 } from 'lucide-vue-next';
 import { usePlaybackStore } from '@/stores/playback';
 import {
-  listPlaylist, addToPlaylist, renamePlaylistItem, removeFromPlaylist, reorderPlaylist,
-  listHistory, setDisplayFit, setDocPage, setDocZoom, publishWelcome,
-  type DisplayFit, type PlaylistItemView, type PlaybackHistoryView,
+  setDocPage, setDocZoom, publishWelcome,
 } from '@/services/playback.service';
 import { useAdminUnlock } from '@/composables/useAdminUnlock';
 import { useWelcomeEditor } from '@/composables/useWelcomeEditor';
 import { usePlayerInputSources } from '@/composables/usePlayerInputSources';
+import { usePlayerPlaylist } from '@/composables/usePlayerPlaylist';
 import { WELCOME_PICK_DEFAULT, detectPlayerInputSource } from '@/features/player-input-source';
 import { powerCircuitsService, type PowerCircuitView } from '@/services/power-circuits.service';
-import { mediaService, MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
+import { MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
 
 const props = defineProps<{
   /** 1 = LED 大屏 (HDMI1), 2 = 投影仪 (HDMI2) */
@@ -81,42 +80,6 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
 const { ensureAdmin } = useAdminUnlock();
 const playbackStore = usePlaybackStore();
 const ch = computed(() => (props.slot === 1 ? playbackStore.slot1 : playbackStore.slot2));
-
-const playlist = ref<PlaylistItemView[]>([]);
-const history = ref<PlaybackHistoryView[]>([]);
-const busy = ref(false);
-const beginListRead = createLatestIdentityRead(() => !consoleDisposed);
-
-async function loadAll(): Promise<void> {
-  if (consoleDisposed) return;
-  const currentRead = beginListRead();
-  const currentAction = captureConsoleAction();
-  const slot = SLOT.value;
-  try {
-    const [pl, his] = await Promise.all([listPlaylist(slot), listHistory(slot)]);
-    if (!currentRead() || !currentAction()) return;
-    playlist.value = pl;
-    history.value = his;
-  } catch (e) {
-    if (!currentRead() || !currentAction()) return;
-    playlist.value = [];
-    history.value = [];
-    ElMessage.error(`加载播放列表失败: ${(e as Error).message}`);
-  }
-}
-// 审计 P1: 列表/历史只在本页操作后刷新 — 其他终端改动看不到。跟着在播媒体
-// 的 WS 变化节流重拉 (playback store 是 WS 实时的, 以它为信号源)。
-let reloadT: number | undefined;
-watch(SLOT, () => {
-  playlist.value = [];
-  history.value = [];
-  window.clearTimeout(reloadT);
-  void loadAll();
-}, { flush: 'sync' });
-watch(() => ch.value?.currentMediaId, () => {
-  window.clearTimeout(reloadT);
-  reloadT = window.setTimeout(() => { void loadAll(); }, 800);
-});
 
 // ============ 文档翻页 (2026-07-25 文档投屏) ============
 const isDocPlaying = computed(() => ch.value?.currentMediaKind === 'doc' && !!ch.value?.currentMediaId);
@@ -155,14 +118,60 @@ async function exitDocShow(): Promise<void> {
 let consoleDisposed = false;
 onScopeDispose(() => {
   consoleDisposed = true;
-  window.clearTimeout(reloadT);
-  playlist.value = [];
-  history.value = [];
 });
 function captureConsoleAction(): () => boolean {
   const slot = SLOT.value;
   return captureIdentityGuard(() => !consoleDisposed && SLOT.value === slot);
 }
+const {
+  playlist,
+  history,
+  busy,
+  currentInList,
+  mobTab,
+  editingId,
+  editingText,
+  vFocus,
+  pickerOpen,
+  pickerKind,
+  assets,
+  pickerLoading,
+  inPlaylist,
+  dragId,
+  dragOverId,
+  fileInput,
+  uploading,
+  uploadPct,
+  webpageDialog,
+  webpageForm,
+  loadAll,
+  playItem,
+  togglePause,
+  stopPlayback,
+  changeFit,
+  step,
+  startRename,
+  commitRename,
+  removeItem,
+  addFromHistory,
+  openPicker,
+  loadAssets,
+  pickAsset,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  pickFile,
+  onFilePicked,
+  openWebpageDialog,
+  submitWebpage,
+} = usePlayerPlaylist({
+  slot: SLOT,
+  title: () => props.title,
+  channel: ch,
+  ensureAdmin,
+  captureAction: captureConsoleAction,
+});
 let pageBusy = false;
 async function gotoDocPage(p: number): Promise<void> {
   if (pageBusy) return;
@@ -243,212 +252,6 @@ async function togglePower(): Promise<void> {
 
 onMounted(() => {
   void loadPowerCircuit(); void loadAll(); void refreshWelcomeSchemeOptions(); });
-
-/** 当前在播的是列表里的哪一条 (用 mediaId 比, 不信 index —— 可能从媒体库临时推过片子) */
-const currentInList = computed(() =>
-  playlist.value.find((x) => x.mediaId === ch.value?.currentMediaId) ?? null);
-
-// ============ 播放控制 (业主: "不能一直无脑播放, 保持用户控制状态") ============
-async function playItem(it: PlaylistItemView): Promise<void> {
-  if (it.missing) { ElMessage.warning('这个媒体已被删除, 先从列表移除'); return; }
-  busy.value = true;
-  try {
-    await playbackStore.publish(SLOT.value, it.mediaId, 'loop');
-    await loadAll();                       // 刷新历史
-    ElMessage.success(`正在播放「${it.title}」`);
-  } catch (e) {
-    ElMessage.error(`播放失败: ${(e as Error).message}`);
-  } finally { busy.value = false; }
-}
-
-/**
- * 播放 / 暂停 / 继续 —— 一个按钮三态。
- *
- * 待机时按下 = **接着上次那个继续播** (业主: "要保持最后状态, 不要每次都丢状态")。
- * 上次播的从**播放历史**里取 (history[0] 就是最近一次), 它还在列表里就播它;
- * 不在了 (被移出列表/媒体被删) 就退回列表第一个 —— 总能播起来, 不会按了没反应。
- */
-async function togglePause(): Promise<void> {
-  // 待机 -> 起播
-  if (!ch.value?.currentMediaId) {
-    if (playlist.value.length === 0) {
-      ElMessage.warning('播放列表是空的, 先上传内容或从历史里加回来');
-      return;
-    }
-    const lastId = history.value.find((h) => !h.missing)?.mediaId;
-    const target = playlist.value.find((x) => x.mediaId === lastId && !x.missing)
-      ?? playlist.value.find((x) => !x.missing);
-    if (!target) { ElMessage.warning('列表里的媒体都已被删除'); return; }
-    await playItem(target);
-    return;
-  }
-  // 播放中 -> 暂停; 已暂停 -> 继续
-  busy.value = true;
-  try {
-    if (ch.value.paused) await playbackStore.resume(SLOT.value);
-    else await playbackStore.pause(SLOT.value);
-  } catch (e) {
-    ElMessage.error(`操作失败: ${(e as Error).message}`);
-  } finally { busy.value = false; }
-}
-
-/** 随时终止 (业主: "播放过程中应该随时可以点击终止") */
-async function stopPlayback(expectedSession = ch.value?.playbackSession): Promise<void> {
-  if (!expectedSession) { ElMessage.warning('请刷新播放状态后重试'); return; }
-  busy.value = true;
-  try {
-    await playbackStore.stop(SLOT.value, expectedSession);
-    ElMessage.success(`已终止, ${props.title}回到待机`);
-  } catch (e) {
-    ElMessage.error(`终止失败: ${(e as Error).message}`);
-  } finally { busy.value = false; }
-}
-
-/** 画面铺放模式 (业主 2026-07-25): 下拉选择, 默认铺满; 后端持久 + WS 推给 kiosk 即时生效 */
-async function changeFit(fit: DisplayFit): Promise<void> {
-  busy.value = true;
-  try {
-    await setDisplayFit(SLOT.value, fit);
-    await playbackStore.load();   // WS 也会推, 这里再拉一次保证本页立即一致
-    const label = fit === 'fill' ? '铺满屏幕' : fit === 'contain' ? '保持比例' : '裁切铺满';
-    ElMessage.success(`画面铺放已切为「${label}」`);
-  } catch (e) {
-    ElMessage.error(`切换铺放模式失败: ${(e as Error).message}`);
-  } finally { busy.value = false; }
-}
-
-async function step(dir: 'next' | 'prev'): Promise<void> {
-  busy.value = true;
-  try {
-    await (dir === 'next' ? playbackStore.next(SLOT.value) : playbackStore.prev(SLOT.value));
-    await loadAll();
-  } catch (e) {
-    // 列表空时后端返回 400 + 人话, 直接透给业主
-    ElMessage.warning((e as Error).message);
-  } finally { busy.value = false; }
-}
-
-// ============ 播放列表维护 ============
-const editingId = ref<number | null>(null);
-const editingText = ref('');
-// 编辑框一出现就自动聚焦并全选 (原来没聚焦, 得手动点进去, 而父项是 draggable
-// 又会把点击当拖拽 —— 于是"点不进/存不了/退不出"。见下 startRename 的 draggable 处理)
-const vFocus = {
-  mounted(el: HTMLInputElement) { el.focus(); el.select(); },
-};
-async function startRename(it: PlaylistItemView): Promise<void> {
-  if (!(await ensureAdmin('改名'))) return;
-  editingId.value = it.id;
-  editingText.value = it.title;
-}
-async function commitRename(it: PlaylistItemView): Promise<void> {
-  const title = editingText.value.trim();
-  editingId.value = null;
-  if (!title || title === it.title) return;
-  const before = it.title;
-  it.title = title;                        // 乐观
-  try {
-    await renamePlaylistItem(it.id, title);
-    ElMessage.success('已改名 (只改列表显示名, 媒体库原文件不变)');
-  } catch (e) {
-    it.title = before;
-    ElMessage.error(`改名失败: ${(e as Error).message}`);
-  }
-}
-
-async function removeItem(it: PlaylistItemView): Promise<void> {
-  const isCurrent = captureConsoleAction();
-  try {
-    await ElMessageBox.confirm(`把「${it.title}」移出播放列表? (媒体库里的文件不会删)`, '移出播放列表', { type: 'warning' });
-  } catch { return; }
-  if (!isCurrent()) return;
-  try {
-    await removeFromPlaylist(it.id);
-    if (!isCurrent()) return;
-    await loadAll();
-    ElMessage.success('已移出播放列表');
-  } catch (e) {
-    if (isCurrent()) ElMessage.error(`移出失败: ${(e as Error).message}`);
-  }
-}
-
-/** 从历史里一键加回列表 (现场常有"刚才那个再放一遍") */
-async function addFromHistory(h: PlaybackHistoryView): Promise<void> {
-  if (h.missing) { ElMessage.warning('这个媒体已被删除'); return; }
-  try {
-    await addToPlaylist(SLOT.value, h.mediaId);
-    await loadAll();
-    ElMessage.success(`「${h.mediaName}」已加入播放列表`);
-  } catch (e) {
-    ElMessage.error(`加入失败: ${(e as Error).message}`);
-  }
-}
-
-// ============ 从媒体库选内容加入播放列表 ============
-/**
- * 2026-07-17 业主: "昨天上传的视频内容是MP4格式, 但不能发送到屏幕播放, 是什么原因?"
- *                 "现在LED大屏之前的欢迎页和网页选择项不见了"
- *
- * 真因 (我挖的坑): 我重做这个页面时, 把老版"视频/图片""网页"两个按钮 (跳媒体页选片)
- * 砍掉换成了播放列表, 但**只留了两条进列表的路**: 上传新的、从播放历史加回。
- * 于是**之前就躺在媒体库里的东西, 既不在历史里(从没播过)、又没法从媒体库选 —— 根本
- * 进不了播放列表**, 自然"发送不到屏幕"。查证过: 那个 MP4 上传成功、文件在、HTTP 200、
- * 编码是 avc1(H.264) Edge 原生能播 —— **格式从来不是原因, 是没有入口**。
- * 网页同理 (网页在媒体库里就是 kind='webpage' 的条目, PlayerPage 本来就支持渲染)。
- *
- * 补上这个选择器, 三个问题一起解决, 而且**不跳走**。
- */
-/** 手机上列表/历史二选一显示; 平板以上两栏并排, 这个值不起作用 */
-const mobTab = ref<'list' | 'his'>('list');
-const pickerOpen = ref(false);
-const pickerKind = ref<'video' | 'image' | 'webpage'>('video');
-const assets = ref<Array<{ id: number; originalName: string; kind: string }>>([]);
-const pickerLoading = ref(false);
-const beginAssetRead = createLatestIdentityRead(() => !consoleDisposed && pickerOpen.value);
-watch(SLOT, () => { pickerOpen.value = false; }, { flush: 'sync' });
-watch(pickerOpen, open => {
-  if (!open) {
-    beginAssetRead(); // Invalidate even if the dialog is reopened before completion.
-    assets.value = [];
-    pickerLoading.value = false;
-  }
-}, { flush: 'sync' });
-onScopeDispose(() => { assets.value = []; });
-
-async function openPicker(): Promise<void> {
-  pickerOpen.value = true;
-  await loadAssets();
-}
-async function loadAssets(): Promise<void> {
-  if (consoleDisposed || !pickerOpen.value) return;
-  const currentRead = beginAssetRead();
-  const currentAction = captureConsoleAction();
-  const kind = pickerKind.value;
-  pickerLoading.value = true;
-  assets.value = [];
-  try {
-    const r = await mediaService.list({ kind });
-    if (!currentRead() || !currentAction() || kind !== pickerKind.value) return;
-    assets.value = r.items.map((m) => ({ id: m.id, originalName: m.originalName, kind: m.kind }));
-  } catch (e) {
-    if (currentRead() && currentAction()) ElMessage.error(`读媒体库失败: ${(e as Error).message}`);
-  } finally { if (currentRead() && currentAction()) pickerLoading.value = false; }
-}
-async function pickAsset(a: { id: number; originalName: string }): Promise<void> {
-  if (!pickerOpen.value || pickerLoading.value || !assets.value.some(item => item.id === a.id)) return;
-  const currentAction = captureConsoleAction();
-  try {
-    await addToPlaylist(SLOT.value, a.id);
-    if (!currentAction()) return;
-    await loadAll();
-    if (!currentAction()) return;
-    ElMessage.success(`「${a.originalName}」已加入播放列表`);
-  } catch (e) {
-    if (currentAction()) ElMessage.error(`加入失败: ${(e as Error).message}`);
-  }
-}
-/** 已在列表里的不重复加 —— 让业主一眼看出哪些已经加过 */
-const inPlaylist = computed(() => new Set(playlist.value.map((x) => x.mediaId)));
 
 // 输入源身份只从播放通道权威状态派生；切换与运营大屏控制由专用用例编排。
 const activeSource = computed(() => detectPlayerInputSource(ch.value));
@@ -539,115 +342,6 @@ const {
 
 // 欢迎页编辑和输入源切换均已收敛到组合式用例；本组件保留模板与播放器编排。
 
-// ============ 拖拽排序 ============
-// 原生 HTML5 drag & drop, 不引第三方库。顺序**存后端** (reorderPlaylist):
-// 现场是主控机+平板+手机多终端, 只存前端的话每台设备顺序都不一样, 等于没排 ——
-// 灯光分区排序已经论证过这一点, 同一个道理。
-const dragId = ref<number | null>(null);
-const dragOverId = ref<number | null>(null);
-
-function onDragStart(it: PlaylistItemView, ev: DragEvent): void {
-  dragId.value = it.id;
-  ev.dataTransfer?.setData('text/plain', String(it.id));   // Firefox 不设这个不触发 drop
-  if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move';
-}
-function onDragOver(it: PlaylistItemView, ev: DragEvent): void {
-  if (dragId.value === null || dragId.value === it.id) return;
-  ev.preventDefault();                                     // 不 preventDefault 就不允许 drop
-  dragOverId.value = it.id;
-}
-async function onDrop(target: PlaylistItemView): Promise<void> {
-  const from = dragId.value;
-  dragId.value = null;
-  dragOverId.value = null;
-  if (from === null || from === target.id) return;
-
-  const list = playlist.value.slice();
-  const fi = list.findIndex((x) => x.id === from);
-  const ti = list.findIndex((x) => x.id === target.id);
-  if (fi < 0 || ti < 0) return;
-  if (new Set(list.map(item => item.ownerUserId)).size > 1) {
-    ElMessage.warning('当前包含共享及个人列表，不能混合排序');
-    return;
-  }
-  const [moved] = list.splice(fi, 1);
-  list.splice(ti, 0, moved);
-  const before = playlist.value;
-  playlist.value = list;                                   // 乐观: 松手立刻就位
-  try {
-    await reorderPlaylist(SLOT.value, list.map((x) => x.id));
-  } catch (e) {
-    playlist.value = before;                               // 失败回滚, 不留后端不认的假顺序
-    ElMessage.error(`排序保存失败: ${(e as Error).message}`);
-  }
-}
-function onDragEnd(): void {
-  dragId.value = null;
-  dragOverId.value = null;
-}
-
-// ============ 本页直接上传 (业主: "在 LED 大屏播放页面就可以直接点击上传内容") ============
-const fileInput = ref<HTMLInputElement | null>(null);
-const uploading = ref(false);
-const uploadPct = ref(0);
-function pickFile(): void { fileInput.value?.click(); }
-
-async function onFilePicked(ev: Event): Promise<void> {
-  const f = (ev.target as HTMLInputElement).files?.[0];
-  (ev.target as HTMLInputElement).value = '';    // 允许连续传同一个文件
-  if (!f) return;
-  const isCurrent = captureConsoleAction();
-  uploading.value = true;
-  uploadPct.value = 0;
-  try {
-    const m = await mediaService.upload(f, { onProgress: (pct: number) => { uploadPct.value = pct; } });
-    if (!isCurrent()) return;
-    // **只入媒体库, 不自动进播放列表** —— 业主: "媒体文件夹内容默认不加入播放列表,
-    // 需经管理员确认后再手工加入"。所以这里问一句, 由人决定。
-    try {
-      await ElMessageBox.confirm(
-        `「${m.originalName}」已上传到媒体库。要现在加入播放列表吗?`,
-        '上传完成',
-        { confirmButtonText: '加入播放列表', cancelButtonText: '只放媒体库', type: 'success' },
-      );
-      if (!isCurrent()) return;
-      await addToPlaylist(SLOT.value, m.id);
-      if (!isCurrent()) return;
-      await loadAll();
-      ElMessage.success('已加入播放列表');
-    } catch {
-      if (isCurrent()) ElMessage.info('已保存到媒体库 (未加入播放列表)');
-    }
-  } catch (e) {
-    if (isCurrent()) ElMessage.error(`上传失败: ${(e as Error).message}`);
-  } finally {
-    uploading.value = false;
-  }
-}
-
-// ============ 添加网页 (业主: "说的可以播放网页内容也没加上吗") ============
-// "从媒体库选"的网页 tab 只能挑**已经存在**的网页条目 —— 库里一条没有的话形同虚设,
-// 得先去媒体页用"添加网页"建一条再回来选, 业主感受就是"没加上"。跟"上传内容"
-// 同一个道理, 本页直接能建, 不用跳走 (业主: "播放页面不应该点击按钮跳转到其他页面")。
-const webpageDialog = ref(false);
-const webpageForm = ref<{ name: string; url: string }>({ name: '', url: '' });
-function openWebpageDialog(): void {
-  webpageForm.value = { name: '', url: '' };
-  webpageDialog.value = true;
-}
-async function submitWebpage(): Promise<void> {
-  const url = webpageForm.value.url.trim();
-  if (!/^https?:\/\//i.test(url)) { ElMessage.warning('网址要以 http:// 或 https:// 开头'); return; }
-  try {
-    const m = await mediaService.createWebpage(webpageForm.value.name.trim() || url, url);
-    await addToPlaylist(SLOT.value, m.id);
-    await loadAll();
-    webpageDialog.value = false;
-    ElMessage.success(`「${m.originalName}」已加入播放列表`);
-  } catch (e) {
-    ElMessage.error(`添加失败: ${(e as Error).message}`);
-  }
-}
 </script>
 
 <template>
