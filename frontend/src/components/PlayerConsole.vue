@@ -24,9 +24,9 @@
  *
  * 投影仪 (slot2) 已拆到独立页 ProjectorPage, 本页只管 LED (slot1)。
  */
-import { computed, onMounted, onScopeDispose, ref } from 'vue';
+import { computed, onMounted, onScopeDispose } from 'vue';
 import { captureIdentityGuard } from '@/services/identity-boundary';
-import { ElMessage, ElMessageBox, ElScrollbar } from 'element-plus';
+import { ElScrollbar } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
   ArrowLeft, MonitorPlay, Play, Pause, Square, SkipBack, SkipForward,
@@ -41,8 +41,8 @@ import { useWelcomeEditor } from '@/composables/useWelcomeEditor';
 import { usePlayerInputSources } from '@/composables/usePlayerInputSources';
 import { usePlayerPlaylist } from '@/composables/usePlayerPlaylist';
 import { usePlayerDocumentControls } from '@/composables/usePlayerDocumentControls';
+import { usePlayerPowerControls } from '@/composables/usePlayerPowerControls';
 import { WELCOME_PICK_DEFAULT, detectPlayerInputSource } from '@/features/player-input-source';
-import { powerCircuitsService, type PowerCircuitView } from '@/services/power-circuits.service';
 import { MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
 
 const props = defineProps<{
@@ -153,69 +153,20 @@ const {
   stopPlayback,
 });
 
-// ============ 屏幕电源开关 ============
-// powerCode 支持逗号分隔多个回路 code (2026-07-26 业主: 投影仪与视频拼接器
-// 同时工作, 一个开关同开同关 —— 投影页传 "seq-5,seq-4")。开关状态 = 全部通电
-// 才亮; 拨动 = 所有回路一起 on/off (时序器自身按各路延时依次动作, 保护设备)。
-// 2026-07-28 业主: 分组再并入按名定位的功放路 (powerNameGroups), 同开同关。
-const powerCircuits = ref<PowerCircuitView[]>([]);
-async function loadPowerCircuit(): Promise<void> {
-  if (!props.powerCode && !props.powerNameGroups?.length) return;
-  const codes = (props.powerCode ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-  try {
-    const list = await powerCircuitsService.list();
-    const byCode = codes
-      .map((code) => list.find((c) => c.code === code))
-      .filter((c): c is PowerCircuitView => !!c);
-    const byName = (props.powerNameGroups ?? []).length
-      ? list.filter((c) =>
-          c.category === 'audio-seq'
-          && (props.powerNameGroups ?? []).some((kws) => kws.every((k) => c.name.includes(k))))
-      : [];
-    // code 命中优先保序, 按名命中追加, 按 id 去重
-    const seen = new Set<number>();
-    powerCircuits.value = [...byCode, ...byName].filter((c) => (seen.has(c.id) ? false : (seen.add(c.id), true)));
-  } catch { /* 电源子系统不可达时不显示开关 */ }
-}
-const powerAllOn = computed(
-  () => powerCircuits.value.length > 0 && powerCircuits.value.every((c) => c.reading.on),
-);
-const powerBusy = ref(false);
-async function togglePower(): Promise<void> {
-  if (!powerCircuits.value.length || powerBusy.value) return;
-  const isCurrent = captureConsoleAction();
-  const on = powerAllOn.value;
-  if (on) {
-    try {
-      await ElMessageBox.confirm(`确定断开${props.title}电源?画面会熄灭。`, '断电确认',
-        { type: 'warning', confirmButtonText: '断电', cancelButtonText: '取消' });
-    } catch { return; }
-  }
-  if (!isCurrent()) return;
-  powerBusy.value = true;
-  try {
-    // 逐个下发 (共用一条串口链路, 并发会互踩); 部分失败也把能做的做完, 最后统一报
-    const failed: string[] = [];
-    for (let i = 0; i < powerCircuits.value.length; i += 1) {
-      if (!isCurrent()) return;
-      const c = powerCircuits.value[i];
-      try {
-        powerCircuits.value[i] = on ? await powerCircuitsService.off(c.id) : await powerCircuitsService.on(c.id);
-      } catch (e) {
-        failed.push(`${c.name}: ${(e as Error).message}`);
-      }
-    }
-    if (!isCurrent()) return;
-    if (failed.length) {
-      ElMessage.error(`部分电源操作失败: ${failed.join('; ')}`);
-    } else {
-      ElMessage.success(on ? `${props.title}电源已断开` : `${props.title}电源已接通`);
-    }
-  } finally { powerBusy.value = false; }
-}
+const {
+  powerCircuits,
+  powerAllOn,
+  powerBusy,
+  togglePower,
+} = usePlayerPowerControls({
+  title: () => props.title,
+  powerCode: () => props.powerCode,
+  powerNameGroups: () => props.powerNameGroups,
+  captureAction: captureConsoleAction,
+});
 
 onMounted(() => {
-  void loadPowerCircuit(); void loadAll(); void refreshWelcomeSchemeOptions(); });
+  void loadAll(); void refreshWelcomeSchemeOptions(); });
 
 // 输入源身份只从播放通道权威状态派生；切换与运营大屏控制由专用用例编排。
 const activeSource = computed(() => detectPlayerInputSource(ch.value));
