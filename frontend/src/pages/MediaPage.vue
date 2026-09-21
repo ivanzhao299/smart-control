@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useActivePolling } from '@/composables/useActivePolling';
+import { useBaiduPanJourney } from '@/composables/useBaiduPanJourney';
 import { useMediaUploadQueue } from '@/composables/useMediaUploadQueue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter, useRoute } from 'vue-router';
@@ -28,11 +29,9 @@ import {
   MEDIA_UPLOAD_ACCEPT,
 } from '@/features/media-file-intake';
 import { onlineMusicService, type OnlineTrack } from '@/services/online-music.service';
-import { baiduPanService, type PanFile, type PanStatus, type PanAuthStart } from '@/services/baidu-pan.service';
 import { usePlaybackStore } from '@/stores/playback';
 import { useSystemBrandingStore } from '@/stores/system-branding';
-import { absUrl, HttpError, api } from '@/services/http';
-import { useAdminAuthStore } from '@/stores/admin-auth';
+import { absUrl, api } from '@/services/http';
 import { useCurrentActor } from '@/services/current-actor';
 const { isAdmin: actorIsAdmin, canOperate, canEditMedia } = useCurrentActor();
 let disposed = false;
@@ -319,163 +318,35 @@ async function downloadOnline(t: OnlineTrack): Promise<void> {
   } finally { onlineBusyPath.value = null; }
 }
 
-// ── 百度网盘 (2026-07-29 业主: "把B做出来") ──
-// 三步态: 未配置(粘 AppKey/SecretKey) → 未授权(设备码, 手机输码) → 已授权(浏览+代下载)。
-// 下载在 GK9000 服务器侧流式落盘, 这里 2s 轮询进度; 完成自动入媒体库。
-const panDialog = ref(false);
-const panStatus = ref<PanStatus | null>(null);
-const panCfg = ref({ appKey: '', secretKey: '' });
-const panAuth = ref<PanAuthStart | null>(null);
-const panAuthHint = ref('');
-const panDir = ref('/');
-const panEntries = ref<PanFile[]>([]);
-const panLoading = ref(false);
-const panErr = ref('');
-// 网盘仅管理员可用；弹窗内使用同一套个人管理员账户验证。
-const panNeedAdmin = ref(false);
-const panAdminUsername = ref('');
-const panAdminPwd = ref('');
-const panAdminBusy = ref(false);
-const adminAuthStore = useAdminAuthStore();
-let panPollTimer: number | undefined;
-
-async function openPanDialog(): Promise<void> {
-  panDialog.value = true;
-  panErr.value = '';
-  await refreshPanStatus();
-  if (panStatus.value?.authorized) await panList(panDir.value);
-  schedulePanPoll();
-}
-function closePanDialog(): void {
-  panDialog.value = false;
-  window.clearTimeout(panPollTimer);
-  panAuth.value = null;
-}
-async function refreshPanStatus(): Promise<void> {
-  try {
-    panStatus.value = await baiduPanService.status();
-    panNeedAdmin.value = false;
-  } catch (e) {
-    if (e instanceof HttpError && (e.status === 401 || e.status === 403)) {
-      panNeedAdmin.value = true;   // 仅管理员可用, 弹窗切到密码验证态
-      panErr.value = '';
-    } else {
-      panErr.value = (e as Error).message;
-    }
-  }
-}
-
-/** 弹窗内验证后台管理密码 → 拿 admin 令牌后放行网盘操作 */
-async function panVerifyAdmin(): Promise<void> {
-  if (!panAdminUsername.value.trim() || !panAdminPwd.value) { ElMessage.warning('请输入管理员用户名和密码'); return; }
-  panAdminBusy.value = true;
-  try {
-    await adminAuthStore.login(panAdminUsername.value, panAdminPwd.value);
-    panAdminUsername.value = '';
-    panAdminPwd.value = '';
-    panNeedAdmin.value = false;
-    await refreshPanStatus();
-    if (panStatus.value?.authorized) await panList(panDir.value);
-  } catch (e) {
-    ElMessage.error(`验证失败: ${(e as Error).message}`);
-  } finally { panAdminBusy.value = false; }
-}
-
-/** 设置可见根目录 — 服务端把浏览/下载钳制在该目录内 */
-async function panSetRoot(): Promise<void> {
-  if (disposed || !actorIsAdmin.value) return;
-  try {
-    const { value } = await ElMessageBox.prompt(
-      '设置后, 系统只能看到并下载该文件夹内的内容, 网盘其余内容完全不可见 (留空 = 全盘可见, 不推荐)。例: /展厅素材',
-      '设置可见根目录',
-      { inputValue: panStatus.value?.rootPath ?? '', confirmButtonText: '保存', cancelButtonText: '取消' },
-    );
-    if (disposed || !actorIsAdmin.value) return;
-    await baiduPanService.setRoot((value ?? '').trim() || null);
-    ElMessage.success('可见根目录已更新');
-    await refreshPanStatus();
-    await panList(panStatus.value?.rootPath ?? '/');
-  } catch (e) {
-    if (e !== 'cancel' && (e as Error)?.message) ElMessage.error((e as Error).message);
-  }
-}
-/** 弹窗开着就 2s 轮询: 状态读取失败重试 + 授权等待 + 下载进度都靠它推进 */
-function schedulePanPoll(): void {
-  window.clearTimeout(panPollTimer);
-  if (!panDialog.value) return;
-  panPollTimer = window.setTimeout(async () => {
-    if (!panStatus.value) {
-      if (!panNeedAdmin.value) {   // 等待管理员验证时不空转重试
-        await refreshPanStatus();
-        if (panStatus.value) {
-          panErr.value = '';
-          if ((panStatus.value as PanStatus).authorized) await panList(panDir.value);
-        }
-      }
-    } else if (panAuth.value && !panStatus.value?.authorized) {
-      try {
-        const r = await baiduPanService.authPoll();
-        if (r.authorized) {
-          panAuth.value = null;
-          ElMessage.success('百度网盘授权成功');
-          await refreshPanStatus();
-          await panList('/');
-        } else { panAuthHint.value = r.pending ?? '等待手机确认…'; }
-      } catch (e) { panAuthHint.value = (e as Error).message; }
-    } else if (panStatus.value?.download.active) {
-      const before = panStatus.value.download.last?.at;
-      await refreshPanStatus();
-      const last = panStatus.value?.download.last;
-      if (last && last.at !== before && !panStatus.value?.download.active) {
-        (last.ok ? ElMessage.success : ElMessage.error)(`「${last.name}」${last.message}`);
-        if (last.ok) { void refresh(); await panList(panDir.value); }
-      }
-    }
-    schedulePanPoll();
-  }, 2000);
-}
-async function panSaveConfig(): Promise<void> {
-  if (disposed || !actorIsAdmin.value) return;
-  if (!panCfg.value.appKey.trim() || !panCfg.value.secretKey.trim()) { ElMessage.warning('AppKey 和 SecretKey 都要填'); return; }
-  try {
-    await baiduPanService.saveConfig(panCfg.value.appKey, panCfg.value.secretKey);
-    panCfg.value = { appKey: '', secretKey: '' };
-    ElMessage.success('已保存, 点「开始授权」用手机完成授权');
-    await refreshPanStatus();
-  } catch (e) { ElMessage.error((e as Error).message); }
-}
-async function panStartAuth(): Promise<void> {
-  if (disposed || !actorIsAdmin.value) return;
-  try {
-    panAuth.value = await baiduPanService.authStart();
-    panAuthHint.value = '等待手机确认…';
-  } catch (e) { ElMessage.error((e as Error).message); }
-}
-async function panList(dir: string): Promise<void> {
-  panLoading.value = true;
-  panErr.value = '';
-  try {
-    const r = await baiduPanService.list(dir);
-    panDir.value = r.dir;
-    panEntries.value = r.entries;
-  } catch (e) { panErr.value = (e as Error).message; }
-  finally { panLoading.value = false; }
-}
-function panUp(): void {
-  const root = panStatus.value?.rootPath;
-  if (panDir.value === '/' || (root && panDir.value === root)) return;
-  const parts = panDir.value.split('/').filter(Boolean);
-  parts.pop();
-  void panList('/' + parts.join('/'));
-}
-async function panDownload(f: PanFile): Promise<void> {
-  if (disposed || !actorIsAdmin.value) return;
-  try {
-    await baiduPanService.download(f.fsId, f.name);
-    ElMessage.success(`「${f.name}」开始下载, 完成后自动入媒体库`);
-    await refreshPanStatus();
-  } catch (e) { ElMessage.error((e as Error).message); }
-}
+const {
+  panDialog,
+  panStatus,
+  panCfg,
+  panAuth,
+  panAuthHint,
+  panDir,
+  panEntries,
+  panLoading,
+  panErr,
+  panNeedAdmin,
+  panAdminUsername,
+  panAdminPwd,
+  panAdminBusy,
+  openPanDialog,
+  closePanDialog,
+  refreshPanStatus,
+  panVerifyAdmin,
+  panSetRoot,
+  panSaveConfig,
+  panStartAuth,
+  panList,
+  panUp,
+  panDownload,
+} = useBaiduPanJourney({
+  isAdmin: actorIsAdmin,
+  refreshMedia: refresh,
+  isDisposed: () => disposed,
+});
 
 // ── 收编服务器上手动拷进来的文件 (业主 RDP 进服务器直接把视频丢进 media 文件夹,
 // 没走上传接口, 数据库不认识, PWA 自然看不到它 —— 媒体库从来只认数据库记录,
@@ -1004,7 +875,7 @@ onBeforeUnmount(() => { disposed = true; stopProcessingPoll(); });
           </div>
           <div class="wb-actions">
             <button class="v2-quick" @click="closePanDialog">关闭</button>
-            <button class="v2-quick primary" @click="refreshPanStatus">重试</button>
+            <button class="v2-quick primary" @click="refreshPanStatus()">重试</button>
           </div>
         </template>
       </div>
