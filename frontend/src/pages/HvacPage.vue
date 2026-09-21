@@ -18,6 +18,7 @@
  */
 import { computed, nextTick, ref, type Component } from 'vue';
 import { useActivePolling } from '@/composables/useActivePolling';
+import { useHvacControls } from '@/composables/useHvacControls';
 import { useHvacIndoorOrder } from '@/composables/useHvacIndoorOrder';
 import { useHvacRuntimeState } from '@/composables/useHvacRuntimeState';
 import { ElMessage, ElMessageBox } from 'element-plus';
@@ -27,7 +28,6 @@ import {
   Power, Minus, Plus, Thermometer, Pencil, Check, FolderPlus, Trash2, Layers,
   AlertTriangle, RefreshCw,
 } from 'lucide-vue-next';
-import { haptics } from '@/services/haptics';
 import {
   hvacService, type HvacFan, type HvacMode, type HvacZone,
 } from '@/services/hvac.service';
@@ -45,17 +45,13 @@ import {
   type HvacFloorFilter,
   type HvacZoneCard,
   type IndoorRow,
-  type IndoorState,
 } from '@/features/hvac-view-model';
 
 const router = useRouter();
 function goBack(): void { void router.push({ name: 'dashboard' }); }
 
 const indoors = ref<IndoorRow[]>([]);
-/** 错峰下发中 (开/关机是逐台串行, 22 台约 10s) — 界面提示别让人以为卡死 */
-const dispatching = ref(false);
 const zones = ref<HvacZone[]>([]);
-const busy = ref(false);
 const floorTab = ref<HvacFloorFilter>('all');
 /** 手机端快选条默认折叠成一行横滚 (14 个分组铺 6 行占掉 1/4 屏), 点「展开」才铺开 */
 const quickExpanded = ref(false);
@@ -177,53 +173,6 @@ const allSelected = computed(() =>
   isSelectionComplete(selected.value, visibleIndoors.value.map((i) => i.idx)),
 );
 
-// ============ 控制 (统一走 batch, 乐观更新 + 失败回滚) ============
-
-/**
- * @param apply 本地状态怎么改 (先改, 让界面立刻响应)
- * @param send  真正的下发
- */
-async function run(
-  label: string,
-  apply: (s: IndoorState) => void,
-  send: (idxs: number[]) => Promise<{ okCount: number; failCount: number }>,
-): Promise<void> {
-  const rows = selectedRows.value;
-  if (!rows.length) { ElMessage.warning('请先选中内机'); return; }
-  const backup = rows.map((r) => ({ idx: r.idx, snapshot: { ...r.state } }));
-  // 先乐观改, 让按钮跟手 (中弘网关下发到状态寄存器更新有延迟, 干等会像卡死)
-  rows.forEach((r) => apply(r.state));
-  markWrite();
-  haptics.tap(); // A2: 命令真的走出去
-  busy.value = true;
-  try {
-    const r = await send(rows.map((x) => x.idx));
-    if (r.okCount === 0 && r.failCount > 0) throw new Error('全部失败');
-    if (r.failCount > 0) ElMessage.warning(`${label}: 部分成功 (${r.okCount}/${r.okCount + r.failCount})`);
-  } catch (err) {
-    // 全失败才回滚 —— 部分成功时回滚会把成功的那些也抹掉, 反而更不准
-    const map = new Map(backup.map((b) => [b.idx, b.snapshot]));
-    indoors.value.forEach((i) => { const s = map.get(i.idx); if (s) i.state = s; });
-    ElMessage.error(`${label} 失败: ${(err as Error).message}`);
-  } finally {
-    busy.value = false;
-    // 关键: 复读真机, 用寄存器的真相覆盖掉刚才的乐观猜测.
-    // 命令下发到网关刷新状态寄存器有延迟, 立刻读会读到旧值, 所以等一下再读。
-    scheduleTruthRefresh();
-  }
-}
-
-// 开/关走后端错峰 (0.4s/台) — dispatching 提示逐台下发中
-const turnOn = () => { dispatching.value = true; void run('开机', (s) => { s.on = true; }, (ix) => hvacService.batchOn(ix)).finally(() => { dispatching.value = false; }); };
-const turnOff = () => { dispatching.value = true; void run('关机', (s) => { s.on = false; }, (ix) => hvacService.batchOff(ix)).finally(() => { dispatching.value = false; }); };
-const setMode = (mode: HvacMode) => run('模式', (s) => { s.mode = mode; }, (ix) => hvacService.batchMode(ix, mode));
-const setFan = (speed: HvacFan) => run('风速', (s) => { s.fan = speed; }, (ix) => hvacService.batchFanSpeed(ix, speed));
-function adjustTemp(delta: number): void {
-  const next = Math.max(16, Math.min(30, selTemp.value + delta));
-  if (next === selTemp.value) return;
-  void run('温度', (s) => { s.temperature = next; }, (ix) => hvacService.batchTemperature(ix, next));
-}
-
 // ============ 分区视图 (2026-07-29 业主: "分组逻辑要像灯光页一样直接组控") ============
 // 灯光页的范式: 分区就是一张卡, 卡上直接开关/调参数 —— 不需要"先点快选选中、
 // 再到浮层操作"那两步。空调分区卡: 开关 (组内有开着的 → 视为开, 点击全组关;
@@ -235,8 +184,6 @@ const zkey = (c: string | null): string => c ?? '__none__';
 
 const zoneCards = computed(() => buildZoneCards(visibleIndoors.value, visibleZones.value));
 
-/** 正在下发的分区 key (整卡禁点, 别让两组命令在 485 上叠着跑) */
-const zoneBusy = ref<string | null>(null);
 const {
   loading,
   lastPollAt,
@@ -250,80 +197,45 @@ const {
   indoors,
   zones,
   selected,
-  isBusy: () => busy.value || zoneBusy.value !== null || dispatching.value,
+  isBusy: () => busy.value,
 });
-useActivePolling(startPolling, stopPolling);
+const {
+  busy,
+  dispatching,
+  zoneBusy,
+  turnOn,
+  turnOff,
+  setMode,
+  setFan,
+  setTemperature,
+  zonePower,
+  zoneSetTemperature,
+  zoneSetMode,
+  floorPower,
+  stopControls,
+} = useHvacControls({
+  indoors,
+  selectedRows: () => selectedRows.value,
+  visibleIndoors: () => visibleIndoors.value,
+  floor: () => floorTab.value,
+  markWrite,
+  scheduleTruthRefresh,
+});
+useActivePolling(startPolling, () => {
+  stopControls();
+  stopPolling();
+});
 
-async function zoneRun(
-  card: HvacZoneCard, label: string,
-  apply: (s: IndoorState) => void,
-  send: (idxs: number[]) => Promise<{ okCount: number; failCount: number }>,
-): Promise<void> {
-  if (zoneBusy.value || !card.members.length) return;
-  zoneBusy.value = zkey(card.code);
-  const backup = card.members.map((r) => ({ idx: r.idx, snapshot: { ...r.state } }));
-  card.members.forEach((r) => { apply(r.state); r.state.known = true; });   // 乐观跟手
-  markWrite();
-  haptics.tap();
-  try {
-    const r = await send(card.members.map((m) => m.idx));
-    if (r.okCount === 0 && r.failCount > 0) throw new Error('全部失败');
-    if (r.failCount > 0) ElMessage.warning(`「${card.name}」${label}: 部分成功 (${r.okCount}/${r.okCount + r.failCount})`);
-  } catch (err) {
-    const map = new Map(backup.map((b) => [b.idx, b.snapshot]));
-    indoors.value.forEach((i) => { const s = map.get(i.idx); if (s) i.state = s; });
-    ElMessage.error(`「${card.name}」${label}失败: ${(err as Error).message}`);
-  } finally {
-    zoneBusy.value = null;
-    scheduleTruthRefresh();   // 真机寄存器为准
-  }
+function adjustTemp(delta: number): void {
+  const next = Math.max(16, Math.min(30, selTemp.value + delta));
+  if (next === selTemp.value) return;
+  void setTemperature(next);
 }
-function zonePower(card: HvacZoneCard): void {
-  const on = card.onCount === 0;   // 有开着的 → 全关; 全关着 → 全开
-  void zoneRun(card, on ? '开机' : '关机', (s) => { s.on = on; },
-    (ix) => (on ? hvacService.batchOn(ix) : hvacService.batchOff(ix)));
-}
+
 function zoneAdjustTemp(card: HvacZoneCard, delta: number): void {
   const next = Math.max(16, Math.min(30, card.temp + delta));
   if (next === card.temp) return;
-  void zoneRun(card, '温度', (s) => { s.temperature = next; }, (ix) => hvacService.batchTemperature(ix, next));
-}
-function zoneSetMode(card: HvacZoneCard, mode: HvacMode): void {
-  void zoneRun(card, '模式', (s) => { s.mode = mode; }, (ix) => hvacService.batchMode(ix, mode));
-}
-
-/** 顶部"全开/全关" — 作用于当前楼层 tab 的全部内机, 跟选中无关。
- *  2026-07-25 生产级整改: 一键动全场必须二次确认 (访客/保洁误碰一下 22 台就全动了);
- *  后端已改错峰逐台下发 (0.4s/台, 保护外机), 确认框里把耗时说清楚, 别让人以为卡死。 */
-async function floorPower(on: boolean): Promise<void> {
-  const idxs = visibleIndoors.value.map((i) => i.idx);
-  if (!idxs.length) return;
-  const scope = floorTab.value === 'all' ? '全部楼层' : (floorTab.value === '1F' ? '一楼' : '二楼');
-  try {
-    await ElMessageBox.confirm(
-      `确定${on ? '开启' : '关闭'}${scope}共 ${idxs.length} 台空调?\n将逐台错峰下发, 约需 ${Math.ceil(idxs.length * 0.6) + 2} 秒。`,
-      on ? '全开确认' : '全关确认',
-      { type: 'warning', confirmButtonText: on ? '全开' : '全关', cancelButtonText: '取消' },
-    );
-  } catch { return; }
-  const backup = indoors.value.map((i) => ({ idx: i.idx, on: i.state.on }));
-  visibleIndoors.value.forEach((i) => { i.state.on = on; });
-  markWrite();
-  busy.value = true;
-  dispatching.value = true;
-  try {
-    const r = await (on ? hvacService.batchOn(idxs) : hvacService.batchOff(idxs));
-    if (r.okCount === 0 && r.failCount > 0) throw new Error('全部失败');
-    if (r.failCount > 0) ElMessage.warning(`部分成功 (${r.okCount}/${r.total})`);
-  } catch (err) {
-    const map = new Map(backup.map((b) => [b.idx, b.on]));
-    indoors.value.forEach((i) => { const v = map.get(i.idx); if (v !== undefined) i.state.on = v; });
-    ElMessage.error(`${on ? '全开' : '全关'} 失败: ${(err as Error).message}`);
-  } finally {
-    busy.value = false;
-    dispatching.value = false;
-    scheduleTruthRefresh();
-  }
+  void zoneSetTemperature(card, next);
 }
 
 // ============ 改名 (内机 / 组) ============
@@ -547,7 +459,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
             <button
               v-if="c.members.length"
               class="hz-power" :class="c.onCount > 0 ? 'to-off' : 'to-on'"
-              :disabled="zoneBusy !== null"
+              :disabled="busy"
               :title="c.onCount > 0 ? '关闭全组' : '开启全组'"
               @click="zonePower(c)"
             >
@@ -557,15 +469,15 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
           </div>
           <div v-if="c.members.length" class="hz-ctrl">
             <div class="hz-temp">
-              <button class="hz-tbtn" :disabled="zoneBusy !== null" @click="zoneAdjustTemp(c, -1)"><Minus :size="16" /></button>
+              <button class="hz-tbtn" :disabled="busy" @click="zoneAdjustTemp(c, -1)"><Minus :size="16" /></button>
               <span class="hz-tval v2-inter">{{ c.temp }}<i>°C</i></span>
-              <button class="hz-tbtn" :disabled="zoneBusy !== null" @click="zoneAdjustTemp(c, 1)"><Plus :size="16" /></button>
+              <button class="hz-tbtn" :disabled="busy" @click="zoneAdjustTemp(c, 1)"><Plus :size="16" /></button>
             </div>
             <div class="hz-modes">
               <button
                 v-for="m in modes" :key="m.value"
                 class="hz-mode" :class="['hzm-' + m.value, { on: c.mode === m.value }]"
-                :disabled="zoneBusy !== null" :title="m.label"
+                :disabled="busy" :title="m.label"
                 @click="zoneSetMode(c, m.value)"
               ><component :is="m.icon" :size="14" /></button>
             </div>
