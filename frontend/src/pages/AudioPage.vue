@@ -37,6 +37,7 @@ import {
 } from '@/features/audio-view-model';
 import { createLatestCommandQueue } from '@/features/latest-command-queue';
 import { createAudioMatrixCommandController } from '@/features/audio-matrix-command-controller';
+import { createPlaybackProgressController } from '@/features/playback-progress-controller';
 
 const router = useRouter();
 const route = useRoute();
@@ -90,10 +91,9 @@ async function loadPlaylist(): Promise<void> {
     ElMessage.error(`加载背景音乐列表失败: ${(e as Error).message}`);
   }
 }
-let plTimer: ReturnType<typeof setInterval> | null = null;
-let plTimerDuration = 0;     // total seconds of current track
-let plTimerElapsed = 0;      // seconds elapsed before current segment
-let plTimerSegStart = 0;     // Date.now() when current segment started
+const progressController = createPlaybackProgressController({
+  onProgress: (percent) => { plProgress.value = percent; },
+});
 
 async function loadAudioAssets(): Promise<void> {
   try {
@@ -193,7 +193,7 @@ async function commitRenamePl(it: PlItem): Promise<void> {
   }
 }
 async function clearPlaylist(): Promise<void> {
-  stopPlTimer();
+  progressController.reset();
   // 审计 P1: 清空列表时若 BGM 正在放要一并停 — 否则设备还响着, 而空列表下
   // 暂停键被禁用, 业主只能干瞪眼
   if (bgmChannel.value?.currentMediaId) {
@@ -207,48 +207,11 @@ async function clearPlaylist(): Promise<void> {
   plIdx.value = -1;
   plProgress.value = 0;
 }
-function stopPlTimer(): void {
-  if (plTimer !== null) { clearInterval(plTimer); plTimer = null; }
-}
-function pausePlTimer(): void {
-  if (plTimer !== null) {
-    plTimerElapsed += (Date.now() - plTimerSegStart) / 1000;
-    clearInterval(plTimer);
-    plTimer = null;
-  }
-}
-function resumePlTimer(): void {
-  if (plTimer !== null || !plTimerDuration) return;
-  plTimerSegStart = Date.now();
-  plTimer = setInterval(() => {
-    const elapsed = plTimerElapsed + (Date.now() - plTimerSegStart) / 1000;
-    plProgress.value = Math.min(100, (elapsed / plTimerDuration) * 100);
-    // 到点只停 + 进度拉满; 切下一首/循环由后端 bgm-player advance 触发, 前端不再
-    // 自驱切歌 (进度条纯视觉估算)。后端换曲后 WS 广播 → watch(currentMediaId) 重启进度。
-    if (elapsed >= plTimerDuration) { stopPlTimer(); plProgress.value = 100; }
-  }, 300);
-}
-function startPlTimer(dur: number | null): void {
-  stopPlTimer();
-  plProgress.value = 0;
-  plTimerElapsed = 0;
-  plTimerDuration = dur && dur > 0 ? dur : 0;
-  if (!plTimerDuration) return;
-  plTimerSegStart = Date.now();
-  plTimer = setInterval(() => {
-    const elapsed = plTimerElapsed + (Date.now() - plTimerSegStart) / 1000;
-    plProgress.value = Math.min(100, (elapsed / plTimerDuration) * 100);
-    // 到点只停 + 进度拉满; 切下一首/循环由后端 bgm-player advance 触发, 前端不再
-    // 自驱切歌 (进度条纯视觉估算)。后端换曲后 WS 广播 → watch(currentMediaId) 重启进度。
-    if (elapsed >= plTimerDuration) { stopPlTimer(); plProgress.value = 100; }
-  }, 300);
-}
-
 /**
  * 2026-07-18 业主反馈: "播放进度条不稳定"。根因之一: 部分 mp3 是 VBR 编码,
  * Chrome 读 loadedmetadata 那一刻经常给出 duration=Infinity (要扫完整个文件
  * 才知道真实时长, 浏览器不会现扫), 原来的代码遇到这种情况直接判定"探测失败"
- * 返回 null——那首歌的 plTimerDuration 就成了 0, 进度条压根不走; 换一首没有
+ * 返回 null——那首歌的估算时长就成了 0, 进度条压根不走; 换一首没有
  * 这个问题的曲子进度条又正常, 看起来就是"时好时不好"。
  * 标准 workaround: seek 到一个远超正常时长的位置, 逼浏览器把文件扫完并触发
  * durationchange 给出真实值。
@@ -296,7 +259,8 @@ async function playAt(i: number): Promise<void> {
   const idx = ((i % playlist.value.length) + playlist.value.length) % playlist.value.length;
   const item = playlist.value[idx];
   try {
-    // 只"发起播放": 推给后端 → 后端置 currentMediaId → WS 广播 → watch(currentMediaId)
+    // 只"发起播放": 推给后端 → 后端置 currentMediaId/playbackSession → WS 广播
+    // → watch(媒体+会话) 统一同步进度。
     // 统一更新高亮和进度条。前端不再自己维护一套播放状态 (前端一套 + 后端一套互相
     // 打架, 正是这个背景音乐反复没声的病根)。loopMode 传 'loop' 只是让单曲能先响;
     // 真正的"下一首/循环/随机"由后端按 playMode 在 bgm-player advance 时决定。
@@ -305,12 +269,18 @@ async function playAt(i: number): Promise<void> {
 }
 /**
  * 前端"跟随"后端 —— 当前在播哪首完全由后端说了算 (用户点歌 / bgm-player 按 playMode
- * 自动推进, 都会改后端 currentMediaId → WS 广播 → 这里)。前端只负责把高亮和进度条
- * 对上, 不再自己算"下一首"。原来那套前端 nextIdx/onTrackEnd 自驱推进跟后端打架,
+ * 自动推进, 都会改后端 playbackSession → WS 广播 → 这里)。前端只负责把高亮和
+ * 进度条对上, 不再自己算"下一首"。会话也必须参与同步：单曲循环时 mediaId 不变，
+ * 但新会话要从 0 重新计时。原来那套前端 nextIdx/onTrackEnd 自驱推进跟后端打架,
  * 是背景音乐反复没声的根源, 已删。
  */
-async function syncPlaybackFromChannel(mid: number | null | undefined): Promise<void> {
-  if (!mid) { plIdx.value = -1; stopPlTimer(); plProgress.value = 0; return; }
+async function syncPlaybackFromChannel(
+  mid: number | null | undefined,
+  session: string | null | undefined,
+): Promise<void> {
+  if (!mid) { plIdx.value = -1; progressController.reset(); return; }
+  // 新会话先终止上一会话的估算；未知时长探测最多 6 秒，期间不能让旧进度继续走。
+  progressController.reset();
   const i = playlist.value.findIndex((p) => p.id === mid);
   plIdx.value = i; // i=-1 = 当前曲不在列表 (从媒体库临时推的), 正常
   let dur: number | null = i >= 0 ? playlist.value[i].durationSec : null;
@@ -318,13 +288,23 @@ async function syncPlaybackFromChannel(mid: number | null | undefined): Promise<
     dur = await detectDuration(mid);
     // 审计 P2 竞态: detectDuration 最长 6s, 期间可能已切歌 — 旧实例的结果作废,
     // 否则会拿上一首的时长起进度条/写错列表
-    if (bgmChannel.value?.currentMediaId !== mid) return;
+    if (
+      bgmChannel.value?.currentMediaId !== mid
+      || bgmChannel.value?.playbackSession !== session
+    ) return;
     if (dur && i >= 0) playlist.value[i].durationSec = dur;
   }
-  // 暂停态不跑进度条 (等 resume), 否则从头估算
-  if (bgmChannel.value?.paused) stopPlTimer(); else startPlTimer(dur);
+  // 后端通道决定暂停态；控制器只负责本地的视觉进度估算。
+  progressController.start(dur, !!bgmChannel.value?.paused);
 }
-watch(() => bgmChannel.value?.currentMediaId, (mid) => { void syncPlaybackFromChannel(mid); });
+watch(
+  () => [bgmChannel.value?.currentMediaId, bgmChannel.value?.playbackSession] as const,
+  ([mid, session]) => { void syncPlaybackFromChannel(mid, session); },
+);
+watch(() => bgmChannel.value?.paused, (paused) => {
+  if (!bgmChannel.value?.currentMediaId) return;
+  if (paused) progressController.pause(); else progressController.resume();
+});
 // 播放模式以后端为准 (多终端一致): 后端推来就同步本地高亮
 watch(() => bgmChannel.value?.playMode, (m) => { if (m) playMode.value = m; }, { immediate: true });
 async function plTogglePause(): Promise<void> {
@@ -335,10 +315,8 @@ async function plTogglePause(): Promise<void> {
   }
   if (bgmChannel.value.paused) {
     await playbackStore.resume(3);
-    resumePlTimer();
   } else {
     await playbackStore.pause(3);
-    pausePlTimer();
   }
 }
 async function plPrev(): Promise<void> {
@@ -363,9 +341,7 @@ const plCurrentItem = computed<PlItem | null>(() =>
 );
 
 async function stopBgm(): Promise<void> {
-  stopPlTimer();
-  plProgress.value = 0;
-  plTimerElapsed = 0;
+  progressController.reset();
   try {
     await playbackStore.stop(3);
     ElMessage.success('已停止背景音乐');
@@ -446,7 +422,7 @@ function onHoldEnd(): void {
 onUnmounted(() => {
   matrixPollStopped = true; // 见 scheduleMatrixPoll: 防 await 后又排一个孤儿 timer
   if (holdRaf) cancelAnimationFrame(holdRaf);
-  stopPlTimer();
+  progressController.dispose();
   if (matrixTimer) clearTimeout(matrixTimer); // 不清会在切页面后继续打设备
   if (reconcileTimer) clearTimeout(reconcileTimer); // 同上: 切走后别再对账
   // 拖推子过程中切页 → 别把锁滚动的全局监听漏在 document 上
@@ -480,7 +456,7 @@ function scheduleMatrixPoll(): void {
     // 的状态覆盖掉 (界面闪一下弹回去)。跳过这轮, 8s 后再来, 反正 scheduleReconcile
     // 会在这批点完后对一次账。
     if (!document.hidden && pendingWrites.value === 0 && reconcileTimer === null) {
-      // C3: 页面在后台不打设备 (plTimer 进度条是纯本地 UI, 不用管)
+      // C3: 页面在后台不打设备 (播放进度是纯本地 UI, 不用管)
       await loadMatrixState();
     }
     if (!matrixPollStopped) scheduleMatrixPoll();
@@ -490,7 +466,10 @@ function scheduleMatrixPoll(): void {
 onMounted(async () => {
   await loadPlaylist();
   // 进页面先跟后端"当前在播的"对齐一次 (bgm-player 可能正放着), 之后靠 watch 跟随
-  void syncPlaybackFromChannel(bgmChannel.value?.currentMediaId);
+  void syncPlaybackFromChannel(
+    bgmChannel.value?.currentMediaId,
+    bgmChannel.value?.playbackSession,
+  );
   await Promise.all([loadScenes(), loadZones(), loadInputs(), loadMatrixState()]);
   void refreshCurrentScene();
   void loadAudioAssets();
@@ -549,7 +528,10 @@ function startAudioPolling(): void {
   matrixPollStopped = false;
   if (!firstActivation) {
     void loadMatrixState();
-    void syncPlaybackFromChannel(bgmChannel.value?.currentMediaId); // 重启进度秒针
+    void syncPlaybackFromChannel(
+      bgmChannel.value?.currentMediaId,
+      bgmChannel.value?.playbackSession,
+    ); // 重启进度秒针
   }
   firstActivation = false; // 首次进页 onMounted 已做全量加载, 不重复
   scheduleMatrixPoll();
@@ -558,7 +540,7 @@ function stopAudioPolling(): void {
   audioPollActive = false;
   matrixPollStopped = true;
   if (matrixTimer) { clearTimeout(matrixTimer); matrixTimer = null; }
-  stopPlTimer(); // 进度秒针纯视觉, 回页由上面的 sync 重算
+  progressController.dispose(); // 进度秒针纯视觉, 回页由上面的 sync 重算
 }
 useActivePolling(startAudioPolling, stopAudioPolling);
 
