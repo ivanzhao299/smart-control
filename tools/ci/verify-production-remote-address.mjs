@@ -2,10 +2,12 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..', '..');
-const expectedRemoteUrl = 'https://erp.cnjinhu.top:8443/control/';
+const expectedRemoteUrl = 'https://erp.cnjinhu.top/control/';
 const retiredPwaHost = 'park.cnjinhu.com';
+const retiredRemotePort = '8443';
 
 const iosPrefs = await readFile(resolve(root, 'ios-app/SmartControl/Prefs.swift'), 'utf8');
+const iosConfig = await readFile(resolve(root, 'ios-app/SmartControl/ConfigView.swift'), 'utf8');
 const androidBuild = await readFile(resolve(root, 'android-app/app/build.gradle.kts'), 'utf8');
 const androidPrefs = await readFile(
   resolve(root, 'android-app/app/src/main/kotlin/com/jinhu/smartcontrol/Prefs.kt'),
@@ -29,15 +31,25 @@ if (androidDefault !== expectedRemoteUrl) {
   fail(`Android DEFAULT_REMOTE_URL must be ${expectedRemoteUrl}; received ${androidDefault ?? 'missing'}`);
 }
 
-if (!iosPrefs.includes(retiredPwaHost) || !iosPrefs.includes('set(defaultRemoteUrl, forKey: keyRemoteUrl)')) {
-  fail(`iOS must migrate saved ${retiredPwaHost} remote addresses to the production default`);
+if (
+  !iosPrefs.includes(retiredPwaHost) ||
+  !iosPrefs.includes(retiredRemotePort) ||
+  !iosPrefs.includes('normalizedServerUrl(saved)') ||
+  !iosPrefs.includes('normalizedRemoteUrl(saved)')
+) {
+  fail(`iOS must migrate saved ${retiredPwaHost} and legacy :${retiredRemotePort} addresses`);
+}
+if (!iosConfig.includes('onSave(Prefs.serverUrl ?? Prefs.defaultServerUrl)')) {
+  fail('iOS must enter the WebView with the normalized server address immediately after save');
 }
 
 if (
   !androidPrefs.includes(retiredPwaHost) ||
-  !androidPrefs.includes('setRemoteUrl(ctx, BuildConfig.DEFAULT_REMOTE_URL)')
+  !androidPrefs.includes(retiredRemotePort) ||
+  !androidPrefs.includes('normalizeServerUrl(saved)') ||
+  !androidPrefs.includes('normalizeRemoteUrl(saved)')
 ) {
-  fail(`Android must migrate saved ${retiredPwaHost} remote addresses to the production default`);
+  fail(`Android must migrate saved ${retiredPwaHost} and legacy :${retiredRemotePort} addresses`);
 }
 
 if (!process.exitCode) {
