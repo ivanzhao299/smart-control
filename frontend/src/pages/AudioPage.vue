@@ -38,6 +38,7 @@ import {
 import { createLatestCommandQueue } from '@/features/latest-command-queue';
 import { createAudioMatrixCommandController } from '@/features/audio-matrix-command-controller';
 import { createPlaybackProgressController } from '@/features/playback-progress-controller';
+import { probeAudioDuration } from '@/features/audio-duration-probe';
 
 const router = useRouter();
 const route = useRoute();
@@ -217,30 +218,7 @@ async function clearPlaylist(): Promise<void> {
  * durationchange 给出真实值。
  */
 async function detectDuration(mediaId: number): Promise<number | null> {
-  return new Promise((resolve) => {
-    const audio = new Audio();
-    audio.preload = 'metadata';
-    const timer = setTimeout(() => finish(null), 6000);
-    function finish(d: number | null): void {
-      clearTimeout(timer);
-      audio.src = '';
-      resolve(d);
-    }
-    function tryResolve(): boolean {
-      const d = audio.duration;
-      if (isFinite(d) && d > 0) { finish(d); return true; }
-      return false;
-    }
-    audio.addEventListener('loadedmetadata', () => {
-      if (tryResolve()) return;
-      // duration 是 Infinity/NaN (常见于 VBR mp3) —— 等 durationchange, 同时
-      // seek 到远处强制浏览器扫完整个文件算出真实时长
-      audio.addEventListener('durationchange', tryResolve, { once: true });
-      try { audio.currentTime = 1e7; } catch { /* 极少数浏览器直接拒绝这么大的 seek, 忽略, 等超时兜底 */ }
-    }, { once: true });
-    audio.addEventListener('error', () => finish(null), { once: true });
-    audio.src = absUrl(`/api/media/${mediaId}/file`);
-  });
+  return probeAudioDuration(absUrl(`/api/media/${mediaId}/file`));
 }
 
 /**
