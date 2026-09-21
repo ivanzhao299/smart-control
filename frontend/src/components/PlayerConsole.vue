@@ -24,7 +24,7 @@
  *
  * 投影仪 (slot2) 已拆到独立页 ProjectorPage, 本页只管 LED (slot1)。
  */
-import { computed, onMounted, onScopeDispose, reactive, ref, watch, type Directive } from 'vue';
+import { computed, onMounted, onScopeDispose, ref, watch } from 'vue';
 import { identityGeneration, captureIdentityGuard, createLatestIdentityRead } from '@/services/identity-boundary';
 import { ElMessage, ElMessageBox, ElScrollbar } from 'element-plus';
 import { useRouter } from 'vue-router';
@@ -42,27 +42,14 @@ import {
 } from '@/services/playback.service';
 import { projectorService } from '@/services/projector.service';
 import {
-  DEFAULT_WELCOME_PRESENTATION,
-  fetchWelcomeSchemes, publishWelcomeScheme, removeWelcomeAsset, saveWelcomeSchemes,
-  type WelcomePresentation, type WelcomeScheme, type WelcomeSchemesSnapshot,
+  fetchWelcomeSchemes, publishWelcomeScheme,
 } from '@/services/system-branding.service';
-import { absUrl } from '@/services/http';
 import { useAdminUnlock } from '@/composables/useAdminUnlock';
+import { useWelcomeEditor } from '@/composables/useWelcomeEditor';
 import { powerCircuitsService, type PowerCircuitView } from '@/services/power-circuits.service';
 import { mediaService, MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
 import { ledService } from '@/services/led.service';
 import { parkOpsControlService } from '@/services/park-ops-control.service';
-import {
-  addWelcomeImageAsset,
-  classifyWelcomeImageAssets,
-  type WelcomeImageAsset,
-} from '@/features/welcome-image-assets';
-import { normalizeWelcomeBackground } from '@/features/welcome-background-image';
-import {
-  changeWelcomePresentation,
-  chooseWelcomeBackground,
-  chooseWelcomeLogo,
-} from '@/features/welcome-scheme-draft';
 
 const props = defineProps<{
   /** 1 = LED 大屏 (HDMI1), 2 = 投影仪 (HDMI2) */
@@ -539,6 +526,61 @@ async function selectContent(): Promise<void> {
   } finally { busy.value = false; }
 }
 
+const {
+  welcomeEditOpen,
+  welcomeSaving,
+  welcomePublishing,
+  welcomeLoading,
+  welcomeForm,
+  welcomeSchemeName,
+  welcomeSchemes,
+  welcomeSchemesRevision,
+  selectedWelcomeSchemeId,
+  publishedWelcomeSchemeId,
+  LED_CANVAS_RESOLUTION,
+  welcomePreviewUrl,
+  welcomePreviewFrame,
+  logoAssets,
+  bgAssets,
+  rejectedBgAssetCount,
+  incompatibleSelectedBackground,
+  incompatibleSelectedLogo,
+  welcomeBgUploadInput,
+  welcomeLogoUploadInput,
+  welcomeAssetUploading,
+  welcomeAssetUploadPct,
+  welcomeAssetDeletingId,
+  lastWelcomeSaveRevision,
+  welcomeLayoutOptions,
+  welcomeToneOptions,
+  welcomeOverlayOptions,
+  welcomePositionOptions,
+  welcomeLogoSizeOptions,
+  markWelcomeDraftChanged,
+  vWelcomeThumb,
+  requestCloseWelcomeEditor,
+  pushWelcomePreview,
+  selectWelcomeScheme,
+  openWelcomeEditor,
+  pickWelcomeAsset,
+  onWelcomeAssetPicked,
+  selectWelcomeBackground,
+  deleteWelcomeImage,
+  saveWelcomeScheme,
+  publishSelectedWelcomeScheme,
+  selectWelcomeLogo,
+  selectDefaultWelcomeBackground,
+  updateWelcomePresentation,
+  duplicateWelcomeScheme,
+  deleteWelcomeScheme,
+} = useWelcomeEditor({
+  ensureAdmin,
+  captureAction: captureConsoleAction,
+  isEditableSourceActive: () => activeSource.value === 'welcome-editable',
+  // 保持原发布语义：只重推当前动态欢迎页；错误继续抛给编辑器显示“已发布但重推失败”。
+  republishEditable: async () => { await publishWelcome(SLOT.value, 'editable'); },
+});
+
 // ============ 输入源欢迎方案下拉 (静态默认第一项 + 编辑器保存的方案, 选中即发布上屏) ============
 const WELCOME_PICK_DEFAULT = '__default__';
 const welcomePickerBusy = ref(false);
@@ -674,652 +716,7 @@ async function syncParkOpsState(): Promise<void> {
   } catch { /* ignore */ }
 }
 
-// ============ 欢迎页编辑器 (2026-07-28 业主: "编辑放到前端, 不用进后台") ============
-// 一套 3612x1462 渲染器承载多套欢迎方案。保存只写带版本号的方案库，发布才更新
-// 当前欢迎页快照；因此准备下一场接待不会误改正在播放的画面。
-const welcomeEditOpen = ref(false);
-const welcomeSaving = ref(false);
-const welcomePublishing = ref(false);
-const welcomeLoading = ref(false);
-const welcomeForm = ref({
-  welcomeTitle: '', welcomeGuest: '', welcomeTagline: '',
-  welcomeBgMediaId: null as number | null,
-  welcomeLogoMediaId: null as number | null,
-  presentation: { ...DEFAULT_WELCOME_PRESENTATION } as WelcomePresentation,
-});
-const welcomeSchemeName = ref('');
-const welcomeSchemes = ref<WelcomeScheme[]>([]);
-const welcomeSchemesRevision = ref(0);
-const selectedWelcomeSchemeId = ref('');
-const publishedWelcomeSchemeId = ref<string | null>(null);
-const LED_CANVAS_RESOLUTION = '3612x1462';
-const welcomePreviewUrl = `${import.meta.env.DEV ? '/' : import.meta.env.BASE_URL}welcome/index.html?preview=1`;
-const welcomePreviewFrame = ref<HTMLIFrameElement | null>(null);
-const logoAssets = ref<WelcomeImageAsset[]>([]);
-const bgAssets = ref<WelcomeImageAsset[]>([]);
-const compatibleBgAssets = computed(() =>
-  bgAssets.value.filter((item) => item.resolution?.toLowerCase() === LED_CANVAS_RESOLUTION),
-);
-const rejectedBgAssetCount = computed(() => bgAssets.value.length - compatibleBgAssets.value.length);
-const incompatibleSelectedBackground = ref(false);
-const incompatibleSelectedLogo = ref(false);
-const welcomeBgUploadInput = ref<HTMLInputElement | null>(null);
-const welcomeLogoUploadInput = ref<HTMLInputElement | null>(null);
-const welcomeAssetUploading = ref<'background' | 'logo' | null>(null);
-const welcomeAssetUploadPct = ref(0);
-const welcomeAssetDeletingId = ref<number | null>(null);
-const lastWelcomeSaveRevision = ref<number | null>(null);
-const LAST_WELCOME_SCHEME_KEY = 'sc.welcome.lastSelectedSchemeId';
-const welcomeLayoutOptions = [
-  { value: 'ceremony', name: '居中典礼', hint: '正式接待、深色或建筑底图' },
-  { value: 'editorial', name: '左文右景', hint: '画面中心较杂，左侧需要稳定文字区' },
-  { value: 'minimal', name: '极简留白', hint: '浅色品牌底图、简洁活动画面' },
-] as const;
-const welcomeToneOptions = [
-  { value: 'light', name: '浅色文字' },
-  { value: 'dark', name: '深色文字' },
-] as const;
-const welcomeOverlayOptions = [
-  { value: 'none', name: '无遮罩' },
-  { value: 'soft', name: '柔和' },
-  { value: 'strong', name: '较强' },
-] as const;
-const welcomePositionOptions = [
-  { value: 'upper', name: '偏上' },
-  { value: 'center', name: '居中' },
-  { value: 'lower', name: '偏下' },
-] as const;
-const welcomeLogoSizeOptions = [
-  { value: 'small', name: '小' },
-  { value: 'medium', name: '中' },
-  { value: 'large', name: '大' },
-] as const;
-
-function cloneWelcomePresentation(value?: WelcomePresentation): WelcomePresentation {
-  return { ...(value ?? DEFAULT_WELCOME_PRESENTATION) };
-}
-
-function markWelcomeDraftChanged(): void {
-  lastWelcomeSaveRevision.value = null;
-}
-
-function rememberedWelcomeSchemeId(): string {
-  try { return window.localStorage.getItem(LAST_WELCOME_SCHEME_KEY) ?? ''; }
-  catch { return ''; }
-}
-
-function rememberWelcomeSchemeId(id: string): void {
-  if (!id) return;
-  try { window.localStorage.setItem(LAST_WELCOME_SCHEME_KEY, id); }
-  catch { /* private mode or disabled storage */ }
-}
-
-// ---- 编辑器缩略图 (后端暂无缩略图能力: 按需在前端把原图缩成小 WebP blob,
-//      仅进入视口的卡片生成, 按 mediaId 缓存; 发布/大屏仍用 3612 原图点对点) ----
-const welcomeThumbUrlMap = reactive(new Map<number, string>());
-const welcomeThumbInflight = new Map<number, Promise<string>>();
-const WELCOME_BG_THUMB_WIDTH = 1200;
-const WELCOME_LOGO_THUMB_HEIGHT = 256;
-
-async function ensureWelcomeThumb(asset: WelcomeImageAsset, kind: 'background' | 'logo'): Promise<string> {
-  const cached = welcomeThumbUrlMap.get(asset.id);
-  if (cached) return cached;
-  const inflight = welcomeThumbInflight.get(asset.id);
-  if (inflight) return inflight;
-  const task = (async (): Promise<string> => {
-    const loadBlob = async (url: string): Promise<Blob> => {
-      const res = await fetch(absUrl(url), { cache: 'no-store' });
-      if (res.status === 401 || res.status === 403 || res.status === 410) {
-        throw Object.assign(new Error(`ticket-expired-${res.status}`), { expired: true });
-      }
-      if (!res.ok) throw new Error(`读取图片失败 (${res.status})`);
-      return res.blob();
-    };
-    let blob: Blob;
-    try {
-      blob = await loadBlob(asset.fileUrl);
-    } catch (e) {
-      if (!(e as { expired?: boolean }).expired) throw e;
-      const access = await mediaService.access(asset.id);
-      asset.fileUrl = access.url;   // 续上 5 分钟短期票
-      blob = await loadBlob(access.url);
-    }
-    const bitmap = await createImageBitmap(blob);
-    let targetW: number;
-    let targetH: number;
-    if (kind === 'background') {
-      targetW = Math.min(bitmap.width, WELCOME_BG_THUMB_WIDTH);   // 只缩不放
-      targetH = Math.max(1, Math.round(targetW * (bitmap.height / bitmap.width)));
-    } else {
-      targetH = Math.min(bitmap.height, WELCOME_LOGO_THUMB_HEIGHT);
-      targetW = Math.max(1, Math.round(targetH * (bitmap.width / bitmap.height)));
-    }
-    const canvas = document.createElement('canvas');
-    canvas.width = targetW;
-    canvas.height = targetH;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('canvas 不可用');
-    ctx.drawImage(bitmap, 0, 0, targetW, targetH);
-    bitmap.close?.();
-    const encode = (mime: string) => new Promise<Blob | null>((resolve) =>
-      canvas.toBlob((b) => resolve(b), mime, 0.85));
-    // WebP 体积小且支持透明; 老环境兜底: Logo 用 PNG 保透明, 底图用 JPEG
-    const out = (await encode('image/webp'))
-      || (await encode(kind === 'logo' ? 'image/png' : 'image/jpeg'));
-    if (!out) throw new Error('缩略图编码失败');
-    return URL.createObjectURL(out);
-  })();
-  welcomeThumbInflight.set(asset.id, task);
-  try {
-    const url = await task;
-    welcomeThumbUrlMap.set(asset.id, url);
-    return url;
-  } finally {
-    welcomeThumbInflight.delete(asset.id);
-  }
-}
-
-/** 库卡片图片进入视口才按需缩图, 避免一打开编辑器就全量下载/解码 3612 原图 (手机端尤卡) */
-const vWelcomeThumb: Directive<HTMLImageElement, { id: number; kind: 'background' | 'logo' }> = {
-  mounted(el, binding) {
-    const { id, kind } = binding.value;
-    const assetOf = (): WelcomeImageAsset | undefined =>
-      (kind === 'background' ? bgAssets.value : logoAssets.value).find((a) => a.id === id);
-    const run = (): void => {
-      const asset = assetOf();
-      if (!asset) return;
-      ensureWelcomeThumb(asset, kind)
-        .then((url) => { if (el.isConnected) el.src = url; })
-        .catch(() => { if (asset.fileUrl && el.isConnected) el.src = absUrl(asset.fileUrl); });
-    };
-    if (typeof IntersectionObserver === 'undefined') { run(); return; }
-    const io = new IntersectionObserver((entries) => {
-      if (!entries.some((x) => x.isIntersecting)) return;
-      io.disconnect();
-      run();
-    }, { root: null, rootMargin: '240px' });
-    io.observe(el);
-  },
-};
-
-onScopeDispose(() => {
-  welcomeThumbUrlMap.forEach((url) => URL.revokeObjectURL(url));
-  welcomeThumbUrlMap.clear();
-  welcomeThumbInflight.clear();
-});
-
-/** 脏标记: 加载完成后且最后保存版本号被清空 = 有未保存修改 */
-const welcomeSaveDirty = computed(() => !welcomeLoading.value && lastWelcomeSaveRevision.value === null);
-
-async function requestCloseWelcomeEditor(): Promise<void> {
-  if (welcomeSaving.value || welcomePublishing.value
-    || welcomeAssetUploading.value !== null || welcomeAssetDeletingId.value !== null) {
-    ElMessage.warning('正在保存、发布或处理图片，请稍候再关闭');
-    return;
-  }
-  if (welcomeSaveDirty.value) {
-    try {
-      await ElMessageBox.confirm('当前方案有尚未保存的修改，关闭后将丢失。确定关闭吗？', '有未保存的修改', {
-        confirmButtonText: '放弃修改并关闭', cancelButtonText: '继续编辑', type: 'warning',
-      });
-    } catch { return; }
-  }
-  welcomeEditOpen.value = false;
-}
-
-let welcomePreviewSeq = 0;
-async function pushWelcomePreview(): Promise<void> {
-  const frame = welcomePreviewFrame.value;
-  if (!frame) return;
-  const seq = ++welcomePreviewSeq;
-  const selected = compatibleBgAssets.value.find((item) => item.id === welcomeForm.value.welcomeBgMediaId);
-  const selectedLogo = logoAssets.value.find((item) => item.id === welcomeForm.value.welcomeLogoMediaId);
-  const [bgUrl, logoUrl] = await Promise.all([
-    selected
-      ? ensureWelcomeThumb(selected, 'background').catch(() => absUrl(selected.fileUrl))
-      : Promise.resolve(null),
-    selectedLogo
-      ? ensureWelcomeThumb(selectedLogo, 'logo').catch(() => absUrl(selectedLogo.fileUrl))
-      : Promise.resolve(null),
-  ]);
-  if (seq !== welcomePreviewSeq || !frame.contentWindow) return;  // 快速切方案只保留最新一帧, 防串图
-  frame.contentWindow.postMessage({
-    type: 'smart-control:welcome-preview',
-    payload: {
-      welcomeTitle: welcomeForm.value.welcomeTitle,
-      welcomeGuest: welcomeForm.value.welcomeGuest,
-      welcomeTagline: welcomeForm.value.welcomeTagline,
-      welcomeBgUrl: bgUrl,
-      welcomeLogoUrl: logoUrl,
-      welcomePresentation: cloneWelcomePresentation(welcomeForm.value.presentation),
-    },
-  }, window.location.origin);
-}
-
-watch(welcomeForm, pushWelcomePreview, { deep: true });
-
-function applyWelcomeScheme(id: string): void {
-  const scheme = welcomeSchemes.value.find((item) => item.id === id);
-  if (!scheme) return;
-  selectedWelcomeSchemeId.value = id;
-  rememberWelcomeSchemeId(id);
-  welcomeSchemeName.value = scheme.name;
-  incompatibleSelectedBackground.value = scheme.welcomeBgMediaId !== null
-    && !compatibleBgAssets.value.some((item) => item.id === scheme.welcomeBgMediaId);
-  incompatibleSelectedLogo.value = scheme.welcomeLogoMediaId !== null
-    && !logoAssets.value.some((item) => item.id === scheme.welcomeLogoMediaId);
-  welcomeForm.value = {
-    welcomeTitle: scheme.welcomeTitle ?? '',
-    welcomeGuest: scheme.welcomeGuest ?? '',
-    welcomeTagline: scheme.welcomeTagline ?? '',
-    welcomeBgMediaId: incompatibleSelectedBackground.value ? null : scheme.welcomeBgMediaId,
-    welcomeLogoMediaId: incompatibleSelectedLogo.value ? null : scheme.welcomeLogoMediaId,
-    presentation: cloneWelcomePresentation(scheme.presentation),
-  };
-}
-
-function syncSelectedWelcomeDraft(): boolean {
-  const index = welcomeSchemes.value.findIndex((item) => item.id === selectedWelcomeSchemeId.value);
-  if (index < 0) return false;
-  const name = welcomeSchemeName.value.trim();
-  if (!name) {
-    ElMessage.error('方案名称不能为空');
-    return false;
-  }
-  if (welcomeForm.value.welcomeBgMediaId !== null
-    && !compatibleBgAssets.value.some((item) => item.id === welcomeForm.value.welcomeBgMediaId)) {
-    ElMessage.error(`欢迎页底图必须是 LED 原生分辨率 ${LED_CANVAS_RESOLUTION}`);
-    return false;
-  }
-  if (welcomeForm.value.welcomeLogoMediaId !== null
-    && !logoAssets.value.some((item) => item.id === welcomeForm.value.welcomeLogoMediaId)) {
-    ElMessage.error('欢迎页 Logo 必须是已上传的图片');
-    return false;
-  }
-  welcomeSchemes.value[index] = {
-    id: selectedWelcomeSchemeId.value,
-    name,
-    welcomeTitle: welcomeForm.value.welcomeTitle.trim() || null,
-    welcomeGuest: welcomeForm.value.welcomeGuest.trim() || null,
-    welcomeTagline: welcomeForm.value.welcomeTagline.trim() || null,
-    welcomeBgMediaId: welcomeForm.value.welcomeBgMediaId,
-    welcomeLogoMediaId: welcomeForm.value.welcomeLogoMediaId,
-    presentation: cloneWelcomePresentation(welcomeForm.value.presentation),
-  };
-  return true;
-}
-
-function selectWelcomeScheme(id: string): void {
-  if (id === selectedWelcomeSchemeId.value) return;
-  if (!syncSelectedWelcomeDraft()) return;
-  applyWelcomeScheme(id);
-}
-
-async function openWelcomeEditor(): Promise<void> {
-  if (!(await ensureAdmin('编辑欢迎页'))) return;
-  welcomeEditOpen.value = true;
-  welcomeLoading.value = true;
-  lastWelcomeSaveRevision.value = null;
-  try {
-    const [snapshot, imgs] = await Promise.all([
-      fetchWelcomeSchemes(),
-      mediaService.list({ kind: 'image' }),
-    ]);
-    // 列表接口已为图片素材签发短期访问票 (fileUrl), 这里不再逐张重复取票;
-    // 缩略图按需生成时若票过期(5 分钟)会现场续票。
-    const assets: WelcomeImageAsset[] = imgs.items.map((m) => ({
-      id: m.id,
-      originalName: m.originalName,
-      thumbUrl: m.thumbUrl,
-      fileUrl: m.fileUrl,
-      resolution: m.resolution,
-      remark: m.remark,
-      source: m.source,
-    }));
-    const libraries = classifyWelcomeImageAssets(assets, snapshot.config.schemes);
-    bgAssets.value = libraries.backgrounds;
-    logoAssets.value = libraries.logos;
-    welcomeSchemes.value = snapshot.config.schemes.map((item) => ({ ...item }));
-    welcomeSchemesRevision.value = snapshot.revision;
-    publishedWelcomeSchemeId.value = snapshot.publishedSchemeId;
-    // 默认回到本次/上次正在编辑的方案(编辑连续性); 都无效时定位在播方案, 再退第一套
-    const publishedFallback =
-      snapshot.publishedSchemeId &&
-      snapshot.config.schemes.some((item) => item.id === snapshot.publishedSchemeId)
-        ? snapshot.publishedSchemeId
-        : snapshot.config.schemes[0].id;
-    const preferredId = selectedWelcomeSchemeId.value || rememberedWelcomeSchemeId();
-    const initialId = snapshot.config.schemes.some((item) => item.id === preferredId)
-      ? preferredId
-      : publishedFallback;
-    applyWelcomeScheme(initialId);
-    lastWelcomeSaveRevision.value = snapshot.revision;  // 刚加载=与服务器一致, 不算未保存
-  } catch (e) {
-    ElMessage.error(`读取欢迎页配置失败: ${(e as Error).message}`);
-  } finally { welcomeLoading.value = false; }
-}
-
-function pickWelcomeAsset(kind: 'background' | 'logo'): void {
-  if (welcomeAssetUploading.value) return;
-  (kind === 'background' ? welcomeBgUploadInput.value : welcomeLogoUploadInput.value)?.click();
-}
-
-async function onWelcomeAssetPicked(kind: 'background' | 'logo', event: Event): Promise<void> {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0];
-  input.value = '';
-  if (!file) return;
-  if (!file.type.startsWith('image/')) {
-    ElMessage.error('请选择 PNG、JPG 或 WebP 图片');
-    return;
-  }
-  if (!(await ensureAdmin(kind === 'background' ? '上传欢迎页底图' : '上传欢迎页 Logo'))) return;
-  const targetSchemeId = selectedWelcomeSchemeId.value;
-  const isCurrent = captureConsoleAction();
-  welcomeAssetUploading.value = kind;
-  welcomeAssetUploadPct.value = 0;
-  try {
-    const uploadFile = kind === 'background'
-      ? await normalizeWelcomeBackground(file)
-      : file;
-    const uploaded = await mediaService.upload(uploadFile, {
-      remark: kind === 'background' ? '欢迎页底图' : '欢迎页 Logo',
-      onProgress: (pct: number) => { welcomeAssetUploadPct.value = pct; },
-    });
-    if (!isCurrent()) return;
-    if (uploaded.kind !== 'image') throw new Error('上传文件不是可用图片');
-    const access = await mediaService.access(uploaded.id);
-    if (!isCurrent()) return;
-    const asset: WelcomeImageAsset = {
-      id: uploaded.id,
-      originalName: uploaded.originalName,
-      thumbUrl: null,
-      fileUrl: access.url,
-      resolution: uploaded.resolution,
-      remark: uploaded.remark,
-      source: uploaded.source,
-    };
-    const libraries = addWelcomeImageAsset(
-      { backgrounds: bgAssets.value, logos: logoAssets.value },
-      kind,
-      asset,
-    );
-    bgAssets.value = libraries.backgrounds;
-    logoAssets.value = libraries.logos;
-    if (selectedWelcomeSchemeId.value !== targetSchemeId) {
-      ElMessage.info('图片已上传到媒体库；当前已切换方案，因此没有自动绑定');
-      return;
-    }
-    if (kind === 'background') {
-      if (asset.resolution?.toLowerCase() !== LED_CANVAS_RESOLUTION) {
-        ElMessage.warning(`底图必须是 ${LED_CANVAS_RESOLUTION}，当前为 ${asset.resolution || '未知尺寸'}；图片已保存在媒体库，但没有绑定`);
-        return;
-      }
-      welcomeForm.value = chooseWelcomeBackground(welcomeForm.value, asset.id);
-      markWelcomeDraftChanged();
-      incompatibleSelectedBackground.value = false;
-      ElMessage.success('底图已转换为 LED 原生尺寸并选中，保存方案后保留');
-    } else {
-      welcomeForm.value = chooseWelcomeLogo(welcomeForm.value, asset.id);
-      markWelcomeDraftChanged();
-      incompatibleSelectedLogo.value = false;
-      ElMessage.success('Logo 已上传并选中，保存方案后保留');
-    }
-  } catch (error) {
-    ElMessage.error(`上传失败: ${(error as Error).message}`);
-  } finally {
-    welcomeAssetUploading.value = null;
-    welcomeAssetUploadPct.value = 0;
-  }
-}
-
-async function selectWelcomeBackground(asset: WelcomeImageAsset): Promise<void> {
-  if (welcomeAssetUploading.value || welcomeAssetDeletingId.value !== null) return;
-  if (asset.resolution?.toLowerCase() === LED_CANVAS_RESOLUTION) {
-    welcomeForm.value = chooseWelcomeBackground(welcomeForm.value, asset.id);
-    incompatibleSelectedBackground.value = false;
-    markWelcomeDraftChanged();
-    return;
-  }
-  if (!(await ensureAdmin('转换欢迎页底图'))) return;
-  const targetSchemeId = selectedWelcomeSchemeId.value;
-  const isCurrent = captureConsoleAction();
-  welcomeAssetUploading.value = 'background';
-  welcomeAssetUploadPct.value = 0;
-  try {
-    const access = await mediaService.access(asset.id);
-    const response = await fetch(absUrl(access.url), { cache: 'no-store' });
-    if (!response.ok) throw new Error(`读取原底图失败 (${response.status})`);
-    const blob = await response.blob();
-    const source = new File([blob], asset.originalName, {
-      type: blob.type || 'image/jpeg',
-      lastModified: Date.now(),
-    });
-    const normalized = await normalizeWelcomeBackground(source);
-    const uploaded = await mediaService.upload(normalized, {
-      remark: '欢迎页底图',
-      onProgress: (pct: number) => { welcomeAssetUploadPct.value = pct; },
-    });
-    if (!isCurrent()) return;
-    if (uploaded.kind !== 'image' || uploaded.resolution?.toLowerCase() !== LED_CANVAS_RESOLUTION) {
-      throw new Error(`服务器未确认 ${LED_CANVAS_RESOLUTION} 底图`);
-    }
-    const uploadedAccess = await mediaService.access(uploaded.id);
-    if (!isCurrent()) return;
-    const converted: WelcomeImageAsset = {
-      id: uploaded.id,
-      originalName: uploaded.originalName,
-      thumbUrl: null,
-      fileUrl: uploadedAccess.url,
-      resolution: uploaded.resolution,
-      remark: uploaded.remark,
-      source: uploaded.source,
-    };
-    const libraries = addWelcomeImageAsset(
-      { backgrounds: bgAssets.value, logos: logoAssets.value },
-      'background',
-      converted,
-    );
-    bgAssets.value = libraries.backgrounds;
-    logoAssets.value = libraries.logos;
-    if (selectedWelcomeSchemeId.value !== targetSchemeId) {
-      ElMessage.info('底图已转换保存；当前已切换方案，因此没有自动绑定');
-      return;
-    }
-    welcomeForm.value = chooseWelcomeBackground(welcomeForm.value, converted.id);
-    markWelcomeDraftChanged();
-    incompatibleSelectedBackground.value = false;
-    ElMessage.success('旧底图已转换为 LED 原生尺寸并选中，保存方案后生效');
-  } catch (error) {
-    ElMessage.error(`底图转换失败: ${(error as Error).message}`);
-  } finally {
-    welcomeAssetUploading.value = null;
-    welcomeAssetUploadPct.value = 0;
-  }
-}
-
-async function deleteWelcomeImage(kind: 'background' | 'logo', asset: WelcomeImageAsset): Promise<void> {
-  if (asset.source === 'system' || welcomeAssetDeletingId.value !== null) return;
-  if (!(await ensureAdmin(kind === 'background' ? '删除欢迎页底图' : '删除欢迎页 Logo'))) return;
-  const referencedCount = welcomeSchemes.value.filter((scheme) =>
-    kind === 'background'
-      ? scheme.welcomeBgMediaId === asset.id
-      : scheme.welcomeLogoMediaId === asset.id,
-  ).length;
-  const referenceHint = referencedCount
-    ? `\n该图片已被 ${referencedCount} 套方案使用，删除后这些方案会自动改用默认${kind === 'background' ? '底图' : '场馆 Logo'}。`
-    : '';
-  try {
-    await ElMessageBox.confirm(
-      `确定永久删除“${asset.originalName}”吗？${referenceHint}`,
-      kind === 'background' ? '删除欢迎页底图' : '删除欢迎页 Logo',
-      {
-        confirmButtonText: '删除图片',
-        cancelButtonText: '取消',
-        type: 'warning',
-        modalClass: 'welcome-image-delete-confirm',
-      },
-    );
-  } catch { return; }
-
-  const selectedId = selectedWelcomeSchemeId.value;
-  const isCurrent = captureConsoleAction();
-  welcomeAssetDeletingId.value = asset.id;
-  lastWelcomeSaveRevision.value = null;
-  try {
-    const result = await removeWelcomeAsset(asset.id, welcomeSchemesRevision.value);
-    if (!isCurrent()) return;
-    welcomeSchemes.value = result.schemes.config.schemes.map((item) => ({ ...item }));
-    welcomeSchemesRevision.value = result.schemes.revision;
-    publishedWelcomeSchemeId.value = result.schemes.publishedSchemeId;
-    bgAssets.value = bgAssets.value.filter((item) => item.id !== asset.id);
-    logoAssets.value = logoAssets.value.filter((item) => item.id !== asset.id);
-    applyWelcomeScheme(
-      welcomeSchemes.value.some((item) => item.id === selectedId)
-        ? selectedId
-        : welcomeSchemes.value[0].id,
-    );
-    lastWelcomeSaveRevision.value = result.schemes.revision;  // 删图已即时持久化, 不再算未保存
-    ElMessage.success(result.cleanupPending ? '图片记录已删除，服务器正在清理文件' : '图片已删除');
-  } catch (error) {
-    ElMessage.error(`删除失败: ${(error as Error).message}`);
-  } finally {
-    welcomeAssetDeletingId.value = null;
-  }
-}
-
-async function persistWelcomeSchemes(checkAdmin = true): Promise<WelcomeSchemesSnapshot | null> {
-  if (!syncSelectedWelcomeDraft()) return null;
-  if (checkAdmin && !(await ensureAdmin('保存欢迎方案'))) return null;
-  welcomeSaving.value = true;
-  try {
-    const selectedId = selectedWelcomeSchemeId.value;
-    const saved = await saveWelcomeSchemes(
-      {
-        version: 2,
-        schemes: welcomeSchemes.value.map((scheme) => ({
-          ...scheme,
-          presentation: cloneWelcomePresentation(scheme.presentation),
-        })),
-      },
-      welcomeSchemesRevision.value,
-    );
-    // A 200 response is not enough: immediately read the server document back so
-    // the UI cannot claim success while displaying a stale or different revision.
-    const confirmed = await fetchWelcomeSchemes();
-    if (confirmed.revision !== saved.revision
-      || confirmed.checksum !== saved.checksum
-      || JSON.stringify(confirmed.config) !== JSON.stringify(saved.config)) {
-      throw new Error('服务器回读结果与本次保存不一致，请重新打开后再保存');
-    }
-    welcomeSchemes.value = confirmed.config.schemes.map((item) => ({ ...item }));
-    welcomeSchemesRevision.value = confirmed.revision;
-    publishedWelcomeSchemeId.value = confirmed.publishedSchemeId;
-    lastWelcomeSaveRevision.value = confirmed.revision;
-    applyWelcomeScheme(selectedId);
-    return confirmed;
-  } catch (e) {
-    ElMessage.error(`保存失败: ${(e as Error).message}`);
-    return null;
-  } finally { welcomeSaving.value = false; }
-}
-
-async function saveWelcomeScheme(): Promise<void> {
-  const schemeName = welcomeSchemeName.value.trim();
-  const saved = await persistWelcomeSchemes();
-  if (saved) {
-    ElMessage.success(`“${schemeName}”已保存到服务器方案库（版本 ${saved.revision}），当前 LED 画面未切换`);
-  }
-}
-
-async function publishSelectedWelcomeScheme(): Promise<void> {
-  if (!(await ensureAdmin('发布欢迎页'))) return;
-  if (!(await persistWelcomeSchemes(false))) return;
-  welcomePublishing.value = true;
-  try {
-    const selectedId = selectedWelcomeSchemeId.value;
-    const selected = welcomeSchemes.value.find((item) => item.id === selectedId);
-    if (!selected) throw new Error('当前方案不存在，请重新打开编辑器');
-    const published = await publishWelcomeScheme(selectedId, welcomeSchemesRevision.value);
-    const confirmed = published.branding.welcomeTitle === selected.welcomeTitle
-      && published.branding.welcomeGuest === selected.welcomeGuest
-      && published.branding.welcomeTagline === selected.welcomeTagline
-      && published.branding.welcomeBgMediaId === selected.welcomeBgMediaId
-      && published.branding.welcomeLogoMediaId === selected.welcomeLogoMediaId
-      && JSON.stringify(published.branding.welcomePresentation) === JSON.stringify(selected.presentation);
-    if (!confirmed) throw new Error('服务器未确认发布结果，原大屏画面保持不变，请重试');
-    publishedWelcomeSchemeId.value = selectedId;
-    let refreshFailed = false;
-    if (activeSource.value === 'welcome-editable') {
-      try { await publishWelcome(SLOT.value, 'editable'); }
-      catch { refreshFailed = true; }
-    }
-    if (refreshFailed) ElMessage.warning('方案已发布；大屏重推失败，将在轮询后自动更新');
-    else ElMessage.success('方案已发布到 LED 大屏');
-  } catch (e) {
-    ElMessage.error(`发布失败: ${(e as Error).message}`);
-  } finally { welcomePublishing.value = false; }
-}
-
-function selectWelcomeLogo(mediaId: number | null): void {
-  if (welcomeAssetUploading.value || welcomeAssetDeletingId.value !== null) return;
-  welcomeForm.value = chooseWelcomeLogo(welcomeForm.value, mediaId);
-  incompatibleSelectedLogo.value = false;
-  markWelcomeDraftChanged();
-}
-
-function selectDefaultWelcomeBackground(): void {
-  if (welcomeAssetUploading.value || welcomeAssetDeletingId.value !== null) return;
-  welcomeForm.value = chooseWelcomeBackground(welcomeForm.value, null);
-  incompatibleSelectedBackground.value = false;
-  markWelcomeDraftChanged();
-}
-
-function updateWelcomePresentation<K extends keyof WelcomePresentation>(
-  key: K,
-  value: WelcomePresentation[K],
-): void {
-  welcomeForm.value = changeWelcomePresentation(welcomeForm.value, key, value);
-  markWelcomeDraftChanged();
-}
-
-function duplicateWelcomeScheme(): void {
-  if (!syncSelectedWelcomeDraft()) return;
-  if (welcomeSchemes.value.length >= 20) {
-    ElMessage.warning('最多保存 20 套欢迎方案');
-    return;
-  }
-  const source = welcomeSchemes.value.find((item) => item.id === selectedWelcomeSchemeId.value);
-  if (!source) return;
-  const copy: WelcomeScheme = {
-    ...source,
-    id: `scheme-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-    name: `${source.name} 副本`.slice(0, 40),
-  };
-  welcomeSchemes.value.push(copy);
-  applyWelcomeScheme(copy.id);
-  markWelcomeDraftChanged();
-}
-
-async function deleteWelcomeScheme(): Promise<void> {
-  if (welcomeSchemes.value.length <= 1) {
-    ElMessage.warning('至少保留一套欢迎方案');
-    return;
-  }
-  if (selectedWelcomeSchemeId.value === publishedWelcomeSchemeId.value) {
-    ElMessage.warning('当前正在使用这套方案，请先发布另一套方案');
-    return;
-  }
-  try {
-    await ElMessageBox.confirm(`确定删除“${welcomeSchemeName.value}”吗？`, '删除欢迎方案', {
-      confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning',
-    });
-  } catch { return; }
-  const index = welcomeSchemes.value.findIndex((item) => item.id === selectedWelcomeSchemeId.value);
-  welcomeSchemes.value.splice(index, 1);
-  applyWelcomeScheme(welcomeSchemes.value[Math.max(0, index - 1)].id);
-  markWelcomeDraftChanged();
-}
+// 欢迎页编辑用例已收敛到 useWelcomeEditor；本组件只保留输入源与播放器编排。
 
 // ============ 拖拽排序 ============
 // 原生 HTML5 drag & drop, 不引第三方库。顺序**存后端** (reorderPlaylist):
