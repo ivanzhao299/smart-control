@@ -6,6 +6,7 @@ import { usePermissionStore } from '@/stores/permission';
 import { api } from '@/services/http';
 import { isStalePwaAssetError, recoverFromStalePwa } from '@/services/pwa-recovery';
 import { mainRouteManifest } from './main-route-manifest';
+import { adminRouteManifest } from './admin-route-manifest';
 
 const routes: RouteRecordRaw[] = [
   // 平板布局 (Sprint-05)
@@ -46,41 +47,13 @@ const routes: RouteRecordRaw[] = [
     meta: { adminRequired: true },
     children: [
       { path: '', redirect: { name: 'admin-monitor' } },
-      { path: 'monitor', name: 'admin-monitor', component: () => import('@/pages/admin/MonitorAdmin.vue') },
-      { path: 'alerts', name: 'admin-alerts', component: () => import('@/pages/admin/AlertsAdmin.vue') },
-      { path: 'devices', name: 'admin-devices', component: () => import('@/pages/admin/DevicesAdmin.vue') },
-      { path: 'scenes', name: 'admin-scenes', component: () => import('@/pages/admin/ScenesAdmin.vue') },
-      { path: 'scenes/:id/actions', name: 'admin-scene-actions', component: () => import('@/pages/admin/SceneActionsAdmin.vue'), props: true },
-      { path: 'scheduler', name: 'admin-scheduler', component: () => import('@/pages/admin/SchedulerAdmin.vue') },
-      { path: 'scene-executions', name: 'admin-scene-executions', component: () => import('@/pages/admin/SceneExecutionsAdmin.vue') },
-      { path: 'test-center', name: 'admin-test-center', component: () => import('@/pages/admin/TestCenterAdmin.vue') },
-      // Sprint-06 spec 命名别名: /admin/debug → TestCenterAdmin (含单设备测试 + Ping + 端口 + rawResponse)
-      { path: 'debug', name: 'admin-debug', component: () => import('@/pages/admin/TestCenterAdmin.vue') },
-      // 视频绑定管理 — NVR录像机 + 摄像头通道 + 大屏显示布局可视化配置
-      { path: 'video-binding', name: 'admin-video-binding', component: () => import('@/pages/admin/VideoBindingAdmin.vue') },
-      { path: 'uat', name: 'admin-uat', component: () => import('@/pages/admin/UatAdmin.vue') },
-      // 日志中心 (合并页): 操作日志 + 场景执行 + 变更历史 — 三个只读历史流收成 tab
-      { path: 'logs', name: 'admin-logs', component: () => import('@/pages/admin/LogsHubAdmin.vue') },
-      // 硬件清单 (合并页): 设备登记 + 驱动模板 + 厂商品牌 — 硬件定义层收成 tab
-      { path: 'hardware', name: 'admin-hardware', component: () => import('@/pages/admin/HardwareHubAdmin.vue') },
-      // 分区配置 (合并页): 灯光 + 电源 + 音响 — 子系统输出单元配置收成 tab
-      { path: 'zones-config', name: 'admin-zones-config', component: () => import('@/pages/admin/ZonesConfigAdmin.vue') },
-      // 以下子页保留独立路由作深链 (菜单已收进上面的合并页, 不再单独列)
-      { path: 'light-zones', name: 'admin-light-zones', component: () => import('@/pages/admin/LightZonesAdmin.vue') },
-      { path: 'power-circuits', name: 'admin-power-circuits', component: () => import('@/pages/admin/PowerCircuitsAdmin.vue') },
-      { path: 'audio-config', name: 'admin-audio-config', component: () => import('@/pages/admin/AudioConfigAdmin.vue') },
-      { path: 'app-release', name: 'admin-app-release', component: () => import('@/pages/admin/AppReleaseAdmin.vue') },
-      // iOS TestFlight 内部测试员邀请 (服务端持 App Manager 密钥直接调 ASC API)
-      { path: 'testflight', name: 'admin-testflight', component: () => import('@/pages/admin/TestFlightAdmin.vue') },
-      { path: 'drivers', name: 'admin-drivers', component: () => import('@/pages/admin/DriversAdmin.vue') },
-      { path: 'brands', name: 'admin-brands', component: () => import('@/pages/admin/BrandsAdmin.vue') },
-      { path: 'system-branding', name: 'admin-system-branding', component: () => import('@/pages/admin/SystemBrandingAdmin.vue') },
-      { path: 'audit', name: 'admin-audit', component: () => import('@/pages/admin/AuditAdmin.vue') },
-      { path: 'users', name: 'admin-users', component: () => import('@/pages/admin/UsersAdmin.vue') },
-      // 系统设置 (合并页): 常规设置 + 系统品牌
-      { path: 'settings', name: 'admin-settings', component: () => import('@/pages/admin/SettingsHubAdmin.vue') },
-      // 运营大屏业务数字 (JSON 共享文档, 人/车为 AI 基线)
-      { path: 'park-ops-metrics', name: 'admin-park-ops-metrics', component: () => import('@/pages/admin/ParkOpsMetricsAdmin.vue') },
+      ...adminRouteManifest.map((route) => ({
+        path: route.path,
+        name: route.name,
+        component: route.load,
+        props: 'props' in route ? route.props : undefined,
+        meta: { adminRequired: route.access === 'admin' },
+      })),
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
