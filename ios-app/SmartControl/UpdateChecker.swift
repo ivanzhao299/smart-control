@@ -41,8 +41,7 @@ enum UpdateChecker {
 
     /// 拉最新版本信息并按规则决定要不要提示; 主线程回调 (nil = 不弹)
     static func check(serverBaseUrl: String, completion: @escaping (Prompt?) -> Void) {
-        let base = serverBaseUrl.hasSuffix("/") ? String(serverBaseUrl.dropLast()) : serverBaseUrl
-        guard let url = URL(string: "\(base)/api/app/ios/latest") else {
+        guard let url = ServerResolver.apiURL(from: serverBaseUrl, endpoint: "/api/app/ios/latest") else {
             completion(nil)
             return
         }

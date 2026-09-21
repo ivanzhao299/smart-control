@@ -47,8 +47,11 @@ object UpdateChecker {
     }
 
     private fun fetchLatest(serverBaseUrl: String): Latest? {
-        val base = serverBaseUrl.trimEnd('/')
-        val url = "$base/api/app/android/latest"
+        val url = try {
+            ServerUrls.apiUrl(URL(serverBaseUrl), "/api/app/android/latest").toString()
+        } catch (e: Exception) {
+            return null
+        }
         return try {
             val conn = URL(url).openConnection() as HttpURLConnection
             conn.connectTimeout = 4000

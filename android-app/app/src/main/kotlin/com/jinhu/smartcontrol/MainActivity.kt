@@ -377,8 +377,7 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             return PingResult(false, null, e.message ?: "地址无效")
         }
-        val backendPort = if (input.port == 5173) 3200 else input.port
-        val candidates = listOf(URL(input.protocol, input.host, backendPort, "/api/client-auth/ping").toString())
+        val candidates = listOf(ServerUrls.apiUrl(input, "/api/client-auth/ping").toString())
         var lastError = "unknown"
         for (u in candidates) {
             try {
