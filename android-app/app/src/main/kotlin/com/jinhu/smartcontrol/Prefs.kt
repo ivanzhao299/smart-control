@@ -2,6 +2,7 @@ package com.jinhu.smartcontrol
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.net.Uri
 
 /**
  * SharedPreferences wrapper — 只存一件事: 业主配的服务器地址.
@@ -29,7 +30,16 @@ object Prefs {
     }
 
     /** 远程地址 (隧道/公网, 可选) — 现场地址探不通时自动切它, 见 MainActivity.resolveAndLoad */
-    fun getRemoteUrl(ctx: Context): String? = get(ctx).getString(KEY_REMOTE_URL, null)
+    fun getRemoteUrl(ctx: Context): String? {
+        val saved = get(ctx).getString(KEY_REMOTE_URL, null) ?: return null
+        // erp.cnjinhu.top 已被阿里云 ICP 门禁拦截，TLS 握手会被直接重置。
+        // 升级时原地迁移旧安装的保存值，避免用户重新配置。
+        if (Uri.parse(saved).host.equals("erp.cnjinhu.top", ignoreCase = true)) {
+            setRemoteUrl(ctx, BuildConfig.DEFAULT_REMOTE_URL)
+            return BuildConfig.DEFAULT_REMOTE_URL
+        }
+        return saved
+    }
 
     fun setRemoteUrl(ctx: Context, url: String?) {
         if (url.isNullOrBlank()) get(ctx).edit().remove(KEY_REMOTE_URL).apply()

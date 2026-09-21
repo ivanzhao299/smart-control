@@ -36,11 +36,19 @@ enum ServerResolver {
     }
 
     static func healthURL(from serverAddress: String) -> URL? {
+        apiURL(from: serverAddress, endpoint: "/api/client-auth/ping")
+    }
+
+    /// 生成与页面入口匹配的 API 地址。
+    /// 现场 5173 使用同主机 3200；park 公网入口由 /control/api 同源反代。
+    static func apiURL(from serverAddress: String, endpoint: String) -> URL? {
         guard var components = URLComponents(string: serverAddress.trimmingCharacters(in: .whitespacesAndNewlines)),
               components.scheme == "http" || components.scheme == "https",
               components.host != nil else { return nil }
         if components.port == 5173 { components.port = 3200 }
-        components.path = "/api/client-auth/ping"
+        let apiPath = endpoint.hasPrefix("/") ? endpoint : "/\(endpoint)"
+        let scopedPrefix = components.host?.lowercased() == "park.cnjinhu.com" ? "/control" : ""
+        components.path = scopedPrefix + apiPath
         components.query = nil
         components.fragment = nil
         return components.url
