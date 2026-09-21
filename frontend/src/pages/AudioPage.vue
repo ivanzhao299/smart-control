@@ -8,6 +8,7 @@ import {
   SkipBack, SkipForward, Shuffle, Repeat, Repeat1, ListMusic, Trash2, Pencil } from 'lucide-vue-next';
 import { audioService } from '@/services/audio.service';
 import { useAdminUnlock } from '@/composables/useAdminUnlock';
+import { useAudioScenes } from '@/composables/useAudioScenes';
 import { audioConfigService } from '@/services/audio-config.service';
 import { absUrl } from '@/services/http';
 import { usePlaybackStore } from '@/stores/playback';
@@ -329,77 +330,22 @@ async function stopBgm(): Promise<void> {
 }
 
 // ============ EKX-808 一键场景 ============
-// 场景从后台配置拉 (业主可自定义名字), id = EKX 预设号 1-12
-interface Scene { id: number; name: string; hint: string; }
-const SCENES = ref<Scene[]>([]);
-const currentScene = ref<number | null>(null);
+// 场景目录、设备切换、失败回滚和长按确认由一个用例边界统一维护。
+const {
+  scenes: SCENES,
+  currentScene,
+  sceneBusy,
+  holdId,
+  holdPct,
+  loadScenes,
+  refreshCurrentScene,
+  onHoldStart,
+  onHoldMove,
+  onHoldEnd,
+} = useAudioScenes();
 
-async function loadScenes(): Promise<void> {
-  try {
-    const rows = await audioConfigService.listScenes();
-    SCENES.value = rows.map((s) => ({ id: s.presetNum, name: s.name, hint: s.hint ?? '' }));
-  } catch { /* 拉不到就空, 不挡页面 */ }
-}
-const sceneBusy = ref(false);
-
-async function recallScene(s: Scene): Promise<void> {
-  sceneBusy.value = true;
-  const prev = currentScene.value;
-  currentScene.value = s.id;                         // 乐观高亮: 转满瞬间立即反馈, 不干等硬件串行下发
-  ElMessage.info(`切换中: ${s.name} (U${String(s.id).padStart(2, '0')})`);
-  try {
-    const res = await audioService.applyScene(s.id);
-    if (!res.ok) throw new Error(res.error || '场景切换失败');
-    ElMessage.success(`场景已切换: ${s.name} (U${String(s.id).padStart(2, '0')})`);
-  } catch (err) {
-    currentScene.value = prev;                       // 失败回滚高亮
-    ElMessage.error(`切换 ${s.name} 失败: ${(err as Error).message}`);
-  } finally { sceneBusy.value = false; }
-}
-
-// ============ 一键场景「长按激活」防误触 (跟首页磁贴一致) ============
-// 轻碰无反应; 按住进度条走满 (~1.1s) 才真正切换; 中途松手 / 划走立即取消.
-const HOLD_MS = 1100;
-const holdId = ref<number | null>(null);   // 正在按住的预设号
-const holdPct = ref(0);                     // 进度 0..100
-let holdRaf = 0;
-let holdFired = false;
-let holdStartX = 0;
-let holdStartY = 0;
-function resetHold(): void {
-  if (holdRaf) cancelAnimationFrame(holdRaf);
-  holdRaf = 0; holdId.value = null; holdPct.value = 0;
-}
-function onHoldStart(s: Scene, ev: PointerEvent): void {
-  if (ev.pointerType === 'mouse' && ev.button !== 0) return; // 只认左键/单指
-  if (sceneBusy.value) return;
-  holdFired = false; holdId.value = s.id; holdPct.value = 0;
-  holdStartX = ev.clientX; holdStartY = ev.clientY;
-  const start = performance.now();
-  if (holdRaf) cancelAnimationFrame(holdRaf);
-  const loop = (now: number): void => {
-    if (holdId.value !== s.id) return;
-    const p = Math.min(100, ((now - start) / HOLD_MS) * 100);
-    holdPct.value = p;
-    if (p >= 100) { holdFired = true; resetHold(); void recallScene(s); return; }
-    holdRaf = requestAnimationFrame(loop);
-  };
-  holdRaf = requestAnimationFrame(loop);
-}
-function onHoldMove(ev: PointerEvent): void {
-  if (holdId.value === null) return;
-  // 移动超过 12px = 想滚动/划走 → 取消
-  if (Math.hypot(ev.clientX - holdStartX, ev.clientY - holdStartY) > 12) resetHold();
-}
-function onHoldEnd(): void {
-  if (holdFired) { holdFired = false; return; }
-  const p = holdPct.value;
-  resetHold();
-  if (p >= 10 && p < 100) ElMessage.info('按住直到进度环走满才会执行');
-}
 onUnmounted(() => {
   matrixPollStopped = true; // 见 scheduleMatrixPoll: 防 await 后又排一个孤儿 timer
-  if (holdRaf) cancelAnimationFrame(holdRaf);
   progressController.dispose();
   if (matrixTimer) clearTimeout(matrixTimer); // 不清会在切页面后继续打设备
   if (reconcileTimer) clearTimeout(reconcileTimer); // 同上: 切走后别再对账
@@ -409,16 +355,8 @@ onUnmounted(() => {
 // keep-alive 切走(组件被缓存、不卸载, 不触发 onUnmounted): 轮询由 useActivePolling
 // 停止, 这里补取消长按进度环 RAF 与拖动全局锁; 不置 matrixPollStopped 以便回来能恢复
 onDeactivated(() => {
-  if (holdRaf) cancelAnimationFrame(holdRaf);
   document.removeEventListener('touchmove', preventScrollWhileDragging);
 });
-async function refreshCurrentScene(): Promise<void> {
-  try {
-    const wrapped = await audioService.currentScene();
-    const preset = wrapped?.data?.data?.preset;
-    if (typeof preset === 'number' && preset >= 1 && preset <= 12) currentScene.value = preset;
-  } catch { /* 静默 */ }
-}
 /**
  * 矩阵轮询 — 一条命令 ~284ms, 8s 一轮.
  * 这样别人用厂家 PC Editor 改了路由, 这边也能跟上; 更重要的是: 切页面回来
