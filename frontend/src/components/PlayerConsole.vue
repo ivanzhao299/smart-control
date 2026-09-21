@@ -562,42 +562,47 @@ const welcomePickerValue = computed<string>(() => {
   return '';
 });
 
+async function selectWelcome(variant: 'editable' | 'default'): Promise<void> {
+  const isCurrent = captureConsoleAction();
+  if (!isCurrent()) return;
+  busy.value = true;
+  try {
+    await ensureDisplayPath();
+    if (!isCurrent()) return;
+    await publishWelcome(SLOT.value, variant);
+    if (!isCurrent()) return;
+    ElMessage.success(variant === 'editable' ? '已投放动态欢迎页 (点「编辑欢迎页」可改内容)' : '已投放默认欢迎页');
+  } catch (e) {
+    if (isCurrent()) ElMessage.error(`投放欢迎页失败: ${(e as Error).message}`);
+  } finally { busy.value = false; }
+}
+
 async function onWelcomeSchemePick(event: Event): Promise<void> {
   const selectEl = event.target as HTMLSelectElement;
   const value = selectEl.value;
   const rollback = (): void => { selectEl.value = welcomePickerValue.value; };
-  const isCurrent = captureConsoleAction();
-  if (!isCurrent() || welcomePickerBusy.value) return;
+  if (welcomePickerBusy.value || busy.value) return;
   welcomePickerBusy.value = true;
   try {
-    await ensureDisplayPath();
-    if (!isCurrent()) return;
     if (value === WELCOME_PICK_DEFAULT) {
-      await publishWelcome(SLOT.value, 'default');
-      if (!isCurrent()) return;
-      ElMessage.success('已投放内置静态默认欢迎页');
+      await selectWelcome('default');
     } else {
       if (!(await ensureAdmin('投放欢迎方案'))) { rollback(); return; }
       const scheme = welcomeSchemes.value.find((item) => item.id === value);
       if (!scheme) throw new Error('该欢迎方案不存在，请重新选择');
-      // 发布 = 先把方案快照写入品牌配置, 再让本屏 kiosk 重新拉动态欢迎页
+      // 发布 = 先把方案快照写入品牌配置, 再复用统一的欢迎投放(含切显示通道/竞态守护)
       await publishWelcomeScheme(value, welcomeSchemesRevision.value);
       await refreshWelcomeSchemeOptions();
-      if (!isCurrent()) return;
-      await publishWelcome(SLOT.value, 'editable');
-      if (!isCurrent()) return;
-      ElMessage.success(`已投放欢迎方案「${scheme.name}」`);
+      await selectWelcome('editable');
     }
     void loadAll();
   } catch (e) {
     const msg = (e as Error).message || String(e);
     await refreshWelcomeSchemeOptions();
     rollback();
-    if (isCurrent()) {
-      ElMessage.error(/冲突|conflict|revision/i.test(msg)
-        ? '欢迎方案刚被其它终端修改，已刷新，请重新选择'
-        : `投放欢迎页失败: ${msg}`);
-    }
+    ElMessage.error(/冲突|conflict|revision/i.test(msg)
+      ? '欢迎方案刚被其它终端修改，已刷新，请重新选择'
+      : `投放欢迎页失败: ${msg}`);
   } finally {
     welcomePickerBusy.value = false;
   }
@@ -977,16 +982,16 @@ async function openWelcomeEditor(): Promise<void> {
     welcomeSchemes.value = snapshot.config.schemes.map((item) => ({ ...item }));
     welcomeSchemesRevision.value = snapshot.revision;
     publishedWelcomeSchemeId.value = snapshot.publishedSchemeId;
-    // 从输入源进入编辑器时, 默认定位"当前正在使用(已发布)"的方案, 现场即改即看;
-    // 没有已发布方案时回退到上次记忆的 tab, 最后回退第一套
-    const rememberedId = rememberedWelcomeSchemeId();
-    const hasScheme = (id: string | null | undefined): id is string =>
-      !!id && snapshot.config.schemes.some((item) => item.id === id);
-    const initialId = hasScheme(snapshot.publishedSchemeId)
-      ? snapshot.publishedSchemeId
-      : hasScheme(rememberedId)
-        ? rememberedId
+    // 默认回到本次/上次正在编辑的方案(编辑连续性); 都无效时定位在播方案, 再退第一套
+    const publishedFallback =
+      snapshot.publishedSchemeId &&
+      snapshot.config.schemes.some((item) => item.id === snapshot.publishedSchemeId)
+        ? snapshot.publishedSchemeId
         : snapshot.config.schemes[0].id;
+    const preferredId = selectedWelcomeSchemeId.value || rememberedWelcomeSchemeId();
+    const initialId = snapshot.config.schemes.some((item) => item.id === preferredId)
+      ? preferredId
+      : publishedFallback;
     applyWelcomeScheme(initialId);
     lastWelcomeSaveRevision.value = snapshot.revision;  // 刚加载=与服务器一致, 不算未保存
   } catch (e) {
