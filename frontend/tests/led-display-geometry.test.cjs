@@ -19,7 +19,7 @@ test('authored LED pages and editable backgrounds use the native 3612x1462 canva
   const welcome = fs.readFileSync(path.join(__dirname, '../public/welcome/index.html'), 'utf8');
   const parkCss = fs.readFileSync(path.join(__dirname, '../public/park-ops/css/style.css'), 'utf8');
   const parkJs = fs.readFileSync(path.join(__dirname, '../public/park-ops/js/app.js'), 'utf8');
-  const editor = fs.readFileSync(path.join(__dirname, '../src/components/PlayerConsole.vue'), 'utf8');
+  const editor = fs.readFileSync(path.join(__dirname, '../src/composables/useWelcomeEditor.ts'), 'utf8');
 
   assert.match(welcome, /html, body \{ width: 3612px; height: 1462px/);
   assert.match(welcome, /const LED_WIDTH = 3612;\s*const LED_HEIGHT = 1462;/);
