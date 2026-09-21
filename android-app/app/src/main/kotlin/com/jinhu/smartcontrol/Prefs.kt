@@ -32,9 +32,8 @@ object Prefs {
     /** 远程地址 (隧道/公网, 可选) — 现场地址探不通时自动切它, 见 MainActivity.resolveAndLoad */
     fun getRemoteUrl(ctx: Context): String? {
         val saved = get(ctx).getString(KEY_REMOTE_URL, null) ?: return null
-        // erp.cnjinhu.top 已被阿里云 ICP 门禁拦截，TLS 握手会被直接重置。
-        // 升级时原地迁移旧安装的保存值，避免用户重新配置。
-        if (Uri.parse(saved).host.equals("erp.cnjinhu.top", ignoreCase = true)) {
+        // 1.1.15 曾误把 PWA 相机入口保存为原生 App 远程地址；升级后恢复生产地址。
+        if (Uri.parse(saved).host.equals("park.cnjinhu.com", ignoreCase = true)) {
             setRemoteUrl(ctx, BuildConfig.DEFAULT_REMOTE_URL)
             return BuildConfig.DEFAULT_REMOTE_URL
         }
