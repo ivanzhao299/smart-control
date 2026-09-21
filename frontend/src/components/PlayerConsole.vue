@@ -24,7 +24,7 @@
  *
  * 投影仪 (slot2) 已拆到独立页 ProjectorPage, 本页只管 LED (slot1)。
  */
-import { computed, onMounted, onScopeDispose, ref , watch } from 'vue';
+import { computed, onMounted, onScopeDispose, reactive, ref, watch, type Directive } from 'vue';
 import { identityGeneration, captureIdentityGuard, createLatestIdentityRead } from '@/services/identity-boundary';
 import { ElMessage, ElMessageBox, ElScrollbar } from 'element-plus';
 import { useRouter } from 'vue-router';
@@ -259,7 +259,7 @@ async function togglePower(): Promise<void> {
 }
 
 onMounted(() => {
-  void loadPowerCircuit(); void loadAll(); });
+  void loadPowerCircuit(); void loadAll(); void refreshWelcomeSchemeOptions(); });
 
 /** 当前在播的是列表里的哪一条 (用 mediaId 比, 不信 index —— 可能从媒体库临时推过片子) */
 const currentInList = computed(() =>
@@ -539,19 +539,68 @@ async function selectContent(): Promise<void> {
   } finally { busy.value = false; }
 }
 
-async function selectWelcome(variant: 'editable' | 'default'): Promise<void> {
+// ============ 输入源欢迎方案下拉 (静态默认第一项 + 编辑器保存的方案, 选中即发布上屏) ============
+const WELCOME_PICK_DEFAULT = '__default__';
+const welcomePickerBusy = ref(false);
+
+/** 轻量拉取方案清单 (只拉 JSON, 不加载图片库), 供输入源下拉回显 */
+async function refreshWelcomeSchemeOptions(notify = false): Promise<void> {
+  try {
+    const snapshot = await fetchWelcomeSchemes();
+    welcomeSchemes.value = snapshot.config.schemes.map((item) => ({ ...item }));
+    welcomeSchemesRevision.value = snapshot.revision;
+    publishedWelcomeSchemeId.value = snapshot.publishedSchemeId;
+  } catch (e) {
+    if (notify) ElMessage.error(`读取欢迎方案失败: ${(e as Error).message}`);
+  }
+}
+
+/** 下拉回显值: 非欢迎源为空(显示占位), 默认页/已发布方案分别高亮 */
+const welcomePickerValue = computed<string>(() => {
+  if (activeSource.value === 'welcome-default') return WELCOME_PICK_DEFAULT;
+  if (activeSource.value === 'welcome-editable') return publishedWelcomeSchemeId.value ?? '';
+  return '';
+});
+
+async function onWelcomeSchemePick(event: Event): Promise<void> {
+  const selectEl = event.target as HTMLSelectElement;
+  const value = selectEl.value;
+  const rollback = (): void => { selectEl.value = welcomePickerValue.value; };
   const isCurrent = captureConsoleAction();
-  if (!isCurrent()) return;
-  busy.value = true;
+  if (!isCurrent() || welcomePickerBusy.value) return;
+  welcomePickerBusy.value = true;
   try {
     await ensureDisplayPath();
     if (!isCurrent()) return;
-    await publishWelcome(SLOT.value, variant);
-    if (!isCurrent()) return;
-    ElMessage.success(variant === 'editable' ? '已投放动态欢迎页 (点「编辑欢迎页」可改内容)' : '已投放默认欢迎页');
+    if (value === WELCOME_PICK_DEFAULT) {
+      await publishWelcome(SLOT.value, 'default');
+      if (!isCurrent()) return;
+      ElMessage.success('已投放内置静态默认欢迎页');
+    } else {
+      if (!(await ensureAdmin('投放欢迎方案'))) { rollback(); return; }
+      const scheme = welcomeSchemes.value.find((item) => item.id === value);
+      if (!scheme) throw new Error('该欢迎方案不存在，请重新选择');
+      // 发布 = 先把方案快照写入品牌配置, 再让本屏 kiosk 重新拉动态欢迎页
+      await publishWelcomeScheme(value, welcomeSchemesRevision.value);
+      await refreshWelcomeSchemeOptions();
+      if (!isCurrent()) return;
+      await publishWelcome(SLOT.value, 'editable');
+      if (!isCurrent()) return;
+      ElMessage.success(`已投放欢迎方案「${scheme.name}」`);
+    }
+    void loadAll();
   } catch (e) {
-    if (isCurrent()) ElMessage.error(`投放欢迎页失败: ${(e as Error).message}`);
-  } finally { busy.value = false; }
+    const msg = (e as Error).message || String(e);
+    await refreshWelcomeSchemeOptions();
+    rollback();
+    if (isCurrent()) {
+      ElMessage.error(/冲突|conflict|revision/i.test(msg)
+        ? '欢迎方案刚被其它终端修改，已刷新，请重新选择'
+        : `投放欢迎页失败: ${msg}`);
+    }
+  } finally {
+    welcomePickerBusy.value = false;
+  }
 }
 
 async function selectParkDashboard(): Promise<void> {
@@ -700,17 +749,143 @@ function rememberWelcomeSchemeId(id: string): void {
   catch { /* private mode or disabled storage */ }
 }
 
-function pushWelcomePreview(): void {
+// ---- 编辑器缩略图 (后端暂无缩略图能力: 按需在前端把原图缩成小 WebP blob,
+//      仅进入视口的卡片生成, 按 mediaId 缓存; 发布/大屏仍用 3612 原图点对点) ----
+const welcomeThumbUrlMap = reactive(new Map<number, string>());
+const welcomeThumbInflight = new Map<number, Promise<string>>();
+const WELCOME_BG_THUMB_WIDTH = 1200;
+const WELCOME_LOGO_THUMB_HEIGHT = 256;
+
+async function ensureWelcomeThumb(asset: WelcomeImageAsset, kind: 'background' | 'logo'): Promise<string> {
+  const cached = welcomeThumbUrlMap.get(asset.id);
+  if (cached) return cached;
+  const inflight = welcomeThumbInflight.get(asset.id);
+  if (inflight) return inflight;
+  const task = (async (): Promise<string> => {
+    const loadBlob = async (url: string): Promise<Blob> => {
+      const res = await fetch(absUrl(url), { cache: 'no-store' });
+      if (res.status === 401 || res.status === 403 || res.status === 410) {
+        throw Object.assign(new Error(`ticket-expired-${res.status}`), { expired: true });
+      }
+      if (!res.ok) throw new Error(`读取图片失败 (${res.status})`);
+      return res.blob();
+    };
+    let blob: Blob;
+    try {
+      blob = await loadBlob(asset.fileUrl);
+    } catch (e) {
+      if (!(e as { expired?: boolean }).expired) throw e;
+      const access = await mediaService.access(asset.id);
+      asset.fileUrl = access.url;   // 续上 5 分钟短期票
+      blob = await loadBlob(access.url);
+    }
+    const bitmap = await createImageBitmap(blob);
+    let targetW: number;
+    let targetH: number;
+    if (kind === 'background') {
+      targetW = Math.min(bitmap.width, WELCOME_BG_THUMB_WIDTH);   // 只缩不放
+      targetH = Math.max(1, Math.round(targetW * (bitmap.height / bitmap.width)));
+    } else {
+      targetH = Math.min(bitmap.height, WELCOME_LOGO_THUMB_HEIGHT);
+      targetW = Math.max(1, Math.round(targetH * (bitmap.width / bitmap.height)));
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('canvas 不可用');
+    ctx.drawImage(bitmap, 0, 0, targetW, targetH);
+    bitmap.close?.();
+    const encode = (mime: string) => new Promise<Blob | null>((resolve) =>
+      canvas.toBlob((b) => resolve(b), mime, 0.85));
+    // WebP 体积小且支持透明; 老环境兜底: Logo 用 PNG 保透明, 底图用 JPEG
+    const out = (await encode('image/webp'))
+      || (await encode(kind === 'logo' ? 'image/png' : 'image/jpeg'));
+    if (!out) throw new Error('缩略图编码失败');
+    return URL.createObjectURL(out);
+  })();
+  welcomeThumbInflight.set(asset.id, task);
+  try {
+    const url = await task;
+    welcomeThumbUrlMap.set(asset.id, url);
+    return url;
+  } finally {
+    welcomeThumbInflight.delete(asset.id);
+  }
+}
+
+/** 库卡片图片进入视口才按需缩图, 避免一打开编辑器就全量下载/解码 3612 原图 (手机端尤卡) */
+const vWelcomeThumb: Directive<HTMLImageElement, { id: number; kind: 'background' | 'logo' }> = {
+  mounted(el, binding) {
+    const { id, kind } = binding.value;
+    const assetOf = (): WelcomeImageAsset | undefined =>
+      (kind === 'background' ? bgAssets.value : logoAssets.value).find((a) => a.id === id);
+    const run = (): void => {
+      const asset = assetOf();
+      if (!asset) return;
+      ensureWelcomeThumb(asset, kind)
+        .then((url) => { if (el.isConnected) el.src = url; })
+        .catch(() => { if (asset.fileUrl && el.isConnected) el.src = absUrl(asset.fileUrl); });
+    };
+    if (typeof IntersectionObserver === 'undefined') { run(); return; }
+    const io = new IntersectionObserver((entries) => {
+      if (!entries.some((x) => x.isIntersecting)) return;
+      io.disconnect();
+      run();
+    }, { root: null, rootMargin: '240px' });
+    io.observe(el);
+  },
+};
+
+onScopeDispose(() => {
+  welcomeThumbUrlMap.forEach((url) => URL.revokeObjectURL(url));
+  welcomeThumbUrlMap.clear();
+  welcomeThumbInflight.clear();
+});
+
+/** 脏标记: 加载完成后且最后保存版本号被清空 = 有未保存修改 */
+const welcomeSaveDirty = computed(() => !welcomeLoading.value && lastWelcomeSaveRevision.value === null);
+
+async function requestCloseWelcomeEditor(): Promise<void> {
+  if (welcomeSaving.value || welcomePublishing.value
+    || welcomeAssetUploading.value !== null || welcomeAssetDeletingId.value !== null) {
+    ElMessage.warning('正在保存、发布或处理图片，请稍候再关闭');
+    return;
+  }
+  if (welcomeSaveDirty.value) {
+    try {
+      await ElMessageBox.confirm('当前方案有尚未保存的修改，关闭后将丢失。确定关闭吗？', '有未保存的修改', {
+        confirmButtonText: '放弃修改并关闭', cancelButtonText: '继续编辑', type: 'warning',
+      });
+    } catch { return; }
+  }
+  welcomeEditOpen.value = false;
+}
+
+let welcomePreviewSeq = 0;
+async function pushWelcomePreview(): Promise<void> {
+  const frame = welcomePreviewFrame.value;
+  if (!frame) return;
+  const seq = ++welcomePreviewSeq;
   const selected = compatibleBgAssets.value.find((item) => item.id === welcomeForm.value.welcomeBgMediaId);
   const selectedLogo = logoAssets.value.find((item) => item.id === welcomeForm.value.welcomeLogoMediaId);
-  welcomePreviewFrame.value?.contentWindow?.postMessage({
+  const [bgUrl, logoUrl] = await Promise.all([
+    selected
+      ? ensureWelcomeThumb(selected, 'background').catch(() => absUrl(selected.fileUrl))
+      : Promise.resolve(null),
+    selectedLogo
+      ? ensureWelcomeThumb(selectedLogo, 'logo').catch(() => absUrl(selectedLogo.fileUrl))
+      : Promise.resolve(null),
+  ]);
+  if (seq !== welcomePreviewSeq || !frame.contentWindow) return;  // 快速切方案只保留最新一帧, 防串图
+  frame.contentWindow.postMessage({
     type: 'smart-control:welcome-preview',
     payload: {
       welcomeTitle: welcomeForm.value.welcomeTitle,
       welcomeGuest: welcomeForm.value.welcomeGuest,
       welcomeTagline: welcomeForm.value.welcomeTagline,
-      welcomeBgUrl: selected ? absUrl(selected.fileUrl) : null,
-      welcomeLogoUrl: selectedLogo ? absUrl(selectedLogo.fileUrl) : null,
+      welcomeBgUrl: bgUrl,
+      welcomeLogoUrl: logoUrl,
       welcomePresentation: cloneWelcomePresentation(welcomeForm.value.presentation),
     },
   }, window.location.origin);
@@ -785,7 +960,9 @@ async function openWelcomeEditor(): Promise<void> {
       fetchWelcomeSchemes(),
       mediaService.list({ kind: 'image' }),
     ]);
-    const assets = imgs.items.map((m) => ({
+    // 列表接口已为图片素材签发短期访问票 (fileUrl), 这里不再逐张重复取票;
+    // 缩略图按需生成时若票过期(5 分钟)会现场续票。
+    const assets: WelcomeImageAsset[] = imgs.items.map((m) => ({
       id: m.id,
       originalName: m.originalName,
       thumbUrl: m.thumbUrl,
@@ -795,28 +972,23 @@ async function openWelcomeEditor(): Promise<void> {
       source: m.source,
     }));
     const libraries = classifyWelcomeImageAssets(assets, snapshot.config.schemes);
-    // 普通媒体文件地址需要鉴权，原生 <img> 不会自动附带 token。编辑器打开时
-    // 为欢迎页素材换取短期访问地址，否则重开页面后缩略图会失效，看起来像 Logo 不能切换。
-    const hydrate = async (asset: WelcomeImageAsset): Promise<WelcomeImageAsset> => {
-      try {
-        const access = await mediaService.access(asset.id);
-        return { ...asset, thumbUrl: null, fileUrl: access.url };
-      } catch {
-        return asset;
-      }
-    };
-    [bgAssets.value, logoAssets.value] = await Promise.all([
-      Promise.all(libraries.backgrounds.map(hydrate)),
-      Promise.all(libraries.logos.map(hydrate)),
-    ]);
+    bgAssets.value = libraries.backgrounds;
+    logoAssets.value = libraries.logos;
     welcomeSchemes.value = snapshot.config.schemes.map((item) => ({ ...item }));
     welcomeSchemesRevision.value = snapshot.revision;
     publishedWelcomeSchemeId.value = snapshot.publishedSchemeId;
-    const preferredId = selectedWelcomeSchemeId.value || rememberedWelcomeSchemeId();
-    const initialId = snapshot.config.schemes.some((item) => item.id === preferredId)
-      ? preferredId
-      : (snapshot.publishedSchemeId ?? snapshot.config.schemes[0].id);
+    // 从输入源进入编辑器时, 默认定位"当前正在使用(已发布)"的方案, 现场即改即看;
+    // 没有已发布方案时回退到上次记忆的 tab, 最后回退第一套
+    const rememberedId = rememberedWelcomeSchemeId();
+    const hasScheme = (id: string | null | undefined): id is string =>
+      !!id && snapshot.config.schemes.some((item) => item.id === id);
+    const initialId = hasScheme(snapshot.publishedSchemeId)
+      ? snapshot.publishedSchemeId
+      : hasScheme(rememberedId)
+        ? rememberedId
+        : snapshot.config.schemes[0].id;
     applyWelcomeScheme(initialId);
+    lastWelcomeSaveRevision.value = snapshot.revision;  // 刚加载=与服务器一致, 不算未保存
   } catch (e) {
     ElMessage.error(`读取欢迎页配置失败: ${(e as Error).message}`);
   } finally { welcomeLoading.value = false; }
@@ -1002,6 +1174,7 @@ async function deleteWelcomeImage(kind: 'background' | 'logo', asset: WelcomeIma
         ? selectedId
         : welcomeSchemes.value[0].id,
     );
+    lastWelcomeSaveRevision.value = result.schemes.revision;  // 删图已即时持久化, 不再算未保存
     ElMessage.success(result.cleanupPending ? '图片记录已删除，服务器正在清理文件' : '图片已删除');
   } catch (error) {
     ElMessage.error(`删除失败: ${(error as Error).message}`);
@@ -1115,11 +1288,12 @@ function duplicateWelcomeScheme(): void {
   if (!source) return;
   const copy: WelcomeScheme = {
     ...source,
-    id: `scheme-${Date.now().toString(36)}`,
+    id: `scheme-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     name: `${source.name} 副本`.slice(0, 40),
   };
   welcomeSchemes.value.push(copy);
   applyWelcomeScheme(copy.id);
+  markWelcomeDraftChanged();
 }
 
 async function deleteWelcomeScheme(): Promise<void> {
@@ -1139,6 +1313,7 @@ async function deleteWelcomeScheme(): Promise<void> {
   const index = welcomeSchemes.value.findIndex((item) => item.id === selectedWelcomeSchemeId.value);
   welcomeSchemes.value.splice(index, 1);
   applyWelcomeScheme(welcomeSchemes.value[Math.max(0, index - 1)].id);
+  markWelcomeDraftChanged();
 }
 
 // ============ 拖拽排序 ============
@@ -1416,8 +1591,20 @@ async function submitWebpage(): Promise<void> {
       <span class="src-label">输入源</span>
       <button class="src-btn" :class="{ on: activeSource === 'content' }" :disabled="busy" @click="selectContent">播放内容</button>
       <button class="src-btn dashboard" :class="{ on: activeSource === 'park-dashboard' }" :disabled="busy" @click="selectParkDashboard"><Globe :size="13" /> 园区运营大屏</button>
-      <button class="src-btn" :class="{ on: activeSource === 'welcome-editable' }" :disabled="busy" @click="selectWelcome('editable')">欢迎页·可编辑称谓</button>
-      <button class="src-btn" :class="{ on: activeSource === 'welcome-default' }" :disabled="busy" @click="selectWelcome('default')">欢迎页·默认</button>
+      <select
+        class="src-welcome-select"
+        :class="{ on: activeSource === 'welcome-editable' || activeSource === 'welcome-default' }"
+        :value="welcomePickerValue"
+        :disabled="busy || welcomePickerBusy"
+        aria-label="选择欢迎页方案"
+        @change="onWelcomeSchemePick"
+      >
+        <option value="" disabled>欢迎页方案</option>
+        <option :value="WELCOME_PICK_DEFAULT">静态默认欢迎页</option>
+        <option v-for="s in welcomeSchemes" :key="s.id" :value="s.id">
+          {{ s.name }}{{ publishedWelcomeSchemeId === s.id ? ' · 使用中' : '' }}
+        </option>
+      </select>
       <button class="src-btn edit" :disabled="busy" @click="openWelcomeEditor"><Pencil :size="13" /> 编辑欢迎页</button>
       <span class="src-hint">{{ srcHint }}</span>
     </section>
@@ -1563,11 +1750,11 @@ async function submitWebpage(): Promise<void> {
     </div>
 
     <!-- 欢迎页编辑器：多套方案可先保存草稿，明确发布后才更新 LED 画面。 -->
-    <div v-if="welcomeEditOpen" class="pick-mask welcome-mask" @click.self="welcomeEditOpen = false">
+    <div v-if="welcomeEditOpen" class="pick-mask welcome-mask" @click.self="requestCloseWelcomeEditor">
       <div class="pick-box we-box">
         <header class="pick-head">
           <span class="pick-title"><Pencil :size="16" /> 编辑欢迎页</span>
-          <button class="pick-close" @click="welcomeEditOpen = false"><X :size="18" /></button>
+          <button class="pick-close" @click="requestCloseWelcomeEditor"><X :size="18" /></button>
         </header>
         <input
           ref="welcomeLogoUploadInput" type="file" class="hidden-file"
@@ -1632,7 +1819,7 @@ async function submitWebpage(): Promise<void> {
             <label class="wb-label">方案名称</label>
             <input v-model="welcomeSchemeName" class="wb-input" maxlength="40" placeholder="如：某公司来访" @input="markWelcomeDraftChanged" />
             <label class="wb-label">主标题 (空 = 默认「热烈欢迎」)</label>
-            <input v-model="welcomeForm.welcomeTitle" class="wb-input" maxlength="16" placeholder="热烈欢迎" @input="markWelcomeDraftChanged" />
+            <input v-model="welcomeForm.welcomeTitle" class="wb-input" maxlength="32" placeholder="热烈欢迎" @input="markWelcomeDraftChanged" />
             <label class="wb-label">嘉宾称谓 (显示为 恭迎 ×× 莅临参观指导)</label>
             <input v-model="welcomeForm.welcomeGuest" class="wb-input" maxlength="64" placeholder="各位领导嘉宾" @input="markWelcomeDraftChanged" />
             <label class="wb-label">底部标语 (空 = 默认「智慧展厅 · 数字展贸 · 科创未来」)</label>
@@ -1715,7 +1902,7 @@ async function submitWebpage(): Promise<void> {
                   class="we-bg-item" :class="{ on: welcomeForm.welcomeLogoMediaId === a.id }"
                   :title="a.originalName" @click="selectWelcomeLogo(a.id)"
                 >
-                  <img class="we-logo-image" :src="absUrl(a.thumbUrl || a.fileUrl)" alt="" loading="lazy" />
+                  <img class="we-logo-image" v-welcome-thumb="{ id: a.id, kind: 'logo' }" alt="" />
                   <span class="we-bg-name">{{ a.originalName }}</span>
                 </button>
                 <button
@@ -1753,7 +1940,7 @@ async function submitWebpage(): Promise<void> {
                     : `${a.originalName}：点击自动转换为 ${LED_CANVAS_RESOLUTION}`"
                   @click="selectWelcomeBackground(a)"
                 >
-                  <img :src="absUrl(a.thumbUrl || a.fileUrl)" alt="" loading="lazy" />
+                  <img v-welcome-thumb="{ id: a.id, kind: 'background' }" alt="" />
                   <span class="we-bg-name">{{ a.originalName }} · {{ a.resolution || '未知尺寸' }}</span>
                 </button>
                 <button
@@ -1772,7 +1959,7 @@ async function submitWebpage(): Promise<void> {
             <span v-if="lastWelcomeSaveRevision !== null" class="we-save-receipt">
               已保存到服务器 · 版本 {{ lastWelcomeSaveRevision }}
             </span>
-            <button class="v2-quick" @click="welcomeEditOpen = false">取消</button>
+            <button class="v2-quick" @click="requestCloseWelcomeEditor">取消</button>
             <button class="v2-quick secondary" :disabled="welcomeSaving || welcomePublishing || !!welcomeAssetUploading || welcomeAssetDeletingId !== null" @click="saveWelcomeScheme">
               {{ welcomeSaving ? '保存并校验中…' : '仅保存方案' }}
             </button>
@@ -1892,6 +2079,15 @@ async function submitWebpage(): Promise<void> {
 .src-btn.dashboard { display: inline-flex; align-items: center; gap: 5px; }
 .src-btn.edit { display: inline-flex; align-items: center; gap: 5px; color: var(--v2-primary); border-style: dashed; }
 .src-hint { font-size: 11px; color: var(--v2-text-3); }
+.src-welcome-select {
+  padding: 9px 14px; min-height: 40px; border-radius: 9px; cursor: pointer;
+  font-size: 14px; color: var(--v2-text-1); font-family: inherit;
+  background: var(--v2-surf-2, #1A1D22); border: 1px solid var(--v2-border-soft, #23262C);
+  max-width: 220px;
+}
+.src-welcome-select.on { border-color: var(--v2-primary); color: var(--v2-primary); }
+.src-welcome-select:disabled { opacity: .4; cursor: not-allowed; }
+.src-welcome-select option { color: #e8edf4; background: #14161A; }
 
 /* 欢迎页编辑器 (2026-07-28) */
 .pick-box.we-box {
@@ -2054,6 +2250,7 @@ async function submitWebpage(): Promise<void> {
 .we-asset-delete:disabled { opacity: .5; cursor: wait; }
 .we-bg-item.on { border-color: var(--v2-primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--v2-primary) 35%, transparent); }
 .we-bg-item img { width: 100%; height: 100%; object-fit: cover; }
+.we-bg-item img:not([src]) { visibility: hidden; }
 .we-bg-name {
   position: absolute; left: 0; right: 0; bottom: 0;
   font-size: 10px; line-height: 1.2; padding: 3px 5px;
@@ -2092,6 +2289,8 @@ async function submitWebpage(): Promise<void> {
   .we-scroll-content { padding-right: 10px; }
   .we-scroll :deep(.el-scrollbar__bar.is-vertical) { width: 7px; }
   .we-bg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* 44px 触摸目标 + 16px 字号, 防 iOS 聚焦自动放大; 与其它源按钮并排不撑乱 */
+  .src-welcome-select { min-height: 44px; font-size: 16px; max-width: 46vw; flex: 1 1 auto; }
   .we-asset-delete { width: 44px; height: 44px; top: 4px; right: 4px; }
 }
 

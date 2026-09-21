@@ -14,9 +14,12 @@ export function webpageSandbox(source: string | null | undefined, playerHref: st
   try {
     const player = new URL(playerHref);
     const target = new URL(source, player);
-    const isBundledDashboard = target.origin === player.origin
-      && /\/park-ops\/index\.html$/.test(target.pathname);
-    return isBundledDashboard ? TRUSTED_WEBPAGE_SANDBOX : RESTRICTED_WEBPAGE_SANDBOX;
+    // 内置同源投放页(运营大屏 / 欢迎页)都要以同源身份轮询 /api; 缺
+    // allow-same-origin 时 iframe origin=null, 后端收紧 CORS 后请求被拒 -> 白屏/拉不到方案。
+    const isBundledPage = target.origin === player.origin
+      && (/\/park-ops\/index\.html$/.test(target.pathname)
+        || /\/welcome\/index\.html$/.test(target.pathname));
+    return isBundledPage ? TRUSTED_WEBPAGE_SANDBOX : RESTRICTED_WEBPAGE_SANDBOX;
   } catch {
     return RESTRICTED_WEBPAGE_SANDBOX;
   }

@@ -27,6 +27,9 @@
   /* 自定义底图铺满原生画布；蓝黑遮罩保证品牌色文字在复杂图片上仍清晰。 */
   .custom-bg { position: absolute; inset: 0; display: none; }
   .custom-bg img { width: 3612px; height: 1462px; object-fit: none; }
+  /* 预览 iframe 用前端按需生成的等比例缩略图(画布同为 3612:1462), 允许 cover 铺满不变形;
+       真机非预览仍保持上行 object-fit:none + 精确像素点对点 */
+  html.preview-mode .custom-bg img { object-fit: cover; }
   .custom-bg::after { content: ''; position: absolute; inset: 0;
     background: linear-gradient(180deg, rgba(4,19,38,0.56), rgba(5,28,52,0.30) 42%, rgba(4,16,31,0.68));
   }
@@ -304,7 +307,9 @@
     // ---- 欢迎页内容: 前端编辑器可改 (system-branding: 称谓/主标题/标语/底图),
     //      8s 轮询"保存后立即生效"。kiosk 在主机本机 → localhost; 平板预览 →
     //      location.hostname。读不到保持现值/默认。
-    const API = `http://${location.hostname || 'localhost'}:3200`;
+    // 同源访问: 生产走 https 反代(/control 与 /api 同域), 本地 dev 走 vite 代理;
+    // 不能硬编码 http://主机:3200 —— https 页面里会被判为混合内容拦截, 且 3200 端口不对公网暴露。
+    const API = location.origin || '';
     let lastBgUrl = null;
     let bgRevision = 0;
     const DEFAULT_LOGO_URL = '../brand-logo.png';
@@ -346,8 +351,14 @@
       img.onload = () => {
         if (revision !== bgRevision) return;
         const exact = img.naturalWidth === LED_WIDTH && img.naturalHeight === LED_HEIGHT;
-        document.body.classList.toggle('has-bg', exact);
-        if (!exact) console.warn(`欢迎页底图必须为 ${LED_WIDTH}×${LED_HEIGHT}，当前为 ${img.naturalWidth}×${img.naturalHeight}`);
+        if (previewMode) {
+          // 预览走等比例缩略图, 加载成功即显示; 正式上屏仍用原图并保持精确点对点
+          document.body.classList.add('has-bg');
+          if (!exact) console.info(`预览使用缩略图 ${img.naturalWidth}×${img.naturalHeight}；正式上屏仍为 ${LED_WIDTH}×${LED_HEIGHT} 原图`);
+        } else {
+          document.body.classList.toggle('has-bg', exact);
+          if (!exact) console.warn(`欢迎页底图必须为 ${LED_WIDTH}×${LED_HEIGHT}，当前为 ${img.naturalWidth}×${img.naturalHeight}`);
+        }
       };
       img.onerror = () => {
         if (revision === bgRevision) document.body.classList.remove('has-bg');
