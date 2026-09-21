@@ -248,7 +248,17 @@ export default defineConfig(({ mode }) => {
           // 注意 admin.service (小写) 被业主侧状态页共享, 不匹配此模式, 不受影响。
           globIgnores: ['**/*Admin*', '**/el-date-picker*', 'welcome/**'],
           navigateFallback: `${SCOPE_PREFIX}/index.html`,
-          navigateFallbackDenylist: [/\/api(\/|$)/, /\/ws(\/|$)/, /\/park-ops(\/|$)/],
+          // 独立静态投放页 (park-ops 运营大屏 / welcome 欢迎页) 由播放器以 iframe 顶层导航加载,
+          // 它们是 public/ 下的物理静态 HTML, 绝不能被 SPA 导航回退顶替成 index.html 应用壳——
+          // 否则 iframe 内 Vue 路由匹配不到该路径会跳到登录页 (2026-09-21 欢迎页上屏变登录页根因)。
+          // welcome 不进预缓存 (globIgnores 排除大图), 但必须在此放行导航, 让其走网络取物理文件。
+          // 以后新增任何 public/ 独立静态投放页, 都必须在此同步登记。
+          navigateFallbackDenylist: [
+            /\/api(\/|$)/,
+            /\/ws(\/|$)/,
+            /\/park-ops(\/|$)/,
+            /\/welcome(\/|$)/,
+          ],
           // Authenticated APIs must never fall back to another account's cache.
           runtimeCaching: [
             {
