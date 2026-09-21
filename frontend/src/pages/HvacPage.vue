@@ -27,32 +27,28 @@ import {
 } from 'lucide-vue-next';
 import { haptics } from '@/services/haptics';
 import {
-  hvacService, type HvacFan, type HvacIndoor, type HvacMode, type HvacZone,
+  hvacService, type HvacFan, type HvacMode, type HvacZone,
 } from '@/services/hvac.service';
+import {
+  averageSelectedTemperature,
+  buildGroupedSections,
+  buildZoneCards,
+  commonKnownState,
+  createUnknownIndoorState,
+  filterIndoorsByFloor,
+  filterZonesByFloor,
+  invertVisibleSelection,
+  isSelectionComplete,
+  summarizeHvacOverview,
+  toggleSelection,
+  type HvacFloorFilter,
+  type HvacZoneCard,
+  type IndoorRow,
+  type IndoorState,
+} from '@/features/hvac-view-model';
 
 const router = useRouter();
 function goBack(): void { void router.push({ name: 'dashboard' }); }
-
-/**
- * 内机状态 — **来自真机寄存器**, 由 GET /hvac/states 轮询.
- *
- * known=false = 这一轮没读到 (网关超时 / 内机离线)。必须跟"关机"区分开:
- * 把读不到画成关机, 会让人以为空调停了而实际在跑, 比不显示更糟。
- */
-interface IndoorState {
-  known: boolean;
-  on: boolean;
-  temperature: number;
-  mode: HvacMode;
-  fan: HvacFan;
-  /** 实测室温 (设定温度是 temperature, 这个是屋里实际多少度) */
-  roomTemp?: number;
-  online: boolean;
-  faultCode: number;
-}
-interface IndoorRow extends HvacIndoor {
-  state: IndoorState;
-}
 
 /** 状态轮询间隔 — 2 次 Modbus 往返约 0.2-1s, 5s 一轮既跟手又不压网关 */
 const POLL_MS = 5000;
@@ -63,7 +59,7 @@ const dispatching = ref(false);
 const zones = ref<HvacZone[]>([]);
 const loading = ref(false);
 const busy = ref(false);
-const floorTab = ref<'1F' | '2F' | 'all'>('all');
+const floorTab = ref<HvacFloorFilter>('all');
 /** 手机端快选条默认折叠成一行横滚 (14 个分组铺 6 行占掉 1/4 屏), 点「展开」才铺开 */
 const quickExpanded = ref(false);
 const selected = ref<Set<number>>(new Set());
@@ -83,17 +79,12 @@ const fans: Array<{ value: HvacFan; label: string }> = [
   { value: 'high', label: '高' },
 ];
 
-/** 还没读到真机状态时的占位 —— known=false, 界面显示"未知"而不是"关机" */
-function unknownState(): IndoorState {
-  return { known: false, on: false, temperature: 24, mode: 'auto', fan: 'auto', online: false, faultCode: 0 };
-}
-
 async function loadAll(): Promise<void> {
   loading.value = true;
   try {
     const [ind, zs] = await Promise.all([hvacService.listIndoors(), hvacService.listZones()]);
     const prev = new Map(indoors.value.map((i) => [i.idx, i.state]));
-    indoors.value = ind.map((i) => ({ ...i, state: prev.get(i.idx) ?? unknownState() }));
+    indoors.value = ind.map((i) => ({ ...i, state: prev.get(i.idx) ?? createUnknownIndoorState() }));
     zones.value = zs;
     const alive = new Set(ind.map((i) => i.idx));
     selected.value = new Set([...selected.value].filter((x) => alive.has(x)));
@@ -181,9 +172,7 @@ useActivePolling(startPolling, stopPolling);
 
 // ============ 视图 ============
 
-const visibleIndoors = computed(() =>
-  floorTab.value === 'all' ? indoors.value : indoors.value.filter((i) => i.floor === floorTab.value),
-);
+const visibleIndoors = computed(() => filterIndoorsByFloor(indoors.value, floorTab.value));
 
 // ============ 内机拖动排序 (业主: "空调内机的位置可以拖动") ============
 // 用原生 HTML5 drag & drop, 跟灯光分区拖动一致, 不引第三方库。顺序**存后端**
@@ -237,9 +226,7 @@ function onIndoorDragEnd(): void {
  *
  * 现在: 空分区照常显示 (数量标 0), 这样才点得到、才能往里放内机。
  */
-const visibleZones = computed(() =>
-  floorTab.value === 'all' ? zones.value : zones.value.filter((z) => z.floor === floorTab.value),
-);
+const visibleZones = computed(() => filterZonesByFloor(zones.value, floorTab.value));
 const ungroupedCount = computed(() => visibleIndoors.value.filter((i) => !i.zoneCode).length);
 
 /**
@@ -257,23 +244,7 @@ const ungroupedCount = computed(() => visibleIndoors.value.filter((i) => !i.zone
  * 改成按组分段后: 结构直接摆在眼前, 把内机移过去 -> 它立刻出现在那一段里, 动作和
  * 结果在同一个地方发生。底部那堵按钮墙也就不需要了。
  */
-const groupedSections = computed<Array<{ code: string | null; name: string; zone: HvacZone | null; rows: IndoorRow[] }>>(() => {
-  const byCode = new Map<string | null, IndoorRow[]>();
-  for (const row of visibleIndoors.value) {
-    const k = row.zoneCode ?? null;
-    const list = byCode.get(k) ?? [];
-    list.push(row);
-    byCode.set(k, list);
-  }
-  const out: Array<{ code: string | null; name: string; zone: HvacZone | null; rows: IndoorRow[] }> = [];
-  // 空组也要显示 —— 否则新建的组无处安放, 又回到那个"建了看不见 -> 放不进去"的死锁
-  for (const z of visibleZones.value) {
-    out.push({ code: z.code, name: z.name, zone: z, rows: byCode.get(z.code) ?? [] });
-  }
-  const un = byCode.get(null) ?? [];
-  if (un.length) out.push({ code: null, name: '未分组', zone: null, rows: un });
-  return out;
-});
+const groupedSections = computed(() => buildGroupedSections(visibleIndoors.value, visibleZones.value));
 
 const zoneNameOf = computed(() => {
   const m = new Map(zones.value.map((z) => [z.code, z.name]));
@@ -283,49 +254,21 @@ const zoneNameOf = computed(() => {
 const selectedRows = computed(() => indoors.value.filter((i) => selected.value.has(i.idx)));
 const selectedIdxs = computed(() => selectedRows.value.map((i) => i.idx));
 
-const overview = computed(() => {
-  const list = visibleIndoors.value;
-  // 只统计真读到状态的 —— 未知的既不算开也不算关, 单独报出来
-  const known = list.filter((i) => i.state.known);
-  const on = known.filter((i) => i.state.on);
-  const rt = known.map((i) => i.state.roomTemp).filter((t): t is number => typeof t === 'number');
-  return {
-    onCount: on.length,
-    knownCount: known.length,
-    unknownCount: list.length - known.length,
-    total: list.length,
-    faultCount: known.filter((i) => i.state.faultCode > 0).length,
-    // 显示实测室温均值 (设定温度是人设的, 室温才是现场真实情况)
-    avgRoomT: rt.length ? Math.round((rt.reduce((s, t) => s + t, 0) / rt.length) * 10) / 10 : null,
-    zoneCount: visibleZones.value.length,
-  };
-});
+const overview = computed(() => summarizeHvacOverview(visibleIndoors.value, visibleZones.value.length));
 
 /**
  * 控制条显示的值: 只看**读到状态**的那些选中项, 一致就显示该值, 不一致显示 null
  * (界面上不高亮任何一个). 未知的不参与 —— 拿占位值凑数会显示出一个假的共识.
  */
-function commonOf<K extends keyof IndoorState>(key: K): IndoorState[K] | null {
-  const rows = selectedRows.value.filter((r) => r.state.known);
-  if (!rows.length) return null;
-  const first = rows[0].state[key];
-  return rows.every((r) => r.state[key] === first) ? first : null;
-}
-const selMode = computed(() => commonOf('mode'));
-const selFan = computed(() => commonOf('fan'));
-const selOn = computed(() => commonOf('on'));
-const selTemp = computed(() => {
-  const rows = selectedRows.value.filter((r) => r.state.known);
-  if (!rows.length) return 24;
-  return Math.round(rows.reduce((s, r) => s + r.state.temperature, 0) / rows.length);
-});
+const selMode = computed(() => commonKnownState(selectedRows.value, 'mode'));
+const selFan = computed(() => commonKnownState(selectedRows.value, 'fan'));
+const selOn = computed(() => commonKnownState(selectedRows.value, 'on'));
+const selTemp = computed(() => averageSelectedTemperature(selectedRows.value));
 
 // ============ 选择 ============
 
 function toggleOne(idx: number): void {
-  const s = new Set(selected.value);
-  if (s.has(idx)) s.delete(idx); else s.add(idx);
-  selected.value = s;
+  selected.value = toggleSelection(selected.value, [idx]);
 }
 /**
  * 快选一律是**切换**, 不是覆盖 (2026-07-16 业主: "对内机全选状态没有反选功能").
@@ -336,37 +279,24 @@ function toggleOne(idx: number): void {
  */
 function toggleMany(idxs: number[]): void {
   if (idxs.length === 0) return;
-  const s = new Set(selected.value);
-  const allOn = idxs.every((i) => s.has(i));
-  for (const i of idxs) {
-    if (allOn) s.delete(i); else s.add(i);
-  }
-  selected.value = s;
+  selected.value = toggleSelection(selected.value, idxs);
 }
 function selectAll(): void { toggleMany(visibleIndoors.value.map((i) => i.idx)); }
 function selectNone(): void { selected.value = new Set(); }
 /** 反选: 当前可见范围内, 选中的变未选、未选的变选中 */
 function invertSelection(): void {
-  const s = new Set<number>();
-  for (const i of visibleIndoors.value) {
-    if (!selected.value.has(i.idx)) s.add(i.idx);
-  }
-  // 可见范围外的选中项保持不动, 免得切了楼层 tab 就把别处的选择清掉
-  for (const idx of selected.value) {
-    if (!visibleIndoors.value.some((i) => i.idx === idx)) s.add(idx);
-  }
-  selected.value = s;
+  selected.value = invertVisibleSelection(selected.value, visibleIndoors.value.map((i) => i.idx));
 }
 function selectZone(code: string | null): void {
   toggleMany(visibleIndoors.value.filter((i) => i.zoneCode === code).map((i) => i.idx));
 }
 function isZoneSelected(code: string | null): boolean {
   const members = visibleIndoors.value.filter((i) => i.zoneCode === code).map((i) => i.idx);
-  return members.length > 0 && members.every((m) => selected.value.has(m));
+  return isSelectionComplete(selected.value, members);
 }
 /** 可见内机是否已全选 —— 给"全部"按钮显示选中态用 */
 const allSelected = computed(() =>
-  visibleIndoors.value.length > 0 && visibleIndoors.value.every((i) => selected.value.has(i.idx)),
+  isSelectionComplete(selected.value, visibleIndoors.value.map((i) => i.idx)),
 );
 
 // ============ 控制 (统一走 batch, 乐观更新 + 失败回滚) ============
@@ -425,44 +355,12 @@ function adjustTemp(delta: number): void {
 const viewTab = ref<'zones' | 'units'>('zones');
 const zkey = (c: string | null): string => c ?? '__none__';
 
-interface ZoneCard {
-  code: string | null;   // null = 未分组
-  name: string;
-  members: IndoorRow[];
-  onCount: number;
-  temp: number;          // 组设定温度: 开机内机平均, 无开机 → 已知内机平均, 都没有 → 26
-  mode: HvacMode | null; // 开机内机模式一致才亮
-  avgRoomT: number | null;
-}
-function buildZoneCard(code: string | null, name: string, members: IndoorRow[]): ZoneCard {
-  const known = members.filter((m) => m.state.known);
-  const on = known.filter((m) => m.state.on);
-  const tempSrc = on.length ? on : known;
-  const temp = tempSrc.length
-    ? Math.round(tempSrc.reduce((s, m) => s + m.state.temperature, 0) / tempSrc.length)
-    : 26;
-  const mode = on.length && on.every((m) => m.state.mode === on[0].state.mode) ? on[0].state.mode : null;
-  const rt = known.map((m) => m.state.roomTemp).filter((t): t is number => typeof t === 'number');
-  return {
-    code, name, members,
-    onCount: on.length,
-    temp: Math.max(16, Math.min(30, temp)),
-    mode,
-    avgRoomT: rt.length ? Math.round((rt.reduce((s, t) => s + t, 0) / rt.length) * 10) / 10 : null,
-  };
-}
-const zoneCards = computed<ZoneCard[]>(() => {
-  const cards = visibleZones.value.map((z) =>
-    buildZoneCard(z.code, z.name, visibleIndoors.value.filter((i) => i.zoneCode === z.code)));
-  const ungrouped = visibleIndoors.value.filter((i) => !i.zoneCode);
-  if (ungrouped.length) cards.push(buildZoneCard(null, '未分组', ungrouped));
-  return cards;
-});
+const zoneCards = computed(() => buildZoneCards(visibleIndoors.value, visibleZones.value));
 
 /** 正在下发的分区 key (整卡禁点, 别让两组命令在 485 上叠着跑) */
 const zoneBusy = ref<string | null>(null);
 async function zoneRun(
-  card: ZoneCard, label: string,
+  card: HvacZoneCard, label: string,
   apply: (s: IndoorState) => void,
   send: (idxs: number[]) => Promise<{ okCount: number; failCount: number }>,
 ): Promise<void> {
@@ -485,17 +383,17 @@ async function zoneRun(
     setTimeout(() => { void pollStates(); }, 1200);   // 真机寄存器为准
   }
 }
-function zonePower(card: ZoneCard): void {
+function zonePower(card: HvacZoneCard): void {
   const on = card.onCount === 0;   // 有开着的 → 全关; 全关着 → 全开
   void zoneRun(card, on ? '开机' : '关机', (s) => { s.on = on; },
     (ix) => (on ? hvacService.batchOn(ix) : hvacService.batchOff(ix)));
 }
-function zoneAdjustTemp(card: ZoneCard, delta: number): void {
+function zoneAdjustTemp(card: HvacZoneCard, delta: number): void {
   const next = Math.max(16, Math.min(30, card.temp + delta));
   if (next === card.temp) return;
   void zoneRun(card, '温度', (s) => { s.temperature = next; }, (ix) => hvacService.batchTemperature(ix, next));
 }
-function zoneSetMode(card: ZoneCard, mode: HvacMode): void {
+function zoneSetMode(card: HvacZoneCard, mode: HvacMode): void {
   void zoneRun(card, '模式', (s) => { s.mode = mode; }, (ix) => hvacService.batchMode(ix, mode));
 }
 
