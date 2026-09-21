@@ -16,21 +16,19 @@
  * 编组模式: 选中若干台 → "归到此组" → 选组。跟单机测试是同一个选择习惯,
  * 不用学第二套操作。组名/内机名都能就地改, 全部落库, 不用改代码。
  */
-import { computed, nextTick, ref, type Component } from 'vue';
+import { computed, ref, type Component } from 'vue';
 import { useActivePolling } from '@/composables/useActivePolling';
+import { useHvacCatalogActions } from '@/composables/useHvacCatalogActions';
 import { useHvacControls } from '@/composables/useHvacControls';
 import { useHvacIndoorOrder } from '@/composables/useHvacIndoorOrder';
 import { useHvacRuntimeState } from '@/composables/useHvacRuntimeState';
-import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
   ArrowLeft, Snowflake, Flame, Wind, Sparkles, Droplet,
   Power, Minus, Plus, Thermometer, Pencil, Check, FolderPlus, Trash2, Layers,
   AlertTriangle, RefreshCw,
 } from 'lucide-vue-next';
-import {
-  hvacService, type HvacFan, type HvacMode, type HvacZone,
-} from '@/services/hvac.service';
+import { type HvacFan, type HvacMode, type HvacZone } from '@/services/hvac.service';
 import {
   averageSelectedTemperature,
   buildGroupedSections,
@@ -221,11 +219,6 @@ const {
   markWrite,
   scheduleTruthRefresh,
 });
-useActivePolling(startPolling, () => {
-  stopControls();
-  stopPolling();
-});
-
 function adjustTemp(delta: number): void {
   const next = Math.max(16, Math.min(30, selTemp.value + delta));
   if (next === selTemp.value) return;
@@ -238,107 +231,33 @@ function zoneAdjustTemp(card: HvacZoneCard, delta: number): void {
   void zoneSetTemperature(card, next);
 }
 
-// ============ 改名 (内机 / 组) ============
+const {
+  catalogBusy,
+  editingIndoor,
+  editingZone,
+  editingText,
+  bindNameInput,
+  startRenameIndoor,
+  commitRenameIndoor,
+  startRenameZone,
+  commitRenameZone,
+  assignTo,
+  createZone,
+  removeZone,
+  stopCatalogActions,
+} = useHvacCatalogActions({
+  indoors,
+  zones,
+  selectedIdxs: () => selectedIdxs.value,
+  floor: () => floorTab.value,
+  reload: loadAll,
+});
 
-const editingIndoor = ref<number | null>(null);
-const editingZone = ref<string | null>(null);
-const editingText = ref('');
-const nameInput = ref<HTMLInputElement | null>(null);
-
-/**
- * 输入框用函数式 ref 绑.
- * 不能写 ref="nameInput" —— 它在 v-for 里, Vue 会把同名 ref 收集成**数组**,
- * 于是 nameInput.value.select() 静默失效 (点了铅笔但文字没选中)。
- * 靠 v-if 保证同一时刻只有一个输入框活着, 所以这里直接存单个元素即可。
- */
-function bindNameInput(el: unknown): void {
-  if (el) nameInput.value = el as HTMLInputElement;
-}
-
-function startRenameIndoor(row: IndoorRow): void {
-  editingZone.value = null;
-  editingIndoor.value = row.idx;
-  editingText.value = row.name;
-  void nextTick(() => nameInput.value?.select());
-}
-async function commitRenameIndoor(row: IndoorRow): Promise<void> {
-  const name = editingText.value.trim();
-  editingIndoor.value = null;
-  if (!name || name === row.name) return;
-  const old = row.name;
-  row.name = name; // 乐观
-  try {
-    await hvacService.updateIndoor(row.idx, { name });
-  } catch (err) {
-    row.name = old;
-    ElMessage.error('改名失败: ' + (err as Error).message);
-  }
-}
-
-function startRenameZone(z: HvacZone): void {
-  editingIndoor.value = null;
-  editingZone.value = z.code;
-  editingText.value = z.name;
-  void nextTick(() => nameInput.value?.select());
-}
-async function commitRenameZone(z: HvacZone): Promise<void> {
-  const name = editingText.value.trim();
-  editingZone.value = null;
-  if (!name || name === z.name) return;
-  const old = z.name;
-  z.name = name;
-  try {
-    await hvacService.renameZone(z.code, name);
-  } catch (err) {
-    z.name = old;
-    ElMessage.error('改名失败: ' + (err as Error).message);
-  }
-}
-
-// ============ 编组 ============
-
-async function assignTo(zoneCode: string | null): Promise<void> {
-  if (!selectedIdxs.value.length) { ElMessage.warning('请先选中内机'); return; }
-  try {
-    await hvacService.assignIndoors(selectedIdxs.value, zoneCode);
-    await loadAll();
-    ElMessage.success(zoneCode ? `已归入「${zoneNameOf.value(zoneCode)}」` : '已移出分组');
-  } catch (err) {
-    ElMessage.error('归组失败: ' + (err as Error).message);
-  }
-}
-
-async function createZone(): Promise<void> {
-  const floor = floorTab.value === 'all' ? '1F' : floorTab.value;
-  try {
-    const { value } = await ElMessageBox.prompt(
-      `新建功能区${floorTab.value === 'all' ? ' (默认归到一楼)' : ''}`, '新建分组',
-      { inputPlaceholder: '例如: 会议室', inputPattern: /\S+/, inputErrorMessage: '名称不能为空' },
-    );
-    const z = await hvacService.createZone(String(value).trim(), floor);
-    await loadAll();
-    ElMessage.success(`已新建「${z.name}」, 选中内机后点它即可归入`);
-  } catch (err) {
-    if (err === 'cancel' || err === 'close') return;
-    ElMessage.error('新建失败: ' + (err as Error).message);
-  }
-}
-
-async function removeZone(z: HvacZone): Promise<void> {
-  const n = indoors.value.filter((i) => i.zoneCode === z.code).length;
-  try {
-    await ElMessageBox.confirm(
-      n > 0 ? `删除「${z.name}」? 组里 ${n} 台内机会变成"未分组", 内机本身不会被删。` : `删除「${z.name}」?`,
-      '删除分组', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
-    );
-    await hvacService.deleteZone(z.code);
-    await loadAll();
-    ElMessage.success('已删除');
-  } catch (err) {
-    if (err === 'cancel' || err === 'close') return;
-    ElMessage.error('删除失败: ' + (err as Error).message);
-  }
-}
+useActivePolling(startPolling, () => {
+  stopControls();
+  stopCatalogActions();
+  stopPolling();
+});
 
 const modeIcon = (m: HvacMode): Component => modes.find((x) => x.value === m)?.icon ?? Sparkles;
 const modeLabel = (m: HvacMode): string => modes.find((x) => x.value === m)?.label ?? m;
@@ -412,15 +331,15 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
           {{ z.name }}
           <em>{{ visibleIndoors.filter((i) => i.zoneCode === z.code).length }}</em>
           <template v-if="groupMode">
-            <span class="chip-act" title="改组名" @click.stop="startRenameZone(z)"><Pencil :size="11" /></span>
-            <span class="chip-act danger" title="删除组" @click.stop="removeZone(z)"><Trash2 :size="11" /></span>
+            <span class="chip-act" :class="{ disabled: catalogBusy }" title="改组名" @click.stop="startRenameZone(z)"><Pencil :size="11" /></span>
+            <span class="chip-act danger" :class="{ disabled: catalogBusy }" title="删除组" @click.stop="removeZone(z)"><Trash2 :size="11" /></span>
           </template>
         </button>
       </template>
       <button v-if="ungroupedCount" class="hv-chip warn" :class="{ on: isZoneSelected(null) }" @click="selectZone(null)">
         未分组 <em>{{ ungroupedCount }}</em>
       </button>
-      <button v-if="groupMode" class="hv-chip add" @click="createZone"><FolderPlus :size="13" /> 新建组</button>
+      <button v-if="groupMode" class="hv-chip add" :disabled="catalogBusy" @click="createZone"><FolderPlus :size="13" /> 新建组</button>
       <button v-if="selected.size" class="hv-chip clear" @click="selectNone">清空选择</button>
       <button class="hv-chip quick-toggle" @click="quickExpanded = !quickExpanded">
         {{ quickExpanded ? '收起 ▲' : '展开 ▼' }}
@@ -529,7 +448,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
           />
           <template v-else>
             <span class="cell-name-text" :title="row.name">{{ row.name }}</span>
-            <span class="cell-edit" title="改名" @click.stop="startRenameIndoor(row)">
+            <span class="cell-edit" :class="{ disabled: catalogBusy }" title="改名" @click.stop="startRenameIndoor(row)">
               <Pencil :size="15" />
             </span>
           </template>
@@ -586,16 +505,16 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
                不用去底部一排同名按钮里找 -->
           <button
             v-if="sec.code !== null"
-            class="hv-btn tiny primary" :disabled="!selected.size"
+            class="hv-btn tiny primary" :disabled="catalogBusy || !selected.size"
             :title="selected.size ? `把选中的 ${selected.size} 台移到「${sec.name}」` : '先选中内机'"
             @click="assignTo(sec.code)"
           >移入{{ selected.size ? ` ${selected.size}` : '' }}</button>
           <button
-            v-if="sec.code !== null" class="sec-ico" title="改名"
+            v-if="sec.code !== null" class="sec-ico" title="改名" :disabled="catalogBusy"
             @click="sec.zone && startRenameZone(sec.zone)"
           ><Pencil :size="14" /></button>
           <button
-            v-if="sec.code !== null" class="sec-ico danger" title="删除该组"
+            v-if="sec.code !== null" class="sec-ico danger" title="删除该组" :disabled="catalogBusy"
             @click="sec.zone && removeZone(sec.zone)"
           ><Trash2 :size="14" /></button>
           <button
@@ -640,7 +559,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
           />
           <template v-else>
             <span class="cell-name-text" :title="row.name">{{ row.name }}</span>
-            <span class="cell-edit" title="改名" @click.stop="startRenameIndoor(row)">
+            <span class="cell-edit" :class="{ disabled: catalogBusy }" title="改名" @click.stop="startRenameIndoor(row)">
               <Pencil :size="15" />
             </span>
           </template>
@@ -705,10 +624,10 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
              不用在按钮墙里找名字。这里只留"移出分组"这个反向动作。 -->
         <div class="bar-group">
           <span class="bar-hint">选中后点分组标题「移入」</span>
-          <button class="hv-btn tiny warn" :disabled="!selected.size" @click="assignTo(null)">
+          <button class="hv-btn tiny warn" :disabled="catalogBusy || !selected.size" @click="assignTo(null)">
             移出分组{{ selected.size ? ` (${selected.size})` : '' }}
           </button>
-          <button class="hv-btn tiny" @click="createZone"><FolderPlus :size="13" /> 新建组</button>
+          <button class="hv-btn tiny" :disabled="catalogBusy" @click="createZone"><FolderPlus :size="13" /> 新建组</button>
         </div>
       </template>
 
@@ -932,6 +851,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 }
 .chip-act:hover { opacity: 1; background: #ffffff22; }
 .chip-act.danger:hover { background: #ff4d4f44; color: #ff7875; }
+.chip-act.disabled { opacity: .25; pointer-events: none; }
 
 /* ---- 内机网格: 6 列铺满剩余高度, 22 台 = 4 行 ---- */
 .hv-grid {
@@ -1029,6 +949,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 .cell-edit { opacity: 0; padding: 3px; border-radius: 5px; color: var(--v2-text-3, #9BA1A9); flex: 0 0 auto; }
 .hv-cell:hover .cell-edit { opacity: .7; }
 .cell-edit:hover { opacity: 1 !important; background: #ffffff22; }
+.cell-edit.disabled { opacity: .2 !important; pointer-events: none; }
 .cell-name-input {
   width: 100%; font-size: 21px; font-weight: 600; padding: 2px 6px;
   color: var(--v2-text-1); background: var(--v2-inset-bg); 
@@ -1357,6 +1278,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 }
 .sec-ico:hover { color: var(--v2-text-1, #e8f0fb); border-color: #46566e; }
 .sec-ico.danger:hover { color: #ff6b6b; border-color: #ff6b6b66; }
+.sec-ico:disabled { opacity: .35; cursor: not-allowed; }
 .sec-grid {
   display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px;
   grid-auto-rows: minmax(120px, auto);
