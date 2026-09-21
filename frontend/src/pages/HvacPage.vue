@@ -16,12 +16,13 @@
  * 编组模式: 选中若干台 → "归到此组" → 选组。跟单机测试是同一个选择习惯,
  * 不用学第二套操作。组名/内机名都能就地改, 全部落库, 不用改代码。
  */
-import { computed, ref, type Component } from 'vue';
+import { ref, type Component } from 'vue';
 import { useActivePolling } from '@/composables/useActivePolling';
 import { useHvacCatalogActions } from '@/composables/useHvacCatalogActions';
 import { useHvacControls } from '@/composables/useHvacControls';
 import { useHvacIndoorOrder } from '@/composables/useHvacIndoorOrder';
 import { useHvacRuntimeState } from '@/composables/useHvacRuntimeState';
+import { useHvacSelection } from '@/composables/useHvacSelection';
 import { useRouter } from 'vue-router';
 import {
   ArrowLeft, Snowflake, Flame, Wind, Sparkles, Droplet,
@@ -30,16 +31,6 @@ import {
 } from 'lucide-vue-next';
 import { type HvacFan, type HvacMode, type HvacZone } from '@/services/hvac.service';
 import {
-  averageSelectedTemperature,
-  buildGroupedSections,
-  buildZoneCards,
-  commonKnownState,
-  filterIndoorsByFloor,
-  filterZonesByFloor,
-  invertVisibleSelection,
-  isSelectionComplete,
-  summarizeHvacOverview,
-  toggleSelection,
   type HvacFloorFilter,
   type HvacZoneCard,
   type IndoorRow,
@@ -70,10 +61,6 @@ const fans: Array<{ value: HvacFan; label: string }> = [
   { value: 'high', label: '高' },
 ];
 
-// ============ 视图 ============
-
-const visibleIndoors = computed(() => filterIndoorsByFloor(indoors.value, floorTab.value));
-
 // ============ 内机拖动排序 (业主: "空调内机的位置可以拖动") ============
 // 用原生 HTML5 drag & drop, 跟灯光分区拖动一致, 不引第三方库。顺序**存后端**
 // (sortOrder): 现场主控机+平板+手机, 只存前端每台顺序都不一样。只在非编组模式
@@ -87,89 +74,29 @@ const {
   onIndoorDragEnd,
 } = useHvacIndoorOrder(indoors);
 
-/** 当前楼层下的组 + "未分组" 兜底 (未分组不是错误, 是编组过程中的正常状态) */
-/**
- * 快选条上显示哪些分区.
- *
- * ⚠️ 这里**不能**过滤掉空分区 (2026-07-16 业主报"新建编组后没保存"的真因):
- * 原来是 `zs.filter(z => 有内机属于它)` —— 新建的分区一台内机都没有, 于是刚建完
- * 就被过滤掉、界面上根本不出现, 看着就像没存 (其实后端存得好好的)。更糟的是这
- * 构成死锁: 要往组里放内机得先点那个组, 而组因为空又不显示 -> 永远放不进去。
- *
- * 现在: 空分区照常显示 (数量标 0), 这样才点得到、才能往里放内机。
- */
-const visibleZones = computed(() => filterZonesByFloor(zones.value, floorTab.value));
-const ungroupedCount = computed(() => visibleIndoors.value.filter((i) => !i.zoneCode).length);
-
-/**
- * 编组模式的**分组视图** — 按组把内机分段列出, 未分组的单独一段兜底.
- *
- * 2026-07-17 业主: "空调内机编组逻辑和实现还没闭环, 不好使用, 须优化"。
- *
- * 原来编组模式下就是一张平铺的卡片网格 + 底部一排 14 个"归到 XX"的小按钮, 三个毛病:
- *   1) **看不见结构**: 哪台在哪个组只能靠卡片角落一行小字, 改完也没有即时反馈 ——
- *      这就是"不闭环": 做了动作却看不到结果, 只能一张张卡去数。
- *   2) **同名不同义**: 14 个组名在顶部快选条 (按组选中) 和底部 (归到该组) 各出现一次,
- *      长得一样、点下去行为完全不同。
- *   3) 底部 14 个按钮挤成一堵墙, 触摸屏点不准。
- *
- * 改成按组分段后: 结构直接摆在眼前, 把内机移过去 -> 它立刻出现在那一段里, 动作和
- * 结果在同一个地方发生。底部那堵按钮墙也就不需要了。
- */
-const groupedSections = computed(() => buildGroupedSections(visibleIndoors.value, visibleZones.value));
-
-const zoneNameOf = computed(() => {
-  const m = new Map(zones.value.map((z) => [z.code, z.name]));
-  return (code: string | null): string => (code ? m.get(code) ?? '?' : '未分组');
-});
-
-const selectedRows = computed(() => indoors.value.filter((i) => selected.value.has(i.idx)));
-const selectedIdxs = computed(() => selectedRows.value.map((i) => i.idx));
-
-const overview = computed(() => summarizeHvacOverview(visibleIndoors.value, visibleZones.value.length));
-
-/**
- * 控制条显示的值: 只看**读到状态**的那些选中项, 一致就显示该值, 不一致显示 null
- * (界面上不高亮任何一个). 未知的不参与 —— 拿占位值凑数会显示出一个假的共识.
- */
-const selMode = computed(() => commonKnownState(selectedRows.value, 'mode'));
-const selFan = computed(() => commonKnownState(selectedRows.value, 'fan'));
-const selOn = computed(() => commonKnownState(selectedRows.value, 'on'));
-const selTemp = computed(() => averageSelectedTemperature(selectedRows.value));
-
-// ============ 选择 ============
-
-function toggleOne(idx: number): void {
-  selected.value = toggleSelection(selected.value, [idx]);
-}
-/**
- * 快选一律是**切换**, 不是覆盖 (2026-07-16 业主: "对内机全选状态没有反选功能").
- *
- * 原来 selectAll/selectZone 都是无条件 `selected = 这一组`, 再点一次结果不变 ——
- * 全选之后没有任何办法取消, 只能一台台点掉。现在: 该组已经全选中就取消掉它们,
- * 否则并入选中集合。并入而不是覆盖, 这样"前厅 + 会议室"可以叠加选。
- */
-function toggleMany(idxs: number[]): void {
-  if (idxs.length === 0) return;
-  selected.value = toggleSelection(selected.value, idxs);
-}
-function selectAll(): void { toggleMany(visibleIndoors.value.map((i) => i.idx)); }
-function selectNone(): void { selected.value = new Set(); }
-/** 反选: 当前可见范围内, 选中的变未选、未选的变选中 */
-function invertSelection(): void {
-  selected.value = invertVisibleSelection(selected.value, visibleIndoors.value.map((i) => i.idx));
-}
-function selectZone(code: string | null): void {
-  toggleMany(visibleIndoors.value.filter((i) => i.zoneCode === code).map((i) => i.idx));
-}
-function isZoneSelected(code: string | null): boolean {
-  const members = visibleIndoors.value.filter((i) => i.zoneCode === code).map((i) => i.idx);
-  return isSelectionComplete(selected.value, members);
-}
-/** 可见内机是否已全选 —— 给"全部"按钮显示选中态用 */
-const allSelected = computed(() =>
-  isSelectionComplete(selected.value, visibleIndoors.value.map((i) => i.idx)),
-);
+const {
+  visibleIndoors,
+  visibleZones,
+  ungroupedCount,
+  groupedSections,
+  zoneCards,
+  zoneNameOf,
+  selectedRows,
+  selectedIdxs,
+  overview,
+  selectedMode: selMode,
+  selectedFan: selFan,
+  selectedPower: selOn,
+  selectedTemperature: selTemp,
+  toggleOne,
+  selectAll,
+  selectNone,
+  invertSelection,
+  selectZone,
+  isZoneSelected,
+  allSelected,
+  zoneKey: zkey,
+} = useHvacSelection({ indoors, zones, floor: floorTab, selected });
 
 // ============ 分区视图 (2026-07-29 业主: "分组逻辑要像灯光页一样直接组控") ============
 // 灯光页的范式: 分区就是一张卡, 卡上直接开关/调参数 —— 不需要"先点快选选中、
@@ -178,9 +105,6 @@ const allSelected = computed(() =>
 // batch 接口, 后端错峰保护外机)。成员分配仍在「编组」模式里管 (对齐灯光页
 // "控制归控制、成员分配归编组"的分工)。默认进「分区」视图; 单台精控切「内机」。
 const viewTab = ref<'zones' | 'units'>('zones');
-const zkey = (c: string | null): string => c ?? '__none__';
-
-const zoneCards = computed(() => buildZoneCards(visibleIndoors.value, visibleZones.value));
 
 const {
   loading,

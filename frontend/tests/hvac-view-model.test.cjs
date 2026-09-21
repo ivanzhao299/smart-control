@@ -112,12 +112,15 @@ test('selection operations toggle whole groups and preserve hidden-floor selecti
   assert.equal(Array.from(selected).sort((a, b) => a - b).join(','), '2,3,4');
 });
 
-test('HvacPage consumes the shared view model instead of duplicating projections', () => {
+test('HvacPage delegates shared projections and selection state to one composable', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../src/pages/HvacPage.vue'), 'utf8');
-  assert.match(page, /from '@\/features\/hvac-view-model'/);
+  const selection = fs.readFileSync(path.resolve(__dirname, '../src/composables/useHvacSelection.ts'), 'utf8');
+  assert.match(page, /useHvacSelection\(\{ indoors, zones, floor: floorTab, selected \}\)/);
   assert.doesNotMatch(page, /interface IndoorState/);
   assert.doesNotMatch(page, /function buildZoneCard\(/);
   assert.doesNotMatch(page, /function commonOf</);
-  assert.match(page, /buildGroupedSections\(visibleIndoors\.value, visibleZones\.value\)/);
-  assert.match(page, /buildZoneCards\(visibleIndoors\.value, visibleZones\.value\)/);
+  assert.doesNotMatch(page, /buildGroupedSections\(/);
+  assert.doesNotMatch(page, /buildZoneCards\(/);
+  assert.match(selection, /buildGroupedSections\(visibleIndoors\.value, visibleZones\.value\)/);
+  assert.match(selection, /buildZoneCards\(visibleIndoors\.value, visibleZones\.value\)/);
 });
