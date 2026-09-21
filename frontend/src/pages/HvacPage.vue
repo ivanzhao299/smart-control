@@ -19,6 +19,7 @@
 import { computed, nextTick, ref, type Component } from 'vue';
 import { useActivePolling } from '@/composables/useActivePolling';
 import { useHvacIndoorOrder } from '@/composables/useHvacIndoorOrder';
+import { useHvacRuntimeState } from '@/composables/useHvacRuntimeState';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
@@ -35,7 +36,6 @@ import {
   buildGroupedSections,
   buildZoneCards,
   commonKnownState,
-  createUnknownIndoorState,
   filterIndoorsByFloor,
   filterZonesByFloor,
   invertVisibleSelection,
@@ -51,14 +51,10 @@ import {
 const router = useRouter();
 function goBack(): void { void router.push({ name: 'dashboard' }); }
 
-/** 状态轮询间隔 — 2 次 Modbus 往返约 0.2-1s, 5s 一轮既跟手又不压网关 */
-const POLL_MS = 5000;
-
 const indoors = ref<IndoorRow[]>([]);
 /** 错峰下发中 (开/关机是逐台串行, 22 台约 10s) — 界面提示别让人以为卡死 */
 const dispatching = ref(false);
 const zones = ref<HvacZone[]>([]);
-const loading = ref(false);
 const busy = ref(false);
 const floorTab = ref<HvacFloorFilter>('all');
 /** 手机端快选条默认折叠成一行横滚 (14 个分组铺 6 行占掉 1/4 屏), 点「展开」才铺开 */
@@ -79,97 +75,6 @@ const fans: Array<{ value: HvacFan; label: string }> = [
   { value: 'mid',  label: '中' },
   { value: 'high', label: '高' },
 ];
-
-async function loadAll(): Promise<void> {
-  loading.value = true;
-  try {
-    const [ind, zs] = await Promise.all([hvacService.listIndoors(), hvacService.listZones()]);
-    const prev = new Map(indoors.value.map((i) => [i.idx, i.state]));
-    indoors.value = ind.map((i) => ({ ...i, state: prev.get(i.idx) ?? createUnknownIndoorState() }));
-    zones.value = zs;
-    const alive = new Set(ind.map((i) => i.idx));
-    selected.value = new Set([...selected.value].filter((x) => alive.has(x)));
-  } catch (err) {
-    ElMessage.error('加载空调数据失败: ' + (err as Error).message);
-  } finally {
-    loading.value = false;
-  }
-}
-
-const lastPollAt = ref<Date | null>(null);
-const pollFailed = ref(false);
-let pollTimer: ReturnType<typeof setTimeout> | null = null;
-
-/** 拉一次真机状态并合并进卡片 */
-/** 最近一次下发时间 — 写后 2.5s 内跳过常规轮询, 防止寄存器未刷新的旧值打回乐观 UI (审计 P1) */
-let lastWriteAt = 0;
-async function pollStates(): Promise<void> {
-  if (document.hidden) return; // C3: 页面在后台不打设备
-  if (busy.value || Date.now() - lastWriteAt < 2500) return; // 写后冷却, run() 的延迟复读负责校正
-
-  try {
-    const list = await hvacService.listStates();
-    const byIdx = new Map(list.map((s) => [s.idx, s]));
-    for (const row of indoors.value) {
-      const s = byIdx.get(row.idx);
-      if (!s || !s.known) {
-        // 这一轮没读到: 只把 known 打掉, 保留上次的值给界面做灰显, 不要清成 0
-        row.state.known = false;
-        row.state.online = false;
-        continue;
-      }
-      row.state = {
-        known: true,
-        on: s.on,
-        temperature: s.temperature,
-        mode: s.mode,
-        fan: s.fan,
-        roomTemp: s.roomTemp,
-        online: s.online,
-        faultCode: s.faultCode,
-      };
-    }
-    lastPollAt.value = new Date();
-    pollFailed.value = false;
-  } catch {
-    // 轮询失败不弹窗 —— 每 5s 弹一次没法用; 顶栏显示"状态读取失败"即可
-    pollFailed.value = true;
-  }
-}
-
-/** setTimeout 递归而非 setInterval: 避免上一轮没回来就发下一轮, 把网关压垮 */
-// 2026-07-19 加固: pollStopped 标志。之前切页时若恰有一轮 pollStates 在途, onBeforeUnmount
-// 的 clearTimeout 已是 no-op (timer 早 fired), await 完成后又排了个无人持有的新 timer ->
-// 孤儿轮询累积, 持续打脆弱的单客户端空调网关。重排前判 stopped 才彻底停得掉。
-let pollStopped = false;
-function schedulePoll(): void {
-  pollTimer = setTimeout(async () => {
-    await pollStates();
-    if (!pollStopped) schedulePoll();
-  }, POLL_MS);
-}
-
-// 2026-07-27 切页卡顿根治: keep-alive 下 onBeforeUnmount 不触发, 递归轮询切走后
-// 永续后台运行 (持续打脆弱的单客户端空调网关)。改 useActivePolling — 在本页才
-// 轮询, 切走即停; 回页立即补一轮 pollStates 对齐最新状态。
-let pollActive = false;
-let baseLoaded = false;
-function startPolling(): void {
-  if (pollActive) return; // mounted+activated 双触发, 幂等
-  pollActive = true;
-  pollStopped = false;
-  void (async () => {
-    if (!baseLoaded) { await loadAll(); baseLoaded = true; } // 静态清单只拉一次
-    await pollStates();
-    if (!pollStopped) schedulePoll();
-  })();
-}
-function stopPolling(): void {
-  pollActive = false;
-  pollStopped = true;
-  if (pollTimer) clearTimeout(pollTimer);
-}
-useActivePolling(startPolling, stopPolling);
 
 // ============ 视图 ============
 
@@ -288,7 +193,7 @@ async function run(
   const backup = rows.map((r) => ({ idx: r.idx, snapshot: { ...r.state } }));
   // 先乐观改, 让按钮跟手 (中弘网关下发到状态寄存器更新有延迟, 干等会像卡死)
   rows.forEach((r) => apply(r.state));
-  lastWriteAt = Date.now();
+  markWrite();
   haptics.tap(); // A2: 命令真的走出去
   busy.value = true;
   try {
@@ -304,7 +209,7 @@ async function run(
     busy.value = false;
     // 关键: 复读真机, 用寄存器的真相覆盖掉刚才的乐观猜测.
     // 命令下发到网关刷新状态寄存器有延迟, 立刻读会读到旧值, 所以等一下再读。
-    setTimeout(() => { void pollStates(); }, 1200);
+    scheduleTruthRefresh();
   }
 }
 
@@ -332,6 +237,23 @@ const zoneCards = computed(() => buildZoneCards(visibleIndoors.value, visibleZon
 
 /** 正在下发的分区 key (整卡禁点, 别让两组命令在 485 上叠着跑) */
 const zoneBusy = ref<string | null>(null);
+const {
+  loading,
+  lastPollAt,
+  pollFailed,
+  loadAll,
+  markWrite,
+  scheduleTruthRefresh,
+  startPolling,
+  stopPolling,
+} = useHvacRuntimeState({
+  indoors,
+  zones,
+  selected,
+  isBusy: () => busy.value || zoneBusy.value !== null || dispatching.value,
+});
+useActivePolling(startPolling, stopPolling);
+
 async function zoneRun(
   card: HvacZoneCard, label: string,
   apply: (s: IndoorState) => void,
@@ -341,7 +263,7 @@ async function zoneRun(
   zoneBusy.value = zkey(card.code);
   const backup = card.members.map((r) => ({ idx: r.idx, snapshot: { ...r.state } }));
   card.members.forEach((r) => { apply(r.state); r.state.known = true; });   // 乐观跟手
-  lastWriteAt = Date.now();
+  markWrite();
   haptics.tap();
   try {
     const r = await send(card.members.map((m) => m.idx));
@@ -353,7 +275,7 @@ async function zoneRun(
     ElMessage.error(`「${card.name}」${label}失败: ${(err as Error).message}`);
   } finally {
     zoneBusy.value = null;
-    setTimeout(() => { void pollStates(); }, 1200);   // 真机寄存器为准
+    scheduleTruthRefresh();   // 真机寄存器为准
   }
 }
 function zonePower(card: HvacZoneCard): void {
@@ -386,7 +308,7 @@ async function floorPower(on: boolean): Promise<void> {
   } catch { return; }
   const backup = indoors.value.map((i) => ({ idx: i.idx, on: i.state.on }));
   visibleIndoors.value.forEach((i) => { i.state.on = on; });
-  lastWriteAt = Date.now();
+  markWrite();
   busy.value = true;
   dispatching.value = true;
   try {
@@ -400,7 +322,7 @@ async function floorPower(on: boolean): Promise<void> {
   } finally {
     busy.value = false;
     dispatching.value = false;
-    setTimeout(() => { void pollStates(); }, 1200);
+    scheduleTruthRefresh();
   }
 }
 
