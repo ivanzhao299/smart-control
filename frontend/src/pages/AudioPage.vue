@@ -35,6 +35,7 @@ import {
   stereoLeftChannelId,
   summarizeAudioOutputs,
 } from '@/features/audio-view-model';
+import { createLatestCommandQueue } from '@/features/latest-command-queue';
 
 const router = useRouter();
 const route = useRoute();
@@ -824,28 +825,18 @@ function inputGainLabel(ch: number): string {
  * 每通道"在飞+最新待发"合并 (与分区推子同机制), 不再整批回读 (setInputVolume
  * 会把值记进期望增益, reconciler 每 30s 兜底校准)。
  */
-const gainSend: Record<number, { inflight: boolean; pending: number | null }> = {};
+const inputGainQueue = createLatestCommandQueue<number, number>({
+  execute: async (ch, value) => {
+    const res = await audioService.setInputVolume(ch, value);
+    if (!res.ok) throw new Error(res.error || '执行失败');
+  },
+  onError: (ch, error) => {
+    ElMessage.error(`IN${ch + 1} 增益设置失败: ${(error as Error).message}`);
+  },
+});
 function onInputGain(ch: number, value: number): void {
   inputGainDb.value = { ...inputGainDb.value, [ch]: percentToGainDb(value) };
-  let st = gainSend[ch];
-  if (!st) { st = { inflight: false, pending: null }; gainSend[ch] = st; }
-  st.pending = value;
-  if (st.inflight) return;
-  st.inflight = true;
-  void (async () => {
-    while (st.pending !== null) {
-      const v = st.pending;
-      st.pending = null;
-      try {
-        const res = await audioService.setInputVolume(ch, v);
-        if (!res.ok) throw new Error(res.error || '执行失败');
-      } catch (err) {
-        ElMessage.error(`IN${ch + 1} 增益设置失败: ${(err as Error).message}`);
-        break;
-      }
-    }
-    st.inflight = false;
-  })();
+  inputGainQueue.enqueue(ch, value);
 }
 
 // 静音前保存各通道音量, 解除静音时用于渐响恢复
@@ -865,27 +856,21 @@ function saveMuteState(): void {
  * 改成每通道一个"在飞 + 最新待发"槽: 上一条在路上时只记住最新值, 回来立刻发
  * 最新值, 中间值全部丢弃 —— 拖多快, 设备最多落后一条命令 (~300ms)。
  */
-const volSend: Record<string, { inflight: boolean; pending: number | null }> = {};
+interface OutputVolumeCommand {
+  row: AudioRow;
+  value: number;
+  zone: string | undefined;
+}
+const outputVolumeQueue = createLatestCommandQueue<string, OutputVolumeCommand>({
+  execute: async (id, command) => {
+    const res = await audioService.setVolume(id, command.value, command.zone);
+    if (!res.ok) throw new Error(res.error || '执行失败');
+  },
+  onSuccess: (_id, command) => { command.row.error = null; },
+  onError: (_id, error, command) => { command.row.error = (error as Error).message; },
+});
 function queueVolume(z: AudioRow): void {
-  let st = volSend[z.id];
-  if (!st) { st = { inflight: false, pending: null }; volSend[z.id] = st; }
-  st.pending = z.volume;
-  if (st.inflight) return;
-  st.inflight = true;
-  void (async () => {
-    while (st.pending !== null) {
-      const v = st.pending;
-      st.pending = null;
-      try {
-        const res = await audioService.setVolume(z.id, v, z.zone);
-        if (!res.ok) throw new Error(res.error || '执行失败');
-        z.error = null;
-      } catch (err) {
-        z.error = (err as Error).message;
-      }
-    }
-    st.inflight = false;
-  })();
+  outputVolumeQueue.enqueue(z.id, { row: z, value: z.volume, zone: z.zone });
 }
 /** 拖动/点击设值统一入口: 本路 + (联动时) 对路一起, 实时下发 */
 function setFaderValue(z: AudioRow, v: number): void {
