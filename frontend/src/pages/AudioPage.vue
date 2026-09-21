@@ -19,6 +19,22 @@ import {
   setChannelPlayMode,
 } from '@/services/playback.service';
 import { mediaService } from '@/services/media.service';
+import {
+  audioChannelDisplayAddress,
+  audioChannelDisplayName,
+  buildStereoPartnerIds,
+  faderPercentFromY,
+  filterVisibleAudioChannels,
+  findStereoPartner,
+  formatAudioDuration,
+  formatGainDb,
+  gainDbToPercent,
+  isStereoLeftChannel,
+  percentToGainDb,
+  stereoChannelRows,
+  stereoLeftChannelId,
+  summarizeAudioOutputs,
+} from '@/features/audio-view-model';
 
 const router = useRouter();
 const route = useRoute();
@@ -338,12 +354,7 @@ async function setPlayModeAndSave(mode: PlayMode): Promise<void> {
   try { await setChannelPlayMode(3, mode); }
   catch (e) { playMode.value = prev; ElMessage.error(`设置播放模式失败: ${(e as Error).message}`); }
 }
-function fmtDuration(sec: number | null): string {
-  if (!sec || sec <= 0) return '';
-  const m = Math.floor(sec / 60);
-  const s = Math.round(sec % 60);
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
+const fmtDuration = formatAudioDuration;
 const plCurrentItem = computed<PlItem | null>(() =>
   plIdx.value >= 0 && plIdx.value < playlist.value.length ? playlist.value[plIdx.value] : null,
 );
@@ -587,39 +598,26 @@ async function loadZones(): Promise<void> {
 // (割接后 OUT1/2=LED大屏·左/右, OUT3/4=发布厅投影·左/右)。配对纯靠命名,
 // 零表结构改动 —— 页面把两路合成一张卡, 音量/静音双路联动。没有命名匹配时
 // 一切照旧, 所以这个功能先于现场接线上线也无副作用。
-const pairPartnerId = computed<Record<string, string>>(() => {
-  const byName = new Map(channels.value.map((z) => [z.name, z.id]));
-  const map: Record<string, string> = {};
-  for (const z of channels.value) {
-    if (z.name.endsWith('·左')) {
-      const rid = byName.get(z.name.slice(0, -2) + '·右');
-      if (rid) { map[z.id] = rid; map[rid] = z.id; }
-    }
-  }
-  return map;
-});
+const pairPartnerId = computed<Record<string, string>>(() => buildStereoPartnerIds(channels.value));
 function partnerOf(z: AudioRow): AudioRow | undefined {
-  const pid = pairPartnerId.value[z.id];
-  return pid ? channels.value.find((c) => c.id === pid) : undefined;
+  return findStereoPartner(channels.value, pairPartnerId.value, z);
 }
 /** 展示行: 立体声对只显示"左"这张卡 (名字去后缀), "右"隐藏并跟随联动 */
 const displayChannels = computed(() =>
-  channels.value.filter((z) => !(z.name.endsWith('·右') && pairPartnerId.value[z.id])),
+  filterVisibleAudioChannels(channels.value, pairPartnerId.value),
 );
 function displayName(z: AudioRow): string {
-  return isStereo(z) ? z.name.slice(0, -2) : z.name;
+  return audioChannelDisplayName(z, pairPartnerId.value);
 }
 function isStereo(z: AudioRow): boolean {
-  return !!pairPartnerId.value[z.id] && z.name.endsWith('·左');
+  return isStereoLeftChannel(z, pairPartnerId.value);
 }
 function displayAddr(z: AudioRow): string {
-  const mate = partnerOf(z);
-  return mate ? `${z.id.toUpperCase()}+${mate.channel + 1}` : z.id.toUpperCase();
+  return audioChannelDisplayAddress(z, channels.value, pairPartnerId.value);
 }
 /** 立体声卡里的两行: [左, 右] — 模板 v-for 用, 避免模板里写非空断言 */
 function duoRows(z: AudioRow): AudioRow[] {
-  const mate = partnerOf(z);
-  return mate ? [z, mate] : [z];
+  return stereoChannelRows(z, channels.value, pairPartnerId.value);
 }
 
 // ============ 立体声联动 (2026-07-26 业主: 两个推子放一起推, 也可单独推) ============
@@ -627,9 +625,7 @@ function duoRows(z: AudioRow): AudioRow[] {
 // 左右各推各的 (比如现场左右喇叭灵敏度不一致要做平衡)。
 const stereoLink = ref<Record<string, boolean>>({});
 function pairLeftId(z: AudioRow): string | null {
-  const pid = pairPartnerId.value[z.id];
-  if (!pid) return null;
-  return z.name.endsWith('·左') ? z.id : pid;
+  return stereoLeftChannelId(z, pairPartnerId.value);
 }
 function linkOn(z: AudioRow): boolean {
   const key = pairLeftId(z);
@@ -812,26 +808,13 @@ async function loadInputChannels(): Promise<void> {
  * 跟设置端的分段式对不上: 拖到 50% 设了 -10dB, 回读换算却显示在 69% —— 滑条
  * "跳来跳去切不准"的元凶之一。
  */
-function pctToDbUi(percent: number): number {
-  if (percent <= 0) return -60;
-  if (percent >= 100) return 12;
-  if (percent < 50) return -60 + (percent / 50) * 50;
-  return -10 + ((percent - 50) / 50) * 22;
-}
-function dbToPctUi(db: number): number {
-  if (db <= -60) return 0;
-  if (db >= 12) return 100;
-  if (db < -10) return Math.round(((db + 60) / 50) * 50);
-  return Math.round(50 + ((db + 10) / 22) * 50);
-}
 function inputGainOf(ch: number): number {
   const db = inputGainDb.value[ch];
-  return db === null || db === undefined ? 0 : dbToPctUi(db);
+  return db === null || db === undefined ? 0 : gainDbToPercent(db);
 }
 /** 界面上显示的真实 dB 文本; 没读到就是 '—', 不编数 */
 function inputGainLabel(ch: number): string {
-  const db = inputGainDb.value[ch];
-  return db === null || db === undefined ? '—' : `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`;
+  return formatGainDb(inputGainDb.value[ch]);
 }
 
 /**
@@ -843,7 +826,7 @@ function inputGainLabel(ch: number): string {
  */
 const gainSend: Record<number, { inflight: boolean; pending: number | null }> = {};
 function onInputGain(ch: number, value: number): void {
-  inputGainDb.value = { ...inputGainDb.value, [ch]: pctToDbUi(value) };
+  inputGainDb.value = { ...inputGainDb.value, [ch]: percentToGainDb(value) };
   let st = gainSend[ch];
   if (!st) { st = { inflight: false, pending: null }; gainSend[ch] = st; }
   st.pending = value;
@@ -929,23 +912,18 @@ function setFaderValue(z: AudioRow, v: number): void {
  * 算百分比, 不依赖浏览器对 range 输入方向的内部换算, 点哪就是哪。
  */
 const draggingFaderId = ref<string | null>(null);
-function faderPercentFromY(track: HTMLElement, clientY: number): number {
-  const rect = track.getBoundingClientRect();
-  const ratio = rect.height > 0 ? (rect.bottom - clientY) / rect.height : 0;
-  const raw = Math.max(0, Math.min(100, ratio * 100));
-  return Math.round(raw / 5) * 5; // 跟原来 step=5 对齐
-}
 function onFaderPointerDown(z: AudioRow, ev: PointerEvent): void {
   if (z.muted) return;
   const track = ev.currentTarget as HTMLElement;
   track.setPointerCapture(ev.pointerId);
   draggingFaderId.value = z.id;
-  setFaderValue(z, faderPercentFromY(track, ev.clientY));
+  setFaderValue(z, faderPercentFromY(track.getBoundingClientRect(), ev.clientY));
 }
 function onFaderPointerMove(z: AudioRow, ev: PointerEvent): void {
   if (draggingFaderId.value !== z.id) return;
   // 拖动中实时下发 (queueVolume 合并, 不排队) —— 声音跟手, 不是松手才响应
-  setFaderValue(z, faderPercentFromY(ev.currentTarget as HTMLElement, ev.clientY));
+  const track = ev.currentTarget as HTMLElement;
+  setFaderValue(z, faderPercentFromY(track.getBoundingClientRect(), ev.clientY));
 }
 function onFaderPointerUp(z: AudioRow, ev: PointerEvent): void {
   if (draggingFaderId.value !== z.id) return;
@@ -1031,17 +1009,10 @@ async function toggleMute(z: AudioRow): Promise<void> {
 
 
 // ============ 总览 ============
-const overview = computed(() => {
-  // 立体声对算一个分区 (displayChannels 已把"右"路藏掉), 免得总览数字虚高
-  const total = displayChannels.value.length;
-  const active = displayChannels.value.filter((c) => !c.muted).length;
-  const avgVol = active === 0 ? 0 : Math.round(
-    displayChannels.value.filter((c) => !c.muted).reduce((s, c) => s + c.volume, 0) / active,
-  );
-  // 审计 P2: bgmPlaying 从没被写过 (恒 0 的死指标) — BGM 走 slot3 通道, 直接读它
-  const playing = bgmChannel.value?.currentMediaId ? 1 : 0;
-  return { total, active, avgVol, playing };
-});
+const overview = computed(() => summarizeAudioOutputs(
+  displayChannels.value,
+  Boolean(bgmChannel.value?.currentMediaId),
+));
 
 function goBack(): void { router.push({ name: 'dashboard' }); }
 const allMuted = computed(() =>
