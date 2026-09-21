@@ -37,19 +37,15 @@ import {
 import { usePlaybackStore } from '@/stores/playback';
 import {
   listPlaylist, addToPlaylist, renamePlaylistItem, removeFromPlaylist, reorderPlaylist,
-  listHistory, setDisplayFit, setDocPage, setDocZoom, publishWelcome, publishParkDashboard,
+  listHistory, setDisplayFit, setDocPage, setDocZoom, publishWelcome,
   type DisplayFit, type PlaylistItemView, type PlaybackHistoryView,
 } from '@/services/playback.service';
-import { projectorService } from '@/services/projector.service';
-import {
-  fetchWelcomeSchemes, publishWelcomeScheme,
-} from '@/services/system-branding.service';
 import { useAdminUnlock } from '@/composables/useAdminUnlock';
 import { useWelcomeEditor } from '@/composables/useWelcomeEditor';
+import { usePlayerInputSources } from '@/composables/usePlayerInputSources';
+import { WELCOME_PICK_DEFAULT, detectPlayerInputSource } from '@/features/player-input-source';
 import { powerCircuitsService, type PowerCircuitView } from '@/services/power-circuits.service';
 import { mediaService, MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
-import { ledService } from '@/services/led.service';
-import { parkOpsControlService } from '@/services/park-ops-control.service';
 
 const props = defineProps<{
   /** 1 = LED 大屏 (HDMI1), 2 = 投影仪 (HDMI2) */
@@ -454,77 +450,8 @@ async function pickAsset(a: { id: number; originalName: string }): Promise<void>
 /** 已在列表里的不重复加 —— 让业主一眼看出哪些已经加过 */
 const inPlaylist = computed(() => new Set(playlist.value.map((x) => x.mediaId)));
 
-// ============ 输入源 (2026-07-28 业主: LED/投影两页统一 + 可选项指向明确) ============
-// 三个按钮各自指向固定目标, 按了就知道播的是什么:
-//   播放内容       → 本屏回到播放列表推送的画面 (GK9000 输出)
-//   欢迎页·可编辑  → 媒体库内置「金湖欢迎页·动态(称谓可编辑)」网页素材 (两屏共用),
-//                    文字/底图在本卡「编辑欢迎页」就地改, 保存即生效
-//   欢迎页·默认    → 本屏专用尺寸的内置静态欢迎图 (slot1=LED版 / slot2=投影版), 兜底
-// 欢迎页统一走 playback 推流 (kiosk 渲染), 和播放列表同一条链路 —— 当前显示什么
-// 直接从通道状态读出来 (currentMediaName), 不再靠"记住自己发过什么"猜。
-// 每个按钮都先把显示链路拉正 (LED: 诺瓦切回 HDMI1; 投影: 融合器回 GK9000 HDMI),
-// 修掉"按了没画面"的历史坑 —— 控制器/融合器停在别的源上时推什么都看不见。
-// (旧版诺瓦 'welcome' 内置 preset 入口已撤: 无法回读、内容改不了、易误切;
-//  HDMI 直通选项 2026-07-18 就因误切事故被业主要求删除, 经过见 git 历史。)
-const WELCOME_EDITABLE_NAME = '金湖欢迎页·动态(称谓可编辑)';
-const WELCOME_DEFAULT_NAMES = ['金湖欢迎页·LED大屏.png', '金湖欢迎页·投影.png'];
-const PARK_DASHBOARD_NAME = '金湖科创产业园·智慧运营总览(DEMO)';
-
-type SourceKey = 'content' | 'park-dashboard' | 'welcome-editable' | 'welcome-default';
-/** 当前源: 从通道在播媒体名判断 (内置素材按名定位, 业主改名后回退为"播放内容") */
-const activeSource = computed<SourceKey | null>(() => {
-  const name = ch.value?.currentMediaName;
-  if (!name || !ch.value?.currentMediaId) return null;
-  if (name === PARK_DASHBOARD_NAME) return 'park-dashboard';
-  if (name === WELCOME_EDITABLE_NAME) return 'welcome-editable';
-  if (WELCOME_DEFAULT_NAMES.includes(name)) return 'welcome-default';
-  return 'content';
-});
-const SRC_HINTS: Record<SourceKey, string> = {
-  'content': '正在播放列表内容',
-  'park-dashboard': '园区综合态势与运营指标 · 点击即可投放到当前屏幕',
-  'welcome-editable': '动态欢迎页 · 点「编辑欢迎页」改文字/底图, 保存即生效',
-  'welcome-default': '内置静态欢迎页 (本屏专用尺寸, 不可编辑)',
-};
-const srcHint = computed(() => (activeSource.value ? SRC_HINTS[activeSource.value] : '当前待机 · 点按钮选择本屏显示内容'));
-
-/** 显示链路拉正 (best-effort): 设备停在别的源上时, 推什么都看不见 */
-async function ensureDisplayPath(): Promise<void> {
-  try {
-    if (props.slot === 1 && props.deviceId) {
-      const r = await ledService.switchInput(props.deviceId, 'video');
-      if (!r.ok) throw new Error(r.error || '设备未确认');
-    } else if (props.slot === 2) {
-      await projectorService.showHdmi();
-    }
-  } catch (e) {
-    // 不挡欢迎页推流 —— 链路已经在正确源上时这里失败也无所谓, 只提示一声
-    ElMessage.warning(`显示链路切换未确认: ${(e as Error).message}`);
-  }
-}
-
-async function selectContent(): Promise<void> {
-  const isCurrent = captureConsoleAction();
-  if (!isCurrent()) return;
-  busy.value = true;
-  try {
-    await ensureDisplayPath();
-    if (!isCurrent()) return;
-    // 正在播欢迎页时按"播放内容" = 恢复播放列表 (从下一条接着放);
-    // 已经在播列表内容时只拉正链路, 不跳片
-    if (activeSource.value !== 'content') {
-      if (!playlist.value.length) {
-        ElMessage.info('播放列表是空的 — 先从媒体库加入素材');
-        return;
-      }
-      await playbackStore.next(SLOT.value);
-    }
-    if (!isCurrent()) return;
-    ElMessage.success('已切到播放内容');
-  } catch (e) {
-    if (isCurrent()) ElMessage.error(`切换失败: ${(e as Error).message}`);
-  } finally { busy.value = false; }
-}
+// 输入源身份只从播放通道权威状态派生；切换与运营大屏控制由专用用例编排。
+const activeSource = computed(() => detectPlayerInputSource(ch.value));
 
 const {
   welcomeEditOpen,
@@ -581,142 +508,36 @@ const {
   republishEditable: async () => { await publishWelcome(SLOT.value, 'editable'); },
 });
 
-// ============ 输入源欢迎方案下拉 (静态默认第一项 + 编辑器保存的方案, 选中即发布上屏) ============
-const WELCOME_PICK_DEFAULT = '__default__';
-const welcomePickerBusy = ref(false);
-
-/** 轻量拉取方案清单 (只拉 JSON, 不加载图片库), 供输入源下拉回显 */
-async function refreshWelcomeSchemeOptions(notify = false): Promise<void> {
-  try {
-    const snapshot = await fetchWelcomeSchemes();
-    welcomeSchemes.value = snapshot.config.schemes.map((item) => ({ ...item }));
-    welcomeSchemesRevision.value = snapshot.revision;
-    publishedWelcomeSchemeId.value = snapshot.publishedSchemeId;
-  } catch (e) {
-    if (notify) ElMessage.error(`读取欢迎方案失败: ${(e as Error).message}`);
-  }
-}
-
-/** 下拉回显值: 非欢迎源为空(显示占位), 默认页/已发布方案分别高亮 */
-const welcomePickerValue = computed<string>(() => {
-  if (activeSource.value === 'welcome-default') return WELCOME_PICK_DEFAULT;
-  if (activeSource.value === 'welcome-editable') return publishedWelcomeSchemeId.value ?? '';
-  return '';
+const {
+  srcHint,
+  welcomePickerBusy,
+  welcomePickerValue,
+  parkOpsPage,
+  parkOpsTotalPages,
+  parkOpsAuto,
+  parkOpsBusy,
+  refreshWelcomeSchemeOptions,
+  selectContent,
+  onWelcomeSchemePick,
+  selectParkDashboard,
+  parkOpsControl,
+} = usePlayerInputSources({
+  slot: SLOT,
+  title: () => props.title,
+  deviceId: () => props.deviceId,
+  activeSource,
+  playlist,
+  busy,
+  welcomeSchemes,
+  welcomeSchemesRevision,
+  publishedWelcomeSchemeId,
+  ensureAdmin,
+  captureAction: captureConsoleAction,
+  nextPlayback: (slot) => playbackStore.next(slot),
+  reloadLists: loadAll,
 });
 
-async function selectWelcome(variant: 'editable' | 'default'): Promise<void> {
-  const isCurrent = captureConsoleAction();
-  if (!isCurrent()) return;
-  busy.value = true;
-  try {
-    await ensureDisplayPath();
-    if (!isCurrent()) return;
-    await publishWelcome(SLOT.value, variant);
-    if (!isCurrent()) return;
-    ElMessage.success(variant === 'editable' ? '已投放动态欢迎页 (点「编辑欢迎页」可改内容)' : '已投放默认欢迎页');
-  } catch (e) {
-    if (isCurrent()) ElMessage.error(`投放欢迎页失败: ${(e as Error).message}`);
-  } finally { busy.value = false; }
-}
-
-async function onWelcomeSchemePick(event: Event): Promise<void> {
-  const selectEl = event.target as HTMLSelectElement;
-  const value = selectEl.value;
-  const rollback = (): void => { selectEl.value = welcomePickerValue.value; };
-  if (welcomePickerBusy.value || busy.value) return;
-  welcomePickerBusy.value = true;
-  try {
-    if (value === WELCOME_PICK_DEFAULT) {
-      await selectWelcome('default');
-    } else {
-      if (!(await ensureAdmin('投放欢迎方案'))) { rollback(); return; }
-      const scheme = welcomeSchemes.value.find((item) => item.id === value);
-      if (!scheme) throw new Error('该欢迎方案不存在，请重新选择');
-      // 发布 = 先把方案快照写入品牌配置, 再复用统一的欢迎投放(含切显示通道/竞态守护)
-      await publishWelcomeScheme(value, welcomeSchemesRevision.value);
-      await refreshWelcomeSchemeOptions();
-      await selectWelcome('editable');
-    }
-    void loadAll();
-  } catch (e) {
-    const msg = (e as Error).message || String(e);
-    await refreshWelcomeSchemeOptions();
-    rollback();
-    ElMessage.error(/冲突|conflict|revision/i.test(msg)
-      ? '欢迎方案刚被其它终端修改，已刷新，请重新选择'
-      : `投放欢迎页失败: ${msg}`);
-  } finally {
-    welcomePickerBusy.value = false;
-  }
-}
-
-async function selectParkDashboard(): Promise<void> {
-  const isCurrent = captureConsoleAction();
-  if (!isCurrent()) return;
-  busy.value = true;
-  try {
-    await ensureDisplayPath();
-    if (!isCurrent()) return;
-    await publishParkDashboard(SLOT.value);
-    if (!isCurrent()) return;
-    ElMessage.success(`已将园区运营大屏投放到${props.title}`);
-    void syncParkOpsState();
-  } catch (e) {
-    if (isCurrent()) ElMessage.error(`投放园区运营大屏失败: ${(e as Error).message}`);
-  } finally { busy.value = false; }
-}
-
-// ============ 运营大屏翻页控制 (PWA播放控制卡片 → LED大屏端运营大屏) ============
-const parkOpsPage = ref(0);
-const parkOpsTotalPages = ref(6); // 运营大屏共6页，后端state会同步
-const parkOpsAuto = ref(false);
-const parkOpsBusy = ref(false);
-
-async function parkOpsControl(action: 'next' | 'prev' | 'auto' | 'refresh'): Promise<void> {
-  if (parkOpsBusy.value) return;
-  parkOpsBusy.value = true;
-  try {
-    const state = action === 'next'
-      ? await parkOpsControlService.next()
-      : action === 'prev'
-        ? await parkOpsControlService.prev()
-        : action === 'auto'
-          ? await parkOpsControlService.setAuto(!parkOpsAuto.value)
-          : await parkOpsControlService.refresh();
-    parkOpsPage.value = state.page;
-    parkOpsAuto.value = state.autoPlay;
-    parkOpsTotalPages.value = state.totalPages;
-    const successMessage = action === 'next'
-      ? '已切到下一页'
-      : action === 'prev'
-        ? '已切到上一页'
-        : action === 'auto'
-          ? state.autoPlay ? '自动轮播已开启' : '自动轮播已关闭'
-          : '已发送强制刷新指令';
-    ElMessage.success(successMessage);
-  } catch (e) {
-    ElMessage.error(`运营大屏控制失败: ${(e as Error).message}`);
-  } finally {
-    // 刷新动作增加3秒冷却时间，防止快速点击多次发送刷新请求
-    if (action === 'refresh') {
-      setTimeout(() => { parkOpsBusy.value = false; }, 3000);
-    } else {
-      parkOpsBusy.value = false;
-    }
-  }
-}
-
-// 投放运营大屏时同步当前状态
-async function syncParkOpsState(): Promise<void> {
-  try {
-    const state = await parkOpsControlService.state();
-    parkOpsPage.value = state.page;
-    parkOpsAuto.value = state.autoPlay;
-    parkOpsTotalPages.value = state.totalPages;
-  } catch { /* ignore */ }
-}
-
-// 欢迎页编辑用例已收敛到 useWelcomeEditor；本组件只保留输入源与播放器编排。
+// 欢迎页编辑和输入源切换均已收敛到组合式用例；本组件保留模板与播放器编排。
 
 // ============ 拖拽排序 ============
 // 原生 HTML5 drag & drop, 不引第三方库。顺序**存后端** (reorderPlaylist):
