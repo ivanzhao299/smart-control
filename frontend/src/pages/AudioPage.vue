@@ -9,22 +9,15 @@ import {
 import { audioService } from '@/services/audio.service';
 import { useAdminUnlock } from '@/composables/useAdminUnlock';
 import { useAudioPlaylist } from '@/composables/useAudioPlaylist';
+import { useAudioOutputCatalog, type AudioOutputRow } from '@/composables/useAudioOutputCatalog';
 import { useAudioScenes } from '@/composables/useAudioScenes';
 import { audioConfigService } from '@/services/audio-config.service';
 import {
-  audioChannelDisplayAddress,
-  audioChannelDisplayName,
-  buildStereoPartnerIds,
   faderPercentFromY,
-  filterVisibleAudioChannels,
-  findStereoPartner,
   formatAudioDuration,
   formatGainDb,
   gainDbToPercent,
-  isStereoLeftChannel,
   percentToGainDb,
-  stereoChannelRows,
-  stereoLeftChannelId,
   summarizeAudioOutputs,
 } from '@/features/audio-view-model';
 import { createLatestCommandQueue } from '@/features/latest-command-queue';
@@ -33,6 +26,25 @@ import { createAudioMatrixCommandController } from '@/features/audio-matrix-comm
 const router = useRouter();
 const route = useRoute();
 const { ensureAdmin } = useAdminUnlock();
+const {
+  channels,
+  displayChannels,
+  editingChannelId: editingCh,
+  editingChannelText: editingChText,
+  catalogBusy,
+  partnerOf,
+  displayName,
+  isStereo,
+  displayAddress: displayAddr,
+  stereoRows: duoRows,
+  linkOn,
+  setLink,
+  loadOutputChannels: loadZones,
+  startRenameChannel: startRenameCh,
+  cancelRenameChannel: cancelRenameCh,
+  commitRenameChannel: commitRenameCh,
+  stopCatalogActions: stopOutputCatalog,
+} = useAudioOutputCatalog({ ensureAdmin });
 const {
   bgmChannel,
   playlist,
@@ -115,6 +127,7 @@ const {
 } = useAudioScenes();
 
 onUnmounted(() => {
+  stopOutputCatalog();
   matrixPollStopped = true; // 见 scheduleMatrixPoll: 防 await 后又排一个孤儿 timer
   if (matrixTimer) clearTimeout(matrixTimer); // 不清会在切页面后继续打设备
   if (reconcileTimer) clearTimeout(reconcileTimer); // 同上: 切走后别再对账
@@ -219,138 +232,9 @@ function stopAudioPolling(): void {
 }
 useActivePolling(startAudioPolling, stopAudioPolling);
 
-// ============ 分区 ============
-interface AudioRow {
-  /** 后端 audio_output_zone 主键 — 改名要用它 (下面的 id 是 'audio_out1' 这种展示用字符串) */
-  dbId: number;
-  id: string; name: string; zone: string; channel: number;
-  volume: number; muted: boolean; bgm: string;
-  bgmPlaying: boolean; mic: boolean;
-  busy: boolean; error: string | null;
-}
-
-// 输出通道从后台配置拉 (业主可自定义名字 + 楼层 + 色). zone='out{channel+1}' 对应
-// 后端 ZONE_TO_OUT 映射 (channel 0-based). 拉不到时兜底空, onMounted 再填.
-const channels = ref<AudioRow[]>([]);
-
-async function loadZones(): Promise<void> {
-  try {
-    const rows = await audioConfigService.listZones();
-    channels.value = rows.map((z) => ({
-      dbId: z.id,
-      id: `audio_out${z.channel + 1}`,
-      name: z.name,
-      zone: `out${z.channel + 1}`,
-      channel: z.channel,
-      volume: 50,
-      muted: false,
-      bgm: '',
-      bgmPlaying: false,
-      mic: false,
-      busy: false,
-      error: null,
-    }));
-  } catch { /* 拉不到就空 */ }
-}
-
-// ============ 立体声配对 (2026-07-25 立体声改造) ============
-// 约定: 名字以 "·左" / "·右" 结尾且前缀相同的两路输出是一个立体声对
-// (割接后 OUT1/2=LED大屏·左/右, OUT3/4=发布厅投影·左/右)。配对纯靠命名,
-// 零表结构改动 —— 页面把两路合成一张卡, 音量/静音双路联动。没有命名匹配时
-// 一切照旧, 所以这个功能先于现场接线上线也无副作用。
-const pairPartnerId = computed<Record<string, string>>(() => buildStereoPartnerIds(channels.value));
-function partnerOf(z: AudioRow): AudioRow | undefined {
-  return findStereoPartner(channels.value, pairPartnerId.value, z);
-}
-/** 展示行: 立体声对只显示"左"这张卡 (名字去后缀), "右"隐藏并跟随联动 */
-const displayChannels = computed(() =>
-  filterVisibleAudioChannels(channels.value, pairPartnerId.value),
-);
-function displayName(z: AudioRow): string {
-  return audioChannelDisplayName(z, pairPartnerId.value);
-}
-function isStereo(z: AudioRow): boolean {
-  return isStereoLeftChannel(z, pairPartnerId.value);
-}
-function displayAddr(z: AudioRow): string {
-  return audioChannelDisplayAddress(z, channels.value, pairPartnerId.value);
-}
-/** 立体声卡里的两行: [左, 右] — 模板 v-for 用, 避免模板里写非空断言 */
-function duoRows(z: AudioRow): AudioRow[] {
-  return stereoChannelRows(z, channels.value, pairPartnerId.value);
-}
-
-// ============ 立体声联动 (2026-07-26 业主: 两个推子放一起推, 也可单独推) ============
-// key = 左路 z.id。默认联动: 推任意一边, 两边一起走; 点"联动"徽标切到"独立",
-// 左右各推各的 (比如现场左右喇叭灵敏度不一致要做平衡)。
-const stereoLink = ref<Record<string, boolean>>({});
-function pairLeftId(z: AudioRow): string | null {
-  return stereoLeftChannelId(z, pairPartnerId.value);
-}
-function linkOn(z: AudioRow): boolean {
-  const key = pairLeftId(z);
-  return key ? (stereoLink.value[key] ?? true) : false;
-}
-function setLink(z: AudioRow, v: boolean): void {
-  const key = pairLeftId(z);
-  if (key) stereoLink.value = { ...stereoLink.value, [key]: v };
-}
-
 // 页内 tab: 一键场景 / 背景音乐 / 分区音量 / 音源矩阵 — 一屏一组, 不上下滚
 // 2026-07-31 业主: 默认页改为背景音乐 (最常用)
 const audioTab = ref<'scene' | 'bgm' | 'zones' | 'matrix'>('bgm');
-
-// ============ 输出通道改名 ============
-// 2026-07-17 业主: "分区音量里的输出通道推子名称应该和上传的照片名称一致, 并且可以编辑"。
-// 名字本来就存在 audio_output_zone 表、也早按机柜标签配好了 (一楼门厅…二楼办公区),
-// 缺的只是就地编辑。改完落库, 矩阵页的输出名来自同一张表, 会一起变。
-const editingCh = ref<number | null>(null);
-const editingChText = ref('');
-async function startRenameCh(z: AudioRow): Promise<void> {
-  if (!(await ensureAdmin('通道改名'))) return;
-  editingCh.value = z.dbId;
-  // 立体声卡编辑的是"基名" (不带 ·左/·右) —— 后缀是配对标识, 由代码维护,
-  // 业主改掉后缀会导致左右两卡分离/联动失效 (2026-07-26 现场踩过)。
-  editingChText.value = isStereo(z) ? z.name.slice(0, -2) : z.name;
-}
-async function commitRenameCh(z: AudioRow): Promise<void> {
-  const raw = editingChText.value.trim();
-  editingCh.value = null;
-  if (!raw) return;
-  const mate = partnerOf(z);
-  if (mate && z.name.endsWith('·左')) {
-    // 立体声对: 基名 + 后缀两路一起改, 保证配对约定永不被改名打破
-    const base = raw.replace(/·[左右]$/u, '').trim();
-    if (!base) return;
-    const newL = `${base}·左`;
-    const newR = `${base}·右`;
-    if (newL === z.name && newR === mate.name) return;
-    const beforeL = z.name;
-    const beforeR = mate.name;
-    z.name = newL;
-    mate.name = newR;
-    try {
-      await audioConfigService.updateZone(z.dbId, { name: newL });
-      await audioConfigService.updateZone(mate.dbId, { name: newR });
-      ElMessage.success(`已改名为「${base}」(左/右两路已同步)`);
-    } catch (err) {
-      z.name = beforeL;
-      mate.name = beforeR;
-      ElMessage.error(`改名失败: ${(err as Error).message}`);
-    }
-    return;
-  }
-  if (raw === z.name) return;
-  const before = z.name;
-  z.name = raw;                        // 乐观: 立刻显示
-  try {
-    await audioConfigService.updateZone(z.dbId, { name: raw });
-    ElMessage.success(`已改名为「${raw}」`);
-  } catch (err) {
-    z.name = before;                   // 失败回滚, 不留后端不认的假名字
-    ElMessage.error(`改名失败: ${(err as Error).message}`);
-  }
-}
 
 // ============ 音源矩阵 (EKX-808 8x8 路由) ============
 /** BGM 音源的矩阵输入口 = IN5 (0-based 4, USB 声卡←GK9000 主机, 2026-07-26 割接接线固定) */
@@ -512,7 +396,7 @@ function saveMuteState(): void {
  * 最新值, 中间值全部丢弃 —— 拖多快, 设备最多落后一条命令 (~300ms)。
  */
 interface OutputVolumeCommand {
-  row: AudioRow;
+  row: AudioOutputRow;
   value: number;
   zone: string | undefined;
 }
@@ -524,11 +408,11 @@ const outputVolumeQueue = createLatestCommandQueue<string, OutputVolumeCommand>(
   onSuccess: (_id, command) => { command.row.error = null; },
   onError: (_id, error, command) => { command.row.error = (error as Error).message; },
 });
-function queueVolume(z: AudioRow): void {
+function queueVolume(z: AudioOutputRow): void {
   outputVolumeQueue.enqueue(z.id, { row: z, value: z.volume, zone: z.zone });
 }
 /** 拖动/点击设值统一入口: 本路 + (联动时) 对路一起, 实时下发 */
-function setFaderValue(z: AudioRow, v: number): void {
+function setFaderValue(z: AudioOutputRow, v: number): void {
   z.volume = v;
   queueVolume(z);
   const mate = partnerOf(z);
@@ -552,20 +436,20 @@ function setFaderValue(z: AudioRow, v: number): void {
  * 算百分比, 不依赖浏览器对 range 输入方向的内部换算, 点哪就是哪。
  */
 const draggingFaderId = ref<string | null>(null);
-function onFaderPointerDown(z: AudioRow, ev: PointerEvent): void {
+function onFaderPointerDown(z: AudioOutputRow, ev: PointerEvent): void {
   if (z.muted) return;
   const track = ev.currentTarget as HTMLElement;
   track.setPointerCapture(ev.pointerId);
   draggingFaderId.value = z.id;
   setFaderValue(z, faderPercentFromY(track.getBoundingClientRect(), ev.clientY));
 }
-function onFaderPointerMove(z: AudioRow, ev: PointerEvent): void {
+function onFaderPointerMove(z: AudioOutputRow, ev: PointerEvent): void {
   if (draggingFaderId.value !== z.id) return;
   // 拖动中实时下发 (queueVolume 合并, 不排队) —— 声音跟手, 不是松手才响应
   const track = ev.currentTarget as HTMLElement;
   setFaderValue(z, faderPercentFromY(track.getBoundingClientRect(), ev.clientY));
 }
-function onFaderPointerUp(z: AudioRow, ev: PointerEvent): void {
+function onFaderPointerUp(z: AudioOutputRow, ev: PointerEvent): void {
   if (draggingFaderId.value !== z.id) return;
   draggingFaderId.value = null;
   const track = ev.currentTarget as HTMLElement;
@@ -586,7 +470,7 @@ watch(draggingFaderId, (id) => {
   else document.removeEventListener('touchmove', preventScrollWhileDragging);
 });
 
-async function fadeInVolumes(targets: { z: AudioRow; vol: number }[]): Promise<void> {
+async function fadeInVolumes(targets: { z: AudioOutputRow; vol: number }[]): Promise<void> {
   const STEPS = 5;
   const STEP_MS = 800; // 4 seconds total
   for (let step = 1; step <= STEPS; step++) {
@@ -600,7 +484,7 @@ async function fadeInVolumes(targets: { z: AudioRow; vol: number }[]): Promise<v
   }
 }
 
-async function toggleMute(z: AudioRow): Promise<void> {
+async function toggleMute(z: AudioOutputRow): Promise<void> {
   const prev = z.muted;
   if (!prev) {
     // 即将静音: 保存当前音量
@@ -668,7 +552,7 @@ async function toggleMuteAll(): Promise<void> {
   }
   if (allMuted.value) {
     // 解除全部静音: 先发 unmute 命令, 再统一渐响
-    const fadeTargets: { z: AudioRow; vol: number }[] = [];
+    const fadeTargets: { z: AudioOutputRow; vol: number }[] = [];
     for (const z of channels.value) {
       if (!z.muted) continue;
       const target = savedVolumes.value[z.id] ?? z.volume;
@@ -985,11 +869,12 @@ async function toggleMuteAll(): Promise<void> {
             v-model="editingChText"
             class="ch-name-input" maxlength="24"
             @click.stop @keyup.enter="commitRenameCh(z)"
-            @keyup.esc="editingCh = null" @blur="commitRenameCh(z)"
+            :disabled="catalogBusy"
+            @keyup.esc="cancelRenameCh" @blur="commitRenameCh(z)"
           />
           <div v-else class="ch-name" :title="z.name">
             {{ displayName(z) }}
-            <button class="ch-edit" title="改名" @click.stop="startRenameCh(z)">
+            <button class="ch-edit" title="改名" :disabled="catalogBusy" @click.stop="startRenameCh(z)">
               <Pencil :size="12" />
             </button>
           </div>

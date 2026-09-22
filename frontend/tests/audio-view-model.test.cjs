@@ -118,11 +118,17 @@ test('duration formatting keeps the playlist display convention', () => {
   assert.equal(model.formatAudioDuration(65), '1:05');
 });
 
-test('AudioPage consumes the shared model instead of duplicating pure projections', () => {
+test('AudioPage delegates output catalog projections and writes to one composable', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../src/pages/AudioPage.vue'), 'utf8');
+  const catalog = fs.readFileSync(path.resolve(__dirname, '../src/composables/useAudioOutputCatalog.ts'), 'utf8');
   assert.match(page, /from '@\/features\/audio-view-model'/);
-  assert.match(page, /buildStereoPartnerIds\(channels\.value\)/);
+  assert.match(page, /useAudioOutputCatalog\(\{ ensureAdmin \}\)/);
   assert.match(page, /summarizeAudioOutputs\(/);
+  assert.doesNotMatch(page, /audioConfigService\.listZones\(/);
+  assert.doesNotMatch(page, /audioConfigService\.updateZone\(/);
+  assert.doesNotMatch(page, /buildStereoPartnerIds\(/);
+  assert.match(catalog, /buildStereoPartnerIds\(channels\.value\)/);
+  assert.match(catalog, /Promise\.allSettled\(/);
   assert.doesNotMatch(page, /function pctToDbUi\(/);
   assert.doesNotMatch(page, /function dbToPctUi\(/);
   assert.doesNotMatch(page, /const byName = new Map\(channels\.value/);
