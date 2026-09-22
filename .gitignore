@@ -8,7 +8,7 @@ tmp/
 .env
 .env.local
 .DS_Store
-media/
+/media/
 database/*.db
 database/*.db-journal
 database/*.db-shm
