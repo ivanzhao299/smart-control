@@ -46,6 +46,7 @@ test('every startup lifecycle hook stays on the reviewed runtime-state allowlist
     'backend/src/modules/logs/operation-log.service.ts',
     'backend/src/modules/media/media.service.ts',
     'backend/src/modules/playback/playback.service.ts',
+    'backend/src/modules/pv/pv.service.ts',
     'backend/src/modules/scheduler/scheduler.service.ts',
     'backend/src/modules/system/site-heartbeat.service.ts',
     'backend/src/modules/system/system.service.ts',
