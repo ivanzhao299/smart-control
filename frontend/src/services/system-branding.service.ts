@@ -33,6 +33,14 @@ export interface SystemBranding {
   welcomeTitle: string | null;
   /** 欢迎页底部标语 (空 = 默认 '智慧展厅 · 数字展贸 · 科创未来') */
   welcomeTagline: string | null;
+  /** 场馆中文名 (null=内置默认, ''=隐藏, 非空=自定义) */
+  welcomeVenue: string | null;
+  /** 场馆英文名 (null=内置默认, ''=隐藏, 非空=自定义) */
+  welcomeVenueEn: string | null;
+  /** 落款单位一 (null=内置默认, ''=隐藏, 非空=自定义) */
+  welcomeOrg1: string | null;
+  /** 落款单位二 (null=内置默认, ''=隐藏, 非空=自定义) */
+  welcomeOrg2: string | null;
   /** 欢迎页底图媒体 id (空 = 内置'鎏金夜湖'程序化底图) */
   welcomeBgMediaId: number | null;
   /** 只读: 底图直链 (后端由 welcomeBgMediaId 算出; 展示需 absUrl() 拼绝对地址) */
@@ -54,6 +62,8 @@ export type WelcomeTone = 'light' | 'dark';
 export type WelcomeOverlay = 'none' | 'soft' | 'strong';
 export type WelcomeContentPosition = 'upper' | 'center' | 'lower';
 export type WelcomeLogoSize = 'small' | 'medium' | 'large';
+/** 主标题文字效果: blue 科技蓝 / gold 鎏金 / white 纯白描边 / ink 墨蓝(浅底) / neon 霓虹青(深底) */
+export type WelcomeTitleEffect = 'blue' | 'gold' | 'white' | 'ink' | 'neon';
 
 export interface WelcomePresentation {
   layout: WelcomeLayout;
@@ -61,6 +71,7 @@ export interface WelcomePresentation {
   overlay: WelcomeOverlay;
   contentPosition: WelcomeContentPosition;
   logoSize: WelcomeLogoSize;
+  titleEffect: WelcomeTitleEffect;
 }
 
 export const DEFAULT_WELCOME_PRESENTATION: WelcomePresentation = {
@@ -69,6 +80,7 @@ export const DEFAULT_WELCOME_PRESENTATION: WelcomePresentation = {
   overlay: 'soft',
   contentPosition: 'center',
   logoSize: 'medium',
+  titleEffect: 'blue',
 };
 
 export type SystemBrandingPatch = Partial<SystemBranding>;
@@ -93,6 +105,10 @@ export interface WelcomeScheme {
   welcomeTitle: string | null;
   welcomeGuest: string | null;
   welcomeTagline: string | null;
+  welcomeVenue: string | null;
+  welcomeVenueEn: string | null;
+  welcomeOrg1: string | null;
+  welcomeOrg2: string | null;
   welcomeBgMediaId: number | null;
   welcomeLogoMediaId: number | null;
   presentation: WelcomePresentation;

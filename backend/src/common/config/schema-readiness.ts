@@ -33,6 +33,7 @@ export const REQUIRED_SCHEMA_MIGRATIONS = [
   'EstablishBundledMediaAuthority1789680000000',
   'AddWelcomeLogo1789720000000',
   'AddWelcomePresentation1789730000000',
+  'AddWelcomeVenueOrgs1789740000000',
 ] as const;
 
 export const REQUIRED_SCHEMA_COLUMNS: Record<string, string[]> = {
@@ -53,6 +54,10 @@ export const REQUIRED_SCHEMA_COLUMNS: Record<string, string[]> = {
     'welcomeGuest',
     'welcomeTitle',
     'welcomeTagline',
+    'welcomeVenue',
+    'welcomeVenueEn',
+    'welcomeOrg1',
+    'welcomeOrg2',
     'welcomeBgMediaId',
     'welcomeLogoMediaId',
     'welcomePresentationJson',

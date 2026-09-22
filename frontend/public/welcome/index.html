@@ -215,6 +215,103 @@
   }
   body[data-tone="dark"] .hero .guest .name { color: #0d5ca4; }
   body[data-tone="dark"] .inscription .orgs { color: rgba(19,54,87,.86); }
+
+/* ===== 主标题文字效果 (titleEffect, 独立于明暗色调, 同特异性后定义覆盖 tone) =====
+   blue/gold/white/neon 为深色底配浅字; ink 为浅色照片底配深字(建议配合浅色底图与 tone=dark)。
+   每套定义 --fx-accent(点缀) / --fx-line(细线), 装饰件统一引用, 副文字随主标题同氛围。 */
+body[data-title-effect] .thread .diamond,
+body[data-title-effect] .inscription .dot { background: var(--fx-accent, #5b9fee); }
+body[data-title-effect] .thread .line { background: linear-gradient(90deg, transparent, var(--fx-line, rgba(91,159,238,.52))); }
+body[data-title-effect] .thread .line.r { background: linear-gradient(270deg, transparent, var(--fx-line, rgba(91,159,238,.52))); }
+body[data-title-effect] .inscription .sep { background: linear-gradient(180deg, transparent, var(--fx-line, rgba(91,159,238,.62)), transparent); }
+body[data-title-effect] .inscription .hairline { background: linear-gradient(90deg, transparent, var(--fx-line, rgba(91,159,238,.38)) 30%, var(--fx-line, rgba(91,159,238,.38)) 70%, transparent); }
+body[data-title-effect] .hero .guest .flank { background: linear-gradient(90deg, transparent, var(--fx-line, rgba(91,159,238,.45))); }
+body[data-title-effect] .hero .guest .flank.r { background: linear-gradient(270deg, transparent, var(--fx-line, rgba(91,159,238,.45))); }
+body[data-title-effect] .hero .guest .flank::after { background: var(--fx-accent, #5b9fee); }
+
+/* blue 科技蓝 (默认, 深底) */
+body[data-title-effect="blue"] { --fx-accent: #5b9fee; --fx-line: rgba(91,159,238,.50); }
+body[data-title-effect="blue"] .hero .main {
+  background-image: linear-gradient(180deg, #f8fbff 0%, #dcecff 42%, #9cc8f8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-stroke: 0;
+  filter: drop-shadow(0 10px 34px rgba(64, 128, 214, .32));
+}
+body[data-title-effect="blue"] .hero .guest { color: rgba(228, 238, 252, .92); text-shadow: none; }
+body[data-title-effect="blue"] .hero .guest .name { color: #8fc3f7; }
+
+/* gold 鎏金 (政务/喜庆, 深色底) */
+body[data-title-effect="gold"] { --fx-accent: #e7b955; --fx-line: rgba(231,185,85,.50); }
+body[data-title-effect="gold"] .hero .main {
+  background-image: linear-gradient(180deg, #fff7dc 0%, #f8dd8c 38%, #d9a638 72%, #a8771b 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-stroke: 0;
+  filter: drop-shadow(0 6px 16px rgba(120, 80, 8, .45)) drop-shadow(0 0 2px rgba(255, 236, 170, .4));
+}
+body[data-title-effect="gold"] .hero .guest { color: rgba(255, 244, 214, .94); text-shadow: 0 2px 10px rgba(90, 60, 8, .5); }
+body[data-title-effect="gold"] .hero .guest .name { color: #f3cf7a; }
+body[data-title-effect="gold"] .crest .venue { color: rgba(255, 243, 214, .92); }
+body[data-title-effect="gold"] .crest .venue-en { color: rgba(243, 207, 122, .72); }
+body[data-title-effect="gold"] .inscription .orgs { color: rgba(255, 240, 208, .90); }
+body[data-title-effect="gold"] .inscription .marks { color: rgba(243, 207, 122, .66); }
+
+/* white 纯白描边 (明暗混杂/复杂照片底) */
+body[data-title-effect="white"] { --fx-accent: #dceafe; --fx-line: rgba(220, 234, 254, .50); }
+body[data-title-effect="white"] .hero .main {
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  color: #ffffff;
+  -webkit-text-stroke: 3px rgba(18, 40, 74, .55);
+  filter: none;
+  text-shadow: 0 2px 6px rgba(8, 22, 46, .78), 0 8px 24px rgba(8, 22, 46, .55), 0 0 2px rgba(8, 22, 46, .9);
+}
+body[data-title-effect="white"] .hero .guest { color: #ffffff; text-shadow: 0 2px 8px rgba(8, 22, 46, .85); }
+body[data-title-effect="white"] .hero .guest .name { color: #eaf3ff; }
+body[data-title-effect="white"] .crest .venue { color: rgba(255, 255, 255, .94); }
+body[data-title-effect="white"] .crest .venue-en { color: rgba(234, 243, 255, .70); }
+body[data-title-effect="white"] .inscription .orgs { color: rgba(255, 255, 255, .92); }
+body[data-title-effect="white"] .inscription .marks { color: rgba(234, 243, 255, .66); }
+
+/* ink 墨蓝 (浅色留白照片底, 建议 tone=dark) */
+body[data-title-effect="ink"] { --fx-accent: #2b6cb0; --fx-line: rgba(43, 108, 176, .45); }
+body[data-title-effect="ink"] .hero .main {
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  color: #16365f;
+  -webkit-text-stroke: 0;
+  filter: none;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .65), 0 8px 26px rgba(255, 255, 255, .5);
+}
+body[data-title-effect="ink"] .hero .guest { color: rgba(38, 66, 104, .92); text-shadow: 0 1px 4px rgba(255, 255, 255, .6); }
+body[data-title-effect="ink"] .hero .guest .name { color: #2b6cb0; }
+body[data-title-effect="ink"] .crest .venue { color: rgba(15, 48, 80, .92); }
+body[data-title-effect="ink"] .crest .venue-en { color: rgba(43, 108, 176, .72); }
+body[data-title-effect="ink"] .inscription .orgs { color: rgba(19, 54, 87, .90); }
+body[data-title-effect="ink"] .inscription .marks { color: rgba(43, 108, 176, .70); }
+
+/* neon 霓虹青 (深色科技底) */
+body[data-title-effect="neon"] { --fx-accent: #56e6ff; --fx-line: rgba(86, 230, 255, .50); }
+body[data-title-effect="neon"] .hero .main {
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  color: #dcfbff;
+  -webkit-text-stroke: 0;
+  filter: none;
+  text-shadow: 0 0 6px rgba(120, 240, 255, .9), 0 0 22px rgba(64, 200, 255, .75), 0 0 48px rgba(0, 150, 220, .6);
+}
+body[data-title-effect="neon"] .hero .guest { color: #c9f6ff; text-shadow: 0 0 10px rgba(80, 210, 255, .6); }
+body[data-title-effect="neon"] .hero .guest .name { color: #7fe9ff; }
+body[data-title-effect="neon"] .crest .venue { color: rgba(220, 250, 255, .94); }
+body[data-title-effect="neon"] .crest .venue-en { color: rgba(127, 233, 255, .70); }
+body[data-title-effect="neon"] .inscription .orgs { color: rgba(201, 246, 255, .92); }
+body[data-title-effect="neon"] .inscription .marks { color: rgba(127, 233, 255, .64); }
 </style>
 </head>
 <body>
@@ -224,8 +321,8 @@
 
   <header class="crest">
     <img id="logoImg" src="../brand-logo.png" alt="欢迎页 Logo">
-    <div class="venue">金湖展贸中心</div>
-    <div class="venue-en">JINHU EXPOSITION &amp; TRADE CENTER</div>
+    <div class="venue" id="venueName">金湖展贸中心</div>
+    <div class="venue-en" id="venueEnName">JINHU EXPOSITION &amp; TRADE CENTER</div>
   </header>
 
   <div class="thread">
@@ -242,12 +339,12 @@
   </main>
 
   <footer class="inscription">
-    <div class="orgs">
-      <span class="dot"></span>
-      <span>山东金湖集团</span>
-      <span class="sep"></span>
-      <span>金湖科创产业园</span>
-      <span class="dot"></span>
+    <div class="orgs" id="orgLine">
+      <span class="dot" id="orgDotBefore"></span>
+      <span id="orgName1">山东金湖集团</span>
+      <span class="sep" id="orgSep"></span>
+      <span id="orgName2">金湖科创产业园</span>
+      <span class="dot" id="orgDotAfter"></span>
     </div>
     <div class="hairline"></div>
     <div class="marks" id="tagline">智慧展厅 · 数字展贸 · 科创未来</div>
@@ -314,8 +411,12 @@
     let bgRevision = 0;
     const DEFAULT_LOGO_URL = '../brand-logo.png';
     let lastLogoUrl = DEFAULT_LOGO_URL;
+    const DEFAULT_VENUE_CN = '金湖展贸中心';
+    const DEFAULT_VENUE_EN = 'JINHU EXPOSITION & TRADE CENTER';
+    const DEFAULT_ORG1 = '山东金湖集团';
+    const DEFAULT_ORG2 = '金湖科创产业园';
     const DEFAULT_PRESENTATION = {
-      layout: 'ceremony', tone: 'light', overlay: 'soft', contentPosition: 'center', logoSize: 'medium',
+      layout: 'ceremony', tone: 'light', overlay: 'soft', contentPosition: 'center', logoSize: 'medium', titleEffect: 'blue',
     };
     const PRESENTATION_VALUES = {
       layout: ['ceremony', 'editorial', 'minimal'],
@@ -323,6 +424,7 @@
       overlay: ['none', 'soft', 'strong'],
       contentPosition: ['upper', 'center', 'lower'],
       logoSize: ['small', 'medium', 'large'],
+      titleEffect: ['blue', 'gold', 'white', 'ink', 'neon'],
     };
     function applyPresentation(input) {
       const value = input && typeof input === 'object' ? input : DEFAULT_PRESENTATION;
@@ -335,6 +437,7 @@
       document.body.dataset.overlay = safe.overlay;
       document.body.dataset.position = safe.contentPosition;
       document.body.dataset.logoSize = safe.logoSize;
+      document.body.dataset.titleEffect = safe.titleEffect;
     }
     function applyBackground(url) {
       if (url === lastBgUrl) return;
@@ -385,6 +488,33 @@
       const title = (d.welcomeTitle || '').trim() || '热烈欢迎';
       document.getElementById('mainTitle').textContent = title;
       document.getElementById('tagline').textContent = (d.welcomeTagline || '').trim() || '智慧展厅 · 数字展贸 · 科创未来';
+      // 场馆名/英文/两行落款 — 三态: null/undefined=内置默认, ''(空)=隐藏该行, 非空=自定义
+      const displayText = (value, fallback) => {
+        if (value === null || value === undefined) return fallback;
+        return String(value).trim() === '' ? null : String(value).trim();
+      };
+      const setLine = (id, text) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (text === null) { el.style.display = 'none'; return; }
+        el.style.display = '';
+        el.textContent = text;
+      };
+      setLine('venueName', displayText(d.welcomeVenue, DEFAULT_VENUE_CN));
+      setLine('venueEnName', displayText(d.welcomeVenueEn, DEFAULT_VENUE_EN));
+      const org1 = displayText(d.welcomeOrg1, DEFAULT_ORG1);
+      const org2 = displayText(d.welcomeOrg2, DEFAULT_ORG2);
+      setLine('orgName1', org1);
+      setLine('orgName2', org2);
+      const orgCount = (org1 ? 1 : 0) + (org2 ? 1 : 0);
+      const orgLine = document.getElementById('orgLine');
+      if (orgLine) orgLine.style.display = orgCount === 0 ? 'none' : '';
+      const orgSep = document.getElementById('orgSep');
+      if (orgSep) orgSep.style.display = org1 && org2 ? '' : 'none';
+      const orgDotBefore = document.getElementById('orgDotBefore');
+      if (orgDotBefore) orgDotBefore.style.display = orgCount === 2 ? '' : 'none';
+      const orgDotAfter = document.getElementById('orgDotAfter');
+      if (orgDotAfter) orgDotAfter.style.display = orgCount === 2 ? '' : 'none';
       applyPresentation(d.welcomePresentation);
       applyBackground(bgUrl || null);
       applyLogo(logoUrl || null);

@@ -45,10 +45,24 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
   const welcomeLoading = ref(false);
   const welcomeForm = ref({
     welcomeTitle: '', welcomeGuest: '', welcomeTagline: '',
+    welcomeVenue: '', welcomeVenueEn: '', welcomeOrg1: '', welcomeOrg2: '',
     welcomeBgMediaId: null as number | null,
     welcomeLogoMediaId: null as number | null,
     presentation: { ...DEFAULT_WELCOME_PRESENTATION } as WelcomePresentation,
   });
+  // 场馆名/英文/两行落款的“隐藏该行”勾选, 与输入框共同表达三态 (null=默认 / ''=隐藏 / 文本=自定义)
+  const welcomeHidden = reactive({ venue: false, venueEn: false, org1: false, org2: false });
+  type WelcomeDisplayFormKey = 'welcomeVenue' | 'welcomeVenueEn' | 'welcomeOrg1' | 'welcomeOrg2';
+  type WelcomeDisplayHideKey = keyof typeof welcomeHidden;
+  function welcomeDisplayValue(formKey: WelcomeDisplayFormKey, hideKey: WelcomeDisplayHideKey): string | null {
+    if (welcomeHidden[hideKey]) return '';
+    const text = welcomeForm.value[formKey].trim();
+    return text === '' ? null : text;
+  }
+  function applyWelcomeDisplay(value: string | null, formKey: WelcomeDisplayFormKey, hideKey: WelcomeDisplayHideKey): void {
+    if (value === '') { welcomeForm.value[formKey] = ''; welcomeHidden[hideKey] = true; }
+    else { welcomeForm.value[formKey] = value ?? ''; welcomeHidden[hideKey] = false; }
+  }
   const welcomeSchemeName = ref('');
   const welcomeSchemes = ref<WelcomeScheme[]>([]);
   const welcomeSchemesRevision = ref(0);
@@ -95,6 +109,20 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
     { value: 'small', name: '小' },
     { value: 'medium', name: '中' },
     { value: 'large', name: '大' },
+  ] as const;
+  const welcomeTitleEffectOptions = [
+    { value: 'blue', name: '科技蓝', hint: '深色底 · 默认' },
+    { value: 'gold', name: '鎏金', hint: '政务接待 / 喜庆深底' },
+    { value: 'white', name: '纯白描边', hint: '明暗混杂 / 复杂照片底' },
+    { value: 'ink', name: '墨蓝', hint: '浅色留白底' },
+    { value: 'neon', name: '霓虹青', hint: '深色科技底' },
+  ] as const;
+  // 场馆中文/英文/两行落款: 四条同构的“可编辑 + 可隐藏”输入行, 供模板 v-for 渲染
+  const welcomeDisplayRows = [
+    { formKey: 'welcomeVenue', hideKey: 'venue', label: '场馆中文名（空 = 默认，勾选 = 隐藏该行）', maxlength: 40, placeholder: '金湖展贸中心' },
+    { formKey: 'welcomeVenueEn', hideKey: 'venueEn', label: '场馆英文名（空 = 默认，勾选 = 隐藏该行）', maxlength: 96, placeholder: 'JINHU EXPOSITION & TRADE CENTER' },
+    { formKey: 'welcomeOrg1', hideKey: 'org1', label: '落款单位一（空 = 默认，勾选 = 隐藏该行）', maxlength: 40, placeholder: '山东金湖集团' },
+    { formKey: 'welcomeOrg2', hideKey: 'org2', label: '落款单位二（空 = 默认，勾选 = 隐藏该行）', maxlength: 40, placeholder: '金湖科创产业园' },
   ] as const;
 
   function cloneWelcomePresentation(value?: WelcomePresentation): WelcomePresentation {
@@ -247,6 +275,10 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
         welcomeTitle: welcomeForm.value.welcomeTitle,
         welcomeGuest: welcomeForm.value.welcomeGuest,
         welcomeTagline: welcomeForm.value.welcomeTagline,
+        welcomeVenue: welcomeDisplayValue('welcomeVenue', 'venue'),
+        welcomeVenueEn: welcomeDisplayValue('welcomeVenueEn', 'venueEn'),
+        welcomeOrg1: welcomeDisplayValue('welcomeOrg1', 'org1'),
+        welcomeOrg2: welcomeDisplayValue('welcomeOrg2', 'org2'),
         welcomeBgUrl: bgUrl,
         welcomeLogoUrl: logoUrl,
         welcomePresentation: cloneWelcomePresentation(welcomeForm.value.presentation),
@@ -255,6 +287,7 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
   }
 
   watch(welcomeForm, pushWelcomePreview, { deep: true });
+  watch(welcomeHidden, pushWelcomePreview, { deep: true });
 
   function applyWelcomeScheme(id: string): void {
     const scheme = welcomeSchemes.value.find((item) => item.id === id);
@@ -270,10 +303,15 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
       welcomeTitle: scheme.welcomeTitle ?? '',
       welcomeGuest: scheme.welcomeGuest ?? '',
       welcomeTagline: scheme.welcomeTagline ?? '',
+      welcomeVenue: '', welcomeVenueEn: '', welcomeOrg1: '', welcomeOrg2: '',
       welcomeBgMediaId: incompatibleSelectedBackground.value ? null : scheme.welcomeBgMediaId,
       welcomeLogoMediaId: incompatibleSelectedLogo.value ? null : scheme.welcomeLogoMediaId,
       presentation: cloneWelcomePresentation(scheme.presentation),
     };
+    applyWelcomeDisplay(scheme.welcomeVenue ?? null, 'welcomeVenue', 'venue');
+    applyWelcomeDisplay(scheme.welcomeVenueEn ?? null, 'welcomeVenueEn', 'venueEn');
+    applyWelcomeDisplay(scheme.welcomeOrg1 ?? null, 'welcomeOrg1', 'org1');
+    applyWelcomeDisplay(scheme.welcomeOrg2 ?? null, 'welcomeOrg2', 'org2');
   }
 
   function syncSelectedWelcomeDraft(): boolean {
@@ -300,6 +338,10 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
       welcomeTitle: welcomeForm.value.welcomeTitle.trim() || null,
       welcomeGuest: welcomeForm.value.welcomeGuest.trim() || null,
       welcomeTagline: welcomeForm.value.welcomeTagline.trim() || null,
+      welcomeVenue: welcomeDisplayValue('welcomeVenue', 'venue'),
+      welcomeVenueEn: welcomeDisplayValue('welcomeVenueEn', 'venueEn'),
+      welcomeOrg1: welcomeDisplayValue('welcomeOrg1', 'org1'),
+      welcomeOrg2: welcomeDisplayValue('welcomeOrg2', 'org2'),
       welcomeBgMediaId: welcomeForm.value.welcomeBgMediaId,
       welcomeLogoMediaId: welcomeForm.value.welcomeLogoMediaId,
       presentation: cloneWelcomePresentation(welcomeForm.value.presentation),
@@ -593,6 +635,10 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
       const confirmed = published.branding.welcomeTitle === selected.welcomeTitle
         && published.branding.welcomeGuest === selected.welcomeGuest
         && published.branding.welcomeTagline === selected.welcomeTagline
+        && (published.branding.welcomeVenue ?? null) === (selected.welcomeVenue ?? null)
+        && (published.branding.welcomeVenueEn ?? null) === (selected.welcomeVenueEn ?? null)
+        && (published.branding.welcomeOrg1 ?? null) === (selected.welcomeOrg1 ?? null)
+        && (published.branding.welcomeOrg2 ?? null) === (selected.welcomeOrg2 ?? null)
         && published.branding.welcomeBgMediaId === selected.welcomeBgMediaId
         && published.branding.welcomeLogoMediaId === selected.welcomeLogoMediaId
         && JSON.stringify(published.branding.welcomePresentation) === JSON.stringify(selected.presentation);
@@ -676,6 +722,9 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
     welcomePublishing,
     welcomeLoading,
     welcomeForm,
+    welcomeHidden,
+    welcomeTitleEffectOptions,
+    welcomeDisplayRows,
     welcomeSchemeName,
     welcomeSchemes,
     welcomeSchemesRevision,

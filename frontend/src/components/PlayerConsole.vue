@@ -200,7 +200,7 @@ const {
   welcomeToneOptions,
   welcomeOverlayOptions,
   welcomePositionOptions,
-  welcomeLogoSizeOptions,
+  welcomeLogoSizeOptions, welcomeTitleEffectOptions, welcomeHidden, welcomeDisplayRows,
   markWelcomeDraftChanged,
   vWelcomeThumb,
   requestCloseWelcomeEditor,
@@ -656,6 +656,13 @@ const {
             <input v-model="welcomeForm.welcomeGuest" class="wb-input" maxlength="64" placeholder="各位领导嘉宾" @input="markWelcomeDraftChanged" />
             <label class="wb-label">底部标语 (空 = 默认「智慧展厅 · 数字展贸 · 科创未来」)</label>
             <input v-model="welcomeForm.welcomeTagline" class="wb-input" maxlength="64" placeholder="智慧展厅 · 数字展贸 · 科创未来" @input="markWelcomeDraftChanged" />
+            <div v-for="row in welcomeDisplayRows" :key="row.formKey" class="wb-display-row">
+              <div class="wb-display-main">
+                <label class="wb-label">{{ row.label }}</label>
+                <input v-model="welcomeForm[row.formKey]" class="wb-input" :maxlength="row.maxlength" :disabled="welcomeHidden[row.hideKey]" :placeholder="row.placeholder" @input="markWelcomeDraftChanged" />
+              </div>
+              <label class="wb-hide-check"><input type="checkbox" v-model="welcomeHidden[row.hideKey]" @change="markWelcomeDraftChanged" />隐藏</label>
+            </div>
             <div class="we-presentation-head">
               <strong>画面版式</strong>
               <span>版式随方案独立保存，切换底图和 Logo 后不会继续套用一张固定模板</span>
@@ -714,6 +721,17 @@ const {
                     v-for="option in welcomeLogoSizeOptions" :key="option.value" type="button"
                     :class="{ on: welcomeForm.presentation.logoSize === option.value }"
                     @click="updateWelcomePresentation('logoSize', option.value)"
+                  >{{ option.name }}</button>
+                </div>
+              </div>
+              <div class="we-style-control we-title-effect">
+                <span>主标题效果</span>
+                <div>
+                  <button
+                    v-for="option in welcomeTitleEffectOptions" :key="option.value" type="button"
+                    :class="{ on: welcomeForm.presentation.titleEffect === option.value }"
+                    :title="option.hint"
+                    @click="updateWelcomePresentation('titleEffect', option.value)"
                   >{{ option.name }}</button>
                 </div>
               </div>
@@ -1220,6 +1238,16 @@ const {
   padding: 10px 12px; color: var(--v2-text-1); font-size: 14px; outline: none; font-family: inherit;
 }
 .wb-input:focus { border-color: var(--v2-primary); }
+.wb-input:disabled { opacity: .45; cursor: not-allowed; }
+.wb-display-row { display: flex; align-items: flex-end; gap: 8px; }
+.wb-display-main { flex: 1 1 auto; min-width: 0; }
+.wb-hide-check {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px;
+  padding-bottom: 9px; font-size: 12px; color: var(--v2-text-3); white-space: nowrap; cursor: pointer; user-select: none;
+}
+.wb-hide-check input { margin: 0; cursor: pointer; }
+.we-title-effect > div { flex-wrap: wrap; gap: 5px; }
+.we-title-effect button { flex: 0 0 auto; white-space: nowrap; padding: 5px 11px; }
 .wb-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
 .pick-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .pick-title { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; color: var(--v2-text-1); }

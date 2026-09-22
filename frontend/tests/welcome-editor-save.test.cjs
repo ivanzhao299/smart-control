@@ -97,3 +97,52 @@ test('welcome save contract documents its administrator boundary', () => {
   assert.match(brandingService, /expectedRevision/);
   assert.doesNotMatch(brandingService, /客户端 token 即可/);
 });
+
+
+test('welcome venue/org lines are editable, hideable, and published; title offers five effects', () => {
+  // editor state lives in the useWelcomeEditor composable: four display text inputs
+  // (described by a v-for row config), per-line hide checkbox and three-state helpers
+  assert.match(welcomeEditor, /const welcomeHidden = reactive\(/);
+  assert.match(welcomeEditor, /function welcomeDisplayValue\(/);
+  assert.match(welcomeEditor, /function applyWelcomeDisplay\(/);
+  assert.match(welcomeEditor, /watch\(welcomeHidden, pushWelcomePreview/);
+  assert.match(welcomeEditor, /const welcomeTitleEffectOptions = \[/);
+  assert.match(welcomeEditor, /const welcomeDisplayRows = \[/);
+  assert.match(welcomeEditor, /场馆中文名/);
+  assert.match(welcomeEditor, /落款单位一/);
+  // hidden/custom/default rides the publish verification comparison in the composable
+  assert.match(welcomeEditor, /published\.branding\.welcomeVenue[\s\S]*selected\.welcomeVenue/);
+  assert.match(welcomeEditor, /published\.branding\.welcomeOrg2[\s\S]*selected\.welcomeOrg2/);
+  // the template renders the four rows via v-for, with per-row hide checkbox and effect picker
+  assert.match(playerConsole, /v-for="row in welcomeDisplayRows"/);
+  assert.match(playerConsole, /class="wb-display-row"/);
+  assert.match(playerConsole, /v-model="welcomeForm\[row\.formKey\]"/);
+  assert.match(playerConsole, /v-model="welcomeHidden\[row\.hideKey\]"/);
+  assert.match(playerConsole, /:disabled="welcomeHidden\[row\.hideKey\]"/);
+  assert.match(playerConsole, /updateWelcomePresentation\('titleEffect', option\.value\)/);
+  // service contract exposes the enum and the new nullable display fields
+  assert.match(brandingService, /WelcomeTitleEffect/);
+  assert.match(brandingService, /titleEffect\??:/);
+  assert.match(brandingService, /welcomeVenue\??: string \| null/);
+});
+
+test('LED welcome renderer hides or defaults venue/org lines and ships five title effects', () => {
+  // editable line ids + three-state render helpers
+  assert.match(welcomePage, /id="venueName"/);
+  assert.match(welcomePage, /id="venueEnName"/);
+  assert.match(welcomePage, /id="orgName1"/);
+  assert.match(welcomePage, /id="orgName2"/);
+  assert.match(welcomePage, /const displayText = \(value, fallback\)/);
+  assert.match(welcomePage, /const setLine = \(id, text\)/);
+  assert.match(welcomePage, /DEFAULT_VENUE_CN/);
+  // organizer dot/separator only render when both bylines are visible
+  assert.match(welcomePage, /id="orgDotBefore"/);
+  assert.match(welcomePage, /id="orgDotAfter"/);
+  // effect applied to <body> and one CSS block per effect, placed after tone rules
+  assert.match(welcomePage, /document\.body\.dataset\.titleEffect = safe\.titleEffect/);
+  assert.match(welcomePage, /body\[data-title-effect="blue"\]/);
+  assert.match(welcomePage, /body\[data-title-effect="gold"\]/);
+  assert.match(welcomePage, /body\[data-title-effect="white"\]/);
+  assert.match(welcomePage, /body\[data-title-effect="ink"\]/);
+  assert.match(welcomePage, /body\[data-title-effect="neon"\]/);
+});

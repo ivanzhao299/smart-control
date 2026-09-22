@@ -46,6 +46,14 @@ export interface SystemBrandingDto {
   welcomeTitle: string | null;
   /** 欢迎页底部标语 (空 = 默认 "智慧展厅 · 数字展贸 · 科创未来") */
   welcomeTagline: string | null;
+  /** 场馆中文名 (null=内置默认, ''=隐藏, 非空=自定义) */
+  welcomeVenue: string | null;
+  /** 场馆英文名 (null=内置默认, ''=隐藏, 非空=自定义) */
+  welcomeVenueEn: string | null;
+  /** 落款单位一 (null=内置默认, ''=隐藏, 非空=自定义) */
+  welcomeOrg1: string | null;
+  /** 落款单位二 (null=内置默认, ''=隐藏, 非空=自定义) */
+  welcomeOrg2: string | null;
   /** 欢迎页底图媒体 id (空 = 内置"鎏金夜湖"程序化底图) */
   welcomeBgMediaId: number | null;
   /** 只读: 底图直链 (由 welcomeBgMediaId 算出, 欢迎页/编辑器预览直接用) */
@@ -75,6 +83,10 @@ const DEFAULTS: SystemBrandingDto = {
   welcomeGuest: null,
   welcomeTitle: null,
   welcomeTagline: null,
+  welcomeVenue: null,
+  welcomeVenueEn: null,
+  welcomeOrg1: null,
+  welcomeOrg2: null,
   welcomeBgMediaId: null,
   welcomeLogoMediaId: null,
   welcomePresentation: { ...DEFAULT_WELCOME_PRESENTATION },
@@ -111,6 +123,11 @@ export class SystemBrandingService {
       welcomeGuest: row.welcomeGuest,
       welcomeTitle: row.welcomeTitle,
       welcomeTagline: row.welcomeTagline,
+      // '' 是显式隐藏, 必须保留; 仅 null/undefined 回退 null
+      welcomeVenue: row.welcomeVenue ?? null,
+      welcomeVenueEn: row.welcomeVenueEn ?? null,
+      welcomeOrg1: row.welcomeOrg1 ?? null,
+      welcomeOrg2: row.welcomeOrg2 ?? null,
       welcomeBgMediaId: row.welcomeBgMediaId,
       // 只公开当前已发布的底图与 Logo；普通媒体文件端点仍要求登录。
       welcomeBgUrl: row.welcomeBgMediaId
@@ -332,6 +349,10 @@ export class SystemBrandingService {
         welcomeTitle: scheme.welcomeTitle,
         welcomeGuest: scheme.welcomeGuest,
         welcomeTagline: scheme.welcomeTagline,
+        welcomeVenue: scheme.welcomeVenue,
+        welcomeVenueEn: scheme.welcomeVenueEn,
+        welcomeOrg1: scheme.welcomeOrg1,
+        welcomeOrg2: scheme.welcomeOrg2,
         welcomeBgMediaId: scheme.welcomeBgMediaId,
         welcomeLogoMediaId: scheme.welcomeLogoMediaId,
         welcomePresentation: scheme.presentation,
@@ -424,6 +445,10 @@ export class SystemBrandingService {
       welcomeTitle: branding.welcomeTitle,
       welcomeGuest: branding.welcomeGuest,
       welcomeTagline: branding.welcomeTagline,
+      welcomeVenue: branding.welcomeVenue,
+      welcomeVenueEn: branding.welcomeVenueEn,
+      welcomeOrg1: branding.welcomeOrg1,
+      welcomeOrg2: branding.welcomeOrg2,
       welcomeBgMediaId: branding.welcomeBgMediaId,
       welcomeLogoMediaId: branding.welcomeLogoMediaId,
       presentation: branding.welcomePresentation,
@@ -519,6 +544,12 @@ export class SystemBrandingService {
       const t = String(v).trim();
       return t === '' ? null : t;
     };
+    // 可隐藏展示文案: null=内置默认, ''/纯空格=隐藏该行, 非空=自定义(截断到上限)
+    const displayText = (v: string | null | undefined, max: number): string | null => {
+      if (v === undefined || v === null) return null;
+      const t = String(v).trim();
+      return t === '' ? '' : t.slice(0, max);
+    };
 
     const current = await this.repo.findOne({ where: { id: 1 } });
     const patch: Partial<SystemBranding> = {};
@@ -565,6 +596,18 @@ export class SystemBrandingService {
     if (input.welcomeTagline !== undefined) {
       const v = norm(input.welcomeTagline);
       patch.welcomeTagline = v ? v.slice(0, 64) : null;
+    }
+    if (input.welcomeVenue !== undefined) {
+      patch.welcomeVenue = displayText(input.welcomeVenue, 40);
+    }
+    if (input.welcomeVenueEn !== undefined) {
+      patch.welcomeVenueEn = displayText(input.welcomeVenueEn, 96);
+    }
+    if (input.welcomeOrg1 !== undefined) {
+      patch.welcomeOrg1 = displayText(input.welcomeOrg1, 40);
+    }
+    if (input.welcomeOrg2 !== undefined) {
+      patch.welcomeOrg2 = displayText(input.welcomeOrg2, 40);
     }
     if (input.welcomeBgMediaId !== undefined) {
       const v = input.welcomeBgMediaId;
