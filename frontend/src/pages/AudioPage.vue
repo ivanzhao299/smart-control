@@ -1,24 +1,21 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, onDeactivated, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, onDeactivated, ref } from 'vue';
 import { useActivePolling } from '@/composables/useActivePolling';
-import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter, useRoute } from 'vue-router';
 import {
   ArrowLeft, Speaker, Volume2, VolumeX, Play, Sparkles, Music, Square, Pause,
   SkipBack, SkipForward, Shuffle, Repeat, Repeat1, ListMusic, Trash2, Pencil } from 'lucide-vue-next';
-import { audioService } from '@/services/audio.service';
 import { useAdminUnlock } from '@/composables/useAdminUnlock';
 import { useAudioPlaylist } from '@/composables/useAudioPlaylist';
 import { useAudioInputs } from '@/composables/useAudioInputs';
 import { useAudioMatrix } from '@/composables/useAudioMatrix';
-import { useAudioOutputCatalog, type AudioOutputRow } from '@/composables/useAudioOutputCatalog';
+import { useAudioOutputCatalog } from '@/composables/useAudioOutputCatalog';
+import { useAudioOutputControls } from '@/composables/useAudioOutputControls';
 import { useAudioScenes } from '@/composables/useAudioScenes';
 import {
-  faderPercentFromY,
   formatAudioDuration,
   summarizeAudioOutputs,
 } from '@/features/audio-view-model';
-import { createLatestCommandQueue } from '@/features/latest-command-queue';
 
 const router = useRouter();
 const route = useRoute();
@@ -42,6 +39,17 @@ const {
   commitRenameChannel: commitRenameCh,
   stopCatalogActions: stopOutputCatalog,
 } = useAudioOutputCatalog({ ensureAdmin });
+const {
+  allMuted,
+  draggingFaderId,
+  restoreOutputState,
+  onFaderPointerDown,
+  onFaderPointerMove,
+  onFaderPointerUp,
+  toggleMute,
+  toggleMuteAll,
+  stopOutputControls,
+} = useAudioOutputControls({ channels, partnerOf, linkOn });
 const {
   inputs,
   inputGainDb,
@@ -113,14 +121,13 @@ onUnmounted(() => {
   stopOutputCatalog();
   stopInputCommands();
   stopMatrixPolling();
-  // 拖推子过程中切页 → 别把锁滚动的全局监听漏在 document 上
-  document.removeEventListener('touchmove', preventScrollWhileDragging);
+  stopOutputControls();
 });
 // keep-alive 切走(组件被缓存、不卸载, 不触发 onUnmounted): 轮询由 useActivePolling
 // 停止, 这里补取消长按进度环 RAF 与拖动全局锁; 不置 matrixPollStopped 以便回来能恢复
 onDeactivated(() => {
   stopInputCommands();
-  document.removeEventListener('touchmove', preventScrollWhileDragging);
+  stopOutputControls();
 });
 onMounted(async () => {
   await loadPlaylist();
@@ -136,20 +143,7 @@ onMounted(async () => {
   void loadInputChannels();
   // (矩阵轮询的启动挪到下面 useActivePolling — 2026-07-27 切页卡顿根治)
 
-  // 恢复静音状态 (从 localStorage)
-  try {
-    const raw = localStorage.getItem(MUTE_STATE_KEY);
-    if (raw) {
-      const saved = JSON.parse(raw) as Record<string, { muted: boolean; volume: number }>;
-      for (const z of channels.value) {
-        if (saved[z.id]) {
-          z.muted = saved[z.id].muted;
-          z.volume = saved[z.id].volume;
-          savedVolumes.value[z.id] = saved[z.id].volume;
-        }
-      }
-    }
-  } catch { /* ignore */ }
+  restoreOutputState();
 
   // 从媒体库跳转过来时: 把选中的歌加到播放列表
   const pickId = Number(route.query.pick_id);
@@ -200,160 +194,6 @@ const BGM_INPUT_CH = 4;
 /** 分区喇叭输出 = OUT5-8 (0-based ≥4); OUT1-4 是 LED/投影的显示屏声道直通, 不该接 BGM */
 const bgmZoneOutputs = computed(() => channels.value.filter((z) => z.channel >= 4));
 
-// 静音前保存各通道音量, 解除静音时用于渐响恢复
-const savedVolumes = ref<Record<string, number>>({});
-const MUTE_STATE_KEY = 'audio_mute_state_v1';
-
-function saveMuteState(): void {
-  const state: Record<string, { muted: boolean; volume: number }> = {};
-  for (const z of channels.value) state[z.id] = { muted: z.muted, volume: z.volume };
-  localStorage.setItem(MUTE_STATE_KEY, JSON.stringify(state));
-}
-
-/**
- * 音量指令合并发送 (2026-07-26 业主: "推子响应不够及时"):
- * 之前只在松手时发一条, 拖动全程设备毫无反应; 而拖动中每个 move 都发的话,
- * EKX 单客户端串行 ~300ms/条, 排队全发必然越拖越滞后。
- * 改成每通道一个"在飞 + 最新待发"槽: 上一条在路上时只记住最新值, 回来立刻发
- * 最新值, 中间值全部丢弃 —— 拖多快, 设备最多落后一条命令 (~300ms)。
- */
-interface OutputVolumeCommand {
-  row: AudioOutputRow;
-  value: number;
-  zone: string | undefined;
-}
-const outputVolumeQueue = createLatestCommandQueue<string, OutputVolumeCommand>({
-  execute: async (id, command) => {
-    const res = await audioService.setVolume(id, command.value, command.zone);
-    if (!res.ok) throw new Error(res.error || '执行失败');
-  },
-  onSuccess: (_id, command) => { command.row.error = null; },
-  onError: (_id, error, command) => { command.row.error = (error as Error).message; },
-});
-function queueVolume(z: AudioOutputRow): void {
-  outputVolumeQueue.enqueue(z.id, { row: z, value: z.volume, zone: z.zone });
-}
-/** 拖动/点击设值统一入口: 本路 + (联动时) 对路一起, 实时下发 */
-function setFaderValue(z: AudioOutputRow, v: number): void {
-  z.volume = v;
-  queueVolume(z);
-  const mate = partnerOf(z);
-  if (mate && linkOn(z)) {
-    mate.volume = v;
-    queueVolume(mate);
-  }
-}
-/**
- * 竖向推子交互 —— 不用 <input type="range"> 了。
- *
- * 2026-07-18 业主反馈: "分区音量推子不稳定,点击推子时随之漂动"。根因:
- * 原来是原生 range 输入伪装成竖向 (writing-mode: vertical-lr + direction: rtl,
- * 再叠一层 -webkit-appearance: slider-vertical 兜底), 三种手法一起糊上去。
- * 这类 CSS hack 让浏览器算"点在轨道哪个位置"时经常算错——尤其是**单击**(不是
- * 拖拽)瞬间, 不同 Chrome/Edge 版本对 vertical-lr+rtl 的命中判定不一致, 点下去
- * 报的初始值和手指/鼠标实际位置对不上, 看着就是"一点就跳到别的地方"。
- * 拖拽本身还好 (相对位移一般能跟手), 问题集中在点下那一下。
- *
- * 改法: 自己接管 pointerdown/move/up, 用轨道的 getBoundingClientRect() 直接
- * 算百分比, 不依赖浏览器对 range 输入方向的内部换算, 点哪就是哪。
- */
-const draggingFaderId = ref<string | null>(null);
-function onFaderPointerDown(z: AudioOutputRow, ev: PointerEvent): void {
-  if (z.muted) return;
-  const track = ev.currentTarget as HTMLElement;
-  track.setPointerCapture(ev.pointerId);
-  draggingFaderId.value = z.id;
-  setFaderValue(z, faderPercentFromY(track.getBoundingClientRect(), ev.clientY));
-}
-function onFaderPointerMove(z: AudioOutputRow, ev: PointerEvent): void {
-  if (draggingFaderId.value !== z.id) return;
-  // 拖动中实时下发 (queueVolume 合并, 不排队) —— 声音跟手, 不是松手才响应
-  const track = ev.currentTarget as HTMLElement;
-  setFaderValue(z, faderPercentFromY(track.getBoundingClientRect(), ev.clientY));
-}
-function onFaderPointerUp(z: AudioOutputRow, ev: PointerEvent): void {
-  if (draggingFaderId.value !== z.id) return;
-  draggingFaderId.value = null;
-  const track = ev.currentTarget as HTMLElement;
-  if (track.hasPointerCapture(ev.pointerId)) track.releasePointerCapture(ev.pointerId);
-  setFaderValue(z, z.volume);
-  if (z.error) ElMessage.error(`${z.name} 音量调节失败: ${z.error}`);
-}
-
-/**
- * 拖推子时锁住整页滚动。业主反馈"手机上动推子时整个画面不稳定": iOS 上
- * touch-action:none 只管元素自身, 手指一旦拖出推子范围, 底层 touch 照样把页面
- * 滚起来, 画面就晃。拖动期间在 document 上拦掉 touchmove (必须 passive:false
- * 才能 preventDefault) 才真正锁死, 松手立刻解除。
- */
-function preventScrollWhileDragging(e: TouchEvent): void { e.preventDefault(); }
-watch(draggingFaderId, (id) => {
-  if (id) document.addEventListener('touchmove', preventScrollWhileDragging, { passive: false });
-  else document.removeEventListener('touchmove', preventScrollWhileDragging);
-});
-
-async function fadeInVolumes(targets: { z: AudioOutputRow; vol: number }[]): Promise<void> {
-  const STEPS = 5;
-  const STEP_MS = 800; // 4 seconds total
-  for (let step = 1; step <= STEPS; step++) {
-    const pct = step / STEPS;
-    for (const { z, vol } of targets) {
-      const v = Math.round(vol * pct);
-      z.volume = v;
-      void audioService.setVolume(z.id, v, z.zone).catch(() => {});
-    }
-    if (step < STEPS) await new Promise<void>((r) => { setTimeout(r, STEP_MS); });
-  }
-}
-
-async function toggleMute(z: AudioOutputRow): Promise<void> {
-  const prev = z.muted;
-  if (!prev) {
-    // 即将静音: 保存当前音量
-    savedVolumes.value = { ...savedVolumes.value, [z.id]: z.volume };
-  }
-  z.muted = !z.muted;
-  z.error = null;
-  try {
-    const res = z.muted
-      ? await audioService.mute(z.id, z.zone)
-      : await audioService.unmute(z.id, z.zone);
-    if (!res.ok) throw new Error(res.error || '执行失败');
-    // 立体声对: 右声道跟随左声道静音/解除
-    const mate = partnerOf(z);
-    if (mate && mate.muted !== z.muted) {
-      if (z.muted) {
-        savedVolumes.value = { ...savedVolumes.value, [mate.id]: mate.volume };
-        mate.muted = true;
-        void audioService.mute(mate.id, mate.zone).catch(() => {});
-      } else {
-        mate.muted = false;
-        void audioService.unmute(mate.id, mate.zone).catch(() => {});
-      }
-    }
-    saveMuteState();
-    if (!z.muted) {
-      // 解除静音: 渐响到保存的音量 (立体声对两路一起渐响)
-      const target = savedVolumes.value[z.id] ?? z.volume;
-      z.volume = 0;
-      void audioService.setVolume(z.id, 0, z.zone).catch(() => {});
-      const fades = [{ z, vol: target }];
-      if (mate) {
-        const mateTarget = savedVolumes.value[mate.id] ?? mate.volume;
-        mate.volume = 0;
-        void audioService.setVolume(mate.id, 0, mate.zone).catch(() => {});
-        fades.push({ z: mate, vol: mateTarget });
-      }
-      void fadeInVolumes(fades);
-    }
-  } catch (err) {
-    z.muted = prev;
-    z.error = (err as Error).message;
-    ElMessage.error(`${z.name} ${z.muted ? '静音' : '取消静音'}失败: ${z.error}`);
-  }
-}
-
-
 // ============ 总览 ============
 const overview = computed(() => summarizeAudioOutputs(
   displayChannels.value,
@@ -361,45 +201,6 @@ const overview = computed(() => summarizeAudioOutputs(
 ));
 
 function goBack(): void { router.push({ name: 'dashboard' }); }
-const allMuted = computed(() =>
-  channels.value.length > 0 && channels.value.every((c) => c.muted),
-);
-async function toggleMuteAll(): Promise<void> {
-  // 静音方向加轻确认 (2026-07-25 整改): 全场闭麦在接待中误碰很尴尬; 解除方向免确认
-  if (!allMuted.value) {
-    try {
-      await ElMessageBox.confirm('确定全部静音?全场背景音乐与音源都会闭声。', '全部静音确认',
-        { type: 'warning', confirmButtonText: '全部静音', cancelButtonText: '取消' });
-    } catch { return; }
-  }
-  if (allMuted.value) {
-    // 解除全部静音: 先发 unmute 命令, 再统一渐响
-    const fadeTargets: { z: AudioOutputRow; vol: number }[] = [];
-    for (const z of channels.value) {
-      if (!z.muted) continue;
-      const target = savedVolumes.value[z.id] ?? z.volume;
-      savedVolumes.value = { ...savedVolumes.value, [z.id]: target };
-      z.muted = false;
-      z.volume = 0;
-      void audioService.unmute(z.id, z.zone).catch(() => {});
-      void audioService.setVolume(z.id, 0, z.zone).catch(() => {});
-      fadeTargets.push({ z, vol: target });
-    }
-    saveMuteState();
-    ElMessage.success('已解除静音，音量渐响恢复中…');
-    void fadeInVolumes(fadeTargets);
-  } else {
-    // 全部静音: 保存各通道音量
-    for (const z of channels.value) {
-      if (z.muted) continue;
-      savedVolumes.value = { ...savedVolumes.value, [z.id]: z.volume };
-      z.muted = true;
-      void audioService.mute(z.id, z.zone).catch(() => {});
-    }
-    saveMuteState();
-    ElMessage.success('已全部静音');
-  }
-}
 </script>
 
 <template>
