@@ -9,15 +9,12 @@ import {
 import { audioService } from '@/services/audio.service';
 import { useAdminUnlock } from '@/composables/useAdminUnlock';
 import { useAudioPlaylist } from '@/composables/useAudioPlaylist';
+import { useAudioInputs } from '@/composables/useAudioInputs';
 import { useAudioOutputCatalog, type AudioOutputRow } from '@/composables/useAudioOutputCatalog';
 import { useAudioScenes } from '@/composables/useAudioScenes';
-import { audioConfigService } from '@/services/audio-config.service';
 import {
   faderPercentFromY,
   formatAudioDuration,
-  formatGainDb,
-  gainDbToPercent,
-  percentToGainDb,
   summarizeAudioOutputs,
 } from '@/features/audio-view-model';
 import { createLatestCommandQueue } from '@/features/latest-command-queue';
@@ -45,6 +42,17 @@ const {
   commitRenameChannel: commitRenameCh,
   stopCatalogActions: stopOutputCatalog,
 } = useAudioOutputCatalog({ ensureAdmin });
+const {
+  inputs,
+  inputGainDb,
+  inputsLoading,
+  loadInputs,
+  loadInputChannels,
+  inputGainOf,
+  inputGainLabel,
+  onInputGain,
+  stopInputCommands,
+} = useAudioInputs();
 const {
   bgmChannel,
   playlist,
@@ -128,6 +136,7 @@ const {
 
 onUnmounted(() => {
   stopOutputCatalog();
+  stopInputCommands();
   matrixPollStopped = true; // 见 scheduleMatrixPoll: 防 await 后又排一个孤儿 timer
   if (matrixTimer) clearTimeout(matrixTimer); // 不清会在切页面后继续打设备
   if (reconcileTimer) clearTimeout(reconcileTimer); // 同上: 切走后别再对账
@@ -137,6 +146,7 @@ onUnmounted(() => {
 // keep-alive 切走(组件被缓存、不卸载, 不触发 onUnmounted): 轮询由 useActivePolling
 // 停止, 这里补取消长按进度环 RAF 与拖动全局锁; 不置 matrixPollStopped 以便回来能恢复
 onDeactivated(() => {
+  stopInputCommands();
   document.removeEventListener('touchmove', preventScrollWhileDragging);
 });
 /**
@@ -241,14 +251,6 @@ const audioTab = ref<'scene' | 'bgm' | 'zones' | 'matrix'>('bgm');
 const BGM_INPUT_CH = 4;
 /** 分区喇叭输出 = OUT5-8 (0-based ≥4); OUT1-4 是 LED/投影的显示屏声道直通, 不该接 BGM */
 const bgmZoneOutputs = computed(() => channels.value.filter((z) => z.channel >= 4));
-interface AudioIn { channel: number; name: string; }
-const inputs = ref<AudioIn[]>([]);
-async function loadInputs(): Promise<void> {
-  try {
-    const rows = await audioConfigService.listInputs();
-    inputs.value = rows.map((s) => ({ channel: s.channel, name: s.name }));
-  } catch { /* 拉不到就空 */ }
-}
 // 矩阵界面状态: key = `${outCh}_${inCh}` → 接通与否。设备回读是权威来源，
 // 点击期间先乐观更新，再由已确认命令和防抖回读收敛。
 const matrixOn = ref<Record<string, boolean>>({});
@@ -309,73 +311,6 @@ const matrixController = createAudioMatrixCommandController({
 
 function toggleMatrix(outCh: number, inCh: number): void {
   matrixController.toggle(`${outCh}_${inCh}`);
-}
-
-/**
- * 输入增益 — **读设备真实值**, 不再是"默认 80% 的本地状态".
- *
- * 老代码注释自己写着 "本地状态, 默认 80%; 乐观下发, 不回读设备"。2026-07-16
- * 实测真实增益是 IN1=+12dB / IN2=-60dB / IN3=+3.6dB / IN4=+0.1dB —— 跟界面上
- * 那个 80% 毫无关系, 而且切页面就没了。
- *
- * 读一次要 ~4.6s (16 次往返, EKX 单客户端只能串行), 所以只在开页面 / 改完时读,
- * 不轮询。null = 没读到, 界面显示"—"而不是编一个数。
- */
-const inputGainDb = ref<Record<number, number | null>>({});
-const inputMuted = ref<Record<number, boolean | null>>({});
-const inputsLoading = ref(false);
-
-async function loadInputChannels(): Promise<void> {
-  inputsLoading.value = true;
-  try {
-    const r = await audioService.getLiveInputs();
-    if (!r.ok || !r.data?.channels) throw new Error(r.error || '读输入通道失败');
-    const g: Record<number, number | null> = {};
-    const m: Record<number, boolean | null> = {};
-    for (const c of r.data.channels) { g[c.ch] = c.gainDb; m[c.ch] = c.muted; }
-    inputGainDb.value = g;
-    inputMuted.value = m;
-  } catch {
-    /* 读不到就保持上次的值, 界面按 null 显示"—" */
-  } finally {
-    inputsLoading.value = false;
-  }
-}
-
-/**
- * 百分比 ↔ dB 换算 —— 必须与 backend ekx808-protocol percentToDb **完全同式**
- * (0→-60, 50→-10, 100→+12, 分段线性)。2026-07-26 前这里用的是线性 (db+60)/72,
- * 跟设置端的分段式对不上: 拖到 50% 设了 -10dB, 回读换算却显示在 69% —— 滑条
- * "跳来跳去切不准"的元凶之一。
- */
-function inputGainOf(ch: number): number {
-  const db = inputGainDb.value[ch];
-  return db === null || db === undefined ? 0 : gainDbToPercent(db);
-}
-/** 界面上显示的真实 dB 文本; 没读到就是 '—', 不编数 */
-function inputGainLabel(ch: number): string {
-  return formatGainDb(inputGainDb.value[ch]);
-}
-
-/**
- * 输入增益实时下发 (2026-07-26 业主: "调节不灵敏, 不能实时反馈"):
- * 原来 @change 松手才发一条, 发完还要整批回读 8 路 (~4.6s) —— 拖动全程无反馈,
- * 读完值还可能跳。改成: @input 实时 —— dB 数字立即按同式换算显示, 指令走
- * 每通道"在飞+最新待发"合并 (与分区推子同机制), 不再整批回读 (setInputVolume
- * 会把值记进期望增益, reconciler 每 30s 兜底校准)。
- */
-const inputGainQueue = createLatestCommandQueue<number, number>({
-  execute: async (ch, value) => {
-    const res = await audioService.setInputVolume(ch, value);
-    if (!res.ok) throw new Error(res.error || '执行失败');
-  },
-  onError: (ch, error) => {
-    ElMessage.error(`IN${ch + 1} 增益设置失败: ${(error as Error).message}`);
-  },
-});
-function onInputGain(ch: number, value: number): void {
-  inputGainDb.value = { ...inputGainDb.value, [ch]: percentToGainDb(value) };
-  inputGainQueue.enqueue(ch, value);
 }
 
 // 静音前保存各通道音量, 解除静音时用于渐响恢复
