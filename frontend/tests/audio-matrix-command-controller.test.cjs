@@ -115,11 +115,13 @@ test('a fresh device snapshot becomes the next rollback authority', async () => 
   assert.equal(h.values['0_1'], true);
 });
 
-test('AudioPage delegates matrix coalescing and confirmed rollback to the controller', () => {
+test('the audio matrix boundary delegates coalescing and confirmed rollback to the controller', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../src/pages/AudioPage.vue'), 'utf8');
-  assert.match(page, /createAudioMatrixCommandController\(/);
-  assert.match(page, /matrixController\.confirmSnapshot\(next\)/);
-  assert.match(page, /matrixController\.toggle\(`/);
+  const matrix = fs.readFileSync(path.resolve(__dirname, '../src/composables/useAudioMatrix.ts'), 'utf8');
+  assert.match(page, /useAudioMatrix\(\)/);
+  assert.match(matrix, /createAudioMatrixCommandController\(/);
+  assert.match(matrix, /matrixController\.confirmSnapshot\(next\)/);
+  assert.match(matrix, /matrixController\.toggle\(`/);
   assert.doesNotMatch(page, /const desiredCross = new Map/);
   assert.doesNotMatch(page, /const inFlightCross = new Set/);
 });

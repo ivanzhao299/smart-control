@@ -7,12 +7,18 @@ export interface AudioMatrixCommandControllerOptions {
   onStart?: (key: string) => void;
   onError?: (key: string, error: unknown) => void;
   onIdle?: (key: string) => void;
+  captureCurrent?: () => () => boolean;
 }
 
 export interface AudioMatrixCommandController {
   toggle: (key: string) => boolean;
   confirmSnapshot: (values: Record<string, boolean>) => void;
   isRunning: (key: string) => boolean;
+}
+
+interface MatrixCommand {
+  value: boolean;
+  isCurrent: () => boolean;
 }
 
 /**
@@ -24,11 +30,23 @@ export function createAudioMatrixCommandController(
   options: AudioMatrixCommandControllerOptions,
 ): AudioMatrixCommandController {
   const confirmed = new Map<string, boolean>();
-  const queue = createLatestCommandQueue<string, boolean>({
-    execute: options.execute,
+  const queue = createLatestCommandQueue<string, MatrixCommand>({
+    execute: async (key, command) => {
+      if (!command.isCurrent()) return;
+      try {
+        await options.execute(key, command.value);
+        if (!command.isCurrent()) return;
+      } catch (error) {
+        if (!command.isCurrent()) return;
+        throw error;
+      }
+    },
     onStart: options.onStart,
-    onSuccess: (key, value) => { confirmed.set(key, value); },
-    onError: (key, error) => {
+    onSuccess: (key, command) => {
+      if (command.isCurrent()) confirmed.set(key, command.value);
+    },
+    onError: (key, error, command) => {
+      if (!command.isCurrent()) return;
       const confirmedValue = confirmed.get(key);
       if (confirmedValue !== undefined) options.apply(key, confirmedValue);
       options.onError?.(key, error);
@@ -42,7 +60,10 @@ export function createAudioMatrixCommandController(
       if (!confirmed.has(key)) confirmed.set(key, before);
       const wanted = !before;
       options.apply(key, wanted);
-      queue.enqueue(key, wanted);
+      queue.enqueue(key, {
+        value: wanted,
+        isCurrent: options.captureCurrent?.() ?? (() => true),
+      });
       return wanted;
     },
     confirmSnapshot(values) {
