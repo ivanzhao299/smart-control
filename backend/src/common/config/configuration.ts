@@ -75,6 +75,24 @@ export interface TestFlightGitHubRenewConfig {
   ref: string;
 }
 
+/**
+ * 锦浪云 (Ginlong / SolisCloud) 光伏开放 API。
+ * 单账号 HMAC 鉴权, 后端定时拉取电站列表并在内存缓存, 供运营大屏只读展示。
+ * 密钥只从 env 读取 (backend/.env.local, 已 gitignore), 绝不入库。
+ */
+export interface GinlongConfig {
+  /** KeyId + KeySecret 齐全且未被 GINLONG_ENABLED=false 显式停用, 才真正拉取 */
+  enabled: boolean;
+  /** 中国区默认 https://api.ginlong.com:13333 */
+  baseUrl: string;
+  keyId: string;
+  keySecret: string;
+  /** 后端向锦浪拉取的周期 ms, 默认 60s (锦浪频控 2 次/秒, 远低于阈值) */
+  refreshIntervalMs: number;
+  /** 单次请求超时 ms */
+  timeoutMs: number;
+}
+
 export interface RootConfig {
   app: AppConfig;
   database: DatabaseConfig;
@@ -82,6 +100,7 @@ export interface RootConfig {
   adapter: AdapterConfig;
   websocket: WebSocketConfig;
   testflight: TestFlightConfig;
+  ginlong: GinlongConfig;
 }
 
 const parseBool = (v: string | undefined, fallback: boolean): boolean => {
@@ -201,4 +220,17 @@ export default (): RootConfig => ({
     path: process.env.WS_PATH ?? '/ws/status',
   },
   testflight: buildTestFlightConfig(),
+  ginlong: (() => {
+    const keyId = firstNonEmpty(process.env.GINLONG_KEY_ID);
+    const keySecret = firstNonEmpty(process.env.GINLONG_KEY_SECRET);
+    const explicitlyDisabled = (process.env.GINLONG_ENABLED ?? '').toLowerCase() === 'false';
+    return {
+      enabled: !explicitlyDisabled && Boolean(keyId && keySecret),
+      baseUrl: (process.env.GINLONG_BASE_URL ?? 'https://api.ginlong.com:13333').replace(/\/+$/, ''),
+      keyId,
+      keySecret,
+      refreshIntervalMs: parseInt10(process.env.GINLONG_REFRESH_MS, 60_000),
+      timeoutMs: parseInt10(process.env.GINLONG_TIMEOUT_MS, 12_000),
+    };
+  })(),
 });

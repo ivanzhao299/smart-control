@@ -511,6 +511,35 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
     }catch{/* 服务端不可用时保留当前/默认基线 */}
   }
   loadOpsBaseline(); setInterval(loadOpsBaseline,15000);
+  // 锦浪云光伏发电: 轮询后端聚合接口 /api/pv-overview (后端默认60s向锦浪拉取并缓存)。
+  // 未配置 / 加载中 / 拉取失败时保留页面静态兜底, 不闪断、不报错。
+  async function loadPvOverview(){
+    try{
+      const pr=await fetch('/api/pv-overview',{cache:'no-store',headers:{'Accept':'application/json'}});
+      if(!pr.ok)return;
+      const pj=await pr.json(),pd=pj&&pj.data;
+      if(!pd||!pd.enabled||!pd.ok||!pd.totals)return;
+      const t=pd.totals;
+      const setText=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v;};
+      const fmt=(n,d)=>{const x=Number(n);d=(d===undefined?0:d);return Number.isFinite(x)?x.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}):'--';};
+      setText('pvPower',fmt(t.currentPowerKw,1));
+      setText('pvUtil','· '+fmt(t.utilization*100,1)+'%');
+      setText('pvToday',fmt(t.todayKwh,0));
+      setText('pvTotal',fmt(t.totalKwh/10000,1));
+      setText('pvBadge',(pd.offlineCount>0?'部分离线 ':'运行中 · ')+'逆变器 '+t.inverterOnline+'/'+t.inverterTotal);
+      const parts=[
+        '装机 '+fmt(t.capacityKw/1000,1)+' MWp',
+        '本月发电 '+fmt(t.monthKwh/10000,1)+' 万度',
+        '本月减碳 '+fmt(t.monthCarbonT,1)+' 吨',
+        '累计减碳约 '+fmt(t.totalCarbonEstT,0)+' 吨',
+        '等效植树 '+fmt(t.treesEquivalent/10000,2)+' 万棵',
+        '逆变器 '+t.inverterOnline+'/'+t.inverterTotal,
+        pd.weather?pd.weather:''
+      ].filter(Boolean);
+      setText('pvFoot',parts.join(' · '));
+    }catch{/* 后端/锦浪不可用时保留静态兜底 */}
+  }
+  loadPvOverview(); setInterval(loadPvOverview,20000);
   let aiLastData=null;
   let aiErrorCount=0;
   let aiFetching=false;
