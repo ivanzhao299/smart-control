@@ -16,49 +16,31 @@
  * 编组模式: 选中若干台 → "归到此组" → 选组。跟单机测试是同一个选择习惯,
  * 不用学第二套操作。组名/内机名都能就地改, 全部落库, 不用改代码。
  */
-import { computed, nextTick, ref, type Component } from 'vue';
+import { ref, type Component } from 'vue';
 import { useActivePolling } from '@/composables/useActivePolling';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { useHvacCatalogActions } from '@/composables/useHvacCatalogActions';
+import { useHvacControls } from '@/composables/useHvacControls';
+import { useHvacIndoorOrder } from '@/composables/useHvacIndoorOrder';
+import { useHvacRuntimeState } from '@/composables/useHvacRuntimeState';
+import { useHvacSelection } from '@/composables/useHvacSelection';
 import { useRouter } from 'vue-router';
 import {
   ArrowLeft, Snowflake, Flame, Wind, Sparkles, Droplet,
   Power, Minus, Plus, Thermometer, Pencil, Check, FolderPlus, Trash2, Layers,
   AlertTriangle, RefreshCw,
 } from 'lucide-vue-next';
-import { haptics } from '@/services/haptics';
+import { type HvacFan, type HvacMode, type HvacZone } from '@/services/hvac.service';
 import {
-  hvacService, type HvacFan, type HvacMode, type HvacZone,
-} from '@/services/hvac.service';
-import {
-  averageSelectedTemperature,
-  buildGroupedSections,
-  buildZoneCards,
-  commonKnownState,
-  createUnknownIndoorState,
-  filterIndoorsByFloor,
-  filterZonesByFloor,
-  invertVisibleSelection,
-  isSelectionComplete,
-  summarizeHvacOverview,
-  toggleSelection,
   type HvacFloorFilter,
   type HvacZoneCard,
   type IndoorRow,
-  type IndoorState,
 } from '@/features/hvac-view-model';
 
 const router = useRouter();
 function goBack(): void { void router.push({ name: 'dashboard' }); }
 
-/** 状态轮询间隔 — 2 次 Modbus 往返约 0.2-1s, 5s 一轮既跟手又不压网关 */
-const POLL_MS = 5000;
-
 const indoors = ref<IndoorRow[]>([]);
-/** 错峰下发中 (开/关机是逐台串行, 22 台约 10s) — 界面提示别让人以为卡死 */
-const dispatching = ref(false);
 const zones = ref<HvacZone[]>([]);
-const loading = ref(false);
-const busy = ref(false);
 const floorTab = ref<HvacFloorFilter>('all');
 /** 手机端快选条默认折叠成一行横滚 (14 个分组铺 6 行占掉 1/4 屏), 点「展开」才铺开 */
 const quickExpanded = ref(false);
@@ -79,272 +61,42 @@ const fans: Array<{ value: HvacFan; label: string }> = [
   { value: 'high', label: '高' },
 ];
 
-async function loadAll(): Promise<void> {
-  loading.value = true;
-  try {
-    const [ind, zs] = await Promise.all([hvacService.listIndoors(), hvacService.listZones()]);
-    const prev = new Map(indoors.value.map((i) => [i.idx, i.state]));
-    indoors.value = ind.map((i) => ({ ...i, state: prev.get(i.idx) ?? createUnknownIndoorState() }));
-    zones.value = zs;
-    const alive = new Set(ind.map((i) => i.idx));
-    selected.value = new Set([...selected.value].filter((x) => alive.has(x)));
-  } catch (err) {
-    ElMessage.error('加载空调数据失败: ' + (err as Error).message);
-  } finally {
-    loading.value = false;
-  }
-}
-
-const lastPollAt = ref<Date | null>(null);
-const pollFailed = ref(false);
-let pollTimer: ReturnType<typeof setTimeout> | null = null;
-
-/** 拉一次真机状态并合并进卡片 */
-/** 最近一次下发时间 — 写后 2.5s 内跳过常规轮询, 防止寄存器未刷新的旧值打回乐观 UI (审计 P1) */
-let lastWriteAt = 0;
-async function pollStates(): Promise<void> {
-  if (document.hidden) return; // C3: 页面在后台不打设备
-  if (busy.value || Date.now() - lastWriteAt < 2500) return; // 写后冷却, run() 的延迟复读负责校正
-
-  try {
-    const list = await hvacService.listStates();
-    const byIdx = new Map(list.map((s) => [s.idx, s]));
-    for (const row of indoors.value) {
-      const s = byIdx.get(row.idx);
-      if (!s || !s.known) {
-        // 这一轮没读到: 只把 known 打掉, 保留上次的值给界面做灰显, 不要清成 0
-        row.state.known = false;
-        row.state.online = false;
-        continue;
-      }
-      row.state = {
-        known: true,
-        on: s.on,
-        temperature: s.temperature,
-        mode: s.mode,
-        fan: s.fan,
-        roomTemp: s.roomTemp,
-        online: s.online,
-        faultCode: s.faultCode,
-      };
-    }
-    lastPollAt.value = new Date();
-    pollFailed.value = false;
-  } catch {
-    // 轮询失败不弹窗 —— 每 5s 弹一次没法用; 顶栏显示"状态读取失败"即可
-    pollFailed.value = true;
-  }
-}
-
-/** setTimeout 递归而非 setInterval: 避免上一轮没回来就发下一轮, 把网关压垮 */
-// 2026-07-19 加固: pollStopped 标志。之前切页时若恰有一轮 pollStates 在途, onBeforeUnmount
-// 的 clearTimeout 已是 no-op (timer 早 fired), await 完成后又排了个无人持有的新 timer ->
-// 孤儿轮询累积, 持续打脆弱的单客户端空调网关。重排前判 stopped 才彻底停得掉。
-let pollStopped = false;
-function schedulePoll(): void {
-  pollTimer = setTimeout(async () => {
-    await pollStates();
-    if (!pollStopped) schedulePoll();
-  }, POLL_MS);
-}
-
-// 2026-07-27 切页卡顿根治: keep-alive 下 onBeforeUnmount 不触发, 递归轮询切走后
-// 永续后台运行 (持续打脆弱的单客户端空调网关)。改 useActivePolling — 在本页才
-// 轮询, 切走即停; 回页立即补一轮 pollStates 对齐最新状态。
-let pollActive = false;
-let baseLoaded = false;
-function startPolling(): void {
-  if (pollActive) return; // mounted+activated 双触发, 幂等
-  pollActive = true;
-  pollStopped = false;
-  void (async () => {
-    if (!baseLoaded) { await loadAll(); baseLoaded = true; } // 静态清单只拉一次
-    await pollStates();
-    if (!pollStopped) schedulePoll();
-  })();
-}
-function stopPolling(): void {
-  pollActive = false;
-  pollStopped = true;
-  if (pollTimer) clearTimeout(pollTimer);
-}
-useActivePolling(startPolling, stopPolling);
-
-// ============ 视图 ============
-
-const visibleIndoors = computed(() => filterIndoorsByFloor(indoors.value, floorTab.value));
-
 // ============ 内机拖动排序 (业主: "空调内机的位置可以拖动") ============
 // 用原生 HTML5 drag & drop, 跟灯光分区拖动一致, 不引第三方库。顺序**存后端**
 // (sortOrder): 现场主控机+平板+手机, 只存前端每台顺序都不一样。只在非编组模式
 // 拖 (编组模式是"选中移入组", 拖动会跟选中打架); 改名中的那台不给拖。
-const dragIndoorIdx = ref<number | null>(null);
-const dragOverIndoorIdx = ref<number | null>(null);
-function onIndoorDragStart(row: IndoorRow, ev: DragEvent): void {
-  dragIndoorIdx.value = row.idx;
-  ev.dataTransfer?.setData('text/plain', String(row.idx)); // Firefox 不设这个不触发 drop
-  if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move';
-}
-function onIndoorDragOver(row: IndoorRow, ev: DragEvent): void {
-  if (dragIndoorIdx.value === null || dragIndoorIdx.value === row.idx) return;
-  ev.preventDefault(); // 不 preventDefault 就不允许 drop
-  dragOverIndoorIdx.value = row.idx;
-}
-async function onIndoorDrop(target: IndoorRow): Promise<void> {
-  const from = dragIndoorIdx.value;
-  dragIndoorIdx.value = null;
-  dragOverIndoorIdx.value = null;
-  if (from === null || from === target.idx) return;
-  const list = indoors.value.slice();
-  const fi = list.findIndex((i) => i.idx === from);
-  const ti = list.findIndex((i) => i.idx === target.idx);
-  if (fi < 0 || ti < 0) return;
-  const [moved] = list.splice(fi, 1);
-  list.splice(ti, 0, moved);
-  const before = indoors.value;
-  indoors.value = list; // 乐观: 松手立刻就位, 不等网络
-  try {
-    await hvacService.reorderIndoors(list.map((i) => i.idx));
-  } catch (err) {
-    indoors.value = before; // 失败回滚, 不留后端不认的假顺序
-    ElMessage.error(`排序保存失败: ${(err as Error).message}`);
-  }
-}
-function onIndoorDragEnd(): void {
-  dragIndoorIdx.value = null;
-  dragOverIndoorIdx.value = null;
-}
+const {
+  dragIndoorIdx,
+  dragOverIndoorIdx,
+  onIndoorDragStart,
+  onIndoorDragOver,
+  onIndoorDrop,
+  onIndoorDragEnd,
+} = useHvacIndoorOrder(indoors);
 
-/** 当前楼层下的组 + "未分组" 兜底 (未分组不是错误, 是编组过程中的正常状态) */
-/**
- * 快选条上显示哪些分区.
- *
- * ⚠️ 这里**不能**过滤掉空分区 (2026-07-16 业主报"新建编组后没保存"的真因):
- * 原来是 `zs.filter(z => 有内机属于它)` —— 新建的分区一台内机都没有, 于是刚建完
- * 就被过滤掉、界面上根本不出现, 看着就像没存 (其实后端存得好好的)。更糟的是这
- * 构成死锁: 要往组里放内机得先点那个组, 而组因为空又不显示 -> 永远放不进去。
- *
- * 现在: 空分区照常显示 (数量标 0), 这样才点得到、才能往里放内机。
- */
-const visibleZones = computed(() => filterZonesByFloor(zones.value, floorTab.value));
-const ungroupedCount = computed(() => visibleIndoors.value.filter((i) => !i.zoneCode).length);
-
-/**
- * 编组模式的**分组视图** — 按组把内机分段列出, 未分组的单独一段兜底.
- *
- * 2026-07-17 业主: "空调内机编组逻辑和实现还没闭环, 不好使用, 须优化"。
- *
- * 原来编组模式下就是一张平铺的卡片网格 + 底部一排 14 个"归到 XX"的小按钮, 三个毛病:
- *   1) **看不见结构**: 哪台在哪个组只能靠卡片角落一行小字, 改完也没有即时反馈 ——
- *      这就是"不闭环": 做了动作却看不到结果, 只能一张张卡去数。
- *   2) **同名不同义**: 14 个组名在顶部快选条 (按组选中) 和底部 (归到该组) 各出现一次,
- *      长得一样、点下去行为完全不同。
- *   3) 底部 14 个按钮挤成一堵墙, 触摸屏点不准。
- *
- * 改成按组分段后: 结构直接摆在眼前, 把内机移过去 -> 它立刻出现在那一段里, 动作和
- * 结果在同一个地方发生。底部那堵按钮墙也就不需要了。
- */
-const groupedSections = computed(() => buildGroupedSections(visibleIndoors.value, visibleZones.value));
-
-const zoneNameOf = computed(() => {
-  const m = new Map(zones.value.map((z) => [z.code, z.name]));
-  return (code: string | null): string => (code ? m.get(code) ?? '?' : '未分组');
-});
-
-const selectedRows = computed(() => indoors.value.filter((i) => selected.value.has(i.idx)));
-const selectedIdxs = computed(() => selectedRows.value.map((i) => i.idx));
-
-const overview = computed(() => summarizeHvacOverview(visibleIndoors.value, visibleZones.value.length));
-
-/**
- * 控制条显示的值: 只看**读到状态**的那些选中项, 一致就显示该值, 不一致显示 null
- * (界面上不高亮任何一个). 未知的不参与 —— 拿占位值凑数会显示出一个假的共识.
- */
-const selMode = computed(() => commonKnownState(selectedRows.value, 'mode'));
-const selFan = computed(() => commonKnownState(selectedRows.value, 'fan'));
-const selOn = computed(() => commonKnownState(selectedRows.value, 'on'));
-const selTemp = computed(() => averageSelectedTemperature(selectedRows.value));
-
-// ============ 选择 ============
-
-function toggleOne(idx: number): void {
-  selected.value = toggleSelection(selected.value, [idx]);
-}
-/**
- * 快选一律是**切换**, 不是覆盖 (2026-07-16 业主: "对内机全选状态没有反选功能").
- *
- * 原来 selectAll/selectZone 都是无条件 `selected = 这一组`, 再点一次结果不变 ——
- * 全选之后没有任何办法取消, 只能一台台点掉。现在: 该组已经全选中就取消掉它们,
- * 否则并入选中集合。并入而不是覆盖, 这样"前厅 + 会议室"可以叠加选。
- */
-function toggleMany(idxs: number[]): void {
-  if (idxs.length === 0) return;
-  selected.value = toggleSelection(selected.value, idxs);
-}
-function selectAll(): void { toggleMany(visibleIndoors.value.map((i) => i.idx)); }
-function selectNone(): void { selected.value = new Set(); }
-/** 反选: 当前可见范围内, 选中的变未选、未选的变选中 */
-function invertSelection(): void {
-  selected.value = invertVisibleSelection(selected.value, visibleIndoors.value.map((i) => i.idx));
-}
-function selectZone(code: string | null): void {
-  toggleMany(visibleIndoors.value.filter((i) => i.zoneCode === code).map((i) => i.idx));
-}
-function isZoneSelected(code: string | null): boolean {
-  const members = visibleIndoors.value.filter((i) => i.zoneCode === code).map((i) => i.idx);
-  return isSelectionComplete(selected.value, members);
-}
-/** 可见内机是否已全选 —— 给"全部"按钮显示选中态用 */
-const allSelected = computed(() =>
-  isSelectionComplete(selected.value, visibleIndoors.value.map((i) => i.idx)),
-);
-
-// ============ 控制 (统一走 batch, 乐观更新 + 失败回滚) ============
-
-/**
- * @param apply 本地状态怎么改 (先改, 让界面立刻响应)
- * @param send  真正的下发
- */
-async function run(
-  label: string,
-  apply: (s: IndoorState) => void,
-  send: (idxs: number[]) => Promise<{ okCount: number; failCount: number }>,
-): Promise<void> {
-  const rows = selectedRows.value;
-  if (!rows.length) { ElMessage.warning('请先选中内机'); return; }
-  const backup = rows.map((r) => ({ idx: r.idx, snapshot: { ...r.state } }));
-  // 先乐观改, 让按钮跟手 (中弘网关下发到状态寄存器更新有延迟, 干等会像卡死)
-  rows.forEach((r) => apply(r.state));
-  lastWriteAt = Date.now();
-  haptics.tap(); // A2: 命令真的走出去
-  busy.value = true;
-  try {
-    const r = await send(rows.map((x) => x.idx));
-    if (r.okCount === 0 && r.failCount > 0) throw new Error('全部失败');
-    if (r.failCount > 0) ElMessage.warning(`${label}: 部分成功 (${r.okCount}/${r.okCount + r.failCount})`);
-  } catch (err) {
-    // 全失败才回滚 —— 部分成功时回滚会把成功的那些也抹掉, 反而更不准
-    const map = new Map(backup.map((b) => [b.idx, b.snapshot]));
-    indoors.value.forEach((i) => { const s = map.get(i.idx); if (s) i.state = s; });
-    ElMessage.error(`${label} 失败: ${(err as Error).message}`);
-  } finally {
-    busy.value = false;
-    // 关键: 复读真机, 用寄存器的真相覆盖掉刚才的乐观猜测.
-    // 命令下发到网关刷新状态寄存器有延迟, 立刻读会读到旧值, 所以等一下再读。
-    setTimeout(() => { void pollStates(); }, 1200);
-  }
-}
-
-// 开/关走后端错峰 (0.4s/台) — dispatching 提示逐台下发中
-const turnOn = () => { dispatching.value = true; void run('开机', (s) => { s.on = true; }, (ix) => hvacService.batchOn(ix)).finally(() => { dispatching.value = false; }); };
-const turnOff = () => { dispatching.value = true; void run('关机', (s) => { s.on = false; }, (ix) => hvacService.batchOff(ix)).finally(() => { dispatching.value = false; }); };
-const setMode = (mode: HvacMode) => run('模式', (s) => { s.mode = mode; }, (ix) => hvacService.batchMode(ix, mode));
-const setFan = (speed: HvacFan) => run('风速', (s) => { s.fan = speed; }, (ix) => hvacService.batchFanSpeed(ix, speed));
-function adjustTemp(delta: number): void {
-  const next = Math.max(16, Math.min(30, selTemp.value + delta));
-  if (next === selTemp.value) return;
-  void run('温度', (s) => { s.temperature = next; }, (ix) => hvacService.batchTemperature(ix, next));
-}
+const {
+  visibleIndoors,
+  visibleZones,
+  ungroupedCount,
+  groupedSections,
+  zoneCards,
+  zoneNameOf,
+  selectedRows,
+  selectedIdxs,
+  overview,
+  selectedMode: selMode,
+  selectedFan: selFan,
+  selectedPower: selOn,
+  selectedTemperature: selTemp,
+  toggleOne,
+  selectAll,
+  selectNone,
+  invertSelection,
+  selectZone,
+  isZoneSelected,
+  allSelected,
+  zoneKey: zkey,
+} = useHvacSelection({ indoors, zones, floor: floorTab, selected });
 
 // ============ 分区视图 (2026-07-29 业主: "分组逻辑要像灯光页一样直接组控") ============
 // 灯光页的范式: 分区就是一张卡, 卡上直接开关/调参数 —— 不需要"先点快选选中、
@@ -353,185 +105,83 @@ function adjustTemp(delta: number): void {
 // batch 接口, 后端错峰保护外机)。成员分配仍在「编组」模式里管 (对齐灯光页
 // "控制归控制、成员分配归编组"的分工)。默认进「分区」视图; 单台精控切「内机」。
 const viewTab = ref<'zones' | 'units'>('zones');
-const zkey = (c: string | null): string => c ?? '__none__';
 
-const zoneCards = computed(() => buildZoneCards(visibleIndoors.value, visibleZones.value));
+const {
+  loading,
+  lastPollAt,
+  pollFailed,
+  loadAll,
+  markWrite,
+  scheduleTruthRefresh,
+  startPolling,
+  stopPolling,
+} = useHvacRuntimeState({
+  indoors,
+  zones,
+  selected,
+  isBusy: () => busy.value,
+});
+const {
+  busy,
+  dispatching,
+  zoneBusy,
+  turnOn,
+  turnOff,
+  setMode,
+  setFan,
+  setTemperature,
+  zonePower,
+  zoneSetTemperature,
+  zoneSetMode,
+  floorPower,
+  stopControls,
+} = useHvacControls({
+  indoors,
+  selectedRows: () => selectedRows.value,
+  visibleIndoors: () => visibleIndoors.value,
+  floor: () => floorTab.value,
+  markWrite,
+  scheduleTruthRefresh,
+});
+function adjustTemp(delta: number): void {
+  const next = Math.max(16, Math.min(30, selTemp.value + delta));
+  if (next === selTemp.value) return;
+  void setTemperature(next);
+}
 
-/** 正在下发的分区 key (整卡禁点, 别让两组命令在 485 上叠着跑) */
-const zoneBusy = ref<string | null>(null);
-async function zoneRun(
-  card: HvacZoneCard, label: string,
-  apply: (s: IndoorState) => void,
-  send: (idxs: number[]) => Promise<{ okCount: number; failCount: number }>,
-): Promise<void> {
-  if (zoneBusy.value || !card.members.length) return;
-  zoneBusy.value = zkey(card.code);
-  const backup = card.members.map((r) => ({ idx: r.idx, snapshot: { ...r.state } }));
-  card.members.forEach((r) => { apply(r.state); r.state.known = true; });   // 乐观跟手
-  lastWriteAt = Date.now();
-  haptics.tap();
-  try {
-    const r = await send(card.members.map((m) => m.idx));
-    if (r.okCount === 0 && r.failCount > 0) throw new Error('全部失败');
-    if (r.failCount > 0) ElMessage.warning(`「${card.name}」${label}: 部分成功 (${r.okCount}/${r.okCount + r.failCount})`);
-  } catch (err) {
-    const map = new Map(backup.map((b) => [b.idx, b.snapshot]));
-    indoors.value.forEach((i) => { const s = map.get(i.idx); if (s) i.state = s; });
-    ElMessage.error(`「${card.name}」${label}失败: ${(err as Error).message}`);
-  } finally {
-    zoneBusy.value = null;
-    setTimeout(() => { void pollStates(); }, 1200);   // 真机寄存器为准
-  }
-}
-function zonePower(card: HvacZoneCard): void {
-  const on = card.onCount === 0;   // 有开着的 → 全关; 全关着 → 全开
-  void zoneRun(card, on ? '开机' : '关机', (s) => { s.on = on; },
-    (ix) => (on ? hvacService.batchOn(ix) : hvacService.batchOff(ix)));
-}
 function zoneAdjustTemp(card: HvacZoneCard, delta: number): void {
   const next = Math.max(16, Math.min(30, card.temp + delta));
   if (next === card.temp) return;
-  void zoneRun(card, '温度', (s) => { s.temperature = next; }, (ix) => hvacService.batchTemperature(ix, next));
-}
-function zoneSetMode(card: HvacZoneCard, mode: HvacMode): void {
-  void zoneRun(card, '模式', (s) => { s.mode = mode; }, (ix) => hvacService.batchMode(ix, mode));
+  void zoneSetTemperature(card, next);
 }
 
-/** 顶部"全开/全关" — 作用于当前楼层 tab 的全部内机, 跟选中无关。
- *  2026-07-25 生产级整改: 一键动全场必须二次确认 (访客/保洁误碰一下 22 台就全动了);
- *  后端已改错峰逐台下发 (0.4s/台, 保护外机), 确认框里把耗时说清楚, 别让人以为卡死。 */
-async function floorPower(on: boolean): Promise<void> {
-  const idxs = visibleIndoors.value.map((i) => i.idx);
-  if (!idxs.length) return;
-  const scope = floorTab.value === 'all' ? '全部楼层' : (floorTab.value === '1F' ? '一楼' : '二楼');
-  try {
-    await ElMessageBox.confirm(
-      `确定${on ? '开启' : '关闭'}${scope}共 ${idxs.length} 台空调?\n将逐台错峰下发, 约需 ${Math.ceil(idxs.length * 0.6) + 2} 秒。`,
-      on ? '全开确认' : '全关确认',
-      { type: 'warning', confirmButtonText: on ? '全开' : '全关', cancelButtonText: '取消' },
-    );
-  } catch { return; }
-  const backup = indoors.value.map((i) => ({ idx: i.idx, on: i.state.on }));
-  visibleIndoors.value.forEach((i) => { i.state.on = on; });
-  lastWriteAt = Date.now();
-  busy.value = true;
-  dispatching.value = true;
-  try {
-    const r = await (on ? hvacService.batchOn(idxs) : hvacService.batchOff(idxs));
-    if (r.okCount === 0 && r.failCount > 0) throw new Error('全部失败');
-    if (r.failCount > 0) ElMessage.warning(`部分成功 (${r.okCount}/${r.total})`);
-  } catch (err) {
-    const map = new Map(backup.map((b) => [b.idx, b.on]));
-    indoors.value.forEach((i) => { const v = map.get(i.idx); if (v !== undefined) i.state.on = v; });
-    ElMessage.error(`${on ? '全开' : '全关'} 失败: ${(err as Error).message}`);
-  } finally {
-    busy.value = false;
-    dispatching.value = false;
-    setTimeout(() => { void pollStates(); }, 1200);
-  }
-}
+const {
+  catalogBusy,
+  editingIndoor,
+  editingZone,
+  editingText,
+  bindNameInput,
+  startRenameIndoor,
+  commitRenameIndoor,
+  startRenameZone,
+  commitRenameZone,
+  assignTo,
+  createZone,
+  removeZone,
+  stopCatalogActions,
+} = useHvacCatalogActions({
+  indoors,
+  zones,
+  selectedIdxs: () => selectedIdxs.value,
+  floor: () => floorTab.value,
+  reload: loadAll,
+});
 
-// ============ 改名 (内机 / 组) ============
-
-const editingIndoor = ref<number | null>(null);
-const editingZone = ref<string | null>(null);
-const editingText = ref('');
-const nameInput = ref<HTMLInputElement | null>(null);
-
-/**
- * 输入框用函数式 ref 绑.
- * 不能写 ref="nameInput" —— 它在 v-for 里, Vue 会把同名 ref 收集成**数组**,
- * 于是 nameInput.value.select() 静默失效 (点了铅笔但文字没选中)。
- * 靠 v-if 保证同一时刻只有一个输入框活着, 所以这里直接存单个元素即可。
- */
-function bindNameInput(el: unknown): void {
-  if (el) nameInput.value = el as HTMLInputElement;
-}
-
-function startRenameIndoor(row: IndoorRow): void {
-  editingZone.value = null;
-  editingIndoor.value = row.idx;
-  editingText.value = row.name;
-  void nextTick(() => nameInput.value?.select());
-}
-async function commitRenameIndoor(row: IndoorRow): Promise<void> {
-  const name = editingText.value.trim();
-  editingIndoor.value = null;
-  if (!name || name === row.name) return;
-  const old = row.name;
-  row.name = name; // 乐观
-  try {
-    await hvacService.updateIndoor(row.idx, { name });
-  } catch (err) {
-    row.name = old;
-    ElMessage.error('改名失败: ' + (err as Error).message);
-  }
-}
-
-function startRenameZone(z: HvacZone): void {
-  editingIndoor.value = null;
-  editingZone.value = z.code;
-  editingText.value = z.name;
-  void nextTick(() => nameInput.value?.select());
-}
-async function commitRenameZone(z: HvacZone): Promise<void> {
-  const name = editingText.value.trim();
-  editingZone.value = null;
-  if (!name || name === z.name) return;
-  const old = z.name;
-  z.name = name;
-  try {
-    await hvacService.renameZone(z.code, name);
-  } catch (err) {
-    z.name = old;
-    ElMessage.error('改名失败: ' + (err as Error).message);
-  }
-}
-
-// ============ 编组 ============
-
-async function assignTo(zoneCode: string | null): Promise<void> {
-  if (!selectedIdxs.value.length) { ElMessage.warning('请先选中内机'); return; }
-  try {
-    await hvacService.assignIndoors(selectedIdxs.value, zoneCode);
-    await loadAll();
-    ElMessage.success(zoneCode ? `已归入「${zoneNameOf.value(zoneCode)}」` : '已移出分组');
-  } catch (err) {
-    ElMessage.error('归组失败: ' + (err as Error).message);
-  }
-}
-
-async function createZone(): Promise<void> {
-  const floor = floorTab.value === 'all' ? '1F' : floorTab.value;
-  try {
-    const { value } = await ElMessageBox.prompt(
-      `新建功能区${floorTab.value === 'all' ? ' (默认归到一楼)' : ''}`, '新建分组',
-      { inputPlaceholder: '例如: 会议室', inputPattern: /\S+/, inputErrorMessage: '名称不能为空' },
-    );
-    const z = await hvacService.createZone(String(value).trim(), floor);
-    await loadAll();
-    ElMessage.success(`已新建「${z.name}」, 选中内机后点它即可归入`);
-  } catch (err) {
-    if (err === 'cancel' || err === 'close') return;
-    ElMessage.error('新建失败: ' + (err as Error).message);
-  }
-}
-
-async function removeZone(z: HvacZone): Promise<void> {
-  const n = indoors.value.filter((i) => i.zoneCode === z.code).length;
-  try {
-    await ElMessageBox.confirm(
-      n > 0 ? `删除「${z.name}」? 组里 ${n} 台内机会变成"未分组", 内机本身不会被删。` : `删除「${z.name}」?`,
-      '删除分组', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
-    );
-    await hvacService.deleteZone(z.code);
-    await loadAll();
-    ElMessage.success('已删除');
-  } catch (err) {
-    if (err === 'cancel' || err === 'close') return;
-    ElMessage.error('删除失败: ' + (err as Error).message);
-  }
-}
+useActivePolling(startPolling, () => {
+  stopControls();
+  stopCatalogActions();
+  stopPolling();
+});
 
 const modeIcon = (m: HvacMode): Component => modes.find((x) => x.value === m)?.icon ?? Sparkles;
 const modeLabel = (m: HvacMode): string => modes.find((x) => x.value === m)?.label ?? m;
@@ -605,15 +255,15 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
           {{ z.name }}
           <em>{{ visibleIndoors.filter((i) => i.zoneCode === z.code).length }}</em>
           <template v-if="groupMode">
-            <span class="chip-act" title="改组名" @click.stop="startRenameZone(z)"><Pencil :size="11" /></span>
-            <span class="chip-act danger" title="删除组" @click.stop="removeZone(z)"><Trash2 :size="11" /></span>
+            <span class="chip-act" :class="{ disabled: catalogBusy }" title="改组名" @click.stop="startRenameZone(z)"><Pencil :size="11" /></span>
+            <span class="chip-act danger" :class="{ disabled: catalogBusy }" title="删除组" @click.stop="removeZone(z)"><Trash2 :size="11" /></span>
           </template>
         </button>
       </template>
       <button v-if="ungroupedCount" class="hv-chip warn" :class="{ on: isZoneSelected(null) }" @click="selectZone(null)">
         未分组 <em>{{ ungroupedCount }}</em>
       </button>
-      <button v-if="groupMode" class="hv-chip add" @click="createZone"><FolderPlus :size="13" /> 新建组</button>
+      <button v-if="groupMode" class="hv-chip add" :disabled="catalogBusy" @click="createZone"><FolderPlus :size="13" /> 新建组</button>
       <button v-if="selected.size" class="hv-chip clear" @click="selectNone">清空选择</button>
       <button class="hv-chip quick-toggle" @click="quickExpanded = !quickExpanded">
         {{ quickExpanded ? '收起 ▲' : '展开 ▼' }}
@@ -652,7 +302,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
             <button
               v-if="c.members.length"
               class="hz-power" :class="c.onCount > 0 ? 'to-off' : 'to-on'"
-              :disabled="zoneBusy !== null"
+              :disabled="busy"
               :title="c.onCount > 0 ? '关闭全组' : '开启全组'"
               @click="zonePower(c)"
             >
@@ -662,15 +312,15 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
           </div>
           <div v-if="c.members.length" class="hz-ctrl">
             <div class="hz-temp">
-              <button class="hz-tbtn" :disabled="zoneBusy !== null" @click="zoneAdjustTemp(c, -1)"><Minus :size="16" /></button>
+              <button class="hz-tbtn" :disabled="busy" @click="zoneAdjustTemp(c, -1)"><Minus :size="16" /></button>
               <span class="hz-tval v2-inter">{{ c.temp }}<i>°C</i></span>
-              <button class="hz-tbtn" :disabled="zoneBusy !== null" @click="zoneAdjustTemp(c, 1)"><Plus :size="16" /></button>
+              <button class="hz-tbtn" :disabled="busy" @click="zoneAdjustTemp(c, 1)"><Plus :size="16" /></button>
             </div>
             <div class="hz-modes">
               <button
                 v-for="m in modes" :key="m.value"
                 class="hz-mode" :class="['hzm-' + m.value, { on: c.mode === m.value }]"
-                :disabled="zoneBusy !== null" :title="m.label"
+                :disabled="busy" :title="m.label"
                 @click="zoneSetMode(c, m.value)"
               ><component :is="m.icon" :size="14" /></button>
             </div>
@@ -722,7 +372,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
           />
           <template v-else>
             <span class="cell-name-text" :title="row.name">{{ row.name }}</span>
-            <span class="cell-edit" title="改名" @click.stop="startRenameIndoor(row)">
+            <span class="cell-edit" :class="{ disabled: catalogBusy }" title="改名" @click.stop="startRenameIndoor(row)">
               <Pencil :size="15" />
             </span>
           </template>
@@ -779,16 +429,16 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
                不用去底部一排同名按钮里找 -->
           <button
             v-if="sec.code !== null"
-            class="hv-btn tiny primary" :disabled="!selected.size"
+            class="hv-btn tiny primary" :disabled="catalogBusy || !selected.size"
             :title="selected.size ? `把选中的 ${selected.size} 台移到「${sec.name}」` : '先选中内机'"
             @click="assignTo(sec.code)"
           >移入{{ selected.size ? ` ${selected.size}` : '' }}</button>
           <button
-            v-if="sec.code !== null" class="sec-ico" title="改名"
+            v-if="sec.code !== null" class="sec-ico" title="改名" :disabled="catalogBusy"
             @click="sec.zone && startRenameZone(sec.zone)"
           ><Pencil :size="14" /></button>
           <button
-            v-if="sec.code !== null" class="sec-ico danger" title="删除该组"
+            v-if="sec.code !== null" class="sec-ico danger" title="删除该组" :disabled="catalogBusy"
             @click="sec.zone && removeZone(sec.zone)"
           ><Trash2 :size="14" /></button>
           <button
@@ -833,7 +483,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
           />
           <template v-else>
             <span class="cell-name-text" :title="row.name">{{ row.name }}</span>
-            <span class="cell-edit" title="改名" @click.stop="startRenameIndoor(row)">
+            <span class="cell-edit" :class="{ disabled: catalogBusy }" title="改名" @click.stop="startRenameIndoor(row)">
               <Pencil :size="15" />
             </span>
           </template>
@@ -898,10 +548,10 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
              不用在按钮墙里找名字。这里只留"移出分组"这个反向动作。 -->
         <div class="bar-group">
           <span class="bar-hint">选中后点分组标题「移入」</span>
-          <button class="hv-btn tiny warn" :disabled="!selected.size" @click="assignTo(null)">
+          <button class="hv-btn tiny warn" :disabled="catalogBusy || !selected.size" @click="assignTo(null)">
             移出分组{{ selected.size ? ` (${selected.size})` : '' }}
           </button>
-          <button class="hv-btn tiny" @click="createZone"><FolderPlus :size="13" /> 新建组</button>
+          <button class="hv-btn tiny" :disabled="catalogBusy" @click="createZone"><FolderPlus :size="13" /> 新建组</button>
         </div>
       </template>
 
@@ -1125,6 +775,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 }
 .chip-act:hover { opacity: 1; background: #ffffff22; }
 .chip-act.danger:hover { background: #ff4d4f44; color: #ff7875; }
+.chip-act.disabled { opacity: .25; pointer-events: none; }
 
 /* ---- 内机网格: 6 列铺满剩余高度, 22 台 = 4 行 ---- */
 .hv-grid {
@@ -1222,6 +873,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 .cell-edit { opacity: 0; padding: 3px; border-radius: 5px; color: var(--v2-text-3, #9BA1A9); flex: 0 0 auto; }
 .hv-cell:hover .cell-edit { opacity: .7; }
 .cell-edit:hover { opacity: 1 !important; background: #ffffff22; }
+.cell-edit.disabled { opacity: .2 !important; pointer-events: none; }
 .cell-name-input {
   width: 100%; font-size: 21px; font-weight: 600; padding: 2px 6px;
   color: var(--v2-text-1); background: var(--v2-inset-bg); 
@@ -1550,6 +1202,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 }
 .sec-ico:hover { color: var(--v2-text-1, #e8f0fb); border-color: #46566e; }
 .sec-ico.danger:hover { color: #ff6b6b; border-color: #ff6b6b66; }
+.sec-ico:disabled { opacity: .35; cursor: not-allowed; }
 .sec-grid {
   display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px;
   grid-auto-rows: minmax(120px, auto);

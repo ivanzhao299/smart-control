@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "platform": "android",
-  "versionCode": 24,
-  "versionName": "1.1.16",
-  "commit": "0f7bed2a9533bfe729feed3ebfade256f1449331",
-  "builtAt": "2026-09-21T03:38:22Z",
-  "apkSha256": "cf56c23818ad0e274e2b61af9c02bd4a40c2de3d068f9161ac9eef94a5f1b16f",
-  "apkSize": 5893895
+  "versionCode": 25,
+  "versionName": "1.1.17",
+  "commit": "6c1929bd4d1c98be4fda14ad19de536988523ffe",
+  "builtAt": "2026-09-21T21:34:59Z",
+  "apkSha256": "561b7d4385c09e8182dd2c1e1fb0f81fc1e47ff407f8a92d354cc3b2436de233",
+  "apkSize": 5893955
 }

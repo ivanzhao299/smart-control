@@ -204,7 +204,6 @@ export default defineConfig(({ mode }) => {
       Components({ resolvers: [ElementPlusResolver()] }),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['icons/pwa-192x192.png', 'icons/pwa-512x512.png', 'icons/app.svg'],
         manifest: {
           name: '金湖展贸中心智能控制系统',
           short_name: '金湖中控',
@@ -241,7 +240,19 @@ export default defineConfig(({ mode }) => {
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           skipWaiting: true,
+          // Public icons are already copied into dist and covered by svg/png here.
+          // Listing them again in includeAssets creates duplicate precache entries.
           globPatterns: ['**/*.{js,css,html,svg,png,jpg,jpeg,webp,ico,woff2}'],
+          manifestTransforms: [async (entries) => {
+            const seen = new Set<string>();
+            for (const entry of entries) {
+              if (seen.has(entry.url)) {
+                throw new Error(`Duplicate PWA precache URL: ${entry.url}`);
+              }
+              seen.add(entry.url);
+            }
+            return { manifest: entries, warnings: [] };
+          }],
           // C2 (2026-07-25): 离线预缓存只收业主侧 — 20+ 个后台管理页 chunk
           // (文件名含 Admin) 和只有 admin 用的 date-picker 不进每台手机的离线包。
           // admin 在线才用得上, 其 chunk 走浏览器 HTTP 缓存 (assets 带一年 immutable)。

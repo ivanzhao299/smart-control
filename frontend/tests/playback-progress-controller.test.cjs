@@ -102,13 +102,15 @@ test('unknown duration stays idle and reset clears an active estimate', () => {
   assert.equal(h.progress.at(-1), 0);
 });
 
-test('AudioPage delegates progress timing and follows backend pause state', () => {
+test('audio playlist delegates progress timing and follows backend pause state', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../src/pages/AudioPage.vue'), 'utf8');
-  assert.match(page, /createPlaybackProgressController\(/);
-  assert.match(page, /progressController\.start\(dur, !!bgmChannel\.value\?\.paused\)/);
-  assert.match(page, /watch\(\(\) => bgmChannel\.value\?\.paused/);
-  assert.match(page, /bgmChannel\.value\?\.playbackSession !== session/);
-  assert.match(page, /bgmChannel\.value\?\.currentMediaId, bgmChannel\.value\?\.playbackSession/);
-  assert.doesNotMatch(page, /let plTimer:/);
-  assert.doesNotMatch(page, /plTimerElapsed/);
+  const playlist = fs.readFileSync(path.resolve(__dirname, '../src/composables/useAudioPlaylist.ts'), 'utf8');
+  assert.match(page, /useAudioPlaylist\(\{ ensureAdmin \}\)/);
+  assert.match(playlist, /createPlaybackProgressController\(/);
+  assert.match(playlist, /progressController\.start\(duration, !!bgmChannel\.value\?\.paused\)/);
+  assert.match(playlist, /watch\(\(\) => bgmChannel\.value\?\.paused/);
+  assert.match(playlist, /current\?\.playbackSession !== session/);
+  assert.match(playlist, /bgmChannel\.value\?\.currentMediaId, bgmChannel\.value\?\.playbackSession/);
+  assert.doesNotMatch(playlist, /let plTimer:/);
+  assert.doesNotMatch(playlist, /plTimerElapsed/);
 });

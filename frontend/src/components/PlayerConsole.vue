@@ -24,9 +24,9 @@
  *
  * 投影仪 (slot2) 已拆到独立页 ProjectorPage, 本页只管 LED (slot1)。
  */
-import { computed, onMounted, onScopeDispose, reactive, ref, watch, type Directive } from 'vue';
-import { identityGeneration, captureIdentityGuard, createLatestIdentityRead } from '@/services/identity-boundary';
-import { ElMessage, ElMessageBox, ElScrollbar } from 'element-plus';
+import { computed, onMounted, onScopeDispose } from 'vue';
+import { captureIdentityGuard } from '@/services/identity-boundary';
+import { ElScrollbar } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
   ArrowLeft, MonitorPlay, Play, Pause, Square, SkipBack, SkipForward,
@@ -35,34 +35,15 @@ import {
   ChevronLeft, ChevronRight, Power, ZoomIn, ZoomOut, Maximize, RefreshCw, RotateCcw,
 } from 'lucide-vue-next';
 import { usePlaybackStore } from '@/stores/playback';
-import {
-  listPlaylist, addToPlaylist, renamePlaylistItem, removeFromPlaylist, reorderPlaylist,
-  listHistory, setDisplayFit, setDocPage, setDocZoom, publishWelcome, publishParkDashboard,
-  type DisplayFit, type PlaylistItemView, type PlaybackHistoryView,
-} from '@/services/playback.service';
-import { projectorService } from '@/services/projector.service';
-import {
-  DEFAULT_WELCOME_PRESENTATION,
-  fetchWelcomeSchemes, publishWelcomeScheme, removeWelcomeAsset, saveWelcomeSchemes,
-  type WelcomePresentation, type WelcomeScheme, type WelcomeSchemesSnapshot,
-} from '@/services/system-branding.service';
-import { absUrl } from '@/services/http';
+import { publishWelcome } from '@/services/playback.service';
 import { useAdminUnlock } from '@/composables/useAdminUnlock';
-import { powerCircuitsService, type PowerCircuitView } from '@/services/power-circuits.service';
-import { mediaService, MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
-import { ledService } from '@/services/led.service';
-import { parkOpsControlService } from '@/services/park-ops-control.service';
-import {
-  addWelcomeImageAsset,
-  classifyWelcomeImageAssets,
-  type WelcomeImageAsset,
-} from '@/features/welcome-image-assets';
-import { normalizeWelcomeBackground } from '@/features/welcome-background-image';
-import {
-  changeWelcomePresentation,
-  chooseWelcomeBackground,
-  chooseWelcomeLogo,
-} from '@/features/welcome-scheme-draft';
+import { useWelcomeEditor } from '@/composables/useWelcomeEditor';
+import { usePlayerInputSources } from '@/composables/usePlayerInputSources';
+import { usePlayerPlaylist } from '@/composables/usePlayerPlaylist';
+import { usePlayerDocumentControls } from '@/composables/usePlayerDocumentControls';
+import { usePlayerPowerControls } from '@/composables/usePlayerPowerControls';
+import { WELCOME_PICK_DEFAULT, detectPlayerInputSource } from '@/features/player-input-source';
+import { MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
 
 const props = defineProps<{
   /** 1 = LED 大屏 (HDMI1), 2 = 投影仪 (HDMI2) */
@@ -99,1376 +80,183 @@ const { ensureAdmin } = useAdminUnlock();
 const playbackStore = usePlaybackStore();
 const ch = computed(() => (props.slot === 1 ? playbackStore.slot1 : playbackStore.slot2));
 
-const playlist = ref<PlaylistItemView[]>([]);
-const history = ref<PlaybackHistoryView[]>([]);
-const busy = ref(false);
-const beginListRead = createLatestIdentityRead(() => !consoleDisposed);
-
-async function loadAll(): Promise<void> {
-  if (consoleDisposed) return;
-  const currentRead = beginListRead();
-  const currentAction = captureConsoleAction();
-  const slot = SLOT.value;
-  try {
-    const [pl, his] = await Promise.all([listPlaylist(slot), listHistory(slot)]);
-    if (!currentRead() || !currentAction()) return;
-    playlist.value = pl;
-    history.value = his;
-  } catch (e) {
-    if (!currentRead() || !currentAction()) return;
-    playlist.value = [];
-    history.value = [];
-    ElMessage.error(`加载播放列表失败: ${(e as Error).message}`);
-  }
-}
-// 审计 P1: 列表/历史只在本页操作后刷新 — 其他终端改动看不到。跟着在播媒体
-// 的 WS 变化节流重拉 (playback store 是 WS 实时的, 以它为信号源)。
-let reloadT: number | undefined;
-watch(SLOT, () => {
-  playlist.value = [];
-  history.value = [];
-  window.clearTimeout(reloadT);
-  void loadAll();
-}, { flush: 'sync' });
-watch(() => ch.value?.currentMediaId, () => {
-  window.clearTimeout(reloadT);
-  reloadT = window.setTimeout(() => { void loadAll(); }, 800);
-});
-
-// ============ 文档翻页 (2026-07-25 文档投屏) ============
-const isDocPlaying = computed(() => ch.value?.currentMediaKind === 'doc' && !!ch.value?.currentMediaId);
-const docPage = computed(() => ch.value?.docPage ?? 1);
-const docTotal = computed(() => ch.value?.currentMediaPageCount ?? null);
-/** 文档画面缩放 (2026-07-29 业主: PPT 要能全屏/放大缩小/退出):
- *  改 docZoom → WS → PPT 守护重摆放映窗口 / kiosk PDF 跟随 CSS 缩放。
- *  100=铺满整屏 ("全屏"按钮即回 100); 步进 ±15, 范围 50-200。 */
-const docZoom = computed(() => ch.value?.docZoom ?? 100);
-let zoomBusy = false;
-async function applyDocZoom(z: number): Promise<void> {
-  if (zoomBusy) return;
-  const session = ch.value?.playbackSession;
-  if (!session) { ElMessage.warning('请刷新播放状态后重试'); return; }
-  zoomBusy = true;
-  try {
-    const v = await setDocZoom(SLOT.value, z, session);
-    playbackStore.handleWs({ type: 'playback_channel_changed', data: v } as never);
-  } catch (e) {
-    ElMessage.error(`缩放失败: ${(e as Error).message}`);
-  } finally { zoomBusy = false; }
-}
-/** 退出放映 — 结束文档放映, 屏幕回到播放器待机/原内容 (对应业主"退出全屏") */
-async function exitDocShow(): Promise<void> {
-  const session = ch.value?.playbackSession;
-  const slot = SLOT.value;
-  const generation = identityGeneration();
-  if (!session) { ElMessage.warning('请刷新播放状态后重试'); return; }
-  try {
-    await ElMessageBox.confirm(`退出文档放映?${props.title}将回到待机画面。`, '退出放映',
-      { type: 'warning', confirmButtonText: '退出', cancelButtonText: '取消' });
-  } catch { return; }
-  if (consoleDisposed || generation !== identityGeneration() || slot !== SLOT.value) return;
-  await stopPlayback(session);
-}
 let consoleDisposed = false;
 onScopeDispose(() => {
   consoleDisposed = true;
-  window.clearTimeout(reloadT);
-  playlist.value = [];
-  history.value = [];
 });
 function captureConsoleAction(): () => boolean {
   const slot = SLOT.value;
   return captureIdentityGuard(() => !consoleDisposed && SLOT.value === slot);
 }
-let pageBusy = false;
-async function gotoDocPage(p: number): Promise<void> {
-  if (pageBusy) return;
-  const session = ch.value?.playbackSession;
-  if (!session) { ElMessage.warning('请刷新播放状态后重试'); return; }
-  const max = docTotal.value ?? Number.MAX_SAFE_INTEGER;
-  const target = Math.max(1, Math.min(p, max));
-  if (target === docPage.value) return;
-  pageBusy = true;
-  try {
-    const v = await setDocPage(SLOT.value, target, session);
-    playbackStore.handleWs({ type: 'playback_channel_changed', data: v } as never);
-  } catch (e) {
-    ElMessage.error(`翻页失败: ${(e as Error).message}`);
-  } finally { pageBusy = false; }
-}
+const {
+  playlist,
+  history,
+  busy,
+  currentInList,
+  mobTab,
+  editingId,
+  editingText,
+  vFocus,
+  pickerOpen,
+  pickerKind,
+  assets,
+  pickerLoading,
+  inPlaylist,
+  dragId,
+  dragOverId,
+  fileInput,
+  uploading,
+  uploadPct,
+  webpageDialog,
+  webpageForm,
+  loadAll,
+  playItem,
+  togglePause,
+  stopPlayback,
+  changeFit,
+  step,
+  startRename,
+  commitRename,
+  removeItem,
+  addFromHistory,
+  openPicker,
+  loadAssets,
+  pickAsset,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  pickFile,
+  onFilePicked,
+  openWebpageDialog,
+  submitWebpage,
+} = usePlayerPlaylist({
+  slot: SLOT,
+  title: () => props.title,
+  channel: ch,
+  ensureAdmin,
+  captureAction: captureConsoleAction,
+});
+const {
+  isDocPlaying,
+  docPage,
+  docTotal,
+  docZoom,
+  applyDocZoom,
+  gotoDocPage,
+  exitDocShow,
+} = usePlayerDocumentControls({
+  slot: SLOT,
+  title: () => props.title,
+  channel: ch,
+  captureAction: captureConsoleAction,
+  stopPlayback,
+});
 
-// ============ 屏幕电源开关 ============
-// powerCode 支持逗号分隔多个回路 code (2026-07-26 业主: 投影仪与视频拼接器
-// 同时工作, 一个开关同开同关 —— 投影页传 "seq-5,seq-4")。开关状态 = 全部通电
-// 才亮; 拨动 = 所有回路一起 on/off (时序器自身按各路延时依次动作, 保护设备)。
-// 2026-07-28 业主: 分组再并入按名定位的功放路 (powerNameGroups), 同开同关。
-const powerCircuits = ref<PowerCircuitView[]>([]);
-async function loadPowerCircuit(): Promise<void> {
-  if (!props.powerCode && !props.powerNameGroups?.length) return;
-  const codes = (props.powerCode ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-  try {
-    const list = await powerCircuitsService.list();
-    const byCode = codes
-      .map((code) => list.find((c) => c.code === code))
-      .filter((c): c is PowerCircuitView => !!c);
-    const byName = (props.powerNameGroups ?? []).length
-      ? list.filter((c) =>
-          c.category === 'audio-seq'
-          && (props.powerNameGroups ?? []).some((kws) => kws.every((k) => c.name.includes(k))))
-      : [];
-    // code 命中优先保序, 按名命中追加, 按 id 去重
-    const seen = new Set<number>();
-    powerCircuits.value = [...byCode, ...byName].filter((c) => (seen.has(c.id) ? false : (seen.add(c.id), true)));
-  } catch { /* 电源子系统不可达时不显示开关 */ }
-}
-const powerAllOn = computed(
-  () => powerCircuits.value.length > 0 && powerCircuits.value.every((c) => c.reading.on),
-);
-const powerBusy = ref(false);
-async function togglePower(): Promise<void> {
-  if (!powerCircuits.value.length || powerBusy.value) return;
-  const isCurrent = captureConsoleAction();
-  const on = powerAllOn.value;
-  if (on) {
-    try {
-      await ElMessageBox.confirm(`确定断开${props.title}电源?画面会熄灭。`, '断电确认',
-        { type: 'warning', confirmButtonText: '断电', cancelButtonText: '取消' });
-    } catch { return; }
-  }
-  if (!isCurrent()) return;
-  powerBusy.value = true;
-  try {
-    // 逐个下发 (共用一条串口链路, 并发会互踩); 部分失败也把能做的做完, 最后统一报
-    const failed: string[] = [];
-    for (let i = 0; i < powerCircuits.value.length; i += 1) {
-      if (!isCurrent()) return;
-      const c = powerCircuits.value[i];
-      try {
-        powerCircuits.value[i] = on ? await powerCircuitsService.off(c.id) : await powerCircuitsService.on(c.id);
-      } catch (e) {
-        failed.push(`${c.name}: ${(e as Error).message}`);
-      }
-    }
-    if (!isCurrent()) return;
-    if (failed.length) {
-      ElMessage.error(`部分电源操作失败: ${failed.join('; ')}`);
-    } else {
-      ElMessage.success(on ? `${props.title}电源已断开` : `${props.title}电源已接通`);
-    }
-  } finally { powerBusy.value = false; }
-}
+const {
+  powerCircuits,
+  powerAllOn,
+  powerBusy,
+  togglePower,
+} = usePlayerPowerControls({
+  title: () => props.title,
+  powerCode: () => props.powerCode,
+  powerNameGroups: () => props.powerNameGroups,
+  captureAction: captureConsoleAction,
+});
 
 onMounted(() => {
-  void loadPowerCircuit(); void loadAll(); void refreshWelcomeSchemeOptions(); });
+  void loadAll(); void refreshWelcomeSchemeOptions(); });
 
-/** 当前在播的是列表里的哪一条 (用 mediaId 比, 不信 index —— 可能从媒体库临时推过片子) */
-const currentInList = computed(() =>
-  playlist.value.find((x) => x.mediaId === ch.value?.currentMediaId) ?? null);
+// 输入源身份只从播放通道权威状态派生；切换与运营大屏控制由专用用例编排。
+const activeSource = computed(() => detectPlayerInputSource(ch.value));
 
-// ============ 播放控制 (业主: "不能一直无脑播放, 保持用户控制状态") ============
-async function playItem(it: PlaylistItemView): Promise<void> {
-  if (it.missing) { ElMessage.warning('这个媒体已被删除, 先从列表移除'); return; }
-  busy.value = true;
-  try {
-    await playbackStore.publish(SLOT.value, it.mediaId, 'loop');
-    await loadAll();                       // 刷新历史
-    ElMessage.success(`正在播放「${it.title}」`);
-  } catch (e) {
-    ElMessage.error(`播放失败: ${(e as Error).message}`);
-  } finally { busy.value = false; }
-}
-
-/**
- * 播放 / 暂停 / 继续 —— 一个按钮三态。
- *
- * 待机时按下 = **接着上次那个继续播** (业主: "要保持最后状态, 不要每次都丢状态")。
- * 上次播的从**播放历史**里取 (history[0] 就是最近一次), 它还在列表里就播它;
- * 不在了 (被移出列表/媒体被删) 就退回列表第一个 —— 总能播起来, 不会按了没反应。
- */
-async function togglePause(): Promise<void> {
-  // 待机 -> 起播
-  if (!ch.value?.currentMediaId) {
-    if (playlist.value.length === 0) {
-      ElMessage.warning('播放列表是空的, 先上传内容或从历史里加回来');
-      return;
-    }
-    const lastId = history.value.find((h) => !h.missing)?.mediaId;
-    const target = playlist.value.find((x) => x.mediaId === lastId && !x.missing)
-      ?? playlist.value.find((x) => !x.missing);
-    if (!target) { ElMessage.warning('列表里的媒体都已被删除'); return; }
-    await playItem(target);
-    return;
-  }
-  // 播放中 -> 暂停; 已暂停 -> 继续
-  busy.value = true;
-  try {
-    if (ch.value.paused) await playbackStore.resume(SLOT.value);
-    else await playbackStore.pause(SLOT.value);
-  } catch (e) {
-    ElMessage.error(`操作失败: ${(e as Error).message}`);
-  } finally { busy.value = false; }
-}
-
-/** 随时终止 (业主: "播放过程中应该随时可以点击终止") */
-async function stopPlayback(expectedSession = ch.value?.playbackSession): Promise<void> {
-  if (!expectedSession) { ElMessage.warning('请刷新播放状态后重试'); return; }
-  busy.value = true;
-  try {
-    await playbackStore.stop(SLOT.value, expectedSession);
-    ElMessage.success(`已终止, ${props.title}回到待机`);
-  } catch (e) {
-    ElMessage.error(`终止失败: ${(e as Error).message}`);
-  } finally { busy.value = false; }
-}
-
-/** 画面铺放模式 (业主 2026-07-25): 下拉选择, 默认铺满; 后端持久 + WS 推给 kiosk 即时生效 */
-async function changeFit(fit: DisplayFit): Promise<void> {
-  busy.value = true;
-  try {
-    await setDisplayFit(SLOT.value, fit);
-    await playbackStore.load();   // WS 也会推, 这里再拉一次保证本页立即一致
-    const label = fit === 'fill' ? '铺满屏幕' : fit === 'contain' ? '保持比例' : '裁切铺满';
-    ElMessage.success(`画面铺放已切为「${label}」`);
-  } catch (e) {
-    ElMessage.error(`切换铺放模式失败: ${(e as Error).message}`);
-  } finally { busy.value = false; }
-}
-
-async function step(dir: 'next' | 'prev'): Promise<void> {
-  busy.value = true;
-  try {
-    await (dir === 'next' ? playbackStore.next(SLOT.value) : playbackStore.prev(SLOT.value));
-    await loadAll();
-  } catch (e) {
-    // 列表空时后端返回 400 + 人话, 直接透给业主
-    ElMessage.warning((e as Error).message);
-  } finally { busy.value = false; }
-}
-
-// ============ 播放列表维护 ============
-const editingId = ref<number | null>(null);
-const editingText = ref('');
-// 编辑框一出现就自动聚焦并全选 (原来没聚焦, 得手动点进去, 而父项是 draggable
-// 又会把点击当拖拽 —— 于是"点不进/存不了/退不出"。见下 startRename 的 draggable 处理)
-const vFocus = {
-  mounted(el: HTMLInputElement) { el.focus(); el.select(); },
-};
-async function startRename(it: PlaylistItemView): Promise<void> {
-  if (!(await ensureAdmin('改名'))) return;
-  editingId.value = it.id;
-  editingText.value = it.title;
-}
-async function commitRename(it: PlaylistItemView): Promise<void> {
-  const title = editingText.value.trim();
-  editingId.value = null;
-  if (!title || title === it.title) return;
-  const before = it.title;
-  it.title = title;                        // 乐观
-  try {
-    await renamePlaylistItem(it.id, title);
-    ElMessage.success('已改名 (只改列表显示名, 媒体库原文件不变)');
-  } catch (e) {
-    it.title = before;
-    ElMessage.error(`改名失败: ${(e as Error).message}`);
-  }
-}
-
-async function removeItem(it: PlaylistItemView): Promise<void> {
-  const isCurrent = captureConsoleAction();
-  try {
-    await ElMessageBox.confirm(`把「${it.title}」移出播放列表? (媒体库里的文件不会删)`, '移出播放列表', { type: 'warning' });
-  } catch { return; }
-  if (!isCurrent()) return;
-  try {
-    await removeFromPlaylist(it.id);
-    if (!isCurrent()) return;
-    await loadAll();
-    ElMessage.success('已移出播放列表');
-  } catch (e) {
-    if (isCurrent()) ElMessage.error(`移出失败: ${(e as Error).message}`);
-  }
-}
-
-/** 从历史里一键加回列表 (现场常有"刚才那个再放一遍") */
-async function addFromHistory(h: PlaybackHistoryView): Promise<void> {
-  if (h.missing) { ElMessage.warning('这个媒体已被删除'); return; }
-  try {
-    await addToPlaylist(SLOT.value, h.mediaId);
-    await loadAll();
-    ElMessage.success(`「${h.mediaName}」已加入播放列表`);
-  } catch (e) {
-    ElMessage.error(`加入失败: ${(e as Error).message}`);
-  }
-}
-
-// ============ 从媒体库选内容加入播放列表 ============
-/**
- * 2026-07-17 业主: "昨天上传的视频内容是MP4格式, 但不能发送到屏幕播放, 是什么原因?"
- *                 "现在LED大屏之前的欢迎页和网页选择项不见了"
- *
- * 真因 (我挖的坑): 我重做这个页面时, 把老版"视频/图片""网页"两个按钮 (跳媒体页选片)
- * 砍掉换成了播放列表, 但**只留了两条进列表的路**: 上传新的、从播放历史加回。
- * 于是**之前就躺在媒体库里的东西, 既不在历史里(从没播过)、又没法从媒体库选 —— 根本
- * 进不了播放列表**, 自然"发送不到屏幕"。查证过: 那个 MP4 上传成功、文件在、HTTP 200、
- * 编码是 avc1(H.264) Edge 原生能播 —— **格式从来不是原因, 是没有入口**。
- * 网页同理 (网页在媒体库里就是 kind='webpage' 的条目, PlayerPage 本来就支持渲染)。
- *
- * 补上这个选择器, 三个问题一起解决, 而且**不跳走**。
- */
-/** 手机上列表/历史二选一显示; 平板以上两栏并排, 这个值不起作用 */
-const mobTab = ref<'list' | 'his'>('list');
-const pickerOpen = ref(false);
-const pickerKind = ref<'video' | 'image' | 'webpage'>('video');
-const assets = ref<Array<{ id: number; originalName: string; kind: string }>>([]);
-const pickerLoading = ref(false);
-const beginAssetRead = createLatestIdentityRead(() => !consoleDisposed && pickerOpen.value);
-watch(SLOT, () => { pickerOpen.value = false; }, { flush: 'sync' });
-watch(pickerOpen, open => {
-  if (!open) {
-    beginAssetRead(); // Invalidate even if the dialog is reopened before completion.
-    assets.value = [];
-    pickerLoading.value = false;
-  }
-}, { flush: 'sync' });
-onScopeDispose(() => { assets.value = []; });
-
-async function openPicker(): Promise<void> {
-  pickerOpen.value = true;
-  await loadAssets();
-}
-async function loadAssets(): Promise<void> {
-  if (consoleDisposed || !pickerOpen.value) return;
-  const currentRead = beginAssetRead();
-  const currentAction = captureConsoleAction();
-  const kind = pickerKind.value;
-  pickerLoading.value = true;
-  assets.value = [];
-  try {
-    const r = await mediaService.list({ kind });
-    if (!currentRead() || !currentAction() || kind !== pickerKind.value) return;
-    assets.value = r.items.map((m) => ({ id: m.id, originalName: m.originalName, kind: m.kind }));
-  } catch (e) {
-    if (currentRead() && currentAction()) ElMessage.error(`读媒体库失败: ${(e as Error).message}`);
-  } finally { if (currentRead() && currentAction()) pickerLoading.value = false; }
-}
-async function pickAsset(a: { id: number; originalName: string }): Promise<void> {
-  if (!pickerOpen.value || pickerLoading.value || !assets.value.some(item => item.id === a.id)) return;
-  const currentAction = captureConsoleAction();
-  try {
-    await addToPlaylist(SLOT.value, a.id);
-    if (!currentAction()) return;
-    await loadAll();
-    if (!currentAction()) return;
-    ElMessage.success(`「${a.originalName}」已加入播放列表`);
-  } catch (e) {
-    if (currentAction()) ElMessage.error(`加入失败: ${(e as Error).message}`);
-  }
-}
-/** 已在列表里的不重复加 —— 让业主一眼看出哪些已经加过 */
-const inPlaylist = computed(() => new Set(playlist.value.map((x) => x.mediaId)));
-
-// ============ 输入源 (2026-07-28 业主: LED/投影两页统一 + 可选项指向明确) ============
-// 三个按钮各自指向固定目标, 按了就知道播的是什么:
-//   播放内容       → 本屏回到播放列表推送的画面 (GK9000 输出)
-//   欢迎页·可编辑  → 媒体库内置「金湖欢迎页·动态(称谓可编辑)」网页素材 (两屏共用),
-//                    文字/底图在本卡「编辑欢迎页」就地改, 保存即生效
-//   欢迎页·默认    → 本屏专用尺寸的内置静态欢迎图 (slot1=LED版 / slot2=投影版), 兜底
-// 欢迎页统一走 playback 推流 (kiosk 渲染), 和播放列表同一条链路 —— 当前显示什么
-// 直接从通道状态读出来 (currentMediaName), 不再靠"记住自己发过什么"猜。
-// 每个按钮都先把显示链路拉正 (LED: 诺瓦切回 HDMI1; 投影: 融合器回 GK9000 HDMI),
-// 修掉"按了没画面"的历史坑 —— 控制器/融合器停在别的源上时推什么都看不见。
-// (旧版诺瓦 'welcome' 内置 preset 入口已撤: 无法回读、内容改不了、易误切;
-//  HDMI 直通选项 2026-07-18 就因误切事故被业主要求删除, 经过见 git 历史。)
-const WELCOME_EDITABLE_NAME = '金湖欢迎页·动态(称谓可编辑)';
-const WELCOME_DEFAULT_NAMES = ['金湖欢迎页·LED大屏.png', '金湖欢迎页·投影.png'];
-const PARK_DASHBOARD_NAME = '金湖科创产业园·智慧运营总览(DEMO)';
-
-type SourceKey = 'content' | 'park-dashboard' | 'welcome-editable' | 'welcome-default';
-/** 当前源: 从通道在播媒体名判断 (内置素材按名定位, 业主改名后回退为"播放内容") */
-const activeSource = computed<SourceKey | null>(() => {
-  const name = ch.value?.currentMediaName;
-  if (!name || !ch.value?.currentMediaId) return null;
-  if (name === PARK_DASHBOARD_NAME) return 'park-dashboard';
-  if (name === WELCOME_EDITABLE_NAME) return 'welcome-editable';
-  if (WELCOME_DEFAULT_NAMES.includes(name)) return 'welcome-default';
-  return 'content';
-});
-const SRC_HINTS: Record<SourceKey, string> = {
-  'content': '正在播放列表内容',
-  'park-dashboard': '园区综合态势与运营指标 · 点击即可投放到当前屏幕',
-  'welcome-editable': '动态欢迎页 · 点「编辑欢迎页」改文字/底图, 保存即生效',
-  'welcome-default': '内置静态欢迎页 (本屏专用尺寸, 不可编辑)',
-};
-const srcHint = computed(() => (activeSource.value ? SRC_HINTS[activeSource.value] : '当前待机 · 点按钮选择本屏显示内容'));
-
-/** 显示链路拉正 (best-effort): 设备停在别的源上时, 推什么都看不见 */
-async function ensureDisplayPath(): Promise<void> {
-  try {
-    if (props.slot === 1 && props.deviceId) {
-      const r = await ledService.switchInput(props.deviceId, 'video');
-      if (!r.ok) throw new Error(r.error || '设备未确认');
-    } else if (props.slot === 2) {
-      await projectorService.showHdmi();
-    }
-  } catch (e) {
-    // 不挡欢迎页推流 —— 链路已经在正确源上时这里失败也无所谓, 只提示一声
-    ElMessage.warning(`显示链路切换未确认: ${(e as Error).message}`);
-  }
-}
-
-async function selectContent(): Promise<void> {
-  const isCurrent = captureConsoleAction();
-  if (!isCurrent()) return;
-  busy.value = true;
-  try {
-    await ensureDisplayPath();
-    if (!isCurrent()) return;
-    // 正在播欢迎页时按"播放内容" = 恢复播放列表 (从下一条接着放);
-    // 已经在播列表内容时只拉正链路, 不跳片
-    if (activeSource.value !== 'content') {
-      if (!playlist.value.length) {
-        ElMessage.info('播放列表是空的 — 先从媒体库加入素材');
-        return;
-      }
-      await playbackStore.next(SLOT.value);
-    }
-    if (!isCurrent()) return;
-    ElMessage.success('已切到播放内容');
-  } catch (e) {
-    if (isCurrent()) ElMessage.error(`切换失败: ${(e as Error).message}`);
-  } finally { busy.value = false; }
-}
-
-// ============ 输入源欢迎方案下拉 (静态默认第一项 + 编辑器保存的方案, 选中即发布上屏) ============
-const WELCOME_PICK_DEFAULT = '__default__';
-const welcomePickerBusy = ref(false);
-
-/** 轻量拉取方案清单 (只拉 JSON, 不加载图片库), 供输入源下拉回显 */
-async function refreshWelcomeSchemeOptions(notify = false): Promise<void> {
-  try {
-    const snapshot = await fetchWelcomeSchemes();
-    welcomeSchemes.value = snapshot.config.schemes.map((item) => ({ ...item }));
-    welcomeSchemesRevision.value = snapshot.revision;
-    publishedWelcomeSchemeId.value = snapshot.publishedSchemeId;
-  } catch (e) {
-    if (notify) ElMessage.error(`读取欢迎方案失败: ${(e as Error).message}`);
-  }
-}
-
-/** 下拉回显值: 非欢迎源为空(显示占位), 默认页/已发布方案分别高亮 */
-const welcomePickerValue = computed<string>(() => {
-  if (activeSource.value === 'welcome-default') return WELCOME_PICK_DEFAULT;
-  if (activeSource.value === 'welcome-editable') return publishedWelcomeSchemeId.value ?? '';
-  return '';
+const {
+  welcomeEditOpen,
+  welcomeSaving,
+  welcomePublishing,
+  welcomeLoading,
+  welcomeForm,
+  welcomeSchemeName,
+  welcomeSchemes,
+  welcomeSchemesRevision,
+  selectedWelcomeSchemeId,
+  publishedWelcomeSchemeId,
+  LED_CANVAS_RESOLUTION,
+  welcomePreviewUrl,
+  welcomePreviewFrame,
+  logoAssets,
+  bgAssets,
+  rejectedBgAssetCount,
+  incompatibleSelectedBackground,
+  incompatibleSelectedLogo,
+  welcomeBgUploadInput,
+  welcomeLogoUploadInput,
+  welcomeAssetUploading,
+  welcomeAssetUploadPct,
+  welcomeAssetDeletingId,
+  lastWelcomeSaveRevision,
+  welcomeLayoutOptions,
+  welcomeToneOptions,
+  welcomeOverlayOptions,
+  welcomePositionOptions,
+  welcomeLogoSizeOptions, welcomeTitleEffectOptions, welcomeHidden, welcomeDisplayRows,
+  markWelcomeDraftChanged,
+  vWelcomeThumb,
+  requestCloseWelcomeEditor,
+  pushWelcomePreview,
+  selectWelcomeScheme,
+  openWelcomeEditor,
+  pickWelcomeAsset,
+  onWelcomeAssetPicked,
+  selectWelcomeBackground,
+  deleteWelcomeImage,
+  saveWelcomeScheme,
+  publishSelectedWelcomeScheme,
+  selectWelcomeLogo,
+  selectDefaultWelcomeBackground,
+  updateWelcomePresentation,
+  duplicateWelcomeScheme,
+  deleteWelcomeScheme,
+} = useWelcomeEditor({
+  ensureAdmin,
+  captureAction: captureConsoleAction,
+  isEditableSourceActive: () => activeSource.value === 'welcome-editable',
+  // 保持原发布语义：只重推当前动态欢迎页；错误继续抛给编辑器显示“已发布但重推失败”。
+  republishEditable: async () => { await publishWelcome(SLOT.value, 'editable'); },
 });
 
-async function selectWelcome(variant: 'editable' | 'default'): Promise<void> {
-  const isCurrent = captureConsoleAction();
-  if (!isCurrent()) return;
-  busy.value = true;
-  try {
-    await ensureDisplayPath();
-    if (!isCurrent()) return;
-    await publishWelcome(SLOT.value, variant);
-    if (!isCurrent()) return;
-    ElMessage.success(variant === 'editable' ? '已投放动态欢迎页 (点「编辑欢迎页」可改内容)' : '已投放默认欢迎页');
-  } catch (e) {
-    if (isCurrent()) ElMessage.error(`投放欢迎页失败: ${(e as Error).message}`);
-  } finally { busy.value = false; }
-}
-
-async function onWelcomeSchemePick(event: Event): Promise<void> {
-  const selectEl = event.target as HTMLSelectElement;
-  const value = selectEl.value;
-  const rollback = (): void => { selectEl.value = welcomePickerValue.value; };
-  if (welcomePickerBusy.value || busy.value) return;
-  welcomePickerBusy.value = true;
-  try {
-    if (value === WELCOME_PICK_DEFAULT) {
-      await selectWelcome('default');
-    } else {
-      if (!(await ensureAdmin('投放欢迎方案'))) { rollback(); return; }
-      const scheme = welcomeSchemes.value.find((item) => item.id === value);
-      if (!scheme) throw new Error('该欢迎方案不存在，请重新选择');
-      // 发布 = 先把方案快照写入品牌配置, 再复用统一的欢迎投放(含切显示通道/竞态守护)
-      await publishWelcomeScheme(value, welcomeSchemesRevision.value);
-      await refreshWelcomeSchemeOptions();
-      await selectWelcome('editable');
-    }
-    void loadAll();
-  } catch (e) {
-    const msg = (e as Error).message || String(e);
-    await refreshWelcomeSchemeOptions();
-    rollback();
-    ElMessage.error(/冲突|conflict|revision/i.test(msg)
-      ? '欢迎方案刚被其它终端修改，已刷新，请重新选择'
-      : `投放欢迎页失败: ${msg}`);
-  } finally {
-    welcomePickerBusy.value = false;
-  }
-}
-
-async function selectParkDashboard(): Promise<void> {
-  const isCurrent = captureConsoleAction();
-  if (!isCurrent()) return;
-  busy.value = true;
-  try {
-    await ensureDisplayPath();
-    if (!isCurrent()) return;
-    await publishParkDashboard(SLOT.value);
-    if (!isCurrent()) return;
-    ElMessage.success(`已将园区运营大屏投放到${props.title}`);
-    void syncParkOpsState();
-  } catch (e) {
-    if (isCurrent()) ElMessage.error(`投放园区运营大屏失败: ${(e as Error).message}`);
-  } finally { busy.value = false; }
-}
-
-// ============ 运营大屏翻页控制 (PWA播放控制卡片 → LED大屏端运营大屏) ============
-const parkOpsPage = ref(0);
-const parkOpsTotalPages = ref(6); // 运营大屏共6页，后端state会同步
-const parkOpsAuto = ref(false);
-const parkOpsBusy = ref(false);
-
-async function parkOpsControl(action: 'next' | 'prev' | 'auto' | 'refresh'): Promise<void> {
-  if (parkOpsBusy.value) return;
-  parkOpsBusy.value = true;
-  try {
-    const state = action === 'next'
-      ? await parkOpsControlService.next()
-      : action === 'prev'
-        ? await parkOpsControlService.prev()
-        : action === 'auto'
-          ? await parkOpsControlService.setAuto(!parkOpsAuto.value)
-          : await parkOpsControlService.refresh();
-    parkOpsPage.value = state.page;
-    parkOpsAuto.value = state.autoPlay;
-    parkOpsTotalPages.value = state.totalPages;
-    const successMessage = action === 'next'
-      ? '已切到下一页'
-      : action === 'prev'
-        ? '已切到上一页'
-        : action === 'auto'
-          ? state.autoPlay ? '自动轮播已开启' : '自动轮播已关闭'
-          : '已发送强制刷新指令';
-    ElMessage.success(successMessage);
-  } catch (e) {
-    ElMessage.error(`运营大屏控制失败: ${(e as Error).message}`);
-  } finally {
-    // 刷新动作增加3秒冷却时间，防止快速点击多次发送刷新请求
-    if (action === 'refresh') {
-      setTimeout(() => { parkOpsBusy.value = false; }, 3000);
-    } else {
-      parkOpsBusy.value = false;
-    }
-  }
-}
-
-// 投放运营大屏时同步当前状态
-async function syncParkOpsState(): Promise<void> {
-  try {
-    const state = await parkOpsControlService.state();
-    parkOpsPage.value = state.page;
-    parkOpsAuto.value = state.autoPlay;
-    parkOpsTotalPages.value = state.totalPages;
-  } catch { /* ignore */ }
-}
-
-// ============ 欢迎页编辑器 (2026-07-28 业主: "编辑放到前端, 不用进后台") ============
-// 一套 3612x1462 渲染器承载多套欢迎方案。保存只写带版本号的方案库，发布才更新
-// 当前欢迎页快照；因此准备下一场接待不会误改正在播放的画面。
-const welcomeEditOpen = ref(false);
-const welcomeSaving = ref(false);
-const welcomePublishing = ref(false);
-const welcomeLoading = ref(false);
-const welcomeForm = ref({
-  welcomeTitle: '', welcomeGuest: '', welcomeTagline: '',
-  welcomeVenue: '', welcomeVenueEn: '', welcomeOrg1: '', welcomeOrg2: '',
-  welcomeBgMediaId: null as number | null,
-  welcomeLogoMediaId: null as number | null,
-  presentation: { ...DEFAULT_WELCOME_PRESENTATION } as WelcomePresentation,
-});
-// 场馆名/英文/两行落款的"隐藏该行"勾选, 与输入框共同表达三态 (null=默认 / ''=隐藏 / 文本=自定义)
-const welcomeHidden = reactive({ venue: false, venueEn: false, org1: false, org2: false });
-type WelcomeDisplayFormKey = 'welcomeVenue' | 'welcomeVenueEn' | 'welcomeOrg1' | 'welcomeOrg2';
-type WelcomeDisplayHideKey = keyof typeof welcomeHidden;
-function welcomeDisplayValue(formKey: WelcomeDisplayFormKey, hideKey: WelcomeDisplayHideKey): string | null {
-  if (welcomeHidden[hideKey]) return '';
-  const t = welcomeForm.value[formKey].trim();
-  return t === '' ? null : t;
-}
-function applyWelcomeDisplay(value: string | null, formKey: WelcomeDisplayFormKey, hideKey: WelcomeDisplayHideKey): void {
-  if (value === '') { welcomeForm.value[formKey] = ''; welcomeHidden[hideKey] = true; }
-  else { welcomeForm.value[formKey] = value ?? ''; welcomeHidden[hideKey] = false; }
-}
-const welcomeSchemeName = ref('');
-const welcomeSchemes = ref<WelcomeScheme[]>([]);
-const welcomeSchemesRevision = ref(0);
-const selectedWelcomeSchemeId = ref('');
-const publishedWelcomeSchemeId = ref<string | null>(null);
-const LED_CANVAS_RESOLUTION = '3612x1462';
-const welcomePreviewUrl = `${import.meta.env.DEV ? '/' : import.meta.env.BASE_URL}welcome/index.html?preview=1`;
-const welcomePreviewFrame = ref<HTMLIFrameElement | null>(null);
-const logoAssets = ref<WelcomeImageAsset[]>([]);
-const bgAssets = ref<WelcomeImageAsset[]>([]);
-const compatibleBgAssets = computed(() =>
-  bgAssets.value.filter((item) => item.resolution?.toLowerCase() === LED_CANVAS_RESOLUTION),
-);
-const rejectedBgAssetCount = computed(() => bgAssets.value.length - compatibleBgAssets.value.length);
-const incompatibleSelectedBackground = ref(false);
-const incompatibleSelectedLogo = ref(false);
-const welcomeBgUploadInput = ref<HTMLInputElement | null>(null);
-const welcomeLogoUploadInput = ref<HTMLInputElement | null>(null);
-const welcomeAssetUploading = ref<'background' | 'logo' | null>(null);
-const welcomeAssetUploadPct = ref(0);
-const welcomeAssetDeletingId = ref<number | null>(null);
-const lastWelcomeSaveRevision = ref<number | null>(null);
-const LAST_WELCOME_SCHEME_KEY = 'sc.welcome.lastSelectedSchemeId';
-const welcomeLayoutOptions = [
-  { value: 'ceremony', name: '居中典礼', hint: '正式接待、深色或建筑底图' },
-  { value: 'editorial', name: '左文右景', hint: '画面中心较杂，左侧需要稳定文字区' },
-  { value: 'minimal', name: '极简留白', hint: '浅色品牌底图、简洁活动画面' },
-] as const;
-const welcomeToneOptions = [
-  { value: 'light', name: '浅色文字' },
-  { value: 'dark', name: '深色文字' },
-] as const;
-const welcomeOverlayOptions = [
-  { value: 'none', name: '无遮罩' },
-  { value: 'soft', name: '柔和' },
-  { value: 'strong', name: '较强' },
-] as const;
-const welcomePositionOptions = [
-  { value: 'upper', name: '偏上' },
-  { value: 'center', name: '居中' },
-  { value: 'lower', name: '偏下' },
-] as const;
-const welcomeLogoSizeOptions = [
-  { value: 'small', name: '小' },
-  { value: 'medium', name: '中' },
-  { value: 'large', name: '大' },
-] as const;
-const welcomeTitleEffectOptions = [
-  { value: 'blue', name: '科技蓝', hint: '深色底 · 默认' },
-  { value: 'gold', name: '鎏金', hint: '政务接待 / 喜庆深底' },
-  { value: 'white', name: '纯白描边', hint: '明暗混杂 / 复杂照片底' },
-  { value: 'ink', name: '墨蓝', hint: '浅色留白底' },
-  { value: 'neon', name: '霓虹青', hint: '深色科技底' },
-] as const;
-
-function cloneWelcomePresentation(value?: WelcomePresentation): WelcomePresentation {
-  return { ...(value ?? DEFAULT_WELCOME_PRESENTATION) };
-}
-
-function markWelcomeDraftChanged(): void {
-  lastWelcomeSaveRevision.value = null;
-}
-
-function rememberedWelcomeSchemeId(): string {
-  try { return window.localStorage.getItem(LAST_WELCOME_SCHEME_KEY) ?? ''; }
-  catch { return ''; }
-}
-
-function rememberWelcomeSchemeId(id: string): void {
-  if (!id) return;
-  try { window.localStorage.setItem(LAST_WELCOME_SCHEME_KEY, id); }
-  catch { /* private mode or disabled storage */ }
-}
-
-// ---- 编辑器缩略图 (后端暂无缩略图能力: 按需在前端把原图缩成小 WebP blob,
-//      仅进入视口的卡片生成, 按 mediaId 缓存; 发布/大屏仍用 3612 原图点对点) ----
-const welcomeThumbUrlMap = reactive(new Map<number, string>());
-const welcomeThumbInflight = new Map<number, Promise<string>>();
-const WELCOME_BG_THUMB_WIDTH = 1200;
-const WELCOME_LOGO_THUMB_HEIGHT = 256;
-
-async function ensureWelcomeThumb(asset: WelcomeImageAsset, kind: 'background' | 'logo'): Promise<string> {
-  const cached = welcomeThumbUrlMap.get(asset.id);
-  if (cached) return cached;
-  const inflight = welcomeThumbInflight.get(asset.id);
-  if (inflight) return inflight;
-  const task = (async (): Promise<string> => {
-    const loadBlob = async (url: string): Promise<Blob> => {
-      const res = await fetch(absUrl(url), { cache: 'no-store' });
-      if (res.status === 401 || res.status === 403 || res.status === 410) {
-        throw Object.assign(new Error(`ticket-expired-${res.status}`), { expired: true });
-      }
-      if (!res.ok) throw new Error(`读取图片失败 (${res.status})`);
-      return res.blob();
-    };
-    let blob: Blob;
-    try {
-      blob = await loadBlob(asset.fileUrl);
-    } catch (e) {
-      if (!(e as { expired?: boolean }).expired) throw e;
-      const access = await mediaService.access(asset.id);
-      asset.fileUrl = access.url;   // 续上 5 分钟短期票
-      blob = await loadBlob(access.url);
-    }
-    const bitmap = await createImageBitmap(blob);
-    let targetW: number;
-    let targetH: number;
-    if (kind === 'background') {
-      targetW = Math.min(bitmap.width, WELCOME_BG_THUMB_WIDTH);   // 只缩不放
-      targetH = Math.max(1, Math.round(targetW * (bitmap.height / bitmap.width)));
-    } else {
-      targetH = Math.min(bitmap.height, WELCOME_LOGO_THUMB_HEIGHT);
-      targetW = Math.max(1, Math.round(targetH * (bitmap.width / bitmap.height)));
-    }
-    const canvas = document.createElement('canvas');
-    canvas.width = targetW;
-    canvas.height = targetH;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('canvas 不可用');
-    ctx.drawImage(bitmap, 0, 0, targetW, targetH);
-    bitmap.close?.();
-    const encode = (mime: string) => new Promise<Blob | null>((resolve) =>
-      canvas.toBlob((b) => resolve(b), mime, 0.85));
-    // WebP 体积小且支持透明; 老环境兜底: Logo 用 PNG 保透明, 底图用 JPEG
-    const out = (await encode('image/webp'))
-      || (await encode(kind === 'logo' ? 'image/png' : 'image/jpeg'));
-    if (!out) throw new Error('缩略图编码失败');
-    return URL.createObjectURL(out);
-  })();
-  welcomeThumbInflight.set(asset.id, task);
-  try {
-    const url = await task;
-    welcomeThumbUrlMap.set(asset.id, url);
-    return url;
-  } finally {
-    welcomeThumbInflight.delete(asset.id);
-  }
-}
-
-/** 库卡片图片进入视口才按需缩图, 避免一打开编辑器就全量下载/解码 3612 原图 (手机端尤卡) */
-const vWelcomeThumb: Directive<HTMLImageElement, { id: number; kind: 'background' | 'logo' }> = {
-  mounted(el, binding) {
-    const { id, kind } = binding.value;
-    const assetOf = (): WelcomeImageAsset | undefined =>
-      (kind === 'background' ? bgAssets.value : logoAssets.value).find((a) => a.id === id);
-    const run = (): void => {
-      const asset = assetOf();
-      if (!asset) return;
-      ensureWelcomeThumb(asset, kind)
-        .then((url) => { if (el.isConnected) el.src = url; })
-        .catch(() => { if (asset.fileUrl && el.isConnected) el.src = absUrl(asset.fileUrl); });
-    };
-    if (typeof IntersectionObserver === 'undefined') { run(); return; }
-    const io = new IntersectionObserver((entries) => {
-      if (!entries.some((x) => x.isIntersecting)) return;
-      io.disconnect();
-      run();
-    }, { root: null, rootMargin: '240px' });
-    io.observe(el);
-  },
-};
-
-onScopeDispose(() => {
-  welcomeThumbUrlMap.forEach((url) => URL.revokeObjectURL(url));
-  welcomeThumbUrlMap.clear();
-  welcomeThumbInflight.clear();
+const {
+  srcHint,
+  welcomePickerBusy,
+  welcomePickerValue,
+  parkOpsPage,
+  parkOpsTotalPages,
+  parkOpsAuto,
+  parkOpsBusy,
+  refreshWelcomeSchemeOptions,
+  selectContent,
+  onWelcomeSchemePick,
+  selectParkDashboard,
+  parkOpsControl,
+} = usePlayerInputSources({
+  slot: SLOT,
+  title: () => props.title,
+  deviceId: () => props.deviceId,
+  activeSource,
+  playlist,
+  busy,
+  welcomeSchemes,
+  welcomeSchemesRevision,
+  publishedWelcomeSchemeId,
+  ensureAdmin,
+  captureAction: captureConsoleAction,
+  nextPlayback: (slot) => playbackStore.next(slot),
+  reloadLists: loadAll,
 });
 
-/** 脏标记: 加载完成后且最后保存版本号被清空 = 有未保存修改 */
-const welcomeSaveDirty = computed(() => !welcomeLoading.value && lastWelcomeSaveRevision.value === null);
+// 欢迎页编辑和输入源切换均已收敛到组合式用例；本组件保留模板与播放器编排。
 
-async function requestCloseWelcomeEditor(): Promise<void> {
-  if (welcomeSaving.value || welcomePublishing.value
-    || welcomeAssetUploading.value !== null || welcomeAssetDeletingId.value !== null) {
-    ElMessage.warning('正在保存、发布或处理图片，请稍候再关闭');
-    return;
-  }
-  if (welcomeSaveDirty.value) {
-    try {
-      await ElMessageBox.confirm('当前方案有尚未保存的修改，关闭后将丢失。确定关闭吗？', '有未保存的修改', {
-        confirmButtonText: '放弃修改并关闭', cancelButtonText: '继续编辑', type: 'warning',
-      });
-    } catch { return; }
-  }
-  welcomeEditOpen.value = false;
-}
-
-let welcomePreviewSeq = 0;
-async function pushWelcomePreview(): Promise<void> {
-  const frame = welcomePreviewFrame.value;
-  if (!frame) return;
-  const seq = ++welcomePreviewSeq;
-  const selected = compatibleBgAssets.value.find((item) => item.id === welcomeForm.value.welcomeBgMediaId);
-  const selectedLogo = logoAssets.value.find((item) => item.id === welcomeForm.value.welcomeLogoMediaId);
-  const [bgUrl, logoUrl] = await Promise.all([
-    selected
-      ? ensureWelcomeThumb(selected, 'background').catch(() => absUrl(selected.fileUrl))
-      : Promise.resolve(null),
-    selectedLogo
-      ? ensureWelcomeThumb(selectedLogo, 'logo').catch(() => absUrl(selectedLogo.fileUrl))
-      : Promise.resolve(null),
-  ]);
-  if (seq !== welcomePreviewSeq || !frame.contentWindow) return;  // 快速切方案只保留最新一帧, 防串图
-  frame.contentWindow.postMessage({
-    type: 'smart-control:welcome-preview',
-    payload: {
-      welcomeTitle: welcomeForm.value.welcomeTitle,
-      welcomeGuest: welcomeForm.value.welcomeGuest,
-      welcomeTagline: welcomeForm.value.welcomeTagline,
-      welcomeVenue: welcomeDisplayValue('welcomeVenue', 'venue'),
-      welcomeVenueEn: welcomeDisplayValue('welcomeVenueEn', 'venueEn'),
-      welcomeOrg1: welcomeDisplayValue('welcomeOrg1', 'org1'),
-      welcomeOrg2: welcomeDisplayValue('welcomeOrg2', 'org2'),
-      welcomeBgUrl: bgUrl,
-      welcomeLogoUrl: logoUrl,
-      welcomePresentation: cloneWelcomePresentation(welcomeForm.value.presentation),
-    },
-  }, window.location.origin);
-}
-
-watch(welcomeForm, pushWelcomePreview, { deep: true });
-watch(welcomeHidden, pushWelcomePreview, { deep: true });
-
-function applyWelcomeScheme(id: string): void {
-  const scheme = welcomeSchemes.value.find((item) => item.id === id);
-  if (!scheme) return;
-  selectedWelcomeSchemeId.value = id;
-  rememberWelcomeSchemeId(id);
-  welcomeSchemeName.value = scheme.name;
-  incompatibleSelectedBackground.value = scheme.welcomeBgMediaId !== null
-    && !compatibleBgAssets.value.some((item) => item.id === scheme.welcomeBgMediaId);
-  incompatibleSelectedLogo.value = scheme.welcomeLogoMediaId !== null
-    && !logoAssets.value.some((item) => item.id === scheme.welcomeLogoMediaId);
-  welcomeForm.value = {
-    welcomeTitle: scheme.welcomeTitle ?? '',
-    welcomeGuest: scheme.welcomeGuest ?? '',
-    welcomeTagline: scheme.welcomeTagline ?? '',
-    welcomeVenue: '', welcomeVenueEn: '', welcomeOrg1: '', welcomeOrg2: '',
-    welcomeBgMediaId: incompatibleSelectedBackground.value ? null : scheme.welcomeBgMediaId,
-    welcomeLogoMediaId: incompatibleSelectedLogo.value ? null : scheme.welcomeLogoMediaId,
-    presentation: cloneWelcomePresentation(scheme.presentation),
-  };
-  applyWelcomeDisplay(scheme.welcomeVenue ?? null, 'welcomeVenue', 'venue');
-  applyWelcomeDisplay(scheme.welcomeVenueEn ?? null, 'welcomeVenueEn', 'venueEn');
-  applyWelcomeDisplay(scheme.welcomeOrg1 ?? null, 'welcomeOrg1', 'org1');
-  applyWelcomeDisplay(scheme.welcomeOrg2 ?? null, 'welcomeOrg2', 'org2');
-}
-
-function syncSelectedWelcomeDraft(): boolean {
-  const index = welcomeSchemes.value.findIndex((item) => item.id === selectedWelcomeSchemeId.value);
-  if (index < 0) return false;
-  const name = welcomeSchemeName.value.trim();
-  if (!name) {
-    ElMessage.error('方案名称不能为空');
-    return false;
-  }
-  if (welcomeForm.value.welcomeBgMediaId !== null
-    && !compatibleBgAssets.value.some((item) => item.id === welcomeForm.value.welcomeBgMediaId)) {
-    ElMessage.error(`欢迎页底图必须是 LED 原生分辨率 ${LED_CANVAS_RESOLUTION}`);
-    return false;
-  }
-  if (welcomeForm.value.welcomeLogoMediaId !== null
-    && !logoAssets.value.some((item) => item.id === welcomeForm.value.welcomeLogoMediaId)) {
-    ElMessage.error('欢迎页 Logo 必须是已上传的图片');
-    return false;
-  }
-  welcomeSchemes.value[index] = {
-    id: selectedWelcomeSchemeId.value,
-    name,
-    welcomeTitle: welcomeForm.value.welcomeTitle.trim() || null,
-    welcomeGuest: welcomeForm.value.welcomeGuest.trim() || null,
-    welcomeTagline: welcomeForm.value.welcomeTagline.trim() || null,
-    welcomeVenue: welcomeDisplayValue('welcomeVenue', 'venue'),
-    welcomeVenueEn: welcomeDisplayValue('welcomeVenueEn', 'venueEn'),
-    welcomeOrg1: welcomeDisplayValue('welcomeOrg1', 'org1'),
-    welcomeOrg2: welcomeDisplayValue('welcomeOrg2', 'org2'),
-    welcomeBgMediaId: welcomeForm.value.welcomeBgMediaId,
-    welcomeLogoMediaId: welcomeForm.value.welcomeLogoMediaId,
-    presentation: cloneWelcomePresentation(welcomeForm.value.presentation),
-  };
-  return true;
-}
-
-function selectWelcomeScheme(id: string): void {
-  if (id === selectedWelcomeSchemeId.value) return;
-  if (!syncSelectedWelcomeDraft()) return;
-  applyWelcomeScheme(id);
-}
-
-async function openWelcomeEditor(): Promise<void> {
-  if (!(await ensureAdmin('编辑欢迎页'))) return;
-  welcomeEditOpen.value = true;
-  welcomeLoading.value = true;
-  lastWelcomeSaveRevision.value = null;
-  try {
-    const [snapshot, imgs] = await Promise.all([
-      fetchWelcomeSchemes(),
-      mediaService.list({ kind: 'image' }),
-    ]);
-    // 列表接口已为图片素材签发短期访问票 (fileUrl), 这里不再逐张重复取票;
-    // 缩略图按需生成时若票过期(5 分钟)会现场续票。
-    const assets: WelcomeImageAsset[] = imgs.items.map((m) => ({
-      id: m.id,
-      originalName: m.originalName,
-      thumbUrl: m.thumbUrl,
-      fileUrl: m.fileUrl,
-      resolution: m.resolution,
-      remark: m.remark,
-      source: m.source,
-    }));
-    const libraries = classifyWelcomeImageAssets(assets, snapshot.config.schemes);
-    bgAssets.value = libraries.backgrounds;
-    logoAssets.value = libraries.logos;
-    welcomeSchemes.value = snapshot.config.schemes.map((item) => ({ ...item }));
-    welcomeSchemesRevision.value = snapshot.revision;
-    publishedWelcomeSchemeId.value = snapshot.publishedSchemeId;
-    // 默认回到本次/上次正在编辑的方案(编辑连续性); 都无效时定位在播方案, 再退第一套
-    const publishedFallback =
-      snapshot.publishedSchemeId &&
-      snapshot.config.schemes.some((item) => item.id === snapshot.publishedSchemeId)
-        ? snapshot.publishedSchemeId
-        : snapshot.config.schemes[0].id;
-    const preferredId = selectedWelcomeSchemeId.value || rememberedWelcomeSchemeId();
-    const initialId = snapshot.config.schemes.some((item) => item.id === preferredId)
-      ? preferredId
-      : publishedFallback;
-    applyWelcomeScheme(initialId);
-    lastWelcomeSaveRevision.value = snapshot.revision;  // 刚加载=与服务器一致, 不算未保存
-  } catch (e) {
-    ElMessage.error(`读取欢迎页配置失败: ${(e as Error).message}`);
-  } finally { welcomeLoading.value = false; }
-}
-
-function pickWelcomeAsset(kind: 'background' | 'logo'): void {
-  if (welcomeAssetUploading.value) return;
-  (kind === 'background' ? welcomeBgUploadInput.value : welcomeLogoUploadInput.value)?.click();
-}
-
-async function onWelcomeAssetPicked(kind: 'background' | 'logo', event: Event): Promise<void> {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0];
-  input.value = '';
-  if (!file) return;
-  if (!file.type.startsWith('image/')) {
-    ElMessage.error('请选择 PNG、JPG 或 WebP 图片');
-    return;
-  }
-  if (!(await ensureAdmin(kind === 'background' ? '上传欢迎页底图' : '上传欢迎页 Logo'))) return;
-  const targetSchemeId = selectedWelcomeSchemeId.value;
-  const isCurrent = captureConsoleAction();
-  welcomeAssetUploading.value = kind;
-  welcomeAssetUploadPct.value = 0;
-  try {
-    const uploadFile = kind === 'background'
-      ? await normalizeWelcomeBackground(file)
-      : file;
-    const uploaded = await mediaService.upload(uploadFile, {
-      remark: kind === 'background' ? '欢迎页底图' : '欢迎页 Logo',
-      onProgress: (pct: number) => { welcomeAssetUploadPct.value = pct; },
-    });
-    if (!isCurrent()) return;
-    if (uploaded.kind !== 'image') throw new Error('上传文件不是可用图片');
-    const access = await mediaService.access(uploaded.id);
-    if (!isCurrent()) return;
-    const asset: WelcomeImageAsset = {
-      id: uploaded.id,
-      originalName: uploaded.originalName,
-      thumbUrl: null,
-      fileUrl: access.url,
-      resolution: uploaded.resolution,
-      remark: uploaded.remark,
-      source: uploaded.source,
-    };
-    const libraries = addWelcomeImageAsset(
-      { backgrounds: bgAssets.value, logos: logoAssets.value },
-      kind,
-      asset,
-    );
-    bgAssets.value = libraries.backgrounds;
-    logoAssets.value = libraries.logos;
-    if (selectedWelcomeSchemeId.value !== targetSchemeId) {
-      ElMessage.info('图片已上传到媒体库；当前已切换方案，因此没有自动绑定');
-      return;
-    }
-    if (kind === 'background') {
-      if (asset.resolution?.toLowerCase() !== LED_CANVAS_RESOLUTION) {
-        ElMessage.warning(`底图必须是 ${LED_CANVAS_RESOLUTION}，当前为 ${asset.resolution || '未知尺寸'}；图片已保存在媒体库，但没有绑定`);
-        return;
-      }
-      welcomeForm.value = chooseWelcomeBackground(welcomeForm.value, asset.id);
-      markWelcomeDraftChanged();
-      incompatibleSelectedBackground.value = false;
-      ElMessage.success('底图已转换为 LED 原生尺寸并选中，保存方案后保留');
-    } else {
-      welcomeForm.value = chooseWelcomeLogo(welcomeForm.value, asset.id);
-      markWelcomeDraftChanged();
-      incompatibleSelectedLogo.value = false;
-      ElMessage.success('Logo 已上传并选中，保存方案后保留');
-    }
-  } catch (error) {
-    ElMessage.error(`上传失败: ${(error as Error).message}`);
-  } finally {
-    welcomeAssetUploading.value = null;
-    welcomeAssetUploadPct.value = 0;
-  }
-}
-
-async function selectWelcomeBackground(asset: WelcomeImageAsset): Promise<void> {
-  if (welcomeAssetUploading.value || welcomeAssetDeletingId.value !== null) return;
-  if (asset.resolution?.toLowerCase() === LED_CANVAS_RESOLUTION) {
-    welcomeForm.value = chooseWelcomeBackground(welcomeForm.value, asset.id);
-    incompatibleSelectedBackground.value = false;
-    markWelcomeDraftChanged();
-    return;
-  }
-  if (!(await ensureAdmin('转换欢迎页底图'))) return;
-  const targetSchemeId = selectedWelcomeSchemeId.value;
-  const isCurrent = captureConsoleAction();
-  welcomeAssetUploading.value = 'background';
-  welcomeAssetUploadPct.value = 0;
-  try {
-    const access = await mediaService.access(asset.id);
-    const response = await fetch(absUrl(access.url), { cache: 'no-store' });
-    if (!response.ok) throw new Error(`读取原底图失败 (${response.status})`);
-    const blob = await response.blob();
-    const source = new File([blob], asset.originalName, {
-      type: blob.type || 'image/jpeg',
-      lastModified: Date.now(),
-    });
-    const normalized = await normalizeWelcomeBackground(source);
-    const uploaded = await mediaService.upload(normalized, {
-      remark: '欢迎页底图',
-      onProgress: (pct: number) => { welcomeAssetUploadPct.value = pct; },
-    });
-    if (!isCurrent()) return;
-    if (uploaded.kind !== 'image' || uploaded.resolution?.toLowerCase() !== LED_CANVAS_RESOLUTION) {
-      throw new Error(`服务器未确认 ${LED_CANVAS_RESOLUTION} 底图`);
-    }
-    const uploadedAccess = await mediaService.access(uploaded.id);
-    if (!isCurrent()) return;
-    const converted: WelcomeImageAsset = {
-      id: uploaded.id,
-      originalName: uploaded.originalName,
-      thumbUrl: null,
-      fileUrl: uploadedAccess.url,
-      resolution: uploaded.resolution,
-      remark: uploaded.remark,
-      source: uploaded.source,
-    };
-    const libraries = addWelcomeImageAsset(
-      { backgrounds: bgAssets.value, logos: logoAssets.value },
-      'background',
-      converted,
-    );
-    bgAssets.value = libraries.backgrounds;
-    logoAssets.value = libraries.logos;
-    if (selectedWelcomeSchemeId.value !== targetSchemeId) {
-      ElMessage.info('底图已转换保存；当前已切换方案，因此没有自动绑定');
-      return;
-    }
-    welcomeForm.value = chooseWelcomeBackground(welcomeForm.value, converted.id);
-    markWelcomeDraftChanged();
-    incompatibleSelectedBackground.value = false;
-    ElMessage.success('旧底图已转换为 LED 原生尺寸并选中，保存方案后生效');
-  } catch (error) {
-    ElMessage.error(`底图转换失败: ${(error as Error).message}`);
-  } finally {
-    welcomeAssetUploading.value = null;
-    welcomeAssetUploadPct.value = 0;
-  }
-}
-
-async function deleteWelcomeImage(kind: 'background' | 'logo', asset: WelcomeImageAsset): Promise<void> {
-  if (asset.source === 'system' || welcomeAssetDeletingId.value !== null) return;
-  if (!(await ensureAdmin(kind === 'background' ? '删除欢迎页底图' : '删除欢迎页 Logo'))) return;
-  const referencedCount = welcomeSchemes.value.filter((scheme) =>
-    kind === 'background'
-      ? scheme.welcomeBgMediaId === asset.id
-      : scheme.welcomeLogoMediaId === asset.id,
-  ).length;
-  const referenceHint = referencedCount
-    ? `\n该图片已被 ${referencedCount} 套方案使用，删除后这些方案会自动改用默认${kind === 'background' ? '底图' : '场馆 Logo'}。`
-    : '';
-  try {
-    await ElMessageBox.confirm(
-      `确定永久删除“${asset.originalName}”吗？${referenceHint}`,
-      kind === 'background' ? '删除欢迎页底图' : '删除欢迎页 Logo',
-      {
-        confirmButtonText: '删除图片',
-        cancelButtonText: '取消',
-        type: 'warning',
-        modalClass: 'welcome-image-delete-confirm',
-      },
-    );
-  } catch { return; }
-
-  const selectedId = selectedWelcomeSchemeId.value;
-  const isCurrent = captureConsoleAction();
-  welcomeAssetDeletingId.value = asset.id;
-  lastWelcomeSaveRevision.value = null;
-  try {
-    const result = await removeWelcomeAsset(asset.id, welcomeSchemesRevision.value);
-    if (!isCurrent()) return;
-    welcomeSchemes.value = result.schemes.config.schemes.map((item) => ({ ...item }));
-    welcomeSchemesRevision.value = result.schemes.revision;
-    publishedWelcomeSchemeId.value = result.schemes.publishedSchemeId;
-    bgAssets.value = bgAssets.value.filter((item) => item.id !== asset.id);
-    logoAssets.value = logoAssets.value.filter((item) => item.id !== asset.id);
-    applyWelcomeScheme(
-      welcomeSchemes.value.some((item) => item.id === selectedId)
-        ? selectedId
-        : welcomeSchemes.value[0].id,
-    );
-    lastWelcomeSaveRevision.value = result.schemes.revision;  // 删图已即时持久化, 不再算未保存
-    ElMessage.success(result.cleanupPending ? '图片记录已删除，服务器正在清理文件' : '图片已删除');
-  } catch (error) {
-    ElMessage.error(`删除失败: ${(error as Error).message}`);
-  } finally {
-    welcomeAssetDeletingId.value = null;
-  }
-}
-
-async function persistWelcomeSchemes(checkAdmin = true): Promise<WelcomeSchemesSnapshot | null> {
-  if (!syncSelectedWelcomeDraft()) return null;
-  if (checkAdmin && !(await ensureAdmin('保存欢迎方案'))) return null;
-  welcomeSaving.value = true;
-  try {
-    const selectedId = selectedWelcomeSchemeId.value;
-    const saved = await saveWelcomeSchemes(
-      {
-        version: 2,
-        schemes: welcomeSchemes.value.map((scheme) => ({
-          ...scheme,
-          presentation: cloneWelcomePresentation(scheme.presentation),
-        })),
-      },
-      welcomeSchemesRevision.value,
-    );
-    // A 200 response is not enough: immediately read the server document back so
-    // the UI cannot claim success while displaying a stale or different revision.
-    const confirmed = await fetchWelcomeSchemes();
-    if (confirmed.revision !== saved.revision
-      || confirmed.checksum !== saved.checksum
-      || JSON.stringify(confirmed.config) !== JSON.stringify(saved.config)) {
-      throw new Error('服务器回读结果与本次保存不一致，请重新打开后再保存');
-    }
-    welcomeSchemes.value = confirmed.config.schemes.map((item) => ({ ...item }));
-    welcomeSchemesRevision.value = confirmed.revision;
-    publishedWelcomeSchemeId.value = confirmed.publishedSchemeId;
-    lastWelcomeSaveRevision.value = confirmed.revision;
-    applyWelcomeScheme(selectedId);
-    return confirmed;
-  } catch (e) {
-    ElMessage.error(`保存失败: ${(e as Error).message}`);
-    return null;
-  } finally { welcomeSaving.value = false; }
-}
-
-async function saveWelcomeScheme(): Promise<void> {
-  const schemeName = welcomeSchemeName.value.trim();
-  const saved = await persistWelcomeSchemes();
-  if (saved) {
-    ElMessage.success(`“${schemeName}”已保存到服务器方案库（版本 ${saved.revision}），当前 LED 画面未切换`);
-  }
-}
-
-async function publishSelectedWelcomeScheme(): Promise<void> {
-  if (!(await ensureAdmin('发布欢迎页'))) return;
-  if (!(await persistWelcomeSchemes(false))) return;
-  welcomePublishing.value = true;
-  try {
-    const selectedId = selectedWelcomeSchemeId.value;
-    const selected = welcomeSchemes.value.find((item) => item.id === selectedId);
-    if (!selected) throw new Error('当前方案不存在，请重新打开编辑器');
-    const published = await publishWelcomeScheme(selectedId, welcomeSchemesRevision.value);
-    const confirmed = published.branding.welcomeTitle === selected.welcomeTitle
-      && published.branding.welcomeGuest === selected.welcomeGuest
-      && published.branding.welcomeTagline === selected.welcomeTagline
-      && published.branding.welcomeVenue === selected.welcomeVenue
-      && published.branding.welcomeVenueEn === selected.welcomeVenueEn
-      && published.branding.welcomeOrg1 === selected.welcomeOrg1
-      && published.branding.welcomeOrg2 === selected.welcomeOrg2
-      && published.branding.welcomeBgMediaId === selected.welcomeBgMediaId
-      && published.branding.welcomeLogoMediaId === selected.welcomeLogoMediaId
-      && JSON.stringify(published.branding.welcomePresentation) === JSON.stringify(selected.presentation);
-    if (!confirmed) throw new Error('服务器未确认发布结果，原大屏画面保持不变，请重试');
-    publishedWelcomeSchemeId.value = selectedId;
-    let refreshFailed = false;
-    if (activeSource.value === 'welcome-editable') {
-      try { await publishWelcome(SLOT.value, 'editable'); }
-      catch { refreshFailed = true; }
-    }
-    if (refreshFailed) ElMessage.warning('方案已发布；大屏重推失败，将在轮询后自动更新');
-    else ElMessage.success('方案已发布到 LED 大屏');
-  } catch (e) {
-    ElMessage.error(`发布失败: ${(e as Error).message}`);
-  } finally { welcomePublishing.value = false; }
-}
-
-function selectWelcomeLogo(mediaId: number | null): void {
-  if (welcomeAssetUploading.value || welcomeAssetDeletingId.value !== null) return;
-  welcomeForm.value = chooseWelcomeLogo(welcomeForm.value, mediaId);
-  incompatibleSelectedLogo.value = false;
-  markWelcomeDraftChanged();
-}
-
-function selectDefaultWelcomeBackground(): void {
-  if (welcomeAssetUploading.value || welcomeAssetDeletingId.value !== null) return;
-  welcomeForm.value = chooseWelcomeBackground(welcomeForm.value, null);
-  incompatibleSelectedBackground.value = false;
-  markWelcomeDraftChanged();
-}
-
-function updateWelcomePresentation<K extends keyof WelcomePresentation>(
-  key: K,
-  value: WelcomePresentation[K],
-): void {
-  welcomeForm.value = changeWelcomePresentation(welcomeForm.value, key, value);
-  markWelcomeDraftChanged();
-}
-
-function duplicateWelcomeScheme(): void {
-  if (!syncSelectedWelcomeDraft()) return;
-  if (welcomeSchemes.value.length >= 20) {
-    ElMessage.warning('最多保存 20 套欢迎方案');
-    return;
-  }
-  const source = welcomeSchemes.value.find((item) => item.id === selectedWelcomeSchemeId.value);
-  if (!source) return;
-  const copy: WelcomeScheme = {
-    ...source,
-    id: `scheme-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-    name: `${source.name} 副本`.slice(0, 40),
-  };
-  welcomeSchemes.value.push(copy);
-  applyWelcomeScheme(copy.id);
-  markWelcomeDraftChanged();
-}
-
-async function deleteWelcomeScheme(): Promise<void> {
-  if (welcomeSchemes.value.length <= 1) {
-    ElMessage.warning('至少保留一套欢迎方案');
-    return;
-  }
-  if (selectedWelcomeSchemeId.value === publishedWelcomeSchemeId.value) {
-    ElMessage.warning('当前正在使用这套方案，请先发布另一套方案');
-    return;
-  }
-  try {
-    await ElMessageBox.confirm(`确定删除“${welcomeSchemeName.value}”吗？`, '删除欢迎方案', {
-      confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning',
-    });
-  } catch { return; }
-  const index = welcomeSchemes.value.findIndex((item) => item.id === selectedWelcomeSchemeId.value);
-  welcomeSchemes.value.splice(index, 1);
-  applyWelcomeScheme(welcomeSchemes.value[Math.max(0, index - 1)].id);
-  markWelcomeDraftChanged();
-}
-
-// ============ 拖拽排序 ============
-// 原生 HTML5 drag & drop, 不引第三方库。顺序**存后端** (reorderPlaylist):
-// 现场是主控机+平板+手机多终端, 只存前端的话每台设备顺序都不一样, 等于没排 ——
-// 灯光分区排序已经论证过这一点, 同一个道理。
-const dragId = ref<number | null>(null);
-const dragOverId = ref<number | null>(null);
-
-function onDragStart(it: PlaylistItemView, ev: DragEvent): void {
-  dragId.value = it.id;
-  ev.dataTransfer?.setData('text/plain', String(it.id));   // Firefox 不设这个不触发 drop
-  if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move';
-}
-function onDragOver(it: PlaylistItemView, ev: DragEvent): void {
-  if (dragId.value === null || dragId.value === it.id) return;
-  ev.preventDefault();                                     // 不 preventDefault 就不允许 drop
-  dragOverId.value = it.id;
-}
-async function onDrop(target: PlaylistItemView): Promise<void> {
-  const from = dragId.value;
-  dragId.value = null;
-  dragOverId.value = null;
-  if (from === null || from === target.id) return;
-
-  const list = playlist.value.slice();
-  const fi = list.findIndex((x) => x.id === from);
-  const ti = list.findIndex((x) => x.id === target.id);
-  if (fi < 0 || ti < 0) return;
-  if (new Set(list.map(item => item.ownerUserId)).size > 1) {
-    ElMessage.warning('当前包含共享及个人列表，不能混合排序');
-    return;
-  }
-  const [moved] = list.splice(fi, 1);
-  list.splice(ti, 0, moved);
-  const before = playlist.value;
-  playlist.value = list;                                   // 乐观: 松手立刻就位
-  try {
-    await reorderPlaylist(SLOT.value, list.map((x) => x.id));
-  } catch (e) {
-    playlist.value = before;                               // 失败回滚, 不留后端不认的假顺序
-    ElMessage.error(`排序保存失败: ${(e as Error).message}`);
-  }
-}
-function onDragEnd(): void {
-  dragId.value = null;
-  dragOverId.value = null;
-}
-
-// ============ 本页直接上传 (业主: "在 LED 大屏播放页面就可以直接点击上传内容") ============
-const fileInput = ref<HTMLInputElement | null>(null);
-const uploading = ref(false);
-const uploadPct = ref(0);
-function pickFile(): void { fileInput.value?.click(); }
-
-async function onFilePicked(ev: Event): Promise<void> {
-  const f = (ev.target as HTMLInputElement).files?.[0];
-  (ev.target as HTMLInputElement).value = '';    // 允许连续传同一个文件
-  if (!f) return;
-  const isCurrent = captureConsoleAction();
-  uploading.value = true;
-  uploadPct.value = 0;
-  try {
-    const m = await mediaService.upload(f, { onProgress: (pct: number) => { uploadPct.value = pct; } });
-    if (!isCurrent()) return;
-    // **只入媒体库, 不自动进播放列表** —— 业主: "媒体文件夹内容默认不加入播放列表,
-    // 需经管理员确认后再手工加入"。所以这里问一句, 由人决定。
-    try {
-      await ElMessageBox.confirm(
-        `「${m.originalName}」已上传到媒体库。要现在加入播放列表吗?`,
-        '上传完成',
-        { confirmButtonText: '加入播放列表', cancelButtonText: '只放媒体库', type: 'success' },
-      );
-      if (!isCurrent()) return;
-      await addToPlaylist(SLOT.value, m.id);
-      if (!isCurrent()) return;
-      await loadAll();
-      ElMessage.success('已加入播放列表');
-    } catch {
-      if (isCurrent()) ElMessage.info('已保存到媒体库 (未加入播放列表)');
-    }
-  } catch (e) {
-    if (isCurrent()) ElMessage.error(`上传失败: ${(e as Error).message}`);
-  } finally {
-    uploading.value = false;
-  }
-}
-
-// ============ 添加网页 (业主: "说的可以播放网页内容也没加上吗") ============
-// "从媒体库选"的网页 tab 只能挑**已经存在**的网页条目 —— 库里一条没有的话形同虚设,
-// 得先去媒体页用"添加网页"建一条再回来选, 业主感受就是"没加上"。跟"上传内容"
-// 同一个道理, 本页直接能建, 不用跳走 (业主: "播放页面不应该点击按钮跳转到其他页面")。
-const webpageDialog = ref(false);
-const webpageForm = ref<{ name: string; url: string }>({ name: '', url: '' });
-function openWebpageDialog(): void {
-  webpageForm.value = { name: '', url: '' };
-  webpageDialog.value = true;
-}
-async function submitWebpage(): Promise<void> {
-  const url = webpageForm.value.url.trim();
-  if (!/^https?:\/\//i.test(url)) { ElMessage.warning('网址要以 http:// 或 https:// 开头'); return; }
-  try {
-    const m = await mediaService.createWebpage(webpageForm.value.name.trim() || url, url);
-    await addToPlaylist(SLOT.value, m.id);
-    await loadAll();
-    webpageDialog.value = false;
-    ElMessage.success(`「${m.originalName}」已加入播放列表`);
-  } catch (e) {
-    ElMessage.error(`添加失败: ${(e as Error).message}`);
-  }
-}
 </script>
 
 <template>
@@ -1868,33 +656,12 @@ async function submitWebpage(): Promise<void> {
             <input v-model="welcomeForm.welcomeGuest" class="wb-input" maxlength="64" placeholder="各位领导嘉宾" @input="markWelcomeDraftChanged" />
             <label class="wb-label">底部标语 (空 = 默认「智慧展厅 · 数字展贸 · 科创未来」)</label>
             <input v-model="welcomeForm.welcomeTagline" class="wb-input" maxlength="64" placeholder="智慧展厅 · 数字展贸 · 科创未来" @input="markWelcomeDraftChanged" />
-            <div class="wb-display-row">
+            <div v-for="row in welcomeDisplayRows" :key="row.formKey" class="wb-display-row">
               <div class="wb-display-main">
-                <label class="wb-label">场馆中文名（空 = 默认，勾选 = 隐藏该行）</label>
-                <input v-model="welcomeForm.welcomeVenue" class="wb-input" maxlength="40" :disabled="welcomeHidden.venue" placeholder="金湖展贸中心" @input="markWelcomeDraftChanged" />
+                <label class="wb-label">{{ row.label }}</label>
+                <input v-model="welcomeForm[row.formKey]" class="wb-input" :maxlength="row.maxlength" :disabled="welcomeHidden[row.hideKey]" :placeholder="row.placeholder" @input="markWelcomeDraftChanged" />
               </div>
-              <label class="wb-hide-check"><input type="checkbox" v-model="welcomeHidden.venue" @change="markWelcomeDraftChanged" />隐藏</label>
-            </div>
-            <div class="wb-display-row">
-              <div class="wb-display-main">
-                <label class="wb-label">场馆英文名（空 = 默认，勾选 = 隐藏该行）</label>
-                <input v-model="welcomeForm.welcomeVenueEn" class="wb-input" maxlength="96" :disabled="welcomeHidden.venueEn" placeholder="JINHU EXPOSITION &amp; TRADE CENTER" @input="markWelcomeDraftChanged" />
-              </div>
-              <label class="wb-hide-check"><input type="checkbox" v-model="welcomeHidden.venueEn" @change="markWelcomeDraftChanged" />隐藏</label>
-            </div>
-            <div class="wb-display-row">
-              <div class="wb-display-main">
-                <label class="wb-label">落款单位一（空 = 默认，勾选 = 隐藏该行）</label>
-                <input v-model="welcomeForm.welcomeOrg1" class="wb-input" maxlength="40" :disabled="welcomeHidden.org1" placeholder="山东金湖集团" @input="markWelcomeDraftChanged" />
-              </div>
-              <label class="wb-hide-check"><input type="checkbox" v-model="welcomeHidden.org1" @change="markWelcomeDraftChanged" />隐藏</label>
-            </div>
-            <div class="wb-display-row">
-              <div class="wb-display-main">
-                <label class="wb-label">落款单位二（空 = 默认，勾选 = 隐藏该行）</label>
-                <input v-model="welcomeForm.welcomeOrg2" class="wb-input" maxlength="40" :disabled="welcomeHidden.org2" placeholder="金湖科创产业园" @input="markWelcomeDraftChanged" />
-              </div>
-              <label class="wb-hide-check"><input type="checkbox" v-model="welcomeHidden.org2" @change="markWelcomeDraftChanged" />隐藏</label>
+              <label class="wb-hide-check"><input type="checkbox" v-model="welcomeHidden[row.hideKey]" @change="markWelcomeDraftChanged" />隐藏</label>
             </div>
             <div class="we-presentation-head">
               <strong>画面版式</strong>

@@ -4,28 +4,29 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const playerConsole = fs.readFileSync(path.join(__dirname, '../src/components/PlayerConsole.vue'), 'utf8');
+const welcomeEditor = fs.readFileSync(path.join(__dirname, '../src/composables/useWelcomeEditor.ts'), 'utf8');
 const brandingService = fs.readFileSync(path.join(__dirname, '../src/services/system-branding.service.ts'), 'utf8');
 const welcomePage = fs.readFileSync(path.join(__dirname, '../public/welcome/index.html'), 'utf8');
 const designTokens = fs.readFileSync(path.join(__dirname, '../src/styles/design-tokens.css'), 'utf8');
 
 test('welcome editor separates draft saving from publishing and carries the opened revision', () => {
-  assert.match(playerConsole, /ensureAdmin\('保存欢迎方案'\)/);
-  assert.match(playerConsole, /saveWelcomeSchemes\([\s\S]*welcomeSchemesRevision\.value/);
-  assert.match(playerConsole, /已保存到服务器方案库/);
-  assert.match(playerConsole, /const confirmed = await fetchWelcomeSchemes\(\)/);
-  assert.match(playerConsole, /confirmed\.checksum !== saved\.checksum/);
+  assert.match(welcomeEditor, /ensureAdmin\('保存欢迎方案'\)/);
+  assert.match(welcomeEditor, /saveWelcomeSchemes\([\s\S]*welcomeSchemesRevision\.value/);
+  assert.match(welcomeEditor, /已保存到服务器方案库/);
+  assert.match(welcomeEditor, /const confirmed = await fetchWelcomeSchemes\(\)/);
+  assert.match(welcomeEditor, /confirmed\.checksum !== saved\.checksum/);
   assert.match(playerConsole, /仅保存方案/);
   assert.match(playerConsole, /保存并发布到 LED/);
-  assert.match(playerConsole, /ensureAdmin\('发布欢迎页'\)/);
-  assert.match(playerConsole, /publishWelcomeScheme\(selectedId, welcomeSchemesRevision\.value\)/);
-  assert.match(playerConsole, /服务器未确认发布结果/);
-  assert.match(playerConsole, /发布到 LED 大屏/);
+  assert.match(welcomeEditor, /ensureAdmin\('发布欢迎页'\)/);
+  assert.match(welcomeEditor, /publishWelcomeScheme\(selectedId, welcomeSchemesRevision\.value\)/);
+  assert.match(welcomeEditor, /服务器未确认发布结果/);
+  assert.match(welcomeEditor, /发布到 LED 大屏/);
 });
 
 test('welcome editor uploads logo and background in place and remains scrollable on iPhone', () => {
   assert.match(playerConsole, /welcomeLogoUploadInput/);
   assert.match(playerConsole, /welcomeBgUploadInput/);
-  assert.match(playerConsole, /mediaService\.upload\(uploadFile/);
+  assert.match(welcomeEditor, /mediaService\.upload\(uploadFile/);
   assert.match(playerConsole, /welcomeLogoMediaId/);
   assert.match(playerConsole, /ElScrollbar class="we-scroll" always/);
   assert.match(playerConsole, /class="we-upload-row"/);
@@ -38,31 +39,31 @@ test('welcome editor uploads logo and background in place and remains scrollable
 });
 
 test('welcome editor keeps uploaded logos and backgrounds in separate libraries and lets admins delete them', () => {
-  assert.match(playerConsole, /const logoAssets = ref<WelcomeImageAsset\[]>\(\[]\)/);
-  assert.match(playerConsole, /classifyWelcomeImageAssets\(assets, snapshot\.config\.schemes\)/);
-  assert.match(playerConsole, /addWelcomeImageAsset\(/);
-  assert.match(playerConsole, /removeWelcomeAsset\(asset\.id, welcomeSchemesRevision\.value\)/);
+  assert.match(welcomeEditor, /const logoAssets = ref<WelcomeImageAsset\[]>\(\[]\)/);
+  assert.match(welcomeEditor, /classifyWelcomeImageAssets\(assets, snapshot\.config\.schemes\)/);
+  assert.match(welcomeEditor, /addWelcomeImageAsset\(/);
+  assert.match(welcomeEditor, /removeWelcomeAsset\(asset\.id, welcomeSchemesRevision\.value\)/);
   assert.match(playerConsole, /deleteWelcomeImage\('logo', a\)/);
   assert.match(playerConsole, /deleteWelcomeImage\('background', a\)/);
-  assert.match(playerConsole, /modalClass: 'welcome-image-delete-confirm'/);
+  assert.match(welcomeEditor, /modalClass: 'welcome-image-delete-confirm'/);
   assert.match(designTokens, /\.el-overlay\.welcome-image-delete-confirm\s*\{[\s\S]*z-index:\s*4000\s*!important/);
   assert.doesNotMatch(playerConsole, /v-for="a in imageAssets"/);
 });
 
 test('welcome editor reopens the last edited saved scheme instead of hiding it behind the published scheme', () => {
-  assert.match(playerConsole, /LAST_WELCOME_SCHEME_KEY/);
-  assert.match(playerConsole, /const preferredId = selectedWelcomeSchemeId\.value \|\| rememberedWelcomeSchemeId\(\)/);
-  assert.match(playerConsole, /snapshot\.config\.schemes\.some\(\(item\) => item\.id === preferredId\)/);
-  assert.match(playerConsole, /rememberWelcomeSchemeId\(id\)/);
+  assert.match(welcomeEditor, /LAST_WELCOME_SCHEME_KEY/);
+  assert.match(welcomeEditor, /const preferredId = selectedWelcomeSchemeId\.value \|\| rememberedWelcomeSchemeId\(\)/);
+  assert.match(welcomeEditor, /snapshot\.config\.schemes\.some\(\(item\) => item\.id === preferredId\)/);
+  assert.match(welcomeEditor, /rememberWelcomeSchemeId\(id\)/);
 });
 
 test('welcome schemes save their presentation and the live renderer applies the same bounded options', () => {
   assert.match(brandingService, /export interface WelcomePresentation/);
   assert.match(brandingService, /version:\s*2/);
-  assert.match(playerConsole, /welcomeLayoutOptions/);
+  assert.match(welcomeEditor, /welcomeLayoutOptions/);
   assert.match(playerConsole, /updateWelcomePresentation\('layout'/);
-  assert.match(playerConsole, /welcomePresentation:\s*cloneWelcomePresentation/);
-  assert.match(playerConsole, /JSON\.stringify\(published\.branding\.welcomePresentation\)/);
+  assert.match(welcomeEditor, /presentation:\s*cloneWelcomePresentation/);
+  assert.match(welcomeEditor, /JSON\.stringify\(published\.branding\.welcomePresentation\)/);
   assert.match(welcomePage, /function applyPresentation\(input\)/);
   assert.match(welcomePage, /document\.body\.dataset\.layout/);
   assert.match(welcomePage, /body\[data-layout="editorial"\]/);
@@ -70,18 +71,25 @@ test('welcome schemes save their presentation and the live renderer applies the 
 });
 
 test('logo selection uses fresh authorized image URLs and an explicit state transition', () => {
-  assert.match(playerConsole, /const access = await mediaService\.access\(asset\.id\)/);
-  assert.match(playerConsole, /function selectWelcomeLogo\(mediaId: number \| null\)/);
+  assert.match(welcomeEditor, /const access = await mediaService\.access\(asset\.id\)/);
+  assert.match(welcomeEditor, /function selectWelcomeLogo\(mediaId: number \| null\)/);
   assert.match(playerConsole, /@click="selectWelcomeLogo\(a\.id\)"/);
-  assert.match(playerConsole, /welcomeForm\.value = chooseWelcomeLogo\(welcomeForm\.value, mediaId\)/);
-  assert.match(playerConsole, /welcomeAssetUploading \|\| welcomeAssetDeletingId/);
+  assert.match(welcomeEditor, /welcomeForm\.value = chooseWelcomeLogo\(welcomeForm\.value, mediaId\)/);
+  assert.match(welcomeEditor, /welcomeAssetUploading\.value \|\| welcomeAssetDeletingId\.value/);
 });
 
 test('welcome editor converts every new or legacy background before selection', () => {
-  assert.match(playerConsole, /normalizeWelcomeBackground\(file\)/);
+  assert.match(welcomeEditor, /normalizeWelcomeBackground\(file\)/);
   assert.match(playerConsole, /selectWelcomeBackground\(a\)/);
-  assert.match(playerConsole, /旧底图已转换为 LED 原生尺寸并选中/);
+  assert.match(welcomeEditor, /旧底图已转换为 LED 原生尺寸并选中/);
   assert.doesNotMatch(playerConsole, /:disabled="a\.resolution\?\.toLowerCase\(\) !== LED_CANVAS_RESOLUTION"/);
+});
+
+test('PlayerConsole delegates the welcome editing use case without duplicating persistence logic', () => {
+  assert.match(playerConsole, /useWelcomeEditor\(\{/);
+  assert.match(playerConsole, /republishEditable:\s*async \(\) => \{ await publishWelcome\(SLOT\.value, 'editable'\); \}/);
+  assert.doesNotMatch(playerConsole, /async function persistWelcomeSchemes/);
+  assert.doesNotMatch(playerConsole, /async function onWelcomeAssetPicked/);
 });
 
 test('welcome save contract documents its administrator boundary', () => {
@@ -92,22 +100,26 @@ test('welcome save contract documents its administrator boundary', () => {
 
 
 test('welcome venue/org lines are editable, hideable, and published; title offers five effects', () => {
-  // editor state: four display text inputs + per-line hide checkbox + three-state helpers
-  assert.match(playerConsole, /const welcomeHidden = reactive\(/);
-  assert.match(playerConsole, /function welcomeDisplayValue\(/);
-  assert.match(playerConsole, /function applyWelcomeDisplay\(/);
+  // editor state lives in the useWelcomeEditor composable: four display text inputs
+  // (described by a v-for row config), per-line hide checkbox and three-state helpers
+  assert.match(welcomeEditor, /const welcomeHidden = reactive\(/);
+  assert.match(welcomeEditor, /function welcomeDisplayValue\(/);
+  assert.match(welcomeEditor, /function applyWelcomeDisplay\(/);
+  assert.match(welcomeEditor, /watch\(welcomeHidden, pushWelcomePreview/);
+  assert.match(welcomeEditor, /const welcomeTitleEffectOptions = \[/);
+  assert.match(welcomeEditor, /const welcomeDisplayRows = \[/);
+  assert.match(welcomeEditor, /场馆中文名/);
+  assert.match(welcomeEditor, /落款单位一/);
+  // hidden/custom/default rides the publish verification comparison in the composable
+  assert.match(welcomeEditor, /published\.branding\.welcomeVenue[\s\S]*selected\.welcomeVenue/);
+  assert.match(welcomeEditor, /published\.branding\.welcomeOrg2[\s\S]*selected\.welcomeOrg2/);
+  // the template renders the four rows via v-for, with per-row hide checkbox and effect picker
+  assert.match(playerConsole, /v-for="row in welcomeDisplayRows"/);
   assert.match(playerConsole, /class="wb-display-row"/);
-  assert.match(playerConsole, /场馆中文名/);
-  assert.match(playerConsole, /落款单位一/);
-  assert.match(playerConsole, /v-model="welcomeHidden\.venue"/);
-  assert.match(playerConsole, /:disabled="welcomeHidden\.venue"/);
-  assert.match(playerConsole, /watch\(welcomeHidden, pushWelcomePreview/);
-  // title effect picker wired through the generic presentation update
-  assert.match(playerConsole, /const welcomeTitleEffectOptions = \[/);
+  assert.match(playerConsole, /v-model="welcomeForm\[row\.formKey\]"/);
+  assert.match(playerConsole, /v-model="welcomeHidden\[row\.hideKey\]"/);
+  assert.match(playerConsole, /:disabled="welcomeHidden\[row\.hideKey\]"/);
   assert.match(playerConsole, /updateWelcomePresentation\('titleEffect', option\.value\)/);
-  // hidden/custom/default rides the publish verification comparison
-  assert.match(playerConsole, /published\.branding\.welcomeVenue === selected\.welcomeVenue/);
-  assert.match(playerConsole, /published\.branding\.welcomeOrg2 === selected\.welcomeOrg2/);
   // service contract exposes the enum and the new nullable display fields
   assert.match(brandingService, /WelcomeTitleEffect/);
   assert.match(brandingService, /titleEffect\??:/);

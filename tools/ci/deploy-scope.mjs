@@ -11,11 +11,12 @@ export function classifyDeployFiles(files) {
     frontendPublic: false,
     frontendCode: false,
     backendCode: false,
+    releaseControl: false,
     highRisk: false,
     files,
   };
 
-  const highRisk = /(^|\/)(package\.json|pnpm-lock\.yaml|\.env(?:\.|$)|ecosystem\.config)|(^|\/)migrations?\/|^deploy\/|^scripts\/(deploy|backup|update|boot|ensure|run-migrations|assert-release)|^\.github\/workflows\/deploy-/;
+  const highRisk = /(^|\/)(package\.json|pnpm-lock\.yaml|\.env(?:\.|$)|ecosystem\.config)|(^|\/)migrations?\/|^deploy\/|^scripts\/(deploy|backup|update|boot|ensure|run-migrations|assert-release)/;
   for (const file of files) {
     if (highRisk.test(file)) {
       result.highRisk = true;
@@ -31,6 +32,16 @@ export function classifyDeployFiles(files) {
     } else if (/^backend\/src\//.test(file)) {
       result.backendCode = true;
       result.docsOnly = false;
+    } else if (/^\.github\//.test(file) || /^tools\/ci\//.test(file)) {
+      // Release-control files can widen CI validation, but they do not run on
+      // GK9000. Keeping this separate from runtime risk prevents an earlier
+      // workflow-only merge from turning the next frontend release into a full
+      // production rebuild and service restart.
+      result.releaseControl = true;
+      result.docsOnly = false;
+    } else if (/^(android-app|ios-app)\//.test(file)) {
+      // Native applications have independent build and distribution pipelines.
+      result.docsOnly = false;
     } else if (/^docs\//.test(file) || /(^|\/)(README|CHANGELOG|HANDOVER|MEMORY)\.md$/.test(file)) {
       // Documentation does not change production runtime.
     } else {
@@ -43,13 +54,11 @@ export function classifyDeployFiles(files) {
   const staticOnly = result.frontendPublic && !result.frontendCode && !result.backendCode && !result.highRisk;
   const frontendOnly = result.frontendCode && !result.backendCode && !result.highRisk;
   const backendOnly = result.backendCode && !result.frontendCode && !result.highRisk;
-  const scope = staticOnly ? 'static' : frontendOnly ? 'frontend' : backendOnly ? 'backend' : 'full';
+  const noRuntime = !result.frontendPublic && !result.frontendCode && !result.backendCode && !result.highRisk;
+  const scope = noRuntime ? 'none' : staticOnly ? 'static' : frontendOnly ? 'frontend' : backendOnly ? 'backend' : 'full';
   return {
     ...result,
     scope,
-    validateStatic: staticOnly,
-    validateFrontend: result.frontendCode || result.highRisk,
-    validateBackend: result.backendCode || result.highRisk,
   };
 }
 
@@ -76,9 +85,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   if (output) {
     appendFileSync(output, [
       `scope=${result.scope}`,
-      `validate_static=${result.validateStatic}`,
-      `validate_frontend=${result.validateFrontend}`,
-      `validate_backend=${result.validateBackend}`,
       `files=${result.files.join(',')}`,
       '',
     ].join('\n'));
