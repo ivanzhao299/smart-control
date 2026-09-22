@@ -146,8 +146,10 @@ test('stops a failed key, drops its stale wait, and restarts on the next enqueue
 test('audio boundaries use the shared queue for input gain and output volume', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../src/pages/AudioPage.vue'), 'utf8');
   const inputs = fs.readFileSync(path.resolve(__dirname, '../src/composables/useAudioInputs.ts'), 'utf8');
-  assert.match(page, /from '@\/features\/latest-command-queue'/);
-  assert.match(page, /createLatestCommandQueue<string, OutputVolumeCommand>/);
+  const outputs = fs.readFileSync(path.resolve(__dirname, '../src/composables/useAudioOutputControls.ts'), 'utf8');
+  assert.doesNotMatch(page, /from '@\/features\/latest-command-queue'/);
+  assert.match(outputs, /from '@\/features\/latest-command-queue'/);
+  assert.match(outputs, /createLatestCommandQueue<string, OutputVolumeCommand>/);
   assert.match(inputs, /from '@\/features\/latest-command-queue'/);
   assert.match(inputs, /createLatestCommandQueue<number, InputGainCommand>/);
   assert.doesNotMatch(page, /const gainSend: Record/);
