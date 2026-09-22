@@ -10,6 +10,7 @@ import { audioService } from '@/services/audio.service';
 import { useAdminUnlock } from '@/composables/useAdminUnlock';
 import { useAudioPlaylist } from '@/composables/useAudioPlaylist';
 import { useAudioInputs } from '@/composables/useAudioInputs';
+import { useAudioMatrix } from '@/composables/useAudioMatrix';
 import { useAudioOutputCatalog, type AudioOutputRow } from '@/composables/useAudioOutputCatalog';
 import { useAudioScenes } from '@/composables/useAudioScenes';
 import {
@@ -18,7 +19,6 @@ import {
   summarizeAudioOutputs,
 } from '@/features/audio-view-model';
 import { createLatestCommandQueue } from '@/features/latest-command-queue';
-import { createAudioMatrixCommandController } from '@/features/audio-matrix-command-controller';
 
 const router = useRouter();
 const route = useRoute();
@@ -54,6 +54,16 @@ const {
   stopInputCommands,
 } = useAudioInputs();
 const {
+  matrixStale,
+  matrixOffline,
+  matrixErrMsg,
+  loadMatrixState,
+  isMatrixOn,
+  toggleMatrix,
+  startMatrixPolling,
+  stopMatrixPolling,
+} = useAudioMatrix();
+const {
   bgmChannel,
   playlist,
   plIdx,
@@ -84,41 +94,6 @@ const {
 } = useAudioPlaylist({ ensureAdmin });
 const fmtDuration = formatAudioDuration;
 
-/**
- * 从**设备**读真实路由表.
- *
- * 以前这里读的是 GET /audio/matrix/state —— 后端一个本地 JSON 文件, 记的是
- * "谁点过哪个交叉点", 不是设备状态。而且下发失败时前端照样存进去, 界面就会
- * 亮着一个从没接通过的交叉点。现在直接问设备 (一条命令, ~284ms)。
- *
- * 读不到时**保持上次的值并标记 matrixStale**, 不要清空 —— 清空会让界面看起来
- * "全部断开", 那同样是假的。
- */
-const matrixStale = ref(false);
-/** 矩阵设备离线(EKX-808 连不上) —— 跟"偶发读失败"分开, 单独给一条醒目提示 */
-const matrixOffline = ref(false);
-const matrixErrMsg = ref('');
-async function loadMatrixState(): Promise<void> {
-  try {
-    const r = await audioService.getLiveMatrix();
-    if (!r.ok || !r.data?.matrix) throw new Error(r.error || '读矩阵失败');
-    const next: Record<string, boolean> = {};
-    r.data.matrix.forEach((row, out) => {
-      row.forEach((on, inCh) => { next[`${out}_${inCh}`] = on; });
-    });
-    matrixOn.value = next;
-    matrixController.confirmSnapshot(next);
-    matrixStale.value = false;
-    matrixOffline.value = false;
-    matrixErrMsg.value = '';
-  } catch (e) {
-    matrixStale.value = true;
-    const msg = (e as Error).message || '';
-    matrixErrMsg.value = msg;
-    // 后端离线快速失败会带"离线/连不上"; 超时类也归为离线
-    matrixOffline.value = /离线|连不上|offline|timed?\s*out|timeout/i.test(msg);
-  }
-}
 // ============ EKX-808 一键场景 ============
 // 场景目录、设备切换、失败回滚和长按确认由一个用例边界统一维护。
 const {
@@ -137,9 +112,7 @@ const {
 onUnmounted(() => {
   stopOutputCatalog();
   stopInputCommands();
-  matrixPollStopped = true; // 见 scheduleMatrixPoll: 防 await 后又排一个孤儿 timer
-  if (matrixTimer) clearTimeout(matrixTimer); // 不清会在切页面后继续打设备
-  if (reconcileTimer) clearTimeout(reconcileTimer); // 同上: 切走后别再对账
+  stopMatrixPolling();
   // 拖推子过程中切页 → 别把锁滚动的全局监听漏在 document 上
   document.removeEventListener('touchmove', preventScrollWhileDragging);
 });
@@ -149,28 +122,6 @@ onDeactivated(() => {
   stopInputCommands();
   document.removeEventListener('touchmove', preventScrollWhileDragging);
 });
-/**
- * 矩阵轮询 — 一条命令 ~284ms, 8s 一轮.
- * 这样别人用厂家 PC Editor 改了路由, 这边也能跟上; 更重要的是: 切页面回来
- * 看到的永远是设备当前的真实路由, 而不是本地记忆。
- */
-const MATRIX_POLL_MS = 8000;
-let matrixTimer: ReturnType<typeof setTimeout> | null = null;
-// 2026-07-19 加固: 同 HvacPage, 防切页时 await 后重排出孤儿轮询, 持续打单客户端矩阵。
-let matrixPollStopped = false;
-function scheduleMatrixPoll(): void {
-  matrixTimer = setTimeout(async () => {
-    // 有在途写入 / 正等着对账时别读: 设备可能还没落到最新值, 读回来会把用户刚点
-    // 的状态覆盖掉 (界面闪一下弹回去)。跳过这轮, 8s 后再来, 反正 scheduleReconcile
-    // 会在这批点完后对一次账。
-    if (!document.hidden && pendingWrites.value === 0 && reconcileTimer === null) {
-      // C3: 页面在后台不打设备 (播放进度是纯本地 UI, 不用管)
-      await loadMatrixState();
-    }
-    if (!matrixPollStopped) scheduleMatrixPoll();
-  }, MATRIX_POLL_MS);
-}
-
 onMounted(async () => {
   await loadPlaylist();
   // 进页面先跟后端"当前在播的"对齐一次 (bgm-player 可能正放着), 之后靠 watch 跟随
@@ -223,21 +174,18 @@ let firstActivation = true;
 function startAudioPolling(): void {
   if (audioPollActive) return; // mounted+activated 双触发, 幂等
   audioPollActive = true;
-  matrixPollStopped = false;
+  startMatrixPolling();
   if (!firstActivation) {
-    void loadMatrixState();
     void syncPlaybackFromChannel(
       bgmChannel.value?.currentMediaId,
       bgmChannel.value?.playbackSession,
     ); // 重启进度秒针
   }
   firstActivation = false; // 首次进页 onMounted 已做全量加载, 不重复
-  scheduleMatrixPoll();
 }
 function stopAudioPolling(): void {
   audioPollActive = false;
-  matrixPollStopped = true;
-  if (matrixTimer) { clearTimeout(matrixTimer); matrixTimer = null; }
+  stopMatrixPolling();
   suspendPlaybackProgress(); // 进度秒针纯视觉, 回页由上面的 sync 重算
 }
 useActivePolling(startAudioPolling, stopAudioPolling);
@@ -251,67 +199,6 @@ const audioTab = ref<'scene' | 'bgm' | 'zones' | 'matrix'>('bgm');
 const BGM_INPUT_CH = 4;
 /** 分区喇叭输出 = OUT5-8 (0-based ≥4); OUT1-4 是 LED/投影的显示屏声道直通, 不该接 BGM */
 const bgmZoneOutputs = computed(() => channels.value.filter((z) => z.channel >= 4));
-// 矩阵界面状态: key = `${outCh}_${inCh}` → 接通与否。设备回读是权威来源，
-// 点击期间先乐观更新，再由已确认命令和防抖回读收敛。
-const matrixOn = ref<Record<string, boolean>>({});
-function isMatrixOn(outCh: number, inCh: number): boolean {
-  return !!matrixOn.value[`${outCh}_${inCh}`];
-}
-/**
- * 点交叉点 → 立即变色 → 后台下发 → 一批点完后**统一复读一次**设备.
- *
- * 失败就回滚成点击前的样子, 不留假连接 (以前失败会 saveMatrixState 把"已接通"
- * 存进本地文件, 提示还写"界面已保存" —— 等于显示一个设备上不存在的连接)。
- *
- * 2026-07-17 性能返工 (业主: "选择和取消动作太迟钝")。原来每点一下要跑两条
- * 设备命令: setMatrix(~287ms) + 收尾的整表复读(~287ms) ≈ 600ms, 而这 600ms
- * 里 matrixBusy 把这个点锁死、**再点直接被静默吞掉**(手感=点了没反应)。
- * EKX808 又是单客户端串行锁, 连点 5 下 = 10 条命令排队 ≈ 3 秒; 后端限流还是
- * 6 次/秒, 而每次点击发两个请求 -> 连点三下就撞限流报错。
- *
- * 现在: 每次点击只发**一条**命令, 不再逐次复读 (交给下面的防抖复读 + 8s 轮询);
- * 同一个点连点用"最后一次为准"合并, 不吞点击。
- */
-const pendingWrites = ref<number>(0);
-
-// 一批点完后再复读一次设备对账 —— 别每点一下都读
-let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
-function scheduleReconcile(): void {
-  if (reconcileTimer) clearTimeout(reconcileTimer);
-  reconcileTimer = setTimeout(() => {
-    reconcileTimer = null;
-    if (pendingWrites.value === 0) void loadMatrixState();
-  }, 1200);
-}
-
-function matrixCoordinates(key: string): [number, number] {
-  const [outCh, inCh] = key.split('_').map(Number);
-  return [outCh, inCh];
-}
-
-const matrixController = createAudioMatrixCommandController({
-  read: (key) => !!matrixOn.value[key],
-  apply: (key, value) => { matrixOn.value = { ...matrixOn.value, [key]: value }; },
-  execute: async (key, value) => {
-    const [outCh, inCh] = matrixCoordinates(key);
-    const res = await audioService.setMatrix(outCh, inCh, value);
-    if (!res.ok) throw new Error(res.error || '设备未确认');
-  },
-  onStart: () => { pendingWrites.value += 1; },
-  onError: (key, error) => {
-    const [outCh, inCh] = matrixCoordinates(key);
-    ElMessage.error(`路由 OUT${outCh + 1}←IN${inCh + 1} 失败: ${(error as Error).message}`);
-    void loadMatrixState();
-  },
-  onIdle: () => {
-    pendingWrites.value -= 1;
-    scheduleReconcile();
-  },
-});
-
-function toggleMatrix(outCh: number, inCh: number): void {
-  matrixController.toggle(`${outCh}_${inCh}`);
-}
 
 // 静音前保存各通道音量, 解除静音时用于渐响恢复
 const savedVolumes = ref<Record<string, number>>({});
