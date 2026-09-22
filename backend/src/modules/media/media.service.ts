@@ -33,6 +33,7 @@ import {
   normalizeUploadedMimeType,
   safeMediaFilename,
 } from './media-file-policy';
+import { MediaListOptions, MediaListResult, queryMediaList, toMediaListItem } from './media-list-query';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { resolveProductionMediaRoot } = require('../../../scripts/production-paths.cjs') as {
@@ -602,7 +603,7 @@ export class MediaService implements OnModuleInit {
     return this.saveInitialUpload(entity, actor);
   }
 
-  async list(opts: { kind?: MediaKind; limit?: number; offset?: number; actor?: Actor; scope?: 'visible' | 'mine' | 'shared'; ownerUserId?: number; keyword?: string } = {}): Promise<{ items: MediaListItem[]; total: number }> {
+  async list(opts: MediaListOptions = {}): Promise<MediaListResult> {
     const result = await serializedTransaction(this.repo.manager.connection, async manager => {
       let actor = opts.actor;
       if (actor && actor.userId !== null) {
@@ -610,7 +611,7 @@ export class MediaService implements OnModuleInit {
         if (!current) throw new ForbiddenException('账户已停用');
         actor = { ...actor, role: current.role };
       }
-      return this.listInTransaction(manager.getRepository(MediaAsset), { ...opts, actor });
+      return queryMediaList(manager.getRepository(MediaAsset), { ...opts, actor });
     });
     // Old image rows predate dimension metadata. Inspect them outside the
     // transaction so the media list and LED editor agree on geometry without
@@ -655,37 +656,6 @@ export class MediaService implements OnModuleInit {
     this.imageResolutionCache.set(id, resolution);
     if (persist) await this.updateMediaFields(id, { resolution });
     return { ...media, resolution };
-  }
-
-  private async listInTransaction(repo: Repository<MediaAsset>, opts: NonNullable<Parameters<MediaService['list']>[0]>): Promise<{ items: MediaListItem[]; total: number }> {
-    if (opts.keyword !== undefined && (typeof opts.keyword !== 'string' || opts.keyword.length > 200)) throw new BadRequestException('搜索文本过长');
-    if (opts.scope && !['visible', 'mine', 'shared'].includes(opts.scope)) throw new BadRequestException('无效资料范围');
-    if (opts.ownerUserId !== undefined) {
-      if (opts.actor?.role !== 'admin') throw new ForbiddenException('仅管理员可按用户筛选');
-      if (!Number.isInteger(opts.ownerUserId) || opts.ownerUserId < 1) throw new BadRequestException('无效用户');
-    }
-    for (const [value, min] of [[opts.limit, 1], [opts.offset, 0]] as const) {
-      if (value !== undefined && (!Number.isSafeInteger(value) || value < min)) throw new BadRequestException('无效分页参数');
-    }
-    const qb = repo.createQueryBuilder('m').orderBy('m.createdAt', 'DESC').addOrderBy('m.id', 'DESC');
-    if (opts.keyword?.trim()) qb.andWhere('instr(lower(m.originalName), lower(:keyword)) > 0', { keyword: opts.keyword.trim() });
-    if (opts.actor && opts.actor.role !== 'admin') {
-      qb.andWhere('(m.visibility = :shared OR m.ownerUserId = :owner)', {
-        shared: 'shared', owner: opts.actor.kind === 'user' ? opts.actor.userId : null,
-      });
-    }
-    if (opts.kind) qb.andWhere('m.kind = :k', { k: opts.kind });
-    if (opts.scope === 'shared') qb.andWhere('m.visibility = :visibility', { visibility: 'shared' });
-    if (opts.scope === 'mine') {
-      if (!opts.actor || opts.actor.userId === null) qb.andWhere('1 = 0');
-      else qb.andWhere('m.ownerUserId = :mine', { mine: opts.actor.userId });
-    }
-    if (opts.ownerUserId !== undefined) qb.andWhere('m.ownerUserId = :selectedOwner', { selectedOwner: opts.ownerUserId });
-    const total = await qb.getCount();
-    if (typeof opts.limit === 'number') qb.take(opts.limit);
-    if (typeof opts.offset === 'number') qb.skip(opts.offset);
-    const rows = await qb.getMany();
-    return { items: rows.map((r) => this.toListItem(r)), total };
   }
 
   async get(id: number): Promise<MediaAsset> {
@@ -1017,27 +987,8 @@ export class MediaService implements OnModuleInit {
       || (process.platform === 'win32' ? 'D:\\smart-control-tools\\ffmpeg\\bin\\ffprobe.exe' : 'ffprobe');
   }
 
-  toListItem(m: MediaAsset): MediaListItem {
-    return {
-      ownerUserId: m.ownerUserId,
-      visibility: m.visibility,
-      source: m.source,
-      id: m.id,
-      originalName: m.originalName,
-      kind: m.kind,
-      mimeType: m.mimeType,
-      sizeBytes: Number(m.sizeBytes),
-      durationSec: m.durationSec,
-      resolution: m.resolution,
-      remark: m.remark,
-      uploader: m.uploader,
-      thumbUrl: m.thumbPath ? `/api/media/${m.id}/thumb` : null,
-      fileUrl: m.kind === 'webpage' ? (m.sourceUrl ?? '') : `/api/media/${m.id}/file`,
-      lastPlayedAt: m.lastPlayedAt ? m.lastPlayedAt.toISOString() : null,
-      createdAt: m.createdAt.toISOString(),
-      processingStatus: m.processingStatus ?? 'ready',
-      processingError: m.processingError ?? null,
-    };
+  toListItem(media: MediaAsset): MediaListItem {
+    return toMediaListItem(media);
   }
 
   private async unlinkSafe(p: string): Promise<void> {
