@@ -32,7 +32,7 @@ export function classifyDeployFiles(files) {
     } else if (/^backend\/src\//.test(file)) {
       result.backendCode = true;
       result.docsOnly = false;
-    } else if (/^\.github\//.test(file) || /^tools\/ci\//.test(file)) {
+    } else if (file === '.gitignore' || /^\.github\//.test(file) || /^tools\/ci\//.test(file)) {
       // Release-control files can widen CI validation, but they do not run on
       // GK9000. Keeping this separate from runtime risk prevents an earlier
       // workflow-only merge from turning the next frontend release into a full

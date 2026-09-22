@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { classifyDeployFiles } from './deploy-scope.mjs';
 
 test('classifies public assets as a static release', () => {
@@ -30,6 +31,25 @@ test('keeps accumulated release-control and native changes out of the GK9000 run
     'android-app/app/build.gradle.kts',
   ]);
   assert.equal(controlOnly.scope, 'none');
+});
+
+test('treats repository ignore policy as release control without widening runtime scope', () => {
+  const ignoreRules = readFileSync('.gitignore', 'utf8').split(/\r?\n/);
+  assert.equal(ignoreRules.includes('/media/'), true);
+  assert.equal(ignoreRules.includes('media/'), false);
+
+  const hygieneOnly = classifyDeployFiles(['.gitignore']);
+  assert.equal(hygieneOnly.scope, 'none');
+  assert.equal(hygieneOnly.releaseControl, true);
+  assert.equal(hygieneOnly.highRisk, false);
+
+  const withBackend = classifyDeployFiles([
+    '.gitignore',
+    'backend/src/modules/media/media-file-policy.ts',
+  ]);
+  assert.equal(withBackend.scope, 'backend');
+  assert.equal(withBackend.releaseControl, true);
+  assert.equal(withBackend.highRisk, false);
 });
 
 test('fails closed for mixed, dependency, deployment, and unknown changes', () => {
