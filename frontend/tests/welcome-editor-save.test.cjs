@@ -46,7 +46,10 @@ test('welcome editor keeps uploaded logos and backgrounds in separate libraries 
   assert.match(playerConsole, /deleteWelcomeImage\('logo', a\)/);
   assert.match(playerConsole, /deleteWelcomeImage\('background', a\)/);
   assert.match(welcomeEditor, /modalClass: 'welcome-image-delete-confirm'/);
-  assert.match(designTokens, /\.el-overlay\.welcome-image-delete-confirm\s*\{[\s\S]*z-index:\s*4000\s*!important/);
+  // save/exit three-way prompt must also sit above the z-index 3000 editor; both
+  // overlays share one lifted rule block
+  assert.match(welcomeEditor, /modalClass: 'welcome-close-confirm'/);
+  assert.match(designTokens, /\.el-overlay\.welcome-image-delete-confirm,\s*\.el-overlay\.welcome-close-confirm\s*\{[\s\S]*z-index:\s*4000\s*!important/);
   assert.doesNotMatch(playerConsole, /v-for="a in imageAssets"/);
 });
 
@@ -145,4 +148,19 @@ test('LED welcome renderer hides or defaults venue/org lines and ships five titl
   assert.match(welcomePage, /body\[data-title-effect="white"\]/);
   assert.match(welcomePage, /body\[data-title-effect="ink"\]/);
   assert.match(welcomePage, /body\[data-title-effect="neon"\]/);
+});
+
+test('welcome editor offers one-tap save-and-close and a three-way unsaved prompt', () => {
+  // one-tap save-and-close action in the composable, wired to a template button
+  assert.match(welcomeEditor, /async function saveAndCloseWelcomeEditor\(\)/);
+  assert.match(welcomeEditor, /async function saveAndCloseWelcomeEditor\([\s\S]*welcomeEditOpen\.value = false/);
+  assert.match(playerConsole, /@click="saveAndCloseWelcomeEditor"/);
+  assert.match(playerConsole, /保存并关闭/);
+  // closing a dirty draft offers save-and-close / discard-and-close / keep editing
+  assert.match(welcomeEditor, /distinguishCancelAndClose: true/);
+  assert.match(welcomeEditor, /confirmButtonText: '保存并关闭'/);
+  assert.match(welcomeEditor, /cancelButtonText: '放弃修改并关闭'/);
+  // the brittle whole-config byte comparison is gone; revision+checksum remain authoritative
+  assert.doesNotMatch(welcomeEditor, /JSON\.stringify\(confirmed\.config\)/);
+  assert.match(welcomeEditor, /confirmed\.checksum !== saved\.checksum/);
 });
