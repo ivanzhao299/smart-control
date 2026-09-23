@@ -31,6 +31,20 @@
   --v2-danger-soft: rgba(240, 107, 99, 0.14);
   --v2-info-soft: var(--v2-primary-soft);
 
+  /* ===== 统一强调色：同色系渐变，禁止渐变到中性灰（蓝→灰会混出发脏的蓝灰）=====
+     仅在 :root 定义一次；浅色块 override 了 --v2-primary，下列变量在“使用点”
+     按级联惰性求值，深浅主题自动跟随，无需在浅色块重复定义。 */
+  /* 卡片顶部细装饰条：主色 → 透明淡出 */
+  --v2-accent-bar: linear-gradient(90deg, var(--v2-primary) 0%, rgba(var(--v2-primary-rgb), 0) 100%);
+  /* 实心强调填充（选中按钮 / toggle，配白字）：主色 → 主色深，同色系有层次 */
+  --v2-accent-fill: linear-gradient(135deg, var(--v2-primary) 0%, var(--v2-primary-dark) 100%);
+  /* 水平进度条：主色 → 主色深 */
+  --v2-accent-progress: linear-gradient(90deg, var(--v2-primary) 0%, var(--v2-primary-dark) 100%);
+  /* 竖向波形 / 柱：上亮 → 下深 */
+  --v2-accent-vertical: linear-gradient(180deg, var(--v2-primary-hover) 0%, var(--v2-primary-dark) 100%);
+  /* 强调悬浮阴影：主色阴影（替换旧的白色阴影，浅色下白阴影无效）*/
+  --v2-accent-shadow: 0 8px 18px -6px rgba(var(--v2-primary-rgb), 0.5);
+
   /* Compatibility aliases used by existing feature pages. */
   --v2-purple: #8ea8c7;
   --v2-purple-soft: rgba(142, 168, 199, 0.14);

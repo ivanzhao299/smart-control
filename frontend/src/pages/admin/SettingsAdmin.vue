@@ -368,10 +368,10 @@ onMounted(refresh);
   position: absolute;
   top: 0; left: 0; right: 0;
   height: 3px;
-  background: linear-gradient(90deg, #4C9AFF 0%, #9BA1A9 80%, transparent 100%);
+  background: var(--v2-accent-bar);
 }
 .info-card.hero-card::before {
-  background: linear-gradient(90deg, #3FBF87 0%, #4C9AFF 50%, #9BA1A9 100%);
+  background: linear-gradient(90deg, #3FBF87 0%, #4C9AFF 60%, rgba(76, 154, 255, 0) 100%);
 }
 .info-label {
   font-size: 11px; color: var(--text-secondary);
@@ -491,7 +491,7 @@ onMounted(refresh);
   border-radius: 3px;
 }
 .res-fill.is-cpu  { background: linear-gradient(90deg, #3FBF87, #06b6d4); }
-.res-fill.is-mem  { background: linear-gradient(90deg, #4C9AFF, #9BA1A9); }
+.res-fill.is-mem  { background: var(--v2-accent-progress); }
 .res-fill.is-disk { background: linear-gradient(90deg, #E0A030, #E5645D); }
 .res-sub {
   font-size: 11px;

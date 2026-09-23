@@ -337,7 +337,7 @@ onBeforeUnmount(() => { if (unsubscribeWs) unsubscribeWs(); });
   content: '';
   position: absolute; top: 0; left: 0; right: 0;
   height: 3px;
-  background: linear-gradient(90deg, #4C9AFF 0%, #9BA1A9 80%, transparent 100%);
+  background: var(--v2-accent-bar);
 }
 .info-card.alert-card::before { background: linear-gradient(90deg, #E5645D 0%, #dc2626 100%); }
 .info-card.alert-card { border-color: rgba(229, 100, 93, 0.32); }

@@ -19,15 +19,15 @@ const isStringIcon = computed(() => typeof props.icon === 'string');
 // 按场景 code 分配独特霓虹色 (主色/辅色), 不在表里走默认蓝紫
 const PALETTE: Record<string, { a: string; b: string; glow: string }> = {
   opening:        { a: '#ff8a00', b: '#ffd84d', glow: 'rgba(255, 138, 0, 0.45)' },     // 开馆 暖橙→金黄
-  reception:      { a: '#5b8def', b: '#9BA1A9', glow: 'rgba(255, 255, 255, 0.08)' },    // 接待 蓝→紫
+  reception:      { a: '#5b8def', b: '#8b5cf6', glow: 'rgba(91, 141, 239, 0.45)' },     // 接待 蓝→紫
   meeting:        { a: '#3FBF87', b: '#06b6d4', glow: 'rgba(76, 154, 255, 0.45)' },     // 会议 翠绿→青
-  roadshow:       { a: '#9BA1A9', b: '#f97316', glow: 'rgba(255, 255, 255, 0.08)' },    // 路演 粉→橙
+  roadshow:       { a: '#fb7185', b: '#f97316', glow: 'rgba(249, 115, 22, 0.45)' },     // 路演 玫粉→橙
   cleaning:       { a: '#22d3ee', b: '#0ea5e9', glow: 'rgba(34, 211, 238, 0.45)' },    // 清洁 青蓝
-  closing:        { a: '#9BA1A9', b: '#1e293b', glow: 'rgba(255, 255, 255, 0.08)' },    // 闭馆 靛蓝→深
+  closing:        { a: '#6366f1', b: '#1e293b', glow: 'rgba(99, 102, 241, 0.40)' },     // 闭馆 靛蓝到深蓝
   sprint07_demo:  { a: '#64748b', b: '#94a3b8', glow: 'rgba(148, 163, 184, 0.3)' },   // 演示 灰
 };
 function paletteOf(code: string) {
-  return PALETTE[code] ?? { a: '#4C9AFF', b: '#9BA1A9', glow: 'rgba(255, 255, 255, 0.08)' };
+  return PALETTE[code] ?? { a: '#4C9AFF', b: '#2f7edb', glow: 'rgba(76, 154, 255, 0.45)' };
 }
 
 const palette = computed(() => paletteOf(props.code));

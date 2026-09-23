@@ -398,7 +398,7 @@ onMounted(refresh);
 }
 .info-card::before {
   content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
-  background: linear-gradient(90deg, #4C9AFF 0%, #9BA1A9 80%, transparent 100%);
+  background: var(--v2-accent-bar);
 }
 .info-card.ok-card::before { background: linear-gradient(90deg, #3FBF87 0%, #059669 100%); }
 .info-card.alert-card::before { background: linear-gradient(90deg, #E5645D 0%, #dc2626 100%); }
@@ -448,7 +448,7 @@ onMounted(refresh);
 }
 .tab:hover { color: var(--text-primary); border-color: var(--v2-border-soft); }
 .tab.active {
-  background: linear-gradient(135deg, #4C9AFF 0%, #9BA1A9 100%);
+  background: var(--v2-accent-fill);
   color: #fff; border-color: transparent;
   box-shadow: 0 6px 14px -6px rgba(255, 255, 255, 0.08);
 }
