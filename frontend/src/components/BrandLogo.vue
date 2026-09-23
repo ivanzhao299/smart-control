@@ -67,7 +67,7 @@ const showImage = computed<boolean>(() => props.useImage && !imageBroken.value);
         <defs>
           <linearGradient id="bl-grad" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
             <stop offset="0" stop-color="#4C9AFF" />
-            <stop offset="1" stop-color="#9BA1A9" />
+            <stop offset="1" stop-color="#2f7edb" />
           </linearGradient>
         </defs>
         <rect x="0" y="0" width="48" height="48" rx="12" fill="url(#bl-grad)" />

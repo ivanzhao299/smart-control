@@ -328,7 +328,7 @@ function fmtTime(s: string): string {
 }
 .info-card::before {
   content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
-  background: linear-gradient(90deg, #4C9AFF 0%, #9BA1A9 80%, transparent 100%);
+  background: var(--v2-accent-bar);
 }
 .info-card.ok-card::before { background: linear-gradient(90deg, #3FBF87 0%, #059669 100%); }
 .info-card.warn-card::before { background: linear-gradient(90deg, #E0A030 0%, #d97706 100%); }

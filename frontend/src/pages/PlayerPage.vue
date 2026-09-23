@@ -535,7 +535,7 @@ function onAudioEnded(): void {
 .audio-wave { display: flex; gap: 8px; align-items: flex-end; height: 60px; margin-top: 10px; }
 .audio-wave span {
   width: 10px; border-radius: 5px;
-  background: linear-gradient(180deg, #4C9AFF, #9BA1A9);
+  background: var(--v2-accent-vertical);
   animation: audio-bar 1s ease-in-out infinite;
 }
 .audio-wave span:nth-child(1) { height: 30%; animation-delay: 0s; }
