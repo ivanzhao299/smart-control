@@ -6,7 +6,10 @@ const path = require('node:path');
 test('LED defaults to detected primary geometry and preserves explicit calibration overrides', () => {
   const source = fs.readFileSync(path.join(__dirname, '../../scripts/start-players.ps1'), 'utf8');
   assert.match(source, /function Get-LedRect[\s\S]*Where-Object \{ \$_\.Primary \}/);
-  assert.match(source, /if \(-not \$explicitLedRect\) \{ \$lr = Get-LedRect \}/);
+  // Boot waits for the wall EDID to negotiate 3612x1462 before pinning slot1,
+  // while the default path still derives geometry from Get-LedRect.
+  assert.match(source, /Wait-DisplayReady -ExpectedW 3612 -ExpectedH 1462/);
+  assert.match(source, /if \(-not \$explicitLedRect\) \{[\s\S]*\$lr = Get-LedRect/);
   for (const option of ['Slot1X', 'Slot1Y', 'ScreenW', 'ScreenH']) {
     assert.ok(source.includes(`$PSBoundParameters.ContainsKey('${option}')`));
   }
