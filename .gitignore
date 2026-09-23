@@ -22,6 +22,9 @@ backend/data/*
 # 非 Windows 平台的仓库外运行时数据回退目录
 .runtime/
 
+# 播控/看门狗运行时一次性 token（进程自动重写，不提交）
+scripts/*.token
+
 # 数据库备份目录（禁止git clean删除）
 backups/
 *.backup
