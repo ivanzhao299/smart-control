@@ -10,7 +10,7 @@ const themeService = fs.readFileSync(path.join(srcRoot, 'services/theme.service.
 
 test('the design system keeps one clean visual foundation', () => {
   assert.match(tokens, /--v2-bg-0: #070d14/);
-  assert.match(tokens, /--v2-bg-0: #f6f8fb/);
+  assert.match(tokens, /--v2-bg-0: #e9eef4/);
   assert.match(tokens, /body::before,\s*\nbody::after \{ content: none !important; \}/);
 
   for (const retired of ['.v2-glass', '.v2-num-glow', '.v2-btn-primary', 'v2-aurora-drift']) {
