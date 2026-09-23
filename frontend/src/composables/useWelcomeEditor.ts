@@ -260,14 +260,29 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
       ElMessage.warning('正在保存、发布或处理图片，请稍候再关闭');
       return;
     }
-    if (welcomeSaveDirty.value) {
-      try {
-        await ElMessageBox.confirm('当前方案有尚未保存的修改，关闭后将丢失。确定关闭吗？', '有未保存的修改', {
-          confirmButtonText: '放弃修改并关闭', cancelButtonText: '继续编辑', type: 'warning',
-        });
-      } catch { return; }
+    if (!welcomeSaveDirty.value) {
+      welcomeEditOpen.value = false;
+      return;
     }
-    welcomeEditOpen.value = false;
+    // 三态：confirm=保存并关闭；cancel=放弃修改并关闭；关闭(X/ESC/遮罩)=继续编辑。
+    try {
+      await ElMessageBox.confirm('当前方案有尚未保存的修改。要先保存再关闭吗？', '有未保存的修改', {
+        confirmButtonText: '保存并关闭',
+        cancelButtonText: '放弃修改并关闭',
+        distinguishCancelAndClose: true,
+        type: 'warning',
+        // 编辑器遮罩在 z-index 3000, 必须让该确认框的 overlay 抬到其上, 否则看不见也点不到
+        modalClass: 'welcome-close-confirm',
+      });
+    } catch (action) {
+      if (action === 'cancel') {
+        welcomeEditOpen.value = false;
+        return;
+      }
+      return; // 'close'（X / ESC / 遮罩）→ 继续编辑
+    }
+    const saved = await persistWelcomeSchemes();
+    if (saved) welcomeEditOpen.value = false;
   }
 
   let welcomePreviewSeq = 0;
@@ -620,7 +635,6 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
     if (checkAdmin && !(await options.ensureAdmin('保存欢迎方案'))) return null;
     welcomeSaving.value = true;
     try {
-      const selectedId = selectedWelcomeSchemeId.value;
       const saved = await saveWelcomeSchemes(
         {
           version: 2,
@@ -632,16 +646,18 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
         welcomeSchemesRevision.value,
       );
       const confirmed = await fetchWelcomeSchemes();
+      // revision(乐观并发) + checksum(权威内容摘要) 一致即确认落盘。
+      // 不再对整份 config 做 JSON.stringify 逐字节比对：后端可能补默认值/规范化空值，
+      // 键顺序或空值表示的差异会让语义相同的保存被误判为失败。
       if (confirmed.revision !== saved.revision
-        || confirmed.checksum !== saved.checksum
-        || JSON.stringify(confirmed.config) !== JSON.stringify(saved.config)) {
+        || confirmed.checksum !== saved.checksum) {
         throw new Error('服务器回读结果与本次保存不一致，请重新打开后再保存');
       }
       welcomeSchemes.value = confirmed.config.schemes.map((item) => ({ ...item }));
       welcomeSchemesRevision.value = confirmed.revision;
       publishedWelcomeSchemeId.value = confirmed.publishedSchemeId;
       lastWelcomeSaveRevision.value = confirmed.revision;
-      applyWelcomeScheme(selectedId);
+      // 不重置表单：当前表单就是刚保存的内容，重新套用只会让预览重推闪动、输入焦点丢失。
       return confirmed;
     } catch (error) {
       ElMessage.error(`保存失败: ${(error as Error).message}`);
@@ -654,6 +670,16 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
     const saved = await persistWelcomeSchemes();
     if (saved) {
       ElMessage.success(`“${schemeName}”已保存到服务器方案库（版本 ${saved.revision}），当前 LED 画面未切换`);
+    }
+  }
+
+  async function saveAndCloseWelcomeEditor(): Promise<void> {
+    // 一键保存并关闭：保存成功即关，失败保持打开便于修正。
+    const name = welcomeSchemeName.value.trim();
+    const saved = await persistWelcomeSchemes();
+    if (saved) {
+      ElMessage.success(`“${name}”已保存到服务器方案库（版本 ${saved.revision}）`);
+      welcomeEditOpen.value = false;
     }
   }
 
@@ -794,6 +820,7 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
     selectWelcomeBackground,
     deleteWelcomeImage,
     saveWelcomeScheme,
+    saveAndCloseWelcomeEditor,
     publishSelectedWelcomeScheme,
     selectWelcomeLogo,
     selectDefaultWelcomeBackground,

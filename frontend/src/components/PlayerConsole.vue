@@ -212,6 +212,7 @@ const {
   selectWelcomeBackground,
   deleteWelcomeImage,
   saveWelcomeScheme,
+  saveAndCloseWelcomeEditor,
   publishSelectedWelcomeScheme,
   selectWelcomeLogo,
   selectDefaultWelcomeBackground,
@@ -809,9 +810,12 @@ const {
             <span v-if="lastWelcomeSaveRevision !== null" class="we-save-receipt">
               已保存到服务器 · 版本 {{ lastWelcomeSaveRevision }}
             </span>
-            <button class="v2-quick" @click="requestCloseWelcomeEditor">取消</button>
-            <button class="v2-quick secondary" :disabled="welcomeSaving || welcomePublishing || !!welcomeAssetUploading || welcomeAssetDeletingId !== null" @click="saveWelcomeScheme">
+            <button class="v2-quick" :disabled="welcomeSaving || welcomePublishing || !!welcomeAssetUploading || welcomeAssetDeletingId !== null" @click="requestCloseWelcomeEditor">取消</button>
+            <button class="v2-quick" :disabled="welcomeSaving || welcomePublishing || !!welcomeAssetUploading || welcomeAssetDeletingId !== null" @click="saveWelcomeScheme">
               {{ welcomeSaving ? '保存并校验中…' : '仅保存方案' }}
+            </button>
+            <button class="v2-quick secondary" :disabled="welcomeSaving || welcomePublishing || !!welcomeAssetUploading || welcomeAssetDeletingId !== null" @click="saveAndCloseWelcomeEditor">
+              保存并关闭
             </button>
             <button class="v2-quick primary" :disabled="welcomeSaving || welcomePublishing || !!welcomeAssetUploading || welcomeAssetDeletingId !== null" @click="publishSelectedWelcomeScheme">
               {{ welcomePublishing ? '发布中…' : '保存并发布到 LED' }}
@@ -1248,7 +1252,7 @@ const {
 .wb-hide-check input { margin: 0; cursor: pointer; }
 .we-title-effect > div { flex-wrap: wrap; gap: 5px; }
 .we-title-effect button { flex: 0 0 auto; white-space: nowrap; padding: 5px 11px; }
-.wb-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+.wb-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
 .pick-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .pick-title { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; color: var(--v2-text-1); }
 .pick-tabs { display: flex; gap: 4px; margin-left: auto; }
