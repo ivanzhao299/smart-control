@@ -105,7 +105,7 @@ test('welcome venue/org lines are editable, hideable, and published; title offer
   assert.match(welcomeEditor, /const welcomeHidden = reactive\(/);
   assert.match(welcomeEditor, /function welcomeDisplayValue\(/);
   assert.match(welcomeEditor, /function applyWelcomeDisplay\(/);
-  assert.match(welcomeEditor, /watch\(welcomeHidden, pushWelcomePreview/);
+  assert.match(welcomeEditor, /watch\(welcomeHidden, scheduleWelcomePreview/);
   assert.match(welcomeEditor, /const welcomeTitleEffectOptions = \[/);
   assert.match(welcomeEditor, /const welcomeDisplayRows = \[/);
   assert.match(welcomeEditor, /场馆中文名/);

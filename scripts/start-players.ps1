@@ -115,6 +115,7 @@ function Clear-PlayerCache {
 if ($Stop) { Stop-Players; exit 0 }
 
 . (Join-Path $PSScriptRoot 'player-profile-path.ps1')
+. (Join-Path $PSScriptRoot 'display-common.ps1')
 
 $browser = Find-Browser
 if (-not $browser) {
@@ -354,7 +355,16 @@ if ($Slot -eq 0 -or $Slot -eq 1) {
     $PSBoundParameters.ContainsKey('ScreenW') -or
     $PSBoundParameters.ContainsKey('ScreenH')
   $lr = $null
-  if (-not $explicitLedRect) { $lr = Get-LedRect }
+  if (-not $explicitLedRect) {
+    # Wait for the wall EDID to negotiate 3612x1462 before pinning slot1,
+    # so a boot-time transient 1280x720 mode can never freeze the window small.
+    if (Wait-DisplayReady -ExpectedW 3612 -ExpectedH 1462 -TimeoutSec 90) {
+      Write-Host 'primary display negotiated 3612x1462 before pinning slot1' -ForegroundColor Green
+    } else {
+      Write-Warning 'primary display did not reach 3612x1462 within 90s; pinning slot1 to current bounds'
+    }
+    $lr = Get-LedRect
+  }
   if ($lr) {
     Write-Host ("slot=1 -> LED primary display " + $lr.X + "," + $lr.Y + " " + $lr.Width + "x" + $lr.Height) -ForegroundColor Cyan
     if ($lr.Width -ne 3612 -or $lr.Height -ne 1462) {

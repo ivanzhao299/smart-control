@@ -377,6 +377,37 @@ if (Test-Path $resTokenFile) {
   }
 }
 
+# 3b. Window-rect patrol (2026-09-23): heartbeats say nothing about geometry.
+#     Hot-correct each fullscreen window to its display bounds WITHOUT killing
+#     anything (no blink); z-order and focus are untouched. Runs every tick - a
+#     window already correct is only read, never moved. If park-ops has no
+#     window at all, trigger its one-shot interactive re-pin task.
+. (Join-Path $PSScriptRoot 'display-common.ps1')
+$ledRect = Get-DisplayRect
+if ($ledRect) {
+  foreach ($target in @(
+    @{ Marker = 'smart-control-player-slot1' },
+    @{ Marker = 'smart-control-park-ops' }
+  )) {
+    $rectState = Repair-MarkerRect -Marker $target.Marker -X $ledRect.X -Y $ledRect.Y `
+      -W $ledRect.Width -H $ledRect.Height
+    if ($rectState -eq 'missing' -and $target.Marker -eq 'smart-control-park-ops') {
+      Log 'park-ops window missing -> trigger SC-RestartParkOpsOnce'
+      & schtasks.exe /run /tn SC-RestartParkOpsOnce 2>&1 | ForEach-Object { Log ('  ' + $_) }
+    } elseif ($rectState -ne 'ok') {
+      Log ('rect patrol ' + $target.Marker + ' -> ' + $rectState)
+    }
+  }
+  if (Test-SecondDisplayPresent) {
+    $subRect = Get-DisplayRect -NonPrimary
+    if ($subRect) {
+      $rectState = Repair-MarkerRect -Marker 'smart-control-player-slot2' -X $subRect.X -Y $subRect.Y `
+        -W $subRect.Width -H $subRect.Height
+      if ($rectState -ne 'ok') { Log ('rect patrol smart-control-player-slot2 -> ' + $rectState) }
+    }
+  }
+}
+
 # A session we just reattached ALWAYS needs a relaunch, even if every slot
 # heartbeats: the windows were placed against the RDP virtual display, so their
 # coordinates mean nothing on the real 3-monitor layout. Restart to re-place them.

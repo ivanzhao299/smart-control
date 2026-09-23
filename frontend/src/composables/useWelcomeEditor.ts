@@ -144,20 +144,35 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
     catch { /* private mode or disabled storage */ }
   }
 
-  // 后端暂不生成缩略图：只对进入视口的原图生成本地 WebP，发布仍使用原始文件。
-  const welcomeThumbUrlMap = reactive(new Map<number, string>());
-  const welcomeThumbInflight = new Map<number, Promise<string>>();
-  const WELCOME_BG_THUMB_WIDTH = 1200;
-  const WELCOME_LOGO_THUMB_HEIGHT = 256;
+  // 缩略图策略（性能修复 2026-09-23）：
+  //  - 列表 list：优先用后端已生成的 thumbUrl，零原图下载；后端缺失才在本地把背景缩到
+  //    480 宽 / logo 缩到 128 高。
+  //  - 预览 preview：iframe 预览需要更清晰，背景 1600 宽 / logo 256 高，且只处理选中项。
+  //  - fetch 由 no-store 改为 default，允许 HTTP/磁盘缓存命中，重复进入编辑器不重复下载；
+  //    签名地址过期（401/403/410）仍会重新换取地址再试。
+  type WelcomeThumbPurpose = 'list' | 'preview';
+  const welcomeThumbUrlMap = reactive(new Map<string, string>());
+  const welcomeThumbInflight = new Map<string, Promise<string>>();
+  const WELCOME_BG_LIST_WIDTH = 480;
+  const WELCOME_BG_PREVIEW_WIDTH = 1600;
+  const WELCOME_LOGO_LIST_HEIGHT = 128;
+  const WELCOME_LOGO_PREVIEW_HEIGHT = 256;
 
-  async function ensureWelcomeThumb(asset: WelcomeImageAsset, kind: 'background' | 'logo'): Promise<string> {
-    const cached = welcomeThumbUrlMap.get(asset.id);
+  async function ensureWelcomeThumb(
+    asset: WelcomeImageAsset,
+    kind: 'background' | 'logo',
+    purpose: WelcomeThumbPurpose = 'list',
+  ): Promise<string> {
+    // 列表优先使用后端缩略图，免去下载/解码 3612x1462 原图。
+    if (purpose === 'list' && asset.thumbUrl) return absUrl(asset.thumbUrl);
+    const key = `${purpose}:${asset.id}`;
+    const cached = welcomeThumbUrlMap.get(key);
     if (cached) return cached;
-    const inflight = welcomeThumbInflight.get(asset.id);
+    const inflight = welcomeThumbInflight.get(key);
     if (inflight) return inflight;
     const task = (async (): Promise<string> => {
       const loadBlob = async (url: string): Promise<Blob> => {
-        const res = await fetch(absUrl(url), { cache: 'no-store' });
+        const res = await fetch(absUrl(url), { cache: 'default' });
         if (res.status === 401 || res.status === 403 || res.status === 410) {
           throw Object.assign(new Error(`ticket-expired-${res.status}`), { expired: true });
         }
@@ -177,10 +192,12 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
       let targetW: number;
       let targetH: number;
       if (kind === 'background') {
-        targetW = Math.min(bitmap.width, WELCOME_BG_THUMB_WIDTH);
+        const refW = purpose === 'preview' ? WELCOME_BG_PREVIEW_WIDTH : WELCOME_BG_LIST_WIDTH;
+        targetW = Math.min(bitmap.width, refW);
         targetH = Math.max(1, Math.round(targetW * (bitmap.height / bitmap.width)));
       } else {
-        targetH = Math.min(bitmap.height, WELCOME_LOGO_THUMB_HEIGHT);
+        const refH = purpose === 'preview' ? WELCOME_LOGO_PREVIEW_HEIGHT : WELCOME_LOGO_LIST_HEIGHT;
+        targetH = Math.min(bitmap.height, refH);
         targetW = Math.max(1, Math.round(targetH * (bitmap.width / bitmap.height)));
       }
       const canvas = document.createElement('canvas');
@@ -197,13 +214,13 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
       if (!out) throw new Error('缩略图编码失败');
       return URL.createObjectURL(out);
     })();
-    welcomeThumbInflight.set(asset.id, task);
+    welcomeThumbInflight.set(key, task);
     try {
       const url = await task;
-      welcomeThumbUrlMap.set(asset.id, url);
+      welcomeThumbUrlMap.set(key, url);
       return url;
     } finally {
-      welcomeThumbInflight.delete(asset.id);
+      welcomeThumbInflight.delete(key);
     }
   }
 
@@ -215,7 +232,7 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
       const run = (): void => {
         const asset = assetOf();
         if (!asset) return;
-        ensureWelcomeThumb(asset, kind)
+        ensureWelcomeThumb(asset, kind, 'list')
           .then((url) => { if (el.isConnected) el.src = url; })
           .catch(() => { if (asset.fileUrl && el.isConnected) el.src = absUrl(asset.fileUrl); });
       };
@@ -262,10 +279,10 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
     const selectedLogo = logoAssets.value.find((item) => item.id === welcomeForm.value.welcomeLogoMediaId);
     const [bgUrl, logoUrl] = await Promise.all([
       selected
-        ? ensureWelcomeThumb(selected, 'background').catch(() => absUrl(selected.fileUrl))
+        ? ensureWelcomeThumb(selected, 'background', 'preview').catch(() => absUrl(selected.fileUrl))
         : Promise.resolve(null),
       selectedLogo
-        ? ensureWelcomeThumb(selectedLogo, 'logo').catch(() => absUrl(selectedLogo.fileUrl))
+        ? ensureWelcomeThumb(selectedLogo, 'logo', 'preview').catch(() => absUrl(selectedLogo.fileUrl))
         : Promise.resolve(null),
     ]);
     if (seq !== welcomePreviewSeq || !frame.contentWindow) return;
@@ -286,8 +303,25 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
     }, window.location.origin);
   }
 
-  watch(welcomeForm, pushWelcomePreview, { deep: true });
-  watch(welcomeHidden, pushWelcomePreview, { deep: true });
+  // Preview-push timer with a safe fallback for sandboxed runtimes that expose
+  // no setTimeout (the node:test vm context). Browsers get a 200ms debounce so
+  // typing does not re-push the whole iframe on every character; a runtime
+  // without a timer pushes synchronously, exactly like the old direct watch.
+  const scheduleTimer: (fn: () => void, ms: number) => (() => void) =
+    typeof setTimeout === 'function'
+      ? (fn, ms) => {
+          const id = setTimeout(fn, ms);
+          return () => clearTimeout(id);
+        }
+      : (fn) => { fn(); return () => {}; };
+  let cancelWelcomePreview: (() => void) | undefined;
+  function scheduleWelcomePreview(): void {
+    cancelWelcomePreview?.();
+    cancelWelcomePreview = scheduleTimer(() => { void pushWelcomePreview(); }, 200);
+  }
+  watch(welcomeForm, scheduleWelcomePreview, { deep: true });
+  watch(welcomeHidden, scheduleWelcomePreview, { deep: true });
+  onScopeDispose(() => { cancelWelcomePreview?.(); });
 
   function applyWelcomeScheme(id: string): void {
     const scheme = welcomeSchemes.value.find((item) => item.id === id);
