@@ -13,7 +13,7 @@ export type Theme = 'dark' | 'light';
 const STORAGE_KEY = 'sc.theme';
 
 /** 当前主题 (响应式, 给切换按钮显示用) */
-export const theme = ref<Theme>('light');
+export const theme = ref<Theme>('dark');
 
 function persist(t: Theme): void {
   try { window.localStorage.setItem(STORAGE_KEY, t); } catch { /* 隐私模式 */ }
@@ -43,7 +43,7 @@ export function forceThemeWithoutPersist(t: Theme): void {
 
 /** 启动时调 (main.ts, mount 之前) */
 export function initTheme(): void {
-  const t = readStored() ?? 'light';
+  const t = readStored() ?? 'dark';
   theme.value = t;
   document.documentElement.setAttribute('data-theme', t);
   syncThemeColor(t);
@@ -56,7 +56,7 @@ export function toggleTheme(): void {
 
 /** 回到业主记住的主题 (kiosk 页离开时用) */
 export function restoreStoredTheme(): void {
-  const __t = readStored() ?? 'light';
+  const __t = readStored() ?? 'dark';
   document.documentElement.setAttribute('data-theme', __t);
   syncThemeColor(__t);
 }

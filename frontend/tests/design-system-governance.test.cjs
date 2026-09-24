@@ -21,8 +21,8 @@ test('the design system keeps one clean visual foundation', () => {
   assert.doesNotMatch(theme, /linear-gradient\(135deg/u, 'shared controls use solid fills');
 });
 
-test('light is the first-run theme while an explicit saved choice still wins', () => {
-  assert.match(themeService, /readStored\(\) \?\? 'light'/);
+test('dark is the first-run theme while an explicit saved choice still wins', () => {
+  assert.match(themeService, /readStored\(\) \?\? 'dark'/);
   assert.match(themeService, /if \(v === 'light' \|\| v === 'dark'\) return v/);
   assert.match(themeService, /forceThemeWithoutPersist\(t: Theme\)/);
 });

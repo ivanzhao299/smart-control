@@ -10,6 +10,11 @@
 
 ---
 
+## 0. 默认主题
+
+- 首次使用 / 无保存偏好时**默认深色**（`frontend/src/services/theme.service.ts` 中 `readStored() ?? 'dark'`，共 3 处）；用户手动切到浅色会写入 `localStorage['sc.theme']` 并持久化、以后进浅色。
+- 大屏 kiosk 由 `forceThemeWithoutPersist` 强制深色，不受此影响。
+
 ## 1. 浅色 · 页面与表面底色
 
 | 变量 | 当前值 | 作用 |
@@ -32,6 +37,19 @@
 
 阴影作用于：`.v2-kpi / .ch-card / .metric / .v2-card / .v2-subsystems / .v2-overview / .circuit-card:not(.on)`。
 通电卡 `.circuit-card.on` 用青绿辉光，已用 `:not(.on)` 排除，勿覆盖。
+
+## 2b. 卡片悬停立体感（hover 上浮）
+
+容器型卡片（`.v2-kpi / .ch-card / .v2-card / .v2-subsystems / .v2-overview / .circuit-card:not(.on)`）hover 时统一上浮并加深阴影；可选网格（`.v2-scene / .v2-zone / .v2-screen / .v2-hvac-zone`）保持扁平、不上浮。规则在 `design-tokens.css` 静态阴影块之后，带 `:root:root[data-theme='…']` 前缀（特异性才压得过静态阴影）。
+
+| 主题 | 上浮 | hover 阴影（想更明显就加大模糊 / alpha） |
+|---|---|---|
+| 浅色 | `translateY(-2px)` | `0 2px 6px rgba(18,22,31,.08), 0 10px 24px rgba(18,22,31,.10)` |
+| 深色 | `translateY(-2px)` | `inset 0 1px 0 rgba(255,255,255,.06), 0 12px 30px rgba(0,0,0,.52)` |
+
+- 想更克制：上浮改 `translateY(-1px)`、阴影 alpha 减半；想更立体：上浮 `-3px`、模糊加大。
+- 通电卡 `.on` 与可选网格不参与，勿去掉 `:not(.on)`。
+- 过渡时长 / 缓动沿用共享表面规则（`--v2-dur-base` / `--v2-ease-out`）。
 
 ## 3. 浅色 · 文字（对白底对比度）
 
