@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<title>金湖园区 · 真实模型真机验证</title>
+<script type="importmap">
+{"imports":{
+  "three":"../../vendor/three.module.min.js",
+  "gltf-loader":"./addons/GLTFLoader.js",
+  "draco-loader":"./addons/DRACOLoader.js"
+}}
+</script>
+<link rel="stylesheet" href="./model.css" />
+</head>
+<body>
+  <script>
+    window.addEventListener('error', function (e) {
+      document.getElementById('prog').textContent = 'JSERR: ' + (e.message || '') + ' @ ' + (e.filename || '').split('/').pop() + ':' + e.lineno;
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+      var r = e.reason; document.getElementById('prog').textContent = 'REJ: ' + (r && r.message || r);
+    });
+  </script>
+  <div id="stage"></div>
+  <div id="hud" class="hud">
+    <div class="hud-title">真机验证 HUD</div>
+    <div id="hudBody" class="hud-body">初始化…</div>
+  </div>
+  <div id="note" class="note">
+    <div class="note-main">模型加载中…</div>
+    <div id="prog" class="prog"></div>
+  </div>
+  <script type="module" src="./model.js"></script>
+</body>
+</html>
