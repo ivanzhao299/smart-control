@@ -17,6 +17,8 @@ from bpy_extras.object_utils import world_to_camera_view
 p=argparse.ArgumentParser()
 for name in ('input','cameras','fit','landscape','output'):p.add_argument('--'+name,required=True)
 p.add_argument('--preview',action='store_true')
+p.add_argument('--realism',action='store_true')
+p.add_argument('--save-scene',action='store_true')
 a=p.parse_args(sys.argv[sys.argv.index('--')+1:]);out=Path(a.output);out.mkdir(parents=True,exist_ok=False)
 bpy.ops.wm.open_mainfile(filepath=a.input)
 scene=bpy.context.scene;cam=scene.camera
@@ -24,6 +26,7 @@ source=[o for o in scene.objects if o.type=='MESH']
 def fingerprint():
     h=hashlib.sha256()
     for o in source:
+        if o.name.startswith('landscape-'):continue
         h.update(o.name.encode());h.update(str([list(r) for r in o.matrix_world]).encode())
         h.update(str((len(o.data.vertices),len(o.data.polygons))).encode())
     return h.hexdigest()
@@ -67,6 +70,11 @@ scene.render.engine='BLENDER_EEVEE_NEXT';scene.eevee.taa_render_samples=16 if a.
 scene.render.resolution_x=1500 if a.preview else 3000
 scene.render.resolution_y=1200 if a.preview else 2400
 scene.render.resolution_percentage=100;scene.render.image_settings.file_format='PNG'
+appearance=None
+if a.realism:
+    sys.path.insert(0,str(Path(__file__).resolve().parent))
+    from scene_realism import apply_realism,light
+    appearance=apply_realism(scene)
 world=scene.world.node_tree.nodes['Background']
 suns=[o for o in scene.objects if o.type=='LIGHT' and o.data.type=='SUN']
 for sun in suns:sun.rotation_euler=(math.radians(32),math.radians(-23),math.radians(-32))
@@ -86,6 +94,8 @@ manifest={'version':1,'revision':'jinhu-camera-20260910-v2-filled','renderMode':
  'limitations':['Pre-rendered camera views, not free orbit.','Peripheral landscape is presentation-only, not surveyed.',
                 'Official building IDs, scale and tenant mapping remain unverified.']}
 manifest['landscapeSummary']['overscanTrees']=len(trees)
+if appearance:
+    manifest['appearance']=appearance;manifest['revision']='jinhu-camera-20260910-v3-realism'
 def bounds():
     uv=[world_to_camera_view(scene,cam,v) for v in subject]
     return [min(v.x for v in uv),min(v.y for v in uv),max(v.x for v in uv),max(v.y for v in uv)]
@@ -134,6 +144,7 @@ for v in json.loads(Path(a.cameras).read_text())['views']:
             bsdf.inputs['Emission Color'].default_value=(1,.52,.18,1) if night else (0,0,0,1)
             bsdf.inputs['Emission Strength'].default_value=.65 if night else 0
         scene.view_settings.exposure=.25 if night else 0
+        if a.realism:light(scene,night)
         if mode=='clay':
             for mesh,slots in original_slots:
                 for i in range(len(slots)):mesh.materials[i]=clay
@@ -148,6 +159,7 @@ for v in json.loads(Path(a.cameras).read_text())['views']:
     print('FILLED_VIEW',v['id'],region,flush=True)
 assert fingerprint()==before
 manifest['geometryUnchanged']=True
+if a.save_scene:bpy.ops.wm.save_as_mainfile(filepath=str(out/'realism.blend'),compress=True)
 (out/'display-manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2))
 (out/'framing-review.json').write_text(json.dumps({'subjectObjects':len(subject_names),'subjectNames':subject_names,
  'sourceGeometryFingerprint':before,'sourceGeometryUnchanged':True,'overscanTrees':len(trees),

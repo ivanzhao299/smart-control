@@ -1,0 +1,14 @@
+/* Space-anchored, extruded typography. No WebGL, bloom pass, or full-screen scanline. */
+.marker{padding:0 2px 28px!important;background:none!important;border:0!important;border-radius:0;overflow:visible;max-width:none;font-weight:850;letter-spacing:.055em;line-height:1.4;text-shadow:0 1px 0 #bdeaf3,1px 2px 0 #1a6878,2px 3px 0 #15566a,3px 4px 0 #103d51,4px 5px 1px #051826,0 6px 8px #00131ed9;filter:none;isolation:isolate}
+.marker::before{content:"";position:absolute;left:50%;bottom:4px;height:23px;width:1px;background:linear-gradient(#b6fbff,#48c6d3);box-shadow:1px 0 #03181e}
+.marker::after{content:"";position:absolute;left:50%;bottom:0;width:23px;height:10px;transform:translateX(-50%);border:1px solid #a0fbff;border-radius:50%;background:#1c829059;box-shadow:0 0 0 3px #23a0ad24,inset 0 0 4px #acffff99;z-index:-1}
+.marker:hover{background:none!important;text-shadow:0 1px #fff,1px 2px #308fa3,2px 3px #23708b,3px 4px #114654,0 5px 10px #00121f}
+.marker.selected{outline:1px dashed #f3d392;outline-offset:5px}.editing .marker{cursor:move}
+#cameraFilm{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none;background:#071925}
+#cameraFilm[hidden]{display:none}.cinema-active #image{visibility:hidden}
+#tour{border-color:#468a99;background:#193f4c;color:#c7f8ff}#tour[aria-pressed=true]{border-color:#d9c08c;color:#ffe1ad;background:#44392a}
+#assetDetail{position:absolute;bottom:14px;right:14px;width:235px;max-width:85%;padding:15px;border:1px solid #3b788c;border-top:2px solid #8bddeb;background:#061b29f5;box-shadow:0 10px 30px #0005;z-index:9}
+#assetDetail[hidden]{display:none}#assetDetail .eyebrow{font-size:9px;color:#65acbd;letter-spacing:1.5px}#assetDetail h2{font-size:18px;margin:8px 0 13px;color:#ddfaff}#assetDetail dl{display:grid;grid-template-columns:65px 1fr;gap:8px;font-size:11px;margin:0}#assetDetail dt{color:#6f99ac}#assetDetail dd{margin:0;color:#b5cfda;overflow-wrap:anywhere}#assetDetail button{padding:4px 7px;margin-top:12px;font-size:11px}#closeDetail{position:absolute;right:8px;top:0;background:none;border:0}
+.toolbar{background:#081c29}.toolbar button{border-radius:2px}.toolbar .group{gap:6px}footer{background:#071a26;color:#7ca7b8}.explanation{background:#071a26}
+.reference-entry{font-size:11px;align-self:center;padding:6px 8px;border:1px solid #345764;border-radius:2px;color:#a6ced7}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation:none!important;transition:none!important}}

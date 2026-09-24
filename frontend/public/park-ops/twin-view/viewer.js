@@ -63,6 +63,7 @@ async function loadView(id){
  if(!manifest)return;const view=manifest.views.find(v=>v.id===id);if(!view)return;
  requestedView=id;const file=filename(view);if(!/^[-a-z0-9]+\.webp$/.test(file))throw Error('Unsafe view asset path');
  const key=`${id}/${file}`;const token=++sequence;if(key===currentImageKey){$('loading').hidden=true;$('retry').hidden=true;controls();return;}
+ document.dispatchEvent(new Event('twin-view-changing'));
  $('loading').hidden=false;$('loading').textContent=`正在加载${names[id]}…`;$('retry').hidden=true;
  try{
   const next=new Image();next.decoding='async';next.src=new URL(`./assets/${file}`,location.href).href;await next.decode();
@@ -73,12 +74,13 @@ async function loadView(id){
   activeView=id;currentImageKey=key;successfulLoads++;selected='';markers();selectionForm();resize();controls();$('loading').hidden=true;$('edit').disabled=false;
   announce(`${names[id]} · ${mode==='clay'?'白模检查':lighting==='night'?'夜景模拟':'日景模拟'} · ${manifest.responsiveFraming?'近景满幅 · ':''}按需加载，无持续三维计算`);
   parent.postMessage({type:'park-twin-state',view:id,mode,lighting},location.origin);
+  document.dispatchEvent(new CustomEvent('twin-view-ready',{detail:{manifest,view:id}}));
  }catch(error){if(token!==sequence)return;$('loading').textContent='视角加载失败，保留上一张有效画面。请重试。';$('retry').hidden=false;announce(error.message);controls();}
 }
 function setLighting(value){lightingMode=value;const hour=new Date().getHours();lighting=value==='auto'?(hour>=7&&hour<19?'day':'night'):value;loadView(requestedView);controls();}
 $('clay').onclick=()=>{mode=mode==='clay'?'landscape':'clay';loadView(requestedView);};
 $('labels').onclick=()=>{showLabels=!showLabels;$('labels').setAttribute('aria-pressed',String(showLabels));markers();};
-$('edit').onclick=()=>{editing=!editing;$('inspector').hidden=!editing;$('workspace').classList.toggle('editing',editing);$('edit').setAttribute('aria-pressed',String(editing));markers();resize();};
+$('edit').onclick=()=>{editing=!editing;document.dispatchEvent(new CustomEvent('twin-editing',{detail:editing}));$('inspector').hidden=!editing;$('workspace').classList.toggle('editing',editing);$('edit').setAttribute('aria-pressed',String(editing));markers();resize();};
 $('selection').onchange=()=>{selected=$('selection').value;selectionForm();markers();};
 for(const [id,key] of [['labelText','text'],['fontSize','fontSize'],['color','color'],['posX','x'],['posY','y']]){
  $(id).addEventListener('focus',checkpoint);
@@ -117,5 +119,5 @@ async function initialize(){
   setLighting(lightingMode);parent.postMessage({type:'park-twin-ready'},location.origin);
  }catch(error){$('loading').textContent=error.message;$('retry').hidden=false;announce('加载失败，未替换为其它模型。');}
 }
-window.TWIN_VIEW_DEBUG={get state(){return {activeView,requestedView,lighting,mode,successfulLoads,currentImageKey,editing,lastDraftError};},get draft(){return JSON.parse(JSON.stringify(draft));}};
+window.TWIN_VIEW_DEBUG={get manifest(){return manifest;},get state(){return {activeView,requestedView,lighting,mode,successfulLoads,currentImageKey,editing,lastDraftError};},get draft(){return JSON.parse(JSON.stringify(draft));}};
 initialize();

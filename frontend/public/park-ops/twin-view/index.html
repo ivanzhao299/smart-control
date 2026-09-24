@@ -1,12 +1,12 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>金湖园区 · 多视角模型验收</title><link rel="stylesheet" href="./viewer.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>金湖园区 · 多视角模型验收</title><link rel="stylesheet" href="./viewer.css"><link rel="stylesheet" href="./viewer-depth.css"></head>
 <body>
 <header><div><small>JINHU / MODEL VIEWER</small><h1>同一座园区，不同的观察方向</h1></div><nav><a href="../index.html?twin=1">本地运营大屏</a><a href="/compare.html">原图对照</a></nav></header>
 <div class="notice">本地候选 · 未发布生产 <span>真实 MAX 几何渲染 / 绿化为补建示意 / 不是实时设备数据</span></div>
 <section class="toolbar" aria-label="模型显示控制">
  <div id="views" class="group" aria-label="相机视角"></div>
- <div class="group"><button id="clay" aria-pressed="false">检查白模</button><button id="labels" aria-pressed="true">显示标注</button><button id="edit" aria-pressed="false">编辑标注</button></div>
+ <div class="group"><button id="tour" aria-pressed="false" disabled title="另一侧日景支持 6 秒真实相机巡游">相机巡游 · 6秒</button><a class="reference-entry" href="/realism-compare.html" target="_blank" rel="noopener">原图对照</a><button id="clay" aria-pressed="false">检查白模</button><button id="labels" aria-pressed="true">显示标注</button><button id="edit" aria-pressed="false">编辑标注</button></div>
  <div class="group lighting" aria-label="光照"><button data-light="auto">自动</button><button data-light="day">日景</button><button data-light="night">夜景</button></div>
 </section>
 <main id="workspace">
@@ -24,6 +24,7 @@
  </aside>
 </main>
 <footer><span id="status" role="status">本地准备中</span><button id="retry" hidden>重试加载</button><span id="budget"></span></footer>
-<p class="explanation">相机已转到模型另一侧重新渲染；网页使用预渲染视角，不能自由拖拽环绕。无常驻 WebGL、无自动转动；白模与景观使用同一组相机。标注按视角分别保存。</p>
+<p class="explanation">原图对照保持原参考相机。日景“另一侧”支持 6 秒真实镜头巡游，点击后才加载，结束恢复静态；没有自由环绕或常驻 WebGL。立体字为可编辑的空间投影样式，非字体网格。点击标注查看空间对象。</p>
 <script type="module" src="./viewer.js"></script>
+<script type="module" src="./viewer-cinema.js"></script>
 </body></html>
