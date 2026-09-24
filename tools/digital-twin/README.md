@@ -143,3 +143,14 @@ TWIN_EVIDENCE='/path/real-browser-evidence' node test-real-browser.mjs
 原始模型、贴图、模型处理日志、诊断截图、Windows 转换包全部放在本地任务目录，不进入 Git。仓库保存工具、说明、锁文件及专门为网页生成的约 1.76 MB 发布候选 WebP 视角包和脱敏清单；不包含 MAX/BLEND 或完整纹理。本地环境准备不会触发生产发布。
 
 停止工作台：在启动它的终端按 Ctrl+C。重开时运行 `twin.py serve`，所有资产仍保存在原任务目录。此工具不安装开机常驻任务。
+
+## 网页运行时加载链路（真机验证经验，勿再踩）
+
+真实模型发布为压缩 GLB（Draco + JPEG），由 `frontend/public/park-ops/3d-twin/model/` 验证页加载。复制 three addons 时必须连同依赖一起放，否则 module 链接失败、整页停在“加载中”且渲染循环不启动：
+
+1. **GLTFLoader 依赖 utils**：three r180 的 `loaders/GLTFLoader.js` 有 `import { toTrianglesDrawMode } from '../utils/BufferGeometryUtils.js'`。只复制 loaders 会报 `Failed to fetch dynamically imported module`。必须把 `examples/jsm/utils/BufferGeometryUtils.js` 放到 model 页的 `utils/`（该文件仅 import 'three'，依赖闭合）。
+2. **DRACOLoader 路径要直接含 decoder 文件**：r180 的 `_loadLibrary` 直接在 `decoderPath` 下找 `draco_decoder.wasm` / `draco_wasm_wrapper.js`，**不再自动加 `gltf/` 子目录**。`setDecoderPath('../../vendor/draco/gltf/')`（结尾带 `gltf/`），decoder 文件放 `park-ops/vendor/draco/gltf/`。
+3. 验证页 importmap 需同时声明 `three`、`gltf-loader`、`draco-loader`；addons 内部裸 import 'three' 由 importmap 解析。
+4. 玻璃/铝板/水面的 Standard 材质需要环境反射：用程序化 equirect 渐变 DataTexture 经 `PMREMGenerator.fromEquirectangular` 设 `scene.environment`，无需额外 HDR 文件。
+
+本地（Mac mini, ANGLE Metal）真机基线：GLB 4.21 MB、加载（下载+Draco解码+构建）约 169 ms、draw calls 38、约 36.8 万三角形、fps 120。GK9000 核显为最终性能口径，需真机实测后再决定是否继续减面。
