@@ -64,7 +64,13 @@ test('main PWA pages cannot be held blank by transition or permission refresh', 
   const layout = read('src/layouts/MainLayout.vue');
   const outlet = layout.slice(layout.indexOf('<router-view'), layout.indexOf('</router-view>'));
 
-  assert.doesNotMatch(outlet, /<transition\b/);
+  // 页面切换允许过渡, 但必须是"显式 :duration + 非 out-in"的安全形态: 显式时长让
+  // Vue 到点强制收尾、不依赖 transitionend (iOS WKWebView 后台恢复会丢 transitionend);
+  // 禁用 mode="out-in" 是因为它在收尾丢失时会永久停在旧页已删、新页未挂的空档白屏。
+  const transitionTag = outlet.match(/<transition\b[^>]*>/);
+  assert.ok(transitionTag, 'route outlet must declare its <transition> explicitly');
+  assert.match(transitionTag[0], /:duration="\d+"/);
+  assert.doesNotMatch(transitionTag[0], /mode=["']out-in["']/);
   assert.match(outlet, /<keep-alive :max="6">/);
   assert.match(router, /void usePermissionStore\(\)\.refresh\(\)/);
   assert.doesNotMatch(router, /await usePermissionStore\(\)\.refresh\(\)/);
