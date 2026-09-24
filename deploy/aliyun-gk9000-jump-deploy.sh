@@ -9,7 +9,7 @@ gk9000_key="${GK9000_KEY:-/root/.ssh/anksen-gk9000-deploy}"
 
 read -r action commit_sha unexpected <<< "${SSH_ORIGINAL_COMMAND:-}"
 
-if [[ "$action" != "gk9000-deploy" && "$action" != "gk9000-verify" && "$action" != "gk9000-status" && "$action" != "gk9000-offsite-backup" ]]; then
+if [[ "$action" != "gk9000-deploy" && "$action" != "gk9000-verify" && "$action" != "gk9000-status" && "$action" != "gk9000-offsite-backup" && "$action" != "gk9000-twin-sync" ]]; then
   printf 'Rejected: unsupported GK9000 action.\n' >&2
   exit 64
 fi
@@ -38,6 +38,20 @@ fi
 
 if [[ "$action" == "gk9000-offsite-backup" ]]; then
   exec /usr/local/sbin/smart-control-gk9000-offsite-backup "$commit_sha"
+fi
+
+if [[ "$action" == "gk9000-twin-sync" ]]; then
+  # 3D 孪生 opt-in: 仅经 GK 独立接收脚本同步 3d-twin 静态目录, 不切换工作区、
+  # 不构建、不重启、不碰该目录之外任何路径; viewer 缺失/超时/崩溃时前端自动兜底鸟瞰。
+  exec ssh \
+    -i "$gk9000_key" \
+    -o BatchMode=yes \
+    -o IdentitiesOnly=yes \
+    -o StrictHostKeyChecking=yes \
+    -o ServerAliveInterval=15 \
+    -o ServerAliveCountMax=4 \
+    "$gk9000_user@$gk9000_host" \
+    "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\ProgramData\\Anksen\\smart-control-twin-receive.ps1 -Commit $commit_sha"
 fi
 
 exec ssh \

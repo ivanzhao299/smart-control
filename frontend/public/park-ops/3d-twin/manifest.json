@@ -1,0 +1,19 @@
+{
+  "name": "smart-control-3d-twin",
+  "version": "0.1.0",
+  "productionEligible": false,
+  "optIn": {
+    "default": false,
+    "storageKey": "park-3d-twin",
+    "urlFlag": "twin"
+  },
+  "viewer": "viewer/index.html?embedded=1",
+  "budgets": {
+    "totalImageBytesMB": 6.5,
+    "precache": false,
+    "readyTimeoutMs": 8000,
+    "heartbeatTimeoutMs": 12000
+  },
+  "fallback": "static-aerial",
+  "note": "达生产级前仅部署本目录；开关默认关，加载异常自动回退静态鸟瞰。"
+}

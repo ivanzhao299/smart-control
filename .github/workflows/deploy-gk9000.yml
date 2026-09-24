@@ -125,6 +125,8 @@ jobs:
           DEPLOY_SCOPE: ${{ needs.scope.outputs.scope }}
         run: |
           echo "Validated deployment scope: ${DEPLOY_SCOPE}"
+          if [ "${DEPLOY_SCOPE}" = "twin" ]; then ACTION="gk9000-twin-sync"; else ACTION="gk9000-deploy"; fi
+          echo "Routing to ${ACTION}"
           ssh \
             -i "$HOME/.ssh/gk9000-deploy-jump" \
             -o BatchMode=yes \
@@ -133,9 +135,10 @@ jobs:
             -o ServerAliveInterval=15 \
             -o ServerAliveCountMax=4 \
             root@123.57.220.65 \
-            "gk9000-deploy ${COMMIT_SHA}"
+            "${ACTION} ${COMMIT_SHA}"
 
       - name: Verify through the WireGuard jump host
+        if: needs.scope.outputs.scope != 'twin'
         env:
           COMMIT_SHA: ${{ github.sha }}
         run: |
@@ -147,7 +150,19 @@ jobs:
             root@123.57.220.65 \
             "gk9000-verify ${COMMIT_SHA}"
 
+      - name: Twin directory smoke check
+        if: needs.scope.outputs.scope == 'twin'
+        env:
+          TWIN_BASE: https://erp.cnjinhu.top/control/park-ops/3d-twin
+        run: |
+          for f in bootstrap.js manifest.json viewer/index.html; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 "${TWIN_BASE}/${f}")
+            echo "${f} -> ${code}"
+            test "$code" = "200"
+          done
+
       - name: Copy migration recovery bundle off host
+        if: needs.scope.outputs.scope != 'twin'
         env:
           COMMIT_SHA: ${{ github.sha }}
         run: |

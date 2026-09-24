@@ -257,7 +257,10 @@ export default defineConfig(({ mode }) => {
           // (文件名含 Admin) 和只有 admin 用的 date-picker 不进每台手机的离线包。
           // admin 在线才用得上, 其 chunk 走浏览器 HTTP 缓存 (assets 带一年 immutable)。
           // 注意 admin.service (小写) 被业主侧状态页共享, 不匹配此模式, 不受影响。
-          globIgnores: ['**/*Admin*', '**/el-date-picker*', 'welcome/**'],
+          // 3D 孪生 (park-ops/3d-twin) 是 opt-in 影院式查看器: 约 6.5MB 离线 WebP
+          // 只在显式打开孪生时按需加载, 绝不进每台设备的 PWA 离线包; 也不匹配下方
+          // SW 运行时缓存 (配合 preview 的 no-cache, 新构建即时生效、可随时回鸟瞰)。
+          globIgnores: ['**/*Admin*', '**/el-date-picker*', 'welcome/**', '**/park-ops/3d-twin/**'],
           navigateFallback: `${SCOPE_PREFIX}/index.html`,
           // 独立静态投放页 (park-ops 运营大屏 / welcome 欢迎页) 由播放器以 iframe 顶层导航加载,
           // 它们是 public/ 下的物理静态 HTML, 绝不能被 SPA 导航回退顶替成 index.html 应用壳——

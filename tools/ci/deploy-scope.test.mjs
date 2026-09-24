@@ -7,6 +7,31 @@ test('classifies public assets as a static release', () => {
   assert.equal(classifyDeployFiles(['frontend/public/welcome/index.html']).scope, 'static');
 });
 
+test('classifies the isolated 3d-twin directory as twin scope', () => {
+  const twin = classifyDeployFiles([
+    'frontend/public/park-ops/3d-twin/bootstrap.js',
+    'frontend/public/park-ops/3d-twin/viewer/index.html',
+    'frontend/public/park-ops/3d-twin/viewer/assets/reference-day.webp',
+  ]);
+  assert.equal(twin.scope, 'twin');
+  assert.equal(twin.twinOnly, true);
+  assert.equal(twin.highRisk, false);
+
+  // Mixed with other public assets -> normal static scope, never isolated twin.
+  const mixedStatic = classifyDeployFiles([
+    'frontend/public/park-ops/3d-twin/bootstrap.js',
+    'frontend/public/park-ops/index.html',
+  ]);
+  assert.equal(mixedStatic.scope, 'static');
+
+  // Mixed with frontend code -> normal frontend build, never isolated twin.
+  const mixedCode = classifyDeployFiles([
+    'frontend/public/park-ops/3d-twin/bootstrap.js',
+    'frontend/src/App.vue',
+  ]);
+  assert.equal(mixedCode.scope, 'frontend');
+});
+
 test('classifies each application tier independently', () => {
   assert.equal(classifyDeployFiles(['frontend/src/App.vue', 'frontend/tests/app.test.cjs']).scope, 'frontend');
   assert.equal(classifyDeployFiles(['backend/src/app.module.ts', 'frontend/public/icon.png']).scope, 'backend');

@@ -240,7 +240,7 @@ describe('GK9000 deployment gates', () => {
     expect(classifier).toContain('/^frontend\\/tests\\//');
     expect(classifier).toContain('/^backend\\/test\\//');
     expect(classifier).toContain('/^backend\\/src\\/.+\\.spec\\.ts$/');
-    expect(classifier).toContain("scope = noRuntime ? 'none' : staticOnly ? 'static' : frontendOnly ? 'frontend' : backendOnly ? 'backend' : 'full'");
+    expect(classifier).toContain("scope = noRuntime ? 'none' : twinIsolated ? 'twin' : staticOnly ? 'static' : frontendOnly ? 'frontend' : backendOnly ? 'backend' : 'full'");
     expect(classifier).toContain("result.releaseControl = true");
     expect(deploy).toContain("$noRuntime = $scope.scope -eq 'none'");
     expect(deploy).toContain("$requiresDatabaseBackup = $backendOnly -or $fullDeploy");
