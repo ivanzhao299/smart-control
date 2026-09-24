@@ -1,0 +1,19 @@
+/* 3D 孪生开关 — 仅作用于 #parkMap 地图区, 不影响其它面板与全局配色 */
+#parkMap #parkTwinFrame{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  border:0;
+  background:#071522;
+  z-index:3;
+}
+/* 孪生激活时隐藏静态鸟掇/轻量3D场景与天气特效层（.map 自带 overflow:hidden 与切角） */
+#parkMap.map-twin-active .map-scene,
+#parkMap.map-twin-active .aerial,
+#parkMap.map-twin-active .scene-wash,
+#parkMap.map-twin-active .weather-layer,
+#parkMap.map-twin-active .mapnote{display:none!important}
+/* 工具栏（含开关）始终在 iframe 之上可点 */
+#parkMap .map-toolbar{z-index:6}
+#parkTwinToggle.active{color:#7fdce9;border-color:rgba(127,220,233,.7)}
