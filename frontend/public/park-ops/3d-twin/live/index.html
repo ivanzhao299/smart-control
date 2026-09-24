@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<title>金湖园区 · 实时数字孪生</title>
+<!-- 纯静态实时底座：three 复用 park-ops/vendor 的本地副本，离线、无 CDN、不进主构建 -->
+<script type="importmap">
+{"imports":{"three":"../../vendor/three.module.min.js"}}
+</script>
+<link rel="stylesheet" href="./live.css" />
+</head>
+<body>
+  <div id="liveStage" class="live-stage"></div>
+  <div id="liveHud" class="live-hud" hidden>
+    <span id="hudFps">-- fps</span>
+    <span id="hudLevel">L0</span>
+    <span id="hudState">active</span>
+  </div>
+  <div id="liveNote" class="live-note">实时底座加载中…</div>
+  <script type="module" src="./live.js"></script>
+</body>
+</html>

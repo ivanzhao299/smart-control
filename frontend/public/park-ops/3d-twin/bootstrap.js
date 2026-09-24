@@ -34,6 +34,15 @@ function resolveViewerUrl() {
   if (override && /^3d-twin\/[\w./-]+\.html(?:[?][\w=&.-]*)?$/.test(override)) {
     return new URL(override, new URL('../', import.meta.url)).href;
   }
+  // ?twin-app=live 选择实时 Three.js 底座（P0 缰绳）；缺省为预渲染多视角 viewer。
+  if (params.get('twin-app') === 'live') {
+    const passthrough = ['hud', 'load', 'force-level']
+      .filter((k) => params.has(k))
+      .map((k) => encodeURIComponent(k) + '=' + encodeURIComponent(params.get(k)))
+      .join('&');
+    const q = 'embedded=1' + (passthrough ? '&' + passthrough : '');
+    return new URL('./live/index.html?' + q, import.meta.url).href;
+  }
   return new URL('./viewer/index.html?embedded=1', import.meta.url).href;
 }
 
@@ -86,8 +95,14 @@ function onMessage(event) {
     clearTimeout(readyTimer);
     lastHeard = Date.now();
     send({ type: 'park-twin-lighting', value: lightingValue() });
+    publishVisibility();
   } else if (type === 'park-twin-state' || type === 'park-twin-heartbeat') {
     lastHeard = Date.now();
+  } else if (type === 'park-twin-degraded') {
+    lastHeard = Date.now();
+    if (event.data.level === 'L2') teardown('twin-degraded-l2'); // L2：实时底座请求静态兜底
+  } else if (type === 'park-twin-error') {
+    teardown('twin-viewer-error');
   }
 }
 
@@ -95,10 +110,23 @@ function onMessage(event) {
 new MutationObserver(() => mounted && send({ type: 'park-twin-lighting', value: lightingValue() }))
   .observe(document.body, { attributes: true, attributeFilter: ['data-scene'] });
 
-// 离开总览页 -> 通知 viewer
-new IntersectionObserver((entries) => {
-  send({ type: 'park-twin-visibility', visible: entries[0]?.isIntersecting === true });
-}).observe(map);
+// map 真实可见性：active page + 计算样式 + 顶层可见
+// （分页用 visibility:hidden 切换，元素仍占空间，IntersectionObserver 会误判为可见）
+function mapRealVisible() {
+  if (document.hidden) return false;
+  const page = map.closest('.page');
+  if (page && !page.classList.contains('active')) return false;
+  const cs = getComputedStyle(map);
+  if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') return false;
+  return map.getClientRects().length > 0;
+}
+const publishVisibility = () => mounted && send({ type: 'park-twin-visibility', visible: mapRealVisible() });
+
+// 翻页（.page active 切换）、顶层可见性、布局交叉变化都重新判定并告知 viewer
+const pageObs = new MutationObserver(publishVisibility);
+document.querySelectorAll('.page').forEach((p) => pageObs.observe(p, { attributes: true, attributeFilter: ['class'] }));
+document.addEventListener('visibilitychange', publishVisibility);
+new IntersectionObserver(publishVisibility).observe(map);
 
 // 手动开关（地图工具栏）
 function buildToggle() {
