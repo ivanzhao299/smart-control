@@ -18,6 +18,7 @@ import { AuditController } from '../../modules/audit/audit.controller';
 import { LogsController } from '../../modules/logs/logs.controller';
 import { TestCenterController } from '../../modules/test-center/test-center.controller';
 import { UatController } from '../../modules/uat/uat.controller';
+import { VideoBindingController } from '../../modules/cameras/video-binding.controller';
 
 describe('configuration versus shared equipment usage', () => {
   const guard = new ConfigurationWriteGuard();
@@ -32,7 +33,7 @@ describe('configuration versus shared equipment usage', () => {
   it('requires an identity even for reads', () => {
     expect(() => guard.canActivate(ctx(null, 'GET'))).toThrow();
   });
-  it.each([DevicesController, BrandsController, DriversController, HardwareController, SceneActionsController])('binds configuration guard to %p', controller => {
+  it.each([DevicesController, BrandsController, DriversController, HardwareController, SceneActionsController, VideoBindingController])('binds configuration guard to %p', controller => {
     expect(Reflect.getMetadata(GUARDS_METADATA, controller)).toContain(ConfigurationWriteGuard);
   });
   it('protects scene editing/testing without blocking normal execute/stop/cancel', () => {

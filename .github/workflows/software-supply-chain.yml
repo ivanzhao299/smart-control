@@ -1,0 +1,120 @@
+name: Software supply chain
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/package.json'
+      - 'backend/pnpm-lock.yaml'
+      - 'frontend/package.json'
+      - 'frontend/pnpm-lock.yaml'
+      - '.github/dependabot.yml'
+      - '.github/workflows/software-supply-chain.yml'
+      - 'tools/ci/validate-sbom.mjs'
+      - 'tools/ci/stamp-sbom.mjs'
+      - 'tools/ci/syft-production.yaml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/package.json'
+      - 'backend/pnpm-lock.yaml'
+      - 'frontend/package.json'
+      - 'frontend/pnpm-lock.yaml'
+      - '.github/dependabot.yml'
+      - '.github/workflows/software-supply-chain.yml'
+      - 'tools/ci/validate-sbom.mjs'
+      - 'tools/ci/stamp-sbom.mjs'
+      - 'tools/ci/syft-production.yaml'
+  schedule:
+    - cron: '0 2 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: software-supply-chain-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sbom:
+    name: Generate production SBOMs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.4
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: pnpm
+          cache-dependency-path: |
+            backend/pnpm-lock.yaml
+            frontend/pnpm-lock.yaml
+
+      - name: Materialize backend production dependency graph
+        working-directory: backend
+        run: pnpm install --frozen-lockfile --prod --ignore-scripts
+
+      - name: Materialize frontend production dependency graph
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile --prod --ignore-scripts
+
+      # Third-party action is pinned to the immutable v0.24.2 commit. Syft is
+      # pinned separately so the same lockfile always uses the same cataloger.
+      - name: Generate backend SPDX SBOM
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          path: backend
+          format: spdx-json
+          output-file: /tmp/smart-control-backend.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+          dependency-snapshot: false
+          syft-version: v1.51.1
+          config: tools/ci/syft-production.yaml
+
+      - name: Generate frontend SPDX SBOM
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          path: frontend
+          format: spdx-json
+          output-file: /tmp/smart-control-frontend.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+          dependency-snapshot: false
+          syft-version: v1.51.1
+          config: tools/ci/syft-production.yaml
+
+      - name: Bind SBOMs to the source commit
+        run: |
+          node tools/ci/stamp-sbom.mjs /tmp/smart-control-backend.spdx.json backend "$SOURCE_SHA" "$GITHUB_REPOSITORY"
+          node tools/ci/stamp-sbom.mjs /tmp/smart-control-frontend.spdx.json frontend "$SOURCE_SHA" "$GITHUB_REPOSITORY"
+
+      - name: Validate SBOM completeness and provenance
+        run: |
+          node tools/ci/validate-sbom.mjs /tmp/smart-control-backend.spdx.json 50 @nestjs/core typeorm better-sqlite3
+          node tools/ci/validate-sbom.mjs /tmp/smart-control-frontend.spdx.json 50 vue axios element-plus
+
+      - name: Upload backend SBOM
+        uses: actions/upload-artifact@v7
+        with:
+          name: smart-control-backend-${{ env.SOURCE_SHA }}.spdx.json
+          path: /tmp/smart-control-backend.spdx.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload frontend SBOM
+        uses: actions/upload-artifact@v7
+        with:
+          name: smart-control-frontend-${{ env.SOURCE_SHA }}.spdx.json
+          path: /tmp/smart-control-frontend.spdx.json
+          if-no-files-found: error
+          retention-days: 90

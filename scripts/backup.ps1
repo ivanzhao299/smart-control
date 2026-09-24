@@ -14,9 +14,16 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 Set-Location $projectRoot
 
-# 默认备份目录: <项目根>\backups
+# 默认备份目录: 项目目录之外，避免被 git clean 删除
+# 优先级: 环境变量 BACKUP_DIR > D:\smart-control-backups > 项目内backups（兼容旧版）
 if ([string]::IsNullOrWhiteSpace($Dest)) {
-  $Dest = Join-Path $projectRoot 'backups'
+  if ($env:BACKUP_DIR) {
+    $Dest = $env:BACKUP_DIR
+  } elseif (Test-Path 'D:\') {
+    $Dest = 'D:\smart-control-backups'
+  } else {
+    $Dest = Join-Path $projectRoot 'backups'
+  }
 }
 if (-not (Test-Path $Dest)) {
   New-Item -ItemType Directory -Path $Dest | Out-Null
@@ -57,7 +64,32 @@ if (Test-Path $envFile) {
   Write-Host "[2/3] backend\.env 不存在, 跳过" -ForegroundColor DarkYellow
 }
 
-# Seed (UAT 数据用过的可保留)
+# 现场可写运行时业务/设备数据 (KPI、视频绑定+AI 计数线/ROI、播控状态) 必须与数据库一起备份,
+# 否则会重演 2026-09-15 "部署后 KPI/AI 框丢失且无备份可恢复"。路径解析与
+# deploy/ecosystem.config.js、deploy-from-ci.ps1 保持一致; 同时兜底备份旧的仓库内
+# backend\data。纯复制、去重、目录不存在或无 json 时跳过。
+$runtimeDirs = @()
+if ($env:DATA_DIR) { $runtimeDirs += $env:DATA_DIR }
+if (Test-Path 'D:\') { $runtimeDirs += 'D:\smart-control-runtime\data' }
+$runtimeDirs += (Join-Path $projectRoot '.runtime\data')
+$runtimeDirs += (Join-Path $projectRoot 'backend\data')
+$seenRuntime = @{}
+foreach ($rd in $runtimeDirs) {
+  if ([string]::IsNullOrWhiteSpace($rd)) { continue }
+  if (-not (Test-Path $rd)) { continue }
+  $runtimeKey = (Resolve-Path $rd).Path.TrimEnd('\').ToLower()
+  if ($seenRuntime.ContainsKey($runtimeKey)) { continue }
+  $seenRuntime[$runtimeKey] = $true
+  $runtimeJson = @(Get-ChildItem -Path $rd -Filter *.json -File -ErrorAction SilentlyContinue)
+  if ($runtimeJson.Count -eq 0) { continue }
+  $runtimeLabel = if ($rd -like '*backend\data') { 'legacy-backend-data' } else { 'runtime-data' }
+  $runtimeSnap = Join-Path $snap $runtimeLabel
+  New-Item -ItemType Directory -Force -Path $runtimeSnap | Out-Null
+  Copy-Item (Join-Path $rd '*') $runtimeSnap -Recurse -Force -ErrorAction SilentlyContinue
+  Write-Host "Runtime config backed up: $rd -> $runtimeLabel ($($runtimeJson.Count) json)" -ForegroundColor Green
+}
+
+# UAT 验收记录快照
 $uatExport = Join-Path $snap 'uat-snapshot.json'
 try {
   # Port 3200 - production backend listens on 3200. The old 3000 was an early port and

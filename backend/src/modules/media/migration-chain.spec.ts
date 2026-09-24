@@ -1,10 +1,26 @@
 import 'reflect-metadata';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join, resolve } from 'path';
 import { DataSource } from 'typeorm';
-import { resolve } from 'path';
 import { assertSchemaReady } from '../../common/config/schema-readiness';
 
 describe('complete migration chain on an isolated database', () => {
   let db: DataSource;
+  // Pin the runtime data dir to an empty temp directory so legacy-import migrations are
+  // hermetic: a DATA_DIR leaked by another spec (or a stray repo-local .runtime dir) must
+  // never make the full-chain run parse an unrelated/corrupt park-ops JSON file.
+  const originalDataDir = process.env.DATA_DIR;
+  let dataDir: string;
+  beforeAll(() => {
+    dataDir = mkdtempSync(join(tmpdir(), 'migration-chain-'));
+    process.env.DATA_DIR = dataDir;
+  });
+  afterAll(() => {
+    if (originalDataDir === undefined) delete process.env.DATA_DIR;
+    else process.env.DATA_DIR = originalDataDir;
+    if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+  });
   afterEach(async () => { if (db?.isInitialized) await db.destroy(); });
   it('creates the multiuser tables through real migrations without synchronize', async () => {
     db = await new DataSource({ type: 'better-sqlite3', database: ':memory:', synchronize: false,
@@ -17,6 +33,10 @@ describe('complete migration chain on an isolated database', () => {
     expect(await db.query("SELECT visibility, source, owner_user_id FROM media_assets WHERE sourceUrl = ?", [
       'http://localhost:5173/control/park-ops/index.html',
     ])).toEqual([{ visibility: 'shared', source: 'system', owner_user_id: null }]);
+    await db.query(
+      `INSERT INTO users (username, password, role, enabled, created_at, updated_at)
+       VALUES ('test-admin', 'test-only-non-login-hash', 'admin', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+    );
     expect(() => assertSchemaReady((db.driver as any).databaseConnection)).not.toThrow();
     const runner = db.createQueryRunner();
     expect((await runner.getTable('media_assets'))?.findColumnByName('owner_user_id')).toBeDefined();
@@ -35,7 +55,95 @@ describe('complete migration chain on an isolated database', () => {
     expect(await runner.hasTable('upload_instances')).toBe(true);
     expect((await runner.getTable('upload_reservations'))?.findColumnByName('target_media_id')).toBeDefined();
     expect(await db.query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'protect_last_administrator_%'")).toHaveLength(2);
-    const multiuserAndLater = applied.filter(m => m.timestamp >= 1788618000000);
+    // Optional feature tables appended after the forward-only catalog series (the latest
+    // is the TestFlight invitation table) are ordinary, reversible migrations. Undo them
+    // first so the fence walk below starts exactly at the bundled-media authority boundary.
+    const postCatalogMigrations = applied.filter(m => m.timestamp > 1789680000000);
+    for (const _migration of postCatalogMigrations) await db.undoLastMigration();
+    // Bundled media, HVAC/playback and operational catalogs are forward-only: remove only their ledger
+    // entries in this disposable fixture after proving the rollback fences, so earlier
+    // rollback fences remain testable.
+    await expect(db.undoLastMigration()).rejects.toThrow(
+      'BUNDLED_MEDIA_AUTHORITY_ROLLBACK_REQUIRES_ARCHIVE',
+    );
+    // Simulate the matched archive restore in this disposable fixture. The park
+    // dashboard belongs to its earlier migration; only the newly introduced
+    // dynamic webpage must be removed here.
+    await db.query("DELETE FROM media_assets WHERE system_key = 'web.welcome-dynamic'");
+    await db.query("DELETE FROM migrations WHERE name = 'EstablishBundledMediaAuthority1789680000000'");
+    await expect(db.undoLastMigration()).rejects.toThrow(
+      'HVAC_PLAYBACK_CATALOG_ROLLBACK_REQUIRES_ARCHIVE',
+    );
+    await db.query("DELETE FROM migrations WHERE name = 'EstablishHvacPlaybackCatalog1789670000000'");
+    await expect(db.undoLastMigration()).rejects.toThrow(
+      'OPERATIONAL_CATALOG_ROLLBACK_REQUIRES_ARCHIVE',
+    );
+    await db.query("DELETE FROM migrations WHERE name = 'EstablishOperationalCatalog1789660000000'");
+    // Named identity is forward-only: remove only its ledger entry in this disposable
+    // fixture after proving the rollback fence, so earlier rollback fences remain testable.
+    await expect(db.undoLastMigration()).rejects.toThrow(
+      'NAMED_IDENTITY_AUTHORITY_ROLLBACK_PROHIBITED',
+    );
+    await db.query("DELETE FROM migrations WHERE name = 'EstablishNamedIdentityAuthority1789650000000'");
+    // App release, audio, brand and driver catalogs, power configuration and runtime documents are authoritative:
+    // each rollback boundary requires a matched archive before its data can be removed.
+    await expect(db.undoLastMigration()).rejects.toThrow(
+      'APP_RELEASE_CATALOG_ROLLBACK_REQUIRES_ARCHIVE',
+    );
+    await db.query('DELETE FROM app_release_v1');
+    await db.undoLastMigration();
+    await expect(db.undoLastMigration()).rejects.toThrow(
+      'AUDIO_CONFIG_CATALOG_ROLLBACK_REQUIRES_ARCHIVE',
+    );
+    for (const table of [
+      'audio_output_zone',
+      'audio_input_source',
+      'audio_desired_link',
+      'audio_scene',
+    ]) await db.query(`DELETE FROM ${table}`);
+    await db.undoLastMigration();
+    await expect(db.undoLastMigration()).rejects.toThrow(
+      'BRAND_CATALOG_ROLLBACK_REQUIRES_ARCHIVE',
+    );
+    await db.query('DELETE FROM brands');
+    await db.undoLastMigration();
+    await expect(db.undoLastMigration()).rejects.toThrow(
+      'BUILTIN_DRIVER_TEMPLATE_ROLLBACK_REQUIRES_ARCHIVE',
+    );
+    await db.query('DELETE FROM driver_templates');
+    await db.undoLastMigration();
+    await expect(db.undoLastMigration()).rejects.toThrow(
+      'POWER_CIRCUIT_ROLLBACK_REQUIRES_ARCHIVE',
+    );
+    await db.query('DELETE FROM power_circuit');
+    await db.undoLastMigration();
+    await expect(db.undoLastMigration()).rejects.toThrow(
+      'VIDEO_BINDING_ROLLBACK_REQUIRES_ARCHIVE',
+    );
+    // This isolated fixture has been "archived" by the assertion above; remove only its
+    // deterministic default row so older migration down paths can still be exercised.
+    await db.query(
+      "DELETE FROM runtime_config_revisions WHERE config_key = 'video.binding' AND source = 'built-in-default'",
+    );
+    await db.query("DELETE FROM runtime_config_documents WHERE config_key = 'video.binding'");
+    await db.undoLastMigration();
+    const multiuserAndLater = applied.filter(
+      m =>
+        m.timestamp >= 1788618000000 &&
+        // Post-catalog feature tables (e.g. TestFlight) were already undone at the top.
+        m.timestamp <= 1789680000000 &&
+        ![
+          'EnsureVideoBindingRuntimeConfig1789590000000',
+          'EstablishBuiltinDriverTemplates1789610000000',
+          'EstablishBrandCatalog1789620000000',
+          'EstablishAudioConfigCatalog1789630000000',
+          'EstablishAppReleaseCatalog1789640000000',
+          'EstablishNamedIdentityAuthority1789650000000',
+          'EstablishOperationalCatalog1789660000000',
+          'EstablishHvacPlaybackCatalog1789670000000',
+          'EstablishBundledMediaAuthority1789680000000',
+        ].includes(m.name),
+    );
     for (const _migration of multiuserAndLater) await db.undoLastMigration();
     expect(await db.query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'protect_last_administrator_%'")).toHaveLength(0);
     expect(await runner.hasTable('upload_reservations')).toBe(false);

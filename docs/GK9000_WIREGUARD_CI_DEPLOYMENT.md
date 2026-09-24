@@ -20,18 +20,23 @@ The GitHub key can only request `gk9000-deploy <SHA>` or `gk9000-verify <SHA>`. 
 
 ## Deployment Contract
 
-The deployment script:
+The deployment script (`scripts/deploy-from-ci.ps1`) auto-detects the change scope via `git diff --name-only` and chooses the minimal deployment path (since 2026-09-14, see `docs/MINIMAL_DEPLOYMENT_RULES.md`):
 
-1. locks deployment to one process;
-2. rejects tracked changes on GK9000;
-3. accepts only commits reachable from `origin/main`;
-4. fast-forwards the checked-out repository;
-5. invokes the existing production backup;
-6. installs locked dependencies and builds backend/frontend;
-7. restarts both services **through pm2** (`pm2 restart smart-control-backend smart-control-frontend`), the single process owner as of 2026-07-16 — the old scheduled-task restart was removed because `SmartControlBackend` now only boot-resurrects pm2 and `SmartControlFrontend` is disabled (see `scripts/boot-pm2.ps1`);
-8. verifies ports `3200` and `5173`;
-9. restores the previous commit and build artifacts if deployment fails;
-10. writes deployment logs and JSON audit records under `D:\smart-control\logs`.
+1. the installed dispatcher fetches refs, proves the requested commit is reachable from `origin/main`, extracts `deploy-from-ci.ps1` from that exact commit, and rejects it if PowerShell parsing fails;
+2. locks deployment to one process;
+3. rejects tracked changes on GK9000;
+4. accepts only commits reachable from `origin/main`;
+5. leaves unrelated untracked files untouched; if an untracked path truly conflicts with the target commit, moves it into the rollback snapshot instead of deleting it; protected data/database/log paths fail the deployment closed;
+6. fast-forwards the checked-out repository;
+7. invokes the existing production backup;
+8. **scope-aware build** — static assets (`frontend/public/**`) are copied directly to `dist/` with no build or restart; frontend code (`frontend/src/**`) is side-built and swapped into `dist/` with no restart (vite preview reads from disk); backend code (`backend/src/**`) is built and only the backend is restarted; high-risk changes (deps, config, migrations, deploy scripts, or mixed tiers) trigger the full build+migrate+restart path;
+9. restarts services through pm2 only when the scope requires it (`pm2 restart smart-control-backend` for backend-only; `pm2 restart smart-control-backend smart-control-frontend` for full deploy);
+10. requires the authoritative deployment verifier and verifies process ownership, freshness, health, and restart stability;
+11. restores the previous commit and build artifacts if deployment fails, and retains the newest three verified rollback snapshots;
+12. after verification, atomically records `release.json` outside the worktree and synchronizes the versioned Windows dispatcher into `C:\ProgramData\Anksen`;
+13. writes deployment logs and JSON audit records under `D:\smart-control\logs`.
+
+The jump-host forced command only validates and forwards the requested action. The Windows dispatcher may fetch remote refs and read one script object from the requested commit, but it never changes the worktree, cleans files, builds code, migrates data, or restarts services. Those actions belong exclusively to the extracted versioned deployment script above.
 
 The workflow does not print or export `.env`, database content, or hardware credentials. It invokes the existing local backup script before replacement, so the protected production backup remains on GK9000. It does not expose the Windows LAN through WireGuard.
 

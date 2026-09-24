@@ -24,29 +24,26 @@
  *
  * 投影仪 (slot2) 已拆到独立页 ProjectorPage, 本页只管 LED (slot1)。
  */
-import { computed, onMounted, onScopeDispose, ref , watch } from 'vue';
-import { identityGeneration, captureIdentityGuard, createLatestIdentityRead } from '@/services/identity-boundary';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { computed, onMounted, onScopeDispose } from 'vue';
+import { captureIdentityGuard } from '@/services/identity-boundary';
+import { ElScrollbar } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
   ArrowLeft, MonitorPlay, Play, Pause, Square, SkipBack, SkipForward,
   Upload, ListMusic, History, Pencil, Trash2, Plus, Repeat, Repeat1, AlertTriangle, GripVertical, FolderOpen, X,
   Globe,
-  ChevronLeft, ChevronRight, Power, ZoomIn, ZoomOut, Maximize,
+  ChevronLeft, ChevronRight, Power, ZoomIn, ZoomOut, Maximize, RefreshCw, RotateCcw,
 } from 'lucide-vue-next';
 import { usePlaybackStore } from '@/stores/playback';
-import {
-  listPlaylist, addToPlaylist, renamePlaylistItem, removeFromPlaylist, reorderPlaylist,
-  listHistory, setDisplayFit, setDocPage, setDocZoom, publishWelcome, publishParkDashboard,
-  type DisplayFit, type PlaylistItemView, type PlaybackHistoryView,
-} from '@/services/playback.service';
-import { projectorService } from '@/services/projector.service';
-import { fetchSystemBranding, saveWelcomeConfig } from '@/services/system-branding.service';
-import { absUrl } from '@/services/http';
+import { publishWelcome } from '@/services/playback.service';
 import { useAdminUnlock } from '@/composables/useAdminUnlock';
-import { powerCircuitsService, type PowerCircuitView } from '@/services/power-circuits.service';
-import { mediaService, MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
-import { ledService } from '@/services/led.service';
+import { useWelcomeEditor } from '@/composables/useWelcomeEditor';
+import { usePlayerInputSources } from '@/composables/usePlayerInputSources';
+import { usePlayerPlaylist } from '@/composables/usePlayerPlaylist';
+import { usePlayerDocumentControls } from '@/composables/usePlayerDocumentControls';
+import { usePlayerPowerControls } from '@/composables/usePlayerPowerControls';
+import { WELCOME_PICK_DEFAULT, detectPlayerInputSource } from '@/features/player-input-source';
+import { MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
 
 const props = defineProps<{
   /** 1 = LED 大屏 (HDMI1), 2 = 投影仪 (HDMI2) */
@@ -83,637 +80,184 @@ const { ensureAdmin } = useAdminUnlock();
 const playbackStore = usePlaybackStore();
 const ch = computed(() => (props.slot === 1 ? playbackStore.slot1 : playbackStore.slot2));
 
-const playlist = ref<PlaylistItemView[]>([]);
-const history = ref<PlaybackHistoryView[]>([]);
-const busy = ref(false);
-const beginListRead = createLatestIdentityRead(() => !consoleDisposed);
-
-async function loadAll(): Promise<void> {
-  if (consoleDisposed) return;
-  const currentRead = beginListRead();
-  const currentAction = captureConsoleAction();
-  const slot = SLOT.value;
-  try {
-    const [pl, his] = await Promise.all([listPlaylist(slot), listHistory(slot)]);
-    if (!currentRead() || !currentAction()) return;
-    playlist.value = pl;
-    history.value = his;
-  } catch (e) {
-    if (!currentRead() || !currentAction()) return;
-    playlist.value = [];
-    history.value = [];
-    ElMessage.error(`加载播放列表失败: ${(e as Error).message}`);
-  }
-}
-// 审计 P1: 列表/历史只在本页操作后刷新 — 其他终端改动看不到。跟着在播媒体
-// 的 WS 变化节流重拉 (playback store 是 WS 实时的, 以它为信号源)。
-let reloadT: number | undefined;
-watch(SLOT, () => {
-  playlist.value = [];
-  history.value = [];
-  window.clearTimeout(reloadT);
-  void loadAll();
-}, { flush: 'sync' });
-watch(() => ch.value?.currentMediaId, () => {
-  window.clearTimeout(reloadT);
-  reloadT = window.setTimeout(() => { void loadAll(); }, 800);
-});
-
-// ============ 文档翻页 (2026-07-25 文档投屏) ============
-const isDocPlaying = computed(() => ch.value?.currentMediaKind === 'doc' && !!ch.value?.currentMediaId);
-const docPage = computed(() => ch.value?.docPage ?? 1);
-const docTotal = computed(() => ch.value?.currentMediaPageCount ?? null);
-/** 文档画面缩放 (2026-07-29 业主: PPT 要能全屏/放大缩小/退出):
- *  改 docZoom → WS → PPT 守护重摆放映窗口 / kiosk PDF 跟随 CSS 缩放。
- *  100=铺满整屏 ("全屏"按钮即回 100); 步进 ±15, 范围 50-200。 */
-const docZoom = computed(() => ch.value?.docZoom ?? 100);
-let zoomBusy = false;
-async function applyDocZoom(z: number): Promise<void> {
-  if (zoomBusy) return;
-  const session = ch.value?.playbackSession;
-  if (!session) { ElMessage.warning('请刷新播放状态后重试'); return; }
-  zoomBusy = true;
-  try {
-    const v = await setDocZoom(SLOT.value, z, session);
-    playbackStore.handleWs({ type: 'playback_channel_changed', data: v } as never);
-  } catch (e) {
-    ElMessage.error(`缩放失败: ${(e as Error).message}`);
-  } finally { zoomBusy = false; }
-}
-/** 退出放映 — 结束文档放映, 屏幕回到播放器待机/原内容 (对应业主"退出全屏") */
-async function exitDocShow(): Promise<void> {
-  const session = ch.value?.playbackSession;
-  const slot = SLOT.value;
-  const generation = identityGeneration();
-  if (!session) { ElMessage.warning('请刷新播放状态后重试'); return; }
-  try {
-    await ElMessageBox.confirm(`退出文档放映?${props.title}将回到待机画面。`, '退出放映',
-      { type: 'warning', confirmButtonText: '退出', cancelButtonText: '取消' });
-  } catch { return; }
-  if (consoleDisposed || generation !== identityGeneration() || slot !== SLOT.value) return;
-  await stopPlayback(session);
-}
 let consoleDisposed = false;
 onScopeDispose(() => {
   consoleDisposed = true;
-  window.clearTimeout(reloadT);
-  playlist.value = [];
-  history.value = [];
 });
 function captureConsoleAction(): () => boolean {
   const slot = SLOT.value;
   return captureIdentityGuard(() => !consoleDisposed && SLOT.value === slot);
 }
-let pageBusy = false;
-async function gotoDocPage(p: number): Promise<void> {
-  if (pageBusy) return;
-  const session = ch.value?.playbackSession;
-  if (!session) { ElMessage.warning('请刷新播放状态后重试'); return; }
-  const max = docTotal.value ?? Number.MAX_SAFE_INTEGER;
-  const target = Math.max(1, Math.min(p, max));
-  if (target === docPage.value) return;
-  pageBusy = true;
-  try {
-    const v = await setDocPage(SLOT.value, target, session);
-    playbackStore.handleWs({ type: 'playback_channel_changed', data: v } as never);
-  } catch (e) {
-    ElMessage.error(`翻页失败: ${(e as Error).message}`);
-  } finally { pageBusy = false; }
-}
+const {
+  playlist,
+  history,
+  busy,
+  currentInList,
+  mobTab,
+  editingId,
+  editingText,
+  vFocus,
+  pickerOpen,
+  pickerKind,
+  assets,
+  pickerLoading,
+  inPlaylist,
+  dragId,
+  dragOverId,
+  fileInput,
+  uploading,
+  uploadPct,
+  webpageDialog,
+  webpageForm,
+  loadAll,
+  playItem,
+  togglePause,
+  stopPlayback,
+  changeFit,
+  step,
+  startRename,
+  commitRename,
+  removeItem,
+  addFromHistory,
+  openPicker,
+  loadAssets,
+  pickAsset,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  pickFile,
+  onFilePicked,
+  openWebpageDialog,
+  submitWebpage,
+} = usePlayerPlaylist({
+  slot: SLOT,
+  title: () => props.title,
+  channel: ch,
+  ensureAdmin,
+  captureAction: captureConsoleAction,
+});
+const {
+  isDocPlaying,
+  docPage,
+  docTotal,
+  docZoom,
+  applyDocZoom,
+  gotoDocPage,
+  exitDocShow,
+} = usePlayerDocumentControls({
+  slot: SLOT,
+  title: () => props.title,
+  channel: ch,
+  captureAction: captureConsoleAction,
+  stopPlayback,
+});
 
-// ============ 屏幕电源开关 ============
-// powerCode 支持逗号分隔多个回路 code (2026-07-26 业主: 投影仪与视频拼接器
-// 同时工作, 一个开关同开同关 —— 投影页传 "seq-5,seq-4")。开关状态 = 全部通电
-// 才亮; 拨动 = 所有回路一起 on/off (时序器自身按各路延时依次动作, 保护设备)。
-// 2026-07-28 业主: 分组再并入按名定位的功放路 (powerNameGroups), 同开同关。
-const powerCircuits = ref<PowerCircuitView[]>([]);
-async function loadPowerCircuit(): Promise<void> {
-  if (!props.powerCode && !props.powerNameGroups?.length) return;
-  const codes = (props.powerCode ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-  try {
-    const list = await powerCircuitsService.list();
-    const byCode = codes
-      .map((code) => list.find((c) => c.code === code))
-      .filter((c): c is PowerCircuitView => !!c);
-    const byName = (props.powerNameGroups ?? []).length
-      ? list.filter((c) =>
-          c.category === 'audio-seq'
-          && (props.powerNameGroups ?? []).some((kws) => kws.every((k) => c.name.includes(k))))
-      : [];
-    // code 命中优先保序, 按名命中追加, 按 id 去重
-    const seen = new Set<number>();
-    powerCircuits.value = [...byCode, ...byName].filter((c) => (seen.has(c.id) ? false : (seen.add(c.id), true)));
-  } catch { /* 电源子系统不可达时不显示开关 */ }
-}
-const powerAllOn = computed(
-  () => powerCircuits.value.length > 0 && powerCircuits.value.every((c) => c.reading.on),
-);
-const powerBusy = ref(false);
-async function togglePower(): Promise<void> {
-  if (!powerCircuits.value.length || powerBusy.value) return;
-  const isCurrent = captureConsoleAction();
-  const on = powerAllOn.value;
-  if (on) {
-    try {
-      await ElMessageBox.confirm(`确定断开${props.title}电源?画面会熄灭。`, '断电确认',
-        { type: 'warning', confirmButtonText: '断电', cancelButtonText: '取消' });
-    } catch { return; }
-  }
-  if (!isCurrent()) return;
-  powerBusy.value = true;
-  try {
-    // 逐个下发 (共用一条串口链路, 并发会互踩); 部分失败也把能做的做完, 最后统一报
-    const failed: string[] = [];
-    for (let i = 0; i < powerCircuits.value.length; i += 1) {
-      if (!isCurrent()) return;
-      const c = powerCircuits.value[i];
-      try {
-        powerCircuits.value[i] = on ? await powerCircuitsService.off(c.id) : await powerCircuitsService.on(c.id);
-      } catch (e) {
-        failed.push(`${c.name}: ${(e as Error).message}`);
-      }
-    }
-    if (!isCurrent()) return;
-    if (failed.length) {
-      ElMessage.error(`部分电源操作失败: ${failed.join('; ')}`);
-    } else {
-      ElMessage.success(on ? `${props.title}电源已断开` : `${props.title}电源已接通`);
-    }
-  } finally { powerBusy.value = false; }
-}
+const {
+  powerCircuits,
+  powerAllOn,
+  powerBusy,
+  togglePower,
+} = usePlayerPowerControls({
+  title: () => props.title,
+  powerCode: () => props.powerCode,
+  powerNameGroups: () => props.powerNameGroups,
+  captureAction: captureConsoleAction,
+});
 
 onMounted(() => {
-  void loadPowerCircuit(); void loadAll(); });
+  void loadAll(); void refreshWelcomeSchemeOptions(); });
 
-/** 当前在播的是列表里的哪一条 (用 mediaId 比, 不信 index —— 可能从媒体库临时推过片子) */
-const currentInList = computed(() =>
-  playlist.value.find((x) => x.mediaId === ch.value?.currentMediaId) ?? null);
+// 输入源身份只从播放通道权威状态派生；切换与运营大屏控制由专用用例编排。
+const activeSource = computed(() => detectPlayerInputSource(ch.value));
 
-// ============ 播放控制 (业主: "不能一直无脑播放, 保持用户控制状态") ============
-async function playItem(it: PlaylistItemView): Promise<void> {
-  if (it.missing) { ElMessage.warning('这个媒体已被删除, 先从列表移除'); return; }
-  busy.value = true;
-  try {
-    await playbackStore.publish(SLOT.value, it.mediaId, 'loop');
-    await loadAll();                       // 刷新历史
-    ElMessage.success(`正在播放「${it.title}」`);
-  } catch (e) {
-    ElMessage.error(`播放失败: ${(e as Error).message}`);
-  } finally { busy.value = false; }
-}
-
-/**
- * 播放 / 暂停 / 继续 —— 一个按钮三态。
- *
- * 待机时按下 = **接着上次那个继续播** (业主: "要保持最后状态, 不要每次都丢状态")。
- * 上次播的从**播放历史**里取 (history[0] 就是最近一次), 它还在列表里就播它;
- * 不在了 (被移出列表/媒体被删) 就退回列表第一个 —— 总能播起来, 不会按了没反应。
- */
-async function togglePause(): Promise<void> {
-  // 待机 -> 起播
-  if (!ch.value?.currentMediaId) {
-    if (playlist.value.length === 0) {
-      ElMessage.warning('播放列表是空的, 先上传内容或从历史里加回来');
-      return;
-    }
-    const lastId = history.value.find((h) => !h.missing)?.mediaId;
-    const target = playlist.value.find((x) => x.mediaId === lastId && !x.missing)
-      ?? playlist.value.find((x) => !x.missing);
-    if (!target) { ElMessage.warning('列表里的媒体都已被删除'); return; }
-    await playItem(target);
-    return;
-  }
-  // 播放中 -> 暂停; 已暂停 -> 继续
-  busy.value = true;
-  try {
-    if (ch.value.paused) await playbackStore.resume(SLOT.value);
-    else await playbackStore.pause(SLOT.value);
-  } catch (e) {
-    ElMessage.error(`操作失败: ${(e as Error).message}`);
-  } finally { busy.value = false; }
-}
-
-/** 随时终止 (业主: "播放过程中应该随时可以点击终止") */
-async function stopPlayback(expectedSession = ch.value?.playbackSession): Promise<void> {
-  if (!expectedSession) { ElMessage.warning('请刷新播放状态后重试'); return; }
-  busy.value = true;
-  try {
-    await playbackStore.stop(SLOT.value, expectedSession);
-    ElMessage.success(`已终止, ${props.title}回到待机`);
-  } catch (e) {
-    ElMessage.error(`终止失败: ${(e as Error).message}`);
-  } finally { busy.value = false; }
-}
-
-/** 画面铺放模式 (业主 2026-07-25): 下拉选择, 默认铺满; 后端持久 + WS 推给 kiosk 即时生效 */
-async function changeFit(fit: DisplayFit): Promise<void> {
-  busy.value = true;
-  try {
-    await setDisplayFit(SLOT.value, fit);
-    await playbackStore.load();   // WS 也会推, 这里再拉一次保证本页立即一致
-    const label = fit === 'fill' ? '铺满屏幕' : fit === 'contain' ? '保持比例' : '裁切铺满';
-    ElMessage.success(`画面铺放已切为「${label}」`);
-  } catch (e) {
-    ElMessage.error(`切换铺放模式失败: ${(e as Error).message}`);
-  } finally { busy.value = false; }
-}
-
-async function step(dir: 'next' | 'prev'): Promise<void> {
-  busy.value = true;
-  try {
-    await (dir === 'next' ? playbackStore.next(SLOT.value) : playbackStore.prev(SLOT.value));
-    await loadAll();
-  } catch (e) {
-    // 列表空时后端返回 400 + 人话, 直接透给业主
-    ElMessage.warning((e as Error).message);
-  } finally { busy.value = false; }
-}
-
-// ============ 播放列表维护 ============
-const editingId = ref<number | null>(null);
-const editingText = ref('');
-// 编辑框一出现就自动聚焦并全选 (原来没聚焦, 得手动点进去, 而父项是 draggable
-// 又会把点击当拖拽 —— 于是"点不进/存不了/退不出"。见下 startRename 的 draggable 处理)
-const vFocus = {
-  mounted(el: HTMLInputElement) { el.focus(); el.select(); },
-};
-async function startRename(it: PlaylistItemView): Promise<void> {
-  if (!(await ensureAdmin('改名'))) return;
-  editingId.value = it.id;
-  editingText.value = it.title;
-}
-async function commitRename(it: PlaylistItemView): Promise<void> {
-  const title = editingText.value.trim();
-  editingId.value = null;
-  if (!title || title === it.title) return;
-  const before = it.title;
-  it.title = title;                        // 乐观
-  try {
-    await renamePlaylistItem(it.id, title);
-    ElMessage.success('已改名 (只改列表显示名, 媒体库原文件不变)');
-  } catch (e) {
-    it.title = before;
-    ElMessage.error(`改名失败: ${(e as Error).message}`);
-  }
-}
-
-async function removeItem(it: PlaylistItemView): Promise<void> {
-  const isCurrent = captureConsoleAction();
-  try {
-    await ElMessageBox.confirm(`把「${it.title}」移出播放列表? (媒体库里的文件不会删)`, '移出播放列表', { type: 'warning' });
-  } catch { return; }
-  if (!isCurrent()) return;
-  try {
-    await removeFromPlaylist(it.id);
-    if (!isCurrent()) return;
-    await loadAll();
-    ElMessage.success('已移出播放列表');
-  } catch (e) {
-    if (isCurrent()) ElMessage.error(`移出失败: ${(e as Error).message}`);
-  }
-}
-
-/** 从历史里一键加回列表 (现场常有"刚才那个再放一遍") */
-async function addFromHistory(h: PlaybackHistoryView): Promise<void> {
-  if (h.missing) { ElMessage.warning('这个媒体已被删除'); return; }
-  try {
-    await addToPlaylist(SLOT.value, h.mediaId);
-    await loadAll();
-    ElMessage.success(`「${h.mediaName}」已加入播放列表`);
-  } catch (e) {
-    ElMessage.error(`加入失败: ${(e as Error).message}`);
-  }
-}
-
-// ============ 从媒体库选内容加入播放列表 ============
-/**
- * 2026-07-17 业主: "昨天上传的视频内容是MP4格式, 但不能发送到屏幕播放, 是什么原因?"
- *                 "现在LED大屏之前的欢迎页和网页选择项不见了"
- *
- * 真因 (我挖的坑): 我重做这个页面时, 把老版"视频/图片""网页"两个按钮 (跳媒体页选片)
- * 砍掉换成了播放列表, 但**只留了两条进列表的路**: 上传新的、从播放历史加回。
- * 于是**之前就躺在媒体库里的东西, 既不在历史里(从没播过)、又没法从媒体库选 —— 根本
- * 进不了播放列表**, 自然"发送不到屏幕"。查证过: 那个 MP4 上传成功、文件在、HTTP 200、
- * 编码是 avc1(H.264) Edge 原生能播 —— **格式从来不是原因, 是没有入口**。
- * 网页同理 (网页在媒体库里就是 kind='webpage' 的条目, PlayerPage 本来就支持渲染)。
- *
- * 补上这个选择器, 三个问题一起解决, 而且**不跳走**。
- */
-/** 手机上列表/历史二选一显示; 平板以上两栏并排, 这个值不起作用 */
-const mobTab = ref<'list' | 'his'>('list');
-const pickerOpen = ref(false);
-const pickerKind = ref<'video' | 'image' | 'webpage'>('video');
-const assets = ref<Array<{ id: number; originalName: string; kind: string }>>([]);
-const pickerLoading = ref(false);
-const beginAssetRead = createLatestIdentityRead(() => !consoleDisposed && pickerOpen.value);
-watch(SLOT, () => { pickerOpen.value = false; }, { flush: 'sync' });
-watch(pickerOpen, open => {
-  if (!open) {
-    beginAssetRead(); // Invalidate even if the dialog is reopened before completion.
-    assets.value = [];
-    pickerLoading.value = false;
-  }
-}, { flush: 'sync' });
-onScopeDispose(() => { assets.value = []; });
-
-async function openPicker(): Promise<void> {
-  pickerOpen.value = true;
-  await loadAssets();
-}
-async function loadAssets(): Promise<void> {
-  if (consoleDisposed || !pickerOpen.value) return;
-  const currentRead = beginAssetRead();
-  const currentAction = captureConsoleAction();
-  const kind = pickerKind.value;
-  pickerLoading.value = true;
-  assets.value = [];
-  try {
-    const r = await mediaService.list({ kind });
-    if (!currentRead() || !currentAction() || kind !== pickerKind.value) return;
-    assets.value = r.items.map((m) => ({ id: m.id, originalName: m.originalName, kind: m.kind }));
-  } catch (e) {
-    if (currentRead() && currentAction()) ElMessage.error(`读媒体库失败: ${(e as Error).message}`);
-  } finally { if (currentRead() && currentAction()) pickerLoading.value = false; }
-}
-async function pickAsset(a: { id: number; originalName: string }): Promise<void> {
-  if (!pickerOpen.value || pickerLoading.value || !assets.value.some(item => item.id === a.id)) return;
-  const currentAction = captureConsoleAction();
-  try {
-    await addToPlaylist(SLOT.value, a.id);
-    if (!currentAction()) return;
-    await loadAll();
-    if (!currentAction()) return;
-    ElMessage.success(`「${a.originalName}」已加入播放列表`);
-  } catch (e) {
-    if (currentAction()) ElMessage.error(`加入失败: ${(e as Error).message}`);
-  }
-}
-/** 已在列表里的不重复加 —— 让业主一眼看出哪些已经加过 */
-const inPlaylist = computed(() => new Set(playlist.value.map((x) => x.mediaId)));
-
-// ============ 输入源 (2026-07-28 业主: LED/投影两页统一 + 可选项指向明确) ============
-// 三个按钮各自指向固定目标, 按了就知道播的是什么:
-//   播放内容       → 本屏回到播放列表推送的画面 (GK9000 输出)
-//   欢迎页·可编辑  → 媒体库内置「金湖欢迎页·动态(称谓可编辑)」网页素材 (两屏共用),
-//                    文字/底图在本卡「编辑欢迎页」就地改, 保存即生效
-//   欢迎页·默认    → 本屏专用尺寸的内置静态欢迎图 (slot1=LED版 / slot2=投影版), 兜底
-// 欢迎页统一走 playback 推流 (kiosk 渲染), 和播放列表同一条链路 —— 当前显示什么
-// 直接从通道状态读出来 (currentMediaName), 不再靠"记住自己发过什么"猜。
-// 每个按钮都先把显示链路拉正 (LED: 诺瓦切回 HDMI1; 投影: 融合器回 GK9000 HDMI),
-// 修掉"按了没画面"的历史坑 —— 控制器/融合器停在别的源上时推什么都看不见。
-// (旧版诺瓦 'welcome' 内置 preset 入口已撤: 无法回读、内容改不了、易误切;
-//  HDMI 直通选项 2026-07-18 就因误切事故被业主要求删除, 经过见 git 历史。)
-const WELCOME_EDITABLE_NAME = '金湖欢迎页·动态(称谓可编辑)';
-const WELCOME_DEFAULT_NAMES = ['金湖欢迎页·LED大屏.png', '金湖欢迎页·投影.png'];
-const PARK_DASHBOARD_NAME = '金湖科创产业园·智慧运营总览(DEMO)';
-
-type SourceKey = 'content' | 'park-dashboard' | 'welcome-editable' | 'welcome-default';
-/** 当前源: 从通道在播媒体名判断 (内置素材按名定位, 业主改名后回退为"播放内容") */
-const activeSource = computed<SourceKey | null>(() => {
-  const name = ch.value?.currentMediaName;
-  if (!name || !ch.value?.currentMediaId) return null;
-  if (name === PARK_DASHBOARD_NAME) return 'park-dashboard';
-  if (name === WELCOME_EDITABLE_NAME) return 'welcome-editable';
-  if (WELCOME_DEFAULT_NAMES.includes(name)) return 'welcome-default';
-  return 'content';
+const {
+  welcomeEditOpen,
+  welcomeSaving,
+  welcomePublishing,
+  welcomeLoading,
+  welcomeForm,
+  welcomeSchemeName,
+  welcomeSchemes,
+  welcomeSchemesRevision,
+  selectedWelcomeSchemeId,
+  publishedWelcomeSchemeId,
+  LED_CANVAS_RESOLUTION,
+  welcomePreviewUrl,
+  welcomePreviewFrame,
+  logoAssets,
+  bgAssets,
+  rejectedBgAssetCount,
+  incompatibleSelectedBackground,
+  incompatibleSelectedLogo,
+  welcomeBgUploadInput,
+  welcomeLogoUploadInput,
+  welcomeAssetUploading,
+  welcomeAssetUploadPct,
+  welcomeAssetDeletingId,
+  lastWelcomeSaveRevision,
+  welcomeLayoutOptions,
+  welcomeToneOptions,
+  welcomeOverlayOptions,
+  welcomePositionOptions,
+  welcomeLogoSizeOptions, welcomeTitleEffectOptions, welcomeHidden, welcomeDisplayRows,
+  markWelcomeDraftChanged,
+  vWelcomeThumb,
+  requestCloseWelcomeEditor,
+  pushWelcomePreview,
+  selectWelcomeScheme,
+  openWelcomeEditor,
+  pickWelcomeAsset,
+  onWelcomeAssetPicked,
+  selectWelcomeBackground,
+  deleteWelcomeImage,
+  saveWelcomeScheme,
+  saveAndCloseWelcomeEditor,
+  publishSelectedWelcomeScheme,
+  selectWelcomeLogo,
+  selectDefaultWelcomeBackground,
+  updateWelcomePresentation,
+  duplicateWelcomeScheme,
+  deleteWelcomeScheme,
+} = useWelcomeEditor({
+  ensureAdmin,
+  captureAction: captureConsoleAction,
+  isEditableSourceActive: () => activeSource.value === 'welcome-editable',
+  // 保持原发布语义：只重推当前动态欢迎页；错误继续抛给编辑器显示“已发布但重推失败”。
+  republishEditable: async () => { await publishWelcome(SLOT.value, 'editable'); },
 });
-const SRC_HINTS: Record<SourceKey, string> = {
-  'content': '正在播放列表内容',
-  'park-dashboard': '园区综合态势与运营指标 · 点击即可投放到当前屏幕',
-  'welcome-editable': '动态欢迎页 · 点「编辑欢迎页」改文字/底图, 保存即生效',
-  'welcome-default': '内置静态欢迎页 (本屏专用尺寸, 不可编辑)',
-};
-const srcHint = computed(() => (activeSource.value ? SRC_HINTS[activeSource.value] : '当前待机 · 点按钮选择本屏显示内容'));
 
-/** 显示链路拉正 (best-effort): 设备停在别的源上时, 推什么都看不见 */
-async function ensureDisplayPath(): Promise<void> {
-  try {
-    if (props.slot === 1 && props.deviceId) {
-      const r = await ledService.switchInput(props.deviceId, 'video');
-      if (!r.ok) throw new Error(r.error || '设备未确认');
-    } else if (props.slot === 2) {
-      await projectorService.showHdmi();
-    }
-  } catch (e) {
-    // 不挡欢迎页推流 —— 链路已经在正确源上时这里失败也无所谓, 只提示一声
-    ElMessage.warning(`显示链路切换未确认: ${(e as Error).message}`);
-  }
-}
+const {
+  srcHint,
+  welcomePickerBusy,
+  welcomePickerValue,
+  parkOpsPage,
+  parkOpsTotalPages,
+  parkOpsAuto,
+  parkOpsBusy,
+  refreshWelcomeSchemeOptions,
+  selectContent,
+  onWelcomeSchemePick,
+  selectParkDashboard,
+  parkOpsControl,
+} = usePlayerInputSources({
+  slot: SLOT,
+  title: () => props.title,
+  deviceId: () => props.deviceId,
+  activeSource,
+  playlist,
+  busy,
+  welcomeSchemes,
+  welcomeSchemesRevision,
+  publishedWelcomeSchemeId,
+  ensureAdmin,
+  captureAction: captureConsoleAction,
+  nextPlayback: (slot) => playbackStore.next(slot),
+  reloadLists: loadAll,
+});
 
-async function selectContent(): Promise<void> {
-  const isCurrent = captureConsoleAction();
-  if (!isCurrent()) return;
-  busy.value = true;
-  try {
-    await ensureDisplayPath();
-    if (!isCurrent()) return;
-    // 正在播欢迎页时按"播放内容" = 恢复播放列表 (从下一条接着放);
-    // 已经在播列表内容时只拉正链路, 不跳片
-    if (activeSource.value !== 'content') {
-      if (!playlist.value.length) {
-        ElMessage.info('播放列表是空的 — 先从媒体库加入素材');
-        return;
-      }
-      await playbackStore.next(SLOT.value);
-    }
-    if (!isCurrent()) return;
-    ElMessage.success('已切到播放内容');
-  } catch (e) {
-    if (isCurrent()) ElMessage.error(`切换失败: ${(e as Error).message}`);
-  } finally { busy.value = false; }
-}
+// 欢迎页编辑和输入源切换均已收敛到组合式用例；本组件保留模板与播放器编排。
 
-async function selectWelcome(variant: 'editable' | 'default'): Promise<void> {
-  const isCurrent = captureConsoleAction();
-  if (!isCurrent()) return;
-  busy.value = true;
-  try {
-    await ensureDisplayPath();
-    if (!isCurrent()) return;
-    await publishWelcome(SLOT.value, variant);
-    if (!isCurrent()) return;
-    ElMessage.success(variant === 'editable' ? '已投放动态欢迎页 (点「编辑欢迎页」可改内容)' : '已投放默认欢迎页');
-  } catch (e) {
-    if (isCurrent()) ElMessage.error(`投放欢迎页失败: ${(e as Error).message}`);
-  } finally { busy.value = false; }
-}
-
-async function selectParkDashboard(): Promise<void> {
-  const isCurrent = captureConsoleAction();
-  if (!isCurrent()) return;
-  busy.value = true;
-  try {
-    await ensureDisplayPath();
-    if (!isCurrent()) return;
-    await publishParkDashboard(SLOT.value);
-    if (!isCurrent()) return;
-    ElMessage.success(`已将园区运营大屏投放到${props.title}`);
-  } catch (e) {
-    if (isCurrent()) ElMessage.error(`投放园区运营大屏失败: ${(e as Error).message}`);
-  } finally { busy.value = false; }
-}
-
-// ============ 欢迎页编辑器 (2026-07-28 业主: "编辑放到前端, 不用进后台") ============
-// 就地编辑动态欢迎页: 主标题 / 嘉宾称谓 / 底部标语 三段文字 + 底图 (媒体库图片
-// 当模板, 不选 = 内置"鎏金夜湖"底)。保存走 PUT /system-branding/welcome (客户端
-// token 即可); 欢迎页本体 8s 轮询, 保存后若本屏正在播欢迎页再重推一次强制刷新,
-// 业主看到的效果就是"保存立即生效"。
-const welcomeEditOpen = ref(false);
-const welcomeSaving = ref(false);
-const welcomeLoading = ref(false);
-const welcomeForm = ref({ welcomeTitle: '', welcomeGuest: '', welcomeTagline: '', welcomeBgMediaId: null as number | null });
-const bgAssets = ref<Array<{ id: number; originalName: string; thumbUrl: string | null; fileUrl: string }>>([]);
-
-async function openWelcomeEditor(): Promise<void> {
-  if (!(await ensureAdmin('编辑欢迎页'))) return;
-  welcomeEditOpen.value = true;
-  welcomeLoading.value = true;
-  try {
-    const [branding, imgs] = await Promise.all([
-      fetchSystemBranding(),
-      mediaService.list({ kind: 'image' }),
-    ]);
-    welcomeForm.value = {
-      welcomeTitle: branding.welcomeTitle ?? '',
-      welcomeGuest: branding.welcomeGuest ?? '',
-      welcomeTagline: branding.welcomeTagline ?? '',
-      welcomeBgMediaId: branding.welcomeBgMediaId ?? null,
-    };
-    bgAssets.value = imgs.items.map((m) => ({ id: m.id, originalName: m.originalName, thumbUrl: m.thumbUrl, fileUrl: m.fileUrl }));
-  } catch (e) {
-    ElMessage.error(`读取欢迎页配置失败: ${(e as Error).message}`);
-  } finally { welcomeLoading.value = false; }
-}
-
-async function saveWelcomeEdit(): Promise<void> {
-  welcomeSaving.value = true;
-  try {
-    await saveWelcomeConfig({
-      welcomeTitle: welcomeForm.value.welcomeTitle.trim() || null,
-      welcomeGuest: welcomeForm.value.welcomeGuest.trim() || null,
-      welcomeTagline: welcomeForm.value.welcomeTagline.trim() || null,
-      welcomeBgMediaId: welcomeForm.value.welcomeBgMediaId,
-    });
-    // 本屏正在播欢迎页 → 重推强制 kiosk 刷新, 立即生效; 没在播就不打扰当前内容
-    if (activeSource.value === 'welcome-editable') {
-      await publishWelcome(SLOT.value, 'editable').catch(() => {});
-    }
-    welcomeEditOpen.value = false;
-    ElMessage.success('欢迎页已保存, 大屏几秒内更新');
-  } catch (e) {
-    ElMessage.error(`保存失败: ${(e as Error).message}`);
-  } finally { welcomeSaving.value = false; }
-}
-
-// ============ 拖拽排序 ============
-// 原生 HTML5 drag & drop, 不引第三方库。顺序**存后端** (reorderPlaylist):
-// 现场是主控机+平板+手机多终端, 只存前端的话每台设备顺序都不一样, 等于没排 ——
-// 灯光分区排序已经论证过这一点, 同一个道理。
-const dragId = ref<number | null>(null);
-const dragOverId = ref<number | null>(null);
-
-function onDragStart(it: PlaylistItemView, ev: DragEvent): void {
-  dragId.value = it.id;
-  ev.dataTransfer?.setData('text/plain', String(it.id));   // Firefox 不设这个不触发 drop
-  if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move';
-}
-function onDragOver(it: PlaylistItemView, ev: DragEvent): void {
-  if (dragId.value === null || dragId.value === it.id) return;
-  ev.preventDefault();                                     // 不 preventDefault 就不允许 drop
-  dragOverId.value = it.id;
-}
-async function onDrop(target: PlaylistItemView): Promise<void> {
-  const from = dragId.value;
-  dragId.value = null;
-  dragOverId.value = null;
-  if (from === null || from === target.id) return;
-
-  const list = playlist.value.slice();
-  const fi = list.findIndex((x) => x.id === from);
-  const ti = list.findIndex((x) => x.id === target.id);
-  if (fi < 0 || ti < 0) return;
-  if (new Set(list.map(item => item.ownerUserId)).size > 1) {
-    ElMessage.warning('当前包含共享及个人列表，不能混合排序');
-    return;
-  }
-  const [moved] = list.splice(fi, 1);
-  list.splice(ti, 0, moved);
-  const before = playlist.value;
-  playlist.value = list;                                   // 乐观: 松手立刻就位
-  try {
-    await reorderPlaylist(SLOT.value, list.map((x) => x.id));
-  } catch (e) {
-    playlist.value = before;                               // 失败回滚, 不留后端不认的假顺序
-    ElMessage.error(`排序保存失败: ${(e as Error).message}`);
-  }
-}
-function onDragEnd(): void {
-  dragId.value = null;
-  dragOverId.value = null;
-}
-
-// ============ 本页直接上传 (业主: "在 LED 大屏播放页面就可以直接点击上传内容") ============
-const fileInput = ref<HTMLInputElement | null>(null);
-const uploading = ref(false);
-const uploadPct = ref(0);
-function pickFile(): void { fileInput.value?.click(); }
-
-async function onFilePicked(ev: Event): Promise<void> {
-  const f = (ev.target as HTMLInputElement).files?.[0];
-  (ev.target as HTMLInputElement).value = '';    // 允许连续传同一个文件
-  if (!f) return;
-  const isCurrent = captureConsoleAction();
-  uploading.value = true;
-  uploadPct.value = 0;
-  try {
-    const m = await mediaService.upload(f, { onProgress: (pct: number) => { uploadPct.value = pct; } });
-    if (!isCurrent()) return;
-    // **只入媒体库, 不自动进播放列表** —— 业主: "媒体文件夹内容默认不加入播放列表,
-    // 需经管理员确认后再手工加入"。所以这里问一句, 由人决定。
-    try {
-      await ElMessageBox.confirm(
-        `「${m.originalName}」已上传到媒体库。要现在加入播放列表吗?`,
-        '上传完成',
-        { confirmButtonText: '加入播放列表', cancelButtonText: '只放媒体库', type: 'success' },
-      );
-      if (!isCurrent()) return;
-      await addToPlaylist(SLOT.value, m.id);
-      if (!isCurrent()) return;
-      await loadAll();
-      ElMessage.success('已加入播放列表');
-    } catch {
-      if (isCurrent()) ElMessage.info('已保存到媒体库 (未加入播放列表)');
-    }
-  } catch (e) {
-    if (isCurrent()) ElMessage.error(`上传失败: ${(e as Error).message}`);
-  } finally {
-    uploading.value = false;
-  }
-}
-
-// ============ 添加网页 (业主: "说的可以播放网页内容也没加上吗") ============
-// "从媒体库选"的网页 tab 只能挑**已经存在**的网页条目 —— 库里一条没有的话形同虚设,
-// 得先去媒体页用"添加网页"建一条再回来选, 业主感受就是"没加上"。跟"上传内容"
-// 同一个道理, 本页直接能建, 不用跳走 (业主: "播放页面不应该点击按钮跳转到其他页面")。
-const webpageDialog = ref(false);
-const webpageForm = ref<{ name: string; url: string }>({ name: '', url: '' });
-function openWebpageDialog(): void {
-  webpageForm.value = { name: '', url: '' };
-  webpageDialog.value = true;
-}
-async function submitWebpage(): Promise<void> {
-  const url = webpageForm.value.url.trim();
-  if (!/^https?:\/\//i.test(url)) { ElMessage.warning('网址要以 http:// 或 https:// 开头'); return; }
-  try {
-    const m = await mediaService.createWebpage(webpageForm.value.name.trim() || url, url);
-    await addToPlaylist(SLOT.value, m.id);
-    await loadAll();
-    webpageDialog.value = false;
-    ElMessage.success(`「${m.originalName}」已加入播放列表`);
-  } catch (e) {
-    ElMessage.error(`添加失败: ${(e as Error).message}`);
-  }
-}
 </script>
 
 <template>
@@ -761,35 +305,65 @@ async function submitWebpage(): Promise<void> {
           {{ ch?.restricted ? '其他用户的内容正在使用此设备' : (currentInList?.title || ch?.currentMediaName || '— 待机中 —') }}
         </div>
         <div class="now-sub">
-          <span v-if="ch?.loopMode === 'loop'"><Repeat :size="13" /> 循环</span>
-          <span v-else><Repeat1 :size="13" /> 播一遍</span>
-          <span v-if="ch?.currentMediaId && !currentInList" class="tmp">· 临时推送 (不在播放列表里)</span>
+          <template v-if="activeSource === 'park-dashboard'">
+            <span class="v2-inter">第 {{ parkOpsPage + 1 }} / {{ parkOpsTotalPages }} 页</span>
+            <span>· {{ parkOpsAuto ? '自动轮播中' : '手动翻页' }}</span>
+          </template>
+          <template v-else>
+            <span v-if="ch?.loopMode === 'loop'"><Repeat :size="13" /> 循环</span>
+            <span v-else><Repeat1 :size="13" /> 播一遍</span>
+            <span v-if="ch?.currentMediaId && !currentInList" class="tmp">· 临时推送 (不在播放列表里)</span>
+          </template>
         </div>
       </div>
       <!-- 业主: "暂停、切换、上下内容等均可控制" + "随时可以点击终止" -->
       <div class="now-ctrl">
-        <button class="pc-btn" :disabled="busy || playlist.length === 0" title="上一首" @click="step('prev')">
-          <SkipBack :size="20" />
-        </button>
-        <!-- 待机时必须是「播放」而不是一个被禁用的「暂停」(2026-07-17 业主:
-             "有停止和暂停按钮, 但是没有播放按钮")。原来 disabled 挂在
-             !ch.currentMediaId 上 —— 恰恰在最需要它的时候(待机)把它锁死了。
-             口径对齐音响页 BGM 那个已验证好用的: disabled 只看列表空不空。 -->
-        <button
-          class="pc-btn main"
-          :disabled="busy || (!ch?.currentMediaId && playlist.length === 0)"
-          :title="!ch?.currentMediaId ? '播放' : (ch.paused ? '继续' : '暂停')"
-          @click="togglePause"
-        >
-          <Pause v-if="ch?.currentMediaId && !ch.paused" :size="22" />
-          <Play v-else :size="22" />
-        </button>
-        <button class="pc-btn" :disabled="busy || playlist.length === 0" title="下一首" @click="step('next')">
-          <SkipForward :size="20" />
-        </button>
-        <button class="pc-btn stop" :disabled="busy || !ch?.currentMediaId" title="终止播放, 回到待机" @click="stopPlayback()">
-          <Square :size="18" />
-        </button>
+        <!-- 输入源=园区运营大屏时, 复用这四个主按钮为:
+             上一页 / 自动轮播(开关) / 下一页 / 强制刷新, 纯图标, 不再另弹控制条 (2026-09-15) -->
+        <template v-if="activeSource === 'park-dashboard'">
+          <button class="pc-btn" :disabled="parkOpsBusy" title="运营大屏 · 上一页" @click="parkOpsControl('prev')">
+            <ChevronLeft :size="20" />
+          </button>
+          <button
+            class="pc-btn main"
+            :class="{ on: parkOpsAuto }"
+            :disabled="parkOpsBusy"
+            :title="parkOpsAuto ? '自动轮播：开（点击关闭）' : '自动轮播：关（点击开启）'"
+            @click="parkOpsControl('auto')"
+          >
+            <RefreshCw :size="20" />
+          </button>
+          <button class="pc-btn" :disabled="parkOpsBusy" title="运营大屏 · 下一页" @click="parkOpsControl('next')">
+            <ChevronRight :size="20" />
+          </button>
+          <button class="pc-btn refresh" :disabled="parkOpsBusy" title="强制刷新：让大屏清缓存加载最新前端构建" @click="parkOpsControl('refresh')">
+            <RotateCcw :size="18" />
+          </button>
+        </template>
+        <template v-else>
+          <button class="pc-btn" :disabled="busy || playlist.length === 0" title="上一首" @click="step('prev')">
+            <SkipBack :size="20" />
+          </button>
+          <!-- 待机时必须是「播放」而不是一个被禁用的「暂停」(2026-07-17 业主:
+               "有停止和暂停按钮, 但是没有播放按钮")。原来 disabled 挂在
+               !ch.currentMediaId 上 —— 恰恰在最需要它的时候(待机)把它锁死了。
+               口径对齐音响页 BGM 那个已验证好用的: disabled 只看列表空不空。 -->
+          <button
+            class="pc-btn main"
+            :disabled="busy || (!ch?.currentMediaId && playlist.length === 0)"
+            :title="!ch?.currentMediaId ? '播放' : (ch.paused ? '继续' : '暂停')"
+            @click="togglePause"
+          >
+            <Pause v-if="ch?.currentMediaId && !ch.paused" :size="22" />
+            <Play v-else :size="22" />
+          </button>
+          <button class="pc-btn" :disabled="busy || playlist.length === 0" title="下一首" @click="step('next')">
+            <SkipForward :size="20" />
+          </button>
+          <button class="pc-btn stop" :disabled="busy || !ch?.currentMediaId" title="终止播放, 回到待机" @click="stopPlayback()">
+            <Square :size="18" />
+          </button>
+        </template>
       </div>
 
       <!-- 画面铺放 (业主 2026-07-25): 图片/视频都吃, 默认铺满; 改完即时生效并记住 -->
@@ -840,6 +414,9 @@ async function submitWebpage(): Promise<void> {
           <X :size="15" /> 退出
         </button>
       </div>
+
+      <!-- 运营大屏的 上一页/自动轮播/下一页/强制刷新 已并入上方 .now-ctrl 四个主按钮,
+           不再在切源后另弹一条控制按钮 (2026-09-15 应业主要求精简) -->
     </div><!-- /pc-sticky -->
 
     <!-- 输入源 — LED/投影两页统一出现 (2026-07-28 业主), 按钮指向见 script 注释 -->
@@ -847,8 +424,20 @@ async function submitWebpage(): Promise<void> {
       <span class="src-label">输入源</span>
       <button class="src-btn" :class="{ on: activeSource === 'content' }" :disabled="busy" @click="selectContent">播放内容</button>
       <button class="src-btn dashboard" :class="{ on: activeSource === 'park-dashboard' }" :disabled="busy" @click="selectParkDashboard"><Globe :size="13" /> 园区运营大屏</button>
-      <button class="src-btn" :class="{ on: activeSource === 'welcome-editable' }" :disabled="busy" @click="selectWelcome('editable')">欢迎页·可编辑称谓</button>
-      <button class="src-btn" :class="{ on: activeSource === 'welcome-default' }" :disabled="busy" @click="selectWelcome('default')">欢迎页·默认</button>
+      <select
+        class="src-welcome-select"
+        :class="{ on: activeSource === 'welcome-editable' || activeSource === 'welcome-default' }"
+        :value="welcomePickerValue"
+        :disabled="busy || welcomePickerBusy"
+        aria-label="选择欢迎页方案"
+        @change="onWelcomeSchemePick"
+      >
+        <option value="" disabled>欢迎页方案</option>
+        <option :value="WELCOME_PICK_DEFAULT">静态默认欢迎页</option>
+        <option v-for="s in welcomeSchemes" :key="s.id" :value="s.id">
+          {{ s.name }}{{ publishedWelcomeSchemeId === s.id ? ' · 使用中' : '' }}
+        </option>
+      </select>
       <button class="src-btn edit" :disabled="busy" @click="openWelcomeEditor"><Pencil :size="13" /> 编辑欢迎页</button>
       <span class="src-hint">{{ srcHint }}</span>
     </section>
@@ -993,41 +582,244 @@ async function submitWebpage(): Promise<void> {
       </div>
     </div>
 
-    <!-- 欢迎页编辑器 (2026-07-28 业主: "编辑放到前端"): 文字 + 底图就地编辑, 保存立即生效 -->
-    <div v-if="welcomeEditOpen" class="pick-mask" @click.self="welcomeEditOpen = false">
+    <!-- 欢迎页编辑器：多套方案可先保存草稿，明确发布后才更新 LED 画面。 -->
+    <div v-if="welcomeEditOpen" class="pick-mask welcome-mask" @click.self="requestCloseWelcomeEditor">
       <div class="pick-box we-box">
         <header class="pick-head">
           <span class="pick-title"><Pencil :size="16" /> 编辑欢迎页</span>
-          <button class="pick-close" @click="welcomeEditOpen = false"><X :size="18" /></button>
+          <button class="pick-close" @click="requestCloseWelcomeEditor"><X :size="18" /></button>
         </header>
+        <input
+          ref="welcomeLogoUploadInput" type="file" class="hidden-file"
+          accept="image/png,image/jpeg,image/webp" @change="onWelcomeAssetPicked('logo', $event)"
+        />
+        <input
+          ref="welcomeBgUploadInput" type="file" class="hidden-file"
+          accept="image/png,image/jpeg,image/webp" @change="onWelcomeAssetPicked('background', $event)"
+        />
         <div v-if="welcomeLoading" class="pick-empty">读取中…</div>
         <template v-else>
-          <div class="we-scroll">
-            <label class="wb-label">主标题 (空 = 默认「热烈欢迎」)</label>
-            <input v-model="welcomeForm.welcomeTitle" class="wb-input" maxlength="16" placeholder="热烈欢迎" />
-            <label class="wb-label">嘉宾称谓 (显示为 恭迎 ×× 莅临参观指导)</label>
-            <input v-model="welcomeForm.welcomeGuest" class="wb-input" maxlength="64" placeholder="各位领导嘉宾" />
-            <label class="wb-label">底部标语 (空 = 默认「智慧展厅 · 数字展贸 · 科创未来」)</label>
-            <input v-model="welcomeForm.welcomeTagline" class="wb-input" maxlength="64" placeholder="智慧展厅 · 数字展贸 · 科创未来" />
-            <label class="wb-label">底图模板 — 选媒体库图片当底图; 想用新图先在本页「上传内容」传一张</label>
-            <div class="we-bg-grid">
+          <ElScrollbar class="we-scroll" always>
+            <div class="we-scroll-content">
+            <div class="we-resolution">
+              <strong>LED 原生画布 {{ LED_CANVAS_RESOLUTION }}</strong>
+              <span>输出、浏览器、V2460 与屏体像素点对点，正式画面不缩放、不裁切。</span>
+            </div>
+            <div class="we-scheme-head">
+              <div>
+                <strong>欢迎方案</strong>
+                <span>保存草稿不会改变大屏，点击发布后才正式上屏</span>
+              </div>
+              <div class="we-scheme-tools">
+                <button class="v2-quick" :disabled="welcomeSchemes.length >= 20" @click="duplicateWelcomeScheme">复制为新方案</button>
+                <button class="v2-quick danger" :disabled="welcomeSchemes.length <= 1" @click="deleteWelcomeScheme">删除</button>
+              </div>
+            </div>
+            <div class="we-scheme-list" role="tablist" aria-label="欢迎方案列表">
               <button
-                class="we-bg-item" :class="{ on: welcomeForm.welcomeBgMediaId === null }"
-                title="内置鎏金夜湖底图" @click="welcomeForm.welcomeBgMediaId = null"
-              ><span class="we-bg-default">默认底图<br>「鎏金夜湖」</span></button>
-              <button
-                v-for="a in bgAssets" :key="a.id"
-                class="we-bg-item" :class="{ on: welcomeForm.welcomeBgMediaId === a.id }"
-                :title="a.originalName" @click="welcomeForm.welcomeBgMediaId = a.id"
+                v-for="scheme in welcomeSchemes"
+                :key="scheme.id"
+                class="we-scheme-item"
+                :class="{ on: selectedWelcomeSchemeId === scheme.id }"
+                role="tab"
+                :aria-selected="selectedWelcomeSchemeId === scheme.id"
+                @click="selectWelcomeScheme(scheme.id)"
               >
-                <img :src="absUrl(a.thumbUrl || a.fileUrl)" alt="" loading="lazy" />
-                <span class="we-bg-name">{{ a.originalName }}</span>
+                <span>{{ scheme.name }}</span>
+                <em v-if="publishedWelcomeSchemeId === scheme.id">正在使用</em>
               </button>
             </div>
-          </div>
+            <div class="we-upload-row" aria-label="欢迎页图片上传">
+              <button class="v2-quick secondary" :disabled="!!welcomeAssetUploading" @click="pickWelcomeAsset('logo')">
+                <Upload :size="14" />
+                {{ welcomeAssetUploading === 'logo' ? `Logo 上传中 ${welcomeAssetUploadPct}%` : '上传 Logo' }}
+              </button>
+              <button class="v2-quick secondary" :disabled="!!welcomeAssetUploading" @click="pickWelcomeAsset('background')">
+                <Upload :size="14" />
+                {{ welcomeAssetUploading === 'background' ? `底图上传中 ${welcomeAssetUploadPct}%` : '上传底图' }}
+              </button>
+              <span>Logo 推荐透明底 PNG/WebP；底图上传后自动居中裁切并转换为 {{ LED_CANVAS_RESOLUTION }}</span>
+            </div>
+            <div class="we-preview" aria-label="LED 欢迎页实时预览">
+              <iframe
+                ref="welcomePreviewFrame"
+                :src="welcomePreviewUrl"
+                title="LED 欢迎页实时预览"
+                tabindex="-1"
+                @load="pushWelcomePreview"
+              ></iframe>
+            </div>
+            <label class="wb-label">方案名称</label>
+            <input v-model="welcomeSchemeName" class="wb-input" maxlength="40" placeholder="如：某公司来访" @input="markWelcomeDraftChanged" />
+            <label class="wb-label">主标题 (空 = 默认「热烈欢迎」)</label>
+            <input v-model="welcomeForm.welcomeTitle" class="wb-input" maxlength="32" placeholder="热烈欢迎" @input="markWelcomeDraftChanged" />
+            <label class="wb-label">嘉宾称谓 (显示为 恭迎 ×× 莅临参观指导)</label>
+            <input v-model="welcomeForm.welcomeGuest" class="wb-input" maxlength="64" placeholder="各位领导嘉宾" @input="markWelcomeDraftChanged" />
+            <label class="wb-label">底部标语 (空 = 默认「智慧展厅 · 数字展贸 · 科创未来」)</label>
+            <input v-model="welcomeForm.welcomeTagline" class="wb-input" maxlength="64" placeholder="智慧展厅 · 数字展贸 · 科创未来" @input="markWelcomeDraftChanged" />
+            <div v-for="row in welcomeDisplayRows" :key="row.formKey" class="wb-display-row">
+              <div class="wb-display-main">
+                <label class="wb-label">{{ row.label }}</label>
+                <input v-model="welcomeForm[row.formKey]" class="wb-input" :maxlength="row.maxlength" :disabled="welcomeHidden[row.hideKey]" :placeholder="row.placeholder" @input="markWelcomeDraftChanged" />
+              </div>
+              <label class="wb-hide-check"><input type="checkbox" v-model="welcomeHidden[row.hideKey]" @change="markWelcomeDraftChanged" />隐藏</label>
+            </div>
+            <div class="we-presentation-head">
+              <strong>画面版式</strong>
+              <span>版式随方案独立保存，切换底图和 Logo 后不会继续套用一张固定模板</span>
+            </div>
+            <div class="we-layout-grid" role="radiogroup" aria-label="欢迎页画面版式">
+              <button
+                v-for="option in welcomeLayoutOptions"
+                :key="option.value"
+                type="button"
+                class="we-layout-option"
+                :class="{ on: welcomeForm.presentation.layout === option.value }"
+                role="radio"
+                :aria-checked="welcomeForm.presentation.layout === option.value"
+                @click="updateWelcomePresentation('layout', option.value)"
+              >
+                <span class="we-layout-swatch" :data-layout="option.value"><i></i><b></b></span>
+                <strong>{{ option.name }}</strong>
+                <small>{{ option.hint }}</small>
+              </button>
+            </div>
+            <div class="we-style-controls">
+              <div class="we-style-control">
+                <span>文字色调</span>
+                <div>
+                  <button
+                    v-for="option in welcomeToneOptions" :key="option.value" type="button"
+                    :class="{ on: welcomeForm.presentation.tone === option.value }"
+                    @click="updateWelcomePresentation('tone', option.value)"
+                  >{{ option.name }}</button>
+                </div>
+              </div>
+              <div class="we-style-control">
+                <span>背景遮罩</span>
+                <div>
+                  <button
+                    v-for="option in welcomeOverlayOptions" :key="option.value" type="button"
+                    :class="{ on: welcomeForm.presentation.overlay === option.value }"
+                    @click="updateWelcomePresentation('overlay', option.value)"
+                  >{{ option.name }}</button>
+                </div>
+              </div>
+              <div class="we-style-control">
+                <span>文字位置</span>
+                <div>
+                  <button
+                    v-for="option in welcomePositionOptions" :key="option.value" type="button"
+                    :class="{ on: welcomeForm.presentation.contentPosition === option.value }"
+                    @click="updateWelcomePresentation('contentPosition', option.value)"
+                  >{{ option.name }}</button>
+                </div>
+              </div>
+              <div class="we-style-control">
+                <span>Logo 尺寸</span>
+                <div>
+                  <button
+                    v-for="option in welcomeLogoSizeOptions" :key="option.value" type="button"
+                    :class="{ on: welcomeForm.presentation.logoSize === option.value }"
+                    @click="updateWelcomePresentation('logoSize', option.value)"
+                  >{{ option.name }}</button>
+                </div>
+              </div>
+              <div class="we-style-control we-title-effect">
+                <span>主标题效果</span>
+                <div>
+                  <button
+                    v-for="option in welcomeTitleEffectOptions" :key="option.value" type="button"
+                    :class="{ on: welcomeForm.presentation.titleEffect === option.value }"
+                    :title="option.hint"
+                    @click="updateWelcomePresentation('titleEffect', option.value)"
+                  >{{ option.name }}</button>
+                </div>
+              </div>
+            </div>
+            <label class="wb-label we-asset-label">Logo 图片</label>
+            <div v-if="incompatibleSelectedLogo" class="we-warning">
+              原 Logo 图片已不可用，预览和大屏已回退内置场馆 Logo；保存后会清除旧绑定。
+            </div>
+            <div class="we-bg-grid we-logo-grid">
+              <button
+                type="button"
+                class="we-bg-item" :class="{ on: welcomeForm.welcomeLogoMediaId === null }"
+                title="使用内置场馆 Logo" @click="selectWelcomeLogo(null)"
+              ><span class="we-logo-default">内置场馆 Logo</span></button>
+              <div v-for="a in logoAssets" :key="`logo-${a.id}`" class="we-asset-card">
+                <button
+                  type="button"
+                  class="we-bg-item" :class="{ on: welcomeForm.welcomeLogoMediaId === a.id }"
+                  :title="a.originalName" @click="selectWelcomeLogo(a.id)"
+                >
+                  <img class="we-logo-image" v-welcome-thumb="{ id: a.id, kind: 'logo' }" alt="" />
+                  <span class="we-bg-name">{{ a.originalName }}</span>
+                </button>
+                <button
+                  v-if="a.source !== 'system'"
+                  class="we-asset-delete"
+                  :disabled="welcomeAssetDeletingId !== null"
+                  :title="`删除 Logo：${a.originalName}`"
+                  :aria-label="`删除 Logo：${a.originalName}`"
+                  @click.stop="deleteWelcomeImage('logo', a)"
+                ><Trash2 :size="13" /></button>
+              </div>
+            </div>
+            <label class="wb-label we-asset-label">底图模板 — 上屏文件统一为 {{ LED_CANVAS_RESOLUTION }}</label>
+            <div v-if="incompatibleSelectedBackground" class="we-warning">
+              原底图不是 {{ LED_CANVAS_RESOLUTION }}，预览和大屏已回退默认底图；保存后会清除旧绑定。
+            </div>
+            <div v-else-if="rejectedBgAssetCount > 0" class="we-note">
+              有 {{ rejectedBgAssetCount }} 张旧底图尺寸不符；点击后会生成 LED 原生尺寸副本并选中。
+            </div>
+            <div class="we-bg-grid">
+              <button
+                type="button"
+                class="we-bg-item" :class="{ on: welcomeForm.welcomeBgMediaId === null }"
+                title="内置品牌底图" @click="selectDefaultWelcomeBackground"
+              ><span class="we-bg-default">默认品牌底图</span></button>
+              <div v-for="a in bgAssets" :key="`background-${a.id}`" class="we-asset-card">
+                <button
+                  class="we-bg-item"
+                  :class="{
+                    on: welcomeForm.welcomeBgMediaId === a.id,
+                    invalid: a.resolution?.toLowerCase() !== LED_CANVAS_RESOLUTION,
+                  }"
+                  :title="a.resolution?.toLowerCase() === LED_CANVAS_RESOLUTION
+                    ? a.originalName
+                    : `${a.originalName}：点击自动转换为 ${LED_CANVAS_RESOLUTION}`"
+                  @click="selectWelcomeBackground(a)"
+                >
+                  <img v-welcome-thumb="{ id: a.id, kind: 'background' }" alt="" />
+                  <span class="we-bg-name">{{ a.originalName }} · {{ a.resolution || '未知尺寸' }}</span>
+                </button>
+                <button
+                  v-if="a.source !== 'system'"
+                  class="we-asset-delete"
+                  :disabled="welcomeAssetDeletingId !== null"
+                  :title="`删除底图：${a.originalName}`"
+                  :aria-label="`删除底图：${a.originalName}`"
+                  @click.stop="deleteWelcomeImage('background', a)"
+                ><Trash2 :size="13" /></button>
+              </div>
+            </div>
+            </div>
+          </ElScrollbar>
           <div class="wb-actions">
-            <button class="v2-quick" @click="welcomeEditOpen = false">取消</button>
-            <button class="v2-quick primary" :disabled="welcomeSaving" @click="saveWelcomeEdit">{{ welcomeSaving ? '保存中…' : '保存并生效' }}</button>
+            <span v-if="lastWelcomeSaveRevision !== null" class="we-save-receipt">
+              已保存到服务器 · 版本 {{ lastWelcomeSaveRevision }}
+            </span>
+            <button class="v2-quick" :disabled="welcomeSaving || welcomePublishing || !!welcomeAssetUploading || welcomeAssetDeletingId !== null" @click="requestCloseWelcomeEditor">取消</button>
+            <button class="v2-quick" :disabled="welcomeSaving || welcomePublishing || !!welcomeAssetUploading || welcomeAssetDeletingId !== null" @click="saveWelcomeScheme">
+              {{ welcomeSaving ? '保存并校验中…' : '仅保存方案' }}
+            </button>
+            <button class="v2-quick secondary" :disabled="welcomeSaving || welcomePublishing || !!welcomeAssetUploading || welcomeAssetDeletingId !== null" @click="saveAndCloseWelcomeEditor">
+              保存并关闭
+            </button>
+            <button class="v2-quick primary" :disabled="welcomeSaving || welcomePublishing || !!welcomeAssetUploading || welcomeAssetDeletingId !== null" @click="publishSelectedWelcomeScheme">
+              {{ welcomePublishing ? '发布中…' : '保存并发布到 LED' }}
+            </button>
           </div>
         </template>
       </div>
@@ -1106,6 +898,10 @@ async function submitWebpage(): Promise<void> {
 .pc-btn:disabled { opacity: .35; cursor: not-allowed; }
 .pc-btn.main { width: 60px; height: 60px; background: var(--v2-primary); border-color: var(--v2-primary); color: var(--v2-on-primary); }
 .pc-btn.stop:not(:disabled):hover { border-color: #E5645D; color: #E5645D; }
+/* 运营大屏复用主按钮: 自动轮播激活=绿色高亮, 强制刷新=醒目琥珀色 */
+.pc-btn.main.on { background: var(--v2-success, #3FBF87); border-color: var(--v2-success, #3FBF87); color: #04101f; box-shadow: 0 0 14px rgba(63,191,135,.45); }
+.pc-btn.refresh:not(:disabled) { background: linear-gradient(135deg, #f59e0b, #d97706); border-color: #f59e0b; color: #fff; }
+.pc-btn.refresh:not(:disabled):hover { background: linear-gradient(135deg, #fbbf24, #f59e0b); box-shadow: 0 0 12px rgba(245,158,11,.45); }
 
 .fit-row {
   display: flex;
@@ -1137,13 +933,154 @@ async function submitWebpage(): Promise<void> {
 .src-btn.dashboard { display: inline-flex; align-items: center; gap: 5px; }
 .src-btn.edit { display: inline-flex; align-items: center; gap: 5px; color: var(--v2-primary); border-style: dashed; }
 .src-hint { font-size: 11px; color: var(--v2-text-3); }
+.src-welcome-select {
+  padding: 9px 14px; min-height: 40px; border-radius: 9px; cursor: pointer;
+  font-size: 14px; color: var(--v2-text-1); font-family: inherit;
+  background: var(--v2-surf-2, #1A1D22); border: 1px solid var(--v2-border-soft, #23262C);
+  max-width: 220px;
+}
+.src-welcome-select.on { border-color: var(--v2-primary); color: var(--v2-primary); }
+.src-welcome-select:disabled { opacity: .4; cursor: not-allowed; }
+.src-welcome-select option { color: #e8edf4; background: #14161A; }
 
 /* 欢迎页编辑器 (2026-07-28) */
-.we-box { width: min(680px, 94vw); max-height: 86vh; display: flex; flex-direction: column; }
+.pick-box.we-box {
+  width: min(920px, calc(100vw - 32px));
+  height: min(90vh, 900px); max-height: calc(100vh - 20px);
+  height: min(90dvh, 900px); max-height: calc(100dvh - 20px);
+  min-height: 0; display: flex; flex-direction: column; overflow: hidden;
+}
+.we-box > .pick-head, .we-box > .wb-actions { flex: 0 0 auto; }
+.we-save-receipt { margin-right: auto; color: var(--v2-success); font-size: 12px; }
 .we-scroll {
-  overflow-y: auto; min-height: 0; padding-right: 4px; -webkit-overflow-scrolling: touch;
+  flex: 1 1 0; min-height: 0;
+}
+.we-scroll-content {
+  min-height: 100%; padding-right: 18px;
   display: flex; flex-direction: column; gap: 6px;   /* label 是 inline 元素, 不排 flex 会挤成一行 */
 }
+.we-scroll :deep(.el-scrollbar__wrap) {
+  overflow-x: hidden; -webkit-overflow-scrolling: touch;
+  touch-action: pan-y; overscroll-behavior-y: contain;
+}
+.we-scroll :deep(.el-scrollbar__bar.is-vertical) { width: 12px; right: 1px; opacity: 1; }
+.we-scroll :deep(.el-scrollbar__thumb) {
+  min-height: 48px; opacity: 1;
+  background: color-mix(in srgb, var(--v2-primary) 72%, var(--v2-text-3));
+}
+.we-scroll :deep(.el-scrollbar__thumb:hover) { background: var(--v2-primary); }
+.we-resolution {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+  padding: 10px 12px; border-radius: 9px;
+  color: var(--v2-text-2); background: color-mix(in srgb, var(--v2-primary) 9%, var(--v2-surf-2));
+  border: 1px solid color-mix(in srgb, var(--v2-primary) 28%, var(--v2-border-soft));
+}
+.we-resolution strong { color: var(--v2-primary); font-size: 13px; white-space: nowrap; }
+.we-resolution span { font-size: 12px; text-align: right; }
+.we-scheme-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 4px;
+}
+.we-scheme-head > div:first-child { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.we-scheme-head strong { font-size: 14px; color: var(--v2-text-1); }
+.we-scheme-head span { font-size: 11px; color: var(--v2-text-3); }
+.we-scheme-tools { display: flex; gap: 6px; flex: none; }
+.we-scheme-tools .v2-quick { min-height: 32px; padding: 6px 10px; font-size: 12px; }
+.we-scheme-tools .danger { color: var(--v2-danger); }
+.we-scheme-list {
+  display: flex; gap: 7px; overflow-x: auto; padding: 2px 2px 5px; scrollbar-width: thin;
+}
+.we-scheme-item {
+  min-width: 120px; min-height: 43px; padding: 7px 10px; border-radius: 9px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px;
+  color: var(--v2-text-2); background: var(--v2-surf-2); border: 1px solid var(--v2-border-soft);
+}
+.we-scheme-item span { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.we-scheme-item em { font-size: 10px; font-style: normal; color: var(--v2-primary); }
+.we-scheme-item.on {
+  color: var(--v2-text-1); border-color: var(--v2-primary);
+  background: color-mix(in srgb, var(--v2-primary) 10%, var(--v2-surf-2));
+}
+.we-upload-row {
+  display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 8px;
+  padding: 9px 10px; border: 1px solid var(--v2-border-soft); border-radius: 9px;
+  background: var(--v2-surf-2);
+}
+.we-upload-row .v2-quick { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+.we-upload-row span { color: var(--v2-text-3); font-size: 11px; line-height: 1.35; }
+.we-asset-label { margin-top: 10px; }
+.we-presentation-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin-top: 10px;
+}
+.we-presentation-head strong { color: var(--v2-text-1); font-size: 13px; }
+.we-presentation-head span { color: var(--v2-text-3); font-size: 11px; text-align: right; }
+.we-layout-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.we-layout-option {
+  min-width: 0; padding: 9px; border-radius: 10px; cursor: pointer; text-align: left;
+  color: var(--v2-text-2); background: var(--v2-surf-2); border: 1px solid var(--v2-border-soft);
+}
+.we-layout-option.on {
+  color: var(--v2-text-1); border-color: var(--v2-primary);
+  background: color-mix(in srgb, var(--v2-primary) 9%, var(--v2-surf-2));
+}
+.we-layout-option:focus-visible, .we-style-control button:focus-visible {
+  outline: 2px solid var(--v2-primary); outline-offset: 2px;
+}
+.we-layout-option > strong { display: block; margin-top: 7px; font-size: 12px; }
+.we-layout-option > small { display: block; margin-top: 2px; color: var(--v2-text-3); font-size: 10px; line-height: 1.4; }
+.we-layout-swatch {
+  position: relative; display: block; height: 42px; overflow: hidden; border-radius: 6px;
+  background: #102942;
+}
+.we-layout-swatch::before, .we-layout-swatch i, .we-layout-swatch b {
+  content: ''; position: absolute; display: block; background: rgba(236,245,255,.9);
+}
+.we-layout-swatch::before { width: 22%; height: 4px; top: 8px; left: 39%; border-radius: 2px; }
+.we-layout-swatch i { width: 48%; height: 5px; top: 19px; left: 26%; border-radius: 2px; }
+.we-layout-swatch b { width: 32%; height: 2px; top: 30px; left: 34%; opacity: .65; }
+.we-layout-swatch[data-layout="editorial"]::before,
+.we-layout-swatch[data-layout="editorial"] i,
+.we-layout-swatch[data-layout="editorial"] b { left: 12%; }
+.we-layout-swatch[data-layout="editorial"]::before { width: 18%; }
+.we-layout-swatch[data-layout="editorial"] i { width: 42%; }
+.we-layout-swatch[data-layout="editorial"] b { width: 28%; }
+.we-layout-swatch[data-layout="minimal"] { background: #e9eff5; }
+.we-layout-swatch[data-layout="minimal"]::before,
+.we-layout-swatch[data-layout="minimal"] i,
+.we-layout-swatch[data-layout="minimal"] b { background: #173b60; }
+.we-layout-swatch[data-layout="minimal"]::before { width: 16%; left: 42%; }
+.we-layout-swatch[data-layout="minimal"] i { width: 36%; left: 32%; }
+.we-layout-swatch[data-layout="minimal"] b { width: 22%; left: 39%; }
+.we-style-controls {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
+  padding: 9px; border: 1px solid var(--v2-border-soft); border-radius: 10px;
+}
+.we-style-control { min-width: 0; }
+.we-style-control > span { display: block; margin-bottom: 5px; color: var(--v2-text-3); font-size: 10px; }
+.we-style-control > div { display: flex; gap: 4px; }
+.we-style-control button {
+  flex: 1 1 0; min-height: 32px; padding: 5px 7px; border-radius: 7px; cursor: pointer;
+  color: var(--v2-text-2); background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft);
+  font-size: 11px;
+}
+.we-style-control button.on {
+  color: var(--v2-on-primary); background: var(--v2-primary); border-color: var(--v2-primary);
+}
+.we-logo-grid { overflow: visible; }
+.we-logo-image { object-fit: contain !important; padding: 7px; background: rgba(255,255,255,.92); }
+.we-logo-default {
+  position: absolute; inset: 0; display: grid; place-items: center; padding: 8px;
+  color: var(--v2-primary); font-size: 12px; text-align: center;
+  background: radial-gradient(circle at 50% 45%, var(--v2-primary-soft), var(--v2-surf-2) 68%);
+}
+.we-preview {
+  position: relative; width: 100%; aspect-ratio: 3612 / 1462; overflow: hidden;
+  margin: 4px 0 8px; border-radius: 10px; background: #06101f;
+  border: 1px solid var(--v2-border-soft); box-shadow: inset 0 0 0 1px rgba(255,255,255,.025);
+}
+.we-preview iframe { width: 100%; height: 100%; display: block; border: 0; pointer-events: none; }
+.we-warning, .we-note { padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.45; }
+.we-warning { color: var(--v2-warning); background: color-mix(in srgb, var(--v2-warning) 10%, transparent); }
+.we-note { color: var(--v2-text-3); background: var(--v2-surf-2); }
 .we-bg-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
   gap: 8px; margin-top: 6px;
@@ -1153,8 +1090,21 @@ async function submitWebpage(): Promise<void> {
   background: var(--v2-surf-2, #1A1D22); border: 2px solid var(--v2-border-soft, #23262C);
   padding: 0; display: grid; place-items: center;
 }
+.we-asset-card { position: relative; min-width: 0; }
+.we-asset-card .we-bg-item { width: 100%; }
+.we-bg-item.invalid { opacity: .72; cursor: pointer; border-style: dashed; }
+.we-asset-delete {
+  position: absolute; z-index: 2; top: 5px; right: 5px;
+  width: 40px; height: 40px; padding: 0; border-radius: 9px;
+  display: grid; place-items: center; cursor: pointer;
+  color: #fff; background: rgba(127, 29, 29, .9); border: 1px solid rgba(255,255,255,.22);
+  box-shadow: 0 3px 12px rgba(0,0,0,.28);
+}
+.we-asset-delete:hover { background: var(--v2-danger); }
+.we-asset-delete:disabled { opacity: .5; cursor: wait; }
 .we-bg-item.on { border-color: var(--v2-primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--v2-primary) 35%, transparent); }
 .we-bg-item img { width: 100%; height: 100%; object-fit: cover; }
+.we-bg-item img:not([src]) { visibility: hidden; }
 .we-bg-name {
   position: absolute; left: 0; right: 0; bottom: 0;
   font-size: 10px; line-height: 1.2; padding: 3px 5px;
@@ -1166,6 +1116,36 @@ async function submitWebpage(): Promise<void> {
   background: radial-gradient(120px 70px at 50% 110%, rgba(212, 175, 55, 0.25), transparent 70%),
     radial-gradient(160px 90px at 50% 50%, #0d2038, #06101f);
   position: absolute; inset: 0; display: grid; place-items: center;
+}
+@media (max-width: 640px) {
+  .welcome-mask { padding: 0; align-items: stretch; overflow: hidden; }
+  .welcome-mask .pick-box.we-box {
+    width: 100%; height: 100vh; max-height: 100vh; height: 100dvh; max-height: 100dvh; border-radius: 0;
+    padding: max(10px, env(safe-area-inset-top)) 10px max(8px, env(safe-area-inset-bottom));
+  }
+  .welcome-mask .pick-head { margin-bottom: 6px; }
+  .welcome-mask .wb-actions { margin-top: 8px; flex-wrap: wrap; }
+  .welcome-mask .wb-actions .v2-quick { flex: 1 1 auto; min-width: 92px; }
+  .we-scheme-head { align-items: flex-start; flex-direction: column; }
+  .we-scheme-head > div:first-child { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .we-resolution { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .we-resolution span { text-align: left; }
+  .we-preview { flex: 0 0 auto; }
+  .we-upload-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .we-upload-row span { grid-column: 1 / -1; }
+  .we-presentation-head { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .we-presentation-head span { text-align: left; }
+  .we-layout-grid { grid-template-columns: 1fr; }
+  .we-layout-option { display: grid; grid-template-columns: 90px 1fr; column-gap: 9px; align-items: center; }
+  .we-layout-option .we-layout-swatch { grid-row: 1 / 3; }
+  .we-layout-option > strong { margin-top: 0; }
+  .we-style-controls { grid-template-columns: 1fr; }
+  .we-scroll-content { padding-right: 10px; }
+  .we-scroll :deep(.el-scrollbar__bar.is-vertical) { width: 7px; }
+  .we-bg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* 44px 触摸目标 + 16px 字号, 防 iOS 聚焦自动放大; 与其它源按钮并排不撑乱 */
+  .src-welcome-select { min-height: 44px; font-size: 16px; max-width: 46vw; flex: 1 1 auto; }
+  .we-asset-delete { width: 44px; height: 44px; top: 4px; right: 4px; }
 }
 
 /* align-items: start (不是默认的 stretch) —— 列表/历史内容短的时候(比如只有 2 条),
@@ -1262,7 +1242,17 @@ async function submitWebpage(): Promise<void> {
   padding: 10px 12px; color: var(--v2-text-1); font-size: 14px; outline: none; font-family: inherit;
 }
 .wb-input:focus { border-color: var(--v2-primary); }
-.wb-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+.wb-input:disabled { opacity: .45; cursor: not-allowed; }
+.wb-display-row { display: flex; align-items: flex-end; gap: 8px; }
+.wb-display-main { flex: 1 1 auto; min-width: 0; }
+.wb-hide-check {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px;
+  padding-bottom: 9px; font-size: 12px; color: var(--v2-text-3); white-space: nowrap; cursor: pointer; user-select: none;
+}
+.wb-hide-check input { margin: 0; cursor: pointer; }
+.we-title-effect > div { flex-wrap: wrap; gap: 5px; }
+.we-title-effect button { flex: 0 0 auto; white-space: nowrap; padding: 5px 11px; }
+.wb-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
 .pick-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .pick-title { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; color: var(--v2-text-1); }
 .pick-tabs { display: flex; gap: 4px; margin-left: auto; }
@@ -1341,6 +1331,7 @@ async function submitWebpage(): Promise<void> {
 .pg-zoom.hot { color: var(--v2-warning); }
 .pg-btn.big { display: inline-flex; align-items: center; gap: 5px; }
 .pg-btn.exit { display: inline-flex; align-items: center; gap: 4px; color: var(--v2-danger); }
+.pg-label { font-size: 14px; font-weight: 700; color: var(--v2-primary); margin-right: 4px; white-space: nowrap; }
 /* ---- 电源开关 (标题栏"待机"行末尾, 时序器同款拨动开关) ---- */
 /* 报警插槽在卡片内占满整行, 显示在顶部 (投影融合器状态) */
 .now :deep(.out-bar) { flex-basis: 100%; width: 100%; }

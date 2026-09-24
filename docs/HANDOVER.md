@@ -8,6 +8,8 @@
 > 守护去重兜底)。以下三份是其后的权威补充, 读完本文务必接着读:
 > 仓库根 `CLAUDE.md` (工程记忆) → `docs/INCIDENTS.md` (故障档案: 症状→根因→根治) →
 > `docs/PROGRESS.md` (进展时间线 + 当前待办)。
+>
+> 📄 **2026-09-11 新增**: `docs/PARK_OPS_LED_FIX_AND_REMOTE_CONTROL.md` — 运营大屏LED亮线修复 + PWA播放控制卡片远程翻页控制（架构/API/部署/换电脑开发指南）。
 
 ---
 
@@ -99,7 +101,7 @@ smart-control/
 │   │   ├── modules/       # NestJS 模块 (28 个)
 │   │   ├── services/      # 跨模块服务 (command-dispatcher 等)
 │   │   ├── common/        # 守卫 / 配置 / 工具
-│   │   ├── seed/          # 启动时 seed 默认数据
+│   │   ├── migrations/    # 结构迁移与不可变业务目录快照
 │   │   └── main.ts
 │   ├── .env.example       # 配置模板, 部署时复制到 .env
 │   └── package.json
@@ -156,7 +158,8 @@ smart-control/
 - `backend/database/*.db` — SQLite 数据
 - `frontend/components.d.ts` — vite-plugin-vue 自动生成, 每次 build 会变, 已 .gitignore (历史 commit 过, 现在拉新分支会冲突, update.ps1 会先 `git checkout` 这个文件)
 - `*.apk`, `*.aab` — Android 产物
-- `*.jks`, `*.keystore` — 签名密钥 (目前用 debug 签名, 没生产 keystore)
+- `*.p12`, `*.jks`, `*.keystore` — 签名私钥不得提交；Android 发布签名由
+  GitHub Actions 的 `ANDROID_SIGNING_*` 加密密钥注入并校验证书指纹
 
 ---
 
@@ -226,21 +229,23 @@ ssh user@192.168.77.54
 - `cnjinhu.top` 主域 (在阿里云)
 - `erp.cnjinhu.top` → 反代到 GK9000:5173 (frontend) + 3200 (API + WS)
 - 详见 memory 索引: `~/.claude/projects/-Users-mac-jinhu-ERP/memory/server_cnjinhu_top.md`
-- ⚠️ **外网域名公开, admin 后台一旦默认密码没改就有风险, 见 §5.1**
+- 外网域名公开，登录只接受已启用的个人账户，并按 IP 限流。
 
 ---
 
 ## 5. 关键账号 / 凭据 / 安全
 
-### 5.1 ⚠️ 系统内置密码 (接手人**第一件事**就是改)
+### 5.1 系统账户
 
-| 用途 | 默认密码 | 改的方法 |
+| 用途 | 身份来源 | 管理方法 |
 |---|---|---|
-| **后台管理员** (admin) | `jinhu888` | 进后台 → `/admin/system-branding` → 右下"改密码"板块 |
-| **业主侧 PWA** (client) | `1234` | 进 `/admin/system-branding` 同页 (业主侧密码也可改) |
+| **后台管理员** | `users` 中已启用的 `admin` 个人账户 | 后台 `/admin/users` |
+| **业主侧 PWA** | `users` 中已启用的 `admin/operator/viewer` 个人账户 | 后台 `/admin/users` |
 | **GK9000 OS 登录** | 业主告知 | Windows 设置 → 账户 |
 
-如果当前业主已经改过, 接手时让业主告知新密码或者再改一次. **不要把密码写进 git**.
+系统不再内置或在启动时生成可登录的默认密码。全新数据库迁移后，在服务首次启动前通过
+`SC_ADMIN_USERNAME`、`SC_ADMIN_PASSWORD` 和 `pnpm run admin:provision` 显式创建首个管理员；
+该命令只在没有启用管理员时执行一次，不输出密码或哈希。**不要把密码写进 Git、命令参数或文档。**
 
 ### 5.2 GitHub repo 权限
 
@@ -262,8 +267,8 @@ ssh user@192.168.77.54
 
 | 模块 | 作用 |
 |---|---|
-| **admin-auth** | 后台管理员 scrypt 密码 + 8h token |
-| **client-auth** | 业主侧 X-Client-Token, 30 天 TTL, 默认密码 1234 |
+| **admin-auth** | 后台个人管理员登录与 8 小时令牌；兼容验证过渡期旧令牌 |
+| **client-auth** | 个人账户登录、角色实时解析与 30 天 PWA 令牌 |
 | **system-branding** | 系统 logo / 名称 / 欢迎页媒体 ID |
 | **brands** | 硬件厂商目录 (NovaStar/DALI/etc, 跟 system-branding 区别开) |
 | **devices** | 设备总表 (CRUD) |
@@ -326,14 +331,13 @@ light_zone  (前厅/东展区/走廊区…)   业主看得见的名字, 前端�
 - 实测组分布 (扫组亮度寄存器): 网关#1(拨码1) = 组 5-11, 网关#2(拨码2) = 组 1-3.
   业主说共 11 组, 扫到 10 组, 差的那组现场补一条 light_group 记录即可.
 
-**两个部署坑** (2026-07-16 踩过):
-1. **CI 不跑 seed**. `deploy-from-ci.ps1` 只有 install/build/pm2 restart. 新增的
-   分区/灯组这类**数据**不会自己上生产, 要手工 `cd backend && node dist/seed/seed.js`
-   (winston 在生产写文件不写 stdout, 所以跑完屏幕上什么都没有是正常的, 用 API 验).
-2. **`seedHardware` 是 `if (exists) continue`** —— 改 seed 里的硬件字段对**已有**
-   生产库无效, 只影响全新安装. 已有记录要走后台硬件清单改.
+**数据目录发布规则**：
+1. 场景、动作、设备、硬件、灯光分区/组和 UAT 默认目录只由 TypeORM 前向迁移建立；
+   生产发布先建立数据库/媒体恢复包并完成隔离恢复演练，再执行迁移。
+2. 不再存在部署 seed 或人工 seed 命令。已有记录走后台维护；默认目录升级新增迁移，
+   禁止把“缺失即重建”放回每次发布路径，以免恢复管理员主动删除的数据。
 
-每个 adapter 都自描述 (driver-descriptor.ts), backend 启动时自动注册到 `driver_template` 表, 后台 `/admin/drivers` 能浏览.
+内置 adapter 目录由版本化迁移登记到 `driver_templates` 表，backend 启动只读，后台 `/admin/drivers` 能浏览。
 
 ### 6.3 Frontend pages
 
@@ -416,9 +420,8 @@ cd android-app && ./gradlew assembleDebug --no-daemon
 # APK 在 android-app/app/build/outputs/apk/debug/app-debug.apk
 gh release create v1.0.6-android android-app/app/build/outputs/apk/debug/app-debug.apk
 
-# 5. 更新后台 AppRelease (业主 APP 看到新版提示)
-# 进 /admin/app-release → 高级折叠 → 改 versionCode + downloadUrl 指新 release
-# 或 SSH 进 GK9000 跑 sqlite UPDATE (脚本见历史 commit /tmp/update-105.js)
+# 5. 生产部署门禁自动同步版本号、下载地址和制品校验信息
+# /admin/app-release 只维护启停、强制更新、最低兼容版本和更新说明
 ```
 
 ⚠️ Maven 镜像 (中国大陆 dl.google.com 慢, 见 `android-app/settings.gradle.kts` 阿里云 mirror 已加)
@@ -469,10 +472,11 @@ pm2 restart smart-control-backend
 
 ⚠️ ENV 改了**必须重启** backend (NestJS 读 env 在启动期).
 
-### 8.3 改密码 (业主侧 / 后台)
+### 8.3 管理账户与密码
 
-- 后台密码: 进 `/admin/system-branding` 改密码板块
-- 改不了 (忘了原密码): SSH 进 GK9000, 用 better-sqlite3 直接 UPDATE admin_auth_v1 表的 password_hash. 算法: scrypt N=16384, r=8, p=1. 工具函数在 `backend/src/common/utils/password.util.ts`
+- 登录后台后，在 `/admin/users` 创建、停用或修改个人账户和密码。
+- 系统由数据库触发器保证至少保留一个启用的管理员，禁止直接修改认证表绕过审计与保护。
+- 只有全新数据库且尚无启用管理员时，才使用 `pnpm run admin:provision` 创建首个管理员。
 
 ### 8.4 看 DB
 
@@ -496,17 +500,24 @@ pm2 restart all
 
 ## 9. 关键链路 / 易混淆点
 
-### 9.1 双鉴权 (业主 vs 后台)
+### 9.1 统一个人身份与两种会话载体
 
 - 业主侧: `useClientAuthStore`, localStorage `sc.client.token`, 30 天, `X-Client-Token` header
 - 后台: `useAdminAuthStore`, sessionStorage `sc.adminToken`, 8h, `Authorization: Bearer` header
-- 两者**完全独立**. router/index.ts 里两个 guard 分别管 (注意 `/admin/*` 路径**不走** client-auth guard)
+- 两者都由同一 `users` 账户与同一服务端角色决定权限；仅存储位置、请求头和有效期不同。
+- 收敛前已签发的旧共享令牌只在原有效期内兼容：旧客户端令牌限只读，旧后台令牌不再签发。
 
 ### 9.2 LED 大屏播控
 
 **两条独立路径**:
-1. **诺瓦 V2460 内置 preset**: 老路径. backend 发 VX 协议 frame `LoadPreset(N)`, V2460 切到自己内存里的预设画面 (在 NovaLCT 软件里预先做). preset 1 = 欢迎页 (老), preset 2 = 视频...
-2. **PlayerPage kiosk 浏览器**: 新路径 (Sprint A 起). GK9000 上 Chromium 全屏窗口 (?slot=1 → HDMI1 → V2460 → LED, ?slot=2 → HDMI2 → 投影). backend `playback.service` 写 `playback_channel_v1` 表 + WS 广播 → PlayerPage 切媒体. 业主在 MediaPage 推什么就播什么.
+1. **运营大屏主显示（当前现场常态）**: GK9000 主屏 DISPLAY2(3612×1462) 上 Edge 全屏渲染 `/control/park-ops/`，经 **HDMI 2.0(源0x90)** 进 V2460，后端 `NovaLedAdapter.ensureFullscreenLayer()` 启动15s+每5min幂等把图层1拉回整屏 3612×1462/NORMAL 并存预设槽2。权威参数与排障见 [LED_V2460_FULLSCREEN_RUNBOOK.md](LED_V2460_FULLSCREEN_RUNBOOK.md)。
+2. **V2460 内置 preset / PlayerPage kiosk（媒体通道）**: backend 可发 VX 协议 `LoadPreset(N)`（preset 1=欢迎, 2=视频/运营大屏，需在 NovaLCT 预置）；PlayerPage 是 Chromium 全屏窗口（?slot=1→V2460→LED，?slot=2→投影），`playback.service` 写 `playback_channel_v1` 表 + WS 广播 → PlayerPage 切媒体。注意：现场 LED 以路径1的 park-ops 整屏为准，别让 PlayerPage 待机页盖住主屏。
+
+### 9.2.1 视频链路（2026-09-14 固化，绝不许删）
+现场视频分两条独立链路，权威配置与排障见 **[VIDEO_STREAM_RUNBOOK.md](VIDEO_STREAM_RUNBOOK.md)**：
+- **大屏 6 路**：两台海康 NVR 子码流（末两位 02，640×360）经 netsh portproxy（本机 5545→192.168.1.5、5546→192.168.1.19）→ 后端 ffmpeg 把 HEVC 转封装为 H.264/HLS（`tmp/hls/<ch>`，1s 片、windowsHide）→ hls.js；`POST /api/cameras/:ch/hls/start` 幂等拉流，后端重启不自动拉，前端到视频页按需触发。
+- **AI 3 路**：`D:\video-ai-analyzer`（venv+YOLOv8n）OpenCV 直连真实 NVR IP 子码流推理，**不经 ffmpeg/不转码**，FastAPI :8000；计划任务 `VideoAI-Run`（直接托管，无限时长）+ `VideoAI-Watchdog`（AtLogon+每1分钟）保证重启自启；CPU 降载参数 torch 4 线程 / FRAME_SKIP=8 / imgsz=320 必须保留。
+- 2026-09-13 整晚应急的错误与根治见 **[INCIDENT_2026-09-13_RECAP.md](INCIDENT_2026-09-13_RECAP.md)**；最高铁律：删除必请示且只进回收站、本地验收经同意才部署、配置四处一致。
 
 LED 控制页的 **"欢迎页"按钮** 2026-06-01 后改成:
 - 优先看 `system-branding.welcomeMediaId` (业主在媒体库设的)
@@ -535,13 +546,11 @@ backend 返 `fileUrl: "/api/media/N/file"` 相对路径, 但 frontend 5173 跟 b
 | 优先级 | 项 | 简述 |
 |---|---|---|
 | 🔥 高 | **1F DALI 网关连通问题** | L1 TCP 通, L2 Modbus 超时. 现场硬件问题, 让业主有空查 CY-DALI64A LED1/LED2 状态. 见 `docs/DALI_FIELD_INSTALL.md` |
-| 🔥 高 | **改默认密码** | admin `jinhu888` / client `1234` 都是默认值, 私库虽然安全但接手人**第一件事就改** |
 | 中 | **PlayerPage kiosk 是否在跑** | 业主升级后大屏没显示一般是 Chromium 进程挂了. SSH 进 GK9000 看 `pm2 list` 有没有 `sc-player-1/2`, 没有就 `.\scripts\start-players.ps1` |
 | 中 | **Sprint G2 真电表接入** | 当前 power adapter 是 Mock. 现场计划接 DDS866 智能电表, 走 Modbus-RTU. RealPowerAdapter 框架已搭好, 接入只需填寄存器映射 (DDS866 datasheet 业主有) |
 | 中 | **DALI 2F 测试灯调试** | Sprint E 把 LightZone 升格成 DB, "全开/全关 没控制到 2F 测试灯"已修, 但具体灯具的 group 编号要核实 |
-| 低 | **APK 上架 Google Play / 国内应用市场** | 当前用 debug 签名, 装 APK 系统警告"未知来源". 上架要生产 keystore + signingConfigs |
+| 低 | **APK 上架 Google Play / 国内应用市场** | 当前为受控内部签名和内部分发；上架前需规划商店签名托管及现场证书迁移 |
 | 低 | **iOS APP** | 后台 AppRelease 表预留 platform='ios', 但还没写 iOS 壳. 业主当前只 Android |
-| 低 | **代码 DEFAULT_PASSWORD 改成首次随机** | 永远不在 git 里写默认密码. 现已要求接手改. 也可改 backend 让首次启动随机 generate + console 打印 + 强制业主第一次登录改 |
 
 ---
 

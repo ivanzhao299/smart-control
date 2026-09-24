@@ -11,16 +11,16 @@ if ((Resolve-Path -LiteralPath $ProjectRoot).Path.TrimEnd('\') -ne 'D:\smart-con
 if (-not (Test-Path -LiteralPath (Join-Path $ProjectRoot 'RELEASE_HOLD') -PathType Leaf)) {
   throw 'Release hold is not present.'
 }
+. (Join-Path $PSScriptRoot 'gk9000-release-tasks.ps1')
 # Check every known restart/backup entry, not merely the nominal backend task.
-foreach ($name in @('SmartControl-AutoUpdate', 'SmartControl-DailyBackup',
-    'SmartControl-PlayerWatchdog', 'SmartControlBackend', 'SmartControlFrontend')) {
-  $task = Get-ScheduledTask -TaskName $name -ErrorAction Stop
+foreach ($task in @(Get-Gk9000ReleaseTasks)) {
   if ($task.State -ne 'Disabled') { throw 'A Smart Control scheduled task is not disabled.' }
 }
 $listeners = @(Get-NetTCPConnection -State Listen -ErrorAction Stop |
   Where-Object { $_.LocalPort -in @(3200, 5173) })
 if ($listeners.Count) { throw 'A production service port is still listening.' }
 $processes = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+$controllerPid = 0
 if ($MigrationPid) {
   $self = $processes | Where-Object { $_.ProcessId -eq $PID }
   $caller = $processes | Where-Object { $_.ProcessId -eq $MigrationPid }
@@ -28,9 +28,27 @@ if ($MigrationPid) {
       $caller.CommandLine -notmatch '(?i)D:[\\/]smart-control[\\/]backend[\\/]scripts[\\/]run-gk9000-migrations\.cjs') {
     throw 'Unexpected migration caller.'
   }
+  # The migration Node process is launched synchronously by the release controller.
+  # That controller must remain alive to receive the migration receipt and activate
+  # the candidate. Allow only its verified direct parent; every other deployment,
+  # update or backup process is still rejected below.
+  $controller = $processes | Where-Object { $_.ProcessId -eq $caller.ParentProcessId }
+  $controllerCommand = [string]$controller.CommandLine
+  $repoController = $controllerCommand -match '(?i)[\\/]smart-control[\\/]scripts[\\/](deploy-from-ci|reconcile-held-gk9000-release)\.ps1[''"]?(?:\s|$)'
+  $dispatcherPattern = '(?i)(?:^|\s)-File\s+[''"]?C:\\ProgramData\\Anksen\\smart-control-ci-dispatch\.ps1[''"]?\s+-Action\s+gk9000-deploy\s+-Commit\s+[''"]?([a-f0-9]{40})[''"]?(?:\s|$)'
+  $dispatcherMatch = [regex]::Match($controllerCommand, $dispatcherPattern)
+  $currentRevision = (& git -C $ProjectRoot rev-parse HEAD).Trim()
+  $verifiedDispatcher = $dispatcherMatch.Success -and
+    $dispatcherMatch.Groups[1].Value -eq $currentRevision
+  if ($controller.Name -notin @('powershell.exe', 'pwsh.exe') -or
+      (-not $repoController -and -not $verifiedDispatcher)) {
+    throw 'Unexpected migration controller.'
+  }
+  $controllerPid = $controller.ProcessId
 }
 foreach ($process in $processes) {
-  if ($process.ProcessId -eq $PID -or ($MigrationPid -and $process.ProcessId -eq $MigrationPid)) { continue }
+  if ($process.ProcessId -eq $PID -or ($MigrationPid -and $process.ProcessId -eq $MigrationPid) -or
+      ($controllerPid -and $process.ProcessId -eq $controllerPid)) { continue }
   $command = [string]$process.CommandLine
   # Multiple PM2 daemons exist on this host. Checking only pm2.pid is unsafe.
   if ($process.Name -eq 'node.exe') {

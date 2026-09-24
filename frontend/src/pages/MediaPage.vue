@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useActivePolling } from '@/composables/useActivePolling';
+import { useBaiduPanJourney } from '@/composables/useBaiduPanJourney';
+import { useMediaUploadQueue } from '@/composables/useMediaUploadQueue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter, useRoute } from 'vue-router';
 import {
@@ -19,13 +22,16 @@ import {
   LayoutGrid,
   AlignJustify,
 } from 'lucide-vue-next';
-import { mediaService, type MediaItem, type OrphanMediaItem, MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
+import { mediaService, type MediaItem, type OrphanMediaItem } from '@/services/media.service';
+import {
+  formatMediaDuration as fmtDuration,
+  formatMediaSize as fmtSize,
+  MEDIA_UPLOAD_ACCEPT,
+} from '@/features/media-file-intake';
 import { onlineMusicService, type OnlineTrack } from '@/services/online-music.service';
-import { baiduPanService, type PanFile, type PanStatus, type PanAuthStart } from '@/services/baidu-pan.service';
 import { usePlaybackStore } from '@/stores/playback';
 import { useSystemBrandingStore } from '@/stores/system-branding';
-import { absUrl, HttpError, api } from '@/services/http';
-import { useAdminAuthStore } from '@/stores/admin-auth';
+import { absUrl, api } from '@/services/http';
 import { useCurrentActor } from '@/services/current-actor';
 const { isAdmin: actorIsAdmin, canOperate, canEditMedia } = useCurrentActor();
 let disposed = false;
@@ -96,10 +102,6 @@ async function pickAndPush(m: MediaItem): Promise<void> {
 
 const items = ref<MediaItem[]>([]);
 const loading = ref(false);
-const uploading = ref(false);
-const uploadPct = ref(0);
-const uploadName = ref('');
-const uploadStartAt = ref(0);
 const filter = ref<'all' | 'video' | 'image' | 'audio' | 'webpage' | 'doc' | 'doc'>('all');
 const resourceScope = ref<'visible' | 'mine' | 'shared'>('visible');
 const ownerFilter = ref<number | undefined>();
@@ -119,43 +121,10 @@ function setOwnerFilter(id: number | undefined): void { ownerFilter.value = id; 
 watch([filter, resourceScope], searchMedia);
 const viewMode = ref<'list' | 'grid' | 'detail'>('list');
 const previewItem = ref<MediaItem | null>(null);
-const isDragging = ref(false);
-
-// 批量上传队列
-const uploadQueue = ref<File[]>([]);
-const uploadBatchTotal = ref(0);
-const uploadBatchDone = ref(0);
-let processingQueue = false;
-
 const filtered = computed(() => {
   if (filter.value === 'all') return items.value;
   return items.value.filter((m) => m.kind === filter.value);
 });
-
-const uploadEta = computed(() => {
-  if (!uploading.value || uploadPct.value === 0 || !uploadStartAt.value) return '';
-  const elapsedMs = Date.now() - uploadStartAt.value;
-  const remainPct = 100 - uploadPct.value;
-  if (remainPct <= 0) return '收尾...';
-  const totalMs = elapsedMs / uploadPct.value * 100;
-  const remainMs = totalMs - elapsedMs;
-  if (remainMs < 60_000) return `剩约 ${Math.ceil(remainMs / 1000)}秒`;
-  return `剩约 ${Math.ceil(remainMs / 60_000)}分钟`;
-});
-
-function fmtSize(b: number): string {
-  if (b < 1024) return `${b} B`;
-  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
-  if (b < 1024 * 1024 * 1024) return `${(b / 1024 / 1024).toFixed(1)} MB`;
-  return `${(b / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
-
-function fmtDuration(sec: number | null): string {
-  if (!sec) return '';
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
 
 let mediaRequestRevision = 0;
 async function refresh(): Promise<void> {
@@ -178,167 +147,24 @@ async function refresh(): Promise<void> {
   }
 }
 
-const UPLOAD_MAX_GB = 10;
-
-// 扩展名兜底：Windows 对 .ape/.flac 等有时报 application/octet-stream
-const AUDIO_EXTS = new Set([
-  '.mp3', '.wav', '.aac', '.m4a', '.ogg', '.flac', '.wma',
-  '.opus', '.aiff', '.aif', '.ape', '.mp2', '.mka', '.wv',
-  '.mid', '.midi', '.spx', '.dsf', '.dff', '.au', '.ra',
-]);
-// 同理视频兜底: .m4v/.mkv 在 Windows 上常拿到空 mime (2026-07-31 业主: m4v 要能播)
-const VIDEO_EXTS = new Set([
-  '.mp4', '.m4v', '.mov', '.mkv', '.avi', '.webm', '.flv', '.wmv',
-  '.mpg', '.mpeg', '.3gp', '.ts', '.vob', '.rmvb',
-]);
-const DOC_EXTS = new Set(['.ppt', '.pptx', '.doc', '.docx', '.pdf']);
-function isAllowedFile(f: File): boolean {
-  if (f.type.startsWith('video/') || f.type.startsWith('image/') || f.type.startsWith('audio/')) return true;
-  const dot = f.name.lastIndexOf('.');
-  if (dot < 0) return false;
-  const ext = f.name.slice(dot).toLowerCase();
-  return AUDIO_EXTS.has(ext) || VIDEO_EXTS.has(ext) || DOC_EXTS.has(ext);
-}
-
-// 递归读取 FileSystemDirectoryReader (每次 readEntries 最多 100 条, 需循环)
-async function readAllEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
-  const all: FileSystemEntry[] = [];
-  let batch: FileSystemEntry[];
-  do {
-    batch = await new Promise<FileSystemEntry[]>((res) => reader.readEntries(res, () => res([])));
-    all.push(...batch);
-  } while (batch.length > 0);
-  return all;
-}
-
-// 从单个 FileSystemEntry 递归收集所有 File 对象
-async function collectFromEntry(entry: FileSystemEntry): Promise<File[]> {
-  if (entry.isFile) {
-    return new Promise<File[]>((res) =>
-      (entry as FileSystemFileEntry).file((f) => res([f]), () => res([])),
-    );
-  }
-  if (entry.isDirectory) {
-    const entries = await readAllEntries((entry as FileSystemDirectoryEntry).createReader());
-    const nested = await Promise.all(entries.map(collectFromEntry));
-    return nested.flat();
-  }
-  return [];
-}
-
-// 校验 + 入队 + 启动串行上传
-async function queueFiles(rawFiles: File[]): Promise<void> {
-  if (disposed || !canOperate.value) return;
-  const valid: File[] = [];
-  for (const f of rawFiles) {
-    if (!isAllowedFile(f)) {
-      if (f.size > 0) ElMessage.warning(`已跳过: ${f.name} (类型不支持)`);
-      continue;
-    }
-    if (f.size > UPLOAD_MAX_GB * 1024 * 1024 * 1024) {
-      ElMessage.error(`已跳过: ${f.name} (超过 ${UPLOAD_MAX_GB}GB 上限)`);
-      continue;
-    }
-    valid.push(f);
-  }
-  if (valid.length === 0) return;
-
-  // 单个大文件才弹确认
-  if (valid.length === 1 && valid[0].size > 500 * 1024 * 1024) {
-    const file = valid[0];
-    const estMin = Math.ceil(file.size / (10 * 1024 * 1024) / 60);
-    try {
-      await ElMessageBox.confirm(
-        `文件 ${file.name} (${fmtSize(file.size)}) 较大, 预估 ${estMin} 分钟. 上传期间请保持页面打开. 继续?`,
-        '大文件上传',
-        { type: 'info', confirmButtonText: '开始上传', cancelButtonText: '取消' },
-      );
-    } catch { return; }
-  }
-
-  const wasIdle = !processingQueue;
-  if (disposed || !canOperate.value) return;
-  uploadQueue.value.push(...valid);
-  if (wasIdle) { uploadBatchTotal.value = valid.length; uploadBatchDone.value = 0; }
-  else uploadBatchTotal.value += valid.length;
-
-  if (wasIdle) void startQueue();
-}
-
-async function startQueue(): Promise<void> {
-  processingQueue = true;
-  while (!disposed && canOperate.value && uploadQueue.value.length > 0) {
-    const file = uploadQueue.value[0];
-    await doUploadOne(file);
-    uploadQueue.value.shift();
-    uploadBatchDone.value++;
-  }
-  processingQueue = false;
-  uploadBatchTotal.value = 0;
-  uploadBatchDone.value = 0;
-}
-
-async function doUploadOne(file: File): Promise<void> {
-  uploading.value = true;
-  uploadPct.value = 0;
-  uploadName.value = file.name;
-  uploadStartAt.value = Date.now();
-  try {
-    await mediaService.upload(file, { onProgress: (p) => { uploadPct.value = p; } });
-    if (disposed) return;
-    ElMessage.success(`上传成功: ${file.name}`);
-    await refresh();
-  } catch (e) {
-    if (!disposed) ElMessage.error(`上传失败 ${file.name}: ${(e as Error).message}`);
-  } finally {
-    uploading.value = false;
-    uploadPct.value = 0;
-    uploadName.value = '';
-    uploadStartAt.value = 0;
-  }
-}
-
-function onFileInput(e: Event): void {
-  const target = e.target as HTMLInputElement;
-  if (target.files && target.files.length > 0) {
-    void queueFiles(Array.from(target.files));
-    target.value = '';
-  }
-}
-
-function onDragEnter(e: DragEvent): void {
-  e.preventDefault();
-  isDragging.value = true;
-}
-function onDragLeave(e: DragEvent): void {
-  e.preventDefault();
-  isDragging.value = false;
-}
-function onDragOver(e: DragEvent): void {
-  e.preventDefault();
-}
-async function onDrop(e: DragEvent): Promise<void> {
-  e.preventDefault();
-  isDragging.value = false;
-
-  // 优先用 DataTransferItem API — 支持文件夹递归
-  const dtItems = e.dataTransfer?.items;
-  if (dtItems && dtItems.length > 0) {
-    const entries: FileSystemEntry[] = [];
-    for (let i = 0; i < dtItems.length; i++) {
-      const entry = dtItems[i].webkitGetAsEntry?.();
-      if (entry) entries.push(entry);
-    }
-    if (entries.length > 0) {
-      const files = (await Promise.all(entries.map(collectFromEntry))).flat();
-      if (files.length > 0) { void queueFiles(files); return; }
-    }
-  }
-
-  // 降级: 直接读 files (文件夹内容可能不完整)
-  const files = Array.from(e.dataTransfer?.files ?? []);
-  if (files.length > 0) void queueFiles(files);
-}
+const {
+  uploading,
+  uploadPct,
+  uploadName,
+  uploadBatchTotal,
+  uploadBatchDone,
+  uploadEta,
+  isDragging,
+  onFileInput,
+  onDragEnter,
+  onDragLeave,
+  onDragOver,
+  onDrop,
+} = useMediaUploadQueue({
+  canOperate,
+  refresh,
+  isDisposed: () => disposed,
+});
 
 async function confirmDelete(m: MediaItem): Promise<void> {
   if (!canEditMedia(m)) return;
@@ -492,161 +318,35 @@ async function downloadOnline(t: OnlineTrack): Promise<void> {
   } finally { onlineBusyPath.value = null; }
 }
 
-// ── 百度网盘 (2026-07-29 业主: "把B做出来") ──
-// 三步态: 未配置(粘 AppKey/SecretKey) → 未授权(设备码, 手机输码) → 已授权(浏览+代下载)。
-// 下载在 GK9000 服务器侧流式落盘, 这里 2s 轮询进度; 完成自动入媒体库。
-const panDialog = ref(false);
-const panStatus = ref<PanStatus | null>(null);
-const panCfg = ref({ appKey: '', secretKey: '' });
-const panAuth = ref<PanAuthStart | null>(null);
-const panAuthHint = ref('');
-const panDir = ref('/');
-const panEntries = ref<PanFile[]>([]);
-const panLoading = ref(false);
-const panErr = ref('');
-// 2026-07-30 业主隐私收紧: 网盘仅管理员可用 — 弹窗内就地验证后台密码
-const panNeedAdmin = ref(false);
-const panAdminPwd = ref('');
-const panAdminBusy = ref(false);
-const adminAuthStore = useAdminAuthStore();
-let panPollTimer: number | undefined;
-
-async function openPanDialog(): Promise<void> {
-  panDialog.value = true;
-  panErr.value = '';
-  await refreshPanStatus();
-  if (panStatus.value?.authorized) await panList(panDir.value);
-  schedulePanPoll();
-}
-function closePanDialog(): void {
-  panDialog.value = false;
-  window.clearTimeout(panPollTimer);
-  panAuth.value = null;
-}
-async function refreshPanStatus(): Promise<void> {
-  try {
-    panStatus.value = await baiduPanService.status();
-    panNeedAdmin.value = false;
-  } catch (e) {
-    if (e instanceof HttpError && (e.status === 401 || e.status === 403)) {
-      panNeedAdmin.value = true;   // 仅管理员可用, 弹窗切到密码验证态
-      panErr.value = '';
-    } else {
-      panErr.value = (e as Error).message;
-    }
-  }
-}
-
-/** 弹窗内验证后台管理密码 → 拿 admin 令牌后放行网盘操作 */
-async function panVerifyAdmin(): Promise<void> {
-  if (!panAdminPwd.value) { ElMessage.warning('请输入后台管理密码'); return; }
-  panAdminBusy.value = true;
-  try {
-    await adminAuthStore.login(panAdminPwd.value);
-    panAdminPwd.value = '';
-    panNeedAdmin.value = false;
-    await refreshPanStatus();
-    if (panStatus.value?.authorized) await panList(panDir.value);
-  } catch (e) {
-    ElMessage.error(`验证失败: ${(e as Error).message}`);
-  } finally { panAdminBusy.value = false; }
-}
-
-/** 设置可见根目录 — 服务端把浏览/下载钳制在该目录内 */
-async function panSetRoot(): Promise<void> {
-  if (disposed || !actorIsAdmin.value) return;
-  try {
-    const { value } = await ElMessageBox.prompt(
-      '设置后, 系统只能看到并下载该文件夹内的内容, 网盘其余内容完全不可见 (留空 = 全盘可见, 不推荐)。例: /展厅素材',
-      '设置可见根目录',
-      { inputValue: panStatus.value?.rootPath ?? '', confirmButtonText: '保存', cancelButtonText: '取消' },
-    );
-    if (disposed || !actorIsAdmin.value) return;
-    await baiduPanService.setRoot((value ?? '').trim() || null);
-    ElMessage.success('可见根目录已更新');
-    await refreshPanStatus();
-    await panList(panStatus.value?.rootPath ?? '/');
-  } catch (e) {
-    if (e !== 'cancel' && (e as Error)?.message) ElMessage.error((e as Error).message);
-  }
-}
-/** 弹窗开着就 2s 轮询: 状态读取失败重试 + 授权等待 + 下载进度都靠它推进 */
-function schedulePanPoll(): void {
-  window.clearTimeout(panPollTimer);
-  if (!panDialog.value) return;
-  panPollTimer = window.setTimeout(async () => {
-    if (!panStatus.value) {
-      if (!panNeedAdmin.value) {   // 等待管理员验证时不空转重试
-        await refreshPanStatus();
-        if (panStatus.value) {
-          panErr.value = '';
-          if ((panStatus.value as PanStatus).authorized) await panList(panDir.value);
-        }
-      }
-    } else if (panAuth.value && !panStatus.value?.authorized) {
-      try {
-        const r = await baiduPanService.authPoll();
-        if (r.authorized) {
-          panAuth.value = null;
-          ElMessage.success('百度网盘授权成功');
-          await refreshPanStatus();
-          await panList('/');
-        } else { panAuthHint.value = r.pending ?? '等待手机确认…'; }
-      } catch (e) { panAuthHint.value = (e as Error).message; }
-    } else if (panStatus.value?.download.active) {
-      const before = panStatus.value.download.last?.at;
-      await refreshPanStatus();
-      const last = panStatus.value?.download.last;
-      if (last && last.at !== before && !panStatus.value?.download.active) {
-        (last.ok ? ElMessage.success : ElMessage.error)(`「${last.name}」${last.message}`);
-        if (last.ok) { void refresh(); await panList(panDir.value); }
-      }
-    }
-    schedulePanPoll();
-  }, 2000);
-}
-async function panSaveConfig(): Promise<void> {
-  if (disposed || !actorIsAdmin.value) return;
-  if (!panCfg.value.appKey.trim() || !panCfg.value.secretKey.trim()) { ElMessage.warning('AppKey 和 SecretKey 都要填'); return; }
-  try {
-    await baiduPanService.saveConfig(panCfg.value.appKey, panCfg.value.secretKey);
-    panCfg.value = { appKey: '', secretKey: '' };
-    ElMessage.success('已保存, 点「开始授权」用手机完成授权');
-    await refreshPanStatus();
-  } catch (e) { ElMessage.error((e as Error).message); }
-}
-async function panStartAuth(): Promise<void> {
-  if (disposed || !actorIsAdmin.value) return;
-  try {
-    panAuth.value = await baiduPanService.authStart();
-    panAuthHint.value = '等待手机确认…';
-  } catch (e) { ElMessage.error((e as Error).message); }
-}
-async function panList(dir: string): Promise<void> {
-  panLoading.value = true;
-  panErr.value = '';
-  try {
-    const r = await baiduPanService.list(dir);
-    panDir.value = r.dir;
-    panEntries.value = r.entries;
-  } catch (e) { panErr.value = (e as Error).message; }
-  finally { panLoading.value = false; }
-}
-function panUp(): void {
-  const root = panStatus.value?.rootPath;
-  if (panDir.value === '/' || (root && panDir.value === root)) return;
-  const parts = panDir.value.split('/').filter(Boolean);
-  parts.pop();
-  void panList('/' + parts.join('/'));
-}
-async function panDownload(f: PanFile): Promise<void> {
-  if (disposed || !actorIsAdmin.value) return;
-  try {
-    await baiduPanService.download(f.fsId, f.name);
-    ElMessage.success(`「${f.name}」开始下载, 完成后自动入媒体库`);
-    await refreshPanStatus();
-  } catch (e) { ElMessage.error((e as Error).message); }
-}
+const {
+  panDialog,
+  panStatus,
+  panCfg,
+  panAuth,
+  panAuthHint,
+  panDir,
+  panEntries,
+  panLoading,
+  panErr,
+  panNeedAdmin,
+  panAdminUsername,
+  panAdminPwd,
+  panAdminBusy,
+  openPanDialog,
+  closePanDialog,
+  refreshPanStatus,
+  panVerifyAdmin,
+  panSetRoot,
+  panSaveConfig,
+  panStartAuth,
+  panList,
+  panUp,
+  panDownload,
+} = useBaiduPanJourney({
+  isAdmin: actorIsAdmin,
+  refreshMedia: refresh,
+  isDisposed: () => disposed,
+});
 
 // ── 收编服务器上手动拷进来的文件 (业主 RDP 进服务器直接把视频丢进 media 文件夹,
 // 没走上传接口, 数据库不认识, PWA 自然看不到它 —— 媒体库从来只认数据库记录,
@@ -725,12 +425,20 @@ async function clearWelcome(): Promise<void> {
 
 onMounted(async () => {
   await brandingStore.load();   // 拉 welcomeMediaId 用来标记当前欢迎页卡片
-  void refresh();
 });
-let processingRefreshTimer = window.setInterval(() => {
-  if (items.value.some((item) => item.processingStatus === 'pending' || item.processingStatus === 'processing')) void refresh();
-}, 5000);
-onBeforeUnmount(() => { disposed = true; uploadQueue.value = []; window.clearInterval(processingRefreshTimer); });
+// keep-alive 切页卡顿根治: 处理态轮询只在本页运行, 切走(deactivated)即清, 回页立即刷一次并重启
+let processingRefreshTimer: number | undefined;
+function startProcessingPoll(): void {
+  if (processingRefreshTimer !== undefined) return; // mounted+activated 双触发, 幂等
+  processingRefreshTimer = window.setInterval(() => {
+    if (items.value.some((item) => item.processingStatus === 'pending' || item.processingStatus === 'processing')) void refresh();
+  }, 5000);
+}
+function stopProcessingPoll(): void {
+  if (processingRefreshTimer !== undefined) { window.clearInterval(processingRefreshTimer); processingRefreshTimer = undefined; }
+}
+useActivePolling(() => { void refresh(); startProcessingPoll(); }, stopProcessingPoll);
+onBeforeUnmount(() => { disposed = true; stopProcessingPoll(); });
 </script>
 
 <template>
@@ -865,7 +573,7 @@ onBeforeUnmount(() => { disposed = true; uploadQueue.value = []; window.clearInt
             <span v-if="m.kind === 'video'" class="duration">{{ fmtDuration(m.durationSec) || '—' }}</span>
           </div>
           <div class="meta">
-            <div class="name" :title="m.originalName">{{ m.originalName }}</div>
+            <div class="name" :title="m.originalName">{{ m.originalName }}<span v-if="m.source === 'system'"> · 内置</span></div>
             <div class="info"><span>{{ fmtSize(m.sizeBytes) }}</span><span v-if="m.resolution">· {{ m.resolution }}</span></div>
             <div v-if="m.kind === 'video' && m.processingStatus !== 'ready'" class="info">
               {{ m.processingStatus === 'failed' ? '兼容转换失败' : '正在生成兼容版本…' }}
@@ -915,7 +623,7 @@ onBeforeUnmount(() => { disposed = true; uploadQueue.value = []; window.clearInt
             <ImageIcon v-else :size="11" :stroke-width="2" />
             {{ m.kind === 'video' ? '视频' : m.kind === 'audio' ? '音频' : m.kind === 'webpage' ? '网页' : m.kind === 'doc' ? '文档' : '图片' }}
           </span>
-          <div class="lr-name" :title="m.originalName">{{ m.originalName }}</div>
+          <div class="lr-name" :title="m.originalName">{{ m.originalName }}<span v-if="m.source === 'system'"> · 内置</span></div>
           <div class="lr-badges">
             <span v-if="isWelcome(m)" class="lr-badge welcome"><Home :size="10" :stroke-width="2" /> 欢迎页</span>
             <span v-if="currentSlotFor(m.id)" class="lr-badge playing"><Send :size="10" :stroke-width="2" /> {{ currentSlotFor(m.id) }}</span>
@@ -972,7 +680,7 @@ onBeforeUnmount(() => { disposed = true; uploadQueue.value = []; window.clearInt
             <span v-if="isWelcome(m)" class="dv-badge welcome" title="欢迎页"><Home :size="9" /></span>
             <span v-if="currentSlotFor(m.id)" class="dv-badge playing" title="播放中"><Send :size="9" /></span>
           </div>
-          <div class="dv-col dv-c-name" :title="m.originalName">{{ m.originalName }}</div>
+          <div class="dv-col dv-c-name" :title="m.originalName">{{ m.originalName }}<span v-if="m.source === 'system'"> · 内置</span></div>
           <div class="dv-col dv-c-kind">
             <span class="kind-tag" :class="m.kind">
               {{ m.kind === 'video' ? '视频' : m.kind === 'audio' ? '音频' : m.kind === 'webpage' ? '网页' : m.kind === 'doc' ? '文档' : '图片' }}
@@ -1072,12 +780,13 @@ onBeforeUnmount(() => { disposed = true; uploadQueue.value = []; window.clearInt
       <div class="webpage-box om-box">
         <div class="wb-title"><FolderOpen :size="18" :stroke-width="1.8" /> 百度网盘</div>
 
-        <!-- 态0: 仅管理员 — 就地验证后台密码 -->
+        <!-- 态0: 仅管理员 — 就地验证个人管理员账户 -->
         <template v-if="panNeedAdmin">
           <div class="wb-hint">
-            百度网盘关联的是业主私人账号, <b>仅管理员可访问</b>。请输入后台管理密码验证身份。
+            百度网盘关联的是业主私人账号, <b>仅管理员可访问</b>。请输入个人管理员账号验证身份。
           </div>
-          <input v-model="panAdminPwd" type="password" class="wb-input" placeholder="后台管理密码" @keyup.enter="panVerifyAdmin" />
+          <input v-model="panAdminUsername" class="wb-input" placeholder="管理员用户名" autocomplete="username" />
+          <input v-model="panAdminPwd" type="password" class="wb-input" placeholder="管理员密码" autocomplete="current-password" @keyup.enter="panVerifyAdmin" />
           <div class="wb-actions">
             <button class="v2-quick" @click="closePanDialog">关闭</button>
             <button class="v2-quick primary" :disabled="panAdminBusy" @click="panVerifyAdmin">{{ panAdminBusy ? '验证中…' : '验证' }}</button>
@@ -1166,7 +875,7 @@ onBeforeUnmount(() => { disposed = true; uploadQueue.value = []; window.clearInt
           </div>
           <div class="wb-actions">
             <button class="v2-quick" @click="closePanDialog">关闭</button>
-            <button class="v2-quick primary" @click="refreshPanStatus">重试</button>
+            <button class="v2-quick primary" @click="refreshPanStatus()">重试</button>
           </div>
         </template>
       </div>
@@ -1227,7 +936,7 @@ onBeforeUnmount(() => { disposed = true; uploadQueue.value = []; window.clearInt
           <img v-else :src="absUrl(previewItem.fileUrl)" :alt="previewItem.originalName" style="max-width:100%; max-height: 70vh;" />
         </div>
         <div class="preview-info">
-          <h3>{{ previewItem.originalName }}</h3>
+          <h3>{{ previewItem.originalName }}<span v-if="previewItem.source === 'system'"> · 内置资料</span></h3>
           <div class="meta-row">
             <span class="kind-tag" :class="previewItem.kind">
               {{ previewItem.kind === 'video' ? '视频' : previewItem.kind === 'audio' ? '音频' : previewItem.kind === 'doc' ? '文档' : '图片' }}

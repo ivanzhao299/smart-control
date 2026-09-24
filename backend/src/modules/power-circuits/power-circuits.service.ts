@@ -1,11 +1,4 @@
-import {
-  ConflictException,
-  Inject,
-  Injectable,
-  NotFoundException,
-  OnModuleInit,
-  Optional,
-} from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Repository } from 'typeorm';
@@ -15,6 +8,7 @@ import { PowerAdapter, PowerReading } from '../../adapters/power/power.adapter';
 import { Epo802pAdapter } from '../../adapters/power/epo802p.adapter';
 import { Seq55Adapter } from '../../adapters/power/seq55.adapter';
 import { EpaBreakerAdapter } from '../../adapters/power/epa-breaker.adapter';
+import { EpaMqttBreakerAdapter } from '../../adapters/power/epa-mqtt-breaker.adapter';
 import type { BreakerMeasurements } from '../../adapters/power/epa-breaker-registers';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
 
@@ -59,65 +53,21 @@ export interface PowerCircuitUpsertDto {
   enabled?: boolean;
 }
 
-/** 启动自动 seed — 没有 power_circuit 行时灌入 6 条示例 */
-const SEED_CIRCUITS: Array<Omit<PowerCircuitUpsertDto, 'enabled'> & { enabled?: boolean }> = [
-  { code: '1f-main', name: '一层总闸', floor: '1F', category: 'misc',
-    gatewayCode: 'RELAY-1F-1', relayChannel: 1,
-    ratedVoltage: 380, ratedCurrent: 63, ratedPower: 24000,
-    sortOrder: 1, icon: 'Zap', description: '一层进线总开关 (3 相)' },
-  { code: '1f-lighting', name: '一层照明回路', floor: '1F', category: 'lighting',
-    gatewayCode: 'RELAY-1F-1', relayChannel: 2,
-    ratedVoltage: 220, ratedCurrent: 16, ratedPower: 2200,
-    sortOrder: 10, icon: 'Lightbulb' },
-  { code: '1f-socket', name: '一层插座回路', floor: '1F', category: 'socket',
-    gatewayCode: 'RELAY-1F-1', relayChannel: 3,
-    ratedVoltage: 220, ratedCurrent: 16, ratedPower: 1500,
-    sortOrder: 20, icon: 'Plug' },
-  // LED 大屏总闸走 ePa 智能断路器 (三相 40A), 不是继电器通道 —— relayChannel 留空
-  { code: '1f-led', name: '一层 LED 大屏', floor: '1F', category: 'led',
-    gatewayCode: 'BREAKER-LED-1', relayChannel: null,
-    ratedVoltage: 380, ratedCurrent: 40, ratedPower: 19000,
-    sortOrder: 30, icon: 'MonitorPlay', description: 'LED 大屏远程总闸 (ePa 智能断路器, 三相 40A)' },
-  { code: '2f-lighting', name: '二层照明回路', floor: '2F', category: 'lighting',
-    gatewayCode: 'RELAY-2F-1', relayChannel: 1,
-    ratedVoltage: 220, ratedCurrent: 16, ratedPower: 1800,
-    sortOrder: 10, icon: 'Lightbulb' },
-  { code: '2f-hvac', name: '二层空调回路', floor: '2F', category: 'hvac',
-    gatewayCode: 'RELAY-2F-1', relayChannel: 2,
-    ratedVoltage: 380, ratedCurrent: 40, ratedPower: 12000,
-    sortOrder: 20, icon: 'Snowflake' },
-  // ---- 音响电源时序器 EPO-802P (COM1 直连, 2026-07-24 端口实测通) ----
-  // 8 路时序上电保护功放。名字是占位, 业主在电源页可直接改 (rename 端点),
-  // seed 按 code 幂等, 改过的名字不会被冲掉。
-  ...Array.from({ length: 8 }, (_, i) => ({
-    code: `seq-${i + 1}`,
-    name: `时序 ${i + 1} 路`,
-    floor: '音响',
-    category: 'audio-seq',
-    gatewayCode: 'AUDIO-PWR-SEQ-1',
-    relayChannel: i + 1,
-    ratedVoltage: 220,
-    ratedCurrent: 16,
-    ratedPower: 2000,
-    sortOrder: 100 + i,
-    icon: 'Plug',
-    description: `EPO-802P 时序器通道 ${i + 1}`,
-  })),
-];
-
 @Injectable()
-export class PowerCircuitsService implements OnModuleInit {
+export class PowerCircuitsService {
   constructor(
     @InjectRepository(PowerCircuit) private readonly repo: Repository<PowerCircuit>,
     @InjectRepository(HardwareUnit) private readonly hwRepo: Repository<HardwareUnit>,
     private readonly adapter: PowerAdapter,
     /** 电源时序器真机 — 挂在它上面的回路走真设备, 其余走 mock */
     private readonly epo: Epo802pAdapter,
-    /** 智能断路器真机 — LED 大屏总闸 */
+    /** 485 智能断路器 — LED 大屏总闸及同总线扩展回路 */
     private readonly breaker: EpaBreakerAdapter,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
     /** 第二台时序器 (55…AA 协议, 2026-07-29 备) — Optional: 既有单测桩不传也能构造 */
     @Optional() private readonly seq55?: Seq55Adapter,
+    /** 4G/MQTT 智能断路器 — 未启用时仍可安全保存设备配置，但不会下发 */
+    @Optional() private readonly cloudBreaker?: EpaMqttBreakerAdapter,
   ) {}
 
   /**
@@ -134,89 +84,6 @@ export class PowerCircuitsService implements OnModuleInit {
    */
   private seqCache: { at: number; channels: boolean[] } | null = null;
   private readonly SEQ_CACHE_TTL_MS = 3000;
-
-  async onModuleInit(): Promise<void> {
-    let created = 0;
-    for (const c of SEED_CIRCUITS) {
-      const exists = await this.repo.findOne({ where: { code: c.code } });
-      if (exists) continue;
-      await this.repo.save(this.repo.create({
-        code: c.code,
-        name: c.name,
-        floor: c.floor,
-        category: c.category ?? 'misc',
-        gatewayCode: c.gatewayCode ?? null,
-        relayChannel: c.relayChannel ?? null,
-        meterAddress: c.meterAddress ?? null,
-        ratedVoltage: c.ratedVoltage ?? 220,
-        ratedCurrent: c.ratedCurrent ?? 16,
-        ratedPower: c.ratedPower ?? 0,
-        sortOrder: c.sortOrder ?? 100,
-        icon: c.icon ?? 'Zap',
-        description: c.description ?? null,
-        enabled: c.enabled ?? true,
-      }));
-      created += 1;
-    }
-    if (created > 0) {
-      this.logger.info(`PowerCircuitsService bootstrap: 自动注入 ${created} 条电源回路`, {
-        context: 'PowerCircuitsService',
-      });
-    }
-    await this.healLedCircuitToBreaker();
-    await this.healProjectorSeqChannel();
-  }
-
-  /**
-   * 2026-07-26 投影/拼接器路号纠正。业主先说"投影仪在 4 路", 本方法 v1 据此把
-   * 「投影仪」(seq-5) 改到 4、原 4 路「视频融和器」对调到 5 —— 随后业主纠正:
-   * **投影仪 = 第 5 路, 视频拼接器(融和器) = 第 4 路**, 即种子的 code↔路号
-   * 本来就是对的。这里把这两行恢复成 code↔relayChannel 一致, 顺带把 v1 已在
-   * 生产上造成的对调纠正回来。幂等: 已一致则不写库; 只碰 seq-4/seq-5 两行。
-   */
-  private async healProjectorSeqChannel(): Promise<void> {
-    try {
-      for (const [code, ch] of [['seq-4', 4], ['seq-5', 5]] as Array<[string, number]>) {
-        const row = await this.repo.findOne({ where: { code } });
-        if (row && row.relayChannel !== ch) {
-          const old = row.relayChannel;
-          row.relayChannel = ch;
-          await this.repo.save(row);
-          this.logger.warn(
-            `[PowerCircuits] ${code}「${row.name}」时序路号 ${old} → ${ch} (投影=5/拼接器=4 纠正)`,
-            { context: 'PowerCircuitsService' },
-          );
-        }
-      }
-    } catch (e) {
-      this.logger.warn(`[PowerCircuits] 投影/拼接器时序路号纠正失败: ${(e as Error).message}`, {
-        context: 'PowerCircuitsService',
-      });
-    }
-  }
-
-  /**
-   * 一次性自愈 (2026-07-22): LED 大屏回路原来指向 RELAY-1F-1 通道 4 —— 那是一台从没到货的
-   * 继电器, 点了没有任何反应。现在真闸装好了 (ePa 智能断路器 + CONV-RTU-2), 把这条回路
-   * 改指 BREAKER-LED-1, 顺便把额定值从占位的 220V/20A/3500W 改成实际的三相 380V/40A/19KW。
-   *
-   * 上面的 seed 遇到已存在的 code 就跳过, 所以生产库的旧行不会被改 —— 只能在这里补。
-   * 只在"值还是当初那个占位值"时才动, 人工调过的一律不碰。
-   */
-  private async healLedCircuitToBreaker(): Promise<void> {
-    const row = await this.repo.findOne({ where: { code: '1f-led' } });
-    if (!row || row.gatewayCode !== 'RELAY-1F-1') return;
-    row.gatewayCode = 'BREAKER-LED-1';
-    row.relayChannel = null;
-    if (row.ratedVoltage === 220) row.ratedVoltage = 380;
-    if (row.ratedCurrent === 20) row.ratedCurrent = 40;
-    if (row.ratedPower === 3500) row.ratedPower = 19000;
-    if (!row.description) row.description = 'LED 大屏远程总闸 (ePa 智能断路器, 三相 40A)';
-    await this.repo.save(row);
-    this.logger.info('电源回路自愈: 1f-led RELAY-1F-1 → BREAKER-LED-1 (真空开已装机)', {
-      context: 'PowerCircuitsService',
-    });
-  }
 
   async list(opts: { includeDisabled?: boolean } = {}): Promise<PowerCircuitView[]> {
     const where = opts.includeDisabled ? {} : { enabled: true };
@@ -243,7 +110,9 @@ export class PowerCircuitsService implements OnModuleInit {
     const dup = await this.repo.findOne({ where: { code: dto.code } });
     if (dup) throw new ConflictException(`circuit code 已存在: ${dto.code}`);
     const row = this.repo.create({
-      code: dto.code, name: dto.name, floor: dto.floor,
+      code: dto.code,
+      name: dto.name,
+      floor: dto.floor,
       category: dto.category ?? 'misc',
       gatewayCode: dto.gatewayCode ?? null,
       relayChannel: dto.relayChannel ?? null,
@@ -320,11 +189,12 @@ export class PowerCircuitsService implements OnModuleInit {
     if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
     if (!row.enabled) throw new ConflictException(`circuit ${row.name} 已禁用`);
 
-    if (await this.isBreakerCircuit(row)) {
+    const breakerAdapter = await this.resolveBreakerAdapter(row);
+    if (breakerAdapter) {
       // 真·物理总闸: 失败必须抛出去, 绝不能让前端显示"断电成功"而闸没动
       const r = on
-        ? await this.breaker.turnOn(row.code)
-        : await this.breaker.turnOff(row.code);
+        ? await breakerAdapter.turnOn(row.gatewayCode as string)
+        : await breakerAdapter.turnOff(row.gatewayCode as string);
       if (!r.ok) {
         throw new ConflictException(`空开${on ? '合闸' : '分闸'}失败: ${r.error ?? '未知错误'}`);
       }
@@ -336,7 +206,7 @@ export class PowerCircuitsService implements OnModuleInit {
       const wanted = on ? 'closed' : 'open';
       for (let i = 0; i < 10; i += 1) {
         await new Promise((res) => setTimeout(res, 400));
-        const m = await this.breaker.getMeasurements(row.code);
+        const m = await breakerAdapter.getMeasurements(row.gatewayCode as string);
         if (m.ok && m.data?.switchState === wanted) break;
       }
       this.breakerCache.delete(row.id); // 轮询期间 breakerReading 可能又缓存了旧值
@@ -373,15 +243,18 @@ export class PowerCircuitsService implements OnModuleInit {
     return this.toView(row);
   }
 
-  /** 这条回路是不是挂在 ePa 智能断路器上 (不吃 relayChannel, 整台闸就是一条回路) */
-  private async isBreakerCircuit(row: PowerCircuit): Promise<boolean> {
-    if (!row.gatewayCode) return false;
-    try {
-      const hw = await this.hwRepo.findOne({ where: { code: row.gatewayCode } });
-      return hw?.category === 'power-breaker' && hw.enabled;
-    } catch {
-      return false;
+  private async resolveBreakerAdapter(
+    row: PowerCircuit,
+  ): Promise<EpaBreakerAdapter | EpaMqttBreakerAdapter | null> {
+    if (!row.gatewayCode) return null;
+    const hw = await this.hwRepo.findOne({ where: { code: row.gatewayCode } });
+    if (!hw?.enabled) return null;
+    if (hw.category === 'power-breaker') return this.breaker;
+    if (hw.category === 'power-breaker-4g') {
+      if (!this.cloudBreaker) throw new ConflictException('4G 智能断路器适配器未装载');
+      return this.cloudBreaker;
     }
+    return null;
   }
 
   /**
@@ -391,24 +264,34 @@ export class PowerCircuitsService implements OnModuleInit {
    *   power / energy = 总量 (第 4 个元素就是总)
    * 读不到就回落到缓存里上一次的好值, 再没有就返回全 0 + on=false, 不让电源页崩。
    */
-  private async breakerReading(row: PowerCircuit): Promise<PowerReading> {
+  private async breakerReading(
+    row: PowerCircuit,
+    breakerAdapter: EpaBreakerAdapter | EpaMqttBreakerAdapter,
+  ): Promise<PowerReading> {
     const cached = this.breakerCache.get(row.id);
     if (cached && Date.now() - cached.at < this.BREAKER_CACHE_TTL_MS) return cached.reading;
 
-    const r = await this.breaker.getMeasurements(row.code);
+    const r = await breakerAdapter.getMeasurements(row.gatewayCode as string);
     if (!r.ok || !r.data) {
       this.logger.warn(`空开读数失败 circuit=${row.code}: ${r.error ?? '无数据'}`, {
         context: 'PowerCircuitsService',
       });
-      return cached?.reading ?? {
-        on: false, current: 0, voltage: 0, power: 0, powerFactor: 0, energy: 0,
-        lastReadAt: new Date().toISOString(),
-      };
+      return (
+        cached?.reading ?? {
+          on: false,
+          current: 0,
+          voltage: 0,
+          power: 0,
+          powerFactor: 0,
+          energy: 0,
+          lastReadAt: new Date().toISOString(),
+        }
+      );
     }
     const m: BreakerMeasurements = r.data;
     const reading: PowerReading = {
       on: m.switchState === 'closed',
-      voltage: Number((m.voltages.reduce((a, b) => a + b, 0) / 3).toFixed(1)),
+      voltage: Number(this.averagePresentPhases(m.voltages).toFixed(1)),
       current: Number(Math.max(...m.currents).toFixed(3)),
       power: m.powers[3],
       powerFactor: m.powerFactor,
@@ -423,10 +306,11 @@ export class PowerCircuitsService implements OnModuleInit {
   async breakerMeasurements(id: number): Promise<BreakerMeasurements> {
     const row = await this.repo.findOne({ where: { id } });
     if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
-    if (!(await this.isBreakerCircuit(row))) {
+    const breakerAdapter = await this.resolveBreakerAdapter(row);
+    if (!breakerAdapter) {
       throw new ConflictException(`circuit ${row.name} 不是智能断路器回路`);
     }
-    const r = await this.breaker.getMeasurements(row.code);
+    const r = await breakerAdapter.getMeasurements(row.gatewayCode as string);
     if (!r.ok || !r.data) {
       throw new ConflictException(`读空开失败: ${r.error ?? '无数据'}`);
     }
@@ -456,7 +340,11 @@ export class PowerCircuitsService implements OnModuleInit {
     }
     return {
       on: channels?.[ch] ?? false,
-      current: 0, voltage: 0, power: 0, powerFactor: 0, energy: 0,
+      current: 0,
+      voltage: 0,
+      power: 0,
+      powerFactor: 0,
+      energy: 0,
       lastReadAt: new Date().toISOString(),
     };
   }
@@ -513,10 +401,15 @@ export class PowerCircuitsService implements OnModuleInit {
   }
 
   private async toView(row: PowerCircuit): Promise<PowerCircuitView> {
-    const isBreaker = await this.isBreakerCircuit(row);
+    const breakerAdapter = await this.resolveBreakerAdapter(row);
+    const isBreaker = breakerAdapter !== null;
     // 智能断路器回路: 读真机 (电压/电流/功率/电量都是实测), 不用 mock 的模拟值
-    if (isBreaker) {
-      return { ...this.baseView(row), isBreaker, reading: await this.breakerReading(row) };
+    if (breakerAdapter) {
+      return {
+        ...this.baseView(row),
+        isBreaker,
+        reading: await this.breakerReading(row, breakerAdapter),
+      };
     }
     // 时序器回路: 开关状态读真机 (0xac 一帧带全部 8 路), 电量指标时序器没有 → 0
     if (await this.isSequencerCircuit(row)) {
@@ -527,10 +420,26 @@ export class PowerCircuitsService implements OnModuleInit {
       current: row.ratedCurrent,
       power: row.ratedPower,
     });
-    const reading: PowerReading = result.ok && result.data
-      ? result.data
-      : { on: false, current: 0, voltage: 0, power: 0, powerFactor: 0, energy: 0, lastReadAt: new Date().toISOString() };
+    const reading: PowerReading =
+      result.ok && result.data
+        ? result.data
+        : {
+            on: false,
+            current: 0,
+            voltage: 0,
+            power: 0,
+            powerFactor: 0,
+            energy: 0,
+            lastReadAt: new Date().toISOString(),
+          };
     return { ...this.baseView(row), isBreaker, reading };
+  }
+
+  /** 单相 MQTT 设备只填 A 相；三相设备取三相平均。 */
+  private averagePresentPhases(values: [number, number, number]): number {
+    const present = values.filter((value) => Number.isFinite(value) && value > 0);
+    if (present.length === 0) return 0;
+    return present.reduce((sum, value) => sum + value, 0) / present.length;
   }
 
   /** 行字段 → view (不含 reading / isBreaker, 两条读数路径共用) */

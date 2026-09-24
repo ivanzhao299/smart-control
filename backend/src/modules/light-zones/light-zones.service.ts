@@ -75,10 +75,8 @@ export class LightZonesService {
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
-  // 注意: 这里**没有** onModuleInit 自动灌种子。
-  // 原来有一份 SEED_ZONES 副本在这里"双保险", 结果是: SeedService 按现场实际删掉
-  // 作废的旧分区后, 下次启动这里又把它们原样建回来 —— 业主删不掉。种子只留
-  // SeedService 一处 (seedLightZones), 免得两份清单互相打架。
+  // 这里没有启动建档。新安装默认分区只存在于版本化迁移快照中；本服务只读写
+  // SQLite 里的现场权威配置，避免两份清单互相重建管理员删除的分区。
 
   // ============ 查询 ============
 

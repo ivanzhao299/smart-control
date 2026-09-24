@@ -65,37 +65,8 @@ export class PlaybackService implements OnModuleInit {
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
-  /** 启动时确保 slot=1 + slot=2 两条记录存在 (现场硬件就两路). 没有就插默认 */
+  /** 启动恢复只清理瞬态播放状态；物理通道目录由版本化迁移建立。 */
   async onModuleInit(): Promise<void> {
-    // docZoom 列自愈 (2026-07-29): 与迁移双保险, 防 watcher 部署不跑迁移复发 #22
-    await this.repo.query(`ALTER TABLE "playback_channels" ADD COLUMN "docZoom" integer NOT NULL DEFAULT 100`)
-      .catch(() => { /* duplicate column = 已存在, 正常 */ });
-    const seeds: Array<Pick<PlaybackChannel, 'slot' | 'name' | 'outputKind'>> = [
-      { slot: 1, name: 'LED 大屏 (HDMI1)', outputKind: 'led' },
-      { slot: 2, name: '投影仪 (HDMI2)', outputKind: 'projector' },
-      // slot 3: GK9000 声卡输出 → EKX 音响输入. PlayerPage?slot=3 用 HTML5 audio
-      // 播音频, Chromium 声卡输出走 GK9000 3.5mm → EKX IN.
-      { slot: 3, name: '背景音乐 (声卡→音响)', outputKind: 'audio' },
-    ];
-    for (const s of seeds) {
-      const exists = await this.repo.findOne({ where: { slot: s.slot } });
-      if (!exists) {
-        await this.repo.save(
-          this.repo.create({
-            slot: s.slot,
-            name: s.name,
-            outputKind: s.outputKind,
-            currentMediaId: null,
-            currentPlaylistId: null,
-            playlistIndex: 0,
-            startedAt: null,
-            loopMode: 'once',
-            lastHeartbeatAt: null,
-          }),
-        );
-        this.logger.info(`[PlaybackChannel] seeded slot=${s.slot} (${s.outputKind})`);
-      }
-    }
     // 2026-07-25 业主: "LED/背景音乐/投影默认不要自动播, 有人操作才播"。
     // 后端每次启动(开机/部署重启)把三路播放状态清空回待机 —— 重启后无人操作
     // 就该是待机。要放内容: 媒体页/播放控制台人为推送。
@@ -197,7 +168,7 @@ export class PlaybackService implements OnModuleInit {
   //   default  → 本屏专用尺寸的内置静态图 (slot1=LED版 / slot2=投影版), 不可编辑,
   //              作为兜底画面。
   // 素材是启动时自动入库的内置资源, 按 originalName 定位; 被改名/删除时报错并
-  // 提示重启后端可自动重建 (seedBundledAssets 幂等)。
+  // 内置资料由受控发布清单建立；运行中的服务不会补写或重建目录。
   static readonly WELCOME_EDITABLE_NAME = '金湖欢迎页·动态(称谓可编辑)';
   static readonly PARK_DASHBOARD_NAME = '金湖科创产业园·智慧运营总览(DEMO)';
   static readonly WELCOME_DEFAULT_NAMES: Record<number, string> = {
@@ -212,7 +183,9 @@ export class PlaybackService implements OnModuleInit {
       : (PlaybackService.WELCOME_DEFAULT_NAMES[slot] ?? PlaybackService.WELCOME_DEFAULT_NAMES[1]);
     const media = await this.mediaService.findByOriginalName(name);
     if (!media) {
-      throw new NotFoundException(`媒体库里找不到内置素材「${name}」(可能被改名或删除) — 重启后端会自动重建`);
+      throw new NotFoundException(
+        `系统内置素材「${name}」缺失，请联系管理员执行内置媒体恢复检查`,
+      );
     }
     const view = await this.publishMedia(slot, media.id, actor, { loopMode: 'loop' });
     return { assetName: name, view };

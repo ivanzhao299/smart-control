@@ -221,32 +221,27 @@ onMounted(refresh);
       </div>
     </header>
 
-    <!-- 4 张统计卡 -->
+    <!-- 2 张汇总卡 (原 4 卡合并: 总数+在线+启用+在线率 / 故障+分类, 节省顶部空间) -->
     <div class="info-grid">
-      <div class="info-card">
-        <div class="info-label">设备总数</div>
-        <div class="info-value"><span class="ver-num">{{ rows.length }}</span></div>
+      <div class="info-card ok-card">
+        <div class="info-label">设备总览</div>
+        <div class="info-value">
+          <span class="ver-num is-good">{{ rows.length }}</span>
+          <span class="info-suffix">台 · 在线 {{ onlineCount }}</span>
+        </div>
         <div class="info-foot">
           <span class="info-mono">已启用 {{ rows.filter((r) => r.enabled).length }}</span>
-        </div>
-      </div>
-      <div class="info-card ok-card">
-        <div class="info-label">在线 / 运行</div>
-        <div class="info-value"><span class="ver-num is-good">{{ onlineCount }}</span></div>
-        <div class="info-foot">
+          <span class="info-sep">·</span>
           <span class="info-mono">在线率 {{ rows.length ? Math.round(onlineCount / rows.length * 100) : 0 }}%</span>
         </div>
       </div>
-      <div class="info-card" :class="errorCount > 0 ? 'alert-card' : ''">
-        <div class="info-label">故障</div>
-        <div class="info-value"><span class="ver-num" :class="errorCount > 0 ? 'is-bad' : ''">{{ errorCount }}</span></div>
-        <div class="info-foot">
-          <span class="info-mono">{{ errorCount > 0 ? '需要排查' : '运行正常' }}</span>
+      <div class="info-card" :class="errorCount > 0 ? 'alert-card' : 'ok-card'">
+        <div class="info-label">故障 / 分类</div>
+        <div class="info-value">
+          <span class="ver-num" :class="errorCount > 0 ? 'is-bad' : 'is-good'">{{ errorCount }}</span>
+          <span class="info-suffix">{{ errorCount > 0 ? '台需排查' : '台 · 运行正常' }}</span>
         </div>
-      </div>
-      <div class="info-card">
-        <div class="info-label">分类</div>
-        <div class="cat-chips">
+        <div class="cat-chips compact">
           <span
             v-for="(cat, key) in categoryMeta"
             :key="key"
@@ -393,7 +388,7 @@ onMounted(refresh);
 .hero-right { display: flex; gap: 10px; }
 .hero-btn { min-height: 42px; padding: 0 16px; }
 
-.info-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .info-card {
   background: var(--bg-panel);
   border: 1px solid var(--border-soft);
@@ -403,13 +398,15 @@ onMounted(refresh);
 }
 .info-card::before {
   content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
-  background: linear-gradient(90deg, #4C9AFF 0%, #9BA1A9 80%, transparent 100%);
+  background: var(--v2-accent-bar);
 }
 .info-card.ok-card::before { background: linear-gradient(90deg, #3FBF87 0%, #059669 100%); }
 .info-card.alert-card::before { background: linear-gradient(90deg, #E5645D 0%, #dc2626 100%); }
 .info-card.alert-card { border-color: rgba(229, 100, 93, 0.32); }
 .info-label { font-size: 11px; color: var(--text-secondary); letter-spacing: 1.5px; text-transform: uppercase; }
-.info-value { margin: 6px 0 4px; font-size: 22px; font-weight: 700; }
+.info-value { margin: 6px 0 4px; font-size: 22px; font-weight: 700; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.info-suffix { font-size: 12px; font-weight: 500; color: var(--text-secondary); }
+.info-sep { color: var(--text-muted); font-size: 11px; }
 .ver-num {
   font-size: 32px;
   background: linear-gradient(135deg, #4C9AFF, #a78bfa);
@@ -427,6 +424,7 @@ onMounted(refresh);
   color: var(--text-secondary);
 }
 .cat-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cat-chips.compact { margin-top: 10px; }
 .cat-chip {
   display: inline-flex; align-items: center; gap: 5px;
   font-size: 12px; padding: 4px 10px;
@@ -450,7 +448,7 @@ onMounted(refresh);
 }
 .tab:hover { color: var(--text-primary); border-color: var(--v2-border-soft); }
 .tab.active {
-  background: linear-gradient(135deg, #4C9AFF 0%, #9BA1A9 100%);
+  background: var(--v2-accent-fill);
   color: #fff; border-color: transparent;
   box-shadow: 0 6px 14px -6px rgba(255, 255, 255, 0.08);
 }
@@ -499,5 +497,8 @@ onMounted(refresh);
 
 @media (max-width: 1280px) {
   .info-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 560px) {
+  .info-grid { grid-template-columns: 1fr; }
 }
 </style>

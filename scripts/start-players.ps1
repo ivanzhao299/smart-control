@@ -98,7 +98,24 @@ function Stop-Players {
     }
 }
 
+# Clear PWA/Service Worker cache so players always load the latest release.
+# 2026-09-12: LED wall showed stale cached pages after deployments.
+# Runs after killing old players and before launching new ones.
+function Clear-PlayerCache {
+  Write-Host 'Clearing player PWA cache...' -ForegroundColor Yellow
+  $running = Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='msedge.exe'" -ErrorAction Stop |
+    Where-Object { $_.CommandLine -and $_.CommandLine -match 'smart-control-player-slot[123]' }
+  if ($running) { throw 'Player processes are still running; refusing cache cleanup.' }
+  foreach ($n in @(1, 2, 3)) {
+    Clear-PlayerProfileCache -Slot $n
+  }
+  Write-Host 'Player cache cleared.' -ForegroundColor Green
+}
+
 if ($Stop) { Stop-Players; exit 0 }
+
+. (Join-Path $PSScriptRoot 'player-profile-path.ps1')
+. (Join-Path $PSScriptRoot 'display-common.ps1')
 
 $browser = Find-Browser
 if (-not $browser) {
@@ -110,6 +127,8 @@ Write-Host ("Browser: " + $browser) -ForegroundColor Green
 # Kill old players first (avoid duplicates)
 Stop-Players
 Start-Sleep -Seconds 1
+Clear-PlayerCache
+Start-Sleep -Milliseconds 500
 
 # Start a video slot (fullscreen on the given monitor coords).
 #
@@ -205,7 +224,7 @@ function Force-ExactFullscreen {
 
 function Start-Slot {
   param([int]$N, [int]$X, [int]$Y, [int]$W, [int]$H)
-  $dataDir = "$env:LOCALAPPDATA\smart-control-player-slot$N"
+  $dataDir = Get-PlayerProfilePath -Slot $N
   $url = "${BaseUrl}?slot=$N"
   $chromeArgs = @(
     "--app=$url",
@@ -336,7 +355,16 @@ if ($Slot -eq 0 -or $Slot -eq 1) {
     $PSBoundParameters.ContainsKey('ScreenW') -or
     $PSBoundParameters.ContainsKey('ScreenH')
   $lr = $null
-  if (-not $explicitLedRect) { $lr = Get-LedRect }
+  if (-not $explicitLedRect) {
+    # Wait for the wall EDID to negotiate 3612x1462 before pinning slot1,
+    # so a boot-time transient 1280x720 mode can never freeze the window small.
+    if (Wait-DisplayReady -ExpectedW 3612 -ExpectedH 1462 -TimeoutSec 90) {
+      Write-Host 'primary display negotiated 3612x1462 before pinning slot1' -ForegroundColor Green
+    } else {
+      Write-Warning 'primary display did not reach 3612x1462 within 90s; pinning slot1 to current bounds'
+    }
+    $lr = Get-LedRect
+  }
   if ($lr) {
     Write-Host ("slot=1 -> LED primary display " + $lr.X + "," + $lr.Y + " " + $lr.Width + "x" + $lr.Height) -ForegroundColor Cyan
     if ($lr.Width -ne 3612 -or $lr.Height -ne 1462) {

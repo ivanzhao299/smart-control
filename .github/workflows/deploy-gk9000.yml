@@ -4,6 +4,15 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - '.github/**'
+      - 'docs/**'
+      - '*.md'
+      - 'android-app/**'
+      - 'ios-app/**'
+      - 'backend/**/*.spec.ts'
+      - 'frontend/tests/**'
+      - 'tools/ci/**'
   workflow_dispatch:
 
 permissions:
@@ -14,43 +23,91 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  validate:
-    name: Validate release
+  scope:
+    name: Detect release scope
+    runs-on: ubuntu-latest
+    outputs:
+      scope: ${{ steps.scope.outputs.scope }}
+      files: ${{ steps.scope.outputs.files }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: scope
+        name: Classify changed runtime files
+        env:
+          BASE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: node tools/ci/deploy-scope.mjs --base "$BASE_SHA" --head "$HEAD_SHA" --github-output "$GITHUB_OUTPUT"
+
+  validate-frontend:
+    name: Validate frontend release
+    needs: scope
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.33.4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: pnpm
-          cache-dependency-path: |
-            backend/pnpm-lock.yaml
-            frontend/pnpm-lock.yaml
-
-      - name: Validate backend
-        working-directory: backend
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm run build
+          cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Validate frontend
         working-directory: frontend
         run: |
           pnpm install --frozen-lockfile
+          pnpm audit --prod --audit-level high
+          pnpm run test
           pnpm run typecheck
           pnpm run build
 
+      - run: node --test tools/ci/*.test.mjs
+
+  validate-backend:
+    name: Validate backend release
+    needs: scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.4
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: backend/pnpm-lock.yaml
+
+      - name: Validate backend
+        working-directory: backend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm audit --prod --audit-level high
+          pnpm exec jest --ci --reporters=default
+          pnpm run build
+          pnpm run test:ops
+
+      - run: node --test tools/ci/*.test.mjs
+
   deploy:
     name: Deploy to GK9000
-    needs: validate
+    needs: [scope, validate-frontend, validate-backend]
+    if: >-
+      always() &&
+      needs.scope.result == 'success' &&
+      needs.validate-frontend.result == 'success' &&
+      needs.validate-backend.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Configure restricted jump-host identity
         env:
@@ -65,7 +122,9 @@ jobs:
       - name: Deploy requested commit through Aliyun
         env:
           COMMIT_SHA: ${{ github.sha }}
+          DEPLOY_SCOPE: ${{ needs.scope.outputs.scope }}
         run: |
+          echo "Validated deployment scope: ${DEPLOY_SCOPE}"
           ssh \
             -i "$HOME/.ssh/gk9000-deploy-jump" \
             -o BatchMode=yes \
@@ -87,3 +146,17 @@ jobs:
             -o StrictHostKeyChecking=yes \
             root@123.57.220.65 \
             "gk9000-verify ${COMMIT_SHA}"
+
+      - name: Copy migration recovery bundle off host
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          ssh \
+            -i "$HOME/.ssh/gk9000-deploy-jump" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=8 \
+            root@123.57.220.65 \
+            "gk9000-offsite-backup ${COMMIT_SHA}"

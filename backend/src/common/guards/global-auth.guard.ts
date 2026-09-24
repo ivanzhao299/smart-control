@@ -47,7 +47,10 @@ export class GlobalAuthGuard implements CanActivate {
       req.actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };
       return true;
     }
-    for (const token of [clientTok, bearer]) {
+    // An explicit backend session must win over a concurrently saved PWA
+    // session. Otherwise an operator PWA token would mask a valid named-admin
+    // bearer and AdminGuard would incorrectly deny the administrator.
+    for (const token of [bearer, clientTok]) {
       if (!token) continue;
       const actor = await this.clientAuth.resolveActor(token);
       if (actor) {

@@ -1,0 +1,52 @@
+name: Check GK9000 System Status
+
+# Read-only health patrol. Runs every 30 minutes on a schedule, can be
+# triggered manually, and also re-runs when this workflow itself changes.
+# It ONLY queries CPU / processes / memory / disk through the restricted jump
+# host action `gk9000-status` (a fixed read-only command baked into the jump
+# gateway) and never mutates GK9000 state.
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/check-gk9000-status.yml'
+
+# A read-only patrol must never overlap itself (a slow previous run should not
+# stack another SSH chain on the jump host).
+concurrency:
+  group: check-gk9000-status
+  cancel-in-progress: false
+
+jobs:
+  check-status:
+    name: Check GK9000 CPU and Processes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Configure restricted jump-host identity
+        env:
+          JUMP_SSH_KEY: ${{ secrets.GK9000_DEPLOY_JUMP_SSH_KEY }}
+          JUMP_KNOWN_HOSTS: ${{ secrets.GK9000_DEPLOY_JUMP_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$JUMP_SSH_KEY" > "$HOME/.ssh/gk9000-deploy-jump"
+          printf '%s\n' "$JUMP_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/gk9000-deploy-jump" "$HOME/.ssh/known_hosts"
+
+      - name: Check GK9000 health (read-only)
+        run: |
+          # The jump host only allows a fixed allow-list of actions. We invoke
+          # the read-only `gk9000-status` action; the gateway itself runs the
+          # baked-in CPU/process/memory/disk query and rejects anything else.
+          ssh \
+            -i "$HOME/.ssh/gk9000-deploy-jump" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=4 \
+            root@123.57.220.65 'gk9000-status'

@@ -172,6 +172,14 @@ onMounted(refresh);
 .page-head h2 { margin: 0; font-size: 20px; }
 .sub { color: var(--el-text-color-secondary); margin: 4px 0 0; font-size: 13px; }
 .actions { display: flex; gap: 12px; align-items: center; }
+/* 窄屏/手机: 标题块与筛选区换行, 避免左侧标题被固定宽筛选器压成逐字竖排、撑高容器 */
+@media (max-width: 760px) {
+  .page-head { flex-wrap: wrap; align-items: stretch; }
+  .page-head > div:first-child { flex: 1 1 100%; min-width: 0; }
+  .actions { flex-wrap: wrap; width: 100%; }
+  .actions :deep(.el-select),
+  .actions :deep(.el-input) { width: auto !important; flex: 1 1 calc(50% - 6px); min-width: 0; }
+}
 .audit-table :deep(.el-table__row) { cursor: pointer; }
 .time { color: var(--el-text-color-secondary); font-size: 12px; }
 .muted { color: var(--el-text-color-secondary); font-size: 12px; }

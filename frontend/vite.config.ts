@@ -4,9 +4,10 @@ import AutoImport from 'unplugin-auto-import/vite';
 import Components from 'unplugin-vue-components/vite';
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers';
 import { VitePWA } from 'vite-plugin-pwa';
-import { resolve } from 'path';
+import { resolve, sep } from 'path';
 import { cpSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 
 function gitOutput(args: string[]): string | null {
   try {
@@ -26,10 +27,19 @@ export default defineConfig(({ mode }) => {
   const PUBLIC_BASE = env.VITE_PUBLIC_BASE ?? '/';
   const SCOPE = PUBLIC_BASE.replace(/\/+$/, '') || '/';
   const SCOPE_PREFIX = SCOPE === '/' ? '' : SCOPE; // 给 manifest icon path 用
-  const apiTarget = process.env.VITE_PROXY_API ?? 'http://localhost:3000';
+  // 生产环境(preview)后端默认3200端口, 开发环境(server)默认3000端口
+  const isProd = mode === 'production' || process.env.NODE_ENV === 'production';
+  const defaultApiPort = isProd ? 3200 : 3000;
+  const apiTarget = process.env.VITE_PROXY_API ?? `http://localhost:${defaultApiPort}`;
+  const wsTarget = apiTarget.replace(/^http/, 'ws');
+  const frontendBuildId = randomUUID();
 
   return {
     base: PUBLIC_BASE,
+    define: {
+      __FRONTEND_BUILD_ID__: JSON.stringify(frontendBuildId),
+      __FRONTEND_VERSION_URL__: JSON.stringify(`${SCOPE_PREFIX}/deployment-version.json`),
+    },
     resolve: {
       alias: { '@': resolve(__dirname, 'src') },
     },
@@ -42,7 +52,17 @@ export default defineConfig(({ mode }) => {
       // 公网直连: 跳板机 nginx 反代 erp.cnjinhu.top 过来的请求带域名 Host,
       // vite 的 DNS-rebind 防护默认只放行 IP/localhost, 域名不加白会 403。
       // 注意: 本文件变更需重启 frontend 进程才生效 (update.ps1 6c.2 哈希戳记负责, delete+start)
-      allowedHosts: ['.cnjinhu.top', 'erp.cnjinhu.top'],
+      allowedHosts: ['.cnjinhu.top', '.cnjinhu.com', 'erp.cnjinhu.top', 'park.cnjinhu.com'],
+      // 生产环境必须配置 /api 和 /ws 代理, 否则前端请求无法到达后端3200端口
+      // (2026-09-11 根因: preview模式缺少代理导致摄像头HLS视频流无法接入)
+      proxy: {
+        '/api': { target: apiTarget, changeOrigin: true },
+        '/ws': {
+          target: wsTarget,
+          ws: true,
+          changeOrigin: true,
+        },
+      },
     },
     server: {
       host: '0.0.0.0',
@@ -50,13 +70,64 @@ export default defineConfig(({ mode }) => {
       proxy: {
         '/api': { target: apiTarget, changeOrigin: true },
         '/ws': {
-          target: apiTarget.replace(/^http/, 'ws'),
+          target: wsTarget,
           ws: true,
           changeOrigin: true,
         },
       },
     },
     plugins: [
+      {
+        name: 'missing-built-asset-404',
+        configurePreviewServer(server) {
+          server.middlewares.use((req, res, next) => {
+            if (!req.url) return next();
+            let pathname = '';
+            try {
+              pathname = decodeURIComponent(new URL(req.url, 'http://preview.local').pathname);
+            } catch {
+              return next();
+            }
+            const assetPrefix = `${SCOPE_PREFIX}/assets/`;
+            if (!pathname.startsWith(assetPrefix)) return next();
+            const relativePath = pathname.slice(`${SCOPE_PREFIX}/`.length);
+            const distRoot = resolve(__dirname, 'dist');
+            const requestedFile = resolve(distRoot, relativePath);
+            if (requestedFile.startsWith(`${distRoot}${sep}`) && existsSync(requestedFile)) return next();
+            res.statusCode = 404;
+            res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+            res.setHeader('Cache-Control', 'no-store');
+            res.end('Built asset not found');
+          });
+        },
+      },
+      {
+        name: 'park-ops-rewrite',
+        configureServer(server) {
+          server.middlewares.use((req, _res, next) => {
+            // 仅修正"无尾斜杠裸目录" /control/park-ops[?query]：补上尾斜杠并保留 /control base，
+            // 交给 vite 静态服务命中 park-ops/index.html。带文件名请求(index.html、*.jpg/*.glb)
+            // 与带尾斜杠目录 vite 原生已正确 serve，切勿改写——去掉 /control base 反而会 404。
+            if (req.url && /^\/control\/park-ops(?=\?|$)/.test(req.url)) {
+              const qi = req.url.indexOf('?');
+              req.url = `/control/park-ops/${qi >= 0 ? req.url.slice(qi) : ''}`;
+            }
+            next();
+          });
+        },
+        configurePreviewServer(server) {
+          server.middlewares.use((req, _res, next) => {
+            // 仅修正"无尾斜杠裸目录" /control/park-ops[?query]：补上尾斜杠并保留 /control base，
+            // 交给 vite 静态服务命中 park-ops/index.html。带文件名请求(index.html、*.jpg/*.glb)
+            // 与带尾斜杠目录 vite 原生已正确 serve，切勿改写——去掉 /control base 反而会 404。
+            if (req.url && /^\/control\/park-ops(?=\?|$)/.test(req.url)) {
+              const qi = req.url.indexOf('?');
+              req.url = `/control/park-ops/${qi >= 0 ? req.url.slice(qi) : ''}`;
+            }
+            next();
+          });
+        },
+      },
       {
         name: 'publish-deployment-version',
         apply: 'build',
@@ -68,6 +139,7 @@ export default defineConfig(({ mode }) => {
             fileName: 'deployment-version.json',
             source: `${JSON.stringify({
               commit,
+              frontendBuildId,
               clean: trackedChanges === '',
               builtAt: new Date().toISOString(),
             }, null, 2)}\n`,
@@ -83,10 +155,13 @@ export default defineConfig(({ mode }) => {
           cpSync(sourceDir, outputDir, { recursive: true, force: true });
 
           const dashboard = resolve(outputDir, 'index.html');
+          const appJs = resolve(outputDir, 'js', 'app.js');
           const aerial = resolve(outputDir, 'park-aerial.jpg');
           const relief = resolve(outputDir, 'park-aerial-relief.glb');
           const viewer = resolve(outputDir, 'park-ops-3d.js');
-          if (!existsSync(dashboard) || !readFileSync(dashboard, 'utf8').includes('window.PARK_DEMO')) {
+          const hasParkDemo = (existsSync(dashboard) && readFileSync(dashboard, 'utf8').includes('window.PARK_DEMO')) ||
+                               (existsSync(appJs) && readFileSync(appJs, 'utf8').includes('window.PARK_DEMO'));
+          if (!existsSync(dashboard) || !hasParkDemo) {
             throw new Error('Required park-ops dashboard was not published into the frontend build.');
           }
           if (!existsSync(aerial) || statSync(aerial).size < 100_000) {
@@ -129,7 +204,6 @@ export default defineConfig(({ mode }) => {
       Components({ resolvers: [ElementPlusResolver()] }),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['icons/pwa-192x192.png', 'icons/pwa-512x512.png', 'icons/app.svg'],
         manifest: {
           name: '金湖展贸中心智能控制系统',
           short_name: '金湖中控',
@@ -166,14 +240,36 @@ export default defineConfig(({ mode }) => {
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           skipWaiting: true,
+          // Public icons are already copied into dist and covered by svg/png here.
+          // Listing them again in includeAssets creates duplicate precache entries.
           globPatterns: ['**/*.{js,css,html,svg,png,jpg,jpeg,webp,ico,woff2}'],
+          manifestTransforms: [async (entries) => {
+            const seen = new Set<string>();
+            for (const entry of entries) {
+              if (seen.has(entry.url)) {
+                throw new Error(`Duplicate PWA precache URL: ${entry.url}`);
+              }
+              seen.add(entry.url);
+            }
+            return { manifest: entries, warnings: [] };
+          }],
           // C2 (2026-07-25): 离线预缓存只收业主侧 — 20+ 个后台管理页 chunk
           // (文件名含 Admin) 和只有 admin 用的 date-picker 不进每台手机的离线包。
           // admin 在线才用得上, 其 chunk 走浏览器 HTTP 缓存 (assets 带一年 immutable)。
           // 注意 admin.service (小写) 被业主侧状态页共享, 不匹配此模式, 不受影响。
           globIgnores: ['**/*Admin*', '**/el-date-picker*', 'welcome/**'],
           navigateFallback: `${SCOPE_PREFIX}/index.html`,
-          navigateFallbackDenylist: [/\/api(\/|$)/, /\/ws(\/|$)/, /\/park-ops(\/|$)/],
+          // 独立静态投放页 (park-ops 运营大屏 / welcome 欢迎页) 由播放器以 iframe 顶层导航加载,
+          // 它们是 public/ 下的物理静态 HTML, 绝不能被 SPA 导航回退顶替成 index.html 应用壳——
+          // 否则 iframe 内 Vue 路由匹配不到该路径会跳到登录页 (2026-09-21 欢迎页上屏变登录页根因)。
+          // welcome 不进预缓存 (globIgnores 排除大图), 但必须在此放行导航, 让其走网络取物理文件。
+          // 以后新增任何 public/ 独立静态投放页, 都必须在此同步登记。
+          navigateFallbackDenylist: [
+            /\/api(\/|$)/,
+            /\/ws(\/|$)/,
+            /\/park-ops(\/|$)/,
+            /\/welcome(\/|$)/,
+          ],
           // Authenticated APIs must never fall back to another account's cache.
           runtimeCaching: [
             {

@@ -151,7 +151,7 @@ export class ModbusHvacAdapter extends BaseAdapter {
    * 前端/场景按"楼层内机序号"下发 (1..22), 但适配器要 {gwHost,n} 地址.
    * 查 devices 表 category='hvac', 按 (楼层, n) 排序建立序号→address:
    *   1F 内机 (n=1..10) 排前 → 序号 1..10; 2F 接续 → 序号 11..22.
-   * 跟 seed / HVAC_ZONES 的 indoorIdx 定义一致. address 用 DB 实时值,
+   * 跟版本化目录迁移的 indoorIdx 定义一致. address 用 DB 实时值,
    * 网关换 IP 时其 gwHost 自动跟随 (配合 HardwareService 的 gwHost 联动).
    */
   private async getIdxAddressMap(): Promise<Map<number, string>> {
@@ -236,39 +236,6 @@ export class ModbusHvacAdapter extends BaseAdapter {
     return addr ?? s;
   }
 
-  /** P2 — 给 DriverRegistryService 注册用 */
-  static describe(): import('../driver-descriptor').DriverDescriptor {
-    return {
-      kind: 'zhonghong-mbt',
-      displayName: '中弘 ZHONGHONG B 集控网关 (TCP / VRF 空调)',
-      vendor: '中弘 ZHONGHONG',
-      category: 'hvac-gateway',
-      protocol: 'modbus-tcp',
-      capabilities: [
-        'turn_on',
-        'turn_off',
-        'set_temperature',
-        'set_mode',
-        'set_fan_speed',
-        'get_status',
-        'health_check',
-      ],
-      defaultAddressing: {
-        slaveId: 1,
-        port: 502,
-        maxIndoor: 64,
-        protocol: 'MODBUS-TCP (MBT v3.2)',
-      },
-      paramSchema: {
-        ip: { type: 'string', label: '网关 IP', required: true, placeholder: '192.168.x.x' },
-        port: { type: 'number', label: 'TCP 端口', default: 502, min: 1, max: 65535 },
-        slaveId: { type: 'number', label: 'Modbus 从机号', default: 1, min: 1, max: 247 },
-        maxIndoor: { type: 'number', label: '最大内机数', default: 64, min: 1, max: 64 },
-      },
-      remark:
-        '一台网关挂 1-64 台 VRF 内机, 走 Modbus TCP. 跟商用奥克斯/大金/美的等品牌 VRF 主机配对.',
-    };
-  }
 
   /** 拿到 deviceId 对应内机的网关客户端 + 网关 key */
   private async resolve(

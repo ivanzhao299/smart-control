@@ -2,6 +2,7 @@ package com.jinhu.smartcontrol
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.net.Uri
 
 /**
  * SharedPreferences wrapper — 只存一件事: 业主配的服务器地址.
@@ -14,14 +15,22 @@ object Prefs {
     private const val KEY_DISMISSED_VERSION = "update_dismissed_version_code"
     private const val KEY_DISMISSED_AT = "update_dismissed_at_ms"
     private const val KEY_BIOMETRIC_LOCK = "biometric_lock"
+    private const val RETIRED_PWA_HOST = "park.cnjinhu.com"
+    private const val PRODUCTION_REMOTE_HOST = "erp.cnjinhu.top"
+    private const val RETIRED_REMOTE_PORT = 8443
 
     fun get(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    fun getServerUrl(ctx: Context): String? = get(ctx).getString(KEY_SERVER_URL, null)
+    fun getServerUrl(ctx: Context): String? {
+        val saved = get(ctx).getString(KEY_SERVER_URL, null) ?: return null
+        val normalized = normalizeServerUrl(saved)
+        if (normalized != saved) setServerUrl(ctx, normalized)
+        return normalized
+    }
 
     fun setServerUrl(ctx: Context, url: String) {
-        get(ctx).edit().putString(KEY_SERVER_URL, url).apply()
+        get(ctx).edit().putString(KEY_SERVER_URL, normalizeServerUrl(url)).apply()
     }
 
     fun clearServerUrl(ctx: Context) {
@@ -29,11 +38,33 @@ object Prefs {
     }
 
     /** 远程地址 (隧道/公网, 可选) — 现场地址探不通时自动切它, 见 MainActivity.resolveAndLoad */
-    fun getRemoteUrl(ctx: Context): String? = get(ctx).getString(KEY_REMOTE_URL, null)
+    fun getRemoteUrl(ctx: Context): String? {
+        val saved = get(ctx).getString(KEY_REMOTE_URL, null) ?: return null
+        val normalized = normalizeRemoteUrl(saved)
+        if (normalized != saved) setRemoteUrl(ctx, normalized)
+        return normalized
+    }
 
     fun setRemoteUrl(ctx: Context, url: String?) {
         if (url.isNullOrBlank()) get(ctx).edit().remove(KEY_REMOTE_URL).apply()
-        else get(ctx).edit().putString(KEY_REMOTE_URL, url).apply()
+        else get(ctx).edit().putString(KEY_REMOTE_URL, normalizeRemoteUrl(url)).apply()
+    }
+
+    /** 浏览器 PWA 地址不属于原生壳的现场服务器配置。 */
+    private fun normalizeServerUrl(url: String): String =
+        if (Uri.parse(url).host.equals(RETIRED_PWA_HOST, ignoreCase = true)) {
+            BuildConfig.DEFAULT_SERVER_URL
+        } else {
+            url
+        }
+
+    /** 生产域名已在标准 HTTPS 443 提供服务，旧 8443 保存值升级后自动收敛。 */
+    private fun normalizeRemoteUrl(url: String): String {
+        val parsed = Uri.parse(url)
+        val retiredPwa = parsed.host.equals(RETIRED_PWA_HOST, ignoreCase = true)
+        val retiredPort = parsed.host.equals(PRODUCTION_REMOTE_HOST, ignoreCase = true) &&
+            parsed.port == RETIRED_REMOTE_PORT
+        return if (retiredPwa || retiredPort) BuildConfig.DEFAULT_REMOTE_URL else url
     }
 
     // ============ 面容登录密码 (2026-07-31) ============

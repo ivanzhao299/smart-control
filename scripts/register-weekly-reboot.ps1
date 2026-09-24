@@ -1,0 +1,59 @@
+# =====================================================================
+# Register / update the WeeklyReboot scheduled task for a GRACEFUL reboot.
+# File: scripts/register-weekly-reboot.ps1
+#
+# Idempotent: run once (elevated) on GK9000 after deploy. It repoints the
+# existing WeeklyReboot task (hard "shutdown /r /t 0 /f") to
+# scripts/weekly-graceful-reboot.ps1, every Monday 00:00.
+#
+# Runs as LOCAL SYSTEM on purpose: the box has no auto-logon, and a reboot
+# task must still fire at midnight with nobody signed in. The graceful script
+# sets PM2_HOME to the interactive user's .pm2 itself.
+#
+# Keep this file ASCII-only (GK9000 PowerShell 5.1 GBK issue).
+# =====================================================================
+[CmdletBinding()]
+param(
+  [string]$TaskName = 'WeeklyReboot',
+  [int]$GraceSeconds = 30,
+  [string]$Pm2User = 'user'
+)
+
+$ErrorActionPreference = 'Stop'
+$rebootScript = Join-Path $PSScriptRoot 'weekly-graceful-reboot.ps1'
+if (-not (Test-Path $rebootScript)) { throw "missing graceful reboot script: $rebootScript" }
+
+# Hidden launch through a wscript stub so no console window flashes
+# (same pattern as player-watchdog.ps1 / auto-update-watcher.ps1).
+$vbsPath = Join-Path $PSScriptRoot 'run-hidden.vbs'
+if (-not (Test-Path $vbsPath)) {
+  $vbsBody = @'
+' Hidden PowerShell launcher (shared). arg0 = target .ps1, remaining args passed through.
+' Window style 0 = hidden, bWaitOnReturn = False. ASCII-only.
+Option Explicit
+Dim sh, i, sArgs
+Set sh = CreateObject("WScript.Shell")
+sArgs = ""
+For i = 1 To WScript.Arguments.Count - 1
+  sArgs = sArgs & " " & WScript.Arguments(i)
+Next
+sh.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -File """ & WScript.Arguments(0) & """" & sArgs, 0, False
+'@
+  Set-Content -Path $vbsPath -Value $vbsBody -Encoding ASCII
+}
+
+$argList = '"{0}" "{1}" -GraceSeconds {2} -Pm2User {3}' -f $vbsPath, $rebootScript, $GraceSeconds, $Pm2User
+$action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\wscript.exe" -Argument $argList
+# Weekly Monday 00:00 (matches the previous task schedule).
+$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At 00:00
+# LOCAL SYSTEM: fires without an interactive logon and has rights to reboot.
+$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+
+$existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
+
+Write-Host ("Registered/updated scheduled task '{0}' -> weekly-graceful-reboot.ps1" -f $TaskName)
+Write-Host ("  schedule : every Monday 00:00")
+Write-Host ("  grace    : {0} seconds after pm2 save" -f $GraceSeconds)
+Write-Host ("  run as   : LOCAL SYSTEM (PM2_HOME pointed at user {0})" -f $Pm2User)
+if ($existing) { Write-Host "  note     : an older task with this name was replaced (was hard shutdown)." }

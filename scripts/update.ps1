@@ -35,6 +35,27 @@ if (-not $?) { exit 1 }
 # boot 起的守护, 会 spawn 孤儿 daemon。详见 auto-update-watcher.ps1 同段注释。
 $env:PM2_HOME = 'C:\Users\user\.pm2'
 
+# --- Shared deployment mutex (ASCII-only). deploy-from-ci.ps1 (CI) uses the
+# SAME lock file. The on-box watcher (this script) and CI must never build and
+# restart pm2 concurrently: two parallel rimraf-dist + pm2 delete/start races
+# killed each other's processes and left both services stopped (2026-09-13).
+# If CI holds the lock, skip this watcher round cleanly (exit 0); the scheduled
+# task tries again in ~90s. The stream stays open until this process exits,
+# which releases the OS lock automatically.
+$sharedLockPath = Join-Path $env:ProgramData 'Anksen\smart-control-deploy.lock'
+$null = New-Item -ItemType Directory -Force -Path (Split-Path $sharedLockPath)
+$script:sharedLockStream = $null
+try {
+  $script:sharedLockStream = [System.IO.File]::Open($sharedLockPath, [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+} catch {
+  Write-Host "  Another deployment holds $sharedLockPath (CI running) - skip this watcher round." -ForegroundColor Yellow
+  exit 0
+}
+if (-not $script:sharedLockStream) {
+  Write-Host "  Deployment lock busy - skip this watcher round." -ForegroundColor Yellow
+  exit 0
+}
+
 function Run($cmd) {
   Write-Host "  > $cmd" -ForegroundColor DarkGray
   if (-not $DryRun) {
@@ -46,6 +67,32 @@ function Run($cmd) {
   }
 }
 
+function Test-PortListening([int]$PortNum) {
+  try { return [bool](Get-NetTCPConnection -LocalPort $PortNum -State Listen -ErrorAction SilentlyContinue) }
+  catch { return $false }
+}
+
+function Ensure-ServicesOnline {
+  # Safety net (ASCII-only): regardless of which pull/build/migration/verify
+  # step throws, production must never end with both pm2 services stopped. If a
+  # listening port is missing, resurrect pm2 + both apps DETACHED through WMI so
+  # the recovery survives this script (and its scheduled-task session) exiting.
+  try {
+    if ((Test-PortListening 3200) -and (Test-PortListening 5173)) { return }
+    Write-Host "  [ensure] backend/frontend port missing -> detached pm2 resurrect" -ForegroundColor Yellow
+    $pm2rescue = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
+    if (-not (Test-Path $pm2rescue)) { $pm2rescue = 'pm2' }
+    $ecoConfig = Join-Path $projectRoot 'deploy\ecosystem.config.js'
+    # NO space before '&&' after the set value, else PM2_HOME keeps a trailing
+    # space and pm2 computes wrong named-pipe names (orphan-daemon trap).
+    $rescueCmd = "cmd /c `"set PM2_HOME=C:\Users\user\.pm2&& $pm2rescue resurrect & $pm2rescue start $ecoConfig --env production & $pm2rescue save`""
+    ([wmiclass]'\\.\root\cimv2:Win32_Process').Create($rescueCmd, 'C:\Users\user', $null) | Out-Null
+  } catch {
+    Write-Host "  [ensure] detached resurrect failed: $($_.Exception.Message)" -ForegroundColor Red
+  }
+}
+
+try {
 Write-Host "================================================" -ForegroundColor Cyan
 Write-Host " 现场主控机 - 增量更新" -ForegroundColor Cyan
 Write-Host " 项目根: $projectRoot" -ForegroundColor Gray
@@ -118,39 +165,19 @@ if (Test-Path $backupScript) {
 Write-Host "`n[4/6] 检查依赖变化..." -ForegroundColor Yellow
 $pkgChanged = git diff --name-only "$beforeCommit" HEAD 2>$null | Select-String -Pattern 'package(-lock)?\.json|pnpm-lock\.yaml'
 if ($pkgChanged -or $Force) {
+  if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
+    throw '未检测到 pnpm。依赖版本只允许由 pnpm@10.33.4 和 pnpm-lock.yaml 管理。'
+  }
   Write-Host "  package 文件有变化, 重装依赖..." -ForegroundColor Yellow
   Push-Location (Join-Path $projectRoot 'backend')
-  if (Get-Command pnpm -ErrorAction SilentlyContinue) {
-    Run "pnpm install --frozen-lockfile"
-  } else {
-    Run "npm ci --no-audit --no-fund"
-  }
+  Run "pnpm install --frozen-lockfile"
   Pop-Location
 
   Push-Location (Join-Path $projectRoot 'frontend')
-  if (Get-Command pnpm -ErrorAction SilentlyContinue) {
-    Run "pnpm install --frozen-lockfile"
-  } else {
-    Run "npm ci --no-audit --no-fund"
-  }
+  Run "pnpm install --frozen-lockfile"
   Pop-Location
 } else {
   Write-Host "  package 无变化, 跳过依赖安装" -ForegroundColor Green
-}
-
-# 4.5) .env 一次性修复 — 2026-05-27 我用 RDC Notepad 不小心把 DALI_RTU_HOST
-# 改成了 192.168.0.7 (USR 出厂默认 IP), 但用户后来把 USR IP 改回了 192.168.50.20,
-# 现在 .env 跟 USR 实际 IP 对不上, gateway 一直 offline. 这块只针对那个错值,
-# 不会动用户主动设的别的 IP — 安全且幂等.
-$envFile = Join-Path $projectRoot 'backend\.env'
-if (Test-Path $envFile) {
-  $envText = Get-Content $envFile -Raw
-  if ($envText -match 'DALI_RTU_HOST\s*=\s*192\.168\.0\.7') {
-    Write-Host "`n[env-repair] 发现 DALI_RTU_HOST=192.168.0.7, 改回 192.168.50.20..." -ForegroundColor Yellow
-    $newText = $envText -replace 'DALI_RTU_HOST\s*=\s*192\.168\.0\.7', 'DALI_RTU_HOST=192.168.50.20'
-    Set-Content -Path $envFile -Value $newText -NoNewline
-    Write-Host "  ok" -ForegroundColor Green
-  }
 }
 
 # 5) 重新构建 (backend + frontend) —— 按改动路径条件化 (2026-07-30)
@@ -168,7 +195,7 @@ if ($Force -or $changedFiles.Count -eq 0) {
 Write-Host "`n[5/6] 重新构建 (backend=$backendChanged frontend=$frontendChanged)..." -ForegroundColor Yellow
 if ($backendChanged) {
   Push-Location (Join-Path $projectRoot 'backend')
-  Run "npm run build"
+  Run "pnpm run build"
   Pop-Location
 } else {
   Write-Host "  backend/ 无改动, 跳过 backend 构建 (保时间戳, 防 verify 假过期)" -ForegroundColor Gray
@@ -180,7 +207,7 @@ if ($backendChanged) {
 # 类型检查本地开发和 CI 都会跑, 生产机只需要产物。
 if ($frontendChanged) {
   Push-Location (Join-Path $projectRoot 'frontend')
-  Run "npm run build:deploy"
+  Run "pnpm run build:deploy"
   Pop-Location
 } else {
   Write-Host "  frontend/ 无改动, 跳过前端构建" -ForegroundColor Gray
@@ -194,18 +221,6 @@ Write-Host "`n[5.4/6] 应用数据库迁移 (run-migrations.js)..." -ForegroundC
 Push-Location (Join-Path $projectRoot 'backend')
 Run "node scripts/run-migrations.js"
 Pop-Location
-
-# 5.5) seed — 应用 entity / 硬件 / 场景的更新.
-# seed 本身是幂等的 (record 已存在就跳过), 安全多跑.
-# 例外: 末尾的 HW_IP_FIXES 段会把错的 IP 主动更新成正确值 (一次性自愈).
-Write-Host "`n[5.5/6] 应用 seed (硬件/场景/设备 idempotent 更新)..." -ForegroundColor Yellow
-if ($backendChanged) {
-  Push-Location (Join-Path $projectRoot 'backend')
-  Run "npm run seed"
-  Pop-Location
-} else {
-  Write-Host "  backend/ 无改动, 跳过 seed" -ForegroundColor Gray
-}
 
 # 6) 强制重启 backend: pm2 delete + 杀残留 + pm2 start
 # 之前用 pm2 restart 实测在某些情形 (pm2 daemon 卡 / 进程脱钩) 下不真换进程,
@@ -443,3 +458,8 @@ Write-Host "================================================" -ForegroundColor C
 
 # 心跳已移到 watcher 里 (finally 块), 每次轮询都报, 不只 update 成功时
 # update.ps1 本身不再单独报 — 避免重复
+} finally {
+  # Never leave production down after a failed/partial auto-update (2026-09-13).
+  Ensure-ServicesOnline
+  if ($script:sharedLockStream) { try { $script:sharedLockStream.Close() } catch { } }
+}

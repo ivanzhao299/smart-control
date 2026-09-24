@@ -7,7 +7,8 @@ const source = fs.readFileSync(path.join(__dirname, '../scripts/verify-gk9000-mi
 function fixture({ changedPath = false, wrongRevision = false, damaged = false } = {}) {
   const events = [], module = { exports: {} }, process = { platform: 'linux', env: {} };
   const receipt = { version: 1, kind: 'gk9000-migration-complete', candidateRevision: (wrongRevision ? 'c' : 'b').repeat(40),
-    sourceRevision: 'a'.repeat(40), productionActivated: false, databasePath: '/fixture/database/smart-control.db', mediaRoot: '/fixture/media' };
+    sourceRevision: 'a'.repeat(40), productionActivated: false, databasePath: '/fixture/database/smart-control.db', mediaRoot: '/fixture/media',
+    bundledMedia: { catalogVersion: 1, count: 15, state: 'current' } };
   const require = name => {
     if (name === 'node:fs/promises') return { readFile: async () => JSON.stringify(receipt) };
     if (name === 'node:path') return path.posix;
@@ -17,13 +18,20 @@ function fixture({ changedPath = false, wrongRevision = false, damaged = false }
     if (name === './run-migrations.js') return { loadEnvFile: () => {
       events.push('config'); process.env.MEDIA_ROOT = changedPath ? '/different/media' : '/fixture/media';
     } };
+    if (name === './production-paths.cjs') return {
+      resolveProductionDatabasePath: () => '/fixture/database/smart-control.db',
+      resolveProductionMediaRoot: () => changedPath ? '/different/media' : '/fixture/media',
+    };
+    if (name === './reconcile-bundled-media.cjs') return { reconcile: options => {
+      events.push('media'); assert.equal(options.checkOnly, true); return { state: 'current', count: 15 };
+    } };
     throw new Error('Unexpected dependency');
   };
   vm.runInNewContext(source, { module, require, process });
   return { run: () => module.exports.verify('/backup/migration-complete.json', 'b'.repeat(40), '/fixture'), events };
 }
 test('activation receipt checks bundle and current production paths', async () => {
-  const h = fixture(); assert.equal(await h.run(), true); assert.deepEqual(h.events, ['bundle', 'config']);
+  const h = fixture(); assert.equal(await h.run(), true); assert.deepEqual(h.events, ['bundle', 'config', 'media']);
 });
 test('different candidate is rejected before bundle/config reads', async () => {
   const h = fixture({ wrongRevision: true }); await assert.rejects(h.run(), /Invalid migration/); assert.deepEqual(h.events, []);

@@ -368,7 +368,7 @@ onBeforeUnmount(() => {
   content: '';
   position: absolute; top: 0; left: 0; right: 0;
   height: 3px;
-  background: linear-gradient(90deg, #4C9AFF 0%, #9BA1A9 80%, transparent 100%);
+  background: var(--v2-accent-bar);
 }
 .info-label {
   font-size: 11px; color: var(--text-secondary);
@@ -439,7 +439,7 @@ onBeforeUnmount(() => {
 .res-bar { height: 6px; background: var(--bg-elevated); border-radius: 3px; overflow: hidden; }
 .res-fill { height: 100%; transition: width 0.4s ease; border-radius: 3px; }
 .res-fill.is-cpu  { background: linear-gradient(90deg, #3FBF87, #06b6d4); }
-.res-fill.is-mem  { background: linear-gradient(90deg, #4C9AFF, #9BA1A9); }
+.res-fill.is-mem  { background: var(--v2-accent-progress); }
 .res-fill.is-disk { background: linear-gradient(90deg, #E0A030, #E5645D); }
 
 /* 服务列表 / 网关列表 */

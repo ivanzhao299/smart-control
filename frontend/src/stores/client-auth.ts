@@ -9,21 +9,20 @@ import { api, setApiBaseURL, getApiBaseURL, setClientToken } from '@/services/ht
  * 持久化:
  *   - localStorage 'sc.client.token'    : 30 天 TTL token
  *   - localStorage 'sc.client.baseURL'  : 业主输入的服务器地址 (http.ts setApiBaseURL 管这个)
- *   - localStorage 'sc.client.savedPassword' : 密码正确登录过就存下来, 下次自动登录用
- *     (见 tryAutoLogin) —— token 是 30 天 TTL 没错, 但 backend 每次重启/重新部署,
- *     session 表 (内存 Map) 会清空, token 没到期也会失效, 业主就得重新输一遍密码。
- *     存密码本地自动重登, 免得每次部署完业主都要摸出手机重新登录。
- *     跟 token 同样存在 localStorage, 暴露面不比已经在存的 token 更大。
+ *   - localStorage 'sc.client.savedUsername' : 仅保存用户名，方便下次输入
+ *
+ * 令牌由后端持久签名密钥验证，部署和进程重启不会再使会话失效。浏览器不得保存
+ * 明文密码；历史版本留下的 sc.client.savedPassword 会在初始化或登录时清除。
  *
  * 登录页 ClientLoginPage 用这个 store:
  *   1. 输入服务器地址 → setBaseURL(url) → 测试连接
  *   2. 输入用户名和密码 → login(username, pw) → 服务端返 token → setToken(token) → 顺带存凭据
- *   3. 路由 guard 看 isAuthed → 放行; 没 token 时登录页会先试 tryAutoLogin()
+ *   3. 路由 guard 看 isAuthed → 放行；令牌失效时返回登录页重新认证
  */
 
 const TOKEN_STORAGE_KEY = 'sc.client.token';
 const TOKEN_EXPIRY_KEY = 'sc.client.token.expiresAt';
-const SAVED_PASSWORD_KEY = 'sc.client.savedPassword';
+const LEGACY_SAVED_PASSWORD_KEY = 'sc.client.savedPassword';
 const SAVED_USERNAME_KEY = 'sc.client.savedUsername';
 const SERVER_KEY = 'sc.client.authServer';
 
@@ -33,6 +32,7 @@ interface LoginResponse {
 }
 
 export const useClientAuthStore = defineStore('client-auth', () => {
+  removeLegacySavedPassword();
   const token = ref<string | null>(readToken());
   const expiresAt = ref<string | null>(readExpiry());
   const baseURL = ref<string>(getApiBaseURL());
@@ -88,13 +88,11 @@ export const useClientAuthStore = defineStore('client-auth', () => {
         window.localStorage.setItem(TOKEN_STORAGE_KEY, data.token);
         window.localStorage.setItem(TOKEN_EXPIRY_KEY, data.expiresAt);
         window.localStorage.setItem(SERVER_KEY, getApiBaseURL());
-        // Never retain another account's saved password when remember is disabled.
-        window.localStorage.removeItem(SAVED_PASSWORD_KEY);
+        // Signed tokens survive deployments. Never retain a reusable plaintext password.
+        window.localStorage.removeItem(LEGACY_SAVED_PASSWORD_KEY);
         window.localStorage.removeItem(SAVED_USERNAME_KEY);
         if (opts.remember !== false) {
-          window.localStorage.setItem(SAVED_PASSWORD_KEY, password);
-          if (normalizedUsername) window.localStorage.setItem(SAVED_USERNAME_KEY, normalizedUsername);
-          else window.localStorage.removeItem(SAVED_USERNAME_KEY);
+          window.localStorage.setItem(SAVED_USERNAME_KEY, normalizedUsername);
         }
       } catch { /* localStorage 不可用 */ }
       setClientToken(data.token);
@@ -106,28 +104,10 @@ export const useClientAuthStore = defineStore('client-auth', () => {
     }
   }
 
-  /**
-   * 登录页挂载时先试这个: 本地存过密码就悄悄重登一次, 登上了直接跳走, 业主感觉不到
-   * "又要登一次"。密码后来被改过 (admin 强制重置过客户端密码) 会登失败, 这时清掉存的
-   * 密码 —— 不然每次都要打一遍失败请求, 而且旧密码摆在 localStorage 里也没意义了。
-   */
-  async function tryAutoLogin(): Promise<boolean> {
-    if (!isBoundToCurrentServer()) { clearSavedPassword(); return false; }
-    let saved: string | null = null;
-    try { saved = window.localStorage.getItem(SAVED_PASSWORD_KEY); } catch { /* ignore */ }
-    if (!saved || !readSavedUsername().trim()) return false;
-    try {
-      await login(readSavedUsername(), saved);
-      return true;
-    } catch {
-      clearSavedPassword();
-      return false;
-    }
-  }
-
+  /** 清理旧版浏览器明文密码；名称暂留用于壳生物认证失败后的兼容调用。 */
   function clearSavedPassword(): void {
     try {
-      window.localStorage.removeItem(SAVED_PASSWORD_KEY);
+      window.localStorage.removeItem(LEGACY_SAVED_PASSWORD_KEY);
       window.localStorage.removeItem(SAVED_USERNAME_KEY);
     } catch { /* ignore */ }
   }
@@ -145,9 +125,8 @@ export const useClientAuthStore = defineStore('client-auth', () => {
   }
 
   /**
-   * token 被后端判失效 (最常见: 后端重启/重新部署清了内存 session 表, token 没到期也不认了)。
-   * 清掉 token 让 isAuthed 变 false, 但**保留存的密码** —— 好让登录页 tryAutoLogin 悄悄重登,
-   * 业主无感。跟 logout() 的区别就是不清密码 (logout 是业主主动退出, 该清干净)。
+   * token 被后端判失效（密码或签名密钥轮换、账号停用等）时清掉会话。
+   * 用户名继续保留用于登录表单；主动 logout 会同时清除用户名。
    */
   function markSessionExpired(): void {
     token.value = null;
@@ -169,7 +148,6 @@ export const useClientAuthStore = defineStore('client-auth', () => {
     setBaseURL,
     testConnection,
     login,
-    tryAutoLogin,
     clearSavedPassword,
     logout,
     markSessionExpired,
@@ -190,4 +168,7 @@ export function readSavedUsername(): string {
 }
 function isBoundToCurrentServer(): boolean {
   try { return window.localStorage.getItem(SERVER_KEY) === getApiBaseURL(); } catch { return false; }
+}
+function removeLegacySavedPassword(): void {
+  try { window.localStorage.removeItem(LEGACY_SAVED_PASSWORD_KEY); } catch { /* ignore */ }
 }

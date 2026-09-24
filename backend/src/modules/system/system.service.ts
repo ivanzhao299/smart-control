@@ -1,11 +1,19 @@
 import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { promises as fs, existsSync, statSync, mkdirSync, copyFileSync } from 'fs';
-import { resolve, join, dirname } from 'path';
+import { promises as fs, copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'fs';
+import { resolve, join } from 'path';
+import { execFileSync } from 'child_process';
 import * as os from 'os';
+import { DataSource } from 'typeorm';
 import { AppConfig, DatabaseConfig, LoggerConfig } from '../../common/config/configuration';
+import { resolveRuntimeDataDir } from '../../common/storage/runtime-data-path';
 
-interface VersionMeta {
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { resolveProductionMediaRoot } = require('../../../scripts/production-paths.cjs') as {
+  resolveProductionMediaRoot: () => string;
+};
+
+export interface VersionMeta {
   version: string;
   sprint: string;
   buildTime: string;
@@ -13,6 +21,33 @@ interface VersionMeta {
   host: string;
   commit?: string;
   ref?: string;
+  releasedAt?: string;
+  identitySource?: 'environment' | 'git' | 'release-manifest' | 'version-file' | 'unknown';
+}
+
+interface ReleaseManifest {
+  commit?: string;
+  ref?: string;
+  releasedAt?: string;
+}
+
+export interface RuntimeSummary {
+  release: VersionMeta;
+  database: {
+    configuredPath: string;
+    connectedPath: string;
+    sqliteVersion: string;
+    migrationsApplied: number;
+    latestMigration: { timestamp: number; name: string } | null;
+    pendingMigrations: boolean;
+    runtimeConfigDocuments: number;
+  };
+  storage: {
+    runtimeDataDir: string;
+    mediaRoot: string;
+    logDir: string;
+    releaseManifest: string;
+  };
 }
 
 export interface BackupItem {
@@ -52,8 +87,12 @@ export class SystemService implements OnModuleInit {
     host: os.hostname(),
   };
   private readonly startedAt = Date.now();
+  private releaseIdentityInitialized = false;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly dataSource: DataSource,
+  ) {}
 
   async onModuleInit(): Promise<void> {
     const candidates = [
@@ -70,23 +109,156 @@ export class SystemService implements OnModuleInit {
             version: parsed.version ?? this.versionMeta.version,
             sprint: parsed.sprint ?? this.versionMeta.sprint,
             buildTime: parsed.buildTime ?? this.versionMeta.buildTime,
-            platform: parsed.platform ?? this.versionMeta.platform,
-            host: parsed.host ?? this.versionMeta.host,
+            // Platform and hostname describe this running process, never a committed template.
+            platform: this.versionMeta.platform,
+            host: this.versionMeta.host,
             commit: parsed.commit,
             ref: parsed.ref,
           };
+          this.versionMeta.identitySource = parsed.commit ? 'version-file' : 'unknown';
           this.logger.log(`version.json 已加载: ${p}`);
-          return;
+          break;
         } catch (e) {
           this.logger.warn(`version.json 解析失败 ${p}: ${(e as Error).message}`);
         }
       }
     }
-    this.logger.log('version.json 未找到, 使用内置默认版本');
+    this.refreshReleaseIdentity();
+    const summary = await this.runtimeSummary();
+    this.logger.log(
+      `runtime summary: commit=${summary.release.commit} ref=${summary.release.ref} ` +
+        `db=${summary.database.connectedPath} migrations=${summary.database.migrationsApplied} ` +
+        `pending=${summary.database.pendingMigrations} data=${summary.storage.runtimeDataDir} ` +
+        `media=${summary.storage.mediaRoot}`,
+    );
   }
 
   meta(): VersionMeta {
+    this.refreshReleaseIdentity();
     return { ...this.versionMeta };
+  }
+
+  async runtimeSummary(): Promise<RuntimeSummary> {
+    const database = this.config.getOrThrow<DatabaseConfig>('database');
+    const logger = this.config.getOrThrow<LoggerConfig>('logger');
+    const connected = this.dataSource.options.database;
+    if (typeof connected !== 'string') {
+      throw new Error('RUNTIME_DATABASE_PATH_UNAVAILABLE');
+    }
+    if (this.pathKey(database.path) !== this.pathKey(connected)) {
+      throw new Error(
+        `RUNTIME_DATABASE_PATH_MISMATCH: configured=${database.path} connected=${connected}`,
+      );
+    }
+
+    const migrations = (await this.dataSource.query(
+      'SELECT timestamp, name FROM migrations ORDER BY timestamp DESC, id DESC',
+    )) as Array<{ timestamp: number; name: string }>;
+    const sqliteRows = (await this.dataSource.query(
+      'SELECT sqlite_version() AS sqliteVersion',
+    )) as Array<{ sqliteVersion: string }>;
+    const configRows = (await this.dataSource.query(
+      'SELECT COUNT(*) AS count FROM runtime_config_documents',
+    )) as Array<{ count: number }>;
+
+    return {
+      release: this.meta(),
+      database: {
+        configuredPath: database.path,
+        connectedPath: connected,
+        sqliteVersion: String(sqliteRows[0]?.sqliteVersion ?? 'unknown'),
+        migrationsApplied: migrations.length,
+        latestMigration: migrations[0]
+          ? { timestamp: Number(migrations[0].timestamp), name: migrations[0].name }
+          : null,
+        pendingMigrations: await this.dataSource.showMigrations(),
+        runtimeConfigDocuments: Number(configRows[0]?.count ?? 0),
+      },
+      storage: {
+        runtimeDataDir: resolveRuntimeDataDir(),
+        mediaRoot: resolveProductionMediaRoot(),
+        logDir: logger.dir,
+        releaseManifest: this.releaseManifestPath(),
+      },
+    };
+  }
+
+  private refreshReleaseIdentity(): void {
+    const manifest = this.readReleaseManifest();
+    if (!this.releaseIdentityInitialized) {
+      const environmentCommit = this.validCommit(
+        process.env.APP_COMMIT ?? process.env.GITHUB_SHA ?? process.env.COMMIT_SHA,
+      );
+      const gitCommit = this.gitValue(['rev-parse', 'HEAD']);
+      const versionCommit = this.validCommit(this.versionMeta.commit);
+      const commit =
+        environmentCommit ??
+        this.validCommit(gitCommit) ??
+        this.validCommit(manifest.commit) ??
+        versionCommit;
+
+      this.versionMeta.commit = commit ?? 'unknown';
+      this.versionMeta.ref =
+        process.env.APP_REF?.trim() ||
+        this.gitValue(['symbolic-ref', '--short', '-q', 'HEAD']) ||
+        manifest.ref?.trim() ||
+        this.versionMeta.ref?.trim() ||
+        'unknown';
+      this.versionMeta.identitySource = environmentCommit
+        ? 'environment'
+        : this.validCommit(gitCommit)
+          ? 'git'
+          : this.validCommit(manifest.commit)
+            ? 'release-manifest'
+            : versionCommit
+              ? 'version-file'
+              : 'unknown';
+      this.releaseIdentityInitialized = true;
+    }
+    if (manifest.commit === this.versionMeta.commit && manifest.releasedAt) {
+      this.versionMeta.releasedAt = manifest.releasedAt;
+    }
+  }
+
+  private readReleaseManifest(): ReleaseManifest {
+    const path = this.releaseManifestPath();
+    if (!existsSync(path)) return {};
+    try {
+      const raw = readFileSync(path, 'utf8').replace(/^\uFEFF/, '');
+      return JSON.parse(raw) as ReleaseManifest;
+    } catch (error) {
+      this.logger.warn(`release manifest 读取失败 ${path}: ${(error as Error).message}`);
+      return {};
+    }
+  }
+
+  private releaseManifestPath(): string {
+    return resolve(
+      process.env.RELEASE_MANIFEST_PATH?.trim() || join(resolveRuntimeDataDir(), 'release.json'),
+    );
+  }
+
+  private validCommit(value: string | undefined): string | undefined {
+    const normalized = value?.trim().toLowerCase();
+    return normalized && /^[0-9a-f]{40}$/.test(normalized) ? normalized : undefined;
+  }
+
+  private gitValue(args: string[]): string | undefined {
+    try {
+      const value = execFileSync('git', ['-C', process.cwd(), ...args], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 2_000,
+      }).trim();
+      return value || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private pathKey(path: string): string {
+    const normalized = resolve(path).replace(/\\/g, '/');
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
   }
 
   uptimeSec(): number {
@@ -114,10 +286,7 @@ export class SystemService implements OnModuleInit {
     const root = this.backupsRoot();
     if (!existsSync(root)) mkdirSync(root, { recursive: true });
 
-    const ts = new Date()
-      .toISOString()
-      .replace(/[-:T]/g, '')
-      .replace(/\..+$/, '');
+    const ts = new Date().toISOString().replace(/[-:T]/g, '').replace(/\..+$/, '');
     const snapDir = join(root, ts);
     mkdirSync(snapDir, { recursive: true });
     const dest = join(snapDir, 'smart-control.db');
@@ -146,8 +315,8 @@ export class SystemService implements OnModuleInit {
     const root = this.backupsRoot();
     const available = await this.listBackupsInternal(root);
     const selected = snapshotName
-      ? available.find((b) => b.name === snapshotName) ?? null
-      : available[0] ?? null;
+      ? (available.find((b) => b.name === snapshotName) ?? null)
+      : (available[0] ?? null);
     return {
       simulated: true,
       selected: selected?.name ?? null,
@@ -199,7 +368,9 @@ export class SystemService implements OnModuleInit {
       diagnostics: input.diagnostics ?? prev?.diagnostics,
     };
     this.siteHeartbeats.set(input.host, entry);
-    this.logger.log(`site heartbeat: ${entry.host} @ ${entry.commit?.slice(0, 7) ?? '?'} (updated ${entry.updatedAt})`);
+    this.logger.log(
+      `site heartbeat: ${entry.host} @ ${entry.commit?.slice(0, 7) ?? '?'} (updated ${entry.updatedAt})`,
+    );
     return entry;
   }
 

@@ -19,13 +19,12 @@ if (-not (Get-Command pm2 -ErrorAction SilentlyContinue)) {
 }
 
 if ($Build) {
+  if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
+    throw '未检测到 pnpm。请先安装项目声明的 pnpm@10.33.4。'
+  }
   Write-Host "[build] 编译 backend..." -ForegroundColor Yellow
   Push-Location (Join-Path $projectRoot 'backend')
-  if (Get-Command pnpm -ErrorAction SilentlyContinue) {
-    pnpm build
-  } else {
-    npm run build
-  }
+  pnpm build
   Pop-Location
 }
 

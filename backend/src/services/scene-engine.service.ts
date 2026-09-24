@@ -20,7 +20,6 @@ import { CommandDispatcherService, DispatchInput } from './command-dispatcher.se
 import { OperationLogService } from '../modules/logs/operation-log.service';
 import { ControlBus, SceneExecutionEventName } from './control-bus';
 import { AbortedError, sleep } from '../adapters/adapter.types';
-import { AdapterConnectionRegistry } from '../adapters/connection-registry';
 
 export interface ExecutionFailure {
   deviceType: string;
@@ -68,9 +67,9 @@ interface QueueItem {
   reject: (err: Error) => void;
 }
 
-// 场景执行的 fail-fast 策略 (2026-05-30 用户反馈):
-//   - 网关 offline 的设备直接跳过, 不浪费 3s connect timeout
-//   - 单次失败不再重试 (老的 3 次 × 1s 间隔 = 9s 浪费一个 action 太蠢)
+// 场景动作只尝试一次 (老的 3 次 × 1s 间隔 = 9s 会拖慢整个场景):
+//   - 真实命令本身负责更新网关状态
+//   - 不用历史在线状态拦截命令；展厅设备重新通电后，第一次操作即可恢复
 //   - "尽快启动场景, 找不到设备就过去" — 失败动作的明细落 OperationLog,
 //     不阻塞场景结束
 const MAX_ACTION_RETRIES = 1;
@@ -91,27 +90,8 @@ export class SceneEngineService {
     private readonly dispatcher: CommandDispatcherService,
     private readonly logService: OperationLogService,
     private readonly bus: ControlBus,
-    private readonly registry: AdapterConnectionRegistry,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
-
-  /**
-   * Fail-fast pre-check: 看 deviceType 对应的网关在 registry 里是不是全 offline.
-   *
-   * - lighting → 任何 lighting-* 网关在线就算
-   * - led → 任何 led-* 网关在线就算
-   * - audio → 任何 audio-* 网关在线就算
-   * - hvac / hvac-zone → 任何 hvac-* 网关在线就算 (单 device 走特定 gwHost 会
-   *   在底层失败, 但场景级别我们不预测哪台具体网关挂)
-   *
-   * 没注册任何匹配网关 (mock 模式 / 启动早期) → 返回 true 让它正常派发, 不阻塞.
-   */
-  private isAnyGatewayOnline(deviceType: string): boolean {
-    const prefix = deviceType.startsWith('hvac') ? 'hvac-' : `${deviceType}-`;
-    const matching = this.registry.list().filter((g) => g.gateway.startsWith(prefix));
-    if (matching.length === 0) return true;
-    return matching.some((g) => g.state === 'online' || g.state === 'reconnecting');
-  }
 
   // ---------- 公共查询 ----------
 
@@ -480,11 +460,6 @@ export class SceneEngineService {
     params: Record<string, unknown>,
     handle: RunningHandle,
   ): Promise<{ ok: boolean; error?: string; attempts: number }> {
-    // Fail-fast: 网关全 offline 直接跳过 (0 ms), 不浪费 3s connect timeout
-    if (!this.isAnyGatewayOnline(action.deviceType)) {
-      return { ok: false, error: 'skipped: gateway offline', attempts: 0 };
-    }
-
     let lastError: string | undefined;
     for (let attempt = 1; attempt <= MAX_ACTION_RETRIES; attempt += 1) {
       if (handle.controller.signal.aborted) {

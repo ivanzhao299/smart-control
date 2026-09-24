@@ -6,7 +6,7 @@ import { Column, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeor
  * 区别于 brand.entity.ts (那是硬件厂商目录, NovaStar / DALI 等),
  * 这张是 *本系统* 的品牌身份: 左上角 logo + 标题 + 副标题.
  *
- * 单行表 (id=1), 服务 lazy 初始化默认值, 后台直接 PUT 更新. 前台所有 layout
+ * 单行表 (id=1), 数据库迁移初始化默认值, 后台直接 PUT 更新. 前台所有 layout
  * (MainLayout 平板 / AdminLayout 后台 / BrandLogo 组件) 都从 /api/system-branding
  * 读取, 不再硬编码 "金湖展贸中心". 这样不同项目 / 不同业主只换数据库一条
  * 记录就完事, 不用动代码.
@@ -90,10 +90,48 @@ export class SystemBranding {
   @Column({ type: 'varchar', length: 64, nullable: true, name: 'welcomeTagline' })
   welcomeTagline!: string | null;
 
+  // 场馆名(中/英)与两行落款; 三态: NULL=内置默认, ''=隐藏该行, 非空=自定义
+  @Column({ type: 'varchar', length: 40, nullable: true, name: 'welcomeVenue' })
+  welcomeVenue!: string | null;
+
+  @Column({ type: 'varchar', length: 96, nullable: true, name: 'welcomeVenueEn' })
+  welcomeVenueEn!: string | null;
+
+  @Column({ type: 'varchar', length: 40, nullable: true, name: 'welcomeOrg1' })
+  welcomeOrg1!: string | null;
+
+  @Column({ type: 'varchar', length: 40, nullable: true, name: 'welcomeOrg2' })
+  welcomeOrg2!: string | null;
+
   @Column({ type: 'integer', name: 'welcomeBgMediaId', nullable: true })
   welcomeBgMediaId!: number | null;
 
-  /** 园区运营大屏可视化校准配置。JSON 文本由服务层做严格结构和范围校验。 */
+  /** 欢迎页独立 Logo 图片；空值继续使用内置场馆 Logo。 */
+  @Column({ type: 'integer', name: 'welcomeLogoMediaId', nullable: true })
+  welcomeLogoMediaId!: number | null;
+
+  /**
+   * 当前已发布欢迎方案的版式快照。草稿方案仍保存在 runtime_config_documents，只有
+   * 明确发布时才复制到这里，避免“保存草稿”意外改变正在接待的大屏画面。
+   */
+  @Column({ type: 'text', name: 'welcomePresentationJson', nullable: true })
+  welcomePresentationJson!: string | null;
+
+  /**
+   * 欢迎页"来访者拍照上墙"照片 (媒体库图片 id, 2026-09-14)。
+   * - null = 没上传 → 欢迎页保持默认欢迎语布局
+   * - 有值 → 欢迎页在欢迎语上方按照片原始方向/比例完整展示 (不裁切、不变形),
+   *   只保留最新一张, 换新时由 PWA 端可恢复删除上一张。
+   * 匿名读取走专门的公开路由 GET /api/system-branding/welcome-photo/file
+   * (只放行当前绑定的这一张; 普通 /api/media/:id/file 需登录, 不开放)。
+   */
+  @Column({ type: 'integer', name: 'welcomePhotoMediaId', nullable: true })
+  welcomePhotoMediaId!: number | null;
+
+  /**
+   * 园区运营大屏可视化校准配置的迁移前快照。
+   * 自 ImportParkOpsVisualRuntimeConfig 起仅作恢复证据，业务读写以 park.ops.visual 为准。
+   */
   @Column({ type: 'text', name: 'parkOpsConfigJson', nullable: true })
   parkOpsConfigJson!: string | null;
 

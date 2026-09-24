@@ -4,174 +4,325 @@
 <meta charset="utf-8">
 <title>金湖欢迎页</title>
 <!--
-  LED 大屏 / 投影欢迎页 (2026-07-26 「鎏金夜湖」定稿版)。
+  LED 大屏欢迎页 (2026-09-20 3612×1462 点对点版)。
 
-  - 以"网页媒体"推送到播放通道 (kiosk iframe 全屏渲染), 自动适配任意屏幕
-    分辨率 (设计基准高 1080 等比缩放, 超宽幅横向自适应);
+  - 以"网页媒体"推送到 LED 播放通道，原生画布、浏览器窗口、V2460 图层和
+    屏体带载均为 3612×1462；生产显示不使用 zoom/transform 二次缩放；
   - 嘉宾称谓从 system-branding API 实时读取 (后台系统品牌页可编辑,
     20s 轮询, 改完自动变字), 读不到时回退默认;
   - 称谓行全屏居中, 长称谓 (如"某某集团 某某董事长一行") 自动缩字号防溢出;
   - 字体随包内置 (fonts/, 已从 PWA 离线预缓存排除, 不影响平板离线包体积)。
 -->
 <style>
-  @font-face { font-family: 'NotoSerifSC'; font-weight: 700; src: url('fonts/noto-serif-sc-chinese-simplified-700-normal.woff2') format('woff2'); }
-  @font-face { font-family: 'NotoSerifSC'; font-weight: 900; src: url('fonts/noto-serif-sc-chinese-simplified-900-normal.woff2') format('woff2'); }
-  @font-face { font-family: 'NotoSansSC'; font-weight: 400; src: url('fonts/noto-sans-sc-chinese-simplified-400-normal.woff2') format('woff2'); }
-  @font-face { font-family: 'NotoSansSC'; font-weight: 500; src: url('fonts/noto-sans-sc-chinese-simplified-500-normal.woff2') format('woff2'); }
+  @font-face { font-family: 'NotoSerifSC'; font-weight: 700; font-display: swap; src: url('fonts/noto-serif-sc-chinese-simplified-700-normal.woff2') format('woff2'); }
+  @font-face { font-family: 'NotoSerifSC'; font-weight: 900; font-display: swap; src: url('fonts/noto-serif-sc-chinese-simplified-900-normal.woff2') format('woff2'); }
+  @font-face { font-family: 'NotoSansSC'; font-weight: 400; font-display: swap; src: url('fonts/noto-sans-sc-chinese-simplified-400-normal.woff2') format('woff2'); }
+  @font-face { font-family: 'NotoSansSC'; font-weight: 500; font-display: swap; src: url('fonts/noto-sans-sc-chinese-simplified-500-normal.woff2') format('woff2'); }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: 1920px; height: 1080px; overflow: hidden; background: #06101f; }
+  html, body { width: 3612px; height: 1462px; overflow: hidden; background: #061426; }
+  html.preview-mode { width: 100%; height: 100%; }
+  html.preview-mode body { transform-origin: 0 0; }
 
-  /* 自定义底图 (2026-07-28 前端欢迎页编辑器): 业主选了媒体库图片时铺满显示,
-     叠一层暗色渐变压住底图保文字可读; 程序化装饰层 (涟漪/网格/光尘) 同时隐藏 */
+  /* 自定义底图铺满原生画布；蓝黑遮罩保证品牌色文字在复杂图片上仍清晰。 */
   .custom-bg { position: absolute; inset: 0; display: none; }
-  .custom-bg img { width: 100%; height: 100%; object-fit: cover; }
+  .custom-bg img { width: 3612px; height: 1462px; object-fit: none; }
+  /* 预览 iframe 用前端按需生成的等比例缩略图(画布同为 3612:1462), 允许 cover 铺满不变形;
+       真机非预览仍保持上行 object-fit:none + 精确像素点对点 */
+  html.preview-mode .custom-bg img { object-fit: cover; }
   .custom-bg::after { content: ''; position: absolute; inset: 0;
-    background: linear-gradient(180deg, rgba(6,16,31,0.42), rgba(6,16,31,0.18) 40%, rgba(6,16,31,0.55));
+    background: linear-gradient(180deg, rgba(4,19,38,0.56), rgba(5,28,52,0.30) 42%, rgba(4,16,31,0.68));
+  }
+  body[data-overlay="none"] .custom-bg::after { background: transparent; }
+  body[data-overlay="strong"] .custom-bg::after {
+    background: linear-gradient(180deg, rgba(3,15,29,0.74), rgba(4,24,45,0.48) 42%, rgba(3,13,26,0.80));
   }
   body.has-bg .custom-bg { display: block; }
-  body.has-bg .grid, body.has-bg .ripples, body.has-bg .lake-haze, body.has-bg #motes { display: none; }
+  body.has-bg .grid { display: none; }
   body {
     position: relative;
     font-family: 'NotoSerifSC', 'STZhongsong', 'SimSun', serif;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
     background:
-      radial-gradient(1600px 900px at 50% 118%, rgba(212, 175, 55, 0.16), transparent 62%),
-      radial-gradient(1200px 700px at 50% -20%, rgba(24, 74, 110, 0.55), transparent 70%),
-      radial-gradient(2000px 1200px at 50% 50%, #0d2038 0%, #0a1729 55%, #06101f 100%);
-    color: #f5efdf;
+      radial-gradient(1900px 760px at 50% -16%, rgba(52, 132, 236, 0.24), transparent 72%),
+      linear-gradient(180deg, #081b32 0%, #07182c 44%, #061426 100%);
+    color: #f4f8ff;
+    --logo-height: 206px;
   }
-
-  .ripples { position: absolute; left: 50%; bottom: -420px; transform: translateX(-50%); }
-  .ripples div {
-    position: absolute; left: 50%; top: 50%;
-    border: 1px solid rgba(212, 175, 55, 0.10);
-    border-radius: 50%;
-    transform: translate(-50%, -50%) scaleY(0.34);
-  }
+  body[data-logo-size="small"] { --logo-height: 150px; }
+  body[data-logo-size="large"] { --logo-height: 260px; }
 
   .grid {
     position: absolute; inset: 0;
     background-image:
-      linear-gradient(rgba(120, 160, 200, 0.035) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(120, 160, 200, 0.035) 1px, transparent 1px);
-    background-size: 96px 96px;
-    -webkit-mask-image: radial-gradient(1200px 800px at 50% 45%, transparent 30%, #000 85%);
+      linear-gradient(rgba(93, 161, 235, 0.024) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(93, 161, 235, 0.024) 1px, transparent 1px);
+    background-size: 152px 152px;
+    -webkit-mask-image: linear-gradient(180deg, transparent 4%, #000 38%, #000 70%, transparent 98%);
   }
 
-  .lake-haze { position: absolute; left: 50%; bottom: -140px; transform: translateX(-50%);
-    width: 1500px; height: 420px; border-radius: 50%;
-    background: radial-gradient(closest-side, rgba(212, 175, 55, 0.12), transparent 72%);
-    filter: blur(6px); }
-
-  .mote { position: absolute; border-radius: 50%; background: radial-gradient(circle, rgba(232, 198, 106, 0.9), rgba(232, 198, 106, 0)); }
-
-  .corner { position: absolute; width: 104px; height: 104px; opacity: 0.6; }
-  .corner::before, .corner::after { content: ''; position: absolute; background: linear-gradient(90deg, rgba(212,175,55,0.65), rgba(212,175,55,0.08)); }
-  .corner::before { width: 104px; height: 1px; }
-  .corner::after { width: 1px; height: 104px; background: linear-gradient(180deg, rgba(212,175,55,0.65), rgba(212,175,55,0.08)); }
-  .corner.tl { top: 46px; left: 54px; }
-  .corner.tr { top: 46px; right: 54px; transform: scaleX(-1); }
-  .corner.bl { bottom: 46px; left: 54px; transform: scaleY(-1); }
-  .corner.br { bottom: 46px; right: 54px; transform: scale(-1); }
+  .corner { position: absolute; width: 126px; height: 126px; opacity: 0.34; }
+  .corner::before, .corner::after { content: ''; position: absolute; background: linear-gradient(90deg, rgba(89,160,241,0.72), rgba(89,160,241,0.04)); }
+  .corner::before { width: 126px; height: 1px; }
+  .corner::after { width: 1px; height: 126px; background: linear-gradient(180deg, rgba(89,160,241,0.72), rgba(89,160,241,0.04)); }
+  .corner.tl { top: 62px; left: 73px; }
+  .corner.tr { top: 62px; right: 73px; transform: scaleX(-1); }
+  .corner.bl { bottom: 62px; left: 73px; transform: scaleY(-1); }
+  .corner.br { bottom: 62px; right: 73px; transform: scale(-1); }
 
   /* 徽记组: logo 与场馆名紧贴为一个组合 (2026-07-26 业主: 不要分离在外) */
-  .crest { position: absolute; top: 108px; left: 0; right: 0; text-align: center; }
+  .crest { position: absolute; top: 98px; left: 0; right: 0; text-align: center; }
   .crest img {
-    height: 184px; width: auto; display: inline-block;
-    filter: brightness(0) invert(0.92) sepia(0.18) saturate(2.2) hue-rotate(8deg);
-    opacity: 0.95;
+    height: var(--logo-height); width: auto; max-width: 900px; object-fit: contain; display: inline-block;
+    opacity: 1;
   }
   .crest .venue {
-    margin-top: 6px;
+    margin-top: 16px;
     font-family: 'NotoSansSC', 'Microsoft YaHei', sans-serif; font-weight: 500;
-    font-size: 31px; letter-spacing: 20px; text-indent: 20px;
-    color: rgba(215, 226, 240, 0.78);
+    font-size: 38px; letter-spacing: 24px; text-indent: 24px;
+    color: rgba(224, 235, 249, 0.82);
   }
   .crest .venue-en {
-    margin-top: 8px;
+    margin-top: 11px;
     font-family: 'NotoSansSC', 'Microsoft YaHei', sans-serif; font-weight: 400;
-    font-size: 15px; letter-spacing: 8px; text-indent: 8px;
-    color: rgba(160, 180, 205, 0.42);
+    font-size: 17px; letter-spacing: 9px; text-indent: 9px;
+    color: rgba(148, 178, 213, 0.52);
   }
 
-  .thread { position: absolute; top: 388px; left: 50%; transform: translateX(-50%); width: 640px; text-align: center; }
-  .thread .line { display: inline-block; vertical-align: middle; width: 230px; height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(212, 175, 55, 0.55)); }
-  .thread .line.r { background: linear-gradient(270deg, transparent, rgba(212, 175, 55, 0.55)); }
-  .thread .diamond { display: inline-block; vertical-align: middle; width: 9px; height: 9px; margin: 0 18px;
-    background: linear-gradient(135deg, #e8c66a, #b8912e); transform: rotate(45deg);
-    box-shadow: 0 0 12px rgba(232, 198, 106, 0.55); }
+  .thread { position: absolute; top: 476px; left: 50%; transform: translateX(-50%); width: 840px; text-align: center; }
+  .thread .line { display: inline-block; vertical-align: middle; width: 318px; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(91, 159, 238, 0.52)); }
+  .thread .line.r { background: linear-gradient(270deg, transparent, rgba(91, 159, 238, 0.52)); }
+  .thread .diamond { display: inline-block; vertical-align: middle; width: 9px; height: 9px; margin: 0 20px;
+    background: #5b9fee; transform: rotate(45deg); }
 
-  .hero { position: absolute; top: 432px; left: 0; right: 0; text-align: center; }
+  .hero { position: absolute; top: 535px; left: 0; right: 0; text-align: center; }
   .hero .main-wrap { position: relative; display: inline-block; }
-  .hero .main, .hero .main-glow {
-    font-weight: 900; font-size: 168px; line-height: 1.18;
-    letter-spacing: 36px; text-indent: 36px; white-space: nowrap;
+  .hero .main {
+    font-weight: 900; font-size: 216px; line-height: 1.12;
+    letter-spacing: 46px; text-indent: 46px; white-space: nowrap;
   }
   .hero .main {
     position: relative;
-    background: linear-gradient(180deg,
-      #fdf3cd 0%, #f6e19c 24%, #eecd76 44%, #ddba50 62%, #cfa93f 80%, #d7b14a 100%);
+    background: linear-gradient(180deg, #f8fbff 0%, #dcecff 42%, #9cc8f8 100%);
     -webkit-background-clip: text; background-clip: text; color: transparent;
-    filter: drop-shadow(0 2px 1px rgba(60, 40, 8, 0.4)) drop-shadow(0 10px 30px rgba(8, 16, 30, 0.6));
+    filter: drop-shadow(0 8px 24px rgba(1, 12, 28, 0.54));
   }
-  .hero .main-glow {
-    position: absolute; inset: 0; z-index: -1;
-    color: rgba(232, 198, 106, 0.55);
-    filter: blur(26px);
-  }
-  /* 嘉宾行: 全屏居中; 长称谓由 JS 自动缩字号, 两侧金线随内容对称收放 */
+  /* 嘉宾行: 全屏居中; 长称谓由 JS 自动缩字号, 两侧品牌蓝线随内容对称收放 */
   .hero .guest {
-    display: flex; align-items: center; justify-content: center; gap: 34px;
-    margin-top: 44px; width: 100%;
-    font-weight: 700; font-size: 58px; letter-spacing: 14px; text-indent: 14px;
-    color: rgba(245, 239, 223, 0.96);
-    text-shadow: 0 4px 24px rgba(8, 18, 32, 0.8);
+    display: flex; align-items: center; justify-content: center; gap: 52px;
+    margin-top: 50px; width: 100%;
+    font-weight: 700; font-size: 68px; letter-spacing: 14px; text-indent: 14px;
+    color: rgba(229, 238, 250, 0.92);
+    text-shadow: 0 4px 20px rgba(2, 14, 31, 0.65);
   }
   .hero .guest .text { white-space: nowrap; }
-  .hero .guest .name { color: #ecd489; }
-  .hero .guest .flank { flex: 0 0 88px; height: 1px; position: relative;
-    background: linear-gradient(90deg, transparent, rgba(212, 175, 55, 0.5)); }
-  .hero .guest .flank.r { background: linear-gradient(270deg, transparent, rgba(212, 175, 55, 0.5)); }
+  .hero .guest .name { color: #79b7f5; }
+  .hero .guest .flank { flex: 0 0 150px; height: 1px; position: relative;
+    background: linear-gradient(90deg, transparent, rgba(91, 159, 238, 0.45)); }
+  .hero .guest .flank.r { background: linear-gradient(270deg, transparent, rgba(91, 159, 238, 0.45)); }
   .hero .guest .flank::after { content: ''; position: absolute; top: -2.5px; width: 6px; height: 6px;
-    background: #d4af37; transform: rotate(45deg); right: 0; }
+    background: #5b9fee; transform: rotate(45deg); right: 0; }
   .hero .guest .flank.r::after { left: 0; right: auto; }
 
-  .inscription { position: absolute; bottom: 96px; left: 0; right: 0; text-align: center; }
+  .inscription { position: absolute; bottom: 116px; left: 0; right: 0; text-align: center; }
   .inscription .orgs {
-    display: flex; justify-content: center; align-items: center; gap: 44px;
+    display: flex; justify-content: center; align-items: center; gap: 60px;
     font-family: 'NotoSansSC', 'Microsoft YaHei', sans-serif; font-weight: 500;
-    font-size: 40px; letter-spacing: 10px; text-indent: 10px;
-    color: rgba(236, 226, 198, 0.92);
+    font-size: 40px; letter-spacing: 14px; text-indent: 14px;
+    color: rgba(211, 225, 243, 0.84);
   }
-  .inscription .dot { width: 5px; height: 5px; transform: rotate(45deg);
-    background: linear-gradient(135deg, rgba(232,198,106,0.85), rgba(184,145,46,0.85));
-    box-shadow: 0 0 8px rgba(232, 198, 106, 0.4); }
-  .inscription .sep { width: 1px; height: 40px; background: linear-gradient(180deg, transparent, rgba(212,175,55,0.7), transparent); }
+  .inscription .dot { width: 7px; height: 7px; transform: rotate(45deg);
+    background: #5b9fee; }
+  .inscription .sep { width: 1px; height: 48px; background: linear-gradient(180deg, transparent, rgba(91,159,238,0.62), transparent); }
   .inscription .hairline {
-    margin: 42px auto 0; width: 560px; height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(212, 175, 55, 0.45) 30%, rgba(212, 175, 55, 0.45) 70%, transparent);
+    margin: 50px auto 0; width: 900px; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(91,159,238,0.38) 30%, rgba(91,159,238,0.38) 70%, transparent);
   }
   .inscription .marks {
-    margin-top: 18px;
+    margin-top: 24px;
     font-family: 'NotoSansSC', 'Microsoft YaHei', sans-serif; font-weight: 400;
-    font-size: 15px; letter-spacing: 6px; text-indent: 6px;
-    color: rgba(160, 180, 205, 0.4);
+    font-size: 22px; letter-spacing: 9px; text-indent: 9px;
+    color: rgba(148, 178, 213, 0.58);
   }
+
+  /* 每套方案保存自己的受控版式。所有数值仍落在 3612×1462 原生安全区内。 */
+  body[data-position="upper"] .hero { top: 490px; }
+  body[data-position="lower"] .hero { top: 610px; }
+
+  body[data-layout="editorial"] .crest {
+    top: 112px; left: 240px; right: auto; width: 1540px; text-align: left;
+  }
+  body[data-layout="editorial"] .crest .venue,
+  body[data-layout="editorial"] .crest .venue-en { text-indent: 0; }
+  body[data-layout="editorial"] .thread {
+    top: 470px; left: 240px; transform: none; width: 720px; text-align: left;
+  }
+  body[data-layout="editorial"] .hero {
+    top: 548px; left: 240px; right: auto; width: 2280px; text-align: left;
+  }
+  body[data-layout="editorial"][data-position="upper"] .hero { top: 490px; }
+  body[data-layout="editorial"][data-position="lower"] .hero { top: 630px; }
+  body[data-layout="editorial"] .hero .main {
+    font-size: 176px; letter-spacing: 28px; text-indent: 0;
+  }
+  body[data-layout="editorial"] .hero .guest {
+    justify-content: flex-start; gap: 36px; margin-top: 42px; font-size: 60px;
+    letter-spacing: 10px; text-indent: 0;
+  }
+  body[data-layout="editorial"] .hero .guest .flank:first-child { display: none; }
+  body[data-layout="editorial"] .hero .guest .flank { flex-basis: 120px; }
+  body[data-layout="editorial"] .inscription {
+    left: 240px; right: auto; width: 2280px; text-align: left;
+  }
+  body[data-layout="editorial"] .inscription .orgs { justify-content: flex-start; }
+  body[data-layout="editorial"] .inscription .hairline { margin-left: 0; }
+
+  body[data-layout="minimal"] .grid,
+  body[data-layout="minimal"] .corner,
+  body[data-layout="minimal"] .thread { display: none; }
+  body[data-layout="minimal"] .crest { top: 154px; }
+  body[data-layout="minimal"] .crest .venue-en { display: none; }
+  body[data-layout="minimal"] .hero { top: 520px; }
+  body[data-layout="minimal"][data-position="upper"] .hero { top: 440px; }
+  body[data-layout="minimal"][data-position="lower"] .hero { top: 610px; }
+  body[data-layout="minimal"] .hero .main {
+    font-size: 166px; letter-spacing: 28px; text-indent: 28px;
+  }
+  body[data-layout="minimal"] .hero .guest { margin-top: 42px; font-size: 58px; }
+  body[data-layout="minimal"] .inscription { bottom: 142px; }
+  body[data-layout="minimal"] .inscription .orgs,
+  body[data-layout="minimal"] .inscription .hairline { display: none; }
+  body[data-layout="minimal"] .inscription .marks { font-size: 25px; }
+
+  body[data-tone="dark"] { color: #102e4d; }
+  body[data-tone="dark"] .custom-bg::after {
+    background: linear-gradient(180deg, rgba(244,248,252,0.48), rgba(239,246,251,0.24) 48%, rgba(231,240,247,0.54));
+  }
+  body[data-tone="dark"][data-overlay="none"] .custom-bg::after { background: transparent; }
+  body[data-tone="dark"][data-overlay="strong"] .custom-bg::after {
+    background: linear-gradient(180deg, rgba(246,249,252,0.72), rgba(238,245,250,0.50) 48%, rgba(226,237,246,0.76));
+  }
+  body[data-tone="dark"] .crest .venue { color: rgba(15,48,80,.90); }
+  body[data-tone="dark"] .crest .venue-en,
+  body[data-tone="dark"] .inscription .marks { color: rgba(24,68,108,.66); }
+  body[data-tone="dark"] .hero .main {
+    background: none; color: #123a62; filter: drop-shadow(0 5px 18px rgba(255,255,255,.50));
+  }
+  body[data-tone="dark"] .hero .guest {
+    color: rgba(19,54,87,.92); text-shadow: 0 3px 16px rgba(255,255,255,.56);
+  }
+  body[data-tone="dark"] .hero .guest .name { color: #0d5ca4; }
+  body[data-tone="dark"] .inscription .orgs { color: rgba(19,54,87,.86); }
+
+/* ===== 主标题文字效果 (titleEffect, 独立于明暗色调, 同特异性后定义覆盖 tone) =====
+   blue/gold/white/neon 为深色底配浅字; ink 为浅色照片底配深字(建议配合浅色底图与 tone=dark)。
+   每套定义 --fx-accent(点缀) / --fx-line(细线), 装饰件统一引用, 副文字随主标题同氛围。 */
+body[data-title-effect] .thread .diamond,
+body[data-title-effect] .inscription .dot { background: var(--fx-accent, #5b9fee); }
+body[data-title-effect] .thread .line { background: linear-gradient(90deg, transparent, var(--fx-line, rgba(91,159,238,.52))); }
+body[data-title-effect] .thread .line.r { background: linear-gradient(270deg, transparent, var(--fx-line, rgba(91,159,238,.52))); }
+body[data-title-effect] .inscription .sep { background: linear-gradient(180deg, transparent, var(--fx-line, rgba(91,159,238,.62)), transparent); }
+body[data-title-effect] .inscription .hairline { background: linear-gradient(90deg, transparent, var(--fx-line, rgba(91,159,238,.38)) 30%, var(--fx-line, rgba(91,159,238,.38)) 70%, transparent); }
+body[data-title-effect] .hero .guest .flank { background: linear-gradient(90deg, transparent, var(--fx-line, rgba(91,159,238,.45))); }
+body[data-title-effect] .hero .guest .flank.r { background: linear-gradient(270deg, transparent, var(--fx-line, rgba(91,159,238,.45))); }
+body[data-title-effect] .hero .guest .flank::after { background: var(--fx-accent, #5b9fee); }
+
+/* blue 科技蓝 (默认, 深底) */
+body[data-title-effect="blue"] { --fx-accent: #5b9fee; --fx-line: rgba(91,159,238,.50); }
+body[data-title-effect="blue"] .hero .main {
+  background-image: linear-gradient(180deg, #f8fbff 0%, #dcecff 42%, #9cc8f8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-stroke: 0;
+  filter: drop-shadow(0 10px 34px rgba(64, 128, 214, .32));
+}
+body[data-title-effect="blue"] .hero .guest { color: rgba(228, 238, 252, .92); text-shadow: none; }
+body[data-title-effect="blue"] .hero .guest .name { color: #8fc3f7; }
+
+/* gold 鎏金 (政务/喜庆, 深色底) */
+body[data-title-effect="gold"] { --fx-accent: #e7b955; --fx-line: rgba(231,185,85,.50); }
+body[data-title-effect="gold"] .hero .main {
+  background-image: linear-gradient(180deg, #fff7dc 0%, #f8dd8c 38%, #d9a638 72%, #a8771b 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-stroke: 0;
+  filter: drop-shadow(0 6px 16px rgba(120, 80, 8, .45)) drop-shadow(0 0 2px rgba(255, 236, 170, .4));
+}
+body[data-title-effect="gold"] .hero .guest { color: rgba(255, 244, 214, .94); text-shadow: 0 2px 10px rgba(90, 60, 8, .5); }
+body[data-title-effect="gold"] .hero .guest .name { color: #f3cf7a; }
+body[data-title-effect="gold"] .crest .venue { color: rgba(255, 243, 214, .92); }
+body[data-title-effect="gold"] .crest .venue-en { color: rgba(243, 207, 122, .72); }
+body[data-title-effect="gold"] .inscription .orgs { color: rgba(255, 240, 208, .90); }
+body[data-title-effect="gold"] .inscription .marks { color: rgba(243, 207, 122, .66); }
+
+/* white 纯白描边 (明暗混杂/复杂照片底) */
+body[data-title-effect="white"] { --fx-accent: #dceafe; --fx-line: rgba(220, 234, 254, .50); }
+body[data-title-effect="white"] .hero .main {
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  color: #ffffff;
+  -webkit-text-stroke: 3px rgba(18, 40, 74, .55);
+  filter: none;
+  text-shadow: 0 2px 6px rgba(8, 22, 46, .78), 0 8px 24px rgba(8, 22, 46, .55), 0 0 2px rgba(8, 22, 46, .9);
+}
+body[data-title-effect="white"] .hero .guest { color: #ffffff; text-shadow: 0 2px 8px rgba(8, 22, 46, .85); }
+body[data-title-effect="white"] .hero .guest .name { color: #eaf3ff; }
+body[data-title-effect="white"] .crest .venue { color: rgba(255, 255, 255, .94); }
+body[data-title-effect="white"] .crest .venue-en { color: rgba(234, 243, 255, .70); }
+body[data-title-effect="white"] .inscription .orgs { color: rgba(255, 255, 255, .92); }
+body[data-title-effect="white"] .inscription .marks { color: rgba(234, 243, 255, .66); }
+
+/* ink 墨蓝 (浅色留白照片底, 建议 tone=dark) */
+body[data-title-effect="ink"] { --fx-accent: #2b6cb0; --fx-line: rgba(43, 108, 176, .45); }
+body[data-title-effect="ink"] .hero .main {
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  color: #16365f;
+  -webkit-text-stroke: 0;
+  filter: none;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .65), 0 8px 26px rgba(255, 255, 255, .5);
+}
+body[data-title-effect="ink"] .hero .guest { color: rgba(38, 66, 104, .92); text-shadow: 0 1px 4px rgba(255, 255, 255, .6); }
+body[data-title-effect="ink"] .hero .guest .name { color: #2b6cb0; }
+body[data-title-effect="ink"] .crest .venue { color: rgba(15, 48, 80, .92); }
+body[data-title-effect="ink"] .crest .venue-en { color: rgba(43, 108, 176, .72); }
+body[data-title-effect="ink"] .inscription .orgs { color: rgba(19, 54, 87, .90); }
+body[data-title-effect="ink"] .inscription .marks { color: rgba(43, 108, 176, .70); }
+
+/* neon 霓虹青 (深色科技底) */
+body[data-title-effect="neon"] { --fx-accent: #56e6ff; --fx-line: rgba(86, 230, 255, .50); }
+body[data-title-effect="neon"] .hero .main {
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  color: #dcfbff;
+  -webkit-text-stroke: 0;
+  filter: none;
+  text-shadow: 0 0 6px rgba(120, 240, 255, .9), 0 0 22px rgba(64, 200, 255, .75), 0 0 48px rgba(0, 150, 220, .6);
+}
+body[data-title-effect="neon"] .hero .guest { color: #c9f6ff; text-shadow: 0 0 10px rgba(80, 210, 255, .6); }
+body[data-title-effect="neon"] .hero .guest .name { color: #7fe9ff; }
+body[data-title-effect="neon"] .crest .venue { color: rgba(220, 250, 255, .94); }
+body[data-title-effect="neon"] .crest .venue-en { color: rgba(127, 233, 255, .70); }
+body[data-title-effect="neon"] .inscription .orgs { color: rgba(201, 246, 255, .92); }
+body[data-title-effect="neon"] .inscription .marks { color: rgba(127, 233, 255, .64); }
 </style>
 </head>
 <body>
   <div class="custom-bg"><img id="bgImg" alt=""></div>
   <div class="grid"></div>
   <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
-  <div class="lake-haze"></div>
-  <div class="ripples" id="ripples"></div>
-  <div id="motes"></div>
 
   <header class="crest">
-    <img src="../brand-logo.png" alt="">
-    <div class="venue">金湖展贸中心</div>
-    <div class="venue-en">JINHU EXPOSITION &amp; TRADE CENTER</div>
+    <img id="logoImg" src="../brand-logo.png" alt="欢迎页 Logo">
+    <div class="venue" id="venueName">金湖展贸中心</div>
+    <div class="venue-en" id="venueEnName">JINHU EXPOSITION &amp; TRADE CENTER</div>
   </header>
 
   <div class="thread">
@@ -179,7 +330,7 @@
   </div>
 
   <main class="hero">
-    <div class="main-wrap"><div class="main-glow" id="mainGlow" aria-hidden="true">热烈欢迎</div><div class="main" id="mainTitle">热烈欢迎</div></div>
+    <div class="main-wrap"><div class="main" id="mainTitle">热烈欢迎</div></div>
     <div class="guest">
       <span class="flank"></span>
       <span class="text">恭迎&nbsp;<span class="name" id="guestName">各位领导嘉宾</span>&nbsp;莅临参观指导</span>
@@ -188,94 +339,216 @@
   </main>
 
   <footer class="inscription">
-    <div class="orgs">
-      <span class="dot"></span>
-      <span>山东金湖集团</span>
-      <span class="sep"></span>
-      <span>金湖科创产业园</span>
-      <span class="dot"></span>
+    <div class="orgs" id="orgLine">
+      <span class="dot" id="orgDotBefore"></span>
+      <span id="orgName1">山东金湖集团</span>
+      <span class="sep" id="orgSep"></span>
+      <span id="orgName2">金湖科创产业园</span>
+      <span class="dot" id="orgDotAfter"></span>
     </div>
     <div class="hairline"></div>
     <div class="marks" id="tagline">智慧展厅 · 数字展贸 · 科创未来</div>
   </footer>
 
   <script>
-    // ---- 尺寸自适配: 优先 ?w=&h=, 否则用窗口实际尺寸 (kiosk iframe 即目标屏) ----
+    // ---- LED 原生画布: 生产始终 3612×1462 点对点，不在 iframe 内二次缩放 ----
+    const LED_WIDTH = 3612;
+    const LED_HEIGHT = 1462;
     const q = new URLSearchParams(location.search);
-    const W = +q.get('w') || window.innerWidth || 1920;
-    const H = +q.get('h') || window.innerHeight || 1080;
-    const scale = H / 1080, LW = Math.round(W / scale);
-    document.documentElement.style.width = LW + 'px';
-    document.body.style.width = LW + 'px';
-    document.body.style.zoom = scale;
-
-    // ---- 涟漪环 ----
-    const rp = document.getElementById('ripples');
-    let r = 120;
-    for (let i = 0; i < 22; i++) {
-      const d = document.createElement('div');
-      const w = r * 2;
-      d.style.width = w + 'px'; d.style.height = w + 'px';
-      d.style.borderColor = 'rgba(212,175,55,' + (0.20 - i * 0.0075) + ')';
-      rp.appendChild(d);
-      r += 46 + i * 7;
+    const previewMode = q.get('preview') === '1';
+    if (previewMode) document.documentElement.classList.add('preview-mode');
+    function fitPreview() {
+      if (!previewMode) return;
+      const scale = Math.min(window.innerWidth / LED_WIDTH, window.innerHeight / LED_HEIGHT);
+      const left = (window.innerWidth - LED_WIDTH * scale) / 2;
+      const top = (window.innerHeight - LED_HEIGHT * scale) / 2;
+      document.body.style.position = 'absolute';
+      document.body.style.left = `${left}px`;
+      document.body.style.top = `${top}px`;
+      document.body.style.transform = `scale(${scale})`;
     }
-    // ---- 光尘 (固定种子, 每次渲染一致) ----
-    const motes = document.getElementById('motes');
-    let seed = 7;
-    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-    for (let i = 0; i < 26; i++) {
-      const m = document.createElement('div');
-      m.className = 'mote';
-      const s = 2 + rnd() * 5;
-      m.style.width = s + 'px'; m.style.height = s + 'px';
-      m.style.left = (80 + rnd() * (LW - 160)) + 'px';
-      m.style.top = (560 + rnd() * 440) + 'px';
-      m.style.opacity = 0.25 + rnd() * 0.5;
-      motes.appendChild(m);
-    }
+    fitPreview();
+    if (previewMode) window.addEventListener('resize', fitPreview);
 
     // ---- 嘉宾行: 长称谓自动缩字号 (全屏居中, 不溢出不换行) ----
     function fitGuest() {
       const g = document.querySelector('.hero .guest');
       const t = g.querySelector('.text');
-      let size = 58;
+      const layout = document.body.dataset.layout || 'ceremony';
+      let size = layout === 'ceremony' ? 68 : layout === 'editorial' ? 60 : 58;
       g.style.fontSize = size + 'px';
-      const max = LW - 2 * (88 + 34) - 80; // 两侧金线+间距+安全边
-      while (size > 30 && t.scrollWidth > max) {
-        size -= 2;
+      const max = LED_WIDTH - 2 * (150 + 52) - 120; // 两侧装饰线+间距+安全边
+      while (size > 42 && t.scrollWidth > max) {
+        size -= 3;
         g.style.fontSize = size + 'px';
       }
+    }
+
+    function fitTitle() {
+      const title = document.getElementById('mainTitle');
+      const layout = document.body.dataset.layout || 'ceremony';
+      let size = layout === 'ceremony' ? 216 : layout === 'editorial' ? 176 : 166;
+      title.style.fontSize = size + 'px';
+      const maxWidth = layout === 'editorial' ? 2280 : LED_WIDTH - 440;
+      while (size > 116 && title.scrollWidth > maxWidth) {
+        size -= 4;
+        title.style.fontSize = size + 'px';
+      }
+    }
+
+    function fitTypography() {
+      fitTitle();
+      fitGuest();
     }
 
     // ---- 欢迎页内容: 前端编辑器可改 (system-branding: 称谓/主标题/标语/底图),
     //      8s 轮询"保存后立即生效"。kiosk 在主机本机 → localhost; 平板预览 →
     //      location.hostname。读不到保持现值/默认。
-    const API = `http://${location.hostname || 'localhost'}:3200`;
+    // 同源访问: 生产走 https 反代(/control 与 /api 同域), 本地 dev 走 vite 代理;
+    // 不能硬编码 http://主机:3200 —— https 页面里会被判为混合内容拦截, 且 3200 端口不对公网暴露。
+    const API = location.origin || '';
     let lastBgUrl = null;
+    let bgRevision = 0;
+    const DEFAULT_LOGO_URL = '../brand-logo.png';
+    let lastLogoUrl = DEFAULT_LOGO_URL;
+    const DEFAULT_VENUE_CN = '金湖展贸中心';
+    const DEFAULT_VENUE_EN = 'JINHU EXPOSITION & TRADE CENTER';
+    const DEFAULT_ORG1 = '山东金湖集团';
+    const DEFAULT_ORG2 = '金湖科创产业园';
+    const DEFAULT_PRESENTATION = {
+      layout: 'ceremony', tone: 'light', overlay: 'soft', contentPosition: 'center', logoSize: 'medium', titleEffect: 'blue',
+    };
+    const PRESENTATION_VALUES = {
+      layout: ['ceremony', 'editorial', 'minimal'],
+      tone: ['light', 'dark'],
+      overlay: ['none', 'soft', 'strong'],
+      contentPosition: ['upper', 'center', 'lower'],
+      logoSize: ['small', 'medium', 'large'],
+      titleEffect: ['blue', 'gold', 'white', 'ink', 'neon'],
+    };
+    function applyPresentation(input) {
+      const value = input && typeof input === 'object' ? input : DEFAULT_PRESENTATION;
+      const safe = {};
+      for (const [key, allowed] of Object.entries(PRESENTATION_VALUES)) {
+        safe[key] = allowed.includes(value[key]) ? value[key] : DEFAULT_PRESENTATION[key];
+      }
+      document.body.dataset.layout = safe.layout;
+      document.body.dataset.tone = safe.tone;
+      document.body.dataset.overlay = safe.overlay;
+      document.body.dataset.position = safe.contentPosition;
+      document.body.dataset.logoSize = safe.logoSize;
+      document.body.dataset.titleEffect = safe.titleEffect;
+    }
+    function applyBackground(url) {
+      if (url === lastBgUrl) return;
+      lastBgUrl = url;
+      const revision = ++bgRevision;
+      const img = document.getElementById('bgImg');
+      document.body.classList.remove('has-bg');
+      img.onload = null;
+      img.onerror = null;
+      if (!url) {
+        img.removeAttribute('src');
+        return;
+      }
+      img.onload = () => {
+        if (revision !== bgRevision) return;
+        const exact = img.naturalWidth === LED_WIDTH && img.naturalHeight === LED_HEIGHT;
+        if (previewMode) {
+          // 预览走等比例缩略图, 加载成功即显示; 正式上屏仍用原图并保持精确点对点
+          document.body.classList.add('has-bg');
+          if (!exact) console.info(`预览使用缩略图 ${img.naturalWidth}×${img.naturalHeight}；正式上屏仍为 ${LED_WIDTH}×${LED_HEIGHT} 原图`);
+        } else {
+          document.body.classList.toggle('has-bg', exact);
+          if (!exact) console.warn(`欢迎页底图必须为 ${LED_WIDTH}×${LED_HEIGHT}，当前为 ${img.naturalWidth}×${img.naturalHeight}`);
+        }
+      };
+      img.onerror = () => {
+        if (revision === bgRevision) document.body.classList.remove('has-bg');
+      };
+      img.src = url;
+    }
+
+    function applyLogo(url) {
+      const next = url || DEFAULT_LOGO_URL;
+      if (next === lastLogoUrl) return;
+      lastLogoUrl = next;
+      const img = document.getElementById('logoImg');
+      img.onerror = () => {
+        img.onerror = null;
+        lastLogoUrl = DEFAULT_LOGO_URL;
+        img.src = DEFAULT_LOGO_URL;
+      };
+      img.src = next;
+    }
+
+    function applyContent(d, bgUrl, logoUrl) {
+      const guest = (d.welcomeGuest || '').trim();
+      document.getElementById('guestName').textContent = guest || '各位领导嘉宾';
+      const title = (d.welcomeTitle || '').trim() || '热烈欢迎';
+      document.getElementById('mainTitle').textContent = title;
+      document.getElementById('tagline').textContent = (d.welcomeTagline || '').trim() || '智慧展厅 · 数字展贸 · 科创未来';
+      // 场馆名/英文/两行落款 — 三态: null/undefined=内置默认, ''(空)=隐藏该行, 非空=自定义
+      const displayText = (value, fallback) => {
+        if (value === null || value === undefined) return fallback;
+        return String(value).trim() === '' ? null : String(value).trim();
+      };
+      const setLine = (id, text) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (text === null) { el.style.display = 'none'; return; }
+        el.style.display = '';
+        el.textContent = text;
+      };
+      setLine('venueName', displayText(d.welcomeVenue, DEFAULT_VENUE_CN));
+      setLine('venueEnName', displayText(d.welcomeVenueEn, DEFAULT_VENUE_EN));
+      const org1 = displayText(d.welcomeOrg1, DEFAULT_ORG1);
+      const org2 = displayText(d.welcomeOrg2, DEFAULT_ORG2);
+      setLine('orgName1', org1);
+      setLine('orgName2', org2);
+      const orgCount = (org1 ? 1 : 0) + (org2 ? 1 : 0);
+      const orgLine = document.getElementById('orgLine');
+      if (orgLine) orgLine.style.display = orgCount === 0 ? 'none' : '';
+      const orgSep = document.getElementById('orgSep');
+      if (orgSep) orgSep.style.display = org1 && org2 ? '' : 'none';
+      const orgDotBefore = document.getElementById('orgDotBefore');
+      if (orgDotBefore) orgDotBefore.style.display = orgCount === 2 ? '' : 'none';
+      const orgDotAfter = document.getElementById('orgDotAfter');
+      if (orgDotAfter) orgDotAfter.style.display = orgCount === 2 ? '' : 'none';
+      applyPresentation(d.welcomePresentation);
+      applyBackground(bgUrl || null);
+      applyLogo(logoUrl || null);
+      requestAnimationFrame(fitTypography);
+    }
+
     async function refreshBranding() {
       try {
         const res = await fetch(`${API}/api/system-branding`, { cache: 'no-store' });
         const j = await res.json();
         const d = j?.data || {};
-        const guest = (d.welcomeGuest || '').trim();
-        document.getElementById('guestName').textContent = guest || '各位领导嘉宾';
-        const title = (d.welcomeTitle || '').trim() || '热烈欢迎';
-        document.getElementById('mainTitle').textContent = title;
-        document.getElementById('mainGlow').textContent = title;
-        document.getElementById('tagline').textContent = (d.welcomeTagline || '').trim() || '智慧展厅 · 数字展贸 · 科创未来';
         const bg = d.welcomeBgUrl ? `${API}${d.welcomeBgUrl}` : null;
-        if (bg !== lastBgUrl) {
-          lastBgUrl = bg;
-          if (bg) { document.getElementById('bgImg').src = bg; document.body.classList.add('has-bg'); }
-          else { document.body.classList.remove('has-bg'); document.getElementById('bgImg').removeAttribute('src'); }
-        }
+        const logo = d.welcomeLogoUrl ? `${API}${d.welcomeLogoUrl}` : null;
+        applyContent(d, bg, logo);
       } catch { /* 后端暂不可达: 保持现值 */ }
-      fitGuest();
     }
-    refreshBranding();
-    setInterval(refreshBranding, 8000);
-    document.fonts?.ready?.then(fitGuest);
+    if (previewMode) {
+      window.addEventListener('message', (event) => {
+        if (event.origin !== location.origin || event.source !== parent) return;
+        if (event.data?.type !== 'smart-control:welcome-preview') return;
+        applyContent(
+          event.data.payload || {},
+          event.data.payload?.welcomeBgUrl || null,
+          event.data.payload?.welcomeLogoUrl || null,
+        );
+      });
+    } else {
+      if (window.innerWidth !== LED_WIDTH || window.innerHeight !== LED_HEIGHT) {
+        console.warn(`LED 欢迎页需要 ${LED_WIDTH}×${LED_HEIGHT} 视口，当前为 ${window.innerWidth}×${window.innerHeight}；已保持原生画布，未缩放。`);
+      }
+      refreshBranding();
+      setInterval(refreshBranding, 8000);
+    }
+    document.fonts?.ready?.then(fitTypography);
   </script>
 </body>
 </html>

@@ -3,13 +3,11 @@ import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import {
   Settings, RefreshCw, Activity, Database, Cpu, HardDrive, Clock,
-  GitBranch, Server, AlertTriangle, CloudDownload, RotateCcw,
-  XCircle, Loader, Beaker, Bug, Network,
+  GitBranch, Server, CloudDownload, RotateCcw,
+  Loader, Beaker, Bug, Network,
 } from 'lucide-vue-next';
 import { useSystemStore } from '@/stores/system';
-import { useDeviceStore } from '@/stores/device';
 import { usePermissionStore } from '@/stores/permission';
-import { deviceService } from '@/services/device.service';
 import {
   adminMonitorService,
   adminBackupService,
@@ -18,10 +16,8 @@ import {
 import type { SystemResources } from '@/types/api';
 
 const sys = useSystemStore();
-const deviceStore = useDeviceStore();
 const perm = usePermissionStore();
 
-const probing = ref(false);
 const backingUp = ref(false);
 const restoring = ref(false);
 const resources = ref<SystemResources | null>(null);
@@ -31,7 +27,6 @@ async function refresh(): Promise<void> {
   try {
     await Promise.all([
       sys.fetchInfo(),
-      deviceStore.fetchGateways(),
       loadResources(),
       loadBackups(),
     ]);
@@ -53,20 +48,6 @@ async function loadBackups(): Promise<void> {
     backups.value = await adminBackupService.list();
   } catch {
     backups.value = [];
-  }
-}
-
-async function probe(): Promise<void> {
-  if (!perm.canExecute) { ElMessage.warning('当前角色无权限'); return; }
-  probing.value = true;
-  try {
-    await deviceService.triggerHealthProbe();
-    await deviceStore.fetchGateways();
-    ElMessage.success('健康检查已触发');
-  } catch (err) {
-    ElMessage.error('触发失败: ' + (err as Error).message);
-  } finally {
-    probing.value = false;
   }
 }
 
@@ -124,17 +105,6 @@ function fmtTime(iso: string): string {
   return new Date(iso).toLocaleString('zh-CN', { hour12: false });
 }
 
-function statusTagCls(state?: string): string {
-  switch (state) {
-    case 'online': return 'is-on';
-    case 'reconnecting': return 'is-warning';
-    case 'error':
-    case 'offline':
-      return 'is-error';
-    default: return 'is-off';
-  }
-}
-
 const shortCommit = computed(() => sys.info?.commit?.slice(0, 7) ?? null);
 
 const flagItems = computed(() => [
@@ -178,7 +148,7 @@ onMounted(refresh);
         <div class="sc-head-ico"><Settings :size="22" :stroke-width="1.75" /></div>
         <div>
           <h2 class="sc-title">系统设置</h2>
-          <div class="sc-subtle">运行模式 · 资源 · 备份 · 危险操作</div>
+          <div class="sc-subtle">运行模式 · 系统资源 · 数据备份</div>
         </div>
       </div>
       <div class="hero-right">
@@ -257,71 +227,25 @@ onMounted(refresh);
       </div>
     </div>
 
-    <!-- ============ 运行模式 + 网关健康 ============ -->
-    <div class="grid-2">
-      <!-- 运行模式 -->
-      <div class="sc-panel section">
-        <div class="section-head">
-          <div class="section-title">
-            <Settings :size="16" :stroke-width="1.75" /> 运行模式
-          </div>
-          <span class="sc-subtle">需在服务器 .env 修改 · 重启生效</span>
+    <!-- ============ 运行模式 ============ -->
+    <div class="sc-panel section">
+      <div class="section-head">
+        <div class="section-title">
+          <Settings :size="16" :stroke-width="1.75" /> 运行模式
         </div>
-        <div class="flags">
-          <div v-for="f in flagItems" :key="f.key" class="flag-row">
-            <component :is="f.icon" class="flag-ico" :size="22" :stroke-width="1.75" />
-            <div class="flag-body">
-              <div class="flag-label">{{ f.label }}</div>
-              <div class="flag-desc">{{ f.desc }}</div>
-            </div>
-            <span class="sc-status" :class="f.cls">
-              <span class="sc-status-dot" />
-              {{ f.badge }}
-            </span>
-          </div>
-        </div>
+        <span class="sc-subtle">需在服务器 .env 修改 · 重启生效</span>
       </div>
-
-      <!-- 网关健康 -->
-      <div class="sc-panel section">
-        <div class="section-head">
-          <div class="section-title">
-            <Activity :size="16" :stroke-width="1.75" /> 设备网关健康
+      <div class="flags">
+        <div v-for="f in flagItems" :key="f.key" class="flag-row">
+          <component :is="f.icon" class="flag-ico" :size="22" :stroke-width="1.75" />
+          <div class="flag-body">
+            <div class="flag-label">{{ f.label }}</div>
+            <div class="flag-desc">{{ f.desc }}</div>
           </div>
-          <button
-            class="sc-touch sc-act sc-act-primary section-btn"
-            :disabled="!perm.canExecute || probing"
-            @click="probe"
-          >
-            <Loader v-if="probing" :size="14" class="spin" :stroke-width="2" />
-            <Activity v-else :size="14" :stroke-width="2" />
-            立即探活
-          </button>
-        </div>
-        <div v-if="deviceStore.gateways.length === 0" class="empty">
-          <Beaker :size="18" :stroke-width="1.5" />
-          <div>
-            MOCK 模式下不注册真实网关。<br />
-            <code>.env</code> 中 <code>MOCK_MODE=false</code> 后, 这里会出现 4 个网关
-            (lighting / led / audio / hvac)。
-          </div>
-        </div>
-        <div v-else class="gw-list">
-          <div v-for="g in deviceStore.gateways" :key="g.gateway" class="gw-row">
-            <div class="gw-body">
-              <div class="gw-name">{{ g.gateway }}</div>
-              <div class="gw-endpoint">{{ g.endpoint }}</div>
-              <div v-if="g.lastError" class="gw-err">
-                <XCircle :size="11" :stroke-width="2" /> {{ g.lastError }}
-              </div>
-            </div>
-            <div class="gw-meta">
-              <span class="sc-status" :class="statusTagCls(g.state)">
-                <span class="sc-status-dot" /> {{ g.state }}
-              </span>
-              <span v-if="g.attempts > 0" class="gw-fail">失败 {{ g.attempts }} 次</span>
-            </div>
-          </div>
+          <span class="sc-status" :class="f.cls">
+            <span class="sc-status-dot" />
+            {{ f.badge }}
+          </span>
         </div>
       </div>
     </div>
@@ -412,44 +336,6 @@ onMounted(refresh);
       </div>
     </div>
 
-    <!-- ============ 危险操作 ============ -->
-    <div class="sc-panel section danger-zone">
-      <div class="section-head">
-        <div class="section-title danger">
-          <AlertTriangle :size="16" :stroke-width="2" /> 危险操作
-        </div>
-        <span class="sc-subtle">需运维授权 · 操作会影响线上服务</span>
-      </div>
-      <div class="danger-rows">
-        <div class="danger-row">
-          <div class="danger-body">
-            <div class="danger-name">重启后端服务</div>
-            <div class="danger-desc">通过 PM2 重新加载进程, 短暂 (≤5 秒) 不可用</div>
-          </div>
-          <span class="sc-subtle danger-cmd">
-            <code>pm2 reload smart-control-backend</code>
-          </span>
-        </div>
-        <div class="danger-row">
-          <div class="danger-body">
-            <div class="danger-name">真实恢复数据库</div>
-            <div class="danger-desc">线上恢复请走服务器 PowerShell, 本页只提供模拟</div>
-          </div>
-          <span class="sc-subtle danger-cmd">
-            <code>deploy\scripts\restore.ps1 -Snapshot &lt;name&gt; -Force</code>
-          </span>
-        </div>
-        <div class="danger-row">
-          <div class="danger-body">
-            <div class="danger-name">切换 MOCK / 真实模式</div>
-            <div class="danger-desc">编辑 backend/.env 的 MOCK_MODE 后重启服务生效</div>
-          </div>
-          <span class="sc-subtle danger-cmd">
-            <code>pm2 reload smart-control-backend --update-env</code>
-          </span>
-        </div>
-      </div>
-    </div>
   </section>
 </template>
 
@@ -482,10 +368,10 @@ onMounted(refresh);
   position: absolute;
   top: 0; left: 0; right: 0;
   height: 3px;
-  background: linear-gradient(90deg, #4C9AFF 0%, #9BA1A9 80%, transparent 100%);
+  background: var(--v2-accent-bar);
 }
 .info-card.hero-card::before {
-  background: linear-gradient(90deg, #3FBF87 0%, #4C9AFF 50%, #9BA1A9 100%);
+  background: linear-gradient(90deg, #3FBF87 0%, #4C9AFF 60%, rgba(76, 154, 255, 0) 100%);
 }
 .info-label {
   font-size: 11px; color: var(--text-secondary);
@@ -551,13 +437,7 @@ onMounted(refresh);
   display: inline-flex; align-items: center; gap: 8px;
   font-size: 15px; font-weight: 600;
 }
-.section-title.danger { color: #E0A030; }
 .section-btn { min-height: 36px; padding: 0 14px; font-size: 13px; }
-.grid-2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
 
 /* ===== 运行模式 ===== */
 .flags { display: flex; flex-direction: column; gap: 8px; }
@@ -572,32 +452,6 @@ onMounted(refresh);
 .flag-body { flex: 1; min-width: 0; }
 .flag-label { font-weight: 600; font-size: 14px; }
 .flag-desc { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
-
-/* ===== 网关健康 ===== */
-.gw-list { display: flex; flex-direction: column; gap: 8px; }
-.gw-row {
-  display: flex; align-items: flex-start; gap: 12px; justify-content: space-between;
-  padding: 12px 14px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-soft);
-  border-radius: 12px;
-}
-.gw-body { flex: 1; min-width: 0; }
-.gw-name { font-weight: 600; font-size: 14px; }
-.gw-endpoint {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 11.5px;
-  color: var(--text-secondary);
-  margin-top: 2px;
-}
-.gw-err {
-  font-size: 12px;
-  color: #E5645D;
-  display: inline-flex; align-items: center; gap: 4px;
-  margin-top: 4px;
-}
-.gw-meta { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-.gw-fail { font-size: 11px; color: var(--text-secondary); }
 
 /* ===== 系统资源 ===== */
 .res-grid {
@@ -637,7 +491,7 @@ onMounted(refresh);
   border-radius: 3px;
 }
 .res-fill.is-cpu  { background: linear-gradient(90deg, #3FBF87, #06b6d4); }
-.res-fill.is-mem  { background: linear-gradient(90deg, #4C9AFF, #9BA1A9); }
+.res-fill.is-mem  { background: var(--v2-accent-progress); }
 .res-fill.is-disk { background: linear-gradient(90deg, #E0A030, #E5645D); }
 .res-sub {
   font-size: 11px;
@@ -698,35 +552,6 @@ onMounted(refresh);
 .row-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .more-hint { font-size: 12px; color: var(--text-secondary); padding: 6px 4px; }
 
-/* ===== 危险操作 ===== */
-.danger-zone {
-  border-color: rgba(224, 160, 48, 0.32);
-  background:
-    linear-gradient(180deg, rgba(224, 160, 48, 0.06) 0%, transparent 60%),
-    var(--bg-panel);
-}
-.danger-rows { display: flex; flex-direction: column; gap: 6px; }
-.danger-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 14px;
-  padding: 10px 14px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
-}
-.danger-body { flex: 1; min-width: 0; }
-.danger-name { font-weight: 600; font-size: 14px; }
-.danger-desc { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
-.danger-cmd code {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 11.5px;
-  color: #E0A030;
-  background: rgba(224, 160, 48, 0.1);
-  border: 1px solid rgba(224, 160, 48, 0.22);
-  padding: 3px 8px;
-  border-radius: 6px;
-  white-space: nowrap;
-}
-
 /* ===== Empty state ===== */
 .empty {
   padding: 22px 18px;
@@ -751,7 +576,6 @@ onMounted(refresh);
 
 @media (max-width: 1280px) {
   .info-grid { grid-template-columns: repeat(2, 1fr); }
-  .grid-2 { grid-template-columns: 1fr; }
   .res-grid { grid-template-columns: repeat(2, 1fr); }
 }
 </style>

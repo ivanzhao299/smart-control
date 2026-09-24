@@ -1,20 +1,11 @@
 import { ref } from 'vue';
 
-/**
- * 主题切换 (2026-07-22) —— 深色 / 浅色两套。
- *
- * 机制: 在 <html> 上挂 data-theme="light|dark", design-tokens.css 里
- * `:root[data-theme="light"]` 整套翻转 --v2-* token。页面不需要各写一份颜色,
- * 只要用 token (含 --v2-ov-* 叠加层) 就自动跟随。
- *
- * 默认深色: 展厅是暗环境, 而且大屏 kiosk 必须深色。
- * initTheme() 在 main.ts 里 **mount 之前**调, 避免先渲染一帧深色再跳浅色的闪烁。
- */
+/** Apply the saved application theme before mount to avoid a colour flash. */
 
 /** A4: 浏览器 UI 色跟随主题 (PWA 全屏无地址栏, 这是给浏览器直开的兜底) */
 function syncThemeColor(t: string): void {
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', t === 'light' ? '#EEF2F7' : '#0A0D12');
+  if (meta) meta.setAttribute('content', t === 'light' ? '#F6F8FB' : '#070D14');
 }
 
 export type Theme = 'dark' | 'light';

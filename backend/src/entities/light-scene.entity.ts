@@ -21,7 +21,7 @@ export class LightScene {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  /** 业务编码, 唯一; seed/改名走这字段不动 id */
+  /** 业务编码, 唯一; 迁移/改名走这字段不动 id */
   @Index({ unique: true })
   @Column({ type: 'varchar', length: 64 })
   code!: string;

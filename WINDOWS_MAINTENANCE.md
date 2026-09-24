@@ -2,7 +2,9 @@
 
 > 现场主机：`GIADA GK9000 / Windows 10`
 > 部署根：`D:\smart-control\`
-> 远程方式：**Tailscale + RDP**（无 SSH）
+> 远程方式：RDP 人工接管；自动化统一走跳板机 `root@123.57.220.65` SSH 双跳到 GK（`user@10.66.66.3`），
+> 并使用 `scripts/remote-exec/gk9000_exec.sh <本地.py>`（base64 传 Python、子进程参数数组调 PowerShell，
+> 彻底规避引号/`&&`/`$_` 转义问题）。CI 受限 key 只允许经跳板机网关白名单动作。
 
 ---
 
@@ -25,8 +27,8 @@ deploy\scripts\health.ps1
 # 2) 看磁盘 (D 盘日志/备份不要塞满)
 Get-PSDrive D | Format-Table Name, Used, Free
 
-# 3) 看备份保留情况 (默认 -Keep 14)
-Get-ChildItem D:\smart-control\backups | Sort-Object Name -Descending | Select-Object -First 20
+# 3) 看备份快照 (目录 D:\smart-control-backups；脚本不自动删除，需人工评估占用)
+Get-ChildItem D:\smart-control-backups -Directory | Sort-Object Name -Descending | Select-Object -First 20
 
 # 4) 当前报警
 curl http://127.0.0.1/api/alerts?status=active
@@ -116,19 +118,36 @@ sqlite3 D:\smart-control\database\smart-control.db ".tables"
 ### 5.1 手工备份
 
 ```powershell
-scripts\backup.ps1                       # 默认 backups\YYYYMMDD-HHMMSS\
-scripts\backup.ps1 -Keep 30              # 保留 30 份
-scripts\backup.ps1 -Dest E:\sc-backups   # 备份到 E 盘
+scripts\backup.ps1                       # 默认 D:\smart-control-backups\YYYYMMDD-HHMMSS\
+scripts\backup.ps1 -Dest E:\sc-backups   # 备份到 E 盘（-Keep 仅兼容旧调用，脚本不会自动删除旧快照）
 ```
 
 ### 5.2 定时备份（任务计划程序）
 
+推荐用幂等注册脚本，默认每天 00/06/12/18 点共 4 次（每 6 小时；可用 `-AtHours` 调整），
+通过 wscript 隐藏启动、以 SYSTEM 运行、无人登录也会执行：
+
 ```powershell
-$action  = New-ScheduledTaskAction -Execute 'powershell.exe' `
-            -Argument '-NoProfile -ExecutionPolicy Bypass -File D:\smart-control\scripts\backup.ps1'
-$trigger = New-ScheduledTaskTrigger -Daily -At 3am
-Register-ScheduledTask -TaskName 'SmartControl-Backup' -Action $action -Trigger $trigger -RunLevel Highest
+# 默认每 6 小时
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\smart-control\scripts\register-backup-task.ps1
+# 自定义时刻，例如每 4 小时
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\smart-control\scripts\register-backup-task.ps1 -AtHours 0,4,8,12,16,20
 ```
+
+> **现网任务真名是 `SmartControl-DailyBackup`**（不是 SmartControl-Backup）：它原先每天 04:00 跑一次，
+> 2026-09-14 用 `register-backup-task.ps1 -TaskName SmartControl-DailyBackup` **原地 -Force 升级**为
+> 00/06/12/18 共 4 次（SYSTEM、wscript 隐藏、NextRun 为下一个整点），避免新建出重复的备份任务；
+> 注册脚本默认任务名也已对齐为 SmartControl-DailyBackup。
+>
+> **`scripts\run-hidden.vbs` 必须纳入 git 版本管理、禁止删除**：它是 SmartControl-AutoUpdate /
+> SmartControl-PlayerWatchdog / WeeklyReboot / SmartControl-DailyBackup 四个计划任务共用的隐藏启动器。
+> 早期它只在运行时临时生成、未入库，每次部署前清理未跟踪文件都会把它删掉，留下任务空转隐患；现已作为
+> 权威文件入库（透传脚本全部参数），各 register 脚本只在文件意外缺失时兜底再生成。
+
+历史快照不自动删除（删除属于需单独授权的显式操作）；SQLite 快照很小，
+请定期查看 `D:\smart-control-backups` 磁盘占用，而不是让脚本静默清理。
+恢复演练方法：对 `verified-sqlite-backup.cjs` 产出的 `database.sqlite` 只读重开，
+跑 `integrity_check` 并逐表计数比对，验证可独立打开即代表可恢复。
 
 ### 5.3 恢复
 
@@ -139,6 +158,54 @@ deploy\scripts\restore.ps1 -Snapshot 20260519-030000  # 指定快照
 ```
 
 恢复时会自动：停 PM2 → 当前 DB 备份到 `pre-restore-*/` → 覆盖 → 重启 PM2。
+
+### 5.4 优雅周重启（WeeklyReboot，每周一 00:00）
+
+旧任务是硬 `shutdown /r /t 0 /f`，会瞬间杀掉 PM2/Node，叠加 AI 无自启导致重启后分析掉线（见
+`docs/INCIDENT_2026-09-13_RECAP.md`）。现已改为 `scripts\weekly-graceful-reboot.ps1` 的优雅序列：
+
+1. `pm2 save`：持久化当前 PM2 进程列表，供开机 resurrect；
+2. 等待 `-GraceSeconds`（默认 30s）排空在途 HTTP 请求、刷 SQLite WAL；
+3. `Restart-Computer -Force`（失败回退 `shutdown /r /t 5 /f`）。
+
+任务以 **SYSTEM** 运行（现场无自动登录，午夜无人登录也要触发），脚本内部把 `PM2_HOME` 指向
+`C:\Users\user\.pm2`、并用绝对路径调 `pm2.cmd`。
+
+```powershell
+# 幂等注册（-Force 原地把硬重启替换为优雅重启，默认周一 00:00 / Grace 30s / Pm2User user）
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\smart-control\scripts\register-weekly-reboot.ps1
+# 演练：只 pm2 save + 倒计时，不真正重启
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\smart-control\scripts\weekly-graceful-reboot.ps1 -DryRun -GraceSeconds 3
+```
+
+运行日志：`D:\smart-control\logs\weekly-graceful-reboot.log`。2026-09-14 已注册并 DryRun 通过，
+NextRun 为下周一 00:00。
+
+### 5.5 只读巡检（gk9000-status，每 30 分钟）
+
+- `.github/workflows/check-gk9000-status.yml`：`*/30 * * * *` 定时 + `workflow_dispatch` 手动，经跳板机
+  网关的只读动作 `gk9000-status` 采集 CPU / 内存 / C·D 盘 / Top 进程，**不改 GK 任何状态**。
+- 跳板机网关 `/usr/local/sbin/smart-control-gk9000-jump-deploy` 用 `authorized_keys command=` 白名单
+  （`gk9000-deploy` / `gk9000-verify` / `gk9000-status` / `gk9000-offsite-backup`）；新增动作必须参数受限、命令写死、
+  在 commit SHA 校验前 `exec` 退出，且仓库源副本 `deploy/aliyun-gk9000-jump-deploy.sh` 要与线上同步。
+- 两个已踩过的坑（改网关/巡检内联命令时务必遵守）：
+  - 穿越 jump bash → Windows OpenSSH → PowerShell 的内联命令**禁止 `$` 变量与内层双引号**（`$_` 会被外层
+    展开为空导致 ParserError），只用原始属性和单引号；
+  - ssh 续行参数序列**中间禁止插 `#` 注释行**（注释行无续行反斜杠会提前切断远程命令，使 GK 掉进交互式
+    PowerShell 挂起），注释全部放到 `exec ssh` 之前。
+
+### 5.6 迁移恢复包异机副本
+
+- 数据迁移发布完成生产验证后，工作流调用受限动作 `gk9000-offsite-backup <40位提交号>`。跳板机只查找
+  `migration-complete.json.candidateRevision` 与提交一致的 `release-*` 恢复包；没有迁移包时返回
+  `OFFSITE_BUNDLE_NOT_REQUIRED`，不会扫描或复制其他目录。
+- 异机目录为跳板机 `/var/backups/smart-control/<release-id>`。目标采用追加式保存：同名目录存在时只重新验证并返回
+  `OFFSITE_BUNDLE_CURRENT`，禁止覆盖、合并或自动删除。
+- 验证包括 SQLite 大小/SHA-256/完整性/外键、媒体 manifest SHA-256、每个媒体文件的大小和 SHA-256。
+  全部通过后才原子发布目录并写 `offsite-receipt.json`。
+- 恢复时先核对异机回执，再把整个 `release-*` 目录复制回独立暂存盘，按恢复包既有演练流程恢复 SQLite 与媒体；
+  禁止只恢复数据库或只恢复媒体。
+- 该动作只覆盖发生迁移的发布基线。普通 6 小时 SQLite 快照和迁移后新增媒体的周期异机增量备份属于阶段 3。
 
 ---
 
@@ -192,6 +259,30 @@ pm2 save
 ### 7.5 PWA 升级后页面没刷新
 
 平板首页 → 设置 → "清除站点数据"；或 Chrome 强刷 (Ctrl+Shift+R)。Nginx 已为 `sw.js`/`manifest.webmanifest` 设了 `no-cache`，下次访问会拉到新版。
+
+### 7.6 部署中途失败、生产 dist 被清空 / 回滚卡死（#531，2026-09-14）
+
+**现象**：Deploy 在 frontend `vite build` 阶段报 `EPERM / ENOTEMPTY ... dist\park-ops\index.html`，失败回滚又报 `unable to unlink 'database/smart-control.db-shm/-wal': Invalid argument`，最终留下半部署、现场大屏 404。
+
+**两层根因**：
+1. 构建时 pm2 frontend 仍在静态 serve 旧 dist（服务原本在构建之后才重启），叠加 Defender 实时扫描短暂锁定 dist 文件，Vite `emptyOutDir` 清空目录即撞锁（Windows 偶发，#529/#530 未撞上、#531 撞上）。
+2. `database/smart-control.db-shm` / `.db-wal` 是 SQLite WAL 模式的运行时文件，历史被 git 误跟踪；失败回滚 `git reset --hard` 要 unlink 它们，而它们正被运行中的 backend 持锁，导致回滚也失败、卡在 "requires operator attention"。
+
+**已修复（commit 951fc91，`scripts/deploy-from-ci.ps1`）**：
+- 正常部署分支在 frontend 构建前先 `pm2 stop smart-control-frontend` 释放 dist 句柄，backend 全程不动，构建后由 Restart-Services 统一拉起（#532 实测 build 22.33s 零 EPERM、health 一次通过）。
+- 回滚分支在 `git reset --hard` 前先停 backend+frontend 释放锁；reset 后把可重建的 shm/wal 运行时文件**移动（非删除）**到回滚点。主库 `smart-control.db` 未被 git 跟踪，数据不受影响。
+
+**现场应急（若再次遇到半部署 / 大屏 404）**：
+1. `pm2 stop smart-control-frontend`（backend 不动）；
+2. 残缺 `frontend\dist` 改名保留（如 `dist.broken-<时间>`，**不要直接删**，需要清理只移动到 `D:\smart-control-backups`）；
+3. 在 `frontend` 目录 `pnpm install --frozen-lockfile` 后 `pnpm run build`；
+4. `pm2 start smart-control-frontend`，回验 `http://localhost:5173/control/park-ops/index.html` 返回 200 且字节数正常；
+5. 用 `git checkout <HEAD> -- <被改乱的代码文件>` 把工作区代码对齐回当前 HEAD，**不要**对 database 目录做 reset/checkout。
+
+**遗留技术债（涉及生产 DB，动手前必须评审并安排停 backend 短窗口，禁止擅自处理）**：
+- `database/smart-control.db-shm` / `.db-wal` 仍被 git 跟踪。彻底治理需 `git rm --cached` 这两个运行时文件并补 `.gitignore`；GK 对齐该提交时 git 会尝试删除工作区文件，必须在停 backend 的短窗口内进行，否则同样撞锁。主库 `smart-control.db` 未被跟踪、安全。
+
+**红线**：生产数据库、`D:\smart-control-backups` 备份目录、`backend/.env`、运行时 wal/shm 的任何删除/清理，必须先获明确授权，且只进回收站或移动保留，禁止物理删除。
 
 ---
 

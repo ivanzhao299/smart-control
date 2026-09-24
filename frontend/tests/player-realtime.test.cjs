@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const ts = require('typescript');
 
 function load() {
-  const sockets = [], timeouts = new Map(), intervals = new Map(), listeners = new Set();
+  const sockets = [], timeouts = new Map(), intervals = new Map(), listeners = new Set(), builds = [];
   let timerId = 0;
   const identity = { admin: null, user: null, base: 'http://localhost:3200/api' };
   const storage = () => { const data = new Map(); return { getItem: k => data.get(k) ?? null, setItem: (k, v) => data.set(k, v), removeItem: k => data.delete(k) }; };
@@ -19,6 +19,7 @@ function load() {
     close() { this.readyState = 3; this.onclose?.(); }
   }
   const modules = {
+    './pwa-update-monitor': { notifyFrontendBuild: build => builds.push(build) },
     './http': { getApiBaseURL: () => identity.base, getAdminToken: () => identity.admin,
       getClientToken: () => identity.user, absUrl: p => 'http://localhost:3200' + p },
     './identity-boundary': { onIdentityChange: fn => { listeners.add(fn); return () => listeners.delete(fn); } },
@@ -36,7 +37,7 @@ function load() {
     return exports;
   }
   const ws = compile('websocket.service'), device = compile('player-device.service');
-  return { ws, device, identity, sockets, intervals, listeners,
+  return { ws, device, identity, sockets, intervals, listeners, builds,
     reconnect: () => { const callbacks = [...timeouts.values()]; timeouts.clear(); callbacks.forEach(fn => fn()); } };
 }
 
@@ -65,6 +66,20 @@ test('a missing device credential never falls back to an administrator login', (
   assert.equal(e.sockets[0].readyState, 3);
   assert.equal(e.sockets[0].sent.length, 0);
   client.disconnect();
+});
+
+test('both device and personal sockets forward release and reconnect identity without opening another socket', () => {
+  for (const device of [true, false]) {
+    const e = load(); e.identity.user = 'user-test';
+    e.device.configurePlayer(1, 'synthetic-device-credential-00000001');
+    const client = device ? new e.ws.WsClient({ authentication: () => e.device.playerSocketAuthentication(1) }) : e.ws.wsClient;
+    client.connect(); e.sockets[0].open();
+    e.sockets[0].receive({ type: 'hello', frontendBuildId: 'first' });
+    e.sockets[0].receive({ type: 'frontend_release', frontendBuildId: 'second' });
+    assert.deepEqual(e.builds, ['first', 'second']);
+    assert.equal(e.sockets.length, 1);
+    client.disconnect();
+  }
 });
 
 test('reconnect authenticates again and notifies subscribers to immediately reconcile missed changes', () => {
@@ -107,5 +122,9 @@ test('PlayerPage uses the dedicated connection, immediate reconnect reconciliati
   assert.match(source, /new WsClient\(\{ authentication: \(\) => playerSocketAuthentication\(slot.value\)/);
   assert.match(source, /if \(state === 'open'\) void fetchChannel\(\)/);
   assert.match(source, /playerWs.disconnect\(\)/);
+  assert.match(source, /if \(playerWsState !== 'open'\) void fetchChannel\(\)/);
+  assert.match(source, /}, 2_000\)/);
+  assert.match(source, /:key="channel\.playbackSession"/);
+  assert.match(source, /clearInterval\(disconnectedReconcileTimer\)/);
   assert.doesNotMatch(source, /wsClient\.connect\(\)/);
 });

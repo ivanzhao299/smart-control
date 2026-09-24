@@ -4,26 +4,20 @@ import { useAdminAuthStore } from '@/stores/admin-auth';
 import { useClientAuthStore } from '@/stores/client-auth';
 import { usePermissionStore } from '@/stores/permission';
 import { api } from '@/services/http';
+import { isStalePwaAssetError, recoverFromStalePwa } from '@/services/pwa-recovery';
+import { mainRouteManifest } from './main-route-manifest';
+import { adminRouteManifest } from './admin-route-manifest';
 
 const routes: RouteRecordRaw[] = [
   // 平板布局 (Sprint-05)
   {
     path: '/',
     component: () => import('@/layouts/MainLayout.vue'),
-    children: [
-      { path: '', name: 'dashboard', component: () => import('@/pages/DashboardPage.vue') },
-      { path: 'lighting', name: 'lighting', component: () => import('@/pages/LightingPage.vue') },
-      { path: 'dali-lights', name: 'dali-lights', component: () => import('@/pages/DaliLightsPage.vue') },
-      { path: 'dali-diagnose', name: 'dali-diagnose', component: () => import('@/pages/DaliDiagnosePage.vue') },
-      { path: 'led', name: 'led', component: () => import('@/pages/LedPage.vue') },
-      // 2026-07-17 业主: "把投影仪页面单独摘出来" —— 原来跟 LED 挤在一页, 容易推错屏
-      { path: 'projector', name: 'projector', component: () => import('@/pages/ProjectorPage.vue') },
-      { path: 'audio', name: 'audio', component: () => import('@/pages/AudioPage.vue') },
-      { path: 'hvac', name: 'hvac', component: () => import('@/pages/HvacPage.vue') },
-      { path: 'power', name: 'power', component: () => import('@/pages/PowerPage.vue') },
-      { path: 'media', name: 'media', component: () => import('@/pages/MediaPage.vue') },
-      { path: 'status', name: 'status', component: () => import('@/pages/StatusPage.vue') },
-    ],
+    children: mainRouteManifest.map((route) => ({
+      path: route.path,
+      name: route.name,
+      component: route.load,
+    })),
   },
   // 客户端登录页 (业主级别访问门禁 + 服务器地址配置)
   {
@@ -53,35 +47,13 @@ const routes: RouteRecordRaw[] = [
     meta: { adminRequired: true },
     children: [
       { path: '', redirect: { name: 'admin-monitor' } },
-      { path: 'monitor', name: 'admin-monitor', component: () => import('@/pages/admin/MonitorAdmin.vue') },
-      { path: 'alerts', name: 'admin-alerts', component: () => import('@/pages/admin/AlertsAdmin.vue') },
-      { path: 'devices', name: 'admin-devices', component: () => import('@/pages/admin/DevicesAdmin.vue') },
-      { path: 'scenes', name: 'admin-scenes', component: () => import('@/pages/admin/ScenesAdmin.vue') },
-      { path: 'scenes/:id/actions', name: 'admin-scene-actions', component: () => import('@/pages/admin/SceneActionsAdmin.vue'), props: true },
-      { path: 'scheduler', name: 'admin-scheduler', component: () => import('@/pages/admin/SchedulerAdmin.vue') },
-      { path: 'scene-executions', name: 'admin-scene-executions', component: () => import('@/pages/admin/SceneExecutionsAdmin.vue') },
-      { path: 'test-center', name: 'admin-test-center', component: () => import('@/pages/admin/TestCenterAdmin.vue') },
-      // Sprint-06 spec 命名别名: /admin/debug → TestCenterAdmin (含单设备测试 + Ping + 端口 + rawResponse)
-      { path: 'debug', name: 'admin-debug', component: () => import('@/pages/admin/TestCenterAdmin.vue') },
-      { path: 'uat', name: 'admin-uat', component: () => import('@/pages/admin/UatAdmin.vue') },
-      // 日志中心 (合并页): 操作日志 + 场景执行 + 变更历史 — 三个只读历史流收成 tab
-      { path: 'logs', name: 'admin-logs', component: () => import('@/pages/admin/LogsHubAdmin.vue') },
-      // 硬件清单 (合并页): 设备登记 + 驱动模板 + 厂商品牌 — 硬件定义层收成 tab
-      { path: 'hardware', name: 'admin-hardware', component: () => import('@/pages/admin/HardwareHubAdmin.vue') },
-      // 分区配置 (合并页): 灯光 + 电源 + 音响 — 子系统输出单元配置收成 tab
-      { path: 'zones-config', name: 'admin-zones-config', component: () => import('@/pages/admin/ZonesConfigAdmin.vue') },
-      // 以下子页保留独立路由作深链 (菜单已收进上面的合并页, 不再单独列)
-      { path: 'light-zones', name: 'admin-light-zones', component: () => import('@/pages/admin/LightZonesAdmin.vue') },
-      { path: 'power-circuits', name: 'admin-power-circuits', component: () => import('@/pages/admin/PowerCircuitsAdmin.vue') },
-      { path: 'audio-config', name: 'admin-audio-config', component: () => import('@/pages/admin/AudioConfigAdmin.vue') },
-      { path: 'app-release', name: 'admin-app-release', component: () => import('@/pages/admin/AppReleaseAdmin.vue') },
-      { path: 'drivers', name: 'admin-drivers', component: () => import('@/pages/admin/DriversAdmin.vue') },
-      { path: 'brands', name: 'admin-brands', component: () => import('@/pages/admin/BrandsAdmin.vue') },
-      { path: 'system-branding', name: 'admin-system-branding', component: () => import('@/pages/admin/SystemBrandingAdmin.vue') },
-      { path: 'audit', name: 'admin-audit', component: () => import('@/pages/admin/AuditAdmin.vue') },
-      { path: 'users', name: 'admin-users', component: () => import('@/pages/admin/UsersAdmin.vue') },
-      // 系统设置 (合并页): 常规设置 + 系统品牌
-      { path: 'settings', name: 'admin-settings', component: () => import('@/pages/admin/SettingsHubAdmin.vue') },
+      ...adminRouteManifest.map((route) => ({
+        path: route.path,
+        name: route.name,
+        component: route.load,
+        props: 'props' in route ? route.props : undefined,
+        meta: { adminRequired: route.access === 'admin' },
+      })),
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
@@ -137,7 +109,9 @@ router.beforeEach(async (to) => {
     }
   }
   if (!to.meta?.clientPublic && to.name !== 'player') {
-    await usePermissionStore().refresh();
+    // 权限默认是 viewer，服务端仍是最终授权边界。角色刷新不能阻塞页面挂载：
+    // iOS 从后台恢复时网络请求可能延迟，等待它会让主壳存在而 router-view 为空。
+    void usePermissionStore().refresh();
   }
   return true;
 });
@@ -170,13 +144,7 @@ router.afterEach((to) => {
  * 检查更新), 30s 冷却防刷新循环。除此之外的路由错误照旧抛出, 不吞。
  */
 router.onError((err, to) => {
-  const msg = String((err as Error)?.message ?? err);
-  const isChunkError = /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module|Unable to preload CSS|ChunkLoadError/i.test(msg);
-  if (!isChunkError) return;
-  const KEY = 'sc-chunk-reload-at';
-  const last = Number(sessionStorage.getItem(KEY) ?? 0);
-  if (Date.now() - last < 30_000) return; // 30s 内已重载过一次还失败 → 别循环刷
-  sessionStorage.setItem(KEY, String(Date.now()));
+  if (!isStalePwaAssetError(err)) return;
   const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-  window.location.assign(base + (to?.fullPath ?? '/'));
+  void recoverFromStalePwa(base + (to?.fullPath ?? '/'));
 });

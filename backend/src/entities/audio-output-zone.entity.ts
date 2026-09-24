@@ -21,7 +21,7 @@ export class AudioOutputZone {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  /** EKX 输出通道索引 0-7 (0=OUT1 ... 7=OUT8). 唯一. seed/升级走这字段不动 id. */
+  /** EKX 输出通道索引 0-7 (0=OUT1 ... 7=OUT8). 唯一. 迁移/升级走这字段不动 id. */
   @Index({ unique: true })
   @Column({ type: 'int' })
   channel!: number;

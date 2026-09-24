@@ -1,0 +1,165 @@
+{
+  "schemaVersion": 1,
+  "catalogVersion": 1,
+  "assets": [
+    {
+      "key": "audio.stereo-lr-test",
+      "type": "file",
+      "artifact": "stereo-lr-test.wav",
+      "originalName": "左右声道测试.wav",
+      "kind": "audio",
+      "mimeType": "audio/wav",
+      "size": 3069404,
+      "sha256": "4b677ccfe55851d9c9d60845ad0ec0006324dbea982d501503f31c0af65bf3db",
+      "remark": "内置测试素材: 低音=左声道, 高音=右声道, 交替两轮后双声道齐响"
+    },
+    {
+      "key": "welcome.led-static",
+      "type": "file",
+      "artifact": "welcome-led-3612x1462.png",
+      "originalName": "金湖欢迎页·LED大屏.png",
+      "kind": "image",
+      "mimeType": "image/png",
+      "size": 1857322,
+      "sha256": "bff94d75b2eb21cfa418c7f4a737b2157dde8dff51b40b0613358714e7cf880f",
+      "remark": "3612×1462 静态欢迎页 (备用; 称谓可编辑请用「金湖欢迎页·动态」)"
+    },
+    {
+      "key": "welcome.projector-static",
+      "type": "file",
+      "artifact": "welcome-proj-3380x1225.png",
+      "originalName": "金湖欢迎页·投影.png",
+      "kind": "image",
+      "mimeType": "image/png",
+      "size": 1631400,
+      "sha256": "2182a8952e44c6a3d6207d424c068e34266cecf50ce9a991aaa508f8b3d504d4",
+      "remark": "3380×1225 (6760×2450mm 幕布比例) 静态欢迎页 (备用)"
+    },
+    {
+      "key": "music.city-sunshine",
+      "type": "file",
+      "artifact": "music/bgm-city-sunshine.mp3",
+      "originalName": "轻快·城市阳光.mp3",
+      "kind": "audio",
+      "mimeType": "audio/mpeg",
+      "size": 7402093,
+      "sha256": "e05c1bd683174cff77d492b7ac77262ff4617f99f69d82564b66831cf48352d6",
+      "remark": "内置无版权背景音乐 (CC0 公有领域, freepd.com「City Sunshine」) — 可商用免署名"
+    },
+    {
+      "key": "music.inspiration",
+      "type": "file",
+      "artifact": "music/bgm-inspiration.mp3",
+      "originalName": "轻快·灵感律动.mp3",
+      "kind": "audio",
+      "mimeType": "audio/mpeg",
+      "size": 5530068,
+      "sha256": "a254227da398809c79a0c753073a3a92c7341672abc92bb0166b6326e126f0b4",
+      "remark": "内置无版权背景音乐 (CC0 公有领域, freepd.com「Inspiration」) — 可商用免署名"
+    },
+    {
+      "key": "music.screen-saver",
+      "type": "file",
+      "artifact": "music/bgm-screen-saver.mp3",
+      "originalName": "轻快·屏保时光.mp3",
+      "kind": "audio",
+      "mimeType": "audio/mpeg",
+      "size": 7417751,
+      "sha256": "b37bded5c858af6220ed513fdd0d6bba476d71c3a2aacc9746433f51354d33f7",
+      "remark": "内置无版权背景音乐 (CC0 公有领域, freepd.com「Screen Saver」) — 可商用免署名"
+    },
+    {
+      "key": "music.be-chillin",
+      "type": "file",
+      "artifact": "music/bgm-be-chillin.mp3",
+      "originalName": "舒缓·悠然自得.mp3",
+      "kind": "audio",
+      "mimeType": "audio/mpeg",
+      "size": 8104261,
+      "sha256": "1abaa9455ced505f10306b34d1fe569a43be28809ae39e62f422c69f312a74cb",
+      "remark": "内置无版权背景音乐 (CC0 公有领域, freepd.com「Be Chillin」) — 可商用免署名"
+    },
+    {
+      "key": "music.relaxing-ballad",
+      "type": "file",
+      "artifact": "music/bgm-relaxing-ballad.mp3",
+      "originalName": "舒缓·放松民谣.mp3",
+      "kind": "audio",
+      "mimeType": "audio/mpeg",
+      "size": 8486879,
+      "sha256": "b3be475ce26a71b61c0282f955bb53335ff146cf9712d8fab77f3c7a8defd6d3",
+      "remark": "内置无版权背景音乐 (CC0 公有领域, freepd.com「Relaxing Ballad」) — 可商用免署名"
+    },
+    {
+      "key": "music.the-lagoon",
+      "type": "file",
+      "artifact": "music/bgm-the-lagoon.mp3",
+      "originalName": "舒缓·蓝色礁湖.mp3",
+      "kind": "audio",
+      "mimeType": "audio/mpeg",
+      "size": 5493650,
+      "sha256": "cd9deb54da317f3f8ad553d808d2a7f920f05d1e51c8b9b2db81e08754caddbf",
+      "remark": "内置无版权背景音乐 (CC0 公有领域, freepd.com「The Lagoon」) — 可商用免署名"
+    },
+    {
+      "key": "music.magic-in-the-garden",
+      "type": "file",
+      "artifact": "music/bgm-magic-in-the-garden.mp3",
+      "originalName": "优美·花园奇境.mp3",
+      "kind": "audio",
+      "mimeType": "audio/mpeg",
+      "size": 5590327,
+      "sha256": "7d66df34aa3ad0d5e6bc10632e74178b2dd26b5c3cca40317f4d3b8224662b89",
+      "remark": "内置无版权背景音乐 (CC0 公有领域, freepd.com「Magic in the Garden」) — 可商用免署名"
+    },
+    {
+      "key": "music.ice-and-snow",
+      "type": "file",
+      "artifact": "music/bgm-ice-and-snow.mp3",
+      "originalName": "优美·冰雪之境.mp3",
+      "kind": "audio",
+      "mimeType": "audio/mpeg",
+      "size": 5660213,
+      "sha256": "61e8c88cff9d24eb03ffa8ab55adfefcaaf3f4e2dabf3dec6816d315f49aa99a",
+      "remark": "内置无版权背景音乐 (CC0 公有领域, freepd.com「Ice and Snow」) — 可商用免署名"
+    },
+    {
+      "key": "music.travelers-notebook",
+      "type": "file",
+      "artifact": "music/bgm-travelers-notebook.mp3",
+      "originalName": "优美·旅人手记.mp3",
+      "kind": "audio",
+      "mimeType": "audio/mpeg",
+      "size": 4923560,
+      "sha256": "1435dc65a285242e5012ae9e853a9db2a5e303bfdec243cfe67340e67284b7b1",
+      "remark": "内置无版权背景音乐 (CC0 公有领域, freepd.com「Travelers Notebook」) — 可商用免署名"
+    },
+    {
+      "key": "music.inventing-flight",
+      "type": "file",
+      "artifact": "music/bgm-inventing-flight.mp3",
+      "originalName": "大气·展翅飞翔.mp3",
+      "kind": "audio",
+      "mimeType": "audio/mpeg",
+      "size": 2840034,
+      "sha256": "916e736efa3caed4ea8534e727670dbac41af0fb44f00fa667aebaab9b2b6407",
+      "remark": "内置无版权背景音乐 (CC0 公有领域, freepd.com「Inventing Flight」) — 可商用免署名"
+    },
+    {
+      "key": "web.park-operations-dashboard",
+      "type": "webpage",
+      "originalName": "金湖科创产业园·智慧运营总览(DEMO)",
+      "sourceUrl": "http://localhost:5173/control/park-ops/index.html",
+      "resolution": "3612x1462",
+      "remark": "园区综合态势/企业经营/安全消防/人车管理/视频监控五页演示大屏；当前为模拟数据，摄像头接口预留"
+    },
+    {
+      "key": "web.welcome-dynamic",
+      "type": "webpage",
+      "originalName": "金湖欢迎页·动态(称谓可编辑)",
+      "sourceUrl": "http://localhost:5173/control/welcome/index.html",
+      "resolution": null,
+      "remark": "推到大屏/投影即显示; 嘉宾称谓在 后台→系统品牌→欢迎页嘉宾称谓 编辑, 约 20s 自动生效"
+    }
+  ]
+}

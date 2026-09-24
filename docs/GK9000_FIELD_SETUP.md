@@ -20,7 +20,7 @@
 | **串口** | 6 × COM (RS232 / RS485) | 当前架构闲置, 应急备份用 |
 | **网口** | **2 × 1Gbps RJ45** | 一个接设备网, 一个接管理网 |
 | **USB** | ≥ 4 × USB 3.0 | 键鼠 / U 盘 / 应急调试 |
-| **显示** | **2 × HDMI** + DP / VGA | **HDMI 1 → NovaStar VX1000** (LED 视频源) · HDMI 2 → 1080P 监控/调试显示器 |
+| **显示** | **2 × HDMI** + DP / VGA | **主屏 DISPLAY2(3612×1462) → 诺瓦 V2460 HDMI2.0(源0x90)** 作为 LED 视频源 · 副屏 DISPLAY1(1280×720) 调试用 |
 | **操作系统** | Windows 10 (专业版以上, 不要家庭版) | 远程桌面要求 Pro 起步 |
 
 ---
@@ -109,8 +109,8 @@ Get-TimeZone
       ▼
    各种网关:
    ├─ USR-TCP232-410s (DALI) → 192.168.50.20
-   ├─ NovaStar VX1000 (LED)  → 192.168.50.30
-   ├─ Intel NUC (LED 播控)   → 192.168.50.31
+   ├─ 诺瓦 V2460 (LED 控制器) → 192.168.50.30   # 旧型号 VX1000 / 旧IP 192.168.77.42 已废弃
+   ├─ (独立 LED 播控 NUC 已取消, 视频源为本机浏览器 PWA)
    ├─ DSPPA MAG6816 (音响)   → 192.168.50.40
    └─ AUX CCM-270B (空调)    → 192.168.50.50
 ```
@@ -175,7 +175,7 @@ Rename-NetAdapter -Name '以太网 2' -NewName 'MgmtLAN'
 ```powershell
 # 设备网 (期望通)
 ping 192.168.50.20    # USR-TCP232 转换器
-ping 192.168.50.30    # NovaStar VX1000
+ping 192.168.50.30    # 诺瓦 V2460 LED 控制器 (TCP 5200)
 ping 192.168.50.50    # 空调网关 CCM-270B
 
 # 外网 (期望通, 走管理网)
@@ -283,77 +283,54 @@ GK9000 装 Tailscale, 工程师从办公室直连, 无需 VPN.
 - **Wireshark** (抓包排错, 走转换器时看 502 端口)
 - **PuTTY** (串口调试 — 6 COM 口闲置但万一要用)
 
-**LED 大屏视频播放相关 (本机兼任播控, 不要单独 NUC)**:
-- **诺瓦 ViPlex Express** (NovaStar 官方播控软件, 跟 VX1000 配套)
-- **PotPlayer** 或 **VLC** (备用通用播放器, 支持全屏 + 循环 + 命令行控制)
+**LED 大屏显示（当前实装，2026-09 核实）**:
+- **不需要 ViPlex Express / PotPlayer / VLC，也不轮播 `D:\Media` 本地视频文件**。
+- 视频源 = GK9000 上 Edge(Chromium) 全屏 Kiosk 渲染的运营大屏 PWA 页面 `/control/park-ops/`。
 
-> GK9000 的 **HDMI 1 输出接 NovaStar VX1000** 作为 LED 视频源.
-> 视频文件存 `D:\Media\`, 由 ViPlex Express 或 PotPlayer 全屏播放.
-> 详见 §11 "LED 视频播放配置" 节.
+> GK9000 主屏（DISPLAY2，桌面活动分辨率 **3612×1462**，与 LED 点对点）经 **HDMI 接诺瓦 V2460 的
+> HDMI 2.0 输入口（源 0x90）**，V2460 图层1把画面 1:1 铺满 LED 带载 3612×1462。
+> 完整参数、后端自愈、远程恢复与故障史见 **[LED_V2460_FULLSCREEN_RUNBOOK.md](LED_V2460_FULLSCREEN_RUNBOOK.md)**。
+> （早期 VX1000 / 1920×1080 / ViPlex / PotPlayer / HDMI1 的说法已废弃。）
 
 ---
 
-## 6.5 LED 视频播放配置 (本机兼任 LED 播控)
+## 6.5 LED 大屏显示配置（浏览器 PWA → V2460，当前方案）
 
-由于 GK9000 自带 2 个 HDMI 输出, **不需要独立 NUC 播控主机**. 直接用 GK9000 输出 LED 视频信号给 VX1000.
+不需要独立 NUC，也不用本机播放器轮播文件；GK9000 直接把运营大屏网页输出给 V2460。
 
 ### 接线
 
 ```
-GK9000 HDMI 1 ────HDMI 线 ────→ NovaStar VX1000 HDMI 输入 1
-GK9000 HDMI 2 ────HDMI 线 ────→ 1080P 监控显示器 (调试 + 远程协助看屏)
+GK9000 主屏 DISPLAY2 (Primary, 3612×1462) ──HDMI──→ 诺瓦 V2460 背板 HDMI 2.0 输入口(源0x90) ──→ LED 3612×1462
+GK9000 副屏 DISPLAY1 (1280×720, 右侧)       ──HDMI──→ 调试/监控显示器（可空桌面）
 ```
 
 ### Windows 显示设置
 
-1. Windows 设置 → 系统 → 显示
-2. 多显示器 → 选 "**扩展这些显示器**" (不要"复制", 因为大屏分辨率跟监控显示器不同)
-3. **HDMI 1 (大屏)** 设为分辨率 = LED 模组实际拼接像素 (例 `1920×1080` 或 `2560×1440`, 跟 VX1000 配套确认)
-4. **HDMI 2 (监控屏)** 设为 `1920×1080`
-5. 排列: 监控屏放主屏 (Windows 任务栏在这里), 大屏放扩展 (右侧或顶部, 按物理位置)
+1. Windows 设置 → 系统 → 显示 → 多显示器选"**扩展这些显示器**"（不要复制，两块屏分辨率不同）。
+2. 接 V2460 的 **DISPLAY2 设为主显示器**，活动分辨率自定义为 **3612×1462**（= LED 带载，点对点）；GPU 时序可显示为 3840×2160@29Hz，以桌面活动分辨率为准。
+3. 副屏 DISPLAY1 设 1280×720，放在主屏右侧。
+4. 运营大屏在 DISPLAY2 上以 Edge/Chromium 全屏 Kiosk 打开 `http://localhost:5173/control/park-ops/`，开机自启、无地址栏/任务栏。
 
-### 视频文件管理
+### 中控代码对接（后端自愈，无需本机播放器）
 
-| 项 | 路径/约定 |
-| --- | --- |
-| 视频文件根目录 | `D:\Media\` |
-| 欢迎视频 | `D:\Media\welcome\` (例 `welcome.mp4` 循环播放) |
-| 路演视频列表 | `D:\Media\roadshow\` |
-| 企业宣传 | `D:\Media\corporate\` |
-| 节假日特殊素材 | `D:\Media\holiday\` |
+后端 `nova-led.adapter.ts` 通过 TCP 5200 直连 V2460：启动 15s 后 + 每 5min 幂等把图层1拉回
+"HDMI2.0 输入、(0,0) 起、3612×1462 整屏、NORMAL"，并在首次成功时存为预设槽2；断电/被改动后
+无需到现场。生产 `backend/.env` 的 `LED_HOST/LED_RESOLUTION_WIDTH/HEIGHT` 必须与
+[LED_V2460_FULLSCREEN_RUNBOOK.md](LED_V2460_FULLSCREEN_RUNBOOK.md) 一致（旧值 1920×1080 会导致
+周期自愈反复把全屏改错，2026-09-13 已踩坑）。
 
-视频上传方式:
-- **U 盘拷贝** (最简单, 现场插)
-- **远程桌面拖拽** (工程师 RDP 进来后拖文件)
-- **共享文件夹** (开个 D:\Media SMB 共享, 网内任意电脑都能上传)
+### 6.6 视频监控接入（6 路 HLS + 3 路 AI，绝不许删）
 
-### 播放软件 (二选一, 推荐 ViPlex Express)
-
-**方案 A — 诺瓦 ViPlex Express** (推荐):
-- 跟 VX1000 同厂, 兼容性最好
-- 支持播放列表、定时、节目模板
-- 安装: 从诺瓦官网下载 ViPlex Express
-- 配置: 把 D:\Media 添加为素材库, 创建 2 个节目 (欢迎页 + 视频列表) 分别对应 VX1000 预设 1/2
-
-**方案 B — PotPlayer / VLC** (兼用):
-- 简单粗暴, 全屏循环播放
-- PotPlayer 命令行: `PotPlayerMini64.exe /fullscreen /loop D:\Media\welcome.mp4 /open_on_monitor=1`
-- VLC: `vlc --fullscreen --loop --no-video-title-show D:\Media\welcome.mp4`
-- 适合简单循环需求
-
-### 启动时自动播放
-
-把播放命令做成 `D:\smart-control\scripts\start-led.bat`, 加入 Windows 启动项 (`shell:startup`), 开机后自动全屏播放欢迎视频.
-
-### 中控代码对接
-
-后端 `nova-led.adapter.ts` 当前控制 VX1000 (开屏/关屏/切预设/切输入), **不直接控本机播放器** (播放器一直在循环播视频). 切场景时:
-- 后台 "showWelcome" → VX1000 调预设 1 (本机播放器要提前播好欢迎视频)
-- 后台 "playMedia" → VX1000 调预设 2 (本机播放器播视频列表)
-
-未来需要平板远程"换视频列表", 可加 VLC HTTP API 控制 (后端调 `http://localhost:8080/requests/status.xml?command=in_play&input=...`).
+视频不走独立解码服务器，权威配置见 **[VIDEO_STREAM_RUNBOOK.md](VIDEO_STREAM_RUNBOOK.md)**：
+- netsh portproxy：本机 `5545→192.168.1.5:554`、`5546→192.168.1.19:554`（持久，非 SSH 隧道）。
+- 大屏 6 路全部取 NVR **子码流（通道号末两位 02，640×360）**，后端 ffmpeg 把 HEVC 转封装为 H.264/HLS
+  落 `D:\smart-control\tmp\hls\`（在用目录，清理绝不许删）；`POST /api/cameras/:ch/hls/start` 幂等拉流。
+- AI 3 路在 `D:\video-ai-analyzer`（venv 直连子码流、不转码，:8000），由计划任务 VideoAI-Run +
+  VideoAI-Watchdog 保证开机自启与掉线拉起。
 
 ---
+
 
 ## 7. PM2 开机自启 (生产关键)
 

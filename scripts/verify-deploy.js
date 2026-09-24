@@ -36,6 +36,7 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const isWin = process.platform === 'win32';
+const VERIFY_CLIENT_TOKEN = String(process.env.VERIFY_CLIENT_TOKEN || '').trim();
 
 /**
  * 被检查的 app 清单.
@@ -148,16 +149,16 @@ function portOwner(port) {
 }
 
 /** GET, 跟随 302 (前端根路径会跳到 /control/, 那是正常的) */
-function httpGet(port, p, hops = 3) {
+function httpGet(port, p, hops = 3, headers = {}) {
   return new Promise((resolve) => {
     const req = http.request(
-      { host: '127.0.0.1', port, path: p, method: 'GET', timeout: 10000 },
+      { host: '127.0.0.1', port, path: p, method: 'GET', headers, timeout: 10000 },
       (res) => {
         const loc = res.headers.location;
         if (res.statusCode >= 300 && res.statusCode < 400 && loc && hops > 0) {
           res.resume();
           const next = loc.startsWith('http') ? new URL(loc).pathname : loc;
-          resolve(httpGet(port, next, hops - 1));
+          resolve(httpGet(port, next, hops - 1, headers));
           return;
         }
         let b = '';
@@ -169,6 +170,54 @@ function httpGet(port, p, hops = 3) {
     req.on('timeout', () => { req.destroy(); resolve({ code: 0, body: 'timeout' }); });
     req.end();
   });
+}
+
+/**
+ * 受保护的只读诊断接口必须显式配置最小权限客户端令牌。没有令牌时报告 SKIP，
+ * 不再把符合权限设计的 401 渲染成红色故障。核心发布判据仍由公开 health、进程、
+ * 端口、静态制品与只读数据库验收覆盖。
+ */
+function protectedHttpGet(port, p) {
+  if (!VERIFY_CLIENT_TOKEN) return Promise.resolve({ skipped: true, code: 0, body: '' });
+  return httpGet(port, p, 3, { 'X-Client-Token': VERIFY_CLIENT_TOKEN });
+}
+
+function reportProtectedProbeSkip() {
+  info('SKIP 未配置 VERIFY_CLIENT_TOKEN，跳过受保护的只读现场诊断');
+}
+
+function readEnvValue(file, key) {
+  if (!fs.existsSync(file)) return '';
+  const line = fs.readFileSync(file, 'utf8').split(/\r?\n/)
+    .find((entry) => entry.trimStart().startsWith(`${key}=`));
+  if (!line) return '';
+  const raw = line.slice(line.indexOf('=') + 1).trim();
+  return raw.replace(/^(['"])(.*)\1$/, '$2');
+}
+
+/** 直接以 SQLite 只读模式验收关键内置投放源，不依赖管理员 API 凭据。 */
+function inspectParkDashboardSource() {
+  const backendDir = path.join(ROOT, 'backend');
+  const configured = process.env.DB_PATH || readEnvValue(path.join(backendDir, '.env'), 'DB_PATH');
+  const candidates = [
+    configured && (path.isAbsolute(configured) ? configured : path.resolve(backendDir, configured)),
+    // Production backup/restore scripts use this canonical repository-external data path.
+    path.join(ROOT, 'database', 'smart-control.db'),
+    // Keep the historical process.cwd()-relative layout discoverable for development installs.
+    path.join(backendDir, 'database', 'smart-control.db'),
+  ].filter(Boolean);
+  const dbPath = candidates.find((candidate) => fs.existsSync(candidate)) || candidates[0];
+  const BetterSqlite3 = require(path.join(backendDir, 'node_modules', 'better-sqlite3'));
+  const db = new BetterSqlite3(dbPath, { readonly: true, fileMustExist: true });
+  try {
+    db.pragma('query_only = ON');
+    const row = db.prepare(
+      'SELECT id, kind, "sourceUrl" AS sourceUrl FROM media_assets WHERE "originalName" = ? ORDER BY id LIMIT 1',
+    ).get('金湖科创产业园·智慧运营总览(DEMO)');
+    return { dbPath, row };
+  } finally {
+    db.close();
+  }
 }
 
 async function main() {
@@ -350,8 +399,10 @@ async function main() {
   // 控制台会话里有没有浏览器窗口是两回事 (RDP 抢占控制台也会杀心跳)。
   console.log('[kiosk 心跳] GET /api/playback/channels (信息性)');
   try {
-    const r = await httpGet(3200, '/api/playback/channels');
-    if (r.code !== 200) {
+    const r = await protectedHttpGet(3200, '/api/playback/channels');
+    if (r.skipped) {
+      reportProtectedProbeSkip();
+    } else if (r.code !== 200) {
       console.log('  ' + RED('WARN') + ` 读取失败: HTTP ${r.code || '无响应'} ${String(r.body).slice(0, 80)}`);
     } else {
       const rows = JSON.parse(r.body).data || [];
@@ -379,8 +430,10 @@ async function main() {
   // 所以只打印不判失败 —— 但远程一眼能看出哪条链路断了。
   console.log('[硬件网关] GET /api/system/runtime/gateways (信息性)');
   try {
-    const r = await httpGet(3200, '/api/system/runtime/gateways');
-    if (r.code !== 200) {
+    const r = await protectedHttpGet(3200, '/api/system/runtime/gateways');
+    if (r.skipped) {
+      reportProtectedProbeSkip();
+    } else if (r.code !== 200) {
       console.log('  ' + RED('WARN') + ` 读取失败: HTTP ${r.code || '无响应'}`);
     } else {
       const rows = JSON.parse(r.body).data || [];
@@ -398,8 +451,10 @@ async function main() {
   console.log('');
   console.log('[电源回路] GET /api/power-circuits (信息性)');
   try {
-    const r = await httpGet(3200, '/api/power-circuits');
-    if (r.code !== 200) {
+    const r = await protectedHttpGet(3200, '/api/power-circuits');
+    if (r.skipped) {
+      reportProtectedProbeSkip();
+    } else if (r.code !== 200) {
       console.log('  ' + RED('WARN') + ` 读取失败: HTTP ${r.code || '无响应'}`);
     } else {
       const rows = JSON.parse(r.body).data || [];
@@ -427,9 +482,11 @@ async function main() {
   // inputs/zones 读 DB (heal 是否执行过), matrix/live 读 EKX-808 本人 (0x61 一帧,
   // ~284ms) —— reconciler 是否已把期望路由真正下发到设备。只打印不判失败。
   console.log('[音频矩阵] 命名 + 设备实时路由 (信息性)');
-  try {
-    const ri = await httpGet(3200, '/api/audio-config/inputs');
-    const rz = await httpGet(3200, '/api/audio-config/zones');
+  if (!VERIFY_CLIENT_TOKEN) {
+    reportProtectedProbeSkip();
+  } else try {
+    const ri = await protectedHttpGet(3200, '/api/audio-config/inputs');
+    const rz = await protectedHttpGet(3200, '/api/audio-config/zones');
     if (ri.code === 200) {
       const rows = JSON.parse(ri.body).data || [];
       console.log('  输入: ' + rows.map((s) => `IN${s.channel + 1}=${s.name}` +
@@ -439,7 +496,7 @@ async function main() {
       const rows = JSON.parse(rz.body).data || [];
       console.log('  输出: ' + rows.map((z) => `OUT${z.channel + 1}=${z.name}`).join(' | '));
     }
-    const rm = await httpGet(3200, '/api/audio/matrix/live');
+    const rm = await protectedHttpGet(3200, '/api/audio/matrix/live');
     const m = rm.code === 200 ? JSON.parse(rm.body).data : null;
     if (m && m.ok && m.data && Array.isArray(m.data.matrix)) {
       const onList = [];
@@ -452,7 +509,7 @@ async function main() {
     }
     // 输出音量回读 (慢 ~4.6s): 诊断"推子不受控" — 界面推完看这里, 设备值变了
     // 说明指令到位, 听感没变就查功放侧。老部署没有这个接口, 404 静默跳过。
-    const ro = await httpGet(3200, '/api/audio/outputs/live');
+    const ro = await protectedHttpGet(3200, '/api/audio/outputs/live');
     const o = ro.code === 200 ? JSON.parse(ro.body).data : null;
     if (o && o.ok && o.data && Array.isArray(o.data.channels)) {
       console.log('  设备输出音量: ' + o.data.channels
@@ -464,28 +521,19 @@ async function main() {
   console.log('');
 
   // --- J. 媒体库健康 + built-in webpage source acceptance ---
-  console.log('[媒体库] GET /api/media + 园区大屏网页投放源');
+  console.log('[媒体库] 只读 SQLite 验收园区大屏网页投放源');
   try {
-    const r = await httpGet(3200, '/api/media');
-    if (r.code !== 200) {
-      console.log('  ' + RED('WARN') + ` 读取失败: HTTP ${r.code || '无响应'}`);
+    const { dbPath, row: parkDemo } = inspectParkDashboardSource();
+    const expectedUrl = 'http://localhost:5173/control/park-ops/index.html';
+    if (!parkDemo) {
+      bad('媒体库缺少园区大屏 Demo 网页投放源');
+    } else if (parkDemo.kind !== 'webpage' || parkDemo.sourceUrl !== expectedUrl) {
+      bad(`园区大屏投放源配置不正确: kind=${parkDemo.kind} sourceUrl=${parkDemo.sourceUrl || '-'}`);
     } else {
-      const payload = JSON.parse(r.body).data || {};
-      const rows = payload.items || [];
-      const test = rows.find((m) => m.originalName === '左右声道测试.wav');
-      console.log(`  共 ${payload.total ?? rows.length} 个素材; 左右声道测试.wav: ${test ? `在 (#${test.id}, kind=${test.kind})` : RED('不在! (查 backend 日志里 [Media] 内置素材 行)')}`);
-      const parkDemo = rows.find((m) => m.originalName === '金湖科创产业园·智慧运营总览(DEMO)');
-      const expectedUrl = 'http://localhost:5173/control/park-ops/index.html';
-      if (!parkDemo) {
-        bad('媒体库缺少园区大屏 Demo 网页投放源');
-      } else if (parkDemo.kind !== 'webpage' || parkDemo.fileUrl !== expectedUrl) {
-        bad(`园区大屏投放源配置不正确: kind=${parkDemo.kind} fileUrl=${parkDemo.fileUrl || '-'}`);
-      } else {
-        ok(`园区大屏 Demo 已作为网页投放源入库 (#${parkDemo.id})`);
-      }
+      ok(`园区大屏 Demo 已作为网页投放源入库 (#${parkDemo.id}, DB=${dbPath})`);
     }
   } catch (e) {
-    console.log('  ' + RED('WARN') + ' 媒体库探测异常: ' + e.message);
+    bad('媒体库只读验收异常: ' + e.message);
   }
   try {
     // Android 发布链 (2026-07-27): 记录版本 + 下载地址 + 本地 APK 是否就位
@@ -503,8 +551,10 @@ async function main() {
   } catch (e) { console.log('  ' + RED('WARN') + ' app-release 读取异常: ' + e.message); }
   try {
     // 百度网盘接入 (2026-07-29): status 可用性 (业主端弹窗卡"读取状态…"远程排障用)
-    const rp = await httpGet(3200, '/api/baidu-pan/status');
-    if (rp.code === 200) {
+    const rp = await protectedHttpGet(3200, '/api/baidu-pan/status');
+    if (rp.skipped) {
+      reportProtectedProbeSkip();
+    } else if (rp.code === 200) {
       const d = JSON.parse(rp.body).data || {};
       const dl = d.download && d.download.active ? d.download.active.name : '无';
       console.log(`  百度网盘: configured=${d.configured} authorized=${d.authorized} 下载中=${dl}`);
@@ -620,20 +670,24 @@ async function main() {
       }
     } catch (e) { console.log('  ' + RED('WARN') + ' 健康指标读取异常: ' + e.message); }
     try {
-      // node.exe 逐个按命令行分类: 期望 = backend(dist/main.js) 1 + 前端(vite preview) 1
-      // + pm2 守护(Daemon.js) 1。多出来的都是泄漏嫌疑, 原样打出来。
+      // PM2 cluster/fork 模式的业务进程命令行可能只有 ProcessContainerFork.js，
+      // 不能再靠 dist/main.js 或 vite 字样猜身份。以本轮 pm2 jlist 的 PID 为权威，
+      // 诊断脚本单独分桶，其余进程才进入泄漏嫌疑。
       const raw = execSync('wmic process where (name="node.exe") get ProcessId,CommandLine /format:csv', { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
       const rows = raw.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !/^Node,/i.test(l));
-      const cls = { backend: [], frontend: [], pm2daemon: [], other: [] };
+      const expectedPidToName = new Map(procs.map((p) => [String(p.pid), p.name]));
+      const cls = { backend: [], frontend: [], pm2daemon: [], diagnostic: [], other: [] };
       for (const l of rows) {
         const pid = (l.match(/,(\d+)\s*$/) || [])[1] || '?';
         const cmd = l.toLowerCase();
-        if (cmd.includes('dist\\main.js') || cmd.includes('dist/main.js')) cls.backend.push(pid);
-        else if (cmd.includes('vite')) cls.frontend.push(pid);
+        const expectedName = expectedPidToName.get(pid);
+        if (expectedName === 'smart-control-backend') cls.backend.push(pid);
+        else if (expectedName === 'smart-control-frontend') cls.frontend.push(pid);
+        else if (cmd.includes('verify-deploy.js') || cmd.includes('run-migrations.js')) cls.diagnostic.push(pid);
         else if (cmd.includes('daemon.js') || cmd.includes('pm2')) cls.pm2daemon.push(pid);
         else cls.other.push(`${pid}: ${l.slice(0, 110)}`);
       }
-      const summary = `node 进程: backend×${cls.backend.length} 前端×${cls.frontend.length} pm2相关×${cls.pm2daemon.length} 其他×${cls.other.length}`;
+      const summary = `node 进程: backend×${cls.backend.length} 前端×${cls.frontend.length} pm2守护×${cls.pm2daemon.length} 诊断×${cls.diagnostic.length} 其他×${cls.other.length}`;
       const healthyCounts = cls.backend.length === 1 && cls.frontend.length === 1 && cls.pm2daemon.length <= 3 && cls.other.length === 0;
       console.log('  ' + (healthyCounts ? GREEN('OK') + '   ' : RED('WARN') + ' ') + summary);
       cls.other.forEach((o) => console.log('  ' + RED('  泄漏嫌疑') + ' ' + o));

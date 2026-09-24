@@ -203,27 +203,6 @@ export class EkxDspAdapter extends BaseAdapter {
     this.dbCache = { at: 0 };
   }
 
-  /** P2 — 给 DriverRegistryService 注册用 */
-  static describe(): import('../driver-descriptor').DriverDescriptor {
-    return {
-      kind: 'ekx-808',
-      displayName: '得胜 TAKSTAR EKX-808 (8×8 数字矩阵 DSP)',
-      vendor: '得胜 TAKSTAR',
-      category: 'audio-dsp',
-      protocol: 'takstar-ekx-tcp',
-      capabilities: [
-        'set_volume', 'mute', 'recall_scene', 'read_current_scene',
-        'set_matrix', 'aux_switch', 'read_level', 'health_check',
-      ],
-      defaultAddressing: { devAddr: 1, tcpPort: 9761, inputs: 8, outputs: 8 },
-      paramSchema: {
-        ip:      { type: 'string', label: 'DSP IP', required: true, placeholder: '192.168.x.x' },
-        tcpPort: { type: 'number', label: 'TCP 端口', default: 9761, min: 1, max: 65535 },
-        devAddr: { type: 'number', label: '设备地址', default: 1, min: 1, max: 254 },
-      },
-      remark: '8 输入 8 输出数字音频矩阵 + DSP, 支持用户预设 U01-U12, AEC/NR/摄像跟踪/自动混音开关.',
-    };
-  }
 
   /** 每次 TCP 调用前: DB > env > default 三级取 host:port, 不同就重建 TcpClient. */
   private async syncRuntime(): Promise<void> {
@@ -454,33 +433,13 @@ export class EkxDspAdapter extends BaseAdapter {
   /**
    * 读设备**真实**的 8×8 路由表 — 一条命令 (0x61), 实测 ~284ms.
    *
-   * 这是前端矩阵界面唯一该信的数据源。以前前端点一下就把结果存进本地 JSON
-   * 文件 (GET/POST /api/audio/matrix/state), 那记的是"谁点过什么", 不是设备
-   * 状态 —— 而且命令失败时照样存, 于是界面亮着一个从没接通过的交叉点。
+   * 这是前端矩阵界面唯一该信的数据源。旧版曾把点击结果存进本地 JSON，
+   * 那记的是"谁点过什么", 不是设备状态；该文件写入现已退役。
    *
    * 别逐点读: 64 个点 × ~280ms ≈ 18s (EKX 单客户端 + 串行锁, 快不了)。
    */
-  /**
-   * 网关已知离线时直接快速失败, 别在死连接上排队干等。
-   *
-   * EKX 是单客户端 + send() 串行锁: 设备掉线后, 每条读命令都要等满 timeoutMs(3s) 才失败,
-   * 后台 8s 一轮的矩阵轮询会持续占着这把锁。此时前端来一发 matrix/live 会**排在一串
-   * 3s 超时的命令后面**, 整个请求挂十几秒才回 → 音响页看着就是"矩阵状态为空"。
-   * 一旦 ConnectionRegistry 已把它标 offline/reconnecting, 就没必要再连了, 立刻抛
-   * 明确的"离线"错, 让前端秒显"音频矩阵离线, 查电源/网线", 而不是转圈变空。
-   * 注意: 只挡 UI 的批量读, 不挡 ping/healthCheck —— 那两个还要继续探测, 好了才能标回 online。
-   */
-  private failFastIfOffline(): void {
-    if (this.isMock()) return;
-    const st = this.registry.get(GATEWAY_KEY)?.state;
-    if (st === 'offline' || st === 'reconnecting' || st === 'error') {
-      throw new Error(`音频矩阵离线: EKX-808 (${this.host}:${this.port}) 连不上, 请检查设备电源与网线`);
-    }
-  }
-
   async readFullMatrix(ctx?: AdapterContext): Promise<AdapterResult<{ matrix: boolean[][] }>> {
     return this.run('audio-dsp', 'readFullMatrix', ctx, async () => {
-      this.failFastIfOffline();
       const resp = await this.send(cmdReadFullMatrix(this.devAddr), ctx?.signal, true);
       const matrix = parseFullMatrix(resp);
       if (!matrix) {
@@ -500,7 +459,9 @@ export class EkxDspAdapter extends BaseAdapter {
     ctx?: AdapterContext,
   ): Promise<AdapterResult<{ channels: Array<{ ch: number; gainDb: number | null; muted: boolean | null }> }>> {
     return this.run('audio-dsp', 'readInputChannels', ctx, async () => {
-      this.failFastIfOffline();  // 16 次往返, 离线时更该早退, 别干等 16×3s
+      // 批量读取前先做一次真实问答。设备断电时只等一次超时；重新通电后也能
+      // 立即恢复，不依赖后台定时探活把注册表状态改回 online。
+      await this.ping(ctx);
       const channels: Array<{ ch: number; gainDb: number | null; muted: boolean | null }> = [];
       for (let ch = 0; ch < 8; ch += 1) {
         let gainDb: number | null = null;
@@ -529,7 +490,7 @@ export class EkxDspAdapter extends BaseAdapter {
     ctx?: AdapterContext,
   ): Promise<AdapterResult<{ channels: Array<{ ch: number; volume: number | null; muted: boolean | null }> }>> {
     return this.run('audio-dsp', 'readOutputChannels', ctx, async () => {
-      this.failFastIfOffline();
+      await this.ping(ctx);
       const channels: Array<{ ch: number; volume: number | null; muted: boolean | null }> = [];
       for (let ch = 0; ch < 8; ch += 1) {
         let volume: number | null = null;
@@ -649,7 +610,7 @@ export class EkxDspAdapter extends BaseAdapter {
    *   "BGM 从 3.5mm 出来了、GK9000 也能听见, 但矩阵收不到" 这类问题, 光读电平
    *   表判断不了 —— EKX 预设常把输入增益压到 -60dB, 信号进来了也会被压成本底
    *   噪声 (IN1 读数恒 -70dB), 看起来跟"没接线"一模一样。
-   *   而 GET /api/audio/matrix/state 读的是本地 JSON 文件, 不是设备状态。
+   *   而 GET /api/audio/matrix/state 只是数据库期望状态的兼容投影，不是设备状态。
    *   这里直接问设备: 增益多少 / 静音没 / 路由通没通。
    */
   async diagnoseInput(channel: ChannelIndex, ctx?: AdapterContext): Promise<AdapterResult<{

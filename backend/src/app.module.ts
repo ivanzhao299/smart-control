@@ -40,11 +40,15 @@ import { SystemBrandingModule } from './modules/system-branding/system-branding.
 import { AdminAuthModule } from './modules/admin-auth/admin-auth.module';
 import { ClientAuthModule } from './modules/client-auth/client-auth.module';
 import { AppReleaseModule } from './modules/app-release/app-release.module';
+import { TestFlightModule } from './modules/testflight/testflight.module';
 import { PlaybackModule } from './modules/playback/playback.module';
 import { AudioConfigModule } from './modules/audio-config/audio-config.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AdaptersModule } from './adapters/adapters.module';
 import { ServicesModule } from './services/services.module';
+import { CamerasModule } from './modules/cameras/cameras.module';
+import { PvModule } from './modules/pv/pv.module';
+import { RuntimeConfigModule } from './common/runtime-config/runtime-config.module';
 
 @Module({
   imports: [
@@ -56,6 +60,7 @@ import { ServicesModule } from './services/services.module';
     }),
     LoggerModule,
     TypeOrmModule.forRootAsync({ useClass: TypeOrmConfigService }),
+    RuntimeConfigModule,
     AdaptersModule,
     ServicesModule,
     HealthModule,
@@ -87,10 +92,13 @@ import { ServicesModule } from './services/services.module';
     AdminAuthModule,
     ClientAuthModule,
     AppReleaseModule,
+    TestFlightModule,
     PlaybackModule,
     AudioConfigModule,
     AuditModule,
     WebsocketModule,
+    CamerasModule,
+    PvModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

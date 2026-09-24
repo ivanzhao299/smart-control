@@ -3,6 +3,7 @@ import compression from 'compression';
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { ValidationPipe } from '@nestjs/common';
+import { createCorsOptions } from './common/config/cors';
 import { WsAdapter } from '@nestjs/platform-ws';
 import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
 import { AppModule } from './app.module';
@@ -48,7 +49,7 @@ async function bootstrap(): Promise<void> {
       forbidNonWhitelisted: true,
     }),
   );
-  app.enableCors();
+  app.enableCors(createCorsOptions(appCfg.corsAllowedOrigins));
   // gzip 压缩 JSON/文本响应 (远程 WireGuard/公网慢链路上状态轮询立省 70-90% 流量)。
   // compression 默认按 content-type 过滤: 视频/图片等已压缩格式不会二次压, 媒体流不受影响。
   app.use(compression({ threshold: 1024 }));

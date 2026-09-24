@@ -306,7 +306,7 @@ pm2 reload smart-control-backend --update-env
 如果现场分区不一样（比如增加 F102/F103 独立分区），需同步改：
 
 1. `frontend/src/pages/AudioPage.vue` 的 `channels` 数组
-2. `backend/src/seed/seed.service.ts` 的 audio 设备
+2. `backend/src/migrations/catalogs/operational-catalog-v1.json` 的 audio 新安装目录快照
 3. DSP 矩阵编程里多加输出路由
 4. 接更多功放通道
 

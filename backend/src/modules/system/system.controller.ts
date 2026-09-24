@@ -44,6 +44,8 @@ export class SystemController {
         buildTime: meta.buildTime,
         commit: meta.commit ?? null,
         ref: meta.ref ?? null,
+        releasedAt: meta.releasedAt ?? null,
+        identitySource: meta.identitySource ?? 'unknown',
         nodeVersion: process.version,
         platform: meta.platform || app.platform,
         host: meta.host || app.hostMachine || 'unknown',
@@ -57,6 +59,13 @@ export class SystemController {
         apiPrefix: app.apiPrefix,
       },
     };
+  }
+
+  /** 管理员可见的运行实例摘要：代码身份、实际数据库和独立数据目录必须一致可查。 */
+  @Get('runtime-summary')
+  @UseGuards(ActorAdminGuard)
+  async runtimeSummary() {
+    return { message: '运行实例摘要', data: await this.system.runtimeSummary() };
   }
 
   @Get('runtime/devices')
@@ -74,15 +83,15 @@ export class SystemController {
     return { message: '查询成功', data: this.registry.list() };
   }
 
-  /** 清空所有网关的 lastError + 失败计数, 重新探活一次. 后台"清空告警"按钮调. */
+  /** 清空运行时连接错误和失败计数，并按操作员要求手动检测一次。 */
   @Post('runtime/gateways/clear-faults')
   @UseGuards(ActorAdminGuard)
   async clearGatewayFaults() {
     const cleared = this.registry.clearAllFaults();
-    // 立即重新探活, 把真实状态填回去
+    // 只在操作员点击时检测，不启动后台定时任务。
     await this.health.probeAll();
     return {
-      message: `清空 ${cleared} 个网关的旧告警, 已重新探活`,
+      message: `已清除 ${cleared} 个网关的旧错误并完成设备检测`,
       data: this.registry.list(),
     };
   }
@@ -96,7 +105,7 @@ export class SystemController {
   @UseGuards(ActorAdminGuard)
   async probe() {
     await this.health.probeAll();
-    return { message: '健康检查已执行', data: this.health.summary() };
+    return { message: '设备检测已执行', data: this.health.summary() };
   }
 
   @Get('backups')

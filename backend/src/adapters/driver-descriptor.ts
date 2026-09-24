@@ -1,6 +1,6 @@
 /**
- * 驱动自描述结构 — 每个真实 adapter 提供 static describe() 返回一份这个,
- * 启动时 DriverRegistryService 把所有 describe() 结果 upsert 到 driver_template 表.
+ * 驱动模板的结构化输入。内置目录由版本化迁移写入 driver_templates，
+ * 非内置目录可通过管理 API 创建；适配器本身不再保存另一份目录元数据。
  *
  * 跟 DriverTemplate entity 的字段一一对应, 只是这里允许结构化对象, 落 DB 前会 JSON.stringify.
  */

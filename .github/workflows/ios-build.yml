@@ -3,6 +3,7 @@
 #
 # 触发:
 #   - push 到 main, 且 ios-app/** 有改动
+#   - PR 修改 ios-app 或本工作流时只做未签名构建验证
 #   - workflow_dispatch 手动触发
 #
 # 输出: SmartControl-unsigned.ipa artifact (Actions 页面下载)
@@ -21,6 +22,10 @@ on:
     branches: [main]
     paths:
       - 'ios-app/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ios-app/**'
       - '.github/workflows/ios-build.yml'
   workflow_dispatch:
 
@@ -36,7 +41,10 @@ jobs:
     # project file format"), 2026-07-24 首跑就是这么挂的。
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+
+      - name: Verify production remote address
+        run: node tools/ci/verify-production-remote-address.mjs
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -68,7 +76,7 @@ jobs:
           ls -la SmartControl-unsigned.ipa
 
       - name: Upload IPA artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: SmartControl-unsigned-ipa
           path: ios-app/SmartControl-unsigned.ipa
@@ -83,7 +91,7 @@ jobs:
     name: Sign & upload TestFlight
     runs-on: macos-26
     needs: build
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     env:
       KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
       ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
@@ -100,7 +108,7 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: steps.gate.outputs.run == 'true'
 
       - name: Install XcodeGen

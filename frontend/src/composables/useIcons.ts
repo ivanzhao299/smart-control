@@ -22,6 +22,7 @@ import {
   Wrench,
   Clock,
   BarChart3,
+  Gauge,
   TestTube2,
   CheckCircle2,
   FileText,
@@ -32,6 +33,7 @@ import {
   Tag,
   Palette,
   SlidersHorizontal,
+  Rocket,
   type LucideIcon, Projector } from 'lucide-vue-next';
 
 /** 平板侧边导航 */
@@ -64,9 +66,11 @@ export const ADMIN_NAV_ICON: Record<string, LucideIcon> = {
   'admin-power-circuits': Zap,
   'admin-zones-config': SlidersHorizontal,
   'admin-app-release': Settings,
+  'admin-testflight': Rocket,
   'admin-drivers': Cpu,
   'admin-brands': Tag,
   'admin-system-branding': Palette,
+  'admin-park-ops-metrics': Gauge,
   'admin-audit': History,
   'admin-users': Users,
   'admin-settings': Settings,

@@ -1,6 +1,8 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Logger } from 'winston';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { LightingAdapter } from '../adapters/lighting/lighting.adapter';
 import { LedAdapter } from '../adapters/led/led.adapter';
 import { AudioAdapter } from '../adapters/audio/audio.adapter';
@@ -8,6 +10,8 @@ import { HvacAdapter } from '../adapters/hvac/hvac.adapter';
 import { PowerAdapter } from '../adapters/power/power.adapter';
 import { AdapterContext, AdapterResult } from '../adapters/adapter.types';
 import { DeviceStatusService } from './device-status.service';
+import { HvacZone } from '../entities/hvac-zone.entity';
+import { HvacIndoor } from '../entities/hvac-indoor.entity';
 
 export interface DispatchInput {
   deviceType: string;
@@ -25,6 +29,8 @@ export class CommandDispatcherService {
     private readonly hvac: HvacAdapter,
     private readonly power: PowerAdapter,
     private readonly deviceStatus: DeviceStatusService,
+    @InjectRepository(HvacZone) private readonly hvacZoneRepo: Repository<HvacZone>,
+    @InjectRepository(HvacIndoor) private readonly hvacIndoorRepo: Repository<HvacIndoor>,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
@@ -184,14 +190,25 @@ export class CommandDispatcherService {
     p: Record<string, unknown>,
     ctx?: AdapterContext,
   ): Promise<AdapterResult> {
-    // 动态 import 避免循环依赖
-    const { findZone } = await import('../adapters/hvac/hvac-zones');
-    const zone = findZone(zoneCode);
-    if (!zone) {
-      return this.unsupported('hvac-zone', cmd, zoneCode);
+    const zone = await this.hvacZoneRepo.findOne({ where: { code: zoneCode, enabled: true } });
+    if (!zone) return this.unsupported('hvac-zone', cmd, zoneCode);
+    const indoors = await this.hvacIndoorRepo.find({
+      where: { zoneCode, enabled: true },
+      order: { idx: 'ASC' },
+    });
+    if (indoors.length === 0) {
+      return {
+        ok: false,
+        deviceId: zoneCode,
+        command: cmd,
+        mock: false,
+        durationMs: 0,
+        data: { zoneCode, zoneName: zone.name, total: 0, okCount: 0, results: [] },
+        error: '功能区暂无内机',
+      };
     }
     const started = Date.now();
-    const results = await Promise.all(zone.indoors.map(idx => this.callHvac(cmd, String(idx), p, ctx)));
+    const results = await Promise.all(indoors.map(indoor => this.callHvac(cmd, String(indoor.idx), p, ctx)));
     const okCount = results.filter(r => r.ok).length;
     const ok = okCount === results.length;
     return {

@@ -33,11 +33,55 @@ export interface SystemBranding {
   welcomeTitle: string | null;
   /** 欢迎页底部标语 (空 = 默认 '智慧展厅 · 数字展贸 · 科创未来') */
   welcomeTagline: string | null;
+  /** 场馆中文名 (null=内置默认, ''=隐藏, 非空=自定义) */
+  welcomeVenue: string | null;
+  /** 场馆英文名 (null=内置默认, ''=隐藏, 非空=自定义) */
+  welcomeVenueEn: string | null;
+  /** 落款单位一 (null=内置默认, ''=隐藏, 非空=自定义) */
+  welcomeOrg1: string | null;
+  /** 落款单位二 (null=内置默认, ''=隐藏, 非空=自定义) */
+  welcomeOrg2: string | null;
   /** 欢迎页底图媒体 id (空 = 内置'鎏金夜湖'程序化底图) */
   welcomeBgMediaId: number | null;
   /** 只读: 底图直链 (后端由 welcomeBgMediaId 算出; 展示需 absUrl() 拼绝对地址) */
   welcomeBgUrl?: string | null;
+  /** 欢迎页独立 Logo 媒体 id (空 = 内置场馆 Logo) */
+  welcomeLogoMediaId: number | null;
+  /** 只读: 当前欢迎页 Logo 匿名直链 */
+  welcomeLogoUrl?: string | null;
+  /** 当前正式上屏方案的版式快照。 */
+  welcomePresentation: WelcomePresentation;
+  /** 欢迎页"来访者拍照上墙"照片媒体 id (空 = 默认欢迎布局) */
+  welcomePhotoMediaId?: number | null;
+  /** 只读: 上墙照片直链 (后端由 welcomePhotoMediaId 算出) */
+  welcomePhotoUrl?: string | null;
 }
+
+export type WelcomeLayout = 'ceremony' | 'editorial' | 'minimal';
+export type WelcomeTone = 'light' | 'dark';
+export type WelcomeOverlay = 'none' | 'soft' | 'strong';
+export type WelcomeContentPosition = 'upper' | 'center' | 'lower';
+export type WelcomeLogoSize = 'small' | 'medium' | 'large';
+/** 主标题文字效果: blue 科技蓝 / gold 鎏金 / white 纯白描边 / ink 墨蓝(浅底) / neon 霓虹青(深底) */
+export type WelcomeTitleEffect = 'blue' | 'gold' | 'white' | 'ink' | 'neon';
+
+export interface WelcomePresentation {
+  layout: WelcomeLayout;
+  tone: WelcomeTone;
+  overlay: WelcomeOverlay;
+  contentPosition: WelcomeContentPosition;
+  logoSize: WelcomeLogoSize;
+  titleEffect: WelcomeTitleEffect;
+}
+
+export const DEFAULT_WELCOME_PRESENTATION: WelcomePresentation = {
+  layout: 'ceremony',
+  tone: 'light',
+  overlay: 'soft',
+  contentPosition: 'center',
+  logoSize: 'medium',
+  titleEffect: 'blue',
+};
 
 export type SystemBrandingPatch = Partial<SystemBranding>;
 
@@ -49,8 +93,74 @@ export async function saveSystemBranding(patch: SystemBrandingPatch): Promise<Sy
   return api.put<SystemBranding>('/system-branding', patch);
 }
 
-/** 欢迎页字段专用保存 — 客户端 token 即可 (无需后台登录), 只收欢迎页四字段 */
-export type WelcomePatch = Partial<Pick<SystemBranding, 'welcomeGuest' | 'welcomeTitle' | 'welcomeTagline' | 'welcomeBgMediaId'>>;
+/** 欢迎页字段专用保存；前台就地编辑，后端仍要求管理员身份。 */
+export type WelcomePatch = Partial<Pick<SystemBranding, 'welcomeGuest' | 'welcomeTitle' | 'welcomeTagline' | 'welcomeBgMediaId' | 'welcomeLogoMediaId' | 'welcomePhotoMediaId'>>;
 export async function saveWelcomeConfig(patch: WelcomePatch): Promise<SystemBranding> {
   return api.put<SystemBranding>('/system-branding/welcome', patch);
+}
+
+export interface WelcomeScheme {
+  id: string;
+  name: string;
+  welcomeTitle: string | null;
+  welcomeGuest: string | null;
+  welcomeTagline: string | null;
+  welcomeVenue: string | null;
+  welcomeVenueEn: string | null;
+  welcomeOrg1: string | null;
+  welcomeOrg2: string | null;
+  welcomeBgMediaId: number | null;
+  welcomeLogoMediaId: number | null;
+  presentation: WelcomePresentation;
+}
+
+export interface WelcomeSchemesDocument {
+  version: 2;
+  schemes: WelcomeScheme[];
+}
+
+export interface WelcomeSchemesSnapshot {
+  config: WelcomeSchemesDocument;
+  revision: number;
+  checksum: string | null;
+  updatedAt: string | null;
+  publishedSchemeId: string | null;
+}
+
+export async function fetchWelcomeSchemes(): Promise<WelcomeSchemesSnapshot> {
+  return api.get<WelcomeSchemesSnapshot>('/system-branding/welcome-schemes');
+}
+
+export async function saveWelcomeSchemes(
+  config: WelcomeSchemesDocument,
+  expectedRevision: number,
+): Promise<WelcomeSchemesSnapshot> {
+  return api.put<WelcomeSchemesSnapshot>('/system-branding/welcome-schemes', {
+    config,
+    expectedRevision,
+  });
+}
+
+export async function publishWelcomeScheme(
+  schemeId: string,
+  expectedRevision: number,
+): Promise<{ scheme: WelcomeScheme; branding: SystemBranding }> {
+  return api.put<{ scheme: WelcomeScheme; branding: SystemBranding }>(
+    `/system-branding/welcome-schemes/${encodeURIComponent(schemeId)}/publish`,
+    { expectedRevision },
+  );
+}
+
+export async function removeWelcomeAsset(
+  mediaId: number,
+  expectedRevision: number,
+): Promise<{
+  removedId: number;
+  cleanupPending: boolean;
+  schemes: WelcomeSchemesSnapshot;
+}> {
+  return api.del(
+    `/system-branding/welcome-assets/${mediaId}`,
+    { params: { expectedRevision } },
+  );
 }

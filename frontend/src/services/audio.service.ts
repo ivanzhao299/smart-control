@@ -35,11 +35,6 @@ export const audioService = {
     api.get<{ ok: boolean; data?: { channels: Array<{ ch: number; gainDb: number | null; muted: boolean | null }> }; error?: string }>(
       '/audio/inputs/live',
     ),
-  /** @deprecated 本地 JSON 里的点击记录, 不是设备状态. 用 getLiveMatrix */
-  getMatrixState: () =>
-    api.get<Record<string, boolean>>('/audio/matrix/state'),
-  saveMatrixState: (state: Record<string, boolean>) =>
-    api.post<null>('/audio/matrix/state', state),
   // 输入通道增益 (0-100). EKX 用户预设常把输入压到 -60dB, 矩阵通了也没声, 这里拉回.
   setInputVolume: (channel: number, value: number) =>
     api.post<AdapterResult<{ channel: number; volume: number }>>(`/audio/input/${channel}/gain`, { value }),

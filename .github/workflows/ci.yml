@@ -1,14 +1,16 @@
 # =====================================================================
 # CI - 类型检查 + 构建 (无部署)
-# 触发: push 任意分支, PR 进入 main
+# 触发: PR 进入 main，或合并后 push 到 main
 # 用途: 保护 main 分支质量, 阻止破坏性合并
+#
+# 功能分支不能同时监听 push 和 pull_request：同一提交会在推送分支及创建/更新
+# PR 时重复跑两套相同任务，既浪费额度，也会把一次外部 runner 故障显示成多次失败。
 # =====================================================================
 name: CI
 
 on:
   push:
-    branches-ignore:
-      - 'no-ci/**'
+    branches: [main]
   pull_request:
     branches: [main]
 
@@ -20,31 +22,43 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  release_config:
+    name: Release config · production remote address
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+      - run: node tools/ci/verify-production-remote-address.mjs
+
   frontend:
-    name: Frontend · typecheck + build
+    name: Frontend · test + typecheck + build
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
-          version: 9
+          version: 10.33.4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
 
       - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --prod --audit-level high
+      - run: pnpm run test
       - run: pnpm run typecheck
       - run: pnpm run build
 
       - name: Upload frontend dist
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-dist
           path: frontend/dist
@@ -57,19 +71,20 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
-          version: 10
+          version: 10.33.4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: 'pnpm'
           cache-dependency-path: backend/pnpm-lock.yaml
 
       - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --prod --audit-level high
       # 协议编解码层单测: 改错一个字节/大小端/换算, 这里先红, 不流到现场硬件
       #
       # ⚠️ 必须用 `pnpm exec jest`, 不能写 `pnpm test -- --ci`:
@@ -80,3 +95,7 @@ jobs:
       # 2026-07-19 踩过一次: testMatch 明明 5 matches, 却报没找到测试。
       - run: pnpm exec jest --ci --reporters=default
       - run: pnpm run build
+      # Deployment/recovery contracts are plain Node tests and are intentionally
+      # separate from ts-jest. Several restore tests exercise compiled entities,
+      # so they run after build and before the job can pass.
+      - run: pnpm run test:ops

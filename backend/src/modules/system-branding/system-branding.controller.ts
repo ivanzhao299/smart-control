@@ -1,8 +1,26 @@
-import { BadRequestException, Body, Controller, Get, Put, Res, UseGuards } from '@nestjs/common';
-import type { Response } from 'express';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpException,
+  NotFoundException,
+  Param,
+  ParseIntPipe,
+  Put,
+  Query,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { SystemBrandingDto, SystemBrandingService } from './system-branding.service';
 import { AdminGuard } from '../admin-auth/admin-auth.guard';
+import { MediaService } from '../media/media.service';
+import { sendMediaFile } from '../../common/utils/send-media-file';
 import { Public } from '../../common/decorators/public.decorator';
+import type { Actor, AuthenticatedRequest } from '../../common/auth/actor';
 
 /**
  * /api/system-branding
@@ -17,12 +35,45 @@ import { Public } from '../../common/decorators/public.decorator';
  */
 @Controller('system-branding')
 export class SystemBrandingController {
-  constructor(private readonly service: SystemBrandingService) {}
+  constructor(
+    private readonly service: SystemBrandingService,
+    private readonly media: MediaService,
+  ) {}
 
   @Public()
   @Get()
   async get() {
     return { message: '查询成功', data: await this.service.get() };
+  }
+
+  /**
+   * 匿名公开文件路由 —— 只放行"当前被绑定为来访者上墙照片"的那一张媒体。
+   * 大屏本机无 token、参观者手机扫码也无 token；普通 /api/media/:id/file 需要登录,
+   * 不能开放全部媒体。撤下或被新照片覆盖后, 旧 id 不再是当前绑定, 这里立即 404。
+   */
+  @Public()
+  @Get('welcome-photo/file')
+  async welcomePhotoFile(@Req() req: Request, @Res() res: Response): Promise<void> {
+    const id = await this.service.getWelcomePhotoMediaId();
+    if (!id) throw new NotFoundException('当前没有上墙照片');
+    const file = await this.media.openStream(id, false, req.headers.range);
+    sendMediaFile(res, file);
+  }
+
+  @Public()
+  @Get('welcome-background/file')
+  async welcomeBackgroundFile(@Req() req: Request, @Res() res: Response): Promise<void> {
+    const id = await this.service.getWelcomeBackgroundMediaId();
+    if (!id) throw new NotFoundException('当前欢迎页没有自定义底图');
+    sendMediaFile(res, await this.media.openStream(id, false, req.headers.range));
+  }
+
+  @Public()
+  @Get('welcome-logo/file')
+  async welcomeLogoFile(@Req() req: Request, @Res() res: Response): Promise<void> {
+    const id = await this.service.getWelcomeLogoMediaId();
+    if (!id) throw new NotFoundException('当前欢迎页没有自定义 Logo');
+    sendMediaFile(res, await this.media.openStream(id, false, req.headers.range));
   }
 
   /** 大屏和校准器共同读取；没有保存过时 config=null，页面使用内置默认值。 */
@@ -37,21 +88,136 @@ export class SystemBrandingController {
   @UseGuards(AdminGuard)
   async updateParkOps(@Body() body: unknown): Promise<unknown> {
     try {
-      return { message: '园区大屏布局已保存', data: await this.service.updateParkOpsConfig(body) };
+      const request = body as { config?: unknown; expectedRevision?: unknown };
+      const versioned =
+        !!request &&
+        typeof request === 'object' &&
+        !Array.isArray(request) &&
+        Object.prototype.hasOwnProperty.call(request, 'config');
+      let expectedRevision: number | undefined;
+      if (versioned) {
+        if (!Number.isInteger(request.expectedRevision) || Number(request.expectedRevision) < 0) {
+          throw new BadRequestException('expectedRevision 必须是非负整数');
+        }
+        expectedRevision = Number(request.expectedRevision);
+      }
+      return {
+        message: '园区大屏布局已保存',
+        data: await this.service.updateParkOpsConfig(
+          versioned ? request.config : body,
+          expectedRevision,
+        ),
+      };
     } catch (error) {
+      if (error instanceof HttpException) throw error;
+      throw new BadRequestException((error as Error).message);
+    }
+  }
+
+  /** 多套欢迎方案只供管理员编辑；正式欢迎页仍由公开 GET 返回已发布快照。 */
+  @Get('welcome-schemes')
+  @UseGuards(AdminGuard)
+  async getWelcomeSchemes(): Promise<unknown> {
+    return { message: '查询成功', data: await this.service.getWelcomeSchemes() };
+  }
+
+  @Put('welcome-schemes')
+  @UseGuards(AdminGuard)
+  async updateWelcomeSchemes(@Body() body: unknown): Promise<unknown> {
+    try {
+      const request = body as { config?: unknown; expectedRevision?: unknown };
+      if (!request || typeof request !== 'object' || Array.isArray(request)) {
+        throw new BadRequestException('请求体必须是 JSON 对象');
+      }
+      if (!Number.isInteger(request.expectedRevision) || Number(request.expectedRevision) < 0) {
+        throw new BadRequestException('expectedRevision 必须是非负整数');
+      }
+      return {
+        message: '欢迎方案已保存',
+        data: await this.service.updateWelcomeSchemes(
+          request.config,
+          Number(request.expectedRevision),
+        ),
+      };
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      throw new BadRequestException((error as Error).message);
+    }
+  }
+
+  @Put('welcome-schemes/:schemeId/publish')
+  @UseGuards(AdminGuard)
+  async publishWelcomeScheme(
+    @Param('schemeId') schemeId: string,
+    @Body() body: unknown,
+  ): Promise<unknown> {
+    try {
+      const request = body as { expectedRevision?: unknown };
+      if (
+        !request ||
+        !Number.isInteger(request.expectedRevision) ||
+        Number(request.expectedRevision) < 0
+      ) {
+        throw new BadRequestException('expectedRevision 必须是非负整数');
+      }
+      return {
+        message: '欢迎方案已发布',
+        data: await this.service.publishWelcomeScheme(schemeId, Number(request.expectedRevision)),
+      };
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
       throw new BadRequestException((error as Error).message);
     }
   }
 
   /**
-   * 欢迎页内容编辑 (2026-07-28 业主: "编辑放到前端, 不用进后台") — 客户端 token
-   * 即可改 (走全局 ClientAuthGuard, 与切灯/推片同级的日常操作), 但**只放行欢迎页
-   * 四个字段**, logo/系统名等品牌配置仍必须走下面的 AdminGuard PUT。
+   * 删除欢迎页图片时由服务端先清理全部方案及已发布快照中的引用，再删除媒体文件。
+   * 这样不会留下“方案仍指向已删除文件”的悬空配置。
    */
+  @Delete('welcome-assets/:mediaId')
+  @UseGuards(AdminGuard)
+  async removeWelcomeAsset(
+    @Param('mediaId', ParseIntPipe) mediaId: number,
+    @Query('expectedRevision') expectedRevisionRaw: string,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const expectedRevision = Number(expectedRevisionRaw);
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
+      throw new BadRequestException('expectedRevision 必须是非负整数');
+    }
+    const actor: Actor = req.actor ?? {
+      kind: 'admin',
+      userId: null,
+      username: 'legacy-admin',
+      role: 'admin',
+    };
+    try {
+      return {
+        message: '欢迎页图片已删除',
+        data: await this.service.removeWelcomeAsset(mediaId, expectedRevision, actor),
+      };
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      throw new BadRequestException((error as Error).message);
+    }
+  }
+
+  /** 欢迎页就地编辑；入口在前台，写入仍只允许管理员。 */
   @UseGuards(AdminGuard)
   @Put('welcome')
   async updateWelcome(
-    @Body() body: Partial<Pick<SystemBrandingDto, 'welcomeGuest' | 'welcomeTitle' | 'welcomeTagline' | 'welcomeBgMediaId'>>,
+    @Body()
+    body: Partial<
+      Pick<
+        SystemBrandingDto,
+        | 'welcomeGuest'
+        | 'welcomeTitle'
+        | 'welcomeTagline'
+        | 'welcomeBgMediaId'
+        | 'welcomeLogoMediaId'
+        | 'welcomePhotoMediaId'
+      >
+    >,
   ): Promise<unknown> {
     if (!body || typeof body !== 'object') {
       throw new BadRequestException('请求体必须是 JSON 对象');
@@ -61,11 +227,14 @@ export class SystemBrandingController {
     if ('welcomeTitle' in body) patch.welcomeTitle = body.welcomeTitle ?? null;
     if ('welcomeTagline' in body) patch.welcomeTagline = body.welcomeTagline ?? null;
     if ('welcomeBgMediaId' in body) patch.welcomeBgMediaId = body.welcomeBgMediaId ?? null;
+    if ('welcomeLogoMediaId' in body) patch.welcomeLogoMediaId = body.welcomeLogoMediaId ?? null;
+    if ('welcomePhotoMediaId' in body) patch.welcomePhotoMediaId = body.welcomePhotoMediaId ?? null;
     if (!Object.keys(patch).length) throw new BadRequestException('没有可保存的欢迎页字段');
     try {
       const updated = await this.service.update(patch);
       return { message: '欢迎页已保存', data: updated };
     } catch (e) {
+      if (e instanceof HttpException) throw e;
       throw new BadRequestException((e as Error).message);
     }
   }

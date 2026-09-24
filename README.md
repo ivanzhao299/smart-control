@@ -142,8 +142,7 @@ pm2 守护 backend(3200) + frontend(5173)，三路播放 kiosk（LED 大屏 / �
 cd D:\smart-control\frontend
 
 # 一次性安装依赖
-pnpm install
-# 或 npm ci
+pnpm install --frozen-lockfile
 
 # 构建生产产物
 pnpm build
@@ -242,8 +241,7 @@ pm2 reload smart-control-backend --update-env
 DEVICE_TIMEOUT_MS=3000      # 默认超时 (Sprint-04 spec Task-008)
 DEVICE_RETRIES=3            # 默认重试次数 (Sprint-04 spec Task-009)
 # 重试默认 1000ms 固定间隔; 改 exponential 退避: DEVICE_RETRY_BACKOFF=exponential
-HEALTH_CHECK_ENABLED=true
-HEALTH_CHECK_INTERVAL_MS=30000   # 网关健康检查 (Sprint-04 spec Task-011)
+# 网关状态随实际控制更新；需要诊断时在“系统状态”页手动检测
 ```
 
 **DALI 灯光 (西顿 + 英飞特 + DALI IoT Gateway)** ← `real-dali.adapter.ts`
@@ -633,26 +631,28 @@ backend/src/adapters/
   - `device_status` 事件 (gateway 名)
   - `alarm` 事件 (`level=warning` for reconnecting/offline, `error` for hard error)
 
-## 健康检查
+## 网关检测
 
-`DeviceHealthService` 应用启动 1 秒后执行首次 probe，之后按 `HEALTH_CHECK_INTERVAL_MS`（默认 15s）周期触发：
+系统不在后台定时探活。展厅停电期间保持安静，避免无意义的连接、重试和离线告警。设备状态会随实际控制命令更新；需要集中诊断时，可在“系统状态”页手动执行一次检测：
 
 - 灯光：`GET /health`
 - LED：`GET /api/status` 或 TCP connect 探活
 - 音响：`GET /api/health`
 - 空调：Modbus `Read Holding(0x00, 1)`
 
-任一失败即更新注册表 + 广播 alarm。
+检测结果会更新运行时状态，但不会自动重试或生成持久离线告警。设备重新通电后，第一次实际控制会直接尝试连接并恢复状态。
 
 ## 启动与测试
 
 ### Mock 模式（默认，无真实设备）
 ```bash
 cd backend
-npm install
+pnpm install --frozen-lockfile
 cp .env.example .env
-npm run build && npm run seed
-npm run start:dev          # MOCK_MODE=true
+pnpm run build
+node scripts/run-migrations.js
+# 首次安装还需以 SC_ADMIN_USERNAME / SC_ADMIN_PASSWORD 运行 pnpm run admin:provision
+pnpm run start:dev          # MOCK_MODE=true
 ```
 
 ### 真实模式
@@ -660,7 +660,7 @@ npm run start:dev          # MOCK_MODE=true
 cp .env.example .env
 sed -i '' 's/MOCK_MODE=true/MOCK_MODE=false/' .env
 # 按现场修改: DALI_GATEWAY_HOST / LED_HOST / AUDIO_HOST / HVAC_HOST 等
-npm run start:dev
+pnpm run start:dev
 ```
 
 或直接命令行覆盖：
@@ -671,7 +671,7 @@ MOCK_MODE=false \
   AUDIO_HOST=192.168.50.40 \
   HVAC_HOST=192.168.50.50 \
   DEVICE_TIMEOUT_MS=3000 DEVICE_RETRIES=3 \
-  npm run start:prod
+  pnpm run start:prod
 ```
 
 ### 切换方式总结
@@ -690,8 +690,8 @@ MOCK_MODE=false \
 |--------|------|------|
 | POST   | `/api/lighting/zone/:id/brightness` | 设置 DALI 区域亮度 (`{value:0-100}`) |
 | GET    | `/api/system/runtime/gateways`     | 4 个网关连接状态 |
-| GET    | `/api/system/runtime/health`       | 健康检查摘要 (interval/lastProbeAt/gateways) |
-| POST   | `/api/system/runtime/health/probe` | 立即触发一轮健康检查 |
+| GET    | `/api/system/runtime/health`       | 网关状态与上次人工检测时间 |
+| POST   | `/api/system/runtime/health/probe` | 手动执行一次设备检测 |
 
 ## 关键测试
 
@@ -704,7 +704,7 @@ curl -X POST http://localhost:3000/api/lighting/zone/2/brightness \
 
 ### 2. 真实超时 (无网关时)
 ```bash
-MOCK_MODE=false DEVICE_TIMEOUT_MS=1500 DEVICE_RETRIES=2 npm run start:prod
+MOCK_MODE=false DEVICE_TIMEOUT_MS=1500 DEVICE_RETRIES=2 pnpm run start:prod
 sleep 8
 curl http://localhost:3000/api/system/runtime/gateways
 # → 4 个 gateway 均 offline, lastError 显示具体超时/连接拒绝原因
@@ -723,7 +723,7 @@ http.createServer((q,r)=>{
 }).listen(18020);
 '
 # 另一终端启动后端指向 fake:
-MOCK_MODE=false DALI_GATEWAY_HOST=127.0.0.1 DALI_GATEWAY_PORT=18020 npm run start:prod
+MOCK_MODE=false DALI_GATEWAY_HOST=127.0.0.1 DALI_GATEWAY_PORT=18020 pnpm run start:prod
 # 期望: 健康检查前 2 次 500 后第 3 次成功, gateway 转 online
 ```
 
@@ -750,8 +750,6 @@ node -e "const ws=new (require('ws'))('ws://localhost:3000/ws/status');ws.on('me
 | `MOCK_MODE` | `true` | true=mock 实现, false=真实协议 |
 | `DEVICE_TIMEOUT_MS` | `3000` | 单次设备调用超时 |
 | `DEVICE_RETRIES` | `3` | 最大重试次数 (含首次) |
-| `HEALTH_CHECK_ENABLED` | `true` | 是否启用定时健康检查 |
-| `HEALTH_CHECK_INTERVAL_MS` | `15000` | 健康检查周期 |
 | `DALI_GATEWAY_HOST/PORT/API_PATH/API_KEY` | `192.168.50.20:80` | DALI 网关 |
 | `LED_HOST/PORT/TRANSPORT` | `192.168.50.30:5200/tcp` | LED 播控 |
 | `AUDIO_HOST/PORT/DEFAULT_ZONE/API_KEY` | `192.168.50.40:80/1f_bg` | 音响 DSP |

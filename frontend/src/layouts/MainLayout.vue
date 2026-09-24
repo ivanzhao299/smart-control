@@ -20,6 +20,12 @@ import { useSystemStore } from '@/stores/system';
 import { useSceneStore } from '@/stores/scene';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { useToastStore } from '@/stores/toast';
+import {
+  idleMainRouteNames,
+  loadMainRoute,
+  mainNavigationItems,
+  mainRoutePrefetchApis,
+} from '@/router/main-route-manifest';
 
 const route = useRoute();
 const router = useRouter();
@@ -33,28 +39,16 @@ const conn = useConnectionStore();
 
 /**
  * 2026-05-31 性能优化: 应用 mount 后 idle 预取常用页 chunk.
- * 业主进入首页 800ms 后浏览器空闲, 偷偷把灯光/LED/音响/空调/电源/媒体/状态
- * 6 个常用页 chunk 都下载下来. 之后切菜单是"打开缓存", 不再有 300ms 黑屏.
+ * 业主进入首页 800ms 后浏览器空闲, 按路由清单依次下载所有非首页可见页 chunk.
+ * 之后切菜单是"打开缓存", 不再有 300ms 黑屏；新增页面不会再漏配预取项.
  * 不阻塞首屏渲染, 失败也无所谓 (路由懒加载兜底).
  */
 function prefetchMainPages(): void {
-  const tasks = [
-    () => import('@/pages/LightingPage.vue'),
-    () => import('@/pages/LedPage.vue'),
-    // 2026-07-27 业主: "投影仪页面切不过去"。根因: 本列表漏了投影仪页 —— 部署换掉
-    // 带哈希的 chunk 文件名后, 其他页早已预取进内存照常能切, 唯独投影仪页点击时才
-    // 按旧文件名去拿 → 404 → 路由静默中止。主菜单页必须全部进预取名单。
-    () => import('@/pages/ProjectorPage.vue'),
-    () => import('@/pages/AudioPage.vue'),
-    () => import('@/pages/HvacPage.vue'),
-    () => import('@/pages/PowerPage.vue'),
-    () => import('@/pages/MediaPage.vue'),
-    () => import('@/pages/StatusPage.vue'),
-  ];
+  const tasks = idleMainRouteNames.map((name) => () => loadMainRoute(name));
   const runNext = () => {
     const t = tasks.shift();
     if (!t) return;
-    t().catch(() => { /* 失败无所谓 */ }).finally(() => {
+    t()?.catch(() => { /* 失败无所谓 */ }).finally(() => {
       const ric = (window as unknown as { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback;
       if (typeof ric === 'function') ric(runNext);
       else setTimeout(runNext, 400);
@@ -201,40 +195,17 @@ function onVisibleRecheck(): void {
 }
 
 /** hover/touch 时立刻 prefetch 对应路由 chunk — 比 click 早 ~200ms */
-const ROUTE_PREFETCH: Record<string, () => Promise<unknown>> = {
-  dashboard: () => import('@/pages/DashboardPage.vue'),
-  lighting: () => import('@/pages/LightingPage.vue'),
-  led: () => import('@/pages/LedPage.vue'),
-  projector: () => import('@/pages/ProjectorPage.vue'),
-  audio: () => import('@/pages/AudioPage.vue'),
-  hvac: () => import('@/pages/HvacPage.vue'),
-  power: () => import('@/pages/PowerPage.vue'),
-  media: () => import('@/pages/MediaPage.vue'),
-  status: () => import('@/pages/StatusPage.vue'),
-  'admin-devices': () => import('@/layouts/AdminLayout.vue'),
-};
 const prefetched = new Set<string>();
-/** hover/touch 时同时 prefetch chunk + 数据 — 等 click 时两者都已 ready */
-const NAV_API_PREFETCH: Record<string, string[]> = {
-  lighting: ['/control/api/light-zones'],
-  power: ['/control/api/power-circuits'],
-  hvac: ['/control/api/devices?category=hvac-zone'],
-  led: ['/control/api/devices?category=led'],
-  audio: ['/control/api/devices?category=audio-zone'],
-  media: ['/control/api/media?pageSize=50'],
-  status: ['/control/api/system/info'],
-};
 function prefetchRoute(name: string): void {
   if (prefetched.has(name)) return;
-  const fn = ROUTE_PREFETCH[name];
-  if (!fn) return;
+  const pending = name === 'admin-devices'
+    ? import('@/layouts/AdminLayout.vue')
+    : loadMainRoute(name);
+  if (!pending) return;
   prefetched.add(name);
-  fn().catch(() => { prefetched.delete(name); });
+  pending.catch(() => { prefetched.delete(name); });
   // 同时 prefetch 该页用到的 API
-  const apis = NAV_API_PREFETCH[name];
-  if (apis) {
-    for (const url of apis) fetch(url).catch(() => {});
-  }
+  for (const url of mainRoutePrefetchApis(name)) fetch(url).catch(() => {});
 }
 
 // Auto-enter 全屏: 用户首次 click/touch/keydown 后自动 request fullscreen.
@@ -246,17 +217,9 @@ const fsSupported = fs.isSupported;
 function toggleFullscreen(): void { void fs.toggle(); }
 
 // v2 侧导航 - 只 icon (跟 mockup 一致), title 给 hover tooltip
-const navItems: Array<{ name: string; label: string; section?: 'main' | 'tools' }> = [
-  { name: 'dashboard', label: '首页', section: 'main' },
-  { name: 'lighting', label: '灯光', section: 'main' },
-  { name: 'led', label: 'LED 大屏', section: 'main' },
-  { name: 'projector', label: '投影仪', section: 'main' },
-  { name: 'audio', label: '音响', section: 'main' },
-  { name: 'hvac', label: '空调', section: 'main' },
-  { name: 'power', label: '电源', section: 'main' },
-  { name: 'media', label: '媒体', section: 'tools' },
-  { name: 'status', label: '状态', section: 'tools' },
-  { name: 'admin-devices', label: '后台', section: 'tools' },
+const navItems = [
+  ...mainNavigationItems,
+  { name: 'admin-devices', label: '后台', section: 'tools' as const },
 ];
 const mainNavs = navItems.filter((n) => n.section === 'main');
 const toolNavs = navItems.filter((n) => n.section === 'tools');
@@ -526,12 +489,13 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
       <router-view v-slot="{ Component, route }">
         <!-- 崩溃自恢复: ErrorBoundary 包住所有页面, 单页报错降级不白屏整机 -->
         <ErrorBoundary>
-          <!-- 切页转场 (2026-07-25 D2): 120ms 淡入+8px 上移, mode=out-in 防重叠;
-               reduced-motion 下 token 层已退化为无动画 -->
-          <transition name="v2-page" mode="out-in">
-            <!-- PERFORMANCE_AUDIT P1-#7: max 6 → 10 覆盖 8 项主菜单 +
-                 admin 入口缓冲, 切页 100% 命中缓存 (60-100ms vs 重 mount 200-400ms) -->
-            <keep-alive :max="10">
+          <!-- 页面切换轻过渡 (2026-09-24 丝滑优化): 早年用 mode="out-in" 在 iOS
+               WKWebView 丢 transitionend 会永久停在"旧页已删、新页未挂"的空档,
+               故一度整体移除过渡、变成硬切。现改为默认(无 mode)交叉淡入淡出并显式
+               传 :duration —— Vue 到点即强制收尾, 不依赖 transitionend; 新页即时
+               挂载不会白屏, 离开页 absolute 不顶布局。KeepAlive 继续保留相邻页状态。 -->
+          <transition name="v2-route" :duration="190">
+            <keep-alive :max="6">
               <component :is="Component" :key="route.name" />
             </keep-alive>
           </transition>
@@ -635,14 +599,14 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background: linear-gradient(135deg, var(--v2-primary) 0%, var(--v2-info) 100%);
+  background: var(--v2-primary);
   display: grid;
   place-items: center;
   font-weight: 700;
   font-size: 18px;
   color: white;
   letter-spacing: 0;
-  box-shadow: 0 4px 14px -4px rgba(76, 154, 255, 0.6);
+  box-shadow: none;
   overflow: hidden;
 }
 /* 有自定义 logo 图时去掉写死的蓝渐变底与光晕, 图完整显示 */
@@ -682,32 +646,23 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   background: var(--v2-surf-1-hover);
   color: var(--v2-text-1);
 }
-.v2-nav-item:hover svg {
-  filter: drop-shadow(0 0 6px var(--v2-primary));
-}
 .v2-nav-item.is-active {
-  background: linear-gradient(90deg, rgba(76, 154, 255, 0.20) 0%, rgba(76, 154, 255, 0.04) 100%);
-  color: var(--v2-primary-hover);
-  box-shadow: inset 0 1px 0 rgba(76, 154, 255, 0.4);
+  background: var(--v2-primary-soft);
+  color: var(--v2-primary);
 }
-.v2-nav-item.is-active svg {
-  filter: drop-shadow(0 0 10px var(--v2-primary));
-}
-/* 选中项左边一条电光青光柱 — v3 蔚来车机标志 */
 .v2-nav-item.is-active::before {
   content: '';
   position: absolute;
   left: -10px;
   top: 50%;
   transform: translateY(-50%);
-  width: 4px;
-  height: 30px;
-  background: linear-gradient(180deg, transparent, var(--v2-primary) 30%, var(--v2-primary-hover) 50%, var(--v2-primary) 70%, transparent);
-  border-radius: 0 4px 4px 0;
-  box-shadow: 0 0 12px var(--v2-primary), 0 0 24px var(--v2-primary-soft);
+  width: 3px;
+  height: 24px;
+  background: var(--v2-primary);
+  border-radius: 0 3px 3px 0;
 }
 .v2-nav-label {
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.5px;
   font-weight: 500;
   line-height: 1;
@@ -716,7 +671,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 .v2-nav-divider {
   width: 36px;
   height: 1px;
-  background: linear-gradient(90deg, transparent, var(--v2-border-strong), transparent);
+  background: var(--v2-border-soft);
   margin: 2px 0;
   flex-shrink: 0;
 }
@@ -735,9 +690,10 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   justify-content: space-between;
   padding: 0 var(--v2-sp-5);
   border-bottom: 1px solid var(--v2-border-soft);
-  background: var(--v2-chrome-bg);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  /* 顶栏是独立 grid cell, 内容只在 .v2-main 内滚动、不会从顶栏下方经过 ——
+     backdrop-filter 透出的永远是固定底色, 模糊零视觉收益却在中低端机上常驻重算合成。
+     改用近实色(同 AdminLayout/StatusCard 的去毛玻璃方案), 文字对比也更稳。(2026-09-15) */
+  background: var(--v2-chrome-bg-solid);
 }
 .v2-brand {
   /* logo 已挪到侧栏, 这里就是纵向 title + sub 块 */
@@ -749,7 +705,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 /* .v2-logo 留着, 现在只被 .v2-nav-brand .v2-logo 用 (已覆盖尺寸) */
 .v2-logo {
   border-radius: var(--v2-r-sm);
-  background: linear-gradient(135deg, var(--v2-primary) 0%, var(--v2-info) 100%);
+  background: var(--v2-primary);
   display: grid;
   place-items: center;
   font-weight: 700;
@@ -757,17 +713,15 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   letter-spacing: 0;
 }
 .v2-brand-title {
-  /* 业主 2026-07-26: 字号加大 + 金色/琥珀醒目标题色。文字仍来自 branding.systemName,
-     后台"系统品牌"页可改。金色在深/浅主题各取一档保证对比度。 */
   font-size: 26px;
   font-weight: 800;
   letter-spacing: 1.5px;
-  color: #E7B84E;
-  text-shadow: 0 0 16px rgba(231, 184, 78, 0.35);
+  color: var(--v2-text-1);
+  text-shadow: none;
 }
 :root[data-theme="light"] .v2-brand-title {
-  color: #B8860B;
-  text-shadow: 0 0 10px rgba(184, 134, 11, 0.22);
+  color: var(--v2-text-1);
+  text-shadow: none;
 }
 .v2-brand-sub {
   font-size: var(--v2-fs-xs);
@@ -801,19 +755,19 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 }
 .v2-inline-toast.is-error {
   color: var(--v2-danger);
-  text-shadow: 0 0 8px rgba(229, 100, 93, 0.55);
+  text-shadow: none;
 }
 .v2-inline-toast.is-warning {
   color: var(--v2-warning);
-  text-shadow: 0 0 8px rgba(224, 160, 48, 0.55);
+  text-shadow: none;
 }
 .v2-inline-toast.is-success {
   color: var(--v2-success);
-  text-shadow: 0 0 8px rgba(63, 191, 135, 0.55);
+  text-shadow: none;
 }
 .v2-inline-toast.is-info {
   color: var(--v2-info);
-  text-shadow: 0 0 8px rgba(76, 154, 255, 0.45);
+  text-shadow: none;
 }
 
 /* 渐显 / 渐隐 */
@@ -846,7 +800,6 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   border-color: rgba(76, 154, 255, 0.4);
 }
 .v2-fs-btn:active { transform: scale(0.94); }
-/* 顶栏时钟 — Tesla / NIO 中控感: JetBrains Mono + tabular-nums + cyan glow + 冒号闪烁 */
 .v2-clock {
   font-size: 22px;
   font-weight: 600;
@@ -855,7 +808,6 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   font-variant-numeric: tabular-nums;
   letter-spacing: 2px;
   text-shadow: var(--v2-text-glow-primary);
-  /* 冒号 (在 22:38) 用 animation 闪烁, 实现"心跳秒" 效果 */
   position: relative;
 }
 .v2-clock::first-letter {
@@ -866,13 +818,8 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   color: var(--v2-primary);
   margin-left: 5px;
   letter-spacing: 1px;
-  text-shadow: 0 0 8px var(--v2-primary);
+  text-shadow: none;
   font-weight: 500;
-  animation: v3-sec-pulse 1s ease-in-out infinite;
-}
-@keyframes v3-sec-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.45; }
 }
 /* .v2-fs-btn 已删 — 全屏按钮 2026-05-31 去掉 */
 
@@ -1003,7 +950,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
     border-top: 1px solid var(--v2-border-soft);
     border-right: none;
     background: var(--v2-chrome-bg-solid);
-    backdrop-filter: blur(8px);
+    /* 底栏背景已是 0.94 近实色且内容不会从其下方经过, blur 无视觉收益, 去掉以省手机端常驻 GPU */
     /* safe area 底部 (iOS home indicator) —— 封顶 34px, 不是随便挑的整数: 所有
        Face ID 机型 (iPhone X 到最新款) 的 Home 指示条手势区都固定是 34pt, 不随
        屏幕尺寸变 (这是 Apple HIG 写死的常量, 不是"最大约 34px 左右")。微信这类

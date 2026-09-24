@@ -5,6 +5,10 @@ const ACZ = 'audio-config:zones';
 const ACI = 'audio-config:inputs';
 const ACS = 'audio-config:scenes';
 
+function fetchInputs(includeDisabled = false): Promise<AudioInputSource[]> {
+  return api.get<AudioInputSource[]>(`/audio-config/inputs${includeDisabled ? '?includeDisabled=1' : ''}`);
+}
+
 /** 音响输出通道 (后台可配置名称) */
 export interface AudioOutputZone {
   id: number;
@@ -84,8 +88,9 @@ export const audioConfigService = {
   deleteZone: (id: number) => api.del<{ removedId: number }>(`/audio-config/zones/${id}`).then((r) => { invalidate(ACZ); return r; }),
   // 输入源
   listInputs: (includeDisabled = false) =>
-    queryOnce(`${ACI}:${includeDisabled}`, () =>
-      api.get<AudioInputSource[]>(`/audio-config/inputs${includeDisabled ? '?includeDisabled=1' : ''}`)),
+    queryOnce(`${ACI}:${includeDisabled}`, () => fetchInputs(includeDisabled)),
+  // 控制页在身份/服务器切换后必须绕过进程级 SWR 缓存，避免显示上一服务器的目录。
+  readInputs: (includeDisabled = false) => fetchInputs(includeDisabled),
   createInput: (dto: AudioInputPatch) => api.post<AudioInputSource>('/audio-config/inputs', dto).then((r) => { invalidate(ACI); return r; }),
   updateInput: (id: number, dto: AudioInputPatch) => api.put<AudioInputSource>(`/audio-config/inputs/${id}`, dto).then((r) => { invalidate(ACI); return r; }),
   deleteInput: (id: number) => api.del<{ removedId: number }>(`/audio-config/inputs/${id}`).then((r) => { invalidate(ACI); return r; }),

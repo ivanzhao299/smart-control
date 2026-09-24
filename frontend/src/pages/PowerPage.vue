@@ -638,30 +638,14 @@ useActivePolling(startPolling, stopRefresh);
   flex-direction: column;
   gap: var(--v2-sp-3);
   overflow: hidden;
-  transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  transition: transform 0.22s ease, background-color 0.22s ease,
+    border-color 0.22s ease, box-shadow 0.22s ease;
 }
-.circuit-card::after {
-  content: '';
-  position: absolute;
-  top: 0; left: 12%; right: 12%;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--v2-purple) 50%, transparent);
-  box-shadow: 0 0 8px var(--v2-purple);
-  opacity: 0.35;
-  transition: opacity 0.28s ease;
-  pointer-events: none;
-}
+/* hover：边框加深；轻微上浮与阴影由 design-tokens 全站统一控制。
+   不再使用旧的紫色发光顶线与白色投影（中性 indigo 体系下显脏、不统一）。 */
 .circuit-card:hover {
-  transform: translateY(-3px);
-  border-color: var(--v2-border-soft);
-  box-shadow:
-    inset 0 1px 0 var(--v2-card-hairline),
-    0 0 0 1px rgba(255, 255, 255, 0.08),
-    0 14px 32px -10px rgba(255, 255, 255, 0.08);
+  border-color: var(--v2-border-strong);
 }
-.circuit-card:hover::after { opacity: 0.85; }
 /* 通电卡: 品类青绿状态光 (2026-07-25 D1) —— 之前是中性白光, 通电/断电只差
    一点亮度, 扫一眼分不出。改成左光条 + 低饱和青绿辉光, "活着"一眼可见。 */
 .circuit-card.on {
@@ -672,7 +656,6 @@ useActivePolling(startPolling, stopRefresh);
     inset 0 1px 0 var(--v2-card-hairline),
     0 8px 32px -8px var(--v2-live-power-glow) !important;
 }
-.circuit-card.on::after { opacity: 1; }
 
 /* 顶部 */
 .card-top { display: flex; align-items: center; gap: var(--v2-sp-3); }

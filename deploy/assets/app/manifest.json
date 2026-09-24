@@ -1,7 +1,10 @@
 {
+  "schemaVersion": 1,
   "platform": "android",
-  "versionCode": 21,
-  "versionName": "1.1.13",
-  "commit": "8e0977784f1d5ffb20799d2f0f938f761771757e",
-  "builtAt": "2026-09-03T07:51:33Z"
+  "versionCode": 25,
+  "versionName": "1.1.17",
+  "commit": "6c1929bd4d1c98be4fda14ad19de536988523ffe",
+  "builtAt": "2026-09-21T21:34:59Z",
+  "apkSha256": "561b7d4385c09e8182dd2c1e1fb0f81fc1e47ff407f8a92d354cc3b2436de233",
+  "apkSize": 5893955
 }

@@ -80,7 +80,7 @@ async function probe(): Promise<void> {
   try {
     await deviceService.triggerHealthProbe();
     await deviceStore.fetchGateways();
-    ElMessage.success('已触发健康探活');
+    ElMessage.success('设备检测完成');
   } catch (err) {
     ElMessage.error(`探活失败: ${(err as Error).message}`);
   } finally { probing.value = false; }
@@ -144,10 +144,10 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
       </div>
       <div class="quick-actions">
         <button class="v2-quick" :disabled="clearing" @click="clearFaults">
-          <Trash2 :size="14" :stroke-width="2" /> {{ clearing ? '清空中…' : '清空旧告警' }}
+          <Trash2 :size="14" :stroke-width="2" /> {{ clearing ? '处理中…' : '清除错误并复检' }}
         </button>
         <button class="v2-quick" :disabled="probing" @click="probe">
-          <RadioReceiver :size="14" :stroke-width="2" /> {{ probing ? '探活中…' : '立即探活' }}
+          <RadioReceiver :size="14" :stroke-width="2" /> {{ probing ? '检测中…' : '手动检测设备' }}
         </button>
         <button class="v2-quick primary" :disabled="refreshing" @click="refresh">
           <RefreshCw :size="14" :stroke-width="2" /> {{ refreshing ? '刷新中…' : '刷新' }}

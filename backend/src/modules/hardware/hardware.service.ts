@@ -11,6 +11,7 @@ import { Logger } from 'winston';
 import { Device } from '../../entities/device.entity';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
 import { OperationLogService } from '../logs/operation-log.service';
+import { BrandsService } from '../brands/brands.service';
 import { PagedResult } from '../devices/devices.service';
 import {
   CreateHardwareDto,
@@ -24,6 +25,7 @@ export class HardwareService {
     @InjectRepository(HardwareUnit) private readonly repo: Repository<HardwareUnit>,
     @InjectRepository(Device) private readonly deviceRepo: Repository<Device>,
     private readonly logService: OperationLogService,
+    private readonly brandsService: BrandsService,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
@@ -76,6 +78,7 @@ export class HardwareService {
   async create(dto: CreateHardwareDto, operator = 'admin'): Promise<HardwareUnit> {
     const exists = await this.repo.findOne({ where: { code: dto.code } });
     if (exists) throw new ConflictException(`硬件编号已存在: ${dto.code}`);
+    await this.brandsService.ensureReferenced(dto.vendor);
 
     const entity = this.repo.create({
       code: dto.code,
@@ -117,6 +120,7 @@ export class HardwareService {
       const dup = await this.repo.findOne({ where: { code: dto.code } });
       if (dup && dup.id !== id) throw new ConflictException(`硬件编号已存在: ${dto.code}`);
     }
+    if (dto.vendor !== undefined) await this.brandsService.ensureReferenced(dto.vendor);
     const oldIp = h.ip;
     Object.assign(h, {
       ...(dto.code !== undefined && { code: dto.code }),

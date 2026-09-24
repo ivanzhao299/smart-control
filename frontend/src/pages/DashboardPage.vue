@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, onMounted, onBeforeUnmount, onDeactivated } from 'vue';
 import { useActivePolling } from '@/composables/useActivePolling';
+import { useWelcomePhoto } from '@/composables/useWelcomePhoto';
+import WelcomeCameraModal from '@/components/WelcomeCameraModal.vue';
 import { useToastStore } from '@/stores/toast';
 import { useRouter } from 'vue-router';
 import {
   CheckCircle2, BarChart3, Clock,
   Sparkles, Calendar, Users, Presentation, Wrench, Moon,
-  Lightbulb, MonitorPlay, Speaker, Snowflake, Zap,
+  Lightbulb, MonitorPlay, Speaker, Snowflake, Zap, Camera, X, Download,
 } from 'lucide-vue-next';
 import { haptics } from '@/services/haptics';
 import { powerCircuitsService } from '@/services/power-circuits.service';
@@ -209,6 +211,32 @@ const subsystems = computed(() => {
 function goTo(name: string): void {
   router.push({ name });
 }
+
+// ============ 来访者拍照上墙 (LED 大屏欢迎页) ============
+const {
+  fileInput: welcomePhotoInput,
+  busy: welcomePhotoBusy,
+  hasPhoto: welcomeHasPhoto,
+  pendingOriginal: welcomePendingOriginal,
+  openAlbum: openWelcomeAlbum,
+  onPick: onWelcomePick,
+  onCaptured: onWelcomeCaptured,
+  takeDown: takeWelcomePhotoDown,
+  saveOriginal: saveWelcomeOriginal,
+  loadCurrent: loadWelcomePhoto,
+} = useWelcomePhoto();
+const welcomeCameraOpen = ref(false);
+function openWelcomeCamera(): void {
+  if (!welcomePhotoBusy.value) welcomeCameraOpen.value = true;
+}
+onMounted(loadWelcomePhoto);
+// keep-alive 切走(不卸载)或真正卸载时, 取消可能残留的长按进度环 RAF, 避免后台空转
+onDeactivated(resetHold);
+onDeactivated(() => { welcomeCameraOpen.value = false; });
+onBeforeUnmount(() => {
+  resetHold();
+  welcomeCameraOpen.value = false;
+});
 </script>
 
 <template>
@@ -330,8 +358,60 @@ function goTo(name: string): void {
           </div>
         </div>
       </button>
+      <!-- 拍照上屏: 独立成与 5 个子系统并列的第 6 项, 不再嵌进 LED 卡片。
+           根因: 旧方案把可点小钮塞进外层 <button>, iOS standalone PWA 下内外层
+           可点元素抢占手势会触发闪退; 独立卡片整块即热区, 内部仅用合法 div>button,
+           小操作钮 stop 冒泡, 点不准也只会触发主流程(拍照), 不再冲突闪退。 -->
+      <div
+        class="v2-sub v2-sub-camera"
+        :class="{ busy: welcomePhotoBusy }"
+        role="button"
+        tabindex="0"
+        title="拍照上墙到 LED 欢迎页"
+        @click="openWelcomeCamera"
+        @keydown.enter.prevent="openWelcomeCamera"
+        @keydown.space.prevent="openWelcomeCamera"
+      >
+        <div class="v2-sub-cam-main">
+          <div class="v2-sub-ico cam-ico"><Camera :size="17" :stroke-width="2.1" /></div>
+          <div class="v2-sub-body">
+            <div class="v2-sub-name">拍照上屏</div>
+            <div class="v2-sub-stats v2-inter">
+              <span class="online">{{ welcomePhotoBusy ? '处理中…' : welcomeHasPhoto ? '已上墙 · 重拍' : '点击拍照' }}</span>
+            </div>
+          </div>
+          <input
+            ref="welcomePhotoInput"
+            class="welcome-photo-input"
+            type="file"
+            accept="image/*"
+            @change="onWelcomePick"
+          />
+        </div>
+        <span class="v2-sub-cam-actions" @pointerdown.stop @touchstart.stop @click.stop>
+          <button
+            v-if="welcomeHasPhoto"
+            type="button"
+            class="cam-mini take-down"
+            title="撤下上墙照片，恢复默认欢迎页"
+            @click.stop.prevent="takeWelcomePhotoDown"
+          ><X :size="14" :stroke-width="2.4" /></button>
+          <button
+            v-if="welcomePendingOriginal"
+            type="button"
+            class="cam-mini save-orig"
+            title="把相机原画保存到本机相册（原画不上传）"
+            @click.stop.prevent="saveWelcomeOriginal"
+          ><Download :size="14" :stroke-width="2.4" /></button>
+        </span>
+      </div>
     </div>
   </section>
+  <WelcomeCameraModal
+    v-model:open="welcomeCameraOpen"
+    @capture="onWelcomeCaptured"
+    @fallback="openWelcomeAlbum"
+  />
 </template>
 
 <style scoped>
@@ -626,7 +706,7 @@ function goTo(name: string): void {
 /* ============ 子系统状态 ============ */
 .v2-subsystems {
   display: grid;
-  grid-template-columns: auto repeat(5, 1fr);
+  grid-template-columns: auto repeat(6, 1fr);
   gap: var(--v2-sp-3);
   align-items: center;
   padding: var(--v2-sp-3) var(--v2-sp-4);
@@ -674,6 +754,47 @@ function goTo(name: string): void {
   transition: color 0.22s ease;
 }
 .v2-sub:hover .v2-sub-ico { color: var(--v2-text-1); }
+/* 拍照上屏独立卡片: 整块即热区, 金色相机图标点明主操作;
+   右上角仅在已上墙/有原画时出现小操作钮(撤下/存原画), 合法 div>button,
+   触摸目标充足, 不再与外层卡片争夺手势导致 iOS PWA 闪退。 */
+.v2-sub-camera { outline: none; }
+.v2-sub-camera .cam-ico {
+  color: #3a2400;
+  background: linear-gradient(135deg, #ffd873, #ffb020);
+  box-shadow: 0 2px 10px rgba(255, 176, 32, .35);
+}
+.v2-sub-camera:hover .cam-ico { color: #3a2400; }
+.v2-sub-camera.busy { opacity: .6; pointer-events: none; }
+.v2-sub-cam-actions {
+  position: absolute; top: 6px; right: 7px;
+  display: flex; align-items: center; gap: 5px; z-index: 3;
+}
+.cam-mini {
+  width: 30px; height: 30px; border-radius: 50%;
+  display: grid; place-items: center; cursor: pointer; flex-shrink: 0;
+  padding: 0; border: 1px solid rgba(120, 160, 190, .4);
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  user-select: none; -webkit-user-select: none;
+  transition: transform .15s ease;
+}
+.cam-mini:active { transform: scale(.9); }
+.cam-mini.take-down { background: rgba(20, 34, 48, .92); color: #cfe3f2; }
+.cam-mini.save-orig {
+  background: linear-gradient(135deg, #63d9ff, #2b8fd6); color: #032235; border-color: transparent;
+}
+.v2-sub-cam-main {
+  position: relative; flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: center; gap: var(--v2-sp-3);
+}
+.v2-sub-cam-main .cam-ico,
+.v2-sub-cam-main .v2-sub-body { position: relative; }
+.welcome-photo-input {
+  position: fixed;
+  width: 1px; height: 1px;
+  left: 0; top: 0;
+  opacity: 0;
+  pointer-events: none;
+}
 .v2-sub-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .v2-sub-name {
   font-size: var(--v2-fs-sm);
@@ -790,5 +911,8 @@ function goTo(name: string): void {
   .v2-sub { padding: 8px 10px; }
   .v2-sub-ico { width: 30px; height: 30px; }
   .v2-sub-name { font-size: 12px; }
+  /* 拍照独立卡片右上角小操作钮在窄卡片(2 列)上收紧 */
+  .v2-sub-cam-actions { top: 5px; right: 6px; gap: 6px; }
+  .cam-mini { width: 32px; height: 32px; }
 }
 </style>

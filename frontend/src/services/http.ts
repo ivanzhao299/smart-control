@@ -69,7 +69,16 @@ function readInitialBaseURL(): string {
     if (/^https?:$/.test(protocol) && hostname) {
       // 反代域名场景 (公网 erp.cnjinhu.top:8443 等): 页面不在 5173 上说明走的是
       // nginx 统一入口, /api 由同一入口反代到 backend — API 直接同源, 零配置。
-      if (port !== '5173') return `${protocol}//${window.location.host}/api`;
+      if (port !== '5173') {
+        const scopedHosts = (import.meta.env.VITE_SCOPED_API_HOSTS ?? 'park.cnjinhu.com')
+          .split(',')
+          .map((host) => host.trim().toLowerCase())
+          .filter(Boolean);
+        const scopedBase = scopedHosts.includes(hostname.toLowerCase()) && fromEnv?.startsWith('/')
+          ? fromEnv
+          : '/api';
+        return `${protocol}//${window.location.host}${scopedBase}`;
+      }
       // 经典双端口场景 (5173 前端 + 3200 后端): 按 env 端口推 backend
       const bePort = portOfBase(fromEnv) ?? DEFAULT_BACKEND_PORT;
       return `${protocol}//${hostname}:${bePort}/api`;
@@ -164,9 +173,8 @@ export function setClientToken(t: string | null): void {
 export function getClientToken(): string | null { return clientToken; }
 
 /**
- * 401 兜底钩子 (2026-07-21, 配合后端全局鉴权门).
- * 任何非登录端点返回 401 (token 失效/被清, 常见于后端重启清了内存 session 表) 时触发,
- * 由 App.vue 注册: 业主侧用存的密码悄悄自动重登, 登不上才推回登录页。
+ * 401 兜底钩子。签名令牌可跨部署和重启；非登录端点返回 401 时，App.vue 清除
+ * 已失效令牌并回登录页重新认证。浏览器不保存密码做静默重登。
  */
 let onUnauthorized: (() => void) | null = null;
 export function setUnauthorizedHandler(fn: (() => void) | null): void { onUnauthorized = fn; }

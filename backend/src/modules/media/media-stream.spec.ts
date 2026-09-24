@@ -89,4 +89,30 @@ describe('actual media byte streams', () => {
     row.docPdfPath = '../media-stream.spec.ts';
     await expect(media.openStream(42, true)).rejects.toThrow('文件不存在');
   });
+
+  it('backfills missing image geometry from the managed file', async () => {
+    const temp = await fs.mkdtemp(join(tmpdir(), 'sc-image-geometry-'));
+    try {
+      Object.defineProperty(media, 'mediaRoot', { value: temp });
+      row = {
+        id: 42,
+        kind: 'image',
+        path: join(temp, 'welcome.png'),
+        originalName: 'welcome.png',
+        mimeType: 'image/png',
+        resolution: null,
+      };
+      await fs.writeFile(row.path, 'fixture');
+      jest.spyOn(media as any, 'probeVideo').mockResolvedValue({ width: 3612, height: 1462 });
+      const update = jest.spyOn(media as any, 'updateMediaFields').mockResolvedValue(undefined);
+
+      await expect(media.ensureImageResolution(42)).resolves.toMatchObject({ resolution: '3612x1462' });
+      expect(update).toHaveBeenCalledWith(42, { resolution: '3612x1462' });
+
+      row.resolution = null;
+      update.mockClear();
+      await expect(media.ensureImageResolution(42, false)).resolves.toMatchObject({ resolution: '3612x1462' });
+      expect(update).not.toHaveBeenCalled();
+    } finally { jest.restoreAllMocks(); await fs.rm(temp, { recursive: true, force: true }); }
+  });
 });

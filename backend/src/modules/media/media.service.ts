@@ -19,66 +19,24 @@ import { byteRange } from './byte-range';
 import { recoverableDelete } from './recoverable-delete';
 import type { Actor } from '../../common/auth/actor';
 import { assertCanUpload, assertReadResource, assertWriteResource } from '../../common/auth/resource-policy';
+import {
+  WELCOME_PHOTO_FOLDER,
+  WELCOME_PHOTO_REMARK,
+  isManagedMediaRelativePath,
+  mediaAssetContainerForStoredPath,
+  mediaAssetDirectory,
+  mediaAssetParent,
+} from './media-storage-layout';
+import {
+  classifyMediaKind,
+  mediaFileTypeFromName,
+  normalizeUploadedMimeType,
+  safeMediaFilename,
+} from './media-file-policy';
 
-const VIDEO_MIME_PREFIXES = ['video/'];
-const IMAGE_MIME_PREFIXES = ['image/'];
-const AUDIO_MIME_PREFIXES = ['audio/'];
-// 有些浏览器/系统对音频给的 mime 不带 audio/ 前缀 (如 Windows 对 .ape/.flac 报 application/octet-stream), 用扩展名兜底
-// 文档投屏 (2026-07-25): PPT 原生放映保动画, Word 转 PDF 逐页
-const DOC_EXT = ['.ppt', '.pptx', '.doc', '.docx', '.pdf'];
-const DOC_MIME = [
-  'application/vnd.ms-powerpoint',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/pdf',
-];
-const AUDIO_EXT = [
-  '.mp3', '.wav', '.aac', '.m4a', '.ogg', '.flac', '.wma',
-  '.opus', '.aiff', '.aif', '.ape', '.mp2', '.mka', '.wv',
-  '.mid', '.midi', '.spx', '.dsf', '.dff', '.au', '.ra',
-];
-
-/**
- * 扫描磁盘用 —— 上传走的是浏览器给的 mimetype, 但业主直接在服务器上 (RDP/U盘)
- * 把文件拷进 media 目录时, 文件系统只有扩展名, 没有 mimetype。这份表按扩展名兜底猜
- * kind + mimeType, 只覆盖常见格式 (够用即可, 猜不出来的交给业主自己改文件名重传)。
- */
-const EXT_KIND_MIME: Record<string, { kind: Exclude<MediaKind, 'webpage'>; mime: string }> = {
-  '.mp4': { kind: 'video', mime: 'video/mp4' },
-  '.mov': { kind: 'video', mime: 'video/quicktime' },
-  '.mkv': { kind: 'video', mime: 'video/x-matroska' },
-  '.avi': { kind: 'video', mime: 'video/x-msvideo' },
-  '.webm': { kind: 'video', mime: 'video/webm' },
-  '.flv': { kind: 'video', mime: 'video/x-flv' },
-  '.wmv': { kind: 'video', mime: 'video/x-ms-wmv' },
-  // .m4v 本质就是 MP4 容器 (H.264), 用标准 video/mp4 —— x-m4v 这种冷门 mime
-  // 会让个别播放端拒识 (2026-07-31 业主: 所有播放器要支持 m4v)
-  '.m4v': { kind: 'video', mime: 'video/mp4' },
-  '.mpg': { kind: 'video', mime: 'video/mpeg' },
-  '.mpeg': { kind: 'video', mime: 'video/mpeg' },
-  '.3gp': { kind: 'video', mime: 'video/3gpp' },
-  '.ts': { kind: 'video', mime: 'video/mp2t' },
-  '.vob': { kind: 'video', mime: 'video/mpeg' },
-  '.rmvb': { kind: 'video', mime: 'application/vnd.rn-realmedia-vbr' },
-  '.jpg': { kind: 'image', mime: 'image/jpeg' },
-  '.jpeg': { kind: 'image', mime: 'image/jpeg' },
-  '.png': { kind: 'image', mime: 'image/png' },
-  '.gif': { kind: 'image', mime: 'image/gif' },
-  '.webp': { kind: 'image', mime: 'image/webp' },
-  '.bmp': { kind: 'image', mime: 'image/bmp' },
-  '.mp3': { kind: 'audio', mime: 'audio/mpeg' },
-  '.wav': { kind: 'audio', mime: 'audio/wav' },
-  '.aac': { kind: 'audio', mime: 'audio/aac' },
-  '.m4a': { kind: 'audio', mime: 'audio/mp4' },
-  '.ogg': { kind: 'audio', mime: 'audio/ogg' },
-  '.flac': { kind: 'audio', mime: 'audio/flac' },
-  '.wma': { kind: 'audio', mime: 'audio/x-ms-wma' },
-  '.ppt': { kind: 'doc', mime: 'application/vnd.ms-powerpoint' },
-  '.pptx': { kind: 'doc', mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' },
-  '.doc': { kind: 'doc', mime: 'application/msword' },
-  '.docx': { kind: 'doc', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
-  '.pdf': { kind: 'doc', mime: 'application/pdf' },
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { resolveProductionMediaRoot } = require('../../../scripts/production-paths.cjs') as {
+  resolveProductionMediaRoot: () => string;
 };
 
 @Injectable()
@@ -87,6 +45,7 @@ export class MediaService implements OnModuleInit {
   readonly mediaRoot: string;
   private readonly preparing = new Set<number>();
   private readonly activeOperations = new Set<number>();
+  private readonly imageResolutionCache = new Map<number, string>();
   acquireOperation(id: number): () => void {
     if (this.activeOperations.has(id)) throw new ConflictException('资料正在使用，请稍后重试');
     this.activeOperations.add(id);
@@ -105,191 +64,13 @@ export class MediaService implements OnModuleInit {
     @Inject(WINSTON_MODULE_PROVIDER)
     private readonly logger: Logger,
   ) {
-    const fromEnv = process.env.MEDIA_ROOT;
-    if (fromEnv) {
-      this.mediaRoot = resolve(fromEnv);
-    } else if (process.platform === 'win32') {
-      this.mediaRoot = 'D:\\Media';
-    } else {
-      this.mediaRoot = '/var/lib/smart-control/media';
-    }
+    this.mediaRoot = resolveProductionMediaRoot();
   }
 
   async onModuleInit(): Promise<void> {
     await fs.mkdir(this.mediaRoot, { recursive: true });
+    await this.ensureAssetParent({ id: 0, kind: 'image', remark: WELCOME_PHOTO_REMARK });
     this.logger.info(`MediaService ready, root=${this.mediaRoot}`, { context: 'MediaService' });
-    await this.seedBundledAssets();
-    // 存量 .m4v 行的 mime 自愈 (上面 EXT_KIND_MIME 已改标准 video/mp4, 老行补齐)
-    try {
-      const healed = await this.repo.update(
-        { mimeType: 'video/x-m4v' },
-        { mimeType: 'video/mp4' },
-      );
-      if (healed.affected) {
-        this.logger.info(`[Media] ${healed.affected} 条 .m4v 资源 mime 已纠正为 video/mp4`, { context: 'MediaService' });
-      }
-    } catch (e) {
-      this.logger.warn(`[Media] m4v mime 自愈失败: ${(e as Error).message}`, { context: 'MediaService' });
-    }
-  }
-
-  /**
-   * 随仓库携带的内置素材 (2026-07-26): 左右声道测试音频。
-   *
-   * 音频矩阵按新接线割接后, 业主要验证 LED 左右声道通路, 现场没有现成素材 ——
-   * 文件随 git 部署到 deploy/assets/, 启动时若媒体库还没有同名资源就自动收编
-   * 一份 (拷贝进 mediaRoot/<id>/ 标准布局, remove() 时删得干净, 不动仓库原件)。
-   * 按 originalName 判重: 业主删掉后下次重启会重建; 不想再看到就在媒体库改名。
-   * 素材内容: 440Hz 低音 3s = 左声道, 880Hz 高音 3s = 右声道, 交替两轮,
-   * 最后 660Hz 双声道齐响 3s。
-   */
-  private async seedBundledAssets(): Promise<void> {
-    const bundled: Array<{ file: string; originalName: string; kind: MediaKind; mime: string; remark: string }> = [
-      {
-        file: 'stereo-lr-test.wav', originalName: '左右声道测试.wav', kind: 'audio', mime: 'audio/wav',
-        remark: '内置测试素材: 低音=左声道, 高音=右声道, 交替两轮后双声道齐响',
-      },
-      {
-        file: 'welcome-led-3612x1462.png', originalName: '金湖欢迎页·LED大屏.png', kind: 'image', mime: 'image/png',
-        remark: '3612×1462 静态欢迎页 (备用; 称谓可编辑请用「金湖欢迎页·动态」)',
-      },
-      {
-        file: 'welcome-proj-3380x1225.png', originalName: '金湖欢迎页·投影.png', kind: 'image', mime: 'image/png',
-        remark: '3380×1225 (6760×2450mm 幕布比例) 静态欢迎页 (备用)',
-      },
-      // ---- 内置无版权背景音乐 (2026-07-29 业主: "要能随时用免费无版权音乐") ----
-      // 来源 freepd.com (GitHub 镜像 0lhi/FreePD), 全部 CC0 公有领域: 商用免授权、
-      // 免署名、可再分发。随仓库部署到 deploy/assets/music/, 启动自动入库;
-      // 展厅断外网也可用。业主删掉后重启会重建, 不想再看到就在媒体库改名。
-      ...([
-        ['music/bgm-city-sunshine.mp3', '轻快·城市阳光.mp3', 'City Sunshine'],
-        ['music/bgm-inspiration.mp3', '轻快·灵感律动.mp3', 'Inspiration'],
-        ['music/bgm-screen-saver.mp3', '轻快·屏保时光.mp3', 'Screen Saver'],
-        ['music/bgm-be-chillin.mp3', '舒缓·悠然自得.mp3', 'Be Chillin'],
-        ['music/bgm-relaxing-ballad.mp3', '舒缓·放松民谣.mp3', 'Relaxing Ballad'],
-        ['music/bgm-the-lagoon.mp3', '舒缓·蓝色礁湖.mp3', 'The Lagoon'],
-        ['music/bgm-magic-in-the-garden.mp3', '优美·花园奇境.mp3', 'Magic in the Garden'],
-        ['music/bgm-ice-and-snow.mp3', '优美·冰雪之境.mp3', 'Ice and Snow'],
-        ['music/bgm-travelers-notebook.mp3', '优美·旅人手记.mp3', 'Travelers Notebook'],
-        ['music/bgm-inventing-flight.mp3', '大气·展翅飞翔.mp3', 'Inventing Flight'],
-      ] as Array<[string, string, string]>).map(([file, originalName, en]) => ({
-        file, originalName, kind: 'audio' as MediaKind, mime: 'audio/mpeg',
-        remark: `内置无版权背景音乐 (CC0 公有领域, freepd.com「${en}」) — 可商用免署名`,
-      })),
-    ];
-    for (const b of bundled) {
-      await this.seedBundledFile(b).catch((e) => {
-        this.logger.warn(`[Media] 内置素材 ${b.originalName} 入库失败: ${(e as Error).message}`, { context: 'MediaService' });
-      });
-    }
-    // 动态欢迎页 (kind=webpage): kiosk iframe 加载本机前端静态页, 嘉宾称谓走
-    // system-branding.welcomeGuest, 后台改完 20s 内大屏自动变字。按名字判重。
-    try {
-      const wpName = '金湖欢迎页·动态(称谓可编辑)';
-      if (!(await this.repo.findOne({ where: { originalName: wpName, ownerUserId: IsNull(), source: 'system' } }))) {
-        await this.repo.save(this.repo.create({
-          originalName: wpName,
-          safeName: 'webpage',
-          path: '',
-          thumbPath: null,
-          kind: 'webpage' as MediaKind,
-          sourceUrl: 'http://localhost:5173/control/welcome/index.html',
-          mimeType: 'text/html',
-          sizeBytes: 0,
-          durationSec: null,
-          resolution: null,
-          remark: '推到大屏/投影即显示; 嘉宾称谓在 后台→系统品牌→欢迎页嘉宾称谓 编辑, 约 20s 自动生效',
-          uploader: 'system',
-          ownerUserId: null, visibility: 'shared', source: 'system',
-          lastPlayedAt: null,
-        }));
-        this.logger.info(`[Media] 内置动态欢迎页已入库: ${wpName}`, { context: 'MediaService' });
-      }
-    } catch (e) {
-      this.logger.warn(`[Media] 动态欢迎页入库失败: ${(e as Error).message}`, { context: 'MediaService' });
-    }
-  }
-
-  /** 单个随仓库素材的入库/自修复 (见 seedBundledAssets 注释) */
-  private async seedBundledFile(b: { file: string; originalName: string; kind: MediaKind; mime: string; remark: string }): Promise<void> {
-    const src = resolve(process.cwd(), '..', 'deploy', 'assets', b.file);
-    const originalName = b.originalName;
-    {
-      const stat = await fs.stat(src).catch(() => null);
-      if (!stat || !stat.isFile()) return; // 仓库里没带 (老部署), 静默跳过
-
-      const existing = await this.repo.findOne({ where: { originalName, ownerUserId: IsNull(), source: 'system' } });
-      if (existing) {
-        // 自修复 (2026-07-26): 行在但文件缺/path 为空 = 上次拷贝半途失败,
-        // 库里留了个指向空的死行 —— 媒体页点开就报错、素材也"找不到"。重拷补齐。
-        const fileOk = existing.path
-          ? await fs.stat(existing.path).then((s) => s.isFile()).catch(() => false)
-          : false;
-        if (fileOk) return;
-        await this.repairBundledFile(existing.id, src, stat.size, originalName);
-        this.logger.info(`[Media] 内置素材死行已修复: ${originalName} (#${existing.id})`, { context: 'MediaService' });
-        return;
-      }
-
-      const actor: Actor = { kind: 'admin', userId: null, username: 'system', role: 'admin' };
-      const quota = new MediaQuotaService(this.repo.manager.connection);
-      const reservation = await quota.reserve(actor, stat.size, this.mediaRoot);
-      if (!reservation) throw new Error('内置素材预留未建立');
-      let handedToIngest = false;
-      try {
-        const bytes = await fs.readFile(src);
-        handedToIngest = true;
-        const saved = await this.ingestReservedBuffer(originalName, b.mime, bytes, actor, reservation, b.remark, 'system');
-        this.logger.info(`[Media] 内置素材已入库: ${originalName} (#${saved.id})`, { context: 'MediaService' });
-      } finally {
-        if (!handedToIngest) await quota.release(actor, reservation);
-      }
-    }
-  }
-
-  private async repairBundledFile(id: number, source: string, bytes: number, originalName: string): Promise<void> {
-    const release = this.acquireOperation(id);
-    const actor: Actor = { kind: 'admin', userId: null, username: 'system', role: 'admin' };
-    const quota = new MediaQuotaService(this.repo.manager.connection);
-    let reservation: string | null = null;
-    let target: string | undefined;
-    let committed = false;
-    let owned = false;
-    try {
-      reservation = await quota.reserve(actor, bytes, this.mediaRoot);
-      if (!reservation) throw new Error('内置修复预留未建立');
-      const previousPath = await serializedTransaction(this.repo.manager.connection, async manager => {
-        const row = await manager.findOneByOrFail(MediaAsset, { id, ownerUserId: IsNull(), source: 'system' });
-        const linked = await manager.createQueryBuilder().update('upload_reservations').set({ target_media_id: id })
-          .where('id = :reservation AND owner_user_id IS NULL AND target_media_id IS NULL', { reservation })
-          .andWhere('NOT EXISTS (SELECT 1 FROM upload_reservations r WHERE r.target_media_id = :media AND r.temp_name IS NULL)', { media: id }).execute();
-        if (!linked.affected) throw new ConflictException('内置素材已有待恢复任务');
-        return row.path;
-      });
-      const directory = join(this.mediaRoot, String(id));
-      await fs.mkdir(directory, { recursive: true });
-      const [root, actual] = await Promise.all([fs.realpath(this.mediaRoot), fs.realpath(directory)]);
-      const dirStat = await fs.lstat(directory);
-      if (!dirStat.isDirectory() || dirStat.isSymbolicLink() || actual !== join(root, String(id))) throw new Error('内置素材修复目录不安全');
-      const buffer = await fs.readFile(source);
-      if (buffer.length !== bytes) throw new Error('内置素材在预留后发生变化');
-      target = join(directory, `restored-${randomUUID()}-${this.safeFilename(originalName)}`);
-      const handle = await fs.open(target, 'wx', 0o600);
-      owned = true;
-      try { await handle.writeFile(buffer); } finally { await handle.close(); }
-      await serializedTransaction(this.repo.manager.connection, async manager => {
-        const updated = await manager.createQueryBuilder().update(MediaAsset).set({ path: target, sizeBytes: bytes })
-          .where('id = :id AND owner_user_id IS NULL AND source = :source AND path = :previousPath', { id, source: 'system', previousPath }).execute();
-        if (!updated.affected) throw new ConflictException('内置素材归属或文件路径已变化');
-      });
-      committed = true;
-    } finally {
-      try {
-        // Exact owned candidate only; a failed cleanup retains its linked budget.
-        if (owned && !committed && target) await fs.unlink(target);
-        await quota.release(actor, reservation);
-      } finally { release(); }
-    }
   }
 
   /** Multer 临时上传根 (跟正式 root 同盘, 避免跨盘 rename 失败) */
@@ -298,20 +79,7 @@ export class MediaService implements OnModuleInit {
   }
 
   classifyKind(mimeType: string, filename?: string): MediaKind | null {
-    if (VIDEO_MIME_PREFIXES.some((p) => mimeType.startsWith(p))) return 'video';
-    if (IMAGE_MIME_PREFIXES.some((p) => mimeType.startsWith(p))) return 'image';
-    if (AUDIO_MIME_PREFIXES.some((p) => mimeType.startsWith(p))) return 'audio';
-    // 扩展名兜底: m4a/aac 等有时 mime 给成 application/octet-stream
-    if (DOC_MIME.includes(mimeType)) return 'doc';
-    if (filename) {
-      const lower = filename.toLowerCase();
-      if (AUDIO_EXT.some((ext) => lower.endsWith(ext))) return 'audio';
-      if (DOC_EXT.some((ext) => lower.endsWith(ext))) return 'doc';
-      // 视频/图片扩展名兜底: .m4v/.mkv 等浏览器常报 application/octet-stream (2026-07-31)
-      const byExt = EXT_KIND_MIME[extname(lower)];
-      if (byExt) return byExt.kind;
-    }
-    return null;
+    return classifyMediaKind(mimeType, filename);
   }
 
   /** 放映守护回写文档元数据 (页数 / Word 转出的 PDF 相对路径) */
@@ -393,14 +161,10 @@ export class MediaService implements OnModuleInit {
     }
     // mime 纠正: 浏览器给 octet-stream/空时按扩展名换成标准值 —— 存进库的
     // mimeType 会成为 /media/:id/file 的 Content-Type, 冷门/错误值会让播放端拒识
-    let mimeType = file.mimetype;
-    if (!mimeType || mimeType === 'application/octet-stream') {
-      const byExt = EXT_KIND_MIME[extname(originalName.toLowerCase())];
-      if (byExt) mimeType = byExt.mime;
-    }
+    const mimeType = normalizeUploadedMimeType(file.mimetype, originalName);
 
     // 先入库拿 id, 用 id 做目录避免文件名冲突
-    const safeName = this.safeFilename(originalName);
+    const safeName = safeMediaFilename(originalName);
     const entity = this.repo.create({
       originalName,
       safeName,
@@ -466,7 +230,7 @@ export class MediaService implements OnModuleInit {
     assertCanUpload(actor);
     const kind = this.classifyKind(mimeType, originalName);
     if (!kind) throw new BadRequestException(`不支持的文件类型: ${mimeType}`);
-    const safeName = this.safeFilename(originalName);
+    const safeName = safeMediaFilename(originalName);
     const saved = await this.saveInitialUpload(this.repo.create({
       originalName, safeName, path: '', thumbPath: null, kind, mimeType,
       sizeBytes: buf.length, durationSec: null, resolution: null,
@@ -499,7 +263,7 @@ export class MediaService implements OnModuleInit {
       throw new BadRequestException(`不支持的文件类型: ${mimeType} / ${originalName}`);
     }
     const stat = await fs.stat(tmpPath);
-    const safeName = this.safeFilename(originalName);
+    const safeName = safeMediaFilename(originalName);
     const saved = await this.saveInitialUpload(this.repo.create({
       originalName, safeName, path: '', thumbPath: null, kind, mimeType,
       sizeBytes: stat.size, durationSec: null, resolution: null,
@@ -537,16 +301,23 @@ export class MediaService implements OnModuleInit {
     try { result = await this.finishNewAssetLocked(saved, write); }
     finally { release(); }
     if (result.kind === 'video') void this.prepareVideo(result.id);
+    if (result.kind === 'image') {
+      try { result = await this.ensureImageResolution(result.id); }
+      catch (error) {
+        this.logger.warn?.(`[Media] 图片 #${result.id} 尺寸探测失败: ${(error as Error).message}`, { context: 'MediaService' });
+      }
+    }
     return result;
   }
 
   private async finishNewAssetLocked(saved: MediaAsset, write: (path: string) => Promise<void>): Promise<MediaAsset> {
-    const directory = join(this.mediaRoot, String(saved.id));
+    const directory = mediaAssetDirectory(this.mediaRoot, saved);
     const path = join(directory, saved.safeName);
     let created = false;
     let result: MediaAsset;
     try {
-      await fs.mkdir(this.mediaRoot, { recursive: true });
+      const parent = await this.ensureAssetParent(saved);
+      await fs.mkdir(parent, { recursive: true });
       // Never adopt or remove an existing ID directory during failed ingestion.
       await fs.mkdir(directory);
       created = true;
@@ -609,8 +380,7 @@ export class MediaService implements OnModuleInit {
         } else if (entry.isFile()) {
           const resolved = resolve(full);
           if (known.has(resolved) || known.has(await fs.realpath(full))) continue;
-          const ext = extname(entry.name).toLowerCase();
-          const guess = EXT_KIND_MIME[ext];
+          const guess = mediaFileTypeFromName(entry.name);
           const stat = await fs.stat(full);
           // A hard-linked file can alias private managed content, including a
           // not-yet-finalized upload. Do not treat any shared inode as an orphan.
@@ -630,10 +400,20 @@ export class MediaService implements OnModuleInit {
   }
 
   private isManagedMediaPath(relPath: string): boolean {
-    const parts = relPath.split(sep);
-    // Numeric asset trees include originals, transcode outputs and incomplete
-    // uploads. They require recovery, never a second ownership claim via import.
-    return /^\d+$/.test(parts[0]) || parts.some(part => part === '_tmp' || part.startsWith('.delete-'));
+    return isManagedMediaRelativePath(relPath);
+  }
+
+  private async ensureAssetParent(asset: Pick<MediaAsset, 'id' | 'kind' | 'remark'>): Promise<string> {
+    await fs.mkdir(this.mediaRoot, { recursive: true });
+    const parent = mediaAssetParent(this.mediaRoot, asset);
+    if (resolve(parent) === resolve(this.mediaRoot)) return this.mediaRoot;
+    await fs.mkdir(parent, { recursive: true });
+    const stat = await fs.lstat(parent);
+    const [realRoot, realParent] = await Promise.all([fs.realpath(this.mediaRoot), fs.realpath(parent)]);
+    if (!stat.isDirectory() || stat.isSymbolicLink() || realParent !== join(realRoot, WELCOME_PHOTO_FOLDER)) {
+      throw new Error('Unsafe welcome photo storage directory');
+    }
+    return parent;
   }
 
   private async registeredMediaPaths(repo: Repository<MediaAsset>): Promise<Set<string>> {
@@ -684,11 +464,11 @@ export class MediaService implements OnModuleInit {
     if (!Number.isSafeInteger(stat.size) || stat.size < 0) throw new BadRequestException('文件大小无效');
 
     const ext = extname(abs).toLowerCase();
-    const guess = EXT_KIND_MIME[ext];
+    const guess = mediaFileTypeFromName(abs);
     if (!guess) throw new BadRequestException(`不支持的文件类型: ${ext || '(无扩展名)'}`);
 
     const originalName = basename(abs);
-    const safeName = this.safeFilename(originalName);
+    const safeName = safeMediaFilename(originalName);
     const entity = this.repo.create({
       ownerUserId: actor.userId, visibility: 'private', source: 'import',
       originalName,
@@ -696,7 +476,7 @@ export class MediaService implements OnModuleInit {
       path: '',
       thumbPath: null,
       kind: guess.kind,
-      mimeType: guess.mime,
+      mimeType: guess.mimeType,
       sizeBytes: stat.size,
       durationSec: null,
       resolution: null,
@@ -735,11 +515,15 @@ export class MediaService implements OnModuleInit {
     let result: MediaAsset;
     let allocatedDirectory = false;
     let moved = false;
-    const finalDir = join(this.mediaRoot, String(saved.id));
-    const finalPath = join(finalDir, safeName);
+    let finalDir = '';
+    let finalPath = '';
     try {
       // Never adopt an occupied ID directory, overwrite its files or restore
       // stale ownership from the initial entity during finalization.
+      const finalParent = await this.ensureAssetParent(saved);
+      finalDir = mediaAssetDirectory(this.mediaRoot, saved);
+      finalPath = join(finalDir, safeName);
+      await fs.mkdir(finalParent, { recursive: true });
       await fs.mkdir(finalDir);
       allocatedDirectory = true;
       await fs.rename(abs, finalPath);
@@ -819,7 +603,7 @@ export class MediaService implements OnModuleInit {
   }
 
   async list(opts: { kind?: MediaKind; limit?: number; offset?: number; actor?: Actor; scope?: 'visible' | 'mine' | 'shared'; ownerUserId?: number; keyword?: string } = {}): Promise<{ items: MediaListItem[]; total: number }> {
-    return serializedTransaction(this.repo.manager.connection, async manager => {
+    const result = await serializedTransaction(this.repo.manager.connection, async manager => {
       let actor = opts.actor;
       if (actor && actor.userId !== null) {
         const current = await manager.findOneBy(User, { id: actor.userId, enabled: true });
@@ -828,6 +612,49 @@ export class MediaService implements OnModuleInit {
       }
       return this.listInTransaction(manager.getRepository(MediaAsset), { ...opts, actor });
     });
+    // Old image rows predate dimension metadata. Inspect them outside the
+    // transaction so the media list and LED editor agree on geometry without
+    // turning a GET into a database write. The next explicit save persists it.
+    for (const item of result.items) {
+      if (item.kind !== 'image' || item.resolution) continue;
+      try {
+        const resolved = await this.ensureImageResolution(item.id, false);
+        item.resolution = resolved.resolution;
+      } catch (error) {
+        this.logger.warn?.(`[Media] 图片 #${item.id} 尺寸补录失败: ${(error as Error).message}`, { context: 'MediaService' });
+      }
+    }
+    return result;
+  }
+
+  /** Inspect missing image geometry; explicit writes may persist the repaired metadata. */
+  async ensureImageResolution(id: number, persist = true): Promise<MediaAsset> {
+    const media = await this.get(id);
+    if (media.kind !== 'image') throw new BadRequestException('资料不是图片');
+    if (/^\d+x\d+$/i.test(media.resolution ?? '')) return media;
+    const cached = this.imageResolutionCache.get(id);
+    if (cached) {
+      if (persist) await this.updateMediaFields(id, { resolution: cached });
+      return { ...media, resolution: cached };
+    }
+
+    const root = await fs.realpath(this.mediaRoot);
+    const file = await fs.realpath(media.path);
+    const rel = relative(root, file);
+    if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+      throw new BadRequestException('图片文件超出媒体目录');
+    }
+    const stat = await fs.stat(file);
+    if (!stat.isFile()) throw new BadRequestException('图片文件不存在');
+    const probe = await this.probeVideo(file);
+    if (!Number.isInteger(probe.width) || !Number.isInteger(probe.height)
+      || probe.width! < 1 || probe.height! < 1) {
+      throw new BadRequestException('无法读取图片尺寸');
+    }
+    const resolution = `${probe.width}x${probe.height}`;
+    this.imageResolutionCache.set(id, resolution);
+    if (persist) await this.updateMediaFields(id, { resolution });
+    return { ...media, resolution };
   }
 
   private async listInTransaction(repo: Repository<MediaAsset>, opts: NonNullable<Parameters<MediaService['list']>[0]>): Promise<{ items: MediaListItem[]; total: number }> {
@@ -877,7 +704,10 @@ export class MediaService implements OnModuleInit {
       }
       const media = await manager.findOneBy(MediaAsset, { id });
       if (!media) throw new NotFoundException('资料不存在');
-      if (write) assertWriteResource(current, media);
+      if (write) {
+        if (media.source === 'system') throw new ForbiddenException('内置资料由版本发布统一管理');
+        assertWriteResource(current, media);
+      }
       else assertReadResource(current, media);
       return media;
     });
@@ -899,6 +729,7 @@ export class MediaService implements OnModuleInit {
   private async updateOwnedInTransaction(repo: Repository<MediaAsset>, id: number, actor: Actor, dto: UpdateMediaDto): Promise<MediaAsset> {
     const row = await repo.findOneBy({ id });
     if (!row) throw new NotFoundException('资料不存在');
+    if (row.source === 'system') throw new ForbiddenException('内置资料由版本发布统一管理');
     assertWriteResource(actor, row);
     const previousOwner = row.ownerUserId;
     if (dto.ownerUserId !== undefined && dto.ownerUserId !== previousOwner && ['pending', 'processing'].includes(row.processingStatus)) {
@@ -949,9 +780,9 @@ export class MediaService implements OnModuleInit {
     return repo.findOneByOrFail({ id });
   }
 
-  /** 按原始文件名精确查 (playback 欢迎页一键投放按内置素材名定位) */
+  /** 按内置原始名称精确查；用户同名资料绝不能替代系统投放目标。 */
   findByOriginalName(originalName: string): Promise<MediaAsset | null> {
-    return this.repo.findOne({ where: { originalName } });
+    return this.repo.findOne({ where: { originalName, ownerUserId: IsNull(), source: 'system' } });
   }
 
   async openStream(id: number, asPdf = false, rangeHeader?: string): Promise<{
@@ -1009,12 +840,15 @@ export class MediaService implements OnModuleInit {
     const release = this.acquireOperation(id);
     try {
       const m = await this.authorized(id, actor, true);
+      if (m.source === 'system') throw new ForbiddenException('内置资料由版本发布统一管理');
       if (this.preparing.has(id) || m.processingStatus === 'processing' || m.processingStatus === 'pending') throw new ConflictException('资料正在转码，不能删除');
       const channels = await this.repo.query('SELECT id FROM playback_channels WHERE currentMediaId = ? LIMIT 1', [id]);
       if (channels.length) throw new ConflictException('资料正在播放或暂停，请先停止播放再删除');
-      const result = await recoverableDelete(this.mediaRoot, m.id, () => serializedTransaction(this.repo.manager.connection, async manager => {
+      const assetContainer = mediaAssetContainerForStoredPath(this.mediaRoot, m.id, m.path);
+      const result = await recoverableDelete(assetContainer, m.id, () => serializedTransaction(this.repo.manager.connection, async manager => {
         const current = await manager.getRepository(MediaAsset).findOneBy({ id });
         if (!current) throw new NotFoundException('资料不存在');
+        if (current.source === 'system') throw new ForbiddenException('内置资料由版本发布统一管理');
         assertWriteResource(actor, current);
         if (current.processingStatus === 'processing' || current.processingStatus === 'pending') throw new ConflictException('资料正在转码');
         if ((await manager.query('SELECT id FROM playback_channels WHERE currentMediaId = ? LIMIT 1', [id])).length) throw new ConflictException('请先停止播放再删除');
@@ -1187,6 +1021,7 @@ export class MediaService implements OnModuleInit {
     return {
       ownerUserId: m.ownerUserId,
       visibility: m.visibility,
+      source: m.source,
       id: m.id,
       originalName: m.originalName,
       kind: m.kind,
@@ -1203,14 +1038,6 @@ export class MediaService implements OnModuleInit {
       processingStatus: m.processingStatus ?? 'ready',
       processingError: m.processingError ?? null,
     };
-  }
-
-  private safeFilename(name: string): string {
-    // 保留扩展名, 去掉路径符号 / 控制字符 / 引号
-    return name
-      .replace(/[ -\\/:*?"<>|]+/g, '_')
-      .replace(/\s+/g, '_')
-      .slice(0, 200) || 'unnamed';
   }
 
   private async unlinkSafe(p: string): Promise<void> {

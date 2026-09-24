@@ -53,13 +53,10 @@ function makeService(opts: {
   hwCategory?: string | null;
   hwEnabled?: boolean;
   breaker?: Partial<Record<'turnOn' | 'turnOff' | 'getMeasurements', jest.Mock>>;
+  cloudBreaker?: Partial<Record<'turnOn' | 'turnOff' | 'getMeasurements', jest.Mock>>;
 } = {}) {
   const row = opts.row ?? circuitRow();
   const repo = {
-    // 按 code 匹配, 不匹配返回 null —— 2026-07-27 修: 原来无条件返回 row,
-    // onModuleInit 里 healProjectorSeqChannel 查 seq-4/seq-5 也拿到这行
-    // 1f-led 测试数据, 把它的 relayChannel 改成 5, CI 每次推送都红一次。
-    // 生产不受影响 (真库按 code 各查各行), 纯测试桩失真。
     findOne: jest.fn(async (q?: { where?: { code?: string } }) =>
       (q?.where?.code === undefined || q.where.code === row.code ? row : null)),
     find: jest.fn().mockResolvedValue([row]),
@@ -79,6 +76,13 @@ function makeService(opts: {
     turnOff: opts.breaker?.turnOff ?? jest.fn().mockResolvedValue(ok({ on: false, switchState: 'open' })),
     getMeasurements: opts.breaker?.getMeasurements ?? jest.fn().mockResolvedValue(ok(measurements())),
   };
+  const cloudBreaker = {
+    turnOn: opts.cloudBreaker?.turnOn ?? jest.fn().mockResolvedValue(ok({ on: true, switchState: 'closed' })),
+    turnOff: opts.cloudBreaker?.turnOff ?? jest.fn().mockResolvedValue(ok({ on: false, switchState: 'open' })),
+    getMeasurements: opts.cloudBreaker?.getMeasurements ?? jest.fn().mockResolvedValue(ok(measurements({
+      voltages: [220, 0, 0], currents: [3, 0, 0], powers: [660, 0, 0, 660],
+    }))),
+  };
   const epo = { setChannel: jest.fn().mockResolvedValue(undefined) };
   const adapter = {
     circuitTurnOn: jest.fn().mockResolvedValue(ok({})),
@@ -89,46 +93,23 @@ function makeService(opts: {
   };
   const svc = new PowerCircuitsService(
     repo as never, hwRepo as never, adapter as never, epo as never, breaker as never, fakeLogger(),
+    undefined, cloudBreaker as never,
   );
-  return { svc, repo, hwRepo, breaker, epo, adapter, row };
+  return { svc, repo, hwRepo, breaker, cloudBreaker, epo, adapter, row };
 }
-
-describe('PowerCircuitsService · 1f-led 回路自愈到真空开', () => {
-  it('还指着从没到货的 RELAY-1F-1 → 改指 BREAKER-LED-1 并修额定值', async () => {
-    const old = circuitRow({
-      gatewayCode: 'RELAY-1F-1', relayChannel: 4,
-      ratedVoltage: 220, ratedCurrent: 20, ratedPower: 3500, description: null,
-    });
-    const { svc, repo } = makeService({ row: old });
-    await svc.onModuleInit();
-    expect(old.gatewayCode).toBe('BREAKER-LED-1');
-    expect(old.relayChannel).toBeNull();
-    expect(old.ratedVoltage).toBe(380);
-    expect(old.ratedCurrent).toBe(40);
-    expect(old.ratedPower).toBe(19000);
-    expect(repo.save).toHaveBeenCalled();
-  });
-
-  it('已经指向空开(或被人工改过) → 不再动它', async () => {
-    const already = circuitRow({ gatewayCode: 'BREAKER-LED-1', ratedVoltage: 400 });
-    const { svc } = makeService({ row: already });
-    await svc.onModuleInit();
-    expect(already.ratedVoltage).toBe(400); // 人工值保留
-  });
-});
 
 describe('PowerCircuitsService · 断路器回路路由', () => {
   it('gatewayCode 指向 power-breaker 硬件 → 打真闸, 不碰时序器', async () => {
     const { svc, breaker, epo } = makeService();
     await svc.turnOn(4);
-    expect(breaker.turnOn).toHaveBeenCalledWith('1f-led');
+    expect(breaker.turnOn).toHaveBeenCalledWith('BREAKER-LED-1');
     expect(epo.setChannel).not.toHaveBeenCalled();
   });
 
   it('分闸走 turnOff', async () => {
     const { svc, breaker } = makeService();
     await svc.turnOff(4);
-    expect(breaker.turnOff).toHaveBeenCalledWith('1f-led');
+    expect(breaker.turnOff).toHaveBeenCalledWith('BREAKER-LED-1');
     expect(breaker.turnOn).not.toHaveBeenCalled();
   });
 
@@ -141,6 +122,13 @@ describe('PowerCircuitsService · 断路器回路路由', () => {
   it('硬件被禁用 → 不打断路器', async () => {
     const { svc, breaker } = makeService({ hwEnabled: false });
     await svc.turnOn(4);
+    expect(breaker.turnOn).not.toHaveBeenCalled();
+  });
+
+  it('power-breaker-4g 只路由到 MQTT 适配器', async () => {
+    const { svc, breaker, cloudBreaker } = makeService({ hwCategory: 'power-breaker-4g' });
+    await svc.turnOn(4);
+    expect(cloudBreaker.turnOn).toHaveBeenCalledWith('BREAKER-LED-1');
     expect(breaker.turnOn).not.toHaveBeenCalled();
   });
 
@@ -179,6 +167,14 @@ describe('PowerCircuitsService · 断路器实时读数', () => {
       }) },
     });
     expect((await svc.detail(4)).reading.on).toBe(false);
+  });
+
+  it('4G 单相断路器只上传 A 相时，页面电压仍显示实际值', async () => {
+    const { svc } = makeService({ hwCategory: 'power-breaker-4g' });
+    const view = await svc.detail(4);
+    expect(view.isBreaker).toBe(true);
+    expect(view.reading.voltage).toBe(220);
+    expect(view.reading.power).toBe(660);
   });
 
   it('TTL 内复用缓存 —— 一次 list 不会把 485 打爆', async () => {
@@ -226,11 +222,11 @@ describe('PowerCircuitsService · 断路器实时读数', () => {
   });
 
   it('断路器回路能拿到分相/温度/报警全量', async () => {
-    const { svc } = makeService();
+    const { svc, breaker } = makeService();
     const m = await svc.breakerMeasurements(4);
+    expect(breaker.getMeasurements).toHaveBeenCalledWith('BREAKER-LED-1');
     expect(m.temperatures).toHaveLength(4);
     expect(m.leakageCurrent).toBe(0.003);
     expect(m.alarms.any).toBe(false);
   });
 });
-

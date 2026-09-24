@@ -53,6 +53,22 @@ describe('global authentication boundary', () => {
     expect(req.actor).toMatchObject({ role: 'admin', kind: 'admin' });
   });
 
+  it('prefers a named-admin bearer over a concurrently saved operator PWA token', async () => {
+    const boundary = new GlobalAuthGuard(
+      { getAllAndOverride: () => false } as any,
+      { resolveActor: async (token: string) => token === 'named-admin'
+        ? { kind: 'user', userId: 1, username: 'owner', role: 'admin' }
+        : { kind: 'user', userId: 2, username: 'operator', role: 'operator' } } as any,
+      { verifyToken: async () => false } as any,
+    );
+    const req: any = {
+      method: 'POST',
+      headers: { authorization: 'Bearer named-admin', 'x-client-token': 'operator-token' },
+    };
+    expect(await boundary.canActivate(context(req))).toBe(true);
+    expect(req.actor).toMatchObject({ username: 'owner', role: 'admin', kind: 'user' });
+  });
+
   it('keeps explicitly public entry points available without creating an identity', async () => {
     const req: any = { headers: {} };
     expect(await guard(true).canActivate(context(req))).toBe(true);

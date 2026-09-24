@@ -49,15 +49,15 @@ jobs:
     name: Build artifacts
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.ref || github.ref }}
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
-          version: 9
+          version: 10.33.4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: 'pnpm'
@@ -105,7 +105,7 @@ jobs:
           tar czf /tmp/deploy-meta.tgz -C /tmp/deploy-meta .
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: deploy-bundle
           path: |
@@ -124,7 +124,7 @@ jobs:
       name: production
       url: https://cnjinhu.top/control/
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.ref || github.ref }}
           sparse-checkout: |
@@ -133,7 +133,7 @@ jobs:
 
       - name: Download artifacts
         if: ${{ github.event.inputs.rollback != 'true' }}
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: deploy-bundle
           path: /tmp/

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
-const ts = require('../../frontend/node_modules/typescript');
+const ts = require('typescript');
 
 const source = fs.readFileSync(path.join(__dirname, '../../frontend/src/services/player-device.service.ts'), 'utf8');
 const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;

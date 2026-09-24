@@ -138,7 +138,6 @@ async function dismissPersisted(ev: MouseEvent): Promise<void> {
 </template>
 
 <style scoped>
-/* v3 告警条 — 红色渐变 + 边框 glow + 慢脉动 + 流光扫描 */
 .alert-banner {
   position: relative;
   display: flex;
@@ -147,57 +146,25 @@ async function dismissPersisted(ev: MouseEvent): Promise<void> {
   padding: 5px 10px 5px 6px;
   border-radius: var(--v2-r-sm);
   font-weight: 500;
-  background: linear-gradient(90deg, rgba(229, 100, 93, 0.22) 0%, rgba(229, 100, 93, 0.10) 100%);
-  border: 1px solid rgba(229, 100, 93, 0.55);
+  background: var(--v2-danger-soft);
+  border: 1px solid var(--v2-danger);
   color: var(--v2-text-1);
   overflow: hidden;
   height: 34px;
   box-sizing: border-box;
-  box-shadow:
-    0 0 16px -2px rgba(229, 100, 93, 0.4),
-    inset 0 1px 0 rgba(229, 100, 93, 0.55);
-  animation: v3-alert-pulse 2.4s ease-in-out infinite;
-}
-/* 流光扫描条 — 从左到右每 3 秒扫一次, 像故障告警光带 */
-.alert-banner::before {
-  content: '';
-  position: absolute;
-  top: 0; bottom: 0; left: -40%;
-  width: 30%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
-  animation: v3-alert-sweep 3s linear infinite;
-  pointer-events: none;
-}
-@keyframes v3-alert-pulse {
-  0%, 100% { box-shadow: 0 0 16px -2px rgba(229, 100, 93, 0.4), inset 0 1px 0 rgba(229, 100, 93, 0.55); }
-  50% { box-shadow: 0 0 28px -2px rgba(229, 100, 93, 0.7), inset 0 1px 0 rgba(229, 100, 93, 0.8); }
-}
-@keyframes v3-alert-sweep {
-  0% { left: -40%; }
-  100% { left: 110%; }
 }
 
 .alert-banner.is-error {
-  background: linear-gradient(90deg, rgba(229, 100, 93, 0.22) 0%, rgba(229, 100, 93, 0.10) 100%);
-  border-color: rgba(229, 100, 93, 0.55);
+  background: var(--v2-danger-soft);
+  border-color: var(--v2-danger);
 }
 .alert-banner.is-warning {
-  background: linear-gradient(90deg, rgba(224, 160, 48, 0.22) 0%, rgba(224, 160, 48, 0.10) 100%);
-  border-color: rgba(224, 160, 48, 0.55);
-  box-shadow:
-    0 0 16px -2px rgba(224, 160, 48, 0.4),
-    inset 0 1px 0 rgba(224, 160, 48, 0.55);
-  animation: v3-alert-pulse-amber 2.4s ease-in-out infinite;
-}
-@keyframes v3-alert-pulse-amber {
-  0%, 100% { box-shadow: 0 0 16px -2px rgba(224, 160, 48, 0.4), inset 0 1px 0 rgba(224, 160, 48, 0.55); }
-  50% { box-shadow: 0 0 28px -2px rgba(224, 160, 48, 0.7), inset 0 1px 0 rgba(224, 160, 48, 0.8); }
+  background: var(--v2-warning-soft);
+  border-color: var(--v2-warning);
 }
 .alert-banner.is-info {
-  background: linear-gradient(90deg, rgba(76, 154, 255, 0.22) 0%, rgba(76, 154, 255, 0.10) 100%);
-  border-color: rgba(76, 154, 255, 0.55);
-  box-shadow: 0 0 14px -2px rgba(76, 154, 255, 0.35);
-  animation: none;
+  background: var(--v2-info-soft);
+  border-color: var(--v2-info);
 }
 .alert-banner.persisted { cursor: pointer; }
 .alert-banner.persisted:hover { filter: brightness(1.2); }
@@ -213,19 +180,16 @@ async function dismissPersisted(ev: MouseEvent): Promise<void> {
   z-index: 1;
 }
 .alert-banner.is-error .alert-icon {
-  background: rgba(229, 100, 93, 0.35);
-  color: #FFB4B4;
-  filter: drop-shadow(0 0 6px rgba(229, 100, 93, 0.7));
+  background: var(--v2-danger-soft);
+  color: var(--v2-danger);
 }
 .alert-banner.is-warning .alert-icon {
-  background: rgba(224, 160, 48, 0.35);
-  color: #FFE082;
-  filter: drop-shadow(0 0 6px rgba(224, 160, 48, 0.7));
+  background: var(--v2-warning-soft);
+  color: var(--v2-warning);
 }
 .alert-banner.is-info .alert-icon {
-  background: rgba(76, 154, 255, 0.35);
-  color: #BFD7FF;
-  filter: drop-shadow(0 0 6px rgba(76, 154, 255, 0.5));
+  background: var(--v2-info-soft);
+  color: var(--v2-info);
 }
 
 .alert-body {
@@ -237,7 +201,7 @@ async function dismissPersisted(ev: MouseEvent): Promise<void> {
   overflow: hidden;
 }
 .alert-source {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--v2-text-3);
   letter-spacing: 0.3px;
   flex-shrink: 0;
@@ -252,7 +216,7 @@ async function dismissPersisted(ev: MouseEvent): Promise<void> {
   color: var(--v2-text-3);
 }
 .alert-msg {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--v2-text-1);
   font-weight: 500;
   overflow: hidden;
@@ -263,7 +227,7 @@ async function dismissPersisted(ev: MouseEvent): Promise<void> {
 }
 
 .alert-count {
-  font-size: 10px;
+  font-size: 12px;
   padding: 2px 8px;
   background: var(--v2-ov-2);
   color: var(--v2-text-2);

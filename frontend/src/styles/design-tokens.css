@@ -1,192 +1,95 @@
-/* ============================================================
- * 金湖中控 v2 · 现代化设计 token (2026-05-30 层级强化版)
- *
- * 调整: 卡片底色 2.5% → 5.5% / border 6% → 12% / 加 surf-3 抽屉层 /
- * 状态软色 14% → 22% (按钮更明显) / 加 elevation 阴影 + focus-visible /
- * 提供 .v2-btn-primary CTA 实色按钮.
- *
- * 不动 .v2-quick.primary, 保留各页面品类色 (灯光琥珀 / HVAC 蓝 / 音响绿).
- * 真正 CTA 想要"实色发光"用 .v2-btn-primary 类显式 opt-in.
- *
- * 加载顺序: theme.css → design-tokens.css (这里覆盖)
- * ============================================================ */
-
+/* Theme tokens and Element Plus integration. Keep this file as the single
+ * source of truth for colour, elevation, spacing and shared interaction. */
 :root {
-  /* ============================================================
-   * v3 (2026-05-31): "蔚来/小鹏车机风" 视觉重构
-   *
-   * 旧 v2 偏'专业克制', 业主反馈"性冷淡 / 蓝色脏 / 暗陈无趣 / 没科技感".
-   * v3 换方向: 深空蓝 + 极光紫 + 电光青 + 多色霓虹强调, 大量 glow + 玻璃
-   * 拟态 + 慢漂浮 aurora. 参考 NIO ET7 / 小鹏 X9 / NIO Phone.
-   * ============================================================ */
+  color-scheme: dark;
+  --v2-bg-0: #0a0b0e;
+  --v2-bg-1: #0e1014;
+  --v2-bg-2: #12141a;
+  --v2-surf-1: #15181f;
+  --v2-surf-1-hover: #1c2029;
+  --v2-surf-2: #1e222c;
+  --v2-surf-3: #272c37;
+  --v2-surface-1: var(--v2-surf-1);
+  --v2-border-soft: #292e3a;
+  --v2-border-strong: #3b4250;
+  --v2-border: var(--v2-border-soft);
+  --v2-text-1: #f3f5f9;
+  --v2-text-2: #a9b1c0;
+  --v2-text-3: #717a8a;
+  --v2-primary: #818cf8;
+  --v2-primary-rgb: 129, 140, 248;
+  --v2-primary-dark: #6366f1;
+  --v2-primary-hover: #a5b4fc;
+  --v2-primary-soft: rgba(129, 140, 248, 0.15);
+  --v2-on-primary: #16133a;
+  --v2-success: #34d399;
+  --v2-warning: #fbbf24;
+  --v2-danger: #f87171;
+  --v2-info: var(--v2-primary);
+  --v2-success-soft: rgba(52, 211, 153, 0.15);
+  --v2-warning-soft: rgba(251, 191, 36, 0.15);
+  --v2-danger-soft: rgba(248, 113, 113, 0.15);
+  --v2-info-soft: var(--v2-primary-soft);
 
-  /* ============================================================
-   * v4 (2026-07-20): 收颜色预算
-   *
-   * v3 那版把颜色花在"分类"上 —— 6 个场景 6 种霓虹渐变、5 个子系统 5 种彩色
-   * 图标底、再加 6 种 text-glow。结果是彩虹效应: 每个元素都在喊, 没有层级;
-   * 更要命的是**真正需要颜色的地方被淹没了** —— LED 大屏 0/2 掉线是故障,
-   * 却和正常的灯光音响长得一样花, 一眼根本看不出来。中控系统最该做到的
-   * "哪里出事了一眼可见", 被装饰色吃掉了。
-   *
-   * v4 的原则: 颜色是稀缺资源, 只留给**状态**和**选中**, 不用于分类。
-   * 分类交给图标和文字。
-   *
-   * 注意这不是退回 v2 那版"性冷淡": v2 的问题是明度糊成一片、对比不足所以
-   * 显得暗陈无趣。v4 的层次感来自**清晰的明度阶梯 + 材质精度**(实色表面、
-   * 1px 描边、tabular 数字), 而不是色相数量。深色底保留 —— 展厅环境合适。
-   * ============================================================ */
+  /* ===== 统一强调色：同色系渐变，禁止渐变到中性灰（蓝→灰会混出发脏的蓝灰）=====
+     仅在 :root 定义一次；浅色块 override 了 --v2-primary，下列变量在“使用点”
+     按级联惰性求值，深浅主题自动跟随，无需在浅色块重复定义。 */
+  /* 卡片顶部细装饰条：主色 → 透明淡出 */
+  --v2-accent-bar: linear-gradient(90deg, var(--v2-primary) 0%, rgba(var(--v2-primary-rgb), 0) 100%);
+  /* 实心强调填充（选中按钮 / toggle，配白字）：主色 → 主色深，同色系有层次 */
+  --v2-accent-fill: linear-gradient(135deg, var(--v2-primary) 0%, var(--v2-primary-dark) 100%);
+  /* 水平进度条：主色 → 主色深 */
+  --v2-accent-progress: linear-gradient(90deg, var(--v2-primary) 0%, var(--v2-primary-dark) 100%);
+  /* 竖向波形 / 柱：上亮 → 下深 */
+  --v2-accent-vertical: linear-gradient(180deg, var(--v2-primary-hover) 0%, var(--v2-primary-dark) 100%);
+  /* 强调悬浮阴影：主色阴影（替换旧的白色阴影，浅色下白阴影无效）*/
+  --v2-accent-shadow: 0 8px 18px -6px rgba(var(--v2-primary-rgb), 0.5);
 
-  /* ---------- 中性表面: 纯中性 + 清晰明度阶梯 ---------- */
-  /* 用实色而非半透明: 半透明表面叠在不同底色上会得到不同结果, 层级就糊了 */
-  /*
-   * 阶梯必须真的拉开。第一版 v4 把卡片设成 #14161A、底设成 #0A0B0D —— RGB 只差 10
-   * (约 4% 亮度), 手机上根本分不出卡片和背景, 卡片全靠边框"勾"出轮廓, 面本身没有
-   * 存在感。这正是当年 v2 被批"暗陈无趣"的同一个病根(明度糊成一片), 不是颜色少
-   * 的问题。现在每档拉到 ~10-20 的差值, 相邻两层肉眼可辨:
-   *   bg 4% → surf-1 11% → surf-2 15% → surf-3 19%, 描边再比所在面高一档
-   */
-  /* v5 (2026-07-21): 纯灰 → 冷石墨。
-   * v4 收对了颜色预算, 但中性色是"纯中性灰"(色相≈0), 深色底显得像默认灰盒子、
-   * 没被设计过。v5 给中性色注入极轻的蓝调(冷石墨), 跟强调蓝同宗、更"仪表盘"。
-   * 明度阶梯照 v4 拉开的档位不动(bg→surf-1 对比 ~1.4), 只是整体偏冷。 */
-  /* v7 (2026-07-30 业主: "再提高深浅色对比度, 一步到位, 增加层次感"):
-   * 阶梯两头再拉 —— 底往下压一档(更深邃), 卡片往上抬一档(更浮起),
-   * bg→surf-1 对比从 ~2.3 拉到 ~3.2; 描边随面上提保持"比所在面高一档"。 */
-  --v2-bg-0: #06090F;                       /* 页面底 — 冷石墨再压深 (原 #0A0D12) */
-  --v2-bg-1: #0A0F18;                       /* 渐变低点 (原 #0E121A) */
-  --v2-surf-1: #242F44;                     /* 卡片 — 再抬亮 (原 #202939), 与底拉开 */
-  --v2-surf-1-hover: #2C3950;
-  --v2-surf-2: #2D3A52;                     /* 卡内嵌 / 分段控件 (原 #283244) */
-  --v2-surf-3: #384763;                     /* 抽屉 / dialog (原 #313D4E) */
-
-  /* 描边比它所在的面再高一档, 否则卡片边缘会消失在面里 */
-  --v2-border-soft: #4A5A70;                /* v7: 随面上提 (原 #42505F) */
-  --v2-border-strong: #66798F;              /* 原 #5A6878 */
-
-  /* ---------- 叠加层 (2026-07-22 加, 为浅色主题准备) ----------
-   * 深色主题里到处是 rgba(255,255,255,.05) 这种"在深色底上叠白"来抬升表面的写法,
-   * 浅色主题下会变成白上加白(看不见)。收敛成这几个 token, 浅色主题里翻转成叠黑,
-   * 页面就不用各写一份。新代码一律用这些, 别再写死 rgba(255,255,255,..)。 */
-  /* v7: 三档叠加各上提, hover/chip/分隔在更深的底上依旧清晰 */
-  --v2-ov-1: rgba(255, 255, 255, 0.06);   /* 最轻: 图标底 / 斑马纹 */
-  --v2-ov-2: rgba(255, 255, 255, 0.10);   /* 中: hover 面 / chip */
-  --v2-ov-3: rgba(255, 255, 255, 0.15);   /* 重: 分隔 / 强调块 */
-  --v2-inset-bg: rgba(0, 0, 0, 0.30);     /* 内陷面: 输入框 / 滑槽 (v7 加深, 与浮面拉开) */
-  --v2-card-hairline: rgba(255, 255, 255, 0.12); /* 卡片顶部机械高光 (v7 提亮) */
-  --v2-grid-line: rgba(255, 255, 255, 0.025);    /* 背景细网格 */
-  --v2-aurora: rgba(76, 154, 255, 0.11);         /* 顶部单色渐晕 (v7 提亮给底部纵深) */
-  /* 外壳(侧导航/顶栏)半透明底 —— 之前写死 rgba(10,14,26,..), 浅色下会变成一条深灰带 */
-  --v2-chrome-bg: rgba(6, 10, 18, 0.55);         /* v7: 随底压深, 外壳与内容分层更清 */
-  --v2-chrome-bg-solid: rgba(6, 10, 18, 0.94);   /* 手机底栏: 要更实, 内容会滚到它下面 */
-
-  /* v6 (2026-07-27 业主: "文字没微信清晰, 整体灰蒙蒙"): 三档整体提亮 ——
-     主文字逼近纯白, 次要/弱化各上提一档, 深底上对比更脆 */
-  /* v6.5 (2026-07-27 业主复评"还是不够清晰醒目"): 主文字上到纯白,
-     次要/弱化再各提一档 — 弱化文字对比也拉到 ~7:1, 小字远看也清楚 */
-  /* v7: 次要/弱化再各上提一档 — 卡片抬亮后保持同等以上对比 */
-  --v2-text-1: #FFFFFF;                     /* 主文字 — 纯白 */
-  --v2-text-2: #D0D9E6;                     /* 次要 — 冷调 (原 #C3CDDB) */
-  --v2-text-3: #A0AEC0;                     /* 弱化 / 单位 / 占位 (原 #93A0B0) */
-
-  /* ---------- 唯一强调色: 克制的冷蓝 ---------- */
-  /* 只用于"选中/当前/可操作", 不做装饰。比 #4C9AFF 电光青收敛, 长时间看不刺眼 */
-  --v2-primary: #4C9AFF;
-  --v2-primary-dark: #3B7FD4;
-  --v2-primary-hover: #6BADFF;
-  --v2-primary-soft: rgba(76, 154, 255, 0.14);
-
-  /* ---------- 原"品类色"全部并入中性 ---------- */
-  /* 变量保留(避免各页面引用报废), 但不再是独立色相 —— 用颜色区分品类的地方自动失效。
-     紫/粉这两个纯装饰色直接给中性; 琥珀留着, 因为它同时是 warning 语义。 */
-  /* v6 (2026-07-27 业主: "让页面活起来, 层次鲜亮起来, 太死气沉沉"):
-     v4 把品类色拉平成灰是矫枉过正 —— 恢复紫/粉色相 (克制饱和度),
-     全站原本按品类取色的地方自动重新着色, 页面层次立刻活络 */
-  --v2-purple: #9D8BFF;
-  --v2-purple-soft: rgba(157, 139, 255, 0.14);
-  --v2-purple-glow: rgba(157, 139, 255, 0.30);
-
-  --v2-pink: #F075AA;
-  --v2-pink-soft: rgba(240, 117, 170, 0.13);
-
-  --v2-amber: #E0A030;                      /* 降饱和; 仅作 warning 语义用 */
-  --v2-amber-soft: rgba(224, 160, 48, 0.14);
-
-  /* ---------- 语义色: 降饱和, 只表状态 ---------- */
-  --v2-success: #3FBF87;
-  --v2-warning: #E0A030;
-  --v2-danger: #E5645D;
-  --v2-info: #4C9AFF;
-
-  /* soft 底从 32% 降到 14%: 32% 会让状态底色抢过内容本身 */
-  --v2-success-soft: rgba(63, 191, 135, 0.14);
-  --v2-warning-soft: rgba(224, 160, 48, 0.14);
-  --v2-danger-soft:  rgba(229, 100, 93, 0.14);
-  --v2-info-soft:    rgba(76, 154, 255, 0.14);
-
-  /* ---------- 文字发光: 全部关闭 ---------- */
-  /* 这几个 token 被 KPI / 亮度 / 温度等大字号广泛引用。置成 none 之后,
-     全站所有"发光数字"一次性消失, 不必逐页去删 —— 这是改 token 层的杠杆所在。
-     数字要突出, 靠字号、字重和明度对比, 不靠辉光。 */
+  /* Compatibility aliases used by existing feature pages. */
+  --v2-purple: #a5b0e8;
+  --v2-purple-soft: rgba(165, 176, 232, 0.15);
+  --v2-amber: var(--v2-warning);
+  --v2-amber-soft: var(--v2-warning-soft);
+  --v2-light-warm: #fbbf24;
+  --v2-live-power: var(--v2-success);
+  --v2-live-power-glow: transparent;
+  --v2-live-audio: #2dd4bf;
+  --v2-live-audio-glow: transparent;
   --v2-text-glow-primary: none;
-  --v2-text-glow-amber:   none;
-  --v2-text-glow-purple:  none;
+  --v2-text-glow-amber: none;
+  --v2-text-glow-purple: none;
   --v2-text-glow-success: none;
-  --v2-text-glow-danger:  none;
-  --v2-text-glow-pink:    none;
-
-  /* ---------- 状态光 (2026-07-25 体验升级 D1, 方向 A"石墨点睛") ----------
-   * 骨架保持中性灰, 但**活着的设备自己发光**: 品类色只出现在"运行中"的卡上
-   * (左光条 + 低饱和辉光 + 数字着色), 关停即回归中性。这与 v4"颜色只留给状态"
-   * 的原则一致 —— "运行中"本身就是状态。灯光暖光(下方)和空调 run-* 是先例。 */
-  --v2-live-power: #48D597;                 /* 电源: 通电青绿 */
-  --v2-live-power-glow: rgba(72, 213, 151, 0.16);
-  --v2-live-audio: #2FD6A3;                 /* 音响: 出声薄荷青 */
-  --v2-live-audio-glow: rgba(47, 214, 163, 0.14);
-
-  /* 灯光暖色 (亮度滑条): 灯光本身就是暖的, 这个保留 —— 它表达的是物理量, 不是装饰 */
-  --v2-light-warm: #D9A441;
-  --v2-light-warm-glow: transparent;
-
-  /* ---------- 圆角 ---------- */
+  --v2-ov-1: rgba(255, 255, 255, 0.04);
+  --v2-ov-2: rgba(255, 255, 255, 0.07);
+  --v2-ov-3: rgba(255, 255, 255, 0.11);
+  --v2-inset-bg: #0e1016;
+  --v2-card-hairline: transparent;
+  --v2-chrome-bg: rgba(10, 11, 14, 0.88);
+  --v2-chrome-bg-solid: #0a0b0e;
   --v2-r-sm: 8px;
   --v2-r-md: 12px;
-  --v2-r-lg: 16px;
-  --v2-r-xl: 22px;
-
-  /* ---------- 间距 ---------- */
+  --v2-r-lg: 14px;
+  --v2-r-xl: 16px;
   --v2-sp-1: 4px;
   --v2-sp-2: 8px;
   --v2-sp-3: 12px;
   --v2-sp-4: 16px;
   --v2-sp-5: 24px;
-  --v2-sp-6: 32px;
-
-  /* ---------- 字号 ---------- */
-  /* v6.5: 最小两档各 +1px — 手机上 11px 中文本来就在可读性下限,
-     "没微信清晰"一半是字太小。基准及以上不动, 布局不受冲击 */
-  --v2-fs-xs: 12px;
+  --v2-fs-xs: 13px;
   --v2-fs-sm: 14px;
-  --v2-fs-base: 14px;
   --v2-fs-md: 16px;
-  --v2-fs-lg: 20px;
-  --v2-fs-xl: 26px;
-  --v2-fs-display: 36px;
-
-  /* ---------- 阴影 elevation (4 档) ----------
-   * v7: 底压得更深后阴影同步加重 — 投影是层次感的另一半, 卡片要"离地"。 */
-  --v2-elev-0: none;
-  --v2-elev-1: 0 3px 12px -2px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
-  --v2-elev-2: 0 10px 30px -8px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.09) inset;
-  --v2-elev-3: 0 28px 64px -16px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.11) inset;
-
-  --v2-glow-primary: 0 4px 16px -4px rgba(76, 154, 255, 0.5);
-  --v2-glow-primary-strong: 0 6px 24px -6px rgba(76, 154, 255, 0.7);
-
-  /* ---------- 兼容旧 token (theme.css 里的) → v2 映射 ---------- */
+  --v2-elev-1: none;
+  --v2-elev-2: 0 8px 24px rgba(0, 0, 0, 0.42);
+  --v2-elev-3: 0 20px 56px rgba(0, 0, 0, 0.58);
+  --v2-glow-primary: none;
+  --v2-glow-primary-strong: none;
+  --v2-dur-fast: 120ms;
+  --v2-dur-base: 200ms;
+  --v2-dur-slow: 320ms;
+  --v2-ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
   --bg-base: var(--v2-bg-0);
   --bg-panel: var(--v2-surf-1);
-  --bg-panel-soft: var(--v2-bg-1);
+  --bg-panel-soft: var(--v2-surf-2);
   --bg-elevated: var(--v2-surf-2);
   --color-primary: var(--v2-primary);
   --color-primary-hover: var(--v2-primary-hover);
@@ -201,217 +104,63 @@
   --border-strong: var(--v2-border-strong);
 }
 
-/* ============================================================
- * 浅色主题 (2026-07-22) —— html[data-theme="light"] 时整套 token 翻转。
- *
- * 不是把深色简单反相: 底用**冷调浅灰**(不是刺眼纯白)、卡片才是纯白浮起, 保持
- * "冷石墨"那一家的调性。强调色/语义色在浅底上必须**加深**才够对比 (浅底上 #4C9AFF
- * 这种亮蓝会糊), 所以蓝 #4C9AFF→#2563EB、绿/红/琥珀同理加深。
- * 阴影从"黑透明"换成柔和灰影, 否则浅色下发脏。
- * ============================================================ */
-/* 特异性 :root:root[…] (0,3,0): 必须压过上面暗色块的 :root:root, 见那边注释 */
-:root:root[data-theme="light"] {
-  /* 2026-07-30 业主: "浅色整体不显干净, 对比度太弱, 全局调整" — 第二轮加深。
-   * v7 第三轮 (同日 "一步到位, 增加层次感"): 底灰再压一档, 白卡对比拉到头
-   * (底 vs 纯白 ~1.28, 再深就发灰脏), 描边/文字/阴影全线跟进。 */
-  --v2-bg-0: #DFE6F0;                       /* 页面底 — 冷调浅灰 (二轮 #E8EDF4 → 三轮再压深) */
-  --v2-bg-1: #D2DCE9;                       /* 渐变低点 (原 #DDE4EE) */
-  --v2-surf-1: #FFFFFF;                     /* 卡片 — 纯白浮起 */
-  --v2-surf-1-hover: #F4F8FC;
-  --v2-surf-2: #E9EFF7;                     /* 卡内嵌 / 分段控件 (原 #EEF3F9, 随底加深) */
-  --v2-surf-3: #FFFFFF;                     /* 抽屉 / dialog */
-
-  --v2-border-soft: #C2CEDD;                /* 二轮 #CFD9E5 → 三轮再加深立轮廓 */
-  --v2-border-strong: #94A5BA;              /* 原 #A9B7C9 */
-
-  --v2-text-1: #0A1524;                     /* 主文字 — 近墨蓝 (已到头, 不再动) */
-  --v2-text-2: #26313F;                     /* 二轮 #313D4C → 三轮再加深 (~11:1) */
-  --v2-text-3: #3D4956;                     /* 二轮 #47535F → 三轮再加深 (~8.5:1) */
-
-  /* 叠加翻转: 浅底上"抬升"要叠黑, 不是叠白 (v7 各上提一档) */
-  --v2-ov-1: rgba(15, 27, 45, 0.05);
-  --v2-ov-2: rgba(15, 27, 45, 0.09);
-  --v2-ov-3: rgba(15, 27, 45, 0.14);
-  --v2-inset-bg: #FFFFFF;                   /* 输入框在浅色下是白底 + 描边 */
-  --v2-card-hairline: rgba(255, 255, 255, 0.9);
-  --v2-grid-line: rgba(15, 27, 45, 0.045);  /* 浅底上网格要叠黑才看得见 */
-  --v2-aurora: rgba(37, 99, 235, 0.05);
-  --v2-chrome-bg: rgba(255, 255, 255, 0.72);
-  --v2-chrome-bg-solid: rgba(255, 255, 255, 0.96);
-
-  /* 强调色/语义色: 浅底上加深才够对比 */
-  --v2-primary: #2563EB;
-  --v2-primary-dark: #1D4ED8;
-  --v2-primary-hover: #1D4ED8;
-  --v2-primary-soft: rgba(37, 99, 235, 0.10);
-
-  --v2-purple: #6D4FD8;
-  --v2-purple-soft: rgba(109, 79, 216, 0.10);
-  --v2-pink: #C93F80;
-  --v2-pink-soft: rgba(201, 63, 128, 0.10);
-
-  --v2-amber: #B45309;
-  --v2-amber-soft: rgba(180, 83, 9, 0.12);
-  --v2-success: #15803D;
-  --v2-warning: #B45309;
-  --v2-danger: #DC2626;
-  --v2-info: #2563EB;
-  --v2-success-soft: rgba(21, 128, 61, 0.12);
-  --v2-warning-soft: rgba(180, 83, 9, 0.12);
-  --v2-danger-soft:  rgba(220, 38, 38, 0.12);
-  --v2-info-soft:    rgba(37, 99, 235, 0.12);
-
-  --v2-light-warm: #C2780B;                 /* "灯亮着"的暖色, 浅底上加深 */
-  /* 状态光: 浅底上加深降透 (D1) */
-  --v2-live-power: #0E9F6E;
-  --v2-live-power-glow: rgba(14, 159, 110, 0.12);
-  --v2-live-audio: #0C9A72;
-  --v2-live-audio-glow: rgba(12, 154, 114, 0.10);
-
-  /* 阴影: 浅色下用柔和灰影, 不用黑透明 (v7 三轮再加重 — 白卡要真正"离地") */
-  --v2-elev-1: 0 1px 3px rgba(15, 27, 45, 0.10), 0 2px 8px -1px rgba(15, 27, 45, 0.09);
-  --v2-elev-2: 0 6px 18px -3px rgba(15, 27, 45, 0.17), 0 2px 8px -2px rgba(15, 27, 45, 0.10);
-  --v2-elev-3: 0 20px 48px -12px rgba(15, 27, 45, 0.28);
-  --v2-glow-primary: 0 4px 14px -4px rgba(37, 99, 235, 0.45);
-  --v2-glow-primary-strong: 0 6px 20px -6px rgba(37, 99, 235, 0.60);
-
-  /* Element Plus 浮层/输入 在浅色下回到白底 */
-  --el-bg-color: #FFFFFF;
-  --el-bg-color-overlay: #FFFFFF;
-  --el-fill-color-blank: #FFFFFF;
-  --el-mask-color: rgba(15, 27, 45, 0.35);
+:root:root[data-theme='light'] {
+  color-scheme: light;
+  --v2-bg-0: #f4f6f9;
+  --v2-bg-1: #f0f2f6;
+  --v2-bg-2: #eaedf2;
+  --v2-surf-1: #ffffff;
+  --v2-surf-1-hover: #f6f8fb;
+  --v2-surf-2: #f0f3f8;
+  --v2-surf-3: #ffffff;
+  --v2-border-soft: #e1e6ed;
+  --v2-border-strong: #c2cad6;
+  --v2-text-1: #12161f;
+  --v2-text-2: #454d5c;
+  --v2-text-3: #68707f;
+  --v2-primary: #4f46e5;
+  --v2-primary-rgb: 79, 70, 229;
+  --v2-primary-dark: #4338ca;
+  --v2-primary-hover: #4338ca;
+  --v2-primary-soft: rgba(79, 70, 229, 0.09);
+  --v2-on-primary: #ffffff;
+  --v2-success: #059669;
+  --v2-warning: #d97706;
+  --v2-danger: #dc2626;
+  --v2-success-soft: rgba(5, 150, 105, 0.10);
+  --v2-warning-soft: rgba(217, 119, 6, 0.10);
+  --v2-danger-soft: rgba(220, 38, 38, 0.09);
+  --v2-purple: #454d5c;
+  --v2-purple-soft: rgba(69, 77, 92, 0.09);
+  --v2-light-warm: #d97706;
+  --v2-live-power: var(--v2-success);
+  --v2-live-audio: #0d9488;
+  --v2-ov-1: rgba(18, 22, 31, 0.05);
+  --v2-ov-2: rgba(18, 22, 31, 0.08);
+  --v2-ov-3: rgba(18, 22, 31, 0.13);
+  --v2-inset-bg: #ffffff;
+  --v2-chrome-bg: rgba(255, 255, 255, 0.90);
+  --v2-chrome-bg-solid: #ffffff;
+  --v2-elev-2: 0 8px 24px rgba(18, 22, 31, 0.10);
+  --v2-elev-3: 0 20px 56px rgba(18, 22, 31, 0.16);
 }
 
-/* ============ 全局 body 背景 ============
- * v3 在这里铺了 4 个彩色 radial(青 22% / 紫 20% / 粉 16% / 琥珀 10%) 当"极光".
- * 它是整屏彩色雾的来源 —— 每个页面不管内容是什么, 底子上先蒙一层四色渐变,
- * 上面再放彩色卡片, 于是怎么调都显脏。
- *
- * v4: 只留**一处极淡的单色顶部渐晕**(强调色 5.5%)。作用是给纯深色底一点纵深,
- * 避免"一片死黑"那种廉价感 —— 这正是当初嫌 v2"暗陈无趣"的症结, 但用一个色相
- * 解决, 而不是四个。网格保留(它是克制的科技感元素), 只是换成中性白线。
- */
-html, body, #app {
-  background: var(--v2-bg-0) !important;
-}
-
+html,
+body,
+#app { background: var(--v2-bg-0) !important; }
 body {
   position: relative;
-  background: linear-gradient(180deg, var(--v2-bg-0) 0%, var(--v2-bg-1) 100%) !important;
-  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
-/* Aurora layer 1: 青 + 紫 + 粉 三色 radial 慢漂 */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(ellipse 70% 50% at 50% -5%, var(--v2-aurora) 0%, transparent 62%);
-}
-/* Aurora layer 2: 细科技网格 (35×35, 4% 青线), 静态 */
-body::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background-image:
-    linear-gradient(var(--v2-grid-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--v2-grid-line) 1px, transparent 1px);
-  background-size: 35px 35px;
-  background-position: -1px -1px;
-  mask-image: radial-gradient(ellipse 80% 70% at 50% 30%, black 0%, rgba(0,0,0,0.4) 80%);
-  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 30%, black 0%, rgba(0,0,0,0.4) 80%);
-}
-@keyframes v2-aurora-drift {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  25% { transform: translate(-3%, 2%) scale(1.05); }
-  50% { transform: translate(2%, -2%) scale(0.98); }
-  75% { transform: translate(-2%, -3%) scale(1.03); }
-}
-#app { position: relative; z-index: 1; }
+/* On white, subpixel rendering keeps glyph strokes solid instead of the thinner
+   look antialiased produces; dark theme keeps antialiased for cleaner edges. */
+:root:root[data-theme='light'] body { -webkit-font-smoothing: subpixel-antialiased; }
+body::before,
+body::after { content: none !important; }
 
-/* ============ 玻璃面板 mixin ============ */
-.v2-glass {
-  position: relative;
-  background: var(--v2-surf-1);
-  border: 1px solid var(--v2-border-soft);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border-radius: var(--v2-r-md);
-  box-shadow: var(--v2-elev-1);
-}
-/* 顶部 1px 机械高光 — 中性白, 给玻璃面一道"上沿反光"的材质感 (v5: 从蓝改中性) */
-.v2-glass::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 8%; right: 8%;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--v2-card-hairline) 50%, transparent);
-  border-radius: 1px;
-  pointer-events: none;
-}
-.v2-glass-hover:hover {
-  background: var(--v2-surf-1-hover);
-  border-color: var(--v2-border-strong);
-  box-shadow: var(--v2-elev-2);
-}
-
-/* ============ 数字发光 utility (KPI / 亮度 / 温度) ============ */
-.v2-num-glow {
-  text-shadow: var(--v2-text-glow-primary);
-  color: var(--v2-text-1);
-}
-.v2-num-glow-amber {
-  text-shadow: var(--v2-text-glow-amber);
-  color: var(--v2-text-1);
-}
-
-/* ============ .v2-btn-primary — 实色 CTA 按钮 (主操作: 保存 / 新增 / 立即执行)
- * 跟 .v2-quick.primary 不冲突 (后者保留各页面品类色). 显式用这个类换成实色发光.
- */
-.v2-btn-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 18px;
-  min-height: 36px;
-  border-radius: var(--v2-r-sm);
-  font-size: var(--v2-fs-sm);
-  font-weight: 500;
-  background: linear-gradient(135deg, var(--v2-primary) 0%, var(--v2-primary-dark) 100%);
-  color: white;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: var(--v2-glow-primary);
-  cursor: pointer;
-  transition: transform 0.12s ease, box-shadow 0.18s ease, filter 0.18s ease;
-}
-.v2-btn-primary:hover:not(:disabled) {
-  filter: brightness(1.1);
-  box-shadow: var(--v2-glow-primary-strong);
-  transform: translateY(-1px);
-}
-.v2-btn-primary:active:not(:disabled) {
-  transform: translateY(0);
-  filter: brightness(0.95);
-}
-.v2-btn-primary:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-  filter: grayscale(0.4);
-}
-
-/* ============ 全局卡片材质 (v5: 中性机械高光, 蓝色只留给活跃) ============
- * v4 遗留的自相矛盾: 给所有卡片顶部挂了一条蓝色发光线 + hover 蓝光, 等于用颜色
- * 装饰每一张卡, 把强调色稀释了 —— 跟 v4 自己"颜色只留给状态/选中"的原则打架,
- * 也是页面"偏灰又有点残留青"的由来。
- * v5: 常态改成中性白色机械高光 + 克制阴影(材质感来自这里); 蓝色强调只在
- * .active/.on 出现 —— boldness 花在一处, 其余安静。
- */
+/* Shared surfaces stay flat. Colour and a border provide the hierarchy. */
 .v2-kpi,
 .v2-scene,
 .v2-zone,
@@ -422,511 +171,568 @@ body::after {
 .v2-card,
 .v2-subsystems,
 .v2-overview {
-  box-shadow:
-    inset 0 1px 0 var(--v2-card-hairline),
-    var(--v2-elev-1) !important;
-  transition: box-shadow 0.26s ease, transform 0.2s ease, border-color 0.2s ease;
+  box-shadow: none !important;
+  transition: transform var(--v2-dur-base) var(--v2-ease-out),
+    box-shadow var(--v2-dur-base) var(--v2-ease-out),
+    background-color var(--v2-dur-base) var(--v2-ease-out),
+    border-color var(--v2-dur-base) var(--v2-ease-out);
 }
-.v2-kpi:hover,
+/* Light theme: white cards rest on a cool-grey page, so a crisp hairline plus a
+   very soft shadow restores the edge that dark surfaces get from a lighter
+   border. Selectable grid items (scene/zone/screen/hvac) intentionally stay flat. */
+:root:root[data-theme='light'] .v2-kpi,
+:root:root[data-theme='light'] .ch-card,
+:root:root[data-theme='light'] .metric,
+:root:root[data-theme='light'] .v2-card,
+:root:root[data-theme='light'] .v2-subsystems,
+:root:root[data-theme='light'] .v2-overview,
+:root:root[data-theme='light'] .circuit-card:not(.on) {
+  box-shadow: 0 1px 2px rgba(18, 22, 31, 0.06), 0 2px 8px rgba(18, 22, 31, 0.05) !important;
+}
+/* Dark theme: lift cards off the near-black page with a 1px top inner highlight
+   plus a soft dark drop shadow (dark surfaces use deeper shadows, never light).
+   Selectable grid items stay flat; powered cards keep their teal glow. */
+:root:root[data-theme='dark'] .v2-kpi,
+:root:root[data-theme='dark'] .ch-card,
+:root:root[data-theme='dark'] .metric,
+:root:root[data-theme='dark'] .v2-card,
+:root:root[data-theme='dark'] .v2-subsystems,
+:root:root[data-theme='dark'] .v2-overview,
+:root:root[data-theme='dark'] .circuit-card:not(.on) {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 4px 14px rgba(0, 0, 0, 0.38) !important;
+}
+/* 统一卡片 hover 立体感：容器型卡片轻微上浮 2px + 阴影加深，深浅色各用本主题阴影。
+   可选网格（.v2-scene/.v2-zone/.v2-screen/.v2-hvac-zone）保持扁平、不参与上浮；
+   通电卡（.circuit-card.on）保留青绿状态光，也不上浮。 */
+:root:root[data-theme='light'] .v2-kpi:hover,
+:root:root[data-theme='light'] .ch-card:hover,
+:root:root[data-theme='light'] .v2-card:hover,
+:root:root[data-theme='light'] .v2-subsystems:hover,
+:root:root[data-theme='light'] .v2-overview:hover,
+:root:root[data-theme='light'] .circuit-card:not(.on):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 2px 6px rgba(18, 22, 31, 0.08),
+    0 10px 24px rgba(18, 22, 31, 0.10) !important;
+}
+:root:root[data-theme='dark'] .v2-kpi:hover,
+:root:root[data-theme='dark'] .ch-card:hover,
+:root:root[data-theme='dark'] .v2-card:hover,
+:root:root[data-theme='dark'] .v2-subsystems:hover,
+:root:root[data-theme='dark'] .v2-overview:hover,
+:root:root[data-theme='dark'] .circuit-card:not(.on):hover {
+  transform: translateY(-2px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 12px 30px rgba(0, 0, 0, 0.52) !important;
+}
+/* Light theme: chips/tags must read as crisp outlined pills, not the faint grey
+   fills and bright glyphs designed for dark surfaces. One shared, higher-
+   specificity rule keeps every page's scoped .chip consistent. Category chips
+   use the deep (AA) hue on a matching soft tint. */
+:root:root[data-theme='light'] .chip {
+  background: var(--v2-surf-2) !important;
+  border-color: var(--v2-border-strong) !important;
+  color: var(--v2-text-1) !important;
+  font-weight: 700 !important;
+}
+:root:root[data-theme='light'] .chip.muted,
+:root:root[data-theme='light'] .chip.off { color: var(--v2-text-2) !important; }
+:root:root[data-theme='light'] .chip.on,
+:root:root[data-theme='light'] .chip[data-category='audio'] {
+  background: var(--v2-success-soft) !important;
+  border-color: var(--v2-success) !important;
+  color: var(--v2-success) !important;
+}
+:root:root[data-theme='light'] .chip[data-category='lighting'] {
+  background: var(--v2-warning-soft) !important;
+  border-color: var(--v2-warning) !important;
+  color: var(--v2-warning) !important;
+}
+:root:root[data-theme='light'] .chip[data-category='socket'],
+:root:root[data-theme='light'] .chip[data-category='hvac'],
+:root:root[data-theme='light'] .chip[data-category='led'] {
+  background: var(--v2-primary-soft) !important;
+  border-color: var(--v2-primary) !important;
+  color: var(--v2-primary-dark) !important;
+}
+:root:root[data-theme='light'] .chip[data-category='misc'] {
+  background: var(--v2-surf-2) !important;
+  border-color: var(--v2-border-strong) !important;
+  color: var(--v2-text-2) !important;
+}
+/* Dark theme: mirror the light chip treatment with dark-surface values - a soft
+   tint, a brighter hairline and a light glyph keep tags legible without glow. */
+:root:root[data-theme='dark'] .chip {
+  background: var(--v2-surf-2) !important;
+  border-color: var(--v2-border-strong) !important;
+  color: var(--v2-text-1) !important;
+  font-weight: 700 !important;
+}
+:root:root[data-theme='dark'] .chip.muted,
+:root:root[data-theme='dark'] .chip.off { color: var(--v2-text-2) !important; }
+:root:root[data-theme='dark'] .chip.on,
+:root:root[data-theme='dark'] .chip[data-category='audio'] {
+  background: var(--v2-success-soft) !important;
+  border-color: var(--v2-success) !important;
+  color: var(--v2-success) !important;
+}
+:root:root[data-theme='dark'] .chip[data-category='lighting'] {
+  background: var(--v2-warning-soft) !important;
+  border-color: var(--v2-warning) !important;
+  color: var(--v2-warning) !important;
+}
+:root:root[data-theme='dark'] .chip[data-category='socket'],
+:root:root[data-theme='dark'] .chip[data-category='hvac'],
+:root:root[data-theme='dark'] .chip[data-category='led'] {
+  background: var(--v2-primary-soft) !important;
+  border-color: var(--v2-primary) !important;
+  color: var(--v2-primary) !important;
+}
+:root:root[data-theme='dark'] .chip[data-category='misc'] {
+  background: var(--v2-surf-2) !important;
+  border-color: var(--v2-border-strong) !important;
+  color: var(--v2-text-2) !important;
+}
+.v2-scene:hover,
 .v2-zone:hover,
 .v2-screen:hover,
 .v2-hvac-zone:hover,
 .ch-card:hover,
-.metric:hover,
 .v2-card:hover {
-  box-shadow:
-    inset 0 1px 0 var(--v2-card-hairline),
-    var(--v2-elev-2) !important;
-  transform: translateY(-1px);
+  background-color: var(--v2-surf-1-hover);
   border-color: var(--v2-border-strong);
 }
-/* ============ 活跃 / 选中 = 明显高亮 (全站统一走这一条) ============
- * 业主反馈"选中或打开状态不明显"。之前只有一条 50% 透明的蓝描边, 而且那道柔光写的是
- * var(--scene-glow, 回退色) —— 场景卡上 --scene-glow 被 v4 定义成了 transparent,
- * 于是**回退色根本不生效, 光晕是透明的**, 活跃态几乎看不见。
- *
- * 现在: 强调色染底 + 实心蓝描边 + 1px 内环 + 真实光晕。选中就是要一眼看见。
- * 用 !important 压过各页 scoped 的 active 背景, 保证全站"选中"长得一样。
- */
-/* 注意: 灯光分区 .v2-zone.on 故意**不在**这条里 —— "灯亮着"用暖色(物理语义)。
-   2026-07-25 审计: 音响 .ch-card 也摘出 —— 它有自己的 .live 薄荷青状态光 (D1),
-   被这条 primary 底盖掉会变成"薄荷框+绿内容"三色打架。 */
 .v2-scene.active,
 .v2-screen.on,
 .v2-hvac-zone.on {
-  background:
-    linear-gradient(180deg,
-      color-mix(in srgb, var(--v2-primary) 22%, var(--v2-surf-1)),
-      color-mix(in srgb, var(--v2-primary) 12%, var(--v2-surf-1))) !important;
   border-color: var(--v2-primary) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    0 0 0 1px color-mix(in srgb, var(--v2-primary) 40%, transparent),
-    0 10px 30px -10px color-mix(in srgb, var(--v2-primary) 55%, transparent) !important;
+  background: var(--v2-primary-soft) !important;
+  box-shadow: inset 3px 0 0 var(--v2-primary) !important;
 }
-
-/* ============ KPI / 亮度 / 温度 等"大数字"自动发光 ============
- * 命中所有页面用到的关键数字 class, 不挨页面改.
- */
 .v2-kpi-value,
 .metric-num,
 .bri-value,
 .temp-num,
 .ov-value,
-.vol-value {
-  text-shadow: var(--v2-text-glow-primary);
-}
+.vol-value { text-shadow: none !important; }
 
-/* ============ 状态药丸 (.v2-pill) — 用新 surf-1 自然变明显 ============ */
 .v2-pill {
   display: inline-flex;
   align-items: center;
-  gap: var(--v2-sp-2);
-  padding: 5px 10px;
-  background: var(--v2-surf-1);
+  gap: 6px;
+  min-height: 28px;
+  padding: 4px 10px;
   border: 1px solid var(--v2-border-soft);
   border-radius: 999px;
-  font-size: var(--v2-fs-xs);
+  background: var(--v2-surf-2);
   color: var(--v2-text-2);
+  font-size: 13px;
+  font-weight: 600;
 }
-.v2-pill .v2-dot {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: var(--v2-success);
-  box-shadow: 0 0 8px var(--v2-success);
-}
-.v2-pill.warn .v2-dot { background: var(--v2-warning); box-shadow: 0 0 8px var(--v2-warning); }
-.v2-pill.danger .v2-dot { background: var(--v2-danger); box-shadow: 0 0 8px var(--v2-danger); }
-.v2-pill.idle .v2-dot { background: var(--v2-text-3); box-shadow: none; }
+.v2-pill .v2-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--v2-success); }
+.v2-pill.warn .v2-dot { background: var(--v2-warning); }
+.v2-pill.danger .v2-dot { background: var(--v2-danger); }
+.v2-pill.idle .v2-dot { background: var(--v2-text-3); }
+.v2-inter { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
 
-/* ============ Inter 数字字体 ============ */
-.v2-inter {
-  font-family: "Inter", "SF Pro Display", system-ui, sans-serif;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.5px;
-}
-
-/* ============ 触控目标最小 44×44 ============ */
-.v2-touch {
-  min-width: 44px;
-  min-height: 44px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* ============ Focus ring (键盘可达性) ============ */
-*:focus-visible {
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role='button']:focus-visible {
   outline: 2px solid var(--v2-primary);
   outline-offset: 2px;
-  border-radius: 2px;
-}
-button:focus-visible,
-input:focus-visible,
-textarea:focus-visible,
-select:focus-visible,
-[role="button"]:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(76, 154, 255, 0.35);
 }
 
-/* ============ Element Plus 暗黑适配 (复用 v2 token) ============
- * ⚠️ 选择器必须是 :root, 不能是 html (2026-07-25 业主截图报障的真根因):
- * element-plus/dist/index.css 自己把默认值(白底浅色主题)定义在 `:root` 上,
- * 特异性 (0,1,0) **高于** `html` (0,0,1) —— 这里之前写 html, 整块覆盖从来就没
- * 生效过: 深色主题下 el-dialog / el-message-box 一直在用 EP 默认白底, 再配上
- * 我们的浅白字色规则 = 弹窗白底白字全看不见。改成 :root 后与 EP 同特异性,
- * 更阴的坑: EP 按需组件样式(unplugin 自动注入的 base.css/var.css)加载顺序晚于
- * main.ts 的手动 import, 它的 :root 默认值会**最后加载获胜**(实测 sheet 9)。
- * 所以特异性必须再抬一级: :root:root (0,2,0) — 无论 EP 的 :root 何时注入都赢。 */
+/* Element Plus uses the same surface and status hierarchy as feature pages. */
 :root:root {
   --el-color-primary: var(--v2-primary);
-  --el-color-primary-light-3: rgba(76, 154, 255, 0.45);
-  --el-color-primary-light-5: rgba(76, 154, 255, 0.30);
-  --el-color-primary-light-7: rgba(76, 154, 255, 0.16);
-  --el-color-primary-light-8: rgba(76, 154, 255, 0.12);
-  --el-color-primary-light-9: rgba(76, 154, 255, 0.08);
+  --el-color-primary-light-3: rgba(var(--v2-primary-rgb), 0.70);
+  --el-color-primary-light-5: rgba(var(--v2-primary-rgb), 0.48);
+  --el-color-primary-light-7: rgba(var(--v2-primary-rgb), 0.24);
+  --el-color-primary-light-8: rgba(var(--v2-primary-rgb), 0.16);
+  --el-color-primary-light-9: var(--v2-primary-soft);
   --el-color-primary-dark-2: var(--v2-primary-dark);
-
-  /* Element Plus 表面色映射 — 让 el-button / el-input / el-table 跟着升级
-   *
-   * 注意 (2026-05-30 修正): 对话框 / 抽屉 / popover 等"自带 mask 的浮层"
-   * 必须用 SOLID 不透明颜色, 否则就成了"半透明卡片飘在 mask 上", 用户
-   * 反馈"啥玩意儿 看不清楚". 卡片可以半透明 (它在 body gradient 之上),
-   * 浮层不行.
-   */
-  /* v7: 浮层随新阶梯上移 — 弹窗/下拉必须比卡片(surf-1 #242F44)更亮, 层级才立得住 */
-  --el-bg-color: #1A2233;                  /* 通用 el 组件底, 比 bg-0 亮一点的实色 */
-  --el-bg-color-overlay: #2E3B55;          /* 对话框 / 下拉菜单 / popover (高于卡片一档) */
+  --el-color-success: var(--v2-success);
+  --el-color-warning: var(--v2-warning);
+  --el-color-danger: var(--v2-danger);
+  --el-color-info: var(--v2-text-2);
+  --el-bg-color: var(--v2-surf-1);
   --el-bg-color-page: var(--v2-bg-0);
-  --el-fill-color: var(--v2-surf-2);       /* 卡内元素 (tag / chip), 仍走半透明 */
+  --el-bg-color-overlay: var(--v2-surf-3);
+  --el-fill-color: var(--v2-surf-2);
   --el-fill-color-light: var(--v2-surf-1-hover);
-  --el-fill-color-lighter: var(--v2-ov-1); /* el-table 斑马纹 — 深色主题下必须超低对比, 否则就是闪光弹 */
+  --el-fill-color-lighter: var(--v2-ov-1);
   --el-fill-color-extra-light: var(--v2-ov-1);
-  --el-fill-color-blank: #1A2233;          /* el-input 等输入框底, 实色保证 caret 清晰 */
+  --el-fill-color-blank: var(--v2-surf-1);
   --el-border-color: var(--v2-border-soft);
   --el-border-color-light: var(--v2-border-soft);
   --el-border-color-lighter: var(--v2-border-soft);
-
-  /* el-table 全套显式覆盖 — Element Plus 默认值是浅色主题白底, 不覆盖直接刷白挡字 */
-  --el-table-bg-color: transparent;
-  --el-table-tr-bg-color: transparent;
-  --el-table-row-hover-bg-color: rgba(110, 200, 220, 0.07);
-  --el-table-header-bg-color: var(--v2-ov-1);
-  --el-table-header-text-color: var(--v2-text-1);
-  --el-table-text-color: var(--v2-text-1);
-  --el-table-border-color: var(--v2-border-soft);
-  --el-table-border: 1px solid var(--v2-border-soft);
-  --el-table-fixed-box-shadow: 0 0 10px rgba(0, 0, 0, 0.4);
-  --el-table-expanded-cell-bg-color: var(--v2-ov-1);
-  --el-mask-color: rgba(0, 0, 0, 0.55);    /* dialog mask 颜色, 加深让弹层突出 */
   --el-text-color-primary: var(--v2-text-1);
   --el-text-color-regular: var(--v2-text-1);
   --el-text-color-secondary: var(--v2-text-2);
   --el-text-color-placeholder: var(--v2-text-3);
+  --el-mask-color: rgba(5, 11, 19, 0.58);
+  --el-table-bg-color: var(--v2-surf-1);
+  --el-table-tr-bg-color: var(--v2-surf-1);
+  --el-table-row-hover-bg-color: var(--v2-primary-soft);
+  --el-table-header-bg-color: var(--v2-surf-2);
+  --el-table-header-text-color: var(--v2-text-2);
+  --el-table-text-color: var(--v2-text-1);
+  --el-table-border-color: var(--v2-border-soft);
+  --el-table-expanded-cell-bg-color: var(--v2-surf-2);
+}
+:root:root[data-theme='light'] { --el-mask-color: rgba(20, 32, 51, 0.42); }
+
+/* Welcome editor is a fixed overlay at z-index 3000. Its destructive-action
+   confirmation and the save/exit three-way prompt are teleported to body, so
+   their overlays must sit above that editor or they become invisible/unclickable. */
+.el-overlay.welcome-image-delete-confirm,
+.el-overlay.welcome-close-confirm {
+  z-index: 4000 !important;
 }
 
-/* el-dialog 弹层主体: 强制实色, 加阴影 + 边框, 不让任何子模块的半透明
- * 默认值穿透到这里 */
 .el-dialog,
 .el-drawer,
-.el-message-box {
-  background-color: var(--el-bg-color-overlay) !important;
-  border: 1px solid var(--v2-border-soft);
-  box-shadow: var(--v2-elev-3);
-}
-.el-dialog__body,
-.el-drawer__body,
-.el-message-box__content {
+.el-message-box,
+.el-popper:not(.is-dark),
+.el-select-dropdown,
+.el-dropdown-menu,
+.el-cascader-menu,
+.el-picker-panel {
+  background: var(--v2-surf-3) !important;
+  border: 1px solid var(--v2-border-soft) !important;
   color: var(--v2-text-1);
+}
+.el-dialog,
+.el-drawer,
+.el-message-box { box-shadow: var(--v2-elev-3) !important; }
+.el-popper:not(.is-dark),
+.el-select-dropdown,
+.el-dropdown-menu,
+.el-cascader-menu,
+.el-picker-panel { box-shadow: var(--v2-elev-2) !important; }
+.el-popper:not(.is-dark) .el-popper__arrow::before {
+  background: var(--v2-surf-3) !important;
+  border-color: var(--v2-border-soft) !important;
 }
 .el-dialog__title,
 .el-drawer__title,
-.el-message-box__title {
-  color: var(--v2-text-1);
-  font-weight: 600;
-}
-.el-overlay {
-  background-color: var(--el-mask-color);
-}
+.el-message-box__title,
+.el-message-box__message,
+.el-message-box__message p { color: var(--v2-text-1) !important; }
+.el-dialog__header,
+.el-drawer__header { border-bottom: 1px solid var(--v2-border-soft); }
+.el-dialog__footer,
+.el-drawer__footer { border-top: 1px solid var(--v2-border-soft); }
 
-/* ============ 浮层强制实色 ============
- * 根因: 本文件第 114 行把旧 token --bg-panel 重映射成半透明 --v2-surf-1 (rgba …,0.10),
- * 而 theme.css 里下拉/popover/select 的背景都用 var(--bg-panel) → 浮在内容上变透明,
- * 看不清选项. 浮层(不像卡片有 body gradient 垫底)必须实色. 这里统一强制覆盖,
- * 用 design-tokens 已定义的浮层实色 --el-bg-color-overlay (#1B2034). 本文件后加载, 胜出. */
-.el-popper:not(.is-dark),
-.el-select__popper.el-popper,
-.el-select-v2__popper.el-popper,
-.el-dropdown__popper.el-popper,
-.el-cascader__dropdown.el-popper,
-.el-picker__popper.el-popper,
-.el-autocomplete__popper.el-popper,
-.el-select-dropdown,
-.el-select-dropdown__wrap,
-.el-select-dropdown__list,
-.el-dropdown-menu,
-.el-cascader-menu {
-  background-color: var(--el-bg-color-overlay) !important;
+.el-table {
+  overflow: hidden !important;
+  border: 1px solid var(--v2-border-soft) !important;
+  border-radius: var(--v2-r-md) !important;
+  background: var(--v2-surf-1) !important;
 }
-.el-popper:not(.is-dark) .el-popper__arrow::before {
-  background: var(--el-bg-color-overlay) !important;
-}
-
-/* ============ el-table 直接选择器覆盖 (token 不够, 因为 EP 默认 .el-table 把 bg 写死) ============ */
-.el-table,
-.el-table tr,
-.el-table th.el-table__cell,
-.el-table td.el-table__cell,
-.el-table tr.el-table__row,
-.el-table__inner-wrapper,
-.el-table__body,
-.el-table__header-wrapper,
-.el-table__body-wrapper {
-  background-color: transparent !important;
-  color: var(--v2-text-1);
-}
-/* 表头行 — 微微浮起 */
+.el-table::before,
+.el-table--border::after,
+.el-table--group::after { background-color: var(--v2-border-soft) !important; }
 .el-table th.el-table__cell {
-  background-color: var(--v2-ov-1) !important;
-  color: var(--v2-text-1) !important;
-  font-weight: 500;
-  border-bottom: 1px solid var(--v2-border-soft) !important;
+  background: var(--v2-surf-2) !important;
+  color: var(--v2-text-2) !important;
+  font-size: 13px;
+  font-weight: 600;
+  border-bottom-color: var(--v2-border-soft) !important;
 }
-/* 普通行底色 — 透明走 body gradient */
-.el-table tr.el-table__row td.el-table__cell {
-  border-bottom: 1px solid rgba(110, 200, 220, 0.08) !important;
+.el-table td.el-table__cell {
+  background: var(--v2-surf-1) !important;
+  color: var(--v2-text-1);
+  border-bottom-color: var(--v2-border-soft) !important;
 }
-/* 斑马纹 — 几乎不可见的微白, 而不是默认浅色主题刷白 */
-.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
-  background-color: var(--v2-ov-1) !important;
-}
-/* hover 行 — 电光青高亮 + 行光晕 + 微浮起 */
-.el-table__body tr.el-table__row {
-  transition: box-shadow 0.22s ease, transform 0.22s ease;
-}
-.el-table__body tr.el-table__row:hover > td.el-table__cell,
-.el-table__body tr.el-table__row.hover-row > td.el-table__cell {
-  background-color: rgba(76, 154, 255, 0.10) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(76, 154, 255, 0.25),
-    inset 0 -1px 0 rgba(76, 154, 255, 0.25) !important;
-}
-/* 选中行 */
-.el-table__body tr.current-row > td.el-table__cell {
-  background-color: rgba(76, 154, 255, 0.15) !important;
-}
-/* 空状态 / 加载层底色 */
-.el-table__empty-block {
-  background-color: transparent !important;
-}
-
-/* Element Plus el-button[type=primary] 升级成实色发光. 重要: 必须排除
- * .is-link / .is-text — 否则文字按钮被加 gradient bg, 跟字同色就完全看不见. */
-.el-button--primary:not(.is-link):not(.is-text) {
-  background: linear-gradient(135deg, var(--v2-primary) 0%, var(--v2-primary-dark) 100%) !important;
-  border-color: rgba(255, 255, 255, 0.14) !important;
-  box-shadow: var(--v2-glow-primary);
-}
-.el-button--primary:not(.is-link):not(.is-text):hover:not(.is-disabled) {
-  filter: brightness(1.1);
-  box-shadow: var(--v2-glow-primary-strong);
-}
-.el-button--primary:not(.is-link):not(.is-text):active:not(.is-disabled) {
-  filter: brightness(0.95);
-}
-
-/* ============================================================
- * 全局对比度强化 (2026-05-31)
- *
- * 症状: 后台 LightZonesAdmin 等表格里 "一层前厅 / 园区展示" 一类中文名
- *       看起来 30-40% 灰, 几乎看不清. 操作按钮也淡.
- *
- * 根因: 部分 scoped 样式用 var(--el-text-color-primary), 而 Element Plus
- *       某些子组件内部 fallback 到默认浅色主题色 (#303133 灰), 没读到我们
- *       覆盖的 var. 同时旧 theme.css 跟 design-tokens.css 互相覆盖 .el-table
- *       td 的 color, 实际生效色不可预测.
- *
- * 修法: 给所有 admin 页 + 表格 + drawer + dialog 强制最低对比度. 不动各页
- *       面 scoped CSS, 直接全局 cover. 跟 Element Plus 默认值打架, 一律用
- *       !important + 高 specificity 选择器赢.
- * ============================================================ */
-
-/* 表格单元格内所有"叶子文本节点"强制亮白. 不影响 button/tag/switch (它们有自己的 color) */
-.el-table td.el-table__cell .cell,
-.el-table td.el-table__cell .cell > span,
-.el-table td.el-table__cell .cell > div,
-.el-table td.el-table__cell .cell > p {
-  color: var(--v2-text-1) !important;
-}
-/* 表格内 <code> 元素 (业务 code 字段) — 亮色 + monospace */
+.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell { background: var(--v2-ov-1) !important; }
+.el-table__body tr:hover > td.el-table__cell,
+.el-table__body tr.hover-row > td.el-table__cell,
+.el-table__body tr.current-row > td.el-table__cell { background: var(--v2-primary-soft) !important; }
+.el-table .el-table__cell .cell { padding-right: 12px !important; padding-left: 12px !important; }
+.el-table th.el-table__cell .cell { white-space: nowrap; }
+.el-table--border .el-table__cell:last-child { border-right: 0 !important; }
+.el-table__empty-block { background: var(--v2-surf-1) !important; }
+.el-table__empty-text { color: var(--v2-text-2) !important; }
+.el-table__fixed,
+.el-table__fixed-right { background: var(--v2-surf-1) !important; }
+.el-table__fixed-right { right: 1px !important; overflow: hidden !important; border-radius: 0 11px 11px 0 !important; }
 .el-table td.el-table__cell code {
-  color: var(--v2-text-1) !important;
-  font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
-  font-size: 11.5px;
+  color: var(--v2-text-1);
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 13px;
 }
-/* 表格内 "secondary / muted" class 至少 v2-text-2 (68%), 不再有看不见的灰 */
-.el-table td.el-table__cell .muted,
-.el-table td.el-table__cell .sub,
-.el-table td.el-table__cell .hint,
-.el-table td.el-table__cell .secondary {
-  color: var(--v2-text-2) !important;
-}
+.el-table .muted,
+.el-table .sub,
+.el-table .hint,
+.el-table .secondary { color: var(--v2-text-2) !important; }
 
-/* el-button[link] / text-button — 透明底 + 各 type 显式亮字, hover 加亮不加底 */
-.el-button.is-link,
-.el-button.is-text {
-  background: transparent !important;
-  background-color: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  color: var(--v2-text-1) !important;
-  font-weight: 500;
-  padding: 0 6px !important;
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  background: var(--v2-inset-bg) !important;
+  box-shadow: 0 0 0 1px var(--v2-border-soft) inset !important;
 }
-.el-button.is-link.el-button--primary,
-.el-button.is-text.el-button--primary {
-  color: #67e8f9 !important;  /* 亮青, 比 v2-primary-hover 再亮一档, 在深底/zebra 上都看得清 */
-}
-.el-button.is-link.el-button--success,
-.el-button.is-text.el-button--success {
-  color: #5FCB9B !important;  /* 亮绿 */
-}
-.el-button.is-link.el-button--danger,
-.el-button.is-text.el-button--danger {
-  color: #EC8880 !important;  /* 亮红 — 默认 ef4444 在深底上有点闷 */
-}
-.el-button.is-link.el-button--warning,
-.el-button.is-text.el-button--warning {
-  color: #fcd34d !important;  /* 亮黄 */
-}
-.el-button.is-link:hover,
-.el-button.is-text:hover {
-  background: transparent !important;
-  background-color: transparent !important;
-  filter: brightness(1.3);
-  text-decoration: underline;
-}
-.el-button.is-link:focus,
-.el-button.is-link:active,
-.el-button.is-text:focus,
-.el-button.is-text:active {
-  background: transparent !important;
-  background-color: transparent !important;
-}
-.el-button.is-link.is-disabled,
-.el-button.is-text.is-disabled {
-  color: var(--v2-text-3) !important;
-  filter: none;
-}
-
-/* el-drawer / el-dialog 内 form label 强制亮白 — 否则 EP 默认 #606266 灰 */
-.el-drawer__body .el-form-item__label,
-.el-dialog__body .el-form-item__label {
-  color: var(--v2-text-1) !important;
-  font-weight: 500;
-}
-/* drawer / dialog 内辅助说明文本 (.hint / .help / em / small) */
-.el-drawer__body .hint,
-.el-drawer__body .help,
-.el-drawer__body small,
-.el-dialog__body .hint,
-.el-dialog__body .help,
-.el-dialog__body small {
-  color: var(--v2-text-2) !important;
-}
-/* drawer / dialog 内 disabled input 也要看得见 (默认会变灰到看不清) */
-.el-drawer__body .el-input.is-disabled .el-input__inner,
-.el-drawer__body .el-input.is-disabled .el-input__wrapper,
-.el-dialog__body .el-input.is-disabled .el-input__inner,
-.el-dialog__body .el-input.is-disabled .el-input__wrapper {
-  color: var(--v2-text-2) !important;
-  -webkit-text-fill-color: var(--v2-text-2) !important;
-}
-
-/* el-input / el-textarea / el-select-input 全局 input 强制 v2-text-1, 不再被
- * EP 默认 #606266 浅灰偷走 */
+.el-input__wrapper:hover,
+.el-textarea__inner:hover,
+.el-select__wrapper:hover { box-shadow: 0 0 0 1px var(--v2-border-strong) inset !important; }
+.el-input__wrapper.is-focus,
+.el-textarea__inner:focus,
+.el-select__wrapper.is-focused { box-shadow: 0 0 0 2px var(--v2-primary) inset !important; }
 .el-input__inner,
 .el-textarea__inner,
-.el-select__placeholder {
-  color: var(--v2-text-1) !important;
-}
+.el-select__selected-item { color: var(--v2-text-1) !important; }
 .el-input__inner::placeholder,
-.el-textarea__inner::placeholder {
-  color: var(--v2-text-3) !important;
-}
+.el-textarea__inner::placeholder,
+.el-select__placeholder,
+.el-select__caret { color: var(--v2-text-3) !important; }
+.el-select-dropdown__item,
+.el-cascader-node,
+.el-dropdown-menu__item { color: var(--v2-text-1) !important; }
+.el-select-dropdown__item:hover,
+.el-select-dropdown__item.is-hovering,
+.el-cascader-node:hover,
+.el-dropdown-menu__item:hover { background: var(--v2-primary-soft) !important; }
+.el-select-dropdown__item.is-selected,
+.el-cascader-node.is-active,
+.el-cascader-node.in-active-path { color: var(--v2-primary) !important; font-weight: 600; }
+.el-form-item__label { color: var(--v2-text-2) !important; }
+.el-drawer__body .el-form-item__label,
+.el-dialog__body .el-form-item__label { color: var(--v2-text-1) !important; }
 
-/* el-tag (各色) — 深色主题重设: 深底 + 高亮对应类型色字, 不再用 EP 默认浅底
- * 用户截图问题: "GROUP 1" 标签是浅蓝底 + 浅蓝白字, 完全看不见. 必须深底浅字. */
-.el-tag {
-  font-weight: 500;
-  border-width: 1px;
-  border-style: solid;
+.el-button--primary:not(.is-link):not(.is-text) {
+  background: var(--v2-primary) !important;
+  border-color: var(--v2-primary) !important;
+  color: var(--v2-on-primary) !important;
+  box-shadow: none !important;
 }
-.el-tag,
-.el-tag.el-tag--default {
-  background-color: var(--v2-ov-2) !important;
-  border-color: var(--v2-ov-3) !important;
-  color: var(--v2-text-1) !important;
+.el-button--primary:not(.is-link):not(.is-text):hover:not(.is-disabled) {
+  background: var(--v2-primary-hover) !important;
+  border-color: var(--v2-primary-hover) !important;
 }
-.el-tag.el-tag--primary {
-  background-color: rgba(76, 154, 255, 0.18) !important;
-  border-color: rgba(76, 154, 255, 0.45) !important;
-  color: #67e8f9 !important;  /* 亮青 */
-}
-.el-tag.el-tag--success {
-  background-color: rgba(63, 191, 135, 0.18) !important;
-  border-color: rgba(63, 191, 135, 0.45) !important;
-  color: #5FCB9B !important;
-}
-.el-tag.el-tag--warning {
-  background-color: rgba(224, 160, 48, 0.20) !important;
-  border-color: rgba(224, 160, 48, 0.48) !important;
-  color: #fcd34d !important;
-}
-.el-tag.el-tag--danger {
-  background-color: rgba(229, 100, 93, 0.18) !important;
-  border-color: rgba(229, 100, 93, 0.45) !important;
-  color: #EC8880 !important;
-}
-.el-tag.el-tag--info {
-  background-color: rgba(148, 163, 184, 0.18) !important;
-  border-color: rgba(148, 163, 184, 0.42) !important;
-  color: #cbd5e1 !important;
-}
+.el-button.is-link,
+.el-button.is-text { background: transparent !important; border: 0 !important; box-shadow: none !important; font-weight: 600; }
+.el-button.is-link.el-button--primary,
+.el-button.is-text.el-button--primary { color: var(--v2-primary) !important; }
+.el-button.is-link.el-button--success,
+.el-button.is-text.el-button--success { color: var(--v2-success) !important; }
+.el-button.is-link.el-button--warning,
+.el-button.is-text.el-button--warning { color: var(--v2-warning) !important; }
+.el-button.is-link.el-button--danger,
+.el-button.is-text.el-button--danger { color: var(--v2-danger) !important; }
 
-/* el-switch inline-prompt 模式的 active-text / inactive-text — 在 switch 内嵌
- * 必须白色 + 1px shadow, 不管底色是青(开)还是灰(关)都看得清 */
-.el-switch.is-checked .el-switch__core,
-.el-switch .el-switch__core {
-  border-color: transparent !important;
-}
-.el-switch__inner,
-.el-switch__inner span {
-  color: #ffffff !important;
-  font-weight: 600 !important;
-  font-size: 11px !important;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
-  letter-spacing: 0.4px;
-}
-/* 关闭状态 switch 底色 (灰), 上面的"停用"白字 + shadow 同样看得清 */
-.el-switch:not(.is-checked) .el-switch__core {
-  background-color: var(--v2-ov-3) !important;
-}
-
-/* el-select 下拉项 hover/selected 文本对比度 */
-.el-select-dropdown__item {
-  color: var(--v2-text-1) !important;
-}
-.el-select-dropdown__item.is-hovering {
-  background-color: rgba(110, 200, 220, 0.12) !important;
-  color: var(--v2-primary-hover) !important;
-}
-.el-select-dropdown__item.is-selected {
-  color: var(--v2-primary-hover) !important;
-  font-weight: 600;
-}
-
-/* el-switch 显式色 — 默认状态条 + 文字 */
-.el-switch__label {
-  color: var(--v2-text-2);
-}
-.el-switch.is-checked .el-switch__label--right {
-  color: var(--v2-primary-hover) !important;
-}
-
-/* el-message-box (.confirm/.alert) 内文本 */
-.el-message-box__message,
-.el-message-box__message p {
-  color: var(--v2-text-1) !important;
-}
-
-/* el-alert — 标题 + 描述都升级对比度 */
-.el-alert__title {
-  color: var(--v2-text-1) !important;
-  font-weight: 600;
-}
-.el-alert__description {
-  color: var(--v2-text-2) !important;
-}
-
-/* 后台 admin 页 (.zones-admin, .brands-admin 等通用容器) 默认文本色 */
-[class$="-admin"], [class*="-admin "] {
+.el-pagination {
+  --el-pagination-bg-color: transparent;
+  --el-pagination-button-bg-color: var(--v2-surf-2);
+  --el-pagination-button-color: var(--v2-text-1);
+  --el-pagination-hover-color: var(--v2-primary);
   color: var(--v2-text-1);
 }
-/* admin 页头 .sub 描述文字至少 v2-text-2 */
-[class$="-admin"] .sub,
-[class$="-admin"] .description {
-  color: var(--v2-text-2) !important;
+.el-pager li { background: var(--v2-surf-2) !important; }
+.el-pager li.is-active { background: var(--v2-primary) !important; color: var(--v2-on-primary) !important; }
+
+.el-tag {
+  border-color: var(--v2-border-soft) !important;
+  background: var(--v2-surf-2) !important;
+  color: var(--v2-text-1) !important;
+  font-weight: 600;
+}
+.el-tag.el-tag--primary { color: var(--v2-primary) !important; background: var(--v2-primary-soft) !important; }
+.el-tag.el-tag--success { color: var(--v2-success) !important; background: var(--v2-success-soft) !important; }
+.el-tag.el-tag--warning { color: var(--v2-warning) !important; background: var(--v2-warning-soft) !important; }
+.el-tag.el-tag--danger { color: var(--v2-danger) !important; background: var(--v2-danger-soft) !important; }
+.el-tag.el-tag--info { color: var(--v2-text-2) !important; }
+
+.el-switch.is-checked .el-switch__core { background: var(--v2-primary) !important; border-color: var(--v2-primary) !important; }
+.el-switch:not(.is-checked) .el-switch__core { background: var(--v2-border-strong) !important; border-color: transparent !important; }
+.el-switch__inner,
+.el-switch__inner span { color: #ffffff !important; font-size: 11px !important; font-weight: 600 !important; }
+.el-tabs__nav-wrap::after { background: var(--v2-border-soft) !important; }
+.el-tabs__item { color: var(--v2-text-2) !important; }
+.el-tabs__item.is-active { color: var(--v2-primary) !important; }
+.el-tabs__active-bar { background: var(--v2-primary) !important; }
+.el-slider__runway { background: var(--v2-border-strong) !important; }
+.el-alert__title { color: var(--v2-text-1) !important; font-weight: 600; }
+.el-alert__description { color: var(--v2-text-2) !important; }
+[class$='-admin'],
+[class*='-admin '] { color: var(--v2-text-1); }
+[class$='-admin'] .sub,
+[class$='-admin'] .description { color: var(--v2-text-2) !important; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--v2-border-strong); border-radius: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+.v2-skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--v2-r-md);
+  background: var(--v2-ov-2);
+  color: transparent !important;
+  pointer-events: none;
+  user-select: none;
+}
+.v2-skeleton::after {
+  position: absolute;
+  inset: 0;
+  content: '';
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--v2-ov-3), transparent);
+  animation: v2-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes v2-shimmer { to { transform: translateX(100%); } }
+
+.v2-scene,
+.v2-zone,
+.v2-quick,
+.circuit-card,
+.hv-cell,
+.hv-btn,
+.hv-chip,
+.seg,
+.pc-btn,
+.temp-btn,
+.card-btn,
+.src-btn,
+.v2-tab,
+.v2-back-btn {
+  transition-duration: var(--v2-dur-fast);
+  transition-property: transform, border-color, background-color, color, opacity;
+  transition-timing-function: var(--v2-ease-out);
+}
+.v2-scene:active,
+.v2-zone:active,
+.v2-quick:active,
+.circuit-card:active,
+.hv-cell:active,
+.hv-btn:active:not(:disabled),
+.hv-chip:active,
+.pc-btn:active:not(:disabled),
+.temp-btn:active:not(:disabled),
+.card-btn:active,
+.src-btn:active,
+.v2-back-btn:active { transform: scale(0.97); }
+
+/* Shared compact action button. Feature pages may adjust layout, but color,
+   hierarchy, focus and interaction states stay consistent across the PWA. */
+.v2-quick {
+  appearance: none;
+  min-height: 38px;
+  padding: 8px 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--v2-border-strong);
+  border-radius: var(--v2-r-sm);
+  background: var(--v2-surf-2);
+  color: var(--v2-text-1);
+  font-size: var(--v2-fs-sm);
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.v2-quick:hover:not(:disabled):not(.disabled) {
+  border-color: var(--v2-primary);
+  background: var(--v2-surf-1-hover);
+  color: var(--v2-text-1);
+}
+.v2-quick.secondary {
+  border-color: rgba(var(--v2-primary-rgb), 0.34);
+  background: var(--v2-primary-soft);
+  color: var(--v2-primary);
+}
+.v2-quick.secondary:hover:not(:disabled):not(.disabled) {
+  border-color: var(--v2-primary);
+  background: rgba(var(--v2-primary-rgb), 0.18);
+  color: var(--v2-primary-dark);
+}
+.v2-quick.primary {
+  border-color: var(--v2-primary);
+  background: var(--v2-primary);
+  color: var(--v2-on-primary);
+}
+.v2-quick.primary:hover:not(:disabled):not(.disabled) {
+  border-color: var(--v2-primary-hover);
+  background: var(--v2-primary-hover);
+  color: var(--v2-on-primary);
+}
+.v2-quick.danger {
+  border-color: rgba(201, 54, 43, 0.3);
+  background: var(--v2-danger-soft);
+  color: var(--v2-danger);
+}
+.v2-quick.danger:hover:not(:disabled):not(.disabled) {
+  border-color: var(--v2-danger);
+  background: rgba(201, 54, 43, 0.16);
+}
+.v2-quick:disabled,
+.v2-quick.disabled {
+  opacity: 0.46;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
-/* ============================================================
- * 手机响应式 (≤600px) — Sprint H2 2026-05-31
- * Element Plus 在手机上的默认尺寸偏小 (drawer 40%, dialog 50%),
- * 这里统一改成全屏 / 接近全屏 sheet, 同时压缩内部 padding
- * ============================================================ */
+.v2-page-enter-active { transition: opacity 70ms ease-out; }
+.v2-page-leave-active { transition: opacity 50ms ease; }
+.v2-page-enter-from,
+.v2-page-leave-to { opacity: 0; }
+
+/* ===== 业主侧页面切换交叉淡入淡出 (2026-09-24 丝滑优化) =====
+   GPU 合成: 仅 opacity + 轻 translateY, 不触发重排; MainLayout 显式传 duration
+   (190ms), Vue 到点强制收尾、不依赖 transitionend, 规避 iOS WKWebView 丢事件卡死。
+   离开页 absolute 钉在主区不顶布局, pointer-events 关闭。 */
+.v2-main { position: relative; }
+.v2-route-enter-active {
+  transition: opacity 0.19s var(--v2-ease-out), transform 0.19s var(--v2-ease-out);
+  will-change: opacity, transform;
+}
+.v2-route-leave-active {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.v2-route-enter-from { opacity: 0; transform: translateY(8px); }
+.v2-route-leave-to { opacity: 0; }
+.v2-page-head {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  margin-top: calc(-1 * var(--v2-sp-5));
+  padding-top: var(--v2-sp-5);
+  padding-bottom: var(--v2-sp-2);
+  background: var(--v2-bg-0);
+}
+html,
+body { overscroll-behavior: none; }
+.v2-main { overscroll-behavior: contain; }
+.v2-page-head .title,
+.v2-tab,
+.ov-label,
+.v2-nav-label { white-space: nowrap; }
+.v2-page-head .title { flex: 0 0 auto; }
+
+@media (max-width: 900px) {
+  .v2-page-head .back-row { flex-wrap: wrap; row-gap: 8px; }
+  .v2-tabs {
+    flex: 0 1 auto;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .v2-tabs::-webkit-scrollbar { display: none; }
+  .v2-overview,
+  .v2-overview.audio { flex-wrap: wrap; row-gap: 8px; }
+}
+
 @media (max-width: 600px) {
-  /* el-drawer 手机全屏 sheet */
   .el-drawer.rtl,
   .el-drawer.ltr,
   .el-drawer.ttb,
@@ -936,199 +742,50 @@ select:focus-visible,
     max-width: 100vw;
     max-height: 100dvh;
   }
-  .el-drawer__header {
-    padding: 14px 16px !important;
-    /* 抽屉强制 height:100%, header 贴在视口最顶上 —— 手机状态栏/刘海会压住标题栏,
-       补一份安全区 (业主: "新建场景弹出的页面未做安全边界处理, 上方还是被系统遮挡") */
-    padding-top: max(14px, env(safe-area-inset-top)) !important;
-    margin-bottom: 0 !important;
-    border-bottom: 1px solid var(--v2-border-soft);
-  }
+  .el-drawer__header { margin-bottom: 0 !important; padding: max(14px, env(safe-area-inset-top)) 16px 14px !important; }
   .el-drawer__body { padding: 12px 16px !important; }
   .el-drawer__footer { padding: 12px 16px !important; }
-
-  /* el-dialog 手机几乎占满 —— 固定 8px 顶部外边距同样没让状态栏, 同一个问题 */
   .el-dialog {
     width: calc(100% - 16px) !important;
     max-width: calc(100% - 16px) !important;
     margin: max(8px, env(safe-area-inset-top)) auto 8px !important;
   }
-  .el-dialog__header { padding: 14px 16px !important; }
-  .el-dialog__body { padding: 12px 16px !important; }
-  .el-dialog__footer { padding: 12px 16px !important; }
-
-  /* el-message-box (confirm) 占接近全宽 */
-  .el-message-box {
-    width: calc(100% - 24px) !important;
-    max-width: 420px;
-  }
-
-  /* el-table 手机横向滚 + 最小宽度防挤变形
-     之前只改了 .el-table 根节点的 overflow-x —— 但 Element Plus 表格真正裁切/滚动横向
-     内容的是内部几层 (.el-table__body-wrapper / .el-table__header-wrapper 及它们各自
-     套的 .el-scrollbar__wrap), 这些内部节点自带 overflow: hidden / 内联 overflow-x
-     样式, 优先级比我们只改根节点的规则高。根节点看着能滚, 实际内容在更里面一层被
-     裁掉了 —— 表现就是"操作"列的编辑/删除按钮划不出来也点不到 (业主反馈: 硬件清单/
-     日志中心等多个后台页面同样的问题)。这里把所有可能裁切横向内容的层都放开, 只在
-     真的溢出时才会生效, 不会影响没溢出的表格。 */
-  .el-table,
-  .el-table__inner-wrapper,
-  .el-table__header-wrapper,
-  .el-table__body-wrapper,
-  .el-table .el-scrollbar__wrap {
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch;
-  }
-  .el-table__inner-wrapper { min-width: 600px; }
-
-  /* el-form-item 标签换行避免太挤 */
-  .el-form-item__label {
-    width: auto !important;
-    text-align: left !important;
-    padding-bottom: 4px;
-  }
-  .el-form-item__content {
-    margin-left: 0 !important;
-  }
-  .el-form--label-right .el-form-item__label {
-    text-align: left !important;
-  }
-
-  /* el-input / el-select 充满宽度 */
+  .el-dialog__header,
+  .el-dialog__body,
+  .el-dialog__footer { padding: 14px 16px !important; }
+  .el-message-box { width: calc(100% - 24px) !important; max-width: 420px; }
+  /* 宽表触屏横滑只走 Element Plus 原生 scrollbar：body 的 .el-scrollbar__wrap 承载横向滚动，
+     header 由组件 JS 同步 scrollLeft。不可给 .el-table / inner-wrapper / header/body-wrapper
+     额外加 overflow-x——多层可滚容器会在 iOS 嵌套争抢手势，导致 body 区滑不动、只有表头能带动。 */
+  .el-table .el-table__body-wrapper .el-scrollbar__wrap,
+  .el-table .el-table__header-wrapper .el-scrollbar__wrap { -webkit-overflow-scrolling: touch; }
+  .page-head { flex-wrap: wrap !important; align-items: stretch !important; row-gap: 10px; }
+  .page-head > div:first-child { flex: 1 1 100%; min-width: 0; }
+  .page-head .actions { flex-wrap: wrap; width: 100%; }
+  .page-head .actions .el-select,
+  .page-head .actions .el-input { flex: 1 1 calc(50% - 6px); width: auto !important; min-width: 0; }
+  .el-form-item__label { width: auto !important; padding-bottom: 4px; text-align: left !important; }
+  .el-form-item__content { margin-left: 0 !important; }
   .el-form-item .el-input,
-  .el-form-item .el-select {
-    width: 100% !important;
-  }
-
-  /* el-input-number 默认 130px 太宽, 给手机收一下 */
+  .el-form-item .el-select { width: 100% !important; }
   .el-input-number { width: 140px !important; }
-
-  /* el-message (顶部 toast) 收窄, 不撑屏 */
   .el-message { min-width: 280px !important; max-width: calc(100% - 24px); }
-
-  /* el-tag 紧凑 */
-  .el-tag { padding: 0 8px !important; height: 22px !important; line-height: 20px !important; }
 }
-
-/* ============ 动画 ============ */
-@keyframes v2-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.65; transform: scale(1.2); }
-}
-@keyframes v2-glow-breathe {
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 1; }
-}
-
-
-/* ============ 骨架屏 (2026-07-25 体验升级 A1) ============
- * 数据未到时的占位: .v2-skeleton 上到任意块级元素即可。
- * shimmer 用叠加层扫过, 深浅主题都能用; reduced-motion 下退化为静态灰块。 */
-.v2-skeleton {
-  position: relative;
-  overflow: hidden;
-  background: var(--v2-ov-2);
-  border-radius: var(--v2-r-md);
-  color: transparent !important;
-  pointer-events: none;
-  user-select: none;
-}
-.v2-skeleton::after {
-  content: '';
-  position: absolute; inset: 0;
-  transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, var(--v2-ov-3), transparent);
-  animation: v2Shimmer 1.4s ease-in-out infinite;
-}
-@keyframes v2Shimmer { 100% { transform: translateX(100%); } }
-@media (prefers-reduced-motion: reduce) { .v2-skeleton::after { animation: none; } }
-
-
-/* ============ 微动效 (2026-07-25 体验升级 D2) ============
- * motion token: 全站动效只用这三档时长和两条曲线, 不各写各的。
- * 原则: 反馈要快(fast), 空间移动用 base, spring 只给开关/按压这类"物理"交互。 */
-:root:root {
-  --v2-dur-fast: 120ms;
-  --v2-dur-base: 200ms;
-  --v2-dur-slow: 320ms;
-  --v2-ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
-  --v2-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-/* 按压反馈: 全站可点卡片/按钮统一"按下去有回应"。
- * 集中选择器而不是逐页加 class —— 覆盖各页既有交互件, 不动模板。 */
-/* .ch-card 不参与按压缩放 (2026-07-25 业主: 点推子背景条时整卡缩放=跳动) */
-.v2-scene, .v2-zone, .v2-quick, .v2-kpi, .v2-btn-primary,
-.circuit-card, .hv-cell, .hv-btn, .hv-chip, .seg,
-.pc-btn, .temp-btn, .card-btn, .src-btn, .v2-tab, .v2-back-btn {
-  transition-property: transform, box-shadow, border-color, background-color, color, opacity;
-  transition-duration: var(--v2-dur-fast);
-  transition-timing-function: var(--v2-ease-out);
-}
-.v2-scene:active, .v2-zone:active, .v2-quick:active, .v2-btn-primary:active,
-.circuit-card:active, .hv-cell:active, .hv-btn:active:not(:disabled), .hv-chip:active,
-.pc-btn:active:not(:disabled), .temp-btn:active:not(:disabled),
-.card-btn:active, .src-btn:active, .v2-back-btn:active {
-  transform: scale(0.965);
-  transition-duration: 80ms;
-}
-
-/* 路由转场 (2026-07-27 业主: "页面出现时都会平铺展开一下" —— 就是这里原来的
- * translateY(8px) 上滑入场: 每次切页整页从下方滑开, 看起来像重新展开加载。
- * 页面壳本来就常驻 (SW 预缓存 + keep-alive), 不该有"展开"感。改为**原地**
- * 70ms 纯淡入: 无位移、无缩放, 页面固定出现, 只保留最低限度的防硬切柔化) */
-.v2-page-enter-active { transition: opacity 70ms ease-out; }
-.v2-page-leave-active { transition: opacity 50ms ease; }
-.v2-page-enter-from { opacity: 0; }
-.v2-page-leave-to { opacity: 0; }
 
 @media (prefers-reduced-motion: reduce) {
-  .v2-page-enter-active, .v2-page-leave-active { transition: none; }
-  .v2-scene:active, .v2-zone:active, .v2-quick:active, .v2-btn-primary:active,
-  .circuit-card:active, .hv-cell:active, .hv-btn:active, .hv-chip:active,
-  .pc-btn:active, .temp-btn:active, .card-btn:active,
-  .src-btn:active, .v2-back-btn:active { transform: none; }
-}
-
-
-/* ============ 页头固定 (2026-07-25 业主: 顶栏固定, 只滚内容) ============
- * .v2-page-head 是各页共用类名 — 这里全局 sticky: 页面滚动时头部钉在滚动容器顶,
- * 负 margin + 等量 padding 抵掉 .v2-page 的顶部内边距, 避免头上方露内容。
- * 一屏不滚的页面 (1920 主控机) 完全无感。 */
-.v2-page-head {
-  position: sticky;
-  top: 0;
-  z-index: 60;
-  background: var(--v2-bg-0);
-  margin-top: calc(-1 * var(--v2-sp-5));
-  padding-top: var(--v2-sp-5);
-  padding-bottom: var(--v2-sp-2);
-  box-shadow: 0 8px 16px -12px rgba(0, 0, 0, 0.35);
-}
-
-
-/* ============ 滚动边界锁死 (2026-07-25 业主: 顶栏固定死, 不许上下晃) ============
- * sticky 头已钉住; 这里再锁掉滚动边界的橡皮筋回弹 — 到顶/到底后继续拖不再
- * 整页拉动 (iOS 壳侧 bounces=false / 安卓壳 OVER_SCROLL_NEVER 已关, 这是浏览器
- * /PWA 的最后一层)。内滚容器用 contain, 防滚动链把动作传给外层。 */
-html, body { overscroll-behavior: none; }
-.v2-main { overscroll-behavior: contain; }
-
-
-/* ============ 头部文字防竖排 (2026-07-25 业主截图: 音响页标题/tab 逐字断行) ============
- * 手机宽度下 flex 挤压会把中文标题/tab 压成一字一行。统一锁 nowrap;
- * tabs 放不下就自身横滚, 不许竖排。 */
-.v2-page-head .title, .v2-tab, .ov-label, .v2-nav-label { white-space: nowrap; }
-.v2-page-head .title { flex: 0 0 auto; }
-@media (max-width: 900px) {
-  .v2-page-head .back-row { flex-wrap: wrap; row-gap: 8px; }
-  .v2-tabs {
-    max-width: 100%;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    flex: 0 1 auto;
-  }
-  .v2-tabs::-webkit-scrollbar { display: none; }
-  .v2-overview, .v2-overview.audio { flex-wrap: wrap; row-gap: 8px; }
+  .v2-skeleton::after { animation: none; }
+  .v2-page-enter-active,
+  .v2-page-leave-active { transition: none; }
+  .v2-scene:active,
+  .v2-zone:active,
+  .v2-quick:active,
+  .circuit-card:active,
+  .hv-cell:active,
+  .hv-btn:active,
+  .hv-chip:active,
+  .pc-btn:active,
+  .temp-btn:active,
+  .card-btn:active,
+  .src-btn:active,
+  .v2-back-btn:active { transform: none; }
 }

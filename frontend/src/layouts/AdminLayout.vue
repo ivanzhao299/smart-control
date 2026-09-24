@@ -12,6 +12,12 @@ import { useClientAuthStore } from '@/stores/client-auth';
 import { LogOut } from 'lucide-vue-next';
 import { ElMessageBox } from 'element-plus';
 import { adminNavIconFor } from '@/composables/useIcons';
+import {
+  adminMenuTargetName,
+  adminNavigationGroups,
+  idleAdminRouteNames,
+  loadAdminRoute,
+} from '@/router/admin-route-manifest';
 
 const route = useRoute();
 const router = useRouter();
@@ -27,46 +33,9 @@ const fsActive = fs.isActive;
 const fsSupported = fs.isSupported;
 function toggleFullscreen(): void { void fs.toggle(); }
 
-// 2026-06-14 菜单重排: 按使用频次分 4 组 + 同类页合并 (tab). 16 项扁平 → 12 项分组.
-// 合并: 日志中心(操作/执行/变更) · 硬件清单(设备/驱动/品牌) · 分区配置(灯光/电源/音响) · 系统设置(常规/品牌)
-const groups: Array<{ section: string; items: Array<{ name: string; label: string }> }> = [
-  { section: '日常运行', items: [
-    { name: 'admin-monitor', label: '运维监控' },
-    { name: 'admin-alerts', label: '报警中心' },
-    { name: 'admin-scenes', label: '场景管理' },
-    { name: 'admin-scheduler', label: '定时任务' },
-  ] },
-  { section: '设备与分区', items: [
-    { name: 'admin-devices', label: '设备管理' },
-    { name: 'admin-hardware', label: '硬件清单' },
-    { name: 'admin-zones-config', label: '分区配置' },
-  ] },
-  { section: '日志与诊断', items: [
-    { name: 'admin-logs', label: '日志中心' },
-    { name: 'admin-test-center', label: '测试 / 调试' },
-  ] },
-  { section: '系统管理', items: [
-    { name: 'admin-users', label: '用户管理' },
-    { name: 'admin-settings', label: '系统设置' },
-  ] },
-];
+const groups = adminNavigationGroups;
 /** 扁平列表 — crumb / 查找用 */
 const flatItems = groups.flatMap((g) => g.items);
-/** 子页/深链 → 高亮哪个菜单项 (合并后, 子页归到它的合并页) */
-const MENU_ALIAS: Record<string, string> = {
-  'admin-scene-actions': 'admin-scenes',
-  'admin-debug': 'admin-test-center',
-  'admin-uat': 'admin-test-center',
-  'admin-scene-executions': 'admin-logs',
-  'admin-audit': 'admin-logs',
-  'admin-drivers': 'admin-hardware',
-  'admin-brands': 'admin-hardware',
-  'admin-light-zones': 'admin-zones-config',
-  'admin-power-circuits': 'admin-zones-config',
-  'admin-audio-config': 'admin-zones-config',
-  'admin-system-branding': 'admin-settings',
-  'admin-app-release': 'admin-settings',
-};
 
 const timeLabel = computed(() => {
   const d = new Date(sys.now);
@@ -76,7 +45,7 @@ const timeLabel = computed(() => {
 
 const currentName = computed(() => {
   const cur = route.name?.toString() ?? '';
-  return MENU_ALIAS[cur] ?? cur;
+  return adminMenuTargetName(cur);
 });
 
 /** 手机抽屉开关状态 (≤600px 才生效) */
@@ -101,13 +70,9 @@ onMounted(() => {
     (window as Window & { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback ??
     ((cb: () => void) => window.setTimeout(cb, 1200));
   ric(() => {
-    void import('@/pages/admin/MonitorAdmin.vue');
-    void import('@/pages/admin/ScenesAdmin.vue');
-    void import('@/pages/admin/DevicesAdmin.vue');
-    void import('@/pages/admin/HardwareHubAdmin.vue');
-    void import('@/pages/admin/ZonesConfigAdmin.vue');
-    void import('@/pages/admin/LogsHubAdmin.vue');
-    void import('@/pages/admin/SettingsHubAdmin.vue');
+    for (const name of idleAdminRouteNames) {
+      void loadAdminRoute(name)?.catch(() => undefined);
+    }
   });
 });
 
@@ -304,13 +269,17 @@ async function exitToFront(): Promise<void> {
   padding: 11px 16px;
   border-bottom: 1px solid var(--v2-border-soft);
 }
+/* 品牌文字区可收缩: 长系统名单行省略, 不换行把侧栏头部撑高 */
+.brand-text { min-width: 0; flex: 1; }
 .title {
   font-weight: 600; font-size: 16px;
   color: var(--v2-text-1); letter-spacing: 0.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .sub {
-  font-size: 11px; color: var(--v2-text-3);
+  font-size: 13px; color: var(--v2-text-3);
   margin-top: 2px; letter-spacing: 1px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 .menu {
@@ -322,7 +291,7 @@ async function exitToFront(): Promise<void> {
 .menu::-webkit-scrollbar { width: 0; height: 0; }
 /* 分组小标题 — 收紧上下间距 */
 .menu-section {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 1.5px;
   color: var(--v2-text-3);
@@ -353,26 +322,18 @@ async function exitToFront(): Promise<void> {
   background: var(--v2-surf-1-hover);
   color: var(--v2-text-1);
 }
-.menu-item:hover .ico {
-  filter: drop-shadow(0 0 6px var(--v2-primary));
-}
 .menu-item.is-active {
-  background: linear-gradient(90deg, rgba(76, 154, 255, 0.20) 0%, rgba(76, 154, 255, 0.04) 100%);
-  color: var(--v2-primary-hover);
-  box-shadow: inset 0 1px 0 rgba(76, 154, 255, 0.4);
-}
-.menu-item.is-active .ico {
-  filter: drop-shadow(0 0 10px var(--v2-primary));
+  background: var(--v2-primary-soft);
+  color: var(--v2-primary);
 }
 .menu-item.is-active::before {
   content: '';
   position: absolute;
   left: -10px; top: 50%;
   transform: translateY(-50%);
-  width: 4px; height: 30px;
-  background: linear-gradient(180deg, transparent, var(--v2-primary) 30%, var(--v2-primary-hover) 50%, var(--v2-primary) 70%, transparent);
-  border-radius: 0 4px 4px 0;
-  box-shadow: 0 0 12px var(--v2-primary), 0 0 24px var(--v2-primary-soft);
+  width: 3px; height: 24px;
+  background: var(--v2-primary);
+  border-radius: 0 3px 3px 0;
 }
 .menu-item .ico {
   display: flex; align-items: center; justify-content: center;
@@ -446,10 +407,10 @@ async function exitToFront(): Promise<void> {
   padding: var(--v2-sp-5);
 }
 
-/* 切页过渡: 只动 opacity/transform (GPU 合成层, 不掉帧); 离场快、入场略缓, 跟手不拖沓 */
-.page-enter-from { opacity: 0; transform: translateY(4px); }
+/* A short fade keeps navigation calm and avoids content movement. */
+.page-enter-from { opacity: 0; }
 .page-leave-to { opacity: 0; }
-.page-enter-active { transition: opacity 0.14s ease, transform 0.14s ease; }
+.page-enter-active { transition: opacity 0.1s ease; }
 .page-leave-active { transition: opacity 0.09s ease; }
 
 /* ============ 折叠态: 侧栏收成 64px 图标栏 (仅 >600px, 手机不受影响) ============ */

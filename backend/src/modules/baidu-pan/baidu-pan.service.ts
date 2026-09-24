@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Inject, Injectable, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Repository } from 'typeorm';
@@ -50,7 +50,7 @@ const MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2GB
 const EXPIRY_MARGIN_MS = 5 * 60 * 1000;
 
 @Injectable()
-export class BaiduPanService implements OnModuleInit {
+export class BaiduPanService {
   constructor(
     @InjectRepository(BaiduPanAuth) private readonly repo: Repository<BaiduPanAuth>,
     private readonly media: MediaService,
@@ -61,22 +61,6 @@ export class BaiduPanService implements OnModuleInit {
   /** 进行中的下载 (单并发) */
   private activeDownload: { name: string; receivedBytes: number; totalBytes: number | null; startedAt: number } | null = null;
   private lastResult: { ok: boolean; name: string; message: string; at: number } | null = null;
-
-  async onModuleInit(): Promise<void> {
-    // 建表自愈 (与迁移双保险, 防 watcher 部署不跑迁移复发 #22)
-    await this.repo.query(`CREATE TABLE IF NOT EXISTS "baidu_pan_auth" (
-      "id" integer PRIMARY KEY NOT NULL,
-      "appKey" varchar(64), "secretKey" varchar(64), "deviceCode" varchar(128),
-      "accessToken" text, "refreshToken" text, "expiresAt" datetime,
-      "rootPath" varchar(256),
-      "updatedAt" datetime NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )`).catch((e: Error) => {
-      this.logger.warn(`[BaiduPan] 建表自愈失败(将影响 /baidu-pan/status): ${e.message}`, { context: 'BaiduPanService' });
-    });
-    // 列自愈 (与迁移 1785190000000 双保险)
-    await this.repo.query(`ALTER TABLE "baidu_pan_auth" ADD COLUMN "rootPath" varchar(256)`)
-      .catch(() => { /* 列已存在 */ });
-  }
 
   private async row(): Promise<BaiduPanAuth> {
     let r = await this.repo.findOne({ where: { id: 1 } });

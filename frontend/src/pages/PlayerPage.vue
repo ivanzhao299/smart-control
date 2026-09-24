@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch , nextTick } from 'vue';
+import { computed, onBeforeUnmount, ref, watch , nextTick } from 'vue';
 import { useRoute } from 'vue-router';
-import { WsClient } from '@/services/websocket.service';
+import { useActivePolling } from '@/composables/useActivePolling';
+import { WsClient, type WsConnectionState } from '@/services/websocket.service';
 import { getPlayerState, playerHeartbeat, playerAdvance, configurePlayer, hasPlayerCredential, playerSocketAuthentication, type PlayerDeviceState } from '@/services/player-device.service';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { absUrl, api, setApiBaseURL } from '@/services/http';
+import { webpageSandbox } from '@/services/webpage-sandbox';
 import { forceThemeWithoutPersist, restoreStoredTheme } from '@/services/theme.service';
 import type { WsEvent } from '@/types/api';
 
@@ -34,6 +36,10 @@ const slot = computed<number>(() => {
 });
 
 const channel = ref<PlayerDeviceState | null>(null);
+const currentWebpageSandbox = computed(() => webpageSandbox(
+  channel.value?.currentMediaUrl,
+  window.location.href,
+));
 // Separate connection/identity from the control app's personal-account socket.
 const playerWs = new WsClient({ authentication: () => playerSocketAuthentication(slot.value) });
 const credential = ref('');
@@ -53,8 +59,37 @@ const errorMsg = ref<string>('');
 let unsubscribeWs: (() => void) | null = null;
 let unsubscribeWsState: (() => void) | null = null;
 let heartbeatTimer: number | undefined;
+let disconnectedReconcileTimer: number | undefined;
+let playerWsState: WsConnectionState = 'closed';
+let channelRequest: Promise<void> | null = null;
+let channelRefreshQueued = false;
+// keep-alive 生命周期: start/stop 幂等配对, 切走(deactivated)即停后台任务, 回页重建
+let started = false;
+let fullscreenCheckTimer: number | undefined;
+let userInteractionHandler: (() => void) | null = null;
+let visibilityHandler: (() => void) | null = null;
+let resizeHandler: (() => void) | null = null;
 
 async function fetchChannel(): Promise<void> {
+  // WS 重连与兜底轮询可能同时触发。同一时刻只执行一次读取，但不能直接
+  // 丢弃在途期间到达的播放变更，否则较早的 idle 响应会覆盖最新推送并让屏幕
+  // 保持待机直到下一轮 30 秒轮询。记下一次补读，当前请求完成后立刻收敛到最新状态。
+  if (channelRequest) {
+    channelRefreshQueued = true;
+    await channelRequest;
+    return;
+  }
+  do {
+    channelRefreshQueued = false;
+    const current = fetchChannelOnce();
+    channelRequest = current;
+    try { await current; } finally {
+      if (channelRequest === current) channelRequest = null;
+    }
+  } while (channelRefreshQueued);
+}
+
+async function fetchChannelOnce(): Promise<void> {
   const revision = ++requestRevision;
   try {
     const state = await getPlayerState(slot.value);
@@ -80,7 +115,42 @@ async function sendHeartbeat(): Promise<void> {
   try { await playerHeartbeat(slot.value); } catch { /* state request clears playback on failure */ }
 }
 
-onMounted(async () => {
+/**
+ * 全屏保障 (2026-09-11): 立即请求一次 + 每 5s 检测补请求 + 用户交互/可见性/resize 兜底。
+ * 提升为可配对的 start/stop —— keep-alive 切走时必须停掉定时器与 document/window 监听,
+ * 否则页面被缓存后这些回调在后台永续运行 (每 5s 抢全屏 + 全局 click/keydown 监听), 拖卡整机。
+ */
+function startFullscreenGuard(): void {
+  async function ensureFullscreen(): Promise<void> {
+    try {
+      const el = document.documentElement;
+      if (el.requestFullscreen && !document.fullscreenElement) {
+        await el.requestFullscreen().catch(() => { /* 无用户交互会被拒, 下次再试 */ });
+      }
+    } catch { /* ignore */ }
+  }
+  void ensureFullscreen();
+  fullscreenCheckTimer = window.setInterval(() => { void ensureFullscreen(); }, 5000);
+  userInteractionHandler = () => { void ensureFullscreen(); };
+  visibilityHandler = () => { if (document.visibilityState === 'visible') void ensureFullscreen(); };
+  resizeHandler = () => { void ensureFullscreen(); };
+  document.addEventListener('click', userInteractionHandler);
+  document.addEventListener('keydown', userInteractionHandler);
+  document.addEventListener('visibilitychange', visibilityHandler);
+  window.addEventListener('resize', resizeHandler);
+}
+function stopFullscreenGuard(): void {
+  if (fullscreenCheckTimer !== undefined) { clearInterval(fullscreenCheckTimer); fullscreenCheckTimer = undefined; }
+  if (userInteractionHandler) { document.removeEventListener('click', userInteractionHandler); userInteractionHandler = null; }
+  if (visibilityHandler) { document.removeEventListener('visibilitychange', visibilityHandler); visibilityHandler = null; }
+  if (resizeHandler) { window.removeEventListener('resize', resizeHandler); resizeHandler = null; }
+}
+
+/** 进入页面(首次 mount / 从 keep-alive 缓存激活)时启动; 幂等, mounted+activated 双触发只初始化一次。 */
+async function startPlayer(): Promise<void> {
+  if (started) return;
+  started = true;
+
   // 大屏永远深色: 展厅是暗环境, 业主就算把控制端切成浅色, 大屏也不该刷一块白。
   // 不落盘, 不污染业主自己选的主题。
   forceThemeWithoutPersist('dark');
@@ -98,39 +168,47 @@ onMounted(async () => {
   // Also closes the startup/reconnect gap: events missed while offline are
   // reconciled immediately after authenticated hello, not 30 seconds later.
   unsubscribeWsState = playerWs.onState(state => {
+    playerWsState = state;
     if (state === 'open') void fetchChannel();
   });
   playerWs.connect();
 
-  // 立刻一次心跳, 然后每 30s 一次。顺带每轮 fetchChannel 兜底: WS 是零延迟切素材
-  // 的主路径, 但 WS 万一长时间断线 (网络抖动 / 后端重启后重连失败), 光靠 WS 就再也
-  // 收不到切换事件, 大屏会卡在旧素材上。加一条 30s 轮询 —— WS 通时它拉到的跟 WS
-  // 推的一样 (幂等无害), WS 断时它就是唯一能把新素材切上来的兜底。
+  // 立刻一次心跳, 然后每 30s 一次。顺带每轮 fetchChannel 兜底 (WS 断线时唯一兜底通道)。
   void sendHeartbeat();
   heartbeatTimer = window.setInterval(() => { void sendHeartbeat(); void fetchChannel(); }, 30_000);
+  // 断线期间 2s 轻量状态对账, 把断线切换上限压到 2s; WS 正常时只判断不发请求。
+  disconnectedReconcileTimer = window.setInterval(() => {
+    if (playerWsState !== 'open') void fetchChannel();
+  }, 2_000);
 
-  // HDMI 音频路由重试: 只有 slot1/2 (视频) 需要, routeVideoAudio 内部已经检查过
-  // slot, 这里无脑每 5s 试一次, 成功了自己会清掉这个定时器, 便宜且没有副作用
+  // HDMI 音频路由重试: 只有 slot1/2 (视频) 需要, routeVideoAudio 内部已检查 slot,
+  // 成功后会自清。5s 一次, 便宜且无副作用。
   audioRouteRetryTimer = window.setInterval(() => void routeVideoAudio(), 5_000);
 
-  // 自动进入浏览器全屏 (kiosk 模式本来就 borderless 但有些环境 fullscreen API 还要单独触发)
-  try {
-    const el = document.documentElement;
-    if (el.requestFullscreen && !document.fullscreenElement) {
-      await el.requestFullscreen().catch(() => { /* 用户没交互过浏览器会拒, 忽略 */ });
-    }
-  } catch { /* ignore */ }
-});
+  startFullscreenGuard();
+}
 
-onBeforeUnmount(() => {
+/** 切走(deactivated)/销毁前停止全部后台任务: 定时器、WS、全局监听, 并恢复业主主题。 */
+function stopPlayer(): void {
+  if (!started) return;
+  started = false;
   ++requestRevision;
   channel.value = null;
-  if (heartbeatTimer) clearInterval(heartbeatTimer);
-  if (audioRouteRetryTimer !== undefined) clearInterval(audioRouteRetryTimer);
-  if (unsubscribeWs) unsubscribeWs();
-  if (unsubscribeWsState) unsubscribeWsState();
+  if (heartbeatTimer !== undefined) { clearInterval(heartbeatTimer); heartbeatTimer = undefined; }
+  if (disconnectedReconcileTimer !== undefined) { clearInterval(disconnectedReconcileTimer); disconnectedReconcileTimer = undefined; }
+  if (audioRouteRetryTimer !== undefined) { clearInterval(audioRouteRetryTimer); audioRouteRetryTimer = undefined; }
+  if (unsubscribeWs) { unsubscribeWs(); unsubscribeWs = null; }
+  if (unsubscribeWsState) { unsubscribeWsState(); unsubscribeWsState = null; }
   playerWs.disconnect();
-  restoreStoredTheme();   // 离开大屏页, 回到业主自己选的主题
+  stopFullscreenGuard();
+  restoreStoredTheme(); // 离开大屏页(含切走缓存), 回到业主自己选的主题
+}
+
+// keep-alive 生命周期配对: 进入启动 / 切走或被挤出缓存时停止, 杜绝后台定时器+WS+监听空跑拖卡切换
+useActivePolling(() => { void startPlayer(); }, stopPlayer);
+
+onBeforeUnmount(() => {
+  stopPlayer();
 });
 
 // 视频元素引用 — 用来在 ended 时根据 loopMode 决定循环或回待机
@@ -225,6 +303,8 @@ async function resolveHdmiDeviceId(): Promise<string | null> {
 // ============ 文档投屏 (2026-07-25): Word=PDF 逐页渲染; PPT 由 PowerPoint 原生放映
 // (放映窗口盖在本页之上, 这里只留占位)。翻页: channel.docPage 经 WS 实时到达。 ============
 const docCanvas = ref<HTMLCanvasElement | null>(null);
+// 上移: 下方 renderDocPage 与 watch(320) 在 setup 期就引用 isDoc, 必须先声明, 否则 TDZ 报错
+const isDoc = computed(() => channel.value?.currentMediaKind === 'doc');
 let docPdf: { numPages: number; getPage: (n: number) => Promise<unknown> } | null = null;
 let docPdfUrl = '';
 let docRenderSeq = 0;
@@ -308,7 +388,6 @@ const isVideo = computed<boolean>(() => channel.value?.currentMediaKind === 'vid
 const isImage = computed<boolean>(() => channel.value?.currentMediaKind === 'image');
 const isAudio = computed<boolean>(() => channel.value?.currentMediaKind === 'audio');
 const isWebpage = computed<boolean>(() => channel.value?.currentMediaKind === 'webpage');
-const isDoc = computed(() => channel.value?.currentMediaKind === 'doc');
 const isIdle = computed<boolean>(() => !channel.value?.currentMediaUrl);
 
 // 音频元素 — slot=3 (背景音乐 → GK9000 声卡 → EKX). 不静音!
@@ -392,8 +471,9 @@ function onAudioEnded(): void {
     <!-- 播放网页 (iframe 全屏渲染外部 URL) -->
     <iframe
       v-else-if="isWebpage && channel?.currentMediaUrl"
+      :key="channel.playbackSession"
       class="media-el web-frame"
-      sandbox="allow-scripts allow-forms"
+      :sandbox="currentWebpageSandbox"
       :src="channel.currentMediaUrl"
       referrerpolicy="no-referrer"
     />
@@ -431,7 +511,7 @@ function onAudioEnded(): void {
   background: #000;
   display: block;
 }
-.web-frame { object-fit: unset; border: 0; background: #fff; }
+.web-frame { object-fit: unset; border: 0; background: #000; }
 
 
 /* 音频播放可视化 (slot=3 背景音乐 — 这个 kiosk 窗口可见时显示) */
@@ -455,7 +535,7 @@ function onAudioEnded(): void {
 .audio-wave { display: flex; gap: 8px; align-items: flex-end; height: 60px; margin-top: 10px; }
 .audio-wave span {
   width: 10px; border-radius: 5px;
-  background: linear-gradient(180deg, #4C9AFF, #9BA1A9);
+  background: var(--v2-accent-vertical);
   animation: audio-bar 1s ease-in-out infinite;
 }
 .audio-wave span:nth-child(1) { height: 30%; animation-delay: 0s; }

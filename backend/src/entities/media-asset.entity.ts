@@ -8,7 +8,8 @@ export type MediaProcessingStatus = 'ready' | 'pending' | 'processing' | 'failed
  * 媒体资源 (上传到展厅中控的视频/图片)
  *
  * 物理存储: <MEDIA_ROOT>/<id>/<safe-filename>
- *   e.g. D:\Media\42\welcome.mp4
+ * 拍照上屏: <MEDIA_ROOT>/welcome-photos/<id>/<safe-filename>
+ *   e.g. D:\Media\welcome-photos\42\welcome-led.jpg
  *
  * 用途:
  *   - 上传到 GK9000 主控
@@ -30,6 +31,15 @@ export class MediaAsset {
 
   @Column({ type: 'varchar', default: 'upload' })
   source!: 'upload' | 'legacy' | 'system' | 'webpage' | 'import';
+
+  /** Stable deployment-owned identity for immutable bundled assets. */
+  @Index('ux_media_assets_system_key', { unique: true, where: 'system_key IS NOT NULL' })
+  @Column({ name: 'system_key', type: 'varchar', length: 100, nullable: true })
+  systemKey!: string | null;
+
+  /** Expected repository artifact digest for a bundled file; null for webpages. */
+  @Column({ name: 'artifact_sha256', type: 'varchar', length: 64, nullable: true })
+  artifactSha256!: string | null;
 
   @PrimaryGeneratedColumn()
   id!: number;

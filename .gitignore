@@ -1,72 +1,34 @@
-# ============ Node / 依赖 ============
-**/node_modules/
-**/.npm/
-**/npm-debug.log*
-**/yarn-debug.log*
-**/yarn-error.log*
-
-# ============ 构建产物 ============
-backend/dist/
-frontend/dist/
-frontend/dev-dist/
+node_modules/
+dist/
 *.tsbuildinfo
-
-# ============ 运行时数据 (本地) ============
-# 注意: 不带前导 '/' 的目录名会匹配任意层级 — 例如裸 'logs/' 会误伤
-# backend/src/modules/logs/ 这种源码目录, 导致 CI checkout 后缺文件。
-# 这里全部锁到具体路径。
-/database/
-backend/database/
+.tmp/
+tmp/
+*.log
 /logs/
-backend/logs/
-*.db
-*.db-journal
-*.sqlite
-*.sqlite3
-
-# ============ 环境变量 (敏感) ============
-backend/.env
-backend/.env.local
-backend/.env.*.local
-frontend/.env.local
-frontend/.env.*.local
-# 保留示例文件
-!**/.env.example
-
-# ============ PWA / Vite 缓存 ============
-frontend/.vite/
-frontend/.cache/
-
-# ============ IDE / 编辑器 ============
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# ============ macOS / Windows ============
+.env
+.env.local
 .DS_Store
-Thumbs.db
+/media/
+database/*.db
+database/*.db-journal
+database/*.db-shm
+database/*.db-wal
 
-# ============ 临时 / 部署中间产物 ============
-/tmp-deploy/
-/deploy-staging/
-*.tar.gz
-*.tgz
+# 现场可写的运行时业务/设备数据 (KPI、视频绑定+AI ROI、播控状态)。
+# 一律不提交；部署脚本也禁止删除/覆盖 (见 scripts/deploy-from-ci.ps1 白名单)。
+# 注意: 必须忽略"目录内容"(backend/data/*) 而非目录本身, 否则 ! 例外无法重新包含模板。
+backend/data/*
+!backend/data/*.example.json
+# 非 Windows 平台的仓库外运行时数据回退目录
+.runtime/
 
-# ============ 测试覆盖率 ============
-coverage/
-.nyc_output/
+# 播控/看门狗运行时一次性 token（进程自动重写，不提交）
+scripts/*.token
 
-# ============ 现场主控机本地文件 (GK9000) ============
-# 现场会自己生成的脚本/备份/npmrc, 不进仓库
-/start-backend.ps1
-/start-frontend.ps1
-backend/.env.bak*
-backend/.npmrc
-/tmp/
-/RELEASE_HOLD
-/logs/auto-update-*.log
+# 数据库备份目录（禁止git clean删除）
+backups/
+*.backup
+*.bak
 
 # Vite auto-generated, 每次 build 都会改 — 不该 track
 frontend/components.d.ts
@@ -76,3 +38,7 @@ frontend/components.d.ts
 /tools/digital-twin/.env
 /tools/digital-twin/__pycache__/
 /tools/digital-twin/test-results/
+
+# Android signing keys are materialized only in CI from encrypted secrets.
+android-app/signing/*
+!android-app/signing/README.md

@@ -370,10 +370,41 @@ if (Test-Path $resTokenFile) {
     $resTarget = 'auto'
     if ($rtoken -match 'restore') { $resTarget = 'restore' }
     try {
-      & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'set-projector-res.ps1') -Target $resTarget 2>&1 |
+      & powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File (Join-Path $PSScriptRoot 'set-projector-res.ps1') -Target $resTarget 2>&1 |
         ForEach-Object { Log ('  [set-res] ' + $_) }
     } catch { Log ('  [set-res] FAILED: ' + $_.Exception.Message) }
     $forceRelaunch = $true
+  }
+}
+
+# 3b. Window-rect patrol (2026-09-23): heartbeats say nothing about geometry.
+#     Hot-correct each fullscreen window to its display bounds WITHOUT killing
+#     anything (no blink); z-order and focus are untouched. Runs every tick - a
+#     window already correct is only read, never moved. If park-ops has no
+#     window at all, trigger its one-shot interactive re-pin task.
+. (Join-Path $PSScriptRoot 'display-common.ps1')
+$ledRect = Get-DisplayRect
+if ($ledRect) {
+  foreach ($target in @(
+    @{ Marker = 'smart-control-player-slot1' },
+    @{ Marker = 'smart-control-park-ops' }
+  )) {
+    $rectState = Repair-MarkerRect -Marker $target.Marker -X $ledRect.X -Y $ledRect.Y `
+      -W $ledRect.Width -H $ledRect.Height
+    if ($rectState -eq 'missing' -and $target.Marker -eq 'smart-control-park-ops') {
+      Log 'park-ops window missing -> trigger SC-RestartParkOpsOnce'
+      & schtasks.exe /run /tn SC-RestartParkOpsOnce 2>&1 | ForEach-Object { Log ('  ' + $_) }
+    } elseif ($rectState -ne 'ok') {
+      Log ('rect patrol ' + $target.Marker + ' -> ' + $rectState)
+    }
+  }
+  if (Test-SecondDisplayPresent) {
+    $subRect = Get-DisplayRect -NonPrimary
+    if ($subRect) {
+      $rectState = Repair-MarkerRect -Marker 'smart-control-player-slot2' -X $subRect.X -Y $subRect.Y `
+        -W $subRect.Width -H $subRect.Height
+      if ($rectState -ne 'ok') { Log ('rect patrol smart-control-player-slot2 -> ' + $rectState) }
+    }
   }
 }
 
@@ -397,6 +428,9 @@ $launcher = Join-Path $PSScriptRoot 'start-players.ps1'
 # sees (Get-ProjectorRect prints every screen's primary flag + bounds), the rect
 # it chose for slot2, and the Force-ExactFullscreen pin result are all visible
 # from SSH. Without this the projector-window placement is invisible off-console.
-$spOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher *>&1
+# -WindowStyle Hidden: this child runs in the interactive session; without it a
+# visible "Administrator: powershell.exe" console flashes onto the LED wall for
+# the whole relaunch (same hidden pattern bgm/ppt daemons already use).
+$spOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File $launcher *>&1
 foreach ($line in $spOut) { Log ('  [start-players] ' + $line) }
 Log 'start-players.ps1 issued'

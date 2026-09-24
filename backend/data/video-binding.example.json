@@ -1,0 +1,40 @@
+{
+  "_comment": "视频绑定 + AI 计数线/ROI 旧格式示例，仅用于迁移/恢复说明。当前权威源是 SQLite video.binding；服务不再写 video-binding.json。password 仅可在后台现场配置，切勿提交真实凭据。",
+  "nvrs": [
+    {
+      "id": "nvr-port5",
+      "name": "NVR/硬盘录像机示例-Port5",
+      "ip": "192.168.1.5",
+      "port": 80,
+      "rtspPort": 554,
+      "username": "admin",
+      "password": "CHANGE_ME",
+      "brand": "hikvision",
+      "enabled": true,
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "channels": [
+    {
+      "id": "d37",
+      "nvrId": "nvr-port5",
+      "hikChannel": "3701",
+      "name": "大门",
+      "alias": "D37大门",
+      "enabled": true,
+      "sortOrder": 1,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "aiEnabled": true,
+      "countLine": [ { "x": 0.5, "y": 0.2 }, { "x": 0.5, "y": 0.8 } ],
+      "roiPolygon": [
+        { "x": 0.2, "y": 0.25 },
+        { "x": 0.8, "y": 0.25 },
+        { "x": 0.8, "y": 0.75 },
+        { "x": 0.2, "y": 0.75 }
+      ]
+    }
+  ],
+  "displayLayout": { "columns": 3, "channelIds": ["d37"] },
+  "aiBoxEnabled": true,
+  "updatedAt": "2026-01-01T00:00:00.000Z"
+}

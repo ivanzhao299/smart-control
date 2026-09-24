@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)]
   [ValidatePattern('^[0-9a-f]{40}$')]
@@ -25,6 +25,17 @@ $errorMessage = $null
 $lockStream = $null
 $worktreeUpdated = $false
 $migrationAttempted = $false
+$migrationState = 'not-checked'
+$releaseIsolationRequested = $false
+$releaseIsolationStarted = $false
+$controlledActivationCompleted = $false
+$migrationTaskSnapshot = $null
+$migrationReceipt = $null
+$appReleaseReconciled = $false
+$runtimeUntrackServicesStopped = $false
+$runtimeUntrackPaths = @()
+$runtimeUntrackArchiveRoot = $null
+$preMergeBackupCreated = $false
 $rollbackRoot = Join-Path $env:ProgramData ("Anksen\smart-control-rollback-{0}" -f $Commit)
 
 New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
@@ -35,6 +46,38 @@ function Write-DeployLog([string]$Message) {
   $line = '[{0}] {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message
   Add-Content -Path $logPath -Value $line -Encoding UTF8
   Write-Output $line
+}
+
+function Test-ProtectedRuntime([string]$RelativePath) {
+  if ([string]::IsNullOrWhiteSpace($RelativePath)) { return $false }
+  $normalized = $RelativePath.Replace('/', '\')
+  return ($normalized -like 'backend\data\*') -or ($normalized -like '.runtime\*') -or `
+         ($normalized -like 'database\*') -or ($normalized -like 'backups\*') -or `
+         ($normalized -like 'logs\*') -or `
+         ($normalized -match '\.(db|db-wal|db-shm|sqlite|bak)$')
+}
+
+function Test-MutableRuntimePath([string]$RelativePath) {
+  if ([string]::IsNullOrWhiteSpace($RelativePath)) { return $false }
+  $normalized = $RelativePath.Replace('/', '\')
+  if ($normalized -like 'logs\*' -or $normalized -like '.runtime\*') { return $true }
+  if ($normalized -match '^database\.*\.(db|db-journal|db-wal|db-shm|sqlite)$') { return $true }
+  return ($normalized -like 'backend\data\*.json') -and ($normalized -notlike '*.example.json')
+}
+
+function Restore-ArchivedRuntimeFiles([string]$ArchiveRoot, [string[]]$RelativePaths) {
+  if ([string]::IsNullOrWhiteSpace($ArchiveRoot)) { return }
+  foreach ($relativePath in $RelativePaths) {
+    $archivedPath = Join-Path $ArchiveRoot $relativePath
+    if (-not (Test-Path $archivedPath)) { continue }
+    $livePath = Join-Path $projectRoot $relativePath
+    New-Item -ItemType Directory -Force -Path (Split-Path $livePath -Parent) | Out-Null
+    if (Test-Path $livePath) {
+      throw "Refusing to overwrite a live runtime file while restoring: $relativePath"
+    }
+    Move-Item -Path $archivedPath -Destination $livePath -Force
+    Write-DeployLog "Restored protected runtime file after Git operation: $relativePath"
+  }
 }
 
 function Invoke-Native([string]$FilePath, [string[]]$Arguments) {
@@ -50,6 +93,120 @@ function Invoke-Native([string]$FilePath, [string[]]$Arguments) {
   }
   if ($exitCode -ne 0) {
     throw "Command failed with exit code ${exitCode}: $FilePath"
+  }
+}
+
+function Get-DatabaseMigrationStatus {
+  $script:databaseMigrationStatus = $null
+  Push-Location (Join-Path $projectRoot 'backend')
+  try {
+    $lines = @(& node scripts/run-migrations.js --check-only 2>&1)
+    $exitCode = $LASTEXITCODE
+    foreach ($line in $lines) { Write-DeployLog "  $line" }
+    if ($exitCode -ne 0) { throw "Database migration preflight failed (exit $exitCode)." }
+    if ($lines -contains 'MIGRATIONS_PENDING') { $script:databaseMigrationStatus = 'pending'; return }
+    if ($lines -contains 'MIGRATIONS_CURRENT') { $script:databaseMigrationStatus = 'current'; return }
+    throw 'Database migration preflight returned no recognized status.'
+  } finally {
+    Pop-Location
+  }
+}
+
+function Invoke-ControlledMigrationReconciliation {
+  $backendDataSource = Join-Path $projectRoot 'backend\dist\data-source.js'
+  if (-not (Test-Path $backendDataSource)) {
+    Write-DeployLog 'Backend dist/data-source.js missing; rebuilding before migration preflight.'
+    Push-Location (Join-Path $projectRoot 'backend')
+    try {
+      Invoke-Native 'pnpm.cmd' @('install', '--frozen-lockfile')
+      Invoke-Native 'pnpm.cmd' @('run', 'build')
+    } finally { Pop-Location }
+  }
+  Write-DeployLog 'Checking database migration status without changing schema.'
+  Get-DatabaseMigrationStatus
+  $status = $script:databaseMigrationStatus
+  $script:migrationState = $status
+  if ($status -eq 'current') {
+    Write-DeployLog 'Database schema is current; no release isolation is needed.'
+    return
+  }
+  if ($VerifyOnly) { throw 'Pending database migration requires a normal controlled deployment.' }
+
+  $script:migrationTaskSnapshot = Join-Path $logsDir ('release-pause-' + [Guid]::NewGuid().ToString('N') + '.json')
+  $recoveryRoot = 'D:\smart-control-backups\migration-recovery'
+  New-Item -ItemType Directory -Force -Path $recoveryRoot | Out-Null
+  $script:releaseIsolationRequested = $true
+  $script:migrationState = 'isolation-requested'
+  Write-DeployLog 'Pending migration found; establishing continuous writer isolation.'
+  & (Join-Path $projectRoot 'scripts\suspend-gk9000-release.ps1') -Apply `
+    -SnapshotPath $script:migrationTaskSnapshot -PreReleaseRevision $previousCommit 2>&1 |
+    ForEach-Object { Write-DeployLog "  $_" }
+  if ($LASTEXITCODE -ne 0) { throw "Release isolation failed (exit $LASTEXITCODE)." }
+  $script:releaseIsolationStarted = $true
+  $script:migrationState = 'isolated'
+
+  Push-Location (Join-Path $projectRoot 'backend')
+  try {
+    $script:migrationAttempted = $true
+    $script:migrationState = 'controller-started'
+    Write-DeployLog 'Running controlled migration with paired database/media recovery rehearsal.'
+    $previousPreference = $ErrorActionPreference
+    try {
+      $ErrorActionPreference = 'Continue'
+      $migrationEntry = Join-Path $projectRoot 'backend\scripts\run-gk9000-migrations.cjs'
+      $migrationLines = @(& node $migrationEntry $recoveryRoot $previousCommit 2>&1)
+      $migrationExit = $LASTEXITCODE
+    } finally {
+      $ErrorActionPreference = $previousPreference
+    }
+    foreach ($line in $migrationLines) { Write-DeployLog "  $line" }
+    if ($migrationExit -ne 0) { throw "Controlled database migration failed (exit $migrationExit)." }
+    $receiptLine = @($migrationLines | Where-Object { $_ -match '^Migration receipt \(not activation\): (.+)$' }) | Select-Object -Last 1
+    if (-not $receiptLine) { throw 'Controlled migration returned no activation receipt.' }
+    $script:migrationReceipt = ([regex]::Match([string]$receiptLine, '^Migration receipt \(not activation\): (.+)$')).Groups[1].Value.Trim()
+    if (-not (Test-Path -LiteralPath $script:migrationReceipt -PathType Leaf)) { throw 'Migration receipt file is missing.' }
+    $script:migrationState = 'committed'
+  } finally { Pop-Location }
+
+  Write-DeployLog 'Activating the verified candidate from its migration receipt.'
+  & (Join-Path $projectRoot 'scripts\resume-gk9000-release.ps1') -Commit $Commit `
+    -TaskSnapshot $script:migrationTaskSnapshot -MigrationReceipt $script:migrationReceipt -Apply 2>&1 |
+    ForEach-Object { Write-DeployLog "  $_" }
+  if ($LASTEXITCODE -ne 0) { throw "Controlled activation failed (exit $LASTEXITCODE)." }
+  $script:migrationState = 'activated'
+  $script:controlledActivationCompleted = $true
+  $script:releaseIsolationStarted = $false
+}
+
+function Invoke-AppReleaseReconciliation([switch]$CheckOnly) {
+  $entry = Join-Path $projectRoot 'backend\scripts\reconcile-app-release.cjs'
+  $manifest = Join-Path $projectRoot 'deploy\assets\app\manifest.json'
+  $artifact = Join-Path $projectRoot 'deploy\assets\app\smart-control-latest.apk'
+  if (-not (Test-Path -LiteralPath $entry -PathType Leaf)) {
+    throw 'Required app release reconciler is missing.'
+  }
+  Push-Location (Join-Path $projectRoot 'backend')
+  try {
+    $arguments = @($entry, '--manifest', $manifest, '--artifact', $artifact)
+    if ($CheckOnly) { $arguments += '--check-only' }
+    Invoke-Native 'node' $arguments
+  } finally {
+    Pop-Location
+  }
+}
+
+function Assert-BundledMediaCurrent {
+  $entry = Join-Path $projectRoot 'backend\scripts\reconcile-bundled-media.cjs'
+  $manifest = Join-Path $projectRoot 'deploy\assets\bundled-media-manifest.json'
+  if (-not (Test-Path -LiteralPath $entry -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $manifest -PathType Leaf)) {
+    throw 'Required bundled media catalog is missing.'
+  }
+  Push-Location (Join-Path $projectRoot 'backend')
+  try {
+    Invoke-Native 'node' @($entry, '--manifest', $manifest, '--check-only')
+  } finally {
+    Pop-Location
   }
 }
 
@@ -118,7 +275,7 @@ function Invoke-DetachedResurrect {
   # ever computes -> every later pm2 call misses it and hatches yet another
   # daemon. That was the source of the 128-idle-daemon herd found 2026-07-27.
   $eco = Join-Path $projectRoot 'deploy\ecosystem.config.js'
-  $cmd = "cmd /c `"set PM2_HOME=$pm2Home&& $pm2 resurrect & $pm2 start $eco --env production & $pm2 save`""
+  $cmd = "cmd /c `"set PM2_HOME=$pm2Home&& $pm2 resurrect & $pm2 start $eco --env production --update-env & $pm2 save`""
   Write-DeployLog "WMI detached recover: $cmd"
   $r = ([wmiclass]'\\.\root\cimv2:Win32_Process').Create($cmd, 'C:\Users\user', $null)
   Write-DeployLog ("  WMI ProcessId={0} ReturnValue={1}" -f $r.ProcessId, $r.ReturnValue)
@@ -146,12 +303,16 @@ function Restart-Services {
   $env:PM2_HOME = 'C:\Users\user\.pm2'
   Write-DeployLog "pm2 = $pm2 ; PM2_HOME = $env:PM2_HOME"
 
-  # Happy path: the daemon is alive and already owns both apps.
-  # Only the restart may fall through to recovery -- do NOT put `pm2 save` in this
+  # Happy path: reconcile the running apps from the declarative ecosystem file.
+  # A name-only restart keeps stale environment variables from dump.pm2, which
+  # previously dropped DATA_DIR and sent runtime writes back into backend/data.
+  # Only the start may fall through to recovery -- do NOT put `pm2 save` in this
   # try, or a hiccup in save would send us into the port-killing branch below.
   $needsRecovery = $false
   try {
-    Invoke-Native $pm2 @('restart', 'smart-control-backend', 'smart-control-frontend', '--update-env')
+    $eco = Join-Path $projectRoot 'deploy\ecosystem.config.js'
+    Invoke-Native $pm2 @('start', $eco, '--env', 'production', '--update-env')
+    Write-DeployLog 'PM2 applications reconciled from ecosystem configuration.'
   } catch {
     Write-DeployLog "pm2 restart failed: $($_.Exception.Message)"
     $needsRecovery = $true
@@ -197,23 +358,163 @@ function Test-BackendHealth {
 
 function Test-FrontendHealth {
   try {
-    $response = Invoke-WebRequest 'http://127.0.0.1:5173/' -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
-    return $response.StatusCode -eq 200
+    $response = Invoke-WebRequest 'http://127.0.0.1:5173/control/' -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+    $entryMatch = [regex]::Match($response.Content, 'src="(/control/assets/[^"?]+\.js)"')
+    if ($response.StatusCode -ne 200 -or -not $entryMatch.Success) {
+      return $false
+    }
+    $entry = Invoke-WebRequest ("http://127.0.0.1:5173{0}" -f $entryMatch.Groups[1].Value) -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+    if ($entry.StatusCode -ne 200 -or $entry.Headers['Content-Type'] -notmatch 'javascript') {
+      return $false
+    }
+    try {
+      Invoke-WebRequest 'http://127.0.0.1:5173/control/assets/__deploy-probe-missing__.js' -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop | Out-Null
+      return $false
+    } catch {
+      return [int]$_.Exception.Response.StatusCode -eq 404
+    }
   } catch {
     return $false
   }
 }
 
-try {
+# --- Minimal deployment scope detection (2026-09-14) ---
+# Classify files changed between two commits. Static assets and single-tier
+# code changes deploy with minimal blast radius; anything touching deps,
+# config, migrations, deploy scripts, or both tiers falls back to full deploy.
+# ASCII-only on purpose (GBK console on Chinese Windows).
+function Get-DeployScope([string]$FromCommit, [string]$ToCommit) {
+  $classifier = Join-Path $projectRoot 'tools\ci\deploy-scope.mjs'
+  if (-not (Test-Path -LiteralPath $classifier -PathType Leaf)) {
+    throw 'Shared deployment scope classifier is missing.'
+  }
+  $json = (& node $classifier --base $FromCommit --head $ToCommit 2>&1 | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($json)) {
+    throw 'Shared deployment scope classifier failed.'
+  }
+  try { return $json | ConvertFrom-Json }
+  catch { throw "Shared deployment scope classifier returned invalid JSON: $($_.Exception.Message)" }
+}
+
+function Deploy-StaticAssets($scope, $projectRoot) {
+  $publicDir = Join-Path $projectRoot 'frontend\public'
+  $distDir = Join-Path $projectRoot 'frontend\dist'
+  foreach ($f in $scope.files) {
+    if ($f -match '^frontend/public/') {
+      $relative = $f.Substring('frontend/public/'.Length)
+      $src = Join-Path $publicDir ($relative -replace '/', '\')
+      $dst = Join-Path $distDir ($relative -replace '/', '\')
+      $dstDir = Split-Path $dst -Parent
+      if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Force -Path $dstDir | Out-Null }
+      if (Test-Path $src) {
+        Copy-Item -Path $src -Destination $dst -Force
+        Write-DeployLog "  static: $relative"
+      }
+    }
+  }
+}
+
+function Copy-PreviousFrontendAssets([string]$SourceDist, [string]$TargetDist) {
+  $sourceWorker = Join-Path $SourceDist 'sw.js'
+  if (-not (Test-Path $sourceWorker)) { return }
+  $workerText = Get-Content -Path $sourceWorker -Raw
+  # Workbox currently minifies entries as {url:"..."}; older output and tests may
+  # use {"url":"..."}. Accept both property forms or the retention gate silently
+  # finds zero assets and an already-open PWA loses its old lazy chunks.
+  $matches = [regex]::Matches($workerText, '(?:"url"|url)\s*:\s*"([^"?]+)"')
+  $sourceRoot = [IO.Path]::GetFullPath($SourceDist).TrimEnd('\') + '\'
+  $targetRoot = [IO.Path]::GetFullPath($TargetDist).TrimEnd('\') + '\'
+  $expected = 0
+  $copied = 0
+  foreach ($match in $matches) {
+    $relative = $match.Groups[1].Value.Replace('/', '\')
+    if ($relative -notlike 'assets\*') { continue }
+    $expected++
+    $source = [IO.Path]::GetFullPath((Join-Path $SourceDist $relative))
+    $target = [IO.Path]::GetFullPath((Join-Path $TargetDist $relative))
+    if (-not $source.StartsWith($sourceRoot, [StringComparison]::OrdinalIgnoreCase) -or
+        -not $target.StartsWith($targetRoot, [StringComparison]::OrdinalIgnoreCase)) {
+      throw "Previous PWA asset path escapes dist: $relative"
+    }
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+      throw "Previous PWA asset is missing from rollback snapshot: $relative"
+    }
+    if (-not (Test-Path -LiteralPath $target)) {
+      New-Item -ItemType Directory -Force -Path (Split-Path $target -Parent) | Out-Null
+      Copy-Item -LiteralPath $source -Destination $target
+      $copied++
+    }
+  }
+  if ($expected -eq 0) {
+    throw 'Previous PWA service worker contains no local asset entries.'
+  }
+  foreach ($match in $matches) {
+    $relative = $match.Groups[1].Value.Replace('/', '\')
+    if ($relative -like 'assets\*' -and
+        -not (Test-Path -LiteralPath (Join-Path $TargetDist $relative) -PathType Leaf)) {
+      throw "Previous PWA asset was not retained: $relative"
+    }
+  }
+  Write-DeployLog "Preserved $copied of $expected asset(s) from the previous PWA release."
+}
+
+function Deploy-FrontendOnly($projectRoot) {
+  # Side-build to dist-repair then swap into production dist. vite preview
+  # reads from disk on every request (ecosystem.config.js), so no restart
+  # is needed - zero-downtime frontend update.
+  Push-Location (Join-Path $projectRoot 'frontend')
   try {
-    $lockStream = [System.IO.File]::Open(
-      $lockPath,
-      [System.IO.FileMode]::OpenOrCreate,
-      [System.IO.FileAccess]::ReadWrite,
-      [System.IO.FileShare]::None
-    )
-  } catch {
-    throw 'Another GK9000 deployment is already running.'
+    Invoke-Native 'pnpm.cmd' @('install', '--frozen-lockfile')
+    $repairDir = Join-Path $projectRoot 'frontend\dist-repair'
+    Remove-Item -Path $repairDir -Recurse -Force -ErrorAction SilentlyContinue
+    Invoke-Native 'pnpm.cmd' @('exec', 'vite', 'build', '--outDir', 'dist-repair')
+    $productionDist = Join-Path $projectRoot 'frontend\dist'
+    Copy-PreviousFrontendAssets $productionDist $repairDir
+    Copy-Item -Path (Join-Path $repairDir '*') -Destination $productionDist -Recurse -Force
+    Remove-Item -Path $repairDir -Recurse -Force -ErrorAction SilentlyContinue
+  } finally {
+    Pop-Location
+  }
+}
+
+function Deploy-BackendOnly($projectRoot) {
+  Push-Location (Join-Path $projectRoot 'backend')
+  try {
+    Invoke-Native 'pnpm.cmd' @('install', '--frozen-lockfile')
+    Invoke-Native 'pnpm.cmd' @('run', 'build')
+  } finally {
+    Pop-Location
+  }
+  $pm2 = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
+  if (-not (Test-Path $pm2)) { $pm2 = 'pm2' }
+  $env:PM2_HOME = 'C:\Users\user\.pm2'
+  $eco = Join-Path $projectRoot 'deploy\ecosystem.config.js'
+  Invoke-Native $pm2 @('start', $eco, '--env', 'production', '--only', 'smart-control-backend', '--update-env')
+  Write-DeployLog 'Backend PM2 environment reconciled from ecosystem configuration.'
+  Invoke-Native $pm2 @('save')
+}
+
+try {
+  # Wait for the on-box watcher (update.ps1 now shares this SAME lock) instead
+  # of failing red the instant it is busy. A watcher build can take a couple of
+  # minutes, so poll up to ~150s; only give up if the lock never frees. ASCII.
+  $lockStream = $null
+  for ($lockTry = 0; $lockTry -lt 30; $lockTry++) {
+    try {
+      $lockStream = [System.IO.File]::Open(
+        $lockPath,
+        [System.IO.FileMode]::OpenOrCreate,
+        [System.IO.FileAccess]::ReadWrite,
+        [System.IO.FileShare]::None
+      )
+      break
+    } catch {
+      $lockStream = $null
+      Start-Sleep -Seconds 5
+    }
+  }
+  if (-not $lockStream) {
+    throw 'Another GK9000 deployment is still running after waiting 150s.'
   }
 
   Set-Location $projectRoot
@@ -236,15 +537,38 @@ try {
       }
     }
   } else {
-    $trackedChanges = @(git status --porcelain --untracked-files=no)
+    $rawChanges = @(git status --porcelain --untracked-files=no)
     if ($LASTEXITCODE -ne 0) { throw 'Unable to inspect the Git worktree.' }
+    # Exempt runtime files that ARE declared in .gitignore but were historically
+    # tracked by mistake (SQLite *.db-shm/*.db-wal, logs): they always change while
+    # the service runs, so blocking on them has no protective value and only turns
+    # every deploy red (root cause of #522/#523 on 2026-09-13). --no-index matches
+    # ignore rules without consulting the index (plain check-ignore never matches a
+    # tracked path). Real changes (source/lock/config) are NOT in .gitignore and are
+    # still blocked hard; the gate is not loosened for them. ASCII-only on purpose.
+    $trackedChanges = @()
+    $ignoredRuntime = @()
+    foreach ($line in $rawChanges) {
+      if ($null -eq $line -or $line.Length -le 3) { continue }
+      $path = $line.Substring(3).Trim('"')
+      if ($path -match ' -> ') { $path = ($path -split ' -> ')[-1] }
+      $isMutableRuntime = Test-MutableRuntimePath $path
+      if (-not $isMutableRuntime) {
+        $null = & git check-ignore --no-index --quiet -- $path 2>$null
+        $isMutableRuntime = ($LASTEXITCODE -eq 0)
+      }
+      if ($isMutableRuntime) { $ignoredRuntime += $line } else { $trackedChanges += $line }
+    }
+    if ($ignoredRuntime.Count -gt 0) {
+      Write-DeployLog "Ignoring runtime files already declared in .gitignore: $($ignoredRuntime -join '; ')"
+    }
     if ($trackedChanges.Count -gt 0) {
       throw "Tracked files are modified on GK9000: $($trackedChanges -join '; ')"
     }
 
-    # git fetch 竞态容忍 (2026-07-30 #52ec765 现场): watcher 的 fetch 可能与本脚本
-    # 同时更新 origin/main 的 ref, git 报 "cannot lock ref ... but expected ..." —
-    # ref 其实已被对方更到位, 等一拍重试即可, 不该让整次部署红掉。
+    # Tolerate a git fetch ref race (2026-07-30 #52ec765). A watcher fetch may
+    # update origin/main concurrently and report "cannot lock ref ... but expected ...".
+    # The other fetch may already have completed the update, so retry once.
     $fetched = $false
     for ($fi = 0; $fi -lt 3; $fi++) {
       try {
@@ -337,72 +661,295 @@ try {
         }
       }
 
+      # === Runtime-data protection (root-cause fix 2026-09-15: KPI and AI
+      # count-line/ROI were lost because runtime JSON lived INSIDE the git tree
+      # and got deleted/reset by deploy). Resolve the out-of-tree DATA_DIR exactly
+      # like deploy/ecosystem.config.js does. ASCII-only on purpose. ===
+      $runtimeDataDir = $env:DATA_DIR
+      if ([string]::IsNullOrWhiteSpace($runtimeDataDir)) {
+        if (Test-Path 'D:\') { $runtimeDataDir = 'D:\smart-control-runtime\data' }
+        else { $runtimeDataDir = Join-Path $projectRoot '.runtime\data' }
+      }
+      New-Item -ItemType Directory -Force -Path $runtimeDataDir | Out-Null
+      $legacyDataDir = Join-Path $projectRoot 'backend\data'
+
+      # BEFORE merge: rescue on-box runtime data out of the tree. Copy EVERY runtime
+      # *.json under backend\data (except *.example.json templates), not a fixed name
+      # list, so future runtime files are migrated too. Copy only, never delete
+      # source, never overwrite a newer existing target. video-binding.json used to be
+      # tracked and is removed from the repo by this change, so ff-merge would drop
+      # the in-tree copy - the out-of-tree DATA_DIR copy is what survives.
+      if (Test-Path $legacyDataDir) {
+        Get-ChildItem -Path $legacyDataDir -Filter '*.json' -File -ErrorAction SilentlyContinue |
+          Where-Object { $_.Name -notlike '*.example.json' } |
+          ForEach-Object {
+            $safePath = Join-Path $runtimeDataDir $_.Name
+            if (-not (Test-Path $safePath)) {
+              Copy-Item -Path $_.FullName -Destination $safePath -Force
+              Write-DeployLog "Protected runtime $($_.Name) copied to DATA_DIR before merge ($runtimeDataDir)."
+            }
+          }
+      }
+
+      # Recover a valid legacy previous copy only when the protected primary is
+      # absent. This repairs the park-ops metrics document lost before DATA_DIR
+      # migration without overwriting any newer runtime value.
+      if (Test-Path $legacyDataDir) {
+        Get-ChildItem -Path $legacyDataDir -Filter '*.json.bak' -File -ErrorAction SilentlyContinue |
+          ForEach-Object {
+            $targetName = $_.Name.Substring(0, $_.Name.Length - 4)
+            $safePath = Join-Path $runtimeDataDir $targetName
+            if (-not (Test-Path $safePath)) {
+              try {
+                Get-Content -Path $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json | Out-Null
+                Copy-Item -Path $_.FullName -Destination $safePath -Force
+                Write-DeployLog "Recovered valid runtime document from backup: $targetName"
+              } catch {
+                Write-DeployLog "Skipped invalid legacy runtime backup: $($_.Name)"
+              }
+            }
+          }
+      }
+
+      # A modified tracked legacy JSON would block a later commit that removes it
+      # from the repository. Once the same file is confirmed in DATA_DIR, restore
+      # only the in-tree working copy from HEAD so merge can proceed. DATA_DIR is
+      # never overwritten or removed here.
+      $trackedRuntimeFiles = @(
+        git status --porcelain |
+          Where-Object { ($_ -notmatch '^\?\?') -and $_.Length -gt 3 } |
+          ForEach-Object { $_.Substring(3).Trim('"') } |
+          Where-Object {
+            $candidate = $_.Replace('/', '\')
+            ($candidate -like 'backend\data\*.json') -and ($candidate -notlike '*.example.json')
+          }
+      )
+      foreach ($relativeFile in $trackedRuntimeFiles) {
+        $safePath = Join-Path $runtimeDataDir (Split-Path $relativeFile -Leaf)
+        if (Test-Path $safePath) {
+          Invoke-Native 'git' @('restore', '--worktree', '--', $relativeFile)
+          Write-DeployLog "Restored tracked legacy runtime copy after DATA_DIR protection: $relativeFile"
+        } else {
+          throw "Refusing to restore tracked runtime file without DATA_DIR copy: $relativeFile"
+        }
+      }
+
+      # Only paths present in the target tree can block a fast-forward merge.
+      # Preserve every unrelated untracked file. Move true conflicts into this
+      # commit's rollback snapshot so the operation is reversible and auditable.
+      $untrackedFiles = @(git status --porcelain --untracked-files=all | Where-Object { $_ -match '^\?\?' } | ForEach-Object { $_.Substring(3).Trim('"') })
+      $protectedKept = @()
+      $conflicts = @()
+      foreach ($u in $untrackedFiles) {
+        $gitPath = $u.Replace('\', '/')
+        $previousPreference = $ErrorActionPreference
+        try {
+          $ErrorActionPreference = 'Continue'
+          & git cat-file -e ("{0}:{1}" -f $Commit, $gitPath) 2>$null
+          $existsInTarget = ($LASTEXITCODE -eq 0)
+        } finally {
+          $ErrorActionPreference = $previousPreference
+        }
+        if (-not $existsInTarget) { continue }
+        if (Test-ProtectedRuntime $u) { $protectedKept += $u } else { $conflicts += $u }
+      }
+      if ($protectedKept.Count -gt 0) {
+        throw "Target commit conflicts with protected runtime/db files: $($protectedKept -join ', ')"
+      }
+      if ($conflicts.Count -gt 0) {
+        $quarantineRoot = Join-Path $rollbackRoot 'untracked-conflicts'
+        Write-DeployLog "Quarantining $($conflicts.Count) untracked merge conflict(s): $($conflicts -join ', ')"
+        foreach ($relativeFile in $conflicts) {
+          $fullPath = Join-Path $projectRoot $relativeFile
+          $quarantinePath = Join-Path $quarantineRoot $relativeFile
+          New-Item -ItemType Directory -Force -Path (Split-Path $quarantinePath -Parent) | Out-Null
+          Move-Item -Path $fullPath -Destination $quarantinePath -Force
+        }
+      }
+
+      # A runtime file can be ignored and still be tracked by an old commit. A
+      # target commit that removes such a path makes Git unlink the live file.
+      # SQLite WAL/SHM may also be locked by the backend. Before that one-time
+      # transition, create a verified SQLite snapshot, stop both applications,
+      # and move every affected runtime file outside the worktree. The exact
+      # files are restored after the merge as untracked runtime state.
+      $runtimeUntrackPaths = @(
+        git diff --diff-filter=D --name-only $previousCommit $Commit |
+          Where-Object { Test-ProtectedRuntime $_ }
+      )
+      if ($runtimeUntrackPaths.Count -gt 0) {
+        $backupScript = Join-Path $projectRoot 'scripts\backup.ps1'
+        if (-not (Test-Path $backupScript)) {
+          throw 'Required production backup script is missing before runtime untracking.'
+        }
+        Write-DeployLog "Preparing safe runtime untracking for: $($runtimeUntrackPaths -join ', ')"
+        & $backupScript 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
+        if ($LASTEXITCODE -ne 0) { throw 'Verified pre-merge backup failed.' }
+        $preMergeBackupCreated = $true
+
+        $pm2Runtime = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
+        if (-not (Test-Path $pm2Runtime)) { $pm2Runtime = 'pm2' }
+        $env:PM2_HOME = 'C:\Users\user\.pm2'
+        Invoke-Native $pm2Runtime @('stop', 'smart-control-backend', 'smart-control-frontend')
+        $runtimeUntrackServicesStopped = $true
+        Start-Sleep -Seconds 2
+
+        $runtimeUntrackArchiveRoot = Join-Path $rollbackRoot 'tracked-runtime-untracking'
+        foreach ($relativePath in $runtimeUntrackPaths) {
+          $livePath = Join-Path $projectRoot $relativePath
+          if (-not (Test-Path $livePath)) { continue }
+          $archivedPath = Join-Path $runtimeUntrackArchiveRoot $relativePath
+          New-Item -ItemType Directory -Force -Path (Split-Path $archivedPath -Parent) | Out-Null
+          Move-Item -Path $livePath -Destination $archivedPath -Force
+          Write-DeployLog "Archived protected runtime file before Git merge: $relativePath"
+        }
+      }
+
       Invoke-Native 'git' @('merge', '--ff-only', $Commit)
       $worktreeUpdated = $true
 
+      if ($runtimeUntrackPaths.Count -gt 0) {
+        Restore-ArchivedRuntimeFiles $runtimeUntrackArchiveRoot $runtimeUntrackPaths
+      }
+
+      # After merge: best-effort migrate any runtime *.json still missing from
+      # DATA_DIR (whole legacy dir, skip templates; copy only, never overwrite).
+      if (Test-Path $legacyDataDir) {
+        Get-ChildItem -Path $legacyDataDir -Filter '*.json' -File -ErrorAction SilentlyContinue |
+          Where-Object { $_.Name -notlike '*.example.json' } |
+          ForEach-Object {
+            $safePath = Join-Path $runtimeDataDir $_.Name
+            if (-not (Test-Path $safePath)) {
+              Copy-Item -Path $_.FullName -Destination $safePath -Force
+              Write-DeployLog "Post-merge migrated runtime $($_.Name) -> DATA_DIR."
+            }
+          }
+      }
+      # Use the same fail-closed classifier in CI and on the production host.
+      # The production result remains authoritative because it is calculated
+      # from the commits that are actually present on this host.
+      $scope = Get-DeployScope $previousCommit $Commit
+      $noRuntime = $scope.scope -eq 'none'
+      $staticOnly = $scope.scope -eq 'static'
+      $frontendOnly = $scope.scope -eq 'frontend'
+      $backendOnly = $scope.scope -eq 'backend'
+      $fullDeploy = $scope.scope -eq 'full'
+      Write-DeployLog ("Deploy scope: noRuntime={0} staticOnly={1} frontendOnly={2} backendOnly={3} fullDeploy={4} releaseControl={5} highRisk={6} files=[{7}]" -f $noRuntime, $staticOnly, $frontendOnly, $backendOnly, $fullDeploy, $scope.releaseControl, $scope.highRisk, ($scope.files -join ','))
+
+      # Static and frontend-only releases cannot mutate the database. Their
+      # rollback snapshot still contains the previous dist, while the migration
+      # preflight below remains able to create its own paired recovery bundle if
+      # it discovers unfinished schema work from an earlier release.
+      $requiresDatabaseBackup = $backendOnly -or $fullDeploy
       $backupScript = Join-Path $projectRoot 'scripts\backup.ps1'
-      if (Test-Path $backupScript) {
-        Write-DeployLog 'Creating the existing production backup before build.'
-        # Snapshot evidence is retained; database-only backup is not a media rollback bundle.
+      if ($preMergeBackupCreated) {
+        Write-DeployLog 'Using the verified backup created immediately before runtime untracking.'
+      } elseif ($requiresDatabaseBackup -and (Test-Path $backupScript)) {
+        Write-DeployLog 'Creating the production database backup before a backend-capable release.'
         & $backupScript 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
-      } else {
+        if ($LASTEXITCODE -ne 0) { throw 'Verified pre-build backup failed.' }
+      } elseif ($requiresDatabaseBackup) {
         throw 'Required production backup script is missing.'
+      } else {
+        Write-DeployLog 'No database backup needed: this release cannot change backend data or schema.'
       }
 
-      Push-Location (Join-Path $projectRoot 'backend')
-      try {
-        Invoke-Native 'pnpm.cmd' @('install', '--frozen-lockfile')
-        Invoke-Native 'pnpm.cmd' @('run', 'build')
-      } finally {
-        Pop-Location
-      }
+      if ($noRuntime) {
+        Write-DeployLog 'NO-RUNTIME deploy: release-control, native-app, test, or documentation files only - skipping build, database backup, and service restart.'
+      } elseif ($staticOnly) {
+        Write-DeployLog 'MINIMAL deploy: static assets only - copying to dist, skipping build and service restart.'
+        Deploy-StaticAssets $scope $projectRoot
+      } elseif ($frontendOnly) {
+        Write-DeployLog 'MINIMAL deploy: frontend code only - side-building frontend, skipping backend and restart (vite preview reads disk, zero-downtime).'
+        Deploy-FrontendOnly $projectRoot
+      } elseif ($backendOnly) {
+        Write-DeployLog 'MINIMAL deploy: backend code only - building and restarting backend, skipping frontend build.'
+        Deploy-BackendOnly $projectRoot
+        # A backend-only commit may ALSO carry frontend/public static assets (park-ops demo,
+        # icons, etc.). Deploy-BackendOnly skips the frontend build, so copy those static
+        # files straight into dist afterwards - vite preview reads disk on every request,
+        # so this is zero-downtime. Without this sync the static half of a mixed
+        # (backend + public) commit was silently dropped: git updated public/ but dist/ stayed
+        # stale and preview kept serving the old asset (root cause of "frontend change not
+        # live after deploy" on 2026-09-15).
+        if ($scope.parkOpsStatic -or $scope.frontendPublic) {
+          Write-DeployLog 'Mixed commit also carries frontend/public assets - syncing them into dist (no frontend build).'
+          Deploy-StaticAssets $scope $projectRoot
+        }
+      } else {
+        Write-DeployLog 'FULL deploy: multi-tier or high-risk changes - running complete deployment.'
 
-      Push-Location (Join-Path $projectRoot 'frontend')
-      try {
-        Invoke-Native 'pnpm.cmd' @('install', '--frozen-lockfile')
-        Invoke-Native 'pnpm.cmd' @('run', 'typecheck')
-        Invoke-Native 'pnpm.cmd' @('run', 'build')
-      } finally {
-        Pop-Location
-      }
+        Push-Location (Join-Path $projectRoot 'backend')
+        try {
+          Invoke-Native 'pnpm.cmd' @('install', '--frozen-lockfile')
+          Invoke-Native 'pnpm.cmd' @('run', 'build')
+        } finally {
+          Pop-Location
+        }
 
-      # Run DB migrations after build, before restart. With DB_SYNCHRONIZE=false the
-      # schema only changes through migrations, so this is where new ones get applied.
-      # run-migrations.js is a no-op when nothing is pending. Pending migrations
-      # now require a continuous writer-fence controller and paired DB/media
-      # recovery rehearsal. This legacy CLI path fails closed until that controller
-      # is wired and verified on the target host. Once attempted, code-only rollback is forbidden: old
-      # public media routes must never run against a possibly multiuser database.
-      Push-Location (Join-Path $projectRoot 'backend')
-      try {
-        Write-DeployLog 'Running DB migrations (run-migrations.js).'
-        $migrationAttempted = $true
-        & node scripts/run-migrations.js 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
-        if ($LASTEXITCODE -ne 0) { throw "Database migration failed (exit $LASTEXITCODE)." }
-      } finally {
-        Pop-Location
-      }
+        # Detect pending schema work while both services still have their normal
+        # topology. A pending migration owns the stop/build/activate sequence.
+        Invoke-ControlledMigrationReconciliation
+        if (-not $controlledActivationCompleted) {
 
-      Write-DeployLog 'Restarting services through pm2.'
-      Restart-Services
+        # Stop the frontend BEFORE Vite empties dist: a still-running pm2 static
+        # server (plus Defender real-time scan) can hold dist/park-ops/index.html
+        # and make Vite prepareOutDir fail with EPERM/ENOTEMPTY (Deploy #531,
+        # 2026-09-14). Backend stays up throughout; Restart-Services below brings
+        # the frontend back after the build. Literal paths, ASCII-only.
+        $pm2Fe = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
+        if (-not (Test-Path $pm2Fe)) { $pm2Fe = 'pm2' }
+        $env:PM2_HOME = 'C:\Users\user\.pm2'
+        & $pm2Fe stop smart-control-frontend 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
+        Start-Sleep -Seconds 2
+
+        Push-Location (Join-Path $projectRoot 'frontend')
+        try {
+          Invoke-Native 'pnpm.cmd' @('install', '--frozen-lockfile')
+          Invoke-Native 'pnpm.cmd' @('run', 'typecheck')
+          Invoke-Native 'pnpm.cmd' @('run', 'build')
+        } finally {
+          Pop-Location
+        }
+        $previousFrontendDist = Join-Path $rollbackRoot 'frontend\dist'
+        $currentFrontendDist = Join-Path $projectRoot 'frontend\dist'
+        Copy-PreviousFrontendAssets $previousFrontendDist $currentFrontendDist
+
+        Write-DeployLog 'Restarting services through pm2.'
+        Restart-Services
+        }
+      }
     }
   }
 
   # Always reconcile migrations. The on-box watcher may fast-forward Git before CI
   # arrives, and an already-deployed source SHA does not prove its DB migration ran.
-  Push-Location (Join-Path $projectRoot 'backend')
-  try {
-    Write-DeployLog 'Reconciling DB migrations (run-migrations.js).'
-    $migrationAttempted = $true
-    & node scripts/run-migrations.js 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
-    if ($LASTEXITCODE -ne 0) { throw "Database migration failed (exit $LASTEXITCODE)." }
-  } finally {
-    Pop-Location
-  }
+  if (-not $controlledActivationCompleted) { Invoke-ControlledMigrationReconciliation }
 
   # Common path on purpose: the on-box watcher can fast-forward Git before CI
   # arrives, so required host tooling must not live only in the "new commit"
   # branch above.
+
+  # CI-only deployment policy (2026-09-15): the legacy SmartControl-AutoUpdate
+  # scheduled task + auto-update-watcher raced CI and repeatedly reset on-box
+  # runtime config. Idempotently keep it disabled and stop any watcher process
+  # on every deploy, regardless of deploy scope. ASCII-only.
+  try {
+    $auTask = Get-ScheduledTask -TaskName 'SmartControl-AutoUpdate' -ErrorAction SilentlyContinue
+    if ($auTask -and $auTask.State -ne 'Disabled') {
+      Disable-ScheduledTask -TaskName 'SmartControl-AutoUpdate' | Out-Null
+      Write-DeployLog 'SmartControl-AutoUpdate disabled (deployment is CI-only).'
+    }
+    $auProcs = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+      Where-Object { $_.CommandLine -match 'auto-update-watcher' })
+    foreach ($auP in $auProcs) {
+      Stop-Process -Id $auP.ProcessId -Force -ErrorAction SilentlyContinue
+      Write-DeployLog ("Stopped AutoUpdate watcher pid {0}." -f $auP.ProcessId)
+    }
+  } catch {
+    Write-DeployLog "AutoUpdate disable step skipped: $($_.Exception.Message)"
+  }
+
   $mediaToolsScript = Join-Path $projectRoot 'scripts\ensure-media-tools.ps1'
   if (Test-Path $mediaToolsScript) {
     Write-DeployLog 'Ensuring verified FFmpeg media compatibility tools are installed.'
@@ -442,6 +989,24 @@ try {
   }
   if (-not $healthy) { throw 'GK9000 backend or frontend did not become healthy (even after detached pm2 resurrect).' }
 
+  # The LED player is an Interactive Edge window, not a PM2 process. A controlled
+  # migration intentionally stops it with the other writers. In September 2026
+  # the watchdog had already been disabled, so activation faithfully restored the
+  # broken state and every service-only verification still passed while the wall
+  # stayed blank. Heal through the Interactive task and require a fresh slot-1
+  # heartbeat before a deployment can be accepted.
+  $playerRuntimeGate = Join-Path $projectRoot 'scripts\ensure-player-runtime.ps1'
+  if (-not (Test-Path -LiteralPath $playerRuntimeGate -PathType Leaf)) {
+    throw 'Required player runtime gate scripts\ensure-player-runtime.ps1 is missing.'
+  }
+  Write-DeployLog 'Checking physical-console LED player recovery gate.'
+  if ($VerifyOnly) {
+    & $playerRuntimeGate 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
+  } else {
+    & $playerRuntimeGate -Apply 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
+  }
+  Write-DeployLog 'Physical-console LED player recovery gate passed.'
+
   # Authoritative deploy verification. The health loop above only proves "something is
   # answering on 3200/5173" - it cannot prove the NEW code is live: an orphaned old
   # process still holding the port answers 200 just the same (that was the root cause of
@@ -475,7 +1040,8 @@ try {
       try {
         # No space before '&&' - see Invoke-DetachedResurrect for why (trailing
         # space would poison PM2_HOME and hatch an orphan daemon).
-        ([wmiclass]'\\.\root\cimv2:Win32_Process').Create("cmd /c `"set PM2_HOME=C:\Users\user\.pm2&& $pm2cmd restart smart-control-backend --update-env`"", 'C:\Users\user', $null) | Out-Null
+        $eco = Join-Path $projectRoot 'deploy\ecosystem.config.js'
+        ([wmiclass]'\\.\root\cimv2:Win32_Process').Create("cmd /c `"set PM2_HOME=C:\Users\user\.pm2&& $pm2cmd start $eco --env production --only smart-control-backend --update-env & $pm2cmd save`"", 'C:\Users\user', $null) | Out-Null
       } catch {
         Write-DeployLog "WMI detached restart failed: $($_.Exception.Message)"
       }
@@ -512,19 +1078,17 @@ try {
     }
     Write-DeployLog 'verify-deploy.js passed.'
   } else {
-    Write-DeployLog 'WARN: scripts\verify-deploy.js not found - authoritative verification skipped.'
+    throw 'Required deployment verifier scripts\verify-deploy.js is missing.'
   }
 
-  # Prune stale rollback snapshots - keep only the current one.
-  # The directory name carries the commit ($ProgramData\Anksen\smart-control-rollback-<sha>)
-  # and the block above only removes the SAME-named one, so every new commit left behind a
-  # full copy of backend+frontend dist that was never reclaimed - it grew with every deploy.
-  # By this point the deploy has passed verify-deploy, so older rollback points are worthless:
-  # to go back a version just redeploy that commit (everything is in git).
+  # Keep three verified snapshots. This bounds disk use while preserving two prior
+  # recovery points in case the newest release has a delayed operational failure.
   $rollbackParent = Join-Path $env:ProgramData 'Anksen'
   if (Test-Path $rollbackParent) {
     $stale = Get-ChildItem -Path $rollbackParent -Directory -Filter 'smart-control-rollback-*' -ErrorAction SilentlyContinue |
-      Where-Object { $_.FullName -ne $rollbackRoot }
+      Where-Object { $_.FullName -ne $rollbackRoot } |
+      Sort-Object LastWriteTime -Descending |
+      Select-Object -Skip 2
     foreach ($d in $stale) {
       Write-DeployLog "Pruning stale rollback snapshot: $($d.Name)"
       Remove-Item -Path $d.FullName -Recurse -Force -ErrorAction SilentlyContinue
@@ -533,24 +1097,204 @@ try {
   }
 
   $deployedCommit = (git rev-parse HEAD).Trim()
+  if (-not $VerifyOnly) {
+    $dispatcherTemp = $null
+    $dispatcherPrevious = $null
+    try {
+      $dispatcherSource = Join-Path $projectRoot 'deploy\windows-ci-dispatch.ps1'
+      $dispatcherTarget = 'C:\ProgramData\Anksen\smart-control-ci-dispatch.ps1'
+      if (Test-Path -LiteralPath $dispatcherSource -PathType Leaf) {
+        $dispatcherTokens = $null
+        $dispatcherErrors = $null
+        [System.Management.Automation.Language.Parser]::ParseFile(
+          $dispatcherSource,
+          [ref]$dispatcherTokens,
+          [ref]$dispatcherErrors
+        ) | Out-Null
+        if ($dispatcherErrors.Count -gt 0) {
+          throw "Dispatcher failed PowerShell parsing: $($dispatcherErrors[0].Message)"
+        }
+        $dispatcherChanged = -not (Test-Path -LiteralPath $dispatcherTarget -PathType Leaf)
+        if (-not $dispatcherChanged) {
+          $sourceHash = (Get-FileHash -LiteralPath $dispatcherSource -Algorithm SHA256).Hash
+          $targetHash = (Get-FileHash -LiteralPath $dispatcherTarget -Algorithm SHA256).Hash
+          $dispatcherChanged = $sourceHash -ne $targetHash
+        }
+        if ($dispatcherChanged) {
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dispatcherTarget) | Out-Null
+          $dispatcherTemp = "$dispatcherTarget.$PID.tmp"
+          [IO.File]::WriteAllBytes($dispatcherTemp, [IO.File]::ReadAllBytes($dispatcherSource))
+          if (Test-Path -LiteralPath $dispatcherTarget) {
+            $dispatcherPrevious = "$dispatcherTarget.$PID.previous"
+            [IO.File]::Delete($dispatcherPrevious)
+            [IO.File]::Replace($dispatcherTemp, $dispatcherTarget, $dispatcherPrevious)
+            [IO.File]::Delete($dispatcherPrevious)
+          } else {
+            Move-Item -LiteralPath $dispatcherTemp -Destination $dispatcherTarget
+          }
+          Write-DeployLog "Windows CI dispatcher updated from verified commit: $deployedCommit"
+        } else {
+          Write-DeployLog 'Windows CI dispatcher already matches the verified commit.'
+        }
+      }
+    } catch {
+      # The application release is already verified. Do not roll it back because
+      # the out-of-worktree bootstrap copy could not be refreshed.
+      Write-DeployLog "WARNING: Windows CI dispatcher was not updated: $($_.Exception.Message)"
+    } finally {
+      if ($dispatcherTemp -and (Test-Path -LiteralPath $dispatcherTemp)) {
+        Remove-Item -LiteralPath $dispatcherTemp -Force -ErrorAction SilentlyContinue
+      }
+      if ($dispatcherPrevious -and (Test-Path -LiteralPath $dispatcherPrevious)) {
+        Remove-Item -LiteralPath $dispatcherPrevious -Force -ErrorAction SilentlyContinue
+      }
+    }
+  }
+  Write-DeployLog 'Checking immutable bundled media records and data-disk files.'
+  Assert-BundledMediaCurrent
+  if ($VerifyOnly) {
+    Write-DeployLog 'Checking authoritative Android app release metadata without writing.'
+    Invoke-AppReleaseReconciliation -CheckOnly
+  } else {
+    # This is the last database release mutation. The publication receipt follows.
+    # The verified backup already
+    # exists, services and the downloadable APK have passed health checks, and the
+    # reconciler validates the artifact before its single-row SQLite transaction.
+    Write-DeployLog 'Reconciling authoritative Android app release metadata.'
+    Invoke-AppReleaseReconciliation
+    $appReleaseReconciled = $true
+  }
+  # Publication is the final gate: clients must not refresh before bundled media
+  # and app metadata reconciliation have also succeeded.
+  if (-not $VerifyOnly) {
+    $releaseManifestTemp = $null
+    $releaseManifestPrevious = $null
+    try {
+      $releaseDataDir = $env:DATA_DIR
+      if ([string]::IsNullOrWhiteSpace($releaseDataDir)) {
+        if (Test-Path 'D:\') { $releaseDataDir = 'D:\smart-control-runtime\data' }
+        else { $releaseDataDir = Join-Path $projectRoot '.runtime\data' }
+      }
+      New-Item -ItemType Directory -Force -Path $releaseDataDir | Out-Null
+      $releaseManifestPath = Join-Path $releaseDataDir 'release.json'
+      $releaseManifestTemp = "$releaseManifestPath.$PID.tmp"
+      # Use the actual deployed build identity; backend/docs-only releases retain it.
+      # The manifest is published only after the verification gates above.
+      $frontendVersionPath = Join-Path $projectRoot 'frontend\dist\deployment-version.json'
+      $frontendBuildId = $null
+      if (Test-Path -LiteralPath $frontendVersionPath) {
+        $frontendBuildId = (Get-Content -LiteralPath $frontendVersionPath -Raw | ConvertFrom-Json).frontendBuildId
+      }
+      $releaseManifest = [ordered]@{
+        schemaVersion = 1
+        commit = $deployedCommit
+        frontendBuildId = $frontendBuildId
+        ref = 'main'
+        releasedAt = (Get-Date).ToUniversalTime().ToString('o')
+      } | ConvertTo-Json
+      [IO.File]::WriteAllText($releaseManifestTemp, $releaseManifest, (New-Object Text.UTF8Encoding($false)))
+      if (Test-Path -LiteralPath $releaseManifestPath) {
+        $releaseManifestPrevious = "$releaseManifestPath.$PID.previous"
+        [IO.File]::Delete($releaseManifestPrevious)
+        [IO.File]::Replace($releaseManifestTemp, $releaseManifestPath, $releaseManifestPrevious)
+        [IO.File]::Delete($releaseManifestPrevious)
+      } else {
+        Move-Item -LiteralPath $releaseManifestTemp -Destination $releaseManifestPath
+      }
+      Write-DeployLog "Release manifest recorded: $releaseManifestPath ($deployedCommit)"
+    } catch {
+      # Release identity still falls back to the verified Git HEAD. Never roll back
+      # activated code or migrated data because a supplementary manifest could not be written.
+      Write-DeployLog "WARNING: release manifest was not recorded: $($_.Exception.Message)"
+    } finally {
+      if ($releaseManifestTemp -and (Test-Path -LiteralPath $releaseManifestTemp)) {
+        Remove-Item -LiteralPath $releaseManifestTemp -Force -ErrorAction SilentlyContinue
+      }
+      if ($releaseManifestPrevious -and (Test-Path -LiteralPath $releaseManifestPrevious)) {
+        Remove-Item -LiteralPath $releaseManifestPrevious -Force -ErrorAction SilentlyContinue
+      }
+    }
+  }
   $result = 'PASS'
   Write-DeployLog "Deployment complete: $deployedCommit"
 } catch {
   $errorMessage = $_.Exception.Message
   Write-DeployLog "Deployment failed: $errorMessage"
-  if ($migrationAttempted) {
+  $abortResumeScript = $null
+  if (-not $migrationAttempted -and $releaseIsolationRequested -and
+      (Test-Path -LiteralPath (Join-Path $projectRoot 'RELEASE_HOLD')) -and
+      $migrationTaskSnapshot -and (Test-Path -LiteralPath $migrationTaskSnapshot)) {
+    # Preserve the candidate's recovery tools before a Git rollback replaces them.
+    $releaseToolRoot = Join-Path $rollbackRoot 'release-tools'
+    New-Item -ItemType Directory -Force -Path $releaseToolRoot | Out-Null
+    foreach ($tool in @('resume-gk9000-release.ps1','assert-gk9000-writers-stopped.ps1','gk9000-release-tasks.ps1')) {
+      Copy-Item -LiteralPath (Join-Path $projectRoot "scripts\$tool") -Destination (Join-Path $releaseToolRoot $tool) -Force
+    }
+    $abortResumeScript = Join-Path $releaseToolRoot 'resume-gk9000-release.ps1'
+    $releaseIsolationStarted = $true
+  }
+  if ($migrationAttempted -and $migrationState -ne 'activated') {
     Write-DeployLog 'MIGRATION_RECOVERY_REQUIRED: preserving current code, database, media and rollback artifacts. Code-only rollback is forbidden.'
     try {
       # Fail closed after a possibly committed ownership migration. Recovery must
       # archive post-migration data and restore a matched database/media/code set.
-      Invoke-Native 'pm2.cmd' @('stop', 'smart-control-backend', 'smart-control-frontend')
+      # The SSH session has no reliable APPDATA/USERPROFILE. An unqualified pm2
+      # command creates an empty daemon under the wrong home and still leaves a
+      # writer-class Node process behind, so use the fixed production identity
+      # and remove the daemon itself after the release pause stopped its children.
+      $pm2FailClosed = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
+      if (-not (Test-Path -LiteralPath $pm2FailClosed)) { throw 'Expected PM2 executable missing.' }
+      $env:PM2_HOME = 'C:\Users\user\.pm2'
+      Invoke-Native $pm2FailClosed @('kill')
+      & (Join-Path $projectRoot 'scripts\assert-gk9000-writers-stopped.ps1') -ProjectRoot $projectRoot | Out-Null
+      if (-not $?) { throw 'Fail-closed writer isolation could not be verified.' }
     } catch {
       Write-DeployLog 'CRITICAL: service stop failed; isolate external ingress immediately before recovery.'
     }
+  } elseif ($migrationState -eq 'activated') {
+    Write-DeployLog 'Candidate was already activated from a committed migration; preserving the matched code/database/media set and running services.'
+  } elseif ($appReleaseReconciled) {
+    Write-DeployLog 'Verified app release metadata was already committed; preserving the matching code, artifact and database record.'
   } elseif ($worktreeUpdated -and $previousCommit) {
     Write-DeployLog "Rolling the worktree and build artifacts back to $previousCommit."
     try {
+      # Stop BOTH services first so 'git reset --hard' can replace tracked files:
+      # the running backend locks database/*.db-shm/*.db-wal (historically tracked)
+      # and made reset fail with "unable to unlink ... Invalid argument", leaving a
+      # half-deployed tree with an emptied dist (Deploy #531, 2026-09-14). ASCII.
+      $pm2Rb = 'C:\Users\user\AppData\Roaming\npm\pm2.cmd'
+      if (-not (Test-Path $pm2Rb)) { $pm2Rb = 'pm2' }
+      $env:PM2_HOME = 'C:\Users\user\.pm2'
+      & $pm2Rb stop smart-control-backend smart-control-frontend 2>&1 | ForEach-Object { Write-DeployLog "  $_" }
+      Start-Sleep -Seconds 2
+
+      # If this release untracked live runtime paths, keep their current bytes
+      # outside the worktree while reset restores the old commit's stale tracked
+      # copies. Move those stale copies aside, then put the live files back.
+      $liveRuntimeRollbackRoot = $null
+      if ($runtimeUntrackPaths.Count -gt 0) {
+        $liveRuntimeRollbackRoot = Join-Path $rollbackRoot 'live-runtime-before-code-rollback'
+        foreach ($relativePath in $runtimeUntrackPaths) {
+          $livePath = Join-Path $projectRoot $relativePath
+          if (-not (Test-Path $livePath)) { continue }
+          $preservedPath = Join-Path $liveRuntimeRollbackRoot $relativePath
+          New-Item -ItemType Directory -Force -Path (Split-Path $preservedPath -Parent) | Out-Null
+          Move-Item -Path $livePath -Destination $preservedPath -Force
+        }
+      }
       Invoke-Native 'git' @('reset', '--hard', $previousCommit)
+      if ($runtimeUntrackPaths.Count -gt 0) {
+        $staleTrackedRoot = Join-Path $rollbackRoot 'stale-tracked-runtime-from-old-commit'
+        foreach ($relativePath in $runtimeUntrackPaths) {
+          $restoredByGit = Join-Path $projectRoot $relativePath
+          if (Test-Path $restoredByGit) {
+            $stalePath = Join-Path $staleTrackedRoot $relativePath
+            New-Item -ItemType Directory -Force -Path (Split-Path $stalePath -Parent) | Out-Null
+            Move-Item -Path $restoredByGit -Destination $stalePath -Force
+          }
+        }
+        Restore-ArchivedRuntimeFiles $liveRuntimeRollbackRoot $runtimeUntrackPaths
+      }
       foreach ($relativeDist in @('backend\dist', 'frontend\dist')) {
         $targetDist = Join-Path $projectRoot $relativeDist
         $backupDist = Join-Path $rollbackRoot $relativeDist
@@ -559,10 +1303,38 @@ try {
           Copy-Item -Path $backupDist -Destination $targetDist -Recurse -Force
         }
       }
-      Restart-Services
+      if ($releaseIsolationStarted -and $abortResumeScript) {
+        Write-DeployLog 'Migration did not start; rebuilding and reactivating the verified pre-migration revision.'
+        & $abortResumeScript -Commit $previousCommit -TaskSnapshot $migrationTaskSnapshot -AbortBeforeMigration -Apply 2>&1 |
+          ForEach-Object { Write-DeployLog "  $_" }
+        if ($LASTEXITCODE -ne 0) { throw "Pre-migration activation recovery failed (exit $LASTEXITCODE)." }
+        $releaseIsolationStarted = $false
+      } else {
+        Restart-Services
+      }
       Write-DeployLog 'Rollback completed.'
     } catch {
       Write-DeployLog "Rollback failed and requires operator attention: $($_.Exception.Message)"
+    }
+  } elseif ($releaseIsolationStarted -and $abortResumeScript -and $previousCommit) {
+    try {
+      Write-DeployLog 'Migration did not start; reactivating the unchanged pre-migration revision.'
+      & $abortResumeScript -Commit $previousCommit -TaskSnapshot $migrationTaskSnapshot -AbortBeforeMigration -Apply 2>&1 |
+        ForEach-Object { Write-DeployLog "  $_" }
+      if ($LASTEXITCODE -ne 0) { throw "Pre-migration activation recovery failed (exit $LASTEXITCODE)." }
+      $releaseIsolationStarted = $false
+    } catch {
+      Write-DeployLog "Pre-migration activation recovery failed; release hold retained: $($_.Exception.Message)"
+    }
+  } elseif ($runtimeUntrackServicesStopped) {
+    # Failure before Git changed the worktree: put the archived runtime files
+    # back and restore service availability. No code rollback is needed.
+    try {
+      Restore-ArchivedRuntimeFiles $runtimeUntrackArchiveRoot $runtimeUntrackPaths
+      Restart-Services
+      Write-DeployLog 'Pre-merge runtime preparation was safely reversed.'
+    } catch {
+      Write-DeployLog "Runtime preparation recovery failed and requires operator attention: $($_.Exception.Message)"
     }
   }
   throw
@@ -576,7 +1348,11 @@ try {
     currentCommit = $currentCommit
     verifyOnly = [bool]$VerifyOnly
     migrationAttempted = $migrationAttempted
-    recoveryRequired = ($migrationAttempted -and $result -ne 'PASS')
+    migrationState = $migrationState
+    migrationReceipt = $migrationReceipt
+    appReleaseReconciled = $appReleaseReconciled
+    releaseIsolationActive = $releaseIsolationStarted
+    recoveryRequired = ($migrationAttempted -and $migrationState -ne 'activated' -and $result -ne 'PASS')
     result = $result
     error = $errorMessage
     startedAt = $startedAt.ToString('o')

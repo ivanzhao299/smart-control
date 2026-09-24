@@ -10,7 +10,7 @@ import {
 
 /**
  * APP 版本管理 — 默认业主只能改运营开关 (启停 / 强制更新 / 最低兼容 / 更新说明),
- * 版本号 + 下载链接由 GitHub Actions build → 我自动 UPDATE 后台表写入, 业主一般不动.
+ * 版本号 + 下载链接由 GitHub Actions 构建后通过部署门禁写入, 业主只读.
  *
  * 业主反馈 2026-05-31:
  *   "为什么里面的版本号之类的都是可以编辑的? 用户需要编辑这些东西吗?"
@@ -49,6 +49,7 @@ const rules: FormRules = {
 const currentRelease = computed<AppReleaseView | undefined>(() =>
   allReleases.value.find((r) => r.platform === tab.value)
 );
+const deploymentManaged = computed(() => currentRelease.value?.releaseSource === 'bundled');
 
 async function refresh(): Promise<void> {
   loading.value = true;
@@ -138,8 +139,8 @@ onMounted(refresh);
       <div>
         <h2><Smartphone :size="20" :stroke-width="2" /> APP 版本管理</h2>
         <p class="sub">
-          GitHub Actions 自动构建并发布新版后, 后台版本信息会自动同步, 业主一般只需要
-          管理下面的运营开关 (启停 / 强制更新 / 更新说明). 版本号和下载链接默认不显示.
+          Android 安装包通过校验并完成生产部署后，版本信息会在部署门禁内同步。后台只需
+          管理启停、强制更新、最低兼容版本和更新说明。
         </p>
       </div>
       <div class="actions">
@@ -165,6 +166,7 @@ onMounted(refresh);
           <div class="version-line">
             <span class="version-name">v{{ currentRelease.versionName }}</span>
             <code class="code-pill">code {{ currentRelease.versionCode }}</code>
+            <el-tag v-if="deploymentManaged" type="info" size="small">部署管理</el-tag>
             <el-tag v-if="!currentRelease.enabled" type="info" size="small">已停用</el-tag>
             <el-tag v-else-if="currentRelease.forceUpdate" type="warning" size="small">强制更新</el-tag>
             <el-tag v-else type="success" size="small">正常推送</el-tag>
@@ -230,21 +232,21 @@ onMounted(refresh);
         <span class="hint">业主升级时显示在对话框里, 一行一条简单写就行</span>
       </el-form-item>
 
-      <!-- 高级 — 默认折叠, 版本号 + 下载链接 一般不要手动改 (部署自动写入) -->
+      <!-- 部署管理的平台只读展示版本元数据；手工平台仍可编辑。 -->
       <div class="adv-toggle" @click="advancedOpen = !advancedOpen">
         <ChevronDown :size="14" :class="{ rotated: advancedOpen }" />
-        <span>高级 — 手动编辑版本号 + 下载链接 (部署流程会自动写入, 一般不要动)</span>
+        <span>{{ deploymentManaged ? '版本信息 — 由部署流程维护' : '高级 — 手动编辑版本号和下载链接' }}</span>
       </div>
 
       <div v-show="advancedOpen" class="adv-block">
         <el-form-item label="versionCode" prop="versionCode">
-          <el-input-number v-model="form.versionCode" :min="1" :max="999999" controls-position="right" />
-          <span class="hint">整数, 每次发新版必须比上一版大 (1 → 2 → 3...). 跟 Android BuildConfig.VERSION_CODE 一致.</span>
+          <el-input-number v-model="form.versionCode" :min="1" :max="999999" controls-position="right" :disabled="deploymentManaged" />
+          <span class="hint">部署管理的平台会从已校验安装包同步此值。</span>
         </el-form-item>
 
         <el-form-item label="versionName" prop="versionName">
-          <el-input v-model="form.versionName" placeholder="1.0.1" style="width: 200px;" />
-          <span class="hint">用户看的版本号, e.g. 1.0.1. 跟 build.gradle.kts 的 versionName 一致.</span>
+          <el-input v-model="form.versionName" placeholder="1.0.1" style="width: 200px;" :disabled="deploymentManaged" />
+          <span class="hint">用户看到的版本号；部署管理的平台不可在后台修改。</span>
         </el-form-item>
 
         <el-form-item label="下载链接" prop="downloadUrl">
@@ -253,9 +255,10 @@ onMounted(refresh);
             type="textarea"
             :rows="2"
             placeholder="https://github.com/.../app-debug.apk"
+            :disabled="deploymentManaged"
           />
           <span class="hint">
-            APK / IPA 下载链接 (业主能用浏览器直接下到的). 通常是 GitHub release asset URL.
+            部署管理的平台固定指向已验证的现场安装包下载端点。
           </span>
         </el-form-item>
       </div>

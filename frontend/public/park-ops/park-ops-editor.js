@@ -84,6 +84,7 @@
 
   const defaults = defaultConfig();
   let config = clone(defaults);
+  let remoteRevision = 0;
   let selectedPhaseId = config.phases[0].id;
   let selectedBuildingId = config.buildings[0]?.id || '';
   let selectedPointIndex = 0;
@@ -92,9 +93,27 @@
   let editor = null;
   let statusEl = null;
 
+  // 与 SPA stores/admin-auth.ts 对齐: admin token 主存 sessionStorage, 另有一份带
+  // 过期 + 服务器绑定的 localStorage 镜像, 兜住 iOS standalone PWA 整页跳到本静态页时
+  // sessionStorage 被清、明明已登录却被踢回登录页的问题。
+  function readStoredAdminToken() {
+    try {
+      const fromSession = sessionStorage.getItem('sc.adminToken');
+      if (fromSession) return fromSession;
+    } catch (e) { /* sessionStorage 不可用 */ }
+    try {
+      const data = JSON.parse(localStorage.getItem('sc.adminToken.persist') || 'null');
+      if (data && data.token && data.expiresAt && (!data.server || data.server === apiBase())) {
+        const exp = Date.parse(data.expiresAt);
+        if (!Number.isFinite(exp) || exp > Date.now()) return data.token; // 未过期才用
+      }
+    } catch (e) { /* 镜像损坏忽略 */ }
+    return null;
+  }
+
   function editorAuthHeaders() {
     const headers = {};
-    const adminToken = sessionStorage.getItem('sc.adminToken');
+    const adminToken = readStoredAdminToken();
     const accountToken = localStorage.getItem('sc.client.token');
     if (adminToken) headers.Authorization = `Bearer ${adminToken}`;
     if (accountToken) headers['X-Client-Token'] = accountToken;
@@ -288,6 +307,7 @@
       const response = await fetch(`${apiBase()}/system-branding/park-ops`, { cache: 'no-store' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const payload = await response.json();
+      remoteRevision = Number.isInteger(payload?.data?.revision) ? payload.data.revision : 0;
       applyConfig(payload?.data?.config || defaults);
       if (!quiet) setStatus(payload?.data?.config ? '已加载服务端共享配置' : '尚未保存，当前使用内置初始配置', 'ok');
     } catch (error) {
@@ -848,15 +868,22 @@
       const response = await fetch(`${apiBase()}/system-branding/park-ops`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify(config),
+        body: JSON.stringify({ config, expectedRevision: remoteRevision }),
       });
       const payload = await response.json().catch(() => ({}));
       if (response.status === 401) {
-        if (authHeaders.Authorization) sessionStorage.removeItem('sc.adminToken');
+        if (authHeaders.Authorization) {
+          sessionStorage.removeItem('sc.adminToken');
+          localStorage.removeItem('sc.adminToken.persist');
+        }
         editor.querySelector('#pe-login').hidden = false;
         throw new Error('管理员会话已失效，请返回控制系统重新登录，或点击“管理员登录后返回”');
       }
+      if (response.status === 409) {
+        throw new Error('服务端布局已被其他管理员更新，请刷新页面后再编辑');
+      }
       if (!response.ok) throw new Error(payload?.message || `HTTP ${response.status}`);
+      remoteRevision = Number.isInteger(payload?.data?.revision) ? payload.data.revision : remoteRevision;
       applyConfig(payload?.data?.config || config);
       setStatus('保存成功；LED、投影和其它浏览器将在 15 秒内同步', 'ok');
     } catch (error) {
@@ -864,11 +891,24 @@
     }
   }
 
-  prepareEditableText();
-  bindMapEditing();
-  bindTextEditing();
-  if (editing) createEditor();
-  loadRemoteConfig().finally(() => {
-    if (!editing) setInterval(() => loadRemoteConfig(true), 15000);
-  });
+  // 安全初始化：任何步骤失败都不应导致整个页面崩溃
+  function safeInit() {
+    try { prepareEditableText(); } catch (e) { console.warn('[ParkOps Editor] prepareEditableText failed:', e); }
+    try { bindMapEditing(); } catch (e) { console.warn('[ParkOps Editor] bindMapEditing failed:', e); }
+    try { bindTextEditing(); } catch (e) { console.warn('[ParkOps Editor] bindTextEditing failed:', e); }
+    if (editing) {
+      try { createEditor(); } catch (e) {
+        console.error('[ParkOps Editor] createEditor failed:', e);
+        // 创建编辑器失败时，显示友好提示而不是白屏
+        const fallback = document.createElement('div');
+        fallback.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.85);color:#fff;padding:24px 32px;border-radius:12px;text-align:center;z-index:99999;max-width:90vw';
+        fallback.innerHTML = `<h3 style="margin:0 0 12px;font-size:18px">布局校准加载失败</h3><p style="margin:0 0 16px;font-size:14px;color:#ccc">${e.message || '未知错误'}</p><button onclick="location.href=location.pathname" style="padding:8px 20px;background:#3b82f6;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">返回运营大屏</button>`;
+        document.body.appendChild(fallback);
+      }
+    }
+    loadRemoteConfig().finally(() => {
+      if (!editing) setInterval(() => { try { loadRemoteConfig(true); } catch (e) { /* 静默失败 */ } }, 15000);
+    }).catch(e => console.warn('[ParkOps Editor] loadRemoteConfig failed:', e));
+  }
+  safeInit();
 })();

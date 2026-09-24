@@ -1,6 +1,7 @@
 import axios, { type AxiosProgressEvent, type AxiosRequestConfig } from 'axios';
 import { getApiBaseURL, getClientToken, getAdminToken } from './http';
 import { identityGeneration, assertCurrentIdentity, onIdentityChange } from './identity-boundary';
+export { MEDIA_UPLOAD_ACCEPT } from '../features/media-file-intake';
 
 /**
  * media 专用 axios(留着只为上传进度回调 —— http.ts 那套 fetch 没有 onUploadProgress)。
@@ -25,6 +26,11 @@ async function mediaRequest(method: 'GET' | 'POST' | 'DELETE', url: string, data
       signal: controller.signal,
       headers: {
         ...config.headers,
+        // Axios 1.20 injects its own User-Agent in the fetch adapter. Safari
+        // preserves it (unlike Chromium), adding a disallowed CORS preflight
+        // header even for list reads. false prevents Axios from re-inserting it;
+        // the browser must supply its own User-Agent. Keep redirect/auth isolation.
+        'User-Agent': false,
         ...(clientToken ? { 'X-Client-Token': clientToken } : {}),
         ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}),
       },
@@ -61,6 +67,7 @@ const base = (): string => getApiBaseURL();
 export interface MediaItem {
   ownerUserId: number | null;
   visibility: 'private' | 'shared';
+  source: 'upload' | 'legacy' | 'system' | 'webpage' | 'import';
   id: number;
   originalName: string;
   kind: 'video' | 'image' | 'audio' | 'webpage' | 'doc';
@@ -86,17 +93,6 @@ export interface OrphanMediaItem {
   sizeBytes: number;
   kind: 'video' | 'image' | 'audio' | 'doc' | null;
 }
-
-/**
- * 上传入口统一的 accept 列表 (2026-07-26): PlayerConsole (LED/投影页"上传内容")
- * 原来只有 video/*,image/*,audio/* —— PPT/Word 选不了, .ape/.dsf/.mid 这类无标准
- * MIME 的音频在文件选择器里也被滤掉。所有上传入口共用这一份, 不再两处漂移;
- * 真正的类型判定在 backend classifyKind (按 MIME + 扩展名兜底)。
- */
-export const MEDIA_UPLOAD_ACCEPT =
-  'video/*,image/*,audio/*,.ppt,.pptx,.doc,.docx,.pdf,.mp3,.wav,.aac,.m4a,.ogg,.flac,.wma,.opus,.aiff,.aif,.ape,.mp2,.mka,.wv,.mid,.midi,.spx,.dsf,.dff,.au,.ra'
-  // 视频扩展名兜底: Windows 对 .m4v/.mkv 等常报空 mime, 光靠 video/* 会被选择器滤掉
-  + ',.mp4,.m4v,.mov,.mkv,.avi,.webm,.flv,.wmv,.mpg,.mpeg,.3gp,.ts,.vob,.rmvb';
 
 export const mediaService = {
   async access(id: number, variant: 'file' | 'pdf' = 'file'): Promise<{ url: string; expiresAt: string }> {
