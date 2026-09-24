@@ -117,6 +117,7 @@ async function initialize(){
   $('views').replaceChildren(...manifest.views.map(view=>{const button=document.createElement('button');button.dataset.view=view.id;button.textContent=names[view.id];button.onclick=()=>loadView(view.id);button.setAttribute('aria-pressed','false');return button;}));
   $('budget').textContent=`完整视角包 ${(manifest.totalImageBytes/1e6).toFixed(2)} MB · 当前仅加载所选视角`;
   setLighting(lightingMode);parent.postMessage({type:'park-twin-ready'},location.origin);
+  setInterval(()=>{try{if(embedded&&!document.hidden)parent.postMessage({type:'park-twin-heartbeat'},location.origin);}catch{/* ignore */}},5000);
  }catch(error){$('loading').textContent=error.message;$('retry').hidden=false;announce('加载失败，未替换为其它模型。');}
 }
 window.TWIN_VIEW_DEBUG={get manifest(){return manifest;},get state(){return {activeView,requestedView,lighting,mode,successfulLoads,currentImageKey,editing,lastDraftError};},get draft(){return JSON.parse(JSON.stringify(draft));}};
