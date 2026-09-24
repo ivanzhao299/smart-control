@@ -9,6 +9,7 @@ export function classifyDeployFiles(files) {
   const result = {
     docsOnly: true,
     frontendPublic: false,
+    twinOnly: false,
     frontendCode: false,
     backendCode: false,
     releaseControl: false,
@@ -20,6 +21,12 @@ export function classifyDeployFiles(files) {
   for (const file of files) {
     if (highRisk.test(file)) {
       result.highRisk = true;
+      result.docsOnly = false;
+    } else if (/^frontend\/public\/park-ops\/3d-twin\//.test(file)) {
+      // Opt-in 3D twin is a self-contained directory. If it is the only runtime
+      // change, deploy it isolated (sync just that directory, no service restart);
+      // mixed changes fall through to the normal static/full scopes.
+      result.twinOnly = true;
       result.docsOnly = false;
     } else if (/^frontend\/public\//.test(file)) {
       result.frontendPublic = true;
@@ -51,11 +58,13 @@ export function classifyDeployFiles(files) {
     }
   }
 
-  const staticOnly = result.frontendPublic && !result.frontendCode && !result.backendCode && !result.highRisk;
+  const hasCodeOrRisk = result.frontendCode || result.backendCode || result.highRisk;
+  const twinIsolated = result.twinOnly && !result.frontendPublic && !hasCodeOrRisk;
+  const staticOnly = (result.frontendPublic || result.twinOnly) && !hasCodeOrRisk;
   const frontendOnly = result.frontendCode && !result.backendCode && !result.highRisk;
   const backendOnly = result.backendCode && !result.frontendCode && !result.highRisk;
-  const noRuntime = !result.frontendPublic && !result.frontendCode && !result.backendCode && !result.highRisk;
-  const scope = noRuntime ? 'none' : staticOnly ? 'static' : frontendOnly ? 'frontend' : backendOnly ? 'backend' : 'full';
+  const noRuntime = !result.frontendPublic && !result.twinOnly && !hasCodeOrRisk;
+  const scope = noRuntime ? 'none' : twinIsolated ? 'twin' : staticOnly ? 'static' : frontendOnly ? 'frontend' : backendOnly ? 'backend' : 'full';
   return {
     ...result,
     scope,

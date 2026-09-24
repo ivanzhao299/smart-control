@@ -11,7 +11,6 @@
 <meta name="description" content="金湖科创产业园智慧运营总览大屏" />
 <title>金湖科创产业园·智慧运营总览</title>
 <!-- 部署门禁自描述标记：verify-deploy 静态校验本页即运营大屏；运行时完整元数据由末尾 js/app.js 的 window.PARK_DEMO 覆盖提供 -->
-<script>window.PARK_TWIN_CANDIDATE=new URLSearchParams(location.search).get('twin')==='1';</script>
 <script>window.PARK_DEMO=window.PARK_DEMO||{page:'jinhu-park-ops-dashboard',resolution:'3612x1462',static:true};</script>
 
 <!-- 资源预加载：关键CSS -->
@@ -162,8 +161,8 @@
 <script src="./js/qrcode.js?v=20260914"></script>
 <script src="./js/app.js?v=20260922-pv-ginlong"></script>
 <script type="module">
-if(window.PARK_TWIN_CANDIDATE){await import('./park-ops-twin.js');}
-else{await import('./park-ops-3d.js?v=20260913-v4-performance-optimized');}
+await import('./park-ops-3d.js?v=20260913-v4-performance-optimized');
+await import('./3d-twin/bootstrap.js?v=20260924-v1');
 </script>
 <script src="./park-ops-editor.js?v=20260913-v4-performance-optimized" defer></script>
 <!-- Business content starts AFTER the existing editor registers its stable text keys. -->
