@@ -729,12 +729,11 @@ body { overscroll-behavior: none; }
   .el-dialog__body,
   .el-dialog__footer { padding: 14px 16px !important; }
   .el-message-box { width: calc(100% - 24px) !important; max-width: 420px; }
-  .el-table,
-  .el-table__inner-wrapper,
-  .el-table__header-wrapper,
-  .el-table__body-wrapper,
-  .el-table .el-scrollbar__wrap { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
-  .el-table__inner-wrapper { min-width: 600px; }
+  /* 宽表触屏横滑只走 Element Plus 原生 scrollbar：body 的 .el-scrollbar__wrap 承载横向滚动，
+     header 由组件 JS 同步 scrollLeft。不可给 .el-table / inner-wrapper / header/body-wrapper
+     额外加 overflow-x——多层可滚容器会在 iOS 嵌套争抢手势，导致 body 区滑不动、只有表头能带动。 */
+  .el-table .el-table__body-wrapper .el-scrollbar__wrap,
+  .el-table .el-table__header-wrapper .el-scrollbar__wrap { -webkit-overflow-scrolling: touch; }
   .page-head { flex-wrap: wrap !important; align-items: stretch !important; row-gap: 10px; }
   .page-head > div:first-child { flex: 1 1 100%; min-width: 0; }
   .page-head .actions { flex-wrap: wrap; width: 100%; }
