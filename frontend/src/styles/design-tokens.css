@@ -2,33 +2,33 @@
  * source of truth for colour, elevation, spacing and shared interaction. */
 :root {
   color-scheme: dark;
-  --v2-bg-0: #070d14;
-  --v2-bg-1: #0a111b;
-  --v2-bg-2: #0b1420;
-  --v2-surf-1: #0e1722;
-  --v2-surf-1-hover: #142130;
-  --v2-surf-2: #142130;
-  --v2-surf-3: #1a293a;
+  --v2-bg-0: #0a0b0e;
+  --v2-bg-1: #0e1014;
+  --v2-bg-2: #12141a;
+  --v2-surf-1: #15181f;
+  --v2-surf-1-hover: #1c2029;
+  --v2-surf-2: #1e222c;
+  --v2-surf-3: #272c37;
   --v2-surface-1: var(--v2-surf-1);
-  --v2-border-soft: #273649;
-  --v2-border-strong: #3b4d63;
+  --v2-border-soft: #292e3a;
+  --v2-border-strong: #3b4250;
   --v2-border: var(--v2-border-soft);
-  --v2-text-1: #f7fafc;
-  --v2-text-2: #b8c4d2;
-  --v2-text-3: #8d9bad;
-  --v2-primary: #4c9aff;
-  --v2-primary-rgb: 76, 154, 255;
-  --v2-primary-dark: #2f7edb;
-  --v2-primary-hover: #70adff;
-  --v2-primary-soft: rgba(76, 154, 255, 0.14);
-  --v2-on-primary: #06111f;
-  --v2-success: #38c98a;
-  --v2-warning: #e8a43a;
-  --v2-danger: #f06b63;
+  --v2-text-1: #f3f5f9;
+  --v2-text-2: #a9b1c0;
+  --v2-text-3: #717a8a;
+  --v2-primary: #818cf8;
+  --v2-primary-rgb: 129, 140, 248;
+  --v2-primary-dark: #6366f1;
+  --v2-primary-hover: #a5b4fc;
+  --v2-primary-soft: rgba(129, 140, 248, 0.15);
+  --v2-on-primary: #16133a;
+  --v2-success: #34d399;
+  --v2-warning: #fbbf24;
+  --v2-danger: #f87171;
   --v2-info: var(--v2-primary);
-  --v2-success-soft: rgba(56, 201, 138, 0.14);
-  --v2-warning-soft: rgba(232, 164, 58, 0.15);
-  --v2-danger-soft: rgba(240, 107, 99, 0.14);
+  --v2-success-soft: rgba(52, 211, 153, 0.15);
+  --v2-warning-soft: rgba(251, 191, 36, 0.15);
+  --v2-danger-soft: rgba(248, 113, 113, 0.15);
   --v2-info-soft: var(--v2-primary-soft);
 
   /* ===== 统一强调色：同色系渐变，禁止渐变到中性灰（蓝→灰会混出发脏的蓝灰）=====
@@ -46,26 +46,26 @@
   --v2-accent-shadow: 0 8px 18px -6px rgba(var(--v2-primary-rgb), 0.5);
 
   /* Compatibility aliases used by existing feature pages. */
-  --v2-purple: #8ea8c7;
-  --v2-purple-soft: rgba(142, 168, 199, 0.14);
+  --v2-purple: #a5b0e8;
+  --v2-purple-soft: rgba(165, 176, 232, 0.15);
   --v2-amber: var(--v2-warning);
   --v2-amber-soft: var(--v2-warning-soft);
-  --v2-light-warm: #e1ad4f;
+  --v2-light-warm: #fbbf24;
   --v2-live-power: var(--v2-success);
   --v2-live-power-glow: transparent;
-  --v2-live-audio: #36c5b4;
+  --v2-live-audio: #2dd4bf;
   --v2-live-audio-glow: transparent;
   --v2-text-glow-primary: none;
   --v2-text-glow-amber: none;
   --v2-text-glow-purple: none;
   --v2-text-glow-success: none;
-  --v2-ov-1: rgba(255, 255, 255, 0.045);
-  --v2-ov-2: rgba(255, 255, 255, 0.075);
-  --v2-ov-3: rgba(255, 255, 255, 0.12);
-  --v2-inset-bg: #0a121c;
+  --v2-ov-1: rgba(255, 255, 255, 0.04);
+  --v2-ov-2: rgba(255, 255, 255, 0.07);
+  --v2-ov-3: rgba(255, 255, 255, 0.11);
+  --v2-inset-bg: #0e1016;
   --v2-card-hairline: transparent;
-  --v2-chrome-bg: rgba(7, 13, 20, 0.88);
-  --v2-chrome-bg-solid: #070d14;
+  --v2-chrome-bg: rgba(10, 11, 14, 0.88);
+  --v2-chrome-bg-solid: #0a0b0e;
   --v2-r-sm: 8px;
   --v2-r-md: 12px;
   --v2-r-lg: 14px;
@@ -79,8 +79,8 @@
   --v2-fs-sm: 14px;
   --v2-fs-md: 16px;
   --v2-elev-1: none;
-  --v2-elev-2: 0 10px 26px rgba(0, 0, 0, 0.24);
-  --v2-elev-3: 0 24px 64px rgba(0, 0, 0, 0.42);
+  --v2-elev-2: 0 8px 24px rgba(0, 0, 0, 0.42);
+  --v2-elev-3: 0 20px 56px rgba(0, 0, 0, 0.58);
   --v2-glow-primary: none;
   --v2-glow-primary-strong: none;
   --v2-dur-fast: 120ms;
@@ -106,43 +106,43 @@
 
 :root:root[data-theme='light'] {
   color-scheme: light;
-  --v2-bg-0: #e9eef4;
-  --v2-bg-1: #e6ecf2;
-  --v2-bg-2: #e2e9f1;
+  --v2-bg-0: #f4f6f9;
+  --v2-bg-1: #f0f2f6;
+  --v2-bg-2: #eaedf2;
   --v2-surf-1: #ffffff;
-  --v2-surf-1-hover: #f6f9fc;
-  --v2-surf-2: #f1f5f9;
+  --v2-surf-1-hover: #f6f8fb;
+  --v2-surf-2: #f0f3f8;
   --v2-surf-3: #ffffff;
-  --v2-border-soft: #c7d2de;
-  --v2-border-strong: #9aa8b8;
-  --v2-text-1: #142033;
-  --v2-text-2: #425063;
-  --v2-text-3: #5b6878;
-  --v2-primary: #2563eb;
-  --v2-primary-rgb: 37, 99, 235;
-  --v2-primary-dark: #1d4ed8;
-  --v2-primary-hover: #1d4ed8;
-  --v2-primary-soft: rgba(37, 99, 235, 0.10);
+  --v2-border-soft: #e1e6ed;
+  --v2-border-strong: #c2cad6;
+  --v2-text-1: #12161f;
+  --v2-text-2: #454d5c;
+  --v2-text-3: #68707f;
+  --v2-primary: #4f46e5;
+  --v2-primary-rgb: 79, 70, 229;
+  --v2-primary-dark: #4338ca;
+  --v2-primary-hover: #4338ca;
+  --v2-primary-soft: rgba(79, 70, 229, 0.09);
   --v2-on-primary: #ffffff;
-  --v2-success: #0f7a52;
-  --v2-warning: #9a5500;
-  --v2-danger: #b83227;
-  --v2-success-soft: rgba(15, 122, 82, 0.10);
-  --v2-warning-soft: rgba(154, 85, 0, 0.11);
-  --v2-danger-soft: rgba(184, 50, 39, 0.10);
-  --v2-purple: #425063;
-  --v2-purple-soft: rgba(66, 80, 99, 0.10);
-  --v2-light-warm: #9a5500;
+  --v2-success: #059669;
+  --v2-warning: #d97706;
+  --v2-danger: #dc2626;
+  --v2-success-soft: rgba(5, 150, 105, 0.10);
+  --v2-warning-soft: rgba(217, 119, 6, 0.10);
+  --v2-danger-soft: rgba(220, 38, 38, 0.09);
+  --v2-purple: #454d5c;
+  --v2-purple-soft: rgba(69, 77, 92, 0.09);
+  --v2-light-warm: #d97706;
   --v2-live-power: var(--v2-success);
-  --v2-live-audio: #0a6e63;
-  --v2-ov-1: rgba(20, 32, 51, 0.06);
-  --v2-ov-2: rgba(20, 32, 51, 0.10);
-  --v2-ov-3: rgba(20, 32, 51, 0.15);
+  --v2-live-audio: #0d9488;
+  --v2-ov-1: rgba(18, 22, 31, 0.05);
+  --v2-ov-2: rgba(18, 22, 31, 0.08);
+  --v2-ov-3: rgba(18, 22, 31, 0.13);
   --v2-inset-bg: #ffffff;
   --v2-chrome-bg: rgba(255, 255, 255, 0.90);
   --v2-chrome-bg-solid: #ffffff;
-  --v2-elev-2: 0 10px 28px rgba(20, 32, 51, 0.12);
-  --v2-elev-3: 0 24px 64px rgba(20, 32, 51, 0.20);
+  --v2-elev-2: 0 8px 24px rgba(18, 22, 31, 0.10);
+  --v2-elev-3: 0 20px 56px rgba(18, 22, 31, 0.16);
 }
 
 html,
@@ -185,7 +185,7 @@ body::after { content: none !important; }
 :root:root[data-theme='light'] .v2-subsystems,
 :root:root[data-theme='light'] .v2-overview,
 :root:root[data-theme='light'] .circuit-card:not(.on) {
-  box-shadow: 0 1px 2px rgba(20, 32, 51, 0.07), 0 2px 10px rgba(20, 32, 51, 0.06) !important;
+  box-shadow: 0 1px 2px rgba(18, 22, 31, 0.06), 0 2px 8px rgba(18, 22, 31, 0.05) !important;
 }
 /* Dark theme: lift cards off the near-black page with a 1px top inner highlight
    plus a soft dark drop shadow (dark surfaces use deeper shadows, never light).
@@ -198,7 +198,7 @@ body::after { content: none !important; }
 :root:root[data-theme='dark'] .v2-overview,
 :root:root[data-theme='dark'] .circuit-card:not(.on) {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 1px 2px rgba(0, 0, 0, 0.40), 0 6px 18px rgba(0, 0, 0, 0.35) !important;
+    0 4px 14px rgba(0, 0, 0, 0.38) !important;
 }
 /* Light theme: chips/tags must read as crisp outlined pills, not the faint grey
    fills and bright glyphs designed for dark surfaces. One shared, higher-
@@ -656,6 +656,25 @@ textarea:focus-visible,
 .v2-page-leave-active { transition: opacity 50ms ease; }
 .v2-page-enter-from,
 .v2-page-leave-to { opacity: 0; }
+
+/* ===== 业主侧页面切换交叉淡入淡出 (2026-09-24 丝滑优化) =====
+   GPU 合成: 仅 opacity + 轻 translateY, 不触发重排; MainLayout 显式传 duration
+   (190ms), Vue 到点强制收尾、不依赖 transitionend, 规避 iOS WKWebView 丢事件卡死。
+   离开页 absolute 钉在主区不顶布局, pointer-events 关闭。 */
+.v2-main { position: relative; }
+.v2-route-enter-active {
+  transition: opacity 0.19s var(--v2-ease-out), transform 0.19s var(--v2-ease-out);
+  will-change: opacity, transform;
+}
+.v2-route-leave-active {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.v2-route-enter-from { opacity: 0; transform: translateY(8px); }
+.v2-route-leave-to { opacity: 0; }
 .v2-page-head {
   position: sticky;
   top: 0;
@@ -710,12 +729,11 @@ body { overscroll-behavior: none; }
   .el-dialog__body,
   .el-dialog__footer { padding: 14px 16px !important; }
   .el-message-box { width: calc(100% - 24px) !important; max-width: 420px; }
-  .el-table,
-  .el-table__inner-wrapper,
-  .el-table__header-wrapper,
-  .el-table__body-wrapper,
-  .el-table .el-scrollbar__wrap { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
-  .el-table__inner-wrapper { min-width: 600px; }
+  /* 宽表触屏横滑只走 Element Plus 原生 scrollbar：body 的 .el-scrollbar__wrap 承载横向滚动，
+     header 由组件 JS 同步 scrollLeft。不可给 .el-table / inner-wrapper / header/body-wrapper
+     额外加 overflow-x——多层可滚容器会在 iOS 嵌套争抢手势，导致 body 区滑不动、只有表头能带动。 */
+  .el-table .el-table__body-wrapper .el-scrollbar__wrap,
+  .el-table .el-table__header-wrapper .el-scrollbar__wrap { -webkit-overflow-scrolling: touch; }
   .page-head { flex-wrap: wrap !important; align-items: stretch !important; row-gap: 10px; }
   .page-head > div:first-child { flex: 1 1 100%; min-width: 0; }
   .page-head .actions { flex-wrap: wrap; width: 100%; }

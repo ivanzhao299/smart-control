@@ -9,8 +9,8 @@ const theme = fs.readFileSync(path.join(srcRoot, 'styles/theme.css'), 'utf8');
 const themeService = fs.readFileSync(path.join(srcRoot, 'services/theme.service.ts'), 'utf8');
 
 test('the design system keeps one clean visual foundation', () => {
-  assert.match(tokens, /--v2-bg-0: #070d14/);
-  assert.match(tokens, /--v2-bg-0: #e9eef4/);
+  assert.match(tokens, /--v2-bg-0: #0a0b0e/);
+  assert.match(tokens, /--v2-bg-0: #f4f6f9/);
   assert.match(tokens, /body::before,\s*\nbody::after \{ content: none !important; \}/);
 
   for (const retired of ['.v2-glass', '.v2-num-glow', '.v2-btn-primary', 'v2-aurora-drift']) {

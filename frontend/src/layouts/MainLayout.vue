@@ -489,12 +489,16 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
       <router-view v-slot="{ Component, route }">
         <!-- 崩溃自恢复: ErrorBoundary 包住所有页面, 单页报错降级不白屏整机 -->
         <ErrorBoundary>
-          <!-- iOS WKWebView 会在后台恢复或主线程繁忙时丢失 transition 收尾，
-               mode="out-in" 因而可能永久停在旧页已移除、新页尚未挂载的空档。
-               控制页以可靠显示为先，直接切换组件；KeepAlive 继续保留相邻页状态。 -->
-          <keep-alive :max="6">
-            <component :is="Component" :key="route.name" />
-          </keep-alive>
+          <!-- 页面切换轻过渡 (2026-09-24 丝滑优化): 早年用 mode="out-in" 在 iOS
+               WKWebView 丢 transitionend 会永久停在"旧页已删、新页未挂"的空档,
+               故一度整体移除过渡、变成硬切。现改为默认(无 mode)交叉淡入淡出并显式
+               传 :duration —— Vue 到点即强制收尾, 不依赖 transitionend; 新页即时
+               挂载不会白屏, 离开页 absolute 不顶布局。KeepAlive 继续保留相邻页状态。 -->
+          <transition name="v2-route" :duration="190">
+            <keep-alive :max="6">
+              <component :is="Component" :key="route.name" />
+            </keep-alive>
+          </transition>
         </ErrorBoundary>
       </router-view>
     </main>
