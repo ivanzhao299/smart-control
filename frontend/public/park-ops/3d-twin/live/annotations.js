@@ -7,14 +7,17 @@ const KEY = 'sc.twin.annotations.v1';
 const CSS = `
 .ann-layer{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:7}
 .ann-tag{position:absolute;top:0;left:0;font:600 13px/1.3 -apple-system,"PingFang SC",sans-serif;
- padding:3px 9px;color:var(--tc,#eaf3ff);border-radius:7px;white-space:nowrap;letter-spacing:.3px;
- background:linear-gradient(180deg,rgba(32,44,66,.85),rgba(14,22,38,.82));
- border:1px solid rgba(120,170,255,.42);box-shadow:0 4px 14px rgba(0,0,0,.36),inset 0 1px 0 rgba(255,255,255,.08);
+ padding:4px 11px;color:var(--tc,#eaf3ff);border-radius:8px;white-space:nowrap;letter-spacing:.4px;text-shadow:0 0 7px rgba(120,170,255,.6);
+ background:linear-gradient(180deg,rgba(38,52,78,.9),rgba(16,26,44,.88) 55%,rgba(10,18,32,.92));
+ border:1px solid rgba(120,170,255,.5);
+ box-shadow:0 8px 20px rgba(0,0,0,.45),0 0 13px rgba(120,170,255,.45),inset 0 1px 0 rgba(255,255,255,.2),inset 0 -1px 0 rgba(0,0,0,.35);
  will-change:transform}
+.ann-tag::before{content:'';position:absolute;inset:0;border-radius:8px;pointer-events:none;
+ background:linear-gradient(115deg,rgba(255,255,255,.16) 0%,rgba(255,255,255,.04) 28%,transparent 46%)}
 .ann-tag.editable{pointer-events:auto;cursor:pointer;border-color:rgba(255,200,90,.75)}
 .ann-tag::after{content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);
- border:7px solid transparent;border-top-color:#6aa6f0;
- filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
+ border:11px solid transparent;border-top-color:#6aa6f0;
+ filter:drop-shadow(0 0 5px #6aa6f0) drop-shadow(0 2px 3px rgba(0,0,0,.6))}
 .ann-bar{position:absolute;left:14px;bottom:14px;z-index:20;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .ann-bar button{pointer-events:auto;font:600 12px sans-serif;padding:7px 12px;border-radius:8px;cursor:pointer;
  color:#eaf3ff;background:linear-gradient(180deg,rgba(42,62,94,.92),rgba(24,38,62,.9));
@@ -140,7 +143,7 @@ export function createAnnotations({ scene, camera, renderer, bldLayer }) {
       if (v.z > 1 || v.z < -1) { e.style.display = 'none'; continue; }
       e.style.display = '';
       const x = (v.x * 0.5 + 0.5) * W, y = (-v.y * 0.5 + 0.5) * H;
-      e.style.transform = `translate(-50%,calc(-100% - 12px)) translate(${x.toFixed(1)}px,${y.toFixed(1)}px)`;
+      e.style.transform = `translate(-50%,calc(-100% - 13px)) translate(${x.toFixed(1)}px,${y.toFixed(1)}px)`;
     }
   }
 

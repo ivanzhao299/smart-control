@@ -7,8 +7,9 @@ import { GLTFLoader } from 'gltf-loader';
 import { DRACOLoader } from 'draco-loader';
 import { Sky } from 'sky';
 import { StabilityReins, LEVELS, levelName } from './reins.js';
-import { createBuildingLayer } from './buildings.js';
+import { createBuildingLayer, BUILDINGS } from './buildings.js';
 import { createAnnotations } from './annotations.js';
+import { createGreening } from './greening.js';
 
 const params = new URLSearchParams(location.search);
 const stage = document.getElementById('liveStage');
@@ -25,12 +26,16 @@ const LOOK = params.get('look') || 'v1';
 const LOOKS = {
   v1: {
     exposure: 1.12, env: 0.12, hemi: 0.15, sun: 3.0,
+    sunPos: { elev: 35, azim: 350 },
+    hemiColor: { sky: 0xfdf2e0, ground: 0x6a7058 }, sunColor: 0xffe8c0,
     sky: { turbidity: 10, rayleigh: 0.3, mie: 0.002, g: 0.8 },
   },
   v2: {
     exposure: 1.04, env: 0.55, hemi: 0.38, sun: 2.7,
+    sunPos: { elev: 35, azim: 350 },
+    hemiColor: { sky: 0xfdf2e0, ground: 0x6a7058 }, sunColor: 0xffe8c0,
     sky: { turbidity: 6, rayleigh: 1.35, mie: 0.005, g: 0.85 },
-    // 材质微调（按材质名；color 为 tint，与原贴图相乘，不替换贴图）
+    // 材质微调（key 支持材质名前缀；color 为 tint，与原贴图相乘，不替换贴图）
     materials: {
       'Display asphalt':         { color: 0x484b4f, roughness: 0.95 },
       'Display lawn':            { map: '../assets/textures/grass.jpg', worldTile: 10, color: 0xa8c09f, roughness: 1.0 },
@@ -41,6 +46,30 @@ const LOOKS = {
       'JZ-玻璃-栏杆':            { roughness: 0.08 },
       'cw_roof':                 { color: 0xc9c6bd },
       'JZ-顶板':                 { color: 0xcfcabf },
+    },
+  },
+  // v3：对标原鸟瞰 park-aerial.jpg —— 黄金时刻暖侧光、暖白墙面、深灰沥青、亮蓝水景、暗周边
+  v3: {
+    exposure: 1.1, env: 0.27, hemi: 0.17, sun: 3.5,
+    sunPos: { elev: 26, azim: 95 },
+    hemiColor: { sky: 0xd8e4f4, ground: 0x554b3a }, sunColor: 0xffe6bf,
+    sky: { turbidity: 8, rayleigh: 1.0, mie: 0.004, g: 0.88 },
+    materials: {
+      'Display asphalt':            { color: 0x2f3235, roughness: 0.96 },
+      'Display lawn':               { map: '../assets/textures/grass.jpg', worldTile: 10, color: 0xa8c09f, roughness: 1.0 },
+      'Display outer ground':       { map: '../assets/textures/forest.jpg', worldTile: 42, color: 0xffffff, roughness: 1.0 },
+      'Display water':              { color: 0x4a80a8, roughness: 0.1, metalness: 0.0 },
+      'Display context buildings':  { color: 0x5c6066 },
+      'JZ-白色':                    { color: 0xf6f1e8, roughness: 0.78 },
+      'JZ-白色条':                  { color: 0xede7db, roughness: 0.8 },
+      'JZ-装饰线-BAI':              { color: 0xf4efe6 },
+      'cw_roof':                    { color: 0xb8b2a9 },
+      'JZ-顶板':                    { color: 0xbdb7ae },
+      'cw_plinth':                  { color: 0xd8d2c6 },
+      'cw_parapet':                 { color: 0xeee8dc },
+      'cw_glass':                   { color: 0xb6c6d6, roughness: 0.05, metalness: 0.0 },
+      'JZ-玻璃-主':                 { color: 0x5d7184, roughness: 0.08 },
+      'JZ-玻璃-栏杆':               { color: 0xb8c8d8, roughness: 0.08 },
     },
   },
 };
@@ -59,12 +88,19 @@ function retileByWorld(mesh, tile) {
   }
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
 }
+function tweakFor(name, map) {
+  let best = null;
+  for (const k of Object.keys(map)) {
+    if (name === k || name.startsWith(k)) { if (!best || k.length > best.length) best = k; }
+  }
+  return best ? map[best] : null;
+}
 function applyMaterialTweaks(g, map) {
   if (!map) return;
   g.traverse((o) => {
     if (!o.isMesh) return;
     [].concat(o.material).forEach((m) => {
-      const t = map[m.name];
+      const t = tweakFor(m.name, map);
       if (!t) return;
       if (t.color !== undefined) m.color.set(t.color);
       if (t.roughness !== undefined) m.roughness = t.roughness;
@@ -108,9 +144,8 @@ const camera = new THREE.PerspectiveCamera(31, 1, 1, 5500);
 const TARGET = new THREE.Vector3();
 
 // ---------- 大气天空 + 太阳 ----------
-const ELEV = 35, AZIM = 350;
 const sun = new THREE.Vector3();
-sun.setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - ELEV), THREE.MathUtils.degToRad(AZIM));
+sun.setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - LK.sunPos.elev), THREE.MathUtils.degToRad(LK.sunPos.azim));
 const sky = new Sky(); sky.scale.setScalar(3800);
 const su = sky.material.uniforms;
 su.turbidity.value = LK.sky.turbidity; su.rayleigh.value = LK.sky.rayleigh; su.mieCoefficient.value = LK.sky.mie;
@@ -118,8 +153,8 @@ su.mieDirectionalG.value = LK.sky.g; su.sunPosition.value.copy(sun);
 scene.add(sky);
 
 // ---------- 灯光：太阳方向光（投影）+ 半球填充 ----------
-const hemi = new THREE.HemisphereLight(0xfdf2e0, 0x6a7058, LK.hemi); scene.add(hemi);
-const dir = new THREE.DirectionalLight(0xffe8c0, LK.sun);
+const hemi = new THREE.HemisphereLight(LK.hemiColor.sky, LK.hemiColor.ground, LK.hemi); scene.add(hemi);
+const dir = new THREE.DirectionalLight(LK.sunColor, LK.sun);
 dir.castShadow = true;
 dir.shadow.mapSize.set(2048, 2048);
 dir.shadow.bias = -0.0004; dir.shadow.normalBias = 0.08;
@@ -310,6 +345,10 @@ function onLoaded(gltf) {
   annotations = createAnnotations({ scene, camera, renderer, bldLayer }); // 标注编辑：企业名+自定义文字
   window.__annotations = annotations;
   bldLayer.refreshLabels(); // annotations 晚于标签创建，补刷新使已存企业名生效
+  const greening = createGreening(scene, BUILDINGS);
+  window.__greeningCtl = greening;
+  const _gof = reins.onFrame;
+  reins.onFrame = function (dt, now) { greening.update(camera); _gof(dt, now); };
   sendReady();
   window.__step = 'done';
   } catch (err) {

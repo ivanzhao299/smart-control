@@ -7,16 +7,19 @@ export const BUILDINGS = [{"id":0,"name":"产研楼 1","type":"prod","wx":7,"wz"
 const CSS = `
 .bld-layer{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:6}
 .bld-tag{position:absolute;top:0;left:0;font:600 12px/1.3 -apple-system,"PingFang SC",sans-serif;
- padding:3px 9px;color:#eafcf7;border-radius:7px;white-space:nowrap;letter-spacing:.3px;
- background:linear-gradient(180deg,rgba(22,44,50,.86),rgba(9,24,30,.83));
+ padding:4px 11px;color:#f0fffb;border-radius:8px;white-space:nowrap;letter-spacing:.4px;text-shadow:0 0 7px var(--oc);
+ background:linear-gradient(180deg,rgba(28,52,58,.9),rgba(12,28,34,.88) 55%,rgba(8,20,26,.92));
  border:1px solid var(--oc,rgba(70,210,195,.5));
- box-shadow:0 4px 14px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.09);
+ box-shadow:0 8px 20px rgba(0,0,0,.45),0 0 13px var(--oc,rgba(70,210,195,.5)),inset 0 1px 0 rgba(255,255,255,.2),inset 0 -1px 0 rgba(0,0,0,.35);
  will-change:transform;transition:background .15s,border-color .15s,box-shadow .15s}
+.bld-tag::before{content:'';position:absolute;inset:0;border-radius:8px;pointer-events:none;
+ background:linear-gradient(115deg,rgba(255,255,255,.16) 0%,rgba(255,255,255,.04) 28%,transparent 46%)}
 .bld-tag::after{content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);
- border:8px solid transparent;border-top-color:var(--ocs,#46c8ee);
- filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
-.bld-tag.active{background:linear-gradient(180deg,rgba(24,104,96,.95),rgba(14,72,68,.92));border-color:#42f0d2;color:#eafffb;box-shadow:0 0 14px rgba(60,230,205,.55),inset 0 1px 0 rgba(255,255,255,.15)}
-.bld-tag.active::after{border-top-color:#42f0d2}
+ border:12px solid transparent;border-top-color:var(--ocs,#46c8ee);
+ filter:drop-shadow(0 0 5px var(--ocs,#46c8ee)) drop-shadow(0 2px 3px rgba(0,0,0,.6))}
+.bld-tag.active{background:linear-gradient(180deg,rgba(26,110,102,.97),rgba(12,74,70,.95));border-color:#42f0d2;color:#effffb;
+ box-shadow:0 8px 22px rgba(0,0,0,.5),0 0 18px rgba(60,230,205,.7),inset 0 1px 0 rgba(255,255,255,.25),inset 0 -1px 0 rgba(0,0,0,.3)}
+.bld-tag.active::after{border-top-color:#42f0d2;filter:drop-shadow(0 0 7px #42f0d2) drop-shadow(0 2px 3px rgba(0,0,0,.6))}
 .bld-card{position:absolute;top:14px;right:14px;width:238px;pointer-events:auto;border-radius:12px;
  background:rgba(10,22,28,.92);border:1px solid rgba(70,210,195,.4);color:#e7f4f1;padding:13px 14px;
  box-shadow:0 10px 34px rgba(0,0,0,.5);backdrop-filter:blur(8px);transform:translateX(18px);opacity:0;
@@ -69,7 +72,7 @@ export function createBuildingLayer(scene, camera, renderer, opts = {}) {
       if (v.z > 1 || v.z < -1) { e.style.display = 'none'; continue; }
       e.style.display = '';
       const x = (v.x * 0.5 + 0.5) * W, y = (-v.y * 0.5 + 0.5) * H;
-      e.style.transform = `translate(-50%,calc(-100% - 13px)) translate(${x.toFixed(1)}px,${y.toFixed(1)}px)`;
+      e.style.transform = `translate(-50%,calc(-100% - 14px)) translate(${x.toFixed(1)}px,${y.toFixed(1)}px)`;
     }
   }
 
