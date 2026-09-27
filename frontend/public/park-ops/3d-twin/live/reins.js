@@ -48,6 +48,7 @@ export class StabilityReins {
     this._lastHudT = 0;
     this._lowSince = 0;
     this._highSince = 0;
+    this._graceUntil = performance.now() + 12000; // 启动宽限：GLB加载/首屏编译期不判降级
 
     this._lastInteractT = performance.now();
     this._docHidden = document.hidden;
@@ -141,6 +142,9 @@ export class StabilityReins {
     this._reassessState(true);
   }
 
+  // 延长/重置启动宽限（GLB 取景完成、首屏展示时再给若干秒预热，期间不判降级）
+  setGraceMs(ms) { this._graceUntil = performance.now() + ms; }
+
   // 恢复可见的统一唤醒：后台时间不计入空闲、回 active（rAF 启停由 _setState 处理）
   _wake() {
     this._lastInteractT = performance.now();
@@ -199,7 +203,7 @@ export class StabilityReins {
     const win = this.cfg.sampleWindowMs;
     while (this._frames.length && now - this._frames[0] > win) this._frames.shift();
     this._fps = (this._frames.length * 1000) / win;
-    const canJudge = this._targetFps() >= this.cfg.lowFpsThreshold;
+    const canJudge = this._targetFps() >= this.cfg.lowFpsThreshold && now >= this._graceUntil;
 
     if (canJudge && this.level < LEVELS.L2) {
       if (this._fps < this.cfg.lowFpsThreshold) {

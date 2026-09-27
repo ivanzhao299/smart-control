@@ -29,12 +29,14 @@ const LOOKS = {
     sunPos: { elev: 35, azim: 350 },
     hemiColor: { sky: 0xfdf2e0, ground: 0x6a7058 }, sunColor: 0xffe8c0,
     sky: { turbidity: 10, rayleigh: 0.3, mie: 0.002, g: 0.8 },
+    fog: { color: 0xe9e7e0, near: 1050, far: 2300 },
   },
   v2: {
     exposure: 1.04, env: 0.55, hemi: 0.38, sun: 2.7,
     sunPos: { elev: 35, azim: 350 },
     hemiColor: { sky: 0xfdf2e0, ground: 0x6a7058 }, sunColor: 0xffe8c0,
     sky: { turbidity: 6, rayleigh: 1.35, mie: 0.005, g: 0.85 },
+    fog: { color: 0xe4e8ea, near: 1050, far: 2300 },
     // 材质微调（key 支持材质名前缀；color 为 tint，与原贴图相乘，不替换贴图）
     materials: {
       'Display asphalt':         { color: 0x484b4f, roughness: 0.95 },
@@ -54,6 +56,7 @@ const LOOKS = {
     sunPos: { elev: 26, azim: 95 },
     hemiColor: { sky: 0xd8e4f4, ground: 0x554b3a }, sunColor: 0xffe6bf,
     sky: { turbidity: 8, rayleigh: 1.0, mie: 0.004, g: 0.88 },
+    fog: { color: 0xdfe5e9, near: 1050, far: 2300 },
     materials: {
       'Display asphalt':            { color: 0x2f3235, roughness: 0.96 },
       'Display lawn':               { map: '../assets/textures/grass.jpg', worldTile: 10, color: 0xa8c09f, roughness: 1.0 },
@@ -118,6 +121,22 @@ function applyMaterialTweaks(g, map) {
   });
 }
 
+// 必须保持双面的薄片材质（玻璃/栏杆/格栅/百叶/幕墙杆件等，无体积厚度、两面都可能可见）
+const KEEP_DOUBLE_SIDE = /玻璃|glass|栏杆|railing|格栅|grating|百叶|louvers|mull|cw_grid|truss/i;
+// 封闭实体（墙体/地面/道路/金属板等）背面永不可见，改单面渲染可省一半顶点；
+// 若减面导致个别面法线翻转/破洞，真机截图核对后，命中破损的材质名加入 KEEP_DOUBLE_SIDE。
+function applySideOptimization(g) {
+  let front = 0, kept = 0;
+  g.traverse((o) => {
+    if (!o.isMesh) return;
+    [].concat(o.material).forEach((m) => {
+      if (m.transparent) { kept++; return; }              // 透明（玻璃）保持双面
+      if (KEEP_DOUBLE_SIDE.test(m.name)) { kept++; return; } // 薄片保持双面
+      if (m.side === THREE.DoubleSide) { m.side = THREE.FrontSide; m.needsUpdate = true; front++; }
+    });
+  });
+  window.__sideOpt = { front, kept };
+}
 function detectWebGL() {
   try {
     const c = document.createElement('canvas');
@@ -140,6 +159,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 stage.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
+if (LK.fog) scene.fog = new THREE.Fog(LK.fog.color, LK.fog.near, LK.fog.far);
 const camera = new THREE.PerspectiveCamera(31, 1, 1, 5500);
 const TARGET = new THREE.Vector3();
 
@@ -251,7 +271,7 @@ function applyLevel(level, reason, m = {}) {
 // ---------- 缰绳接入 ----------
 let bldLayer = null, annotations = null;
 const reins = new StabilityReins(renderer, { embedded: params.get('embedded') === '1' });
-window.__reins = reins; window.__renderer = renderer; window.__camera = camera; window.THREE = THREE;
+window.__reins = reins; window.__renderer = renderer; window.__camera = camera; window.THREE = THREE; window.__scene = scene;
 reins.onFrame = (dt, now) => {
   updateOrbit(dt, now);
   if (bldLayer) bldLayer.update();
@@ -283,6 +303,7 @@ let readySent = false;
 function sendReady() {
   if (readySent) return;
   readySent = true;
+  reins.setGraceMs(9000); // 首屏展示后再给9s预热，避免启动期低帧误降级到L2撤下
   note.classList.add('hidden');
   const gl = renderer.getContext();
   const dbg = gl.getExtension('WEBGL_debug_renderer_info');
@@ -305,6 +326,13 @@ function onLoaded(gltf) {
   scene.add(g);
   g.updateWorldMatrix(true, true); // 一次性更新全园世界矩阵，避免 localToWorld 反复向上递归
   applyMaterialTweaks(g, LK.materials); // 外观配置表 v2 的材质微调（v1 为空、跳过）
+  applySideOptimization(g);             // 封闭实体改单面渲染（玻璃/薄片保持双面），省顶点
+  // 周边 context 灰盒（简陋占位）：无条件压暗为远景剪影，避免中灰方块抢戏
+  g.traverse((o) => {
+    if (!o.isMesh) return;
+    const mn = ([].concat(o.material)[0] || {}).name || '';
+    if (/context buildings/.test(mn)) [].concat(o.material).forEach((m) => { m.color.set(0x33383e); m.roughness = 1; m.metalness = 0; });
+  });
   // 取景：只按真实建筑核心（JZ / cw / T_cw），排除 context / 道路
   const core = new THREE.Box3();
   window.__step = 'traverse';
@@ -347,6 +375,7 @@ function onLoaded(gltf) {
   bldLayer.refreshLabels(); // annotations 晚于标签创建，补刷新使已存企业名生效
   const greening = createGreening(scene, BUILDINGS);
   window.__greeningCtl = greening;
+  greening.whenReady && greening.whenReady.then(() => reins.renderOnce());
   const _gof = reins.onFrame;
   reins.onFrame = function (dt, now) { greening.update(camera); _gof(dt, now); };
   sendReady();
