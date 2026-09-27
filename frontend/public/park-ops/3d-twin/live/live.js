@@ -1,8 +1,13 @@
-// live.js — 3D 实时底座（P0 占位场景 + 缰绳接入 + 宿主通信）
-// 零外部资产：程序化 low-poly 园区占位；P1 再替换为 3ds Max→glTF 的正式 GLB。
-// 验证钩子（不影响默认）：?hud=1 显示调试HUD；?load=heavy 高负载触发自动降级；?force-level=L1|L2 指定档位。
+// live.js — 3D 实时底座（正式：加载真实 GLB park_lite_draco + 稳定性缰绳 + 宿主通信）
+// 真实材质自足（keepmat 已验证）：直接 GLTFLoader + Draco 加载，不做 JS 材质替换。
+// 仅在真实 GLB 加载并取景完成后才 park-twin-ready；失败/超时由宿主回退静态鸟瞰。
+// 调试：?hud=1 显示HUD；?force-level=L1|L2 指定档位。
 import * as THREE from 'three';
+import { GLTFLoader } from 'gltf-loader';
+import { DRACOLoader } from 'draco-loader';
+import { Sky } from 'sky';
 import { StabilityReins, LEVELS, levelName } from './reins.js';
+import { createBuildingLayer } from './buildings.js';
 
 const params = new URLSearchParams(location.search);
 const stage = document.getElementById('liveStage');
@@ -12,6 +17,69 @@ const hudFps = document.getElementById('hudFps');
 const hudLevel = document.getElementById('hudLevel');
 const hudState = document.getElementById('hudState');
 if (params.get('hud') === '1') hud.hidden = false;
+
+// ---------- 外观配置表（集中管理：改这里的值即可，无需重新审计）----------
+// ?look=v1 默认（已达标底座）；?look=v2 对标地产高保真 showcase 的氛围增强。
+const LOOK = params.get('look') || 'v1';
+const LOOKS = {
+  v1: {
+    exposure: 1.12, env: 0.12, hemi: 0.15, sun: 3.0,
+    sky: { turbidity: 10, rayleigh: 0.3, mie: 0.002, g: 0.8 },
+  },
+  v2: {
+    exposure: 1.04, env: 0.55, hemi: 0.38, sun: 2.7,
+    sky: { turbidity: 6, rayleigh: 1.35, mie: 0.005, g: 0.85 },
+    // 材质微调（按材质名；color 为 tint，与原贴图相乘，不替换贴图）
+    materials: {
+      'Display asphalt':         { color: 0x484b4f, roughness: 0.95 },
+      'Display lawn':            { map: '../assets/textures/grass.jpg', worldTile: 10, color: 0xa8c09f, roughness: 1.0 },
+      'Display outer ground':    { color: 0x9b9484 },
+      'Display water':           { color: 0x3a6480, roughness: 0.12, metalness: 0.0 },
+      'cw_glass':                { roughness: 0.05, metalness: 0.0 },
+      'JZ-玻璃-主':              { roughness: 0.06 },
+      'JZ-玻璃-栏杆':            { roughness: 0.08 },
+      'cw_roof':                 { color: 0xc9c6bd },
+      'JZ-顶板':                 { color: 0xcfcabf },
+    },
+  },
+};
+const LK = LOOKS[LOOK] || LOOKS.v1;
+const _texLoader = new THREE.TextureLoader();
+// 按顶点【世界坐标】重算 UV：合批后不同地块原 UV 尺度不一（世界尺度 / 0-1），
+// 统一改为每 tile 世界单位平铺一张贴图，密度与颜色对所有地块一致（草坪均为 XZ 水平面）。
+function retileByWorld(mesh, tile) {
+  const geo = mesh.geometry, pos = geo.attributes.position, m = mesh.matrixWorld;
+  const v = new THREE.Vector3();
+  const uv = new Float32Array(pos.count * 2);
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i).applyMatrix4(m);
+    uv[i * 2] = v.x / tile;
+    uv[i * 2 + 1] = v.z / tile;
+  }
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+}
+function applyMaterialTweaks(g, map) {
+  if (!map) return;
+  g.traverse((o) => {
+    if (!o.isMesh) return;
+    [].concat(o.material).forEach((m) => {
+      const t = map[m.name];
+      if (!t) return;
+      if (t.color !== undefined) m.color.set(t.color);
+      if (t.roughness !== undefined) m.roughness = t.roughness;
+      if (t.metalness !== undefined) m.metalness = t.metalness;
+      if (t.worldTile) retileByWorld(o, t.worldTile);
+      if (t.map) {
+        _texLoader.load(t.map, (tex) => {
+          tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+          tex.repeat.set((t.repeat && t.repeat[0]) || 1, (t.repeat && t.repeat[1]) || 1);
+          tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+          m.map = tex; m.needsUpdate = true;
+        });
+      } else m.needsUpdate = true;
+    });
+  });
+}
 
 function detectWebGL() {
   try {
@@ -26,112 +94,62 @@ function fail(msg) {
 }
 if (!detectWebGL()) { fail('当前环境不支持 WebGL，已请求静态兜底'); throw new Error('webgl-unavailable'); }
 
-// ---------- 渲染器 / 场景 / 相机 ----------
-const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'low-power', stencil: false });
-stage.appendChild(renderer.domElement);
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0a1626);
-scene.fog = new THREE.Fog(0x0a1626, 160, 340);
-
-const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
-const TARGET = new THREE.Vector3(0, 6, 0);
-
-// ---------- 灯光 ----------
-const hemi = new THREE.HemisphereLight(0xbfd8ff, 0x202833, 0.85);
-scene.add(hemi);
-const dir = new THREE.DirectionalLight(0xfff2d8, 1.6);
-dir.position.set(60, 90, 40);
-dir.castShadow = true;
-dir.shadow.mapSize.set(2048, 2048);
-dir.shadow.camera.left = -120; dir.shadow.camera.right = 120;
-dir.shadow.camera.top = 120; dir.shadow.camera.bottom = -120;
-dir.shadow.camera.near = 1; dir.shadow.camera.far = 280;
-dir.shadow.bias = -0.0004;
-scene.add(dir);
+// ---------- 渲染器：ACES 色调映射 + 软阴影 ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', stencil: false });
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = LK.exposure;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+stage.appendChild(renderer.domElement);
 
-// ---------- 地面 / 网格 ----------
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(31, 1, 1, 5500);
+const TARGET = new THREE.Vector3();
+
+// ---------- 大气天空 + 太阳 ----------
+const ELEV = 35, AZIM = 350;
+const sun = new THREE.Vector3();
+sun.setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - ELEV), THREE.MathUtils.degToRad(AZIM));
+const sky = new Sky(); sky.scale.setScalar(3800);
+const su = sky.material.uniforms;
+su.turbidity.value = LK.sky.turbidity; su.rayleigh.value = LK.sky.rayleigh; su.mieCoefficient.value = LK.sky.mie;
+su.mieDirectionalG.value = LK.sky.g; su.sunPosition.value.copy(sun);
+scene.add(sky);
+
+// ---------- 灯光：太阳方向光（投影）+ 半球填充 ----------
+const hemi = new THREE.HemisphereLight(0xfdf2e0, 0x6a7058, LK.hemi); scene.add(hemi);
+const dir = new THREE.DirectionalLight(0xffe8c0, LK.sun);
+dir.castShadow = true;
+dir.shadow.mapSize.set(2048, 2048);
+dir.shadow.bias = -0.0004; dir.shadow.normalBias = 0.08;
+scene.add(dir); scene.add(dir.target);
+
+// ---------- 环境反射：天空 PMREM ----------
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(scene, 0.04, 1, 30000).texture;
+scene.environmentIntensity = LK.env;
+
+// ---------- 加载占位（深色地面），GLB 成功后移除 ----------
+const placeholder = new THREE.Group();
 const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(240, 240),
-  new THREE.MeshStandardMaterial({ color: 0x101d2e, roughness: 0.96, metalness: 0 })
+  new THREE.PlaneGeometry(2000, 2000),
+  new THREE.MeshStandardMaterial({ color: 0x101d2e, roughness: 0.96 })
 );
 ground.rotation.x = -Math.PI / 2;
-ground.receiveShadow = true;
-scene.add(ground);
-const grid = new THREE.GridHelper(240, 48, 0x23476b, 0x16304a);
-grid.material.transparent = true; grid.material.opacity = 0.55;
-scene.add(grid);
+placeholder.add(ground);
+scene.add(placeholder);
 
-// ---------- 楼栋占位 ----------
-const buildingGroup = new THREE.Group();
-scene.add(buildingGroup);
-function buildBuildings() {
-  if (params.get('load') === 'heavy') {
-    // 压力场景：约 1100 栋独立 draw call，超 200–300 预算，用于在弱机/核显上触发 L0→L1→L2。
-    // 注：P1 正式场景将以 InstancedMesh/LOD 把 draw call 压回预算，而非靠降级兜底。
-    const n = 34, span = 200, step = span / n;
-    const geo = new THREE.BoxGeometry(1, 1, 1);
-    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
-      if (Math.random() < 0.18) continue;
-      const h = 4 + Math.random() * 26;
-      const mat = new THREE.MeshStandardMaterial({
-        color: new THREE.Color().setHSL(0.57 + Math.random() * 0.09, 0.45, 0.3 + Math.random() * 0.2),
-        roughness: 0.85, metalness: 0.05,
-      });
-      const m = new THREE.Mesh(geo, mat);
-      m.scale.set(step * 0.7, h, step * 0.7);
-      m.position.set(-span / 2 + i * step + step / 2, h / 2, -span / 2 + j * step + step / 2);
-      m.castShadow = true; m.receiveShadow = true;
-      buildingGroup.add(m);
-    }
-    return;
-  }
-  const groups = [
-    { x: -38, z: -22, n: 6, color: 0x2f6fb0 },
-    { x: 32, z: -26, n: 5, color: 0x2e9c8f },
-    { x: -6, z: 32, n: 7, color: 0x4a6bb5 },
-    { x: 42, z: 26, n: 4, color: 0x7a5fb0 },
-  ];
-  groups.forEach((g) => {
-    for (let k = 0; k < g.n; k++) {
-      const col = k % 3, row = Math.floor(k / 3);
-      const w = 7 + Math.random() * 5, d = 7 + Math.random() * 5, h = 10 + Math.random() * 26;
-      const m = new THREE.Mesh(
-        new THREE.BoxGeometry(w, h, d),
-        new THREE.MeshStandardMaterial({ color: g.color, roughness: 0.8, metalness: 0.12 })
-      );
-      m.position.set(g.x + (col - 1) * 11 + Math.random() * 2, h / 2, g.z + (row - 1) * 11 + Math.random() * 2);
-      m.castShadow = true; m.receiveShadow = true;
-      buildingGroup.add(m);
-    }
-  });
-}
-buildBuildings();
-
-// ---------- 光照预设（日/夜/黄昏） ----------
-const LIGHT_PRESETS = {
-  day:   { bg: 0x0a1626, hemi: 0.85, sky: 0xbfd8ff, ground2: 0x202833, dir: 1.6, dcol: 0xfff2d8, pos: [60, 90, 40] },
-  dusk:  { bg: 0x1a1220, hemi: 0.5,  sky: 0xffb07a, ground2: 0x181018, dir: 1.1, dcol: 0xff8a4d, pos: [70, 28, 30] },
-  night: { bg: 0x05080f, hemi: 0.28, sky: 0x3a5a8a, ground2: 0x05070b, dir: 0.5, dcol: 0x9fc0ff, pos: [-40, 80, -30] },
-};
-function applyLighting(mode) {
-  const p = LIGHT_PRESETS[mode] || LIGHT_PRESETS.day;
-  scene.background.set(p.bg);
-  scene.fog.color.set(p.bg);
-  hemi.intensity = p.hemi; hemi.color.set(p.sky); hemi.groundColor.set(p.ground2);
-  dir.intensity = p.dir; dir.color.set(p.dcol); dir.position.set(...p.pos);
-}
-
-// ---------- 简易轨道交互（拖拽旋转 / 滚轮缩放 / 阻尼 / 空闲自动巡游） ----------
+// ---------- 轨道交互（拖拽 / 滚轮 / 阻尼 / 空闲巡游） ----------
 const orbit = {
-  theta: 0.7, phi: 1.02, radius: 105,
-  tTheta: 0.7, tPhi: 1.02, tRadius: 105,
+  theta: -0.7555, phi: 0.83, radius: 900,
+  tTheta: -0.7555, tPhi: 0.83, tRadius: 900,
+  min: 60, max: 5000,
   dragging: false, lastX: 0, lastY: 0, lastInteract: performance.now(),
 };
 const el = renderer.domElement;
 el.addEventListener('pointerdown', (e) => {
   orbit.dragging = true; orbit.lastX = e.clientX; orbit.lastY = e.clientY;
+  orbit.downX = e.clientX; orbit.downY = e.clientY;
   orbit.lastInteract = performance.now();
   el.setPointerCapture && el.setPointerCapture(e.pointerId);
 });
@@ -143,18 +161,21 @@ el.addEventListener('pointermove', (e) => {
   orbit.lastX = e.clientX; orbit.lastY = e.clientY;
   orbit.lastInteract = performance.now();
 });
-const endDrag = () => { orbit.dragging = false; };
-el.addEventListener('pointerup', endDrag);
-el.addEventListener('pointercancel', endDrag);
+el.addEventListener('pointerup', (e) => {
+  const moved = Math.hypot(e.clientX - orbit.downX, e.clientY - orbit.downY);
+  orbit.dragging = false;
+  if (moved < 6 && bldLayer) bldLayer.select(bldLayer.pickAt(e.clientX, e.clientY));
+});
+el.addEventListener('pointercancel', () => { orbit.dragging = false; });
 el.addEventListener('wheel', (e) => {
   orbit.tRadius *= 1 + Math.sign(e.deltaY) * 0.08;
-  orbit.tRadius = Math.max(45, Math.min(190, orbit.tRadius));
+  orbit.tRadius = Math.max(orbit.min, Math.min(orbit.max, orbit.tRadius));
   orbit.lastInteract = performance.now();
 }, { passive: true });
 
 function updateOrbit(dt, now) {
-  // 空闲 8s 后缓慢自动巡游
-  if (!orbit.dragging && now - orbit.lastInteract > 8000) orbit.tTheta += dt * 0.05;
+  // 空闲 120s 后缓慢自转
+  if (!orbit.dragging && now - orbit.lastInteract > 120000) orbit.tTheta += dt * 0.03;
   const k = 1 - Math.pow(0.0015, dt); // 阻尼
   orbit.theta += (orbit.tTheta - orbit.theta) * k;
   orbit.phi += (orbit.tPhi - orbit.phi) * k;
@@ -177,7 +198,7 @@ function applyLevel(level, reason, m = {}) {
     renderer.shadowMap.enabled = false; // L1：关阴影（最大单项开销之一）
     dir.castShadow = false;
   } else if (level === LEVELS.L2) {
-    // L2：交给宿主切静态鸟瞰；viewer 冻结最后一帧、停止渲染循环
+    // L2：请宿主切静态鸟瞰；viewer 停止渲染循环
     parent.postMessage({ type: 'park-twin-degraded', app: 'live', ts: Date.now(), level: 'L2', reason, fps: m.fps }, '*');
     reins.stop();
     note.textContent = '实时渲染性能不足，已切回静态鸟瞰';
@@ -189,13 +210,13 @@ function applyLevel(level, reason, m = {}) {
 }
 
 // ---------- 缰绳接入 ----------
+let bldLayer = null;
 const reins = new StabilityReins(renderer, { embedded: params.get('embedded') === '1' });
-window.__reins = reins; // 调试探针（P0 验证用）
-let readySent = false;
+window.__reins = reins; window.__renderer = renderer; window.__camera = camera; window.THREE = THREE;
 reins.onFrame = (dt, now) => {
   updateOrbit(dt, now);
+  if (bldLayer) bldLayer.update();
   renderer.render(scene, camera);
-  if (!readySent) sendReady();
 };
 reins.onLevelChange = applyLevel;
 reins.onMetrics = (m) => {
@@ -215,23 +236,80 @@ function resize() {
 resize();
 new ResizeObserver(resize).observe(stage);
 window.addEventListener('resize', resize);
-
 reins.start();
 
-// ---------- 宿主通信 ----------
-const gl = renderer.getContext();
-const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-const rendererStr = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'unknown';
-
+// ---------- ready：真实 GLB 取景完成后才发 ----------
+let readySent = false;
 function sendReady() {
+  if (readySent) return;
   readySent = true;
   note.classList.add('hidden');
+  const gl = renderer.getContext();
+  const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+  const rendererStr = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'unknown';
   parent.postMessage({
     type: 'park-twin-ready', app: 'live', ts: Date.now(),
     renderer: rendererStr, level: 'L0',
     capabilities: { maxTextureSize: gl.getParameter(gl.MAX_TEXTURE_SIZE) },
   }, '*');
 }
+
+// ---------- 加载真实 GLB ----------
+const draco = new DRACOLoader(); draco.setDecoderPath('../../vendor/draco/gltf/');
+const loader = new GLTFLoader(); loader.setDRACOLoader(draco);
+function onLoaded(gltf) {
+  window.__glbReadyMs = Math.round(performance.now()); // 传输+Draco解码+场景构建完成（首帧前）
+  const g = gltf.scene; window.__g = g;
+  try {
+  window.__step = 'add';
+  scene.add(g);
+  g.updateWorldMatrix(true, true); // 一次性更新全园世界矩阵，避免 localToWorld 反复向上递归
+  applyMaterialTweaks(g, LK.materials); // 外观配置表 v2 的材质微调（v1 为空、跳过）
+  // 取景：只按真实建筑核心（JZ / cw / T_cw），排除 context / 道路
+  const core = new THREE.Box3();
+  window.__step = 'traverse';
+  g.traverse((o) => {
+    if (!o.isMesh) return;
+    const mn = ([].concat(o.material)[0] && [].concat(o.material)[0].name) || '';
+    if (!/^(JZ-|cw_|T_cw)/.test(mn)) return;
+    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+    const b = o.geometry.boundingBox;
+    core.expandByPoint(b.min.clone().applyMatrix4(o.matrixWorld));
+    core.expandByPoint(b.max.clone().applyMatrix4(o.matrixWorld));
+  });
+  window.__step = 'traversed';
+  const size = core.getSize(new THREE.Vector3()); core.getCenter(TARGET);
+  const base = Math.max(size.x, size.z);
+  orbit.radius = orbit.tRadius = base * 1.15;
+  orbit.min = base * 0.1; orbit.max = base * 3;
+  // 太阳阴影锥覆盖整个场景
+  window.__step = 'box';
+  const gbox = new THREE.Box3().setFromObject(g);
+  window.__step = 'boxed';
+  const gsize = gbox.getSize(new THREE.Vector3()); const gspan = gsize.length();
+  const gc = gbox.getCenter(new THREE.Vector3());
+  const half = Math.max(gsize.x, gsize.z) * 0.5, c = dir.shadow.camera;
+  c.left = -half; c.right = half; c.top = half; c.bottom = -half; c.near = 1; c.far = gspan * 2.2;
+  c.updateProjectionMatrix();
+  dir.target.position.copy(gc);
+  dir.position.copy(gc).addScaledVector(sun, gspan * 1.3);
+  // 移除占位
+  window.__step = 'ready';
+  scene.remove(placeholder);
+  bldLayer = createBuildingLayer(scene, camera, renderer); // S1 楼栋标签/点击/信息卡
+  window.__bldLayer = bldLayer;
+  sendReady();
+  window.__step = 'done';
+  } catch (err) {
+    window.__onloadErr = (err.message || String(err)) + ' | ' + ((err.stack || '').split('\n')[1] || '');
+    fail('取景初始化失败：' + (err.message || err));
+  }
+}
+loader.load('../assets/park_lite_draco.glb', onLoaded,
+  (ev) => { if (ev.total) note.textContent = `模型加载中 ${Math.round(ev.loaded / ev.total * 100)}%`; },
+  () => fail('真实模型加载失败，已请求静态兜底'));
+
+// ---------- 心跳 ----------
 setInterval(() => {
   parent.postMessage({
     type: 'park-twin-heartbeat', app: 'live', ts: Date.now(),
@@ -239,6 +317,22 @@ setInterval(() => {
   }, '*');
 }, 5000);
 
+// ---------- 日/夜光照（基础） ----------
+function applyLighting(mode) {
+  if (mode === 'night') {
+    sky.visible = false;
+    scene.background = new THREE.Color(0x05080f);
+    hemi.intensity = 0.08; dir.intensity = 0.6;
+    renderer.toneMappingExposure = 0.9;
+  } else {
+    sky.visible = true;
+    scene.background = null;
+    hemi.intensity = LK.hemi; dir.intensity = LK.sun;
+    renderer.toneMappingExposure = LK.exposure;
+  }
+}
+
+// ---------- 宿主通信 ----------
 window.addEventListener('message', (e) => {
   let d = e.data;
   if (typeof d === 'string') { try { d = JSON.parse(d); } catch { return; } }
