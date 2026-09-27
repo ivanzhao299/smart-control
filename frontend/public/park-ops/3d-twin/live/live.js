@@ -8,6 +8,7 @@ import { DRACOLoader } from 'draco-loader';
 import { Sky } from 'sky';
 import { StabilityReins, LEVELS, levelName } from './reins.js';
 import { createBuildingLayer } from './buildings.js';
+import { createAnnotations } from './annotations.js';
 
 const params = new URLSearchParams(location.search);
 const stage = document.getElementById('liveStage');
@@ -164,7 +165,10 @@ el.addEventListener('pointermove', (e) => {
 el.addEventListener('pointerup', (e) => {
   const moved = Math.hypot(e.clientX - orbit.downX, e.clientY - orbit.downY);
   orbit.dragging = false;
-  if (moved < 6 && bldLayer) bldLayer.select(bldLayer.pickAt(e.clientX, e.clientY));
+  if (moved < 6) {
+    if (annotations && annotations.handleClick(e.clientX, e.clientY)) return;
+    if (bldLayer) bldLayer.select(bldLayer.pickAt(e.clientX, e.clientY));
+  }
 });
 el.addEventListener('pointercancel', () => { orbit.dragging = false; });
 el.addEventListener('wheel', (e) => {
@@ -210,12 +214,13 @@ function applyLevel(level, reason, m = {}) {
 }
 
 // ---------- 缰绳接入 ----------
-let bldLayer = null;
+let bldLayer = null, annotations = null;
 const reins = new StabilityReins(renderer, { embedded: params.get('embedded') === '1' });
 window.__reins = reins; window.__renderer = renderer; window.__camera = camera; window.THREE = THREE;
 reins.onFrame = (dt, now) => {
   updateOrbit(dt, now);
   if (bldLayer) bldLayer.update();
+  if (annotations) annotations.update();
   renderer.render(scene, camera);
 };
 reins.onLevelChange = applyLevel;
@@ -296,8 +301,15 @@ function onLoaded(gltf) {
   // 移除占位
   window.__step = 'ready';
   scene.remove(placeholder);
-  bldLayer = createBuildingLayer(scene, camera, renderer); // S1 楼栋标签/点击/信息卡
+  const bldOpts = {
+    getCompany: (id) => (annotations ? annotations.getCompany(id) : ''),
+    onSelect: (slot, b) => { if (annotations) annotations.onSelect(slot, b); },
+  };
+  bldLayer = createBuildingLayer(scene, camera, renderer, bldOpts); // S1 楼栋标签/点击/信息卡
   window.__bldLayer = bldLayer;
+  annotations = createAnnotations({ scene, camera, renderer, bldLayer }); // 标注编辑：企业名+自定义文字
+  window.__annotations = annotations;
+  bldLayer.refreshLabels(); // annotations 晚于标签创建，补刷新使已存企业名生效
   sendReady();
   window.__step = 'done';
   } catch (err) {

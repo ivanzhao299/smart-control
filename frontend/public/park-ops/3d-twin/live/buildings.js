@@ -6,10 +6,17 @@ export const BUILDINGS = [{"id":0,"name":"产研楼 1","type":"prod","wx":7,"wz"
 
 const CSS = `
 .bld-layer{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:6}
-.bld-tag{position:absolute;top:0;left:0;font:12px/1.3 -apple-system,"PingFang SC",sans-serif;
- padding:2px 7px;background:rgba(8,20,26,.62);border:1px solid var(--oc,rgba(70,210,195,.45));color:#cdf5ec;
- border-radius:5px;white-space:nowrap;backdrop-filter:blur(3px);will-change:transform;transition:background .15s,border-color .15s}
-.bld-tag.active{background:rgba(20,90,84,.9);border-color:#42f0d2;color:#eafffb;box-shadow:0 0 10px rgba(60,230,205,.45)}
+.bld-tag{position:absolute;top:0;left:0;font:600 12px/1.3 -apple-system,"PingFang SC",sans-serif;
+ padding:3px 9px;color:#eafcf7;border-radius:7px;white-space:nowrap;letter-spacing:.3px;
+ background:linear-gradient(180deg,rgba(22,44,50,.86),rgba(9,24,30,.83));
+ border:1px solid var(--oc,rgba(70,210,195,.5));
+ box-shadow:0 4px 14px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.09);
+ will-change:transform;transition:background .15s,border-color .15s,box-shadow .15s}
+.bld-tag::after{content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);
+ border:8px solid transparent;border-top-color:var(--ocs,#46c8ee);
+ filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
+.bld-tag.active{background:linear-gradient(180deg,rgba(24,104,96,.95),rgba(14,72,68,.92));border-color:#42f0d2;color:#eafffb;box-shadow:0 0 14px rgba(60,230,205,.55),inset 0 1px 0 rgba(255,255,255,.15)}
+.bld-tag.active::after{border-top-color:#42f0d2}
 .bld-card{position:absolute;top:14px;right:14px;width:238px;pointer-events:auto;border-radius:12px;
  background:rgba(10,22,28,.92);border:1px solid rgba(70,210,195,.4);color:#e7f4f1;padding:13px 14px;
  box-shadow:0 10px 34px rgba(0,0,0,.5);backdrop-filter:blur(8px);transform:translateX(18px);opacity:0;
@@ -21,9 +28,14 @@ const CSS = `
 .bld-card .bar{height:6px;border-radius:4px;background:rgba(255,255,255,.1);overflow:hidden;margin-top:3px}
 .bld-card .bar i{display:block;height:100%;background:linear-gradient(90deg,#2ad0b4,#6af0d8);border-radius:4px}
 .bld-card .x{position:absolute;top:8px;right:10px;cursor:pointer;color:#8fb8b2;font-size:15px}
+.bld-card .company-slot{margin-top:10px}
+.bld-card .company-slot label{font:11px sans-serif;color:#7fc7bd;display:block;margin-bottom:4px}
+.bld-card .company-slot input{width:100%;box-sizing:border-box;padding:6px 8px;border-radius:6px;
+ border:1px solid rgba(70,210,195,.35);background:rgba(255,255,255,.06);color:#eafcf7;font:12px sans-serif;outline:none}
+.bld-card .company-slot input:focus{border-color:#42f0d2}
 `;
 
-export function createBuildingLayer(scene, camera, renderer) {
+export function createBuildingLayer(scene, camera, renderer, opts = {}) {
   const style = document.createElement('style'); style.textContent = CSS; document.head.appendChild(style);
   const host = renderer.domElement.parentElement;
   const layer = document.createElement('div'); layer.className = 'bld-layer'; host.appendChild(layer);
@@ -38,12 +50,16 @@ export function createBuildingLayer(scene, camera, renderer) {
   const TYPE_NAME = { tower:'科创大厦', aux:'配套服务楼', prod:'产研楼' };
 
   const occColor = (o) => o >= 85 ? 'rgba(80,235,195,.75)' : o >= 60 ? 'rgba(90,195,235,.55)' : 'rgba(240,180,90,.7)';
+  const occSolid = (o) => o >= 85 ? '#35d8b8' : o >= 60 ? '#3fb0e6' : '#e8ac52';
+  const labelText = (b) => (opts.getCompany && opts.getCompany(b.id)) || b.name;
   const tags = BUILDINGS.map((b) => {
-    const e = document.createElement('div'); e.className = 'bld-tag'; e.textContent = b.name;
+    const e = document.createElement('div'); e.className = 'bld-tag'; e.textContent = labelText(b);
     e.style.setProperty('--oc', occColor(b.occupancy));
+    e.style.setProperty('--ocs', occSolid(b.occupancy));
     layer.appendChild(e);
     return { b, e };
   });
+  function refreshLabels() { for (const { b, e } of tags) e.textContent = labelText(b); }
 
   const v = new THREE.Vector3();
   function update() {
@@ -53,23 +69,26 @@ export function createBuildingLayer(scene, camera, renderer) {
       if (v.z > 1 || v.z < -1) { e.style.display = 'none'; continue; }
       e.style.display = '';
       const x = (v.x * 0.5 + 0.5) * W, y = (-v.y * 0.5 + 0.5) * H;
-      e.style.transform = `translate(-50%,-100%) translate(${x.toFixed(1)}px,${y.toFixed(1)}px)`;
+      e.style.transform = `translate(-50%,calc(-100% - 13px)) translate(${x.toFixed(1)}px,${y.toFixed(1)}px)`;
     }
   }
 
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
-  function pickAt(clientX, clientY) {
+  function groundPoint(clientX, clientY) {
     const r = renderer.domElement.getBoundingClientRect();
     ndc.x = ((clientX - r.left) / r.width) * 2 - 1;
     ndc.y = -((clientY - r.top) / r.height) * 2 + 1;
     ray.setFromCamera(ndc, camera);
     const t = (0 - ray.ray.origin.y) / ray.ray.direction.y;
     if (!isFinite(t) || t < 0) return null;
-    const px = ray.ray.origin.x + ray.ray.direction.x * t;
-    const pz = ray.ray.origin.z + ray.ray.direction.z * t;
+    return { x: ray.ray.origin.x + ray.ray.direction.x * t, z: ray.ray.origin.z + ray.ray.direction.z * t };
+  }
+  function pickAt(clientX, clientY) {
+    const p = groundPoint(clientX, clientY);
+    if (!p) return null;
     let hit = null;
     for (const b of BUILDINGS) {
-      if (Math.abs(px - b.wx) <= b.w / 2 && Math.abs(pz - b.wz) <= b.d / 2) {
+      if (Math.abs(p.x - b.wx) <= b.w / 2 && Math.abs(p.z - b.wz) <= b.d / 2) {
         if (!hit || b.w * b.d < hit.w * hit.d) hit = b;
       }
     }
@@ -88,10 +107,12 @@ export function createBuildingLayer(scene, camera, renderer) {
       <div class="t">${TYPE_NAME[b.type] || ''}</div>
       <div class="row"><span>入驻率</span><span>${b.occupancy}%</span></div>
       <div class="bar"><i style="width:${b.occupancy}%"></i></div>
-      <div class="row"><span>入驻企业</span><span>${b.companies} 家</span></div>`;
+      <div class="row"><span>入驻企业</span><span>${b.companies} 家</span></div>
+      <div class="company-slot"></div>`;
     card.classList.add('show');
     card.querySelector('.x').onclick = () => select(null);
+    if (opts.onSelect) opts.onSelect(card.querySelector('.company-slot'), b);
   }
 
-  return { update, pickAt, select, get selected(){ return selected; } };
+  return { update, pickAt, groundPoint, select, refreshLabels, get selected(){ return selected; } };
 }
