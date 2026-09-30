@@ -43,6 +43,10 @@ jobs:
   validate-frontend:
     name: Validate frontend release
     needs: scope
+    if: >-
+      needs.scope.outputs.scope == 'static' ||
+      needs.scope.outputs.scope == 'frontend' ||
+      needs.scope.outputs.scope == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -72,6 +76,9 @@ jobs:
   validate-backend:
     name: Validate backend release
     needs: scope
+    if: >-
+      needs.scope.outputs.scope == 'backend' ||
+      needs.scope.outputs.scope == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -104,8 +111,9 @@ jobs:
     if: >-
       always() &&
       needs.scope.result == 'success' &&
-      needs.validate-frontend.result == 'success' &&
-      needs.validate-backend.result == 'success'
+      needs.scope.outputs.scope != 'none' &&
+      (needs.validate-frontend.result == 'success' || needs.validate-frontend.result == 'skipped') &&
+      (needs.validate-backend.result == 'success' || needs.validate-backend.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -155,7 +163,7 @@ jobs:
         env:
           TWIN_BASE: https://erp.cnjinhu.top/control/park-ops/3d-twin
         run: |
-          for f in bootstrap.js manifest.json viewer/index.html; do
+          for f in bootstrap.js manifest.json live/index.html viewer/index.html; do
             code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 "${TWIN_BASE}/${f}")
             echo "${f} -> ${code}"
             test "$code" = "200"
