@@ -11,7 +11,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-$allowedExt = @('.html', '.js', '.css', '.json', '.webp', '.png', '.jpg', '.jpeg', '.svg', '.ico', '.woff2')
+$allowedExt = @('.html', '.js', '.css', '.json', '.webp', '.png', '.jpg', '.jpeg', '.svg', '.ico', '.woff2', '.wasm', '.glb', '.md', '.gitignore')
 $prefix = 'frontend/public/park-ops/3d-twin/'
 
 Set-Location $Repo
