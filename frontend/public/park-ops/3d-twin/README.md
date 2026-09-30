@@ -22,14 +22,16 @@
 
 | 文件 | 状态 |
 |---|---|
-| `assets/park_lite_draco.glb` | **正式底座**，入 git |
-| `assets/park_lite.glb`（41 MB，未 Draco） | 未压缩原始，磁盘保留、不入 git |
-| `assets/park_box.glb`（9.5 MB 白盒） | **已弃用**：盒化导致玻璃/材质/颜色全丢、惨白不合格；保留勿删，勿在其上工作 |
-| `assets/park_stage1.glb` / `park.glb` / `park_v1–v98.glb` | 历史中间版与备份，全部磁盘保留、勿删 |
+| `assets/park_lite_draco.glb`（3.9 MB） | **正式底座**，live.js 唯一加载，入 git |
+| `assets/park_lite.glb`（39 MB，未 Draco） | Draco 压缩前母版，磁盘保留、不入 git |
+| `assets/park.glb`（19 MB） | 被 `inspect.html`、`model/model.js` 硬引用，磁盘保留、不入 git |
+| ~~`park_box` / `park_stage1` / `park_v1·v2·v3·v94·v96·v98`~~ | 历史中间态/弃用版，已于 2026-09-30 经用户确认移至 macOS 废纸篓（可恢复），不入 git、不部署 |
+
+> 清理后 `3d-twin/` 目录约 72 MB（live 代码 92 KB、贴图 2.6 MB、上述 3 个保留 GLB 约 62 MB）；生产实际仅加载 `park_lite_draco.glb` + 贴图，约 6 MB。任何后续删除仍须先经用户明确同意并送回收站。
 
 ## 红线（必须遵守）
 
-1. **绝不许删除**真实材质版（`park_lite` / `park_lite_draco`）及任何备份 GLB。
+1. **绝不许擅自删除**保留版（`park_lite_draco` 正式 / `park_lite` 母版 / `park.glb` 工具引用）；任何删除必须先经用户明确同意并送回收站。
 2. **绝不再重建白盒**，绝不删真实材质去换性能。
 3. 规则镂空（栏杆 / 窗格 / 百叶）与玻璃**禁止 Decimate**。
 4. viewer 始终独立分支，**不合并 main、不全量部署、不碰生产 GK**。

@@ -1,12 +1,14 @@
 {
   "name": "smart-control-3d-twin",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "productionEligible": false,
   "optIn": {
     "default": false,
     "storageKey": "park-3d-twin",
     "urlFlag": "twin"
   },
+  "defaultApp": "live",
+  "live": "live/index.html?embedded=1",
   "viewer": "viewer/index.html?embedded=1",
   "budgets": {
     "totalImageBytesMB": 6.5,
@@ -15,5 +17,5 @@
     "heartbeatTimeoutMs": 12000
   },
   "fallback": "static-aerial",
-  "note": "达生产级前仅部署本目录；开关默认关，加载异常自动回退静态鸟瞰。"
+  "note": "初代生产上墙：开关打开默认实时 live（?twin-app=viewer 可切预渲染、零持续GPU）；开关默认关，加载异常自动回退静态鸟瞰。"
 }

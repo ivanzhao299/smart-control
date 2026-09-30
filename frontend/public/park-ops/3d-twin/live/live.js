@@ -22,7 +22,7 @@ if (params.get('hud') === '1') hud.hidden = false;
 
 // ---------- 外观配置表（集中管理：改这里的值即可，无需重新审计）----------
 // ?look=v1 默认（已达标底座）；?look=v2 对标地产高保真 showcase 的氛围增强。
-const LOOK = params.get('look') || 'v1';
+const LOOK = params.get('look') || 'v3';
 const LOOKS = {
   v1: {
     exposure: 1.12, env: 0.12, hemi: 0.15, sun: 3.0,
@@ -58,7 +58,11 @@ const LOOKS = {
     sky: { turbidity: 8, rayleigh: 1.0, mie: 0.004, g: 0.88 },
     fog: { color: 0xdfe5e9, near: 1050, far: 2300 },
     materials: {
-      'Display asphalt':            { color: 0x2f3235, roughness: 0.96 },
+      'Display asphalt':            { color: 0x232629, roughness: 0.97 },
+      'DX-路牙':                    { color: 0x232629, roughness: 0.97, noMap: true },
+      'w004':                       { color: 0x232629, roughness: 0.97, double: true },
+      'DX-白线':                    { color: 0xf3f3ed, roughness: 0.5, line: true },
+      'DX-黄线':                    { color: 0xf0be0a, roughness: 0.5, line: true },
       'Display lawn':               { map: '../assets/textures/grass.jpg', worldTile: 10, color: 0xa8c09f, roughness: 1.0 },
       'Display outer ground':       { map: '../assets/textures/forest.jpg', worldTile: 42, color: 0xffffff, roughness: 1.0 },
       'Display water':              { color: 0x4a80a8, roughness: 0.1, metalness: 0.0 },
@@ -66,13 +70,14 @@ const LOOKS = {
       'JZ-白色':                    { color: 0xf6f1e8, roughness: 0.78 },
       'JZ-白色条':                  { color: 0xede7db, roughness: 0.8 },
       'JZ-装饰线-BAI':              { color: 0xf4efe6 },
-      'cw_roof':                    { color: 0xb8b2a9 },
-      'JZ-顶板':                    { color: 0xbdb7ae },
+      'cw_roof':                    { color: 0xecebe5, roughness: 1.0 },
+      'JZ-顶板':                    { color: 0xe5e7df, roughness: 1.0 },
+      'JZ-下墙-MU-顶板':            { map: '../assets/textures/roof-grass.jpg', worldTile: 8, color: 0xffffff, roughness: 1.0 },
       'cw_plinth':                  { color: 0xd8d2c6 },
       'cw_parapet':                 { color: 0xeee8dc },
-      'cw_glass':                   { color: 0xb6c6d6, roughness: 0.05, metalness: 0.0 },
-      'JZ-玻璃-主':                 { color: 0x5d7184, roughness: 0.08 },
-      'JZ-玻璃-栏杆':               { color: 0xb8c8d8, roughness: 0.08 },
+      'cw_glass':                   { color: 0x647e9c, roughness: 0.05, metalness: 0.0 },
+      'JZ-玻璃-主':                 { color: 0x4a5e78, roughness: 0.08 },
+      'JZ-玻璃-栏杆':               { color: 0x7e94b0, roughness: 0.08 },
     },
   },
 };
@@ -105,9 +110,12 @@ function applyMaterialTweaks(g, map) {
     [].concat(o.material).forEach((m) => {
       const t = tweakFor(m.name, map);
       if (!t) return;
+      if (t.noMap) m.map = null;
       if (t.color !== undefined) m.color.set(t.color);
       if (t.roughness !== undefined) m.roughness = t.roughness;
       if (t.metalness !== undefined) m.metalness = t.metalness;
+      if (t.double) m.side = THREE.DoubleSide;
+      if (t.line) { m.polygonOffset = true; m.polygonOffsetFactor = -4; m.polygonOffsetUnits = -4; m.side = THREE.DoubleSide; }
       if (t.worldTile) retileByWorld(o, t.worldTile);
       if (t.map) {
         _texLoader.load(t.map, (tex) => {
@@ -122,7 +130,7 @@ function applyMaterialTweaks(g, map) {
 }
 
 // 必须保持双面的薄片材质（玻璃/栏杆/格栅/百叶/幕墙杆件等，无体积厚度、两面都可能可见）
-const KEEP_DOUBLE_SIDE = /玻璃|glass|栏杆|railing|格栅|grating|百叶|louvers|mull|cw_grid|truss/i;
+const KEEP_DOUBLE_SIDE = /玻璃|glass|栏杆|railing|格栅|grating|百叶|louvers|mull|cw_grid|truss|白线|黄线|w004/i;
 // 封闭实体（墙体/地面/道路/金属板等）背面永不可见，改单面渲染可省一半顶点；
 // 若减面导致个别面法线翻转/破洞，真机截图核对后，命中破损的材质名加入 KEEP_DOUBLE_SIDE。
 function applySideOptimization(g) {
@@ -136,6 +144,49 @@ function applySideOptimization(g) {
     });
   });
   window.__sideOpt = { front, kept };
+}
+// 立交/高架匝道面在合批时被并入 context buildings（与周边白模共用材质），
+// 运行时按"法线朝上 + 位于立交区(z<-480) + 高架(y>2)"把这些面分离，统一为黑色沥青。
+// 只重排三角形、加材质组，不复制/新增几何体量。
+function splitFlyoverRoads(g) {
+  const asphaltMat = new THREE.MeshStandardMaterial({ color: 0x232629, roughness: 0.97, metalness: 0 });
+  let moved = 0;
+  g.traverse((o) => {
+    if (!o.isMesh) return;
+    const mn = ([].concat(o.material)[0] || {}).name || '';
+    if (!/context buildings/.test(mn)) return;
+    let geo = o.geometry;
+    if (geo.index) geo = geo.toNonIndexed(); else geo = geo.clone();
+    const pos = geo.attributes.position, e = o.matrixWorld.elements;
+    const road = [], other = [];
+    for (let t = 0; t < pos.count / 3; t++) {
+      const L = [[pos.getX(t * 3), pos.getY(t * 3), pos.getZ(t * 3)],
+                 [pos.getX(t * 3 + 1), pos.getY(t * 3 + 1), pos.getZ(t * 3 + 1)],
+                 [pos.getX(t * 3 + 2), pos.getY(t * 3 + 2), pos.getZ(t * 3 + 2)]];
+      const W = L.map((p) => [e[0] * p[0] + e[4] * p[1] + e[8] * p[2] + e[12],
+                              e[1] * p[0] + e[5] * p[1] + e[9] * p[2] + e[13],
+                              e[2] * p[0] + e[6] * p[1] + e[10] * p[2] + e[14]]);
+      const ux = W[1][0] - W[0][0], uy = W[1][1] - W[0][1], uz = W[1][2] - W[0][2];
+      const vx = W[2][0] - W[0][0], vy = W[2][1] - W[0][1], vz = W[2][2] - W[0][2];
+      const ny = uz * vx - ux * vz;
+      const cy = (W[0][1] + W[1][1] + W[2][1]) / 3, cz = (W[0][2] + W[1][2] + W[2][2]) / 3;
+      const isRoad = ny > 0 && cz < -480 && cy > 2;
+      const dst = isRoad ? road : other;
+      if (isRoad) moved++;
+      for (const p of L) dst.push(p[0], p[1], p[2]);
+    }
+    if (!road.length) return;
+    const all = road.concat(other);
+    const ng = new THREE.BufferGeometry();
+    ng.setAttribute('position', new THREE.Float32BufferAttribute(all, 3));
+    const rv = road.length / 3, total = all.length / 3;
+    ng.addGroup(0, rv * 3, 0);
+    if (other.length) ng.addGroup(rv * 3, (total - rv) * 3, 1);
+    const ctxMat = [].concat(o.material)[0].clone();
+    o.geometry = ng;
+    o.material = other.length ? [asphaltMat, ctxMat] : asphaltMat;
+  });
+  window.__flyoverSplit = moved;
 }
 function detectWebGL() {
   try {
@@ -271,7 +322,7 @@ function applyLevel(level, reason, m = {}) {
 // ---------- 缰绳接入 ----------
 let bldLayer = null, annotations = null;
 const reins = new StabilityReins(renderer, { embedded: params.get('embedded') === '1' });
-window.__reins = reins; window.__renderer = renderer; window.__camera = camera; window.THREE = THREE; window.__scene = scene;
+window.__reins = reins; window.__renderer = renderer; window.__camera = camera; window.THREE = THREE; window.__scene = scene; window.__orbit = orbit;
 reins.onFrame = (dt, now) => {
   updateOrbit(dt, now);
   if (bldLayer) bldLayer.update();
@@ -316,7 +367,7 @@ function sendReady() {
 }
 
 // ---------- 加载真实 GLB ----------
-const draco = new DRACOLoader(); draco.setDecoderPath('../../vendor/draco/gltf/');
+const draco = new DRACOLoader(); draco.setDecoderPath('../model/draco/gltf/');
 const loader = new GLTFLoader(); loader.setDRACOLoader(draco);
 function onLoaded(gltf) {
   window.__glbReadyMs = Math.round(performance.now()); // 传输+Draco解码+场景构建完成（首帧前）
@@ -333,6 +384,7 @@ function onLoaded(gltf) {
     const mn = ([].concat(o.material)[0] || {}).name || '';
     if (/context buildings/.test(mn)) [].concat(o.material).forEach((m) => { m.color.set(0x33383e); m.roughness = 1; m.metalness = 0; });
   });
+  splitFlyoverRoads(g);                 // 立交匝道面从 context 分离、统一黑色沥青
   // 取景：只按真实建筑核心（JZ / cw / T_cw），排除 context / 道路
   const core = new THREE.Box3();
   window.__step = 'traverse';

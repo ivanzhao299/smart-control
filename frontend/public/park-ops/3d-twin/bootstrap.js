@@ -34,16 +34,16 @@ function resolveViewerUrl() {
   if (override && /^3d-twin\/[\w./-]+\.html(?:[?][\w=&.-]*)?$/.test(override)) {
     return new URL(override, new URL('../', import.meta.url)).href;
   }
-  // ?twin-app=live 选择实时 Three.js 底座（P0 缰绳）；缺省为预渲染多视角 viewer。
-  if (params.get('twin-app') === 'live') {
-    const passthrough = ['hud', 'load', 'force-level']
-      .filter((k) => params.has(k))
-      .map((k) => encodeURIComponent(k) + '=' + encodeURIComponent(params.get(k)))
-      .join('&');
-    const q = 'embedded=1' + (passthrough ? '&' + passthrough : '');
-    return new URL('./live/index.html?' + q, import.meta.url).href;
+  // 初代生产缺省进实时 Three.js 底座 live；?twin-app=viewer 可显式切回预渲染多视角 viewer（零持续 GPU）。
+  if (params.get('twin-app') === 'viewer') {
+    return new URL('./viewer/index.html?embedded=1', import.meta.url).href;
   }
-  return new URL('./viewer/index.html?embedded=1', import.meta.url).href;
+  const passthrough = ['hud', 'load', 'force-level']
+    .filter((k) => params.has(k))
+    .map((k) => encodeURIComponent(k) + '=' + encodeURIComponent(params.get(k)))
+    .join('&');
+  const q = 'embedded=1' + (passthrough ? '&' + passthrough : '');
+  return new URL('./live/index.html?' + q, import.meta.url).href;
 }
 
 function teardown(reason) {
