@@ -37,8 +37,9 @@ jobs:
     name: Detect release scope
     runs-on: ubuntu-latest
     outputs:
-      scope: ${{ steps.scope.outputs.scope }}
-      files: ${{ steps.scope.outputs.files }}
+      scope: ${{ steps.resolve.outputs.scope }}
+      files: ${{ steps.resolve.outputs.files }}
+      detected: ${{ steps.resolve.outputs.detected }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -50,16 +51,23 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
         run: node tools/ci/deploy-scope.mjs --base "$BASE_SHA" --head "$HEAD_SHA" --github-output "$GITHUB_OUTPUT"
 
-      - name: Apply optional manual scope override
+      - id: resolve
+        name: Resolve effective scope (apply optional manual override)
         env:
           FORCE_SCOPE: ${{ inputs.force_scope }}
         run: |
-          detected="$(grep '^scope=' "$GITHUB_OUTPUT" | head -1 | cut -d= -f2-)"
+          detected="${{ steps.scope.outputs.scope }}"
+          files="${{ steps.scope.outputs.files }}"
+          effective="${detected}"
           echo "Detected scope: ${detected}"
           if [ -n "$FORCE_SCOPE" ] && [ "$FORCE_SCOPE" != "auto" ]; then
             echo "::warning::Manual scope override: detected=${detected} forced=${FORCE_SCOPE}"
-            sed -i "s/^scope=.*/scope=${FORCE_SCOPE}/" "$GITHUB_OUTPUT"
+            effective="${FORCE_SCOPE}"
           fi
+          echo "Effective scope: ${effective}"
+          echo "scope=${effective}" >> "$GITHUB_OUTPUT"
+          echo "detected=${detected}" >> "$GITHUB_OUTPUT"
+          echo "files=${files}" >> "$GITHUB_OUTPUT"
 
   validate-frontend:
     name: Validate frontend release
