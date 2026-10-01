@@ -79,7 +79,7 @@ export class PowerCircuitsService {
    * DEVICE_TIMEOUT_MS, 整个电源页会卡死。TTL 内复用, 读失败回落到上一次好的值。
    */
   private breakerCache = new Map<number, { at: number; reading: PowerReading }>();
-  private readonly BREAKER_CACHE_TTL_MS = 3000;
+  private readonly BREAKER_CACHE_TTL_MS = 10_000;
 
   /**
    * 时序器状态缓存 —— 8 路回路共享**一次** readStatus (0xac 一帧就带全部 8 路状态),
@@ -94,12 +94,9 @@ export class PowerCircuitsService {
       where,
       order: { floor: 'ASC', sortOrder: 'ASC', id: 'ASC' },
     });
-    // 拉每个 circuit 的实时数据 (mock adapter 同步返回, 几乎零成本)
-    const out: PowerCircuitView[] = [];
-    for (const r of rows) {
-      out.push(await this.toView(r));
-    }
-    return out;
+    // 并行拉各回路实时读数 (云断路器走各自 HTTP 可并发; 485 适配器内部对共享
+    // 串口自行串行化) —— 避免逐台 await 把云端往返时间累加
+    return Promise.all(rows.map((r) => this.toView(r)));
   }
 
   async detail(id: number): Promise<PowerCircuitView> {

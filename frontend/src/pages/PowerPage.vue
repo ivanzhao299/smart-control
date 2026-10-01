@@ -241,7 +241,7 @@ async function floorOff(): Promise<void> {
   await dispatchMany(filteredCircuits.value, 'off');
 }
 
-// 实时刷新 — 每 5 秒拉一次最新读数 (mock adapter 几乎零开销)
+// 实时刷新 — 每 10 秒拉一次最新读数 (服务端读数缓存 10s, 轮询基本走缓存, 不打爆云)
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 function startRefresh(): void {
   if (refreshTimer) return;
@@ -255,7 +255,7 @@ function startRefresh(): void {
       // 展开着的空开详情也顺带刷新 (三相/温度实时变化)
       if (expandedId.value != null) void loadBreaker(expandedId.value);
     }
-  }, 5000);
+  }, 10_000);
 }
 function stopRefresh(): void {
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
