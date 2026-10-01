@@ -27,7 +27,7 @@ const gateways = ref<GatewayInfo[]>([]);
 const NETWORK_CATEGORIES: HardwareCategory[] = [
   'rtu-tcp-converter', 'dali-gateway', 'led-controller', 'led-player',
   'audio-dsp', 'audio-guide', 'audio-power', 'hvac-gateway',
-  'tablet', 'switch', 'router', 'other',
+  'tablet', 'switch', 'router', 'other', 'power-breaker-web',
 ];
 
 const CATEGORY_LABELS: Partial<Record<HardwareCategory, string>> = {
@@ -43,6 +43,7 @@ const CATEGORY_LABELS: Partial<Record<HardwareCategory, string>> = {
   'switch': '交换机',
   'router': '路由器',
   'other': '其它',
+  'power-breaker-web': '4G 云断路器',
 };
 
 interface ProbeResult {
@@ -61,6 +62,19 @@ interface NetworkRow {
   saving: boolean;
   probe: ProbeResult;
 }
+
+/** 4G 云断路器走华普云外网、无园区 IP/端口 —— 只读展示, 不参与 IP 编辑/探测 */
+function isCloudUnit(u: HardwareUnit): boolean {
+  return u.category === 'power-breaker-web';
+}
+
+/** 云平台接入与维护信息 (随设备档案展示, 便于运维; 不含账号密码 —— 见后端 .env / 交接文件) */
+const CLOUD_PLATFORM = {
+  vendor: '华普云 HPERFOR',
+  consoleUrl: 'https://www.hperfor.com',
+  apiBase: 'https://www.hperfor.com/homeschool',
+  maintenance: '4G 内置直连 · Web API (JWT 登录, 按 fId 分/合闸, 5s 状态缓存) · 账号密码见后端 .env 与运维交接',
+};
 
 /** addressing JSON 里端口字段兼容两种历史命名: tcpPort (EKX seed) / port (其余) */
 function parsePort(addressing: string | null): string {
@@ -211,10 +225,15 @@ const dirtyCount = computed(() => rows.value.filter(isDirty).length);
     </div>
 
     <el-table :data="rows" v-loading="loading" stripe style="width:100%;">
-      <el-table-column label="设备" min-width="200">
+      <el-table-column label="设备" min-width="300">
         <template #default="{ row }">
           <div class="cell-name">{{ (row as NetworkRow).unit.name }}</div>
           <div class="cell-code">{{ (row as NetworkRow).unit.code }} · {{ CATEGORY_LABELS[(row as NetworkRow).unit.category] ?? (row as NetworkRow).unit.category }}</div>
+          <div v-if="isCloudUnit((row as NetworkRow).unit)" class="cloud-info">
+            <a class="cloud-link" :href="CLOUD_PLATFORM.consoleUrl" target="_blank" rel="noopener">云平台控制台: www.hperfor.com ↗</a>
+            <div class="cloud-line">API: {{ CLOUD_PLATFORM.apiBase }}</div>
+            <div class="cloud-line">维护: {{ CLOUD_PLATFORM.maintenance }}</div>
+          </div>
         </template>
       </el-table-column>
 
@@ -222,9 +241,9 @@ const dirtyCount = computed(() => rows.value.filter(isDirty).length);
         <template #default="{ row }">
           <el-input
             v-model="(row as NetworkRow).ip"
-            placeholder="192.168.77.x"
+            :placeholder="isCloudUnit((row as NetworkRow).unit) ? '4G · 华普云接入' : '192.168.77.x'"
             class="mono-input"
-            :disabled="!perm.canEdit"
+            :disabled="!perm.canEdit || isCloudUnit((row as NetworkRow).unit)"
           />
         </template>
       </el-table-column>
@@ -233,16 +252,19 @@ const dirtyCount = computed(() => rows.value.filter(isDirty).length);
         <template #default="{ row }">
           <el-input
             v-model="(row as NetworkRow).port"
-            placeholder="—"
+            :placeholder="isCloudUnit((row as NetworkRow).unit) ? '云平台' : '—'"
             class="mono-input"
-            :disabled="!perm.canEdit"
+            :disabled="!perm.canEdit || isCloudUnit((row as NetworkRow).unit)"
           />
         </template>
       </el-table-column>
 
       <el-table-column label="连接状态" width="110">
         <template #default="{ row }">
-          <template v-if="gatewayFor(row as NetworkRow)">
+          <template v-if="isCloudUnit((row as NetworkRow).unit)">
+            <span class="state-badge is-na">云端直连</span>
+          </template>
+          <template v-else-if="gatewayFor(row as NetworkRow)">
             <span class="state-badge" :class="stateMeta[gatewayFor(row as NetworkRow)!.state].cls">
               {{ stateMeta[gatewayFor(row as NetworkRow)!.state].label }}
             </span>
@@ -254,20 +276,23 @@ const dirtyCount = computed(() => rows.value.filter(isDirty).length);
       <el-table-column label="探测" min-width="170">
         <template #default="{ row }">
           <div class="probe-cell">
-            <el-button
-              size="small"
-              :icon="Radar"
-              :loading="(row as NetworkRow).probe.state === 'testing'"
-              @click="probeRow(row as NetworkRow)"
-            >探测</el-button>
-            <span
-              v-if="(row as NetworkRow).probe.state === 'done'"
-              class="probe-msg"
-              :class="{
-                'is-ok': (row as NetworkRow).probe.pingOk && (row as NetworkRow).probe.tcpOk !== false,
-                'is-fail': !(row as NetworkRow).probe.pingOk || (row as NetworkRow).probe.tcpOk === false,
-              }"
-            >{{ (row as NetworkRow).probe.message }}</span>
+            <span v-if="isCloudUnit((row as NetworkRow).unit)" class="probe-msg">4G 云接入, 无需探测</span>
+            <template v-else>
+              <el-button
+                size="small"
+                :icon="Radar"
+                :loading="(row as NetworkRow).probe.state === 'testing'"
+                @click="probeRow(row as NetworkRow)"
+              >探测</el-button>
+              <span
+                v-if="(row as NetworkRow).probe.state === 'done'"
+                class="probe-msg"
+                :class="{
+                  'is-ok': (row as NetworkRow).probe.pingOk && (row as NetworkRow).probe.tcpOk !== false,
+                  'is-fail': !(row as NetworkRow).probe.pingOk || (row as NetworkRow).probe.tcpOk === false,
+                }"
+              >{{ (row as NetworkRow).probe.message }}</span>
+            </template>
           </div>
         </template>
       </el-table-column>
@@ -314,6 +339,20 @@ const dirtyCount = computed(() => rows.value.filter(isDirty).length);
 
 .cell-name { font-size: 13px; color: var(--v2-text-1); }
 .cell-code { font-size: 11px; color: var(--v2-text-3); margin-top: 1px; font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+.cloud-info {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(6, 182, 212, 0.08);
+  border: 1px solid rgba(6, 182, 212, 0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cloud-link { font-size: 11px; color: #22d3ee; text-decoration: none; }
+.cloud-link:hover { text-decoration: underline; }
+.cloud-line { font-size: 10.5px; color: var(--v2-text-3); line-height: 1.45; word-break: break-all; }
 
 .mono-input :deep(input) {
   font-family: 'JetBrains Mono', ui-monospace, monospace;

@@ -58,7 +58,7 @@ function redirectToTarget(): void {
   const parkEditorTarget = requested.startsWith('/park-ops/index.html?')
     && new URLSearchParams(requested.split('?')[1] || '').get('edit') === '1';
   const adminTarget = requested === '/admin' || requested.startsWith('/admin/');
-  const target = adminTarget || parkEditorTarget ? requested : '/admin';
+  const target = adminTarget || parkEditorTarget ? requested : '/admin/monitor';
   // 用 window.location.href 强制整页 reload 而非 router.replace —
   // 业主反馈 2026-05-31 (复发): "登录成功但进不去后台". 同一 bug 之前修过 router guard
   // 顺序, 但 PWA Service Worker 可能缓存了一份跟新 router 不匹配的 JS bundle,
