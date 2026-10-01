@@ -15,6 +15,7 @@ import { PowerAdapter, PowerReading } from '../../adapters/power/power.adapter';
 import { Epo802pAdapter } from '../../adapters/power/epo802p.adapter';
 import { Seq55Adapter } from '../../adapters/power/seq55.adapter';
 import { EpaBreakerAdapter } from '../../adapters/power/epa-breaker.adapter';
+import { HperforApiAdapter } from '../../adapters/power/hperfor-api.adapter';
 import type { BreakerMeasurements } from '../../adapters/power/epa-breaker-registers';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
 
@@ -78,6 +79,20 @@ const SEED_CIRCUITS: Array<Omit<PowerCircuitUpsertDto, 'enabled'> & { enabled?: 
     gatewayCode: 'BREAKER-LED-1', relayChannel: null,
     ratedVoltage: 380, ratedCurrent: 40, ratedPower: 19000,
     sortOrder: 30, icon: 'MonitorPlay', description: 'LED 大屏远程总闸 (ePa 智能断路器, 三相 40A)' },
+  // ---- 4G 版断路器回路 (HPERFOR ePa-CB, 华普云平台, 2026-10-01 装机) ----
+  // 每台 4G 断路器就是一条回路 (不吃 relayChannel); 服务对象: 庭院亮化/鱼池供氧/园区路灯。
+  { code: 'courtyard-light', name: '庭院亮化', floor: '园区', category: 'lighting',
+    gatewayCode: 'CB4G-LIGHT-1', relayChannel: null,
+    ratedVoltage: 220, ratedCurrent: 40, ratedPower: 8000,
+    sortOrder: 110, icon: 'Lightbulb', description: '庭院亮化远程总闸 (ePa-CB 4G, 单相 40A)' },
+  { code: 'pond-aeration', name: '鱼池供氧', floor: '园区', category: 'misc',
+    gatewayCode: 'CB4G-OXY-1', relayChannel: null,
+    ratedVoltage: 220, ratedCurrent: 40, ratedPower: 3000,
+    sortOrder: 111, icon: 'Waves', description: '鱼池供氧远程总闸 (ePa-CB 4G, 单相 40A)' },
+  { code: 'park-streetlight', name: '园区路灯', floor: '园区', category: 'lighting',
+    gatewayCode: 'CB4G-ROAD-1', relayChannel: null,
+    ratedVoltage: 220, ratedCurrent: 40, ratedPower: 10000,
+    sortOrder: 112, icon: 'Navigation', description: '园区路灯主控远程总闸 (ePa-CB 4G, 单相 40A)' },
   { code: '2f-lighting', name: '二层照明回路', floor: '2F', category: 'lighting',
     gatewayCode: 'RELAY-2F-1', relayChannel: 1,
     ratedVoltage: 220, ratedCurrent: 16, ratedPower: 1800,
@@ -115,6 +130,8 @@ export class PowerCircuitsService implements OnModuleInit {
     private readonly epo: Epo802pAdapter,
     /** 智能断路器真机 — LED 大屏总闸 */
     private readonly breaker: EpaBreakerAdapter,
+    /** 4G 版智能断路器真机 — 庭院亮化 / 鱼池供氧 / 园区路灯 (华普云平台 Web API) */
+    private readonly breaker4g: HperforApiAdapter,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
     /** 第二台时序器 (55…AA 协议, 2026-07-29 备) — Optional: 既有单测桩不传也能构造 */
     @Optional() private readonly seq55?: Seq55Adapter,
@@ -127,6 +144,13 @@ export class PowerCircuitsService implements OnModuleInit {
    */
   private breakerCache = new Map<number, { at: number; reading: PowerReading }>();
   private readonly BREAKER_CACHE_TTL_MS = 3000;
+
+  /**
+   * 4G 版断路器读数缓存 —— 与 485 版同因: toView() 每列一行都会调, 平台 API 有网络往返,
+   * 没缓存会打满平台限流。TTL 内复用, 读失败回落上一次好的值。
+   */
+  private breaker4gCache = new Map<number, { at: number; reading: PowerReading }>();
+  private readonly BREAKER4G_CACHE_TTL_MS = 3000;
 
   /**
    * 时序器状态缓存 —— 8 路回路共享**一次** readStatus (0xac 一帧就带全部 8 路状态),
@@ -343,6 +367,20 @@ export class PowerCircuitsService implements OnModuleInit {
       this.logger.info(`空开${on ? '合闸' : '分闸'}: circuit=${row.code}`, {
         context: 'PowerCircuitsService',
       });
+    } else if (await this.isBreaker4gCircuit(row)) {
+      // 4G 版断路器 (华普云平台): 控制走平台批量接口, 稳定不超时。
+      // 命令确认成功即返回; 状态轮询交给 4G 适配器缓存 + 前端轮询 (设备省电休眠,
+      // 平台侧状态翻转可能有几秒延迟, 轮询 4s 内不强制等)。
+      const r = on
+        ? await this.breaker4g.turnOn(row.gatewayCode as string)
+        : await this.breaker4g.turnOff(row.gatewayCode as string);
+      if (!r.ok) {
+        throw new ConflictException(`4G 空开${on ? '合闸' : '分闸'}失败: ${r.error ?? '未知错误'}`);
+      }
+      this.breaker4gCache.delete(row.id);
+      this.logger.info(`4G 空开${on ? '合闸' : '分闸'}: circuit=${row.code} gateway=${row.gatewayCode}`, {
+        context: 'PowerCircuitsService',
+      });
     } else if (await this.isSeq55Circuit(row)) {
       // 第二台时序器 (55…AA 协议, 2026-07-29 备): 只控不读 (回帧格式待实测),
       // 状态由 mock adapter 维护的乐观值兜底
@@ -379,6 +417,17 @@ export class PowerCircuitsService implements OnModuleInit {
     try {
       const hw = await this.hwRepo.findOne({ where: { code: row.gatewayCode } });
       return hw?.category === 'power-breaker' && hw.enabled;
+    } catch {
+      return false;
+    }
+  }
+
+  /** 这条回路是不是挂在 4G 版断路器上 (华普云平台, category=power-breaker-4g) */
+  private async isBreaker4gCircuit(row: PowerCircuit): Promise<boolean> {
+    if (!row.gatewayCode) return false;
+    try {
+      const hw = await this.hwRepo.findOne({ where: { code: row.gatewayCode } });
+      return hw?.category === 'power-breaker-4g' && hw.enabled;
     } catch {
       return false;
     }
@@ -423,6 +472,14 @@ export class PowerCircuitsService implements OnModuleInit {
   async breakerMeasurements(id: number): Promise<BreakerMeasurements> {
     const row = await this.repo.findOne({ where: { id } });
     if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
+    if (await this.isBreaker4gCircuit(row)) {
+      // 4G 版 (华普云平台): 单相设备, 计量走平台 device-elec
+      const r = await this.breaker4g.getMeasurements(row.gatewayCode as string);
+      if (!r.ok || !r.data) {
+        throw new ConflictException(`读 4G 空开失败: ${r.error ?? '无数据'}`);
+      }
+      return r.data;
+    }
     if (!(await this.isBreakerCircuit(row))) {
       throw new ConflictException(`circuit ${row.name} 不是智能断路器回路`);
     }
@@ -433,6 +490,35 @@ export class PowerCircuitsService implements OnModuleInit {
     return r.data;
   }
 
+  /** 4G 版断路器回路实时读数 —— 单相口径: voltage=L相, current=L相, power=单相(总=L),
+   * 读不到就回落缓存里上一次的好值, 再没有就全 0 + on=false, 不让电源页崩。 */
+  private async breaker4gReading(row: PowerCircuit): Promise<PowerReading> {
+    const cached = this.breaker4gCache.get(row.id);
+    if (cached && Date.now() - cached.at < this.BREAKER4G_CACHE_TTL_MS) return cached.reading;
+
+    const r = await this.breaker4g.getMeasurements(row.gatewayCode as string);
+    if (!r.ok || !r.data) {
+      this.logger.warn(`4G 空开读数失败 circuit=${row.code}: ${r.error ?? '无数据'}`, {
+        context: 'PowerCircuitsService',
+      });
+      return cached?.reading ?? {
+        on: false, current: 0, voltage: 0, power: 0, powerFactor: 0, energy: 0,
+        lastReadAt: new Date().toISOString(),
+      };
+    }
+    const m: BreakerMeasurements = r.data;
+    const reading: PowerReading = {
+      on: m.switchState === 'closed',
+      voltage: Number(m.voltages[0].toFixed(1)),
+      current: Number(m.currents[0].toFixed(3)),
+      power: m.powers[3],
+      powerFactor: m.powerFactor,
+      energy: m.energies[3],
+      lastReadAt: new Date().toISOString(),
+    };
+    this.breaker4gCache.set(row.id, { at: Date.now(), reading });
+    return reading;
+  }
   /**
    * 时序器回路读数 — 8 路共享一次 0xac 全状态帧 (seqCache)。
    * 读失败回落上次好值; 再没有就 on=false, 不让电源页崩。
@@ -513,10 +599,14 @@ export class PowerCircuitsService implements OnModuleInit {
   }
 
   private async toView(row: PowerCircuit): Promise<PowerCircuitView> {
-    const isBreaker = await this.isBreakerCircuit(row);
+    const isBreaker = await this.isBreakerCircuit(row) || await this.isBreaker4gCircuit(row);
     // 智能断路器回路: 读真机 (电压/电流/功率/电量都是实测), 不用 mock 的模拟值
-    if (isBreaker) {
+    if (await this.isBreakerCircuit(row)) {
       return { ...this.baseView(row), isBreaker, reading: await this.breakerReading(row) };
+    }
+    // 4G 版断路器回路: 平台 device-elec 实测值 (单相)
+    if (await this.isBreaker4gCircuit(row)) {
+      return { ...this.baseView(row), isBreaker, reading: await this.breaker4gReading(row) };
     }
     // 时序器回路: 开关状态读真机 (0xac 一帧带全部 8 路), 电量指标时序器没有 → 0
     if (await this.isSequencerCircuit(row)) {

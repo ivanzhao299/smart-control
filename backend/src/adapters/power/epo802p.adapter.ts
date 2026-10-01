@@ -194,6 +194,10 @@ export class Epo802pAdapter extends BaseAdapter {
   async setChannel(channel: number, on: boolean, ctx?: AdapterContext): Promise<AdapterResult<{ channel: number; on: boolean }>> {
     return this.run(`epo-ch${channel}`, on ? 'channelOn' : 'channelOff', ctx, async () => {
       const ch = this.assertChannel(channel);
+      if (this.isMock()) {
+        this.mockChannels[ch - 1] = on;
+        return { channel, on };
+      }
       await this.send(cmdChannelSwitch(this.devAddr, ch, on), ctx?.signal);
       return { channel, on };
     });
@@ -205,6 +209,10 @@ export class Epo802pAdapter extends BaseAdapter {
    */
   async setAll(on: boolean, ctx?: AdapterContext): Promise<AdapterResult<{ on: boolean }>> {
     return this.run('epo-all', on ? 'allOn' : 'allOff', ctx, async () => {
+      if (this.isMock()) {
+        this.mockChannels.fill(on);
+        return { on };
+      }
       await this.send(cmdAllChannels(this.devAddr, on), ctx?.signal);
       return { on };
     });
@@ -213,14 +221,27 @@ export class Epo802pAdapter extends BaseAdapter {
   /** 总按键 (b1) — 等效面板总开关 */
   async masterKey(on: boolean, ctx?: AdapterContext): Promise<AdapterResult<{ on: boolean }>> {
     return this.run('epo-master', on ? 'masterOn' : 'masterOff', ctx, async () => {
+      if (this.isMock()) {
+        this.mockChannels.fill(on);
+        return { on };
+      }
       await this.send(cmdMasterKey(this.devAddr, on), ctx?.signal);
       return { on };
     });
   }
 
+  /** mock 态: 8 路内存开关 (MOCK_MODE=true 时本地/CI 无串口也能跑通) */
+  private mockChannels = [false, false, false, false, false, false, false, false];
+
   /** 读 8 路真实状态 + 延时参数 (ac) */
   async readStatus(ctx?: AdapterContext): Promise<AdapterResult<Epo802pStatus>> {
     return this.run('epo-status', 'readStatus', ctx, async () => {
+      if (this.isMock()) {
+        return {
+          channels: [...this.mockChannels],
+          delays: Array.from({ length: 8 }, () => ({ on: 0, off: 0 })),
+        };
+      }
       const resp = await this.send(cmdReadStatus(this.devAddr), ctx?.signal, true);
       const st = parseStatus(resp);
       if (!st) {
@@ -245,6 +266,7 @@ export class Epo802pAdapter extends BaseAdapter {
   }
 
   async ping(ctx?: AdapterContext): Promise<void> {
+    if (this.isMock()) return;
     const resp = await this.send(cmdReadStatus(this.devAddr), ctx?.signal, true);
     if (!parseStatus(resp)) {
       throw new DeviceProtocolError('power', 'EPO-802P 无有效状态响应');

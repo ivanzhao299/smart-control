@@ -26,6 +26,7 @@ import { AudioModule } from './modules/audio/audio.module';
 import { HvacModule } from './modules/hvac/hvac.module';
 import { ProjectorModule } from './modules/projector/projector.module';
 import { SchedulerModule } from './modules/scheduler/scheduler.module';
+import { PowerSchedulesModule } from './modules/power-schedules/power-schedules.module';
 import { SceneExecutionsModule } from './modules/scene-executions/scene-executions.module';
 import { AlertModule } from './modules/alerts/alert.module';
 import { TestCenterModule } from './modules/test-center/test-center.module';
@@ -68,6 +69,7 @@ import { ServicesModule } from './services/services.module';
     LightZonesModule,
     DaliLightsModule,
     PowerCircuitsModule,
+    PowerSchedulesModule,
     LedModule,
     AudioModule,
     HvacModule,

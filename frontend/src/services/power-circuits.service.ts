@@ -107,3 +107,41 @@ export const powerCircuitsService = {
   seqAllOff: () =>
     api.post<{ on: boolean }>('/power-circuits/sequencer/all-off').then((r) => { invalidate(PC); return r; }),
 };
+
+/** 电源回路自动开关 (定时 + 日落/日出) — 2026-10-01 新增 */
+export interface PowerScheduleRule {
+  id: number;
+  circuitId: number;
+  action: 'on' | 'off';
+  mode: 'fixed' | 'sunset' | 'sunrise';
+  time: string | null;
+  offsetMin: number;
+  weekdays: string | null;
+  enabled: boolean;
+  nextRunAt: string | null;
+}
+
+export interface PowerScheduleInput {
+  circuitId: number;
+  action: 'on' | 'off';
+  mode: 'fixed' | 'sunset' | 'sunrise';
+  time?: string | null;
+  offsetMin?: number;
+  weekdays?: string | null;
+  enabled?: boolean;
+}
+
+/** 自动开关服务 (GET 公开; 写操作需 admin) */
+export const powerSchedulesService = {
+  list: () => api.get<PowerScheduleRule[]>('/power-schedules'),
+  listForCircuit: (circuitId: number) => api.get<PowerScheduleRule[]>(`/power-schedules/circuit/${circuitId}`),
+  /** 某回路下一次自动动作 (供 PWA 电源页展示) */
+  nextRun: (circuitId: number) =>
+    api.get<{ scheduleId: number; action: string; at: string } | null>(`/power-schedules/next/${circuitId}`),
+  create: (dto: PowerScheduleInput) =>
+    api.post<PowerScheduleRule>('/power-schedules', dto).then((r) => { invalidate(PC); return r; }),
+  update: (id: number, dto: Partial<PowerScheduleInput>) =>
+    api.put<PowerScheduleRule>(`/power-schedules/${id}`, dto).then((r) => { invalidate(PC); return r; }),
+  remove: (id: number) =>
+    api.del<null>(`/power-schedules/${id}`).then((r) => { invalidate(PC); return r; }),
+};

@@ -414,6 +414,7 @@ export class SeedService {
       ip?: string;
       addressing?: string;
       channels?: string;
+      serialNo?: string;
       remark?: string;
     }
 
@@ -660,6 +661,54 @@ export class SeedService {
           '工作方式 TCP Server / 本地端口 502 / 透传 (Modbus 网关功能关闭, 后端自己发 RTU 帧带 CRC). ' +
           'Web 配置 http://192.168.50.21 admin/admin. 出厂 IP 是 192.168.0.7, 2026-07-22 改到 50 网段.',
       },
+      // ---- 4G 版智能断路器 (HPERFOR ePa-CB, 内置 4G 模块, 走华普云 ePa 智电云平台) ----
+      // 2026-10-01 到货装机的三台: 庭院亮化 / 鱼池供氧 / 园区路灯 (全部单相)。
+      // 走 HperforApiAdapter: 平台账号密码在环境变量 HPERFOR_API_USERNAME/PASSWORD;
+      // 每台设备在 addressing.fId 存华普云平台设备 ID (fId), 不是 Modbus 从机地址!
+      // 现场标记已确认: CB28100573=庭院亮化, CB28100574=鱼池供氧, CB28100572=园区路灯。
+      {
+        code: 'CB4G-LIGHT-1',
+        name: '庭院亮化断路器 (4G)',
+        category: 'power-breaker-4g',
+        vendor: 'HPERFOR',
+        model: 'ePa-CB 2P-40A (4G)',
+        driverKind: 'hperfor-4g',
+        serialNo: 'CB28100573',
+        floor: '园区',
+        location: '庭院亮化配电箱',
+        addressing: JSON.stringify({ fId: '2105527243374694401', password: '0', lat: 35.068466, lng: 118.18683 }),
+        remark:
+          '华普云平台 fId=2105527243374694401, 设备密码默认 0. 2026-10-01 远程合闸实测通过. ' +
+          '控制走平台 /biz/t-device/send (4合/3分), 计量走 /app/device6/device-elec (单相).',
+      },
+      {
+        code: 'CB4G-OXY-1',
+        name: '鱼池供氧断路器 (4G)',
+        category: 'power-breaker-4g',
+        vendor: 'HPERFOR',
+        model: 'ePa-CB 2P-40A (4G)',
+        driverKind: 'hperfor-4g',
+        serialNo: 'CB28100574',
+        floor: '园区',
+        location: '鱼池供氧配电箱',
+        addressing: JSON.stringify({ fId: '2105527756560371714', password: '0', lat: 35.06846, lng: 118.18679 }),
+        remark:
+          '华普云平台 fId=2105527756560371714, 设备密码默认 0. 2026-10-01 远程合闸实测通过.',
+      },
+      {
+        code: 'CB4G-ROAD-1',
+        name: '园区路灯断路器 (4G)',
+        category: 'power-breaker-4g',
+        vendor: 'HPERFOR',
+        model: 'ePa-CB 2P-40A (4G)',
+        driverKind: 'hperfor-4g',
+        serialNo: 'CB28100572',
+        floor: '园区',
+        location: '园区路灯主控配电箱',
+        addressing: JSON.stringify({ fId: '2105528302251905025', password: '0', lat: 35.068527, lng: 118.1868 }),
+        remark:
+          '华普云平台 fId=2105528302251905025, 设备密码默认 0. 2026-10-01 远程合闸实测通过.',
+      },
       // ---- 投影视频融合器 (2026-07-23 装机联调) ----
       {
         code: 'FUSION-PROJ-1',
@@ -801,7 +850,7 @@ export class SeedService {
         vendor: h.vendor,
         model: h.model,
         driverKind: h.driverKind ?? null,
-        serialNo: null,
+        serialNo: h.serialNo ?? null,
         firmwareVersion: null,
         location: h.location ?? null,
         floor: h.floor ?? null,

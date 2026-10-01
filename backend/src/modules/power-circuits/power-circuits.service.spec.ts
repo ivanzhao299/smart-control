@@ -79,6 +79,17 @@ function makeService(opts: {
     turnOff: opts.breaker?.turnOff ?? jest.fn().mockResolvedValue(ok({ on: false, switchState: 'open' })),
     getMeasurements: opts.breaker?.getMeasurements ?? jest.fn().mockResolvedValue(ok(measurements())),
   };
+  // 4G 版断路器 mock —— 单相形状 (L 相有值, B/C 为 0); 服务注入后保持与 485 版互不干扰
+  const breaker4g = {
+    turnOn: jest.fn().mockResolvedValue(ok({ on: true, switchState: 'closed' })),
+    turnOff: jest.fn().mockResolvedValue(ok({ on: false, switchState: 'open' })),
+    getMeasurements: jest.fn().mockResolvedValue(ok({
+      ...measurements(),
+      voltages: [231.7, 0, 0], currents: [0.02, 0, 0],
+      powers: [2, 0, 0, 2], energies: [0, 0, 0, 0],
+      temperatures: [29.92, 0, 0, 0],
+    })),
+  };
   const epo = { setChannel: jest.fn().mockResolvedValue(undefined) };
   const adapter = {
     circuitTurnOn: jest.fn().mockResolvedValue(ok({})),
@@ -88,9 +99,9 @@ function makeService(opts: {
     })),
   };
   const svc = new PowerCircuitsService(
-    repo as never, hwRepo as never, adapter as never, epo as never, breaker as never, fakeLogger(),
+    repo as never, hwRepo as never, adapter as never, epo as never, breaker as never, breaker4g as never, fakeLogger(),
   );
-  return { svc, repo, hwRepo, breaker, epo, adapter, row };
+  return { svc, repo, hwRepo, breaker, breaker4g, epo, adapter, row };
 }
 
 describe('PowerCircuitsService · 1f-led 回路自愈到真空开', () => {
@@ -231,6 +242,69 @@ describe('PowerCircuitsService · 断路器实时读数', () => {
     expect(m.temperatures).toHaveLength(4);
     expect(m.leakageCurrent).toBe(0.003);
     expect(m.alarms.any).toBe(false);
+  });
+});
+
+describe('PowerCircuitsService · 4G 版断路器回路 (华普云平台)', () => {
+  const circuit4g = circuitRow({
+    code: 'courtyard-light', name: '庭院亮化', gatewayCode: 'CB4G-LIGHT-1',
+    ratedVoltage: 220, ratedCurrent: 40, ratedPower: 8000,
+  });
+
+  it('gatewayCode 指向 power-breaker-4g 硬件 → 打 4G 闸, 不碰 485 断路器', async () => {
+    const { svc, breaker, breaker4g } = makeService({
+      row: circuit4g,
+      hwCategory: 'power-breaker-4g',
+    });
+    await svc.turnOn(4);
+    expect(breaker4g.turnOn).toHaveBeenCalledWith('CB4G-LIGHT-1');
+    expect(breaker.turnOn).not.toHaveBeenCalled();
+  });
+
+  it('分闸走 breaker4g.turnOff', async () => {
+    const { svc, breaker4g, breaker } = makeService({
+      row: circuit4g,
+      hwCategory: 'power-breaker-4g',
+    });
+    await svc.turnOff(4);
+    expect(breaker4g.turnOff).toHaveBeenCalledWith('CB4G-LIGHT-1');
+    expect(breaker.turnOff).not.toHaveBeenCalled();
+  });
+
+  it('4G 闸没动成必须抛错', async () => {
+    const { svc, breaker4g } = makeService({
+      row: circuit4g,
+      hwCategory: 'power-breaker-4g',
+      breaker: { turnOff: jest.fn().mockResolvedValue({ ok: false, error: '平台未响应' }) },
+    });
+    breaker4g.turnOff.mockResolvedValue({ ok: false, error: '平台未响应' });
+    await expect(svc.turnOff(4)).rejects.toThrow(ConflictException);
+  });
+
+  it('读数取 4G 单相口径: voltage=L相, power=总(单相), isBreaker=true', async () => {
+    const { svc } = makeService({ row: circuit4g, hwCategory: 'power-breaker-4g' });
+    const v = await svc.detail(4);
+    expect(v.isBreaker).toBe(true);
+    expect(v.reading.voltage).toBe(231.7);  // L 相
+    expect(v.reading.current).toBe(0.02);
+    expect(v.reading.power).toBe(2);       // 单相 = 总
+    expect(v.reading.on).toBe(true);
+  });
+
+  it('4G 读数失败回落全 0, 不抛错', async () => {
+    const { svc, breaker4g } = makeService({ row: circuit4g, hwCategory: 'power-breaker-4g' });
+    breaker4g.getMeasurements.mockResolvedValue({ ok: false, error: '平台超时' });
+    const v = await svc.detail(4);
+    expect(v.reading.on).toBe(false);
+    expect(v.reading.voltage).toBe(0);
+    expect(v.name).toBe('庭院亮化');
+  });
+
+  it('breakerMeasurements 支持 4G 回路 (单相形状)', async () => {
+    const { svc } = makeService({ row: circuit4g, hwCategory: 'power-breaker-4g' });
+    const m = await svc.breakerMeasurements(4);
+    expect(m.voltages).toEqual([231.7, 0, 0]);
+    expect(m.powers[3]).toBe(2);
   });
 });
 
