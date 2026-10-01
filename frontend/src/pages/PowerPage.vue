@@ -91,10 +91,12 @@ const filteredCircuits = computed(() => {
 
 // 总览
 
-// 单回路 on/off
-async function dispatchOne(c: PowerCircuitView, op: 'on' | 'off'): Promise<void> {
+// 单回路 on/off；返回是否成功；silent=true 时不弹单条错误 (批量调用统一汇总)
+async function dispatchOne(c: PowerCircuitView, op: 'on' | 'off', silent = false): Promise<boolean> {
   const want = op === 'on';
   const prevOn = c.reading.on;
+  // 已处于目标态: 幂等, 不重复下发 (后端也有同样保护, 这里提前省一次请求)
+  if (prevOn === want) return true;
   // 乐观: 立即翻转 on (UI 即变), 后台异步下发; 成功用真实读数替换, 失败回滚
   const idx0 = circuits.value.findIndex((x) => x.id === c.id);
   if (idx0 >= 0) circuits.value[idx0] = { ...c, reading: { ...c.reading, on: want } };
@@ -105,10 +107,12 @@ async function dispatchOne(c: PowerCircuitView, op: 'on' | 'off'): Promise<void>
       : await powerCircuitsService.off(c.id);
     const idx = circuits.value.findIndex((x) => x.id === c.id);
     if (idx >= 0) circuits.value[idx] = updated;
+    return true;
   } catch (err) {
     const idx = circuits.value.findIndex((x) => x.id === c.id);
     if (idx >= 0) circuits.value[idx] = { ...circuits.value[idx], reading: { ...circuits.value[idx].reading, on: prevOn } };
-    ElMessage.error(`${c.name} ${want ? '通电' : '断电'}失败: ${(err as Error).message}`);
+    if (!silent) ElMessage.error(`${c.name} ${want ? '通电' : '断电'}失败: ${(err as Error).message}`);
+    return false;
   } finally {
     busyIds.value.delete(c.id);
   }
@@ -181,9 +185,25 @@ async function loadBreaker(id: number): Promise<void> {
 }
 
 async function dispatchMany(targets: PowerCircuitView[], op: 'on' | 'off'): Promise<void> {
-  for (const c of targets) {
-    await dispatchOne(c, op);
+  const want = op === 'on';
+  const verb = want ? '通电' : '断电';
+  // 幂等: 已处于目标态的跳过, 只下发需要变化的
+  const pending = targets.filter((c) => c.reading.on !== want);
+  const skipped = targets.length - pending.length;
+  if (pending.length === 0) {
+    ElMessage.success(`${verb}: ${skipped} 路均已处于该状态, 无需操作`);
+    return;
   }
+  let okCount = 0;
+  let failCount = 0;
+  for (const c of pending) {
+    const ok = await dispatchOne(c, op, true); // 静默, 末尾统一汇总
+    if (ok) okCount += 1;
+    else failCount += 1;
+  }
+  const skipPart = skipped > 0 ? `, ${skipped} 路已在该状态跳过` : '';
+  if (failCount === 0) ElMessage.success(`${verb}完成: ${okCount} 路成功${skipPart}`);
+  else ElMessage.warning(`${verb}: ${okCount} 路成功, ${failCount} 路失败${skipPart}`);
 }
 
 /** 全场/整层通断电必须二次确认 (2026-07-25 生产级整改, 同空调页口径):
@@ -420,8 +440,8 @@ useActivePolling(startPolling, stopRefresh);
           <span class="chip" :data-category="c.category">{{ c.category }}</span>
           <span v-if="c.isBreaker" class="chip muted">{{ is4gBreaker(c) ? '4G 空开' : '485 空开' }}</span>
           <span v-else-if="c.relayChannel != null" class="chip muted">CH {{ c.relayChannel }}</span>
-          <span class="chip" :class="c.reading.on ? 'on' : 'off'">
-            {{ c.reading.on ? '通电' : '断电' }}
+          <span class="chip state-chip" :class="c.reading.on ? 'on' : 'off'">
+            <i class="state-dot"></i>{{ c.reading.on ? '已通电' : '已断电' }}
           </span>
           <!-- 自动开关下次动作 (定时/日落/日出) — 只读展示, 配置在管理端 -->
           <span
@@ -844,6 +864,28 @@ useActivePolling(startPolling, stopRefresh);
 .chip.off {
   background: var(--v2-ov-1);
   color: var(--v2-text-3);
+}
+.state-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 700;
+}
+.state-chip .state-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+.state-chip.off .state-dot { opacity: 0.55; }
+.state-chip.on .state-dot {
+  box-shadow: 0 0 6px rgba(107, 255, 185, 0.9);
+  animation: statePulse 2s ease-in-out infinite;
+}
+@keyframes statePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
 }
 .chip[data-category="lighting"] { background: rgba(224, 160, 48, 0.20); color: #FCD34D; border-color: rgba(224, 160, 48, 0.45); }
 .chip[data-category="socket"]   { background: rgba(76, 154, 255, 0.18); color: #67E8F9; border-color: rgba(76, 154, 255, 0.45); }
