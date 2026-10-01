@@ -21,6 +21,7 @@ import { LightingModule } from './modules/lighting/lighting.module';
 import { LightZonesModule } from './modules/light-zones/light-zones.module';
 import { DaliLightsModule } from './modules/dali-lights/dali-lights.module';
 import { PowerCircuitsModule } from './modules/power-circuits/power-circuits.module';
+import { PowerSchedulesModule } from './modules/power-schedules/power-schedules.module';
 import { LedModule } from './modules/led/led.module';
 import { AudioModule } from './modules/audio/audio.module';
 import { HvacModule } from './modules/hvac/hvac.module';
@@ -73,6 +74,7 @@ import { RuntimeConfigModule } from './common/runtime-config/runtime-config.modu
     LightZonesModule,
     DaliLightsModule,
     PowerCircuitsModule,
+    PowerSchedulesModule,
     LedModule,
     AudioModule,
     HvacModule,

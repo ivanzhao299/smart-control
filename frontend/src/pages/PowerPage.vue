@@ -11,6 +11,7 @@ import {
 } from 'lucide-vue-next';
 import {
   powerCircuitsService,
+  powerSchedulesService,
   type PowerCircuitView,
   type BreakerMeasurements,
 } from '@/services/power-circuits.service';
@@ -21,6 +22,11 @@ const ICON_MAP: Record<string, typeof Zap> = {
 function iconFor(name: string | null): typeof Zap {
   if (name && ICON_MAP[name]) return ICON_MAP[name];
   return Zap;
+}
+
+/** 4G 断路器 (华普云平台, gatewayCode 以 CB4G- 开头) vs 485 空开 */
+function is4gBreaker(c: PowerCircuitView): boolean {
+  return !!c.gatewayCode?.startsWith('CB4G-');
 }
 
 const circuits = ref<PowerCircuitView[]>([]);
@@ -37,6 +43,8 @@ async function loadCircuits(): Promise<void> {
     if (!floors.includes(floorTab.value) && floors.length > 0) {
       floorTab.value = floors[0];
     }
+    // 自动开关"下次动作"展示 (定时/日落/日出) — 2026-10-01 4G 断路器
+    void loadNextRuns();
   } catch (err) {
     loadError.value = (err as Error).message;
     ElMessage.error(`加载电源回路失败: ${loadError.value}`);
@@ -44,6 +52,30 @@ async function loadCircuits(): Promise<void> {
     loading.value = false;
   }
 }
+
+// ============ 自动开关 (定时 + 日落/日出) 下次动作展示 ============
+// 只读: 每回路显示"下次 xx: HH:mm"; 配置在管理端 (PowerCircuitsAdmin)
+const nextRunMap = ref<Record<number, { action: string; at: string }>>({});
+async function loadNextRuns(): Promise<void> {
+  const ids = circuits.value.map((c) => c.id);
+  const next: Record<number, { action: string; at: string }> = {};
+  // 串行轻量拉取, 失败静默 (展示性功能, 不阻塞电源页)
+  for (const id of ids) {
+    try {
+      const r = await powerSchedulesService.nextRun(id);
+      if (r) next[id] = { action: r.action, at: r.at };
+    } catch { /* 静默 */ }
+  }
+  nextRunMap.value = next;
+}
+function fmtNextAt(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return sameDay ? `今天 ${hm}` : `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
+}
+const NEXT_ACTION_LABEL: Record<string, string> = { on: '开', off: '关' };
 
 // 楼层 tab
 const floorTab = ref<string>('音响');  // 2026-07-25 业主: 音响(时序器)是最常用页, 设为默认
@@ -386,10 +418,19 @@ useActivePolling(startPolling, stopRefresh);
         <!-- 底部 chip 行 -->
         <div class="chip-row">
           <span class="chip" :data-category="c.category">{{ c.category }}</span>
-          <span v-if="c.isBreaker" class="chip muted">485 空开</span>
+          <span v-if="c.isBreaker" class="chip muted">{{ is4gBreaker(c) ? '4G 空开' : '485 空开' }}</span>
           <span v-else-if="c.relayChannel != null" class="chip muted">CH {{ c.relayChannel }}</span>
           <span class="chip" :class="c.reading.on ? 'on' : 'off'">
             {{ c.reading.on ? '通电' : '断电' }}
+          </span>
+          <!-- 自动开关下次动作 (定时/日落/日出) — 只读展示, 配置在管理端 -->
+          <span
+            v-if="nextRunMap[c.id]"
+            class="chip auto-chip"
+            :class="nextRunMap[c.id].action"
+            :title="'自动开关: 下次' + (nextRunMap[c.id].action === 'on' ? '通电' : '断电') + ' ' + fmtNextAt(nextRunMap[c.id].at)"
+          >
+            自动{{ NEXT_ACTION_LABEL[nextRunMap[c.id].action] }} {{ fmtNextAt(nextRunMap[c.id].at) }}
           </span>
           <button
             v-if="c.isBreaker"
@@ -901,4 +942,15 @@ useActivePolling(startPolling, stopRefresh);
 .state-card.error { border-color: rgba(229, 100, 93, 0.3); color: var(--v2-danger); }
 .state-title { font-size: 14px; color: var(--v2-text-1); }
 .state-sub { font-size: 12px; color: var(--v2-text-3); }
+
+/* 自动开关"下次动作" chip (定时/日落/日出, 2026-10-01) */
+.chip.auto-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-transform: none;
+  letter-spacing: 0.2px;
+}
+.chip.auto-chip.on  { background: rgba(63, 191, 135, 0.16); color: #5FCB9B; border-color: rgba(63, 191, 135, 0.4); }
+.chip.auto-chip.off { background: rgba(244, 180, 80, 0.14); color: #F0B35C; border-color: rgba(244, 180, 80, 0.4); }
 </style>

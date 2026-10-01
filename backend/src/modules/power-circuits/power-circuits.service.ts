@@ -9,6 +9,7 @@ import { Epo802pAdapter } from '../../adapters/power/epo802p.adapter';
 import { Seq55Adapter } from '../../adapters/power/seq55.adapter';
 import { EpaBreakerAdapter } from '../../adapters/power/epa-breaker.adapter';
 import { EpaMqttBreakerAdapter } from '../../adapters/power/epa-mqtt-breaker.adapter';
+import { HperforApiAdapter } from '../../adapters/power/hperfor-api.adapter';
 import type { BreakerMeasurements } from '../../adapters/power/epa-breaker-registers';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
 
@@ -68,6 +69,8 @@ export class PowerCircuitsService {
     @Optional() private readonly seq55?: Seq55Adapter,
     /** 4G/MQTT 智能断路器 — 未启用时仍可安全保存设备配置，但不会下发 */
     @Optional() private readonly cloudBreaker?: EpaMqttBreakerAdapter,
+    /** 4G 断路器走华普云 Web API (庭院亮化/鱼池供氧/园区路灯) — Optional: 未配置凭据时不下发 */
+    @Optional() private readonly webBreaker?: HperforApiAdapter,
   ) {}
 
   /**
@@ -245,7 +248,7 @@ export class PowerCircuitsService {
 
   private async resolveBreakerAdapter(
     row: PowerCircuit,
-  ): Promise<EpaBreakerAdapter | EpaMqttBreakerAdapter | null> {
+  ): Promise<EpaBreakerAdapter | EpaMqttBreakerAdapter | HperforApiAdapter | null> {
     if (!row.gatewayCode) return null;
     const hw = await this.hwRepo.findOne({ where: { code: row.gatewayCode } });
     if (!hw?.enabled) return null;
@@ -253,6 +256,10 @@ export class PowerCircuitsService {
     if (hw.category === 'power-breaker-4g') {
       if (!this.cloudBreaker) throw new ConflictException('4G 智能断路器适配器未装载');
       return this.cloudBreaker;
+    }
+    if (hw.category === 'power-breaker-web') {
+      if (!this.webBreaker) throw new ConflictException('华普云 Web 断路器适配器未装载');
+      return this.webBreaker;
     }
     return null;
   }
@@ -266,7 +273,7 @@ export class PowerCircuitsService {
    */
   private async breakerReading(
     row: PowerCircuit,
-    breakerAdapter: EpaBreakerAdapter | EpaMqttBreakerAdapter,
+    breakerAdapter: EpaBreakerAdapter | EpaMqttBreakerAdapter | HperforApiAdapter,
   ): Promise<PowerReading> {
     const cached = this.breakerCache.get(row.id);
     if (cached && Date.now() - cached.at < this.BREAKER_CACHE_TTL_MS) return cached.reading;
