@@ -48,8 +48,10 @@ const measurements = (over: Partial<BreakerMeasurements> = {}): BreakerMeasureme
     ...over,
   }) as BreakerMeasurements;
 
-function makeService(opts: {
+async function makeService(opts: {
   row?: PowerCircuit;
+  /** 跳过构造后的首轮采集 (需要自行安排 getMeasurements 调用序列的路由测试) */
+  skipCollect?: boolean;
   hwCategory?: string | null;
   hwEnabled?: boolean;
   breaker?: Partial<Record<'turnOn' | 'turnOff' | 'getMeasurements', jest.Mock>>;
@@ -95,6 +97,10 @@ function makeService(opts: {
     repo as never, hwRepo as never, adapter as never, epo as never, breaker as never, fakeLogger(),
     undefined, cloudBreaker as never,
   );
+  // 模拟后台采集循环: 构造后先采一轮填充快照 (运行时由 onModuleInit 定时做)
+  if (!opts.skipCollect) {
+    await (svc as unknown as { collectOnce: () => Promise<void> }).collectOnce();
+  }
   return { svc, repo, hwRepo, breaker, cloudBreaker, epo, adapter, row };
 }
 
@@ -104,27 +110,27 @@ describe('PowerCircuitsService · 断路器回路路由', () => {
     const gm = jest.fn()
       .mockResolvedValueOnce({ ok: true, data: measurements({ switchState: 'open', currents: [0, 0, 0] }) })
       .mockResolvedValue({ ok: true, data: measurements({ switchState: 'closed' }) });
-    const { svc, breaker, epo } = makeService({ breaker: { getMeasurements: gm } });
+    const { svc, breaker, epo } = await makeService({ skipCollect: true, breaker: { getMeasurements: gm } });
     await svc.turnOn(4);
     expect(breaker.turnOn).toHaveBeenCalledWith('BREAKER-LED-1');
     expect(epo.setChannel).not.toHaveBeenCalled();
   });
 
   it('分闸走 turnOff', async () => {
-    const { svc, breaker } = makeService();
+    const { svc, breaker } = await makeService();
     await svc.turnOff(4);
     expect(breaker.turnOff).toHaveBeenCalledWith('BREAKER-LED-1');
     expect(breaker.turnOn).not.toHaveBeenCalled();
   });
 
   it('硬件不是 power-breaker(比如继电器) → 绝不打断路器', async () => {
-    const { svc, breaker } = makeService({ hwCategory: 'power-relay' });
+    const { svc, breaker } = await makeService({ hwCategory: 'power-relay' });
     await svc.turnOn(4);
     expect(breaker.turnOn).not.toHaveBeenCalled();
   });
 
   it('硬件被禁用 → 不打断路器', async () => {
-    const { svc, breaker } = makeService({ hwEnabled: false });
+    const { svc, breaker } = await makeService({ hwEnabled: false });
     await svc.turnOn(4);
     expect(breaker.turnOn).not.toHaveBeenCalled();
   });
@@ -135,7 +141,8 @@ describe('PowerCircuitsService · 断路器回路路由', () => {
       .mockResolvedValueOnce({ ok: true, data: measurements({ switchState: 'open', currents: [0, 0, 0] }) })
       .mockResolvedValue({ ok: true, data: measurements({
         voltages: [220, 0, 0], currents: [3, 0, 0], powers: [660, 0, 0, 660] }) });
-    const { svc, breaker, cloudBreaker } = makeService({
+    const { svc, breaker, cloudBreaker } = await makeService({
+      skipCollect: true,
       hwCategory: 'power-breaker-4g', cloudBreaker: { getMeasurements: gm },
     });
     await svc.turnOn(4);
@@ -144,13 +151,13 @@ describe('PowerCircuitsService · 断路器回路路由', () => {
   });
 
   it('回路没填 gatewayCode → 不打断路器', async () => {
-    const { svc, breaker } = makeService({ row: circuitRow({ gatewayCode: null }) });
+    const { svc, breaker } = await makeService({ row: circuitRow({ gatewayCode: null }) });
     await svc.turnOn(4);
     expect(breaker.turnOn).not.toHaveBeenCalled();
   });
 
   it('闸没动成必须抛错 —— 不许对前端谎报成功', async () => {
-    const { svc, adapter } = makeService({
+    const { svc, adapter } = await makeService({
       breaker: { turnOff: jest.fn().mockResolvedValue({ ok: false, error: '转换器超时' }) },
     });
     await expect(svc.turnOff(4)).rejects.toThrow(ConflictException);
@@ -159,7 +166,7 @@ describe('PowerCircuitsService · 断路器回路路由', () => {
   });
 
   it('已合闸再 turnOn → 幂等, 不重复下发', async () => {
-    const { svc, breaker } = makeService(); // 默认 getMeasurements closed
+    const { svc, breaker } = await makeService(); // 默认 getMeasurements closed
     await svc.turnOn(4);
     expect(breaker.turnOn).not.toHaveBeenCalled();
   });
@@ -168,7 +175,7 @@ describe('PowerCircuitsService · 断路器回路路由', () => {
     const gm = jest.fn().mockResolvedValue({
       ok: true, data: measurements({ switchState: 'open', currents: [0, 0, 0] }),
     });
-    const { svc, breaker } = makeService({ breaker: { getMeasurements: gm } });
+    const { svc, breaker } = await makeService({ breaker: { getMeasurements: gm } });
     await svc.turnOff(4);
     expect(breaker.turnOff).not.toHaveBeenCalled();
   });
@@ -177,7 +184,7 @@ describe('PowerCircuitsService · 断路器回路路由', () => {
     const gm = jest.fn()
       .mockResolvedValueOnce({ ok: false, error: 'timeout' })
       .mockResolvedValue({ ok: true, data: measurements({ switchState: 'closed' }) });
-    const { svc, breaker } = makeService({ breaker: { getMeasurements: gm } });
+    const { svc, breaker } = await makeService({ skipCollect: true, breaker: { getMeasurements: gm } });
     await svc.turnOn(4);
     expect(breaker.turnOn).toHaveBeenCalledWith('BREAKER-LED-1');
   });
@@ -185,7 +192,7 @@ describe('PowerCircuitsService · 断路器回路路由', () => {
 
 describe('PowerCircuitsService · 断路器实时读数', () => {
   it('读数取真机值: 电压三相平均, 电流取最重一相, 功率/电量取总', async () => {
-    const { svc } = makeService();
+    const { svc } = await makeService();
     const v = await svc.detail(4);
     expect(v.isBreaker).toBe(true);                  // 前端据此显示空开详情
     expect(v.reading.voltage).toBeCloseTo(240.2, 1); // (239.9+240.1+240.6)/3
@@ -196,7 +203,7 @@ describe('PowerCircuitsService · 断路器实时读数', () => {
   });
 
   it('分闸态 on=false', async () => {
-    const { svc } = makeService({
+    const { svc } = await makeService({
       breaker: { getMeasurements: jest.fn().mockResolvedValue({
         ok: true, data: measurements({ switchState: 'open', currents: [0, 0, 0] }),
       }) },
@@ -205,7 +212,7 @@ describe('PowerCircuitsService · 断路器实时读数', () => {
   });
 
   it('4G 单相断路器只上传 A 相时，页面电压仍显示实际值', async () => {
-    const { svc } = makeService({ hwCategory: 'power-breaker-4g' });
+    const { svc } = await makeService({ hwCategory: 'power-breaker-4g' });
     const view = await svc.detail(4);
     expect(view.isBreaker).toBe(true);
     expect(view.reading.voltage).toBe(220);
@@ -213,7 +220,7 @@ describe('PowerCircuitsService · 断路器实时读数', () => {
   });
 
   it('TTL 内复用缓存 —— 一次 list 不会把 485 打爆', async () => {
-    const { svc, breaker } = makeService();
+    const { svc, breaker } = await makeService();
     await svc.detail(4);
     await svc.detail(4);
     await svc.detail(4);
@@ -221,7 +228,7 @@ describe('PowerCircuitsService · 断路器实时读数', () => {
   });
 
   it('读不到时回落成全 0, 不抛错(电源页别整页崩)', async () => {
-    const { svc } = makeService({
+    const { svc } = await makeService({
       breaker: { getMeasurements: jest.fn().mockResolvedValue({ ok: false, error: '连接被拒绝' }) },
     });
     const v = await svc.detail(4);
@@ -231,33 +238,32 @@ describe('PowerCircuitsService · 断路器实时读数', () => {
   });
 
   it('非断路器回路 isBreaker=false (前端不显示空开详情)', async () => {
-    const { svc } = makeService({ hwCategory: 'power-relay' });
+    const { svc } = await makeService({ hwCategory: 'power-relay' });
     expect((await svc.detail(4)).isBreaker).toBe(false);
   });
 
-  it('合分闸后立刻失效缓存 —— 别拿旧读数糊弄前端', async () => {
-    // 2026-07-24 起 switchCircuit 下发命令后会轮询 getMeasurements 等物理闸真正
-    // 走完 (switchState 翻到目标态) 再返回 —— 否则命令回来比闸动作快, 前端拿旧
-    // 状态覆盖乐观 UI, 按钮当场跳回。mock 直接给目标态 open, 轮询第一次就命中:
-    // detail 1 次 + turnOff(轮询 1 次 + toView 重读 1 次) = 3 次。
-    const { svc, breaker } = makeService({
+  it('合分闸后快照即时刷新 —— 别拿旧读数糊弄前端', async () => {
+    // 彻底版: detail/toView 只读快照、不打设备。makeService 已后台采集 1 次 (open);
+    // turnOff 前置读当前态, 已是目标 open → 幂等不重发, 仅这 1 次 getMeasurements。
+    // 合计 = 采集 1 + turnOff 前置 1 = 2 次。
+    const { svc, breaker } = await makeService({
       breaker: { getMeasurements: jest.fn().mockResolvedValue({
         ok: true, data: measurements({ switchState: 'open', currents: [0, 0, 0] }),
       }) },
     });
-    await svc.detail(4);                             // 第 1 次读, 进缓存
+    await svc.detail(4);                             // 读快照, 不打设备
     expect(breaker.getMeasurements).toHaveBeenCalledTimes(1);
     await svc.turnOff(4);
-    expect(breaker.getMeasurements).toHaveBeenCalledTimes(3);
+    expect(breaker.getMeasurements).toHaveBeenCalledTimes(2);
   });
 
   it('非断路器回路读 /breaker 全量计量要拒绝', async () => {
-    const { svc } = makeService({ hwCategory: 'power-relay' });
+    const { svc } = await makeService({ hwCategory: 'power-relay' });
     await expect(svc.breakerMeasurements(4)).rejects.toThrow(ConflictException);
   });
 
   it('断路器回路能拿到分相/温度/报警全量', async () => {
-    const { svc, breaker } = makeService();
+    const { svc, breaker } = await makeService();
     const m = await svc.breakerMeasurements(4);
     expect(breaker.getMeasurements).toHaveBeenCalledWith('BREAKER-LED-1');
     expect(m.temperatures).toHaveLength(4);

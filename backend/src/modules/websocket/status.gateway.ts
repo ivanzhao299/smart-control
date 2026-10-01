@@ -278,6 +278,7 @@ export class StatusGateway
     // Never relay arbitrary adapter state, error messages or test results across users.
     if (event.type === 'playback_channel_changed') this.safeSend(client, { type: event.type, slot: event.slot, at: event.at });
     else if (event.type === 'device_status') this.safeSend(client, { type: event.type, device: event.device, status: event.status, at: event.at });
+    else if (event.type === 'power_reading') this.safeSend(client, { type: event.type, circuitId: event.circuitId, code: event.code, reading: event.reading, at: event.at });
     else if (event.type === 'scene') this.safeSend(client, { type: event.type, scene: event.scene, executionId: event.executionId, status: event.status, at: event.at });
   }
 

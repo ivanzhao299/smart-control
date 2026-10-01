@@ -534,6 +534,23 @@ export interface PlaybackChannelChangedWsEvent {
   at: string;
 }
 
+/** 断路器读数后台预采集后推送 (电源页实时刷新, 免轮询) */
+export interface PowerReadingWsEvent {
+  type: 'power_reading';
+  circuitId: number;
+  code: string;
+  reading: {
+    on: boolean;
+    voltage: number;
+    current: number;
+    power: number;
+    powerFactor: number;
+    energy: number;
+    lastReadAt: string;
+  };
+  at: string;
+}
+
 export type WsEvent =
   | { type: 'hello'; message: string; serverTime: string; frontendBuildId?: string }
   | { type: 'frontend_release'; frontendBuildId: string }
@@ -550,6 +567,7 @@ export type WsEvent =
   | SystemHealthWsEvent
   | ServiceStatusWsEvent
   | PlaybackChannelChangedWsEvent
+  | PowerReadingWsEvent
   | { type: 'pong'; at: string };
 
 /* ---------- Sprint-10: 硬件清单 ---------- */

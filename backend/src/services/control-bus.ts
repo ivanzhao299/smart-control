@@ -157,7 +157,25 @@ export interface PlaybackChannelChangedEvent {
   at: string;
 }
 
+/** 智能断路器读数 (后台预采集后经 WS 推送, 电源页据此实时刷新, 免轮询) */
+export interface PowerReadingEvent {
+  type: 'power_reading';
+  circuitId: number;
+  code: string;
+  reading: {
+    on: boolean;
+    voltage: number;
+    current: number;
+    power: number;
+    powerFactor: number;
+    energy: number;
+    lastReadAt: string;
+  };
+  at: string;
+}
+
 export type ControlEvent =
+  | PowerReadingEvent
   | DeviceStatusEvent
   | SceneEvent
   | AlarmEvent

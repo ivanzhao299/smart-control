@@ -6,9 +6,15 @@ import { PowerCircuitsController } from './power-circuits.controller';
 import { PowerCircuitsService } from './power-circuits.service';
 import { AdminAuthModule } from '../admin-auth/admin-auth.module';
 import { AdaptersModule } from '../../adapters/adapters.module';
+import { ServicesPrimitivesModule } from '../../services/services-primitives.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([PowerCircuit, HardwareUnit]), AdminAuthModule, AdaptersModule],
+  imports: [
+    TypeOrmModule.forFeature([PowerCircuit, HardwareUnit]),
+    AdminAuthModule,
+    AdaptersModule,
+    ServicesPrimitivesModule,
+  ],
   controllers: [PowerCircuitsController],
   providers: [PowerCircuitsService],
   exports: [PowerCircuitsService],
