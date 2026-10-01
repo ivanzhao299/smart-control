@@ -194,28 +194,37 @@ export class PowerCircuitsService {
 
     const breakerAdapter = await this.resolveBreakerAdapter(row);
     if (breakerAdapter) {
-      // 真·物理总闸: 失败必须抛出去, 绝不能让前端显示"断电成功"而闸没动
-      const r = on
-        ? await breakerAdapter.turnOn(row.gatewayCode as string)
-        : await breakerAdapter.turnOff(row.gatewayCode as string);
-      if (!r.ok) {
-        throw new ConflictException(`空开${on ? '合闸' : '分闸'}失败: ${r.error ?? '未知错误'}`);
-      }
-      this.breakerCache.delete(row.id); // 状态刚变, 别再拿旧读数糊弄前端
-      // 等物理闸走完再返回 (2026-07-24 业主: "按钮状态未能与实际开关状态一致"):
-      // 电机合/分闸要 ~1s, 命令一回来就读, 读到的还是动作前的状态 —— 前端拿这个
-      // "旧状态"覆盖乐观 UI, 按钮当场跳回。轮询到 switchState 翻转为止 (上限 4s,
-      // 超时不报错 —— 命令已确认成功, 状态让下一轮 8s 轮询兜底)。
       const wanted = on ? 'closed' : 'open';
-      for (let i = 0; i < 10; i += 1) {
-        await new Promise((res) => setTimeout(res, 400));
-        const m = await breakerAdapter.getMeasurements(row.gatewayCode as string);
-        if (m.ok && m.data?.switchState === wanted) break;
+      // 幂等 (2026-10-01 业主: 园区已通电再点"通电"会报错): 下发前先读当前态,
+      // 已处于目标态就不重复合/分闸 (设备/云平台对重复命令会拒), 按成功 no-op 处理。
+      const pre = await breakerAdapter.getMeasurements(row.gatewayCode as string);
+      const already = pre.ok && pre.data?.switchState === wanted;
+      if (!already) {
+        // 真·物理总闸: 失败必须抛出去, 绝不能让前端显示"断电成功"而闸没动
+        const r = on
+          ? await breakerAdapter.turnOn(row.gatewayCode as string)
+          : await breakerAdapter.turnOff(row.gatewayCode as string);
+        if (!r.ok) {
+          throw new ConflictException(`空开${on ? '合闸' : '分闸'}失败: ${r.error ?? '未知错误'}`);
+        }
+        this.breakerCache.delete(row.id); // 状态刚变, 别再拿旧读数糊弄前端
+        // 等物理闸走完再返回 (2026-07-24 业主: "按钮状态未能与实际开关状态一致"):
+        // 电机合/分闸要 ~1s, 命令一回来就读, 读到的还是动作前的状态 —— 前端拿这个
+        // "旧状态"覆盖乐观 UI, 按钮当场跳回。轮询到 switchState 翻转为止 (上限 4s,
+        // 超时不报错 —— 命令已确认成功, 状态让下一轮 8s 轮询兜底)。
+        for (let i = 0; i < 10; i += 1) {
+          await new Promise((res) => setTimeout(res, 400));
+          const m = await breakerAdapter.getMeasurements(row.gatewayCode as string);
+          if (m.ok && m.data?.switchState === wanted) break;
+        }
+        this.breakerCache.delete(row.id); // 轮询期间 breakerReading 可能又缓存了旧值
+      } else {
+        this.breakerCache.delete(row.id); // 已在目标态, 同样清掉可能的旧缓存
       }
-      this.breakerCache.delete(row.id); // 轮询期间 breakerReading 可能又缓存了旧值
-      this.logger.info(`空开${on ? '合闸' : '分闸'}: circuit=${row.code}`, {
-        context: 'PowerCircuitsService',
-      });
+      this.logger.info(
+        `空开${on ? '合闸' : '分闸'}: circuit=${row.code}${already ? ' (幂等跳过)' : ''}`,
+        { context: 'PowerCircuitsService' },
+      );
     } else if (await this.isSeq55Circuit(row)) {
       // 第二台时序器 (55…AA 协议, 2026-07-29 备): 只控不读 (回帧格式待实测),
       // 状态由 mock adapter 维护的乐观值兜底

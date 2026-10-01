@@ -100,7 +100,11 @@ function makeService(opts: {
 
 describe('PowerCircuitsService · 断路器回路路由', () => {
   it('gatewayCode 指向 power-breaker 硬件 → 打真闸, 不碰时序器', async () => {
-    const { svc, breaker, epo } = makeService();
+    // 前置态 open (未合闸) 才会下发合闸; 轮询第一次给 closed 立即命中
+    const gm = jest.fn()
+      .mockResolvedValueOnce({ ok: true, data: measurements({ switchState: 'open', currents: [0, 0, 0] }) })
+      .mockResolvedValue({ ok: true, data: measurements({ switchState: 'closed' }) });
+    const { svc, breaker, epo } = makeService({ breaker: { getMeasurements: gm } });
     await svc.turnOn(4);
     expect(breaker.turnOn).toHaveBeenCalledWith('BREAKER-LED-1');
     expect(epo.setChannel).not.toHaveBeenCalled();
@@ -126,7 +130,14 @@ describe('PowerCircuitsService · 断路器回路路由', () => {
   });
 
   it('power-breaker-4g 只路由到 MQTT 适配器', async () => {
-    const { svc, breaker, cloudBreaker } = makeService({ hwCategory: 'power-breaker-4g' });
+    // 前置态 open 才下发; 轮询给 closed 立即命中
+    const gm = jest.fn()
+      .mockResolvedValueOnce({ ok: true, data: measurements({ switchState: 'open', currents: [0, 0, 0] }) })
+      .mockResolvedValue({ ok: true, data: measurements({
+        voltages: [220, 0, 0], currents: [3, 0, 0], powers: [660, 0, 0, 660] }) });
+    const { svc, breaker, cloudBreaker } = makeService({
+      hwCategory: 'power-breaker-4g', cloudBreaker: { getMeasurements: gm },
+    });
     await svc.turnOn(4);
     expect(cloudBreaker.turnOn).toHaveBeenCalledWith('BREAKER-LED-1');
     expect(breaker.turnOn).not.toHaveBeenCalled();
@@ -145,6 +156,30 @@ describe('PowerCircuitsService · 断路器回路路由', () => {
     await expect(svc.turnOff(4)).rejects.toThrow(ConflictException);
     // 真闸失败后不该再去动 mock 状态, 否则页面会显示成已断电
     expect(adapter.circuitTurnOff).not.toHaveBeenCalled();
+  });
+
+  it('已合闸再 turnOn → 幂等, 不重复下发', async () => {
+    const { svc, breaker } = makeService(); // 默认 getMeasurements closed
+    await svc.turnOn(4);
+    expect(breaker.turnOn).not.toHaveBeenCalled();
+  });
+
+  it('已分闸再 turnOff → 幂等, 不重复下发', async () => {
+    const gm = jest.fn().mockResolvedValue({
+      ok: true, data: measurements({ switchState: 'open', currents: [0, 0, 0] }),
+    });
+    const { svc, breaker } = makeService({ breaker: { getMeasurements: gm } });
+    await svc.turnOff(4);
+    expect(breaker.turnOff).not.toHaveBeenCalled();
+  });
+
+  it('前置态读不到 (ok:false) → 保守照常下发, 不跳过', async () => {
+    const gm = jest.fn()
+      .mockResolvedValueOnce({ ok: false, error: 'timeout' })
+      .mockResolvedValue({ ok: true, data: measurements({ switchState: 'closed' }) });
+    const { svc, breaker } = makeService({ breaker: { getMeasurements: gm } });
+    await svc.turnOn(4);
+    expect(breaker.turnOn).toHaveBeenCalledWith('BREAKER-LED-1');
   });
 });
 
