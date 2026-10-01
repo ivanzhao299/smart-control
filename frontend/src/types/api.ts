@@ -567,6 +567,7 @@ export const HARDWARE_CATEGORIES = [
   'power-seq55',
   'power-breaker',
   'power-breaker-4g',
+  'power-breaker-web',
   'projector-fusion',
   'hvac-outdoor',
   'hvac-gateway',

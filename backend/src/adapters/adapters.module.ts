@@ -22,6 +22,7 @@ import { Epo802pAdapter } from './power/epo802p.adapter';
 import { Seq55Adapter } from './power/seq55.adapter';
 import { EpaBreakerAdapter } from './power/epa-breaker.adapter';
 import { EpaMqttBreakerAdapter } from './power/epa-mqtt-breaker.adapter';
+import { HperforApiAdapter } from './power/hperfor-api.adapter';
 import { FusionPlayerAdapter } from './projector/fusion-player.adapter';
 import { ServicesPrimitivesModule } from '../services/services-primitives.module';
 
@@ -51,6 +52,7 @@ const PROVIDERS = [
   Seq55Adapter,
   EpaBreakerAdapter,
   EpaMqttBreakerAdapter,
+  HperforApiAdapter,
   // Projector (视频融合器)
   FusionPlayerAdapter,
 ];
