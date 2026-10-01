@@ -32,7 +32,14 @@ describe('complete migration chain on an isolated database', () => {
     expect(await runner.hasTable('upload_instances')).toBe(true);
     expect((await runner.getTable('upload_reservations'))?.findColumnByName('target_media_id')).toBeDefined();
     expect(await db.query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'protect_last_administrator_%'")).toHaveLength(2);
-    for (let i = 0; i < 9; i++) await db.undoLastMigration();
+    // 回滚到 multiuser 之前的状态. 不能硬编码 9: 后续新功能 migration 会追加在
+    // multiuser 系列之后, 按 schema 状态回滚才不会因 migration 数量变化而失效.
+    let undoGuard = 0;
+    while ((await runner.getTable('media_assets'))?.findColumnByName('owner_user_id') && undoGuard < 30) {
+      await db.undoLastMigration();
+      undoGuard++;
+    }
+    expect(undoGuard).toBeGreaterThanOrEqual(9);
     expect(await db.query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'protect_last_administrator_%'")).toHaveLength(0);
     expect(await runner.hasTable('upload_reservations')).toBe(false);
     expect((await runner.getTable('media_assets'))?.findColumnByName('owner_user_id')).toBeUndefined();
