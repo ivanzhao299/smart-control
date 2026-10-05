@@ -2,7 +2,8 @@ import { AdminGuard } from './admin-auth.guard';
 
 describe('legacy admin guard with named administrator identities', () => {
   const verifyToken = jest.fn(async (token: string) => token === 'valid-admin');
-  const guard = new AdminGuard({ verifyToken } as any);
+  const moduleRef = { get: () => ({ resolveActor: async () => null }) } as any;
+  const guard = new AdminGuard({ verifyToken } as any, moduleRef);
   const context = (req: any) => ({ switchToHttp: () => ({ getRequest: () => req }) } as any);
   beforeEach(() => verifyToken.mockClear());
   it('accepts a globally verified named administrator without a second credential', async () => {

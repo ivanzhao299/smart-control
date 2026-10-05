@@ -10,17 +10,20 @@ const welcomePage = fs.readFileSync(path.join(__dirname, '../public/welcome/inde
 const designTokens = fs.readFileSync(path.join(__dirname, '../src/styles/design-tokens.css'), 'utf8');
 
 test('welcome editor separates draft saving from publishing and carries the opened revision', () => {
-  assert.match(welcomeEditor, /ensureAdmin\('保存欢迎方案'\)/);
+  assert.match(welcomeEditor, /ensureContentEditor\('保存欢迎方案'\)/);
   assert.match(welcomeEditor, /saveWelcomeSchemes\([\s\S]*welcomeSchemesRevision\.value/);
   assert.match(welcomeEditor, /已保存到服务器方案库/);
   assert.match(welcomeEditor, /const confirmed = await fetchWelcomeSchemes\(\)/);
   assert.match(welcomeEditor, /confirmed\.checksum !== saved\.checksum/);
   assert.match(playerConsole, /仅保存方案/);
   assert.match(playerConsole, /保存并发布到 LED/);
-  assert.match(welcomeEditor, /ensureAdmin\('发布欢迎页'\)/);
+  assert.match(welcomeEditor, /ensureContentEditor\('发布欢迎页'\)/);
   assert.match(welcomeEditor, /publishWelcomeScheme\(selectedId, welcomeSchemesRevision\.value\)/);
   assert.match(welcomeEditor, /服务器未确认发布结果/);
   assert.match(welcomeEditor, /发布到 LED 大屏/);
+  // 破坏性操作仍仅管理员：删除图片与删除整套方案不走内容编辑放行
+  assert.match(welcomeEditor, /options\.ensureAdmin\(kind === 'background' \? '删除欢迎页底图' : '删除欢迎页 Logo'\)/);
+  assert.match(welcomeEditor, /options\.ensureAdmin\('删除欢迎方案'\)/);
 });
 
 test('welcome editor uploads logo and background in place and remains scrollable on iPhone', () => {

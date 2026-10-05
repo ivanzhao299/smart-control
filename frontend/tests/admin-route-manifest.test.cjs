@@ -20,7 +20,7 @@ test('admin manifest preserves every route exactly once with explicit access met
 
   assert.deepEqual(names, [
     'admin-monitor', 'admin-alerts', 'admin-devices', 'admin-scenes', 'admin-scene-actions',
-    'admin-scheduler', 'admin-scene-executions', 'admin-test-center', 'admin-debug',
+    'admin-scheduler', 'admin-energy', 'admin-scene-executions', 'admin-test-center', 'admin-debug',
     'admin-video-binding', 'admin-uat', 'admin-logs', 'admin-hardware', 'admin-zones-config',
     'admin-light-zones', 'admin-power-circuits', 'admin-audio-config', 'admin-app-release',
     'admin-testflight', 'admin-drivers', 'admin-brands', 'admin-system-branding', 'admin-audit',
@@ -40,7 +40,7 @@ test('admin navigation groups and deep links resolve from the route manifest', (
   assert.deepEqual(Array.from(groups, group => (
     `${group.section}:${Array.from(group.items, item => `${item.name}:${item.label}`).join(',')}`
   )), [
-    '日常运行:admin-monitor:运维监控,admin-alerts:报警中心,admin-scenes:场景管理,admin-scheduler:定时任务',
+    '日常运行:admin-monitor:运维监控,admin-alerts:报警中心,admin-scenes:场景管理,admin-scheduler:定时任务,admin-energy:能源管理',
     '设备与分区:admin-devices:设备管理,admin-hardware:硬件清单,admin-zones-config:分区配置,admin-video-binding:视频绑定',
     '日志与诊断:admin-logs:日志中心,admin-test-center:测试 / 调试',
     '系统管理:admin-park-ops-metrics:运营数据,admin-users:用户管理,admin-testflight:iOS 测试,admin-settings:系统设置',
@@ -82,7 +82,7 @@ test('router and layout consume admin route metadata without duplicate page list
 
 test('idle prefetch names are manifest-backed and loadable', () => {
   assert.deepEqual(Array.from(moduleExports.idleAdminRouteNames), [
-    'admin-monitor', 'admin-devices', 'admin-scenes', 'admin-logs',
+    'admin-monitor', 'admin-devices', 'admin-scenes', 'admin-energy', 'admin-logs',
     'admin-hardware', 'admin-zones-config', 'admin-settings',
   ]);
   for (const name of moduleExports.idleAdminRouteNames) {

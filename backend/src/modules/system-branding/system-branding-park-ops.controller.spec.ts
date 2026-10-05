@@ -81,10 +81,10 @@ describe('SystemBrandingController welcome scheme writes', () => {
     } as unknown as SystemBrandingService;
     const controller = new SystemBrandingController(service, {} as MediaService);
 
-    await controller.updateWelcomeSchemes({ config, expectedRevision: 2 });
+    await controller.updateWelcomeSchemes({ actor: { kind: 'user', userId: 1, username: 'admin', role: 'admin' } } as any, { config, expectedRevision: 2 });
     await controller.publishWelcomeScheme('company-a', { expectedRevision: 3 });
 
-    expect(service.updateWelcomeSchemes).toHaveBeenCalledWith(config, 2);
+    expect(service.updateWelcomeSchemes).toHaveBeenCalledWith(config, 2, { allowDelete: true });
     expect(service.publishWelcomeScheme).toHaveBeenCalledWith('company-a', 3);
   });
 
@@ -94,7 +94,7 @@ describe('SystemBrandingController welcome scheme writes', () => {
     } as unknown as SystemBrandingService;
     const controller = new SystemBrandingController(service, {} as MediaService);
 
-    await expect(controller.updateWelcomeSchemes({ config })).rejects.toBeInstanceOf(
+    await expect(controller.updateWelcomeSchemes({ actor: { kind: 'user', userId: 1, username: 'admin', role: 'admin' } } as any, { config })).rejects.toBeInstanceOf(
       BadRequestException,
     );
     expect(service.updateWelcomeSchemes).not.toHaveBeenCalled();
