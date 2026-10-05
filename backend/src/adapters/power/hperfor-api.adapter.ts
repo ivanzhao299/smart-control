@@ -220,7 +220,7 @@ export class HperforApiAdapter extends BaseAdapter {
         current: 1,
         size: 100,
       }),
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(8_000),
     });
     const json = (await resp.json()) as {
       code?: number;
@@ -243,7 +243,7 @@ export class HperforApiAdapter extends BaseAdapter {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: token },
       body: JSON.stringify({ fId, isSendCmd: false }),
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(8_000),
     });
     const json = (await resp.json()) as {
       code?: number;

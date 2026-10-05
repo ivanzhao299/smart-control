@@ -4,6 +4,8 @@ import { useActivePolling } from '@/composables/useActivePolling';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { haptics } from '@/services/haptics';
 import { useRouter } from 'vue-router';
+import { wsClient, type WsConnectionState } from '@/services/websocket.service';
+import type { WsEvent } from '@/types/api';
 import {
   ArrowLeft, Zap, Power, X, RefreshCw, Activity, Gauge, Lightbulb, Plug,
   MonitorPlay, Snowflake, Volume2, ChevronDown, Thermometer, Droplet,
@@ -241,7 +243,7 @@ async function floorOff(): Promise<void> {
   await dispatchMany(filteredCircuits.value, 'off');
 }
 
-// 实时刷新 — 每 5 秒拉一次最新读数 (mock adapter 几乎零开销)
+// 实时刷新 — 每 10 秒拉一次最新读数 (服务端读数缓存 10s, 轮询基本走缓存, 不打爆云)
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 function startRefresh(): void {
   if (refreshTimer) return;
@@ -255,7 +257,7 @@ function startRefresh(): void {
       // 展开着的空开详情也顺带刷新 (三相/温度实时变化)
       if (expandedId.value != null) void loadBreaker(expandedId.value);
     }
-  }, 5000);
+  }, 10_000);
 }
 function stopRefresh(): void {
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
@@ -264,15 +266,37 @@ function stopRefresh(): void {
 const router = useRouter();
 function goBack(): void { router.push({ name: 'dashboard' }); }
 
-// 2026-07-27 切页卡顿根治: keep-alive 下 onUnmounted 不触发, 5s 轮询切走后
-// 永续后台运行 (还一直打后端)。改 useActivePolling — 在本页才轮询, 切走即停;
-// 回页时 loadCircuits 立即刷一次, 不等下一轮。
-function startPolling(): void {
-  if (refreshTimer) return; // mounted+activated 双触发, 幂等
-  void loadCircuits();
-  startRefresh();
+// 2026-07-27 切页卡顿根治: keep-alive 下 onUnmounted 不触发, 轮询切走后永续后台
+// 运行。改 useActivePolling — 在本页才刷新, 切走即停; 回页立即 loadCircuits。
+// 2026-10-01 彻底版: 优先走 WS 推送 (后台 10s 预采集, power_reading), WS 在线
+// 零轮询; 断线才用 10s setInterval 兜底。
+let unsubWs: (() => void) | null = null;
+let unsubState: (() => void) | null = null;
+
+function handlePowerReading(e: WsEvent): void {
+  if (e.type !== 'power_reading') return;
+  const idx = circuits.value.findIndex(
+    (c) => c.id === e.circuitId || (e.code !== '' && c.code === e.code),
+  );
+  if (idx >= 0) circuits.value[idx] = { ...circuits.value[idx], reading: { ...e.reading } };
 }
-useActivePolling(startPolling, stopRefresh);
+
+function handleWsState(s: WsConnectionState): void {
+  if (s === 'open') stopRefresh(); // WS 在线: 推送即可, 停轮询
+  else startRefresh(); // 断线/连接中: 轮询兜底
+}
+
+function startPolling(): void {
+  void loadCircuits();
+  if (!unsubWs) unsubWs = wsClient.on(handlePowerReading);
+  if (!unsubState) unsubState = wsClient.onState(handleWsState); // 注册即按当前态决定
+}
+function stopPolling(): void {
+  stopRefresh();
+  unsubWs?.(); unsubWs = null;
+  unsubState?.(); unsubState = null;
+}
+useActivePolling(startPolling, stopPolling);
 </script>
 
 <template>

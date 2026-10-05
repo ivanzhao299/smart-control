@@ -46,6 +46,7 @@ test('every startup lifecycle hook stays on the reviewed runtime-state allowlist
     'backend/src/modules/logs/operation-log.service.ts',
     'backend/src/modules/media/media.service.ts',
     'backend/src/modules/playback/playback.service.ts',
+    'backend/src/modules/power-circuits/power-circuits.service.ts',
     'backend/src/modules/power-schedules/power-schedules.service.ts',
     'backend/src/modules/pv/pv.service.ts',
     'backend/src/modules/scheduler/scheduler.service.ts',
@@ -71,7 +72,8 @@ test('catalog services remain free of startup hooks and fallback seed writes', (
     'backend/src/modules/drivers/driver-registry.service.ts',
     'backend/src/modules/hardware/hardware.service.ts',
     'backend/src/modules/light-zones/light-zones.service.ts',
-    'backend/src/modules/power-circuits/power-circuits.service.ts',
+    // power-circuits 自彻底版起带后台采集循环(10s 预采集写内存快照), 已移至上方
+    // runtime-state allowlist, 不再属于"无启动钩子的纯 catalog service"。
     'backend/src/modules/scenes/scenes.service.ts',
     'backend/src/modules/system-branding/system-branding.service.ts',
   ];

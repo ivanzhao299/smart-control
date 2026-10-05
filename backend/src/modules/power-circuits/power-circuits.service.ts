@@ -1,4 +1,12 @@
-import { ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import {
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
+  Optional,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Repository } from 'typeorm';
@@ -12,6 +20,7 @@ import { EpaMqttBreakerAdapter } from '../../adapters/power/epa-mqtt-breaker.ada
 import { HperforApiAdapter } from '../../adapters/power/hperfor-api.adapter';
 import type { BreakerMeasurements } from '../../adapters/power/epa-breaker-registers';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
+import { ControlBus } from '../../services/control-bus';
 
 export interface PowerCircuitView {
   id: number;
@@ -55,7 +64,7 @@ export interface PowerCircuitUpsertDto {
 }
 
 @Injectable()
-export class PowerCircuitsService {
+export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @InjectRepository(PowerCircuit) private readonly repo: Repository<PowerCircuit>,
     @InjectRepository(HardwareUnit) private readonly hwRepo: Repository<HardwareUnit>,
@@ -71,15 +80,15 @@ export class PowerCircuitsService {
     @Optional() private readonly cloudBreaker?: EpaMqttBreakerAdapter,
     /** 4G 断路器走华普云 Web API (庭院亮化/鱼池供氧/园区路灯) — Optional: 未配置凭据时不下发 */
     @Optional() private readonly webBreaker?: HperforApiAdapter,
+    /** 事件总线: 后台采集到读数后 WS 广播 — Optional: 单测桩不传也能跑 */
+    @Optional() private readonly bus?: ControlBus,
   ) {}
 
   /**
-   * 断路器实时读数缓存 —— toView() 每列一行都会调, list() 一次会调 6 次。
-   * 没缓存的话每次翻页都往 485 上打一串 Modbus 帧, 而且转换器掉线时每行都要等满
-   * DEVICE_TIMEOUT_MS, 整个电源页会卡死。TTL 内复用, 读失败回落到上一次好的值。
+   * 断路器读数快照 —— 由后台采集循环 (onModuleInit, 每 10s) 主动刷新; toView()
+   * 只读快照、不打设备, 云慢/设备休眠/转换器掉线都不影响页面。读失败保留上一次好值。
    */
   private breakerCache = new Map<number, { at: number; reading: PowerReading }>();
-  private readonly BREAKER_CACHE_TTL_MS = 3000;
 
   /**
    * 时序器状态缓存 —— 8 路回路共享**一次** readStatus (0xac 一帧就带全部 8 路状态),
@@ -88,18 +97,24 @@ export class PowerCircuitsService {
   private seqCache: { at: number; channels: boolean[] } | null = null;
   private readonly SEQ_CACHE_TTL_MS = 3000;
 
+  /**
+   * 后台主动采集 (彻底版): 不等到用户请求才读断路器。定时 (10s) 统一调度——
+   * 云断路器 HTTP 并行、485 共享串口串行, 结果写内存快照; 读数变化经 ControlBus
+   * WS 广播。list/detail 只读快照, 永不被云慢/设备休眠阻塞。
+   */
+  private collectTimer?: NodeJS.Timeout;
+  private collecting = false;
+  private readonly COLLECT_INTERVAL_MS = 10_000;
+
   async list(opts: { includeDisabled?: boolean } = {}): Promise<PowerCircuitView[]> {
     const where = opts.includeDisabled ? {} : { enabled: true };
     const rows = await this.repo.find({
       where,
       order: { floor: 'ASC', sortOrder: 'ASC', id: 'ASC' },
     });
-    // 拉每个 circuit 的实时数据 (mock adapter 同步返回, 几乎零成本)
-    const out: PowerCircuitView[] = [];
-    for (const r of rows) {
-      out.push(await this.toView(r));
-    }
-    return out;
+    // 并行拉各回路实时读数 (云断路器走各自 HTTP 可并发; 485 适配器内部对共享
+    // 串口自行串行化) —— 避免逐台 await 把云端往返时间累加
+    return Promise.all(rows.map((r) => this.toView(r)));
   }
 
   async detail(id: number): Promise<PowerCircuitView> {
@@ -199,6 +214,7 @@ export class PowerCircuitsService {
       // 已处于目标态就不重复合/分闸 (设备/云平台对重复命令会拒), 按成功 no-op 处理。
       const pre = await breakerAdapter.getMeasurements(row.gatewayCode as string);
       const already = pre.ok && pre.data?.switchState === wanted;
+      let final: PowerReading | null = pre.ok && pre.data ? this.storeMeasurements(row, pre.data) : null;
       if (!already) {
         // 真·物理总闸: 失败必须抛出去, 绝不能让前端显示"断电成功"而闸没动
         const r = on
@@ -208,19 +224,17 @@ export class PowerCircuitsService {
           throw new ConflictException(`空开${on ? '合闸' : '分闸'}失败: ${r.error ?? '未知错误'}`);
         }
         this.breakerCache.delete(row.id); // 状态刚变, 别再拿旧读数糊弄前端
-        // 等物理闸走完再返回 (2026-07-24 业主: "按钮状态未能与实际开关状态一致"):
-        // 电机合/分闸要 ~1s, 命令一回来就读, 读到的还是动作前的状态 —— 前端拿这个
-        // "旧状态"覆盖乐观 UI, 按钮当场跳回。轮询到 switchState 翻转为止 (上限 4s,
-        // 超时不报错 —— 命令已确认成功, 状态让下一轮 8s 轮询兜底)。
+        // 等物理闸走完再返回: 电机合/分闸 ~1s, 命令一回来读到的还是动作前状态。
+        // 轮询到 switchState 翻转为止 (上限 4s), 每帧都写快照; 超时不报错——命令已
+        // 确认成功, 状态让后台 10s 采集兜底。
         for (let i = 0; i < 10; i += 1) {
           await new Promise((res) => setTimeout(res, 400));
           const m = await breakerAdapter.getMeasurements(row.gatewayCode as string);
+          if (m.ok && m.data) final = this.storeMeasurements(row, m.data);
           if (m.ok && m.data?.switchState === wanted) break;
         }
-        this.breakerCache.delete(row.id); // 轮询期间 breakerReading 可能又缓存了旧值
-      } else {
-        this.breakerCache.delete(row.id); // 已在目标态, 同样清掉可能的旧缓存
       }
+      if (final) this.publishReading(row, final); // 操作/幂等后即时 WS 推送
       this.logger.info(
         `空开${on ? '合闸' : '分闸'}: circuit=${row.code}${already ? ' (幂等跳过)' : ''}`,
         { context: 'PowerCircuitsService' },
@@ -280,31 +294,25 @@ export class PowerCircuitsService {
    *   power / energy = 总量 (第 4 个元素就是总)
    * 读不到就回落到缓存里上一次的好值, 再没有就返回全 0 + on=false, 不让电源页崩。
    */
-  private async breakerReading(
-    row: PowerCircuit,
-    breakerAdapter: EpaBreakerAdapter | EpaMqttBreakerAdapter | HperforApiAdapter,
-  ): Promise<PowerReading> {
-    const cached = this.breakerCache.get(row.id);
-    if (cached && Date.now() - cached.at < this.BREAKER_CACHE_TTL_MS) return cached.reading;
+  // ===== 断路器读数: 请求路径只读快照, 外部 I/O 只在后台采集发生 =====
 
-    const r = await breakerAdapter.getMeasurements(row.gatewayCode as string);
-    if (!r.ok || !r.data) {
-      this.logger.warn(`空开读数失败 circuit=${row.code}: ${r.error ?? '无数据'}`, {
-        context: 'PowerCircuitsService',
-      });
-      return (
-        cached?.reading ?? {
-          on: false,
-          current: 0,
-          voltage: 0,
-          power: 0,
-          powerFactor: 0,
-          energy: 0,
-          lastReadAt: new Date().toISOString(),
-        }
-      );
-    }
-    const m: BreakerMeasurements = r.data;
+  /** 请求路径: 纯内存快照, 永不 await 外部 I/O (SWR: 有缓存即返回, 哪怕已过期) */
+  private snapshotBreakerReading(row: PowerCircuit): PowerReading {
+    const cached = this.breakerCache.get(row.id);
+    if (cached) return cached.reading;
+    return {
+      on: false,
+      current: 0,
+      voltage: 0,
+      power: 0,
+      powerFactor: 0,
+      energy: 0,
+      lastReadAt: new Date().toISOString(),
+    };
+  }
+
+  /** 把一帧计量映射成统一读数并写入快照 */
+  private storeMeasurements(row: PowerCircuit, m: BreakerMeasurements): PowerReading {
     const reading: PowerReading = {
       on: m.switchState === 'closed',
       voltage: Number(this.averagePresentPhases(m.voltages).toFixed(1)),
@@ -316,6 +324,98 @@ export class PowerCircuitsService {
     };
     this.breakerCache.set(row.id, { at: Date.now(), reading });
     return reading;
+  }
+
+  /** 后台采集: 真正 await 设备读数; 失败保留上一次快照, 不用 0 覆盖 */
+  private async refreshBreakerReading(
+    row: PowerCircuit,
+    breakerAdapter: EpaBreakerAdapter | EpaMqttBreakerAdapter | HperforApiAdapter,
+  ): Promise<PowerReading | null> {
+    const r = await breakerAdapter.getMeasurements(row.gatewayCode as string);
+    if (!r.ok || !r.data) {
+      this.logger.warn(`空开读数失败 circuit=${row.code}: ${r.error ?? '无数据'}`, {
+        context: 'PowerCircuitsService',
+      });
+      return this.breakerCache.get(row.id)?.reading ?? null;
+    }
+    return this.storeMeasurements(row, r.data);
+  }
+
+  /** 经事件总线 WS 广播读数 (业主/管理员电源页实时刷新) */
+  private publishReading(row: PowerCircuit, reading: PowerReading): void {
+    this.bus?.publish({
+      type: 'power_reading',
+      circuitId: row.id,
+      code: row.code,
+      reading: {
+        on: reading.on,
+        voltage: reading.voltage,
+        current: reading.current,
+        power: reading.power,
+        powerFactor: reading.powerFactor,
+        energy: reading.energy,
+        lastReadAt: reading.lastReadAt,
+      },
+      at: new Date().toISOString(),
+    });
+  }
+
+  /** 是否值得推送: 开关态变化, 或电压/电流/功率超阈值波动 (避免每 10s 无谓广播) */
+  private readingChanged(prev: PowerReading, next: PowerReading): boolean {
+    if (prev.on !== next.on) return true;
+    if (Math.abs(prev.voltage - next.voltage) > 1) return true;
+    if (Math.abs(prev.current - next.current) > 0.1) return true;
+    if (Math.abs(prev.power - next.power) > 1) return true;
+    return false;
+  }
+
+  // ===== 生命周期: 后台主动采集循环 =====
+
+  onModuleInit(): void {
+    const timer = setInterval(() => { void this.collectOnce(); }, this.COLLECT_INTERVAL_MS);
+    timer.unref?.();
+    this.collectTimer = timer;
+    void this.collectOnce(); // 启动即采一次, 不等 10s
+  }
+
+  onModuleDestroy(): void {
+    if (this.collectTimer) clearInterval(this.collectTimer);
+    this.collectTimer = undefined;
+  }
+
+  /** 一轮采集: 云断路器并行、485/MQTT 串行 (共享物理总线), 变化才广播 */
+  private async collectOnce(): Promise<void> {
+    if (this.collecting) return;
+    this.collecting = true;
+    try {
+      const rows = await this.repo.find({ where: { enabled: true } });
+      const serial: PowerCircuit[] = [];
+      const parallel: PowerCircuit[] = [];
+      for (const row of rows) {
+        const adapter = await this.resolveBreakerAdapter(row);
+        if (!adapter) continue;
+        if (adapter instanceof HperforApiAdapter) parallel.push(row);
+        else serial.push(row); // 485 / MQTT: 保守串行, 避免共享总线冲突
+      }
+      await Promise.all(parallel.map((r) => this.refreshAndPublish(r)));
+      for (const r of serial) await this.refreshAndPublish(r);
+    } catch (err) {
+      this.logger.warn(`后台采集断路器异常: ${(err as Error).message}`, {
+        context: 'PowerCircuitsService',
+      });
+    } finally {
+      this.collecting = false;
+    }
+  }
+
+  /** 读一台最新读数, 与上次快照比较, 首次/有变化才 WS 推送 */
+  private async refreshAndPublish(row: PowerCircuit): Promise<void> {
+    const adapter = await this.resolveBreakerAdapter(row);
+    if (!adapter) return;
+    const prev = this.breakerCache.get(row.id)?.reading;
+    const reading = await this.refreshBreakerReading(row, adapter);
+    if (!reading) return;
+    if (!prev || this.readingChanged(prev, reading)) this.publishReading(row, reading);
   }
 
   /** 断路器全量计量 (三相分相 + 温度 + 漏电 + 报警位) — 给运维/详情页看 */
@@ -424,7 +524,7 @@ export class PowerCircuitsService {
       return {
         ...this.baseView(row),
         isBreaker,
-        reading: await this.breakerReading(row, breakerAdapter),
+        reading: this.snapshotBreakerReading(row), // 读快照, 不等待外部 I/O
       };
     }
     // 时序器回路: 开关状态读真机 (0xac 一帧带全部 8 路), 电量指标时序器没有 → 0
