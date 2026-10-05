@@ -34,6 +34,7 @@ import {
   Palette,
   SlidersHorizontal,
   Rocket,
+  PlugZap,
   type LucideIcon, Projector } from 'lucide-vue-next';
 
 /** 平板侧边导航 */
@@ -57,6 +58,7 @@ export const ADMIN_NAV_ICON: Record<string, LucideIcon> = {
   'admin-devices': Wrench,
   'admin-scenes': Clapperboard,
   'admin-scheduler': Clock,
+  'admin-energy': PlugZap,
   'admin-scene-executions': BarChart3,
   'admin-test-center': TestTube2,
   'admin-uat': CheckCircle2,

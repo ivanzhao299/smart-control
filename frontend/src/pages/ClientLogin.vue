@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue';
+import { ref, onMounted, nextTick, onBeforeUnmount, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { Lock, UserRound, Globe, Wifi, CheckCircle2, XCircle, Trash2, History, ScanFace } from 'lucide-vue-next';
 import { readSavedUsername, useClientAuthStore } from '@/stores/client-auth';
@@ -23,6 +23,31 @@ const username = ref(readSavedUsername());
 const password = ref('');
 const passwordInput = ref<HTMLInputElement | null>(null);
 const submitting = ref(false);
+// 登录限流保护：弱网重复提交触发 429/503 时进入倒计时，避免反复重试把自己锁更久。
+const cooldownUntil = ref(0);
+const nowTick = ref(Date.now());
+let clockTimer: number | undefined;
+const cooldownSec = computed(() =>
+  Math.max(0, Math.ceil((cooldownUntil.value - nowTick.value) / 1000)),
+);
+const inCooldown = computed(() => cooldownSec.value > 0);
+function startClock(): void {
+  if (clockTimer !== undefined) return;
+  clockTimer = window.setInterval(() => {
+    nowTick.value = Date.now();
+    if (cooldownUntil.value <= Date.now() && clockTimer !== undefined) {
+      clearInterval(clockTimer);
+      clockTimer = undefined;
+    }
+  }, 250);
+}
+function beginCooldown(sec: number): void {
+  cooldownUntil.value = Math.max(cooldownUntil.value, Date.now() + sec * 1000);
+  startClock();
+}
+onBeforeUnmount(() => {
+  if (clockTimer !== undefined) clearInterval(clockTimer);
+});
 
 function focusPasswordIfIdle(): void {
   void nextTick(() => {
@@ -117,6 +142,7 @@ async function doTest(): Promise<void> {
 }
 
 async function doLogin(fromBiometric = false): Promise<void> {
+  if (inCooldown.value) return;
   if (!username.value.trim()) {
     toast.warning('请输入用户管理中的用户名');
     return;
@@ -135,15 +161,23 @@ async function doLogin(fromBiometric = false): Promise<void> {
     toast.success('登录成功');
     redirectToTarget();
   } catch (e) {
-    if (fromBiometric && e instanceof HttpError && e.status === 401) {
+    if (e instanceof HttpError && (e.status === 429 || e.status === 503)) {
+      // 触发限流/网关繁忙：解析后端给出的等待秒数，否则按状态退避；
+      // 保留密码并倒计时，期间禁止重复提交，避免越重试锁得越久。
+      const parsed = parseInt(String(e.message).match(/(\d+)\s*s/)?.[1] ?? '', 10);
+      const backoff = Number.isFinite(parsed) ? parsed : e.status === 429 ? 30 : 15;
+      beginCooldown(backoff);
+      toast.error('登录请求过于频繁，已进入短暂保护，请按页面倒计时等待');
+    } else if (fromBiometric && e instanceof HttpError && e.status === 401) {
       shellBioClear('client');
       readShellBio();
       auth.clearSavedPassword();
       toast.error('已保存的面容登录密码已失效，请输入新密码重新登录');
+      password.value = '';
     } else {
       toast.error((e as Error).message || '登录失败');
+      password.value = '';
     }
-    password.value = '';
     focusPasswordIfIdle();
   } finally {
     submitting.value = false;
@@ -253,8 +287,12 @@ async function doLogin(fromBiometric = false): Promise<void> {
           />
         </div>
 
-        <button type="submit" class="submit-btn" :disabled="submitting || !password">
-          {{ submitting ? '登录中...' : '登 录' }}
+        <p v-if="inCooldown" role="status" class="cooldown-msg">
+          网络繁忙触发保护，{{ cooldownSec }} 秒后可重新登录（弱网下属正常保护，无需关闭页面）
+        </p>
+
+        <button type="submit" class="submit-btn" :disabled="submitting || inCooldown || !password">
+          {{ inCooldown ? `请等待 ${cooldownSec}s` : submitting ? '登录中...' : '登 录' }}
         </button>
 
         <!-- 面容登录 (2026-07-31): 壳 App 内且壳里存过密码才显示 -->
@@ -509,6 +547,7 @@ async function doLogin(fromBiometric = false): Promise<void> {
   box-shadow: var(--v2-glow-primary-strong);
 }
 .submit-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.cooldown-msg { font-size: 12px; color: #fbbf24; text-align: center; margin: 4px 0 0; line-height: 1.5; }
 
 /* 面容登录 — 次级按钮, 只在壳 App 内且壳里存过密码时出现 */
 .bio-btn {

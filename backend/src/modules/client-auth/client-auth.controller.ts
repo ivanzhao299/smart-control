@@ -3,6 +3,7 @@ import { ClientAuthService } from './client-auth.service';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { Public } from '../../common/decorators/public.decorator';
 import { Req } from '@nestjs/common';
+import { Request } from 'express';
 import { AuthenticatedRequest, requireActor } from '../../common/auth/actor';
 
 /**
@@ -13,7 +14,10 @@ import { AuthenticatedRequest, requireActor } from '../../common/auth/actor';
  */
 @Controller('client-auth')
 export class ClientAuthController {
-  constructor(private readonly service: ClientAuthService) {}
+  constructor(
+    private readonly service: ClientAuthService,
+    private readonly rateLimit: RateLimitGuard,
+  ) {}
 
   @Get('me')
   me(@Req() req: AuthenticatedRequest) {
@@ -30,16 +34,21 @@ export class ClientAuthController {
   @Public()
   @Post('login')
   @HttpCode(200)
-  // 防爆破 (2026-07-19 加固): 按 IP 限流 10 次/分。正常业主输错几次不受影响, 但挡住
-  // 公网对 4 位口令的秒级枚举 (枚举需要每秒多次)。RateLimitGuard 按 IP×路由 分桶。
+  // 防爆破: 按 IP 限流 20 次/分，登录成功即清零（弱网重发/正常重试不累计）；
+  // 超限返回 429 + Retry-After。nginx 层另有同口径第二层限流。
   @UseGuards(RateLimitGuard)
-  @RateLimit({ max: 10, windowMs: 60_000 })
-  async login(@Body() body: { username?: string; password?: string }) {
+  @RateLimit({ max: 20, windowMs: 60_000 })
+  async login(
+    @Req() req: Request,
+    @Body() body: { username?: string; password?: string },
+  ) {
     const username = body?.username?.trim();
     if (!username || !body?.password) {
       throw new BadRequestException('请输入用户名和密码');
     }
     const result = await this.service.login(username, body.password);
+    // 成功登录：清除该 IP 限流计数，避免弱网下一次正常登录被历史重试拖累。
+    this.rateLimit.reset(req);
     return { message: '登录成功', data: result };
   }
 

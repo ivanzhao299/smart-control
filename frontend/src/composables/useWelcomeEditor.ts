@@ -26,6 +26,8 @@ import {
 
 export interface WelcomeEditorOptions {
   ensureAdmin(action: string): Promise<boolean>;
+  /** 内容编辑（改文字/上传/保存/发布）允许的角色检查，缺省回退到 ensureAdmin。 */
+  ensureContentEditor?(action: string): Promise<boolean>;
   captureAction(): () => boolean;
   isEditableSourceActive(): boolean;
   republishEditable(): Promise<void>;
@@ -39,6 +41,8 @@ export interface WelcomeEditorOptions {
  * 欢迎页保存，欢迎页编辑也不会扩大播放器组件的职责。
  */
 export function useWelcomeEditor(options: WelcomeEditorOptions) {
+  // 内容编辑（文字/图片/保存/发布）允许管理员与操作员；删除图片仍走 ensureAdmin。
+  const ensureContentEditor = options.ensureContentEditor ?? options.ensureAdmin;
   const welcomeEditOpen = ref(false);
   const welcomeSaving = ref(false);
   const welcomePublishing = ref(false);
@@ -405,7 +409,7 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
   }
 
   async function openWelcomeEditor(): Promise<void> {
-    if (!(await options.ensureAdmin('编辑欢迎页'))) return;
+    if (!(await ensureContentEditor('编辑欢迎页'))) return;
     welcomeEditOpen.value = true;
     welcomeLoading.value = true;
     lastWelcomeSaveRevision.value = null;
@@ -458,7 +462,7 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
       ElMessage.error('请选择 PNG、JPG 或 WebP 图片');
       return;
     }
-    if (!(await options.ensureAdmin(kind === 'background' ? '上传欢迎页底图' : '上传欢迎页 Logo'))) return;
+    if (!(await ensureContentEditor(kind === 'background' ? '上传欢迎页底图' : '上传欢迎页 Logo'))) return;
     const targetSchemeId = selectedWelcomeSchemeId.value;
     const isCurrent = options.captureAction();
     welcomeAssetUploading.value = kind;
@@ -523,7 +527,7 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
       markWelcomeDraftChanged();
       return;
     }
-    if (!(await options.ensureAdmin('转换欢迎页底图'))) return;
+    if (!(await ensureContentEditor('转换欢迎页底图'))) return;
     const targetSchemeId = selectedWelcomeSchemeId.value;
     const isCurrent = options.captureAction();
     welcomeAssetUploading.value = 'background';
@@ -632,7 +636,7 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
 
   async function persistWelcomeSchemes(checkAdmin = true): Promise<WelcomeSchemesSnapshot | null> {
     if (!syncSelectedWelcomeDraft()) return null;
-    if (checkAdmin && !(await options.ensureAdmin('保存欢迎方案'))) return null;
+    if (checkAdmin && !(await ensureContentEditor('保存欢迎方案'))) return null;
     welcomeSaving.value = true;
     try {
       const saved = await saveWelcomeSchemes(
@@ -684,7 +688,7 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
   }
 
   async function publishSelectedWelcomeScheme(): Promise<void> {
-    if (!(await options.ensureAdmin('发布欢迎页'))) return;
+    if (!(await ensureContentEditor('发布欢迎页'))) return;
     if (!(await persistWelcomeSchemes(false))) return;
     welcomePublishing.value = true;
     try {
@@ -757,6 +761,7 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
   }
 
   async function deleteWelcomeScheme(): Promise<void> {
+    if (!(await options.ensureAdmin('删除欢迎方案'))) return;
     if (welcomeSchemes.value.length <= 1) {
       ElMessage.warning('至少保留一套欢迎方案');
       return;

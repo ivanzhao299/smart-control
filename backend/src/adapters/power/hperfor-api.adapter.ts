@@ -122,6 +122,19 @@ export class HperforApiAdapter extends BaseAdapter {
     });
   }
 
+  /** 用电量统计（平台 /app/device/device-total）：区间累计 + 按日 kWh */
+  async getEnergyTotals(
+    deviceId: string,
+    stime: string,
+    etime: string,
+    ctx?: AdapterContext,
+  ): Promise<AdapterResult<HperforEnergyTotals>> {
+    return this.run(deviceId, 'getEnergyTotals', ctx, async () => {
+      if (this.isMock()) return this.mockEnergyTotals(stime, etime);
+      return this.fetchDeviceTotal(deviceId, stime, etime);
+    });
+  }
+
   async healthCheck(ctx?: AdapterContext): Promise<AdapterResult<{ ok: true }>> {
     return this.run(GATEWAY_KEY, 'healthCheck', ctx, async () => {
       if (this.isMock()) return { ok: true as const };
@@ -257,6 +270,40 @@ export class HperforApiAdapter extends BaseAdapter {
     return json.data.table;
   }
 
+  /** 用电量统计：device-total → 区间累计 + 按日序列 */
+  private async fetchDeviceTotal(
+    deviceId: string,
+    stime: string,
+    etime: string,
+  ): Promise<HperforEnergyTotals> {
+    const token = await this.ensureToken();
+    if (!token) throw new Error('华普云未登录');
+    const fId = await this.resolveFId(deviceId);
+    const resp = await fetch(`${this.baseUrl}/app/device/device-total`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: token },
+      body: JSON.stringify({ deviceIds: [fId], stime, etime }),
+      signal: AbortSignal.timeout(12_000),
+    });
+    const json = (await resp.json()) as {
+      code?: number;
+      message?: string;
+      data?: {
+        total?: Array<{ name: string; value: number }>;
+        chart?: { categories: string[]; series?: Array<{ data: number[] }> };
+      };
+    };
+    if (!resp.ok || json.code !== 200 || !json.data) {
+      throw new Error(`华普云用电量统计失败: ${json.message ?? resp.status}`);
+    }
+    this.registry?.markOnline(GATEWAY_KEY);
+    const totalKwh = Number(json.data.total?.[0]?.value ?? 0);
+    const cats = json.data.chart?.categories ?? [];
+    const vals = json.data.chart?.series?.[0]?.data ?? [];
+    const daily = cats.map((date, i) => ({ date, kwh: Number(vals[i] ?? 0) }));
+    return { totalKwh, daily };
+  }
+
   /** device-elec table → BreakerMeasurements（单相设备：L 相有值，N≈0） */
   private mapMeasurements(table: Array<[string, number, number]>, on: boolean): BreakerMeasurements {
     const get = (name: string): number | undefined => {
@@ -346,6 +393,22 @@ export class HperforApiAdapter extends BaseAdapter {
     };
   }
 
+  /** mock：区间按日用电量（本地页面演示，不触网） */
+  private mockEnergyTotals(stime: string, etime: string): HperforEnergyTotals {
+    const fmt = (d: Date): string =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const daily: HperforEnergyTotals['daily'] = [];
+    const cur = new Date(`${stime}T00:00:00`);
+    const end = new Date(`${etime}T00:00:00`);
+    let total = 0;
+    for (; cur <= end; cur.setDate(cur.getDate() + 1)) {
+      const kwh = Number((0.3 + Math.random() * 2.5).toFixed(2));
+      daily.push({ date: fmt(cur), kwh });
+      total += kwh;
+    }
+    return { totalKwh: Number(total.toFixed(2)), daily };
+  }
+
   /** 给 DriverRegistryService 注册用 */
   static describe(): import('../driver-descriptor').DriverDescriptor {
     return {
@@ -381,4 +444,12 @@ interface PlatformDevice {
   switchStatus?: number;
   tOnline?: boolean;
   fLastOnlineTime?: string;
+}
+
+/** device-total 用电量统计结果 */
+export interface HperforEnergyTotals {
+  /** 区间累计用电量 (kWh) */
+  totalKwh: number;
+  /** 按日用电量序列 */
+  daily: Array<{ date: string; kwh: number }>;
 }

@@ -260,7 +260,10 @@ export default defineConfig(({ mode }) => {
           // 3D 孪生 (park-ops/3d-twin) 是 opt-in 影院式查看器: 约 6.5MB 离线 WebP
           // 只在显式打开孪生时按需加载, 绝不进每台设备的 PWA 离线包; 也不匹配下方
           // SW 运行时缓存 (配合 preview 的 no-cache, 新构建即时生效、可随时回鸟瞰)。
-          globIgnores: ['**/*Admin*', '**/el-date-picker*', 'welcome/**', '**/park-ops/3d-twin/**'],
+          // park-ops 运营大屏整体不进 precache: 它要求"部署后刷新即最新", 而 precache 在
+          // skipWaiting 激活窗口内与快速刷新叠加会产生资源竞态(明细区块短暂空白, 2026-10-05)。
+          // 改由下方 runtimeCaching 的 NetworkFirst 处理: 在线取最新、断网回退上次缓存。
+          globIgnores: ['**/*Admin*', '**/el-date-picker*', 'welcome/**', '**/park-ops/**'],
           navigateFallback: `${SCOPE_PREFIX}/index.html`,
           // 独立静态投放页 (park-ops 运营大屏 / welcome 欢迎页) 由播放器以 iframe 顶层导航加载,
           // 它们是 public/ 下的物理静态 HTML, 绝不能被 SPA 导航回退顶替成 index.html 应用壳——
@@ -278,6 +281,17 @@ export default defineConfig(({ mode }) => {
             {
               urlPattern: /\/(api|media)(\/|$)/,
               handler: 'NetworkOnly',
+            },
+            {
+              // park-ops 运营大屏: 始终以网络最新版为准(部署即生效), 网络 4s 不可达时
+              // 回退上次缓存, 保证大屏不因瞬时网络抖动黑屏; 独立缓存、不进 precache。
+              urlPattern: /\/park-ops\//,
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'park-ops-network-v1',
+                networkTimeoutSeconds: 4,
+                expiration: { maxEntries: 60, maxAgeSeconds: 7 * 24 * 3600 },
+              },
             },
             {
               // Only application assets; never user-uploaded media.

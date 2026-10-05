@@ -17,6 +17,8 @@ import {
 import type { Request, Response } from 'express';
 import { SystemBrandingDto, SystemBrandingService } from './system-branding.service';
 import { AdminGuard } from '../admin-auth/admin-auth.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { RolesGuard } from '../../common/guards/roles.guard';
 import { MediaService } from '../media/media.service';
 import { sendMediaFile } from '../../common/utils/send-media-file';
 import { Public } from '../../common/decorators/public.decorator';
@@ -114,16 +116,21 @@ export class SystemBrandingController {
     }
   }
 
-  /** 多套欢迎方案只供管理员编辑；正式欢迎页仍由公开 GET 返回已发布快照。 */
+  /** 欢迎方案操作员与管理员均可读取编辑；正式欢迎页仍由公开 GET 返回已发布快照。 */
   @Get('welcome-schemes')
-  @UseGuards(AdminGuard)
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operator')
   async getWelcomeSchemes(): Promise<unknown> {
     return { message: '查询成功', data: await this.service.getWelcomeSchemes() };
   }
 
   @Put('welcome-schemes')
-  @UseGuards(AdminGuard)
-  async updateWelcomeSchemes(@Body() body: unknown): Promise<unknown> {
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operator')
+  async updateWelcomeSchemes(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: unknown,
+  ): Promise<unknown> {
     try {
       const request = body as { config?: unknown; expectedRevision?: unknown };
       if (!request || typeof request !== 'object' || Array.isArray(request)) {
@@ -137,6 +144,7 @@ export class SystemBrandingController {
         data: await this.service.updateWelcomeSchemes(
           request.config,
           Number(request.expectedRevision),
+          { allowDelete: req.actor?.role === 'admin' },
         ),
       };
     } catch (error) {
@@ -146,7 +154,8 @@ export class SystemBrandingController {
   }
 
   @Put('welcome-schemes/:schemeId/publish')
-  @UseGuards(AdminGuard)
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operator')
   async publishWelcomeScheme(
     @Param('schemeId') schemeId: string,
     @Body() body: unknown,
@@ -202,8 +211,9 @@ export class SystemBrandingController {
     }
   }
 
-  /** 欢迎页就地编辑；入口在前台，写入仍只允许管理员。 */
-  @UseGuards(AdminGuard)
+  /** 欢迎页就地编辑；入口在前台，操作员与管理员均可保存。 */
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operator')
   @Put('welcome')
   async updateWelcome(
     @Body()

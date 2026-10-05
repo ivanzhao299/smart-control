@@ -76,7 +76,7 @@ const SLOT = computed(() => props.slot);
 const router = useRouter();
 function goBack(): void { router.push({ name: 'dashboard' }); }
 
-const { ensureAdmin } = useAdminUnlock();
+const { ensureAdmin, ensureContentEditor } = useAdminUnlock();
 const playbackStore = usePlaybackStore();
 const ch = computed(() => (props.slot === 1 ? playbackStore.slot1 : playbackStore.slot2));
 
@@ -221,6 +221,7 @@ const {
   deleteWelcomeScheme,
 } = useWelcomeEditor({
   ensureAdmin,
+  ensureContentEditor,
   captureAction: captureConsoleAction,
   isEditableSourceActive: () => activeSource.value === 'welcome-editable',
   // 保持原发布语义：只重推当前动态欢迎页；错误继续抛给编辑器显示“已发布但重推失败”。
@@ -251,6 +252,7 @@ const {
   welcomeSchemesRevision,
   publishedWelcomeSchemeId,
   ensureAdmin,
+  ensureContentEditor,
   captureAction: captureConsoleAction,
   nextPlayback: (slot) => playbackStore.next(slot),
   reloadLists: loadAll,

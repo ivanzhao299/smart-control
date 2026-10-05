@@ -61,6 +61,10 @@ export const adminRouteManifest = [
     access: 'admin', navigation: { label: '定时任务', section: '日常运行', order: 3 },
   },
   {
+    path: 'energy', name: 'admin-energy', load: () => import('@/pages/admin/EnergyAdmin.vue'),
+    access: 'admin', navigation: { label: '能源管理', section: '日常运行', order: 4 }, prefetchOnIdle: true,
+  },
+  {
     path: 'scene-executions', name: 'admin-scene-executions', load: () => import('@/pages/admin/SceneExecutionsAdmin.vue'),
     access: 'admin', menuParent: 'admin-logs',
   },

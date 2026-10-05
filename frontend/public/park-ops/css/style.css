@@ -39,6 +39,9 @@ body:before{display:none}
 /* 欢迎页常态即隐藏顶部 KPI 行(无论是否有上墙照片), 舞台补回其 150px, 让欢迎语/照片占满主区; 切到其他页自动恢复 */
 #app:has(.welcome-page.active) .kpis{display:none}
 #app:has(.welcome-page.active) .stage{height:1232px}
+/* 能源管理页同样隐藏全局园区信息卡片行, 舞台补回其 150px, 让能源中心占满主区; 切走自动恢复 */
+#app:has(.page[data-name="能源管理"].active) .kpis{display:none}
+#app:has(.page[data-name="能源管理"].active) .stage{height:1232px}
 /* 照片右下角: 参观者扫码下载当前照片 */
 .welcome-qr{position:absolute;right:26px;bottom:26px;z-index:3;display:flex;flex-direction:column;align-items:center;gap:10px;padding:16px 16px 14px;border-radius:16px;background:rgba(4,16,31,.74);border:1px solid rgba(99,217,255,.4);box-shadow:0 6px 26px rgba(0,0,0,.45);line-height:1}
 .welcome-qr .qr-box{width:168px;height:168px;background:#fff;border-radius:10px;padding:8px;box-sizing:border-box}

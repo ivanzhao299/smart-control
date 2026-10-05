@@ -7,7 +7,7 @@ import {
   SetMetadata,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 
 class TooManyRequestsException extends HttpException {
   constructor(message: string) {
@@ -47,6 +47,13 @@ export class RateLimitGuard implements CanActivate {
 
   constructor(private readonly reflector: Reflector) {}
 
+  /** 构造限流桶 key：IP × method × route。 */
+  private keyOf(req: Request): string {
+    const ip = (req.ip ?? req.socket?.remoteAddress ?? 'unknown').split(',')[0].trim();
+    const route = req.route?.path ?? req.url;
+    return `${ip}|${req.method}|${route}`;
+  }
+
   canActivate(context: ExecutionContext): boolean {
     const opts = this.reflector.getAllAndOverride<RateLimitOpts | undefined>(
       RATE_LIMIT_KEY,
@@ -56,9 +63,8 @@ export class RateLimitGuard implements CanActivate {
     const windowMs = opts.windowMs ?? 1000;
 
     const req = context.switchToHttp().getRequest<Request>();
-    const ip = (req.ip ?? req.socket?.remoteAddress ?? 'unknown').split(',')[0].trim();
-    const route = req.route?.path ?? req.url;
-    const key = `${ip}|${req.method}|${route}`;
+    const res = context.switchToHttp().getResponse<Response>();
+    const key = this.keyOf(req);
 
     const now = Date.now();
     let bucket = this.buckets.get(key);
@@ -68,10 +74,10 @@ export class RateLimitGuard implements CanActivate {
     }
     bucket.count += 1;
     if (bucket.count > opts.max) {
-      const retryAfterMs = Math.max(0, bucket.resetAt - now);
-      throw new TooManyRequestsException(
-        `请求过快, 请 ${Math.ceil(retryAfterMs / 1000)}s 后重试`,
-      );
+      const retryAfterSec = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
+      // 明确 429 + Retry-After，前端据此倒计时，避免误当服务器错误反复重试。
+      res.setHeader('Retry-After', String(retryAfterSec));
+      throw new TooManyRequestsException(`请求过快, 请 ${retryAfterSec}s 后重试`);
     }
 
     // 定期 GC: 1000 桶就清一次过期的, 防内存泄漏
@@ -81,5 +87,10 @@ export class RateLimitGuard implements CanActivate {
       }
     }
     return true;
+  }
+
+  /** 清除某请求对应桶（登录成功后调用，使正常用户的弱网重发/重复点击不被累计）。 */
+  reset(req: Request): void {
+    this.buckets.delete(this.keyOf(req));
   }
 }

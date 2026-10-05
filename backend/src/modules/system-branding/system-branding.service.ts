@@ -1,4 +1,4 @@
-import { ConflictException, HttpException, Inject, Injectable } from '@nestjs/common';
+import { ConflictException, ForbiddenException, HttpException, Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
@@ -239,6 +239,7 @@ export class SystemBrandingService {
   async updateWelcomeSchemes(
     input: unknown,
     expectedRevision: number,
+    options?: { allowDelete?: boolean },
   ): Promise<{
     config: WelcomeSchemesDocument;
     revision: number;
@@ -247,7 +248,7 @@ export class SystemBrandingService {
     publishedSchemeId: string | null;
   }> {
     const operation = this.welcomeSchemesMutationQueue.then(() =>
-      this.saveWelcomeSchemes(input, expectedRevision),
+      this.saveWelcomeSchemes(input, expectedRevision, options),
     );
     this.welcomeSchemesMutationQueue = operation.then(
       () => undefined,
@@ -259,6 +260,7 @@ export class SystemBrandingService {
   private async saveWelcomeSchemes(
     input: unknown,
     expectedRevision: number,
+    options?: { allowDelete?: boolean },
   ): Promise<{
     config: WelcomeSchemesDocument;
     revision: number;
@@ -282,6 +284,14 @@ export class SystemBrandingService {
     // Installed PWAs can briefly run the previous editor after a deployment. Preserve the
     // per-scheme presentation when that v1 client submits fields it does not understand.
     const config = normalizeWelcomeSchemes(input, current?.value);
+    // 删除整套欢迎方案属于破坏性操作，仅管理员可做；操作员可新增/修改方案，但不能移除已有方案。
+    if (!options?.allowDelete) {
+      const oldIds = new Set((current?.value.schemes ?? []).map((item) => item.id));
+      const removed = [...oldIds].filter((id) => !config.schemes.some((item) => item.id === id));
+      if (removed.length > 0) {
+        throw new ForbiddenException('删除欢迎方案仅管理员可操作；操作员可修改方案内容但不能删除方案');
+      }
+    }
     await this.validateWelcomeSchemeImages(config.schemes);
     const saved = current
       ? await this.runtimeConfig.update({

@@ -31,6 +31,8 @@ interface PlayerInputSourceOptions {
   welcomeSchemesRevision: Ref<number>;
   publishedWelcomeSchemeId: Ref<string | null>;
   ensureAdmin: (action: string) => Promise<boolean>;
+  /** 投放欢迎方案允许的角色检查，缺省回退 ensureAdmin。 */
+  ensureContentEditor?: (action: string) => Promise<boolean>;
   captureAction: () => () => boolean;
   nextPlayback: (slot: 1 | 2) => Promise<unknown>;
   reloadLists: () => Promise<void>;
@@ -39,6 +41,7 @@ interface PlayerInputSourceOptions {
 type ParkOpsAction = 'next' | 'prev' | 'auto' | 'refresh';
 
 export function usePlayerInputSources(options: PlayerInputSourceOptions) {
+  const ensureContentEditor = options.ensureContentEditor ?? options.ensureAdmin;
   const activeSource = options.activeSource;
   const srcHint = computed(() => playerInputSourceHint(activeSource.value));
   const welcomePickerBusy = ref(false);
@@ -143,7 +146,7 @@ export function usePlayerInputSources(options: PlayerInputSourceOptions) {
       if (value === WELCOME_PICK_DEFAULT) {
         await selectWelcome('default');
       } else {
-        if (!(await options.ensureAdmin('投放欢迎方案'))) { rollback(); return; }
+        if (!(await ensureContentEditor('投放欢迎方案'))) { rollback(); return; }
         if (!isCurrent()) return;
         const scheme = options.welcomeSchemes.value.find((item) => item.id === value);
         if (!scheme) throw new Error('该欢迎方案不存在，请重新选择');
