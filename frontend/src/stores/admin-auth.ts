@@ -66,6 +66,9 @@ export const useAdminAuthStore = defineStore('admin-auth', () => {
   const checking = ref(false);
   const checked = ref(false);
   let activeCheck: { token: string; promise: Promise<boolean> } | null = null;
+  // 仅持有 client token 的命名管理员: 缓存 /admin/auth/me 的结果并绑定该 client token,
+  // 避免每次路由导航都重复发该请求阻塞页面切换; client token 变更/登出/切服务器即失效。
+  let clientIdentityCheck: { clientToken: string; result: boolean } | null = null;
 
   // 启动时同步当前 token 到 http.ts 模块变量
   if (token.value) setAdminToken(token.value);
@@ -73,6 +76,7 @@ export const useAdminAuthStore = defineStore('admin-auth', () => {
     token.value = null;
     expiresAt.value = null;
     checked.value = false;
+    clientIdentityCheck = null;
     sessionStorage.removeItem(STORAGE_KEY);
     sessionStorage.removeItem(STORAGE_KEY + ':exp');
     sessionStorage.removeItem(SERVER_KEY);
@@ -102,17 +106,27 @@ export const useAdminAuthStore = defineStore('admin-auth', () => {
     clearPersistedAdmin();
     setAdminToken(null);
     checked.value = false;
+    clientIdentityCheck = null;
   }
 
   /** 验证当前 token 是否还有效；只有服务端明确拒绝才清除凭据。 */
   async function ensureChecked(force = false): Promise<boolean> {
     if (!token.value) {
+      const ct = getClientToken();
+      if (!ct) { checked.value = true; clientIdentityCheck = null; return false; }
+      // 已用同一 client token 验证过管理员身份 → 复用结果, 不每次导航都发请求。
+      if (!force && clientIdentityCheck?.clientToken === ct) {
+        checked.value = true;
+        return clientIdentityCheck.result;
+      }
       checked.value = true;
       // Named administrators already authenticated through client login must
       // not be asked for the separate shared administrator password.
-      if (!getClientToken()) return false;
-      try { return (await adminMe()).authenticated === true; }
-      catch { return false; }
+      try {
+        const ok = (await adminMe()).authenticated === true;
+        clientIdentityCheck = { clientToken: ct, result: ok };
+        return ok;
+      } catch { return false; }
     }
     // The store is the persisted source of truth. Startup can hydrate the
     // client and administrator stores in either order; resync the HTTP module
