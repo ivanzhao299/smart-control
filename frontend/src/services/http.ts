@@ -1,6 +1,12 @@
 import type { ApiOk } from '@/types/api';
 import { trackApiCall } from './rum.service';
-import { identityGeneration, invalidateIdentity, assertCurrentIdentity, notifyServerChange } from './identity-boundary';
+import {
+  identityGeneration,
+  invalidateIdentity,
+  assertCurrentIdentity,
+  notifyServerChange,
+  onIdentityChange,
+} from './identity-boundary';
 
 /**
  * 原生 fetch + AbortController 替代 axios (PERFORMANCE_AUDIT P1-#10).
@@ -188,6 +194,8 @@ export interface HttpRequestConfig {
   timeout?: number;
   /** 取消信号 (由调用方控制) */
   signal?: AbortSignal;
+  /** GET 专用: 绕过短缓存与 in-flight 合并, 强制重新拉取 (诊断/手动刷新用) */
+  refresh?: boolean;
 }
 
 export class HttpError<T = unknown> extends Error {
@@ -215,7 +223,7 @@ function buildUrl(url: string, params?: HttpRequestConfig['params']): string {
   return full + (full.includes('?') ? '&' : '?') + q;
 }
 
-async function request<T>(
+async function rawRequest<T>(
   method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   url: string,
   body?: unknown,
@@ -307,6 +315,100 @@ async function request<T>(
     throw new HttpError(msg, resp.status, payload);
   }
   return { data: payload as T };
+}
+
+/**
+ * GET 请求去重 / 短缓存 (2026-10-06)。
+ *
+ * 问题: 登录后同一批清单/配置接口被「路由守卫、各 Pinia store、MainLayout 预热、
+ * 落地页 onMounted」重复拉取——admin/auth/me、client-auth/me 同一时刻各发 2 次,
+ * scenes/devices/light-zones 在登录后多个串行波次里重复拉, 经公网(每请求
+ * TTFB 0.5–1s)把登录拖到数秒。
+ *
+ * 两层:
+ *   1) in-flight 合并 (所有 GET 默认): 同一最终 URL 且同一身份代次的请求正在
+ *      进行时, 复用同一个 promise, 不重复发——零新鲜度代价。
+ *   2) 短 TTL 内存缓存 (仅"配置/清单类"端点, cacheTtlFor): TTL 内直接返回;
+ *      实时状态/身份端点不做 TTL。写操作后清空 TTL 缓存, 身份/服务器切换时全清。
+ * key 前缀 identityGeneration, 天然随账户/服务器切换隔离。
+ */
+interface CachedPayload { payload: unknown; at: number }
+const inflightGet = new Map<string, Promise<unknown>>();
+const responseCache = new Map<string, CachedPayload>();
+const CACHE_TTL_MS = 30_000;
+
+/**
+ * 各端点 GET 缓存 TTL(ms)。配置/清单类 30s；power-circuits 为后台 10s 采集的
+ * 开关快照, 给 10s(与采集周期一致), 让多处共享、写操作后清缓存重读;
+ * 其余(实时/身份端点)不在表内 → 0, 仅做 in-flight 合并。
+ */
+const CACHE_TTL_BY_PATH: Record<string, number> = {
+  '/scenes': CACHE_TTL_MS,
+  '/devices': CACHE_TTL_MS,
+  '/light-zones': CACHE_TTL_MS,
+  '/dali-lights': CACHE_TTL_MS,
+  '/dali-lights/gateways': CACHE_TTL_MS,
+  '/system/info': CACHE_TTL_MS,
+  '/system/runtime/gateways': CACHE_TTL_MS,
+  '/system/runtime/devices': CACHE_TTL_MS,
+  '/playback/channels': CACHE_TTL_MS,
+  '/client-auth/ping': CACHE_TTL_MS,
+  '/media': CACHE_TTL_MS,
+  '/system-branding': CACHE_TTL_MS,
+  '/power-circuits': 10_000,
+};
+function cacheTtlFor(pathWithQuery: string): number {
+  return CACHE_TTL_BY_PATH[pathWithQuery.split('?')[0]] ?? 0;
+}
+
+// 账户/服务器切换: 丢弃所有共享请求与缓存(旧代次结果不再被复用)。
+onIdentityChange(() => {
+  inflightGet.clear();
+  responseCache.clear();
+});
+
+async function request<T>(
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  url: string,
+  body?: unknown,
+  cfg?: HttpRequestConfig,
+): Promise<{ data: T }> {
+  const generation = identityGeneration();
+  const finalUrl = buildUrl(url, cfg?.params);
+
+  if (method === 'GET' && cfg?.refresh !== true) {
+    const key = `${generation}|${finalUrl}`;
+    const ttl = cacheTtlFor(url);
+    if (ttl > 0) {
+      const hit = responseCache.get(key);
+      if (hit && performance.now() - hit.at < ttl) {
+        assertCurrentIdentity(generation);
+        return { data: hit.payload as T };
+      }
+    }
+    const shared = inflightGet.get(key);
+    if (shared) {
+      assertCurrentIdentity(generation);
+      return { data: (await shared) as T };
+    }
+    const work = rawRequest<T>('GET', url, undefined, cfg)
+      .then((r) => {
+        if (ttl > 0 && identityGeneration() === generation) {
+          responseCache.set(key, { payload: r.data, at: performance.now() });
+        }
+        return r.data;
+      })
+      .finally(() => { inflightGet.delete(key); });
+    inflightGet.set(key, work);
+    return { data: (await work) as T };
+  }
+
+  try {
+    return await rawRequest<T>(method, url, body, cfg);
+  } finally {
+    // 写操作后清单/配置可能变化: 丢弃 TTL 缓存, 下次读取拉新值。
+    if (method !== 'GET') responseCache.clear();
+  }
 }
 
 async function unwrap<T>(

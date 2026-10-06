@@ -14,7 +14,7 @@ import ErrorBoundary from '@/components/ErrorBoundary.vue';
 import ServerSettingsDialog from '@/components/ServerSettingsDialog.vue';
 import { useFullscreen } from '@/composables/useFullscreen';
 import { navIconFor } from '@/composables/useIcons';
-import { getApiBaseURL, setConnectivityListener } from '@/services/http';
+import { api, getApiBaseURL, setConnectivityListener } from '@/services/http';
 import { useConnectionStore } from '@/stores/connection';
 import { useSystemStore } from '@/stores/system';
 import { useSceneStore } from '@/stores/scene';
@@ -64,16 +64,17 @@ function prefetchMainPages(): void {
  * cache (60s). 之后切菜单, 拉 API 命中 cache 即时返回, 不再 200-400ms 网络等待.
  */
 async function prefetchData(): Promise<void> {
-  // 关键 list API, 放进 cache. 用裸 fetch + GET, 不经业务 service (失败也无所谓)
-  const apis = [
-    '/control/api/light-zones',
-    '/control/api/power-circuits',
-    '/control/api/devices?pageSize=200',
-    '/control/api/scenes?pageSize=200',
-    '/control/api/system/info',
+  // 关键 list API 预热。统一走 api 层: 已被页面/store 拉过的命中 in-flight/短缓存,
+  // 不再重复发(此前用裸 fetch 绕过缓存, 与落地页/各 store 形成重复请求)。
+  const specs: Array<[string, Record<string, unknown>?]> = [
+    ['/light-zones'],
+    ['/power-circuits'],
+    ['/devices', { pageSize: 100 }],
+    ['/scenes', { pageSize: 100 }],
+    ['/system/info'],
   ];
-  for (const url of apis) {
-    fetch(url).catch(() => { /* 失败无所谓 */ });
+  for (const [path, params] of specs) {
+    api.get(path, params ? { params } : undefined).catch(() => { /* 失败无所谓 */ });
     await new Promise<void>((r) => setTimeout(r, 80));
   }
 }
@@ -204,8 +205,16 @@ function prefetchRoute(name: string): void {
   if (!pending) return;
   prefetched.add(name);
   pending.catch(() => { prefetched.delete(name); });
-  // 同时 prefetch 该页用到的 API
-  for (const url of mainRoutePrefetchApis(name)) fetch(url).catch(() => {});
+  // 同时 prefetch 该页用到的 API (走统一 api 层, 命中缓存、与点击后页面共享结果)
+  for (const spec of mainRoutePrefetchApis(name)) prefetchApiSpec(spec);
+}
+
+/** hover 预取清单 "端点?query" → 经统一 api 层拉取, 自动复用 in-flight/短缓存。 */
+function prefetchApiSpec(spec: string): void {
+  const [path, qs] = spec.split('?');
+  const params: Record<string, string> = {};
+  new URLSearchParams(qs ?? '').forEach((v, k) => { params[k] = v; });
+  api.get(path, Object.keys(params).length ? { params } : undefined).catch(() => { /* 预热失败无所谓 */ });
 }
 
 // Auto-enter 全屏: 用户首次 click/touch/keydown 后自动 request fullscreen.
