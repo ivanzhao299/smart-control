@@ -1,5 +1,5 @@
 <template>
-  <div class="energy-admin">
+  <section class="page energy-admin">
     <header class="en-hero">
       <div>
         <h2>能源管理</h2>
@@ -163,7 +163,7 @@
         </table>
       </section>
     </template>
-  </div>
+  </section>
 </template>
 
 <script setup lang="ts">
@@ -380,7 +380,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.energy-admin { padding: 4px 4px 60px; max-width: 1000px; margin: 0 auto; color: var(--v2-text-2); min-width: 0; }
+.energy-admin { display: flex; flex-direction: column; gap: 16px; color: var(--v2-text-2); min-width: 0; }
 .en-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .en-hero h2 { margin: 0 0 8px; font-size: 20px; color: var(--v2-text-1); }
 .en-hero p { margin: 0; font-size: 13px; line-height: 1.65; color: var(--v2-text-3); max-width: 720px; }
@@ -388,14 +388,14 @@ onMounted(() => {
 .en-state.error { color: var(--v2-danger, #f87171); }
 .en-retry { display: block; margin: 12px auto 0; padding: 8px 18px; border-radius: 9px; border: 1px solid var(--v2-border-soft); background: var(--v2-surf-1); color: var(--v2-text-1); cursor: pointer; }
 
-.en-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 16px 0; }
+.en-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .kpi { display: flex; flex-direction: column; gap: 4px; padding: 13px 14px; background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); border-radius: 13px; box-shadow: var(--v2-elev-1); min-width: 0; }
 .kpi-label { font-size: 12px; color: var(--v2-text-3); }
 .kpi-value { font-size: 22px; font-weight: 700; color: var(--v2-text-1); font-variant-numeric: tabular-nums; }
 .kpi-value em { font-size: 12px; font-weight: 500; color: var(--v2-text-3); margin-left: 3px; font-style: normal; }
 .kpi-sub { font-size: 11px; color: var(--v2-text-3); }
 
-.en-card { background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); border-radius: 14px; padding: 16px; margin: 14px 0; box-shadow: var(--v2-elev-1); }
+.en-card { background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); border-radius: 14px; padding: 16px; box-shadow: var(--v2-elev-1); }
 .en-card h3 { margin: 0 0 14px; font-size: 15px; color: var(--v2-text-1); }
 .en-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .en-card-head h3 { margin: 0; }

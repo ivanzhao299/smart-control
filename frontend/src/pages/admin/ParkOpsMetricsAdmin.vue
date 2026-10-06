@@ -1,5 +1,5 @@
 <template>
-  <div class="metrics-admin">
+  <section class="page metrics-admin">
     <header class="ma-hero">
       <h2>运营数据</h2>
       <p>这里发布的数字会同步到园区运营大屏（约 15 秒内自动更新，也可在播控卡片点「强制刷新」立即生效），刷新或重启都不会回退。</p>
@@ -65,7 +65,7 @@
       </footer>
       <p class="ma-foot-note">数字仅保存在服务器共享文档中（JSON），不改动数据库；产业结构五项合计须为 100%。</p>
     </template>
-  </div>
+  </section>
 </template>
 
 <script setup lang="ts">
@@ -173,7 +173,7 @@ onMounted(load);
 
 <style scoped>
 /* 统一深色主题: 全部走 design-tokens 变量, 不写死颜色, 与后台管理其他页面一致 */
-.metrics-admin { padding: 4px 4px 96px; max-width: 920px; margin: 0 auto; color: var(--v2-text-2); min-width: 0; overflow-x: hidden; }
+.metrics-admin { display: flex; flex-direction: column; gap: 16px; color: var(--v2-text-2); min-width: 0; overflow-x: hidden; }
 .ma-hero h2 { margin: 0 0 8px; font-size: 20px; color: var(--v2-text-1); }
 .ma-hero p { margin: 4px 0; font-size: 13px; line-height: 1.6; color: var(--v2-text-3); }
 .ma-baseline-tip strong { color: var(--v2-success); font-weight: 700; }
@@ -183,7 +183,6 @@ onMounted(load);
   border: 1px solid var(--v2-border-soft);
   border-radius: 14px;
   padding: 14px;
-  margin: 12px 0;
   box-shadow: var(--v2-elev-1);
 }
 .ma-card h3 { margin: 0 0 12px; font-size: 15px; color: var(--v2-text-1); }
@@ -215,10 +214,10 @@ onMounted(load);
 .ma-content[open] summary { margin-bottom: 12px; }
 .ma-content textarea { resize: vertical; }
 .ma-actions {
-  position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 10px;
-  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
-  background: var(--v2-chrome-bg-solid); border-top: 1px solid var(--v2-border-soft); backdrop-filter: blur(6px);
-  max-width: 920px; margin: 0 auto;
+  position: sticky; bottom: 0; z-index: 15; display: flex; gap: 10px;
+  padding: 12px 16px;
+  background: var(--v2-chrome-bg-solid); border: 1px solid var(--v2-border-soft); border-radius: 12px;
+  box-shadow: var(--v2-elev-2, 0 10px 28px -10px rgba(0,0,0,.55));
 }
 .ma-btn { flex: 1; padding: 12px; border-radius: 11px; font-size: 15px; font-weight: 600; border: 1px solid transparent; cursor: pointer; }
 .ma-btn.primary { background: var(--v2-primary); color: #fff; }
@@ -230,7 +229,6 @@ onMounted(load);
 
 /* ============ 手机端 (≤560px): 两列等宽不横溢、对齐、底部按钮不折行 ============ */
 @media (max-width: 560px) {
-  .metrics-admin { padding: 0 2px 104px; }
   /* minmax(0,1fr) 关键: 允许列收缩到内容以下, 杜绝长 label/数字把栅格撑出横向滚动 */
   .ma-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 8px; }
   .ma-card { padding: 12px; border-radius: 12px; }
@@ -238,7 +236,7 @@ onMounted(load);
   .ma-hero p { font-size: 12px; }
   .ma-card h3 { font-size: 14px; margin-bottom: 10px; }
   .ma-field input, .ma-content textarea { font-size: 16px; padding: 9px 10px; }
-  .ma-actions { gap: 8px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
+  .ma-actions { gap: 8px; padding: 10px 12px; }
   .ma-btn { padding: 12px 8px; font-size: 14px; white-space: nowrap; }
   .ma-btn.ghost { flex: 0 0 34%; }
 }
