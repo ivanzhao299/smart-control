@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, GoneException, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, GoneException, Param, ParseIntPipe, Post, Query, UseGuards, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AudioAdapter } from '../../adapters/audio/audio.adapter';
@@ -18,7 +18,7 @@ import { percentToDb } from '../../adapters/audio/ekx808-protocol';
 @Controller('audio')
 @UseGuards(RateLimitGuard)
 @RateLimit({ max: 6, windowMs: 1000 })
-export class AudioController {
+export class AudioController implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly audio: AudioAdapter,
     private readonly logService: OperationLogService,
@@ -29,6 +29,48 @@ export class AudioController {
     @InjectRepository(AudioInputSource)
     private readonly inputRepo: Repository<AudioInputSource>,
   ) {}
+
+  /**
+   * 矩阵路由快照 —— 后台定时 (10s) 主动发一帧 readFullMatrix 写回; GET matrix/live
+   * 只读快照、不在请求路径等 DSP, DSP 掉线/慢不卡音响页切换。inputs/outputs live
+   * (16 次往返 ~4.6s) 保持按需诊断读取, 不进页面自动加载。
+   */
+  private matrixSnapshot: { matrix: boolean[][] } | null = null;
+  private matrixCollecting = false;
+  private matrixTimer?: NodeJS.Timeout;
+  private readonly MATRIX_POLL_MS = 10_000;
+
+  onModuleInit(): void {
+    const t = setInterval(() => { void this.collectMatrix(); }, this.MATRIX_POLL_MS);
+    t.unref?.();
+    this.matrixTimer = t;
+    void this.collectMatrix();
+  }
+
+  onModuleDestroy(): void {
+    if (this.matrixTimer) clearInterval(this.matrixTimer);
+    this.matrixTimer = undefined;
+  }
+
+  /** 后台采集全矩阵路由写快照; 失败保留上次快照 */
+  private async collectMatrix(): Promise<void> {
+    if (this.matrixCollecting) return;
+    this.matrixCollecting = true;
+    try {
+      const r = await this.audio.readFullMatrix();
+      if (r.ok && r.data?.matrix) this.matrixSnapshot = { matrix: r.data.matrix };
+    } catch {
+      // DSP 超时/异常: 保留上次快照
+    } finally {
+      this.matrixCollecting = false;
+    }
+  }
+
+  /** 改变矩阵路由的写操作后调度刷新 (不阻塞当前请求) */
+  private touchMatrix(delayMs = 1200): void {
+    const t = setTimeout(() => { void this.collectMatrix(); }, delayMs);
+    t.unref?.();
+  }
 
   // ============ EKX-808 场景预设 ============
 
@@ -41,6 +83,7 @@ export class AudioController {
   async applyScene(@Param('preset', ParseIntPipe) preset: number) {
     const scene = await this.audioConfig.getSceneByPreset(preset);
     const content = this.audioConfig.parseSceneContent(scene);
+    this.touchMatrix(1800);
     if (content && content.outputs.length > 0) {
       return this.wrap('audio-dsp', `scene.apply.U${preset}`,
         () => this.audio.applyScene(content),
@@ -61,9 +104,11 @@ export class AudioController {
   /** 一键场景切换 (调用 DSP 内置用户预设 U01-U12, 不读 DB content) */
   @Post('scene/recall/:preset')
   recallScene(@Param('preset', ParseIntPipe) preset: number) {
-    return this.wrap('audio-dsp', `scene.recall.U${preset}`,
+    const p = this.wrap('audio-dsp', `scene.recall.U${preset}`,
       () => this.audio.recallScene(preset),
       { preset });
+    this.touchMatrix(1500);
+    return p;
   }
 
   /** 读取当前激活的场景号 */
@@ -84,9 +129,13 @@ export class AudioController {
    * 显示一个假的接通。
    */
   @Get('matrix/live')
-  async getLiveMatrix() {
-    const result = await this.audio.readFullMatrix();
-    return { message: result.ok ? 'ok' : 'failed', data: result };
+  getLiveMatrix() {
+    // 只读后台快照, 不在请求路径读 DSP (设备慢/掉线不卡切换); 但 data 仍保持
+    // AdapterResult 形状 {ok, data:{matrix}}, 与改造前 readFullMatrix 返回一致
+    if (this.matrixSnapshot) {
+      return { message: 'ok', data: { ok: true, data: { matrix: this.matrixSnapshot.matrix } } };
+    }
+    return { message: 'pending', data: { ok: false, error: '等待首次矩阵采集' } };
   }
 
   /**
@@ -147,9 +196,11 @@ export class AudioController {
   async setMatrix(@Body() dto: AudioMatrixDto) {
     await this.rememberLink(dto.out, dto.input, dto.on);
     this.reconciler.noteWrite();
-    return this.wrap('audio-dsp', `matrix.O${dto.out}I${dto.input}.${dto.on ? 'on' : 'off'}`,
+    const p = this.wrap('audio-dsp', `matrix.O${dto.out}I${dto.input}.${dto.on ? 'on' : 'off'}`,
       () => this.audio.setMatrix(dto.out, dto.input, dto.on),
       { out: dto.out, input: dto.input, on: dto.on });
+    this.touchMatrix();
+    return p;
   }
 
   private async rememberLink(outCh: number, inCh: number, enabled: boolean): Promise<void> {
@@ -193,6 +244,7 @@ export class AudioController {
   async reconcileNow() {
     try {
       const r = await this.reconciler.reconcile();
+      this.touchMatrix(1800);
       if (r.skipped) return { message: r.skipped, data: r };
       return {
         message: r.checked

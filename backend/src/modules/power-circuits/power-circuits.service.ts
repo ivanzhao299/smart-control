@@ -91,11 +91,14 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   private breakerCache = new Map<number, { at: number; reading: PowerReading }>();
 
   /**
-   * 时序器状态缓存 —— 8 路回路共享**一次** readStatus (0xac 一帧就带全部 8 路状态),
-   * 不然 list() 一次要开关 COM 口 8 遍。TTL 内复用; 读失败回落上一次好值。
+   * 时序器状态快照 —— 由后台采集循环 (onModuleInit, 每 SEQ_POLL_INTERVAL_MS)
+   * 主动发**一次** readStatus (0xac 一帧就带全部 8 路状态) 写回; toView() 只读快照、
+   * 不开 COM 口。串口慢/时序器掉线/端口被占都不影响页面, 读失败保留上一次好值。
    */
   private seqCache: { at: number; channels: boolean[] } | null = null;
-  private readonly SEQ_CACHE_TTL_MS = 3000;
+  private seqCollecting = false;
+  private seqTimer?: NodeJS.Timeout;
+  private readonly SEQ_POLL_INTERVAL_MS = 10_000;
 
   /**
    * 后台主动采集 (彻底版): 不等到用户请求才读断路器。定时 (10s) 统一调度——
@@ -247,20 +250,15 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
       if (!r.ok) throw new ConflictException(`时序器下发失败: ${r.error ?? '未知错误'}`);
     } else if (await this.isSequencerCircuit(row)) {
       await this.epo.setChannel(row.relayChannel as number, on);
-      // 2026-07-25 业主: "时序器点击回弹, 状态不能保持" — 根因: 下发后没动 seqCache,
-      // 紧随的 toView / 5s 轮询读到 3s 缓存里的旧状态, 把前端乐观 UI 打回去。
-      // (b2 协议有官方例帧金标准单测, 设备实际动了, 纯 UI 回弹。)
-      // 修: 命令确认后按目标值**乐观置位缓存**并把有效期顺延 ~7s —— EPO 每路可能配
-      // 开/关延时, 等待翻转不可靠; 置位让 UI 立即稳定, 之后轮询以真机为准。
+      // 乐观置位快照让 UI 立即稳定; 不在请求路径读真机 (各路开/关延时使翻转不可靠),
+      // 数秒后由后台 collectSequencer 以真机为准校正
       const chIdx = (row.relayChannel ?? 0) - 1;
-      if (!this.seqCache) {
-        const r = await this.epo.readStatus();
-        if (r.ok && r.data?.channels) this.seqCache = { at: Date.now(), channels: r.data.channels };
-      }
-      if (this.seqCache && chIdx >= 0 && chIdx < this.seqCache.channels.length) {
+      if (!this.seqCache) this.seqCache = { at: Date.now(), channels: new Array(8).fill(false) };
+      if (chIdx >= 0 && chIdx < this.seqCache.channels.length) {
         this.seqCache.channels[chIdx] = on;
-        this.seqCache.at = Date.now() + 4000; // TTL 3s, 未来值 => 写后约 7s 内都用乐观态
+        this.seqCache.at = Date.now();
       }
+      this.scheduleSeqRefresh(4000);
     }
     // mock adapter 仍要跑: 它维护 PowerPage 用的电量/读数状态
     if (on) await this.adapter.circuitTurnOn(id);
@@ -376,11 +374,19 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     timer.unref?.();
     this.collectTimer = timer;
     void this.collectOnce(); // 启动即采一次, 不等 10s
+
+    // 时序器后台采集: 定时一帧 readStatus 写快照, 页面只读快照不碰串口
+    const seqTimer = setInterval(() => { void this.collectSequencer(); }, this.SEQ_POLL_INTERVAL_MS);
+    seqTimer.unref?.();
+    this.seqTimer = seqTimer;
+    void this.collectSequencer();
   }
 
   onModuleDestroy(): void {
     if (this.collectTimer) clearInterval(this.collectTimer);
     this.collectTimer = undefined;
+    if (this.seqTimer) clearInterval(this.seqTimer);
+    this.seqTimer = undefined;
   }
 
   /** 一轮采集: 云断路器并行、485/MQTT 串行 (共享物理总线), 变化才广播 */
@@ -434,34 +440,46 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * 时序器回路读数 — 8 路共享一次 0xac 全状态帧 (seqCache)。
-   * 读失败回落上次好值; 再没有就 on=false, 不让电源页崩。
+  /**
+   * 后台采集时序器全状态: 发一次 0xac 帧 (一帧带全部 8 路) 写快照。
+   * 只在后台定时/操作后调度时运行, 永不在页面请求路径; 读失败保留上次好值、不覆盖。
    */
-  private async seqReading(row: PowerCircuit): Promise<PowerReading> {
-    const ch = (row.relayChannel ?? 0) - 1;
-    let channels: boolean[] | null = null;
-    if (this.seqCache && Date.now() - this.seqCache.at < this.SEQ_CACHE_TTL_MS) {
-      channels = this.seqCache.channels;
-    } else {
+  private async collectSequencer(): Promise<void> {
+    if (this.seqCollecting) return;
+    this.seqCollecting = true;
+    try {
       const r = await this.epo.readStatus();
       if (r.ok && r.data?.channels) {
-        channels = r.data.channels;
-        this.seqCache = { at: Date.now(), channels };
+        this.seqCache = { at: Date.now(), channels: r.data.channels };
       } else {
-        this.logger.warn(`时序器读状态失败 circuit=${row.code}: ${r.error ?? '无数据'}`, {
+        this.logger.warn(`时序器读状态失败: ${r.error ?? '无数据'}`, {
           context: 'PowerCircuitsService',
         });
-        channels = this.seqCache?.channels ?? null;
       }
+    } finally {
+      this.seqCollecting = false;
     }
+  }
+
+  /** 操作后等设备按各路延时动作完, 再后台刷新快照 (不阻塞当前请求) */
+  private scheduleSeqRefresh(delayMs: number): void {
+    const t = setTimeout(() => { void this.collectSequencer(); }, delayMs);
+    t.unref?.();
+  }
+
+  /**
+   * 时序器回路读数 — 只读后台快照、不开串口; 快照未就绪时 on=false, 不让电源页崩。
+   */
+  private seqReading(row: PowerCircuit): PowerReading {
+    const ch = (row.relayChannel ?? 0) - 1;
     return {
-      on: channels?.[ch] ?? false,
+      on: this.seqCache?.channels[ch] ?? false,
       current: 0,
       voltage: 0,
       power: 0,
       powerFactor: 0,
       energy: 0,
-      lastReadAt: new Date().toISOString(),
+      lastReadAt: this.seqCache ? new Date(this.seqCache.at).toISOString() : new Date().toISOString(),
     };
   }
 
@@ -472,7 +490,8 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   async sequencerAll(on: boolean): Promise<void> {
     const r = await this.epo.setAll(on);
     if (!r.ok) throw new ConflictException(`时序器${on ? '开' : '关'}机失败: ${r.error ?? '未知'}`);
-    this.seqCache = null; // 状态马上要变, 缓存作废
+    // 八路按 1..15s 延时依次动作; 保留旧快照(别让页面闪成全 0), 动作完后后台刷新
+    this.scheduleSeqRefresh(20_000);
   }
 
   /** 改名 (业主在电源页直接改, 不需要 admin) */
@@ -527,9 +546,9 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
         reading: this.snapshotBreakerReading(row), // 读快照, 不等待外部 I/O
       };
     }
-    // 时序器回路: 开关状态读真机 (0xac 一帧带全部 8 路), 电量指标时序器没有 → 0
+    // 时序器回路: 开关状态读后台快照 (0xac 一帧带全部 8 路), 电量指标时序器没有 → 0
     if (await this.isSequencerCircuit(row)) {
-      return { ...this.baseView(row), isBreaker, reading: await this.seqReading(row) };
+      return { ...this.baseView(row), isBreaker, reading: this.seqReading(row) };
     }
     const result = await this.adapter.circuitReadStatus(row.id, {
       voltage: row.ratedVoltage,

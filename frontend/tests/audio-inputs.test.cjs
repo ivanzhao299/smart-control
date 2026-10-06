@@ -239,6 +239,10 @@ test('identity change reloads truth, drops queued writes, and suppresses stale e
   assert.equal(writes, 1);
   assert.equal(h.errors.length, 0);
   assert.equal(h.inputs.inputs.value[0].name, '新身份输入');
+  // 身份变化不再自动读真机增益 (inputs/live ~4.6s 且占 DSP), 故 gainDb 暂为空
+  assert.equal(h.inputs.inputGainDb.value[2], undefined);
+  // 显式校准才读真机
+  await h.inputs.loadInputChannels();
   assert.equal(h.inputs.inputGainDb.value[2], 3);
   h.scope.stop();
 });
@@ -266,11 +270,15 @@ test('server change clears visible old data before fresh direct reads commit', a
   h.identity.changeServer();
   assert.equal(h.inputs.inputs.value.length, 0);
   assert.deepEqual({ ...h.inputs.inputGainDb.value }, {});
-  assert.equal(h.inputs.inputsLoading.value, true);
+  // 服务器变化只自动重载 catalog, 不自动读 live → inputsLoading 不被 live 置起
+  assert.equal(h.inputs.inputsLoading.value, false);
   nextCatalog.resolve([source(2, 3, '新服务器')]);
-  nextLive.resolve(live([{ ch: 3, gainDb: 0, muted: true }]));
   await settle();
   assert.equal(h.inputs.inputs.value[0].name, '新服务器');
+  // 真机增益仍需显式校准读取
+  const liveDone = h.inputs.loadInputChannels();
+  nextLive.resolve(live([{ ch: 3, gainDb: 0, muted: true }]));
+  await liveDone;
   assert.equal(h.inputs.inputGainDb.value[3], 0);
   assert.equal(h.inputs.inputMuted.value[3], true);
   h.scope.stop();

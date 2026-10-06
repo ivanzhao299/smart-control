@@ -12,6 +12,8 @@ import {
   Put,
   Query,
   UseGuards,
+  type OnModuleDestroy,
+  type OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
@@ -40,7 +42,7 @@ import { HvacIndoor } from '../../entities/hvac-indoor.entity';
 @Controller('hvac')
 @UseGuards(RateLimitGuard)
 @RateLimit({ max: 6, windowMs: 1000 })
-export class HvacController {
+export class HvacController implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly hvac: HvacAdapter,
     private readonly modbusHvac: ModbusHvacAdapter,
@@ -48,6 +50,56 @@ export class HvacController {
     @InjectRepository(HvacZone) private readonly zoneRepo: Repository<HvacZone>,
     @InjectRepository(HvacIndoor) private readonly indoorRepo: Repository<HvacIndoor>,
   ) {}
+
+  /**
+   * 内机状态快照 —— 后台定时 (8s) 主动 readAllStates 写回; GET states 只读快照、
+   * 不在请求路径读 Modbus, 空调网关掉线/慢 (withRetry x 3s) 不卡空调页切换。
+   */
+  private stateSnapshot: Array<Record<string, unknown>> | null = null;
+  private stateCollecting = false;
+  private stateTimer?: NodeJS.Timeout;
+  private readonly STATE_POLL_MS = 8000;
+
+  onModuleInit(): void {
+    const t = setInterval(() => { void this.collectStates(); }, this.STATE_POLL_MS);
+    t.unref?.();
+    this.stateTimer = t;
+    void this.collectStates();
+  }
+
+  onModuleDestroy(): void {
+    if (this.stateTimer) clearInterval(this.stateTimer);
+    this.stateTimer = undefined;
+  }
+
+  /** 后台采集全部内机真实状态写快照; 失败保留上次快照 */
+  private async collectStates(): Promise<void> {
+    if (this.stateCollecting) return;
+    this.stateCollecting = true;
+    try {
+      const rows = await this.listEnabledIndoors();
+      const states = await this.hvac.readAllStates(rows.map((r) => r.idx));
+      this.stateSnapshot = rows.map((r) => {
+        const s = states.get(r.idx);
+        return s
+          ? {
+              idx: r.idx, known: true, on: s.on, mode: s.mode, temperature: s.temperature,
+              fan: s.fan, roomTemp: s.roomTemp, online: s.online, faultCode: s.faultCode ?? 0,
+            }
+          : { idx: r.idx, known: false };
+      });
+    } catch {
+      // 网关超时/异常: 保留上次快照, 不用空/0 覆盖
+    } finally {
+      this.stateCollecting = false;
+    }
+  }
+
+  /** 写操作后等内机响应再后台刷新快照 (不阻塞当前请求) */
+  private touchStates(delayMs = 2500): void {
+    const t = setTimeout(() => { void this.collectStates(); }, delayMs);
+    t.unref?.();
+  }
 
   // ============ 内机 (一等公民: 单机测试 + 改名 + 编组) ============
 
@@ -82,28 +134,9 @@ export class HvacController {
    * 那会让人以为空调是关的而实际在跑。
    */
   @Get('states')
-  async listStates() {
-    const rows = await this.listEnabledIndoors();
-    const states = await this.hvac.readAllStates(rows.map((r) => r.idx));
-    return {
-      message: 'OK',
-      data: rows.map((r) => {
-        const s = states.get(r.idx);
-        return s
-          ? {
-              idx: r.idx,
-              known: true,
-              on: s.on,
-              mode: s.mode,
-              temperature: s.temperature,
-              fan: s.fan,
-              roomTemp: s.roomTemp,
-              online: s.online,
-              faultCode: s.faultCode ?? 0,
-            }
-          : { idx: r.idx, known: false };
-      }),
-    };
+  listStates() {
+    // 只读后台快照, 不在请求路径 readAllStates (网关慢/掉线不卡切换)
+    return { message: 'OK', data: this.stateSnapshot ?? [] };
   }
 
   /**
@@ -370,12 +403,16 @@ export class HvacController {
   // 温度/模式/风速不动负载, 保持并发, 按下即达。
   @Post('batch/on')
   batchOn(@Body() dto: HvacBatchTargetDto) {
-    return this.fanOut(dto.indoors, 'on', (id) => this.hvac.turnOn(id), {}, 'hvac-batch', undefined, 400);
+    const p = this.fanOut(dto.indoors, 'on', (id) => this.hvac.turnOn(id), {}, 'hvac-batch', undefined, 400);
+    this.touchStates();
+    return p;
   }
 
   @Post('batch/off')
   batchOff(@Body() dto: HvacBatchTargetDto) {
-    return this.fanOut(dto.indoors, 'off', (id) => this.hvac.turnOff(id), {}, 'hvac-batch', undefined, 400);
+    const p = this.fanOut(dto.indoors, 'off', (id) => this.hvac.turnOff(id), {}, 'hvac-batch', undefined, 400);
+    this.touchStates();
+    return p;
   }
 
   @Post('batch/temperature')
@@ -411,12 +448,16 @@ export class HvacController {
   // ============ 单内机控制 (id 是 indoorIdx 字符串, 例 "1".."22") ============
   @Post(':id/on')
   on(@Param('id') id: string) {
-    return this.wrap(id, 'on', () => this.hvac.turnOn(id));
+    const p = this.wrap(id, 'on', () => this.hvac.turnOn(id));
+    this.touchStates();
+    return p;
   }
 
   @Post(':id/off')
   off(@Param('id') id: string) {
-    return this.wrap(id, 'off', () => this.hvac.turnOff(id));
+    const p = this.wrap(id, 'off', () => this.hvac.turnOff(id));
+    this.touchStates();
+    return p;
   }
 
   @Post(':id/temperature')
@@ -443,12 +484,16 @@ export class HvacController {
   // ============ 功能区批量控制 (扇出到该区所有内机) ============
   @Post('zone/:code/on')
   zoneOn(@Param('code') code: string) {
-    return this.zoneFanOut(code, 'on', (id) => this.hvac.turnOn(id));
+    const p = this.zoneFanOut(code, 'on', (id) => this.hvac.turnOn(id));
+    this.touchStates();
+    return p;
   }
 
   @Post('zone/:code/off')
   zoneOff(@Param('code') code: string) {
-    return this.zoneFanOut(code, 'off', (id) => this.hvac.turnOff(id));
+    const p = this.zoneFanOut(code, 'off', (id) => this.hvac.turnOff(id));
+    this.touchStates();
+    return p;
   }
 
   @Post('zone/:code/temperature')

@@ -153,8 +153,9 @@ export function useAudioInputs(options: AudioInputsOptions = {}) {
   }
 
   function reloadInputs(): void {
+    // 只重载输入源配置 (DB, 快); 真机增益 (inputs/live ~4.6s) 改为用户显式校准才读,
+    // 不在登录/进页面时自动发起, 避免占着 DSP 串行命令把矩阵/其他操作拖慢
     void loadInputs();
-    void loadInputChannels();
   }
 
   const unsubscribeServer = onServerChange(() => {

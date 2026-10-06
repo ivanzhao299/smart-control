@@ -271,3 +271,95 @@ describe('PowerCircuitsService · 断路器实时读数', () => {
     expect(m.alarms.any).toBe(false);
   });
 });
+
+describe('PowerCircuitsService · 时序器后台采集快照', () => {
+  const seqRows = (): PowerCircuit[] =>
+    Array.from({ length: 8 }, (_, i) =>
+      circuitRow({
+        id: 100 + i, code: 'seq-' + (i + 1), name: '时序器回路' + (i + 1),
+        category: 'audio', gatewayCode: 'AUDIO-PWR-SEQ-1', relayChannel: i + 1,
+      }));
+  const okResult = (data: unknown) => ({ ok: true, data, deviceId: 'x', command: 'c', mock: false, durationMs: 1 });
+  const collect = (svc: PowerCircuitsService) =>
+    (svc as unknown as { collectSequencer: () => Promise<void> }).collectSequencer();
+
+  async function build(readStatusImpl: jest.Mock) {
+    const rows = seqRows();
+    const repo = {
+      findOne: jest.fn(async (q?: { where: { id?: number } }) =>
+        rows.find((r) => r.id === q?.where?.id) ?? null),
+      find: jest.fn(async () => rows),
+      save: jest.fn(async (r: unknown) => r),
+      create: jest.fn((r: unknown) => r),
+    };
+    const hwRepo = {
+      findOne: jest.fn(async (q: { where: { code: string } }) =>
+        q.where.code === 'AUDIO-PWR-SEQ-1'
+          ? { code: 'AUDIO-PWR-SEQ-1', category: 'audio-power', enabled: true }
+          : null),
+    };
+    const epo = { setChannel: jest.fn(async () => okResult({})), readStatus: readStatusImpl };
+    const adapter = {
+      circuitTurnOn: jest.fn(), circuitTurnOff: jest.fn(),
+      circuitReadStatus: jest.fn(async () => okResult({ on: false })),
+    };
+    const breaker = { turnOn: jest.fn(), turnOff: jest.fn(), getMeasurements: jest.fn() };
+    const cloudBreaker = { turnOn: jest.fn(), turnOff: jest.fn(), getMeasurements: jest.fn() };
+    const svc = new PowerCircuitsService(
+      repo as never, hwRepo as never, adapter as never, epo as never,
+      breaker as never, fakeLogger(), undefined, cloudBreaker as never,
+    );
+    return { svc, epo };
+  }
+
+  it('list 未采集前不读设备、不阻塞, 状态回落 on=false', async () => {
+    const readStatus = jest.fn(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      return okResult({ channels: new Array(8).fill(true) });
+    });
+    const { svc } = await build(readStatus);
+    const t0 = Date.now();
+    const views = await svc.list();
+    expect(readStatus).not.toHaveBeenCalled();
+    expect(views.every((v) => v.reading.on === false)).toBe(true);
+    expect(Date.now() - t0).toBeLessThan(200);
+  });
+
+  it('后台并发 collectSequencer 只触发一次 readStatus, 采完 list 反映真机', async () => {
+    const channels = [true, false, true, false, false, false, true, false];
+    const readStatus = jest.fn(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      return okResult({ channels });
+    });
+    const { svc } = await build(readStatus);
+    await Promise.all([collect(svc), collect(svc), collect(svc)]);
+    expect(readStatus).toHaveBeenCalledTimes(1);
+    const views = await svc.list();
+    expect(views.map((v) => v.reading.on)).toEqual(channels);
+  });
+
+  it('采集失败保留上次好值, 不用失败/0 覆盖', async () => {
+    const channels = [true, true, false, false, false, false, false, false];
+    let n = 0;
+    const readStatus = jest.fn(async () => {
+      n += 1;
+      return n === 1 ? okResult({ channels }) : { ok: false, error: 'timeout' };
+    });
+    const { svc } = await build(readStatus);
+    await collect(svc);
+    await collect(svc); // 失败
+    const views = await svc.list();
+    expect(views[0].reading.on).toBe(true);
+    expect(views[2].reading.on).toBe(false);
+  });
+
+  it('单路操作乐观置位快照、不读真机, 随后后台校正', async () => {
+    const readStatus = jest.fn(async () => okResult({ channels: new Array(8).fill(false) }));
+    const { svc, epo } = await build(readStatus);
+    await svc.turnOn(102); // seq-3, relayChannel 3
+    expect(epo.setChannel).toHaveBeenCalledWith(3, true);
+    expect(readStatus).not.toHaveBeenCalled();
+    const views = await svc.list();
+    expect(views[2].reading.on).toBe(true);
+  });
+});

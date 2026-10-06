@@ -139,8 +139,8 @@ onMounted(async () => {
   await Promise.all([loadScenes(), loadZones(), loadInputs(), loadMatrixState()]);
   void refreshCurrentScene();
   void loadAudioAssets();
-  // 输入增益读一次要 ~4.6s, 不阻塞首屏, 也不进轮询
-  void loadInputChannels();
+  // 输入真机增益 (inputs/live) 要 16 次往返 ~4.6s 且占 DSP 串行命令, 不在进页面时
+  // 自动读; 由输入区"读取真机/校准"按钮按需触发 (loadInputChannels)。
   // (矩阵轮询的启动挪到下面 useActivePolling — 2026-07-27 切页卡顿根治)
 
   restoreOutputState();
@@ -572,6 +572,10 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
             设备读取失败 · 显示的是上次的路由
           </span>
           <span v-if="inputsLoading" class="mx-loading">读取增益中…</span>
+          <button
+            type="button" class="mx-read-btn" :disabled="inputsLoading"
+            @click="void loadInputChannels()"
+          >{{ inputsLoading ? '读取中…' : '读取真机增益' }}</button>
         </h2>
       </header>
       <div class="input-gains">
@@ -1274,6 +1278,13 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
   color: var(--v2-warning);
 }
 .mx-loading { margin-left: 10px; font-size: 11px; font-weight: 400; color: #6d7f98; }
+.mx-read-btn {
+  margin-left: 10px; padding: 3px 12px; border-radius: 999px; cursor: pointer;
+  font-size: 11px; font-weight: 500; color: var(--v2-primary, #6c8cff);
+  background: color-mix(in srgb, var(--v2-primary, #6c8cff) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--v2-primary, #6c8cff) 45%, transparent);
+}
+.mx-read-btn:disabled { opacity: 0.6; cursor: default; }
 .mx-offline {
   display: flex; flex-direction: column; gap: 4px;
   margin-bottom: 14px; padding: 12px 16px; border-radius: 10px;
