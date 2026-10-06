@@ -203,7 +203,9 @@ export default defineConfig(({ mode }) => {
       AutoImport({ resolvers: [ElementPlusResolver()] }),
       Components({ resolvers: [ElementPlusResolver()] }),
       VitePWA({
-        registerType: 'autoUpdate',
+        // prompt: 新 SW 下载后进入 waiting，不自动刷新；由全局横幅让用户点击"立即更新"，
+        // 随后 SKIP_WAITING 激活 + reload 同步发生，避免旧页面/新缓存竞态（2026-10-06）。
+        registerType: 'prompt',
         manifest: {
           name: '金湖展贸中心智能控制系统',
           short_name: '金湖中控',
@@ -239,7 +241,8 @@ export default defineConfig(({ mode }) => {
           importScripts: [`${SCOPE_PREFIX}/sw-privacy.js`],
           cleanupOutdatedCaches: true,
           clientsClaim: true,
-          skipWaiting: true,
+          // prompt 模式：新 SW 必须等待，由横幅 postMessage SKIP_WAITING 后才激活。
+          skipWaiting: false,
           // Public icons are already copied into dist and covered by svg/png here.
           // Listing them again in includeAssets creates duplicate precache entries.
           globPatterns: ['**/*.{js,css,html,svg,png,jpg,jpeg,webp,ico,woff2}'],

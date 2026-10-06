@@ -13,6 +13,7 @@ import { polling } from '@/services/polling.service';
 import { markBootComplete } from '@/services/rum.service';
 import { setUnauthorizedHandler, setClientToken, setAdminToken } from '@/services/http';
 import { installCrossTabIdentitySync } from '@/services/cross-tab-identity';
+import PwaUpdateBanner from '@/components/PwaUpdateBanner.vue';
 
 const router = useRouter();
 const sceneStore = useSceneStore();
@@ -132,4 +133,5 @@ onBeforeUnmount(() => {
 
 <template>
   <router-view :key="identityKey" />
+  <PwaUpdateBanner />
 </template>

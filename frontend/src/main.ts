@@ -1,5 +1,4 @@
 import { createApp } from 'vue';
-import { ElMessage } from 'element-plus';
 import { createPinia } from 'pinia';
 import App from './App.vue';
 import { router } from './router';
@@ -18,6 +17,7 @@ import { initTheme } from './services/theme.service';
 import { autoSelectServer } from './services/server-autoselect';
 import { recoverFromStalePwa } from './services/pwa-recovery';
 import { startPwaUpdateMonitor } from './services/pwa-update-monitor';
+import { promptUpdate, bindDismiss, setApplying } from './services/pwa-update-state';
 
 // 主题必须在 mount 之前应用, 否则会先渲染一帧深色再跳浅色 (闪一下)
 initTheme();
@@ -166,10 +166,12 @@ startBlankScreenWatchdog();
 // 每次启动及从后台回到前台时主动检查 sw.js；新 SW 接管后自动刷新一次，让当前
 // WebView 立即加载新版 index/chunk，而不是只提示“下次打开生效”。sessionStorage
 // 防止少数 WebView 的 controllerchange 重复触发造成刷新循环。
-const stopPwaUpdateMonitor = startPwaUpdateMonitor(() => {
-  ElMessage.success({ message: '系统已更新，正在刷新', duration: 1600 });
+const pwaUpdateHandle = startPwaUpdateMonitor({
+  onReady: (apply) => promptUpdate(apply),
+  onApplying: () => setApplying(),
 });
-if (import.meta.hot) import.meta.hot.dispose(stopPwaUpdateMonitor);
+bindDismiss(pwaUpdateHandle.dismiss);
+if (import.meta.hot) import.meta.hot.dispose(pwaUpdateHandle.stop);
 
 // 服务器地址自动选择: 当前地址 ping 不通就自动切到历史里能通的那个 (现场↔隧道
 // 两个网络环境不用再手输 IP)。异步跑, 不挡首屏。
