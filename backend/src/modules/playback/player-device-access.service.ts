@@ -67,7 +67,7 @@ export class PlayerDeviceAccessService {
       }
       view.currentMediaUrl = `/api/player-device/${slot}/stream?ticket=${key}`;
     }
-    return { ...view, playbackSession: session };
+    return { ...view, playbackSession: session, renderHealth: this.playback.getRenderHealth(slot) };
   }
 
   private async authorizeStream(slot: number, ticket: string) {

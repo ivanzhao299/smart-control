@@ -34,5 +34,6 @@ async function request<T>(slot: number, action: string, body?: unknown): Promise
   return (await response.json()).data as T;
 }
 export const getPlayerState = (slot: number) => request<PlayerDeviceState>(slot, 'state');
-export const playerHeartbeat = (slot: number) => request<null>(slot, 'heartbeat', {});
+export const playerHeartbeat = (slot: number, payload?: unknown) =>
+  request<null>(slot, 'heartbeat', payload ?? {});
 export const playerAdvance = (slot: number, playbackSession: string) => request<PlayerDeviceState>(slot, 'advance', { playbackSession });

@@ -65,6 +65,19 @@ export class PlaybackService implements OnModuleInit {
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
+  /**
+   * kiosk 渲染健康（内存，不落库）。kiosk 每次心跳附带最近一个周期的渲染帧率、累计
+   * 卡死自愈次数与是否健康，用于识别"心跳新鲜但画面定格"的假健康，供设备 state 与
+   * 外部看门狗(player-watchdog.ps1)判断。后端重启即清空；看门狗仅作兜底，可接受。
+   */
+  private readonly renderHealth = new Map<
+    number,
+    { fps: number; stalls: number; healthy: boolean; at: Date }
+  >();
+  getRenderHealth(slot: number) {
+    return this.renderHealth.get(slot) ?? null;
+  }
+
   /** 启动恢复只清理瞬态播放状态；物理通道目录由版本化迁移建立。 */
   async onModuleInit(): Promise<void> {
     // 2026-07-25 业主: "LED/背景音乐/投影默认不要自动播, 有人操作才播"。
@@ -446,9 +459,20 @@ export class PlaybackService implements OnModuleInit {
    * (典型表现: 点了暂停过一会儿自己又播了 / 刚推的媒体被弹回上一个). 按字段 update 之后,
    * 心跳只碰 lastHeartbeatAt, 不再跟播控命令抢同一行.
    */
-  async heartbeat(slot: number): Promise<void> {
+  async heartbeat(
+    slot: number,
+    render?: { fps?: number; stalls?: number; healthy?: boolean },
+  ): Promise<void> {
     const res = await this.repo.update({ slot }, { lastHeartbeatAt: new Date() });
     if (!res.affected) throw new NotFoundException(`slot=${slot} 不存在`);
+    if (render) {
+      this.renderHealth.set(slot, {
+        fps: Number.isFinite(render.fps) ? Number(render.fps) : 0,
+        stalls: Number.isInteger(render.stalls) ? Number(render.stalls) : 0,
+        healthy: render.healthy !== false,
+        at: new Date(),
+      });
+    }
     // 心跳不广播 WS, 太频繁; 前端要看 PlayerPage 活没活直接 GET /api/playback
   }
 

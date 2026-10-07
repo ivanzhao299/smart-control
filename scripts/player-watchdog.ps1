@@ -377,6 +377,48 @@ if (Test-Path $resTokenFile) {
   }
 }
 
+# 3a. Render-health fallback (2026-10-07): heartbeats stay fresh while the
+#     GPU/compositor is frozen ("fake healthy"). The in-page Worker watchdog
+#     normally reloads itself within ~17s. This is the outer net for when a
+#     reload does NOT clear it: device state now carries renderHealth
+#     { fps, stalls, healthy }. If an expected slot keeps reporting unhealthy
+#     (healthy=false or fps below 2) continuously past $RenderStaleSeconds,
+#     force a full relaunch. State is reset by blanking (never deleting) the
+#     marker file.
+$renderSinceFile = Join-Path $RepoRoot 'logs\render-unhealthy.since'
+$renderUnhealthyNow = $false
+foreach ($c in $channels) {
+  if ($expected -notcontains $c.slot) { continue }
+  $rh = $c.renderHealth
+  if ($null -ne $rh) {
+    $rhFps = 0
+    try { $rhFps = [int]$rh.fps } catch { $rhFps = 0 }
+    if (($rh.healthy -eq $false) -or ($rhFps -lt 2)) { $renderUnhealthyNow = $true }
+  }
+}
+$RenderStaleSeconds = 90
+if ($renderUnhealthyNow) {
+  $raw = ''
+  if (Test-Path $renderSinceFile) { try { $raw = (Get-Content $renderSinceFile -Raw).Trim() } catch {} }
+  $since = $null
+  if ($raw -match '^\d+$') { $since = [int]$raw }
+  if ($null -eq $since) {
+    try { Set-Content -Path $renderSinceFile -Value ([int][double]::Parse((Get-Date -UFormat %s))) -Encoding ASCII } catch {}
+    Log 'render unhealthy detected -> waiting to confirm (in-page watchdog may self-reload)'
+  } else {
+    $ageSec = [int][double]::Parse((Get-Date -UFormat %s)) - $since
+    if ($ageSec -ge $RenderStaleSeconds) {
+      Log ('render unhealthy for ' + $ageSec + 's after self-reload -> force full relaunch')
+      $forceRelaunch = $true
+      try { Set-Content -Path $renderSinceFile -Value '' -Encoding ASCII } catch {}
+    } else {
+      Log ('render unhealthy ' + $ageSec + 's -> confirming')
+    }
+  }
+} else {
+  if (Test-Path $renderSinceFile) { try { Set-Content -Path $renderSinceFile -Value '' -Encoding ASCII } catch {} }
+}
+
 # 3b. Window-rect patrol (2026-09-23): heartbeats say nothing about geometry.
 #     Hot-correct each fullscreen window to its display bounds WITHOUT killing
 #     anything (no blink); z-order and focus are untouched. Runs every tick - a

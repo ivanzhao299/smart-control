@@ -13,11 +13,11 @@ describe('ParkOpsControlService', () => {
     expect(service.getState()).toMatchObject({
       page: 0,
       autoPlay: false,
-      totalPages: 6,
+      totalPages: 7,
       refreshRequested: false,
     });
 
-    expect(service.prevPage().page).toBe(5);
+    expect(service.prevPage().page).toBe(6);
     expect(service.nextPage().page).toBe(0);
     expect(service.gotoPage(4).page).toBe(4);
     expect(service.toggleAuto().autoPlay).toBe(true);
@@ -61,12 +61,12 @@ describe('ParkOpsControlService', () => {
   });
 
   it('rejects out-of-range pages and non-boolean autoplay input', async () => {
-    const invalidPage = plainToInstance(GotoParkOpsPageDto, { page: 6 });
+    const invalidPage = plainToInstance(GotoParkOpsPageDto, { page: 7 });
     const invalidAuto = plainToInstance(ToggleParkOpsAutoDto, { enabled: 'false' });
 
     await expect(validate(invalidPage)).resolves.not.toHaveLength(0);
     await expect(validate(invalidAuto)).resolves.not.toHaveLength(0);
-    await expect(validate(plainToInstance(GotoParkOpsPageDto, { page: 5 }))).resolves.toHaveLength(
+    await expect(validate(plainToInstance(GotoParkOpsPageDto, { page: 6 }))).resolves.toHaveLength(
       0,
     );
   });

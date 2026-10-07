@@ -1,9 +1,45 @@
 # MEMORY — 会话记忆（新对话从这里接力）
 
-> **用途**：跨对话无缝接力的唯一记忆文件。每次工作会话结束（或状态有变）都更新这里。
+> **用途**：跨对话无缝接力的唯一记忆文件。
+> **强制：每次会话只要有任何更新就必须当次回写本文件（不得积压到会话结束）；每个新对话第一个动作必须先读本文件。**
 > 新对话开场只需说一句："**读 MEMORY.md，继续当前任务**"。
 > 长期工程知识（架构/部署坑/铁律）在 `CLAUDE.md`；故障档案在 `docs/INCIDENTS.md`；
 > 历史时间线在 `docs/PROGRESS.md`。本文件只放**当前状态与进行中的事**。
+
+## 当前代码上下文（2026-10-07，最新，优先于以下所有历史快照）
+
+> **强制铁律（业主 2026-10-07 死命令）**：① 每次工作会话只要有任何更新（代码/状态/结论/部署），**必须当次回写本 MEMORY.md，不得积压、不得等会话结束才补**；② 每次新建/进入对话，**第一个动作必须读本 MEMORY.md**；③ 工作在 smart-control（SmartCtrl）时**严禁跨项目查询**（不得到其他项目目录搜文件），一切以本项目 git log 与项目内文件为权威。
+
+### 当前基点
+- 权威开发目录 `/Users/mac/Documents/smart-control-4g-dev`（**禁碰 `/Users/mac/Documents/smart-control`**）；当前分支 `feat/energy-management`。
+- 仓库 `ivanzhao299/smart-control`；**最新三端一致、已部署生产 = `a748e4f`**（2026-10-07，不可达命令失败归类 offline）；origin/main = a748e4f。
+- 生产 GK9000（Win10，`D:\smart-control`，内网 192.168.77.54，WG 10.66.66.3），pm2 守护 backend(3200)+frontend(5173)；入口 https://erp.cnjinhu.top ，账号 admin/jinhu888。
+- 部署走 GitHub Actions `deploy-gk9000.yml`（跳板 123.57.220.65 → WireGuard → deploy-from-ci.ps1），**不用 GK9000 执行器**；流程铁律：本地验收→业主同意→才部署，三端同 commit、CI 绿且生产真生效（进程重启+新dist+回验+verify）。
+
+### 2026-10-01～10-07 已交付并部署（详见 git log）
+1. **华普云 4G 云断路器接入**（`4b6b7bf`）：3 台云开关——庭院亮化 CB28100573(fId `21055272433774694401`)、鱼池供氧 CB28100574(fId `2105527756560371714`)、园区路灯 CB28100572(fId `210552830251905025`)；华普云 API base `https://www.hperfor.com/homeschool`，账号 15963930001/along888；新增 EpaHperforApi 适配器，485 适配器不动。
+2. **日落定时调度**：以日落为参考时点，开/关均可前后偏移 **−600..+600 分钟（±10 小时）**形成时间段；每天推精确时刻、不做每分钟轮询。
+3. **能源管理 / 园区能源中心**（`2ab5e85` 等）：接华普云 `device-total` 累计电量、自动同步（无手动按钮）；多维模型 **变压器 10 台、楼栋 30 栋（名称均可编辑）+ 电梯能耗**；光伏（锦浪云 1.6MWp，模块 `backend/src/modules/pv/`）迁入能源页；运营大屏新增"能源管理"页；后台 EnergyAdmin 只留台账配置（KPI/趋势/占比归前台）。
+4. **运营大屏能源页可见性修复（本地已改、未提交未部署）**：`backend/src/modules/cameras/park-ops-control.service.ts` 硬编码 `TOTAL_PAGES=6`（实际 `frontend/public/park-ops/index.html` 有 7 个 `section.page`、能源页 idx=6），已改 7，DTO `@Max(5)`→`@Max(6)`，同步 spec（5 项过）、nest build 过、本地实测翻到第7页/回绕/越界拒绝均正确。**待业主同意后提交部署。**
+5. **页面切换性能**（`c7c9518`/`98b2079`/`5ed1e46`/`075c3c9`）：时序器/投影/空调/音响/电源读数改后台预采集快照、WS 推送；http GET in-flight 合并 + 短 TTL；named-admin 身份检查缓存。仅动体验、不碰功能代码。
+6. **权限**：admin/operator/viewer 三角色；操作员可编辑欢迎页（`2ab5e85`）；后台登录默认落地运维监控、设备管理显示云平台运维信息（`9d7927d`）。
+7. **播放器 provision**：headed Edge 交互式 profile provision 工具（`5171b4b`）；Watchdog / DailyBackup 已恢复。
+8. **安全修复**：brace-expansion@2.1.6、source-map-js@1.2.2（DoS）。
+9. **公网慢/连不上根因**：erp.cnjinhu.top 解析到阿里云**新加坡 47.236.122.224**、绕海外回国；业主已拍板**方案 A：新增国内域名 `erp.cnjinhu.com` A→123.57.220.65 直连**，**DNS 记录尚未添加（当前阻塞点，需业主在阿里云云解析加记录）**；旧 .top 保留备用。
+
+### 未闭环 / 待办
+- **【已恢复·2026-10-07 16:52】LED 切播放源/欢迎页上不了屏**：根因不是切源代码被改坏（10-06 后 5 个提交成功链路均未动），而是**运行时 GPU/合成进程卡死**：kiosk slot1 用 iframe 加载运营大屏（id=81，与 PlayerPage 主文档共享同一 Edge GPU/合成进程），大屏这两天新增重内容（能源页等），运行中 GPU/合成被卡死、画面定格，而页面 JS 心跳照常上报→只看心跳的看门狗误判健康（**假健康**）。经 player-watchdog 内置 git 杠杆 `scripts/relaunch-players.token`（仅写文件、watchdog 下一 tick 在物理 console 会话跑 start-players 重启，SSH 会话不建窗口）重启 kiosk 后恢复，业主确认切源/欢迎页正常。
+- **【根治三件套·已本地验收、未提交未部署】**（2026-10-07）：
+  ① **Web Worker 软看门狗** `frontend/src/composables/useRenderWatchdog.ts`：主线程 rAF 报帧、Worker 独立线程计时，连续 ~12s 无帧且再确认一周期则发 reload 信号、**主线程** `window.location.reload()`（⚠️ Worker 的 self.location 是 WorkerLocation、**没有 reload()**、Worker 无法自行导航）；文档隐藏挂起、可见恢复。浏览器实测：正常 fps=119 不误触发；rAF 冻结（模拟合成卡死、事件循环活）后 ~20s 自动重载成功（timeOrigin 更新、stallCount=1）。
+  ② **运营大屏降载** `frontend/public/park-ops/js/app.js` go() 切页：oldPage video pause（停后台解码）、newPage 已初始化 HLS video 恢复（实例保留、不重拉流）；3D 地图（非活动/隐藏暂停）、ambient canvas（hidden）、3d-twin（IntersectionObserver 按需）本就有暂停机制；能源页图表全是 DOM/CSS 柱、无 WebGL/canvas。
+  ③ **PlayerWatchdog 假健康兜底**：kiosk 心跳 body 携带 `{fps,stalls,healthy}` → PlaybackService 内存 Map（不落库）→ state 返回 `renderHealth`；`player-watchdog.ps1` 新增 3a 段（纯 ASCII）：心跳新鲜但 renderHealth 持续不健康满 90s（软看门狗 reload 后仍未恢复）才 forceRelaunch，标记文件用清空代替删除。curl 实测健康/不健康心跳存取与 state 返回正确、错误 token 401。
+  配套：欢迎页绑定素材自动 markShared（SystemBrandingService.update 后对 welcome 图批量共享，解决 119/122 private 操作员看不到；生产 119/122 已手动改 shared）；http.ts 把 `/playback/channels`、`/system-branding` 移出 GET 短 TTL 缓存。
+  **改动文件均未提交、nest build / 前端 typecheck+build 全绿；待业主同意后随 deploy-gk9000.yml 一次推送（含页数 6→7）。**
+- **根治三件套 + 页数 6→7 修复均待提交部署**（业主同意后随 deploy-gk9000.yml 一次推送，见上）。
+- 方案 A DNS 待加（见上 9）。
+- **普通用户权限收窄**：业主拟仅开放 ①文件上传 ②系统管理里下载更新文件，**仅策划、未实现**，动工前再对清。
+- PWA 输错密码无提示：本地干净复现/结论未取。
+- 变压器/楼栋正式名称、容量、面积待后台录入；本地 main 分叉 d9d47ed(PR#118) 是否上线待定；易微联等开发者认证中。
 
 ## 当前代码上下文（2026-09-20，TestFlight「一键续期」已上线并配好 PAT，优先于以下历史快照）
 

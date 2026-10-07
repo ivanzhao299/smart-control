@@ -55,8 +55,11 @@ export class PlayerDeviceController {
   @Post('heartbeat')
   @UseGuards(PlayerDeviceGuard)
   @HttpCode(200)
-  async heartbeat(@Param('slot', ParseIntPipe) slot: number) {
-    await this.playback.heartbeat(slot);
+  async heartbeat(
+    @Param('slot', ParseIntPipe) slot: number,
+    @Body() body: { fps?: number; stalls?: number; healthy?: boolean },
+  ) {
+    await this.playback.heartbeat(slot, body ?? undefined);
     return { message: 'ok', data: null };
   }
 

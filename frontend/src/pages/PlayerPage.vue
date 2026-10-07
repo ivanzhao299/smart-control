@@ -7,6 +7,7 @@ import { getPlayerState, playerHeartbeat, playerAdvance, configurePlayer, hasPla
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { absUrl, api, setApiBaseURL } from '@/services/http';
 import { webpageSandbox } from '@/services/webpage-sandbox';
+import { startRenderWatchdog, type RenderWatchdog } from '@/composables/useRenderWatchdog';
 import { forceThemeWithoutPersist, restoreStoredTheme } from '@/services/theme.service';
 import type { WsEvent } from '@/types/api';
 
@@ -58,6 +59,7 @@ async function saveCredential(): Promise<void> {
 const errorMsg = ref<string>('');
 let unsubscribeWs: (() => void) | null = null;
 let unsubscribeWsState: (() => void) | null = null;
+let renderWatchdog: RenderWatchdog | null = null;
 let heartbeatTimer: number | undefined;
 let disconnectedReconcileTimer: number | undefined;
 let playerWsState: WsConnectionState = 'closed';
@@ -112,7 +114,10 @@ function handleWs(event: WsEvent): void {
 }
 
 async function sendHeartbeat(): Promise<void> {
-  try { await playerHeartbeat(slot.value); } catch { /* state request clears playback on failure */ }
+  try {
+    const health = renderWatchdog?.getHealth();
+    await playerHeartbeat(slot.value, health ? { ...health } : {});
+  } catch { /* state request clears playback on failure */ }
 }
 
 /**
@@ -186,6 +191,9 @@ async function startPlayer(): Promise<void> {
   audioRouteRetryTimer = window.setInterval(() => void routeVideoAudio(), 5_000);
 
   startFullscreenGuard();
+
+  // 渲染软看门狗: iframe 内重 WebGL 卡死 GPU/合成时自动 reload 自愈(只看心跳发现不了)。
+  renderWatchdog = startRenderWatchdog();
 }
 
 /** 切走(deactivated)/销毁前停止全部后台任务: 定时器、WS、全局监听, 并恢复业主主题。 */
@@ -201,6 +209,7 @@ function stopPlayer(): void {
   if (unsubscribeWsState) { unsubscribeWsState(); unsubscribeWsState = null; }
   playerWs.disconnect();
   stopFullscreenGuard();
+  if (renderWatchdog) { renderWatchdog.stop(); renderWatchdog = null; }
   restoreStoredTheme(); // 离开大屏页(含切走缓存), 回到业主自己选的主题
 }
 

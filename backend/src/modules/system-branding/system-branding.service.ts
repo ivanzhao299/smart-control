@@ -660,6 +660,15 @@ export class SystemBrandingService {
     } else {
       throw new ConflictException('系统品牌权威记录缺失，请先恢复数据库；保存操作未执行');
     }
+    // 绑定到欢迎页/系统页的素材必须共享：否则非上传者（操作员）在媒体列表看不到、
+    // 会误判文件丢失。对本次写入的全部正整数媒体 id 幂等置为 shared。
+    const sharedMediaIds = [
+      patch.welcomeMediaId,
+      patch.welcomeBgMediaId,
+      patch.welcomeLogoMediaId,
+      patch.welcomePhotoMediaId,
+    ].filter((id): id is number => typeof id === 'number' && id > 0);
+    await Promise.all(sharedMediaIds.map((id) => this.media.markShared(id)));
     this.logger.info(`[SystemBranding] 已更新 (${Object.keys(patch).join(', ')})`);
     return this.get();
   }

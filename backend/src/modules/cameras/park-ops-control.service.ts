@@ -9,7 +9,12 @@ export interface ParkOpsControlState {
   refreshTimestamp: number;
 }
 
-const TOTAL_PAGES = 6;
+/**
+ * 大屏总页数。必须与 frontend/public/park-ops/index.html 中 `<section class="page">`
+ * 的实际数量保持一致（当前 7 页：欢迎/综合态势/企业经营/安全消防/人车管理/视频监控/能源管理）；
+ * 以后增删大屏页面时务必同步修改此常量，否则远程翻页与自动轮播无法到达新增页。
+ */
+const TOTAL_PAGES = 7;
 const REFRESH_TTL_MS = 10_000;
 
 /**

@@ -780,6 +780,20 @@ export class MediaService implements OnModuleInit {
     return repo.findOneByOrFail({ id });
   }
 
+  /**
+   * 把素材可见范围置为 shared（系统内部调用）。用于"设为欢迎页底图/Logo/照片/主媒体"
+   * 等需被公共页面与其他角色（操作员）看到的场景：素材一旦被系统页引用就应共享，否则
+   * 非上传者在媒体列表里看不到、会误以为文件丢失。素材不存在或为内置资料则忽略。
+   */
+  async markShared(mediaId: number): Promise<void> {
+    if (!Number.isInteger(mediaId) || mediaId < 1) return;
+    const row = await this.repo.findOneBy({ id: mediaId });
+    if (!row || row.source === 'system') return;
+    if (row.visibility !== 'shared') {
+      await this.repo.update({ id: mediaId }, { visibility: 'shared' });
+    }
+  }
+
   /** 按内置原始名称精确查；用户同名资料绝不能替代系统投放目标。 */
   findByOriginalName(originalName: string): Promise<MediaAsset | null> {
     return this.repo.findOne({ where: { originalName, ownerUserId: IsNull(), source: 'system' } });

@@ -341,6 +341,9 @@ const CACHE_TTL_MS = 30_000;
  * 各端点 GET 缓存 TTL(ms)。配置/清单类 30s；power-circuits 为后台 10s 采集的
  * 开关快照, 给 10s(与采集周期一致), 让多处共享、写操作后清缓存重读;
  * 其余(实时/身份端点)不在表内 → 0, 仅做 in-flight 合并。
+ *
+ * 实时端点刻意不做 TTL: /playback/channels(播放状态)、/system-branding(欢迎页内容)
+ * 必须在切源/改完即刻反映, TTL 会让画面或状态最长延迟 30s; 它们仍享受 in-flight 合并。
  */
 const CACHE_TTL_BY_PATH: Record<string, number> = {
   '/scenes': CACHE_TTL_MS,
@@ -351,10 +354,8 @@ const CACHE_TTL_BY_PATH: Record<string, number> = {
   '/system/info': CACHE_TTL_MS,
   '/system/runtime/gateways': CACHE_TTL_MS,
   '/system/runtime/devices': CACHE_TTL_MS,
-  '/playback/channels': CACHE_TTL_MS,
   '/client-auth/ping': CACHE_TTL_MS,
   '/media': CACHE_TTL_MS,
-  '/system-branding': CACHE_TTL_MS,
   '/power-circuits': 10_000,
 };
 function cacheTtlFor(pathWithQuery: string): number {
