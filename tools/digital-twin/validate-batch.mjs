@@ -8,10 +8,11 @@ await MeshoptDecoder.ready;
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.decoder': MeshoptDecoder });
 const doc = await io.read(process.argv[2]);
 const nodes = doc.getRoot().listNodes().filter(n => n.getMesh());
+const shared = doc.getRoot().listNodes().find(n => !n.getMesh() && n.getExtras().sourceEntities)?.getExtras().sourceEntities;
 let triangles = 0; const found = new Set();
 for (const node of nodes) {
   const localFound = new Set();
-  const entities = node.getExtras().sourceEntities;
+  const entities = node.getExtras().sourceEntities ?? shared;
   assert.ok(Array.isArray(entities));
   assert.equal(new Set(entities.map(e => e.id)).size, entities.length);
   for (const primitive of node.getMesh().listPrimitives()) {
@@ -28,8 +29,9 @@ for (const node of nodes) {
       found.add(entities[ids[0]].id); localFound.add(entities[ids[0]].id); triangles++;
     }
   }
-  assert.equal(localFound.size, entities.length, 'An original component lost all geometry');
+  if (!shared) assert.equal(localFound.size, entities.length, 'An original component lost all geometry');
 }
+if (shared) assert.equal(found.size, shared.length, 'An original component lost all geometry');
 assert.ok(triangles <= 300000);
 const result = { pass: true, triangles, selectableSourceComponents: found.size, meshoptDecoded: true, perTriangleIdsConsistent: true };
 if (process.argv[3]) await fs.writeFile(process.argv[3], JSON.stringify(result, null, 2));

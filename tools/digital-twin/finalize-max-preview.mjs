@@ -12,9 +12,10 @@ const dense = new Set(stats.objects.filter(o => o.before >= 10000).map(o => o.id
 await MeshoptDecoder.ready;
 const doc = await new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.decoder': MeshoptDecoder }).read(path.join(dir, 'scene.glb'));
 const samples = [[], [], []], p = [];
+const shared = doc.getRoot().listNodes().find(n => !n.getMesh() && n.getExtras().sourceEntities)?.getExtras().sourceEntities;
 for (const node of doc.getRoot().listNodes()) {
-  if (!node.getMesh() || !node.getExtras().sourceEntities) continue;
-  const source = node.getExtras().sourceEntities, m = node.getWorldMatrix();
+  if (!node.getMesh() || !(node.getExtras().sourceEntities ?? shared)) continue;
+  const source = node.getExtras().sourceEntities ?? shared, m = node.getWorldMatrix();
   for (const prim of node.getMesh().listPrimitives()) {
     const pos = prim.getAttribute('POSITION'), ids = prim.getAttribute('_ENTITY_ID');
     for (let i = 0; i < pos.getCount(); i++) {

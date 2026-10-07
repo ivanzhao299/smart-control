@@ -179,7 +179,7 @@ async function load(buffer, name, suppliedManifest = null, sequence = ++loadSequ
       for (const entity of o.userData.sourceEntities) {
         entities.set(entity.id, supplied.get(entity.id) ?? entity); objects.set(entity.id, o);
       }
-    } else if (o.userData.twinId) register(o, o.userData.twinId);
+    } else if (o.userData.twinId && !o.userData.isGeometryBatch) register(o, o.userData.twinId);
   });
   model.traverse(o => {
     if (!o.isMesh) return;
@@ -192,7 +192,7 @@ async function load(buffer, name, suppliedManifest = null, sequence = ++loadSequ
   if (manifest.reviewFocus) $('focus').onclick();
   else frameBox(new THREE.Box3().setFromObject(model));
   $('empty').style.display = 'none'; $('assetLabel').textContent = name;
-  $('badge').hidden = false; $('badge').textContent = manifest.fixture ? '流程测试模型 · 非真实园区' : manifest.materialMode === 'clay-preview' ? '真实 MAX 几何 · 简化白模 · 非原始材质 · 完整性待核对' : '模型待验收 · 请核对比例、背面和材质';
+  $('badge').hidden = false; $('badge').textContent = manifest.fixture ? '流程测试模型 · 非真实园区' : manifest.materialMode === 'clay-preview' ? '真实 MAX 几何 · 简化白模 · 非原始材质 · 完整性待核对' : '原始材质恢复候选 · 本地验收中 · 尚未发布生产';
   $('entity').replaceChildren(...[...entities.values()].map(e => { const opt = document.createElement('option'); opt.value = e.id; opt.textContent = e.label; return opt; }));
   select(entities.keys().next().value); $('save').disabled = false;
   $('metrics').textContent = `${(buffer.byteLength / 1048576).toFixed(2)} MiB · ${entities.size} 对象 · ${triangles} 三角面`;
