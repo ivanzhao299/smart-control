@@ -3,8 +3,8 @@
   "platform": "android",
   "versionCode": 25,
   "versionName": "1.1.17",
-  "commit": "6c1929bd4d1c98be4fda14ad19de536988523ffe",
-  "builtAt": "2026-09-21T21:34:59Z",
-  "apkSha256": "561b7d4385c09e8182dd2c1e1fb0f81fc1e47ff407f8a92d354cc3b2436de233",
-  "apkSize": 5893955
+  "commit": "1e17787444a424a34fdc0bb997843ff894b2cf00",
+  "builtAt": "2026-10-07T10:45:04Z",
+  "apkSha256": "75235eb4854a4b78b58daa6ddf74f39aa6ccd45c888e700cd9907aa613107471",
+  "apkSize": 5893959
 }
