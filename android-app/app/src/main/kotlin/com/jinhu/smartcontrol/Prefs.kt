@@ -58,13 +58,12 @@ object Prefs {
             url
         }
 
-    /** 生产域名已在标准 HTTPS 443 提供服务，旧 8443 保存值升级后自动收敛。 */
+    /** 权威远程入口已切到国内 erp.cnjinhu.com；旧 erp.cnjinhu.top（含旧 8443 端口）保存值升级后一律收敛。 */
     private fun normalizeRemoteUrl(url: String): String {
         val parsed = Uri.parse(url)
         val retiredPwa = parsed.host.equals(RETIRED_PWA_HOST, ignoreCase = true)
-        val retiredPort = parsed.host.equals(PRODUCTION_REMOTE_HOST, ignoreCase = true) &&
-            parsed.port == RETIRED_REMOTE_PORT
-        return if (retiredPwa || retiredPort) BuildConfig.DEFAULT_REMOTE_URL else url
+        val retiredHost = parsed.host.equals(PRODUCTION_REMOTE_HOST, ignoreCase = true)
+        return if (retiredPwa || retiredHost) BuildConfig.DEFAULT_REMOTE_URL else url
     }
 
     // ============ 面容登录密码 (2026-07-31) ============

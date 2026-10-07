@@ -60,7 +60,7 @@ enum Prefs {
     /// 云安全组中的非标准端口，同时继续使用原生产域名和同一套业务数据。
     private static func normalizedRemoteUrl(_ value: String) -> String {
         guard let url = URL(string: value), let host = url.host?.lowercased() else { return value }
-        if host == retiredPwaHost || (host == productionRemoteHost && url.port == retiredRemotePort) {
+        if host == retiredPwaHost || host == productionRemoteHost {
             return defaultRemoteUrl
         }
         return value
