@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..', '..');
-const expectedRemoteUrl = 'https://erp.cnjinhu.top/control/';
+const expectedRemoteUrl = 'https://erp.cnjinhu.com/control/';
 const retiredPwaHost = 'park.cnjinhu.com';
 const retiredRemotePort = '8443';
 

@@ -33,7 +33,7 @@ android {
         // 2026-07-25 改成展厅现场真实地址 (GK9000 静态 IP)
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"http://192.168.77.54:5173/control/\"")
         // 远程地址默认值 (2026-07-29 业主: "远程地址也要默认填好") — WireGuard 隧道里的 GK9000
-        buildConfigField("String", "DEFAULT_REMOTE_URL", "\"https://erp.cnjinhu.top/control/\"")
+        buildConfigField("String", "DEFAULT_REMOTE_URL", "\"https://erp.cnjinhu.com/control/\"")
     }
 
     // Internal release signing is injected by CI from encrypted repository secrets.

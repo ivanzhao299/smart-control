@@ -13,7 +13,7 @@ enum Prefs {
     static let defaultServerUrl = "http://192.168.77.54:5173/control/"
     /// 远程隧道地址默认提示 (WireGuard 里 GK9000 的地址)
     // 这是到 GK9000 的远程入口，不是另一台生产服务器。
-    static let defaultRemoteUrl = "https://erp.cnjinhu.top/control/"
+    static let defaultRemoteUrl = "https://erp.cnjinhu.com/control/"
     private static let retiredPwaHost = "park.cnjinhu.com"
     private static let productionRemoteHost = "erp.cnjinhu.top"
     private static let retiredRemotePort = 8443

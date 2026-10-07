@@ -153,7 +153,7 @@ jobs:
       - name: Twin directory smoke check
         if: needs.scope.outputs.scope == 'twin'
         env:
-          TWIN_BASE: https://erp.cnjinhu.top/control/park-ops/3d-twin
+          TWIN_BASE: https://erp.cnjinhu.com/control/park-ops/3d-twin
         run: |
           for f in bootstrap.js manifest.json viewer/index.html; do
             code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 "${TWIN_BASE}/${f}")
