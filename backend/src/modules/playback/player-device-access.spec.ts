@@ -11,7 +11,7 @@ describe('device playback access grants', () => {
     user = { id: 2, username: 'owner', enabled: true, role: 'operator' };
     devices = { authenticate: jest.fn(() => ({ id: 'bgm', slots: [3] })) };
     media = { authorized: jest.fn(async () => ({})), openStream: jest.fn(async () => ({ status: 206 })) };
-    playback = { getBySlot: jest.fn(async () => ({ currentMediaId: row.currentMediaId, currentMediaKind: 'audio', currentMediaUrl: '/api/media/7/file' })) };
+    playback = { getBySlot: jest.fn(async () => ({ currentMediaId: row.currentMediaId, currentMediaKind: 'audio', currentMediaUrl: '/api/media/7/file' })), getRenderHealth: jest.fn(() => null) };
     quota = { reserveDocumentConversion: jest.fn() };
     service = new PlayerDeviceAccessService({ findOneByOrFail: async () => ({ ...row }) } as any, { findOneBy: async () => user } as any, devices, playback, media, quota);
   });

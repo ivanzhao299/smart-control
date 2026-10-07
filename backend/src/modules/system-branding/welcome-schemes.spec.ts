@@ -188,6 +188,7 @@ describe('SystemBrandingService welcome schemes', () => {
           kind: 'image',
           resolution: '3612x1462',
         }),
+        markShared: jest.fn().mockResolvedValue(undefined),
       } as unknown as MediaService,
     );
   });
@@ -260,6 +261,7 @@ describe('SystemBrandingService welcome schemes', () => {
         resolution: id === 7 ? '3612x1462' : '1200x400',
       })),
       remove: jest.fn().mockResolvedValue({ removedId: 7, cleanupPending: false }),
+      markShared: jest.fn().mockResolvedValue(undefined),
     } as unknown as MediaService;
     const subject = new SystemBrandingService(
       repositoryWithState,
@@ -300,6 +302,7 @@ describe('SystemBrandingService welcome schemes', () => {
         resolution: '3612x1462',
       }),
       remove: jest.fn().mockRejectedValue(new NotFoundException('资料不存在')),
+      markShared: jest.fn().mockResolvedValue(undefined),
     } as unknown as MediaService;
     const subject = new SystemBrandingService(
       repository,

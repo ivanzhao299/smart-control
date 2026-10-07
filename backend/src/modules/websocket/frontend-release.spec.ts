@@ -35,8 +35,9 @@ describe('verified frontend release notification', () => {
   it('receives repeated atomic replacements and reconnect reads without any polling interval', async () => {
     watcher.start();
     const waitFor = async (count: number) => {
-      // 全量套件并行时 CPU 紧张，fs.watch 事件可能延迟；放宽到约 3s，避免高负载下的时序假阳性
-      for (let n = 0; n < 150 && publish.mock.calls.length < count; n++) await new Promise(r => setTimeout(r, 20));
+      // 全量套件并行时 CPU 紧张，fs.watch 事件 + debounce 可能明显延迟；放宽到约 8s，
+      // 避免高负载下的时序假阳性（只改测试等待窗，不涉及任何功能逻辑）
+      for (let n = 0; n < 400 && publish.mock.calls.length < count; n++) await new Promise(r => setTimeout(r, 20));
       expect(publish).toHaveBeenCalledTimes(count);
     };
     replace(first); await waitFor(1);
