@@ -12,7 +12,7 @@
 
 ### 当前基点
 - 权威开发目录 `/Users/mac/Documents/smart-control-4g-dev`（**禁碰 `/Users/mac/Documents/smart-control`**）；当前分支 `feat/energy-management`。
-- 仓库 `ivanzhao299/smart-control`；**最新三端一致、已部署生产 = `a748e4f`**（2026-10-07，不可达命令失败归类 offline）；origin/main = a748e4f。
+- 仓库 `ivanzhao299/smart-control`；**最新三端一致、已部署生产 = `50b63d3`**（2026-10-07，根治三件套+测试修复）；origin/main = 50b63d3。
 - 生产 GK9000（Win10，`D:\smart-control`，内网 192.168.77.54，WG 10.66.66.3），pm2 守护 backend(3200)+frontend(5173)；入口 https://erp.cnjinhu.top ，账号 admin/jinhu888。
 - 部署走 GitHub Actions `deploy-gk9000.yml`（跳板 123.57.220.65 → WireGuard → deploy-from-ci.ps1），**不用 GK9000 执行器**；流程铁律：本地验收→业主同意→才部署，三端同 commit、CI 绿且生产真生效（进程重启+新dist+回验+verify）。
 
@@ -25,7 +25,7 @@
 6. **权限**：admin/operator/viewer 三角色；操作员可编辑欢迎页（`2ab5e85`）；后台登录默认落地运维监控、设备管理显示云平台运维信息（`9d7927d`）。
 7. **播放器 provision**：headed Edge 交互式 profile provision 工具（`5171b4b`）；Watchdog / DailyBackup 已恢复。
 8. **安全修复**：brace-expansion@2.1.6、source-map-js@1.2.2（DoS）。
-9. **公网慢/连不上根因**：erp.cnjinhu.top 解析到阿里云**新加坡 47.236.122.224**、绕海外回国；业主已拍板**方案 A：新增国内域名 `erp.cnjinhu.com` A→123.57.220.65 直连**，**DNS 记录尚未添加（当前阻塞点，需业主在阿里云云解析加记录）**；旧 .top 保留备用。
+9. **公网慢根因 + 方案 A 已落地（2026-10-07）**：erp.cnjinhu.top 解析到阿里云**新加坡 47.236.122.224**、绕海外回国（实测约 2.05s）。**国内直连 `https://erp.cnjinhu.com`（cnjinhu.com 已备案子域）已上线**：DNS A→123.57.220.65、certbot 证书 `/etc/letsencrypt/live/erp.cnjinhu.com/`（自动续期）、nginx 配置 `/etc/nginx/conf.d/erp.cnjinhu.com.conf`（复用 scLogin 限流 + 反代 10.66.66.3，未重复定义 zone）。实测 **0.147s、比 .top 快约 14 倍**，浏览器登录页正常渲染。旧 .top 保留备用。
 
 ### 未闭环 / 待办
 - **【已恢复·2026-10-07 16:52】LED 切播放源/欢迎页上不了屏**：根因不是切源代码被改坏（10-06 后 5 个提交成功链路均未动），而是**运行时 GPU/合成进程卡死**：kiosk slot1 用 iframe 加载运营大屏（id=81，与 PlayerPage 主文档共享同一 Edge GPU/合成进程），大屏这两天新增重内容（能源页等），运行中 GPU/合成被卡死、画面定格，而页面 JS 心跳照常上报→只看心跳的看门狗误判健康（**假健康**）。经 player-watchdog 内置 git 杠杆 `scripts/relaunch-players.token`（仅写文件、watchdog 下一 tick 在物理 console 会话跑 start-players 重启，SSH 会话不建窗口）重启 kiosk 后恢复，业主确认切源/欢迎页正常。
@@ -34,9 +34,8 @@
   ② **运营大屏降载** `frontend/public/park-ops/js/app.js` go() 切页：oldPage video pause（停后台解码）、newPage 已初始化 HLS video 恢复（实例保留、不重拉流）；3D 地图（非活动/隐藏暂停）、ambient canvas（hidden）、3d-twin（IntersectionObserver 按需）本就有暂停机制；能源页图表全是 DOM/CSS 柱、无 WebGL/canvas。
   ③ **PlayerWatchdog 假健康兜底**：kiosk 心跳 body 携带 `{fps,stalls,healthy}` → PlaybackService 内存 Map（不落库）→ state 返回 `renderHealth`；`player-watchdog.ps1` 新增 3a 段（纯 ASCII）：心跳新鲜但 renderHealth 持续不健康满 90s（软看门狗 reload 后仍未恢复）才 forceRelaunch，标记文件用清空代替删除。curl 实测健康/不健康心跳存取与 state 返回正确、错误 token 401。
   配套：欢迎页绑定素材自动 markShared（SystemBrandingService.update 后对 welcome 图批量共享，解决 119/122 private 操作员看不到；生产 119/122 已手动改 shared）；http.ts 把 `/playback/channels`、`/system-branding` 移出 GET 短 TTL 缓存。
-  **改动文件均未提交、nest build / 前端 typecheck+build 全绿；待业主同意后随 deploy-gk9000.yml 一次推送（含页数 6→7）。**
-- **根治三件套 + 页数 6→7 修复均待提交部署**（业主同意后随 deploy-gk9000.yml 一次推送，见上）。
-- 方案 A DNS 待加（见上 9）。
+  **已提交并部署生产 = `50b63d3`（含 f63b4b3 功能；spec-only 提交命中 paths-ignore，故用 workflow_dispatch 手动触发），三端一致、CI 绿、生产后端重启/dist 更新/页面回验通过。**
+- 方案 A 国内直连已上线（见上 9）；是否把 PWA/现场默认服务器地址由 .top 改用 erp.cnjinhu.com，由业主定。
 - **普通用户权限收窄**：业主拟仅开放 ①文件上传 ②系统管理里下载更新文件，**仅策划、未实现**，动工前再对清。
 - PWA 输错密码无提示：本地干净复现/结论未取。
 - 变压器/楼栋正式名称、容量、面积待后台录入；本地 main 分叉 d9d47ed(PR#118) 是否上线待定；易微联等开发者认证中。
