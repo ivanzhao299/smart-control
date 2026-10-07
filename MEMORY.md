@@ -13,7 +13,7 @@
 ### 当前基点
 - 权威开发目录 `/Users/mac/Documents/smart-control-4g-dev`（**禁碰 `/Users/mac/Documents/smart-control`**）；当前分支 `feat/energy-management`。
 - 仓库 `ivanzhao299/smart-control`；**最新三端一致、已部署生产 = `831b188`**（2026-10-07）；origin/main = 831b188。
-- 生产 GK9000（Win10，`D:\smart-control`，内网 192.168.77.54，WG 10.66.66.3），pm2 守护 backend(3200)+frontend(5173)；入口 https://erp.cnjinhu.top ，账号 admin/jinhu888。
+- 生产 GK9000（Win10，`D:\smart-control`，内网 192.168.77.54，WG 10.66.66.3），pm2 守护 backend(3200)+frontend(5173)；入口 https://erp.cnjinhu.com ，账号 admin/jinhu888（**erp.cnjinhu.top 已删除弃用，2026-10-07**）。
 - 部署走 GitHub Actions `deploy-gk9000.yml`（跳板 123.57.220.65 → WireGuard → deploy-from-ci.ps1），**不用 GK9000 执行器**；流程铁律：本地验收→业主同意→才部署，三端同 commit、CI 绿且生产真生效（进程重启+新dist+回验+verify）。
 
 ### 2026-10-01～10-07 已交付并部署（详见 git log）
@@ -35,7 +35,8 @@
   ③ **PlayerWatchdog 假健康兜底**：kiosk 心跳 body 携带 `{fps,stalls,healthy}` → PlaybackService 内存 Map（不落库）→ state 返回 `renderHealth`；`player-watchdog.ps1` 新增 3a 段（纯 ASCII）：心跳新鲜但 renderHealth 持续不健康满 90s（软看门狗 reload 后仍未恢复）才 forceRelaunch，标记文件用清空代替删除。curl 实测健康/不健康心跳存取与 state 返回正确、错误 token 401。
   配套：欢迎页绑定素材自动 markShared（SystemBrandingService.update 后对 welcome 图批量共享，解决 119/122 private 操作员看不到；生产 119/122 已手动改 shared）；http.ts 把 `/playback/channels`、`/system-branding` 移出 GET 短 TTL 缓存。
   **已提交并部署生产 = `50b63d3`（含 f63b4b3 功能；spec-only 提交命中 paths-ignore，故用 workflow_dispatch 手动触发），三端一致、CI 绿、生产后端重启/dist 更新/页面回验通过。**
-- 权威地址已统一为 erp.cnjinhu.com（见上 9，含部署文件/移动端/App 自动迁移，831b188）。**彻底解绑新加坡 47.236.122.224 尚未做**：原生 App 已自动切 .com；仍需确认 erp.cnjinhu.top（浏览器/PWA 手动访问）无流量后，再停用 .top 解析与新加坡机（资源下线，须先请示）。
+- 权威地址已统一为 erp.cnjinhu.com（见上 9，含部署文件/移动端/App 自动迁移，831b188）。**【2026-10-07 smart-control 侧已彻底解绑】**：业主决定弃用 erp.cnjinhu.top、**该 DNS 记录已删除**（权威 hichina 与公共 DNS 均查无 A 记录）；smart-control 完全不依赖新加坡。**新加坡 ECS 47.236.122.224 经业主决定保留**：cnjinhu.top 的 www/quant/@（主域/官网，其他业务）仍解析该机并正常使用，故不停机/不释放；将来若要彻底退订该机，须先迁移 www/quant/@。
+- **【2026-10-07 分支/工作树清理·已完成】**：业主选「按建议删小分支」。**累计删除 36 个远端分支**（28 个已合并 + 8 个未合并小分支：feat/energy-management、maturity-media、default-dark、accent-clean、project-review、twin-opt-in、theme-neutral、testflight-invite）、**9 个本地分支**、移除 **5 个干净 worktree**（accent-clean/testflight-invite/theme-light/twin-shell/deploy）。**权威目录 4g-dev 已切到 main=df9a42c**。最终保留：main、dependabot×3（待合并依赖更新）、codex/shared-showroom（主工作区）、codex/c09(+9)、codex/park-twin-realism(+26)；**3 个带未提交改动的 worktree 连同分支保留**：digital-twin(park-digital-twin，6 改动)、local-takeover(p2-hvac，10)、twin-realism(park-twin-realism，13)——这些未提交工作若日后确认废弃，再点名处理。
 - **普通用户权限收窄**：业主拟仅开放 ①文件上传 ②系统管理里下载更新文件，**仅策划、未实现**，动工前再对清。
 - PWA 输错密码无提示：本地干净复现/结论未取。
 - 变压器/楼栋正式名称、容量、面积待后台录入；本地 main 分叉 d9d47ed(PR#118) 是否上线待定；易微联等开发者认证中。
