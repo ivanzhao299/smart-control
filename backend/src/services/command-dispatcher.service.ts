@@ -12,6 +12,13 @@ import { AdapterContext, AdapterResult } from '../adapters/adapter.types';
 import { DeviceStatusService } from './device-status.service';
 import { HvacZone } from '../entities/hvac-zone.entity';
 import { HvacIndoor } from '../entities/hvac-indoor.entity';
+import { DeviceStatus } from '../entities/device.entity';
+import {
+  classifyError,
+  DeviceConnectionError,
+  DeviceOfflineError,
+  DeviceTimeoutError,
+} from '../adapters/errors';
 
 export interface DispatchInput {
   deviceType: string;
@@ -48,12 +55,29 @@ export class CommandDispatcherService {
     } else {
       await this.deviceStatus.update(
         input.deviceId,
-        'error',
+        this.failureStatus(result.error),
         { lastCommand: input.command, error: result.error },
         false,
       );
     }
     return result;
+  }
+
+  /**
+   * 命令失败时的设备状态: 连接被拒 / 超时 / 主机或网络不可达等"连不上"的情况归为
+   * 'offline' —— 这是设备断电或离线的真实语义, 不计入后台"需排查"; 只有设备已经
+   * 连通、却返回协议错误或业务失败, 才归为 'error'(真正需要排查的故障)。
+   */
+  private failureStatus(error: string | undefined): DeviceStatus {
+    const classified = classifyError('dispatch', new Error(String(error ?? '')));
+    if (
+      classified instanceof DeviceConnectionError ||
+      classified instanceof DeviceTimeoutError ||
+      classified instanceof DeviceOfflineError
+    ) {
+      return 'offline';
+    }
+    return 'error';
   }
 
   private invoke(

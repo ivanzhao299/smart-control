@@ -23,7 +23,7 @@ export function classifyError(deviceType: string, err: unknown, deviceId?: strin
   if (/ECONNREFUSED|ENETUNREACH|EHOSTUNREACH|ECONNRESET|EPIPE/.test(message)) {
     return new DeviceConnectionError(deviceType, message, { deviceId, cause: err });
   }
-  if (/timeout|ETIMEDOUT/i.test(message)) {
+  if (/timeout|timed[ _]?out|ETIMEDOUT/i.test(message)) {
     return new DeviceTimeoutError(deviceType, message, { deviceId, cause: err });
   }
   return new DeviceProtocolError(deviceType, message, { deviceId, cause: err });
