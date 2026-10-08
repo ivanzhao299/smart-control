@@ -1,8 +1,8 @@
 
 ## ★ 最新状态（2026-10-08，优先于本文件一切历史快照）
 
-- origin/main = 生产后端+前端 = **`4a209c4`**；部署 run **37732645002** = completed/success（scope / validate FE / validate BE / deploy 四 job 全 success，full 重建）。
-- **#92 易微联 eWeLink 云接入已全部写完、本地验收通过（未提交未部署，等业主同意推送）**（2026-10-08）：
+- origin/main = 生产后端+前端 = **`341fd87`**（易微联）；CI run **37753103188** + Deploy GK9000 run **37753103068** 均 completed/success（scope / validate FE / validate BE / deploy 四 job 全绿，full 重建、含 migration 异地备份）。上一生产基点 `4a209c4`。
+- **#92 易微联 eWeLink 云接入已部署生产成功**（commit `341fd87`，2026-10-08）：本地验收全绿 + 生产回验通过——后端进程已重启（health uptime 与部署时刻吻合）、新端点 `/api/integrations/ewelink/status` 已返结构化数据（configured:false，因生产尚未配 AppID/Secret）；前端设备网络页已出易微联「前往授权 / 同步设备」按钮。**仍待业主在生产完成**：配 `EWELINK_APP_SECRET` → 点「前往授权」（回调落 erp.cnjinhu.com、token 落生产库）→「同步设备」。实现要点：
   - 后端：OAuth2.0 授权码全链路（`ewelink-auth.service` / `ewelink-devices.service`，`@Public()` callback 返成功/失败引导 HTML）；`EwelinkApiAdapter`（kind `ewelink-cloud`、category `power-breaker-ewelink`，与 Hperfor 同形）注册进 AdaptersModule，并与 Hperfor 一起进 PowerCircuits 并行采集池。
   - **建表 migration `1791500000000-AddEwelinkAuth.ts`（类名 AddEwelinkAuth1791500000000）**：生产强制禁 synchronize（开启即 throw），必须显式建 `ewelink_auth` 单行表，否则授权/回调报 no such table。⚠️ 文件名时间戳笔误为 12 位 `179050000000-`、类名/内部 name 已用正确 13 位（TypeORM 只校验类名、功能正常）；建议业主同意后把文件名重命名为 1791500000000。
   - 凭据：环境变量 `EWELINK_APP_ID`（.env.example 已填真实 APPID）/ `EWELINK_APP_SECRET`（业主配、不入对话/日志）/ `PUBLIC_BASE_URL`；getCredentials() 环境优先、回落 DB。
@@ -12,6 +12,11 @@
   - scope=**full**（路径含 /migrations/ → 前后端完整重建重启）。临时脚本 `backend/tmp-local-backend.ts`（ts-node 提供本地 3200）、`backend/tmp-trace-boot.ts` 为诊断产物：因 `nest start --watch` 在本地 watch 模式挂起（基线 4a209c4 同样挂、与易微联无关；ts-node 复刻 main 完整启动成功），**待请示清理**。
 - **#89 第二批 3 路华普云 4G 断路器已在生产**（commit `93b694b`、run 37725949815）：生产 id roof-sign=20、streetlight-2=21、streetlight-3=22（id 不连续为历史删除留洞）。
   - **2026-10-08 14:33 复测**：路灯2/3 平台 `tOnline=true`；楼顶大字平台 `tOnline=false`，但生产 reading 已测到 229.8V/4W（硬件已通电，平台在线状态疑似滞后，建议现场确认 4G 注网）。3 路 reading 均有 ~230V 电压，`energy` 暂为 0（新上线、白天未开灯，正常；电量由 device-total 自动同步汇总）。
+- **#93 楼顶大字“通电无功率”已定位：断路器/系统正常，负载侧未得电**（2026-10-08 17:00 实测，未改功能代码）：
+  - 平台三台现均 `tOnline=true`（楼顶大字 16:55 上线）；查得楼顶大字当时 `switchStatus=0`（分闸）——此前点“通电”时设备尚离线、合闸令未达，这是功率 0 的直接原因。
+  - 设备在线后实测：合闸（fCmdType=4）设备“回应成功”、switchStatus 如实转 1；但合闸后 3s 仅 229.1V/0.06A/2W、15s 后反降到 229.4V/0.01A/0W（排除驱动渐启）；分闸（=3）亦正常。
+  - **结论：断路器控制/计量/上报与本系统完全正常，问题在断路器下游负载侧**——最可能 LED 发光字白天被自带光控/时控关断（楼顶字标配、驱动待机 0–2W），其次是出线到字的接线/驱动故障。
+  - **判定法：今晚日落后由日落 schedule 自动合闸再测**——功率升到数百瓦、字亮 = 白天光控、一切正常；仍 0W = 需现场检修断路器下游（查光控器、出线端合闸时有无 220V、驱动指示灯）。
 - **#90 日落自动时间段已在生产真生效**（schedule commit `c12b6d1` + down 修复 `4a209c4`）：3 路均有 on/off sunset 规则；生产 next 端点实测下次开灯 `2026-10-08T09:54Z`（= 北京 17:54 日落）；楼顶大字 off 日落+120 分、路灯2/3 off 日落+240 分，weekdays 全周。
 - **#91 易微联认证已通过、OAuth 应用已创建**（2026-10-08）：认证=审核通过/已认证（个人开发者、+8615963930001）。应用名「金湖智慧园区」、OAuth2.0/标准角色、有效期至 2027-10-08；**APPID `p5XVbutJXVl88g6r33l79uqzGKofDee8`**；回调 `https://erp.cnjinhu.com/api/integrations/ewelink/callback`。**AppSecret 不入对话/日志，由业主直接配置到生产环境变量（建议 EWELINK_APP_ID / EWELINK_APP_SECRET）**。标准角色 API：`POST /v2/user/oauth/token`（code 换 token）、`POST /v2/user/refresh`（刷新）、`GET /v2/family`、`GET|POST /v2/device/thing`、`GET|POST /v2/device/thing/status`（读/写）、`POST /v2/device/thing/batch-status`、`DELETE /v2/user/oauth/token`。下一步 #26 后端 OAuth+REST 适配、#27 catalog+前端。
 - **教训（强制）：SQLite 迁移里禁止 MySQL 专有的 `DELETE <别名> FROM t <别名> JOIN ...`**（SQLite 报 `near "ps": syntax error`，且只在回滚/干净库才暴露）。down 一律用标准 `DELETE FROM t WHERE ... IN (SELECT ...)`。新迁移必须在干净库同时验 up 与 down（migration-chain.spec 会逐个回滚）。
