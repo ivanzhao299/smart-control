@@ -120,8 +120,13 @@ let webpDecoderPromise: Promise<WebpDecode> | undefined;
 function loadWebpDecoder(): Promise<WebpDecode> {
   if (!webpDecoderPromise) {
     webpDecoderPromise = (async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const mod: any = await import('@jsquash/webp/decode.js');
+      // TS 在 module:commonjs 下会把 await import() 降级为 require()，而
+      // @jsquash 是 ESM-only；用 Function 构造器保留运行时真正的动态 import()。
+      const esmImport = new Function('specifier', 'return import(specifier);') as (
+        specifier: string,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ) => Promise<any>;
+      const mod = await esmImport('@jsquash/webp/decode.js');
       const wasmPath = require.resolve('@jsquash/webp/codec/dec/webp_dec.wasm');
       const wasmModule = await WebAssembly.compile(await fs.readFile(wasmPath));
       await mod.init(wasmModule);
