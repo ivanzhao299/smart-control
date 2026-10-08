@@ -9,7 +9,7 @@ overrides:
   brace-expansion@1: 1.1.18
   brace-expansion@2: 2.1.6
   file-type: 21.3.2
-  '@jimp/core>file-type': 16.5.0
+  '@jimp/core>file-type': 16.5.4
   ip-address: 10.3.1
   lodash: 4.18.1
   multer: 2.4.0
@@ -1062,9 +1062,6 @@ packages:
     resolution: {integrity: sha512-2mAv+8pkG6GIZiF1kNg1jAjh27IDxEPKwdGul3snfztFerfPGI1LjDezZp3i7BElXompqEtPmoPx6c2wgtWsOA==}
     engines: {node: '>=18'}
 
-  '@tokenizer/token@0.1.1':
-    resolution: {integrity: sha512-XO6INPbZCxdprl+9qa/AAbFFOMzzwqYxpjPgLICrMD6C2FCw6qfJOPcBk6JqqPLSaZ/Qx87qn4rpPmPMwaAK6w==}
-
   '@tokenizer/token@0.3.0':
     resolution: {integrity: sha512-OvjF+z51L3ov0OyAU0duzsYuvO01PH7x4t6DJx+guahgTnBHkhJdG7soQeTSFLWN3efnHyibZ4Z8l2EuWwJN3A==}
 
@@ -2054,9 +2051,9 @@ packages:
   file-stream-rotator@0.6.1:
     resolution: {integrity: sha512-u+dBid4PvZw17PmDeRcNOtCP9CCK/9lRN2w+r1xIS7yOL9JFrIBKTvrYsxT4P0pGtThYTn++QS5ChHaUov3+zQ==}
 
-  file-type@16.5.0:
-    resolution: {integrity: sha512-OxgWA9tbL8N/WP00GD1z8O0MiwQKFyWRs1q+3FhjdvcGgKqwxcejyGWso3n4/IMU6DdwV+ARZ4A7TTnPkDcSiw==}
-    engines: {node: '>=8'}
+  file-type@16.5.4:
+    resolution: {integrity: sha512-/yFHK0aGjFEgDJjEKP0pWCplsPFPhwyfwevf/pVxiN0tmE4L9LmwWxWukdJSHdoCli4VgQLehjJtwQBnqmsKcw==}
+    engines: {node: '>=10'}
 
   file-type@21.3.2:
     resolution: {integrity: sha512-DLkUvGwep3poOV2wpzbHCOnSKGk1LzyXTv+aHFgN2VFl96wnp8YA9YjO2qPzg5PuL8q/SW9Pdi6WTkYOIh995w==}
@@ -3484,9 +3481,9 @@ packages:
     resolution: {integrity: sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA==}
     engines: {node: '>=0.6'}
 
-  token-types@2.1.1:
-    resolution: {integrity: sha512-wnQcqlreS6VjthyHO3Y/kpK/emflxDBNhlNUPfh7wE39KnuDdOituXomIbyI79vBtF0Ninpkh72mcuRHo+RG3Q==}
-    engines: {node: '>=0.1.98'}
+  token-types@4.2.1:
+    resolution: {integrity: sha512-6udB24Q737UD/SDsKAHI9FCRP7Bqc9D/MQUV02ORQg5iskjtLJlZJNdN4kKtcdtwCeWIwIHDGaUsTsCCAa8sFQ==}
+    engines: {node: '>=10'}
 
   token-types@6.1.2:
     resolution: {integrity: sha512-dRXchy+C0IgK8WPC6xvCHFRIWYUbqqdEIKPaKo/AcTUNzwLTK6AH7RjdLWsEZcAN/TBdtfUw3PYEgPr5VPr6ww==}
@@ -4513,7 +4510,7 @@ snapshots:
       any-base: 1.1.0
       buffer: 5.7.1
       exif-parser: 0.1.12
-      file-type: 16.5.0
+      file-type: 16.5.4
       isomorphic-fetch: 3.0.0
       pixelmatch: 4.0.2
       tinycolor2: 1.6.0
@@ -4991,8 +4988,6 @@ snapshots:
       token-types: 6.1.2
     transitivePeerDependencies:
       - supports-color
-
-  '@tokenizer/token@0.1.1': {}
 
   '@tokenizer/token@0.3.0': {}
 
@@ -6091,11 +6086,11 @@ snapshots:
     dependencies:
       moment: 2.31.0
 
-  file-type@16.5.0:
+  file-type@16.5.4:
     dependencies:
       readable-web-to-node-stream: 3.0.4
       strtok3: 6.3.0
-      token-types: 2.1.1
+      token-types: 4.2.1
 
   file-type@21.3.2:
     dependencies:
@@ -7667,9 +7662,9 @@ snapshots:
 
   toidentifier@1.0.1: {}
 
-  token-types@2.1.1:
+  token-types@4.2.1:
     dependencies:
-      '@tokenizer/token': 0.1.1
+      '@tokenizer/token': 0.3.0
       ieee754: 1.2.1
 
   token-types@6.1.2:
