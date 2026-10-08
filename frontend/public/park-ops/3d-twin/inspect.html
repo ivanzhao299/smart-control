@@ -65,7 +65,7 @@ window.addEventListener('resize',resize);resize();
 
 let glb=null,meshes=[];
 const loader=new GLTFLoader();
-const draco=new DRACOLoader();draco.setDecoderPath('../vendor/draco/gltf/');
+const draco=new DRACOLoader();draco.setDecoderPath('../model/draco/gltf/');
 loader.setDRACOLoader(draco);
 loader.load('./assets/park.glb?cb='+Date.now(),g=>{
  glb=g.scene;scene.add(glb);
