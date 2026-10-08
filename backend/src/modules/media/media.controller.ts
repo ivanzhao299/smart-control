@@ -28,6 +28,7 @@ import { assertCanUpload } from '../../common/auth/resource-policy';
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { MediaAccessService } from './media-access.service';
 import { MediaQuotaService } from './media-quota.service';
+import { MediaThumbnailService } from './media-thumbnail.service';
 import { Public } from '../../common/decorators/public.decorator';
 import { ReadOnlyRequest } from '../../common/decorators/read-only-request.decorator';
 import { sendMediaFile } from '../../common/utils/send-media-file';
@@ -52,6 +53,7 @@ export class MediaController {
     private readonly opLog: OperationLogService,
     private readonly access: MediaAccessService,
     private readonly quota: MediaQuotaService,
+    private readonly thumbnails: MediaThumbnailService,
   ) {}
 
   @Get('storage/me')
@@ -95,6 +97,7 @@ export class MediaController {
         mime: asset.mimeType,
       }),
     });
+    if (asset.kind === 'image') this.scheduleThumbnail(asset.id);
     return { message: '上传成功', data: this.media.toListItem(asset) };
   }
 
@@ -130,8 +133,7 @@ export class MediaController {
     for (const item of result.items) {
       if (item.kind !== 'webpage') {
         item.fileUrl = (await this.access.issue(req, item.id, 'file')).url;
-        // Use the authorized file until a dedicated thumbnail capability is added.
-        item.thumbUrl = null;
+        // thumbUrl 由 toListItem 统一签发 (/api/media/:id/thumb), 端点按需 lazy 生成。
       }
     }
     return { message: 'ok', data: result };
@@ -168,6 +170,7 @@ export class MediaController {
       result: 'success',
       message: JSON.stringify({ name: asset.originalName, kind: asset.kind, relPath: dto.relPath }),
     });
+    if (asset.kind === 'image') this.scheduleThumbnail(asset.id);
     return { message: '已收编到媒体库', data: this.media.toListItem(asset) };
   }
 
@@ -204,6 +207,13 @@ export class MediaController {
     sendMediaFile(res, file);
   }
 
+  /** 上传/收编后后台预生成缩略图; 失败不影响原图与主流程。 */
+  private scheduleThumbnail(id: number): void {
+    void this.thumbnails
+      .ensureThumbnail(id)
+      .catch(error => this.log.warn(`[Media] 缩略图预生成失败 #${id}: ${(error as Error).message}`));
+  }
+
   @Get(':id/file')
   async file(
     @Req() req: AuthenticatedRequest,
@@ -212,6 +222,20 @@ export class MediaController {
     @Query('variant') variant?: string,
   ): Promise<void> {
     this.sendFile(res, await this.access.openDirect(req, id, variant === 'pdf', req.headers.range));
+  }
+
+  /** 缩略图: 已生成直接发, 历史图首次访问 lazy 生成; 稳定 URL, 靠浏览器缓存二次秒显。 */
+  @Get(':id/thumb')
+  async thumb(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: AuthenticatedRequest,
+    @Res() res: Response,
+  ): Promise<void> {
+    await this.media.authorized(id, requireActor(req));
+    const t = await this.thumbnails.ensureThumbnail(id);
+    res.setHeader('Content-Type', t.mimeType);
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.sendFile(t.absPath);
   }
 
   @Delete(':id')

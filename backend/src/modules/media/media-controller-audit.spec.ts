@@ -12,7 +12,7 @@ describe('webpage creation audit identity', () => {
       toListItem: jest.fn(asset => ({ id: asset.id })),
     };
     logs = { record: jest.fn(async () => undefined) };
-    controller = new MediaController(media, logs, {} as any, {} as any);
+    controller = new MediaController(media, logs, {} as any, {} as any, {} as any);
   });
   it('passes the verified actor to both creation and audit, ignoring submitted identity', async () => {
     await controller.createWebpage({ ...dto, username: 'forged-admin' } as any, { actor } as any);

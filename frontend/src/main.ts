@@ -10,6 +10,7 @@ import 'element-plus/es/components/base/style/css';
 import 'element-plus/es/components/message/style/css';
 import 'element-plus/es/components/message-box/style/css';
 import 'element-plus/es/components/loading/style/css';
+import { provideGlobalConfig } from 'element-plus/es/components/config-provider/src/hooks/use-global-config.mjs';
 import './styles/theme.css';
 import './styles/design-tokens.css';
 import './styles/industrial-hardening.css';
@@ -135,6 +136,9 @@ function startBlankScreenWatchdog(): void {
 }
 
 const app = createApp(App);
+// 弹层 z-index 基准 5000：高于项目自定义全屏浮层（最高 4000），确保 ElMessageBox/ElDialog
+// 等命令式弹层（挂到 body）不被 .pick-mask(3000) 等遮盖，删除确认等操作可见可点。
+provideGlobalConfig({ zIndex: 5000 }, app);
 
 // 工业终端健壮性: Vue 层 + JS 层错误兜底 (跟 ErrorBoundary + 白屏看门狗 配合)
 app.config.errorHandler = (err, _instance, info) => {

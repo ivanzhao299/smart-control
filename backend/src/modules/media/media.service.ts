@@ -1045,7 +1045,14 @@ export class MediaService implements OnModuleInit {
       resolution: m.resolution,
       remark: m.remark,
       uploader: m.uploader,
-      thumbUrl: m.thumbPath ? `/api/media/${m.id}/thumb` : null,
+      // 图片一律走缩略图端点: 已生成则直接返回, 未生成(历史图)由端点 lazy 补,
+      // 前端列表据此零原图下载。其它类型仅在确有 thumbPath 时返回。
+      thumbUrl:
+        m.kind === 'image'
+          ? `/api/media/${m.id}/thumb`
+          : m.thumbPath
+            ? `/api/media/${m.id}/thumb`
+            : null,
       fileUrl: m.kind === 'webpage' ? (m.sourceUrl ?? '') : `/api/media/${m.id}/file`,
       lastPlayedAt: m.lastPlayedAt ? m.lastPlayedAt.toISOString() : null,
       createdAt: m.createdAt.toISOString(),

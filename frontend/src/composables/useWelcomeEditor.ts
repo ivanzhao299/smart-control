@@ -10,7 +10,7 @@ import {
   type WelcomeScheme,
   type WelcomeSchemesSnapshot,
 } from '@/services/system-branding.service';
-import { absUrl } from '@/services/http';
+import { absUrl, http } from '@/services/http';
 import { mediaService } from '@/services/media.service';
 import {
   addWelcomeImageAsset,
@@ -167,8 +167,17 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
     kind: 'background' | 'logo',
     purpose: WelcomeThumbPurpose = 'list',
   ): Promise<string> {
-    // 列表优先使用后端缩略图，免去下载/解码 3612x1462 原图。
-    if (purpose === 'list' && asset.thumbUrl) return absUrl(asset.thumbUrl);
+    // 列表用后端缩略图端点：带认证 fetch 小图（稳定 URL 走浏览器缓存），免去下载/解码
+    // 3612x1462 原图；端点对历史图首次访问 lazy 生成。
+    if (purpose === 'list' && asset.thumbUrl) {
+      const { data } = await http.request<Blob>(
+        'GET',
+        asset.thumbUrl.replace(/^\/api/, ''),
+        undefined,
+        { responseType: 'blob' },
+      );
+      return URL.createObjectURL(data);
+    }
     const key = `${purpose}:${asset.id}`;
     const cached = welcomeThumbUrlMap.get(key);
     if (cached) return cached;

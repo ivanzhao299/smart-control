@@ -196,6 +196,8 @@ export interface HttpRequestConfig {
   signal?: AbortSignal;
   /** GET 专用: 绕过短缓存与 in-flight 合并, 强制重新拉取 (诊断/手动刷新用) */
   refresh?: boolean;
+  /** 响应解析: 默认 json; blob 用于图片/文件二进制 (稳定 URL, 走浏览器 HTTP 缓存) */
+  responseType?: 'json' | 'blob';
 }
 
 export class HttpError<T = unknown> extends Error {
@@ -232,7 +234,7 @@ async function rawRequest<T>(
   const generation = identityGeneration();
   const finalUrl = buildUrl(url, cfg?.params);
   const headers: Record<string, string> = {
-    Accept: 'application/json',
+    Accept: cfg?.responseType === 'blob' ? '*/*' : 'application/json',
     ...(cfg?.headers ?? {}),
   };
   // 自动注入 admin token (登录后存在 adminAuth store, 同步到这里的模块变量)
@@ -248,7 +250,7 @@ async function rawRequest<T>(
     headers,
     credentials: 'omit',
     redirect: 'error',
-    cache: 'no-store',
+    cache: cfg?.responseType === 'blob' ? 'default' : 'no-store',
   };
   if (body !== undefined && body !== null) {
     headers['Content-Type'] = 'application/json';
@@ -297,7 +299,9 @@ async function rawRequest<T>(
 
   let payload: T | undefined;
   const ct = resp.headers.get('content-type') ?? '';
-  if (ct.includes('application/json')) {
+  if (cfg?.responseType === 'blob') {
+    payload = (await resp.blob()) as unknown as T;
+  } else if (ct.includes('application/json')) {
     try { payload = await resp.json() as T; } catch { /* 空 body */ }
   } else if (resp.status !== 204) {
     try { payload = await resp.text() as unknown as T; } catch { /* ignore */ }
@@ -377,7 +381,7 @@ async function request<T>(
   const generation = identityGeneration();
   const finalUrl = buildUrl(url, cfg?.params);
 
-  if (method === 'GET' && cfg?.refresh !== true) {
+  if (method === 'GET' && cfg?.refresh !== true && cfg?.responseType !== 'blob') {
     const key = `${generation}|${finalUrl}`;
     const ttl = cacheTtlFor(url);
     if (ttl > 0) {
