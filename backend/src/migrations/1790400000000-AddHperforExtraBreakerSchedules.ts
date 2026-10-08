@@ -54,9 +54,11 @@ export class AddHperforExtraBreakerSchedules1790400000000 implements MigrationIn
     const codes = ['roof-sign', 'streetlight-2', 'streetlight-3'];
     for (const code of codes) {
       await q.query(
-        `DELETE ps FROM power_schedules ps
-         JOIN power_circuit pc ON pc.id = ps.circuit_id
-         WHERE pc.code = ? AND ps.mode = 'sunset'`,
+        `DELETE FROM power_schedules
+         WHERE mode = 'sunset'
+           AND circuit_id IN (
+             SELECT id FROM power_circuit WHERE code = ?
+           )`,
         [code],
       );
     }
