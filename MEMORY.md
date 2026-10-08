@@ -1,7 +1,8 @@
 
 ## ★ 最新状态（2026-10-08，优先于本文件一切历史快照）
 
-- origin/main = 生产后端+前端 = **`341fd87`**（易微联）；CI run **37753103188** + Deploy GK9000 run **37753103068** 均 completed/success（scope / validate FE / validate BE / deploy 四 job 全绿，full 重建、含 migration 异地备份）。上一生产基点 `4a209c4`。
+- origin/main = 生产后端+前端 = **`a83a34d`**（孪生静态资产整顿）；Deploy run **37761425419** + CI run **37761425580** 均 completed/success（四 job 全绿）。生产回验：`/control/park-ops/vendor/ez-tree.js` http=200（4,016,624 B）、inspect.html http=200。上一基点 `341fd87`（易微联）。
+- **#94 工作树 / 孪生 vendor 整顿完成**（2026-10-08，删除一律送回收站）：① 删重复解码器 `vendor/draco/`（正式 live.js 用自包含 `model/draco`、已进 git；调试页 inspect.html 旧引 vendor，已改指 `../model/draco/gltf/`）；② 删被 GitHub Actions 取代的旧手动接收脚本 `scripts/twin-receive.ps1`；③ `vendor/ez-tree.js`（EZTree，3.8M）提交进 git——仅 trees3d=true（默认关）动态 import、生产默认零加载，现生产也具备该能力，消除“本地能开、生产缺文件”；④ 停止临时本地后端进程（PID 77991）、删除 tmp-local-backend / tmp-trace-boot 两诊断脚本（回收站）。工作树已无未跟踪残留。
 - **#92 易微联 eWeLink 云接入已部署生产成功**（commit `341fd87`，2026-10-08）：本地验收全绿 + 生产回验通过——后端进程已重启（health uptime 与部署时刻吻合）、新端点 `/api/integrations/ewelink/status` 已返结构化数据（configured:false，因生产尚未配 AppID/Secret）；前端设备网络页已出易微联「前往授权 / 同步设备」按钮。**仍待业主在生产完成**：配 `EWELINK_APP_SECRET` → 点「前往授权」（回调落 erp.cnjinhu.com、token 落生产库）→「同步设备」。实现要点：
   - 后端：OAuth2.0 授权码全链路（`ewelink-auth.service` / `ewelink-devices.service`，`@Public()` callback 返成功/失败引导 HTML）；`EwelinkApiAdapter`（kind `ewelink-cloud`、category `power-breaker-ewelink`，与 Hperfor 同形）注册进 AdaptersModule，并与 Hperfor 一起进 PowerCircuits 并行采集池。
   - **建表 migration `1791500000000-AddEwelinkAuth.ts`（类名 AddEwelinkAuth1791500000000）**：生产强制禁 synchronize（开启即 throw），必须显式建 `ewelink_auth` 单行表，否则授权/回调报 no such table。⚠️ 文件名时间戳笔误为 12 位 `179050000000-`、类名/内部 name 已用正确 13 位（TypeORM 只校验类名、功能正常）；建议业主同意后把文件名重命名为 1791500000000。
