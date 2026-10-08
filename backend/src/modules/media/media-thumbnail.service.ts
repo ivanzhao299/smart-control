@@ -48,6 +48,15 @@ export class MediaThumbnailService {
     return job;
   }
 
+  /** webp 原图 → Jimp（@jsquash 纯 wasm 解码，无原生依赖）。 */
+  private async fromWebp(buffer: Buffer): Promise<Jimp> {
+    const decode = await loadWebpDecoder();
+    const result = await decode(buffer);
+    const img = new Jimp(result.width, result.height);
+    img.bitmap.data.set(result.data);
+    return img;
+  }
+
   private async resolveThumbnail(id: number): Promise<MediaThumbnail> {
     const asset = await this.media.get(id);
     if (asset.kind !== 'image') throw new BadRequestException('仅图片可生成缩略图');
@@ -69,7 +78,13 @@ export class MediaThumbnailService {
     const sourceStat = await fs.stat(source);
     if (!sourceStat.isFile()) throw new BadRequestException('原图不存在');
 
-    const img = await Jimp.read(await fs.readFile(source));
+    const sourceBuffer = await fs.readFile(source);
+    // jimp 0.22 无内置 webp 解码：webp 走纯 wasm 的 @jsquash 解码为 RGBA 再构造 Jimp；
+    // jpeg/png 等直接由 jimp 读取。
+    const img =
+      asset.mimeType === 'image/webp'
+        ? await this.fromWebp(sourceBuffer)
+        : await Jimp.read(sourceBuffer);
     // 只缩不放: 小图保持原尺寸, 避免无意义放大与模糊。
     const longest = Math.max(img.bitmap.width, img.bitmap.height);
     if (longest > THUMB_MAX_DIMENSION) {
@@ -95,4 +110,23 @@ export class MediaThumbnailService {
 
 function mimeFromThumbPath(rel: string): string {
   return rel.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+}
+
+/** @jsquash/webp 为 ESM-only；懒加载并手动喂本地 wasm（Node 下其默认 fetch(file:) 不可用）。 */
+type WebpDecode = (
+  buffer: Buffer,
+) => Promise<{ width: number; height: number; data: Uint8ClampedArray }>;
+let webpDecoderPromise: Promise<WebpDecode> | undefined;
+function loadWebpDecoder(): Promise<WebpDecode> {
+  if (!webpDecoderPromise) {
+    webpDecoderPromise = (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mod: any = await import('@jsquash/webp/decode.js');
+      const wasmPath = require.resolve('@jsquash/webp/codec/dec/webp_dec.wasm');
+      const wasmModule = await WebAssembly.compile(await fs.readFile(wasmPath));
+      await mod.init(wasmModule);
+      return mod.default as WebpDecode;
+    })();
+  }
+  return webpDecoderPromise;
 }
