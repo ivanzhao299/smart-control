@@ -12,9 +12,38 @@
 
 ### 当前基点
 - 权威开发目录 `/Users/mac/Documents/smart-control-4g-dev`（**禁碰 `/Users/mac/Documents/smart-control`**）；当前分支 `main`。
-- 仓库 `ivanzhao299/smart-control`；origin/main = `9c1f3c5`（纯 MEMORY 文档、命中 paths-ignore 不部署）；**生产运行代码 = `831b188`**（三端一致、2026-10-07）。
+- 仓库 `ivanzhao299/smart-control`；origin/main = **`a4b8e18`**（3d-twin 运行时、twin scope）；**生产前后端进程代码 = `831b188`**（twin 不重启前后端）、**生产 3d-twin 静态资产 = `a4b8e18`**（2026-10-08 同步、viewer 公网回验 200）。
 - 生产 GK9000（Win10，`D:\smart-control`，内网 192.168.77.54，WG 10.66.66.3），pm2 守护 backend(3200)+frontend(5173)；入口 https://erp.cnjinhu.com ，账号 admin/jinhu888（**erp.cnjinhu.top 已删除弃用，2026-10-07**）。
 - 部署走 GitHub Actions `deploy-gk9000.yml`（跳板 123.57.220.65 → WireGuard → deploy-from-ci.ps1），**不用 GK9000 执行器**；流程铁律：本地验收→业主同意→才部署，三端同 commit、CI 绿且生产真生效（进程重启+新dist+回验+verify）。
+
+### 2026-10-07 晚：缩略图挂起根因修复 + 圆角统一 + 全量验收（**本地已验收、未提交未部署、等业主同意**）
+- **缩略图永久挂起根因（已修复、有证据）**：`backend/package.json` 的 pnpm.overrides 全局强制 `"file-type":"21.3.2"`（ESM-only、新 API 为命名导出、**无 `default.fromBuffer`**），把 jimp 0.22.12 的 `@jimp/core`（需要 file-type@16 CJS、调 `default.fromBuffer`）一并破坏：`@jimp/core/dist/utils/image-bitmap.js:19` 抛 `TypeError: _fileType.default.fromBuffer is not a function`，上传时 fire-and-forget 的生成 job 永久 pending，`MediaThumbnailService.generating` Map 同 id 去重→所有 `/api/media/:id/thumb` 请求都在等死 job（后端进程睡眠、CPU 0、仍 LISTEN）。
+- **修复**：overrides 保留全局 `"file-type":"21.3.2"`，新增**针对父包的嵌套覆盖** `"@jimp/core>file-type":"16.5.0"`；`pnpm install` 后 file-type@16.5.0 与 21.3.2 并存、@jimp/core symlink 改指 16.5.0（`backend/pnpm-lock.yaml` 同步）。
+- **成功证据**：重启后端后 `GET /api/media/4/thumb` = HTTP 200、**26370 B**（原图 1102862 B、缩约 42 倍）、**480×194**、image/jpeg、首次 0.33s、第 2/3 次 0.006/0.003s（落盘+缓存）；欢迎编辑器底图网格中 id=4 缩略图**秒显**（建筑实景小图、非原图）。
+- **网格显示规则（设计如此、非 bug）**：底图只收 `remark==='欢迎页底图'` 或被某方案 `welcomeBgMediaId` 引用的图；Logo 同理（`remark==='欢迎页 Logo'`），见 `frontend/src/features/welcome-image-assets.ts`，避免整个媒体库普通图混入。curl 裸上传 remark=null 不显示；经编辑器"上传底图"会自动设 remark。测试时用 `PUT /api/media/:id` body `{"remark":"欢迎页底图"}` 补标记（UpdateMediaDto 支持 remark）。
+- **圆角统一 #84 完成**：`frontend/src/components/PlayerConsole.vue` 全文件 border-radius 硬编码批量换 token（14→`var(--v2-r-lg)`；13/12/10/9→`var(--v2-r-md)`；8/7/6→`var(--v2-r-sm)`；保留 50%/20px/999px/4px/2px/0），覆盖欢迎编辑器及同文件所有浮层；前台弹窗确认容器 14、卡片/按钮 12、小控件 8，与后台 token 一致。
+- **全量验收 #85 全绿**：后端 `build`✓、`jest --ci` **851 通过**（修复 `media-controller-audit.spec.ts`：新增 thumbnails 构造参数后 MediaController 需 5 参、spec 补第 5 个 `{} as any`）、`test:ops` 70（67 pass / 3 skip / 0 fail）；前端 `typecheck`✓、`build`✓（PWA v1.3.0、precache 105）、`test` **289 全过**。
+- 测试图 media **id=4**、源 `/tmp/test-bg-3612.jpg`（3612×1462、1102862 B）；上传必需头 `X-Upload-Size:<字节>`、multipart 字段 `file`。误建 0 字节空库 `database/smart-control-4g-dev.db`（有连字符；正确库 `smart-control-4gdev.db` 无连字符）仍**待请示清理**。
+
+### 2026-10-08 #87：v3 真实感 3d-twin 运行时摘取合并（**已部署生产、回验通过、等三端 commit 复核**）
+- **版本认知校准（重要、勿再搞反）**：`origin/main` 与工作区 3d-twin 骨架 = **manifest 0.1.0、bootstrap `resolveViewerUrl()` 直接 return `viewer/index.html`（静态预渲染 webp、零持续 GPU）**；`codex/park-twin-realism-v3` = **0.2.0、默认 live（实时 WebGL）**。即 main 设计是"生产默认最轻 viewer、live 实时底座留 v3"。本次摘取**保留 main 0.1.0 bootstrap/manifest、未覆盖**。
+- **正确合并方式（不 merge v3 分支历史）**：v3 落后 main 35 提交、含已在 main 删除的旧新加坡 `deploy.yml`、大量旧 cnjinhu.top 引用与 `tools/digital-twin`（Python/Blender、不部署），直接 merge 会污染。改用 `git checkout origin/codex/park-twin-realism-v3 -- <路径>` 只摘取运行时。
+- **本次 staged = 68 文件、全部在 `frontend/public/park-ops/3d-twin/` 内**：`live/`、`viewer/`（15 张 webp + display-manifest）、`model/`（three/GLTFLoader/GTAO/draco）、`assets/`（park.glb 19.88MB、park_lite_draco.glb 4.09MB、textures 2.6MB）、`tests/`、`inspect.html`、`README.md`。
+- **已撤出暂存（保留磁盘 untracked、不删）**：`vendor/ez-tree.js`、`vendor/draco/`（仅 live 绿化用、viewer 不依赖，待后续单独 static 补）、`scripts/twin-receive.ps1`（仓库源副本，GK 实际用固定安装路径）。
+- **scope 验证**：`classifyDeployFiles(68 文件)` = **scope `twin`、twinOnly=true、frontendPublic=false、highRisk=false** → 部署只走 `gk9000-twin-sync`、仅同步 3d-twin 静态目录、不切换工作区/不构建/不重启、不碰目录外任何路径。
+- **部署链路实证（本次摸清、纠正"跳板无命令"疑惑）**：
+  - workflow `deploy-gk9000.yml` 用 Secret `JUMP_SSH_KEY`（GitHub Actions 专用 key）SSH 跳板 123.57.220.65；该 key 在跳板 `/root/.ssh/authorized_keys` 第6行带 **forced command `/usr/local/sbin/smart-control-gk9000-jump-deploy`、restrict**。
+  - jump-deploy 读 `SSH_ORIGINAL_COMMAND`（白名单 gk9000-deploy/verify/status/offsite-backup/**twin-sync**），经 WG 二次 SSH（`/root/.ssh/anksen-gk9000-deploy` → user@10.66.66.3）。
+  - twin-sync 在 GK 执行固定脚本 **`C:\ProgramData\Anksen\smart-control-twin-receive.ps1 -Commit <sha>`（已确认存在=True）**：git fetch origin → cat-file 验证 → `git archive` 仅导出 3d-twin → 扩展名白名单/path-traversal 防护 → 拷入 `frontend\dist\park-ops\3d-twin` → 清理该目录内 stale（限 twin dist）。**当前生产 dist-viewer=False（本次部署后补齐）**。
+  - 常规 deploy 走 `C:\ProgramData\Anksen\smart-control-ci-dispatch.ps1`；offsite-backup 走跳板 `/usr/local/sbin/smart-control-gk9000-offsite-backup`。
+- **资源占用（业主关心"最小资源"）**：staged 3d-twin 共 **34MB**（park.glb 19MB[model/inspect 高画质验证页、默认不加载]、viewer webp 6.5MB[默认 UI、单视角按需~400-700KB]、park_lite_draco 3.9MB[live、默认不加载]、其余依赖）。**PWA precache 中 park-ops=0、.glb=0**（build 后实测 sw.js），大文件全部访问才下载、不进每台设备离线包；开关默认关（localStorage `park-3d-twin`、URL `?twin=1`），不打开零开销、独立 iframe 不影响切页。
+- **浏览器实测验收通过**：park-ops 第2页（#parkMap idx=1）地图工具栏右上"孪生·关/开"；打开后 iframe 挂 `viewer/index.html?embedded=1`、显示真实感日/夜景园区（楼栋 PBR、玻璃、绿化树木、道路、水面、企业标签、亮灯）；完整 viewer 多视角（原鸟瞰/另一侧180/侧向A/B/俯视）、自动/日景/夜景、显示-编辑标注、相机巡游、检查白模均正常，底部标注"完整视角包 6.74MB、当前仅加载所选视角、无持续三维计算"。
+- **业主 2026-10-08 确认「保留并推送」，已部署成功**：commit **`a4b8e18`**（68 文件、13779 insertions）、deploy run **37710468182「Deploy GK9000 through WireGuard」全 jobs success**（Detect scope=twin、Validate backend/frontend、Deploy to GK9000）。
+- **生产真生效回验证据**：
+  - 公网 `viewer/index.html` HTTP 200；`viewer/assets/opposite-day.webp` HTTP 200、**666640 B（单视角按需）**；`assets/park_lite_draco.glb` HTTP 200、**4090720 B 完整**。
+  - 浏览器生产端翻到 #parkMap、打开开关：iframe 挂 `viewer/index.html?embedded=1`、toggle"孪生·开"、地图区显示真实感日景园区（楼栋 PBR/绿化/道路/水面/标签）、embedded 无候选字样。
+  - **注意（非 bug）**：首次公网回源经 nginx→GK 取 webp 约需 10+ 秒，若撞上 ready 窗口会先 teardown、重开即正常，之后浏览器/runtime 缓存（park-ops NetworkFirst）秒开。
+- 现场大屏默认仍是原鸟瞰（开关默认关、零开销），手动在地图工具栏右上点"孪生·关/开"才注入 viewer。
 
 ### 2026-10-01～10-07 已交付并部署（详见 git log）
 1. **华普云 4G 云断路器接入**（`4b6b7bf`）：3 台云开关——庭院亮化 CB28100573(fId `21055272433774694401`)、鱼池供氧 CB28100574(fId `2105527756560371714`)、园区路灯 CB28100572(fId `210552830251905025`)；华普云 API base `https://www.hperfor.com/homeschool`，账号 15963930001/along888；新增 EpaHperforApi 适配器，485 适配器不动。
