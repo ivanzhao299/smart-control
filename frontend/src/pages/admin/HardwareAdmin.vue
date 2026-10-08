@@ -40,6 +40,7 @@ const categoryMeta: Record<HardwareCategory, { label: string; icon: unknown; col
   'power-breaker':      { label: '485 智能断路器', icon: Zap,         color: '#eab308' },
   'power-breaker-4g':   { label: '4G 智能断路器', icon: Zap,         color: '#22c55e' },
   'power-breaker-web':  { label: '4G 云断路器',   icon: Zap,         color: '#06b6d4' },
+  'power-breaker-ewelink': { label: '易微联云开关', icon: Zap,        color: '#3b82f6' },
   'projector-fusion':   { label: '投影融合器',    icon: MonitorPlay, color: '#a78bfa' },
   'hvac-outdoor':       { label: '空调外机',      icon: Snowflake,   color: '#0891b2' },
   'hvac-gateway':       { label: '空调网关',      icon: Snowflake,   color: '#06b6d4' },

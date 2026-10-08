@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { RefreshCw, Radar } from 'lucide-vue-next';
 import { adminHardwareService, adminTestService } from '@/services/admin.service';
+import { api } from '@/services/http';
 import { deviceService } from '@/services/device.service';
 import { usePermissionStore } from '@/stores/permission';
 import type { GatewayInfo, HardwareCategory, HardwareUnit } from '@/types/api';
@@ -27,7 +28,7 @@ const gateways = ref<GatewayInfo[]>([]);
 const NETWORK_CATEGORIES: HardwareCategory[] = [
   'rtu-tcp-converter', 'dali-gateway', 'led-controller', 'led-player',
   'audio-dsp', 'audio-guide', 'audio-power', 'hvac-gateway',
-  'tablet', 'switch', 'router', 'other', 'power-breaker-web',
+  'tablet', 'switch', 'router', 'other', 'power-breaker-web', 'power-breaker-ewelink',
 ];
 
 const CATEGORY_LABELS: Partial<Record<HardwareCategory, string>> = {
@@ -44,6 +45,7 @@ const CATEGORY_LABELS: Partial<Record<HardwareCategory, string>> = {
   'router': '路由器',
   'other': '其它',
   'power-breaker-web': '4G 云断路器',
+  'power-breaker-ewelink': '易微联云开关',
 };
 
 interface ProbeResult {
@@ -63,18 +65,102 @@ interface NetworkRow {
   probe: ProbeResult;
 }
 
-/** 4G 云断路器走华普云外网、无园区 IP/端口 —— 只读展示, 不参与 IP 编辑/探测 */
+/** 云设备走外网云平台、无园区 IP/端口 —— 只读展示, 不参与 IP 编辑/探测 */
 function isCloudUnit(u: HardwareUnit): boolean {
-  return u.category === 'power-breaker-web';
+  return u.category === 'power-breaker-web' || u.category === 'power-breaker-ewelink';
 }
 
-/** 云平台接入与维护信息 (随设备档案展示, 便于运维; 不含账号密码 —— 见后端 .env / 交接文件) */
-const CLOUD_PLATFORM = {
-  vendor: '华普云 HPERFOR',
-  consoleUrl: 'https://www.hperfor.com',
-  apiBase: 'https://www.hperfor.com/homeschool',
-  maintenance: '4G 内置直连 · Web API (JWT 登录, 按 fId 分/合闸, 5s 状态缓存) · 账号密码见后端 .env 与运维交接',
+interface CloudPlatformInfo {
+  vendor: string;
+  consoleUrl: string;
+  apiBase: string;
+  maintenance: string;
+}
+
+/** 各云平台接入与维护信息 (随设备档案展示, 便于运维; 不含账号密码 —— 见后端 .env / 交接文件) */
+const CLOUD_PLATFORMS: Partial<Record<HardwareCategory, CloudPlatformInfo>> = {
+  'power-breaker-web': {
+    vendor: '华普云 HPERFOR',
+    consoleUrl: 'https://www.hperfor.com',
+    apiBase: 'https://www.hperfor.com/homeschool',
+    maintenance:
+      '4G 内置直连 · Web API (JWT 登录, 按 fId 分/合闸, 5s 状态缓存) · 账号密码见后端 .env 与运维交接',
+  },
+  'power-breaker-ewelink': {
+    vendor: '易微联 eWeLink',
+    consoleUrl: 'https://dev.ewelink.cn',
+    apiBase: 'https://cn-apia.coolkit.cn (OAuth2.0 REST, 区域 host 随回调)',
+    maintenance:
+      'WiFi/4G 直连酷宅云 · OAuth2.0 授权码 (AppID/Secret 见后端 .env EWELINK_*) · 设备 /v2/device/thing · 免费额度 5 万次/月',
+  },
 };
+
+function cloudPlatformFor(u: HardwareUnit): CloudPlatformInfo | undefined {
+  return CLOUD_PLATFORMS[u.category as HardwareCategory];
+}
+
+// ============ 易微联账号授权 / 设备同步 ============
+interface EwelinkIntegrationStatus {
+  configured: boolean;
+  authorized: boolean;
+  region: string | null;
+  currentFamilyId: string | null;
+}
+const ewelinkStatus = ref<EwelinkIntegrationStatus>({
+  configured: false,
+  authorized: false,
+  region: null,
+  currentFamilyId: null,
+});
+const ewelinkBusy = ref(false);
+const lastSyncMsg = ref('');
+
+async function loadEwelinkStatus(): Promise<void> {
+  try {
+    ewelinkStatus.value = await api.get<EwelinkIntegrationStatus>(
+      '/integrations/ewelink/status',
+      { refresh: true },
+    );
+  } catch {
+    /* 状态拉不到不阻塞本页 */
+  }
+}
+
+/** 打开易微联授权页（新标签），业主登录并同意 */
+async function ewelinkAuthorize(): Promise<void> {
+  ewelinkBusy.value = true;
+  try {
+    const r = await api.post<{ url: string }>('/integrations/ewelink/authorize');
+    window.open(r.url, '_blank', 'noopener');
+    ElMessage.info('已打开易微联授权页；登录同意后回本页点「同步设备」');
+  } catch (e) {
+    ElMessage.error((e as Error).message);
+  } finally {
+    ewelinkBusy.value = false;
+  }
+}
+
+/** 拉云端设备并导入硬件台账 + 电源回路 */
+async function ewelinkSync(): Promise<void> {
+  ewelinkBusy.value = true;
+  try {
+    const r = await api.post<{
+      scanned: number;
+      imported: number;
+      circuits: number;
+      skipped: string[];
+    }>('/integrations/ewelink/sync');
+    lastSyncMsg.value =
+      `扫描 ${r.scanned}，新增设备 ${r.imported}、回路 ${r.circuits}` +
+      (r.skipped.length ? `，跳过 ${r.skipped.length}（离线）` : '');
+    ElMessage.success('易微联设备同步完成');
+    await Promise.all([load(), loadEwelinkStatus()]);
+  } catch (e) {
+    ElMessage.error((e as Error).message);
+  } finally {
+    ewelinkBusy.value = false;
+  }
+}
 
 /** addressing JSON 里端口字段兼容两种历史命名: tcpPort (EKX seed) / port (其余) */
 function parsePort(addressing: string | null): string {
@@ -204,6 +290,7 @@ async function probeRow(row: NetworkRow): Promise<void> {
 let timer: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
   void load();
+  void loadEwelinkStatus();
   timer = setInterval(() => { void refreshGateways(); }, 10_000);
 });
 onUnmounted(() => { if (timer) clearInterval(timer); });
@@ -224,15 +311,48 @@ const dirtyCount = computed(() => rows.value.filter(isDirty).length);
       <el-button :icon="RefreshCw" circle :loading="loading" title="刷新" @click="load" />
     </div>
 
+    <div class="integ-card">
+      <div class="integ-head">
+        <div class="integ-title">易微联 eWeLink 云接入</div>
+        <el-tag v-if="ewelinkStatus.authorized" type="success" size="small">
+          已授权{{ ewelinkStatus.region ? ' · ' + ewelinkStatus.region : '' }}
+        </el-tag>
+        <el-tag v-else-if="ewelinkStatus.configured" type="warning" size="small">待授权</el-tag>
+        <el-tag v-else type="info" size="small">未配置 AppID/Secret</el-tag>
+      </div>
+      <div class="integ-sub">
+        授权后点「同步设备」，云端开关自动导入硬件台账与电源回路；AppID/Secret 走后端环境变量
+        EWELINK_APP_ID / EWELINK_APP_SECRET，免费额度 5 万次/月。
+      </div>
+      <div class="integ-actions">
+        <el-button size="small" :loading="ewelinkBusy" @click="ewelinkAuthorize">
+          {{ ewelinkStatus.authorized ? '重新授权' : '前往授权' }}
+        </el-button>
+        <el-button
+          size="small"
+          type="primary"
+          :loading="ewelinkBusy"
+          :disabled="!ewelinkStatus.configured"
+          @click="ewelinkSync"
+        >同步设备</el-button>
+        <span v-if="lastSyncMsg" class="integ-result">{{ lastSyncMsg }}</span>
+      </div>
+    </div>
+
     <el-table :data="rows" v-loading="loading" stripe style="width:100%;">
       <el-table-column label="设备" min-width="300">
         <template #default="{ row }">
           <div class="cell-name">{{ (row as NetworkRow).unit.name }}</div>
           <div class="cell-code">{{ (row as NetworkRow).unit.code }} · {{ CATEGORY_LABELS[(row as NetworkRow).unit.category] ?? (row as NetworkRow).unit.category }}</div>
-          <div v-if="isCloudUnit((row as NetworkRow).unit)" class="cloud-info">
-            <a class="cloud-link" :href="CLOUD_PLATFORM.consoleUrl" target="_blank" rel="noopener">云平台控制台: www.hperfor.com ↗</a>
-            <div class="cloud-line">API: {{ CLOUD_PLATFORM.apiBase }}</div>
-            <div class="cloud-line">维护: {{ CLOUD_PLATFORM.maintenance }}</div>
+          <div v-if="cloudPlatformFor((row as NetworkRow).unit)" class="cloud-info">
+            <a
+              class="cloud-link"
+              :href="cloudPlatformFor((row as NetworkRow).unit)!.consoleUrl"
+              target="_blank"
+              rel="noopener"
+            >云平台控制台: {{ cloudPlatformFor((row as NetworkRow).unit)!.vendor }} ↗</a>
+            <div class="cloud-line">API: {{ cloudPlatformFor((row as NetworkRow).unit)!.apiBase }}</div>
+            <div class="cloud-line">维护: {{ cloudPlatformFor((row as NetworkRow).unit)!.maintenance }}</div>
           </div>
         </template>
       </el-table-column>
@@ -336,6 +456,25 @@ const dirtyCount = computed(() => rows.value.filter(isDirty).length);
   color: #E0A030;
   font-size: 11px;
 }
+
+.integ-card {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--v2-border, rgba(148, 163, 184, 0.18));
+  border-radius: 14px;
+  background: var(--v2-surface-2, rgba(148, 163, 184, 0.06));
+}
+.integ-head { display: flex; align-items: center; gap: 10px; }
+.integ-title { font-size: 14px; font-weight: 600; color: var(--v2-text-1); }
+.integ-sub { font-size: 12px; color: var(--v2-text-3); margin-top: 6px; line-height: 1.6; }
+.integ-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.integ-result { font-size: 12px; color: #3fb079; }
 
 .cell-name { font-size: 13px; color: var(--v2-text-1); }
 .cell-code { font-size: 11px; color: var(--v2-text-3); margin-top: 1px; font-family: 'JetBrains Mono', ui-monospace, monospace; }

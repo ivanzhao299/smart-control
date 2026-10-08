@@ -586,6 +586,7 @@ export const HARDWARE_CATEGORIES = [
   'power-breaker',
   'power-breaker-4g',
   'power-breaker-web',
+  'power-breaker-ewelink',
   'projector-fusion',
   'hvac-outdoor',
   'hvac-gateway',

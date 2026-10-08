@@ -23,6 +23,8 @@ import { Seq55Adapter } from './power/seq55.adapter';
 import { EpaBreakerAdapter } from './power/epa-breaker.adapter';
 import { EpaMqttBreakerAdapter } from './power/epa-mqtt-breaker.adapter';
 import { HperforApiAdapter } from './power/hperfor-api.adapter';
+import { EwelinkApiAdapter } from './power/ewelink-api.adapter';
+import { EwelinkModule } from '../integrations/ewelink/ewelink.module';
 import { FusionPlayerAdapter } from './projector/fusion-player.adapter';
 import { ServicesPrimitivesModule } from '../services/services-primitives.module';
 
@@ -53,6 +55,7 @@ const PROVIDERS = [
   EpaBreakerAdapter,
   EpaMqttBreakerAdapter,
   HperforApiAdapter,
+  EwelinkApiAdapter,
   // Projector (视频融合器)
   FusionPlayerAdapter,
 ];
@@ -60,6 +63,8 @@ const PROVIDERS = [
 @Module({
   imports: [
     ServicesPrimitivesModule,
+    // 易微联适配器注入 EwelinkDevicesService（OAuth/REST 由其完成）
+    EwelinkModule,
     // adapter 自己查 HardwareUnit 读 IP — 后台改完 IP 不用重启 backend
     // Device: HVAC 适配器用它把内机序号(1..22)映射到 {gwHost,n} 地址
     TypeOrmModule.forFeature([HardwareUnit, Device]),

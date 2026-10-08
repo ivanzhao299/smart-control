@@ -1,3 +1,24 @@
+
+## ★ 最新状态（2026-10-08，优先于本文件一切历史快照）
+
+- origin/main = 生产后端+前端 = **`4a209c4`**；部署 run **37732645002** = completed/success（scope / validate FE / validate BE / deploy 四 job 全 success，full 重建）。
+- **#92 易微联 eWeLink 云接入已全部写完、本地验收通过（未提交未部署，等业主同意推送）**（2026-10-08）：
+  - 后端：OAuth2.0 授权码全链路（`ewelink-auth.service` / `ewelink-devices.service`，`@Public()` callback 返成功/失败引导 HTML）；`EwelinkApiAdapter`（kind `ewelink-cloud`、category `power-breaker-ewelink`，与 Hperfor 同形）注册进 AdaptersModule，并与 Hperfor 一起进 PowerCircuits 并行采集池。
+  - **建表 migration `1791500000000-AddEwelinkAuth.ts`（类名 AddEwelinkAuth1791500000000）**：生产强制禁 synchronize（开启即 throw），必须显式建 `ewelink_auth` 单行表，否则授权/回调报 no such table。⚠️ 文件名时间戳笔误为 12 位 `179050000000-`、类名/内部 name 已用正确 13 位（TypeORM 只校验类名、功能正常）；建议业主同意后把文件名重命名为 1791500000000。
+  - 凭据：环境变量 `EWELINK_APP_ID`（.env.example 已填真实 APPID）/ `EWELINK_APP_SECRET`（业主配、不入对话/日志）/ `PUBLIC_BASE_URL`；getCredentials() 环境优先、回落 DB。
+  - 前端：DeviceNetworkAdmin 顶部「易微联 eWeLink 云接入」集成卡片（三态 tag + 前往授权/同步设备 + 结果文案）、CLOUD_PLATFORM 重构为 CLOUD_PLATFORMS 多平台 map；HardwareAdmin 品类映射、types/api.ts 枚举补齐 `power-breaker-ewelink`。
+  - **本地证据全绿**：`nest build` exit 0；签名单测 4/4；migration:run 对 4gdev 库成功建表；`GET /integrations/ewelink/status` 返 configured:false、`devices` 优雅提示「AppID/Secret 未配置」（不崩）；vue-tsc 过；浏览器登录后卡片显示「未配置 AppID/Secret」态、圆角样式与华普云块一致。
+  - **端到端最后一公里须在生产完成**：配 AppSecret → 点「前往授权」（回调天然落 erp.cnjinhu.com，token 落生产库）→「同步设备」（当前账号 1 台且离线、会列 skipped；上线后再同步即导入，每 outlet 一个 hardware_unit）。
+  - scope=**full**（路径含 /migrations/ → 前后端完整重建重启）。临时脚本 `backend/tmp-local-backend.ts`（ts-node 提供本地 3200）、`backend/tmp-trace-boot.ts` 为诊断产物：因 `nest start --watch` 在本地 watch 模式挂起（基线 4a209c4 同样挂、与易微联无关；ts-node 复刻 main 完整启动成功），**待请示清理**。
+- **#89 第二批 3 路华普云 4G 断路器已在生产**（commit `93b694b`、run 37725949815）：生产 id roof-sign=20、streetlight-2=21、streetlight-3=22（id 不连续为历史删除留洞）。
+  - **2026-10-08 14:33 复测**：路灯2/3 平台 `tOnline=true`；楼顶大字平台 `tOnline=false`，但生产 reading 已测到 229.8V/4W（硬件已通电，平台在线状态疑似滞后，建议现场确认 4G 注网）。3 路 reading 均有 ~230V 电压，`energy` 暂为 0（新上线、白天未开灯，正常；电量由 device-total 自动同步汇总）。
+- **#90 日落自动时间段已在生产真生效**（schedule commit `c12b6d1` + down 修复 `4a209c4`）：3 路均有 on/off sunset 规则；生产 next 端点实测下次开灯 `2026-10-08T09:54Z`（= 北京 17:54 日落）；楼顶大字 off 日落+120 分、路灯2/3 off 日落+240 分，weekdays 全周。
+- **#91 易微联认证已通过、OAuth 应用已创建**（2026-10-08）：认证=审核通过/已认证（个人开发者、+8615963930001）。应用名「金湖智慧园区」、OAuth2.0/标准角色、有效期至 2027-10-08；**APPID `p5XVbutJXVl88g6r33l79uqzGKofDee8`**；回调 `https://erp.cnjinhu.com/api/integrations/ewelink/callback`。**AppSecret 不入对话/日志，由业主直接配置到生产环境变量（建议 EWELINK_APP_ID / EWELINK_APP_SECRET）**。标准角色 API：`POST /v2/user/oauth/token`（code 换 token）、`POST /v2/user/refresh`（刷新）、`GET /v2/family`、`GET|POST /v2/device/thing`、`GET|POST /v2/device/thing/status`（读/写）、`POST /v2/device/thing/batch-status`、`DELETE /v2/user/oauth/token`。下一步 #26 后端 OAuth+REST 适配、#27 catalog+前端。
+- **教训（强制）：SQLite 迁移里禁止 MySQL 专有的 `DELETE <别名> FROM t <别名> JOIN ...`**（SQLite 报 `near "ps": syntax error`，且只在回滚/干净库才暴露）。down 一律用标准 `DELETE FROM t WHERE ... IN (SELECT ...)`。新迁移必须在干净库同时验 up 与 down（migration-chain.spec 会逐个回滚）。
+- **时序器名称“丢失”是误报**：生产名一直正确（投影功放 / LED大屏功放 / 二楼办公区功放 / 视频融和器 / 投影仪开关 / UDP插排×2 / 分区喇叭电源）；本地 4gdev 是 migration 重建的种子库、显示占位“时序1~8路”。已用 `/tmp/sync-names.sql` 按 code 把 9 个现场名同步回本地库（只改本地、不碰生产）。
+- **“高负载”指本地 Mac（load 77/83/70：豆包浏览器多 Renderer + WindowServer + Codex + ToDesk + Spotlight），不是 GK9000**；本项目后端不在高占用榜。高负载还使本地到生产的 fetch/TLS 间歇失败（多为本地网络，非生产故障）。
+
+---
 # MEMORY — 会话记忆（新对话从这里接力）
 
 > **用途**：跨对话无缝接力的唯一记忆文件。

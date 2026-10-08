@@ -44,6 +44,7 @@ export const HARDWARE_CATEGORIES = [
   'power-breaker',    // 智能断路器 / 远程空开 (ePa 485 Modbus — 给大屏做远程物理总闸)
   'power-breaker-4g', // 4G/MQTT 智能断路器 (户外路灯、水泵等公网回路)
   'power-breaker-web',// 4G 智能断路器走厂家云平台 Web API (华普云 ePa-CB, 庭院亮化/鱼池供氧/园区路灯)
+  'power-breaker-ewelink',// 智能开关走易微联 eWeLink OAuth2.0 云平台 (低成本市售易微联开关/插座)
   'hvac-outdoor',     // 中央空调外机 (商用 VRF, 例如 奥克斯 DLR-735W5)
   'hvac-gateway',     // 中央空调通讯网关 (例如 奥克斯 CCM-270B)
   'power-relay',      // 强电继电器模块

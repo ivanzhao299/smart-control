@@ -18,6 +18,7 @@ import { Seq55Adapter } from '../../adapters/power/seq55.adapter';
 import { EpaBreakerAdapter } from '../../adapters/power/epa-breaker.adapter';
 import { EpaMqttBreakerAdapter } from '../../adapters/power/epa-mqtt-breaker.adapter';
 import { HperforApiAdapter } from '../../adapters/power/hperfor-api.adapter';
+import { EwelinkApiAdapter } from '../../adapters/power/ewelink-api.adapter';
 import type { BreakerMeasurements } from '../../adapters/power/epa-breaker-registers';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
 import { ControlBus } from '../../services/control-bus';
@@ -80,6 +81,8 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly cloudBreaker?: EpaMqttBreakerAdapter,
     /** 4G 断路器走华普云 Web API (庭院亮化/鱼池供氧/园区路灯) — Optional: 未配置凭据时不下发 */
     @Optional() private readonly webBreaker?: HperforApiAdapter,
+    /** 云开关走易微联 eWeLink OAuth2.0 REST (低价市售开关) — Optional: 未授权时不下发 */
+    @Optional() private readonly ewelinkBreaker?: EwelinkApiAdapter,
     /** 事件总线: 后台采集到读数后 WS 广播 — Optional: 单测桩不传也能跑 */
     @Optional() private readonly bus?: ControlBus,
   ) {}
@@ -269,7 +272,9 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
 
   private async resolveBreakerAdapter(
     row: PowerCircuit,
-  ): Promise<EpaBreakerAdapter | EpaMqttBreakerAdapter | HperforApiAdapter | null> {
+  ): Promise<
+    EpaBreakerAdapter | EpaMqttBreakerAdapter | HperforApiAdapter | EwelinkApiAdapter | null
+  > {
     if (!row.gatewayCode) return null;
     const hw = await this.hwRepo.findOne({ where: { code: row.gatewayCode } });
     if (!hw?.enabled) return null;
@@ -281,6 +286,10 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     if (hw.category === 'power-breaker-web') {
       if (!this.webBreaker) throw new ConflictException('华普云 Web 断路器适配器未装载');
       return this.webBreaker;
+    }
+    if (hw.category === 'power-breaker-ewelink') {
+      if (!this.ewelinkBreaker) throw new ConflictException('易微联云开关适配器未装载');
+      return this.ewelinkBreaker;
     }
     return null;
   }
@@ -327,7 +336,11 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   /** 后台采集: 真正 await 设备读数; 失败保留上一次快照, 不用 0 覆盖 */
   private async refreshBreakerReading(
     row: PowerCircuit,
-    breakerAdapter: EpaBreakerAdapter | EpaMqttBreakerAdapter | HperforApiAdapter,
+    breakerAdapter:
+      | EpaBreakerAdapter
+      | EpaMqttBreakerAdapter
+      | HperforApiAdapter
+      | EwelinkApiAdapter,
   ): Promise<PowerReading | null> {
     const r = await breakerAdapter.getMeasurements(row.gatewayCode as string);
     if (!r.ok || !r.data) {
@@ -400,8 +413,9 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
       for (const row of rows) {
         const adapter = await this.resolveBreakerAdapter(row);
         if (!adapter) continue;
-        if (adapter instanceof HperforApiAdapter) parallel.push(row);
-        else serial.push(row); // 485 / MQTT: 保守串行, 避免共享总线冲突
+        if (adapter instanceof HperforApiAdapter || adapter instanceof EwelinkApiAdapter) {
+          parallel.push(row); // 云 HTTP 设备可并行
+        } else serial.push(row); // 485 / MQTT: 保守串行, 避免共享总线冲突
       }
       await Promise.all(parallel.map((r) => this.refreshAndPublish(r)));
       for (const r of serial) await this.refreshAndPublish(r);
