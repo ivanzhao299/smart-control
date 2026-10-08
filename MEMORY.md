@@ -12,7 +12,7 @@
 
 ### 当前基点
 - 权威开发目录 `/Users/mac/Documents/smart-control-4g-dev`（**禁碰 `/Users/mac/Documents/smart-control`**）；当前分支 `main`。
-- 仓库 `ivanzhao299/smart-control`；origin/main = **`a4b8e18`**（3d-twin 运行时、twin scope）；**生产前后端进程代码 = `831b188`**（twin 不重启前后端）、**生产 3d-twin 静态资产 = `a4b8e18`**（2026-10-08 同步、viewer 公网回验 200）。
+- 仓库 `ivanzhao299/smart-control`；origin/main = **`9b9c39c`**；**生产后端进程代码 = `9b9c39c`**（webp 动态 import 修复、2026-10-08 部署成功、run 37716933656）、**生产前端 dist 构建戳 = `4298ce8`**（最后一次仅改后端 src、scope=backend、前端无 diff 不重建，版本戳停在上次前端构建，运行内容仍等价 9b9c39c）、**生产 3d-twin 静态资产 = `a4b8e18`**。
 - 生产 GK9000（Win10，`D:\smart-control`，内网 192.168.77.54，WG 10.66.66.3），pm2 守护 backend(3200)+frontend(5173)；入口 https://erp.cnjinhu.com ，账号 admin/jinhu888（**erp.cnjinhu.top 已删除弃用，2026-10-07**）。
 - 部署走 GitHub Actions `deploy-gk9000.yml`（跳板 123.57.220.65 → WireGuard → deploy-from-ci.ps1），**不用 GK9000 执行器**；流程铁律：本地验收→业主同意→才部署，三端同 commit、CI 绿且生产真生效（进程重启+新dist+回验+verify）。
 
@@ -24,6 +24,33 @@
 - **圆角统一 #84 完成**：`frontend/src/components/PlayerConsole.vue` 全文件 border-radius 硬编码批量换 token（14→`var(--v2-r-lg)`；13/12/10/9→`var(--v2-r-md)`；8/7/6→`var(--v2-r-sm)`；保留 50%/20px/999px/4px/2px/0），覆盖欢迎编辑器及同文件所有浮层；前台弹窗确认容器 14、卡片/按钮 12、小控件 8，与后台 token 一致。
 - **全量验收 #85 全绿**：后端 `build`✓、`jest --ci` **851 通过**（修复 `media-controller-audit.spec.ts`：新增 thumbnails 构造参数后 MediaController 需 5 参、spec 补第 5 个 `{} as any`）、`test:ops` 70（67 pass / 3 skip / 0 fail）；前端 `typecheck`✓、`build`✓（PWA v1.3.0、precache 105）、`test` **289 全过**。
 - 测试图 media **id=4**、源 `/tmp/test-bg-3612.jpg`（3612×1462、1102862 B）；上传必需头 `X-Upload-Size:<字节>`、multipart 字段 `file`。误建 0 字节空库 `database/smart-control-4g-dev.db`（有连字符；正确库 `smart-control-4gdev.db` 无连字符）仍**待请示清理**。
+
+### 2026-10-08 #89：新增第二批 3 路华普云 4G 断路器（**本地已验收、未提交未部署、等业主同意**）
+- 现场又到货 3 台与第一批完全相同的 ePa-CB 4G 断路器（华普云 Web API），用户已在小程序添加并命名。**复用现有 `hperfor-web` 驱动、不新建 driver 行**，只新增 3 hardware_unit + 3 power_circuit。
+- **新 3 台（平台实测；SN 尾号与路灯编号不对应，以 fName 为准）**：
+  | 名称 | fId | SN | unit code | circuit code | sort |
+  |---|---|---|---|---|---|
+  | 楼顶大字 | `2108034374871126017` | CB28100586 | CB4G-SIGN-1 | roof-sign | 230 |
+  | 路灯2 | `2108030517168410626` | CB28100585 | CB4G-ROAD-2 | streetlight-2 | 240 |
+  | 路灯3 | `2108031188101861378` | CB28100571 | CB4G-ROAD-3 | streetlight-3 | 250 |
+- 额定统一 220V/16A/3000W、category=lighting、icon=Lightbulb、坐标复用园区。迁移 `backend/src/migrations/1790300000000-AddHperforExtraBreakersCatalog.ts`，纯增量 `WHERE NOT EXISTS` 幂等；down() 先查 power_schedules 引用再删 circuit/unit（不删 driver）。
+- **scope=`full`**：路径含 `/migrations/` 命中 deploy-scope highRisk 正则（迁移走完整前后端重建重启的安全门禁）。
+- **本地验收全绿（4gdev 库 migration:run 成功）**：回路总数 20、云断路器 hardware_unit 6 台；后端 3 路 on/off 均 201、重复 on 幂等；PWA 电源页"园区"分区完整显示 6 路 3×2 网格、新卡样式与第一批一致；点击"楼顶大字"→已通电、电流5.2A/电压220.1V/功率1144W（mock），再点恢复已断电。
+- ⚠️ **拉列表时新 3 台平台均 `tOnline=false`**：需现场确认设备已通电、4G 上线/退出休眠，上线前真实控制可能不响应（第一批 3 台 online 正常）。
+- 下一步：业主同意后 push main 触发 deploy-gk9000.yml（full），生产回验 6 路。
+
+### 2026-10-08 #88：缩略图补 webp 解码（**本地已验收、未提交未部署、等业主同意**）
+- **起因**：生产回验缩略图时发现 `id=136`（`image/webp`、3612×1462、`exec-...webp`）`GET /api/media/136/thumb` = **HTTP 500「Unsupported MIME type: image/webp」**——jimp 0.22.12 无内置 webp 解码器。生产 12 张图中 jpg/png（119/122 等）缩略图正常（480px、200），仅 webp 失败。
+- **方案选型（最小风险、无原生依赖）**：官方 `@jimp/wasm-webp@1.6.1` 属 jimp **1.x monorepo（ESM、新 format API），与 jimp 0.22 不兼容**；升级 jimp 1.x 改动大、否决；换 sharp 需原生 prebuilt、GK 离线部署有不确定性、否决。**选定：保留 jimp 0.22，webp 单独用纯 wasm 的 `@jsquash/webp@1.5.0`（libwebp 编 wasm）解码为 RGBA，再 `new Jimp(w,h)` + `bitmap.data.set()` 复用现有 scale/encode。**
+- **集成关键点（已写入 `media-thumbnail.service.ts`）**：① @jsquash 是 ESM-only（`type:module`），NestJS 编 CommonJS，须**动态 `await import('@jsquash/webp/decode.js')`**，`decode` 是 **default export**、`init` 是命名导出；② emscripten 默认 `fetch(file:...)` 在 Node 报 "not implemented"，必须 `fs.readFile(require.resolve('@jsquash/webp/codec/dec/webp_dec.wasm'))`（wasm 仅 138KB）→ `WebAssembly.compile` → `init(wasmModule)`，懒单例；③ 上传端点是 **`POST /api/media/upload`**（非根 `/api/media`），仍需 `X-Upload-Size`。
+- **成功证据**：上传 opposite-day.webp（3000×2400、666KB）→ id=5；jsquash 解码 **115ms**；`GET /api/media/5/thumb` = **HTTP 200、59171 B、image/jpeg、480×384**（预生成命中 0.03s）。
+- **验收全绿**：后端 `nest build`✓；`pnpm audit --prod --audit-level high`（官方 registry）**0 high、仅 6 moderate**（历史 typeorm>minimatch 等、门禁放行）；media 测试 **18 suites / 183 tests 全过**。
+- **scope = `full`**（改 package.json/pnpm-lock → highRisk、后端代码、需完整部署+后端重启）。改动仅 3 文件：`backend/package.json`(+1)、`pnpm-lock.yaml`(+15)、`media-thumbnail.service.ts`(+36/-1)。
+- **首次部署后生产仍 500（运行时缺陷、已追修）**：4298ce8 部署成功但生产 id=136 仍 500，错误 `require() of ES Module ...decode.js not supported`——**TS 在 `module:commonjs` 下把 `await import()` 降级编译成 `Promise.resolve().then(()=>require())`**（dist 实证），而本地 start:dev（ts-node/watch 路径）未如此降级、故本地端到端误判通过。
+- **追修（commit `9b9c39c`）**：改用 **`new Function('specifier','return import(specifier)')`** 构造 ESM 加载器，TS 不转译 Function 体、运行时保留真正动态 import()。重新 `nest build` 确认 dist 保留 `new Function`，并在 **CJS 运行形态**（非 start:dev）下端到端验证 webp→480×384 JPEG。
+- **最终生产回验全绿（run 37716933656、4 jobs success）**：id=136(webp) **HTTP 200、26237 B、480×194、0.85s**（原 500）；id=119 200/70888 B、id=122 200/154507 B。
+- **教训（强制记忆）**：凡含动态 import ESM 的 CJS 后端，验收必须跑**构建后的 dist**（node 直接跑 dist 形态），不能只靠 start:dev，否则 TS 的 import→require 降级不会暴露。
+- 本地测试 webp 资产 id=5 已通过 DELETE 接口彻底删除；误建空库 `smart-control-4g-dev.db` 已 `/usr/bin/trash` 送回收站（业主 2026-10-08 同意）。
 
 ### 2026-10-08 #87：v3 真实感 3d-twin 运行时摘取合并（**已部署生产、回验通过、等三端 commit 复核**）
 - **版本认知校准（重要、勿再搞反）**：`origin/main` 与工作区 3d-twin 骨架 = **manifest 0.1.0、bootstrap `resolveViewerUrl()` 直接 return `viewer/index.html`（静态预渲染 webp、零持续 GPU）**；`codex/park-twin-realism-v3` = **0.2.0、默认 live（实时 WebGL）**。即 main 设计是"生产默认最轻 viewer、live 实时底座留 v3"。本次摘取**保留 main 0.1.0 bootstrap/manifest、未覆盖**。
