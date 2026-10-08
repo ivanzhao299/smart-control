@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<title>金湖园区 · 实时数字孪生</title>
+<!-- 纯静态实时底座：three/draco/loader 全部在 3d-twin/model 内，自包含、离线、无 CDN、不进主构建、不依赖外部 vendor -->
+<script type="importmap">
+{"imports":{
+  "three":"../model/three.module.min.js",
+  "ez-tree":"../../vendor/ez-tree.js",
+  "gltf-loader":"../model/addons/GLTFLoader.js",
+  "draco-loader":"../model/addons/DRACOLoader.js",
+  "sky":"../model/addons/Sky.js"
+}}
+</script>
+<link rel="stylesheet" href="./live.css" />
+</head>
+<body>
+  <div id="liveStage" class="live-stage"></div>
+  <div id="liveHud" class="live-hud" hidden>
+    <span id="hudFps">-- fps</span>
+    <span id="hudLevel">L0</span>
+    <span id="hudState">active</span>
+  </div>
+  <div id="liveNote" class="live-note">实时底座加载中…</div>
+  <script type="module" src="./live.js"></script>
+</body>
+</html>

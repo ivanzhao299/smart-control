@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>EZ-Tree 低面母树</title>
+<script type="importmap">
+{"imports":{
+  "three":"../../vendor/three.module.min.js",
+  "ez-tree":"../../vendor/ez-tree.js"
+}}
+</script>
+<style>html,body{margin:0;height:100%;overflow:hidden;background:#000}
+#info{position:fixed;left:12px;top:12px;background:rgba(10,14,20,.8);color:#dfe7f0;padding:9px 13px;border-radius:9px;font:13px/1.5 ui-monospace,monospace;white:pre}</style>
+</head>
+<body>
+<div id="info">…</div>
+<script type="module">
+import * as THREE from 'three';
+import { Tree } from 'ez-tree';
+
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth,innerHeight); renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+document.body.appendChild(renderer.domElement);
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0x20242c);
+const camera=new THREE.PerspectiveCamera(42,innerWidth/innerHeight,0.1,2000);
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(300,160),new THREE.MeshLambertMaterial({color:0x5a6350}));
+ground.rotation.x=-Math.PI/2; scene.add(ground);
+scene.add(new THREE.AmbientLight(0xffffff,0.75));
+const sun=new THREE.DirectionalLight(0xffffff,2.4); sun.position.set(30,55,45); scene.add(sun);
+
+function makeTree(cfg){
+  const t=new Tree(); const o=t.options;
+  o.seed=cfg.seed; o.type='deciduous';
+  o.bark.type=cfg.bark; o.bark.textured=true;
+  o.branch.levels=cfg.levels??2;
+  o.branch.length[0]=cfg.trunk; o.branch.length[1]=cfg.trunk*0.5;
+  o.branch.radius[0]=cfg.rad??0.8; o.branch.radius[1]=0.4;
+  o.branch.sections[0]=cfg.s0??3; o.branch.sections[1]=cfg.s1??3; o.branch.sections[2]=cfg.s2??2;
+  o.branch.segments[0]=cfg.g0??5; o.branch.segments[1]=cfg.g1??4; o.branch.segments[2]=cfg.g2??3;
+  o.branch.children[0]=cfg.c0??4; o.branch.children[1]=cfg.c1??3;
+  o.branch.angle[1]=cfg.ang??50; o.branch.angle[2]=42;
+  const f=o.leaves;
+  f.type=cfg.leaf; f.count=cfg.lc??5; f.size=cfg.ls??3.4; f.start=cfg.lstart??0.15;
+  f.billboard='double'; f.tint=0xffffff; f.alphaTest=cfg.at??0.3; f.angle=15;
+  t.generate(); return t;
+}
+const rows=[];
+function show(t,x,z,label){
+  const b=new THREE.Box3().setFromObject(t); const s=new THREE.Vector3(); b.getSize(s);
+  t.position.set(x,0,z); scene.add(t);
+  rows.push(`${label}: tris=${Math.round(t.triangleCount)} h=${s.y.toFixed(1)} crown=${Math.max(s.x,s.z).toFixed(1)}`);
+  return t;
+}
+// 金黄银杏 ×2
+window.__g0=show(makeTree({seed:1,leaf:'aspen',bark:'birch',trunk:9,c0:4,c1:3,lc:5,ls:3.4}), -40, 0, 'ginkgo1');
+show(makeTree({seed:2,leaf:'aspen',bark:'birch',trunk:9,c0:4,c1:3,lc:5,ls:3.4}), -20, 0, 'ginkgo2');
+// 深绿橡树 ×2
+show(makeTree({seed:3,leaf:'oak',bark:'oak',trunk:10,c0:4,c1:3,lc:5,ls:3.6}), 4, -2, 'oak1');
+show(makeTree({seed:4,leaf:'oak',bark:'oak',trunk:10,c0:4,c1:3,lc:5,ls:3.6}), 26, -2, 'oak2');
+// 基部灌木 ×2（levels1）
+show(makeTree({seed:5,leaf:'oak',bark:'oak',levels:1,trunk:2.6,c0:3,lc:2,ls:2.6,lstart:0.1,rad:0.4}), -40, 26, 'bush1');
+show(makeTree({seed:6,leaf:'oak',bark:'oak',levels:1,trunk:2.6,c0:3,lc:2,ls:2.6,lstart:0.1,rad:0.4}), -24, 26, 'bush2');
+// 行道树精简版（~500 tri，成排连续）
+show(makeTree({seed:11,leaf:'aspen',bark:'birch',trunk:8,c0:3,c1:2,lc:4,ls:3.4,s0:2,s1:2,s2:2,g0:4,g1:3,g2:3}), -14, 44, 'ginkgoLite');
+show(makeTree({seed:12,leaf:'oak',bark:'oak',trunk:9,c0:3,c1:2,lc:4,ls:3.6,s0:2,s1:2,s2:2,g0:4,g1:3,g2:3}), 12, 44, 'oakLite');
+
+document.getElementById('info').textContent=rows.join('\n');
+window.__r=renderer; window.__scene=scene; window.__camera=camera; window.THREE=THREE; window.Tree=Tree;
+camera.position.set(-6,24,84); camera.lookAt(-6,10,0);
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+(function loop(){requestAnimationFrame(loop);renderer.render(scene,camera);})();
+</script>
+</body>
+</html>

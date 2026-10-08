@@ -1,0 +1,6 @@
+# 大体积中间产物 / 历史备份：磁盘保留、不入 git。
+# 正式入库的运行底座仅有 park_lite_draco.glb（Draco 压缩，约 3.9MB）。
+park_lite.glb
+park_stage1.glb
+park_box.glb
+park_v*.glb

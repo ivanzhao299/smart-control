@@ -1,0 +1,386 @@
+{
+  "version": 1,
+  "revision": "jinhu-camera-20260910-v2-filled",
+  "renderMode": "offline-real-3d-camera-cache",
+  "dimensions": [
+    3000,
+    2400
+  ],
+  "clayDimensions": [
+    3000,
+    2400
+  ],
+  "defaultView": "opposite",
+  "defaultLighting": "day",
+  "views": [
+    {
+      "id": "reference",
+      "azimuthDeltaDegrees": 0,
+      "camera": [
+        -385.5524597167969,
+        -806.7929077148438,
+        801.8135986328125
+      ],
+      "rotation": [
+        0.8916390538215637,
+        -5.025756522059055e-08,
+        -0.755511462688446
+      ],
+      "type": "PERSP",
+      "lens": 28.0,
+      "orthoScale": 1238.484130859375,
+      "shift": [
+        -0.004058942198753357,
+        -0.0716521218419075
+      ],
+      "subjectBounds": [
+        0.2330041080713272,
+        0.26999980211257935,
+        0.766995906829834,
+        0.7300001382827759
+      ],
+      "labels": {
+        "office-tower": {
+          "x": 39.977821707725525,
+          "y": 28.821301460266113,
+          "visible": true
+        },
+        "factory-south-long": {
+          "x": 61.22547388076782,
+          "y": 58.46765339374542,
+          "visible": true
+        },
+        "factory-east-end": {
+          "x": 74.31835532188416,
+          "y": 45.52887678146362,
+          "visible": true
+        },
+        "office-lake-north": {
+          "x": 58.317530155181885,
+          "y": 39.632415771484375,
+          "visible": true
+        }
+      },
+      "images": {
+        "day": "reference-day.webp",
+        "night": "reference-night.webp"
+      },
+      "clayImage": "reference-clay.webp"
+    },
+    {
+      "id": "opposite",
+      "azimuthDeltaDegrees": 180,
+      "camera": [
+        896.1754150390625,
+        553.9324340820312,
+        754.9893188476562
+      ],
+      "rotation": [
+        0.8916390538215637,
+        7.139735913597178e-08,
+        2.3860809803009033
+      ],
+      "type": "PERSP",
+      "lens": 28.0,
+      "orthoScale": 1163.939453125,
+      "shift": [
+        0.020381584763526917,
+        -0.027041828259825706
+      ],
+      "subjectBounds": [
+        0.21999986469745636,
+        0.2860310673713684,
+        0.7800001502037048,
+        0.7139689028263092
+      ],
+      "labels": {
+        "office-tower": {
+          "x": 63.513946533203125,
+          "y": 60.80784797668457,
+          "visible": true
+        },
+        "factory-south-long": {
+          "x": 39.96830880641937,
+          "y": 34.77923274040222,
+          "visible": true
+        },
+        "factory-east-end": {
+          "x": 24.88102912902832,
+          "y": 43.45730543136597,
+          "visible": true
+        },
+        "office-lake-north": {
+          "x": 39.19273316860199,
+          "y": 48.43253493309021,
+          "visible": true
+        }
+      },
+      "images": {
+        "day": "opposite-day.webp",
+        "night": "opposite-night.webp"
+      },
+      "clayImage": "opposite-clay.webp"
+    },
+    {
+      "id": "left",
+      "azimuthDeltaDegrees": 90,
+      "camera": [
+        963.1671142578125,
+        -753.34912109375,
+        786.8380737304688
+      ],
+      "rotation": [
+        0.891639232635498,
+        -7.349774477916071e-08,
+        0.8152849078178406
+      ],
+      "type": "PERSP",
+      "lens": 28.0,
+      "orthoScale": 1214.6431884765625,
+      "shift": [
+        -0.0346074253320694,
+        -0.045927442610263824
+      ],
+      "subjectBounds": [
+        0.24908380210399628,
+        0.27000004053115845,
+        0.7509161829948425,
+        0.7299999892711639
+      ],
+      "labels": {
+        "office-tower": {
+          "x": 68.04511547088623,
+          "y": 34.2046320438385,
+          "visible": true
+        },
+        "factory-south-long": {
+          "x": 33.7666392326355,
+          "y": 52.75923013687134,
+          "visible": true
+        },
+        "factory-east-end": {
+          "x": 47.2050279378891,
+          "y": 68.78687143325806,
+          "visible": true
+        },
+        "office-lake-north": {
+          "x": 55.658912658691406,
+          "y": 51.424640417099,
+          "visible": true
+        }
+      },
+      "images": {
+        "day": "left-day.webp",
+        "night": "left-night.webp"
+      },
+      "clayImage": "left-clay.webp"
+    },
+    {
+      "id": "right",
+      "azimuthDeltaDegrees": -90,
+      "camera": [
+        -439.4831848144531,
+        567.8696899414062,
+        816.4595336914062
+      ],
+      "rotation": [
+        0.8916390538215637,
+        1.0943708161903487e-07,
+        -2.326308012008667
+      ],
+      "type": "PERSP",
+      "lens": 28.0,
+      "orthoScale": 1261.800537109375,
+      "shift": [
+        0.02452133595943451,
+        -0.06116396188735962
+      ],
+      "subjectBounds": [
+        0.24991396069526672,
+        0.2699999213218689,
+        0.7500860095024109,
+        0.7300000786781311
+      ],
+      "labels": {
+        "office-tower": {
+          "x": 29.656600952148438,
+          "y": 51.18744075298309,
+          "visible": true
+        },
+        "factory-south-long": {
+          "x": 63.396382331848145,
+          "y": 36.553871631622314,
+          "visible": true
+        },
+        "factory-east-end": {
+          "x": 51.325756311416626,
+          "y": 28.465938568115234,
+          "visible": true
+        },
+        "office-lake-north": {
+          "x": 45.74848115444183,
+          "y": 36.69704794883728,
+          "visible": true
+        }
+      },
+      "images": {
+        "day": "right-day.webp",
+        "night": "right-night.webp"
+      },
+      "clayImage": "right-clay.webp"
+    },
+    {
+      "id": "top",
+      "azimuthDeltaDegrees": 0,
+      "camera": [
+        275.1968078613281,
+        -105.31927490234375,
+        1623.875244140625
+      ],
+      "rotation": [
+        0.0,
+        -0.0,
+        1.5707963705062866
+      ],
+      "type": "ORTHO",
+      "lens": 28.0,
+      "orthoScale": 1659.9957275390625,
+      "shift": [
+        0.0,
+        2.3841858265427618e-08
+      ],
+      "subjectBounds": [
+        0.3042581081390381,
+        0.2699999213218689,
+        0.6957419514656067,
+        0.7300001680850983
+      ],
+      "labels": {
+        "office-tower": {
+          "x": 68.93207430839539,
+          "y": 52.60981321334839,
+          "visible": true
+        },
+        "factory-south-long": {
+          "x": 31.785786151885986,
+          "y": 43.31611394882202,
+          "visible": true
+        },
+        "factory-east-end": {
+          "x": 31.63699209690094,
+          "y": 66.09252691268921,
+          "visible": true
+        },
+        "office-lake-north": {
+          "x": 46.071141958236694,
+          "y": 58.67690145969391,
+          "visible": true
+        }
+      },
+      "images": {
+        "day": "top-day.webp",
+        "night": "top-night.webp"
+      },
+      "clayImage": "top-clay.webp"
+    }
+  ],
+  "anchors": [
+    {
+      "id": "office-tower",
+      "label": "办公高楼",
+      "world": [
+        309.8549499511719,
+        208.95233154296875,
+        49.280296325683594
+      ],
+      "sourceObject": "Box860"
+    },
+    {
+      "id": "factory-south-long",
+      "label": "长栋厂房",
+      "world": [
+        186.43499755859375,
+        -407.6744689941406,
+        14.399969100952148
+      ],
+      "sourceObject": "对象293"
+    },
+    {
+      "id": "factory-east-end",
+      "label": "标准厂房",
+      "world": [
+        488.90496826171875,
+        -410.1444091796875,
+        14.39996337890625
+      ],
+      "sourceObject": "Box465"
+    },
+    {
+      "id": "office-lake-north",
+      "label": "湖畔小楼",
+      "world": [
+        390.42572021484375,
+        -170.53814697265625,
+        21.99996566772461
+      ],
+      "sourceObject": "对象496"
+    }
+  ],
+  "sourceGeometry": "actual-local-MAX-extraction",
+  "landscape": "reference-inspired-not-surveyed",
+  "productionEligible": false,
+  "businessData": "demo-or-unassigned",
+  "continuousWebGL": false,
+  "responsiveFraming": {
+    "padding": 0.035,
+    "mode": "measured-subject-fit-with-overscan"
+  },
+  "landscapeSummary": {
+    "treeCount": 3593,
+    "parkTrees": 1196,
+    "provenance": "deterministic-reference-inspired-reconstruction-not-surveyed",
+    "sourceGeometryUnchanged": true,
+    "overscanTrees": 13476
+  },
+  "limitations": [
+    "Pre-rendered camera views, not free orbit.",
+    "Peripheral landscape is presentation-only, not surveyed.",
+    "Official building IDs, scale and tenant mapping remain unverified."
+  ],
+  "geometryUnchanged": true,
+  "bytesByImage": {
+    "reference-day.webp": 588366,
+    "reference-night.webp": 409734,
+    "reference-clay.webp": 280716,
+    "opposite-day.webp": 666640,
+    "opposite-night.webp": 451716,
+    "opposite-clay.webp": 416256,
+    "left-day.webp": 694334,
+    "left-night.webp": 453730,
+    "left-clay.webp": 403770,
+    "right-day.webp": 643222,
+    "right-night.webp": 434444,
+    "right-clay.webp": 357312,
+    "top-day.webp": 410172,
+    "top-night.webp": 260740,
+    "top-clay.webp": 273020
+  },
+  "totalImageBytes": 6744172,
+  "imageHashes": {
+    "reference-day.webp": "5a1fac904fb2b89fac17fb5dcbb0c356b6fe7e8fdfb11b688a6826139f68dbef",
+    "reference-night.webp": "40f2d34f2b80ebfdbfd1d29123c36b4b58f0dcc29a94e5b4fb2cf2bf2c3d1206",
+    "reference-clay.webp": "38ecd05baff118a41002f29243b8cf1b86998d44929de7868f3df4b9b14a8501",
+    "opposite-day.webp": "734d8e1fe5d397c2761d62bdcae0ffc905d9803f07ccc8974c54687bcf63a399",
+    "opposite-night.webp": "038a2dfe8279460ef58b0c9d199e3f3dc1c6f6560c6608fec41a9f047b13b5ef",
+    "opposite-clay.webp": "60458004e8703e284afbfd0ac195bfcc049ea62a15829ed3e46229b008dcd880",
+    "left-day.webp": "73529330a5d42b521181a5b04fb9a6da6700c83a08c2d5e564220d5ec32e1647",
+    "left-night.webp": "3eed9d8cecf6e6883653b6b07ddc15b1236ccfcbc45c95b246195e73a636d66b",
+    "left-clay.webp": "a623b665369b74c31f128ea7021cf274e148fa43730b6558b66528d14a43d2a2",
+    "right-day.webp": "1eda0472eee1db319e2b57457dfbaf1fa5e909149f2890c2e9bb13bd340da989",
+    "right-night.webp": "6749f529322cda35457d384c86a4297fbcb69f3df06ab90b37da4f41166030d4",
+    "right-clay.webp": "d6d2204d8ba46cbbc08659bb7cc6c404b7e799bbe9254107678a44e9beb72022",
+    "top-day.webp": "981e5ffb58f83dc1182fe150f4ffd7d879f4abecbedd2c0f11be9763e39949cd",
+    "top-night.webp": "9e334b43ff6f9d6af6c3876584e4431f0949d6ff7b7c269013d4126d51e58f1f",
+    "top-clay.webp": "9aa8319cddc28d5edcfac57cfc26c01582e7036df57acb327fbf87ad73c74d2b"
+  }
+}
