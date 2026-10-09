@@ -1,6 +1,15 @@
 
 ## ★ 最新状态（2026-10-09，优先于本文件一切历史快照）
 
+- **【2026-10-09 欢迎页字号控件内联重构：已部署生产成功（HEAD `776ca02`，Deploy run 37920110573 success）】**
+  - 业主反馈：字号没必要单独起两行、还命名"主标题字号/嘉宾行字号"；应直接在相应文字框同一行后面改字号，最直接、最好操作。
+  - 改动（**纯前端，无后端/数据变更、无新迁移**）：
+    - PlayerConsole：删除独立 `<WelcomeFontSizeControls>` 区块；主标题、嘉宾行各包一层 `.wb-text-size-row`（flex），文字 input 后跟一个窄 `.wb-size-input`（type=number、placeholder「字号」、title 提示范围、空=默认）。底部标语等其他行不变。
+    - 清洗逻辑下沉：useWelcomeEditor 新增并导出 `setWelcomeSize(event,which)`（空→null、范围内整数接受、否则 null）；保存时原有 clampSize 仍兜底。
+    - 删除子组件 `components/WelcomeFontSizeControls.vue`（送回收站），components.d.ts 同步移除登记；player-power-controls 测试注释更新（行数守护 <1420 不变）。
+  - 本地验证：vue-tsc 0 错、前端 node --test 285 pass/0 fail、PlayerConsole 1415 行 <1420；证据图 `验收截图/欢迎页-字号内联-20261009.png`。
+  - 生产回验：run 37920110573 全 job 绿（scope/validate-fe/validate-be/deploy，约 5 分钟）；deployment-version.json commit=`776ca0265...` clean=true、HTTP200、0.2s。三端（本地/origin/生产）同 `776ca02`。
+
 - **【2026-10-09 可编辑欢迎页改版（去"恭迎"/嘉宾行整行可编辑/标题+嘉宾字号数字可调）：已部署生产成功（HEAD `9a9bf49`，Deploy run 37914107573 success）】**
   - 需求（业主原话）：主标题"热烈欢迎"默认太大→调小；标题下嘉宾行太小→调大；去掉"恭迎"前缀；嘉宾行由"仅中间称谓可编辑"改为**整行文字可编辑**；标题、嘉宾行两行字号都支持**数字调整**（默认固定比例、仍可手动改数字），保留超长自动缩小。
   - **数据模型（后端，全链路贯穿）**：
@@ -51,7 +60,7 @@
   - **已部署生产**：两个 commit —— 功能 `edc754a`（首次 Deploy 在 Validate frontend 门禁失败、未触达生产）+ 修复 `330772b`（harness 补 current-actor/claim/getParkOpsOwnerId/window mock、claim CSS 压缩使 PlayerConsole 1398 行 <1400 守护；前端测试 289 全过）。Deploy run **37888460734** completed/success（全 job 绿，含 Deploy to GK9000 verify）。
   - **生产回验真生效**：deployment-version.json commit=`330772b7...` clean=true；`/api/park-ops-control/state` totalPages=6、page=0、autoPlay=false、**claimed=false/claim=null（重启后默认现场主控）**；大屏 `<section class="page">` 精确 6 个、无 welcome-page/welcomeLine。三端（本地/origin/生产）同 commit `330772b`。
 
-- origin/main = 生产后端+前端 = **`9a9bf49`**（欢迎页改版：去"恭迎"/嘉宾行整行可编辑/标题+嘉宾字号数字可调，同时含投影 cover 修复与 branding 前端清理）；Deploy run **37914107573** completed/success，生产 deployment-version.json commit=`9a9bf492...` clean=true。上一基点 **`330772b`**（大屏删欢迎页 + 接管锁，Deploy run 37888460734）；再上 **`0a377df`**（PWA 冷启动补拉 + 登录错误就地提示，Deploy run 37869919256）。
+- origin/main = 生产后端+前端 = **`776ca02`**（欢迎页字号控件内联到文字框同一行，纯前端）；Deploy run **37920110573** completed/success，生产 deployment-version.json commit=`776ca0265...` clean=true。上一基点 **`9a9bf49`**（欢迎页改版：去恭迎/整行可编辑/字号可调，含投影 cover、branding 清理，Deploy run 37914107573）；再上 **`330772b`**（大屏删欢迎页 + 接管锁）。
 - **#28 PWA 冷启动首批数据失败补拉已部署**（2026-10-09，纯前端 3 文件 +72/-7）：
   - 根因：scenes/devices 清单只在登录/启动拉一次、无重试，弱网/429/超时失败即永久空白（对应生产手机全 0 截图）。
   - 修复：① 首批清单有限退避重试（0.9s/1.8s、共 3 次）；② 仍失败由 `app:bootstrap-backfill` 每 15s 兜底补拉，成功（即使空）即标记停止；③ `polling.subscribe` 新增 `fixed` 选项——紧急自愈不随 WS 在线放大（**修复前实测 backfill 约 88s、加 fixed 后约 7s**；根因是 effectiveInterval 在 WS open 时 `max(declared×6,30s)` 把 15s 放大到 90s）。
