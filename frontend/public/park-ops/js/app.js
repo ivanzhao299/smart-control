@@ -39,102 +39,53 @@ function playTestSounds(){console.log('依次播放6种翻页音效...');const n
 // 切换音效类型：在控制台输入 setSoundType(1~6)
 function setSoundType(n){currentSoundType=Math.max(1,Math.min(6,parseInt(n)||6));console.log(`已切换到音效${currentSoundType}`);playPageSwitchSound()}
 function go(n){if(switching)return;const next=(n+pages.length)%pages.length;if(next===idx)return;try{playPageSwitchSound();switching=true;const direction=next>idx?'right':'left';const oldPage=pages[idx],newPage=pages[next];
-// 从欢迎页切出：克隆大字飞升到标题栏位置（FLIP技术保持文字比例）
-if(oldPage.classList.contains('welcome-page')){const title=oldPage.querySelector('.welcome-title');if(title){
-// 获取大字实际字体大小和位置
-const titleFontSize=parseFloat(getComputedStyle(title).fontSize);
-const initialRect=title.getBoundingClientRect();
-// 先获取原welcomeLine的准确位置和大小（临时显示）
-const welcomeLine=document.getElementById('welcomeLine');
-const wlDisplay=welcomeLine.style.display;
-const wlOpacity=welcomeLine.style.opacity;
-const wlTransform=welcomeLine.style.transform;
-welcomeLine.style.display='block';
-welcomeLine.style.opacity='1';
-welcomeLine.style.transform='none';
-const wlRect=welcomeLine.getBoundingClientRect();
-const wlStyle=getComputedStyle(welcomeLine);
-const wlFontSize=wlStyle.fontSize;
-const wlLetterSpacing=wlStyle.letterSpacing;
-const wlLineHeight=wlStyle.lineHeight;
-const wlOffsetLeft=welcomeLine.offsetLeft;
-const wlOffsetTop=welcomeLine.offsetTop;
-const wlOffsetWidth=welcomeLine.offsetWidth;
-welcomeLine.style.display=wlDisplay;
-welcomeLine.style.opacity=wlOpacity;
-welcomeLine.style.transform=wlTransform;
-// 创建克隆元素，放到.title容器内部，与原welcomeLine完全同位置同缩放
-const clone=document.createElement('div');
-clone.className='welcome-clone';
-clone.textContent=title.textContent;
-clone.style.fontSize=wlFontSize;
-clone.style.letterSpacing=wlLetterSpacing;
-clone.style.lineHeight=wlLineHeight;
-clone.style.textAlign='center';
-clone.style.position='absolute';
-clone.style.zIndex='9999';
-clone.style.pointerEvents='none';
-clone.style.whiteSpace='nowrap';
-clone.style.transformOrigin='center';
-// 使用原welcomeLine的offset位置（相对于.title容器），往下微调增加间距
-clone.style.left=wlOffsetLeft+'px';
-clone.style.top=(wlOffsetTop+20)+'px';
-clone.style.width=wlOffsetWidth+'px';
-welcomeLine.parentElement.appendChild(clone);
-// 获取最终尺寸和中心点（相对于#app容器）
-const finalRect=clone.getBoundingClientRect();
-const finalCenterX=finalRect.left+finalRect.width/2;
-const finalCenterY=finalRect.top+finalRect.height/2;
-// 计算缩放比例（从大字缩小到小字）
-const scale=titleFontSize/parseFloat(wlFontSize);
-// 大字的中心点
-const initialCenterX=initialRect.left+initialRect.width/2;
-const initialCenterY=initialRect.top+initialRect.height/2;
-// 初始transform：从最终位置移回大字位置，放大到大字大小（中心点对齐）
-clone.style.transform=`translate(${initialCenterX-finalCenterX}px,${initialCenterY-finalCenterY}px) scale(${scale})`;
-// 强制重排
-clone.offsetHeight;
-// 开始动画：过渡到最终位置，scale(1)
-clone.style.transition='transform 1.2s cubic-bezier(.4,0,.2,1)';
-clone.style.transform='translate(0,0) scale(1)';
-// 动画完成后保持
-setTimeout(()=>{clone.style.transition='none'},1250)}}
-// 切回欢迎页：移除克隆大字，隐藏标题栏欢迎小字
-if(newPage.classList.contains('welcome-page')){document.querySelectorAll('.welcome-clone').forEach(el=>el.remove());const title=newPage.querySelector('.welcome-title');if(title){title.classList.remove('zoom-out');title.style.animation='none';title.offsetHeight;title.style.animation=''}const welcomeSub=document.querySelector('.title .sub');if(welcomeSub)welcomeSub.style.display='none'}else{// 切换到其他页面：隐藏原始.title .sub，只显示克隆大字动画结束后的状态
-const welcomeSub=document.querySelector('.title .sub');if(welcomeSub)welcomeSub.style.display='none'}
 oldPage.classList.remove('active');oldPage.classList.add(direction==='right'?'slide-out-left':'slide-out-right');oldPage.querySelectorAll('video').forEach(v=>{if(!v.paused)v.pause()});newPage.classList.remove('slide-out-left','slide-out-right');newPage.classList.add('active');newPage.querySelectorAll('video').forEach(v=>{if(v.paused&&v.dataset.hlsInitialized==='true')v.play().catch(()=>{})});idx=next;render();if(newPage.dataset.name==='视频监控'&&typeof fetchAiStats==='function'){setTimeout(fetchAiStats,100)}setTimeout(()=>{oldPage.classList.remove('slide-out-left','slide-out-right');switching=false},550)}catch(e){console.error('[ParkOps] 翻页出错:',e);switching=false}finally{setTimeout(()=>{if(switching){switching=false;console.warn('[ParkOps] 翻页超时保护: switching已强制重置')}},2000)}}document.getElementById('prev').onclick=()=>go(idx-1);document.getElementById('next').onclick=()=>go(idx+1);document.addEventListener('keydown',e=>{const target=e.target;if(e.defaultPrevented||e.isComposing||document.body.classList.contains('park-editing')||(target instanceof Element&&target.closest('input,textarea,select,button,[contenteditable]:not([contenteditable="false"]),.park-editor-shell')))return;if(e.key==='ArrowLeft')go(idx-1);if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();go(idx+1)}});
 document.getElementById('auto').onclick=function(){if(timer){clearInterval(timer);timer=null;this.textContent='自动轮播：关';this.classList.remove('on')}else{timer=setInterval(()=>go(idx+1),12000);this.textContent='自动轮播：开';this.classList.add('on')}};render();
-// 初始化：欢迎页隐藏标题栏欢迎小字，其他页面显示
-(function initWelcomeSub(){const currentPage=document.querySelector('.page.active');const welcomeSub=document.querySelector('.title .sub');const hasClone=document.querySelectorAll('.welcome-clone').length>0;if(welcomeSub){if(currentPage&&currentPage.classList.contains('welcome-page')){welcomeSub.style.display='none'}else{welcomeSub.style.display=hasClone?'none':'block'}}})();
-
 // 远程翻页控制 (PWA播放控制卡片 → 运营大屏)
 (function initRemoteControl(){
   let lastPage = idx;
   let lastAuto = !!timer;
   let lastRefreshTs = 0;
+  let wasClaimed = false;
+  // 停止本地自动轮播并复位按钮（接管释放 / TTL 自动还权时调用）。
+  function stopAutoTimer(){
+    if(timer){ clearInterval(timer); timer=null; }
+    const b = document.getElementById('auto');
+    if(b){ b.textContent='自动轮播：关'; b.classList.remove('on'); }
+  }
   async function poll(){
     try{
       const r = await fetch('/api/park-ops-control/state?consumeRefresh=true',{cache:'no-store'});
       const j = await r.json();
       if(!j.success||!j.data)return;
-      const {page, autoPlay, refreshRequested, refreshTimestamp} = j.data;
-      // 检测强制刷新指令
+      const {page, autoPlay, claimed, refreshRequested, refreshTimestamp} = j.data;
+      // 强制刷新指令不要求接管（现场与远程均可触发）。
       if(refreshRequested && refreshTimestamp && refreshTimestamp !== lastRefreshTs){
         lastRefreshTs = refreshTimestamp;
         // 延迟500ms执行刷新，确保API响应返回后再刷新
         setTimeout(()=>{ window.location.reload(true); }, 500);
         return;
       }
-      // Only acknowledge a remote page after go() accepted it. During the
-      // 550ms transition go() deliberately returns early; acknowledging first
-      // permanently dropped a command that arrived in that window.
-      if(page !== lastPage){ go(page); if(idx === page) lastPage = page; }
-      if(autoPlay !== lastAuto){
-        lastAuto = autoPlay;
-        const btn = document.getElementById('auto');
-        if(autoPlay && !timer){ timer=setInterval(()=>go(idx+1),12000); if(btn){btn.textContent='自动轮播：开';btn.classList.add('on');} }
-        else if(!autoPlay && timer){ clearInterval(timer); timer=null; if(btn){btn.textContent='自动轮播：关';btn.classList.remove('on');} }
+      if(claimed){
+        // 正被远程接管：才跟随其翻页与自动轮播指令。
+        // Only acknowledge a remote page after go() accepted it. During the
+        // 550ms transition go() deliberately returns early; acknowledging first
+        // permanently dropped a command that arrived in that window.
+        if(page !== lastPage){ go(page); if(idx === page) lastPage = page; }
+        if(autoPlay !== lastAuto){
+          lastAuto = autoPlay;
+          const btn = document.getElementById('auto');
+          if(autoPlay && !timer){ timer=setInterval(()=>go(idx+1),12000); if(btn){btn.textContent='自动轮播：开';btn.classList.add('on');} }
+          else if(!autoPlay && timer){ clearInterval(timer); timer=null; if(btn){btn.textContent='自动轮播：关';btn.classList.remove('on');} }
+        }
+      }else{
+        // 现场主控（默认 / 接管已释放 / TTL 到期）：忽略远程翻页，
+        // 停掉接管期遗留的轮播，并把基线重置为本地当前页，避免接管瞬间误跳。
+        if(wasClaimed) stopAutoTimer();
+        lastPage = idx;
+        lastAuto = !!timer;
       }
+      wasClaimed = claimed;
     }catch(e){/* 网络异常时静默, 不影响本地操作 */}
   }
   setInterval(poll, 500);

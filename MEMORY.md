@@ -1,6 +1,18 @@
 
 ## ★ 最新状态（2026-10-09，优先于本文件一切历史快照）
 
+- **【2026-10-09 大屏删欢迎页 + 接管锁根治自动翻页：本地全验收通过、未提交未部署、等业主同意】**
+  - **① 删除第 1 页「欢迎莅临」**（7→6 页，综合态势接默认首页）：`frontend/public/park-ops/index.html` 删整个 `<section class="page welcome-page active">`、标题栏缩小欢迎文字 `#welcomeLine`，原综合态势加 `active`；`js/app.js` 删 go() 内切出欢迎页的 FLIP 大字飞升动画（约 60 行）、`.title .sub/.welcome-clone` 显隐块、`initWelcomeSub`。node --check 过、前台本地验收（默认综合态势、6 页、翻页正常、控制台零报错）。
+  - **② 后端页数同步**：`park-ops-control.service.ts` `TOTAL_PAGES` 7→6（注释页清单同步）；`GotoParkOpsPageDto` `@Max(6)→@Max(5)`；spec 断言（totalPages / prevPage=5 / 越界 page6 拒绝、page5 通过）。
+  - **③ #94 接管锁（方案 A，业主选定）根治“无人操作自动翻页”**：根因=大屏每 500ms 无条件同步后端 page/autoPlay，多用户测试时任一远程翻页、或大屏重载跳后端页，现场感知为“自己翻页”。实现：
+    - 后端 service 加 `claim`（ownerId/ownerName/claimedAt/lastActiveAt）+ **90s TTL 自动还权**；`claimControl`（同 owner 续期 / 异 owner 抢占）、`releaseControl`（释放并停轮播）；next/prev/goto/auto **须为有效接管者**否则不变更；refresh 不要求接管；getState 返回 `claimed/claim{...,remainingMs}`。controller 加 `POST /claim`、`/release`，变更动作接 ownerId（DTO `ClaimParkOpsControlDto`/`ParkOpsActionDto`/`ParkOpsOwnerIdDto`）。
+    - 大屏 `app.js` initRemoteControl：**仅 claimed 才跟随 page/autoPlay**；释放/未接管忽略远程翻页、停接管期遗留轮播、基线重置本地页；重载无 claim 停首页。
+    - 前端 service 加 `claim/release`、`getParkOpsOwnerId`（localStorage 持久 client id）；composable 用 `useCurrentActor` 取 username 作 ownerName，操作前自动 `ensureClaimed`、本地每秒倒计时 + 每 10s 权威校准，暴露 claimed/claimByMe/claimName/claimRemaining/releaseParkOps；`PlayerConsole.vue` 信息行加接管归属+倒计时 tag（自己=绿/他人=琥珀）+「释放控制」按钮及样式。
+  - **验收证据全绿**：后端 jest park-ops-control **11 通过**；前端 vue-tsc exit 0；未认证 POST next/claim 返 401；浏览器 fetch 桩四场景——未接管远程 page3 被忽略（保持综合态势）、接管 page2 跳安全消防、接管 autoPlay 开（按钮“自动轮播：开”）、释放轮播停（按钮“关”）且页保持安全消防。证据图 `验收截图/运营大屏-接管锁跟随远程翻页-20261009.png`、`运营大屏-删除欢迎页后默认综合态势-20261009.png`。
+  - 临时验收环境已清理：8901 静态服务器、3300 本地后端已停（端口释放、无 watch 残留）；`/tmp/park-ops-edit` 副本及 8899 已清（副本送回收站）。
+  - ⚠️ branding（来访者上墙照片/欢迎称谓）因欢迎页删除而安全空转（空值保护，后端接口/数据保留）；是否彻底移除前端死代码/停用 5s 轮询待业主拍板。
+  - **下一步：业主同意后 commit+push main 走 `deploy-gk9000.yml`（scope=full：含 park-ops 静态 + 后端），三端同 commit、生产回验大屏 6 页与接管锁。**
+
 - origin/main = 生产后端+前端 = **`0a377df`**（PWA 冷启动补拉 + 登录错误就地提示）；Deploy run **37869919256** + CI run **37869919218** 均 completed/success。生产 deployment-version.json 实测 commit=`0a377dfa...`、frontendBuildId `e1a73899-...`、clean=true；新版 SW 已激活（controllerchange、waiting 消失、更新横幅不再出现）。上一基点 `a83a34d`。
 - **#28 PWA 冷启动首批数据失败补拉已部署**（2026-10-09，纯前端 3 文件 +72/-7）：
   - 根因：scenes/devices 清单只在登录/启动拉一次、无重试，弱网/429/超时失败即永久空白（对应生产手机全 0 截图）。

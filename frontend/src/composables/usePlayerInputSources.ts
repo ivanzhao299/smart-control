@@ -12,7 +12,12 @@ import {
   publishWelcomeScheme,
   type WelcomeScheme,
 } from '@/services/system-branding.service';
-import { parkOpsControlService } from '@/services/park-ops-control.service';
+import {
+  getParkOpsOwnerId,
+  parkOpsControlService,
+  type ParkOpsControlState,
+} from '@/services/park-ops-control.service';
+import { useCurrentActor } from '@/services/current-actor';
 import {
   WELCOME_PICK_DEFAULT,
   playerInputSourceHint,
@@ -50,11 +55,18 @@ export function usePlayerInputSources(options: PlayerInputSourceOptions) {
     options.publishedWelcomeSchemeId.value,
   ));
 
+  const { actor } = useCurrentActor();
   const parkOpsPage = ref(0);
   const parkOpsTotalPages = ref(6);
   const parkOpsAuto = ref(false);
   const parkOpsBusy = ref(false);
+  const parkOpsClaimed = ref(false);
+  const parkOpsClaimByMe = ref(false);
+  const parkOpsClaimName = ref<string | null>(null);
+  const parkOpsClaimRemaining = ref(0);
   let refreshCooldown: ReturnType<typeof setTimeout> | undefined;
+  let remainBase = 0;
+  let remainBaseAt = 0;
   let disposed = false;
 
   onScopeDispose(() => {
@@ -62,11 +74,37 @@ export function usePlayerInputSources(options: PlayerInputSourceOptions) {
     if (refreshCooldown !== undefined) clearTimeout(refreshCooldown);
   });
 
-  function applyParkOpsState(state: { page: number; autoPlay: boolean; totalPages: number }): void {
+  function setRemaining(ms: number): void {
+    remainBase = ms;
+    remainBaseAt = Date.now();
+    parkOpsClaimRemaining.value = ms;
+  }
+
+  function applyParkOpsState(state: ParkOpsControlState): void {
     parkOpsPage.value = state.page;
     parkOpsAuto.value = state.autoPlay;
     parkOpsTotalPages.value = state.totalPages;
+    parkOpsClaimed.value = state.claimed;
+    parkOpsClaimByMe.value = !!state.claim && state.claim.ownerId === getParkOpsOwnerId();
+    parkOpsClaimName.value = state.claim?.ownerName ?? null;
+    setRemaining(state.claim?.remainingMs ?? 0);
   }
+
+  // 倒计时本地每秒平滑递减；权威状态（页码 / 接管归属 / 剩余）每 10s 校准，
+  // 并感知被抢占或 TTL 自动还权。仅在运营大屏输入源激活时工作。
+  const uiTick = window.setInterval(() => {
+    if (activeSource.value !== 'park-dashboard') return;
+    if (parkOpsClaimByMe.value) {
+      parkOpsClaimRemaining.value = Math.max(0, remainBase - (Date.now() - remainBaseAt));
+    }
+  }, 1000);
+  const pollTick = window.setInterval(() => {
+    if (activeSource.value === 'park-dashboard') void syncParkOpsState();
+  }, 10_000);
+  onScopeDispose(() => {
+    window.clearInterval(uiTick);
+    window.clearInterval(pollTick);
+  });
 
   /** Best effort: content publishing remains available when the display controller cannot confirm. */
   async function ensureDisplayPath(): Promise<void> {
@@ -178,6 +216,25 @@ export function usePlayerInputSources(options: PlayerInputSourceOptions) {
     } catch { /* informational state: controls remain usable */ }
   }
 
+  /** 操作前确保由本客户端接管；若正被他人接管，本调用会抢占（用户显式要控制）。 */
+  async function ensureClaimed(): Promise<boolean> {
+    if (parkOpsClaimByMe.value) return true;
+    const state = await parkOpsControlService.claim(actor.value?.username);
+    if (disposed) return false;
+    applyParkOpsState(state);
+    return !!state.claim && state.claim.ownerId === getParkOpsOwnerId();
+  }
+
+  async function releaseParkOps(): Promise<void> {
+    try {
+      const state = await parkOpsControlService.release();
+      if (!disposed) applyParkOpsState(state);
+      ElMessage.success('已释放大屏控制，控制权回到现场');
+    } catch (error) {
+      ElMessage.error(`释放控制失败: ${(error as Error).message}`);
+    }
+  }
+
   async function selectParkDashboard(): Promise<void> {
     const isCurrent = options.captureAction();
     if (!isCurrent()) return;
@@ -201,6 +258,10 @@ export function usePlayerInputSources(options: PlayerInputSourceOptions) {
     const isCurrent = options.captureAction();
     parkOpsBusy.value = true;
     try {
+      if (action !== 'refresh') {
+        const held = await ensureClaimed();
+        if (!held || !isCurrent() || disposed) return;
+      }
       const state = action === 'next'
         ? await parkOpsControlService.next()
         : action === 'prev'
@@ -240,6 +301,11 @@ export function usePlayerInputSources(options: PlayerInputSourceOptions) {
     parkOpsTotalPages,
     parkOpsAuto,
     parkOpsBusy,
+    parkOpsClaimed,
+    parkOpsClaimByMe,
+    parkOpsClaimName,
+    parkOpsClaimRemaining,
+    releaseParkOps,
     refreshWelcomeSchemeOptions,
     selectContent,
     selectWelcome,

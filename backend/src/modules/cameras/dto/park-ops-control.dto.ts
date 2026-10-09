@@ -1,16 +1,49 @@
 import { Type } from 'class-transformer';
-import { IsBoolean, IsInt, IsOptional, Max, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
-export class GotoParkOpsPageDto {
+/** 变更类操作携带的接管者标识；缺失或不是当前接管者时，后端不执行翻页 / 轮播。 */
+export class ParkOpsOwnerIdDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  ownerId?: string;
+}
+
+export class GotoParkOpsPageDto extends ParkOpsOwnerIdDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  @Max(6) // 0-based；对应大屏 7 页，最后一页 idx=6（能源管理）。增删页时与 TOTAL_PAGES 同步。
+  @Max(5) // 0-based；对应大屏 6 页，最后一页 idx=5（能源管理）。增删页时与 TOTAL_PAGES 同步。
   page!: number;
 }
 
-export class ToggleParkOpsAutoDto {
+export class ToggleParkOpsAutoDto extends ParkOpsOwnerIdDto {
   @IsOptional()
   @IsBoolean()
   enabled?: boolean;
 }
+
+/** 接管大屏：ownerId 必填；ownerName 用于现场 / 其他终端识别是谁在控制。 */
+export class ClaimParkOpsControlDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(64)
+  ownerId!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(24)
+  ownerName?: string;
+}
+
+/** next / prev / release 等无业务参数动作可选携带 ownerId。 */
+export class ParkOpsActionDto extends ParkOpsOwnerIdDto {}
