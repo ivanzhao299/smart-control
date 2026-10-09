@@ -15,6 +15,8 @@ interface Subscriber {
   intervalMs: number;
   fn: () => void | Promise<void>;
   lastRun: number;
+  /** true = WS 在线时也保持 declared 间隔, 不被放大 (紧急/自愈补拉用) */
+  fixed?: boolean;
 }
 
 class PollingScheduler {
@@ -47,8 +49,13 @@ class PollingScheduler {
    * 订阅: 每 intervalMs 跑一次 fn. 返回 unsubscribe 函数.
    * WS 在线时, 实际间隔会被放大 (× wsOpenMultiplier) 到至少 60s.
    */
-  subscribe(id: PollingId, intervalMs: number, fn: () => void | Promise<void>): () => void {
-    this.subs.set(id, { id, intervalMs, fn, lastRun: 0 });
+  subscribe(
+    id: PollingId,
+    intervalMs: number,
+    fn: () => void | Promise<void>,
+    opts?: { fixed?: boolean },
+  ): () => void {
+    this.subs.set(id, { id, intervalMs, fn, lastRun: 0, fixed: opts?.fixed === true });
     return () => { this.subs.delete(id); };
   }
 
@@ -66,7 +73,7 @@ class PollingScheduler {
     if (typeof document !== 'undefined' && document.hidden) return;
     const now = Date.now();
     for (const sub of this.subs.values()) {
-      const targetMs = this.effectiveInterval(sub.intervalMs);
+      const targetMs = sub.fixed ? sub.intervalMs : this.effectiveInterval(sub.intervalMs);
       if (now - sub.lastRun >= targetMs) {
         sub.lastRun = now;
         try {

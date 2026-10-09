@@ -291,6 +291,14 @@ async function doLogin(fromBiometric = false): Promise<void> {
           网络繁忙触发保护，{{ cooldownSec }} 秒后可重新登录（弱网下属正常保护，无需关闭页面）
         </p>
 
+        <!-- 登录页不经过 MainLayout（toast 唯一渲染处在主布局），需在此就地渲染，
+             否则密码错误等 toast 虽触发、页面无任何提示 -->
+        <transition name="login-toast-fade">
+          <div v-if="toast.current" role="alert" class="login-toast" :class="`is-${toast.current.type}`">
+            {{ toast.current.text }}
+          </div>
+        </transition>
+
         <button type="submit" class="submit-btn" :disabled="submitting || inCooldown || !password">
           {{ inCooldown ? `请等待 ${cooldownSec}s` : submitting ? '登录中...' : '登 录' }}
         </button>
@@ -548,6 +556,21 @@ async function doLogin(fromBiometric = false): Promise<void> {
 }
 .submit-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .cooldown-msg { font-size: 12px; color: #fbbf24; text-align: center; margin: 4px 0 0; line-height: 1.5; }
+
+/* 登录页就地 toast（密码错误 / 登录成功等） */
+.login-toast {
+  font-size: 12.5px;
+  line-height: 1.5;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+}
+.login-toast.is-error   { color: #fca5a5; background: rgba(229, 100, 93, 0.12); border-color: rgba(229, 100, 93, 0.35); }
+.login-toast.is-success { color: #6ee7b7; background: rgba(63, 191, 135, 0.12); border-color: rgba(63, 191, 135, 0.35); }
+.login-toast.is-warning { color: #fcd34d; background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.35); }
+.login-toast.is-info    { color: #93c5fd; background: rgba(76, 154, 255, 0.12); border-color: rgba(76, 154, 255, 0.35); }
+.login-toast-fade-enter-active, .login-toast-fade-leave-active { transition: opacity 0.2s ease; }
+.login-toast-fade-enter-from, .login-toast-fade-leave-to { opacity: 0; }
 
 /* 面容登录 — 次级按钮, 只在壳 App 内且壳里存过密码时出现 */
 .bio-btn {

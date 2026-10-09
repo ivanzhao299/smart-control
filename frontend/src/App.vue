@@ -44,11 +44,31 @@ let unsubscribeWs: (() => void) | null = null;
 let unsubscribeWsState: (() => void) | null = null;
 let wsWasOpen = false; // 区分首次连接 vs 重连, 只在重连时补对齐
 
+/** #28 冷启动首批清单失败补拉: scenes/devices 清单只在登录/启动时拉一次、本身无轮询,
+ *  若该瞬间因弱网、429、超时或 token 竞争失败, 首页会永久空白(设备 0/0、场景卡空),
+ *  只能手动刷新。用有限退避重试包首批清单; 仍失败由下方 app:bootstrap-backfill 轮询兜底。
+ *  标记区分"从未成功"与"成功但为空"——真为空(合法)时不再补拉, 零多余请求。 */
+const bootstrap = { scenesOk: false, devicesOk: false };
+const bootstrapSleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
+async function bootstrapList(which: 'scenes' | 'devices', fn: () => Promise<unknown>, attempt = 0): Promise<void> {
+  try {
+    await fn();
+    bootstrap[which === 'scenes' ? 'scenesOk' : 'devicesOk'] = true;
+  } catch (e) {
+    if (attempt >= 2) {
+      console.warn(`[bootstrap] ${which} 首批拉取失败, 交由 backfill 补拉`, e);
+      return;
+    }
+    await bootstrapSleep(900 * (attempt + 1)); // 0.9s, 1.8s
+    await bootstrapList(which, fn, attempt + 1);
+  }
+}
+
 /** 拉需要登录态的业务数据 (登录后 / 启动时已登录 / WS 重连时调). 公开数据 (系统信息/品牌)
  *  不在这里, 它们登录页也要、不需 token。 */
 function fetchAuthedData(): void {
-  void sceneStore.fetchScenes();
-  void deviceStore.fetchDevices();
+  void bootstrapList('scenes', () => sceneStore.fetchScenes());
+  void bootstrapList('devices', () => deviceStore.fetchDevices());
   void deviceStore.fetchRuntime();
   void deviceStore.fetchGateways();
   void sceneStore.refreshRunning();
@@ -113,9 +133,24 @@ onMounted(async () => {
   polling.subscribe('app:devices-runtime', 20_000, () => { if (clientAuth.isAuthed) void deviceStore.fetchRuntime(); });
   polling.subscribe('app:devices-gateways', 20_000, () => { if (clientAuth.isAuthed) void deviceStore.fetchGateways(); });
   polling.subscribe('app:scenes-running', 30_000, () => { if (clientAuth.isAuthed) void sceneStore.refreshRunning(); });
+  // #28 兜底: 已登录但清单"从未成功"时定期补拉; 成功(即使为空)即标记、停止补拉。
+  // fixed: 这是冷启动失败的紧急自愈, 不随 WS 在线放大到 90s, 保持 15s 尽快补回。
+  polling.subscribe('app:bootstrap-backfill', 15_000, async () => {
+    if (!clientAuth.isAuthed) return;
+    if (!bootstrap.scenesOk) {
+      try { await sceneStore.fetchScenes(); bootstrap.scenesOk = true; } catch { /* 下轮再试 */ }
+    }
+    if (!bootstrap.devicesOk) {
+      try { await deviceStore.fetchDevices(); bootstrap.devicesOk = true; } catch { /* 下轮再试 */ }
+    }
+  }, { fixed: true });
 
-  // 登录态一旦变 true (登录成功 / 自动重登成功) → 立即补拉一次业务数据
-  watch(() => clientAuth.isAuthed, (authed) => { if (authed) fetchAuthedData(); });
+  // 登录态一旦变 true (登录成功 / 自动重登成功) → 立即补拉一次业务数据;
+  // 变 false (登出/会话失效) → 复位首批标记, 为下次登录准备。
+  watch(() => clientAuth.isAuthed, (authed) => {
+    if (authed) fetchAuthedData();
+    else { bootstrap.scenesOk = false; bootstrap.devicesOk = false; }
+  });
 
 });
 
