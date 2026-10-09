@@ -1,7 +1,7 @@
 
 ## ★ 最新状态（2026-10-09，优先于本文件一切历史快照）
 
-- **【2026-10-09 可编辑欢迎页改版（去"恭迎"/嘉宾行整行可编辑/标题+嘉宾字号数字可调）：本地全绿 ALL PASS，尚未 commit/部署，待业主同意】**
+- **【2026-10-09 可编辑欢迎页改版（去"恭迎"/嘉宾行整行可编辑/标题+嘉宾字号数字可调）：已部署生产成功（HEAD `9a9bf49`，Deploy run 37914107573 success）】**
   - 需求（业主原话）：主标题"热烈欢迎"默认太大→调小；标题下嘉宾行太小→调大；去掉"恭迎"前缀；嘉宾行由"仅中间称谓可编辑"改为**整行文字可编辑**；标题、嘉宾行两行字号都支持**数字调整**（默认固定比例、仍可手动改数字），保留超长自动缩小。
   - **数据模型（后端，全链路贯穿）**：
     - entity `system-branding.entity.ts` 新增 `welcomeTitleSize`/`welcomeGuestSize`（integer、nullable、列名同名）；`welcomeGuest` 长度 64→**120**（承载整行）。
@@ -14,7 +14,9 @@
     - **新增子组件 `components/WelcomeFontSizeControls.vue`**：两个 number 控件（标题 40-400/嘉宾 24-240、step 2、空=默认），props titleSize/guestSize，emits update:titleSize/update:guestSize/changed，scoped 样式；PlayerConsole 用 `v-model:title-size`/`v-model:guest-size` 两行接入；已从 PlayerConsole 移走初版内联 onWelcomeFontInput 与 .wb-font-grid CSS；`components.d.ts` 登记。
   - **验收证据全绿**：后端 `nest build` exit 0；`npx jest welcome-schemes` **13 passed**（夹具/发布期望补 null，新增字号规范化测试：220/110 接受、9999 抛"主标题字号"、'big' 抛"嘉宾行字号"）；前端 `node --test tests/*.test.cjs` = **285 pass / 0 fail**；`vue-tsc --noEmit` exit 0。验证页 `__proj_verify.html` 四 case（LED 3612×1462 / 投影 1280×720 / 小窗 1235×500 / 自定义字号 preview）**ALL PASS**：LED transform=none、投影/小窗 cover 铺满且文字全在框内、全部无"恭迎"，自定义 case 标题精确 120、嘉宾精确 150、整行文案精确。证据图 `验收截图/欢迎页改版-默认投影-20261009.png`、`欢迎页改版-自定义字号120-150-20261009.png`。
     - 行数守护 `player-power-controls.test.cjs`：抽子组件后 PlayerConsole 1400 行，正当放宽预算 `<1400`→`<1420` 并在注释注明"字号控件已抽子组件、逻辑下沉"；**Line 252-254"不得内联电源逻辑"强断言一字未动**。
-  - 状态：改动全部未 commit（与更早 cover 修复/branding 清理/3400 试验脚本堆积工作树）；业主同意后 commit+push `main` 走 `deploy-gk9000.yml`，三端同 commit + 生产回验（投影/LED 欢迎页新字号、整行、无恭迎）。临时验证页 `__proj_verify.html` 与 8902 服务器收尾再清（删前请示、送回收站）。
+  - **已部署生产成功**：两个 commit —— 功能 `c7efb83`（首次 validate-backend 因迁移类名 12 位失败、未触达生产）+ 修复 `9a9bf49`（类名/文件名改 13 位 1791600000000；后端全量 jest 865 全过）。Deploy run **37914107573** completed/success（全 job 绿：scope / validate-fe / validate-be / deploy / verify / offsite-backup）。
+  - **生产回验真生效**：deployment-version.json commit=`9a9bf492...` clean=true；`/api/system-branding` data 内 welcomeTitleSize/welcomeGuestSize=null（迁移已加列、自动套默认）、welcomeGuest="许总莅临金特夫参观指导"（旧整行数据完好）；真机欢迎页 has恭迎=false，金特夫底图 cover 全屏 + 金特夫 logo + 标题 + 整行 + 落款完整（标准 LED/投影视口用默认 180/96，普通浏览器视口自动适配缩小）。三端（本地/origin/生产）同 commit `9a9bf49`。证据图 `验收截图/生产欢迎页-改版回验-20261009.png`。
+  - 本次同时把更早的投影 cover 修复、branding 前端死代码清理一并带入生产（随 c7efb83 部署）。临时验证页 `__proj_verify.html`、本地 8902 服务器与 3400 诊断脚本仍在本地 untracked，收尾清理删前再请示、送回收站。
 
 - **【2026-10-09 按融合画布 3400×1200 点对点输出实测：Intel 驱动拒绝，维持 4K 超采样】**（业主明确要求"往这个方向试一试"，已实际验证、非口头回绝）：
   - 两屏权威枚举（console 会话 EnumDisplayDevices/Settings）：**DISPLAY1=融合器（非主屏）当前 3840×2160@29Hz**，EDID 36 档、最大 3840×2160（4K 仅 23/24/25/29/30Hz），**未声明 3400×1200**；DISPLAY2=LED（主屏）3612×1462@29Hz 点对点（EDID 含 4096×2160）。
@@ -49,7 +51,7 @@
   - **已部署生产**：两个 commit —— 功能 `edc754a`（首次 Deploy 在 Validate frontend 门禁失败、未触达生产）+ 修复 `330772b`（harness 补 current-actor/claim/getParkOpsOwnerId/window mock、claim CSS 压缩使 PlayerConsole 1398 行 <1400 守护；前端测试 289 全过）。Deploy run **37888460734** completed/success（全 job 绿，含 Deploy to GK9000 verify）。
   - **生产回验真生效**：deployment-version.json commit=`330772b7...` clean=true；`/api/park-ops-control/state` totalPages=6、page=0、autoPlay=false、**claimed=false/claim=null（重启后默认现场主控）**；大屏 `<section class="page">` 精确 6 个、无 welcome-page/welcomeLine。三端（本地/origin/生产）同 commit `330772b`。
 
-- origin/main = 生产后端+前端 = **`330772b`**（大屏删欢迎页 + 接管锁）；Deploy run **37888460734** completed/success，生产 deployment-version.json commit=`330772b7...` clean=true。上一基点 **`0a377df`**（PWA 冷启动补拉 + 登录错误就地提示，Deploy run 37869919256；新版 SW 已激活、更新横幅不再出现）。
+- origin/main = 生产后端+前端 = **`9a9bf49`**（欢迎页改版：去"恭迎"/嘉宾行整行可编辑/标题+嘉宾字号数字可调，同时含投影 cover 修复与 branding 前端清理）；Deploy run **37914107573** completed/success，生产 deployment-version.json commit=`9a9bf492...` clean=true。上一基点 **`330772b`**（大屏删欢迎页 + 接管锁，Deploy run 37888460734）；再上 **`0a377df`**（PWA 冷启动补拉 + 登录错误就地提示，Deploy run 37869919256）。
 - **#28 PWA 冷启动首批数据失败补拉已部署**（2026-10-09，纯前端 3 文件 +72/-7）：
   - 根因：scenes/devices 清单只在登录/启动拉一次、无重试，弱网/429/超时失败即永久空白（对应生产手机全 0 截图）。
   - 修复：① 首批清单有限退避重试（0.9s/1.8s、共 3 次）；② 仍失败由 `app:bootstrap-backfill` 每 15s 兜底补拉，成功（即使空）即标记停止；③ `polling.subscribe` 新增 `fixed` 选项——紧急自愈不随 WS 在线放大（**修复前实测 backfill 约 88s、加 fixed 后约 7s**；根因是 effectiveInterval 在 WS open 时 `max(declared×6,30s)` 把 15s 放大到 90s）。
