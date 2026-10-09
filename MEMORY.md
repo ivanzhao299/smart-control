@@ -5,7 +5,8 @@
   - 需求（业主原话）：主标题"热烈欢迎"默认太大→调小；标题下嘉宾行太小→调大；去掉"恭迎"前缀；嘉宾行由"仅中间称谓可编辑"改为**整行文字可编辑**；标题、嘉宾行两行字号都支持**数字调整**（默认固定比例、仍可手动改数字），保留超长自动缩小。
   - **数据模型（后端，全链路贯穿）**：
     - entity `system-branding.entity.ts` 新增 `welcomeTitleSize`/`welcomeGuestSize`（integer、nullable、列名同名）；`welcomeGuest` 长度 64→**120**（承载整行）。
-    - 新建迁移 `migrations/179060000000-AddWelcomeFontSizes.ts`（up 加两 integer 列 / down 删）。
+    - 新建迁移 `migrations/1791600000000-AddWelcomeFontSizes.ts`（**类名同名、13 位毫秒时间戳**；up 加两 integer 列 / down 删）。
+      - ⚠️ 首次提交误用 12 位时间戳（类名 `...179060000000`），TypeORM 报 "migration name is wrong, should have a JavaScript timestamp appended"，validate-backend 失败、未触达生产；已 git mv 重命名并把类名改为 13 位 `1791600000000`（晚于 AddEwelinkAuth 类时间戳 1791500000000），后端全量 jest 865 全过。（参照：AddEwelinkAuth 文件名虽 12 位但类名 13 位，TypeORM 只校验类名。）
     - service `system-branding.service.ts`：DTO/DEFAULTS/get 映射（`?? null`）/update 内联 `fontSize()` 校验——**标题 40–400、嘉宾 24–240**，非整数/越界抛错、空值回 null；发布透传 `publishWelcomeScheme` 入参与 `publishedWelcomeFields()` 补两字段。
     - `welcome-schemes.ts`：`WelcomeScheme`/`PublishedWelcomeFields` 接口加两字段；新增 `optionalFontSize()`（null/undefined→null，范围内整数接受，否则 BadRequest）；`normalizeWelcomeSchemes()` 解析两字段、guest 上限 120；三个内置方案补 null；`matchesPublishedWelcome()` 加字号比较。
   - **欢迎页本体 `frontend/public/welcome/index.html`**：嘉宾行由 `恭迎 <span class="name">各位领导嘉宾</span> 莅临参观指导` 改为**单一 span** `<span class="text name" id="guestName">各位领导嘉宾莅临参观指导</span>`（保留两侧装饰线）；新增模块变量 customTitleSize/customGuestSize（null=内置默认）；默认字号 fitTitle ceremony 216→**180**（editorial 150/minimal 140，缩小下限 116→60）、fitGuest ceremony 68→**96**（editorial 84/minimal 80，下限 42→28），起始 size 优先取 custom 值；默认比例 title:guest=180:96=**1.875**；applyContent 默认整行"各位领导嘉宾莅临参观指导"，读 d 两字号写入 custom 再 rAF(fitTypography)。
