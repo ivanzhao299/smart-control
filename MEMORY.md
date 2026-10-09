@@ -1,7 +1,17 @@
 
-## ★ 最新状态（2026-10-08，优先于本文件一切历史快照）
+## ★ 最新状态（2026-10-09，优先于本文件一切历史快照）
 
-- origin/main = 生产后端+前端 = **`a83a34d`**（孪生静态资产整顿）；Deploy run **37761425419** + CI run **37761425580** 均 completed/success（四 job 全绿）。生产回验：`/control/park-ops/vendor/ez-tree.js` http=200（4,016,624 B）、inspect.html http=200。上一基点 `341fd87`（易微联）。
+- origin/main = 生产后端+前端 = **`0a377df`**（PWA 冷启动补拉 + 登录错误就地提示）；Deploy run **37869919256** + CI run **37869919218** 均 completed/success。生产 deployment-version.json 实测 commit=`0a377dfa...`、frontendBuildId `e1a73899-...`、clean=true；新版 SW 已激活（controllerchange、waiting 消失、更新横幅不再出现）。上一基点 `a83a34d`。
+- **#28 PWA 冷启动首批数据失败补拉已部署**（2026-10-09，纯前端 3 文件 +72/-7）：
+  - 根因：scenes/devices 清单只在登录/启动拉一次、无重试，弱网/429/超时失败即永久空白（对应生产手机全 0 截图）。
+  - 修复：① 首批清单有限退避重试（0.9s/1.8s、共 3 次）；② 仍失败由 `app:bootstrap-backfill` 每 15s 兜底补拉，成功（即使空）即标记停止；③ `polling.subscribe` 新增 `fixed` 选项——紧急自愈不随 WS 在线放大（**修复前实测 backfill 约 88s、加 fixed 后约 7s**；根因是 effectiveInterval 在 WS open 时 `max(declared×6,30s)` 把 15s 放大到 90s）。
+  - 本地运行验收：前 5s scenes 全失败约 7s 自动补回、4 场景卡正常；typecheck 过。生产为同一 CI 构建产物（失败注入需有效账号进首页、未在生产直接模拟）。
+- **#89 PWA 登录输错密码无提示已在生产修复**（同 commit `0a377df`）：
+  - 根因：全局 toast 只在 MainLayout 渲染，登录页是不经 MainLayout 的独立全屏页。
+  - 修复：登录表单内就地渲染 `.login-toast`（绑 toast.current，error/success/warning/info 四态）。生产 DOM 多次实测：错密码 → toast="用户名或密码错误"、密码清空（pwLen=0）、停留登录页。
+  - ⚠️ 自动化排查教训：该 toast 停留约 1s 即自动淡出，bu.screenshot 跨工具延迟常晚一步；验证以 bu.js 读 `.login-toast`/pwLen 为准（class 是 `.login-toast` 不是 `.login-error`）。另 bu 的 CDP 坐标点击会被登录页背景/覆盖层挡住、不触发 submit，需 DOM `btn.click()` 或真实触摸。
+- **部署/域名现状（2026-10-09）**：PWA/API 统一走国内直连 **https://erp.cnjinhu.com**（已备案 cnjinhu.com 子域，A 记录 123.57.220.65，certbot 证书、nginx SNI server）。**新加坡服务器已彻底下线、与本项目无关，部署不再经新加坡**；`erp.cnjinhu.top` 已删除弃用。部署仍走 GitHub Actions `deploy-gk9000.yml`（经 Aliyun 跳板 123.57.220.65 + WireGuard 到 GK9000）。
+- origin/main 上一基点 = 生产后端+前端 = **`a83a34d`**（孪生静态资产整顿）；Deploy run **37761425419** + CI run **37761425580** 均 completed/success（四 job 全绿）。生产回验：`/control/park-ops/vendor/ez-tree.js` http=200（4,016,624 B）、inspect.html http=200。上一基点 `341fd87`（易微联）。
 - **#94 工作树 / 孪生 vendor 整顿完成**（2026-10-08，删除一律送回收站）：① 删重复解码器 `vendor/draco/`（正式 live.js 用自包含 `model/draco`、已进 git；调试页 inspect.html 旧引 vendor，已改指 `../model/draco/gltf/`）；② 删被 GitHub Actions 取代的旧手动接收脚本 `scripts/twin-receive.ps1`；③ `vendor/ez-tree.js`（EZTree，3.8M）提交进 git——仅 trees3d=true（默认关）动态 import、生产默认零加载，现生产也具备该能力，消除“本地能开、生产缺文件”；④ 停止临时本地后端进程（PID 77991）、删除 tmp-local-backend / tmp-trace-boot 两诊断脚本（回收站）。工作树已无未跟踪残留。
 - **#92 易微联 eWeLink 云接入已部署生产成功**（commit `341fd87`，2026-10-08）：本地验收全绿 + 生产回验通过——后端进程已重启（health uptime 与部署时刻吻合）、新端点 `/api/integrations/ewelink/status` 已返结构化数据（configured:false，因生产尚未配 AppID/Secret）；前端设备网络页已出易微联「前往授权 / 同步设备」按钮。**仍待业主在生产完成**：配 `EWELINK_APP_SECRET` → 点「前往授权」（回调落 erp.cnjinhu.com、token 落生产库）→「同步设备」。实现要点：
   - 后端：OAuth2.0 授权码全链路（`ewelink-auth.service` / `ewelink-devices.service`，`@Public()` callback 返成功/失败引导 HTML）；`EwelinkApiAdapter`（kind `ewelink-cloud`、category `power-breaker-ewelink`，与 Hperfor 同形）注册进 AdaptersModule，并与 Hperfor 一起进 PowerCircuits 并行采集池。
