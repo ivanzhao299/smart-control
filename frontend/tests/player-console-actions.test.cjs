@@ -40,6 +40,7 @@ function createHarness(overrides = {}) {
   const messages = [];
   const timers = new Map();
   let timerId = 0;
+  let intervalId = 0;
   let current = true;
   let displayResolver;
   const controlledDisplaySwitch = overrides.controlledDisplaySwitch ?? false;
@@ -63,6 +64,9 @@ function createHarness(overrides = {}) {
     prev: async () => { calls.push(['park-prev']); return parkState; },
     setAuto: async (value) => { calls.push(['park-auto', value]); return { ...parkState, autoPlay: value }; },
     refresh: async () => { calls.push(['park-refresh']); return parkState; },
+    claim: async (ownerName) => { calls.push(['park-claim', ownerName]);
+      return { ...parkState, claimed: true, claim: { ownerId: 'owner-test-1', ownerName: ownerName ?? 'tester', remainingMs: 90000 } }; },
+    release: async () => { calls.push(['park-release']); return { ...parkState, claimed: false, claim: null }; },
   };
   Object.assign(playbackServices, overrides.playbackServices);
   Object.assign(brandingServices, overrides.brandingServices);
@@ -100,12 +104,16 @@ function createHarness(overrides = {}) {
       if (id === '@/services/playback.service') return playbackServices;
       if (id === '@/services/system-branding.service') return brandingServices;
       if (id === '@/services/park-ops-control.service') {
-        return { parkOpsControlService: parkServices };
+        return { parkOpsControlService: parkServices, getParkOpsOwnerId: () => 'owner-test-1' };
+      }
+      if (id === '@/services/current-actor') {
+        return { useCurrentActor: () => ({ actor: vueRuntime.ref({ kind: 'admin', userId: 1, username: 'tester', role: 'admin' }) }) };
       }
       if (id === '@/features/player-input-source') return inputSource;
       throw new Error(`unexpected import: ${id}`);
     },
     {
+      window: { setInterval: () => ++intervalId, clearInterval: () => {} },
       setTimeout: (callback, delay) => {
         const id = ++timerId;
         timers.set(id, { callback, delay });

@@ -899,19 +899,8 @@ const {
 }
 .now-sub { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--v2-text-2); margin-top: 3px; }
 .now-sub .tmp { color: #E0A030; }
-.now-sub .claim-tag { color: #D98A2B; }
-.now-sub .claim-tag.mine { color: #2FA36B; font-weight: 600; }
-.now-sub .claim-release {
-  border: 1px solid rgba(47,163,107,.45);
-  background: rgba(47,163,107,.12);
-  color: #2FA36B;
-  border-radius: 999px;
-  font-size: 11px;
-  line-height: 1;
-  padding: 3px 9px;
-  cursor: pointer;
-}
-.now-sub .claim-release:hover { background: rgba(47,163,107,.22); }
+.now-sub .claim-tag { color: #D98A2B; } .now-sub .claim-tag.mine { color: #2FA36B; font-weight: 600; }
+.now-sub .claim-release { border:1px solid rgba(47,163,107,.45); background:rgba(47,163,107,.12); color:#2FA36B; border-radius:999px; font-size:11px; line-height:1; padding:3px 9px; cursor:pointer; } .now-sub .claim-release:hover { background:rgba(47,163,107,.22); }
 .now-ctrl { display: flex; align-items: center; gap: 10px; }
 /* 触摸目标做足 —— 现场是站着用平板点的 */
 .pc-btn {
