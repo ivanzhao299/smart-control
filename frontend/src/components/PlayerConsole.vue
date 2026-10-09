@@ -202,6 +202,7 @@ const {
   welcomePositionOptions,
   welcomeLogoSizeOptions, welcomeTitleEffectOptions, welcomeHidden, welcomeDisplayRows,
   markWelcomeDraftChanged,
+  setWelcomeSize,
   vWelcomeThumb,
   requestCloseWelcomeEditor,
   pushWelcomePreview,
@@ -664,13 +665,17 @@ const {
             <label class="wb-label">方案名称</label>
             <input v-model="welcomeSchemeName" class="wb-input" maxlength="40" placeholder="如：某公司来访" @input="markWelcomeDraftChanged" />
             <label class="wb-label">主标题 (空 = 默认「热烈欢迎」)</label>
-            <input v-model="welcomeForm.welcomeTitle" class="wb-input" maxlength="32" placeholder="热烈欢迎" @input="markWelcomeDraftChanged" />
+            <div class="wb-text-size-row">
+              <input v-model="welcomeForm.welcomeTitle" class="wb-input" maxlength="32" placeholder="热烈欢迎" @input="markWelcomeDraftChanged" />
+              <input type="number" class="wb-size-input" :value="welcomeForm.welcomeTitleSize ?? ''" min="40" max="400" step="2" inputmode="numeric" placeholder="字号" title="主标题字号，留空 = 默认 180" @input="setWelcomeSize($event, 'title')" />
+            </div>
             <label class="wb-label">嘉宾行（整行可编辑，空 = 默认整行）</label>
-            <input v-model="welcomeForm.welcomeGuest" class="wb-input" maxlength="120" placeholder="各位领导嘉宾莅临参观指导" @input="markWelcomeDraftChanged" />
+            <div class="wb-text-size-row">
+              <input v-model="welcomeForm.welcomeGuest" class="wb-input" maxlength="120" placeholder="各位领导嘉宾莅临参观指导" @input="markWelcomeDraftChanged" />
+              <input type="number" class="wb-size-input" :value="welcomeForm.welcomeGuestSize ?? ''" min="24" max="240" step="2" inputmode="numeric" placeholder="字号" title="嘉宾行字号，留空 = 默认 96" @input="setWelcomeSize($event, 'guest')" />
+            </div>
             <label class="wb-label">底部标语 (空 = 默认「智慧展厅 · 数字展贸 · 科创未来」)</label>
             <input v-model="welcomeForm.welcomeTagline" class="wb-input" maxlength="64" placeholder="智慧展厅 · 数字展贸 · 科创未来" @input="markWelcomeDraftChanged" />
-            <WelcomeFontSizeControls v-model:title-size="welcomeForm.welcomeTitleSize"
-              v-model:guest-size="welcomeForm.welcomeGuestSize" @changed="markWelcomeDraftChanged" />
             <div v-for="row in welcomeDisplayRows" :key="row.formKey" class="wb-display-row">
               <div class="wb-display-main">
                 <label class="wb-label">{{ row.label }}</label>
@@ -1259,6 +1264,16 @@ const {
 }
 .wb-input:focus { border-color: var(--v2-primary); }
 .wb-input:disabled { opacity: .45; cursor: not-allowed; }
+.wb-text-size-row { display: flex; align-items: stretch; gap: 8px; }
+.wb-text-size-row .wb-input { flex: 1 1 auto; min-width: 0; }
+.wb-size-input {
+  flex: 0 0 86px; width: 86px; box-sizing: border-box; text-align: center;
+  background: var(--v2-ov-1); border: 1px solid var(--v2-border-soft); border-radius: var(--v2-r-sm);
+  padding: 10px 6px; color: var(--v2-text-1); font-size: 13px; outline: none; font-family: inherit;
+}
+.wb-size-input:focus { border-color: var(--v2-primary); }
+.wb-size-input::placeholder { color: var(--v2-text-3); }
+@media (max-width: 420px) { .wb-size-input { flex-basis: 74px; width: 74px; } }
 .wb-display-row { display: flex; align-items: flex-end; gap: 8px; }
 .wb-display-main { flex: 1 1 auto; min-width: 0; }
 .wb-hide-check {

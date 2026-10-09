@@ -139,6 +139,23 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
     lastWelcomeSaveRevision.value = null;
   }
 
+  // 字号数字框内联在主标题 / 嘉宾行文字框同一行右侧（2026-10-09 改版：不单独起
+  // 标签行、不命名“主标题字号/嘉宾行字号”）。空 = 内置默认（标题 180 / 嘉宾 96）；
+  // 仅接受范围内整数，其余输入回退 null；保存时 clampSize 再兜底一次。
+  function setWelcomeSize(event: Event, which: 'title' | 'guest'): void {
+    const raw = (event.target as HTMLInputElement).value.trim();
+    const min = which === 'title' ? 40 : 24;
+    const max = which === 'title' ? 400 : 240;
+    let next: number | null = null;
+    if (raw !== '') {
+      const n = Number(raw);
+      if (Number.isInteger(n) && n >= min && n <= max) next = n;
+    }
+    if (which === 'title') welcomeForm.value.welcomeTitleSize = next;
+    else welcomeForm.value.welcomeGuestSize = next;
+    markWelcomeDraftChanged();
+  }
+
   function rememberedWelcomeSchemeId(): string {
     try { return window.localStorage.getItem(LAST_WELCOME_SCHEME_KEY) ?? ''; }
     catch { return ''; }
@@ -836,6 +853,7 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
     welcomePositionOptions,
     welcomeLogoSizeOptions,
     markWelcomeDraftChanged,
+    setWelcomeSize,
     vWelcomeThumb,
     requestCloseWelcomeEditor,
     pushWelcomePreview,
