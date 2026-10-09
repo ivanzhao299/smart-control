@@ -7,7 +7,6 @@ const ts = require('typescript');
 const vueRuntime = require('vue');
 
 const playerConsole = fs.readFileSync(path.join(__dirname, '../src/components/PlayerConsole.vue'), 'utf8');
-const welcomePhoto = fs.readFileSync(path.join(__dirname, '../src/composables/useWelcomePhoto.ts'), 'utf8');
 const inputSourceText = fs.readFileSync(path.join(__dirname, '../src/features/player-input-source.ts'), 'utf8');
 const inputSourcesComposableText = fs.readFileSync(
   path.join(__dirname, '../src/composables/usePlayerInputSources.ts'),
@@ -295,6 +294,4 @@ test('PlayerConsole delegates input-source orchestration and park mutations use 
   assert.doesNotMatch(playerConsole, /parkOpsControlService\./);
   assert.match(inputSourcesComposableText, /parkOpsControlService\.(next|prev|setAuto|refresh)/);
   assert.doesNotMatch(inputSourcesComposableText, /fetch\(['"`]\/api\/park-ops-control/);
-  assert.match(welcomePhoto, /parkOpsControlService\.goto\(0\)/);
-  assert.doesNotMatch(welcomePhoto, /fetch\(['"`]\/api\/park-ops-control/);
 });

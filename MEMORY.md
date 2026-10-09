@@ -1,6 +1,40 @@
 
 ## ★ 最新状态（2026-10-09，优先于本文件一切历史快照）
 
+- **【2026-10-09 可编辑欢迎页改版（去"恭迎"/嘉宾行整行可编辑/标题+嘉宾字号数字可调）：本地全绿 ALL PASS，尚未 commit/部署，待业主同意】**
+  - 需求（业主原话）：主标题"热烈欢迎"默认太大→调小；标题下嘉宾行太小→调大；去掉"恭迎"前缀；嘉宾行由"仅中间称谓可编辑"改为**整行文字可编辑**；标题、嘉宾行两行字号都支持**数字调整**（默认固定比例、仍可手动改数字），保留超长自动缩小。
+  - **数据模型（后端，全链路贯穿）**：
+    - entity `system-branding.entity.ts` 新增 `welcomeTitleSize`/`welcomeGuestSize`（integer、nullable、列名同名）；`welcomeGuest` 长度 64→**120**（承载整行）。
+    - 新建迁移 `migrations/179060000000-AddWelcomeFontSizes.ts`（up 加两 integer 列 / down 删）。
+    - service `system-branding.service.ts`：DTO/DEFAULTS/get 映射（`?? null`）/update 内联 `fontSize()` 校验——**标题 40–400、嘉宾 24–240**，非整数/越界抛错、空值回 null；发布透传 `publishWelcomeScheme` 入参与 `publishedWelcomeFields()` 补两字段。
+    - `welcome-schemes.ts`：`WelcomeScheme`/`PublishedWelcomeFields` 接口加两字段；新增 `optionalFontSize()`（null/undefined→null，范围内整数接受，否则 BadRequest）；`normalizeWelcomeSchemes()` 解析两字段、guest 上限 120；三个内置方案补 null；`matchesPublishedWelcome()` 加字号比较。
+  - **欢迎页本体 `frontend/public/welcome/index.html`**：嘉宾行由 `恭迎 <span class="name">各位领导嘉宾</span> 莅临参观指导` 改为**单一 span** `<span class="text name" id="guestName">各位领导嘉宾莅临参观指导</span>`（保留两侧装饰线）；新增模块变量 customTitleSize/customGuestSize（null=内置默认）；默认字号 fitTitle ceremony 216→**180**（editorial 150/minimal 140，缩小下限 116→60）、fitGuest ceremony 68→**96**（editorial 84/minimal 80，下限 42→28），起始 size 优先取 custom 值；默认比例 title:guest=180:96=**1.875**；applyContent 默认整行"各位领导嘉宾莅临参观指导"，读 d 两字号写入 custom 再 rAF(fitTypography)。
+  - **前端编辑器**：类型 `system-branding.service.ts`、`welcome-scheme-draft.ts`（WelcomeSchemeDraft 加两字段）、composable `useWelcomeEditor.ts`（welcomeForm/preview/apply/sync/publish 全覆盖，内联 clampSize 40-400/24-240）、store FALLBACK 补 null；PlayerConsole template 嘉宾行改整行输入、接入字号控件。
+    - **新增子组件 `components/WelcomeFontSizeControls.vue`**：两个 number 控件（标题 40-400/嘉宾 24-240、step 2、空=默认），props titleSize/guestSize，emits update:titleSize/update:guestSize/changed，scoped 样式；PlayerConsole 用 `v-model:title-size`/`v-model:guest-size` 两行接入；已从 PlayerConsole 移走初版内联 onWelcomeFontInput 与 .wb-font-grid CSS；`components.d.ts` 登记。
+  - **验收证据全绿**：后端 `nest build` exit 0；`npx jest welcome-schemes` **13 passed**（夹具/发布期望补 null，新增字号规范化测试：220/110 接受、9999 抛"主标题字号"、'big' 抛"嘉宾行字号"）；前端 `node --test tests/*.test.cjs` = **285 pass / 0 fail**；`vue-tsc --noEmit` exit 0。验证页 `__proj_verify.html` 四 case（LED 3612×1462 / 投影 1280×720 / 小窗 1235×500 / 自定义字号 preview）**ALL PASS**：LED transform=none、投影/小窗 cover 铺满且文字全在框内、全部无"恭迎"，自定义 case 标题精确 120、嘉宾精确 150、整行文案精确。证据图 `验收截图/欢迎页改版-默认投影-20261009.png`、`欢迎页改版-自定义字号120-150-20261009.png`。
+    - 行数守护 `player-power-controls.test.cjs`：抽子组件后 PlayerConsole 1400 行，正当放宽预算 `<1400`→`<1420` 并在注释注明"字号控件已抽子组件、逻辑下沉"；**Line 252-254"不得内联电源逻辑"强断言一字未动**。
+  - 状态：改动全部未 commit（与更早 cover 修复/branding 清理/3400 试验脚本堆积工作树）；业主同意后 commit+push `main` 走 `deploy-gk9000.yml`，三端同 commit + 生产回验（投影/LED 欢迎页新字号、整行、无恭迎）。临时验证页 `__proj_verify.html` 与 8902 服务器收尾再清（删前请示、送回收站）。
+
+- **【2026-10-09 按融合画布 3400×1200 点对点输出实测：Intel 驱动拒绝，维持 4K 超采样】**（业主明确要求"往这个方向试一试"，已实际验证、非口头回绝）：
+  - 两屏权威枚举（console 会话 EnumDisplayDevices/Settings）：**DISPLAY1=融合器（非主屏）当前 3840×2160@29Hz**，EDID 36 档、最大 3840×2160（4K 仅 23/24/25/29/30Hz），**未声明 3400×1200**；DISPLAY2=LED（主屏）3612×1462@29Hz 点对点（EDID 含 4096×2160）。
+  - 强制自定义时序：ChangeDisplaySettingsEx 直接给 3400×1200 @60/50/30，**全部返回 DISP_CHANGE_NOTUPDATED(-2)**，驱动拒绝应用、显示安全保持 4K，已 restore 确认无变化、现场零影响。
+  - 根因：Intel DCH 驱动 31.0.101.2127 只允许切到 EDID/已注册模式；GK9000 **未装 Intel Graphics Command Center**（无 Store/IGCC），无官方 GUI 添加自定义分辨率；注册表盲写 DAL CustomResolution 不公开、有破坏显示配置风险，不在生产 kiosk 做。
+  - 若硬走通需：①装 IGCC 并在 GUI 添加 3400×1200 自定义时序（@50 像素时钟约275MHz、HDMI1.4 上限340MHz 可行；@60 约330MHz 临界）；②融合器 JBT-SK-HD02 验证能否锁定该非标准时序、重配工程窗口 1:1。**画质权衡：4K 超采样到 3400×1200 是 SSAA 增益，点对点不会更清晰、反失去超采样平滑，且要改驱动+融合器、风险更高。**
+  - 新增脚本（均未提交）：`scripts/try-projector-canvas.ps1`（ASCII，trial/commit/restore/dump，带 hold 自动回滚）、`scripts/remote-exec/gk9000_edid_dump.py`、`gk9000_display_probe.py`、`launch_console.py`（schtasks /it 在 console 会话跑、唯一任务名不删现有任务）、`try_canvas.py`（Python 切换）。本机直连 GK9000 走 ssh config `gk9000-smart-control`（192.168.77.54，user，key smart_control_gk9000_ed25519）；gk9000_exec.sh 走跳板但本地无跳板 root 私钥（私钥仅存 GitHub Secrets）。
+
+- **【2026-10-09 branding 前端死代码彻底清理 + 投影仪欢迎页 cover 全屏修复：本地全绿，尚未 commit/部署，待业主同意】**
+  - **① branding（来访者上墙照片）前端死代码整条清除，后端接口/数据零改动保留**：
+    - 边界判定：删「来访者拍照上墙」链路 = `WelcomeCameraModal.vue`（getUserMedia/相册）→ `useWelcomePhoto.ts`（压缩/IDB 暂存）→ `welcome-photo-publisher.ts`（入库→绑 welcomePhotoMediaId→切屏→回收）→ 大屏 `initBranding` IIFE（照片/称谓/二维码、5s 轮询）。**`welcomeGuest` 嘉宾称谓是活跃字段必须保留**（PlayerConsole/useWelcomeEditor/welcome-scheme-draft/后端 system-branding 均在用，动态欢迎页即「称谓可编辑」）；welcome schemes 系列接口完整保留；`GET /api/system-branding/park-ops` 是大屏可视化编辑器 park-ops-editor.js 的合法请求（不含 guest/photo），保留。
+    - 落地：大屏 `js/app.js` 删整个 initBranding IIFE（含硬编码 localhost:3200、fitImg/renderQr/syncBranding、MutationObserver、setInterval 5000）；`index.html` 删 qrcode.js `<script>`、app.js 版本 bump `?v=20261009-branding-clean`；`css/style.css` 删全部 .welcome-page/.welcome-bg/.welcome-title/.welcome-photo/#app.photo-focus/.welcome-qr 及相关动画（278→253 行），**保留**能源管理 `#app:has(.page[data-name="能源管理"].active)` 两条；`DashboardPage.vue` 移除拍照全部 import/编排/模板第6卡/modal/CSS；`system-branding.service.ts` 删 welcomePhotoMediaId?/welcomePhotoUrl? 与 WelcomePatch 中该项；`components.d.ts` 删 WelcomeCameraModal。
+    - 删文件（一律 `/usr/bin/trash` 回收站、可恢复）：`park-ops/js/qrcode.js`、`composables/useWelcomePhoto.ts`、`services/welcome-photo-publisher.ts`、`components/WelcomeCameraModal.vue`、`tests/welcome-photo-publish-journey.test.cjs`；`player-console-actions.test.cjs` 删 welcomePhoto readFileSync 与 2 断言。
+  - **② 投影仪欢迎页不能全屏（只显示左上角）修复——纯前端，物理分辨率本已最优、不改硬件**：
+    - 物理链路（MEMORY 07-31 实测）：slot2 HDMI2 **物理输出 3840×2160@29Hz(4K30)**，"1280×720"是 Windows **300% 缩放的逻辑视口**（DPR=3）；4K 进融合盒 **JBT-SK-HD02** 降采样到 **~3400×1200 融合画布**（2× WUXGA 1920×1200），set-projector-res 正确判定不动。
+    - 软件根因：`welcome/index.html` 把 html,body 硬编码 `3612×1462`、底图固定该尺寸 `object-fit:none`，缩放仅在 `?preview=1` 执行、真机非 preview **完全不缩放**；slot2 iframe 逻辑视口 1280×720(16:9) → 固定画布被 overflow 裁切，只显示左上角一块。与设计注释「两块屏共用网页素材、kiosk 按各自分辨率渲染」不符。
+    - 修复（`welcome/index.html`）：新增 `classifyRenderMode()`——**led**（视口宽高比与设计 2.47:1 一致±8% 且视口宽≥设计 90%）→ scale=1 点对点；**projector**（其余，含 slot2 16:9）→ `cover` 等比铺满（scale=max 视口比）、超出部分居中裁切；**preview** → contain 完整预览。`applyStage()` 对 body 用 transform-origin:0 0 + 绝对定位；`visibleDesignW` 记录可见设计宽，fitTitle/fitGuest 取 `min(LED 原宽度, visibleDesignW-安全边)` 限字号，保证标题/称谓/落款在框内。**LED 视口行为逐像素不变**（各 max 在 LED 下 min 仍取原值）；真机视口告警移除。
+  - **③ 验收证据全绿**：大屏 app.js `node --check` OK；前端 `node --test tests/*.test.cjs` = **285 pass / 0 fail**（基线 289 − 被删 journey 4 用例 =285）；`vue-tsc --noEmit` exit 0。三视口（验证页 iframe：LED 3612×1462 / 投影 1280×720 / 等比缩小 1235×500）自动判定 **ALL PASS**——LED transform=none，投影/小窗 covers(背景无黑边铺满)=true 且 title/guestText/org1/org2/tagline 全在框内。证据图 `验收截图/投影欢迎页-cover全屏-20261009.png`。
+  - 回归中一次大屏 page2→page5 自行跳页：包装 window.go 插桩观察 40s 调用数=0、请求日志仅 state 轮询，判定为本地 bu 注入/resync 的一次性输入噪声（生产为无键盘 kiosk、#94 接管锁已根治），非生产缺陷。
+  - 临时环境已清理：验证页 `__proj_verify.html` 送回收站、8902 静态服务器已停。**改动全部未 commit**；业主同意后 commit+push `main` 走 `deploy-gk000.yml`，做三端同 commit + 生产回验（大屏 6 页无 branding、投影欢迎页全屏、LED 不变）。
+
 - **【2026-10-09 大屏删欢迎页 + 接管锁根治自动翻页：已部署生产成功（commit `330772b`）】**
   - **① 删除第 1 页「欢迎莅临」**（7→6 页，综合态势接默认首页）：`frontend/public/park-ops/index.html` 删整个 `<section class="page welcome-page active">`、标题栏缩小欢迎文字 `#welcomeLine`，原综合态势加 `active`；`js/app.js` 删 go() 内切出欢迎页的 FLIP 大字飞升动画（约 60 行）、`.title .sub/.welcome-clone` 显隐块、`initWelcomeSub`。node --check 过、前台本地验收（默认综合态势、6 页、翻页正常、控制台零报错）。
   - **② 后端页数同步**：`park-ops-control.service.ts` `TOTAL_PAGES` 7→6（注释页清单同步）；`GotoParkOpsPageDto` `@Max(6)→@Max(5)`；spec 断言（totalPages / prevPage=5 / 越界 page6 拒绝、page5 通过）。

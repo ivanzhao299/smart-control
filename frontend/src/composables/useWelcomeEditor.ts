@@ -52,6 +52,8 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
     welcomeVenue: '', welcomeVenueEn: '', welcomeOrg1: '', welcomeOrg2: '',
     welcomeBgMediaId: null as number | null,
     welcomeLogoMediaId: null as number | null,
+    welcomeTitleSize: null as number | null,
+    welcomeGuestSize: null as number | null,
     presentation: { ...DEFAULT_WELCOME_PRESENTATION } as WelcomePresentation,
   });
   // 场馆名/英文/两行落款的“隐藏该行”勾选, 与输入框共同表达三态 (null=默认 / ''=隐藏 / 文本=自定义)
@@ -320,6 +322,8 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
         welcomeTitle: welcomeForm.value.welcomeTitle,
         welcomeGuest: welcomeForm.value.welcomeGuest,
         welcomeTagline: welcomeForm.value.welcomeTagline,
+        welcomeTitleSize: welcomeForm.value.welcomeTitleSize,
+        welcomeGuestSize: welcomeForm.value.welcomeGuestSize,
         welcomeVenue: welcomeDisplayValue('welcomeVenue', 'venue'),
         welcomeVenueEn: welcomeDisplayValue('welcomeVenueEn', 'venueEn'),
         welcomeOrg1: welcomeDisplayValue('welcomeOrg1', 'org1'),
@@ -368,6 +372,8 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
       welcomeVenue: '', welcomeVenueEn: '', welcomeOrg1: '', welcomeOrg2: '',
       welcomeBgMediaId: incompatibleSelectedBackground.value ? null : scheme.welcomeBgMediaId,
       welcomeLogoMediaId: incompatibleSelectedLogo.value ? null : scheme.welcomeLogoMediaId,
+      welcomeTitleSize: scheme.welcomeTitleSize ?? null,
+      welcomeGuestSize: scheme.welcomeGuestSize ?? null,
       presentation: cloneWelcomePresentation(scheme.presentation),
     };
     applyWelcomeDisplay(scheme.welcomeVenue ?? null, 'welcomeVenue', 'venue');
@@ -394,12 +400,16 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
       ElMessage.error('欢迎页 Logo 必须是已上传的图片');
       return false;
     }
+    const clampSize = (v: unknown, min: number, max: number): number | null =>
+      typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max ? v : null;
     welcomeSchemes.value[index] = {
       id: selectedWelcomeSchemeId.value,
       name,
       welcomeTitle: welcomeForm.value.welcomeTitle.trim() || null,
       welcomeGuest: welcomeForm.value.welcomeGuest.trim() || null,
       welcomeTagline: welcomeForm.value.welcomeTagline.trim() || null,
+      welcomeTitleSize: clampSize(welcomeForm.value.welcomeTitleSize, 40, 400),
+      welcomeGuestSize: clampSize(welcomeForm.value.welcomeGuestSize, 24, 240),
       welcomeVenue: welcomeDisplayValue('welcomeVenue', 'venue'),
       welcomeVenueEn: welcomeDisplayValue('welcomeVenueEn', 'venueEn'),
       welcomeOrg1: welcomeDisplayValue('welcomeOrg1', 'org1'),
@@ -708,6 +718,8 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
       const confirmed = published.branding.welcomeTitle === selected.welcomeTitle
         && published.branding.welcomeGuest === selected.welcomeGuest
         && published.branding.welcomeTagline === selected.welcomeTagline
+        && (published.branding.welcomeTitleSize ?? null) === (selected.welcomeTitleSize ?? null)
+        && (published.branding.welcomeGuestSize ?? null) === (selected.welcomeGuestSize ?? null)
         && (published.branding.welcomeVenue ?? null) === (selected.welcomeVenue ?? null)
         && (published.branding.welcomeVenueEn ?? null) === (selected.welcomeVenueEn ?? null)
         && (published.branding.welcomeOrg1 ?? null) === (selected.welcomeOrg1 ?? null)

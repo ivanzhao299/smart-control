@@ -665,10 +665,12 @@ const {
             <input v-model="welcomeSchemeName" class="wb-input" maxlength="40" placeholder="如：某公司来访" @input="markWelcomeDraftChanged" />
             <label class="wb-label">主标题 (空 = 默认「热烈欢迎」)</label>
             <input v-model="welcomeForm.welcomeTitle" class="wb-input" maxlength="32" placeholder="热烈欢迎" @input="markWelcomeDraftChanged" />
-            <label class="wb-label">嘉宾称谓 (显示为 恭迎 ×× 莅临参观指导)</label>
-            <input v-model="welcomeForm.welcomeGuest" class="wb-input" maxlength="64" placeholder="各位领导嘉宾" @input="markWelcomeDraftChanged" />
+            <label class="wb-label">嘉宾行（整行可编辑，空 = 默认整行）</label>
+            <input v-model="welcomeForm.welcomeGuest" class="wb-input" maxlength="120" placeholder="各位领导嘉宾莅临参观指导" @input="markWelcomeDraftChanged" />
             <label class="wb-label">底部标语 (空 = 默认「智慧展厅 · 数字展贸 · 科创未来」)</label>
             <input v-model="welcomeForm.welcomeTagline" class="wb-input" maxlength="64" placeholder="智慧展厅 · 数字展贸 · 科创未来" @input="markWelcomeDraftChanged" />
+            <WelcomeFontSizeControls v-model:title-size="welcomeForm.welcomeTitleSize"
+              v-model:guest-size="welcomeForm.welcomeGuestSize" @changed="markWelcomeDraftChanged" />
             <div v-for="row in welcomeDisplayRows" :key="row.formKey" class="wb-display-row">
               <div class="wb-display-main">
                 <label class="wb-label">{{ row.label }}</label>

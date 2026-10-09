@@ -27,6 +27,8 @@ const FALLBACK: SystemBranding = {
   welcomeGuest: null,
   welcomeTitle: null,
   welcomeTagline: null,
+  welcomeTitleSize: null,
+  welcomeGuestSize: null,
   welcomeVenue: null,
   welcomeVenueEn: null,
   welcomeOrg1: null,

@@ -33,6 +33,10 @@ export interface SystemBranding {
   welcomeTitle: string | null;
   /** 欢迎页底部标语 (空 = 默认 '智慧展厅 · 数字展贸 · 科创未来') */
   welcomeTagline: string | null;
+  /** 主标题字号 (设计稿 px, null = 默认 180) */
+  welcomeTitleSize: number | null;
+  /** 嘉宾行字号 (设计稿 px, null = 默认 96) */
+  welcomeGuestSize: number | null;
   /** 场馆中文名 (null=内置默认, ''=隐藏, 非空=自定义) */
   welcomeVenue: string | null;
   /** 场馆英文名 (null=内置默认, ''=隐藏, 非空=自定义) */
@@ -51,10 +55,6 @@ export interface SystemBranding {
   welcomeLogoUrl?: string | null;
   /** 当前正式上屏方案的版式快照。 */
   welcomePresentation: WelcomePresentation;
-  /** 欢迎页"来访者拍照上墙"照片媒体 id (空 = 默认欢迎布局) */
-  welcomePhotoMediaId?: number | null;
-  /** 只读: 上墙照片直链 (后端由 welcomePhotoMediaId 算出) */
-  welcomePhotoUrl?: string | null;
 }
 
 export type WelcomeLayout = 'ceremony' | 'editorial' | 'minimal';
@@ -94,7 +94,7 @@ export async function saveSystemBranding(patch: SystemBrandingPatch): Promise<Sy
 }
 
 /** 欢迎页字段专用保存；前台就地编辑，后端仍要求管理员身份。 */
-export type WelcomePatch = Partial<Pick<SystemBranding, 'welcomeGuest' | 'welcomeTitle' | 'welcomeTagline' | 'welcomeBgMediaId' | 'welcomeLogoMediaId' | 'welcomePhotoMediaId'>>;
+export type WelcomePatch = Partial<Pick<SystemBranding, 'welcomeGuest' | 'welcomeTitle' | 'welcomeTagline' | 'welcomeBgMediaId' | 'welcomeLogoMediaId'>>;
 export async function saveWelcomeConfig(patch: WelcomePatch): Promise<SystemBranding> {
   return api.put<SystemBranding>('/system-branding/welcome', patch);
 }
@@ -105,6 +105,8 @@ export interface WelcomeScheme {
   welcomeTitle: string | null;
   welcomeGuest: string | null;
   welcomeTagline: string | null;
+  welcomeTitleSize: number | null;
+  welcomeGuestSize: number | null;
   welcomeVenue: string | null;
   welcomeVenueEn: string | null;
   welcomeOrg1: string | null;

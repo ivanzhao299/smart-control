@@ -61,7 +61,7 @@ declare module 'vue' {
     ServerSettingsDialog: typeof import('./src/components/ServerSettingsDialog.vue')['default']
     StatusBar: typeof import('./src/components/StatusBar.vue')['default']
     StatusCard: typeof import('./src/components/StatusCard.vue')['default']
-    WelcomeCameraModal: typeof import('./src/components/WelcomeCameraModal.vue')['default']
+    WelcomeFontSizeControls: typeof import('./src/components/WelcomeFontSizeControls.vue')['default']
   }
   export interface ComponentCustomProperties {
     vLoading: typeof import('element-plus/es')['ElLoadingDirective']

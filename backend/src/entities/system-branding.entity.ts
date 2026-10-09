@@ -74,7 +74,11 @@ export class SystemBranding {
    * 大屏欢迎页 (frontend/public/welcome/) 20s 轮询, 改完实时变字;
    * 空/NULL 时欢迎页显示默认 "各位领导嘉宾"。
    */
-  @Column({ type: 'varchar', length: 64, nullable: true, name: 'welcomeGuest' })
+  /**
+   * 欢迎页嘉宾行整行文本 (2026-10-09 改版: 去掉固定"恭迎/莅临参观指导"，
+   * 整行可编辑)。空/NULL 时欢迎页显示默认整行。
+   */
+  @Column({ type: 'varchar', length: 120, nullable: true, name: 'welcomeGuest' })
   welcomeGuest!: string | null;
 
   /**
@@ -89,6 +93,14 @@ export class SystemBranding {
 
   @Column({ type: 'varchar', length: 64, nullable: true, name: 'welcomeTagline' })
   welcomeTagline!: string | null;
+
+  /** 主标题字号 (设计稿 px, 正整数范围; NULL = 内置默认 180)。2026-10-09 */
+  @Column({ type: 'integer', name: 'welcomeTitleSize', nullable: true })
+  welcomeTitleSize!: number | null;
+
+  /** 嘉宾行字号 (设计稿 px; NULL = 内置默认 96)。2026-10-09 */
+  @Column({ type: 'integer', name: 'welcomeGuestSize', nullable: true })
+  welcomeGuestSize!: number | null;
 
   // 场馆名(中/英)与两行落款; 三态: NULL=内置默认, ''=隐藏该行, 非空=自定义
   @Column({ type: 'varchar', length: 40, nullable: true, name: 'welcomeVenue' })

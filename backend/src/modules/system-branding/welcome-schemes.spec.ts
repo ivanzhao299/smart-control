@@ -42,6 +42,8 @@ const schemes: WelcomeSchemesDocument = {
       welcomeTitle: '热烈欢迎',
       welcomeGuest: '企业甲代表团',
       welcomeTagline: '欢迎莅临参观指导',
+      welcomeTitleSize: null,
+      welcomeGuestSize: null,
       welcomeVenue: null,
       welcomeVenueEn: null,
       welcomeOrg1: null,
@@ -118,6 +120,23 @@ describe('welcome scheme document', () => {
       }],
     });
     expect(legacy.schemes[0].presentation.titleEffect).toBe('blue');
+  });
+
+  it('normalizes optional font sizes and rejects out-of-range values', () => {
+    const ok = normalizeWelcomeSchemes({
+      version: 2,
+      schemes: [{ ...schemes.schemes[0], welcomeTitleSize: 220, welcomeGuestSize: 110 }],
+    }).schemes[0];
+    expect(ok.welcomeTitleSize).toBe(220);
+    expect(ok.welcomeGuestSize).toBe(110);
+    expect(() => normalizeWelcomeSchemes({
+      version: 2,
+      schemes: [{ ...schemes.schemes[0], welcomeTitleSize: 9999 }],
+    })).toThrow('主标题字号');
+    expect(() => normalizeWelcomeSchemes({
+      version: 2,
+      schemes: [{ ...schemes.schemes[0], welcomeGuestSize: 'big' }],
+    })).toThrow('嘉宾行字号');
   });
 
   it('supports three-state venue/org text: null default, empty string hidden, custom trimmed', () => {
@@ -230,6 +249,8 @@ describe('SystemBrandingService welcome schemes', () => {
         welcomeTitle: '热烈欢迎',
         welcomeGuest: '企业甲代表团',
         welcomeTagline: '欢迎莅临参观指导',
+        welcomeTitleSize: null,
+        welcomeGuestSize: null,
         welcomeVenue: null,
         welcomeVenueEn: null,
         welcomeOrg1: null,

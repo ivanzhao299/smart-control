@@ -46,6 +46,10 @@ export interface SystemBrandingDto {
   welcomeTitle: string | null;
   /** 欢迎页底部标语 (空 = 默认 "智慧展厅 · 数字展贸 · 科创未来") */
   welcomeTagline: string | null;
+  /** 主标题字号 (设计稿 px, null = 默认 180) */
+  welcomeTitleSize: number | null;
+  /** 嘉宾行字号 (设计稿 px, null = 默认 96) */
+  welcomeGuestSize: number | null;
   /** 场馆中文名 (null=内置默认, ''=隐藏, 非空=自定义) */
   welcomeVenue: string | null;
   /** 场馆英文名 (null=内置默认, ''=隐藏, 非空=自定义) */
@@ -83,6 +87,8 @@ const DEFAULTS: SystemBrandingDto = {
   welcomeGuest: null,
   welcomeTitle: null,
   welcomeTagline: null,
+  welcomeTitleSize: null,
+  welcomeGuestSize: null,
   welcomeVenue: null,
   welcomeVenueEn: null,
   welcomeOrg1: null,
@@ -123,6 +129,8 @@ export class SystemBrandingService {
       welcomeGuest: row.welcomeGuest,
       welcomeTitle: row.welcomeTitle,
       welcomeTagline: row.welcomeTagline,
+      welcomeTitleSize: row.welcomeTitleSize ?? null,
+      welcomeGuestSize: row.welcomeGuestSize ?? null,
       // '' 是显式隐藏, 必须保留; 仅 null/undefined 回退 null
       welcomeVenue: row.welcomeVenue ?? null,
       welcomeVenueEn: row.welcomeVenueEn ?? null,
@@ -359,6 +367,8 @@ export class SystemBrandingService {
         welcomeTitle: scheme.welcomeTitle,
         welcomeGuest: scheme.welcomeGuest,
         welcomeTagline: scheme.welcomeTagline,
+        welcomeTitleSize: scheme.welcomeTitleSize,
+        welcomeGuestSize: scheme.welcomeGuestSize,
         welcomeVenue: scheme.welcomeVenue,
         welcomeVenueEn: scheme.welcomeVenueEn,
         welcomeOrg1: scheme.welcomeOrg1,
@@ -455,6 +465,8 @@ export class SystemBrandingService {
       welcomeTitle: branding.welcomeTitle,
       welcomeGuest: branding.welcomeGuest,
       welcomeTagline: branding.welcomeTagline,
+      welcomeTitleSize: branding.welcomeTitleSize,
+      welcomeGuestSize: branding.welcomeGuestSize,
       welcomeVenue: branding.welcomeVenue,
       welcomeVenueEn: branding.welcomeVenueEn,
       welcomeOrg1: branding.welcomeOrg1,
@@ -606,6 +618,20 @@ export class SystemBrandingService {
     if (input.welcomeTagline !== undefined) {
       const v = norm(input.welcomeTagline);
       patch.welcomeTagline = v ? v.slice(0, 64) : null;
+    }
+    // 字号: 正整数且在范围内才接受, 其余 (null/undefined/越界) 回退内置默认
+    const fontSize = (v: number | null | undefined, min: number, max: number): number | null => {
+      if (typeof v !== 'number' || !Number.isInteger(v)) return null;
+      if (v < min || v > max) {
+        throw new Error(`字号必须是 ${min}-${max} 之间的整数`);
+      }
+      return v;
+    };
+    if (input.welcomeTitleSize !== undefined) {
+      patch.welcomeTitleSize = fontSize(input.welcomeTitleSize, 40, 400);
+    }
+    if (input.welcomeGuestSize !== undefined) {
+      patch.welcomeGuestSize = fontSize(input.welcomeGuestSize, 24, 240);
     }
     if (input.welcomeVenue !== undefined) {
       patch.welcomeVenue = displayText(input.welcomeVenue, 40);

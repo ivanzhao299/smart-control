@@ -36,6 +36,8 @@ export interface WelcomeScheme {
   welcomeTitle: string | null;
   welcomeGuest: string | null;
   welcomeTagline: string | null;
+  welcomeTitleSize: number | null;
+  welcomeGuestSize: number | null;
   // 场馆名/英文/两行落款, 三态: null=内置默认, ''(空串)=该行隐藏, 非空=自定义
   welcomeVenue: string | null;
   welcomeVenueEn: string | null;
@@ -55,6 +57,8 @@ export interface PublishedWelcomeFields {
   welcomeTitle: string | null;
   welcomeGuest: string | null;
   welcomeTagline: string | null;
+  welcomeTitleSize: number | null;
+  welcomeGuestSize: number | null;
   welcomeVenue: string | null;
   welcomeVenueEn: string | null;
   welcomeOrg1: string | null;
@@ -101,6 +105,20 @@ function imageMediaId(input: unknown, label: string): number | null {
   if (input === null || input === undefined) return null;
   if (!Number.isInteger(input) || Number(input) <= 0) {
     throw new BadRequestException(`${label}媒体 ID 必须是正整数或 null`);
+  }
+  return Number(input);
+}
+
+/** 可选字号: null/undefined = 内置默认; 必须是范围内整数, 否则拒绝。 */
+function optionalFontSize(
+  input: unknown,
+  min: number,
+  max: number,
+  label: string,
+): number | null {
+  if (input === null || input === undefined) return null;
+  if (!Number.isInteger(input) || Number(input) < min || Number(input) > max) {
+    throw new BadRequestException(`${label}必须是 ${min}-${max} 之间的整数或 null`);
   }
   return Number(input);
 }
@@ -177,8 +195,10 @@ export function normalizeWelcomeSchemes(
       id: raw.id,
       name,
       welcomeTitle: optionalText(raw.welcomeTitle, 32, '主标题'),
-      welcomeGuest: optionalText(raw.welcomeGuest, 64, '嘉宾称谓'),
+      welcomeGuest: optionalText(raw.welcomeGuest, 120, '嘉宾行'),
       welcomeTagline: optionalText(raw.welcomeTagline, 64, '底部标语'),
+      welcomeTitleSize: optionalFontSize(raw.welcomeTitleSize, 40, 400, '主标题字号'),
+      welcomeGuestSize: optionalFontSize(raw.welcomeGuestSize, 24, 240, '嘉宾行字号'),
       welcomeVenue: optionalDisplayText(raw.welcomeVenue, 40, '场馆名称'),
       welcomeVenueEn: optionalDisplayText(raw.welcomeVenueEn, 96, '场馆英文名'),
       welcomeOrg1: optionalDisplayText(raw.welcomeOrg1, 40, '落款单位一'),
@@ -208,6 +228,8 @@ export function buildDefaultWelcomeSchemes(
         welcomeTitle: '热烈欢迎',
         welcomeGuest: '各位领导嘉宾',
         welcomeTagline: '欢迎莅临参观指导',
+        welcomeTitleSize: null,
+        welcomeGuestSize: null,
         welcomeVenue: null,
         welcomeVenueEn: null,
         welcomeOrg1: null,
@@ -222,6 +244,8 @@ export function buildDefaultWelcomeSchemes(
         welcomeTitle: '欢迎参加',
         welcomeGuest: '各位会议嘉宾',
         welcomeTagline: '同心聚力 · 共创未来',
+        welcomeTitleSize: null,
+        welcomeGuestSize: null,
         welcomeVenue: null,
         welcomeVenueEn: null,
         welcomeOrg1: null,
@@ -240,6 +264,8 @@ export function buildDefaultWelcomeSchemes(
         welcomeTitle: '合作共赢',
         welcomeGuest: '各位领导嘉宾',
         welcomeTagline: '携手同行 · 共启新程',
+        welcomeTitleSize: null,
+        welcomeGuestSize: null,
         welcomeVenue: null,
         welcomeVenueEn: null,
         welcomeOrg1: null,
@@ -260,6 +286,8 @@ export function matchesPublishedWelcome(
     scheme.welcomeTitle === published.welcomeTitle &&
     scheme.welcomeGuest === published.welcomeGuest &&
     scheme.welcomeTagline === published.welcomeTagline &&
+    (scheme.welcomeTitleSize ?? null) === (published.welcomeTitleSize ?? null) &&
+    (scheme.welcomeGuestSize ?? null) === (published.welcomeGuestSize ?? null) &&
     scheme.welcomeVenue === published.welcomeVenue &&
     scheme.welcomeVenueEn === published.welcomeVenueEn &&
     scheme.welcomeOrg1 === published.welcomeOrg1 &&

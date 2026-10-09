@@ -333,7 +333,7 @@ body[data-title-effect="neon"] .inscription .marks { color: rgba(127, 233, 255, 
     <div class="main-wrap"><div class="main" id="mainTitle">热烈欢迎</div></div>
     <div class="guest">
       <span class="flank"></span>
-      <span class="text">恭迎&nbsp;<span class="name" id="guestName">各位领导嘉宾</span>&nbsp;莅临参观指导</span>
+      <span class="text name" id="guestName">各位领导嘉宾莅临参观指导</span>
       <span class="flank r"></span>
     </div>
   </main>
@@ -351,34 +351,66 @@ body[data-title-effect="neon"] .inscription .marks { color: rgba(127, 233, 255, 
   </footer>
 
   <script>
-    // ---- LED 原生画布: 生产始终 3612×1462 点对点，不在 iframe 内二次缩放 ----
+    // ---- 原生设计画布 3612×1462 ----
     const LED_WIDTH = 3612;
     const LED_HEIGHT = 1462;
     const q = new URLSearchParams(location.search);
     const previewMode = q.get('preview') === '1';
     if (previewMode) document.documentElement.classList.add('preview-mode');
-    function fitPreview() {
-      if (!previewMode) return;
-      const scale = Math.min(window.innerWidth / LED_WIDTH, window.innerHeight / LED_HEIGHT);
-      const left = (window.innerWidth - LED_WIDTH * scale) / 2;
-      const top = (window.innerHeight - LED_HEIGHT * scale) / 2;
+    // 真机自适应（兑现"两块屏共用网页素材、kiosk 按各自分辨率渲染"）：
+    //   led       —— 视口宽高比与设计一致(±8%) → scale=1 点对点（LED 大屏）；
+    //   projector —— 投影/其它宽高比（如 slot2 的 16:9 逻辑视口）→ cover 等比铺满，
+    //                超出视口部分裁掉，不再只显示左上角一块；
+    //   preview   —— 后台编辑器 iframe，contain 完整预览。
+    function classifyRenderMode() {
+      if (previewMode) return 'preview';
+      const ratio = window.innerWidth / window.innerHeight;
+      const designRatio = LED_WIDTH / LED_HEIGHT;
+      const ratioMatch = Math.abs(ratio - designRatio) / designRatio < 0.08;
+      // 仅当宽高比一致且视口接近 LED 物理尺寸时才点对点；其余（等比缩小窗、投影等）一律自适应铺满
+      return ratioMatch && window.innerWidth >= LED_WIDTH * 0.9 ? 'led' : 'projector';
+    }
+    const renderMode = classifyRenderMode();
+    let visibleDesignW = LED_WIDTH; // 当前视口实际可见的设计稿宽度，供标题/称谓限宽
+    function applyStage() {
+      const vw = window.innerWidth, vh = window.innerHeight;
+      if (renderMode === 'led') {
+        document.body.style.position = '';
+        document.body.style.left = '';
+        document.body.style.top = '';
+        document.body.style.transform = '';
+        visibleDesignW = LED_WIDTH;
+        return;
+      }
+      const rw = vw / LED_WIDTH, rh = vh / LED_HEIGHT;
+      const scale = renderMode === 'preview' ? Math.min(rw, rh) : Math.max(rw, rh);
+      visibleDesignW = vw / scale;
+      const left = (vw - LED_WIDTH * scale) / 2;
+      const top = (vh - LED_HEIGHT * scale) / 2;
       document.body.style.position = 'absolute';
       document.body.style.left = `${left}px`;
       document.body.style.top = `${top}px`;
+      document.body.style.transformOrigin = '0 0';
       document.body.style.transform = `scale(${scale})`;
     }
-    fitPreview();
-    if (previewMode) window.addEventListener('resize', fitPreview);
+    applyStage();
+    window.addEventListener('resize', () => { applyStage(); requestAnimationFrame(fitTypography); });
 
-    // ---- 嘉宾行: 长称谓自动缩字号 (全屏居中, 不溢出不换行) ----
+    // ---- 嘉宾行: 整行可编辑, 长文本自动缩字号 (全屏居中, 不溢出不换行) ----
+    let customTitleSize = null; // 编辑器配置字号 (设计稿 px), null = 内置默认
+    let customGuestSize = null;
     function fitGuest() {
       const g = document.querySelector('.hero .guest');
       const t = g.querySelector('.text');
       const layout = document.body.dataset.layout || 'ceremony';
-      let size = layout === 'ceremony' ? 68 : layout === 'editorial' ? 60 : 58;
+      // 2026-10-09: 默认嘉宾行调大 (原 68 偏小)
+      const base = layout === 'ceremony' ? 96 : layout === 'editorial' ? 84 : 80;
+      let size = customGuestSize != null ? customGuestSize : base;
       g.style.fontSize = size + 'px';
-      const max = LED_WIDTH - 2 * (150 + 52) - 120; // 两侧装饰线+间距+安全边
-      while (size > 42 && t.scrollWidth > max) {
+      // LED 用原安全宽度；投影 cover 可见宽更窄，取更小值保证整行不被视口裁切
+      const ledMax = LED_WIDTH - 2 * (150 + 52) - 120; // 两侧装饰线+间距+安全边
+      const max = Math.min(ledMax, visibleDesignW - 2 * (150 + 52) - 80);
+      while (size > 28 && t.scrollWidth > max) {
         size -= 3;
         g.style.fontSize = size + 'px';
       }
@@ -387,10 +419,14 @@ body[data-title-effect="neon"] .inscription .marks { color: rgba(127, 233, 255, 
     function fitTitle() {
       const title = document.getElementById('mainTitle');
       const layout = document.body.dataset.layout || 'ceremony';
-      let size = layout === 'ceremony' ? 216 : layout === 'editorial' ? 176 : 166;
+      // 2026-10-09: 默认主标题调小 (原 216 偏大)
+      const base = layout === 'ceremony' ? 180 : layout === 'editorial' ? 150 : 140;
+      let size = customTitleSize != null ? customTitleSize : base;
       title.style.fontSize = size + 'px';
-      const maxWidth = layout === 'editorial' ? 2280 : LED_WIDTH - 440;
-      while (size > 116 && title.scrollWidth > maxWidth) {
+      // LED 用原宽度；投影 cover 可见宽更窄，取更小值保证标题不被视口裁切
+      const ledWidth = layout === 'editorial' ? 2280 : LED_WIDTH - 440;
+      const maxWidth = Math.min(ledWidth, visibleDesignW - 80);
+      while (size > 60 && title.scrollWidth > maxWidth) {
         size -= 4;
         title.style.fontSize = size + 'px';
       }
@@ -484,7 +520,7 @@ body[data-title-effect="neon"] .inscription .marks { color: rgba(127, 233, 255, 
 
     function applyContent(d, bgUrl, logoUrl) {
       const guest = (d.welcomeGuest || '').trim();
-      document.getElementById('guestName').textContent = guest || '各位领导嘉宾';
+      document.getElementById('guestName').textContent = guest || '各位领导嘉宾莅临参观指导';
       const title = (d.welcomeTitle || '').trim() || '热烈欢迎';
       document.getElementById('mainTitle').textContent = title;
       document.getElementById('tagline').textContent = (d.welcomeTagline || '').trim() || '智慧展厅 · 数字展贸 · 科创未来';
@@ -516,6 +552,9 @@ body[data-title-effect="neon"] .inscription .marks { color: rgba(127, 233, 255, 
       const orgDotAfter = document.getElementById('orgDotAfter');
       if (orgDotAfter) orgDotAfter.style.display = orgCount === 2 ? '' : 'none';
       applyPresentation(d.welcomePresentation);
+      const sizeOf = (v) => (Number.isInteger(v) && v > 0 ? v : null);
+      customTitleSize = sizeOf(d.welcomeTitleSize);
+      customGuestSize = sizeOf(d.welcomeGuestSize);
       applyBackground(bgUrl || null);
       applyLogo(logoUrl || null);
       requestAnimationFrame(fitTypography);
@@ -542,9 +581,7 @@ body[data-title-effect="neon"] .inscription .marks { color: rgba(127, 233, 255, 
         );
       });
     } else {
-      if (window.innerWidth !== LED_WIDTH || window.innerHeight !== LED_HEIGHT) {
-        console.warn(`LED 欢迎页需要 ${LED_WIDTH}×${LED_HEIGHT} 视口，当前为 ${window.innerWidth}×${window.innerHeight}；已保持原生画布，未缩放。`);
-      }
+      // 真机：LED 点对点 / 投影 cover 铺满（renderMode 已判定），不再需要视口告警
       refreshBranding();
       setInterval(refreshBranding, 8000);
     }
