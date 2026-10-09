@@ -667,12 +667,12 @@ const {
             <label class="wb-label">主标题 (空 = 默认「热烈欢迎」)</label>
             <div class="wb-text-size-row">
               <input v-model="welcomeForm.welcomeTitle" class="wb-input" maxlength="32" placeholder="热烈欢迎" @input="markWelcomeDraftChanged" />
-              <input type="number" class="wb-size-input" :value="welcomeForm.welcomeTitleSize ?? ''" min="40" max="400" step="2" inputmode="numeric" placeholder="字号" title="主标题字号，留空 = 默认 180" @input="setWelcomeSize($event, 'title')" />
+              <input type="number" class="wb-size-input" :value="welcomeForm.welcomeTitleSize ?? 180" min="40" max="400" step="2" inputmode="numeric" title="主标题字号，默认 180；清空恢复默认" @input="setWelcomeSize($event, 'title')" />
             </div>
             <label class="wb-label">嘉宾行（整行可编辑，空 = 默认整行）</label>
             <div class="wb-text-size-row">
               <input v-model="welcomeForm.welcomeGuest" class="wb-input" maxlength="120" placeholder="各位领导嘉宾莅临参观指导" @input="markWelcomeDraftChanged" />
-              <input type="number" class="wb-size-input" :value="welcomeForm.welcomeGuestSize ?? ''" min="24" max="240" step="2" inputmode="numeric" placeholder="字号" title="嘉宾行字号，留空 = 默认 96" @input="setWelcomeSize($event, 'guest')" />
+              <input type="number" class="wb-size-input" :value="welcomeForm.welcomeGuestSize ?? 96" min="24" max="240" step="2" inputmode="numeric" title="嘉宾行字号，默认 96；清空恢复默认" @input="setWelcomeSize($event, 'guest')" />
             </div>
             <label class="wb-label">底部标语 (空 = 默认「智慧展厅 · 数字展贸 · 科创未来」)</label>
             <input v-model="welcomeForm.welcomeTagline" class="wb-input" maxlength="64" placeholder="智慧展厅 · 数字展贸 · 科创未来" @input="markWelcomeDraftChanged" />

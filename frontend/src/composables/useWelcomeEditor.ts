@@ -144,12 +144,13 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
   // 仅接受范围内整数，其余输入回退 null；保存时 clampSize 再兜底一次。
   function setWelcomeSize(event: Event, which: 'title' | 'guest'): void {
     const raw = (event.target as HTMLInputElement).value.trim();
-    const min = which === 'title' ? 40 : 24;
-    const max = which === 'title' ? 400 : 240;
+    // 输入阶段保持宽松：允许逐位输入（如 1 → 15 → 150），不即时回退；空 = null，
+    // 框由 :value fallback 显示默认（标题 180 / 嘉宾 96）作为参考。范围最终在保存时
+    // 由 clampSize（标题 40–400 / 嘉宾 24–240）兜底，欢迎页 fit 也只会收缩，不会崩。
     let next: number | null = null;
     if (raw !== '') {
       const n = Number(raw);
-      if (Number.isInteger(n) && n >= min && n <= max) next = n;
+      if (Number.isFinite(n)) next = n;
     }
     if (which === 'title') welcomeForm.value.welcomeTitleSize = next;
     else welcomeForm.value.welcomeGuestSize = next;
