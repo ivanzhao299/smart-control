@@ -1,7 +1,7 @@
 
 ## ★ 最新状态（2026-10-10，优先于本文件一切历史快照）
 
-- **【2026-10-10 灯光路径A + 手机单灯编组修复：DALI 硬件组同步 + 统一 2s 渐变 + dock 窄屏换行：本地全绿，尚未 commit/部署，等业主同意】**
+- **【2026-10-10 灯光路径A + 手机单灯编组修复：DALI 硬件组同步 + 统一 2s 渐变 + dock 窄屏换行：已部署生产成功（HEAD `9a882de`，builtAt 07:11:06Z，三端对齐）】**
   - 需求（业主原话）：各路灯光开关都是硬切、没延时；统一让所有灯开/关都加延时（保护电路+更好动态），同一分区（一路）灯应**同时动作、紧凑**，消除"逐灯间隔长"。业主选定**路径 A（硬件组同步）**，现场已用厂家 DALI 配置工具分组（"不要再重新搞分组"）。
   - **生产核对（只读，ssh `gk9000-smart-control` + better-sqlite3 readonly，库 `D:\smart-control\database\smart-control.db`）**：
     - 共 **12 分区**；`light_group` 登记 **11 个硬件组**（GW-DALI-1 g5–12、GW-DALI-2 g1–3）→ 映射到 **7 分区**：front-hall（GW2 g1+GW1 g12）、park-show（GW2 g2）、east-hall（GW2 g3）、south-hall（GW1 g5）、west-hall（GW1 g6）、release-hall（GW1 g7）、corridor（GW1 g8/9/10/11）。
@@ -24,7 +24,9 @@
     - 手机视口（390×844，CDP Emulation，签名 `bu.cdp(method, session_id=None, **params)`）：修复前 dock overflow（scrollW434>clientW362、"分区"不可见）；修复后 dock 两行、**hOverflow=false**、"分区" x=84–146 可见；弹窗"保存" x=780–827 inView；实保 #2→前厅成功。证据图 `验收截图/手机单灯编组-dock修复-20261010.png`、`手机单灯编组-弹窗保存-20261010.png`。
     - 环境要点：vite dev 须以 `VITE_API_BASE_URL=/api VITE_PROXY_API=http://localhost:3300` 启动才走 proxy、整页重载不丢后端（否则 5173 端口 readInitialBaseURL 会重置 3200、跳登录）。
   - **部署后须现场验证**：点一个已分组分区，确认整组灯在**同一时刻**用 2s 淡入/淡出（组命令真打到灯）；未分组 5 分区维持逐灯（也带 2s 渐变）。
-  - 未 commit；业主同意后 commit+push `main` 走 `deploy-gk9000.yml`，做三端同 commit + 生产回验 + 回写本文件。
+  - **已部署（2026-10-10）**：commit **`9a882de`**（8 文件 +149/-58），push main 触发 `deploy-gk9000.yml`；生产 `deployment-version.json` commit=`9a882de8d...` clean=true、builtAt 07:11:06Z。GK9000 pm2 两进程均已重启（backend pid9808 / frontend pid1844，online）。回验：`/api/client-auth/ping` 在线、`/api/light-zones` 未授权 401（鉴权正常）、`/control/` 200(3238B)、`/control/sw.js` 200。三端（本地/origin/生产）同 `9a882de`。
+  - **部署后现场待验**：点一个已分组分区，确认整组灯在同一时刻 2s 淡入/淡出；若某分区组命令 Modbus 成功但灯不亮（硬件组未真正烧好），临时设生产 env `LIGHTING_HW_GROUP_SYNC=off` 一键回退逐灯。5 个无组分区维持逐灯（也带 2s）。
+  - 注：本机 `gh` CLI 调 Actions API 静默异常（token 存在但无返回），本次以生产端客观证据（版本文件 + 进程重启 + API/页面回验）作为完成判据。
 
 - **【2026-10-09 字号框默认值修复：已部署生产成功（HEAD `713e907`，Deploy run 37928515542 success）】**
   - 业主发现：内联后的字号框是空的（placeholder「字号」），**默认字号参考值丢了**，别人无从参考填写；要求框里默认就有当前生效字号。
