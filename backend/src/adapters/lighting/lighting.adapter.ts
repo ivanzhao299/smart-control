@@ -94,6 +94,7 @@ export class LightingAdapter extends BaseAdapter {
     slaveId: number,
     group: number,
     value: number,
+    fadeSec?: number,
     ctx?: AdapterContext,
   ): Promise<AdapterResult<BrightnessState & { slaveId: number; group: number }>> {
     const impl = this.impl() as unknown as {
@@ -101,6 +102,7 @@ export class LightingAdapter extends BaseAdapter {
         slaveId: number,
         group: number,
         value: number,
+        fadeSec?: number,
         ctx?: AdapterContext,
       ) => Promise<AdapterResult<BrightnessState & { slaveId: number; group: number }>>;
     };
@@ -110,7 +112,7 @@ export class LightingAdapter extends BaseAdapter {
         `只有 cy-dali64a / mock 支持. 配 LIGHTING_ADAPTER_KIND=cy-dali64a.`,
       );
     }
-    return impl.setBrightnessOnGateway(slaveId, group, value, ctx);
+    return impl.setBrightnessOnGateway(slaveId, group, value, fadeSec, ctx);
   }
 
   async healthCheck(ctx?: AdapterContext): Promise<AdapterResult<{ ok: true }>> {

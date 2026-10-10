@@ -92,18 +92,24 @@ export class MockDaliAdapter extends BaseAdapter {
     });
   }
 
+  /** 记录每个硬件组最近一次命令的 fadeSec, 便于本地验收断言"组命令带了渐变" */
+  private groupFade = new Map<string, number>();
+
   /** Sprint E (2026-05-31): 显式给定 gateway slaveId, 不走 group → slaveId 推导. */
   async setBrightnessOnGateway(
     slaveId: number,
     group: number,
     value: number,
+    fadeSec?: number,
     ctx?: AdapterContext,
-  ): Promise<AdapterResult<BrightnessState & { slaveId: number; group: number }>> {
+  ): Promise<AdapterResult<BrightnessState & { slaveId: number; group: number; fadeSec?: number }>> {
     return this.run(`gw${slaveId}-g${group}`, 'setBrightnessOnGateway', ctx, async () => {
       const v = Math.max(0, Math.min(100, Number(value)));
       const cur: BrightnessState = { brightness: v, on: v > 0 };
-      this.state.set(`gw${slaveId}-g${group}`, cur);
-      return { ...cur, slaveId, group };
+      const key = `gw${slaveId}-g${group}`;
+      this.state.set(key, cur);
+      if (typeof fadeSec === 'number') this.groupFade.set(key, fadeSec);
+      return { ...cur, slaveId, group, fadeSec };
     });
   }
 

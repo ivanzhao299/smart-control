@@ -495,7 +495,7 @@ onMounted(loadAll);
 }
 .dock-title { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
 .dock-sub { font-size: 12px; color: var(--v2-text-3); font-weight: 400; }
-.dock-ops { display: flex; gap: 8px; overflow-x: auto; }
+.dock-ops { display: flex; flex-wrap: wrap; gap: 8px; overflow-x: auto; padding-bottom: env(safe-area-inset-bottom); }
 .op {
   flex: none; padding: 9px 16px; display: inline-flex; align-items: center; gap: 6px; border-radius: var(--v2-r-sm); font-size: 14px; cursor: pointer;
   background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); color: var(--v2-text-1);

@@ -290,6 +290,7 @@ export class CyDali64aAdapter extends BaseAdapter {
     slaveId: number,
     group: number,
     value: number,
+    fadeSec?: number,
     ctx?: AdapterContext,
   ): Promise<AdapterResult<BrightnessState & { slaveId: number; group: number }>> {
     return this.run(`gw${slaveId}-g${group}`, 'setBrightnessOnGateway', ctx, async () => {
@@ -301,7 +302,9 @@ export class CyDali64aAdapter extends BaseAdapter {
       }
       const pct = Math.max(0, Math.min(100, Number(value)));
       const addr: Required<DaliAddressing> = { slaveId, group, short: 0 };
-      await this.writeFadeBrightness(addr, undefined, brightnessPctToRaw(pct), ctx?.signal);
+      // 路径A: 组命令带统一渐变 (fadeSec), 整组灯在 DALI 总线上硬件同步淡入淡出.
+      // 不传 fadeSec 时退回网关默认 (writeFadeBrightness 内部).
+      await this.writeFadeBrightness(addr, fadeSec, brightnessPctToRaw(pct), ctx?.signal);
       return { brightness: pct, on: pct > 0, slaveId, group };
     });
   }

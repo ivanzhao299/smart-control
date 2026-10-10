@@ -258,8 +258,8 @@ async function dispatchMany(targets: ZoneRow[], op: 'on' | 'off'): Promise<void>
       } else {
         failCount += 1;
       }
-      // 2026-07-31 业主: 全开/全关逐区间隔 1.5s —— 错峰上电减小冲击电流,
-      // 也让整馆灯光有"依次点亮/熄灭"的仪式感。最后一区后不再等。
+      // 2026-10-10 路径A: 分区间隔收紧到 0.3s —— DALI 2s 软启动已把冲击摊开,
+      // 整馆紧凑、近乎整片同时。最后一区后不再等。
       if (i < targets.length - 1) await new Promise((r) => setTimeout(r, ALL_DISPATCH_STAGGER_MS));
     }
   } finally {
@@ -277,8 +277,12 @@ async function dispatchMany(targets: ZoneRow[], op: 'on' | 'off'): Promise<void>
   }
 }
 
-/** 全开/全关逐区间隔 (2026-07-31 业主: "统一设 1.5 秒延时") */
-const ALL_DISPATCH_STAGGER_MS = 1500;
+/**
+ * 全开/全关逐区间隔 (2026-10-10 路径A 调整):
+ * 现场已用 DALI 硬件组 + 2s 软启动, 上电冲击被摊进渐变, 分区间隔由 1.5s 收紧到 0.3s,
+ * 整馆紧凑、近乎整片同时淡入淡出.
+ */
+const ALL_DISPATCH_STAGGER_MS = 300;
 /** 全开/全关执行中 — 期间锁两颗按钮防连点重入 */
 const bulkBusy = ref(false);
 
@@ -288,7 +292,7 @@ async function allOn(): Promise<void> {
     await ElMessageBox.confirm(`确定开启整馆全部 ${zones.value.length} 个灯光分区?`, '全开确认',
       { type: 'warning', confirmButtonText: '全开', cancelButtonText: '取消' });
   } catch { return; }
-  ElMessage.info(`全开 — 逐区下发, 每区间隔 1.5 秒 (${zones.value.length} 区)`);
+  ElMessage.info(`全开 — 整馆紧凑淡入 (${zones.value.length} 区)`);
   await dispatchMany(zones.value, 'on');
 }
 async function allOff(): Promise<void> {
@@ -296,7 +300,7 @@ async function allOff(): Promise<void> {
     await ElMessageBox.confirm(`确定关闭整馆全部 ${zones.value.length} 个灯光分区?展厅将全场熄灯。`, '全关确认',
       { type: 'warning', confirmButtonText: '全关', cancelButtonText: '取消' });
   } catch { return; }
-  ElMessage.warning(`全关 — 逐区下发, 每区间隔 1.5 秒 (${zones.value.length} 区)`);
+  ElMessage.warning(`全关 — 整馆紧凑淡出 (${zones.value.length} 区)`);
   await dispatchMany(zones.value, 'off');
 }
 

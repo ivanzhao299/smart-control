@@ -20,6 +20,8 @@ export interface LightCmd {
   on?: boolean;
   brightness?: number; // 0-100
   kelvin?: number; // 2500-6500
+  /** 渐变时间(秒); 不填用分区统一渐变 (controller 注入) 或网关默认 */
+  fadeSec?: number;
 }
 
 export interface GatewayRef {
@@ -194,14 +196,15 @@ export class DaliLightsService implements OnModuleInit, OnModuleDestroy {
     const deviceId = JSON.stringify({ slaveId, short: l.shortAddr });
     let res;
     if (cmd.on === false) {
-      res = await this.lighting.turnOff(deviceId);
+      res = await this.lighting.turnOff(deviceId, { fadeSec: cmd.fadeSec });
     } else if (cmd.brightness != null || cmd.kelvin != null) {
       res = await this.lighting.setBrightness(deviceId, {
         value: cmd.brightness ?? 100,
         ...(cmd.kelvin != null ? { kelvin: cmd.kelvin } : {}),
-      } as { value?: number; kelvin?: number });
+        ...(cmd.fadeSec != null ? { fadeSec: cmd.fadeSec } : {}),
+      } as { value?: number; kelvin?: number; fadeSec?: number });
     } else {
-      res = await this.lighting.turnOn(deviceId);
+      res = await this.lighting.turnOn(deviceId, { fadeSec: cmd.fadeSec });
     }
     return { id, ok: res.ok, error: res.error };
   }
@@ -302,14 +305,15 @@ export class DaliLightsService implements OnModuleInit, OnModuleDestroy {
     const deviceId = JSON.stringify({ slaveId, short });
     let res;
     if (cmd.on === false) {
-      res = await this.lighting.turnOff(deviceId);
+      res = await this.lighting.turnOff(deviceId, { fadeSec: cmd.fadeSec });
     } else if (cmd.brightness != null || cmd.kelvin != null) {
       res = await this.lighting.setBrightness(deviceId, {
         value: cmd.brightness ?? 100,
         ...(cmd.kelvin != null ? { kelvin: cmd.kelvin } : {}),
-      } as { value?: number; kelvin?: number });
+        ...(cmd.fadeSec != null ? { fadeSec: cmd.fadeSec } : {}),
+      } as { value?: number; kelvin?: number; fadeSec?: number });
     } else {
-      res = await this.lighting.turnOn(deviceId);
+      res = await this.lighting.turnOn(deviceId, { fadeSec: cmd.fadeSec });
     }
     return { gatewayCode, short, ok: res.ok, error: res.error };
   }

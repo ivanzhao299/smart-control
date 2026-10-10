@@ -1,5 +1,30 @@
 
-## ★ 最新状态（2026-10-09，优先于本文件一切历史快照）
+## ★ 最新状态（2026-10-10，优先于本文件一切历史快照）
+
+- **【2026-10-10 灯光路径A + 手机单灯编组修复：DALI 硬件组同步 + 统一 2s 渐变 + dock 窄屏换行：本地全绿，尚未 commit/部署，等业主同意】**
+  - 需求（业主原话）：各路灯光开关都是硬切、没延时；统一让所有灯开/关都加延时（保护电路+更好动态），同一分区（一路）灯应**同时动作、紧凑**，消除"逐灯间隔长"。业主选定**路径 A（硬件组同步）**，现场已用厂家 DALI 配置工具分组（"不要再重新搞分组"）。
+  - **生产核对（只读，ssh `gk9000-smart-control` + better-sqlite3 readonly，库 `D:\smart-control\database\smart-control.db`）**：
+    - 共 **12 分区**；`light_group` 登记 **11 个硬件组**（GW-DALI-1 g5–12、GW-DALI-2 g1–3）→ 映射到 **7 分区**：front-hall（GW2 g1+GW1 g12）、park-show（GW2 g2）、east-hall（GW2 g3）、south-hall（GW1 g5）、west-hall（GW1 g6）、release-hall（GW1 g7）、corridor（GW1 g8/9/10/11）。
+    - **5 分区无硬件组**（继续逐灯）：1f-south、1-f west、南展区射灯 lz-1784620487079、东展区射灯 lz-1784620510034、展销中心射灯 lz-1784801358539。
+    - **根因**：旧 `dispatchZone` 是 **per-light 优先**，而 `dali_light.zone_code` 仍在 → 即便硬件已分组，分区开关仍逐盏串行（帧间隔 200ms、单灯 fade 仅 0.7s），用不到组命令——这就是"分好组却还是老样子"。
+  - **改动（6 文件，无新迁移、无数据变更、不碰既有功能）**：
+    1. `cy-dali64a.adapter.ts`：`setBrightnessOnGateway` 加 `fadeSec?`，`writeFadeBrightness(addr, fadeSec, raw)` 让组命令带渐变。
+    2. `lighting.adapter.ts`：`setBrightnessOnGateway` 加 `fadeSec?` 透传。
+    3. `mock-dali.adapter.ts`：同步加 `fadeSec?`（groupFade 记录，验收用）。
+    4. `dali-lights.service.ts`：`LightCmd` 加 `fadeSec?`；`setLight`/`controlAddr` 透传 turnOn/Off/setBrightness params；`controlZone` 用 `cmd.fadeSec`。
+    5. `lighting.controller.ts`：重写 `dispatchZone`——新增 **`LIGHTING_HW_GROUP_SYNC`（auto 默认 / on / off）** 与 **`LIGHTING_ZONE_FADE_SEC`（默认 2s）**；auto 有硬件组→逐组发**一条**带 fade 组命令（组内 DALI 硬件同步）、无组→逐灯回退；on 只走组、off 只走灯（一键回退老行为）。
+    6. `LightingPage.vue`：`ALL_DISPATCH_STAGGER_MS` **1500→300**（DALI 2s 软启动已摊薄上电冲击），全开/关提示文案改"整馆紧凑淡入/淡出"。
+    7. `DaliLightsPage.vue`（**手机单灯编组修复**）：`.dock-ops` 加 **`flex-wrap:wrap`** 与 `padding-bottom:env(safe-area-inset-bottom)`——窄屏底部操作条自动换两行、"分区"按钮始终可见（桌面宽屏内容不超一行、仍单行，零回归）。
+       - **手机端"单灯编组不能用"根因（实测）**：`.dock-ops` 6 按钮（闪烁认灯/开/关/50%/命名/分区）在 390px 视口内容宽 434px、可视仅 362px，`overflow-x:auto` 把最末"分区"按钮折到横向滚动区外（x=386–448、完全不可见），用户找不到编组入口。**非权限/后端问题**：命名管理员 client-login 令牌带 uid、resolveActor 返回真实 role=admin，`PUT /api/dali-lights/:id/zone` 本就放行。
+       - **单灯编组实现原理（两层，勿混）**：①软件"分区归属"= 选中灯→分区→保存，`PUT /api/dali-lights/:id/zone` 更新 `dali_light.zone_code`（逐灯分区控制/统计用，随时可改）；②DALI 硬件组 group= 另一层，只能现场 DALI Tools 接 Debug 口烧录、`light_group` 表登记"网关+组号"，路径A 整组同步走它。
+  - **验收证据全绿**：backend `nest build` exit 0；`npx jest dali|lighting` **22 passed**；行为验收（dist + 桩依赖）**5 项全对**——AUTO 有组→mode=hw-group total2、2 条组命令 value100/fadeSec2、不走逐灯；AUTO 无组→per-light total6、cmd.fadeSec2；OFF 有组→回退 per-light；ON 无组→ok=false 友好报错；AUTO 有组 off→hw-group value0/fade2。frontend `vite build` exit 0（PWA v1.3.0、104 预缓存）；登录页正常渲染；dev 5173 已恢复（曾停止，已重启）。
+  - **2026-10-10 端到端复测（独立库 smart-control-4gdev.db + MOCK；vite 5173 proxy→后端 3300）**：
+    - 门禁：前端 `node --test` **285 pass/0 fail**；前端完整 `npm run build`（park-ops check + vue-tsc + vite build）exit 0、PWA v1.3.0/104 预缓存；后端 `npx jest lighting` **22 passed**、`nest build` exit 0。
+    - 有组分区 API 实测：`POST /lighting/zone/1/on|off`（前厅）→ **mode=hw-group、total=1**（仅 1 条组命令 GW-DALI-2 g1）；`zone/7/on`（走廊 g8/9/10/11）→ **mode=hw-group、total=4**（4 条组命令）；on/off/brightness 均显式传 `zoneFadeSec=2` → adapter `setBrightnessOnGateway(...,fadeSec)`（mock groupFade 记录）。
+    - 手机视口（390×844，CDP Emulation，签名 `bu.cdp(method, session_id=None, **params)`）：修复前 dock overflow（scrollW434>clientW362、"分区"不可见）；修复后 dock 两行、**hOverflow=false**、"分区" x=84–146 可见；弹窗"保存" x=780–827 inView；实保 #2→前厅成功。证据图 `验收截图/手机单灯编组-dock修复-20261010.png`、`手机单灯编组-弹窗保存-20261010.png`。
+    - 环境要点：vite dev 须以 `VITE_API_BASE_URL=/api VITE_PROXY_API=http://localhost:3300` 启动才走 proxy、整页重载不丢后端（否则 5173 端口 readInitialBaseURL 会重置 3200、跳登录）。
+  - **部署后须现场验证**：点一个已分组分区，确认整组灯在**同一时刻**用 2s 淡入/淡出（组命令真打到灯）；未分组 5 分区维持逐灯（也带 2s 渐变）。
+  - 未 commit；业主同意后 commit+push `main` 走 `deploy-gk9000.yml`，做三端同 commit + 生产回验 + 回写本文件。
 
 - **【2026-10-09 字号框默认值修复：已部署生产成功（HEAD `713e907`，Deploy run 37928515542 success）】**
   - 业主发现：内联后的字号框是空的（placeholder「字号」），**默认字号参考值丢了**，别人无从参考填写；要求框里默认就有当前生效字号。
