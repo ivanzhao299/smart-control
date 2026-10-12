@@ -50,6 +50,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { AdaptersModule } from './adapters/adapters.module';
 import { ServicesModule } from './services/services.module';
 import { CamerasModule } from './modules/cameras/cameras.module';
+import { LprModule } from './modules/lpr/lpr.module';
 import { PvModule } from './modules/pv/pv.module';
 import { RuntimeConfigModule } from './common/runtime-config/runtime-config.module';
 
@@ -104,6 +105,7 @@ import { RuntimeConfigModule } from './common/runtime-config/runtime-config.modu
     AuditModule,
     WebsocketModule,
     CamerasModule,
+    LprModule,
     PvModule,
   ],
   providers: [

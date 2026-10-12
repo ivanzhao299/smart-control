@@ -551,6 +551,28 @@ export interface PowerReadingWsEvent {
   at: string;
 }
 
+/** 臻识车牌识别过车事件 (PWA 道闸页 / 大屏人车管理实时流) */
+export interface LprPassWsEvent {
+  type: 'lpr_pass';
+  serialno: string;
+  license: string;
+  passDirection: 'in' | 'out' | null;
+  releaseResult: string;
+  isFake: number | null;
+  isDanger: number | null;
+  recordId: number;
+  at: string;
+}
+
+/** 臻识道闸状态变化 (0 关到位 / 1 开到位 / 2 中间) */
+export interface LprGateStatusWsEvent {
+  type: 'lpr_gate_status';
+  serialno: string;
+  gateStatus: number;
+  connectStatus: number | null;
+  at: string;
+}
+
 export type WsEvent =
   | { type: 'hello'; message: string; serverTime: string; frontendBuildId?: string }
   | { type: 'frontend_release'; frontendBuildId: string }
@@ -568,6 +590,8 @@ export type WsEvent =
   | ServiceStatusWsEvent
   | PlaybackChannelChangedWsEvent
   | PowerReadingWsEvent
+  | LprPassWsEvent
+  | LprGateStatusWsEvent
   | { type: 'pong'; at: string };
 
 /* ---------- Sprint-10: 硬件清单 ---------- */

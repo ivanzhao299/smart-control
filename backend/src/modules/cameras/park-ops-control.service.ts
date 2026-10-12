@@ -35,6 +35,12 @@ const REFRESH_TTL_MS = 10_000;
  * 同时停止其开启的自动轮播。避免测试终端长期占用大屏控制。
  */
 const CLAIM_TTL_MS = 90_000;
+/**
+ * 现场运营大屏的固定接管者标识。无人远程接管时，仅允许现场大屏用该标识触发
+ * 受控开闸；一旦被远程终端接管，则只有接管者能开闸，现场开闸被拒绝直到还权。
+ * 阶段 0 为共享静态标识（限流 + 审计 + 接管互斥兜底），阶段 2 可升级为大屏专用密钥。
+ */
+export const PARK_OPS_LOCAL_OWNER_ID = 'park-ops-screen';
 
 interface ControlClaim {
   ownerId: string;
@@ -111,6 +117,28 @@ export class ParkOpsControlService {
   /** 有效操作 / 心跳时为接管续期。 */
   private keepClaim(now: number): void {
     if (this.claim) this.claim.lastActiveAt = now;
+  }
+
+  /**
+   * 受控开闸鉴权：现场未被接管时仅允许现场大屏（固定标识）；接管期仅允许当前接管者。
+   * 返回是否放行与操作者展示名（用于审计 reason）。放行时顺带为接管续期。
+   */
+  gateAuthorization(ownerId: string | undefined, now = Date.now()): {
+    allowed: boolean;
+    claimed: boolean;
+    holderName: string;
+  } {
+    const active = this.activeClaim(now);
+    if (active) {
+      const allowed = !!ownerId && active.ownerId === ownerId;
+      if (allowed) this.keepClaim(now);
+      return { allowed, claimed: true, holderName: active.ownerName };
+    }
+    return {
+      allowed: ownerId === PARK_OPS_LOCAL_OWNER_ID,
+      claimed: false,
+      holderName: '现场运营大屏',
+    };
   }
 
   // ==================== 状态读取 ====================

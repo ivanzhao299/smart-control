@@ -280,6 +280,8 @@ export class StatusGateway
     else if (event.type === 'device_status') this.safeSend(client, { type: event.type, device: event.device, status: event.status, at: event.at });
     else if (event.type === 'power_reading') this.safeSend(client, { type: event.type, circuitId: event.circuitId, code: event.code, reading: event.reading, at: event.at });
     else if (event.type === 'scene') this.safeSend(client, { type: event.type, scene: event.scene, executionId: event.executionId, status: event.status, at: event.at });
+    else if (event.type === 'lpr_pass') this.safeSend(client, { type: event.type, serialno: event.serialno, license: event.license, passDirection: event.passDirection, releaseResult: event.releaseResult, isFake: event.isFake, isDanger: event.isDanger, recordId: event.recordId, at: event.at });
+    else if (event.type === 'lpr_gate_status') this.safeSend(client, { type: event.type, serialno: event.serialno, gateStatus: event.gateStatus, connectStatus: event.connectStatus, at: event.at });
   }
 
   private safeSend(client: WebSocket, payload: unknown): void {

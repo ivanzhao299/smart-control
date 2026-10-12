@@ -47,3 +47,27 @@ export class ClaimParkOpsControlDto {
 
 /** next / prev / release 等无业务参数动作可选携带 ownerId。 */
 export class ParkOpsActionDto extends ParkOpsOwnerIdDto {}
+
+/** 运营大屏（人车管理页）受控远程开闸：复用接管锁，写操作必须可追溯。 */
+export class GateOpenParkOpsDto extends ParkOpsOwnerIdDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(24)
+  ownerName?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  deviceId?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  serialno?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  reason?: string;
+}

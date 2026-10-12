@@ -1,0 +1,75 @@
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from 'typeorm';
+
+/**
+ * 臻识车牌识别一体机 (LPR 相机 / 道闸通道)。
+ *
+ * 一台相机 = 一个出入口通道 (X2 拼接机可用 channel 区分多路)。
+ * 相机经 HTTP 推送 / comet 与后端通讯, serialno 为设备全局唯一编号,
+ * 同时作为 webhook 身份白名单与 comet 命令队列的键。
+ */
+@Entity({ name: 'lpr_device' })
+export class LprDevice {
+  @PrimaryGeneratedColumn()
+  id!: number;
+
+  /** 设备序列号 (报文 serialno), 全局唯一, 兼作 webhook 身份校验白名单 */
+  @Index({ unique: true })
+  @Column({ type: 'varchar', length: 64 })
+  serialno!: string;
+
+  /** 显示名, 如 "东门入口" */
+  @Column({ type: 'varchar', length: 128, name: 'device_name' })
+  deviceName!: string;
+
+  /** 型号, 如 R5 / R5D / X2 */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  model!: string | null;
+
+  /** 相机局域网 IP */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  ip!: string | null;
+
+  /** 通道号 (单相机默认 1; X2 拼接多路时区分) */
+  @Column({ type: 'integer', nullable: true })
+  channel!: number | null;
+
+  /** 安装位置 / 出入口名称 */
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  location!: string | null;
+
+  /** 开闸使用的 IO 编号 (HTTP 回复 channelNum / ioout, 0..3), 默认 0 */
+  @Column({ type: 'integer', name: 'gate_io', default: 0 })
+  gateIo!: number;
+
+  /** 该通道方向: in=入口(进园) / out=出口(出园), 用于进出统计; null=未配置 */
+  @Column({ type: 'varchar', length: 8, name: 'pass_direction', nullable: true })
+  passDirection!: 'in' | 'out' | null;
+
+  /** 在线状态 (由心跳 / comet 刷新) */
+  @Column({ type: 'boolean', default: false })
+  online!: boolean;
+
+  /** 最后一次心跳 / 通讯时间 */
+  @Column({ type: 'datetime', name: 'last_heartbeat', nullable: true })
+  lastHeartbeat!: Date | null;
+
+  /** 相机参数 JSON (图片大小策略、comet、SSL 等), 可选 */
+  @Column({ type: 'text', nullable: true })
+  config!: string | null;
+
+  @Column({ type: 'boolean', default: true })
+  enabled!: boolean;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt!: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt!: Date;
+}

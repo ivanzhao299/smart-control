@@ -7,7 +7,7 @@ import {
   GotoParkOpsPageDto,
   ToggleParkOpsAutoDto,
 } from './dto/park-ops-control.dto';
-import { ParkOpsControlService } from './park-ops-control.service';
+import { PARK_OPS_LOCAL_OWNER_ID, ParkOpsControlService } from './park-ops-control.service';
 
 describe('ParkOpsControlService', () => {
   afterEach(() => jest.restoreAllMocks());
@@ -82,6 +82,37 @@ describe('ParkOpsControlService', () => {
     now += 80_000;
     service.nextPage('owner-1'); // renews at t=81000
     now += 80_000; // t=161000, only 80s since the last action
+    expect(service.getState()).toMatchObject({ claimed: true });
+  });
+
+  it('gate-open: while unclaimed, only the fixed on-site screen id is allowed', () => {
+    const service = new ParkOpsControlService();
+    expect(service.gateAuthorization(PARK_OPS_LOCAL_OWNER_ID)).toMatchObject({
+      allowed: true,
+      claimed: false,
+      holderName: '现场运营大屏',
+    });
+    expect(service.gateAuthorization('remote-user-1')).toMatchObject({ allowed: false, claimed: false });
+    expect(service.gateAuthorization(undefined)).toMatchObject({ allowed: false, claimed: false });
+  });
+
+  it('gate-open: while claimed, only the current claim holder is allowed and the claim is renewed', () => {
+    let now = 1_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const service = new ParkOpsControlService();
+    service.claimControl('remote-user-1', '值班员B');
+
+    now += 80_000;
+    expect(service.gateAuthorization(PARK_OPS_LOCAL_OWNER_ID)).toMatchObject({
+      allowed: false,
+      claimed: true,
+    });
+    expect(service.gateAuthorization('remote-user-2')).toMatchObject({ allowed: false, claimed: true });
+
+    const holder = service.gateAuthorization('remote-user-1');
+    expect(holder).toMatchObject({ allowed: true, claimed: true, holderName: '值班员B' });
+    // 放行时续期：再经过 80s（距上次授权）仍在接管期内
+    now += 80_000;
     expect(service.getState()).toMatchObject({ claimed: true });
   });
 

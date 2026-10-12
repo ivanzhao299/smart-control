@@ -174,7 +174,42 @@ export interface PowerReadingEvent {
   at: string;
 }
 
+/** 臻识车牌识别: 一次过车识别结果 (PWA 道闸页 / 大屏人车管理实时刷新) */
+export interface LprPassEvent {
+  type: 'lpr_pass';
+  serialno: string;
+  license: string;
+  passDirection: 'in' | 'out' | null;
+  releaseResult: string;
+  isFake: number | null;
+  isDanger: number | null;
+  recordId: number;
+  at: string;
+}
+
+/** 臻识道闸状态变化 (0 关到位 / 1 开到位 / 2 中间) */
+export interface LprGateStatusEvent {
+  type: 'lpr_gate_status';
+  serialno: string;
+  gateStatus: number;
+  connectStatus: number | null;
+  at: string;
+}
+
+/** 远程手动开闸结果 (comet 立即下发或排队等待相机下一次通讯) */
+export interface LprGateCommandEvent {
+  type: 'lpr_gate_command';
+  serialno: string;
+  delivered: boolean;
+  queued: boolean;
+  operator: string;
+  at: string;
+}
+
 export type ControlEvent =
+  | LprPassEvent
+  | LprGateStatusEvent
+  | LprGateCommandEvent
   | PowerReadingEvent
   | DeviceStatusEvent
   | SceneEvent

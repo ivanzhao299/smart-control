@@ -10,9 +10,10 @@ import { ParkOpsMetricsService } from './park-ops-metrics.service';
 import { AiProxyController } from './ai-proxy.controller';
 import { AiConfigPusher } from './ai-config.pusher';
 import { AdminAuthModule } from '../admin-auth/admin-auth.module';
+import { LprModule } from '../lpr/lpr.module';
 
 @Module({
-  imports: [AdminAuthModule],
+  imports: [AdminAuthModule, LprModule],
   controllers: [
     CamerasController,
     VideoBindingController,

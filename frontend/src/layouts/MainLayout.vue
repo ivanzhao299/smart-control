@@ -265,6 +265,7 @@ const moreActive = computed(() => toolNavs.some((n) => n.name === route.name));
 const MORE_CHIP_COLORS: Record<string, string> = {
   media: '#E0A030',
   status: '#3FBF87',
+  barrier: '#22d3ee',
   'admin-devices': '#4C9AFF',
   theme: '#9D8BFF',
 };

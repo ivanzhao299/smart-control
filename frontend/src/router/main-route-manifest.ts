@@ -72,6 +72,11 @@ export const mainRouteManifest = [
     navigation: { label: '状态', section: 'tools' }, prefetchOnIdle: true,
     prefetchApis: ['/system/info'],
   },
+  {
+    path: 'barrier', name: 'barrier', load: () => import('@/pages/BarrierPage.vue'),
+    navigation: { label: '道闸', section: 'tools' }, prefetchOnIdle: true,
+    prefetchApis: ['/lpr/recent', '/lpr/devices'],
+  },
 ] as const satisfies readonly MainRouteDefinition[];
 
 export const mainNavigationItems: readonly MainNavigationItem[] = mainRouteManifest.flatMap((route) => (

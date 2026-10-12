@@ -81,6 +81,10 @@ export const adminRouteManifest = [
     access: 'admin', navigation: { label: '视频绑定', section: '设备与分区', order: 3 },
   },
   {
+    path: 'lpr', name: 'admin-lpr', load: () => import('@/pages/admin/LprAdmin.vue'),
+    access: 'admin', navigation: { label: '车牌道闸', section: '设备与分区', order: 4 }, prefetchOnIdle: true,
+  },
+  {
     path: 'uat', name: 'admin-uat', load: () => import('@/pages/admin/UatAdmin.vue'),
     access: 'admin', menuParent: 'admin-test-center',
   },

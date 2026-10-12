@@ -31,7 +31,10 @@
   function prepareEditableText() {
     const seen = new Set();
     [...document.querySelectorAll(textSelector)].forEach((candidate, index) => {
-      if (candidate.closest('.building-marker,#buildingDetail,.map-toolbar,.tabs,.park-editor-shell')) return;
+      // [data-lpr-live] 是车牌道闸(lpr-panel.mjs)每 10s 写入的实时数据区(统计数字/
+      // 门岗事件/远程开闸控件), 绝不能注册为静态文案键, 否则 applyTextOverrides 会周期性
+      // 把实时数字回写为静态占位、并把开闸控件容器 textContent='' 清空。
+      if (candidate.closest('.building-marker,#buildingDetail,.map-toolbar,.tabs,.park-editor-shell,[data-lpr-live]')) return;
       let target = candidate;
       if (candidate.childElementCount) {
         const node = [...candidate.childNodes].find(item => item.nodeType === Node.TEXT_NODE && item.textContent.trim());
@@ -192,6 +195,8 @@
 
   function applyTextOverrides() {
     document.querySelectorAll('[data-park-text-key]').forEach(element => {
+      // 双保险: 即便历史上已注册过, lpr 实时区内的元素也不回写静态文案。
+      if (element.closest('[data-lpr-live]')) return;
       const key = element.dataset.parkTextKey;
       const value = config.textOverrides[key] || textBaseline.get(key);
       if (!value) return;

@@ -4,6 +4,7 @@
  */
 import {
   Home,
+  CarFront,
   Lightbulb,
   MonitorPlay,
   Volume2,
@@ -48,6 +49,7 @@ export const NAV_ICON: Record<string, LucideIcon> = {
   power: Zap,
   media: FolderOpen,
   status: Radio,
+  barrier: CarFront,
   'admin-devices': Settings,
 };
 
@@ -64,6 +66,7 @@ export const ADMIN_NAV_ICON: Record<string, LucideIcon> = {
   'admin-uat': CheckCircle2,
   'admin-logs': FileText,
   'admin-hardware': Cable,
+  'admin-lpr': CarFront,
   'admin-light-zones': Lightbulb,
   'admin-power-circuits': Zap,
   'admin-zones-config': SlidersHorizontal,
