@@ -1,7 +1,7 @@
 import {
+  All,
   Body,
   Controller,
-  Get,
   HttpCode,
   Post,
   Query,
@@ -27,7 +27,7 @@ import type { AlarmPlateBody, GateStatusBody } from './lpr.types';
  *   POST /serial    485 透传 SerialData
  *   POST /snap       主动截图 TriggerImage
  *   POST /heartbeat 注册/心跳 (multipart/form-data)
- *   GET|POST /comet comet 长轮询 (远程开闸/即时白名单方案 A)
+ *   ALL /comet  comet 长轮询 (POST multipart 注册/心跳, 也兼容 GET/query; 远程开闸/即时白名单方案 A)
  */
 @Controller('lpr')
 export class LprWebhookController {
@@ -92,19 +92,32 @@ export class LprWebhookController {
     res.json({});
   }
 
-  /** comet 长轮询: 相机挂连接, 服务器在有开闸/白名单命令时随回复下发, 否则挂起到超时 */
+  /**
+   * comet 长轮询: 相机挂连接, 服务器在有开闸/白名单命令时随回复下发, 否则挂起到超时。
+   * 臻识"设备注册=comet 轮询"时, 相机循环发送的心跳包与普通注册同为 multipart/form-data
+   * (字段 device_name/ipaddr/port/user_name/pass_wd/serialno/channel_num, 见协议手册 5.4/5.11),
+   * 故必须与 heartbeat 一样挂 FileInterceptor 才能解析出 serialno; 同时兼容 GET / query 方式。
+   */
   @Public()
-  @Get('comet')
-  @Post('comet')
+  @All('comet')
   @HttpCode(200)
+  @UseInterceptors(FileInterceptor('file'))
   async comet(
     @Body() body: Record<string, string> = {},
+    @UploadedFile() _file: unknown,
     @Query('serialno') querySerialno?: string,
     @Req() req?: Request,
     @Res() res?: Response,
   ): Promise<void> {
-    const serialno = String(body?.serialno ?? querySerialno ?? '').trim();
-    const reply = await this.service.cometPoll(serialno, { ip: req?.ip });
+    const b = body ?? {};
+    const serialno = String(b.serialno ?? querySerialno ?? '').trim();
+    const deviceName = b.device_name ?? b.deviceName ?? b.manufacture ?? null;
+    const channelRaw = b.channel_num ?? b.channel;
+    const reply = await this.service.cometPoll(serialno, {
+      ip: req?.ip,
+      deviceName: deviceName ?? null,
+      channel: channelRaw !== undefined && channelRaw !== '' ? Number(channelRaw) : null,
+    });
     res!.json(reply);
   }
 }
