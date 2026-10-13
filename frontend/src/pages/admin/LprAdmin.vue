@@ -2,13 +2,21 @@
 import { onMounted, ref } from 'vue';
 import AppSkeleton from '@/components/AppSkeleton.vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { lprService, LPR_GROUPS, type LprDevice, type LprPassRecord, type LprWhitelist } from '@/services/lpr.service';
+import {
+  lprService,
+  LPR_GROUPS,
+  type LprDevice,
+  type LprDeviceAdmin,
+  type LprPassRecord,
+  type LprPlatformConfig,
+  type LprWhitelist,
+} from '@/services/lpr.service';
 
 const tab = ref<'devices' | 'whitelist' | 'records'>('devices');
 const loadingDevices = ref(false);
 const loadingWl = ref(false);
 const loadingRecords = ref(false);
-const devices = ref<LprDevice[]>([]);
+const devices = ref<LprDeviceAdmin[]>([]);
 const whitelist = ref<LprWhitelist[]>([]);
 const records = ref<LprPassRecord[]>([]);
 const recordTotal = ref(0);
@@ -97,6 +105,35 @@ async function bulkAdd(): Promise<void> {
   }
 }
 
+// 平台接入配置（相机 web 后台应配置成的标准参数；只更新系统记录，不远程改相机）
+const platformDialog = ref(false);
+const savingPlatform = ref(false);
+const platform = ref<LprPlatformConfig | null>(null);
+async function openPlatform(): Promise<void> {
+  platformDialog.value = true;
+  try {
+    platform.value = await lprService.platformConfig();
+  } catch (e) { ElMessage.error((e as Error).message || '加载平台配置失败'); }
+}
+async function savePlatform(): Promise<void> {
+  if (!platform.value) return;
+  savingPlatform.value = true;
+  try {
+    platform.value = await lprService.savePlatformConfig({
+      host: platform.value.host,
+      httpPort: platform.value.httpPort,
+      httpsPort: platform.value.httpsPort,
+      cometPath: platform.value.cometPath,
+      platePath: platform.value.platePath,
+      gioPath: platform.value.gioPath,
+      serialPath: platform.value.serialPath,
+      note: platform.value.note,
+    });
+    ElMessage.success('已保存平台接入配置（仅更新系统记录与接入指引）');
+  } catch (e) { ElMessage.error((e as Error).message || '保存失败'); }
+  finally { savingPlatform.value = false; }
+}
+
 // 记录筛选
 const qPlate = ref('');
 const qDate = ref('');
@@ -134,7 +171,7 @@ function fmt(iso: string | null): string {
 
 async function loadDevices(): Promise<void> {
   loadingDevices.value = true;
-  try { devices.value = await lprService.devices(); }
+  try { devices.value = await lprService.adminDevices(); }
   catch (e) { ElMessage.error((e as Error).message || '加载相机失败'); }
   finally { loadingDevices.value = false; }
 }
@@ -159,7 +196,7 @@ async function loadRecords(append = false): Promise<void> {
   finally { loadingRecords.value = false; }
 }
 
-async function saveDevice(d: LprDevice): Promise<void> {
+async function saveDevice(d: LprDeviceAdmin): Promise<void> {
   savingDevice.value.add(d.id); savingDevice.value = new Set(savingDevice.value);
   try {
     await lprService.updateDevice(d.id, {
@@ -167,6 +204,9 @@ async function saveDevice(d: LprDevice): Promise<void> {
       location: d.location,
       gateIo: Number(d.gateIo) || 0,
       passDirection: d.passDirection || null,
+      webUser: d.webUser?.trim() || null,
+      webPassword: d.webPassword?.trim() || null,
+      webUrl: d.webUrl?.trim() || null,
     });
     ElMessage.success(`已保存 ${d.deviceName}`);
     await loadDevices();
@@ -226,10 +266,30 @@ onMounted(loadDevices);
       <el-tab-pane label="相机通道" name="devices">
         <div class="dev-toolbar">
           <el-button type="primary" @click="openAdd">添加相机（按序列号预登记）</el-button>
-          <span class="muted">相机上报心跳后会自动登记；也可在此提前按序列号预登记，现场一上线即正确显示。</span>
+          <el-button @click="openPlatform">平台接入配置</el-button>
+          <span class="muted">相机上报心跳后会自动登记；也可在此提前按序列号预登记，现场一上线即正确显示。展开每行可查看相机 web 后台地址与登录账号。</span>
         </div>
         <AppSkeleton v-if="loadingDevices && devices.length === 0" variant="table" :rows="5" />
-        <el-table v-else :data="devices" v-loading="loadingDevices" stripe class="lpr-table">
+        <el-table v-else :data="devices" v-loading="loadingDevices" stripe class="lpr-table" row-key="id">
+          <el-table-column type="expand">
+            <template #default="{ row }">
+              <div class="web-admin">
+                <div class="web-row">
+                  <span class="web-label">web 后台地址</span>
+                  <el-input v-model="row.webUrl" size="small" placeholder="留空则按 IP/型号自动生成" style="width: 320px" />
+                  <el-link v-if="row.webUrl" :href="row.webUrl" target="_blank" rel="noopener" type="primary" :underline="false" class="web-link">打开相机后台</el-link>
+                  <span class="muted">仅园区内网可访问</span>
+                </div>
+                <div class="web-row">
+                  <span class="web-label">账号</span>
+                  <el-input v-model="row.webUser" size="small" placeholder="admin" style="width: 160px" />
+                  <span class="web-label">密码</span>
+                  <el-input v-model="row.webPassword" size="small" placeholder="admin" style="width: 180px" show-password />
+                  <el-button size="small" type="primary" :loading="savingDevice.has(row.id)" @click="saveDevice(row)">保存登录信息</el-button>
+                </div>
+              </div>
+            </template>
+          </el-table-column>
           <el-table-column label="设备名称" min-width="150">
             <template #default="{ row }"><el-input v-model="row.deviceName" size="small" /></template>
           </el-table-column>
@@ -413,6 +473,40 @@ onMounted(loadDevices);
         <el-button v-else type="primary" :loading="adding" @click="bulkAdd">批量录入</el-button>
       </template>
     </el-dialog>
+
+    <!-- 平台接入配置 -->
+    <el-dialog v-model="platformDialog" title="平台接入配置（相机推送参数）" width="620px">
+      <el-alert type="warning" :closable="false" show-icon class="pf-alert"
+        title="此地址保存在相机本地，HTTP 协议不支持远程修改已部署相机"
+        description="在此修改仅更新系统记录与新相机接入指引，不会自动改相机：换服务器/换 IP（域名不变）只需改 DNS 的 A 记录，相机无需改动；换域名才需现场逐台登录相机 web 后台修改。" />
+      <div v-if="platform" class="pf-form">
+        <label class="span2">平台主机（域名）
+          <el-input v-model="platform.host" placeholder="erp.cnjinhu.com" />
+        </label>
+        <label>HTTP 端口（XLT）
+          <el-input-number v-model="platform.httpPort" :min="1" :max="65535" controls-position="right" style="width: 100%" />
+        </label>
+        <label>HTTPS 端口（C5H）
+          <el-input-number v-model="platform.httpsPort" :min="1" :max="65535" controls-position="right" style="width: 100%" />
+        </label>
+        <label>心跳 / comet 路径
+          <el-input v-model="platform.cometPath" />
+        </label>
+        <label>车牌识别路径
+          <el-input v-model="platform.platePath" />
+        </label>
+        <label>IO 触发路径
+          <el-input v-model="platform.gioPath" />
+        </label>
+        <label>串口路径
+          <el-input v-model="platform.serialPath" />
+        </label>
+      </div>
+      <template #footer>
+        <el-button @click="platformDialog = false">关闭</el-button>
+        <el-button type="primary" :loading="savingPlatform" @click="savePlatform">保存</el-button>
+      </template>
+    </el-dialog>
   </section>
 </template>
 
@@ -443,4 +537,19 @@ onMounted(loadDevices);
 .dev-form label em { color: var(--v2-danger, #f87171); font-style: normal; margin-left: 2px; }
 .dev-form label.en { justify-content: flex-end; }
 .dev-bulk .bulk-hint { margin: 0 0 8px; line-height: 1.5; }
+.web-admin { padding: 8px 16px 12px; display: flex; flex-direction: column; gap: 10px; background: var(--v2-bg-2, rgba(255,255,255,.03)); }
+.web-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.web-label { font-size: 12px; color: var(--v2-text-3); min-width: 76px; }
+.web-row .muted { font-size: 12px; }
+.pf-alert { margin-bottom: 14px; --el-alert-text-color: #7a4b00; }
+.pf-alert :deep(.el-alert__title) { color: #7a4b00 !important; font-weight: 600; }
+.pf-alert :deep(.el-alert__description) { color: #5c3f0a !important; margin-top: 4px; line-height: 1.5; }
+.pf-form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+.pf-form label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--v2-text-2); }
+.pf-form label.span2 { grid-column: 1 / -1; }
+@media (max-width: 640px) {
+  .pf-form { grid-template-columns: 1fr; }
+  .web-row .el-input { width: 100% !important; }
+  .web-row .el-link { margin-left: 76px; }
+}
 </style>

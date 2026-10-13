@@ -6,13 +6,14 @@ import { LprDevice } from '../../entities/lpr-device.entity';
 import { LprPassRecord } from '../../entities/lpr-pass-record.entity';
 import { LprWhitelist } from '../../entities/lpr-whitelist.entity';
 import { LprGateEvent } from '../../entities/lpr-gate-event.entity';
+import { LprPlatformConfig } from '../../entities/lpr-platform-config.entity';
 import { ControlBus } from '../../services/control-bus';
 import { AuditService } from '../audit/audit.service';
 import { LprService } from './lpr.service';
 import { normalizePlate, plateTypeLabel, gateStatusLabel } from './lpr-codes';
 import type { AlarmPlateBody } from './lpr.types';
 
-const ENTITIES = [LprDevice, LprPassRecord, LprWhitelist, LprGateEvent];
+const ENTITIES = [LprDevice, LprPassRecord, LprWhitelist, LprGateEvent, LprPlatformConfig];
 
 function plateBody(over: Record<string, unknown> = {}, serialno = 'SN001'): AlarmPlateBody {
   return {
@@ -78,6 +79,7 @@ describe('LprService', () => {
       ds.getRepository(LprPassRecord),
       ds.getRepository(LprWhitelist),
       ds.getRepository(LprGateEvent),
+      ds.getRepository(LprPlatformConfig),
       bus,
       audit,
     );
@@ -127,6 +129,60 @@ describe('LprService', () => {
 
   it('预登记缺序列号抛错', async () => {
     await expect(service.createDevice({ serialno: '   ' } as never)).rejects.toThrow();
+  });
+
+  it('web 后台地址按型号推导: XLT 走 /pc/#/login, 其余走根路径; 显式 webUrl 优先', async () => {
+    const xlt = await service.createDevice({
+      serialno: 'XLT-1', model: 'XLT', ip: '192.168.180.111',
+    });
+    expect(xlt.webUrl).toBe('http://192.168.180.111/pc/#/login');
+    const c5h = await service.createDevice({
+      serialno: 'C5H-1', model: 'C5H', ip: '192.168.180.101',
+    });
+    expect(c5h.webUrl).toBe('http://192.168.180.101');
+    const noIp = await service.createDevice({ serialno: 'NOIP-1', model: 'C5H' });
+    expect(noIp.webUrl).toBeNull();
+    const override = await service.createDevice({
+      serialno: 'OV-1', model: 'XLT', ip: '192.168.180.200', webUrl: 'http://192.168.180.200/custom',
+    });
+    expect(override.webUrl).toBe('http://192.168.180.200/custom');
+  });
+
+  it('公开设备列表不含 web 口令; 管理员列表含账号/口令, 默认 admin/admin', async () => {
+    await service.createDevice({ serialno: 'CRED-1', model: 'XLT', ip: '192.168.180.111' });
+    const pub = await service.listDevices();
+    expect(pub[0]).not.toHaveProperty('webPassword');
+    expect(pub[0]).not.toHaveProperty('webUser');
+    expect(pub[0].webUrl).toBe('http://192.168.180.111/pc/#/login');
+    const admin = await service.listDevicesAdmin();
+    expect(admin[0].webUser).toBe('admin');
+    expect(admin[0].webPassword).toBe('admin');
+    // 可自定义口令
+    await service.updateDevice(admin[0].id, { webUser: 'root', webPassword: 'Secret#1' });
+    const admin2 = await service.listDevicesAdmin();
+    expect(admin2[0].webUser).toBe('root');
+    expect(admin2[0].webPassword).toBe('Secret#1');
+  });
+
+  it('平台接入配置: 首读默认 erp.cnjinhu.com, 更新归一化, 且声明不支持远程改相机', async () => {
+    const def = await service.getPlatformConfig();
+    expect(def.host).toBe('erp.cnjinhu.com');
+    expect(def.httpPort).toBe(80);
+    expect(def.httpsPort).toBe(443);
+    expect(def.cometPath).toBe('/api/lpr/comet');
+    expect(def.remoteChangeSupported).toBe(false);
+    const upd = await service.updatePlatformConfig({
+      host: 'park.example.com',
+      httpPort: 8080,
+      cometPath: 'api/lpr/comet', // 缺前导斜杠 -> 自动补
+    });
+    expect(upd.host).toBe('park.example.com');
+    expect(upd.httpPort).toBe(8080);
+    expect(upd.cometPath).toBe('/api/lpr/comet');
+    expect(upd.httpsPort).toBe(443); // 未提供的保持
+    // 非法端口回退
+    const bad = await service.updatePlatformConfig({ httpsPort: 999999 });
+    expect(bad.httpsPort).toBe(443);
   });
 
   it('命中白名单 -> 回复 info:ok 自动开闸, 落库 auto 并发 WS', async () => {

@@ -64,6 +64,9 @@ export interface DeviceUpsertDto {
   gateIo?: number;
   passDirection?: 'in' | 'out' | null;
   enabled?: boolean;
+  webUser?: string | null;
+  webPassword?: string | null;
+  webUrl?: string | null;
 }
 
 /** 按序列号预登记相机 DTO (设备上线前手动录入, 序列号必填) */
@@ -77,6 +80,9 @@ export interface DeviceCreateDto {
   gateIo?: number;
   passDirection?: 'in' | 'out' | null;
   enabled?: boolean;
+  webUser?: string | null;
+  webPassword?: string | null;
+  webUrl?: string | null;
 }
 
 /** 手动开闸 DTO */
@@ -108,6 +114,41 @@ export interface DeviceView {
   gateStatusLabel: string | null;
   lastPlate: string | null;
   lastEventTime: string | null;
+  /** 相机 web 管理后台地址（按 ip/model 推导，仅园区内网可达；公开可给） */
+  webUrl: string | null;
+}
+
+/** 管理员视图：在公开视图基础上额外返回 web 后台账号/口令（公开接口不返回） */
+export interface DeviceAdminView extends DeviceView {
+  webUser: string | null;
+  webPassword: string | null;
+}
+
+/** 平台接入配置（相机 web 后台应配置成的标准参数） */
+export interface PlatformConfigView {
+  host: string;
+  httpPort: number;
+  httpsPort: number;
+  cometPath: string;
+  platePath: string;
+  gioPath: string;
+  serialPath: string;
+  note: string | null;
+  /** 能力边界：HTTP 协议不支持远程改相机内的推送地址 */
+  remoteChangeSupported: boolean;
+  updatedAt: string | null;
+}
+
+/** 平台接入配置更新 DTO（仅管理员） */
+export interface PlatformConfigUpdateDto {
+  host?: string;
+  httpPort?: number;
+  httpsPort?: number;
+  cometPath?: string;
+  platePath?: string;
+  gioPath?: string;
+  serialPath?: string;
+  note?: string | null;
 }
 
 export interface PassRecordView {

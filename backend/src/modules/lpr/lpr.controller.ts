@@ -18,7 +18,13 @@ import { AdminGuard } from '../admin-auth/admin-auth.guard';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { Public } from '../../common/decorators/public.decorator';
 import { LprService } from './lpr.service';
-import type { DeviceCreateDto, DeviceUpsertDto, GateOpenDto, WhitelistUpsertDto } from './lpr.types';
+import type {
+  DeviceCreateDto,
+  DeviceUpsertDto,
+  GateOpenDto,
+  PlatformConfigUpdateDto,
+  WhitelistUpsertDto,
+} from './lpr.types';
 
 /**
  * /api/lpr — PWA「道闸」页 / 后台 / 运营大屏使用的 API。
@@ -37,6 +43,27 @@ export class LprController {
   @Get('devices')
   async devices() {
     return { message: '查询成功', data: await this.service.listDevices() };
+  }
+
+  /** 管理员设备列表：含相机 web 后台账号/口令（公开 devices 接口不返回这些） */
+  @Get('admin/devices')
+  @UseGuards(AdminGuard)
+  async adminDevices() {
+    return { message: '查询成功', data: await this.service.listDevicesAdmin() };
+  }
+
+  /** 平台接入配置（标准参数，公开只读，供接入指引展示） */
+  @Public()
+  @Get('platform-config')
+  async platformConfig() {
+    return { message: '查询成功', data: await this.service.getPlatformConfig() };
+  }
+
+  /** 更新平台接入配置（仅管理员；只更新系统记录与接入指引，不远程改相机） */
+  @Put('platform-config')
+  @UseGuards(AdminGuard)
+  async updatePlatformConfig(@Body() dto: PlatformConfigUpdateDto) {
+    return { message: '已保存平台接入配置', data: await this.service.updatePlatformConfig(dto ?? {}) };
   }
 
   /** 按序列号预登记相机 (设备上线前手动录入; 序列号已存在则幂等更新), 仅管理员 */

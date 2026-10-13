@@ -60,6 +60,21 @@ export class LprDevice {
   @Column({ type: 'datetime', name: 'last_heartbeat', nullable: true })
   lastHeartbeat!: Date | null;
 
+  /** 相机 web 管理后台账号 (仅园区内网登录, 臻识默认 admin) */
+  @Column({ type: 'varchar', length: 64, name: 'web_user', nullable: true, default: 'admin' })
+  webUser!: string | null;
+
+  /** 相机 web 管理后台口令 (仅管理员接口回显; 公开 devices 接口剥离) */
+  @Column({ type: 'varchar', length: 128, name: 'web_password', nullable: true, default: 'admin' })
+  webPassword!: string | null;
+
+  /**
+   * 相机 web 管理后台完整地址 (可空)。为空时后端按 ip + model 推导:
+   * XLT 新 vant SPA -> http://<ip>/pc/#/login; 其它 -> http://<ip>/。
+   */
+  @Column({ type: 'varchar', length: 255, name: 'web_url', nullable: true })
+  webUrl!: string | null;
+
   /** 相机参数 JSON (图片大小策略、comet、SSL 等), 可选 */
   @Column({ type: 'text', nullable: true })
   config!: string | null;

@@ -12,6 +12,7 @@ import { LprDevice } from '../../entities/lpr-device.entity';
 import { LprPassRecord } from '../../entities/lpr-pass-record.entity';
 import { LprWhitelist } from '../../entities/lpr-whitelist.entity';
 import { LprGateEvent } from '../../entities/lpr-gate-event.entity';
+import { LprPlatformConfig } from '../../entities/lpr-platform-config.entity';
 import { ControlBus } from '../../services/control-bus';
 import { AuditService } from '../audit/audit.service';
 import {
@@ -26,6 +27,7 @@ import {
 } from './lpr-codes';
 import type {
   AlarmPlateBody,
+  DeviceAdminView,
   DeviceCreateDto,
   DeviceUpsertDto,
   DeviceView,
@@ -33,6 +35,8 @@ import type {
   GateStatusBody,
   LprStats,
   PassRecordView,
+  PlatformConfigUpdateDto,
+  PlatformConfigView,
   PlateResultPayload,
   WhitelistUpsertDto,
 } from './lpr.types';
@@ -58,6 +62,33 @@ function normalizeDirection(v: unknown): 'in' | 'out' | null {
 function clampGateIo(v: unknown, fallback: number): number {
   const n = Number(v);
   return Number.isInteger(n) && n >= 0 && n <= 3 ? n : fallback;
+}
+
+/**
+ * 推导相机 web 管理后台地址（仅园区内网可达）。
+ * 优先用相机记录里显式配置的 webUrl；否则按 ip + 型号推导：
+ * XLT 新机型为 vant SPA，入口 /pc/#/login；其余（C5H 等）为老界面，根路径即登录。
+ */
+function deriveWebUrl(d: LprDevice): string | null {
+  if (d.webUrl && d.webUrl.trim()) return d.webUrl.trim();
+  const ip = d.ip?.trim();
+  if (!ip) return null;
+  const base = ip.startsWith('http://') || ip.startsWith('https://') ? ip : `http://${ip}`;
+  if (/XLT/i.test(d.model || '') && !/\/pc\//.test(base)) return `${base}/pc/#/login`;
+  return base;
+}
+
+/** 端口号归一化到 1..65535, 非法时回退 fallback */
+function clampPort(v: unknown, fallback: number): number {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 1 && n <= 65535 ? n : fallback;
+}
+
+/** 推送路径归一化：去空白、必须以 / 开头 */
+function normalizePath(v: unknown, fallback: string): string {
+  const s = typeof v === 'string' ? v.trim() : '';
+  if (!s) return fallback;
+  return s.startsWith('/') ? s : `/${s}`;
 }
 
 interface DeviceMeta {
@@ -87,6 +118,8 @@ export class LprService {
     @InjectRepository(LprPassRecord) private readonly passRepo: Repository<LprPassRecord>,
     @InjectRepository(LprWhitelist) private readonly wlRepo: Repository<LprWhitelist>,
     @InjectRepository(LprGateEvent) private readonly gateRepo: Repository<LprGateEvent>,
+    @InjectRepository(LprPlatformConfig)
+    private readonly platformRepo: Repository<LprPlatformConfig>,
     private readonly bus: ControlBus,
     private readonly audit: AuditService,
   ) {
@@ -154,30 +187,43 @@ export class LprService {
   async listDevices(): Promise<DeviceView[]> {
     const devs = await this.deviceRepo.find({ order: { id: 'ASC' } });
     const now = Date.now();
+    return Promise.all(devs.map((d) => this.toDeviceView(d, now)));
+  }
+
+  /** 管理员设备列表：在公开视图基础上额外返回 web 后台账号/口令 */
+  async listDevicesAdmin(): Promise<DeviceAdminView[]> {
+    const devs = await this.deviceRepo.find({ order: { id: 'ASC' } });
+    const now = Date.now();
     return Promise.all(
-      devs.map(async (d): Promise<DeviceView> => {
-        const gate = await this.gateRepo.findOne({ where: { serialno: d.serialno }, order: { id: 'DESC' } });
-        const last = await this.passRepo.findOne({ where: { serialno: d.serialno }, order: { id: 'DESC' } });
-        return {
-          id: d.id,
-          serialno: d.serialno,
-          deviceName: d.deviceName,
-          model: d.model,
-          ip: d.ip,
-          channel: d.channel,
-          location: d.location,
-          gateIo: d.gateIo,
-          passDirection: d.passDirection,
-          online: this.isOnline(d, now),
-          lastHeartbeat: d.lastHeartbeat ? new Date(d.lastHeartbeat).toISOString() : null,
-          enabled: d.enabled,
-          gateStatus: gate?.gateStatus ?? null,
-          gateStatusLabel: gateStatusLabel(gate?.gateStatus ?? null),
-          lastPlate: last?.license ?? null,
-          lastEventTime: last?.eventTime ? new Date(last.eventTime).toISOString() : null,
-        };
+      devs.map(async (d): Promise<DeviceAdminView> => {
+        const view = await this.toDeviceView(d, now);
+        return { ...view, webUser: d.webUser ?? 'admin', webPassword: d.webPassword ?? 'admin' };
       }),
     );
+  }
+
+  private async toDeviceView(d: LprDevice, now: number): Promise<DeviceView> {
+    const gate = await this.gateRepo.findOne({ where: { serialno: d.serialno }, order: { id: 'DESC' } });
+    const last = await this.passRepo.findOne({ where: { serialno: d.serialno }, order: { id: 'DESC' } });
+    return {
+      id: d.id,
+      serialno: d.serialno,
+      deviceName: d.deviceName,
+      model: d.model,
+      ip: d.ip,
+      channel: d.channel,
+      location: d.location,
+      gateIo: d.gateIo,
+      passDirection: d.passDirection,
+      online: this.isOnline(d, now),
+      lastHeartbeat: d.lastHeartbeat ? new Date(d.lastHeartbeat).toISOString() : null,
+      enabled: d.enabled,
+      gateStatus: gate?.gateStatus ?? null,
+      gateStatusLabel: gateStatusLabel(gate?.gateStatus ?? null),
+      lastPlate: last?.license ?? null,
+      lastEventTime: last?.eventTime ? new Date(last.eventTime).toISOString() : null,
+      webUrl: deriveWebUrl(d),
+    };
   }
 
   async updateDevice(id: number, dto: DeviceUpsertDto): Promise<DeviceView> {
@@ -191,6 +237,9 @@ export class LprService {
     if (dto.gateIo !== undefined) dev.gateIo = clampGateIo(dto.gateIo, dev.gateIo);
     if (dto.passDirection !== undefined) dev.passDirection = normalizeDirection(dto.passDirection);
     if (dto.enabled !== undefined) dev.enabled = dto.enabled;
+    if (dto.webUser !== undefined) dev.webUser = dto.webUser?.trim() || null;
+    if (dto.webPassword !== undefined) dev.webPassword = dto.webPassword?.trim() || null;
+    if (dto.webUrl !== undefined) dev.webUrl = dto.webUrl?.trim() || null;
     await this.deviceRepo.save(dev);
     const list = await this.listDevices();
     const view = list.find((v) => v.id === id);
@@ -219,6 +268,9 @@ export class LprService {
         online: false,
         lastHeartbeat: null,
         enabled: dto.enabled ?? true,
+        webUser: dto.webUser?.trim() || 'admin',
+        webPassword: dto.webPassword?.trim() || 'admin',
+        webUrl: dto.webUrl?.trim() || null,
       });
       this.logger.log(`预登记 LPR 相机: ${serialno} (${dev.deviceName})`);
     } else {
@@ -230,12 +282,69 @@ export class LprService {
       if (dto.gateIo !== undefined) dev.gateIo = clampGateIo(dto.gateIo, dev.gateIo);
       if (dto.passDirection !== undefined) dev.passDirection = normalizeDirection(dto.passDirection);
       if (dto.enabled !== undefined) dev.enabled = dto.enabled;
+      if (dto.webUser !== undefined) dev.webUser = dto.webUser?.trim() || null;
+      if (dto.webPassword !== undefined) dev.webPassword = dto.webPassword?.trim() || null;
+      if (dto.webUrl !== undefined) dev.webUrl = dto.webUrl?.trim() || null;
     }
     await this.deviceRepo.save(dev);
     const list = await this.listDevices();
     const view = list.find((v) => v.serialno === serialno);
     if (!view) throw new NotFoundException('设备保存失败');
     return view;
+  }
+
+  // ============================ 平台接入配置 ============================
+
+  /** 读取平台接入配置（单行，不存在则以默认值落库） */
+  async getPlatformConfig(): Promise<PlatformConfigView> {
+    const cfg = await this.getOrCreatePlatformConfig();
+    return {
+      host: cfg.host,
+      httpPort: cfg.httpPort,
+      httpsPort: cfg.httpsPort,
+      cometPath: cfg.cometPath,
+      platePath: cfg.platePath,
+      gioPath: cfg.gioPath,
+      serialPath: cfg.serialPath,
+      note: cfg.note,
+      remoteChangeSupported: false,
+      updatedAt: cfg.updatedAt ? new Date(cfg.updatedAt).toISOString() : null,
+    };
+  }
+
+  /** 更新平台接入配置（仅管理员；仅更新系统记录与接入指引，不远程改相机） */
+  async updatePlatformConfig(dto: PlatformConfigUpdateDto): Promise<PlatformConfigView> {
+    const cfg = await this.getOrCreatePlatformConfig();
+    if (dto.host !== undefined) cfg.host = dto.host.trim() || cfg.host;
+    if (dto.httpPort !== undefined) cfg.httpPort = clampPort(dto.httpPort, cfg.httpPort);
+    if (dto.httpsPort !== undefined) cfg.httpsPort = clampPort(dto.httpsPort, cfg.httpsPort);
+    if (dto.cometPath !== undefined) cfg.cometPath = normalizePath(dto.cometPath, cfg.cometPath);
+    if (dto.platePath !== undefined) cfg.platePath = normalizePath(dto.platePath, cfg.platePath);
+    if (dto.gioPath !== undefined) cfg.gioPath = normalizePath(dto.gioPath, cfg.gioPath);
+    if (dto.serialPath !== undefined) cfg.serialPath = normalizePath(dto.serialPath, cfg.serialPath);
+    if (dto.note !== undefined) cfg.note = dto.note?.trim() || null;
+    await this.platformRepo.save(cfg);
+    this.logger.log(`LPR 平台接入配置已更新: host=${cfg.host}`);
+    return this.getPlatformConfig();
+  }
+
+  private async getOrCreatePlatformConfig(): Promise<LprPlatformConfig> {
+    let cfg = await this.platformRepo.findOne({ where: { id: 1 } });
+    if (!cfg) {
+      cfg = this.platformRepo.create({
+        id: 1,
+        host: 'erp.cnjinhu.com',
+        httpPort: 80,
+        httpsPort: 443,
+        cometPath: '/api/lpr/comet',
+        platePath: '/api/lpr/plate',
+        gioPath: '/api/lpr/gio',
+        serialPath: '/api/lpr/serial',
+        note: null,
+      });
+      await this.platformRepo.save(cfg);
+    }
+    return cfg;
   }
 
   private async resolveDevice(dto: GateOpenDto): Promise<LprDevice> {

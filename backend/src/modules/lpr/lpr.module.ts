@@ -4,6 +4,7 @@ import { LprDevice } from '../../entities/lpr-device.entity';
 import { LprPassRecord } from '../../entities/lpr-pass-record.entity';
 import { LprWhitelist } from '../../entities/lpr-whitelist.entity';
 import { LprGateEvent } from '../../entities/lpr-gate-event.entity';
+import { LprPlatformConfig } from '../../entities/lpr-platform-config.entity';
 import { ServicesPrimitivesModule } from '../../services/services-primitives.module';
 import { AuditModule } from '../audit/audit.module';
 import { AdminAuthModule } from '../admin-auth/admin-auth.module';
@@ -13,7 +14,7 @@ import { LprController } from './lpr.controller';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([LprDevice, LprPassRecord, LprWhitelist, LprGateEvent]),
+    TypeOrmModule.forFeature([LprDevice, LprPassRecord, LprWhitelist, LprGateEvent, LprPlatformConfig]),
     ServicesPrimitivesModule,
     AuditModule,
     AdminAuthModule,
