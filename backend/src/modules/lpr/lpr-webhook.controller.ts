@@ -82,11 +82,15 @@ export class LprWebhookController {
     @Res() res: Response,
   ): Promise<void> {
     const serialno = String(body.serialno ?? body.sn ?? '').trim();
+    // 相机自报内网管理地址 ipaddr 优先（局域网相机的来源 IP 是统一出口/隧道，会丢失区分度）
+    const ip = String(body.ipaddr ?? req.ip ?? '').trim() || null;
+    const deviceName = body.device_name ?? body.deviceName ?? body.manufacture ?? null;
+    const channelRaw = body.channel_num ?? body.channel;
     await this.service.heartbeat(serialno, {
-      ip: req.ip,
-      deviceName: body.deviceName ?? body.manufacture ?? null,
+      ip,
+      deviceName: deviceName ?? null,
       model: body.deviceModel ?? null,
-      channel: body.channel ? Number(body.channel) : null,
+      channel: channelRaw !== undefined && channelRaw !== '' ? Number(channelRaw) : null,
     });
     // 心跳成功的具体回执以现场固件要求为准, 阶段0回 200 + 空 JSON
     res.json({});
@@ -113,8 +117,10 @@ export class LprWebhookController {
     const serialno = String(b.serialno ?? querySerialno ?? '').trim();
     const deviceName = b.device_name ?? b.deviceName ?? b.manufacture ?? null;
     const channelRaw = b.channel_num ?? b.channel;
+    // 相机自报内网管理地址 ipaddr 优先, 无则回退来源 IP
+    const ip = String(b.ipaddr ?? req?.ip ?? '').trim() || null;
     const reply = await this.service.cometPoll(serialno, {
-      ip: req?.ip,
+      ip,
       deviceName: deviceName ?? null,
       channel: channelRaw !== undefined && channelRaw !== '' ? Number(channelRaw) : null,
     });
