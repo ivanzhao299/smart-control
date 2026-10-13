@@ -1,7 +1,7 @@
 
 ## ★ 最新状态（2026-10-13，优先于本文件一切历史快照）
 
-- **【2026-10-13 #140 相机 web 后台登录信息/直达入口 + #139 平台推送地址后台可维护：代码与本地全量验收已完成，未 commit/未部署（等用户同意）】**
+- **【2026-10-13 #140 相机 web 后台登录信息/直达入口 + #139 平台推送地址后台可维护：已部署生产 commit `d39ab5d`（CI 38353580125 + Deploy 38353580164 全绿，4 job 全 success），迁移自动执行、8 台相机全在线、新接口生产回验通过】**
   - 背景：用户要求①相机台账记录每台相机 web 后台地址/账号/密码并提供直达入口；②相机推送服务器地址（erp.cnjinhu.com）在 PWA 后台可改，便于以后换地址。#139 协议边界已定论（见下条）：HTTP 推送协议**无远程改相机内推送地址命令**，后台只能维护"标准平台参数记录 + 新相机接入指引"，并诚实告警；真正解耦靠域名 + 改 DNS（换 IP 不动相机，换域名才现场逐台改）。
   - 后端（NestJS+better-sqlite3+TypeORM，synchronize 关闭、显式迁移）：
     1. `LprDevice` 实体加 3 列 `webUser`(web_user 默认 admin)、`webPassword`(web_password 默认 admin)、`webUrl`(web_url 可空，完整覆盖；空则按 ip+model 推导)。
@@ -12,7 +12,9 @@
   - 前端：`lpr.service.ts` 加 `LprDevice.webUrl`、新接口 `LprDeviceAdmin`/`LprPlatformConfig`、`adminDevices()`/`platformConfig()`/`savePlatformConfig()`，create/update body 加 web 字段。`LprAdmin.vue`：设备表数据源改用 `adminDevices()`；表格加 `type=expand` 展开行（web 地址输入留空自动推导 + el-link「打开相机后台」+「仅园区内网可访问」+ 账号/密码 show-password + 保存登录信息，row-key=id）；工具栏加「平台接入配置」按钮 + el-dialog（host/HTTP/HTTPS 端口/四路径，顶部 el-alert 明确"地址存相机本地、HTTP 不支持远程改、换 IP 改 DNS、换域名才现场逐台改"）；加 640px 移动端响应式（表单单列、web 输入占满）。
   - 本地验收（2026-10-13，dev 后端 3300（已重启新 PID 45361，加载 dist 新代码）/前端 5173，DB ../database/smart-control-4gdev.db）：`nest build` 0 错；LPR jest **22 项全过**（新增 3：webUrl 推导、公开/管理员视图凭证剥离、平台配置默认+归一化+非法端口回退）；门禁 **test:ops 70 项 0 失败**（67 过 3 skip）；前端 vue-tsc+vite build 成功（PWA 107 预缓存）。API curl：公开 platform-config 返回默认 erp.cnjinhu.com/80/443/remoteChangeSupported=false；公开 devices 每项含 webUrl 但**不含** webUser/webPassword；无 token 访问 admin/devices 与 PUT platform-config 均 **401**；admin 登录后 admin/devices 含 webUser/webPassword（默认 admin/admin，13 台）；PUT httpPort=8080 + cometPath 缺斜杠 → 归一化为 /api/lpr/comet、未提供字段保持、非法端口回退（测后已恢复 80）。浏览器：XLT .111 展开行 webUrl=`http://192.168.180.111/pc/#/login`、账号 admin、密码掩码 admin、「打开相机后台」href 正确；平台弹窗告警与表单正常（修了 el-alert 标题在深色主题下浅色不可见，`.pf-alert` 用 CSS 变量+!important 强制深棕字）。证据图 `验收截图/后台-LPR-web登录展开行-20261013.png`、`后台-LPR-平台接入配置-20261013.png`。
   - 凭证安全：项目无通用 AES 加密，沿用 ewelink-auth「敏感凭证存库、公开 API 不回显、仅管理员接口可见」模式；web 口令仅 AdminGuard 接口返回。
-  - 未提交工作树（6b94ef9 之后累积）：deploy/nginx-erp.cnjinhu.com.conf（上轮新建）、MEMORY.md、本次 #140/#139 全部前后端文件 + 新迁移。**待用户同意后 commit/push，走 deploy-gk9000.yml；部署后务必确认生产库迁移已跑、生产 platform-config 与 admin/devices 回验。**
+  - **部署结果（d39ab5d，2026-10-13）**：13 文件改动（713 增/32 删）。CI 38353580125（validate-backend 2m1s + validate-frontend 1m54s）+ Deploy 38353580164（Detect scope / Validate backend / Validate frontend / Deploy to GK9000 四 job 全 success）。GK9000 已 ff-only 对齐 d39ab5d，pm2 前后端 online、restarts=0（约 06:00 重启）。**新迁移 1791800000000 在部署流程中被自动执行（migration:show 显示第 54 条 [X]，事后手动 `pnpm run migration:run` 提示 No migrations pending）——即 gk9000-deploy 链路会自动跑迁移，不必再手动补（修正了早先"workflow 无 migration:run 字样=不跑迁移"的判断，实际封装在生产侧 Anksen 脚本里）**。生产回验：`GET /api/lpr/platform-config` 返回 host=erp.cnjinhu.com/80/443/四路径 + remoteChangeSupported:false + 默认行 updatedAt；公开 `/api/lpr/devices` 每项含 webUrl（XLT 为 http://192.168.180.11x/pc/#/login、C5H 为根地址）、**零设备泄露 webUser/webPassword**；未登录 GET `/api/lpr/admin/devices` = 401；**8 台真实相机全 online**（.111/.112/.101/.103/.105/.106/.104/.102），部署未影响 LPR 采集。admin/devices 含凭证需生产管理员 token（本地逻辑已验证，生产守卫 401 已验证，UI 可由用户浏览器复核）。
+  - 生产公开 devices 共 **14 台 = 8 真实 + 6 个历史 probe 垃圾设备**（含一个名称 "probe"、占用 .101 IP 的离线设备，#134 仍 pending；删除前必须请示，需补 DELETE /api/lpr/devices/:id AdminGuard + 后台按钮）。
+  - 三端对齐：本地 main、GitHub origin/main、GK9000 工作树均为 d39ab5d。
 
 - **【2026-10-13 LPR 短轮询已部署生产并验证通过（commit 6b94ef9，CI 38348461028 + Deploy 38348460931 全绿）；8 台相机全部在线；nginx 归一化已沉淀进仓库；现场手册已更新】**
   - **生产验证（6b94ef9）**：GK9000 已对齐 6b94ef9、pm2 smart-control-backend online；模拟 .111 comet 三连均 **HTTP 200、约 90ms 立即返回**（原 25s 挂起/499 已消除）；阿里云 access.log 最近 200 条 comet **全 200 零 499**（现场出口源 IP 218.201.183.118，单斜杠，每秒多条）；`/api/lpr/devices` 8 台真实相机全 online=True；`/api/lpr/stats` 今日真实过车 todayIn=73/todayOut=29/onsite=44/totalToday=102。**远程开闸真实抬杆仍待现场逐台触发（#132，机制单测已覆盖，未在生产贸然开闸）**。
