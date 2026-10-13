@@ -1,15 +1,17 @@
 
 ## ★ 最新状态（2026-10-13，优先于本文件一切历史快照）
 
-- **【2026-10-13 臻识 LPR 道闸·阶段2（相机上线前按序列号预登记 + 8 台现场台账）：本地验收全绿，未 commit/未部署，等业主同意后推送】**
-  - 阶段0 已部署生产（2026-10-12）：feat `4135cb1` + docs `f87a183`，push main 触发 deploy-gk9000.yml run 38201863251 全绿（scope/validate-frontend/validate-backend success、Deploy through Aliyun/Verify through WireGuard/Copy migration bundle 均成功）；生产 /api/lpr/stats 无 token 200（lpr 4 表迁移成功）、devices/recent 200 空、records/whitelist 无 token 401。大屏人车页 devices 为空时保留静态示意（lpr-panel.mjs 180-195 行 `primed` 开关，devices.length>0 即 primed=true 永久切真实）。
+- **【2026-10-13 臻识 LPR 道闸·阶段2（相机上线前按序列号预登记 + 8 台现场台账）：已部署生产 commit `ab4a15d`，8 台已录入生产并核验，大屏人车页已切真实，等现场逐台配置相机上线】**
+  - 部署：push main 触发 deploy-gk9000.yml，CI run 38334282137 + Deploy run 38334282101 全绿（validate-frontend/backend 过、Deploy to GK9000 2m48s、Deploy through Aliyun / Verify through WireGuard / Copy migration bundle 均成功）。生产回验：POST /api/lpr/devices 无 token 401（新端点真上线）、GET devices 公开 200。**生产 admin 密码与本地不同**（非 Admin2026!abc，登录接口返回"用户名或密码错误"），本次靠用户浏览器接管登录生产后台 UI 完成录入；以后生产写操作若走 API 需另取生产 token。
+  - 生产录入：已在生产后台「车牌道闸」批量台账粘贴 8 行，提示「成功录入 8 台相机」，表格正好 8 行（生产无 mock）；公开 API 回验 8 台字段（名/序列号/型号/IP/位置/方向/IO=0）全对、上线前 online=False、stats 全 0（无过车）；生产大屏 /control/park-ops 人车页 go(3) 已 primed 切真实，右侧列 8 台真实通道（离线+远程开闸），车辆态势取真实 0。证据图 `验收截图/道闸-生产-已录入8台-20261013.png`、`道闸-生产大屏-8台通道-20261013.png`（本地另 2 张 20261013）。
+  - 大屏开闸接管身份：任何打开 park-ops 的页面都以 ownerId=`park-ops-screen` claim，浏览器核验与现场 kiosk 同身份不互斥，不抢现场；核验完关闭大屏标签即可。
   - 阶段2 新增能力：相机**上线前按序列号预登记**（不再等心跳自动登记出占位名）。
     - 后端 `lpr.types.ts`：新增 `DeviceCreateDto`（serialno 必填，余同 DeviceUpsertDto）；`DeviceUpsertDto` 补 `ip?`。`lpr.service.ts`：新增 `createDevice(dto)` 幂等 upsert（不存在→建 online:false/lastHeartbeat:null/enabled 默认 true；已存在含已自动登记→按提供字段更新、不重复）；serialno 空抛 BadRequest；新增模块级 `normalizeDirection(v)`（仅 in/out 否则 null）、`clampGateIo(v,fallback)`（整数 0..3 否则 fallback），updateDevice 改用二者并支持 ip。`lpr.controller.ts`：新增 `POST /api/lpr/devices`（AdminGuard、@HttpCode(200)、message「已添加相机」），在 PUT devices/:id 前。
     - 前端 `lpr.service.ts` 加 `createDevice(body)`；`LprAdmin.vue` 相机通道 tab 加「添加相机（按序列号预登记）」按钮 + el-dialog，【单台】（序列号*/名称*/位置/型号/IP/方向/IO/启用，两列深色圆角）与【批量台账】切换（textarea 每行 `序列号,名称,位置,型号,IP,方向(in/out),IO`，逗号/中文逗号/tab 分隔，逐台 createDevice 统计成功/失败，复用幂等）；表格开闸 IO 上限 7→3（与协议 ioout 0..3、后端 clamp 一致）。
   - 8 台现场台账（5 通道，每门入/出各一台；全部可出公网；道闸接第一路 IO）：北门 2 台 **XLT**（`COPCMDFE-E10-LS26091065` 入 192.168.180.111 / `…26091408` 出 .112）；西北门 2 台 C5H（`84b8b2aa-994565d9` 入 .101 / `fcd50b68-9cc77132` 出 .103）；东门 2 台 C5H（`75a02af5-5f352861` 入 .105 / `9593d406-10eaab24` 出 .106）；F区地下室 2 台 C5H（`e15c05b3-0bc7f5b8` 入 .104 / `b1102741-362c482d` 出 .102）。C5H 已核实为臻识 500 万像素机（HTTP 推送同协议）；XLT 先按臻识接、上线首帧报文再判定是否适配。
   - 台账+现场配置手册（对话工作目录，未进仓库）：`臻识车牌识别SDK资料/金湖科创产业园-道闸相机台账与现场配置手册.md`（每台相机 web 后台配置：服务器 erp.cnjinhu.com 端口 443 SSL/CA 证书、注册方式选 **comet 轮询**、识别结果推送 `/api/lpr/plate`、IO `/api/lpr/gio`、485 `/api/lpr/serial`、道闸状态 `/api/lpr/gate-status`、断线重传开、先只发小图；含 8 行批量录入文本、逐台联调验证、待确认项）。
   - 本地验收（2026-10-13，dev 后端 3300/前端 5173，DB ../database/smart-control-4gdev.db）：`nest build` 0 错；全量 jest **106 套件 / 883 用例全绿**（新增 3 条 createDevice：字段归一/幂等/缺序列号）；vue-tsc 0 错；vite build 成功（PWA 107 预缓存）。API curl：无 token POST 401、空 serialno 400、批量录 8 台全 200 且上线前 online=false、重复整批仍 11 台（幂等无重复）、字段（名/型号/IP/位置/方向/IO/启用）全对；大屏人车页 devices 非空即 primed 切真实（车辆态势取真实 stats、右侧列 11 通道含 8 台真实名+位置+离线+远程开闸）；后台单台/批量对话框深色样式正常、批量 UI 实测提示「成功录入 8 台相机」。
-  - 注意：dev 库现 11 台 = 8 真实 + 3 mock（MOCK-CAM-IN/OUT-01、TEST-CAM-01 仅本地，生产无）；**生产库当前为空，部署后需在生产后台「车牌道闸」批量台账粘贴 8 行（或生产 admin token 调 POST /api/lpr/devices）才出现通道**——这是数据录入不是 schema（lpr 4 表迁移阶段0已上生产）。
+  - 注意：dev 库现 11 台 = 8 真实 + 3 mock（MOCK-CAM-IN/OUT-01、TEST-CAM-01 仅本地，生产无）；**生产库已于 2026-10-13 录入 8 台真实相机（当前 8 台、无 mock、上线前全离线）**，无需再录；现场配置相机 webhook 后心跳到达即自动转在线。
   - 待现场确认：相机 web 账号口令、北门 XLT 首帧报文、第一路开闸 IO 实际编号（0 还是 1）、是否开抓拍大图。
 
 - **【2026-10-12 臻识车牌识别一体机（LPR 道闸）接入·阶段0 本地 mock 全链路：代码+三端验收已完成，已部署生产（见上 f87a183）】**
