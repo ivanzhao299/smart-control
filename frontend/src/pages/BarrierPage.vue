@@ -3,7 +3,7 @@ import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import {
-  ArrowLeft, CarFront, DoorOpen, RefreshCw, AlertTriangle, ShieldCheck, Ban,
+  ArrowLeft, CarFront, DoorOpen, DoorClosed, RefreshCw, AlertTriangle, ShieldCheck, Ban,
   Plus, Trash2, LogIn, LogOut, Users, Truck, User, History, Search,
   Clock,
 } from 'lucide-vue-next';
@@ -24,7 +24,9 @@ const devices = ref<LprDevice[]>([]);
 const recent = ref<LprPassRecord[]>([]);
 const stats = ref<LprStats>({ todayIn: 0, todayOut: 0, onsite: 0, visitor: 0, abnormal: 0, autoReleased: 0, totalToday: 0 });
 const whitelist = ref<LprWhitelist[]>([]);
-const busyGate = ref<Set<number>>(new Set());
+// 道闸操作忙态, key=`${deviceId}:open` | `${deviceId}:close`
+const busyGate = ref<Set<string>>(new Set());
+function gateKey(d: LprDevice): string { return String(d.id); }
 
 // 白名单表单
 const wlPlate = ref('');
@@ -64,8 +66,9 @@ function isAbnormal(r: LprPassRecord): boolean {
 }
 function gateCls(d: LprDevice): string {
   if (!d.online) return 'gate-offline';
-  if (d.gateStatus === 1) return 'gate-open';
-  if (d.gateStatus === 2) return 'gate-mid';
+  // 展示态统一用后端合成的 gateState（真实上报优先，GPIO 场景走指令态，无信息默认关）
+  if (d.gateState === 1) return 'gate-open';
+  if (d.gateState === 2) return 'gate-mid';
   return 'gate-closed';
 }
 
@@ -87,22 +90,32 @@ async function refreshAll(): Promise<void> {
   loading.value = false;
 }
 
-async function openGate(d: LprDevice): Promise<void> {
+async function setGate(d: LprDevice, action: 'open' | 'close'): Promise<void> {
+  const key = gateKey(d);
+  busyGate.value.add(key); busyGate.value = new Set(busyGate.value);
+  const isOpen = action === 'open';
   try {
-    await ElMessageBox.confirm(`确认远程抬起【${d.deviceName}】道闸？`, '远程开闸', {
-      confirmButtonText: '开闸', cancelButtonText: '取消', type: 'warning',
-    });
-  } catch { return; }
-  busyGate.value.add(d.id); busyGate.value = new Set(busyGate.value);
-  try {
-    const r = await lprService.openGate({ deviceId: d.id });
-    ElMessage.success(r.delivered ? '开闸指令已下发' : '相机当前未连接，已排队，下次通讯时开闸');
+    const r = isOpen
+      ? await lprService.openGate({ deviceId: d.id })
+      : await lprService.closeGate({ deviceId: d.id });
+    const verb = isOpen ? '开闸' : '关闸';
+    ElMessage.success(r.delivered ? `${verb}指令已下发` : `相机当前未连接，已排队，下次通讯时${verb}`);
     await loadDevices();
   } catch (e) {
-    ElMessage.error((e as Error).message || '开闸失败');
+    ElMessage.error((e as Error).message || (isOpen ? '开闸失败' : '关闸失败'));
   } finally {
-    busyGate.value.delete(d.id); busyGate.value = new Set(busyGate.value);
+    busyGate.value.delete(key); busyGate.value = new Set(busyGate.value);
   }
+}
+
+/**
+ * 单按钮 toggle：当前为关→发开闸(抬杆)，当前为开→发关闸(落杆)，动作中(2)忽略。
+ * GPIO 开关量道闸无真实杆位，按钮态依据后端合成的 gateState（指令态/真实态）。
+ */
+async function toggleGate(d: LprDevice): Promise<void> {
+  if (!d.enabled || d.gateState === 2) return;
+  const action: 'open' | 'close' = d.gateState === 1 ? 'close' : 'open';
+  await setGate(d, action);
 }
 
 async function saveWhitelist(): Promise<void> {
@@ -226,14 +239,30 @@ useActivePolling(start, stop);
             <span class="dir-chip out" v-else-if="d.passDirection === 'out'"><LogOut :size="12" />出口</span>
           </div>
           <div class="device-meta">
-            <span :class="['gate-badge', gateCls(d)]">{{ d.online ? (d.gateStatusLabel ?? '道闸状态未知') : '离线' }}</span>
+            <span
+              :class="['gate-badge', gateCls(d)]"
+              :title="d.online ? (d.gateStateSource === 'device' ? '道闸真实状态' : '按最近一次开/关指令推断；若用遥控器或手动操作请以现场为准') : ''"
+            >{{ d.online ? d.gateStateLabel : '离线' }}</span>
+            <span class="state-note" v-if="d.online && d.gateStateSource === 'command'">指令态</span>
+            <span class="conn-badge" v-if="d.online && d.gateStateSource === 'device' && d.gateConnected === false">道闸未连接</span>
             <span class="meta-text" v-if="d.location">{{ d.location }}</span>
             <span class="meta-text" v-if="d.lastPlate">最近 {{ d.lastPlate }}</span>
           </div>
         </div>
-        <button class="gate-btn" :disabled="busyGate.has(d.id) || !d.enabled" @click="openGate(d)">
-          <DoorOpen :size="18" />{{ busyGate.has(d.id) ? '执行中' : '远程开闸' }}
-        </button>
+        <div class="gate-actions">
+          <button
+            :class="['gate-btn', d.gateState === 1 ? 'close' : 'open']"
+            :disabled="busyGate.has(gateKey(d)) || !d.enabled || d.gateState === 2"
+            :title="d.gateState === 1 ? `远程关闸（落杆，继电器 IO${d.closeGateIoEffective}）` : `远程开闸（抬杆，继电器 IO${d.gateIo}）`"
+            @click="toggleGate(d)"
+          >
+            <DoorClosed v-if="d.gateState === 1" :size="16" />
+            <DoorOpen v-else :size="16" />
+            <template v-if="busyGate.has(gateKey(d))">执行中</template>
+            <template v-else-if="d.gateState === 2">动作中</template>
+            <template v-else>{{ d.gateState === 1 ? '关闸' : '开闸' }}</template>
+          </button>
+        </div>
       </article>
 
       <h2 class="section-title mt">门岗实时事件</h2>
@@ -401,13 +430,17 @@ useActivePolling(start, stop);
 .gate-open { background: var(--v2-warning-soft); color: var(--v2-warning); }
 .gate-mid { background: var(--v2-primary-soft); color: var(--v2-primary); }
 .gate-offline { background: var(--v2-ov-1); color: var(--v2-text-3); }
+.conn-badge { font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--v2-warning-soft); color: var(--v2-warning); }
+.state-note { font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--v2-ov-1); color: var(--v2-text-3); }
+.gate-actions { flex: none; display: flex; flex-direction: row; align-items: center; gap: 8px; }
 .gate-btn {
-  flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 46px;
-  padding: 0 var(--v2-sp-4); border: 0; border-radius: var(--v2-r-md);
-  background: var(--v2-accent-fill); color: var(--v2-on-primary);
-  font-weight: 700; font-size: var(--v2-fs-sm, 14px); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 38px;
+  min-width: 96px; padding: 0 18px; border: 0; border-radius: var(--v2-r-md);
+  font-weight: 700; font-size: 13px; cursor: pointer; white-space: nowrap;
 }
-.gate-btn:disabled { opacity: .55; cursor: not-allowed; }
+.gate-btn.open { background: var(--v2-accent-fill); color: var(--v2-on-primary); }
+.gate-btn.close { background: var(--v2-surf-2); color: var(--v2-text-1); border: 1px solid var(--v2-border-strong); }
+.gate-btn:disabled { opacity: .5; cursor: not-allowed; }
 
 .pass-card {
   display: flex; align-items: center; gap: var(--v2-sp-3);

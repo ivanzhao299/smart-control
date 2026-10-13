@@ -31,6 +31,7 @@ import type {
   DeviceCreateDto,
   DeviceUpsertDto,
   DeviceView,
+  GateCloseDto,
   GateOpenDto,
   GateStatusBody,
   LprStats,
@@ -62,6 +63,32 @@ function normalizeDirection(v: unknown): 'in' | 'out' | null {
 function clampGateIo(v: unknown, fallback: number): number {
   const n = Number(v);
   return Number.isInteger(n) && n >= 0 && n <= 3 ? n : fallback;
+}
+
+/**
+ * 关闸 IO 编号归一化: 0..3 合法; null/undefined 表示未配置(返回 null);
+ * 其它非法值回退到 fallback。
+ */
+function clampCloseGateIo(v: unknown, fallback: number | null): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 0 && n <= 3 ? n : fallback;
+}
+
+/**
+ * 实际关闸(落杆) IO 编号。现场接线规律: 每路开闸继电器后紧邻同一路关闸继电器,
+ * 即关闸 IO 与开闸 IO 成对 —— 开闸 gateIo, 关闸自动取 gateIo+1 (如开闸 IO0 / 关闸 IO1)。
+ * 显式配置 closeGateIo 优先 (仅当现场接线与默认规律不同才需在后台覆盖);
+ * 未配置时自动取开闸 IO 的下一路; 若开闸已在最高路 (3), 回退同路。
+ */
+function effectiveCloseGateIoOf(dev: { gateIo?: number | null; closeGateIo?: number | null }): number {
+  if (dev.closeGateIo !== null && dev.closeGateIo !== undefined) {
+    const c = Number(dev.closeGateIo);
+    if (Number.isInteger(c) && c >= 0 && c <= 3) return c;
+  }
+  const g = Number(dev.gateIo);
+  const base = Number.isInteger(g) && g >= 0 && g <= 3 ? g : 0;
+  return base + 1 <= 3 ? base + 1 : base;
 }
 
 /**
@@ -205,6 +232,21 @@ export class LprService {
   private async toDeviceView(d: LprDevice, now: number): Promise<DeviceView> {
     const gate = await this.gateRepo.findOne({ where: { serialno: d.serialno }, order: { id: 'DESC' } });
     const last = await this.passRepo.findOne({ where: { serialno: d.serialno }, order: { id: 'DESC' } });
+    // 道闸展示态: 相机真实上报优先; GPIO 开关量道闸无杆位反馈时用最近指令推断; 都没有则按安全常态默认关。
+    const real = gate?.gateStatus;
+    let gateState: number;
+    let gateStateSource: 'device' | 'command' | 'default';
+    if (real === 0 || real === 1 || real === 2) {
+      gateState = real;
+      gateStateSource = 'device';
+    } else if (d.commandedGate === 1 || d.commandedGate === 0) {
+      gateState = d.commandedGate;
+      gateStateSource = 'command';
+    } else {
+      gateState = 0;
+      gateStateSource = 'default';
+    }
+    const gateStateLabel = gateState === 2 ? '动作中' : gateState === 1 ? '开' : '关';
     return {
       id: d.id,
       serialno: d.serialno,
@@ -214,12 +256,20 @@ export class LprService {
       channel: d.channel,
       location: d.location,
       gateIo: d.gateIo,
+      closeGateIo: d.closeGateIo ?? null,
+      closeGateIoEffective: effectiveCloseGateIoOf(d),
+      gateConnected: gate?.connectStatus === null || gate?.connectStatus === undefined ? null : gate.connectStatus === 1,
       passDirection: d.passDirection,
       online: this.isOnline(d, now),
       lastHeartbeat: d.lastHeartbeat ? new Date(d.lastHeartbeat).toISOString() : null,
       enabled: d.enabled,
       gateStatus: gate?.gateStatus ?? null,
       gateStatusLabel: gateStatusLabel(gate?.gateStatus ?? null),
+      commandedGate: d.commandedGate ?? null,
+      commandedGateAt: d.commandedGateAt ? new Date(d.commandedGateAt).toISOString() : null,
+      gateState,
+      gateStateLabel,
+      gateStateSource,
       lastPlate: last?.license ?? null,
       lastEventTime: last?.eventTime ? new Date(last.eventTime).toISOString() : null,
       webUrl: deriveWebUrl(d),
@@ -235,6 +285,7 @@ export class LprService {
     if (dto.location !== undefined) dev.location = dto.location;
     if (dto.channel !== undefined) dev.channel = dto.channel;
     if (dto.gateIo !== undefined) dev.gateIo = clampGateIo(dto.gateIo, dev.gateIo);
+    if (dto.closeGateIo !== undefined) dev.closeGateIo = clampCloseGateIo(dto.closeGateIo, dev.closeGateIo);
     if (dto.passDirection !== undefined) dev.passDirection = normalizeDirection(dto.passDirection);
     if (dto.enabled !== undefined) dev.enabled = dto.enabled;
     if (dto.webUser !== undefined) dev.webUser = dto.webUser?.trim() || null;
@@ -264,6 +315,7 @@ export class LprService {
         location: dto.location?.trim() || null,
         channel: dto.channel ?? null,
         gateIo: clampGateIo(dto.gateIo, 0),
+        closeGateIo: clampCloseGateIo(dto.closeGateIo, null),
         passDirection: normalizeDirection(dto.passDirection),
         online: false,
         lastHeartbeat: null,
@@ -280,6 +332,7 @@ export class LprService {
       if (dto.location !== undefined) dev.location = dto.location?.trim() || null;
       if (dto.channel !== undefined) dev.channel = dto.channel;
       if (dto.gateIo !== undefined) dev.gateIo = clampGateIo(dto.gateIo, dev.gateIo);
+      if (dto.closeGateIo !== undefined) dev.closeGateIo = clampCloseGateIo(dto.closeGateIo, dev.closeGateIo);
       if (dto.passDirection !== undefined) dev.passDirection = normalizeDirection(dto.passDirection);
       if (dto.enabled !== undefined) dev.enabled = dto.enabled;
       if (dto.webUser !== undefined) dev.webUser = dto.webUser?.trim() || null;
@@ -291,6 +344,30 @@ export class LprService {
     const view = list.find((v) => v.serialno === serialno);
     if (!view) throw new NotFoundException('设备保存失败');
     return view;
+  }
+
+  /**
+   * 删除相机/通道（仅管理员）。用于清理测试/废弃设备。
+   * 只删 lpr_device 行, 不删过车记录(lpr_pass_record)与道闸状态事件(lpr_gate_event),
+   * 历史台账保留。注意: 若该相机仍在线并继续 comet/推送, 会被 touchDevice 自动重新登记,
+   * 因此该操作仅对真正停用、不再上报的设备有效。
+   */
+  async removeDevice(id: number, operator: string): Promise<{ id: number; serialno: string; deviceName: string }> {
+    const dev = await this.deviceRepo.findOne({ where: { id } });
+    if (!dev) throw new NotFoundException('设备不存在');
+    const snap = { id: dev.id, serialno: dev.serialno, deviceName: dev.deviceName, ip: dev.ip };
+    await this.deviceRepo.remove(dev);
+    // 清理可能残留的待发命令队列
+    this.queues.delete(dev.serialno);
+    await this.audit.record({
+      entityType: 'device',
+      entityId: `lpr-device:${dev.serialno}`,
+      action: 'delete',
+      operator,
+      snapshotBefore: snap,
+      remark: `删除 LPR 相机/通道: ${dev.deviceName} (${dev.serialno})`,
+    });
+    return { id, serialno: dev.serialno, deviceName: dev.deviceName };
   }
 
   // ============================ 平台接入配置 ============================
@@ -306,6 +383,7 @@ export class LprService {
       platePath: cfg.platePath,
       gioPath: cfg.gioPath,
       serialPath: cfg.serialPath,
+      gateStatusPath: cfg.gateStatusPath || '/api/lpr/gate-status',
       note: cfg.note,
       remoteChangeSupported: false,
       updatedAt: cfg.updatedAt ? new Date(cfg.updatedAt).toISOString() : null,
@@ -322,6 +400,7 @@ export class LprService {
     if (dto.platePath !== undefined) cfg.platePath = normalizePath(dto.platePath, cfg.platePath);
     if (dto.gioPath !== undefined) cfg.gioPath = normalizePath(dto.gioPath, cfg.gioPath);
     if (dto.serialPath !== undefined) cfg.serialPath = normalizePath(dto.serialPath, cfg.serialPath);
+    if (dto.gateStatusPath !== undefined) cfg.gateStatusPath = normalizePath(dto.gateStatusPath, cfg.gateStatusPath);
     if (dto.note !== undefined) cfg.note = dto.note?.trim() || null;
     await this.platformRepo.save(cfg);
     this.logger.log(`LPR 平台接入配置已更新: host=${cfg.host}`);
@@ -340,6 +419,7 @@ export class LprService {
         platePath: '/api/lpr/plate',
         gioPath: '/api/lpr/gio',
         serialPath: '/api/lpr/serial',
+        gateStatusPath: '/api/lpr/gate-status',
         note: null,
       });
       await this.platformRepo.save(cfg);
@@ -347,7 +427,7 @@ export class LprService {
     return cfg;
   }
 
-  private async resolveDevice(dto: GateOpenDto): Promise<LprDevice> {
+  private async resolveDevice(dto: { deviceId?: number; serialno?: string }): Promise<LprDevice> {
     if (dto.deviceId) {
       const d = await this.deviceRepo.findOne({ where: { id: dto.deviceId } });
       if (d) return d;
@@ -487,11 +567,17 @@ export class LprService {
   async handleGateStatus(body: GateStatusBody): Promise<{ ok: true }> {
     const serialno = String(body.serialno ?? body.sn ?? '').trim();
     if (!serialno || body.cmd !== 'barr_gate_status_notify') return { ok: true };
-    const gateStatus = Number(body.gate_status);
-    if (Number.isNaN(gateStatus)) return { ok: true };
-    const connectStatus = body.connect_status === undefined ? null : Number(body.connect_status);
-    const enabled = body.enable === undefined ? null : Number(body.enable);
-    const dev = await this.touchDevice(serialno, { channel: body.channel ?? null });
+    // 协议规定 gate_status/connect_status/enable 在 result 嵌套对象内; 兼容个别固件平铺顶层。
+    const r = body.result ?? {};
+    const rawStatus = r.gate_status ?? body.gate_status;
+    const gateStatus = Number(rawStatus);
+    if (rawStatus === undefined || rawStatus === null || Number.isNaN(gateStatus)) return { ok: true };
+    const rawConnect = r.connect_status ?? body.connect_status;
+    const rawEnable = r.enable ?? body.enable;
+    const connectStatus = rawConnect === undefined || rawConnect === null ? null : Number(rawConnect);
+    const enabled = rawEnable === undefined || rawEnable === null ? null : Number(rawEnable);
+    const channel = body.channel ?? null;
+    const dev = await this.touchDevice(serialno, { channel });
     const ev = this.gateRepo.create({
       serialno,
       gateStatus,
@@ -604,6 +690,7 @@ export class LprService {
     const inner = { info: 'ok', channelNum: dev.gateIo, delay: dto.delay ?? 0 };
     // 短轮询: 命令入队, 由相机下一次 comet 轮询 (~1s) 取走, 保证不因子连接早断而丢失。
     const delivered = this.enqueueCommand(dev.serialno, inner);
+    await this.recordCommandedGate(dev, 1);
     await this.audit.record({
       entityType: 'device',
       entityId: `lpr-gate:${dev.serialno}`,
@@ -611,6 +698,41 @@ export class LprService {
       operator,
       snapshotAfter: { action: 'open_gate', channelNum: dev.gateIo, reason: dto.reason ?? null },
       remark: `远程开闸 ${dev.deviceName}${dto.reason ? ` ${dto.reason}` : ''}`,
+    });
+    this.bus.publish({
+      type: 'lpr_gate_command',
+      serialno: dev.serialno,
+      delivered,
+      queued: !delivered,
+      operator,
+      at: new Date().toISOString(),
+    });
+    return { delivered, queued: !delivered, serialno: dev.serialno, deviceName: dev.deviceName };
+  }
+
+  /**
+   * 远程关闸(落杆)。臻识协议无专用"关闸"命令字, 下行业务通过通用 IO 控制 (协议 3.7.7)
+   * 对道闸"落杆"端子所接 ioout 发一个"先通后断"脉冲 (value=2) 实现主动落杆。
+   * 关闸 IO 与开闸 IO 固定相邻成对: 默认取开闸 IO 的下一路 (gateIo+1, 如开闸 IO0→关闸 IO1);
+   * 仅当现场接线特殊时才需在后台显式覆盖 closeGateIo。
+   */
+  async closeGate(
+    dto: GateCloseDto,
+    operator = 'pwa',
+  ): Promise<{ delivered: boolean; queued: boolean; serialno: string; deviceName: string }> {
+    const dev = await this.resolveDevice(dto);
+    const io = effectiveCloseGateIoOf(dev);
+    const delay = Math.min(Math.max(Number(dto.delay) || 500, 100), 600_000);
+    const inner = { ivs_ioctrl: { io, value: 2, delay } };
+    const delivered = this.enqueueCommand(dev.serialno, inner);
+    await this.recordCommandedGate(dev, 0);
+    await this.audit.record({
+      entityType: 'device',
+      entityId: `lpr-gate:${dev.serialno}`,
+      action: 'update',
+      operator,
+      snapshotAfter: { action: 'close_gate', io, delay, reason: dto.reason ?? null },
+      remark: `远程关闸 ${dev.deviceName}${dto.reason ? ` ${dto.reason}` : ''}`,
     });
     this.bus.publish({
       type: 'lpr_gate_command',
@@ -650,6 +772,17 @@ export class LprService {
     q.push(inner);
     this.queues.set(serialno, q);
     return false;
+  }
+
+  /**
+   * 记录软件指令态道闸状态 (GPIO 开关量道闸无真实杆位反馈)。
+   * 每次远程开/关指令成功入队后, 把"目标态"与时间落到设备行,
+   * 供无真实 gate_status 上报时合成开/关二态展示。
+   */
+  private async recordCommandedGate(dev: LprDevice, gate: 0 | 1): Promise<void> {
+    dev.commandedGate = gate;
+    dev.commandedGateAt = new Date();
+    await this.deviceRepo.save(dev);
   }
 
   /** 向所有已登记相机的 comet 队列各广播一条内层指令 (如删除本地白名单); 相机下一轮轮询取走 */

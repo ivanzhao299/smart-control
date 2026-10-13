@@ -105,4 +105,30 @@ export class ParkOpsControlController {
       data,
     };
   }
+
+  /**
+   * 人车管理页远程关闸（落杆）：与 gate-open 同样复用接管锁与限流；实际关闸与审计由
+   * LprService.closeGate 完成（走通用 IO 控制，对落杆继电器发先通后断脉冲）。
+   * 未配置关闸 IO 的通道（靠地感自动落杆）由 LprService 返回 400。
+   */
+  @Post('gate-close')
+  @UseGuards(RateLimitGuard)
+  @RateLimit({ max: 8, windowMs: 5000 })
+  async gateClose(@Body() body: GateOpenParkOpsDto) {
+    const auth = this.control.gateAuthorization(body.ownerId);
+    if (!auth.allowed) {
+      throw new ForbiddenException(
+        auth.claimed ? '大屏正被其他终端接管，暂无法关闸' : '仅现场运营大屏可执行关闸',
+      );
+    }
+    const data = await this.lpr.closeGate(
+      { deviceId: body.deviceId, serialno: body.serialno, reason: body.reason },
+      `park-ops:${auth.holderName}`,
+    );
+    return {
+      success: true,
+      message: data.delivered ? '关闸指令已下发' : '相机当前未连接，已排队，下次通讯时关闸',
+      data,
+    };
+  }
 }

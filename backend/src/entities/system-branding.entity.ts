@@ -102,6 +102,10 @@ export class SystemBranding {
   @Column({ type: 'integer', name: 'welcomeGuestSize', nullable: true })
   welcomeGuestSize!: number | null;
 
+  /** 底部标语字号 (设计稿 px; NULL = 内置默认 48)。2026-10-13 */
+  @Column({ type: 'integer', name: 'welcomeTaglineSize', nullable: true })
+  welcomeTaglineSize!: number | null;
+
   // 场馆名(中/英)与两行落款; 三态: NULL=内置默认, ''=隐藏该行, 非空=自定义
   @Column({ type: 'varchar', length: 40, nullable: true, name: 'welcomeVenue' })
   welcomeVenue!: string | null;

@@ -10,12 +10,28 @@ export interface LprDevice {
   channel: number | null;
   location: string | null;
   gateIo: number;
+  /** 显式配置的关闸(落杆) IO 编号; null=未单独配置(自动取开闸 IO+1) */
+  closeGateIo: number | null;
+  /** 实际生效的关闸 IO: 显式优先, 否则自动取开闸 IO 下一路 */
+  closeGateIoEffective: number;
+  /** 道闸是否已连接(connect_status=1); null=未收到状态上报 */
+  gateConnected: boolean | null;
   passDirection: 'in' | 'out' | null;
   online: boolean;
   lastHeartbeat: string | null;
   enabled: boolean;
   gateStatus: number | null;
   gateStatusLabel: string | null;
+  /** 软件指令态: 1=最近指令开闸 / 0=最近指令关闸 / null=从未操作 */
+  commandedGate: number | null;
+  /** 最近一次远程开/关指令时间 (ISO) */
+  commandedGateAt: string | null;
+  /** 最终展示态: 0=关 / 1=开 / 2=动作中(仅真实上报) */
+  gateState: number;
+  /** 最终展示文案: 关 / 开 / 动作中 */
+  gateStateLabel: string;
+  /** 状态来源: device=相机真实上报 / command=按最近指令推断 / default=无信息默认关 */
+  gateStateSource: 'device' | 'command' | 'default';
   lastPlate: string | null;
   lastEventTime: string | null;
   /** 相机 web 后台地址（仅园区内网可达） */
@@ -37,6 +53,7 @@ export interface LprPlatformConfig {
   platePath: string;
   gioPath: string;
   serialPath: string;
+  gateStatusPath: string;
   note: string | null;
   /** HTTP 协议不支持远程改相机内推送地址，恒为 false */
   remoteChangeSupported: boolean;
@@ -121,6 +138,7 @@ export const lprService = {
     location?: string | null;
     channel?: number | null;
     gateIo?: number;
+    closeGateIo?: number | null;
     passDirection?: 'in' | 'out' | null;
     enabled?: boolean;
     webUser?: string | null;
@@ -141,12 +159,15 @@ export const lprService = {
     overdueTime?: string | null;
   }) => api.post<LprWhitelist>('/lpr/whitelist', body),
   removeWhitelist: (id: number) => api.del<null>(`/lpr/whitelist/${id}`),
+  /** 删除相机/通道（仅管理员；仅删设备，保留过车/状态历史） */
+  deleteDevice: (id: number) => api.del<null>(`/lpr/devices/${id}`),
   updateDevice: (
     id: number,
     body: {
       deviceName?: string;
       location?: string | null;
       gateIo?: number;
+      closeGateIo?: number | null;
       passDirection?: 'in' | 'out' | null;
       webUser?: string | null;
       webPassword?: string | null;
@@ -155,5 +176,8 @@ export const lprService = {
   ) => api.put<LprDevice>(`/lpr/devices/${id}`, body),
   openGate: (body: { deviceId?: number; serialno?: string; reason?: string }) =>
     api.post<GateOpenResult>('/lpr/gate/open', body),
+  /** 远程关闸(落杆): 对关闸 IO 发先通后断脉冲; 关闸 IO 默认与开闸 IO 自动配对(开闸+1) */
+  closeGate: (body: { deviceId?: number; serialno?: string; reason?: string }) =>
+    api.post<GateOpenResult>('/lpr/gate/close', body),
   snapUrl: (url: string | null): string => absUrl(url),
 };

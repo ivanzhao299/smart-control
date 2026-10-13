@@ -6,6 +6,7 @@ export interface WelcomeSchemeDraft {
   welcomeTagline: string;
   welcomeTitleSize: number | null;
   welcomeGuestSize: number | null;
+  welcomeTaglineSize: number | null;
   // 场馆名/英文/两行落款的输入框文本 (表单态: 空串=默认); "隐藏该行"由编辑器隐藏状态表达, 保存时再转三态
   welcomeVenue: string;
   welcomeVenueEn: string;

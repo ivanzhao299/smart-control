@@ -11,6 +11,7 @@ import {
   type LprPlatformConfig,
   type LprWhitelist,
 } from '@/services/lpr.service';
+import { QuestionFilled } from '@element-plus/icons-vue';
 
 const tab = ref<'devices' | 'whitelist' | 'records'>('devices');
 const loadingDevices = ref(false);
@@ -34,7 +35,7 @@ const devDialog = ref(false);
 const bulkMode = ref<'single' | 'bulk'>('single');
 const adding = ref(false);
 type DevDir = '' | 'in' | 'out';
-const emptyForm = () => ({ serialno: '', deviceName: '', model: '', ip: '', location: '', passDirection: '' as DevDir, gateIo: 0, enabled: true });
+const emptyForm = () => ({ serialno: '', deviceName: '', model: '', ip: '', location: '', passDirection: '' as DevDir, gateIo: 0, closeGateIo: null as number | null, enabled: true });
 const devForm = ref(emptyForm());
 const bulkText = ref('');
 const BULK_HINT = '每行一台，逗号分隔：序列号,名称,安装位置,型号,IP,方向(in/out),开闸IO(0-3)';
@@ -60,6 +61,7 @@ async function addDevice(): Promise<void> {
       ip: f.ip.trim() || null,
       location: f.location.trim() || null,
       gateIo: Number(f.gateIo) || 0,
+      closeGateIo: f.closeGateIo === null ? null : Number(f.closeGateIo),
       passDirection: f.passDirection || null,
       enabled: f.enabled,
     });
@@ -127,6 +129,7 @@ async function savePlatform(): Promise<void> {
       platePath: platform.value.platePath,
       gioPath: platform.value.gioPath,
       serialPath: platform.value.serialPath,
+      gateStatusPath: platform.value.gateStatusPath,
       note: platform.value.note,
     });
     ElMessage.success('已保存平台接入配置（仅更新系统记录与接入指引）');
@@ -203,6 +206,7 @@ async function saveDevice(d: LprDeviceAdmin): Promise<void> {
       deviceName: d.deviceName,
       location: d.location,
       gateIo: Number(d.gateIo) || 0,
+      closeGateIo: d.closeGateIo === null || d.closeGateIo === undefined ? null : Number(d.closeGateIo),
       passDirection: d.passDirection || null,
       webUser: d.webUser?.trim() || null,
       webPassword: d.webPassword?.trim() || null,
@@ -212,6 +216,22 @@ async function saveDevice(d: LprDeviceAdmin): Promise<void> {
     await loadDevices();
   } catch (e) { ElMessage.error((e as Error).message || '保存失败'); }
   finally { savingDevice.value.delete(d.id); savingDevice.value = new Set(savingDevice.value); }
+}
+
+/** 删除相机/通道（仅删设备，保留过车/状态历史；在线相机删除后会自动重新登记，故仅用于废弃/测试设备） */
+async function deleteDevice(d: LprDeviceAdmin): Promise<void> {
+  try {
+    await ElMessageBox.confirm(
+      `确认删除【${d.deviceName}】（${d.serialno}）？\n仅删除该相机通道，过车与道闸状态历史保留。若该相机仍在线，会自动重新登记。`,
+      '删除相机',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' },
+    );
+  } catch { return; }
+  try {
+    await lprService.deleteDevice(d.id);
+    ElMessage.success('已删除相机');
+    await loadDevices();
+  } catch (e) { ElMessage.error((e as Error).message || '删除失败'); }
 }
 
 async function addWhitelist(): Promise<void> {
@@ -305,8 +325,14 @@ onMounted(loadDevices);
           <el-table-column label="安装位置" min-width="140">
             <template #default="{ row }"><el-input v-model="row.location" size="small" placeholder="如：南门入口" /></template>
           </el-table-column>
-          <el-table-column label="开闸 IO" width="110" align="center">
-            <template #default="{ row }"><el-input-number v-model="row.gateIo" :min="0" :max="3" size="small" controls-position="right" style="width: 84px" /></template>
+          <el-table-column label="开闸 IO" width="100" align="center">
+            <template #default="{ row }"><el-input-number v-model="row.gateIo" :min="0" :max="3" size="small" controls-position="right" style="width: 80px" /></template>
+          </el-table-column>
+          <el-table-column label="关闸 IO" width="120" align="center">
+            <template #header><span>关闸 IO<el-icon class="hdr-tip" title="关闸继电器与开闸相邻成对；留空即自动取开闸 IO 的下一路（如开闸 IO0→关闸 IO1），仅特殊接线才需手填"><QuestionFilled /></el-icon></span></template>
+            <template #default="{ row }">
+              <el-input-number v-model="row.closeGateIo" :min="0" :max="3" :value-on-clear="null" size="small" controls-position="right" placeholder="自动" style="width: 100px" />
+            </template>
           </el-table-column>
           <el-table-column label="方向" width="120">
             <template #default="{ row }">
@@ -320,9 +346,10 @@ onMounted(loadDevices);
               <el-tag size="small" :type="gateTagType(row)">{{ gateLabel(row) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="90" align="center" fixed="right">
+          <el-table-column label="操作" width="150" align="center" fixed="right">
             <template #default="{ row }">
               <el-button size="small" type="primary" :loading="savingDevice.has(row.id)" @click="saveDevice(row)">保存</el-button>
+              <el-button size="small" type="danger" plain @click="deleteDevice(row)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -457,6 +484,9 @@ onMounted(loadDevices);
         <label>开闸 IO（第一路为 0）
           <el-input-number v-model="devForm.gateIo" :min="0" :max="3" controls-position="right" style="width: 100%" />
         </label>
+        <label>关闸 IO（落杆，留空=自动取开闸+1）
+          <el-input-number v-model="devForm.closeGateIo" :min="0" :max="3" :value-on-clear="null" controls-position="right" placeholder="自动 = 开闸 IO + 1" style="width: 100%" />
+        </label>
         <label class="en">启用
           <el-switch v-model="devForm.enabled" />
         </label>
@@ -501,6 +531,9 @@ onMounted(loadDevices);
         <label>串口路径
           <el-input v-model="platform.serialPath" />
         </label>
+        <label class="span2">道闸状态推送路径（道闸状态改变时相机主动上报）
+          <el-input v-model="platform.gateStatusPath" />
+        </label>
       </div>
       <template #footer>
         <el-button @click="platformDialog = false">关闭</el-button>
@@ -512,6 +545,7 @@ onMounted(loadDevices);
 
 <style scoped>
 .lpr-admin { padding: var(--v2-sp-4); max-width: 1280px; margin: 0 auto; box-sizing: border-box; }
+.hdr-tip { margin-left: 4px; font-size: 13px; color: var(--v2-text-3); cursor: help; vertical-align: -1px; }
 .page-head { display: flex; align-items: center; gap: var(--v2-sp-3); margin-bottom: var(--v2-sp-2); }
 .page-head h2 { margin: 0; font-size: 20px; color: var(--v2-text-1); white-space: nowrap; }
 .sub { color: var(--v2-text-3); font-size: 13px; line-height: 1.6; margin: 0 0 var(--v2-sp-4); }

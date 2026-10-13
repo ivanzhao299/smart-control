@@ -46,6 +46,10 @@ export class LprPlatformConfig {
   @Column({ type: 'varchar', length: 128, name: 'serial_path', default: '/api/lpr/serial' })
   serialPath!: string;
 
+  /** 道闸状态推送路径 (cmd=barr_gate_status_notify, 相机在道闸状态改变时主动推送) */
+  @Column({ type: 'varchar', length: 128, name: 'gate_status_path', default: '/api/lpr/gate-status' })
+  gateStatusPath!: string;
+
   /** 备注（能力边界说明等, 可空） */
   @Column({ type: 'text', nullable: true })
   note!: string | null;

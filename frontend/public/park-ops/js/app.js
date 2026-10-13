@@ -805,11 +805,11 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
       const capKw=Math.round(t.capacityKva*0.92);
       const c=loadColor(t.loadRatePct);
       return '<div>'+
-        '<div style="display:flex;justify-content:space-between;font-size:16px;margin-bottom:6px">'+
+        '<div style="display:flex;justify-content:space-between;font-size:15px;margin-bottom:3px">'+
         '<span style="color:#e2e8f0;font-weight:600">'+esc(t.name)+'<small style="color:#64748b;font-weight:400"> · '+esc(t.zoneLabel)+'</small></span>'+
         '<span style="color:'+c+';font-weight:700">'+fmt(t.loadRatePct,0)+'%</span></div>'+
-        '<div class="bar" style="margin:0"><i style="width:'+Math.max(t.loadRatePct,1.5)+'%;background:linear-gradient(90deg,'+c+','+c+'aa)"></i></div>'+
-        '<div style="font-size:12px;color:#64748b;margin-top:5px">容量 '+t.capacityKva+' kVA / '+capKw+' kW · 峰值负荷 '+fmt(t.peakKw)+' kW · 今日 '+fmt(t.todayKwh)+' kWh</div>'+
+        '<div class="bar" style="margin:0;height:12px"><i style="width:'+Math.max(t.loadRatePct,1.5)+'%;background:linear-gradient(90deg,'+c+','+c+'aa)"></i></div>'+
+        '<div style="font-size:11px;color:#64748b;margin-top:3px">容量 '+t.capacityKva+' kVA / '+capKw+' kW · 峰值负荷 '+fmt(t.peakKw)+' kW · 今日 '+fmt(t.todayKwh)+' kWh</div>'+
       '</div>';
     }).join('');
     const totalCap=park.transformers.reduce((s,t)=>s+t.capacityKva,0);
@@ -821,10 +821,10 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
     $('ehCategories').innerHTML=park.categories.map(c=>{
       const col=CAT_COLORS[c.key]||'#38bdf8';
       return '<div>'+
-        '<div style="display:flex;justify-content:space-between;font-size:15px;margin-bottom:5px">'+
+        '<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:3px">'+
         '<span style="color:#e2e8f0">'+esc(c.label)+'</span>'+
         '<span style="color:#cbd5e1">'+fmt(c.monthKwh)+' kWh · '+fmt(c.sharePct,1)+'%</span></div>'+
-        '<div class="bar" style="margin:0"><i style="width:'+Math.max(c.sharePct,1.5)+'%;background:linear-gradient(90deg,'+col+','+col+'aa)"></i></div>'+
+        '<div class="bar" style="margin:0;height:12px"><i style="width:'+Math.max(c.sharePct,1.5)+'%;background:linear-gradient(90deg,'+col+','+col+'aa)"></i></div>'+
       '</div>';
     }).join('');
 

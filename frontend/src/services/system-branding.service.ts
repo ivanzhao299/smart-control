@@ -37,6 +37,8 @@ export interface SystemBranding {
   welcomeTitleSize: number | null;
   /** 嘉宾行字号 (设计稿 px, null = 默认 96) */
   welcomeGuestSize: number | null;
+  /** 底部标语字号 (设计稿 px, null = 默认 48) */
+  welcomeTaglineSize: number | null;
   /** 场馆中文名 (null=内置默认, ''=隐藏, 非空=自定义) */
   welcomeVenue: string | null;
   /** 场馆英文名 (null=内置默认, ''=隐藏, 非空=自定义) */
@@ -107,6 +109,7 @@ export interface WelcomeScheme {
   welcomeTagline: string | null;
   welcomeTitleSize: number | null;
   welcomeGuestSize: number | null;
+  welcomeTaglineSize: number | null;
   welcomeVenue: string | null;
   welcomeVenueEn: string | null;
   welcomeOrg1: string | null;

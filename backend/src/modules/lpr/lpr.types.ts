@@ -33,14 +33,27 @@ export interface AlarmPlateBody {
 }
 
 /** 道闸状态通知报文 */
+/**
+ * 道闸状态通知报文 (cmd=barr_gate_status_notify)。
+ * 协议规定 gate_status/connect_status/enable 都在 result 嵌套对象内;
+ * 同时兼容个别固件把字段平铺在顶层的情况。
+ */
+export interface GateStatusResult {
+  gate_status?: number | string;
+  connect_status?: number | string;
+  enable?: number | string;
+  gate_ctrl_id?: number | string;
+}
 export interface GateStatusBody {
   cmd?: string;
   sn?: string;
   serialno?: string;
+  channel?: number;
+  result?: GateStatusResult;
+  /** 兼容平铺在顶层的固件 */
   gate_status?: number | string;
   connect_status?: number | string;
   enable?: number | string;
-  channel?: number;
 }
 
 /** 白名单增改 DTO */
@@ -62,6 +75,8 @@ export interface DeviceUpsertDto {
   location?: string | null;
   channel?: number | null;
   gateIo?: number;
+  /** 关闸(落杆) IO 编号; 传 null 表示清空/不配置远程关闸 */
+  closeGateIo?: number | null;
   passDirection?: 'in' | 'out' | null;
   enabled?: boolean;
   webUser?: string | null;
@@ -78,6 +93,7 @@ export interface DeviceCreateDto {
   location?: string | null;
   channel?: number | null;
   gateIo?: number;
+  closeGateIo?: number | null;
   passDirection?: 'in' | 'out' | null;
   enabled?: boolean;
   webUser?: string | null;
@@ -97,6 +113,15 @@ export interface GateOpenDto {
   reason?: string;
 }
 
+/** 手动关闸(落杆) DTO; 走 ivs_ioctrl 对关闸 IO 发先通后断脉冲 */
+export interface GateCloseDto {
+  deviceId?: number;
+  serialno?: string;
+  delay?: number;
+  operator?: string;
+  reason?: string;
+}
+
 export interface DeviceView {
   id: number;
   serialno: string;
@@ -106,12 +131,32 @@ export interface DeviceView {
   channel: number | null;
   location: string | null;
   gateIo: number;
+  /** 显式配置的关闸(落杆) IO 编号; null=未单独配置, 此时按规律自动取开闸 IO+1 */
+  closeGateIo: number | null;
+  /** 实际生效的关闸 IO: 显式配置优先, 否则自动取开闸 IO 的下一路(gateIo+1) */
+  closeGateIoEffective: number;
+  /** 道闸是否已连接(connect_status=1); null=未收到状态上报 */
+  gateConnected: boolean | null;
   passDirection: 'in' | 'out' | null;
   online: boolean;
   lastHeartbeat: string | null;
   enabled: boolean;
   gateStatus: number | null;
   gateStatusLabel: string | null;
+  /** 软件指令态: 1=最近指令开闸 / 0=最近指令关闸 / null=从未远程操作 */
+  commandedGate: number | null;
+  /** 最近一次远程开/关指令时间 (ISO) */
+  commandedGateAt: string | null;
+  /**
+   * 最终用于展示的道闸状态: 0=关 / 1=开 / 2=动作中(仅真实上报可能出现)。
+   * 合成规则: 相机真实上报 gate_status 优先; 否则用指令态; 都没有则按安全常态默认关。
+   * GPIO 开关量道闸无真实杆位反馈, 现场绝大多数情况走指令态。
+   */
+  gateState: number;
+  /** 最终展示状态文案: 关 / 开 / 动作中 */
+  gateStateLabel: string;
+  /** 状态来源: device=相机真实上报, command=按最近指令推断, default=无任何信息默认关 */
+  gateStateSource: 'device' | 'command' | 'default';
   lastPlate: string | null;
   lastEventTime: string | null;
   /** 相机 web 管理后台地址（按 ip/model 推导，仅园区内网可达；公开可给） */
@@ -133,6 +178,7 @@ export interface PlatformConfigView {
   platePath: string;
   gioPath: string;
   serialPath: string;
+  gateStatusPath: string;
   note: string | null;
   /** 能力边界：HTTP 协议不支持远程改相机内的推送地址 */
   remoteChangeSupported: boolean;
@@ -148,6 +194,7 @@ export interface PlatformConfigUpdateDto {
   platePath?: string;
   gioPath?: string;
   serialPath?: string;
+  gateStatusPath?: string;
   note?: string | null;
 }
 

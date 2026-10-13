@@ -399,6 +399,22 @@ body[data-title-effect="neon"] .inscription .marks { color: rgba(127, 233, 255, 
     // ---- 嘉宾行: 整行可编辑, 长文本自动缩字号 (全屏居中, 不溢出不换行) ----
     let customTitleSize = null; // 编辑器配置字号 (设计稿 px), null = 内置默认
     let customGuestSize = null;
+    let customTaglineSize = null;
+
+    // ---- 底部标语: 字号可调, 长文本自动缩字号 (2026-10-13) ----
+    function fitTagline() {
+      const m = document.getElementById('tagline');
+      if (!m) return;
+      // 默认 48 (原 CSS 22px 在 3612 大屏上偏小、看不清); 编辑器可在 18-160 之间覆盖
+      const base = 48;
+      let size = customTaglineSize != null ? customTaglineSize : base;
+      m.style.fontSize = size + 'px';
+      const max = LED_WIDTH - 720; // 两侧留白 + 字距
+      while (size > 16 && m.scrollWidth > max) {
+        size -= 2;
+        m.style.fontSize = size + 'px';
+      }
+    }
     function fitGuest() {
       const g = document.querySelector('.hero .guest');
       const t = g.querySelector('.text');
@@ -435,6 +451,7 @@ body[data-title-effect="neon"] .inscription .marks { color: rgba(127, 233, 255, 
     function fitTypography() {
       fitTitle();
       fitGuest();
+      fitTagline();
     }
 
     // ---- 欢迎页内容: 前端编辑器可改 (system-branding: 称谓/主标题/标语/底图),
@@ -555,6 +572,7 @@ body[data-title-effect="neon"] .inscription .marks { color: rgba(127, 233, 255, 
       const sizeOf = (v) => (Number.isInteger(v) && v > 0 ? v : null);
       customTitleSize = sizeOf(d.welcomeTitleSize);
       customGuestSize = sizeOf(d.welcomeGuestSize);
+      customTaglineSize = sizeOf(d.welcomeTaglineSize);
       applyBackground(bgUrl || null);
       applyLogo(logoUrl || null);
       requestAnimationFrame(fitTypography);

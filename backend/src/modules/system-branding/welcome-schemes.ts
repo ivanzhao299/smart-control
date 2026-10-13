@@ -38,6 +38,7 @@ export interface WelcomeScheme {
   welcomeTagline: string | null;
   welcomeTitleSize: number | null;
   welcomeGuestSize: number | null;
+  welcomeTaglineSize: number | null;
   // 场馆名/英文/两行落款, 三态: null=内置默认, ''(空串)=该行隐藏, 非空=自定义
   welcomeVenue: string | null;
   welcomeVenueEn: string | null;
@@ -59,6 +60,7 @@ export interface PublishedWelcomeFields {
   welcomeTagline: string | null;
   welcomeTitleSize: number | null;
   welcomeGuestSize: number | null;
+  welcomeTaglineSize: number | null;
   welcomeVenue: string | null;
   welcomeVenueEn: string | null;
   welcomeOrg1: string | null;
@@ -199,6 +201,7 @@ export function normalizeWelcomeSchemes(
       welcomeTagline: optionalText(raw.welcomeTagline, 64, '底部标语'),
       welcomeTitleSize: optionalFontSize(raw.welcomeTitleSize, 40, 400, '主标题字号'),
       welcomeGuestSize: optionalFontSize(raw.welcomeGuestSize, 24, 240, '嘉宾行字号'),
+      welcomeTaglineSize: optionalFontSize(raw.welcomeTaglineSize, 18, 160, '底部标语字号'),
       welcomeVenue: optionalDisplayText(raw.welcomeVenue, 40, '场馆名称'),
       welcomeVenueEn: optionalDisplayText(raw.welcomeVenueEn, 96, '场馆英文名'),
       welcomeOrg1: optionalDisplayText(raw.welcomeOrg1, 40, '落款单位一'),
@@ -230,6 +233,7 @@ export function buildDefaultWelcomeSchemes(
         welcomeTagline: '欢迎莅临参观指导',
         welcomeTitleSize: null,
         welcomeGuestSize: null,
+        welcomeTaglineSize: null,
         welcomeVenue: null,
         welcomeVenueEn: null,
         welcomeOrg1: null,
@@ -246,6 +250,7 @@ export function buildDefaultWelcomeSchemes(
         welcomeTagline: '同心聚力 · 共创未来',
         welcomeTitleSize: null,
         welcomeGuestSize: null,
+        welcomeTaglineSize: null,
         welcomeVenue: null,
         welcomeVenueEn: null,
         welcomeOrg1: null,
@@ -266,6 +271,7 @@ export function buildDefaultWelcomeSchemes(
         welcomeTagline: '携手同行 · 共启新程',
         welcomeTitleSize: null,
         welcomeGuestSize: null,
+        welcomeTaglineSize: null,
         welcomeVenue: null,
         welcomeVenueEn: null,
         welcomeOrg1: null,
@@ -288,6 +294,7 @@ export function matchesPublishedWelcome(
     scheme.welcomeTagline === published.welcomeTagline &&
     (scheme.welcomeTitleSize ?? null) === (published.welcomeTitleSize ?? null) &&
     (scheme.welcomeGuestSize ?? null) === (published.welcomeGuestSize ?? null) &&
+    (scheme.welcomeTaglineSize ?? null) === (published.welcomeTaglineSize ?? null) &&
     scheme.welcomeVenue === published.welcomeVenue &&
     scheme.welcomeVenueEn === published.welcomeVenueEn &&
     scheme.welcomeOrg1 === published.welcomeOrg1 &&

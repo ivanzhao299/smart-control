@@ -273,12 +273,118 @@ describe('LprService', () => {
     expect(next.Response_AlarmInfoPlate).toHaveProperty('white_list_operate');
   });
 
-  it('道闸状态通知落库并发布事件', async () => {
-    await service.handleGateStatus({ cmd: 'barr_gate_status_notify', serialno: 'SN001', gate_status: 1 });
+  it('道闸状态通知: result 嵌套字段落库(开到位/已连接)并发布事件', async () => {
+    // 协议 3.5: gate_status/connect_status/enable 在 result 嵌套对象内
+    await service.handleGateStatus({
+      cmd: 'barr_gate_status_notify', serialno: 'SN001',
+      result: { gate_status: 1, connect_status: 1, enable: 1, gate_ctrl_id: 1 },
+    });
     const devs = await service.listDevices();
     expect(devs[0].gateStatus).toBe(1);
     expect(devs[0].gateStatusLabel).toBe('开到位');
+    expect(devs[0].gateConnected).toBe(true);
     expect(events.some((e) => (e as { type: string }).type === 'lpr_gate_status')).toBe(true);
+  });
+
+  it('道闸状态通知: 兼容顶层平铺; 关到位/未连接正确反映', async () => {
+    await service.handleGateStatus({
+      cmd: 'barr_gate_status_notify', serialno: 'SNFLAT',
+      gate_status: 0, connect_status: 0, enable: 0,
+    });
+    const devs = await service.listDevices();
+    const d = devs.find((x) => x.serialno === 'SNFLAT');
+    expect(d?.gateStatus).toBe(0);
+    expect(d?.gateStatusLabel).toBe('关到位');
+    expect(d?.gateConnected).toBe(false);
+  });
+
+  it('道闸状态通知: 缺 gate_status 时静默丢弃(不报错、不登记幽灵设备)', async () => {
+    await service.handleGateStatus({
+      cmd: 'barr_gate_status_notify', serialno: 'SNEMPTY',
+      result: { connect_status: 1 },
+    });
+    // 坏报文在 touchDevice 之前返回, 不产生设备、不产生状态事件
+    const devs = await service.listDevices();
+    expect(devs.some((x) => x.serialno === 'SNEMPTY')).toBe(false);
+    expect(events.some((e) => (e as { type: string }).type === 'lpr_gate_status')).toBe(false);
+  });
+
+  it('远程关闸: 默认与开闸 IO 自动配对(开闸 IO0→关闸 IO1), 可显式覆盖; 下发 ivs_ioctrl 脉冲', async () => {
+    await service.heartbeat('SNGATE', {});
+    // 心跳登记默认开闸 IO=0, 关闸自动配对为 IO=1
+    const view0 = (await service.listDevices()).find((d) => d.serialno === 'SNGATE');
+    expect(view0?.gateIo).toBe(0);
+    expect(view0?.closeGateIoEffective).toBe(1);
+    // 未显式配置关闸 IO -> 自动对 IO1 发先通后断脉冲
+    const closed = await service.closeGate({ serialno: 'SNGATE' }, 'tester');
+    expect(closed.queued).toBe(true);
+    let reply = await service.cometPoll('SNGATE');
+    let inner = reply.Response_AlarmInfoPlate as { ivs_ioctrl?: { io: number; value: number; delay: number } };
+    expect(inner.ivs_ioctrl).toMatchObject({ io: 1, value: 2, delay: 500 });
+    // 显式覆盖关闸 IO=2 (特殊接线)
+    await service.createDevice({ serialno: 'SNGATE', closeGateIo: 2 });
+    await service.closeGate({ serialno: 'SNGATE' }, 'tester');
+    reply = await service.cometPoll('SNGATE');
+    inner = reply.Response_AlarmInfoPlate as { ivs_ioctrl?: { io: number; value: number; delay: number } };
+    expect(inner.ivs_ioctrl).toMatchObject({ io: 2, value: 2, delay: 500 });
+  });
+
+  it('指令态: 新设备默认关; 开闸/关闸指令后按指令态显示开/关并标注来源', async () => {
+    await service.heartbeat('SNCMD', {});
+    let v = (await service.listDevices()).find((d) => d.serialno === 'SNCMD');
+    // GPIO 开关量道闸无真实杆位、且从未远程操作 -> 按安全常态默认关
+    expect(v?.gateState).toBe(0);
+    expect(v?.gateStateLabel).toBe('关');
+    expect(v?.gateStateSource).toBe('default');
+    expect(v?.commandedGate).toBeNull();
+
+    // 开闸指令成功入队 -> 指令态=开
+    await service.openGate({ serialno: 'SNCMD' }, 'tester');
+    v = (await service.listDevices()).find((d) => d.serialno === 'SNCMD');
+    expect(v?.commandedGate).toBe(1);
+    expect(v?.commandedGateAt).toBeTruthy();
+    expect(v?.gateState).toBe(1);
+    expect(v?.gateStateLabel).toBe('开');
+    expect(v?.gateStateSource).toBe('command');
+
+    // 关闸指令 -> 指令态=关
+    await service.closeGate({ serialno: 'SNCMD' }, 'tester');
+    v = (await service.listDevices()).find((d) => d.serialno === 'SNCMD');
+    expect(v?.commandedGate).toBe(0);
+    expect(v?.gateState).toBe(0);
+    expect(v?.gateStateLabel).toBe('关');
+    expect(v?.gateStateSource).toBe('command');
+  });
+
+  it('指令态: 相机真实上报 gate_status 时优先于指令态(source=device)', async () => {
+    await service.heartbeat('SNREAL', {});
+    await service.openGate({ serialno: 'SNREAL' }, 'tester'); // 指令态=开
+    // 相机(接智能道闸)真实上报关到位 0 -> 真实态覆盖指令态
+    await service.handleGateStatus({
+      cmd: 'barr_gate_status_notify', serialno: 'SNREAL',
+      result: { gate_status: 0, connect_status: 1, enable: 1 },
+    });
+    const v = (await service.listDevices()).find((d) => d.serialno === 'SNREAL');
+    expect(v?.gateStatus).toBe(0);
+    expect(v?.gateState).toBe(0);
+    expect(v?.gateStateLabel).toBe('关');
+    expect(v?.gateStateSource).toBe('device');
+  });
+
+  it('删除设备: 仅删设备, 过车/状态历史保留; 离线设备删除后不复活', async () => {
+    await service.createDevice({ serialno: 'TRASH-1', deviceName: '测试相机-删' });
+    await service.handleGateStatus({
+      cmd: 'barr_gate_status_notify', serialno: 'TRASH-1',
+      result: { gate_status: 0, connect_status: 1 },
+    });
+    const before = await service.listDevices();
+    const id = before.find((x) => x.serialno === 'TRASH-1')!.id;
+    await service.removeDevice(id, 'admin');
+    const after = await service.listDevices();
+    expect(after.some((x) => x.serialno === 'TRASH-1')).toBe(false);
+    // 道闸状态事件历史仍在
+    const evCnt = await ds.getRepository(LprGateEvent).count({ where: { serialno: 'TRASH-1' } });
+    expect(evCnt).toBeGreaterThan(0);
   });
 
   it('抓拍小图落盘并可回读', async () => {

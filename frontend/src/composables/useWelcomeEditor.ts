@@ -54,6 +54,7 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
     welcomeLogoMediaId: null as number | null,
     welcomeTitleSize: null as number | null,
     welcomeGuestSize: null as number | null,
+    welcomeTaglineSize: null as number | null,
     presentation: { ...DEFAULT_WELCOME_PRESENTATION } as WelcomePresentation,
   });
   // 场馆名/英文/两行落款的“隐藏该行”勾选, 与输入框共同表达三态 (null=默认 / ''=隐藏 / 文本=自定义)
@@ -139,21 +140,22 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
     lastWelcomeSaveRevision.value = null;
   }
 
-  // 字号数字框内联在主标题 / 嘉宾行文字框同一行右侧（2026-10-09 改版：不单独起
-  // 标签行、不命名“主标题字号/嘉宾行字号”）。空 = 内置默认（标题 180 / 嘉宾 96）；
+  // 字号数字框内联在主标题 / 嘉宾行 / 底部标语文字框同一行右侧（2026-10-09 改版：不单独起
+  // 标签行、不命名“主标题字号/嘉宾行字号”）。空 = 内置默认（标题 180 / 嘉宾 96 / 标语 60）；
   // 仅接受范围内整数，其余输入回退 null；保存时 clampSize 再兜底一次。
-  function setWelcomeSize(event: Event, which: 'title' | 'guest'): void {
+  function setWelcomeSize(event: Event, which: 'title' | 'guest' | 'tagline'): void {
     const raw = (event.target as HTMLInputElement).value.trim();
     // 输入阶段保持宽松：允许逐位输入（如 1 → 15 → 150），不即时回退；空 = null，
-    // 框由 :value fallback 显示默认（标题 180 / 嘉宾 96）作为参考。范围最终在保存时
-    // 由 clampSize（标题 40–400 / 嘉宾 24–240）兜底，欢迎页 fit 也只会收缩，不会崩。
+    // 框由 :value fallback 显示默认（标题 180 / 嘉宾 96 / 标语 60）作为参考。范围最终在保存时
+    // 由 clampSize（标题 40–400 / 嘉宾 24–240 / 标语 18–160）兜底，欢迎页 fit 也只会收缩，不会崩。
     let next: number | null = null;
     if (raw !== '') {
       const n = Number(raw);
       if (Number.isFinite(n)) next = n;
     }
     if (which === 'title') welcomeForm.value.welcomeTitleSize = next;
-    else welcomeForm.value.welcomeGuestSize = next;
+    else if (which === 'guest') welcomeForm.value.welcomeGuestSize = next;
+    else welcomeForm.value.welcomeTaglineSize = next;
     markWelcomeDraftChanged();
   }
 
@@ -342,6 +344,7 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
         welcomeTagline: welcomeForm.value.welcomeTagline,
         welcomeTitleSize: welcomeForm.value.welcomeTitleSize,
         welcomeGuestSize: welcomeForm.value.welcomeGuestSize,
+        welcomeTaglineSize: welcomeForm.value.welcomeTaglineSize,
         welcomeVenue: welcomeDisplayValue('welcomeVenue', 'venue'),
         welcomeVenueEn: welcomeDisplayValue('welcomeVenueEn', 'venueEn'),
         welcomeOrg1: welcomeDisplayValue('welcomeOrg1', 'org1'),
@@ -392,6 +395,7 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
       welcomeLogoMediaId: incompatibleSelectedLogo.value ? null : scheme.welcomeLogoMediaId,
       welcomeTitleSize: scheme.welcomeTitleSize ?? null,
       welcomeGuestSize: scheme.welcomeGuestSize ?? null,
+      welcomeTaglineSize: scheme.welcomeTaglineSize ?? null,
       presentation: cloneWelcomePresentation(scheme.presentation),
     };
     applyWelcomeDisplay(scheme.welcomeVenue ?? null, 'welcomeVenue', 'venue');
@@ -428,6 +432,7 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
       welcomeTagline: welcomeForm.value.welcomeTagline.trim() || null,
       welcomeTitleSize: clampSize(welcomeForm.value.welcomeTitleSize, 40, 400),
       welcomeGuestSize: clampSize(welcomeForm.value.welcomeGuestSize, 24, 240),
+      welcomeTaglineSize: clampSize(welcomeForm.value.welcomeTaglineSize, 18, 160),
       welcomeVenue: welcomeDisplayValue('welcomeVenue', 'venue'),
       welcomeVenueEn: welcomeDisplayValue('welcomeVenueEn', 'venueEn'),
       welcomeOrg1: welcomeDisplayValue('welcomeOrg1', 'org1'),
@@ -738,6 +743,7 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
         && published.branding.welcomeTagline === selected.welcomeTagline
         && (published.branding.welcomeTitleSize ?? null) === (selected.welcomeTitleSize ?? null)
         && (published.branding.welcomeGuestSize ?? null) === (selected.welcomeGuestSize ?? null)
+        && (published.branding.welcomeTaglineSize ?? null) === (selected.welcomeTaglineSize ?? null)
         && (published.branding.welcomeVenue ?? null) === (selected.welcomeVenue ?? null)
         && (published.branding.welcomeVenueEn ?? null) === (selected.welcomeVenueEn ?? null)
         && (published.branding.welcomeOrg1 ?? null) === (selected.welcomeOrg1 ?? null)

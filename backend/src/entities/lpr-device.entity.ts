@@ -44,9 +44,29 @@ export class LprDevice {
   @Column({ type: 'varchar', length: 128, nullable: true })
   location!: string | null;
 
-  /** 开闸使用的 IO 编号 (HTTP 回复 channelNum / ioout, 0..3), 默认 0 */
+  /** 开闸(抬杆)使用的 IO 编号 (HTTP 回复 channelNum / ioout, 0..3), 默认 0 */
   @Column({ type: 'integer', name: 'gate_io', default: 0 })
   gateIo!: number;
+
+  /**
+   * 关闸(落杆)使用的 IO 编号 (0..3)。可空: null 表示该通道未配置远程关闸
+   * (单路开闸、靠地感自动落杆的道闸无需配置)。远程关闸走 ivs_ioctrl 对该 IO
+   * 发"先通后断"脉冲(协议 3.7.7); 具体编号由现场道闸"落杆"端子接线决定。
+   */
+  @Column({ type: 'integer', name: 'close_gate_io', nullable: true })
+  closeGateIo!: number | null;
+
+  /**
+   * 软件指令态道闸状态 (GPIO 开关量道闸无真实杆位反馈时使用):
+   * 1=最近一次指令为开闸(抬杆), 0=最近一次指令为关闸(落杆), null=从未远程操作过。
+   * 每次远程开/关指令成功入队或投递时写入; 仅在相机未上报真实 gate_status 时用于展示。
+   */
+  @Column({ type: 'integer', name: 'commanded_gate', nullable: true })
+  commandedGate!: number | null;
+
+  /** 最近一次远程开/关指令时间 */
+  @Column({ type: 'datetime', name: 'commanded_gate_at', nullable: true })
+  commandedGateAt!: Date | null;
 
   /** 该通道方向: in=入口(进园) / out=出口(出园), 用于进出统计; null=未配置 */
   @Column({ type: 'varchar', length: 8, name: 'pass_direction', nullable: true })

@@ -675,7 +675,10 @@ const {
               <input type="number" class="wb-size-input" :value="welcomeForm.welcomeGuestSize ?? 96" min="24" max="240" step="2" inputmode="numeric" title="嘉宾行字号，默认 96；清空恢复默认" @input="setWelcomeSize($event, 'guest')" />
             </div>
             <label class="wb-label">底部标语 (空 = 默认「智慧展厅 · 数字展贸 · 科创未来」)</label>
-            <input v-model="welcomeForm.welcomeTagline" class="wb-input" maxlength="64" placeholder="智慧展厅 · 数字展贸 · 科创未来" @input="markWelcomeDraftChanged" />
+            <div class="wb-text-size-row">
+              <input v-model="welcomeForm.welcomeTagline" class="wb-input" maxlength="64" placeholder="智慧展厅 · 数字展贸 · 科创未来" @input="markWelcomeDraftChanged" />
+              <input type="number" class="wb-size-input" :value="welcomeForm.welcomeTaglineSize ?? 48" min="18" max="160" step="1" inputmode="numeric" title="底部标语字号，默认 48；清空恢复默认" @input="setWelcomeSize($event, 'tagline')" />
+            </div>
             <div v-for="row in welcomeDisplayRows" :key="row.formKey" class="wb-display-row">
               <div class="wb-display-main">
                 <label class="wb-label">{{ row.label }}</label>

@@ -20,23 +20,31 @@ if (page) {
 
   // 自包含样式（与大屏深色 / 青色基调一致）
   const css = `
-  #lprGateControls{margin:12px 0 4px;display:flex;flex-direction:column;gap:8px}
-  .lpr-ctrl-row{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:10px;
+  #lprGateControls{flex:1 1 auto;min-height:0;margin:12px 0 4px;display:flex;flex-direction:column;gap:5px;overflow-y:auto;scrollbar-width:none}
+  #lprGateControls::-webkit-scrollbar{width:0;height:0;display:none}
+  .page[data-name="人车管理"] .panel-body>*:not(#lprGateControls){flex:0 0 auto}
+  .lpr-ctrl-row{display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:9px;
     background:rgba(34,211,238,.06);border:1px solid rgba(34,211,238,.16)}
   .lpr-dot{width:10px;height:10px;border-radius:50%;flex:none}
   .lpr-dot.on{background:#34d399;box-shadow:0 0 0 3px rgba(52,211,153,.18)}
   .lpr-dot.off{background:#717a8a}
-  .lpr-ctrl-name{font-size:16px;font-weight:600;color:#e6edf6;flex:1;min-width:0}
-  .lpr-ctrl-name em{font-style:normal;color:#8aa0b4;font-weight:400;margin-left:8px;font-size:14px}
-  .lpr-gate-state{font-size:14px;padding:3px 10px;border-radius:999px;white-space:nowrap}
+  .lpr-ctrl-name{font-size:15px;font-weight:600;color:#e6edf6;flex:1;min-width:0}
+  .lpr-ctrl-name em{font-style:normal;color:#8aa0b4;font-weight:400;margin-left:8px;font-size:13px}
+  .lpr-gate-state{font-size:13px;padding:2px 9px;border-radius:999px;white-space:nowrap}
   .lpr-gate-state.gs-closed{background:rgba(148,163,184,.15);color:#cbd5e1}
   .lpr-gate-state.gs-open{background:rgba(251,191,36,.18);color:#fbbf24}
   .lpr-gate-state.gs-mid{background:rgba(99,102,241,.2);color:#a5b4fc}
   .lpr-gate-state.gs-offline{background:rgba(113,122,138,.15);color:#8aa0b4}
-  .lpr-open-btn{min-height:40px;padding:0 20px;border:0;border-radius:9px;cursor:pointer;
-    background:linear-gradient(135deg,#06b6d4,#22d3ee);color:#04222a;font-weight:700;font-size:15px;white-space:nowrap}
+  .lpr-gate-state.gs-unknown{background:rgba(113,122,138,.12);color:#94a3b8}
+  .lpr-open-btn{min-height:34px;padding:0 16px;border:0;border-radius:8px;cursor:pointer;
+    background:linear-gradient(135deg,#06b6d4,#22d3ee);color:#04222a;font-weight:700;font-size:14px;white-space:nowrap}
   .lpr-open-btn.confirm{background:linear-gradient(135deg,#ef4444,#f87171);color:#2a0707}
   .lpr-open-btn:disabled{opacity:.55;cursor:not-allowed}
+  .lpr-close-btn{min-height:34px;padding:0 14px;border-radius:8px;cursor:pointer;
+    background:rgba(148,163,184,.12);color:#cbd5e1;border:1px solid rgba(148,163,184,.35);
+    font-weight:700;font-size:14px;white-space:nowrap}
+  .lpr-close-btn.confirm{background:linear-gradient(135deg,#ef4444,#f87171);color:#2a0707;border-color:transparent}
+  .lpr-close-btn:disabled{opacity:.5;cursor:not-allowed}
   .lpr-ctrl-empty{font-size:15px;color:#8aa0b4;padding:10px 4px}
   .lpr-badge-danger{background:rgba(248,113,113,.18)!important;color:#f87171!important}
   .lpr-rel{color:#8aa0b4;font-weight:400;font-size:.92em}
@@ -80,8 +88,9 @@ if (page) {
 
   function gateCls(d) {
     if (!d.online) return 'gs-offline';
-    if (d.gateStatus === 1) return 'gs-open';
-    if (d.gateStatus === 2) return 'gs-mid';
+    // 展示态统一用后端合成的 gateState（真实上报优先，GPIO 场景走指令态，无信息默认关）
+    if (d.gateState === 1) return 'gs-open';
+    if (d.gateState === 2) return 'gs-mid';
     return 'gs-closed';
   }
 
@@ -120,47 +129,53 @@ if (page) {
       box.innerHTML = '<div class="lpr-ctrl-empty">暂无车牌识别相机通道（后台「车牌道闸」配置，相机上报心跳后自动登记）</div>';
       return;
     }
-    box.innerHTML = devices.map((d) => `
+    box.innerHTML = devices.map((d) => {
+      const openIo = Number.isInteger(d.gateIo) ? d.gateIo : 0;
+      const closeIo = (d.closeGateIoEffective ?? (Number.isInteger(d.gateIo) ? d.gateIo + 1 : 1));
+      const isOpen = d.gateState === 1;
+      const moving = d.gateState === 2;
+      const actCls = isOpen ? 'lpr-close-btn' : 'lpr-open-btn';
+      const action = isOpen ? 'close' : 'open';
+      const label = claimedByOther ? '已被远程接管' : moving ? '动作中' : isOpen ? '远程关闸' : '远程开闸';
+      const btnTitle = isOpen ? `远程关闸（落杆，继电器 IO${closeIo}）` : `远程开闸（抬杆，继电器 IO${openIo}）`;
+      const stateTitle = d.gateStateSource === 'device' ? '道闸真实状态' : '按最近一次开/关指令推断；用遥控器或手动操作请以现场为准';
+      return `
       <div class="lpr-ctrl-row">
         <span class="lpr-dot ${d.online ? 'on' : 'off'}"></span>
         <span class="lpr-ctrl-name">${esc(d.deviceName)}${d.location ? `<em>${esc(d.location)}</em>` : ''}</span>
-        <span class="lpr-gate-state ${gateCls(d)}">${d.online ? esc(d.gateStatusLabel || '状态未知') : '离线'}</span>
-        <button class="lpr-open-btn" data-id="${d.id}" ${claimedByOther ? 'disabled' : ''}>${claimedByOther ? '已被远程接管' : '远程开闸'}</button>
-      </div>`).join('');
-    box.querySelectorAll('.lpr-open-btn').forEach((btn) => {
-      btn.addEventListener('click', () => askOpen(btn, Number(btn.dataset.id)));
+        <span class="lpr-gate-state ${gateCls(d)}" title="${d.online ? stateTitle : ''}">${d.online ? esc(d.gateStateLabel || '关') : '离线'}</span>
+        <button class="${actCls}" data-id="${d.id}" data-action="${action}" title="${btnTitle}" ${(claimedByOther || moving) ? 'disabled' : ''}>${label}</button>
+      </div>`;
+    }).join('');
+    box.querySelectorAll('.lpr-open-btn,.lpr-close-btn').forEach((btn) => {
+      btn.addEventListener('click', () => askToggle(btn, Number(btn.dataset.id), btn.dataset.action));
     });
   }
 
-  function askOpen(btn, id) {
-    if (btn.dataset.confirm === '1') { void doOpen(id, btn); return; }
-    const original = btn.textContent;
+  // 单按钮 toggle：当前关→开闸，当前开→关闸；大屏保留两步确认防误触。
+  function askToggle(btn, id, action) {
+    if (btn.dataset.confirm === '1') { void doToggle(id, action, btn); return; }
     btn.dataset.confirm = '1';
+    btn.dataset.original = btn.textContent;
     btn.classList.add('confirm');
-    btn.textContent = '确认开闸？';
+    btn.textContent = action === 'close' ? '确认关闸？' : '确认开闸？';
     setTimeout(() => {
-      if (btn.dataset.confirm === '1') {
-        btn.dataset.confirm = '';
-        btn.classList.remove('confirm');
-        btn.textContent = original;
-      }
+      if (btn.dataset.confirm === '1') renderControls();
     }, 3000);
   }
-  async function doOpen(id, btn) {
+  async function doToggle(id, action, btn) {
     btn.disabled = true;
     btn.textContent = '下发中…';
+    const isOpen = action === 'open';
     try {
-      const r = await postJSON('/park-ops-control/gate-open', {
+      const r = await postJSON(isOpen ? '/park-ops-control/gate-open' : '/park-ops-control/gate-close', {
         ownerId: LOCAL_OWNER, ownerName: '现场运营大屏', deviceId: id,
       });
-      flash(r?.delivered ? '开闸指令已下发' : '相机当前未连接，已排队，下次通讯时开闸');
+      flash(r?.delivered ? `${isOpen ? '开闸' : '关闸'}指令已下发` : `相机当前未连接，已排队，下次通讯时${isOpen ? '开闸' : '关闸'}`);
       await tick();
     } catch (e) {
-      flash(e?.message || '开闸失败', true);
-      btn.disabled = false;
-      btn.dataset.confirm = '';
-      btn.classList.remove('confirm');
-      btn.textContent = '远程开闸';
+      flash(e?.message || (isOpen ? '开闸失败' : '关闸失败'), true);
+      renderControls();
     }
   }
 

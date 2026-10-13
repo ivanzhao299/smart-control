@@ -21,6 +21,7 @@ import { LprService } from './lpr.service';
 import type {
   DeviceCreateDto,
   DeviceUpsertDto,
+  GateCloseDto,
   GateOpenDto,
   PlatformConfigUpdateDto,
   WhitelistUpsertDto,
@@ -78,6 +79,14 @@ export class LprController {
   @UseGuards(AdminGuard)
   async updateDevice(@Param('id', ParseIntPipe) id: number, @Body() dto: DeviceUpsertDto) {
     return { message: '已保存', data: await this.service.updateDevice(id, dto) };
+  }
+
+  /** 删除相机/通道（仅管理员；仅删设备，保留过车/状态历史） */
+  @Delete('devices/:id')
+  @UseGuards(AdminGuard)
+  async removeDevice(@Param('id', ParseIntPipe) id: number, @Req() req: Request) {
+    const data = await this.service.removeDevice(id, this.operator(req));
+    return { message: '已删除相机', data };
   }
 
   @Public()
@@ -140,6 +149,22 @@ export class LprController {
     const data = await this.service.openGate(dto ?? {}, this.operator(req) || 'pwa');
     return {
       message: data.delivered ? '开闸指令已下发' : '相机当前未连接, 已排队, 将在其下次通讯时开闸',
+      data,
+    };
+  }
+
+  /**
+   * 远程手动关闸(落杆): 对关闸 IO 发先通后断脉冲 (ivs_ioctrl, 协议 3.7.7)。
+   * 未配置关闸 IO 的通道后端返回 400 明确提示; 同样限速防双击 + 审计 + comet 下发。
+   */
+  @Post('gate/close')
+  @UseGuards(RateLimitGuard)
+  @RateLimit({ max: 6, windowMs: 5000 })
+  @HttpCode(200)
+  async closeGate(@Body() dto: GateCloseDto, @Req() req: Request) {
+    const data = await this.service.closeGate(dto ?? {}, this.operator(req) || 'pwa');
+    return {
+      message: data.delivered ? '关闸指令已下发' : '相机当前未连接, 已排队, 将在其下次通讯时关闸',
       data,
     };
   }

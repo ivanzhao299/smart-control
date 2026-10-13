@@ -50,6 +50,8 @@ export interface SystemBrandingDto {
   welcomeTitleSize: number | null;
   /** 嘉宾行字号 (设计稿 px, null = 默认 96) */
   welcomeGuestSize: number | null;
+  /** 底部标语字号 (设计稿 px, null = 默认 48) */
+  welcomeTaglineSize: number | null;
   /** 场馆中文名 (null=内置默认, ''=隐藏, 非空=自定义) */
   welcomeVenue: string | null;
   /** 场馆英文名 (null=内置默认, ''=隐藏, 非空=自定义) */
@@ -89,6 +91,7 @@ const DEFAULTS: SystemBrandingDto = {
   welcomeTagline: null,
   welcomeTitleSize: null,
   welcomeGuestSize: null,
+  welcomeTaglineSize: null,
   welcomeVenue: null,
   welcomeVenueEn: null,
   welcomeOrg1: null,
@@ -131,6 +134,7 @@ export class SystemBrandingService {
       welcomeTagline: row.welcomeTagline,
       welcomeTitleSize: row.welcomeTitleSize ?? null,
       welcomeGuestSize: row.welcomeGuestSize ?? null,
+      welcomeTaglineSize: row.welcomeTaglineSize ?? null,
       // '' 是显式隐藏, 必须保留; 仅 null/undefined 回退 null
       welcomeVenue: row.welcomeVenue ?? null,
       welcomeVenueEn: row.welcomeVenueEn ?? null,
@@ -369,6 +373,7 @@ export class SystemBrandingService {
         welcomeTagline: scheme.welcomeTagline,
         welcomeTitleSize: scheme.welcomeTitleSize,
         welcomeGuestSize: scheme.welcomeGuestSize,
+        welcomeTaglineSize: scheme.welcomeTaglineSize,
         welcomeVenue: scheme.welcomeVenue,
         welcomeVenueEn: scheme.welcomeVenueEn,
         welcomeOrg1: scheme.welcomeOrg1,
@@ -467,6 +472,7 @@ export class SystemBrandingService {
       welcomeTagline: branding.welcomeTagline,
       welcomeTitleSize: branding.welcomeTitleSize,
       welcomeGuestSize: branding.welcomeGuestSize,
+      welcomeTaglineSize: branding.welcomeTaglineSize,
       welcomeVenue: branding.welcomeVenue,
       welcomeVenueEn: branding.welcomeVenueEn,
       welcomeOrg1: branding.welcomeOrg1,
@@ -632,6 +638,9 @@ export class SystemBrandingService {
     }
     if (input.welcomeGuestSize !== undefined) {
       patch.welcomeGuestSize = fontSize(input.welcomeGuestSize, 24, 240);
+    }
+    if (input.welcomeTaglineSize !== undefined) {
+      patch.welcomeTaglineSize = fontSize(input.welcomeTaglineSize, 18, 160);
     }
     if (input.welcomeVenue !== undefined) {
       patch.welcomeVenue = displayText(input.welcomeVenue, 40);
