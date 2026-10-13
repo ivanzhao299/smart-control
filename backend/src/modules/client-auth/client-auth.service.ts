@@ -5,7 +5,8 @@ import { Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { ClientAuth } from '../../entities/client-auth.entity';
-import { User } from '../../entities/user.entity';
+import { User, BACKEND_ROLES, USER_ROLES } from '../../entities/user.entity';
+import type { UserRole } from '../../entities/user.entity';
 import { verifyPassword } from '../../common/utils/password.util';
 import type { Actor } from '../../common/auth/actor';
 
@@ -46,14 +47,15 @@ export class ClientAuthService {
   }
 
   async loginAdministrator(username: string, password: string): Promise<{ token: string; expiresAt: string }> {
-    return this.loginNamedUser(username, password, ADMIN_TOKEN_TTL_MS, 'admin');
+    // admin 及两个后台专员（hardware/config）可登录后台；operator/viewer 仍只在前台。
+    return this.loginNamedUser(username, password, ADMIN_TOKEN_TTL_MS, BACKEND_ROLES);
   }
 
   private async loginNamedUser(
     username: string,
     password: string,
     ttlMs: number,
-    requiredRole?: 'admin',
+    allowedRoles?: readonly UserRole[],
   ): Promise<{ token: string; expiresAt: string }> {
     const row = await this.repo.findOne({ where: { id: 1 } });
     if (!row?.tokenSecret) throw new UnauthorizedException('鉴权未初始化，请先运行数据库迁移');
@@ -66,7 +68,7 @@ export class ClientAuthService {
     if (!user?.enabled || !verifyPassword(password, user.password)) {
       throw new UnauthorizedException('用户名或密码错误');
     }
-    if (requiredRole && user.role !== requiredRole) {
+    if (allowedRoles && !allowedRoles.includes(user.role)) {
       throw new UnauthorizedException('用户名或密码错误');
     }
     const now = Date.now();
@@ -113,7 +115,7 @@ export class ClientAuthService {
         .getOne();
       if (!user?.enabled || typeof payload.ph !== 'string') return null;
       if (payload.ph !== this.passwordFingerprint(user.password)) return null;
-      if (!['admin', 'operator', 'viewer'].includes(user.role)) return null;
+      if (!USER_ROLES.includes(user.role)) return null;
       return { kind: 'user', userId: user.id, username: user.username, role: user.role };
     }
     if (payload.uid !== undefined) return null;

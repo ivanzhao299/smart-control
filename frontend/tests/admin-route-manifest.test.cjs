@@ -28,7 +28,11 @@ test('admin manifest preserves every route exactly once with explicit access met
   ]);
   assert.equal(new Set(names).size, names.length);
   assert.equal(new Set(paths).size, paths.length);
-  assert.ok(routes.every(route => route.access === 'admin'));
+  const MODULES = [
+    'monitor', 'alerts', 'scenes', 'scheduler', 'energy', 'devices', 'hardware',
+    'zones', 'video', 'lpr', 'diagnostics', 'uat', 'metrics', 'branding', 'system',
+  ];
+  assert.ok(routes.every(route => MODULES.includes(route.module)));
   assert.ok(routes.every(route => typeof route.load === 'function'));
 });
 
@@ -40,10 +44,10 @@ test('admin navigation groups and deep links resolve from the route manifest', (
   assert.deepEqual(Array.from(groups, group => (
     `${group.section}:${Array.from(group.items, item => `${item.name}:${item.label}`).join(',')}`
   )), [
-    '日常运行:admin-monitor:运维监控,admin-alerts:报警中心,admin-scenes:场景管理,admin-scheduler:定时任务,admin-energy:能源管理',
+    '日常运行:admin-monitor:运维监控,admin-alerts:报警中心,admin-scenes:场景管理,admin-scheduler:定时任务,admin-energy:能源管理,admin-park-ops-metrics:运营数据',
     '设备与分区:admin-devices:设备管理,admin-hardware:硬件清单,admin-zones-config:分区配置,admin-video-binding:视频绑定,admin-lpr:车牌道闸',
     '日志与诊断:admin-logs:日志中心,admin-test-center:测试 / 调试',
-    '系统管理:admin-park-ops-metrics:运营数据,admin-users:用户管理,admin-testflight:iOS 测试,admin-settings:系统设置',
+    '系统管理:admin-users:用户管理,admin-testflight:iOS 测试,admin-settings:系统设置',
   ]);
 
   const aliases = {
@@ -72,7 +76,7 @@ test('router and layout consume admin route metadata without duplicate page list
   const layout = read('src/layouts/AdminLayout.vue');
 
   assert.match(router, /\.\.\.adminRouteManifest\.map/);
-  assert.match(router, /adminRequired: route\.access === 'admin'/);
+  assert.match(router, /adminModule: route\.module/);
   assert.match(layout, /adminNavigationGroups/);
   assert.match(layout, /adminMenuTargetName\(cur\)/);
   assert.match(layout, /idleAdminRouteNames/);

@@ -12,6 +12,7 @@ import type { Alert, AlertLevel, AlertStatus, AlertSummary, WsEvent } from '@/ty
 const perm = usePermissionStore();
 
 const loading = ref(false);
+const canEdit = computed(() => perm.canWriteModule('alerts'));
 const rows = ref<Alert[]>([]);
 const total = ref(0);
 const summary = ref<AlertSummary | null>(null);
@@ -99,7 +100,7 @@ function reset(): void {
 function onPage(p: number): void { filter.page = p; void refresh(); }
 
 async function resolve(row: Alert): Promise<void> {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   try {
     await ElMessageBox.confirm(`确认解除报警「${row.title}」?`, '解除确认', { type: 'warning' });
   } catch { return; }
@@ -111,7 +112,7 @@ async function resolve(row: Alert): Promise<void> {
 }
 
 async function ignore(row: Alert): Promise<void> {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   try {
     await ElMessageBox.confirm(`确认忽略报警「${row.title}」?`, '忽略确认', { type: 'warning' });
   } catch { return; }
@@ -293,10 +294,10 @@ onBeforeUnmount(() => { if (unsubscribeWs) unsubscribeWs(); });
         <el-table-column label="操作" width="170" fixed="right" align="right">
           <template #default="{ row }">
             <template v-if="row.status === 'active'">
-              <button class="row-btn row-btn-ok" :disabled="!perm.canEdit" @click="resolve(row)">
+              <button class="row-btn row-btn-ok" :disabled="!canEdit" @click="resolve(row)">
                 <CheckCircle2 :size="13" :stroke-width="2" /> 解除
               </button>
-              <button class="row-btn" :disabled="!perm.canEdit" @click="ignore(row)">
+              <button class="row-btn" :disabled="!canEdit" @click="ignore(row)">
                 <XCircle :size="13" :stroke-width="2" /> 忽略
               </button>
             </template>

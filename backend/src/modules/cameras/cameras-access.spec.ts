@@ -2,7 +2,8 @@ import 'reflect-metadata';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { IS_PUBLIC_KEY } from '../../common/decorators/public.decorator';
 import { RATE_LIMIT_KEY, RateLimitGuard } from '../../common/guards/rate-limit.guard';
-import { AdminGuard } from '../admin-auth/admin-auth.guard';
+import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
+import { MODULE_ACCESS_KEY } from '../../common/decorators/module-access.decorator';
 import { CamerasController } from './cameras.controller';
 import { ParkOpsMetricsController } from './park-ops-metrics.controller';
 
@@ -47,7 +48,8 @@ describe('camera HLS access boundary', () => {
     const get = (ParkOpsMetricsController.prototype as any).get;
     const update = (ParkOpsMetricsController.prototype as any).update;
     expect(Reflect.getMetadata(IS_PUBLIC_KEY, get)).toBe(true);
-    expect(Reflect.getMetadata(GUARDS_METADATA, update)).toContain(AdminGuard);
+    expect(Reflect.getMetadata(GUARDS_METADATA, update)).toContain(ModuleAccessGuard);
+    expect(Reflect.getMetadata(MODULE_ACCESS_KEY, update)).toBe('metrics');
 
     const document = {
       version: 1,

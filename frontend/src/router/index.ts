@@ -7,6 +7,7 @@ import { api } from '@/services/http';
 import { isStalePwaAssetError, recoverFromStalePwa } from '@/services/pwa-recovery';
 import { mainRouteManifest } from './main-route-manifest';
 import { adminRouteManifest } from './admin-route-manifest';
+import { canAccessAdminModule, defaultAdminRoute, type AdminModule } from './admin-rbac';
 
 const routes: RouteRecordRaw[] = [
   // 平板布局 (Sprint-05)
@@ -46,13 +47,16 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/layouts/AdminLayout.vue'),
     meta: { adminRequired: true },
     children: [
-      { path: '', redirect: { name: 'admin-monitor' } },
+      {
+        path: '',
+        redirect: () => ({ name: defaultAdminRoute(usePermissionStore().role) }),
+      },
       ...adminRouteManifest.map((route) => ({
         path: route.path,
         name: route.name,
         component: route.load,
         props: 'props' in route ? route.props : undefined,
-        meta: { adminRequired: route.access === 'admin' },
+        meta: { adminRequired: true, adminModule: route.module },
       })),
     ],
   },
@@ -99,7 +103,7 @@ router.beforeEach(async (to) => {
   return true;
 });
 
-// Admin auth guard: 进任何 meta.adminRequired 的路由前确保已登录
+// Admin auth guard: 进任何 meta.adminRequired 的路由前确保已登录, 并按模块分域拦截。
 router.beforeEach(async (to) => {
   if (to.meta?.adminRequired) {
     const authStore = useAdminAuthStore();
@@ -107,8 +111,21 @@ router.beforeEach(async (to) => {
     if (!ok) {
       return { name: 'admin-login', query: { redirect: to.fullPath } };
     }
+    // 后台导航需要准确角色；role 默认是 'viewer'，用 loaded 判断是否已拉取。
+    const permission = usePermissionStore();
+    if (!permission.loaded) await permission.refresh();
+    const module = to.meta?.adminModule as AdminModule | undefined;
+    if (module && !canAccessAdminModule(permission.role, module)) {
+      const landing = defaultAdminRoute(permission.role);
+      // 连默认落地页都无权访问（角色未就绪或非后台角色），回后台登录页，
+      // 避免反复重定向到同一个无权路由形成无限循环。
+      if (landing === to.name) {
+        return { name: 'admin-login', query: { redirect: to.fullPath } };
+      }
+      return { name: landing };
+    }
   }
-  if (!to.meta?.clientPublic && to.name !== 'player') {
+  if (!to.meta?.clientPublic && to.name !== 'player' && !to.meta?.adminRequired) {
     // 权限默认是 viewer，服务端仍是最终授权边界。角色刷新不能阻塞页面挂载：
     // iOS 从后台恢复时网络请求可能延迟，等待它会让主壳存在而 router-view 为空。
     void usePermissionStore().refresh();

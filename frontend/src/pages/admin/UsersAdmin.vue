@@ -16,6 +16,8 @@ const rows = ref<User[]>([]);
 
 const roleOptions: Array<{ value: UserRole; label: string; type: string }> = [
   { value: 'admin', label: '管理员', type: 'danger' },
+  { value: 'hardware', label: '硬件工程师', type: 'warning' },
+  { value: 'config', label: '运营配置员', type: 'success' },
   { value: 'operator', label: '操作员', type: 'primary' },
   { value: 'viewer', label: '观察者', type: 'info' },
 ];

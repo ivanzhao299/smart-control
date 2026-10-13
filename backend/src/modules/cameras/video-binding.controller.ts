@@ -13,8 +13,9 @@ import {
 import type { Request } from 'express';
 import { VideoBindingService } from './video-binding.service';
 import { AiConfigPusher } from './ai-config.pusher';
-import { ConfigurationWriteGuard } from '../../common/guards/configuration-write.guard';
-import { AuthenticatedRequest, requireAdmin } from '../../common/auth/actor';
+import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
+import { ModuleAccess } from '../../common/decorators/module-access.decorator';
+import { AuthenticatedRequest, requireActor } from '../../common/auth/actor';
 import {
   AiBoxDto,
   ChannelAiConfigDto,
@@ -27,7 +28,8 @@ import {
 } from './dto/video-binding.dto';
 
 @Controller('video-binding')
-@UseGuards(ConfigurationWriteGuard)
+@UseGuards(ModuleAccessGuard)
+@ModuleAccess('video')
 export class VideoBindingController {
   constructor(
     private readonly videoBindingService: VideoBindingService,
@@ -35,7 +37,8 @@ export class VideoBindingController {
   ) {}
 
   private writeContext(req: Request, expectedRevision?: number) {
-    const actor = requireAdmin(req as AuthenticatedRequest);
+    // 类级 ModuleAccessGuard('video') 已保证写者为 admin/hardware；这里只取 actor 记录审计。
+    const actor = requireActor(req as AuthenticatedRequest);
     return {
       expectedRevision,
       actor:

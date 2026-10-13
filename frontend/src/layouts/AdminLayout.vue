@@ -14,10 +14,12 @@ import { ElMessageBox } from 'element-plus';
 import { adminNavIconFor } from '@/composables/useIcons';
 import {
   adminMenuTargetName,
+  adminModuleOfRoute,
   adminNavigationGroups,
   idleAdminRouteNames,
   loadAdminRoute,
 } from '@/router/admin-route-manifest';
+import { ROLE_LABELS } from '@/router/admin-rbac';
 
 const route = useRoute();
 const router = useRouter();
@@ -33,9 +35,19 @@ const fsActive = fs.isActive;
 const fsSupported = fs.isSupported;
 function toggleFullscreen(): void { void fs.toggle(); }
 
-const groups = adminNavigationGroups;
+// 按角色分域过滤侧栏菜单: 只保留当前角色可见模块, 整组为空时不渲染该分组。
+const groups = computed(() =>
+  adminNavigationGroups
+    .map((g) => ({
+      section: g.section,
+      items: g.items.filter((it) =>
+        perm.canAccessModule(adminModuleOfRoute(it.name) ?? 'system'),
+      ),
+    }))
+    .filter((g) => g.items.length > 0),
+);
 /** 扁平列表 — crumb / 查找用 */
-const flatItems = groups.flatMap((g) => g.items);
+const flatItems = computed(() => groups.value.flatMap((g) => g.items));
 
 const timeLabel = computed(() => {
   const d = new Date(sys.now);
@@ -111,7 +123,7 @@ async function exitToFront(): Promise<void> {
         <BrandLogo :height="48" />
         <div class="brand-text">
           <div class="title">{{ branding.systemName }}</div>
-          <div class="sub">后台管理 · Admin</div>
+          <div class="sub">后台管理 · {{ ROLE_LABELS[perm.role] }}</div>
         </div>
       </div>
       <nav class="menu">
@@ -163,7 +175,7 @@ async function exitToFront(): Promise<void> {
           <span class="v2-pill" :class="sys.info?.mockMode ? '' : 'idle'">
             <span class="v2-dot"></span>{{ sys.info?.mockMode ? 'MOCK 模式' : '真实模式' }}
           </span>
-          <span class="v2-pill">{{ perm.role === 'admin' ? '管理员' : perm.role === 'operator' ? '操作员' : '只读账户' }}</span>
+          <span class="v2-pill">{{ ROLE_LABELS[perm.role] }}</span>
           <button
             v-if="fsSupported"
             type="button"

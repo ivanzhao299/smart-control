@@ -27,6 +27,7 @@ const router = useRouter();
 const perm = usePermissionStore();
 
 const sceneId = computed(() => Number(props.id));
+const canEdit = computed(() => perm.canWriteModule('scenes'));
 const scene = ref<Scene | null>(null);
 const rows = ref<SceneAction[]>([]);
 const loading = ref(false);
@@ -150,7 +151,7 @@ async function refresh(): Promise<void> {
 }
 
 function openCreate(): void {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   dialogMode.value = 'create';
   const maxSort = rows.value.reduce((m, a) => Math.max(m, a.sortOrder), 0);
   Object.assign(form, {
@@ -169,7 +170,7 @@ function openCreate(): void {
 }
 
 function openEdit(row: SceneAction): void {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   dialogMode.value = 'edit';
   // 试着把 row.params (JSON 文本) 解析回 paramsForm; 解析失败的留 JSON 模式
   let parsed: Record<string, unknown> = {};
@@ -250,7 +251,7 @@ async function submit(): Promise<void> {
 }
 
 async function remove(row: SceneAction): Promise<void> {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   try {
     await ElMessageBox.confirm(`确认删除动作 #${row.id}?`, '删除确认', { type: 'warning' });
   } catch { return; }
@@ -264,13 +265,13 @@ async function remove(row: SceneAction): Promise<void> {
 }
 
 async function move(row: SceneAction, delta: number): Promise<void> {
-  if (!perm.canEdit) return;
+  if (!canEdit) return;
   await adminSceneActionService.update(row.id, { sortOrder: row.sortOrder + delta });
   await refresh();
 }
 
 async function toggleEnabled(row: SceneAction): Promise<void> {
-  if (!perm.canEdit) return;
+  if (!canEdit) return;
   await adminSceneActionService.update(row.id, { enabled: !row.enabled });
   await refresh();
 }
@@ -296,7 +297,7 @@ async function testAction(row: SceneAction): Promise<void> {
 
 /** 复制动作 — 同 scene 内插一条一样的, sortOrder 紧跟原来 +1 */
 async function cloneAction(row: SceneAction): Promise<void> {
-  if (!perm.canEdit) return;
+  if (!canEdit) return;
   try {
     let params: Record<string, unknown> = {};
     try { params = row.params ? JSON.parse(row.params) : {}; } catch { /* ignore */ }
@@ -359,7 +360,7 @@ onMounted(refresh);
         <button class="sc-touch sc-act sc-act-success hero-btn" :disabled="!perm.canExecute || !scene" @click="testExecute">
           <Play :size="16" :stroke-width="2" /> 测试执行
         </button>
-        <button class="sc-touch sc-act sc-act-primary hero-btn" :disabled="!perm.canEdit" @click="openCreate">
+        <button class="sc-touch sc-act sc-act-primary hero-btn" :disabled="!canEdit" @click="openCreate">
           <Plus :size="16" :stroke-width="2" /> 新增动作
         </button>
       </div>
@@ -398,28 +399,28 @@ onMounted(refresh);
       </el-table-column>
       <el-table-column label="启用" width="48">
         <template #default="{ row }">
-          <el-switch :model-value="row.enabled" :disabled="!perm.canEdit" @change="toggleEnabled(row)" />
+          <el-switch :model-value="row.enabled" :disabled="!canEdit" @change="toggleEnabled(row)" />
         </template>
       </el-table-column>
       <el-table-column label="操作" width="276" fixed="right" align="right">
         <template #default="{ row }">
-          <button class="row-btn" @click="move(row, -1)" :disabled="!perm.canEdit" title="上移">
+          <button class="row-btn" @click="move(row, -1)" :disabled="!canEdit" title="上移">
             <ChevronUp :size="13" :stroke-width="2" />
           </button>
-          <button class="row-btn" @click="move(row, 1)" :disabled="!perm.canEdit" title="下移">
+          <button class="row-btn" @click="move(row, 1)" :disabled="!canEdit" title="下移">
             <ChevronDown :size="13" :stroke-width="2" />
           </button>
           <button class="row-btn row-btn-test" @click="testAction(row)" :disabled="!perm.canExecute || testingId !== null" title="试触发: 单独触发这条 (不进队列)">
             <Loader v-if="testingId === row.id" :size="13" :stroke-width="2" class="spin" />
             <Zap v-else :size="13" :stroke-width="2" />
           </button>
-          <button class="row-btn" @click="cloneAction(row)" :disabled="!perm.canEdit" title="复制一条">
+          <button class="row-btn" @click="cloneAction(row)" :disabled="!canEdit" title="复制一条">
             <Copy :size="13" :stroke-width="2" />
           </button>
-          <button class="row-btn" @click="openEdit(row)" :disabled="!perm.canEdit" title="编辑">
+          <button class="row-btn" @click="openEdit(row)" :disabled="!canEdit" title="编辑">
             <Pencil :size="13" :stroke-width="2" />
           </button>
-          <button class="row-btn row-btn-danger" @click="remove(row)" :disabled="!perm.canEdit" title="删除">
+          <button class="row-btn row-btn-danger" @click="remove(row)" :disabled="!canEdit" title="删除">
             <Trash2 :size="13" :stroke-width="2" />
           </button>
         </template>

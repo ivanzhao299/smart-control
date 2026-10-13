@@ -127,7 +127,7 @@ export interface SystemInfo {
   apiPrefix: string;
 }
 
-export type UserRole = 'admin' | 'operator' | 'viewer';
+export type UserRole = 'admin' | 'hardware' | 'config' | 'operator' | 'viewer';
 
 export interface User {
   id: number;

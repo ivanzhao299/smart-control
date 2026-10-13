@@ -1,5 +1,6 @@
 import { ConflictException, UseGuards } from '@nestjs/common';
-import { ConfigurationWriteGuard } from '../../common/guards/configuration-write.guard';
+import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
+import { ModuleAccess } from '../../common/decorators/module-access.decorator';
 import {
   Body,
   Controller,
@@ -39,7 +40,8 @@ type AdapterCacheTarget = {
 };
 
 @Controller('hardware')
-@UseGuards(ConfigurationWriteGuard)
+@UseGuards(ModuleAccessGuard)
+@ModuleAccess('hardware')
 export class HardwareController {
   private readonly adapterTargets: AdapterCacheTarget[];
 

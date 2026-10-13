@@ -9,7 +9,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { EnergyService } from './energy.service';
-import { AdminGuard } from '../admin-auth/admin-auth.guard';
+import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
+import { ModuleAccess } from '../../common/decorators/module-access.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 
 /**
@@ -34,7 +35,8 @@ export class EnergyController {
 
   /** 保存园区能源台账（仅管理员，CAS：revision 过期返回 409）。 */
   @Put('assets')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('energy')
   async saveAssets(
     @Body() body: { expectedRevision?: number; value?: unknown },
   ) {
@@ -74,7 +76,8 @@ export class EnergyController {
 
   /** 手动触发云电量同步（平台 device-total），仅管理员 */
   @Post('sync')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('energy')
   async sync(@Query('days') days?: string) {
     const n = Math.min(Number(days ?? 30) || 30, 365);
     return {

@@ -1,12 +1,14 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { UseGuards } from '@nestjs/common';
-import { ActorAdminGuard } from '../../common/guards/actor-admin.guard';
+import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
+import { ModuleAccess } from '../../common/decorators/module-access.decorator';
 import { OperationLogService } from './operation-log.service';
 import { AlertService } from '../alerts/alert.service';
 import { QueryLogDto } from './dto/query-log.dto';
 
 @Controller('logs')
-@UseGuards(ActorAdminGuard)
+@UseGuards(ModuleAccessGuard)
+@ModuleAccess('diagnostics')
 export class LogsController {
   constructor(
     private readonly service: OperationLogService,

@@ -22,6 +22,7 @@ import type { GatewayInfo, HardwareCategory, HardwareUnit } from '@/types/api';
 const perm = usePermissionStore();
 const loading = ref(false);
 const rows = ref<NetworkRow[]>([]);
+const canEdit = computed(() => perm.canWriteModule('devices'));
 const gateways = ref<GatewayInfo[]>([]);
 
 /** 有 IP 概念的类别 — 没 IP 的纯被动硬件 (灯具驱动器/继电器) 不在这页出现 */
@@ -234,7 +235,7 @@ function isDirty(row: NetworkRow): boolean {
 const IP_RE = /^(\d{1,3}\.){3}\d{1,3}$/;
 
 async function save(row: NetworkRow): Promise<void> {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   const ip = row.ip.trim();
   if (!ip) { ElMessage.warning('IP 不能为空'); return; }
   if (!IP_RE.test(ip)) { ElMessage.warning('IP 格式不对, 应为 192.168.x.x'); return; }
@@ -363,7 +364,7 @@ const dirtyCount = computed(() => rows.value.filter(isDirty).length);
             v-model="(row as NetworkRow).ip"
             :placeholder="isCloudUnit((row as NetworkRow).unit) ? '4G · 华普云接入' : '192.168.77.x'"
             class="mono-input"
-            :disabled="!perm.canEdit || isCloudUnit((row as NetworkRow).unit)"
+            :disabled="!canEdit || isCloudUnit((row as NetworkRow).unit)"
           />
         </template>
       </el-table-column>
@@ -374,7 +375,7 @@ const dirtyCount = computed(() => rows.value.filter(isDirty).length);
             v-model="(row as NetworkRow).port"
             :placeholder="isCloudUnit((row as NetworkRow).unit) ? '云平台' : '—'"
             class="mono-input"
-            :disabled="!perm.canEdit || isCloudUnit((row as NetworkRow).unit)"
+            :disabled="!canEdit || isCloudUnit((row as NetworkRow).unit)"
           />
         </template>
       </el-table-column>
@@ -422,7 +423,7 @@ const dirtyCount = computed(() => rows.value.filter(isDirty).length);
           <el-button
             type="primary"
             size="small"
-            :disabled="!isDirty(row as NetworkRow) || !perm.canEdit"
+            :disabled="!isDirty(row as NetworkRow) || !canEdit"
             :loading="(row as NetworkRow).saving"
             @click="save(row as NetworkRow)"
           >保存</el-button>

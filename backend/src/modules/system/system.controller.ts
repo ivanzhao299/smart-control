@@ -1,6 +1,8 @@
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Logger, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Operation, OperationsGuard } from './operations.guard';
 import { ActorAdminGuard } from '../../common/guards/actor-admin.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
 import { AdapterConfig, AppConfig, WebSocketConfig } from '../../common/config/configuration';
@@ -85,7 +87,8 @@ export class SystemController {
 
   /** 清空运行时连接错误和失败计数，并按操作员要求手动检测一次。 */
   @Post('runtime/gateways/clear-faults')
-  @UseGuards(ActorAdminGuard)
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'hardware')
   async clearGatewayFaults() {
     const cleared = this.registry.clearAllFaults();
     // 只在操作员点击时检测，不启动后台定时任务。
@@ -102,7 +105,8 @@ export class SystemController {
   }
 
   @Post('runtime/health/probe')
-  @UseGuards(ActorAdminGuard)
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'hardware')
   async probe() {
     await this.health.probeAll();
     return { message: '设备检测已执行', data: this.health.summary() };

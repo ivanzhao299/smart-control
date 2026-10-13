@@ -12,6 +12,7 @@ import type { Device, DeviceCategory } from '@/types/api';
 
 const perm = usePermissionStore();
 const deviceStore = useDeviceStore();
+const canEdit = computed(() => perm.canWriteModule('devices'));
 
 const loading = ref(false);
 const rows = ref<Device[]>([]);
@@ -114,7 +115,7 @@ const rules: FormRules = {
 };
 
 function openCreate(): void {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无编辑权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无编辑权限'); return; }
   dialogMode.value = 'create';
   Object.assign(form, {
     id: undefined, name: '', category: 'lighting', protocol: 'tcp', adapter: 'mock',
@@ -124,7 +125,7 @@ function openCreate(): void {
 }
 
 function openEdit(row: Device): void {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无编辑权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无编辑权限'); return; }
   dialogMode.value = 'edit';
   Object.assign(form, {
     id: row.id, name: row.name, category: row.category,
@@ -167,7 +168,7 @@ async function submit(): Promise<void> {
 }
 
 async function toggleEnabled(row: Device): Promise<void> {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   try {
     await adminDeviceService.update(row.id, { enabled: !row.enabled });
     ElMessage.success(`已${row.enabled ? '停用' : '启用'} ${row.name}`);
@@ -178,7 +179,7 @@ async function toggleEnabled(row: Device): Promise<void> {
 }
 
 async function remove(row: Device): Promise<void> {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   try {
     await ElMessageBox.confirm(`确认删除设备「${row.name}」?`, '删除确认', { type: 'warning' });
   } catch { return; }
@@ -215,7 +216,7 @@ onMounted(refresh);
           <RefreshCw v-else :size="16" :stroke-width="2" />
           刷新
         </button>
-        <button class="sc-touch sc-act sc-act-primary hero-btn" :disabled="!perm.canEdit" @click="openCreate">
+        <button class="sc-touch sc-act sc-act-primary hero-btn" :disabled="!canEdit" @click="openCreate">
           <Plus :size="16" :stroke-width="2" /> 新增设备
         </button>
       </div>
@@ -314,7 +315,7 @@ onMounted(refresh);
       </el-table-column>
       <el-table-column label="启用" width="80">
         <template #default="{ row }">
-          <el-switch :model-value="row.enabled" :disabled="!perm.canEdit" @change="toggleEnabled(row)" />
+          <el-switch :model-value="row.enabled" :disabled="!canEdit" @change="toggleEnabled(row)" />
         </template>
       </el-table-column>
       <el-table-column label="实时状态" width="100">
@@ -326,10 +327,10 @@ onMounted(refresh);
       </el-table-column>
       <el-table-column label="操作" width="170" fixed="right" align="right">
         <template #default="{ row }">
-          <button class="row-btn" @click="openEdit(row)" :disabled="!perm.canEdit">
+          <button class="row-btn" @click="openEdit(row)" :disabled="!canEdit">
             <Pencil :size="13" :stroke-width="2" /> 编辑
           </button>
-          <button class="row-btn row-btn-danger" @click="remove(row)" :disabled="!perm.canEdit">
+          <button class="row-btn row-btn-danger" @click="remove(row)" :disabled="!canEdit">
             <Trash2 :size="13" :stroke-width="2" /> 删除
           </button>
         </template>

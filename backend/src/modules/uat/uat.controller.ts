@@ -1,5 +1,6 @@
 import { UseGuards } from '@nestjs/common';
-import { ActorAdminGuard } from '../../common/guards/actor-admin.guard';
+import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
+import { ModuleAccess } from '../../common/decorators/module-access.decorator';
 import {
   Body,
   Controller,
@@ -21,7 +22,8 @@ import {
 } from './dto/uat.dto';
 
 @Controller('uat')
-@UseGuards(ActorAdminGuard)
+@UseGuards(ModuleAccessGuard)
+@ModuleAccess('uat')
 export class UatController {
   constructor(private readonly service: UatService) {}
 

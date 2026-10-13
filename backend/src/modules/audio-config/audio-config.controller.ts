@@ -16,7 +16,8 @@ import {
   type AudioSceneUpsertDto,
   type AudioZoneUpsertDto,
 } from './audio-config.service';
-import { AdminGuard } from '../admin-auth/admin-auth.guard';
+import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
+import { ModuleAccess } from '../../common/decorators/module-access.decorator';
 
 /**
  * 音响配置 — 输出通道 + 一键场景的自定义名称.
@@ -35,19 +36,22 @@ export class AudioConfigController {
   }
 
   @Post('zones')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('zones')
   async createZone(@Body() dto: AudioZoneUpsertDto) {
     return { message: '创建成功', data: await this.service.upsertZone(null, dto) };
   }
 
   @Put('zones/:id')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('zones')
   async updateZone(@Param('id', ParseIntPipe) id: number, @Body() dto: AudioZoneUpsertDto) {
     return { message: '更新成功', data: await this.service.upsertZone(id, dto) };
   }
 
   @Delete('zones/:id')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('zones')
   async deleteZone(@Param('id', ParseIntPipe) id: number) {
     return { message: '已删除', data: await this.service.deleteZone(id) };
   }
@@ -59,19 +63,22 @@ export class AudioConfigController {
   }
 
   @Post('inputs')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('zones')
   async createInput(@Body() dto: AudioInputUpsertDto) {
     return { message: '创建成功', data: await this.service.upsertInput(null, dto) };
   }
 
   @Put('inputs/:id')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('zones')
   async updateInput(@Param('id', ParseIntPipe) id: number, @Body() dto: AudioInputUpsertDto) {
     return { message: '更新成功', data: await this.service.upsertInput(id, dto) };
   }
 
   @Delete('inputs/:id')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('zones')
   async deleteInput(@Param('id', ParseIntPipe) id: number) {
     return { message: '已删除', data: await this.service.deleteInput(id) };
   }
@@ -83,19 +90,22 @@ export class AudioConfigController {
   }
 
   @Post('scenes')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('zones')
   async createScene(@Body() dto: AudioSceneUpsertDto) {
     return { message: '创建成功', data: await this.service.upsertScene(null, dto) };
   }
 
   @Put('scenes/:id')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('zones')
   async updateScene(@Param('id', ParseIntPipe) id: number, @Body() dto: AudioSceneUpsertDto) {
     return { message: '更新成功', data: await this.service.upsertScene(id, dto) };
   }
 
   @Delete('scenes/:id')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('zones')
   async deleteScene(@Param('id', ParseIntPipe) id: number) {
     return { message: '已删除', data: await this.service.deleteScene(id) };
   }

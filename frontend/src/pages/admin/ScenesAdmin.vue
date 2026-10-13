@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
@@ -11,6 +11,7 @@ import type { SceneSummary } from '@/types/api';
 
 const perm = usePermissionStore();
 const router = useRouter();
+const canEdit = computed(() => perm.canWriteModule('scenes'));
 const loading = ref(false);
 const rows = ref<SceneSummary[]>([]);
 
@@ -45,13 +46,13 @@ async function refresh(): Promise<void> {
 }
 
 function openCreate(): void {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   dialogMode.value = 'create';
   Object.assign(form, { id: undefined, code: '', name: '', description: '', enabled: true });
   dialogVisible.value = true;
 }
 function openEdit(row: SceneSummary): void {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   dialogMode.value = 'edit';
   Object.assign(form, {
     id: row.id,
@@ -84,7 +85,7 @@ async function submit(): Promise<void> {
 }
 
 async function toggleEnabled(row: SceneSummary): Promise<void> {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   try {
     await adminSceneService.update(row.id, { enabled: !row.enabled });
     await refresh();
@@ -94,7 +95,7 @@ async function toggleEnabled(row: SceneSummary): Promise<void> {
 }
 
 async function remove(row: SceneSummary): Promise<void> {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   try {
     await ElMessageBox.confirm(`确认删除场景「${row.name}」?`, '删除确认', { type: 'warning' });
   } catch { return; }
@@ -140,7 +141,7 @@ onMounted(refresh);
           <RefreshCw v-else :size="16" :stroke-width="2" />
           刷新
         </button>
-        <button class="sc-touch sc-act sc-act-primary hero-btn" :disabled="!perm.canEdit" @click="openCreate">
+        <button class="sc-touch sc-act sc-act-primary hero-btn" :disabled="!canEdit" @click="openCreate">
           <Plus :size="16" :stroke-width="2" /> 新增场景
         </button>
       </div>
@@ -159,7 +160,7 @@ onMounted(refresh);
       </el-table-column>
       <el-table-column label="启用" width="64">
         <template #default="{ row }">
-          <el-switch :model-value="row.enabled" :disabled="!perm.canEdit" @change="toggleEnabled(row)" />
+          <el-switch :model-value="row.enabled" :disabled="!canEdit" @change="toggleEnabled(row)" />
         </template>
       </el-table-column>
       <el-table-column label="操作" width="320" fixed="right" align="right">
@@ -170,10 +171,10 @@ onMounted(refresh);
           <button class="row-btn row-btn-ok" @click="testExecute(row)" :disabled="!perm.canExecute">
             <Play :size="13" :stroke-width="2" /> 测试
           </button>
-          <button class="row-btn" @click="openEdit(row)" :disabled="!perm.canEdit">
+          <button class="row-btn" @click="openEdit(row)" :disabled="!canEdit">
             <Pencil :size="13" :stroke-width="2" /> 编辑
           </button>
-          <button class="row-btn row-btn-danger" @click="remove(row)" :disabled="!perm.canEdit">
+          <button class="row-btn row-btn-danger" @click="remove(row)" :disabled="!canEdit">
             <Trash2 :size="13" :stroke-width="2" /> 删除
           </button>
         </template>

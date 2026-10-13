@@ -11,7 +11,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { PowerSchedulesService, PowerScheduleInput } from './power-schedules.service';
-import { AdminGuard } from '../admin-auth/admin-auth.guard';
+import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
+import { ModuleAccess } from '../../common/decorators/module-access.decorator';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 
 /**
@@ -41,21 +42,24 @@ export class PowerSchedulesController {
   }
 
   @Post()
-  @UseGuards(AdminGuard, RateLimitGuard)
+  @UseGuards(ModuleAccessGuard, RateLimitGuard)
+  @ModuleAccess('energy')
   @RateLimit({ max: 10, windowMs: 5000 })
   async create(@Body() dto: PowerScheduleInput) {
     return { message: '创建成功', data: await this.service.create(dto) };
   }
 
   @Put(':id')
-  @UseGuards(AdminGuard, RateLimitGuard)
+  @UseGuards(ModuleAccessGuard, RateLimitGuard)
+  @ModuleAccess('energy')
   @RateLimit({ max: 10, windowMs: 5000 })
   async update(@Param('id', ParseIntPipe) id: number, @Body() dto: Partial<PowerScheduleInput>) {
     return { message: '更新成功', data: await this.service.update(id, dto) };
   }
 
   @Delete(':id')
-  @UseGuards(AdminGuard, RateLimitGuard)
+  @UseGuards(ModuleAccessGuard, RateLimitGuard)
+  @ModuleAccess('energy')
   @RateLimit({ max: 10, windowMs: 5000 })
   @HttpCode(200)
   async remove(@Param('id', ParseIntPipe) id: number) {

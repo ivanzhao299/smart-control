@@ -12,7 +12,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { LightZonesService, type LightZoneUpsertDto } from './light-zones.service';
-import { AdminGuard } from '../admin-auth/admin-auth.guard';
+import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
+import { ModuleAccess } from '../../common/decorators/module-access.decorator';
 import { LightingAdapter } from '../../adapters/lighting/lighting.adapter';
 import { AssignGroupsDto, CreateGroupDto, GroupShortsDto, ReorderDto } from './dto/group.dto';
 
@@ -113,7 +114,8 @@ export class LightZonesController {
   }
 
   @Put(':id')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('zones')
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: Partial<LightZoneUpsertDto>,
@@ -122,7 +124,8 @@ export class LightZonesController {
   }
 
   @Delete(':id')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('zones')
   @HttpCode(200)
   async remove(@Param('id', ParseIntPipe) id: number) {
     await this.service.remove(id);
@@ -138,7 +141,8 @@ export class LightZonesController {
    * 不走 RateLimitGuard (lighting controller 那个), 因为是后台运维操作, 间隔短没事.
    */
   @Post(':id/test')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('zones')
   async test(@Param('id', ParseIntPipe) id: number) {
     const zone = await this.service.detail(id);
     const head = { id: zone.id, code: zone.code, name: zone.name };

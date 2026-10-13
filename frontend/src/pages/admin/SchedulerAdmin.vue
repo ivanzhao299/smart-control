@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
 import {
   Clock, RefreshCw, Plus, Pencil, Trash2, Play, Loader,
@@ -15,6 +15,7 @@ import type { SceneSummary, SchedulerTask } from '@/types/api';
 const perm = usePermissionStore();
 const loading = ref(false);
 const rows = ref<SchedulerTask[]>([]);
+const canEdit = computed(() => perm.canWriteModule('scheduler'));
 const sceneOptions = ref<SceneSummary[]>([]);
 
 const dialogVisible = ref(false);
@@ -65,7 +66,7 @@ async function refresh(): Promise<void> {
 }
 
 function openCreate(): void {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   dialogMode.value = 'create';
   Object.assign(form, {
     id: undefined,
@@ -79,7 +80,7 @@ function openCreate(): void {
 }
 
 function openEdit(row: SchedulerTask): void {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   dialogMode.value = 'edit';
   Object.assign(form, {
     id: row.id,
@@ -113,7 +114,7 @@ async function submit(): Promise<void> {
 }
 
 async function toggleEnabled(row: SchedulerTask): Promise<void> {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   try {
     if (row.enabled) {
       await adminSchedulerService.disable(row.id);
@@ -128,7 +129,7 @@ async function toggleEnabled(row: SchedulerTask): Promise<void> {
 }
 
 async function remove(row: SchedulerTask): Promise<void> {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   try {
     await ElMessageBox.confirm(`确认删除定时任务「${row.name}」?`, '删除确认', { type: 'warning' });
   } catch { return; }
@@ -176,7 +177,7 @@ onMounted(refresh);
           <RefreshCw v-else :size="16" :stroke-width="2" />
           刷新
         </button>
-        <button class="sc-touch sc-act sc-act-primary hero-btn" :disabled="!perm.canEdit" @click="openCreate">
+        <button class="sc-touch sc-act sc-act-primary hero-btn" :disabled="!canEdit" @click="openCreate">
           <Plus :size="16" :stroke-width="2" /> 新增任务
         </button>
       </div>
@@ -192,7 +193,7 @@ onMounted(refresh);
       </el-table-column>
       <el-table-column label="启用" width="80">
         <template #default="{ row }">
-          <el-switch :model-value="row.enabled" :disabled="!perm.canEdit" @change="toggleEnabled(row)" />
+          <el-switch :model-value="row.enabled" :disabled="!canEdit" @change="toggleEnabled(row)" />
         </template>
       </el-table-column>
       <el-table-column label="最近执行" width="170">
@@ -220,10 +221,10 @@ onMounted(refresh);
           <button class="row-btn row-btn-ok" :disabled="!perm.canExecute" @click="runNow(row)">
             <Play :size="13" :stroke-width="2" /> 立即执行
           </button>
-          <button class="row-btn" @click="openEdit(row)" :disabled="!perm.canEdit">
+          <button class="row-btn" @click="openEdit(row)" :disabled="!canEdit">
             <Pencil :size="13" :stroke-width="2" /> 编辑
           </button>
-          <button class="row-btn row-btn-danger" @click="remove(row)" :disabled="!perm.canEdit">
+          <button class="row-btn row-btn-danger" @click="remove(row)" :disabled="!canEdit">
             <Trash2 :size="13" :stroke-width="2" /> 删除
           </button>
         </template>

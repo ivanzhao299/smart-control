@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import {
   CheckCircle2, RefreshCw, Filter, Trash2, RotateCcw, CheckCircle, XCircle, AlertTriangle, Pencil, Loader,
@@ -12,6 +12,7 @@ import type { UatCategory, UatRecord, UatStatus, UatSummary, WsEvent } from '@/t
 const perm = usePermissionStore();
 
 const records = ref<UatRecord[]>([]);
+const canEdit = computed(() => perm.canWriteModule('uat'));
 const summary = ref<UatSummary | null>(null);
 const loading = ref(false);
 let unsubscribeWs: (() => void) | null = null;
@@ -107,7 +108,7 @@ function startEdit(r: UatRecord): void {
 }
 
 async function transit(r: UatRecord, status: UatStatus): Promise<void> {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   const e = editing.value[r.id];
   try {
     const payload = {
@@ -128,7 +129,7 @@ async function transit(r: UatRecord, status: UatStatus): Promise<void> {
 }
 
 async function remove(r: UatRecord): Promise<void> {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   try {
     await ElMessageBox.confirm(`确认删除验收项「${r.itemName}」?`, '删除确认', { type: 'warning' });
   } catch { return; }
@@ -243,7 +244,7 @@ function fmtTime(s: string): string {
             @click.stop
           />
           <span v-else-if="row.actualResult" class="actual">{{ row.actualResult }}</span>
-          <el-button v-else size="small" link @click="startEdit(row)" :disabled="!perm.canEdit">+ 录入结果</el-button>
+          <el-button v-else size="small" link @click="startEdit(row)" :disabled="!canEdit">+ 录入结果</el-button>
         </template>
       </el-table-column>
       <el-table-column label="备注" width="180">
@@ -280,30 +281,30 @@ function fmtTime(s: string): string {
       <el-table-column label="操作" width="340" fixed="right" align="right">
         <template #default="{ row }">
           <template v-if="editing[row.id] !== undefined">
-            <button class="row-btn row-btn-ok" :disabled="!perm.canEdit" @click="transit(row, 'passed')">
+            <button class="row-btn row-btn-ok" :disabled="!canEdit" @click="transit(row, 'passed')">
               <CheckCircle :size="13" :stroke-width="2" /> 通过
             </button>
-            <button class="row-btn row-btn-danger" :disabled="!perm.canEdit" @click="transit(row, 'failed')">
+            <button class="row-btn row-btn-danger" :disabled="!canEdit" @click="transit(row, 'failed')">
               <XCircle :size="13" :stroke-width="2" /> 失败
             </button>
-            <button class="row-btn row-btn-warn" :disabled="!perm.canEdit" @click="transit(row, 'need_adjustment')">
+            <button class="row-btn row-btn-warn" :disabled="!canEdit" @click="transit(row, 'need_adjustment')">
               <AlertTriangle :size="13" :stroke-width="2" /> 需调整
             </button>
           </template>
           <template v-else>
-            <button class="row-btn" @click="startEdit(row)" :disabled="!perm.canEdit">
+            <button class="row-btn" @click="startEdit(row)" :disabled="!canEdit">
               <Pencil :size="13" :stroke-width="2" /> 录入
             </button>
-            <button class="row-btn row-btn-ok" :disabled="!perm.canEdit" @click="transit(row, 'passed')">
+            <button class="row-btn row-btn-ok" :disabled="!canEdit" @click="transit(row, 'passed')">
               <CheckCircle :size="13" :stroke-width="2" /> 通过
             </button>
-            <button class="row-btn row-btn-danger" :disabled="!perm.canEdit" @click="transit(row, 'failed')">
+            <button class="row-btn row-btn-danger" :disabled="!canEdit" @click="transit(row, 'failed')">
               <XCircle :size="13" :stroke-width="2" /> 失败
             </button>
-            <button v-if="row.status !== 'pending'" class="row-btn" :disabled="!perm.canEdit" @click="transit(row, 'pending')">
+            <button v-if="row.status !== 'pending'" class="row-btn" :disabled="!canEdit" @click="transit(row, 'pending')">
               <RotateCcw :size="13" :stroke-width="2" /> 重置
             </button>
-            <button class="row-btn row-btn-danger" :disabled="!perm.canEdit" @click="remove(row)">
+            <button class="row-btn row-btn-danger" :disabled="!canEdit" @click="remove(row)">
               <Trash2 :size="13" :stroke-width="2" /> 删除
             </button>
           </template>

@@ -1,9 +1,10 @@
-import { BadRequestException, Body, Controller, Get, Headers, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, HttpCode, Post, Req, UseGuards } from '@nestjs/common';
 import { AdminAuthService } from './admin-auth.service';
 import { ClientAuthService } from '../client-auth/client-auth.service';
-import { AdminGuard } from './admin-auth.guard';
+import { BackendSessionGuard } from './backend-session.guard';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { Public } from '../../common/decorators/public.decorator';
+import { AuthenticatedRequest } from '../../common/auth/actor';
 
 @Controller('admin/auth')
 export class AdminAuthController {
@@ -32,13 +33,13 @@ export class AdminAuthController {
   }
 
   /**
-   * GET /api/admin/auth/me — 验证当前 token 还有效.
-   * 前端启动时 / 路由切换时调, 知道要不要弹登录框.
+   * GET /api/admin/auth/me — 校验当前是否为可进入后台的会话(admin/hardware/config)。
+   * 前端启动时 / 路由切换时调, 知道要不要弹登录框; 顺带返回角色便于前端落地。
    */
   @Get('me')
-  @UseGuards(AdminGuard)
-  async me() {
-    return { message: 'ok', data: { authenticated: true } };
+  @UseGuards(BackendSessionGuard)
+  async me(@Req() request: AuthenticatedRequest) {
+    return { message: 'ok', data: { authenticated: true, role: request.actor?.role ?? null } };
   }
 
   /**

@@ -1,5 +1,6 @@
 import { UseGuards } from '@nestjs/common';
-import { ConfigurationWriteGuard } from '../../common/guards/configuration-write.guard';
+import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
+import { ModuleAccess } from '../../common/decorators/module-access.decorator';
 import {
   Body,
   Controller,
@@ -14,7 +15,8 @@ import {
 import { BrandsService, type BrandUpsertDto } from './brands.service';
 
 @Controller('brands')
-@UseGuards(ConfigurationWriteGuard)
+@UseGuards(ModuleAccessGuard)
+@ModuleAccess('hardware')
 export class BrandsController {
   constructor(private readonly service: BrandsService) {}
 

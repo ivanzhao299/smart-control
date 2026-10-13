@@ -8,7 +8,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { Public } from '../../common/decorators/public.decorator';
-import { AdminGuard } from '../admin-auth/admin-auth.guard';
+import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
+import { ModuleAccess } from '../../common/decorators/module-access.decorator';
 import { ParkOpsMetricsService } from './park-ops-metrics.service';
 
 /**
@@ -36,7 +37,8 @@ export class ParkOpsMetricsController {
   }
 
   @Put()
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('metrics')
   async update(
     @Body() body: unknown,
   ): Promise<{ success: boolean; message: string; data: unknown }> {

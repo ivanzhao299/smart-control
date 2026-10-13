@@ -17,6 +17,8 @@ import {
 import type { Request, Response } from 'express';
 import { SystemBrandingDto, SystemBrandingService } from './system-branding.service';
 import { AdminGuard } from '../admin-auth/admin-auth.guard';
+import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
+import { ModuleAccess } from '../../common/decorators/module-access.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { MediaService } from '../media/media.service';
@@ -119,14 +121,14 @@ export class SystemBrandingController {
   /** 欢迎方案操作员与管理员均可读取编辑；正式欢迎页仍由公开 GET 返回已发布快照。 */
   @Get('welcome-schemes')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles('admin', 'operator', 'config')
   async getWelcomeSchemes(): Promise<unknown> {
     return { message: '查询成功', data: await this.service.getWelcomeSchemes() };
   }
 
   @Put('welcome-schemes')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles('admin', 'operator', 'config')
   async updateWelcomeSchemes(
     @Req() req: AuthenticatedRequest,
     @Body() body: unknown,
@@ -155,7 +157,7 @@ export class SystemBrandingController {
 
   @Put('welcome-schemes/:schemeId/publish')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles('admin', 'operator', 'config')
   async publishWelcomeScheme(
     @Param('schemeId') schemeId: string,
     @Body() body: unknown,
@@ -184,7 +186,8 @@ export class SystemBrandingController {
    * 这样不会留下“方案仍指向已删除文件”的悬空配置。
    */
   @Delete('welcome-assets/:mediaId')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('branding')
   async removeWelcomeAsset(
     @Param('mediaId', ParseIntPipe) mediaId: number,
     @Query('expectedRevision') expectedRevisionRaw: string,
@@ -213,7 +216,7 @@ export class SystemBrandingController {
 
   /** 欢迎页就地编辑；入口在前台，操作员与管理员均可保存。 */
   @UseGuards(RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles('admin', 'operator', 'config')
   @Put('welcome')
   async updateWelcome(
     @Body()
@@ -250,7 +253,8 @@ export class SystemBrandingController {
   }
 
   @Put()
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('branding')
   async update(@Body() body: Partial<SystemBrandingDto>): Promise<unknown> {
     if (!body || typeof body !== 'object') {
       throw new BadRequestException('请求体必须是 JSON 对象');

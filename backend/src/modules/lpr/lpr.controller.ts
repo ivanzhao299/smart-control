@@ -14,7 +14,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { AdminGuard } from '../admin-auth/admin-auth.guard';
+import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
+import { ModuleAccess } from '../../common/decorators/module-access.decorator';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { Public } from '../../common/decorators/public.decorator';
 import { LprService } from './lpr.service';
@@ -48,7 +51,8 @@ export class LprController {
 
   /** 管理员设备列表：含相机 web 后台账号/口令（公开 devices 接口不返回这些） */
   @Get('admin/devices')
-  @UseGuards(AdminGuard)
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'hardware')
   async adminDevices() {
     return { message: '查询成功', data: await this.service.listDevicesAdmin() };
   }
@@ -62,28 +66,32 @@ export class LprController {
 
   /** 更新平台接入配置（仅管理员；只更新系统记录与接入指引，不远程改相机） */
   @Put('platform-config')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('lpr')
   async updatePlatformConfig(@Body() dto: PlatformConfigUpdateDto) {
     return { message: '已保存平台接入配置', data: await this.service.updatePlatformConfig(dto ?? {}) };
   }
 
   /** 按序列号预登记相机 (设备上线前手动录入; 序列号已存在则幂等更新), 仅管理员 */
   @Post('devices')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('lpr')
   @HttpCode(200)
   async createDevice(@Body() dto: DeviceCreateDto) {
     return { message: '已添加相机', data: await this.service.createDevice(dto ?? ({} as DeviceCreateDto)) };
   }
 
   @Put('devices/:id')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('lpr')
   async updateDevice(@Param('id', ParseIntPipe) id: number, @Body() dto: DeviceUpsertDto) {
     return { message: '已保存', data: await this.service.updateDevice(id, dto) };
   }
 
   /** 删除相机/通道（仅管理员；仅删设备，保留过车/状态历史） */
   @Delete('devices/:id')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('lpr')
   async removeDevice(@Param('id', ParseIntPipe) id: number, @Req() req: Request) {
     const data = await this.service.removeDevice(id, this.operator(req));
     return { message: '已删除相机', data };
@@ -127,14 +135,16 @@ export class LprController {
   }
 
   @Post('whitelist')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('lpr')
   @HttpCode(200)
   async upsertWhitelist(@Body() dto: WhitelistUpsertDto, @Req() req: Request) {
     return { message: '已保存白名单', data: await this.service.upsertWhitelist(dto, this.operator(req)) };
   }
 
   @Delete('whitelist/:id')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('lpr')
   async removeWhitelist(@Param('id', ParseIntPipe) id: number, @Req() req: Request) {
     await this.service.removeWhitelist(id, this.operator(req));
     return { message: '已删除', data: null };

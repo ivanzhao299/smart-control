@@ -23,6 +23,7 @@ import {
 const perm = usePermissionStore();
 const loading = ref(false);
 const rows = ref<HardwareUnit[]>([]);
+const canEdit = computed(() => perm.canWriteModule('hardware'));
 const summary = ref<HardwareSummary | null>(null);
 
 const categoryMeta: Record<HardwareCategory, { label: string; icon: unknown; color: string }> = {
@@ -283,7 +284,7 @@ function syncStructuredFromForm(): void {
 }
 
 function openCreate(): void {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   void ensureDriversLoaded();
   dialogMode.value = 'create';
   Object.assign(form, {
@@ -296,7 +297,7 @@ function openCreate(): void {
 }
 
 function openEdit(row: HardwareUnit): void {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   void ensureDriversLoaded();
   dialogMode.value = 'edit';
   Object.assign(form, {
@@ -355,7 +356,7 @@ async function submit(): Promise<void> {
 }
 
 async function remove(row: HardwareUnit): Promise<void> {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   try {
     await ElMessageBox.confirm(`删除硬件 ${row.code} (${row.name})?`, '确认', { type: 'warning' });
     await adminHardwareService.remove(row.id);
@@ -373,7 +374,7 @@ const addressTarget = ref<HardwareUnit | null>(null);
 const newSlaveId = ref(1);
 
 function openAddressChange(row: HardwareUnit): void {
-  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   addressTarget.value = row;
   newSlaveId.value = parseAddressing(row.addressing).slaveId ?? 255;
   addressDialogVisible.value = true;

@@ -15,7 +15,8 @@ import {
   PowerCircuitsService,
   type PowerCircuitUpsertDto,
 } from './power-circuits.service';
-import { AdminGuard } from '../admin-auth/admin-auth.guard';
+import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
+import { ModuleAccess } from '../../common/decorators/module-access.decorator';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 
 /**
@@ -61,8 +62,8 @@ export class PowerCircuitsController {
 
   /** 改名影响所有用户的共享配置，仅管理员；on/off仍为日常控制。 */
   @Post(':id/rename')
-  @UseGuards(AdminGuard)
-  @UseGuards(RateLimitGuard)
+  @UseGuards(ModuleAccessGuard, RateLimitGuard)
+  @ModuleAccess('zones')
   @RateLimit({ max: 4, windowMs: 1000 })
   async rename(@Param('id', ParseIntPipe) id: number, @Body() body: { name?: string } = {}) {
     return { message: '已改名', data: await this.service.rename(id, body.name ?? '') };
@@ -80,13 +81,15 @@ export class PowerCircuitsController {
   }
 
   @Post()
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('zones')
   async create(@Body() dto: PowerCircuitUpsertDto) {
     return { message: '创建成功', data: await this.service.create(dto) };
   }
 
   @Put(':id')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('zones')
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: Partial<PowerCircuitUpsertDto>,
@@ -95,7 +98,8 @@ export class PowerCircuitsController {
   }
 
   @Delete(':id')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('zones')
   @HttpCode(200)
   async remove(@Param('id', ParseIntPipe) id: number) {
     await this.service.remove(id);

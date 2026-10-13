@@ -1,0 +1,86 @@
+import type { UserRole } from '@/types/api';
+
+/**
+ * 前端后台分域 RBAC 镜像（与后端 backend/src/common/auth/rbac.ts 保持一致）。
+ * 只用于菜单可见性 / 路由守卫 / 按钮置灰；真正的安全边界在后端 ModuleAccessGuard。
+ *
+ * - admin 全通。
+ * - write：可写且可见的角色。
+ * - read：后台只读可见（仅公共排查页：监控/日志）。
+ * 用户已拍板：对方业务模块不给只读、直接隐藏。
+ */
+export type AdminModule =
+  | 'monitor'
+  | 'alerts'
+  | 'scenes'
+  | 'scheduler'
+  | 'energy'
+  | 'devices'
+  | 'hardware'
+  | 'zones'
+  | 'video'
+  | 'lpr'
+  | 'diagnostics'
+  | 'uat'
+  | 'metrics'
+  | 'branding'
+  | 'system';
+
+interface ModuleRule {
+  write: UserRole[];
+  read?: UserRole[];
+}
+
+const HARDWARE: UserRole = 'hardware';
+const CONFIG: UserRole = 'config';
+
+export const MODULE_RULES: Record<AdminModule, ModuleRule> = {
+  monitor: { write: [], read: [HARDWARE, CONFIG] },
+  alerts: { write: [CONFIG] },
+  scenes: { write: [CONFIG] },
+  scheduler: { write: [CONFIG] },
+  energy: { write: [CONFIG] },
+  metrics: { write: [CONFIG] },
+  branding: { write: [CONFIG] },
+  devices: { write: [HARDWARE] },
+  hardware: { write: [HARDWARE] },
+  zones: { write: [HARDWARE] },
+  video: { write: [HARDWARE] },
+  lpr: { write: [HARDWARE] },
+  diagnostics: { write: [HARDWARE], read: [HARDWARE, CONFIG] },
+  // 测试/调试(UAT)是硬件动作页, 不给 config 只读, 直接隐藏; 仅 hardware 可见可写。
+  uat: { write: [HARDWARE] },
+  system: { write: [], read: [] },
+};
+
+/** 可登录后台的角色。 */
+export const BACKEND_ROLES: UserRole[] = ['admin', 'hardware', 'config'];
+
+/** 后台菜单/页面是否可见（admin 或在 write/read 中）。 */
+export function canAccessAdminModule(role: UserRole | undefined, module: AdminModule): boolean {
+  if (role === 'admin') return true;
+  if (!role) return false;
+  const rule = MODULE_RULES[module];
+  return rule.write.includes(role) || (rule.read ?? []).includes(role);
+}
+
+/** 是否可写某模块（admin 或在 write 中）。 */
+export function canWriteAdminModule(role: UserRole | undefined, module: AdminModule): boolean {
+  if (role === 'admin') return true;
+  return !!role && MODULE_RULES[module].write.includes(role);
+}
+
+/** 某角色登录后台后的默认落地页（路由 name）。 */
+export function defaultAdminRoute(role: UserRole | undefined): string {
+  if (role === 'hardware') return 'admin-devices';
+  if (role === 'config') return 'admin-scenes';
+  return 'admin-monitor';
+}
+
+export const ROLE_LABELS: Record<UserRole, string> = {
+  admin: '管理员',
+  hardware: '硬件工程师',
+  config: '运营配置员',
+  operator: '操作员',
+  viewer: '只读账户',
+};
