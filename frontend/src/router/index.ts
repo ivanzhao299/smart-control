@@ -56,7 +56,8 @@ const routes: RouteRecordRaw[] = [
         name: route.name,
         component: route.load,
         props: 'props' in route ? route.props : undefined,
-        meta: { adminRequired: true, adminModule: route.module },
+        // self 路由（如修改密码）无 module，仅要求后台登录、不做模块权限校验。
+        meta: { adminRequired: true, adminModule: 'module' in route ? route.module : undefined },
       })),
     ],
   },

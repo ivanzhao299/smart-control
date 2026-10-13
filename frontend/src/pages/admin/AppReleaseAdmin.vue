@@ -7,17 +7,25 @@ import {
   type AppReleaseView,
   type AppReleaseUpsertDto,
 } from '@/services/app-release.service';
+import { usePermissionStore } from '@/stores/permission';
 
 /**
- * APP 版本管理 — 默认业主只能改运营开关 (启停 / 强制更新 / 最低兼容 / 更新说明),
- * 版本号 + 下载链接由 GitHub Actions 构建后通过部署门禁写入, 业主只读.
+ * APP 版本管理 — 按角色分权:
+ *   admin: 可维护全部字段(版本号/下载链接, 但 bundled 平台仍由受控部署流程写);
+ *   config(运营配置员): 只能改运营开关(启停/强制更新/最低兼容/更新说明);
+ *   hardware(硬件工程师): 只读核对, 表单禁用、无保存按钮。
  *
- * 业主反馈 2026-05-31:
- *   "为什么里面的版本号之类的都是可以编辑的? 用户需要编辑这些东西吗?"
- *   → 把 versionCode/versionName/downloadUrl 折叠进"高级"块默认收起.
- *   "现在必须复制到浏览器里下载吗"
- *   → 顶部加"下载 APK"大按钮, 直接 a href download.
+ * 版本号 + 下载链接由 GitHub Actions 构建后通过部署门禁写入, 非 admin 一律只读。
+ * 历史反馈 2026-05-31: 技术字段折叠进"高级"块默认收起; 顶部"下载 APK"按钮直接下载。
  */
+
+const perm = usePermissionStore();
+/** 是否管理员（只有 admin 能维护版本号 / 下载地址等技术字段）。 */
+const isAdmin = computed(() => perm.role === 'admin');
+/** app-release 模块可写者 = admin + config；hardware 只读。 */
+const canEdit = computed(() => perm.canWriteModule('app-release'));
+/** 只读模式（hardware）：所有表单控件禁用、隐藏保存。 */
+const readOnly = computed(() => !canEdit.value);
 
 type Platform = 'android' | 'ios';
 const PLATFORMS: Platform[] = ['android', 'ios'];
@@ -50,6 +58,13 @@ const currentRelease = computed<AppReleaseView | undefined>(() =>
   allReleases.value.find((r) => r.platform === tab.value)
 );
 const deploymentManaged = computed(() => currentRelease.value?.releaseSource === 'bundled');
+/** 高级块标题：非 admin 只能看不能改；admin 再按是否部署管理区分。 */
+const advToggleText = computed(() => {
+  if (!isAdmin.value) return '版本信息（由部署流程维护，仅管理员可修改）';
+  return deploymentManaged.value ? '版本信息 — 由部署流程维护' : '高级 — 手动编辑版本号和下载链接';
+});
+/** 技术字段（版本号/下载地址）：非 admin 一律禁用；admin 仅在手工平台可编辑。 */
+const techDisabled = computed(() => !isAdmin.value || deploymentManaged.value);
 
 async function refresh(): Promise<void> {
   loading.value = true;
@@ -98,20 +113,30 @@ function onTabChange(p: Platform): void {
 }
 
 async function submit(): Promise<void> {
+  if (!canEdit.value) return; // 只读角色（hardware）无保存入口
   if (!formRef.value) return;
   await formRef.value.validate(async (valid) => {
     if (!valid) return;
     saving.value = true;
+    const ops = {
+      notes: (form.notes || '').trim() || null,
+      forceUpdate: form.forceUpdate ?? false,
+      minSupportedVersionCode: Number(form.minSupportedVersionCode ?? 1),
+      enabled: form.enabled ?? true,
+    };
     try {
-      await appReleaseService.upsert(tab.value, {
-        versionCode: Number(form.versionCode),
-        versionName: form.versionName.trim(),
-        downloadUrl: form.downloadUrl.trim(),
-        notes: (form.notes || '').trim() || null,
-        forceUpdate: form.forceUpdate ?? false,
-        minSupportedVersionCode: Number(form.minSupportedVersionCode ?? 1),
-        enabled: form.enabled ?? true,
-      });
+      if (isAdmin.value) {
+        // admin：全字段（bundled 平台的技术字段仍由后端受控部署保护，改了会被拒）
+        await appReleaseService.upsert(tab.value, {
+          versionCode: Number(form.versionCode),
+          versionName: form.versionName.trim(),
+          downloadUrl: form.downloadUrl.trim(),
+          ...ops,
+        });
+      } else {
+        // config：只发运营字段；版本号/下载地址由受控部署流程维护，前端不给通道。
+        await appReleaseService.updateOps(tab.value, ops);
+      }
       ElMessage.success(`${tab.value} 发布信息已保存, APP 下次启动会收到新版本提示`);
       await refresh();
     } catch (err) {
@@ -189,7 +214,8 @@ onMounted(refresh);
     </div>
     <div v-else class="release-card empty">
       <AlertCircle :size="20" :stroke-width="2" />
-      <span>{{ tab }} 还没有发布信息, 展开下面"高级"块填表创建</span>
+      <span v-if="isAdmin">{{ tab }} 还没有发布信息, 展开下面"高级"块填表创建</span>
+      <span v-else>{{ tab }} 还没有发布信息，请联系管理员先发布版本（运营配置员只能调整已发布版本的推送开关）。</span>
     </div>
 
     <!-- 运营字段表单 (业主常改) -->
@@ -201,22 +227,32 @@ onMounted(refresh);
       label-position="right"
       class="form"
     >
-      <h3 class="form-section">运营管理</h3>
+      <h3 class="form-section">
+        运营管理
+        <el-tag v-if="readOnly" type="info" size="small" class="role-tag">只读</el-tag>
+        <el-tag v-else-if="!isAdmin" type="warning" size="small" class="role-tag">运营配置</el-tag>
+      </h3>
 
       <el-form-item label="启用推送">
-        <el-switch v-model="form.enabled" />
+        <el-switch v-model="form.enabled" :disabled="readOnly" />
         <span class="hint">关掉后 APP 不会弹任何更新提示 (想暂停推送时用)</span>
       </el-form-item>
 
       <el-form-item label="强制更新">
-        <el-switch v-model="form.forceUpdate" />
+        <el-switch v-model="form.forceUpdate" :disabled="readOnly" />
         <span class="hint">
           打开后业主不能"稍后", 必须升级才能继续用 APP. 谨慎用 (老 APP 出严重 bug 才开)
         </span>
       </el-form-item>
 
       <el-form-item label="最低兼容版本">
-        <el-input-number v-model="form.minSupportedVersionCode" :min="1" :max="999999" controls-position="right" />
+        <el-input-number
+          v-model="form.minSupportedVersionCode"
+          :min="1"
+          :max="999999"
+          controls-position="right"
+          :disabled="readOnly"
+        />
         <span class="hint">
           APP 本地 versionCode 低于这个值 → 强制升级 (即使上面 forceUpdate=false). 协议变化时升上来踢老 APP.
         </span>
@@ -227,6 +263,7 @@ onMounted(refresh);
           v-model="form.notes"
           type="textarea"
           :rows="5"
+          :disabled="readOnly"
           placeholder="本次更新内容, e.g.&#10;- 换 logo&#10;- 修复全屏 bug"
         />
         <span class="hint">业主升级时显示在对话框里, 一行一条简单写就行</span>
@@ -235,18 +272,18 @@ onMounted(refresh);
       <!-- 部署管理的平台只读展示版本元数据；手工平台仍可编辑。 -->
       <div class="adv-toggle" @click="advancedOpen = !advancedOpen">
         <ChevronDown :size="14" :class="{ rotated: advancedOpen }" />
-        <span>{{ deploymentManaged ? '版本信息 — 由部署流程维护' : '高级 — 手动编辑版本号和下载链接' }}</span>
+        <span>{{ advToggleText }}</span>
       </div>
 
       <div v-show="advancedOpen" class="adv-block">
         <el-form-item label="versionCode" prop="versionCode">
-          <el-input-number v-model="form.versionCode" :min="1" :max="999999" controls-position="right" :disabled="deploymentManaged" />
-          <span class="hint">部署管理的平台会从已校验安装包同步此值。</span>
+          <el-input-number v-model="form.versionCode" :min="1" :max="999999" controls-position="right" :disabled="techDisabled" />
+          <span class="hint">部署管理的平台会从已校验安装包同步此值；非管理员不可修改。</span>
         </el-form-item>
 
         <el-form-item label="versionName" prop="versionName">
-          <el-input v-model="form.versionName" placeholder="1.0.1" style="width: 200px;" :disabled="deploymentManaged" />
-          <span class="hint">用户看到的版本号；部署管理的平台不可在后台修改。</span>
+          <el-input v-model="form.versionName" placeholder="1.0.1" style="width: 200px;" :disabled="techDisabled" />
+          <span class="hint">用户看到的版本号；部署管理平台或非管理员不可在后台修改。</span>
         </el-form-item>
 
         <el-form-item label="下载链接" prop="downloadUrl">
@@ -255,16 +292,19 @@ onMounted(refresh);
             type="textarea"
             :rows="2"
             placeholder="https://github.com/.../app-debug.apk"
-            :disabled="deploymentManaged"
+            :disabled="techDisabled"
           />
           <span class="hint">
-            部署管理的平台固定指向已验证的现场安装包下载端点。
+            部署管理的平台固定指向已验证的现场安装包下载端点；非管理员不可修改。
           </span>
         </el-form-item>
       </div>
 
-      <el-form-item>
+      <el-form-item v-if="canEdit">
         <el-button type="primary" :loading="saving" @click="submit">保存</el-button>
+      </el-form-item>
+      <el-form-item v-else>
+        <span class="hint">当前为只读角色（硬件工程师），仅可核对 APP 版本信息；如需调整推送开关，请联系运营配置员或管理员。</span>
       </el-form-item>
     </el-form>
   </section>
@@ -426,6 +466,11 @@ onMounted(refresh);
   color: var(--v2-text-1);
   padding-bottom: 8px;
   border-bottom: 1px solid var(--v2-border-soft);
+  display: flex;
+  align-items: center;
+}
+.role-tag {
+  margin-left: 8px;
 }
 .hint {
   display: block;

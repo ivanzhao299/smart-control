@@ -12,6 +12,7 @@ declare module 'vue' {
     AlertBanner: typeof import('./src/components/AlertBanner.vue')['default']
     AppSkeleton: typeof import('./src/components/AppSkeleton.vue')['default']
     BrandLogo: typeof import('./src/components/BrandLogo.vue')['default']
+    ChangePasswordDialog: typeof import('./src/components/ChangePasswordDialog.vue')['default']
     ElAlert: typeof import('element-plus/es')['ElAlert']
     ElButton: typeof import('element-plus/es')['ElButton']
     ElCard: typeof import('element-plus/es')['ElCard']

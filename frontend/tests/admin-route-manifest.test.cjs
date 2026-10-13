@@ -22,7 +22,7 @@ test('admin manifest preserves every route exactly once with explicit access met
     'admin-monitor', 'admin-alerts', 'admin-devices', 'admin-scenes', 'admin-scene-actions',
     'admin-scheduler', 'admin-energy', 'admin-auto-switch', 'admin-scene-executions', 'admin-test-center', 'admin-debug',
     'admin-video-binding', 'admin-lpr', 'admin-uat', 'admin-logs', 'admin-hardware', 'admin-zones-config',
-    'admin-light-zones', 'admin-power-circuits', 'admin-audio-config', 'admin-app-release',
+    'admin-light-zones', 'admin-power-circuits', 'admin-audio-config', 'admin-change-password', 'admin-app-release',
     'admin-testflight', 'admin-drivers', 'admin-brands', 'admin-system-branding', 'admin-audit',
     'admin-users', 'admin-settings', 'admin-park-ops-metrics',
   ]);
@@ -30,10 +30,16 @@ test('admin manifest preserves every route exactly once with explicit access met
   assert.equal(new Set(paths).size, paths.length);
   const MODULES = [
     'monitor', 'alerts', 'scenes', 'scheduler', 'energy', 'devices', 'hardware',
-    'zones', 'video', 'lpr', 'diagnostics', 'uat', 'metrics', 'branding', 'system',
+    'zones', 'video', 'lpr', 'diagnostics', 'uat', 'metrics', 'branding', 'app-release', 'system',
   ];
-  assert.ok(routes.every(route => MODULES.includes(route.module)));
+  // 非自助页必须归属一个已知分域；self 自助页不占模块。
+  assert.ok(routes.every(route => (route.self ? route.module === undefined : MODULES.includes(route.module))));
   assert.ok(routes.every(route => typeof route.load === 'function'));
+  const changePassword = routes.find(route => route.name === 'admin-change-password');
+  assert.equal(changePassword.self, true);
+  assert.equal(changePassword.module, undefined);
+  assert.equal(routes.find(route => route.name === 'admin-app-release').module, 'app-release');
+  assert.equal(routes.find(route => route.name === 'admin-system-branding').module, 'branding');
 });
 
 test('admin navigation groups and deep links resolve from the route manifest', () => {
@@ -47,7 +53,7 @@ test('admin navigation groups and deep links resolve from the route manifest', (
     '日常运行:admin-monitor:运维监控,admin-alerts:报警中心,admin-scenes:场景管理,admin-scheduler:定时任务,admin-energy:能源管理,admin-auto-switch:自动开关,admin-park-ops-metrics:运营数据',
     '设备与分区:admin-devices:设备管理,admin-hardware:硬件清单,admin-zones-config:分区配置,admin-video-binding:视频绑定,admin-lpr:车牌道闸',
     '日志与诊断:admin-logs:日志中心,admin-test-center:测试 / 调试',
-    '系统管理:admin-users:用户管理,admin-testflight:iOS 测试,admin-settings:系统设置',
+    '系统管理:admin-change-password:修改密码,admin-users:用户管理,admin-system-branding:系统品牌,admin-app-release:APP 版本,admin-testflight:iOS 测试,admin-settings:系统设置',
   ]);
 
   const aliases = {
@@ -61,9 +67,12 @@ test('admin navigation groups and deep links resolve from the route manifest', (
     'admin-light-zones': 'admin-zones-config',
     'admin-power-circuits': 'admin-zones-config',
     'admin-audio-config': 'admin-zones-config',
-    'admin-system-branding': 'admin-settings',
-    'admin-app-release': 'admin-settings',
   };
+  // 系统品牌 / APP 版本已从系统设置合并页拆成独立顶级菜单，不再挂在 settings 下。
+  assert.equal(moduleExports.adminMenuTargetName('admin-system-branding'), 'admin-system-branding');
+  assert.equal(moduleExports.adminMenuTargetName('admin-app-release'), 'admin-app-release');
+  // 修改密码为全员自助项。
+  assert.equal(moduleExports.adminMenuTargetName('admin-change-password'), 'admin-change-password');
   for (const [route, target] of Object.entries(aliases)) {
     assert.equal(moduleExports.adminMenuTargetName(route), target);
   }
@@ -76,7 +85,8 @@ test('router and layout consume admin route metadata without duplicate page list
   const layout = read('src/layouts/AdminLayout.vue');
 
   assert.match(router, /\.\.\.adminRouteManifest\.map/);
-  assert.match(router, /adminModule: route\.module/);
+  // self 路由（修改密码）无 module，router 须做存在性收窄后再写 adminModule。
+  assert.match(router, /adminModule: 'module' in route \? route\.module : undefined/);
   assert.match(layout, /adminNavigationGroups/);
   assert.match(layout, /adminMenuTargetName\(cur\)/);
   assert.match(layout, /idleAdminRouteNames/);
@@ -87,7 +97,7 @@ test('router and layout consume admin route metadata without duplicate page list
 test('idle prefetch names are manifest-backed and loadable', () => {
   assert.deepEqual(Array.from(moduleExports.idleAdminRouteNames), [
     'admin-monitor', 'admin-devices', 'admin-scenes', 'admin-energy', 'admin-lpr', 'admin-logs',
-    'admin-hardware', 'admin-zones-config', 'admin-settings',
+    'admin-hardware', 'admin-zones-config', 'admin-app-release', 'admin-settings',
   ]);
   for (const name of moduleExports.idleAdminRouteNames) {
     assert.equal(typeof moduleExports.adminRouteManifest.find(route => route.name === name)?.load, 'function');

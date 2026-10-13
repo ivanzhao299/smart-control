@@ -30,6 +30,17 @@ export interface AppReleaseUpsertDto {
   enabled?: boolean;
 }
 
+/**
+ * 运营字段（非管理员 config 可改）：启停推送 / 强制更新 / 最低兼容版本 / 更新说明。
+ * 明确不含 versionCode/versionName/downloadUrl —— 技术字段由 CI/受控部署维护。
+ */
+export interface AppReleaseOpsDto {
+  notes?: string | null;
+  forceUpdate?: boolean;
+  minSupportedVersionCode?: number;
+  enabled?: boolean;
+}
+
 @Injectable()
 export class AppReleaseService {
   constructor(@InjectRepository(AppRelease) private readonly repo: Repository<AppRelease>) {}
@@ -73,6 +84,25 @@ export class AppReleaseService {
         enabled: dto.enabled ?? true,
       },
     );
+    const saved = await this.repo.save(row);
+    return this.toView(saved);
+  }
+
+  /**
+   * 运营配置员(config)改运营开关 —— 只更新启停/强制更新/最低兼容/更新说明,
+   * 绝不触碰版本号/下载地址(技术字段)。无发布记录时拒绝(不能凭空首发, 那是 admin/CI 的事)。
+   */
+  async updateOps(platform: string, dto: AppReleaseOpsDto): Promise<AppReleaseView> {
+    const row = await this.repo.findOne({ where: { platform } });
+    if (!row) {
+      throw new NotFoundException(`${platform} 尚无发布记录，请先由管理员发布版本`);
+    }
+    Object.assign(row, {
+      notes: dto.notes ?? null,
+      forceUpdate: dto.forceUpdate ?? false,
+      minSupportedVersionCode: dto.minSupportedVersionCode ?? 1,
+      enabled: dto.enabled ?? true,
+    });
     const saved = await this.repo.save(row);
     return this.toView(saved);
   }

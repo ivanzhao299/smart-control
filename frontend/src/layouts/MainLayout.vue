@@ -8,10 +8,11 @@ import { useRoute, useRouter } from 'vue-router';
 // - PWA standalone 启动也仍然全屏 (manifest display: fullscreen 接管)
 // - AlertBanner 已移除, 告警走后台 /admin/alerts
 // - 场景反馈走顶部 inline toast
-import { Activity, Maximize2, Minimize2, MoreHorizontal, Sun, Moon } from 'lucide-vue-next';
+import { Activity, KeyRound, Maximize2, Minimize2, MoreHorizontal, Sun, Moon } from 'lucide-vue-next';
 import { theme, toggleTheme } from '@/services/theme.service';
 import ErrorBoundary from '@/components/ErrorBoundary.vue';
 import ServerSettingsDialog from '@/components/ServerSettingsDialog.vue';
+import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue';
 import { useFullscreen } from '@/composables/useFullscreen';
 import { navIconFor } from '@/composables/useIcons';
 import { api, getApiBaseURL, setConnectivityListener } from '@/services/http';
@@ -254,6 +255,12 @@ function goFromMore(name: string): void {
   moreOpen.value = false;
   go(name);
 }
+/** 自助修改密码弹窗（平板侧栏 / 手机「更多」抽屉共用）。 */
+const showChangePassword = ref(false);
+function openChangePassword(): void {
+  moreOpen.value = false;
+  showChangePassword.value = true;
+}
 /** 当前页在「更多」里时, 让「更多」按钮也高亮 —— 否则点进去后底栏没有任何选中态 */
 const moreActive = computed(() => toolNavs.some((n) => n.name === route.name));
 
@@ -268,6 +275,7 @@ const MORE_CHIP_COLORS: Record<string, string> = {
   barrier: '#22d3ee',
   'admin-devices': '#4C9AFF',
   theme: '#9D8BFF',
+  password: '#F0897A',
 };
 function moreChipStyle(name: string): Record<string, string> {
   const c = MORE_CHIP_COLORS[name] ?? '#4C9AFF';
@@ -370,6 +378,15 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
           <component :is="theme === 'dark' ? Sun : Moon" :size="22" :stroke-width="1.8" />
           <span class="v2-nav-label">{{ theme === 'dark' ? '浅色' : '深色' }}</span>
         </button>
+        <!-- 自助修改密码：所有登录账户都能改自己的密码 -->
+        <button
+          class="v2-nav-item v2-nav-tool"
+          title="修改密码"
+          @click="openChangePassword"
+        >
+          <KeyRound :size="22" :stroke-width="1.8" />
+          <span class="v2-nav-label">修改密码</span>
+        </button>
         <!-- 手机竖屏 (底栏): tools 收进「更多」, 保证每个触摸目标 >=44pt。
              实测 390px 塞 9 个每个只有 42px, 低于 Apple HIG 下限; 6+1 个则是 55px。 -->
         <button
@@ -425,6 +442,13 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
                 <component :is="theme === 'dark' ? Sun : Moon" :size="24" :stroke-width="1.9" />
               </span>
               <span>{{ theme === 'dark' ? '浅色' : '深色' }}</span>
+            </button>
+            <!-- 自助修改密码：所有登录账户都能改自己的密码 -->
+            <button class="v2-more-item" @click="openChangePassword">
+              <span class="more-ico" :style="moreChipStyle('password')">
+                <KeyRound :size="24" :stroke-width="1.9" />
+              </span>
+              <span>修改密码</span>
             </button>
           </div>
         </div>
@@ -517,6 +541,9 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 
     <!-- 服务器地址设置弹窗: API 连不上自动弹 / 侧导航网络按钮手动开 -->
     <ServerSettingsDialog v-model="showServerSettings" :reason="serverSettingsReason" />
+
+    <!-- 自助修改密码弹窗: 所有登录账户改自己的密码 -->
+    <ChangePasswordDialog v-model="showChangePassword" />
   </div>
 </template>
 

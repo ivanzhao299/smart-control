@@ -1,4 +1,4 @@
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Repository } from 'typeorm';
@@ -7,7 +7,7 @@ import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { ClientAuth } from '../../entities/client-auth.entity';
 import { User, BACKEND_ROLES, USER_ROLES } from '../../entities/user.entity';
 import type { UserRole } from '../../entities/user.entity';
-import { verifyPassword } from '../../common/utils/password.util';
+import { hashPassword, verifyPassword } from '../../common/utils/password.util';
 import type { Actor } from '../../common/auth/actor';
 
 /** 客户端 token TTL: 30 天, 比 admin 长很多 (业主天天用, 不想老登) */
@@ -125,6 +125,28 @@ export class ClientAuthService {
   /** 健康检查 — 业主在登录页"测试连接"调这个, 不需要密码 */
   ping(): { ok: true; service: 'client-auth'; serverTime: string } {
     return { ok: true as const, service: 'client-auth' as const, serverTime: new Date().toISOString() };
+  }
+
+  /**
+   * 自助改密码 — 只改本人, 任何已登录账户(含 viewer/operator)都可调用。
+   * 必须先验证原密码; 改完后该账户旧令牌因密码指纹(ph)变化立即失效, 需重新登录。
+   * 单用户改密不触碰全局 passwordChangedAt (那是"全体强制重登"的闸门, 避免误伤他人)。
+   */
+  async changePassword(userId: number, oldPassword: string, newPassword: string): Promise<void> {
+    const user = await this.userRepo.createQueryBuilder('user')
+      .addSelect('user.password')
+      .where('user.id = :id', { id: userId })
+      .getOne();
+    if (!user?.enabled) throw new UnauthorizedException('账户不存在或已停用');
+    if (!verifyPassword(oldPassword, user.password)) {
+      throw new BadRequestException('原密码不正确');
+    }
+    if (oldPassword === newPassword) {
+      throw new BadRequestException('新密码不能与原密码相同');
+    }
+    user.password = hashPassword(newPassword);
+    await this.userRepo.save(user);
+    this.logger.info(`[ClientAuth] self change-password ok user=${user.username}`);
   }
 
   logout(token: string): void {

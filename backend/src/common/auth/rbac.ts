@@ -31,7 +31,8 @@ export type AdminModule =
   | 'uat'          // 测试 / 调试、UAT 验收（硬件动作页，仅硬件工程师）
   | 'metrics'      // 运营数据
   | 'branding'     // 系统品牌 / 欢迎页
-  | 'system';      // 用户管理、系统设置、应用发布、iOS 测试（仅 admin）
+  | 'app-release'  // APP 版本发布（运营开关 config 可写；版本号/下载地址仅 admin/CI）
+  | 'system';      // 用户管理、常规系统设置、iOS 测试、审计（仅 admin）
 
 interface ModuleAccessRule {
   /** 可写角色（admin 自动全通，无需列出）。 */
@@ -56,6 +57,9 @@ export const MODULE_ACCESS: Record<AdminModule, ModuleAccessRule> = {
   energy: { write: [CONFIG] },
   metrics: { write: [CONFIG] },
   branding: { write: [CONFIG] },
+  // APP 版本：运营开关(启停/强制更新/最低兼容/更新说明) config 可写, hardware 只读核对；
+  // 版本号/下载地址由 CI/受控部署流程维护, 非 admin 在 controller 层再硬隔离(改不了技术字段)。
+  'app-release': { write: [CONFIG], read: [HARDWARE, CONFIG], readRestricted: true },
 
   // 硬件类（物理设备 / 接线 / 分区 / 道闸 / 调试）
   devices: { write: [HARDWARE] },

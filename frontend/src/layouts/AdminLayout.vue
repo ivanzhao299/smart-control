@@ -14,8 +14,8 @@ import { ElMessageBox } from 'element-plus';
 import { adminNavIconFor } from '@/composables/useIcons';
 import {
   adminMenuTargetName,
-  adminModuleOfRoute,
   adminNavigationGroups,
+  canAccessAdminRoute,
   idleAdminRouteNames,
   loadAdminRoute,
 } from '@/router/admin-route-manifest';
@@ -35,14 +35,13 @@ const fsActive = fs.isActive;
 const fsSupported = fs.isSupported;
 function toggleFullscreen(): void { void fs.toggle(); }
 
-// 按角色分域过滤侧栏菜单: 只保留当前角色可见模块, 整组为空时不渲染该分组。
+// 按角色分域过滤侧栏菜单: 只保留当前角色可见的页面。
+// self 自助页(修改密码)对所有后台角色可见; 其余按 module 分域; 整组为空时不渲染。
 const groups = computed(() =>
   adminNavigationGroups
     .map((g) => ({
       section: g.section,
-      items: g.items.filter((it) =>
-        perm.canAccessModule(adminModuleOfRoute(it.name) ?? 'system'),
-      ),
+      items: g.items.filter((it) => canAccessAdminRoute(it.name, perm.role)),
     }))
     .filter((g) => g.items.length > 0),
 );

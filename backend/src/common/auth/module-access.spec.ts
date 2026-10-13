@@ -7,6 +7,7 @@ import {
   type AdminModule,
 } from './rbac';
 import { MODULE_ACCESS_KEY } from '../decorators/module-access.decorator';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { ModuleAccessGuard } from '../guards/module-access.guard';
 import { ActorAdminGuard } from '../guards/actor-admin.guard';
 import { RolesGuard } from '../guards/roles.guard';
@@ -31,12 +32,13 @@ import { LightZonesController } from '../../modules/light-zones/light-zones.cont
 import { AuditController } from '../../modules/audit/audit.controller';
 import { LprController } from '../../modules/lpr/lpr.controller';
 import { SystemBrandingController } from '../../modules/system-branding/system-branding.controller';
+import { AppReleaseController } from '../../modules/app-release/app-release.controller';
 
 describe('RBAC module matrix', () => {
   it('admin always has full access', () => {
     const modules: AdminModule[] = [
       'monitor', 'alerts', 'scenes', 'scheduler', 'energy', 'devices', 'hardware',
-      'zones', 'video', 'lpr', 'diagnostics', 'uat', 'metrics', 'branding', 'system',
+      'zones', 'video', 'lpr', 'diagnostics', 'uat', 'metrics', 'branding', 'app-release', 'system',
     ];
     for (const m of modules) {
       expect(canWriteModule('admin', m)).toBe(true);
@@ -61,6 +63,9 @@ describe('RBAC module matrix', () => {
     // 测试/调试(UAT)硬件工程师可见可写
     expect(canWriteModule('hardware', 'uat')).toBe(true);
     expect(canAccessModule('hardware', 'uat')).toBe(true);
+    // APP 版本：硬件工程师只读核对（现场判断手机 App 是否最新），不能改
+    expect(canReadModule('hardware', 'app-release')).toBe(true);
+    expect(canWriteModule('hardware', 'app-release')).toBe(false);
   });
 
   it('config can write config modules but not hardware modules', () => {
@@ -78,6 +83,9 @@ describe('RBAC module matrix', () => {
     // 测试/调试(UAT)是硬件动作页, 不给 config 只读, 直接隐藏
     expect(canReadModule('config', 'uat')).toBe(false);
     expect(canAccessModule('config', 'uat')).toBe(false);
+    // APP 版本：config 可改运营开关（版本号/下载地址由 controller 层硬隔离给 admin/CI）
+    expect(canWriteModule('config', 'app-release')).toBe(true);
+    expect(canAccessModule('config', 'app-release')).toBe(true);
     expect(canAccessModule('config', 'system')).toBe(false);
   });
 
@@ -86,10 +94,11 @@ describe('RBAC module matrix', () => {
       for (const m of ['devices', 'scenes', 'energy', 'zones', 'lpr', 'branding', 'metrics'] as AdminModule[]) {
         expect(canWriteModule(role, m)).toBe(false);
       }
-      // 后台专属只读（调度/日志/测试）不放前台角色
+      // 后台专属只读（调度/日志/测试/应用发布）不放前台角色
       expect(canReadModule(role, 'scheduler')).toBe(false);
       expect(canReadModule(role, 'diagnostics')).toBe(false);
       expect(canReadModule(role, 'uat')).toBe(false);
+      expect(canReadModule(role, 'app-release')).toBe(false);
     }
     // 前台共用读（readRestricted=false）仍放行登录角色, 避免 PWA 被破坏
     expect(canReadModule('operator', 'devices')).toBe(true);
@@ -139,8 +148,23 @@ describe('RBAC controller bindings', () => {
     [EnergyController, 'energy'],
     [PowerCircuitsController, 'zones'],
     [LightZonesController, 'zones'],
+    [AppReleaseController, 'app-release'],
   ] as const)('guards write methods of %p with ModuleAccessGuard(%s)', (controller, module) => {
     expect(boundModules(controller).has(module)).toBe(true);
+  });
+
+  it('app release admin endpoints drop AdminGuard for module-scoped access while public download/latest stay open', () => {
+    const proto = AppReleaseController.prototype as any;
+    // 后台管理端点（list/detail/upsert）改用分域守卫，不再仅 admin
+    for (const name of ['list', 'detail', 'upsert']) {
+      const guards = (Reflect.getMetadata(GUARDS_METADATA, proto[name]) ?? []) as unknown[];
+      expect(guards).toContain(ModuleAccessGuard);
+      expect(guards).not.toContain(AdminGuard);
+      expect(Reflect.getMetadata(MODULE_ACCESS_KEY, proto[name])).toBe('app-release');
+    }
+    // 终端下载与版本检测保持公开
+    expect(Reflect.getMetadata(IS_PUBLIC_KEY, proto.download)).toBe(true);
+    expect(Reflect.getMetadata(IS_PUBLIC_KEY, proto.latest)).toBe(true);
   });
 
   it('governs power-schedules writes by BOTH energy (config) and zones (hardware)', () => {

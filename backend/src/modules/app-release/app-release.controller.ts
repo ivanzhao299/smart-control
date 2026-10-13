@@ -6,15 +6,22 @@ import {
   NotFoundException,
   Param,
   Put,
+  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { createReadStream, promises as fs } from 'fs';
 import { resolve } from 'path';
-import { AppReleaseService, type AppReleaseUpsertDto } from './app-release.service';
-import { AdminGuard } from '../admin-auth/admin-auth.guard';
+import {
+  AppReleaseService,
+  type AppReleaseOpsDto,
+  type AppReleaseUpsertDto,
+} from './app-release.service';
+import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
+import { ModuleAccess } from '../../common/decorators/module-access.decorator';
 import { Public } from '../../common/decorators/public.decorator';
+import type { AuthenticatedRequest } from '../../common/auth/actor';
 
 const VALID_PLATFORMS = new Set(['android', 'ios']);
 
@@ -63,28 +70,48 @@ export class AppReleaseController {
     return { message: '查询成功', data };
   }
 
-  /** 后台列出所有平台 (admin 编辑用) */
+  /**
+   * 后台列出所有平台。
+   * 读权限: admin / config(运营) / hardware(只读核对); 终端 App 版本检测走公开的 latest。
+   */
   @Get('list')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('app-release')
   async list() {
     return { message: '查询成功', data: await this.service.listAll() };
   }
 
   @Get(':platform')
-  @UseGuards(AdminGuard)
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('app-release')
   async detail(@Param('platform') platform: string) {
     return { message: '查询成功', data: await this.service.detail(platform) };
   }
 
+  /**
+   * 后台保存。
+   * - admin: 可维护全部字段(含版本号/下载地址, bundled 记录仍受受控部署保护)。
+   * - config: 只能改运营开关(启停/强制更新/最低兼容/更新说明), 即使夹带技术字段也忽略。
+   * - hardware: 只读, 写方法在 ModuleAccessGuard 即被 403 拦下。
+   */
   @Put(':platform')
-  @UseGuards(AdminGuard)
-  async upsert(@Param('platform') platform: string, @Body() dto: AppReleaseUpsertDto) {
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('app-release')
+  async upsert(
+    @Req() req: AuthenticatedRequest,
+    @Param('platform') platform: string,
+    @Body() dto: AppReleaseUpsertDto & AppReleaseOpsDto,
+  ) {
     if (!VALID_PLATFORMS.has(platform)) {
       throw new BadRequestException(`platform 必须是 android 或 ios, 实际: ${platform}`);
     }
-    if (!dto.versionCode || !dto.versionName || !dto.downloadUrl) {
-      throw new BadRequestException('versionCode / versionName / downloadUrl 必填');
+    if (req.actor?.role === 'admin') {
+      if (!dto.versionCode || !dto.versionName || !dto.downloadUrl) {
+        throw new BadRequestException('versionCode / versionName / downloadUrl 必填');
+      }
+      return { message: '已更新', data: await this.service.upsert(platform, dto) };
     }
-    return { message: '已更新', data: await this.service.upsert(platform, dto) };
+    // 非 admin(能到这里的写角色只有 config)只落运营字段, 技术字段一律不改。
+    return { message: '运营信息已更新', data: await this.service.updateOps(platform, dto) };
   }
 }

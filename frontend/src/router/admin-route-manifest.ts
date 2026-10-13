@@ -1,5 +1,6 @@
 import type { Component } from 'vue';
-import type { AdminModule } from './admin-rbac';
+import type { UserRole } from '@/types/api';
+import { canAccessAdminModule, type AdminModule } from './admin-rbac';
 
 export type AdminNavigationSection = '日常运行' | '设备与分区' | '日志与诊断' | '系统管理';
 export type AdminPageLoader = () => Promise<{ default: Component }>;
@@ -15,8 +16,16 @@ interface AdminRouteDefinition {
   path: string;
   name: string;
   load: AdminPageLoader;
-  /** 该页归属的后台分域；菜单可见性与路由守卫按角色对此分域判定。 */
-  module: AdminModule;
+  /**
+   * 该页归属的后台分域；菜单可见性与路由守卫按角色对此分域判定。
+   * 自助页（self=true）不归属任何分域，留空即可。
+   */
+  module?: AdminModule;
+  /**
+   * 自助项（如修改密码）：所有可登录后台的角色都可见，不参与模块分权，
+   * 路由守卫只要求已登录后台。
+   */
+  self?: boolean;
   props?: boolean;
   navigation?: Omit<AdminNavigationItem, 'name'>;
   menuParent?: string;
@@ -120,12 +129,17 @@ export const adminRouteManifest = [
     module: 'zones', menuParent: 'admin-zones-config',
   },
   {
+    // 自助项：任何后台角色都能改自己的密码，不占模块权限。
+    path: 'change-password', name: 'admin-change-password', load: () => import('@/pages/admin/ChangePasswordAdmin.vue'),
+    self: true, navigation: { label: '修改密码', section: '系统管理', order: 0 },
+  },
+  {
     path: 'app-release', name: 'admin-app-release', load: () => import('@/pages/admin/AppReleaseAdmin.vue'),
-    module: 'system', menuParent: 'admin-settings',
+    module: 'app-release', navigation: { label: 'APP 版本', section: '系统管理', order: 3 }, prefetchOnIdle: true,
   },
   {
     path: 'testflight', name: 'admin-testflight', load: () => import('@/pages/admin/TestFlightAdmin.vue'),
-    module: 'system', navigation: { label: 'iOS 测试', section: '系统管理', order: 2 },
+    module: 'system', navigation: { label: 'iOS 测试', section: '系统管理', order: 4 },
   },
   {
     path: 'drivers', name: 'admin-drivers', load: () => import('@/pages/admin/DriversAdmin.vue'),
@@ -137,7 +151,7 @@ export const adminRouteManifest = [
   },
   {
     path: 'system-branding', name: 'admin-system-branding', load: () => import('@/pages/admin/SystemBrandingAdmin.vue'),
-    module: 'branding', menuParent: 'admin-settings',
+    module: 'branding', navigation: { label: '系统品牌', section: '系统管理', order: 2 },
   },
   {
     path: 'audit', name: 'admin-audit', load: () => import('@/pages/admin/AuditAdmin.vue'),
@@ -148,8 +162,10 @@ export const adminRouteManifest = [
     module: 'system', navigation: { label: '用户管理', section: '系统管理', order: 1 },
   },
   {
-    path: 'settings', name: 'admin-settings', load: () => import('@/pages/admin/SettingsHubAdmin.vue'),
-    module: 'system', navigation: { label: '系统设置', section: '系统管理', order: 3 }, prefetchOnIdle: true,
+    // 常规系统参数（仅 admin）。系统品牌 / APP 版本已拆为系统管理组内的独立菜单，
+    // 不再用三 tab 合并页，避免 config/branding 被 system 模块挡在外面的老问题。
+    path: 'settings', name: 'admin-settings', load: () => import('@/pages/admin/SettingsAdmin.vue'),
+    module: 'system', navigation: { label: '系统设置', section: '系统管理', order: 5 }, prefetchOnIdle: true,
   },
   {
     path: 'park-ops-metrics', name: 'admin-park-ops-metrics', load: () => import('@/pages/admin/ParkOpsMetricsAdmin.vue'),
@@ -196,4 +212,16 @@ export function adminMenuTargetName(name: string): string {
 
 export function adminModuleOfRoute(name: string): AdminModule | undefined {
   return adminRouteByName.get(name)?.module;
+}
+
+/**
+ * 某后台角色能否访问该路由（菜单可见性与路由守卫的统一入口）。
+ * - self 自助页（修改密码）：任何可登录后台的角色都可访问，不参与模块分权。
+ * - 其余页面按 module 分域判定。
+ */
+export function canAccessAdminRoute(name: string, role: UserRole | undefined): boolean {
+  const route = adminRouteByName.get(name);
+  if (!route) return false;
+  if (route.self) return true;
+  return route.module ? canAccessAdminModule(role, route.module) : false;
 }

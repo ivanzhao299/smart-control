@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { AppRelease } from '../../entities/app-release.entity';
 import { AppReleaseService } from './app-release.service';
@@ -70,6 +70,44 @@ describe('AppReleaseService', () => {
         downloadUrl: row.downloadUrl,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('updateOps(config) changes only operational switches and never touches version metadata', async () => {
+    const row = release({ releaseSource: 'manual' });
+    const repo = {
+      findOne: jest.fn().mockResolvedValue(row),
+      save: jest.fn(async (value: AppRelease) => value),
+    } as unknown as Repository<AppRelease>;
+    const service = new AppReleaseService(repo);
+
+    // config 的入参通道里根本没有技术字段, 即便调用方想夹带也无法改版本号/下载地址。
+    const result = await service.updateOps('android', {
+      notes: '运营更新',
+      forceUpdate: true,
+      minSupportedVersionCode: 5,
+      enabled: false,
+    });
+
+    expect(result).toMatchObject({
+      versionCode: 22,
+      versionName: '1.1.14',
+      downloadUrl: 'http://192.168.77.54:3200/api/app/android/download',
+      notes: '运营更新',
+      forceUpdate: true,
+      minSupportedVersionCode: 5,
+      enabled: false,
+    });
+  });
+
+  it('updateOps refuses when there is no release record yet (config cannot first-publish)', async () => {
+    const repo = {
+      findOne: jest.fn().mockResolvedValue(null),
+      save: jest.fn(),
+    } as unknown as Repository<AppRelease>;
+    const service = new AppReleaseService(repo);
+
+    await expect(service.updateOps('android', { enabled: false })).rejects.toBeInstanceOf(NotFoundException);
     expect(repo.save).not.toHaveBeenCalled();
   });
 });

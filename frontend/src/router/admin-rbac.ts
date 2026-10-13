@@ -24,6 +24,7 @@ export type AdminModule =
   | 'uat'
   | 'metrics'
   | 'branding'
+  | 'app-release'
   | 'system';
 
 interface ModuleRule {
@@ -42,6 +43,9 @@ export const MODULE_RULES: Record<AdminModule, ModuleRule> = {
   energy: { write: [CONFIG] },
   metrics: { write: [CONFIG] },
   branding: { write: [CONFIG] },
+  // APP 版本：config 改运营开关(启停/强制更新/最低兼容/更新说明), hardware 只读核对;
+  // 版本号/下载地址由 CI/受控部署维护, 前端按是否 admin 再置灰技术字段。
+  'app-release': { write: [CONFIG], read: [HARDWARE, CONFIG] },
   devices: { write: [HARDWARE] },
   hardware: { write: [HARDWARE] },
   zones: { write: [HARDWARE] },

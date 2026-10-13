@@ -2,6 +2,8 @@ import { BadRequestException, Body, Controller, Get, HttpCode, Post, UseGuards }
 import { ClientAuthService } from './client-auth.service';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { Public } from '../../common/decorators/public.decorator';
+import { ReadOnlyRequest } from '../../common/decorators/read-only-request.decorator';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { Req } from '@nestjs/common';
 import { Request } from 'express';
 import { AuthenticatedRequest, requireActor } from '../../common/auth/actor';
@@ -22,6 +24,31 @@ export class ClientAuthController {
   @Get('me')
   me(@Req() req: AuthenticatedRequest) {
     return { message: 'ok', data: requireActor(req) };
+  }
+
+  /**
+   * POST /client-auth/change-password — 已登录用户改自己的密码(不区分后台/前台)。
+   * 不挂任何模块权限: 任何个人账户都能改自己; @ReadOnlyRequest 让只读(viewer)
+   * 账户也能执行 —— 该操作只改本人凭证, 不触及业务/系统/设备状态。
+   * 必须验原密码; 成功后旧令牌因密码指纹变化立即失效, 前端清会话并重新登录。
+   */
+  @ReadOnlyRequest()
+  @Post('change-password')
+  @HttpCode(200)
+  @UseGuards(RateLimitGuard)
+  @RateLimit({ max: 10, windowMs: 60_000 })
+  async changePassword(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    const actor = requireActor(req);
+    if (actor.userId === null) {
+      throw new BadRequestException('当前为共享登录会话，请使用个人账号登录后再修改密码');
+    }
+    await this.service.changePassword(actor.userId, dto.oldPassword, dto.newPassword);
+    // 成功后清零限流计数，避免一次成功改密被历史输错拖累。
+    this.rateLimit.reset(req);
+    return { message: '密码已修改，请重新登录', data: null };
   }
 
   @Public()
