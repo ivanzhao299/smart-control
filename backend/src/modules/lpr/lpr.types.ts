@@ -58,6 +58,20 @@ export interface WhitelistUpsertDto {
 export interface DeviceUpsertDto {
   deviceName?: string;
   model?: string | null;
+  ip?: string | null;
+  location?: string | null;
+  channel?: number | null;
+  gateIo?: number;
+  passDirection?: 'in' | 'out' | null;
+  enabled?: boolean;
+}
+
+/** 按序列号预登记相机 DTO (设备上线前手动录入, 序列号必填) */
+export interface DeviceCreateDto {
+  serialno: string;
+  deviceName?: string;
+  model?: string | null;
+  ip?: string | null;
   location?: string | null;
   channel?: number | null;
   gateIo?: number;

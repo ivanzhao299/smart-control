@@ -26,6 +26,7 @@ import {
 } from './lpr-codes';
 import type {
   AlarmPlateBody,
+  DeviceCreateDto,
   DeviceUpsertDto,
   DeviceView,
   GateOpenDto,
@@ -44,6 +45,17 @@ const COMET_HOLD_MS = 25_000;
 const MAX_SNAP_BYTES = 3_000_000;
 /** 单次 comet/回复最多下发的白名单条数 (协议要求 ≤5) */
 const WL_BATCH = 5;
+
+/** 通道方向归一化: 仅接受 in/out, 其余 (含 null/非法) 归为 null */
+function normalizeDirection(v: unknown): 'in' | 'out' | null {
+  return v === 'in' || v === 'out' ? v : null;
+}
+
+/** 开闸 IO 编号归一化到 0..3, 非法时回退到 fallback */
+function clampGateIo(v: unknown, fallback: number): number {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 0 && n <= 3 ? n : fallback;
+}
 
 interface DeviceMeta {
   ip?: string | null;
@@ -154,15 +166,56 @@ export class LprService {
     if (!dev) throw new NotFoundException('设备不存在');
     if (dto.deviceName !== undefined) dev.deviceName = dto.deviceName.trim() || dev.deviceName;
     if (dto.model !== undefined) dev.model = dto.model;
+    if (dto.ip !== undefined) dev.ip = dto.ip;
     if (dto.location !== undefined) dev.location = dto.location;
     if (dto.channel !== undefined) dev.channel = dto.channel;
-    if (dto.gateIo !== undefined) dev.gateIo = dto.gateIo;
-    if (dto.passDirection !== undefined) dev.passDirection = dto.passDirection;
+    if (dto.gateIo !== undefined) dev.gateIo = clampGateIo(dto.gateIo, dev.gateIo);
+    if (dto.passDirection !== undefined) dev.passDirection = normalizeDirection(dto.passDirection);
     if (dto.enabled !== undefined) dev.enabled = dto.enabled;
     await this.deviceRepo.save(dev);
     const list = await this.listDevices();
     const view = list.find((v) => v.id === id);
     if (!view) throw new NotFoundException('设备不存在');
+    return view;
+  }
+
+  /**
+   * 按序列号预登记相机 (设备上线前手动录入)。
+   * 序列号已存在 (含已自动登记) 时按提供字段更新, 保证幂等; 新建设备上线前为离线态。
+   */
+  async createDevice(dto: DeviceCreateDto): Promise<DeviceView> {
+    const serialno = dto.serialno?.trim();
+    if (!serialno) throw new BadRequestException('相机序列号必填');
+    let dev = await this.deviceRepo.findOne({ where: { serialno } });
+    if (!dev) {
+      dev = this.deviceRepo.create({
+        serialno,
+        deviceName: dto.deviceName?.trim() || `相机 ${serialno.slice(-4)}`,
+        model: dto.model?.trim() || null,
+        ip: dto.ip?.trim() || null,
+        location: dto.location?.trim() || null,
+        channel: dto.channel ?? null,
+        gateIo: clampGateIo(dto.gateIo, 0),
+        passDirection: normalizeDirection(dto.passDirection),
+        online: false,
+        lastHeartbeat: null,
+        enabled: dto.enabled ?? true,
+      });
+      this.logger.log(`预登记 LPR 相机: ${serialno} (${dev.deviceName})`);
+    } else {
+      if (dto.deviceName?.trim()) dev.deviceName = dto.deviceName.trim();
+      if (dto.model !== undefined) dev.model = dto.model?.trim() || null;
+      if (dto.ip !== undefined) dev.ip = dto.ip?.trim() || null;
+      if (dto.location !== undefined) dev.location = dto.location?.trim() || null;
+      if (dto.channel !== undefined) dev.channel = dto.channel;
+      if (dto.gateIo !== undefined) dev.gateIo = clampGateIo(dto.gateIo, dev.gateIo);
+      if (dto.passDirection !== undefined) dev.passDirection = normalizeDirection(dto.passDirection);
+      if (dto.enabled !== undefined) dev.enabled = dto.enabled;
+    }
+    await this.deviceRepo.save(dev);
+    const list = await this.listDevices();
+    const view = list.find((v) => v.serialno === serialno);
+    if (!view) throw new NotFoundException('设备保存失败');
     return view;
   }
 

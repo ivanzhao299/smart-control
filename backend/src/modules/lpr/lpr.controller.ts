@@ -18,7 +18,7 @@ import { AdminGuard } from '../admin-auth/admin-auth.guard';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { Public } from '../../common/decorators/public.decorator';
 import { LprService } from './lpr.service';
-import type { DeviceUpsertDto, GateOpenDto, WhitelistUpsertDto } from './lpr.types';
+import type { DeviceCreateDto, DeviceUpsertDto, GateOpenDto, WhitelistUpsertDto } from './lpr.types';
 
 /**
  * /api/lpr — PWA「道闸」页 / 后台 / 运营大屏使用的 API。
@@ -37,6 +37,14 @@ export class LprController {
   @Get('devices')
   async devices() {
     return { message: '查询成功', data: await this.service.listDevices() };
+  }
+
+  /** 按序列号预登记相机 (设备上线前手动录入; 序列号已存在则幂等更新), 仅管理员 */
+  @Post('devices')
+  @UseGuards(AdminGuard)
+  @HttpCode(200)
+  async createDevice(@Body() dto: DeviceCreateDto) {
+    return { message: '已添加相机', data: await this.service.createDevice(dto ?? ({} as DeviceCreateDto)) };
   }
 
   @Put('devices/:id')

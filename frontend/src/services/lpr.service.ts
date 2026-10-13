@@ -82,6 +82,18 @@ export const LPR_GROUPS = [
 
 export const lprService = {
   devices: () => api.get<LprDevice[]>('/lpr/devices'),
+  /** 按序列号预登记相机 (上线前手动录入, 已存在则幂等更新) */
+  createDevice: (body: {
+    serialno: string;
+    deviceName?: string;
+    model?: string | null;
+    ip?: string | null;
+    location?: string | null;
+    channel?: number | null;
+    gateIo?: number;
+    passDirection?: 'in' | 'out' | null;
+    enabled?: boolean;
+  }) => api.post<LprDevice>('/lpr/devices', body),
   recent: (limit = 20) => api.get<LprPassRecord[]>('/lpr/recent', { params: { limit } }),
   records: (params: { plate?: string; date?: string; limit?: number; offset?: number }) =>
     api.get<{ list: LprPassRecord[]; total: number }>('/lpr/records', { params }),

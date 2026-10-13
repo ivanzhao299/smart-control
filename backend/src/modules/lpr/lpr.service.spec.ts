@@ -96,6 +96,39 @@ describe('LprService', () => {
     expect(devs[0].deviceName).toBe('东门相机');
   });
 
+  it('按序列号预登记: 上线前离线, 字段与 IO/方向归一正确', async () => {
+    const v = await service.createDevice({
+      serialno: 'PRE-1', deviceName: '北门入口相机', location: '北门', model: 'C5H',
+      ip: '192.168.180.101', passDirection: 'in', gateIo: 9,
+    });
+    expect(v.online).toBe(false);
+    expect(v.lastHeartbeat).toBeNull();
+    expect(v.gateIo).toBe(0); // 越界 9 归一到 0
+    expect(v.passDirection).toBe('in');
+    expect(v.location).toBe('北门');
+    const v2 = await service.createDevice({
+      serialno: 'PRE-2', deviceName: '出口相机', passDirection: 'bad' as never, gateIo: 2,
+    });
+    expect(v2.passDirection).toBeNull(); // 非法方向归一为 null
+    expect(v2.gateIo).toBe(2);
+  });
+
+  it('预登记幂等: 序列号已存在(含已自动登记)则更新不重复', async () => {
+    await service.heartbeat('SN001', { ip: '127.0.0.1', deviceName: '东门相机' });
+    const v = await service.createDevice({
+      serialno: 'SN001', deviceName: '北门入口相机', location: '北门', model: 'C5H',
+      passDirection: 'in', gateIo: 0,
+    });
+    expect(v.deviceName).toBe('北门入口相机');
+    expect(v.passDirection).toBe('in');
+    const devs = await service.listDevices();
+    expect(devs).toHaveLength(1); // 不新增重复设备
+  });
+
+  it('预登记缺序列号抛错', async () => {
+    await expect(service.createDevice({ serialno: '   ' } as never)).rejects.toThrow();
+  });
+
   it('命中白名单 -> 回复 info:ok 自动开闸, 落库 auto 并发 WS', async () => {
     await service.heartbeat('SN001', {});
     await service.updateDevice((await service.listDevices())[0].id, { gateIo: 2, passDirection: 'in' });

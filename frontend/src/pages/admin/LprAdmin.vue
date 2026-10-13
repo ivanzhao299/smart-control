@@ -21,6 +21,82 @@ const nfRemark = ref('');
 const nfOverdue = ref('');
 const savingNew = ref(false);
 
+// 添加 / 预登记相机
+const devDialog = ref(false);
+const bulkMode = ref<'single' | 'bulk'>('single');
+const adding = ref(false);
+type DevDir = '' | 'in' | 'out';
+const emptyForm = () => ({ serialno: '', deviceName: '', model: '', ip: '', location: '', passDirection: '' as DevDir, gateIo: 0, enabled: true });
+const devForm = ref(emptyForm());
+const bulkText = ref('');
+const BULK_HINT = '每行一台，逗号分隔：序列号,名称,安装位置,型号,IP,方向(in/out),开闸IO(0-3)';
+
+function openAdd(): void {
+  devForm.value = emptyForm();
+  bulkText.value = '';
+  bulkMode.value = 'single';
+  devDialog.value = true;
+}
+
+async function addDevice(): Promise<void> {
+  const f = devForm.value;
+  const serialno = f.serialno.trim();
+  if (!serialno) { ElMessage.warning('请填写相机序列号'); return; }
+  if (!f.deviceName.trim()) { ElMessage.warning('请填写设备名称'); return; }
+  adding.value = true;
+  try {
+    await lprService.createDevice({
+      serialno,
+      deviceName: f.deviceName.trim(),
+      model: f.model.trim() || null,
+      ip: f.ip.trim() || null,
+      location: f.location.trim() || null,
+      gateIo: Number(f.gateIo) || 0,
+      passDirection: f.passDirection || null,
+      enabled: f.enabled,
+    });
+    ElMessage.success('已添加相机');
+    devDialog.value = false;
+    await loadDevices();
+  } catch (e) { ElMessage.error((e as Error).message || '添加失败'); }
+  finally { adding.value = false; }
+}
+
+async function bulkAdd(): Promise<void> {
+  const rows = bulkText.value.split('\n').map((s) => s.trim()).filter(Boolean);
+  if (!rows.length) { ElMessage.warning('请先粘贴相机台账'); return; }
+  adding.value = true;
+  let ok = 0;
+  const fail: string[] = [];
+  for (const line of rows) {
+    const c = line.split(/[,，\t]/).map((x) => x.trim());
+    const [serialno, deviceName, location, model, ip, dir, io] = c;
+    if (!serialno) { fail.push(`${line}（缺序列号）`); continue; }
+    try {
+      await lprService.createDevice({
+        serialno,
+        deviceName: deviceName || `相机 ${serialno.slice(-4)}`,
+        location: location || null,
+        model: model || null,
+        ip: ip || null,
+        gateIo: Number(io) || 0,
+        passDirection: dir === 'in' || dir === 'out' ? dir : null,
+        enabled: true,
+      });
+      ok += 1;
+    } catch (e) { fail.push(`${serialno}：${(e as Error).message || '失败'}`); }
+  }
+  adding.value = false;
+  if (ok > 0) {
+    ElMessage.success(`成功录入 ${ok} 台相机`);
+    devDialog.value = false;
+    await loadDevices();
+  }
+  if (fail.length) {
+    ElMessageBox.alert(fail.join('\n'), `${ok} 台成功，${fail.length} 台失败`, { type: 'warning' });
+  }
+}
+
 // 记录筛选
 const qPlate = ref('');
 const qDate = ref('');
@@ -148,6 +224,10 @@ onMounted(loadDevices);
     <el-tabs v-model="tab" @tab-change="onTab">
       <!-- 通道设备 -->
       <el-tab-pane label="相机通道" name="devices">
+        <div class="dev-toolbar">
+          <el-button type="primary" @click="openAdd">添加相机（按序列号预登记）</el-button>
+          <span class="muted">相机上报心跳后会自动登记；也可在此提前按序列号预登记，现场一上线即正确显示。</span>
+        </div>
         <AppSkeleton v-if="loadingDevices && devices.length === 0" variant="table" :rows="5" />
         <el-table v-else :data="devices" v-loading="loadingDevices" stripe class="lpr-table">
           <el-table-column label="设备名称" min-width="150">
@@ -166,7 +246,7 @@ onMounted(loadDevices);
             <template #default="{ row }"><el-input v-model="row.location" size="small" placeholder="如：南门入口" /></template>
           </el-table-column>
           <el-table-column label="开闸 IO" width="110" align="center">
-            <template #default="{ row }"><el-input-number v-model="row.gateIo" :min="0" :max="7" size="small" controls-position="right" style="width: 84px" /></template>
+            <template #default="{ row }"><el-input-number v-model="row.gateIo" :min="0" :max="3" size="small" controls-position="right" style="width: 84px" /></template>
           </el-table-column>
           <el-table-column label="方向" width="120">
             <template #default="{ row }">
@@ -283,6 +363,56 @@ onMounted(loadDevices);
         </div>
       </el-tab-pane>
     </el-tabs>
+
+    <!-- 添加 / 预登记相机 -->
+    <el-dialog v-model="devDialog" title="添加相机（按序列号预登记）" width="600px" class="lpr-dev-dialog">
+      <el-radio-group v-model="bulkMode" size="small" class="dev-mode">
+        <el-radio-button label="single">单台</el-radio-button>
+        <el-radio-button label="bulk">批量台账</el-radio-button>
+      </el-radio-group>
+
+      <div v-if="bulkMode === 'single'" class="dev-form">
+        <label class="span2">序列号 <em>*</em>
+          <el-input v-model="devForm.serialno" placeholder="相机 serialno，如 84b8b2aa-994565d9" />
+        </label>
+        <label class="span2">设备名称 <em>*</em>
+          <el-input v-model="devForm.deviceName" placeholder="如：北门入口相机" />
+        </label>
+        <label>安装位置
+          <el-input v-model="devForm.location" placeholder="如：北门" />
+        </label>
+        <label>型号
+          <el-input v-model="devForm.model" placeholder="如：C5H / XLT" />
+        </label>
+        <label>局域网 IP
+          <el-input v-model="devForm.ip" placeholder="如：192.168.180.101" />
+        </label>
+        <label>方向
+          <el-select v-model="devForm.passDirection" style="width: 100%">
+            <el-option label="入口（进园）" value="in" />
+            <el-option label="出口（出园）" value="out" />
+            <el-option label="不区分" value="" />
+          </el-select>
+        </label>
+        <label>开闸 IO（第一路为 0）
+          <el-input-number v-model="devForm.gateIo" :min="0" :max="3" controls-position="right" style="width: 100%" />
+        </label>
+        <label class="en">启用
+          <el-switch v-model="devForm.enabled" />
+        </label>
+      </div>
+
+      <div v-else class="dev-bulk">
+        <p class="muted bulk-hint">{{ BULK_HINT }}</p>
+        <el-input v-model="bulkText" type="textarea" :rows="11" :placeholder="BULK_HINT" />
+      </div>
+
+      <template #footer>
+        <el-button @click="devDialog = false">取消</el-button>
+        <el-button v-if="bulkMode === 'single'" type="primary" :loading="adding" @click="addDevice">添加</el-button>
+        <el-button v-else type="primary" :loading="adding" @click="bulkAdd">批量录入</el-button>
+      </template>
+    </el-dialog>
   </section>
 </template>
 
@@ -304,4 +434,13 @@ onMounted(loadDevices);
 .f-inp.date { width: 170px; }
 .thumb { width: 48px; height: 36px; border-radius: 6px; overflow: hidden; }
 .rec-foot { display: flex; align-items: center; gap: var(--v2-sp-3); margin-top: var(--v2-sp-3); }
+.dev-toolbar { display: flex; align-items: center; gap: var(--v2-sp-3); flex-wrap: wrap; margin-bottom: var(--v2-sp-3); }
+.dev-toolbar .muted { font-size: 12px; }
+.dev-mode { margin-bottom: var(--v2-sp-3); }
+.dev-form { display: grid; grid-template-columns: 1fr 1fr; gap: var(--v2-sp-3) var(--v2-sp-4); }
+.dev-form label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--v2-text-2); }
+.dev-form label.span2 { grid-column: 1 / -1; }
+.dev-form label em { color: var(--v2-danger, #f87171); font-style: normal; margin-left: 2px; }
+.dev-form label.en { justify-content: flex-end; }
+.dev-bulk .bulk-hint { margin: 0 0 8px; line-height: 1.5; }
 </style>
