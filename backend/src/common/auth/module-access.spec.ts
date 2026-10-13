@@ -26,6 +26,7 @@ import { SchedulerController } from '../../modules/scheduler/scheduler.controlle
 import { AudioConfigController } from '../../modules/audio-config/audio-config.controller';
 import { EnergyController } from '../../modules/energy/energy.controller';
 import { PowerCircuitsController } from '../../modules/power-circuits/power-circuits.controller';
+import { PowerSchedulesController } from '../../modules/power-schedules/power-schedules.controller';
 import { LightZonesController } from '../../modules/light-zones/light-zones.controller';
 import { AuditController } from '../../modules/audit/audit.controller';
 import { LprController } from '../../modules/lpr/lpr.controller';
@@ -126,8 +127,10 @@ describe('RBAC controller bindings', () => {
       const handler = proto[name];
       if (typeof handler !== 'function') continue;
       const guards = (Reflect.getMetadata(GUARDS_METADATA, handler) ?? []) as unknown[];
-      const mod = Reflect.getMetadata(MODULE_ACCESS_KEY, handler) as AdminModule | undefined;
-      if (guards.includes(ModuleAccessGuard) && mod) set.add(mod);
+      const mod = Reflect.getMetadata(MODULE_ACCESS_KEY, handler) as AdminModule | AdminModule[] | undefined;
+      if (guards.includes(ModuleAccessGuard) && mod) {
+        for (const m of Array.isArray(mod) ? mod : [mod]) set.add(m);
+      }
     }
     return set;
   };
@@ -138,6 +141,41 @@ describe('RBAC controller bindings', () => {
     [LightZonesController, 'zones'],
   ] as const)('guards write methods of %p with ModuleAccessGuard(%s)', (controller, module) => {
     expect(boundModules(controller).has(module)).toBe(true);
+  });
+
+  it('governs power-schedules writes by BOTH energy (config) and zones (hardware)', () => {
+    // 同一套回路自动开关规则：config 从「自动开关」(energy) 配、hardware 从「电源回路」(zones) 配。
+    expect(boundModules(PowerSchedulesController)).toEqual(new Set<AdminModule>(['energy', 'zones']));
+  });
+
+  it('grants multi-module writes when the role can write ANY listed module (OR)', async () => {
+    const mkGuard = (modules: AdminModule | AdminModule[], role: string, method = 'POST') => {
+      const reflector = {
+        getAllAndOverride: () => modules,
+      } as any;
+      const moduleRef = { get: () => null } as any;
+      const ctx = {
+        getHandler: () => ({}),
+        getClass: () => ({}),
+        switchToHttp: () => ({
+          getRequest: () => ({ method, actor: { kind: 'admin', role } }),
+        }),
+      } as any;
+      return new ModuleAccessGuard(reflector, moduleRef).canActivate(ctx);
+    };
+
+    // hardware 不能写 energy，但能写 zones → 双模块 OR 放行
+    await expect(mkGuard(['energy', 'zones'], 'hardware')).resolves.toBe(true);
+    // config 能写 energy → 放行
+    await expect(mkGuard(['energy', 'zones'], 'config')).resolves.toBe(true);
+    // admin 全通
+    await expect(mkGuard(['energy', 'zones'], 'admin')).resolves.toBe(true);
+    // operator / viewer 两个模块都不能写 → 拒绝
+    await expect(mkGuard(['energy', 'zones'], 'operator')).rejects.toThrow();
+    await expect(mkGuard(['energy', 'zones'], 'viewer')).rejects.toThrow();
+    // 单模块（字符串）行为保持不变
+    await expect(mkGuard('zones', 'hardware')).resolves.toBe(true);
+    await expect(mkGuard('energy', 'hardware')).rejects.toThrow();
   });
 
   it('keeps system-only controllers under admin guard', () => {

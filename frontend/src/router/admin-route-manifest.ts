@@ -68,6 +68,10 @@ export const adminRouteManifest = [
     module: 'energy', navigation: { label: '能源管理', section: '日常运行', order: 4 }, prefetchOnIdle: true,
   },
   {
+    path: 'auto-switch', name: 'admin-auto-switch', load: () => import('@/pages/admin/AutoSwitchAdmin.vue'),
+    module: 'energy', navigation: { label: '自动开关', section: '日常运行', order: 5 },
+  },
+  {
     path: 'scene-executions', name: 'admin-scene-executions', load: () => import('@/pages/admin/SceneExecutionsAdmin.vue'),
     module: 'diagnostics', menuParent: 'admin-logs',
   },
@@ -149,7 +153,7 @@ export const adminRouteManifest = [
   },
   {
     path: 'park-ops-metrics', name: 'admin-park-ops-metrics', load: () => import('@/pages/admin/ParkOpsMetricsAdmin.vue'),
-    module: 'metrics', navigation: { label: '运营数据', section: '日常运行', order: 5 },
+    module: 'metrics', navigation: { label: '运营数据', section: '日常运行', order: 6 },
   },
 ] as const satisfies readonly AdminRouteDefinition[];
 

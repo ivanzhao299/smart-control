@@ -20,7 +20,7 @@ test('admin manifest preserves every route exactly once with explicit access met
 
   assert.deepEqual(names, [
     'admin-monitor', 'admin-alerts', 'admin-devices', 'admin-scenes', 'admin-scene-actions',
-    'admin-scheduler', 'admin-energy', 'admin-scene-executions', 'admin-test-center', 'admin-debug',
+    'admin-scheduler', 'admin-energy', 'admin-auto-switch', 'admin-scene-executions', 'admin-test-center', 'admin-debug',
     'admin-video-binding', 'admin-lpr', 'admin-uat', 'admin-logs', 'admin-hardware', 'admin-zones-config',
     'admin-light-zones', 'admin-power-circuits', 'admin-audio-config', 'admin-app-release',
     'admin-testflight', 'admin-drivers', 'admin-brands', 'admin-system-branding', 'admin-audit',
@@ -44,7 +44,7 @@ test('admin navigation groups and deep links resolve from the route manifest', (
   assert.deepEqual(Array.from(groups, group => (
     `${group.section}:${Array.from(group.items, item => `${item.name}:${item.label}`).join(',')}`
   )), [
-    '日常运行:admin-monitor:运维监控,admin-alerts:报警中心,admin-scenes:场景管理,admin-scheduler:定时任务,admin-energy:能源管理,admin-park-ops-metrics:运营数据',
+    '日常运行:admin-monitor:运维监控,admin-alerts:报警中心,admin-scenes:场景管理,admin-scheduler:定时任务,admin-energy:能源管理,admin-auto-switch:自动开关,admin-park-ops-metrics:运营数据',
     '设备与分区:admin-devices:设备管理,admin-hardware:硬件清单,admin-zones-config:分区配置,admin-video-binding:视频绑定,admin-lpr:车牌道闸',
     '日志与诊断:admin-logs:日志中心,admin-test-center:测试 / 调试',
     '系统管理:admin-users:用户管理,admin-testflight:iOS 测试,admin-settings:系统设置',

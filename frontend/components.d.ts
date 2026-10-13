@@ -56,6 +56,7 @@ declare module 'vue' {
     MediaAdminPanel: typeof import('./src/components/MediaAdminPanel.vue')['default']
     MediaPickerDialog: typeof import('./src/components/admin/MediaPickerDialog.vue')['default']
     PlayerConsole: typeof import('./src/components/PlayerConsole.vue')['default']
+    PowerScheduleDrawer: typeof import('./src/components/admin/PowerScheduleDrawer.vue')['default']
     PwaUpdateBanner: typeof import('./src/components/PwaUpdateBanner.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']

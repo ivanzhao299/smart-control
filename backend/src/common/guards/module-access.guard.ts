@@ -30,11 +30,13 @@ export class ModuleAccessGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const module = this.reflector.getAllAndOverride<AdminModule>(MODULE_ACCESS_KEY, [
+    const raw = this.reflector.getAllAndOverride<AdminModule | AdminModule[]>(MODULE_ACCESS_KEY, [
       context.getHandler(),
       context.getClass(),
     ]);
-    if (!module) return true;
+    // 单模块装饰器存字符串、多模块存数组；统一归一化为数组。
+    const modules = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    if (modules.length === 0) return true;
 
     const req = context.switchToHttp().getRequest<AuthenticatedRequest>();
     let actor = req.actor;
@@ -67,11 +69,12 @@ export class ModuleAccessGuard implements CanActivate {
 
     if (!actor) throw new UnauthorizedException('未登录或登录已过期，请重新登录');
 
+    // 多模块按 OR：角色对其中任一模块可写/可读即放行。
     if (isReadMethod(req.method)) {
-      if (!canReadModule(actor.role, module)) {
+      if (!modules.some((m) => canReadModule(actor.role, m))) {
         throw new ForbiddenException('当前角色无权查看该模块');
       }
-    } else if (!canWriteModule(actor.role, module)) {
+    } else if (!modules.some((m) => canWriteModule(actor.role, m))) {
       throw new ForbiddenException('当前角色无权修改该模块');
     }
     return true;
