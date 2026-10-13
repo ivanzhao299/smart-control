@@ -194,25 +194,25 @@ describe('LprService', () => {
     expect((reply.Response_AlarmInfoPlate as { info?: string }).info).toBe('ok');
   });
 
-  it('comet: 相机挂起轮询时手动开闸实时下发', async () => {
+  it('comet: 短轮询下手动开闸一律入队, 下一轮立即取走(不因子连接早断丢失)', async () => {
     await service.heartbeat('SNCOMET2', {});
-    const pending = service.cometPoll('SNCOMET2');
-    await new Promise((r) => setTimeout(r, 150));
+    // 即使相机此刻有一轮"在途"轮询, 开闸也只入队不绑定连接
+    const inFlight = service.cometPoll('SNCOMET2');
+    expect((await inFlight).Response_AlarmInfoPlate).toEqual({});
     const opened = await service.openGate({ serialno: 'SNCOMET2' }, 'tester');
-    expect(opened.delivered).toBe(true);
-    const reply = await pending;
+    expect(opened.delivered).toBe(false);
+    expect(opened.queued).toBe(true);
+    const reply = await service.cometPoll('SNCOMET2');
     expect((reply.Response_AlarmInfoPlate as { info?: string }).info).toBe('ok');
   });
 
-  it('comet: 新增白名单即时唤醒挂起轮询, 下一轮立即同步(不等满挂起周期)', async () => {
+  it('comet: 新增白名单在下一轮短轮询立即同步', async () => {
     await service.heartbeat('SNWL', {});
-    const hanging = service.cometPoll('SNWL'); // 无命令本应挂起 COMET_HOLD_MS
-    await new Promise((r) => setTimeout(r, 150));
+    // 无命令的空轮询立即回空(不挂起)
+    const empty = await service.cometPoll('SNWL');
+    expect(empty.Response_AlarmInfoPlate).toEqual({});
     await service.upsertWhitelist({ plate: '鲁QWake1', groupName: 'staff' });
-    // 被即时唤醒 → 本轮回空并让相机立即重连(若未唤醒会挂起约25s, 触发jest超时)
-    const woken = await hanging;
-    expect(woken.Response_AlarmInfoPlate).toEqual({});
-    // 相机重连后的下一轮立即取走 pending 白名单
+    // 相机下一轮 (~1s) 立即取走 pending 白名单
     const next = await service.cometPoll('SNWL');
     expect(next.Response_AlarmInfoPlate).toHaveProperty('white_list_operate');
   });

@@ -27,7 +27,7 @@ import type { AlarmPlateBody, GateStatusBody } from './lpr.types';
  *   POST /serial    485 透传 SerialData
  *   POST /snap       主动截图 TriggerImage
  *   POST /heartbeat 注册/心跳 (multipart/form-data)
- *   ALL /comet  comet 长轮询 (POST multipart 注册/心跳, 也兼容 GET/query; 远程开闸/即时白名单方案 A)
+ *   ALL /comet  comet 短轮询 (POST multipart 注册/心跳, 也兼容 GET/query; 立即返回待发命令/白名单或空, 远程开闸/即时白名单方案 A)
  */
 @Controller('lpr')
 export class LprWebhookController {
@@ -97,7 +97,9 @@ export class LprWebhookController {
   }
 
   /**
-   * comet 长轮询: 相机挂连接, 服务器在有开闸/白名单命令时随回复下发, 否则挂起到超时。
+   * comet 短轮询: 服务器立即返回待发命令/白名单, 无则回空; 相机按 ~1s 周期重连。
+   * 命令持久化于服务端队列, 由相机下一轮拉取, 不依赖长连接 (避免 XLT 1s 短轮询与服务端长 hold
+   * 错配导致的 499 堆积及"命令发给已断开连接"的丢失)。
    * 臻识"设备注册=comet 轮询"时, 相机循环发送的心跳包与普通注册同为 multipart/form-data
    * (字段 device_name/ipaddr/port/user_name/pass_wd/serialno/channel_num, 见协议手册 5.4/5.11),
    * 故必须与 heartbeat 一样挂 FileInterceptor 才能解析出 serialno; 同时兼容 GET / query 方式。

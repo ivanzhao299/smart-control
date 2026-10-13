@@ -39,8 +39,11 @@ import type {
 
 /** 心跳/comet 超过该时长未通讯则视为离线 */
 const ONLINE_GRACE_MS = 90_000;
-/** comet 长轮询挂起时长 (ms), 需小于反代超时 */
-const COMET_HOLD_MS = 25_000;
+/**
+ * 短轮询心跳落库最小间隔 (ms)。XLT 相机以 ~1s 周期 comet 短轮询(且服务端立即回空),
+ * 若每次都落库会放大 SQLite 写入; 以 3s 粒度刷新 lastHeartbeat 已远小于 90s 在线判定窗口。
+ */
+const TOUCH_DB_MIN_MS = 3_000;
 /** 单张抓拍图落盘上限 (字节), 超出丢弃, 防异常大包 */
 const MAX_SNAP_BYTES = 3_000_000;
 /** 单次 comet/回复最多下发的白名单条数 (协议要求 ≤5) */
@@ -74,10 +77,10 @@ function fmtDateTime(d: Date | null | undefined): string | undefined {
 export class LprService {
   private readonly logger = new Logger(LprService.name);
   private readonly snapRoot: string;
-  /** serialno -> 挂起的 comet 等待者 */
-  private readonly waiters = new Map<string, Set<(inner: Record<string, unknown> | null) => void>>();
-  /** serialno -> 待下发命令内层对象 (开闸等) */
+  /** serialno -> 待下发命令内层对象 (开闸等); 短轮询相机每 ~1s 拉取, 命令持久化于此, 不依赖长连接 */
   private readonly queues = new Map<string, Array<Record<string, unknown>>>();
+  /** serialno -> 最近一次心跳落库时间(ms), 用于短轮询下抑制高频 SQLite 写 */
+  private readonly lastTouchDbAt = new Map<string, number>();
 
   constructor(
     @InjectRepository(LprDevice) private readonly deviceRepo: Repository<LprDevice>,
@@ -116,15 +119,31 @@ export class LprService {
         enabled: true,
       });
       this.logger.log(`登记新 LPR 相机: ${serialno}`);
-    } else {
-      dev.online = true;
-      dev.lastHeartbeat = now;
-      if (meta.ip) dev.ip = meta.ip;
-      if (meta.model) dev.model = meta.model;
-      if (meta.channel !== null && meta.channel !== undefined) dev.channel = meta.channel;
-      if (meta.deviceName?.trim() && dev.deviceName.startsWith('相机 ')) dev.deviceName = meta.deviceName.trim();
+      this.lastTouchDbAt.set(serialno, now.getTime());
+      return this.deviceRepo.save(dev);
     }
-    return this.deviceRepo.save(dev);
+
+    const trimmedName = meta.deviceName?.trim() || '';
+    const metaChanged =
+      (!!meta.ip && meta.ip !== dev.ip) ||
+      (!!meta.model && meta.model !== dev.model) ||
+      (meta.channel !== null && meta.channel !== undefined && meta.channel !== dev.channel) ||
+      (!!trimmedName && dev.deviceName.startsWith('相机 ') && trimmedName !== dev.deviceName);
+
+    dev.online = true;
+    dev.lastHeartbeat = now;
+    if (meta.ip) dev.ip = meta.ip;
+    if (meta.model) dev.model = meta.model;
+    if (meta.channel !== null && meta.channel !== undefined) dev.channel = meta.channel;
+    if (trimmedName && dev.deviceName.startsWith('相机 ')) dev.deviceName = trimmedName;
+
+    // 短轮询下心跳可达每秒多次; 仅在字段变化或距上次落库超过阈值时才写库, 其余只更新内存对象。
+    const lastDbAt = this.lastTouchDbAt.get(serialno) ?? 0;
+    if (metaChanged || now.getTime() - lastDbAt >= TOUCH_DB_MIN_MS) {
+      this.lastTouchDbAt.set(serialno, now.getTime());
+      return this.deviceRepo.save(dev);
+    }
+    return dev;
   }
 
   private isOnline(dev: LprDevice, now = Date.now()): boolean {
@@ -419,8 +438,7 @@ export class LprService {
     wl.remark = dto.remark ?? null;
     wl.syncState = 'pending';
     const saved = await this.wlRepo.save(wl);
-    // 即时同步: 唤醒挂起的 comet, 让在线相机下一轮立即拉走该白名单 (与删除路径对称)
-    this.wakeAllWaiters();
+    // 短轮询: 白名单置为 pending, 在线相机下一轮 comet (~1s) 即拉取, 无需唤醒长连接。
     await this.audit.record({
       entityType: 'device',
       entityId: `lpr-wl:${plate}`,
@@ -437,7 +455,7 @@ export class LprService {
     const wl = await this.wlRepo.findOne({ where: { id } });
     if (!wl) throw new NotFoundException('白名单记录不存在');
     // 通知所有相机删除本地该车牌 (后端集中放行不依赖此步, 仅用于脱机白名单)
-    this.broadcastInner({
+    await this.broadcastInner({
       white_list_operate: { operate_type: 1, white_list_data: [{ plate: wl.plate }] },
     });
     await this.audit.record({
@@ -475,7 +493,8 @@ export class LprService {
   async openGate(dto: GateOpenDto, operator = 'pwa'): Promise<{ delivered: boolean; queued: boolean; serialno: string; deviceName: string }> {
     const dev = await this.resolveDevice(dto);
     const inner = { info: 'ok', channelNum: dev.gateIo, delay: dto.delay ?? 0 };
-    const delivered = this.enqueueOrDeliver(dev.serialno, inner);
+    // 短轮询: 命令入队, 由相机下一次 comet 轮询 (~1s) 取走, 保证不因子连接早断而丢失。
+    const delivered = this.enqueueCommand(dev.serialno, inner);
     await this.audit.record({
       entityType: 'device',
       entityId: `lpr-gate:${dev.serialno}`,
@@ -495,7 +514,11 @@ export class LprService {
     return { delivered, queued: !delivered, serialno: dev.serialno, deviceName: dev.deviceName };
   }
 
-  /** 相机 comet 长轮询: 有待发立即回, 否则挂起等待手动开闸 */
+  /**
+   * 相机 comet 短轮询: 立即返回待发命令 / 白名单, 无则回空。
+   * XLT 固件以 ~1s 周期轮询并在服务端立即响应后重连; 不挂长连接, 命令一律持久化在队列中
+   * 由下一次轮询取走 (端到端延迟 ≤ 轮询周期), 从而避免"僵尸长连接吞命令"和大量 499 堆积。
+   */
   async cometPoll(serialno: string, meta: DeviceMeta = {}): Promise<Record<string, unknown>> {
     if (!serialno) throw new BadRequestException('serialno 必填');
     await this.touchDevice(serialno, meta);
@@ -503,27 +526,7 @@ export class LprService {
     let inner = this.shiftQueue(serialno);
     const wlInner = await this.takeWhitelistInner();
     if (wlInner) inner = { ...(inner ?? {}), ...wlInner };
-    if (inner) return { Response_AlarmInfoPlate: inner };
-
-    const waited = await this.waitForCommand(serialno, COMET_HOLD_MS);
-    return { Response_AlarmInfoPlate: waited ?? {} };
-  }
-
-  private waitForCommand(serialno: string, holdMs: number): Promise<Record<string, unknown> | null> {
-    return new Promise((resolve) => {
-      let set = this.waiters.get(serialno);
-      if (!set) {
-        set = new Set();
-        this.waiters.set(serialno, set);
-      }
-      const waiter = (inner: Record<string, unknown> | null) => {
-        clearTimeout(timer);
-        set?.delete(waiter);
-        resolve(inner);
-      };
-      const timer = setTimeout(() => waiter(null), holdMs);
-      set.add(waiter);
-    });
+    return { Response_AlarmInfoPlate: inner ?? {} };
   }
 
   private shiftQueue(serialno: string): Record<string, unknown> | null {
@@ -532,35 +535,18 @@ export class LprService {
     return null;
   }
 
-  private enqueueOrDeliver(serialno: string, inner: Record<string, unknown>): boolean {
-    const set = this.waiters.get(serialno);
-    if (set && set.size > 0) {
-      const waiter = set.values().next().value as ((inner: Record<string, unknown> | null) => void) | undefined;
-      if (waiter) {
-        set.delete(waiter);
-        waiter(inner);
-        return true;
-      }
-    }
+  /** 命令入队 (短轮询下统一走持久化队列, 相机下一次轮询取走); 返回 false 表示未走长连接即时投递 */
+  private enqueueCommand(serialno: string, inner: Record<string, unknown>): boolean {
     const q = this.queues.get(serialno) ?? [];
     q.push(inner);
     this.queues.set(serialno, q);
     return false;
   }
 
-  /** 向所有在线相机的 comet 通道广播一条内层指令 (如删除本地白名单) */
-  private broadcastInner(inner: Record<string, unknown>): void {
-    for (const serialno of this.waiters.keys()) this.enqueueOrDeliver(serialno, inner);
-  }
-
-  /**
-   * 唤醒所有挂起的 comet 连接 (本轮回空, 相机立即重连发起下一次轮询),
-   * 使刚置 pending 的白名单在下一轮 cometPoll 被即时取走, 而不是等满 25s 挂起周期。
-   */
-  private wakeAllWaiters(): void {
-    for (const set of this.waiters.values()) {
-      for (const waiter of [...set]) waiter(null);
-    }
+  /** 向所有已登记相机的 comet 队列各广播一条内层指令 (如删除本地白名单); 相机下一轮轮询取走 */
+  private async broadcastInner(inner: Record<string, unknown>): Promise<void> {
+    const devs = await this.deviceRepo.find({ select: { id: true, serialno: true } });
+    for (const d of devs) this.enqueueCommand(d.serialno, inner);
   }
 
   // ============================ 查询 / 统计 ============================
