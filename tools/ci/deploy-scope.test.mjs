@@ -77,6 +77,25 @@ test('treats repository ignore policy as release control without widening runtim
   assert.equal(withBackend.highRisk, false);
 });
 
+test('classifies controlled-release orchestration and deploy verification as non-runtime', () => {
+  const controlOnly = classifyDeployFiles([
+    'scripts/resume-gk9000-release.ps1',
+    'scripts/verify-deploy.js',
+  ]);
+  assert.equal(controlOnly.scope, 'none');
+  assert.equal(controlOnly.releaseControl, true);
+  assert.equal(controlOnly.highRisk, false);
+
+  // Mixed with backend runtime code -> a backend release (the control script
+  // does not widen the scope to full), and the control flag is still recorded.
+  const withBackend = classifyDeployFiles([
+    'scripts/resume-gk9000-release.ps1',
+    'backend/src/main.ts',
+  ]);
+  assert.equal(withBackend.scope, 'backend');
+  assert.equal(withBackend.releaseControl, true);
+});
+
 test('fails closed for mixed, dependency, deployment, and unknown changes', () => {
   assert.equal(classifyDeployFiles(['frontend/src/App.vue', 'backend/src/main.ts']).scope, 'full');
   assert.equal(classifyDeployFiles(['frontend/pnpm-lock.yaml']).scope, 'full');

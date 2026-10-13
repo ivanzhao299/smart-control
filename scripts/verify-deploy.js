@@ -565,7 +565,7 @@ async function main() {
   console.log('');
 
   // --- J2. 公网直连链路 (信息性) —— GK9000 出公网绕一圈回自己, 验证 erp 反代 ---
-  console.log('[公网直连] https://erp.cnjinhu.top → 跳板机 nginx → WireGuard → 本机 (信息性)');
+  console.log('[公网直连] https://erp.cnjinhu.com → 跳板机 nginx → WireGuard → 本机 (信息性)');
   // 配置遮蔽取证: vite 找配置 .js/.mjs 优先于 .ts, 箱上散落的旧配置文件会静默遮蔽仓库配置
   try {
     const feDir = path.resolve(__dirname, '..', 'frontend');
@@ -588,7 +588,7 @@ async function main() {
       const done = (msg) => { try { child.kill(); } catch { /* */ } console.log(msg); resolve(); };
       setTimeout(() => {
         const req = http.request(
-          { host: '127.0.0.1', port: 5599, path: '/control/', method: 'GET', timeout: 6000, headers: { Host: 'erp.cnjinhu.top' } },
+          { host: '127.0.0.1', port: 5599, path: '/control/', method: 'GET', timeout: 6000, headers: { Host: 'erp.cnjinhu.com' } },
           (res) => { res.resume(); done(`  隔离实验(全新 preview@5599+erp域名): HTTP ${res.statusCode} ${res.statusCode === 200 ? '(当前配置本身没问题)' : RED('(箱上配置加载异常!)')}`); });
         req.on('error', (e) => done('  ' + RED('WARN') + ' 隔离实验起不来: ' + e.message));
         req.on('timeout', () => { req.destroy(); done('  ' + RED('WARN') + ' 隔离实验超时'); });
@@ -601,7 +601,7 @@ async function main() {
   await new Promise((resolve) => {
     const req = http.request(
       { host: '127.0.0.1', port: 5173, path: '/control/', method: 'GET', timeout: 8000,
-        headers: { Host: 'erp.cnjinhu.top' } },
+        headers: { Host: 'erp.cnjinhu.com' } },
       (res) => {
         res.resume();
         const ok = res.statusCode === 200;
@@ -631,7 +631,7 @@ async function main() {
       const https = require('https');
       const req = https.request({
         host: '123.57.220.65', port: 8443, path: '/api/system/health', method: 'GET',
-        timeout: 8000, rejectUnauthorized: false, headers: { Host: 'erp.cnjinhu.top' },
+        timeout: 8000, rejectUnauthorized: false, headers: { Host: 'erp.cnjinhu.com' },
       }, (res) => {
         res.resume();
         console.log(`  裸IP无SNI(123.57.220.65:8443): HTTP ${res.statusCode} ${res.statusCode === 200 ? '(nginx 8443 正常, 拦截只认域名)' : ''}`);
@@ -643,9 +643,9 @@ async function main() {
     } catch (e) { console.log('  ' + RED('WARN') + ' 裸IP探针异常: ' + e.message); resolve(); }
   });
   for (const [label, url, expectSelf] of [
-    ['erp API 健康', 'https://erp.cnjinhu.top/api/system/health', true],
-    ['erp 前端页', 'https://erp.cnjinhu.top/control/', true],
-    ['erp:8443 备用口', 'https://erp.cnjinhu.top:8443/api/system/health', true],
+    ['erp API 健康', 'https://erp.cnjinhu.com/api/system/health', true],
+    ['erp 前端页', 'https://erp.cnjinhu.com/control/', true],
+    ['erp:8443 备用口', 'https://erp.cnjinhu.com:8443/api/system/health', true],
     ['主域(云端mock)', 'https://cnjinhu.top/control/api/system/health', false],
   ]) {
     const r = await httpsProbe(url);

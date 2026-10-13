@@ -59,6 +59,10 @@ if (-not (Test-Path -LiteralPath $pm2)) { throw 'Expected PM2 executable missing
 $env:PM2_HOME = 'C:\Users\user\.pm2'
 $env:PATH = (Split-Path -Parent $pm2) + ';' + $env:PATH
 Move-Item -LiteralPath $hold -Destination $retainedHold
+# --- Stage 1 (fatal): backend + frontend core activation. If the detached
+#     start, runtime verification or pm2 save fails, fail closed: restore the
+#     release hold, disable release tasks and stop the services. No code/data
+#     rollback is attempted. ---
 try {
   # Start from the candidate ecosystem, not potentially stale dump.pm2 entries.
   $cmd = 'cmd /c "set PM2_HOME=C:\Users\user\.pm2&& C:\Users\user\AppData\Roaming\npm\pm2.cmd start D:\smart-control\deploy\ecosystem.config.js --env production --only smart-control-backend,smart-control-frontend"'
@@ -69,26 +73,7 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Runtime service verification failed.' }
   & $pm2 save
   if ($LASTEXITCODE -ne 0) { throw 'Unable to retain new PM2 configuration.' }
-  # Configure the existing dedicated profiles headlessly while the Interactive
-  # watchdog is still disabled. No credential is placed in a launch argument.
-  & node (Join-Path $root 'backend\scripts\provision-kiosk-profiles.cjs')
-  if ($LASTEXITCODE -ne 0) { throw 'Dedicated kiosk profile configuration failed.' }
-  foreach ($task in $snapshot.Tasks) {
-    # A disabled player watchdog is an operational fault, not a desired release
-    # state. MAINTENANCE.flag is the supported way to suppress recovery safely.
-    # Always restore this task enabled so a release cannot strand the LED player
-    # after the isolation phase stopped its console window.
-    if ($task.Name -eq 'SmartControl-PlayerWatchdog' -or $task.Enabled) {
-      Enable-ScheduledTask -TaskName $task.Name | Out-Null
-    } else {
-      Disable-ScheduledTask -TaskName $task.Name | Out-Null
-    }
-  }
-  # This is an Interactive task; never run start-players.ps1 in SSH Session 0.
-  Start-ScheduledTask -TaskName 'SmartControl-PlayerWatchdog'
-  Write-Output 'Candidate services verified; task enablement restored and the interactive player watchdog triggered.'
 } catch {
-  # No code/data rollback: preserve private uploads and stop known services.
   if (-not (Test-Path -LiteralPath $hold)) { [IO.File]::WriteAllText($hold, 'Activation failed; retain isolation.') }
   foreach ($task in @(Get-Gk9000ReleaseTasks)) {
     Disable-ScheduledTask -TaskName $task.TaskName -ErrorAction SilentlyContinue | Out-Null
@@ -96,4 +81,57 @@ try {
   }
   & $pm2 stop smart-control-backend smart-control-frontend 2>&1 | Out-Null
   throw 'Activation failed; RELEASE_HOLD restored. Verify actual port owners are stopped; no old-code rollback was attempted.'
+}
+
+# --- Stage 2 (NON-FATAL): physical-console player follow-up. The core
+#     backend/frontend are verified and live from this point on. Kiosk profile
+#     provisioning drives a browser over CDP and can time out in the CI SSH
+#     Session 0 (no interactive desktop) or while a player browser is still
+#     closing. On 2026-10-13 exactly this rolled back healthy services and
+#     caused a full outage. A failure here must never stop the core services:
+#     it is recorded as a marker + warning and the PlayerWatchdog still keeps
+#     the player browsers alive; an operator re-runs provisioning from the
+#     signed-in interactive console. ---
+$kioskMarker = Join-Path $root 'logs\KIOSK_PROVISION_NEEDED'
+if (Test-Path -LiteralPath $kioskMarker) { Remove-Item -LiteralPath $kioskMarker -Force -ErrorAction SilentlyContinue }
+try {
+  # Configure the existing dedicated profiles headlessly while the Interactive
+  # watchdog is still disabled. No credential is placed in a launch argument.
+  & node (Join-Path $root 'backend\scripts\provision-kiosk-profiles.cjs')
+  if ($LASTEXITCODE -ne 0) { throw "Dedicated kiosk profile configuration failed (exit $LASTEXITCODE)." }
+} catch {
+  $kioskDetail = 'provision-kiosk-profiles failed at ' + (Get-Date).ToString('s') + "`r`n" + $_.Exception.Message + "`r`nCore services are live. Re-run backend\scripts\provision-kiosk-profiles.cjs from the signed-in interactive console; PlayerWatchdog keeps the player browsers alive."
+  [IO.File]::WriteAllText($kioskMarker, $kioskDetail)
+  Write-Output ('KIOSK_PROVISION_WARNING: ' + $_.Exception.Message + ' -- core services remain live; marker logs\KIOSK_PROVISION_NEEDED')
+}
+
+# Restore scheduled tasks (always). A disabled player watchdog is an operational
+# fault, not a desired release state, so it is always re-enabled even when kiosk
+# provisioning failed. Each task is best-effort and never fatal to the core.
+foreach ($task in $snapshot.Tasks) {
+  try {
+    if ($task.Name -eq 'SmartControl-PlayerWatchdog' -or $task.Enabled) {
+      Enable-ScheduledTask -TaskName $task.Name | Out-Null
+    } else {
+      Disable-ScheduledTask -TaskName $task.Name | Out-Null
+    }
+  } catch {
+    Write-Output ('Task restore warning for ' + $task.Name + ': ' + $_.Exception.Message)
+  }
+}
+# This is an Interactive task; never run start-players.ps1 in SSH Session 0.
+try {
+  Start-ScheduledTask -TaskName 'SmartControl-PlayerWatchdog'
+} catch {
+  Write-Output ('Player watchdog trigger warning: ' + $_.Exception.Message)
+}
+
+# Make the activation result explicit so a non-zero native exit code left over
+# from a warned-off kiosk provisioning run cannot be misread as activation
+# failure by the caller's $LASTEXITCODE check.
+$global:LASTEXITCODE = 0
+if (Test-Path -LiteralPath $kioskMarker) {
+  Write-Output 'CORE_ACTIVATION_OK with KIOSK_PROVISION_WARNING: backend/frontend verified and retained; kiosk profile provisioning needs an interactive-console follow-up.'
+} else {
+  Write-Output 'Candidate services verified; task enablement restored and the interactive player watchdog triggered.'
 }
