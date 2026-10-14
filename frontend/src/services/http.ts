@@ -309,8 +309,12 @@ async function rawRequest<T>(
 
   assertCurrentIdentity(generation);
   if (!resp.ok) {
-    // 401 且不是登录/ping 端点本身 → 通知上层重新鉴权 (登录端点的 401 是密码错, 不该触发)
-    if (resp.status === 401 && !/(client-auth\/(login|ping)|admin\/auth\/login)/.test(url)) {
+    // 401 且不是登录/ping/后台会话探测端点本身 → 通知上层重新鉴权。
+    // - 登录端点的 401 是密码错, 不该触发；
+    // - admin/auth/me 是"我是否登录后台"的探测, 非后台角色(如 operator)会得到 401,
+    //   由 admin-auth store 自己 catch 返回 false; 它只影响后台身份、不影响前台 client
+    //   会话(两套鉴权独立), 绝不能据此清掉前台 token, 否则操作员登录后即被弹回。
+    if (resp.status === 401 && !/(client-auth\/(login|ping)|admin\/auth\/(login|me))/.test(url)) {
       try { onUnauthorized?.(); } catch { /* 钩子异常不影响本次请求抛错 */ }
     }
     const msg =

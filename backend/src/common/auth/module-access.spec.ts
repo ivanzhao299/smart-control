@@ -101,12 +101,14 @@ describe('RBAC module matrix', () => {
       for (const m of ['devices', 'scenes', 'energy', 'zones', 'lpr', 'branding', 'metrics'] as AdminModule[]) {
         expect(canWriteModule(role, m)).toBe(false);
       }
-      // 后台专属只读（调度/日志/测试/应用发布）不放前台角色
+      // 后台专属只读（调度/日志/测试）不放前台角色
       expect(canReadModule(role, 'scheduler')).toBe(false);
       expect(canReadModule(role, 'diagnostics')).toBe(false);
       expect(canReadModule(role, 'uat')).toBe(false);
-      expect(canReadModule(role, 'app-release')).toBe(false);
     }
+    // operator 对 app-release 只读（下载 APK），viewer 仍无权。
+    expect(canReadModule('operator', 'app-release')).toBe(true);
+    expect(canReadModule('viewer', 'app-release')).toBe(false);
     // 前台共用读（readRestricted=false）仍放行登录角色, 避免 PWA 被破坏
     expect(canReadModule('operator', 'devices')).toBe(true);
     expect(canReadModule('viewer', 'energy')).toBe(true);

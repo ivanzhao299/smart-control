@@ -1,9 +1,10 @@
 import { BackendSessionGuard } from './backend-session.guard';
 
-describe('BackendSessionGuard (后台登录态门禁, 三个后台角色)', () => {
+describe('BackendSessionGuard (后台登录态门禁)', () => {
   const context = (req: any) => ({ switchToHttp: () => ({ getRequest: () => req }) } as any);
 
-  it.each(['admin', 'hardware', 'config'])('accepts a globally verified %s session', async (role) => {
+  // admin/hardware/config 是完整后台角色；operator 是后台自助角色(改密码/下载APK)，均可登录后台。
+  it.each(['admin', 'hardware', 'config', 'operator'])('accepts a globally verified %s session', async (role) => {
     const verifyToken = jest.fn(async () => true);
     const moduleRef = { get: () => ({ resolveActor: async () => null }) } as any;
     const guard = new BackendSessionGuard({ verifyToken } as any, moduleRef);
@@ -13,12 +14,12 @@ describe('BackendSessionGuard (后台登录态门禁, 三个后台角色)', () =
     expect(verifyToken).not.toHaveBeenCalled();
   });
 
-  it.each(['operator', 'viewer'])('rejects a verified %s that must not enter the backend', async (role) => {
+  it('rejects a verified viewer that must not enter the backend', async () => {
     const verifyToken = jest.fn(async () => true);
     const moduleRef = { get: () => ({ resolveActor: async () => null }) } as any;
     const guard = new BackendSessionGuard({ verifyToken } as any, moduleRef);
     await expect(
-      guard.canActivate(context({ headers: {}, actor: { kind: 'user', userId: 2, role } })),
+      guard.canActivate(context({ headers: {}, actor: { kind: 'user', userId: 2, role: 'viewer' } })),
     ).rejects.toThrow();
     expect(verifyToken).not.toHaveBeenCalled();
   });
@@ -36,15 +37,15 @@ describe('BackendSessionGuard (后台登录态门禁, 三个后台角色)', () =
     expect(verifyToken).not.toHaveBeenCalled();
   });
 
-  it('rejects a lazily resolved operator bearer', async () => {
+  it('accepts a lazily resolved operator bearer (self-service role)', async () => {
     const verifyToken = jest.fn(async () => false);
     const moduleRef = {
       get: () => ({ resolveActor: async () => ({ kind: 'user', userId: 6, role: 'operator' }) }),
     } as any;
     const guard = new BackendSessionGuard({ verifyToken } as any, moduleRef);
-    await expect(
-      guard.canActivate(context({ headers: { authorization: 'Bearer op' } })),
-    ).rejects.toThrow();
+    const req: any = { headers: { authorization: 'Bearer op' } };
+    await expect(guard.canActivate(context(req))).resolves.toBe(true);
+    expect(req.actor.role).toBe('operator');
   });
 
   it('falls back to the legacy shared backend token and rejects missing/invalid credentials', async () => {

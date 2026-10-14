@@ -92,7 +92,10 @@ describe('ParkOpsControlService', () => {
       claimed: false,
       holderName: '现场运营大屏',
     });
-    expect(service.gateAuthorization('remote-user-1')).toMatchObject({ allowed: false, claimed: false });
+    expect(service.gateAuthorization('remote-user-1')).toMatchObject({
+      allowed: false,
+      claimed: false,
+    });
     expect(service.gateAuthorization(undefined)).toMatchObject({ allowed: false, claimed: false });
   });
 
@@ -107,7 +110,10 @@ describe('ParkOpsControlService', () => {
       allowed: false,
       claimed: true,
     });
-    expect(service.gateAuthorization('remote-user-2')).toMatchObject({ allowed: false, claimed: true });
+    expect(service.gateAuthorization('remote-user-2')).toMatchObject({
+      allowed: false,
+      claimed: true,
+    });
 
     const holder = service.gateAuthorization('remote-user-1');
     expect(holder).toMatchObject({ allowed: true, claimed: true, holderName: '值班员B' });
@@ -138,12 +144,18 @@ describe('ParkOpsControlService', () => {
     });
   });
 
-  it('keeps only the display poll public and protects every mutation', () => {
-    expect(
-      Reflect.getMetadata(IS_PUBLIC_KEY, ParkOpsControlController.prototype.getState),
-    ).toBe(true);
+  it('exposes the poll, claim and gate commands as public (guard-protected) and protects every other mutation', () => {
+    // 无人值守现场大屏需要匿名 claim / 开关闸，这几个方法标 @Public，
+    // 但由 ParkOpsGuard 二次保护（匿名仅固定现场 ownerId，其余必须有效 token）。
+    for (const publicAction of ['getState', 'claim', 'gateOpen', 'gateClose']) {
+      expect(
+        Reflect.getMetadata(
+          IS_PUBLIC_KEY,
+          ParkOpsControlController.prototype[publicAction as keyof ParkOpsControlController],
+        ),
+      ).toBe(true);
+    }
     for (const action of [
-      'claim',
       'release',
       'nextPage',
       'prevPage',
@@ -168,9 +180,9 @@ describe('ParkOpsControlService', () => {
     await expect(validate(invalidPage)).resolves.not.toHaveLength(0);
     await expect(validate(missingOwner)).resolves.not.toHaveLength(0);
     await expect(validate(invalidAuto)).resolves.not.toHaveLength(0);
-    await expect(
-      validate(plainToInstance(GotoParkOpsPageDto, { page: 5 })),
-    ).resolves.toHaveLength(0);
+    await expect(validate(plainToInstance(GotoParkOpsPageDto, { page: 5 }))).resolves.toHaveLength(
+      0,
+    );
     await expect(
       validate(plainToInstance(ClaimParkOpsControlDto, { ownerId: 'o1', ownerName: 'A' })),
     ).resolves.toHaveLength(0);

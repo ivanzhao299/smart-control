@@ -26,10 +26,17 @@ describe('named identity login', () => {
     await expect(service.login('', password)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
-  it('requires a named administrator for the admin login endpoint', async () => {
+  it('rejects a non-backend role (viewer) for the admin login endpoint', async () => {
     const password = 'safe-password-123';
-    const service = makeService({ id: 7, username: 'alice', role: 'operator', enabled: true, password: hashPassword(password) });
+    const service = makeService({ id: 7, username: 'alice', role: 'viewer', enabled: true, password: hashPassword(password) });
     await expect(service.loginAdministrator('alice', password)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('allows operator to log into the backend (self-service role)', async () => {
+    const password = 'safe-password-123';
+    const service = makeService({ id: 6, username: 'op', role: 'operator', enabled: true, password: hashPassword(password) });
+    const result = await service.loginAdministrator('op', password);
+    expect(result.token).toBeTruthy();
   });
 
   it('does not initialize or mutate missing signing configuration', async () => {

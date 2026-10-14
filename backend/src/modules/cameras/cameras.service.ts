@@ -29,6 +29,11 @@ interface HlsSession {
   stopped: boolean;
   // 分片停滞连续命中次数：连续 2 次才判死重启，避免一次网络抖动就 kill+spawn 制造孤儿。
   stallCount: number;
+  // 最后一次播放列表/分片被前端拉取（即“有人观看”）的时间戳；用于空闲自动停止。
+  lastConsumedAt: number;
+  // 空闲停止秒数（>0 才启用）与输出宽度：启动时从配置快照，运行期配置变更不影响在跑会话。
+  idleStopSeconds: number;
+  hlsWidth: number;
 }
 
 @Injectable()
@@ -63,6 +68,20 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
   private checkHlsHealth(): void {
     for (const [channelKey, session] of this.hlsSessions.entries()) {
       try {
+        // 检查0：空闲自动停止（仅 idleStopSeconds>0 的通道，如车牌相机）。
+        // 前端翻走/销毁 HLS 后停止拉 playlist/分片，连续 idleStopSeconds 无消费即停转码，
+        // 释放 CPU/带宽；翻回该页时前端 ensure 会重新拉起。
+        if (session.idleStopSeconds > 0 && session.isRunning) {
+          const idleMs = Date.now() - session.lastConsumedAt;
+          if (idleMs > session.idleStopSeconds * 1000) {
+            this.logger.log(
+              `[健康检查] ${channelKey} 连续${Math.round(idleMs / 1000)}s无人观看，自动停止转码`,
+            );
+            this.stopHlsStream(channelKey);
+            continue;
+          }
+        }
+
         // 检查1：进程是否还在运行
         if (session.isRunning && session.process && session.process.killed) {
           this.logger.warn(`[健康检查] ${channelKey} 进程已退出但标记为运行中，触发重启`);
@@ -199,6 +218,14 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
     const channelKey = channel.toLowerCase();
     const binding = this.resolveBinding(channelKey);
     const nvr = binding.nvr;
+
+    // 自定义直连 RTSP 源（XLT/C5H）没有海康 ISAPI，不支持该快照接口
+    if (nvr.rtspUrl) {
+      throw new Error(
+        `该通道为直连RTSP源（${binding.name}），不支持ISAPI快照；视频墙请使用HLS实时画面`,
+      );
+    }
+
     const hikChannel = toHikvisionSubstreamChannel(binding.hikChannel);
 
     const url = `http://${nvr.ip}:${nvr.port}/ISAPI/Streaming/channels/${hikChannel}/picture`;
@@ -225,7 +252,10 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
     // 如果已经在运行，直接返回
     const existing = this.hlsSessions.get(channelKey);
     if (existing && existing.isRunning) {
-      this.logger.log(`通道 ${channelKey} HLS转码已在运行`);
+      // 把“被 ensure”视为一次观看活动并续期空闲计时，消除“前端翻到该页 ensure 命中已在运行、
+      // 却恰好撞上健康检查按旧 lastConsumedAt 判空闲停转”的竞态（会导致个别窗黑屏不恢复）。
+      existing.lastConsumedAt = Date.now();
+      this.logger.log(`通道 ${channelKey} HLS转码已在运行（续期空闲计时）`);
       return {
         playlistUrl: `/api/cameras/${channelKey}/hls/playlist.m3u8`,
         outputDir: existing.outputDir,
@@ -233,10 +263,9 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
     }
 
     const nvr = binding.nvr;
-    const hikChannel = toHikvisionSubstreamChannel(binding.hikChannel);
 
-    // 构造RTSP地址
-    const rtspUrl = `rtsp://${nvr.username}:${encodeURIComponent(nvr.password)}@${nvr.ip}:${nvr.rtspPort}/Streaming/Channels/${hikChannel}`;
+    // 构造RTSP地址（自定义源直用，否则海康模板）
+    const rtspUrl = this.buildRtspUrl(binding);
 
     // 输出目录
     const outputDir = path.join(this.hlsRootDir, channelKey);
@@ -246,13 +275,17 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
 
     const playlistPath = path.join(outputDir, 'playlist.m3u8');
 
+    const hlsWidth = nvr.hlsWidth && nvr.hlsWidth > 0 ? nvr.hlsWidth : 640;
+    const idleStopSeconds =
+      nvr.idleStopSeconds && nvr.idleStopSeconds > 0 ? nvr.idleStopSeconds : 0;
+
     this.logger.log(`启动HLS转码: ${channelKey} (${binding.name}) -> ${outputDir}`);
     this.logger.log(
-      `RTSP源: rtsp://${nvr.username}:****@${nvr.ip}:${nvr.rtspPort}/Streaming/Channels/${hikChannel}`,
+      `RTSP源: ${nvr.rtspUrl ? `rtsp://${nvr.ip}:${nvr.rtspPort}/${nvr.rtspUrl.split('/').slice(3).join('/')}` : `rtsp://${nvr.ip}:${nvr.rtspPort}/Streaming/Channels/...`} | 输出宽 ${hlsWidth} | 空闲停止 ${idleStopSeconds}s`,
     );
 
-    // FFmpeg：HEVC 子码流(XX02,640x360) -> H.264/HLS；参数统一收敛到 buildFfmpegArgs，
-    // start / restart 不再各维护一份，避免两处漂移。
+    // FFmpeg：RTSP 源 -> H.264/HLS（统一 scale 压低输出）；参数收敛到 buildFfmpegArgs，
+    // start / restart 不各维护一份，避免两处漂移。
     const session: HlsSession = {
       channel: channelKey,
       process: undefined as unknown as ChildProcess, // spawnSessionFfmpeg 内立即回填
@@ -264,6 +297,9 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
       generation: 1,
       stopped: false,
       stallCount: 0,
+      lastConsumedAt: Date.now(),
+      idleStopSeconds,
+      hlsWidth,
     };
     this.hlsSessions.set(channelKey, session);
     // 启动前清理同一输出目录的历史孤儿 ffmpeg（后端重启后内存 Map 已空，旧 ffmpeg 可能仍在写），
@@ -280,8 +316,30 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
     };
   }
 
+  /**
+   * 构造带凭据的 RTSP 源：
+   * - NvrDevice.rtspUrl 存在（自定义直连，如 XLT/C5H）→ 直接使用并注入凭据，跳过海康模板；
+   * - 否则走海康 /Streaming/Channels 子码流模板。
+   */
+  private buildRtspUrl(binding: CameraStreamBinding): string {
+    const nvr = binding.nvr;
+    const user = encodeURIComponent(nvr.username);
+    const pass = encodeURIComponent(nvr.password);
+    if (nvr.rtspUrl && nvr.rtspUrl.trim()) {
+      // rtspUrl 设计为不含凭据，统一注入 username:password@，避免在配置里重复明文密码
+      return nvr.rtspUrl.trim().replace('://', `://${user}:${pass}@`);
+    }
+    const hikChannel = toHikvisionSubstreamChannel(binding.hikChannel);
+    return `rtsp://${user}:${pass}@${nvr.ip}:${nvr.rtspPort}/Streaming/Channels/${hikChannel}`;
+  }
+
   /** 统一构造 ffmpeg 参数（start / restart 共用，避免两份参数漂移） */
-  private buildFfmpegArgs(rtspUrl: string, segmentPattern: string, playlistPath: string): string[] {
+  private buildFfmpegArgs(
+    rtspUrl: string,
+    segmentPattern: string,
+    playlistPath: string,
+    width: number,
+  ): string[] {
     return [
       '-rtsp_transport',
       'tcp',
@@ -291,8 +349,12 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
       'low_delay',
       '-i',
       rtspUrl,
+      // 统一压低输出宽度，高度按源比例自动取偶数（-2），显著降低转码码率与拉流压力；
+      // 页面视频窗为 16:9 容器，4:3 源（C5H）由前端 object-fit:cover 裁切。
+      '-vf',
+      `scale=${width}:-2`,
       '-c:v',
-      'libx264', // HEVC/H.265 -> H.264，浏览器 hls.js 可播
+      'libx264', // 各品牌 RTSP -> H.264，浏览器 hls.js 可播
       '-preset',
       'ultrafast', // 最快编码速度
       '-tune',
@@ -323,7 +385,12 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
     generation: number,
   ): ChildProcess {
     const segmentPattern = path.join(session.outputDir, 'segment_%03d.ts');
-    const args = this.buildFfmpegArgs(rtspUrl, segmentPattern, session.playlistPath);
+    const args = this.buildFfmpegArgs(
+      rtspUrl,
+      segmentPattern,
+      session.playlistPath,
+      session.hlsWidth || 640,
+    );
     const proc = spawn(this.ffmpegPath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       // GK9000(Windows) 上 ffmpeg.exe 是控制台子程序，必须隐藏窗口，避免现场桌面黑窗堆叠
@@ -470,10 +537,13 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
 
     const binding = this.videoBinding.resolveStreamBinding(channelKey);
     if (!binding) return;
-    const nvr = binding.nvr;
-    const hikChannel = toHikvisionSubstreamChannel(binding.hikChannel);
 
-    const rtspUrl = `rtsp://${nvr.username}:${encodeURIComponent(nvr.password)}@${nvr.ip}:${nvr.rtspPort}/Streaming/Channels/${hikChannel}`;
+    const rtspUrl = this.buildRtspUrl(binding);
+    // 配置里的宽度/空闲策略可能已调整，重启时同步最新值
+    const nvr = binding.nvr;
+    session.hlsWidth = nvr.hlsWidth && nvr.hlsWidth > 0 ? nvr.hlsWidth : 640;
+    session.idleStopSeconds =
+      nvr.idleStopSeconds && nvr.idleStopSeconds > 0 ? nvr.idleStopSeconds : 0;
 
     // 代际 +1：旧进程即使稍后才真正退出，其 close 回调因 generation 不匹配会直接跳过、
     // 不再 spawn；先强杀旧进程树并清理同目录残留，再启动新进程，
@@ -487,6 +557,7 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
     session.process = this.spawnSessionFfmpeg(channelKey, session, rtspUrl, generation);
     session.isRunning = true;
     session.startedAt = Date.now();
+    session.lastConsumedAt = Date.now();
   }
 
   /**
@@ -499,6 +570,9 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
     if (!session) {
       return null;
     }
+
+    // 播放列表/分片被拉取 = 有人观看，刷新“最后消费”时间（空闲停止据此判定）
+    session.lastConsumedAt = Date.now();
 
     const filePath = path.join(session.outputDir, filename);
     if (!fs.existsSync(filePath)) {

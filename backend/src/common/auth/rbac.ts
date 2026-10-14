@@ -45,6 +45,7 @@ interface ModuleAccessRule {
 
 const HARDWARE: UserRole = 'hardware';
 const CONFIG: UserRole = 'config';
+const OPERATOR: UserRole = 'operator';
 
 export const MODULE_ACCESS: Record<AdminModule, ModuleAccessRule> = {
   // 公共只读：两个后台专员都要看运行态势；无写操作。
@@ -62,7 +63,8 @@ export const MODULE_ACCESS: Record<AdminModule, ModuleAccessRule> = {
   branding: { write: [], read: [], readRestricted: true },
   // APP 版本：运营开关(启停/强制更新/最低兼容/更新说明) config 可写, hardware 只读核对；
   // 版本号/下载地址由 CI/受控部署流程维护, 非 admin 在 controller 层再硬隔离(改不了技术字段)。
-  'app-release': { write: [CONFIG], read: [HARDWARE, CONFIG], readRestricted: true },
+  // operator(展厅操作员) 只读：登录后台仅为下载 APK, 不给任何写权限。
+  'app-release': { write: [CONFIG], read: [HARDWARE, CONFIG, OPERATOR], readRestricted: true },
 
   // 硬件类（物理设备 / 接线 / 分区 / 道闸 / 调试）
   devices: { write: [HARDWARE] },

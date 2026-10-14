@@ -228,6 +228,12 @@ export interface PassRecordView {
   eventTime: string | null;
 }
 
+export interface LprHourlyPoint {
+  hour: number;
+  in: number;
+  out: number;
+}
+
 export interface LprStats {
   todayIn: number;
   todayOut: number;
@@ -236,4 +242,12 @@ export interface LprStats {
   abnormal: number;
   autoReleased: number;
   totalToday: number;
+  /** 今日按小时（0-23）出入聚合，供大屏“通行时段”图，仅数字不含车牌明细。 */
+  hourly: LprHourlyPoint[];
+  /** 白名单在册数（启用、非黑名单）。 */
+  whitelistCount: number;
+  /** 黑名单数（isBlack）。 */
+  blacklistCount: number;
+  /** 已过期/将到期（7天内）白名单数，提醒续期。 */
+  expiringCount: number;
 }

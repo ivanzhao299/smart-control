@@ -47,7 +47,8 @@ export class ClientAuthService {
   }
 
   async loginAdministrator(username: string, password: string): Promise<{ token: string; expiresAt: string }> {
-    // admin 及两个后台专员（hardware/config）可登录后台；operator/viewer 仍只在前台。
+    // admin / hardware / config 可登录后台；operator 也可登录但仅自助改密码 + 只读下载 APK；
+    // viewer 不在后台角色、仅前台。
     return this.loginNamedUser(username, password, ADMIN_TOKEN_TTL_MS, BACKEND_ROLES);
   }
 

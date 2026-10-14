@@ -122,33 +122,98 @@ if (page) {
     }).join('');
   }
 
-  function renderControls() {
-    const box = $('lprGateControls');
-    if (!box) return;
-    if (!devices.length) {
-      box.innerHTML = '<div class="lpr-ctrl-empty">暂无车牌识别相机通道（后台「车牌道闸」配置，相机上报心跳后自动登记）</div>';
-      return;
+  // 视频墙下方 4 个聚合卡片：道闸状态 / 通行时段 / 异常 / 白名单
+  function renderGateCards(s, devs, recent) {
+    const sx = s || {};
+    // 1) 道闸状态总览（只列车牌道闸，即有 location 的设备；生产恰为 8 台）
+    const grid = $('gateStatusGrid');
+    if (grid) {
+      const gateDevs = devs.filter((d) => d.location);
+      grid.innerHTML = gateDevs.map((d) => {
+        const cls = !d.online ? 'offline' : d.gateState === 2 ? 'open' : d.gateState === 1 ? 'open' : 'closed';
+        const state = !d.online ? '离线' : d.gateState === 1 ? '开' : d.gateState === 2 ? '动' : '关';
+        const displayName = d.name || `${d.location}${d.passDirection === 'in' ? '入' : '出'}`;
+        return `<div class="gs-item ${cls}"><span class="gs-dot"></span><span class="gs-name">${esc(displayName)}</span><span class="gs-state">${state}</span></div>`;
+      }).join('');
     }
-    box.innerHTML = devices.map((d) => {
-      const openIo = Number.isInteger(d.gateIo) ? d.gateIo : 0;
-      const closeIo = (d.closeGateIoEffective ?? (Number.isInteger(d.gateIo) ? d.gateIo + 1 : 1));
-      const isOpen = d.gateState === 1;
-      const moving = d.gateState === 2;
-      const actCls = isOpen ? 'lpr-close-btn' : 'lpr-open-btn';
-      const action = isOpen ? 'close' : 'open';
-      const label = claimedByOther ? '已被远程接管' : moving ? '动作中' : isOpen ? '远程关闸' : '远程开闸';
-      const btnTitle = isOpen ? `远程关闸（落杆，继电器 IO${closeIo}）` : `远程开闸（抬杆，继电器 IO${openIo}）`;
-      const stateTitle = d.gateStateSource === 'device' ? '道闸真实状态' : '按最近一次开/关指令推断；用遥控器或手动操作请以现场为准';
-      return `
-      <div class="lpr-ctrl-row">
-        <span class="lpr-dot ${d.online ? 'on' : 'off'}"></span>
-        <span class="lpr-ctrl-name">${esc(d.deviceName)}${d.location ? `<em>${esc(d.location)}</em>` : ''}</span>
-        <span class="lpr-gate-state ${gateCls(d)}" title="${d.online ? stateTitle : ''}">${d.online ? esc(d.gateStateLabel || '关') : '离线'}</span>
-        <button class="${actCls}" data-id="${d.id}" data-action="${action}" title="${btnTitle}" ${(claimedByOther || moving) ? 'disabled' : ''}>${label}</button>
-      </div>`;
-    }).join('');
-    box.querySelectorAll('.lpr-open-btn,.lpr-close-btn').forEach((btn) => {
-      btn.addEventListener('click', () => askToggle(btn, Number(btn.dataset.id), btn.dataset.action));
+    // 2) 今日通行时段（24 小时双柱：入青 / 出橙）
+    const hourly = Array.isArray(sx.hourly) ? sx.hourly : [];
+    const chart = $('hourlyChart');
+    if (chart && hourly.length === 24) {
+      const max = Math.max(1, ...hourly.map((h) => h.in + h.out));
+      const W = 300; const H = 150; const base = H - 3; const slotW = W / 24;
+      let bars = ''; let peakHour = 0; let peakVal = -1;
+      hourly.forEach((h, i) => {
+        const x = i * slotW;
+        const hi = (h.in / max) * (H - 12);
+        const ho = (h.out / max) * (H - 12);
+        bars += `<rect x="${(x + slotW * 0.14).toFixed(2)}" y="${(base - hi).toFixed(2)}" width="${(slotW * 0.34).toFixed(2)}" height="${hi.toFixed(2)}" fill="#38bdf8"/>`;
+        bars += `<rect x="${(x + slotW * 0.54).toFixed(2)}" y="${(base - ho).toFixed(2)}" width="${(slotW * 0.34).toFixed(2)}" height="${ho.toFixed(2)}" fill="#fb923c"/>`;
+        if (h.in + h.out > peakVal) { peakVal = h.in + h.out; peakHour = i; }
+      });
+      chart.innerHTML = bars;
+      setText('hourlyPeak', peakVal > 0 ? `高峰 ${pad(peakHour)}:00 · ${peakVal} 辆` : '暂无通行');
+    }
+    // 3) 异常与拦截
+    setText('gateAbnormalNum', sx.abnormal ?? 0);
+    const alertList = $('gateAlertList');
+    if (alertList) {
+      const abn = recent
+        .filter((r) => r.isFake === 1 || r.isDanger === 1 || r.releaseResult === 'deny')
+        .slice(0, 3);
+      alertList.innerHTML = abn.length
+        ? abn.map((r) => {
+          const tag = r.isDanger === 1 ? '危险' : r.isFake === 1 ? '假牌' : '拦截';
+          return `<div class="am-row"><span class="am-tag">${tag}</span><span class="am-plate">${esc(r.license)}</span><span class="am-time">${hm(r.eventTime)}</span></div>`;
+        }).join('')
+        : '<div class="am-empty">今日无异常</div>';
+    }
+    // 4) 白名单 / 固定车
+    setText('gateWlCount', sx.whitelistCount ?? 0);
+    setText('gateWlAuto', sx.autoReleased ?? 0);
+    setText('gateWlBlack', sx.blacklistCount ?? 0);
+    setText('gateWlExpiring', sx.expiringCount ?? 0);
+  }
+
+  // 开闸=抬杆（上箭头），关闸=落杆（下箭头）
+  const OPEN_ICON = '<span class="lpr-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></span>';
+  const CLOSE_ICON = '<span class="lpr-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg></span>';
+
+  // 视频墙：每个视频窗一个 toggle 单按钮（当前关→开闸，当前开→关闸）。
+  function renderControls() {
+    const camEls = document.querySelectorAll('.lpr-cam');
+    camEls.forEach((camEl) => {
+      const slot = camEl.querySelector('.lpr-cam-btn');
+      if (!slot) return;
+      // 按“位置 + 方向”匹配设备（生产/本地 LPR id 不同，不能用 id 硬匹配）
+      const loc = camEl.dataset.location;
+      const dir = camEl.dataset.direction;
+      const d = devices.find((x) => x.location === loc && x.passDirection === dir) || null;
+      const online = !!(d && d.online);
+      const moving = d && d.gateState === 2;
+      const isOpen = d && d.gateState === 1;
+      let inner;
+      if (claimedByOther) {
+        inner = '<button disabled>已被远程接管</button>';
+      } else if (moving) {
+        inner = '<button disabled>道闸动作中…</button>';
+      } else if (!d) {
+        inner = '<button disabled>设备未登记</button>';
+      } else if (!online) {
+        inner = '<button disabled>设备离线</button>';
+      } else {
+        const openIo = Number.isInteger(d.gateIo) ? d.gateIo : 0;
+        const closeIo = (d.closeGateIoEffective ?? (Number.isInteger(d.gateIo) ? d.gateIo + 1 : 1));
+        const actCls = isOpen ? 'lpr-close-btn' : 'lpr-open-btn';
+        const action = isOpen ? 'close' : 'open';
+        const label = isOpen ? '关闸' : '开闸';
+        const btnTitle = isOpen ? `远程关闸（落杆，继电器 IO${closeIo}）` : `远程开闸（抬杆，继电器 IO${openIo}）`;
+        const icon = isOpen ? CLOSE_ICON : OPEN_ICON;
+        inner = `<button class="${actCls}" data-id="${d.id}" data-action="${action}" title="${btnTitle}">${icon}${label}</button>`;
+      }
+      slot.innerHTML = inner;
+      const btn = slot.querySelector('button');
+      if (btn && !btn.disabled) btn.addEventListener('click', () => askToggle(btn, Number(btn.dataset.id), btn.dataset.action));
     });
   }
 
@@ -200,10 +265,12 @@ if (page) {
         getJSON('/lpr/stats'), getJSON('/lpr/devices'), getJSON('/lpr/recent?limit=8'),
       ]);
       devices = Array.isArray(devRes) ? devRes : [];
+      const recs = Array.isArray(recRes) ? recRes : [];
       if (devices.length > 0 || primed) {
         primed = true;
         renderStats(statsRes || {});
-        renderEvents(Array.isArray(recRes) ? recRes : []);
+        renderEvents(recs);
+        renderGateCards(statsRes, devices, recs);
       }
       renderControls();
     } catch { /* 后端暂不可用：保留上一帧，不清空 */ }
@@ -216,5 +283,7 @@ if (page) {
     wasActive = active;
     if (active) void tick();
   }, 10_000);
+  // 翻到“人车管理”页时由 app.js go() 立即调用，避免等 10s 轮询才渲染开关闸按钮。
+  window.LprPanel = { refresh: () => { void syncClaim().then(tick); } };
   void syncClaim().then(tick);
 }

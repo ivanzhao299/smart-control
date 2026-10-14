@@ -8,8 +8,8 @@
 <meta http-equiv="Pragma" content="no-cache" />
 <meta http-equiv="Expires" content="0" />
 <meta name="theme-color" content="#020914" />
-<meta name="description" content="金湖科创产业园智慧运营总览大屏" />
-<title>金湖科创产业园·智慧运营总览</title>
+<meta name="description" content="金湖科创产业园智慧园区管理系统大屏" />
+<title>金湖科创产业园·智慧园区管理系统</title>
 <!-- 部署门禁自描述标记：verify-deploy 静态校验本页即运营大屏；运行时完整元数据由末尾 js/app.js 的 window.PARK_DEMO 覆盖提供 -->
 <script>window.PARK_DEMO=window.PARK_DEMO||{page:'jinhu-park-ops-dashboard',resolution:'3612x1462',static:true};</script>
 
@@ -33,7 +33,7 @@
 <div id="app">
   <header class="header">
     <div class="brand">JINHU SCI-TECH INDUSTRIAL PARK<small>DIGITAL TWIN · 数字孪生运营中枢</small></div>
-    <div class="title"><h1><img src="jinhupark-mark.svg" class="park-mark" alt="金湖科创产业园logo"><img src="jinhupark-text.svg" class="park-text" alt="金湖科创产业园"><span class="park-sep">·</span><span>智慧运营总览</span></h1></div>
+    <div class="title"><h1><img src="jinhupark-mark.svg" class="park-mark" alt="金湖科创产业园logo"><img src="jinhupark-text.svg" class="park-text" alt="金湖科创产业园"><span class="park-sep">·</span><span>智慧园区管理系统</span></h1></div>
     <div class="status"><div class="status-row"><span id="clock"></span><span class="scene-mini"><span id="sceneIcon" class="scene-icon scene-day"></span> <span id="sceneName">自动日景</span></span><span class="live-dot"></span><b>运行正常</b><button class="calibration-entry" id="openCalibration" type="button">布局校准</button><button class="calibration-entry" id="toggleDataEdit" type="button" style="background:rgba(34,197,94,.15);border-color:rgba(34,197,94,.4);color:#4ade80">✎ 数据绑定</button></div></div>
   </header>
   <section class="kpis">
@@ -73,10 +73,144 @@
       <div class="panel bigpanel"><h3>隐患闭环与IoT告警 <small>HAZARD & IoT ALERT</small></h3><div style="display:grid;grid-template-columns:1fr 1fr;gap:20px"><div><div style="font-size:18px;color:#94a3b8;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:8px"><span style="width:3px;height:14px;background:linear-gradient(180deg,#8b5cf6,#ec4899);border-radius:2px"></span>IoT 实时告警</div><div style="display:flex;flex-direction:column;gap:6px;max-height:280px;overflow:hidden"><div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:linear-gradient(90deg,rgba(239,68,68,.1),rgba(239,68,68,.02));border:1px solid rgba(239,68,68,.15);border-radius:8px;font-size:14px"><span style="padding:2px 8px;background:rgba(239,68,68,.2);border-radius:4px;color:#fca5a5;font-weight:700;font-size:12px;flex-shrink:0">严重</span><span style="color:#e2e8f0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">3号楼配电间 温度超限 82°C</span><span style="color:#64748b;font-size:12px;flex-shrink:0">14:28</span></div><div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:linear-gradient(90deg,rgba(245,158,11,.08),rgba(245,158,11,.02));border:1px solid rgba(245,158,11,.12);border-radius:8px;font-size:14px"><span style="padding:2px 8px;background:rgba(245,158,11,.2);border-radius:4px;color:#fcd34d;font-weight:700;font-size:12px;flex-shrink:0">警告</span><span style="color:#e2e8f0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">B区水泵房 水位异常偏低</span><span style="color:#64748b;font-size:12px;flex-shrink:0">14:15</span></div><div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:linear-gradient(90deg,rgba(245,158,11,.08),rgba(245,158,11,.02));border:1px solid rgba(245,158,11,.12);border-radius:8px;font-size:14px"><span style="padding:2px 8px;background:rgba(245,158,11,.2);border-radius:4px;color:#fcd34d;font-weight:700;font-size:12px;flex-shrink:0">警告</span><span style="color:#e2e8f0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">5号楼电梯 运行振动异常</span><span style="color:#64748b;font-size:12px;flex-shrink:0">13:52</span></div><div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:linear-gradient(90deg,rgba(59,130,246,.06),rgba(59,130,246,.02));border:1px solid rgba(59,130,246,.1);border-radius:8px;font-size:14px"><span style="padding:2px 8px;background:rgba(59,130,246,.15);border-radius:4px;color:#93c5fd;font-weight:700;font-size:12px;flex-shrink:0">提示</span><span style="color:#e2e8f0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">A区空调机组 滤网需清洗</span><span style="color:#64748b;font-size:12px;flex-shrink:0">13:30</span></div><div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:linear-gradient(90deg,rgba(245,158,11,.08),rgba(245,158,11,.02));border:1px solid rgba(245,158,11,.12);border-radius:8px;font-size:14px"><span style="padding:2px 8px;background:rgba(245,158,11,.2);border-radius:4px;color:#fcd34d;font-weight:700;font-size:12px;flex-shrink:0">警告</span><span style="color:#e2e8f0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">地下车库 CO 浓度偏高</span><span style="color:#64748b;font-size:12px;flex-shrink:0">13:12</span></div></div></div><div><div style="font-size:18px;color:#94a3b8;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:8px"><span style="width:3px;height:14px;background:linear-gradient(180deg,#ef4444,#f59e0b);border-radius:2px"></span>隐患闭环</div><table class="table"><thead><tr><th>事项</th><th>位置</th><th>状态</th></tr></thead><tbody><tr><td>消防通道检查</td><td>6#厂房</td><td class="ok">已完成</td></tr><tr><td>灭火器点检</td><td>展贸中心</td><td class="ok">已完成</td></tr><tr><td>电气箱规范</td><td>9#厂房</td><td class="warn">整改中</td></tr><tr><td>疏散标识检查</td><td>研发办公</td><td class="ok">已完成</td></tr></tbody></table><div style="margin-top:16px;padding:12px 14px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.15);border-radius:8px"><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:15px;color:#94a3b8">开放隐患</span><span style="font-size:24px;font-weight:800;color:#f87171">12<span style="font-size:14px;color:#64748b;font-weight:400"> 项</span></span></div><div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><span style="padding:3px 8px;background:rgba(239,68,68,.15);border-radius:6px;font-size:12px;color:#fca5a5;font-weight:600">重大 1</span><span style="padding:3px 8px;background:rgba(249,115,22,.12);border-radius:6px;font-size:12px;color:#fb923c;font-weight:600">较大 4</span><span style="padding:3px 8px;background:rgba(245,158,11,.12);border-radius:6px;font-size:12px;color:#fcd34d;font-weight:600">一般 5</span><span style="padding:3px 8px;background:rgba(239,68,68,.08);border-radius:6px;font-size:12px;color:#f87171;font-weight:600">超期 2</span></div></div></div></div><div style="margin-top:20px"><div style="font-size:18px;color:#94a3b8;font-weight:600;margin-bottom:10px">月度安全事件趋势</div><div class="chart" style="height:160px"><div style="height:64%"><b>7</b><span>4月</span></div><div style="height:55%"><b>6</b><span>5月</span></div><div style="height:46%"><b>5</b><span>6月</span></div><div style="height:37%"><b>4</b><span>7月</span></div><div style="height:28%"><b>3</b><span>8月</span></div><div style="height:18%"><b>2</b><span>9月</span></div></div></div><div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(239,68,68,.1)"><div style="font-size:15px;color:#94a3b8;margin-bottom:10px;font-weight:600">隐患类型分布</div><div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px"><div style="text-align:center;padding:8px;background:rgba(239,68,68,.06);border-radius:6px"><div style="font-size:18px;font-weight:800;color:#f87171">4</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">消防安全</div></div><div style="text-align:center;padding:8px;background:rgba(245,158,11,.06);border-radius:6px"><div style="font-size:18px;font-weight:800;color:#fbbf24">3</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">电气安全</div></div><div style="text-align:center;padding:8px;background:rgba(59,130,246,.06);border-radius:6px"><div style="font-size:18px;font-weight:800;color:#60a5fa">3</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">设备设施</div></div><div style="text-align:center;padding:8px;background:rgba(16,185,129,.06);border-radius:6px"><div style="font-size:18px;font-weight:800;color:#34d399">2</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">其他隐患</div></div></div></div><div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(239,68,68,.1)"><div style="font-size:15px;color:#94a3b8;margin-bottom:10px;font-weight:600">安全事件处理时效</div><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px"><div style="text-align:center;padding:8px;background:rgba(16,185,129,.06);border-radius:6px"><div style="font-size:18px;font-weight:800;color:#34d399">98<span style="font-size:10px;color:#64748b;font-weight:400">%</span></div><div style="font-size:11px;color:#94a3b8;margin-top:2px">按时整改率</div></div><div style="text-align:center;padding:8px;background:rgba(59,130,246,.06);border-radius:6px"><div style="font-size:18px;font-weight:800;color:#60a5fa">2.4<span style="font-size:10px;color:#64748b;font-weight:400"> 天</span></div><div style="font-size:11px;color:#94a3b8;margin-top:2px">平均整改时长</div></div><div style="text-align:center;padding:8px;background:rgba(245,158,11,.06);border-radius:6px"><div style="font-size:18px;font-weight:800;color:#fbbf24">15<span style="font-size:10px;color:#64748b;font-weight:400"> 分钟</span></div><div style="font-size:11px;color:#94a3b8;margin-top:2px">告警响应时间</div></div></div></div></div>
     </section>
 
-    <section class="page fullgrid" data-name="人车管理">
-      <div class="panel bigpanel"><h3>人员态势 <small>PEOPLE STATUS</small></h3><div class="mini2"><div class="stat"><b data-onsite-people>486</b><span>当前在园</span></div><div class="stat"><b>18</b><span>当前访客</span></div><div class="stat"><b>29</b><span>施工/服务人员</span></div><div class="stat"><b>813</b><span>今日累计通行</span></div></div><div style="margin-top:18px;padding:14px;background:rgba(99,102,241,.04);border:1px solid rgba(99,102,241,.1);border-radius:10px"><div style="font-size:17px;color:#94a3b8;margin-bottom:12px;font-weight:600">人员类型分布</div><div style="display:flex;flex-direction:column;gap:10px"><div><div style="display:flex;justify-content:space-between;font-size:15px;margin-bottom:4px"><span style="color:#c4b5fd">园区员工</span><span style="color:#fff;font-weight:600">439人 · 90.3%</span></div><div class="bar" style="margin:0"><i style="width:90.3%;background:linear-gradient(90deg,#8b5cf6,#a78bfa)"></i></div></div><div><div style="display:flex;justify-content:space-between;font-size:15px;margin-bottom:4px"><span style="color:#67e8f9">访客人员</span><span style="color:#fff;font-weight:600">18人 · 3.7%</span></div><div class="bar" style="margin:0"><i style="width:3.7%;background:linear-gradient(90deg,#06b6d4,#22d3ee)"></i></div></div><div><div style="display:flex;justify-content:space-between;font-size:15px;margin-bottom:4px"><span style="color:#fcd34d">施工/服务</span><span style="color:#fff;font-weight:600">29人 · 6.0%</span></div><div class="bar" style="margin:0"><i style="width:6%;background:linear-gradient(90deg,#d97706,#f59e0b)"></i></div></div></div></div><div style="margin-top:18px"><div style="font-size:17px;color:#94a3b8;margin-bottom:10px;font-weight:600">今日人员通行趋势</div><div class="chart" style="height:120px"><div style="height:35%"><b>42</b><span>8时</span></div><div style="height:82%"><b>98</b><span>9时</span></div><div style="height:68%"><b>81</b><span>10时</span></div><div style="height:55%"><b>66</b><span>11时</span></div><div style="height:42%"><b>50</b><span>12时</span></div><div style="height:48%"><b>57</b><span>13时</span></div><div style="height:62%"><b>74</b><span>14时</span></div></div><div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(99,102,241,.1)"><div style="font-size:15px;color:#94a3b8;margin-bottom:10px;font-weight:600">人员考勤统计</div><div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px"><div style="text-align:center;padding:8px;background:rgba(16,185,129,.06);border-radius:6px"><div style="font-size:20px;font-weight:800;color:#34d399">412</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">已出勤</div></div><div style="text-align:center;padding:8px;background:rgba(245,158,11,.06);border-radius:6px"><div style="font-size:20px;font-weight:800;color:#fbbf24">18</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">请假</div></div><div style="text-align:center;padding:8px;background:rgba(59,130,246,.06);border-radius:6px"><div style="font-size:20px;font-weight:800;color:#60a5fa">9</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">出差</div></div><div style="text-align:center;padding:8px;background:rgba(239,68,68,.06);border-radius:6px"><div style="font-size:20px;font-weight:800;color:#f87171">3</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">缺勤</div></div></div></div><div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(99,102,241,.1)"><div style="font-size:15px;color:#94a3b8;margin-bottom:10px;font-weight:600">人员运行指标</div><div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px"><div style="text-align:center;padding:8px;background:rgba(99,102,241,.06);border-radius:6px"><div style="font-size:20px;font-weight:800;color:#a78bfa">92%</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">出勤率</div></div><div style="text-align:center;padding:8px;background:rgba(34,211,238,.06);border-radius:6px"><div style="font-size:20px;font-weight:800;color:#67e8f9">8.6h</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">平均在园</div></div><div style="text-align:center;padding:8px;background:rgba(251,191,36,.06);border-radius:6px"><div style="font-size:20px;font-weight:800;color:#fbbf24">96%</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">满意度</div></div><div style="text-align:center;padding:8px;background:rgba(52,211,153,.06);border-radius:6px"><div style="font-size:20px;font-weight:800;color:#34d399">12</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">培训场次</div></div></div></div></div></div>
-      <div class="panel bigpanel"><h3>车辆态势 <small>VEHICLE STATUS</small></h3><div class="mini2" data-lpr-live><div class="stat"><b id="lprOnsite" data-onsite-vehicle>127</b><span>当前在场车辆</span></div><div class="stat"><b id="lprTotal">312</b><span>今日车辆通行</span></div><div class="stat"><b>21</b><span>货运车辆</span></div><div class="stat"><b>64%</b><span>停车位占用率</span></div></div><div class="mt-4 p-4 bg-cyan rounded-xl" style="border:1px solid rgba(34,211,238,.1)"><div class="section-title">车辆类型分布</div><div class="flex-col gap-3"><div class="vehicle-type-item"><div class="vehicle-type-label"><span class="vehicle-type-name text-cyan">员工车辆</span><span class="vehicle-type-value">92辆 · 72.4%</span></div><div class="gauge"><i style="width:72.4%;background:linear-gradient(90deg,#06b6d4,#22d3ee)"></i></div></div><div class="vehicle-type-item"><div class="vehicle-type-label"><span class="vehicle-type-name text-purple">访客车辆</span><span class="vehicle-type-value">14辆 · 11.0%</span></div><div class="gauge"><i style="width:11%;background:linear-gradient(90deg,#8b5cf6,#a78bfa)"></i></div></div><div class="vehicle-type-item"><div class="vehicle-type-label"><span class="vehicle-type-name text-value">货运车辆</span><span class="vehicle-type-value">21辆 · 16.5%</span></div><div class="gauge"><i style="width:16.5%;background:linear-gradient(90deg,#d97706,#f59e0b)"></i></div></div></div></div><div style="margin-top:18px"><div style="font-size:17px;color:#94a3b8;margin-bottom:10px;font-weight:600">今日车辆通行趋势</div><div class="chart" style="height:120px"><div style="height:28%"><b>18</b><span>8时</span></div><div style="height:76%"><b>49</b><span>9时</span></div><div style="height:58%"><b>37</b><span>10时</span></div><div style="height:45%"><b>29</b><span>11时</span></div><div style="height:38%"><b>24</b><span>12时</span></div><div style="height:42%"><b>27</b><span>13时</span></div><div style="height:52%"><b>33</b><span>14时</span></div></div></div><div class="mt-4 vehicle-spot-card"><div class="header"><span class="label">车位剩余</span><span class="value">128<small> / 356 个</small></span></div><div class="desc">已占用 228 个 · 占用率 64% · 地下车库 180 / 地面 176</div></div><div class="mt-4 pt-3" style="border-top:1px solid rgba(34,211,238,.1)"><div class="section-title">车辆进出统计</div><div class="grid grid-3 gap-2" data-lpr-live><div class="vehicle-stat-card bg-success"><div class="num text-success" id="lprStatIn">186</div><div class="label">今日入园</div></div><div class="vehicle-stat-card bg-danger"><div class="num text-danger" id="lprStatOut">126</div><div class="label">今日出园</div></div><div class="vehicle-stat-card bg-value"><div class="num text-value" id="lprStatNet">60</div><div class="label">净增车辆</div></div></div></div></div>
-      <div class="panel bigpanel"><h3>门岗实时事件 <small>GATE EVENTS</small></h3><div class="panel-body"><div id="lprGateControls" data-lpr-live></div><div class="mini2" style="margin-bottom:16px" data-lpr-live><div class="stat"><b id="lprGateIn">186</b><span>今日入园</span></div><div class="stat"><b id="lprGateOut">126</b><span>今日出园</span></div><div class="stat"><b id="lprVisitor">32</b><span>访客车辆</span></div><div class="stat"><b id="lprGateAbnormal">8</b><span>异常事件</span></div></div><div class="alerts" id="lprEventList" data-lpr-live><div class="alert"><span class="badge">入园</span><span>访客车辆 鲁Q·3***8</span><span class="time">19:36</span></div><div class="alert"><span class="badge">入园</span><span>货运车辆 鲁Q·7***1</span><span class="time">19:31</span></div><div class="alert"><span class="badge">访客</span><span>3#厂房预约来访 6 人</span><span class="time">19:28</span></div><div class="alert"><span class="badge">离园</span><span>员工车辆 鲁Q·2***6</span><span class="time">19:22</span></div><div class="alert"><span class="badge">入园</span><span>员工车辆 鲁Q·8***9</span><span class="time">19:15</span></div><div class="alert"><span class="badge">访客</span><span>展贸中心会议来访 12 人</span><span class="time">19:08</span></div><div class="alert"><span class="badge">离园</span><span>访客车辆 鲁Q·5***2</span><span class="time">19:05</span></div></div><div class="mt-4 pt-3" style="border-top:1px solid rgba(99,102,241,.1)"><div class="section-title">访客类型分布</div><div class="grid grid-4 gap-2"><div class="vehicle-stat-card bg-info"><div class="num text-info">14</div><div class="label">商务访客</div></div><div class="vehicle-stat-card bg-success"><div class="num text-success">8</div><div class="label">会议访客</div></div><div class="vehicle-stat-card bg-value"><div class="num text-value">6</div><div class="label">施工人员</div></div><div class="vehicle-stat-card bg-purple"><div class="num text-purple">4</div><div class="label">其他访客</div></div></div></div><div class="mt-4 pt-3" style="border-top:1px solid rgba(99,102,241,.1)"><div class="section-title">异常事件统计</div><div class="grid grid-4 gap-2"><div class="vehicle-stat-card bg-danger"><div class="num text-danger">2</div><div class="label">未登记</div></div><div class="vehicle-stat-card bg-value"><div class="num text-value">3</div><div class="label">超时停留</div></div><div class="vehicle-stat-card bg-info"><div class="num text-info">2</div><div class="label">车牌异常</div></div><div class="vehicle-stat-card bg-success"><div class="num text-success">1</div><div class="label">其他异常</div></div></div></div></div></div>
+        <section class="page fullgrid gate-page" data-name="人车管理">
+      <!-- 左：8 路车牌/道闸视频墙（翻到本页才按需拉流，翻走自动停） -->
+      <div class="panel bigpanel gate-wall">
+        <h3>车牌道闸视频墙 <small>GATE VIDEO WALL</small></h3>
+        <div class="gate-wall-grid" id="gateWallGrid">
+          <div class="cam cam-hls lpr-cam" data-camera="lpr1" data-name="北门入口" data-location="北门" data-direction="in">
+            <div class="lpr-cam-head"><span class="lpr-cam-name">北门入口</span></div>
+            <div class="lpr-cam-stage">
+              <span class="live"><span class="live-indicator"></span>LIVE</span>
+              <video class="cam-video" autoplay muted playsinline></video>
+              <div class="mock">北门入口 · HLS连接中...</div>
+            </div>
+            <div class="lpr-cam-btn" id="lprCamBtn1"></div>
+          </div>
+          <div class="cam cam-hls lpr-cam" data-camera="lpr2" data-name="北门出口" data-location="北门" data-direction="out">
+            <div class="lpr-cam-head"><span class="lpr-cam-name">北门出口</span></div>
+            <div class="lpr-cam-stage">
+              <span class="live"><span class="live-indicator"></span>LIVE</span>
+              <video class="cam-video" autoplay muted playsinline></video>
+              <div class="mock">北门出口 · HLS连接中...</div>
+            </div>
+            <div class="lpr-cam-btn" id="lprCamBtn2"></div>
+          </div>
+          <div class="cam cam-hls lpr-cam" data-camera="lpr3" data-name="西北门入口" data-location="西北门" data-direction="in">
+            <div class="lpr-cam-head"><span class="lpr-cam-name">西北门入口</span></div>
+            <div class="lpr-cam-stage">
+              <span class="live"><span class="live-indicator"></span>LIVE</span>
+              <video class="cam-video" autoplay muted playsinline></video>
+              <div class="mock">西北门入口 · HLS连接中...</div>
+            </div>
+            <div class="lpr-cam-btn" id="lprCamBtn3"></div>
+          </div>
+          <div class="cam cam-hls lpr-cam" data-camera="lpr4" data-name="西北门出口" data-location="西北门" data-direction="out">
+            <div class="lpr-cam-head"><span class="lpr-cam-name">西北门出口</span></div>
+            <div class="lpr-cam-stage">
+              <span class="live"><span class="live-indicator"></span>LIVE</span>
+              <video class="cam-video" autoplay muted playsinline></video>
+              <div class="mock">西北门出口 · HLS连接中...</div>
+            </div>
+            <div class="lpr-cam-btn" id="lprCamBtn4"></div>
+          </div>
+          <div class="cam cam-hls lpr-cam" data-camera="lpr5" data-name="东门入口" data-location="东门" data-direction="in">
+            <div class="lpr-cam-head"><span class="lpr-cam-name">东门入口</span></div>
+            <div class="lpr-cam-stage">
+              <span class="live"><span class="live-indicator"></span>LIVE</span>
+              <video class="cam-video" autoplay muted playsinline></video>
+              <div class="mock">东门入口 · HLS连接中...</div>
+            </div>
+            <div class="lpr-cam-btn" id="lprCamBtn5"></div>
+          </div>
+          <div class="cam cam-hls lpr-cam" data-camera="lpr6" data-name="东门出口" data-location="东门" data-direction="out">
+            <div class="lpr-cam-head"><span class="lpr-cam-name">东门出口</span></div>
+            <div class="lpr-cam-stage">
+              <span class="live"><span class="live-indicator"></span>LIVE</span>
+              <video class="cam-video" autoplay muted playsinline></video>
+              <div class="mock">东门出口 · HLS连接中...</div>
+            </div>
+            <div class="lpr-cam-btn" id="lprCamBtn6"></div>
+          </div>
+          <div class="cam cam-hls lpr-cam" data-camera="lpr7" data-name="F区地下室入口" data-location="F区地下室" data-direction="in">
+            <div class="lpr-cam-head"><span class="lpr-cam-name">F区地下室入口</span></div>
+            <div class="lpr-cam-stage">
+              <span class="live"><span class="live-indicator"></span>LIVE</span>
+              <video class="cam-video" autoplay muted playsinline></video>
+              <div class="mock">F区地下室入口 · HLS连接中...</div>
+            </div>
+            <div class="lpr-cam-btn" id="lprCamBtn7"></div>
+          </div>
+          <div class="cam cam-hls lpr-cam" data-camera="lpr8" data-name="F区地下室出口" data-location="F区地下室" data-direction="out">
+            <div class="lpr-cam-head"><span class="lpr-cam-name">F区地下室出口</span></div>
+            <div class="lpr-cam-stage">
+              <span class="live"><span class="live-indicator"></span>LIVE</span>
+              <video class="cam-video" autoplay muted playsinline></video>
+              <div class="mock">F区地下室出口 · HLS连接中...</div>
+            </div>
+            <div class="lpr-cam-btn" id="lprCamBtn8"></div>
+          </div>
+        </div>
+
+        <!-- 视频墙下方聚合卡片（4 张，与右侧互补；数据经 lpr-panel 实时刷新） -->
+        <div class="gate-cards">
+          <div class="gate-card">
+            <h4>道闸状态总览 <small>GATE STATUS</small></h4>
+            <div class="gate-status-grid" id="gateStatusGrid"></div>
+          </div>
+          <div class="gate-card">
+            <h4>今日通行时段 <small>HOURLY TRAFFIC</small></h4>
+            <svg class="hourly-chart" id="hourlyChart" viewBox="0 0 300 150" preserveAspectRatio="none" aria-label="今日各小时出入"></svg>
+            <div class="chart-legend"><span class="lg in">入</span><span class="lg out">出</span><span class="lg hint" id="hourlyPeak">高峰 --</span></div>
+          </div>
+          <div class="gate-card">
+            <h4>异常与拦截 <small>ALERTS</small></h4>
+            <div class="alert-num"><b id="gateAbnormalNum">0</b><span>今日异常</span></div>
+            <div class="alert-mini" id="gateAlertList"></div>
+          </div>
+          <div class="gate-card">
+            <h4>白名单 / 固定车 <small>WHITELIST</small></h4>
+            <div class="wl-stats">
+              <div class="wl-stat"><b id="gateWlCount">0</b><span>在册</span></div>
+              <div class="wl-stat"><b id="gateWlAuto">0</b><span>今日自动放行</span></div>
+              <div class="wl-stat danger"><b id="gateWlBlack">0</b><span>黑名单</span></div>
+              <div class="wl-stat warn"><b id="gateWlExpiring">0</b><span>将到期</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右：车辆态势 + 实时过车事件 -->
+      <div class="gate-side">
+        <div class="panel bigpanel">
+          <h3>车辆态势 <small>VEHICLE STATUS</small></h3>
+          <div class="panel-body">
+            <div class="mini2" data-lpr-live>
+              <div class="stat"><b id="lprOnsite" data-onsite-vehicle>127</b><span>当前在场车辆</span></div>
+              <div class="stat"><b id="lprTotal">312</b><span>今日车辆通行</span></div>
+            </div>
+            <div class="grid grid-3 gap-2" data-lpr-live style="margin-top:16px">
+              <div class="vehicle-stat-card bg-success"><div class="num text-success" id="lprStatIn">186</div><div class="label">今日入园</div></div>
+              <div class="vehicle-stat-card bg-danger"><div class="num text-danger" id="lprStatOut">126</div><div class="label">今日出园</div></div>
+              <div class="vehicle-stat-card bg-value"><div class="num text-value" id="lprStatNet">60</div><div class="label">净增车辆</div></div>
+            </div>
+            <div class="vehicle-spot-card" style="margin-top:16px">
+              <div class="header"><span class="label">车位剩余</span><span class="value">128<small> / 356 个</small></span></div>
+              <div class="desc">占用率约 64% · 地下车库 / 地面分区统计</div>
+            </div>
+          </div>
+        </div>
+        <div class="panel bigpanel">
+          <h3>实时过车 <small>RECENT PASS</small></h3>
+          <div class="panel-body">
+            <div class="alerts" id="lprEventList" data-lpr-live>
+              <div class="alert"><span class="badge">入园</span><span>访客车辆 鲁Q·3***8</span><span class="time">--:--</span></div>
+              <div class="alert"><span class="badge">入园</span><span>货运车辆 鲁Q·7***1</span><span class="time">--:--</span></div>
+              <div class="alert"><span class="badge">离园</span><span>员工车辆 鲁Q·2***6</span><span class="time">--:--</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section class="page fullgrid" data-name="视频监控">

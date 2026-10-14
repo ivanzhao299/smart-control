@@ -8,6 +8,8 @@ import {
 import { randomUUID } from 'crypto';
 import { RuntimeConfigStore } from '../../common/runtime-config/runtime-config.store';
 import {
+  buildLprSeedChannels,
+  buildLprSeedNvrs,
   CameraChannel,
   ChannelAiConfig,
   clampVideoPoint,
@@ -47,7 +49,19 @@ export interface CameraStreamBinding {
   name: string;
   alias: string;
   hikChannel: string;
-  nvr: Pick<NvrDevice, 'id' | 'name' | 'ip' | 'port' | 'rtspPort' | 'username' | 'password'>;
+  nvr: Pick<
+    NvrDevice,
+    | 'id'
+    | 'name'
+    | 'ip'
+    | 'port'
+    | 'rtspPort'
+    | 'username'
+    | 'password'
+    | 'rtspUrl'
+    | 'idleStopSeconds'
+    | 'hlsWidth'
+  >;
 }
 
 const LEGACY_CHANNEL_ALIASES: Readonly<Record<string, string>> = {
@@ -83,6 +97,47 @@ export class VideoBindingService implements OnModuleInit {
     this.config = current.value;
     this.configRevision = current.revision;
     console.info(`[VideoBinding] Loaded ${VIDEO_BINDING_CONFIG_KEY} revision ${current.revision}`);
+    // 8 台 LPR 种子合并只在真实运行时执行；NODE_ENV=test 时跳过，避免污染单元测试的
+    // 纯净 fixture；也可用 SKIP_LPR_SEED=true 显式关闭。
+    if (process.env.NODE_ENV !== 'test' && process.env.SKIP_LPR_SEED !== 'true') {
+      await this.ensureLprSeedBindings();
+    }
+  }
+
+  /**
+   * 幂等合并 8 台车牌/道闸相机种子（首次部署 / 升级到含视频墙的版本时自动登记）。
+   * 只追加缺失项，不覆盖现场已存在或已修改的配置，也不影响海康 NVR。
+   * 现场若要停用某台，请把该通道/设备置为 enabled=false（按 id 删除会在下次启动被种子补回）。
+   */
+  private ensureLprSeedBindings(now = new Date().toISOString()): Promise<void> {
+    return this.mutate('onModuleInit lpr camera seed', (draft) => {
+      const existingNvrIds = new Set(draft.nvrs.map((n) => n.id));
+      const existingChannelIds = new Set(draft.channels.map((c) => c.id));
+      const seedNvrList = buildLprSeedNvrs(now);
+      const seedNvrs = seedNvrList.filter((n) => !existingNvrIds.has(n.id));
+      const seedChannels = buildLprSeedChannels(now).filter((c) => !existingChannelIds.has(c.id));
+      // 已存在的车牌种子 NVR：幂等同步“代码管辖的派生参数”（空闲停止秒数/输出宽），
+      // 不覆盖现场可能修改的 RTSP 地址、账号口令、启用状态（这些仍以现场配置为准）。
+      let synced = 0;
+      for (const n of draft.nvrs) {
+        const seed = seedNvrList.find((s) => s.id === n.id);
+        if (!seed) continue;
+        if (n.idleStopSeconds !== seed.idleStopSeconds || n.hlsWidth !== seed.hlsWidth) {
+          n.idleStopSeconds = seed.idleStopSeconds;
+          n.hlsWidth = seed.hlsWidth;
+          synced += 1;
+        }
+      }
+      if (!seedNvrs.length && !seedChannels.length && synced === 0) {
+        return { changed: false, select: () => undefined };
+      }
+      draft.nvrs.push(...seedNvrs);
+      draft.channels.push(...seedChannels);
+      console.info(
+        `[VideoBinding] 车牌相机种子合并: +${seedNvrs.length} NVR, +${seedChannels.length} channel, 同步派生参数 ${synced} 台`,
+      );
+      return { changed: true, select: () => undefined };
+    });
   }
 
   private cloneConfig(config = this.config): VideoBindingConfig {
@@ -220,6 +275,9 @@ export class VideoBindingService implements OnModuleInit {
           'username',
           'brand',
           'enabled',
+          'rtspUrl',
+          'idleStopSeconds',
+          'hlsWidth',
         ] as const) {
           const value = data[field];
           if (value !== undefined) (next[field] as typeof value) = value;
@@ -527,6 +585,9 @@ export class VideoBindingService implements OnModuleInit {
         rtspPort: nvr.rtspPort,
         username: nvr.username,
         password: nvr.password,
+        rtspUrl: nvr.rtspUrl,
+        idleStopSeconds: nvr.idleStopSeconds,
+        hlsWidth: nvr.hlsWidth,
       },
     };
   }

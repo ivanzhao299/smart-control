@@ -304,7 +304,7 @@ onMounted(refresh);
         <el-button type="primary" :loading="saving" @click="submit">保存</el-button>
       </el-form-item>
       <el-form-item v-else>
-        <span class="hint">当前为只读角色（硬件工程师），仅可核对 APP 版本信息；如需调整推送开关，请联系运营配置员或管理员。</span>
+        <span class="hint">当前为只读角色，仅可核对 APP 版本信息并下载 APK；如需调整推送开关，请联系运营配置员或管理员。</span>
       </el-form-item>
     </el-form>
   </section>

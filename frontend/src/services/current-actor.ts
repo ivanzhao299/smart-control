@@ -1,9 +1,14 @@
-import { computed, ref, onMounted, onScopeDispose } from 'vue';
-import { api, getAdminToken, getClientToken } from './http';
-import { onIdentityChange, invalidateIdentity } from './identity-boundary';
-import type { MediaItem } from './media.service';
+import { computed, ref, onMounted, onScopeDispose } from "vue";
+import { api, getAdminToken, getClientToken } from "./http";
+import { onIdentityChange, invalidateIdentity } from "./identity-boundary";
+import type { MediaItem } from "./media.service";
 
-export interface CurrentActor { kind: 'user' | 'admin' | 'legacy'; userId: number | null; username: string; role: 'admin' | 'operator' | 'viewer' }
+export interface CurrentActor {
+  kind: "user" | "admin" | "legacy";
+  userId: number | null;
+  username: string;
+  role: "admin" | "operator" | "viewer";
+}
 /** Server-authoritative, fail-closed role state for mounted UI. */
 export function useCurrentActor() {
   const actor = ref<CurrentActor | null>(null);
@@ -12,13 +17,19 @@ export function useCurrentActor() {
   let timer: ReturnType<typeof setInterval> | undefined;
   async function refreshActor() {
     const request = ++revision;
-    if (!getAdminToken() && !getClientToken()) { actor.value = null; return; }
+    if (!getAdminToken() && !getClientToken()) {
+      actor.value = null;
+      return;
+    }
     try {
-      const result = await api.get<CurrentActor>('/client-auth/me');
+      const result = await api.get<CurrentActor>("/client-auth/me");
       if (!disposed && request === revision) {
         // Role revocation must also evict already-rendered administrator data,
         // not merely hide buttons while leaving the private list visible.
-        if (actor.value && JSON.stringify(actor.value) !== JSON.stringify(result)) {
+        if (
+          actor.value &&
+          JSON.stringify(actor.value) !== JSON.stringify(result)
+        ) {
           invalidateIdentity();
           return;
         }
@@ -39,11 +50,27 @@ export function useCurrentActor() {
     // immediately rather than leave them read-only until the next 30s poll.
     if (!disposed) void refreshActor();
   });
-  onMounted(() => { void refreshActor(); timer = setInterval(() => void refreshActor(), 30_000); });
-  onScopeDispose(() => { disposed = true; revision++; actor.value = null; unsubscribe(); if (timer) clearInterval(timer); });
-  const isAdmin = computed(() => actor.value?.role === 'admin');
-  const canOperate = computed(() => isAdmin.value || actor.value?.role === 'operator');
-  const canEditMedia = (media: MediaItem) => media.source !== 'system' && (isAdmin.value ||
-    (actor.value?.role === 'operator' && actor.value.userId !== null && media.ownerUserId === actor.value.userId && media.visibility === 'private'));
+  onMounted(() => {
+    void refreshActor();
+    timer = setInterval(() => void refreshActor(), 30_000);
+  });
+  onScopeDispose(() => {
+    disposed = true;
+    revision++;
+    actor.value = null;
+    unsubscribe();
+    if (timer) clearInterval(timer);
+  });
+  const isAdmin = computed(() => actor.value?.role === "admin");
+  const canOperate = computed(
+    () => isAdmin.value || actor.value?.role === "operator",
+  );
+  // 上传者本人可编辑自己上传的资料（含公共资料的文件名/删除），不再要求必须为私人
+  const canEditMedia = (media: MediaItem) =>
+    media.source !== "system" &&
+    (isAdmin.value ||
+      (actor.value?.role === "operator" &&
+        actor.value.userId !== null &&
+        media.ownerUserId === actor.value.userId));
   return { actor, isAdmin, canOperate, canEditMedia, refreshActor };
 }

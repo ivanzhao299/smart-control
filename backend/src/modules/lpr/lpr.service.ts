@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, MoreThan, Repository } from 'typeorm';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
@@ -35,6 +30,7 @@ import type {
   GateOpenDto,
   GateStatusBody,
   LprStats,
+  LprHourlyPoint,
   PassRecordView,
   PlatformConfigUpdateDto,
   PlatformConfigView,
@@ -81,7 +77,10 @@ function clampCloseGateIo(v: unknown, fallback: number | null): number | null {
  * 显式配置 closeGateIo 优先 (仅当现场接线与默认规律不同才需在后台覆盖);
  * 未配置时自动取开闸 IO 的下一路; 若开闸已在最高路 (3), 回退同路。
  */
-function effectiveCloseGateIoOf(dev: { gateIo?: number | null; closeGateIo?: number | null }): number {
+function effectiveCloseGateIoOf(dev: {
+  gateIo?: number | null;
+  closeGateIo?: number | null;
+}): number {
   if (dev.closeGateIo !== null && dev.closeGateIo !== undefined) {
     const c = Number(dev.closeGateIo);
     if (Number.isInteger(c) && c >= 0 && c <= 3) return c;
@@ -230,8 +229,14 @@ export class LprService {
   }
 
   private async toDeviceView(d: LprDevice, now: number): Promise<DeviceView> {
-    const gate = await this.gateRepo.findOne({ where: { serialno: d.serialno }, order: { id: 'DESC' } });
-    const last = await this.passRepo.findOne({ where: { serialno: d.serialno }, order: { id: 'DESC' } });
+    const gate = await this.gateRepo.findOne({
+      where: { serialno: d.serialno },
+      order: { id: 'DESC' },
+    });
+    const last = await this.passRepo.findOne({
+      where: { serialno: d.serialno },
+      order: { id: 'DESC' },
+    });
     // 道闸展示态: 相机真实上报优先; GPIO 开关量道闸无杆位反馈时用最近指令推断; 都没有则按安全常态默认关。
     const real = gate?.gateStatus;
     let gateState: number;
@@ -258,7 +263,10 @@ export class LprService {
       gateIo: d.gateIo,
       closeGateIo: d.closeGateIo ?? null,
       closeGateIoEffective: effectiveCloseGateIoOf(d),
-      gateConnected: gate?.connectStatus === null || gate?.connectStatus === undefined ? null : gate.connectStatus === 1,
+      gateConnected:
+        gate?.connectStatus === null || gate?.connectStatus === undefined
+          ? null
+          : gate.connectStatus === 1,
       passDirection: d.passDirection,
       online: this.isOnline(d, now),
       lastHeartbeat: d.lastHeartbeat ? new Date(d.lastHeartbeat).toISOString() : null,
@@ -285,7 +293,8 @@ export class LprService {
     if (dto.location !== undefined) dev.location = dto.location;
     if (dto.channel !== undefined) dev.channel = dto.channel;
     if (dto.gateIo !== undefined) dev.gateIo = clampGateIo(dto.gateIo, dev.gateIo);
-    if (dto.closeGateIo !== undefined) dev.closeGateIo = clampCloseGateIo(dto.closeGateIo, dev.closeGateIo);
+    if (dto.closeGateIo !== undefined)
+      dev.closeGateIo = clampCloseGateIo(dto.closeGateIo, dev.closeGateIo);
     if (dto.passDirection !== undefined) dev.passDirection = normalizeDirection(dto.passDirection);
     if (dto.enabled !== undefined) dev.enabled = dto.enabled;
     if (dto.webUser !== undefined) dev.webUser = dto.webUser?.trim() || null;
@@ -332,8 +341,10 @@ export class LprService {
       if (dto.location !== undefined) dev.location = dto.location?.trim() || null;
       if (dto.channel !== undefined) dev.channel = dto.channel;
       if (dto.gateIo !== undefined) dev.gateIo = clampGateIo(dto.gateIo, dev.gateIo);
-      if (dto.closeGateIo !== undefined) dev.closeGateIo = clampCloseGateIo(dto.closeGateIo, dev.closeGateIo);
-      if (dto.passDirection !== undefined) dev.passDirection = normalizeDirection(dto.passDirection);
+      if (dto.closeGateIo !== undefined)
+        dev.closeGateIo = clampCloseGateIo(dto.closeGateIo, dev.closeGateIo);
+      if (dto.passDirection !== undefined)
+        dev.passDirection = normalizeDirection(dto.passDirection);
       if (dto.enabled !== undefined) dev.enabled = dto.enabled;
       if (dto.webUser !== undefined) dev.webUser = dto.webUser?.trim() || null;
       if (dto.webPassword !== undefined) dev.webPassword = dto.webPassword?.trim() || null;
@@ -352,7 +363,10 @@ export class LprService {
    * 历史台账保留。注意: 若该相机仍在线并继续 comet/推送, 会被 touchDevice 自动重新登记,
    * 因此该操作仅对真正停用、不再上报的设备有效。
    */
-  async removeDevice(id: number, operator: string): Promise<{ id: number; serialno: string; deviceName: string }> {
+  async removeDevice(
+    id: number,
+    operator: string,
+  ): Promise<{ id: number; serialno: string; deviceName: string }> {
     const dev = await this.deviceRepo.findOne({ where: { id } });
     if (!dev) throw new NotFoundException('设备不存在');
     const snap = { id: dev.id, serialno: dev.serialno, deviceName: dev.deviceName, ip: dev.ip };
@@ -399,8 +413,10 @@ export class LprService {
     if (dto.cometPath !== undefined) cfg.cometPath = normalizePath(dto.cometPath, cfg.cometPath);
     if (dto.platePath !== undefined) cfg.platePath = normalizePath(dto.platePath, cfg.platePath);
     if (dto.gioPath !== undefined) cfg.gioPath = normalizePath(dto.gioPath, cfg.gioPath);
-    if (dto.serialPath !== undefined) cfg.serialPath = normalizePath(dto.serialPath, cfg.serialPath);
-    if (dto.gateStatusPath !== undefined) cfg.gateStatusPath = normalizePath(dto.gateStatusPath, cfg.gateStatusPath);
+    if (dto.serialPath !== undefined)
+      cfg.serialPath = normalizePath(dto.serialPath, cfg.serialPath);
+    if (dto.gateStatusPath !== undefined)
+      cfg.gateStatusPath = normalizePath(dto.gateStatusPath, cfg.gateStatusPath);
     if (dto.note !== undefined) cfg.note = dto.note?.trim() || null;
     await this.platformRepo.save(cfg);
     this.logger.log(`LPR 平台接入配置已更新: host=${cfg.host}`);
@@ -571,10 +587,12 @@ export class LprService {
     const r = body.result ?? {};
     const rawStatus = r.gate_status ?? body.gate_status;
     const gateStatus = Number(rawStatus);
-    if (rawStatus === undefined || rawStatus === null || Number.isNaN(gateStatus)) return { ok: true };
+    if (rawStatus === undefined || rawStatus === null || Number.isNaN(gateStatus))
+      return { ok: true };
     const rawConnect = r.connect_status ?? body.connect_status;
     const rawEnable = r.enable ?? body.enable;
-    const connectStatus = rawConnect === undefined || rawConnect === null ? null : Number(rawConnect);
+    const connectStatus =
+      rawConnect === undefined || rawConnect === null ? null : Number(rawConnect);
     const enabled = rawEnable === undefined || rawEnable === null ? null : Number(rawEnable);
     const channel = body.channel ?? null;
     const dev = await this.touchDevice(serialno, { channel });
@@ -640,7 +658,12 @@ export class LprService {
       action: before ? 'update' : 'create',
       operator,
       snapshotBefore: before,
-      snapshotAfter: { plate: saved.plate, groupName: saved.groupName, isBlack: saved.isBlack, enable: saved.enable },
+      snapshotAfter: {
+        plate: saved.plate,
+        groupName: saved.groupName,
+        isBlack: saved.isBlack,
+        enable: saved.enable,
+      },
       remark: '车牌白名单维护',
     });
     return saved;
@@ -667,7 +690,11 @@ export class LprService {
 
   /** 组装待下发白名单 (≤5 条), 组装后标记已下发 (阶段0: 下发给本次轮询相机) */
   private async takeWhitelistInner(): Promise<Record<string, unknown> | null> {
-    const pending = await this.wlRepo.find({ where: { syncState: 'pending' }, order: { id: 'ASC' }, take: WL_BATCH });
+    const pending = await this.wlRepo.find({
+      where: { syncState: 'pending' },
+      order: { id: 'ASC' },
+      take: WL_BATCH,
+    });
     if (pending.length === 0) return null;
     const whiteListData = pending.map((w) => ({
       plate: w.plate,
@@ -685,7 +712,10 @@ export class LprService {
 
   // ============================ 远程开闸 + comet ============================
 
-  async openGate(dto: GateOpenDto, operator = 'pwa'): Promise<{ delivered: boolean; queued: boolean; serialno: string; deviceName: string }> {
+  async openGate(
+    dto: GateOpenDto,
+    operator = 'pwa',
+  ): Promise<{ delivered: boolean; queued: boolean; serialno: string; deviceName: string }> {
     const dev = await this.resolveDevice(dto);
     const inner = { info: 'ok', channelNum: dev.gateIo, delay: dto.delay ?? 0 };
     // 短轮询: 命令入队, 由相机下一次 comet 轮询 (~1s) 取走, 保证不因子连接早断而丢失。
@@ -794,11 +824,20 @@ export class LprService {
   // ============================ 查询 / 统计 ============================
 
   async recent(limit = 20): Promise<PassRecordView[]> {
-    const rows = await this.passRepo.find({ order: { id: 'DESC' }, take: Math.min(Number(limit) || 20, 100) });
+    const rows = await this.passRepo.find({
+      order: { id: 'DESC' },
+      take: Math.min(Number(limit) || 20, 100),
+    });
     return rows.map((r) => this.toView(r));
   }
 
-  async records(q: { plate?: string; serialno?: string; date?: string; limit?: number; offset?: number }): Promise<{ list: PassRecordView[]; total: number }> {
+  async records(q: {
+    plate?: string;
+    serialno?: string;
+    date?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ list: PassRecordView[]; total: number }> {
     const take = Math.min(Number(q.limit) || 50, 200);
     const skip = Number(q.offset) || 0;
     const where: Record<string, unknown> = {};
@@ -809,14 +848,22 @@ export class LprService {
       const end = new Date(`${q.date}T23:59:59.999`);
       where.createdAt = Between(start, end);
     }
-    const [rows, total] = await this.passRepo.findAndCount({ where, order: { id: 'DESC' }, take, skip });
+    const [rows, total] = await this.passRepo.findAndCount({
+      where,
+      order: { id: 'DESC' },
+      take,
+      skip,
+    });
     return { list: rows.map((r) => this.toView(r)), total };
   }
 
   async stats(): Promise<LprStats> {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
-    const today = await this.passRepo.find({ where: { createdAt: MoreThan(start) }, order: { id: 'DESC' } });
+    const today = await this.passRepo.find({
+      where: { createdAt: MoreThan(start) },
+      order: { id: 'DESC' },
+    });
     const todayIn = today.filter((r) => r.passDirection === 'in');
     const todayOut = today.filter((r) => r.passDirection === 'out');
     const totalIn = await this.passRepo.count({ where: { passDirection: 'in' } });
@@ -828,6 +875,26 @@ export class LprService {
     const abnormal = today.filter(
       (r) => r.isFake === 1 || r.isDanger === 1 || r.releaseResult === 'deny',
     ).length;
+    // 今日按小时出入聚合（仅数字，供大屏“通行时段”图）
+    const hourly: LprHourlyPoint[] = Array.from({ length: 24 }, (_, hour) => ({
+      hour,
+      in: 0,
+      out: 0,
+    }));
+    for (const r of today) {
+      const h = new Date(r.createdAt).getHours();
+      if (r.passDirection === 'in') hourly[h].in += 1;
+      else if (r.passDirection === 'out') hourly[h].out += 1;
+    }
+    // 白名单/黑名单/到期统计（在册数只统计启用）
+    const whitelist = await this.wlRepo.find();
+    const now = new Date();
+    const in7 = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const blacklistCount = whitelist.filter((w) => w.isBlack).length;
+    const whitelistCount = whitelist.filter((w) => !w.isBlack && w.enable).length;
+    const expiringCount = whitelist.filter(
+      (w) => !w.isBlack && w.overdueTime !== null && w.overdueTime >= now && w.overdueTime <= in7,
+    ).length;
     return {
       todayIn: todayIn.length,
       todayOut: todayOut.length,
@@ -836,6 +903,10 @@ export class LprService {
       abnormal,
       autoReleased: today.filter((r) => r.releaseResult === 'auto').length,
       totalToday: today.length,
+      hourly,
+      whitelistCount,
+      blacklistCount,
+      expiringCount,
     };
   }
 
@@ -873,7 +944,12 @@ export class LprService {
 
   // ============================ 抓拍图 ============================
 
-  private saveSnap(b64: string | undefined, serialno: string, plateId: string, kind: 'small' | 'big'): string | null {
+  private saveSnap(
+    b64: string | undefined,
+    serialno: string,
+    plateId: string,
+    kind: 'small' | 'big',
+  ): string | null {
     if (!b64) return null;
     try {
       const buf = Buffer.from(b64, 'base64');

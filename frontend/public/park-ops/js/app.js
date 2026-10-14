@@ -39,7 +39,7 @@ function playTestSounds(){console.log('依次播放6种翻页音效...');const n
 // 切换音效类型：在控制台输入 setSoundType(1~6)
 function setSoundType(n){currentSoundType=Math.max(1,Math.min(6,parseInt(n)||6));console.log(`已切换到音效${currentSoundType}`);playPageSwitchSound()}
 function go(n){if(switching)return;const next=(n+pages.length)%pages.length;if(next===idx)return;try{playPageSwitchSound();switching=true;const direction=next>idx?'right':'left';const oldPage=pages[idx],newPage=pages[next];
-oldPage.classList.remove('active');oldPage.classList.add(direction==='right'?'slide-out-left':'slide-out-right');oldPage.querySelectorAll('video').forEach(v=>{if(!v.paused)v.pause()});newPage.classList.remove('slide-out-left','slide-out-right');newPage.classList.add('active');newPage.querySelectorAll('video').forEach(v=>{if(v.paused&&v.dataset.hlsInitialized==='true')v.play().catch(()=>{})});idx=next;render();if(newPage.dataset.name==='视频监控'&&typeof fetchAiStats==='function'){setTimeout(fetchAiStats,100)}setTimeout(()=>{oldPage.classList.remove('slide-out-left','slide-out-right');switching=false},550)}catch(e){console.error('[ParkOps] 翻页出错:',e);switching=false}finally{setTimeout(()=>{if(switching){switching=false;console.warn('[ParkOps] 翻页超时保护: switching已强制重置')}},2000)}}document.getElementById('prev').onclick=()=>go(idx-1);document.getElementById('next').onclick=()=>go(idx+1);document.addEventListener('keydown',e=>{const target=e.target;if(e.defaultPrevented||e.isComposing||document.body.classList.contains('park-editing')||(target instanceof Element&&target.closest('input,textarea,select,button,[contenteditable]:not([contenteditable="false"]),.park-editor-shell')))return;if(e.key==='ArrowLeft')go(idx-1);if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();go(idx+1)}});
+oldPage.classList.remove('active');oldPage.classList.add(direction==='right'?'slide-out-left':'slide-out-right');oldPage.querySelectorAll('video').forEach(v=>{if(!v.paused)v.pause()});if(oldPage.dataset.name==='人车管理'&&window.ParkOpsHls)window.ParkOpsHls.stop(oldPage);newPage.classList.remove('slide-out-left','slide-out-right');newPage.classList.add('active');newPage.querySelectorAll('video').forEach(v=>{if(v.paused&&v.dataset.hlsInitialized==='true')v.play().catch(()=>{})});if(newPage.dataset.name==='人车管理'&&window.ParkOpsHls)void window.ParkOpsHls.start(newPage);if(newPage.dataset.name==='人车管理'&&window.LprPanel)window.LprPanel.refresh();idx=next;render();if(newPage.dataset.name==='视频监控'&&typeof fetchAiStats==='function'){setTimeout(fetchAiStats,100)}setTimeout(()=>{oldPage.classList.remove('slide-out-left','slide-out-right');switching=false},550)}catch(e){console.error('[ParkOps] 翻页出错:',e);switching=false}finally{setTimeout(()=>{if(switching){switching=false;console.warn('[ParkOps] 翻页超时保护: switching已强制重置')}},2000)}}document.getElementById('prev').onclick=()=>go(idx-1);document.getElementById('next').onclick=()=>go(idx+1);document.addEventListener('keydown',e=>{const target=e.target;if(e.defaultPrevented||e.isComposing||document.body.classList.contains('park-editing')||(target instanceof Element&&target.closest('input,textarea,select,button,[contenteditable]:not([contenteditable="false"]),.park-editor-shell')))return;if(e.key==='ArrowLeft')go(idx-1);if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();go(idx+1)}});
 document.getElementById('auto').onclick=function(){if(timer){clearInterval(timer);timer=null;this.textContent='自动轮播：关';this.classList.remove('on')}else{timer=setInterval(()=>go(idx+1),12000);this.textContent='自动轮播：开';this.classList.add('on')}};render();
 // 远程翻页控制 (PWA播放控制卡片 → 运营大屏)
 (function initRemoteControl(){
@@ -98,7 +98,8 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
 
 // 摄像头HLS流畅视频流
 (function initCameraHls(){
-  const cams=document.querySelectorAll('.cam-hls[data-camera]');
+  // 全局常驻集合：排除“人车管理”视频墙的 lpr-cam（那 8 路只在翻到该页时按需拉流、翻走即停）
+  const cams=document.querySelectorAll('.cam-hls[data-camera]:not(.lpr-cam)');
   if(!cams.length)return;
 
   const API_BASE='/api/cameras';
@@ -129,6 +130,58 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
   window.teardownHlsWithin=function(root){
     if(!root||!root.querySelectorAll)return;
     root.querySelectorAll('video').forEach(destroyHlsForVideo);
+  };
+
+  // 视频墙（人车管理页 lpr-cam）按需拉流：翻到该页 start，翻走 stop。
+  // 不进全局常驻集合，避免 8 路一进大屏就常驻；stop 后由后端空闲停止兜底真正停 ffmpeg。
+  //
+  // 单路自愈：8 路并发拉 RTSP 时，个别路可能因首帧慢/竞态在首轮没出画。10s 后仍黑屏的，
+  // 重新 ensure 并重建播放器一次；timer 挂在 video._hlsTimers，stop 时随 destroyHlsForVideo 清掉。
+  function armWallRetry(cam){
+    const video=cam.querySelector('.cam-video');
+    if(!video)return;
+    const channel=cam.dataset.camera;
+    video.dataset.wallArmed='1';
+    const retry=setTimeout(async ()=>{
+      if(video.dataset.wallArmed!=='1')return; // 已翻走 stop
+      if(video.videoWidth>0)return;          // 已出画，无需自愈
+      console.warn(`[ParkOps] 视频墙 ${channel} 首帧未出画，重新拉起一次`);
+      try{ await startHlsStream(channel); }catch(e){}
+      if(video.dataset.wallArmed!=='1')return;
+      destroyHlsForVideo(video);
+      video.removeAttribute('data-hls-initialized');
+      video.style.display='';
+      initHlsPlayer(cam);
+    },10000);
+    video._hlsTimers=Array.isArray(video._hlsTimers)?video._hlsTimers:[];
+    video._hlsTimers.push(retry);
+  }
+  window.ParkOpsHls={
+    async start(root){
+      if(!root)return;
+      const list=Array.from(root.querySelectorAll('.cam-hls.lpr-cam[data-camera]'));
+      if(!list.length)return;
+      // 先并行拉起后端转码（已在运行的会续期空闲计时，避免撞上空闲停止竞态）
+      await Promise.all(list.map(async (cam)=>{
+        try{ await startHlsStream(cam.dataset.camera); }catch(e){}
+      }));
+      await new Promise(r=>setTimeout(r,200));
+      list.forEach((cam)=>{ initHlsPlayer(cam); armWallRetry(cam); });
+    },
+    stop(root){
+      if(!root)return;
+      root.querySelectorAll('.lpr-cam').forEach((cam)=>{
+        const video=cam.querySelector('.cam-video');
+        const mock=cam.querySelector('.mock');
+        const name=cam.dataset.name||'';
+        if(video)video.dataset.wallArmed='0';
+        destroyHlsForVideo(video);
+        if(video){ video.pause(); video.removeAttribute('data-hls-initialized'); video.style.display='none'; }
+        if(mock){ mock.classList.remove('signal-lost'); mock.textContent=`${name} · HLS已停止`; mock.style.display='flex'; }
+        const liveEl=cam.querySelector('.live');
+        if(liveEl){ liveEl.classList.remove('live-offline'); liveEl.innerHTML='<span class="live-indicator"></span>LIVE'; }
+      });
+    }
   };
 
   function initHlsPlayer(cam){
@@ -199,6 +252,13 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
         // 性能优化
         enableSoftwareAES:false,          // 禁用软件AES解密（提高性能）
         renderTextTracksNatively:false,   // 禁用原生字幕渲染
+      });
+
+      // manifest 解析后显式 play（hls.js 官方推荐；不依赖 HTML autoplay，解决视频墙翻页后
+      // video 仍 display:none / 未触发 playing 的问题；已在播放时为幂等无影响）
+      hls.on(window.Hls.Events.MANIFEST_PARSED,()=>{
+        const pr=video.play();
+        if(pr&&pr.catch)pr.catch(()=>{});
       });
 
       hls.loadSource(playlistUrl);
@@ -282,7 +342,7 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
   let hlsInitialized=false;
   function tryInitHls(){
     if(hlsInitialized) return;
-    const allCams=document.querySelectorAll('.cam-hls[data-camera]');
+    const allCams=document.querySelectorAll('.cam-hls[data-camera]:not(.lpr-cam)');
     if(allCams.length>0){
       hlsInitialized=true;
       initAllCams().then(()=>{

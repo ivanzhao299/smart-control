@@ -10,6 +10,7 @@ import {
   ToggleParkOpsAutoDto,
 } from './dto/park-ops-control.dto';
 import { ParkOpsControlService } from './park-ops-control.service';
+import { ParkOpsGuard } from './park-ops-guard.guard';
 
 /** PWA 播放控制卡片与无人值守运营大屏之间的短轮询控制通道（默认现场主控，远程需接管）。 */
 @Controller('park-ops-control')
@@ -25,7 +26,11 @@ export class ParkOpsControlController {
     return { success: true, data: this.control.getState(consumeRefresh === 'true') };
   }
 
+  // 现场大屏(park-ops-screen)匿名登记主控；远程接管者(其它 ownerId)必须登录，由 ParkOpsGuard 拦截
+  @Public()
   @Post('claim')
+  @UseGuards(ParkOpsGuard)
+  @RateLimit({ max: 20, windowMs: 10_000 })
   claim(@Body() body: ClaimParkOpsControlDto) {
     return {
       success: true,
@@ -85,8 +90,9 @@ export class ParkOpsControlController {
    * 人车管理页远程开闸：复用大屏接管锁（现场未被接管时仅现场大屏可触发，接管期仅
    * 接管者可触发），叠加限流；实际开闸与审计由 LprService.openGate 完成，写操作可追溯。
    */
+  @Public()
   @Post('gate-open')
-  @UseGuards(RateLimitGuard)
+  @UseGuards(RateLimitGuard, ParkOpsGuard)
   @RateLimit({ max: 8, windowMs: 5000 })
   async gateOpen(@Body() body: GateOpenParkOpsDto) {
     const auth = this.control.gateAuthorization(body.ownerId);
@@ -111,8 +117,9 @@ export class ParkOpsControlController {
    * LprService.closeGate 完成（走通用 IO 控制，对落杆继电器发先通后断脉冲）。
    * 未配置关闸 IO 的通道（靠地感自动落杆）由 LprService 返回 400。
    */
+  @Public()
   @Post('gate-close')
-  @UseGuards(RateLimitGuard)
+  @UseGuards(RateLimitGuard, ParkOpsGuard)
   @RateLimit({ max: 8, windowMs: 5000 })
   async gateClose(@Body() body: GateOpenParkOpsDto) {
     const auth = this.control.gateAuthorization(body.ownerId);

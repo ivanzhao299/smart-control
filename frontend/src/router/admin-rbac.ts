@@ -34,6 +34,7 @@ interface ModuleRule {
 
 const HARDWARE: UserRole = 'hardware';
 const CONFIG: UserRole = 'config';
+const OPERATOR: UserRole = 'operator';
 
 export const MODULE_RULES: Record<AdminModule, ModuleRule> = {
   monitor: { write: [], read: [HARDWARE, CONFIG] },
@@ -45,9 +46,10 @@ export const MODULE_RULES: Record<AdminModule, ModuleRule> = {
   // 品牌管理（系统名称 / Logo / 品牌标识）仅管理员，运营/硬件角色菜单隐藏；
   // 欢迎页内容编辑在前台 LED，走独立角色白名单，不归本模块。
   branding: { write: [], read: [] },
-  // APP 版本：config 改运营开关(启停/强制更新/最低兼容/更新说明), hardware 只读核对;
-  // 版本号/下载地址由 CI/受控部署维护, 前端按是否 admin 再置灰技术字段。
-  'app-release': { write: [CONFIG], read: [HARDWARE, CONFIG] },
+  // APP 版本：config 改运营开关(启停/强制更新/最低兼容/更新说明), hardware 只读核对,
+  // operator(展厅操作员)只读下载 APK; 版本号/下载地址由 CI/受控部署维护, 前端按是否
+  // admin 再置灰技术字段。
+  'app-release': { write: [CONFIG], read: [HARDWARE, CONFIG, OPERATOR] },
   devices: { write: [HARDWARE] },
   hardware: { write: [HARDWARE] },
   zones: { write: [HARDWARE] },
@@ -59,8 +61,8 @@ export const MODULE_RULES: Record<AdminModule, ModuleRule> = {
   system: { write: [], read: [] },
 };
 
-/** 可登录后台的角色。 */
-export const BACKEND_ROLES: UserRole[] = ['admin', 'hardware', 'config'];
+/** 可登录后台的角色（operator 仅自助改密码 + 只读下载 APK，其余模块隐藏）。 */
+export const BACKEND_ROLES: UserRole[] = ['admin', 'hardware', 'config', 'operator'];
 
 /** 后台菜单/页面是否可见（admin 或在 write/read 中）。 */
 export function canAccessAdminModule(role: UserRole | undefined, module: AdminModule): boolean {
@@ -80,6 +82,8 @@ export function canWriteAdminModule(role: UserRole | undefined, module: AdminMod
 export function defaultAdminRoute(role: UserRole | undefined): string {
   if (role === 'hardware') return 'admin-devices';
   if (role === 'config') return 'admin-scenes';
+  // 展厅操作员登录后台仅为下载 APK，直接落到 APP 版本页。
+  if (role === 'operator') return 'admin-app-release';
   return 'admin-monitor';
 }
 
@@ -87,6 +91,6 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   admin: '管理员',
   hardware: '硬件工程师',
   config: '运营配置员',
-  operator: '操作员',
+  operator: '展厅操作员',
   viewer: '只读账户',
 };
