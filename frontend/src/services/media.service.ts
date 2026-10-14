@@ -1,11 +1,7 @@
-import axios, { type AxiosProgressEvent, type AxiosRequestConfig } from "axios";
-import { getApiBaseURL, getClientToken, getAdminToken } from "./http";
-import {
-  identityGeneration,
-  assertCurrentIdentity,
-  onIdentityChange,
-} from "./identity-boundary";
-export { MEDIA_UPLOAD_ACCEPT } from "../features/media-file-intake";
+import axios, { type AxiosProgressEvent, type AxiosRequestConfig } from 'axios';
+import { getApiBaseURL, getClientToken, getAdminToken } from './http';
+import { identityGeneration, assertCurrentIdentity, onIdentityChange } from './identity-boundary';
+export { MEDIA_UPLOAD_ACCEPT } from '../features/media-file-intake';
 
 /**
  * media 专用 axios(留着只为上传进度回调 —— http.ts 那套 fetch 没有 onUploadProgress)。
@@ -15,12 +11,7 @@ export { MEDIA_UPLOAD_ACCEPT } from "../features/media-file-intake";
  */
 // Capture identity synchronously with the URL, not in an asynchronous interceptor.
 // Fetch adapter prevents redirects (XHR cannot), and supports progress where the browser can stream requests.
-async function mediaRequest(
-  method: "GET" | "POST" | "PUT" | "DELETE",
-  url: string,
-  data?: unknown,
-  config: AxiosRequestConfig = {},
-) {
+async function mediaRequest(method: 'GET' | 'POST' | 'PUT' | 'DELETE', url: string, data?: unknown, config: AxiosRequestConfig = {}) {
   const generation = identityGeneration();
   const clientToken = getClientToken();
   const adminToken = getAdminToken();
@@ -28,12 +19,9 @@ async function mediaRequest(
   const unsubscribe = onIdentityChange(() => controller.abort());
   try {
     const result = await axios.request({
-      ...config,
-      method,
-      url,
-      data,
-      adapter: "fetch",
-      fetchOptions: { redirect: "error", cache: "no-store" },
+      ...config, method, url, data,
+      adapter: 'fetch',
+      fetchOptions: { redirect: 'error', cache: 'no-store' },
       withCredentials: false,
       signal: controller.signal,
       headers: {
@@ -42,16 +30,13 @@ async function mediaRequest(
         // preserves it (unlike Chromium), adding a disallowed CORS preflight
         // header even for list reads. false prevents Axios from re-inserting it;
         // the browser must supply its own User-Agent. Keep redirect/auth isolation.
-        "User-Agent": false,
-        ...(clientToken ? { "X-Client-Token": clientToken } : {}),
+        'User-Agent': false,
+        ...(clientToken ? { 'X-Client-Token': clientToken } : {}),
         ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}),
       },
-      onUploadProgress: config.onUploadProgress
-        ? (event) => {
-            if (generation === identityGeneration())
-              config.onUploadProgress?.(event);
-          }
-        : undefined,
+      onUploadProgress: config.onUploadProgress ? (event) => {
+        if (generation === identityGeneration()) config.onUploadProgress?.(event);
+      } : undefined,
     });
     assertCurrentIdentity(generation);
     return result;
@@ -63,13 +48,10 @@ async function mediaRequest(
   }
 }
 const mediaHttp = {
-  get: (url: string, config?: AxiosRequestConfig) =>
-    mediaRequest("GET", url, undefined, config),
-  post: (url: string, data?: unknown, config?: AxiosRequestConfig) =>
-    mediaRequest("POST", url, data, config),
-  put: (url: string, data?: unknown, config?: AxiosRequestConfig) =>
-    mediaRequest("PUT", url, data, config),
-  delete: (url: string) => mediaRequest("DELETE", url),
+  get: (url: string, config?: AxiosRequestConfig) => mediaRequest('GET', url, undefined, config),
+  post: (url: string, data?: unknown, config?: AxiosRequestConfig) => mediaRequest('POST', url, data, config),
+  put: (url: string, data?: unknown, config?: AxiosRequestConfig) => mediaRequest('PUT', url, data, config),
+  delete: (url: string) => mediaRequest('DELETE', url),
 };
 
 /**
@@ -85,11 +67,11 @@ const base = (): string => getApiBaseURL();
 
 export interface MediaItem {
   ownerUserId: number | null;
-  visibility: "private" | "shared";
-  source: "upload" | "legacy" | "system" | "webpage" | "import";
+  visibility: 'private' | 'shared';
+  source: 'upload' | 'legacy' | 'system' | 'webpage' | 'import';
   id: number;
   originalName: string;
-  kind: "video" | "image" | "audio" | "webpage" | "doc";
+  kind: 'video' | 'image' | 'audio' | 'webpage' | 'doc';
   mimeType: string;
   sizeBytes: number;
   durationSec: number | null;
@@ -100,48 +82,30 @@ export interface MediaItem {
   fileUrl: string;
   lastPlayedAt: string | null;
   createdAt: string;
-  processingStatus: "ready" | "pending" | "processing" | "failed";
+  processingStatus: 'ready' | 'pending' | 'processing' | 'failed';
   processingError: string | null;
 }
 
-interface ListResult {
-  items: MediaItem[];
-  total: number;
-}
+interface ListResult { items: MediaItem[]; total: number }
 
 export interface OrphanMediaItem {
   relPath: string;
   name: string;
   sizeBytes: number;
-  kind: "video" | "image" | "audio" | "doc" | null;
+  kind: 'video' | 'image' | 'audio' | 'doc' | null;
 }
 
 export const mediaService = {
-  async access(
-    id: number,
-    variant: "file" | "pdf" = "file",
-  ): Promise<{ url: string; expiresAt: string }> {
-    const response = await mediaHttp.post(`${base()}/media/${id}/access`, {
-      variant,
-    });
-    if (!response.data?.data?.url) throw new Error("无法获得资料预览授权");
+  async access(id: number, variant: 'file' | 'pdf' = 'file'): Promise<{ url: string; expiresAt: string }> {
+    const response = await mediaHttp.post(`${base()}/media/${id}/access`, { variant });
+    if (!response.data?.data?.url) throw new Error('无法获得资料预览授权');
     return response.data.data;
   },
-  async list(
-    opts: {
-      kind?: "video" | "image" | "audio" | "webpage" | "doc";
-      scope?: "visible" | "mine" | "shared";
-      ownerUserId?: number;
-      keyword?: string;
-      limit?: number;
-      offset?: number;
-    } = {},
-  ): Promise<ListResult> {
+  async list(opts: { kind?: 'video' | 'image' | 'audio' | 'webpage' | 'doc'; scope?: 'visible' | 'mine' | 'shared'; ownerUserId?: number; keyword?: string; limit?: number; offset?: number } = {}): Promise<ListResult> {
     const params: Record<string, string> = {};
     if (opts.kind) params.kind = opts.kind;
     if (opts.scope) params.scope = opts.scope;
-    if (opts.ownerUserId !== undefined)
-      params.ownerUserId = String(opts.ownerUserId);
+    if (opts.ownerUserId !== undefined) params.ownerUserId = String(opts.ownerUserId);
     if (opts.keyword) params.keyword = opts.keyword;
     if (opts.limit !== undefined) params.limit = String(opts.limit);
     if (opts.offset !== undefined) params.offset = String(opts.offset);
@@ -152,7 +116,7 @@ export const mediaService = {
   /** 添加网页 URL 作为媒体 (可推到 LED/投影 iframe 播放) */
   async createWebpage(name: string, url: string): Promise<MediaItem> {
     const r = await mediaHttp.post(`${base()}/media/webpage`, { name, url });
-    if (!r.data?.data) throw new Error(r.data?.message || "添加网页失败");
+    if (!r.data?.data) throw new Error(r.data?.message || '添加网页失败');
     return r.data.data;
   },
 
@@ -162,10 +126,10 @@ export const mediaService = {
     opts: { remark?: string; onProgress?: (pct: number) => void } = {},
   ): Promise<MediaItem> {
     const fd = new FormData();
-    fd.append("file", file);
-    if (opts.remark) fd.append("remark", opts.remark);
+    fd.append('file', file);
+    if (opts.remark) fd.append('remark', opts.remark);
     const r = await mediaHttp.post(`${base()}/media/upload`, fd, {
-      headers: { "X-Upload-Size": String(file.size) },
+      headers: { 'X-Upload-Size': String(file.size) },
       // 不要手写 Content-Type: 'multipart/form-data' —— 那样没有 boundary, 后端解析不出文件。
       // 交给 axios/浏览器按 FormData 自动带 boundary。(之前被 401 挡着没暴露, token 修好后就会露)
       timeout: 30 * 60 * 1000, // 30 分钟 (大视频)
@@ -177,7 +141,7 @@ export const mediaService = {
         }
       },
     });
-    if (!r.data?.data) throw new Error(r.data?.message || "上传失败");
+    if (!r.data?.data) throw new Error(r.data?.message || '上传失败');
     return r.data.data;
   },
 
@@ -185,10 +149,11 @@ export const mediaService = {
     await mediaHttp.delete(`${base()}/media/${id}`);
   },
 
-  /** 重命名（上传者本人可改自己上传的资料；仅改文件名，不动归属/可见范围） */
+  /** 重命名（文件名/备注）；上传者本人可改自己的资料，管理员可改任意 */
   async rename(id: number, originalName: string): Promise<MediaItem> {
     const r = await mediaHttp.put(`${base()}/media/${id}`, { originalName });
-    return r.data?.data;
+    if (!r.data?.data) throw new Error(r.data?.message || '重命名失败');
+    return r.data.data;
   },
 
   async prepare(id: number): Promise<void> {
@@ -203,19 +168,14 @@ export const mediaService = {
 
   /** 把某个孤儿文件收编成正式媒体库资源 */
   async importOrphan(relPath: string, remark?: string): Promise<MediaItem> {
-    const r = await mediaHttp.post(`${base()}/media/orphans/import`, {
-      relPath,
-      remark,
-    });
-    if (!r.data?.data) throw new Error(r.data?.message || "收编失败");
+    const r = await mediaHttp.post(`${base()}/media/orphans/import`, { relPath, remark });
+    if (!r.data?.data) throw new Error(r.data?.message || '收编失败');
     return r.data.data;
   },
 
-  async publish(
-    id: number,
-  ): Promise<{ id: number; name: string; player: string }> {
+  async publish(id: number): Promise<{ id: number; name: string; player: string }> {
     const r = await mediaHttp.post(`${base()}/media/${id}/publish`);
-    if (!r.data?.data) throw new Error(r.data?.message || "推送失败");
+    if (!r.data?.data) throw new Error(r.data?.message || '推送失败');
     return r.data.data;
   },
 

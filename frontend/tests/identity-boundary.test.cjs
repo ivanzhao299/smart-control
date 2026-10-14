@@ -255,7 +255,9 @@ test('operator can edit only own private media; viewer cannot edit', async () =>
   env.http.setClientToken('valid'); const state = env.useActor(); await state.refreshActor();
   assert.equal(state.canEditMedia({ ownerUserId: 1, visibility: 'private' }), true);
   assert.equal(state.canEditMedia({ ownerUserId: 2, visibility: 'private' }), false);
-  assert.equal(state.canEditMedia({ ownerUserId: 1, visibility: 'shared' }), false);
+  // 任务 #29：owner 是自己的 shared 也可改文件名/备注（后端 owner 细粒度鉴权）；他人的 shared 仍不行
+  assert.equal(state.canEditMedia({ ownerUserId: 1, visibility: 'shared' }), true);
+  assert.equal(state.canEditMedia({ ownerUserId: 2, visibility: 'shared' }), false);
   assert.equal(state.canEditMedia({ ownerUserId: 1, visibility: 'private', source: 'system' }), false);
   role = 'viewer'; await state.refreshActor(); await state.refreshActor();
   assert.equal(state.canEditMedia({ ownerUserId: 1, visibility: 'private' }), false);
