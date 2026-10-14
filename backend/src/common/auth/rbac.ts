@@ -56,7 +56,10 @@ export const MODULE_ACCESS: Record<AdminModule, ModuleAccessRule> = {
   scheduler: { write: [CONFIG], readRestricted: true },
   energy: { write: [CONFIG] },
   metrics: { write: [CONFIG] },
-  branding: { write: [CONFIG] },
+  // 品牌管理（系统名称 / Logo / 品牌标识）仅管理员；运营/硬件角色在后台菜单中隐藏。
+  // 注意：欢迎页内容（welcome-schemes / welcome 就地编辑 / welcome-assets 删图）走独立
+  // RolesGuard 白名单（admin/operator/config），不归本模块，前台 LED 欢迎页编辑不受影响。
+  branding: { write: [], read: [], readRestricted: true },
   // APP 版本：运营开关(启停/强制更新/最低兼容/更新说明) config 可写, hardware 只读核对；
   // 版本号/下载地址由 CI/受控部署流程维护, 非 admin 在 controller 层再硬隔离(改不了技术字段)。
   'app-release': { write: [CONFIG], read: [HARDWARE, CONFIG], readRestricted: true },

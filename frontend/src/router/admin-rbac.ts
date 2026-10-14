@@ -42,7 +42,9 @@ export const MODULE_RULES: Record<AdminModule, ModuleRule> = {
   scheduler: { write: [CONFIG] },
   energy: { write: [CONFIG] },
   metrics: { write: [CONFIG] },
-  branding: { write: [CONFIG] },
+  // 品牌管理（系统名称 / Logo / 品牌标识）仅管理员，运营/硬件角色菜单隐藏；
+  // 欢迎页内容编辑在前台 LED，走独立角色白名单，不归本模块。
+  branding: { write: [], read: [] },
   // APP 版本：config 改运营开关(启停/强制更新/最低兼容/更新说明), hardware 只读核对;
   // 版本号/下载地址由 CI/受控部署维护, 前端按是否 admin 再置灰技术字段。
   'app-release': { write: [CONFIG], read: [HARDWARE, CONFIG] },

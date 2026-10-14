@@ -8,7 +8,7 @@ import { useRoute, useRouter } from 'vue-router';
 // - PWA standalone 启动也仍然全屏 (manifest display: fullscreen 接管)
 // - AlertBanner 已移除, 告警走后台 /admin/alerts
 // - 场景反馈走顶部 inline toast
-import { Activity, KeyRound, Maximize2, Minimize2, MoreHorizontal, Sun, Moon } from 'lucide-vue-next';
+import { Activity, KeyRound, LogOut, Maximize2, Minimize2, MoreHorizontal, Sun, Moon } from 'lucide-vue-next';
 import { theme, toggleTheme } from '@/services/theme.service';
 import ErrorBoundary from '@/components/ErrorBoundary.vue';
 import ServerSettingsDialog from '@/components/ServerSettingsDialog.vue';
@@ -21,6 +21,8 @@ import { useSystemStore } from '@/stores/system';
 import { useSceneStore } from '@/stores/scene';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { useToastStore } from '@/stores/toast';
+import { useClientAuthStore } from '@/stores/client-auth';
+import { useAdminAuthStore } from '@/stores/admin-auth';
 import {
   idleMainRouteNames,
   loadMainRoute,
@@ -261,6 +263,19 @@ function openChangePassword(): void {
   moreOpen.value = false;
   showChangePassword.value = true;
 }
+/** 退出登录：清前台会话（若有后台会话一并清掉），回到登录页。平板侧栏 / 手机「更多」抽屉共用。 */
+const clientAuth = useClientAuthStore();
+const adminAuth = useAdminAuthStore();
+async function logout(): Promise<void> {
+  moreOpen.value = false;
+  clientAuth.logout();
+  try {
+    await adminAuth.logout();
+  } catch {
+    /* 后台会话可能本就不存在，忽略退出接口错误 */
+  }
+  await router.replace({ name: 'client-login' });
+}
 /** 当前页在「更多」里时, 让「更多」按钮也高亮 —— 否则点进去后底栏没有任何选中态 */
 const moreActive = computed(() => toolNavs.some((n) => n.name === route.name));
 
@@ -276,6 +291,7 @@ const MORE_CHIP_COLORS: Record<string, string> = {
   'admin-devices': '#4C9AFF',
   theme: '#9D8BFF',
   password: '#F0897A',
+  logout: '#E5484D',
 };
 function moreChipStyle(name: string): Record<string, string> {
   const c = MORE_CHIP_COLORS[name] ?? '#4C9AFF';
@@ -387,6 +403,15 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
           <KeyRound :size="22" :stroke-width="1.8" />
           <span class="v2-nav-label">修改密码</span>
         </button>
+        <!-- 退出登录：清当前会话回登录页（平板/主控机侧栏与手机「更多」抽屉各一入口） -->
+        <button
+          class="v2-nav-item v2-nav-tool"
+          title="退出登录"
+          @click="logout"
+        >
+          <LogOut :size="22" :stroke-width="1.8" />
+          <span class="v2-nav-label">退出登录</span>
+        </button>
         <!-- 手机竖屏 (底栏): tools 收进「更多」, 保证每个触摸目标 >=44pt。
              实测 390px 塞 9 个每个只有 42px, 低于 Apple HIG 下限; 6+1 个则是 55px。 -->
         <button
@@ -449,6 +474,13 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
                 <KeyRound :size="24" :stroke-width="1.9" />
               </span>
               <span>修改密码</span>
+            </button>
+            <!-- 退出登录：清当前会话回登录页（服务器地址保留） -->
+            <button class="v2-more-item" @click="logout">
+              <span class="more-ico" :style="moreChipStyle('logout')">
+                <LogOut :size="24" :stroke-width="1.9" />
+              </span>
+              <span>退出登录</span>
             </button>
           </div>
         </div>

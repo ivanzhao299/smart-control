@@ -184,10 +184,12 @@ export class SystemBrandingController {
   /**
    * 删除欢迎页图片时由服务端先清理全部方案及已发布快照中的引用，再删除媒体文件。
    * 这样不会留下“方案仍指向已删除文件”的悬空配置。
+   * 该操作属于欢迎页编辑闭环（唯一调用方是前台 LED 欢迎页编辑器），与品牌主体管理不同，
+   * 故沿用 welcome-schemes 的角色白名单（admin/operator/config），不随品牌管理收回仅 admin。
    */
   @Delete('welcome-assets/:mediaId')
-  @UseGuards(ModuleAccessGuard)
-  @ModuleAccess('branding')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operator', 'config')
   async removeWelcomeAsset(
     @Param('mediaId', ParseIntPipe) mediaId: number,
     @Query('expectedRevision') expectedRevisionRaw: string,

@@ -7,6 +7,7 @@ import {
   type AdminModule,
 } from './rbac';
 import { MODULE_ACCESS_KEY } from '../decorators/module-access.decorator';
+import { ROLES_KEY } from '../decorators/roles.decorator';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { ModuleAccessGuard } from '../guards/module-access.guard';
 import { ActorAdminGuard } from '../guards/actor-admin.guard';
@@ -69,10 +70,16 @@ describe('RBAC module matrix', () => {
   });
 
   it('config can write config modules but not hardware modules', () => {
-    for (const m of ['alerts', 'scenes', 'scheduler', 'energy', 'metrics', 'branding'] as AdminModule[]) {
+    for (const m of ['alerts', 'scenes', 'scheduler', 'energy', 'metrics'] as AdminModule[]) {
       expect(canWriteModule('config', m)).toBe(true);
       expect(canAccessModule('config', m)).toBe(true);
     }
+    // 品牌管理仅管理员：config 不可见、不可写（欢迎页内容编辑走独立 RolesGuard，不在此模块）
+    expect(canWriteModule('config', 'branding')).toBe(false);
+    expect(canAccessModule('config', 'branding')).toBe(false);
+    // hardware 同样看不到品牌管理
+    expect(canWriteModule('hardware', 'branding')).toBe(false);
+    expect(canAccessModule('hardware', 'branding')).toBe(false);
     for (const m of ['devices', 'hardware', 'zones', 'video', 'lpr', 'uat'] as AdminModule[]) {
       expect(canWriteModule('config', m)).toBe(false);
       expect(canAccessModule('config', m)).toBe(false);
@@ -236,13 +243,20 @@ describe('RBAC controller bindings', () => {
     }
   });
 
-  it('keeps the shared park-ops layout admin-only but opens branding/welcome to config', () => {
+  it('keeps park-ops layout and brand body admin-only, while welcome editing stays open to operators/config', () => {
     const proto = SystemBrandingController.prototype as any;
     // 大屏布局（影响整屏显示）维持仅 admin
     expect(Reflect.getMetadata(GUARDS_METADATA, proto.updateParkOps)).toContain(AdminGuard);
-    // 品牌主体 / 欢迎页图片删除归 config 模块
+    // 品牌主体（系统名称 / Logo）走 branding 模块，矩阵里该模块 write/read 均空，仅 admin
     expect(Reflect.getMetadata(GUARDS_METADATA, proto.update)).toContain(ModuleAccessGuard);
     expect(Reflect.getMetadata(MODULE_ACCESS_KEY, proto.update)).toBe('branding');
-    expect(Reflect.getMetadata(GUARDS_METADATA, proto.removeWelcomeAsset)).toContain(ModuleAccessGuard);
+    // 欢迎页删图属于欢迎页编辑闭环（唯一调用方是前台 LED 编辑器）：改用 RolesGuard 白名单，
+    // operator/config 仍能在前台删自己欢迎页图片；品牌主体收回 admin 不影响该闭环。
+    expect(Reflect.getMetadata(GUARDS_METADATA, proto.removeWelcomeAsset)).toContain(RolesGuard);
+    expect(Reflect.getMetadata(ROLES_KEY, proto.removeWelcomeAsset)).toEqual([
+      'admin',
+      'operator',
+      'config',
+    ]);
   });
 });
