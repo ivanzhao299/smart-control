@@ -156,17 +156,50 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
     video._hlsTimers=Array.isArray(video._hlsTimers)?video._hlsTimers:[];
     video._hlsTimers.push(retry);
   }
+  // 单路冷启动等待：先轮询 playlist 直到后端 ffmpeg 产出（冷启动约 20-30s），再初始化播放器。
+  // 解决“200ms 就 loadSource → playlist 不存在 → HLS 重试放弃/10s 重建时还没 ready → 50s 才出画”的时序问题。
+  // 翻走 stop 时 video.dataset.wallArmed='0'，立即中止等待，不初始化残留播放器。
+  async function waitPlaylistAndInit(cam){
+    const video=cam.querySelector('.cam-video');
+    const channel=cam.dataset.camera;
+    const start=Date.now();
+    const WAIT_MS=30000;
+    let ready=false;
+    while(Date.now()-start<WAIT_MS){
+      if(video&&video.dataset.wallArmed!=='1')return;
+      try{
+        const r=await fetch(`${API_BASE}/${channel}/hls/playlist.m3u8`);
+        if(r.ok){
+          // 确认 playlist 已引用至少一个分片（ffmpeg 可能先建空 playlist）
+          const text=await r.text();
+          if(/\.ts/.test(text)){ready=true;break;}
+        }
+      }catch(e){}
+      await new Promise(r=>setTimeout(r,1500));
+    }
+    if(video&&video.dataset.wallArmed!=='1')return;
+    if(!ready)console.warn(`[ParkOps] 等待playlist超时仍尝试初始化 (${channel})`);
+    initHlsPlayer(cam);
+    armWallRetry(cam);
+  }
   window.ParkOpsHls={
     async start(root){
       if(!root)return;
       const list=Array.from(root.querySelectorAll('.cam-hls.lpr-cam[data-camera]'));
       if(!list.length)return;
-      // 先并行拉起后端转码（已在运行的会续期空闲计时，避免撞上空闲停止竞态）
+      // 进入即标记 armed、置“正在连接”，避免冷启动期间显示旧的黑屏/信号中断
+      list.forEach((cam)=>{
+        const video=cam.querySelector('.cam-video');
+        const mock=cam.querySelector('.mock');
+        if(video){video.dataset.wallArmed='1';video.style.display='none';}
+        if(mock){mock.classList.remove('signal-lost');mock.textContent=`${cam.dataset.name||''} · 正在连接相机…`;mock.style.display='flex';}
+      });
+      // 第一步：并行拉起后端转码（冷启动 ensure 可能等待至 ffmpeg 产出；失败也不影响，ffmpeg 已在后台继续启动）
       await Promise.all(list.map(async (cam)=>{
         try{ await startHlsStream(cam.dataset.camera); }catch(e){}
       }));
-      await new Promise(r=>setTimeout(r,200));
-      list.forEach((cam)=>{ initHlsPlayer(cam); armWallRetry(cam); });
+      // 第二步：每路独立轮询 playlist 直到 200，就绪后再初始化播放器（先 ready 的先出画，不再过早 loadSource）
+      await Promise.all(list.map((cam)=>waitPlaylistAndInit(cam)));
     },
     stop(root){
       if(!root)return;

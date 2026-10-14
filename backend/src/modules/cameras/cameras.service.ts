@@ -307,8 +307,9 @@ export class CamerasService implements OnModuleDestroy, OnApplicationBootstrap {
     this.clearOrphanFfmpeg(channelKey);
     session.process = this.spawnSessionFfmpeg(channelKey, session, rtspUrl, session.generation);
 
-    // 等待播放列表文件生成
-    await this.waitForFile(playlistPath, 15000);
+    // 等待播放列表文件生成（冷启动 ffmpeg 连 RTSP/首帧约 20-30s，放宽到 30s 避免 ensure 过早报 400；
+    // 前端仍会独立轮询 playlist 兜底，不依赖 ensure 一定成功）
+    await this.waitForFile(playlistPath, 30000);
 
     return {
       playlistUrl: `/api/cameras/${channelKey}/hls/playlist.m3u8`,

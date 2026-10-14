@@ -1,6 +1,15 @@
 
 ## ★ 最新状态（2026-10-14，优先于本文件一切历史快照）
 
+- **【2026-10-14 修复「人车管理」视频墙首次翻页冷启动时序（任务 #34/#35，代码落地、本地验收全绿，工作树未提交，待用户确认后 push 部署）：冷启动由"50s 陆续出画、反复黑屏、误报信号中断"改为"25s 一次性全出画、期间稳定显示正在连接"】**
+  - **真实根因（前后端时序不匹配）**：后端 `startHlsStream` spawn ffmpeg 后 `await waitForFile(playlistPath, 15000)`——生产冷启动 ffmpeg 连 RTSP/首帧约 20-30s，超 15s 则 waitForFile reject → ensure 返回 400（但 ffmpeg 已在后台继续启动，约 20-30s 后才产出 playlist）。前端 `ParkOpsHls.start` 在 ensure 后仅等 200ms 就 `initHlsPlayer`(loadSource)，此时 playlist 不存在 → HLS.js manifest 加载失败（manifestLoadingMaxRetry 仅 3 次/每次 500ms，约 2s 放弃）；`armWallRetry` 10s 后重建一次（10s 时后端还没 ready，又失败）；`connectTimeout` 15s 显示"信号中断"。实测生产冷启动日志：6-9s 个别路闪一下被 10s 重建销毁、10-21s 全黑、22-50s 靠残留重试陆续连上、**50s 才 8 路全出画**。
+  - **修复（前端主导轮询 + 后端放宽超时双保险）**：
+    - 前端 `js/app.js`：新增 `waitPlaylistAndInit(cam)`——进入即标记 armed、mock 显"正在连接相机…"，然后每 1.5s 轮询 playlist，**必须 GET 200 且文本含 `.ts` 分片**才返回，最长等 30s；期间 `video.dataset.wallArmed!=='1'`（翻走 stop 置 0）立即中止。`ParkOpsHls.start` 改为：先并行 ensure（失败也不阻塞，ffmpeg 后台继续）→ 再 `Promise.all(每路 waitPlaylistAndInit)`，playlist 就绪后才 initHlsPlayer（一次成功，不再过早 loadSource、不被 10s 重建销毁）。
+    - 后端 `cameras.service.ts`：`waitForFile(playlistPath, 15000)` → **30000**（让 ensure 冷启动更可能直接成功；前端仍独立轮询兜底，不依赖 ensure 结果）。
+  - **本地验收（2026-10-14，dev 3200 新 dist、前端 5173，已关闭自动轮播）**：冷启动实测 **0-24s 全 0（稳定显示"正在连接相机…"）→ 25s 一次性 8 路全出画**（不再闪/误报），8 路 video display 全 Y、mock 全 N；前端单测 **285 pass**、vue-tsc **0 错**、vite build 成功（PWA 109 预缓存）；后端 cameras jest **51 pass**。证据 `验收截图/人车管理-冷启动25s全出画-修复后-20261014.png`。
+  - **改动文件 2 个**：前端 `public/park-ops/js/app.js`、后端 `src/modules/cameras/cameras.service.ts`。
+  - **待办**：①用户确认后 push main 走 deploy-gk9000.yml（三端同 commit、CI 全绿、生产真生效）；②其余历史遗留见下（d37/d57/p3-d37 三路 AI 生产置 false、海康密码、远程关闸现场接线、三人 config 归属）。
+
 - **【2026-10-14 续 operator 三件事（任务 #31/#32/#33，代码落地、本地验收全绿，工作树未提交，待用户确认后 push 部署）：①修复"操作员登录 PWA 密码正确却进不了前台"②给 operator 开后台极简权限（仅自助改密码 + 只读下载 APK）③显示名"操作员"→"展厅操作员"】**
   - **① operator 进不了前台（真实根因，前端 401 兜底误清 token）**：用 pinia 真实登录发现 login 成功后 isAuthed 短暂 true（token/expiresAt 正确），1–2s 后回落 false，localStorage 里 token/expires 被删而 SERVER_KEY 保留（`markSessionExpired()` 特征，区别于 logout 连 SERVER_KEY 一起删）。monkey-patch window.fetch 抓到唯一 401 是 **`GET /api/admin/auth/me`**，调用栈：adminMe → admin-auth store `ensureChecked` → `router/index.ts` 前台守卫（第 88 行，client 登录后探测"是否后台命名角色"）。后端 `BackendSessionGuard` 检查 role 不在当时 `BACKEND_ROLES=['admin','hardware','config']` → operator 抛 401「该账号无权进入后台」；前端 `http.ts` 全局 401 兜底正则只排除了 `admin/auth/login`、**未排除 `admin/auth/me`**，于是该 401 触发 App.vue 全局 onUnauthorized → 非 admin 路径下调 `clientAuth.markSessionExpired()` 清掉刚建的 client token、弹回登录。admin/hardware/config 因在 BACKEND_ROLES、/me 200 无此问题。
   - **修复（两层都做，互为加固）**：(a) 前端 `http.ts` 401 兜底排除正则扩展为 `/(client-auth\/(login|ping)|admin\/auth\/(login|me))/`（含注释：admin/auth/me 是后台会话探测、只影响后台身份、两套鉴权独立，其 401 对非后台角色如 viewer 是正常结果、绝不据此清前台 token）；(b) 后端把 operator 加入 BACKEND_ROLES（见②），operator 的 /me 直接返回 200 authenticated:true。**(a) 对 viewer 仍必需：viewer 不在 BACKEND_ROLES、/me 会 401，不排除就会误清 viewer 前台 token。**
