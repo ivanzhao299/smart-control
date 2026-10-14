@@ -25,7 +25,10 @@ import { join, resolve } from 'path';
 import { resolveRuntimeDataDir } from '../../common/storage/runtime-data-path';
 import { FrontendRelease, FrontendReleaseWatcher } from './frontend-release';
 
-type SocketSession = { kind: 'user'; token: string; admin: boolean } | { kind: 'player'; token: string; slot: number };
+type SocketSession =
+  | { kind: 'user'; token: string; admin: boolean }
+  | { kind: 'player'; token: string; slot: number }
+  | { kind: 'public' };
 type SocketIdentity = Actor | { kind: 'player'; slot: number };
 
 interface ClientHello {
@@ -146,6 +149,24 @@ export class StatusGateway
     this.sendHello(client);
   }
 
+  /**
+   * 匿名公共频道（供无人值守运营大屏，无登录态）。
+   * 大屏人车管理页只需要“过车/道闸状态”这两类本就公开的事件（REST recent/stats 同为 @Public，
+   * 车牌信息本就在门岗大屏公开展示）。公共频道：
+   *   - 不接受任何 token、不解析任何身份；
+   *   - 服务端仅向其广播 lpr_pass / lpr_gate_status，其余事件一律不下发（见 sendAuthorized）；
+   *   - 不订阅任何指令类消息，无法通过该连接写操作。
+   */
+  @SubscribeMessage('subscribe_public')
+  subscribePublic(@ConnectedSocket() client: WebSocket): void {
+    if (this.sessions.has(client)) {
+      client.close(4401, 'Reconnect to change identity');
+      return;
+    }
+    this.sessions.set(client, { kind: 'public' });
+    this.sendHello(client);
+  }
+
   private sendHello(client: WebSocket): void {
     clearTimeout(this.authTimers.get(client));
     this.authTimers.delete(client);
@@ -253,6 +274,7 @@ export class StatusGateway
           if (this.sessions.get(client) === session) return { kind: 'player', slot: session.slot };
           return null;
         }
+        if (session.kind === 'public') return null; // 公共频道匿名连接，无身份可解析
         const actor: Actor | null = session.admin
           ? await this.adminAuth.verifyToken(session.token) ? { kind: 'admin', userId: null, username: 'admin', role: 'admin' } : null
           : await this.clientAuth.resolveActor(session.token);
@@ -265,6 +287,14 @@ export class StatusGateway
   }
 
   private async sendAuthorized(client: WebSocket, event: ControlEvent | FrontendRelease): Promise<void> {
+    const session = this.sessions.get(client);
+    // 公共频道：仅放行两类本就公开的 LPR 事件，其余（含设备状态/控制/快照等）一律不下发。
+    if (session?.kind === 'public') {
+      if (event.type === 'lpr_pass' || event.type === 'lpr_gate_status') {
+        this.safeSend(client, event);
+      }
+      return;
+    }
     const actor = await this.resolve(client);
     if (!actor) return;
     if (event.type === 'frontend_release') { this.safeSend(client, event); return; }

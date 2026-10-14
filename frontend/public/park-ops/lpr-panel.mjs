@@ -22,7 +22,7 @@ if (page) {
   const css = `
   #lprGateControls{flex:1 1 auto;min-height:0;margin:12px 0 4px;display:flex;flex-direction:column;gap:5px;overflow-y:auto;scrollbar-width:none}
   #lprGateControls::-webkit-scrollbar{width:0;height:0;display:none}
-  .page[data-name="人车管理"] .panel-body>*:not(#lprGateControls){flex:0 0 auto}
+  .page[data-name="人车管理"] .panel-body>*:not(#lprGateControls):not(#lprEventList){flex:0 0 auto}
   .lpr-ctrl-row{display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:9px;
     background:rgba(34,211,238,.06);border:1px solid rgba(34,211,238,.16)}
   .lpr-dot{width:10px;height:10px;border-radius:50%;flex:none}
@@ -51,7 +51,13 @@ if (page) {
   .lpr-flash{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:9999;
     padding:12px 22px;border-radius:10px;font-size:16px;font-weight:600;color:#e6edf6;
     background:rgba(15,20,28,.94);border:1px solid rgba(34,211,238,.3);opacity:0;transition:opacity .2s;pointer-events:none}
-  .lpr-flash.show{opacity:1}.lpr-flash.err{border-color:rgba(248,113,113,.5)}`;
+  .lpr-flash.show{opacity:1}.lpr-flash.err{border-color:rgba(248,113,113,.5)}
+  /* 实时过车：条目在条数少时弹性均分、充满卡片；条数多时按最小高度自然滚动 */
+  .gate-side #lprEventList .alert{flex:1 0 auto;min-height:58px;min-width:0}
+  .gate-side #lprEventList .lpr-empty-slot{flex:1 0 auto;display:flex;align-items:center;justify-content:center;color:#8aa0b4;font-size:15px}
+  /* 新记录顶部高亮淡入（即时更新的视觉反馈） */
+  .gate-side #lprEventList .alert.lpr-new{animation:lprNewFlash 2.6s ease both}
+  @keyframes lprNewFlash{0%{background:rgba(34,211,238,.30);box-shadow:inset 0 0 0 1px rgba(34,211,238,.65)}100%{background:rgba(255,255,255,.035);box-shadow:none}}`;
   const style = document.createElement('style');
   style.textContent = css;
   document.head.append(style);
@@ -68,17 +74,26 @@ if (page) {
     flashTimer = setTimeout(() => flashEl.classList.remove('show'), 2600);
   }
 
+  // fetch 超时保护：视频墙多路 HLS 可能占满同源连接，避免列表请求被无限挂起。
+  function fetchJSON(path, opts, timeoutMs = 6000) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    return fetch(API + path, { ...opts, signal: ctrl.signal, credentials: 'same-origin' })
+      .then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        return { r, j };
+      })
+      .finally(() => clearTimeout(timer));
+  }
   async function getJSON(path) {
-    const r = await fetch(API + path, { headers: { Accept: 'application/json' }, cache: 'no-store', credentials: 'same-origin' });
+    const { r, j } = await fetchJSON(path, { headers: { Accept: 'application/json' }, cache: 'no-store' });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return (await r.json())?.data;
+    return j?.data;
   }
   async function postJSON(path, body) {
-    const r = await fetch(API + path, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body), credentials: 'same-origin',
-    });
-    const j = await r.json().catch(() => ({}));
+    const { r, j } = await fetchJSON(path, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }, 10000);
     if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`);
     return j?.data;
   }
@@ -106,20 +121,63 @@ if (page) {
     setText('lprGateAbnormal', s.abnormal);
   }
 
+  // ---- 实时过车列表：即时增量 + 自动滚动 + 充满卡片 ----
+  const MAX_ROWS = 30;          // 列表最多保留条数（超出裁掉最旧的）
+  const knownIds = new Set();   // 已渲染记录 id（去重）
+
+  // 单条过车记录 HTML（最新在前，与轮询 recent 字段一致）
+  function alertHTML(r) {
+    const dir = r.passDirection === 'in' ? '入园' : r.passDirection === 'out' ? '离园' : '识别';
+    const abnormal = r.isFake === 1 || r.isDanger === 1 || r.releaseResult === 'deny';
+    const rel = r.releaseResult === 'auto' ? '· 自动放行'
+      : r.releaseResult === 'manual' ? '· 手动开闸'
+        : r.releaseResult === 'deny' ? '· 拦截' : '';
+    const meta = esc([r.plateColorLabel, r.plateTypeLabel].filter(Boolean).join(' '));
+    return `<div class="alert" data-id="${r.id ?? ''}"><span class="badge${abnormal ? ' lpr-badge-danger' : ''}">${dir}</span>`
+      + `<span>${esc(r.license)} <span class="lpr-rel">${meta} ${rel}</span></span><span class="time">${hm(r.eventTime)}</span></div>`;
+  }
+  const emptyHTML = '<div class="lpr-empty-slot">今日暂无过车</div>';
+
+  // 全量渲染（首次进入页面 / 重置对齐）
   function renderEvents(records) {
     const box = $('lprEventList');
     if (!box) return;
-    if (!records.length) { box.innerHTML = '<div class="alert"><span class="badge">记录</span><span>今日暂无过车</span><span class="time">--:--</span></div>'; return; }
-    box.innerHTML = records.slice(0, 8).map((r) => {
-      const dir = r.passDirection === 'in' ? '入园' : r.passDirection === 'out' ? '离园' : '识别';
-      const abnormal = r.isFake === 1 || r.isDanger === 1 || r.releaseResult === 'deny';
-      const rel = r.releaseResult === 'auto' ? '· 自动放行'
-        : r.releaseResult === 'manual' ? '· 手动开闸'
-          : r.releaseResult === 'deny' ? '· 拦截' : '';
-      const meta = esc([r.plateColorLabel, r.plateTypeLabel].filter(Boolean).join(' '));
-      return `<div class="alert"><span class="badge${abnormal ? ' lpr-badge-danger' : ''}">${dir}</span>`
-        + `<span>${esc(r.license)} <span class="lpr-rel">${meta} ${rel}</span></span><span class="time">${hm(r.eventTime)}</span></div>`;
-    }).join('');
+    knownIds.clear();
+    const list = Array.isArray(records) ? records : [];
+    if (!list.length) { box.innerHTML = emptyHTML; return; }
+    const kept = list.slice(0, MAX_ROWS);
+    box.innerHTML = kept.map(alertHTML).join('');
+    kept.forEach((r) => { if (r.id != null) knownIds.add(r.id); });
+    box.scrollTop = 0; // 全量渲染后定位到最新
+  }
+
+  // 单条新记录插入顶部（WebSocket 即时推送）。返回是否真正插入。
+  function prependRecord(r) {
+    const box = $('lprEventList');
+    if (!box || !r || r.id == null || knownIds.has(r.id)) return false;
+    if (box.querySelector('.lpr-empty-slot')) box.innerHTML = '';
+    const wrap = document.createElement('div');
+    wrap.innerHTML = alertHTML(r).trim();
+    const node = wrap.firstChild;
+    node.classList.add('lpr-new'); // 顶部高亮淡入
+    box.insertBefore(node, box.firstChild);
+    knownIds.add(r.id);
+    while (box.children.length > MAX_ROWS) {
+      const last = box.lastChild;
+      if (last.dataset.id) knownIds.delete(Number(last.dataset.id));
+      last.remove();
+    }
+    box.scrollTop = 0; // 自动滚到顶部，新记录立即可见
+    return true;
+  }
+
+  // 轮询兜底：WS 已实时插入的去重，仅补齐 WS 断线期间错过的记录（保留滚动/高亮，不全量重建）
+  function reconcileRecords(records) {
+    const list = Array.isArray(records) ? records : [];
+    if (!knownIds.size) { renderEvents(list); return; }
+    const fresh = list.filter((r) => r.id != null && !knownIds.has(r.id));
+    // recent 最新在前：从最旧的一条开始逐条 prepend，保证最新最终在最上
+    for (let i = fresh.length - 1; i >= 0; i--) prependRecord(fresh[i]);
   }
 
   // 视频墙下方 4 个聚合卡片：道闸状态 / 通行时段 / 异常 / 白名单
@@ -257,33 +315,122 @@ if (page) {
     } catch { claimedByOther = false; }
   }
 
+  // ---- WebSocket 公共频道（即时推送，主通道）；10s 轮询作兜底 ----
+  let publicWs = null;
+  let wsReconnectTimer = null;
+  let wsShouldRun = false;
+
+  function wsUrl() {
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    return `${proto}://${window.location.host}/ws/status`;
+  }
+
+  function connectPublicWs() {
+    wsShouldRun = true;
+    if (publicWs && (publicWs.readyState === WebSocket.OPEN || publicWs.readyState === WebSocket.CONNECTING)) return;
+    let ws;
+    try { ws = new WebSocket(wsUrl()); } catch { schedulePublicWsReconnect(); return; }
+    publicWs = ws;
+    ws.onopen = () => {
+      try { ws.send(JSON.stringify({ event: 'subscribe_public' })); } catch { /* ignore */ }
+    };
+    ws.onmessage = (msg) => {
+      let ev;
+      try { ev = JSON.parse(msg.data); } catch { return; }
+      if (ev.type === 'lpr_pass') {
+        // 用推送字段即时构造记录（车牌颜色/类型标签等缺失字段由轮询 recent 补齐，不影响即时展示）
+        prependRecord({
+          id: ev.recordId,
+          license: ev.license,
+          passDirection: ev.passDirection,
+          releaseResult: ev.releaseResult,
+          isFake: ev.isFake,
+          isDanger: ev.isDanger,
+          eventTime: ev.at,
+        });
+      }
+      // lpr_gate_status：道闸状态变化由 10s 轮询刷新按钮，避免此处频繁拉取
+    };
+    ws.onclose = () => { if (wsShouldRun) schedulePublicWsReconnect(); };
+    ws.onerror = () => { try { ws.close(); } catch { /* ignore */ } };
+  }
+
+  function schedulePublicWsReconnect() {
+    if (wsReconnectTimer) return;
+    wsReconnectTimer = setTimeout(() => {
+      wsReconnectTimer = null;
+      if (wsShouldRun && page.classList.contains('active')) connectPublicWs();
+    }, 3000);
+  }
+
+  function disconnectPublicWs() {
+    wsShouldRun = false;
+    if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
+    if (publicWs) { try { publicWs.close(); } catch { /* ignore */ } publicWs = null; }
+  }
+
   let primed = false; // 尚未接入任何相机时保留静态示意，避免上线初期空白
+  function applyData(statsRes, devRes, recRes) {
+    devices = Array.isArray(devRes) ? devRes : [];
+    const recs = Array.isArray(recRes) ? recRes : [];
+    if (devices.length > 0 || primed) {
+      primed = true;
+      renderStats(statsRes || {});
+      reconcileRecords(recs);
+      renderGateCards(statsRes, devices, recs);
+    }
+    renderControls();
+  }
+  async function fetchAll() {
+    const [statsRes, devRes, recRes] = await Promise.all([
+      getJSON('/lpr/stats'), getJSON('/lpr/devices'), getJSON('/lpr/recent?limit=20'),
+    ]);
+    applyData(statsRes, devRes, recRes);
+  }
   async function tick() {
     if (!page.classList.contains('active')) return;
     try {
-      const [statsRes, devRes, recRes] = await Promise.all([
-        getJSON('/lpr/stats'), getJSON('/lpr/devices'), getJSON('/lpr/recent?limit=8'),
-      ]);
-      devices = Array.isArray(devRes) ? devRes : [];
-      const recs = Array.isArray(recRes) ? recRes : [];
-      if (devices.length > 0 || primed) {
-        primed = true;
-        renderStats(statsRes || {});
-        renderEvents(recs);
-        renderGateCards(statsRes, devices, recs);
-      }
-      renderControls();
-    } catch { /* 后端暂不可用：保留上一帧，不清空 */ }
+      await fetchAll();
+    } catch { /* 超时/后端暂不可用：保留上一帧，不清空；WS 即时推送不受影响 */ }
+  }
+  // 预热：模块加载时通常停在综合态势页（视频墙未启动）。等页面 load 后（或 2s 兜底）
+  // 串行拉取一次，避开初始资源 / 多路 HLS 抢占同源连接导致首屏空白。
+  // 早期连接紧张可能超时，按 2s 间隔重试若干次，连接空闲后即可成功；翻页 refresh 与 10s 轮询也会兜底。
+  async function preload() {
+    const once = async () => {
+      const statsRes = await getJSON('/lpr/stats');
+      const devRes = await getJSON('/lpr/devices');
+      const recRes = await getJSON('/lpr/recent?limit=20');
+      applyData(statsRes, devRes, recRes);
+    };
+    let tries = 0;
+    const attempt = async () => {
+      tries += 1;
+      try { await once(); }
+      catch { if (tries < 8) setTimeout(attempt, 2000); }
+    };
+    let started = false;
+    const start = () => { if (started) return; started = true; void attempt(); };
+    window.addEventListener('load', start, { once: true });
+    setTimeout(start, 2000);
   }
 
   let wasActive = false;
   setInterval(() => {
     const active = page.classList.contains('active');
-    if (active && !wasActive) { void syncClaim().then(tick); }
+    if (active && !wasActive) {
+      connectPublicWs();
+      void syncClaim().then(tick);
+    }
+    if (!active && wasActive) disconnectPublicWs();
     wasActive = active;
     if (active) void tick();
   }, 10_000);
-  // 翻到“人车管理”页时由 app.js go() 立即调用，避免等 10s 轮询才渲染开关闸按钮。
-  window.LprPanel = { refresh: () => { void syncClaim().then(tick); } };
-  void syncClaim().then(tick);
+  // 翻到“人车管理”页时由 app.js go() 立即调用，避免等 10s 轮询才渲染；同时建立 WS 即时通道。
+  window.LprPanel = {
+    refresh: () => { connectPublicWs(); void syncClaim().then(tick); },
+  };
+  connectPublicWs();
+  void preload();
+  void syncClaim();
 }

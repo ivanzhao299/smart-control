@@ -395,12 +395,13 @@
   </main>
 </div>
 <script src="./js/app.js?v=20261009-branding-clean"></script>
+<!-- 实时过车面板为无依赖独立 ESM，放在 3D 模块队列最前，避免被 3D 模型/孪生模块加载阻塞（实时数据优先） -->
+<script type="module" src="./lpr-panel.mjs?v=20261014-realtime7"></script>
 <script type="module" src="./park-ops-3d.js?v=20260913-v4-performance-optimized" defer></script>
 <script type="module" src="./3d-twin/bootstrap.js?v=20260924-v1" defer></script>
 <script src="./park-ops-editor.js?v=20261012-lpr-live-fix" defer></script>
 <!-- Business content starts AFTER the existing editor registers its stable text keys. -->
 <script src="./ops-content.js?v=20260913-v4-performance-optimized"></script>
-<script type="module" src="./lpr-panel.mjs?v=20261012-lpr-stage0"></script>
 <script src="./js/editor.js?v=20260913-refactor"></script>
 
 <!-- PWA Service Worker 注册+自动更新检测 - 确保运营大屏每次部署后能自动加载最新版本 -->
