@@ -198,9 +198,9 @@ export function getUploadBaseURL(): string {
   if (lanProbe.state === 'ok' && lanProbe.endpoint) {
     return `${lanProbe.endpoint.replace(/\/+$/, '')}/api`;
   }
-  // 经典直连: 页面跑在 5173, 走 vite proxy 同源 /api (避免跨端口 CORS)
+  // 经典直连: 页面跑在 5173, 直连同主机 3200 (不走 vite proxy, 避免大文件缓冲/超时)
   if (typeof window !== 'undefined' && window.location.port === '5173') {
-    return '/api';
+    return `${window.location.protocol}//${window.location.hostname}:3200/api`;
   }
   return baseURL;
 }
