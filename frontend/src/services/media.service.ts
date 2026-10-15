@@ -18,9 +18,9 @@ async function mediaRequest(method: 'GET' | 'POST' | 'PUT' | 'DELETE', url: stri
   const controller = new AbortController();
   const unsubscribe = onIdentityChange(() => controller.abort());
   // 外部传入的 signal (用户点"取消上传") abort 时, 联动内部 controller
-  const externalSignal = config.signal;
+  const externalSignal = config.signal as AbortSignal | undefined;
   let cleanupExternal: (() => void) | null = null;
-  if (externalSignal instanceof AbortSignal) {
+  if (externalSignal && typeof externalSignal.addEventListener === 'function') {
     if (externalSignal.aborted) {
       controller.abort();
     } else {

@@ -194,8 +194,13 @@ export async function detectLanConnection(): Promise<void> {
 
 /** 上传专用 baseURL: 局域网探测成功时直连后端, 否则走默认 baseURL。 */
 export function getUploadBaseURL(): string {
+  // 异步探测成功: 用后端返回的局域网地址
   if (lanProbe.state === 'ok' && lanProbe.endpoint) {
     return `${lanProbe.endpoint.replace(/\/+$/, '')}/api`;
+  }
+  // 经典直连: 页面跑在 5173, 走 vite proxy 同源 /api (避免跨端口 CORS)
+  if (typeof window !== 'undefined' && window.location.port === '5173') {
+    return '/api';
   }
   return baseURL;
 }
