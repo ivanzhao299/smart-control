@@ -93,6 +93,33 @@ export interface GinlongConfig {
   timeoutMs: number;
 }
 
+/**
+ * em123 智慧能源管理平台 (预付费抄表 SaaS, 若依框架) 对接配置。
+ * 电表/水表经内置 4G 模组透传上云, 后端用账号密码登录拿 Cookie 会话,
+ * 定时只读拉取表档案/读数/余额/状态与日用量, 供运营大屏能源页展示。
+ * 用户名/密码只从 env 读取 (.env, 已 gitignore), 绝不入库; 本期只读不做拉合闸。
+ */
+export interface Em123Config {
+  /** 账号 + 密码齐全且未被 EM123_ENABLED=false 显式停用, 才真正拉取 */
+  enabled: boolean;
+  /** 默认 https://www.em123.cc */
+  baseUrl: string;
+  username: string;
+  password: string;
+  /** 拉取表档案/读数/状态的周期 ms, 默认 10 分钟 */
+  refreshMetersMs: number;
+  /** 拉取日用量(增量)的周期 ms, 默认 1 小时 */
+  refreshDailyMs: number;
+  /** 启动时回填多少天的日用量, 默认 180 天 */
+  bootstrapDays: number;
+  /** 拉取关口总表小时抄表(负荷曲线)的周期 ms, 默认 30 分钟 */
+  refreshHourlyMs: number;
+  /** 启动时回填多少天的关口总表小时负荷, 默认 7 天 (仅三相关口总表, 量小) */
+  bootstrapHourlyDays: number;
+  /** 单次请求超时 ms */
+  timeoutMs: number;
+}
+
 export interface RootConfig {
   app: AppConfig;
   database: DatabaseConfig;
@@ -101,6 +128,7 @@ export interface RootConfig {
   websocket: WebSocketConfig;
   testflight: TestFlightConfig;
   ginlong: GinlongConfig;
+  em123: Em123Config;
 }
 
 const parseBool = (v: string | undefined, fallback: boolean): boolean => {
@@ -231,6 +259,23 @@ export default (): RootConfig => ({
       keySecret,
       refreshIntervalMs: parseInt10(process.env.GINLONG_REFRESH_MS, 60_000),
       timeoutMs: parseInt10(process.env.GINLONG_TIMEOUT_MS, 12_000),
+    };
+  })(),
+  em123: (() => {
+    const username = firstNonEmpty(process.env.EM123_USERNAME);
+    const password = firstNonEmpty(process.env.EM123_PASSWORD);
+    const explicitlyDisabled = (process.env.EM123_ENABLED ?? '').toLowerCase() === 'false';
+    return {
+      enabled: !explicitlyDisabled && Boolean(username && password),
+      baseUrl: (process.env.EM123_BASE_URL ?? 'https://www.em123.cc').replace(/\/+$/, ''),
+      username,
+      password,
+      refreshMetersMs: parseInt10(process.env.EM123_REFRESH_METERS_MS, 10 * 60_000),
+      refreshDailyMs: parseInt10(process.env.EM123_REFRESH_DAILY_MS, 60 * 60_000),
+      bootstrapDays: parseInt10(process.env.EM123_BOOTSTRAP_DAYS, 180),
+      refreshHourlyMs: parseInt10(process.env.EM123_REFRESH_HOURLY_MS, 30 * 60_000),
+      bootstrapHourlyDays: parseInt10(process.env.EM123_BOOTSTRAP_HOURLY_DAYS, 7),
+      timeoutMs: parseInt10(process.env.EM123_TIMEOUT_MS, 120_000),
     };
   })(),
 });

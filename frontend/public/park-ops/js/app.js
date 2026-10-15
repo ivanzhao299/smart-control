@@ -821,18 +821,16 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
   window.initHlsPlayer = initHlsPlayer;
 })();
 
-/* ===== 能源中心：一次拉取后端 /api/energy/dashboard（真实光伏+云计量 / 园区全口径模型），60s 自动刷新 ===== */
+/* ===== 能源中心：一次拉取后端 /api/energy/dashboard（em123 真实电/水表 + 华普云 + 关口小时负荷），60s 自动刷新 ===== */
 (function initEnergyCenter(){
   const $=id=>document.getElementById(id);
   const CAT_COLORS={lighting:'#fbbf24',hvac:'#60a5fa',power:'#a78bfa',elevator:'#22d3ee',socket:'#f472b6'};
-  const padN=n=>String(n).padStart(2,'0');
-  function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+  const LOAD_COLORS=['#22d3ee','#60a5fa','#34d399'];
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
   function fmt(v,d){const x=Number(v);if(!isFinite(x))return '--';d=(d===undefined?0:d);return x.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});}
-  function loadColor(rate){return rate>=85?'#f87171':rate>=60?'#fbbf24':'#34d399';}
-  // 确定性“日系数”（以日期串为种子），让历史序列稳定、不随刷新跳变。
-  function seedFrom(s){let h=0;for(let i=0;i<s.length;i++){h=(h*31+s.charCodeAt(i))>>>0;}return h;}
-  function dayFactor(dateStr,weekendDip,amp){const d=new Date(dateStr+'T00:00:00');const dow=d.getDay();const base=(dow===0||dow===6)?(1-weekendDip):1;const jitter=1+(((seedFrom(dateStr)%1000)/1000-0.5)*2*amp);return Math.max(0.05,base*jitter);}
-  function localDateStr(dt){return dt.getFullYear()+'-'+padN(dt.getMonth()+1)+'-'+padN(dt.getDate());}
+  // 关口表展示名：去掉平台统一的“电表”后缀，空则用表号。
+  function loadName(m){return String(m.name||'').replace(/电表$/,'').trim()||m.meterNo||'未命名';}
+  function statCard(v,l,c){return '<div style="text-align:center;background:rgba(99,217,255,.05);border:1px solid rgba(99,217,255,.1);border-radius:8px;padding:7px 4px"><div style="font-size:19px;font-weight:800;color:'+c+';line-height:1.1">'+v+'</div><div style="font-size:11px;color:#7898ab;margin-top:2px">'+l+'</div></div>';}
 
   async function fetchDashboard(){
     try{
@@ -843,110 +841,147 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
     }catch(e){console.warn('[EnergyCenter] dashboard fetch fail',e.message);return null;}
   }
 
-  // 近30天全口径序列（模型演示：购电按工作日/波动，光伏按天气波动）；接入历史计量后替换。
-  function buildSeries(d){
-    const parkDay=d.park.totals.todayKwh;
-    const pvDay=(d.pv&&d.pv.totals)?d.pv.totals.todayKwh:0;
-    const out=[];
-    for(let i=29;i>=0;i--){
-      const dt=new Date();dt.setDate(dt.getDate()-i);
-      const ds=localDateStr(dt);
-      const total=Math.max(0,parkDay*dayFactor(ds,0.22,0.08));
-      const pv=Math.max(0,pvDay*dayFactor(ds,0,0.28));
-      out.push({date:ds,grid:Math.max(0,total-Math.min(pv,total)),pv:Math.min(pv,total)});
-    }
-    return out;
+  /* —— 关口 24h 真实负荷：纯 SVG 折线（无第三方依赖，随大屏缩放）—— */
+  function renderLoadChart(meters){
+    const el=$('ehLoadChart'); if(!el)return;
+    const top3=(meters||[]).filter(m=>m.curve&&m.curve.length>1).slice(0,3);
+    if(!top3.length){el.innerHTML='<div style="height:100%;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:14px">关口小时负荷采集中…</div>';return;}
+    const W=1000,H=272,L=48,R=16,T=18,B=30,plotW=W-L-R,plotH=H-T-B;
+    let maxV=0;
+    top3.forEach(m=>m.curve.forEach(p=>{if(Number(p.kw)>maxV)maxV=Number(p.kw);}));
+    maxV=Math.max(10,Math.ceil(maxV/10)*10);
+    const n=top3[0].curve.length;
+    const X=i=>L+(n<=1?0:plotW*i/(n-1));
+    const Y=v=>T+plotH-(Number(v)/maxV)*plotH;
+    let grid='';
+    for(let g=0;g<=4;g++){const v=maxV*g/4,y=Y(v);
+      grid+='<line x1="'+L+'" y1="'+y+'" x2="'+(W-R)+'" y2="'+y+'" stroke="rgba(120,152,171,.14)"/>'+
+        '<text x="'+(L-8)+'" y="'+(y+4)+'" fill="#7898ab" font-size="13" text-anchor="end">'+Math.round(v)+'</text>';}
+    let xlab='';
+    top3[0].curve.forEach((p,i)=>{if(i%3===0||i===n-1)xlab+='<text x="'+X(i)+'" y="'+(H-9)+'" fill="#7898ab" font-size="12" text-anchor="middle">'+p.hour+'</text>';});
+    let paths='';
+    top3.forEach((m,mi)=>{
+      const color=LOAD_COLORS[mi];
+      const pts=m.curve.map((p,i)=>X(i).toFixed(1)+','+Y(p.kw).toFixed(1)).join(' ');
+      const area=X(0).toFixed(1)+','+Y(0).toFixed(1)+' '+pts+' '+X(n-1).toFixed(1)+','+Y(0).toFixed(1);
+      paths+='<polygon points="'+area+'" fill="'+color+'" opacity="0.07"/>';
+      paths+='<polyline points="'+pts+'" fill="none" stroke="'+color+'" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>';
+      let pi=0;m.curve.forEach((p,i)=>{if(Number(p.kw)>Number(m.curve[pi].kw))pi=i;});
+      paths+='<circle cx="'+X(pi)+'" cy="'+Y(m.curve[pi].kw)+'" r="4" fill="'+color+'"/>';
+      paths+='<text x="'+X(pi)+'" y="'+(Y(m.curve[pi].kw)-8)+'" fill="'+color+'" font-size="13" font-weight="700" text-anchor="middle">'+Number(m.curve[pi].kw).toFixed(1)+'</text>';
+    });
+    let legend='';
+    top3.forEach((m,mi)=>{const x=L+mi*312;
+      legend+='<rect x="'+x+'" y="3" width="14" height="8" rx="2" fill="'+LOAD_COLORS[mi]+'"/>'+
+        '<text x="'+(x+20)+'" y="11" fill="#9db4d4" font-size="13">'+esc(loadName(m)+' · '+(m.buildingName||'')+'（×'+m.multiply+'）')+'</text>';});
+    el.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style="display:block">'+grid+xlab+paths+legend+'</svg>';
   }
 
-  function render(d){
-    const h=d.headline,pv=d.pv,park=d.park;
-    // 顶部 KPI
-    $('ehParkToday').textContent=fmt(h.parkTodayKwh);
-    $('ehParkMonth').textContent=fmt(h.parkMonthKwh);
-    $('ehPvToday').textContent=fmt(h.pvTodayKwh);
-    $('ehGridToday').textContent=fmt(h.gridTodayKwh);
-    $('ehMonthCost').textContent=fmt(h.monthCost);
-    $('ehCarbon').textContent=fmt(h.carbonMonthT,1);
+  /* —— 12 块关口总表（峰/均/24h/状态）—— */
+  function renderGateTable(meters){
+    const tb=$('ehGateTable');
+    if(!tb)return;
+    if(!meters||!meters.length){tb.innerHTML='<tr><td colspan="6" style="color:#64748b">关口负荷采集中…</td></tr>';return;}
+    tb.innerHTML=meters.map(m=>{
+      const zero=m.online&&Number(m.peakKw)===0&&Number(m.dayKwh)===0;
+      const col=!m.online?'#f87171':(zero?'#94a3b8':(Number(m.peakKw)>=30?'#fb923c':'#34d399'));
+      return '<tr>'+
+        '<td style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+col+';margin-right:6px"></span>'+esc(loadName(m))+'</td>'+
+        '<td style="color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(m.buildingName||'—')+'</td>'+
+        '<td style="text-align:right;color:#94a3b8">×'+m.multiply+'</td>'+
+        '<td style="text-align:right;font-weight:700;color:'+(Number(m.peakKw)>=30?'#fb923c':'#e2e8f0')+'">'+fmt(m.peakKw,1)+'</td>'+
+        '<td style="text-align:right">'+fmt(m.avgKw,1)+'</td>'+
+        '<td style="text-align:right">'+fmt(m.dayKwh,1)+'</td></tr>';
+    }).join('');
+  }
 
-    // 光伏
-    if(pv&&pv.totals){
-      const t=pv.totals;
-      $('ehPvPower').textContent=fmt(t.currentPowerKw,1);
-      $('ehPvBadge').textContent=(pv.offlineCount>0?'部分离线 · 逆变器 ':'运行中 · 逆变器 ')+t.inverterOnline+'/'+t.inverterTotal;
-      $('ehPvTodayKwh').textContent=fmt(t.todayKwh);
-      $('ehPvMonthKwh').textContent=fmt(t.monthKwh);
-      $('ehPvTotal').textContent=fmt(t.totalKwh/10000,1);
-      $('ehPvUtil').textContent=fmt(t.utilization*100,1)+'%';
-      $('ehPvFoot').textContent='锦浪云 · 装机'+fmt(t.capacityKw/1000,1)+'MWp · 累计减碳约'+fmt(t.totalCarbonEstT,0)+'吨 · 等效植树'+fmt(t.treesEquivalent/10000,2)+'万棵'+(pv.weather?' · '+pv.weather:'');
-    }
-
-    // 趋势（堆叠：光伏 + 购电）
-    const series=buildSeries(d);
-    const maxTotal=Math.max(1,...series.map(s=>s.grid+s.pv));
+  /* —— 近30天真实日用电 + 近6月 —— */
+  function renderTrend(el){
+    const series=(el&&el.daySeries)||[];
+    const max=Math.max(1,...series.map(s=>s.value));
     $('ehTrend').innerHTML=series.map((s,i)=>{
-      const hg=(s.grid/maxTotal)*100, hp=(s.pv/maxTotal)*100;
-      const lab=(i%5===0)?s.date.slice(5):'';
+      const h=(s.value/max)*100,md=s.date.slice(5);
+      const holiday=(md==='10-01'||md==='10-02'||md==='10-03');
+      const bg=holiday?'linear-gradient(180deg,#fb923c,rgba(251,146,60,.4))':'linear-gradient(180deg,#60a5fa,rgba(96,165,250,.3))';
+      const lab=(i%4===0)?md:'';
       return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;height:100%;min-width:0">'+
-        '<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;width:70%;max-width:30px">'+
-        '<div title="'+s.date+' 光伏 '+fmt(s.pv)+' kWh" style="background:linear-gradient(180deg,#34d399,rgba(52,211,153,.4));height:'+hp+'%"></div>'+
-        '<div title="'+s.date+' 购电 '+fmt(s.grid)+' kWh" style="background:linear-gradient(180deg,#60a5fa,rgba(96,165,250,.3));height:'+hg+'%"></div>'+
-        '</div><span style="font-size:11px;color:#64748b;height:14px">'+lab+'</span></div>';
+        '<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;width:70%;max-width:28px">'+
+        '<div title="'+s.date+' '+fmt(s.value)+' kWh" style="background:'+bg+';height:'+h+'%"></div></div>'+
+        '<span style="font-size:11px;color:#64748b;height:14px">'+lab+'</span></div>';
     }).join('');
-
-    // 变压器
-    $('ehTransformers').innerHTML=park.transformers.map(t=>{
-      const capKw=Math.round(t.capacityKva*0.92);
-      const c=loadColor(t.loadRatePct);
-      return '<div>'+
-        '<div style="display:flex;justify-content:space-between;font-size:15px;margin-bottom:3px">'+
-        '<span style="color:#e2e8f0;font-weight:600">'+esc(t.name)+'<small style="color:#64748b;font-weight:400"> · '+esc(t.zoneLabel)+'</small></span>'+
-        '<span style="color:'+c+';font-weight:700">'+fmt(t.loadRatePct,0)+'%</span></div>'+
-        '<div class="bar" style="margin:0;height:12px"><i style="width:'+Math.max(t.loadRatePct,1.5)+'%;background:linear-gradient(90deg,'+c+','+c+'aa)"></i></div>'+
-        '<div style="font-size:11px;color:#64748b;margin-top:3px">容量 '+t.capacityKva+' kVA / '+capKw+' kW · 峰值负荷 '+fmt(t.peakKw)+' kW · 今日 '+fmt(t.todayKwh)+' kWh</div>'+
-      '</div>';
+    $('ehMonth6').innerHTML=((el&&el.monthSeries)||[]).map(s=>{
+      const label=s.month.slice(5).replace(/^0/,'')+'月';
+      return '<div style="text-align:center;background:rgba(99,217,255,.05);border:1px solid rgba(99,217,255,.1);border-radius:8px;padding:6px 2px">'+
+        '<div style="font-size:16px;font-weight:700;color:#60a5fa">'+fmt(s.value/10000,1)+'</div>'+
+        '<div style="font-size:11px;color:#7898ab">'+label+'（万度）</div></div>';
     }).join('');
-    const totalCap=park.transformers.reduce((s,t)=>s+t.capacityKva,0);
-    const totalPeak=park.transformers.reduce((s,t)=>s+t.peakKw,0);
-    const avgRate=park.transformers.reduce((s,t)=>s+t.loadRatePct,0)/park.transformers.length;
-    $('ehTrSummary').textContent='装机总容量 '+fmt(totalCap)+' kVA · 估算同时最大负荷 '+fmt(totalPeak)+' kW · 平均负载率 '+fmt(avgRate,1)+'%（规划口径）';
+  }
 
-    // 分类
-    $('ehCategories').innerHTML=park.categories.map(c=>{
+  /* —— 用电分类（规划口径，保留）—— */
+  function renderCategories(park){
+    const node=$('ehCategories');
+    if(!park||!park.categories||!park.categories.length){node.innerHTML='<div style="color:#64748b;font-size:13px">分类模型加载中…</div>';return;}
+    node.innerHTML=park.categories.map(c=>{
       const col=CAT_COLORS[c.key]||'#38bdf8';
-      return '<div>'+
-        '<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:3px">'+
-        '<span style="color:#e2e8f0">'+esc(c.label)+'</span>'+
-        '<span style="color:#cbd5e1">'+fmt(c.monthKwh)+' kWh · '+fmt(c.sharePct,1)+'%</span></div>'+
-        '<div class="bar" style="margin:0;height:12px"><i style="width:'+Math.max(c.sharePct,1.5)+'%;background:linear-gradient(90deg,'+col+','+col+'aa)"></i></div>'+
-      '</div>';
+      return '<div style="flex:0 0 auto">'+
+        '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:2px">'+
+        '<span style="color:#e2e8f0">'+esc(c.label)+'</span><span style="color:#cbd5e1">'+fmt(c.sharePct,1)+'%</span></div>'+
+        '<div class="bar" style="margin:0;height:10px"><i style="width:'+Math.max(c.sharePct,1.5)+'%;background:linear-gradient(90deg,'+col+','+col+'aa)"></i></div></div>';
     }).join('');
+  }
 
-    // 楼栋 Top8
-    const topB=[...park.buildings].sort((a,b)=>b.todayKwh-a.todayKwh).slice(0,8);
-    const maxB=Math.max(1,...topB.map(b=>b.todayKwh));
-    $('ehBuildings').innerHTML=topB.map(b=>{
-      const pct=(b.todayKwh/maxB)*100;
-      return '<div style="display:flex;align-items:center;gap:10px">'+
-        '<div style="flex:0 0 118px;font-size:14px;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(b.name)+'</div>'+
-        '<div class="bar" style="margin:0;flex:1"><i style="width:'+Math.max(pct,2)+'%"></i></div>'+
-        '<div style="flex:0 0 78px;text-align:right;font-size:14px;color:#cbd5e1">'+fmt(b.todayKwh)+'</div>'+
-      '</div>';
+  /* —— 总表 vs 分户（电 / 水）—— */
+  function renderVs(el,wt){
+    function cell(label,total,house,unit,diff){
+      return '<div style="background:rgba(99,217,255,.05);border:1px solid rgba(99,217,255,.1);border-radius:8px;padding:8px 10px">'+
+        '<div style="font-size:12px;color:#9db4d4;font-weight:600;margin-bottom:5px;white-space:nowrap">'+label+'</div>'+
+        '<div style="display:flex;justify-content:space-between;font-size:12px;line-height:1.7"><span style="color:#94a3b8">总表</span><b style="color:#e2e8f0">'+fmt(total)+' '+unit+'</b></div>'+
+        '<div style="display:flex;justify-content:space-between;font-size:12px;line-height:1.7"><span style="color:#94a3b8">分户</span><b style="color:#94a3b8">'+fmt(house)+' '+unit+'</b></div>'+
+        '<div style="display:flex;justify-content:space-between;font-size:12px;line-height:1.7"><span style="color:#fbbf24">月差异</span><b style="color:#fbbf24">'+fmt(diff)+'</b></div></div>';
+    }
+    $('ehVs').innerHTML=
+      cell('电（'+el.masterCount+' 总 / '+el.householdCount+' 户）',el.master&&el.master.month,el.household&&el.household.month,'度',el.monthDiff)+
+      cell('水（'+wt.masterCount+' 总 / '+wt.householdCount+' 户）',wt.master&&wt.master.month,wt.household&&wt.household.month,'t',wt.monthDiff);
+  }
+
+  /* —— 楼栋 / 区域实测排行（em123 真实分组）—— */
+  function renderBuildings(el){
+    const groups=(el.groups||[]).slice().sort((a,b)=>b.month-a.month).slice(0,10);
+    const max=Math.max(1,...groups.map(g=>g.month));
+    $('ehBuildings').innerHTML=groups.map(g=>{
+      const pct=Math.max(2,g.month/max*100);
+      return '<div style="flex:0 0 auto;display:flex;align-items:center;gap:10px">'+
+        '<div style="flex:0 0 92px;font-size:13px;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(g.name)+'</div>'+
+        '<div class="bar" style="margin:0;flex:1;height:12px"><i style="width:'+pct+'%"></i></div>'+
+        '<div style="flex:0 0 92px;text-align:right;font-size:12px;color:#cbd5e1">'+fmt(g.month)+'<small style="color:#64748b"> ('+g.meterCount+'表)</small></div></div>';
     }).join('');
-    $('ehZones').innerHTML=park.totals.byZone.map(z=>
-      '<div style="padding:8px 10px;background:rgba(99,217,255,.05);border:1px solid rgba(99,217,255,.1);border-radius:8px">'+
-      '<div style="font-size:12px;color:#7898ab">'+esc(z.zoneLabel)+'</div>'+
-      '<div style="font-size:18px;font-weight:700;color:#e2e8f0">'+fmt(z.monthKwh)+'<small style="font-size:11px;color:#64748b"> kWh/月</small></div></div>'
+    $('ehZones').innerHTML=(el.zones||[]).slice().sort((a,b)=>b.month-a.month).map(z=>
+      '<div style="padding:7px 10px;background:rgba(99,217,255,.05);border:1px solid rgba(99,217,255,.1);border-radius:8px">'+
+      '<div style="font-size:11px;color:#7898ab">'+esc(z.name)+' · '+z.meterCount+'表</div>'+
+      '<div style="font-size:17px;font-weight:700;color:#60a5fa">'+fmt(z.month)+'<small style="font-size:10px;color:#64748b"> 度/月</small></div></div>'
     ).join('');
+  }
 
-    // 电梯
-    $('ehElevators').innerHTML=park.elevators.map(e=>
-      '<tr><td style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(e.name)+'</td>'+
-      '<td style="color:#94a3b8;font-size:13px">'+esc(e.kindLabel)+'·'+e.stops+'层</td>'+
-      '<td style="text-align:right;font-weight:600">'+fmt(e.monthKwh)+'</td></tr>'
-    ).join('');
+  /* —— 水表 / 电表运行状态 —— */
+  function renderWaterMeter(wt,h,el){
+    $('ehWaterStats').innerHTML=
+      statCard(fmt(h.waterTodayT,1),'今日 (t)','#38bdf8')+
+      statCard(fmt(h.waterMonthT,1),'本月 (t)','#38bdf8')+
+      statCard(fmt(h.waterTotalT,1),'累计 (t)','#38bdf8');
+    const a=$('ehWaterAlert');
+    if(wt&&wt.offline>0){
+      a.innerHTML='<div style="background:rgba(148,163,184,.12);border:1px solid rgba(148,163,184,.3);border-radius:8px;padding:6px 10px;font-size:12px;color:#cbd5e1;line-height:1.5">水表 '+wt.offline+' 块离线（欠费 '+fmt(wt.arrears||0)+'），历史数据已同步，待现场核 4G 模组</div>';
+    }else a.innerHTML='';
+    $('ehMeterStat').innerHTML=
+      statCard(fmt(h.meterOnline),'在线','#34d399')+
+      statCard(fmt(h.meterOffline),'离线','#f87171')+
+      statCard(fmt(h.meterArrears),'欠费','#fbbf24')+
+      statCard(fmt(h.meterCutOff),'已拉闸','#fb923c');
+  }
 
-    // 已接入云计量（真实）
-    const bd=d.measured.breakdown||[];
+  /* —— 华普云计量回路（实测）—— */
+  function renderMeasured(measured){
+    const bd=(measured&&measured.breakdown)||[];
     $('ehMeasured').innerHTML=bd.length?bd.map(b=>
       '<tr><td style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(b.name)+'</td>'+
       '<td style="text-align:right">'+fmt(b.peakPowerW)+'</td>'+
@@ -954,12 +989,50 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
     ).join(''):'<tr><td colspan="3" style="color:#64748b">云计量同步中…</td></tr>';
   }
 
-  // 判定一次 dashboard 是否“完整”：园区模型各维齐全；若光伏已启用则必须有 totals。
+  function render(d){
+    const h=d.headline,em=d.em123||{},load=em.load||{};
+    const el=em.electric||{},wt=em.water||{},park=d.park||{};
+    const meters=load.meters||[];
+
+    // 顶部 KPI（真实）
+    $('ehParkToday').textContent=fmt(h.parkTodayKwh,1);
+    $('ehParkMonth').textContent=fmt(h.parkMonthKwh);
+    let peak=0;
+    meters.forEach(m=>{if(Number(m.peakKw)>peak)peak=Number(m.peakKw);});
+    $('ehLoadPeak').textContent=fmt(peak,1);
+    $('ehMeterOnline').innerHTML=fmt(h.meterOnline)+'<small style="font-size:15px;color:#7898ab;font-weight:600">/'+h.meterTotal+'</small>';
+    $('ehArrears').textContent=fmt(h.meterArrears);
+    $('ehCutOff').textContent=fmt(h.meterCutOff);
+    $('ehWaterToday').textContent=fmt(h.waterTodayT,1);
+    $('ehWaterMonth').textContent=fmt(h.waterMonthT,1);
+
+    // 关口真实负荷（曲线 + 12 表）
+    renderLoadChart(meters);
+    renderGateTable(meters);
+
+    // 近30天真实日用电 + 近6月 + 电费注脚
+    renderTrend(el);
+    const trendFoot=$('ehTrendFoot');
+    if(trendFoot)trendFoot.textContent='真实 em123 日用量（10/01–03 假期回落）；本月电费约 '+fmt(h.monthCost)+' 元（电价 0.65 元/度估算）';
+
+    // 分类（规划口径）+ 总表 vs 分户
+    renderCategories(park);
+    renderVs(el,wt);
+
+    // 楼栋 / 区域实测
+    renderBuildings(el);
+
+    // 水表 / 电表状态 / 云计量
+    renderWaterMeter(wt,h,el);
+    renderMeasured(d.measured);
+  }
+
+  // 判定一次 dashboard 是否“完整”：em123 真实日序列与分类模型已就绪；关口负荷首次同步可稍后（曲线区显示采集中）。
   function isReady(d){
-    if(!d||!d.park)return false;
-    const k=d.park;
-    if(!(k.transformers.length&&k.categories.length&&k.buildings.length&&k.elevators.length))return false;
-    if(d.pv&&d.pv.enabled&&!d.pv.totals)return false;
+    if(!d||!d.headline)return false;
+    const em=d.em123||{};
+    if(!(em.electric&&em.electric.daySeries&&em.electric.daySeries.length))return false;
+    if(!(d.park&&d.park.categories&&d.park.categories.length))return false;
     return true;
   }
   let got=false;

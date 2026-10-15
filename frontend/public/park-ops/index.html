@@ -280,7 +280,7 @@
     <section class="page" data-name="能源管理" style="grid-template-columns:1.12fr 1fr 1fr;grid-template-rows:118px 1fr 1fr;gap:20px">
       <div class="panel" style="grid-column:1/4;padding:16px 24px;display:flex;flex-direction:row;align-items:stretch">
         <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
-          <div style="font-size:14px;color:#7898ab;font-weight:600">园区今日用电</div>
+          <div style="font-size:14px;color:#7898ab;font-weight:600">园区今日用电 <span style="color:#34d399">总表实测</span></div>
           <div style="font-size:32px;font-weight:800;color:#fff;line-height:1.15"><span id="ehParkToday">--</span><small style="font-size:14px;color:#7898ab;font-weight:600"> kWh</small></div>
         </div>
         <div style="width:1px;background:rgba(99,217,255,.12)"></div>
@@ -290,72 +290,63 @@
         </div>
         <div style="width:1px;background:rgba(99,217,255,.12)"></div>
         <div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding-left:22px">
-          <div style="font-size:14px;color:#7898ab;font-weight:600">光伏今日发电</div>
-          <div style="font-size:32px;font-weight:800;color:#34d399;line-height:1.15"><span id="ehPvToday">--</span><small style="font-size:14px;color:#7898ab;font-weight:600"> kWh</small></div>
+          <div style="font-size:14px;color:#7898ab;font-weight:600">近24h 关口峰值负荷</div>
+          <div style="font-size:32px;font-weight:800;color:#22d3ee;line-height:1.15"><span id="ehLoadPeak">--</span><small style="font-size:14px;color:#7898ab;font-weight:600"> kW</small></div>
         </div>
         <div style="width:1px;background:rgba(99,217,255,.12)"></div>
         <div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding-left:22px">
-          <div style="font-size:14px;color:#7898ab;font-weight:600">今日净购电</div>
-          <div style="font-size:32px;font-weight:800;color:#fbbf24;line-height:1.15"><span id="ehGridToday">--</span><small style="font-size:14px;color:#7898ab;font-weight:600"> kWh</small></div>
+          <div style="font-size:14px;color:#7898ab;font-weight:600">电表在线 <span style="color:#94a3b8">总12 / 户93</span></div>
+          <div style="font-size:32px;font-weight:800;color:#34d399;line-height:1.15"><span id="ehMeterOnline">--</span></div>
         </div>
         <div style="width:1px;background:rgba(99,217,255,.12)"></div>
         <div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding-left:22px">
-          <div style="font-size:14px;color:#7898ab;font-weight:600">本月电费</div>
-          <div style="font-size:32px;font-weight:800;color:#a78bfa;line-height:1.15"><span id="ehMonthCost">--</span><small style="font-size:14px;color:#7898ab;font-weight:600"> 元</small></div>
+          <div style="font-size:14px;color:#7898ab;font-weight:600">欠费 / 已拉闸</div>
+          <div style="font-size:32px;font-weight:800;color:#fbbf24;line-height:1.15"><span id="ehArrears">--</span><small style="font-size:16px;color:#fb923c;font-weight:700"> / <span id="ehCutOff">--</span></small></div>
         </div>
         <div style="width:1px;background:rgba(99,217,255,.12)"></div>
         <div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding-left:22px">
-          <div style="font-size:14px;color:#7898ab;font-weight:600">本月减碳</div>
-          <div style="font-size:32px;font-weight:800;color:#22d3ee;line-height:1.15"><span id="ehCarbon">--</span><small style="font-size:14px;color:#7898ab;font-weight:600"> 吨</small></div>
+          <div style="font-size:14px;color:#7898ab;font-weight:600">今日 / 本月用水</div>
+          <div style="font-size:32px;font-weight:800;color:#38bdf8;line-height:1.15"><span id="ehWaterToday">--</span><small style="font-size:14px;color:#7898ab;font-weight:600"> / <span id="ehWaterMonth">--</span> t</small></div>
         </div>
       </div>
 
       <div class="panel bigpanel" style="grid-column:1;grid-row:2/4">
-        <h3>光伏发电 <small>SOLAR PV · 锦浪云</small></h3>
+        <h3>关口总表 · 真实小时负荷 <small>GATEWAY · 零硬件整点差分（kW）</small></h3>
         <div class="panel-body">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
-          <div>
-            <div style="font-size:15px;color:#7898ab">实时功率</div>
-            <div style="font-size:46px;font-weight:800;color:#34d399;line-height:1"><span id="ehPvPower">--</span><small style="font-size:18px;color:#7898ab"> kW</small></div>
-          </div>
-          <span class="text-xs text-success p-1 px-2 bg-success rounded" id="ehPvBadge" style="margin-top:4px">运行中</span>
-        </div>
-        <div class="mini2">
-          <div class="stat"><b id="ehPvTodayKwh">--</b><span>今日发电 (kWh)</span></div>
-          <div class="stat"><b id="ehPvMonthKwh">--</b><span>本月发电 (kWh)</span></div>
-          <div class="stat"><b id="ehPvTotal">--</b><span>累计发电 (万kWh)</span></div>
-          <div class="stat"><b id="ehPvUtil">--</b><span>容量利用率</span></div>
-        </div>
-        <div class="panel-body-note" id="ehPvFoot">锦浪云 · 加载中…</div>
-        <div style="margin-top:18px">
-          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
-            <div style="font-size:16px;color:#94a3b8;font-weight:600">近30天 用电与光伏发电</div>
-            <div style="display:flex;gap:12px;font-size:12px"><span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:#60a5fa;border-radius:2px"></span>购电</span><span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:#34d399;border-radius:2px"></span>光伏</span></div>
-          </div>
-          <div class="chart chart-full" id="ehTrend" style="height:300px;align-items:flex-end;gap:3px"></div>
+        <div id="ehLoadChart" style="flex:0 0 auto;width:100%;height:268px"></div>
+        <div class="eh-sub" style="margin-top:6px">12 块三相总表 · 峰/均负荷（按峰值降序，关口不做总加）</div>
+        <div class="eh-scroll">
+          <table class="table eh-table" style="width:100%;table-layout:fixed">
+            <colgroup><col style="width:27%"><col style="width:20%"><col style="width:15%"><col style="width:13%"><col style="width:13%"><col style="width:12%"></colgroup>
+            <thead><tr><th>关口表</th><th>区域</th><th style="text-align:right">倍率</th><th style="text-align:right">峰值</th><th style="text-align:right">均值</th><th style="text-align:right">24h</th></tr></thead>
+            <tbody id="ehGateTable"></tbody>
+          </table>
         </div>
         </div>
-        <div class="panel-footer-stat">光伏为锦浪云实测；园区总用电为全口径规划估算，接入电表后以计量为准</div>
+        <div class="panel-footer-stat">每小时整点抄表差分还原平均功率；负载率% 待变压器容量与表-变对应核定后开放</div>
       </div>
 
       <div class="panel bigpanel" style="grid-column:2;grid-row:2/3">
-        <h3>变压器负载 <small>TRANSFORMERS</small></h3>
+        <h3>近30天 园区用电 <small>真实 · 日用量 kWh</small></h3>
         <div class="panel-body">
-          <div id="ehTransformers" class="eh-scroll eh-list" style="flex:1;display:flex;flex-direction:column;justify-content:flex-start;gap:10px;margin-top:6px"></div>
+          <div class="chart chart-full" id="ehTrend" style="flex:1;min-height:0;align-items:flex-end;gap:3px"></div>
+          <div id="ehMonth6" style="flex:0 0 auto;display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid rgba(99,217,255,.12)"></div>
         </div>
-        <div class="panel-footer-stat" id="ehTrSummary"></div>
+        <div class="panel-footer-stat" id="ehTrendFoot">真实 em123 日用量（10/01–03 假期回落）</div>
       </div>
 
       <div class="panel bigpanel" style="grid-column:2;grid-row:3/4">
-        <h3>用电分类构成 <small>BY CATEGORY</small></h3>
+        <h3>用电分类 · 总表 vs 分户 <small>分类为规划口径</small></h3>
         <div class="panel-body">
-          <div id="ehCategories" class="eh-scroll eh-list" style="flex:1;display:flex;flex-direction:column;justify-content:flex-start;gap:13px;margin-top:8px"></div>
+          <div class="eh-sub">用电分类（规划口径，em123 无分项计量）</div>
+          <div id="ehCategories" class="eh-scroll eh-list" style="flex:1 1 auto;min-height:0;display:flex;flex-direction:column;justify-content:flex-start;gap:9px;margin-top:4px"></div>
+          <div id="ehVs" style="flex:0 0 auto;display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;padding-top:10px;border-top:1px solid rgba(99,217,255,.12)"></div>
         </div>
-        <div class="panel-footer-stat">按功能建筑用电结构模型拆分（规划口径）</div>
+        <div class="panel-footer-stat">总表为关口、覆盖公区/商业/未装分户负荷，差异不是线损</div>
       </div>
 
       <div class="panel bigpanel" style="grid-column:3;grid-row:2/3">
-        <h3>楼栋能耗排行 <small>BY BUILDING</small></h3>
+        <h3>楼栋 / 区域用电实测 <small>真实 · 本月 kWh</small></h3>
         <div class="panel-body">
           <div id="ehBuildings" class="eh-scroll eh-list" style="flex:1;display:flex;flex-direction:column;justify-content:flex-start;gap:9px;margin-top:6px"></div>
           <div style="margin-top:auto;padding-top:10px;border-top:1px solid rgba(99,217,255,.12)">
@@ -365,19 +356,14 @@
       </div>
 
       <div class="panel bigpanel" style="grid-column:3;grid-row:3/4">
-        <h3>电梯能耗 · 已接入云计量 <small>ELEVATORS & METERS</small></h3>
+        <h3>水表 · 运行状态 · 云计量 <small>真实计量</small></h3>
         <div class="panel-body">
-        <div style="flex:1.15 1 0;min-height:0;display:flex;flex-direction:column">
-          <div class="eh-sub">电梯（月度估算）</div>
-          <div class="eh-scroll">
-            <table class="table eh-table" style="width:100%;table-layout:fixed">
-              <colgroup><col style="width:46%"><col style="width:22%"><col style="width:32%"></colgroup>
-              <tbody id="ehElevators"></tbody>
-            </table>
-          </div>
-        </div>
-        <div style="flex:1 1 0;min-height:0;display:flex;flex-direction:column;margin-top:10px">
-          <div class="eh-sub">已接入云计量回路（实测）</div>
+          <div class="eh-sub">水表（43 块 · 总13 / 户30）</div>
+          <div id="ehWaterStats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
+          <div id="ehWaterAlert" style="margin-top:8px"></div>
+          <div class="eh-sub" style="margin-top:10px">电表运行状态（总105 · 总12 / 户93）</div>
+          <div id="ehMeterStat" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px"></div>
+          <div class="eh-sub" style="margin-top:10px">已接入云计量回路（华普云 · 实测）</div>
           <div class="eh-scroll">
             <table class="table eh-table" style="width:100%;table-layout:fixed">
               <colgroup><col style="width:44%"><col style="width:28%"><col style="width:28%"></colgroup>
@@ -386,15 +372,14 @@
             </table>
           </div>
         </div>
-        </div>
-        <div class="panel-footer-stat">电梯为模型估算；云计量取华普云 device-total 平台电表</div>
+        <div class="panel-footer-stat" id="ehWaterFoot">水表历史数据已同步；云计量取华普云 device-total 平台电表</div>
       </div>
     </section>
 
     <div class="tabs"><button class="btn btn-arrow" id="prev">‹</button><button class="btn btn-auto" id="auto">A</button><button class="btn btn-arrow" id="next">›</button></div><div class="page-indicator" id="pageIndicator"></div>
   </main>
 </div>
-<script src="./js/app.js?v=20261009-branding-clean"></script>
+<script src="./js/app.js?v=20261015-em123-energy"></script>
 <!-- 实时过车面板为无依赖独立 ESM，放在 3D 模块队列最前，避免被 3D 模型/孪生模块加载阻塞（实时数据优先） -->
 <script type="module" src="./lpr-panel.mjs?v=20261014-realtime7"></script>
 <script type="module" src="./park-ops-3d.js?v=20260913-v4-performance-optimized" defer></script>

@@ -44,6 +44,7 @@ test('every startup lifecycle hook stays on the reviewed runtime-state allowlist
     'backend/src/modules/cameras/park-ops-metrics.service.ts',
     'backend/src/modules/cameras/video-binding.service.ts',
     'backend/src/modules/dali-lights/dali-lights.service.ts',
+    'backend/src/modules/em123/em123.service.ts',
     'backend/src/modules/energy/energy.service.ts',
     'backend/src/modules/hvac/hvac.controller.ts',
     'backend/src/modules/logs/operation-log.service.ts',

@@ -52,6 +52,7 @@ import { ServicesModule } from './services/services.module';
 import { CamerasModule } from './modules/cameras/cameras.module';
 import { LprModule } from './modules/lpr/lpr.module';
 import { PvModule } from './modules/pv/pv.module';
+import { Em123Module } from './modules/em123/em123.module';
 import { RuntimeConfigModule } from './common/runtime-config/runtime-config.module';
 
 @Module({
@@ -107,6 +108,7 @@ import { RuntimeConfigModule } from './common/runtime-config/runtime-config.modu
     CamerasModule,
     LprModule,
     PvModule,
+    Em123Module,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

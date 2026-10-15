@@ -17,6 +17,7 @@ import { EnergyDaily } from '../../entities/energy-daily.entity';
 import { HperforApiAdapter } from '../../adapters/power/hperfor-api.adapter';
 import { ControlBus, ControlEvent } from '../../services/control-bus';
 import { PvService } from '../pv/pv.service';
+import { Em123Service } from '../em123/em123.service';
 import { RuntimeConfigStore } from '../../common/runtime-config/runtime-config.store';
 import { buildParkEnergyModel, type EnergyAssets } from './park-energy-model';
 import {
@@ -69,6 +70,7 @@ export class EnergyService implements OnModuleInit, OnModuleDestroy {
     @InjectRepository(HardwareUnit) private readonly hwRepo: Repository<HardwareUnit>,
     @InjectRepository(EnergyDaily) private readonly dailyRepo: Repository<EnergyDaily>,
     private readonly pv: PvService,
+    private readonly em123: Em123Service,
     private readonly runtimeConfig: RuntimeConfigStore,
     @Optional() private readonly webBreaker?: HperforApiAdapter,
     @Optional() private readonly bus?: ControlBus,
@@ -456,13 +458,35 @@ export class EnergyService implements OnModuleInit, OnModuleDestroy {
       this.breakdown(30),
     ]);
     const pv = this.pv.getOverview();
+    const em123 = this.em123.getOverview();
     const assets = await this.getAssets();
     const park = buildParkEnergyModel(assets.value);
 
     const pvToday = pv.totals?.todayKwh ?? 0;
     const pvMonth = pv.totals?.monthKwh ?? 0;
-    const parkToday = park.totals.todayKwh;
-    const parkMonth = park.totals.monthKwh;
+
+    // em123 真实电表/水表口径 (105 电 + 43 水, 经 4G 透传上云)
+    const el = em123.enabled && em123.electric ? em123.electric : null;
+    const wt = em123.enabled && em123.water ? em123.water : null;
+    const hasRealMeter = !!el && el.totalMeters > 0;
+    // 平台日用量通常次日结算: 今日为 0 时, 取最近一个有数据的结算日兜底展示
+    const meterLatestDay = (() => {
+      if (!el) return null;
+      const last = [...el.daySeries].reverse().find((d) => d.value > 0);
+      return last ? { date: last.date, kwh: last.value } : null;
+    })();
+    const meterToday = hasRealMeter
+      ? el!.today > 0
+        ? el!.today
+        : (meterLatestDay?.kwh ?? 0)
+      : 0;
+    const meterMonth = hasRealMeter ? el!.month : 0;
+    const meterTodayDate =
+      meterLatestDay?.date ?? new Date().toISOString().slice(0, 10);
+
+    // 园区用电: 有真实表走真实全口径, 否则回退规划模型估算
+    const parkToday = hasRealMeter ? meterToday : park.totals.todayKwh;
+    const parkMonth = hasRealMeter ? meterMonth : park.totals.monthKwh;
     // 光伏按自发自用抵扣（余电上网另计），净购电不低于 0。
     const gridToday = Math.max(0, Math.round((parkToday - pvToday) * 100) / 100);
     const gridMonth = Math.max(0, Math.round((parkMonth - pvMonth) * 100) / 100);
@@ -470,18 +494,39 @@ export class EnergyService implements OnModuleInit, OnModuleDestroy {
       parkToday > 0
         ? Math.round((Math.min(pvToday, parkToday) / parkToday) * 1000) / 10
         : 0;
+    const r2 = (n: number) => Math.round(n * 100) / 100;
     const headline = {
       parkTodayKwh: parkToday,
       parkMonthKwh: parkMonth,
-      pvTodayKwh: Math.round(pvToday * 100) / 100,
-      pvMonthKwh: Math.round(pvMonth * 100) / 100,
+      /** 顶部用电口径来源: em123 真实 / model 规划估算 */
+      meterSource: hasRealMeter ? 'em123' : 'model',
+      meterTodayKwh: hasRealMeter ? meterToday : null,
+      meterMonthKwh: hasRealMeter ? meterMonth : null,
+      meterTodayDate,
+      meterTotal: el?.totalMeters ?? 0,
+      meterOnline: el?.online ?? 0,
+      meterOffline: el?.offline ?? 0,
+      meterArrears: el?.arrears ?? 0,
+      meterCutOff: el?.cutOff ?? 0,
+      masterCount: el?.masterCount ?? 0,
+      householdCount: el?.householdCount ?? 0,
+      masterMonthKwh: el?.master.month ?? null,
+      householdMonthKwh: el?.household.month ?? null,
+      pvTodayKwh: r2(pvToday),
+      pvMonthKwh: r2(pvMonth),
       gridTodayKwh: gridToday,
       gridMonthKwh: gridMonth,
       selfSufficiencyPct,
-      todayCost: Math.round(gridToday * this.pricePerKwh * 100) / 100,
-      monthCost: Math.round(gridMonth * this.pricePerKwh * 100) / 100,
-      pvSavingToday: Math.round(pvToday * this.pricePerKwh * 100) / 100,
+      todayCost: r2(gridToday * this.pricePerKwh),
+      monthCost: r2(gridMonth * this.pricePerKwh),
+      pvSavingToday: r2(pvToday * this.pricePerKwh),
       carbonMonthT: pv.totals?.monthCarbonT ?? 0,
+      waterTodayT: wt?.today ?? 0,
+      waterMonthT: wt?.month ?? 0,
+      waterTotalT: wt?.totalReading ?? 0,
+      waterTotal: wt?.totalMeters ?? 0,
+      waterOnline: wt?.online ?? 0,
+      waterLatestDate: wt?.latestDate ?? null,
     };
 
     return {
@@ -490,6 +535,7 @@ export class EnergyService implements OnModuleInit, OnModuleDestroy {
       headline,
       measured: { overview: ov, trend, breakdown: bd },
       pv,
+      em123,
       park,
     };
   }

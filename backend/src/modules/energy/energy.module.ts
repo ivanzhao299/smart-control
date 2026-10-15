@@ -9,6 +9,7 @@ import { AdaptersModule } from '../../adapters/adapters.module';
 import { ServicesPrimitivesModule } from '../../services/services-primitives.module';
 import { AdminAuthModule } from '../admin-auth/admin-auth.module';
 import { PvModule } from '../pv/pv.module';
+import { Em123Module } from '../em123/em123.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { PvModule } from '../pv/pv.module';
     ServicesPrimitivesModule,
     AdminAuthModule,
     PvModule,
+    Em123Module,
   ],
   controllers: [EnergyController],
   providers: [EnergyService],

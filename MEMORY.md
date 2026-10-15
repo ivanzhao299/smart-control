@@ -826,6 +826,90 @@ pm2 僵尸守护根治（146→2，INCIDENTS #9）→ 部署误报根治（#10�
 （令牌签名制 #22，期间 watcher 不跑迁移引发短暂生产崩溃已三重根治）→ CI 必红根治
 （#23）→ v6/v6.5 视觉两连 → iOS TestFlight 五关全破。
 
+## em123 电表/水表接入能源页 + 关口总表小时负荷（2026-10-14~15，本地验收中，未部署）
+
+- 平台：若依 v4.7.2 `https://www.em123.cc`（账号"金湖科创产业园"/123456，无验证码，4G 透传预付费 SaaS）。
+  全 POST `application/x-www-form-urlencoded` + 头 `X-Requested-With:XMLHttpRequest` + cookie；GET 报 500，302 重登一次。
+  端点：`/login`、`/basic/meter/list`(E|W,pageSize500)、`/report/record/usage/list`(日用量,pageSize1000,timeout120s,
+  **跨月必丢下月→严格自然月分块**)、`/record/meter/list`(**单表 meterNo + readingType=0 整点定时**)、
+  `/record/meter/reading`(实时召测只回"命令成功"无瞬时量)。**em123 只采累计电量/日用量/余额/在线合拉闸/信号，
+  无电流电压功率功率因数温度（秒级负载率/变压器温度必须上硬件）**。
+- 后端只读模块 `backend/src/modules/em123/`（不进 adapters/power 可控回路，本期不做远程拉合闸）。实体
+  `em123_meter`(电105/水43, meterNo 主键)、`em123_daily`(18537→18650行, meterNo+date 双主键, 2026-04-18~10-15)、
+  **`em123_hourly`(meterNo+readingTime 双主键, migration 1790501000000 PG/SQLite 双方言已执行)**。
+  均业务键主键（无自增 id），分批 upsert（DAILY/HOURLY_BATCH=400），自然月分块，边拉边写，幂等。
+- API：`GET /api/em123/overview`、`/api/em123/tree?type=E|W`、`POST /api/em123/sync?days=`(管理员)、
+  `GET /api/energy/dashboard`（整体透传 em123）。
+- **#9 关口总表小时负荷（零硬件，2026-10-15 后端完成+真实验证）**：`/record/meter/list` readingType=0
+  每小时一条，`useLimit` 已是该小时真实用量(已乘倍率 kWh)，除以实际间隔小时数=小时平均功率 kW；
+  `readingValue` 是未乘倍率的原始字轮。service.syncHourly 只拉电 master(12 块三相关口)、逐表、自然月分块、
+  重试3、upsert；buildLoadSummary 每表取最近24条→滚动24h curve[{hour,kw,time}] / peakKw / avgKw(=dayKwh/24)
+  / dayKwh / latestTime / online，按 peakKw 降序；**不做关口总加(避免上下级重复计量)；负载率%暂不算(变压器
+  容量/表-变压器对应关系现场未核定)，容量字段预留**。挂 `overview.load`，dashboard `data.em123.load` 透传。
+- **顺手修 UTC 日期 bug**：daysBack/syncDaily/syncHourly/buildSummary 的 `new Date().toISOString().slice(0,10)`
+  在 CST 早晨 UTC 仍是前一天，导致日窗口/今日统计少一天；统一改本地 `localDateStr()`。
+- 真实数据核对（curl+逐点 sqlite）：em123_hourly 11 块在线表×7天+今晨(约1830+86行)，离线 C1栋总
+  meterNo 202505030252 无数据。峰均：E2-1 峰46.8/均22.7(24h连续)、A4-1 峰44.4/均20.7(白天生产夜间停)、
+  B2-2 峰35.9/均14.4、B3-1 峰33(今晨07点真实突增,字轮0.6×60≈33)/白天4~6、C4-1 峰4.1；
+  A4-4/A5-3层/C1大总 近空载(字轮停滞,真实0~1.2)。tsc/build 全绿，调试后端 3299 零 em123 错误。
+- 口径：电总表 today1517.7/月21136.9 vs 分户 57.3/1404.1（关口含公区/大负荷，**非损耗，UI 须注明**）；
+  水43 全离线/欠费6。命名 ABCDE=分区、数字=楼栋号；DTZY=三相总表 master、DDZY=分户 household。
+- 待办：**#7 前端能源页改造**（基线已审计：index.html 280-392、app.js 824-985、style.css 72-79；
+  变压器面板 #ehTransformers 对接 em123.load 真实小时负荷，分类保留标"规划口径"，KPI/趋势/楼栋排行换真实、
+  水电切换、总表vs分户、下钻弹层、欠费只显示数量区域）；**#8 本地大屏出画验收**；之后才部署。
+- **#7 效果图（2026-10-15 已出，待用户确认后再落正式前端）**：真实数据高保真效果图
+  `/Users/mac/DoubaoWork/chats/2026-10-14/new-chat/能源管理页-大屏效果图-真实数据.html`（自包含，echarts 已下到同目录
+  `assets/echarts.min.js` 随包——shot.py 环境与手机端 jsdelivr 不稳，改本地引用；已加内联 SVG favicon）。
+  已发布 doubao-html：app_id=`app_17g1zjg25bv`，online_url=`https://4kys968mthx46.doubaoapps.com/app/app_17g1zjg25bv`
+  （release 7696683200982240260 finished，手机可点开）。shot 桌面+移动 0 error/warning。版面：8 KPI 通栏
+  （今日/本月/关口峰值46.8/在线104/欠费24/电费/水/水表离线）+ 关口区（左3主力表24h真实负荷 ECharts 曲线、
+  右12关口表峰均/24h/状态表）+ 近30天真实日用电柱(国庆10/1-3橙) + 楼栋/分区CSS排行 + 近6月柱 + 总表vs分户
+  （电+水，差异19916注明"非损耗"）+ 用电分类环(标规划口径) + 水表总览/全离线告警/分组 + 电表运行状态 +
+  华普云6回路实测。响应式：宽屏≥1100三列、手机单列(≤700隐藏英文副标题)。数据快照 2026-10-15 08:15 /api/energy/dashboard。
+  **确认后才动 park-ops 正式代码**；下钻弹层、变压器面板对接 load 尚未做；负载率%待容量核定。
+- 调试：`cd backend && DB_PATH=../database/smart-control-4gdev.db PORT=3299 EM123_BOOTSTRAP_DAYS=2
+  node dist/main.js`（node dist 启动单独一步；重启先 lsof 3299 取真 pid kill）。迁移前已备份
+  `database/smart-control-4gdev.db.bak-em123-hourly-20261015-075400`。配置 env：EM123_ENABLED/BASE_URL/
+  USERNAME/PASSWORD/BOOTSTRAP_DAYS，新增 EM123_REFRESH_HOURLY_MS(默认30min)/EM123_BOOTSTRAP_HOURLY_DAYS(默认7)。
+
+- **#7 正式前端改造已完成 + 本地大屏真实数据出画验收通过（2026-10-15，尚未部署、等用户确认）**：用户确认效果图版面后，
+  改了两个文件（css/style.css 本轮未改）：`frontend/public/park-ops/index.html`（P5 能源管理 section 六格全部重写；app.js 引用
+  版本号改 `?v=20261015-em123-energy` 破 PWA 缓存）、`frontend/public/park-ops/js/app.js`（`initEnergyCenter` 整体重写，
+  删光伏/变压器规划/电梯估算/旧KPI，接 d.em123.electric/water/load+d.headline+d.measured+d.park.categories；关口曲线用**纯 SVG**
+  折线 viewBox+preserveAspectRatio meet，vendor 无 echarts 不引依赖；fetchDashboard 走 /api/energy/dashboard 60s 轮询，
+  `window.__energyCenter()` 可手动刷新）。验证：node --check 通过；grep 旧 id（ehPv*/ehGridToday/ehMonthCost/ehCarbon/ehTransformer/
+  ehElevator）index.html+app.js 均 0；**`cd frontend && npm run build` 全链通过**（build-content.cjs --check + vue-tsc -b + vite build
+  + PWA，dist 产物版本号/新函数/真实文案正确、旧 id 0 残留）。
+- 三视口验收（Playwright 独立脚本 /tmp/shot_energy.py，输出 /tmp/energy_{wide_1920x778,phone_land_844x390,phone_port_390x844}.png）：
+  ①现场大屏 1920×778（=设计稿 3612×1462 的 2.47:1 等比）六面板饱满无变形、12 关口表全可见、云计量露约 4 行；②手机横屏 844×390
+  （2.16:1）完整可看；③**手机竖屏 390×844 被压扁不可读**——park-ops 是固定 3612×1462 设计稿 `fit()` transform scale 整体拉伸的
+  kiosk（app.js 行1-2 BASE_W/BASE_H+PARK_FIT_MODE 默认 stretch，#app 内部布局视口恒 3612，内部加 @media 不生效；6 个页面全这套机制），
+  竖屏方案（横屏引导遮罩 / 竖屏自动旋转 / 维持现状）**待用户定，不能擅自改全局 fit()**。
+- 数据核对（真实，非 bug）：滚动 24h 窗口里 **B3-1楼电表（202503072005 ×60）今晨 8:09 点突增到 42.6kW**（7 点 33），真实超过 B2-2
+  35.9 升到第3；关口 top3 曲线变 E2-1 46.8 / A4-1 44.4 / B3-1 42.6，峰值标签一一对应；分区卡 B区8,401 / E区6,809 / A区5,428 /
+  C区666；KPI 212.6/22754/104/105/欠费24/水0.5·64.3 全部正确。
+- 浏览器验收坑（重要）：**bu.js 必须传"表达式字符串"（如 `bu.js("1+1")`、`bu.js("JSON.stringify(...)")`），传箭头函数 `()=>{}`
+  不执行（返回 {}、无副作用）**；翻页用 `bu.press_key("ArrowRight")`（go(n) 是闭包内函数，全局调不到，window.go 无效）。
+  Playwright 截图：①系统自带 Chrome 路径 `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`，playwright 缓存无 chromium；
+  ②URL 必须用 **127.0.0.1**（localhost 走 IPv6/代理导致 goto 超时）；③用 `launch_persistent_context(独立user-data-dir,
+  args=["--no-proxy-server",...])`，不能在 args 里传 --user-data-dir。
+- 既有无关 console 报错（**非本轮引入、未动**）：`ops-content.js?v=20260913` 的 render() panel() 对 pageNodes[1]=企业经营页
+  找 `.left>.panel` 报 classList undefined——但该页是 fullgrid 静态 HTML（HEAD 版即如此，git diff 本轮仅改 P5 能源页），翻到企业经营页
+  显示完全正常，属历史遗留死脚本；其余 HLS 404/AI 502/SW 注册失败均本地缺真实流/服务的环境性错误。
+- 本地运行：vite 5173（task 8b5817e8，`cd frontend && VITE_PROXY_API=http://localhost:3299 npm run dev`，代理 /api→3299）；
+  后端调试 PID 83216 占 3299（真实数据正常）。
+
+### 2026-10-15 em123 改安全密码 + 部署链路核实（部署前）
+- **em123 平台密码已改**：账号"金湖科创产业园"，弱密码 123456 → **Jhp@Energy2026**（用户确认，平台个人中心 /system/user/profile 改，返回"操作成功"；退出后用新密码重新登录验证通过）。平台规则：新密码 6-20 位，旧密码经 remote checkPassword 校验。
+- 本地 `backend/.env` 已更新 EM123_PASSWORD=Jhp@Energy2026（.env 被 .gitignore 忽略、未跟踪）；后端重启（新 PID 27401，EM123_BOOTSTRAP_DAYS=2 覆盖）后 `GET /api/em123/overview`（响应外层包 {success,data}）：data.enabled=true、ok=true、loading=false、error=null，电 105（在线104）/水43 正常拉取，日志无 401/认证失败。
+- `backend/.env.example` 已补 em123 样例块（占位，EM123_USERNAME/PASSWORD 注释留空，不写真实密码）。
+- **生产部署前置**：生产 GK9000(Windows) 的 backend/.env 必须新增 EM123_ENABLED / BASE_URL / USERNAME / PASSWORD(=新密码 Jhp@Energy2026)，否则 enabled=false、电表数据空/回退。.env 不随 git、workflow 不打印不导出，需在生产机或既有配置渠道落实。
+- **部署链路纠正（重要）**：smart-control 仓库**没有** deploy-production.yml，真实生产工作流是 `.github/workflows/deploy-gk9000.yml`（"Deploy GK9000 through WireGuard"）。push main 触发（paths-ignore .md/docs/.github/移动端/部分测试），4 job：scope(tools/ci/deploy-scope.mjs 分类 twin/普通)→validate-frontend(pnpm install --frozen-lockfile + audit + test + typecheck + build)→validate-backend(pnpm install + audit + jest + build + test:ops)→deploy(前三者成功后 SSH 跳板 root@123.57.220.65 执行 `gk9000-deploy <SHA>`，再 `gk9000-verify`、`gk9000-offsite-backup`)。路由：GitHub Actions→阿里云 123.57.220.65→WireGuard 10.66.66.1→GK9000 10.66.66.3(Windows，ps1 部署)，最终服务 erp.cnjinhu.com。
+- scope-aware：frontend/public/** 直接拷 dist 不重启；frontend/src/** 侧构建不重启；backend/src/** 构建仅重启 backend；**deps/config/migrations/deploy脚本/mixed 触发 full build+migrate+restart**（pm2 restart smart-control-backend[+smart-control-frontend]）。本次含 migrations(1790500000000/1790501000000)+config+前后端 → 必走 full build+migrate+restart；生产先跑既有备份、失败自动回滚、保留3个快照、日志 D:\smart-control\logs。
+- 部署脚本 `scripts/deploy-from-ci.ps1`（生产机 PowerShell 5.1 中文 GBK，**ps1 必须纯 ASCII**，非 ASCII 注释会吞行）。
+- 提交铁律：只 add 明确源码文件；**database/ 不入库**（dev DB 被 database/*.db 忽略，但 lpr-snaps/ 与 *.bak 备份未被忽略，git status 显示 ?? database/ 是因它们，绝不 add）；.env 不入库。
+- 待办：用户明确同意后再提交推送；推送前本地补跑 CI 等价项（后端 jest+build+test:ops、前端 test+typecheck+build；本轮前端 build 已过，pnpm-lock 本次无依赖变更）。
+
 ## 约定
 
 - **每个会话的第一个动作 = 读本文件**。已双保险：`.claude/settings.json` 配了
