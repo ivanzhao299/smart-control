@@ -88,6 +88,23 @@ function changedFiles(base, head) {
     .filter(Boolean);
 }
 
+// Manual workflow_dispatch override. A normal push classifies the changed range
+// automatically; tests/docs-only commits (paths-ignore) never open a deploy run,
+// but an operator sometimes needs to deploy a validated commit whose final commit
+// itself changed only tests/docs. Only real deploy scopes are forceable.
+const FORCEABLE_SCOPES = new Set(['static', 'frontend', 'backend', 'full']);
+
+export function applyForceScope(result, force) {
+  const normalized = typeof force === 'string' ? force.trim().toLowerCase() : '';
+  if (!normalized || normalized === 'auto') {
+    return result;
+  }
+  if (!FORCEABLE_SCOPES.has(normalized)) {
+    throw new Error(`Invalid --force scope '${force}'. Allowed: auto, ${[...FORCEABLE_SCOPES].join(', ')}`);
+  }
+  return { ...result, scope: normalized, forced: true };
+}
+
 function arg(name) {
   const index = process.argv.indexOf(name);
   return index >= 0 ? process.argv[index + 1] : undefined;
@@ -99,7 +116,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   if (!base || /^0+$/.test(base)) {
     base = execFileSync('git', ['rev-parse', `${head}^`], { encoding: 'utf8' }).trim();
   }
-  const result = classifyDeployFiles(changedFiles(base, head));
+  const result = applyForceScope(classifyDeployFiles(changedFiles(base, head)), arg('--force'));
   const output = arg('--github-output');
   if (output) {
     appendFileSync(output, [

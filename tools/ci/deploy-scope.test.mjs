@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { classifyDeployFiles } from './deploy-scope.mjs';
+import { classifyDeployFiles, applyForceScope } from './deploy-scope.mjs';
 
 test('classifies public assets as a static release', () => {
   assert.equal(classifyDeployFiles(['frontend/public/welcome/index.html']).scope, 'static');
@@ -101,4 +101,30 @@ test('fails closed for mixed, dependency, deployment, and unknown changes', () =
   assert.equal(classifyDeployFiles(['frontend/pnpm-lock.yaml']).scope, 'full');
   assert.equal(classifyDeployFiles(['scripts/deploy-from-ci.ps1']).scope, 'full');
   assert.equal(classifyDeployFiles(['some-new-runtime/file']).scope, 'full');
+});
+
+test('manual force scope overrides the auto-classified scope for validated commits', () => {
+  // A tests/docs-only commit auto-classifies to none (paths-ignore never opens a
+  // push deploy); an operator can force a frontend deploy for the validated HEAD.
+  const docsOnly = classifyDeployFiles(['MEMORY.md', 'frontend/tests/identity-boundary.test.cjs']);
+  assert.equal(docsOnly.scope, 'none');
+
+  const forced = applyForceScope(docsOnly, 'frontend');
+  assert.equal(forced.scope, 'frontend');
+  assert.equal(forced.forced, true);
+
+  // auto / empty / whitespace leave the classification untouched.
+  assert.equal(applyForceScope(docsOnly, 'auto').scope, 'none');
+  assert.equal(applyForceScope(docsOnly, '').scope, 'none');
+  assert.equal(applyForceScope(docsOnly, undefined).scope, 'none');
+  assert.equal(applyForceScope(docsOnly, 'auto').forced, undefined);
+
+  // A real frontend classification stays frontend even when force is auto.
+  const real = classifyDeployFiles(['frontend/src/pages/MediaPage.vue']);
+  assert.equal(applyForceScope(real, 'auto').scope, 'frontend');
+
+  // Only real deploy scopes are forceable: none/twin are rejected, as are typos.
+  assert.throws(() => applyForceScope(docsOnly, 'none'), /Invalid --force scope/);
+  assert.throws(() => applyForceScope(docsOnly, 'twin'), /Invalid --force scope/);
+  assert.throws(() => applyForceScope(docsOnly, 'frondend'), /Invalid --force scope/);
 });
