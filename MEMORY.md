@@ -956,7 +956,7 @@ pm2 僵尸守护根治（146→2，INCIDENTS #9）→ 部署误报根治（#10�
 - 4 个用户已拍板：①电力监控后台是**供电公司**的、有铅封无法取数 → 走纯 em123 路线，缺回路表以后补；②27块贝林表与12块DTZY**不是两套**，12块 DTZY 即27块贝林三相表中已上云部分，另15块未上云；③版面放**最左列关口负荷卡片下方**；④现场核对（C1大总倍率、3块无归属表、15块表上云计划）后说。
 - 变压器#6 负载率改用**逐小时对齐加总**（比"各表峰值相加"准，避免不同时高估）：同时刻峰 **181.2kW=18.1%（PF0.9约20.1%）、均92.4kW=9.2%（PF0.9约10.3%）**；各表峰值之和199.1仅对比。口径：kW/kVA 未计无功，PF0.9 约偏低+10%，仅代表已接入回路下限，缺 E1/消防。
 - 第一版单列效果图（app_17g3rwunkc5）被用户电脑端否决，要求**严格 3612×1462 整页效果图**（含新增变压器面板），重点"不要溢出、不要超出卡片范围"，效果图通过后才开发。
-- 主产物《能源管理页-含变压器-整屏效果图.html》（chat 目录，单文件自包含纯内联 CSS/JS/SVG，无外部依赖；4 个缩放检视：整页3612/左列1243/中列1110/右列1110；数据全内联，最新 10-15 生产真实数据：今日2223.3/本月24764.3/关口峰已变74.1 B3-1/水6·69.8）。已发布 **doubao-html app_17g3v15f663，online_url=https://4kys968mthx46.doubaoapps.com/app/app_17g3v15f663**。shot.py `--only desktop` **status=pass、blocker/error/warning 全0**；逐列核验并修复两处真实超框：①楼栋 top10 行高过大把区域4卡第二行挤出 → bld margin11→6/track12→10；②分类"总表vs分户"卡月差异贴边 → cat margin11→8。用户进一步要求"信息充满卡片、行距调大"，已做 DOM 几何实测（Playwright 用系统 Chrome channel='chrome'，offsetHeight 不受 transform 影响）并定稿：关口曲线压到 **120px**、`.scroll:has(#gTable)` 改 flex 列布局 + **#gTable flex:1 等高（13px 字、td 上下 padding0、行高 18，12 行+表头 237 恰好=容器 237，tableOverflow=0 填满不裁）**；变压器 **9 行 .tf-row flex:1 1 0 等高均分（行高 32，last-child 无 margin，tf-note padding8/margin-top10 贴底）**，实测各行右缘距面板内 15px、badge/val 无裁切。所有 .p-body/.scroll 均 overflow:hidden 且内容已完整放下，无任何卡片内滚动/裁剪，左列两块充满。release 7696909368109976607 已 finished（同链接）。
+- 主产物《能源管理页-含变压器-整屏效果图.html》（chat 目录，单文件自包含纯内联 CSS/JS/SVG，无外部依赖；4 个缩放检视：整页3612/左列1243/中列1110/右列1110；数据全内联，最新 10-15 生产真实数据：今日2223.3/本月24764.3/关口峰已变74.1 B3-1/水6·69.8）。已发布 **doubao-html app_17g3v15f663，online_url=https://4kys968mthx46.doubaoapps.com/app/app_17g3v15f663**。shot.py `--only desktop` **status=pass、blocker/error/warning 全0**；逐列核验并修复两处真实超框：①楼栋 top10 行高过大把区域4卡第二行挤出 → bld margin11→6/track12→10；②分类"总表vs分户"卡月差异贴边 → cat margin11→8。关口曲线保持132；**#gTable 用 12px 字/1px 行距让 12 块总表全部列出（用户强调大屏无鼠标、卡片内禁止滚动，已把关口原本后5行被裁改为12行全显示）**；华普云6行用 #mTable 专属紧凑行高一次显示全。所有 .p-body/.scroll 均 overflow:hidden 且内容已完整放下，无任何卡片内滚动/裁剪。
 - **左列改法（效果图已落地、待确认）**：一个跨两行面板→上下两个半高面板（关口 grid-row:2/3、变压器 grid-row:3/4，各515）。
 - **铁律：用户确认版面后才动正式 park-ops 代码**；后端方向=变压器档案+表-变映射静态配置（可维护、不写死前端）+按变压器逐小时对齐加总（#6 给负载率，partial/none/off 明确标注不编造）；前端方向=左列拆两块、renderTransformer、按效果图验证过的紧凑行高同步正式样式；本地 build+migration+真实取数验收后用户点头才部署。
 
@@ -970,6 +970,13 @@ pm2 僵尸守护根治（146→2，INCIDENTS #9）→ 部署误报根治（#10�
 - **状态**：用户已确认部署。commit 029515b（5 文件 +263/-29）已 push origin/main。首次 Deploy 工作流在 validate-frontend 失败：`identity-boundary.test.cjs` 两个测试（upload 走 axios fetch 捕获 credentials/abort、User-Agent 不注入）仍断言旧 axios 行为，本地只跑了 media-upload-queue 单测漏了全量。已修：该测试文件加 `makeXhrMock()`（FakeXHR 注入 vm 沙箱，__progress/__respond/__error 驱动），重写两个 upload 测试为 XHR 断言（method/url/headers 含 X-Client-Token+X-Upload-Size、不设 Content-Type、withCredentials=false、身份切换 abort→CanceledError/__CANCEL__、过期进度抑制；list 仍走 axios fetch 不注入 User-Agent）。本地全量 `node --test tests/*.test.cjs` **283/283 过**、typecheck=0。**教训：提交前必须本地跑全量 `pnpm run test`（283 个），不能只跑单个测试文件**。修复后重 push 触发 Deploy。
 - **部署后真机复测**：5173 大文件（XHR 快速成功）+ 域名页琥珀色提示条 + 取消；若手机仍旧（SW 缓存），引导 pwa-recovery 或杀 App 重开/更新。
 - **遗留待办**：①管理员无法删除媒体（DELETE 无后端守卫？用 token 法实测 resource-policy/canEditMedia）；②生产 D:\Media\_tmp 卡死残留 14b4bbe5(6MB,21:33 零增长)+历史 mrpppybz(3.5MB) 及测试记录 #141-#147/#154-#161 清理（删除前请示，用户曾授权测试媒体直接删不走回收站）；③约 1GB upload_reservations 泄漏（quota 10GB/used~1.7/reserved~0.97）。
+
+### 2026-10-15 多对话并行基线对齐（本地 main 已与 origin/main 同步到 97c59eb）
+- 背景：另一对话（大文件上传）与本变压器任务共用同一本地仓库 `/Users/mac/Documents/smart-control-4g-dev` 的 main 工作区。代理 1082 开启后 `git fetch` 确认：**本地 main = HEAD = origin/main = 97c59eb**，工作区干净，无 ahead/behind（此前缓存显示"领先1"是另一条线未推的 5d9f1f9，现已推送）。
+- 0399084（能源）之后叠了 9 个提交（81eef1e 播放器看门狗→e0b533a/7559583/60a1a8e/f8d2c89/836a706/029515b 大文件上传 XHR→5d9f1f9 测试适配，均已在远端）；最新 **97c59eb=ci(deploy) workflow_dispatch 支持 force_scope 手动覆盖部署范围**（测试/文档提交命中 paths-ignore 不触发部署时，可手动触发；--force auto/static/frontend/backend/full，none/twin 不可强制）。
+- 这 9 个提交只改 frontend/src、frontend/tests、backend media/playback/system 三个文件、tools/ci、nginx、player-watchdog 脚本、MEMORY、.gitignore、workflow；**未碰 frontend/public/park-ops、backend/src/modules/em123、entities**——变压器/能源大屏前端与 em123 后端基线仍是 0399084 那版。
+- 仓库另有 5 个分支 `codex/*` 与 `fix/remove-welcome-page`（git worktree 挂在 ~/.codex/worktrees、/Users/mac/Documents/smart-control、/private/tmp/park-ops-edit），落后 main 46~674，属其他 agent 旧线，与本任务无关、勿动；fix/remove-welcome-page 已 prunable 且 ahead0。
+- 教训：多对话共用同一 main 工作区会互相夹带提交（5d9f1f9 曾顺带提交本线回写的 MEMORY）。变压器正式开发建议从最新 main 切特性分支 `feat/transformer-energy`，本地验收+用户确认后再合回 main 推送（push main 才触发 deploy-gk9000）。
 
 ## 约定
 
