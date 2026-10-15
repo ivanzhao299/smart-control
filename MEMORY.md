@@ -1,6 +1,16 @@
 
 ## ★ 最新状态（2026-10-15，优先于本文件一切历史快照）
 
+- **【2026-10-15 修复 PWA 大文件上传三症状（局域网 XHR 失败/域名慢/取消无反应），已全绿部署生产 GK9000，commit 97c59eb，三端同 commit 对齐并生产真生效回验通过】**
+  - **三症状根因（均本地实测锁定）**：③局域网 `http://192.168.77.54:5173` 上传失败=`media.service.ts` 用 axios `adapter:'fetch'`+`onUploadProgress`，axios 1.20.0 fetch adapter 把 FormData 包成 `new Request({body,duplex:'half'})` 流式体，HTTP 直连后端 3200 发流式 POST 报 `net::ERR_ALPN_NEGOTIATION_FAILED`（原生 fetch 非流式/XHR 均 201）；①域名显 80 分钟=浏览器硬限制，HTTPS 域名页内 fetch HTTP 局域网被混合内容硬拦截，JS 无法区分拦截/不在局域网，只能手动引导；②取消无反应=代码取消链路本正确，已双重加固，手机端"没反应"高度疑似 PWA SW（registerType:prompt, scope=/control/）缓存旧 chunk，新代码进 waiting 不执行。
+  - **修复（029515b，5 文件）**：`media.service.ts` 新增原生 `xhrUpload()`（xhr.open POST、withCredentials=false、timeout 局域网0/公网30min、不设 Content-Type 让浏览器自动带 boundary、xhr.upload.onprogress 带 generation 代际校验、onIdentityChange+外部 signal 双 abort、非 2xx 伪装 axios error、onabort 伪装 CanceledError/__CANCEL__）；`upload()` 构造 X-Upload-Size/X-Client-Token/Authorization 头后走 XHR，其余 GET/小 JSON/DELETE/PUT 仍走 axios fetch。`useMediaUploadQueue.ts` isAbort 多重判断 + cancelUpload 立即复位 UI。`http.ts` 新增 deriveLanFrontendUrl/getLanFrontendUrl（端口5173/直连返回 null，pathname `^/control` 兜底）。`MediaPage.vue` 新增琥珀色局域网提示条（打开局域网版/×，localStorage `sc.media.lanHintDismissed` 记忆）。
+  - **本地验收**：SSH 隧道 localhost:3200→GK9000；5173 真实 file input 上传 1MB(#160)、200MB(#161，1.5s≈130MB/s)；1GB 传 41% 取消→进度立即消失、未入库、无新 _tmp；vue-tsc/build 0 错。
+  - **CI 与测试修复（5d9f1f9）**：旧 029515b 的 Deploy run 38755536673 validate-frontend 2 fail（identity-boundary.test.cjs test9/11 断言旧 axios fetch 行为；本地此前只跑了单文件未跑全量）。新增 makeXhrMock()（FakeXHR，abort 用 setTimeout(0) 异步派发），重写 test9/11 为 XHR 断言；全量 283/283 过、typecheck 0。**教训：提交前必须本地跑全量 `node --test tests/*.test.cjs`，不能只跑单文件。**
+  - **部署增强（97c59eb）**：测试/文档提交命中 deploy-gk9000.yml 的 paths-ignore 不触发部署，而需部署已验证 HEAD，故给 deploy workflow 增加 `workflow_dispatch.inputs.force_scope`（auto/static/frontend/backend/full，none/twin 不可强制）；`deploy-scope.mjs` 新增导出 `applyForceScope(result,force)` 与 CLI `--force`（含单测，tools/ci 8/8）。**手动触发**：`gh workflow run deploy-gk9000.yml -f force_scope=frontend --ref main`。
+  - **生产真生效回验（已过）**：Deploy run 38760235390 conclusion=success、scope=frontend、Routing gk9000-deploy、gk9000-verify + offsite-backup 全过；SSH 核 dist 时间 2026-10-15 15:29(UTC)、sw.js 已更新；`MediaPage-sglS4T_e.js` 含"打开局域网版"、index chunk 含 X-Upload-Size/X-Client-Token；公网 `https://erp.cnjinhu.com/control/sw.js` precache 含新 chunk 且 chunk HTTP 200、局域网 5173 sw.js 同步新 chunk。
+  - **遗留**：手机端若仍"取消没反应"，重点查 SW 是否加载新 chunk（必要时引导 pwa-recovery 注销 SW+清 workbox 缓存或彻底杀 PWA 重开点更新）；管理员无法删除媒体（media.controller DELETE :id 无 @UseGuards，约 :241，未开始）；_tmp 卡死文件(14b4bbe5 6MB/mrpppybz 3.5MB)、测试媒体 #141-#161、约1GB upload_reservations 泄漏待请示后清理。
+
+
 - **【2026-10-15 修复"PWA 大视频/大文件上传到 100% 卡住、回登录页"：根因=公网 Nginx 默认 proxy_request_buffering on 先整包缓冲再转发；Nginx+前端修复已开发并影子决定性验证，待用户同意部署】**
   - **根因（决定性，非推测）**：公网路径 手机→阿里云 nginx(123.57.220.65)→WireGuard(约5Mbps)→GK9000 后端(10.66.66.3:3200) multer 落盘。Nginx 1.18.0 **未设 proxy_request_buffering=默认 on**，先把整个请求体完整缓冲到本机，缓冲完才去连后端、转发。限速 400KB/s 传 100MB 实测：前约 271s 后端 `_tmp` 无 `.upload`（只缓冲），第 273s `.upload` 才出现（multer 开始写盘）。
   - **"假100%卡住/回登录页"机制**：前端进度100%=浏览器→Nginx(T1)完成，但 Nginx→隧道→后端(T2，5Mbps，100MB需170~350s)还在进行，形成假100%；期间手机锁屏/切后台/信号抖动，或并发请求401触发 markSessionExpired→abort 上传，回登录页，Nginx 中断 T2，multer 报 400。
