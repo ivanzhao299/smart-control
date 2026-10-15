@@ -81,6 +81,19 @@ export class MediaQuotaService {
       'DELETE FROM upload_reservations WHERE id = ? AND target_media_id = ? AND temp_name IS NULL', [id, mediaId]));
   }
 
+  /**
+   * 释放某个媒体遗留的全部转码预留。重启恢复时原预留 id 已随进程丢失，
+   * 只能按媒体清理；只删转码预留（temp_name IS NULL 且绑定了 target_media_id），
+   * 绝不碰正在上传的临时预留（temp_name 非空）。
+   */
+  async releaseStaleConversions(mediaId: number): Promise<void> {
+    await serializedTransaction(this.db, manager =>
+      manager.query(
+        'DELETE FROM upload_reservations WHERE target_media_id = ? AND temp_name IS NULL',
+        [mediaId],
+      ));
+  }
+
   async bindTemporary(actor: Actor, id: string | null, name: string): Promise<void> {
     assertCanUpload(actor);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.upload$/.test(name)) throw new BadRequestException('无效临时文件名');

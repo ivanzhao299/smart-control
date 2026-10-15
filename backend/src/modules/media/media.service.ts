@@ -11,7 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Logger } from 'winston';
-import { EntityManager, IsNull, Repository } from 'typeorm';
+import { EntityManager, In, IsNull, Repository } from 'typeorm';
 import { serializedTransaction } from '../../common/utils/serialized-transaction';
 import { boundedCommandFile } from '../../common/utils/bounded-command-file';
 import { MediaQuotaService } from './media-quota.service';
@@ -83,6 +83,67 @@ export class MediaService implements OnModuleInit {
     await fs.mkdir(this.mediaRoot, { recursive: true });
     await this.ensureAssetParent({ id: 0, kind: 'image', remark: WELCOME_PHOTO_REMARK });
     this.logger.info(`MediaService ready, root=${this.mediaRoot}`, { context: 'MediaService' });
+    // 不阻塞启动：恢复上次进程中断（部署/崩溃/断电）而没做完的视频兼容转码。
+    void this.recoverInterruptedVideos();
+  }
+
+  /**
+   * 启动恢复：后端重启（部署/崩溃/断电）会把转码中途的视频永久留在 pending/processing，
+   * 既不报错也无人重跑。这里对每条这样的视频：清理上次未完成的转码临时文件、
+   * 释放随进程丢失的陈旧转码预留，再重新触发 prepareVideo。串行执行，避免重启瞬间
+   * 多路大视频同时软转码挤占视频墙的 CPU。单条失败不影响其余视频。
+   */
+  private async recoverInterruptedVideos(): Promise<void> {
+    let pending: MediaAsset[];
+    try {
+      pending = await this.repo.find({
+        where: { kind: 'video', processingStatus: In(['pending', 'processing']) },
+      });
+    } catch (error) {
+      this.logger.error(`[Media] 扫描未完成兼容处理失败: ${(error as Error).message}`, {
+        context: 'MediaService',
+      });
+      return;
+    }
+    if (pending.length === 0) return;
+    this.logger.warn(
+      `[Media] 检测到 ${pending.length} 个视频兼容处理在重启前未完成，开始逐个恢复`,
+      { context: 'MediaService' },
+    );
+    for (const asset of pending) {
+      try {
+        const dir = join(this.mediaRoot, String(asset.id));
+        // 清理上次未完成的转码临时文件；被占用（极端情况下旧 ffmpeg 仍在写）时跳过，
+        // 新转码用新 UUID 临时文件，互不冲突。
+        try {
+          for (const name of await fs.readdir(dir)) {
+            if (name.startsWith('playback-converting-') && name.endsWith('.mp4')) {
+              await fs.unlink(join(dir, name)).catch(() => {});
+            }
+          }
+        } catch {
+          // 目录尚不存在等情形无需处理，后续按源文件状态判定。
+        }
+        // 旧转码预留随进程丢失、无人释放，先按媒体清掉，否则 reserveConversion 会
+        // 以"资料已有待恢复转码预留"拒绝本次重转。
+        await new MediaQuotaService(this.repo.manager.connection).releaseStaleConversions(
+          asset.id,
+        );
+        await this.updateMediaFields(asset.id, {
+          processingStatus: 'pending',
+          processingError: null,
+        });
+        this.logger.info(`[Media] 视频 #${asset.id} 重新开始兼容处理`, {
+          context: 'MediaService',
+        });
+        await this.prepareVideo(asset.id); // 串行：转完一个再恢复下一个
+      } catch (error) {
+        // prepareVideo 内部已兜底置 failed；这里再兜底一次，保证单个坏条目不中断整轮恢复。
+        this.logger.error(`[Media] 视频 #${asset.id} 启动恢复失败: ${(error as Error).message}`, {
+          context: 'MediaService',
+        });
+      }
+    }
   }
 
   /** Multer 临时上传根 (跟正式 root 同盘, 避免跨盘 rename 失败) */
@@ -1340,6 +1401,9 @@ export class MediaService implements OnModuleInit {
         temp,
         conversionReservation.bytes,
       );
+      // POSIX 上 rename 会覆盖同名文件，Windows 上遇到已存在的输出会失败；
+      // 显式移除后再安装，保证重启重转（输出已存在）时跨平台行为一致。
+      await fs.rm(output, { force: true });
       await fs.rename(temp, output);
       outputInstalled = true;
       media.sourcePath = source;
