@@ -1,5 +1,5 @@
-import { computed, onScopeDispose, ref, watch, type Ref } from 'vue';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { onScopeDispose, ref, watch, type Ref } from 'vue';
+import { ElMessage } from 'element-plus';
 import { audioService } from '@/services/audio.service';
 import { faderPercentFromY } from '@/features/audio-view-model';
 import { createLatestCommandQueue } from '@/features/latest-command-queue';
@@ -16,10 +16,6 @@ interface AudioOutputMessages {
   success(message: string): void;
   warning(message: string): void;
   error(message: string): void;
-}
-
-interface AudioOutputConfirm {
-  (message: string, title: string, options: Record<string, unknown>): Promise<unknown>;
 }
 
 interface AudioOutputStorage {
@@ -42,7 +38,6 @@ interface AudioOutputControlsOptions {
   linkOn: (row: AudioOutputRow) => boolean;
   service?: AudioOutputControlService;
   messages?: AudioOutputMessages;
-  confirm?: AudioOutputConfirm;
   storage?: AudioOutputStorage;
   documentPort?: AudioOutputDocument;
   scheduler?: AudioOutputScheduler;
@@ -88,7 +83,6 @@ export function useAudioOutputControls(options: AudioOutputControlsOptions) {
     linkOn,
     service = audioService,
     messages = ElMessage,
-    confirm = ElMessageBox.confirm,
     storage = defaultStorage(),
     documentPort = defaultDocument(),
     scheduler = { delay: (milliseconds) => new Promise((resolve) => { setTimeout(resolve, milliseconds); }) },
@@ -96,9 +90,6 @@ export function useAudioOutputControls(options: AudioOutputControlsOptions) {
 
   const draggingFaderId = ref<string | null>(null);
   const savedVolumes = ref<Record<string, number>>({});
-  const allMuted = computed(() => (
-    channels.value.length > 0 && channels.value.every((channel) => channel.muted)
-  ));
   let disposed = false;
   let commandEpoch = 0;
   const volumeRevisions = new Map<string, number>();
@@ -316,64 +307,6 @@ export function useAudioOutputControls(options: AudioOutputControlsOptions) {
     return currentResults === targets.length;
   }
 
-  async function toggleMuteAll(): Promise<boolean> {
-    if (disposed || channels.value.length === 0) return false;
-    const isCurrent = captureIdentityGuard(() => !disposed);
-    const targetMuted = !allMuted.value;
-    if (targetMuted) {
-      try {
-        await confirm('确定全部静音?全场背景音乐与音源都会闭声。', '全部静音确认', {
-          type: 'warning',
-          confirmButtonText: '全部静音',
-          cancelButtonText: '取消',
-        });
-      } catch { return false; }
-    }
-    if (!isCurrent()) return false;
-
-    const targets = channels.value.filter((row) => row.muted !== targetMuted);
-    if (!targets.length) return true;
-    if (targets.some((target) => mutePendingIds.has(target.id))) return false;
-    const pendingToken = Symbol('mute-all');
-    for (const target of targets) mutePendingIds.set(target.id, pendingToken);
-    if (targetMuted) {
-      for (const target of targets) {
-        savedVolumes.value = { ...savedVolumes.value, [target.id]: target.volume };
-      }
-    }
-    const guards = targets.map((target) => beginMute(target));
-    const results = await Promise.all(targets.map((target, index) => (
-      applyMute(target, targetMuted, guards[index])
-    )));
-    for (const target of targets) {
-      if (mutePendingIds.get(target.id) === pendingToken) mutePendingIds.delete(target.id);
-    }
-    if (results.every((result) => result === 'stale')) return false;
-    const successes = results.filter((result) => result === 'success').length;
-    saveMuteState();
-    if (!successes) {
-      messages.error(targetMuted ? '全部静音失败，请重试' : '解除静音失败，请重试');
-      return false;
-    }
-    if (successes !== targets.length) {
-      messages.warning(`${targetMuted ? '静音' : '解除静音'}部分成功，失败通道已保留原状态`);
-    } else {
-      messages.success(targetMuted ? '已全部静音' : '已解除静音，音量渐响恢复中…');
-    }
-    if (!targetMuted) {
-      const fadeTargets = targets
-        .filter((target) => !target.muted)
-        .map((target) => {
-          const volume = savedVolumes.value[target.id] ?? target.volume;
-          target.volume = 0;
-          void service.setVolume(target.id, 0, target.zone).catch(() => {});
-          return { row: target, volume };
-        });
-      void fadeInVolumes(fadeTargets);
-    }
-    return successes === targets.length;
-  }
-
   function stopOutputControls(): void {
     commandEpoch += 1;
     volumeRevisions.clear();
@@ -398,7 +331,6 @@ export function useAudioOutputControls(options: AudioOutputControlsOptions) {
   });
 
   return {
-    allMuted,
     draggingFaderId,
     restoreOutputState,
     setFaderValue,
@@ -406,7 +338,6 @@ export function useAudioOutputControls(options: AudioOutputControlsOptions) {
     onFaderPointerMove,
     onFaderPointerUp,
     toggleMute,
-    toggleMuteAll,
     stopOutputControls,
   };
 }

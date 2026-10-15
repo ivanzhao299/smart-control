@@ -1,6 +1,32 @@
 
 ## ★ 最新状态（2026-10-15，优先于本文件一切历史快照）
 
+- **【2026-10-15 修复"PWA 大视频/大文件上传到 100% 卡住、回登录页"：根因=公网 Nginx 默认 proxy_request_buffering on 先整包缓冲再转发；Nginx+前端修复已开发并影子决定性验证，待用户同意部署】**
+  - **根因（决定性，非推测）**：公网路径 手机→阿里云 nginx(123.57.220.65)→WireGuard(约5Mbps)→GK9000 后端(10.66.66.3:3200) multer 落盘。Nginx 1.18.0 **未设 proxy_request_buffering=默认 on**，先把整个请求体完整缓冲到本机，缓冲完才去连后端、转发。限速 400KB/s 传 100MB 实测：前约 271s 后端 `_tmp` 无 `.upload`（只缓冲），第 273s `.upload` 才出现（multer 开始写盘）。
+  - **"假100%卡住/回登录页"机制**：前端进度100%=浏览器→Nginx(T1)完成，但 Nginx→隧道→后端(T2，5Mbps，100MB需170~350s)还在进行，形成假100%；期间手机锁屏/切后台/信号抖动，或并发请求401触发 markSessionExpired→abort 上传，回登录页，Nginx 中断 T2，multer 报 400。
+  - **修复1（Nginx，核心）**：`deploy/nginx-erp.cnjinhu.com.conf` 在 443 块 `/api/` 之前新增精确匹配 `location = /api/media/upload`：`proxy_request_buffering off; proxy_http_version 1.1;` + 四组 header + connect30s/read3600s/send3600s（边收边转发，TCP 反压手机，不额外占内存）。
+  - **修复2（前端加固）**：新建 `services/upload-keepalive.ts`（Screen Wake Lock 防自动锁屏 + 上传活动计数，visibilitychange 回前台重新请求）；`http.ts` 导出 notifyUnauthorized；`useMediaUploadQueue.uploadOne` 开始 begin/finally end，上传自身 401 才先解除保活再 notifyUnauthorized；`App.vue` 全局 401 兜底在 isUploadActive 时 return（并发非上传请求401不踢）。
+  - **影子决定性验证（跳板机临时隔离端口，已清理）**：20MB@1MB/s 慢速上传，`off` 后端首字节→完成持续 **19.95s**（逐块流式到达，进度真实）；`on` 后端首字节→完成仅 **0.01s**（缓冲完整包后瞬间转发=假100%）。前端 `npm run build` 成功无 TS 错误。
+  - **★操作事故（已恢复）**：做影子验证时临时 nginx 配置**未显式指定独立 pid**，而编译默认 `--pid-path=/run/nginx.pid`，`-s stop` 误停系统 nginx（19:46:23 dead，约2分钟）；已 `systemctl start nginx` 恢复，外部验证 park-ops/PWA 200、energy API 200、80/443 正常。**教训：系统上跑独立 nginx 实例必须显式 `pid <独立路径>;`。**
+  - **待部署**：部署=scp 新配置覆盖 `/etc/nginx/conf.d/erp.cnjinhu.com.conf`→`nginx -t && systemctl reload nginx`（跳板机旧配置已有 .bak 可回滚）+ 前端 build 走 GK9000 部署；部署后立即慢速公网上传复测 `_tmp` 落盘时机。**用户明确同意前不部署。**
+
+- **【2026-10-15 重新审计"现场没声音"（用户坚称物理接线无变化）：根因=矩阵 EKX 所有 OUT 输出通道被「全部静音」（READ_MUTE=1），非物理接线问题；已软件解除全部静音并验证，待用户现场确认】**
+  - **逐层真实取数（先内容→PC→DSP路由→功放→OUT 硬件静音）**：
+    1. 媒体内容：此前在播 media37（2_video.mp4）经 Node 解析 MP4 box 确认**只有 vide 无 soun=静音视频**，media83（欢迎页.png）是静态图无音频；后改推有声 media78 测试。
+    2. PC 端：推 media78 后 HDMI 端点 e7bb112 **peak=0.2942 HAS AUDIO**（PC 输出、setSinkId 路由正常）。
+    3. DSP 母线：IN3/IN4 -23~-27dB 强、OUT3/OUT4 -21~-28dB 强（LED 分区，数字域有信号）；IN3/4=投影左/右标签，物理电平以实测为准。
+    4. 功放：时序器 GET /api/power-circuits reading，seq-2 LED大屏功放 **on=true**（仅 seq-3 二楼办公区 off）。
+    5. **★决定性**：READ_MUTE(0x49) 实测响应为裸 payload（去 DLE/STX 帧头）3 字节 [IO,Ch,mute]，OUT3=`01 02 01`=**mute=1**；全部扫描 **OUT1~8 mute 全 1（8 个输出全被静音）**，IN mute 全 0。OUT gain（0x48）code 246=**-3.4dB 音量正常**、OUT 电平（0x4d）-26dB 母线有信号——**mute 开关把物理 OUT 端子关断，解释了"数字域有电平、物理没声"，与"接线没变化"完全吻合**。
+  - **责任/时间（operation_logs 真实记录）**：**2026-10-15 04:32:11~12 UTC（北京 12:32）6 条 audio.mute，audio_out1~out6 全部 muted=true、success、op=system、terminal=null，此后无任何 unmute**（OUT7/8 亦 mute，当前全 8 路 mute）。audio.controller.ts 第 427 行 wrap() 把所有音频操作日志**写死 operator:'system'**，故日志无法区分真人/agent；与历史排查一致=真人在「音源矩阵」前端页点了 **AudioPage.vue 的「全部静音」按钮（toggleMuteAll，useAudioOutputControls.ts 319 行，带确认框，会把所有 OUT 静音）**，疑今天中午调试声音时误点，之后未解除。**非物理接线、非这两天权限部署改密**（两表 passwordChangedAt 仍 9-04）。
+  - **软件解除（已执行，未改代码/未重启/未碰接线）**：逐个 POST /api/audio/audio_outN/mute body `{muted:false,zone:'outN'}`，8 个全返回 **201**；重读 READ_MUTE **OUT1~8 全 0（静音全部解除）**；电平确认 IN3/4(-23/-27)→OUT3/4(-28/-21) 仍有信号。unmute 只发 MUTE 0x42、不改音量，恢复到现有 gain（-3.4dB）。**待用户现场确认声音恢复**；后续可考虑：①audio.controller 日志记录真实 operator；②reconciler/前端防误操作，待用户确认后再做。
+
+- **【2026-10-15 修复"LED 不能从运营大屏切到欢迎页/视频，投影仪正常"：根因=独立 park-ops 全屏窗口 z-order 反客为主、遮挡播放器 slot1；已手动恢复 z-order 并物理截图验证；长期修复方案待用户确认后部署】**
+  - **现象**：现场 LED 能正常显示运营大屏、可正常翻页，但切到欢迎页/视频后物理画面不变；投影仪输入源切换正常；用户确认设备网络可达性无问题。
+  - **根因（console 物理截图决定性确认，非推测）**：GK9000 主屏上有两个全屏窗口——播放器 `player?slot=1`（marker=smart-control-player-slot1）与**独立 park-ops 窗口**（marker=smart-control-park-ops，设计定位=播放器下层的"防黑屏底图/兜底"）。开机 `StartPlayers.cmd`（Startup 文件夹）顺序为 **start-players（先）→ start-park-ops（后）**，start-park-ops 用 `Start-Process` 启动的 Edge 窗口获得焦点、置顶；其 `Repair-MarkerRect` 用 SWP_NOZORDER（只修 rect、不回置 z-order）。修复看门狗无限重启（81eef1e）前，start-players 每 3 分钟被 force full relaunch，播放器 slot1 每次重启置顶、盖住 park-ops；**81eef1e 停掉循环后，开机（17:29 GK9000 本地）park-ops 最后启动、置顶，再无 start-players 把播放器顶回，于是 park-ops 反客为主**，遮挡播放器 slot1。无论播放器 slot1 内部播什么（视频/欢迎页），物理 HDMI 输出恒为 park-ops。
+  - **排除项**：后端 API 全部成功（/led/input、/playback welcome、publish）；直接 API 推 media37 稳定 60s 不被切回；全代码搜索确认无任何定时任务/服务自动推 park-dashboard/media81；播放历史中 media78/83/81 均为用户/终端点击产生，非自动切回。
+  - **现场修复（已执行并验证，只读+z-order，未改代码/未重启）**：写 fixzorder.ps1 经 user/Interactive 计划任务（ScTmpFix）在 console 运行，`SetWindowPos(HWND_TOP)` + SetForegroundWindow 把播放器 slot1（PID 10092）提回 park-ops（PID 14732）之前。修复后物理截图确认：slot1 播放器（z=2）在 park-ops（z=3）前；推 media37 显示山水视频、推 welcome 显示动态欢迎页"热烈欢迎"，物理显示随切换立即变化；已切回 media37。中途浮现的深蓝色 PowerShell 窗口是各临时任务脚本自身的 powershell 窗口（PID 每次不同、执行完自行关闭），非产品故障。
+  - **长期修复方案（待用户确认，不碰用户原有功能）**：推荐 A——在 display-common.ps1 新增 `Send-MarkerToBottom`（SetWindowPos HWND_BOTTOM，SWP_NOMOVE|NOSIZE|NOACTIVATE，纯 ASCII），start-park-ops.ps1 启动并钉好 rect 后调用，restart-park-ops-once.ps1 第 82 行 SetForegroundWindow 改为置底，使 park-ops 无论何时启动都乖乖作底图；可选 B（仅把 StartPlayers.cmd 改为先 park-ops 后 players，改动最小但不覆盖中途重启）。**方案确认前不部署，需重启/现场再验证。**
+
 - **【2026-10-15 修复 LED 播放"没声音 + 视频播一会停、跳回运营大屏"：根因=看门狗把纯音频 slot3 误判为画面卡死，无限重启；已止血+A+B 修复，用户确认现场有声，走 A+B full 部署】**
   - **现象**：LED 屏播视频源时各路都没声音（切任何源都没声），视频播约 3 分钟停止、自动跳回运营大屏页。
   - **根因（决定性验证，非推测）**：slot3 是**无窗口纯音频 daemon**（bgm-player.ps1），其第 234 行每 ~3s 用空 `-Body` POST 心跳；该请求实际发 `Content-Type=application/x-www-form-urlencoded, Content-Length=0`，Nest `@Body()` 经 Express urlencoded parser 解析为 **`{}`（空对象，truthy）**；playback.service.ts heartbeat 旧逻辑 `if (render)` 对 {} 进入，导出 `renderHealth={fps:0,stalls:0,healthy:true}`。player-watchdog.ps1 渲染健康检查（foreach 旧第 390 行）对 expected slot3 套 `healthy=false OR fps<2`，fps=0 永远命中 → 确认 90~120s 不消除 → force full relaunch（start-players 全量 kill+清缓存+重启）；slot3 重启后仍 fps=0，**无限循环**。

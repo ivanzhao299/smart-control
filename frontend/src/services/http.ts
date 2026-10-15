@@ -122,6 +122,22 @@ export function setApiBaseURL(input: string): void {
 export function getApiBaseURL(): string { return baseURL; }
 
 /**
+ * 当前是否走"局域网/本机直连后端"(经典 5173 前端 + 3200 后端), 不经过公网
+ * Nginx / WireGuard 隧道。判断依据:
+ *   - 页面跑在 5173 端口(本地双端口布局), 或
+ *   - baseURL 解析后指向 3200 端口。
+ * 直连场景: 上传走局域网高速、不限大小(见 useMediaUploadQueue)。
+ */
+export function isDirectLocalConnection(): boolean {
+  try {
+    if (window.location.port === '5173') return true;
+    const u = new URL(baseURL, window.location.href);
+    if (u.port === '3200') return true;
+    return false;
+  } catch { return false; }
+}
+
+/**
  * 把 backend 返的相对路径 (e.g. "/api/media/2/file") 拼成绝对 URL.
  *
  * 背景: backend 返 fileUrl/logoUrl 这种相对路径, axios 请求时会自动拼 baseURL,
@@ -184,6 +200,10 @@ export function getClientToken(): string | null { return clientToken; }
  */
 let onUnauthorized: (() => void) | null = null;
 export function setUnauthorizedHandler(fn: (() => void) | null): void { onUnauthorized = fn; }
+/** 主动触发全局 401 兜底（供不走 http.ts 的独立 axios，如 media 上传在自身 401 时调用）。 */
+export function notifyUnauthorized(): void {
+  try { onUnauthorized?.(); } catch { /* 钩子异常不影响调用方 */ }
+}
 
 export interface HttpRequestConfig {
   /** URL query params, 自动 encode 拼到 url 后. 接受任何 typed interface, 运行时再过滤 nullish. */

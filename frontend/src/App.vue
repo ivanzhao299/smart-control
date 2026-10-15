@@ -12,6 +12,7 @@ import { wsClient } from '@/services/websocket.service';
 import { polling } from '@/services/polling.service';
 import { markBootComplete } from '@/services/rum.service';
 import { setUnauthorizedHandler, setClientToken, setAdminToken } from '@/services/http';
+import { isUploadActive } from '@/services/upload-keepalive';
 import { installCrossTabIdentitySync } from '@/services/cross-tab-identity';
 import PwaUpdateBanner from '@/components/PwaUpdateBanner.vue';
 
@@ -85,6 +86,9 @@ setUnauthorizedHandler(() => {
   if (reauthing) return;
   const cur = router.currentRoute.value;
   if (cur.path.startsWith('/admin') || cur.path === '/player') return;
+  // 大文件上传进行中：并发非上传请求的 401（隧道忙/网络抖动）不立即踢，避免中断上传；
+  // 上传请求自身 401 会先解除保活（计数清零）再触发本兜底。
+  if (isUploadActive()) return;
   reauthing = true;
   clientAuth.markSessionExpired();
   if (router.currentRoute.value.name !== 'client-login') {

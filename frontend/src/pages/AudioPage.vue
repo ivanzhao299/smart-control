@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, onDeactivated, ref } from 'vue';
 import { useActivePolling } from '@/composables/useActivePolling';
 import { useRouter, useRoute } from 'vue-router';
 import {
-  ArrowLeft, Speaker, Volume2, VolumeX, Play, Sparkles, Music, Square, Pause,
+  ArrowLeft, Speaker, Volume2, Play, Sparkles, Music, Square, Pause,
   SkipBack, SkipForward, Shuffle, Repeat, Repeat1, ListMusic, Trash2, Pencil } from 'lucide-vue-next';
 import { useAdminUnlock } from '@/composables/useAdminUnlock';
 import { useAudioPlaylist } from '@/composables/useAudioPlaylist';
@@ -40,14 +40,12 @@ const {
   stopCatalogActions: stopOutputCatalog,
 } = useAudioOutputCatalog({ ensureAdmin });
 const {
-  allMuted,
   draggingFaderId,
   restoreOutputState,
   onFaderPointerDown,
   onFaderPointerMove,
   onFaderPointerUp,
   toggleMute,
-  toggleMuteAll,
   stopOutputControls,
 } = useAudioOutputControls({ channels, partnerOf, linkOn });
 const {
@@ -219,12 +217,6 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
           <button class="v2-tab" :class="{ active: audioTab === 'zones' }" @click="audioTab = 'zones'">分区音量</button>
           <button class="v2-tab" :class="{ active: audioTab === 'matrix' }" @click="audioTab = 'matrix'">音源矩阵</button>
         </div>
-        <!-- 业主 2026-07-25: 全部静音并入 tab 行, 省一行空间 -->
-        <button :class="['v2-quick', 'mute-inline', allMuted ? 'active' : 'danger']" @click="toggleMuteAll">
-          <Volume2 v-if="allMuted" :size="14" :stroke-width="2" />
-          <VolumeX v-else :size="14" :stroke-width="2" />
-          {{ allMuted ? '解除静音' : '全部静音' }}
-        </button>
       </div>
     </header>
 
@@ -261,12 +253,6 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
           </div>
         </div>
       </div>
-      <!-- 手机专用: 全部静音挪进状态条右端 (头部那颗在手机上独占一行, 浪费竖向空间) -->
-      <button :class="['v2-quick', 'ov-mute', allMuted ? 'active' : 'danger']" @click="toggleMuteAll">
-        <Volume2 v-if="allMuted" :size="14" :stroke-width="2" />
-        <VolumeX v-else :size="14" :stroke-width="2" />
-        {{ allMuted ? '解除静音' : '全部静音' }}
-      </button>
     </div>
 
     <!-- 一键场景 U01-U12 -->
@@ -1224,9 +1210,6 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
   .v2-overview.audio { padding: 8px 4px; }
   .ov-item { padding: 0 10px; }
   .ov-avg, .ov-preset { display: none; }
-  /* 特异性 0,2,0: 压过文件后段的 .ov-mute{display:none} 基础规则 (源码顺序在后) */
-  .v2-overview.audio .ov-mute { display: inline-flex; margin-left: auto; flex: 0 0 auto; }
-  .back-row .mute-inline { display: none; }
   .ov-value { white-space: nowrap; }
   /* 区块标题与右侧说明抢一行 → 标题断行错位, 改上下排列 */
   .block-head { flex-direction: column; align-items: flex-start; gap: 2px; }
@@ -1295,13 +1278,4 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
 .mx-offline .mx-offline-hint { color: #d69a96; font-size: 12px; line-height: 1.5; font-weight: 400; }
 /* 增益没读到时显示 "—", 灰掉, 别让人以为是个真数 */
 .ig-val.unknown { color: #55637a; font-style: italic; }
-
-/* 全部静音并入 tab 行 (2026-07-25); ≤600px 隐藏, 由状态条里的 .ov-mute 接替 */
-.mute-inline { margin-left: auto; flex: 0 0 auto; }
-@media (max-width: 900px) {
-  /* 平板竖屏: 静音钮换行放, 别和 tabs 抢一行宽度 (挤压是竖排的根源) */
-  .mute-inline { margin-left: 0; }
-}
-/* 状态条里的静音钮: 只在手机出现 (桌面/平板仍用头部那颗) */
-.ov-mute { display: none; }
 </style>

@@ -1,6 +1,9 @@
 import { computed, onScopeDispose, ref, type Ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import axios from 'axios';
 import { mediaService } from '@/services/media.service';
+import { isDirectLocalConnection, notifyUnauthorized } from '@/services/http';
+import { beginUploadKeepAlive, endUploadKeepAlive } from '@/services/upload-keepalive';
 import {
   collectFilesFromEntry,
   formatMediaSize,
@@ -54,6 +57,7 @@ export function useMediaUploadQueue(options: MediaUploadQueueOptions) {
     uploadPct.value = 0;
     uploadName.value = file.name;
     uploadStartAt.value = Date.now();
+    beginUploadKeepAlive(); // Wake Lock 防锁屏 + 标记上传活跃（全局 401 不立即踢）
     try {
       await mediaService.upload(file, {
         onProgress: (progress) => {
@@ -64,8 +68,15 @@ export function useMediaUploadQueue(options: MediaUploadQueueOptions) {
       ElMessage.success(`上传成功: ${file.name}`);
       await options.refresh();
     } catch (error) {
+      // 上传请求自身 401 = 令牌真失效：先解除保活（计数清零），再走全局兜底回登录页。
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        await endUploadKeepAlive();
+        notifyUnauthorized();
+        return;
+      }
       if (active()) ElMessage.error(`上传失败 ${file.name}: ${(error as Error).message}`);
     } finally {
+      await endUploadKeepAlive();
       uploading.value = false;
       uploadPct.value = 0;
       uploadName.value = '';
@@ -93,13 +104,16 @@ export function useMediaUploadQueue(options: MediaUploadQueueOptions) {
 
   async function queueFiles(rawFiles: File[]): Promise<void> {
     if (!active()) return;
+    // 局域网/本机直连后端(5173->3200): 走局域网高速、不经 Nginx/隧道, 不限文件大小。
+    // 公网(经 Nginx): 受 Nginx client_max_body_size 与后端 MEDIA_MAX_BYTES 约束, 保留 10GB 上限。
+    const direct = isDirectLocalConnection();
     const valid: File[] = [];
     for (const file of rawFiles) {
       if (!isAllowedMediaFile(file)) {
         if (file.size > 0) ElMessage.warning(`已跳过: ${file.name} (类型不支持)`);
         continue;
       }
-      if (file.size > UPLOAD_MAX_GB * 1024 * 1024 * 1024) {
+      if (!direct && file.size > UPLOAD_MAX_GB * 1024 * 1024 * 1024) {
         ElMessage.error(`已跳过: ${file.name} (超过 ${UPLOAD_MAX_GB}GB 上限)`);
         continue;
       }
@@ -109,7 +123,9 @@ export function useMediaUploadQueue(options: MediaUploadQueueOptions) {
 
     if (valid.length === 1 && valid[0].size > LARGE_FILE_BYTES) {
       const file = valid[0];
-      const estimatedMinutes = Math.ceil(file.size / (10 * 1024 * 1024) / 60);
+      // 本地直连按局域网约 60MB/s 估算, 公网按隧道约 10MB/s 估算。
+      const estBytesPerSec = direct ? 60 * 1024 * 1024 : 10 * 1024 * 1024;
+      const estimatedMinutes = Math.ceil(file.size / estBytesPerSec / 60);
       try {
         await ElMessageBox.confirm(
           `文件 ${file.name} (${formatMediaSize(file.size)}) 较大, 预估 ${estimatedMinutes} 分钟. 上传期间请保持页面打开. 继续?`,

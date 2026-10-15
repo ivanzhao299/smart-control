@@ -1,5 +1,5 @@
 import axios, { type AxiosProgressEvent, type AxiosRequestConfig } from 'axios';
-import { getApiBaseURL, getClientToken, getAdminToken } from './http';
+import { getApiBaseURL, getClientToken, getAdminToken, isDirectLocalConnection } from './http';
 import { identityGeneration, assertCurrentIdentity, onIdentityChange } from './identity-boundary';
 export { MEDIA_UPLOAD_ACCEPT } from '../features/media-file-intake';
 
@@ -132,7 +132,8 @@ export const mediaService = {
       headers: { 'X-Upload-Size': String(file.size) },
       // 不要手写 Content-Type: 'multipart/form-data' —— 那样没有 boundary, 后端解析不出文件。
       // 交给 axios/浏览器按 FormData 自动带 boundary。(之前被 401 挡着没暴露, token 修好后就会露)
-      timeout: 30 * 60 * 1000, // 30 分钟 (大视频)
+      // 局域网/本机直连: 不限大小, 不设整体超时(0=无超时)；公网: 30 分钟兜底大视频。
+      timeout: isDirectLocalConnection() ? 0 : 30 * 60 * 1000,
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
       onUploadProgress: (e: AxiosProgressEvent) => {

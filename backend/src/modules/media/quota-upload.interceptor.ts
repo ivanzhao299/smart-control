@@ -19,7 +19,13 @@ export class QuotaUploadInterceptor implements NestInterceptor {
       const actor = requireActor(req);
       const header = req.headers['x-upload-size'];
       const bytes = typeof header === 'string' && /^\d+$/.test(header) ? Number(header) : NaN;
-      const maximum = Number(process.env.MEDIA_MAX_BYTES ?? 10 * 1024 ** 3);
+      // 局域网/本机直连(127.0.0.1 / 192.168.*，不经 Nginx)：不限文件大小。
+      // 公网经 Nginx(经 WireGuard 10.66.66.1 转发)：仍受 MEDIA_MAX_BYTES(默认 10GB)约束。
+      const remoteIp = String(req.ip ?? req.socket?.remoteAddress ?? '').replace(/^::ffff:/, '');
+      const isLocalDirect = remoteIp === '127.0.0.1' || remoteIp === '::1' || /^192\.168\./.test(remoteIp);
+      const maximum = isLocalDirect
+        ? Number.MAX_SAFE_INTEGER
+        : Number(process.env.MEDIA_MAX_BYTES ?? 10 * 1024 ** 3);
       if (!Number.isSafeInteger(bytes) || bytes < 1 || !Number.isSafeInteger(maximum) || bytes > maximum) throw new BadRequestException('请提供有效的X-Upload-Size文件大小');
       const reservation = await this.quota.reserve(actor, bytes, this.media.mediaRoot);
       req.uploadReservationId = reservation;
