@@ -11,7 +11,7 @@ import { useClientAuthStore } from '@/stores/client-auth';
 import { wsClient } from '@/services/websocket.service';
 import { polling } from '@/services/polling.service';
 import { markBootComplete } from '@/services/rum.service';
-import { setUnauthorizedHandler, setClientToken, setAdminToken } from '@/services/http';
+import { setUnauthorizedHandler, setClientToken, setAdminToken, detectLanConnection } from '@/services/http';
 import { isUploadActive } from '@/services/upload-keepalive';
 import { installCrossTabIdentitySync } from '@/services/cross-tab-identity';
 import PwaUpdateBanner from '@/components/PwaUpdateBanner.vue';
@@ -105,6 +105,8 @@ onMounted(async () => {
   // 公开数据 (登录页也要, 走 @Public 端点): 系统信息 + 品牌 —— 不需 token
   void systemStore.fetchInfo();
   void brandingStore.load();
+  // 异步探测局域网直连: 域名访问时若人在园区 WiFi, 上传自动切本地后端
+  void detectLanConnection();
   // 业务数据 (scenes/devices/runtime/gateways/playback) 只在已登录时拉 ——
   // 未登录 (停在登录页) 时这些端点会 401, 不该打, 否则 401 风暴。登录后靠下面 watch 补拉。
   if (clientAuth.isAuthed) fetchAuthedData();

@@ -59,6 +59,9 @@ export class SystemController {
         mockLatencyMs: adapter.mockLatencyMs,
         websocketPath: ws.path,
         apiPrefix: app.apiPrefix,
+        // 现场局域网直连地址(手机连大屏 WiFi 时前端可绕过公网 Nginx 直传)。
+        // 由 env LAN_PUBLIC_URL 配置, 例如 http://192.168.77.54:3200; 未配置则不返回。
+        lanBaseUrl: process.env.LAN_PUBLIC_URL || null,
       },
     };
   }

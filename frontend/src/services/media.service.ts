@@ -1,5 +1,5 @@
 import axios, { type AxiosProgressEvent, type AxiosRequestConfig } from 'axios';
-import { getApiBaseURL, getClientToken, getAdminToken, isDirectLocalConnection } from './http';
+import { getApiBaseURL, getClientToken, getAdminToken, isDirectLocalConnection, getUploadBaseURL } from './http';
 import { identityGeneration, assertCurrentIdentity, onIdentityChange } from './identity-boundary';
 export { MEDIA_UPLOAD_ACCEPT } from '../features/media-file-intake';
 
@@ -120,15 +120,17 @@ export const mediaService = {
     return r.data.data;
   },
 
-  /** 上传, 支持 progress 回调 */
+  /** 上传, 支持 progress 回调; opts.signal 可取消 */
   async upload(
     file: File,
-    opts: { remark?: string; onProgress?: (pct: number) => void } = {},
+    opts: { remark?: string; onProgress?: (pct: number) => void; signal?: AbortSignal } = {},
   ): Promise<MediaItem> {
     const fd = new FormData();
     fd.append('file', file);
     if (opts.remark) fd.append('remark', opts.remark);
-    const r = await mediaHttp.post(`${base()}/media/upload`, fd, {
+    // 上传走专用 baseURL(局域网探测成功则直连后端, 否则同源 Nginx)
+    const uploadBase = getUploadBaseURL();
+    const r = await mediaHttp.post(`${uploadBase}/media/upload`, fd, {
       headers: { 'X-Upload-Size': String(file.size) },
       // 不要手写 Content-Type: 'multipart/form-data' —— 那样没有 boundary, 后端解析不出文件。
       // 交给 axios/浏览器按 FormData 自动带 boundary。(之前被 401 挡着没暴露, token 修好后就会露)
@@ -136,6 +138,7 @@ export const mediaService = {
       timeout: isDirectLocalConnection() ? 0 : 30 * 60 * 1000,
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
+      signal: opts.signal,
       onUploadProgress: (e: AxiosProgressEvent) => {
         if (e.total && opts.onProgress) {
           opts.onProgress(Math.round((e.loaded / e.total) * 100));

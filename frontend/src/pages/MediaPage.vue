@@ -161,6 +161,7 @@ const {
   onDragLeave,
   onDragOver,
   onDrop,
+  cancelUpload,
 } = useMediaUploadQueue({
   canOperate,
   refresh,
@@ -546,6 +547,7 @@ onBeforeUnmount(() => { disposed = true; stopProcessingPoll(); });
         <span class="upload-pct">{{ uploadPct }}%</span>
         <span v-if="uploadEta" class="upload-eta">{{ uploadEta }}</span>
         <span v-if="uploadBatchTotal > 1" class="upload-batch">({{ uploadBatchDone + 1 }}/{{ uploadBatchTotal }})</span>
+        <button class="upload-cancel" @click="cancelUpload">取消上传</button>
       </div>
     </div>
 
@@ -1094,6 +1096,8 @@ onBeforeUnmount(() => { disposed = true; stopProcessingPoll(); });
 .upload-pct { font-family: 'JetBrains Mono', ui-monospace, monospace; color: var(--v2-primary); font-weight: 600; }
 .upload-eta { font-size: 11px; color: var(--text-secondary); font-family: 'JetBrains Mono', ui-monospace, monospace; }
 .upload-batch { font-size: 11px; color: var(--v2-text-2); font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 600; }
+.upload-cancel { margin-left: auto; padding: 4px 12px; font-size: 12px; border: 1px solid rgba(255,107,107,0.5); background: rgba(255,107,107,0.12); color: #ff8a8a; border-radius: 8px; cursor: pointer; }
+.upload-cancel:hover { background: rgba(255,107,107,0.22); }
 .upload-count-inline { font-size: 11px; opacity: 0.8; }
 
 .grid-wrap { position: relative; flex: 1; min-height: 0; overflow: auto; padding: 4px; border-radius: 12px; }

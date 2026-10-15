@@ -30,6 +30,7 @@ export function useMediaUploadQueue(options: MediaUploadQueueOptions) {
   const isDragging = ref(false);
   let processingQueue = false;
   let disposed = false;
+  let uploadController: AbortController | null = null;
 
   const uploadEta = computed(() => {
     if (!uploading.value || uploadPct.value === 0 || !uploadStartAt.value) return '';
@@ -58,8 +59,10 @@ export function useMediaUploadQueue(options: MediaUploadQueueOptions) {
     uploadName.value = file.name;
     uploadStartAt.value = Date.now();
     beginUploadKeepAlive(); // Wake Lock 防锁屏 + 标记上传活跃（全局 401 不立即踢）
+    uploadController = new AbortController();
     try {
       await mediaService.upload(file, {
+        signal: uploadController.signal,
         onProgress: (progress) => {
           if (active()) uploadPct.value = progress;
         },
@@ -68,6 +71,11 @@ export function useMediaUploadQueue(options: MediaUploadQueueOptions) {
       ElMessage.success(`上传成功: ${file.name}`);
       await options.refresh();
     } catch (error) {
+      // 用户主动取消: 不报错, 只提示
+      if (axios.isCancel(error)) {
+        if (active()) ElMessage.info(`已取消上传: ${file.name}`);
+        return;
+      }
       // 上传请求自身 401 = 令牌真失效：先解除保活（计数清零），再走全局兜底回登录页。
       if (axios.isAxiosError(error) && error.response?.status === 401) {
         await endUploadKeepAlive();
@@ -77,11 +85,18 @@ export function useMediaUploadQueue(options: MediaUploadQueueOptions) {
       if (active()) ElMessage.error(`上传失败 ${file.name}: ${(error as Error).message}`);
     } finally {
       await endUploadKeepAlive();
+      uploadController = null;
       uploading.value = false;
       uploadPct.value = 0;
       uploadName.value = '';
       uploadStartAt.value = 0;
     }
+  }
+
+  /** 用户点"取消上传": abort 当前上传请求, 清空剩余队列 */
+  function cancelUpload(): void {
+    try { uploadController?.abort(); } catch { /* ignore */ }
+    uploadQueue.value = [];
   }
 
   async function startQueue(): Promise<void> {
@@ -205,5 +220,6 @@ export function useMediaUploadQueue(options: MediaUploadQueueOptions) {
     onDragLeave,
     onDragOver,
     onDrop,
+    cancelUpload,
   };
 }

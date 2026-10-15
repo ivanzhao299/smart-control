@@ -133,8 +133,71 @@ export function isDirectLocalConnection(): boolean {
     if (window.location.port === '5173') return true;
     const u = new URL(baseURL, window.location.href);
     if (u.port === '3200') return true;
+    // 异步探测到的局域网直连(域名访问场景)
+    if (lanProbe.state === 'ok') return true;
     return false;
   } catch { return false; }
+}
+
+/**
+ * 局域网探测(2026-10-15): 用户用域名 https://erp.cnjinhu.com 访问时,
+ * location.port 是 443, 旧逻辑判定为"远程", 上传走公网 Nginx/WireGuard 慢。
+ *
+ * 但人在园区 WiFi 里时, 后端其实在身边 192.168.77.54:3200。做法:
+ *   1) 同源 GET /api/system/info (走 Nginx), 拿后端返回的 lanBaseUrl
+ *      (由后端 env LAN_PUBLIC_URL 配置, 例如 http://192.168.77.54:3200)。
+ *   2) 用 1500ms 短超时 fetch ${lanBaseUrl}/api/system/info。
+ *      - 成功: 说明手机和后端在同一局域网, 上传直连绕开 Nginx。
+ *      - 失败/超时/混合内容被拦: 回退 Nginx, 不影响正常公网使用。
+ *
+ * 结果缓存到模块变量; 只探一次, 不反复打。
+ */
+const lanProbe: { state: 'idle' | 'probing' | 'ok' | 'fail'; endpoint: string | null } = {
+  state: 'idle',
+  endpoint: null,
+};
+
+/** 触发一次局域网探测(幂等; App.vue onMounted 调)。 */
+export async function detectLanConnection(): Promise<void> {
+  if (lanProbe.state !== 'idle') return;
+  // 已经是经典直连(5173/3200), 不用探
+  if (typeof window !== 'undefined' && window.location.port === '5173') {
+    lanProbe.state = 'ok';
+    return;
+  }
+  lanProbe.state = 'probing';
+  try {
+    // 同源拿 lanBaseUrl (走 Nginx, 必然通)
+    const res = await fetch('/api/system/info', { cache: 'no-store' });
+    if (!res.ok) throw new Error('info ' + res.status);
+    const j = await res.json();
+    const lan = j?.data?.lanBaseUrl;
+    if (!lan) throw new Error('no lanBaseUrl');
+    // 短超时直连探测
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 1500);
+    const r2 = await fetch(`${lan.replace(/\/+$/, '')}/api/system/info`, {
+      signal: ctrl.signal,
+      cache: 'no-store',
+    });
+    clearTimeout(timer);
+    if (r2.ok) {
+      lanProbe.endpoint = lan;
+      lanProbe.state = 'ok';
+    } else {
+      lanProbe.state = 'fail';
+    }
+  } catch {
+    lanProbe.state = 'fail';
+  }
+}
+
+/** 上传专用 baseURL: 局域网探测成功时直连后端, 否则走默认 baseURL。 */
+export function getUploadBaseURL(): string {
+  if (lanProbe.state === 'ok' && lanProbe.endpoint) {
+    return `${lanProbe.endpoint.replace(/\/+$/, '')}/api`;
+  }
+  return baseURL;
 }
 
 /**

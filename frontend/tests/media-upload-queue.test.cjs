@@ -20,6 +20,7 @@ function execute(source, customRequire) {
     require: customRequire,
     Date,
     Promise,
+    AbortController,
   });
   return module.exports;
 }
@@ -77,7 +78,10 @@ function harness(overrides = {}) {
     if (id === '@/services/media.service') return { mediaService: { upload } };
     if (id === '@/features/media-file-intake') return intake;
     if (id === 'axios') {
-      return { isAxiosError: (e) => !!e && typeof e === 'object' && e.isAxiosError === true };
+      return {
+        isAxiosError: (e) => !!e && typeof e === 'object' && e.isAxiosError === true,
+        isCancel: (e) => !!e && typeof e === 'object' && e.__CANCEL__ === true,
+      };
     }
     if (id === '@/services/http') {
       return {
