@@ -27,7 +27,7 @@
 <!-- Three.js：懒加载，仅在需要3D时加载 -->
 <script type="importmap">{"imports":{"three":"./vendor/three.module.min.js"}}</script>
 
-<link rel="stylesheet" href="./css/style.css?v=20260913-refactor">
+<link rel="stylesheet" href="./css/style.css?v=20261015-em123-transformer">
 </head>
 <body data-scene="day"><canvas id="ambient" width="3612" height="1462"></canvas>
 <div id="app">
@@ -310,11 +310,11 @@
         </div>
       </div>
 
-      <div class="panel bigpanel" style="grid-column:1;grid-row:2/4">
-        <h3>关口总表 · 真实小时负荷 <small>GATEWAY · 零硬件整点差分（kW）</small></h3>
+      <div class="panel bigpanel gate-panel" style="grid-column:1;grid-row:2/3">
+        <h3>关口总表 · 真实小时负荷 <small>零硬件整点差分 · kW</small></h3>
         <div class="panel-body">
-        <div id="ehLoadChart" style="flex:0 0 auto;width:100%;height:268px"></div>
-        <div class="eh-sub" style="margin-top:6px">12 块三相总表 · 峰/均负荷（按峰值降序，关口不做总加）</div>
+        <div id="ehLoadChart" style="flex:0 0 auto;width:100%;height:120px"></div>
+        <div class="eh-sub" style="margin-top:2px">12 块三相总表 · 峰/均（按峰值降序全部列出，关口不做总加）</div>
         <div class="eh-scroll">
           <table class="table eh-table" style="width:100%;table-layout:fixed">
             <colgroup><col style="width:27%"><col style="width:20%"><col style="width:15%"><col style="width:13%"><col style="width:13%"><col style="width:12%"></colgroup>
@@ -323,7 +323,13 @@
           </table>
         </div>
         </div>
-        <div class="panel-footer-stat">每小时整点抄表差分还原平均功率；负载率% 待变压器容量与表-变对应核定后开放</div>
+        <div class="panel-footer-stat">每小时整点抄表差分还原平均功率；负载率见下方变压器面板</div>
+      </div>
+
+      <div class="panel bigpanel tf-panel" style="grid-column:1;grid-row:3/4">
+        <h3>变压器监测<span class="eh-tf-sum" id="ehTfSum"></span></h3>
+        <div class="panel-body" id="ehTfBody"></div>
+        <div class="panel-footer-stat">负载率=已接入回路逐小时有功加总÷容量（kW/kVA，PF0.9 约 +10%）；另 15 块贝林回路表未上云</div>
       </div>
 
       <div class="panel bigpanel" style="grid-column:2;grid-row:2/3">
@@ -379,7 +385,7 @@
     <div class="tabs"><button class="btn btn-arrow" id="prev">‹</button><button class="btn btn-auto" id="auto">A</button><button class="btn btn-arrow" id="next">›</button></div><div class="page-indicator" id="pageIndicator"></div>
   </main>
 </div>
-<script src="./js/app.js?v=20261015-em123-energy"></script>
+<script src="./js/app.js?v=20261015-em123-transformer"></script>
 <!-- 实时过车面板为无依赖独立 ESM，放在 3D 模块队列最前，避免被 3D 模型/孪生模块加载阻塞（实时数据优先） -->
 <script type="module" src="./lpr-panel.mjs?v=20261014-realtime7"></script>
 <script type="module" src="./park-ops-3d.js?v=20260913-v4-performance-optimized" defer></script>

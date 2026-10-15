@@ -841,12 +841,12 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
     }catch(e){console.warn('[EnergyCenter] dashboard fetch fail',e.message);return null;}
   }
 
-  /* —— 关口 24h 真实负荷：纯 SVG 折线（无第三方依赖，随大屏缩放）—— */
+  /* —— 关口 24h 真实负荷：纯 SVG 折线（无第三方依赖，随大屏缩放；左列半高，120px 矮图）—— */
   function renderLoadChart(meters){
     const el=$('ehLoadChart'); if(!el)return;
     const top3=(meters||[]).filter(m=>m.curve&&m.curve.length>1).slice(0,3);
     if(!top3.length){el.innerHTML='<div style="height:100%;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:14px">关口小时负荷采集中…</div>';return;}
-    const W=1000,H=272,L=48,R=16,T=18,B=30,plotW=W-L-R,plotH=H-T-B;
+    const W=1200,H=120,L=40,R=12,T=24,B=18,plotW=W-L-R,plotH=H-T-B;
     let maxV=0;
     top3.forEach(m=>m.curve.forEach(p=>{if(Number(p.kw)>maxV)maxV=Number(p.kw);}));
     maxV=Math.max(10,Math.ceil(maxV/10)*10);
@@ -856,24 +856,21 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
     let grid='';
     for(let g=0;g<=4;g++){const v=maxV*g/4,y=Y(v);
       grid+='<line x1="'+L+'" y1="'+y+'" x2="'+(W-R)+'" y2="'+y+'" stroke="rgba(120,152,171,.14)"/>'+
-        '<text x="'+(L-8)+'" y="'+(y+4)+'" fill="#7898ab" font-size="13" text-anchor="end">'+Math.round(v)+'</text>';}
+        '<text x="'+(L-7)+'" y="'+(y+4)+'" fill="#7898ab" font-size="11" text-anchor="end">'+Math.round(v)+'</text>';}
     let xlab='';
-    top3[0].curve.forEach((p,i)=>{if(i%3===0||i===n-1)xlab+='<text x="'+X(i)+'" y="'+(H-9)+'" fill="#7898ab" font-size="12" text-anchor="middle">'+p.hour+'</text>';});
+    top3[0].curve.forEach((p,i)=>{if(i%3===0||i===n-1)xlab+='<text x="'+X(i)+'" y="'+(H-6)+'" fill="#7898ab" font-size="11" text-anchor="middle">'+p.hour+'</text>';});
     let paths='';
     top3.forEach((m,mi)=>{
       const color=LOAD_COLORS[mi];
       const pts=m.curve.map((p,i)=>X(i).toFixed(1)+','+Y(p.kw).toFixed(1)).join(' ');
       const area=X(0).toFixed(1)+','+Y(0).toFixed(1)+' '+pts+' '+X(n-1).toFixed(1)+','+Y(0).toFixed(1);
       paths+='<polygon points="'+area+'" fill="'+color+'" opacity="0.07"/>';
-      paths+='<polyline points="'+pts+'" fill="none" stroke="'+color+'" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>';
-      let pi=0;m.curve.forEach((p,i)=>{if(Number(p.kw)>Number(m.curve[pi].kw))pi=i;});
-      paths+='<circle cx="'+X(pi)+'" cy="'+Y(m.curve[pi].kw)+'" r="4" fill="'+color+'"/>';
-      paths+='<text x="'+X(pi)+'" y="'+(Y(m.curve[pi].kw)-8)+'" fill="'+color+'" font-size="13" font-weight="700" text-anchor="middle">'+Number(m.curve[pi].kw).toFixed(1)+'</text>';
+      paths+='<polyline points="'+pts+'" fill="none" stroke="'+color+'" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>';
     });
     let legend='';
-    top3.forEach((m,mi)=>{const x=L+mi*312;
-      legend+='<rect x="'+x+'" y="3" width="14" height="8" rx="2" fill="'+LOAD_COLORS[mi]+'"/>'+
-        '<text x="'+(x+20)+'" y="11" fill="#9db4d4" font-size="13">'+esc(loadName(m)+' · '+(m.buildingName||'')+'（×'+m.multiply+'）')+'</text>';});
+    top3.forEach((m,mi)=>{const x=L+mi*380;
+      legend+='<rect x="'+x+'" y="3" width="13" height="8" rx="2" fill="'+LOAD_COLORS[mi]+'"/>'+
+        '<text x="'+(x+18)+'" y="11" fill="#9db4d4" font-size="12">'+esc(loadName(m)+' · '+(m.buildingName||'')+'（×'+m.multiply+'）')+'</text>';});
     el.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style="display:block">'+grid+xlab+paths+legend+'</svg>';
   }
 
@@ -893,6 +890,42 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
         '<td style="text-align:right">'+fmt(m.avgKw,1)+'</td>'+
         '<td style="text-align:right">'+fmt(m.dayKwh,1)+'</td></tr>';
     }).join('');
+  }
+
+  /* —— 变压器监测（9 台真实台账 + 分级负载率；后端 em123.transformers）—— */
+  const TF_BADGE={calc:'可算负载率',partial:'部分回路待接入',none:'出线回路待接入',off:'未投运'};
+  function renderTransformer(tf){
+    const sumEl=$('ehTfSum'),body=$('ehTfBody');
+    if(!body)return;
+    if(!tf||!tf.transformers||!tf.transformers.length){
+      if(sumEl)sumEl.textContent='';
+      body.innerHTML='<div style="color:#64748b;font-size:13px">变压器台账加载中…</div>';
+      return;
+    }
+    if(sumEl){
+      sumEl.innerHTML='<b class="c">'+tf.totalCount+'</b>台 <b class="c">'+fmt(tf.totalCapacityKva)+'</b>kVA · '+
+        '<b class="g">'+tf.activeCount+'/'+fmt(tf.activeCapacityKva)+'</b>投运 · '+
+        '<b class="o">'+tf.cloudMeters+'/'+tf.threePhaseTotal+'</b>回路';
+    }
+    const rows=tf.transformers.map(function(t){
+      const fill=t.mode==='calc'
+        ? '<div class="eh-tf-fill g" style="width:'+Math.max(2,Math.min(100,Number(t.peakLoadPct)||0))+'%"></div>'
+        : '<div class="eh-tf-fill p" style="width:100%"></div>';
+      return '<div class="eh-tf-row '+t.mode+'">'+
+        '<span class="eh-tf-id">'+esc(t.id)+'</span>'+
+        '<span class="eh-tf-loc">'+esc(t.location)+'</span>'+
+        '<span class="eh-tf-cap">'+fmt(t.capacityKva)+' kVA</span>'+
+        '<span class="eh-tf-type">'+esc(t.tfType)+'</span>'+
+        '<span class="eh-tf-badge '+t.mode+'">'+(TF_BADGE[t.mode]||'')+'</span>'+
+        '<span class="eh-tf-track">'+fill+'</span>'+
+        '<span class="eh-tf-val '+(t.mode==='calc'?'g':'p')+'">'+esc(t.statusText)+'</span>'+
+      '</div>';
+    }).join('');
+    const calc=tf.transformers.find(function(t){return t.mode==='calc';});
+    const note=calc
+      ? '<div class="eh-tf-note"><b>'+esc(calc.id)+' '+esc(calc.location)+' '+fmt(calc.capacityKva)+'kVA</b>：已接入 '+calc.onlineMeterCount+' 块在线回路，逐小时峰值 <b>'+fmt(calc.peakKw,1)+'kW（'+calc.peakLoadPct+'%，PF0.9≈'+calc.peakLoadPctPf+'%）</b>；缺 E1/消防为已接入下限，另 15 块回路表未上云。</div>'
+      : '';
+    body.innerHTML=rows+note;
   }
 
   /* —— 近30天真实日用电 + 近6月 —— */
@@ -1009,6 +1042,8 @@ window.PARK_RUNTIME={get buildings(){return buildings},set buildings(value){buil
     // 关口真实负荷（曲线 + 12 表）
     renderLoadChart(meters);
     renderGateTable(meters);
+    // 变压器监测（9 台台账 + 分级负载率）
+    renderTransformer(em.transformers);
 
     // 近30天真实日用电 + 近6月 + 电费注脚
     renderTrend(el);

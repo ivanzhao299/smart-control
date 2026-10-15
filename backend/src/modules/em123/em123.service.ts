@@ -18,6 +18,12 @@ import {
   parseMeterLocation,
   subMeterTag,
 } from './em123.mapping';
+import {
+  TRANSFORMERS,
+  THREE_PHASE_TOTAL,
+  ASSUMED_POWER_FACTOR,
+  type TransformerMode,
+} from './em123.transformers';
 
 /** 日用量批量 upsert 每批行数 (避开 SQLite 表达式树深度上限 1000)。 */
 const DAILY_UPSERT_BATCH = 400;
@@ -166,6 +172,52 @@ export interface Em123LoadSummary {
   meters: Em123LoadMeter[];
 }
 
+/** 单台变压器视图 (台账 + 已接入回路逐小时加总)。 */
+export interface Em123TransformerView {
+  id: string;
+  /** 额定容量 kVA */
+  capacityKva: number;
+  location: string;
+  /** 箱式油变 / 油变 */
+  tfType: string;
+  active: boolean;
+  mode: TransformerMode;
+  /** 归属的已上云三相表数 (含离线) */
+  meterCount: number;
+  /** 其中在线数 */
+  onlineMeterCount: number;
+  /** 已接入回路逐小时同时刻加总峰值 kW */
+  peakKw: number;
+  /** 全天(24h)平均功率 kW */
+  avgKw: number;
+  /** 峰值负载率 % (kW/kVA, 未计无功) */
+  peakLoadPct: number;
+  /** 平均负载率 % */
+  avgLoadPct: number;
+  /** PF0.9 折算峰值负载率 % */
+  peakLoadPctPf: number;
+  /** PF0.9 折算平均负载率 % */
+  avgLoadPctPf: number;
+  /** 24 点加总曲线 (仅 calc 模式给) */
+  curve: Em123LoadPoint[];
+  /** 右侧状态文案 (calc 为动态「峰x% · 均x%」, 其余为静态) */
+  statusText: string;
+  note: string;
+}
+
+/** 变压器监测面板汇总 (真实台账 + 分级负载率)。 */
+export interface Em123TransformerSummary {
+  totalCount: number;
+  totalCapacityKva: number;
+  activeCount: number;
+  activeCapacityKva: number;
+  /** 已上云三相回路表数 (12) */
+  cloudMeters: number;
+  /** 贝林三相表总数 (27) */
+  threePhaseTotal: number;
+  transformers: Em123TransformerView[];
+}
+
 export interface Em123Overview {
   enabled: boolean;
   ok: boolean;
@@ -177,6 +229,8 @@ export interface Em123Overview {
   water: Em123TypeSummary | null;
   /** 三相关口总表小时负荷 (变压器面板真实口径; 无则 null) */
   load: Em123LoadSummary | null;
+  /** 变压器监测 (9 台台账 + 分级负载率; 无则 null) */
+  transformers: Em123TransformerSummary | null;
 }
 
 function emptyOverview(enabled: boolean, loading: boolean): Em123Overview {
@@ -190,6 +244,7 @@ function emptyOverview(enabled: boolean, loading: boolean): Em123Overview {
     electric: null,
     water: null,
     load: null,
+    transformers: null,
   };
 }
 
@@ -557,6 +612,7 @@ export class Em123Service implements OnModuleInit, OnModuleDestroy {
       const electric = buildSummary('E', meters, dailyRows);
       const water = buildSummary('W', meters, dailyRows);
       const load = buildLoadSummary(meters, hourlyRows);
+      const transformers = buildTransformerSummary(load.meters);
       this.cache = {
         enabled: true,
         ok: true,
@@ -567,6 +623,7 @@ export class Em123Service implements OnModuleInit, OnModuleDestroy {
         electric,
         water,
         load,
+        transformers,
       };
     } catch (error) {
       this.logger.warn(`em123 聚合失败: ${(error as Error).message}`);
@@ -904,5 +961,89 @@ export function buildLoadSummary(meters: Em123Meter[], hourly: Em123Hourly[]): E
     updatedAt: new Date().toISOString(),
     meterCount: masters.length,
     meters: views,
+  };
+}
+
+/**
+ * 纯函数: 由变压器台账 + 各关口总表负荷视图, 构建变压器监测面板。
+ * 每台变压器把下挂三相表的 24 点曲线按"滚动窗口同位置"(各表均为整点时刻)
+ * 逐小时同时刻加总 → 峰值/平均功率与负载率 (kW/kVA, 另给 PF0.9 参考)。
+ * 仅 mode=calc 给曲线与百分比; partial/none/off 只标注接入状态, 不把
+ * 已接入回路的下限加总当整体负载率, 避免误导。
+ */
+export function buildTransformerSummary(
+  loadMeters: Em123LoadMeter[],
+): Em123TransformerSummary {
+  const byNo = new Map<string, Em123LoadMeter>(loadMeters.map((m) => [m.meterNo, m]));
+
+  const transformers: Em123TransformerView[] = TRANSFORMERS.map((p) => {
+    const linked = p.meterNos
+      .map((no) => byNo.get(no))
+      .filter((m): m is Em123LoadMeter => Boolean(m));
+    const onlineMeterCount = linked.filter((m) => m.online).length;
+
+    // 逐小时同时刻加总 (各表均为滚动 24h 整点窗口, 按位置对齐)
+    const kwArr = new Array<number>(LOAD_CURVE_POINTS).fill(0);
+    for (const m of linked) {
+      m.curve.forEach((pt, i) => {
+        if (i < LOAD_CURVE_POINTS) kwArr[i] += pt.kw;
+      });
+    }
+    const peakKw = round1(kwArr.length ? Math.max(...kwArr) : 0);
+    const avgKw = round1(kwArr.reduce((s, v) => s + v, 0) / LOAD_CURVE_POINTS);
+    const denom = p.capacityKva > 0 ? p.capacityKva : 1;
+    const peakLoadPct = round1((peakKw / denom) * 100);
+    const avgLoadPct = round1((avgKw / denom) * 100);
+    const peakLoadPctPf = round1(peakLoadPct / ASSUMED_POWER_FACTOR);
+    const avgLoadPctPf = round1(avgLoadPct / ASSUMED_POWER_FACTOR);
+
+    // 曲线时刻取任一在线表的对应点
+    const curve: Em123LoadPoint[] =
+      p.mode === 'calc'
+        ? kwArr.map((kw, i) => {
+            const ref = linked.find((m) => m.curve[i]);
+            return {
+              hour: ref?.curve[i]?.hour ?? i,
+              kw: round1(kw),
+              time: ref?.curve[i]?.time ?? '',
+            };
+          })
+        : [];
+
+    const statusText =
+      p.mode === 'calc'
+        ? `峰${Math.round(peakLoadPct)}% · 均${Math.round(avgLoadPct)}%`
+        : p.statusText;
+
+    return {
+      id: p.id,
+      capacityKva: p.capacityKva,
+      location: p.location,
+      tfType: p.tfType,
+      active: p.active,
+      mode: p.mode,
+      meterCount: p.meterNos.length,
+      onlineMeterCount,
+      peakKw,
+      avgKw,
+      peakLoadPct,
+      avgLoadPct,
+      peakLoadPctPf,
+      avgLoadPctPf,
+      curve,
+      statusText,
+      note: p.note,
+    };
+  });
+
+  const active = TRANSFORMERS.filter((t) => t.active);
+  return {
+    totalCount: TRANSFORMERS.length,
+    totalCapacityKva: TRANSFORMERS.reduce((s, t) => s + t.capacityKva, 0),
+    activeCount: active.length,
+    activeCapacityKva: active.reduce((s, t) => s + t.capacityKva, 0),
+    cloudMeters: loadMeters.length,
+    threePhaseTotal: THREE_PHASE_TOTAL,
+    transformers,
   };
 }

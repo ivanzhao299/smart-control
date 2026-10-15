@@ -77,6 +77,45 @@ body:before{display:none}
 /* 能源动态列表（变压器/分类/楼栋）：条数少时整体居中，超出容器时列内滚动且首尾可达 */
 .eh-list>:first-child{margin-top:auto}
 .eh-list>:last-child{margin-bottom:auto}
+/* 能源页左列：关口（上）+ 变压器（下）。大屏无鼠标，内容必须完整、无内部滚动，行距拉开充满卡片 */
+.gate-panel,.tf-panel{padding:22px 26px}
+.gate-panel h3,.tf-panel h3{margin-bottom:12px}
+.gate-panel .panel-footer-stat,.tf-panel .panel-footer-stat{font-size:14px;padding-top:8px;letter-spacing:1px}
+.gate-panel .panel-body,.tf-panel .panel-body{overflow:hidden}
+/* 关口：曲线 120px 固定，12 行表格占满剩余空间（行高随容器均分，不滚动） */
+.gate-panel .eh-scroll{display:flex;flex-direction:column;overflow:hidden}
+.gate-panel .eh-table{flex:1 1 auto;min-height:0;width:100%;font-size:13px}
+.gate-panel .eh-table th{padding:2px 8px;line-height:1.2}
+.gate-panel .eh-table td{padding:0 8px;line-height:1.2;vertical-align:middle}
+/* 变压器：h3 右侧汇总条 */
+.eh-tf-sum{float:right;font-size:15px;font-weight:700;letter-spacing:0;color:#9db4d4}
+.eh-tf-sum b{font-size:18px;margin:0 2px 0 7px}
+.eh-tf-sum .c{color:#22d3ee}.eh-tf-sum .g{color:#34d399}.eh-tf-sum .o{color:#fbbf24}
+/* 变压器：9 行等高均分充满 */
+.tf-panel .panel-body{display:flex;flex-direction:column}
+.eh-tf-row{flex:1 1 0;min-height:30px;display:flex;align-items:center;gap:11px;padding:0 13px;margin-bottom:6px;border:1px solid rgba(99,217,255,.12);border-radius:8px;background:rgba(255,255,255,.025);border-left:3px solid #475569}
+.eh-tf-row:last-child{margin-bottom:0}
+.eh-tf-row.calc{border-left-color:#34d399;background:rgba(52,211,153,.05)}
+.eh-tf-row.partial{border-left-color:#fb923c}
+.eh-tf-row.none{border-left-color:#475569;opacity:.85}
+.eh-tf-row.off{border-left-color:#334155;opacity:.6}
+.eh-tf-id{font-size:19px;font-weight:800;color:#fff;width:52px;flex:0 0 auto}
+.eh-tf-loc{font-size:16px;color:#c7d6ea;font-weight:600;width:196px;flex:0 0 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.eh-tf-cap{font-size:17px;font-weight:700;color:#22d3ee;width:116px;flex:0 0 auto;font-variant-numeric:tabular-nums}
+.eh-tf-type{font-size:12px;color:#7898ab;width:104px;flex:0 0 auto}
+.eh-tf-badge{font-size:12px;padding:2px 9px;border-radius:20px;font-weight:700;flex:0 0 auto;width:128px;text-align:center}
+.eh-tf-badge.calc{background:rgba(52,211,153,.15);color:#34d399;border:1px solid rgba(52,211,153,.4)}
+.eh-tf-badge.partial{background:rgba(251,146,60,.15);color:#fb923c;border:1px solid rgba(251,146,60,.4)}
+.eh-tf-badge.none{background:rgba(148,163,184,.13);color:#94a3b8;border:1px solid rgba(148,163,184,.3)}
+.eh-tf-badge.off{background:rgba(100,116,139,.16);color:#94a3b8;border:1px solid rgba(100,116,139,.35)}
+.eh-tf-track{flex:1;height:9px;background:rgba(255,255,255,.07);border-radius:6px;overflow:hidden;min-width:0}
+.eh-tf-fill{height:100%;border-radius:6px}
+.eh-tf-fill.g{background:linear-gradient(90deg,#1d8fd6,#34d399)}
+.eh-tf-fill.p{background:repeating-linear-gradient(45deg,#475569 0 7px,#334155 7px 14px)}
+.eh-tf-val{font-size:15px;font-weight:800;width:140px;flex:0 0 auto;text-align:right;font-variant-numeric:tabular-nums}
+.eh-tf-val.g{color:#34d399}.eh-tf-val.p{color:#94a3b8}
+.eh-tf-note{flex:0 0 auto;font-size:13px;color:#a8c4d4;background:rgba(34,211,238,.07);border:1px solid rgba(34,211,238,.2);border-radius:7px;padding:8px 12px;margin-top:10px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.eh-tf-note b{color:#22d3ee}
 /* 招商漏斗行紧凑（半高面板内容多） */
 .funnel-card .flex-col>div{padding-top:6px;padding-bottom:6px}
 .funnel-card .mb-3{margin-bottom:8px}
