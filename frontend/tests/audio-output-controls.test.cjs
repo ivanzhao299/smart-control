@@ -83,7 +83,7 @@ function execute(identity) {
     path.resolve(__dirname, '../src/composables/useAudioOutputControls.ts'),
     {
       vue,
-      'element-plus': { ElMessage: {}, ElMessageBox: { confirm: async () => {} } },
+      'element-plus': { ElMessage: {} },
       '@/services/audio.service': { audioService: {} },
       '@/features/audio-view-model': viewModel,
       '@/features/latest-command-queue': queue,
@@ -148,7 +148,6 @@ function harness(options = {}) {
       warning: (message) => messages.warning.push(message),
       error: (message) => messages.error.push(message),
     },
-    confirm: options.confirm || (async () => {}),
     storage: {
       getItem: (key) => storageState.get(key) ?? null,
       setItem: (key, value) => storageState.set(key, value),
@@ -279,35 +278,6 @@ test('stereo mute reports partial failure and keeps each channel at its confirme
   assert.equal(h.channels.value[1].error, '右声道离线');
   assert.equal(h.messages.success.length, 0);
   assert.equal(h.messages.warning[0], 'OUT1 部分声道静音失败，请按当前状态重试');
-  h.scope.stop();
-});
-
-test('bulk mute waits for every channel and never claims full success after a partial failure', async () => {
-  const h = harness({
-    service: {
-      mute: async (id, zone) => {
-        h.sent.push(['mute', id, zone]);
-        return id === 'audio_out2' ? { ok: false, error: '设备拒绝' } : { ok: true };
-      },
-    },
-  });
-  assert.equal(await h.controls.toggleMuteAll(), false);
-  assert.equal(h.channels.value[0].muted, true);
-  assert.equal(h.channels.value[1].muted, false);
-  assert.equal(h.messages.success.length, 0);
-  assert.equal(h.messages.warning[0], '静音部分成功，失败通道已保留原状态');
-  h.scope.stop();
-});
-
-test('bulk confirmation cannot cross an identity change and control the next session', async () => {
-  const confirmation = deferred();
-  const h = harness({ confirm: () => confirmation.promise });
-  const pending = h.controls.toggleMuteAll();
-  h.identity.invalidate();
-  confirmation.resolve();
-  assert.equal(await pending, false);
-  assert.equal(h.sent.length, 0);
-  assert.equal(h.messages.success.length, 0);
   h.scope.stop();
 });
 

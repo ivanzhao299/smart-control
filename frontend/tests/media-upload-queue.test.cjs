@@ -76,6 +76,21 @@ function harness(overrides = {}) {
     }
     if (id === '@/services/media.service') return { mediaService: { upload } };
     if (id === '@/features/media-file-intake') return intake;
+    if (id === 'axios') {
+      return { isAxiosError: (e) => !!e && typeof e === 'object' && e.isAxiosError === true };
+    }
+    if (id === '@/services/http') {
+      return {
+        isDirectLocalConnection: () => overrides.direct ?? false,
+        notifyUnauthorized: () => {},
+      };
+    }
+    if (id === '@/services/upload-keepalive') {
+      return {
+        beginUploadKeepAlive: () => {},
+        endUploadKeepAlive: async () => {},
+      };
+    }
     throw new Error(`unexpected import: ${id}`);
   }).useMediaUploadQueue;
   const scope = vue.effectScope();
