@@ -988,6 +988,15 @@ pm2 僵尸守护根治（146→2，INCIDENTS #9）→ 部署误报根治（#10�
 - 仓库另有 5 个分支 `codex/*` 与 `fix/remove-welcome-page`（git worktree 挂在 ~/.codex/worktrees、/Users/mac/Documents/smart-control、/private/tmp/park-ops-edit），落后 main 46~674，属其他 agent 旧线，与本任务无关、勿动；fix/remove-welcome-page 已 prunable 且 ahead0。
 - 教训：多对话共用同一 main 工作区会互相夹带提交（5d9f1f9 曾顺带提交本线回写的 MEMORY）。变压器正式开发建议从最新 main 切特性分支 `feat/transformer-energy`，本地验收+用户确认后再合回 main 推送（push main 才触发 deploy-gk9000）。
 
+### 2026-10-16 变压器监测面板正式上线（feat/transformer-energy，已部署生产并回验）
+- 功能提交 **fed7bc9**（5 文件 +358/-18：新增 `backend/src/modules/em123/em123.transformers.ts` 119 行，改 em123.service.ts +141；前端 index.html/style.css/app.js）；撤回夹带的 **8a6543f** 已先在 main；合并提交 **9544c86=main HEAD，三端同 commit**。**无 migration、无新实体**（纯配置 + 复用 em123_hourly 表，1790501000000 已在 0399084 上线）。
+- 后端：TRANSFORMERS 9 台台账（全油浸/容量/位置/类型/投运/模式）+ buildTransformerSummary（按 meterNo 建 Map、逐索引对齐加总 24 点；仅 mode=calc 给 curve 与峰均负载率；peakLoadPct=kW/kVA、peakLoadPctPf=÷0.9；汇总 9/9150/7/7550/云回路 12/27），经 energy.dashboard 透传 `d.em123.transformers`。#6 E3北=calc（映射8块关口表、在线7），#1/#7/#8=partial，#2/#5/#9=none，#3/#4=off。
+- 前端：能源页左列拆 gate-panel(grid-row2/3)+tf-panel(grid-row3/4)；关口曲线 268→120px；新增 renderTransformer 渲染汇总条/9行等高/状态徽标/进度条/#6 真实注脚；版本号 style.css+app.js 统一为 `?v=20261015-em123-transformer`。
+- 本轮实测并修复 3 个布局问题（大屏无鼠标、卡片内禁滚动）：①关口表格 CSS 选择器 bug——`#ehGateTable` 是 tbody 的 id 不是 table，flex/紧凑规则改作用到 `.gate-panel .eh-table`/`th`/`td`，12 行均分充满；②负荷曲线 SVG 右侧留白——viewBox 1000×150 比例 6.67 vs 容器比例 9.9，meet 只占 65% 宽，改 W1200/H120/L40/R12/T24/B18（比例10）铺满；③"面板440"是测量脚本假象——切页 `go(n)` 有 550ms switching 锁、快速方向键被吞，`.page` 非 active 是 visibility:hidden 且 stage 停 1082/fr=440，测量必须 `pg.evaluate('go(5)')` 激活并等 >550ms，激活后 stage1232/两 fr 各 515。
+- 本地验收：后端 nest build exit 0、前端 build:deploy exit 0、全量 `pnpm run test` **283/0**、Playwright go(5) 真实数据三列无滚动无溢出。
+- 生产回验（全过）：CI 4 job 全绿（scope/frontend/backend/deploy）；三端 commit **9544c86**；pm2 smart-control-backend 00:13:33 重启 online（dist em123.transformers.js 2703 字节与本地一致），前端 vite preview 为静态服务无需重启（app.js 0:13 落盘）；`curl --noproxy '*' https://erp.cnjinhu.com/api/em123/overview` 见 data.transformers；Playwright 生产页 9 行各 32px/关口 12 行/双面板溢出 0/版本号已更新；#6 生产口径 **181.3kW（18.1%，PF0.9≈20.1%）**（生产 hourly 389 点重算，与本地 18.3% 差属数据窗口，口径一致）。**ops-content.js 的 classList 报错是历史遗留死脚本（企业经营页，?v=20260913 本轮未碰），非本轮引入，勿擅动。**
+- 遗留（不阻塞，现场核对后说）：另 15 块贝林出线回路表上云计划；C1大总(202502280487)倍率/接线、3 块无归属表(0485/202505030250/202307040028)、C4-1楼名称；变压器 2/5/9 出线、#7 充电桩/#8 E4 回路是否装表上云；变压器真实温度/电流需另上硬件（低压进线柜全无多功能表、电力监控后台是供电公司铅封不可取）。
+
 ## 约定
 
 - **每个会话的第一个动作 = 读本文件**。已双保险：`.claude/settings.json` 配了
