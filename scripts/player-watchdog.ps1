@@ -389,6 +389,13 @@ $renderSinceFile = Join-Path $RepoRoot 'logs\render-unhealthy.since'
 $renderUnhealthyNow = $false
 foreach ($c in $channels) {
   if ($expected -notcontains $c.slot) { continue }
+  # Render-health is a VIDEO/GPU stall check. slot3 is the windowless AUDIO
+  # daemon (bgm-player.ps1, outputKind=audio): it has no video surface and no
+  # requestAnimationFrame, and its empty heartbeat maps to fps=0. An audio
+  # slot's missing fps is NOT a render stall, so skip it here; its liveness is
+  # already covered by the heartbeat staleness check above. Only video slots
+  # (led/projector) are evaluated for render health.
+  if ($c.outputKind -eq 'audio') { continue }
   $rh = $c.renderHealth
   if ($null -ne $rh) {
     $rhFps = 0

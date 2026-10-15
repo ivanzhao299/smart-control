@@ -465,11 +465,22 @@ export class PlaybackService implements OnModuleInit {
   ): Promise<void> {
     const res = await this.repo.update({ slot }, { lastHeartbeatAt: new Date() });
     if (!res.affected) throw new NotFoundException(`slot=${slot} 不存在`);
-    if (render) {
+    // Only record render health when the heartbeat actually carries render
+    // metrics. The windowless audio daemon (bgm-player.ps1, slot3) POSTs an
+    // empty body, which Express's urlencoded parser turns into {} (truthy).
+    // Treating that empty object as a render report derives fps=0 / healthy=true
+    // and makes the external watchdog force-restart the kiosk indefinitely.
+    // Require at least one real field so an empty body leaves renderHealth
+    // untouched (null), which the watchdog skips.
+    const hasRenderData = render !== undefined && render !== null
+      && (render.fps !== undefined
+        || render.stalls !== undefined
+        || render.healthy !== undefined);
+    if (hasRenderData) {
       this.renderHealth.set(slot, {
-        fps: Number.isFinite(render.fps) ? Number(render.fps) : 0,
-        stalls: Number.isInteger(render.stalls) ? Number(render.stalls) : 0,
-        healthy: render.healthy !== false,
+        fps: Number.isFinite(render!.fps) ? Number(render!.fps) : 0,
+        stalls: Number.isInteger(render!.stalls) ? Number(render!.stalls) : 0,
+        healthy: render!.healthy !== false,
         at: new Date(),
       });
     }

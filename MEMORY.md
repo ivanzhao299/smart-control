@@ -1,4 +1,19 @@
 
+## ★ 最新状态（2026-10-15，优先于本文件一切历史快照）
+
+- **【2026-10-15 修复 LED 播放"没声音 + 视频播一会停、跳回运营大屏"：根因=看门狗把纯音频 slot3 误判为画面卡死，无限重启；已止血+A+B 修复，用户确认现场有声，走 A+B full 部署】**
+  - **现象**：LED 屏播视频源时各路都没声音（切任何源都没声），视频播约 3 分钟停止、自动跳回运营大屏页。
+  - **根因（决定性验证，非推测）**：slot3 是**无窗口纯音频 daemon**（bgm-player.ps1），其第 234 行每 ~3s 用空 `-Body` POST 心跳；该请求实际发 `Content-Type=application/x-www-form-urlencoded, Content-Length=0`，Nest `@Body()` 经 Express urlencoded parser 解析为 **`{}`（空对象，truthy）**；playback.service.ts heartbeat 旧逻辑 `if (render)` 对 {} 进入，导出 `renderHealth={fps:0,stalls:0,healthy:true}`。player-watchdog.ps1 渲染健康检查（foreach 旧第 390 行）对 expected slot3 套 `healthy=false OR fps<2`，fps=0 永远命中 → 确认 90~120s 不消除 → force full relaunch（start-players 全量 kill+清缓存+重启）；slot3 重启后仍 fps=0，**无限循环**。
+  - **循环解释全部现象**：① slot1 播约 3 分钟被强 kill（=播一会停）；② kill 后重启前几秒 LED 露出下层 park-ops（=跳回运营大屏）；③ setSinkId 音频路由被反复重置、Clear-PlayerCache 反复清缓存，新窗口没稳定就又被 kill（=各路没声音）；④ slot3 BGM 被每 3 分钟精准 kill 重启（bgm-player.log 11:52/11:55/11:58… 每 3 分钟 started）。根因是 slot3 全局循环，与播什么源无关。
+  - **责任归属（日志证据）**：循环**精确起点 2026-10-07 18:27:34**（每日约 470~480 次，10-07 前 9-13~10-06 全为 0）；由 **commit f63b4b3（2026-10-07 18:07，"render watchdog trio"）** 引入——该渲染看门狗未排除已改为纯音频的 slot3。**不是最近两天（10-14 LPR、10-15 em123）部署造成**（模式每日稳定、部署前后无变化）。是我后加"看门狗增强"的缺陷，未改用户原有播放/音频核心逻辑。
+  - **止血（已实施，12:35:29）**：创建 `D:\smart-control\MAINTENANCE.flag`（看门狗第 154-161 行检测到即 back off 不动作，8h 自动过期）；**精确复核 12:35:29 后 force full relaunch=0**，连续周期 MAINTENANCE back off。止血后窗口稳定，slot1 一度 paused=True（仅 DB paused=1，窗口/媒体正常），已 `UPDATE playback_channels SET paused=0 WHERE slot=1` 恢复，三路全部正常播放（LED 4640.mov、投影 V1.mp4、BGM 澳.mp3，fps30 healthy）。用户现场确认"**有声**"。
+  - **正式修复 A+B（已本地验证，走 full 部署）**：
+    - **A（scripts/player-watchdog.ps1，概念修正，纯 ASCII）**：渲染健康检查 foreach（原第 390 行）在 expected 判断后加 `if ($c.outputKind -eq 'audio') { continue }`，纯音频 slot3 跳过 fps 检查（只对视频 slot1/2 检查），slot3 仍由心跳 stale 兜底。
+    - **B（backend/src/modules/playback/playback.service.ts，治本）**：heartbeat 新增 `hasRenderData`（render 非空且 fps/stalls/healthy 任一字段 !== undefined 才记录），空 `{}` 不写入（slot3 renderHealth 保持 null，看门狗 `$null -ne $rh` 自动跳过）。
+    - **本地验收全绿**：后端 `npm run build` 成功；verify_fixB.js 8/8 passed（undefined/null/{}→false，显式 fps/healthy/stalls→true）；verify_fixA2.ps1（修复前 True、修复后 False、视频 slot1 真卡死 fps0→True 保护不丢）；修复后 ps1 传 GK9000 临时目录 PSParser 检查 parse errors=0、non-ASCII chars=0；后端 jest 915 passed（唯一 frontend-release.spec 失败是 fs.watch flaky，单独重跑通过，与本次无关）。
+    - **scope 分类（tools/ci/deploy-scope.mjs）**：A=scripts/player-watchdog.ps1 落 else fail-closed→highRisk；B=backend/src→backendCode；A+B=**full**（只 B=backend）。后端重启触发 onModuleInit"启动即待机"（用户 7-25 规则：清空三路 currentMediaId/paused），**部署后需现场重新推一次视频**；推完窗口稳定、setSinkId 正常、声音恢复。
+  - **部署后收尾**：回验循环停止（无 force、看门狗恢复正常）、三路重新播放后声音正常；MAINTENANCE.flag 在修复版看门狗生效后可移除（我创建的临时止血物，部署验证后处理）。
+
 ## ★ 最新状态（2026-10-14，优先于本文件一切历史快照）
 
 - **【2026-10-14 运营大屏「人车管理」实时过车卡片改为 WebSocket 即时推送 + 实时滚动 + 充满卡片（任务 #36/#37，后端公共频道+前端改造），**已 push main 并经 deploy-gk9000.yml 全绿部署生产 GK9000（commit 088b244，含 a9f2a4a 冷启动修复），公网匿名 WS 订阅实测收到 hello、生产 DB 已自动备份；真实过车的 lpr_pass 推送待现场有车时最终确认**：原 10s 轮询、全量 innerHTML 重渲染、只显示 8 条、不滚动，改为新过车 1–2s 内无刷新插到顶部、青色高亮、自动滚顶，条数少 flex 均分充满、条数多按 58px 自然滚动】**
