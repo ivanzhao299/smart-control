@@ -17,6 +17,18 @@ async function mediaRequest(method: 'GET' | 'POST' | 'PUT' | 'DELETE', url: stri
   const adminToken = getAdminToken();
   const controller = new AbortController();
   const unsubscribe = onIdentityChange(() => controller.abort());
+  // 外部传入的 signal (用户点"取消上传") abort 时, 联动内部 controller
+  const externalSignal = config.signal;
+  let cleanupExternal: (() => void) | null = null;
+  if (externalSignal instanceof AbortSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      const handler = () => controller.abort();
+      externalSignal.addEventListener('abort', handler, { once: true });
+      cleanupExternal = () => externalSignal.removeEventListener('abort', handler);
+    }
+  }
   try {
     const result = await axios.request({
       ...config, method, url, data,
@@ -45,6 +57,7 @@ async function mediaRequest(method: 'GET' | 'POST' | 'PUT' | 'DELETE', url: stri
     throw error;
   } finally {
     unsubscribe();
+    if (cleanupExternal) cleanupExternal();
   }
 }
 const mediaHttp = {
