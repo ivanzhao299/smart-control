@@ -157,6 +157,44 @@ const lanProbe: { state: 'idle' | 'probing' | 'ok' | 'fail'; endpoint: string | 
   endpoint: null,
 };
 
+/**
+ * 局域网【前端】地址(5173), 与后端 3200 地址对应。
+ * 关键: HTTPS 域名页面里 fetch http://192.168.77.54:3200 会被浏览器以"混合内容"
+ * 直接拦截, 且 JS 无法区分"被混合内容拦截"和"根本不在局域网"(两者 fetch 都 reject)。
+ * 所以即使自动探测 fail, 只要后端 /api/system/info 同源拿到了 lanBaseUrl, 我们就保留
+ * 推导出的局域网前端地址, 交给 UI 让用户【手动】一键打开——能打开即证明在局域网,
+ * 绕开了 JS 无法自动判断的限制。
+ */
+let lanFrontendUrl: string | null = null;
+
+/** 由后端局域网地址 http://host:3200 推导前端局域网地址 http://host:5173/<scope>/。 */
+function deriveLanFrontendUrl(lanBackendUrl: string): string | null {
+  try {
+    const u = new URL(lanBackendUrl);
+    let scope = (import.meta.env.BASE_URL || '/').replace(/\/+$/, ''); // 生产为 /control
+    // 兜底: dev 默认 base 是 '/' 时, 从当前页面路径提取 /control 前缀。
+    if (!scope) {
+      const m = typeof window !== 'undefined'
+        ? window.location.pathname.match(/^(\/control)(\/|$)/i)
+        : null;
+      scope = m ? m[1] : '';
+    }
+    return `${u.protocol}//${u.hostname}:5173${scope}/`;
+  } catch { return null; }
+}
+
+/**
+ * 返回"可手动切换到的局域网前端地址"。仅在【当前走公网通道】且后端配置了 LAN_PUBLIC_URL
+ * 时给出；已在 5173 局域网版或已自动直连时返回 null(无需提示)。
+ */
+export function getLanFrontendUrl(): string | null {
+  try {
+    if (typeof window !== 'undefined' && window.location.port === '5173') return null;
+    if (isDirectLocalConnection()) return null;
+    return lanFrontendUrl;
+  } catch { return null; }
+}
+
 /** 触发一次局域网探测(幂等; App.vue onMounted 调)。 */
 export async function detectLanConnection(): Promise<void> {
   if (lanProbe.state !== 'idle') return;
@@ -173,6 +211,9 @@ export async function detectLanConnection(): Promise<void> {
     const j = await res.json();
     const lan = j?.data?.lanBaseUrl;
     if (!lan) throw new Error('no lanBaseUrl');
+    // 无论后续局域网直连探测是否成功(混合内容拦截也会 fail), 先保留前端局域网地址,
+    // 供"手动切换到局域网版"提示使用。
+    lanFrontendUrl = deriveLanFrontendUrl(lan);
     // 短超时直连探测
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 1500);

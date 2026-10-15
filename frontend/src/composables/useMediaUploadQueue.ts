@@ -71,8 +71,14 @@ export function useMediaUploadQueue(options: MediaUploadQueueOptions) {
       ElMessage.success(`上传成功: ${file.name}`);
       await options.refresh();
     } catch (error) {
-      // 用户主动取消: 不报错, 只提示
-      if (axios.isCancel(error)) {
+      // 用户主动取消: 不报错, 只提示。兼容 axios CanceledError、XHR abort 标记与原生 AbortError。
+      const err = error as { name?: string; __CANCEL__?: boolean };
+      const isAbort =
+        axios.isCancel(error) ||
+        err?.__CANCEL__ === true ||
+        err?.name === 'CanceledError' ||
+        err?.name === 'AbortError';
+      if (isAbort) {
         if (active()) ElMessage.info(`已取消上传: ${file.name}`);
         return;
       }
@@ -93,10 +99,15 @@ export function useMediaUploadQueue(options: MediaUploadQueueOptions) {
     }
   }
 
-  /** 用户点"取消上传": abort 当前上传请求, 清空剩余队列 */
+  /** 用户点"取消上传": 立即中止当前上传请求、清空剩余队列、即时复位进度 UI */
   function cancelUpload(): void {
     try { uploadController?.abort(); } catch { /* ignore */ }
     uploadQueue.value = [];
+    // 立即给用户反馈, 不必等 XHR onabort 回调绕一圈; uploadOne 的 finally 会再次幂等复位。
+    uploadPct.value = 0;
+    uploadName.value = '';
+    uploadStartAt.value = 0;
+    uploading.value = false;
   }
 
   async function startQueue(): Promise<void> {

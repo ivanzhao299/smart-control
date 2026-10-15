@@ -16,6 +16,7 @@ import {
   FolderOpen,
   RefreshCcw,
   Send,
+  Zap,
   ArrowLeft,
   Home,
   Globe,
@@ -32,7 +33,7 @@ import {
 import { onlineMusicService, type OnlineTrack } from '@/services/online-music.service';
 import { usePlaybackStore } from '@/stores/playback';
 import { useSystemBrandingStore } from '@/stores/system-branding';
-import { absUrl, api } from '@/services/http';
+import { absUrl, api, detectLanConnection, getLanFrontendUrl } from '@/services/http';
 import { useCurrentActor } from '@/services/current-actor';
 const { isAdmin: actorIsAdmin, canOperate, canEditMedia } = useCurrentActor();
 let disposed = false;
@@ -445,8 +446,31 @@ async function clearWelcome(): Promise<void> {
   }
 }
 
-onMounted(async () => {
-  await brandingStore.load();   // 拉 welcomeMediaId 用来标记当前欢迎页卡片
+/**
+ * 局域网提速提示: 当用域名(经公网隧道)访问、且后端配置了 LAN_PUBLIC_URL 时给出。
+ * HTTPS 页面无法自动探测 HTTP 局域网(混合内容被硬拦截、且与"不在局域网"无法区分),
+ * 故提供一个手动入口: 一键在新窗口打开局域网版 5173, 能打开即说明在园区局域网。
+ */
+const LAN_HINT_DISMISS_KEY = 'sc.media.lanHintDismissed';
+const lanSwitchUrl = ref<string | null>(null);
+const lanHintDismissed = ref(localStorage.getItem(LAN_HINT_DISMISS_KEY) === '1');
+const showLanHint = computed(() => !!lanSwitchUrl.value && !lanHintDismissed.value);
+function openLanVersion(): void {
+  if (lanSwitchUrl.value) window.open(lanSwitchUrl.value, '_blank', 'noopener');
+}
+function dismissLanHint(): void {
+  lanHintDismissed.value = true;
+  try { localStorage.setItem(LAN_HINT_DISMISS_KEY, '1'); } catch { /* ignore */ }
+}
+
+onMounted(() => {
+  // 品牌加载与局域网提示互不阻塞(branding 偶发 404 时提示条仍须正常出现)。
+  void brandingStore.load().catch(() => { /* 品牌信息缺失不影响本页 */ });
+  // 探测后(幂等)读取局域网前端地址, 决定是否展示"局域网提速"提示条。
+  void detectLanConnection().finally(() => {
+    if (disposed) return;
+    lanSwitchUrl.value = getLanFrontendUrl();
+  });
 });
 // keep-alive 切页卡顿根治: 处理态轮询只在本页运行, 切走(deactivated)即清, 回页立即刷一次并重启
 let processingRefreshTimer: number | undefined;
@@ -535,6 +559,17 @@ onBeforeUnmount(() => { disposed = true; stopProcessingPoll(); });
       <Send :size="16" :stroke-width="1.8" />
       <span class="pb-text">为 <b>{{ pickModeLabel }}</b> 挑选一个媒体, 点击就推送</span>
       <button class="pb-cancel" @click="router.push({ name: pickReturnRoute() })">取消</button>
+    </div>
+
+    <!-- 局域网提速提示: 域名(公网隧道)访问时, 引导一键打开局域网版 5173 -->
+    <div v-if="showLanHint" class="lan-hint-bar">
+      <Zap :size="16" :stroke-width="2" class="lan-hint-icon" />
+      <div class="lan-hint-text">
+        当前经<b>公网通道</b>访问，上传大文件较慢。若您正在园区 WiFi 内，建议切换到
+        <b>局域网版</b>（速度更快、不限文件大小）。
+      </div>
+      <button class="lan-hint-go" @click="openLanVersion">打开局域网版</button>
+      <button class="lan-hint-x" title="关闭提示" @click="dismissLanHint"><X :size="15" :stroke-width="2" /></button>
     </div>
 
     <!-- 上传进度 (大文件含速率 + ETA) -->
@@ -1098,6 +1133,24 @@ onBeforeUnmount(() => { disposed = true; stopProcessingPoll(); });
 .upload-batch { font-size: 11px; color: var(--v2-text-2); font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 600; }
 .upload-cancel { margin-left: auto; padding: 4px 12px; font-size: 12px; border: 1px solid rgba(255,107,107,0.5); background: rgba(255,107,107,0.12); color: #ff8a8a; border-radius: 8px; cursor: pointer; }
 .upload-cancel:hover { background: rgba(255,107,107,0.22); }
+
+/* 局域网提速提示条 */
+.lan-hint-bar { display: flex; align-items: center; gap: 10px; padding: 9px 14px; margin: 4px 0 10px;
+  background: rgba(245, 178, 64, 0.12); border: 1px solid rgba(245, 178, 64, 0.42); border-radius: 10px;
+  font-size: 13px; color: var(--v2-text-1); }
+.lan-hint-bar .lan-hint-icon { color: #f5b240; flex: none; }
+.lan-hint-bar .lan-hint-text { flex: 1; line-height: 1.4; }
+.lan-hint-bar b { color: #f5b240; font-weight: 600; }
+.lan-hint-go { flex: none; padding: 6px 14px; font-size: 13px; border: none; border-radius: 8px;
+  background: #f5b240; color: #1a1407; font-weight: 600; cursor: pointer; }
+.lan-hint-go:hover { filter: brightness(1.06); }
+.lan-hint-x { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+  border: none; background: transparent; color: var(--v2-text-2); border-radius: 6px; cursor: pointer; }
+.lan-hint-x:hover { background: var(--v2-ov-3); color: var(--v2-text-1); }
+@media (max-width: 640px) {
+  .lan-hint-bar { flex-wrap: wrap; font-size: 12px; }
+  .lan-hint-go { width: 100%; padding: 9px; }
+}
 .upload-count-inline { font-size: 11px; opacity: 0.8; }
 
 .grid-wrap { position: relative; flex: 1; min-height: 0; overflow: auto; padding: 4px; border-radius: 12px; }

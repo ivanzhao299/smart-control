@@ -951,6 +951,24 @@ pm2 僵尸守护根治（146→2，INCIDENTS #9）→ 部署误报根治（#10�
 - 提交铁律：只 add 明确源码文件；**database/ 不入库**（dev DB 被 database/*.db 忽略，但 lpr-snaps/ 与 *.bak 备份未被忽略，git status 显示 ?? database/ 是因它们，绝不 add）；.env 不入库。
 - 待办：用户明确同意后再提交推送；推送前本地补跑 CI 等价项（后端 jest+build+test:ops、前端 test+typecheck+build；本轮前端 build 已过，pnpm-lock 本次无依赖变更）。
 
+### 2026-10-15 变压器台账整合 + 能源页含变压器整屏效果图（方案，未动正式代码）
+- 输入《园区变压器智能表.xlsx》（标准库 zipfile+xml.etree 解析，openpyxl 装不上）：9 台**全油浸**、各1台、低压进线柜**全"无多功能表"**、**全"有电力监控后台"**。总容量 **9150kVA**，投运 7 台 **7550kVA**（#3 老配电室800、#4 研发楼地下室800 两台标"未启用"）；#1 D3大棚北500(partial，仅C4疑似)/#2 E5-E6内800(无下挂)/#5 D5北1000(无)/#6 E3北1000(**可算**)/#7 A2北1250(partial，充电桩回路未上云)/#8 E7南配电室2000(partial，E4未上云)/#9 E7北配电室1000(无)。台账字段名是 houseName（非 meterName）。
+- 4 个用户已拍板：①电力监控后台是**供电公司**的、有铅封无法取数 → 走纯 em123 路线，缺回路表以后补；②27块贝林表与12块DTZY**不是两套**，12块 DTZY 即27块贝林三相表中已上云部分，另15块未上云；③版面放**最左列关口负荷卡片下方**；④现场核对（C1大总倍率、3块无归属表、15块表上云计划）后说。
+- 变压器#6 负载率改用**逐小时对齐加总**（比"各表峰值相加"准，避免不同时高估）：同时刻峰 **181.2kW=18.1%（PF0.9约20.1%）、均92.4kW=9.2%（PF0.9约10.3%）**；各表峰值之和199.1仅对比。口径：kW/kVA 未计无功，PF0.9 约偏低+10%，仅代表已接入回路下限，缺 E1/消防。
+- 第一版单列效果图（app_17g3rwunkc5）被用户电脑端否决，要求**严格 3612×1462 整页效果图**（含新增变压器面板），重点"不要溢出、不要超出卡片范围"，效果图通过后才开发。
+- 主产物《能源管理页-含变压器-整屏效果图.html》（chat 目录，单文件自包含纯内联 CSS/JS/SVG，无外部依赖；4 个缩放检视：整页3612/左列1243/中列1110/右列1110；数据全内联，最新 10-15 生产真实数据：今日2223.3/本月24764.3/关口峰已变74.1 B3-1/水6·69.8）。已发布 **doubao-html app_17g3v15f663，online_url=https://4kys968mthx46.doubaoapps.com/app/app_17g3v15f663**。shot.py `--only desktop` **status=pass、blocker/error/warning 全0**；逐列核验并修复两处真实超框：①楼栋 top10 行高过大把区域4卡第二行挤出 → bld margin11→6/track12→10；②分类"总表vs分户"卡月差异贴边 → cat margin11→8。关口曲线保持132；**#gTable 用 12px 字/1px 行距让 12 块总表全部列出（用户强调大屏无鼠标、卡片内禁止滚动，已把关口原本后5行被裁改为12行全显示）**；华普云6行用 #mTable 专属紧凑行高一次显示全。所有 .p-body/.scroll 均 overflow:hidden 且内容已完整放下，无任何卡片内滚动/裁剪。
+- **左列改法（效果图已落地、待确认）**：一个跨两行面板→上下两个半高面板（关口 grid-row:2/3、变压器 grid-row:3/4，各515）。
+- **铁律：用户确认版面后才动正式 park-ops 代码**；后端方向=变压器档案+表-变映射静态配置（可维护、不写死前端）+按变压器逐小时对齐加总（#6 给负载率，partial/none/off 明确标注不编造）；前端方向=左列拆两块、renderTransformer、按效果图验证过的紧凑行高同步正式样式；本地 build+migration+真实取数验收后用户点头才部署。
+
+### 2026-10-15 大文件上传三症状根治（XHR，本地验收通过，待用户确认部署）
+- **症状③根因（前端代码 bug，非手机特有）**：`media.service.ts` 用 axios `adapter:'fetch'` 且传 `onUploadProgress`，axios 1.20.0 的 fetch adapter（node_modules/axios/lib/adapters/fetch.js supportsRequestStream 分支）把 FormData 包成 `new Request(...,{body:data,duplex:'half'})` → **ReadableStream + duplex:'half' 流式请求体**；浏览器在【HTTP 直连后端 3200】发流式体 POST 报 `net::ERR_ALPN_NEGOTIATION_FAILED`（preflight/GET 正常，原生 fetch 非流式/XHR 均 201）。表现为"5173 局域网一上传就提示失败"；HTTPS 域名经 Nginx 流式体侥幸能发但走隧道极慢（80 分钟）。
+- **修复**：`upload()` 改走新增原生 `xhrUpload(url,form,headers,opts)`（浏览器原生 multipart、真实 xhr.upload.onprogress、可 abort、HTTP/HTTPS/CORS 全稳）；list/access/rename/delete 等 GET/小 JSON 仍走 axios fetch（无流式体）。xhrUpload 不设 Content-Type（浏览器自动带 boundary）、局域网 timeout=0/公网30min、onIdentityChange 与外部 signal 双 abort；非 2xx reject 伪装 `{isAxiosError:true,response:{status,data}}`，abort reject `{name:'CanceledError',__CANCEL__:true}`。
+- **症状②取消加固**：`useMediaUploadQueue.uploadOne` catch 改 isAbort 多重判断（axios.isCancel/__CANCEL__/name=CanceledError|AbortError）；`cancelUpload()` 立即复位 uploadPct/uploadName/uploadStartAt/uploading。
+- **症状①局域网提示**（浏览器硬限制，无法自动直连：HTTPS 页内 fetch http://192.168.77.54:3200 被混合内容硬拦截，JS 无法区分"被拦截"与"不在局域网"）：`http.ts` 新增 `lanFrontendUrl`/`deriveLanFrontendUrl(lan)`（取 protocol/hostname+5173+scope，BASE_URL 为空时从 pathname 正则 `^/control` 兜底）/`getLanFrontendUrl()`（5173 或直连返回 null）；`detectLanConnection` 拿到 lan 后即设 lanFrontendUrl。`MediaPage.vue` 媒体库顶部加琥珀色 `.lan-hint-bar`：文案+"打开局域网版"(window.open 新标签 http://192.168.77.54:5173/control/)+X 关闭（localStorage key `sc.media.lanHintDismissed` 记忆）；onMounted 改非 async、branding 与探测互不阻塞。
+- **本地端到端验收（全过）**：SSH 隧道 localhost:3200→GK9000；`vite preview` 5173（新 build dist）真实 file input 上传：1MB #160、200MB #161（1.5s 完成）落库；1GB 假数据上传到 41% 点取消→进度条立即消失、按钮恢复、未入库、无新增 _tmp。dev 5180（**必须 VITE_PUBLIC_BASE=/control/ VITE_PROXY_API=localhost:3200，否则 dev base='/' 注册 /control/ SW 且 BASE_URL='/' 调试失真**）验证提示条样式/打开 URL/关闭记忆全过。vue-tsc=0、单测 6/6、build=0。
+- **实锤 SW 缓存**：dev 5180 旧 SW（scope=/control/）拦截导航、提供旧缓存，整页刷新后新代码（window 标记）不执行；unregister + 清 caches 后才生效。手机端"取消按钮没反应"高度疑似同因（registerType:'prompt' 新 SW 进 waiting 未接管）。部署后真机若不生效，引导 pwa-recovery 或杀 App 重开/更新。
+- **状态**：5 文件（media.service.ts/useMediaUploadQueue.ts/http.ts/MediaPage.vue + MEMORY）未 commit；本地验收完成、临时代码已清、dist 已 build、本地验收进程已停。**等用户明确同意才 commit/push/部署 GK9000**；部署后真机复测 5173 大文件 + 域名页提示条 + 取消。
+
 ## 约定
 
 - **每个会话的第一个动作 = 读本文件**。已双保险：`.claude/settings.json` 配了

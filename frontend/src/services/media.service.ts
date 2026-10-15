@@ -1,16 +1,18 @@
-import axios, { type AxiosProgressEvent, type AxiosRequestConfig } from 'axios';
+import axios, { type AxiosRequestConfig } from 'axios';
 import { getApiBaseURL, getClientToken, getAdminToken, isDirectLocalConnection, getUploadBaseURL } from './http';
 import { identityGeneration, assertCurrentIdentity, onIdentityChange } from './identity-boundary';
 export { MEDIA_UPLOAD_ACCEPT } from '../features/media-file-intake';
 
 /**
- * media 专用 axios(留着只为上传进度回调 —— http.ts 那套 fetch 没有 onUploadProgress)。
+ * media 专用 axios, 用于非上传请求(list/access/rename/delete 等 GET/小 JSON)。
+ * 大文件上传不走这里 —— 见下方 xhrUpload(原生 XHR; axios fetch 流式体在 HTTP
+ * 直连后端时会触发 ERR_ALPN_NEGOTIATION_FAILED)。
  *
  * 不走 http.ts，必须同步捕获身份、带鉴权头并独立处理切换取消。
- * Fetch adapter 禁止重定向；浏览器支持请求流时才有细粒度上传进度。
+ * Fetch adapter 禁止重定向。
  */
 // Capture identity synchronously with the URL, not in an asynchronous interceptor.
-// Fetch adapter prevents redirects (XHR cannot), and supports progress where the browser can stream requests.
+// Fetch adapter forbids redirects. Non-upload requests have no streaming body, so they stay on axios.
 async function mediaRequest(method: 'GET' | 'POST' | 'PUT' | 'DELETE', url: string, data?: unknown, config: AxiosRequestConfig = {}) {
   const generation = identityGeneration();
   const clientToken = getClientToken();
@@ -73,10 +75,117 @@ const mediaHttp = {
  * GK9000 构建里这是 http://localhost:3200/api, 平板/手机上的 PWA
  * 会去请求设备自己的 localhost → 媒体列表永远是空的.
  * getApiBaseURL() 跟随业主在服务器设置框填的地址 (localStorage), 与
- * 其它页面 (http.ts 体系) 一致. axios 保留只为 upload 的进度回调
- * (fetch 不支持上传进度).
+ * 其它页面 (http.ts 体系) 一致。上传进度由 xhrUpload 的 upload.onprogress 提供。
  */
 const base = (): string => getApiBaseURL();
+
+/**
+ * 大文件上传必须走原生 XMLHttpRequest, 不能走 axios 的 fetch adapter。
+ *
+ * 根因(2026-10-15 真机/浏览器实测锁定): axios fetch adapter 只要传了 onUploadProgress,
+ * 就会把 FormData 请求体包成 ReadableStream + `duplex:'half'` 流式发送
+ * (见 node_modules/axios/lib/adapters/fetch.js supportsRequestStream 分支)。
+ * 浏览器在【HTTP 直连后端】(局域网 http://192.168.77.54:3200) 发送流式请求体时,
+ * 触发 net::ERR_ALPN_NEGOTIATION_FAILED, POST 直接失败(preflight 与 GET 都正常),
+ * 表现为"5173 局域网一上传就提示上传失败"；同一份请求用原生 fetch 非流式 / XHR 均 201 成功。
+ * 域名 HTTPS 经 Nginx 时流式体侥幸能发, 但走隧道极慢。
+ *
+ * XHR 由浏览器原生处理 multipart 上传, 既能拿到真实 upload.onprogress, 又对
+ * HTTP/HTTPS、CORS、abort 全平台稳定, 是大文件上传的标准做法。
+ */
+function xhrUpload(
+  url: string,
+  form: FormData,
+  headers: Record<string, string>,
+  opts: { onProgress?: (pct: number) => void; signal?: AbortSignal; timeoutMs: number },
+): Promise<{ data?: unknown; message?: string }> {
+  return new Promise((resolve, reject) => {
+    const generation = identityGeneration();
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    // 跨域: 不带 cookie, 与 mediaRequest(axios fetch) 保持一致。
+    xhr.withCredentials = false;
+    xhr.timeout = opts.timeoutMs;
+    // 注意: 绝不手动 set Content-Type, 交给浏览器为 FormData 自动带 multipart boundary。
+    Object.entries(headers).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') xhr.setRequestHeader(key, value);
+    });
+
+    // 身份切换(换服务器/换账号) -> 中止本次上传。
+    const offIdentity = onIdentityChange(() => { try { xhr.abort(); } catch { /* ignore */ } });
+    // 用户点"取消上传" -> 外部 signal abort 联动 xhr.abort。
+    let offSignal: (() => void) | null = null;
+    const onExternalAbort = () => { try { xhr.abort(); } catch { /* ignore */ } };
+    if (opts.signal) {
+      if (opts.signal.aborted) {
+        onExternalAbort();
+      } else {
+        opts.signal.addEventListener('abort', onExternalAbort, { once: true });
+        offSignal = () => opts.signal?.removeEventListener('abort', onExternalAbort);
+      }
+    }
+
+    let settled = false;
+    const cleanup = () => {
+      offIdentity();
+      if (offSignal) offSignal();
+    };
+    const finalize = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      fn();
+    };
+
+    xhr.upload.onprogress = (event: ProgressEvent) => {
+      if (event.lengthComputable && opts.onProgress && generation === identityGeneration()) {
+        opts.onProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)));
+      }
+    };
+
+    const parseBody = (): any => {
+      try { return xhr.responseText ? JSON.parse(xhr.responseText) : null; } catch { return null; }
+    };
+
+    xhr.onload = () => finalize(() => {
+      const body = parseBody();
+      if (xhr.status >= 200 && xhr.status < 300) {
+        assertCurrentIdentity(generation);
+        resolve(body ?? {});
+      } else {
+        // 伪装成 axios error 的结构, 使上层 useMediaUploadQueue 的 isAxiosError +
+        // error.response.status === 401 分支继续生效。
+        const err = new Error(body?.message || `上传失败 (HTTP ${xhr.status})`) as Error & {
+          isAxiosError?: boolean; response?: { status: number; data: unknown };
+        };
+        err.isAxiosError = true;
+        err.response = { status: xhr.status, data: body };
+        reject(err);
+      }
+    });
+
+    xhr.onabort = () => finalize(() => {
+      // 同时满足 axios.isCancel(仅判断 __CANCEL__===true) 与原生 AbortError 语义。
+      const canceled = new Error('上传已取消') as Error & { __CANCEL__?: boolean };
+      canceled.name = 'CanceledError';
+      canceled.__CANCEL__ = true;
+      reject(canceled);
+    });
+
+    xhr.onerror = () => finalize(() => {
+      const err = new Error('网络错误：上传请求被中断（可能跨域受限、网络被拦截或已断开）') as Error & {
+        isAxiosError?: boolean; response?: { status: number; data: null };
+      };
+      err.isAxiosError = true;
+      err.response = { status: 0, data: null };
+      reject(err);
+    });
+
+    xhr.ontimeout = () => finalize(() => reject(new Error('上传超时，请改用局域网或缩小文件')));
+
+    xhr.send(form);
+  });
+}
 
 export interface MediaItem {
   ownerUserId: number | null;
@@ -133,7 +242,7 @@ export const mediaService = {
     return r.data.data;
   },
 
-  /** 上传, 支持 progress 回调; opts.signal 可取消 */
+  /** 上传, 支持 progress 回调; opts.signal 可取消。走原生 XHR(见 xhrUpload 注释)。 */
   async upload(
     file: File,
     opts: { remark?: string; onProgress?: (pct: number) => void; signal?: AbortSignal } = {},
@@ -143,23 +252,25 @@ export const mediaService = {
     if (opts.remark) fd.append('remark', opts.remark);
     // 上传走专用 baseURL(局域网探测成功则直连后端, 否则同源 Nginx)
     const uploadBase = getUploadBaseURL();
-    const r = await mediaHttp.post(`${uploadBase}/media/upload`, fd, {
-      headers: { 'X-Upload-Size': String(file.size) },
-      // 不要手写 Content-Type: 'multipart/form-data' —— 那样没有 boundary, 后端解析不出文件。
-      // 交给 axios/浏览器按 FormData 自动带 boundary。(之前被 401 挡着没暴露, token 修好后就会露)
-      // 局域网/本机直连: 不限大小, 不设整体超时(0=无超时)；公网: 30 分钟兜底大视频。
-      timeout: isDirectLocalConnection() ? 0 : 30 * 60 * 1000,
-      maxContentLength: Infinity,
-      maxBodyLength: Infinity,
-      signal: opts.signal,
-      onUploadProgress: (e: AxiosProgressEvent) => {
-        if (e.total && opts.onProgress) {
-          opts.onProgress(Math.round((e.loaded / e.total) * 100));
-        }
+    const clientToken = getClientToken();
+    const adminToken = getAdminToken();
+    const body = await xhrUpload(
+      `${uploadBase}/media/upload`,
+      fd,
+      {
+        'X-Upload-Size': String(file.size),
+        ...(clientToken ? { 'X-Client-Token': clientToken } : {}),
+        ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}),
       },
-    });
-    if (!r.data?.data) throw new Error(r.data?.message || '上传失败');
-    return r.data.data;
+      {
+        // 局域网/本机直连: 不限大小, 不设整体超时(0=无超时)；公网: 30 分钟兜底大视频。
+        timeoutMs: isDirectLocalConnection() ? 0 : 30 * 60 * 1000,
+        signal: opts.signal,
+        onProgress: opts.onProgress,
+      },
+    );
+    if (!body?.data) throw new Error(body?.message || '上传失败');
+    return body.data as MediaItem;
   },
 
   async remove(id: number): Promise<void> {
