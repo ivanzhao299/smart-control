@@ -84,10 +84,11 @@ export class EwelinkDevicesService {
   /** 控制一路开关 */
   async setSwitch(deviceId: string, uiid: number, channel: number, on: boolean): Promise<void> {
     const { token, region } = await this.auth.ensureAccessToken();
+    void uiid;
     const state = on ? 'on' : 'off';
-    // 单路设备 params.switch；多路 params.switches[]
+    // 单通道用 params.switch；多通道用 params.switches[].outlet
     const params =
-      channel === 0 && uiid === 1
+      channel === 0
         ? { switch: state }
         : { switches: [{ switch: state, outlet: channel }] };
     const body = { type: 1, id: deviceId, params };
@@ -193,24 +194,37 @@ export class EwelinkDevicesService {
 
   // ============ 内部 ============
 
-  private normalize(t: any, familyId: string | null): EwelinkSwitchThing | null {
+  /** 开关状态兼容：字符串 "on"/"off" 或布尔 true/false */
+  private static isOn(v: unknown): boolean {
+    return v === true || v === 'on';
+  }
+
+  private normalize(raw: any, familyId: string | null): EwelinkSwitchThing | null {
+    // 真实 thingList 结构为 {itemType, itemData:{...}}，兼容平铺写法
+    const t = raw && raw.itemData ? raw.itemData : raw;
     const params = t.params ?? {};
     const channels: EwelinkSwitchChannel[] = [];
-    if (typeof params.switch === 'string') {
-      channels.push({ channel: 0, on: params.switch === 'on' });
-    } else if (Array.isArray(params.switches)) {
+    // 多路优先用 switches[]；否则用单路 switch（顶层）
+    if (Array.isArray(params.switches) && params.switches.length > 0) {
       for (const s of params.switches) {
-        channels.push({ channel: Number(s.outlet ?? 0), on: s.switch === 'on' });
+        channels.push({
+          channel: Number(s.outlet ?? 0),
+          on: EwelinkDevicesService.isOn(s.switch),
+        });
       }
+    } else if (params.switch !== undefined && params.switch !== null) {
+      channels.push({ channel: 0, on: EwelinkDevicesService.isOn(params.switch) });
     }
     if (channels.length === 0) return null;
     channels.sort((a, b) => a.channel - b.channel);
+    const deviceId = String(t.deviceid ?? t.id ?? '');
     return {
-      deviceId: String(t.id),
-      name: String(t.name ?? t.id),
-      uiid: Number(t.uiid ?? 0),
+      deviceId,
+      name: String(t.name ?? deviceId),
+      uiid: Number(t.extra?.uiid ?? t.uiid ?? 0),
       online: !!t.online,
-      familyId,
+      // 设备自带 family 优先，回落到当前家庭
+      familyId: (t.family?.familyid as string) ?? familyId,
       channels,
     };
   }

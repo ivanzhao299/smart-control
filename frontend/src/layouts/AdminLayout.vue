@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { Menu, X, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen } from 'lucide-vue-next';
+import { Menu, X, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, ChevronDown, KeyRound } from 'lucide-vue-next';
 import BrandLogo from '@/components/BrandLogo.vue';
 import { useFullscreen } from '@/composables/useFullscreen';
 import { useSystemStore } from '@/stores/system';
@@ -18,6 +18,7 @@ import {
   canAccessAdminRoute,
   idleAdminRouteNames,
   loadAdminRoute,
+  type AdminNavigationSection,
 } from '@/router/admin-route-manifest';
 import { ROLE_LABELS } from '@/router/admin-rbac';
 
@@ -75,6 +76,45 @@ function toggleCollapse(): void {
   try { localStorage.setItem(COLLAPSE_KEY, collapsed.value ? '1' : '0'); } catch { /* ignore */ }
 }
 
+// ============ 菜单分组展开 / 折叠（状态持久化，诊断/系统默认收起） ============
+const SECTION_COLLAPSE_KEY = 'sc.admin.menuCollapsed';
+/** 默认收起的分组（低频使用，减少常用视觉负担） */
+const DEFAULT_COLLAPSED_SECTIONS: AdminNavigationSection[] = ['诊断', '系统'];
+const collapsedSections = ref<Record<string, boolean>>({});
+
+function persistSections(): void {
+  const list = Object.entries(collapsedSections.value)
+    .filter(([, v]) => v)
+    .map(([k]) => k);
+  try { localStorage.setItem(SECTION_COLLAPSE_KEY, JSON.stringify(list)); } catch { /* ignore */ }
+}
+
+function isSectionCollapsed(section: AdminNavigationSection): boolean {
+  return !!collapsedSections.value[section];
+}
+
+function toggleSection(section: AdminNavigationSection): void {
+  // 整体折叠成图标栏时，分组标题只作分隔线，不触发分组折叠
+  if (collapsed.value) return;
+  collapsedSections.value[section] = !collapsedSections.value[section];
+  persistSections();
+}
+
+function initSections(): void {
+  try {
+    const saved = localStorage.getItem(SECTION_COLLAPSE_KEY);
+    if (saved !== null) {
+      const arr = JSON.parse(saved) as string[];
+      for (const s of arr) collapsedSections.value[s] = true;
+    } else {
+      for (const s of DEFAULT_COLLAPSED_SECTIONS) collapsedSections.value[s] = true;
+    }
+  } catch {
+    for (const s of DEFAULT_COLLAPSED_SECTIONS) collapsedSections.value[s] = true;
+  }
+}
+initSections();
+
 // 进了后台后, idle 时预取各分组主页面 chunk, 切页不等下载 (只在后台触发, 不拖累客户端平板)
 onMounted(() => {
   const ric =
@@ -127,25 +167,42 @@ async function exitToFront(): Promise<void> {
       </div>
       <nav class="menu">
         <template v-for="g in groups" :key="g.section">
-          <div class="menu-section">{{ g.section }}</div>
           <button
-            v-for="it in g.items"
-            :key="it.name"
             type="button"
-            class="menu-item"
-            :class="{ 'is-active': currentName === it.name }"
-            :title="collapsed ? it.label : undefined"
-            @click="go(it.name)"
+            class="menu-section"
+            :class="{ 'is-collapsed': isSectionCollapsed(g.section) }"
+            :title="collapsed ? g.section : undefined"
+            @click="toggleSection(g.section)"
           >
-            <span class="ico">
-              <component :is="adminNavIconFor(it.name)" :size="18" :stroke-width="1.75" />
-            </span>
-            <span class="lbl">{{ it.label }}</span>
+            <span class="section-label">{{ g.section }}</span>
+            <ChevronDown :size="14" :stroke-width="2.2" class="section-chev" />
           </button>
+          <div
+            class="section-items"
+            :class="{ collapsed: isSectionCollapsed(g.section) }"
+          >
+            <button
+              v-for="it in g.items"
+              :key="it.name"
+              type="button"
+              class="menu-item"
+              :class="{ 'is-active': currentName === it.name }"
+              :title="collapsed ? it.label : undefined"
+              @click="go(it.name)"
+            >
+              <span class="ico">
+                <component :is="adminNavIconFor(it.name)" :size="18" :stroke-width="1.75" />
+              </span>
+              <span class="lbl">{{ it.label }}</span>
+            </button>
+          </div>
         </template>
       </nav>
       <div class="footer">
         <button type="button" class="back" @click="returnToControl">返回设备控制</button>
+        <button type="button" class="back" @click="go('admin-change-password')">
+          <KeyRound :size="16" :stroke-width="2" /> 修改密码
+        </button>
         <button type="button" class="back" @click="exitToFront">
           <LogOut :size="16" :stroke-width="2" /> 退出登录
         </button>
@@ -300,16 +357,44 @@ async function exitToFront(): Promise<void> {
   scrollbar-width: none;
 }
 .menu::-webkit-scrollbar { width: 0; height: 0; }
-/* 分组小标题 — 收紧上下间距 */
+/* 分组小标题 — 可点击展开 / 收起 */
 .menu-section {
+  width: 100%;
+  display: flex; align-items: center; gap: 6px;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 1.5px;
   color: var(--v2-text-3);
-  padding: 7px 12px 2px;
+  background: transparent;
+  border: none;
+  padding: 7px 12px 3px;
   user-select: none;
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: var(--v2-r-sm);
+  text-align: left;
+  transition: color 0.18s ease;
 }
+.menu-section:hover { color: var(--v2-text-1); }
 .menu-section:first-child { padding-top: 2px; }
+.section-label { flex: 1; min-width: 0; }
+.section-chev {
+  color: var(--v2-text-3);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+.menu-section.is-collapsed .section-chev { transform: rotate(-90deg); }
+
+/* 分组菜单项容器 — 展开 / 收起动画 */
+.section-items {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+  max-height: 700px;
+  transition: max-height 0.22s ease;
+}
+.section-items.collapsed { max-height: 0; }
 .menu-item {
   position: relative;
   display: flex; align-items: center; gap: 10px;
@@ -432,12 +517,15 @@ async function exitToFront(): Promise<void> {
   .collapsed .brand-text { display: none; }
   /* 菜单: 图标居中, 隐藏文字 (hover 有 title 气泡提示) */
   .collapsed .menu { padding: var(--v2-sp-3) 8px; }
-  /* 分组标题 → 细分隔线 (第一组上面不要线) */
+  /* 分组标题 → 细分隔线 (第一组上面不要线); 隐藏 label / chevron */
   .collapsed .menu-section {
     height: 1px; font-size: 0; padding: 0; overflow: hidden;
     margin: 8px 6px; background: var(--v2-border-soft); letter-spacing: 0;
   }
   .collapsed .menu-section:first-child { display: none; }
+  .collapsed .section-label, .collapsed .section-chev { display: none; }
+  /* 图标栏模式: 强制显示所有菜单项, 不受分组折叠影响 */
+  .collapsed .section-items { max-height: none; }
   .collapsed .menu-item { justify-content: center; padding: 5px 0; }
   .collapsed .menu-item .lbl { display: none; }
   .collapsed .menu-item.is-active::before { left: -8px; height: 24px; }

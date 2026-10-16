@@ -2,7 +2,13 @@ import type { Component } from 'vue';
 import type { UserRole } from '@/types/api';
 import { canAccessAdminModule, type AdminModule } from './admin-rbac';
 
-export type AdminNavigationSection = '日常运行' | '设备与分区' | '日志与诊断' | '系统管理';
+export type AdminNavigationSection =
+  | '总览'
+  | '场景与控制'
+  | '能源'
+  | '设备与空间'
+  | '诊断'
+  | '系统';
 export type AdminPageLoader = () => Promise<{ default: Component }>;
 
 export interface AdminNavigationItem {
@@ -33,10 +39,12 @@ interface AdminRouteDefinition {
 }
 
 const sectionOrder: readonly AdminNavigationSection[] = [
-  '日常运行',
-  '设备与分区',
-  '日志与诊断',
-  '系统管理',
+  '总览',
+  '场景与控制',
+  '能源',
+  '设备与空间',
+  '诊断',
+  '系统',
 ];
 
 /**
@@ -50,19 +58,19 @@ const sectionOrder: readonly AdminNavigationSection[] = [
 export const adminRouteManifest = [
   {
     path: 'monitor', name: 'admin-monitor', load: () => import('@/pages/admin/MonitorAdmin.vue'),
-    module: 'monitor', navigation: { label: '运维监控', section: '日常运行', order: 0 }, prefetchOnIdle: true,
+    module: 'monitor', navigation: { label: '运维监控', section: '总览', order: 0 }, prefetchOnIdle: true,
   },
   {
     path: 'alerts', name: 'admin-alerts', load: () => import('@/pages/admin/AlertsAdmin.vue'),
-    module: 'alerts', navigation: { label: '报警中心', section: '日常运行', order: 1 },
+    module: 'alerts', navigation: { label: '报警中心', section: '总览', order: 1 },
   },
   {
     path: 'devices', name: 'admin-devices', load: () => import('@/pages/admin/DevicesAdmin.vue'),
-    module: 'devices', navigation: { label: '设备管理', section: '设备与分区', order: 0 }, prefetchOnIdle: true,
+    module: 'devices', navigation: { label: '设备管理', section: '设备与空间', order: 1 }, prefetchOnIdle: true,
   },
   {
     path: 'scenes', name: 'admin-scenes', load: () => import('@/pages/admin/ScenesAdmin.vue'),
-    module: 'scenes', navigation: { label: '场景管理', section: '日常运行', order: 2 }, prefetchOnIdle: true,
+    module: 'scenes', navigation: { label: '场景管理', section: '场景与控制', order: 0 }, prefetchOnIdle: true,
   },
   {
     path: 'scenes/:id/actions', name: 'admin-scene-actions', load: () => import('@/pages/admin/SceneActionsAdmin.vue'),
@@ -70,15 +78,15 @@ export const adminRouteManifest = [
   },
   {
     path: 'scheduler', name: 'admin-scheduler', load: () => import('@/pages/admin/SchedulerAdmin.vue'),
-    module: 'scheduler', navigation: { label: '定时任务', section: '日常运行', order: 3 },
+    module: 'scheduler', navigation: { label: '定时任务', section: '场景与控制', order: 1 },
   },
   {
     path: 'energy', name: 'admin-energy', load: () => import('@/pages/admin/EnergyAdmin.vue'),
-    module: 'energy', navigation: { label: '能源管理', section: '日常运行', order: 4 }, prefetchOnIdle: true,
+    module: 'energy', navigation: { label: '能源管理', section: '能源', order: 0 }, prefetchOnIdle: true,
   },
   {
     path: 'auto-switch', name: 'admin-auto-switch', load: () => import('@/pages/admin/AutoSwitchAdmin.vue'),
-    module: 'energy', navigation: { label: '自动开关', section: '日常运行', order: 5 },
+    module: 'energy', navigation: { label: '自动开关', section: '能源', order: 1 },
   },
   {
     path: 'scene-executions', name: 'admin-scene-executions', load: () => import('@/pages/admin/SceneExecutionsAdmin.vue'),
@@ -86,7 +94,7 @@ export const adminRouteManifest = [
   },
   {
     path: 'test-center', name: 'admin-test-center', load: () => import('@/pages/admin/TestCenterAdmin.vue'),
-    module: 'uat', navigation: { label: '测试 / 调试', section: '日志与诊断', order: 1 },
+    module: 'uat', navigation: { label: '测试 / 调试', section: '诊断', order: 1 },
   },
   {
     path: 'debug', name: 'admin-debug', load: () => import('@/pages/admin/TestCenterAdmin.vue'),
@@ -94,11 +102,11 @@ export const adminRouteManifest = [
   },
   {
     path: 'video-binding', name: 'admin-video-binding', load: () => import('@/pages/admin/VideoBindingAdmin.vue'),
-    module: 'video', navigation: { label: '视频绑定', section: '设备与分区', order: 3 },
+    module: 'video', navigation: { label: '视频绑定', section: '设备与空间', order: 3 },
   },
   {
     path: 'lpr', name: 'admin-lpr', load: () => import('@/pages/admin/LprAdmin.vue'),
-    module: 'lpr', navigation: { label: '车牌道闸', section: '设备与分区', order: 4 }, prefetchOnIdle: true,
+    module: 'lpr', navigation: { label: '车牌道闸', section: '场景与控制', order: 2 }, prefetchOnIdle: true,
   },
   {
     path: 'uat', name: 'admin-uat', load: () => import('@/pages/admin/UatAdmin.vue'),
@@ -106,15 +114,15 @@ export const adminRouteManifest = [
   },
   {
     path: 'logs', name: 'admin-logs', load: () => import('@/pages/admin/LogsHubAdmin.vue'),
-    module: 'diagnostics', navigation: { label: '日志中心', section: '日志与诊断', order: 0 }, prefetchOnIdle: true,
+    module: 'diagnostics', navigation: { label: '日志中心', section: '诊断', order: 0 }, prefetchOnIdle: true,
   },
   {
     path: 'hardware', name: 'admin-hardware', load: () => import('@/pages/admin/HardwareHubAdmin.vue'),
-    module: 'hardware', navigation: { label: '硬件清单', section: '设备与分区', order: 1 }, prefetchOnIdle: true,
+    module: 'hardware', navigation: { label: '硬件清单', section: '设备与空间', order: 0 }, prefetchOnIdle: true,
   },
   {
     path: 'zones-config', name: 'admin-zones-config', load: () => import('@/pages/admin/ZonesConfigAdmin.vue'),
-    module: 'zones', navigation: { label: '分区配置', section: '设备与分区', order: 2 }, prefetchOnIdle: true,
+    module: 'zones', navigation: { label: '分区配置', section: '设备与空间', order: 2 }, prefetchOnIdle: true,
   },
   {
     path: 'light-zones', name: 'admin-light-zones', load: () => import('@/pages/admin/LightZonesAdmin.vue'),
@@ -130,16 +138,17 @@ export const adminRouteManifest = [
   },
   {
     // 自助项：任何后台角色都能改自己的密码，不占模块权限。
+    // 不占侧栏菜单（改由底部「修改密码」按钮进入），仍保留 self 路由。
     path: 'change-password', name: 'admin-change-password', load: () => import('@/pages/admin/ChangePasswordAdmin.vue'),
-    self: true, navigation: { label: '修改密码', section: '系统管理', order: 0 },
+    self: true,
   },
   {
     path: 'app-release', name: 'admin-app-release', load: () => import('@/pages/admin/AppReleaseAdmin.vue'),
-    module: 'app-release', navigation: { label: 'APP 版本', section: '系统管理', order: 3 }, prefetchOnIdle: true,
+    module: 'app-release', navigation: { label: 'APP 版本', section: '系统', order: 3 }, prefetchOnIdle: true,
   },
   {
     path: 'testflight', name: 'admin-testflight', load: () => import('@/pages/admin/TestFlightAdmin.vue'),
-    module: 'system', navigation: { label: 'iOS 测试', section: '系统管理', order: 4 },
+    module: 'system', navigation: { label: 'iOS 测试', section: '系统', order: 4 },
   },
   {
     path: 'drivers', name: 'admin-drivers', load: () => import('@/pages/admin/DriversAdmin.vue'),
@@ -151,7 +160,7 @@ export const adminRouteManifest = [
   },
   {
     path: 'system-branding', name: 'admin-system-branding', load: () => import('@/pages/admin/SystemBrandingAdmin.vue'),
-    module: 'branding', navigation: { label: '系统品牌', section: '系统管理', order: 2 },
+    module: 'branding', navigation: { label: '系统品牌', section: '系统', order: 2 },
   },
   {
     path: 'audit', name: 'admin-audit', load: () => import('@/pages/admin/AuditAdmin.vue'),
@@ -159,17 +168,17 @@ export const adminRouteManifest = [
   },
   {
     path: 'users', name: 'admin-users', load: () => import('@/pages/admin/UsersAdmin.vue'),
-    module: 'system', navigation: { label: '用户管理', section: '系统管理', order: 1 },
+    module: 'system', navigation: { label: '用户管理', section: '系统', order: 1 },
   },
   {
     // 常规系统参数（仅 admin）。系统品牌 / APP 版本已拆为系统管理组内的独立菜单，
     // 不再用三 tab 合并页，避免 config/branding 被 system 模块挡在外面的老问题。
     path: 'settings', name: 'admin-settings', load: () => import('@/pages/admin/SettingsAdmin.vue'),
-    module: 'system', navigation: { label: '系统设置', section: '系统管理', order: 5 }, prefetchOnIdle: true,
+    module: 'system', navigation: { label: '系统设置', section: '系统', order: 0 }, prefetchOnIdle: true,
   },
   {
     path: 'park-ops-metrics', name: 'admin-park-ops-metrics', load: () => import('@/pages/admin/ParkOpsMetricsAdmin.vue'),
-    module: 'metrics', navigation: { label: '运营数据', section: '日常运行', order: 6 },
+    module: 'metrics', navigation: { label: '运营数据', section: '总览', order: 2 },
   },
 ] as const satisfies readonly AdminRouteDefinition[];
 

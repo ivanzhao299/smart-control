@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
-import { RefreshCw, Radar } from 'lucide-vue-next';
+import {
+  RefreshCw, Radar, Monitor, Lightbulb, Volume2, AirVent, Zap, Network, ChevronDown,
+} from 'lucide-vue-next';
 import { adminHardwareService, adminTestService } from '@/services/admin.service';
 import { api } from '@/services/http';
 import { deviceService } from '@/services/device.service';
@@ -25,29 +27,95 @@ const rows = ref<NetworkRow[]>([]);
 const canEdit = computed(() => perm.canWriteModule('devices'));
 const gateways = ref<GatewayInfo[]>([]);
 
-/** 有 IP 概念的类别 — 没 IP 的纯被动硬件 (灯具驱动器/继电器) 不在这页出现 */
+/**
+ * 入页的类别 — 有网络 / 系统意义的设备；
+ * 纯被动、无 IP 无操作价值的灯具驱动器 (led-driver) 不进这页（在「设备登记」可见）。
+ */
 const NETWORK_CATEGORIES: HardwareCategory[] = [
-  'rtu-tcp-converter', 'dali-gateway', 'led-controller', 'led-player',
-  'audio-dsp', 'audio-guide', 'audio-power', 'hvac-gateway',
-  'tablet', 'switch', 'router', 'other', 'power-breaker-web', 'power-breaker-ewelink',
+  'rtu-tcp-converter', 'dali-gateway', 'dali-converter',
+  'led-controller', 'led-player', 'projector-fusion',
+  'audio-dsp', 'audio-guide', 'audio-power',
+  'hvac-gateway', 'hvac-outdoor',
+  'tablet', 'switch', 'router', 'other',
+  'power-breaker', 'power-breaker-web', 'power-breaker-ewelink',
 ];
 
 const CATEGORY_LABELS: Partial<Record<HardwareCategory, string>> = {
   'dali-gateway': 'DALI 网关',
+  'dali-converter': 'DALI 转换器',
   'rtu-tcp-converter': 'RTU↔TCP 转换器',
   'led-controller': 'LED 控制器',
   'led-player': 'LED 播控主机',
+  'projector-fusion': '投影融合机',
   'audio-dsp': '音响 DSP',
   'audio-guide': '分区导览',
   'audio-power': '音响时序器',
   'hvac-gateway': '空调网关',
+  'hvac-outdoor': '空调外机',
   'tablet': '控制平板',
   'switch': '交换机',
   'router': '路由器',
   'other': '其它',
+  'power-breaker': '断路器',
   'power-breaker-web': '4G 云断路器',
   'power-breaker-ewelink': '易微联云开关',
 };
+
+// ============ 大类分组：把细类别整合到 6 个工作区块（可折叠） ============
+interface CategoryGroup {
+  key: string;
+  label: string;
+  icon: typeof Monitor;
+  categories: HardwareCategory[];
+}
+const CATEGORY_GROUPS: CategoryGroup[] = [
+  { key: 'disp', label: '视频与显示', icon: Monitor, categories: ['led-controller', 'led-player', 'projector-fusion'] },
+  { key: 'light', label: '照明控制', icon: Lightbulb, categories: ['dali-gateway', 'dali-converter'] },
+  { key: 'audio', label: '音频系统', icon: Volume2, categories: ['audio-dsp', 'audio-guide', 'audio-power'] },
+  { key: 'hvac', label: '空调系统', icon: AirVent, categories: ['hvac-gateway', 'hvac-outdoor'] },
+  { key: 'power', label: '配电与云开关', icon: Zap, categories: ['power-breaker', 'power-breaker-web', 'power-breaker-ewelink'] },
+  { key: 'net', label: '网络与终端', icon: Network, categories: ['rtu-tcp-converter', 'switch', 'router', 'other', 'tablet'] },
+];
+
+/** 大类区块折叠状态（默认全部展开） */
+const collapsedGroups = ref<Record<string, boolean>>({});
+function isGroupCollapsed(key: string): boolean {
+  return !!collapsedGroups.value[key];
+}
+function toggleGroup(key: string): void {
+  collapsedGroups.value[key] = !collapsedGroups.value[key];
+}
+
+/** 顶部 chip 筛选：'' = 显示全部，否则只显示该大类 */
+const activeGroup = ref<string>('');
+
+/** 大类区块（只含实际有设备的组，并按 chip 筛选） */
+const groupedRows = computed(() =>
+  CATEGORY_GROUPS.map((g) => ({
+    ...g,
+    items: rows.value.filter((r) => g.categories.includes(r.unit.category)),
+  })).filter((g) =>
+    g.items.length > 0 && (activeGroup.value === '' || activeGroup.value === g.key)),
+);
+
+/** chip 列表：只显示有设备的大类 */
+const groupChips = computed(() =>
+  CATEGORY_GROUPS.map((g) => ({
+    key: g.key,
+    label: g.label,
+    icon: g.icon,
+    count: rows.value.filter((r) => g.categories.includes(r.unit.category)).length,
+  })).filter((c) => c.count > 0),
+);
+
+function selectGroup(key: string): void {
+  if (activeGroup.value === key) {
+    activeGroup.value = '';
+  } else {
+    activeGroup.value = key;
+    collapsedGroups.value[key] = false; // 选中某大类时确保该区块展开
+  }
+}
 
 interface ProbeResult {
   state: 'idle' | 'testing' | 'done';
@@ -69,6 +137,26 @@ interface NetworkRow {
 /** 云设备走外网云平台、无园区 IP/端口 —— 只读展示, 不参与 IP 编辑/探测 */
 function isCloudUnit(u: HardwareUnit): boolean {
   return u.category === 'power-breaker-web' || u.category === 'power-breaker-ewelink';
+}
+
+/** 无独立 IP / 从属设备 —— 只读展示，不参与 IP 编辑（云设备 + 转换器 + 外机） */
+const READONLY_CATEGORIES: HardwareCategory[] = [
+  'power-breaker-web', 'power-breaker-ewelink',
+  'dali-converter', 'hvac-outdoor',
+];
+function isReadOnlyUnit(u: HardwareUnit): boolean {
+  return READONLY_CATEGORIES.includes(u.category);
+}
+
+/** IP 输入框占位提示：按只读设备类型说明接入方式 */
+function ipPlaceholder(row: NetworkRow): string {
+  switch (row.unit.category) {
+    case 'power-breaker-web': return '4G · 华普云接入';
+    case 'power-breaker-ewelink': return 'WiFi · 易微联';
+    case 'dali-converter': return '从属设备，无独立 IP';
+    case 'hvac-outdoor': return '经空调网关管理';
+    default: return '192.168.77.x';
+  }
 }
 
 interface CloudPlatformInfo {
@@ -106,12 +194,14 @@ interface EwelinkIntegrationStatus {
   authorized: boolean;
   region: string | null;
   currentFamilyId: string | null;
+  atExpiresAt?: string | number | null;
 }
 const ewelinkStatus = ref<EwelinkIntegrationStatus>({
   configured: false,
   authorized: false,
   region: null,
   currentFamilyId: null,
+  atExpiresAt: null,
 });
 const ewelinkBusy = ref(false);
 const lastSyncMsg = ref('');
@@ -346,6 +436,32 @@ onMounted(() => {
 onUnmounted(() => { if (timer) clearInterval(timer); });
 
 const dirtyCount = computed(() => rows.value.filter(isDirty).length);
+
+/** 两个云平台已登记数量（来源同一张设备表，口径一致） */
+const registeredByKind = computed(() => {
+  let ewelink = 0;
+  let hper = 0;
+  for (const r of rows.value) {
+    if (!r.unit.enabled) continue;
+    if (r.unit.category === 'power-breaker-ewelink') ewelink += 1;
+    if (r.unit.category === 'power-breaker-web') hper += 1;
+  }
+  return { ewelink, hper };
+});
+
+/** Token 到期时间格式化（毫秒时间戳 → 月日时分） */
+function fmtTokenExpiry(v: string | number | null | undefined): string {
+  if (v === null || v === undefined || v === '') return '';
+  const n = typeof v === 'number' ? v : Number(v);
+  if (!Number.isFinite(n)) return '';
+  return new Date(n).toLocaleString('zh-CN', {
+    hour12: false,
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 </script>
 
 <template>
@@ -361,148 +477,231 @@ const dirtyCount = computed(() => rows.value.filter(isDirty).length);
       <el-button :icon="RefreshCw" circle :loading="loading" title="刷新" @click="load" />
     </div>
 
-    <div class="integ-card">
-      <div class="integ-head">
-        <div class="integ-title">易微联 eWeLink 云接入</div>
-        <el-tag v-if="ewelinkStatus.authorized" type="success" size="small">
-          已授权{{ ewelinkStatus.region ? ' · ' + ewelinkStatus.region : '' }}
-        </el-tag>
-        <el-tag v-else-if="ewelinkStatus.configured" type="warning" size="small">待授权</el-tag>
-        <el-tag v-else type="info" size="small">未配置 AppID/Secret</el-tag>
+    <!-- ============ 统一云开关平台：易微联 + 华普云 授权/同步/长效续期 ============ -->
+    <div class="cloud-hub">
+      <div class="cloud-hub-head">
+        <div class="cloud-hub-title">云开关平台</div>
+        <div class="cloud-hub-sub">统一管理两个云端开关平台的授权、设备同步与长效续期</div>
       </div>
-      <div class="integ-sub">
-        授权后点「同步设备」，云端开关自动导入硬件台账与电源回路；AppID/Secret 走后端环境变量
-        EWELINK_APP_ID / EWELINK_APP_SECRET，免费额度 5 万次/月。
-      </div>
-      <div class="integ-actions">
-        <el-button size="small" :loading="ewelinkBusy" @click="ewelinkAuthorize">
-          {{ ewelinkStatus.authorized ? '重新授权' : '前往授权' }}
-        </el-button>
-        <el-button
-          size="small"
-          type="primary"
-          :loading="ewelinkBusy"
-          :disabled="!ewelinkStatus.configured"
-          @click="ewelinkSync"
-        >同步设备</el-button>
-        <span v-if="lastSyncMsg" class="integ-result">{{ lastSyncMsg }}</span>
-      </div>
-    </div>
 
-    <div class="integ-card">
-      <div class="integ-head">
-        <div class="integ-title">华普云 HPERFOR ePa 智电云接入</div>
-        <el-tag v-if="hperStatus.mock" type="info" size="small">本地模拟</el-tag>
-        <el-tag v-else-if="hperStatus.configured" type="success" size="small">已配置</el-tag>
-        <el-tag v-else type="warning" size="small">未配置账号</el-tag>
-      </div>
-      <div class="integ-sub">
-        ePa-CB 内置 4G 断路器在平台命名并上线后，点「同步设备」自动导入硬件台账与电源回路（按平台设备
-        fId 去重、离线跳过），以后同平台加设备无需改代码；账号走后端环境变量 HPERFOR_API_USERNAME
-        / HPERFOR_API_PASSWORD。当前已登记 {{ hperStatus.registeredCount }} 台。
-      </div>
-      <div class="integ-actions">
-        <el-button
-          size="small"
-          type="primary"
-          :loading="hperBusy"
-          :disabled="hperStatus.mock || !hperStatus.configured"
-          @click="hperSync"
-        >同步设备</el-button>
-        <span v-if="hperMsg" class="integ-result">{{ hperMsg }}</span>
-      </div>
-    </div>
-
-    <el-table :data="rows" v-loading="loading" stripe style="width:100%;">
-      <el-table-column label="设备" min-width="300">
-        <template #default="{ row }">
-          <div class="cell-name">{{ (row as NetworkRow).unit.name }}</div>
-          <div class="cell-code">{{ (row as NetworkRow).unit.code }} · {{ CATEGORY_LABELS[(row as NetworkRow).unit.category] ?? (row as NetworkRow).unit.category }}</div>
-          <div v-if="cloudPlatformFor((row as NetworkRow).unit)" class="cloud-info">
-            <a
-              class="cloud-link"
-              :href="cloudPlatformFor((row as NetworkRow).unit)!.consoleUrl"
-              target="_blank"
-              rel="noopener"
-            >云平台控制台: {{ cloudPlatformFor((row as NetworkRow).unit)!.vendor }} ↗</a>
-            <div class="cloud-line">API: {{ cloudPlatformFor((row as NetworkRow).unit)!.apiBase }}</div>
-            <div class="cloud-line">维护: {{ cloudPlatformFor((row as NetworkRow).unit)!.maintenance }}</div>
+      <div class="cloud-grid">
+        <!-- 易微联 -->
+        <div class="cloud-card">
+          <div class="cloud-card-head">
+            <div class="cloud-card-name">易微联 eWeLink</div>
+            <el-tag v-if="ewelinkStatus.authorized" type="success" size="small">
+              已授权{{ ewelinkStatus.region ? ' · ' + ewelinkStatus.region : '' }}
+            </el-tag>
+            <el-tag v-else-if="ewelinkStatus.configured" type="warning" size="small">待授权</el-tag>
+            <el-tag v-else type="info" size="small">未配置</el-tag>
           </div>
-        </template>
-      </el-table-column>
+          <ul class="cloud-card-meta">
+            <li v-if="ewelinkStatus.authorized" class="is-ok">
+              长效续期中：每日自动刷新，授权长期有效
+            </li>
+            <li v-if="ewelinkStatus.authorized && fmtTokenExpiry(ewelinkStatus.atExpiresAt)">
+              Token 到期 {{ fmtTokenExpiry(ewelinkStatus.atExpiresAt) }}（自动续期）
+            </li>
+            <li v-if="!ewelinkStatus.authorized && ewelinkStatus.configured" class="is-warn">
+              待授权：点「前往授权」完成一次账号登录
+            </li>
+            <li v-if="!ewelinkStatus.configured">
+              未配置：后端环境变量 EWELINK_APP_ID / EWELINK_APP_SECRET
+            </li>
+            <li>已登记 <b>{{ registeredByKind.ewelink }}</b> 台</li>
+          </ul>
+          <div class="cloud-card-actions">
+            <el-button size="small" :loading="ewelinkBusy" @click="ewelinkAuthorize">
+              {{ ewelinkStatus.authorized ? '重新授权' : '前往授权' }}
+            </el-button>
+            <el-button
+              size="small"
+              type="primary"
+              :loading="ewelinkBusy"
+              :disabled="!ewelinkStatus.configured"
+              @click="ewelinkSync"
+            >同步设备</el-button>
+          </div>
+          <div v-if="lastSyncMsg" class="cloud-card-result">{{ lastSyncMsg }}</div>
+        </div>
 
-      <el-table-column label="IP 地址" width="180">
-        <template #default="{ row }">
-          <el-input
-            v-model="(row as NetworkRow).ip"
-            :placeholder="isCloudUnit((row as NetworkRow).unit) ? '4G · 华普云接入' : '192.168.77.x'"
-            class="mono-input"
-            :disabled="!canEdit || isCloudUnit((row as NetworkRow).unit)"
-          />
-        </template>
-      </el-table-column>
+        <!-- 华普云 -->
+        <div class="cloud-card">
+          <div class="cloud-card-head">
+            <div class="cloud-card-name">华普云 HPERFOR</div>
+            <el-tag v-if="hperStatus.mock" type="info" size="small">本地模拟</el-tag>
+            <el-tag v-else-if="hperStatus.configured" type="success" size="small">已配置</el-tag>
+            <el-tag v-else type="warning" size="small">未配置</el-tag>
+          </div>
+          <ul class="cloud-card-meta">
+            <li v-if="hperStatus.configured && !hperStatus.mock" class="is-ok">
+              长效保活中：每日自动登录，登录态始终有效
+            </li>
+            <li v-if="hperStatus.mock">
+              本地模拟模式：后端环境变量 HPERFOR_API_USERNAME / HPERFOR_API_PASSWORD
+            </li>
+            <li v-else-if="!hperStatus.configured">
+              未配置：后端环境变量 HPERFOR_API_USERNAME / HPERFOR_API_PASSWORD
+            </li>
+            <li>无需授权，账号密码长期有效、自动重登</li>
+            <li>已登记 <b>{{ registeredByKind.hper }}</b> 台</li>
+          </ul>
+          <div class="cloud-card-actions">
+            <el-button
+              size="small"
+              type="primary"
+              :loading="hperBusy"
+              :disabled="hperStatus.mock || !hperStatus.configured"
+              @click="hperSync"
+            >同步设备</el-button>
+          </div>
+          <div v-if="hperMsg" class="cloud-card-result">{{ hperMsg }}</div>
+        </div>
+      </div>
+    </div>
 
-      <el-table-column label="端口" width="110">
-        <template #default="{ row }">
-          <el-input
-            v-model="(row as NetworkRow).port"
-            :placeholder="isCloudUnit((row as NetworkRow).unit) ? '云平台' : '—'"
-            class="mono-input"
-            :disabled="!canEdit || isCloudUnit((row as NetworkRow).unit)"
-          />
-        </template>
-      </el-table-column>
+    <!-- ============ 大类筛选 chips ============ -->
+    <div class="chip-bar">
+      <button
+        type="button"
+        class="chip"
+        :class="{ 'is-active': activeGroup === '' }"
+        @click="activeGroup = ''"
+      >全部 <span class="chip-n">{{ rows.length }}</span></button>
+      <button
+        v-for="c in groupChips"
+        :key="c.key"
+        type="button"
+        class="chip"
+        :class="{ 'is-active': activeGroup === c.key }"
+        @click="selectGroup(c.key)"
+      >
+        <component :is="c.icon" :size="13" :stroke-width="2" />
+        {{ c.label }} <span class="chip-n">{{ c.count }}</span>
+      </button>
+    </div>
 
-      <el-table-column label="连接状态" width="110">
-        <template #default="{ row }">
-          <template v-if="isCloudUnit((row as NetworkRow).unit)">
-            <span class="state-badge is-na">云端直连</span>
-          </template>
-          <template v-else-if="gatewayFor(row as NetworkRow)">
-            <span class="state-badge" :class="stateMeta[gatewayFor(row as NetworkRow)!.state].cls">
-              {{ stateMeta[gatewayFor(row as NetworkRow)!.state].label }}
-            </span>
-          </template>
-          <span v-else class="state-badge is-na">—</span>
-        </template>
-      </el-table-column>
+    <!-- ============ 按大类分区（每个区块可折叠） ============ -->
+    <div class="groups-wrap" v-loading="loading">
+      <div v-for="g in groupedRows" :key="g.key" class="group-block">
+        <button
+          type="button"
+          class="group-head"
+          :class="{ 'is-collapsed': isGroupCollapsed(g.key) }"
+          @click="toggleGroup(g.key)"
+        >
+          <span class="group-ico"><component :is="g.icon" :size="16" :stroke-width="1.9" /></span>
+          <span class="group-label">{{ g.label }}</span>
+          <span class="group-count">{{ g.items.length }}</span>
+          <ChevronDown :size="15" :stroke-width="2.2" class="group-chev" />
+        </button>
 
-      <el-table-column label="探测" min-width="170">
-        <template #default="{ row }">
-          <div class="probe-cell">
-            <span v-if="isCloudUnit((row as NetworkRow).unit)" class="probe-msg">4G 云接入, 无需探测</span>
-            <template v-else>
-              <el-button
-                size="small"
-                :icon="Radar"
-                :loading="(row as NetworkRow).probe.state === 'testing'"
-                @click="probeRow(row as NetworkRow)"
-              >探测</el-button>
-              <span
-                v-if="(row as NetworkRow).probe.state === 'done'"
-                class="probe-msg"
-                :class="{
-                  'is-ok': (row as NetworkRow).probe.pingOk && (row as NetworkRow).probe.tcpOk !== false,
-                  'is-fail': !(row as NetworkRow).probe.pingOk || (row as NetworkRow).probe.tcpOk === false,
-                }"
-              >{{ (row as NetworkRow).probe.message }}</span>
+        <el-table
+          v-show="!isGroupCollapsed(g.key)"
+          :data="g.items"
+          stripe
+          class="group-table"
+        >
+          <el-table-column label="设备" min-width="300">
+            <template #default="{ row }">
+              <div class="cell-name">{{ (row as NetworkRow).unit.name }}</div>
+              <div class="cell-code">{{ (row as NetworkRow).unit.code }} · {{ CATEGORY_LABELS[(row as NetworkRow).unit.category] ?? (row as NetworkRow).unit.category }}</div>
+              <div v-if="cloudPlatformFor((row as NetworkRow).unit)" class="cloud-info">
+                <a
+                  class="cloud-link"
+                  :href="cloudPlatformFor((row as NetworkRow).unit)!.consoleUrl"
+                  target="_blank"
+                  rel="noopener"
+                >云平台控制台: {{ cloudPlatformFor((row as NetworkRow).unit)!.vendor }} ↗</a>
+                <div class="cloud-line">API: {{ cloudPlatformFor((row as NetworkRow).unit)!.apiBase }}</div>
+                <div class="cloud-line">维护: {{ cloudPlatformFor((row as NetworkRow).unit)!.maintenance }}</div>
+              </div>
             </template>
-          </div>
-        </template>
-      </el-table-column>
+          </el-table-column>
 
-      <el-table-column label="操作" width="110" align="right">
-        <template #default="{ row }">
-          <el-button
-            type="primary"
-            size="small"
-            :disabled="!isDirty(row as NetworkRow) || !canEdit"
-            :loading="(row as NetworkRow).saving"
-            @click="save(row as NetworkRow)"
-          >保存</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+          <el-table-column label="IP 地址" width="180">
+            <template #default="{ row }">
+              <el-input
+                v-model="(row as NetworkRow).ip"
+                :placeholder="ipPlaceholder(row as NetworkRow)"
+                class="mono-input"
+                :disabled="!canEdit || isReadOnlyUnit((row as NetworkRow).unit)"
+              />
+            </template>
+          </el-table-column>
+
+          <el-table-column label="端口" width="110">
+            <template #default="{ row }">
+              <el-input
+                v-model="(row as NetworkRow).port"
+                placeholder="—"
+                class="mono-input"
+                :disabled="!canEdit || isReadOnlyUnit((row as NetworkRow).unit)"
+              />
+            </template>
+          </el-table-column>
+
+          <el-table-column label="连接状态" width="110">
+            <template #default="{ row }">
+              <template v-if="isCloudUnit((row as NetworkRow).unit)">
+                <span class="state-badge is-na">云端直连</span>
+              </template>
+              <template v-else-if="isReadOnlyUnit((row as NetworkRow).unit)">
+                <span class="state-badge is-na">从属设备</span>
+              </template>
+              <template v-else-if="gatewayFor(row as NetworkRow)">
+                <span class="state-badge" :class="stateMeta[gatewayFor(row as NetworkRow)!.state].cls">
+                  {{ stateMeta[gatewayFor(row as NetworkRow)!.state].label }}
+                </span>
+              </template>
+              <span v-else class="state-badge is-na">—</span>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="探测" min-width="170">
+            <template #default="{ row }">
+              <div class="probe-cell">
+                <span v-if="isReadOnlyUnit((row as NetworkRow).unit)" class="probe-msg">
+                  {{ isCloudUnit((row as NetworkRow).unit) ? '4G 云接入, 无需探测' : '从属设备, 无需探测' }}
+                </span>
+                <template v-else>
+                  <el-button
+                    size="small"
+                    :icon="Radar"
+                    :loading="(row as NetworkRow).probe.state === 'testing'"
+                    @click="probeRow(row as NetworkRow)"
+                  >探测</el-button>
+                  <span
+                    v-if="(row as NetworkRow).probe.state === 'done'"
+                    class="probe-msg"
+                    :class="{
+                      'is-ok': (row as NetworkRow).probe.pingOk && (row as NetworkRow).probe.tcpOk !== false,
+                      'is-fail': !(row as NetworkRow).probe.pingOk || (row as NetworkRow).probe.tcpOk === false,
+                    }"
+                  >{{ (row as NetworkRow).probe.message }}</span>
+                </template>
+              </div>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="操作" width="110" align="right">
+            <template #default="{ row }">
+              <el-button
+                v-if="!isReadOnlyUnit((row as NetworkRow).unit)"
+                type="primary"
+                size="small"
+                :disabled="!isDirty(row as NetworkRow) || !canEdit"
+                :loading="(row as NetworkRow).saving"
+                @click="save(row as NetworkRow)"
+              >保存</el-button>
+              <span v-else class="cell-readonly">只读</span>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+
+      <div v-if="!loading && groupedRows.length === 0" class="groups-empty">暂无符合条件的设备</div>
+    </div>
 
     <div class="devnet-hint">
       提示: 改完 IP 保存后, 状态列几秒内自动刷新; 也可以点 "探测" 立刻验证设备通不通.
@@ -531,26 +730,140 @@ const dirtyCount = computed(() => rows.value.filter(isDirty).length);
   font-size: 11px;
 }
 
-.integ-card {
-  margin-bottom: 14px;
-  padding: 14px 16px;
+/* ===== 统一云开关平台 ===== */
+.cloud-hub {
+  margin-bottom: 16px;
+  padding: 14px 16px 16px;
   border: 1px solid var(--v2-border, rgba(148, 163, 184, 0.18));
   border-radius: 14px;
   background: var(--v2-surface-2, rgba(148, 163, 184, 0.06));
 }
-.integ-head { display: flex; align-items: center; gap: 10px; }
-.integ-title { font-size: 14px; font-weight: 600; color: var(--v2-text-1); }
-.integ-sub { font-size: 12px; color: var(--v2-text-3); margin-top: 6px; line-height: 1.6; }
-.integ-actions {
+.cloud-hub-head { margin-bottom: 12px; }
+.cloud-hub-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--v2-text-1);
+  letter-spacing: 0.3px;
+}
+.cloud-hub-sub { font-size: 12px; color: var(--v2-text-3); margin-top: 3px; }
+
+.cloud-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.cloud-card {
+  display: flex;
+  flex-direction: column;
+  padding: 13px 14px;
+  border: 1px solid var(--v2-border, rgba(148, 163, 184, 0.16));
+  border-radius: 12px;
+  background: var(--v2-surface-1, rgba(10, 16, 28, 0.5));
+  min-width: 0;
+}
+.cloud-card-head { display: flex; align-items: center; gap: 10px; }
+.cloud-card-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--v2-text-1);
+  white-space: nowrap;
+}
+.cloud-card-meta {
+  list-style: none;
+  margin: 9px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--v2-text-3);
+  line-height: 1.5;
+  flex: 1;
+}
+.cloud-card-meta li { min-width: 0; }
+.cloud-card-meta li.is-ok { color: #5FCB9B; }
+.cloud-card-meta li.is-warn { color: #E0A030; }
+.cloud-card-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   margin-top: 12px;
   flex-wrap: wrap;
 }
-.integ-result { font-size: 12px; color: #3fb079; }
+.cloud-card-result { font-size: 11.5px; color: #5FCB9B; margin-top: 8px; }
+
+@media (max-width: 760px) {
+  .cloud-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ============ 大类筛选 chips ============ */
+.chip-bar { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 11px;
+  border-radius: 99px;
+  border: 1px solid var(--v2-border, rgba(148, 163, 184, 0.2));
+  background: var(--v2-surface-2, rgba(148, 163, 184, 0.06));
+  color: var(--v2-text-2);
+  font-size: 12.5px; font-weight: 500; font-family: inherit;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+.chip:hover { border-color: var(--v2-primary, #4f46e5); color: var(--v2-text-1); }
+.chip.is-active {
+  background: var(--v2-primary-soft, rgba(79, 70, 229, 0.16));
+  border-color: var(--v2-primary, #4f46e5);
+  color: var(--v2-primary, #6366f1);
+}
+.chip-n { font-size: 11px; font-variant-numeric: tabular-nums; opacity: 0.85; }
+
+/* ============ 大类区块 ============ */
+.groups-wrap { display: flex; flex-direction: column; gap: 14px; }
+.group-block {
+  border: 1px solid var(--v2-border, rgba(148, 163, 184, 0.16));
+  border-radius: 14px;
+  background: var(--v2-surface-2, rgba(148, 163, 184, 0.04));
+  padding: 10px 12px 12px;
+  overflow: hidden;
+}
+.group-head {
+  width: 100%;
+  display: flex; align-items: center; gap: 9px;
+  padding: 4px 4px 9px;
+  background: transparent; border: none;
+  cursor: pointer; font-family: inherit; text-align: left;
+}
+.group-ico {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  background: var(--v2-primary-soft, rgba(79, 70, 229, 0.16));
+  color: var(--v2-primary, #6366f1);
+  flex-shrink: 0;
+}
+.group-label { font-size: 14px; font-weight: 600; color: var(--v2-text-1); letter-spacing: 0.3px; }
+.group-count {
+  font-size: 11px; font-variant-numeric: tabular-nums;
+  color: var(--v2-text-3);
+  padding: 0 8px; line-height: 18px; border-radius: 9px;
+  background: var(--v2-surface-1, rgba(10, 16, 28, 0.5));
+  border: 1px solid var(--v2-border, rgba(148, 163, 184, 0.18));
+}
+.group-chev { margin-left: auto; color: var(--v2-text-3); transition: transform 0.2s ease; }
+.group-head.is-collapsed .group-chev { transform: rotate(-90deg); }
+.group-table { background: transparent; }
+.groups-empty { padding: 40px 16px; text-align: center; color: var(--v2-text-3); font-size: 13px; }
 
 .cell-name { font-size: 13px; color: var(--v2-text-1); }
+.cell-readonly {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--v2-text-3);
+  padding: 3px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--v2-border, rgba(148, 163, 184, 0.2));
+  background: var(--v2-surface-1, rgba(10, 16, 28, 0.4));
+}
 .cell-code { font-size: 11px; color: var(--v2-text-3); margin-top: 1px; font-family: 'JetBrains Mono', ui-monospace, monospace; }
 
 .cloud-info {

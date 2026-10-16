@@ -1,6 +1,13 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  OnApplicationBootstrap,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
+import { CronJob } from 'cron';
 import { Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { EwelinkAuth } from '../../entities/ewelink-auth.entity';
@@ -26,11 +33,60 @@ export interface EwelinkStatus {
  * eWeLink OAuth2.0 授权服务：配置 AppID/Secret、构造授权页、回调换 token、刷新。
  */
 @Injectable()
-export class EwelinkAuthService {
+export class EwelinkAuthService implements OnApplicationBootstrap, OnModuleDestroy {
+  /** 长效机制：每天固定时刻强制刷新一次（让 at/rt 持续滚动，rt 60 天窗口永不触顶） */
+  private refreshJob: CronJob | null = null;
+
   constructor(
     @InjectRepository(EwelinkAuth) private readonly repo: Repository<EwelinkAuth>,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
+
+  onApplicationBootstrap(): void {
+    // 每天 03:37（Asia/Shanghai，避开整点）；仅已授权时才真正刷新
+    this.refreshJob = new CronJob(
+      '37 3 * * *',
+      () => {
+        void this.scheduledRefresh();
+      },
+      null,
+      false,
+      'Asia/Shanghai',
+    );
+    this.refreshJob.start();
+    this.logger.info('[eWeLink] token 定时刷新已启用（每天 03:37）', {
+      context: 'EwelinkAuthService',
+    });
+  }
+
+  onModuleDestroy(): void {
+    if (this.refreshJob) {
+      try {
+        this.refreshJob.stop();
+      } catch {
+        // ignore
+      }
+      this.refreshJob = null;
+    }
+  }
+
+  /** 定时任务：未授权/未配置时跳过（不报错），已授权则强制刷新续期 */
+  private async scheduledRefresh(): Promise<void> {
+    try {
+      const r = await this.row();
+      if (!r.accessToken || !r.refreshToken) return;
+      await this.getCredentials();
+      await this.refresh(r);
+      this.logger.info('[eWeLink] 定时刷新成功（token 续期）', {
+        context: 'EwelinkAuthService',
+      });
+    } catch (err) {
+      // 单次失败不致命：rt 60 天窗口内还有大量重试机会，次日会再试
+      this.logger.warn(`[eWeLink] 定时刷新失败: ${(err as Error).message}`, {
+        context: 'EwelinkAuthService',
+      });
+    }
+  }
 
   private async row(): Promise<EwelinkAuth> {
     let r = await this.repo.findOne({ where: { id: 1 } });
@@ -66,10 +122,17 @@ export class EwelinkAuthService {
     return { appId: appId as string, appSecret: appSecret as string };
   }
 
+  /** 凭据是否就绪：环境变量优先，未设则看库表（与 getCredentials 同一口径） */
+  private hasCredentials(r: EwelinkAuth): boolean {
+    const appId = (process.env.EWELINK_APP_ID ?? '').trim() || r.appId;
+    const appSecret = (process.env.EWELINK_APP_SECRET ?? '').trim() || r.appSecret;
+    return !!(appId && appSecret);
+  }
+
   async status(): Promise<EwelinkStatus> {
     const r = await this.row();
     return {
-      configured: !!(r.appId && r.appSecret),
+      configured: this.hasCredentials(r),
       authorized: !!r.accessToken,
       region: r.region,
       currentFamilyId: r.currentFamilyId,
@@ -141,7 +204,10 @@ export class EwelinkAuthService {
   /** 取有效 accessToken，过期自动 refresh */
   async ensureAccessToken(): Promise<{ token: string; region: string; familyId: string | null }> {
     const r = await this.row();
-    if (!r.appId || !r.appSecret) throw new BadRequestException('易微联 AppID/Secret 未配置');
+    // 凭据口径与 getCredentials 一致（环境变量优先），不能只看库表
+    if (!this.hasCredentials(r)) {
+      throw new BadRequestException('易微联 AppID / AppSecret 未配置（环境变量或配置页）');
+    }
     if (!r.accessToken || !r.refreshToken) {
       throw new BadRequestException('易微联尚未授权 — 先完成一次账号授权');
     }

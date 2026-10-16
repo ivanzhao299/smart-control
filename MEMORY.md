@@ -1,5 +1,46 @@
 
-## ★ 最新状态（2026-10-16，华普云4G断路器后台一键同步（同易微联，免代码）+ 新设备「研发楼顶广告屏」拉取入库 + 日落阶梯计划 +10/+360；手机PWA「运营大屏」入口删除（保留现场大屏/park-ops/后端）；已全绿部署生产 GK9000，commit 4ae484c，生产同步+真实合闸分闸回验通过）
+## ★ 最新状态（2026-10-16，后台 UI 重组 #55 左侧功能栏 20 项→6 工作域分组 + #56 硬件清单「设备网络」细类别→6 大类分区块（chip 筛选/折叠/只读设备不混排）+ #57 手动合闸/分闸两按钮→单个 el-switch（含受控 switch 视觉同步根因修复）；纯后台 UI 重组、不动功能/数据；前端 build exit 0、manifest 单测 4/4、浏览器浅色+深色两主题三态验收全过；**与前一阶段 #50/#51/#53/#54 一起落盘未提交，待用户确认后走代理 1082 push main 部署**）
+
+- **【2026-10-16 #55/#56/#57 后台 UI 重组（仅 UI，不动功能/数据；本地验收通过，待确认部署）】**
+  - **#55 侧栏 20 项 → 6 工作域分组**（`frontend/src/router/admin-route-manifest.ts` + `frontend/src/layouts/AdminLayout.vue`）：
+    - 6 分组：总览（monitor/alerts/park-ops-metrics）、场景与控制（scenes/scheduler/lpr）、能源（energy/auto-switch）、设备与空间（hardware/devices/zones-config/video-binding）、诊断（logs/test-center）、系统（settings/users/system-branding/app-release/testflight）；**诊断/系统默认折叠**，分组标题可点击折叠、状态记忆 localStorage `sc.admin.menuCollapsed`（SECTION_COLLAPSE_KEY）；64px 折叠图标栏强制展开；标题 button + ChevronDown。
+    - 「修改密码」移出左侧菜单（change-password 无 navigation、self:true），改侧栏底部按钮（KeyRound→go('admin-change-password')）；底部另含「返回设备控制」「退出登录」。
+    - 单测 `frontend/tests/admin-route-manifest.test.cjs` 断言改 6 分组，`node tests/admin-route-manifest.test.cjs` 4/4 过。
+  - **#56 硬件清单「设备网络」细类别 → 6 大类分区块**（`frontend/src/pages/admin/DeviceNetworkAdmin.vue`）：
+    - CATEGORY_GROUPS 6 组：视频与显示（led-controller/led-player/projector-fusion）、照明控制（dali-gateway/dali-converter）、音频系统（audio-dsp/audio-guide/audio-power）、空调系统（hvac-gateway/hvac-outdoor）、配电与云开关（power-breaker/power-breaker-web/power-breaker-ewelink）、网络与终端（rtu-tcp-converter/switch/router/other/tablet）；每区块带 lucide 图标+计数+可折叠（`collapsedGroups` 直接改对象 key、读需 nextTick）；顶部 chip「全部 25 + 6 大类」（`activeGroup`，选中自动展开、再点取消）。
+    - 显示 25 台（led-driver 14 台不显示；本地 DB 总 39）；区块计数 2/5/3/4/7/4=25。
+    - `READONLY_CATEGORIES=[power-breaker-web,power-breaker-ewelink,dali-converter,hvac-outdoor]` + `isReadOnlyUnit()`：只读设备 IP/端口 disabled、连接状态「从属设备」（云设备「云端直连」）、探测「从属设备/4G云接入，无需探测」；操作列非只读显示「保存」（v-if）、只读显示 `<span class="cell-readonly">只读</span>`（v-else，.cell-readonly CSS 在行 858）；华普云 4G 断路器每台带蓝色「云平台控制台: 华普云 HPERFOR ↗」链接卡（API/维护说明）。全页只读 11 个。
+    - 保留顶部「云开关平台」统一区（易微联/华普云两卡，#51 已落地）。
+  - **#57 手动合闸/分闸两按钮 → 单个 el-switch**（`frontend/src/pages/admin/AutoSwitchAdmin.vue`）：
+    - 每行 `.manual-switch-row`（「手动」label + el-switch），打开=合闸主题色、关闭=分闸灰，下接「管理规则/设置自动开关」；`onManualToggle(row,checked)` 弹 ElMessageBox 轻确认（标题「手动合闸/手动分闸」、按钮取消/合闸·分闸、type success/warning），取消 return；确认后 `togglingId=row.id`（el-switch :loading + 全表 :disabled 防重）→ `service.on/off(row.id)` → ElMessage → 成功/失败都 `await refresh()`，finally 清 togglingId。
+    - **★受控 el-switch 视觉不同步 bug 根因与修复**：现象是 SPA 内切换后根元素 is-checked 类、input.checked 已正确跟随，但 `el-switch__core` 背景色不更新（整页 reload 才正常）。诊断用 `core.getAnimations({subtree:true})`：EP `el-switch.css` 的 `.el-switch__core{transition:border-color .3s,background-color .3s}` 在受控异步流程（点击→ElMessageBox 等用户→togglingId 全表 disabled/loading→await 接口→refresh 整体替换 list→finally 移除 disabled）后产生 7 个 CSSTransition，**全部永久 playState=running、currentTime=0 卡死在起始帧**；CSS transition 在 cascade 中优先级高于 !important（连内联 `style="background:orange !important"` 都不生效），故颜色冻结在起始色（on 操作停在 off 色、反之亦然）。`getAnimations().forEach(a=>a.cancel())` 后颜色立即正确，证实卡 transition 是当前值最高来源。修复：el-switch 加 `:key="manual-${row.id}-${row.reading?.on ? 'on':'off'}"`，refresh 后 on 状态翻转即销毁重建该 switch，新元素初始 model-value 即目标值、初始渲染就走正确 design-tokens class、无历史僵尸 transition（disabled 移除只改 opacity，.el-switch 无 transition）。
+  - **★本地验收（5173 dev → 后端 3200，MOCK_MODE）**：前端 `npm run build` exit 0（7.14s，PWA v1.3.0/109 precache）；manifest 单测 4/4；后端本轮未改（前序 build exit 0、jest 过）。浏览器浅色+深色两主题逐页：① 侧栏 6 分组、诊断/系统默认折叠、标题真实点击折叠记忆、底部三按钮；② 硬件页 6 区块计数 2/5/3/4/7/4=25、chip 真实点击筛选（配电 7：总闸可编辑「保存」+ 6 台 4G 云断路器云卡+只读）、区块折叠（is-collapsed+表格 offsetParent=null+chevron 旋转）、只读标签（DALI 转换器「从属设备/只读」vs DALI 网关可编辑「保存」）；③ 自动开关 7 行单 switch，真实点击分闸/合闸（ref 点击，确认框约 0.8s 渲染）+ 取消回滚 + SPA 内 on/off 双向颜色立即正确（浅色 #4f46e5/#c2cad6、深色走完整主题初始化 #818cf8/#3b4250）、running=0，curl 读回后端 on=true/false 闭环。
+  - **深色注意**：手动 `setAttribute('data-theme-mode','dark')` 不经过 theme.service 完整初始化会导致变量假象；验证深色需 `localStorage.setItem('sc.theme','dark')` 后 reload。
+  - **收尾还原**：admin 临时密码 Admin@test2026 已用 better-sqlite3 把 `/tmp/admin_orig_hash.txt` 原哈希写回 users id=1（matches backup=true、临时密码登录已报「用户名或密码错误」）；测试回路 id=4 已恢复分闸 reading.on=false。
+  - **状态**：#55/#56/#57 与前一阶段 #50/#51/#53/#54（#50 手动按钮已按 #57 收口为单 switch）代码全部落盘、本地验收通过，**尚未提交/部署**；待用户确认后走代理 1082 `git -c http.proxy=http://127.0.0.1:1082 -c https.proxy=http://127.0.0.1:1082 push origin main`（触发 deploy-gk9000.yml，concurrency 锁 smart-control-gk9000-production），生产回验三端同 commit、侧栏分组/硬件区块/switch 三态。
+
+## 前一阶段（2026-10-16，#50 自动开关页手动合闸/分闸（已按 #57 收口为单 switch）+ #51 设备网络页两平台统一「云开关平台」管理区 + #53 修易微联同步受阻后端 bug（OAuth域名/凭据读取/thingList解析）+ #54 两平台 token 长效定时机制；前后端 build + crypto 测试 + 浏览器出画三态验收全过；代码已落盘，与 #55/#56/#57 一起待提交）
+
+- **【2026-10-16 #50/#51/#53/#54 四项改进（代码均已落盘，本地验收通过，待确认部署）】**
+  - **背景**：易微联此前已成功授权（生产 .env 配 AppID/Secret、PM2 重启、业主 OAuth 同意、token 落库 cn，at 30 天/rt 60 天），但「同步设备」受阻，定位多个后端 bug；用户要求两平台都做 token 长效机制，并补手动开关与统一管理区。
+  - **#53 后端修复**：
+    - `ewelink-crypto.ts`：`REGION_OAUTH_HOSTS.cn` 由 `https://c2ccdn.coolkit.cn` 改 `https://c2ccdn.coolkit.cc`（全区域统一 .cc，加注释）。
+    - `ewelink-devices.service.ts`：`normalize()` 重写（先解包 `raw.itemData`，字段取 `deviceid`/`extra.uiid`/`family.familyid`；静态 `isOn()` 兼容布尔与 "on"/"off"；多路优先 `params.switches[]` 否则单路 `params.switch`）；`setSwitch()` 去掉 uiid===1 限制（channel=0 用 `{switch}`，多通道用 `{switches:[{switch,outlet}]}`）。
+  - **#54 长效机制（cron ^3.5.0 + @nestjs/schedule ^5.0.1，时区 Asia/Shanghai，OnApplicationBootstrap/OnModuleDestroy）**：
+    - 易微联 `ewelink-auth.service.ts`：`refreshJob` cron `37 3 * * *`（每日 03:37）；`scheduledRefresh()`（未授权/未配置静默跳过，已授权则 getCredentials+refresh，失败只 warn 次日重试）；`hasCredentials(r)`（环境变量优先、回落库表），`status().configured` 与 `ensureAccessToken()` 凭据检查改用它。刷新 `POST /v2/user/refresh`（认证参数 accessToken，body `{rt}`）同时返回新 at（30d）+ 新 rt（60d，rt 滚动），60 天窗口内刷一次即可无限续期。
+    - 华普云 `hperfor-api.adapter.ts`：类加 `implements OnApplicationBootstrap, OnModuleDestroy`；`keepAliveJob` cron `43 3 * * *`（每日 03:43）；`scheduledKeepAlive()`（mock/未配置跳过，真实态强制 `token=null; tokenExpiresAt=0` 再 ensureToken 重登，失败只 warn）。账号密码长期有效、过期可自动重登。
+    - CronJob 构造参数顺序：cronTime, onTick, onComplete, start, timeZone。
+  - **#50 前端 AutoSwitchAdmin.vue**：import ElMessageBox；`manualAction`（{id,action}，loading+防重）；manualOn/manualOff（ElMessageBox 轻确认，文案"用于设备测试"）、doManual（调 powerCircuitsService.on/off，成功 ElMessage+refresh，失败提示）；操作列 width 130→210，加绿色「合闸」/红色「分闸」按钮（按 row.reading.on 互斥 disabled、当前动作按钮 loading），保留「管理规则」；加 `.manual-row` 样式。手动端点 `POST /api/power-circuits/:id/on|off`（RateLimitGuard）。
+  - **#51 前端 DeviceNetworkAdmin.vue**：`EwelinkIntegrationStatus` 加 `atExpiresAt`；加 `registeredByKind` computed（按 category 统计两平台 enabled 已登记数）、`fmtTokenExpiry()`（毫秒时间戳→月日时分）；删两个独立 `.integ-card`，改统一 `.cloud-hub`（标题「云开关平台」+副标题「统一管理两个云端开关平台的授权、设备同步与长效续期」）+ `.cloud-grid` 两列（max-width 760px 以下单列），每张 `.cloud-card` 含平台名+状态标签、`.cloud-card-meta` 列表、动作按钮（易微联「前往授权/重新授权」+「同步设备」；华普云「同步设备」）、同步结果。
+  - **★本地验收全过（浏览器出画，5173 dev → 后端 3200）**：
+    - 后端 `npm run build` exit 0；`npx jest ewelink-crypto` 4 项过（含"区域 host 解析"）；前端 `npm run build` exit 0。
+    - 浏览器三态截图验证：① 未配置态（易微联显示"未配置"，按钮前往授权/同步）；② 本地模拟态（华普云显示"本地模拟/已登记 6 台/无需授权"）；③ 已授权态（临时插假 token+假凭据 → 易微联标签「已授权·cn」、绿字"长效续期中：每日自动刷新，授权长期有效"、"Token 到期 11/15 16:45（自动续期）"、按钮变"重新授权"）。布局对齐、圆角、不溢出。
+    - #50 自动开关页：操作列每行绿色「合闸」+红色「分闸」，与「管理规则」并存，互斥 disabled 正常。
+    - **验收后本地环境已还原**：临时假 token 已清空、admin 密码已恢复原哈希（备份 /tmp/admin_orig_hash.txt 已用于恢复）。
+  - **本地环境踩坑（避免重犯）**：① 前端 http.ts 不走 vite 代理，本地 localhost:5173 按双端口规则推出绝对地址 `http://localhost:3200/api`（DEFAULT_BACKEND_PORT=3200），故本地后端必须监听 3200；VITE_PROXY_API（vite 代理）是另一套。② 3000 端口是别的项目 "Phoenix ERP V3 API"，勿混用；3299 曾是旧 dist 后端（路由全 404）。③ 浏览器管理员登录实际打 `POST /api/admin/auth/login`（curl 验证用 /api/client-auth/login 也可，均返回 token）。④ 密码框 bu.type 不生效时先 click 聚焦、ctrl+a 再键盘输入；el-input 用原生 setter 设值后校验状态未必同步。
+  - **状态**：#50/#51/#53/#54 代码全部落盘、本地验收通过，**尚未提交/部署**；待用户确认后走代理 1082 push main（触发 deploy-gk9000.yml），生产需回验统一云平台区已授权态 + 两定时任务生效。
+
+## ★ 历史基线（2026-10-16，华普云4G断路器后台一键同步（同易微联，免代码）+ 新设备「研发楼顶广告屏」拉取入库 + 日落阶梯计划 +10/+360；手机PWA「运营大屏」入口删除（保留现场大屏/park-ops/后端）；已全绿部署生产 GK9000，commit 4ae484c，生产同步+真实合闸分闸回验通过）
 
 - **【2026-10-16 华普云平台化同步 + 广告屏上线 + 删手机大屏入口，8 文件 +638/-31，commit 4ae484c，已部署】**
   - **需求**：用户废弃手机 PWA 点「更多→运营大屏」闪退的功能（park-ops 是 3612×1462 固定大屏静态页，零移动端适配，10 路 HLS+ambient canvas 把 standalone webview 内存/GPU 打爆）；**只删 PWA 菜单入口，现场 kiosk 大屏/park-ops 静态页/后端一律保留**。同时把华普云新增 4G 开关「研发楼顶广告屏」拉进系统，并把华普云做成像易微联那样**后台一键同步、以后同平台加设备免代码**；广告屏按日落自动开关，比路灯晚开 10 分钟错开电网冲击。

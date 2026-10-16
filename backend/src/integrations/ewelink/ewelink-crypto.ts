@@ -12,9 +12,13 @@ export const REGION_API_HOSTS: Record<string, string> = {
   eu: 'https://eu-apia.coolkit.cc',
 };
 
-/** 区域码 → OAuth 授权页 host */
+/**
+ * 区域码 → OAuth 授权页 host。
+ * 注意：授权页所有区域统一用 c2ccdn.coolkit.cc（.cc）。cn 若写成 .cn 域名无法访问
+ * （实测 c2ccdn.coolkit.cn 不可达，官方文档授权页 URL 也是 .cc）。
+ */
 export const REGION_OAUTH_HOSTS: Record<string, string> = {
-  cn: 'https://c2ccdn.coolkit.cn',
+  cn: 'https://c2ccdn.coolkit.cc',
   as: 'https://c2ccdn.coolkit.cc',
   us: 'https://c2ccdn.coolkit.cc',
   eu: 'https://c2ccdn.coolkit.cc',

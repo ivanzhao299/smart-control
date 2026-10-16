@@ -1,7 +1,14 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  OnApplicationBootstrap,
+  OnModuleDestroy,
+  Optional,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
+import { CronJob } from 'cron';
 import { Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { BaseAdapter } from '../base.adapter';
@@ -43,7 +50,8 @@ const GATEWAY_KEY = 'power-hperfor-api';
  * mock 态（MOCK_MODE=true）：纯内存开关，不触网 —— 本地单测/CI 安全。
  */
 @Injectable()
-export class HperforApiAdapter extends BaseAdapter {
+export class HperforApiAdapter extends BaseAdapter
+  implements OnApplicationBootstrap, OnModuleDestroy {
   get deviceType(): string {
     return 'power';
   }
@@ -60,6 +68,8 @@ export class HperforApiAdapter extends BaseAdapter {
   private readonly password: string;
   private readonly dbCache: { rows: Array<HardwareUnit>; at: number } = { rows: [], at: 0 };
   private readonly DB_CACHE_TTL_MS = 5000;
+  /** 长效机制：每天固定时刻强制重新登录保活 */
+  private keepAliveJob: CronJob | null = null;
 
   constructor(
     config: ConfigService,
@@ -71,6 +81,55 @@ export class HperforApiAdapter extends BaseAdapter {
     this.baseUrl = process.env.HPERFOR_API_BASE_URL ?? 'https://www.hperfor.com/homeschool';
     this.username = process.env.HPERFOR_API_USERNAME ?? '';
     this.password = process.env.HPERFOR_API_PASSWORD ?? '';
+  }
+
+  onApplicationBootstrap(): void {
+    // 每天 03:43（Asia/Shanghai，避开整点）；账号密码长期有效，重登即可拿新 JWT
+    this.keepAliveJob = new CronJob(
+      '43 3 * * *',
+      () => {
+        void this.scheduledKeepAlive();
+      },
+      null,
+      false,
+      'Asia/Shanghai',
+    );
+    this.keepAliveJob.start();
+    this.logger.info('[HPERFOR] token 定时保活已启用（每天 03:43）', {
+      context: 'HperforApiAdapter',
+    });
+  }
+
+  onModuleDestroy(): void {
+    if (this.keepAliveJob) {
+      try {
+        this.keepAliveJob.stop();
+      } catch {
+        // ignore
+      }
+      this.keepAliveJob = null;
+    }
+  }
+
+  /** 定时保活：mock/未配置时跳过；真实态强制重新登录拿新 JWT（7 天有效） */
+  private async scheduledKeepAlive(): Promise<void> {
+    try {
+      if (this.isMock()) return;
+      if (!this.username || !this.password) return;
+      // 强制重登：清空旧 token，再登录
+      this.token = null;
+      this.tokenExpiresAt = 0;
+      const token = await this.ensureToken();
+      if (!token) {
+        this.logger.warn('[HPERFOR] 定时保活登录失败（次日重试）', {
+          context: 'HperforApiAdapter',
+        });
+      }
+    } catch (err) {
+      this.logger.warn(`[HPERFOR] 定时保活异常: ${(err as Error).message}`, {
+        context: 'HperforApiAdapter',
+      });
+    }
   }
 
   // ============ 对外命令（与 EpaBreakerAdapter / EpaMqttBreakerAdapter 同形状） ============

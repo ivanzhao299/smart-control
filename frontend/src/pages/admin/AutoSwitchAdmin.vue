@@ -6,7 +6,7 @@
  */
 import { computed, onMounted, ref } from 'vue';
 import AppSkeleton from '@/components/AppSkeleton.vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import {
   powerCircuitsService,
   powerSchedulesService,
@@ -95,6 +95,39 @@ async function refresh(): Promise<void> {
   }
 }
 
+/** 手动切换进行中：正在操作的回路 id，用于 switch loading + 防重 */
+const togglingId = ref<number | null>(null);
+
+/**
+ * 单个开关：打开 = 合闸、关闭 = 分闸（走全局 el-switch 样式）。
+ * 受控绑定 row.reading.on：轻确认后才下发；用户取消或下发失败，开关自动回到真实状态。
+ */
+async function onManualToggle(row: PowerCircuitView, checked: boolean): Promise<void> {
+  const action: 'on' | 'off' = checked ? 'on' : 'off';
+  const verb = checked ? '合闸' : '分闸';
+  try {
+    await ElMessageBox.confirm(`确定手动${verb}「${row.name}」？（用于设备测试）`, `手动${verb}`, {
+      confirmButtonText: verb, cancelButtonText: '取消', type: checked ? 'success' : 'warning',
+    });
+  } catch {
+    // 用户取消：模型值未变，el-switch 自动回到原位
+    return;
+  }
+  togglingId.value = row.id;
+  try {
+    if (action === 'on') await powerCircuitsService.on(row.id);
+    else await powerCircuitsService.off(row.id);
+    ElMessage.success(`已${verb}：${row.name}`);
+    await refresh();
+  } catch (err) {
+    ElMessage.error(`${verb}失败: ${(err as Error).message}`);
+    // 失败后回读真实状态，确保开关不卡在错误位置
+    await refresh();
+  } finally {
+    togglingId.value = null;
+  }
+}
+
 function manage(row: PowerCircuitView): void {
   schedRef.value?.open(row);
 }
@@ -157,8 +190,18 @@ onMounted(refresh);
           <span v-else class="muted">未设置</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="130" fixed="right">
+      <el-table-column label="操作" width="150" fixed="right">
         <template #default="{ row }">
+          <div class="manual-switch-row">
+            <span class="manual-label">手动</span>
+            <el-switch
+              :key="`manual-${row.id}-${row.reading?.on ? 'on' : 'off'}`"
+              :model-value="row.reading.on"
+              :loading="togglingId === row.id"
+              :disabled="togglingId !== null"
+              @change="(val: boolean) => onManualToggle(row, val)"
+            />
+          </div>
           <el-button link type="primary" @click="manage(row)">
             {{ ruleStats(row).total > 0 ? '管理规则' : '设置自动开关' }}
           </el-button>
@@ -203,6 +246,8 @@ onMounted(refresh);
   font-family: 'JetBrains Mono', ui-monospace, monospace; letter-spacing: 0.4px;
 }
 .muted { color: var(--v2-text-3); font-size: 12px; }
+.manual-switch-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.manual-label { font-size: 12px; color: var(--v2-text-3); }
 .rule-count { font-size: 13px; color: var(--v2-text-1); }
 .rule-next { font-size: 11.5px; color: var(--v2-text-2); margin-top: 2px; }
 .empty {
