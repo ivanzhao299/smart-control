@@ -331,6 +331,9 @@ async function exitToFront(): Promise<void> {
   background: var(--v2-chrome-bg-solid);
   border-right: 1px solid var(--v2-border-soft);
   min-height: 0;
+  /* 2026-10-16 修菜单不能滚动：明确裁剪边界，让内部 .menu 的 overflow-y:auto 生效 */
+  height: 100%;
+  overflow: hidden;
 }
 .brand {
   display: flex; align-items: center; gap: var(--v2-sp-3);
@@ -353,13 +356,24 @@ async function exitToFront(): Promise<void> {
 .menu {
   flex: 1; display: flex; flex-direction: column; gap: 1px;
   padding: 5px 8px; overflow-y: auto;
-  /* 一屏装下后不需要滚动条 (问题3) */
-  scrollbar-width: none;
+  /* 2026-10-16 修菜单不能滚动：flex 子项默认 min-height:auto 会被内容撑高，
+     导致 overflow-y:auto 不触发、底部菜单被 .admin 裁掉。必须显式 min-height:0。 */
+  min-height: 0;
+  /* 后台是 PC/鼠标，恢复细滚动条，让管理员能看出菜单可上下滚动（#55 后菜单增多） */
+  scrollbar-width: thin;
+  scrollbar-color: var(--v2-border-strong, rgba(255,255,255,0.22)) transparent;
+  overscroll-behavior: contain;
 }
-.menu::-webkit-scrollbar { width: 0; height: 0; }
+.menu::-webkit-scrollbar { width: 6px; }
+.menu::-webkit-scrollbar-thumb {
+  background: var(--v2-border-strong, rgba(255,255,255,0.22));
+  border-radius: 3px;
+}
+.menu::-webkit-scrollbar-track { background: transparent; }
 /* 分组小标题 — 可点击展开 / 收起 */
 .menu-section {
   width: 100%;
+  flex-shrink: 0;
   display: flex; align-items: center; gap: 6px;
   font-size: 13px;
   font-weight: 600;
@@ -392,6 +406,8 @@ async function exitToFront(): Promise<void> {
   gap: 1px;
   overflow: hidden;
   max-height: 700px;
+  /* flex 子项不被压缩，保持自然高度，内容超出时由 .menu 滚动（2026-10-16） */
+  flex-shrink: 0;
   transition: max-height 0.22s ease;
 }
 .section-items.collapsed { max-height: 0; }
@@ -442,6 +458,8 @@ async function exitToFront(): Promise<void> {
   display: flex; flex-direction: column; gap: 6px;
   padding: 8px 10px;
   border-top: 1px solid var(--v2-border-soft);
+  /* 2026-10-16 修菜单滚动：底部按钮固定不被压缩，滚动只发生在 .menu */
+  flex-shrink: 0;
 }
 .back {
   width: 100%;

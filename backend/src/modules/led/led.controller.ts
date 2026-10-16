@@ -11,13 +11,14 @@ import { AdapterResult } from '../../adapters/adapter.types';
 import { SystemBrandingService } from '../system-branding/system-branding.service';
 import { PlaybackService } from '../playback/playback.service';
 
-// LED 命令偏重 (开屏 / 切输入 / 推送视频), 限速 4 次/秒/客户端
-// 2026-10-16：LED 硬件开关机/切信号/旧推送为设备实体控制，写操作仅 admin；
-// 例外：welcome 欢迎页是播控（方法体已有 assertCanUpload），方法级放开 admin/operator。
-// 大屏播控主链路是 /playback（PlaybackOperatorGuard，admin/operator），不受此处影响。
+// LED 命令偏重 (开屏 / 关屏 / 切输入 / 推送视频 / 欢迎页), 限速 4 次/秒/客户端
+// 2026-10-16 第三轮修正：整个控制器都是「大屏播控」(开/关屏、切信号源、播内容、欢迎页)，
+// 展厅操作员 operator 的本职就是大屏播控，类级统一放开 admin/operator（与 projector 对齐）。
+// 设备配置（绑定/分区/驱动等）不经过本控制器，归后台 devices/hardware 分域，仅 admin。
+// welcome 方法体内另有 assertCanUpload 资源级校验（operator 可上传/改名）。
 @Controller('led')
 @UseGuards(RateLimitGuard, WriteRoleGuard)
-@WriteRoles('admin')
+@WriteRoles('admin', 'operator')
 @RateLimit({ max: 4, windowMs: 1000 })
 export class LedController {
   constructor(
@@ -50,7 +51,6 @@ export class LedController {
    *   3. 推流失败 (kiosk 断/素材被删) → V2460 内置 preset 硬件级兜底, 保证有画面。
    */
   @Post(':id/welcome')
-  @WriteRoles('admin', 'operator')
   async welcome(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     const actor = requireActor(req);
     assertCanUpload(actor);

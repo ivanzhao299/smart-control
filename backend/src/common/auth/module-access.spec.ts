@@ -83,11 +83,23 @@ describe('RBAC module matrix (2026-10-16 least-privilege)', () => {
     expect(canReadModule('hardware', 'app-release')).toBe(false);
   });
 
-  it('config keeps operational content (scenes/scheduler/alerts/metrics/app-release), energy is reclaimed by admin', () => {
+  it('config only keeps power-timing write; scenes/scheduler/alerts/metrics/app-release reclaimed by admin', () => {
+    // 第三轮现场核对：config 后台只有「自动开关」(power-timing) 一页可写。
+    expect(canWriteModule('config', 'power-timing')).toBe(true);
+    expect(canAccessModule('config', 'power-timing')).toBe(true);
+    // 场景/定时/告警/指标/APP 发布全部收归 admin，config 菜单不可见。
     for (const m of ['alerts', 'scenes', 'scheduler', 'metrics', 'app-release'] as AdminModule[]) {
-      expect(canWriteModule('config', m)).toBe(true);
-      expect(canAccessModule('config', m)).toBe(true);
+      expect(canWriteModule('config', m)).toBe(false);
+      expect(canAccessModule('config', m)).toBe(false);
     }
+    // scenes/alerts/metrics 未设 readRestricted：前台 PWA 仍需 GET 场景列表/大屏指标，
+    // 只收写不收读（config 作为登录角色 GET 仍放行，但后台菜单不可见）。
+    expect(canReadModule('config', 'scenes')).toBe(true);
+    expect(canReadModule('config', 'metrics')).toBe(true);
+    // scheduler 是后台专属（readRestricted），config 不可读。
+    expect(canReadModule('config', 'scheduler')).toBe(false);
+    // app-release 收归 admin，config 不可读（后台专属）。
+    expect(canReadModule('config', 'app-release')).toBe(false);
     // 能源台账/电表/变压器工程配置收归 admin。
     expect(canWriteModule('config', 'energy')).toBe(false);
     expect(canAccessModule('config', 'energy')).toBe(false);
@@ -95,7 +107,7 @@ describe('RBAC module matrix (2026-10-16 least-privilege)', () => {
     expect(canWriteModule('config', 'branding')).toBe(false);
     expect(canAccessModule('config', 'branding')).toBe(false);
     // 硬件类全部不可见。
-    for (const m of ['devices', 'hardware', 'zones', 'video', 'lpr', 'power-timing', 'uat'] as AdminModule[]) {
+    for (const m of ['devices', 'hardware', 'zones', 'video', 'lpr', 'uat'] as AdminModule[]) {
       expect(canWriteModule('config', m)).toBe(false);
       expect(canAccessModule('config', m)).toBe(false);
     }
@@ -103,8 +115,9 @@ describe('RBAC module matrix (2026-10-16 least-privilege)', () => {
     expect(canReadModule('config', 'diagnostics')).toBe(false);
     expect(canReadModule('config', 'uat')).toBe(false);
     expect(canAccessModule('config', 'system')).toBe(false);
-    // 监控总览对 config 只读。
-    expect(canReadModule('config', 'monitor')).toBe(true);
+    // 第三轮：监控总览对 config 也不可见（菜单隐藏；monitor 未设 readRestricted，
+    // 后端 GET 仍按前台共用读放行，见下一个用例）。
+    expect(canAccessModule('config', 'monitor')).toBe(false);
   });
 
   it('operator/viewer cannot write any backend module; operator only reads app-release', () => {
@@ -128,9 +141,12 @@ describe('RBAC module matrix (2026-10-16 least-privilege)', () => {
     expect(canReadModule('viewer', 'energy')).toBe(true);
     expect(canReadModule('operator', 'devices')).toBe(true);
     expect(canReadModule('viewer', 'monitor')).toBe(true);
-    // power-timing 是后台专属分域（默认无 readRestricted，但无 read 角色，菜单不可见）。
+    // power-timing 无 readRestricted、无 read 角色，菜单可见性只看 write：hardware 与 config 都可写。
     expect(canAccessModule('hardware', 'power-timing')).toBe(true);
-    expect(canAccessModule('config', 'power-timing')).toBe(false);
+    expect(canAccessModule('config', 'power-timing')).toBe(true);
+    // monitor 未设 readRestricted（前台共用读）：任何登录角色 GET 都放行，
+    // 与"后台菜单对 config 隐藏"（canAccessModule=false）解耦。
+    expect(canReadModule('config', 'monitor')).toBe(true);
   });
 });
 
@@ -178,8 +194,8 @@ describe('RBAC controller bindings', () => {
     return set;
   };
 
-  it('governs power-schedules writes by power-timing only (hardware)', () => {
-    // 第二轮收敛：自动开关/定时通断统一收归 power-timing，写权限给 hardware。
+  it('governs power-schedules writes by power-timing only (hardware + config)', () => {
+    // 第三轮：自动开关/定时通断统一收归 power-timing，写权限给 hardware + config（矩阵角色控制）。
     expect(boundModules(PowerSchedulesController)).toEqual(new Set<AdminModule>(['power-timing']));
     expect(classModule(PowerSchedulesController)).toBeUndefined();
   });
@@ -198,9 +214,10 @@ describe('RBAC controller bindings', () => {
     expect(classModule(AlertController)).toBe('alerts');
   });
 
-  it('restricts device entity controllers to admin via class-level WriteRoleGuard', () => {
-    // 音响 / 灯光 / LED / 空调 / DALI：类级写仅 admin（误触全场静音事故后收口）。
-    for (const c of [AudioController, LightingController, LedController, HvacController, DaliLightsController]) {
+  it('restricts non-playback device entity controllers to admin via class-level WriteRoleGuard', () => {
+    // 音响 / 灯光 / 空调 / DALI：类级写仅 admin（误触全场静音事故后收口）。
+    // LED 属大屏播控（开/关屏、切信号、播内容），第三轮放开给 operator，见下方专门用例。
+    for (const c of [AudioController, LightingController, HvacController, DaliLightsController]) {
       expect(classGuards(c)).toContain(WriteRoleGuard);
       expect(classWriteRoles(c)).toEqual(['admin']);
     }
@@ -211,12 +228,16 @@ describe('RBAC controller bindings', () => {
     expect(classWriteRoles(ProjectorController)).toEqual(['admin', 'operator']);
   });
 
-  it('keeps LED welcome available to operators while class is admin-only', () => {
-    // welcome 复用类级 WriteRoleGuard（无需重复 @UseGuards），仅用方法级 @WriteRoles 覆盖角色。
+  it('opens all LED playback endpoints (on/off/play/welcome/input) to admin/operator at class level', () => {
+    // 第三轮：LED 开/关屏、切信号源、播内容、欢迎页都是大屏播控，类级统一 admin/operator。
     expect(classGuards(LedController)).toContain(WriteRoleGuard);
-    expect(classWriteRoles(LedController)).toEqual(['admin']);
+    expect(classWriteRoles(LedController)).toEqual(['admin', 'operator']);
     const proto = LedController.prototype as any;
-    expect(methodWriteRoles(proto, 'welcome')).toEqual(['admin', 'operator']);
+    // 各播控端点继承类级，不再需要方法级 @WriteRoles 覆盖（welcome 仍保留方法体内 assertCanUpload）。
+    expect(methodWriteRoles(proto, 'welcome')).toBeUndefined();
+    expect(methodWriteRoles(proto, 'input')).toBeUndefined();
+    expect(methodWriteRoles(proto, 'on')).toBeUndefined();
+    expect(methodWriteRoles(proto, 'off')).toBeUndefined();
   });
 
   it('allows power-circuit on/off to admin+hardware but sequencer and CRUD stay admin/zones', () => {
@@ -300,14 +321,13 @@ describe('RBAC controller bindings', () => {
       } as any;
       return new ModuleAccessGuard(reflector, moduleRef).canActivate(ctx);
     };
-    // hardware 可写 power-timing。
+    // hardware / config 都可写 power-timing（自动开关/4G 远程开关定时）。
     await expect(mkGuard('power-timing', 'hardware')).resolves.toBe(true);
-    // config 可写 scenes。
-    await expect(mkGuard('scenes', 'config')).resolves.toBe(true);
+    await expect(mkGuard('power-timing', 'config')).resolves.toBe(true);
     // admin 全通。
     await expect(mkGuard('power-timing', 'admin')).resolves.toBe(true);
-    // config 不能写 power-timing、hardware 不能写 scenes。
-    await expect(mkGuard('power-timing', 'config')).rejects.toThrow();
+    // scenes 第三轮收归 admin：config / hardware 都不能写。
+    await expect(mkGuard('scenes', 'config')).rejects.toThrow();
     await expect(mkGuard('scenes', 'hardware')).rejects.toThrow();
     // operator/viewer 一律拒。
     await expect(mkGuard('power-timing', 'operator')).rejects.toThrow();

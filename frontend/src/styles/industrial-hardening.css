@@ -23,12 +23,19 @@ a {
   user-select: none;
 }
 
-.v2-shell input,
-.v2-shell textarea,
-.v2-shell select,
-.v2-shell [contenteditable="true"] {
+/* 可编辑控件全局恢复系统文本选择/输入法行为（2026-10-16 修复手机登录页输入法）。
+   theme.css 对 html/body/#app 设了 user-select:none + touch-callout:none（防误触），
+   而前台登录页(.client-login)、后台登录(.admin-login)、后台(.admin)都不在 .v2-shell 内，
+   原先只豁免 .v2-shell input，会导致手机 WebView/PWA 登录框无法正常拉起中文输入法、
+   候选词/长按粘贴异常。这里对所有输入控件全局豁免；只读控件另有 .device-readonly
+   (pointer-events:none) 独立兜底，不受影响。 */
+input,
+textarea,
+select,
+[contenteditable="true"] {
   -webkit-user-select: text;
   user-select: text;
+  -webkit-touch-callout: default;
 }
 
 /* Toasts stay below notches and status bars. */
