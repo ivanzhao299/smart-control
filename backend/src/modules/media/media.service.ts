@@ -1066,16 +1066,15 @@ export class MediaService implements OnModuleInit {
     if (!row) throw new NotFoundException('资料不存在');
     if (row.source === 'system') throw new ForbiddenException('内置资料由版本发布统一管理');
     const isOwnerAdmin = actor.role === 'admin';
-    // 细粒度鉴权：admin 放行；非 admin 必须是上传者本人，可改自己（含公共）资料的
-    // 文件名/备注，但归属与公共状态仍仅管理员可改（见下）。
+    // 细粒度鉴权（2026-10-16 放宽改名）：
+    //   - admin：放行全部字段（含归属/公共状态）。
+    //   - operator 个人账号：可改任意非内置资料的「文件名/备注」（含 admin 上传、shared 公共
+    //     素材），不再要求是上传者本人；但归属 ownerUserId 与公开状态 visibility 仍仅管理员
+    //     （下方专门拦截，operator 即使带上也会 403）。
+    //   - 其余角色（hardware/config/viewer）及共享令牌：无权修改。
     if (!isOwnerAdmin) {
-      if (
-        actor.kind !== 'user' ||
-        actor.userId === null ||
-        actor.role !== 'operator' ||
-        actor.userId !== row.ownerUserId
-      ) {
-        throw new ForbiddenException('仅可管理自己上传的资料');
+      if (actor.kind !== 'user' || actor.userId === null || actor.role !== 'operator') {
+        throw new ForbiddenException('当前角色无权修改资料');
       }
     }
     const previousOwner = row.ownerUserId;

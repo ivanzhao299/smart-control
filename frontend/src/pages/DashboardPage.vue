@@ -14,11 +14,14 @@ import { polling } from '@/services/polling.service';
 import { useSceneStore } from '@/stores/scene';
 import { useDeviceStore } from '@/stores/device';
 import { useSystemStore } from '@/stores/system';
+import { usePermissionStore } from '@/stores/permission';
 
 const sceneStore = useSceneStore();
 const deviceStore = useDeviceStore();
 const sys = useSystemStore();
 const router = useRouter();
+// 首页场景执行：admin/operator 可操作；viewer 只读（按钮禁用）。
+const perm = usePermissionStore();
 
 // ============ KPI ============
 const onlineCount = computed(() => deviceStore.onlineCount);
@@ -139,6 +142,7 @@ function resetHold(): void {
 
 function onHoldStart(code: string, ev: PointerEvent): void {
   if (ev.pointerType === 'mouse' && ev.button !== 0) return; // 只认左键/单指
+  if (!perm.canExecute) return; // 只读账户（viewer）不可执行场景
   holdFired = false;
   holdCode.value = code;
   holdPct.value = 0;
@@ -278,6 +282,7 @@ onBeforeUnmount(resetHold);
           class="v2-scene"
           :class="{ active: s.active, holding: holdCode === s.code }"
           :data-color="s.color"
+          :disabled="!perm.canExecute"
           @pointerdown="onHoldStart(s.code, $event)"
           @pointermove="onHoldMove($event)"
           @pointerup="onHoldEnd"

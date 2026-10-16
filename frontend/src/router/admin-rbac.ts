@@ -8,6 +8,12 @@ import type { UserRole } from '@/types/api';
  * - write：可写且可见的角色。
  * - read：后台只读可见（仅公共排查页：监控/日志）。
  * 用户已拍板：对方业务模块不给只读、直接隐藏。
+ *
+ * 2026-10-16 第二轮三角色最小权限收敛：
+ * - hardware 唯一保留写权限 = power-timing（自动开关/定时通断调设备时间），监控总览只读。
+ * - config 保留运营内容（场景/定时/告警/指标/APP 发布）；energy 工程台账收归 admin。
+ * - devices/hardware/zones/video/lpr/uat/diagnostics 全部收归 admin。
+ * - operator 后台仅 app-release 只读下载 APK（+ 自助改密码）。
  */
 export type AdminModule =
   | 'monitor'
@@ -15,6 +21,7 @@ export type AdminModule =
   | 'scenes'
   | 'scheduler'
   | 'energy'
+  | 'power-timing'
   | 'devices'
   | 'hardware'
   | 'zones'
@@ -37,27 +44,34 @@ const CONFIG: UserRole = 'config';
 const OPERATOR: UserRole = 'operator';
 
 export const MODULE_RULES: Record<AdminModule, ModuleRule> = {
+  // 公共只读监控总览：hardware 与 config 都可只读；无写操作。
   monitor: { write: [], read: [HARDWARE, CONFIG] },
+  // 运营内容（设置类）：config 保留写。
   alerts: { write: [CONFIG] },
   scenes: { write: [CONFIG] },
   scheduler: { write: [CONFIG] },
-  energy: { write: [CONFIG] },
+  // 能源台账/电表/变压器等工程配置：2026-10-16 收归 admin（config 不再写）；
+  // 不在 read 给任何角色 -> 后台菜单对非 admin 隐藏（前台/大屏能源读接口仍共用）。
+  energy: { write: [] },
+  // hardware 唯一保留写权限：电源自动开关/定时通断（调设备时间）。
+  'power-timing': { write: [HARDWARE] },
   metrics: { write: [CONFIG] },
   // 品牌管理（系统名称 / Logo / 品牌标识）仅管理员，运营/硬件角色菜单隐藏；
   // 欢迎页内容编辑在前台 LED，走独立角色白名单，不归本模块。
   branding: { write: [], read: [] },
-  // APP 版本：config 改运营开关(启停/强制更新/最低兼容/更新说明), hardware 只读核对,
-  // operator(展厅操作员)只读下载 APK; 版本号/下载地址由 CI/受控部署维护, 前端按是否
-  // admin 再置灰技术字段。
-  'app-release': { write: [CONFIG], read: [HARDWARE, CONFIG, OPERATOR] },
-  devices: { write: [HARDWARE] },
-  hardware: { write: [HARDWARE] },
-  zones: { write: [HARDWARE] },
-  video: { write: [HARDWARE] },
-  lpr: { write: [HARDWARE] },
-  diagnostics: { write: [HARDWARE], read: [HARDWARE, CONFIG] },
-  // 测试/调试(UAT)是硬件动作页, 不给 config 只读, 直接隐藏; 仅 hardware 可见可写。
-  uat: { write: [HARDWARE] },
+  // APP 版本：config 改运营开关(启停/强制更新/最低兼容/更新说明)；
+  // operator(展厅操作员)只读下载 APK; hardware 不再可见（其后台只留自动开关+监控）。
+  // 版本号/下载地址由 CI/受控部署维护, 前端按是否 admin 再置灰技术字段。
+  'app-release': { write: [CONFIG], read: [CONFIG, OPERATOR] },
+  // 硬件类全部收归 admin：设备/硬件清单/分区/视频绑定/道闸/诊断/UAT。
+  devices: { write: [] },
+  hardware: { write: [] },
+  zones: { write: [] },
+  video: { write: [] },
+  lpr: { write: [] },
+  diagnostics: { write: [], read: [] },
+  // 测试/调试(UAT)收归 admin，非 admin 后台菜单隐藏。
+  uat: { write: [] },
   system: { write: [], read: [] },
 };
 
@@ -80,7 +94,9 @@ export function canWriteAdminModule(role: UserRole | undefined, module: AdminMod
 
 /** 某角色登录后台后的默认落地页（路由 name）。 */
 export function defaultAdminRoute(role: UserRole | undefined): string {
-  if (role === 'hardware') return 'admin-devices';
+  // 2026-10-16：hardware 后台只保留自动开关(power-timing) + 监控总览只读，
+  // 设备清单已收归 admin，落地页改为自动开关。
+  if (role === 'hardware') return 'admin-auto-switch';
   if (role === 'config') return 'admin-scenes';
   // 展厅操作员登录后台仅为下载 APK，直接落到 APP 版本页。
   if (role === 'operator') return 'admin-app-release';

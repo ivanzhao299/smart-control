@@ -17,6 +17,7 @@ import {
   type PowerCircuitView,
   type BreakerMeasurements,
 } from '@/services/power-circuits.service';
+import { usePermissionStore } from '@/stores/permission';
 
 const ICON_MAP: Record<string, typeof Zap> = {
   Zap, Lightbulb, Plug, MonitorPlay, Snowflake, Volume2,
@@ -264,6 +265,7 @@ function stopRefresh(): void {
 }
 
 const router = useRouter();
+const perm = usePermissionStore();
 function goBack(): void { router.push({ name: 'dashboard' }); }
 
 // 2026-07-27 切页卡顿根治: keep-alive 下 onUnmounted 不触发, 轮询切走后永续后台
@@ -300,7 +302,7 @@ useActivePolling(startPolling, stopPolling);
 </script>
 
 <template>
-  <section class="v2-page">
+  <section class="v2-page" :class="{ 'device-readonly': !perm.canEdit }">
     <!-- 页面头部 -->
     <header class="v2-page-head">
       <div class="back-row">
@@ -308,7 +310,7 @@ useActivePolling(startPolling, stopPolling);
           <ArrowLeft :size="18" :stroke-width="2" />
         </button>
         <div class="title-block">
-          <div class="title"><Zap :size="18" :stroke-width="1.8" /> 电源管理</div>
+          <div class="title"><Zap :size="18" :stroke-width="1.8" /> 电源管理<span v-if="!perm.canEdit" class="device-readonly-chip">只读</span></div>
         </div>
         <div class="v2-tabs">
           <button

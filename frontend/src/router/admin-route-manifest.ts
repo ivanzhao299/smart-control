@@ -85,8 +85,9 @@ export const adminRouteManifest = [
     module: 'energy', navigation: { label: '能源管理', section: '能源', order: 0 }, prefetchOnIdle: true,
   },
   {
+    // 2026-10-16：自动开关/定时通断归入 power-timing，hardware 唯一保留写权限（调设备时间）。
     path: 'auto-switch', name: 'admin-auto-switch', load: () => import('@/pages/admin/AutoSwitchAdmin.vue'),
-    module: 'energy', navigation: { label: '自动开关', section: '能源', order: 1 },
+    module: 'power-timing', navigation: { label: '自动开关', section: '能源', order: 1 },
   },
   {
     path: 'scene-executions', name: 'admin-scene-executions', load: () => import('@/pages/admin/SceneExecutionsAdmin.vue'),

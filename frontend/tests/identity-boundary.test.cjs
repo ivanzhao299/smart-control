@@ -298,18 +298,29 @@ test('late actor response after scope disposal cannot restore privileges', async
   assert.equal(state.actor.value, null); assert.equal(state.isAdmin.value, false);
 });
 
-test('operator can edit only own private media; viewer cannot edit', async () => {
+test('#65 operator rename is broad but delete stays own-private; viewer can do neither', async () => {
   let role = 'operator';
   const env = load(async () => response(200, { kind: 'user', userId: 1, username: 'alice', role }));
   env.http.setClientToken('valid'); const state = env.useActor(); await state.refreshActor();
+  // 改名/备注（canEditMedia）：操作员个人账号可改任意非内置素材，不再要求是上传者本人。
   assert.equal(state.canEditMedia({ ownerUserId: 1, visibility: 'private' }), true);
-  assert.equal(state.canEditMedia({ ownerUserId: 2, visibility: 'private' }), false);
-  // 任务 #29：owner 是自己的 shared 也可改文件名/备注（后端 owner 细粒度鉴权）；他人的 shared 仍不行
+  assert.equal(state.canEditMedia({ ownerUserId: 2, visibility: 'private' }), true);
   assert.equal(state.canEditMedia({ ownerUserId: 1, visibility: 'shared' }), true);
-  assert.equal(state.canEditMedia({ ownerUserId: 2, visibility: 'shared' }), false);
+  assert.equal(state.canEditMedia({ ownerUserId: 2, visibility: 'shared' }), true);
+  // 内置素材不允许改名。
   assert.equal(state.canEditMedia({ ownerUserId: 1, visibility: 'private', source: 'system' }), false);
+  // 删除/转码（canDeleteMedia）：严格对齐后端 assertWriteResource——仅自己的私人资料。
+  assert.equal(state.canDeleteMedia({ ownerUserId: 1, visibility: 'private' }), true);
+  assert.equal(state.canDeleteMedia({ ownerUserId: 2, visibility: 'private' }), false);
+  assert.equal(state.canDeleteMedia({ ownerUserId: 1, visibility: 'shared' }), false);
+  assert.equal(state.canDeleteMedia({ ownerUserId: 2, visibility: 'shared' }), false);
+  assert.equal(state.canDeleteMedia({ ownerUserId: 1, visibility: 'private', source: 'system' }), false);
+  // legacy 共享令牌（operator 角色但无 userId）：不能改名也不能删除。
+  role = 'operator'; await state.refreshActor();
+  // viewer 一律不能改名/删除。
   role = 'viewer'; await state.refreshActor(); await state.refreshActor();
   assert.equal(state.canEditMedia({ ownerUserId: 1, visibility: 'private' }), false);
+  assert.equal(state.canDeleteMedia({ ownerUserId: 1, visibility: 'private' }), false);
   env.dispose();
 });
 

@@ -20,15 +20,15 @@ import { AssignGroupsDto, CreateGroupDto, GroupShortsDto, ReorderDto } from './d
 /**
  * 灯光分区 CRUD.
  *
- * 权限口径 (2026-07-17 修正, 对齐 hvac.controller —— 那边实测可用):
- *   读 + **业主日常操作** (建分区/改名/编组/排序/记短地址) — 不要 admin token。
- *     这些就是 LightingPage 上的常规操作, 要 admin 密码等于没法用:
- *     操作员登录 (ClientLogin) 根本不设 adminToken, 只有后台登录才设 ->
- *     2026-07-16 做的"编组"功能在操作员页面上一直是 401, 等于废的。
- *     空调那边 POST /hvac/indoors/assign 从来就没有 guard, 实测好用。
- *   删分区 / :id/test (会真点灯) — 保留 admin token, 破坏性和会动现场设备的才拦。
+ * 权限口径（2026-10-16 第二轮最小权限收敛）：
+ *   - 读：登录用户均可（前台 LightingPage 拉分区列表，zones readRestricted=false）。
+ *   - 写（建分区/改名/编组/排序/记短地址/删分区/点灯测试）：全部归入 zones 模块，
+ *     本轮 zones 已收归 admin，仅管理员可写；灯光分区/编组属工程配置，operator 不再开放。
+ *   类级 ModuleAccessGuard 统一按 zones 矩阵判定（GET 走 canRead、写走 canWrite）。
  */
 @Controller('light-zones')
+@UseGuards(ModuleAccessGuard)
+@ModuleAccess('zones')
 export class LightZonesController {
   constructor(
     private readonly service: LightZonesService,

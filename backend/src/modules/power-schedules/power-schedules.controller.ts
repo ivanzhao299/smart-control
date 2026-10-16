@@ -18,10 +18,9 @@ import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard'
 /**
  * 电源回路自动开关 (定时 + 日落/日出)。
  *
- * 两个后台入口共用同一套规则：
- *  - config 运营配置员：「日常运行 → 自动开关」(energy 模块)
- *  - hardware 硬件工程师：「设备与分区 → 电源回路」(zones 模块)
- * 故写接口用 @ModuleAccess('energy', 'zones') —— 任一模块可写即放行。
+ * 2026-10-16 第二轮最小权限收敛后，归独立后台模块 power-timing：
+ *  - 仅 hardware（设备管理员）与 admin 可写规则——这是 hardware 唯一保留的后台写权限；
+ *  - 原 energy/zones 双模块入口已收回（config 不再调硬件时间、zones 已收归 admin）。
  * 业主 PWA 只读展示“下次自动动作”（GET 无守卫）。写操作另加速率限制防误点。
  */
 @Controller('power-schedules')
@@ -46,7 +45,7 @@ export class PowerSchedulesController {
 
   @Post()
   @UseGuards(ModuleAccessGuard, RateLimitGuard)
-  @ModuleAccess('energy', 'zones')
+  @ModuleAccess('power-timing')
   @RateLimit({ max: 10, windowMs: 5000 })
   async create(@Body() dto: PowerScheduleInput) {
     return { message: '创建成功', data: await this.service.create(dto) };
@@ -54,7 +53,7 @@ export class PowerSchedulesController {
 
   @Put(':id')
   @UseGuards(ModuleAccessGuard, RateLimitGuard)
-  @ModuleAccess('energy', 'zones')
+  @ModuleAccess('power-timing')
   @RateLimit({ max: 10, windowMs: 5000 })
   async update(@Param('id', ParseIntPipe) id: number, @Body() dto: Partial<PowerScheduleInput>) {
     return { message: '更新成功', data: await this.service.update(id, dto) };
@@ -62,7 +61,7 @@ export class PowerSchedulesController {
 
   @Delete(':id')
   @UseGuards(ModuleAccessGuard, RateLimitGuard)
-  @ModuleAccess('energy', 'zones')
+  @ModuleAccess('power-timing')
   @RateLimit({ max: 10, windowMs: 5000 })
   @HttpCode(200)
   async remove(@Param('id', ParseIntPipe) id: number) {

@@ -13,12 +13,15 @@ import { useSystemStore } from '@/stores/system';
 import { deviceService } from '@/services/device.service';
 import { adminMonitorService } from '@/services/admin.service';
 import { polling } from '@/services/polling.service';
+import { usePermissionStore } from '@/stores/permission';
 import type { HealthReport, SystemResources } from '@/types/api';
 
 const router = useRouter();
 const deviceStore = useDeviceStore();
 const sceneStore = useSceneStore();
 const sys = useSystemStore();
+// 状态页对 operator/hardware/config/viewer 均为只读；只有 admin 可清故障/探测/清告警。
+const perm = usePermissionStore();
 
 const health = ref<HealthReport | null>(null);
 const res = ref<SystemResources | null>(null);
@@ -143,10 +146,10 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
         </div>
       </div>
       <div class="quick-actions">
-        <button class="v2-quick" :disabled="clearing" @click="clearFaults">
+        <button v-if="perm.canEdit" class="v2-quick" :disabled="clearing" @click="clearFaults">
           <Trash2 :size="14" :stroke-width="2" /> {{ clearing ? '处理中…' : '清除错误并复检' }}
         </button>
-        <button class="v2-quick" :disabled="probing" @click="probe">
+        <button v-if="perm.canEdit" class="v2-quick" :disabled="probing" @click="probe">
           <RadioReceiver :size="14" :stroke-width="2" /> {{ probing ? '检测中…' : '手动检测设备' }}
         </button>
         <button class="v2-quick primary" :disabled="refreshing" @click="refresh">
@@ -263,7 +266,7 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
     <div v-if="statusTab === 'alerts'" class="v2-card">
       <div class="card-head">
         <span class="accent">●</span>报警记录
-        <button v-if="sys.alerts.length > 0" class="link" @click="sys.clearAlerts()">清空</button>
+        <button v-if="perm.canEdit && sys.alerts.length > 0" class="link" @click="sys.clearAlerts()">清空</button>
       </div>
       <div v-if="sys.alerts.length === 0" class="empty">暂无告警</div>
       <div v-else class="alert-list">

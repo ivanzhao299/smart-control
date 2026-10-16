@@ -21,6 +21,8 @@ import { HvacAdapter } from '../../adapters/hvac/hvac.adapter';
 import { ModbusHvacAdapter } from '../../adapters/hvac/modbus-hvac.adapter';
 import { OperationLogService } from '../logs/operation-log.service';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
+import { WriteRoleGuard } from '../../common/guards/write-role.guard';
+import { WriteRoles } from '../../common/decorators/write-roles.decorator';
 import {
   HvacAssignDto,
   HvacBatchFanDto,
@@ -39,8 +41,11 @@ import { HvacZone } from '../../entities/hvac-zone.entity';
 import { HvacIndoor } from '../../entities/hvac-indoor.entity';
 
 // 温度按 +/- 步进调, 6 次/秒/客户端
+// 2026-10-16：空调为设备实体控制（开关机/温度/模式/风速/批量/功能区），写操作仅 admin；
+// 配置类写端点另有 ActorAdminGuard（双保险）。GET 状态读取放行，operator 前台不显示本页。
 @Controller('hvac')
-@UseGuards(RateLimitGuard)
+@UseGuards(RateLimitGuard, WriteRoleGuard)
+@WriteRoles('admin')
 @RateLimit({ max: 6, windowMs: 1000 })
 export class HvacController implements OnModuleInit, OnModuleDestroy {
   constructor(

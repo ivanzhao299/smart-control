@@ -35,7 +35,7 @@ import { usePlaybackStore } from '@/stores/playback';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { absUrl, api, detectLanConnection, getLanFrontendUrl } from '@/services/http';
 import { useCurrentActor } from '@/services/current-actor';
-const { isAdmin: actorIsAdmin, canOperate, canEditMedia } = useCurrentActor();
+const { isAdmin: actorIsAdmin, canOperate, canEditMedia, canDeleteMedia } = useCurrentActor();
 let disposed = false;
 import MediaAdminPanel from '@/components/MediaAdminPanel.vue';
 
@@ -190,7 +190,7 @@ async function renameMedia(m: MediaItem): Promise<void> {
 }
 
 async function confirmDelete(m: MediaItem): Promise<void> {
-  if (!canEditMedia(m)) return;
+  if (!canDeleteMedia(m)) return;
   try {
     await ElMessageBox.confirm(`确认删除「${m.originalName}」?`, '删除媒体', {
       type: 'warning',
@@ -199,7 +199,7 @@ async function confirmDelete(m: MediaItem): Promise<void> {
     });
   } catch { return; }
   try {
-    if (disposed || !canEditMedia(m)) return;
+    if (disposed || !canDeleteMedia(m)) return;
     await mediaService.remove(m.id);
     ElMessage.success(`已删除 ${m.originalName}`);
     items.value = items.value.filter((x) => x.id !== m.id);
@@ -254,7 +254,7 @@ async function pushTo(m: MediaItem, slot: 1 | 2 | 'both', loopMode: 'once' | 'lo
 }
 
 async function retryPrepare(m: MediaItem): Promise<void> {
-  if (disposed || !canEditMedia(m)) return;
+  if (disposed || !canDeleteMedia(m)) return;
   try {
     await mediaService.prepare(m.id);
     ElMessage.success('已开始生成 H.264/AAC 兼容版本');
@@ -656,7 +656,7 @@ onBeforeUnmount(() => { disposed = true; stopProcessingPoll(); });
               </template>
             </el-dropdown>
             <button v-if="canEditMedia(m)" class="card-btn" title="重命名" @click="renameMedia(m)"><Edit3 :size="14" :stroke-width="2" /></button>
-            <button v-if="canEditMedia(m)" class="card-btn danger" title="删除" @click="confirmDelete(m)"><Trash2 :size="14" :stroke-width="2" /></button>
+            <button v-if="canDeleteMedia(m)" class="card-btn danger" title="删除" @click="confirmDelete(m)"><Trash2 :size="14" :stroke-width="2" /></button>
           </div>
         </div>
       </div>
@@ -707,7 +707,7 @@ onBeforeUnmount(() => { disposed = true; stopProcessingPoll(); });
               </template>
             </el-dropdown>
             <button v-if="canEditMedia(m)" class="card-btn" title="重命名" @click="renameMedia(m)"><Edit3 :size="14" :stroke-width="2" /></button>
-            <button v-if="canEditMedia(m)" class="card-btn danger" title="删除" @click="confirmDelete(m)"><Trash2 :size="14" :stroke-width="2" /></button>
+            <button v-if="canDeleteMedia(m)" class="card-btn danger" title="删除" @click="confirmDelete(m)"><Trash2 :size="14" :stroke-width="2" /></button>
           </div>
         </div>
       </div>
@@ -765,7 +765,7 @@ onBeforeUnmount(() => { disposed = true; stopProcessingPoll(); });
               </template>
             </el-dropdown>
             <button v-if="canEditMedia(m)" class="card-btn" title="重命名" @click="renameMedia(m)"><Edit3 :size="14" :stroke-width="2" /></button>
-            <button v-if="canEditMedia(m)" class="card-btn danger" title="删除" @click="confirmDelete(m)"><Trash2 :size="14" :stroke-width="2" /></button>
+            <button v-if="canDeleteMedia(m)" class="card-btn danger" title="删除" @click="confirmDelete(m)"><Trash2 :size="14" :stroke-width="2" /></button>
           </div>
         </div>
       </div>
@@ -1011,7 +1011,7 @@ onBeforeUnmount(() => { disposed = true; stopProcessingPoll(); });
           <div v-if="previewItem.remark" class="remark">{{ previewItem.remark }}</div>
           <div v-if="previewItem.kind === 'video' && previewItem.processingStatus !== 'ready'" class="remark">
             {{ previewItem.processingStatus === 'failed' ? `兼容转换失败：${previewItem.processingError || '未知错误'}` : '正在生成 H.264/AAC 兼容版本，完成后即可播放。' }}
-            <button v-if="canEditMedia(previewItem) && previewItem.processingStatus === 'failed'" class="v2-quick" @click="retryPrepare(previewItem)">重新转换</button>
+            <button v-if="canDeleteMedia(previewItem) && previewItem.processingStatus === 'failed'" class="v2-quick" @click="retryPrepare(previewItem)">重新转换</button>
           </div>
           <!-- 音频: 播放背景音乐 -->
           <div v-if="previewItem.kind === 'audio'" class="preview-actions">
@@ -1021,7 +1021,7 @@ onBeforeUnmount(() => { disposed = true; stopProcessingPoll(); });
             <button v-if="canEditMedia(previewItem)" class="v2-quick" @click="renameMedia(previewItem)">
               <Edit3 :size="14" :stroke-width="2" /> 重命名
             </button>
-            <button v-if="canEditMedia(previewItem)" class="v2-quick danger" @click="confirmDelete(previewItem)">
+            <button v-if="canDeleteMedia(previewItem)" class="v2-quick danger" @click="confirmDelete(previewItem)">
               <Trash2 :size="14" :stroke-width="2" /> 删除
             </button>
           </div>
@@ -1050,7 +1050,7 @@ onBeforeUnmount(() => { disposed = true; stopProcessingPoll(); });
             <button v-if="canEditMedia(previewItem)" class="v2-quick" @click="renameMedia(previewItem)">
               <Edit3 :size="14" :stroke-width="2" /> 重命名
             </button>
-            <button v-if="canEditMedia(previewItem)" class="v2-quick danger" @click="confirmDelete(previewItem)">
+            <button v-if="canDeleteMedia(previewItem)" class="v2-quick danger" @click="confirmDelete(previewItem)">
               <Trash2 :size="14" :stroke-width="2" /> 删除
             </button>
           </div>

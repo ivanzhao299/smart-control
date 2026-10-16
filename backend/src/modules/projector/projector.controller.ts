@@ -1,14 +1,19 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
 import { ProjectorService } from './projector.service';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
+import { WriteRoleGuard } from '../../common/guards/write-role.guard';
+import { WriteRoles } from '../../common/decorators/write-roles.decorator';
 
 /**
  * 投影视频融合器控制 API.
  *
  * 读 (status/windows/volume): 业主前台拉。写 (open/close/move/resize/volume): RateLimit 限速防抖。
- * 全局鉴权门已覆盖(需业主或后台 token)。
+ * 2026-10-16：融合窗口/HDMI/音量属投影仪播控，写操作放开 admin/operator（展厅操作员保留项）；
+ * 写经 WriteRoleGuard 校验角色，GET 放行。
  */
 @Controller('projector')
+@UseGuards(WriteRoleGuard)
+@WriteRoles('admin', 'operator')
 export class ProjectorController {
   constructor(private readonly service: ProjectorService) {}
 

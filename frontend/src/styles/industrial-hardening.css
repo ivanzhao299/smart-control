@@ -50,3 +50,49 @@ a {
   .hero { flex-wrap: wrap; }
   .hero-right { flex: 0 0 100%; justify-content: flex-end; flex-wrap: wrap; }
 }
+
+/* ===== 设备实体控制页 · 只读 gate（2026-10-16 RBAC 第二轮最小权限，纵深防御）=====
+   非 admin 角色进入设备控制页（音响/灯光/空调/电源/道闸）时，根容器加 .device-readonly：
+   屏蔽页面正文内所有写控件（按钮/开关/滑块/输入/下拉），避免误触；
+   顶栏(header)内的返回、刷新、tab 切换仍可点（只读浏览），页面滚动不受影响。
+   路由角色守卫（不可直接访问）与后端写端点守卫是主防线，这里是第三层 UI 兜底。 */
+.device-readonly button,
+.device-readonly [role="button"],
+.device-readonly input,
+.device-readonly select,
+.device-readonly textarea,
+.device-readonly [role="switch"],
+.device-readonly [role="slider"],
+.device-readonly .v2-toggle,
+.device-readonly .el-switch,
+.device-readonly .el-slider {
+  pointer-events: none !important;
+}
+.device-readonly header .v2-back-btn,
+.device-readonly header .v2-tabs button,
+.device-readonly header [aria-label="返回"],
+.device-readonly header [aria-label="刷新"],
+.device-readonly nav.tabs button {
+  pointer-events: auto !important;
+}
+/* 只读态写控件轻微降透明度，明确不可操作（顶栏豁免）。 */
+.device-readonly .v2-toggle,
+.device-readonly .el-switch,
+.device-readonly .el-slider {
+  opacity: 0.45;
+}
+/* 只读徽标（各设备页标题旁） */
+.device-readonly-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  border-radius: 999px;
+  color: var(--el-text-color-secondary, #94a3b8);
+  border: 1px solid currentColor;
+  vertical-align: middle;
+}

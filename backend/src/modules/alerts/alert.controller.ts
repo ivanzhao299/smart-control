@@ -7,11 +7,22 @@ import {
   ParseIntPipe,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import { AlertService } from './alert.service';
 import { QueryAlertDto, ResolveAlertDto } from './dto/alert.dto';
+import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
+import { ModuleAccess } from '../../common/decorators/module-access.decorator';
 
+/**
+ * 报警中心。
+ * - 读（list/summary/detail）：登录用户均可（前台/大屏告警横幅、首页报警数共用读）。
+ * - 写（解除/忽略/按来源清除）：alerts 模块（config 运营处置 + admin），2026-10-16 收口；
+ *   operator/hardware/viewer 不再能消警。
+ */
 @Controller('alerts')
+@UseGuards(ModuleAccessGuard)
+@ModuleAccess('alerts')
 export class AlertController {
   constructor(private readonly service: AlertService) {}
 

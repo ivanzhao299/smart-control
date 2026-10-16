@@ -259,5 +259,7 @@ test('PlayerConsole delegates display power orchestration to the dedicated compo
   // 清洗逻辑 setWelcomeSize 下沉在 useWelcomeEditor, 不再单独起标签行/子组件)。
   // 业务逻辑仍全部下沉在 useWelcomeEditor/usePlayerPowerControls 等 composable,
   // 这里只放宽模板行数预算, 下方“不得内联电源逻辑”的断言保持不变。
-  assert.ok(playerConsoleSource.split('\n').length < 1420);
+  // 2026-10-16 #67：新增整台播控只读 gate（import permission store + 一个只读
+  // class/chip，共约 2 行），未内联任何电源逻辑，预算相应放宽。
+  assert.ok(playerConsoleSource.split('\n').length < 1422);
 });

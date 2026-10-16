@@ -1,12 +1,15 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, Post, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthenticatedRequest, requireActor } from '../../common/auth/actor';
+import { PlaybackOperatorGuard } from '../playback/playback-operator.guard';
 import { OnlineMusicService } from './online-music.service';
 
 /**
  * /api/online-music — 在线无版权曲库 (FreePD CC0)。
- * 客户端 token 即可 (走全局 ClientAuthGuard): 下载音乐和上传媒体同级, 属日常操作。
+ * 下载入库与上传媒体同级（素材来源，operator 保留项）：写走 PlaybackOperatorGuard，
+ * 需 admin 或 operator 个人账号（assertCanUpload，排除共享令牌）；catalog GET 登录可读。
  */
 @Controller('online-music')
+@UseGuards(PlaybackOperatorGuard)
 export class OnlineMusicController {
   constructor(private readonly service: OnlineMusicService) {}
 

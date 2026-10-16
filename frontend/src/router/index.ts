@@ -5,7 +5,7 @@ import { useClientAuthStore } from '@/stores/client-auth';
 import { usePermissionStore } from '@/stores/permission';
 import { api } from '@/services/http';
 import { isStalePwaAssetError, recoverFromStalePwa } from '@/services/pwa-recovery';
-import { mainRouteManifest } from './main-route-manifest';
+import { mainRouteManifest, canAccessMainRoute, mainNavigationItemsForRole } from './main-route-manifest';
 import { adminRouteManifest } from './admin-route-manifest';
 import { canAccessAdminModule, defaultAdminRoute, type AdminModule } from './admin-rbac';
 
@@ -127,9 +127,34 @@ router.beforeEach(async (to) => {
     }
   }
   if (!to.meta?.clientPublic && to.name !== 'player' && !to.meta?.adminRequired) {
-    // 权限默认是 viewer，服务端仍是最终授权边界。角色刷新不能阻塞页面挂载：
-    // iOS 从后台恢复时网络请求可能延迟，等待它会让主壳存在而 router-view 为空。
-    void usePermissionStore().refresh();
+    // 前台 PWA 页面角色 gate（2026-10-16 最小权限）：导航/深链/直接 URL 统一拦截。
+    const permission = usePermissionStore();
+    const targetName = typeof to.name === 'string' ? to.name : '';
+    const landingFor = (): string | undefined => mainNavigationItemsForRole(permission.role)[0]?.name;
+    if (permission.loaded) {
+      // 角色已就绪（SPA 内导航 / 刷新后）：同步拦截越权路由，落到该角色第一个前台页。
+      if (targetName && !canAccessMainRoute(targetName, permission.role)) {
+        const landing = landingFor();
+        if (!landing) return { name: 'client-login', query: { redirect: to.fullPath } };
+        if (landing !== targetName) return { name: landing };
+      }
+    } else {
+      // 冷启动 / 直接深链：角色尚未拉取，不能 await 阻塞页面挂载（iOS 后台恢复时网络
+      // 延迟会让主壳存在而 router-view 空白）。fire-and-forget 拉角色，到位后再静默校正。
+      // 注意：必须用本次导航目标 to.name 判定，不能读 currentRoute.name —— 冷启动时目标
+      // 页是懒加载 chunk，/me 可能在 chunk 下载完、当前路由提交前就 resolve，那时
+      // currentRoute.name 仍为空（实测根因）。首帧期间页面内只读 gate（viewer 默认最严）兜底。
+      void usePermissionStore().refresh().then(() => {
+        if (targetName && !canAccessMainRoute(targetName, permission.role)) {
+          const landing = landingFor();
+          if (!landing) {
+            void router.replace({ name: 'client-login', query: { redirect: to.fullPath } });
+          } else if (landing !== targetName) {
+            void router.replace({ name: landing });
+          }
+        }
+      }).catch(() => { /* 网络异常不擦除会话，页面内只读 gate 兜底。 */ });
+    }
   }
   return true;
 });

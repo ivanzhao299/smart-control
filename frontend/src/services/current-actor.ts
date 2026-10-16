@@ -43,8 +43,20 @@ export function useCurrentActor() {
   onScopeDispose(() => { disposed = true; revision++; actor.value = null; unsubscribe(); if (timer) clearInterval(timer); });
   const isAdmin = computed(() => actor.value?.role === 'admin');
   const canOperate = computed(() => isAdmin.value || actor.value?.role === 'operator');
-  // 任务 #29：上传者本人可改自己上传的资料（含 public 公共资料的文件名/备注），不再要求必须为 private
-  const canEditMedia = (media: MediaItem) => media.source !== 'system' && (isAdmin.value ||
-    (actor.value?.role === 'operator' && actor.value.userId !== null && media.ownerUserId === actor.value.userId));
-  return { actor, isAdmin, canOperate, canEditMedia, refreshActor };
+  // 操作员个人账号（kind==='user'、带 userId），排除 legacy 共享令牌（对齐后端 resource-policy）。
+  const isOperatorPersonal = computed(() => actor.value?.kind === 'user'
+    && actor.value?.role === 'operator' && actor.value.userId !== null);
+  // 改名/备注（2026-10-16 #65 放宽）：admin 或操作员个人账号可改任意非内置素材的文件名/备注，
+  // 不再要求是上传者本人；但归属/公开状态仍仅管理员（由后端 updateOwned 拦截）。
+  const canEditMedia = (media: MediaItem) => media.source !== 'system' && (isAdmin.value || isOperatorPersonal.value);
+  // 删除/转码（对齐后端 assertWriteResource）：仅可管理「自己的私人资料」，
+  // 即本人上传且非共享；公共素材与他人素材只有管理员能删/重转。
+  const canDeleteMedia = (media: MediaItem) => {
+    if (media.source === 'system') return false;
+    if (isAdmin.value) return true;
+    return isOperatorPersonal.value
+      && media.ownerUserId === actor.value?.userId
+      && media.visibility !== 'shared';
+  };
+  return { actor, isAdmin, canOperate, isOperatorPersonal, canEditMedia, canDeleteMedia, refreshActor };
 }

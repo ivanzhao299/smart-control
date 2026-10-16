@@ -4,6 +4,8 @@ import { OperationLogService } from '../logs/operation-log.service';
 import { LightZonesService } from '../light-zones/light-zones.service';
 import { DaliLightsService, type LightCmd } from '../dali-lights/dali-lights.service';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
+import { WriteRoleGuard } from '../../common/guards/write-role.guard';
+import { WriteRoles } from '../../common/decorators/write-roles.decorator';
 import { ZoneBrightnessDto } from './dto/zone-brightness.dto';
 
 /**
@@ -33,8 +35,10 @@ function readZoneFadeSec(): number {
 
 // PERFORMANCE_AUDIT P2-#18: 设备命令限流, 防误连点堆队列
 // 每秒最多 8 次/客户端: 拖动亮度滑条够用, 双击/三连击会被挡
+// 2026-10-16：灯光为设备实体控制，写操作仅 admin（operator 不再开放灯光）。
 @Controller('lighting')
-@UseGuards(RateLimitGuard)
+@UseGuards(RateLimitGuard, WriteRoleGuard)
+@WriteRoles('admin')
 @RateLimit({ max: 8, windowMs: 1000 })
 export class LightingController {
   private readonly hwSyncMode: HwSyncMode = readHwSyncMode();

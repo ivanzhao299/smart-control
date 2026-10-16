@@ -18,13 +18,16 @@ import {
 import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
 import { ModuleAccess } from '../../common/decorators/module-access.decorator';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
+import { WriteRoleGuard } from '../../common/guards/write-role.guard';
+import { WriteRoles } from '../../common/decorators/write-roles.decorator';
 
 /**
  * 电源回路 CRUD + 通断.
  *
  * 读 (list/detail): 不要 token, 业主前台 PowerPage 拉这个 (含实时电流/电压/功率/电量)
- * 写 (create/update/delete): 后台 admin
- * 通断 (on/off): RateLimit 限速 (跟 lighting 一样, 防双击)
+ * 写 (create/update/delete/rename): 后台 zones 模块（2026-10-16 起仅 admin）
+ * 通断 (on/off): admin + hardware（设备管理员在「自动开关」页手动合闸/分闸测试），限速防双击
+ * 时序器全开/全关 (sequencer): 仅 admin（批量上下电，高风险）
  */
 @Controller('power-circuits')
 export class PowerCircuitsController {
@@ -42,18 +45,20 @@ export class PowerCircuitsController {
   // ============ 时序器 (EPO-802P) ============
   // ⚠️ 路由顺序: 'sequencer/*' 必须声明在 ':id' 参数路由之前, 否则被 ParseIntPipe 吃掉 400。
 
-  /** 时序开机 (b3 全开) — 设备按各路延时 1,3,..15s 依次上电, 保护功放 */
+  /** 时序开机 (b3 全开) — 设备按各路延时 1,3,..15s 依次上电, 保护功放；仅 admin */
   @Post('sequencer/all-on')
-  @UseGuards(RateLimitGuard)
+  @UseGuards(RateLimitGuard, WriteRoleGuard)
+  @WriteRoles('admin')
   @RateLimit({ max: 2, windowMs: 3000 })
   async seqAllOn() {
     await this.service.sequencerAll(true);
     return { message: '时序开机已下发, 各路按延时依次上电', data: { on: true } };
   }
 
-  /** 时序关机 (b3 全关) — 先开的后关, 按 15,13,..1s 依次断电 */
+  /** 时序关机 (b3 全关) — 先开的后关, 按 15,13,..1s 依次断电；仅 admin */
   @Post('sequencer/all-off')
-  @UseGuards(RateLimitGuard)
+  @UseGuards(RateLimitGuard, WriteRoleGuard)
+  @WriteRoles('admin')
   @RateLimit({ max: 2, windowMs: 3000 })
   async seqAllOff() {
     await this.service.sequencerAll(false);
@@ -109,14 +114,16 @@ export class PowerCircuitsController {
   // ============ 通断 (限速) ============
 
   @Post(':id/on')
-  @UseGuards(RateLimitGuard)
+  @UseGuards(RateLimitGuard, WriteRoleGuard)
+  @WriteRoles('admin', 'hardware')
   @RateLimit({ max: 4, windowMs: 1000 })
   async on(@Param('id', ParseIntPipe) id: number) {
     return { message: '通电成功', data: await this.service.turnOn(id) };
   }
 
   @Post(':id/off')
-  @UseGuards(RateLimitGuard)
+  @UseGuards(RateLimitGuard, WriteRoleGuard)
+  @WriteRoles('admin', 'hardware')
   @RateLimit({ max: 4, windowMs: 1000 })
   async off(@Param('id', ParseIntPipe) id: number) {
     return { message: '断电成功', data: await this.service.turnOff(id) };

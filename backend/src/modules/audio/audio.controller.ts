@@ -5,6 +5,8 @@ import { AudioAdapter } from '../../adapters/audio/audio.adapter';
 import { OperationLogService } from '../logs/operation-log.service';
 import { AudioConfigService } from '../audio-config/audio-config.service';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
+import { WriteRoleGuard } from '../../common/guards/write-role.guard';
+import { WriteRoles } from '../../common/decorators/write-roles.decorator';
 import { AudioBgmDto, AudioMatrixDto, AudioMicDto, AudioMuteDto, AudioVolumeDto } from './dto/audio.dto';
 import { AdapterResult } from '../../adapters/adapter.types';
 import { AudioReconcilerService } from './audio-reconciler.service';
@@ -15,8 +17,11 @@ import { AudioInputSource } from '../../entities/audio-input-source.entity';
 import { percentToDb } from '../../adapters/audio/ekx808-protocol';
 
 // 音量滑条会拖出连续命令, 6 次/秒/客户端给点余量
+// 2026-10-16：音频为设备实体控制（含一键场景/全场静音/音量/矩阵），写操作仅 admin；
+// 误触「全场静音」事故后收敛，operator/hardware/config 一律 403。GET 状态读取仍放行。
 @Controller('audio')
-@UseGuards(RateLimitGuard)
+@UseGuards(RateLimitGuard, WriteRoleGuard)
+@WriteRoles('admin')
 @RateLimit({ max: 6, windowMs: 1000 })
 export class AudioController implements OnModuleInit, OnModuleDestroy {
   constructor(

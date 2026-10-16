@@ -29,9 +29,11 @@ test('admin manifest preserves every route exactly once with explicit access met
   assert.equal(new Set(names).size, names.length);
   assert.equal(new Set(paths).size, paths.length);
   const MODULES = [
-    'monitor', 'alerts', 'scenes', 'scheduler', 'energy', 'devices', 'hardware',
+    'monitor', 'alerts', 'scenes', 'scheduler', 'energy', 'power-timing', 'devices', 'hardware',
     'zones', 'video', 'lpr', 'diagnostics', 'uat', 'metrics', 'branding', 'app-release', 'system',
   ];
+  // 2026-10-16：自动开关/定时通断归入 power-timing（hardware 唯一保留写权限）。
+  assert.equal(routes.find(route => route.name === 'admin-auto-switch').module, 'power-timing');
   // 非自助页必须归属一个已知分域；self 自助页不占模块。
   assert.ok(routes.every(route => (route.self ? route.module === undefined : MODULES.includes(route.module))));
   assert.ok(routes.every(route => typeof route.load === 'function'));

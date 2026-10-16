@@ -37,6 +37,7 @@ import {
 import { usePlaybackStore } from '@/stores/playback';
 import { publishWelcome } from '@/services/playback.service';
 import { useAdminUnlock } from '@/composables/useAdminUnlock';
+import { usePermissionStore } from '@/stores/permission';
 import { useWelcomeEditor } from '@/composables/useWelcomeEditor';
 import { usePlayerInputSources } from '@/composables/usePlayerInputSources';
 import { usePlayerPlaylist } from '@/composables/usePlayerPlaylist';
@@ -74,7 +75,7 @@ const props = defineProps<{
 }>();
 const SLOT = computed(() => props.slot);
 
-const router = useRouter();
+const router = useRouter(); const perm = usePermissionStore(); // 播控 admin/operator；viewer 只读
 function goBack(): void { router.push({ name: 'dashboard' }); }
 
 const { ensureAdmin, ensureContentEditor } = useAdminUnlock();
@@ -270,14 +271,14 @@ const {
 </script>
 
 <template>
-  <section class="led-page">
+  <section class="led-page" :class="{ 'device-readonly': !perm.canExecute }">
     <!-- 播放器区置顶固定 (2026-07-25 业主): 头部+报警+正在播放 钉住, 列表在下面滚 -->
     <div class="pc-sticky">
     <header class="led-head">
       <button class="v2-back-btn" @click="goBack" title="返回首页">
         <ArrowLeft :size="18" :stroke-width="2" />
       </button>
-      <div class="led-title"><MonitorPlay :size="18" :stroke-width="1.8" /> {{ title }}</div>
+      <div class="led-title"><MonitorPlay :size="18" :stroke-width="1.8" /> {{ title }}<span v-if="!perm.canExecute" class="device-readonly-chip">只读</span></div>
       <span class="led-state" :class="{ on: ch?.occupied, off: !ch?.occupied }">
         {{ ch?.occupied ? (ch.paused ? '已暂停' : '播放中') : '待机' }}
       </span>

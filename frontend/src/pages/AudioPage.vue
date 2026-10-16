@@ -6,6 +6,7 @@ import {
   ArrowLeft, Speaker, Volume2, Play, Sparkles, Music, Square, Pause,
   SkipBack, SkipForward, Shuffle, Repeat, Repeat1, ListMusic, Trash2, Pencil } from 'lucide-vue-next';
 import { useAdminUnlock } from '@/composables/useAdminUnlock';
+import { usePermissionStore } from '@/stores/permission';
 import { useAudioPlaylist } from '@/composables/useAudioPlaylist';
 import { useAudioInputs } from '@/composables/useAudioInputs';
 import { useAudioMatrix } from '@/composables/useAudioMatrix';
@@ -19,6 +20,7 @@ import {
 
 const router = useRouter();
 const route = useRoute();
+const perm = usePermissionStore();
 const { ensureAdmin } = useAdminUnlock();
 const {
   channels,
@@ -202,14 +204,14 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
 </script>
 
 <template>
-  <section class="v2-page">
+  <section class="v2-page" :class="{ 'device-readonly': !perm.canEdit }">
     <header class="v2-page-head">
       <div class="back-row">
         <button class="v2-back-btn" @click="goBack" title="返回首页">
           <ArrowLeft :size="18" :stroke-width="2" />
         </button>
         <div class="title-block">
-          <div class="title"><Speaker :size="18" :stroke-width="1.8" /> 音响控制</div>
+          <div class="title"><Speaker :size="18" :stroke-width="1.8" /> 音响控制<span v-if="!perm.canEdit" class="device-readonly-chip">只读</span></div>
         </div>
         <div class="v2-tabs">
           <button class="v2-tab" :class="{ active: audioTab === 'scene' }" @click="audioTab = 'scene'">一键场景</button>

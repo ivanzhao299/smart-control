@@ -14,6 +14,8 @@ import { ScenesService } from './scenes.service';
 import { UseGuards } from '@nestjs/common';
 import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
 import { ModuleAccess } from '../../common/decorators/module-access.decorator';
+import { WriteRoleGuard } from '../../common/guards/write-role.guard';
+import { WriteRoles } from '../../common/decorators/write-roles.decorator';
 import { CreateSceneDto } from './dto/create-scene.dto';
 import { UpdateSceneDto } from './dto/update-scene.dto';
 import { QuerySceneDto } from './dto/query-scene.dto';
@@ -63,7 +65,11 @@ export class ScenesController {
     return { message: '删除成功', data: null };
   }
 
+  // 前台首页场景键执行/停止/取消：展厅操作员的保留项，限 admin/operator；
+  // hardware/config 不播控。后台「测试执行」走下方 :code/test（ModuleAccess('scenes')）。
   @Post(':code/execute')
+  @UseGuards(WriteRoleGuard)
+  @WriteRoles('admin', 'operator')
   @HttpCode(202)
   async execute(@Param('code') code: string) {
     const data = await this.engine.execute(code);
@@ -71,6 +77,8 @@ export class ScenesController {
   }
 
   @Post(':code/stop')
+  @UseGuards(WriteRoleGuard)
+  @WriteRoles('admin', 'operator')
   @HttpCode(200)
   async stop(@Param('code') code: string) {
     const data = await this.engine.stop(code);
@@ -78,6 +86,8 @@ export class ScenesController {
   }
 
   @Post(':code/cancel')
+  @UseGuards(WriteRoleGuard)
+  @WriteRoles('admin', 'operator')
   @HttpCode(200)
   async cancel(@Param('code') code: string) {
     const data = await this.engine.cancel(code);

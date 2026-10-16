@@ -1,4 +1,6 @@
 import { ActorAdminGuard } from '../../common/guards/actor-admin.guard';
+import { WriteRoleGuard } from '../../common/guards/write-role.guard';
+import { WriteRoles } from '../../common/decorators/write-roles.decorator';
 import { UseGuards } from '@nestjs/common';
 import {
   BadRequestException,
@@ -18,10 +20,14 @@ import { DaliLightsService, LightCmd } from './dali-lights.service';
 /**
  * DALI 单灯管理 API —— 现场调试/命名/分组/场景。
  *
- * 日常控制允许operator；扫描、诊断、命名、编组和共享场景定义仅管理员。
+ * 2026-10-16 第二轮最小权限收敛：DALI 灯光属设备实体控制，所有写操作（含分区控制
+ * controlZone、场景召回 recallScene，以及扫描/诊断/命名/编组/共享场景）一律仅 admin；
+ * 首页场景执行经 SceneEngine 服务层触发 DALI（不走本 HTTP），operator 执行场景不受影响。
  * 物理接触或局域网地址不能替代服务端角色验证。
  */
 @Controller('dali-lights')
+@UseGuards(WriteRoleGuard)
+@WriteRoles('admin')
 export class DaliLightsController {
   constructor(private readonly service: DaliLightsService) {}
 

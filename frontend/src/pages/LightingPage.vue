@@ -7,6 +7,7 @@ import { lightingService } from '@/services/lighting.service';
 import { runLightingCommand } from '@/services/lighting-command-journey';
 import { api } from '@/services/http';
 import { useAdminUnlock } from '@/composables/useAdminUnlock';
+import { usePermissionStore } from '@/stores/permission';
 import {
   lightZonesService,
   type LightZoneView,
@@ -34,6 +35,7 @@ interface ZoneRow {
 // ============ 数据源: 分区列表 + 每区单灯计数 (成员归属在单灯页管理) ============
 interface DaliLightLite { zoneCode: string | null }
 const { ensureAdmin } = useAdminUnlock();
+const perm = usePermissionStore();
 const zones = ref<ZoneRow[]>([]);
 const lightCountByZone = ref<Map<string, number>>(new Map());
 const totalLights = ref<number>(0);
@@ -310,7 +312,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 </script>
 
 <template>
-  <section class="v2-page">
+  <section class="v2-page" :class="{ 'device-readonly': !perm.canEdit }">
     <!-- 页面头部 -->
     <header class="v2-page-head">
       <div class="back-row">
@@ -318,7 +320,7 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
           <ArrowLeft :size="18" :stroke-width="2" />
         </button>
         <div class="title-block">
-          <div class="title"><Lightbulb :size="18" :stroke-width="1.8" /> 灯光控制</div>
+          <div class="title"><Lightbulb :size="18" :stroke-width="1.8" /> 灯光控制<span v-if="!perm.canEdit" class="device-readonly-chip">只读</span></div>
         </div>
       </div>
       <div class="quick-actions">

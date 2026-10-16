@@ -27,9 +27,10 @@ import { useAdminAuthStore } from '@/stores/admin-auth';
 import {
   idleMainRouteNames,
   loadMainRoute,
-  mainNavigationItems,
+  mainNavigationItemsForRole,
   mainRoutePrefetchApis,
 } from '@/router/main-route-manifest';
+import { usePermissionStore } from '@/stores/permission';
 
 const route = useRoute();
 const router = useRouter();
@@ -230,18 +231,22 @@ const fsSupported = fs.isSupported;
 function toggleFullscreen(): void { void fs.toggle(); }
 
 // v2 侧导航 - 只 icon (跟 mockup 一致), title 给 hover tooltip
-const navItems = [
-  ...mainNavigationItems,
-  { name: 'admin-devices', label: '后台', section: 'tools' as const },
-];
-const mainNavs = navItems.filter((n) => n.section === 'main');
-const toolNavs = navItems.filter((n) => n.section === 'tools');
+// 2026-10-16：前台导航按角色过滤（mainNavigationItemsForRole）；「后台」入口仅可登录后台
+// 的角色（admin/hardware/config/operator，viewer 只读账户不显示）。
+const perm = usePermissionStore();
+const navItems = computed(() => {
+  const items = [...mainNavigationItemsForRole(perm.role)];
+  if (perm.isBackend) items.push({ name: 'admin-devices', label: '后台', section: 'tools' as const });
+  return items;
+});
+const mainNavs = computed(() => navItems.value.filter((n) => n.section === 'main'));
+const toolNavs = computed(() => navItems.value.filter((n) => n.section === 'tools'));
 /**
  * 2026-07-27 业主: "平板打开页面时侧边栏按钮图标放不开, 去掉状态按钮、状态放到其他位置"。
  * 侧栏 (平板/主控机) 不再列「状态」—— 入口挪到首页顶栏右侧的心电图标按钮 (go('status'))。
  * 手机底栏的「更多」抽屉保留全量 toolNavs, 状态仍在里面。
  */
-const sideToolNavs = toolNavs.filter((n) => n.name !== 'status');
+const sideToolNavs = computed(() => toolNavs.value.filter((n) => n.name !== 'status'));
 
 /**
  * 手机竖屏: 底栏只放 main (6 个) + 一个「更多」, tools 收进抽屉。
@@ -293,7 +298,7 @@ async function logout(): Promise<void> {
   await router.replace({ name: 'client-login' });
 }
 /** 当前页在「更多」里时, 让「更多」按钮也高亮 —— 否则点进去后底栏没有任何选中态 */
-const moreActive = computed(() => toolNavs.some((n) => n.name === route.name));
+const moreActive = computed(() => toolNavs.value.some((n) => n.name === route.name));
 
 /**
  * 「更多」抽屉图标专属色 (2026-07-27 业主: "色彩层次不够鲜明, 灰不拉几")。

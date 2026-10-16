@@ -18,6 +18,8 @@ import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
 import { ModuleAccess } from '../../common/decorators/module-access.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { WriteRoleGuard } from '../../common/guards/write-role.guard';
+import { WriteRoles } from '../../common/decorators/write-roles.decorator';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { Public } from '../../common/decorators/public.decorator';
 import { LprService } from './lpr.service';
@@ -49,10 +51,10 @@ export class LprController {
     return { message: '查询成功', data: await this.service.listDevices() };
   }
 
-  /** 管理员设备列表：含相机 web 后台账号/口令（公开 devices 接口不返回这些） */
+  /** 管理员设备列表：含相机 web 后台账号/口令（公开 devices 接口不返回这些）；2026-10-16 起仅 admin */
   @Get('admin/devices')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'hardware')
+  @Roles('admin')
   async adminDevices() {
     return { message: '查询成功', data: await this.service.listDevicesAdmin() };
   }
@@ -150,9 +152,10 @@ export class LprController {
     return { message: '已删除', data: null };
   }
 
-  /** 远程手动开闸 (comet 方案 A): 相机在线立即下发, 否则排队等下一次通讯 */
+  /** 远程手动开闸 (comet 方案 A): 相机在线立即下发, 否则排队等下一次通讯；2026-10-16 起仅 admin */
   @Post('gate/open')
-  @UseGuards(RateLimitGuard)
+  @UseGuards(RateLimitGuard, WriteRoleGuard)
+  @WriteRoles('admin')
   @RateLimit({ max: 6, windowMs: 5000 })
   @HttpCode(200)
   async openGate(@Body() dto: GateOpenDto, @Req() req: Request) {
@@ -168,7 +171,8 @@ export class LprController {
    * 未配置关闸 IO 的通道后端返回 400 明确提示; 同样限速防双击 + 审计 + comet 下发。
    */
   @Post('gate/close')
-  @UseGuards(RateLimitGuard)
+  @UseGuards(RateLimitGuard, WriteRoleGuard)
+  @WriteRoles('admin')
   @RateLimit({ max: 6, windowMs: 5000 })
   @HttpCode(200)
   async closeGate(@Body() dto: GateCloseDto, @Req() req: Request) {

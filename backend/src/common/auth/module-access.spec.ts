@@ -9,10 +9,12 @@ import {
 import { MODULE_ACCESS_KEY } from '../decorators/module-access.decorator';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { WRITE_ROLES_KEY } from '../decorators/write-roles.decorator';
 import { ModuleAccessGuard } from '../guards/module-access.guard';
 import { ActorAdminGuard } from '../guards/actor-admin.guard';
 import { RolesGuard } from '../guards/roles.guard';
 import { RateLimitGuard } from '../guards/rate-limit.guard';
+import { WriteRoleGuard } from '../guards/write-role.guard';
 import { AdminGuard } from '../../modules/admin-auth/admin-auth.guard';
 import { DevicesController } from '../../modules/devices/devices.controller';
 import { HardwareController } from '../../modules/hardware/hardware.controller';
@@ -27,91 +29,108 @@ import { UatController } from '../../modules/uat/uat.controller';
 import { SchedulerController } from '../../modules/scheduler/scheduler.controller';
 import { AudioConfigController } from '../../modules/audio-config/audio-config.controller';
 import { EnergyController } from '../../modules/energy/energy.controller';
+import { AudioController } from '../../modules/audio/audio.controller';
+import { LightingController } from '../../modules/lighting/lighting.controller';
+import { LedController } from '../../modules/led/led.controller';
+import { ProjectorController } from '../../modules/projector/projector.controller';
+import { HvacController } from '../../modules/hvac/hvac.controller';
+import { DaliLightsController } from '../../modules/dali-lights/dali-lights.controller';
 import { PowerCircuitsController } from '../../modules/power-circuits/power-circuits.controller';
 import { PowerSchedulesController } from '../../modules/power-schedules/power-schedules.controller';
 import { LightZonesController } from '../../modules/light-zones/light-zones.controller';
+import { AlertController } from '../../modules/alerts/alert.controller';
 import { AuditController } from '../../modules/audit/audit.controller';
 import { LprController } from '../../modules/lpr/lpr.controller';
 import { SystemBrandingController } from '../../modules/system-branding/system-branding.controller';
 import { AppReleaseController } from '../../modules/app-release/app-release.controller';
 
-describe('RBAC module matrix', () => {
-  it('admin always has full access', () => {
-    const modules: AdminModule[] = [
-      'monitor', 'alerts', 'scenes', 'scheduler', 'energy', 'devices', 'hardware',
-      'zones', 'video', 'lpr', 'diagnostics', 'uat', 'metrics', 'branding', 'app-release', 'system',
-    ];
-    for (const m of modules) {
+const ALL_MODULES: AdminModule[] = [
+  'monitor', 'alerts', 'scenes', 'scheduler', 'energy', 'power-timing',
+  'devices', 'hardware', 'zones', 'video', 'lpr', 'diagnostics', 'uat',
+  'metrics', 'branding', 'app-release', 'system',
+];
+
+describe('RBAC module matrix (2026-10-16 least-privilege)', () => {
+  it('admin always has full access to all 17 modules', () => {
+    for (const m of ALL_MODULES) {
       expect(canWriteModule('admin', m)).toBe(true);
       expect(canReadModule('admin', m)).toBe(true);
       expect(canAccessModule('admin', m)).toBe(true);
     }
   });
 
-  it('hardware can write hardware modules but not config modules', () => {
-    for (const m of ['devices', 'hardware', 'zones', 'video', 'lpr', 'diagnostics', 'uat'] as AdminModule[]) {
-      expect(canWriteModule('hardware', m)).toBe(true);
-    }
-    for (const m of ['alerts', 'scenes', 'scheduler', 'energy', 'metrics', 'branding'] as AdminModule[]) {
+  it('hardware only keeps power-timing write + monitor read-only', () => {
+    // 唯一保留写权限：电源自动开关/定时通断（调设备时间）。
+    expect(canWriteModule('hardware', 'power-timing')).toBe(true);
+    // 监控总览只读（保留运行态势）。
+    expect(canReadModule('hardware', 'monitor')).toBe(true);
+    expect(canAccessModule('hardware', 'monitor')).toBe(true);
+    // 其余设备/硬件/分区/道闸/调试/诊断/能源全部收归 admin。
+    for (const m of [
+      'devices', 'hardware', 'zones', 'video', 'lpr', 'diagnostics',
+      'uat', 'energy', 'alerts', 'scenes', 'scheduler', 'metrics',
+      'branding', 'system', 'app-release',
+    ] as AdminModule[]) {
       expect(canWriteModule('hardware', m)).toBe(false);
       expect(canAccessModule('hardware', m)).toBe(false);
     }
-    // 系统类对硬件工程师完全隐藏
-    expect(canAccessModule('hardware', 'system')).toBe(false);
-    // 硬件工程师可读公共排查页
-    expect(canReadModule('hardware', 'monitor')).toBe(true);
-    expect(canReadModule('hardware', 'diagnostics')).toBe(true);
-    // 测试/调试(UAT)硬件工程师可见可写
-    expect(canWriteModule('hardware', 'uat')).toBe(true);
-    expect(canAccessModule('hardware', 'uat')).toBe(true);
-    // APP 版本：硬件工程师只读核对（现场判断手机 App 是否最新），不能改
-    expect(canReadModule('hardware', 'app-release')).toBe(true);
-    expect(canWriteModule('hardware', 'app-release')).toBe(false);
+    // 系统/品牌/调试/诊断类对硬件工程师完全隐藏。
+    expect(canReadModule('hardware', 'system')).toBe(false);
+    expect(canReadModule('hardware', 'branding')).toBe(false);
+    expect(canReadModule('hardware', 'diagnostics')).toBe(false);
+    expect(canReadModule('hardware', 'uat')).toBe(false);
+    // APP 版本不再对硬件工程师只读（其后台只剩自动开关 + 监控总览）。
+    expect(canReadModule('hardware', 'app-release')).toBe(false);
   });
 
-  it('config can write config modules but not hardware modules', () => {
-    for (const m of ['alerts', 'scenes', 'scheduler', 'energy', 'metrics'] as AdminModule[]) {
+  it('config keeps operational content (scenes/scheduler/alerts/metrics/app-release), energy is reclaimed by admin', () => {
+    for (const m of ['alerts', 'scenes', 'scheduler', 'metrics', 'app-release'] as AdminModule[]) {
       expect(canWriteModule('config', m)).toBe(true);
       expect(canAccessModule('config', m)).toBe(true);
     }
-    // 品牌管理仅管理员：config 不可见、不可写（欢迎页内容编辑走独立 RolesGuard，不在此模块）
+    // 能源台账/电表/变压器工程配置收归 admin。
+    expect(canWriteModule('config', 'energy')).toBe(false);
+    expect(canAccessModule('config', 'energy')).toBe(false);
+    // 品牌仅 admin。
     expect(canWriteModule('config', 'branding')).toBe(false);
     expect(canAccessModule('config', 'branding')).toBe(false);
-    // hardware 同样看不到品牌管理
-    expect(canWriteModule('hardware', 'branding')).toBe(false);
-    expect(canAccessModule('hardware', 'branding')).toBe(false);
-    for (const m of ['devices', 'hardware', 'zones', 'video', 'lpr', 'uat'] as AdminModule[]) {
+    // 硬件类全部不可见。
+    for (const m of ['devices', 'hardware', 'zones', 'video', 'lpr', 'power-timing', 'uat'] as AdminModule[]) {
       expect(canWriteModule('config', m)).toBe(false);
       expect(canAccessModule('config', m)).toBe(false);
     }
-    // config 可读日志/监控, 但不能写调试
-    expect(canReadModule('config', 'diagnostics')).toBe(true);
-    expect(canWriteModule('config', 'diagnostics')).toBe(false);
-    // 测试/调试(UAT)是硬件动作页, 不给 config 只读, 直接隐藏
+    // 诊断/测试收归 admin。
+    expect(canReadModule('config', 'diagnostics')).toBe(false);
     expect(canReadModule('config', 'uat')).toBe(false);
-    expect(canAccessModule('config', 'uat')).toBe(false);
-    // APP 版本：config 可改运营开关（版本号/下载地址由 controller 层硬隔离给 admin/CI）
-    expect(canWriteModule('config', 'app-release')).toBe(true);
-    expect(canAccessModule('config', 'app-release')).toBe(true);
     expect(canAccessModule('config', 'system')).toBe(false);
+    // 监控总览对 config 只读。
+    expect(canReadModule('config', 'monitor')).toBe(true);
   });
 
-  it('operator/viewer cannot write backend modules and are kept out of restricted reads', () => {
+  it('operator/viewer cannot write any backend module; operator only reads app-release', () => {
     for (const role of ['operator', 'viewer'] as const) {
-      for (const m of ['devices', 'scenes', 'energy', 'zones', 'lpr', 'branding', 'metrics'] as AdminModule[]) {
+      for (const m of ALL_MODULES) {
         expect(canWriteModule(role, m)).toBe(false);
       }
-      // 后台专属只读（调度/日志/测试）不放前台角色
-      expect(canReadModule(role, 'scheduler')).toBe(false);
-      expect(canReadModule(role, 'diagnostics')).toBe(false);
-      expect(canReadModule(role, 'uat')).toBe(false);
+      // 后台专属只读（调度/日志/测试/品牌/系统）不放前台角色。
+      for (const m of ['scheduler', 'diagnostics', 'uat', 'branding', 'system', 'app-release'] as AdminModule[]) {
+        expect(canReadModule(role, m)).toBe(m === 'app-release' && role === 'operator');
+      }
     }
-    // operator 对 app-release 只读（下载 APK），viewer 仍无权。
+    // operator 对 app-release 只读（下载 APK + 改密码是其后台仅有的动作）。
     expect(canReadModule('operator', 'app-release')).toBe(true);
+    expect(canAccessModule('operator', 'app-release')).toBe(true);
     expect(canReadModule('viewer', 'app-release')).toBe(false);
-    // 前台共用读（readRestricted=false）仍放行登录角色, 避免 PWA 被破坏
-    expect(canReadModule('operator', 'devices')).toBe(true);
+  });
+
+  it('front-stage shared reads stay open when readRestricted is not set', () => {
+    // 能源/设备/监控前台共用读：任何登录角色（含 viewer）都可读，运营大屏不被破坏。
     expect(canReadModule('viewer', 'energy')).toBe(true);
+    expect(canReadModule('operator', 'devices')).toBe(true);
+    expect(canReadModule('viewer', 'monitor')).toBe(true);
+    // power-timing 是后台专属分域（默认无 readRestricted，但无 read 角色，菜单不可见）。
+    expect(canAccessModule('hardware', 'power-timing')).toBe(true);
+    expect(canAccessModule('config', 'power-timing')).toBe(false);
   });
 });
 
@@ -120,6 +139,12 @@ describe('RBAC controller bindings', () => {
     (Reflect.getMetadata(GUARDS_METADATA, controller) as unknown[]) ?? [];
   const classModule = (controller: Function) =>
     Reflect.getMetadata(MODULE_ACCESS_KEY, controller) as AdminModule | undefined;
+  const classWriteRoles = (controller: Function) =>
+    Reflect.getMetadata(WRITE_ROLES_KEY, controller) as string[] | undefined;
+  const methodGuards = (proto: any, name: string) =>
+    (Reflect.getMetadata(GUARDS_METADATA, proto[name]) ?? []) as unknown[];
+  const methodWriteRoles = (proto: any, name: string) =>
+    Reflect.getMetadata(WRITE_ROLES_KEY, proto[name]) as string[] | undefined;
 
   it.each([
     [DevicesController, 'devices'],
@@ -137,7 +162,7 @@ describe('RBAC controller bindings', () => {
     expect(classModule(controller)).toBe(module);
   });
 
-  // 这几个控制器与前台 PWA 共用读（部分 @Public），写守卫在方法级声明。
+  // 方法级 ModuleAccess 收集（CRUD/处置端点）。
   const boundModules = (controller: unknown): Set<AdminModule> => {
     const set = new Set<AdminModule>();
     const proto = (controller as any).prototype;
@@ -152,40 +177,119 @@ describe('RBAC controller bindings', () => {
     }
     return set;
   };
-  it.each([
-    [AudioConfigController, 'zones'],
-    [EnergyController, 'energy'],
-    [PowerCircuitsController, 'zones'],
-    [LightZonesController, 'zones'],
-    [AppReleaseController, 'app-release'],
-  ] as const)('guards write methods of %p with ModuleAccessGuard(%s)', (controller, module) => {
-    expect(boundModules(controller).has(module)).toBe(true);
+
+  it('governs power-schedules writes by power-timing only (hardware)', () => {
+    // 第二轮收敛：自动开关/定时通断统一收归 power-timing，写权限给 hardware。
+    expect(boundModules(PowerSchedulesController)).toEqual(new Set<AdminModule>(['power-timing']));
+    expect(classModule(PowerSchedulesController)).toBeUndefined();
+  });
+
+  it('keeps zones CRUD (power circuits / light zones / audio config) under ModuleAccess(zones)', () => {
+    expect(boundModules(PowerCircuitsController).has('zones')).toBe(true);
+    expect(boundModules(LightZonesController).has('zones')).toBe(true);
+    expect(boundModules(AudioConfigController).has('zones')).toBe(true);
+    // 灯光分区类级也收口。
+    expect(classGuards(LightZonesController)).toContain(ModuleAccessGuard);
+    expect(classModule(LightZonesController)).toBe('zones');
+  });
+
+  it('locks alert handling to ModuleAccess(alerts)', () => {
+    expect(classGuards(AlertController)).toContain(ModuleAccessGuard);
+    expect(classModule(AlertController)).toBe('alerts');
+  });
+
+  it('restricts device entity controllers to admin via class-level WriteRoleGuard', () => {
+    // 音响 / 灯光 / LED / 空调 / DALI：类级写仅 admin（误触全场静音事故后收口）。
+    for (const c of [AudioController, LightingController, LedController, HvacController, DaliLightsController]) {
+      expect(classGuards(c)).toContain(WriteRoleGuard);
+      expect(classWriteRoles(c)).toEqual(['admin']);
+    }
+  });
+
+  it('opens projector playback to admin/operator at class level', () => {
+    expect(classGuards(ProjectorController)).toContain(WriteRoleGuard);
+    expect(classWriteRoles(ProjectorController)).toEqual(['admin', 'operator']);
+  });
+
+  it('keeps LED welcome available to operators while class is admin-only', () => {
+    // welcome 复用类级 WriteRoleGuard（无需重复 @UseGuards），仅用方法级 @WriteRoles 覆盖角色。
+    expect(classGuards(LedController)).toContain(WriteRoleGuard);
+    expect(classWriteRoles(LedController)).toEqual(['admin']);
+    const proto = LedController.prototype as any;
+    expect(methodWriteRoles(proto, 'welcome')).toEqual(['admin', 'operator']);
+  });
+
+  it('allows power-circuit on/off to admin+hardware but sequencer and CRUD stay admin/zones', () => {
+    const proto = PowerCircuitsController.prototype as any;
+    // 单路手动通断：admin + hardware（设备测试）。
+    expect(methodGuards(proto, 'on')).toContain(WriteRoleGuard);
+    expect(methodWriteRoles(proto, 'on')).toEqual(['admin', 'hardware']);
+    expect(methodGuards(proto, 'off')).toContain(WriteRoleGuard);
+    expect(methodWriteRoles(proto, 'off')).toEqual(['admin', 'hardware']);
+    // 时序器一键全开/全关：仅 admin。
+    expect(methodWriteRoles(proto, 'seqAllOn')).toEqual(['admin']);
+    expect(methodWriteRoles(proto, 'seqAllOff')).toEqual(['admin']);
+    // 回路 CRUD 归 zones（仅 admin，矩阵 zones.write 为空）。
+    expect(boundModules(PowerCircuitsController).has('zones')).toBe(true);
+  });
+
+  it('guards scene config CRUD to ModuleAccess(scenes) but execute/stop/cancel to admin/operator', () => {
+    const proto = ScenesController.prototype as any;
+    for (const name of ['create', 'update', 'remove', 'testExecute']) {
+      expect(methodGuards(proto, name)).toContain(ModuleAccessGuard);
+      expect(Reflect.getMetadata(MODULE_ACCESS_KEY, proto[name])).toBe('scenes');
+    }
+    for (const name of ['execute', 'stop', 'cancel']) {
+      expect(methodGuards(proto, name)).toContain(WriteRoleGuard);
+      expect(methodWriteRoles(proto, name)).toEqual(['admin', 'operator']);
+    }
+  });
+
+  it('locks LPR gate open/close and admin device list to admin, keeps CRUD under ModuleAccess(lpr)', () => {
+    const proto = LprController.prototype as any;
+    for (const name of ['openGate', 'closeGate']) {
+      expect(methodGuards(proto, name)).toContain(WriteRoleGuard);
+      expect(methodWriteRoles(proto, name)).toEqual(['admin']);
+    }
+    // 含相机后台口令的管理列表：仅 admin。
+    expect(methodGuards(proto, 'adminDevices')).toContain(RolesGuard);
+    expect(Reflect.getMetadata(ROLES_KEY, proto.adminDevices)).toEqual(['admin']);
+    // 平台/设备/白名单 CRUD 归 lpr 模块（矩阵 lpr.write 为空，仅 admin）。
+    expect(boundModules(LprController).has('lpr')).toBe(true);
   });
 
   it('app release admin endpoints drop AdminGuard for module-scoped access while public download/latest stay open', () => {
     const proto = AppReleaseController.prototype as any;
-    // 后台管理端点（list/detail/upsert）改用分域守卫，不再仅 admin
     for (const name of ['list', 'detail', 'upsert']) {
-      const guards = (Reflect.getMetadata(GUARDS_METADATA, proto[name]) ?? []) as unknown[];
+      const guards = methodGuards(proto, name);
       expect(guards).toContain(ModuleAccessGuard);
       expect(guards).not.toContain(AdminGuard);
       expect(Reflect.getMetadata(MODULE_ACCESS_KEY, proto[name])).toBe('app-release');
     }
-    // 终端下载与版本检测保持公开
     expect(Reflect.getMetadata(IS_PUBLIC_KEY, proto.download)).toBe(true);
     expect(Reflect.getMetadata(IS_PUBLIC_KEY, proto.latest)).toBe(true);
   });
 
-  it('governs power-schedules writes by BOTH energy (config) and zones (hardware)', () => {
-    // 同一套回路自动开关规则：config 从「自动开关」(energy) 配、hardware 从「电源回路」(zones) 配。
-    expect(boundModules(PowerSchedulesController)).toEqual(new Set<AdminModule>(['energy', 'zones']));
+  it('keeps system-only controllers under admin guard', () => {
+    expect(classGuards(AuditController)).toContain(ActorAdminGuard);
   });
 
-  it('grants multi-module writes when the role can write ANY listed module (OR)', async () => {
+  it('keeps park-ops layout and brand body admin-only, while welcome editing stays open to operators/config', () => {
+    const proto = SystemBrandingController.prototype as any;
+    expect(methodGuards(proto, 'updateParkOps')).toContain(AdminGuard);
+    expect(methodGuards(proto, 'update')).toContain(ModuleAccessGuard);
+    expect(Reflect.getMetadata(MODULE_ACCESS_KEY, proto.update)).toBe('branding');
+    expect(methodGuards(proto, 'removeWelcomeAsset')).toContain(RolesGuard);
+    expect(Reflect.getMetadata(ROLES_KEY, proto.removeWelcomeAsset)).toEqual([
+      'admin',
+      'operator',
+      'config',
+    ]);
+  });
+
+  it('grants module-scoped access when the role can write the listed module', async () => {
     const mkGuard = (modules: AdminModule | AdminModule[], role: string, method = 'POST') => {
-      const reflector = {
-        getAllAndOverride: () => modules,
-      } as any;
+      const reflector = { getAllAndOverride: () => modules } as any;
       const moduleRef = { get: () => null } as any;
       const ctx = {
         getHandler: () => ({}),
@@ -196,69 +300,63 @@ describe('RBAC controller bindings', () => {
       } as any;
       return new ModuleAccessGuard(reflector, moduleRef).canActivate(ctx);
     };
+    // hardware 可写 power-timing。
+    await expect(mkGuard('power-timing', 'hardware')).resolves.toBe(true);
+    // config 可写 scenes。
+    await expect(mkGuard('scenes', 'config')).resolves.toBe(true);
+    // admin 全通。
+    await expect(mkGuard('power-timing', 'admin')).resolves.toBe(true);
+    // config 不能写 power-timing、hardware 不能写 scenes。
+    await expect(mkGuard('power-timing', 'config')).rejects.toThrow();
+    await expect(mkGuard('scenes', 'hardware')).rejects.toThrow();
+    // operator/viewer 一律拒。
+    await expect(mkGuard('power-timing', 'operator')).rejects.toThrow();
+    await expect(mkGuard('power-timing', 'viewer')).rejects.toThrow();
+  });
+});
 
-    // hardware 不能写 energy，但能写 zones → 双模块 OR 放行
-    await expect(mkGuard(['energy', 'zones'], 'hardware')).resolves.toBe(true);
-    // config 能写 energy → 放行
-    await expect(mkGuard(['energy', 'zones'], 'config')).resolves.toBe(true);
-    // admin 全通
-    await expect(mkGuard(['energy', 'zones'], 'admin')).resolves.toBe(true);
-    // operator / viewer 两个模块都不能写 → 拒绝
-    await expect(mkGuard(['energy', 'zones'], 'operator')).rejects.toThrow();
-    await expect(mkGuard(['energy', 'zones'], 'viewer')).rejects.toThrow();
-    // 单模块（字符串）行为保持不变
-    await expect(mkGuard('zones', 'hardware')).resolves.toBe(true);
-    await expect(mkGuard('energy', 'hardware')).rejects.toThrow();
+describe('WriteRoleGuard behavior', () => {
+  const mkGuard = (roles: string[] | undefined, method: string, actorRole: string) => {
+    const reflector = {
+      getAllAndOverride: () => roles,
+    } as any;
+    const ctx = {
+      switchToHttp: () => ({
+        getRequest: () => ({
+          method,
+          actor: { kind: 'user', userId: 2, username: 'op1', role: actorRole },
+        }),
+      }),
+      getHandler: () => ({}),
+      getClass: () => ({}),
+    } as any;
+    return new WriteRoleGuard(reflector).canActivate(ctx);
+  };
+
+  it('always passes read methods regardless of role', () => {
+    expect(mkGuard(['admin'], 'GET', 'viewer')).toBe(true);
+    expect(mkGuard(['admin'], 'HEAD', 'operator')).toBe(true);
+    expect(mkGuard(['admin'], 'OPTIONS', 'hardware')).toBe(true);
   });
 
-  it('keeps system-only controllers under admin guard', () => {
-    expect(classGuards(AuditController)).toContain(ActorAdminGuard);
+  it('passes when no write roles are declared', () => {
+    expect(mkGuard(undefined, 'POST', 'viewer')).toBe(true);
+    expect(mkGuard([], 'POST', 'viewer')).toBe(true);
   });
 
-  it('guards scene config writes but leaves execute/stop/cancel open to PWA operators', () => {
-    for (const name of ['create', 'update', 'remove', 'testExecute']) {
-      const handler = (ScenesController.prototype as any)[name];
-      expect(Reflect.getMetadata(GUARDS_METADATA, handler)).toContain(ModuleAccessGuard);
-      expect(Reflect.getMetadata(MODULE_ACCESS_KEY, handler)).toBe('scenes');
-    }
-    for (const name of ['execute', 'stop', 'cancel']) {
-      const guards = (Reflect.getMetadata(GUARDS_METADATA, (ScenesController.prototype as any)[name]) ?? []) as unknown[];
-      expect(guards).not.toContain(ModuleAccessGuard);
-      expect(guards).not.toContain(ActorAdminGuard);
-    }
-  });
-
-  it('keeps gate open/close available to duty staff while locking camera config to hardware', () => {
-    const proto = LprController.prototype as any;
-    // 值班开闸/落杆：限速但不按后台模块锁角色
-    for (const name of ['openGate', 'closeGate']) {
-      const guards = (Reflect.getMetadata(GUARDS_METADATA, proto[name]) ?? []) as unknown[];
-      expect(guards).toContain(RateLimitGuard);
-      expect(guards).not.toContain(ModuleAccessGuard);
-    }
-    // 含相机后台口令的管理列表：仅 admin/hardware
-    expect(Reflect.getMetadata(GUARDS_METADATA, proto.adminDevices)).toContain(RolesGuard);
-    // 配置写归硬件类
-    for (const name of ['createDevice', 'updateDevice', 'removeDevice', 'upsertWhitelist', 'removeWhitelist', 'updatePlatformConfig']) {
-      expect(Reflect.getMetadata(GUARDS_METADATA, proto[name])).toContain(ModuleAccessGuard);
-      expect(Reflect.getMetadata(MODULE_ACCESS_KEY, proto[name])).toBe('lpr');
-    }
-  });
-
-  it('keeps park-ops layout and brand body admin-only, while welcome editing stays open to operators/config', () => {
-    const proto = SystemBrandingController.prototype as any;
-    // 大屏布局（影响整屏显示）维持仅 admin
-    expect(Reflect.getMetadata(GUARDS_METADATA, proto.updateParkOps)).toContain(AdminGuard);
-    // 品牌主体（系统名称 / Logo）走 branding 模块，矩阵里该模块 write/read 均空，仅 admin
-    expect(Reflect.getMetadata(GUARDS_METADATA, proto.update)).toContain(ModuleAccessGuard);
-    expect(Reflect.getMetadata(MODULE_ACCESS_KEY, proto.update)).toBe('branding');
-    // 欢迎页删图属于欢迎页编辑闭环（唯一调用方是前台 LED 编辑器）：改用 RolesGuard 白名单，
-    // operator/config 仍能在前台删自己欢迎页图片；品牌主体收回 admin 不影响该闭环。
-    expect(Reflect.getMetadata(GUARDS_METADATA, proto.removeWelcomeAsset)).toContain(RolesGuard);
-    expect(Reflect.getMetadata(ROLES_KEY, proto.removeWelcomeAsset)).toEqual([
-      'admin',
-      'operator',
-      'config',
-    ]);
+  it('passes write when role is whitelisted, rejects otherwise', () => {
+    // 设备类（admin only）：operator/hardware/viewer 写都被拒。
+    expect(mkGuard(['admin'], 'POST', 'admin')).toBe(true);
+    expect(() => mkGuard(['admin'], 'POST', 'operator')).toThrow();
+    expect(() => mkGuard(['admin'], 'POST', 'hardware')).toThrow();
+    expect(() => mkGuard(['admin'], 'POST', 'viewer')).toThrow();
+    // 播控类（admin/operator）：operator 放行，hardware/viewer 拒绝。
+    expect(mkGuard(['admin', 'operator'], 'POST', 'operator')).toBe(true);
+    expect(mkGuard(['admin', 'operator'], 'POST', 'admin')).toBe(true);
+    expect(() => mkGuard(['admin', 'operator'], 'POST', 'hardware')).toThrow();
+    expect(() => mkGuard(['admin', 'operator'], 'POST', 'viewer')).toThrow();
+    // 单路电源通断（admin/hardware）：hardware 放行，operator 拒绝。
+    expect(mkGuard(['admin', 'hardware'], 'POST', 'hardware')).toBe(true);
+    expect(() => mkGuard(['admin', 'hardware'], 'POST', 'operator')).toThrow();
   });
 });

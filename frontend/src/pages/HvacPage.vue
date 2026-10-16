@@ -35,8 +35,10 @@ import {
   type HvacZoneCard,
   type IndoorRow,
 } from '@/features/hvac-view-model';
+import { usePermissionStore } from '@/stores/permission';
 
 const router = useRouter();
+const perm = usePermissionStore();
 function goBack(): void { void router.push({ name: 'dashboard' }); }
 
 const indoors = ref<IndoorRow[]>([]);
@@ -189,13 +191,13 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 </script>
 
 <template>
-  <section class="hv-page" :class="{ 'bar-open': groupMode || selected.size > 0 }">
+  <section class="hv-page" :class="[{ 'device-readonly': !perm.canEdit }, { 'bar-open': groupMode || selected.size > 0 }]">
     <!-- ===== 顶栏 ===== -->
     <header class="hv-head">
       <button class="v2-back-btn" @click="goBack" title="返回首页">
         <ArrowLeft :size="18" />
       </button>
-      <div class="hv-title"><Snowflake :size="18" :stroke-width="1.8" /> 中央空调</div>
+      <div class="hv-title"><Snowflake :size="18" :stroke-width="1.8" /> 中央空调<span v-if="!perm.canEdit" class="device-readonly-chip">只读</span></div>
 
       <div class="v2-tabs">
         <button class="v2-tab" :class="{ active: floorTab === '1F' }" @click="floorTab = '1F'">一楼</button>

@@ -14,8 +14,10 @@ import {
   lprService, LPR_GROUPS,
   type LprDevice, type LprPassRecord, type LprWhitelist, type LprStats,
 } from '@/services/lpr.service';
+import { usePermissionStore } from '@/stores/permission';
 
 const router = useRouter();
+const perm = usePermissionStore();
 function goBack(): void { router.push({ name: 'dashboard' }); }
 
 const tab = ref<'live' | 'wl' | 'log'>('live');
@@ -206,10 +208,10 @@ useActivePolling(start, stop);
 </script>
 
 <template>
-  <div class="barrier-page">
+  <div class="barrier-page" :class="{ 'device-readonly': !perm.canEdit }">
     <header class="topbar">
       <button class="icon-btn" aria-label="返回" @click="goBack"><ArrowLeft :size="20" /></button>
-      <h1 class="title"><CarFront :size="20" class="title-icon" />道闸</h1>
+      <h1 class="title"><CarFront :size="20" class="title-icon" />道闸<span v-if="!perm.canEdit" class="device-readonly-chip">只读</span></h1>
       <button class="icon-btn" aria-label="刷新" @click="refreshAll"><RefreshCw :size="18" :class="{ spin: loading }" /></button>
     </header>
 

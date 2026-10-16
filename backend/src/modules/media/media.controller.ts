@@ -103,6 +103,7 @@ export class MediaController {
 
   /** 添加一个网页 URL 作为"媒体" — 可像视频/图片一样推送到 LED/投影 */
   @Post('webpage')
+  @UseGuards(MediaUploadGuard)
   async createWebpage(@Body() dto: WebpageCreateDto, @Req() req: AuthenticatedRequest) {
     const actor = requireActor(req);
     const asset = await this.media.createWebpage(dto.name, dto.url, actor);
