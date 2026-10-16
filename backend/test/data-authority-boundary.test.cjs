@@ -38,6 +38,9 @@ test('every startup lifecycle hook stays on the reviewed runtime-state allowlist
   const expected = [
     'backend/src/adapters/led/nova-led.adapter.ts',
     'backend/src/adapters/power/epa-mqtt-breaker.adapter.ts',
+    'backend/src/adapters/power/hperfor-api.adapter.ts',
+    // 华普云/易微联 token 长效保活（#52/#54）：启动时注册定时登录/刷新 CronJob，审核登记。
+    'backend/src/integrations/ewelink/ewelink-auth.service.ts',
     'backend/src/modules/audio/audio-reconciler.service.ts',
     'backend/src/modules/audio/audio.controller.ts',
     'backend/src/modules/cameras/cameras.service.ts',
