@@ -660,7 +660,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 }
 .v2-tab:hover { color: var(--v2-text-1); background: var(--v2-ov-2); }
 .v2-tab.active {
-  background: var(--v2-primary); color: var(--v2-on-primary); font-weight: 700;
+  background: var(--v2-primary-fill); color: var(--v2-on-primary); font-weight: 700;
   box-shadow: 0 2px 10px #4da3ff55;
 }
 .hv-stats {
@@ -729,8 +729,8 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   font-size: 14px; font-weight: 600;
 }
 .hz-power.to-on {
-  background: var(--v2-primary); color: var(--v2-on-primary, #fff);
-  border: 1px solid var(--v2-primary);
+  background: var(--v2-primary-fill); color: var(--v2-on-primary, #fff);
+  border: 1px solid var(--v2-primary-fill);
 }
 .hz-power.to-off {
   background: rgba(229, 100, 93, 0.12); color: var(--v2-danger, #E5645D);
@@ -757,7 +757,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   border: 1px solid var(--v2-border-soft, #23262C);
 }
 .hv-chip:hover { border-color: var(--v2-primary, #4C9AFF); }
-.hv-chip.on { background: var(--v2-primary); border-color: var(--v2-primary); color: var(--v2-on-primary); font-weight: 600; }
+.hv-chip.on { background: var(--v2-primary-fill); border-color: var(--v2-primary-fill); color: var(--v2-on-primary); font-weight: 600; }
 .hv-chip em { font-style: normal; opacity: .6; font-size: 11px; }
 .hv-chip.warn { border-color: #b8860055; color: #e8b339; }
 .hv-chip.warn.on { background: #e8b339; color: #2a1d00; }
@@ -987,7 +987,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   white-space: nowrap;
 }
 .seg:hover:not(:disabled) { color: var(--v2-text-1, #e8eef7); background: #23262C; }
-.seg.on { background: var(--v2-primary); color: var(--v2-on-primary); font-weight: 700; }
+.seg.on { background: var(--v2-primary-fill); color: var(--v2-on-primary); font-weight: 700; }
 .seg:active:not(:disabled) { transform: scale(.96); }
 .seg:disabled { opacity: .35; cursor: not-allowed; }
 
@@ -1006,7 +1006,7 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
 .hv-btn.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
 .hv-btn.danger { background: color-mix(in srgb, var(--v2-danger) 16%, var(--v2-surf-1)); border-color: color-mix(in srgb, var(--v2-danger) 45%, var(--v2-border-soft)); color: var(--v2-danger); }
 .hv-btn.warn { border-color: #b8860055; color: #e8b339; }
-.hv-btn.ghost.active { background: var(--v2-primary); border-color: var(--v2-primary); color: var(--v2-on-primary); }
+.hv-btn.ghost.active { background: var(--v2-primary-fill); border-color: var(--v2-primary-fill); color: var(--v2-on-primary); }
 .hv-btn.tiny { padding: 8px 14px; font-size: 14px; }
 
 /* 控制条里的主/次动作按钮 (开/关) 是主操作, 再放大一档, 点得爽 */

@@ -23,6 +23,23 @@ test('the design system keeps one clean visual foundation', () => {
 
 test('dark is the first-run theme while an explicit saved choice still wins', () => {
   assert.match(themeService, /readStored\(\) \?\? 'dark'/);
-  assert.match(themeService, /if \(v === 'light' \|\| v === 'dark'\) return v/);
+  assert.match(themeService, /\(ALL_THEMES as string\[\]\)\.includes\(v\)/);
   assert.match(themeService, /forceThemeWithoutPersist\(t: Theme\)/);
+});
+
+test('five theme schemes exist and white-text fill is separated from brand colour', () => {
+  // theme.service declares all five schemes (dark/light + ocean/sunset/emerald)
+  for (const key of ['dark', 'light', 'ocean', 'sunset', 'emerald']) {
+    assert.match(themeService, new RegExp(`'${key}'`));
+  }
+  // dark is the default :root; each light scheme owns a colour block
+  for (const key of ['light', 'ocean', 'sunset', 'emerald']) {
+    assert.match(tokens, new RegExp(`\\[data-theme='${key}'\\]`));
+  }
+  // White-text buttons use a dedicated fill token (default follows primary; orange/green
+  // schemes darken it to 700/800 for WCAG AA) while icons/links keep the vivid 600.
+  assert.match(tokens, /--v2-primary-fill: var\(--v2-primary\)/);
+  // Brand-colour-independent structure rules follow the lightness mode
+  assert.match(tokens, /\[data-theme-mode='light'\]/);
+  assert.match(tokens, /\[data-theme-mode='dark'\]/);
 });

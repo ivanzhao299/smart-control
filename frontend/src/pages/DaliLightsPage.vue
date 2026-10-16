@@ -545,5 +545,5 @@ onMounted(loadAll);
 .zm-actions { display: flex; gap: 10px; margin-top: 16px; }
 .zm-cancel, .zm-save { flex: 1; padding: 12px; border-radius: 10px; cursor: pointer; font-size: 15px; font-weight: 600; }
 .zm-cancel { background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); color: var(--v2-text-2); }
-.zm-save { background: var(--v2-primary); border: 1px solid var(--v2-primary); color: var(--v2-on-primary); }
+.zm-save { background: var(--v2-primary-fill); border: 1px solid var(--v2-primary-fill); color: var(--v2-on-primary); }
 </style>

@@ -138,7 +138,7 @@ button {
 .sc-act:hover:not(:disabled) { filter: brightness(1.06); }
 .sc-act:active:not(:disabled) { transform: translateY(1px); }
 .sc-act:disabled { opacity: 0.45; cursor: not-allowed; }
-.sc-act-primary { background: var(--v2-primary); color: var(--v2-on-primary); }
+.sc-act-primary { background: var(--v2-primary-fill); color: var(--v2-on-primary); }
 .sc-act-success { background: var(--v2-success); color: #07160f; }
 .sc-act-danger { background: var(--v2-danger); color: #ffffff; }
 .sc-act-warning { background: var(--v2-warning); color: #251704; }
@@ -186,8 +186,8 @@ button {
 }
 
 .sc-toggle.is-active {
-  border-color: var(--v2-primary);
-  background: var(--v2-primary);
+  border-color: var(--v2-primary-fill);
+  background: var(--v2-primary-fill);
   color: var(--v2-on-primary);
 }
 

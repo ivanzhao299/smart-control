@@ -1118,5 +1118,5 @@ function gotoScene(): void { router.push({ name: 'dashboard' }); }
 .zm-actions { display: flex; gap: 10px; margin-top: 16px; }
 .zm-cancel, .zm-save { flex: 1; padding: 12px; border-radius: 10px; cursor: pointer; font-size: 15px; font-weight: 600; }
 .zm-cancel { background: var(--v2-surf-1); border: 1px solid var(--v2-border-soft); color: var(--v2-text-2); }
-.zm-save { background: var(--v2-primary); border: 1px solid var(--v2-primary); color: #fff; }
+.zm-save { background: var(--v2-primary-fill); border: 1px solid var(--v2-primary-fill); color: #fff; }
 </style>

@@ -45,6 +45,12 @@
   /* 强调悬浮阴影：主色阴影（替换旧的白色阴影，浅色下白阴影无效）*/
   --v2-accent-shadow: 0 8px 18px -6px rgba(var(--v2-primary-rgb), 0.5);
 
+  /* 白字实心按钮 / 开关 / 分页激活的填充色（配 --v2-on-primary）。
+     默认跟随主色；像橙/绿这类“600 档白字不达 WCAG AA”的亮色主题，
+     在各自主题块里把它压到 700/800 档，而图标/链接/选中仍保留 600 的亮丽。 */
+  --v2-primary-fill: var(--v2-primary);
+  --v2-primary-fill-hover: var(--v2-primary-hover);
+
   /* Compatibility aliases used by existing feature pages. */
   --v2-purple: #a5b0e8;
   --v2-purple-soft: rgba(165, 176, 232, 0.15);
@@ -145,6 +151,155 @@
   --v2-elev-3: 0 20px 56px rgba(18, 22, 31, 0.16);
 }
 
+/* ============================================================
+   #38 新增亮色主题：科技蓝 / 暖阳橙 / 翡翠青
+   对齐 Tailwind CSS v3 标准色板（Blue / Orange / Emerald）。
+   图标/链接/选中用 600 档保持亮丽；白字实心按钮（--v2-primary-fill
+   与 --v2-accent-fill）：蓝 600 已达 WCAG AA（5.17），橙/绿压到 700/800
+   （橙 5.18 / 绿 5.48）。卡片阴影等"浅色结构规则"由
+   [data-theme-mode='light'] 统一提供，这里只声明品牌色。
+   ============================================================ */
+
+/* 科技蓝（Blue）：蓝白亮底 + 电光蓝，专业、科技 */
+:root:root[data-theme='ocean'] {
+  color-scheme: light;
+  --v2-bg-0: #eff6ff;
+  --v2-bg-1: #eff6ff;
+  --v2-bg-2: #dbeafe;
+  --v2-surf-1: #ffffff;
+  --v2-surf-1-hover: #eff6ff;
+  --v2-surf-2: #eff6ff;
+  --v2-surf-3: #ffffff;
+  --v2-border-soft: #dbeafe;
+  --v2-border-strong: #bfdbfe;
+  --v2-text-1: #0f172a;
+  --v2-text-2: #475569;
+  --v2-text-3: #94a3b8;
+  --v2-primary: #2563eb;
+  --v2-primary-rgb: 37, 99, 235;
+  --v2-primary-dark: #1d4ed8;
+  --v2-primary-hover: #1d4ed8;
+  --v2-primary-soft: rgba(37, 99, 235, 0.10);
+  --v2-on-primary: #ffffff;
+  --v2-primary-fill: #2563eb;
+  --v2-primary-fill-hover: #1d4ed8;
+  --v2-accent-fill: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  --v2-accent-shadow: 0 8px 18px -6px rgba(37, 99, 235, 0.50);
+  --v2-success: #059669;
+  --v2-warning: #d97706;
+  --v2-danger: #dc2626;
+  --v2-success-soft: rgba(5, 150, 105, 0.10);
+  --v2-warning-soft: rgba(217, 119, 6, 0.10);
+  --v2-danger-soft: rgba(220, 38, 38, 0.10);
+  --v2-purple: #475569;
+  --v2-purple-soft: rgba(71, 85, 105, 0.09);
+  --v2-light-warm: #d97706;
+  --v2-live-power: var(--v2-success);
+  --v2-live-audio: #0d9488;
+  --v2-ov-1: rgba(15, 23, 42, 0.05);
+  --v2-ov-2: rgba(15, 23, 42, 0.08);
+  --v2-ov-3: rgba(15, 23, 42, 0.13);
+  --v2-inset-bg: #f8fbff;
+  --v2-chrome-bg: rgba(239, 246, 255, 0.93);
+  --v2-chrome-bg-solid: #eff6ff;
+  --v2-elev-2: 0 8px 24px rgba(18, 22, 31, 0.10);
+  --v2-elev-3: 0 20px 56px rgba(18, 22, 31, 0.16);
+}
+
+/* 暖阳橙（Orange）：暖米白亮底 + 活力橙，热情迎客 */
+:root:root[data-theme='sunset'] {
+  color-scheme: light;
+  --v2-bg-0: #fff7ed;
+  --v2-bg-1: #fff7ed;
+  --v2-bg-2: #ffedd5;
+  --v2-surf-1: #ffffff;
+  --v2-surf-1-hover: #fff7ed;
+  --v2-surf-2: #fff7ed;
+  --v2-surf-3: #ffffff;
+  --v2-border-soft: #ffedd5;
+  --v2-border-strong: #fed7aa;
+  --v2-text-1: #0f172a;
+  --v2-text-2: #475569;
+  --v2-text-3: #94a3b8;
+  --v2-primary: #ea580c;
+  --v2-primary-rgb: 234, 88, 12;
+  --v2-primary-dark: #c2410c;
+  --v2-primary-hover: #c2410c;
+  --v2-primary-soft: rgba(234, 88, 12, 0.10);
+  --v2-on-primary: #ffffff;
+  /* 白字 on orange-600 仅 3.56，不达 AA；实心按钮压到 700/800（5.18） */
+  --v2-primary-fill: #c2410c;
+  --v2-primary-fill-hover: #9a3412;
+  --v2-accent-fill: linear-gradient(135deg, #c2410c 0%, #9a3412 100%);
+  --v2-accent-shadow: 0 8px 18px -6px rgba(194, 65, 12, 0.50);
+  --v2-success: #059669;
+  --v2-warning: #d97706;
+  --v2-danger: #dc2626;
+  --v2-success-soft: rgba(5, 150, 105, 0.10);
+  --v2-warning-soft: rgba(217, 119, 6, 0.10);
+  --v2-danger-soft: rgba(220, 38, 38, 0.10);
+  --v2-purple: #475569;
+  --v2-purple-soft: rgba(71, 85, 105, 0.09);
+  --v2-light-warm: #d97706;
+  --v2-live-power: var(--v2-success);
+  --v2-live-audio: #0d9488;
+  --v2-ov-1: rgba(15, 23, 42, 0.05);
+  --v2-ov-2: rgba(15, 23, 42, 0.08);
+  --v2-ov-3: rgba(15, 23, 42, 0.13);
+  --v2-inset-bg: #fffaf5;
+  --v2-chrome-bg: rgba(255, 247, 237, 0.93);
+  --v2-chrome-bg-solid: #fff7ed;
+  --v2-elev-2: 0 8px 24px rgba(18, 22, 31, 0.10);
+  --v2-elev-3: 0 20px 56px rgba(18, 22, 31, 0.16);
+}
+
+/* 翡翠青（Emerald）：淡青绿亮底 + 翠绿，清新生态 */
+:root:root[data-theme='emerald'] {
+  color-scheme: light;
+  --v2-bg-0: #ecfdf5;
+  --v2-bg-1: #ecfdf5;
+  --v2-bg-2: #d1fae5;
+  --v2-surf-1: #ffffff;
+  --v2-surf-1-hover: #ecfdf5;
+  --v2-surf-2: #ecfdf5;
+  --v2-surf-3: #ffffff;
+  --v2-border-soft: #d1fae5;
+  --v2-border-strong: #a7f3d0;
+  --v2-text-1: #0f172a;
+  --v2-text-2: #475569;
+  --v2-text-3: #94a3b8;
+  --v2-primary: #059669;
+  --v2-primary-rgb: 5, 150, 105;
+  --v2-primary-dark: #047857;
+  --v2-primary-hover: #047857;
+  --v2-primary-soft: rgba(5, 150, 105, 0.10);
+  --v2-on-primary: #ffffff;
+  /* 白字 on emerald-600 仅 3.77，不达 AA；实心按钮压到 700/800（5.48） */
+  --v2-primary-fill: #047857;
+  --v2-primary-fill-hover: #065f46;
+  --v2-accent-fill: linear-gradient(135deg, #047857 0%, #065f46 100%);
+  --v2-accent-shadow: 0 8px 18px -6px rgba(4, 120, 87, 0.50);
+  --v2-success: #059669;
+  --v2-warning: #d97706;
+  --v2-danger: #dc2626;
+  --v2-success-soft: rgba(5, 150, 105, 0.10);
+  --v2-warning-soft: rgba(217, 119, 6, 0.10);
+  --v2-danger-soft: rgba(220, 38, 38, 0.10);
+  --v2-purple: #475569;
+  --v2-purple-soft: rgba(71, 85, 105, 0.09);
+  --v2-light-warm: #d97706;
+  --v2-live-power: var(--v2-success);
+  --v2-live-audio: #0d9488;
+  --v2-ov-1: rgba(15, 23, 42, 0.05);
+  --v2-ov-2: rgba(15, 23, 42, 0.08);
+  --v2-ov-3: rgba(15, 23, 42, 0.13);
+  --v2-inset-bg: #f6fdfa;
+  --v2-chrome-bg: rgba(236, 253, 245, 0.93);
+  --v2-chrome-bg-solid: #ecfdf5;
+  --v2-elev-2: 0 8px 24px rgba(18, 22, 31, 0.10);
+  --v2-elev-3: 0 20px 56px rgba(18, 22, 31, 0.16);
+}
+
 html,
 body,
 #app { background: var(--v2-bg-0) !important; }
@@ -156,7 +311,7 @@ body {
 }
 /* On white, subpixel rendering keeps glyph strokes solid instead of the thinner
    look antialiased produces; dark theme keeps antialiased for cleaner edges. */
-:root:root[data-theme='light'] body { -webkit-font-smoothing: subpixel-antialiased; }
+:root:root[data-theme-mode='light'] body { -webkit-font-smoothing: subpixel-antialiased; }
 body::before,
 body::after { content: none !important; }
 
@@ -180,47 +335,47 @@ body::after { content: none !important; }
 /* Light theme: white cards rest on a cool-grey page, so a crisp hairline plus a
    very soft shadow restores the edge that dark surfaces get from a lighter
    border. Selectable grid items (scene/zone/screen/hvac) intentionally stay flat. */
-:root:root[data-theme='light'] .v2-kpi,
-:root:root[data-theme='light'] .ch-card,
-:root:root[data-theme='light'] .metric,
-:root:root[data-theme='light'] .v2-card,
-:root:root[data-theme='light'] .v2-subsystems,
-:root:root[data-theme='light'] .v2-overview,
-:root:root[data-theme='light'] .circuit-card:not(.on) {
+:root:root[data-theme-mode='light'] .v2-kpi,
+:root:root[data-theme-mode='light'] .ch-card,
+:root:root[data-theme-mode='light'] .metric,
+:root:root[data-theme-mode='light'] .v2-card,
+:root:root[data-theme-mode='light'] .v2-subsystems,
+:root:root[data-theme-mode='light'] .v2-overview,
+:root:root[data-theme-mode='light'] .circuit-card:not(.on) {
   box-shadow: 0 1px 2px rgba(18, 22, 31, 0.06), 0 2px 8px rgba(18, 22, 31, 0.05) !important;
 }
 /* Dark theme: lift cards off the near-black page with a 1px top inner highlight
    plus a soft dark drop shadow (dark surfaces use deeper shadows, never light).
    Selectable grid items stay flat; powered cards keep their teal glow. */
-:root:root[data-theme='dark'] .v2-kpi,
-:root:root[data-theme='dark'] .ch-card,
-:root:root[data-theme='dark'] .metric,
-:root:root[data-theme='dark'] .v2-card,
-:root:root[data-theme='dark'] .v2-subsystems,
-:root:root[data-theme='dark'] .v2-overview,
-:root:root[data-theme='dark'] .circuit-card:not(.on) {
+:root:root[data-theme-mode='dark'] .v2-kpi,
+:root:root[data-theme-mode='dark'] .ch-card,
+:root:root[data-theme-mode='dark'] .metric,
+:root:root[data-theme-mode='dark'] .v2-card,
+:root:root[data-theme-mode='dark'] .v2-subsystems,
+:root:root[data-theme-mode='dark'] .v2-overview,
+:root:root[data-theme-mode='dark'] .circuit-card:not(.on) {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05),
     0 4px 14px rgba(0, 0, 0, 0.38) !important;
 }
 /* 统一卡片 hover 立体感：容器型卡片轻微上浮 2px + 阴影加深，深浅色各用本主题阴影。
    可选网格（.v2-scene/.v2-zone/.v2-screen/.v2-hvac-zone）保持扁平、不参与上浮；
    通电卡（.circuit-card.on）保留青绿状态光，也不上浮。 */
-:root:root[data-theme='light'] .v2-kpi:hover,
-:root:root[data-theme='light'] .ch-card:hover,
-:root:root[data-theme='light'] .v2-card:hover,
-:root:root[data-theme='light'] .v2-subsystems:hover,
-:root:root[data-theme='light'] .v2-overview:hover,
-:root:root[data-theme='light'] .circuit-card:not(.on):hover {
+:root:root[data-theme-mode='light'] .v2-kpi:hover,
+:root:root[data-theme-mode='light'] .ch-card:hover,
+:root:root[data-theme-mode='light'] .v2-card:hover,
+:root:root[data-theme-mode='light'] .v2-subsystems:hover,
+:root:root[data-theme-mode='light'] .v2-overview:hover,
+:root:root[data-theme-mode='light'] .circuit-card:not(.on):hover {
   transform: translateY(-2px);
   box-shadow: 0 2px 6px rgba(18, 22, 31, 0.08),
     0 10px 24px rgba(18, 22, 31, 0.10) !important;
 }
-:root:root[data-theme='dark'] .v2-kpi:hover,
-:root:root[data-theme='dark'] .ch-card:hover,
-:root:root[data-theme='dark'] .v2-card:hover,
-:root:root[data-theme='dark'] .v2-subsystems:hover,
-:root:root[data-theme='dark'] .v2-overview:hover,
-:root:root[data-theme='dark'] .circuit-card:not(.on):hover {
+:root:root[data-theme-mode='dark'] .v2-kpi:hover,
+:root:root[data-theme-mode='dark'] .ch-card:hover,
+:root:root[data-theme-mode='dark'] .v2-card:hover,
+:root:root[data-theme-mode='dark'] .v2-subsystems:hover,
+:root:root[data-theme-mode='dark'] .v2-overview:hover,
+:root:root[data-theme-mode='dark'] .circuit-card:not(.on):hover {
   transform: translateY(-2px);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06),
     0 12px 30px rgba(0, 0, 0, 0.52) !important;
@@ -229,66 +384,66 @@ body::after { content: none !important; }
    fills and bright glyphs designed for dark surfaces. One shared, higher-
    specificity rule keeps every page's scoped .chip consistent. Category chips
    use the deep (AA) hue on a matching soft tint. */
-:root:root[data-theme='light'] .chip {
+:root:root[data-theme-mode='light'] .chip {
   background: var(--v2-surf-2) !important;
   border-color: var(--v2-border-strong) !important;
   color: var(--v2-text-1) !important;
   font-weight: 700 !important;
 }
-:root:root[data-theme='light'] .chip.muted,
-:root:root[data-theme='light'] .chip.off { color: var(--v2-text-2) !important; }
-:root:root[data-theme='light'] .chip.on,
-:root:root[data-theme='light'] .chip[data-category='audio'] {
+:root:root[data-theme-mode='light'] .chip.muted,
+:root:root[data-theme-mode='light'] .chip.off { color: var(--v2-text-2) !important; }
+:root:root[data-theme-mode='light'] .chip.on,
+:root:root[data-theme-mode='light'] .chip[data-category='audio'] {
   background: var(--v2-success-soft) !important;
   border-color: var(--v2-success) !important;
   color: var(--v2-success) !important;
 }
-:root:root[data-theme='light'] .chip[data-category='lighting'] {
+:root:root[data-theme-mode='light'] .chip[data-category='lighting'] {
   background: var(--v2-warning-soft) !important;
   border-color: var(--v2-warning) !important;
   color: var(--v2-warning) !important;
 }
-:root:root[data-theme='light'] .chip[data-category='socket'],
-:root:root[data-theme='light'] .chip[data-category='hvac'],
-:root:root[data-theme='light'] .chip[data-category='led'] {
+:root:root[data-theme-mode='light'] .chip[data-category='socket'],
+:root:root[data-theme-mode='light'] .chip[data-category='hvac'],
+:root:root[data-theme-mode='light'] .chip[data-category='led'] {
   background: var(--v2-primary-soft) !important;
   border-color: var(--v2-primary) !important;
   color: var(--v2-primary-dark) !important;
 }
-:root:root[data-theme='light'] .chip[data-category='misc'] {
+:root:root[data-theme-mode='light'] .chip[data-category='misc'] {
   background: var(--v2-surf-2) !important;
   border-color: var(--v2-border-strong) !important;
   color: var(--v2-text-2) !important;
 }
 /* Dark theme: mirror the light chip treatment with dark-surface values - a soft
    tint, a brighter hairline and a light glyph keep tags legible without glow. */
-:root:root[data-theme='dark'] .chip {
+:root:root[data-theme-mode='dark'] .chip {
   background: var(--v2-surf-2) !important;
   border-color: var(--v2-border-strong) !important;
   color: var(--v2-text-1) !important;
   font-weight: 700 !important;
 }
-:root:root[data-theme='dark'] .chip.muted,
-:root:root[data-theme='dark'] .chip.off { color: var(--v2-text-2) !important; }
-:root:root[data-theme='dark'] .chip.on,
-:root:root[data-theme='dark'] .chip[data-category='audio'] {
+:root:root[data-theme-mode='dark'] .chip.muted,
+:root:root[data-theme-mode='dark'] .chip.off { color: var(--v2-text-2) !important; }
+:root:root[data-theme-mode='dark'] .chip.on,
+:root:root[data-theme-mode='dark'] .chip[data-category='audio'] {
   background: var(--v2-success-soft) !important;
   border-color: var(--v2-success) !important;
   color: var(--v2-success) !important;
 }
-:root:root[data-theme='dark'] .chip[data-category='lighting'] {
+:root:root[data-theme-mode='dark'] .chip[data-category='lighting'] {
   background: var(--v2-warning-soft) !important;
   border-color: var(--v2-warning) !important;
   color: var(--v2-warning) !important;
 }
-:root:root[data-theme='dark'] .chip[data-category='socket'],
-:root:root[data-theme='dark'] .chip[data-category='hvac'],
-:root:root[data-theme='dark'] .chip[data-category='led'] {
+:root:root[data-theme-mode='dark'] .chip[data-category='socket'],
+:root:root[data-theme-mode='dark'] .chip[data-category='hvac'],
+:root:root[data-theme-mode='dark'] .chip[data-category='led'] {
   background: var(--v2-primary-soft) !important;
   border-color: var(--v2-primary) !important;
   color: var(--v2-primary) !important;
 }
-:root:root[data-theme='dark'] .chip[data-category='misc'] {
+:root:root[data-theme-mode='dark'] .chip[data-category='misc'] {
   background: var(--v2-surf-2) !important;
   border-color: var(--v2-border-strong) !important;
   color: var(--v2-text-2) !important;
@@ -383,7 +538,7 @@ textarea:focus-visible,
   --el-table-border-color: var(--v2-border-soft);
   --el-table-expanded-cell-bg-color: var(--v2-surf-2);
 }
-:root:root[data-theme='light'] { --el-mask-color: rgba(20, 32, 51, 0.42); }
+:root:root[data-theme-mode='light'] { --el-mask-color: rgba(20, 32, 51, 0.42); }
 
 /* Welcome editor is a fixed overlay at z-index 3000. Its destructive-action
    confirmation and the save/exit three-way prompt are teleported to body, so
@@ -504,14 +659,14 @@ textarea:focus-visible,
 .el-dialog__body .el-form-item__label { color: var(--v2-text-1) !important; }
 
 .el-button--primary:not(.is-link):not(.is-text) {
-  background: var(--v2-primary) !important;
-  border-color: var(--v2-primary) !important;
+  background: var(--v2-primary-fill) !important;
+  border-color: var(--v2-primary-fill) !important;
   color: var(--v2-on-primary) !important;
   box-shadow: none !important;
 }
 .el-button--primary:not(.is-link):not(.is-text):hover:not(.is-disabled) {
-  background: var(--v2-primary-hover) !important;
-  border-color: var(--v2-primary-hover) !important;
+  background: var(--v2-primary-fill-hover) !important;
+  border-color: var(--v2-primary-fill-hover) !important;
 }
 .el-button.is-link,
 .el-button.is-text { background: transparent !important; border: 0 !important; box-shadow: none !important; font-weight: 600; }
@@ -532,7 +687,7 @@ textarea:focus-visible,
   color: var(--v2-text-1);
 }
 .el-pager li { background: var(--v2-surf-2) !important; }
-.el-pager li.is-active { background: var(--v2-primary) !important; color: var(--v2-on-primary) !important; }
+.el-pager li.is-active { background: var(--v2-primary-fill) !important; color: var(--v2-on-primary) !important; }
 
 .el-tag {
   border-color: var(--v2-border-soft) !important;
@@ -546,7 +701,7 @@ textarea:focus-visible,
 .el-tag.el-tag--danger { color: var(--v2-danger) !important; background: var(--v2-danger-soft) !important; }
 .el-tag.el-tag--info { color: var(--v2-text-2) !important; }
 
-.el-switch.is-checked .el-switch__core { background: var(--v2-primary) !important; border-color: var(--v2-primary) !important; }
+.el-switch.is-checked .el-switch__core { background: var(--v2-primary-fill) !important; border-color: var(--v2-primary-fill) !important; }
 .el-switch:not(.is-checked) .el-switch__core { background: var(--v2-border-strong) !important; border-color: transparent !important; }
 .el-switch__inner,
 .el-switch__inner span { color: #ffffff !important; font-size: 11px !important; font-weight: 600 !important; }
@@ -652,13 +807,13 @@ textarea:focus-visible,
   color: var(--v2-primary-dark);
 }
 .v2-quick.primary {
-  border-color: var(--v2-primary);
-  background: var(--v2-primary);
+  border-color: var(--v2-primary-fill);
+  background: var(--v2-primary-fill);
   color: var(--v2-on-primary);
 }
 .v2-quick.primary:hover:not(:disabled):not(.disabled) {
-  border-color: var(--v2-primary-hover);
-  background: var(--v2-primary-hover);
+  border-color: var(--v2-primary-fill-hover);
+  background: var(--v2-primary-fill-hover);
   color: var(--v2-on-primary);
 }
 .v2-quick.danger {

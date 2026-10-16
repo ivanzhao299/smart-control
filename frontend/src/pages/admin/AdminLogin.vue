@@ -224,7 +224,7 @@ async function submit(): Promise<void> {
   width: 48px;
   height: 48px;
   border-radius: 12px;
-  background: var(--v2-primary);
+  background: var(--v2-primary-fill);
   display: grid;
   place-items: center;
   color: white;
@@ -290,8 +290,8 @@ async function submit(): Promise<void> {
   margin-top: 6px;
   padding: 12px 16px;
   border-radius: 10px;
-  border: 1px solid var(--v2-primary);
-  background: var(--v2-primary);
+  border: 1px solid var(--v2-primary-fill);
+  background: var(--v2-primary-fill);
   color: var(--v2-on-primary);
   font-size: 15px;
   font-weight: 500;
@@ -302,7 +302,7 @@ async function submit(): Promise<void> {
 }
 .submit-btn:hover:not(:disabled) {
   filter: brightness(1.1);
-  background: var(--v2-primary-hover);
+  background: var(--v2-primary-fill-hover);
 }
 .submit-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 

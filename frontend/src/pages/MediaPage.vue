@@ -1289,7 +1289,7 @@ onBeforeUnmount(() => { disposed = true; stopProcessingPoll(); });
   border: 1px solid var(--v2-border-soft, #23262C);
 }
 .om-chip i { font-style: normal; font-size: 10px; color: var(--v2-text-3); margin-left: 2px; }
-.om-chip.on { background: var(--v2-primary); border-color: var(--v2-primary); color: var(--v2-on-primary, #fff); }
+.om-chip.on { background: var(--v2-primary-fill); border-color: var(--v2-primary-fill); color: var(--v2-on-primary, #fff); }
 .om-chip.on i { color: color-mix(in srgb, var(--v2-on-primary, #fff) 75%, transparent); }
 .om-list { max-height: 44vh; }
 .om-genre-tag { flex: 0 0 auto; font-size: 11px; color: var(--v2-text-3); padding: 1px 8px; border-radius: 999px; background: var(--v2-surf-2, #1A1D22); }

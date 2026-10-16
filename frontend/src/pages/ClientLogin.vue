@@ -383,7 +383,7 @@ async function doLogin(fromBiometric = false): Promise<void> {
 .brand-logo {
   width: 48px; height: 48px;
   border-radius: 12px;
-  background: linear-gradient(135deg, var(--v2-primary) 0%, var(--v2-purple) 100%);
+  background: var(--v2-accent-fill);
   display: grid; place-items: center;
   color: white;
   font-weight: 700;
@@ -541,7 +541,7 @@ async function doLogin(fromBiometric = false): Promise<void> {
   padding: 12px 16px;
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  background: linear-gradient(135deg, var(--v2-primary) 0%, var(--v2-primary-dark) 100%);
+  background: var(--v2-accent-fill);
   color: white;
   font-size: 15px;
   font-weight: 500;

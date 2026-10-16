@@ -816,7 +816,7 @@ onMounted(() => {
   right: 8px;
   width: 24px;
   height: 24px;
-  background: var(--v2-primary);
+  background: var(--v2-primary-fill);
   color: white;
   border-radius: 50%;
   display: flex;

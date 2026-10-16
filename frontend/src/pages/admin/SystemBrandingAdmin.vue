@@ -467,7 +467,7 @@ const previewSubtitle = computed(() => form.systemSubtitle.trim() || '副标题'
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background: linear-gradient(135deg, var(--v2-primary) 0%, var(--v2-info) 100%);
+  background: var(--v2-accent-fill);
   display: grid;
   place-items: center;
   color: white;

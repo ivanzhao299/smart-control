@@ -420,7 +420,7 @@ onMounted(refresh);
   align-items: center;
   gap: 8px;
   padding: 10px 22px;
-  background: linear-gradient(135deg, var(--v2-primary) 0%, var(--v2-info) 100%);
+  background: var(--v2-accent-fill);
   color: #fff;
   text-decoration: none;
   border-radius: var(--v2-r-md);

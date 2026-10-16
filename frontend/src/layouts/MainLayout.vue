@@ -8,8 +8,9 @@ import { useRoute, useRouter } from 'vue-router';
 // - PWA standalone 启动也仍然全屏 (manifest display: fullscreen 接管)
 // - AlertBanner 已移除, 告警走后台 /admin/alerts
 // - 场景反馈走顶部 inline toast
-import { Activity, Home, KeyRound, LogOut, Maximize2, Minimize2, Monitor, MoreHorizontal, Sun, Moon, Tv } from 'lucide-vue-next';
-import { theme, toggleTheme } from '@/services/theme.service';
+import { Activity, KeyRound, LogOut, Maximize2, Minimize2, Monitor, MoreHorizontal, Palette, Check } from 'lucide-vue-next';
+import { theme, applyTheme, THEME_OPTIONS } from '@/services/theme.service';
+import type { Theme } from '@/services/theme.service';
 import ErrorBoundary from '@/components/ErrorBoundary.vue';
 import ServerSettingsDialog from '@/components/ServerSettingsDialog.vue';
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue';
@@ -257,6 +258,21 @@ function goFromMore(name: string): void {
   moreOpen.value = false;
   go(name);
 }
+
+/**
+ * 主题方案选择面板（#38）：深色/浅色/科技蓝/暖阳橙/翡翠青。
+ * 平板侧栏与手机「更多」抽屉共用一个入口；点选即生效并记住"最后选择"
+ *（applyTheme 内部写 localStorage）。刻意纯 v-if、不做动画，理由同「更多」抽屉
+ *（测试环境动画时钟冻结会让遮罩删不掉吞点击）。
+ */
+const themeOpen = ref(false);
+function openTheme(): void {
+  moreOpen.value = false;
+  themeOpen.value = true;
+}
+function chooseTheme(key: Theme): void {
+  applyTheme(key);
+}
 /** 自助修改密码弹窗（平板侧栏 / 手机「更多」抽屉共用）。 */
 const showChangePassword = ref(false);
 function openChangePassword(): void {
@@ -292,9 +308,7 @@ const MORE_CHIP_COLORS: Record<string, string> = {
   theme: '#9D8BFF',
   password: '#F0897A',
   logout: '#E5484D',
-  home: '#4C9AFF',
   ops: '#22d3ee',
-  led: '#34d399',
 };
 function moreChipStyle(name: string): Record<string, string> {
   const c = MORE_CHIP_COLORS[name] ?? '#4C9AFF';
@@ -306,18 +320,19 @@ function moreChipStyle(name: string): Record<string, string> {
 }
 
 /**
- * 「更多」→ 大屏直达（一键在新标签打开前台首页 / 运营大屏 / LED 主屏）。
+ * 「更多」→ 运营大屏直达（便于在手机/管理端进入大屏查看与运营数据编辑）。
  * 地址用 import.meta.env.BASE_URL 拼，公网域名 / 局域网 IP 自动跟随当前 origin。
- * 运营大屏与 LED 主屏带 preview=1：页面据此显示悬浮返回按钮（player 预览时不抢全屏）；
- * 正式 Kiosk 播放 URL 不带 preview，大屏画面零影响。
+ * 带 preview=1：大屏据此显示左上角悬浮返回按钮（看完/编辑完一键回后台）。
+ * 注意：这里必须用"当前窗口导航"（普通 <a href>、无 target="_blank"）。
+ * 手机端是装到桌面的 PWA 独立窗口（standalone），没有浏览器标签栏，target="_blank"
+ * 在 PWA 内不会打开新标签、也不跳转（点击无反应）；当前窗口导航才可靠。
+ * 正式 Kiosk 大屏 URL 不带 preview，大屏画面零影响。
  */
 const screenLinks = computed(() => {
   const base = import.meta.env.BASE_URL;
   const root = base.endsWith('/') ? base.slice(0, -1) : base;
   return [
-    { key: 'home', label: '前台首页', href: base, icon: Home },
     { key: 'ops', label: '运营大屏', href: `${root}/park-ops/index.html?preview=1`, icon: Monitor },
-    { key: 'led', label: 'LED 主屏', href: `${root}/player?slot=1&preview=1`, icon: Tv },
   ];
 });
 
@@ -404,14 +419,15 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
           <component :is="navIconFor(item.name)" :size="22" :stroke-width="1.8" />
           <span class="v2-nav-label">{{ item.label }}</span>
         </button>
-        <!-- 主题切换: 深色(展厅暗环境, 默认) ↔ 浅色。图标显示"切过去会变成什么" -->
+        <!-- 主题方案: 深色/浅色/科技蓝/暖阳橙/翡翠青, 打开选择面板; 选中后记住最后选择 -->
         <button
           class="v2-nav-item v2-nav-tool"
-          :title="theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'"
-          @click="toggleTheme()"
+          :class="{ 'is-active': themeOpen }"
+          title="主题方案"
+          @click="openTheme"
         >
-          <component :is="theme === 'dark' ? Sun : Moon" :size="22" :stroke-width="1.8" />
-          <span class="v2-nav-label">{{ theme === 'dark' ? '浅色' : '深色' }}</span>
+          <Palette :size="22" :stroke-width="1.8" />
+          <span class="v2-nav-label">主题</span>
         </button>
         <!-- 自助修改密码：所有登录账户都能改自己的密码 -->
         <button
@@ -480,14 +496,12 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
               </span>
               <span>{{ item.label }}</span>
             </button>
-            <!-- 大屏直达：一键在新标签打开前台首页 / 运营大屏 / LED 主屏（带 preview 返回按钮） -->
+            <!-- 运营大屏直达：当前窗口打开（带 preview 返回按钮）；PWA 内不能用 target="_blank" -->
             <a
               v-for="link in screenLinks"
               :key="link.key"
               class="v2-more-item"
               :href="link.href"
-              target="_blank"
-              rel="noopener noreferrer"
               @click="moreOpen = false"
             >
               <span class="more-ico" :style="moreChipStyle(link.key)">
@@ -495,12 +509,12 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
               </span>
               <span>{{ link.label }}</span>
             </a>
-            <!-- 手机端也要能切主题 -->
-            <button class="v2-more-item" @click="toggleTheme()">
+            <!-- 手机端主题方案选择 -->
+            <button class="v2-more-item" @click="openTheme">
               <span class="more-ico" :style="moreChipStyle('theme')">
-                <component :is="theme === 'dark' ? Sun : Moon" :size="24" :stroke-width="1.9" />
+                <Palette :size="24" :stroke-width="1.9" />
               </span>
-              <span>{{ theme === 'dark' ? '浅色' : '深色' }}</span>
+              <span>主题</span>
             </button>
             <!-- 自助修改密码：所有登录账户都能改自己的密码 -->
             <button class="v2-more-item" @click="openChangePassword">
@@ -518,6 +532,39 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
             </button>
           </div>
         </div>
+    </div>
+
+    <!-- 主题方案选择 sheet（#38）。纯 v-if、无动画，理由同「更多」抽屉（动画时钟冻结会留遮罩吞点击）。
+         5 个方案卡：四色色卡 + 名称 + 描述 + 选中勾；点选立即生效并记住"最后选择"。 -->
+    <div v-if="themeOpen" class="v2-more-mask v2-theme-mask" @click="themeOpen = false">
+      <div class="v2-theme-sheet" @click.stop>
+        <div class="v2-more-grip"></div>
+        <div class="v2-theme-head">
+          <div class="v2-theme-title">主题方案</div>
+          <button class="v2-theme-done" type="button" @click="themeOpen = false">完成</button>
+        </div>
+        <div class="v2-theme-list">
+          <button
+            v-for="opt in THEME_OPTIONS"
+            :key="opt.key"
+            class="v2-theme-item"
+            :class="{ 'is-active': theme === opt.key }"
+            type="button"
+            @click="chooseTheme(opt.key)"
+          >
+            <span class="theme-sw">
+              <i v-for="(c, i) in opt.sw" :key="i" :style="{ background: c }"></i>
+            </span>
+            <span class="theme-meta">
+              <span class="theme-name">{{ opt.name }}</span>
+              <span class="theme-desc">{{ opt.desc }}</span>
+            </span>
+            <span class="theme-check" :class="{ on: theme === opt.key }">
+              <Check v-if="theme === opt.key" :size="15" :stroke-width="2.6" />
+            </span>
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- 顶 Header (56px) - 仅首页显示 (功能页隐藏, 主区上移给功能区让空间); 集成 inline toast -->
@@ -702,7 +749,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background: var(--v2-primary);
+  background: var(--v2-primary-fill);
   display: grid;
   place-items: center;
   font-weight: 700;
@@ -808,7 +855,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 /* .v2-logo 留着, 现在只被 .v2-nav-brand .v2-logo 用 (已覆盖尺寸) */
 .v2-logo {
   border-radius: var(--v2-r-sm);
-  background: var(--v2-primary);
+  background: var(--v2-primary-fill);
   display: grid;
   place-items: center;
   font-weight: 700;
@@ -822,7 +869,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   color: var(--v2-text-1);
   text-shadow: none;
 }
-:root[data-theme="light"] .v2-brand-title {
+:root[data-theme-mode="light"] .v2-brand-title {
   color: var(--v2-text-1);
   text-shadow: none;
 }
@@ -1007,6 +1054,58 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 }
 .v2-more-item.is-active { border-color: var(--v2-primary); }
 .v2-more-item.is-active .more-ico { filter: drop-shadow(0 0 8px currentColor); }
+
+/* ===== 主题方案选择 sheet（#38） ===== */
+.v2-theme-sheet {
+  width: 100%;
+  max-height: 80vh;
+  background: var(--v2-surf-1, #14161A);
+  border-top: 1px solid var(--v2-border-soft, #23262C);
+  border-radius: 18px 18px 0 0;
+  padding: 10px 16px calc(16px + min(env(safe-area-inset-bottom), 34px));
+  display: flex; flex-direction: column;
+}
+.v2-theme-head { display: flex; align-items: center; justify-content: space-between; margin: 2px 2px 12px; }
+.v2-theme-title { font-size: 17px; font-weight: 700; color: var(--v2-text-1); }
+.v2-theme-done {
+  border: 0; cursor: pointer; border-radius: 999px;
+  padding: 7px 20px; font-size: 14px; font-weight: 600;
+  color: var(--v2-on-primary); background: var(--v2-primary-fill);
+}
+.v2-theme-done:active { background: var(--v2-primary-fill-hover); }
+.v2-theme-list { display: flex; flex-direction: column; gap: 10px; }
+.v2-theme-item {
+  display: flex; align-items: center; gap: 14px;
+  width: 100%; text-align: left; cursor: pointer;
+  padding: 12px 14px; border-radius: 14px;
+  background: var(--v2-surf-2, #1A1D22);
+  border: 1.5px solid var(--v2-border-soft, #23262C);
+  color: var(--v2-text-1);
+}
+.v2-theme-item:active { transform: none; }
+.v2-theme-item.is-active { border-color: var(--v2-primary); background: var(--v2-primary-soft); }
+.theme-sw {
+  flex: 0 0 auto; display: flex; width: 78px; height: 42px; border-radius: 10px;
+  overflow: hidden; border: 1px solid var(--v2-border-strong);
+}
+.theme-sw i { display: block; flex: 1 1 0; height: 100%; }
+.theme-meta { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.theme-name { font-size: 15px; font-weight: 700; color: var(--v2-text-1); }
+.theme-desc {
+  font-size: 12px; line-height: 1.35; color: var(--v2-text-2);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.theme-check {
+  flex: 0 0 auto; width: 24px; height: 24px; border-radius: 50%;
+  display: grid; place-items: center;
+  border: 1.5px solid var(--v2-border-strong); color: #fff;
+}
+.theme-check.on { background: var(--v2-primary-fill); border-color: var(--v2-primary-fill); }
+/* 平板 / 主控机（侧栏入口）：主题 sheet 改居中弹卡，不贴底全宽 */
+@media (min-width: 600px) {
+  .v2-theme-mask { align-items: center; justify-content: center; }
+  .v2-theme-sheet { width: 520px; max-width: calc(100vw - 48px); border-radius: 18px; }
+}
 
 @media (max-width: 600px) {
   /* 手机竖屏: tools 收进「更多」, 底栏只剩 main(6) + 更多 = 7 个槽 -> 每个 55px, 达标 */

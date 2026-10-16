@@ -220,7 +220,7 @@ onMounted(load);
   box-shadow: var(--v2-elev-2, 0 10px 28px -10px rgba(0,0,0,.55));
 }
 .ma-btn { flex: 1; padding: 12px; border-radius: 11px; font-size: 15px; font-weight: 600; border: 1px solid transparent; cursor: pointer; }
-.ma-btn.primary { background: var(--v2-primary); color: #fff; }
+.ma-btn.primary { background: var(--v2-primary-fill); color: #fff; }
 .ma-btn.primary:hover { background: var(--v2-primary-hover); }
 .ma-btn.primary:disabled { opacity: .6; cursor: not-allowed; }
 .ma-btn.ghost { flex: 0 0 38%; background: var(--v2-surf-2); border-color: var(--v2-border-strong); color: var(--v2-text-2); }

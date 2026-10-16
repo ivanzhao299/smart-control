@@ -187,7 +187,7 @@ onMounted(() => {
 .assets-actions { display: inline-flex; align-items: center; gap: 8px; }
 .assets-rev { font-size: 12px; color: var(--v2-text-3); font-variant-numeric: tabular-nums; }
 .assets-btn { padding: 7px 14px; border-radius: 9px; border: 1px solid var(--v2-border-soft); background: var(--v2-surf-1); color: var(--v2-text-2); font-size: 12px; cursor: pointer; }
-.assets-btn.primary { background: var(--v2-primary); color: #fff; border-color: var(--v2-primary); }
+.assets-btn.primary { background: var(--v2-primary-fill); color: #fff; border-color: var(--v2-primary-fill); }
 .assets-btn:disabled { opacity: .5; cursor: not-allowed; }
 .assets-hint { margin: 10px 0 12px; font-size: 12px; color: var(--v2-text-3); line-height: 1.6; }
 .assets-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.35fr); gap: 16px; }
