@@ -37,6 +37,7 @@ import { MediaModule } from './modules/media/media.module';
 import { OnlineMusicModule } from './modules/online-music/online-music.module';
 import { BaiduPanModule } from './modules/baidu-pan/baidu-pan.module';
 import { EwelinkModule } from './integrations/ewelink/ewelink.module';
+import { HperforModule } from './integrations/hperfor/hperfor.module';
 import { DriversModule } from './modules/drivers/drivers.module';
 import { BrandsModule } from './modules/brands/brands.module';
 import { SystemBrandingModule } from './modules/system-branding/system-branding.module';
@@ -94,6 +95,7 @@ import { RuntimeConfigModule } from './common/runtime-config/runtime-config.modu
     OnlineMusicModule,
     BaiduPanModule,
     EwelinkModule,
+    HperforModule,
     DriversModule,
     BrandsModule,
     SystemBrandingModule,

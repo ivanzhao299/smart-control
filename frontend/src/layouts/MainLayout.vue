@@ -8,7 +8,7 @@ import { useRoute, useRouter } from 'vue-router';
 // - PWA standalone 启动也仍然全屏 (manifest display: fullscreen 接管)
 // - AlertBanner 已移除, 告警走后台 /admin/alerts
 // - 场景反馈走顶部 inline toast
-import { Activity, KeyRound, LogOut, Maximize2, Minimize2, Monitor, MoreHorizontal, Palette, Check } from 'lucide-vue-next';
+import { Activity, KeyRound, LogOut, Maximize2, Minimize2, MoreHorizontal, Palette, Check } from 'lucide-vue-next';
 import { theme, applyTheme, THEME_OPTIONS } from '@/services/theme.service';
 import type { Theme } from '@/services/theme.service';
 import ErrorBoundary from '@/components/ErrorBoundary.vue';
@@ -319,23 +319,6 @@ function moreChipStyle(name: string): Record<string, string> {
   };
 }
 
-/**
- * 「更多」→ 运营大屏直达（便于在手机/管理端进入大屏查看与运营数据编辑）。
- * 地址用 import.meta.env.BASE_URL 拼，公网域名 / 局域网 IP 自动跟随当前 origin。
- * 带 preview=1：大屏据此显示左上角悬浮返回按钮（看完/编辑完一键回后台）。
- * 注意：这里必须用"当前窗口导航"（普通 <a href>、无 target="_blank"）。
- * 手机端是装到桌面的 PWA 独立窗口（standalone），没有浏览器标签栏，target="_blank"
- * 在 PWA 内不会打开新标签、也不跳转（点击无反应）；当前窗口导航才可靠。
- * 正式 Kiosk 大屏 URL 不带 preview，大屏画面零影响。
- */
-const screenLinks = computed(() => {
-  const base = import.meta.env.BASE_URL;
-  const root = base.endsWith('/') ? base.slice(0, -1) : base;
-  return [
-    { key: 'ops', label: '运营大屏', href: `${root}/park-ops/index.html?preview=1`, icon: Monitor },
-  ];
-});
-
 function go(name: string): void {
   if (route.name !== name) router.push({ name });
 }
@@ -496,19 +479,6 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
               </span>
               <span>{{ item.label }}</span>
             </button>
-            <!-- 运营大屏直达：当前窗口打开（带 preview 返回按钮）；PWA 内不能用 target="_blank" -->
-            <a
-              v-for="link in screenLinks"
-              :key="link.key"
-              class="v2-more-item"
-              :href="link.href"
-              @click="moreOpen = false"
-            >
-              <span class="more-ico" :style="moreChipStyle(link.key)">
-                <component :is="link.icon" :size="24" :stroke-width="1.9" />
-              </span>
-              <span>{{ link.label }}</span>
-            </a>
             <!-- 手机端主题方案选择 -->
             <button class="v2-more-item" @click="openTheme">
               <span class="more-ico" :style="moreChipStyle('theme')">

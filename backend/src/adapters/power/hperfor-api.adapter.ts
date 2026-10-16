@@ -247,6 +247,39 @@ export class HperforApiAdapter extends BaseAdapter {
     return json.data.records;
   }
 
+  /** 后台「同步设备」：是否本地 mock（无真实平台、不触网） */
+  isMockMode(): boolean {
+    return this.isMock();
+  }
+
+  /** 后台「同步设备」：是否配置了平台账号（HPERFOR_API_USERNAME/PASSWORD） */
+  isConfigured(): boolean {
+    return !!this.username && !!this.password;
+  }
+
+  /**
+   * 拉取平台设备清单并标准化（供后台「同步设备」使用）。
+   * 本地 mock 模式直接返回空数组（不触网）；真实模式但未配置凭据或登录失败时抛错。
+   */
+  async listPlatformDevices(): Promise<Array<HperforPlatformDevice>> {
+    if (this.isMock()) return [];
+    const token = await this.ensureToken();
+    if (!token) throw new Error('华普云未登录或平台凭据未配置（HPERFOR_API_USERNAME/PASSWORD）');
+    const rows = await this.fetchDevices(token);
+    return rows.map((r) => ({
+      fId: String(r.fId),
+      fNumber: r.fNumber ?? '',
+      fName: r.fName ?? r.fNumber ?? String(r.fId),
+      online: !!r.tOnline,
+      switchStatus: Number(r.switchStatus ?? 0),
+      lastOnlineTime: r.fLastOnlineTime ?? '',
+      lat: Number.isFinite(r.fGpsLatitude) ? Number(r.fGpsLatitude) : null,
+      lng: Number.isFinite(r.fGpsLongitude) ? Number(r.fGpsLongitude) : null,
+      location: r.fLocation ?? null,
+      password: r.fPassword ?? '0',
+    }));
+  }
+
   /** 计量：device-elec → data.table（L/N 两列实测值） */
   private async fetchDeviceElec(deviceId: string): Promise<Array<[string, number, number]>> {
     const token = await this.ensureToken();
@@ -444,6 +477,25 @@ interface PlatformDevice {
   switchStatus?: number;
   tOnline?: boolean;
   fLastOnlineTime?: string;
+  fGpsLatitude?: number;
+  fGpsLongitude?: number;
+  fLocation?: string;
+  fPassword?: string;
+}
+
+/** 后台「同步设备」需要的标准化设备清单（已展平、字段名稳定） */
+export interface HperforPlatformDevice {
+  fId: string;
+  fNumber: string;
+  fName: string;
+  online: boolean;
+  /** 1=合闸送电, 0=分闸断电 */
+  switchStatus: number;
+  lastOnlineTime: string;
+  lat: number | null;
+  lng: number | null;
+  location: string | null;
+  password: string;
 }
 
 /** device-total 用电量统计结果 */

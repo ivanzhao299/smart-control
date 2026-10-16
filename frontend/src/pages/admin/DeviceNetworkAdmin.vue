@@ -163,6 +163,54 @@ async function ewelinkSync(): Promise<void> {
   }
 }
 
+// ============ 华普云 HPERFOR ePa 智电云设备同步（ePa-CB 内置 4G 断路器）============
+interface HperforIntegrationStatus {
+  mock: boolean;
+  configured: boolean;
+  registeredCount: number;
+}
+const hperStatus = ref<HperforIntegrationStatus>({
+  mock: false,
+  configured: false,
+  registeredCount: 0,
+});
+const hperBusy = ref(false);
+const hperMsg = ref('');
+
+async function loadHperStatus(): Promise<void> {
+  try {
+    hperStatus.value = await api.get<HperforIntegrationStatus>(
+      '/integrations/hperfor/status',
+      { refresh: true },
+    );
+  } catch {
+    /* 状态拉不到不阻塞本页 */
+  }
+}
+
+/** 拉华普云平台设备并导入硬件台账 + 电源回路（按 fId 去重，离线跳过） */
+async function hperSync(): Promise<void> {
+  hperBusy.value = true;
+  try {
+    const r = await api.post<{
+      scanned: number;
+      imported: number;
+      circuits: number;
+      updated: number;
+      skipped: string[];
+    }>('/integrations/hperfor/sync');
+    hperMsg.value =
+      `扫描 ${r.scanned}，新增 ${r.imported}、回路 ${r.circuits}、更新 ${r.updated}` +
+      (r.skipped.length ? `，跳过离线 ${r.skipped.length}` : '');
+    ElMessage.success('华普云设备同步完成');
+    await Promise.all([load(), loadHperStatus()]);
+  } catch (e) {
+    ElMessage.error((e as Error).message);
+  } finally {
+    hperBusy.value = false;
+  }
+}
+
 /** addressing JSON 里端口字段兼容两种历史命名: tcpPort (EKX seed) / port (其余) */
 function parsePort(addressing: string | null): string {
   if (!addressing) return '';
@@ -292,6 +340,7 @@ let timer: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
   void load();
   void loadEwelinkStatus();
+  void loadHperStatus();
   timer = setInterval(() => { void refreshGateways(); }, 10_000);
 });
 onUnmounted(() => { if (timer) clearInterval(timer); });
@@ -337,6 +386,30 @@ const dirtyCount = computed(() => rows.value.filter(isDirty).length);
           @click="ewelinkSync"
         >同步设备</el-button>
         <span v-if="lastSyncMsg" class="integ-result">{{ lastSyncMsg }}</span>
+      </div>
+    </div>
+
+    <div class="integ-card">
+      <div class="integ-head">
+        <div class="integ-title">华普云 HPERFOR ePa 智电云接入</div>
+        <el-tag v-if="hperStatus.mock" type="info" size="small">本地模拟</el-tag>
+        <el-tag v-else-if="hperStatus.configured" type="success" size="small">已配置</el-tag>
+        <el-tag v-else type="warning" size="small">未配置账号</el-tag>
+      </div>
+      <div class="integ-sub">
+        ePa-CB 内置 4G 断路器在平台命名并上线后，点「同步设备」自动导入硬件台账与电源回路（按平台设备
+        fId 去重、离线跳过），以后同平台加设备无需改代码；账号走后端环境变量 HPERFOR_API_USERNAME
+        / HPERFOR_API_PASSWORD。当前已登记 {{ hperStatus.registeredCount }} 台。
+      </div>
+      <div class="integ-actions">
+        <el-button
+          size="small"
+          type="primary"
+          :loading="hperBusy"
+          :disabled="hperStatus.mock || !hperStatus.configured"
+          @click="hperSync"
+        >同步设备</el-button>
+        <span v-if="hperMsg" class="integ-result">{{ hperMsg }}</span>
       </div>
     </div>
 
