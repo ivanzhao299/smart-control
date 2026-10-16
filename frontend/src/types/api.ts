@@ -534,6 +534,27 @@ export interface PlaybackChannelChangedWsEvent {
   at: string;
 }
 
+/** 大屏视频实时进度 (2026-10): 控制端进度条据此移动; 仅控制端接收, 不回环大屏 */
+export interface PlaybackProgressWsEvent {
+  type: 'playback_progress';
+  slot: number;
+  mediaId: number | null;
+  currentTime: number;
+  duration: number;
+  paused: boolean;
+  ended: boolean;
+  at: string;
+}
+
+/** 控制端拖拽进度条的 seek 指令 (2026-10): 仅对应 slot 的大屏播放器接收 */
+export interface PlaybackSeekWsEvent {
+  type: 'playback_seek';
+  slot: number;
+  nonce: number;
+  time: number;
+  at: string;
+}
+
 /** 断路器读数后台预采集后推送 (电源页实时刷新, 免轮询) */
 export interface PowerReadingWsEvent {
   type: 'power_reading';
@@ -589,6 +610,8 @@ export type WsEvent =
   | SystemHealthWsEvent
   | ServiceStatusWsEvent
   | PlaybackChannelChangedWsEvent
+  | PlaybackProgressWsEvent
+  | PlaybackSeekWsEvent
   | PowerReadingWsEvent
   | LprPassWsEvent
   | LprGateStatusWsEvent

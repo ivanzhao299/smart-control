@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, ref, watch , nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import { useActivePolling } from '@/composables/useActivePolling';
 import { WsClient, type WsConnectionState } from '@/services/websocket.service';
-import { getPlayerState, playerHeartbeat, playerAdvance, configurePlayer, hasPlayerCredential, playerSocketAuthentication, type PlayerDeviceState } from '@/services/player-device.service';
+import { getPlayerState, playerHeartbeat, playerAdvance, playerProgress, configurePlayer, hasPlayerCredential, playerSocketAuthentication, type PlayerDeviceState } from '@/services/player-device.service';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { absUrl, api, setApiBaseURL } from '@/services/http';
 import { webpageSandbox } from '@/services/webpage-sandbox';
@@ -20,7 +20,7 @@ import type { WsEvent } from '@/types/api';
  * 行为:
  *   1) onMounted 拉当前 channel state (REST), 拿到 currentMediaUrl 渲染.
  *   2) WS 收到 playback_channel_changed{slot=N} 就切素材, 零延迟.
- *   3) 视频播完默认回待机 (loopMode='once') 或循环 (loopMode='loop').
+ *   3) 视频播完: loopMode='once' 停在最后一帧(不回待机/不切下一首), 'loop' 从头循环。
  *   4) 每 30s 调 /api/playback/channels/:slot/heartbeat, backend 知道 kiosk 活着.
  *   5) 待机画面 = 居中显示 logo + 系统名 (来自 system-branding).
  *
@@ -35,6 +35,22 @@ const slot = computed<number>(() => {
   const n = Number(q);
   return Number.isFinite(n) && (n === 1 || n === 2 || n === 3) ? n : 1;
 });
+
+// 手机/管理端"更多"里用 ?preview=1 打开的查看页：显示悬浮返回按钮、不抢全屏，方便
+// 临时查看后退出；GK9000 正式 Kiosk 播放窗口不带 preview，保持全屏、无按钮、无鼠标。
+const isPreview = computed<boolean>(() => {
+  const q = Array.isArray(route.query.preview) ? route.query.preview[0] : route.query.preview;
+  return q === '1' || q === 'true';
+});
+
+function previewBack(): void {
+  // 新标签打开时 history 可能为空：优先回退到来源页，退不出去就回前台首页。
+  if (window.history.length > 1 && document.referrer) {
+    window.history.back();
+  } else {
+    window.location.href = import.meta.env.BASE_URL;
+  }
+}
 
 const channel = ref<PlayerDeviceState | null>(null);
 const currentWebpageSandbox = computed(() => webpageSandbox(
@@ -110,7 +126,24 @@ async function fetchChannelOnce(): Promise<void> {
 function handleWs(event: WsEvent): void {
   if (event.type === 'playback_channel_changed' && event.slot === slot.value) {
     void fetchChannel();
+  } else if (event.type === 'playback_seek' && event.slot === slot.value) {
+    applySeek(event.time);
   }
+}
+
+/**
+ * 控制端拖拽进度条 → 大屏跳转到指定位置 (2026-10)。只设置 currentTime, 不改播放/暂停态:
+ * 视频在播就继续播, 暂停就停在新位置。跳转后立即回传一次进度, 让控制端滑块立刻到位。
+ */
+function applySeek(time: number): void {
+  const el = videoEl.value;
+  if (!el || !channel.value?.currentMediaId) return;
+  const dur = Number.isFinite(el.duration) && el.duration > 0 ? el.duration : time;
+  const target = Math.max(0, Math.min(time, dur));
+  try {
+    el.currentTime = target;
+    reportProgress(true);
+  } catch { /* 媒体尚未就绪时忽略, 下一次 seek 由用户重新拖 */ }
 }
 
 async function sendHeartbeat(): Promise<void> {
@@ -190,7 +223,8 @@ async function startPlayer(): Promise<void> {
   // 成功后会自清。5s 一次, 便宜且无副作用。
   audioRouteRetryTimer = window.setInterval(() => void routeVideoAudio(), 5_000);
 
-  startFullscreenGuard();
+  // 正式 Kiosk 才持续抢全屏；手机预览页保持浏览器原貌，避免强制全屏后无处可退。
+  if (!isPreview.value) startFullscreenGuard();
 
   // 渲染软看门狗: iframe 内重 WebGL 卡死 GPU/合成时自动 reload 自愈(只看心跳发现不了)。
   renderWatchdog = startRenderWatchdog();
@@ -222,6 +256,29 @@ onBeforeUnmount(() => {
 
 // 视频元素引用 — 用来在 ended 时根据 loopMode 决定循环或回待机
 const videoEl = ref<HTMLVideoElement | null>(null);
+
+let lastProgressAt = 0;
+/**
+ * 上报视频播放进度给控制端 (2026-10)。timeupdate 约 1s 节流一次;
+ * seek/play/pause/ended 强制立即上报 (force), 让控制端滑块与状态即时到位。
+ */
+function reportProgress(force = false): void {
+  const el = videoEl.value;
+  const ch = channel.value;
+  if (!el || !ch || ch.currentMediaKind !== 'video') return;
+  const now = performance.now();
+  const ended = el.ended;
+  if (!force && !ended && now - lastProgressAt < 1000) return;
+  lastProgressAt = now;
+  void playerProgress(slot.value, {
+    currentTime: Number.isFinite(el.currentTime) ? el.currentTime : 0,
+    duration: Number.isFinite(el.duration) ? el.duration : 0,
+    paused: el.paused,
+    ended,
+    mediaId: ch.currentMediaId,
+  }).catch(() => { /* 进度上报失败不影响大屏播放 */ });
+}
+function onVideoTimeUpdate(): void { reportProgress(false); }
 
 /**
  * 把视频声音送到 HDMI 音频端点 (slot 1/2), 而不是 Windows 默认设备.
@@ -369,6 +426,7 @@ async function routeVideoAudio(): Promise<void> {
 watch(() => channel.value?.currentMediaUrl, (url, oldUrl) => {
   // url 变了就强制 reload <video>, 防止浏览器缓存上一段
   if (url !== oldUrl && videoEl.value) {
+    lastProgressAt = 0; // 换片: 新视频 timeupdate 立即开始上报, 不被旧节流压住
     videoEl.value.load();
     void videoEl.value.play().catch(() => { /* 用户没交互可能被拒 */ });
   }
@@ -389,9 +447,25 @@ function onVideoEnded(): void {
   if (channel.value?.loopMode === 'loop' && videoEl.value) {
     videoEl.value.currentTime = 0;
     void videoEl.value.play();
+  } else {
+    // 'once' 模式: 视频自然停在最后一帧 (不回待机/不切下一首), 立即上报 ended 让控制条落尾
+    reportProgress(true);
   }
-  // 'once' 模式: 视频自然停在最后一帧, 不主动回 idle, 等下一次 publish / stop
 }
+
+/**
+ * 运行中切换单次/循环 (2026-10): video.loop 由模板 :loop 绑定自动更新; 但若视频已停在
+ * 尾帧 (once 播完), 浏览器不会因 loop 属性变化自行重播, 这里手动从头恢复播放。
+ */
+watch(() => channel.value?.loopMode, (mode, old) => {
+  if (mode === old) return;
+  const el = videoEl.value;
+  if (!el || !channel.value?.currentMediaId) return;
+  if (mode === 'loop' && el.ended) {
+    el.currentTime = 0;
+    void el.play().catch(() => { /* 用户没交互可能被拒 */ });
+  }
+});
 
 const isVideo = computed<boolean>(() => channel.value?.currentMediaKind === 'video');
 const isImage = computed<boolean>(() => channel.value?.currentMediaKind === 'image');
@@ -417,6 +491,11 @@ function onAudioEnded(): void {
 
 <template>
   <div class="player">
+    <!-- 手机/管理端预览页：左上角悬浮返回按钮；正式 Kiosk 不渲染，画面零影响 -->
+    <button v-if="isPreview" type="button" class="preview-back" @click="previewBack" aria-label="返回">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
+      返回
+    </button>
     <form v-if="needsCredential" class="device-setup" @submit.prevent="saveCredential">
       <label>通道 {{ slot }} 设备凭据<input v-model="credential" type="password" autocomplete="off" /></label>
       <label><input v-model="rememberDevice" type="checkbox" />记住此展厅专用播放器（重启后自动连接）</label>
@@ -434,6 +513,9 @@ function onAudioEnded(): void {
       playsinline
       :loop="channel.loopMode === 'loop'"
       @ended="onVideoEnded"
+      @timeupdate="onVideoTimeUpdate"
+      @play="reportProgress(true)"
+      @pause="reportProgress(true)"
       @loadedmetadata="routeVideoAudio"
     />
 
@@ -503,6 +585,27 @@ function onAudioEnded(): void {
 </template>
 
 <style scoped>
+/* 手机/管理端预览页悬浮返回按钮（正式 Kiosk 不渲染此节点） */
+.preview-back {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  left: 12px;
+  z-index: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(10, 14, 24, 0.62);
+  color: #e5e7eb;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.preview-back:active { background: rgba(31, 41, 55, 0.82); }
 .device-setup { position: fixed; inset: 25% 15% auto; padding: 24px; z-index: 100; background: #20232b; color: white; cursor: auto; }
 .device-setup input { display: block; width: 100%; margin: 12px 0; }
 .device-setup input[type="checkbox"] { display: inline-block; width: auto; margin: 12px 8px 12px 0; }

@@ -69,4 +69,16 @@ export class PlayerDeviceController {
   async advance(@Param('slot', ParseIntPipe) slot: number, @Headers('x-player-token') token: string, @Body() body: { playbackSession?: string }) {
     return { message: 'ok', data: await this.access.advance(slot, token, body?.playbackSession ?? '') };
   }
+
+  /** 大屏视频播放进度上报 (2026-10, 约 1s 一次): 仅内存态, 控制端进度条据此移动 */
+  @Post('progress')
+  @UseGuards(PlayerDeviceGuard)
+  @HttpCode(200)
+  async progress(
+    @Param('slot', ParseIntPipe) slot: number,
+    @Body() body: { currentTime?: number; duration?: number; paused?: boolean; ended?: boolean; mediaId?: number | null },
+  ) {
+    this.playback.reportProgress(slot, body ?? {});
+    return { message: 'ok', data: null };
+  }
 }

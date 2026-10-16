@@ -196,7 +196,8 @@ test('idle playback resumes the most recent available history item still in the 
 
   await h.state.togglePause();
 
-  assert.deepEqual(h.calls.filter(([name]) => name === 'publish'), [['publish', 1, 20, 'loop']]);
+  // 2026-10 起普通视频默认单次 (播完停尾帧), 恢复历史项也不再硬编码循环
+  assert.deepEqual(h.calls.filter(([name]) => name === 'publish'), [['publish', 1, 20]]);
   h.scope.stop();
 });
 

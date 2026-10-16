@@ -94,7 +94,7 @@ async function pickAndPush(m: MediaItem): Promise<void> {
     return;
   }
   try {
-    await playbackStore.publish(slot, m.id, 'loop');
+    await playbackStore.publish(slot, m.id);
     ElMessage.success(`已推「${m.originalName}」到 ${pickModeLabel.value}`);
     router.push({ name: pickReturnRoute() });
   } catch (e) {
@@ -232,20 +232,21 @@ function closePreview(): void {
  * slot=2: HDMI2 → 投影仪
  * 同时推 both: 两个 slot 一起切到同一素材
  */
-async function pushTo(m: MediaItem, slot: 1 | 2 | 'both', loopMode: 'once' | 'loop' = 'loop'): Promise<void> {
+async function pushTo(m: MediaItem, slot: 1 | 2 | 'both', loopMode: 'once' | 'loop' = 'once'): Promise<void> {
   if (!canOperate.value) return;
   if (m.kind === 'video' && m.processingStatus !== 'ready') {
     ElMessage.warning(m.processingStatus === 'failed' ? '视频兼容转换失败，请点“重新转换”' : '视频正在生成兼容版本，请稍后');
     return;
   }
+  const modeText = loopMode === 'loop' ? '循环' : '单次';
   try {
     if (slot === 'both') {
       await Promise.all([playbackStore.publish(1, m.id, loopMode), playbackStore.publish(2, m.id, loopMode)]);
-      ElMessage.success(`已推「${m.originalName}」到 LED + 投影 (loop=${loopMode})`);
+      ElMessage.success(`已推「${m.originalName}」到 LED + 投影（${modeText}）`);
     } else {
       await playbackStore.publish(slot, m.id, loopMode);
       const slotName = slot === 1 ? 'LED 大屏' : '投影仪';
-      ElMessage.success(`已推「${m.originalName}」到 ${slotName} (loop=${loopMode})`);
+      ElMessage.success(`已推「${m.originalName}」到 ${slotName}（${modeText}）`);
     }
   } catch (e) {
     ElMessage.error(`推送失败: ${(e as Error).message}`);

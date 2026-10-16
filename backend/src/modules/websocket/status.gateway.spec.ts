@@ -115,4 +115,17 @@ describe('status socket identity and disclosure', () => {
     await (gateway as any).sendAuthorized(client, { type: 'alarm', message: 'details' });
     expect(client.send).toHaveBeenCalledWith(JSON.stringify({ type: 'alarm', message: 'details' }));
   });
+  it('accepts an admin-flagged PERSONAL token via client auth after the shared-secret check fails', async () => {
+    // 后台登录已收敛为个人账号 (loginAdministrator 用 client_auth_v1 签发, payload 带 uid)。
+    // 前端管理端仍以 admin=true 连接, 旧共享令牌校验失败后必须回退到个人 token 解析,
+    // 否则管理端 WS 永远 4401、收不到实时进度/状态推送。
+    await gateway.authenticate(client, { token: 'valid', admin: true });
+    expect(client.close).not.toHaveBeenCalled();
+    expect(client.send).toHaveBeenCalledTimes(2); // hello + snapshot
+    // 该个人 token 的真实角色是 operator, 不能因 admin=true 标记而提权:
+    // 富文本 alarm 仍按 operator 白名单被过滤。
+    client.send.mockClear();
+    await (gateway as any).sendAuthorized(client, { type: 'alarm', message: 'details' });
+    expect(client.send).not.toHaveBeenCalled();
+  });
 });

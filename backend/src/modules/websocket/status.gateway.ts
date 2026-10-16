@@ -275,9 +275,20 @@ export class StatusGateway
           return null;
         }
         if (session.kind === 'public') return null; // 公共频道匿名连接，无身份可解析
-        const actor: Actor | null = session.admin
-          ? await this.adminAuth.verifyToken(session.token) ? { kind: 'admin', userId: null, username: 'admin', role: 'admin' } : null
-          : await this.clientAuth.resolveActor(session.token);
+        let actor: Actor | null = null;
+        if (session.admin) {
+          // ① 收敛前的共享后台令牌 (admin_auth_v1 签名, 无 uid) 仍兼容;
+          if (await this.adminAuth.verifyToken(session.token)) {
+            actor = { kind: 'admin', userId: null, username: 'admin', role: 'admin' };
+          } else {
+            // ② 后台登录 (loginAdministrator) 已统一为个人账号, 令牌由 client_auth_v1
+            //    签发且 payload 带 uid。按真实 role 解析 (admin/operator…), 不会因标记
+            //    admin=true 而提权——权限仍由下方 actor.role 分流。
+            actor = await this.clientAuth.resolveActor(session.token);
+          }
+        } else {
+          actor = await this.clientAuth.resolveActor(session.token);
+        }
         if (actor && this.sessions.get(client) === session) return actor;
       }
     } catch { /* Fail closed on authentication storage errors. */ }
@@ -301,12 +312,16 @@ export class StatusGateway
     if (actor.kind === 'player') {
       if (event.type === 'playback_channel_changed' && event.slot === actor.slot) {
         this.safeSend(client, { type: event.type, slot: event.slot, at: event.at });
+      } else if (event.type === 'playback_seek' && event.slot === actor.slot) {
+        // 拖拽进度条指令只下发给对应 slot 的大屏播放器; 播放器不接收 progress(避免回环)。
+        this.safeSend(client, { type: event.type, slot: event.slot, nonce: event.nonce, time: event.time, at: event.at });
       }
       return;
     }
     if (actor.role === 'admin') { this.safeSend(client, event); return; }
     // Never relay arbitrary adapter state, error messages or test results across users.
     if (event.type === 'playback_channel_changed') this.safeSend(client, { type: event.type, slot: event.slot, at: event.at });
+    else if (event.type === 'playback_progress') this.safeSend(client, { type: event.type, slot: event.slot, mediaId: event.mediaId, currentTime: event.currentTime, duration: event.duration, paused: event.paused, ended: event.ended, at: event.at });
     else if (event.type === 'device_status') this.safeSend(client, { type: event.type, device: event.device, status: event.status, at: event.at });
     else if (event.type === 'power_reading') this.safeSend(client, { type: event.type, circuitId: event.circuitId, code: event.code, reading: event.reading, at: event.at });
     else if (event.type === 'scene') this.safeSend(client, { type: event.type, scene: event.scene, executionId: event.executionId, status: event.status, at: event.at });

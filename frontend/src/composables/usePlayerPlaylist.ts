@@ -131,7 +131,8 @@ export function usePlayerPlaylist(options: PlayerPlaylistOptions) {
     const slot = options.slot.value;
     busy.value = true;
     try {
-      await playbackStore.publish(slot, item.mediaId, 'loop');
+      // 默认单次、播完停尾帧 (2026-10); 不再硬编码循环。欢迎页/运营大屏走专用端点常驻 loop。
+      await playbackStore.publish(slot, item.mediaId);
       if (!currentAction()) return;
       await loadAll();
       if (currentAction()) ElMessage.success(`正在播放「${item.title}」`);

@@ -157,6 +157,37 @@ export interface PlaybackChannelChangedEvent {
   at: string;
 }
 
+/**
+ * 大屏播放器实时进度 (kiosk 约 1s 上报, 仅内存态不落库)。控制端据此移动进度条;
+ * 只发给控制端 (user/admin), 不回环给播放器本身。
+ */
+export interface PlaybackProgressEvent {
+  type: 'playback_progress';
+  slot: number;
+  mediaId: number | null;
+  /** 当前播放位置(秒) */
+  currentTime: number;
+  /** 总时长(秒); 未知为 0 */
+  duration: number;
+  paused: boolean;
+  /** 已播完并停在尾帧 (loopMode='once') */
+  ended: boolean;
+  at: string;
+}
+
+/**
+ * 控制端拖拽进度条的 seek 指令 (仅内存态、实时下发, 不写库)。只发给对应 slot 的大屏播放器。
+ * nonce 单调递增, 大屏据此判断是否为新指令。
+ */
+export interface PlaybackSeekEvent {
+  type: 'playback_seek';
+  slot: number;
+  nonce: number;
+  /** 目标位置(秒) */
+  time: number;
+  at: string;
+}
+
 /** 智能断路器读数 (后台预采集后经 WS 推送, 电源页据此实时刷新, 免轮询) */
 export interface PowerReadingEvent {
   type: 'power_reading';
@@ -223,7 +254,9 @@ export type ControlEvent =
   | ServiceStatusEvent
   | TestEvent
   | UatUpdatedEvent
-  | PlaybackChannelChangedEvent;
+  | PlaybackChannelChangedEvent
+  | PlaybackProgressEvent
+  | PlaybackSeekEvent;
 
 @Injectable()
 export class ControlBus {

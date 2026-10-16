@@ -1,7 +1,17 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import { listChannels, publishToChannel, stopChannel, pauseChannel, resumeChannel, nextInPlaylist, prevInPlaylist, type LoopMode } from '@/services/playback.service';
-import type { PlaybackChannelView, WsEvent } from '@/types/api';
+import { listChannels, publishToChannel, stopChannel, pauseChannel, resumeChannel, nextInPlaylist, prevInPlaylist, setLoopMode as apiSetLoopMode, seekChannel, type LoopMode } from '@/services/playback.service';
+import type { PlaybackChannelView, PlaybackProgressWsEvent, WsEvent } from '@/types/api';
+
+/** 大屏视频实时进度 (仅内存态, 控制端进度条用)。换片时按 mediaId 是否匹配决定是否采信。 */
+export type PlaybackProgressState = {
+  mediaId: number | null;
+  currentTime: number;
+  duration: number;
+  paused: boolean;
+  ended: boolean;
+  at: string;
+};
 
 /**
  * 播控通道 store.
@@ -14,6 +24,8 @@ export const usePlaybackStore = defineStore('playback', () => {
   const channels = ref<PlaybackChannelView[]>([]);
   const loaded = ref(false);
   const loading = ref(false);
+  /** 各 slot 大屏视频实时进度 (2026-10), 仅内存态; 渲染时按 mediaId 与当前通道匹配再采信 */
+  const progressMap = ref<Record<number, PlaybackProgressState>>({});
   let loadRevision = 0;
   function clearIdentity(): void {
     loadRevision += 1;
@@ -83,6 +95,16 @@ export const usePlaybackStore = defineStore('playback', () => {
     patchChannel(await prevInPlaylist(slot));
   }
 
+  /** 单次/循环切换 (2026-10): 持久化到通道, 大屏经 channel_changed 即时生效 */
+  async function setLoop(slot: number, mode: LoopMode): Promise<void> {
+    patchChannel(await apiSetLoopMode(slot, mode));
+  }
+
+  /** 拖拽进度条: 下发实时 seek 指令, 进度位置以大屏回传为准 (不做本地乐观值) */
+  async function seek(slot: number, time: number): Promise<void> {
+    await seekChannel(slot, time);
+  }
+
   function patchChannel(view: PlaybackChannelView): void {
     const idx = channels.value.findIndex((c) => c.slot === view.slot);
     if (idx >= 0) channels.value[idx] = view;
@@ -92,11 +114,22 @@ export const usePlaybackStore = defineStore('playback', () => {
   function handleWs(event: WsEvent): void {
     if (event.type === 'playback_channel_changed') {
       void load().catch(() => { /* State was cleared; next refresh can recover. */ });
+    } else if (event.type === 'playback_progress') {
+      const e = event as PlaybackProgressWsEvent;
+      progressMap.value[e.slot] = {
+        mediaId: e.mediaId,
+        currentTime: e.currentTime,
+        duration: e.duration,
+        paused: e.paused,
+        ended: e.ended,
+        at: e.at,
+      };
     }
   }
 
   return {
     clearIdentity,
     next,
-    prev, channels, loaded, loading, slot1, slot2, slotAudio, channelMap, load, publish, stop, pause, resume, handleWs };
+    prev, channels, loaded, loading, slot1, slot2, slotAudio, channelMap, progressMap,
+    load, publish, stop, pause, resume, setLoop, seek, handleWs };
 });

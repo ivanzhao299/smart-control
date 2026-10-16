@@ -127,6 +127,34 @@ export class PlaybackController {
     return { message: '铺放模式已更新', data: await this.service.setDisplayFit(slot, fit) };
   }
 
+  /** 单次/循环切换 (业主 2026-10): once=播完停尾帧 / loop=循环; 大屏即时生效 */
+  @Post('channels/:slot/loop-mode')
+  @HttpCode(200)
+  async loopMode(
+    @Param('slot', ParseIntPipe) slot: number,
+    @Body() body: { mode?: string } = {},
+  ) {
+    const mode = body?.mode;
+    if (mode !== 'once' && mode !== 'loop') {
+      throw new BadRequestException('mode 必须是 once / loop');
+    }
+    return { message: '播放模式已更新', data: await this.service.setLoopMode(slot, mode) };
+  }
+
+  /** 拖拽进度条 seek (2026-10): 仅视频; body {time=秒}, 越界自动夹到时长内 */
+  @Post('channels/:slot/seek')
+  @HttpCode(200)
+  async seek(
+    @Param('slot', ParseIntPipe) slot: number,
+    @Body() body: { time?: number } = {},
+  ) {
+    const time = Number(body?.time);
+    if (!Number.isFinite(time) || time < 0) {
+      throw new BadRequestException('time 必须是不小于 0 的秒数');
+    }
+    return { message: '已跳转', data: await this.service.seek(slot, time) };
+  }
+
   @Post('channels/:slot/next')
   @HttpCode(200)
   async next(@Req() req: AuthenticatedRequest, @Param('slot', ParseIntPipe) slot: number) {

@@ -170,8 +170,27 @@ startBlankScreenWatchdog();
 // 每次启动及从后台回到前台时主动检查 sw.js；新 SW 接管后自动刷新一次，让当前
 // WebView 立即加载新版 index/chunk，而不是只提示“下次打开生效”。sessionStorage
 // 防止少数 WebView 的 controllerchange 重复触发造成刷新循环。
+// 无人值守大屏（GK9000 Kiosk 的 LED/投影 player 正式窗口）：检测到新版后直接静默
+// 激活并刷新，不弹等人点的横幅——现场 7×24 无人操作，横幅会一直挂在屏上。触发来自
+// 后端部署后广播的 frontend_release（网关对 player 独立 WS 也下发）、重连 hello 与
+// 冷启动核对。手机/管理端，以及手机“更多”里用 ?preview=1 打开的查看页，仍弹确认横幅。
+const isUnattendedKiosk = (() => {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return /(^|\/)player\/?$/.test(window.location.pathname) && params.get('preview') !== '1';
+  } catch {
+    return false;
+  }
+})();
 const pwaUpdateHandle = startPwaUpdateMonitor({
-  onReady: (apply) => promptUpdate(apply),
+  onReady: (apply) => {
+    if (isUnattendedKiosk) {
+      setApplying();
+      apply();
+    } else {
+      promptUpdate(apply);
+    }
+  },
   onApplying: () => setApplying(),
 });
 bindDismiss(pwaUpdateHandle.dismiss);

@@ -41,6 +41,7 @@ import { useWelcomeEditor } from '@/composables/useWelcomeEditor';
 import { usePlayerInputSources } from '@/composables/usePlayerInputSources';
 import { usePlayerPlaylist } from '@/composables/usePlayerPlaylist';
 import { usePlayerDocumentControls } from '@/composables/usePlayerDocumentControls';
+import PlayerVideoControls from '@/components/PlayerVideoControls.vue';
 import { usePlayerPowerControls } from '@/composables/usePlayerPowerControls';
 import { WELCOME_PICK_DEFAULT, detectPlayerInputSource } from '@/features/player-input-source';
 import { MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
@@ -301,7 +302,6 @@ const {
       </div>
     </header>
 
-
     <!-- ===== 正在播 + 播放控制 ===== -->
     <section class="now">
       <!-- 报警插槽 (2026-07-26 业主: 移到播放卡片内部): 设备/输出异常条,
@@ -323,8 +323,8 @@ const {
             <button v-if="parkOpsClaimByMe" class="claim-release" @click="releaseParkOps">释放控制</button>
           </template>
           <template v-else>
-            <span v-if="ch?.loopMode === 'loop'"><Repeat :size="13" /> 循环</span>
-            <span v-else><Repeat1 :size="13" /> 播一遍</span>
+            <span v-if="ch?.currentMediaKind !== 'video' && ch?.loopMode === 'loop'"><Repeat :size="13" /> 循环</span>
+            <span v-else-if="ch?.currentMediaKind !== 'video'"><Repeat1 :size="13" /> 播一遍</span>
             <span v-if="ch?.currentMediaId && !currentInList" class="tmp">· 临时推送 (不在播放列表里)</span>
           </template>
         </div>
@@ -378,7 +378,7 @@ const {
           </button>
         </template>
       </div>
-
+      <PlayerVideoControls :slot="SLOT" />
       <!-- 画面铺放 (业主 2026-07-25): 图片/视频都吃, 默认铺满; 改完即时生效并记住 -->
       <div class="fit-row">
         <span class="fit-label">画面铺放</span>

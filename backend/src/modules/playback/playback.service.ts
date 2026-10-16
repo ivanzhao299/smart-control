@@ -8,7 +8,7 @@ import { Actor } from '../../common/auth/actor';
 import { visiblePlaylistWhere } from '../../common/auth/playlist-scope';
 import { assertCanUpload, assertCanPublish, canReadResource } from '../../common/auth/resource-policy';
 import { Logger } from 'winston';
-import { PlaybackChannel, type PlaybackDisplayFit, type PlaybackPlayMode } from '../../entities/playback-channel.entity';
+import { PlaybackChannel, type PlaybackDisplayFit, type PlaybackLoopMode, type PlaybackPlayMode } from '../../entities/playback-channel.entity';
 import { PlaylistItem } from '../../entities/playlist-item.entity';
 import { PlaybackHistory } from '../../entities/playback-history.entity';
 import { User } from '../../entities/user.entity';
@@ -78,6 +78,22 @@ export class PlaybackService implements OnModuleInit {
     return this.renderHealth.get(slot) ?? null;
   }
 
+  /**
+   * 大屏播放器实时进度 (2026-10): kiosk 约 1s 上报, 仅内存态、不落库。控制端进度条
+   * 订阅它; 后端重启即清空, 与待机状态一致, 可接受。
+   */
+  private readonly progress = new Map<
+    number,
+    { mediaId: number | null; currentTime: number; duration: number; paused: boolean; ended: boolean; at: Date }
+  >();
+
+  /** 控制端 seek 指令 (仅内存态): 大屏 WS 实时消费; nonce 单调递增, 大屏据此去重。 */
+  private readonly seeks = new Map<number, { nonce: number; time: number; at: Date }>();
+  private seekNonce = 0;
+  /** 进度广播节流: 每个 slot 距上次广播不足该间隔则丢弃, 防止上报抖动刷爆 WS。 */
+  private static readonly PROGRESS_MIN_INTERVAL_MS = 500;
+  private lastProgressBroadcastAt = new Map<number, number>();
+
   /** 启动恢复只清理瞬态播放状态；物理通道目录由版本化迁移建立。 */
   async onModuleInit(): Promise<void> {
     // 2026-07-25 业主: "LED/背景音乐/投影默认不要自动播, 有人操作才播"。
@@ -130,9 +146,10 @@ export class PlaybackService implements OnModuleInit {
       throw new BadRequestException(detail);
     }
 
-    // 展厅大屏默认循环: 播一遍就回待机等于要人守着重推, 现场没人干这事
-    // (2026-07-16 业主: "没有人工干预就让它循环播放")
-    const loopMode = opts.loopMode ?? 'loop';
+    // 普通视频默认单次: 播完停在尾帧等人工操作 (业主 2026-10 需求, 取代 2026-07 的
+    // "没有人工干预就循环")。欢迎页/运营大屏走专门端点显式传 'loop' 常驻; 播放列表
+    // 切歌 (step/advance) 继承通道当前 loopMode。
+    const loopMode = opts.loopMode ?? 'once';
     // 只写"推送新媒体"该动的这几个字段, 不整行 save —— 否则会把 playMode /
     // lastHeartbeatAt 这些不相干的字段一起写回旧值 (见 pause 上方注释)
     await serializedTransaction(this.repo.manager.connection, async manager => {
@@ -447,6 +464,90 @@ export class PlaybackService implements OnModuleInit {
     this.broadcast(view);
     this.logger.info(`[Playback] slot=${slot} displayFit=${fit}`);
     return view;
+  }
+
+  /**
+   * 运行中切换单次/循环 (2026-10): 持久化 loopMode 并走现有 channel_changed 广播,
+   * 大屏 watch 到后动态切换 video.loop。若已播完停在尾帧再切"循环", 由大屏侧重新从头播放。
+   */
+  async setLoopMode(slot: number, mode: PlaybackLoopMode): Promise<PlaybackChannelView> {
+    if (mode !== 'once' && mode !== 'loop') {
+      throw new BadRequestException('无效的播放模式（应为 once 或 loop）');
+    }
+    const res = await this.repo.update({ slot }, { loopMode: mode });
+    if (!res.affected) throw new NotFoundException(`slot=${slot} 不存在`);
+    const view = await this.getBySlot(slot);
+    this.broadcast(view);
+    this.logger.info(`[Playback] slot=${slot} loopMode=${mode}`);
+    return view;
+  }
+
+  /**
+   * 控制端拖拽进度条 seek (2026-10): 仅内存态 + 实时 WS 指令, 不写库、不触发状态回读。
+   * 时长以大屏上报的实时 duration 为准 (最贴近实际), 兜底媒体元数据; 越界自动夹到区间内。
+   */
+  async seek(
+    slot: number,
+    time: number,
+  ): Promise<{ slot: number; nonce: number; time: number }> {
+    if (!Number.isFinite(time) || time < 0) {
+      throw new BadRequestException('跳转位置必须是不小于 0 的秒数');
+    }
+    // 直接读通道实体行而非 getBySlot: 后者会按媒体可见性对无 actor 视角抹掉 currentMediaId,
+    // 而操作员守卫已授权操作整条通道(可能是他人推送的 private 视频)。
+    const row = await this.repo.findOne({ where: { slot } });
+    if (!row) throw new NotFoundException(`slot=${slot} 不存在`);
+    if (!row.currentMediaId) throw new BadRequestException('当前没有在播放的内容');
+    const media = await this.mediaService.get(row.currentMediaId).catch(() => null);
+    if (!media || media.kind !== 'video') {
+      throw new BadRequestException('只有视频支持拖动进度');
+    }
+    const live = this.progress.get(slot);
+    const max = live && live.duration > 0 ? live.duration : (media.durationSec ?? 0);
+    const clamped = max > 0 ? Math.min(time, max) : time;
+    const nonce = ++this.seekNonce;
+    this.seeks.set(slot, { nonce, time: clamped, at: new Date() });
+    this.bus.publish({
+      type: 'playback_seek',
+      slot,
+      nonce,
+      time: clamped,
+      at: new Date().toISOString(),
+    });
+    this.logger.info(`[Playback] slot=${slot} seek=${clamped.toFixed(2)}s nonce=${nonce}`);
+    return { slot, nonce, time: clamped };
+  }
+
+  /**
+   * 大屏播放器上报进度 (设备凭据, 2026-10): 仅内存态; 服务端再做一次节流广播,
+   * 事件只下发给控制端 (网关侧不回环给播放器)。ended 立即广播以让进度条落到尾帧。
+   */
+  reportProgress(
+    slot: number,
+    body: { currentTime?: unknown; duration?: unknown; paused?: unknown; ended?: unknown; mediaId?: unknown },
+  ): void {
+    const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0);
+    const currentTime = num(body.currentTime);
+    const duration = num(body.duration);
+    const paused = body.paused === true;
+    const ended = body.ended === true;
+    const mediaId = typeof body.mediaId === 'number' ? body.mediaId : null;
+    this.progress.set(slot, { mediaId, currentTime, duration, paused, ended, at: new Date() });
+
+    const now = Date.now();
+    const last = this.lastProgressBroadcastAt.get(slot) ?? 0;
+    if (!ended && now - last < PlaybackService.PROGRESS_MIN_INTERVAL_MS) return;
+    this.lastProgressBroadcastAt.set(slot, now);
+    this.bus.publish({
+      type: 'playback_progress',
+      slot,
+      mediaId,
+      currentTime,
+      duration,
+      paused,
+      ended,
+      at: new Date().toISOString(),
+    });
   }
 
   /**

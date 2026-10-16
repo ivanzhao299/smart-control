@@ -8,7 +8,7 @@ import { useRoute, useRouter } from 'vue-router';
 // - PWA standalone 启动也仍然全屏 (manifest display: fullscreen 接管)
 // - AlertBanner 已移除, 告警走后台 /admin/alerts
 // - 场景反馈走顶部 inline toast
-import { Activity, KeyRound, LogOut, Maximize2, Minimize2, MoreHorizontal, Sun, Moon } from 'lucide-vue-next';
+import { Activity, Home, KeyRound, LogOut, Maximize2, Minimize2, Monitor, MoreHorizontal, Sun, Moon, Tv } from 'lucide-vue-next';
 import { theme, toggleTheme } from '@/services/theme.service';
 import ErrorBoundary from '@/components/ErrorBoundary.vue';
 import ServerSettingsDialog from '@/components/ServerSettingsDialog.vue';
@@ -292,6 +292,9 @@ const MORE_CHIP_COLORS: Record<string, string> = {
   theme: '#9D8BFF',
   password: '#F0897A',
   logout: '#E5484D',
+  home: '#4C9AFF',
+  ops: '#22d3ee',
+  led: '#34d399',
 };
 function moreChipStyle(name: string): Record<string, string> {
   const c = MORE_CHIP_COLORS[name] ?? '#4C9AFF';
@@ -301,6 +304,22 @@ function moreChipStyle(name: string): Record<string, string> {
     boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${c} 35%, transparent)`,
   };
 }
+
+/**
+ * 「更多」→ 大屏直达（一键在新标签打开前台首页 / 运营大屏 / LED 主屏）。
+ * 地址用 import.meta.env.BASE_URL 拼，公网域名 / 局域网 IP 自动跟随当前 origin。
+ * 运营大屏与 LED 主屏带 preview=1：页面据此显示悬浮返回按钮（player 预览时不抢全屏）；
+ * 正式 Kiosk 播放 URL 不带 preview，大屏画面零影响。
+ */
+const screenLinks = computed(() => {
+  const base = import.meta.env.BASE_URL;
+  const root = base.endsWith('/') ? base.slice(0, -1) : base;
+  return [
+    { key: 'home', label: '前台首页', href: base, icon: Home },
+    { key: 'ops', label: '运营大屏', href: `${root}/park-ops/index.html?preview=1`, icon: Monitor },
+    { key: 'led', label: 'LED 主屏', href: `${root}/player?slot=1&preview=1`, icon: Tv },
+  ];
+});
 
 function go(name: string): void {
   if (route.name !== name) router.push({ name });
@@ -461,6 +480,21 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
               </span>
               <span>{{ item.label }}</span>
             </button>
+            <!-- 大屏直达：一键在新标签打开前台首页 / 运营大屏 / LED 主屏（带 preview 返回按钮） -->
+            <a
+              v-for="link in screenLinks"
+              :key="link.key"
+              class="v2-more-item"
+              :href="link.href"
+              target="_blank"
+              rel="noopener noreferrer"
+              @click="moreOpen = false"
+            >
+              <span class="more-ico" :style="moreChipStyle(link.key)">
+                <component :is="link.icon" :size="24" :stroke-width="1.9" />
+              </span>
+              <span>{{ link.label }}</span>
+            </a>
             <!-- 手机端也要能切主题 -->
             <button class="v2-more-item" @click="toggleTheme()">
               <span class="more-ico" :style="moreChipStyle('theme')">
@@ -964,6 +998,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   border: 1px solid var(--v2-border-soft, #23262C);
   /* 2026-07-27 业主: 文字从 text-3 提到 text-1, 不再灰不拉几 */
   color: var(--v2-text-1, #E8EAED); font-size: 12px; font-weight: 500;
+  text-decoration: none;  /* 大屏直达用 <a>, 去掉链接默认下划线 */
 }
 /* 图标芯片: 圆角方块, 颜色由 moreChipStyle 按入口注入 */
 .more-ico {

@@ -37,3 +37,14 @@ export const getPlayerState = (slot: number) => request<PlayerDeviceState>(slot,
 export const playerHeartbeat = (slot: number, payload?: unknown) =>
   request<null>(slot, 'heartbeat', payload ?? {});
 export const playerAdvance = (slot: number, playbackSession: string) => request<PlayerDeviceState>(slot, 'advance', { playbackSession });
+
+/** 大屏视频播放进度上报 (2026-10, 约 1s 一次) — 仅内存态, 控制端进度条据此移动 */
+export interface PlayerProgressPayload {
+  currentTime?: number;
+  duration?: number;
+  paused?: boolean;
+  ended?: boolean;
+  mediaId?: number | null;
+}
+export const playerProgress = (slot: number, payload: PlayerProgressPayload) =>
+  request<null>(slot, 'progress', payload ?? {});

@@ -23,9 +23,19 @@ export async function getChannel(slot: number): Promise<PlaybackChannelView> {
   return api.get<PlaybackChannelView>(`/playback/channels/${slot}`);
 }
 
-// 默认循环 —— 展厅大屏播一遍就停等于没人看的时候黑屏
-export async function publishToChannel(slot: number, mediaId: number, loopMode: LoopMode = 'loop'): Promise<PlaybackChannelView> {
+// 默认单次: 播完停在尾帧等人工操作 (业主 2026-10)。欢迎页/运营大屏走专用端点并显式 loop。
+export async function publishToChannel(slot: number, mediaId: number, loopMode: LoopMode = 'once'): Promise<PlaybackChannelView> {
   return api.post<PlaybackChannelView>(`/playback/channels/${slot}/publish`, { mediaId, loopMode });
+}
+
+/** 单次/循环切换 (2026-10): once=播完停尾帧 / loop=循环; 大屏即时生效 */
+export async function setLoopMode(slot: number, mode: LoopMode): Promise<PlaybackChannelView> {
+  return api.post<PlaybackChannelView>(`/playback/channels/${slot}/loop-mode`, { mode });
+}
+
+/** 拖拽进度条 seek (2026-10): 仅视频, time 为秒; 后端按实际时长自动夹取 */
+export async function seekChannel(slot: number, time: number): Promise<{ slot: number; nonce: number; time: number }> {
+  return api.post<{ slot: number; nonce: number; time: number }>(`/playback/channels/${slot}/seek`, { time });
 }
 
 export async function stopChannel(slot: number, expectedSession?: string): Promise<PlaybackChannelView> {
