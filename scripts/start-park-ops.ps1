@@ -4,6 +4,7 @@
 # running, but its window rect is still hot-corrected to the primary display.
 $ErrorActionPreference = "Continue"
 . (Join-Path $PSScriptRoot 'display-common.ps1')
+. (Join-Path $PSScriptRoot 'park-ops-profile-path.ps1')
 
 $edge = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
 if (-not (Test-Path $edge)) { $edge = "${env:ProgramFiles}\Microsoft\Edge\Application\msedge.exe" }
@@ -23,6 +24,12 @@ if ($running) {
   Write-Output "park-ops-dashboard-already-running rect=$state"
   exit 0
 }
+
+# No window is live: clear the profile's Service Worker / HTTP caches so the
+# dashboard always boots the latest release. Mirrors start-players Clear-PlayerCache.
+# The standalone pwa.js SKIP_WAITING path only self-heals once the new SW is active,
+# so a cold cache clear is the reliable way out of the one-time waiting-SW deadlock.
+Clear-ParkOpsProfileCache
 
 $argList = @(
   "--app=$url",
