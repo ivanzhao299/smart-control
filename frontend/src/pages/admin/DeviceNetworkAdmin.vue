@@ -24,7 +24,10 @@ import type { GatewayInfo, HardwareCategory, HardwareUnit } from '@/types/api';
 const perm = usePermissionStore();
 const loading = ref(false);
 const rows = ref<NetworkRow[]>([]);
-const canEdit = computed(() => perm.canWriteModule('devices'));
+// 本页保存走 PUT /hardware（类级 @ModuleAccess('hardware')），故可写判定与 hardware 模块对齐。
+const canEdit = computed(() => perm.canWriteModule('hardware'));
+// 云开关平台（易微联/华普云）授权/同步后端挂 ActorAdminGuard（仅管理员），非 admin 只看不动。
+const isCloudAdmin = computed(() => perm.role === 'admin');
 const gateways = ref<GatewayInfo[]>([]);
 
 /**
@@ -268,6 +271,8 @@ const hperBusy = ref(false);
 const hperMsg = ref('');
 
 async function loadHperStatus(): Promise<void> {
+  // 华普云 status 类级 ActorAdminGuard（仅 admin），非 admin 拉取必 403，直接跳过避免误显“未配置”。
+  if (!isCloudAdmin.value) return;
   try {
     hperStatus.value = await api.get<HperforIntegrationStatus>(
       '/integrations/hperfor/status',
@@ -510,7 +515,7 @@ function fmtTokenExpiry(v: string | number | null | undefined): string {
             </li>
             <li>已登记 <b>{{ registeredByKind.ewelink }}</b> 台</li>
           </ul>
-          <div class="cloud-card-actions">
+          <div v-if="isCloudAdmin" class="cloud-card-actions">
             <el-button size="small" :loading="ewelinkBusy" @click="ewelinkAuthorize">
               {{ ewelinkStatus.authorized ? '重新授权' : '前往授权' }}
             </el-button>
@@ -522,6 +527,7 @@ function fmtTokenExpiry(v: string | number | null | undefined): string {
               @click="ewelinkSync"
             >同步设备</el-button>
           </div>
+          <div v-else class="cloud-card-locked">云平台授权与同步仅管理员可操作</div>
           <div v-if="lastSyncMsg" class="cloud-card-result">{{ lastSyncMsg }}</div>
         </div>
 
@@ -529,11 +535,14 @@ function fmtTokenExpiry(v: string | number | null | undefined): string {
         <div class="cloud-card">
           <div class="cloud-card-head">
             <div class="cloud-card-name">华普云 HPERFOR</div>
-            <el-tag v-if="hperStatus.mock" type="info" size="small">本地模拟</el-tag>
-            <el-tag v-else-if="hperStatus.configured" type="success" size="small">已配置</el-tag>
-            <el-tag v-else type="warning" size="small">未配置</el-tag>
+            <template v-if="isCloudAdmin">
+              <el-tag v-if="hperStatus.mock" type="info" size="small">本地模拟</el-tag>
+              <el-tag v-else-if="hperStatus.configured" type="success" size="small">已配置</el-tag>
+              <el-tag v-else type="warning" size="small">未配置</el-tag>
+            </template>
+            <el-tag v-else type="info" size="small">仅管理员</el-tag>
           </div>
-          <ul class="cloud-card-meta">
+          <ul v-if="isCloudAdmin" class="cloud-card-meta">
             <li v-if="hperStatus.configured && !hperStatus.mock" class="is-ok">
               长效保活中：每日自动登录，登录态始终有效
             </li>
@@ -546,7 +555,7 @@ function fmtTokenExpiry(v: string | number | null | undefined): string {
             <li>无需授权，账号密码长期有效、自动重登</li>
             <li>已登记 <b>{{ registeredByKind.hper }}</b> 台</li>
           </ul>
-          <div class="cloud-card-actions">
+          <div v-if="isCloudAdmin" class="cloud-card-actions">
             <el-button
               size="small"
               type="primary"
@@ -555,7 +564,8 @@ function fmtTokenExpiry(v: string | number | null | undefined): string {
               @click="hperSync"
             >同步设备</el-button>
           </div>
-          <div v-if="hperMsg" class="cloud-card-result">{{ hperMsg }}</div>
+          <div v-else class="cloud-card-locked">云平台配置与同步仅管理员可操作</div>
+          <div v-if="hperMsg && isCloudAdmin" class="cloud-card-result">{{ hperMsg }}</div>
         </div>
       </div>
     </div>
@@ -791,6 +801,16 @@ function fmtTokenExpiry(v: string | number | null | undefined): string {
   flex-wrap: wrap;
 }
 .cloud-card-result { font-size: 11.5px; color: #5FCB9B; margin-top: 8px; }
+.cloud-card-locked {
+  margin-top: 12px;
+  padding: 8px 10px;
+  border: 1px dashed var(--v2-border-strong);
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.06);
+  font-size: 12px;
+  color: var(--v2-text-3);
+  text-align: center;
+}
 
 @media (max-width: 760px) {
   .cloud-grid { grid-template-columns: minmax(0, 1fr); }
