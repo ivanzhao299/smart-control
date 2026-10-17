@@ -67,11 +67,26 @@ useActivePolling(startPolling, stopPolling);
   >
     <template #alert>
       <div v-if="showingHdmi !== true" class="out-bar" :class="showingHdmi === false ? 'warn' : 'unknown'">
-        <AlertTriangle :size="15" />
-        <span v-if="showingHdmi === false">投影当前显示的不是 GK9000 推的画面</span>
-        <span v-else>融合器连不上:{{ fusionErr || '检查融合器电源/网络' }}</span>
+        <AlertTriangle :size="15" class="out-ico" />
+        <!-- 手机端在播放卡内做无缝滚动字幕: 同一句文案渲染两份, .out-scroll-run 用 translateX(-50%)
+             循环; 桌面端只显示第一份并单行省略(见 scoped 样式)。 -->
+        <span class="out-scroll">
+          <span class="out-scroll-run">
+            <template v-if="showingHdmi === false">
+              <span class="out-txt">投影当前显示的不是 GK9000 推的画面</span>
+              <span class="out-txt" aria-hidden="true">投影当前显示的不是 GK9000 推的画面</span>
+            </template>
+            <template v-else>
+              <span class="out-txt">融合器连不上:{{ fusionErr || '检查融合器电源/网络' }}</span>
+              <span class="out-txt" aria-hidden="true">融合器连不上:{{ fusionErr || '检查融合器电源/网络' }}</span>
+            </template>
+          </span>
+        </span>
         <button class="out-btn" :disabled="busy" @click="switchToGk">
-          <RefreshCw :size="13" :class="{ spin: busy }" /> 切到 GK9000 画面
+          <RefreshCw :size="13" :class="{ spin: busy }" />
+          <!-- 桌面显示完整「切到 GK9000 画面」; 手机端缩短为「切换画面」给滚动字幕腾空间(动作不变) -->
+          <span class="out-btn-full">切到 GK9000 画面</span>
+          <span class="out-btn-short">切换画面</span>
         </button>
       </div>
     </template>
@@ -88,8 +103,15 @@ useActivePolling(startPolling, stopPolling);
   margin: 0; overflow: hidden;
   font-size: 12px; font-weight: 500;
 }
-.out-bar > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 桌面: .out-scroll 即原单行省略文字位; 只显示第一份文案, 第二份隐藏(手机端才双份滚动) */
+.out-scroll { min-width: 0; flex: 1 1 auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.out-scroll-run { display: inline; white-space: nowrap; }
+.out-scroll .out-txt { white-space: nowrap; }
+.out-scroll .out-txt[aria-hidden="true"] { display: none; }
+.out-ico { flex: 0 0 auto; }
 .out-btn { flex: 0 0 auto; }
+.out-btn-full { white-space: nowrap; }
+.out-btn-short { display: none; } /* 桌面只显示完整文案, 手机端在 @media 里互换 */
 .out-bar b { font-weight: 700; }
 .out-bar.warn { color: var(--v2-warning); }
 .out-bar.unknown { color: var(--v2-danger); }
@@ -103,4 +125,36 @@ useActivePolling(startPolling, stopPolling);
 .out-btn:hover:not(:disabled) { background: var(--v2-surf-1-hover); }
 .out-btn:disabled { opacity: 0.5; cursor: default; }
 .spin { animation: sp 0.9s linear infinite; } @keyframes sp { to { transform: rotate(360deg); } }
+
+/* 手机竖屏(≤640px): 告警回到播放卡内底部行, 与「铺放」同一行、位于铺放左侧(.alert-slot 是
+   PlayerConsole 底部 .now-bottom flex 行的左项, 天然与铺放垂直对齐)。透明底、无胶囊、无绝对定位,
+   不占任何额外行高, 故下方输入源/列表绝不下移、播放卡恒 150、两播放器切换无感。
+   结构: 警示图标(固定) + 滚动字幕(占剩余, 双份文案 translateX(-50%) 无缝循环) +
+   「切换画面」按钮(固定可点, 文案缩短给字幕腾空间)。无告警时 .alert-slot 为空、该处留白。桌面仍悬浮右上角。 */
+@media (max-width: 640px) {
+  .out-bar {
+    position: static; top: auto; right: auto;
+    width: 100%; max-width: 100%; margin: 0;
+    padding: 0; background: transparent; border: none; border-radius: 0;
+    display: flex; align-items: center; gap: 6px; flex-wrap: nowrap;
+    overflow: hidden;
+  }
+  .out-ico { flex: 0 0 auto; }
+  .out-scroll { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: clip; }
+  .out-scroll-run {
+    display: inline-flex; white-space: nowrap;
+    animation: out-marquee 11s linear infinite; will-change: transform;
+  }
+  .out-scroll .out-txt { display: inline; white-space: nowrap; padding-right: 42px; }
+  /* 手机端恢复第二份文案, 与第一份首尾相接, 构成无缝横向滚动 */
+  .out-scroll .out-txt[aria-hidden="true"] { display: inline; }
+  /* 窄行不换行; 手机端按钮文案缩短为「切换画面」(动作不变), 给左侧滚动字幕腾出更多宽度 */
+  .out-btn { margin-left: 0; flex: 0 0 auto; white-space: nowrap; }
+  .out-btn-full { display: none; }
+  .out-btn-short { display: inline; white-space: nowrap; }
+  @keyframes out-marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+}
+@media (prefers-reduced-motion: reduce) {
+  .out-scroll-run { animation: none; }
+}
 </style>

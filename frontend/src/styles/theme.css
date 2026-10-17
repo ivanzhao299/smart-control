@@ -45,6 +45,8 @@ button {
   border: 1px solid var(--border-soft) !important;
   color: var(--text-primary) !important;
   box-shadow: var(--v2-elev-2) !important;
+  /* 2026-10-17 业主: 顶部下拉提示补圆角, 与其它卡片一致(车机 auto 20px, 其它 14px) */
+  border-radius: var(--v2-r-lg) !important;
 }
 
 .sc-title {

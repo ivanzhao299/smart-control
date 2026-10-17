@@ -1121,6 +1121,13 @@ body { overscroll-behavior: none; }
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10),
     0 14px 34px rgba(0, 0, 0, 0.60) !important;
 }
+/* 车机玻璃风: 去掉断电电源卡那一圈实色描边(深色玻璃背景上 #232e3f 显一圈脏灰线),
+   卡片靠"底色差 + 顶部内高光 + 下沉阴影"分层即可; 边框仍占 1px(透明), 不引起布局跳动。
+   通电卡(.on)保留青绿描边与左光条作为"活着"的状态信号, 不动。 */
+:root:root[data-theme='auto'] .circuit-card:not(.on),
+:root:root[data-theme='auto'] .circuit-card:not(.on):hover {
+  border-color: transparent;
+}
 /* 大圆角：KPI 与网格功能卡统一到 r-lg（车机大圆角）；r-md 小控件（输入/表格/芯片）不动 */
 :root:root[data-theme='auto'] .v2-kpi,
 :root:root[data-theme='auto'] .v2-screen,

@@ -325,9 +325,8 @@ function onUnifiedSourceChange(event: Event): void {
 
     <!-- ===== 正在播 + 播放控制 ===== -->
     <section class="now">
-      <!-- 报警插槽 (2026-07-26 业主: 移到播放卡片内部): 设备/输出异常条,
-           投影页融合器状态用; 占满整行显示在卡片顶部 -->
-      <slot name="alert" />
+      <!-- 融合器/设备异常告警(slot, 见底部 .alert-slot): 桌面 absolute 浮于播放卡右上角;
+           手机端在「铺放」同一行左侧做滚动字幕, 不占额外行、不顶动下方卡片, 播放卡恒 150 等高。 -->
       <div class="now-info">
         <div class="now-label">正在播放</div>
         <div class="now-name" :title="ch?.currentMediaName || ''">
@@ -355,7 +354,7 @@ function onUnifiedSourceChange(event: Event): void {
         <!-- 输入源=园区运营大屏时, 复用这四个主按钮为:
              上一页 / 自动轮播(开关) / 下一页 / 强制刷新, 纯图标, 不再另弹控制条 (2026-09-15) -->
         <template v-if="activeSource === 'park-dashboard'">
-          <button class="pc-btn" :disabled="parkOpsBusy" title="运营大屏 · 上一页" @click="parkOpsControl('prev')">
+          <button class="pc-btn pc-nav" :disabled="parkOpsBusy" title="运营大屏 · 上一页" @click="parkOpsControl('prev')">
             <ChevronLeft :size="20" />
           </button>
           <button
@@ -367,7 +366,7 @@ function onUnifiedSourceChange(event: Event): void {
           >
             <RefreshCw :size="20" />
           </button>
-          <button class="pc-btn" :disabled="parkOpsBusy" title="运营大屏 · 下一页" @click="parkOpsControl('next')">
+          <button class="pc-btn pc-nav" :disabled="parkOpsBusy" title="运营大屏 · 下一页" @click="parkOpsControl('next')">
             <ChevronRight :size="20" />
           </button>
           <button class="pc-btn refresh" :disabled="parkOpsBusy" title="强制刷新：让大屏清缓存加载最新前端构建" @click="parkOpsControl('refresh')">
@@ -400,21 +399,27 @@ function onUnifiedSourceChange(event: Event): void {
         </template>
       </div>
       <PlayerVideoControls :slot="SLOT" />
-      <!-- 画面铺放 (业主 2026-07-25): 图片/视频都吃, 默认铺满; 改完即时生效并记住 -->
-      <div class="fit-row">
-        <span class="fit-label"><span class="fit-label-full">画面铺放</span><span class="fit-label-short">铺放</span></span>
-        <el-select
-          class="fit-select"
-          :model-value="ch?.displayFit || 'fill'"
-          size="small"
-          :disabled="busy"
-          @change="changeFit"
-        >
-          <!-- 选项仅留两字(2026-10-17 业主: 省空间); value 仍是 fill/contain/cover, 逻辑不变 -->
-          <el-option value="fill" label="拉伸" />
-          <el-option value="contain" label="比例" />
-          <el-option value="cover" label="裁切" />
-        </el-select>
+      <!-- 底部行 .now-bottom: 左侧融合器告警滚动字幕(.alert-slot, 仅投影仪异常时才有内容) +
+           右侧「画面铺放」, 同一行。桌面 display:contents 让 fit-row 保持原流布局(零变化);
+           手机端是一个 flex 行, 告警占剩余空间做 marquee、铺放固定靠右, 无告警时左侧留白。 -->
+      <div class="now-bottom">
+        <div class="alert-slot"><slot name="alert" /></div>
+        <!-- 画面铺放 (业主 2026-07-25): 图片/视频都吃, 默认铺满; 改完即时生效并记住 -->
+        <div class="fit-row">
+          <span class="fit-label"><span class="fit-label-full">画面铺放</span><span class="fit-label-short">铺放</span></span>
+          <el-select
+            class="fit-select"
+            :model-value="ch?.displayFit || 'fill'"
+            size="small"
+            :disabled="busy"
+            @change="changeFit"
+          >
+            <!-- 选项仅留两字(2026-10-17 业主: 省空间); value 仍是 fill/contain/cover, 逻辑不变 -->
+            <el-option value="fill" label="拉伸" />
+            <el-option value="contain" label="比例" />
+            <el-option value="cover" label="裁切" />
+          </el-select>
+        </div>
       </div>
     </section>
 
@@ -940,13 +945,10 @@ function onUnifiedSourceChange(event: Event): void {
 
 /* 正在播 + 控制条 */
 .now {
-  position: relative; /* alert 插槽绝对定位锚点 (投影页警示行不撑高卡片) */
+  position: relative; /* 桌面端融合器告警 .out-bar absolute 以本卡片为锚点, 浮右上角不占布局 */
   display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
   padding: 14px 16px; border-radius: var(--v2-r-lg);
   background: var(--v2-surf-1, #14161A); border: 1px solid var(--v2-border-soft);
-  /* 2026-07-26 业主: ① 与顶部标题栏留出间距(不紧贴); ② LED/投影卡片等高固定,
-     报警文字(投影融合器状态)出现时在此高度内容纳、不撑高卡片。内容垂直居中,
-     没报警时留白均分在上下, 看着是平衡的内边距而非空洞。 */
   margin-top: 12px;
   min-height: 116px;
 }
@@ -1448,8 +1450,11 @@ function onUnifiedSourceChange(event: Event): void {
 .pg-btn.exit { display: inline-flex; align-items: center; gap: 4px; color: var(--v2-danger); }
 .pg-label { font-size: 14px; font-weight: 700; color: var(--v2-primary); margin-right: 4px; white-space: nowrap; }
 /* ---- 电源开关 (标题栏"待机"行末尾, 时序器同款拨动开关) ---- */
-/* 报警插槽在卡片内占满整行, 显示在顶部 (投影融合器状态) */
-.now :deep(.out-bar) { flex-basis: 100%; width: 100%; }
+/* 底部行容器: 桌面端 display:contents, 让内部 .alert-slot/.fit-row 直接作为 .now 的 flex 项,
+   fit-row 保持原流布局(零变化, .alert-slot 内是 absolute 告警、不占空间);
+   手机端在 @media(max-width:640) 里改为真实 flex 行(字幕左 + 铺放右)。 */
+.now-bottom { display: contents; }
+.alert-slot { min-width: 0; }
 /* 2026-07-26: 收紧间距/去掉状态字固定预留宽, 让整块更窄, LED 页("LED 大屏"标题较宽)
    电源块也能留在"待机"同一行不换行。 */
 .now-power {
@@ -1507,35 +1512,61 @@ function onUnifiedSourceChange(event: Event): void {
 
   /* ② 正在播放卡: 去固定最小高度; 名称与四个播放按钮同一行(左信息 / 右按钮);
         按钮收到 38~46px, 仍满足手指点按; 视频进度条在下方独占整行 */
-  .now { min-height: 0; padding: 10px 12px; gap: 6px; }
-  /* flex-basis 用 0: 长名称(如 xxx.mp4)从 0 起按比例分配, 走省略号, 不会把播放按钮挤到下一行 */
-  .now-info { flex: 1 1 0; min-width: 0; }
+  /* 固定卡高(2026-10-17 业主: 任何操作都不能让卡片抖动、且 LED/投影仪必须同高、切换无感):
+     两页统一 150px(最复杂视频态自然147), 内容垂直居中、留白上下均分, 超出 hidden 兜底
+     (大屏无鼠标, 卡片内不滚动)。融合器告警在卡内底部行做滚动字幕(不占额外行高), 不单独加高。
+     待机113 / 远程控制双行137 / 视频147 均容纳。 */
+  .now { height: 150px; min-height: 0; padding: 10px 12px; gap: 6px; overflow: hidden; align-content: center; }
+  /* 底部行 .now-bottom 成为真实 flex 行: 左侧告警滚动字幕(.alert-slot 占剩余, marquee 见
+     ProjectorPage scoped) + 右侧画面铺放(.fit-row 固定宽)。非视频态 flex:0 0 100% 强制整行
+     换行到底部(不挤信息行); 视频态 flex:1 1 0 与「单次/循环」按钮同行。不新增行高, 故下方
+     输入源/列表绝不下移、播放卡恒 150、LED↔投影仪切换无感。无告警时 .alert-slot 为空、左侧留白。 */
+  .now-bottom {
+    display: flex; align-items: center; gap: 8px; min-width: 0;
+    flex: 0 0 100%; width: 100%; order: 3;
+  }
+  .now .video-ctrl ~ .now-bottom { flex: 1 1 0; width: auto; }
+  .alert-slot { flex: 1 1 0; min-width: 0; display: flex; align-items: center; }
+  /* flex-basis 用 0: 长名称(如 xxx.mp4)从 0 起按比例分配, 走省略号, 不会把播放按钮挤到下一行;
+     信息区内部(label/名称/小字)在固定卡高内垂直居中 */
+  .now-info { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
   .now-label { font-size: 11px; }
   .now-name { font-size: 18px; }
-  .now-sub { margin-top: 4px; }
+  .now-sub { margin-top: 4px; flex-wrap: wrap; row-gap: 2px; }
+  /* 运营大屏远程控制时多段小字(第x/6页·手动翻页·XX控制中)各段不被压成竖排, 规整为两行 */
+  .now-sub > span { white-space: nowrap; }
   .now-ctrl { width: auto; flex: 0 0 auto; justify-content: flex-end; gap: 7px; }
   .pc-btn { width: 38px; height: 38px; border-radius: 11px; }
   .pc-btn.main { width: 46px; height: 46px; border-radius: 13px; }
+  /* 园区运营大屏左右翻页是高频操作: 加大到与主按钮等高、箭头加粗, 做足触摸目标 */
+  .pc-btn.pc-nav { width: 46px; height: 46px; border-radius: 13px; }
+  .pc-btn.pc-nav svg { width: 24px; height: 24px; stroke-width: 2.5; }
+  /* 车机深色玻璃主题: 半透白玻璃高亮, 让翻页键从深色卡片上跳出来(中性白, 不随强调色), 与橙色轮播/刷新区分 */
+  :root[data-theme='auto'] .pc-btn.pc-nav {
+    background: rgba(255, 255, 255, .16);
+    border: 1px solid rgba(255, 255, 255, .34);
+    color: #fff;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .28), 0 4px 14px rgba(0, 0, 0, .38);
+  }
+  :root[data-theme='auto'] .pc-btn.pc-nav:active:not(:disabled) { background: rgba(255, 255, 255, .28); }
 
   /* 视频态: .video-ctrl 透明化(display:contents), 让其内部的「单次/循环」和进度条直接
      参与 .now 的 flex 排列 —— 进度条独占一行(拉满), 单次/循环与下方「画面铺放」同一行,
      使视频卡片仅比非视频态多一行进度条, 尽量不挤占下方列表。 */
   .now .video-ctrl { display: contents; }
-  .now :deep(.seek-row) { flex-basis: 100%; width: 100%; order: 2; }
+  /* 进度条一根细线、独占整行; 高度硬压 14px, 视频态也不把播放卡撑高(卡恒 150) */
+  .now :deep(.seek-row) { flex-basis: 100%; width: 100%; order: 2; min-height: 14px; height: 14px; align-items: center; }
+  .now :deep(.seek-range) { height: 14px; }
   .now :deep(.loop-toggle) { flex: 0 0 auto; order: 3; }
 
-  /* ③ 画面铺放: 标签缩为「铺放」; 视频时与「单次/循环」同一行(左循环/右铺放),
-     非视频时独占一行; 均右对齐收成紧凑小条。
-     ★非视频态必须 flex-basis:100% 强制换行: 否则在 ≥430px 宽屏手机上 fit-row(flex-basis auto)
-     会挤进信息/按钮行, 把 flex:1 1 0 的 now-info 压成单字宽竖排(2026-10-17 生产大屏手机复现,
-     390px 视口恰好未触发是临界巧合)。视频态 .video-ctrl 存在(display:contents 只消渲染盒、
-     不影响 DOM), 用兄弟选择器改回自适应, 与 .loop-toggle(均 order3) 同行。 */
-  .fit-row { flex: 0 0 100%; width: 100%; min-width: 0; order: 3; margin-top: 0; justify-content: flex-end; gap: 8px; }
-  .now .video-ctrl ~ .fit-row { flex: 1 1 auto; width: auto; }
+  /* ③ 画面铺放: 标签缩为「铺放」, 在 .now-bottom 内固定宽、靠右(左侧空间让给滚动字幕);
+     整行换行由外层 .now-bottom 统一处理(非视频态 flex:0 0 100% 整行, 视频态与循环按钮同行)。 */
+  .fit-row { flex: 0 0 auto; min-width: 0; margin-top: 0; justify-content: flex-end; gap: 8px; }
   .fit-label-full { display: none; }
   .fit-label-short { display: inline; }
-  /* 选项已精简为两字(拉伸/比例/裁切), 收窄下拉框给视频态「单次/循环 + 铺放」同行留空间 */
-  .fit-select { width: 112px; flex-shrink: 0; }
+  /* 选项已精简为两字(拉伸/比例/裁切), 下拉框收到最小两字宽(文字24+箭头14+gap4+padding16≈58),
+     再给左侧滚动字幕让出约 18px; 文字不省略、箭头不挤压 */
+  .fit-select { width: 62px; flex-shrink: 0; }
 
   /* ④ 列表卡: 页签已显示「播放列表 N」, 去掉重复的标题/计数, 三个添加按钮一行等宽 */
   .panel-list .panel-head { flex-wrap: nowrap; gap: 8px; margin-bottom: 10px; }
@@ -1547,5 +1578,14 @@ function onUnifiedSourceChange(event: Event): void {
   .panel-his .panel-head { display: none; }
   /* 列表项略收紧, 一屏多露几条 */
   .pl-item { padding: 7px 10px; }
+
+  /* ⑤ 整体固化为一个容器(2026-10-17 业主: 各栏相对位置锁死、整页零滚动):
+     .cols 由跟随内容高度(flex:0 1 auto / align-items:start)改为填满 led-page 剩余高度,
+     当前激活面板(列表/历史)stretch 撑满, 列表在 .pl-list 内部滚动; 播放卡增高后列表
+     可视区相应少约一行, 正是"压缩列表一行、把空间让给上面播放卡"。整页不出现整体滚动。
+     提权到 .led-page .cols(双类)以覆盖桌面 1260 行单类 .cols 的 flex/align-items。 */
+  .led-page .cols { flex: 1 1 0; min-height: 0; align-items: stretch; }
+  .led-page .panel-list,
+  .led-page .panel-his { flex: 1 1 0; min-height: 0; align-self: stretch; }
 }
 </style>

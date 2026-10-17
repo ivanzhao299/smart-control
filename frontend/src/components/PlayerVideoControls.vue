@@ -140,18 +140,51 @@ const {
     padding: 3px 12px;
     font-size: 11px;
   }
+  /* 进度条压成一根细线(业主要求): 视觉轨道 3px、拇指 12px, 命中盒只留 14px,
+     不再占 20px 高; 配合 .now 固定 150px, 视频态绝不把播放卡撑高。 */
   .seek-row {
-    gap: 6px;
-    min-height: 20px;
+    gap: 5px;
+    min-height: 14px;
   }
   .seek-time {
-    min-width: 32px;
-    font-size: 11px;
+    min-width: 28px;
+    font-size: 10px;
     line-height: 1;
   }
   .seek-range {
-    height: 20px;
-    /* 原生拇指默认约 24px, 会在 20px 盒子上下略微溢出但不影响布局, 触摸命中仍足够 */
+    height: 14px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    accent-color: var(--v2-primary, #408cff);
+  }
+  /* 一根 3px 细轨道 + 圆形拇指(webkit 系: iOS WKWebView / 安卓 WebView / Chrome) */
+  .seek-range::-webkit-slider-runnable-track {
+    height: 3px;
+    border-radius: 2px;
+    background: var(--v2-border-soft, #2a313c);
+  }
+  .seek-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--v2-primary, #408cff);
+    margin-top: -4.5px; /* (轨道3 - 拇指12) / 2 */
+    border: none;
+  }
+  .seek-range::-moz-range-track {
+    height: 3px;
+    border-radius: 2px;
+    background: var(--v2-border-soft, #2a313c);
+  }
+  .seek-range::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--v2-primary, #408cff);
+    border: none;
   }
 }
 </style>
