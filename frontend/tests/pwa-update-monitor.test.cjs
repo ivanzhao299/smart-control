@@ -13,8 +13,9 @@ function setup(opts = {}) {
   const hasSw = opts.hasSw !== false;
   let swMode = opts.swMode || 'waiting'; // 'waiting' | 'installing' | 'none'
   const workerEvents = new Map(), pageEvents = new Map(), windowEvents = new Map();
-  const timers = new Map(), storage = new Map();
+  const timers = new Map(), storage = new Map(), local = new Map();
   let nextId = 0, checks = 0, fetches = 0, reloads = 0, prompts = 0, applying = 0;
+  let hardRecover = 0, hardReloads = 0;
   let version = current, fail = false, lastMessage = null;
   const installationEvents = new Map();
   const installingSw = {
@@ -43,25 +44,40 @@ function setup(opts = {}) {
     removeEventListener: n => pageEvents.delete(n),
   };
   const exports = {};
+  // 硬兜底 import('./pwa-recovery') 的 recoverFromStalePwa 在此模拟：计数一次硬清/硬重载，
+  // 不真正加载该模块（它依赖 window.location/navigator/caches）。
+  const mockRequire = (name) => {
+    if (name === './pwa-recovery') {
+      return { recoverFromStalePwa: async () => { hardRecover += 1; hardReloads += 1; return true; } };
+    }
+    throw new Error('unexpected require: ' + name);
+  };
   const source = fs.readFileSync(path.resolve(__dirname, '../src/services/pwa-update-monitor.ts'), 'utf8');
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022,
   } }).outputText, {
-    exports, navigator: hasSw ? { serviceWorker: workers } : {}, document,
-    __FRONTEND_BUILD_ID__: current, __FRONTEND_VERSION_URL__: '/control/deployment-version.json',
+    exports, require: mockRequire, navigator: hasSw ? { serviceWorker: workers } : {}, document,
+    __FRONTEND_BUILD_ID__: opts.servedBuild || current, __FRONTEND_VERSION_URL__: '/control/deployment-version.json',
     fetch: async () => {
       fetches++;
       if (fail) throw new Error('offline');
       return { ok: true, json: async () => ({ frontendBuildId: version }) };
     },
-    sessionStorage: { getItem: k => storage.get(k), setItem: (k, v) => storage.set(k, v) },
+    sessionStorage: { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, v) },
+    localStorage: {
+      getItem: k => local.get(k) ?? null,
+      setItem: (k, v) => local.set(k, v),
+      removeItem: k => local.delete(k),
+      key: i => [...local.keys()][i] ?? null,
+      get length() { return local.size; },
+    },
     window: {
       setTimeout: (fn, ms) => { timers.set(++nextId, { fn, ms }); return nextId; },
       clearTimeout: id => timers.delete(id),
       setInterval: () => { throw new Error('No periodic update polling permitted'); },
       addEventListener: (n, f) => windowEvents.set(n, f),
       removeEventListener: n => windowEvents.delete(n),
-      location: { reload: () => reloads++ },
+      location: { reload: () => reloads++, replace: () => hardReloads += 1 },
     },
   });
   let readyApply = null;
@@ -70,7 +86,7 @@ function setup(opts = {}) {
     onApplying: () => { applying++; },
   });
   return {
-    timers, storage, handle, workerEvents, pageEvents, windowEvents,
+    timers, storage, local, handle, workerEvents, pageEvents, windowEvents,
     notify: exports.notifyFrontendBuild,
     setVersion: v => { version = v; }, setFail: v => { fail = v; }, setMode: m => { swMode = m; },
     applyNow: () => { if (readyApply) readyApply(); },
@@ -88,6 +104,7 @@ function setup(opts = {}) {
     get checks() { return checks; }, get fetches() { return fetches; },
     get reloads() { return reloads; }, get prompts() { return prompts; },
     get applying() { return applying; }, get lastMessage() { return lastMessage; },
+    get hardRecover() { return hardRecover; }, get hardReloads() { return hardReloads; },
   };
 }
 
@@ -115,15 +132,80 @@ test('waiting SW: duplicate hellos coalesce, prompt once, apply after user confi
   s.handle.stop();
 });
 
-test('LAN without SW and already-active SW both prompt and reload on confirm', async () => {
-  for (const cfg of [{ hasSw: false }, { hasSw: true, swMode: 'none' }]) {
-    const s = setup(cfg); await flush();
-    s.setVersion(next); s.notify(next); await flush();
-    assert.equal(s.prompts, 1);
-    s.applyNow(); s.runTimeout(150);
-    assert.equal(s.reloads, 1);
-    s.handle.stop();
-  }
+test('SKIP_WAITING sent but controllerchange never fires (iOS stuck): 4s timeout hard recovers', async () => {
+  const s = setup({ swMode: 'waiting' }); await flush();
+  s.setVersion(next); s.notify(next); await flush();
+  assert.equal(s.prompts, 1);
+  s.applyNow();
+  assert.equal(s.lastMessage.type, 'SKIP_WAITING');
+  // 旧 SW 不主动让位, controllerchange 一直不来(典型 iOS 独立壳)。
+  s.runTimeout(4000);
+  assert.equal(s.applying, 1);
+  assert.equal(s.hardRecover, 1);
+  assert.equal(s.hardReloads, 1);
+  assert.equal(s.reloads, 0);
+  s.handle.stop();
+});
+
+test('hard-recover guard persists across reload: same target never hard-recovers twice', async () => {
+  const s1 = setup({ swMode: 'none' }); await flush();
+  s1.setVersion(next); s1.notify(next); await flush();
+  s1.applyNow(); await flush();
+  assert.equal(s1.hardRecover, 1);
+  // 模拟硬清后重载却仍未拿到新版(极端网络): 新实例带着 localStorage 标记启动,
+  // 冷启动核对服务器仍为 next(而自身还是旧版), 不应再硬清, 退回普通 reload 避免死循环。
+  const s2 = setup({ swMode: 'none' });
+  for (const [k, v] of s1.local) s2.local.set(k, v);
+  s2.setVersion(next);
+  await flush();
+  s2.applyNow(); s2.runTimeout(150);
+  assert.equal(s2.hardRecover, 0);
+  assert.equal(s2.reloads, 1);
+  s1.handle.stop(); s2.handle.stop();
+});
+
+test('once the new build is actually loaded, hard-recover marks are cleared', async () => {
+  const s1 = setup({ swMode: 'none' }); await flush();
+  s1.setVersion(next); s1.notify(next); await flush();
+  s1.applyNow(); await flush();
+  assert.equal(s1.hardRecover, 1);
+  // 硬清后重载成功: 新实例自身就是新版 build, 冷启动核对与服务器一致 -> 清除历史标记,
+  // 为将来下一次部署重新启用硬兜底。
+  const s2 = setup({ swMode: 'none', servedBuild: next });
+  for (const [k, v] of s1.local) s2.local.set(k, v);
+  s2.setVersion(next);
+  await flush();
+  assert.equal(s2.local.size, 0);
+  assert.equal(s2.hardRecover, 0);
+  s1.handle.stop(); s2.handle.stop();
+});
+
+test('no SW capability: plain reload on confirm', async () => {
+  const s = setup({ hasSw: false }); await flush();
+  s.setVersion(next); s.notify(next); await flush();
+  assert.equal(s.prompts, 1);
+  s.applyNow(); s.runTimeout(150);
+  // 无 SW 能力(普通浏览器)：无 SW 可清，普通 reload 即可。
+  assert.equal(s.reloads, 1);
+  assert.equal(s.hardRecover, 0);
+  s.handle.stop();
+});
+
+test('registration present but no waiting/installing SW: hard recover (unregister+purge)', async () => {
+  const s = setup({ hasSw: true, swMode: 'none' }); await flush();
+  s.setVersion(next); s.notify(next); await flush();
+  assert.equal(s.prompts, 1);
+  s.applyNow(); await flush();
+  // 新 SW 装不上(旧 SW 卡住)：普通 reload 仍被旧 SW 劫持，必须注销 SW + 清 precache 硬重载。
+  assert.equal(s.hardRecover, 1);
+  assert.equal(s.hardReloads, 1);
+  assert.equal(s.reloads, 0);
+  // 同一目标 build 只硬清一次：再次检测不重复注销，退回普通 reload。
+  s.online(); await flush();
+  s.applyNow(); s.runTimeout(150);
+  assert.equal(s.hardRecover, 1);
+  assert.equal(s.reloads, 1);
+  s.handle.stop();
 });
 
 test('offline failure stays silent with no retry timer; online event resumes the update', async () => {

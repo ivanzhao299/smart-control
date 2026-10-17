@@ -1,3 +1,5 @@
+import { recoverFromStalePwa } from './pwa-recovery';
+
 declare const __FRONTEND_BUILD_ID__: string;
 declare const __FRONTEND_VERSION_URL__: string;
 
@@ -17,6 +19,38 @@ declare const __FRONTEND_VERSION_URL__: string;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const isUuid = (value: unknown): value is string => typeof value === 'string' && UUID_RE.test(value);
+
+/**
+ * 硬兜底标记（2026-10-17 #139）：iOS 独立壳 WKWebView 中，Service Worker 在 App
+ * 被杀、同一原生版本未升级时不会清理，且 SKIP_WAITING/controllerchange 偶发不触发，
+ * 导致现场长期停在旧版（普通 reload 仍被旧 SW 劫持）。
+ * 当检测到新版本但 SW 正常激活路径走不通时，注销 SW + 清 precache 后硬重载。
+ * 对同一个目标 build 只硬清一次，防止极端网络下反复注销/刷新；一旦成功加载到新版，
+ * detect 会删除全部历史标记，下次部署仍可再次兜底。
+ */
+const HARD_RECOVER_PREFIX = 'sc.pwa.hardRecover.';
+function hardRecoverFor(target: string): boolean {
+  const key = HARD_RECOVER_PREFIX + target;
+  try {
+    if (localStorage.getItem(key)) return false;
+    localStorage.setItem(key, '1');
+  } catch {
+    if (sessionStorage.getItem(key)) return false;
+    try { sessionStorage.setItem(key, '1'); } catch { /* restricted */ }
+  }
+  void recoverFromStalePwa();
+  return true;
+}
+function clearHardRecoverMarks(): void {
+  try {
+    const stale: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(HARD_RECOVER_PREFIX)) stale.push(k);
+    }
+    stale.forEach((k) => localStorage.removeItem(k));
+  } catch { /* restricted */ }
+}
 
 // WebSocket 通知的最新 build（保留对外能力）。
 const buildListeners = new Set<(build: string) => void>();
@@ -87,7 +121,10 @@ export function startPwaUpdateMonitor(handlers: PwaUpdateHandlers): PwaUpdateHan
       if (!done) {
         done = true;
         cleanup();
-        beginReload();
+        handlers.onApplying?.();
+        // controllerchange 迟迟不来(典型 iOS 独立壳: 旧 SW 不主动让位): 普通 reload 仍被
+        // 旧 SW 劫持, 改为注销 SW + 清 precache 后硬重载; 已对该版本硬清过则退回普通 reload。
+        if (!target || !hardRecoverFor(target)) beginReload();
       }
     }, 4000);
     reloadFallback.add(timer);
@@ -156,11 +193,12 @@ export function startPwaUpdateMonitor(handlers: PwaUpdateHandlers): PwaUpdateHan
       if (stopped || target !== expected) return;
       const next = registration.waiting;
       if (next) present(() => activateWaiting(next));
-      else if (registration.active) present(beginReload);
+      else if (registration.active) present(() => { if (!hardRecoverFor(expected)) beginReload(); });
       return;
     }
-    // 既无 waiting 也无 installing：可能新 SW 已激活而页面仍旧，刷新即可。
-    present(beginReload);
+    // 既无 waiting 也无 installing: 新 SW 未装上(旧环境卡住/安装失败), 普通 reload 仍会
+    // 被旧 SW 劫持, 注销 SW + 清 precache 硬重载兜底; 已对该版本硬清过则退回普通 reload。
+    present(() => { if (!hardRecoverFor(expected)) beginReload(); });
   };
 
   // 主动核对线上版本（不依赖 WS）。
@@ -175,6 +213,8 @@ export function startPwaUpdateMonitor(handlers: PwaUpdateHandlers): PwaUpdateHan
       if (!isUuid(served)) return;
       if (served === __FRONTEND_BUILD_ID__) {
         target = undefined;
+        // 已成功加载到最新版: 清掉历史硬兜底标记, 保证下次部署仍可触发一次硬清。
+        clearHardRecoverMarks();
         return;
       }
       target = served;
