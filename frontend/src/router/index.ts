@@ -131,7 +131,16 @@ router.beforeEach(async (to) => {
     const permission = usePermissionStore();
     const targetName = typeof to.name === 'string' ? to.name : '';
     const landingFor = (): string | undefined => mainNavigationItemsForRole(permission.role)[0]?.name;
+    // 纯后台角色（hardware/config：前台无任何可见页）登录或访问任何前台页时，
+    // 直达后台默认落地页（自动开关），不落到前台 status 也不弹回登录页（2026-10-17 第四轮）。
+    const backendOnlyRedirect = (): string | undefined => (
+      permission.isBackend && mainNavigationItemsForRole(permission.role).length === 0
+        ? defaultAdminRoute(permission.role)
+        : undefined
+    );
     if (permission.loaded) {
+      const backendLanding = backendOnlyRedirect();
+      if (backendLanding) return { name: backendLanding };
       // 角色已就绪（SPA 内导航 / 刷新后）：同步拦截越权路由，落到该角色第一个前台页。
       if (targetName && !canAccessMainRoute(targetName, permission.role)) {
         const landing = landingFor();
@@ -145,6 +154,11 @@ router.beforeEach(async (to) => {
       // 页是懒加载 chunk，/me 可能在 chunk 下载完、当前路由提交前就 resolve，那时
       // currentRoute.name 仍为空（实测根因）。首帧期间页面内只读 gate（viewer 默认最严）兜底。
       void usePermissionStore().refresh().then(() => {
+        const backendLanding = backendOnlyRedirect();
+        if (backendLanding) {
+          void router.replace({ name: backendLanding });
+          return;
+        }
         if (targetName && !canAccessMainRoute(targetName, permission.role)) {
           const landing = landingFor();
           if (!landing) {

@@ -16,6 +16,10 @@ export interface PowerCircuitView {
   code: string;
   name: string;
   floor: string;
+  /** 所属电源域 code（hall 展厅 / park 园区 / 新楼栋）；后端按角色域过滤。 */
+  domainCode: string;
+  /** 所属电源域中文名（join power_domain 得到，可能为空，前端用域字典兜底）。 */
+  domainName: string | null;
   category: string;
   gatewayCode: string | null;
   relayChannel: number | null;
@@ -62,6 +66,8 @@ export interface PowerCircuitUpsertDto {
   code: string;
   name: string;
   floor: string;
+  /** 所属电源域 code；不传后端默认 hall。 */
+  domainCode?: string;
   category?: string;
   gatewayCode?: string | null;
   relayChannel?: number | null;
@@ -106,6 +112,45 @@ export const powerCircuitsService = {
   /** 时序器全关 (b3) — 先开的后关 */
   seqAllOff: () =>
     api.post<{ on: boolean }>('/power-circuits/sequencer/all-off').then((r) => { invalidate(PC); return r; }),
+};
+
+/** 电源域（Domain）—— 2026-10-17 第五轮：展厅/园区/新楼栋的可授权分组。 */
+export interface PowerDomainView {
+  id: number;
+  code: string;
+  name: string;
+  sortOrder: number;
+  description: string | null;
+  enabled: boolean;
+  /** 该域下回路数量（管理页展示）。 */
+  circuitCount?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PowerDomainInput {
+  code?: string;
+  name?: string;
+  sortOrder?: number;
+  description?: string | null;
+  enabled?: boolean;
+}
+
+const PD = 'power-domains:list';
+
+/** 电源域服务：读任何登录用户（后端按角色域过滤）；增删改仅 admin（zones）。 */
+export const powerDomainsService = {
+  list: (includeDisabled = false) =>
+    queryOnce(`${PD}:${includeDisabled}`, () =>
+      api.get<PowerDomainView[]>('/power-domains', {
+        params: includeDisabled ? { includeDisabled: '1' } : {},
+      })),
+  create: (dto: PowerDomainInput) =>
+    api.post<PowerDomainView>('/power-domains', dto).then((r) => { invalidate(PD); invalidate(PC); return r; }),
+  update: (id: number, dto: Partial<PowerDomainInput>) =>
+    api.put<PowerDomainView>(`/power-domains/${id}`, dto).then((r) => { invalidate(PD); invalidate(PC); return r; }),
+  remove: (id: number) =>
+    api.del<null>(`/power-domains/${id}`).then((r) => { invalidate(PD); invalidate(PC); return r; }),
 };
 
 /** 电源回路自动开关 (定时 + 日落/日出) — 2026-10-01 新增 */

@@ -42,6 +42,14 @@ export class PowerCircuit {
   @Column({ type: 'varchar', length: 16 })
   floor!: string;
 
+  /**
+   * 所属电源域 code（PowerDomain.code），2026-10-17 域划分新增。
+   * 顶层可授权区域（展厅 hall / 园区 park / 新楼栋）；floor 是域内的楼层/位置。
+   * 默认 'hall'（展厅），保证历史回路在迁移落库前也有归属。
+   */
+  @Column({ type: 'varchar', length: 32, name: 'domain_code', default: 'hall' })
+  domainCode!: string;
+
   /** 类型 — 用于前端分组和默认图标 */
   @Column({ type: 'varchar', length: 32, default: 'misc' })
   category!: string;

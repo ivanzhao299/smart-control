@@ -8,12 +8,11 @@ import { useRoute, useRouter } from 'vue-router';
 // - PWA standalone 启动也仍然全屏 (manifest display: fullscreen 接管)
 // - AlertBanner 已移除, 告警走后台 /admin/alerts
 // - 场景反馈走顶部 inline toast
-import { Activity, KeyRound, LogOut, Maximize2, Minimize2, MoreHorizontal, Palette, Check } from 'lucide-vue-next';
+import { Activity, LogOut, Maximize2, Minimize2, MoreHorizontal, Palette, Check } from 'lucide-vue-next';
 import { theme, applyTheme, THEME_OPTIONS } from '@/services/theme.service';
 import type { Theme } from '@/services/theme.service';
 import ErrorBoundary from '@/components/ErrorBoundary.vue';
 import ServerSettingsDialog from '@/components/ServerSettingsDialog.vue';
-import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue';
 import { useFullscreen } from '@/composables/useFullscreen';
 import { navIconFor } from '@/composables/useIcons';
 import { api, getApiBaseURL, setConnectivityListener } from '@/services/http';
@@ -278,12 +277,6 @@ function openTheme(): void {
 function chooseTheme(key: Theme): void {
   applyTheme(key);
 }
-/** 自助修改密码弹窗（平板侧栏 / 手机「更多」抽屉共用）。 */
-const showChangePassword = ref(false);
-function openChangePassword(): void {
-  moreOpen.value = false;
-  showChangePassword.value = true;
-}
 /** 退出登录：清前台会话（若有后台会话一并清掉），回到登录页。平板侧栏 / 手机「更多」抽屉共用。 */
 const clientAuth = useClientAuthStore();
 const adminAuth = useAdminAuthStore();
@@ -311,7 +304,6 @@ const MORE_CHIP_COLORS: Record<string, string> = {
   barrier: '#22d3ee',
   'admin-devices': '#4C9AFF',
   theme: '#9D8BFF',
-  password: '#F0897A',
   logout: '#E5484D',
   ops: '#22d3ee',
 };
@@ -417,15 +409,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
           <Palette :size="22" :stroke-width="1.8" />
           <span class="v2-nav-label">主题</span>
         </button>
-        <!-- 自助修改密码：所有登录账户都能改自己的密码 -->
-        <button
-          class="v2-nav-item v2-nav-tool"
-          title="修改密码"
-          @click="openChangePassword"
-        >
-          <KeyRound :size="22" :stroke-width="1.8" />
-          <span class="v2-nav-label">修改密码</span>
-        </button>
+        <!-- 修改密码已统一到后台（AdminLayout 底部「修改密码」独立页，2026-10-17 第四轮），前台不再重复入口 -->
         <!-- 退出登录：清当前会话回登录页（平板/主控机侧栏与手机「更多」抽屉各一入口） -->
         <button
           class="v2-nav-item v2-nav-tool"
@@ -491,13 +475,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
               </span>
               <span>主题</span>
             </button>
-            <!-- 自助修改密码：所有登录账户都能改自己的密码 -->
-            <button class="v2-more-item" @click="openChangePassword">
-              <span class="more-ico" :style="moreChipStyle('password')">
-                <KeyRound :size="24" :stroke-width="1.9" />
-              </span>
-              <span>修改密码</span>
-            </button>
+            <!-- 修改密码已统一到后台（AdminLayout 底部独立页），前台不再重复 -->
             <!-- 退出登录：清当前会话回登录页（服务器地址保留） -->
             <button class="v2-more-item" @click="logout">
               <span class="more-ico" :style="moreChipStyle('logout')">
@@ -576,8 +554,9 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
           MOCK
         </span>
         <!-- 状态入口 (2026-07-27): 从侧栏挪来 — 侧栏图标挤不下, 状态属于"偶尔看"的
-             工具页, 放首页顶栏右侧一个心电图标即可 -->
-        <button class="v2-fs-btn" title="系统状态" @click="go('status')">
+             工具页, 放首页顶栏右侧一个心电图标即可。
+             2026-10-17 第四轮: 状态页收紧为仅 admin，顶栏图标也仅 admin 可见。 -->
+        <button v-if="perm.canEdit" class="v2-fs-btn" title="系统状态" @click="go('status')">
           <Activity :size="18" :stroke-width="2" />
         </button>
         <div class="v2-clock v2-inter">
@@ -629,9 +608,6 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 
     <!-- 服务器地址设置弹窗: API 连不上自动弹 / 侧导航网络按钮手动开 -->
     <ServerSettingsDialog v-model="showServerSettings" :reason="serverSettingsReason" />
-
-    <!-- 自助修改密码弹窗: 所有登录账户改自己的密码 -->
-    <ChangePasswordDialog v-model="showChangePassword" />
   </div>
 </template>
 

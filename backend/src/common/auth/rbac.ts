@@ -129,3 +129,63 @@ export function canReadModule(role: UserRole | undefined, module: AdminModule): 
   if (!rule.readRestricted) return true; // 前台共用读：任何已登录用户放行
   return rule.write.includes(role) || (rule.read ?? []).includes(role);
 }
+
+// ============================================================
+// 电源域（角色 × 域）授权 —— 2026-10-17 第五轮「开关域划分」
+// ------------------------------------------------------------
+// 三层结构：域 Domain（可授权/可增删，展厅/园区/新楼栋）
+//          > 楼层 floor（域内位置 1F/2F/音响/园区）
+//          > 回路 circuit（具体开关）。
+// 目标：不同角色只能操作所属域内开关，根治跨区误触全场断电/静音。
+// 域清单（power_domain 表）可后台增删；下面这张角色×域矩阵写在代码里，
+// 保证授权不被后台误改，且**新域默认只归 admin**（最小权限）。
+// ============================================================
+
+export const POWER_DOMAIN = {
+  HALL: 'hall',
+  PARK: 'park',
+} as const;
+
+/**
+ * 各角色可「写」（单路通断 / 后台手动测试）的电源域。admin 与 hardware 全域全通，
+ * 无需列出（hardware 是全域技术排障角色，未来新增楼栋也应可操作）。
+ *  - config   仅园区（4G 自动开关的定时 + 手动测试），展厅 LED 总闸不归他；
+ *  - operator 仅展厅（播放页/电源页单路）；
+ *  - viewer   不在此表 → 无任何写域。
+ * 新域默认对 config/operator/viewer 不开放（最小权限）。
+ */
+const POWER_DOMAIN_WRITE_ROLES: Partial<Record<UserRole, string[]>> = {
+  config: [POWER_DOMAIN.PARK],
+  operator: [POWER_DOMAIN.HALL],
+};
+
+/**
+ * 各角色可「读」（列表 / 状态 / 详情）的电源域，即数据范围。
+ * admin/hardware 全域（含未来新域）；config 只读园区；operator/viewer 只读展厅。
+ */
+const POWER_DOMAIN_READ_ROLES: Partial<Record<UserRole, string[]>> = {
+  config: [POWER_DOMAIN.PARK],
+  operator: [POWER_DOMAIN.HALL],
+  viewer: [POWER_DOMAIN.HALL],
+};
+
+/** 全域角色（后台排障/管理员）：所有域（含未来新增）都可读写。 */
+const POWER_DOMAIN_UNRESTRICTED_ROLES: UserRole[] = ['admin', 'hardware'];
+
+/** 角色是否可写某个电源域（admin/hardware 全通；无角色/未知域默认拒绝）。 */
+export function canWritePowerDomain(role: UserRole | undefined, domainCode: string | undefined): boolean {
+  if (!role || !domainCode) return false;
+  if (POWER_DOMAIN_UNRESTRICTED_ROLES.includes(role)) return true;
+  return POWER_DOMAIN_WRITE_ROLES[role]?.includes(domainCode) ?? false;
+}
+
+/**
+ * 角色可见（读）的电源域集合（数据范围）：
+ *  - 返回 null = 全域可见（admin/hardware，或内部/无 actor 的系统调用）；
+ *  - 返回数组 = 仅这些域可见（新域若不在数组内，非全域角色自动不可见）。
+ */
+export function readablePowerDomains(role: UserRole | undefined): string[] | null {
+  if (!role) return null;
+  if (POWER_DOMAIN_UNRESTRICTED_ROLES.includes(role)) return null;
+  return POWER_DOMAIN_READ_ROLES[role] ?? [];
+}

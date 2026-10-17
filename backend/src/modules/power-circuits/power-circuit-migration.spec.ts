@@ -5,6 +5,7 @@ import { DataSource } from 'typeorm';
 import { PowerCircuit } from '../../entities/power-circuit.entity';
 import { InitialBaseline1784561601801 } from '../../migrations/1784561601801-InitialBaseline';
 import { EstablishPowerCircuitDefaults1789600000000 } from '../../migrations/1789600000000-EstablishPowerCircuitDefaults';
+import { CreatePowerDomains1792300000000 } from '../../migrations/1792300000000-CreatePowerDomains';
 
 describe('EstablishPowerCircuitDefaults migration', () => {
   let directory: string;
@@ -16,7 +17,13 @@ describe('EstablishPowerCircuitDefaults migration', () => {
       type: 'better-sqlite3',
       database: join(directory, 'migration.sqlite'),
       entities: [PowerCircuit],
-      migrations: [InitialBaseline1784561601801, EstablishPowerCircuitDefaults1789600000000],
+      // 第五轮：CreatePowerDomains 给 power_circuit 补 domain_code 列，
+      // 否则带 domainCode 字段的实体会 SELECT 到旧 schema 缺失列。
+      migrations: [
+        InitialBaseline1784561601801,
+        EstablishPowerCircuitDefaults1789600000000,
+        CreatePowerDomains1792300000000,
+      ],
       migrationsTableName: 'migrations',
       synchronize: false,
     });

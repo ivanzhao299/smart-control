@@ -18,7 +18,7 @@ import { initTheme } from './services/theme.service';
 import { autoSelectServer } from './services/server-autoselect';
 import { recoverFromStalePwa } from './services/pwa-recovery';
 import { startPwaUpdateMonitor } from './services/pwa-update-monitor';
-import { promptUpdate, bindDismiss, setApplying } from './services/pwa-update-state';
+import { bindDismiss, setApplying } from './services/pwa-update-state';
 
 // 主题必须在 mount 之前应用, 否则会先渲染一帧深色再跳浅色 (闪一下)
 initTheme();
@@ -170,26 +170,16 @@ startBlankScreenWatchdog();
 // 每次启动及从后台回到前台时主动检查 sw.js；新 SW 接管后自动刷新一次，让当前
 // WebView 立即加载新版 index/chunk，而不是只提示“下次打开生效”。sessionStorage
 // 防止少数 WebView 的 controllerchange 重复触发造成刷新循环。
-// 无人值守大屏（GK9000 Kiosk 的 LED/投影 player 正式窗口）：检测到新版后直接静默
-// 激活并刷新，不弹等人点的横幅——现场 7×24 无人操作，横幅会一直挂在屏上。触发来自
-// 后端部署后广播的 frontend_release（网关对 player 独立 WS 也下发）、重连 hello 与
-// 冷启动核对。手机/管理端，以及手机“更多”里用 ?preview=1 打开的查看页，仍弹确认横幅。
-const isUnattendedKiosk = (() => {
-  try {
-    const params = new URLSearchParams(window.location.search);
-    return /(^|\/)player\/?$/.test(window.location.pathname) && params.get('preview') !== '1';
-  } catch {
-    return false;
-  }
-})();
+// 2026-10-17 第四轮：手机/管理端也改为静默自动刷新（与无人值守大屏统一）。
+// 此前手机/管理端弹等人点的横幅，现场常不点“立即更新”，导致新版一直停在 waiting，
+// 上轮 iOS 输入框修复因此在真机上未生效。现在检测到新版（frontend_release 广播、
+// 重连 hello、回前台、冷启动核对）一律静默激活并自动刷新一次；monitor 内部已有
+// sessionStorage 防刷新循环 + 离线静默兜底，workbox.skipWaiting:false 由运行时
+// postMessage SKIP_WAITING 覆盖（park-ops 大屏已验证）。?preview=1 查看页同步静默。
 const pwaUpdateHandle = startPwaUpdateMonitor({
   onReady: (apply) => {
-    if (isUnattendedKiosk) {
-      setApplying();
-      apply();
-    } else {
-      promptUpdate(apply);
-    }
+    setApplying();
+    apply();
   },
   onApplying: () => setApplying(),
 });

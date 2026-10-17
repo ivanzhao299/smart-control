@@ -9,9 +9,11 @@ import AppSkeleton from '@/components/AppSkeleton.vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import {
   powerCircuitsService,
+  powerDomainsService,
   powerSchedulesService,
   type PowerCircuitView,
   type PowerScheduleRule,
+  type PowerDomainView,
 } from '@/services/power-circuits.service';
 import PowerScheduleDrawer from '@/components/admin/PowerScheduleDrawer.vue';
 
@@ -21,15 +23,34 @@ const CATEGORIES: Record<string, string> = {
 
 const list = ref<PowerCircuitView[]>([]);
 const allRules = ref<PowerScheduleRule[]>([]);
+const domains = ref<PowerDomainView[]>([]);
 const loading = ref(false);
 const search = ref('');
+const domainFilter = ref<string>('');
 const floorFilter = ref<string>('');
 
 const schedRef = ref<InstanceType<typeof PowerScheduleDrawer> | null>(null);
 
+// 第五轮：域（展厅/园区）。后端已按角色过滤——config 只见园区、hardware 全域；
+// 全域角色顶部可按域筛选，单域角色只有一个域、筛选框不显示。
+const BUILTIN_DOMAIN_NAME: Record<string, string> = { hall: '展厅', park: '园区' };
+function domainName(code: string): string {
+  return domains.value.find((d) => d.code === code)?.name
+    ?? list.value.find((c) => c.domainCode === code)?.domainName
+    ?? BUILTIN_DOMAIN_NAME[code] ?? code;
+}
+const domainOptions = computed<string[]>(() => {
+  const set = new Set<string>();
+  for (const c of list.value) set.add(c.domainCode);
+  return Array.from(set);
+});
+
 const floorOptions = computed<string[]>(() => {
   const set = new Set<string>();
-  for (const c of list.value) set.add(c.floor);
+  for (const c of list.value) {
+    if (domainFilter.value && c.domainCode !== domainFilter.value) continue;
+    set.add(c.floor);
+  }
   return Array.from(set).sort();
 });
 
@@ -39,6 +60,7 @@ const breakerCircuits = computed<PowerCircuitView[]>(() =>
 
 const filtered = computed<PowerCircuitView[]>(() => {
   let rows = breakerCircuits.value;
+  if (domainFilter.value) rows = rows.filter((c) => c.domainCode === domainFilter.value);
   if (floorFilter.value) rows = rows.filter((c) => c.floor === floorFilter.value);
   const q = search.value.trim().toLowerCase();
   if (q) {
@@ -82,12 +104,14 @@ function fmtAt(iso: string | null): string {
 async function refresh(): Promise<void> {
   loading.value = true;
   try {
-    const [circuits, rules] = await Promise.all([
+    const [circuits, rules, domainRows] = await Promise.all([
       powerCircuitsService.list(true),
       powerSchedulesService.list(),
+      powerDomainsService.list(true).catch(() => [] as PowerDomainView[]),
     ]);
     list.value = circuits;
     allRules.value = rules;
+    domains.value = domainRows;
   } catch (err) {
     ElMessage.error(`加载失败: ${(err as Error).message}`);
   } finally {
@@ -139,6 +163,16 @@ onMounted(refresh);
   <section class="auto-switch-admin">
     <header class="page-head">
       <h2>自动开关</h2>
+      <el-select
+        v-if="domainOptions.length > 1"
+        v-model="domainFilter"
+        placeholder="全部区域"
+        clearable
+        class="domain-sel"
+        @change="floorFilter = ''"
+      >
+        <el-option v-for="d in domainOptions" :key="d" :label="domainName(d)" :value="d" />
+      </el-select>
       <el-select v-model="floorFilter" placeholder="全部楼层" clearable class="floor-sel">
         <el-option v-for="f in floorOptions" :key="f" :label="f" :value="f" />
       </el-select>
@@ -157,6 +191,7 @@ onMounted(refresh);
           <div class="name-cell">
             <div class="name-row">
               <span class="circuit-name">{{ row.name }}</span>
+              <span v-if="domainOptions.length > 1" class="domain-tag" :data-domain="row.domainCode">{{ domainName(row.domainCode) }}</span>
               <span v-if="row.floor" class="floor-tag">{{ row.floor }}</span>
             </div>
             <code class="circuit-code">{{ row.code }}</code>
@@ -227,6 +262,7 @@ onMounted(refresh);
   flex-wrap: wrap; margin-bottom: 10px;
 }
 .page-head h2 { margin: 0 6px 0 0; font-size: 20px; color: var(--v2-text-1); white-space: nowrap; }
+.domain-sel { width: 120px; }
 .floor-sel { width: 120px; }
 .search-inp { width: 220px; }
 .head-refresh { margin-left: auto; }
@@ -239,6 +275,18 @@ onMounted(refresh);
   padding: 0 7px; line-height: 18px; border-radius: 9px;
   background: rgba(76, 154, 255, 0.12); color: #67E8F9;
   white-space: nowrap; flex-shrink: 0;
+}
+/* 域标签（第五轮）：展厅=青蓝、园区=琥珀，与楼层标签区分 */
+.domain-tag {
+  font-size: 11px; font-weight: 700;
+  padding: 0 7px; line-height: 18px; border-radius: 9px;
+  white-space: nowrap; flex-shrink: 0; letter-spacing: 0.5px;
+  background: rgba(244, 180, 80, 0.16); color: #F0B35C;
+  border: 1px solid rgba(244, 180, 80, 0.4);
+}
+.domain-tag[data-domain="hall"] {
+  background: rgba(76, 154, 255, 0.14); color: #7CC4FF;
+  border-color: rgba(76, 154, 255, 0.4);
 }
 .circuit-name { font-weight: 600; color: var(--v2-text-1); font-size: 14px; letter-spacing: 0.3px; }
 .circuit-code {

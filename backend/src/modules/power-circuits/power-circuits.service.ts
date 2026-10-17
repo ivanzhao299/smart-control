@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -9,9 +10,12 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { PowerCircuit } from '../../entities/power-circuit.entity';
+import { PowerDomain } from '../../entities/power-domain.entity';
+import { canWritePowerDomain, readablePowerDomains, POWER_DOMAIN } from '../../common/auth/rbac';
+import type { UserRole } from '../../entities/user.entity';
 import { PowerAdapter, PowerReading } from '../../adapters/power/power.adapter';
 import { Epo802pAdapter } from '../../adapters/power/epo802p.adapter';
 import { Seq55Adapter } from '../../adapters/power/seq55.adapter';
@@ -28,6 +32,10 @@ export interface PowerCircuitView {
   code: string;
   name: string;
   floor: string;
+  /** 所属电源域 code（hall 展厅 / park 园区 / 新楼栋），第五轮域划分。 */
+  domainCode: string;
+  /** 所属电源域中文名（join power_domain 得到，未配置时回退 code）。 */
+  domainName: string | null;
   category: string;
   gatewayCode: string | null;
   relayChannel: number | null;
@@ -51,6 +59,8 @@ export interface PowerCircuitUpsertDto {
   code: string;
   name: string;
   floor: string;
+  /** 所属电源域 code；不传时默认 hall（展厅）。 */
+  domainCode?: string;
   category?: string;
   gatewayCode?: string | null;
   relayChannel?: number | null;
@@ -64,10 +74,32 @@ export interface PowerCircuitUpsertDto {
   enabled?: boolean;
 }
 
+export interface PowerDomainView {
+  id: number;
+  code: string;
+  name: string;
+  sortOrder: number;
+  description: string | null;
+  enabled: boolean;
+  /** 该域下回路数量（管理页展示用）。 */
+  circuitCount?: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface PowerDomainUpsertDto {
+  code?: string;
+  name?: string;
+  sortOrder?: number;
+  description?: string | null;
+  enabled?: boolean;
+}
+
 @Injectable()
 export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @InjectRepository(PowerCircuit) private readonly repo: Repository<PowerCircuit>,
+    @InjectRepository(PowerDomain) private readonly domainRepo: Repository<PowerDomain>,
     @InjectRepository(HardwareUnit) private readonly hwRepo: Repository<HardwareUnit>,
     private readonly adapter: PowerAdapter,
     /** 电源时序器真机 — 挂在它上面的回路走真设备, 其余走 mock */
@@ -112,21 +144,42 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   private collecting = false;
   private readonly COLLECT_INTERVAL_MS = 10_000;
 
-  async list(opts: { includeDisabled?: boolean } = {}): Promise<PowerCircuitView[]> {
-    const where = opts.includeDisabled ? {} : { enabled: true };
+  async list(opts: { includeDisabled?: boolean; role?: UserRole } = {}): Promise<PowerCircuitView[]> {
+    const where: Record<string, unknown> = opts.includeDisabled ? {} : { enabled: true };
+    // 数据范围（角色 × 域）：非 admin 只返回其所属域的回路（operator/viewer 仅展厅、
+    // config 仅园区、hardware 全域）。readablePowerDomains 返回 null 时不限制。
+    const domains = readablePowerDomains(opts.role);
+    if (domains) where.domainCode = In(domains);
     const rows = await this.repo.find({
       where,
-      order: { floor: 'ASC', sortOrder: 'ASC', id: 'ASC' },
+      order: { domainCode: 'ASC', floor: 'ASC', sortOrder: 'ASC', id: 'ASC' },
     });
     // 并行拉各回路实时读数 (云断路器走各自 HTTP 可并发; 485 适配器内部对共享
     // 串口自行串行化) —— 避免逐台 await 把云端往返时间累加
-    return Promise.all(rows.map((r) => this.toView(r)));
+    const nameMap = await this.domainNameMap();
+    return Promise.all(rows.map((r) => this.toView(r, nameMap)));
   }
 
-  async detail(id: number): Promise<PowerCircuitView> {
+  async detail(id: number, role?: UserRole): Promise<PowerCircuitView> {
     const row = await this.repo.findOne({ where: { id } });
     if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
-    return this.toView(row);
+    this.assertCanReadDomain(row, role);
+    return this.toView(row, await this.domainNameMap());
+  }
+
+  /** 读域校验：非 admin 角色不能查看所属域外的回路详情（直接打 id 也挡）。 */
+  private assertCanReadDomain(row: PowerCircuit, role?: UserRole): void {
+    const domains = readablePowerDomains(role);
+    if (domains && !domains.includes(row.domainCode)) {
+      throw new ForbiddenException(`该回路不在你可访问的区域`);
+    }
+  }
+
+  /** 写域校验：非 admin 角色不能操作所属域外的开关（资源级，根治跨区误触）。 */
+  private assertCanWriteDomain(row: PowerCircuit, role?: UserRole): void {
+    if (!canWritePowerDomain(role, row.domainCode)) {
+      throw new ForbiddenException(`无权操作该区域的电源开关`);
+    }
   }
 
   async create(dto: PowerCircuitUpsertDto): Promise<PowerCircuitView> {
@@ -137,6 +190,7 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
       code: dto.code,
       name: dto.name,
       floor: dto.floor,
+      domainCode: dto.domainCode ?? POWER_DOMAIN.HALL,
       category: dto.category ?? 'misc',
       gatewayCode: dto.gatewayCode ?? null,
       relayChannel: dto.relayChannel ?? null,
@@ -164,6 +218,7 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
       ...(dto.code !== undefined && { code: dto.code }),
       ...(dto.name !== undefined && { name: dto.name }),
       ...(dto.floor !== undefined && { floor: dto.floor }),
+      ...(dto.domainCode !== undefined && { domainCode: dto.domainCode }),
       ...(dto.category !== undefined && { category: dto.category }),
       ...(dto.gatewayCode !== undefined && { gatewayCode: dto.gatewayCode }),
       ...(dto.relayChannel !== undefined && { relayChannel: dto.relayChannel }),
@@ -186,6 +241,75 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     await this.repo.delete({ id });
   }
 
+  // ============ 电源域（Domain）管理；仅 admin（controller 用 @ModuleAccess('zones')） ============
+
+  async listDomains(opts: { includeDisabled?: boolean } = {}): Promise<PowerDomainView[]> {
+    const rows = await this.domainRepo.find({
+      where: opts.includeDisabled ? {} : { enabled: true },
+      order: { sortOrder: 'ASC', id: 'ASC' },
+    });
+    return Promise.all(rows.map((d) => this.domainToView(d)));
+  }
+
+  async createDomain(dto: PowerDomainUpsertDto): Promise<PowerDomainView> {
+    const code = dto.code?.trim();
+    if (!code) throw new ConflictException('域 code 必填');
+    if (!/^[a-z0-9-]+$/.test(code)) throw new ConflictException('域 code 仅允许小写字母、数字与连字符');
+    const dup = await this.domainRepo.findOne({ where: { code } });
+    if (dup) throw new ConflictException(`域 code 已存在: ${code}`);
+    const row = this.domainRepo.create({
+      code,
+      name: dto.name?.trim() || code,
+      sortOrder: dto.sortOrder ?? 100,
+      description: dto.description ?? null,
+      enabled: dto.enabled ?? true,
+    });
+    return this.domainToView(await this.domainRepo.save(row));
+  }
+
+  async updateDomain(id: number, dto: Partial<PowerDomainUpsertDto>): Promise<PowerDomainView> {
+    const row = await this.domainRepo.findOne({ where: { id } });
+    if (!row) throw new NotFoundException(`power domain #${id} 不存在`);
+    if (dto.code !== undefined && dto.code.trim() !== row.code) {
+      const code = dto.code.trim();
+      if (!/^[a-z0-9-]+$/.test(code)) throw new ConflictException('域 code 仅允许小写字母、数字与连字符');
+      const dup = await this.domainRepo.findOne({ where: { code } });
+      if (dup) throw new ConflictException(`域 code 已存在: ${code}`);
+      row.code = code;
+    }
+    if (dto.name !== undefined) row.name = dto.name;
+    if (dto.sortOrder !== undefined) row.sortOrder = dto.sortOrder;
+    if (dto.description !== undefined) row.description = dto.description;
+    if (dto.enabled !== undefined) row.enabled = dto.enabled;
+    return this.domainToView(await this.domainRepo.save(row));
+  }
+
+  async removeDomain(id: number): Promise<void> {
+    const row = await this.domainRepo.findOne({ where: { id } });
+    if (!row) return;
+    if (row.code === POWER_DOMAIN.HALL || row.code === POWER_DOMAIN.PARK) {
+      throw new ConflictException('内置域（展厅/园区）不可删除，可禁用');
+    }
+    const used = await this.repo.count({ where: { domainCode: row.code } });
+    if (used > 0) throw new ConflictException(`该域下仍有 ${used} 条回路，请先改挂其他域再删除`);
+    await this.domainRepo.delete({ id });
+  }
+
+  private async domainToView(d: PowerDomain): Promise<PowerDomainView> {
+    const circuitCount = await this.repo.count({ where: { domainCode: d.code } });
+    return {
+      id: d.id,
+      code: d.code,
+      name: d.name,
+      sortOrder: d.sortOrder,
+      description: d.description,
+      enabled: d.enabled,
+      circuitCount,
+      createdAt: d.createdAt,
+      updatedAt: d.updatedAt,
+    };
+  }
+
   /**
    * 通电 — 走 adapter, 然后返回最新读数。
    * 不做任何跨回路联动 (2026-07-28 业主二次修正: "同开同关只限于 LED/投影页面
@@ -199,6 +323,29 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
 
   async turnOff(id: number): Promise<PowerCircuitView> {
     return this.switchCircuit(id, false);
+  }
+
+  /**
+   * HTTP 单路通断（带角色 × 域资源级校验）—— 控制器 on/off 走这里。
+   * 方法级 @WriteRoles 只判断"哪个角色能调电源控制"，不查具体回路；这里查到
+   * 回路后按其 domainCode 再校验一次，operator 对园区、config 对展厅都会 403。
+   * 定时任务（power-schedules）到点系统自动执行，无 HTTP actor，仍走 turnOn/
+   * turnOff 不受此限（规则本身由有权限角色配置，且不应自动执行时被拦）。
+   */
+  async turnOnForRole(id: number, role: UserRole): Promise<PowerCircuitView> {
+    await this.assertCircuitWriteDomain(id, role);
+    return this.switchCircuit(id, true);
+  }
+
+  async turnOffForRole(id: number, role: UserRole): Promise<PowerCircuitView> {
+    await this.assertCircuitWriteDomain(id, role);
+    return this.switchCircuit(id, false);
+  }
+
+  private async assertCircuitWriteDomain(id: number, role: UserRole): Promise<void> {
+    const row = await this.repo.findOne({ where: { id } });
+    if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
+    this.assertCanWriteDomain(row, role);
   }
 
   /**
@@ -439,9 +586,10 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** 断路器全量计量 (三相分相 + 温度 + 漏电 + 报警位) — 给运维/详情页看 */
-  async breakerMeasurements(id: number): Promise<BreakerMeasurements> {
+  async breakerMeasurements(id: number, role?: UserRole): Promise<BreakerMeasurements> {
     const row = await this.repo.findOne({ where: { id } });
     if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
+    this.assertCanReadDomain(row, role);
     const breakerAdapter = await this.resolveBreakerAdapter(row);
     if (!breakerAdapter) {
       throw new ConflictException(`circuit ${row.name} 不是智能断路器回路`);
@@ -549,20 +697,21 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     if (!dto.floor) throw new ConflictException('floor 必填');
   }
 
-  private async toView(row: PowerCircuit): Promise<PowerCircuitView> {
+  private async toView(row: PowerCircuit, nameMap?: Map<string, string>): Promise<PowerCircuitView> {
+    const domainName = nameMap?.get(row.domainCode) ?? null;
     const breakerAdapter = await this.resolveBreakerAdapter(row);
     const isBreaker = breakerAdapter !== null;
     // 智能断路器回路: 读真机 (电压/电流/功率/电量都是实测), 不用 mock 的模拟值
     if (breakerAdapter) {
       return {
-        ...this.baseView(row),
+        ...this.baseView(row, domainName),
         isBreaker,
         reading: this.snapshotBreakerReading(row), // 读快照, 不等待外部 I/O
       };
     }
     // 时序器回路: 开关状态读后台快照 (0xac 一帧带全部 8 路), 电量指标时序器没有 → 0
     if (await this.isSequencerCircuit(row)) {
-      return { ...this.baseView(row), isBreaker, reading: this.seqReading(row) };
+      return { ...this.baseView(row, domainName), isBreaker, reading: this.seqReading(row) };
     }
     const result = await this.adapter.circuitReadStatus(row.id, {
       voltage: row.ratedVoltage,
@@ -581,7 +730,7 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
             energy: 0,
             lastReadAt: new Date().toISOString(),
           };
-    return { ...this.baseView(row), isBreaker, reading };
+    return { ...this.baseView(row, domainName), isBreaker, reading };
   }
 
   /** 单相 MQTT 设备只填 A 相；三相设备取三相平均。 */
@@ -591,13 +740,24 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     return present.reduce((sum, value) => sum + value, 0) / present.length;
   }
 
+  /** 域 code → 中文名（一次加载，供 toView 批量填充，避免逐条查询）。 */
+  private async domainNameMap(): Promise<Map<string, string>> {
+    const domains = await this.domainRepo.find({ select: { code: true, name: true } });
+    return new Map(domains.map((d) => [d.code, d.name]));
+  }
+
   /** 行字段 → view (不含 reading / isBreaker, 两条读数路径共用) */
-  private baseView(row: PowerCircuit): Omit<PowerCircuitView, 'reading' | 'isBreaker'> {
+  private baseView(
+    row: PowerCircuit,
+    domainName?: string | null,
+  ): Omit<PowerCircuitView, 'reading' | 'isBreaker'> {
     return {
       id: row.id,
       code: row.code,
       name: row.name,
       floor: row.floor,
+      domainCode: row.domainCode,
+      domainName: domainName ?? null,
       category: row.category,
       gatewayCode: row.gatewayCode,
       relayChannel: row.relayChannel,

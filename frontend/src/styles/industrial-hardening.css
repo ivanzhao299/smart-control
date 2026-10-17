@@ -23,19 +23,37 @@ a {
   user-select: none;
 }
 
-/* 可编辑控件全局恢复系统文本选择/输入法行为（2026-10-16 修复手机登录页输入法）。
-   theme.css 对 html/body/#app 设了 user-select:none + touch-callout:none（防误触），
-   而前台登录页(.client-login)、后台登录(.admin-login)、后台(.admin)都不在 .v2-shell 内，
-   原先只豁免 .v2-shell input，会导致手机 WebView/PWA 登录框无法正常拉起中文输入法、
-   候选词/长按粘贴异常。这里对所有输入控件全局豁免；只读控件另有 .device-readonly
-   (pointer-events:none) 独立兜底，不受影响。 */
-input,
-textarea,
-select,
-[contenteditable="true"] {
-  -webkit-user-select: text;
-  user-select: text;
-  -webkit-touch-callout: default;
+/* 可编辑控件全局恢复系统文本选择/输入法行为。
+   2026-10-16 修复手机登录页输入法；2026-10-17 第四轮加固（现场真机仍受限）：
+   theme.css 对 html/body/#app 设了 user-select:none（#app 是 ID 级 (1,0,0)，特异性高于
+   原 input 元素级 (0,0,1)），iOS WebKit 在"整条祖先链 none、仅低特异性 input text"时
+   中文 IME 恢复不稳。这里用 html 前缀提高特异性并加 !important，确保 input 自身 text
+   必胜出；同时把前台/后台登录页的表单容器整条祖先链放行（卡片/字段都可选择），
+   根治 iOS 候选词/长按粘贴异常。只读控件另有 .device-readonly (pointer-events:none)
+   独立兜底，不受影响。 */
+html input,
+html textarea,
+html select,
+html [contenteditable="true"] {
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  user-select: text !important;
+  -webkit-touch-callout: default !important;
+}
+
+/* 登录表单容器祖先链放行（防止 iOS 因父级 none 而禁掉输入框的系统编辑能力）。 */
+html .client-login,
+html .client-login .login-card,
+html .client-login .field,
+html .client-login .field-input,
+html .admin-login,
+html .admin-login .login-card,
+html .admin-login .field,
+html .admin-login .field-input {
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  user-select: text !important;
+  -webkit-touch-callout: default !important;
 }
 
 /* Toasts stay below notches and status bars. */

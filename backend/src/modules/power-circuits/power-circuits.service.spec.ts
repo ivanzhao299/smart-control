@@ -65,6 +65,15 @@ async function makeService(opts: {
     save: jest.fn(async (r: unknown) => r),
     create: jest.fn((r: unknown) => r),
   };
+  // 第五轮：域字典仓储。单测默认空字典（domainName 回落 null），不影响 on/off 逻辑。
+  const domainRepo = {
+    find: jest.fn().mockResolvedValue([]),
+    findOne: jest.fn().mockResolvedValue(null),
+    count: jest.fn().mockResolvedValue(0),
+    save: jest.fn(async (r: unknown) => r),
+    create: jest.fn((r: unknown) => r),
+    delete: jest.fn().mockResolvedValue({ affected: 1 }),
+  };
   const hwRepo = {
     findOne: jest.fn().mockResolvedValue(
       opts.hwCategory === null
@@ -94,7 +103,8 @@ async function makeService(opts: {
     })),
   };
   const svc = new PowerCircuitsService(
-    repo as never, hwRepo as never, adapter as never, epo as never, breaker as never, fakeLogger(),
+    repo as never, domainRepo as never, hwRepo as never, adapter as never,
+    epo as never, breaker as never, fakeLogger(),
     undefined, cloudBreaker as never,
   );
   // 模拟后台采集循环: 构造后先采一轮填充快照 (运行时由 onModuleInit 定时做)
@@ -298,6 +308,14 @@ describe('PowerCircuitsService · 时序器后台采集快照', () => {
           ? { code: 'AUDIO-PWR-SEQ-1', category: 'audio-power', enabled: true }
           : null),
     };
+    const domainRepo = {
+      find: jest.fn(async () => []),
+      findOne: jest.fn(async () => null),
+      count: jest.fn(async () => 0),
+      save: jest.fn(async (r: unknown) => r),
+      create: jest.fn((r: unknown) => r),
+      delete: jest.fn(async () => ({ affected: 1 })),
+    };
     const epo = { setChannel: jest.fn(async () => okResult({})), readStatus: readStatusImpl };
     const adapter = {
       circuitTurnOn: jest.fn(), circuitTurnOff: jest.fn(),
@@ -306,8 +324,8 @@ describe('PowerCircuitsService · 时序器后台采集快照', () => {
     const breaker = { turnOn: jest.fn(), turnOff: jest.fn(), getMeasurements: jest.fn() };
     const cloudBreaker = { turnOn: jest.fn(), turnOff: jest.fn(), getMeasurements: jest.fn() };
     const svc = new PowerCircuitsService(
-      repo as never, hwRepo as never, adapter as never, epo as never,
-      breaker as never, fakeLogger(), undefined, cloudBreaker as never,
+      repo as never, domainRepo as never, hwRepo as never, adapter as never,
+      epo as never, breaker as never, fakeLogger(), undefined, cloudBreaker as never,
     );
     return { svc, epo };
   }

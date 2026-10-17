@@ -240,17 +240,18 @@ describe('RBAC controller bindings', () => {
     expect(methodWriteRoles(proto, 'off')).toBeUndefined();
   });
 
-  it('allows power-circuit on/off to admin+hardware but sequencer and CRUD stay admin/zones', () => {
+  it('allows power-circuit on/off to admin/hardware/config/operator; domain check is in service; sequencer+CRUD stay admin/zones', () => {
     const proto = PowerCircuitsController.prototype as any;
-    // 单路手动通断：admin + hardware（设备测试）。
+    // 方法级白名单：四个角色可调单路通断（config 园区域手动测试，第五轮补回）。
+    // 具体这一路属不属于该角色的操作域，由 service.turnOnForRole 按 domainCode 二次校验。
     expect(methodGuards(proto, 'on')).toContain(WriteRoleGuard);
-    expect(methodWriteRoles(proto, 'on')).toEqual(['admin', 'hardware']);
+    expect(methodWriteRoles(proto, 'on')).toEqual(['admin', 'hardware', 'config', 'operator']);
     expect(methodGuards(proto, 'off')).toContain(WriteRoleGuard);
-    expect(methodWriteRoles(proto, 'off')).toEqual(['admin', 'hardware']);
+    expect(methodWriteRoles(proto, 'off')).toEqual(['admin', 'hardware', 'config', 'operator']);
     // 时序器一键全开/全关：仅 admin。
     expect(methodWriteRoles(proto, 'seqAllOn')).toEqual(['admin']);
     expect(methodWriteRoles(proto, 'seqAllOff')).toEqual(['admin']);
-    // 回路 CRUD 归 zones（仅 admin，矩阵 zones.write 为空）。
+    // 回路 CRUD 与域 CRUD 归 zones（仅 admin，矩阵 zones.write 为空）。
     expect(boundModules(PowerCircuitsController).has('zones')).toBe(true);
   });
 

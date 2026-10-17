@@ -13,9 +13,11 @@ import {
 } from 'lucide-vue-next';
 import {
   powerCircuitsService,
+  powerDomainsService,
   powerSchedulesService,
   type PowerCircuitView,
   type BreakerMeasurements,
+  type PowerDomainView,
 } from '@/services/power-circuits.service';
 import { usePermissionStore } from '@/stores/permission';
 
@@ -33,15 +35,34 @@ function is4gBreaker(c: PowerCircuitView): boolean {
 }
 
 const circuits = ref<PowerCircuitView[]>([]);
+const domains = ref<PowerDomainView[]>([]);
 const loading = ref(false);
 const loadError = ref<string | null>(null);
 const busyIds = ref<Set<number>>(new Set());
+
+// 域中文名兜底（后端 power-domains 字典优先；字典未就绪时用内置）。
+const BUILTIN_DOMAIN_NAME: Record<string, string> = { hall: '展厅', park: '园区' };
+function domainName(code: string): string {
+  const d = domains.value.find((x) => x.code === code);
+  return d?.name ?? BUILTIN_DOMAIN_NAME[code] ?? code;
+}
 
 async function loadCircuits(): Promise<void> {
   loading.value = true;
   loadError.value = null;
   try {
-    circuits.value = await powerCircuitsService.list();
+    // 域字典与回路并行（后端都按角色域过滤，operator 只见展厅、config 只见园区）。
+    const [rows, domainRows] = await Promise.all([
+      powerCircuitsService.list(),
+      powerDomainsService.list().catch(() => [] as PowerDomainView[]),
+    ]);
+    circuits.value = rows;
+    domains.value = domainRows;
+    // 域 tab 校正：当前域不在可见范围则回到第一个域（多域角色才会出现域切换）。
+    const doms = domainOptions.value;
+    if (!doms.includes(domainTab.value) && doms.length > 0) {
+      domainTab.value = doms[0];
+    }
     const floors = floorOptions.value;
     if (!floors.includes(floorTab.value) && floors.length > 0) {
       floorTab.value = floors[0];
@@ -80,16 +101,42 @@ function fmtNextAt(iso: string): string {
 }
 const NEXT_ACTION_LABEL: Record<string, string> = { on: '开', off: '关' };
 
-// 楼层 tab
-const floorTab = ref<string>('音响');  // 2026-07-25 业主: 音响(时序器)是最常用页, 设为默认
+// ============ 域 tab（第五轮：展厅 hall / 园区 park，可扩展新楼栋）============
+// 后端已按角色域过滤：admin/hardware 拿到两域（显示域切换），operator 仅展厅、
+// config 仅园区（单域，不显示域切换）。不提供"跨域全部"，一键通断只作用于当前域。
+const domainTab = ref<string>('hall');
+const domainOptions = computed<string[]>(() => {
+  const set = new Set<string>();
+  for (const c of circuits.value) set.add(c.domainCode);
+  const order = (code: string): number => {
+    const idx = domains.value.findIndex((d) => d.code === code);
+    if (idx >= 0) return idx;
+    if (code === 'hall') return 0;
+    if (code === 'park') return 1;
+    return 99;
+  };
+  return Array.from(set).sort((a, b) => order(a) - order(b));
+});
+/** 当前域内回路 —— 所有"全部/整层/时序"批量动作都限定在当前域，杜绝跨域全场断电。 */
+const domainCircuits = computed(() => circuits.value.filter((c) => c.domainCode === domainTab.value));
+function switchDomain(code: string): void {
+  if (domainTab.value === code) return;
+  domainTab.value = code;
+  const floors = floorOptions.value;
+  // 切到展厅默认落在最常用的"音响"；园区等其它域落第一个楼层。
+  floorTab.value = floors.includes('音响') ? '音响' : floors[0] ?? 'all';
+}
+
+// 楼层 tab（仅基于当前域；2026-07-25 业主: 音响(时序器)是最常用页, 设为默认）
+const floorTab = ref<string>('音响');
 const floorOptions = computed<string[]>(() => {
   const set = new Set<string>();
-  for (const c of circuits.value) set.add(c.floor);
+  for (const c of domainCircuits.value) set.add(c.floor);
   return Array.from(set).sort();
 });
 const filteredCircuits = computed(() => {
-  if (floorTab.value === 'all') return circuits.value;
-  return circuits.value.filter((c) => c.floor === floorTab.value);
+  if (floorTab.value === 'all') return domainCircuits.value;
+  return domainCircuits.value.filter((c) => c.floor === floorTab.value);
 });
 
 // 总览
@@ -123,7 +170,7 @@ async function dispatchOne(c: PowerCircuitView, op: 'on' | 'off', silent = false
 
 // ============ 时序器 (EPO-802P, floor='音响') ============
 // 全开/全关走 b3: 设备按各路设定延时依次通断 (开 1,3..15s / 关 15,13..1s), 保护功放。
-const hasSeq = computed<boolean>(() => circuits.value.some((c) => c.category === 'audio-seq'));
+const hasSeq = computed<boolean>(() => domainCircuits.value.some((c) => c.category === 'audio-seq'));
 const seqBusy = ref(false);
 async function seqAll(on: boolean): Promise<void> {
   seqBusy.value = true;
@@ -221,16 +268,17 @@ async function confirmPower(scope: string, count: number, on: boolean): Promise<
     return true;
   } catch { return false; }
 }
-/** "全部"不含时序回路 —— 那 8 路只能走时序开/关机 (b3), 逐路 b2 会绕开功放保护 */
-const nonSeqCircuits = computed(() => circuits.value.filter((c) => c.category !== 'audio-seq'));
+/** "全部"不含时序回路 —— 那 8 路只能走时序开/关机 (b3), 逐路 b2 会绕开功放保护；
+ *  且只统计当前域（第五轮）：展厅/园区一键互不越界。 */
+const nonSeqCircuits = computed(() => domainCircuits.value.filter((c) => c.category !== 'audio-seq'));
 async function allOn(): Promise<void> {
-  if (!(await confirmPower('全部楼层', nonSeqCircuits.value.length, true))) return;
-  ElMessage.info(`全部通电 — 逐路下发 (${nonSeqCircuits.value.length} 路, 时序回路请用时序开机)`);
+  if (!(await confirmPower(`${domainName(domainTab.value)}全部楼层`, nonSeqCircuits.value.length, true))) return;
+  ElMessage.info(`${domainName(domainTab.value)}全部通电 — 逐路下发 (${nonSeqCircuits.value.length} 路, 时序回路请用时序开机)`);
   await dispatchMany(nonSeqCircuits.value, 'on');
 }
 async function allOff(): Promise<void> {
-  if (!(await confirmPower('全部楼层', nonSeqCircuits.value.length, false))) return;
-  ElMessage.warning(`全部断电 — 逐路下发 (${nonSeqCircuits.value.length} 路, 时序回路请用时序关机)`);
+  if (!(await confirmPower(`${domainName(domainTab.value)}全部楼层`, nonSeqCircuits.value.length, false))) return;
+  ElMessage.warning(`${domainName(domainTab.value)}全部断电 — 逐路下发 (${nonSeqCircuits.value.length} 路, 时序回路请用时序关机)`);
   await dispatchMany(nonSeqCircuits.value, 'off');
 }
 async function floorOn(): Promise<void> {
@@ -302,7 +350,7 @@ useActivePolling(startPolling, stopPolling);
 </script>
 
 <template>
-  <section class="v2-page" :class="{ 'device-readonly': !perm.canEdit }">
+  <section class="v2-page" :class="{ 'device-readonly': !perm.canExecute }">
     <!-- 页面头部 -->
     <header class="v2-page-head">
       <div class="back-row">
@@ -310,7 +358,18 @@ useActivePolling(startPolling, stopPolling);
           <ArrowLeft :size="18" :stroke-width="2" />
         </button>
         <div class="title-block">
-          <div class="title"><Zap :size="18" :stroke-width="1.8" /> 电源管理<span v-if="!perm.canEdit" class="device-readonly-chip">只读</span></div>
+          <div class="title"><Zap :size="18" :stroke-width="1.8" /> 电源管理<span v-if="!perm.canExecute" class="device-readonly-chip">只读</span></div>
+        </div>
+        <!-- 域一级切换（第五轮）：仅多域角色 admin/hardware 显示；单域角色锁定唯一域。
+             一键通断只作用于当前域，不提供跨域"全部"。 -->
+        <div v-if="domainOptions.length > 1" class="v2-tabs v2-domain-tabs">
+          <button
+            v-for="d in domainOptions"
+            :key="d"
+            class="v2-tab domain-tab"
+            :class="{ active: domainTab === d }"
+            @click="switchDomain(d)"
+          >{{ domainName(d) }}</button>
         </div>
         <div class="v2-tabs">
           <button
@@ -329,7 +388,7 @@ useActivePolling(startPolling, stopPolling);
         </button>
         <!-- 时序器: b3 全开/全关, 设备按延时依次动作 (保护功放), 有时序回路才显示 -->
         <button
-          v-if="hasSeq && (floorTab === '音响' || floorTab === 'all')"
+          v-if="perm.canEdit && hasSeq && (floorTab === '音响' || floorTab === 'all')"
           class="v2-quick primary"
           @click="seqAll(true)"
           :disabled="seqBusy"
@@ -338,7 +397,7 @@ useActivePolling(startPolling, stopPolling);
           <Power :size="14" :stroke-width="2" /> 时序开机
         </button>
         <button
-          v-if="hasSeq && (floorTab === '音响' || floorTab === 'all')"
+          v-if="perm.canEdit && hasSeq && (floorTab === '音响' || floorTab === 'all')"
           class="v2-quick danger"
           @click="seqAll(false)"
           :disabled="seqBusy"
@@ -350,7 +409,7 @@ useActivePolling(startPolling, stopPolling);
              音响 tab = 时序开/关机 (b3, 别处渲染); 楼层 tab = 本层通/断电;
              全部 tab = 全部通/断电 (跳过时序回路 — 那 8 路必须走时序保护) -->
         <button
-          v-if="floorTab !== 'all' && floorTab !== '音响'"
+          v-if="perm.canEdit && floorTab !== 'all' && floorTab !== '音响'"
           class="v2-quick primary"
           @click="floorOn"
           :disabled="loading || filteredCircuits.length === 0"
@@ -358,18 +417,18 @@ useActivePolling(startPolling, stopPolling);
           <Power :size="14" :stroke-width="2" /> {{ floorTab }} 通电
         </button>
         <button
-          v-if="floorTab !== 'all' && floorTab !== '音响'"
+          v-if="perm.canEdit && floorTab !== 'all' && floorTab !== '音响'"
           class="v2-quick danger"
           @click="floorOff"
           :disabled="loading || filteredCircuits.length === 0"
         >
           <X :size="14" :stroke-width="2" /> {{ floorTab }} 断电
         </button>
-        <button v-if="floorTab === 'all'" class="v2-quick primary" @click="allOn" :disabled="loading || circuits.length === 0" title="整馆通电 (时序回路走时序开机)">
-          <Power :size="14" :stroke-width="2" /> 全部通电
+        <button v-if="perm.canEdit && floorTab === 'all'" class="v2-quick primary" @click="allOn" :disabled="loading || domainCircuits.length === 0" :title="domainName(domainTab) + '全部通电 (仅当前区域, 时序回路走时序开机)'">
+          <Power :size="14" :stroke-width="2" /> {{ domainName(domainTab) }} 全部通电
         </button>
-        <button v-if="floorTab === 'all'" class="v2-quick danger" @click="allOff" :disabled="loading || circuits.length === 0" title="整馆断电 (时序回路走时序关机)">
-          <X :size="14" :stroke-width="2" /> 全部断电
+        <button v-if="perm.canEdit && floorTab === 'all'" class="v2-quick danger" @click="allOff" :disabled="loading || domainCircuits.length === 0" :title="domainName(domainTab) + '全部断电 (仅当前区域, 时序回路走时序关机)'">
+          <X :size="14" :stroke-width="2" /> {{ domainName(domainTab) }} 全部断电
         </button>
       </div>
     </header>
@@ -418,7 +477,14 @@ useActivePolling(startPolling, stopPolling);
                 @keyup.esc="renamingId = null"
                 v-focus
               />
-              <span v-else class="name-text" title="点击改名" @click="startRename(c)">{{ c.name }}</span>
+              <!-- 回路改名走 zones 写权限（仅 admin）；operator 可单路开关但不能改名。 -->
+              <span
+                v-else
+                class="name-text"
+                :class="{ 'name-renamable': perm.canEdit }"
+                :title="perm.canEdit ? '点击改名' : c.name"
+                @click="perm.canEdit && startRename(c)"
+              >{{ c.name }}</span>
               <span v-if="c.isBreaker" class="breaker-badge" title="智能断路器 · 远程物理总闸">总闸</span>
             </div>
             <div class="card-floor">{{ c.floor }} · {{ c.ratedVoltage }}V {{ c.ratedCurrent }}A</div>
@@ -609,6 +675,25 @@ useActivePolling(startPolling, stopPolling);
   background: var(--v2-purple-soft);
   color: var(--v2-text-2);
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+/* 域一级切换（第五轮）：比楼层 tab 更醒目，用主色实底 + 轻微辉光，区分两个层级 */
+.v2-domain-tabs {
+  margin-left: 0;
+  position: relative;
+}
+.v2-domain-tabs .domain-tab {
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: 5px 18px;
+}
+.v2-domain-tabs .domain-tab.active {
+  background: var(--v2-primary);
+  color: #fff;
+  box-shadow: 0 0 0 1px var(--v2-primary), 0 2px 10px -2px var(--v2-primary);
+}
+@media (max-width: 720px) {
+  .v2-domain-tabs .domain-tab { padding: 5px 14px; }
 }
 
 .quick-actions { display: flex; gap: var(--v2-sp-2); }

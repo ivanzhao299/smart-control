@@ -4,8 +4,10 @@ import AppSkeleton from '@/components/AppSkeleton.vue';
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
 import {
   powerCircuitsService,
+  powerDomainsService,
   type PowerCircuitView,
   type PowerCircuitUpsertDto,
+  type PowerDomainView,
 } from '@/services/power-circuits.service';
 import { adminHardwareService } from '@/services/admin.service';
 import type { HardwareUnit } from '@/types/api';
@@ -22,18 +24,36 @@ const CATEGORIES = [
 
 const list = ref<PowerCircuitView[]>([]);
 const controllerHardware = ref<HardwareUnit[]>([]);
+const domains = ref<PowerDomainView[]>([]);
 const loading = ref(false);
 const search = ref('');
+const domainFilter = ref<string>('');
 const floorFilter = ref<string>('');
+
+// 第五轮：电源域（展厅/园区/新楼栋）。内置 hall/park 不可删；回路下拉只列启用域。
+const BUILTIN_DOMAIN = ['hall', 'park'];
+const BUILTIN_DOMAIN_NAME: Record<string, string> = { hall: '展厅', park: '园区' };
+function domainName(code: string): string {
+  return domains.value.find((d) => d.code === code)?.name
+    ?? list.value.find((c) => c.domainCode === code)?.domainName
+    ?? BUILTIN_DOMAIN_NAME[code] ?? code;
+}
+/** 表单/筛选用：启用域（按 sortOrder）。 */
+const enabledDomains = computed<PowerDomainView[]>(() =>
+  [...domains.value].filter((d) => d.enabled).sort((a, b) => a.sortOrder - b.sortOrder));
 
 const floorOptions = computed<string[]>(() => {
   const set = new Set<string>();
-  for (const c of list.value) set.add(c.floor);
+  for (const c of list.value) {
+    if (domainFilter.value && c.domainCode !== domainFilter.value) continue;
+    set.add(c.floor);
+  }
   return Array.from(set).sort();
 });
 
 const filtered = computed<PowerCircuitView[]>(() => {
   let rows = list.value;
+  if (domainFilter.value) rows = rows.filter((c) => c.domainCode === domainFilter.value);
   if (floorFilter.value) rows = rows.filter((c) => c.floor === floorFilter.value);
   if (search.value.trim()) {
     const q = search.value.trim().toLowerCase();
@@ -49,11 +69,13 @@ const filtered = computed<PowerCircuitView[]>(() => {
 async function refresh(): Promise<void> {
   loading.value = true;
   try {
-    const [circuits, hardware] = await Promise.all([
+    const [circuits, hardware, domainRows] = await Promise.all([
       powerCircuitsService.list(true),
       adminHardwareService.list({ enabled: true }),
+      powerDomainsService.list(true).catch(() => [] as PowerDomainView[]),
     ]);
     list.value = circuits;
+    domains.value = domainRows;
     controllerHardware.value = hardware.list.filter((item) =>
       ['power-breaker', 'power-breaker-4g', 'power-breaker-web', 'power-relay', 'audio-power', 'power-seq55']
         .includes(item.category),
@@ -71,7 +93,7 @@ const formRef = ref<FormInstance>();
 
 interface FormState extends PowerCircuitUpsertDto { id?: number }
 const form = reactive<FormState>({
-  code: '', name: '', floor: '1F', category: 'misc',
+  code: '', name: '', floor: '1F', domainCode: 'hall', category: 'misc',
   gatewayCode: '', relayChannel: 1, meterAddress: null,
   ratedVoltage: 220, ratedCurrent: 16, ratedPower: 0,
   sortOrder: 100, icon: 'Zap', description: '', enabled: true,
@@ -80,6 +102,7 @@ const form = reactive<FormState>({
 const rules: FormRules = {
   code: [{ required: true, message: 'code 必填', trigger: 'blur' }],
   name: [{ required: true, message: '显示名必填', trigger: 'blur' }],
+  domainCode: [{ required: true, message: '所属区域必填', trigger: 'change' }],
   floor: [{ required: true, message: '楼层必填', trigger: 'blur' }],
   category: [{ required: true, message: '类型必填', trigger: 'change' }],
 };
@@ -102,7 +125,9 @@ function openCreate(): void {
   editMode.value = 'create';
   Object.assign(form, {
     id: undefined,
-    code: '', name: '', floor: floorFilter.value || '1F', category: 'misc',
+    code: '', name: '', floor: '1F',
+    domainCode: domainFilter.value || enabledDomains.value[0]?.code || 'hall',
+    category: 'misc',
     gatewayCode: '', relayChannel: 1, meterAddress: null,
     ratedVoltage: 220, ratedCurrent: 16, ratedPower: 0,
     sortOrder: 100, icon: 'Zap', description: '', enabled: true,
@@ -114,7 +139,8 @@ function openEdit(row: PowerCircuitView): void {
   editMode.value = 'edit';
   Object.assign(form, {
     id: row.id,
-    code: row.code, name: row.name, floor: row.floor, category: row.category,
+    code: row.code, name: row.name, floor: row.floor,
+    domainCode: row.domainCode || 'hall', category: row.category,
     gatewayCode: row.gatewayCode ?? '', relayChannel: row.relayChannel ?? 1,
     meterAddress: row.meterAddress, ratedVoltage: row.ratedVoltage,
     ratedCurrent: row.ratedCurrent, ratedPower: row.ratedPower,
@@ -132,6 +158,7 @@ async function submit(): Promise<void> {
       code: form.code.trim(),
       name: form.name.trim(),
       floor: form.floor.trim(),
+      domainCode: form.domainCode || 'hall',
       category: form.category,
       gatewayCode: (form.gatewayCode || '').trim() || null,
       relayChannel: breakerSelected.value ? null : Number(form.relayChannel ?? 1) || null,
@@ -195,6 +222,93 @@ function openSchedules(row: PowerCircuitView): void {
   schedRef.value?.open(row);
 }
 
+// ============ 域管理（第五轮，仅 admin：新增/改名/启停/删除）============
+const domainVisible = ref(false);
+const dEditing = ref<PowerDomainView | null>(null);
+const dForm = reactive({ code: '', name: '', sortOrder: 100, description: '', enabled: true });
+
+function resetDForm(): void {
+  Object.assign(dForm, {
+    code: '', name: '',
+    sortOrder: (domains.value.length + 1) * 10,
+    description: '', enabled: true,
+  });
+  dEditing.value = null;
+}
+function openDomainMgr(): void {
+  domainVisible.value = true;
+  resetDForm();
+}
+function editDomain(d: PowerDomainView): void {
+  dEditing.value = d;
+  Object.assign(dForm, {
+    code: d.code, name: d.name, sortOrder: d.sortOrder,
+    description: d.description ?? '', enabled: d.enabled,
+  });
+}
+async function submitDomain(): Promise<void> {
+  const name = dForm.name.trim();
+  if (!name) { ElMessage.warning('请填写区域名称'); return; }
+  try {
+    if (dEditing.value) {
+      // code 是唯一标识不可改；只改名称/排序/描述/启停。
+      await powerDomainsService.update(dEditing.value.id, {
+        name,
+        sortOrder: Number(dForm.sortOrder) || 100,
+        description: dForm.description.trim() || null,
+        enabled: dForm.enabled,
+      });
+      ElMessage.success('已更新区域');
+    } else {
+      const code = dForm.code.trim();
+      if (!code) { ElMessage.warning('请填写区域 code'); return; }
+      await powerDomainsService.create({
+        code, name,
+        sortOrder: Number(dForm.sortOrder) || 100,
+        description: dForm.description.trim() || null,
+        enabled: dForm.enabled,
+      });
+      ElMessage.success('已新增区域');
+    }
+    resetDForm();
+    await refresh();
+  } catch (err) {
+    ElMessage.error(`保存区域失败: ${(err as Error).message}`);
+  }
+}
+async function toggleDomainEnabled(d: PowerDomainView): Promise<void> {
+  try {
+    await powerDomainsService.update(d.id, { enabled: !d.enabled });
+    await refresh();
+  } catch (err) {
+    ElMessage.error(`切换失败: ${(err as Error).message}`);
+  }
+}
+async function removeDomain(d: PowerDomainView): Promise<void> {
+  if (BUILTIN_DOMAIN.includes(d.code)) {
+    ElMessage.warning('内置区域（展厅 / 园区）不可删除');
+    return;
+  }
+  if ((d.circuitCount ?? 0) > 0) {
+    ElMessage.warning(`该区域下还有 ${d.circuitCount} 条回路，请先迁移到其它区域后再删除`);
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      `删除区域 "${d.name}" (${d.code})？删除后该区域不再出现在授权与回路归属中。`,
+      '确认删除区域',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+    );
+  } catch { return; }
+  try {
+    await powerDomainsService.remove(d.id);
+    ElMessage.success('已删除区域');
+    await refresh();
+  } catch (err) {
+    ElMessage.error(`删除区域失败: ${(err as Error).message}`);
+  }
+}
+
 onMounted(refresh);
 </script>
 
@@ -202,11 +316,15 @@ onMounted(refresh);
   <section class="circuits-admin">
     <header class="page-head">
       <h2>电源回路</h2>
+      <el-select v-model="domainFilter" placeholder="全部区域" clearable class="domain-sel" @change="floorFilter = ''">
+        <el-option v-for="d in enabledDomains" :key="d.code" :label="d.name" :value="d.code" />
+      </el-select>
       <el-select v-model="floorFilter" placeholder="全部楼层" clearable class="floor-sel">
         <el-option v-for="f in floorOptions" :key="f" :label="f" :value="f" />
       </el-select>
       <el-input v-model="search" placeholder="搜索名称 / code / 继电器" clearable class="search-inp" />
       <el-button type="primary" class="head-add" @click="openCreate">新增回路</el-button>
+      <el-button @click="openDomainMgr">区域管理</el-button>
       <el-button @click="refresh" :loading="loading">刷新</el-button>
     </header>
     <p class="sub">
@@ -220,6 +338,7 @@ onMounted(refresh);
           <div class="name-cell">
             <div class="name-row">
               <span class="circuit-name">{{ row.name }}</span>
+              <span class="domain-tag" :data-domain="row.domainCode">{{ domainName(row.domainCode) }}</span>
               <span v-if="row.floor" class="floor-tag">{{ row.floor }}</span>
             </div>
             <code class="circuit-code">{{ row.code }}</code>
@@ -286,8 +405,14 @@ onMounted(refresh);
         <el-form-item label="显示名" prop="name">
           <el-input v-model="form.name" placeholder="e.g. 一层总闸" />
         </el-form-item>
+        <el-form-item label="所属区域" prop="domainCode">
+          <el-select v-model="form.domainCode" style="width: 200px;" placeholder="选择区域">
+            <el-option v-for="d in enabledDomains" :key="d.code" :label="d.name" :value="d.code" />
+          </el-select>
+          <div class="hint inline">展厅 / 园区 / 新楼栋；不同角色只可操作被授权区域的开关。</div>
+        </el-form-item>
         <el-form-item label="楼层" prop="floor">
-          <el-input v-model="form.floor" placeholder="1F / 2F" style="width: 160px;" />
+          <el-input v-model="form.floor" placeholder="1F / 2F / 音响 / 园区" style="width: 160px;" />
         </el-form-item>
         <el-form-item label="类型" prop="category">
           <el-select v-model="form.category" style="width: 200px;">
@@ -353,6 +478,73 @@ onMounted(refresh);
       </template>
     </el-drawer>
 
+    <!-- ============ 电源区域（域）管理：新增/改名/启停/删除，仅 admin ============ -->
+    <el-dialog v-model="domainVisible" title="电源区域管理" width="660px">
+      <el-form :model="dForm" label-width="84px" class="dm-form">
+        <el-form-item label="区域 code">
+          <el-input
+            v-model="dForm.code"
+            :disabled="!!dEditing"
+            placeholder="小写字母 / 数字 / 连字符，如 building-b"
+          />
+          <span v-if="!dEditing" class="hint inline">保存后不可改；仅允许小写字母、数字与连字符。</span>
+        </el-form-item>
+        <el-form-item label="区域名称">
+          <el-input v-model="dForm.name" placeholder="如：B 栋 / 西展厅 / 室外景观区" />
+        </el-form-item>
+        <el-form-item label="排序">
+          <el-input-number v-model="dForm.sortOrder" :min="0" :max="9999" controls-position="right" />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="dForm.description" placeholder="可选" />
+        </el-form-item>
+        <el-form-item label="启用">
+          <el-switch v-model="dForm.enabled" />
+          <span class="hint inline">停用后不出现在回路归属与角色可见区域中。</span>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="submitDomain">{{ dEditing ? '保存修改' : '新增区域' }}</el-button>
+          <el-button v-if="dEditing" @click="resetDForm">取消编辑</el-button>
+        </el-form-item>
+      </el-form>
+
+      <el-divider content-position="left">现有区域</el-divider>
+      <el-table :data="domains" size="small" stripe class="dm-table">
+        <el-table-column label="名称" prop="name" min-width="110" />
+        <el-table-column label="code" width="130">
+          <template #default="{ row }"><code class="gw-code">{{ row.code }}</code></template>
+        </el-table-column>
+        <el-table-column label="回路数" width="70" align="center">
+          <template #default="{ row }">{{ row.circuitCount ?? 0 }}</template>
+        </el-table-column>
+        <el-table-column label="排序" prop="sortOrder" width="64" align="center" />
+        <el-table-column label="启用" width="66" align="center">
+          <template #default="{ row }">
+            <el-switch
+              :model-value="row.enabled"
+              :disabled="BUILTIN_DOMAIN.includes(row.code)"
+              @change="toggleDomainEnabled(row)"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="120" align="center">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="editDomain(row)">编辑</el-button>
+            <el-button
+              link
+              type="danger"
+              :disabled="BUILTIN_DOMAIN.includes(row.code)"
+              @click="removeDomain(row)"
+            >删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <p class="hint dm-note">
+        内置「展厅 / 园区」不可删除；新增区域默认对运营配置员、展厅操作员、观察者不开放（最小权限），
+        硬件工程师与管理员可全域排障。区域下仍有回路时不可删除。
+      </p>
+    </el-dialog>
+
     <!-- 自动开关规则（定时/日落/日出）抽屉 + 编辑弹窗：共享组件，hardware 与 config 共用 -->
     <PowerScheduleDrawer ref="schedRef" />
   </section>
@@ -365,6 +557,7 @@ onMounted(refresh);
   flex-wrap: wrap; margin-bottom: 10px;
 }
 .page-head h2 { margin: 0 6px 0 0; font-size: 20px; color: var(--v2-text-1); white-space: nowrap; }
+.domain-sel { width: 124px; }
 .floor-sel { width: 120px; }
 .search-inp { width: 220px; }
 .head-add { margin-left: auto; }
@@ -377,6 +570,18 @@ onMounted(refresh);
   padding: 0 7px; line-height: 18px; border-radius: 9px;
   background: rgba(76, 154, 255, 0.12); color: #67E8F9;
   white-space: nowrap; flex-shrink: 0;
+}
+/* 域标签（第五轮）：展厅=青蓝、园区=琥珀，与楼层标签区分 */
+.domain-tag {
+  font-size: 11px; font-weight: 700;
+  padding: 0 7px; line-height: 18px; border-radius: 9px;
+  white-space: nowrap; flex-shrink: 0; letter-spacing: 0.5px;
+  background: rgba(244, 180, 80, 0.16); color: #F0B35C;
+  border: 1px solid rgba(244, 180, 80, 0.4);
+}
+.domain-tag[data-domain="hall"] {
+  background: rgba(76, 154, 255, 0.14); color: #7CC4FF;
+  border-color: rgba(76, 154, 255, 0.4);
 }
 .circuit-name { font-weight: 600; color: var(--v2-text-1); font-size: 14px; letter-spacing: 0.3px; }
 .circuit-code {
@@ -397,4 +602,9 @@ onMounted(refresh);
 .hint { font-size: 12px; color: var(--v2-text-2); margin-top: 4px; line-height: 1.5; }
 .hint.inline { margin-left: 8px; }
 .option-hint { float: right; color: var(--v2-text-3); font-size: 12px; margin-left: 16px; }
+
+/* 区域管理弹窗 */
+.dm-form { margin-top: 6px; }
+.dm-table { margin-top: 4px; }
+.dm-note { margin: 12px 2px 0; line-height: 1.6; }
 </style>

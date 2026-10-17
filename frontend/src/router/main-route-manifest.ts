@@ -78,9 +78,10 @@ export const mainRouteManifest = [
     prefetchApis: ['/devices?category=hvac-zone'],
   },
   {
-    // 电源回路手动控制：仅 admin（hardware 只在后台自动开关页操作，不在此页）。
+    // 电源回路手动控制：operator 开放单路通断（播放页 4 路物理开关 + 其他单路电源操作需求，
+    // 2026-10-17 第四轮）；时序器批量/楼层/整馆通断与回路改名仍仅 admin（页面内单独 gate）。
     path: 'power', name: 'power', load: () => import('@/pages/PowerPage.vue'),
-    roles: ['admin', 'viewer'],
+    roles: ['admin', 'operator', 'viewer'],
     navigation: { label: '电源', section: 'main' }, prefetchOnIdle: true,
     prefetchApis: ['/power-circuits'],
   },
@@ -92,9 +93,9 @@ export const mainRouteManifest = [
     prefetchApis: ['/media?pageSize=50'],
   },
   {
-    // 状态只读：所有登录角色可见（operator 明确保留；hardware/config 前台唯一可见页）。
+    // 状态只读：仅 admin（2026-10-17 第四轮收紧；hardware/config 登录直达后台，operator 更多抽屉不再列状态）。
     path: 'status', name: 'status', load: () => import('@/pages/StatusPage.vue'),
-    roles: ['admin', 'operator', 'hardware', 'config', 'viewer'],
+    roles: ['admin'],
     navigation: { label: '状态', section: 'tools' }, prefetchOnIdle: true,
     prefetchApis: ['/system/info'],
   },

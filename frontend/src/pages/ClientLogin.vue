@@ -434,7 +434,8 @@ async function doLogin(fromBiometric = false): Promise<void> {
   border-radius: 10px;
   padding: 12px 14px 12px 40px;
   color: var(--v2-text-1);
-  font-size: 14px;
+  /* 2026-10-17 第四轮：输入框 >=16px，避免 iOS 聚焦自动缩放（与输入法加固同批）。 */
+  font-size: 16px;
   outline: none;
   transition: border-color 0.18s, box-shadow 0.18s;
   width: 100%;
@@ -446,7 +447,7 @@ async function doLogin(fromBiometric = false): Promise<void> {
 }
 .field-input::placeholder { color: var(--v2-text-3); }
 
-.server-field .field-input { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; }
+.server-field .field-input { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 16px; }
 
 .test-btn {
   display: inline-flex;
