@@ -261,5 +261,8 @@ test('PlayerConsole delegates display power orchestration to the dedicated compo
   // 这里只放宽模板行数预算, 下方“不得内联电源逻辑”的断言保持不变。
   // 2026-10-16 #67：新增整台播控只读 gate（import permission store + 一个只读
   // class/chip，共约 2 行），未内联任何电源逻辑，预算相应放宽。
-  assert.ok(playerConsoleSource.split('\n').length < 1422);
+  // 2026-10-17 手机端播放页 UI 优化：输入源统一下拉、进度条 seek、单次/循环、
+  // 防长名换行与 ≤640px 紧凑样式；增量 118 行中 template/style 占 98 行，script
+  // 仅 20 行纯 UI 事件聚合（路由回已有 handler），未内联电源逻辑，预算相应放宽。
+  assert.ok(playerConsoleSource.split('\n').length < 1600);
 });

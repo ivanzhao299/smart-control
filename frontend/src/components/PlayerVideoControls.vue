@@ -54,19 +54,21 @@ const {
       <Repeat1 v-else :size="13" />
       {{ ch?.loopMode === 'loop' ? '循环' : '单次' }}
     </button>
-    <span class="seek-time">{{ formatTime(seekCurrent) }}</span>
-    <input
-      class="seek-range"
-      type="range"
-      min="0"
-      :max="seekDuration || 0"
-      step="0.1"
-      :value="seekCurrent"
-      :aria-label="`视频进度，总时长 ${formatTime(seekDuration)}`"
-      @input="onSeekInput"
-      @change="onSeekCommit"
-    />
-    <span class="seek-time">{{ formatTime(seekDuration) }}</span>
+    <div class="seek-row">
+      <span class="seek-time">{{ formatTime(seekCurrent) }}</span>
+      <input
+        class="seek-range"
+        type="range"
+        min="0"
+        :max="seekDuration || 0"
+        step="0.1"
+        :value="seekCurrent"
+        :aria-label="`视频进度，总时长 ${formatTime(seekDuration)}`"
+        @input="onSeekInput"
+        @change="onSeekCommit"
+      />
+      <span class="seek-time">{{ formatTime(seekDuration) }}</span>
+    </div>
   </div>
 </template>
 
@@ -113,6 +115,14 @@ const {
   min-width: 40px;
   text-align: center;
 }
+/* 进度条行: 包裹"当前时间 + 滑块 + 总时长", 桌面端吃满剩余宽度 */
+.seek-row {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .seek-range {
   flex: 1 1 auto;
   min-width: 0;
@@ -120,5 +130,28 @@ const {
   margin: 0;
   cursor: pointer;
   accent-color: var(--v2-primary, #408cff);
+}
+
+/* 手机端: 元素紧凑样式; 换行/与"画面铺放"同行的整体布局由 PlayerConsole 统一控制
+   (PlayerConsole 把 .video-ctrl 设为 display:contents, 让这两个元素直接参与 .now 的 flex 排列)
+   进度条行压到最矮: 视觉轨道/拇指由原生控件渲染, 仅收窄占位高度, 点击仍可命中整条 */
+@media (max-width: 640px) {
+  .loop-toggle {
+    padding: 3px 12px;
+    font-size: 11px;
+  }
+  .seek-row {
+    gap: 6px;
+    min-height: 20px;
+  }
+  .seek-time {
+    min-width: 32px;
+    font-size: 11px;
+    line-height: 1;
+  }
+  .seek-range {
+    height: 20px;
+    /* 原生拇指默认约 24px, 会在 20px 盒子上下略微溢出但不影响布局, 触摸命中仍足够 */
+  }
 }
 </style>

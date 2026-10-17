@@ -268,6 +268,26 @@ const {
 
 // 欢迎页编辑和输入源切换均已收敛到组合式用例；本组件保留模板与播放器编排。
 
+// 手机端「输入源」统一下拉（仅 UI 聚合，见 .src-bar-mobile）：把选中项路由回原有
+// selectContent / selectParkDashboard / onWelcomeSchemePick，不新增任何业务行为；
+// 桌面端仍使用按钮组（.src-bar）。value 用专用前缀，避免与欢迎方案 id / 默认值冲突。
+const UNIFIED_SRC_CONTENT = 'src-content';
+const UNIFIED_SRC_DASHBOARD = 'src-dashboard';
+const unifiedSourceValue = computed(() => {
+  const src = activeSource.value;
+  if (src === 'content') return UNIFIED_SRC_CONTENT;
+  if (src === 'park-dashboard') return UNIFIED_SRC_DASHBOARD;
+  // welcome-default / welcome-editable：与原欢迎页下拉一致（'__default__' 或当前方案 id）
+  return welcomePickerValue.value;
+});
+function onUnifiedSourceChange(event: Event): void {
+  const value = (event.target as HTMLSelectElement).value;
+  if (value === UNIFIED_SRC_CONTENT) { void selectContent(); return; }
+  if (value === UNIFIED_SRC_DASHBOARD) { void selectParkDashboard(); return; }
+  // 其余为静态默认欢迎页 / 具体方案 id：直接复用原欢迎页选择 handler（它读 event.target.value）
+  void onWelcomeSchemePick(event);
+}
+
 </script>
 
 <template>
@@ -382,7 +402,7 @@ const {
       <PlayerVideoControls :slot="SLOT" />
       <!-- 画面铺放 (业主 2026-07-25): 图片/视频都吃, 默认铺满; 改完即时生效并记住 -->
       <div class="fit-row">
-        <span class="fit-label">画面铺放</span>
+        <span class="fit-label"><span class="fit-label-full">画面铺放</span><span class="fit-label-short">铺放</span></span>
         <el-select
           class="fit-select"
           :model-value="ch?.displayFit || 'fill'"
@@ -454,6 +474,33 @@ const {
       </select>
       <button class="src-btn edit" :disabled="busy" @click="openWelcomeEditor"><Pencil :size="13" /> 编辑欢迎页</button>
       <span class="src-hint">{{ srcHint }}</span>
+    </section>
+
+    <!-- 手机端输入源：一个分组下拉 + 编辑欢迎页图标按钮，省一行（仅 ≤640px 显示，桌面隐藏）。
+         选中项经 onUnifiedSourceChange 分发回 selectContent / selectParkDashboard /
+         onWelcomeSchemePick，与上方桌面按钮组行为完全一致，不新增业务逻辑。 -->
+    <section class="src-bar-mobile">
+      <span class="src-label">输入源</span>
+      <select
+        class="src-unified-select"
+        :value="unifiedSourceValue"
+        :disabled="busy || welcomePickerBusy"
+        aria-label="选择输入源"
+        @change="onUnifiedSourceChange"
+      >
+        <option value="" disabled>选择输入源…</option>
+        <option :value="UNIFIED_SRC_CONTENT">播放内容（播放列表）</option>
+        <option :value="UNIFIED_SRC_DASHBOARD">园区运营大屏</option>
+        <optgroup label="欢迎页">
+          <option :value="WELCOME_PICK_DEFAULT">静态默认欢迎页</option>
+          <option v-for="s in welcomeSchemes" :key="s.id" :value="s.id">
+            {{ s.name }}{{ publishedWelcomeSchemeId === s.id ? ' · 使用中' : '' }}
+          </option>
+        </optgroup>
+      </select>
+      <button class="src-edit-icon" :disabled="busy" title="编辑欢迎页" aria-label="编辑欢迎页" @click="openWelcomeEditor">
+        <Pencil :size="16" />
+      </button>
     </section>
 
     <!-- 手机上把「播放列表 / 播放历史」做成切换页 (业主 2026-07-17: "播放列表和播放
@@ -968,6 +1015,31 @@ const {
 .src-welcome-select:disabled { opacity: .4; cursor: not-allowed; }
 .src-welcome-select option { color: #e8edf4; background: #14161A; }
 
+/* 画面铺放标签：桌面显示全称「画面铺放」，手机端只显示「铺放」（@media 640 切换） */
+.fit-label-short { display: none; }
+/* 手机端统一输入源行：默认隐藏（桌面仍用按钮组），≤640px 才显示。
+   视觉与 .src-bar 卡片一致；它是 .led-page flex 子项，间距由 gap 统一给。 */
+.src-bar-mobile {
+  display: none; align-items: center; gap: 8px;
+  padding: 8px 10px 8px 12px; border-radius: var(--v2-r-md);
+  background: var(--v2-surf-1, #14161A); border: 1px solid var(--v2-border-soft);
+}
+.src-unified-select {
+  flex: 1 1 auto; min-width: 0; min-height: 42px; padding: 8px 12px;
+  border-radius: var(--v2-r-md); cursor: pointer; font-size: 16px; font-family: inherit;
+  color: var(--v2-text-1); background: var(--v2-surf-2, #1A1D22);
+  border: 1px solid var(--v2-border-soft, #23262C);
+}
+.src-unified-select:disabled { opacity: .4; cursor: not-allowed; }
+.src-unified-select option, .src-unified-select optgroup { color: #e8edf4; background: #14161A; }
+.src-edit-icon {
+  flex: 0 0 auto; width: 42px; height: 42px; border-radius: var(--v2-r-md); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--v2-primary); background: var(--v2-surf-2, #1A1D22);
+  border: 1px dashed var(--v2-primary);
+}
+.src-edit-icon:disabled { opacity: .4; cursor: not-allowed; }
+
 /* 欢迎页编辑器 (2026-07-28) */
 .pick-box.we-box {
   width: min(920px, calc(100vw - 32px));
@@ -1415,5 +1487,51 @@ const {
   .v2-toggle { width: 48px; height: 28px; }
   .v2-toggle::after { width: 24px; height: 24px; }
   .v2-toggle.on::after { transform: translateX(20px); }
+}
+
+/* ===== 手机竖屏 (≤640px) 播放控制区紧凑化 (2026-10-17 业主要求: 把顶部高度让给播放列表)
+   只重排布局, 不改变任何功能/方法/权限/数据绑定。本块置于 @media(900) 之后以确保覆盖。
+   桌面端(>640px)仍维持原有布局与按钮组。 ===== */
+@media (max-width: 640px) {
+  /* ① 输入源: 桌面按钮组整组隐藏, 换成一行分组下拉 + 编辑图标 (模板见 .src-bar-mobile) */
+  .src-bar { display: none; }
+  .src-bar-mobile { display: flex; }
+
+  /* ② 正在播放卡: 去固定最小高度; 名称与四个播放按钮同一行(左信息 / 右按钮);
+        按钮收到 38~46px, 仍满足手指点按; 视频进度条在下方独占整行 */
+  .now { min-height: 0; padding: 10px 12px; gap: 6px; }
+  /* flex-basis 用 0: 长名称(如 xxx.mp4)从 0 起按比例分配, 走省略号, 不会把播放按钮挤到下一行 */
+  .now-info { flex: 1 1 0; min-width: 0; }
+  .now-label { font-size: 11px; }
+  .now-name { font-size: 18px; }
+  .now-sub { margin-top: 4px; }
+  .now-ctrl { width: auto; flex: 0 0 auto; justify-content: flex-end; gap: 7px; }
+  .pc-btn { width: 38px; height: 38px; border-radius: 11px; }
+  .pc-btn.main { width: 46px; height: 46px; border-radius: 13px; }
+
+  /* 视频态: .video-ctrl 透明化(display:contents), 让其内部的「单次/循环」和进度条直接
+     参与 .now 的 flex 排列 —— 进度条独占一行(拉满), 单次/循环与下方「画面铺放」同一行,
+     使视频卡片仅比非视频态多一行进度条, 尽量不挤占下方列表。 */
+  .now .video-ctrl { display: contents; }
+  .now :deep(.seek-row) { flex-basis: 100%; width: 100%; order: 2; }
+  .now :deep(.loop-toggle) { flex: 0 0 auto; order: 3; }
+
+  /* ③ 画面铺放: 标签缩为「铺放」; 视频时与「单次/循环」同一行(左循环/右铺放),
+     非视频时独占一行; 均右对齐收成紧凑小条。 */
+  .fit-row { flex: 1 1 auto; min-width: 0; order: 3; margin-top: 0; justify-content: flex-end; gap: 8px; }
+  .fit-label-full { display: none; }
+  .fit-label-short { display: inline; }
+  .fit-select { width: 150px; flex-shrink: 0; }
+
+  /* ④ 列表卡: 页签已显示「播放列表 N」, 去掉重复的标题/计数, 三个添加按钮一行等宽 */
+  .panel-list .panel-head { flex-wrap: nowrap; gap: 8px; margin-bottom: 10px; }
+  .panel-list .panel-title, .panel-list .panel-count { display: none; }
+  .panel-list .panel-head .v2-quick {
+    flex: 1 1 0; min-width: 0; margin-left: 0; justify-content: center; padding: 0 8px;
+  }
+  /* 历史卡的头只有标题/计数(与页签重复), 整块隐藏 */
+  .panel-his .panel-head { display: none; }
+  /* 列表项略收紧, 一屏多露几条 */
+  .pl-item { padding: 7px 10px; }
 }
 </style>
