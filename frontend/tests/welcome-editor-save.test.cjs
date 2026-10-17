@@ -33,7 +33,11 @@ test('welcome editor uploads logo and background in place and remains scrollable
   assert.match(playerConsole, /welcomeLogoMediaId/);
   assert.match(playerConsole, /ElScrollbar class="we-scroll" always/);
   assert.match(playerConsole, /class="we-upload-row"/);
-  assert.match(playerConsole, /height: 100dvh/);
+  // 手机端编辑器为圆角卡片(2026-10-17 业主要求: 不再全屏直角, 圆角与其他卡片一致):
+  // 外层 mask 用安全区 padding + align-items:stretch 让卡片占满可用高度, we-box height:100%
+  // 并沿用全局卡片圆角 var(--v2-r-lg); 内部仍由上方 ElScrollbar(always) 负责滚动, 头部/底部固定。
+  assert.match(playerConsole, /\.pick-mask\.welcome-mask\s*\{[\s\S]*?align-items:\s*stretch/);
+  assert.match(playerConsole, /\.pick-mask\.welcome-mask\s+\.pick-box\.we-box\s*\{[\s\S]*?height:\s*100%[\s\S]*?border-radius:\s*var\(--v2-r-lg\)/);
   assert.match(playerConsole, /\.pick-box\.we-box/);
   assert.match(playerConsole, /\.el-scrollbar__thumb/);
   assert.match(playerConsole, /touch-action: pan-y/);

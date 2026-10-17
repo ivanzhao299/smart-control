@@ -410,9 +410,10 @@ function onUnifiedSourceChange(event: Event): void {
           :disabled="busy"
           @change="changeFit"
         >
-          <el-option value="fill" label="铺满屏幕 (拉伸)" />
-          <el-option value="contain" label="保持比例 (留黑边)" />
-          <el-option value="cover" label="裁切铺满 (不变形)" />
+          <!-- 选项仅留两字(2026-10-17 业主: 省空间); value 仍是 fill/contain/cover, 逻辑不变 -->
+          <el-option value="fill" label="拉伸" />
+          <el-option value="contain" label="比例" />
+          <el-option value="cover" label="裁切" />
         </el-select>
       </div>
     </section>
@@ -1215,10 +1216,17 @@ function onUnifiedSourceChange(event: Event): void {
   position: absolute; inset: 0; display: grid; place-items: center;
 }
 @media (max-width: 640px) {
-  .welcome-mask { padding: 0; align-items: stretch; overflow: hidden; }
-  .welcome-mask .pick-box.we-box {
-    width: 100%; height: 100vh; max-height: 100vh; height: 100dvh; max-height: 100dvh; border-radius: 0;
-    padding: max(10px, env(safe-area-inset-top)) 10px max(8px, env(safe-area-inset-bottom));
+  /* 编辑欢迎页: 手机端改圆角卡片(圆角与其他卡片一致 var(--v2-r-lg), auto 下 20px),
+     四周留安全区边距, 不再全屏直角铺满。双 class 提权, 避免被源码中后定义的
+     .pick-mask 基础规则(padding:16px/align-items:center) 同特异性覆盖。 */
+  .pick-mask.welcome-mask {
+    padding: max(10px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom));
+    align-items: stretch; overflow: hidden;
+  }
+  .pick-mask.welcome-mask .pick-box.we-box {
+    width: 100%; height: 100%; max-height: 100%;
+    border-radius: var(--v2-r-lg);
+    padding: 12px 10px 8px;
   }
   .welcome-mask .pick-head { margin-bottom: 6px; }
   .welcome-mask .wb-actions { margin-top: 8px; flex-wrap: wrap; }
@@ -1517,11 +1525,17 @@ function onUnifiedSourceChange(event: Event): void {
   .now :deep(.loop-toggle) { flex: 0 0 auto; order: 3; }
 
   /* ③ 画面铺放: 标签缩为「铺放」; 视频时与「单次/循环」同一行(左循环/右铺放),
-     非视频时独占一行; 均右对齐收成紧凑小条。 */
-  .fit-row { flex: 1 1 auto; min-width: 0; order: 3; margin-top: 0; justify-content: flex-end; gap: 8px; }
+     非视频时独占一行; 均右对齐收成紧凑小条。
+     ★非视频态必须 flex-basis:100% 强制换行: 否则在 ≥430px 宽屏手机上 fit-row(flex-basis auto)
+     会挤进信息/按钮行, 把 flex:1 1 0 的 now-info 压成单字宽竖排(2026-10-17 生产大屏手机复现,
+     390px 视口恰好未触发是临界巧合)。视频态 .video-ctrl 存在(display:contents 只消渲染盒、
+     不影响 DOM), 用兄弟选择器改回自适应, 与 .loop-toggle(均 order3) 同行。 */
+  .fit-row { flex: 0 0 100%; width: 100%; min-width: 0; order: 3; margin-top: 0; justify-content: flex-end; gap: 8px; }
+  .now .video-ctrl ~ .fit-row { flex: 1 1 auto; width: auto; }
   .fit-label-full { display: none; }
   .fit-label-short { display: inline; }
-  .fit-select { width: 150px; flex-shrink: 0; }
+  /* 选项已精简为两字(拉伸/比例/裁切), 收窄下拉框给视频态「单次/循环 + 铺放」同行留空间 */
+  .fit-select { width: 112px; flex-shrink: 0; }
 
   /* ④ 列表卡: 页签已显示「播放列表 N」, 去掉重复的标题/计数, 三个添加按钮一行等宽 */
   .panel-list .panel-head { flex-wrap: nowrap; gap: 8px; margin-bottom: 10px; }
