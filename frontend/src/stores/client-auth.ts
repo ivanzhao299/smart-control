@@ -104,11 +104,15 @@ export const useClientAuthStore = defineStore('client-auth', () => {
     }
   }
 
-  /** 清理旧版浏览器明文密码；名称暂留用于壳生物认证失败后的兼容调用。 */
+  /**
+   * 只清理遗留的浏览器明文密码（绝不能留存），名称暂留用于壳生物认证失败后的
+   * 兼容调用。用户名不是秘密、且登录页会据此自动回填，这里刻意保留——
+   * 现场固定账号，主动退出后仍记住用户名，可省掉每次重输（尤其在壳 WebView 里
+   * 第三方键盘受限，能少打字）。
+   */
   function clearSavedPassword(): void {
     try {
       window.localStorage.removeItem(LEGACY_SAVED_PASSWORD_KEY);
-      window.localStorage.removeItem(SAVED_USERNAME_KEY);
     } catch { /* ignore */ }
   }
 
@@ -119,14 +123,17 @@ export const useClientAuthStore = defineStore('client-auth', () => {
     try {
       window.localStorage.removeItem(TOKEN_STORAGE_KEY);
       window.localStorage.removeItem(TOKEN_EXPIRY_KEY);
-      window.localStorage.removeItem(SERVER_KEY);
+      // 保留 SERVER_KEY：主动退出后仍绑定同一服务器，登录页据此自动回填服务器地址
+      // 与上次用户名（现场只需输密码，规避壳 WebView 第三方键盘受限）。
+      // 切换服务器时 setApiBaseURL 已改变 baseURL，isBoundToCurrentServer 会自然变
+      // false，不会误读旧服务器的 token/用户名。明文密码仍由 clearSavedPassword 清除。
     } catch { /* ignore */ }
     clearSavedPassword();
   }
 
   /**
    * token 被后端判失效（密码或签名密钥轮换、账号停用等）时清掉会话。
-   * 用户名继续保留用于登录表单；主动 logout 会同时清除用户名。
+   * 用户名继续保留用于登录表单自动填充；主动 logout 同样保留用户名（仅清密码/token）。
    */
   function markSessionExpired(): void {
     token.value = null;

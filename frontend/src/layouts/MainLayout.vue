@@ -282,13 +282,17 @@ const clientAuth = useClientAuthStore();
 const adminAuth = useAdminAuthStore();
 async function logout(): Promise<void> {
   moreOpen.value = false;
+  // 先离开前台受保护页到公开登录页、等其卸载，再清 token。若先清 token，
+  // invalidateIdentity 会让 App.vue 的路由视图 key 变化、在"无 token 还没
+  // 跳走"的窗口重建当前前台页，以无登录态重发请求 → 401 弹加载失败。
+  // logout=1：登录页此刻仍有登录态，但不得把用户重定向回受控页（见 ClientLogin）。
+  await router.replace({ name: 'client-login', query: { logout: '1' } });
   clientAuth.logout();
   try {
     await adminAuth.logout();
   } catch {
     /* 后台会话可能本就不存在，忽略退出接口错误 */
   }
-  await router.replace({ name: 'client-login' });
 }
 /** 当前页在「更多」里时, 让「更多」按钮也高亮 —— 否则点进去后底栏没有任何选中态 */
 const moreActive = computed(() => toolNavs.value.some((n) => n.name === route.name));

@@ -97,8 +97,10 @@ onMounted(async () => {
   void brandingStore.load();
   history.value = getServerHistory();
   readShellBio();
-  // 已经登录就跳走
-  if (auth.isAuthed) {
+  // 已经登录就跳走；但 ?logout=1 表示是用户主动点"退出登录"后跳到这里的——
+  // 此刻 token 尚未清除（先导航、后清 token，避免受保护页被无 token 重挂重发请求弹 401），
+  // 不能把用户再弹回受控页，否则退出失败提示会复现。
+  if (auth.isAuthed && route.query.logout !== '1') {
     redirectToTarget();
     return;
   }

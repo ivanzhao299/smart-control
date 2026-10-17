@@ -21,11 +21,19 @@ import {
   type AdminNavigationSection,
 } from '@/router/admin-route-manifest';
 import { ROLE_LABELS } from '@/router/admin-rbac';
+import { mainNavigationItemsForRole } from '@/router/main-route-manifest';
 
 const route = useRoute();
 const router = useRouter();
 const sys = useSystemStore();
 const perm = usePermissionStore();
+
+/**
+ * 是否有可返回的前台页。纯后台角色（config/hardware）前台无任何可见页面，
+ * 点「返回设备控制」会被路由守卫立刻弹回后台，属无效按钮，直接隐藏（与
+ * router/index.ts 的 backendOnlyRedirect 判定保持一致：前台导航项数为 0）。
+ */
+const canReturnToFront = computed(() => mainNavigationItemsForRole(perm.role).length > 0);
 const brandingStore = useSystemBrandingStore();
 const branding = computed(() => brandingStore.branding);
 const authStore = useAdminAuthStore();
@@ -144,9 +152,16 @@ async function exitToFront(): Promise<void> {
       cancelButtonText: '取消',
       type: 'warning',
     });
+    // 关键顺序：先离开受保护页、等其卸载，再清 token。
+    // 清 token 会经 invalidateIdentity() 改变 App.vue 的路由视图 key，
+    // 强制重建当前路由视图。若先清 token 再跳转，受保护页会在"无 token、还没跳走"
+    // 的窗口被重新挂载，以无登录态重发请求 → 401 → 弹"加载失败/登录已过期"。
+    // client-login 是公开页（已登录也放行），先导航过去后再清 token，重建只落在
+    // 不发受保护请求的登录页上，退出不再报错。带 logout=1：登录页此刻还能读到登录态，
+    // 但不得把用户重定向回受控页（见 ClientLogin.onMounted）。
+    await router.replace({ name: 'client-login', query: { logout: '1' } });
     await authStore.logout();
     useClientAuthStore().logout();
-    router.replace({ name: 'client-login' });
   } catch {
     // 取消, 不动
   }
@@ -199,7 +214,7 @@ async function exitToFront(): Promise<void> {
         </template>
       </nav>
       <div class="footer">
-        <button type="button" class="back" @click="returnToControl">返回设备控制</button>
+        <button v-if="canReturnToFront" type="button" class="back" @click="returnToControl">返回设备控制</button>
         <button type="button" class="back" @click="go('admin-change-password')">
           <KeyRound :size="16" :stroke-width="2" /> 修改密码
         </button>
