@@ -63,7 +63,7 @@ export class ScenesController {
   @ModuleAccess('scenes')
   @HttpCode(200)
   async remove(@Param('id', ParseIntPipe) id: number, @Query('expectedRevision', ParseIntPipe) expectedRevision: number, @Req() req: AuthenticatedRequest) {
-    await this.service.remove(id, expectedRevision, requireAdmin(req).username);
+    await this.service.remove(id, expectedRevision, requireActor(req).username);
     return { message: '删除成功', data: null };
   }
 
