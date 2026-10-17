@@ -333,20 +333,17 @@ function onUnifiedSourceChange(event: Event): void {
           {{ ch?.restricted ? '其他用户的内容正在使用此设备' : (currentInList?.title || ch?.currentMediaName || '— 待机中 —') }}
         </div>
         <div class="now-sub">
-          <!-- 2026-10-17 切源稳定性(#135): 两组小字用 v-show 常驻容器, 切源只显隐、不重挂文本节点。 -->
+          <!-- 2026-10-17 #135延伸: 两组小字 v-show 常驻、固定单行; 大屏无控制显页码·翻页, 被远程控制时互斥改显「控制中Ns/释放」, 均不换行。 -->
           <span class="now-sub-group" v-show="activeSource === 'park-dashboard'">
-            <span class="v2-inter">第 {{ parkOpsPage + 1 }} / {{ parkOpsTotalPages }} 页</span>
-            <span>· {{ parkOpsAuto ? '自动轮播中' : '手动翻页' }}</span>
-            <span v-if="parkOpsClaimed" class="claim-tag" :class="{ mine: parkOpsClaimByMe }">
-              · {{ parkOpsClaimByMe ? '您正在远程控制' : `${parkOpsClaimName || '远程终端'} 控制中` }}
-              {{ Math.ceil(parkOpsClaimRemaining / 1000) }}s
-            </span>
-            <button v-if="parkOpsClaimByMe" class="claim-release" @click="releaseParkOps">释放控制</button>
+            <span class="v2-inter" v-show="!parkOpsClaimed">第 {{ parkOpsPage + 1 }} / {{ parkOpsTotalPages }} 页</span>
+            <span v-show="!parkOpsClaimed">· {{ parkOpsAuto ? '自动轮播中' : '手动翻页' }}</span>
+            <span v-show="parkOpsClaimed" class="claim-tag" :class="{ mine: parkOpsClaimByMe }">{{ parkOpsClaimByMe ? '您正在控制' : `${parkOpsClaimName || '远程终端'} 控制中` }} {{ Math.ceil(parkOpsClaimRemaining / 1000) }}s</span>
+            <button v-show="parkOpsClaimByMe" class="claim-release" @click="releaseParkOps">释放</button>
           </span>
           <span class="now-sub-group" v-show="activeSource !== 'park-dashboard'">
             <span v-if="ch?.currentMediaKind !== 'video' && ch?.loopMode === 'loop'"><Repeat :size="13" /> 循环</span>
             <span v-else-if="ch?.currentMediaKind !== 'video'"><Repeat1 :size="13" /> 播一遍</span>
-            <span v-if="ch?.currentMediaId && !currentInList" class="tmp">· 临时推送 (不在播放列表里)</span>
+            <span v-if="ch?.currentMediaId && !currentInList" class="tmp">· 临时推送</span>
           </span>
         </div>
       </div>
@@ -1537,9 +1534,12 @@ function onUnifiedSourceChange(event: Event): void {
   .now-info { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
   .now-label { font-size: 11px; }
   .now-name { font-size: 18px; }
-  .now-sub { margin-top: 4px; flex-wrap: wrap; row-gap: 2px; }
-  /* 运营大屏远程控制时多段小字(第x/6页·手动翻页·XX控制中)各段不被压成竖排, 规整为两行 */
-  .now-sub > span { white-space: nowrap; }
+  /* 小字行固定单行(2026-10-17 #135延伸): now-sub恒1行17px, 超长只在本行省略, 不撑高信息区、杜绝切源垂直重排 */
+  .now-sub { margin-top: 4px; flex-wrap: nowrap; min-height: 17px; max-height: 17px; overflow: hidden; line-height: 1.3; }
+  .now-sub-group { flex-wrap: nowrap; min-width: 0; }
+  .now-sub-group > span { white-space: nowrap; min-width: 0; }
+  .now-sub-group .tmp, .now-sub-group .claim-tag { overflow: hidden; text-overflow: ellipsis; }
+  .now-sub-group .claim-release { flex: 0 0 auto; margin-left: 4px; padding: 2px 8px; }
   .now-ctrl { width: auto; flex: 0 0 auto; justify-content: flex-end; gap: 7px; }
   .pc-btn { width: 38px; height: 38px; border-radius: 11px; }
   .pc-btn.main { width: 46px; height: 46px; border-radius: 13px; }

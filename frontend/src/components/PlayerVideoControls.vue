@@ -41,7 +41,7 @@ const {
 </script>
 
 <template>
-  <div v-if="isVideoPlaying" class="video-ctrl">
+  <div class="video-ctrl" :class="{ off: !isVideoPlaying }">
     <button
       type="button"
       class="loop-toggle"
@@ -79,6 +79,9 @@ const {
   gap: 10px;
   margin-top: 12px;
 }
+/* 桌面端: 非视频态整块不渲染占位(等价原 v-if, 桌面非 flex-wrap, 隐藏不影响布局)。
+   手机端见 @media: 改为常驻槽位、仅 visibility:hidden 占位, 保证切源不重排。 */
+.video-ctrl.off { display: none; }
 /* 单次/循环切换: 循环=科技蓝高亮; 触摸目标足够 */
 .loop-toggle {
   display: inline-flex;
@@ -136,6 +139,15 @@ const {
    (PlayerConsole 把 .video-ctrl 设为 display:contents, 让这两个元素直接参与 .now 的 flex 排列)
    进度条行压到最矮: 视觉轨道/拇指由原生控件渲染, 仅收窄占位高度, 点击仍可命中整条 */
 @media (max-width: 640px) {
+  /* 常驻槽位(2026-10-17 #135 延伸): 切到视频/网页/欢迎页/待机/运营大屏时, 播放卡内行结构
+     必须像素级恒定。根 .video-ctrl 不再 v-if 挂载/卸载, 非视频态也保持 display:contents,
+     让进度条行(seek-row)与单次/循环按钮(loop-toggle)两个 flex 槽位始终存在;
+     仅 visibility:hidden 隐藏内容但保留占位, 不增删行、不触发 .now 的 align-content:center
+     重新垂直居中 → 按钮/文字/铺放行在所有输入源下位置零位移。 */
+  .video-ctrl,
+  .video-ctrl.off { display: contents; }
+  .video-ctrl.off .seek-row,
+  .video-ctrl.off .loop-toggle { visibility: hidden; }
   .loop-toggle {
     padding: 3px 12px;
     font-size: 11px;
