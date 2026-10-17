@@ -167,11 +167,14 @@ const {
   .seek-range::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 12px;
-    height: 12px;
+    /* 命中盒扩大到 28×28(手指易抓), 视觉仍是中心 12px 圆点: radial-gradient
+       中心 6px 半径画实心圆点(=12px), 外圈透明; 透明区域仍属 thumb 命中盒、可点按。
+       margin-top 让 28px 命中盒相对 3px 轨道垂直居中(2026-10-17 #134)。 */
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
-    background: var(--v2-primary, #408cff);
-    margin-top: -4.5px; /* (轨道3 - 拇指12) / 2 */
+    background: radial-gradient(circle, var(--v2-primary, #408cff) 0 6px, transparent 6.5px);
+    margin-top: -12.5px; /* (轨道3 - 命中盒28) / 2 */
     border: none;
   }
   .seek-range::-moz-range-track {
@@ -180,10 +183,11 @@ const {
     background: var(--v2-border-soft, #2a313c);
   }
   .seek-range::-moz-range-thumb {
-    width: 12px;
-    height: 12px;
+    /* 同 webkit: 命中盒 28px, 中心 12px 可见圆点; moz 拇指自动相对轨道垂直居中, 无需 margin */
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
-    background: var(--v2-primary, #408cff);
+    background: radial-gradient(circle, var(--v2-primary, #408cff) 0 6px, transparent 6.5px);
     border: none;
   }
 }

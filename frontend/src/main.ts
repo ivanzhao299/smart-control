@@ -63,6 +63,11 @@ redirectManifestToBackend();
  */
 function disableZoom(): void {
   const opts: AddEventListenerOptions = { passive: false };
+  // 输入控件(登录用户名/密码、搜索、文本域等): 放行系统原生编辑行为 —— 长按菜单(粘贴/选词/
+  // 自动填充)与双击选词/光标定位, 避免在 iOS WKWebView / 第三方键盘下干扰输入(#133/#80/#89)。
+  // 仅卡片/非编辑区域继续禁缩放/禁菜单, 互不影响。
+  const isEditable = (t: EventTarget | null): boolean =>
+    !!t && t instanceof Element && !!t.closest('input,textarea,select,[contenteditable="true"]');
   // Safari 手势事件 (双指缩放)
   document.addEventListener('gesturestart', (e) => e.preventDefault(), opts);
   document.addEventListener('gesturechange', (e) => e.preventDefault(), opts);
@@ -76,10 +81,11 @@ function disableZoom(): void {
     if (e.touches.length > 1) e.preventDefault();
   }, opts);
 
-  // 双击 zoom (旧 iOS Safari)
+  // 双击 zoom (旧 iOS Safari); 输入框内双击是选词/光标定位, 不拦截
   let lastTap = 0;
   document.addEventListener('touchend', (e) => {
     const now = Date.now();
+    if (isEditable(e.target)) { lastTap = now; return; }
     if (now - lastTap < 320) e.preventDefault();
     lastTap = now;
   }, opts);
@@ -95,8 +101,11 @@ function disableZoom(): void {
   });
 
   // 触屏长按卡片 (尤其场景卡长按激活) 会弹出浏览器右键/上下文菜单, 干扰操作 —
-  // 全局禁掉, 覆盖所有页面所有卡片.
-  document.addEventListener('contextmenu', (e) => e.preventDefault());
+  // 非编辑区域全局禁掉; 输入框(登录/搜索/文本域)放行长按菜单(粘贴/选词/自动填充, #133)。
+  document.addEventListener('contextmenu', (e) => {
+    if (isEditable(e.target)) return;
+    e.preventDefault();
+  });
 
   // 工业终端: 禁元素拖拽 (图片/链接/文本被拖出或拖动), 防误操作把界面拖乱
   document.addEventListener('dragstart', (e) => e.preventDefault());

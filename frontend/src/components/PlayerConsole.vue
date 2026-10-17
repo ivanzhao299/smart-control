@@ -333,7 +333,8 @@ function onUnifiedSourceChange(event: Event): void {
           {{ ch?.restricted ? '其他用户的内容正在使用此设备' : (currentInList?.title || ch?.currentMediaName || '— 待机中 —') }}
         </div>
         <div class="now-sub">
-          <template v-if="activeSource === 'park-dashboard'">
+          <!-- 2026-10-17 切源稳定性(#135): 两组小字用 v-show 常驻容器, 切源只显隐、不重挂文本节点。 -->
+          <span class="now-sub-group" v-show="activeSource === 'park-dashboard'">
             <span class="v2-inter">第 {{ parkOpsPage + 1 }} / {{ parkOpsTotalPages }} 页</span>
             <span>· {{ parkOpsAuto ? '自动轮播中' : '手动翻页' }}</span>
             <span v-if="parkOpsClaimed" class="claim-tag" :class="{ mine: parkOpsClaimByMe }">
@@ -341,62 +342,63 @@ function onUnifiedSourceChange(event: Event): void {
               {{ Math.ceil(parkOpsClaimRemaining / 1000) }}s
             </span>
             <button v-if="parkOpsClaimByMe" class="claim-release" @click="releaseParkOps">释放控制</button>
-          </template>
-          <template v-else>
+          </span>
+          <span class="now-sub-group" v-show="activeSource !== 'park-dashboard'">
             <span v-if="ch?.currentMediaKind !== 'video' && ch?.loopMode === 'loop'"><Repeat :size="13" /> 循环</span>
             <span v-else-if="ch?.currentMediaKind !== 'video'"><Repeat1 :size="13" /> 播一遍</span>
             <span v-if="ch?.currentMediaId && !currentInList" class="tmp">· 临时推送 (不在播放列表里)</span>
-          </template>
+          </span>
         </div>
       </div>
       <!-- 业主: "暂停、切换、上下内容等均可控制" + "随时可以点击终止" -->
       <div class="now-ctrl">
         <!-- 输入源=园区运营大屏时, 复用这四个主按钮为:
-             上一页 / 自动轮播(开关) / 下一页 / 强制刷新, 纯图标, 不再另弹控制条 (2026-09-15) -->
-        <template v-if="activeSource === 'park-dashboard'">
-          <button class="pc-btn pc-nav" :disabled="parkOpsBusy" title="运营大屏 · 上一页" @click="parkOpsControl('prev')">
-            <ChevronLeft :size="20" />
-          </button>
-          <button
-            class="pc-btn main"
-            :class="{ on: parkOpsAuto }"
-            :disabled="parkOpsBusy"
-            :title="parkOpsAuto ? '自动轮播：开（点击关闭）' : '自动轮播：关（点击开启）'"
-            @click="parkOpsControl('auto')"
-          >
-            <RefreshCw :size="20" />
-          </button>
-          <button class="pc-btn pc-nav" :disabled="parkOpsBusy" title="运营大屏 · 下一页" @click="parkOpsControl('next')">
-            <ChevronRight :size="20" />
-          </button>
-          <button class="pc-btn refresh" :disabled="parkOpsBusy" title="强制刷新：让大屏清缓存加载最新前端构建" @click="parkOpsControl('refresh')">
-            <RotateCcw :size="18" />
-          </button>
-        </template>
-        <template v-else>
-          <button class="pc-btn" :disabled="busy || playlist.length === 0" title="上一首" @click="step('prev')">
-            <SkipBack :size="20" />
-          </button>
-          <!-- 待机时必须是「播放」而不是一个被禁用的「暂停」(2026-07-17 业主:
-               "有停止和暂停按钮, 但是没有播放按钮")。原来 disabled 挂在
-               !ch.currentMediaId 上 —— 恰恰在最需要它的时候(待机)把它锁死了。
-               口径对齐音响页 BGM 那个已验证好用的: disabled 只看列表空不空。 -->
-          <button
-            class="pc-btn main"
-            :disabled="busy || (!ch?.currentMediaId && playlist.length === 0)"
-            :title="!ch?.currentMediaId ? '播放' : (ch.paused ? '继续' : '暂停')"
-            @click="togglePause"
-          >
-            <Pause v-if="ch?.currentMediaId && !ch.paused" :size="22" />
-            <Play v-else :size="22" />
-          </button>
-          <button class="pc-btn" :disabled="busy || playlist.length === 0" title="下一首" @click="step('next')">
-            <SkipForward :size="20" />
-          </button>
-          <button class="pc-btn stop" :disabled="busy || !ch?.currentMediaId" title="终止播放, 回到待机" @click="stopPlayback()">
-            <Square :size="18" />
-          </button>
-        </template>
+             上一页 / 自动轮播(开关) / 下一页 / 强制刷新, 纯图标, 不再另弹控制条 (2026-09-15)
+             2026-10-17 切源稳定性(#135): 两套按钮改为 v-show 常驻同一组槽位, 不再 v-if/v-else
+             整组卸载重挂——切源时按钮容器与图标 SVG 不重建, 只切显隐, 消除一帧空窗/闪烁。
+             两套各 4 个槽位、互斥显示, 隐藏组 display:none 不占 flex 空间, 布局与原一致。 -->
+        <button class="pc-btn pc-nav" v-show="activeSource === 'park-dashboard'" :disabled="parkOpsBusy" title="运营大屏 · 上一页" @click="parkOpsControl('prev')">
+          <ChevronLeft :size="20" />
+        </button>
+        <button
+          class="pc-btn main"
+          v-show="activeSource === 'park-dashboard'"
+          :class="{ on: parkOpsAuto }"
+          :disabled="parkOpsBusy"
+          :title="parkOpsAuto ? '自动轮播：开（点击关闭）' : '自动轮播：关（点击开启）'"
+          @click="parkOpsControl('auto')"
+        >
+          <RefreshCw :size="20" />
+        </button>
+        <button class="pc-btn pc-nav" v-show="activeSource === 'park-dashboard'" :disabled="parkOpsBusy" title="运营大屏 · 下一页" @click="parkOpsControl('next')">
+          <ChevronRight :size="20" />
+        </button>
+        <button class="pc-btn refresh" v-show="activeSource === 'park-dashboard'" :disabled="parkOpsBusy" title="强制刷新：让大屏清缓存加载最新前端构建" @click="parkOpsControl('refresh')">
+          <RotateCcw :size="18" />
+        </button>
+        <button class="pc-btn" v-show="activeSource !== 'park-dashboard'" :disabled="busy || playlist.length === 0" title="上一首" @click="step('prev')">
+          <SkipBack :size="20" />
+        </button>
+        <!-- 待机时必须是「播放」而不是一个被禁用的「暂停」(2026-07-17 业主:
+             "有停止和暂停按钮, 但是没有播放按钮")。原来 disabled 挂在
+             !ch.currentMediaId 上 —— 恰恰在最需要它的时候(待机)把它锁死了。
+             口径对齐音响页 BGM 那个已验证好用的: disabled 只看列表空不空。 -->
+        <button
+          class="pc-btn main"
+          v-show="activeSource !== 'park-dashboard'"
+          :disabled="busy || (!ch?.currentMediaId && playlist.length === 0)"
+          :title="!ch?.currentMediaId ? '播放' : (ch.paused ? '继续' : '暂停')"
+          @click="togglePause"
+        >
+          <Pause v-if="ch?.currentMediaId && !ch.paused" :size="22" />
+          <Play v-else :size="22" />
+        </button>
+        <button class="pc-btn" v-show="activeSource !== 'park-dashboard'" :disabled="busy || playlist.length === 0" title="下一首" @click="step('next')">
+          <SkipForward :size="20" />
+        </button>
+        <button class="pc-btn stop" v-show="activeSource !== 'park-dashboard'" :disabled="busy || !ch?.currentMediaId" title="终止播放, 回到待机" @click="stopPlayback()">
+          <Square :size="18" />
+        </button>
       </div>
       <PlayerVideoControls :slot="SLOT" />
       <!-- 底部行 .now-bottom: 左侧融合器告警滚动字幕(.alert-slot, 仅投影仪异常时才有内容) +
@@ -959,6 +961,9 @@ function onUnifiedSourceChange(event: Event): void {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .now-sub { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--v2-text-2); margin-top: 3px; }
+/* 切源稳定性(#135): 大屏/普通两组小字各自是常驻的 inline-flex 槽位, v-show 只显隐不重挂 */
+.now-sub-group { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.now-sub-group > span { white-space: nowrap; }
 .now-sub .tmp { color: #E0A030; }
 .now-sub .claim-tag { color: #D98A2B; } .now-sub .claim-tag.mine { color: #2FA36B; font-weight: 600; }
 .now-sub .claim-release { border:1px solid rgba(47,163,107,.45); background:rgba(47,163,107,.12); color:#2FA36B; border-radius:999px; font-size:11px; line-height:1; padding:3px 9px; cursor:pointer; } .now-sub .claim-release:hover { background:rgba(47,163,107,.22); }
