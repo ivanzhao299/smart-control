@@ -1541,14 +1541,15 @@ function onUnifiedSourceChange(event: Event): void {
   /* 园区运营大屏左右翻页是高频操作: 加大到与主按钮等高、箭头加粗, 做足触摸目标 */
   .pc-btn.pc-nav { width: 46px; height: 46px; border-radius: 13px; }
   .pc-btn.pc-nav svg { width: 24px; height: 24px; stroke-width: 2.5; }
-  /* 车机深色玻璃主题: 半透白玻璃高亮, 让翻页键从深色卡片上跳出来(中性白, 不随强调色), 与橙色轮播/刷新区分 */
-  :root[data-theme='auto'] .pc-btn.pc-nav {
+  /* 深色主题(车机auto/深色dark): 半透白玻璃高亮, 让翻页键从深色卡片上跳出来(中性白, 不随强调色), 与橙色轮播/刷新区分;
+     浅色主题(light/sunset)保持原配色, 避免白箭头隐形 */
+  :root[data-theme-mode='dark'] .pc-btn.pc-nav {
     background: rgba(255, 255, 255, .16);
     border: 1px solid rgba(255, 255, 255, .34);
     color: #fff;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, .28), 0 4px 14px rgba(0, 0, 0, .38);
   }
-  :root[data-theme='auto'] .pc-btn.pc-nav:active:not(:disabled) { background: rgba(255, 255, 255, .28); }
+  :root[data-theme-mode='dark'] .pc-btn.pc-nav:active:not(:disabled) { background: rgba(255, 255, 255, .28); }
 
   /* 视频态: .video-ctrl 透明化(display:contents), 让其内部的「单次/循环」和进度条直接
      参与 .now 的 flex 排列 —— 进度条独占一行(拉满), 单次/循环与下方「画面铺放」同一行,
