@@ -9,8 +9,8 @@ import { useRoute, useRouter } from 'vue-router';
 // - AlertBanner 已移除, 告警走后台 /admin/alerts
 // - 场景反馈走顶部 inline toast
 import { Activity, LogOut, Maximize2, Minimize2, MoreHorizontal, Palette, Check } from 'lucide-vue-next';
-import { theme, applyTheme, THEME_OPTIONS } from '@/services/theme.service';
-import type { Theme } from '@/services/theme.service';
+import { theme, applyTheme, THEME_OPTIONS, accent, applyAccent, ACCENT_OPTIONS } from '@/services/theme.service';
+import type { Accent, Theme } from '@/services/theme.service';
 import ErrorBoundary from '@/components/ErrorBoundary.vue';
 import ServerSettingsDialog from '@/components/ServerSettingsDialog.vue';
 import { useFullscreen } from '@/composables/useFullscreen';
@@ -277,6 +277,10 @@ function openTheme(): void {
 function chooseTheme(key: Theme): void {
   applyTheme(key);
 }
+/** 车机主题下切换强调色（青蓝/理想橙/星云紫），仅在车机形态生效并记住。 */
+function chooseAccent(key: Accent): void {
+  applyAccent(key);
+}
 /** 退出登录：清前台会话（若有后台会话一并清掉），回到登录页。平板侧栏 / 手机「更多」抽屉共用。 */
 const clientAuth = useClientAuthStore();
 const adminAuth = useAdminAuthStore();
@@ -501,25 +505,44 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
           <button class="v2-theme-done" type="button" @click="themeOpen = false">完成</button>
         </div>
         <div class="v2-theme-list">
-          <button
-            v-for="opt in THEME_OPTIONS"
-            :key="opt.key"
-            class="v2-theme-item"
-            :class="{ 'is-active': theme === opt.key }"
-            type="button"
-            @click="chooseTheme(opt.key)"
-          >
-            <span class="theme-sw">
-              <i v-for="(c, i) in opt.sw" :key="i" :style="{ background: c }"></i>
-            </span>
-            <span class="theme-meta">
-              <span class="theme-name">{{ opt.name }}</span>
-              <span class="theme-desc">{{ opt.desc }}</span>
-            </span>
-            <span class="theme-check" :class="{ on: theme === opt.key }">
-              <Check v-if="theme === opt.key" :size="15" :stroke-width="2.6" />
-            </span>
-          </button>
+          <template v-for="opt in THEME_OPTIONS" :key="opt.key">
+            <button
+              class="v2-theme-item"
+              :class="{ 'is-active': theme === opt.key }"
+              type="button"
+              @click="chooseTheme(opt.key)"
+            >
+              <span class="theme-sw">
+                <i v-for="(c, i) in opt.sw" :key="i" :style="{ background: c }"></i>
+              </span>
+              <span class="theme-meta">
+                <span class="theme-name">{{ opt.name }}</span>
+                <span class="theme-desc">{{ opt.desc }}</span>
+              </span>
+              <span class="theme-check" :class="{ on: theme === opt.key }">
+                <Check v-if="theme === opt.key" :size="15" :stroke-width="2.6" />
+              </span>
+            </button>
+            <!-- 车机主题选中时，在其下方展开强调色圆点（青蓝/理想橙/星云紫），形态不变只换强调色 -->
+            <div v-if="opt.key === 'auto' && theme === 'auto'" class="v2-accent-row">
+              <span class="v2-accent-label">强调色</span>
+              <span class="v2-accent-dots">
+                <button
+                  v-for="a in ACCENT_OPTIONS"
+                  :key="a.key"
+                  type="button"
+                  class="v2-accent-dot"
+                  :class="{ on: accent === a.key }"
+                  :style="{ background: a.sw, color: a.ink, '--dot': a.sw }"
+                  :title="a.name"
+                  :aria-label="a.name"
+                  @click="chooseAccent(a.key)"
+                >
+                  <Check v-if="accent === a.key" :size="13" :stroke-width="3.2" />
+                </button>
+              </span>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -1056,6 +1079,40 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   border: 1.5px solid var(--v2-border-strong); color: #fff;
 }
 .theme-check.on { background: var(--v2-primary-fill); border-color: var(--v2-primary-fill); }
+/* 车机强调色圆点行（仅车机主题选中时在其下方展开） */
+.v2-accent-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: -2px;
+  padding: 11px 16px;
+  border-radius: 14px;
+  background: var(--v2-surf-2);
+  border: 1.5px solid var(--v2-border-soft);
+}
+.v2-accent-label {
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--v2-text-2);
+}
+.v2-accent-dots { display: flex; align-items: center; gap: 18px; }
+.v2-accent-dot {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  transition: transform var(--v2-dur-fast) var(--v2-ease-out),
+    box-shadow var(--v2-dur-fast) var(--v2-ease-out);
+}
+.v2-accent-dot:active { transform: scale(0.9); }
+.v2-accent-dot.on {
+  border-color: transparent;
+  box-shadow: 0 0 0 2px var(--v2-surf-2), 0 0 0 4px var(--dot), 0 6px 16px -3px var(--dot);
+}
 /* 平板 / 主控机（侧栏入口）：主题 sheet 改居中弹卡，不贴底全宽 */
 @media (min-width: 600px) {
   .v2-theme-mask { align-items: center; justify-content: center; }
@@ -1172,6 +1229,32 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
     border-radius: 4px 4px 0 0;
     box-shadow: 0 -2px 12px var(--v2-primary), 0 -2px 24px var(--v2-primary-soft);
   }
+
+  /* ===== 车机风(auto)：底栏改悬浮玻璃 Dock（仅 auto 主题；dark/light/sunset 仍贴底条）===== */
+  :root[data-theme='auto'] .v2-nav {
+    margin: 0 10px calc(10px + min(env(safe-area-inset-bottom), 34px));
+    height: 54px;
+    padding: 0 8px;
+    align-items: center;
+    border: 1px solid var(--v2-card-hairline);
+    border-top-color: var(--v2-card-hairline);
+    border-radius: 27px;
+    background: linear-gradient(150deg, var(--v2-surf-3), var(--v2-surf-1));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10),
+      0 18px 40px -10px rgba(0, 0, 0, 0.72);
+  }
+  :root[data-theme='auto'] .v2-nav-list { align-items: center; }
+  :root[data-theme='auto'] .v2-nav-item {
+    height: 42px;
+    border-radius: 15px;
+    color: var(--v2-text-2);
+  }
+  /* 选中态用浅色胶囊底 + 强调色，替代顶部光柱 */
+  :root[data-theme='auto'] .v2-nav-item.is-active {
+    background: var(--v2-primary-soft);
+    color: var(--v2-primary);
+  }
+  :root[data-theme='auto'] .v2-nav-item.is-active::before { display: none; }
 
   /* header 极简: 只剩品牌 + 时钟 */
   .v2-header { padding: 0 12px; height: 48px; }

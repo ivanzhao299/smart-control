@@ -27,19 +27,35 @@ test('dark is the first-run theme while an explicit saved choice still wins', ()
   assert.match(themeService, /forceThemeWithoutPersist\(t: Theme\)/);
 });
 
-test('five theme schemes exist and white-text fill is separated from brand colour', () => {
-  // theme.service declares all five schemes (dark/light + ocean/sunset/emerald)
-  for (const key of ['dark', 'light', 'ocean', 'sunset', 'emerald']) {
-    assert.match(themeService, new RegExp(`'${key}'`));
-  }
-  // dark is the default :root; each light scheme owns a colour block
-  for (const key of ['light', 'ocean', 'sunset', 'emerald']) {
+test('four themes with the auto (car) dark theme and three switchable accents', () => {
+  // theme.service declares exactly four selectable schemes; ocean/emerald retired (#107)
+  assert.match(themeService, /ALL_THEMES: Theme\[\] = \['dark', 'light', 'sunset', 'auto'\]/);
+  // auto is the second dark-mode theme; structure rules still key off the lightness mode
+  assert.match(themeService, /t === 'dark' \|\| t === 'auto'/);
+  // dark is the default :root; each non-default scheme owns a colour block in tokens
+  for (const key of ['light', 'sunset', 'auto']) {
     assert.match(tokens, new RegExp(`\\[data-theme='${key}'\\]`));
   }
-  // White-text buttons use a dedicated fill token (default follows primary; orange/green
-  // schemes darken it to 700/800 for WCAG AA) while icons/links keep the vivid 600.
-  assert.match(tokens, /--v2-primary-fill: var\(--v2-primary\)/);
-  // Brand-colour-independent structure rules follow the lightness mode
   assert.match(tokens, /\[data-theme-mode='light'\]/);
   assert.match(tokens, /\[data-theme-mode='dark'\]/);
+
+  // three switchable accents (cyan default lives in the auto base block; orange/purple
+  // override via a higher-specificity [data-theme='auto'][data-accent=...] block)
+  assert.match(themeService, /ALL_ACCENTS: Accent\[\] = \['cyan', 'orange', 'purple'\]/);
+  assert.match(themeService, /sc\.accent/);
+  assert.match(themeService, /function applyAccent/);
+  assert.match(tokens, /--v2-primary: #37b6ff/, 'cyan is the default accent in the auto base block');
+  for (const key of ['orange', 'purple']) {
+    assert.match(tokens, new RegExp(`\\[data-theme='auto'\\]\\[data-accent='${key}'\\]`));
+  }
+
+  // White-text buttons keep a dedicated fill token (default follows primary)
+  assert.match(tokens, /--v2-primary-fill: var\(--v2-primary\)/);
+
+  // auto must simulate glass without large-area blur (GPU constrained tablets);
+  // strip CSS comments first so the rationale comment mentioning the property does not trip this
+  const autoBlock = tokens
+    .slice(tokens.indexOf("[data-theme='auto']"))
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.doesNotMatch(autoBlock, /backdrop-filter/u, 'auto theme uses no backdrop-filter');
 });

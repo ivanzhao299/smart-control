@@ -300,6 +300,130 @@
   --v2-elev-3: 0 20px 56px rgba(18, 22, 31, 0.16);
 }
 
+/* ============================================================
+   车机风（Auto，#107）：参考理想 / 蔚来控制面板。深蓝黑底 + 青蓝发光
+   + 大圆角玻璃质感卡片 + 悬浮 Dock。属 dark mode，自动复用
+   [data-theme-mode='dark'] 的暗色结构（阴影/chip/遮罩）。
+   形态与底色固定；强调色由 data-accent 二级切换（cyan 为默认，写在本块；
+   orange/purple 仅覆盖主色相关变量）。
+   性能：不使用 backdrop-filter（项目实测多卡片 blur 会拖垮平板 GPU），
+   玻璃感以"纯色 + 1px 顶部高光 + 深投影 + 静态氛围光"模拟，零逐帧重算。
+   ============================================================ */
+:root:root[data-theme='auto'] {
+  color-scheme: dark;
+  --v2-bg-0: #05070d;
+  --v2-bg-1: #080b12;
+  --v2-bg-2: #0c111b;
+  --v2-surf-1: #141a24;
+  --v2-surf-1-hover: #1a212d;
+  --v2-surf-2: #1b2230;
+  --v2-surf-3: #232c3d;
+  --v2-surface-1: var(--v2-surf-1);
+  --v2-border-soft: #232e3f;
+  --v2-border-strong: #34435c;
+  --v2-border: var(--v2-border-soft);
+  --v2-text-1: #eef5ff;
+  --v2-text-2: #9aaac2;
+  --v2-text-3: #5c6c84;
+
+  /* 青蓝（NIO）默认强调色 —— 亮蓝配深色字，车机发光按钮/图标 */
+  --v2-primary: #37b6ff;
+  --v2-primary-rgb: 55, 182, 255;
+  --v2-primary-dark: #1e88e5;
+  --v2-primary-hover: #70ccff;
+  --v2-primary-soft: rgba(55, 182, 255, 0.14);
+  --v2-on-primary: #03141f;
+  --v2-primary-fill: #37b6ff;
+  --v2-primary-fill-hover: #70ccff;
+  --v2-accent-fill: linear-gradient(150deg, #54c4ff 0%, #1e88e5 100%);
+  --v2-accent-progress: linear-gradient(90deg, #54c4ff 0%, #1e88e5 100%);
+  --v2-accent-vertical: linear-gradient(180deg, #70ccff 0%, #1e88e5 100%);
+  --v2-accent-bar: #37b6ff;
+  --v2-accent-shadow: 0 8px 22px -6px rgba(55, 182, 255, 0.70);
+
+  --v2-success: #2ed4b4;
+  --v2-warning: #ffb02e;
+  --v2-danger: #ff6b6b;
+  --v2-info: var(--v2-primary);
+  --v2-success-soft: rgba(46, 212, 180, 0.14);
+  --v2-warning-soft: rgba(255, 176, 46, 0.14);
+  --v2-danger-soft: rgba(255, 107, 107, 0.14);
+  --v2-info-soft: var(--v2-primary-soft);
+
+  --v2-purple: #b3bff5;
+  --v2-purple-soft: rgba(157, 139, 255, 0.16);
+  --v2-amber: var(--v2-warning);
+  --v2-amber-soft: var(--v2-warning-soft);
+  --v2-light-warm: #ffb02e;
+  --v2-live-power: var(--v2-success);
+  --v2-live-power-glow: rgba(46, 212, 180, 0.32);
+  --v2-live-audio: #2ed4b4;
+  --v2-live-audio-glow: rgba(46, 212, 180, 0.28);
+  --v2-text-glow-primary: none;
+  --v2-text-glow-amber: none;
+  --v2-text-glow-purple: none;
+  --v2-text-glow-success: none;
+
+  --v2-ov-1: rgba(255, 255, 255, 0.05);
+  --v2-ov-2: rgba(255, 255, 255, 0.08);
+  --v2-ov-3: rgba(255, 255, 255, 0.13);
+  --v2-inset-bg: #0c121c;
+  --v2-card-hairline: rgba(255, 255, 255, 0.07);
+  --v2-chrome-bg: rgba(10, 15, 25, 0.72);
+  --v2-chrome-bg-solid: #080b12;
+
+  /* 车机大圆角（仅大容器卡片/面板，r-sm/r-md 小控件保持不变） */
+  --v2-r-lg: 20px;
+  --v2-r-xl: 24px;
+
+  --v2-glow-primary: 0 0 22px -4px rgba(55, 182, 255, 0.62);
+  --v2-glow-primary-strong: 0 0 30px -2px rgba(55, 182, 255, 0.8);
+  --v2-elev-2: 0 10px 30px rgba(0, 0, 0, 0.50);
+  --v2-elev-3: 0 24px 60px rgba(0, 0, 0, 0.62);
+}
+
+/* 车机强调色 · 理想橙（橙亮 + 深棕字） */
+:root:root[data-theme='auto'][data-accent='orange'] {
+  --v2-primary: #ff8a3d;
+  --v2-primary-rgb: 255, 138, 61;
+  --v2-primary-dark: #e85d12;
+  --v2-primary-hover: #ffa667;
+  --v2-primary-soft: rgba(255, 138, 61, 0.15);
+  --v2-on-primary: #2a1305;
+  --v2-primary-fill: #f97316;
+  --v2-primary-fill-hover: #ff8a3d;
+  --v2-accent-fill: linear-gradient(150deg, #ffa667 0%, #f97316 100%);
+  --v2-accent-progress: linear-gradient(90deg, #ffa667 0%, #f97316 100%);
+  --v2-accent-vertical: linear-gradient(180deg, #ffb27a 0%, #f97316 100%);
+  --v2-accent-bar: #ff8a3d;
+  --v2-accent-shadow: 0 8px 22px -6px rgba(255, 138, 61, 0.65);
+  --v2-info: var(--v2-primary);
+  --v2-info-soft: var(--v2-primary-soft);
+  --v2-glow-primary: 0 0 22px -4px rgba(255, 138, 61, 0.6);
+  --v2-glow-primary-strong: 0 0 30px -2px rgba(255, 138, 61, 0.8);
+}
+
+/* 车机强调色 · 星云紫（图标用亮紫，实心按钮压深 + 白字以达对比） */
+:root:root[data-theme='auto'][data-accent='purple'] {
+  --v2-primary: #9d8bff;
+  --v2-primary-rgb: 157, 139, 255;
+  --v2-primary-dark: #6d5ce8;
+  --v2-primary-hover: #b7abff;
+  --v2-primary-soft: rgba(157, 139, 255, 0.17);
+  --v2-on-primary: #ffffff;
+  --v2-primary-fill: #6d5ce8;
+  --v2-primary-fill-hover: #7e6ef0;
+  --v2-accent-fill: linear-gradient(150deg, #8b7cff 0%, #6d5ce8 100%);
+  --v2-accent-progress: linear-gradient(90deg, #9d8bff 0%, #6d5ce8 100%);
+  --v2-accent-vertical: linear-gradient(180deg, #b7abff 0%, #6d5ce8 100%);
+  --v2-accent-bar: #9d8bff;
+  --v2-accent-shadow: 0 8px 22px -6px rgba(139, 124, 255, 0.68);
+  --v2-info: var(--v2-primary);
+  --v2-info-soft: var(--v2-primary-soft);
+  --v2-glow-primary: 0 0 22px -4px rgba(139, 124, 255, 0.62);
+  --v2-glow-primary-strong: 0 0 30px -2px rgba(139, 124, 255, 0.8);
+}
+
 html,
 body,
 #app { background: var(--v2-bg-0) !important; }
@@ -943,4 +1067,81 @@ body { overscroll-behavior: none; }
   .card-btn:active,
   .src-btn:active,
   .v2-back-btn:active { transform: none; }
+}
+
+/* ============================================================
+   车机风（auto）结构增强：在 [data-theme-mode='dark'] 暗色结构之上
+   叠加"背景氛围光 + 玻璃高光 + 发光强调"。全部为静态渐变 / box-shadow，
+   不使用 backdrop-filter（大面积毛玻璃在平板上会逐帧重算、卡顿）。
+   写在 dark 规则之后，同特异性以后写覆盖；auto 未命中时零影响。
+   ============================================================ */
+
+/* 背景氛围光：body 承载固定径向渐变（body overflow:hidden 不滚动，自然固定），
+   #app 透明让光透出；底色兜在最底层，保证纯色可被任何状态回退。 */
+:root:root[data-theme='auto'] #app { background: transparent !important; }
+:root:root[data-theme='auto'] body {
+  background:
+    radial-gradient(1200px 520px at 10% -12%, rgba(55, 182, 255, 0.15), transparent 60%),
+    radial-gradient(1000px 500px at 94% -8%, rgba(124, 110, 255, 0.11), transparent 58%),
+    radial-gradient(900px 420px at 50% 114%, rgba(55, 182, 255, 0.08), transparent 62%),
+    var(--v2-bg-0) !important;
+}
+:root:root[data-theme='auto'][data-accent='orange'] body {
+  background:
+    radial-gradient(1200px 520px at 10% -12%, rgba(255, 138, 61, 0.16), transparent 60%),
+    radial-gradient(1000px 500px at 94% -8%, rgba(255, 90, 60, 0.10), transparent 58%),
+    radial-gradient(900px 420px at 50% 114%, rgba(255, 138, 61, 0.09), transparent 62%),
+    var(--v2-bg-0) !important;
+}
+:root:root[data-theme='auto'][data-accent='purple'] body {
+  background:
+    radial-gradient(1200px 520px at 10% -12%, rgba(139, 124, 255, 0.17), transparent 60%),
+    radial-gradient(1000px 500px at 94% -8%, rgba(90, 120, 255, 0.12), transparent 58%),
+    radial-gradient(900px 420px at 50% 114%, rgba(139, 124, 255, 0.10), transparent 62%),
+    var(--v2-bg-0) !important;
+}
+
+/* 玻璃卡片：更亮的 1px 顶部高光 + 更深下沉投影，纯色底模拟玻璃层次 */
+:root:root[data-theme='auto'] .v2-kpi,
+:root:root[data-theme='auto'] .ch-card,
+:root:root[data-theme='auto'] .metric,
+:root:root[data-theme='auto'] .v2-card,
+:root:root[data-theme='auto'] .v2-subsystems,
+:root:root[data-theme='auto'] .v2-overview,
+:root:root[data-theme='auto'] .circuit-card:not(.on) {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 8px 24px rgba(0, 0, 0, 0.50) !important;
+}
+:root:root[data-theme='auto'] .v2-kpi:hover,
+:root:root[data-theme='auto'] .ch-card:hover,
+:root:root[data-theme='auto'] .v2-card:hover,
+:root:root[data-theme='auto'] .v2-subsystems:hover,
+:root:root[data-theme='auto'] .v2-overview:hover,
+:root:root[data-theme='auto'] .circuit-card:not(.on):hover {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    0 14px 34px rgba(0, 0, 0, 0.60) !important;
+}
+/* 大圆角：KPI 与网格功能卡统一到 r-lg（车机大圆角）；r-md 小控件（输入/表格/芯片）不动 */
+:root:root[data-theme='auto'] .v2-kpi,
+:root:root[data-theme='auto'] .v2-screen,
+:root:root[data-theme='auto'] .v2-hvac-zone {
+  border-radius: var(--v2-r-lg) !important;
+}
+
+/* 可选中网格卡选中态：保留 3px 左光条，再叠一圈强调色辉光 */
+:root:root[data-theme='auto'] .v2-scene.active,
+:root:root[data-theme='auto'] .v2-screen.on,
+:root:root[data-theme='auto'] .v2-hvac-zone.on {
+  box-shadow: inset 3px 0 0 var(--v2-primary), var(--v2-glow-primary) !important;
+}
+
+/* 实心主按钮 / Element 主按钮：强调色辉光（静态，仅按钮少量元素） */
+:root:root[data-theme='auto'] .v2-quick.primary {
+  box-shadow: var(--v2-accent-shadow) !important;
+}
+:root:root[data-theme='auto'] .v2-quick.primary:hover:not(:disabled):not(.disabled) {
+  box-shadow: var(--v2-accent-shadow), 0 2px 10px rgba(0, 0, 0, 0.4) !important;
+}
+:root:root[data-theme='auto'] .el-button--primary:not(.is-link):not(.is-text) {
+  box-shadow: var(--v2-accent-shadow) !important;
 }
