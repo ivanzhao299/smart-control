@@ -17,8 +17,8 @@ interface MainRouteDefinition {
   /**
    * 允许进入该前台页面的角色白名单（admin 始终全通，无需列出）。
    * 2026-10-16 第二轮最小权限：operator 只保留大屏/投影仪播控、素材、首页场景、状态只读；
-   * 设备实体控制页（灯光/音响/空调/电源/道闸/DALI 调试）仅 admin；
-   * hardware/config 为后台角色，前台只给状态只读页。
+   * 设备实体控制页（灯光/音响/空调/道闸/DALI 调试）仅 admin；
+   * hardware/config 为后台角色，前台仅给电源页（落地页，配自动开关 + 按域手动），其余前台页不可见；
    * viewer 只读账户可浏览只读页（写操作后端 403 + 按钮置灰）。
    */
   roles?: UserRole[];
@@ -80,8 +80,10 @@ export const mainRouteManifest = [
   {
     // 电源回路手动控制：operator 开放单路通断（播放页 4 路物理开关 + 其他单路电源操作需求，
     // 2026-10-17 第四轮）；时序器批量/楼层/整馆通断与回路改名仍仅 admin（页面内单独 gate）。
+    // hardware/config 第六轮起落地前台电源页：前台时钟入口可配自动开关，单路手动按域由后端
+    // 强制（hardware 全域、config 仅园区），他们不再被守卫强制跳后台；前台仅见电源这一页。
     path: 'power', name: 'power', load: () => import('@/pages/PowerPage.vue'),
-    roles: ['admin', 'operator', 'viewer'],
+    roles: ['admin', 'operator', 'hardware', 'config', 'viewer'],
     navigation: { label: '电源', section: 'main' }, prefetchOnIdle: true,
     prefetchApis: ['/power-circuits'],
   },

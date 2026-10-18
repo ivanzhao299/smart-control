@@ -161,7 +161,13 @@ function fmtRuleDesc(r: PowerScheduleRule): string {
 
 <template>
   <!-- 自动开关规则列表 (定时/日落/日出) -->
-  <el-drawer v-model="visible" :title="`自动开关 — ${circuit?.name ?? ''}`" :size="drawerSize" direction="rtl">
+  <el-drawer
+    v-model="visible"
+    :title="`自动开关 — ${circuit?.name ?? ''}`"
+    :size="drawerSize"
+    direction="rtl"
+    class="sched-sheet"
+  >
     <div class="sched-head">
       <p class="sched-sub">
         以日落/日出为参考点: 开、关都可设在参考点前后 (如日落前30分通电 + 日落后90分断电, 形成一段亮灯时间)。

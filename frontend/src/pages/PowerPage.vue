@@ -326,6 +326,12 @@ function goBack(): void { router.push({ name: 'dashboard' }); }
 // 楼栋/区域的断路器自动带入口。
 const schedRef = ref<InstanceType<typeof PowerScheduleDrawer> | null>(null);
 const canSchedule = computed<boolean>(() => perm.canWriteModule('power-timing'));
+// 电源页是否可操作（单路手动通断 + 定时），用于整页只读 gate：
+// canExecute（admin/operator）并上 power-timing 写（admin/hardware/config）= admin/operator/hardware/config。
+// 这两个纯后台角色第六轮起落地前台电源页（不再自动进后台）。可见回路与能否写某一域由后端按
+// 角色域强制（hardware 全域、config 仅园区、operator 仅展厅），前端只决定是否进只读；
+// viewer 不在并集 → 整页只读。批量全部/楼层/时序/改名仍仅 admin（canEdit 单独 gate）。
+const canControlPower = computed<boolean>(() => perm.canExecute || perm.canWriteModule('power-timing'));
 function openSchedule(c: PowerCircuitView): void {
   schedRef.value?.open(c);
 }
@@ -372,7 +378,7 @@ useActivePolling(startPolling, stopPolling);
 </script>
 
 <template>
-  <section class="v2-page" :class="{ 'device-readonly': !perm.canExecute }">
+  <section class="v2-page" :class="{ 'device-readonly': !canControlPower }">
     <!-- 页面头部 -->
     <header class="v2-page-head">
       <div class="back-row">
@@ -380,7 +386,7 @@ useActivePolling(startPolling, stopPolling);
           <ArrowLeft :size="18" :stroke-width="2" />
         </button>
         <div class="title-block">
-          <div class="title"><Zap :size="18" :stroke-width="1.8" /> 电源管理<span v-if="!perm.canExecute" class="device-readonly-chip">只读</span></div>
+          <div class="title"><Zap :size="18" :stroke-width="1.8" /> 电源管理<span v-if="!canControlPower" class="device-readonly-chip">只读</span></div>
         </div>
         <!-- 域一级切换（第五轮）：仅多域角色 admin/hardware 显示；单域角色锁定唯一域。
              一键通断只作用于当前域，不提供跨域"全部"。 -->

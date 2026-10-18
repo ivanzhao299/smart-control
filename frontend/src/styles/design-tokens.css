@@ -1038,6 +1038,20 @@ body { overscroll-behavior: none; }
   .el-drawer__header { margin-bottom: 0 !important; padding: max(14px, env(safe-area-inset-top)) 16px 14px !important; }
   .el-drawer__body { padding: 12px 16px !important; }
   .el-drawer__footer { padding: 12px 16px !important; }
+  /* 自动开关配置抽屉（.sched-sheet，前台电源页时钟入口）：手机端改为四周留边的圆角悬浮卡，
+     不再全屏贴边直角；遮罩 .el-overlay 仍全屏，点遮罩照常关闭。特异性高于上面的全屏抽屉规则，
+     仅作用于该抽屉，其余后台抽屉保持全屏。 */
+  .el-drawer.sched-sheet.rtl {
+    top: 12px;
+    right: 12px;
+    bottom: 12px;
+    width: calc(100% - 24px) !important;
+    height: auto !important;
+    max-height: calc(100dvh - 24px) !important;
+    border-radius: var(--v2-r-lg) !important;
+  }
+  /* 悬浮卡已内缩到安全区内侧，header 不再叠加顶部安全区高度，避免顶部空一大块。 */
+  .el-drawer.sched-sheet .el-drawer__header { padding-top: 14px !important; }
   .el-dialog {
     width: calc(100% - 16px) !important;
     max-width: calc(100% - 16px) !important;
