@@ -21,7 +21,7 @@ const sceneOptions = ref<SceneSummary[]>([]);
 const dialogVisible = ref(false);
 const dialogMode = ref<'create' | 'edit'>('create');
 const formRef = ref<FormInstance>();
-const form = reactive<SchedulerPayload & { id?: number }>({
+const form = reactive<SchedulerPayload & { id?: number; configRevision?: number }>({
   name: '',
   cron: '0 9 * * *',
   sceneCode: '',
@@ -70,6 +70,7 @@ function openCreate(): void {
   dialogMode.value = 'create';
   Object.assign(form, {
     id: undefined,
+    configRevision: undefined,
     name: '',
     cron: '0 9 * * *',
     sceneCode: sceneOptions.value[0]?.code ?? '',
@@ -84,6 +85,7 @@ function openEdit(row: SchedulerTask): void {
   dialogMode.value = 'edit';
   Object.assign(form, {
     id: row.id,
+    configRevision: row.configRevision,
     name: row.name,
     cron: row.cron,
     sceneCode: row.sceneCode,
@@ -99,10 +101,25 @@ async function submit(): Promise<void> {
     if (!valid) return;
     try {
       if (dialogMode.value === 'create') {
-        await adminSchedulerService.create(form);
+        await adminSchedulerService.create({
+          name: form.name,
+          code: form.code,
+          cron: form.cron,
+          sceneCode: form.sceneCode,
+          description: form.description,
+          enabled: form.enabled,
+        });
         ElMessage.success('已创建');
       } else if (form.id) {
-        await adminSchedulerService.update(form.id, form);
+        await adminSchedulerService.update(form.id, {
+          name: form.name,
+          code: form.code,
+          cron: form.cron,
+          sceneCode: form.sceneCode,
+          description: form.description,
+          enabled: form.enabled,
+          expectedRevision: form.configRevision ?? 0,
+        });
         ElMessage.success('已更新');
       }
       dialogVisible.value = false;
@@ -117,9 +134,9 @@ async function toggleEnabled(row: SchedulerTask): Promise<void> {
   if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   try {
     if (row.enabled) {
-      await adminSchedulerService.disable(row.id);
+      await adminSchedulerService.disable(row.id, row.configRevision);
     } else {
-      await adminSchedulerService.enable(row.id);
+      await adminSchedulerService.enable(row.id, row.configRevision);
     }
     ElMessage.success(`已${row.enabled ? '停用' : '启用'} ${row.name}`);
     await refresh();
@@ -134,7 +151,7 @@ async function remove(row: SchedulerTask): Promise<void> {
     await ElMessageBox.confirm(`确认删除定时任务「${row.name}」?`, '删除确认', { type: 'warning' });
   } catch { return; }
   try {
-    await adminSchedulerService.remove(row.id);
+    await adminSchedulerService.remove(row.id, row.configRevision);
     ElMessage.success('已删除');
     await refresh();
   } catch (err) {

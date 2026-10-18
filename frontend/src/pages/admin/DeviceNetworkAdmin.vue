@@ -388,6 +388,7 @@ async function save(row: NetworkRow): Promise<void> {
   row.saving = true;
   try {
     const updated = await adminHardwareService.update(row.unit.id, {
+      expectedRevision: row.unit.configRevision,
       ip,
       addressing: mergePort(row.unit.addressing, portTrim) ?? undefined,
     });
@@ -399,7 +400,8 @@ async function save(row: NetworkRow): Promise<void> {
     void deviceService.triggerHealthProbe().catch(() => {});
     setTimeout(() => { void refreshGateways(); }, 3000);
   } catch (e) {
-    ElMessage.error((e as Error).message || '保存失败');
+    const message = (e as Error).message || '保存失败';
+    ElMessage.error(message.includes('409') ? '配置已被其他管理员修改，请先刷新后再保存' : message);
   } finally {
     row.saving = false;
   }

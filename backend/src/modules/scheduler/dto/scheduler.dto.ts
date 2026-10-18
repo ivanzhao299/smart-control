@@ -33,7 +33,12 @@ export class CreateSchedulerTaskDto {
   enabled?: boolean;
 }
 
-export class UpdateSchedulerTaskDto extends PartialType(CreateSchedulerTaskDto) {}
+export class UpdateSchedulerTaskDto extends PartialType(CreateSchedulerTaskDto) {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  expectedRevision!: number;
+}
 
 export class QuerySchedulerTaskDto {
   @IsOptional()
@@ -58,4 +63,3 @@ export class QuerySchedulerTaskDto {
   @Max(500)
   pageSize?: number = 50;
 }
-

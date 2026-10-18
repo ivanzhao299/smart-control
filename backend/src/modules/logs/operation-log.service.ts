@@ -1,7 +1,7 @@
 import { Inject, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
-import { Between, FindOptionsWhere, In, LessThan, Like, MoreThanOrEqual, Repository } from 'typeorm';
+import { Between, EntityManager, FindOptionsWhere, In, LessThan, Like, MoreThanOrEqual, Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { LogResult, OperationLog } from '../../entities/operation-log.entity';
 import { QueryLogDto } from './dto/query-log.dto';
@@ -79,8 +79,9 @@ export class OperationLogService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async record(input: RecordLogInput): Promise<OperationLog> {
-    const entity = this.repo.create({
+  async record(input: RecordLogInput, manager?: EntityManager): Promise<OperationLog> {
+    const repo = manager?.getRepository(OperationLog) ?? this.repo;
+    const entity = repo.create({
       operator: input.operator ?? 'system',
       terminal: input.terminal ?? null,
       action: input.action,
@@ -99,7 +100,7 @@ export class OperationLogService implements OnModuleInit, OnModuleDestroy {
             : JSON.stringify(input.rawResponse),
     });
     try {
-      return await this.repo.save(entity);
+      return await repo.save(entity);
     } catch (err) {
       this.logger.error(`Failed to write operation log: ${(err as Error).message}`, {
         context: 'OperationLogService',

@@ -12,6 +12,7 @@ import {
   Post,
   Put,
   Query,
+  Req,
 } from '@nestjs/common';
 import { SchedulerService } from './scheduler.service';
 import {
@@ -19,6 +20,7 @@ import {
   QuerySchedulerTaskDto,
   UpdateSchedulerTaskDto,
 } from './dto/scheduler.dto';
+import { AuthenticatedRequest, requireAdmin } from '../../common/auth/actor';
 
 @Controller('scheduler')
 @UseGuards(ModuleAccessGuard)
@@ -39,42 +41,42 @@ export class SchedulerController {
   }
 
   @Post()
-  async create(@Body() dto: CreateSchedulerTaskDto) {
-    const data = await this.service.create(dto);
+  async create(@Body() dto: CreateSchedulerTaskDto, @Req() req: AuthenticatedRequest) {
+    const data = await this.service.create(dto, requireAdmin(req).username);
     return { message: '创建成功', data };
   }
 
   @Put(':id')
-  async update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateSchedulerTaskDto) {
-    const data = await this.service.update(id, dto);
+  async update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateSchedulerTaskDto, @Req() req: AuthenticatedRequest) {
+    const data = await this.service.update(id, dto, requireAdmin(req).username);
     return { message: '更新成功', data };
   }
 
   @Delete(':id')
   @HttpCode(200)
-  async remove(@Param('id', ParseIntPipe) id: number) {
-    await this.service.remove(id);
+  async remove(@Param('id', ParseIntPipe) id: number, @Query('expectedRevision', ParseIntPipe) expectedRevision: number, @Req() req: AuthenticatedRequest) {
+    await this.service.remove(id, expectedRevision, requireAdmin(req).username);
     return { message: '删除成功', data: null };
   }
 
   @Post(':id/run')
   @HttpCode(200)
-  async runNow(@Param('id', ParseIntPipe) id: number) {
-    await this.service.runNow(id);
+  async runNow(@Param('id', ParseIntPipe) id: number, @Req() req: AuthenticatedRequest) {
+    await this.service.runNow(id, requireAdmin(req).username);
     return { message: '已触发执行', data: null };
   }
 
   @Post(':id/enable')
   @HttpCode(200)
-  async enable(@Param('id', ParseIntPipe) id: number) {
-    const data = await this.service.setEnabled(id, true);
+  async enable(@Param('id', ParseIntPipe) id: number, @Query('expectedRevision', ParseIntPipe) expectedRevision: number, @Req() req: AuthenticatedRequest) {
+    const data = await this.service.setEnabled(id, true, expectedRevision, requireAdmin(req).username);
     return { message: '已启用', data };
   }
 
   @Post(':id/disable')
   @HttpCode(200)
-  async disable(@Param('id', ParseIntPipe) id: number) {
-    const data = await this.service.setEnabled(id, false);
+  async disable(@Param('id', ParseIntPipe) id: number, @Query('expectedRevision', ParseIntPipe) expectedRevision: number, @Req() req: AuthenticatedRequest) {
+    const data = await this.service.setEnabled(id, false, expectedRevision, requireAdmin(req).username);
     return { message: '已停用', data };
   }
 }

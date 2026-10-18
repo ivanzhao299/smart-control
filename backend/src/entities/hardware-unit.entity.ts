@@ -148,6 +148,10 @@ export class HardwareUnit {
   @Column({ type: 'varchar', length: 16, default: 'normal' })
   status!: HardwareStatus;
 
+  /** 配置目录修订号；实时状态刷新不得修改此值。 */
+  @Column({ name: 'config_revision', type: 'integer', default: 1 })
+  configRevision!: number;
+
   /** 启用标志 */
   @Column({ type: 'boolean', default: true })
   enabled!: boolean;

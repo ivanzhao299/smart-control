@@ -61,6 +61,7 @@ export interface SceneCreatePayload {
   description?: string;
   enabled?: boolean;
 }
+export type SceneUpdatePayload = Partial<SceneCreatePayload> & { expectedRevision: number };
 
 export interface SceneActionPayload {
   deviceType: string;
@@ -71,14 +72,15 @@ export interface SceneActionPayload {
   sortOrder?: number;
   enabled?: boolean;
 }
+export type SceneActionUpdatePayload = Partial<SceneActionPayload> & { expectedRevision: number };
 
 export const adminSceneService = {
   list: () => api.get<Paged<SceneSummary>>('/scenes', { params: { pageSize: 200 } }),
   detail: (id: number) => api.get<Scene>(`/scenes/${id}`),
   create: (body: SceneCreatePayload) => api.post<Scene>('/scenes', body),
-  update: (id: number, body: Partial<SceneCreatePayload>) =>
+  update: (id: number, body: SceneUpdatePayload) =>
     api.put<Scene>(`/scenes/${id}`, body),
-  remove: (id: number) => api.del<null>(`/scenes/${id}`),
+  remove: (id: number, expectedRevision: number) => api.del<null>(`/scenes/${id}`, { params: { expectedRevision } }),
   execute: (code: string) => api.post(`/scenes/${code}/execute`),
 };
 
@@ -89,9 +91,9 @@ export const adminSceneActionService = {
     api.post<{ ok: boolean; error?: string; data?: unknown }>(`/scene-actions/${actionId}/test`),
   create: (sceneId: number, body: SceneActionPayload) =>
     api.post<SceneAction>(`/scenes/${sceneId}/actions`, body),
-  update: (actionId: number, body: Partial<SceneActionPayload>) =>
+  update: (actionId: number, body: SceneActionUpdatePayload) =>
     api.put<SceneAction>(`/scene-actions/${actionId}`, body),
-  remove: (actionId: number) => api.del<null>(`/scene-actions/${actionId}`),
+  remove: (actionId: number, expectedRevision: number) => api.del<null>(`/scene-actions/${actionId}`, { params: { expectedRevision } }),
 };
 
 /* ---------- Scheduler ---------- */
@@ -103,18 +105,19 @@ export interface SchedulerPayload {
   description?: string;
   enabled?: boolean;
 }
+export type SchedulerUpdatePayload = Partial<SchedulerPayload> & { expectedRevision: number };
 
 export const adminSchedulerService = {
   list: (params?: { keyword?: string; enabled?: boolean }) =>
     api.get<Paged<SchedulerTask>>('/scheduler', { params: { pageSize: 200, ...params } }),
   detail: (id: number) => api.get<SchedulerTask>(`/scheduler/${id}`),
   create: (body: SchedulerPayload) => api.post<SchedulerTask>('/scheduler', body),
-  update: (id: number, body: Partial<SchedulerPayload>) =>
+  update: (id: number, body: SchedulerUpdatePayload) =>
     api.put<SchedulerTask>(`/scheduler/${id}`, body),
-  remove: (id: number) => api.del<null>(`/scheduler/${id}`),
+  remove: (id: number, expectedRevision: number) => api.del<null>(`/scheduler/${id}`, { params: { expectedRevision } }),
   runNow: (id: number) => api.post<null>(`/scheduler/${id}/run`),
-  enable: (id: number) => api.post<SchedulerTask>(`/scheduler/${id}/enable`),
-  disable: (id: number) => api.post<SchedulerTask>(`/scheduler/${id}/disable`),
+  enable: (id: number, expectedRevision: number) => api.post<SchedulerTask>(`/scheduler/${id}/enable`, undefined, { params: { expectedRevision } }),
+  disable: (id: number, expectedRevision: number) => api.post<SchedulerTask>(`/scheduler/${id}/disable`, undefined, { params: { expectedRevision } }),
 };
 
 /* ---------- Scene Executions ---------- */
@@ -284,7 +287,7 @@ export interface HardwareCreatePayload {
   installedAt?: string;
 }
 
-export type HardwareUpdatePayload = Partial<HardwareCreatePayload>;
+export type HardwareUpdatePayload = Partial<HardwareCreatePayload> & { expectedRevision: number };
 
 export const adminHardwareService = {
   list: (params?: { category?: HardwareCategory; floor?: string; status?: HardwareStatus; keyword?: string; enabled?: boolean }) =>
@@ -293,7 +296,7 @@ export const adminHardwareService = {
   detail: (id: number) => api.get<HardwareUnit>(`/hardware/${id}`),
   create: (body: HardwareCreatePayload) => api.post<HardwareUnit>('/hardware', body),
   update: (id: number, body: HardwareUpdatePayload) => api.put<HardwareUnit>(`/hardware/${id}`, body),
-  remove: (id: number) => api.del<null>(`/hardware/${id}`),
+  remove: (id: number, expectedRevision: number) => api.del<null>(`/hardware/${id}`, { params: { expectedRevision } }),
   changeBreakerAddress: (id: number, slaveId: number) =>
     api.post<{ oldSlaveId: number; newSlaveId: number; verified: boolean }>(
       `/hardware/${id}/breaker-address`,

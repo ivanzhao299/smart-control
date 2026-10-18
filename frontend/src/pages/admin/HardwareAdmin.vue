@@ -93,7 +93,7 @@ async function refresh(): Promise<void> {
 const dialogVisible = ref(false);
 const dialogMode = ref<'create' | 'edit'>('create');
 const formRef = ref<FormInstance>();
-const form = reactive<HardwareCreatePayload & { id?: number }>({
+const form = reactive<HardwareCreatePayload & { id?: number; configRevision?: number }>({
   code: '',
   name: '',
   category: 'other',
@@ -310,6 +310,7 @@ function openEdit(row: HardwareUnit): void {
     ip: row.ip ?? '', macAddress: row.macAddress ?? '',
     addressing: row.addressing ?? '', channels: row.channels ?? '',
     status: row.status, enabled: row.enabled,
+    configRevision: row.configRevision,
     remark: row.remark ?? '', installedAt: row.installedAt ?? '',
   });
   syncStructuredFromForm();
@@ -344,13 +345,14 @@ async function submit(): Promise<void> {
         await adminHardwareService.create(payload);
         ElMessage.success('已添加');
       } else if (form.id) {
-        await adminHardwareService.update(form.id, payload);
+        await adminHardwareService.update(form.id, { ...payload, expectedRevision: form.configRevision ?? 0 });
         ElMessage.success('已更新');
       }
       dialogVisible.value = false;
       await refresh();
     } catch (err) {
-      ElMessage.error('保存失败: ' + (err as Error).message);
+      const message = (err as Error).message;
+      ElMessage.error(message.includes('409') ? '配置已被其他管理员修改，请先刷新后再保存' : '保存失败: ' + message);
     }
   });
 }
@@ -359,7 +361,7 @@ async function remove(row: HardwareUnit): Promise<void> {
   if (!canEdit) { ElMessage.warning('当前角色无权限'); return; }
   try {
     await ElMessageBox.confirm(`删除硬件 ${row.code} (${row.name})?`, '确认', { type: 'warning' });
-    await adminHardwareService.remove(row.id);
+      await adminHardwareService.remove(row.id, row.configRevision);
     ElMessage.success('已删除');
     await refresh();
   } catch (err) {

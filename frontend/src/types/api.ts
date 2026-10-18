@@ -41,6 +41,7 @@ export interface SceneSummary {
   name: string;
   description: string | null;
   enabled: boolean;
+  configRevision: number;
 }
 
 export interface Scene extends SceneSummary {
@@ -57,6 +58,7 @@ export interface SceneAction {
   delayMs: number;
   sortOrder: number;
   enabled: boolean;
+  configRevision: number;
 }
 
 export interface SceneExecution {
@@ -146,6 +148,7 @@ export interface SchedulerTask {
   cron: string;
   sceneCode: string;
   enabled: boolean;
+  configRevision: number;
   lastRunAt: string | null;
   nextRunAt: string | null;
   lastRunStatus: string | null;
@@ -665,6 +668,7 @@ export interface HardwareUnit {
   addressing: string | null;
   channels: string | null;
   status: HardwareStatus;
+  configRevision: number;
   enabled: boolean;
   remark: string | null;
   installedAt: string | null;

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Inject,
   Injectable,
@@ -9,9 +10,11 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { CronJob } from 'cron';
-import { Like, Repository } from 'typeorm';
+import { DataSource, Like, Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { SchedulerTask } from '../../entities/scheduler-task.entity';
+import { AuditLog } from '../../entities/audit-log.entity';
+import { serializedTransaction } from '../../common/utils/serialized-transaction';
 import { SceneEngineService } from '../../services/scene-engine.service';
 import { OperationLogService } from '../logs/operation-log.service';
 import {
@@ -29,6 +32,7 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
     @InjectRepository(SchedulerTask) private readonly repo: Repository<SchedulerTask>,
     private readonly engine: SceneEngineService,
     private readonly logService: OperationLogService,
+    private readonly dataSource: DataSource,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
@@ -75,87 +79,96 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
     return t;
   }
 
-  async create(dto: CreateSchedulerTaskDto): Promise<SchedulerTask> {
+  async create(dto: CreateSchedulerTaskDto, operator = 'system'): Promise<SchedulerTask> {
     const exists = await this.repo.findOne({ where: { name: dto.name } });
     if (exists) throw new ConflictException(`任务名称已存在: ${dto.name}`);
     this.assertCron(dto.cron);
 
-    const entity = this.repo.create({
-      name: dto.name,
-      code: dto.code ?? null,
-      description: dto.description ?? null,
-      cron: dto.cron,
-      sceneCode: dto.sceneCode,
-      enabled: dto.enabled ?? true,
-      nextRunAt: this.calcNextRun(dto.cron),
+    const saved = await serializedTransaction(this.dataSource, async (mgr) => {
+      const entity = mgr.create(SchedulerTask, {
+        name: dto.name,
+        code: dto.code ?? null,
+        description: dto.description ?? null,
+        cron: dto.cron,
+        sceneCode: dto.sceneCode,
+        enabled: dto.enabled ?? true,
+        nextRunAt: this.calcNextRun(dto.cron),
+      });
+      const created = await mgr.save(entity);
+      await mgr.insert(AuditLog, { entityType: 'scheduler', entityId: String(created.id), action: 'create', operator,
+        snapshotBefore: null, snapshotAfter: JSON.stringify(created), remark: 'scheduler configuration' });
+      await this.logService.record({ operator, action: 'scheduler.create', targetType: 'scheduler', targetId: String(created.id), message: `${created.name} → ${created.sceneCode} (${created.cron})` }, mgr);
+      return created;
     });
-    const saved = await this.repo.save(entity);
     if (saved.enabled) await this.spawn(saved);
-    await this.logService.record({
-      operator: 'admin',
-      action: 'scheduler.create',
-      targetType: 'scheduler',
-      targetId: String(saved.id),
-      message: `${saved.name} → ${saved.sceneCode} (${saved.cron})`,
-    });
     return saved;
   }
 
-  async update(id: number, dto: UpdateSchedulerTaskDto): Promise<SchedulerTask> {
-    const task = await this.findOne(id);
+  async update(id: number, dto: UpdateSchedulerTaskDto, operator = 'system'): Promise<SchedulerTask> {
+    if (!Number.isInteger(dto.expectedRevision) || dto.expectedRevision < 1) throw new BadRequestException('expectedRevision must be a positive integer');
+    const saved = await serializedTransaction(this.dataSource, async (mgr) => {
+    const task = await mgr.findOne(SchedulerTask, { where: { id } });
+    if (!task) throw new NotFoundException(`定时任务不存在: id=${id}`);
+    if (task.configRevision !== dto.expectedRevision) throw new ConflictException({ code: 'SCHEDULER_REVISION_CONFLICT', expectedRevision: dto.expectedRevision, currentRevision: task.configRevision });
+    const before = { ...task };
 
     if (dto.name && dto.name !== task.name) {
-      const dup = await this.repo.findOne({ where: { name: dto.name } });
+      const dup = await mgr.findOne(SchedulerTask, { where: { name: dto.name } });
       if (dup && dup.id !== id) throw new ConflictException(`任务名称已存在: ${dto.name}`);
     }
     if (dto.cron) this.assertCron(dto.cron);
 
-    Object.assign(task, dto);
+    const { expectedRevision: _expectedRevision, ...changes } = dto;
+    Object.assign(task, changes);
     if (dto.cron) task.nextRunAt = this.calcNextRun(dto.cron);
-    const saved = await this.repo.save(task);
-    await this.respawn(saved);
-    await this.logService.record({
-      operator: 'admin',
-      action: 'scheduler.update',
-      targetType: 'scheduler',
-      targetId: String(id),
-      message: `${saved.name} enabled=${saved.enabled}`,
+    task.configRevision += 1;
+    const updated = await mgr.save(task);
+    await mgr.insert(AuditLog, { entityType: 'scheduler', entityId: String(id), action: 'update', operator,
+      snapshotBefore: JSON.stringify(before), snapshotAfter: JSON.stringify(updated), remark: 'scheduler configuration' });
+    await this.logService.record({ operator, action: 'scheduler.update', targetType: 'scheduler', targetId: String(id), message: `${updated.name} enabled=${updated.enabled}` }, mgr);
+    return updated;
     });
+    await this.respawn(saved);
     return saved;
   }
 
-  async setEnabled(id: number, enabled: boolean, operator = 'admin'): Promise<SchedulerTask> {
-    const task = await this.findOne(id);
+  async setEnabled(id: number, enabled: boolean, expectedRevision: number, operator = 'system'): Promise<SchedulerTask> {
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 1) throw new BadRequestException('expectedRevision must be a positive integer');
+    const saved = await serializedTransaction(this.dataSource, async (mgr) => {
+    const task = await mgr.findOne(SchedulerTask, { where: { id } });
+    if (!task) throw new NotFoundException(`定时任务不存在: id=${id}`);
+    if (task.configRevision !== expectedRevision) throw new ConflictException({ code: 'SCHEDULER_REVISION_CONFLICT', expectedRevision, currentRevision: task.configRevision });
     if (task.enabled === enabled) return task;
+    const before = { ...task };
     task.enabled = enabled;
     if (enabled) task.nextRunAt = this.calcNextRun(task.cron);
     else task.nextRunAt = null;
-    const saved = await this.repo.save(task);
-    await this.respawn(saved);
-    await this.logService.record({
-      operator,
-      action: enabled ? 'scheduler.enable' : 'scheduler.disable',
-      targetType: 'scheduler',
-      targetId: String(id),
-      message: saved.name,
+    task.configRevision += 1;
+    const updated = await mgr.save(task);
+    await mgr.insert(AuditLog, { entityType: 'scheduler', entityId: String(id), action: 'update', operator,
+      snapshotBefore: JSON.stringify(before), snapshotAfter: JSON.stringify(updated), remark: enabled ? 'scheduler enabled' : 'scheduler disabled' });
+    await this.logService.record({ operator, action: enabled ? 'scheduler.enable' : 'scheduler.disable', targetType: 'scheduler', targetId: String(id), message: updated.name }, mgr);
+    return updated;
     });
+    await this.respawn(saved);
     this.logger.info(`Scheduler ${enabled ? 'enabled' : 'disabled'}: #${id} ${saved.name}`, {
       context: 'SchedulerService',
     });
     return saved;
   }
 
-  async remove(id: number): Promise<void> {
-    const task = await this.findOne(id);
-    this.kill(id);
-    await this.repo.remove(task);
-    await this.logService.record({
-      operator: 'admin',
-      action: 'scheduler.delete',
-      targetType: 'scheduler',
-      targetId: String(id),
-      message: task.name,
+  async remove(id: number, expectedRevision: number, operator = 'system'): Promise<void> {
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 1) throw new BadRequestException('expectedRevision must be a positive integer');
+    await serializedTransaction(this.dataSource, async (mgr) => {
+      const task = await mgr.findOne(SchedulerTask, { where: { id } });
+      if (!task) throw new NotFoundException(`定时任务不存在: id=${id}`);
+      if (task.configRevision !== expectedRevision) throw new ConflictException({ code: 'SCHEDULER_REVISION_CONFLICT', expectedRevision, currentRevision: task.configRevision });
+      await mgr.remove(task);
+      await mgr.insert(AuditLog, { entityType: 'scheduler', entityId: String(id), action: 'delete', operator,
+        snapshotBefore: JSON.stringify(task), snapshotAfter: null, remark: 'scheduler configuration' });
+      await this.logService.record({ operator, action: 'scheduler.delete', targetType: 'scheduler', targetId: String(id), message: task.name }, mgr);
     });
+    this.kill(id);
   }
 
   /** 立即触发一次 (调试用), 不影响 cron 计划 */
