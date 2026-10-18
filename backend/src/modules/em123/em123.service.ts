@@ -11,10 +11,13 @@ import {
   type Em123MeterRaw,
   type Em123UsageRaw,
   type Em123HourlyRaw,
+  type Em123RawRow,
+  type Em123ExportFile,
 } from './em123.client';
 import {
   num,
   round1,
+  round2,
   parseMeterLocation,
   subMeterTag,
 } from './em123.mapping';
@@ -648,6 +651,145 @@ export class Em123Service implements OnModuleInit, OnModuleDestroy {
       .getMany(), true);
     return summary;
   }
+
+  // ==================== 一期: PWA 能源管理后台 (只读) ====================
+
+  /** 已启用并具备平台客户端, 否则抛错。 */
+  private ensureClient(): Em123Client {
+    if (!this.cfg.enabled || !this.client) {
+      throw new Error('em123 平台未启用或未配置账号, 暂不可查询');
+    }
+    return this.client;
+  }
+
+  /**
+   * 欠费/透支明细 (由已落库表档案派生, 不额外请求平台)。
+   * 两个口径分开, 避免误读:
+   *   - household: 分户表余额<0 的欠费户数与金额 (电 28 / 水 8, 共 36 户);
+   *   - master:    关口总表(三相)负余额透支, 覆盖公区/商业/大棚等未装分户表负荷,
+   *                金额可能很大(电费负余额主要集中在关口总表), 不属于"欠费户"。
+   */
+  async getArrears(type: 'E' | 'W') {
+    const tree = await this.getTree(type);
+    const meters: Em123MeterView[] = [];
+    tree?.groups.forEach((g) => g.meters.forEach((m) => meters.push(m)));
+    const household = meters.filter((m) => m.kind === 'household' && m.money < 0);
+    const master = meters.filter((m) => m.kind === 'master' && m.money < 0);
+    const sum = (arr: Em123MeterView[]) =>
+      round2(arr.reduce((s, m) => s + m.money, 0));
+    return {
+      type,
+      household: { count: household.length, amount: sum(household), list: household },
+      master: { count: master.length, amount: sum(master), list: master },
+    };
+  }
+
+  /** 把扁平查询参数转成平台表单参数 (时间范围映射为若依 params[beginTime]/[endTime])。 */
+  private buildListParams(q: Record<string, string>): Record<string, string | number> {
+    const pageNum = Math.max(1, Math.min(Number(q.pageNum) || 1, 10_000));
+    const pageSize = Math.max(1, Math.min(Number(q.pageSize) || 20, 200));
+    const p: Record<string, string | number> = { pageNum, pageSize };
+    const directKeys = [
+      'meterNo',
+      'meterType',
+      'houseName',
+      'meterId',
+      'chargeMode',
+      'chargeWay',
+      'chargeStatus',
+      'status',
+      'controlType',
+      'controlCode',
+      'controlName',
+      'controlStatus',
+      'operateType',
+      'orderByColumn',
+      'isAsc',
+    ];
+    for (const k of directKeys) {
+      const v = q[k];
+      if (v !== undefined && v !== null && String(v).trim() !== '') p[k] = String(v).trim();
+    }
+    if (q.beginTime) p['params[beginTime]'] = q.beginTime;
+    if (q.endTime) p['params[endTime]'] = q.endTime;
+    return p;
+  }
+
+  /** 缴费流水分页 (实时代理 /record/charge/list)。 */
+  async listCharges(q: Record<string, string>): Promise<{
+    rows: Em123RawRow[];
+    total: number;
+    code?: number;
+    msg?: string;
+  }> {
+    const client = this.ensureClient();
+    const j = await client.fetchCharges(this.buildListParams(q));
+    return { rows: j.rows ?? [], total: Number(j.total ?? j.rows?.length ?? 0), code: j.code, msg: j.msg };
+  }
+
+  /** 控制记录分页 (实时代理 /record/control/list)。 */
+  async listControlRecords(q: Record<string, string>): Promise<{
+    rows: Em123RawRow[];
+    total: number;
+    code?: number;
+    msg?: string;
+  }> {
+    const client = this.ensureClient();
+    const j = await client.fetchControlRecords(this.buildListParams(q));
+    return { rows: j.rows ?? [], total: Number(j.total ?? j.rows?.length ?? 0), code: j.code, msg: j.msg };
+  }
+
+  /**
+   * 只读召测 (仅触发一次抄表, 不改开关/状态)。
+   * 前端视图以 meterNo 为键, 平台召测接口用 meterId; 先实时查一次档案解析 meterId。
+   */
+  async requestReadout(meterNo: string, type: 'E' | 'W'): Promise<{ code?: number; msg?: string }> {
+    const client = this.ensureClient();
+    const no = String(meterNo ?? '').trim();
+    if (!no) throw new Error('meterNo 不能为空');
+    const rows = await client.fetchMeters(type);
+    const hit = rows.find((r) => String(r.meterNo ?? '').trim() === no);
+    const meterId = hit?.meterId;
+    if (meterId === undefined || meterId === null || meterId === '') {
+      throw new Error(`未在平台找到${type === 'W' ? '水' : '电'}表 ${no}, 无法召测`);
+    }
+    return client.requestReadout(String(meterId));
+  }
+
+  /**
+   * 一键导出真实 xlsx (平台两步代理)。
+   * @param kind meter=表档案 / charge=缴费流水 / usage=用量报表
+   */
+  async exportXlsx(
+    kind: 'meter' | 'charge' | 'usage',
+    q: Record<string, string>,
+  ): Promise<Em123ExportFile> {
+    const client = this.ensureClient();
+    const p: Record<string, string | number> = {};
+    if (q.beginTime) p['params[beginTime]'] = q.beginTime;
+    if (q.endTime) p['params[endTime]'] = q.endTime;
+    let path: string;
+    if (kind === 'meter') {
+      path = '/basic/meter/export';
+      p.meterType = q.meterType === 'W' ? 'W' : 'E';
+    } else if (kind === 'charge') {
+      path = '/record/charge/export';
+      if (q.chargeMode) p.chargeMode = q.chargeMode;
+      if (q.chargeWay) p.chargeWay = q.chargeWay;
+    } else {
+      // 用量报表导出平台侧强制要求时间范围(无参直接返回 500), 且逐表汇总较慢
+      // (实测近 30 天约 43s); 未传时间窗时默认近 30 天, 保证端点健壮可用。
+      path = '/report/record/usage/export';
+      if (q.meterType) p.meterType = q.meterType === 'W' ? 'W' : 'E';
+      if (!q.beginTime) {
+        const begin = new Date();
+        begin.setDate(begin.getDate() - 29);
+        p['params[beginTime]'] = localDateStr(begin);
+      }
+      if (!q.endTime) p['params[endTime]'] = localDateStr();
+    }
+    return client.exportFile(path, p);
+  }
 }
 
 /**
@@ -711,7 +853,10 @@ export function buildSummary(
     const isCutOff = m.meterStatus === '1';
     if (isCutOff) cutOff++;
     const isHousehold = m.kind === 'household';
-    const isArrears = isHousehold && m.chargeMoney < 0;
+    // 欠费判定统一以展示口径（余额保留 1 位小数后）为准，避免 -0.04 元这类
+    // 微负余额在逐表徽标显示"欠费"、而余额却显示 0.00 的自相矛盾。
+    const money = round1(m.chargeMoney);
+    const isArrears = isHousehold && money < 0;
     if (isArrears) arrears++;
     if (m.kind === 'master') masterCount++;
     else householdCount++;
@@ -750,7 +895,7 @@ export function buildSummary(
       readingTime: m.readingTime,
       today: t,
       month: mo,
-      money: round1(m.chargeMoney),
+      money,
       arrears: isArrears,
       online: isOnline,
       cutOff: isCutOff,

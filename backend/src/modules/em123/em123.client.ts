@@ -9,6 +9,12 @@
  *   - 会话过期/302 时重新登录后重试一次 (登录并发去重)。
  *
  * 本客户端只做只读取数, 不封装任何拉合闸/写操作。
+ *
+ * 一期新增 (PWA 能源管理后台, 均为只读):
+ *   - 缴费流水 /record/charge/list、控制记录 /record/control/list 分页查询 (字段原样透传)。
+ *   - 平台导出代理: POST /xxx/export 触发生成 → GET /common/download 取回真实 xlsx。
+ *   - 只读召测 POST /record/meter/reading: 仅触发平台立即抄一次表, 不改任何状态/不合闸不写卡。
+ * 明确不封装: 拉闸/合闸/校时/改名/充值/退费/减免/预值/换表等任何写操作。
  */
 
 export interface Em123ClientOptions {
@@ -103,6 +109,15 @@ interface RuoYiRows<T> {
   total?: number;
   rows?: T[];
   [key: string]: unknown;
+}
+
+/** 平台任意业务列表行 (缴费/控制记录等), 字段原样透传, 不在后端强类型化。 */
+export type Em123RawRow = Record<string, unknown>;
+
+/** 导出两步结果: 真实 xlsx 字节 + 平台返回的文件名。 */
+export interface Em123ExportFile {
+  buffer: Buffer;
+  fileName: string;
 }
 
 const PAGE_SIZE = 500; // 表档案分页 (全园区仅 148 块, 1 页)
@@ -325,5 +340,90 @@ export class Em123Client {
   async healthCheck(): Promise<{ ok: true; meterCount: number }> {
     const rows = await this.fetchMeters('E');
     return { ok: true, meterCount: rows.length };
+  }
+
+  /**
+   * 通用分页列表查询 (一期: 缴费流水/控制记录等后台业务表)。
+   * 查询参数由调用方原样透传 (pageNum/pageSize/时间/方式/状态/关键字); 只走 POST 表单,
+   * 平台业务行字段较多且会随版本变化, 后端不做字段裁剪, 原样返回给前端展示。
+   */
+  async fetchList(
+    path: string,
+    params: Record<string, string | number>,
+  ): Promise<RuoYiRows<Em123RawRow>> {
+    return this.postForm<RuoYiRows<Em123RawRow>>(path, {
+      pageSize: 20,
+      pageNum: 1,
+      ...params,
+    });
+  }
+
+  /** 缴费流水分页 (POST /record/charge/list), 只读。 */
+  fetchCharges(params: Record<string, string | number>) {
+    return this.fetchList('/record/charge/list', params);
+  }
+
+  /** 控制记录分页 (POST /record/control/list), 只读。 */
+  fetchControlRecords(params: Record<string, string | number>) {
+    return this.fetchList('/record/control/list', params);
+  }
+
+  /**
+   * 只读召测 (POST /record/meter/reading): 请求平台立即对指定表抄读一次。
+   * 这是查询性质的"指令"——只触发一次读表, 不改变开关/不充值/不改任何状态。
+   * @param meterIds 逗号分隔的 meterId 列表 (如 "9988" 或 "9988,9989")
+   */
+  async requestReadout(meterIds: string): Promise<RuoYiRows<unknown>> {
+    const ids = String(meterIds ?? '').trim();
+    if (!ids) throw new Error('meterIds 不能为空');
+    return this.postForm<RuoYiRows<unknown>>('/record/meter/reading', { meterIds: ids });
+  }
+
+  /**
+   * 平台导出两步代理 (只读, 取回真实 xlsx):
+   *   1) POST ${exportPath} (如 /record/charge/export) 触发生成, 返回 { code:0, msg:"<文件名>.xlsx" };
+   *   2) GET  /common/download?fileName=<encode>&delete=false 带 Cookie 取回二进制。
+   * 返回原始字节与文件名; 校验 PK 头确保不是登录页/错误页 HTML。
+   */
+  async exportFile(
+    exportPath: string,
+    params: Record<string, string | number>,
+  ): Promise<Em123ExportFile> {
+    const j = await this.postForm<RuoYiRows<unknown>>(exportPath, params);
+    const fileName = String(j.msg ?? '').trim();
+    if (!fileName) throw new Error(`导出 ${exportPath} 未返回文件名`);
+    const buffer = await this.downloadCommon(fileName);
+    return { buffer, fileName };
+  }
+
+  /** 带 Cookie 下载 /common/download, 会话过期重登一次; 校验 xlsx PK 头。 */
+  private async downloadCommon(fileName: string): Promise<Buffer> {
+    const url = `${this.baseUrl}/common/download?fileName=${encodeURIComponent(
+      fileName,
+    )}&delete=false`;
+    const doGet = (): Promise<Response> =>
+      fetch(url, {
+        method: 'GET',
+        headers: { Accept: '*/*', ...(this.cookie ? { Cookie: this.cookie } : {}) },
+        redirect: 'manual',
+        signal: AbortSignal.timeout(Math.max(this.timeoutMs, 60_000)),
+      });
+
+    if (!this.cookie) await this.login();
+    let resp = await doGet();
+    if (resp.status === 302 || resp.status === 0) {
+      this.cookie = '';
+      await this.login();
+      resp = await doGet();
+    }
+    if (!resp.ok) throw new Error(`下载导出文件失败 HTTP ${resp.status}`);
+    const contentType = resp.headers.get('content-type') ?? '';
+    const buf = Buffer.from(await resp.arrayBuffer());
+    // 真实 xlsx 以 PK\x03\x04 开头; 若拿到 HTML (登录页/错误页), 抛出可读错误。
+    if (buf.length < 4 || buf[0] !== 0x50 || buf[1] !== 0x4b) {
+      const head = buf.toString('utf8', 0, Math.min(buf.length, 200)).replace(/\s+/g, ' ');
+      throw new Error(`下载内容不是有效 xlsx (content-type=${contentType || '未知'}) ${head.slice(0, 120)}`);
+    }
+    return buf;
   }
 }
