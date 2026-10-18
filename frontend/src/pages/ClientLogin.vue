@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick, onBeforeUnmount, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { Lock, UserRound, Globe, Wifi, CheckCircle2, XCircle, Trash2, History, ScanFace } from 'lucide-vue-next';
+import { Lock, UserRound, ScanFace } from 'lucide-vue-next';
 import { readSavedUsername, useClientAuthStore } from '@/stores/client-auth';
 import { useSystemBrandingStore } from '@/stores/system-branding';
 import { useToastStore } from '@/stores/toast';
-import { getServerHistory, addServerHistory, removeServerHistory } from '@/services/server-history';
+import { addServerHistory } from '@/services/server-history';
 import { shellBioRead, shellBioSave, shellBioClear, shellBioLogin, type ShellBioState } from '@/composables/useShellBio';
 import { HttpError } from '@/services/http';
 import { normalizeClientRedirect } from '@/services/client-login-journey';
@@ -16,9 +16,6 @@ const auth = useClientAuthStore();
 const brandingStore = useSystemBrandingStore();
 const toast = useToastStore();
 
-// 显示裸 origin (http://x.x.x.x:3200), 跟 placeholder 的格式一致; baseURL 自带
-// 的 /api 后缀是内部实现, 让业主看见只会以为要连它一起敲。setApiBaseURL 会自动补回。
-const serverInput = ref<string>(originOf(auth.baseURL));
 const username = ref(readSavedUsername());
 const password = ref('');
 const passwordInput = ref<HTMLInputElement | null>(null);
@@ -51,17 +48,11 @@ onBeforeUnmount(() => {
 
 function focusPasswordIfIdle(): void {
   void nextTick(() => {
-    // Do not steal focus from a username/server field the user has started editing.
+    // Do not steal focus from the username field if the user has started editing.
     if (document.activeElement === document.body) passwordInput.value?.focus();
   });
 }
 
-interface TestResult {
-  state: 'idle' | 'testing' | 'ok' | 'fail';
-  message?: string;
-}
-const test = ref<TestResult>({ state: 'idle' });
-const history = ref<string[]>([]);
 // ============ 面容登录 (2026-07-31, 仅壳 App 内) ============
 // 壳 (Android/iOS v1.1.9+) 注入 window.JinhuShell 桥: 密码存在壳的加密存储
 // (Keystore/Keychain), 清除页面缓存也不丢; 点"面容登录"→ 壳弹系统面容验证
@@ -95,7 +86,6 @@ function syncPasswordToShell(pwd: string): void {
 
 onMounted(async () => {
   void brandingStore.load();
-  history.value = getServerHistory();
   readShellBio();
   // 已经登录就跳走；但 ?logout=1 表示是用户主动点"退出登录"后跳到这里的——
   // 此刻 token 尚未清除（先导航、后清 token，避免受保护页被无 token 重挂重发请求弹 401），
@@ -107,40 +97,8 @@ onMounted(async () => {
   focusPasswordIfIdle();
 });
 
-/** baseURL 带 /api 后缀, 显示/存历史用裸 origin */
-function originOf(base: string): string {
-  return base.replace(/\/api(\/.*)?$/, '');
-}
-
-function useHistoryEntry(url: string): void {
-  serverInput.value = url;
-  void doTest();
-}
-
-function deleteHistoryEntry(url: string): void {
-  removeServerHistory(url);
-  history.value = getServerHistory();
-}
-
 function redirectToTarget(): void {
   router.replace(normalizeClientRedirect(route.query.redirect));
-}
-
-async function doTest(): Promise<void> {
-  if (!serverInput.value.trim()) {
-    test.value = { state: 'fail', message: '请先输入服务器地址' };
-    return;
-  }
-  test.value = { state: 'testing' };
-  auth.setBaseURL(serverInput.value);
-  const result = await auth.testConnection();
-  if (result.ok) {
-    test.value = { state: 'ok', message: `连接成功 · ${result.serverTime?.slice(11, 19) ?? ''}` };
-    addServerHistory(originOf(auth.baseURL));
-    history.value = getServerHistory();
-  } else {
-    test.value = { state: 'fail', message: result.error ?? '无法连接' };
-  }
 }
 
 async function doLogin(fromBiometric = false): Promise<void> {
@@ -153,12 +111,12 @@ async function doLogin(fromBiometric = false): Promise<void> {
     toast.warning('请输入密码');
     return;
   }
-  // 先把 baseURL 写进去 (业主可能改了地址但没按测试)
-  auth.setBaseURL(serverInput.value);
+  // 登录页不再展示服务器配置，直接使用启动时按页面来源确定的 baseURL。
   submitting.value = true;
   try {
     await auth.login(username.value, password.value);
-    addServerHistory(originOf(auth.baseURL));
+    // 首页不展示连接历史，但继续为登录后的服务器设置弹窗记录当前地址。
+    addServerHistory(auth.baseURL.replace(/\/api(\/.*)?$/, ''));
     syncPasswordToShell(password.value);
     toast.success('登录成功');
     redirectToTarget();
@@ -206,60 +164,6 @@ async function doLogin(fromBiometric = false): Promise<void> {
         <p v-if="route.query.reason === 'account-required'" role="status">
           当前保存的是旧版访问会话，尚未绑定用户。请使用用户管理中的用户名和密码登录，管理员账户即可控制设备。
         </p>
-        <!-- 服务器地址 -->
-        <div class="server-row">
-          <div class="field server-field">
-            <Globe :size="16" :stroke-width="1.8" class="field-icon" />
-            <input
-              v-model="serverInput"
-              type="text"
-              class="field-input"
-              placeholder="服务器地址 (e.g. http://192.168.124.11:3200)"
-              autocomplete="url"
-              inputmode="url"
-              spellcheck="false"
-              autocapitalize="off"
-            />
-          </div>
-          <button
-            type="button"
-            class="test-btn"
-            :class="{
-              'state-testing': test.state === 'testing',
-              'state-ok': test.state === 'ok',
-              'state-fail': test.state === 'fail',
-            }"
-            :disabled="test.state === 'testing'"
-            @click="doTest"
-            title="测试连接"
-          >
-            <Wifi v-if="test.state === 'idle' || test.state === 'testing'" :size="16" :stroke-width="2" />
-            <CheckCircle2 v-else-if="test.state === 'ok'" :size="16" :stroke-width="2" />
-            <XCircle v-else :size="16" :stroke-width="2" />
-            <span>{{
-              test.state === 'idle' ? '测试' :
-              test.state === 'testing' ? '测试中' :
-              test.state === 'ok' ? '已连接' :
-              '失败'
-            }}</span>
-          </button>
-        </div>
-        <div v-if="test.state !== 'idle'" class="test-msg" :class="`is-${test.state}`">{{ test.message }}</div>
-
-        <!-- 连接历史 — 连过的服务器点一下即测, 可删 -->
-        <div v-if="history.length" class="history-box">
-          <div class="history-title">
-            <History :size="12" :stroke-width="2" />
-            连接过的服务器
-          </div>
-          <div v-for="h in history" :key="h" class="history-row">
-            <button type="button" class="history-url" @click="useHistoryEntry(h)">{{ h }}</button>
-            <button type="button" class="history-del" title="删除" @click="deleteHistoryEntry(h)">
-              <Trash2 :size="13" :stroke-width="2" />
-            </button>
-          </div>
-        </div>
-
         <!-- 用户管理中配置的实名账户；旧版密码必须先绑定用户名 -->
         <div class="field">
           <UserRound :size="16" :stroke-width="1.8" class="field-icon" />
@@ -413,11 +317,6 @@ async function doLogin(fromBiometric = false): Promise<void> {
 
 .form { display: flex; flex-direction: column; gap: 12px; }
 
-.server-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-}
 .field {
   position: relative;
   display: flex;
@@ -448,96 +347,6 @@ async function doLogin(fromBiometric = false): Promise<void> {
   box-shadow: 0 0 0 3px rgba(76, 154, 255, 0.18);
 }
 .field-input::placeholder { color: var(--v2-text-3); }
-
-.server-field .field-input { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 16px; }
-
-.test-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 14px;
-  border-radius: 10px;
-  background: var(--v2-inset-bg);
-  border: 1px solid var(--v2-border-soft);
-  color: var(--v2-text-2);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.18s ease;
-  white-space: nowrap;
-}
-.test-btn:hover:not(:disabled) {
-  background: var(--v2-surf-1-hover);
-  color: var(--v2-text-1);
-  border-color: var(--v2-primary);
-}
-.test-btn.state-ok {
-  color: #5FCB9B;
-  border-color: rgba(63, 191, 135, 0.45);
-  background: rgba(63, 191, 135, 0.10);
-}
-.test-btn.state-fail {
-  color: #EC8880;
-  border-color: rgba(229, 100, 93, 0.45);
-  background: rgba(229, 100, 93, 0.10);
-}
-.test-btn.state-testing { opacity: 0.7; }
-
-.test-msg {
-  font-size: 11px;
-  padding: 0 4px;
-  margin-top: -4px;
-}
-.test-msg.is-ok { color: #5FCB9B; }
-.test-msg.is-fail { color: #EC8880; }
-.test-msg.is-testing { color: var(--v2-text-3); }
-
-.history-box { margin-top: -2px; }
-.history-title {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  color: var(--v2-text-3);
-  margin-bottom: 4px;
-  padding: 0 2px;
-}
-.history-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 1px 0;
-}
-.history-url {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: left;
-  padding: 7px 10px;
-  border: none;
-  border-radius: 8px;
-  background: var(--v2-ov-1);
-  color: var(--v2-text-2);
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-.history-url:hover { background: rgba(76, 154, 255, 0.1); color: var(--v2-text-1); }
-.history-del {
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--v2-text-3);
-  cursor: pointer;
-}
-.history-del:hover { background: rgba(229, 100, 93, 0.14); color: #EC8880; }
 
 .submit-btn {
   margin-top: 6px;
@@ -616,7 +425,5 @@ async function doLogin(fromBiometric = false): Promise<void> {
   .brand { margin-bottom: 18px; gap: 10px; }
   .brand-logo { width: 40px; height: 40px; font-size: 17px; }
   .brand-title { font-size: 15px; }
-  .server-row { grid-template-columns: 1fr; gap: 8px; }
-  .test-btn { justify-content: center; }
 }
 </style>
