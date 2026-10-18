@@ -59,6 +59,9 @@ test('every startup lifecycle hook stays on the reviewed runtime-state allowlist
     'backend/src/modules/power-schedules/power-schedules.service.ts',
     'backend/src/modules/projector/projector.service.ts',
     'backend/src/modules/pv/pv.service.ts',
+    // 动态 RBAC（P1）：启动时把权限点/内置角色幂等投影（INSERT OR IGNORE，不覆盖人工调整，授权矩阵仍由迁移种子负责），
+    // 再只读重建内存矩阵；表未迁移时 try/catch 回退内置 catalog，无 DDL/无强制写。审查登记。
+    'backend/src/modules/rbac/permission.service.ts',
     'backend/src/modules/scheduler/scheduler.service.ts',
     'backend/src/modules/system/site-heartbeat.service.ts',
     'backend/src/modules/system/system.service.ts',

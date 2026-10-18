@@ -24,7 +24,7 @@ test('admin manifest preserves every route exactly once with explicit access met
     'admin-video-binding', 'admin-lpr', 'admin-uat', 'admin-logs', 'admin-hardware', 'admin-zones-config',
     'admin-light-zones', 'admin-power-circuits', 'admin-audio-config', 'admin-change-password', 'admin-app-release',
     'admin-testflight', 'admin-drivers', 'admin-brands', 'admin-system-branding', 'admin-audit',
-    'admin-users', 'admin-settings', 'admin-park-ops-metrics',
+    'admin-users', 'admin-roles', 'admin-settings', 'admin-park-ops-metrics',
   ]);
   assert.equal(new Set(names).size, names.length);
   assert.equal(new Set(paths).size, paths.length);
@@ -57,7 +57,7 @@ test('admin navigation groups and deep links resolve from the route manifest', (
     '能源:admin-energy:能源管理,admin-auto-switch:自动开关',
     '设备与空间:admin-hardware:硬件清单,admin-devices:设备管理,admin-zones-config:分区配置,admin-video-binding:视频绑定',
     '诊断:admin-logs:日志中心,admin-test-center:测试 / 调试',
-    '系统:admin-settings:系统设置,admin-users:用户管理,admin-system-branding:系统品牌,admin-app-release:APP 版本,admin-testflight:iOS 测试',
+    '系统:admin-settings:系统设置,admin-users:用户管理,admin-roles:角色管理,admin-system-branding:系统品牌,admin-app-release:APP 版本,admin-testflight:iOS 测试',
   ]);
 
   const aliases = {
