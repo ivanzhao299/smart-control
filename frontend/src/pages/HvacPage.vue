@@ -358,6 +358,16 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
           <span v-if="row.state.known && row.state.faultCode > 0" class="cell-fault" :title="'故障码 ' + row.state.faultCode">
             <AlertTriangle :size="14" /> {{ row.state.faultCode }}
           </span>
+          <!-- 方案A 手机端紧凑双行 (2026-10-18): 运行态把"设定温度"放大提到卡头右侧,
+               按模式着色 + 雪花/火焰图标 + 运行绿点, 替代旧 mline 里的小字。桌面端不渲染
+               (桌面仍用 cell-body 大温度); 关机/未知/故障态不显示, 右侧交给 dot/故障码。 -->
+          <span
+            v-if="row.state.known && row.state.on && row.state.faultCode <= 0"
+            class="cell-set-mobile" :class="'m-' + row.state.mode"
+          >
+            <i class="cset-dot"></i>{{ row.state.temperature }}<i class="cset-deg">°</i>
+            <component :is="modeIcon(row.state.mode)" :size="13" />
+          </span>
           <span
             class="cell-dot"
             :class="{ on: row.state.known && row.state.on, unknown: !row.state.known }"
@@ -374,6 +384,11 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
           />
           <template v-else>
             <span class="cell-name-text" :title="row.name">{{ row.name }}</span>
+            <!-- 方案A 手机端第二行右侧: 室温(未读到时占位)。桌面端不渲染。 -->
+            <span class="cell-room-mobile">
+              <template v-if="!row.state.known">未读到</template>
+              <template v-else>室温{{ row.state.roomTemp ?? '–' }}°</template>
+            </span>
             <span class="cell-edit" :class="{ disabled: catalogBusy }" title="改名" @click.stop="startRenameIndoor(row)">
               <Pencil :size="15" />
             </span>
@@ -469,6 +484,16 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
           <span v-if="row.state.known && row.state.faultCode > 0" class="cell-fault" :title="'故障码 ' + row.state.faultCode">
             <AlertTriangle :size="14" /> {{ row.state.faultCode }}
           </span>
+          <!-- 方案A 手机端紧凑双行 (2026-10-18): 运行态把"设定温度"放大提到卡头右侧,
+               按模式着色 + 雪花/火焰图标 + 运行绿点, 替代旧 mline 里的小字。桌面端不渲染
+               (桌面仍用 cell-body 大温度); 关机/未知/故障态不显示, 右侧交给 dot/故障码。 -->
+          <span
+            v-if="row.state.known && row.state.on && row.state.faultCode <= 0"
+            class="cell-set-mobile" :class="'m-' + row.state.mode"
+          >
+            <i class="cset-dot"></i>{{ row.state.temperature }}<i class="cset-deg">°</i>
+            <component :is="modeIcon(row.state.mode)" :size="13" />
+          </span>
           <span
             class="cell-dot"
             :class="{ on: row.state.known && row.state.on, unknown: !row.state.known }"
@@ -485,6 +510,11 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
           />
           <template v-else>
             <span class="cell-name-text" :title="row.name">{{ row.name }}</span>
+            <!-- 方案A 手机端第二行右侧: 室温(未读到时占位)。桌面端不渲染。 -->
+            <span class="cell-room-mobile">
+              <template v-if="!row.state.known">未读到</template>
+              <template v-else>室温{{ row.state.roomTemp ?? '–' }}°</template>
+            </span>
             <span class="cell-edit" :class="{ disabled: catalogBusy }" title="改名" @click.stop="startRenameIndoor(row)">
               <Pencil :size="15" />
             </span>
@@ -917,6 +947,10 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   max-width: 55%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
+/* 方案A 手机端紧凑双行专用块 (2026-10-18): 桌面不渲染, 桌面仍用 .cell-body 大温度 + .cell-foot;
+   仅在 ≤900 媒体查询里改为显示。 */
+.cell-set-mobile, .cell-room-mobile { display: none; }
+
 /* ---- 控制条 ---- */
 /* 控制条: 触摸屏用, 按钮做大做够点得着 (目标高度 ~48px) */
 .hv-bar {
@@ -1059,9 +1093,10 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
      压缩 padding/字号后同屏 8 张, 全场状态两屏扫完。 */
   .hv-grid {
     grid-template-columns: repeat(2, 1fr);
-    /* 行高基准 84 (2026-07-25 三行重构): 头(18) + 名(20) + 元信息行(16) + padding/gap;
-       2026-07-27 改 minmax(84, auto): 长分区名换行等内容超高时该行长高, 不再裁字 */
-    grid-auto-rows: minmax(84px, auto);
+    /* 行高基准 64 (2026-10-18 方案A 双行紧凑): 头(20, 含设定温度) + 名行(21, 含室温)
+       + padding/gap; 旧 84 已随 mline 信息迁移取消。minmax(64, auto): 长名/室温换行
+       时该行长高, 内容永不被裁。 */
+    grid-auto-rows: minmax(64px, auto);
     gap: 6px;
     overflow-y: auto;                      /* 放不下就滚这里, 而不是被裁掉 */
     -webkit-overflow-scrolling: touch;
@@ -1069,20 +1104,15 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   .hz-grid,
   .hv-grid,
   .hv-sections { padding-bottom: 8px; }
-  .hv-cell { padding: 8px 10px; border-radius: 11px; }
+  .hv-cell { padding: 7px 10px 7px 13px; border-radius: 13px; justify-content: center; }
   .hv-cell.sel::before { top: 6px; bottom: 6px; }
   .hv-head { gap: 8px; }
   .hv-stats { display: none; }             /* 顶栏统计让位, 控制权优先 */
-  .cell-name { margin-top: 2px; min-height: 22px; }
-  .cell-name-text { font-size: 15px; }
-  /* 三行重构: body/foot 手机全隐藏, 信息合并进 .cell-mline 一行 */
-  .cell-body, .cell-foot { display: none; }
-  .cell-mline {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 12px; color: var(--v2-text-2);
-    white-space: nowrap; overflow: hidden;
-    margin-top: 2px;
-  }
+  .cell-name { margin-top: 1px; min-height: 21px; }
+  .cell-name-text { font-size: 14px; }
+  /* 三行重构: body/foot 手机全隐藏; 旧 mline 信息 2026-10-18 已迁到
+     cell-set-mobile(头部设定温度) + cell-room-mobile(名行室温), 旧 mline 不再渲染 */
+  .cell-body, .cell-foot, .cell-mline { display: none; }
   .cell-mline .mline-zone { color: var(--v2-text-3); overflow: hidden; text-overflow: ellipsis; }
   .cell-mline .mline-room { color: var(--v2-text-1); font-weight: 600; }
   .cell-mline .mline-off { color: var(--v2-text-3); }
@@ -1092,7 +1122,32 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   .cell-mline .m-auto { color: color-mix(in srgb, #7db6ff 62%, var(--v2-text-1)); }
   .cell-mline .m-dry  { color: color-mix(in srgb, #9d8bff 62%, var(--v2-text-1)); }
   .cell-dot { padding: 2px 8px; font-size: 11px; }
-  .cell-tag { font-size: 12px; }
+  .cell-tag { font-size: 11px; }
+  .cell-fault { font-size: 11px; }
+  /* 方案A 双行: 运行态"运行"文字徽标让位给头部放大的设定温度 (温度+绿点已表达运行);
+     关机/未知/故障态仍保留 关/未知 徽标与故障码 */
+  .hv-cell.running .cell-dot { display: none; }
+  .cell-set-mobile {
+    display: inline-flex; align-items: center; gap: 2px;
+    margin-left: auto; font-size: 20px; font-weight: 600; line-height: 1;
+    letter-spacing: -.5px; color: var(--v2-text-1);
+  }
+  .cell-set-mobile .cset-deg { font-size: 12px; font-style: normal; opacity: .7; margin-left: 1px; }
+  .cell-set-mobile .cset-dot {
+    width: 6px; height: 6px; border-radius: 50%; margin-right: 5px;
+    background: var(--v2-success);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--v2-success) 16%, transparent);
+  }
+  .cell-set-mobile.m-cool { color: color-mix(in srgb, #38d6ff 62%, var(--v2-text-1)); }
+  .cell-set-mobile.m-heat { color: color-mix(in srgb, #ff8a4d 62%, var(--v2-text-1)); }
+  .cell-set-mobile.m-fan  { color: color-mix(in srgb, #4ce0be 62%, var(--v2-text-1)); }
+  .cell-set-mobile.m-auto { color: color-mix(in srgb, #7db6ff 62%, var(--v2-text-1)); }
+  .cell-set-mobile.m-dry  { color: color-mix(in srgb, #9d8bff 62%, var(--v2-text-1)); }
+  .cell-room-mobile {
+    display: inline-block;
+    margin-left: auto; font-size: 11px; font-weight: 400;
+    color: var(--v2-text-2); white-space: nowrap; flex: 0 0 auto;
+  }
   /* 快选条: 默认折叠成一行横向滚动 (14 个分组铺 6 行占掉 1/4 屏), 点「展开」才铺开 */
   .hv-quick:not(.expanded) {
     flex-wrap: nowrap; overflow-x: auto;
@@ -1215,12 +1270,15 @@ const fanLabel = (f: HvacFan): string => fans.find((x) => x.value === f)?.label 
   border: 1px dashed var(--v2-border-soft, #23262C); border-radius: 10px;
 }
 @media (max-width: 1280px) { .sec-grid { grid-template-columns: repeat(4, 1fr); } }
-@media (max-width: 900px)  { .sec-grid { grid-template-columns: repeat(2, 1fr); } }
+/* 方案A 2026-10-18: 编组视图手机端与内机网格同规格 — 两列、卡高 64、gap 6 */
+@media (max-width: 900px)  { .sec-grid { grid-template-columns: repeat(2, 1fr); grid-auto-rows: minmax(64px, auto); gap: 6px; } }
 
 /* 卡片正文永不塌陷 —— 1920 下也一样。
    实测 768: 卡片 161×119, 但 .cell-body 只剩 13px 高, 温度/「关机」直接叠在名字上。
    min-height 给个地板, 内容再多也不会互相压。 */
 .cell-body { min-height: 34px; }
-/* 手机专用一行元信息 — 桌面不渲染视觉 (布局仍以 body/foot 为准) */
+/* 旧手机一行元信息 (.cell-mline, 2026-07-25) 自 2026-10-18 方案A 起已被
+   .cell-set-mobile(头部设定温度) + .cell-room-mobile(名行室温) 取代, 全端不渲染。
+   DOM 暂保留以最小化改动; 桌面同样隐藏。 */
 .cell-mline { display: none; }
 </style>
