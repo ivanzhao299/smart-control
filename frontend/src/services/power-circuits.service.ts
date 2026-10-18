@@ -22,6 +22,8 @@ export interface PowerCircuitView {
   domainName: string | null;
   category: string;
   gatewayCode: string | null;
+  /** 所属网关/硬件中文名（后端 join hardware_units.name，电源页按设备分组做组标题）。 */
+  gatewayName: string | null;
   relayChannel: number | null;
   meterAddress: number | null;
   ratedVoltage: number;
@@ -106,12 +108,19 @@ export const powerCircuitsService = {
   /** 改名 (电源页行内编辑, 不需要 admin) */
   rename: (id: number, name: string) =>
     api.post<PowerCircuitView>(`/power-circuits/${id}/rename`, { name }).then((r) => { invalidate(PC); return r; }),
-  /** 时序器全开 (b3) — 设备按各路延时依次上电 */
-  seqAllOn: () =>
-    api.post<{ on: boolean }>('/power-circuits/sequencer/all-on').then((r) => { invalidate(PC); return r; }),
-  /** 时序器全关 (b3) — 先开的后关 */
-  seqAllOff: () =>
-    api.post<{ on: boolean }>('/power-circuits/sequencer/all-off').then((r) => { invalidate(PC); return r; }),
+  /**
+   * 单台时序器时序开机 (EPO b3 / SEQ55 0D) — 设备按各路延时依次上电。
+   * 必须传 gatewayCode 指定哪一台, 两台各自独立、不允许一个按钮同时控两台。
+   */
+  seqAllOn: (gatewayCode: string) =>
+    api
+      .post<{ on: boolean }>('/power-circuits/sequencer/all-on', { gatewayCode })
+      .then((r) => { invalidate(PC); return r; }),
+  /** 单台时序器时序关机 — 先开的后关, 按延时依次断电。 */
+  seqAllOff: (gatewayCode: string) =>
+    api
+      .post<{ on: boolean }>('/power-circuits/sequencer/all-off', { gatewayCode })
+      .then((r) => { invalidate(PC); return r; }),
 };
 
 /** 电源域（Domain）—— 2026-10-17 第五轮：展厅/园区/新楼栋的可授权分组。 */
@@ -151,6 +160,34 @@ export const powerDomainsService = {
     api.put<PowerDomainView>(`/power-domains/${id}`, dto).then((r) => { invalidate(PD); invalidate(PC); return r; }),
   remove: (id: number) =>
     api.del<null>(`/power-domains/${id}`).then((r) => { invalidate(PD); invalidate(PC); return r; }),
+};
+
+/** 角色×电源域授权（第十六轮，后台可配三态）。 */
+export interface PowerDomainGrantCell {
+  role: string;
+  domainCode: string;
+  canRead: boolean;
+  canWrite: boolean;
+}
+export interface PowerDomainGrantRole {
+  role: string;
+  label: string;
+  builtin: boolean;
+}
+export interface PowerDomainGrantMatrix {
+  domains: Array<{ code: string; name: string; enabled: boolean }>;
+  roles: PowerDomainGrantRole[];
+  lockedRoles: Array<{ role: string; label: string }>;
+  grants: PowerDomainGrantCell[];
+}
+
+/** 角色×域授权矩阵：仅 admin(zones)；保存为全量事务替换。 */
+export const powerDomainGrantService = {
+  get: () => api.get<PowerDomainGrantMatrix>('/power-domain-grants'),
+  save: (grants: PowerDomainGrantCell[]) =>
+    api
+      .put<PowerDomainGrantMatrix>('/power-domain-grants', { grants })
+      .then((r) => { invalidate(PD); invalidate(PC); return r; }),
 };
 
 /** 电源回路自动开关 (定时 + 日落/日出) — 2026-10-01 新增 */

@@ -26,6 +26,7 @@ import { EwelinkApiAdapter } from '../../adapters/power/ewelink-api.adapter';
 import type { BreakerMeasurements } from '../../adapters/power/epa-breaker-registers';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
 import { ControlBus } from '../../services/control-bus';
+import { PowerDomainGrantService } from './power-domain-grant.service';
 
 export interface PowerCircuitView {
   id: number;
@@ -38,6 +39,8 @@ export interface PowerCircuitView {
   domainName: string | null;
   category: string;
   gatewayCode: string | null;
+  /** 所属网关/硬件的中文名（join hardware_units.name，电源页按设备分组时做组标题）。 */
+  gatewayName: string | null;
   relayChannel: number | null;
   meterAddress: number | null;
   ratedVoltage: number;
@@ -117,7 +120,21 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly ewelinkBreaker?: EwelinkApiAdapter,
     /** 事件总线: 后台采集到读数后 WS 广播 — Optional: 单测桩不传也能跑 */
     @Optional() private readonly bus?: ControlBus,
+    /** 角色×域授权(DB 矩阵+内存缓存); 单测桩不传时回退 rbac 内置矩阵。 */
+    @Optional() private readonly grantService?: PowerDomainGrantService,
   ) {}
+
+  /** 角色可读域集合(null=全域); 优先 DB 授权服务, 缺失/单测回退内置 rbac。 */
+  private async readableDomainsForRole(role?: UserRole): Promise<string[] | null> {
+    if (this.grantService) return this.grantService.readableDomains(role ?? null);
+    return readablePowerDomains(role);
+  }
+
+  /** 角色是否可写某域; 优先 DB 授权服务, 缺失/单测回退内置 rbac。 */
+  private async canWriteDomainForRole(role: UserRole | undefined, domainCode: string): Promise<boolean> {
+    if (this.grantService) return this.grantService.canWrite(role ?? null, domainCode);
+    return canWritePowerDomain(role, domainCode);
+  }
 
   /**
    * 断路器读数快照 —— 由后台采集循环 (onModuleInit, 每 10s) 主动刷新; toView()
@@ -131,6 +148,11 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
    * 不开 COM 口。串口慢/时序器掉线/端口被占都不影响页面, 读失败保留上一次好值。
    */
   private seqCache: { at: number; channels: boolean[] } | null = null;
+  /**
+   * 第二台时序器 (SEQ55, 55…AA 协议, COM4) 的 8 路状态快照 —— 与第一台 EPO
+   * **分开存**, 两台串口/协议互不相同, 绝不能让一台的状态覆盖另一台。
+   */
+  private seq55Cache: { at: number; channels: boolean[] } | null = null;
   private seqCollecting = false;
   private seqTimer?: NodeJS.Timeout;
   private readonly SEQ_POLL_INTERVAL_MS = 10_000;
@@ -148,7 +170,7 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     const where: Record<string, unknown> = opts.includeDisabled ? {} : { enabled: true };
     // 数据范围（角色 × 域）：非 admin 只返回其所属域的回路（operator/viewer 仅展厅、
     // config 仅园区、hardware 全域）。readablePowerDomains 返回 null 时不限制。
-    const domains = readablePowerDomains(opts.role);
+    const domains = await this.readableDomainsForRole(opts.role);
     if (domains) where.domainCode = In(domains);
     const rows = await this.repo.find({
       where,
@@ -156,28 +178,30 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     });
     // 并行拉各回路实时读数 (云断路器走各自 HTTP 可并发; 485 适配器内部对共享
     // 串口自行串行化) —— 避免逐台 await 把云端往返时间累加
-    const nameMap = await this.domainNameMap();
-    return Promise.all(rows.map((r) => this.toView(r, nameMap)));
+    const [nameMap, hwMap] = await Promise.all([this.domainNameMap(), this.hwNameMap()]);
+    return Promise.all(rows.map((r) => this.toView(r, nameMap, hwMap)));
   }
 
   async detail(id: number, role?: UserRole): Promise<PowerCircuitView> {
     const row = await this.repo.findOne({ where: { id } });
     if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
-    this.assertCanReadDomain(row, role);
-    return this.toView(row, await this.domainNameMap());
+    await this.assertCanReadDomain(row, role);
+    const [nameMap, hwMap] = await Promise.all([this.domainNameMap(), this.hwNameMap()]);
+    return this.toView(row, nameMap, hwMap);
   }
 
   /** 读域校验：非 admin 角色不能查看所属域外的回路详情（直接打 id 也挡）。 */
-  private assertCanReadDomain(row: PowerCircuit, role?: UserRole): void {
-    const domains = readablePowerDomains(role);
+  private async assertCanReadDomain(row: PowerCircuit, role?: UserRole): Promise<void> {
+    const domains = await this.readableDomainsForRole(role);
     if (domains && !domains.includes(row.domainCode)) {
       throw new ForbiddenException(`该回路不在你可访问的区域`);
     }
   }
 
   /** 写域校验：非 admin 角色不能操作所属域外的开关（资源级，根治跨区误触）。 */
-  private assertCanWriteDomain(row: PowerCircuit, role?: UserRole): void {
-    if (!canWritePowerDomain(role, row.domainCode)) {
+  private async assertCanWriteDomain(row: PowerCircuit, role?: UserRole): Promise<void> {
+    const ok = await this.canWriteDomainForRole(role, row.domainCode);
+    if (!ok) {
       throw new ForbiddenException(`无权操作该区域的电源开关`);
     }
   }
@@ -345,7 +369,7 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   private async assertCircuitWriteDomain(id: number, role: UserRole): Promise<void> {
     const row = await this.repo.findOne({ where: { id } });
     if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
-    this.assertCanWriteDomain(row, role);
+    await this.assertCanWriteDomain(row, role);
   }
 
   /**
@@ -393,11 +417,18 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
         { context: 'PowerCircuitsService' },
       );
     } else if (await this.isSeq55Circuit(row)) {
-      // 第二台时序器 (55…AA 协议, 2026-07-29 备): 只控不读 (回帧格式待实测),
-      // 状态由 mock adapter 维护的乐观值兜底
+      // 第二台时序器 (55…AA 协议, COM4): 单路 F0/F1 立即动作, 乐观置位快照让 UI
+      // 立即稳定; 不在请求路径读真机, 数秒后由后台 collectSequencer 以真机为准校正。
       if (!this.seq55) throw new ConflictException('seq55 时序器适配器未装载');
       const r = await this.seq55.setChannel(row.relayChannel as number, on);
       if (!r.ok) throw new ConflictException(`时序器下发失败: ${r.error ?? '未知错误'}`);
+      const seq55ChIdx = (row.relayChannel ?? 0) - 1;
+      if (!this.seq55Cache) this.seq55Cache = { at: Date.now(), channels: new Array(8).fill(false) };
+      if (seq55ChIdx >= 0 && seq55ChIdx < this.seq55Cache.channels.length) {
+        this.seq55Cache.channels[seq55ChIdx] = on;
+        this.seq55Cache.at = Date.now();
+      }
+      this.scheduleSeqRefresh(4000);
     } else if (await this.isSequencerCircuit(row)) {
       await this.epo.setChannel(row.relayChannel as number, on);
       // 乐观置位快照让 UI 立即稳定; 不在请求路径读真机 (各路开/关延时使翻转不可靠),
@@ -589,7 +620,7 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   async breakerMeasurements(id: number, role?: UserRole): Promise<BreakerMeasurements> {
     const row = await this.repo.findOne({ where: { id } });
     if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
-    this.assertCanReadDomain(row, role);
+    await this.assertCanReadDomain(row, role);
     const breakerAdapter = await this.resolveBreakerAdapter(row);
     if (!breakerAdapter) {
       throw new ConflictException(`circuit ${row.name} 不是智能断路器回路`);
@@ -602,21 +633,46 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-  /**
-   * 后台采集时序器全状态: 发一次 0xac 帧 (一帧带全部 8 路) 写快照。
-   * 只在后台定时/操作后调度时运行, 永不在页面请求路径; 读失败保留上次好值、不覆盖。
+   * 后台采集时序器全状态: 各发一次读状态帧 (EPO 0xac / SEQ55 FA, 一帧带全部 8 路)
+   * 写**各自**的快照。只在后台定时/操作后调度时运行, 永不在页面请求路径;
+   * 两台串口独立 (EPO=COM1@19200, SEQ55=COM4@9600), 这里串行 await、各自适配器
+   * 内部有短连接/命令锁。任何一台读失败都保留其上一次好值, 不覆盖、不影响另一台。
    */
   private async collectSequencer(): Promise<void> {
     if (this.seqCollecting) return;
     this.seqCollecting = true;
     try {
-      const r = await this.epo.readStatus();
-      if (r.ok && r.data?.channels) {
-        this.seqCache = { at: Date.now(), channels: r.data.channels };
-      } else {
-        this.logger.warn(`时序器读状态失败: ${r.error ?? '无数据'}`, {
+      // 第一台: 得胜 EPO-802P (5A5A5A, COM1)
+      try {
+        const r = await this.epo.readStatus();
+        if (r.ok && r.data?.channels) {
+          this.seqCache = { at: Date.now(), channels: r.data.channels };
+        } else {
+          this.logger.warn(`EPO 时序器读状态失败: ${r.error ?? '无数据'}`, {
+            context: 'PowerCircuitsService',
+          });
+        }
+      } catch (err) {
+        this.logger.warn(`EPO 时序器采集异常: ${(err as Error).message}`, {
           context: 'PowerCircuitsService',
         });
+      }
+      // 第二台: SEQ55 (55…AA, COM4)。适配器未注入(单测桩)/未配置硬件时跳过。
+      if (this.seq55) {
+        try {
+          const s = await this.seq55.readStatus();
+          if (s.ok && s.data?.channels) {
+            this.seq55Cache = { at: Date.now(), channels: s.data.channels };
+          } else {
+            this.logger.warn(`SEQ55 时序器读状态失败: ${s.error ?? '无数据'}`, {
+              context: 'PowerCircuitsService',
+            });
+          }
+        } catch (err) {
+          this.logger.warn(`SEQ55 时序器采集异常: ${(err as Error).message}`, {
+            context: 'PowerCircuitsService',
+          });
+        }
       }
     } finally {
       this.seqCollecting = false;
@@ -631,29 +687,66 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * 时序器回路读数 — 只读后台快照、不开串口; 快照未就绪时 on=false, 不让电源页崩。
+   * 时序器不是电表, 电流/电压/功率/电量恒 0。
    */
-  private seqReading(row: PowerCircuit): PowerReading {
+  private readingFromSeqCache(
+    row: PowerCircuit,
+    cache: { at: number; channels: boolean[] } | null,
+  ): PowerReading {
     const ch = (row.relayChannel ?? 0) - 1;
     return {
-      on: this.seqCache?.channels[ch] ?? false,
+      on: cache?.channels[ch] ?? false,
       current: 0,
       voltage: 0,
       power: 0,
       powerFactor: 0,
       energy: 0,
-      lastReadAt: this.seqCache ? new Date(this.seqCache.at).toISOString() : new Date().toISOString(),
+      lastReadAt: cache ? new Date(cache.at).toISOString() : new Date().toISOString(),
     };
   }
 
+  /** 第一台 EPO 时序器回路读数。 */
+  private seqReading(row: PowerCircuit): PowerReading {
+    return this.readingFromSeqCache(row, this.seqCache);
+  }
+
+  /** 第二台 SEQ55 时序器回路读数。 */
+  private seq55Reading(row: PowerCircuit): PowerReading {
+    return this.readingFromSeqCache(row, this.seq55Cache);
+  }
+
   /**
-   * 时序器全开/全关 (b3) — 设备按各路设定延时**依次**动作 (实测配置: 开 1,3,..15s,
-   * 关 15,13,..1s 先开后关), 保护功放。这是时序器的正经用法, 电源页"时序开机/关机"按钮用。
+   * 单台时序器**时序**全开/全关 —— 必须显式指定 gatewayCode, 只动作这一台,
+   * 不允许一个按钮同时控制两台时序器 (业主 2026-10-18 明确要求两台各自独立开关)。
+   *
+   * 第一台 EPO 走 b3 (设备按各路延时依次动作, 实测 开 1,3,..15s / 关 15,13,..1s);
+   * 第二台 SEQ55 走 0D 顺序时序 (55…AA 协议)。两者都保护后级功放。
+   * 整台时序动作需要时间, 不做整台乐观置位, 由后台 10s 采集逐路点亮真实状态。
    */
-  async sequencerAll(on: boolean): Promise<void> {
-    const r = await this.epo.setAll(on);
-    if (!r.ok) throw new ConflictException(`时序器${on ? '开' : '关'}机失败: ${r.error ?? '未知'}`);
-    // 八路按 1..15s 延时依次动作; 保留旧快照(别让页面闪成全 0), 动作完后后台刷新
-    this.scheduleSeqRefresh(20_000);
+  async sequencerAll(on: boolean, gatewayCode?: string | null): Promise<void> {
+    const code = (gatewayCode ?? '').trim();
+    if (!code) {
+      throw new ConflictException('请指定要操作的时序器设备');
+    }
+    const hw = await this.hwRepo.findOne({ where: { code } });
+    if (!hw || !hw.enabled) {
+      throw new NotFoundException(`时序器设备 ${code} 不存在或已禁用`);
+    }
+    if (hw.category === 'audio-power') {
+      const r = await this.epo.setAll(on);
+      if (!r.ok) throw new ConflictException(`时序器${on ? '开' : '关'}机失败: ${r.error ?? '未知'}`);
+      // 八路按 1..15s 延时依次动作; 保留旧快照(别让页面闪成全 0), 动作完后后台刷新
+      this.scheduleSeqRefresh(20_000);
+      return;
+    }
+    if (hw.category === 'power-seq55') {
+      if (!this.seq55) throw new ConflictException('SEQ55 时序器适配器未装载');
+      const r = await this.seq55.setAllSequential(on); // 0D 设备内部顺序时序
+      if (!r.ok) throw new ConflictException(`时序器${on ? '开' : '关'}机失败: ${r.error ?? '未知'}`);
+      this.scheduleSeqRefresh(20_000);
+      return;
+    }
+    throw new ConflictException(`设备 ${code} 不是电源时序器, 无法时序开关机`);
   }
 
   /** 改名 (业主在电源页直接改, 不需要 admin) */
@@ -697,21 +790,38 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     if (!dto.floor) throw new ConflictException('floor 必填');
   }
 
-  private async toView(row: PowerCircuit, nameMap?: Map<string, string>): Promise<PowerCircuitView> {
+  private async toView(
+    row: PowerCircuit,
+    nameMap?: Map<string, string>,
+    hwNameMap?: Map<string, string>,
+  ): Promise<PowerCircuitView> {
     const domainName = nameMap?.get(row.domainCode) ?? null;
+    const gatewayName = row.gatewayCode ? (hwNameMap?.get(row.gatewayCode) ?? null) : null;
     const breakerAdapter = await this.resolveBreakerAdapter(row);
     const isBreaker = breakerAdapter !== null;
     // 智能断路器回路: 读真机 (电压/电流/功率/电量都是实测), 不用 mock 的模拟值
     if (breakerAdapter) {
       return {
-        ...this.baseView(row, domainName),
+        ...this.baseView(row, domainName, gatewayName),
         isBreaker,
         reading: this.snapshotBreakerReading(row), // 读快照, 不等待外部 I/O
       };
     }
-    // 时序器回路: 开关状态读后台快照 (0xac 一帧带全部 8 路), 电量指标时序器没有 → 0
+    // 第二台时序器 (SEQ55, 55…AA): 开关状态读它自己的后台快照 (FA 一帧带 8 路)
+    if (await this.isSeq55Circuit(row)) {
+      return {
+        ...this.baseView(row, domainName, gatewayName),
+        isBreaker,
+        reading: this.seq55Reading(row),
+      };
+    }
+    // 第一台时序器 (EPO-802P): 开关状态读后台快照 (0xac 一帧带全部 8 路), 电量指标没有 → 0
     if (await this.isSequencerCircuit(row)) {
-      return { ...this.baseView(row, domainName), isBreaker, reading: this.seqReading(row) };
+      return {
+        ...this.baseView(row, domainName, gatewayName),
+        isBreaker,
+        reading: this.seqReading(row),
+      };
     }
     const result = await this.adapter.circuitReadStatus(row.id, {
       voltage: row.ratedVoltage,
@@ -730,7 +840,7 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
             energy: 0,
             lastReadAt: new Date().toISOString(),
           };
-    return { ...this.baseView(row, domainName), isBreaker, reading };
+    return { ...this.baseView(row, domainName, gatewayName), isBreaker, reading };
   }
 
   /** 单相 MQTT 设备只填 A 相；三相设备取三相平均。 */
@@ -746,10 +856,17 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     return new Map(domains.map((d) => [d.code, d.name]));
   }
 
+  /** 硬件 code → 中文名（一次加载，供 toView 批量填充 gatewayName，电源页按设备分组用）。 */
+  private async hwNameMap(): Promise<Map<string, string>> {
+    const hw = await this.hwRepo.find({ select: { code: true, name: true } });
+    return new Map(hw.map((h) => [h.code, h.name]));
+  }
+
   /** 行字段 → view (不含 reading / isBreaker, 两条读数路径共用) */
   private baseView(
     row: PowerCircuit,
     domainName?: string | null,
+    gatewayName?: string | null,
   ): Omit<PowerCircuitView, 'reading' | 'isBreaker'> {
     return {
       id: row.id,
@@ -760,6 +877,7 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
       domainName: domainName ?? null,
       category: row.category,
       gatewayCode: row.gatewayCode,
+      gatewayName: gatewayName ?? null,
       relayChannel: row.relayChannel,
       meterAddress: row.meterAddress,
       ratedVoltage: row.ratedVoltage,

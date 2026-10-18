@@ -12,8 +12,9 @@ import { classifyError, DeviceProtocolError } from '../errors';
 import { withRetry } from '../retry';
 import { SerialPortClient } from './serial-port-client';
 import {
-  cmdChannelSwitch, cmdSequentialAll, cmdSyncAll, cmdReadAddr,
-  tryParseReply, SEQ55_DEFAULT_ADDR, SEQ55_DEFAULT_BAUD, type Seq55Channel,
+  cmdChannelSwitch, cmdSequentialAll, cmdSyncAll, cmdReadAddr, cmdReadStatus,
+  tryParseReply, parseStatusReply, SEQ55_DEFAULT_ADDR, SEQ55_DEFAULT_BAUD,
+  type Seq55Channel, type Seq55ChannelStatus,
 } from './seq55-protocol';
 
 const GATEWAY_KEY = 'power-seq55';
@@ -28,10 +29,10 @@ const GATEWAY_KEY = 'power-seq55';
  * env POWER_SEQ55_PORT_PATH, 默认 COM2。到货后在后台设备管理里建这台硬件
  * (或跑种子), 电源回路挂 gatewayCode 指向它即可上电源页。
  *
- * ⚠️ 已知盲区 (到货实测后补):
- *   - 读状态 (FA) 回帧格式厂家没给 —— readStatus 暂只回 raw, 不解析;
- *     上层按"只控不读"用。
- *   - 面板电源按键必须关闭状态才受串口控制 (厂家注明), 安装时要交代现场。
+ * 已实现读状态 (FA)：2026-10-18 COM4@9600 实测回 `55 addr bitmap 00 F5 AA`，
+ * readStatus 解析为 8 路位图（bit0=CH1 为约定，待一次授权单路对照最终确认）。
+ *
+ * ⚠️ 面板电源按键必须关闭状态才受串口控制 (厂家注明), 安装时要交代现场。
  */
 @Injectable()
 export class Seq55Adapter extends BaseAdapter {
@@ -185,8 +186,26 @@ export class Seq55Adapter extends BaseAdapter {
   }
 
   /**
-   * 探活: 读地址 (FB) 期待任意回帧。读状态回帧格式未知 (厂家资料没给),
-   * 到货抓包后在 seq55-protocol 补 parse 再暴露 readStatus。
+   * 读 8 路实时状态 (FA) — 只读、短往返。返回 `55 addr bitmap 00 F5 AA`，
+   * 由 parseStatusReply 解析为 channels[8]（bit0=CH1，待单路对照最终锁定）。
+   * 现场 2026-10-18 实测全亮回 `55 01 FF 00 F5 AA`。
+   */
+  async readStatus(ctx?: AdapterContext): Promise<AdapterResult<Seq55ChannelStatus>> {
+    return this.run(GATEWAY_KEY, 'readStatus', ctx, async () => {
+      const resp = await this.send(cmdReadStatus(this.devAddr), ctx?.signal, true);
+      const parsed = parseStatusReply(resp);
+      if (!parsed.ok || !parsed.channels) {
+        throw new DeviceProtocolError(
+          'power',
+          `seq55 状态帧解析失败: ${parsed.error ?? resp.toString('hex')}`,
+        );
+      }
+      return { channels: parsed.channels };
+    });
+  }
+
+  /**
+   * 探活: 读地址 (FB) 期待任意回帧。8 路开关状态请用 readStatus (FA)。
    */
   async ping(ctx?: AdapterContext): Promise<void> {
     const resp = await this.send(cmdReadAddr(this.devAddr), ctx?.signal, true);

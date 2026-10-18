@@ -23,7 +23,7 @@ import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard'
 import { WriteRoleGuard } from '../../common/guards/write-role.guard';
 import { WriteRoles } from '../../common/decorators/write-roles.decorator';
 import { AuthenticatedRequest, requireActor } from '../../common/auth/actor';
-import { readablePowerDomains } from '../../common/auth/rbac';
+import { PowerDomainGrantService, type DomainGrantItem } from './power-domain-grant.service';
 
 /**
  * 电源回路 CRUD + 通断 + 电源域.
@@ -40,7 +40,10 @@ import { readablePowerDomains } from '../../common/auth/rbac';
  */
 @Controller()
 export class PowerCircuitsController {
-  constructor(private readonly service: PowerCircuitsService) {}
+  constructor(
+    private readonly service: PowerCircuitsService,
+    private readonly grants: PowerDomainGrantService,
+  ) {}
 
   @Get('power-circuits')
   async list(@Req() req: AuthenticatedRequest, @Query('includeDisabled') includeDisabled?: string) {
@@ -60,7 +63,7 @@ export class PowerCircuitsController {
     const role = requireActor(req).role;
     const include = includeDisabled === '1' || includeDisabled === 'true';
     const all = await this.service.listDomains({ includeDisabled: include });
-    const readable = readablePowerDomains(role);
+    const readable = await this.grants.readableDomains(role);
     const data = readable === null ? all : all.filter((d) => readable.includes(d.code));
     return { message: '查询成功', data };
   }
@@ -88,26 +91,47 @@ export class PowerCircuitsController {
     return { message: '删除成功', data: null };
   }
 
-  // ============ 时序器 (EPO-802P) ============
-  // ⚠️ 路由顺序: 'sequencer/*' 必须声明在 ':id' 参数路由之前, 否则被 ParseIntPipe 吃掉 400。
+  // ============ 角色 × 电源域授权矩阵（仅 admin；@ModuleAccess('zones') 锁定） ============
 
-  /** 时序开机 (b3 全开) — 设备按各路延时 1,3,..15s 依次上电, 保护功放；仅 admin */
+  /** 矩阵：启用域 + 可配置角色(动态) + 锁定角色(admin/hardware) + 当前授权。 */
+  @Get('power-domain-grants')
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('zones')
+  async listDomainGrants() {
+    return { message: '查询成功', data: await this.grants.getMatrix() };
+  }
+
+  /** 全量保存授权矩阵（事务替换；锁定角色的行一律忽略；可写隐含可读）。 */
+  @Put('power-domain-grants')
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('zones')
+  async saveDomainGrants(@Body() body: { grants?: DomainGrantItem[] }) {
+    const grants = Array.isArray(body?.grants) ? body.grants : [];
+    await this.grants.replaceGrants(grants);
+    return { message: '保存成功', data: await this.grants.getMatrix() };
+  }
+
+  // ============ 时序器 (EPO-802P / SEQ55) ============
+  // ⚠️ 路由顺序: 'sequencer/*' 必须声明在 ':id' 参数路由之前, 否则被 ParseIntPipe 吃掉 400。
+  // 两台时序器各自独立: 必须带 gatewayCode 指定操作哪一台, 禁止一个按钮同时控两台。
+
+  /** 时序开机 (EPO b3 / SEQ55 0D) — 设备按各路延时依次上电, 保护功放；仅 admin */
   @Post('power-circuits/sequencer/all-on')
   @UseGuards(RateLimitGuard, WriteRoleGuard)
   @WriteRoles('admin')
   @RateLimit({ max: 2, windowMs: 3000 })
-  async seqAllOn() {
-    await this.service.sequencerAll(true);
+  async seqAllOn(@Body() body: { gatewayCode?: string } = {}) {
+    await this.service.sequencerAll(true, body?.gatewayCode);
     return { message: '时序开机已下发, 各路按延时依次上电', data: { on: true } };
   }
 
-  /** 时序关机 (b3 全关) — 先开的后关, 按 15,13,..1s 依次断电；仅 admin */
+  /** 时序关机 (EPO b3 / SEQ55 0D) — 先开的后关, 依次断电；仅 admin */
   @Post('power-circuits/sequencer/all-off')
   @UseGuards(RateLimitGuard, WriteRoleGuard)
   @WriteRoles('admin')
   @RateLimit({ max: 2, windowMs: 3000 })
-  async seqAllOff() {
-    await this.service.sequencerAll(false);
+  async seqAllOff(@Body() body: { gatewayCode?: string } = {}) {
+    await this.service.sequencerAll(false, body?.gatewayCode);
     return { message: '时序关机已下发, 各路按延时依次断电', data: { on: false } };
   }
 

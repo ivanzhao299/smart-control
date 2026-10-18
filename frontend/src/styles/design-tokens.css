@@ -1024,6 +1024,16 @@ body { overscroll-behavior: none; }
 }
 
 @media (max-width: 600px) {
+  /* [背景统一·固定] 切页去掉整页 8px 下移淡入(消除"背景随动"); 内容不足也铺满不露中部纯黑;
+     功能页吸顶页头用 50vw 自适应横铺到两端(等于抵消页内 padding, 对 sp-3/sp-5 都成立) */
+  .v2-route-enter-from { transform: none; }
+  .v2-page { min-height: 100%; }
+  .v2-page-head {
+    margin-left: calc(-50vw + 50%);
+    margin-right: calc(-50vw + 50%);
+    padding-left: calc(50vw - 50%);
+    padding-right: calc(50vw - 50%);
+  }
   .el-drawer.rtl,
   .el-drawer.ltr,
   .el-drawer.ttb,
@@ -1042,12 +1052,15 @@ body { overscroll-behavior: none; }
      不再全屏贴边直角；遮罩 .el-overlay 仍全屏，点遮罩照常关闭。特异性高于上面的全屏抽屉规则，
      仅作用于该抽屉，其余后台抽屉保持全屏。 */
   .el-drawer.sched-sheet.rtl {
-    top: 12px;
-    right: 12px;
-    bottom: 12px;
-    width: calc(100% - 24px) !important;
+    /* 圆角悬浮卡躲开刘海(top/bottom)与左右安全区, 四边 max(12px, safe-area); 宽高改由四边定位决定 */
+    top: max(12px, env(safe-area-inset-top)) !important;
+    right: max(12px, env(safe-area-inset-right)) !important;
+    bottom: max(12px, env(safe-area-inset-bottom)) !important;
+    left: max(12px, env(safe-area-inset-left)) !important;
+    width: auto !important;
     height: auto !important;
-    max-height: calc(100dvh - 24px) !important;
+    max-width: none !important;
+    max-height: none !important;
     border-radius: var(--v2-r-lg) !important;
   }
   /* 悬浮卡已内缩到安全区内侧，header 不再叠加顶部安全区高度，避免顶部空一大块。 */
@@ -1127,6 +1140,35 @@ body { overscroll-behavior: none; }
     radial-gradient(1000px 500px at 94% -8%, rgba(90, 120, 255, 0.12), transparent 58%),
     radial-gradient(900px 420px at 50% 114%, rgba(139, 124, 255, 0.10), transparent 62%),
     var(--v2-bg-0) !important;
+}
+
+/* ===== 手机端背景统一(车机主题)：功能页吸顶页头 / 首页 header 复刻 body 同一组氛围光 =====
+   页头原本是纯色块(background:--v2-bg-0), 手机端会在顶部截断氛围光。这里在页头/header 上
+   复刻顶部两光圈, 圆心改用视口单位 vw/dvh(与 body 百分比像素级对齐); header 透明让光透出。
+   只给顶部两光圈, 底部光圈位于页头之外省略; 末尾 --v2-bg-0 兜底保证滚动遮挡时不透明。 */
+@media (max-width: 600px) {
+  :root:root[data-theme='auto'] .v2-header {
+    background: transparent !important;
+    border-bottom-color: rgba(255, 255, 255, 0.06);
+  }
+  :root:root[data-theme='auto'] .v2-page-head {
+    background:
+      radial-gradient(1200px 520px at 10vw -12dvh, rgba(55, 182, 255, 0.15), transparent 60%),
+      radial-gradient(1000px 500px at 94vw -8dvh, rgba(124, 110, 255, 0.11), transparent 58%),
+      var(--v2-bg-0) !important;
+  }
+  :root:root[data-theme='auto'][data-accent='orange'] .v2-page-head {
+    background:
+      radial-gradient(1200px 520px at 10vw -12dvh, rgba(255, 138, 61, 0.16), transparent 60%),
+      radial-gradient(1000px 500px at 94vw -8dvh, rgba(255, 90, 60, 0.10), transparent 58%),
+      var(--v2-bg-0) !important;
+  }
+  :root:root[data-theme='auto'][data-accent='purple'] .v2-page-head {
+    background:
+      radial-gradient(1200px 520px at 10vw -12dvh, rgba(139, 124, 255, 0.17), transparent 60%),
+      radial-gradient(1000px 500px at 94vw -8dvh, rgba(90, 120, 255, 0.12), transparent 58%),
+      var(--v2-bg-0) !important;
+  }
 }
 
 /* 玻璃卡片：更亮的 1px 顶部高光 + 更深下沉投影，纯色底模拟玻璃层次 */

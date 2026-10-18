@@ -54,6 +54,8 @@ test('every startup lifecycle hook stays on the reviewed runtime-state allowlist
     'backend/src/modules/media/media.service.ts',
     'backend/src/modules/playback/playback.service.ts',
     'backend/src/modules/power-circuits/power-circuits.service.ts',
+    // 角色×电源域授权缓存（#160）：启动只读 DB 重建内存矩阵，表未迁移则惰性回退 rbac，无 DDL/写状态，审核登记。
+    'backend/src/modules/power-circuits/power-domain-grant.service.ts',
     'backend/src/modules/power-schedules/power-schedules.service.ts',
     'backend/src/modules/projector/projector.service.ts',
     'backend/src/modules/pv/pv.service.ts',

@@ -5,13 +5,16 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'elem
 import {
   powerCircuitsService,
   powerDomainsService,
+  powerDomainGrantService,
   type PowerCircuitView,
   type PowerCircuitUpsertDto,
   type PowerDomainView,
+  type PowerDomainGrantMatrix,
 } from '@/services/power-circuits.service';
 import { adminHardwareService } from '@/services/admin.service';
 import type { HardwareUnit } from '@/types/api';
 import PowerScheduleDrawer from '@/components/admin/PowerScheduleDrawer.vue';
+import { LayoutGrid } from 'lucide-vue-next';
 
 const CATEGORIES = [
   { value: 'lighting', label: '照明' },
@@ -238,6 +241,53 @@ function resetDForm(): void {
 function openDomainMgr(): void {
   domainVisible.value = true;
   resetDForm();
+  void loadGrants();
+}
+
+// ===== 角色 × 区域授权（三态：隐藏 / 可见 / 操作；admin/hardware 全域锁定）=====
+const grantMatrix = ref<PowerDomainGrantMatrix | null>(null);
+const grantEdit = reactive<Record<string, Record<string, number>>>({});
+const grantSaving = ref(false);
+const grantDomains = computed(() => (grantMatrix.value?.domains ?? []).filter((d) => d.enabled));
+
+async function loadGrants(): Promise<void> {
+  try {
+    const m = await powerDomainGrantService.get();
+    grantMatrix.value = m;
+    for (const k of Object.keys(grantEdit)) delete grantEdit[k];
+    for (const r of m.roles) {
+      grantEdit[r.role] = {};
+      for (const d of m.domains) {
+        const cell = m.grants.find((g) => g.role === r.role && g.domainCode === d.code);
+        grantEdit[r.role][d.code] = cell?.canWrite ? 2 : cell?.canRead ? 1 : 0;
+      }
+    }
+  } catch (err) {
+    ElMessage.error(`加载角色权限失败: ${(err as Error).message}`);
+  }
+}
+
+async function saveGrants(): Promise<void> {
+  if (!grantMatrix.value) return;
+  grantSaving.value = true;
+  try {
+    const grants = grantMatrix.value.roles.flatMap((r) =>
+      grantDomains.value
+        .map((d) => {
+          const lv = grantEdit[r.role]?.[d.code] ?? 0;
+          return { role: r.role, domainCode: d.code, canRead: lv >= 1, canWrite: lv === 2 };
+        })
+        .filter((g) => g.canRead),
+    );
+    await powerDomainGrantService.save(grants);
+    ElMessage.success('角色区域权限已保存');
+    await loadGrants();
+    await refresh();
+  } catch (err) {
+    ElMessage.error(`保存角色权限失败: ${(err as Error).message}`);
+  } finally {
+    grantSaving.value = false;
+  }
 }
 function editDomain(d: PowerDomainView): void {
   dEditing.value = d;
@@ -324,7 +374,10 @@ onMounted(refresh);
       </el-select>
       <el-input v-model="search" placeholder="搜索名称 / code / 继电器" clearable class="search-inp" />
       <el-button type="primary" class="head-add" @click="openCreate">新增回路</el-button>
-      <el-button @click="openDomainMgr">区域管理</el-button>
+      <el-button type="primary" class="domain-entry" @click="openDomainMgr">
+        <LayoutGrid :size="15" :stroke-width="2.4" />
+        <span>区域管理</span>
+      </el-button>
       <el-button @click="refresh" :loading="loading">刷新</el-button>
     </header>
     <p class="sub">
@@ -543,6 +596,42 @@ onMounted(refresh);
         内置「展厅 / 园区」不可删除；新增区域默认对运营配置员、展厅操作员、观察者不开放（最小权限），
         硬件工程师与管理员可全域排障。区域下仍有回路时不可删除。
       </p>
+      <el-divider content-position="left">角色区域权限</el-divider>
+      <p class="hint dm-note">
+        <b>隐藏</b>＝看不到该区域；<b>可见</b>＝能看状态但不能操作；<b>操作</b>＝可开关。
+        管理员、硬件工程师固定全域排障，不可修改；以后新增角色会自动出现在下方。
+      </p>
+      <div v-loading="!grantMatrix" class="grant-scroll">
+        <table class="grant-table">
+          <thead>
+            <tr>
+              <th class="gt-role">角色</th>
+              <th v-for="d in grantDomains" :key="d.code" class="gt-domain">{{ d.name }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="lk in grantMatrix?.lockedRoles ?? []" :key="'lk-' + lk.role" class="gt-locked-row">
+              <td class="gt-role">{{ lk.label }}</td>
+              <td :colspan="grantDomains.length" class="gt-locked-cell">
+                <el-tag size="small" type="info" effect="plain">全域（锁定，不可修改）</el-tag>
+              </td>
+            </tr>
+            <tr v-for="r in grantMatrix?.roles ?? []" :key="r.role">
+              <td class="gt-role">{{ r.label }}<span v-if="!r.builtin" class="gt-custom">自定义</span></td>
+              <td v-for="d in grantDomains" :key="d.code" class="gt-cell">
+                <el-radio-group v-model="grantEdit[r.role][d.code]" size="small">
+                  <el-radio-button :value="0">隐藏</el-radio-button>
+                  <el-radio-button :value="1">可见</el-radio-button>
+                  <el-radio-button :value="2">操作</el-radio-button>
+                </el-radio-group>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="grant-actions">
+        <el-button type="primary" :loading="grantSaving" @click="saveGrants">保存角色权限</el-button>
+      </div>
     </el-dialog>
 
     <!-- 自动开关规则（定时/日落/日出）抽屉 + 编辑弹窗：共享组件，hardware 与 config 共用 -->
@@ -561,6 +650,28 @@ onMounted(refresh);
 .floor-sel { width: 120px; }
 .search-inp { width: 220px; }
 .head-add { margin-left: auto; }
+/* 区域管理是"分区划分 + 角色授权"的核心入口, 比普通操作按钮更醒目:
+   渐变实底 + 图标 + 辉光, 与"新增回路"的普通蓝实心区分开 */
+.domain-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #fff;
+  border: none;
+  background: linear-gradient(135deg, #4d8dff 0%, #7c5cff 100%);
+  box-shadow: 0 4px 14px -4px rgba(99, 110, 255, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  transition: all 0.18s ease;
+}
+.domain-entry:hover,
+.domain-entry:focus {
+  color: #fff;
+  border: none;
+  background: linear-gradient(135deg, #5a96ff 0%, #8b6dff 100%);
+  box-shadow: 0 6px 18px -4px rgba(99, 110, 255, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  transform: translateY(-1px);
+}
 .sub { color: var(--v2-text-2); margin: 0 0 14px; font-size: 13px; max-width: 720px; line-height: 1.6; }
 
 .name-cell { display: flex; flex-direction: column; gap: 3px; }
@@ -607,4 +718,49 @@ onMounted(refresh);
 .dm-form { margin-top: 6px; }
 .dm-table { margin-top: 4px; }
 .dm-note { margin: 12px 2px 0; line-height: 1.6; }
+/* 角色×域授权矩阵 */
+.grant-scroll { overflow-x: auto; margin-top: 8px; }
+.grant-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.grant-table th, .grant-table td {
+  border: 1px solid var(--el-border-color-lighter);
+  padding: 8px 10px;
+  text-align: center;
+  vertical-align: middle;
+}
+.grant-table thead th {
+  background: var(--el-fill-color-light);
+  font-weight: 600;
+  color: var(--el-text-color-regular);
+}
+.gt-role { text-align: left; white-space: nowrap; font-weight: 600; min-width: 104px; }
+.gt-custom {
+  margin-left: 6px; font-size: 11px; font-weight: 500;
+  color: var(--el-color-warning);
+  border: 1px solid var(--el-color-warning-light-5);
+  border-radius: 4px; padding: 0 4px;
+}
+.gt-cell { white-space: nowrap; }
+.gt-locked-row td { background: var(--el-fill-color-lighter); }
+.gt-locked-cell { text-align: left !important; }
+.grant-actions { margin-top: 14px; text-align: right; }
+@media (max-width: 600px) {
+  .grant-table { font-size: 12px; }
+  .grant-table th, .grant-table td { padding: 6px 6px; }
+  .gt-role { min-width: 84px; }
+  .gt-cell :deep(.el-radio-group) {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+  .gt-cell :deep(.el-radio-button) { display: block; }
+  .gt-cell :deep(.el-radio-button__inner) {
+    display: block;
+    width: 100%;
+    margin-left: 0 !important;
+    padding: 5px 8px;
+    border-radius: 6px !important;
+    box-shadow: none !important;
+  }
+}
 </style>

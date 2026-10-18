@@ -13,8 +13,10 @@
  *   第一路关   55 01 00 01 F1 AA      8路同步全关 55 01 00 10 F1 AA
  *   改地址为02 55 02 00 00 F2 AA      读地址     55 01 00 00 FB AA
  *
- * ⚠️ 读状态 (FA) 的**返回帧格式厂家资料没给** —— 设备到货后发一条 FA 抓回帧
- * 再补 parse; 在此之前上层按"只控不读"用 (状态走乐观值)。
+ * 读状态 (FA) 返回帧已实测（2026-10-18, COM4@9600）：
+ *   `55 | addr | bitmap | 00 | F5 | AA`，第 3 字节为 8 路状态位图；
+ *   8 路全亮时回 `55 01 FF 00 F5 AA`。解析见 parseStatusReply。
+ *   （bit0 对应 CH1 还是 CH8 暂按 bit0=CH1，待一次单路对照最终锁定。）
  * ⚠️ 面板按键电源开关必须处于关闭状态, 设备才接受串口控制 (厂家注明)。
  */
 
@@ -61,7 +63,7 @@ export function cmdSyncAll(addr: number, on: boolean): Buffer {
   return frame(addr, SEQ55_CH.ALL, on ? SEQ55_ACTION.ON : SEQ55_ACTION.OFF);
 }
 
-/** 读状态 (FA) — 返回帧格式未知, 到货实测后在 tryParseStatus 补解析 */
+/** 读状态 (FA) — 返回 `55 addr bitmap 00 F5 AA`，用 parseStatusReply 解析位图 */
 export function cmdReadStatus(addr: number): Buffer {
   return frame(addr, 0x00, SEQ55_ACTION.READ_STATUS);
 }
@@ -90,4 +92,50 @@ export function tryParseReply(buf: Buffer): { valid: boolean; isData: boolean; r
   const valid = buf.length >= 6 && buf[0] === SEQ55_HEAD;
   const isData = valid && buf[4] === SEQ55_ACTION.DATA;
   return { valid, isData, raw: buf.toString('hex') };
+}
+
+/** 8 路通道数（SEQ55 固定 8 路）。 */
+export const SEQ55_CHANNEL_COUNT = 8;
+
+/** 8 路状态位图在数据帧中的字节下标：帧结构 `55 | addr | bitmap | 00 | F5 | AA`。 */
+const STATUS_BITMAP_INDEX = 2;
+
+/** 8 路实时状态（与 EPO-802P 的 readStatus 结构对齐，channels[0]=CH1 … [7]=CH8）。 */
+export interface Seq55ChannelStatus {
+  /** 8 路开关状态，true=该路通电；下标 0 对应第 1 路。 */
+  channels: boolean[];
+}
+
+/**
+ * 解析 FA「读状态」返回的 6 字节数据帧 `55 | addr | bitmap | 00 | F5 | AA`。
+ *
+ * 第 3 字节即 8 路状态位图：bit=1 该路通电。
+ * 现场实测（2026-10-18，COM4@9600）：8 路指示灯全亮时回 `55 01 FF 00 F5 AA`，
+ * 与 bitmap=0xFF（11111111）完全吻合。
+ *
+ * ⚠️ 位序约定：暂按 bit0=CH1 … bit7=CH8（LSB 对应第 1 路）这一常见约定解析。
+ * 全亮帧无法区分正反方向，最终顺序需在一次授权的单路 F0/F1 开关 + FA 对照后
+ * 锁定；若实测相反，只需翻转本函数的位序（parseStatus 是唯一出口，金标准单测覆盖）。
+ */
+export function parseStatusReply(buf: Buffer): {
+  ok: boolean;
+  channels?: boolean[];
+  error?: string;
+} {
+  const parsed = tryParseReply(buf);
+  if (!parsed.valid) {
+    return { ok: false, error: `无效回帧: ${parsed.raw}` };
+  }
+  if (!parsed.isData) {
+    return { ok: false, error: `非数据(状态)回帧: ${parsed.raw}` };
+  }
+  if (buf.length < STATUS_BITMAP_INDEX + 1) {
+    return { ok: false, error: `状态帧长度不足: ${parsed.raw}` };
+  }
+  const bitmap = buf[STATUS_BITMAP_INDEX];
+  const channels = Array.from(
+    { length: SEQ55_CHANNEL_COUNT },
+    (_, i) => ((bitmap >> i) & 0x01) === 1,
+  );
+  return { ok: true, channels };
 }

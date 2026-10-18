@@ -67,8 +67,9 @@ async function loadCircuits(): Promise<void> {
       domainTab.value = doms[0];
     }
     const floors = floorOptions.value;
-    if (!floors.includes(floorTab.value) && floors.length > 0) {
-      floorTab.value = floors[0];
+    // 'all' 与有效楼层都保留; 只有未初始化('')或失效楼层才落首选楼层(时序器页)。
+    if (floorTab.value !== 'all' && !floors.includes(floorTab.value) && floors.length > 0) {
+      floorTab.value = preferredFloor.value;
     }
     // 自动开关"下次动作"展示 (定时/日落/日出) — 2026-10-01 4G 断路器
     void loadNextRuns();
@@ -125,22 +126,78 @@ const domainCircuits = computed(() => circuits.value.filter((c) => c.domainCode 
 function switchDomain(code: string): void {
   if (domainTab.value === code) return;
   domainTab.value = code;
-  const floors = floorOptions.value;
-  // 切到展厅默认落在最常用的"音响"；园区等其它域落第一个楼层。
-  floorTab.value = floors.includes('音响') ? '音响' : floors[0] ?? 'all';
+  // 切域后优先落在时序器所在楼层 (最常用); 没有时序器则落第一个楼层
+  floorTab.value = preferredFloor.value;
 }
 
-// 楼层 tab（仅基于当前域；2026-07-25 业主: 音响(时序器)是最常用页, 设为默认）
-const floorTab = ref<string>('音响');
+// 楼层 tab（仅基于当前域；首次加载自动落时序器所在楼层, 但不写死楼层名）
+const floorTab = ref<string>(''); // ''=未初始化, 首次 loadCircuits 时落 preferredFloor; 'all' 合法保留
 const floorOptions = computed<string[]>(() => {
   const set = new Set<string>();
   for (const c of domainCircuits.value) set.add(c.floor);
   return Array.from(set).sort();
 });
+/** 该域的首选楼层: 含时序器回路(audio-seq)的第一个楼层, 否则第一个楼层, 再否则 'all'。 */
+const preferredFloor = computed<string>(() => {
+  const seqFloor = floorOptions.value.find((f) =>
+    domainCircuits.value.some((c) => c.floor === f && c.category === 'audio-seq'));
+  return seqFloor ?? floorOptions.value[0] ?? 'all';
+});
 const filteredCircuits = computed(() => {
   if (floorTab.value === 'all') return domainCircuits.value;
   return domainCircuits.value.filter((c) => c.floor === floorTab.value);
 });
+
+/**
+ * 渲染分组: 时序器回路按"设备(gatewayCode)"各自成组(每组带独立开关机按钮),
+ * 其余普通回路(断路器/继电器/插座…)归一个普通组。这样两台时序器天然分开、
+ * 互不混控, 且不依赖固定楼层名 (不写死 '音响'/'时序器')。
+ */
+interface RenderGroup {
+  key: string;
+  kind: 'seq' | 'plain';
+  gatewayCode: string | null;
+  gatewayName: string | null;
+  rows: PowerCircuitView[];
+}
+const renderGroups = computed<RenderGroup[]>(() => {
+  const seqGroups: RenderGroup[] = [];
+  const seqMap = new Map<string, RenderGroup>();
+  const plain: PowerCircuitView[] = [];
+  for (const c of filteredCircuits.value) {
+    if (c.category === 'audio-seq' && c.gatewayCode) {
+      let g = seqMap.get(c.gatewayCode);
+      if (!g) {
+        g = {
+          key: `seq:${c.gatewayCode}`,
+          kind: 'seq',
+          gatewayCode: c.gatewayCode,
+          gatewayName: c.gatewayName,
+          rows: [],
+        };
+        seqMap.set(c.gatewayCode, g);
+        seqGroups.push(g);
+      }
+      g.rows.push(c);
+    } else {
+      plain.push(c);
+    }
+  }
+  const out: RenderGroup[] = [];
+  // 普通回路在前 (1F/2F 等楼层), 时序器设备组紧随其后, 保持 floor 自然顺序
+  if (plain.length > 0) {
+    out.push({ key: 'plain', kind: 'plain', gatewayCode: null, gatewayName: null, rows: plain });
+  }
+  for (const g of seqGroups) {
+    if (g.rows.length > 0) out.push(g);
+  }
+  return out;
+});
+
+/** 组标题: 时序器用硬件名, 缺名时回退网关 code, 再不行用通用名。 */
+function seqGroupTitle(g: RenderGroup): string {
+  return g.gatewayName || g.gatewayCode || '电源时序器';
+}
 
 // 总览
 
@@ -171,22 +228,28 @@ async function dispatchOne(c: PowerCircuitView, op: 'on' | 'off', silent = false
   }
 }
 
-// ============ 时序器 (EPO-802P, floor='音响') ============
-// 全开/全关走 b3: 设备按各路设定延时依次通断 (开 1,3..15s / 关 15,13..1s), 保护功放。
-const hasSeq = computed<boolean>(() => domainCircuits.value.some((c) => c.category === 'audio-seq'));
-const seqBusy = ref(false);
-async function seqAll(on: boolean): Promise<void> {
-  seqBusy.value = true;
+// ============ 时序器 (按设备独立开/关机, 各带 gatewayCode) ============
+// 全开/全关走该台时序 (EPO b3 / SEQ55 0D): 设备按各路设定延时依次通断, 保护功放。
+// 两台各自独立, 不提供"全部时序器一起开/关" (业主 2026-10-18 明确要求)。
+// 同一时刻只允许一台时序开关机, 用一个 busy 锁 (避免两套功放回路同时拉浪涌)。
+const seqBusyGw = ref<string | null>(null);
+async function seqAll(on: boolean, gatewayCode: string | null): Promise<void> {
+  if (!gatewayCode) {
+    ElMessage.warning('请指定要操作的时序器设备');
+    return;
+  }
+  if (seqBusyGw.value) return;
+  seqBusyGw.value = gatewayCode;
   try {
-    if (on) await powerCircuitsService.seqAllOn();
-    else await powerCircuitsService.seqAllOff();
+    if (on) await powerCircuitsService.seqAllOn(gatewayCode);
+    else await powerCircuitsService.seqAllOff(gatewayCode);
     ElMessage.success(on ? '时序开机已下发, 各路按延时依次上电' : '时序关机已下发, 各路按延时依次断电');
     // 时序动作要几十秒才走完, 稍等再刷一轮真实状态
     window.setTimeout(() => { void loadCircuits(); }, 4000);
   } catch (err) {
     ElMessage.error(`时序${on ? '开' : '关'}机失败: ${(err as Error).message}`);
   } finally {
-    seqBusy.value = false;
+    seqBusyGw.value = null;
   }
 }
 
@@ -284,15 +347,21 @@ async function allOff(): Promise<void> {
   ElMessage.warning(`${domainName(domainTab.value)}全部断电 — 逐路下发 (${nonSeqCircuits.value.length} 路, 时序回路请用时序关机)`);
   await dispatchMany(nonSeqCircuits.value, 'off');
 }
+/** 当前楼层 tab 内的"普通回路"(排除时序器) — 本层通/断电只动这些;
+ *  时序器回路只能走组头专用的时序开机/关机 (b3/0D 功放保护), 不允许逐路 b2。 */
+const floorPlainRows = computed(() =>
+  filteredCircuits.value.filter((c) => c.category !== 'audio-seq'));
 async function floorOn(): Promise<void> {
-  if (!(await confirmPower(floorTab.value, filteredCircuits.value.length, true))) return;
-  ElMessage.info(`${floorTab.value} 通电 — 逐路下发 (${filteredCircuits.value.length} 路)`);
-  await dispatchMany(filteredCircuits.value, 'on');
+  if (floorPlainRows.value.length === 0) return;
+  if (!(await confirmPower(floorTab.value, floorPlainRows.value.length, true))) return;
+  ElMessage.info(`${floorTab.value} 通电 — 逐路下发 (${floorPlainRows.value.length} 路)`);
+  await dispatchMany(floorPlainRows.value, 'on');
 }
 async function floorOff(): Promise<void> {
-  if (!(await confirmPower(floorTab.value, filteredCircuits.value.length, false))) return;
-  ElMessage.warning(`${floorTab.value} 断电 — 逐路下发 (${filteredCircuits.value.length} 路)`);
-  await dispatchMany(filteredCircuits.value, 'off');
+  if (floorPlainRows.value.length === 0) return;
+  if (!(await confirmPower(floorTab.value, floorPlainRows.value.length, false))) return;
+  ElMessage.warning(`${floorTab.value} 断电 — 逐路下发 (${floorPlainRows.value.length} 路)`);
+  await dispatchMany(floorPlainRows.value, 'off');
 }
 
 // 实时刷新 — 每 10 秒拉一次最新读数 (服务端读数缓存 10s, 轮询基本走缓存, 不打爆云)
@@ -409,46 +478,33 @@ useActivePolling(startPolling, stopPolling);
           >{{ f }}</button>
           <button class="v2-tab" :class="{ active: floorTab === 'all' }" @click="floorTab = 'all'">全部</button>
         </div>
-      </div>
-      <div class="quick-actions">
-        <button class="v2-quick" @click="loadCircuits" :disabled="loading" title="重新加载">
+        <!-- 手机端: 刷新并入楼层 tab 行右侧(见 .refresh-mobile), 避免另起一行把卡片下推;
+             桌面端隐藏此按钮, 仍用右侧操作组里的那颗刷新 -->
+        <button class="v2-quick refresh-mobile" @click="loadCircuits" :disabled="loading" title="刷新">
           <RefreshCw :size="14" :stroke-width="2" />
         </button>
-        <!-- 时序器: b3 全开/全关, 设备按延时依次动作 (保护功放), 有时序回路才显示 -->
-        <button
-          v-if="perm.canEdit && hasSeq && (floorTab === '音响' || floorTab === 'all')"
-          class="v2-quick primary"
-          @click="seqAll(true)"
-          :disabled="seqBusy"
-          title="各路按设定延时依次上电 (1,3,..15 秒)"
-        >
-          <Power :size="14" :stroke-width="2" /> 时序开机
+      </div>
+      <div class="quick-actions">
+        <button class="v2-quick refresh-desktop" @click="loadCircuits" :disabled="loading" title="重新加载">
+          <RefreshCw :size="14" :stroke-width="2" />
         </button>
+        <!-- 时序开/关机按钮已下移到各"设备组"组头 —— 两台时序器各自独立,
+             顶部不再放"全部时序器一起开/关"的全局按钮 (业主 2026-10-18 要求)。 -->
+        <!-- 楼层 tab = 本层通/断电 (只动普通回路; 纯时序器楼层无普通回路 → 自动隐藏);
+             全部 tab = 全部通/断电 (已跳过时序回路, 那 8 路必须走时序保护)。 -->
         <button
-          v-if="perm.canEdit && hasSeq && (floorTab === '音响' || floorTab === 'all')"
-          class="v2-quick danger"
-          @click="seqAll(false)"
-          :disabled="seqBusy"
-          title="先开的后关, 按延时依次断电 (15,13,..1 秒)"
-        >
-          <Power :size="14" :stroke-width="2" /> 时序关机
-        </button>
-        <!-- 2026-07-25 业主: 按钮逻辑收敛, 每个 tab 只显示自己那一对 —
-             音响 tab = 时序开/关机 (b3, 别处渲染); 楼层 tab = 本层通/断电;
-             全部 tab = 全部通/断电 (跳过时序回路 — 那 8 路必须走时序保护) -->
-        <button
-          v-if="perm.canEdit && floorTab !== 'all' && floorTab !== '音响'"
+          v-if="perm.canEdit && floorTab !== 'all' && floorPlainRows.length > 0"
           class="v2-quick primary"
           @click="floorOn"
-          :disabled="loading || filteredCircuits.length === 0"
+          :disabled="loading || floorPlainRows.length === 0"
         >
           <Power :size="14" :stroke-width="2" /> {{ floorTab }} 通电
         </button>
         <button
-          v-if="perm.canEdit && floorTab !== 'all' && floorTab !== '音响'"
+          v-if="perm.canEdit && floorTab !== 'all' && floorPlainRows.length > 0"
           class="v2-quick danger"
           @click="floorOff"
-          :disabled="loading || filteredCircuits.length === 0"
+          :disabled="loading || floorPlainRows.length === 0"
         >
           <X :size="14" :stroke-width="2" /> {{ floorTab }} 断电
         </button>
@@ -480,15 +536,44 @@ useActivePolling(startPolling, stopPolling);
       <div class="state-sub">到 后台 → 电源回路 添加</div>
     </div>
 
-    <!-- 回路网格 -->
-    <!-- 时序器 tab (2026-07-25 业主): 一行两卡, 8 路一屏放全不滑动 -->
-    <div v-else class="circuit-grid" :class="{ 'seq-grid': floorTab === '音响' }">
-      <div
-        v-for="c in filteredCircuits"
-        :key="c.id"
-        class="circuit-card"
-        :class="{ on: c.reading.on, breaker: c.isBreaker }"
-      >
+    <!-- 回路网格: 按设备分组渲染。时序器每台一个"设备组"(组头带独立开机/关机按钮),
+         普通回路归一个普通组; 卡片 markup 只写一份, 两组复用。 -->
+    <div v-else class="render-stack">
+      <div v-for="g in renderGroups" :key="g.key" class="render-group">
+        <!-- 时序器设备组头: 设备名 + 该台独立时序开机/关机 (两台互不混控) -->
+        <div v-if="g.kind === 'seq'" class="seq-device-head">
+          <div class="seq-device-name">
+            <Power :size="16" :stroke-width="2" />
+            <span class="seq-device-title">{{ seqGroupTitle(g) }}</span>
+            <span class="seq-device-count">{{ g.rows.length }} 路</span>
+          </div>
+          <div v-if="perm.canEdit" class="seq-device-actions">
+            <button
+              class="v2-quick primary"
+              :disabled="seqBusyGw !== null"
+              title="各路按设定延时依次上电, 保护功放"
+              @click="seqAll(true, g.gatewayCode)"
+            >
+              <Power :size="14" :stroke-width="2" /> 时序开机
+            </button>
+            <button
+              class="v2-quick danger"
+              :disabled="seqBusyGw !== null"
+              title="先开的后关, 按延时依次断电"
+              @click="seqAll(false, g.gatewayCode)"
+            >
+              <Power :size="14" :stroke-width="2" /> 时序关机
+            </button>
+          </div>
+        </div>
+        <!-- 组内卡片网格: 时序器组一行两卡 (seq-grid, 8 路一屏放全), 普通组自适应 -->
+        <div class="circuit-grid" :class="{ 'seq-grid': g.kind === 'seq' }">
+          <div
+            v-for="c in g.rows"
+            :key="c.id"
+            class="circuit-card"
+            :class="{ on: c.reading.on, breaker: c.isBreaker }"
+          >
         <!-- 顶部 -->
         <div class="card-top">
           <div class="card-ico"><component :is="iconFor(c.icon)" :size="22" :stroke-width="1.8" /></div>
@@ -644,6 +729,8 @@ useActivePolling(startPolling, stopPolling);
             </div>
           </template>
         </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -739,6 +826,8 @@ useActivePolling(startPolling, stopPolling);
 }
 
 .quick-actions { display: flex; gap: var(--v2-sp-2); }
+/* 手机端专用的刷新按钮(并入楼层 tab 行), 桌面端隐藏 */
+.refresh-mobile { display: none; }
 .v2-quick {
   padding: 8px 14px;
   border-radius: var(--v2-r-sm);
@@ -828,6 +917,56 @@ useActivePolling(startPolling, stopPolling);
   .circuit-grid.seq-grid .circuit-card { padding: 10px 12px; }
   .circuit-grid.seq-grid .card-ico { display: none; }
 }
+
+/* ============ 设备分组: 每台时序器独立成组, 组头带独立开/关机 ============ */
+.render-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--v2-sp-4);
+}
+.render-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--v2-sp-3);
+}
+.seq-device-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--v2-sp-3);
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border: 1px solid var(--v2-border-soft);
+  border-radius: var(--v2-r-sm);
+  background: var(--v2-surf-1);
+}
+.seq-device-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--v2-text-1);
+  font-size: 15px;
+  font-weight: 600;
+}
+.seq-device-title { line-height: 1.2; }
+.seq-device-count {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--v2-text-2);
+  background: var(--v2-surf-2);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+.seq-device-actions {
+  display: flex;
+  gap: 8px;
+}
+@media (max-width: 720px) {
+  .seq-device-head { padding: 8px 10px; gap: 8px; }
+  .seq-device-actions { width: 100%; }
+  .seq-device-actions .v2-quick { flex: 1; justify-content: center; }
+}
+
 @media (max-width: 600px)  {
   .v2-page { padding: var(--v2-sp-3); gap: var(--v2-sp-3); }
   .v2-overview { padding: var(--v2-sp-3); gap: var(--v2-sp-2); grid-template-columns: 1fr 1fr; }
@@ -837,6 +976,18 @@ useActivePolling(startPolling, stopPolling);
   .metrics { grid-template-columns: 1fr 1fr; gap: var(--v2-sp-2); }
   .metric-value { font-size: 16px; }
   .quick-actions { flex-wrap: wrap; }
+  /* 刷新按钮并入楼层 tab 行: 隐藏右侧操作组里的那颗, 显示 back-row 内的那颗并推到行尾 */
+  .quick-actions .refresh-desktop { display: none; }
+  .refresh-mobile {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    align-self: center;
+    margin-left: auto;
+    width: 38px;
+    height: 38px;
+  }
   .schedule-btn { width: 38px; height: 38px; }
   .v2-toggle { width: 48px; height: 28px; }
   .v2-toggle::after { width: 24px; height: 24px; }

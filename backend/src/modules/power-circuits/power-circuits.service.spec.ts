@@ -8,7 +8,7 @@
  *   3. 读数失败要回落, 不能让整个电源页崩掉
  */
 import type { Logger } from 'winston';
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { PowerCircuitsService } from './power-circuits.service';
 import type { PowerCircuit } from '../../entities/power-circuit.entity';
 import type { BreakerMeasurements } from '../../adapters/power/epa-breaker-registers';
@@ -75,6 +75,11 @@ async function makeService(opts: {
     delete: jest.fn().mockResolvedValue({ affected: 1 }),
   };
   const hwRepo = {
+    find: jest.fn().mockResolvedValue(
+      opts.hwCategory === null
+        ? []
+        : [{ code: 'BREAKER-LED-1', name: '测试硬件' }],
+    ),
     findOne: jest.fn().mockResolvedValue(
       opts.hwCategory === null
         ? null
@@ -303,6 +308,7 @@ describe('PowerCircuitsService · 时序器后台采集快照', () => {
       create: jest.fn((r: unknown) => r),
     };
     const hwRepo = {
+      find: jest.fn(async () => [{ code: 'AUDIO-PWR-SEQ-1', name: '音响电源时序器' }]),
       findOne: jest.fn(async (q: { where: { code: string } }) =>
         q.where.code === 'AUDIO-PWR-SEQ-1'
           ? { code: 'AUDIO-PWR-SEQ-1', category: 'audio-power', enabled: true }
@@ -379,5 +385,154 @@ describe('PowerCircuitsService · 时序器后台采集快照', () => {
     expect(readStatus).not.toHaveBeenCalled();
     const views = await svc.list();
     expect(views[2].reading.on).toBe(true);
+  });
+});
+
+describe('PowerCircuitsService · 第二台时序器 SEQ55 (双机独立采集/开关/按设备路由)', () => {
+  const okResult = (data: unknown) => ({ ok: true, data, deviceId: 'x', command: 'c', mock: false, durationMs: 1 });
+  const collect = (svc: PowerCircuitsService) =>
+    (svc as unknown as { collectSequencer: () => Promise<void> }).collectSequencer();
+
+  const epoRows = (): PowerCircuit[] =>
+    Array.from({ length: 8 }, (_, i) =>
+      circuitRow({
+        id: 100 + i, code: 'seq-' + (i + 1), name: '时序器回路' + (i + 1),
+        category: 'audio', gatewayCode: 'AUDIO-PWR-SEQ-1', relayChannel: i + 1,
+      }));
+  const seq55Rows = (): PowerCircuit[] =>
+    Array.from({ length: 8 }, (_, i) =>
+      circuitRow({
+        id: 200 + i, code: 'seq55-' + (i + 1), name: '二台时序 CH' + (i + 1),
+        category: 'audio-seq', gatewayCode: 'PWR-SEQ55-1', relayChannel: i + 1,
+      }));
+
+  type Hw = { code: string; category: string; enabled: boolean } | null;
+  async function build(
+    epoStatus: jest.Mock,
+    seq55Status: jest.Mock,
+    overrides: Record<string, Hw> = {},
+  ) {
+    const rows = [...epoRows(), ...seq55Rows()];
+    const byCode: Record<string, Hw> = {
+      'AUDIO-PWR-SEQ-1': { code: 'AUDIO-PWR-SEQ-1', category: 'audio-power', enabled: true },
+      'PWR-SEQ55-1': { code: 'PWR-SEQ55-1', category: 'power-seq55', enabled: true },
+      ...overrides,
+    };
+    const repo = {
+      findOne: jest.fn(async (q?: { where?: { id?: number } }) =>
+        rows.find((r) => r.id === q?.where?.id) ?? null),
+      find: jest.fn(async () => rows),
+      save: jest.fn(async (r: unknown) => r),
+      create: jest.fn((r: unknown) => r),
+    };
+    const hwRepo = {
+      find: jest.fn(async () => [
+        { code: 'AUDIO-PWR-SEQ-1', name: '音响电源时序器' },
+        { code: 'PWR-SEQ55-1', name: '第二台电源时序器 (SEQ55)' },
+      ]),
+      findOne: jest.fn(async (q: { where: { code: string } }): Promise<Hw> => byCode[q.where.code] ?? null),
+    };
+    const domainRepo = {
+      find: jest.fn(async () => []),
+      findOne: jest.fn(async () => null),
+      count: jest.fn(async () => 0),
+      save: jest.fn(async (r: unknown) => r),
+      create: jest.fn((r: unknown) => r),
+      delete: jest.fn(async () => ({ affected: 1 })),
+    };
+    const epo = {
+      setAll: jest.fn(async () => okResult({ on: true })),
+      setChannel: jest.fn(async () => okResult({})),
+      readStatus: epoStatus,
+    };
+    const seq55 = {
+      setAllSequential: jest.fn(async () => okResult({ on: true })),
+      setAllSync: jest.fn(async () => okResult({ on: true })),
+      setChannel: jest.fn(async () => okResult({})),
+      readStatus: seq55Status,
+    };
+    const adapter = {
+      circuitTurnOn: jest.fn(), circuitTurnOff: jest.fn(),
+      circuitReadStatus: jest.fn(async () => okResult({ on: false })),
+    };
+    const breaker = { turnOn: jest.fn(), turnOff: jest.fn(), getMeasurements: jest.fn() };
+    const cloudBreaker = { turnOn: jest.fn(), turnOff: jest.fn(), getMeasurements: jest.fn() };
+    const svc = new PowerCircuitsService(
+      repo as never, domainRepo as never, hwRepo as never, adapter as never,
+      epo as never, breaker as never, fakeLogger(), seq55 as never, cloudBreaker as never,
+    );
+    return { svc, epo, seq55 };
+  }
+
+  const allOn = () => jest.fn(async () => okResult({ channels: new Array(8).fill(true) }));
+  const allOff = () => jest.fn(async () => okResult({ channels: new Array(8).fill(false) }));
+
+  it('两台各自采集: EPO 全亮 / SEQ55 全灭时, list 状态互不串台', async () => {
+    const { svc, epo, seq55 } = await build(allOn(), allOff());
+    await collect(svc);
+    expect(epo.readStatus).toHaveBeenCalledTimes(1);
+    expect(seq55.readStatus).toHaveBeenCalledTimes(1);
+    const views = await svc.list();
+    const epoViews = views.filter((v) => v.gatewayCode === 'AUDIO-PWR-SEQ-1');
+    const seq55Views = views.filter((v) => v.gatewayCode === 'PWR-SEQ55-1');
+    expect(epoViews.every((v) => v.reading.on)).toBe(true);
+    expect(seq55Views.every((v) => v.reading.on)).toBe(false);
+  });
+
+  it('SEQ55 状态只来自它自己的快照: EPO 全灭 / SEQ55 位图 0x05(CH1,CH3 开)', async () => {
+    const channels = [true, false, true, false, false, false, false, false];
+    const { svc } = await build(allOff(), jest.fn(async () => okResult({ channels })));
+    await collect(svc);
+    const views = await svc.list();
+    expect(views.filter((v) => v.gatewayCode === 'PWR-SEQ55-1').map((v) => v.reading.on)).toEqual(channels);
+    expect(views.filter((v) => v.gatewayCode === 'AUDIO-PWR-SEQ-1').every((v) => !v.reading.on)).toBe(true);
+  });
+
+  it('SEQ55 单路开机: 调 setChannel(3,true) 并乐观置位, 不读真机', async () => {
+    const { svc, seq55 } = await build(allOff(), allOff());
+    await svc.turnOn(202); // seq55-3, relayChannel 3
+    expect(seq55.setChannel).toHaveBeenCalledWith(3, true);
+    const views = await svc.list();
+    expect(views.find((v) => v.id === 202)?.reading.on).toBe(true);
+  });
+
+  it('gatewayName 批量填充: 两台分别带硬件中文名', async () => {
+    const { svc } = await build(allOff(), allOff());
+    const views = await svc.list();
+    expect(views.find((v) => v.gatewayCode === 'PWR-SEQ55-1')?.gatewayName).toBe('第二台电源时序器 (SEQ55)');
+    expect(views.find((v) => v.gatewayCode === 'AUDIO-PWR-SEQ-1')?.gatewayName).toBe('音响电源时序器');
+  });
+
+  it('sequencerAll 无 gatewayCode 抛 Conflict —— 不允许无差别同时控两台', async () => {
+    const { svc } = await build(allOff(), allOff());
+    await expect(svc.sequencerAll(true)).rejects.toThrow(ConflictException);
+    await expect(svc.sequencerAll(true, '')).rejects.toThrow(ConflictException);
+    await expect(svc.sequencerAll(true, '   ')).rejects.toThrow(ConflictException);
+  });
+
+  it('sequencerAll 开机: EPO 走 epo.setAll, 不碰 SEQ55', async () => {
+    const { svc, epo, seq55 } = await build(allOff(), allOff());
+    await svc.sequencerAll(true, 'AUDIO-PWR-SEQ-1');
+    expect(epo.setAll).toHaveBeenCalledWith(true);
+    expect(seq55.setAllSequential).not.toHaveBeenCalled();
+  });
+
+  it('sequencerAll 关机: SEQ55 走 setAllSequential(0D 顺序时序), 不碰 EPO', async () => {
+    const { svc, epo, seq55 } = await build(allOff(), allOff());
+    await svc.sequencerAll(false, 'PWR-SEQ55-1');
+    expect(seq55.setAllSequential).toHaveBeenCalledWith(false);
+    expect(epo.setAll).not.toHaveBeenCalled();
+  });
+
+  it('sequencerAll 设备不存在 → NotFound', async () => {
+    const { svc } = await build(allOff(), allOff());
+    await expect(svc.sequencerAll(true, 'NO-SUCH-GW')).rejects.toThrow(NotFoundException);
+  });
+
+  it('sequencerAll 指向非时序器硬件 → Conflict', async () => {
+    const { svc } = await build(allOff(), allOff(), {
+      'PWR-SEQ55-1': { code: 'PWR-SEQ55-1', category: 'power-relay', enabled: true },
+    });
+    await expect(svc.sequencerAll(true, 'PWR-SEQ55-1')).rejects.toThrow(ConflictException);
   });
 });
