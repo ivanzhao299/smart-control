@@ -9,7 +9,7 @@ import type { WsEvent } from '@/types/api';
 import {
   ArrowLeft, Zap, Power, X, RefreshCw, Activity, Gauge, Lightbulb, Plug,
   MonitorPlay, Snowflake, Volume2, ChevronDown, Thermometer, Droplet,
-  AlertTriangle, ShieldCheck,
+  AlertTriangle, ShieldCheck, Clock,
 } from 'lucide-vue-next';
 import {
   powerCircuitsService,
@@ -20,6 +20,9 @@ import {
   type PowerDomainView,
 } from '@/services/power-circuits.service';
 import { usePermissionStore } from '@/stores/permission';
+// 自动开关时间配置抽屉 —— 与后台「自动开关 / 硬件接线」页共用同一组件、同一接口；
+// 前台电源页只做入口复用，后台配置页保持不动。
+import PowerScheduleDrawer from '@/components/admin/PowerScheduleDrawer.vue';
 
 const ICON_MAP: Record<string, typeof Zap> = {
   Zap, Lightbulb, Plug, MonitorPlay, Snowflake, Volume2,
@@ -316,6 +319,25 @@ const router = useRouter();
 const perm = usePermissionStore();
 function goBack(): void { router.push({ name: 'dashboard' }); }
 
+// ============ 自动开关时间配置（前台直接配置，复用后台抽屉）============
+// 入口仅对"智能断路器 + 有 power-timing 写权限"的角色显示：admin/config/hardware。
+// operator（仅展厅域、无定时权限）不显示；config 只在园区、admin/hardware 全域。
+// 与后台 AutoSwitchAdmin 列表口径一致（c.isBreaker），不按回路名硬编码，未来新增
+// 楼栋/区域的断路器自动带入口。
+const schedRef = ref<InstanceType<typeof PowerScheduleDrawer> | null>(null);
+const canSchedule = computed<boolean>(() => perm.canWriteModule('power-timing'));
+function openSchedule(c: PowerCircuitView): void {
+  schedRef.value?.open(c);
+}
+/** 抽屉里增删改/启停后静默刷新回路与"下次动作"（不触发整页 loading，避免卡片闪动）。 */
+async function onScheduleChanged(): Promise<void> {
+  try {
+    const rows = await powerCircuitsService.list();
+    circuits.value = rows;
+    await loadNextRuns();
+  } catch { /* 静默：下次轮询自然刷新 */ }
+}
+
 // 2026-07-27 切页卡顿根治: keep-alive 下 onUnmounted 不触发, 轮询切走后永续后台
 // 运行。改 useActivePolling — 在本页才刷新, 切走即停; 回页立即 loadCircuits。
 // 2026-10-01 彻底版: 优先走 WS 推送 (后台 10s 预采集, power_reading), WS 在线
@@ -489,6 +511,17 @@ useActivePolling(startPolling, stopPolling);
             </div>
             <div class="card-floor">{{ c.floor }} · {{ c.ratedVoltage }}V {{ c.ratedCurrent }}A</div>
           </div>
+          <!-- 自动开关时间配置入口（手动开关正左侧）：仅智能断路器 + 有权限角色可见。
+               已设启用规则(有下次动作)时主题色高亮 + 右上角蓝点。 -->
+          <button
+            v-if="c.isBreaker && canSchedule"
+            class="schedule-btn"
+            :class="{ set: !!nextRunMap[c.id] }"
+            @click="openSchedule(c)"
+            :title="nextRunMap[c.id] ? '编辑自动开关时间' : '设置自动开关时间'"
+          >
+            <Clock :size="19" :stroke-width="2" />
+          </button>
           <button
             class="v2-toggle"
             :class="{ on: c.reading.on }"
@@ -607,6 +640,9 @@ useActivePolling(startPolling, stopPolling);
         </div>
       </div>
     </div>
+
+    <!-- 自动开关时间配置：复用后台抽屉（无定时写权限的角色不渲染卡片入口） -->
+    <PowerScheduleDrawer ref="schedRef" @changed="onScheduleChanged" />
   </section>
 </template>
 
@@ -795,6 +831,7 @@ useActivePolling(startPolling, stopPolling);
   .metrics { grid-template-columns: 1fr 1fr; gap: var(--v2-sp-2); }
   .metric-value { font-size: 16px; }
   .quick-actions { flex-wrap: wrap; }
+  .schedule-btn { width: 38px; height: 38px; }
   .v2-toggle { width: 48px; height: 28px; }
   .v2-toggle::after { width: 24px; height: 24px; }
   .v2-toggle.on::after { transform: translateX(20px); }
@@ -908,6 +945,39 @@ useActivePolling(startPolling, stopPolling);
 }
 .v2-toggle:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* 自动开关时间配置入口（时钟按钮，位于手动开关正左侧；卡片尺寸不变、不新增高度） */
+.schedule-btn {
+  position: relative;
+  width: 42px; height: 42px;
+  flex-shrink: 0;
+  display: grid; place-items: center;
+  padding: 0;
+  border-radius: var(--v2-r-md);
+  border: 1px solid var(--v2-border-soft);
+  background: var(--v2-surf-2);
+  color: var(--v2-text-2);
+  cursor: pointer;
+  transition: color .2s ease, border-color .2s ease, background-color .2s ease, box-shadow .2s ease, transform .1s ease;
+}
+.schedule-btn:hover { color: var(--v2-primary); border-color: var(--v2-primary); }
+.schedule-btn:active { transform: scale(0.94); }
+/* 已设启用规则：主题色高亮 + 右上角蓝点（与卡片"自动关 xx:xx"chip 同源于 nextRunMap） */
+.schedule-btn.set {
+  color: var(--v2-primary);
+  border-color: color-mix(in srgb, var(--v2-primary) 55%, var(--v2-border-soft));
+  background: var(--v2-primary-soft);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--v2-primary) 30%, transparent),
+    0 0 14px -2px color-mix(in srgb, var(--v2-primary) 50%, transparent);
+}
+.schedule-btn.set::after {
+  content: '';
+  position: absolute; top: 5px; right: 5px;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--v2-primary);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--v2-primary) 80%, transparent);
+}
+
 /* 4 数据值 */
 .metrics {
   display: grid;
@@ -1006,7 +1076,11 @@ useActivePolling(startPolling, stopPolling);
 .chip[data-category="misc"]     { background: var(--v2-ov-2); color: #9BA1A9; border-color: var(--v2-border-soft); }
 
 /* ============ 空开专属: 总闸标记 + 详情面板 ============ */
-.circuit-card.breaker { border-color: var(--v2-warning-soft); }
+/* 空开断路器卡不套琥珀描边（旧 warning-soft 在深色背景上显一圈脏线，曾被反复要求清理）：
+   断电卡靠底色差 + 顶部内高光 + 下沉阴影分层，边框仍占 1px 但置透明，不引起布局跳动；
+   通电卡(.on) 不受此规则影响，保留 .circuit-card.on 的青绿描边与左光条作为“活着”的状态信号。 */
+.circuit-card.breaker:not(.on),
+.circuit-card.breaker:not(.on):hover { border-color: transparent; }
 .breaker-badge {
   display: inline-block;
   vertical-align: middle;

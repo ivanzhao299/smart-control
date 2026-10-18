@@ -6,7 +6,7 @@
  *  - 日常运行 → 自动开关（config，运营时间配置页）
  * 复用，避免两套规则 UI；写接口走 power-schedules（energy 模块，config/hardware 可写）。
  */
-import { computed, reactive, ref } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { Plus } from 'lucide-vue-next';
 import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus';
 import {
@@ -17,6 +17,14 @@ import {
 } from '@/services/power-circuits.service';
 
 const emit = defineEmits<{ (e: 'changed', circuitId: number): void }>();
+
+// 窄屏（手机 / 前台 PWA）自适应：抽屉加宽到 92%、规则弹窗 92vw；桌面后台保持 46% / 440px。
+const isNarrow = ref(typeof window !== 'undefined' && window.innerWidth < 640);
+function onViewportResize(): void { isNarrow.value = window.innerWidth < 640; }
+onMounted(() => window.addEventListener('resize', onViewportResize));
+onUnmounted(() => window.removeEventListener('resize', onViewportResize));
+const drawerSize = computed(() => (isNarrow.value ? '92%' : '46%'));
+const dialogWidth = computed(() => (isNarrow.value ? '92vw' : '440px'));
 
 const visible = ref(false);
 const circuit = ref<PowerCircuitView | null>(null);
@@ -153,7 +161,7 @@ function fmtRuleDesc(r: PowerScheduleRule): string {
 
 <template>
   <!-- 自动开关规则列表 (定时/日落/日出) -->
-  <el-drawer v-model="visible" :title="`自动开关 — ${circuit?.name ?? ''}`" size="46%" direction="rtl">
+  <el-drawer v-model="visible" :title="`自动开关 — ${circuit?.name ?? ''}`" :size="drawerSize" direction="rtl">
     <div class="sched-head">
       <p class="sched-sub">
         以日落/日出为参考点: 开、关都可设在参考点前后 (如日落前30分通电 + 日落后90分断电, 形成一段亮灯时间)。
@@ -185,7 +193,7 @@ function fmtRuleDesc(r: PowerScheduleRule): string {
   </el-drawer>
 
   <!-- 规则编辑 -->
-  <el-dialog v-model="ruleVisible" :title="ruleForm.id != null ? '编辑规则' : '新增规则'" width="440px">
+  <el-dialog v-model="ruleVisible" :title="ruleForm.id != null ? '编辑规则' : '新增规则'" :width="dialogWidth">
     <el-form ref="ruleFormRef" :model="ruleForm" label-width="90px" label-position="right">
       <el-form-item label="动作" prop="action">
         <el-radio-group v-model="ruleForm.action">

@@ -31,7 +31,7 @@ import { useRouter } from 'vue-router';
 import {
   ArrowLeft, MonitorPlay, Play, Pause, Square, SkipBack, SkipForward,
   Upload, ListMusic, History, Pencil, Trash2, Plus, Repeat, Repeat1, AlertTriangle, GripVertical, FolderOpen, X,
-  Globe,
+  Globe, Shuffle,
   ChevronLeft, ChevronRight, Power, ZoomIn, ZoomOut, Maximize, RefreshCw, RotateCcw,
 } from 'lucide-vue-next';
 import { usePlaybackStore } from '@/stores/playback';
@@ -459,7 +459,7 @@ function onUnifiedSourceChange(event: Event): void {
 
     <!-- 输入源 — LED/投影两页统一出现 (2026-07-28 业主), 按钮指向见 script 注释 -->
     <section class="src-bar">
-      <span class="src-label">输入源</span>
+      <span class="src-label"><Shuffle :size="14" :stroke-width="2.3" />输入源</span>
       <button class="src-btn" :class="{ on: activeSource === 'content' }" :disabled="busy" @click="selectContent">播放内容</button>
       <button class="src-btn dashboard" :class="{ on: activeSource === 'park-dashboard' }" :disabled="busy" @click="selectParkDashboard"><Globe :size="13" /> 园区运营大屏</button>
       <select
@@ -484,14 +484,16 @@ function onUnifiedSourceChange(event: Event): void {
          选中项经 onUnifiedSourceChange 分发回 selectContent / selectParkDashboard /
          onWelcomeSchemePick，与上方桌面按钮组行为完全一致，不新增业务逻辑。 -->
     <section class="src-bar-mobile">
-      <span class="src-label">输入源</span>
-      <select
-        class="src-unified-select"
-        :value="unifiedSourceValue"
-        :disabled="busy || welcomePickerBusy"
-        aria-label="选择输入源"
-        @change="onUnifiedSourceChange"
-      >
+      <span class="src-label"><Shuffle :size="14" :stroke-width="2.3" />输入源</span>
+      <div class="src-unified-wrap">
+        <span class="src-unified-globe" aria-hidden="true"><Globe :size="15" :stroke-width="2.2" /></span>
+        <select
+          class="src-unified-select"
+          :value="unifiedSourceValue"
+          :disabled="busy || welcomePickerBusy"
+          aria-label="选择输入源"
+          @change="onUnifiedSourceChange"
+        >
         <option value="" disabled>选择输入源…</option>
         <option :value="UNIFIED_SRC_CONTENT">播放内容（播放列表）</option>
         <option :value="UNIFIED_SRC_DASHBOARD">园区运营大屏</option>
@@ -501,7 +503,8 @@ function onUnifiedSourceChange(event: Event): void {
             {{ s.name }}{{ publishedWelcomeSchemeId === s.id ? ' · 使用中' : '' }}
           </option>
         </optgroup>
-      </select>
+        </select>
+      </div>
       <button class="src-edit-icon" :disabled="busy" title="编辑欢迎页" aria-label="编辑欢迎页" @click="openWelcomeEditor">
         <Pencil :size="16" />
       </button>
@@ -995,9 +998,21 @@ function onUnifiedSourceChange(event: Event): void {
 .src-bar {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding: 10px 14px; border-radius: var(--v2-r-md);
-  background: var(--v2-surf-1, #14161A); border: 1px solid var(--v2-border-soft);
+  /* 强调：主题色微染 + 主题色描边 + 左侧 4px 色条（inset 不占布局）+ 极弱柔光。
+     边框仍 1px、padding 不变，卡片高/宽/位置零变化，不影响已锁死的零抖动。 */
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--v2-primary) 9%, transparent), transparent 55%),
+    var(--v2-surf-1, #14161A);
+  border: 1px solid color-mix(in srgb, var(--v2-primary) 45%, var(--v2-border-soft));
+  box-shadow:
+    inset 4px 0 0 var(--v2-primary),
+    0 0 22px -10px color-mix(in srgb, var(--v2-primary) 60%, transparent);
 }
-.src-label { font-size: 13px; color: var(--v2-text-2); }
+.src-label {
+  font-size: 13px; font-weight: 700; letter-spacing: 0.04em;
+  color: var(--v2-primary); white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 5px;
+}
 .src-btn {
   padding: 9px 16px; min-height: 40px; border-radius: var(--v2-r-md); cursor: pointer;
   font-size: 14px; color: var(--v2-text-1);
@@ -1025,13 +1040,28 @@ function onUnifiedSourceChange(event: Event): void {
 .src-bar-mobile {
   display: none; align-items: center; gap: 8px;
   padding: 8px 10px 8px 12px; border-radius: var(--v2-r-md);
-  background: var(--v2-surf-1, #14161A); border: 1px solid var(--v2-border-soft);
+  /* 与桌面 .src-bar 同源强调：主题色微染 + 描边 + 左色条 + 柔光；尺寸零变化。 */
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--v2-primary) 9%, transparent), transparent 55%),
+    var(--v2-surf-1, #14161A);
+  border: 1px solid color-mix(in srgb, var(--v2-primary) 45%, var(--v2-border-soft));
+  box-shadow:
+    inset 4px 0 0 var(--v2-primary),
+    0 0 22px -10px color-mix(in srgb, var(--v2-primary) 60%, transparent);
 }
+.src-unified-wrap { position: relative; flex: 1 1 auto; min-width: 0; }
 .src-unified-select {
-  flex: 1 1 auto; min-width: 0; min-height: 42px; padding: 8px 12px;
+  width: 100%; min-width: 0; min-height: 42px; padding: 8px 12px 8px 36px;
   border-radius: var(--v2-r-md); cursor: pointer; font-size: 16px; font-family: inherit;
-  color: var(--v2-text-1); background: var(--v2-surf-2, #1A1D22);
-  border: 1px solid var(--v2-border-soft, #23262C);
+  color: var(--v2-text-1);
+  background-color: var(--v2-surf-2, #1A1D22);
+  border: 1px solid color-mix(in srgb, var(--v2-primary) 55%, var(--v2-border-soft, #23262C));
+}
+/* 左侧地球图标用真实 lucide 组件（currentColor），随主题/强调色自动变色，不写死色值。 */
+.src-unified-globe {
+  position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
+  display: inline-flex; align-items: center; pointer-events: none;
+  color: var(--v2-primary);
 }
 .src-unified-select:disabled { opacity: .4; cursor: not-allowed; }
 .src-unified-select option, .src-unified-select optgroup { color: #e8edf4; background: #14161A; }

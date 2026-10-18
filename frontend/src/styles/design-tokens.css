@@ -687,6 +687,18 @@ textarea:focus-visible,
 .el-dialog,
 .el-drawer,
 .el-message-box { box-shadow: var(--v2-elev-3) !important; }
+/* 弹窗 / 抽屉统一圆角（与功能卡片一致，随主题 r-lg，默认 14px、车机 20px）。
+   居中弹窗/消息框四角圆角；抽屉按滑出方向只圆角“靠屏幕内侧”的一边，贴屏边保持直角，避免露出遮罩缺口。 */
+.el-dialog,
+.el-message-box { border-radius: var(--v2-r-lg) !important; }
+.el-drawer.rtl { border-radius: var(--v2-r-lg) 0 0 var(--v2-r-lg) !important; }
+.el-drawer.ltr { border-radius: 0 var(--v2-r-lg) var(--v2-r-lg) 0 !important; }
+.el-drawer.ttb { border-radius: 0 0 var(--v2-r-lg) var(--v2-r-lg) !important; }
+.el-drawer.btt { border-radius: var(--v2-r-lg) var(--v2-r-lg) 0 0 !important; }
+/* 裁掉圆角外溢出的头/内容，使圆角真正收口 */
+.el-dialog,
+.el-drawer,
+.el-message-box { overflow: hidden; }
 .el-popper:not(.is-dark),
 .el-select-dropdown,
 .el-dropdown-menu,
@@ -1020,6 +1032,8 @@ body { overscroll-behavior: none; }
     height: 100% !important;
     max-width: 100vw;
     max-height: 100dvh;
+    /* 手机端抽屉全屏贴边，圆角会露出遮罩缺口，保持直角；居中弹窗 .el-dialog 仍保留 r-lg 圆角。 */
+    border-radius: 0 !important;
   }
   .el-drawer__header { margin-bottom: 0 !important; padding: max(14px, env(safe-area-inset-top)) 16px 14px !important; }
   .el-drawer__body { padding: 12px 16px !important; }
