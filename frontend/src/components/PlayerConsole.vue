@@ -343,7 +343,6 @@ function onUnifiedSourceChange(event: Event): void {
           <span class="now-sub-group" v-show="activeSource !== 'park-dashboard'">
             <span v-if="ch?.currentMediaKind !== 'video' && ch?.loopMode === 'loop'"><Repeat :size="13" /> 循环</span>
             <span v-else-if="ch?.currentMediaKind !== 'video'"><Repeat1 :size="13" /> 播一遍</span>
-            <span v-if="ch?.currentMediaId && !currentInList" class="tmp">· 临时推送</span>
           </span>
         </div>
       </div>
@@ -961,7 +960,6 @@ function onUnifiedSourceChange(event: Event): void {
 /* 切源稳定性(#135): 大屏/普通两组小字各自是常驻的 inline-flex 槽位, v-show 只显隐不重挂 */
 .now-sub-group { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .now-sub-group > span { white-space: nowrap; }
-.now-sub .tmp { color: #E0A030; }
 .now-sub .claim-tag { color: #D98A2B; } .now-sub .claim-tag.mine { color: #2FA36B; font-weight: 600; }
 .now-sub .claim-release { border:1px solid rgba(47,163,107,.45); background:rgba(47,163,107,.12); color:#2FA36B; border-radius:999px; font-size:11px; line-height:1; padding:3px 9px; cursor:pointer; } .now-sub .claim-release:hover { background:rgba(47,163,107,.22); }
 .now-ctrl { display: flex; align-items: center; gap: 10px; }
@@ -1538,7 +1536,7 @@ function onUnifiedSourceChange(event: Event): void {
   .now-sub { margin-top: 4px; flex-wrap: nowrap; min-height: 17px; max-height: 17px; overflow: hidden; line-height: 1.3; }
   .now-sub-group { flex-wrap: nowrap; min-width: 0; }
   .now-sub-group > span { white-space: nowrap; min-width: 0; }
-  .now-sub-group .tmp, .now-sub-group .claim-tag { overflow: hidden; text-overflow: ellipsis; }
+  .now-sub-group .claim-tag { overflow: hidden; text-overflow: ellipsis; }
   .now-sub-group .claim-release { flex: 0 0 auto; margin-left: 4px; padding: 2px 8px; }
   .now-ctrl { width: auto; flex: 0 0 auto; justify-content: flex-end; gap: 7px; }
   .pc-btn { width: 38px; height: 38px; border-radius: 11px; }
@@ -1593,5 +1591,17 @@ function onUnifiedSourceChange(event: Event): void {
   .led-page .cols { flex: 1 1 0; min-height: 0; align-items: stretch; }
   .led-page .panel-list,
   .led-page .panel-his { flex: 1 1 0; min-height: 0; align-self: stretch; }
+
+  /* ⑥ 顶部条锁死单行(2026-10-18 #139 根因): 切自定义欢迎方案时 ensureContentEditor 会先向服务端
+     重新校验权限(role 短暂回到 viewer, 标题旁"只读" chip 闪现一两帧), 播放器离线告警、电源状态
+     文字也可能临时显隐。手机端强制 nowrap + 固定 36px 高(与正常一行态等高), 标题/告警可压缩
+     省略、返回钮/状态/电源块不收缩 —— 任何临时元素显隐都不换行、不增高, 电源块与下方各卡片零位移。
+     桌面端(>640px)仍保持 flex-wrap 自适应, 不受影响。 */
+  .led-head { flex-wrap: nowrap; height: 36px; min-height: 36px; overflow: hidden; }
+  .led-head .v2-back-btn,
+  .led-head .led-state,
+  .led-head .now-power { flex-shrink: 0; }
+  .led-title,
+  .led-warn { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 }
 </style>

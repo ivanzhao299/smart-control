@@ -264,5 +264,7 @@ test('PlayerConsole delegates display power orchestration to the dedicated compo
   // 2026-10-17 手机端播放页 UI 优化：输入源统一下拉、进度条 seek、单次/循环、
   // 防长名换行与 ≤640px 紧凑样式；增量 118 行中 template/style 占 98 行，script
   // 仅 20 行纯 UI 事件聚合（路由回已有 handler），未内联电源逻辑，预算相应放宽。
-  assert.ok(playerConsoleSource.split('\n').length < 1600);
+  // 2026-10-18 #139：手机端 .led-head 锁死单行(nowrap+固定 36px)，根治切自定义欢迎方案
+  // 只读 chip 闪现把电源块挤换行的整页跳动；纯 CSS、零 JS/模板逻辑，预算相应放宽。
+  assert.ok(playerConsoleSource.split('\n').length < 1620);
 });
