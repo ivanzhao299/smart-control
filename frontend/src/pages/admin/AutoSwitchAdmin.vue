@@ -10,10 +10,12 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import {
   powerCircuitsService,
   powerDomainsService,
+  powerFloorsService,
   powerSchedulesService,
   type PowerCircuitView,
   type PowerScheduleRule,
   type PowerDomainView,
+  type PowerFloorView,
 } from '@/services/power-circuits.service';
 import PowerScheduleDrawer from '@/components/admin/PowerScheduleDrawer.vue';
 
@@ -24,6 +26,8 @@ const CATEGORIES: Record<string, string> = {
 const list = ref<PowerCircuitView[]>([]);
 const allRules = ref<PowerScheduleRule[]>([]);
 const domains = ref<PowerDomainView[]>([]);
+/** 分区字典（启用，后端按角色域过滤）；筛选下拉以此为准，回路实际值兜底。 */
+const floors = ref<PowerFloorView[]>([]);
 const loading = ref(false);
 const search = ref('');
 const domainFilter = ref<string>('');
@@ -45,13 +49,28 @@ const domainOptions = computed<string[]>(() => {
   return Array.from(set);
 });
 
-const floorOptions = computed<string[]>(() => {
-  const set = new Set<string>();
-  for (const c of list.value) {
-    if (domainFilter.value && c.domainCode !== domainFilter.value) continue;
-    set.add(c.floor);
+const floorOptions = computed<PowerFloorView[]>(() => {
+  const dc = domainFilter.value;
+  const inRows = list.value.filter((c) => !dc || c.domainCode === dc);
+  const actual = Array.from(new Set(inRows.map((c) => c.floor)));
+  // 启用字典且当前有回路：按 sortOrder；下拉值用 code。
+  const dict = floors.value
+    .filter((f) => (!dc || f.domainCode === dc) && f.enabled && actual.includes(f.code))
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+  const seen = new Set(dict.map((f) => f.code));
+  // 孤儿兜底：字典没登记但回路实际存在，追加在后，避免筛选下拉丢失。
+  for (const code of actual) {
+    if (!seen.has(code)) {
+      const c = inRows.find((x) => x.floor === code);
+      if (c) {
+        dict.push({
+          id: 0, domainCode: c.domainCode, code, name: c.floorName || code,
+          sortOrder: 9999, enabled: true, registered: false, createdAt: '', updatedAt: '',
+        });
+      }
+    }
   }
-  return Array.from(set).sort();
+  return dict;
 });
 
 /** 自动开关只对智能断路器回路有意义 */
@@ -104,14 +123,16 @@ function fmtAt(iso: string | null): string {
 async function refresh(): Promise<void> {
   loading.value = true;
   try {
-    const [circuits, rules, domainRows] = await Promise.all([
+    const [circuits, rules, domainRows, floorRows] = await Promise.all([
       powerCircuitsService.list(true),
       powerSchedulesService.list(),
       powerDomainsService.list(true).catch(() => [] as PowerDomainView[]),
+      powerFloorsService.list().catch(() => [] as PowerFloorView[]),
     ]);
     list.value = circuits;
     allRules.value = rules;
     domains.value = domainRows;
+    floors.value = floorRows;
   } catch (err) {
     ElMessage.error(`加载失败: ${(err as Error).message}`);
   } finally {
@@ -173,8 +194,16 @@ onMounted(refresh);
       >
         <el-option v-for="d in domainOptions" :key="d" :label="domainName(d)" :value="d" />
       </el-select>
-      <el-select v-model="floorFilter" placeholder="全部楼层" clearable class="floor-sel">
-        <el-option v-for="f in floorOptions" :key="f" :label="f" :value="f" />
+      <el-select v-model="floorFilter" placeholder="全部分区" clearable class="floor-sel">
+        <el-option
+          v-for="f in floorOptions"
+          :key="f.domainCode + '::' + f.code"
+          :label="f.name"
+          :value="f.code"
+        >
+          <span>{{ f.name }}</span>
+          <span v-if="!f.registered" class="option-hint">未登记</span>
+        </el-option>
       </el-select>
       <el-input v-model="search" placeholder="搜索名称 / code / 设备" clearable class="search-inp" />
       <el-button class="head-refresh" @click="refresh" :loading="loading">刷新</el-button>
@@ -192,7 +221,7 @@ onMounted(refresh);
             <div class="name-row">
               <span class="circuit-name">{{ row.name }}</span>
               <span v-if="domainOptions.length > 1" class="domain-tag" :data-domain="row.domainCode">{{ domainName(row.domainCode) }}</span>
-              <span v-if="row.floor" class="floor-tag">{{ row.floor }}</span>
+              <span v-if="row.floor" class="floor-tag">{{ row.floorName || row.floor }}</span>
             </div>
             <code class="circuit-code">{{ row.code }}</code>
           </div>

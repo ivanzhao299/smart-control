@@ -15,7 +15,10 @@ export interface PowerCircuitView {
   id: number;
   code: string;
   name: string;
+  /** 分区稳定标识（对应 power_floor.code）。 */
   floor: string;
+  /** 分区中文名（join power_floor.name）；未登记时后端回退为 floor code，恒有值。 */
+  floorName: string;
   /** 所属电源域 code（hall 展厅 / park 园区 / 新楼栋）；后端按角色域过滤。 */
   domainCode: string;
   /** 所属电源域中文名（join power_domain 得到，可能为空，前端用域字典兜底）。 */
@@ -160,6 +163,57 @@ export const powerDomainsService = {
     api.put<PowerDomainView>(`/power-domains/${id}`, dto).then((r) => { invalidate(PD); invalidate(PC); return r; }),
   remove: (id: number) =>
     api.del<null>(`/power-domains/${id}`).then((r) => { invalidate(PD); invalidate(PC); return r; }),
+};
+
+/** 电源分区（Floor，域内二级）—— 2026-10-18「分区管理」。code/中文名分离。 */
+export interface PowerFloorView {
+  id: number;
+  domainCode: string;
+  /** 分区稳定标识，回路引用。 */
+  code: string;
+  /** 中文显示名。 */
+  name: string;
+  sortOrder: number;
+  enabled: boolean;
+  /** 该分区下回路数量（管理页展示）。 */
+  circuitCount?: number;
+  /** false=孤儿（回路里出现、字典未收录），可点「收录」。 */
+  registered: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PowerFloorInput {
+  domainCode?: string;
+  /** 收录孤儿时传回路现有 floor 值；普通新建留空（后端自动生成）。 */
+  code?: string;
+  name?: string;
+  sortOrder?: number;
+  enabled?: boolean;
+}
+
+const PF = 'power-floors:list';
+
+/** 电源分区服务：读任何登录用户（后端按角色域过滤）；增删改仅 admin（zones）。 */
+export const powerFloorsService = {
+  /** 分区字典（前台 tab / 后台下拉），默认仅启用；可按域过滤。 */
+  list: (domainCode?: string, includeDisabled = false) =>
+    queryOnce(`${PF}:${domainCode ?? ''}:${includeDisabled}`, () =>
+      api.get<PowerFloorView[]>('/power-floors', {
+        params: {
+          ...(domainCode ? { domainCode } : {}),
+          ...(includeDisabled ? { includeDisabled: '1' } : {}),
+        },
+      })),
+  /** 后台管理：字典 ∪ 回路实际（含孤儿、停用）。 */
+  manage: (domainCode?: string) =>
+    api.get<PowerFloorView[]>('/power-floors/manage', { params: domainCode ? { domainCode } : {} }),
+  create: (dto: PowerFloorInput) =>
+    api.post<PowerFloorView>('/power-floors', dto).then((r) => { invalidate(PF); invalidate(PD); invalidate(PC); return r; }),
+  update: (id: number, dto: Partial<PowerFloorInput>) =>
+    api.put<PowerFloorView>(`/power-floors/${id}`, dto).then((r) => { invalidate(PF); invalidate(PD); invalidate(PC); return r; }),
+  remove: (id: number) =>
+    api.del<null>(`/power-floors/${id}`).then((r) => { invalidate(PF); invalidate(PD); invalidate(PC); return r; }),
 };
 
 /** 角色×电源域授权（第十六轮，后台可配三态）。 */

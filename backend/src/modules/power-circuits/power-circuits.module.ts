@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { PowerCircuit } from '../../entities/power-circuit.entity';
 import { PowerDomain } from '../../entities/power-domain.entity';
+import { PowerFloor } from '../../entities/power-floor.entity';
 import { PowerDomainRoleGrant } from '../../entities/power-domain-role-grant.entity';
 import { User } from '../../entities/user.entity';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
@@ -14,7 +15,7 @@ import { ServicesPrimitivesModule } from '../../services/services-primitives.mod
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([PowerCircuit, PowerDomain, HardwareUnit, PowerDomainRoleGrant, User]),
+    TypeOrmModule.forFeature([PowerCircuit, PowerDomain, PowerFloor, HardwareUnit, PowerDomainRoleGrant, User]),
     AdminAuthModule,
     AdaptersModule,
     ServicesPrimitivesModule,

@@ -74,6 +74,15 @@ async function makeService(opts: {
     create: jest.fn((r: unknown) => r),
     delete: jest.fn().mockResolvedValue({ affected: 1 }),
   };
+  // 分区字典仓储：单测默认空字典（floorName 回落 code），ensureFloor 自动收录时静默成功。
+  const floorRepo = {
+    find: jest.fn().mockResolvedValue([]),
+    findOne: jest.fn().mockResolvedValue(null),
+    count: jest.fn().mockResolvedValue(0),
+    save: jest.fn(async (r: unknown) => r),
+    create: jest.fn((r: unknown) => r),
+    delete: jest.fn().mockResolvedValue({ affected: 1 }),
+  };
   const hwRepo = {
     find: jest.fn().mockResolvedValue(
       opts.hwCategory === null
@@ -108,7 +117,7 @@ async function makeService(opts: {
     })),
   };
   const svc = new PowerCircuitsService(
-    repo as never, domainRepo as never, hwRepo as never, adapter as never,
+    repo as never, domainRepo as never, floorRepo as never, hwRepo as never, adapter as never,
     epo as never, breaker as never, fakeLogger(),
     undefined, cloudBreaker as never,
   );
@@ -322,6 +331,14 @@ describe('PowerCircuitsService · 时序器后台采集快照', () => {
       create: jest.fn((r: unknown) => r),
       delete: jest.fn(async () => ({ affected: 1 })),
     };
+    const floorRepo = {
+      find: jest.fn(async () => []),
+      findOne: jest.fn(async () => null),
+      count: jest.fn(async () => 0),
+      save: jest.fn(async (r: unknown) => r),
+      create: jest.fn((r: unknown) => r),
+      delete: jest.fn(async () => ({ affected: 1 })),
+    };
     const epo = { setChannel: jest.fn(async () => okResult({})), readStatus: readStatusImpl };
     const adapter = {
       circuitTurnOn: jest.fn(), circuitTurnOff: jest.fn(),
@@ -330,7 +347,7 @@ describe('PowerCircuitsService · 时序器后台采集快照', () => {
     const breaker = { turnOn: jest.fn(), turnOff: jest.fn(), getMeasurements: jest.fn() };
     const cloudBreaker = { turnOn: jest.fn(), turnOff: jest.fn(), getMeasurements: jest.fn() };
     const svc = new PowerCircuitsService(
-      repo as never, domainRepo as never, hwRepo as never, adapter as never,
+      repo as never, domainRepo as never, floorRepo as never, hwRepo as never, adapter as never,
       epo as never, breaker as never, fakeLogger(), undefined, cloudBreaker as never,
     );
     return { svc, epo };
@@ -440,6 +457,14 @@ describe('PowerCircuitsService · 第二台时序器 SEQ55 (双机独立采集/�
       create: jest.fn((r: unknown) => r),
       delete: jest.fn(async () => ({ affected: 1 })),
     };
+    const floorRepo = {
+      find: jest.fn(async () => []),
+      findOne: jest.fn(async () => null),
+      count: jest.fn(async () => 0),
+      save: jest.fn(async (r: unknown) => r),
+      create: jest.fn((r: unknown) => r),
+      delete: jest.fn(async () => ({ affected: 1 })),
+    };
     const epo = {
       setAll: jest.fn(async () => okResult({ on: true })),
       setChannel: jest.fn(async () => okResult({})),
@@ -458,7 +483,7 @@ describe('PowerCircuitsService · 第二台时序器 SEQ55 (双机独立采集/�
     const breaker = { turnOn: jest.fn(), turnOff: jest.fn(), getMeasurements: jest.fn() };
     const cloudBreaker = { turnOn: jest.fn(), turnOff: jest.fn(), getMeasurements: jest.fn() };
     const svc = new PowerCircuitsService(
-      repo as never, domainRepo as never, hwRepo as never, adapter as never,
+      repo as never, domainRepo as never, floorRepo as never, hwRepo as never, adapter as never,
       epo as never, breaker as never, fakeLogger(), seq55 as never, cloudBreaker as never,
     );
     return { svc, epo, seq55 };

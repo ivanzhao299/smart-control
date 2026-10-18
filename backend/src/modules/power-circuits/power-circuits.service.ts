@@ -14,6 +14,7 @@ import { In, Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { PowerCircuit } from '../../entities/power-circuit.entity';
 import { PowerDomain } from '../../entities/power-domain.entity';
+import { PowerFloor } from '../../entities/power-floor.entity';
 import { canWritePowerDomain, readablePowerDomains, POWER_DOMAIN } from '../../common/auth/rbac';
 import type { UserRole } from '../../entities/user.entity';
 import { PowerAdapter, PowerReading } from '../../adapters/power/power.adapter';
@@ -33,6 +34,8 @@ export interface PowerCircuitView {
   code: string;
   name: string;
   floor: string;
+  /** 分区中文名（join power_floor.name）；未登记时回退为 floor code 本身，恒有值。 */
+  floorName: string;
   /** 所属电源域 code（hall 展厅 / park 园区 / 新楼栋），第五轮域划分。 */
   domainCode: string;
   /** 所属电源域中文名（join power_domain 得到，未配置时回退 code）。 */
@@ -98,11 +101,39 @@ export interface PowerDomainUpsertDto {
   enabled?: boolean;
 }
 
+export interface PowerFloorView {
+  id: number;
+  domainCode: string;
+  /** 分区稳定标识，回路引用。 */
+  code: string;
+  /** 中文显示名。 */
+  name: string;
+  sortOrder: number;
+  enabled: boolean;
+  /** 该分区下回路数量（管理页展示用）。 */
+  circuitCount?: number;
+  /** false=孤儿（仅回路里出现、字典未收录），前端可点「收录」。 */
+  registered: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface PowerFloorUpsertDto {
+  /** 所属域 code；新建/收录必填。 */
+  domainCode?: string;
+  /** 分区 code；收录孤儿时传回路现有 floor 值，普通新建留空（系统自动生成）。 */
+  code?: string;
+  name?: string;
+  sortOrder?: number;
+  enabled?: boolean;
+}
+
 @Injectable()
 export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @InjectRepository(PowerCircuit) private readonly repo: Repository<PowerCircuit>,
     @InjectRepository(PowerDomain) private readonly domainRepo: Repository<PowerDomain>,
+    @InjectRepository(PowerFloor) private readonly floorRepo: Repository<PowerFloor>,
     @InjectRepository(HardwareUnit) private readonly hwRepo: Repository<HardwareUnit>,
     private readonly adapter: PowerAdapter,
     /** 电源时序器真机 — 挂在它上面的回路走真设备, 其余走 mock */
@@ -178,16 +209,24 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     });
     // 并行拉各回路实时读数 (云断路器走各自 HTTP 可并发; 485 适配器内部对共享
     // 串口自行串行化) —— 避免逐台 await 把云端往返时间累加
-    const [nameMap, hwMap] = await Promise.all([this.domainNameMap(), this.hwNameMap()]);
-    return Promise.all(rows.map((r) => this.toView(r, nameMap, hwMap)));
+    const [nameMap, floorMap, hwMap] = await Promise.all([
+      this.domainNameMap(),
+      this.floorNameMap(),
+      this.hwNameMap(),
+    ]);
+    return Promise.all(rows.map((r) => this.toView(r, nameMap, floorMap, hwMap)));
   }
 
   async detail(id: number, role?: UserRole): Promise<PowerCircuitView> {
     const row = await this.repo.findOne({ where: { id } });
     if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
     await this.assertCanReadDomain(row, role);
-    const [nameMap, hwMap] = await Promise.all([this.domainNameMap(), this.hwNameMap()]);
-    return this.toView(row, nameMap, hwMap);
+    const [nameMap, floorMap, hwMap] = await Promise.all([
+      this.domainNameMap(),
+      this.floorNameMap(),
+      this.hwNameMap(),
+    ]);
+    return this.toView(row, nameMap, floorMap, hwMap);
   }
 
   /** 读域校验：非 admin 角色不能查看所属域外的回路详情（直接打 id 也挡）。 */
@@ -208,13 +247,16 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
 
   async create(dto: PowerCircuitUpsertDto): Promise<PowerCircuitView> {
     this.validate(dto);
+    const domainCode = dto.domainCode ?? POWER_DOMAIN.HALL;
+    // 兜底：所属分区未登记则自动收录（前端下拉正常不会触发），保证字典完整、不阻断保存。
+    await this.ensureFloor(domainCode, dto.floor);
     const dup = await this.repo.findOne({ where: { code: dto.code } });
     if (dup) throw new ConflictException(`circuit code 已存在: ${dto.code}`);
     const row = this.repo.create({
       code: dto.code,
       name: dto.name,
       floor: dto.floor,
-      domainCode: dto.domainCode ?? POWER_DOMAIN.HALL,
+      domainCode,
       category: dto.category ?? 'misc',
       gatewayCode: dto.gatewayCode ?? null,
       relayChannel: dto.relayChannel ?? null,
@@ -255,6 +297,7 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
       ...(dto.description !== undefined && { description: dto.description }),
       ...(dto.enabled !== undefined && { enabled: dto.enabled }),
     });
+    await this.ensureFloor(row.domainCode, row.floor);
     const saved = await this.repo.save(row);
     return this.toView(saved);
   }
@@ -331,6 +374,158 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
       circuitCount,
       createdAt: d.createdAt,
       updatedAt: d.updatedAt,
+    };
+  }
+
+  // ============ 电源分区（Floor）管理；写仅 admin（controller 用 @ModuleAccess('zones')） ============
+
+  /** 前台/下拉用：默认只返回启用分区，可按域过滤。 */
+  async listFloors(opts: { domainCode?: string; includeDisabled?: boolean } = {}): Promise<PowerFloorView[]> {
+    const where: Record<string, unknown> = {};
+    if (opts.domainCode) where.domainCode = opts.domainCode;
+    if (!opts.includeDisabled) where.enabled = true;
+    const rows = await this.floorRepo.find({
+      where,
+      order: { domainCode: 'ASC', sortOrder: 'ASC', id: 'ASC' },
+    });
+    return Promise.all(rows.map((f) => this.floorToView(f)));
+  }
+
+  /**
+   * 后台管理用：字典 ∪ 回路实际 floor 的并集。
+   * 字典里没有但回路里出现的分区以 registered=false 返回（“未登记·可收录”），绝不丢任何一路。
+   */
+  async listFloorsForAdmin(opts: { domainCode?: string } = {}): Promise<PowerFloorView[]> {
+    const dict = await this.floorRepo.find({
+      where: opts.domainCode ? { domainCode: opts.domainCode } : {},
+      order: { sortOrder: 'ASC', id: 'ASC' },
+    });
+    const circuits = await this.repo.find({
+      select: { domainCode: true, floor: true },
+      where: opts.domainCode ? { domainCode: opts.domainCode } : {},
+    });
+    const known = new Set(dict.map((f) => `${f.domainCode}::${f.code}`));
+    const seenOrphan = new Set<string>();
+    const orphans: PowerFloor[] = [];
+    for (const c of circuits) {
+      const key = `${c.domainCode}::${c.floor}`;
+      if (!c.floor || known.has(key) || seenOrphan.has(key)) continue;
+      seenOrphan.add(key);
+      const stub = new PowerFloor();
+      stub.id = 0;
+      stub.domainCode = c.domainCode;
+      stub.code = c.floor;
+      stub.name = c.floor;
+      stub.sortOrder = 9999;
+      stub.enabled = false;
+      orphans.push(stub);
+    }
+    const all = [...dict, ...orphans];
+    all.sort((a, b) =>
+      a.domainCode === b.domainCode
+        ? a.sortOrder - b.sortOrder
+        : a.domainCode < b.domainCode
+          ? -1
+          : 1,
+    );
+    return Promise.all(all.map((f) => this.floorToView(f, f.id !== 0)));
+  }
+
+  async createFloor(dto: PowerFloorUpsertDto): Promise<PowerFloorView> {
+    const domainCode = dto.domainCode?.trim();
+    if (!domainCode) throw new ConflictException('所属区域 code 必填');
+    const domain = await this.domainRepo.findOne({ where: { code: domainCode } });
+    if (!domain) throw new ConflictException(`所属区域不存在: ${domainCode}`);
+    const name = dto.name?.trim();
+    if (!name) throw new ConflictException('分区名称必填');
+    await this.assertFloorNameUnique(domainCode, name);
+    let code = dto.code?.trim();
+    if (code) {
+      // 收录孤儿：沿用回路里已有的 floor 值（可能是中文），不做 kebab 限制。
+      const dup = await this.floorRepo.findOne({ where: { domainCode, code } });
+      if (dup) throw new ConflictException(`该分区已登记: ${code}`);
+    } else {
+      code = await this.generateFloorCode(domainCode);
+    }
+    const row = this.floorRepo.create({
+      domainCode,
+      code,
+      name,
+      sortOrder: dto.sortOrder ?? 100,
+      enabled: dto.enabled ?? true,
+    });
+    return this.floorToView(await this.floorRepo.save(row));
+  }
+
+  async updateFloor(id: number, dto: Partial<PowerFloorUpsertDto>): Promise<PowerFloorView> {
+    const row = await this.floorRepo.findOne({ where: { id } });
+    if (!row) throw new NotFoundException(`power floor #${id} 不存在`);
+    // code 是稳定标识、回路引用它，禁止修改（改了会导致整层失联）；只改中文名/排序/启用。
+    if (dto.name !== undefined) {
+      const name = dto.name.trim();
+      if (!name) throw new ConflictException('分区名称必填');
+      await this.assertFloorNameUnique(row.domainCode, name, id);
+      row.name = name;
+    }
+    if (dto.sortOrder !== undefined) row.sortOrder = dto.sortOrder;
+    if (dto.enabled !== undefined) row.enabled = dto.enabled;
+    return this.floorToView(await this.floorRepo.save(row));
+  }
+
+  async removeFloor(id: number): Promise<void> {
+    const row = await this.floorRepo.findOne({ where: { id } });
+    if (!row) return;
+    const used = await this.repo.count({ where: { domainCode: row.domainCode, floor: row.code } });
+    if (used > 0) {
+      throw new ConflictException(`该分区下仍有 ${used} 条回路，请先改挂到其他分区再删除`);
+    }
+    await this.floorRepo.delete({ id });
+  }
+
+  /** 回路保存兜底：所属 (域,分区) 未登记则自动收录（name=code），保证字典完整、不阻断。 */
+  private async ensureFloor(domainCode: string, floorCode: string): Promise<void> {
+    const code = floorCode?.trim();
+    if (!code) return;
+    const exists = await this.floorRepo.findOne({ where: { domainCode, code } });
+    if (exists) return;
+    const row = this.floorRepo.create({ domainCode, code, name: code, sortOrder: 100, enabled: true });
+    try {
+      await this.floorRepo.save(row);
+    } catch {
+      // 并发下唯一索引冲突 = 已被另一请求收录，忽略。
+    }
+  }
+
+  private async assertFloorNameUnique(domainCode: string, name: string, excludeId?: number): Promise<void> {
+    const dup = await this.floorRepo.findOne({ where: { domainCode, name } });
+    if (dup && dup.id !== excludeId) throw new ConflictException(`同区域下分区名称已存在: ${name}`);
+  }
+
+  /** 生成域内唯一的短 code（f + base36 时间戳 + 随机，≤16 字符以匹配回路 floor 列）。 */
+  private async generateFloorCode(domainCode: string): Promise<string> {
+    for (let i = 0; i < 5; i++) {
+      const code = ('f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5)).slice(0, 16);
+      const exists = await this.floorRepo.findOne({ where: { domainCode, code } });
+      if (!exists) return code;
+    }
+    throw new ConflictException('分区编号生成冲突，请重试');
+  }
+
+  private async floorToView(f: PowerFloor, registered = true): Promise<PowerFloorView> {
+    const circuitCount = await this.repo.count({
+      where: { domainCode: f.domainCode, floor: f.code },
+    });
+    return {
+      id: f.id,
+      domainCode: f.domainCode,
+      code: f.code,
+      name: f.name,
+      sortOrder: f.sortOrder,
+      enabled: f.enabled,
+      circuitCount,
+      registered,
+      createdAt: f.createdAt,
+      updatedAt: f.updatedAt,
     };
   }
 
@@ -793,16 +988,18 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   private async toView(
     row: PowerCircuit,
     nameMap?: Map<string, string>,
+    floorMap?: Map<string, string>,
     hwNameMap?: Map<string, string>,
   ): Promise<PowerCircuitView> {
     const domainName = nameMap?.get(row.domainCode) ?? null;
+    const floorName = floorMap?.get(`${row.domainCode}::${row.floor}`) ?? row.floor;
     const gatewayName = row.gatewayCode ? (hwNameMap?.get(row.gatewayCode) ?? null) : null;
     const breakerAdapter = await this.resolveBreakerAdapter(row);
     const isBreaker = breakerAdapter !== null;
     // 智能断路器回路: 读真机 (电压/电流/功率/电量都是实测), 不用 mock 的模拟值
     if (breakerAdapter) {
       return {
-        ...this.baseView(row, domainName, gatewayName),
+        ...this.baseView(row, domainName, floorName, gatewayName),
         isBreaker,
         reading: this.snapshotBreakerReading(row), // 读快照, 不等待外部 I/O
       };
@@ -810,7 +1007,7 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     // 第二台时序器 (SEQ55, 55…AA): 开关状态读它自己的后台快照 (FA 一帧带 8 路)
     if (await this.isSeq55Circuit(row)) {
       return {
-        ...this.baseView(row, domainName, gatewayName),
+        ...this.baseView(row, domainName, floorName, gatewayName),
         isBreaker,
         reading: this.seq55Reading(row),
       };
@@ -818,7 +1015,7 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     // 第一台时序器 (EPO-802P): 开关状态读后台快照 (0xac 一帧带全部 8 路), 电量指标没有 → 0
     if (await this.isSequencerCircuit(row)) {
       return {
-        ...this.baseView(row, domainName, gatewayName),
+        ...this.baseView(row, domainName, floorName, gatewayName),
         isBreaker,
         reading: this.seqReading(row),
       };
@@ -840,7 +1037,7 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
             energy: 0,
             lastReadAt: new Date().toISOString(),
           };
-    return { ...this.baseView(row, domainName, gatewayName), isBreaker, reading };
+    return { ...this.baseView(row, domainName, floorName, gatewayName), isBreaker, reading };
   }
 
   /** 单相 MQTT 设备只填 A 相；三相设备取三相平均。 */
@@ -856,6 +1053,12 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     return new Map(domains.map((d) => [d.code, d.name]));
   }
 
+  /** 分区 `${domainCode}::${code}` → 中文名（一次加载，供 toView 批量填充）。 */
+  private async floorNameMap(): Promise<Map<string, string>> {
+    const floors = await this.floorRepo.find({ select: { domainCode: true, code: true, name: true } });
+    return new Map(floors.map((f) => [`${f.domainCode}::${f.code}`, f.name]));
+  }
+
   /** 硬件 code → 中文名（一次加载，供 toView 批量填充 gatewayName，电源页按设备分组用）。 */
   private async hwNameMap(): Promise<Map<string, string>> {
     const hw = await this.hwRepo.find({ select: { code: true, name: true } });
@@ -866,6 +1069,7 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   private baseView(
     row: PowerCircuit,
     domainName?: string | null,
+    floorName?: string | null,
     gatewayName?: string | null,
   ): Omit<PowerCircuitView, 'reading' | 'isBreaker'> {
     return {
@@ -873,6 +1077,7 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
       code: row.code,
       name: row.name,
       floor: row.floor,
+      floorName: floorName ?? row.floor,
       domainCode: row.domainCode,
       domainName: domainName ?? null,
       category: row.category,

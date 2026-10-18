@@ -16,6 +16,7 @@ import {
   PowerCircuitsService,
   type PowerCircuitUpsertDto,
   type PowerDomainUpsertDto,
+  type PowerFloorUpsertDto,
 } from './power-circuits.service';
 import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
 import { ModuleAccess } from '../../common/decorators/module-access.decorator';
@@ -88,6 +89,54 @@ export class PowerCircuitsController {
   @HttpCode(200)
   async removeDomain(@Param('id', ParseIntPipe) id: number) {
     await this.service.removeDomain(id);
+    return { message: '删除成功', data: null };
+  }
+
+  // ============ 电源分区（Floor，域内二级；分区跟随所属域授权，不单独做权限） ============
+
+  /** 分区字典：任何已登录用户可见（按角色域过滤，默认仅启用），供前台 tab / 后台下拉。 */
+  @Get('power-floors')
+  async listFloors(
+    @Req() req: AuthenticatedRequest,
+    @Query('domainCode') domainCode?: string,
+    @Query('includeDisabled') includeDisabled?: string,
+  ) {
+    const role = requireActor(req).role;
+    const include = includeDisabled === '1' || includeDisabled === 'true';
+    const all = await this.service.listFloors({ domainCode, includeDisabled: include });
+    const readable = await this.grants.readableDomains(role);
+    const data = readable === null ? all : all.filter((f) => readable.includes(f.domainCode));
+    return { message: '查询成功', data };
+  }
+
+  /** 后台分区管理：字典 ∪ 回路实际（含孤儿、停用），仅 admin。 */
+  @Get('power-floors/manage')
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('zones')
+  async manageFloors(@Query('domainCode') domainCode?: string) {
+    return { message: '查询成功', data: await this.service.listFloorsForAdmin({ domainCode }) };
+  }
+
+  @Post('power-floors')
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('zones')
+  async createFloor(@Body() dto: PowerFloorUpsertDto) {
+    return { message: '创建成功', data: await this.service.createFloor(dto) };
+  }
+
+  @Put('power-floors/:id')
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('zones')
+  async updateFloor(@Param('id', ParseIntPipe) id: number, @Body() dto: Partial<PowerFloorUpsertDto>) {
+    return { message: '更新成功', data: await this.service.updateFloor(id, dto) };
+  }
+
+  @Delete('power-floors/:id')
+  @UseGuards(ModuleAccessGuard)
+  @ModuleAccess('zones')
+  @HttpCode(200)
+  async removeFloor(@Param('id', ParseIntPipe) id: number) {
+    await this.service.removeFloor(id);
     return { message: '删除成功', data: null };
   }
 

@@ -14,10 +14,12 @@ import {
 import {
   powerCircuitsService,
   powerDomainsService,
+  powerFloorsService,
   powerSchedulesService,
   type PowerCircuitView,
   type BreakerMeasurements,
   type PowerDomainView,
+  type PowerFloorView,
 } from '@/services/power-circuits.service';
 import { usePermissionStore } from '@/stores/permission';
 // 自动开关时间配置抽屉 —— 与后台「自动开关 / 硬件接线」页共用同一组件、同一接口；
@@ -37,8 +39,21 @@ function is4gBreaker(c: PowerCircuitView): boolean {
   return !!c.gatewayCode?.startsWith('CB4G-');
 }
 
+/** 易微联云开关 (gatewayCode 以 EWE- 开头): 仅合/分闸, 无电压电流遥测,
+ *  不显示实时读数与空开详情 (点进去是一整排 0, 误导)。 */
+function isCloudBreaker(c: PowerCircuitView): boolean {
+  return !!c.gatewayCode?.startsWith('EWE-');
+}
+
+/** 有真实电力遥测的断路器 (485 / 4G / 华普云) 才显示 inline 读数与空开详情。 */
+function hasReadings(c: PowerCircuitView): boolean {
+  return c.isBreaker && !isCloudBreaker(c);
+}
+
 const circuits = ref<PowerCircuitView[]>([]);
 const domains = ref<PowerDomainView[]>([]);
+/** 分区字典（启用，后端按角色域过滤）；tab 名/排序以此为准，回路实际值兜底。 */
+const floors = ref<PowerFloorView[]>([]);
 const loading = ref(false);
 const loadError = ref<string | null>(null);
 const busyIds = ref<Set<number>>(new Set());
@@ -55,20 +70,22 @@ async function loadCircuits(): Promise<void> {
   loadError.value = null;
   try {
     // 域字典与回路并行（后端都按角色域过滤，operator 只见展厅、config 只见园区）。
-    const [rows, domainRows] = await Promise.all([
+    const [rows, domainRows, floorRows] = await Promise.all([
       powerCircuitsService.list(),
       powerDomainsService.list().catch(() => [] as PowerDomainView[]),
+      powerFloorsService.list().catch(() => [] as PowerFloorView[]),
     ]);
     circuits.value = rows;
     domains.value = domainRows;
+    floors.value = floorRows;
     // 域 tab 校正：当前域不在可见范围则回到第一个域（多域角色才会出现域切换）。
     const doms = domainOptions.value;
     if (!doms.includes(domainTab.value) && doms.length > 0) {
       domainTab.value = doms[0];
     }
-    const floors = floorOptions.value;
+    const floorCodes = floorOptions.value;
     // 'all' 与有效楼层都保留; 只有未初始化('')或失效楼层才落首选楼层(时序器页)。
-    if (floorTab.value !== 'all' && !floors.includes(floorTab.value) && floors.length > 0) {
+    if (floorTab.value !== 'all' && !floorCodes.includes(floorTab.value) && floorCodes.length > 0) {
       floorTab.value = preferredFloor.value;
     }
     // 自动开关"下次动作"展示 (定时/日落/日出) — 2026-10-01 4G 断路器
@@ -104,6 +121,14 @@ function fmtNextAt(iso: string): string {
   return sameDay ? `今天 ${hm}` : `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
 }
 const NEXT_ACTION_LABEL: Record<string, string> = { on: '开', off: '关' };
+/** 紧凑卡用的下次动作时间: 今天只显示 HH:MM, 跨天显示 M/D HH:MM (省卡片宽度) */
+function fmtNextShort(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  return sameDay ? hm : `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
+}
 
 // ============ 域 tab（第五轮：展厅 hall / 园区 park，可扩展新楼栋）============
 // 后端已按角色域过滤：admin/hardware 拿到两域（显示域切换），operator 仅展厅、
@@ -133,10 +158,25 @@ function switchDomain(code: string): void {
 // 楼层 tab（仅基于当前域；首次加载自动落时序器所在楼层, 但不写死楼层名）
 const floorTab = ref<string>(''); // ''=未初始化, 首次 loadCircuits 时落 preferredFloor; 'all' 合法保留
 const floorOptions = computed<string[]>(() => {
-  const set = new Set<string>();
-  for (const c of domainCircuits.value) set.add(c.floor);
-  return Array.from(set).sort();
+  const dc = domainTab.value;
+  const actual = Array.from(new Set(domainCircuits.value.map((c) => c.floor)));
+  // 启用字典且该分区当前有回路：按 sortOrder 排序；tab 值仍为 code。
+  const dict = floors.value
+    .filter((f) => f.domainCode === dc && f.enabled && actual.includes(f.code))
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((f) => f.code);
+  // 孤儿 / 停用兜底：字典缺失但回路实际存在，追加在后，保证 tab 不丢。
+  for (const code of actual) if (!dict.includes(code)) dict.push(code);
+  return dict;
 });
+/** 分区中文名：字典优先，回退回路自带 floorName，再回退 code。 */
+function floorName(code: string, domainCode?: string): string {
+  const dc = domainCode ?? domainTab.value;
+  const f = floors.value.find((x) => x.domainCode === dc && x.code === code);
+  if (f?.name) return f.name;
+  const c = circuits.value.find((x) => x.domainCode === dc && x.floor === code);
+  return c?.floorName || code;
+}
 /** 该域的首选楼层: 含时序器回路(audio-seq)的第一个楼层, 否则第一个楼层, 再否则 'all'。 */
 const preferredFloor = computed<string>(() => {
   const seqFloor = floorOptions.value.find((f) =>
@@ -353,14 +393,16 @@ const floorPlainRows = computed(() =>
   filteredCircuits.value.filter((c) => c.category !== 'audio-seq'));
 async function floorOn(): Promise<void> {
   if (floorPlainRows.value.length === 0) return;
-  if (!(await confirmPower(floorTab.value, floorPlainRows.value.length, true))) return;
-  ElMessage.info(`${floorTab.value} 通电 — 逐路下发 (${floorPlainRows.value.length} 路)`);
+  const label = floorName(floorTab.value);
+  if (!(await confirmPower(label, floorPlainRows.value.length, true))) return;
+  ElMessage.info(`${label} 通电 — 逐路下发 (${floorPlainRows.value.length} 路)`);
   await dispatchMany(floorPlainRows.value, 'on');
 }
 async function floorOff(): Promise<void> {
   if (floorPlainRows.value.length === 0) return;
-  if (!(await confirmPower(floorTab.value, floorPlainRows.value.length, false))) return;
-  ElMessage.warning(`${floorTab.value} 断电 — 逐路下发 (${floorPlainRows.value.length} 路)`);
+  const label = floorName(floorTab.value);
+  if (!(await confirmPower(label, floorPlainRows.value.length, false))) return;
+  ElMessage.warning(`${label} 断电 — 逐路下发 (${floorPlainRows.value.length} 路)`);
   await dispatchMany(floorPlainRows.value, 'off');
 }
 
@@ -475,7 +517,7 @@ useActivePolling(startPolling, stopPolling);
             class="v2-tab"
             :class="{ active: floorTab === f }"
             @click="floorTab = f"
-          >{{ f }}</button>
+          >{{ floorName(f) }}</button>
           <button class="v2-tab" :class="{ active: floorTab === 'all' }" @click="floorTab = 'all'">全部</button>
         </div>
         <!-- 手机端: 刷新并入楼层 tab 行右侧(见 .refresh-mobile), 避免另起一行把卡片下推;
@@ -498,7 +540,7 @@ useActivePolling(startPolling, stopPolling);
           @click="floorOn"
           :disabled="loading || floorPlainRows.length === 0"
         >
-          <Power :size="14" :stroke-width="2" /> {{ floorTab }} 通电
+          <Power :size="14" :stroke-width="2" /> {{ floorName(floorTab) }} 通电
         </button>
         <button
           v-if="perm.canEdit && floorTab !== 'all' && floorPlainRows.length > 0"
@@ -506,7 +548,7 @@ useActivePolling(startPolling, stopPolling);
           @click="floorOff"
           :disabled="loading || floorPlainRows.length === 0"
         >
-          <X :size="14" :stroke-width="2" /> {{ floorTab }} 断电
+          <X :size="14" :stroke-width="2" /> {{ floorName(floorTab) }} 断电
         </button>
         <button v-if="perm.canEdit && floorTab === 'all'" class="v2-quick primary" @click="allOn" :disabled="loading || domainCircuits.length === 0" :title="domainName(domainTab) + '全部通电 (仅当前区域, 时序回路走时序开机)'">
           <Power :size="14" :stroke-width="2" /> {{ domainName(domainTab) }} 全部通电
@@ -572,13 +614,13 @@ useActivePolling(startPolling, stopPolling);
             v-for="c in g.rows"
             :key="c.id"
             class="circuit-card"
-            :class="{ on: c.reading.on, breaker: c.isBreaker }"
+            :class="{ on: c.reading.on, breaker: c.isBreaker, cloud: isCloudBreaker(c), seq: c.category === 'audio-seq' }"
           >
-        <!-- 顶部 -->
-        <div class="card-top">
-          <div class="card-ico"><component :is="iconFor(c.icon)" :size="22" :stroke-width="1.8" /></div>
-          <div class="card-meta">
-            <div class="card-name">
+        <!-- 行 1：图标 + 名称(总闸) + 规格 + 定时 + 开关 -->
+        <div class="cc-row1">
+          <div class="cc-ico"><component :is="iconFor(c.icon)" :size="20" :stroke-width="1.8" /></div>
+          <div class="cc-meta">
+            <div class="cc-name">
               <!-- 行内改名: 点名字直接编辑 (业主自定义每一路名称), 回车/失焦保存 -->
               <input
                 v-if="renamingId === c.id"
@@ -598,11 +640,12 @@ useActivePolling(startPolling, stopPolling);
                 :title="perm.canEdit ? '点击改名' : c.name"
                 @click="perm.canEdit && startRename(c)"
               >{{ c.name }}</span>
-              <span v-if="c.isBreaker" class="breaker-badge" title="智能断路器 · 远程物理总闸">总闸</span>
+              <span v-if="hasReadings(c)" class="breaker-badge" title="智能断路器 · 远程物理总闸">总闸</span>
             </div>
-            <div class="card-floor">{{ c.floor }} · {{ c.ratedVoltage }}V {{ c.ratedCurrent }}A</div>
+            <!-- 规格行: 时序器每路无独立额定规格, 不显示 -->
+            <div v-if="c.category !== 'audio-seq'" class="cc-sub">{{ c.floorName || c.floor }} · {{ c.ratedVoltage }}V {{ c.ratedCurrent }}A</div>
           </div>
-          <!-- 自动开关时间配置入口（手动开关正左侧）：仅智能断路器 + 有权限角色可见。
+          <!-- 自动开关时间配置入口（手动开关正左侧）：仅智能断路器(含云开关) + 有权限角色可见。
                已设启用规则(有下次动作)时主题色高亮 + 右上角蓝点。 -->
           <button
             v-if="c.isBreaker && canSchedule"
@@ -611,7 +654,7 @@ useActivePolling(startPolling, stopPolling);
             @click="openSchedule(c)"
             :title="nextRunMap[c.id] ? '编辑自动开关时间' : '设置自动开关时间'"
           >
-            <Clock :size="19" :stroke-width="2" />
+            <Clock :size="17" :stroke-width="2" />
           </button>
           <button
             class="v2-toggle"
@@ -622,65 +665,43 @@ useActivePolling(startPolling, stopPolling);
           ></button>
         </div>
 
-        <!-- 4 数据值 — 时序器每路没有独立计量 (EPO-802P 是时序器不是电表),
-             显示一排 0 只会误导, 该类回路收成简洁开关卡 (2026-07-25 业主) -->
-        <div v-if="c.category !== 'audio-seq'" class="metrics">
-          <div class="metric">
-            <div class="metric-label">电流</div>
-            <div class="metric-value v2-inter">
-              <span class="num">{{ c.reading.current.toFixed(2) }}</span><span class="unit">A</span>
-            </div>
-          </div>
-          <div class="metric">
-            <div class="metric-label">电压</div>
-            <div class="metric-value v2-inter">
-              <span class="num">{{ c.reading.voltage.toFixed(1) }}</span><span class="unit">V</span>
-            </div>
-          </div>
-          <div class="metric">
-            <div class="metric-label">功率</div>
-            <div class="metric-value v2-inter">
-              <span class="num">{{ Math.round(c.reading.power) }}</span><span class="unit">W</span>
-            </div>
-          </div>
-          <div class="metric">
-            <div class="metric-label">累计</div>
-            <div class="metric-value v2-inter">
-              <span class="num">{{ c.reading.energy.toFixed(2) }}</span><span class="unit">kWh</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 底部 chip 行 -->
-        <div class="chip-row">
-          <span class="chip" :data-category="c.category">{{ c.category }}</span>
-          <span v-if="c.isBreaker" class="chip muted">{{ is4gBreaker(c) ? '4G 空开' : '485 空开' }}</span>
-          <span v-else-if="c.relayChannel != null" class="chip muted">CH {{ c.relayChannel }}</span>
-          <span class="chip state-chip" :class="c.reading.on ? 'on' : 'off'">
-            <i class="state-dot"></i>{{ c.reading.on ? '已通电' : '已断电' }}
+        <!-- 行 2：状态 + 自动下次动作 + 一行 inline 读数 / 云开关标 / 通道 + 详情 -->
+        <div class="cc-row2">
+          <span class="cc-state" :class="c.reading.on ? 'on' : 'off'">
+            <i class="dot"></i>{{ c.reading.on ? '已通电' : '已断电' }}
           </span>
-          <!-- 自动开关下次动作 (定时/日落/日出) — 只读展示, 配置在管理端 -->
+          <!-- 自动开关下次动作 (定时/日落/日出), 紧凑显示"关 22:00" -->
           <span
             v-if="nextRunMap[c.id]"
-            class="chip auto-chip"
+            class="cc-auto"
             :class="nextRunMap[c.id].action"
             :title="'自动开关: 下次' + (nextRunMap[c.id].action === 'on' ? '通电' : '断电') + ' ' + fmtNextAt(nextRunMap[c.id].at)"
           >
-            自动{{ NEXT_ACTION_LABEL[nextRunMap[c.id].action] }} {{ fmtNextAt(nextRunMap[c.id].at) }}
+            <Clock :size="11" :stroke-width="2.2" />{{ NEXT_ACTION_LABEL[nextRunMap[c.id].action] }} {{ fmtNextShort(nextRunMap[c.id].at) }}
           </span>
-          <button
-            v-if="c.isBreaker"
-            class="detail-toggle"
-            :class="{ open: expandedId === c.id }"
-            @click="toggleBreaker(c)"
-            :title="expandedId === c.id ? '收起空开详情' : '展开空开详情'"
-          >
-            详情 <ChevronDown :size="13" :stroke-width="2.2" />
-          </button>
+          <!-- 有遥测的断路器: 一行读数(电流/功率/累计, 电压在详情) + 详情 -->
+          <template v-if="hasReadings(c)">
+            <span class="cc-read v2-inter">
+              <b>{{ c.reading.current.toFixed(2) }}</b>A · <b>{{ Math.round(c.reading.power) }}</b>W · <b>{{ c.reading.energy.toFixed(1) }}</b>kWh
+            </span>
+            <button
+              class="detail-toggle"
+              :class="{ open: expandedId === c.id }"
+              @click="toggleBreaker(c)"
+              :title="expandedId === c.id ? '收起空开详情' : '展开空开详情'"
+            >
+              详情 <ChevronDown :size="13" :stroke-width="2.2" />
+            </button>
+          </template>
+          <!-- 云开关无遥测: 只标类型, 不显示读数/详情 -->
+          <span v-else-if="isCloudBreaker(c)" class="cc-kind cloud">云开关</span>
+          <!-- 普通继电器 / 时序器: 通道号 -->
+          <span v-else-if="c.relayChannel != null" class="cc-kind">CH {{ c.relayChannel }}</span>
         </div>
 
-        <!-- 空开专属详情: 三相分相 + 温度 + 漏电 + 报警 -->
-        <div v-if="c.isBreaker && expandedId === c.id" class="breaker-detail">
+        <!-- 空开专属详情: 三相分相(含电压) + 温度 + 漏电 + 报警; 云开关无遥测不展开 -->
+        <div v-if="hasReadings(c) && expandedId === c.id" class="breaker-detail">
+          <div class="bd-title">{{ is4gBreaker(c) ? '4G' : '485' }} 智能断路器 · 实时遥测（电压 / 三相 / 温度 / 漏电）</div>
           <div v-if="breakerLoading.has(c.id) && !breakerDetail[c.id]" class="bd-loading">
             <RefreshCw :size="14" class="spin" /> 读取中…
           </div>
@@ -914,8 +935,11 @@ useActivePolling(startPolling, stopPolling);
 @media (max-width: 1280px) { .circuit-grid.seq-grid { grid-template-columns: repeat(4, 1fr); } }
 @media (max-width: 720px) {
   .circuit-grid.seq-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-  .circuit-grid.seq-grid .circuit-card { padding: 10px 12px; }
-  .circuit-grid.seq-grid .card-ico { display: none; }
+  .circuit-grid.seq-grid .circuit-card { padding: 10px 12px; gap: 6px; }
+  .circuit-grid.seq-grid .cc-ico { display: none; }
+  .circuit-grid.seq-grid .cc-row2 { padding-left: 0; }
+  .circuit-grid.seq-grid .cc-name { font-size: 13px; }
+  .circuit-grid.seq-grid .cc-state { font-size: 11px; }
 }
 
 /* ============ 设备分组: 每台时序器独立成组, 组头带独立开/关机 ============ */
@@ -972,9 +996,12 @@ useActivePolling(startPolling, stopPolling);
   .v2-overview { padding: var(--v2-sp-3); gap: var(--v2-sp-2); grid-template-columns: 1fr 1fr; }
   .ov-value { font-size: 18px; }
   .ov-ico { width: 32px; height: 32px; }
-  .circuit-card { padding: var(--v2-sp-3); }
-  .metrics { grid-template-columns: 1fr 1fr; gap: var(--v2-sp-2); }
-  .metric-value { font-size: 16px; }
+  .circuit-card { padding: 10px 12px; gap: 7px; }
+  .cc-ico { width: 32px; height: 32px; border-radius: 9px; }
+  .cc-row2 { padding-left: 42px; }
+  .cc-name { font-size: 14px; }
+  .cc-sub { font-size: 10px; }
+  .cc-read { font-size: 10.5px; }
   .quick-actions { flex-wrap: wrap; }
   /* 刷新按钮并入楼层 tab 行: 隐藏右侧操作组里的那颗, 显示 back-row 内的那颗并推到行尾 */
   .quick-actions .refresh-desktop { display: none; }
@@ -988,21 +1015,21 @@ useActivePolling(startPolling, stopPolling);
     width: 38px;
     height: 38px;
   }
-  .schedule-btn { width: 38px; height: 38px; }
-  .v2-toggle { width: 48px; height: 28px; }
-  .v2-toggle::after { width: 24px; height: 24px; }
-  .v2-toggle.on::after { transform: translateX(20px); }
+  .schedule-btn { width: 36px; height: 36px; }
+  .v2-toggle { width: 44px; height: 26px; }
+  .v2-toggle::after { width: 22px; height: 22px; }
+  .v2-toggle.on::after { transform: translateX(18px); }
 }
 
 .circuit-card {
   position: relative;
-  padding: var(--v2-sp-4);
+  padding: 10px 12px;
   background: var(--v2-surf-1);
   border: 1px solid var(--v2-border-soft);
   border-radius: var(--v2-r-lg);
   display: flex;
   flex-direction: column;
-  gap: var(--v2-sp-3);
+  gap: 8px;
   overflow: hidden;
   transition: transform 0.22s ease, background-color 0.22s ease,
     border-color 0.22s ease, box-shadow 0.22s ease;
@@ -1023,38 +1050,46 @@ useActivePolling(startPolling, stopPolling);
     0 8px 32px -8px var(--v2-live-power-glow) !important;
 }
 
-/* 顶部 */
-.card-top { display: flex; align-items: center; gap: var(--v2-sp-3); }
-.card-ico {
-  width: 44px; height: 44px;
-  border-radius: var(--v2-r-md);
+/* ============ 行 1：图标 + 名称(总闸) + 规格 + 定时 + 开关 ============ */
+.cc-row1 { display: flex; align-items: center; gap: 10px; }
+.cc-ico {
+  width: 36px; height: 36px;
+  border-radius: 10px;
   background: var(--v2-purple-soft);
   color: var(--v2-text-2);
   display: grid; place-items: center;
   flex-shrink: 0;
-  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.08));
   transition: all 0.22s ease;
 }
-.circuit-card.on .card-ico {
+.circuit-card.on .cc-ico {
   background: var(--v2-primary-soft);
   color: var(--v2-primary);
-  filter: none;
 }
-.card-meta { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.card-name {
-  font-size: 16px;
-  font-weight: 700;
+.cc-meta { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cc-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 600;
   color: var(--v2-text-1);
-  letter-spacing: 0.3px;
+  letter-spacing: 0.2px;
+  min-width: 0;
 }
-/* 行内改名: 名字可点; 编辑态输入框贴合卡片风格 */
-.card-name .name-text { cursor: pointer; }
-.card-name .name-text:hover { text-decoration: underline dotted; text-underline-offset: 3px; }
+/* 行内改名: 名字可点; 超长省略号 */
+.cc-name .name-text {
+  cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cc-name .name-text:hover { text-decoration: underline dotted; text-underline-offset: 3px; }
 .rename-input {
   width: 100%;
   max-width: 180px;
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--v2-text-1);
   background: var(--v2-bg-2, rgba(0,0,0,0.2));
   border: 1px solid var(--v2-primary);
@@ -1062,10 +1097,13 @@ useActivePolling(startPolling, stopPolling);
   padding: 2px 8px;
   outline: none;
 }
-.card-floor {
+.cc-sub {
   font-size: 11px;
-  color: var(--v2-text-2);
-  letter-spacing: 0.5px;
+  color: var(--v2-text-3);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* 开关 */
@@ -1102,10 +1140,10 @@ useActivePolling(startPolling, stopPolling);
 }
 .v2-toggle:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* 自动开关时间配置入口（时钟按钮，位于手动开关正左侧；卡片尺寸不变、不新增高度） */
+/* 自动开关时间配置入口（时钟按钮，位于手动开关正左侧；紧凑卡尺寸） */
 .schedule-btn {
   position: relative;
-  width: 42px; height: 42px;
+  width: 36px; height: 36px;
   flex-shrink: 0;
   display: grid; place-items: center;
   padding: 0;
@@ -1135,89 +1173,34 @@ useActivePolling(startPolling, stopPolling);
   box-shadow: 0 0 6px color-mix(in srgb, var(--v2-primary) 80%, transparent);
 }
 
-/* 4 数据值 */
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--v2-sp-2);
-  padding: var(--v2-sp-3);
-  background: var(--v2-inset-bg);
-  border-radius: var(--v2-r-md);
-  border: 1px solid var(--v2-border-soft);
-}
-.metric { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.metric-label {
-  font-size: 10px;
-  color: var(--v2-text-3);
-  letter-spacing: 1px;
-  text-transform: uppercase;
-}
-.metric-value {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--v2-text-1);
-  letter-spacing: 0.3px;
-  line-height: 1.1;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 3px;
-}
-.circuit-card.on .metric-value .num {
-  color: var(--v2-text-1);
-  text-shadow: var(--v2-text-glow-purple);
-}
-.metric-value .unit {
-  font-size: 11px;
-  color: var(--v2-text-3);
-  font-weight: 500;
-  text-shadow: none;
-}
-
-/* chip 行 */
-.chip-row {
+/* ============ 行 2：状态 + 自动动作 + 一行读数/类型 + 详情 ============ */
+.cc-row2 {
   display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  padding-top: var(--v2-sp-2);
-  border-top: 1px dashed var(--v2-border-soft);
+  align-items: center;
+  gap: 8px;
+  padding-left: 46px; /* 对齐行 1 名称（图标 36 + gap 10） */
+  min-height: 20px;
 }
-.chip {
-  font-size: 10px;
-  padding: 3px 9px;
-  border-radius: 999px;
-  font-family: 'Inter', monospace;
-  background: var(--v2-ov-1);
-  color: var(--v2-text-2);
-  letter-spacing: 0.6px;
-  border: 1px solid var(--v2-border-soft);
-  text-transform: uppercase;
-  font-weight: 600;
-}
-.chip.muted { color: var(--v2-text-3); }
-.chip.on {
-  background: var(--v2-success-soft);
-  color: #6BFFB9;
-  border-color: rgba(63, 191, 135, 0.45);
-}
-.chip.off {
-  background: var(--v2-ov-1);
-  color: var(--v2-text-3);
-}
-.state-chip {
+.cc-state {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-weight: 700;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--v2-text-3);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
-.state-chip .state-dot {
+.cc-state .dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: currentColor;
   flex: 0 0 auto;
 }
-.state-chip.off .state-dot { opacity: 0.55; }
-.state-chip.on .state-dot {
+.cc-state.off .dot { opacity: 0.5; }
+.cc-state.on { color: var(--v2-success, #3FBF87); }
+.cc-state.on .dot {
   box-shadow: 0 0 6px rgba(107, 255, 185, 0.9);
   animation: statePulse 2s ease-in-out infinite;
 }
@@ -1225,12 +1208,58 @@ useActivePolling(startPolling, stopPolling);
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }
 }
-.chip[data-category="lighting"] { background: rgba(224, 160, 48, 0.20); color: #FCD34D; border-color: rgba(224, 160, 48, 0.45); }
-.chip[data-category="socket"]   { background: rgba(76, 154, 255, 0.18); color: #67E8F9; border-color: rgba(76, 154, 255, 0.45); }
-.chip[data-category="hvac"]     { background: rgba(76, 154, 255, 0.18); color: #BFD7FF; border-color: rgba(76, 154, 255, 0.45); }
-.chip[data-category="led"]      { background: rgba(76, 154, 255, 0.18); color: #67E8F9; border-color: rgba(76, 154, 255, 0.45); }
-.chip[data-category="audio"]    { background: rgba(63, 191, 135, 0.18); color: #5FCB9B; border-color: rgba(63, 191, 135, 0.45); }
-.chip[data-category="misc"]     { background: var(--v2-ov-2); color: #9BA1A9; border-color: var(--v2-border-soft); }
+
+/* 自动下次动作小标签（定时/日落/日出），紧凑显示 "关 22:00" */
+.cc-auto {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--v2-border-soft);
+  background: var(--v2-ov-1);
+  color: var(--v2-text-2);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.cc-auto.on  { background: rgba(63, 191, 135, 0.14); color: #5FCB9B; border-color: rgba(63, 191, 135, 0.38); }
+.cc-auto.off { background: rgba(244, 180, 80, 0.12); color: #F0B35C; border-color: rgba(244, 180, 80, 0.38); }
+
+/* 一行 inline 读数：电流 / 功率 / 累计（电压移到空开详情） */
+.cc-read {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--v2-text-3);
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cc-read b { color: var(--v2-text-1); font-weight: 600; }
+.circuit-card.on .cc-read { color: var(--v2-text-2); }
+
+/* 类型小标：云开关 / 通道号（无遥测回路，靠右） */
+.cc-kind {
+  margin-left: auto;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--v2-border-soft);
+  background: var(--v2-ov-1);
+  color: var(--v2-text-3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.cc-kind.cloud {
+  border-color: rgba(56, 189, 248, 0.35);
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+}
 
 /* ============ 空开专属: 总闸标记 + 详情面板 ============ */
 /* 空开断路器卡不套琥珀描边（旧 warning-soft 在深色背景上显一圈脏线，曾被反复要求清理）：
@@ -1240,8 +1269,7 @@ useActivePolling(startPolling, stopPolling);
 .circuit-card.breaker:not(.on):hover { border-color: transparent; }
 .breaker-badge {
   display: inline-block;
-  vertical-align: middle;
-  margin-left: 6px;
+  flex-shrink: 0;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.5px;
@@ -1252,10 +1280,10 @@ useActivePolling(startPolling, stopPolling);
   border: 1px solid var(--v2-warning-soft);
 }
 .detail-toggle {
-  margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  flex-shrink: 0;
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.4px;
@@ -1278,6 +1306,22 @@ useActivePolling(startPolling, stopPolling);
   display: flex;
   flex-direction: column;
   gap: var(--v2-sp-3);
+}
+.bd-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: var(--v2-text-3);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.bd-title::before {
+  content: '';
+  width: 4px; height: 12px;
+  border-radius: 2px;
+  background: var(--v2-primary);
+  flex: 0 0 auto;
 }
 .bd-loading {
   display: flex; align-items: center; gap: 6px;
@@ -1326,15 +1370,4 @@ useActivePolling(startPolling, stopPolling);
 .state-card.error { border-color: rgba(229, 100, 93, 0.3); color: var(--v2-danger); }
 .state-title { font-size: 14px; color: var(--v2-text-1); }
 .state-sub { font-size: 12px; color: var(--v2-text-3); }
-
-/* 自动开关"下次动作" chip (定时/日落/日出, 2026-10-01) */
-.chip.auto-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  text-transform: none;
-  letter-spacing: 0.2px;
-}
-.chip.auto-chip.on  { background: rgba(63, 191, 135, 0.16); color: #5FCB9B; border-color: rgba(63, 191, 135, 0.4); }
-.chip.auto-chip.off { background: rgba(244, 180, 80, 0.14); color: #F0B35C; border-color: rgba(244, 180, 80, 0.4); }
 </style>
