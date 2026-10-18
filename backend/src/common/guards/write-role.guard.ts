@@ -36,7 +36,7 @@ export class WriteRoleGuard implements CanActivate {
     if (!roles || roles.length === 0) return true;
 
     const actor = requireActor(req);
-    if (!roles.includes(actor.role)) {
+    if (!(roles as readonly string[]).includes(actor.role)) {
       throw new ForbiddenException(`当前角色无权操作该设备（需：${roles.join('、')}）`);
     }
     return true;

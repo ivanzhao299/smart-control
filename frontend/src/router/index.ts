@@ -5,9 +5,13 @@ import { useClientAuthStore } from '@/stores/client-auth';
 import { usePermissionStore } from '@/stores/permission';
 import { api } from '@/services/http';
 import { isStalePwaAssetError, recoverFromStalePwa } from '@/services/pwa-recovery';
-import { mainRouteManifest, canAccessMainRoute, mainNavigationItemsForRole } from './main-route-manifest';
+import {
+  mainRouteManifest,
+  canAccessMainRouteByPerms,
+  mainNavigationItemsForRoleByPerms,
+} from './main-route-manifest';
 import { adminRouteManifest } from './admin-route-manifest';
-import { canAccessAdminModule, defaultAdminRoute, type AdminModule } from './admin-rbac';
+import { defaultAdminRouteByPerms, type AdminModule } from './admin-rbac';
 
 const routes: RouteRecordRaw[] = [
   // 平板布局 (Sprint-05)
@@ -49,7 +53,10 @@ const routes: RouteRecordRaw[] = [
     children: [
       {
         path: '',
-        redirect: () => ({ name: defaultAdminRoute(usePermissionStore().role) }),
+        redirect: () => {
+          const p = usePermissionStore();
+          return { name: defaultAdminRouteByPerms(p.role, p.permissions) };
+        },
       },
       ...adminRouteManifest.map((route) => ({
         path: route.path,
@@ -116,8 +123,8 @@ router.beforeEach(async (to) => {
     const permission = usePermissionStore();
     if (!permission.loaded) await permission.refresh();
     const module = to.meta?.adminModule as AdminModule | undefined;
-    if (module && !canAccessAdminModule(permission.role, module)) {
-      const landing = defaultAdminRoute(permission.role);
+    if (module && !permission.canAccessModule(module)) {
+      const landing = defaultAdminRouteByPerms(permission.role, permission.permissions);
       // 连默认落地页都无权访问（角色未就绪或非后台角色），回后台登录页，
       // 避免反复重定向到同一个无权路由形成无限循环。
       if (landing === to.name) {
@@ -130,19 +137,21 @@ router.beforeEach(async (to) => {
     // 前台 PWA 页面角色 gate（2026-10-16 最小权限）：导航/深链/直接 URL 统一拦截。
     const permission = usePermissionStore();
     const targetName = typeof to.name === 'string' ? to.name : '';
-    const landingFor = (): string | undefined => mainNavigationItemsForRole(permission.role)[0]?.name;
+    const landingFor = (): string | undefined =>
+      mainNavigationItemsForRoleByPerms(permission.role, permission.permissions)[0]?.name;
     // 纯后台角色（hardware/config：前台无任何可见页）登录或访问任何前台页时，
     // 直达后台默认落地页（自动开关），不落到前台 status 也不弹回登录页（2026-10-17 第四轮）。
     const backendOnlyRedirect = (): string | undefined => (
-      permission.isBackend && mainNavigationItemsForRole(permission.role).length === 0
-        ? defaultAdminRoute(permission.role)
+      permission.isBackend &&
+      mainNavigationItemsForRoleByPerms(permission.role, permission.permissions).length === 0
+        ? defaultAdminRouteByPerms(permission.role, permission.permissions)
         : undefined
     );
     if (permission.loaded) {
       const backendLanding = backendOnlyRedirect();
       if (backendLanding) return { name: backendLanding };
       // 角色已就绪（SPA 内导航 / 刷新后）：同步拦截越权路由，落到该角色第一个前台页。
-      if (targetName && !canAccessMainRoute(targetName, permission.role)) {
+      if (targetName && !canAccessMainRouteByPerms(targetName, permission.role, permission.permissions)) {
         const landing = landingFor();
         if (!landing) return { name: 'client-login', query: { redirect: to.fullPath } };
         if (landing !== targetName) return { name: landing };
@@ -159,7 +168,7 @@ router.beforeEach(async (to) => {
           void router.replace({ name: backendLanding });
           return;
         }
-        if (targetName && !canAccessMainRoute(targetName, permission.role)) {
+        if (targetName && !canAccessMainRouteByPerms(targetName, permission.role, permission.permissions)) {
           const landing = landingFor();
           if (!landing) {
             void router.replace({ name: 'client-login', query: { redirect: to.fullPath } });

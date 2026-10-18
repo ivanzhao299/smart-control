@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
 import { Users as UsersIcon, RefreshCw, Plus, Pencil, Trash2, Loader } from 'lucide-vue-next';
 import {
@@ -7,20 +7,43 @@ import {
   type UserCreatePayload,
   type UserUpdatePayload,
 } from '@/services/admin.service';
+import { roleService, type RoleListRow } from '@/services/role.service';
 import { usePermissionStore } from '@/stores/permission';
-import type { User, UserRole } from '@/types/api';
+import type { User } from '@/types/api';
 
 const perm = usePermissionStore();
 const loading = ref(false);
 const rows = ref<User[]>([]);
 
-const roleOptions: Array<{ value: UserRole; label: string; type: string }> = [
-  { value: 'admin', label: '管理员', type: 'danger' },
-  { value: 'hardware', label: '硬件工程师', type: 'warning' },
-  { value: 'config', label: '运营配置员', type: 'success' },
-  { value: 'operator', label: '展厅操作员', type: 'primary' },
-  { value: 'viewer', label: '观察者', type: 'info' },
-];
+/** 内置角色的固定标签与配色（自定义角色动态从后端拉取）。 */
+const builtinRoleMeta: Record<string, { label: string; type: string }> = {
+  admin: { label: '管理员', type: 'danger' },
+  hardware: { label: '硬件工程师', type: 'warning' },
+  config: { label: '运营配置员', type: 'success' },
+  operator: { label: '展厅操作员', type: 'primary' },
+  viewer: { label: '只读账户', type: 'info' },
+};
+const roleRows = ref<RoleListRow[]>([]);
+
+function roleLabel(code: string): string {
+  const hit = roleRows.value.find((r) => r.code === code);
+  if (hit) return hit.name;
+  return builtinRoleMeta[code]?.label ?? code;
+}
+function roleTagType(code: string): string {
+  const hit = roleRows.value.find((r) => r.code === code);
+  if (hit) return hit.isBuiltin ? (builtinRoleMeta[code]?.type ?? 'info') : 'success';
+  return builtinRoleMeta[code]?.type ?? 'info';
+}
+/** 新建/编辑下拉：启用角色 + 编辑时当前用户所属（可能已停用）角色。 */
+const selectableRoles = computed<RoleListRow[]>(() => {
+  const list = roleRows.value.filter((r) => r.enabled);
+  if (form.role && !list.some((r) => r.code === form.role)) {
+    const current = roleRows.value.find((r) => r.code === form.role);
+    if (current) return [...list, current];
+  }
+  return list;
+});
 
 const dialogVisible = ref(false);
 const dialogMode = ref<'create' | 'edit'>('create');
@@ -66,8 +89,12 @@ const rules: FormRules = {
 async function refresh(): Promise<void> {
   loading.value = true;
   try {
-    const r = await adminUserService.list();
+    const [r, roleList] = await Promise.all([
+      adminUserService.list(),
+      roleService.list().catch(() => [] as RoleListRow[]),
+    ]);
     rows.value = r.list;
+    roleRows.value = roleList;
   } catch (err) {
     ElMessage.error('加载失败: ' + (err as Error).message);
   } finally {
@@ -188,9 +215,9 @@ onMounted(refresh);
       <el-table-column prop="username" label="用户名" min-width="180" />
       <el-table-column label="角色" width="140">
         <template #default="{ row }">
-          <span class="sc-status" :class="row.role === 'admin' ? 'is-error' : row.role === 'operator' ? 'is-on' : 'is-off'">
-            <span class="sc-status-dot" /> {{ roleOptions.find((o) => o.value === row.role)?.label }}
-          </span>
+          <el-tag size="small" :type="(roleTagType(row.role) as 'danger' | 'warning' | 'success' | 'primary' | 'info')">
+            {{ roleLabel(row.role) }}
+          </el-tag>
         </template>
       </el-table-column>
       <el-table-column label="启用" width="80">
@@ -232,7 +259,16 @@ onMounted(refresh);
         </el-form-item>
         <el-form-item label="角色" prop="role">
           <el-select v-model="form.role" style="width: 100%;">
-            <el-option v-for="r in roleOptions" :key="r.value" :label="r.label" :value="r.value" />
+            <el-option
+              v-for="r in selectableRoles"
+              :key="r.code"
+              :label="r.name + (r.enabled ? '' : '（已停用）')"
+              :value="r.code"
+              :disabled="!r.enabled && r.code !== form.role"
+            >
+              <span>{{ r.name }}</span>
+              <span v-if="!r.enabled" class="sub-mono" style="margin-left:8px;color:var(--el-text-color-secondary)">已停用</span>
+            </el-option>
           </el-select>
         </el-form-item>
         <el-form-item label="启用">

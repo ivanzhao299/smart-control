@@ -107,27 +107,31 @@ export function isReadMethod(method?: string): boolean {
   return READ_METHODS.includes((method ?? 'GET').toUpperCase());
 }
 
-/** 是否可写某模块（admin 全通）。 */
-export function canWriteModule(role: UserRole | undefined, module: AdminModule): boolean {
+/**
+ * 是否可写某模块（admin 全通）。
+ * 动态 RBAC 后 role 为普通字符串（可能是自定义角色）；未知角色不在硬编码矩阵内 → 默认拒绝。
+ * 注：P3 起模块判定逐步迁移到 @RequirePermission，本矩阵为过渡兜底。
+ */
+export function canWriteModule(role: string | undefined, module: AdminModule): boolean {
   if (role === 'admin') return true;
-  return !!role && MODULE_ACCESS[module].write.includes(role);
+  return !!role && MODULE_ACCESS[module].write.includes(role as UserRole);
 }
 
 /** 后台菜单/页面是否可见（admin 或 write 或 read）。 */
-export function canAccessModule(role: UserRole | undefined, module: AdminModule): boolean {
+export function canAccessModule(role: string | undefined, module: AdminModule): boolean {
   if (role === 'admin') return true;
   if (!role) return false;
   const rule = MODULE_ACCESS[module];
-  return rule.write.includes(role) || (rule.read ?? []).includes(role);
+  return rule.write.includes(role as UserRole) || (rule.read ?? []).includes(role as UserRole);
 }
 
 /** 后端 GET 是否放行（readRestricted 时仅后台可见角色）。 */
-export function canReadModule(role: UserRole | undefined, module: AdminModule): boolean {
+export function canReadModule(role: string | undefined, module: AdminModule): boolean {
   if (role === 'admin') return true;
   if (!role) return false;
   const rule = MODULE_ACCESS[module];
   if (!rule.readRestricted) return true; // 前台共用读：任何已登录用户放行
-  return rule.write.includes(role) || (rule.read ?? []).includes(role);
+  return rule.write.includes(role as UserRole) || (rule.read ?? []).includes(role as UserRole);
 }
 
 // ============================================================
@@ -172,11 +176,11 @@ const POWER_DOMAIN_READ_ROLES: Partial<Record<UserRole, string[]>> = {
 /** 全域角色（后台排障/管理员）：所有域（含未来新增）都可读写。 */
 const POWER_DOMAIN_UNRESTRICTED_ROLES: UserRole[] = ['admin', 'hardware'];
 
-/** 角色是否可写某个电源域（admin/hardware 全通；无角色/未知域默认拒绝）。 */
-export function canWritePowerDomain(role: UserRole | undefined, domainCode: string | undefined): boolean {
+/** 角色是否可写某个电源域（admin/hardware 全通；无角色/未知域/未知角色默认拒绝）。 */
+export function canWritePowerDomain(role: string | undefined, domainCode: string | undefined): boolean {
   if (!role || !domainCode) return false;
-  if (POWER_DOMAIN_UNRESTRICTED_ROLES.includes(role)) return true;
-  return POWER_DOMAIN_WRITE_ROLES[role]?.includes(domainCode) ?? false;
+  if (POWER_DOMAIN_UNRESTRICTED_ROLES.includes(role as UserRole)) return true;
+  return POWER_DOMAIN_WRITE_ROLES[role as UserRole]?.includes(domainCode) ?? false;
 }
 
 /**
@@ -184,8 +188,8 @@ export function canWritePowerDomain(role: UserRole | undefined, domainCode: stri
  *  - 返回 null = 全域可见（admin/hardware，或内部/无 actor 的系统调用）；
  *  - 返回数组 = 仅这些域可见（新域若不在数组内，非全域角色自动不可见）。
  */
-export function readablePowerDomains(role: UserRole | undefined): string[] | null {
+export function readablePowerDomains(role: string | undefined): string[] | null {
   if (!role) return null;
-  if (POWER_DOMAIN_UNRESTRICTED_ROLES.includes(role)) return null;
-  return POWER_DOMAIN_READ_ROLES[role] ?? [];
+  if (POWER_DOMAIN_UNRESTRICTED_ROLES.includes(role as UserRole)) return null;
+  return POWER_DOMAIN_READ_ROLES[role as UserRole] ?? [];
 }

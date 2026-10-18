@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Inject,
@@ -16,6 +17,7 @@ import { OperationLogService } from '../logs/operation-log.service';
 import { PagedResult } from '../devices/devices.service';
 import { serializedTransaction } from '../../common/utils/serialized-transaction';
 import { Actor } from '../../common/auth/actor';
+import { PermissionService } from '../rbac/permission.service';
 
 export type PublicUser = Omit<User, 'password'>;
 
@@ -33,6 +35,7 @@ export class UsersService {
   constructor(
     @InjectRepository(User) private readonly repo: Repository<User>,
     private readonly logService: OperationLogService,
+    private readonly permissions: PermissionService,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
@@ -72,6 +75,10 @@ export class UsersService {
   }
 
   async create(dto: CreateUserDto, actor: Actor): Promise<PublicUser> {
+    // 动态角色校验：role 必须是存在且启用的角色 code。
+    if (!(await this.permissions.roleExistsEnabled(dto.role))) {
+      throw new BadRequestException(`角色不存在或已停用：${dto.role}`);
+    }
     return serializedTransaction(this.repo.manager.connection, async () => this.createInTransaction(dto, await this.currentAdministrator(actor)));
   }
 
@@ -108,6 +115,12 @@ export class UsersService {
   private async updateInTransaction(id: number, dto: UpdateUserDto, operator: string): Promise<PublicUser> {
     const user = await this.repo.findOne({ where: { id } });
     if (!user) throw new NotFoundException(`用户不存在: id=${id}`);
+
+    // 动态角色校验：改派的角色必须存在且启用。
+    if (dto.role !== undefined && dto.role !== user.role &&
+        !(await this.permissions.roleExistsEnabled(dto.role))) {
+      throw new BadRequestException(`角色不存在或已停用：${dto.role}`);
+    }
 
     const changes: Partial<User> = {};
     if (dto.username && dto.username !== user.username) {

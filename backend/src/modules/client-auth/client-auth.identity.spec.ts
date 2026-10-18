@@ -16,7 +16,9 @@ describe('verified multi-user identity', () => {
     const qb: any = { addSelect: () => qb, where: () => qb, getOne: async () => user };
     service = new ClientAuthService(
       { findOne: async () => ({ tokenSecret: secret, passwordChangedAt: new Date(0) }) } as any,
-      { createQueryBuilder: () => qb } as any, {} as any,
+      { createQueryBuilder: () => qb } as any,
+      { isRoleEnabled: () => true, canLoginFront: () => true, canLoginBack: () => true } as any,
+      {} as any,
     );
   });
   const identity = () => ({ uid: 7, ph: createHash('sha256').update('stored-hash').digest('hex').slice(0, 24) });

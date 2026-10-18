@@ -10,6 +10,15 @@ export interface MainNavigationItem {
   section: MainNavigationSection;
 }
 
+/** 内置角色（动态 RBAC 前的 5 个写死角色）。 */
+const BUILTIN_MAIN_ROLES: readonly string[] = [
+  'admin',
+  'hardware',
+  'config',
+  'operator',
+  'viewer',
+];
+
 interface MainRouteDefinition {
   path: string;
   name: string;
@@ -22,6 +31,11 @@ interface MainRouteDefinition {
    * viewer 只读账户可浏览只读页（写操作后端 403 + 按钮置灰）。
    */
   roles?: UserRole[];
+  /**
+   * 动态自定义角色进入该前台页所需的原子权限点（拥有即可见）。
+   * 内置 5 角色仍走 roles 白名单；管理员新建角色（如物业）按此权限点放行。
+   */
+  permission?: string;
   navigation?: Omit<MainNavigationItem, 'name'>;
   prefetchOnIdle?: boolean;
   prefetchApis?: readonly string[];
@@ -132,9 +146,39 @@ export function canAccessMainRoute(name: string, role: UserRole | undefined): bo
   return !!role && route.roles.includes(role);
 }
 
+/**
+ * 动态 RBAC 版前台路由可见性：
+ * - admin 全通；
+ * - 内置 5 角色走 roles 白名单（零行为变化）；
+ * - 自定义角色按路由声明的 permission 权限点判定。
+ */
+export function canAccessMainRouteByPerms(
+  name: string,
+  role: string | undefined,
+  perms: ReadonlySet<string>,
+): boolean {
+  if (role === 'admin') return true;
+  const route = mainRouteByName.get(name);
+  if (!route) return false;
+  if (role && BUILTIN_MAIN_ROLES.includes(role)) {
+    if (!route.roles || route.roles.length === 0) return false;
+    return route.roles.includes(role as UserRole);
+  }
+  // 自定义角色：按权限点。
+  return !!route.permission && perms.has(route.permission);
+}
+
 /** 按角色过滤后的前台导航项（MainLayout 底栏/侧栏用）。 */
 export function mainNavigationItemsForRole(role: UserRole | undefined): readonly MainNavigationItem[] {
   return mainNavigationItems.filter((item) => canAccessMainRoute(item.name, role));
+}
+
+/** 动态 RBAC 版前台导航项（内置角色走白名单，自定义角色走权限点）。 */
+export function mainNavigationItemsForRoleByPerms(
+  role: string | undefined,
+  perms: ReadonlySet<string>,
+): readonly MainNavigationItem[] {
+  return mainNavigationItems.filter((item) => canAccessMainRouteByPerms(item.name, role, perms));
 }
 
 export const idleMainRouteNames: readonly string[] = mainRouteManifest

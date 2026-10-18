@@ -43,8 +43,12 @@ export class User {
   @Column({ type: 'varchar', length: 256, select: false })
   password!: string;
 
-  @Column({ type: 'varchar', length: 16, default: 'viewer' })
-  role!: UserRole;
+  /**
+   * 动态角色 code（RBAC 后为普通字符串，长度放宽到 32 以容纳自定义角色）。
+   * 角色是否存在/启用由 rbac_role 表与 PermissionService 校验，不再由枚举约束。
+   */
+  @Column({ type: 'varchar', length: 32, default: 'viewer' })
+  role!: string;
 
   @Column({ type: 'boolean', default: true })
   enabled!: boolean;

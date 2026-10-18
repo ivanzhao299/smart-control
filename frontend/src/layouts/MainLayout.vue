@@ -26,7 +26,7 @@ import { useAdminAuthStore } from '@/stores/admin-auth';
 import {
   idleMainRouteNames,
   loadMainRoute,
-  mainNavigationItemsForRole,
+  mainNavigationItemsForRoleByPerms,
   mainRoutePrefetchApis,
 } from '@/router/main-route-manifest';
 import { usePermissionStore } from '@/stores/permission';
@@ -234,7 +234,7 @@ function toggleFullscreen(): void { void fs.toggle(); }
 // 的角色（admin/hardware/config/operator，viewer 只读账户不显示）。
 const perm = usePermissionStore();
 const navItems = computed(() => {
-  const items = [...mainNavigationItemsForRole(perm.role)];
+  const items = [...mainNavigationItemsForRoleByPerms(perm.role, perm.permissions)];
   if (perm.isBackend) items.push({ name: 'admin-devices', label: '后台', section: 'tools' as const });
   return items;
 });

@@ -54,6 +54,7 @@ import { CamerasModule } from './modules/cameras/cameras.module';
 import { LprModule } from './modules/lpr/lpr.module';
 import { PvModule } from './modules/pv/pv.module';
 import { Em123Module } from './modules/em123/em123.module';
+import { RbacModule } from './modules/rbac/rbac.module';
 import { RuntimeConfigModule } from './common/runtime-config/runtime-config.module';
 
 @Module({
@@ -71,6 +72,7 @@ import { RuntimeConfigModule } from './common/runtime-config/runtime-config.modu
     ServicesModule,
     HealthModule,
     SystemModule,
+    RbacModule,
     UsersModule,
     LogsModule,
     DevicesModule,

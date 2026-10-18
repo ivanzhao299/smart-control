@@ -1,35 +1,67 @@
 import { defineStore } from 'pinia';
 import { computed, ref, onScopeDispose } from 'vue';
-import type { UserRole } from '@/types/api';
 import { api, getAdminToken, getClientToken } from '@/services/http';
 import { identityGeneration, onIdentityChange } from '@/services/identity-boundary';
 import {
-  BACKEND_ROLES,
-  canAccessAdminModule,
-  canWriteAdminModule,
+  canAccessAdminModuleByPerms,
+  canWriteAdminModuleByPerms,
   type AdminModule,
 } from '@/router/admin-rbac';
 
-const ALL_ROLES: readonly UserRole[] = ['admin', 'hardware', 'config', 'operator', 'viewer'];
+/** 前台 /me 身份（动态 RBAC）。 */
+interface MeIdentity {
+  role: string;
+  roleName?: string;
+  permissions?: string[];
+  canFront?: boolean;
+  canBack?: boolean;
+}
 
 /** UI permissions follow the verified server identity, never a local role selector. */
 export const usePermissionStore = defineStore('permission', () => {
-  const role = ref<UserRole>('viewer');
-  // 是否已完成一次角色拉取。role 默认值是 'viewer'，不能用 !role 判断是否加载过；
+  // 角色 code 支持动态自定义角色；默认 viewer（fail-closed）。
+  const role = ref<string>('viewer');
+  // 角色显示名（后端 /me 返回，自定义角色也有中文名）。
+  const roleName = ref<string>('');
+  // 当前角色持有的原子权限点集合（admin 为全集，由后端返回）。
+  const permissions = ref<ReadonlySet<string>>(new Set());
+  // 登录方向。
+  const canFront = ref(false);
+  const canBack = ref(false);
+  // 是否已完成一次身份拉取。role 默认 'viewer'，不能用 !role 判断是否加载过；
   // 后台路由守卫据此决定是否 await refresh, 否则会把后台角色误判为 viewer 而拦截。
   const loaded = ref(false);
   let revision = 0;
 
-  // 前台 PWA 的编辑/执行维持原语义：hardware/config 为后台角色, 日常入口在后台。
+  const isAdmin = computed(() => role.value === 'admin');
+  // 前台 PWA 的编辑/执行维持原语义（过渡别名，P3 起逐步由权限点取代）：
+  // canEdit 仅 admin；canExecute 为 admin / operator。
   const canEdit = computed(() => role.value === 'admin');
   const canExecute = computed(() => role.value === 'admin' || role.value === 'operator');
   const canView = computed(() => true);
-  // 可登录后台的角色。
-  const isBackend = computed(() => BACKEND_ROLES.includes(role.value));
+  // 可登录后台的角色（动态：以后端 /me 的 canBack 为准）。
+  const isBackend = computed(() => canBack.value);
+
+  /** 是否拥有某原子权限点；admin 恒为真（后端返回全集，双保险）。 */
+  function hasPermission(code: string): boolean {
+    if (role.value === 'admin') return true;
+    return permissions.value.has(code);
+  }
+
+  /** 拥有任一权限点即可（多码 OR）。 */
+  function hasAnyPermission(codes: readonly string[]): boolean {
+    if (role.value === 'admin') return true;
+    return codes.some((c) => permissions.value.has(c));
+  }
 
   async function refresh(): Promise<void> {
     const request = ++revision;
+    // fail-closed：拉取瞬间先回到最小权限。
     role.value = 'viewer';
+    roleName.value = '';
+    permissions.value = new Set();
+    canFront.value = false;
+    canBack.value = false;
     if (!getAdminToken() && !getClientToken()) {
       loaded.value = true;
       return;
@@ -41,9 +73,13 @@ export const usePermissionStore = defineStore('permission', () => {
       if (request !== revision) return; // 已被更新的一次 refresh 取代
       const generation = identityGeneration();
       try {
-        const actor = await api.get<{ role: UserRole }>('/client-auth/me');
-        if (request === revision && identityGeneration() === generation && ALL_ROLES.includes(actor.role)) {
+        const actor = await api.get<MeIdentity>('/client-auth/me');
+        if (request === revision && identityGeneration() === generation && actor.role) {
           role.value = actor.role;
+          roleName.value = actor.roleName ?? actor.role;
+          permissions.value = new Set(actor.permissions ?? []);
+          canFront.value = actor.canFront ?? false;
+          canBack.value = actor.canBack ?? false;
         }
         break;
       } catch (error) {
@@ -65,23 +101,30 @@ export const usePermissionStore = defineStore('permission', () => {
     return canEdit.value;
   }
 
-  /** 后台某分域菜单/页面是否可见。 */
+  /** 后台某分域菜单/页面是否可见（内置角色走旧矩阵，自定义角色走权限点）。 */
   function canAccessModule(module: AdminModule): boolean {
-    return canAccessAdminModule(role.value, module);
+    return canAccessAdminModuleByPerms(role.value, permissions.value, module);
   }
 
   /** 后台某分域是否可写。 */
   function canWriteModule(module: AdminModule): boolean {
-    return canWriteAdminModule(role.value, module);
+    return canWriteAdminModuleByPerms(role.value, permissions.value, module);
   }
 
   return {
     role,
+    roleName,
+    permissions,
+    canFront,
+    canBack,
     loaded,
+    isAdmin,
     canEdit,
     canExecute,
     canView,
     isBackend,
+    hasPermission,
+    hasAnyPermission,
     refresh,
     canDoAction,
     canAccessModule,

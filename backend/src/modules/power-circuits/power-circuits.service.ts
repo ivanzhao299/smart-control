@@ -16,7 +16,6 @@ import { PowerCircuit } from '../../entities/power-circuit.entity';
 import { PowerDomain } from '../../entities/power-domain.entity';
 import { PowerFloor } from '../../entities/power-floor.entity';
 import { canWritePowerDomain, readablePowerDomains, POWER_DOMAIN } from '../../common/auth/rbac';
-import type { UserRole } from '../../entities/user.entity';
 import { PowerAdapter, PowerReading } from '../../adapters/power/power.adapter';
 import { Epo802pAdapter } from '../../adapters/power/epo802p.adapter';
 import { Seq55Adapter } from '../../adapters/power/seq55.adapter';
@@ -156,13 +155,13 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   /** 角色可读域集合(null=全域); 优先 DB 授权服务, 缺失/单测回退内置 rbac。 */
-  private async readableDomainsForRole(role?: UserRole): Promise<string[] | null> {
+  private async readableDomainsForRole(role?: string): Promise<string[] | null> {
     if (this.grantService) return this.grantService.readableDomains(role ?? null);
     return readablePowerDomains(role);
   }
 
   /** 角色是否可写某域; 优先 DB 授权服务, 缺失/单测回退内置 rbac。 */
-  private async canWriteDomainForRole(role: UserRole | undefined, domainCode: string): Promise<boolean> {
+  private async canWriteDomainForRole(role: string | undefined, domainCode: string): Promise<boolean> {
     if (this.grantService) return this.grantService.canWrite(role ?? null, domainCode);
     return canWritePowerDomain(role, domainCode);
   }
@@ -197,7 +196,7 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   private collecting = false;
   private readonly COLLECT_INTERVAL_MS = 10_000;
 
-  async list(opts: { includeDisabled?: boolean; role?: UserRole } = {}): Promise<PowerCircuitView[]> {
+  async list(opts: { includeDisabled?: boolean; role?: string } = {}): Promise<PowerCircuitView[]> {
     const where: Record<string, unknown> = opts.includeDisabled ? {} : { enabled: true };
     // 数据范围（角色 × 域）：非 admin 只返回其所属域的回路（operator/viewer 仅展厅、
     // config 仅园区、hardware 全域）。readablePowerDomains 返回 null 时不限制。
@@ -217,7 +216,7 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     return Promise.all(rows.map((r) => this.toView(r, nameMap, floorMap, hwMap)));
   }
 
-  async detail(id: number, role?: UserRole): Promise<PowerCircuitView> {
+  async detail(id: number, role?: string): Promise<PowerCircuitView> {
     const row = await this.repo.findOne({ where: { id } });
     if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
     await this.assertCanReadDomain(row, role);
@@ -230,7 +229,7 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** 读域校验：非 admin 角色不能查看所属域外的回路详情（直接打 id 也挡）。 */
-  private async assertCanReadDomain(row: PowerCircuit, role?: UserRole): Promise<void> {
+  private async assertCanReadDomain(row: PowerCircuit, role?: string): Promise<void> {
     const domains = await this.readableDomainsForRole(role);
     if (domains && !domains.includes(row.domainCode)) {
       throw new ForbiddenException(`该回路不在你可访问的区域`);
@@ -238,7 +237,7 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** 写域校验：非 admin 角色不能操作所属域外的开关（资源级，根治跨区误触）。 */
-  private async assertCanWriteDomain(row: PowerCircuit, role?: UserRole): Promise<void> {
+  private async assertCanWriteDomain(row: PowerCircuit, role?: string): Promise<void> {
     const ok = await this.canWriteDomainForRole(role, row.domainCode);
     if (!ok) {
       throw new ForbiddenException(`无权操作该区域的电源开关`);
@@ -551,17 +550,17 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
    * 定时任务（power-schedules）到点系统自动执行，无 HTTP actor，仍走 turnOn/
    * turnOff 不受此限（规则本身由有权限角色配置，且不应自动执行时被拦）。
    */
-  async turnOnForRole(id: number, role: UserRole): Promise<PowerCircuitView> {
+  async turnOnForRole(id: number, role: string): Promise<PowerCircuitView> {
     await this.assertCircuitWriteDomain(id, role);
     return this.switchCircuit(id, true);
   }
 
-  async turnOffForRole(id: number, role: UserRole): Promise<PowerCircuitView> {
+  async turnOffForRole(id: number, role: string): Promise<PowerCircuitView> {
     await this.assertCircuitWriteDomain(id, role);
     return this.switchCircuit(id, false);
   }
 
-  private async assertCircuitWriteDomain(id: number, role: UserRole): Promise<void> {
+  private async assertCircuitWriteDomain(id: number, role: string): Promise<void> {
     const row = await this.repo.findOne({ where: { id } });
     if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
     await this.assertCanWriteDomain(row, role);
@@ -812,7 +811,7 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** 断路器全量计量 (三相分相 + 温度 + 漏电 + 报警位) — 给运维/详情页看 */
-  async breakerMeasurements(id: number, role?: UserRole): Promise<BreakerMeasurements> {
+  async breakerMeasurements(id: number, role?: string): Promise<BreakerMeasurements> {
     const row = await this.repo.findOne({ where: { id } });
     if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
     await this.assertCanReadDomain(row, role);

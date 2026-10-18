@@ -1,9 +1,9 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { AuthenticatedRequest, requireActor } from '../../common/auth/actor';
-import { BACKEND_ROLES, UserRole } from '../../entities/user.entity';
 import { AdminAuthService } from './admin-auth.service';
 import { ClientAuthService } from '../client-auth/client-auth.service';
+import { PermissionService } from '../rbac/permission.service';
 
 /**
  * BackendSessionGuard — 后台「登录态」门禁。
@@ -29,7 +29,8 @@ export class BackendSessionGuard implements CanActivate {
     // 全局门禁已解析命名账户的情况。
     if (req.actor) {
       const actor = requireActor(req);
-      if (!(BACKEND_ROLES as readonly UserRole[]).includes(actor.role)) {
+      const perm = this.moduleRef.get(PermissionService, { strict: false });
+      if (!perm?.canLoginBack(actor.role)) {
         throw new UnauthorizedException('该账号无权进入后台');
       }
       return true;
@@ -45,7 +46,8 @@ export class BackendSessionGuard implements CanActivate {
     const clientAuth = this.moduleRef.get(ClientAuthService, { strict: false });
     const actor = clientAuth ? await clientAuth.resolveActor(token) : null;
     if (actor) {
-      if (!(BACKEND_ROLES as readonly UserRole[]).includes(actor.role)) {
+      const perm = this.moduleRef.get(PermissionService, { strict: false });
+      if (!perm?.canLoginBack(actor.role)) {
         throw new UnauthorizedException('该账号无权进入后台');
       }
       req.actor = actor;

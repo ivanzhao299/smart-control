@@ -7,6 +7,7 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { Req } from '@nestjs/common';
 import { Request } from 'express';
 import { AuthenticatedRequest, requireActor } from '../../common/auth/actor';
+import { PermissionService } from '../rbac/permission.service';
 
 /**
  * /api/client-auth
@@ -19,11 +20,17 @@ export class ClientAuthController {
   constructor(
     private readonly service: ClientAuthService,
     private readonly rateLimit: RateLimitGuard,
+    private readonly permissions: PermissionService,
   ) {}
 
+  /**
+   * 当前登录身份：在 actor 之外下发动态 RBAC 的权限集与登录方向，
+   * 供前端 store 做按钮/菜单/路由的原子权限判定（permissions / canFront / canBack）。
+   */
   @Get('me')
   me(@Req() req: AuthenticatedRequest) {
-    return { message: 'ok', data: requireActor(req) };
+    const actor = requireActor(req);
+    return { message: 'ok', data: { ...actor, ...this.permissions.identity(actor.role) } };
   }
 
   /**

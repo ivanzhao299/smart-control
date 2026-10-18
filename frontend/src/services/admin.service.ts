@@ -27,7 +27,6 @@ import type {
   UatStatus,
   UatSummary,
   User,
-  UserRole,
 } from '@/types/api';
 
 /* ---------- Devices ---------- */
@@ -226,18 +225,18 @@ export const adminUatService = {
 export interface UserCreatePayload {
   username: string;
   password: string;
-  role: UserRole;
+  role: string;
   enabled?: boolean;
 }
 export interface UserUpdatePayload {
   username?: string;
   password?: string;
-  role?: UserRole;
+  role?: string;
   enabled?: boolean;
 }
 
 export const adminUserService = {
-  list: (params?: { keyword?: string; role?: UserRole; enabled?: boolean }) =>
+  list: (params?: { keyword?: string; role?: string; enabled?: boolean }) =>
     api.get<Paged<User>>('/users', { params: { pageSize: 200, ...params } }),
   detail: (id: number) => api.get<User>(`/users/${id}`),
   create: (body: UserCreatePayload) => api.post<User>('/users', body),

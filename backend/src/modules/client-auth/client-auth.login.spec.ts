@@ -5,6 +5,14 @@ import { hashPassword } from '../../common/utils/password.util';
 
 describe('named identity login', () => {
   const secret = 'a'.repeat(64);
+  // 动态 RBAC 登录方向 mock：viewer 仅前台，operator/admin/hardware/config 可后台。
+  const FRONT = ['admin', 'hardware', 'config', 'operator', 'viewer'];
+  const BACK = ['admin', 'hardware', 'config', 'operator'];
+  const permMock = {
+    isRoleEnabled: (r: string) => FRONT.includes(r),
+    canLoginFront: (r: string) => FRONT.includes(r),
+    canLoginBack: (r: string) => BACK.includes(r),
+  } as any;
   const makeService = (user: Record<string, unknown> | null, auth: Record<string, unknown> | null = {
     id: 1,
     tokenSecret: secret,
@@ -14,6 +22,7 @@ describe('named identity login', () => {
     return new ClientAuthService(
       { findOne: async () => auth } as any,
       { createQueryBuilder: () => qb } as any,
+      permMock,
       { info: jest.fn() } as any,
     );
   };

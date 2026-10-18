@@ -131,10 +131,13 @@ export interface SystemInfo {
 
 export type UserRole = 'admin' | 'hardware' | 'config' | 'operator' | 'viewer';
 
+/** 角色 code 支持动态自定义角色；内置 5 角色见 UserRole 联合。 */
+export type RoleCode = string;
+
 export interface User {
   id: number;
   username: string;
-  role: UserRole;
+  role: RoleCode;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;

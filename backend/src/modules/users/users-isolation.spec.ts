@@ -15,7 +15,9 @@ describe('user management attribution and retention', () => {
     await db.query('CREATE TABLE playback_channels (id INTEGER PRIMARY KEY, initiator_user_id INTEGER)');
     await new ProtectLastAdministrator1788618007000().up(db.createQueryRunner());
     log = { record: jest.fn(async () => undefined) };
-    service = new UsersService(db.getRepository(User), log, { info: jest.fn() } as any);
+    // 动态 RBAC：测试只用到内置角色，角色存在性校验一律放行。
+    const perm = { roleExistsEnabled: jest.fn(async () => true) };
+    service = new UsersService(db.getRepository(User), log, perm as any, { info: jest.fn() } as any);
     controller = new UsersController(service);
   });
   afterEach(async () => { await db.destroy(); });

@@ -2,17 +2,14 @@ import { PartialType } from '@nestjs/mapped-types';
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
-  IsEnum,
   IsInt,
   IsOptional,
   IsString,
   Length,
   Max,
+  MaxLength,
   Min,
 } from 'class-validator';
-import { USER_ROLES, UserRole } from '../../../entities/user.entity';
-
-const ROLE_MAP = Object.fromEntries(USER_ROLES.map((v) => [v, v]));
 
 export class CreateUserDto {
   @IsString()
@@ -23,8 +20,13 @@ export class CreateUserDto {
   @Length(6, 128)
   password!: string;
 
-  @IsEnum(ROLE_MAP)
-  role!: UserRole;
+  /**
+   * 动态角色 code（RBAC 后不再锁死内置枚举）。
+   * 仅做格式校验；是否存在、是否启用由 UsersService 调 PermissionService 校验。
+   */
+  @IsString()
+  @Length(2, 32)
+  role!: string;
 
   @IsOptional()
   @IsBoolean()
@@ -38,9 +40,11 @@ export class QueryUserDto {
   @IsString()
   keyword?: string;
 
+  /** 按角色过滤：任意角色 code（含自定义角色），不在 DTO 层枚举限制。 */
   @IsOptional()
-  @IsEnum(ROLE_MAP)
-  role?: UserRole;
+  @IsString()
+  @MaxLength(32)
+  role?: string;
 
   @IsOptional()
   @Type(() => Boolean)

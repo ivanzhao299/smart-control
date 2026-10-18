@@ -15,13 +15,13 @@ import { adminNavIconFor } from '@/composables/useIcons';
 import {
   adminMenuTargetName,
   adminNavigationGroups,
-  canAccessAdminRoute,
+  canAccessAdminRouteByPerms,
   idleAdminRouteNames,
   loadAdminRoute,
   type AdminNavigationSection,
 } from '@/router/admin-route-manifest';
 import { ROLE_LABELS } from '@/router/admin-rbac';
-import { mainNavigationItemsForRole } from '@/router/main-route-manifest';
+import { mainNavigationItemsForRoleByPerms } from '@/router/main-route-manifest';
 
 const route = useRoute();
 const router = useRouter();
@@ -33,7 +33,15 @@ const perm = usePermissionStore();
  * 点「返回设备控制」会被路由守卫立刻弹回后台，属无效按钮，直接隐藏（与
  * router/index.ts 的 backendOnlyRedirect 判定保持一致：前台导航项数为 0）。
  */
-const canReturnToFront = computed(() => mainNavigationItemsForRole(perm.role).length > 0);
+const canReturnToFront = computed(
+  () => mainNavigationItemsForRoleByPerms(perm.role, perm.permissions).length > 0,
+);
+/** 角色显示名：以后端 /me 返回的中文名为准，回退内置标签，再回退 code。 */
+const roleLabel = computed(
+  () => perm.roleName
+    || (ROLE_LABELS as Record<string, string>)[perm.role]
+    || perm.role,
+);
 const brandingStore = useSystemBrandingStore();
 const branding = computed(() => brandingStore.branding);
 const authStore = useAdminAuthStore();
@@ -50,7 +58,7 @@ const groups = computed(() =>
   adminNavigationGroups
     .map((g) => ({
       section: g.section,
-      items: g.items.filter((it) => canAccessAdminRoute(it.name, perm.role)),
+      items: g.items.filter((it) => canAccessAdminRouteByPerms(it.name, perm.role, perm.permissions)),
     }))
     .filter((g) => g.items.length > 0),
 );
@@ -177,7 +185,7 @@ async function exitToFront(): Promise<void> {
         <BrandLogo :height="48" />
         <div class="brand-text">
           <div class="title">{{ branding.systemName }}</div>
-          <div class="sub">后台管理 · {{ ROLE_LABELS[perm.role] }}</div>
+          <div class="sub">后台管理 · {{ roleLabel }}</div>
         </div>
       </div>
       <nav class="menu">
@@ -246,7 +254,7 @@ async function exitToFront(): Promise<void> {
           <span class="v2-pill" :class="sys.info?.mockMode ? '' : 'idle'">
             <span class="v2-dot"></span>{{ sys.info?.mockMode ? 'MOCK 模式' : '真实模式' }}
           </span>
-          <span class="v2-pill">{{ ROLE_LABELS[perm.role] }}</span>
+          <span class="v2-pill">{{ roleLabel }}</span>
           <button
             v-if="fsSupported"
             type="button"

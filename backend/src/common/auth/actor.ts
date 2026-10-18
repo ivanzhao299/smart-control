@@ -1,13 +1,15 @@
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import type { Request } from 'express';
-import type { UserRole } from '../../entities/user.entity';
 
-/** Only server-verified identities may populate this field. */
+/**
+ * Only server-verified identities may populate this field.
+ * role 为动态角色 code（RBAC 后不再锁死枚举，可为管理员新建的自定义角色 code）。
+ */
 export interface Actor {
   kind: 'user' | 'legacy' | 'admin';
   userId: number | null;
   username: string;
-  role: UserRole;
+  role: string;
 }
 
 export type AuthenticatedRequest = Request & { actor?: Actor };

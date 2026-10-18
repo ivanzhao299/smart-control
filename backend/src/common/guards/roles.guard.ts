@@ -66,7 +66,7 @@ export class RolesGuard implements CanActivate {
     }
 
     if (!actor) throw new UnauthorizedException('未登录或登录已过期，请重新登录');
-    if (!required.includes(actor.role)) {
+    if (!(required as readonly string[]).includes(actor.role)) {
       throw new ForbiddenException(`该操作需要以下角色之一：${required.join('、')}`);
     }
     return true;

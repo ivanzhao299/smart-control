@@ -1,6 +1,6 @@
 import type { Component } from 'vue';
 import type { UserRole } from '@/types/api';
-import { canAccessAdminModule, type AdminModule } from './admin-rbac';
+import { canAccessAdminModule, canAccessAdminModuleByPerms, type AdminModule } from './admin-rbac';
 
 export type AdminNavigationSection =
   | '总览'
@@ -145,11 +145,11 @@ export const adminRouteManifest = [
   },
   {
     path: 'app-release', name: 'admin-app-release', load: () => import('@/pages/admin/AppReleaseAdmin.vue'),
-    module: 'app-release', navigation: { label: 'APP 版本', section: '系统', order: 3 }, prefetchOnIdle: true,
+    module: 'app-release', navigation: { label: 'APP 版本', section: '系统', order: 4 }, prefetchOnIdle: true,
   },
   {
     path: 'testflight', name: 'admin-testflight', load: () => import('@/pages/admin/TestFlightAdmin.vue'),
-    module: 'system', navigation: { label: 'iOS 测试', section: '系统', order: 4 },
+    module: 'system', navigation: { label: 'iOS 测试', section: '系统', order: 5 },
   },
   {
     path: 'drivers', name: 'admin-drivers', load: () => import('@/pages/admin/DriversAdmin.vue'),
@@ -161,7 +161,7 @@ export const adminRouteManifest = [
   },
   {
     path: 'system-branding', name: 'admin-system-branding', load: () => import('@/pages/admin/SystemBrandingAdmin.vue'),
-    module: 'branding', navigation: { label: '系统品牌', section: '系统', order: 2 },
+    module: 'branding', navigation: { label: '系统品牌', section: '系统', order: 3 },
   },
   {
     path: 'audit', name: 'admin-audit', load: () => import('@/pages/admin/AuditAdmin.vue'),
@@ -170,6 +170,11 @@ export const adminRouteManifest = [
   {
     path: 'users', name: 'admin-users', load: () => import('@/pages/admin/UsersAdmin.vue'),
     module: 'system', navigation: { label: '用户管理', section: '系统', order: 1 },
+  },
+  {
+    // 动态 RBAC：管理员创建角色 + 按原子权限点勾选（仅 role:manage，当前仅 admin）。
+    path: 'roles', name: 'admin-roles', load: () => import('@/pages/admin/RolesAdmin.vue'),
+    module: 'system', navigation: { label: '角色管理', section: '系统', order: 2 },
   },
   {
     // 常规系统参数（仅 admin）。系统品牌 / APP 版本已拆为系统管理组内的独立菜单，
@@ -234,4 +239,20 @@ export function canAccessAdminRoute(name: string, role: UserRole | undefined): b
   if (!route) return false;
   if (route.self) return true;
   return route.module ? canAccessAdminModule(role, route.module) : false;
+}
+
+/**
+ * 动态 RBAC 版后台路由可见性：
+ * - self 自助页（修改密码）任何可登录后台角色可见；
+ * - 内置角色走旧矩阵，自定义角色走权限点。
+ */
+export function canAccessAdminRouteByPerms(
+  name: string,
+  role: string | undefined,
+  perms: ReadonlySet<string>,
+): boolean {
+  const route = adminRouteByName.get(name);
+  if (!route) return false;
+  if (route.self) return true;
+  return route.module ? canAccessAdminModuleByPerms(role, perms, route.module) : false;
 }

@@ -76,8 +76,150 @@ export const MODULE_RULES: Record<AdminModule, ModuleRule> = {
   system: { write: [], read: [] },
 };
 
+/** 内置角色 code 集合（动态 RBAC 上线前的 5 个写死角色）。 */
+export const BUILTIN_ROLE_CODES: readonly string[] = [
+  'admin',
+  'hardware',
+  'config',
+  'operator',
+  'viewer',
+];
+
 /** 可登录后台的角色（operator 仅自助改密码 + 只读下载 APK，其余模块隐藏）。 */
 export const BACKEND_ROLES: UserRole[] = ['admin', 'hardware', 'config', 'operator'];
+
+/**
+ * 后台分域 → 原子权限点（动态 RBAC）。
+ * 内置 5 角色仍走 MODULE_RULES 矩阵（零行为变化）；管理员新建的自定义角色
+ * 按其勾选的权限点判定后台菜单可见性 / 可写性。
+ * 拥有数组内任一权限点即视为该模块可见。
+ */
+const MODULE_VIEW_PERMISSION: Record<AdminModule, readonly string[]> = {
+  monitor: ['monitor:view', 'monitor:diagnose'],
+  alerts: ['alerts:manage'],
+  scenes: ['scenes:manage'],
+  scheduler: ['scheduler:manage'],
+  energy: ['energy:ledger'],
+  'power-timing': ['power-timing:manage'],
+  devices: ['devices:manage'],
+  hardware: ['hardware:manage'],
+  zones: ['zones:manage'],
+  video: ['video:manage'],
+  lpr: ['lpr:manage'],
+  diagnostics: ['diagnostics:view'],
+  uat: ['uat:access'],
+  metrics: ['metrics:view'],
+  branding: ['branding:manage'],
+  'app-release': ['app-release:view', 'app-release:manage'],
+  system: ['system:settings', 'user:manage', 'role:manage'],
+};
+
+/** 后台分域 → 可写所需权限点（拥有任一即可写）。 */
+const MODULE_WRITE_PERMISSION: Record<AdminModule, readonly string[]> = {
+  monitor: ['monitor:diagnose'],
+  alerts: ['alerts:manage'],
+  scenes: ['scenes:manage'],
+  scheduler: ['scheduler:manage'],
+  energy: ['energy:ledger'],
+  'power-timing': ['power-timing:manage'],
+  devices: ['devices:manage'],
+  hardware: ['hardware:manage'],
+  zones: ['zones:manage'],
+  video: ['video:manage'],
+  lpr: ['lpr:manage'],
+  diagnostics: ['diagnostics:view'],
+  uat: ['uat:access'],
+  metrics: ['metrics:view'],
+  branding: ['branding:manage'],
+  'app-release': ['app-release:manage'],
+  system: ['system:settings', 'user:manage', 'role:manage'],
+};
+
+/** 自定义角色登录后台后的落地页优先级（按后台导航顺序取第一个有权限的模块）。 */
+const ADMIN_LANDING_PRIORITY: readonly AdminModule[] = [
+  'monitor',
+  'alerts',
+  'metrics',
+  'scenes',
+  'scheduler',
+  'lpr',
+  'energy',
+  'power-timing',
+  'hardware',
+  'devices',
+  'zones',
+  'video',
+  'diagnostics',
+  'uat',
+  'system',
+  'branding',
+  'app-release',
+];
+
+function hasAny(perms: ReadonlySet<string>, codes: readonly string[]): boolean {
+  return codes.some((c) => perms.has(c));
+}
+
+/** 后台菜单可见性（内置角色走旧矩阵，自定义角色走权限点）。 */
+export function canAccessAdminModuleByPerms(
+  role: string | undefined,
+  perms: ReadonlySet<string>,
+  module: AdminModule,
+): boolean {
+  if (role === 'admin') return true;
+  if (!role) return false;
+  if (BUILTIN_ROLE_CODES.includes(role)) {
+    return canAccessAdminModule(role as UserRole, module);
+  }
+  return hasAny(perms, MODULE_VIEW_PERMISSION[module]);
+}
+
+/** 后台分域可写（内置角色走旧矩阵，自定义角色走权限点）。 */
+export function canWriteAdminModuleByPerms(
+  role: string | undefined,
+  perms: ReadonlySet<string>,
+  module: AdminModule,
+): boolean {
+  if (role === 'admin') return true;
+  if (!role) return false;
+  if (BUILTIN_ROLE_CODES.includes(role)) {
+    return canWriteAdminModule(role as UserRole, module);
+  }
+  return hasAny(perms, MODULE_WRITE_PERMISSION[module]);
+}
+
+/** 自定义角色登录后台的默认落地路由名（取第一个有权限的模块）。 */
+export function defaultAdminRouteByPerms(role: string | undefined, perms: ReadonlySet<string>): string {
+  if (role === 'admin' || (role && BUILTIN_ROLE_CODES.includes(role))) {
+    return defaultAdminRoute(role as UserRole);
+  }
+  const moduleToRoute: Partial<Record<AdminModule, string>> = {
+    monitor: 'admin-monitor',
+    alerts: 'admin-alerts',
+    metrics: 'admin-park-ops-metrics',
+    scenes: 'admin-scenes',
+    scheduler: 'admin-scheduler',
+    lpr: 'admin-lpr',
+    energy: 'admin-energy',
+    'power-timing': 'admin-auto-switch',
+    hardware: 'admin-hardware',
+    devices: 'admin-devices',
+    zones: 'admin-zones-config',
+    video: 'admin-video-binding',
+    diagnostics: 'admin-logs',
+    uat: 'admin-test-center',
+    system: 'admin-settings',
+    branding: 'admin-system-branding',
+    'app-release': 'admin-app-release',
+  };
+  for (const module of ADMIN_LANDING_PRIORITY) {
+    if (hasAny(perms, MODULE_VIEW_PERMISSION[module])) {
+      return moduleToRoute[module] ?? 'admin-change-password';
+    }
+  }
+  // 没有任何后台模块权限：落到自助改密码页（任何可登录后台的角色都可访问）。
+  return 'admin-change-password';
+}
 
 /** 后台菜单/页面是否可见（admin 或在 write/read 中）。 */
 export function canAccessAdminModule(role: UserRole | undefined, module: AdminModule): boolean {

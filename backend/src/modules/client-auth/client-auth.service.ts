@@ -5,10 +5,10 @@ import { Repository } from 'typeorm';
 import { Logger } from 'winston';
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { ClientAuth } from '../../entities/client-auth.entity';
-import { User, BACKEND_ROLES, USER_ROLES } from '../../entities/user.entity';
-import type { UserRole } from '../../entities/user.entity';
+import { User } from '../../entities/user.entity';
 import { hashPassword, verifyPassword } from '../../common/utils/password.util';
 import type { Actor } from '../../common/auth/actor';
+import { PermissionService } from '../rbac/permission.service';
 
 /** 客户端 token TTL: 30 天, 比 admin 长很多 (业主天天用, 不想老登) */
 const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -39,24 +39,25 @@ export class ClientAuthService {
   constructor(
     @InjectRepository(ClientAuth) private readonly repo: Repository<ClientAuth>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
+    private readonly permissions: PermissionService,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
   async login(username: string, password: string): Promise<{ token: string; expiresAt: string }> {
-    return this.loginNamedUser(username, password, TOKEN_TTL_MS);
+    // PWA 前台登录：按角色 canFront 放行（动态 RBAC）。
+    return this.loginNamedUser(username, password, TOKEN_TTL_MS, 'front');
   }
 
   async loginAdministrator(username: string, password: string): Promise<{ token: string; expiresAt: string }> {
-    // admin / hardware / config 可登录后台；operator 也可登录但仅自助改密码 + 只读下载 APK；
-    // viewer 不在后台角色、仅前台。
-    return this.loginNamedUser(username, password, ADMIN_TOKEN_TTL_MS, BACKEND_ROLES);
+    // 后台登录：按角色 canBack 放行（admin/hardware/config/operator 及未来被授权的自定义角色）。
+    return this.loginNamedUser(username, password, ADMIN_TOKEN_TTL_MS, 'back');
   }
 
   private async loginNamedUser(
     username: string,
     password: string,
     ttlMs: number,
-    allowedRoles?: readonly UserRole[],
+    side: 'front' | 'back',
   ): Promise<{ token: string; expiresAt: string }> {
     const row = await this.repo.findOne({ where: { id: 1 } });
     if (!row?.tokenSecret) throw new UnauthorizedException('鉴权未初始化，请先运行数据库迁移');
@@ -69,8 +70,14 @@ export class ClientAuthService {
     if (!user?.enabled || !verifyPassword(password, user.password)) {
       throw new UnauthorizedException('用户名或密码错误');
     }
-    if (allowedRoles && !allowedRoles.includes(user.role)) {
-      throw new UnauthorizedException('用户名或密码错误');
+    // 动态登录方向：角色必须启用且在该端（前台/后台）有登录权限。
+    const canSide = side === 'back'
+      ? this.permissions.canLoginBack(user.role)
+      : this.permissions.canLoginFront(user.role);
+    if (!canSide) {
+      throw new UnauthorizedException(
+        side === 'back' ? '该账号无后台登录权限' : '该账号无前台登录权限',
+      );
     }
     const now = Date.now();
     const identity = { uid: user.id, ph: this.passwordFingerprint(user.password) };
@@ -116,7 +123,8 @@ export class ClientAuthService {
         .getOne();
       if (!user?.enabled || typeof payload.ph !== 'string') return null;
       if (payload.ph !== this.passwordFingerprint(user.password)) return null;
-      if (!USER_ROLES.includes(user.role)) return null;
+      // 动态 RBAC：角色必须仍存在且启用（不再用内置枚举硬拦未知角色，自定义角色由此放行）。
+      if (!this.permissions.isRoleEnabled(user.role)) return null;
       return { kind: 'user', userId: user.id, username: user.username, role: user.role };
     }
     if (payload.uid !== undefined) return null;
