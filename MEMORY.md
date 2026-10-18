@@ -1352,6 +1352,34 @@ pm2 僵尸守护根治（146→2，INCIDENTS #9）→ 部署误报根治（#10�
 - **遗留（本轮新增）**：工作区「动态 RBAC」并行改动（18 M + 9 ??，见上，含迁移 1792600000000-CreateDynamicRbac）**未提交、未部署**，待业主确认归属后单独 add 提交，禁与其它任务混提交、禁删。
 - **dev 环境（仍在跑）**：前端 dev 5174 后台 task 03d4d527（日志 /tmp/sc-dev-5174.log，VITE_PROXY_API=http://localhost:3200）、后端 3200 PID 2866（/tmp/sc-backend-3200.log，DB_PATH=../database/smart-control-4gdev.db）；验收完可按需关闭。
 
+### 2026-10-19 第十九轮 动态 RBAC 权限系统 P0-P2（管理员后台建角色 + 50 原子权限点，已部署生产 85c9bfe 并回验）
+- **范围**：把写死的 5 个角色升级为动态 RBAC（管理员后台建角色、约 50 个原子权限点逐项勾选）。两个 commit：功能 `d107907`（43 文件 +2479/−121）+ CI 测试修复 `85c9bfe`（2 个测试文件 +5/−2）；本地=origin/main=生产=**85c9bfe**。规划报告 doubao-html app_id `app_17g9zap40yc`。
+- **P0 权限点 catalog**（`backend/src/common/auth/permission-catalog.ts` 唯一事实源）：50 点/6 分组（前台播放 8、媒体 4、设备 13、能源 5、后台 18、系统 2），5 内置角色元数据 + 默认集（hardware 5 / config 4 / operator 13 / viewer 9；admin 锁全集）。
+- **P1 后端**：实体 `role/permission/role-permission`（rbac_role code varchar(32) PK / rbac_permission code varchar(64) PK / rbac_role_permission uq roleCode+permissionCode）；迁移 `1792600000000-CreateDynamicRbac`（类 `CreateDynamicRbac1792600000000`，PG/SQLite 双方言、种子幂等、down 空）；rbac 模块（permission.service / roles.controller / rbac.module / dto）；`PermissionGuard` + `@RequirePermission` 装饰器。
+  - **关键根因修复**：`client-auth` resolveActor 原硬编码 `USER_ROLES.includes(role)` 改为 `permissions.isRoleEnabled(role)`——这是「展厅操作员（operator）密码正确却进不了 PWA 前台」的根因；operator 角色 can_front=1 后放行。
+  - 角色 API（前缀 /api）：GET /roles/permissions、GET /roles（含 userCount/permissionCount）、GET /roles/:code、POST/PUT /roles、DELETE /roles/:code、PUT /roles/:code/permissions、POST /roles/:code/copy；类级 ActorAdminGuard 仅 admin。
+  - 规则：新建角色默认 enabled=false；admin lockedFull（不入 rbac_role_permission，运行时恒全集 50）；hardware/config/operator/viewer 内置非锁（仅可停用、删除 409、拒改 code/name/canFront/canBack、replacePermissions 400）；有用户禁删；copy 副本默认停用。PermissionService.onModuleInit：syncCatalog 对权限点/内置角色 INSERT OR IGNORE（不覆盖人工）+ 只读 load 重建内存矩阵，表未迁移 try/catch 回退内置 catalog（已登记启动钩子 allowlist）。
+- **P2 前端**：`stores/permission.ts` 重写（权限点化）、`services/role.service.ts`、`pages/admin/RolesAdmin.vue`（6 组 50 点勾选、内置锁/停用/CRUD/复制）、`router/admin-rbac.ts`、`admin-route-manifest.ts`（新增路由 `path:'roles' name:'admin-roles'`，系统菜单 order 2：settings0/users1/roles2/...）、`main-route-manifest.ts`、`UsersAdmin.vue`（角色下拉动态来自 /roles、el-tag 中文名）、MainLayout/AdminLayout（显示角色中文名）、identity() 补 roleName；/me 返回 `{kind,userId,username,role,roleName,permissions[],canFront,canBack}`。手机端 CSS：≤640px 表格 fixed 操作列改 static 横滑不重叠、dialog 宽 `min(760px,94vw)`、长权限 code 换行不截断。
+- **本地门禁（全绿）**：前端 vue-tsc 0、vite build + PWA、`node --test tests/*.test.cjs` 288、后端 nest build、jest **119 套件/1005 测试**、test:ops 70、仓库根 tools/ci 8；浏览器桌面 1280 + 手机 390 双视口 e2e 验收（角色列表 5 内置、新建 dialog 6 组 50 点、内置只读、临时角色 CRUD、UsersAdmin 动态下拉、0 console error；5 张截图已 RichMediaCard 交付）。
+- **⚠️ CI 两个坑（首个 run `39174510876` failure，Deploy skipped，生产未动）**：
+  1. 前端 `frontend/tests/admin-route-manifest.test.cjs` 硬编码「全部路由 name 有序列表」+「系统导航组字符串」，新增 admin-roles 后 2 个快照挂（288 项中）→ 期望数组补 `admin-roles`（位于 admin-users 与 admin-settings 之间；系统组字符串含 `admin-settings:系统设置,admin-users:用户管理,admin-roles:角色管理,...`）。
+  2. 后端 `backend/test/data-authority-boundary.test.cjs`（test:ops，jest 不覆盖）用例「启动钩子 allowlist」未登记新增 `permission.service.ts`（onModuleInit）→ 按字母序登记（pv.service 后、scheduler.service 前）+ 中文审核注释。
+  → **以后提交前除 jest/typecheck/build 外，前端必须跑 `node --test tests/*.test.cjs`、后端必须跑 `node --test test/*.test.cjs`（test:ops），本地漏跑=CI 挂。**
+- **scope 机制（重要，避免误判）**：push 触发的 CI Detect scope 用 `github.event.before` 只看 d107907..85c9bfe（仅两个测试文件，classifyDeployFiles 判测试不改运行时）→ CI scope=**none**；但 GK9000 上 `scripts/deploy-from-ci.ps1` 第831行用「生产当前 HEAD→目标 commit」(`Get-DeployScope 668546a 85c9bfe`) **重新计算** → **fullDeploy=True highRisk=True**（含迁移）。ssh 远程命令只传 `gk9000-deploy <commit>` 不传 scope。**故无需手动 force_scope，push run 即全量部署**。
+- **部署成功 run `39175197059`**：Detect scope / Validate frontend / Validate backend / Deploy to GK9000 **四 job success**。全 run 最慢 = 末步「Copy migration recovery bundle off host」(`gk9000-offsite-backup`，约 **7.9GB** 恢复包异地备份，含 676MB playback.mp4、66.6MB database.sqlite，正常 IO 慢非卡死)。
+- **生产真生效回验（ssh `gk9000-smart-control`，PowerShell 走 `powershell -NoProfile -EncodedCommand <UTF16LE-base64>`，过滤 CLIXML；项目根 `D:\smart-control`，SQLite `D:\smart-control\database\smart-control.db`）**：
+  - 迁移日志：自动生产库备份 → `MIGRATIONS_PENDING` → writer 隔离/快照 → 受控迁移 + 配对恢复演练（release-RVepOA / restore-2u30GM）→ `- CreateDynamicRbac1792600000000` applied → migration-complete receipt → activate。migrations 表共 **67 条**，最后一条=CreateDynamicRbac1792600000000。
+  - 三表实测 **rbac_role=5 / rbac_permission=50 / rbac_role_permission=31**（与本地一致）。
+  - 5 角色（rbac_role SELECT *）：admin（is_locked=1，can_front/back=1）、hardware（1/1）、config（1/1）、**operator 展厅操作员（can_front=1、can_back=1、enabled=1）**、viewer（can_front=1、can_back=0）。
+  - 健康：`http://127.0.0.1:3200/api/system/health` HTTP 200 status=ok、api/db/websocket/scheduler 全 up、13 设备在线；前端 5173 HTTP 200。
+  - 运行时新代码：`GET /api/roles/permissions` 无 token → **401**（路由存在且受守卫保护，非 404）；`GET /api/client-auth/ping` 200。
+  - verify-deploy.js passed；后端跑最新构建（进程 07:18:42 > 产物 migrations/...1792600000000.js 07:17:16）、重启 0 次无孤儿；前端 bundle 指纹一致；Release manifest + `Deployment complete: 85c9bfe`；三端同 commit。
+- **待业主用真实账号做一次生产页面登录回验**（ssh 不掌握生产密码）：①管理员登录后台「角色管理」见 5 内置角色 + 6 组 50 权限点；②展厅操作员正确密码能进 PWA 前台（根因修复）；③操作员后台仅见改密/下载 APK。PWA 需退出登录→齿轮（仅 /client-login 可见）→清除页面缓存→重登，才拿新前端/Service Worker。
+- **后续阶段**：P3=端点 @RequirePermission 全量替换 + 约 49 处按钮点化（PermissionGuard 与旧守卫先并存逐模块替换，可加 v-permission 指令）；P4=水电前台搬 PWA（main-route-manifest 加 permission:'energy:view' 的前台路由、去园区台账 tab、台账留后台 energy:ledger）+ 建"物业"角色 property（energy:view/detail/export，不给 readout/ledger/设备控制）+ operator/viewer 真实账号回归（op1/viewer1/hw_test/cfg_test 密码未知，改密须先纯文字请示）；P5=裸端点扫描测试 + 文档。**旧守卫/硬编码矩阵 rbac.ts 清理必须单独请示后再删（保留电源域行级部分）**。
+- **端口口径（本轮澄清）**：本地 backend/.env `PORT=3300`（仅 curl 冒烟，PID 56968）；vite 5173 因 http.ts 页面 origin 优先逻辑硬编码直连 **3200**（忽略 localStorage），浏览器验收需临时 `PORT=3200 node dist/main`（PID 59897，连 dev.db，日志 /tmp/p2_backend_3200.log，部署完可停）。生产后端 3200、前端 5173。本地库是 `backend/database/smart-control-4gdev.db`（另一个 smart-control.db 无 RBAC 表勿误查）。
+- **网络**：本地直连 GitHub 可达（`curl https://github.com` 200 约 2s），git fetch/push/gh 全部直连成功；**勿用 11080 端口**（那是 phoenix_jump 跳板 root@123.57.220.65 的 SOCKS，到 github 超时，非翻墙代理）。
+- **本地临时进程（P2 验收用，未关）**：3300 PID 56968、3200 临时实例 PID 59897、vite 5173 PID 10470；3000 端口是 phoenix-erp-v3 Next.js（PID 1222/1356）勿动。
+
 ## 约定
 
 - **每个会话的第一个动作 = 读本文件**。已双保险：`.claude/settings.json` 配了
