@@ -996,21 +996,14 @@ function onUnifiedSourceChange(event: Event): void {
 .fit-select { width: 180px; }
 
 .src-bar {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 10px 14px; border-radius: var(--v2-r-md);
-  /* 强调：主题色微染 + 主题色描边 + 左侧 4px 色条（inset 不占布局）+ 极弱柔光。
-     边框仍 1px、padding 不变，卡片高/宽/位置零变化，不影响已锁死的零抖动。 */
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--v2-primary) 9%, transparent), transparent 55%),
-    var(--v2-surf-1, #14161A);
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 14px; border-radius: var(--v2-r-md);
+  /* 主题色微染 + 主题色描边 + 左 4px 色条（inset 不占布局）+ 极弱柔光；边框仍 1px、padding 不变，零抖动。 */
+  background: linear-gradient(135deg, color-mix(in srgb, var(--v2-primary) 9%, transparent), transparent 55%), var(--v2-surf-1, #14161A);
   border: 1px solid color-mix(in srgb, var(--v2-primary) 45%, var(--v2-border-soft));
-  box-shadow:
-    inset 4px 0 0 var(--v2-primary),
-    0 0 22px -10px color-mix(in srgb, var(--v2-primary) 60%, transparent);
+  box-shadow: inset 4px 0 0 var(--v2-primary), 0 0 22px -10px color-mix(in srgb, var(--v2-primary) 60%, transparent);
 }
 .src-label {
-  font-size: 13px; font-weight: 700; letter-spacing: 0.04em;
-  color: var(--v2-primary); white-space: nowrap;
+  font-size: 13px; font-weight: 700; letter-spacing: 0.04em; color: var(--v2-primary); white-space: nowrap;
   display: inline-flex; align-items: center; gap: 5px;
 }
 .src-btn {
@@ -1035,34 +1028,17 @@ function onUnifiedSourceChange(event: Event): void {
 
 /* 画面铺放标签：桌面显示全称「画面铺放」，手机端只显示「铺放」（@media 640 切换） */
 .fit-label-short { display: none; }
-/* 手机端统一输入源行：默认隐藏（桌面仍用按钮组），≤640px 才显示。
-   视觉与 .src-bar 卡片一致；它是 .led-page flex 子项，间距由 gap 统一给。 */
+/* 手机端统一输入源行：默认隐藏（桌面用按钮组），≤640px 才显示；与 .src-bar 同源强调（主题色微染+描边+左色条+柔光，零尺寸变化）。 */
 .src-bar-mobile {
-  display: none; align-items: center; gap: 8px;
-  padding: 8px 10px 8px 12px; border-radius: var(--v2-r-md);
-  /* 与桌面 .src-bar 同源强调：主题色微染 + 描边 + 左色条 + 柔光；尺寸零变化。 */
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--v2-primary) 9%, transparent), transparent 55%),
-    var(--v2-surf-1, #14161A);
+  display: none; align-items: center; gap: 8px; padding: 8px 10px 8px 12px; border-radius: var(--v2-r-md);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--v2-primary) 9%, transparent), transparent 55%), var(--v2-surf-1, #14161A);
   border: 1px solid color-mix(in srgb, var(--v2-primary) 45%, var(--v2-border-soft));
-  box-shadow:
-    inset 4px 0 0 var(--v2-primary),
-    0 0 22px -10px color-mix(in srgb, var(--v2-primary) 60%, transparent);
+  box-shadow: inset 4px 0 0 var(--v2-primary), 0 0 22px -10px color-mix(in srgb, var(--v2-primary) 60%, transparent);
 }
 .src-unified-wrap { position: relative; flex: 1 1 auto; min-width: 0; }
-.src-unified-select {
-  width: 100%; min-width: 0; min-height: 42px; padding: 8px 12px 8px 36px;
-  border-radius: var(--v2-r-md); cursor: pointer; font-size: 16px; font-family: inherit;
-  color: var(--v2-text-1);
-  background-color: var(--v2-surf-2, #1A1D22);
-  border: 1px solid color-mix(in srgb, var(--v2-primary) 55%, var(--v2-border-soft, #23262C));
-}
-/* 左侧地球图标用真实 lucide 组件（currentColor），随主题/强调色自动变色，不写死色值。 */
-.src-unified-globe {
-  position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
-  display: inline-flex; align-items: center; pointer-events: none;
-  color: var(--v2-primary);
-}
+.src-unified-select { width: 100%; min-width: 0; min-height: 42px; padding: 8px 12px 8px 36px; border-radius: var(--v2-r-md); cursor: pointer; font-size: 16px; font-family: inherit; color: var(--v2-text-1); background-color: var(--v2-surf-2, #1A1D22); border: 1px solid color-mix(in srgb, var(--v2-primary) 55%, var(--v2-border-soft, #23262C)); }
+/* 左侧地球图标用真实 lucide 组件（currentColor），随主题/强调色变色。 */
+.src-unified-globe { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; pointer-events: none; color: var(--v2-primary); }
 .src-unified-select:disabled { opacity: .4; cursor: not-allowed; }
 .src-unified-select option, .src-unified-select optgroup { color: #e8edf4; background: #14161A; }
 .src-edit-icon {
