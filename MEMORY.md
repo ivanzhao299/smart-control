@@ -1298,6 +1298,26 @@ pm2 僵尸守护根治（146→2，INCIDENTS #9）→ 部署误报根治（#10�
 - **生产端到端登录截图未做**：生产 admin 登录密码与 dev（Admin2026!abc）不同，Playwright 生产登录停在 client-login（未猜密码/未改生产库）；前端行为已在 dev 用同一份代码（dev dist 与生产同源码构建）完整实测 + 生产 JS 静态产物逐一核对，运行环境差异不影响前端路由/渲染。
 - **三端同 commit=b8faec1**。一次性脚本在 /tmp/pw_*.py（shot/role/diag/prod 等，可删）。
 
+### 2026-10-18 第十六轮 角色×电源域三态授权+区域管理+手机UI统一+时序器独立分组（已部署生产 33035c9 并回验）
+- **范围**：现场手机三问题 + 5 点拍板（#156–#162）+ 并行会话遗留的「两台电源时序器按 gateway 独立分组」。在特性分支 `feat/power-sequencer` 提交后 ff 到 main，最终 main = **`33035c9`**（15 文件 +1254/-132）；含后端迁移 → deploy-scope=full。
+- **⚠️ CI 两个坑（本次连踩、以后强制记住）**：
+  1. **新增任何带 `onModuleInit/onApplicationBootstrap` 的 service 必须登记进 `backend/test/data-authority-boundary.test.cjs` 的 runtime-state allowlist**（按字母序、加一句审查注释）。该守护属于 `test:ops`（=`node --test test/*.test.cjs`，CI validate-backend 第5步，在 jest 之后，**jest 不覆盖它**）。首次 push f16a735 前端绿、后端挂在 `not ok 6 every startup lifecycle hook stays on the reviewed runtime-state allowlist`，actual 多 `power-domain-grant.service.ts`。**后端提交前除 jest 外必须跑 `npm run test:ops`（当前 70 项 / 67 pass / 3 skip）**。
+  2. **amend 已推送 commit + force-with-lease 后，那个 push 触发的 run 会在 Detect scope 失败**：`tools/ci/deploy-scope.mjs` 用 `github.event.before`（旧 SHA）做 diff，旧 SHA 被 amend 后不可达 → `fatal: bad object ...`（run 39114556463）。**改法 = 手动 `gh workflow run deploy-gk9000.yml --ref main -f force_scope=full`**（workflow_dispatch 无 before、base 回退 head^，diff 正确）。本次最终成功 run = **39114651373**。
+- **生产回验（全绿）**：生产机是 **Windows GK9000，数据库是 SQLite（`D:\smart-control\database\smart-control.db`），不是 PG**（迁移写双方言，SQLite 上执行）。部署日志实证：fullDeploy=True、部署前自动生产库备份 → `MIGRATIONS_PENDING` → writer 隔离 → **已执行 1 个迁移 `- CreatePowerDomainRoleGrants1792400000000`（建表+唯一索引+seed 3 条）** → PM2 `smart-control-backend:0 online` + `smart-control-frontend:1 online` → `gk9000-verify` `Deployment complete: 33035c9` → 异地恢复包 OFFSITE_BUNDLE_VERIFIED（~8.3GB、跑约 13 分钟，是全 run 最慢一步）。公网：`/control/deployment-version.json` commit=33035c93=本地 HEAD、clean；`GET /api/power-domain-grants`=401 JSON（路由存在；对照不存在路径返回 404 Cannot GET，证明后端新代码上线）。
+- **后端 #160 核心新功能**：
+  - 新实体 `entities/power-domain-role-grant.entity.ts`（表 `power_domain_role_grant`，类级唯一索引 `uq(role,domain_code)`；`role varchar(32)` 普通字符串**不锁 UserRole**——未来新增角色自动出现在矩阵；can_read/can_write + 时间戳）。
+  - 迁移 `1792400000000-CreatePowerDomainRoleGrants.ts` 双方言、幂等（CREATE IF NOT EXISTS + INSERT OR IGNORE / ON CONFLICT DO NOTHING）；seed：config/park/读写、operator/hall/读写、viewer/hall/只读；**admin/hardware 不入库**（代码锁死全域、含未来新域，防误配自锁全场断电）。
+  - 服务 `modules/power-circuits/power-domain-grant.service.ts`（implements OnModuleInit：启动只读 DB 重建内存矩阵、try/catch 表未迁移则惰性回退 rbac，已登记 allowlist）：readableDomains（null=全域、无记录角色=[]、catch 回退 rbac）、canWrite、isLocked、configurableRoles（内置非锁角色 ∪ user 表角色 ∪ grant 表角色动态并集）、getMatrix、事务 replaceGrants（过滤锁定行、canWrite 隐含 canRead、全删后 save 再 load）。
+  - module `forFeature(PowerDomainRoleGrant,User)` 并导出；`power-circuits.service.ts` 构造末参加 `@Optional() grantService?`，list/assert 改 async 走 grant 否则回退 rbac；controller 新增 `GET/PUT power-domain-grants`（均 `@ModuleAccess('zones')` 仅 admin，独立路径防被 `:id` 吞）。rbac.ts 未改，作 fallback/seed。
+- **前端**：
+  - 矩阵 UI（`pages/admin/PowerCircuitsAdmin.vue` + `services/power-circuits.service.ts`）：「区域管理」按钮改蓝紫渐变+辉光（lucide LayoutGrid）；弹窗矩阵锁定行 colspan 显示「全域（锁定，不可修改）」tag，可配行每域 el-radio-button 三态（隐藏/可见/操作）；手机 390 三态竖排全宽（`.gt-cell :deep(.el-radio-group){display:flex;flex-direction:column}`、`.el-radio-button{display:block}`、inner block 全宽）。
+  - #156 背景统一（design-tokens.css）：手机 `@media(max-width:600px)` 块开头加 `.v2-route-enter-from{transform:none}`、`.v2-page{min-height:100%}`、`.v2-page-head` 50vw 横铺（margin/padding calc(50vw - 50%)）；车机三 accent（blue/orange/purple）各一份页头两光圈渐变副本（圆心视口单位 `at 10vw -12dvh`/`at 94vw -8dvh`，末尾 `var(--v2-bg-0)` 兜底+!important）；**不用 background-attachment:fixed（iOS WKWebView 不稳）**。
+  - #157 刷新同行（PowerPage.vue）：back-row 加手机专用 `.refresh-mobile`（RefreshCw 14，CSS `margin-left:auto` 38×38 与楼层 tab 同行右端），桌面 `.refresh-desktop`。
+  - #158 抽屉：`.el-drawer.sched-sheet.rtl` 四边 `max(12px,env(safe-area-inset-*))!important` + width/height:auto、圆角 var(--v2-r-lg)；**真机刘海/底部安全区 env 非0 只能真机 PWA 复验（headless 无法模拟），需彻底杀 App 重开**。
+- **时序器独立分组（并行会话遗留、业主 10-18 要求、已随本次上线）**：PowerPage.vue `renderGroups`（audio-seq 按 gatewayCode 分组、普通回路归 plain 组）、`seqAll(on,gatewayCode)` 两参、`seqBusyGw`、组头独立时序开/关机；后端 `adapters/power/seq55-protocol.ts`(+54)、`seq55.adapter.ts`(+35) 及两 spec（jest 972→981）。口径「两台时序器各自独立，不提供全部时序器一起开关」。
+- **本地门禁**：前端 vue-tsc 0、vite build、288 个 cjs 测试；后端 tsc 0、nest build、`jest --runInBand` 117 suites/981 tests、test:ops 67；dev SQLite 迁移实跑建表 seed、真实 admin token GET/PUT 实测。
+- **dev 口径（沿用）**：后端 `PORT=3200 npm run start:dev`（前端 API baseURL 硬编码 http://127.0.0.1:3200/api 不走 vite 代理；.env PORT=3300 会 Failed to fetch）；dev router base 是 `/`（生产才 /control/）；dev admin/Admin2026!abc。本轮 7 张效果图 CDN 已 RichMediaCard 交付；/tmp/v16_*.py 与截图为一次性可删。
+
 ## 约定
 
 - **每个会话的第一个动作 = 读本文件**。已双保险：`.claude/settings.json` 配了
