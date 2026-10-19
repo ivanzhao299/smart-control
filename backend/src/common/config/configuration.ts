@@ -118,6 +118,13 @@ export interface Em123Config {
   bootstrapHourlyDays: number;
   /** 单次请求超时 ms */
   timeoutMs: number;
+  /**
+   * 二期资金管控: 单笔现金/补量录入硬上限 (元; 补量时为度数), 后端强校验拒绝, 默认 30000。
+   * 现场历史最大单笔约 3 万, 超过即视为异常, 需调高配置或走线下。
+   */
+  cashChargeLimit: number;
+  /** 大额二次确认门槛 (元), 达到须前端二次确认 + 后端要求 confirm=true, 默认 5000。 */
+  largeAmountThreshold: number;
 }
 
 export interface RootConfig {
@@ -276,6 +283,8 @@ export default (): RootConfig => ({
       refreshHourlyMs: parseInt10(process.env.EM123_REFRESH_HOURLY_MS, 30 * 60_000),
       bootstrapHourlyDays: parseInt10(process.env.EM123_BOOTSTRAP_HOURLY_DAYS, 7),
       timeoutMs: parseInt10(process.env.EM123_TIMEOUT_MS, 120_000),
+      cashChargeLimit: parseInt10(process.env.EM123_CASH_CHARGE_LIMIT, 30_000),
+      largeAmountThreshold: parseInt10(process.env.EM123_LARGE_AMOUNT_THRESHOLD, 5_000),
     };
   })(),
 });

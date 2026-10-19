@@ -101,6 +101,22 @@ export const PERMISSION_CATALOG: readonly PermissionDef[] = [
   { code: 'energy:detail', name: '逐表 / 楼栋明细、欠费与缴费流水', group: 'energy', kind: 'view', scope: 'front', sort: 20 },
   { code: 'energy:export', name: '导出水电报表（Excel）', group: 'energy', kind: 'write', scope: 'front', sort: 30 },
   { code: 'energy:readout', name: '远程召测 / 抄表（触发平台抄表）', group: 'energy', kind: 'write', scope: 'front', sort: 40 },
+  {
+    code: 'energy:rename', name: '住房/业主改名、电表档案维护', group: 'energy', kind: 'write', scope: 'front', sort: 45,
+    hint: '客户名称、业主户名/电话、绑定住房与表档案维护；前后值留痕，不涉及资金。',
+  },
+  {
+    code: 'energy:recharge', name: '现金 / 补量录入（收银充值）', group: 'energy', kind: 'write', scope: 'front', sort: 46,
+    hint: '物业收银台人工现金 / 补量充值；金额校验、二次确认、操作人与前后余额留痕，按日对账。',
+  },
+  {
+    code: 'energy:refund', name: '退费 / 减免', group: 'energy', kind: 'write', scope: 'front', sort: 47,
+    hint: '仅成功缴费单可退；金额与原因留痕，按日对账。与现金录入分开授权（退费风险更高）。',
+  },
+  {
+    code: 'energy:control', name: '远程拉合闸 / 校时 / 多费率（高危）', group: 'energy', kind: 'write', scope: 'front', sort: 48,
+    hint: '直接改变现场供电：默认仅管理员，须输入户名+原因二次确认并完整留痕；不授任何普通角色。',
+  },
   { code: 'energy:ledger', name: '水电台账 / 变压器配置（后台）', group: 'energy', kind: 'admin', scope: 'back', sort: 50 },
 
   // ===== E. 后台运行与配置 =====

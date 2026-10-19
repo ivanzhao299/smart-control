@@ -159,6 +159,130 @@ export interface Em123ListQuery {
   [key: string]: string | number | undefined;
 }
 
+// ============ 二/三期：写操作类型 ============
+
+/** 平台原始行（字段动态，弱类型）。 */
+export type Em123RawRow = Record<string, unknown>;
+
+/** 写操作结果（平台 code=0 成功；未确认由后端 409 抛出）。 */
+export interface Em123WriteResult {
+  ok: boolean;
+  code?: number;
+  msg?: string;
+  raw?: unknown;
+  beforeBalance?: number;
+  afterBalance?: number;
+}
+
+/** 按表号回显的"改名/档案/收银"上下文。 */
+export interface Em123MeterContext {
+  meterType: Em123MeterType;
+  meter: {
+    meterId: number;
+    meterNo: string;
+    meterType: string;
+    houseId: number | null;
+    houseName: string | null;
+    userId: number | null;
+    multiply: number;
+    priceId: number | null;
+    priceName: string | null;
+    meterModel?: string | null;
+    modelName?: string | null;
+    chargeMoney: number;
+    meterFlag: string | null;
+    connType: string | null;
+    deviceImei: string | null;
+    alarmId?: number | null;
+    alarmName?: string | null;
+    remark?: string | null;
+  };
+  house: {
+    houseId: number;
+    houseName: string;
+    fullName?: string | null;
+    parentId?: number | null;
+    remark?: string | null;
+  } | null;
+  user: {
+    userId: number;
+    userName: string;
+    userPhone?: string | null;
+    userNumber?: string | null;
+    houseIds?: unknown;
+    houseId?: unknown;
+    houseName?: string | null;
+    remark?: string | null;
+  } | null;
+}
+
+/** 退费表单回显（系统生成的 refundNo/seleNo 等 hidden 必须原样回填）。 */
+export interface Em123RefundForm {
+  recordId: string;
+  hidden: Record<string, string>;
+  chargeMoney: number | null;
+  houseId: number | string | null;
+  meterId: number | string | null;
+  userId: number | string | null;
+  houseName: string | null;
+  meterNo: string | null;
+  userName: string | null;
+}
+
+/** 多费率设置回显：费率方案（rateId）下拉。 */
+export interface Em123SetRateForm {
+  meterId: string;
+  meterNo: string;
+  houseName: string;
+  currentPriceName: string | null;
+  rateOptions: { value: string; label: string }[];
+}
+
+/** 写操作留痕（对账）。 */
+export interface Em123WriteLog {
+  id: number;
+  bizType: string;
+  meterType: string | null;
+  meterNo: string | null;
+  meterId: string | null;
+  houseId: string | null;
+  houseName: string | null;
+  userName: string | null;
+  amount: number;
+  beforeBalance: number | null;
+  afterBalance: number | null;
+  reason: string | null;
+  payloadBefore: string | null;
+  payloadAfter: string | null;
+  platformCode: number | null;
+  platformMsg: string | null;
+  status: string;
+  operatorId: number | null;
+  operatorName: string | null;
+  operatorRole: string | null;
+  createdAt: string;
+}
+
+export type Em123ControlAction = 'wattoff' | 'watton' | 'settime';
+
+/** 写操作业务类型 → 中文。 */
+export function writeBizTypeLabel(t?: string): string {
+  const map: Record<string, string> = {
+    house_rename: '住房改名',
+    user_rename: '业主改名',
+    meter_edit: '表档案',
+    charge_cash: '现金充值',
+    charge_supplement: '补量',
+    refund: '退费',
+    reduction: '减免',
+    control_off: '拉闸断电',
+    control_on: '合闸送电',
+    settime: '表计校时',
+    setrate: '多费率设置',
+  };
+  return (t && map[t]) || t || '—';
+}
+
 // ============ 展示辅助（平台字典 → 中文） ============
 
 /** 缴费方式：现金/补量（物业人工录入） vs 微信在线（业主自助，汇付）。 */
@@ -241,4 +365,107 @@ export const em123Service = {
     };
     downloadBlob(blob, nameMap[kind]);
   },
+
+  // ============ 二/三期：写操作（全部走后端代理，后端二次校验+留痕） ============
+
+  /** 住房（客户名）实时列表。 */
+  houses: (keyword?: string, limit = 100) =>
+    api.get<Em123RawRow[]>('/em123/houses', { params: { keyword, limit } }),
+
+  /** 业主（户名）实时列表。 */
+  users: (q: Record<string, string | number>) =>
+    api.get<Em123Paged<Em123RawRow>>('/em123/users', { params: q }),
+
+  /** 按表号回显改名/档案/收银上下文。 */
+  meterContext: (type: Em123MeterType, meterNo: string) =>
+    api.get<Em123MeterContext>('/em123/meter-context', { params: { type, meterNo } }),
+
+  /** 退费表单回显。 */
+  refundForm: (recordId: string | number) =>
+    api.get<Em123RefundForm>(`/em123/refund-form/${recordId}`),
+
+  /** 住房（客户名）改名。 */
+  renameHouse: (body: {
+    houseId: string | number;
+    houseName: string;
+    fullName?: string;
+    parentId?: string | number;
+    remark?: string;
+  }) => api.post<Em123WriteResult>('/em123/house/rename', body),
+
+  /** 业主（户名/电话）改名。 */
+  renameUser: (body: {
+    userId: string | number;
+    userName: string;
+    userPhone?: string;
+    remark?: string;
+  }) => api.post<Em123WriteResult>('/em123/user/rename', body),
+
+  /** 表档案维护（倍率/价格/型号/备注）。 */
+  editMeter: (body: {
+    meterType: Em123MeterType;
+    meterNo: string;
+    fields: Record<string, string | number>;
+  }) => api.post<Em123WriteResult>('/em123/meter/edit', body),
+
+  /** 现金/补量录入（大额需 confirm）。 */
+  charge: (body: {
+    meterType: Em123MeterType;
+    meterNo: string;
+    mode: 'cash' | 'replienish';
+    amount: number;
+    remark?: string;
+    confirm?: boolean;
+  }) => api.post<Em123WriteResult>('/em123/charge', body),
+
+  /** 退费（不得超原额；现金单强制现金退费）。 */
+  refund: (body: {
+    recordId: string | number;
+    refundMoney: number;
+    refundMode?: '0' | '1';
+    remark?: string;
+    confirm?: boolean;
+  }) => api.post<Em123WriteResult>('/em123/refund', body),
+
+  /** 减免（按该表所属住房核销应收，金额为正、大额二次确认）。 */
+  reduction: (body: {
+    meterType: Em123MeterType;
+    meterNo: string;
+    reductionMoney: number;
+    reason?: string;
+    confirm?: boolean;
+  }) => api.post<Em123WriteResult>('/em123/reduction', body),
+
+  /** 远程控制：拉闸/合闸/校时（仅 admin，拉合闸须户名+原因）。 */
+  control: (body: {
+    action: Em123ControlAction;
+    meterType: Em123MeterType;
+    meterNo: string;
+    reason?: string;
+    confirmName?: string;
+  }) => api.post<Em123WriteResult>('/em123/control', body),
+
+  /** 多费率设置回显（费率方案下拉）。 */
+  setrateForm: (meterType: Em123MeterType, meterNo: string) =>
+    api.get<Em123SetRateForm>('/em123/setrate-form', { params: { meterType, meterNo } }),
+
+  /** 多费率设置下发（仅 admin，选方案 + 住房名强确认 + 原因）。 */
+  setRate: (body: {
+    meterType: Em123MeterType;
+    meterNo: string;
+    rateId: string;
+    reason?: string;
+    confirmName?: string;
+  }) => api.post<Em123WriteResult>('/em123/setrate', body),
+
+  /** 写操作对账清单。 */
+  writeLogs: (q: {
+    pageNum?: number;
+    pageSize?: number;
+    bizType?: string;
+    meterNo?: string;
+    operator?: string;
+    startDate?: string;
+    endDate?: string;
+  }) => api.get<Em123Paged<Em123WriteLog>>('/em123/write-logs', { params: q }),
 };

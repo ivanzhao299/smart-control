@@ -1,11 +1,24 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { RootConfig, Em123Config } from '../../common/config/configuration';
+import type { Actor } from '../../common/auth/actor';
 import { Em123Meter } from '../../entities/em123-meter.entity';
 import { Em123Daily } from '../../entities/em123-daily.entity';
 import { Em123Hourly } from '../../entities/em123-hourly.entity';
+import {
+  Em123WriteLog,
+  type Em123WriteBizType,
+  type Em123WriteStatus,
+} from '../../entities/em123-write-log.entity';
 import {
   Em123Client,
   type Em123MeterRaw,
@@ -13,6 +26,9 @@ import {
   type Em123HourlyRaw,
   type Em123RawRow,
   type Em123ExportFile,
+  type Em123WriteResult,
+  type Em123WriteUnconfirmedError,
+  type Em123SetRateForm,
 } from './em123.client';
 import {
   num,
@@ -27,6 +43,14 @@ import {
   ASSUMED_POWER_FACTOR,
   type TransformerMode,
 } from './em123.transformers';
+import {
+  validateChargeAmount,
+  validateRefundAmount,
+  validateReductionAmount,
+  validateSwitchControl,
+  validateNamedConfirm,
+  canRemoteControl,
+} from './em123.write-rules';
 
 /** 日用量批量 upsert 每批行数 (避开 SQLite 表达式树深度上限 1000)。 */
 const DAILY_UPSERT_BATCH = 400;
@@ -316,6 +340,7 @@ export class Em123Service implements OnModuleInit, OnModuleDestroy {
     @InjectRepository(Em123Meter) private readonly meterRepo: Repository<Em123Meter>,
     @InjectRepository(Em123Daily) private readonly dailyRepo: Repository<Em123Daily>,
     @InjectRepository(Em123Hourly) private readonly hourlyRepo: Repository<Em123Hourly>,
+    @InjectRepository(Em123WriteLog) private readonly writeLogRepo: Repository<Em123WriteLog>,
   ) {
     this.cfg = this.config.getOrThrow<Em123Config>('em123');
     if (this.cfg.enabled) {
@@ -789,6 +814,672 @@ export class Em123Service implements OnModuleInit, OnModuleDestroy {
       if (!q.endTime) p['params[endTime]'] = localDateStr();
     }
     return client.exportFile(path, p);
+  }
+
+  // ===========================================================================
+  // 二/三期: 写操作 (改名 / 档案 / 现金补量 / 退费 / 减免 / 远程控制)
+  // 统一铁律: 先只读回显拿完整行 -> 后端参数校验 -> 只发一次 -> 无论成败都留痕
+  // (操作人/前后值/原因) -> 写后异步刷新只读缓存。
+  // ===========================================================================
+
+  /** 写操作留痕 (成功/失败/未确认都落 em123_write_log; 留痕失败不影响主流程)。 */
+  private async recordWrite(
+    opts: {
+      bizType: Em123WriteBizType;
+      actor: Actor;
+      meterType?: 'E' | 'W' | null;
+      meterNo?: string | null;
+      meterId?: unknown;
+      houseId?: unknown;
+      houseName?: string | null;
+      userName?: string | null;
+      amount?: number | null;
+      beforeBalance?: number | null;
+      afterBalance?: number | null;
+      reason?: string | null;
+      payloadBefore?: Record<string, unknown> | null;
+      payloadAfter?: Record<string, unknown> | null;
+      result?: Em123WriteResult | null;
+      status?: Em123WriteStatus;
+      platformCode?: number | null;
+      platformMsg?: string | null;
+    },
+  ): Promise<Em123WriteLog | null> {
+    const { actor, result } = opts;
+    const log = this.writeLogRepo.create({
+      bizType: opts.bizType,
+      meterType: opts.meterType ?? null,
+      meterNo: opts.meterNo ?? null,
+      meterId: opts.meterId != null ? String(opts.meterId) : null,
+      houseId: opts.houseId != null ? String(opts.houseId) : null,
+      houseName: opts.houseName ?? null,
+      userName: opts.userName ?? null,
+      amount: opts.amount ?? 0,
+      beforeBalance: opts.beforeBalance ?? null,
+      afterBalance: opts.afterBalance ?? null,
+      reason: opts.reason ?? null,
+      payloadBefore: opts.payloadBefore ? JSON.stringify(opts.payloadBefore) : null,
+      payloadAfter: opts.payloadAfter ? JSON.stringify(opts.payloadAfter) : null,
+      status: opts.status ?? (result?.ok ? 'success' : 'failed'),
+      platformCode: opts.platformCode ?? result?.code ?? null,
+      platformMsg: opts.platformMsg ?? result?.msg ?? null,
+      operatorId: actor.userId,
+      operatorName: actor.username,
+      operatorRole: actor.role,
+    });
+    try {
+      return await this.writeLogRepo.save(log);
+    } catch (e) {
+      this.logger.error(`em123 写操作留痕失败: ${(e as Error).message}`);
+      return null;
+    }
+  }
+
+  /** 写后异步刷新表档案/余额缓存 (不阻塞返回)。 */
+  private refreshAfterWrite(): void {
+    setTimeout(() => {
+      void this.syncMeters().catch((e) => this.logger.warn(`写后刷新表档案失败: ${(e as Error).message}`));
+    }, 1500);
+  }
+
+  /** 住房（客户名）实时列表 (改名前回显/搜索), keyword 模糊匹配名称。 */
+  async listHouses(keyword?: string, limit = 100): Promise<Em123RawRow[]> {
+    const client = this.ensureClient();
+    const houses = await client.fetchHouses();
+    const kw = String(keyword ?? '').trim();
+    let out = houses;
+    if (kw) {
+      out = houses.filter((h) =>
+        String(h.houseName ?? '').includes(kw) || String(h.fullName ?? '').includes(kw));
+    }
+    return out.slice(0, Math.min(500, Math.max(1, limit)));
+  }
+
+  /** 业主（户名）实时列表 (改名前回显/搜索), 透传平台分页。 */
+  async listUsers(q: Record<string, string>): Promise<{ rows: Em123RawRow[]; total: number }> {
+    const client = this.ensureClient();
+    const j = await client.fetchUsers(this.buildListParams(q));
+    return { rows: j.rows ?? [], total: Number(j.total ?? j.rows?.length ?? 0) };
+  }
+
+  /** 退费表单回显 (前端展示原充值金额与户名)。 */
+  async getRefundForm(recordId: string | number) {
+    const client = this.ensureClient();
+    return client.fetchRefundForm(recordId);
+  }
+
+  /**
+   * 按表号回显"改名/档案/收银"上下文: 表档案 + 关联住房 + 关联业主。
+   * 前端下钻只持有 meterNo, 由后端实时回显 houseId/userId/余额/倍率/价格等。
+   */
+  async getMeterContext(type: 'E' | 'W', meterNo: string) {
+    const client = this.ensureClient();
+    const meter = await this.findMeterRow(type, meterNo);
+    let house: Em123RawRow | null = null;
+    let user: Em123RawRow | null = null;
+    if (meter.houseId != null && meter.houseId !== '') {
+      try {
+        house = await this.findHouseRow(String(meter.houseId));
+      } catch { /* 个别表可能未绑定住房 */ }
+    }
+    if (meter.userId != null) {
+      try {
+        const uj = await client.fetchUsers({ pageNum: 1, pageSize: 500 });
+        user = (uj.rows ?? []).find((x) => String(x.userId) === String(meter.userId)) ?? null;
+      } catch { /* 户名可缺失 */ }
+    }
+    return {
+      meterType: type,
+      meter: {
+        meterId: meter.meterId, meterNo: meter.meterNo, meterType: meter.meterType,
+        houseId: meter.houseId, houseName: meter.houseName, userId: meter.userId,
+        deptId: meter.deptId,
+        multiply: meter.multiply, priceId: meter.priceId, priceName: meter.priceName,
+        meterModel: meter.modelName, modelName: meter.modelName,
+        chargeMoney: meter.chargeMoney, meterFlag: meter.meterFlag,
+        connType: meter.connType, deviceImei: meter.deviceImei,
+        alarmId: meter.alarmId, alarmName: meter.alarmName, remark: meter.remark,
+      },
+      house: house ? {
+        houseId: house.houseId, houseName: house.houseName, fullName: house.fullName,
+        deptId: house.deptId, parentId: house.parentId, remark: house.remark,
+      } : null,
+      user: user ? {
+        userId: user.userId, userName: user.userName, userPhone: user.userPhone,
+        userNumber: user.userNumber, houseIds: user.houseIds, houseId: user.houseId,
+        houseName: user.houseName, remark: user.remark,
+      } : null,
+    };
+  }
+
+  /** 实时定位某块表的完整平台行 (写前回显)。 */
+  private async findMeterRow(type: 'E' | 'W', meterNo: string): Promise<Em123RawRow> {
+    const client = this.ensureClient();
+    const no = String(meterNo ?? '').trim();
+    if (!no) throw new BadRequestException('meterNo 不能为空');
+    const rows = await client.fetchMeters(type);
+    const hit = rows.find((r) => String(r.meterNo ?? '').trim() === no);
+    if (!hit) throw new BadRequestException(`未在平台找到${type === 'W' ? '水' : '电'}表 ${no}`);
+    return hit;
+  }
+
+  /** 实时定位某条住房的完整平台行 (写前回显)。 */
+  private async findHouseRow(houseId: string | number): Promise<Em123RawRow> {
+    const client = this.ensureClient();
+    const houses = await client.fetchHouses();
+    const hit = houses.find((h) => String(h.houseId) === String(houseId));
+    if (!hit) throw new BadRequestException(`未在平台找到住房 ${houseId}`);
+    return hit;
+  }
+
+  /** 实时定位某个业主的完整平台行 (写前回显)。 */
+  private async findUserRow(userId: string | number): Promise<Em123RawRow> {
+    const client = this.ensureClient();
+    const j = await client.fetchUsers({ pageNum: 1, pageSize: 500 });
+    const hit = (j.rows ?? []).find((u) => String(u.userId) === String(userId));
+    if (!hit) throw new BadRequestException(`未在平台找到业主 ${userId}`);
+    return hit;
+  }
+
+  /** 住房（客户名）改名: 回显完整行, 仅改名称/上级/备注, 保留其余字段。 */
+  async renameHouse(
+    input: {
+      houseId: string | number;
+      houseName?: string;
+      fullName?: string;
+      parentId?: string | number;
+      remark?: string;
+      actor: Actor;
+    },
+  ): Promise<Em123WriteResult> {
+    const client = this.ensureClient();
+    const before = await this.findHouseRow(input.houseId);
+    const newName = String(input.houseName ?? '').trim();
+    if (!newName) throw new BadRequestException('住房名称不能为空');
+    const payload: Record<string, string | number> = {
+      houseId: before.houseId as number,
+      houseName: newName,
+      fullName: input.fullName != null ? String(input.fullName) : String(before.fullName ?? newName),
+      parentId: (input.parentId != null ? input.parentId : before.parentId) as number,
+      ancestors: String(before.ancestors ?? '0'),
+      orderNum: (before.orderNum as number) ?? 0,
+      houseType: String(before.houseType ?? 'h'),
+      deptId: before.deptId as number,
+      remark: input.remark != null ? String(input.remark) : String(before.remark ?? ''),
+    };
+    let result: Em123WriteResult;
+    try {
+      result = await client.saveHouse(payload);
+    } catch (e) {
+      await this.recordWrite({
+        bizType: 'house_rename', actor: input.actor, houseId: before.houseId,
+        houseName: before.houseName as string, reason: input.remark ?? null,
+        payloadBefore: before, payloadAfter: payload,
+        status: 'failed', platformMsg: (e as Error).message,
+      });
+      throw e;
+    }
+    await this.recordWrite({
+      bizType: 'house_rename', actor: input.actor, houseId: before.houseId,
+      houseName: before.houseName as string,
+      reason: input.remark ?? null,
+      payloadBefore: { houseName: before.houseName, fullName: before.fullName },
+      payloadAfter: { houseName: payload.houseName, fullName: payload.fullName },
+      result,
+    });
+    if (result.ok) this.refreshAfterWrite();
+    return result;
+  }
+
+  /** 业主（户名）改名 / 改电话: 回显完整行, 保留绑定关系与其余字段。 */
+  async renameUser(
+    input: {
+      userId: string | number;
+      userName?: string;
+      userPhone?: string;
+      remark?: string;
+      actor: Actor;
+    },
+  ): Promise<Em123WriteResult> {
+    const client = this.ensureClient();
+    const before = await this.findUserRow(input.userId);
+    const newName = String(input.userName ?? '').trim();
+    if (!newName) throw new BadRequestException('业主户名不能为空');
+    const payload: Record<string, string | number> = {
+      userId: before.userId as number,
+      userName: newName,
+      userPhone: input.userPhone != null ? String(input.userPhone) : String(before.userPhone ?? ''),
+      userNumber: String(before.userNumber ?? ''),
+      deptId: before.deptId as number,
+      houseIds: String(before.houseIds ?? ''),
+      houseId: String(before.houseId ?? ''),
+      houseName: String(before.houseName ?? ''),
+      remark: input.remark != null ? String(input.remark) : String(before.remark ?? ''),
+    };
+    let result: Em123WriteResult;
+    try {
+      result = await client.saveUser(payload);
+    } catch (e) {
+      await this.recordWrite({
+        bizType: 'user_rename', actor: input.actor,
+        userName: before.userName as string, reason: input.remark ?? null,
+        payloadBefore: before, payloadAfter: payload,
+        status: 'failed', platformMsg: (e as Error).message,
+      });
+      throw e;
+    }
+    await this.recordWrite({
+      bizType: 'user_rename', actor: input.actor,
+      userName: before.userName as string, reason: input.remark ?? null,
+      payloadBefore: { userName: before.userName, userPhone: before.userPhone },
+      payloadAfter: { userName: payload.userName, userPhone: payload.userPhone },
+      result,
+    });
+    if (result.ok) this.refreshAfterWrite();
+    return result;
+  }
+
+  /** 电表/水表档案维护: 回显完整行, 仅更新显式提交字段 (倍率/价格/型号/备注/绑定)。 */
+  async editMeter(
+    input: {
+      meterType: 'E' | 'W';
+      meterNo: string;
+      fields: Record<string, string | number>;
+      actor: Actor;
+    },
+  ): Promise<Em123WriteResult> {
+    const client = this.ensureClient();
+    const before = await this.findMeterRow(input.meterType, input.meterNo);
+    const allowed = ['meterModel', 'modelName', 'multiply', 'priceId', 'alarmId', 'houseId', 'remark', 'serialNo'];
+    const patch: Record<string, string | number> = {
+      meterId: before.meterId as number,
+      meterNo: before.meterNo as string,
+      meterType: before.meterType as string,
+      connType: String(before.connType ?? '4G'),
+      deviceImei: String(before.deviceImei ?? ''),
+      deptId: before.deptId as number,
+    };
+    for (const k of allowed) {
+      if (input.fields[k] !== undefined) patch[k] = input.fields[k];
+      else if (before[k] !== undefined && before[k] !== null) patch[k] = before[k] as string | number;
+    }
+    let result: Em123WriteResult;
+    try {
+      result = await client.saveMeter(patch);
+    } catch (e) {
+      await this.recordWrite({
+        bizType: 'meter_edit', actor: input.actor, meterType: input.meterType,
+        meterNo: input.meterNo, meterId: before.meterId, houseName: before.houseName as string,
+        payloadBefore: before, payloadAfter: patch,
+        status: 'failed', platformMsg: (e as Error).message,
+      });
+      throw e;
+    }
+    await this.recordWrite({
+      bizType: 'meter_edit', actor: input.actor, meterType: input.meterType,
+      meterNo: input.meterNo, meterId: before.meterId, houseName: before.houseName as string,
+      payloadBefore: before, payloadAfter: patch, result,
+    });
+    if (result.ok) this.refreshAfterWrite();
+    return result;
+  }
+
+  /**
+   * 现金 / 补量录入 (chargeMode=cash 现金支付 / replienish 补量)。
+   * 资金高危: 后端硬校验金额上限 + 大额二次确认; 先回显当前余额, 完整表单只发一次。
+   * 不做 wxpay 在线支付 (微信缴费由业主自助走汇付, PWA 不代收)。
+   */
+  async cashCharge(input: {
+    meterType: 'E' | 'W';
+    meterNo: string;
+    mode: 'cash' | 'replienish';
+    amount: number;
+    remark?: string;
+    /** 大额二次确认标记 (前端二次确认后传 true)。 */
+    confirm?: boolean;
+    actor: Actor;
+  }): Promise<Em123WriteResult & { beforeBalance?: number; afterBalance?: number }> {
+    const client = this.ensureClient();
+    const mode = input.mode === 'replienish' ? 'replienish' : 'cash';
+    const amount = Number(input.amount);
+    const chargeErr = validateChargeAmount({
+      amount,
+      limit: this.cfg.cashChargeLimit,
+      threshold: this.cfg.largeAmountThreshold,
+      confirm: !!input.confirm,
+      mode,
+    });
+    if (chargeErr) throw new BadRequestException(chargeErr);
+    const meter = await this.findMeterRow(input.meterType, input.meterNo);
+    // 业主户名: 平台表单选择表时带出; 尽量回显匹配, 查不到则留空(平台可接受)。
+    let userName = '';
+    if (meter.userId != null) {
+      try {
+        const uj = await client.fetchUsers({ pageNum: 1, pageSize: 500 });
+        const u = (uj.rows ?? []).find((x) => String(x.userId) === String(meter.userId));
+        userName = u ? String(u.userName ?? '') : '';
+      } catch { /* 户名非必填, 忽略 */ }
+    }
+    const beforeBalance = num(meter.chargeMoney);
+    const afterBalance = round2(beforeBalance + amount);
+    const payload: Record<string, string | number> = {
+      deptId: meter.deptId as number,
+      houseId: meter.houseId as number,
+      meterId: meter.meterId as number,
+      meterNo: meter.meterNo as string,
+      userId: meter.userId != null ? (meter.userId as number) : '',
+      userName,
+      oldMoney: beforeBalance,
+      chargeMoney: amount,
+      newMoney: afterBalance,
+      chargeMode: mode,
+      remark: String(input.remark ?? ''),
+    };
+    let result: Em123WriteResult;
+    try {
+      result = await client.cashCharge(payload);
+    } catch (e) {
+      await this.recordWrite({
+        bizType: mode === 'replienish' ? 'charge_supplement' : 'charge_cash',
+        actor: input.actor, meterType: input.meterType, meterNo: input.meterNo,
+        meterId: meter.meterId, houseId: meter.houseId, houseName: meter.houseName as string,
+        userName: userName || null, amount, beforeBalance, afterBalance,
+        reason: input.remark ?? null, payloadBefore: { chargeMoney: beforeBalance }, payloadAfter: payload,
+        status: 'failed', platformMsg: (e as Error).message,
+      });
+      throw e;
+    }
+    await this.recordWrite({
+      bizType: mode === 'replienish' ? 'charge_supplement' : 'charge_cash',
+      actor: input.actor, meterType: input.meterType, meterNo: input.meterNo,
+      meterId: meter.meterId, houseId: meter.houseId, houseName: meter.houseName as string,
+      userName: userName || null, amount, beforeBalance, afterBalance,
+      reason: input.remark ?? null,
+      payloadBefore: { chargeMoney: beforeBalance },
+      payloadAfter: { chargeMode: mode, chargeMoney: amount, newMoney: afterBalance },
+      result,
+    });
+    if (result.ok) this.refreshAfterWrite();
+    return { ...result, beforeBalance, afterBalance };
+  }
+
+  /**
+   * 退费: 必须先回显系统生成的退费表单 (refundNo/seleNo 等), 退费金额不得超过原充值额。
+   * 现金单 (chargeWay=pc, 无交易号) 只能现金退费 refundMode=1; 原路退回仅微信在线单。
+   */
+  async refund(input: {
+    recordId: string | number;
+    refundMoney: number;
+    refundMode?: '0' | '1';
+    remark?: string;
+    confirm?: boolean;
+    actor: Actor;
+  }): Promise<Em123WriteResult> {
+    const client = this.ensureClient();
+    const form = await client.fetchRefundForm(input.recordId);
+    const refundMoney = Number(input.refundMoney);
+    const refundErr = validateRefundAmount({
+      money: refundMoney,
+      original: form.chargeMoney === null ? null : round2(form.chargeMoney),
+      threshold: this.cfg.largeAmountThreshold,
+      confirm: !!input.confirm,
+    });
+    if (refundErr) throw new BadRequestException(refundErr);
+    // 现金单无交易号, 强制现金退费
+    const hasTradeNo = Boolean(form.hidden.tradeNo || form.hidden.saleTradeNo);
+    const refundMode = !hasTradeNo ? '1' : input.refundMode === '0' ? '0' : '1';
+    const payload: Record<string, string | number> = {
+      ...Object.fromEntries(Object.entries(form.hidden).map(([k, v]) => [k, String(v ?? '')])),
+      houseName: form.houseName ?? '',
+      meterNo: form.meterNo ?? '',
+      userName: form.userName ?? '',
+      chargeMoney: form.chargeMoney ?? '',
+      refundMoney,
+      refundMode,
+      remark: String(input.remark ?? ''),
+    };
+    let result: Em123WriteResult;
+    try {
+      result = await client.refund(form.recordId, payload);
+    } catch (e) {
+      await this.recordWrite({
+        bizType: 'refund', actor: input.actor, meterId: form.meterId,
+        houseId: form.houseId, houseName: form.houseName, userName: form.userName,
+        amount: refundMoney, beforeBalance: form.chargeMoney,
+        reason: input.remark ?? null, payloadBefore: { chargeMoney: form.chargeMoney }, payloadAfter: payload,
+        status: 'failed', platformMsg: (e as Error).message,
+      });
+      throw e;
+    }
+    await this.recordWrite({
+      bizType: 'refund', actor: input.actor, meterId: form.meterId,
+      houseId: form.houseId, houseName: form.houseName, userName: form.userName,
+      amount: refundMoney, beforeBalance: form.chargeMoney,
+      reason: input.remark ?? null,
+      payloadBefore: { chargeMoney: form.chargeMoney },
+      payloadAfter: { refundMoney, refundMode },
+      result,
+    });
+    if (result.ok) this.refreshAfterWrite();
+    return result;
+  }
+
+  /**
+   * 减免: 平台按"住房树多选 + 表类型"核销应收。从单表进入时把 houseIds 收敛为该表所属住房。
+   * 金额必须为正、达大额门槛二次确认, 全量留痕 (权限点 energy:refund)。
+   */
+  async reduction(input: {
+    meterType: 'E' | 'W';
+    meterNo: string;
+    reductionMoney: number;
+    reason?: string;
+    confirm?: boolean;
+    actor: Actor;
+  }): Promise<Em123WriteResult> {
+    const client = this.ensureClient();
+    const ctx = await this.getMeterContext(input.meterType, input.meterNo);
+    const meter = ctx.meter;
+    const reductionMoney = round2(Number(input.reductionMoney));
+    const reductionErr = validateReductionAmount({
+      money: reductionMoney,
+      threshold: this.cfg.largeAmountThreshold,
+      confirm: !!input.confirm,
+    });
+    if (reductionErr) throw new BadRequestException(reductionErr);
+    if (meter.houseId == null || String(meter.houseId) === '') {
+      throw new BadRequestException('该表未绑定住房，无法按住房减免');
+    }
+    const house = ctx.house;
+    const payload: Record<string, string | number> = {
+      deptId: String(meter.deptId ?? house?.deptId ?? ''),
+      houseIds: String(meter.houseId),
+      meterType: input.meterType,
+      reductionMoney,
+      remark: String(input.reason ?? ''),
+    };
+    const base = {
+      actor: input.actor,
+      meterType: input.meterType,
+      meterNo: String(meter.meterNo ?? input.meterNo),
+      meterId: String(meter.meterId ?? ''),
+      houseId: String(meter.houseId),
+      houseName: String(house?.houseName ?? meter.houseName ?? ''),
+      userName: ctx.user?.userName != null ? String(ctx.user.userName) : null,
+      amount: reductionMoney,
+      reason: input.reason ?? null,
+      payloadBefore: { chargeMoney: Number(meter.chargeMoney ?? 0) },
+    };
+    let result: Em123WriteResult;
+    try {
+      result = await client.reduction(payload);
+    } catch (e) {
+      await this.recordWrite({
+        ...base, bizType: 'reduction',
+        payloadAfter: payload, status: 'failed', platformMsg: (e as Error).message,
+      });
+      throw e;
+    }
+    await this.recordWrite({
+      ...base, bizType: 'reduction',
+      payloadAfter: { reductionMoney }, result,
+    });
+    if (result.ok) this.refreshAfterWrite();
+    return result;
+  }
+
+  /**
+   * 远程控制 (拉闸/合闸/校时/多费率), 高危:
+   * 仅 admin (权限点 energy:control 不授任何角色, 守卫层已挡, 这里再硬校验);
+   * 拉合闸必须填原因 + 输入户名/住房名强二次确认; 全量留痕。
+   */
+  async remoteControl(input: {
+    action: 'wattoff' | 'watton' | 'settime' | 'setrate';
+    meterType: 'E' | 'W';
+    meterNo: string;
+    reason?: string;
+    /** 拉合闸强二次确认: 必须输入与该表一致的住房名/户名。 */
+    confirmName?: string;
+    actor: Actor;
+  }): Promise<Em123WriteResult> {
+    if (!canRemoteControl(input.actor.role)) {
+      throw new ForbiddenException('远程断电/送电仅管理员可操作');
+    }
+    const client = this.ensureClient();
+    const action = input.action;
+    const meter = await this.findMeterRow(input.meterType, input.meterNo);
+    const expectName = String(meter.houseName ?? '').trim();
+    const controlErr = validateSwitchControl({
+      action,
+      reason: String(input.reason ?? ''),
+      confirmName: String(input.confirmName ?? ''),
+      expectName,
+    });
+    if (controlErr) throw new BadRequestException(controlErr);
+    const payload: Record<string, string | number> = { meterIds: String(meter.meterId) };
+    let result: Em123WriteResult;
+    const bizType: Em123WriteBizType =
+      action === 'wattoff' ? 'control_off'
+      : action === 'watton' ? 'control_on'
+      : action === 'settime' ? 'settime' : 'setrate';
+    try {
+      result = await client.remoteControl(action, payload);
+    } catch (e) {
+      await this.recordWrite({
+        bizType, actor: input.actor, meterType: input.meterType, meterNo: input.meterNo,
+        meterId: meter.meterId, houseId: meter.houseId, houseName: meter.houseName as string,
+        reason: input.reason ?? null, payloadBefore: { meterFlag: meter.meterFlag }, payloadAfter: payload,
+        status: 'failed', platformMsg: (e as Error).message,
+      });
+      throw e;
+    }
+    await this.recordWrite({
+      bizType, actor: input.actor, meterType: input.meterType, meterNo: input.meterNo,
+      meterId: meter.meterId, houseId: meter.houseId, houseName: meter.houseName as string,
+      reason: input.reason ?? null,
+      payloadBefore: { meterFlag: meter.meterFlag },
+      payloadAfter: { action, meterIds: payload.meterIds },
+      result,
+    });
+    if (result.ok) this.refreshAfterWrite();
+    return result;
+  }
+
+  /** 多费率设置回显：定位表，取平台费率方案(rateId)下拉。 */
+  async getSetRateForm(meterType: 'E' | 'W', meterNo: string): Promise<{
+    meterId: string;
+    meterNo: string;
+    houseName: string;
+    currentPriceName: string | null;
+    rateOptions: { value: string; label: string }[];
+  }> {
+    const client = this.ensureClient();
+    const meter = await this.findMeterRow(meterType, meterNo);
+    const form = await client.fetchSetRateForm(String(meter.meterId));
+    return {
+      meterId: String(meter.meterId),
+      meterNo: String(meter.meterNo ?? meterNo),
+      houseName: String(meter.houseName ?? ''),
+      currentPriceName: meter.priceName != null ? String(meter.priceName) : null,
+      rateOptions: form.rateOptions,
+    };
+  }
+
+  /**
+   * 多费率设置下发 (仅 admin): 把表绑定到指定费率方案(rateId)。
+   * 改计费属高危，须选有效方案 + 强二次确认(逐字输入住房名 + 原因)，全量留痕。
+   */
+  async setRate(input: {
+    meterType: 'E' | 'W';
+    meterNo: string;
+    rateId?: string;
+    reason?: string;
+    confirmName?: string;
+    actor: Actor;
+  }): Promise<Em123WriteResult> {
+    if (!canRemoteControl(input.actor.role)) {
+      throw new ForbiddenException('多费率设置仅管理员可操作');
+    }
+    const client = this.ensureClient();
+    const meter = await this.findMeterRow(input.meterType, input.meterNo);
+    const expectName = String(meter.houseName ?? '').trim();
+    const form = await client.fetchSetRateForm(String(meter.meterId));
+    const rateId = String(input.rateId ?? '').trim();
+    if (!rateId || !form.rateOptions.some((o) => o.value === rateId)) {
+      throw new BadRequestException('请选择有效的费率方案');
+    }
+    const confirmErr = validateNamedConfirm({
+      reason: String(input.reason ?? ''),
+      confirmName: String(input.confirmName ?? ''),
+      expectName,
+      verb: '多费率设置',
+    });
+    if (confirmErr) throw new BadRequestException(confirmErr);
+    const rateLabel = form.rateOptions.find((o) => o.value === rateId)?.label ?? rateId;
+    const payload: Record<string, string | number> = { meterIds: form.meterIds, rateId };
+    const before = { priceId: String(meter.priceId ?? ''), priceName: String(meter.priceName ?? '') };
+    const after = { ...payload, rateLabel };
+    let result: Em123WriteResult;
+    try {
+      result = await client.remoteControl('setrate', payload);
+    } catch (e) {
+      await this.recordWrite({
+        bizType: 'setrate', actor: input.actor, meterType: input.meterType, meterNo: input.meterNo,
+        meterId: meter.meterId, houseId: meter.houseId, houseName: meter.houseName as string,
+        reason: input.reason ?? null, payloadBefore: before, payloadAfter: after,
+        status: 'failed', platformMsg: (e as Error).message,
+      });
+      throw e;
+    }
+    await this.recordWrite({
+      bizType: 'setrate', actor: input.actor, meterType: input.meterType, meterNo: input.meterNo,
+      meterId: meter.meterId, houseId: meter.houseId, houseName: meter.houseName as string,
+      reason: input.reason ?? null, payloadBefore: before, payloadAfter: after, result,
+    });
+    if (result.ok) this.refreshAfterWrite();
+    return result;
+  }
+
+  /** 写操作对账清单分页 (操作留痕)。 */
+  async listWriteLogs(q: {
+    pageNum?: string;
+    pageSize?: string;
+    bizType?: string;
+    meterNo?: string;
+    operator?: string;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<{ rows: Em123WriteLog[]; total: number }> {
+    const pageNum = Math.max(1, Number(q.pageNum ?? 1) || 1);
+    const pageSize = Math.min(200, Math.max(1, Number(q.pageSize ?? 20) || 20));
+    const qb = this.writeLogRepo.createQueryBuilder('w');
+    if (q.bizType) qb.andWhere('w.bizType = :bt', { bt: q.bizType });
+    if (q.meterNo) qb.andWhere('w.meterNo LIKE :mn', { mn: `%${q.meterNo}%` });
+    if (q.operator) qb.andWhere('(w.operatorName LIKE :op OR w.houseName LIKE :op)', { op: `%${q.operator}%` });
+    if (q.startDate) qb.andWhere('w.createdAt >= :sd', { sd: `${q.startDate} 00:00:00` });
+    if (q.endDate) qb.andWhere('w.createdAt <= :ed', { ed: `${q.endDate} 23:59:59` });
+    qb.orderBy('w.id', 'DESC').skip((pageNum - 1) * pageSize).take(pageSize);
+    const [rows, total] = await qb.getManyAndCount();
+    return { rows, total };
   }
 }
 

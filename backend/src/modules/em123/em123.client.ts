@@ -6,15 +6,24 @@
  *           { code:0, msg:"操作成功" } 并经 Set-Cookie 下发 JSESSIONID 类会话 Cookie。
  *   - 数据: 全部 POST, Content-Type: application/x-www-form-urlencoded,
  *           头 X-Requested-With: XMLHttpRequest, 携带登录 Cookie; 直接 GET 会报 500。
- *   - 会话过期/302 时重新登录后重试一次 (登录并发去重)。
+ *   - 只读: 会话过期/302 时重新登录后重试一次 (登录并发去重)。
  *
- * 本客户端只做只读取数, 不封装任何拉合闸/写操作。
- *
- * 一期新增 (PWA 能源管理后台, 均为只读):
+ * 一期 (PWA 能源管理后台, 只读):
  *   - 缴费流水 /record/charge/list、控制记录 /record/control/list 分页查询 (字段原样透传)。
  *   - 平台导出代理: POST /xxx/export 触发生成 → GET /common/download 取回真实 xlsx。
  *   - 只读召测 POST /record/meter/reading: 仅触发平台立即抄一次表, 不改任何状态/不合闸不写卡。
- * 明确不封装: 拉闸/合闸/校时/改名/充值/退费/减免/预值/换表等任何写操作。
+ *
+ * 二/三期 (PWA 物业/财务运营, 会改平台数据/资金/供电):
+ *   - 只读回显: 住房 /basic/house/list、住房树 /basic/house/treeData、业主 /basic/user/list
+ *     (改名/档案/充值前必须先回显, 拿到完整行 + 隐藏 id/parentId/priceId/绑定关系)。
+ *   - 写: 住房/业主改名、表档案编辑、现金/补量录入、退费/减免/预值、换表、
+ *     拉合闸/校时/多费率。写操作统一走 writeCommand。
+ *
+ * 【资金/供电安全铁律】写操作 writeCommand 与只读 postForm 不同:
+ *   - 写前主动刷新一次会话 (避免会话失效), 然后只发一次, 绝不自动重试
+ *     (防止重复扣款 / 重复拉闸); 若仍遇会话失效/非 JSON, 直接抛错并标注"结果未确认",
+ *     由 service 层在重新读取最新状态、人工确认无重复后再决定是否重试。
+ *   - 平台业务成败 (code != 0) 不抛, 原样返回 ok=false, 由 service 落 failed 留痕。
  */
 
 export interface Em123ClientOptions {
@@ -118,6 +127,62 @@ export type Em123RawRow = Record<string, unknown>;
 export interface Em123ExportFile {
   buffer: Buffer;
   fileName: string;
+}
+
+/**
+ * 写操作统一结果。业务成败 (平台 code) 不抛错, 由 service 落留痕;
+ * 仅网络/会话/非 JSON 等"结果未确认"情况才抛错 (且不自动重试)。
+ */
+export interface Em123WriteResult {
+  /** 平台是否明确返回成功 (code === 0 或 200)。 */
+  ok: boolean;
+  /** 平台业务码; 无法解析为 JSON 时为 null。 */
+  code: number | null;
+  msg: string;
+  /** 平台原始返回 (除 code/msg 外可能含 data)。 */
+  raw: Record<string, unknown>;
+}
+
+/** 写操作发出后无法确认结果 (会话失效 / 非 JSON) —— 禁止自动重试。 */
+export class Em123WriteUnconfirmedError extends Error {
+  constructor(
+    public readonly path: string,
+    message: string,
+    public readonly httpStatus?: number,
+  ) {
+    super(message);
+    this.name = 'Em123WriteUnconfirmedError';
+  }
+}
+
+/**
+ * 退费表单回显: GET /record/refund/add/{recordId} 解析出的隐藏字段与基准信息。
+ * 退费必须先回显拿到系统生成的 refundNo/seleNo 等, 再连同 refundMoney 提交。
+ */
+export interface Em123RefundForm {
+  recordId: string;
+  /** 表单全部 hidden input 的 name/value (原样回填提交)。 */
+  hidden: Record<string, string>;
+  /** 原充值金额 (只读, 退费上限)。 */
+  chargeMoney: number | null;
+  houseId?: string;
+  meterId?: string;
+  userId?: string;
+  houseName?: string;
+  meterNo?: string;
+  userName?: string;
+}
+
+/**
+ * 多费率设置回显 (GET /record/control/setrate/{meterId})。
+ * 平台把"多费率配置方案"做成下拉 (rateId); 提交时 meterIds + rateId 下发。
+ */
+export interface Em123SetRateForm {
+  meterId: string;
+  /** hidden meterIds (单表即该表 meterId)。 */
+  meterIds: string;
+  /** 可选费率方案 (服务端渲染的 rateId 下拉)。 */
+  rateOptions: { value: string; label: string }[];
 }
 
 const PAGE_SIZE = 500; // 表档案分页 (全园区仅 148 块, 1 页)
@@ -425,5 +490,230 @@ export class Em123Client {
       throw new Error(`下载内容不是有效 xlsx (content-type=${contentType || '未知'}) ${head.slice(0, 120)}`);
     }
     return buf;
+  }
+
+  // ===========================================================================
+  // 二/三期: 只读回显 + 写操作
+  // ===========================================================================
+
+  /**
+   * 带 Cookie 的 GET JSON (少数 GET 接口, 如 /basic/house/treeData); 只读, 会话失效重登一次。
+   * 与写操作不同, GET 幂等可安全重试。
+   */
+  /** 带 Cookie 的 GET, 返回 {status,text}; 只读, 会话失效重登一次。 */
+  private async getText(path: string): Promise<{ status: number; text: string }> {
+    const doGet = (): Promise<Response> =>
+      fetch(`${this.baseUrl}${path}`, {
+        method: 'GET',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          Accept: 'application/json, text/plain, */*',
+          ...(this.cookie ? { Cookie: this.cookie } : {}),
+        },
+        redirect: 'manual',
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    if (!this.cookie) await this.login();
+    let resp = await doGet();
+    if (resp.status === 302 || resp.status === 0) {
+      this.cookie = '';
+      await this.login();
+      resp = await doGet();
+    }
+    return { status: resp.status, text: await resp.text() };
+  }
+
+  private async getJson<T>(path: string): Promise<T> {
+    const { status, text } = await this.getText(path);
+    const json = this.tryJson<T>(text);
+    if (!json) throw new Error(`em123 GET ${path} 返回非 JSON (HTTP ${status})`);
+    return json;
+  }
+
+  /**
+   * 住房（客户名）列表 /basic/house/list (POST, 全量约 157 户)。
+   * 注意该接口不返回分页 {rows}, 而直接返回住房数组。改名/绑定前回显, 字段原样透传。
+   */
+  async fetchHouses(): Promise<Em123RawRow[]> {
+    const j = (await this.postForm<RuoYiRows<unknown>>('/basic/house/list', {})) as unknown;
+    return Array.isArray(j) ? (j as Em123RawRow[]) : [];
+  }
+
+  /** 住房树 /basic/house/treeData (GET), 节点 {id,pId,name,title,type}, 用于选择上级/绑定住房。 */
+  async fetchHouseTree(): Promise<Em123RawRow[]> {
+    const j = await this.getJson<unknown>('/basic/house/treeData');
+    return Array.isArray(j) ? (j as Em123RawRow[]) : [];
+  }
+
+  /** 业主（户名）分页列表 /basic/user/list (改名/电话前回显), 字段原样透传。 */
+  fetchUsers(params: Record<string, string | number> = {}) {
+    return this.fetchList('/basic/user/list', params);
+  }
+
+  /**
+   * 写操作统一通道 (资金/供电安全铁律):
+   * 写前主动刷新一次会话 → 只发一次 → 绝不自动重试。
+   * 业务成败 (code != 0) 不抛, 返回 ok=false 由 service 落 failed;
+   * 会话失效/非 JSON 等"结果未确认"抛 Em123WriteUnconfirmedError, 不重发。
+   */
+  async writeCommand(
+    path: string,
+    params: Record<string, string | number>,
+  ): Promise<Em123WriteResult> {
+    // 写前刷新会话, 把"写时会话已过期"的概率降到最低, 从而不需要重试。
+    this.cookie = '';
+    await this.login();
+    const resp = await this.rawPost(path, params);
+    const text = await resp.text();
+    const json = this.tryJson<RuoYiRows<unknown>>(text);
+    if (this.isSessionExpired(resp, json)) {
+      // 最危险情形: 无法确认平台是否已执行。绝不重发。
+      throw new Em123WriteUnconfirmedError(
+        path,
+        `写操作 ${path} 提交后会话失效/登录页, 操作结果未确认, 系统未自动重试。请先刷新查询最新状态、确认无重复后再手动决定。`,
+        resp.status,
+      );
+    }
+    if (!json) {
+      throw new Em123WriteUnconfirmedError(
+        path,
+        `写操作 ${path} 返回非 JSON (HTTP ${resp.status}), 操作结果未确认, 系统未自动重试。请核对最新状态后再决定。`,
+        resp.status,
+      );
+    }
+    const code = typeof json.code === 'number' ? json.code : null;
+    const ok = code === 0 || code === 200;
+    return { ok, code, msg: String(json.msg ?? ''), raw: json };
+  }
+
+  /**
+   * 新增/编辑住房 /basic/house/edit (完整表单)。
+   * params 由 service 用回显行 + 修改字段构造 (含 houseId/parentId/houseName/fullName/houseType 等)。
+   */
+  saveHouse(params: Record<string, string | number>) {
+    return this.writeCommand('/basic/house/edit', params);
+  }
+
+  /** 新增/编辑业主 /basic/user/edit (完整表单, 含 userId/userName/userPhone/绑定住房/remark)。 */
+  saveUser(params: Record<string, string | number>) {
+    return this.writeCommand('/basic/user/edit', params);
+  }
+
+  /** 编辑电/水表档案 /basic/meter/edit (完整表单: 表号/型号/倍率/价格/告警/绑定住房)。 */
+  saveMeter(params: Record<string, string | number>) {
+    return this.writeCommand('/basic/meter/edit', params);
+  }
+
+  /** 现金 / 补量录入 /record/charge/add (chargeMode 仅 cash/补量; 金额与前后余额由 service 校验)。 */
+  cashCharge(params: Record<string, string | number>) {
+    return this.writeCommand('/record/charge/add', params);
+  }
+
+  /**
+   * 退费表单回显 (GET /record/refund/add/{recordId}): 解析隐藏字段与原充值金额。
+   * 退费必须先回显: 系统在打开表单时生成 refundNo/seleNo 等, 提交时原样回填。
+   * 仅成功缴费单可退, 否则平台返回错误页。
+   */
+  async fetchRefundForm(recordId: string | number): Promise<Em123RefundForm> {
+    const id = encodeURIComponent(String(recordId));
+    const { status, text } = await this.getText(`/record/refund/add/${id}`);
+    if (status !== 200 || !text.includes('form-refund-add')) {
+      const head = text.replace(/\s+/g, ' ').slice(0, 160);
+      throw new Error(`退费单 ${recordId} 不可退或回显失败 (HTTP ${status}): ${head}`);
+    }
+    const hidden: Record<string, string> = {};
+    for (const m of text.matchAll(/<input[^>]*type=["']hidden["'][^>]*>/g)) {
+      const tag = m[0];
+      const name = tag.match(/name=["']([^"']*)["']/)?.[1];
+      const value = tag.match(/value=["']([^"']*)["']/)?.[1] ?? '';
+      if (name) hidden[name] = value;
+    }
+    const readOnly = (name: string): string | undefined => {
+      const mm = text.match(
+        new RegExp(`<input[^>]*name=["']${name}["'][^>]*value=["']([^"']*)["']`),
+      );
+      return mm?.[1];
+    };
+    const cm = readOnly('chargeMoney');
+    const textVal = (name: string): string | undefined => {
+      // 普通文本/只读框
+      const mm = text.match(
+        new RegExp(`name=["']${name}["'][^>]*value=["']([^"']*)["']`),
+      );
+      return mm?.[1];
+    };
+    return {
+      recordId: String(recordId),
+      hidden,
+      chargeMoney: cm === undefined ? null : Number(cm),
+      houseId: hidden.houseId,
+      meterId: hidden.meterId,
+      userId: hidden.userId,
+      houseName: textVal('houseName'),
+      meterNo: textVal('meterNo'),
+      userName: textVal('userName'),
+    };
+  }
+
+  /** 退费提交 (POST /record/refund/add/{recordId}); params 由 service 用回显 hidden + refundMoney/refundMode/remark 构造。 */
+  refund(recordId: string | number, params: Record<string, string | number>) {
+    const id = encodeURIComponent(String(recordId));
+    return this.writeCommand(`/record/refund/add/${id}`, params);
+  }
+
+  /**
+   * 减免提交 POST /record/reduction/add。
+   * 平台按"住房树多选 + 表类型"批量减免: { deptId, houseIds(逗号分隔), meterType:E|W, reductionMoney, remark }。
+   * 单表进入时由 service 把 houseIds 收敛为该表所属住房。params 由 service 回显后构造。
+   */
+  reduction(params: Record<string, string | number>) {
+    return this.writeCommand('/record/reduction/add', params);
+  }
+
+  /**
+   * 多费率设置回显 GET /record/control/setrate/{meterId}。
+   * 解析 form-meter-setrate 里的 meterIds hidden 与 rateId 下拉选项。
+   */
+  async fetchSetRateForm(meterId: string | number): Promise<Em123SetRateForm> {
+    const id = encodeURIComponent(String(meterId));
+    const { status, text } = await this.getText(`/record/control/setrate/${id}`);
+    if (status !== 200 || !text.includes('form-meter-setrate')) {
+      const head = text.replace(/\s+/g, ' ').slice(0, 160);
+      throw new Error(`多费率设置回显失败 (HTTP ${status}): ${head}`);
+    }
+    const meterIds =
+      text.match(/name=["']meterIds["'][^>]*value=["']([^"']*)["']/)?.[1] ?? String(meterId);
+    const sel = text.match(/<select[^>]*name=["']rateId["'][^>]*>([\s\S]*?)<\/select>/)?.[1] ?? '';
+    const rateOptions: { value: string; label: string }[] = [];
+    for (const m of sel.matchAll(/<option\s+value=["']([^"']*)["'][^>]*>([\s\S]*?)<\/option>/g)) {
+      rateOptions.push({ value: m[1], label: m[2].trim() });
+    }
+    return { meterId: String(meterId), meterIds, rateOptions };
+  }
+
+  /** 预值 /record/preset。 */
+  preset(params: Record<string, string | number>) {
+    return this.writeCommand('/record/preset', params);
+  }
+
+  /** 换表 (旧表数据结转后换表) /record/change/add/{meterIds}。 */
+  changeMeter(meterIds: string, params: Record<string, string | number>) {
+    const ids = String(meterIds ?? '').trim();
+    if (!ids) throw new Error('meterIds 不能为空');
+    return this.writeCommand(`/record/change/add/${encodeURIComponent(ids)}`, params);
+  }
+
+  /**
+   * 远程控制 /record/control/{action} (高危):
+   *  wattoff 拉闸(断电) / watton 合闸(送电) / settime 校时 / setrate 多费率。
+   * 仅 service 层在 admin 强授权 + 强二次确认 (输入户名+原因) 后调用, 全量留痕。
+   */
+  remoteControl(
+    action: 'wattoff' | 'watton' | 'settime' | 'setrate',
+    params: Record<string, string | number>,
+  ) {
+    const allowed = ['wattoff', 'watton', 'settime', 'setrate'] as const;
+    if (!allowed.includes(action)) throw new Error(`不支持的控制动作: ${action}`);
+    return this.writeCommand(`/record/control/${action}`, params);
   }
 }

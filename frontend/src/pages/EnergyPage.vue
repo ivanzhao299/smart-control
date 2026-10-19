@@ -6,6 +6,7 @@ import {
   chargeModeLabel,
   chargeStatusLabel,
   controlResultLabel,
+  writeBizTypeLabel,
   type Em123MeterType,
   type Em123TypeSummary,
   type Em123Group,
@@ -13,22 +14,36 @@ import {
   type Em123ChargeRow,
   type Em123ControlRow,
   type Em123Arrears,
+  type Em123MeterContext,
+  type Em123RefundForm,
+  type Em123WriteLog,
+  type Em123ControlAction,
 } from '@/services/em123.service';
 
-// P4 水电前台 PWA：总览 / 缴费流水 / 欠费 / 控制记录四个 tab；园区台账保留在后台 energy:ledger。
-type TabKey = 'overview' | 'charges' | 'arrears' | 'control';
+// 水电前台 PWA：总览/缴费流水/欠费/控制记录（一期只读）+ 操作对账（二三期写留痕）。
+type TabKey = 'overview' | 'charges' | 'arrears' | 'control' | 'writeLogs';
 const tabs: { key: TabKey; label: string }[] = [
   { key: 'overview', label: '水电总览' },
   { key: 'charges', label: '缴费流水' },
   { key: 'arrears', label: '欠费清单' },
   { key: 'control', label: '控制记录' },
+  { key: 'writeLogs', label: '操作对账' },
 ];
 const activeTab = ref<TabKey>('overview');
 
-// 原子权限点门控：物业有 view/detail/export，无 readout（召测按钮隐藏）、无 ledger（后台台账）。
+// 原子权限点门控（二三期）：物业改名/档案 energy:rename，财务现金/退费 energy:recharge/refund，
+// 远程拉合闸 energy:control 仅 admin（不授任何角色）。
 const perm = usePermissionStore();
 const canReadout = computed(() => perm.hasPermission('energy:readout'));
 const canExport = computed(() => perm.hasPermission('energy:export'));
+const canRename = computed(() => perm.hasPermission('energy:rename'));
+const canRecharge = computed(() => perm.hasPermission('energy:recharge'));
+const canRefund = computed(() => perm.hasPermission('energy:refund'));
+const canControl = computed(() => perm.hasPermission('energy:control'));
+
+// 金额管控（后端为最终硬校验，前端仅用于提前提示，默认值与后端一致）。
+const CASH_LIMIT = 30000;
+const LARGE_AMOUNT = 5000;
 
 // ---------- 轻提示 ----------
 const toast = ref('');
@@ -254,11 +269,467 @@ function exportCharge(): void {
   void doExport('charge', extra);
 }
 
+// ==================== 二/三期：写操作弹窗 ====================
+type ModalKind = 'cash' | 'profile' | 'control' | 'refund' | 'reduction' | 'setrate';
+const modal = reactive({
+  kind: null as ModalKind | null,
+  submitting: false,
+  meterType: 'E' as Em123MeterType,
+  meterNo: '',
+  name: '',
+  recordId: '' as string | number,
+  ctx: null as Em123MeterContext | null,
+  refundForm: null as Em123RefundForm | null,
+  // 现金 / 补量
+  cashMode: 'cash' as 'cash' | 'replienish',
+  amount: '',
+  remark: '',
+  confirm: false,
+  // 档案 / 改名
+  houseName: '',
+  userName: '',
+  userPhone: '',
+  multiply: '',
+  // 远程控制
+  controlAction: 'wattoff' as Em123ControlAction,
+  reason: '',
+  confirmName: '',
+  // 退费
+  refundMoney: '',
+  refundMode: '1' as '0' | '1',
+  refundRemark: '',
+  refundConfirm: false,
+  // 减免
+  reductionMoney: '',
+  reductionReason: '',
+  reductionConfirm: false,
+  // 多费率
+  setrateOptions: [] as { value: string; label: string }[],
+  setrateId: '',
+  setrateCurrent: '',
+  setrateReason: '',
+  setrateConfirmName: '',
+});
+
+function resetModal(): void {
+  modal.kind = null;
+  modal.submitting = false;
+  modal.ctx = null;
+  modal.refundForm = null;
+  modal.amount = '';
+  modal.remark = '';
+  modal.confirm = false;
+  modal.houseName = '';
+  modal.userName = '';
+  modal.userPhone = '';
+  modal.multiply = '';
+  modal.reason = '';
+  modal.confirmName = '';
+  modal.refundMoney = '';
+  modal.refundMode = '1';
+  modal.refundRemark = '';
+  modal.refundConfirm = false;
+  modal.reductionMoney = '';
+  modal.reductionReason = '';
+  modal.reductionConfirm = false;
+  modal.setrateOptions = [];
+  modal.setrateId = '';
+  modal.setrateCurrent = '';
+  modal.setrateReason = '';
+  modal.setrateConfirmName = '';
+}
+function closeModal(): void {
+  resetModal();
+}
+
+/** 现金/补量收银。 */
+async function openCash(m: Em123MeterView): Promise<void> {
+  resetModal();
+  modal.kind = 'cash';
+  modal.meterType = m.type;
+  modal.meterNo = m.meterNo;
+  modal.name = m.name;
+  try {
+    modal.ctx = await em123Service.meterContext(m.type, m.meterNo);
+  } catch (e) {
+    showToast(`回显表信息失败：${(e as Error).message}`);
+  }
+}
+
+/** 改名 / 档案。 */
+async function openProfile(m: Em123MeterView): Promise<void> {
+  resetModal();
+  modal.kind = 'profile';
+  modal.meterType = m.type;
+  modal.meterNo = m.meterNo;
+  modal.name = m.name;
+  try {
+    const ctx = await em123Service.meterContext(m.type, m.meterNo);
+    modal.ctx = ctx;
+    modal.houseName = ctx.house?.houseName ?? ctx.meter.houseName ?? '';
+    modal.userName = ctx.user?.userName ?? '';
+    modal.userPhone = ctx.user?.userPhone ?? '';
+    modal.multiply = String(ctx.meter.multiply ?? '1');
+  } catch (e) {
+    showToast(`回显档案失败：${(e as Error).message}`);
+  }
+}
+
+/** 远程控制（拉闸/合闸/校时）。 */
+async function openControl(m: Em123MeterView, action: Em123ControlAction): Promise<void> {
+  resetModal();
+  modal.kind = 'control';
+  modal.meterType = m.type;
+  modal.meterNo = m.meterNo;
+  modal.name = m.name;
+  modal.controlAction = action;
+  try {
+    modal.ctx = await em123Service.meterContext(m.type, m.meterNo);
+  } catch (e) {
+    showToast(`回显表信息失败：${(e as Error).message}`);
+  }
+}
+
+/** 退费（从缴费成功单进入）。 */
+async function openRefund(row: Em123ChargeRow): Promise<void> {
+  if (row.recordId == null) return;
+  resetModal();
+  modal.kind = 'refund';
+  modal.recordId = row.recordId;
+  modal.name = `${row.userName || '—'} · ${row.houseName || ''}`;
+  try {
+    const f = await em123Service.refundForm(row.recordId);
+    modal.refundForm = f;
+    modal.refundMoney = String(f.chargeMoney ?? '');
+    // 现金单（chargeWay=pc，无交易号）只能现金退费
+    const hasTrade = Boolean(f.hidden.tradeNo || f.hidden.saleTradeNo);
+    modal.refundMode = hasTrade ? '0' : '1';
+  } catch (e) {
+    showToast(`回显退费表单失败：${(e as Error).message}`);
+  }
+}
+
+/** 减免（从表行进入，按该表所属住房核销应收）。 */
+async function openReduction(m: Em123MeterView): Promise<void> {
+  resetModal();
+  modal.kind = 'reduction';
+  modal.meterType = m.type;
+  modal.meterNo = m.meterNo;
+  modal.name = m.name;
+  try {
+    modal.ctx = await em123Service.meterContext(m.type, m.meterNo);
+  } catch (e) {
+    showToast(`回显表信息失败：${(e as Error).message}`);
+  }
+}
+
+async function submitCash(): Promise<void> {
+  const amount = Number(modal.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    showToast('请输入大于 0 的金额');
+    return;
+  }
+  if (amount > CASH_LIMIT) {
+    showToast(`单笔不能超过 ${CASH_LIMIT} 元，请核对或走线下`);
+    return;
+  }
+  if (amount >= LARGE_AMOUNT && !modal.confirm) {
+    showToast(`大额（≥${LARGE_AMOUNT} 元）请先勾选二次确认`);
+    return;
+  }
+  const tip = modal.cashMode === 'replienish'
+    ? `确认向【${modal.name}】补量 ${amount} 度？提交后不可撤销。`
+    : `确认为【${modal.name}】录入现金 ${amount.toFixed(2)} 元？提交后不可撤销。`;
+  if (!window.confirm(tip)) return;
+  modal.submitting = true;
+  try {
+    await em123Service.charge({
+      meterType: modal.meterType,
+      meterNo: modal.meterNo,
+      mode: modal.cashMode,
+      amount,
+      remark: modal.remark.trim(),
+      confirm: true,
+    });
+    showToast(modal.cashMode === 'replienish' ? '补量已录入' : '现金已录入');
+    closeModal();
+    void loadTree(modal.meterType);
+    void loadTodayCharge();
+  } catch (e) {
+    showToast(`提交失败：${(e as Error).message}`);
+  } finally {
+    modal.submitting = false;
+  }
+}
+
+async function submitProfile(): Promise<void> {
+  const ctx = modal.ctx;
+  if (!ctx) return;
+  if (!modal.houseName.trim()) {
+    showToast('客户名（住房名）不能为空');
+    return;
+  }
+  const tasks: Promise<unknown>[] = [];
+  const done: string[] = [];
+  // 客户名（住房）
+  if (ctx.house && modal.houseName.trim() !== (ctx.house.houseName ?? ctx.meter.houseName ?? '')) {
+    tasks.push(em123Service.renameHouse({
+      houseId: ctx.house.houseId,
+      houseName: modal.houseName.trim(),
+      fullName: ctx.house.fullName ?? modal.houseName.trim(),
+      parentId: ctx.house.parentId ?? undefined,
+    }));
+    done.push('客户名');
+  }
+  // 业主户名 / 电话
+  if (ctx.user && (modal.userName.trim() !== ctx.user.userName || modal.userPhone.trim() !== (ctx.user.userPhone ?? ''))) {
+    if (!modal.userName.trim()) {
+      showToast('业主户名不能为空');
+      return;
+    }
+    tasks.push(em123Service.renameUser({
+      userId: ctx.user.userId,
+      userName: modal.userName.trim(),
+      userPhone: modal.userPhone.trim(),
+    }));
+    done.push('业主户名/电话');
+  }
+  // 倍率
+  const mul = Number(modal.multiply);
+  if (modal.multiply !== '' && Number.isFinite(mul) && mul > 0 && mul !== Number(ctx.meter.multiply ?? 1)) {
+    tasks.push(em123Service.editMeter({
+      meterType: modal.meterType,
+      meterNo: modal.meterNo,
+      fields: { multiply: mul },
+    }));
+    done.push('倍率');
+  }
+  if (tasks.length === 0) {
+    showToast('没有检测到改动');
+    return;
+  }
+  if (!window.confirm(`确认保存以下修改：${done.join('、')}？`)) return;
+  modal.submitting = true;
+  try {
+    const results = await Promise.allSettled(tasks);
+    const failed = results.filter((r) => r.status === 'rejected');
+    if (failed.length > 0) {
+      showToast(`部分失败：${(failed[0] as PromiseRejectedResult).reason?.message ?? '请核对'}`);
+    } else {
+      showToast('档案已保存');
+      closeModal();
+      void loadTree(modal.meterType);
+    }
+  } finally {
+    modal.submitting = false;
+  }
+}
+
+async function submitControl(): Promise<void> {
+  const action = modal.controlAction;
+  const expectName = String(modal.ctx?.meter.houseName ?? '').trim();
+  if (action === 'wattoff' || action === 'watton') {
+    if (modal.reason.trim().length < 2) {
+      showToast('请填写操作原因（至少 2 个字）');
+      return;
+    }
+    if (modal.confirmName.trim() !== expectName) {
+      showToast(`请准确输入住房名进行确认（应为「${expectName}」）`);
+      return;
+    }
+  }
+  const label = action === 'wattoff' ? '拉闸断电' : action === 'watton' ? '合闸送电' : '表计校时';
+  const danger = action === 'wattoff'
+    ? `\n\n⚠ 拉闸将立即停止对【${expectName}】供电！请确认已现场核实。`
+    : '';
+  if (!window.confirm(`确认对【${expectName}】执行【${label}】？${danger}`)) return;
+  modal.submitting = true;
+  try {
+    await em123Service.control({
+      action,
+      meterType: modal.meterType,
+      meterNo: modal.meterNo,
+      reason: modal.reason.trim(),
+      confirmName: modal.confirmName.trim(),
+    });
+    showToast(`${label}指令已下发`);
+    closeModal();
+    void loadTree(modal.meterType);
+  } catch (e) {
+    showToast(`控制失败：${(e as Error).message}`);
+  } finally {
+    modal.submitting = false;
+  }
+}
+
+async function submitRefund(): Promise<void> {
+  const f = modal.refundForm;
+  if (!f) return;
+  const money = Number(modal.refundMoney);
+  if (!Number.isFinite(money) || money <= 0) {
+    showToast('请输入大于 0 的退费金额');
+    return;
+  }
+  if (f.chargeMoney != null && money > Number(f.chargeMoney)) {
+    showToast(`退费金额不能超过原充值 ${f.chargeMoney} 元`);
+    return;
+  }
+  if (money >= LARGE_AMOUNT && !modal.refundConfirm) {
+    showToast(`大额退费（≥${LARGE_AMOUNT} 元）请先勾选二次确认`);
+    return;
+  }
+  if (!window.confirm(`确认对【${modal.name}】退费 ${money.toFixed(2)} 元？提交后不可撤销。`)) return;
+  modal.submitting = true;
+  try {
+    await em123Service.refund({
+      recordId: modal.recordId,
+      refundMoney: money,
+      refundMode: modal.refundMode,
+      remark: modal.refundRemark.trim(),
+      confirm: true,
+    });
+    showToast('退费已提交');
+    closeModal();
+    void loadCharges();
+  } catch (e) {
+    showToast(`退费失败：${(e as Error).message}`);
+  } finally {
+    modal.submitting = false;
+  }
+}
+
+async function submitReduction(): Promise<void> {
+  const money = Number(modal.reductionMoney);
+  if (!Number.isFinite(money) || money <= 0) {
+    showToast('请输入大于 0 的减免金额');
+    return;
+  }
+  if (!modal.reductionReason.trim()) {
+    showToast('请填写减免原因，便于对账留痕');
+    return;
+  }
+  if (money >= LARGE_AMOUNT && !modal.reductionConfirm) {
+    showToast(`大额减免（≥${LARGE_AMOUNT} 元）请先勾选二次确认`);
+    return;
+  }
+  if (!window.confirm(`确认对【${modal.name}】减免 ${money.toFixed(2)} 元？提交后不可撤销。`)) return;
+  modal.submitting = true;
+  try {
+    await em123Service.reduction({
+      meterType: modal.meterType,
+      meterNo: modal.meterNo,
+      reductionMoney: money,
+      reason: modal.reductionReason.trim(),
+      confirm: true,
+    });
+    showToast('减免已提交');
+    closeModal();
+    void loadTree(modal.meterType);
+  } catch (e) {
+    showToast(`减免失败：${(e as Error).message}`);
+  } finally {
+    modal.submitting = false;
+  }
+}
+
+// 多费率设置（仅 admin，高危）
+async function openSetRate(m: Em123MeterView): Promise<void> {
+  resetModal();
+  modal.kind = 'setrate';
+  modal.meterType = m.type;
+  modal.meterNo = m.meterNo;
+  modal.name = m.name;
+  modal.submitting = true;
+  try {
+    const f = await em123Service.setrateForm(m.type, m.meterNo);
+    modal.setrateOptions = f.rateOptions || [];
+    modal.setrateId = f.rateOptions?.[0]?.value ?? '';
+    modal.setrateCurrent = f.currentPriceName ?? '';
+  } catch (e) {
+    showToast(`费率方案读取失败：${(e as Error).message}`);
+    closeModal();
+  } finally {
+    modal.submitting = false;
+  }
+}
+
+async function submitSetRate(): Promise<void> {
+  if (!modal.setrateId) {
+    showToast('请选择费率方案');
+    return;
+  }
+  if (!modal.setrateReason.trim() || modal.setrateReason.trim().length < 2) {
+    showToast('请填写原因（至少 2 个字）');
+    return;
+  }
+  if (modal.setrateConfirmName.trim() !== modal.name) {
+    showToast(`请准确输入住房名进行确认（应为「${modal.name}」）`);
+    return;
+  }
+  const label = modal.setrateOptions.find((o) => o.value === modal.setrateId)?.label ?? modal.setrateId;
+  if (!window.confirm(`确认将【${modal.name}】切换为费率方案「${label}」？该操作影响计费。`)) return;
+  modal.submitting = true;
+  try {
+    await em123Service.setRate({
+      meterType: modal.meterType,
+      meterNo: modal.meterNo,
+      rateId: modal.setrateId,
+      reason: modal.setrateReason.trim(),
+      confirmName: modal.setrateConfirmName.trim(),
+    });
+    showToast('多费率设置已下发');
+    closeModal();
+    void loadTree(modal.meterType);
+  } catch (e) {
+    showToast(`多费率设置失败：${(e as Error).message}`);
+  } finally {
+    modal.submitting = false;
+  }
+}
+
+// ==================== 操作对账（写留痕） ====================
+const writeLogPage = ref(1);
+const writeLogPages = ref(1);
+const writeLogRows = ref<Em123WriteLog[]>([]);
+const writeLogTotal = ref(0);
+const loadingWriteLogs = ref(false);
+const writeLogFilter = reactive({ bizType: '', meterNo: '', range: '30' });
+const writeLogPageSize = 20;
+
+async function loadWriteLogs(): Promise<void> {
+  loadingWriteLogs.value = true;
+  try {
+    const q: {
+      pageNum: number; pageSize: number; bizType?: string; meterNo?: string;
+      startDate?: string; endDate?: string;
+    } = { pageNum: writeLogPage.value, pageSize: writeLogPageSize };
+    if (writeLogFilter.bizType) q.bizType = writeLogFilter.bizType;
+    if (writeLogFilter.meterNo.trim()) q.meterNo = writeLogFilter.meterNo.trim();
+    if (writeLogFilter.range) {
+      q.startDate = daysAgoStr(Number(writeLogFilter.range) - 1);
+      q.endDate = todayStr();
+    }
+    const r = await em123Service.writeLogs(q);
+    writeLogRows.value = r.rows;
+    writeLogTotal.value = r.total;
+    writeLogPages.value = Math.max(1, Math.ceil(r.total / writeLogPageSize));
+  } catch (e) {
+    showToast(`操作对账查询失败：${(e as Error).message}`);
+  } finally {
+    loadingWriteLogs.value = false;
+  }
+}
+function applyWriteLogFilter(): void {
+  writeLogPage.value = 1;
+  void loadWriteLogs();
+}
+
 function switchTab(k: TabKey): void {
   activeTab.value = k;
   if (k === 'charges' && chargeRows.value.length === 0) void loadCharges();
   if (k === 'control' && controlRows.value.length === 0) void loadControls();
   if (k === 'arrears' && !arrearsData.value[arrearsType.value]) void loadArrears(arrearsType.value);
+  if (k === 'writeLogs' && writeLogRows.value.length === 0) void loadWriteLogs();
 }
 
 onMounted(() => {
@@ -407,6 +878,17 @@ onMounted(() => {
                   {{ readoutLoading.has(m.meterNo) ? '召测中…' : '召测' }}
                 </button>
               </div>
+              <div v-if="canRecharge || canRefund || canRename || canControl" class="meter-actions">
+                <button v-if="canRecharge" class="btn small act-cash" @click="openCash(m)">收银</button>
+                <button v-if="canRefund" class="btn small act-reduction" @click="openReduction(m)">减免</button>
+                <button v-if="canRename" class="btn small act-profile" @click="openProfile(m)">改名/档案</button>
+                <template v-if="canControl">
+                  <button class="btn small act-off" @click="openControl(m, 'wattoff')">拉闸</button>
+                  <button class="btn small act-on" @click="openControl(m, 'watton')">合闸</button>
+                  <button class="btn small act-time" @click="openControl(m, 'settime')">校时</button>
+                  <button class="btn small act-rate" @click="openSetRate(m)">多费率</button>
+                </template>
+              </div>
             </div>
           </div>
         </div>
@@ -462,6 +944,9 @@ onMounted(() => {
         </div>
         <div class="rec-foot">表号 {{ r.meterNo || '—' }} · 操作员 {{ r.createBy || '—' }}</div>
         <div v-if="r.tradeNo" class="rec-foot subtle">交易号 {{ r.tradeNo }}</div>
+        <div v-if="canRefund && r.chargeStatus === 1" class="rec-actions">
+          <button class="btn small act-refund" @click="openRefund(r)">退费</button>
+        </div>
       </div>
 
       <div class="pager">
@@ -506,6 +991,12 @@ onMounted(() => {
           <div class="rec-amount danger">{{ fmtMoney(m.money) }} 元</div>
         </div>
         <div class="rec-foot">表号 {{ m.meterNo }} · 累计 {{ fmtNum(m.reading) }} · 读数时间 {{ m.readingTime || '—' }}</div>
+        <div v-if="canRecharge || canRefund || canControl" class="rec-actions">
+          <button v-if="canRecharge" class="btn small act-cash" @click="openCash(m)">收银</button>
+          <button v-if="canRefund" class="btn small act-reduction" @click="openReduction(m)">减免</button>
+          <button v-if="canControl" class="btn small act-off" @click="openControl(m, 'wattoff')">拉闸</button>
+          <button v-if="canControl" class="btn small act-on" @click="openControl(m, 'watton')">合闸</button>
+        </div>
       </div>
 
       <div class="list-head master-head">关口总表透支明细（{{ arrears?.master.list.length ?? 0 }}）</div>
@@ -536,7 +1027,10 @@ onMounted(() => {
         <button class="btn ghost" @click="applyControlFilter">查询</button>
       </div>
 
-      <div class="list-head">共 {{ controlTotal }} 条控制记录（仅查看，不提供远程控制）</div>
+      <div class="list-head">
+        共 {{ controlTotal }} 条控制记录
+        <span v-if="canControl" class="subtle"> · 远程拉闸/合闸在「水电总览」逐表下钻中</span>
+      </div>
       <div v-if="loadingControls" class="empty">加载中…</div>
       <div v-else-if="controlRows.length === 0" class="empty">暂无记录</div>
       <div v-for="r in controlRows" :key="r.recordId" class="rec-card">
@@ -564,6 +1058,276 @@ onMounted(() => {
         <button class="btn ghost" :disabled="controlPage >= controlPages" @click="controlPage++; loadControls()">下一页</button>
       </div>
     </section>
+
+    <!-- ============ 操作对账（写留痕） ============ -->
+    <section v-if="activeTab === 'writeLogs'" class="pane">
+      <div class="filters">
+        <select v-model="writeLogFilter.bizType" @change="applyWriteLogFilter">
+          <option value="">全部类型</option>
+          <option value="house_rename">住房改名</option>
+          <option value="user_rename">业主改名</option>
+          <option value="meter_edit">表档案</option>
+          <option value="charge_cash">现金充值</option>
+          <option value="charge_supplement">补量</option>
+          <option value="refund">退费</option>
+          <option value="reduction">减免</option>
+          <option value="control_off">拉闸</option>
+          <option value="control_on">合闸</option>
+          <option value="settime">校时</option>
+          <option value="setrate">多费率设置</option>
+        </select>
+        <select v-model="writeLogFilter.range" @change="applyWriteLogFilter">
+          <option value="">全部时间</option>
+          <option value="7">近 7 天</option>
+          <option value="30">近 30 天</option>
+          <option value="90">近 90 天</option>
+        </select>
+        <input v-model="writeLogFilter.meterNo" class="input" placeholder="按表号查询" @keyup.enter="applyWriteLogFilter" />
+        <button class="btn ghost" @click="applyWriteLogFilter">查询</button>
+      </div>
+
+      <div class="list-head">共 {{ writeLogTotal }} 条写操作记录（成功/失败均留痕，可用于每日对账）</div>
+      <div v-if="loadingWriteLogs" class="empty">加载中…</div>
+      <div v-else-if="writeLogRows.length === 0" class="empty">暂无写操作记录</div>
+      <div v-for="w in writeLogRows" :key="w.id" class="rec-card" :class="{ 'subtle-card': w.status === 'failed' }">
+        <div class="rec-top">
+          <div class="rec-title">
+            {{ writeBizTypeLabel(w.bizType) }}
+            <span class="rec-sub">{{ w.houseName || w.meterNo || '' }}</span>
+          </div>
+          <div class="rec-amount" :class="w.status === 'failed' ? 'muted' : ''">
+            {{ w.amount ? fmtMoney(w.amount) : '—' }}
+          </div>
+        </div>
+        <div class="rec-tags">
+          <span class="badge" :class="w.status === 'success' ? 'badge-ok' : 'badge-fail'">
+            {{ w.status === 'success' ? '成功' : '失败' }}
+          </span>
+          <span class="rec-time">{{ w.createdAt }}</span>
+        </div>
+        <div v-if="w.beforeBalance != null || w.afterBalance != null" class="rec-foot">
+          余额 {{ fmtMoney(w.beforeBalance) }} → {{ fmtMoney(w.afterBalance) }}
+        </div>
+        <div v-if="w.reason" class="rec-foot">原因 {{ w.reason }}</div>
+        <div v-if="w.status === 'failed' && w.platformMsg" class="rec-foot subtle">平台提示 {{ w.platformMsg }}</div>
+        <div class="rec-foot subtle">操作人 {{ w.operatorName || '—' }}（{{ w.operatorRole || '—' }}）· 表号 {{ w.meterNo || '—' }}</div>
+      </div>
+
+      <div class="pager">
+        <button class="btn ghost" :disabled="writeLogPage <= 1" @click="writeLogPage--; loadWriteLogs()">上一页</button>
+        <span class="pager-info">第 {{ writeLogPage }} / {{ writeLogPages }} 页</span>
+        <button class="btn ghost" :disabled="writeLogPage >= writeLogPages" @click="writeLogPage++; loadWriteLogs()">下一页</button>
+      </div>
+    </section>
+
+    <!-- ============ 写操作弹窗 ============ -->
+    <div v-if="modal.kind" class="modal-mask" @click.self="closeModal">
+      <div class="modal">
+        <div class="modal-head">
+          <span class="modal-title">
+            {{ modal.kind === 'cash' ? '现金 / 补量收银' :
+               modal.kind === 'profile' ? '改名 / 档案维护' :
+               modal.kind === 'control' ? '远程控制' :
+               modal.kind === 'setrate' ? '多费率设置' :
+               modal.kind === 'reduction' ? '欠费减免' : '退费' }}
+          </span>
+          <button class="modal-close" @click="closeModal" aria-label="关闭">×</button>
+        </div>
+
+        <div class="modal-body">
+          <!-- 现金 / 补量 -->
+          <template v-if="modal.kind === 'cash'">
+            <div class="m-target">
+              <div class="mt-name">{{ modal.name }}</div>
+              <div class="mt-sub">表号 {{ modal.meterNo }} · 当前余额 {{ fmtMoney(modal.ctx?.meter.chargeMoney) }} 元</div>
+            </div>
+            <label class="m-label">录入方式</label>
+            <select v-model="modal.cashMode" class="m-input">
+              <option value="cash">现金支付</option>
+              <option value="replienish">补量（度数）</option>
+            </select>
+            <label class="m-label">{{ modal.cashMode === 'replienish' ? '补量度数' : '金额（元）' }}</label>
+            <input
+              v-model="modal.amount"
+              class="m-input"
+              type="number"
+              inputmode="decimal"
+              :placeholder="modal.cashMode === 'replienish' ? '输入补量度数' : '输入金额'"
+            />
+            <label class="m-label">备注（可选）</label>
+            <input v-model="modal.remark" class="m-input" placeholder="如：线下现金收取" />
+            <div class="m-hint">
+              单笔上限 {{ CASH_LIMIT }} 元；金额 ≥ {{ LARGE_AMOUNT }} 元须勾选下方二次确认。
+            </div>
+            <label class="m-check">
+              <input v-model="modal.confirm" type="checkbox" />
+              <span>我已核对金额与收款，确认录入（大额二次确认）</span>
+            </label>
+          </template>
+
+          <!-- 改名 / 档案 -->
+          <template v-if="modal.kind === 'profile'">
+            <div class="m-target">
+              <div class="mt-name">{{ modal.name }}</div>
+              <div class="mt-sub">表号 {{ modal.meterNo }}</div>
+            </div>
+            <label class="m-label">客户名（住房名）</label>
+            <input v-model="modal.houseName" class="m-input" placeholder="如：A5栋-2楼电表" />
+            <label class="m-label">业主户名</label>
+            <input v-model="modal.userName" class="m-input" placeholder="业主姓名" />
+            <label class="m-label">业主电话</label>
+            <input v-model="modal.userPhone" class="m-input" type="tel" inputmode="numeric" placeholder="联系电话" />
+            <label class="m-label">倍率</label>
+            <input v-model="modal.multiply" class="m-input" type="number" step="0.01" />
+            <div class="m-hint">只提交有改动的字段；客户名/户名/电话/倍率均会记录前后值与操作人。</div>
+          </template>
+
+          <!-- 远程控制 -->
+          <template v-if="modal.kind === 'control'">
+            <div class="m-target">
+              <div class="mt-name">{{ modal.ctx?.meter.houseName || modal.name }}</div>
+              <div class="mt-sub">
+                表号 {{ modal.meterNo }} ·
+                当前 {{ modal.ctx?.meter.meterFlag === '1' ? '合闸(供电)' : '拉闸(断电)' }}
+              </div>
+            </div>
+            <div class="m-danger">
+              {{ modal.controlAction === 'wattoff' ? '拉闸将立即停止供电，请现场核实该户可断电。' :
+                 modal.controlAction === 'watton' ? '合闸将恢复供电。' :
+                 '校时将把表计时钟与平台同步。' }}
+            </div>
+            <template v-if="modal.controlAction === 'wattoff' || modal.controlAction === 'watton'">
+              <label class="m-label">操作原因（必填）</label>
+              <input v-model="modal.reason" class="m-input" placeholder="如：欠费催缴断电 / 缴费后恢复" />
+              <label class="m-label">请输入住房名确认（必须逐字一致）</label>
+              <input v-model="modal.confirmName" class="m-input" :placeholder="modal.ctx?.meter.houseName ?? ''" />
+            </template>
+            <div v-else class="m-hint">确认无误后点下方按钮执行校时。</div>
+          </template>
+
+          <!-- 退费 -->
+          <template v-if="modal.kind === 'refund'">
+            <div class="m-target">
+              <div class="mt-name">{{ modal.name }}</div>
+              <div class="mt-sub">
+                原充值 {{ fmtMoney(modal.refundForm?.chargeMoney) }} 元 · 表号 {{ modal.refundForm?.meterNo }}
+              </div>
+            </div>
+            <label class="m-label">退费金额（元）</label>
+            <input v-model="modal.refundMoney" class="m-input" type="number" inputmode="decimal" />
+            <label class="m-label">退费方式</label>
+            <select v-model="modal.refundMode" class="m-input" :disabled="modal.refundMode === '1'">
+              <option value="0">原路退回</option>
+              <option value="1">现金退费</option>
+            </select>
+            <label class="m-label">备注（可选）</label>
+            <input v-model="modal.refundRemark" class="m-input" placeholder="退费原因" />
+            <div class="m-hint">
+              退费不得超过原充值；现金单（无在线交易号）只能现金退费。金额 ≥ {{ LARGE_AMOUNT }} 元须勾选二次确认。
+            </div>
+            <label class="m-check">
+              <input v-model="modal.refundConfirm" type="checkbox" />
+              <span>我已核对原单与退费金额，确认退费（大额二次确认）</span>
+            </label>
+          </template>
+
+          <template v-if="modal.kind === 'reduction'">
+            <div class="m-target">
+              <div class="mt-name">{{ modal.name }}</div>
+              <div class="mt-sub">
+                表号 {{ modal.meterNo }} · 当前余额 {{ fmtMoney(modal.ctx?.meter.chargeMoney) }} 元
+              </div>
+            </div>
+            <label class="m-label">减免金额（元）</label>
+            <input v-model="modal.reductionMoney" class="m-input" type="number" inputmode="decimal" placeholder="核销的应收金额" />
+            <label class="m-label">减免原因（必填）</label>
+            <input v-model="modal.reductionReason" class="m-input" placeholder="如：滞纳金减免 / 协商减免 / 抄表差错" />
+            <div class="m-hint">
+              减免按该表所属住房核销应收金额，金额为正、≥ {{ LARGE_AMOUNT }} 元须勾选二次确认，操作会记录前后值与操作人。
+            </div>
+            <label class="m-check">
+              <input v-model="modal.reductionConfirm" type="checkbox" />
+              <span>我已核对该户欠费与减免金额，确认减免（大额二次确认）</span>
+            </label>
+          </template>
+
+          <template v-if="modal.kind === 'setrate'">
+            <div class="m-target">
+              <div class="mt-name">{{ modal.name }}</div>
+              <div class="mt-sub">
+                表号 {{ modal.meterNo }} · 当前费率 {{ modal.setrateCurrent || '—' }}
+              </div>
+            </div>
+            <label class="m-label">费率方案</label>
+            <select v-model="modal.setrateId" class="m-input" :disabled="modal.submitting || modal.setrateOptions.length === 0">
+              <option value="" disabled>请选择费率方案</option>
+              <option v-for="o in modal.setrateOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+            </select>
+            <div class="m-danger">
+              多费率设置会改变该表计费口径（尖峰平谷费率），仅管理员可操作，误改将影响收费。
+            </div>
+            <label class="m-label">原因（必填，至少 2 字）</label>
+            <input v-model="modal.setrateReason" class="m-input" placeholder="如：切换尖峰平谷费率" />
+            <label class="m-label">请输入住房名进行二次确认</label>
+            <input v-model="modal.setrateConfirmName" class="m-input" :placeholder="`应为「${modal.name}」`" />
+            <div class="m-hint">须逐字输入住房名「{{ modal.name }}」并填写原因，操作记录前后值与操作人。</div>
+          </template>
+        </div>
+
+        <div class="modal-foot">
+          <button class="btn ghost" @click="closeModal">取消</button>
+          <button
+            v-if="modal.kind === 'cash'"
+            class="btn primary"
+            :disabled="modal.submitting"
+            @click="submitCash"
+          >
+            {{ modal.submitting ? '提交中…' : '确认录入' }}
+          </button>
+          <button
+            v-if="modal.kind === 'profile'"
+            class="btn primary"
+            :disabled="modal.submitting"
+            @click="submitProfile"
+          >
+            {{ modal.submitting ? '保存中…' : '保存' }}
+          </button>
+          <button
+            v-if="modal.kind === 'control'"
+            class="btn"
+            :class="modal.controlAction === 'wattoff' ? 'btn-danger' : 'btn primary'"
+            :disabled="modal.submitting"
+            @click="submitControl"
+          >
+            {{ modal.submitting ? '下发中…' : '执行' }}
+          </button>
+          <button
+            v-if="modal.kind === 'refund'"
+            class="btn primary"
+            :disabled="modal.submitting"
+            @click="submitRefund"
+          >
+            {{ modal.submitting ? '提交中…' : '确认退费' }}
+          </button>
+          <button
+            v-if="modal.kind === 'reduction'"
+            class="btn primary"
+            :disabled="modal.submitting"
+            @click="submitReduction"
+          >
+            {{ modal.submitting ? '提交中…' : '确认减免' }}
+          </button>
+          <button
+            v-if="modal.kind === 'setrate'"
+            class="btn btn-danger"
+            :disabled="modal.submitting"
+            @click="submitSetRate"
+          >
+            {{ modal.submitting ? '下发中…' : '确认下发' }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <div v-if="toast" class="toast">{{ toast }}</div>
   </section>
@@ -1043,5 +1807,204 @@ select {
   font-size: 13px;
   max-width: 90vw;
   z-index: 999;
+}
+
+/* ===== 二/三期：写操作按钮与弹窗 ===== */
+.meter-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--v2-border-soft);
+}
+.rec-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.act-cash {
+  color: #047857;
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+}
+.act-profile {
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+.act-refund {
+  color: #b45309;
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+.act-reduction {
+  color: #0f766e;
+  border-color: #99f6e4;
+  background: #f0fdfa;
+}
+.act-off {
+  color: #b91c1c;
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+.act-on {
+  color: #047857;
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+}
+.act-time {
+  color: #6d28d9;
+  border-color: #ddd6fe;
+  background: #f5f3ff;
+}
+.act-rate {
+  color: #b45309;
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+.btn-danger {
+  background: var(--v2-danger, #dc2626);
+  border-color: var(--v2-danger, #dc2626);
+  color: #fff;
+}
+
+/* 弹窗 */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 1000;
+  padding: 0;
+}
+@media (min-width: 640px) {
+  .modal-mask {
+    align-items: center;
+    padding: 20px;
+  }
+}
+.modal {
+  width: 100%;
+  max-width: 480px;
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--v2-surf-1, #fff);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+@media (min-width: 640px) {
+  .modal {
+    border-radius: 18px;
+  }
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--v2-border-soft);
+}
+.modal-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+.modal-close {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--v2-text-3);
+  cursor: pointer;
+}
+.modal-body {
+  padding: 16px 18px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.m-target {
+  background: var(--v2-inset-bg, #f8fafc);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+.mt-name {
+  font-size: 15px;
+  font-weight: 700;
+}
+.mt-sub {
+  font-size: 13px;
+  color: var(--v2-text-3);
+  margin-top: 4px;
+}
+.m-label {
+  font-size: 13px;
+  color: var(--v2-text-2);
+  margin-top: 10px;
+}
+.m-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--v2-border-soft);
+  border-radius: 10px;
+  font-size: 16px;
+  background: var(--v2-inset-bg, #fff);
+  color: var(--v2-text-1);
+}
+.m-hint {
+  font-size: 12px;
+  color: var(--v2-text-3);
+  line-height: 1.6;
+  margin-top: 8px;
+}
+.m-danger {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.m-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.m-check input {
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+.modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--v2-border-soft);
+}
+.modal-foot .btn {
+  min-height: 44px;
+  flex: 1;
+}
+.modal-foot .btn.ghost {
+  flex: 0 0 96px;
 }
 </style>
