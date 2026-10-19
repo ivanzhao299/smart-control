@@ -1,5 +1,19 @@
 
-## ★ 最新状态（2026-10-19，**第二十四轮「PWA 导航/样式修复」已部署生产 GK9000、CI 与 Deploy 全绿、生产新 CSS 已核验、页面 HTTP 200 返回最新资源**。功能 commit `8b214b6`（4 文件 +41/−6）；CI run **39257262619** success、Deploy run **39257262665** 四 job 全绿（Detect scope / Validate frontend / Validate backend / Deploy，scope=frontend）；本地=远端=生产三端同 commit 8b214b6；临时验证脚本已 rm -f**。上一轮 em123 水电二期+三期 c91fbb8、第二十三轮 476df9e、第二十二轮 24ec47d、第二十一轮 a6ef915 均已部署**）：
+## ★ 最新状态（2026-10-19，**第二十五轮「真机后台抽屉标题消失 / 折叠按钮看不见」已部署生产 GK9000、CI 与 Deploy 全绿、verify-deploy passed、生产 bundle 指纹一致**。功能 commit `305403d`（1 文件 +46/−2，纯前端）；CI run **39264772198** success（2m19s）、Deploy run **39264772639** success（4m28s，scope=frontend，GK9000 本地 `vite build --outDir dist-repair` 后切换）；本地=远端=生产三端同 commit 305403d。上一轮第二十四轮 8b214b6、em123 c91fbb8、第二十三轮 476df9e 均已部署**）：
+- **用户现象（iPhone 16 Pro Max 真机 PWA）**：后台抽屉打开后，顶部标题不显示（只剩居中 logo）、折叠/关闭按钮看不见；菜单与底部三按钮正常。
+- **根因（两个叠加的真实缺陷，非缓存玄学，本地 iframe 完整复现）**：
+  1. **关闭按钮被侧栏遮住**：抽屉打开时侧栏是 `position:fixed`（脱离文档流、z-index:100），盖住主内容 header 的 hamburger/X。实测该按钮整页坐标 x=14，在侧栏 0–280 范围内，中心点 `elementFromPoint` 返回的是侧栏里的 `logo-img`——用户既看不到也点不到 X，只能点遮罩关闭（用户不知道）。
+  2. **横屏宽度盲区导致 brand 居中/标题隐藏**：iPhone 16 Pro Max 横屏是 **956×440**，宽度 956 超过第二十四轮横屏条件的 `(max-width:900)`，于是横屏走 `min-width:601`，collapsed=true → 64px 图标列、brand `justify-content:center`、brand-text `display:none`；旋转回竖屏后 iOS WebKit 可能不重排 brand，呈现"竖屏 fixed 抽屉（菜单正常）+ brand 横屏居中（标题不显示）"混合态，与用户截图吻合。
+- **修复（AdminLayout.vue，三处）**：
+  1. **模板**：`.brand` 内 brand-text 后新增 `drawer-close` 按钮（X，aria-label="关闭菜单"，@click=closeSidebar）。
+  2. **CSS 基础**：新增 `.drawer-close`（默认 `display:none`，40×40 透明底，hover/active 态）。
+  3. **CSS 抽屉媒体查询**：横屏条件由 `(max-width:900) and (max-height:500)` 改为 **`(orientation:landscape) and (max-height:500)`**（去宽度上界，覆盖 956；桌面正常高度>500 不触发）；新增**无条件** `.admin .brand{justify-content:flex-start;padding:16px 18px;gap:12px}`、`.admin .brand-text{display:block}`、`.admin .drawer-close{display:inline-flex}`（双保险，原 `.admin.collapsed` 前缀重置块保留）。
+- **门禁全绿**：typecheck 0、build 成功（PWA precache 115 entries/2142.72 KiB）、前端 test **288** 全过；只改 AdminLayout.vue 单文件。
+- **本地视口实测（同源 iframe 注入 sessionStorage 登录态）**：956 横屏 collapsed 修复前=64px 图标列（brand center、标题 none），修复后=fixed 280 抽屉（brand flex-start、标题显示）；440 竖屏抽屉打开标题「金湖展贸中心 · 智能控制」+副标题「后台管理 · 管理员」、X 关闭按钮在标题右侧清晰可见、点击即关闭（class 去 sidebar-open）；桌面 1280 展开（220px 侧栏、drawer-close none、collapse-btn flex）与折叠（64px 图标列、drawer-close none）均正常。
+- **生产回验（gk9000 SSH + workflow verify，只读）**：dist 新构建产物 index-**DgVfRaAR**.js（GK9000 Windows 构建，与 Mac 本地 index-CxrM3Lcl.js hash 不同属正常；AdminLayout chunk hash 两边一致=CB2LemPZ）、AdminLayout-**CB2LemPZ**.css 含 `orientation:landscape` 与 `drawer-close`；verify-deploy 日志：前端 pm2 online、HTTP 200、「服务的正是这次构建的产物（bundle 指纹一致）」、后端/公网 erp API+前端 HTTP 200、LED player gate passed，**`verify-deploy.js passed`**（FAIL 计数 0）。PM2 frontend 静态 serve 读盘、MINIMAL 部署未重启（uptime 连续）。
+- **【现场必做一次（同前几轮）】** PWA 退出登录→齿轮（仅 /client-login 可见）→「清除页面缓存」→重登；必要时从后台划掉 PWA 进程重开或重装，以彻底脱离横屏盲区起点的旧缓存状态。
+
+## 前一状态（2026-10-19，**第二十四轮「PWA 导航/样式修复」已部署生产 GK9000、CI 与 Deploy 全绿、生产新 CSS 已核验、页面 HTTP 200 返回最新资源**。功能 commit `8b214b6`（4 文件 +41/−6）；CI run **39257262619** success、Deploy run **39257262665** 四 job 全绿（Detect scope / Validate frontend / Validate backend / Deploy，scope=frontend）；本地=远端=生产三端同 commit 8b214b6；临时验证脚本已 rm -f**。上一轮 em123 水电二期+三期 c91fbb8、第二十三轮 476df9e、第二十二轮 24ec47d、第二十一轮 a6ef915 均已部署**）：
 - **本轮三个改动（纯前端，用户点名前两项 + 排查中新增一项健壮性）**：
   1. **水电入口移到「更多」**：业主「管理员页面下面菜单太多，把水电按钮放到更多里，不要把下面一行塞满」。`main-route-manifest.ts` energy 导航 `section` 由 `'main'` 改为 `'tools'`。改后手机底栏 8 槽（首页/灯光/LED 大屏/投影仪/音响/空调/电源/更多，每槽 390/8≈48.75px），水电与媒体/状态/道闸/后台收进「更多」抽屉；桌面侧栏水电移到 divider 后的 sideToolNavs（sideToolNavs 只去 status，energy 保留）。
   2. **后台侧栏折叠按钮/标题修复**：业主「PWA 手机端，后台左边功能栏折叠按钮看不见；左边功能栏顶端只有一个图标、标题也不见了」。根因：手机横屏（宽 601–900、高 ≤500）+ collapsed 残留时，侧栏变成 64px 图标列、标题隐藏，而展开按钮在矮 header 里是深色小图标不显眼。修复（AdminLayout.vue）：抽屉模式扩展到手机横屏（媒体查询由 `max-width:600` 改为 `max-width:600, (max-width:900) and (max-height:500)`；grid 选择器加 `.admin.collapsed`；新增 `.admin.collapsed` 前缀完整重置块撤销图标栏压缩，分组折叠仍由 .section-items.collapsed 控制）。iPad 竖屏（768×1024）不被包含、仍走 180px 侧栏。
