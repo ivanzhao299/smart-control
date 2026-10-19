@@ -51,22 +51,25 @@ export const mainRouteManifest = [
   {
     // 首页场景磁贴：operator 保留的播控入口（场景执行后端 admin/operator）。
     path: '', name: 'dashboard', load: () => import('@/pages/DashboardPage.vue'),
+    permission: 'dashboard:view',
     roles: ['admin', 'operator', 'viewer'],
     navigation: { label: '首页', section: 'main' },
   },
   {
     // 灯光设备控制：仅 admin（operator 不再开放，后端 lighting 写仅 admin）。
     path: 'lighting', name: 'lighting', load: () => import('@/pages/LightingPage.vue'),
+    permission: 'lighting:view',
     roles: ['admin', 'viewer'],
     navigation: { label: '灯光', section: 'main' }, prefetchOnIdle: true,
     prefetchApis: ['/light-zones'],
   },
   // DALI 管理与诊断是灯光页内的深链，不进入全局菜单；DALI 调试/控制仅 admin。
-  { path: 'dali-lights', name: 'dali-lights', load: () => import('@/pages/DaliLightsPage.vue'), roles: ['admin'] },
-  { path: 'dali-diagnose', name: 'dali-diagnose', load: () => import('@/pages/DaliDiagnosePage.vue'), roles: ['admin'] },
+  { path: 'dali-lights', name: 'dali-lights', load: () => import('@/pages/DaliLightsPage.vue'), permission: 'dali:control', roles: ['admin'] },
+  { path: 'dali-diagnose', name: 'dali-diagnose', load: () => import('@/pages/DaliDiagnosePage.vue'), permission: 'dali:diagnose', roles: ['admin'] },
   {
     // LED 大屏播控：operator 保留。
     path: 'led', name: 'led', load: () => import('@/pages/LedPage.vue'),
+    permission: 'led:view',
     roles: ['admin', 'operator', 'viewer'],
     navigation: { label: 'LED 大屏', section: 'main' }, prefetchOnIdle: true,
     prefetchApis: ['/devices?category=led'],
@@ -74,12 +77,14 @@ export const mainRouteManifest = [
   // 投影仪独立于 LED，避免误操作到另一块显示设备；播控开放给 operator。
   {
     path: 'projector', name: 'projector', load: () => import('@/pages/ProjectorPage.vue'),
+    permission: 'projector:view',
     roles: ['admin', 'operator', 'viewer'],
     navigation: { label: '投影仪', section: 'main' }, prefetchOnIdle: true,
   },
   {
     // 音响设备控制：仅 admin（全场静音事故源头，operator 不再开放）。
     path: 'audio', name: 'audio', load: () => import('@/pages/AudioPage.vue'),
+    permission: 'audio:view',
     roles: ['admin', 'viewer'],
     navigation: { label: '音响', section: 'main' }, prefetchOnIdle: true,
     prefetchApis: ['/devices?category=audio-zone'],
@@ -87,6 +92,7 @@ export const mainRouteManifest = [
   {
     // 空调设备控制：仅 admin。
     path: 'hvac', name: 'hvac', load: () => import('@/pages/HvacPage.vue'),
+    permission: 'hvac:view',
     roles: ['admin', 'viewer'],
     navigation: { label: '空调', section: 'main' }, prefetchOnIdle: true,
     prefetchApis: ['/devices?category=hvac-zone'],
@@ -97,6 +103,7 @@ export const mainRouteManifest = [
     // hardware/config 第六轮起落地前台电源页：前台时钟入口可配自动开关，单路手动按域由后端
     // 强制（hardware 全域、config 仅园区），他们不再被守卫强制跳后台；前台仅见电源这一页。
     path: 'power', name: 'power', load: () => import('@/pages/PowerPage.vue'),
+    permission: 'power:view',
     roles: ['admin', 'operator', 'hardware', 'config', 'viewer'],
     navigation: { label: '电源', section: 'main' }, prefetchOnIdle: true,
     prefetchApis: ['/power-circuits'],
@@ -115,6 +122,7 @@ export const mainRouteManifest = [
   {
     // 媒体库：operator 保留上传素材 + 改文件名。
     path: 'media', name: 'media', load: () => import('@/pages/MediaPage.vue'),
+    permission: 'media:view',
     roles: ['admin', 'operator', 'viewer'],
     navigation: { label: '媒体', section: 'tools' }, prefetchOnIdle: true,
     prefetchApis: ['/media?pageSize=50'],
@@ -122,6 +130,7 @@ export const mainRouteManifest = [
   {
     // 状态只读：仅 admin（2026-10-17 第四轮收紧；hardware/config 登录直达后台，operator 更多抽屉不再列状态）。
     path: 'status', name: 'status', load: () => import('@/pages/StatusPage.vue'),
+    permission: 'status:view',
     roles: ['admin'],
     navigation: { label: '状态', section: 'tools' }, prefetchOnIdle: true,
     prefetchApis: ['/system/info'],
@@ -129,6 +138,7 @@ export const mainRouteManifest = [
   {
     // 道闸开关：仅 admin（后端 lpr gate 仅 admin）。
     path: 'barrier', name: 'barrier', load: () => import('@/pages/BarrierPage.vue'),
+    permission: 'barrier:view',
     roles: ['admin', 'viewer'],
     navigation: { label: '道闸', section: 'tools' }, prefetchOnIdle: true,
     prefetchApis: ['/lpr/recent', '/lpr/devices'],
@@ -160,8 +170,8 @@ export function canAccessMainRoute(name: string, role: UserRole | undefined): bo
 /**
  * 动态 RBAC 版前台路由可见性：
  * - admin 全通；
- * - 内置 5 角色走 roles 白名单（零行为变化）；
- * - 自定义角色按路由声明的 permission 权限点判定。
+ * - 其余角色（内置/自定义）统一按路由声明的 permission 权限点判定，
+ *   与后端 /me 下发的 permissions 一致：管理员增/减权限点即时生效。
  */
 export function canAccessMainRouteByPerms(
   name: string,
@@ -171,12 +181,12 @@ export function canAccessMainRouteByPerms(
   if (role === 'admin') return true;
   const route = mainRouteByName.get(name);
   if (!route) return false;
+  if (route.permission) return perms.has(route.permission);
+  // 未声明权限点的路由：回退 roles 白名单（理论上无，仅兜底）。
   if (role && BUILTIN_MAIN_ROLES.includes(role)) {
-    if (!route.roles || route.roles.length === 0) return false;
-    return route.roles.includes(role as UserRole);
+    return !!route.roles && route.roles.includes(role as UserRole);
   }
-  // 自定义角色：按权限点。
-  return !!route.permission && perms.has(route.permission);
+  return false;
 }
 
 /** 按角色过滤后的前台导航项（MainLayout 底栏/侧栏用）。 */

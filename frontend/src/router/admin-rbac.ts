@@ -168,9 +168,7 @@ export function canAccessAdminModuleByPerms(
 ): boolean {
   if (role === 'admin') return true;
   if (!role) return false;
-  if (BUILTIN_ROLE_CODES.includes(role)) {
-    return canAccessAdminModule(role as UserRole, module);
-  }
+  // 动态 RBAC：统一以权限点为准（与后端 /me 一致，内置角色增/减权限即时生效）。
   return hasAny(perms, MODULE_VIEW_PERMISSION[module]);
 }
 
@@ -182,9 +180,7 @@ export function canWriteAdminModuleByPerms(
 ): boolean {
   if (role === 'admin') return true;
   if (!role) return false;
-  if (BUILTIN_ROLE_CODES.includes(role)) {
-    return canWriteAdminModule(role as UserRole, module);
-  }
+  // 动态 RBAC：统一以权限点为准（与后端 /me 一致，内置角色增/减权限即时生效）。
   return hasAny(perms, MODULE_WRITE_PERMISSION[module]);
 }
 
