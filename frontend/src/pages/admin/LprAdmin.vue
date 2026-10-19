@@ -544,7 +544,7 @@ onMounted(loadDevices);
 </template>
 
 <style scoped>
-.lpr-admin { padding: var(--v2-sp-4); max-width: 1280px; margin: 0 auto; box-sizing: border-box; }
+.lpr-admin { width: 100%; min-width: 0; box-sizing: border-box; }
 .hdr-tip { margin-left: 4px; font-size: 13px; color: var(--v2-text-3); cursor: help; vertical-align: -1px; }
 .page-head { display: flex; align-items: center; gap: var(--v2-sp-3); margin-bottom: var(--v2-sp-2); }
 .page-head h2 { margin: 0; font-size: 20px; color: var(--v2-text-1); white-space: nowrap; }

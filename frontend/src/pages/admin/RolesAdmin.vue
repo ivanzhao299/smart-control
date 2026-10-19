@@ -516,8 +516,8 @@ onMounted(loadAll);
 
 <style scoped>
 .roles-admin {
-  max-width: 1080px;
-  margin: 0 auto;
+  width: 100%;
+  min-width: 0;
 }
 .sc-hero {
   display: flex;
