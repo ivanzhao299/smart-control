@@ -1396,6 +1396,28 @@ pm2 僵尸守护根治（146→2，INCIDENTS #9）→ 部署误报根治（#10�
 - **现场必做一次（鸡生蛋，同前）**：PWA 需退出登录→齿轮（仅 /client-login 可见）→配置页「清除页面缓存」→保存→重输密码，才拿得到 0d020b9 新前台/Service Worker（水电页、物业角色门控）；之后冷启动自动生效。
 - **待业主决定**：dev 库临时物业账号 wuye_test(id=7) 删除还是保留（删库需明确同意）。生产若要真实物业账号，由管理员在后台「角色管理」分配 property 后建用户（property 是 is_builtin=0 可改可停可删的预置自定义角色，非第6个内置）。
 
+### 2026-10-19 第二十二轮 后台「车牌道闸/角色管理」桌面端全宽展开（已部署生产 24ec47d 并回验）
+- **范围**：业主「后台 车牌道闸 LprAdmin.vue 与 角色管理 RolesAdmin.vue 两个详情页在电脑端没完全展开、呈受限宽卡片，需按电脑端撑满 AdminLayout 内容区」。本地=origin/main=生产=**24ec47d**；2 文件 +3/−3（纯 CSS）。
+- **根因（审计确认）**：两页根容器写死 `max-width` + `margin:0 auto`，宽屏（1920/1680）内容居中、两侧大留白 = 卡片；后台其余 13 个页面（UsersAdmin/HardwareAdmin 等）用 `<section class="page">` 铺满，无此限制。
+  - LprAdmin 原 `.lpr-admin{padding:var(--v2-sp-4);max-width:1280px;margin:0 auto;...}`（还多一层重复 padding，与 content padding 叠加）。
+  - RolesAdmin 原 `.roles-admin{max-width:1080px;margin:0 auto}`（根 `<div class="sc-page roles-admin">`）。
+  - 其余页面的 max-width 全部在 `@media (max-width:...)` 媒体查询内（合理响应式），**仅这两页是根容器宽度限制**。
+- **修复（最小改动，仅 CSS）**：
+  - LprAdmin → `.lpr-admin{width:100%;min-width:0;box-sizing:border-box}`（去 max-width/margin/重复 padding）。
+  - RolesAdmin → `.roles-admin{width:100%;min-width:0}`（去 max-width/margin）。
+- **本地浏览器验收（CDP page session 模拟 viewport，全过）**：
+  - 宽屏 1680×1000：inner=1680、content=1450；两页 max-width=none、内容宽 **1402**（=1450 减两侧 padding 24）、left=244、rightGap=34，表格列充分利用宽度。
+  - 窄屏 390×844（mobile）：两页保持单列、表格横滑、无溢出，PWA 无回归。
+  - CDP 关键：`cdp(method, session_id=None, **params)`；page 级命令需先 `Target.attachToTarget(targetId, flatten=True)` 拿 sessionId，再用 session_id 调 `Emulation.setDeviceMetricsOverride`；flat session（无 session_id）是 browser 级（Target.getTargets/Browser.getVersion）。
+- **门禁（全绿）**：前端 vue-tsc 0、`node --test tests/*.test.cjs` **288/288**、vite build（6.32s，PWA generateSW，precache 115）。
+- **部署**：push 58ea801..**24ec47d**；deploy-gk9000 run **39203895998** 四 job 全绿（scope/validate-fe/validate-be/**Deploy**）；本地 deploy-scope 复算 scope=**frontend**（前端 src，部署前端 dist + 重启前端，不碰后端/DB）；verify 全绿「两个服务都在跑最新代码、无孤儿、无崩溃循环，verify-deploy.js passed」、Deployment complete: 24ec47d2cfc5f0389ab37521cbbcb391efe4afbc；offsite **OFFSITE_BUNDLE_NOT_REQUIRED**（前端部署无新迁移恢复包，正确跳过）。
+- **生产真生效回验（ssh gk9000，curl 静态产物 + 引用链，全过）**：
+  - 前端是 `vite preview --host 0.0.0.0 --port 5173` 静态服务，每次请求 fs.read 读 dist，**更新 dist 后零停机、无需重启**（ecosystem 注释明确）→ 前端 PM2 pid=1648 持续、pm_uptime 仍 12:12:54、restarts=0 **是设计预期，不是没部署**。
+  - dist index.html + assets 时间戳 **2026/10/19 13:22:20**（本次部署）；新 chunk `LprAdmin-CrRl58kj.js`（绑 data-v-**1d1b1a70** = `.lpr-admin{width:100%;min-width:0}`）、`RolesAdmin-mLLmQdTZ.js`（绑 data-v-**c0d91acd** = `.roles-admin{width:100%;min-width:0}`）；入口 `index-DItyh92B.js` 引用这两个新 chunk。
+  - dist 因 rsync 增量保留旧孤儿 chunk（data-v-d52992f9 旧 max-width:1280、data-v-c3df0e5a 旧 max-width:1080，含旧 LprAdmin-Dwi93m0C.js 12:12），**入口不引用、运行时不加载**，无影响。
+  - **注意**：生产 admin 密码已不是 jinhu888 / Admin2026!abc（curl 登录 + 页面登录均「用户名或密码错误」），故未在浏览器登录看实际渲染；但「新 CSS 产物 = 本地已验渲染的同一条规则」+「入口引用新 chunk」+「verify 全绿」+「时间戳」构成完整证据链，确认真生效。
+  - 现场 PWA 若要见最新，仍需退出→齿轮→清除页面缓存→重登（换 Service Worker，同前）。
+
 ## 约定
 
 - **每个会话的第一个动作 = 读本文件**。已双保险：`.claude/settings.json` 配了
