@@ -81,6 +81,7 @@ test('classifies controlled-release orchestration and deploy verification as non
   const controlOnly = classifyDeployFiles([
     'scripts/resume-gk9000-release.ps1',
     'scripts/verify-deploy.js',
+    'scripts/offsite-release-backup.py',
   ]);
   assert.equal(controlOnly.scope, 'none');
   assert.equal(controlOnly.releaseControl, true);

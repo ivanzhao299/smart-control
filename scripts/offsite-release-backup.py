@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """Copy one verified release recovery bundle to an off-host filesystem.
 
-The destination is append-only: an existing bundle is verified and reused, never
-replaced or pruned. Remote copies use OpenSSH scp without a shell.
+The destination deduplicates large content (media files and the recovery
+database) through a content-addressed hardlink store (``.objects``), so many
+releases share one physical copy of each unchanged file. A bounded retention
+policy keeps the most recent releases; after pruning, object-store entries that
+no longer have any release hardlink are garbage-collected.
+
+Remote copies use OpenSSH scp without a shell. Bundle verification and the
+hardlink materialization happen on the local off-host filesystem.
 """
 from __future__ import annotations
 
@@ -21,10 +27,12 @@ import tempfile
 from datetime import datetime, timezone
 
 BUNDLE_NAME = re.compile(r"^release-[A-Za-z0-9_-]+$")
-REVISION = re.compile(r"^[a-f0-9]{40}$")
+REVISION = re.compile(r"^[0-9a-f]{40}$")
 DB_PATH = re.compile(r"^sqlite-[A-Za-z0-9_-]+/database\.sqlite$")
 MEDIA_PATH = re.compile(r"^media-[A-Za-z0-9_-]+$")
 REMOTE = re.compile(r"^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+$")
+OBJECTS_DIRNAME = ".objects"
+DEFAULT_RETENTION = 8
 
 
 def sha256(file: Path) -> str:
@@ -202,6 +210,74 @@ def copy_source(args: argparse.Namespace, staging_root: Path) -> Path:
     return staging_root / bundle_name
 
 
+def _link_through_object(src: Path, dst: Path, object_store: Path, content_sha: str) -> None:
+    """Deduplicate ``src`` via the content-addressed store, then hardlink to ``dst``.
+
+    The source has already been checksum-verified by ``verify_bundle``, so the
+    caller-supplied SHA is trusted to name the object.
+    """
+    object_file = object_store / content_sha
+    if not object_file.exists():
+        os.link(src, object_file)
+        os.chmod(object_file, 0o600)
+    dst.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if dst.exists() or dst.is_symlink():
+        dst.unlink()
+    os.link(object_file, dst)
+
+
+def materialize_dedup(staging: Path, target: Path, object_store: Path) -> dict:
+    """Build the deduplicated release at ``target`` from the verified staging copy."""
+    evidence = verify_bundle(staging)
+    object_store.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(object_store, 0o700)
+    if target.exists():
+        raise ValueError("materialization target already exists")
+    target.mkdir(mode=0o700, parents=True)
+
+    manifest = load_json(staging / "release.json")
+    database_meta = manifest["database"]
+    media_meta = manifest["media"]
+    db_rel = PurePosixPath(database_meta["path"])
+    media_rel = PurePosixPath(media_meta["path"])
+
+    # Top-level metadata files are copied per release (they are small).
+    for item in staging.iterdir():
+        if item.is_dir() or item.name == "offsite-receipt.json":
+            continue
+        shutil.copy2(item, target / item.name)
+
+    # Database directory: database.sqlite is deduplicated; sidecar files copied.
+    staging_db_dir = staging / db_rel.parent
+    target_db_dir = target / db_rel.parent
+    target_db_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    for item in staging_db_dir.iterdir():
+        if item.name == db_rel.name:
+            _link_through_object(item, target_db_dir / item.name, object_store, database_meta["sha256"])
+        else:
+            shutil.copy2(item, target_db_dir / item.name)
+
+    # Media directory: manifest copied, media files deduplicated, dirs recreated.
+    staging_media_dir = staging / media_rel
+    target_media_dir = target / media_rel
+    target_media_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    shutil.copy2(staging_media_dir / "manifest.json", target_media_dir / "manifest.json")
+    media_manifest = load_json(staging_media_dir / "manifest.json")
+    staging_media_root = staging_media_dir / "media"
+    target_media_root = target_media_dir / "media"
+    target_media_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    for entry in media_manifest["entries"]:
+        relative = entry["path"]
+        dst = target_media_root / relative
+        if entry["type"] == "directory":
+            dst.mkdir(mode=0o700, parents=True, exist_ok=True)
+        elif entry["type"] == "file":
+            _link_through_object(staging_media_root / relative, dst, object_store, entry["sha256"])
+        else:
+            raise ValueError("unsupported media entry type")
+    return evidence
+
+
 def atomic_write_json(file: Path, value: dict) -> None:
     temporary = file.with_name(f".{file.name}.tmp-{os.getpid()}")
     payload = json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
@@ -213,6 +289,45 @@ def atomic_write_json(file: Path, value: dict) -> None:
     temporary.replace(file)
 
 
+def _release_created(directory: Path) -> str:
+    try:
+        return str(load_json(directory / "release.json").get("createdAt", ""))
+    except Exception:
+        return ""
+
+
+def rotate_releases(destination: Path, keep: int) -> list[str]:
+    """Keep the ``keep`` most recent releases; prune the rest. Returns pruned names."""
+    releases = [
+        (created, directory)
+        for directory in destination.glob("release-*")
+        if (created := _release_created(directory))
+    ]
+    releases.sort(key=lambda item: item[0])
+    pruned: list[str] = []
+    if keep >= 0 and len(releases) > keep:
+        for _, directory in releases[:-keep] if keep else releases:
+            shutil.rmtree(directory)
+            pruned.append(directory.name)
+    return pruned
+
+
+def garbage_collect_objects(object_store: Path) -> int:
+    """Remove content objects with no release hardlink (link count of one)."""
+    if not object_store.is_dir():
+        return 0
+    removed = 0
+    for object_file in object_store.iterdir():
+        try:
+            info = object_file.stat()
+        except FileNotFoundError:
+            continue
+        if info.st_nlink <= 1:
+            object_file.unlink()
+            removed += 1
+    return removed
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--bundle-name", required=True)
@@ -222,43 +337,67 @@ def main() -> int:
     source.add_argument("--source")
     parser.add_argument("--source-path")
     parser.add_argument("--identity")
+    parser.add_argument(
+        "--retention",
+        type=int,
+        default=int(os.environ.get("SMART_CONTROL_OFFSITE_RETENTION", DEFAULT_RETENTION)),
+    )
     args = parser.parse_args()
     if not BUNDLE_NAME.fullmatch(args.bundle_name):
         raise ValueError("invalid release bundle name")
+    if args.retention < 0:
+        raise ValueError("retention must be >= 0")
     destination = Path(args.destination).expanduser()
     destination.mkdir(mode=0o700, parents=True, exist_ok=True)
     destination = destination.resolve(strict=True)
     if destination.is_symlink() or not destination.is_dir():
         raise ValueError("offsite destination is not a safe directory")
     os.chmod(destination, 0o700)
+    object_store = destination / OBJECTS_DIRNAME
     final = destination / args.bundle_name
+
     if final.exists():
         evidence = verify_bundle(final)
         receipt = load_json(final / "offsite-receipt.json")
         if receipt.get("bundleName") != args.bundle_name or receipt.get("manifestSha256") != evidence["manifestSha256"]:
             raise ValueError("existing offsite receipt does not match its bundle")
-        print(f"OFFSITE_BUNDLE_CURRENT {args.bundle_name} {evidence['mediaFileCount']} {evidence['mediaBytes']}")
+        pruned = rotate_releases(destination, args.retention)
+        collected = garbage_collect_objects(object_store)
+        print(
+            f"OFFSITE_BUNDLE_CURRENT {args.bundle_name} {evidence['mediaFileCount']} "
+            f"{evidence['mediaBytes']} pruned={len(pruned)} gc={collected}"
+        )
         return 0
 
     staging_root = Path(tempfile.mkdtemp(prefix=".incoming-", dir=destination))
     os.chmod(staging_root, 0o700)
+    finalizing = destination / f".finalizing-{os.getpid()}"
     try:
         copied = copy_source(args, staging_root)
-        evidence = verify_bundle(copied)
+        evidence = materialize_dedup(copied, finalizing, object_store)
         receipt = {
             "version": 1,
             "kind": "offsite-release-backup-receipt",
             "bundleName": args.bundle_name,
             "copiedAt": datetime.now(timezone.utc).isoformat(),
+            "deduplicated": True,
             **evidence,
         }
-        atomic_write_json(copied / "offsite-receipt.json", receipt)
-        copied.replace(final)
-        staging_root.rmdir()
-        print(f"OFFSITE_BUNDLE_VERIFIED {args.bundle_name} {evidence['mediaFileCount']} {evidence['mediaBytes']}")
+        atomic_write_json(finalizing / "offsite-receipt.json", receipt)
+        finalizing.replace(final)
+        shutil.rmtree(staging_root)
+        staging_root = None
+        pruned = rotate_releases(destination, args.retention)
+        collected = garbage_collect_objects(object_store)
+        print(
+            f"OFFSITE_BUNDLE_VERIFIED {args.bundle_name} {evidence['mediaFileCount']} "
+            f"{evidence['mediaBytes']} pruned={len(pruned)} gc={collected}"
+        )
         return 0
     except Exception:
-        if staging_root.exists():
+        if finalizing.exists():
+            shutil.rmtree(finalizing)
+        if staging_root is not None and staging_root.exists():
             shutil.rmtree(staging_root)
         raise
 

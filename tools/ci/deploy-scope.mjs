@@ -46,14 +46,15 @@ export function classifyDeployFiles(files) {
       // production rebuild and service restart.
       result.releaseControl = true;
       result.docsOnly = false;
-    } else if (/^scripts\/(?:resume-gk9000-release|verify-deploy)\.(?:ps1|js|cjs)$/.test(file)) {
-      // Controlled-release orchestration (resume-gk9000-release) and one-shot
-      // deploy verification (verify-deploy) run only during a deploy/recovery -
-      // invoked by deploy-from-ci or an operator - never by the resident pm2
-      // services or the interactive watchdog. Syncing a fix to them must not
-      // trigger a build or service restart; the new version takes effect on the
-      // next full deploy. This is what lets a hardening fix to these scripts
-      // land without forcing an unnecessary full production release.
+    } else if (/^scripts\/(?:resume-gk9000-release|verify-deploy|offsite-release-backup)\.(?:ps1|js|cjs|py)$/.test(file)) {
+      // Controlled-release orchestration (resume-gk9000-release), one-shot
+      // deploy verification (verify-deploy), and the off-host backup tool
+      // (offsite-release-backup) run only during a deploy/recovery - invoked by
+      // deploy-from-ci or an operator - never by the resident pm2 services or
+      // the interactive watchdog. Syncing a fix to them must not trigger a
+      // build or service restart; the new version takes effect on the next full
+      // deploy. This is what lets a hardening fix to these scripts land without
+      // forcing an unnecessary full production release.
       result.releaseControl = true;
       result.docsOnly = false;
     } else if (/^(android-app|ios-app)\//.test(file)) {
