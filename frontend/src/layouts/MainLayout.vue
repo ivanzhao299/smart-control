@@ -246,6 +246,12 @@ const toolNavs = computed(() => navItems.value.filter((n) => n.section === 'tool
  * 手机底栏的「更多」抽屉保留全量 toolNavs, 状态仍在里面。
  */
 const sideToolNavs = computed(() => toolNavs.value.filter((n) => n.name !== 'status'));
+/**
+ * 第二十四轮: 某些角色（物业 property / 财务 finance）主区无任何可见项，手机底栏
+ * 若仍只显示「更多」会出现一个按钮占满整行。main 为空时把 sideToolNavs 直接铺到底栏，
+ * 「更多」保留（主题 / 退出仍在里面）。
+ */
+const mainEmpty = computed(() => mainNavs.value.length === 0);
 
 /**
  * 手机竖屏: 底栏只放 main (6 个) + 一个「更多」, tools 收进抽屉。
@@ -399,7 +405,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
           v-for="item in sideToolNavs"
           :key="item.name"
           class="v2-nav-item v2-nav-tool"
-          :class="{ 'is-active': route.name === item.name }"
+          :class="{ 'is-active': route.name === item.name, 'v2-nav-bottom': mainEmpty }"
           :title="item.label"
           @click="go(item.name)"
           @pointerenter="prefetchRoute(item.name)"
@@ -1122,6 +1128,8 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
 @media (max-width: 600px) {
   /* 手机竖屏: tools 收进「更多」, 底栏只剩 main(6) + 更多 = 7 个槽 -> 每个 55px, 达标 */
   .v2-nav-tool { display: none; }
+  /* 第二十四轮: main 为空 (物业/财务) 时 tools 直出底栏, 不让「更多」一个按钮占满整行 */
+  .v2-nav-tool.v2-nav-bottom { display: flex; }
   .v2-nav-more { display: flex; }
 
   .v2-shell {

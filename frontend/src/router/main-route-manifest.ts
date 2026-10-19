@@ -116,7 +116,9 @@ export const mainRouteManifest = [
     // 保留在后台 /admin/energy，由 energy:ledger 控制。
     path: 'energy', name: 'energy', load: () => import('@/pages/EnergyPage.vue'),
     permission: 'energy:view',
-    navigation: { label: '水电', section: 'main' }, prefetchOnIdle: true,
+    // 2026-10-19 第二十四轮：水电从主底栏收进「更多」(section tools)。admin 手机底栏原 main 8 项
+    // 塞满（每个 <44pt 触摸下限），水电移入更多抽屉；桌面侧栏随之列于分隔线之后。
+    navigation: { label: '水电', section: 'tools' }, prefetchOnIdle: true,
     prefetchApis: ['/em123/overview', '/em123/tree?type=E'],
   },
   {

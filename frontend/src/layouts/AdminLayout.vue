@@ -612,12 +612,16 @@ async function exitToFront(): Promise<void> {
   .version { display: none; }
 }
 
-/* ============ 手机 (≤600px): 侧栏变抽屉 ============
+/* ============ 手机 (≤600px 竖屏 / 601-900px 且 ≤500px 横屏): 侧栏变抽屉 ============
  * Sprint H2 2026-05-31: 业主可能用手机进后台
  * 模式: 默认隐藏 → 点汉堡按钮唤出 → 点 mask 或菜单项关闭
+ * 第二十四轮: 手机横屏 (宽 601-900、高 ≤500) 也走抽屉 — 否则 collapsed 残留会让
+ * 侧栏只显示 64px 图标列、标题消失, 而展开按钮在矮 header 里不显眼。
  */
-@media (max-width: 600px) {
-  .admin {
+@media (max-width: 600px), (max-width: 900px) and (max-height: 500px) {
+  /* 手机横屏 collapsed 残留时, 用同等特异性把 grid 压回单列 (覆盖 .admin.collapsed 64px) */
+  .admin,
+  .admin.collapsed {
     grid-template-columns: 1fr;
   }
   .hamburger {
@@ -648,6 +652,26 @@ async function exitToFront(): Promise<void> {
   .admin.sidebar-open .side {
     transform: translateX(0);
   }
+  /* 手机横屏 collapsed 残留: 撤销图标栏 (min-width:601 块) 的压缩, 让抽屉完整呈现。
+     用 .admin.collapsed 前缀提高特异性, 覆盖原 collapsed 规则; 分组折叠仍由
+     .section-items.collapsed 控制。 */
+  .admin.collapsed .brand { justify-content: flex-start; padding: 16px 18px; }
+  .admin.collapsed .brand-text { display: block; }
+  .admin.collapsed .menu { gap: 3px; padding: 6px 10px; }
+  .admin.collapsed .menu-section {
+    height: auto; font-size: inherit; padding: 10px 12px 4px; overflow: visible;
+    margin: 0; background: transparent; letter-spacing: normal;
+  }
+  .admin.collapsed .menu-section:first-child { display: block; padding-top: 4px; }
+  .admin.collapsed .section-label,
+  .admin.collapsed .section-chev { display: inline-flex; }
+  .admin.collapsed .section-items { max-height: 700px; }
+  .admin.collapsed .section-items.collapsed { max-height: 0; }
+  .admin.collapsed .menu-item { justify-content: flex-start; padding: 10px 12px; font-size: 14px; }
+  .admin.collapsed .menu-item .lbl { display: inline; }
+  .admin.collapsed .menu-item.is-active::before { left: -10px; height: 24px; }
+  .admin.collapsed .footer { padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
+  .admin.collapsed .footer .back { gap: 8px; font-size: inherit; padding: 10px 0; }
   /* 手机抽屉行距 (2026-07-30 业主嫌窄放宽 → 07-31 复评"又太大, 超出手机整屏"):
      第三版取中 — 行高 ~38px (仍高于 36px 触摸底线), 13 项 + 4 分组 + 品牌 +
      底按钮合计 ~780px, 常见手机 (812px+) 一屏装下。只影响 ≤600px 抽屉。 */

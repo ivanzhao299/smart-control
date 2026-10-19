@@ -32,7 +32,8 @@ test('main PWA manifest preserves every route and navigation entry exactly once'
   assert.deepEqual(Array.from(navigation, item => `${item.section}:${item.name}:${item.label}`), [
     'main:dashboard:首页', 'main:lighting:灯光', 'main:led:LED 大屏',
     'main:projector:投影仪', 'main:audio:音响', 'main:hvac:空调',
-    'main:power:电源', 'main:energy:水电', 'tools:media:媒体', 'tools:status:状态', 'tools:barrier:道闸',
+    'main:power:电源',
+    'tools:energy:水电', 'tools:media:媒体', 'tools:status:状态', 'tools:barrier:道闸',
   ]);
   assert.ok(navigation.every(item => routeNames.includes(item.name)));
 });
