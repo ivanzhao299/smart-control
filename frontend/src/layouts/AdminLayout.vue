@@ -198,6 +198,17 @@ async function exitToFront(): Promise<void> {
           <div class="title">{{ branding.systemName }}</div>
           <div class="sub">后台管理 · {{ roleLabel }}</div>
         </div>
+        <!-- 抽屉内关闭按钮: 抽屉打开后, header 的 hamburger/X 被 fixed 侧栏遮住,
+             在抽屉内直接给一个可见的关闭入口 (仅抽屉模式显示) -->
+        <button
+          type="button"
+          class="drawer-close"
+          aria-label="关闭菜单"
+          title="关闭菜单"
+          @click="closeSidebar"
+        >
+          <X :size="20" :stroke-width="2" />
+        </button>
       </div>
       <nav class="menu">
         <template v-for="g in groups" :key="g.section">
@@ -385,6 +396,29 @@ async function exitToFront(): Promise<void> {
   font-size: 13px; color: var(--v2-text-3);
   margin-top: 2px; letter-spacing: 1px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* 抽屉内嵌关闭按钮: 桌面/平板默认隐藏, 仅抽屉媒体查询里显示 */
+.drawer-close {
+  display: none;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--v2-text-2);
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.drawer-close:hover {
+  background: var(--v2-surf-1-hover);
+  color: var(--v2-text-1);
+}
+.drawer-close:active {
+  background: var(--v2-surf-1);
 }
 
 .menu {
@@ -615,10 +649,13 @@ async function exitToFront(): Promise<void> {
 /* ============ 手机 (≤600px 竖屏 / 601-900px 且 ≤500px 横屏): 侧栏变抽屉 ============
  * Sprint H2 2026-05-31: 业主可能用手机进后台
  * 模式: 默认隐藏 → 点汉堡按钮唤出 → 点 mask 或菜单项关闭
- * 第二十四轮: 手机横屏 (宽 601-900、高 ≤500) 也走抽屉 — 否则 collapsed 残留会让
+ * 第二十四轮: 手机横屏 (高 ≤500) 也走抽屉 — 否则 collapsed 残留会让
  * 侧栏只显示 64px 图标列、标题消失, 而展开按钮在矮 header 里不显眼。
+ * 第二十五轮: 横屏条件改为不依赖宽度上限 (orientation:landscape + max-height:500),
+ * 覆盖 iPhone 16 Pro Max 横屏 (956 宽, 原 max-width:900 漏覆盖 → 走 min-width:601
+ * 把 brand 居中、标题隐藏, 旋转竖屏后 iOS 可能不重排)。
  */
-@media (max-width: 600px), (max-width: 900px) and (max-height: 500px) {
+@media (max-width: 600px), (orientation: landscape) and (max-height: 500px) {
   /* 手机横屏 collapsed 残留时, 用同等特异性把 grid 压回单列 (覆盖 .admin.collapsed 64px) */
   .admin,
   .admin.collapsed {
@@ -652,6 +689,13 @@ async function exitToFront(): Promise<void> {
   .admin.sidebar-open .side {
     transform: translateX(0);
   }
+  /* 抽屉模式: 无论 collapsed 状态如何, 无条件让 brand 左对齐、标题显示
+     (双保险 — 防止横屏旋转后 iOS 布局视口/brand 状态卡住)。.admin .brand 特异性
+     (0,2,0) 与 .collapsed .brand 同级, 但此媒体查询与 min-width:601 互斥。 */
+  .admin .brand { justify-content: flex-start; padding: 16px 18px; gap: 12px; }
+  .admin .brand-text { display: block; }
+  /* 抽屉内嵌关闭按钮可见 */
+  .admin .drawer-close { display: inline-flex; }
   /* 手机横屏 collapsed 残留: 撤销图标栏 (min-width:601 块) 的压缩, 让抽屉完整呈现。
      用 .admin.collapsed 前缀提高特异性, 覆盖原 collapsed 规则; 分组折叠仍由
      .section-items.collapsed 控制。 */
