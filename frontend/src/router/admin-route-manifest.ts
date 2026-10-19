@@ -82,7 +82,7 @@ export const adminRouteManifest = [
   },
   {
     path: 'energy', name: 'admin-energy', load: () => import('@/pages/admin/EnergyAdmin.vue'),
-    module: 'energy', navigation: { label: '能源管理', section: '能源', order: 0 }, prefetchOnIdle: true,
+    module: 'energy', navigation: { label: '能源台账', section: '能源', order: 0 }, prefetchOnIdle: true,
   },
   {
     // 2026-10-16：自动开关/定时通断归入 power-timing，hardware 唯一保留写权限（调设备时间）。

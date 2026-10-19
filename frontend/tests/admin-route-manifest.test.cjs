@@ -54,7 +54,7 @@ test('admin navigation groups and deep links resolve from the route manifest', (
   )), [
     '总览:admin-monitor:运维监控,admin-alerts:报警中心,admin-park-ops-metrics:运营数据',
     '场景与控制:admin-scenes:场景管理,admin-scheduler:定时任务,admin-lpr:车牌道闸',
-    '能源:admin-energy:能源管理,admin-auto-switch:自动开关',
+    '能源:admin-energy:能源台账,admin-auto-switch:自动开关',
     '设备与空间:admin-hardware:硬件清单,admin-devices:设备管理,admin-zones-config:分区配置,admin-video-binding:视频绑定',
     '诊断:admin-logs:日志中心,admin-test-center:测试 / 调试',
     '系统:admin-settings:系统设置,admin-users:用户管理,admin-roles:角色管理,admin-system-branding:系统品牌,admin-app-release:APP 版本,admin-testflight:iOS 测试',

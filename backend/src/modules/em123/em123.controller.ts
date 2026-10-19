@@ -11,9 +11,9 @@ import {
 import type { Response } from 'express';
 import { Public } from '../../common/decorators/public.decorator';
 import { ModuleAccess } from '../../common/decorators/module-access.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { RolesGuard } from '../../common/guards/roles.guard';
+import { PermissionGuard } from '../../common/guards/permission.guard';
 import { Em123Service } from './em123.service';
 
 /**
@@ -23,12 +23,12 @@ import { Em123Service } from './em123.service';
  * - GET /api/em123/overview   @Public  电/水汇总、总表 vs 分表对比、分区/楼栋排行、趋势。
  * - GET /api/em123/tree?type=E|W  @Public  分区→楼栋/区域→逐表下钻。
  *
- * 一期 PWA 能源管理后台 (含户名/金额/操作员等敏感运营数据, 仅 admin):
- * - GET  /api/em123/arrears?type=E|W      欠费户清单 + 关口总表透支(两个口径分开)。
- * - GET  /api/em123/charges               缴费流水分页(方式/状态/时间/关键字)。
- * - GET  /api/em123/control-records       控制记录分页(只读留痕)。
- * - GET  /api/em123/export?kind=…         一键导出平台真实 xlsx(后端两步代理)。
- * - POST /api/em123/readout               只读召测(仅触发一次抄表, 不改状态)。
+ * PWA 水电管理平台 (前台, 含户名/金额等运营数据, 按原子权限点放行; 物业角色可查/可导出):
+ * - GET  /api/em123/arrears?type=E|W      欠费户清单 + 关口总表透支  [energy:detail]。
+ * - GET  /api/em123/charges               缴费流水分页               [energy:detail]。
+ * - GET  /api/em123/control-records       控制记录分页(只读留痕)     [energy:detail]。
+ * - GET  /api/em123/export?kind=…         一键导出平台真实 xlsx       [energy:export]。
+ * - POST /api/em123/readout               只读召测(仅触发一次抄表)    [energy:readout]。
  *
  * 手动同步:
  * - POST /api/em123/sync       管理员   手动触发拉取。
@@ -52,12 +52,12 @@ export class Em123Controller {
     return { message: '查询成功', data: await this.service.getTree(t) };
   }
 
-  // ==================== 一期 PWA 能源管理后台 (仅 admin) ====================
+  // ==================== PWA 水电管理平台（按原子权限点放行） ====================
 
   /** 欠费/透支明细: ?type=E|W。 */
   @Get('arrears')
-  @UseGuards(RolesGuard)
-  @Roles('admin')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('energy:detail')
   async arrears(@Query('type') type?: string) {
     const t = type === 'W' ? 'W' : 'E';
     return { message: '查询成功', data: await this.service.getArrears(t) };
@@ -65,24 +65,24 @@ export class Em123Controller {
 
   /** 缴费流水分页查询 (透传平台字段, 实时代理)。 */
   @Get('charges')
-  @UseGuards(RolesGuard)
-  @Roles('admin')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('energy:detail')
   async charges(@Query() q: Record<string, string>) {
     return { message: '查询成功', data: await this.service.listCharges(q ?? {}) };
   }
 
   /** 控制记录分页查询 (只读留痕)。 */
   @Get('control-records')
-  @UseGuards(RolesGuard)
-  @Roles('admin')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('energy:detail')
   async controlRecords(@Query() q: Record<string, string>) {
     return { message: '查询成功', data: await this.service.listControlRecords(q ?? {}) };
   }
 
   /** 一键导出真实 xlsx: kind=meter|charge|usage。 */
   @Get('export')
-  @UseGuards(RolesGuard)
-  @Roles('admin')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('energy:export')
   async exportXlsx(
     @Query() q: Record<string, string>,
     @Res() res: Response,
@@ -106,8 +106,8 @@ export class Em123Controller {
 
   /** 只读召测: body { meterNo, type: 'E'|'W' }, 仅触发一次抄表, 不改开关/状态。 */
   @Post('readout')
-  @UseGuards(RolesGuard)
-  @Roles('admin')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('energy:readout')
   async readout(@Body() body: { meterNo?: string; type?: 'E' | 'W' }) {
     const meterNo = String(body?.meterNo ?? '').trim();
     if (!meterNo) throw new BadRequestException('meterNo 不能为空');

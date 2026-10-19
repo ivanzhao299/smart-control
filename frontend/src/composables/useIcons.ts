@@ -36,6 +36,7 @@ import {
   SlidersHorizontal,
   Rocket,
   PlugZap,
+  Droplet,
   type LucideIcon, Projector } from 'lucide-vue-next';
 
 /** 平板侧边导航 */
@@ -47,6 +48,7 @@ export const NAV_ICON: Record<string, LucideIcon> = {
   audio: Volume2,
   hvac: Snowflake,
   power: Zap,
+  energy: Droplet,
   media: FolderOpen,
   status: Radio,
   barrier: CarFront,

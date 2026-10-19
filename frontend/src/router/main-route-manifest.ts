@@ -102,6 +102,17 @@ export const mainRouteManifest = [
     prefetchApis: ['/power-circuits'],
   },
   {
+    // 水电管理平台（前台 PWA，P4 从后台搬来）：admin 全通；物业（自定义角色）按
+    // energy:view 权限点放行，可见总览/逐表明细/缴费/欠费/控制记录、可导出 Excel。
+    // 不写 roles 白名单 -> 内置非 admin 角色（operator/viewer/hardware/config）不可见；
+    // 召测 energy:readout 物业无（页面内按钮自动隐藏）。园区台账（变压器/楼栋配置）
+    // 保留在后台 /admin/energy，由 energy:ledger 控制。
+    path: 'energy', name: 'energy', load: () => import('@/pages/EnergyPage.vue'),
+    permission: 'energy:view',
+    navigation: { label: '水电', section: 'main' }, prefetchOnIdle: true,
+    prefetchApis: ['/em123/overview', '/em123/tree?type=E'],
+  },
+  {
     // 媒体库：operator 保留上传素材 + 改文件名。
     path: 'media', name: 'media', load: () => import('@/pages/MediaPage.vue'),
     roles: ['admin', 'operator', 'viewer'],
