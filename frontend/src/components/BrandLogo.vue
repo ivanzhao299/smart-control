@@ -88,6 +88,14 @@ const showImage = computed<boolean>(() => props.useImage && !imageBroken.value);
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* 2026-10-19 修真机抽屉标题消失: 容器原本宽度 auto、依赖 img 固有尺寸,
+     iOS WebKit 在抽屉(横屏旋转)重排后, 把 flex-basis 算成图片自然宽度
+     (logoUrl data URL 为 256), 超出可用空间; 压缩后容器撑到 ~180, 把
+     brand-text 挤到 0 → 标题消失, 且 img 在宽框里居中(看着像 logo 居中)。
+     aspect-ratio:1 让宽度严格跟随 height(prop), flex:0 0 auto 不参与伸缩,
+     容器尺寸恒定为 height×height。显式传 width 时内联宽度优先(精确控制)。 */
+  aspect-ratio: 1;
+  flex: 0 0 auto;
 }
 
 .logo-img {
