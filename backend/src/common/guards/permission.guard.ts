@@ -68,7 +68,8 @@ export class PermissionGuard implements CanActivate {
     if (!actor) throw new UnauthorizedException('未登录或登录已过期，请重新登录');
 
     const permService = this.moduleRef.get(PermissionService, { strict: false });
-    const allowed = permService && required.some((code) => permService.hasPermission(actor!.role, code));
+    // 第二十一轮：用户级权限覆盖生效——个人 deny 优先于 grant，再回退角色权限。
+    const allowed = permService && required.some((code) => permService.hasUserPermission(actor!.userId, actor!.role, code));
     if (!allowed) {
       throw new ForbiddenException('当前角色无权执行该操作（缺少权限点）');
     }

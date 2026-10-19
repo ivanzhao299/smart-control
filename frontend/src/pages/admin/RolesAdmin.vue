@@ -35,7 +35,53 @@ const isLocked = computed(() => !!editing.value?.isLocked);
 /** 内置角色（非 admin）：仅可停用/启用，其余只读。 */
 const isBuiltin = computed(() => !!editing.value?.isBuiltin);
 const basicReadonly = computed(() => isLocked.value || isBuiltin.value);
-const permReadonly = computed(() => isLocked.value || isBuiltin.value);
+// 第二十一轮：仅 admin 锁权限点；其余内置角色可勾选权限点（名称/登录方向仍由 basicReadonly 锁）。
+const permReadonly = computed(() => isLocked.value);
+
+// 打开编辑时记录的"原始权限"与"该角色用户数"（保存前 diff 与影响人数提示用）。
+const originalPerms = ref<string[]>([]);
+const affectedUserCount = ref(0);
+
+/** 内置角色默认权限集映射（来自 catalog.roles）。 */
+const defaultPermsMap = computed<Map<string, Set<string>>>(() =>
+  new Map((catalog.value?.roles ?? []).map((r) => [r.code, new Set(r.defaultPermissions)])),
+);
+function defaultPerms(code: string): Set<string> {
+  return defaultPermsMap.value.get(code) ?? new Set();
+}
+
+/** 当前权限相对默认集的状态：默认/人工新增/人工移除（仅内置角色标色）。 */
+type PermDelta = 'default' | 'added' | 'removed';
+function permDelta(code: string): PermDelta {
+  if (!isBuiltin.value) return 'default';
+  const inDefault = defaultPerms(editing.value?.code ?? '').has(code);
+  const has = form.value.permissions.includes(code);
+  if (has && !inDefault) return 'added';
+  if (!has && inDefault) return 'removed';
+  return 'default';
+}
+function permClass(code: string): string {
+  const d = permDelta(code);
+  return d === 'default' ? '' : `perm-${d}`;
+}
+
+/** 是否相对默认集有改动（控制"恢复默认"按钮显隐）。 */
+const isCustomized = computed(() => {
+  const code = editing.value?.code;
+  if (!code || !isBuiltin.value) return false;
+  const d = defaultPerms(code);
+  const cur = new Set(form.value.permissions);
+  if (cur.size !== d.size) return true;
+  for (const c of d) if (!cur.has(c)) return true;
+  return false;
+});
+
+/** 一键恢复该内置角色的默认权限集。 */
+function restoreDefault(): void {
+  const code = editing.value?.code;
+  if (!code) return;
+  form.value.permissions = [...defaultPerms(code)];
+}
 const dialogTitle = computed(() => {
   if (isNew.value) return '新建角色';
   if (isLocked.value) return `角色详情 · ${editing.value?.name ?? ''}`;
@@ -100,6 +146,8 @@ function openCreate(): void {
   resetForm();
   // 新建角色默认停用优先（用户拍板），管理员手动勾选启用。
   form.value.enabled = false;
+  originalPerms.value = [];
+  affectedUserCount.value = 0;
   dialogVisible.value = true;
 }
 
@@ -117,6 +165,8 @@ async function openEdit(row: RoleListRow): Promise<void> {
       enabled: detail.enabled,
       permissions: [...detail.permissions],
     };
+    originalPerms.value = [...detail.permissions];
+    affectedUserCount.value = row.userCount ?? detail.userCount ?? 0;
     activeGroups.value = sortedGroups.value.map((g) => g.code);
     dialogVisible.value = true;
   } catch (e) {
@@ -181,6 +231,24 @@ async function save(): Promise<void> {
       ElMessage.success('角色已创建');
     } else {
       const code = editing.value!.code;
+      // 相对"打开时"的权限 diff。
+      const original = new Set(originalPerms.value);
+      const current = new Set(form.value.permissions);
+      const added = [...current].filter((c) => !original.has(c));
+      const removed = [...original].filter((c) => !current.has(c));
+      const permChanged = added.length > 0 || removed.length > 0;
+
+      // 非 admin 且权限点有变化 → 先确认影响人数与 diff。
+      if (!permReadonly.value && permChanged) {
+        try {
+          await ElMessageBox.confirm(
+            `权限变更将影响该角色下 ${affectedUserCount.value} 个用户：新增 ${added.length} 项、移除 ${removed.length} 项。是否继续？`,
+            '确认权限变更',
+            { type: 'warning', confirmButtonText: '继续保存', cancelButtonText: '取消' },
+          );
+        } catch { return; }
+      }
+
       // 内置角色仅可改启用状态；自定义角色可改全部基本信息。
       if (!isBuiltin.value) {
         await roleService.update(code, {
@@ -193,7 +261,7 @@ async function save(): Promise<void> {
       } else {
         await roleService.update(code, { enabled: form.value.enabled });
       }
-      // 权限点（锁定/内置角色不允许改）。
+      // 权限点：仅 admin 锁定；非 admin 内置角色放开后也会保存。
       if (!permReadonly.value) {
         await roleService.replacePermissions(code, form.value.permissions);
       }
@@ -382,11 +450,23 @@ onMounted(loadAll);
           type="info"
           :closable="false"
           show-icon
-          title="内置角色的权限与登录方向由系统定义，仅可启用/停用。需要自定义时请使用「复制」创建新角色。"
+          title="岗位名称与登录方向保持系统定义；功能权限可在下方按权限点增减，可一键「恢复默认」，改动将影响该角色下所有用户。"
           class="perm-alert"
         />
 
-        <el-divider content-position="left">功能权限（按分组勾选）</el-divider>
+        <el-divider content-position="left">
+          <span>功能权限（按分组勾选）</span>
+          <el-button
+            v-if="isBuiltin && !isLocked && isCustomized"
+            link
+            type="warning"
+            size="small"
+            class="restore-btn"
+            @click="restoreDefault"
+          >
+            恢复默认
+          </el-button>
+        </el-divider>
         <el-collapse v-model="activeGroups" class="perm-collapse">
           <el-collapse-item
             v-for="g in sortedGroups"
@@ -412,9 +492,12 @@ onMounted(loadAll);
                 v-for="p in permsOfGroup(g.code)"
                 :key="p.code"
                 :value="p.code"
+                :class="permClass(p.code)"
               >
                 <span class="perm-label">{{ p.name }}</span>
                 <code class="perm-code">{{ p.code }}</code>
+                <span v-if="permDelta(p.code) === 'added'" class="delta-tag added">新增</span>
+                <span v-else-if="permDelta(p.code) === 'removed'" class="delta-tag removed">移除</span>
               </el-checkbox>
             </el-checkbox-group>
           </el-collapse-item>
@@ -520,6 +603,33 @@ onMounted(loadAll);
   padding: 1px 5px;
   border-radius: 4px;
   word-break: break-all;
+}
+.restore-btn {
+  margin-left: 12px;
+  vertical-align: middle;
+}
+.delta-tag {
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 16px;
+  padding: 0 6px;
+  border-radius: 4px;
+  margin-left: 2px;
+}
+.delta-tag.added {
+  color: var(--el-color-success);
+  background: var(--el-color-success-light-9);
+}
+.delta-tag.removed {
+  color: var(--el-color-danger);
+  background: var(--el-color-danger-light-9);
+}
+/* 人工新增 / 移除的权限点整体轻染色 */
+.perm-added :deep(.el-checkbox__label) {
+  color: var(--el-color-success-dark-2);
+}
+.perm-removed :deep(.el-checkbox__label) {
+  color: var(--el-color-danger-dark-2);
 }
 @media (max-width: 640px) {
   .form-grid {

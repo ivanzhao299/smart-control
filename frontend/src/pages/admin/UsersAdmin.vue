@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
-import { Users as UsersIcon, RefreshCw, Plus, Pencil, Trash2, Loader } from 'lucide-vue-next';
+import { Users as UsersIcon, RefreshCw, Plus, Pencil, Trash2, Loader, ShieldCheck } from 'lucide-vue-next';
 import {
   adminUserService,
   type UserCreatePayload,
   type UserUpdatePayload,
+  type UserPermissionDetail,
 } from '@/services/admin.service';
-import { roleService, type RoleListRow } from '@/services/role.service';
+import { roleService, type PermissionCatalog, type RoleListRow } from '@/services/role.service';
 import { usePermissionStore } from '@/stores/permission';
 import type { User } from '@/types/api';
 
@@ -186,6 +187,97 @@ async function remove(row: User): Promise<void> {
   }
 }
 
+// ================= 用户级权限覆盖（第二十一轮） =================
+const permDrawer = ref(false);
+const drawerUser = ref<User | null>(null);
+const drawerLoading = ref(false);
+const drawerSaving = ref(false);
+const catalog = ref<PermissionCatalog | null>(null);
+const drawerDetail = ref<UserPermissionDetail | null>(null);
+/** 本地编辑态：permissionCode → grant / deny；不在 Map 中即跟随角色。 */
+const stateMap = reactive(new Map<string, 'grant' | 'deny'>());
+const SENSITIVE_PERMS = new Set(['user:manage', 'role:manage', 'system:settings']);
+
+async function ensureCatalog(): Promise<void> {
+  if (!catalog.value) catalog.value = await roleService.catalog();
+}
+const drawerGroups = computed(() => [...(catalog.value?.groups ?? [])].sort((a, b) => a.sort - b.sort));
+const drawerActive = ref<string[]>([]);
+function drawerPermsOf(groupCode: string) {
+  return (catalog.value?.permissions ?? [])
+    .filter((p) => p.group === groupCode)
+    .sort((a, b) => a.sort - b.sort);
+}
+function baselineHas(code: string): boolean {
+  return drawerDetail.value?.rolePermissions.includes(code) ?? false;
+}
+function stateOf(code: string): 'inherit' | 'grant' | 'deny' {
+  return stateMap.get(code) ?? 'inherit';
+}
+function setState(code: string, s: 'inherit' | 'grant' | 'deny'): void {
+  if (s === 'grant' && SENSITIVE_PERMS.has(code)) {
+    ElMessage.warning('该权限为系统级权限，授予后该用户可管理用户/角色或系统设置，请谨慎。');
+  }
+  if (s === 'inherit') stateMap.delete(code);
+  else stateMap.set(code, s);
+}
+/** 实时计算最终有效权限（角色基线 ∪ grant − deny）。 */
+const effectiveSet = computed<Set<string>>(() => {
+  const base = new Set(drawerDetail.value?.rolePermissions ?? []);
+  for (const [code, s] of stateMap) {
+    if (s === 'grant') base.add(code);
+    else if (s === 'deny') base.delete(code);
+  }
+  return base;
+});
+const effectiveCount = computed(() => effectiveSet.value.size);
+const hasOverride = computed(() => stateMap.size > 0);
+function resetAll(): void {
+  stateMap.clear();
+}
+
+async function openPermissions(row: User): Promise<void> {
+  if (!perm.canEdit) { ElMessage.warning('当前角色无权限'); return; }
+  drawerUser.value = row;
+  permDrawer.value = true;
+  drawerLoading.value = true;
+  stateMap.clear();
+  drawerDetail.value = null;
+  try {
+    await ensureCatalog();
+    drawerActive.value = drawerGroups.value.map((g) => g.code);
+    drawerDetail.value = await adminUserService.getUserPermissions(row.id);
+    for (const code of drawerDetail.value.grants) stateMap.set(code, 'grant');
+    for (const code of drawerDetail.value.denies) stateMap.set(code, 'deny');
+  } catch (e) {
+    ElMessage.error('加载权限失败: ' + (e as Error).message);
+  } finally {
+    drawerLoading.value = false;
+  }
+}
+
+async function savePermissions(): Promise<void> {
+  const user = drawerUser.value;
+  if (!user) return;
+  const grants: string[] = [];
+  const denies: string[] = [];
+  for (const [code, s] of stateMap) {
+    if (s === 'grant') grants.push(code);
+    else if (s === 'deny') denies.push(code);
+  }
+  drawerSaving.value = true;
+  try {
+    await adminUserService.saveUserPermissions(user.id, grants, denies);
+    ElMessage.success('权限已保存');
+    permDrawer.value = false;
+    await refresh();
+  } catch (e) {
+    ElMessage.error('保存失败: ' + (e as Error).message);
+  } finally {
+    drawerSaving.value = false;
+  }
+}
+
 onMounted(refresh);
 </script>
 
@@ -228,8 +320,11 @@ onMounted(refresh);
       <el-table-column label="创建时间" width="180">
         <template #default="{ row }"><span class="sub-mono">{{ new Date(row.createdAt).toLocaleString('zh-CN', { hour12: false }) }}</span></template>
       </el-table-column>
-      <el-table-column label="操作" width="180" fixed="right" align="right">
+      <el-table-column label="操作" width="250" fixed="right" align="right">
         <template #default="{ row }">
+          <button class="row-btn" @click="openPermissions(row)" :disabled="!perm.canEdit || row.role === 'admin'">
+            <ShieldCheck :size="13" :stroke-width="2" /> 权限
+          </button>
           <button class="row-btn" @click="openEdit(row)" :disabled="!perm.canEdit">
             <Pencil :size="13" :stroke-width="2" /> 编辑
           </button>
@@ -280,6 +375,72 @@ onMounted(refresh);
         <el-button type="primary" @click="submit">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-drawer
+      v-model="permDrawer"
+      :title="`用户权限 · ${drawerUser?.username ?? ''}`"
+      size="min(580px, 96vw)"
+      destroy-on-close
+    >
+      <div v-loading="drawerLoading" class="perm-drawer-body">
+        <template v-if="drawerDetail">
+          <div class="drawer-summary">
+            <div class="ds-item">
+              <span class="ds-label">角色基线</span>
+              <strong>{{ drawerDetail.roleName }}</strong>
+              <span class="ds-count">{{ drawerDetail.rolePermissions.length }} 项</span>
+            </div>
+            <div class="ds-item">
+              <span class="ds-label">最终有效权限</span>
+              <strong class="ds-eff">{{ effectiveCount }} 项</strong>
+            </div>
+            <el-button v-if="hasOverride" size="small" @click="resetAll">全部重置为跟随角色</el-button>
+          </div>
+          <el-alert
+            type="info"
+            :closable="false"
+            show-icon
+            class="drawer-tip"
+            title="「跟随角色」取该用户角色的权限；「额外开通」在角色之外临时授予；「临时关闭」在角色权限中临时收回。个人覆盖优先于角色，admin 不适用。"
+          />
+
+          <el-collapse v-model="drawerActive" class="drawer-collapse">
+            <el-collapse-item v-for="g in drawerGroups" :key="g.code" :name="g.code">
+              <template #title>
+                <span class="group-title">{{ g.name }}</span>
+              </template>
+              <div
+                v-for="p in drawerPermsOf(g.code)"
+                :key="p.code"
+                class="perm-row"
+                :class="{ 'is-on': effectiveSet.has(p.code) }"
+              >
+                <div class="perm-row-head">
+                  <span class="perm-row-name">{{ p.name }}</span>
+                  <code class="perm-row-code">{{ p.code }}</code>
+                </div>
+                <el-radio-group
+                  :model-value="stateOf(p.code)"
+                  size="small"
+                  class="perm-state"
+                  @change="(v: 'inherit' | 'grant' | 'deny') => setState(p.code, v)"
+                >
+                  <el-radio-button value="inherit">跟随角色（{{ baselineHas(p.code) ? '有' : '无' }}）</el-radio-button>
+                  <el-radio-button value="grant" :disabled="baselineHas(p.code)">额外开通</el-radio-button>
+                  <el-radio-button value="deny" :disabled="!baselineHas(p.code)">临时关闭</el-radio-button>
+                </el-radio-group>
+              </div>
+            </el-collapse-item>
+          </el-collapse>
+        </template>
+      </div>
+      <template #footer>
+        <el-button @click="permDrawer = false">关闭</el-button>
+        <el-button type="primary" :loading="drawerSaving" :disabled="!drawerDetail" @click="savePermissions">
+          保存权限
+        </el-button>
+      </template>
+    </el-drawer>
   </section>
 </template>
 
@@ -312,4 +473,38 @@ onMounted(refresh);
 
 .spin { animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* 用户权限抽屉 */
+.perm-drawer-body { display: flex; flex-direction: column; gap: 12px; }
+.drawer-summary {
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  padding: 12px 14px; border: 1px solid var(--border-soft); border-radius: 8px;
+  background: var(--bg-elevated);
+}
+.ds-item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.ds-label { color: var(--text-secondary); }
+.ds-count { font-size: 12px; color: var(--text-secondary); }
+.ds-eff { color: var(--el-color-primary); }
+.drawer-tip { margin: 0; }
+.drawer-collapse .group-title { font-weight: 600; }
+.perm-row {
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.perm-row.is-on { border-color: var(--el-color-primary-light-5); }
+.perm-row-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.perm-row-name { font-size: 13px; font-weight: 500; }
+.perm-row-code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px; color: var(--text-secondary);
+  background: var(--bg-elevated); border: 1px solid var(--border-soft);
+  padding: 1px 5px; border-radius: 4px;
+}
+.perm-state { display: flex; flex-wrap: wrap; }
+@media (max-width: 560px) {
+  .perm-state :deep(.el-radio-button__inner) { padding: 7px 9px; font-size: 12px; }
+}
 </style>

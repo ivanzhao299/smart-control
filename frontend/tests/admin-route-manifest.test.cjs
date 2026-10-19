@@ -99,10 +99,20 @@ test('router and layout consume admin route metadata without duplicate page list
 });
 
 test('idle prefetch names are manifest-backed and loadable', () => {
-  assert.deepEqual(Array.from(moduleExports.idleAdminRouteNames), [
-    'admin-monitor', 'admin-devices', 'admin-scenes', 'admin-energy', 'admin-lpr', 'admin-logs',
-    'admin-hardware', 'admin-zones-config', 'admin-app-release', 'admin-settings',
-  ]);
+  // 第二十一轮：全菜单页预取（消除首次切页 chunk 延迟）。名单与 manifest 中
+  // prefetchOnIdle 保持单一事实来源，避免改 manifest 后硬编码失配。
+  // Array.from 先把 vm context 里的 manifest 转成主 realm 数组，避免跨 realm 原型失配。
+  const expected = Array.from(moduleExports.adminRouteManifest)
+    .filter(route => 'prefetchOnIdle' in route && route.prefetchOnIdle)
+    .map(route => route.name);
+  assert.deepEqual(Array.from(moduleExports.idleAdminRouteNames), expected);
+  // 每个可见菜单页都应被预取（这是本轮"全菜单预取"的设计目标）。
+  const visibleMenuRoutes = Array.from(moduleExports.adminRouteManifest)
+    .filter(route => 'navigation' in route && route.navigation)
+    .map(route => route.name);
+  for (const name of visibleMenuRoutes) {
+    assert.ok(expected.includes(name), `菜单页 ${name} 应开启 idle 预取`);
+  }
   for (const name of moduleExports.idleAdminRouteNames) {
     assert.equal(typeof moduleExports.adminRouteManifest.find(route => route.name === name)?.load, 'function');
   }

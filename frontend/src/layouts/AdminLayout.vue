@@ -131,16 +131,27 @@ function initSections(): void {
 }
 initSections();
 
-// 进了后台后, idle 时预取各分组主页面 chunk, 切页不等下载 (只在后台触发, 不拖累客户端平板)
+// 进了后台后, idle 时分批预取"当前角色可访问"的菜单页 chunk, 切页不等下载。
+// 按角色过滤: 非 admin 不下载 users/roles 等进不去的 chunk; 分批(每批3)让出主线程,
+// 避免一次性并发预取在弱网下抢占带宽。只在后台触发, 不拖累客户端平板。
 onMounted(() => {
   const ric =
     (window as Window & { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback ??
     ((cb: () => void) => window.setTimeout(cb, 1200));
-  ric(() => {
-    for (const name of idleAdminRouteNames) {
+  const names = idleAdminRouteNames.filter(
+    (name) => canAccessAdminRouteByPerms(name, perm.role, perm.permissions),
+  );
+  const BATCH = 3;
+  let cursor = 0;
+  const step = (): void => {
+    const batch = names.slice(cursor, cursor + BATCH);
+    cursor += BATCH;
+    for (const name of batch) {
       void loadAdminRoute(name)?.catch(() => undefined);
     }
-  });
+    if (cursor < names.length) ric(step);
+  };
+  ric(step);
 });
 
 function go(name: string): void {
@@ -540,8 +551,24 @@ async function exitToFront(): Promise<void> {
 }
 
 .content {
-  flex: 1; overflow: auto;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* 滚动条槽位恒定：不同页面高度不同，滚动条出现/消失不再改变内容宽度，消除横向抖动。 */
+  scrollbar-gutter: stable;
   padding: var(--v2-sp-5);
+  box-sizing: border-box;
+  /* 纵向弹性：让页面根元素至少撑满一屏，空态/loading 不会把高度压低，减少纵向跳动。 */
+  display: flex;
+  flex-direction: column;
+}
+.content > * {
+  flex: 1 0 auto;
+  min-width: 0;
+}
+/* 不支持 scrollbar-gutter 的旧浏览器：始终显示纵向滚动条，同样保证宽度恒定。 */
+@supports not (scrollbar-gutter: stable) {
+  .content { overflow-y: scroll; }
 }
 
 /* A short fade keeps navigation calm and avoids content movement. */

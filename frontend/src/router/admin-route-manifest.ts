@@ -62,7 +62,7 @@ export const adminRouteManifest = [
   },
   {
     path: 'alerts', name: 'admin-alerts', load: () => import('@/pages/admin/AlertsAdmin.vue'),
-    module: 'alerts', navigation: { label: '报警中心', section: '总览', order: 1 },
+    module: 'alerts', navigation: { label: '报警中心', section: '总览', order: 1 }, prefetchOnIdle: true,
   },
   {
     path: 'devices', name: 'admin-devices', load: () => import('@/pages/admin/DevicesAdmin.vue'),
@@ -78,7 +78,7 @@ export const adminRouteManifest = [
   },
   {
     path: 'scheduler', name: 'admin-scheduler', load: () => import('@/pages/admin/SchedulerAdmin.vue'),
-    module: 'scheduler', navigation: { label: '定时任务', section: '场景与控制', order: 1 },
+    module: 'scheduler', navigation: { label: '定时任务', section: '场景与控制', order: 1 }, prefetchOnIdle: true,
   },
   {
     path: 'energy', name: 'admin-energy', load: () => import('@/pages/admin/EnergyAdmin.vue'),
@@ -87,7 +87,7 @@ export const adminRouteManifest = [
   {
     // 2026-10-16：自动开关/定时通断归入 power-timing，hardware 唯一保留写权限（调设备时间）。
     path: 'auto-switch', name: 'admin-auto-switch', load: () => import('@/pages/admin/AutoSwitchAdmin.vue'),
-    module: 'power-timing', navigation: { label: '自动开关', section: '能源', order: 1 },
+    module: 'power-timing', navigation: { label: '自动开关', section: '能源', order: 1 }, prefetchOnIdle: true,
   },
   {
     path: 'scene-executions', name: 'admin-scene-executions', load: () => import('@/pages/admin/SceneExecutionsAdmin.vue'),
@@ -95,7 +95,7 @@ export const adminRouteManifest = [
   },
   {
     path: 'test-center', name: 'admin-test-center', load: () => import('@/pages/admin/TestCenterAdmin.vue'),
-    module: 'uat', navigation: { label: '测试 / 调试', section: '诊断', order: 1 },
+    module: 'uat', navigation: { label: '测试 / 调试', section: '诊断', order: 1 }, prefetchOnIdle: true,
   },
   {
     path: 'debug', name: 'admin-debug', load: () => import('@/pages/admin/TestCenterAdmin.vue'),
@@ -103,7 +103,7 @@ export const adminRouteManifest = [
   },
   {
     path: 'video-binding', name: 'admin-video-binding', load: () => import('@/pages/admin/VideoBindingAdmin.vue'),
-    module: 'video', navigation: { label: '视频绑定', section: '设备与空间', order: 3 },
+    module: 'video', navigation: { label: '视频绑定', section: '设备与空间', order: 3 }, prefetchOnIdle: true,
   },
   {
     path: 'lpr', name: 'admin-lpr', load: () => import('@/pages/admin/LprAdmin.vue'),
@@ -149,7 +149,7 @@ export const adminRouteManifest = [
   },
   {
     path: 'testflight', name: 'admin-testflight', load: () => import('@/pages/admin/TestFlightAdmin.vue'),
-    module: 'system', navigation: { label: 'iOS 测试', section: '系统', order: 5 },
+    module: 'system', navigation: { label: 'iOS 测试', section: '系统', order: 5 }, prefetchOnIdle: true,
   },
   {
     path: 'drivers', name: 'admin-drivers', load: () => import('@/pages/admin/DriversAdmin.vue'),
@@ -161,7 +161,7 @@ export const adminRouteManifest = [
   },
   {
     path: 'system-branding', name: 'admin-system-branding', load: () => import('@/pages/admin/SystemBrandingAdmin.vue'),
-    module: 'branding', navigation: { label: '系统品牌', section: '系统', order: 3 },
+    module: 'branding', navigation: { label: '系统品牌', section: '系统', order: 3 }, prefetchOnIdle: true,
   },
   {
     path: 'audit', name: 'admin-audit', load: () => import('@/pages/admin/AuditAdmin.vue'),
@@ -169,12 +169,12 @@ export const adminRouteManifest = [
   },
   {
     path: 'users', name: 'admin-users', load: () => import('@/pages/admin/UsersAdmin.vue'),
-    module: 'system', navigation: { label: '用户管理', section: '系统', order: 1 },
+    module: 'system', navigation: { label: '用户管理', section: '系统', order: 1 }, prefetchOnIdle: true,
   },
   {
     // 动态 RBAC：管理员创建角色 + 按原子权限点勾选（仅 role:manage，当前仅 admin）。
     path: 'roles', name: 'admin-roles', load: () => import('@/pages/admin/RolesAdmin.vue'),
-    module: 'system', navigation: { label: '角色管理', section: '系统', order: 2 },
+    module: 'system', navigation: { label: '角色管理', section: '系统', order: 2 }, prefetchOnIdle: true,
   },
   {
     // 常规系统参数（仅 admin）。系统品牌 / APP 版本已拆为系统管理组内的独立菜单，
@@ -184,7 +184,7 @@ export const adminRouteManifest = [
   },
   {
     path: 'park-ops-metrics', name: 'admin-park-ops-metrics', load: () => import('@/pages/admin/ParkOpsMetricsAdmin.vue'),
-    module: 'metrics', navigation: { label: '运营数据', section: '总览', order: 2 },
+    module: 'metrics', navigation: { label: '运营数据', section: '总览', order: 2 }, prefetchOnIdle: true,
   },
 ] as const satisfies readonly AdminRouteDefinition[];
 

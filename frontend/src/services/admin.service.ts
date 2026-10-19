@@ -235,6 +235,18 @@ export interface UserUpdatePayload {
   enabled?: boolean;
 }
 
+/** 用户权限编辑详情（角色基线 + 个人 grant/deny + 最终有效）。 */
+export interface UserPermissionDetail {
+  userId: number;
+  username: string;
+  role: string;
+  roleName: string;
+  rolePermissions: string[];
+  grants: string[];
+  denies: string[];
+  effectivePermissions: string[];
+}
+
 export const adminUserService = {
   list: (params?: { keyword?: string; role?: string; enabled?: boolean }) =>
     api.get<Paged<User>>('/users', { params: { pageSize: 200, ...params } }),
@@ -242,6 +254,10 @@ export const adminUserService = {
   create: (body: UserCreatePayload) => api.post<User>('/users', body),
   update: (id: number, body: UserUpdatePayload) => api.put<User>(`/users/${id}`, body),
   remove: (id: number) => api.del<null>(`/users/${id}`),
+  getUserPermissions: (id: number) =>
+    api.get<UserPermissionDetail>(`/users/${id}/permissions`),
+  saveUserPermissions: (id: number, grants: string[], denies: string[]) =>
+    api.put<null>(`/users/${id}/permissions`, { grants, denies }),
 };
 
 /* ---------- Logs ---------- */

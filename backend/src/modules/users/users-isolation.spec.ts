@@ -16,7 +16,11 @@ describe('user management attribution and retention', () => {
     await new ProtectLastAdministrator1788618007000().up(db.createQueryRunner());
     log = { record: jest.fn(async () => undefined) };
     // 动态 RBAC：测试只用到内置角色，角色存在性校验一律放行。
-    const perm = { roleExistsEnabled: jest.fn(async () => true) };
+    const perm = {
+      roleExistsEnabled: jest.fn(async () => true),
+      // 第二十一轮：删除用户后幂等清理个人权限覆盖，失败不阻断删除。
+      clearUserOverrides: jest.fn(async () => undefined),
+    };
     service = new UsersService(db.getRepository(User), log, perm as any, { info: jest.fn() } as any);
     controller = new UsersController(service);
   });

@@ -13,6 +13,7 @@ import { Logger } from 'winston';
 import { Role } from '../../entities/role.entity';
 import { Permission } from '../../entities/permission.entity';
 import { RolePermission } from '../../entities/role-permission.entity';
+import { UserPermission } from '../../entities/user-permission.entity';
 import { User } from '../../entities/user.entity';
 import { OperationLogService } from '../logs/operation-log.service';
 import {
@@ -23,6 +24,7 @@ import {
   isFullAccessRole,
   isKnownPermission,
   defaultPermissionsForRole,
+  builtinRoleName,
 } from '../../common/auth/permission-catalog';
 
 export interface RoleMeta {
@@ -75,12 +77,15 @@ const CODE_RE = /^[a-z][a-z0-9_-]{1,31}$/;
 export class PermissionService implements OnModuleInit {
   private roleMeta = new Map<string, RoleMeta>();
   private grants = new Map<string, Set<string>>();
+  /** 用户级权限覆盖：userId → 个人 grant/deny 集合（第二十一轮）。 */
+  private userOverrides = new Map<number, { grants: Set<string>; denies: Set<string> }>();
   private loaded = false;
 
   constructor(
     @InjectRepository(Role) private readonly roleRepo: Repository<Role>,
     @InjectRepository(Permission) private readonly permissionRepo: Repository<Permission>,
     @InjectRepository(RolePermission) private readonly grantRepo: Repository<RolePermission>,
+    @InjectRepository(UserPermission) private readonly userPermissionRepo: Repository<UserPermission>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     private readonly ds: DataSource,
     private readonly logService: OperationLogService,
@@ -127,11 +132,12 @@ export class PermissionService implements OnModuleInit {
     }
   }
 
-  /** 从 DB 重建角色元数据与权限矩阵缓存。 */
+  /** 从 DB 重建角色元数据、角色权限矩阵与用户级覆盖缓存。 */
   async load(): Promise<void> {
-    const [roleRows, grantRows] = await Promise.all([
+    const [roleRows, grantRows, overrideRows] = await Promise.all([
       this.roleRepo.find(),
       this.grantRepo.find(),
+      this.userPermissionRepo.find(),
     ]);
     const meta = new Map<string, RoleMeta>();
     for (const r of roleRows) {
@@ -147,8 +153,16 @@ export class PermissionService implements OnModuleInit {
       if (!next.has(g.roleCode)) next.set(g.roleCode, new Set());
       next.get(g.roleCode)!.add(g.permissionCode);
     }
+    const overrides = new Map<number, { grants: Set<string>; denies: Set<string> }>();
+    for (const o of overrideRows) {
+      if (!overrides.has(o.userId)) overrides.set(o.userId, { grants: new Set(), denies: new Set() });
+      const bucket = overrides.get(o.userId)!;
+      if (o.effect === 'grant') bucket.grants.add(o.permissionCode);
+      else bucket.denies.add(o.permissionCode);
+    }
     this.roleMeta = meta;
     this.grants = next;
+    this.userOverrides = overrides;
     this.loaded = true;
   }
 
@@ -228,6 +242,40 @@ export class PermissionService implements OnModuleInit {
     return [];
   }
 
+  /**
+   * 用户级权限判定（第二十一轮）：admin 恒全；个人 deny 优先于 grant，再回退角色。
+   * 用户覆盖缓存未就绪（冷启动）时退化为角色判定，不额外放行。
+   */
+  hasUserPermission(userId: number | null | undefined, role: string | undefined | null, code: string): boolean {
+    if (!role) return false;
+    if (isFullAccessRole(role)) return true;
+    if (userId != null) {
+      const ov = this.userOverrides.get(userId);
+      if (ov) {
+        if (ov.denies.has(code)) return false;
+        if (ov.grants.has(code)) return true;
+      }
+    }
+    return this.hasPermission(role, code);
+  }
+
+  /**
+   * 用户全部有效权限点（admin 全集；否则 = 角色权限 ∪ 个人 grant − 个人 deny）。
+   */
+  effectivePermissions(userId: number | null | undefined, role: string | undefined | null): string[] {
+    if (!role) return [];
+    if (isFullAccessRole(role)) return [...ALL_PERMISSION_CODES];
+    const base = new Set(this.permissionsFor(role));
+    if (userId != null) {
+      const ov = this.userOverrides.get(userId);
+      if (ov) {
+        for (const code of ov.grants) if (isKnownPermission(code)) base.add(code);
+        for (const code of ov.denies) base.delete(code);
+      }
+    }
+    return [...base];
+  }
+
   // ================= 后台管理（仅 admin，由 controller 守卫保证） =================
 
   /** 权限点目录（分组树，源自代码 catalog）。 */
@@ -235,6 +283,13 @@ export class PermissionService implements OnModuleInit {
     return {
       groups: PERMISSION_GROUPS.map((g) => ({ code: g.code, name: g.name, sort: g.sort })),
       permissions: PERMISSION_CATALOG.map((p) => ({ ...p })),
+      // 内置角色默认权限集（第二十一轮）：前端"恢复默认 / 默认 vs 人工增减 diff"基线。
+      roles: BUILTIN_ROLES.map((r) => ({
+        code: r.code,
+        name: r.name,
+        lockedFull: !!r.lockedFull,
+        defaultPermissions: defaultPermissionsForRole(r.code),
+      })),
     };
   }
 
@@ -347,6 +402,87 @@ export class PermissionService implements OnModuleInit {
     return this.metaOf(code)!;
   }
 
+  /**
+   * 取某用户权限编辑详情（角色基线 + 个人 grant/deny + 最终有效）。供用户管理抽屉。
+   */
+  async getUserPermissionDetail(userId: number) {
+    if (!this.loaded) await this.load();
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException(`用户不存在：id=${userId}`);
+    const ov = this.userOverrides.get(userId);
+    return {
+      userId,
+      username: user.username,
+      role: user.role,
+      roleName: this.roleMeta.get(user.role)?.name ?? builtinRoleName(user.role) ?? user.role,
+      rolePermissions: this.permissionsFor(user.role),
+      grants: ov ? [...ov.grants] : [],
+      denies: ov ? [...ov.denies] : [],
+      effectivePermissions: this.effectivePermissions(userId, user.role),
+    };
+  }
+
+  /**
+   * 全量替换某用户个人权限覆盖（grant/deny 两集合）。
+   * - admin 恒全，不允许对其设置覆盖（UI 也隐藏入口，这里再挡防自锁）；
+   * - 未知权限点过滤；同一权限点同时在 grant/deny 时按 deny 优先处理。
+   */
+  async replaceUserPermissions(
+    userId: number,
+    grants: string[],
+    denies: string[],
+    operator?: string,
+  ): Promise<void> {
+    if (!this.loaded) await this.load();
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException(`用户不存在：id=${userId}`);
+    if (isFullAccessRole(user.role)) {
+      throw new ForbiddenException('管理员账号恒为全权限，无需个人权限覆盖');
+    }
+    const grantSet = new Set((grants ?? []).filter(isKnownPermission));
+    const denySet = new Set((denies ?? []).filter(isKnownPermission));
+    for (const code of denySet) grantSet.delete(code); // deny 优先
+
+    const runner = this.userPermissionRepo.manager.connection.createQueryRunner();
+    await runner.connect();
+    await runner.startTransaction();
+    try {
+      await runner.manager.delete(UserPermission, { userId });
+      for (const code of grantSet) {
+        await runner.manager.insert(UserPermission, { userId, permissionCode: code, effect: 'grant' });
+      }
+      for (const code of denySet) {
+        await runner.manager.insert(UserPermission, { userId, permissionCode: code, effect: 'deny' });
+      }
+      await runner.commitTransaction();
+    } catch (e) {
+      await runner.rollbackTransaction();
+      throw e;
+    } finally {
+      await runner.release();
+    }
+    try {
+      await this.logService.record({
+        operator: operator ?? 'admin',
+        action: 'user.permission',
+        targetType: 'user',
+        targetId: String(userId),
+        message: `个人权限覆盖：开通 ${grantSet.size} / 临时关闭 ${denySet.size}`,
+      });
+    } catch { /* 审计失败不阻断主流程 */ }
+    this.logger.info(
+      `用户 ${user.username}(id=${userId}) 权限覆盖更新：grant ${grantSet.size} / deny ${denySet.size}`,
+      { context: 'PermissionService' },
+    );
+    await this.load();
+  }
+
+  /** 清空某用户全部个人覆盖（用户删除时由 UsersService 调用，或抽屉"重置为跟随角色"）。 */
+  async clearUserOverrides(userId: number): Promise<void> {
+    await this.userPermissionRepo.delete({ userId });
+    await this.load();
+  }
+
   async deleteRole(code: string, operator: string): Promise<void> {
     if (!this.loaded) await this.load();
     const meta = this.metaOf(code);
@@ -409,8 +545,11 @@ export class PermissionService implements OnModuleInit {
     }
   }
 
-  /** 供前端 /me 一次性下发：权限集 + 登录方向。 */
-  identity(role: string | undefined | null) {
+  /**
+   * 供前端 /me 一次性下发：个人有效权限集（角色 ∪ grant − deny）+ 登录方向。
+   * 第二十一轮：由纯角色改为基于 userId 合成。
+   */
+  identityForUser(userId: number | null | undefined, role: string | undefined | null) {
     this.ensureLoaded();
     const meta = role ? this.metaOf(role) : undefined;
     const roleName = meta?.name
@@ -419,7 +558,7 @@ export class PermissionService implements OnModuleInit {
       ?? '';
     return {
       roleName,
-      permissions: this.permissionsFor(role),
+      permissions: this.effectivePermissions(userId, role),
       canFront: this.canLoginFront(role),
       canBack: this.canLoginBack(role),
     };

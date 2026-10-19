@@ -30,7 +30,7 @@ export class ClientAuthController {
   @Get('me')
   me(@Req() req: AuthenticatedRequest) {
     const actor = requireActor(req);
-    return { message: 'ok', data: { ...actor, ...this.permissions.identity(actor.role) } };
+    return { message: 'ok', data: { ...actor, ...this.permissions.identityForUser(actor.userId, actor.role) } };
   }
 
   /**

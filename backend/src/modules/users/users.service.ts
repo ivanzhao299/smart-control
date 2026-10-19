@@ -149,8 +149,21 @@ export class UsersService {
     return current;
   }
 
+  /** 取某用户权限编辑详情（角色基线 + 个人 grant/deny + 最终有效）。 */
+  async getUserPermissionDetail(id: number) {
+    return this.permissions.getUserPermissionDetail(id);
+  }
+
+  /** 全量替换某用户个人权限覆盖（个人开通/临时关闭）。 */
+  async replaceUserPermissions(id: number, grants: string[], denies: string[], operator?: string) {
+    return this.permissions.replaceUserPermissions(id, grants, denies, operator);
+  }
+
   async remove(id: number, actor: Actor): Promise<void> {
-    return serializedTransaction(this.repo.manager.connection, async () => this.removeInTransaction(id, await this.currentAdministrator(actor)));
+    await serializedTransaction(this.repo.manager.connection, async () => this.removeInTransaction(id, await this.currentAdministrator(actor)));
+    // 事务提交后幂等清理该用户个人权限覆盖（FK ON DELETE CASCADE 之外再保险，
+    // 不依赖 SQLite foreign_keys pragma）。失败不影响删除结果。
+    await this.permissions.clearUserOverrides(id).catch(() => undefined);
   }
 
   private async removeInTransaction(id: number, operator: string): Promise<void> {

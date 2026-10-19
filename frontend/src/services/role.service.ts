@@ -19,9 +19,18 @@ export interface PermissionGroup {
   sort: number;
 }
 
+/** 内置角色及其默认权限集（catalog 下发，用于"恢复默认"与默认/人工增减标色）。 */
+export interface CatalogRole {
+  code: string;
+  name: string;
+  lockedFull: boolean;
+  defaultPermissions: string[];
+}
+
 export interface PermissionCatalog {
   groups: PermissionGroup[];
   permissions: PermissionPoint[];
+  roles: CatalogRole[];
 }
 
 /** 角色列表行（含聚合统计）。 */

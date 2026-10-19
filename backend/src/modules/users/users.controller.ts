@@ -34,6 +34,30 @@ export class UsersController {
     return { message: '查询成功', data };
   }
 
+  /** 取某用户权限编辑详情（角色基线 + 个人 grant/deny + 最终有效）。 */
+  @Get(':id/permissions')
+  async userPermissions(@Param('id', ParseIntPipe) id: number) {
+    const data = await this.service.getUserPermissionDetail(id);
+    return { message: '查询成功', data };
+  }
+
+  /** 全量替换某用户个人权限覆盖：body { grants: string[], denies: string[] }。 */
+  @Put(':id/permissions')
+  @HttpCode(200)
+  async updateUserPermissions(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { grants?: string[]; denies?: string[] },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const data = await this.service.replaceUserPermissions(
+      id,
+      Array.isArray(body.grants) ? body.grants : [],
+      Array.isArray(body.denies) ? body.denies : [],
+      req.actor?.username,
+    );
+    return { message: '保存成功', data };
+  }
+
   @Post()
   async create(@Body() dto: CreateUserDto, @Req() req: AuthenticatedRequest) {
     const data = await this.service.create(dto, requireAdmin(req));
