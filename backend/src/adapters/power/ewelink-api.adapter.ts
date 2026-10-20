@@ -11,6 +11,7 @@ import {
   BreakerMeasurements,
   SwitchState,
 } from './epa-breaker-registers';
+import { EwelinkDevicesService } from '../../integrations/ewelink/ewelink-devices.service';
 
 /** addressing 结构（同步时写入） */
 interface EwelinkAddressing {
@@ -43,7 +44,7 @@ export class EwelinkApiAdapter extends BaseAdapter {
     @Optional()
     @InjectRepository(HardwareUnit)
     private readonly hwRepo?: Repository<HardwareUnit>,
-    @Optional() private readonly devices?: import('../../integrations/ewelink/ewelink-devices.service').EwelinkDevicesService,
+    @Optional() private readonly devices?: EwelinkDevicesService,
   ) {
     super(config, logger);
   }
