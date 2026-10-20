@@ -880,6 +880,72 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * 时序动作窗口期 —— seqAll 下发后, 设备按各路设定延时(开机约 1/3/…/15s、
+   * 关机倒序)逐路通断。窗口期内对该台**高频 readStatus**(一帧带全部 8 路), 每轮
+   * 与上一次逐路比对, 哪一路翻转就 WS 广播哪一路, 前端据此逐路点亮, 与硬件同步。
+   * 不阻塞下发请求; 末轮再采一次最终态, 保证最终状态准确。EPO / SEQ55 共用同一
+   * 窗口口径(仅底层 readStatus 不同), 两台逐路回显体验一致。
+   */
+  private readonly SEQ_WINDOW_INTERVAL_MS = 1_500;
+  private readonly SEQ_WINDOW_TOTAL_MS = 19_500;
+  private async runSeqWindow(gatewayCode: string): Promise<void> {
+    const rows = await this.repo.find({ where: { gatewayCode, enabled: true } });
+    if (rows.length === 0) return;
+    const hw = await this.hwRepo.findOne({ where: { code: gatewayCode } });
+    const category = hw?.category;
+    const rounds = Math.round(this.SEQ_WINDOW_TOTAL_MS / this.SEQ_WINDOW_INTERVAL_MS);
+    let prevChannels: boolean[] | null = null;
+    for (let i = 0; i < rounds; i += 1) {
+      await new Promise<void>((resolve) => {
+        const t = setTimeout(resolve, this.SEQ_WINDOW_INTERVAL_MS);
+        t.unref?.();
+      });
+      const channels = await this.readSeqChannels(category);
+      if (!channels) continue;
+      if (category === 'audio-power') this.seqCache = { at: Date.now(), channels };
+      else if (category === 'power-seq55') this.seq55Cache = { at: Date.now(), channels };
+      this.publishSeqChannelChanges(rows, channels, prevChannels);
+      prevChannels = channels;
+    }
+  }
+
+  /** 按设备类型读一台时序器的 8 路实时位图; 读失败返回 null(保留上一次好值)。 */
+  private async readSeqChannels(category?: string): Promise<boolean[] | null> {
+    try {
+      if (category === 'audio-power') {
+        const r = await this.epo.readStatus();
+        return r.ok && r.data?.channels ? r.data.channels : null;
+      }
+      if (category === 'power-seq55') {
+        if (!this.seq55) return null;
+        const r = await this.seq55.readStatus();
+        return r.ok && r.data?.channels ? r.data.channels : null;
+      }
+    } catch (err) {
+      this.logger.warn(`时序窗口期读状态异常: ${(err as Error).message}`, {
+        context: 'PowerCircuitsService',
+      });
+    }
+    return null;
+  }
+
+  /** 窗口期内逐路比对: 哪一路相对上一次翻转, 就 WS 广播那一路 (首轮同步全部当前态)。 */
+  private publishSeqChannelChanges(
+    rows: PowerCircuit[],
+    channels: boolean[],
+    prev: boolean[] | null,
+  ): void {
+    if (!this.bus) return;
+    for (const row of rows) {
+      const ch = (row.relayChannel ?? 0) - 1;
+      if (ch < 0 || ch >= channels.length) continue;
+      const on = channels[ch];
+      if (prev !== null && prev[ch] === on) continue; // 该路未变化
+      this.publishReading(row, this.readingFromSeqCache(row, { at: Date.now(), channels }));
+    }
+  }
+
+  /**
    * 时序器回路读数 — 只读后台快照、不开串口; 快照未就绪时 on=false, 不让电源页崩。
    * 时序器不是电表, 电流/电压/功率/电量恒 0。
    */
@@ -929,15 +995,16 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     if (hw.category === 'audio-power') {
       const r = await this.epo.setAll(on);
       if (!r.ok) throw new ConflictException(`时序器${on ? '开' : '关'}机失败: ${r.error ?? '未知'}`);
-      // 八路按 1..15s 延时依次动作; 保留旧快照(别让页面闪成全 0), 动作完后后台刷新
-      this.scheduleSeqRefresh(20_000);
+      // 八路按 1..15s 延时依次动作; 窗口期高频 readStatus, 逐路变化即 WS 广播(前端逐路点亮)
+      void this.runSeqWindow(code);
       return;
     }
     if (hw.category === 'power-seq55') {
       if (!this.seq55) throw new ConflictException('SEQ55 时序器适配器未装载');
       const r = await this.seq55.setAllSequential(on); // 0D 设备内部顺序时序
       if (!r.ok) throw new ConflictException(`时序器${on ? '开' : '关'}机失败: ${r.error ?? '未知'}`);
-      this.scheduleSeqRefresh(20_000);
+      // 与第一台 EPO 完全一致的窗口期采集/广播口径, 两台逐路回显体验相同
+      void this.runSeqWindow(code);
       return;
     }
     throw new ConflictException(`设备 ${code} 不是电源时序器, 无法时序开关机`);

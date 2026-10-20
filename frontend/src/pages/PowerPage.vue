@@ -278,19 +278,65 @@ async function seqAll(on: boolean, gatewayCode: string | null): Promise<void> {
     ElMessage.warning('请指定要操作的时序器设备');
     return;
   }
-  if (seqBusyGw.value) return;
+  if (seqBusyGw.value || seqWindowGw.value) return;
   seqBusyGw.value = gatewayCode;
   try {
     if (on) await powerCircuitsService.seqAllOn(gatewayCode);
     else await powerCircuitsService.seqAllOff(gatewayCode);
     ElMessage.success(on ? '时序开机已下发, 各路按延时依次上电' : '时序关机已下发, 各路按延时依次断电');
-    // 时序动作要几十秒才走完, 稍等再刷一轮真实状态
-    window.setTimeout(() => { void loadCircuits(); }, 4000);
+    // 窗口期高频轮询(WS 推送的兜底): 逐路点亮 + 组头进度, 见 startSeqWindow
+    startSeqWindow(gatewayCode, on);
   } catch (err) {
     ElMessage.error(`时序${on ? '开' : '关'}机失败: ${(err as Error).message}`);
   } finally {
     seqBusyGw.value = null;
   }
+}
+
+// ============ 时序动作窗口期 (逐路回显 + 进度, 两台口径一致) ============
+// 设备按各路延时逐路通断(约 1~15s), 窗口期内每 1.5s 读一次快照(只读本后端快照,
+// 不直接碰串口), 配合后端 WS 逐路广播, 让 8 路卡片一路一路点亮, 状态一眼可见;
+// 同时组头显示"时序开机中 N/8"。窗口期 ~20s 覆盖整个时序动作, 结束后恢复正常。
+const seqWindowGw = ref<string | null>(null);
+const seqWindowOn = ref(true);
+const seqWindowCount = ref(0);
+let seqWindowTimer: ReturnType<typeof setInterval> | null = null;
+let seqWindowStopTimer: ReturnType<typeof setTimeout> | null = null;
+const SEQ_WINDOW_TICK_MS = 1_500;
+const SEQ_WINDOW_TOTAL_MS = 20_000;
+
+function startSeqWindow(gatewayCode: string, on: boolean): void {
+  stopSeqWindow();
+  seqWindowGw.value = gatewayCode;
+  seqWindowOn.value = on;
+  seqWindowCount.value = 0;
+  const tick = async (): Promise<void> => {
+    try {
+      const rows = await powerCircuitsService.listFresh();
+      circuits.value = rows;
+      // 该台已到达目标态的路数, 驱动组头进度 N/8
+      let n = 0;
+      for (const c of rows) {
+        if (c.gatewayCode === gatewayCode && c.reading.on === on) n += 1;
+      }
+      seqWindowCount.value = n;
+    } catch { /* 静默: 下一 tick 自然刷新 */ }
+  };
+  void tick();
+  seqWindowTimer = setInterval(() => { void tick(); }, SEQ_WINDOW_TICK_MS);
+  seqWindowStopTimer = setTimeout(() => {
+    stopSeqWindow();
+    // 窗口结束: 绕过缓存直读最终稳态, 避免窗口期内非 fresh list 的陈旧快照回退
+    void powerCircuitsService
+      .listFresh()
+      .then((rows) => { circuits.value = rows; })
+      .catch(() => { void loadCircuits(); });
+  }, SEQ_WINDOW_TOTAL_MS);
+}
+function stopSeqWindow(): void {
+  if (seqWindowTimer) { clearInterval(seqWindowTimer); seqWindowTimer = null; }
+  if (seqWindowStopTimer) { clearTimeout(seqWindowStopTimer); seqWindowStopTimer = null; }
+  seqWindowGw.value = null;
 }
 
 // ============ 行内改名 (每一路名称业主可自定义) ============
@@ -413,7 +459,7 @@ function startRefresh(): void {
   refreshTimer = setInterval(() => {
   if (document.hidden) return; // C3: 页面在后台不打设备
 
-    if (!loading.value && busyIds.value.size === 0) {
+    if (!loading.value && busyIds.value.size === 0 && !seqWindowGw.value) {
       void powerCircuitsService.list().then((rows) => {
         circuits.value = rows;
       }).catch(() => { /* 静默 */ });
@@ -482,6 +528,7 @@ function startPolling(): void {
 }
 function stopPolling(): void {
   stopRefresh();
+  stopSeqWindow();
   unsubWs?.(); unsubWs = null;
   unsubState?.(); unsubState = null;
 }
@@ -588,11 +635,20 @@ useActivePolling(startPolling, stopPolling);
             <Power :size="16" :stroke-width="2" />
             <span class="seq-device-title">{{ seqGroupTitle(g) }}</span>
             <span class="seq-device-count">{{ g.rows.length }} 路</span>
+            <!-- 时序动作窗口期: 进度提示 N/8, 开机绿色 / 关机琥珀, 旋转图标一眼可见 -->
+            <span
+              v-if="seqWindowGw === g.gatewayCode"
+              class="seq-window-chip"
+              :class="seqWindowOn ? 'on' : 'off'"
+            >
+              <RefreshCw :size="12" :stroke-width="2.4" class="spin" />
+              时序{{ seqWindowOn ? '开机' : '关机' }}中 {{ seqWindowCount }}/{{ g.rows.length }}
+            </span>
           </div>
           <div v-if="perm.canEdit" class="seq-device-actions">
             <button
               class="v2-quick primary"
-              :disabled="seqBusyGw !== null"
+              :disabled="seqBusyGw !== null || seqWindowGw !== null"
               title="各路按设定延时依次上电, 保护功放"
               @click="seqAll(true, g.gatewayCode)"
             >
@@ -600,7 +656,7 @@ useActivePolling(startPolling, stopPolling);
             </button>
             <button
               class="v2-quick danger"
-              :disabled="seqBusyGw !== null"
+              :disabled="seqBusyGw !== null || seqWindowGw !== null"
               title="先开的后关, 按延时依次断电"
               @click="seqAll(false, g.gatewayCode)"
             >
@@ -981,6 +1037,30 @@ useActivePolling(startPolling, stopPolling);
   border-radius: 999px;
   padding: 2px 9px;
 }
+/* 时序动作窗口期进度 chip: 开机绿 / 关机琥珀, 旋转图标, 一眼可见 */
+.seq-window-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.seq-window-chip.on {
+  color: #5FCB9B;
+  background: rgba(63, 191, 135, 0.14);
+  border: 1px solid rgba(63, 191, 135, 0.4);
+}
+.seq-window-chip.off {
+  color: #F0B35C;
+  background: rgba(244, 180, 80, 0.12);
+  border: 1px solid rgba(244, 180, 80, 0.4);
+}
+.seq-window-chip .spin { animation: seqWinSpin 0.9s linear infinite; }
+@keyframes seqWinSpin { to { transform: rotate(360deg); } }
 .seq-device-actions {
   display: flex;
   gap: 8px;

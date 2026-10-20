@@ -95,6 +95,9 @@ export const powerCircuitsService = {
       api.get<PowerCircuitView[]>('/power-circuits', {
         params: includeDisabled ? { includeDisabled: '1' } : {},
       })),
+  // 时序动作窗口期专用: 绕过 SWR / HTTP 短缓存与 in-flight 合并, 直读后端逐路快照
+  listFresh: () =>
+    api.get<PowerCircuitView[]>('/power-circuits', { refresh: true }),
   detail: (id: number) => api.get<PowerCircuitView>(`/power-circuits/${id}`),
   create: (dto: PowerCircuitUpsertDto) =>
     api.post<PowerCircuitView>('/power-circuits', dto).then((r) => { invalidate(PC); return r; }),
