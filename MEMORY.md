@@ -1,5 +1,19 @@
 
-## ★ 最新状态（2026-10-20，**第二十七轮「两台电源时序器全开/全关逐路回显审计与加固」已修复并部署生产 GK9000、CI 与 Deploy 全绿、生产页面回验通过**。功能 commit `7f7fc72`（3 文件 +159/−9：后端 power-circuits.service.ts、前端 PowerPage.vue、前端 power-circuits.service.ts）；CI run **39350913037** success（2m36s）、Deploy run **39350912996** success（5m35s）；本地=远端=生产三端同 commit 7f7fc72。上一轮 BrandLogo 3e213fa、docs ebbe9b0 均已部署**）：
+## ★ 最新状态（2026-10-20，**第二十八轮「真机逐路回验钉死 EPO/SEQ55 协议差异：EPO 固定延时合成 + 合成独占快照 + 非标准初始态 + 组头进度实时同步」已全部修复、真机逐路回验通过、手动 SSH 部署生产 GK9000**。提交链：`6820feb`（chip 同步，前端）→ `64ca1eb`（合成独占快照+初始态，后端）→ `d6db733`（EPO 固定延时合成，后端）→ 第二十七轮 `7f7fc72`。**GitHub Actions 预算耗尽**（CI/Deploy 均 3 秒失败 "Actions budget is preventing further use"），全部改走 SSH 手动部署。生产：后端 dist=64ca1eb（PM2 smart-control-backend pid 15380，↺3，重启），前端 dist=6820feb（vite preview 服务新 bundle，PM2 smart-control-frontend 无需重启、每次请求 fs.read 吃新文件）；6820feb 仅前端改动、后端源码与 64ca1eb 一致，故后端 64ca1eb 已对齐最新**）：
+- **真机逐路回验钉死两设备协议差异（用户授权"你可以做"，点击 seq 按钮 + 每 1.5s JS 采样）**：
+  - SEQ55：关机倒序（CH8 先关→…→CH1）、开机正序（CH1 先开→…→CH8），真机约 10.5s 逐路完美，**状态字节=物理实际通路**。
+  - EPO：开机 t=3 一下 11111111、关机 t=3 一下 00000000——读 epo802p-protocol.ts 钉死：b3 命令后设备**立即把状态字节置为目标态、串口读不到物理逐路进度**（物理仍按固定延时逐路合闸保护功放），厂家固件特性、非代码 bug。
+- **d6db733 EPO 固定延时合成**：常量 `EPO_DELAY_ON_SECONDS=[1,3,5,7,9,11,13,15]`、`OFF=[15,13,11,9,7,5,3,1]`；`epoSyntheticChannels(on,elapsed)` 非末轮合成、末轮真实回读校正；SEQ55 全程真实。
+- **64ca1eb 合成独占快照 + 非标准初始态**（真机 d6db733 暴露 t=12 突全开又回退、CH2 非标准被闪关）：
+  1. 新成员 `seqWindowCategory`；runSeqWindow 开始置 category、finally 置 null；collectSequencer 加守卫（采 EPO 前 category==='audio-power' 跳过、采 SEQ55 前 ==='power-seq55' 跳过），阻止 10s 定时采集读到全目标态覆盖逐路合成。
+  2. sequencerAll EPO 分支 setAll 前先 `readStatus()` 读真实初始态传入；`epoSyntheticChannels(on,elapsed,initChannels)` 每路 `init=init?init[n]:!on`，开机 `init||reached`、关机 `init&&!reached`，非标准态已开的不闪关、已关的不误点亮。
+- **6820feb 组头 chip 实时同步**：卡片由 WS 实时点亮、chip 原只在 1.5s tick 计算导致滞后约 1.5s；handlePowerReading 窗口期收到某路状态后立即重算该台到达目标路数写 seqWindowCount，chip 与逐路点亮同步。
+- **真机最终验证（64ca1eb 后端 + 6820feb 前端，EPO 初始 10111111 非标准）**：关机倒序逐路、CH2 全程保持关、chip 逐帧同步（1/8→8/8，bitmap 断电数与 chip 完全一致）、稳定全关；随后开机正序逐路、chip 逐帧同步（0/8→8/8）、稳定全开，设备已恢复。SEQ55 此前真机逐路已确认完美。
+- **门禁全绿**：后端 nest build + power-circuits 3 套件 47 测试（合成 4 个：开机正序/关机倒序/开机非标准CH2已开/关机非标准CH2已关）；前端 vue-tsc + vite build（PWA 115 预缓存）+ `npm test`（node --test tests/*.test.cjs，**288 测试，前端测试不是 vitest**）。
+- **临时脚本**：/tmp/deploy-epo.ps1（纯 ASCII 手动部署，git pull + 前端/后端 pnpm build + pm2 重启）；属临时物，清理前按规则请示（用户曾指示临时脚本直接物理删）。
+- **本机 DNS 临时变更待告知**：曾为恢复外网推送把 Ethernet DNS 改 223.5.5.5/114.114.114.114（DHCP 曾不下发 DNS）；恢复 DHCP 用 `networksetup -setdnsservers Ethernet empty`（可能再断外网）。
+
+## 前一状态（2026-10-20，第二十七轮「两台电源时序器全开/全关逐路回显审计与加固」已修复并部署生产 GK9000、CI 与 Deploy 全绿、生产页面回验通过**。功能 commit `7f7fc72`（3 文件 +159/−9：后端 power-circuits.service.ts、前端 PowerPage.vue、前端 power-circuits.service.ts）；CI run **39350913037** success（2m36s）、Deploy run **39350912996** success（5m35s）；本地=远端=生产三端同 commit 7f7fc72。上一轮 BrandLogo 3e213fa、docs ebbe9b0 均已部署**）：
 - **用户反馈**：两台时序器"全开/全关"不如以前丝滑——以前状态明显、按顺序逐路通断并逐路显示开/关；现在状态混乱、要么一下全开、要么状态回显不明显。
 - **审计结论（前后端 + 两适配器全部读完，非推测）**：①两台适配器都支持"一帧读全部 8 路"，硬件按各路延时逐路通断（EPO 开 1/3/…/15s、关倒序；SEQ55 设备内部顺序约 15–20s），硬件逐路一直正常；②后端 collectSequencer 每 10s 发 readStatus 写快照**但从不 WS 广播**（只有普通断路器 publishReading），前端 WS 在线时停掉 10s 轮询，导致 seqAll 后整个时序过程界面不更新；③WS 断线才 10s 轮询兜底、叠加后台 10s 采集最坏约 20s、且看不到逐路。
 - **本轮新定位的关键前端缓存根因（虚拟串口端到端）**：本地 Mac 无 COM 口，用 Python pty 模拟 SEQ55 协议（55..AA，slave /dev/ttys001；临时清空 dev 库 hardware_units id40 的 ip 回退 env POWER_SEQ55_PORT_PATH，PORT=3200 重启后端）。修复前第一次采样：开机 2~16s 一直 N=0、18s 突 N=7——复现"一下全开"；但后端 probe 快照完美逐路（4s N=1…18s N=8），证明问题在前端。根因是前端窗口期 tick 调 `powerCircuitsService.list()` 被三层缓存拦截：query.service.ts queryOnce（SWR 30s，命中立返旧值、silent revalidate 仅在缓存年龄>15s 才触发）+ http.ts request（CACHE_TTL_BY_PATH `/power-circuits`=10s TTL + in-flight 合并 key=`${generation}|${finalUrl}`），几乎总拿旧值。
