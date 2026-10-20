@@ -70,7 +70,7 @@ jobs:
       # Third-party action is pinned to the immutable v0.24.2 commit. Syft is
       # pinned separately so the same lockfile always uses the same cataloger.
       - name: Generate backend SPDX SBOM
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           path: backend
           format: spdx-json
@@ -82,7 +82,7 @@ jobs:
           config: tools/ci/syft-production.yaml
 
       - name: Generate frontend SPDX SBOM
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           path: frontend
           format: spdx-json
