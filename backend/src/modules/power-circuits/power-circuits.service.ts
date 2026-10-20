@@ -234,6 +234,38 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     return this.toView(row, nameMap, floorMap, hwMap);
   }
 
+  /**
+   * 按 code 查单个回路（共享回路「最后离开才关」轻量判定用）：只查一条，时序器状态读
+   * 后台快照、不开 COM 口，比全量 list 更省。
+   */
+  async detailByCode(code: string, role?: string): Promise<PowerCircuitView> {
+    const row = await this.repo.findOne({ where: { code } });
+    if (!row) throw new NotFoundException(`power circuit ${code} 不存在`);
+    await this.assertCanReadDomain(row, role);
+    return this.toView(row);
+  }
+
+  /**
+   * 超轻量「按 code 取开关位」（共享回路「最后离开才关」专用）：只读内存快照里的一个布尔，
+   * 不做 toView、不解析 adapter、不开 COM 口，约一次 DB 单条查询 + 一个数组下标。
+   * 时序器读各自 seq 快照、断路器（如 LED 总闸 BREAKER-LED-1）读 breaker 快照；
+   * 回路不存在或快照未就绪时返回 false。
+   */
+  async switchOnByCode(code: string): Promise<boolean> {
+    const row = await this.repo.findOne({
+      where: { code },
+      select: { id: true, gatewayCode: true, relayChannel: true },
+    });
+    if (!row) return false;
+    if (row.gatewayCode === 'AUDIO-PWR-SEQ-1' && row.relayChannel) {
+      return this.seqCache?.channels[row.relayChannel - 1] ?? false;
+    }
+    if (row.gatewayCode === 'PWR-SEQ55-1' && row.relayChannel) {
+      return this.seq55Cache?.channels[row.relayChannel - 1] ?? false;
+    }
+    return this.breakerCache.get(row.id)?.reading.on ?? false;
+  }
+
   /** 读域校验：非 admin 角色不能查看所属域外的回路详情（直接打 id 也挡）。 */
   private async assertCanReadDomain(row: PowerCircuit, role?: string): Promise<void> {
     const domains = await this.readableDomainsForRole(role);

@@ -200,6 +200,18 @@ export class PowerCircuitsController {
     return { message: '查询成功', data: await this.service.breakerMeasurements(id, role) };
   }
 
+  @Get('power-circuits/by-code/:code/switch')
+  async switchByCode(@Req() req: AuthenticatedRequest, @Param('code') code: string) {
+    const role = requireActor(req).role;
+    return { message: '查询成功', data: { on: await this.service.switchOnByCode(code) } };
+  }
+
+  @Get('power-circuits/by-code/:code')
+  async detailByCode(@Req() req: AuthenticatedRequest, @Param('code') code: string) {
+    const role = requireActor(req).role;
+    return { message: '查询成功', data: await this.service.detailByCode(code, role) };
+  }
+
   @Get('power-circuits/:id')
   async detail(@Req() req: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number) {
     const role = requireActor(req).role;
