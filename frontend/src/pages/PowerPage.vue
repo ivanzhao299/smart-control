@@ -643,7 +643,11 @@ useActivePolling(startPolling, stopPolling);
           <div class="seq-device-name">
             <Power :size="16" :stroke-width="2" />
             <span class="seq-device-title">{{ seqGroupTitle(g) }}</span>
-            <span class="seq-device-count">{{ g.rows.length }} 路</span>
+            <!-- 非窗口期: 静态"8 路"; 窗口期: 由下方进度 chip 替换(同一位置), 不增加元素、不换行撑高 -->
+            <span
+              v-if="seqWindowGw !== g.gatewayCode"
+              class="seq-device-count"
+            >{{ g.rows.length }} 路</span>
             <!-- 时序动作窗口期: 进度提示 N/8, 开机绿色 / 关机琥珀, 旋转图标一眼可见 -->
             <span
               v-if="seqWindowGw === g.gatewayCode"
@@ -651,7 +655,7 @@ useActivePolling(startPolling, stopPolling);
               :class="seqWindowOn ? 'on' : 'off'"
             >
               <RefreshCw :size="12" :stroke-width="2.4" class="spin" />
-              时序{{ seqWindowOn ? '开机' : '关机' }}中 {{ seqWindowCount }}/{{ g.rows.length }}
+              {{ seqWindowOn ? '开机' : '关机' }} {{ seqWindowCount }}/{{ g.rows.length }}
             </span>
           </div>
           <div v-if="perm.canEdit" class="seq-device-actions">
@@ -1032,13 +1036,23 @@ useActivePolling(startPolling, stopPolling);
 .seq-device-name {
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 8px;
+  min-width: 0;
   color: var(--v2-text-1);
   font-size: 15px;
   font-weight: 600;
 }
-.seq-device-title { line-height: 1.2; }
+/* 标题始终单行: 空间不足省略号, 不换行撑高组头(窗口期进度 chip 出现时尤其) */
+.seq-device-title {
+  line-height: 1.2;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .seq-device-count {
+  flex-shrink: 0;
   font-size: 12px;
   font-weight: 500;
   color: var(--v2-text-2);
@@ -1050,6 +1064,7 @@ useActivePolling(startPolling, stopPolling);
 .seq-window-chip {
   display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
   gap: 5px;
   font-size: 12px;
   font-weight: 700;
