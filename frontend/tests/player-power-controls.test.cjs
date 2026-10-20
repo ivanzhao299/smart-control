@@ -72,6 +72,7 @@ function harness(overrides = {}) {
   const code = vue.ref('screen,amp');
   const groups = vue.ref([]);
   const ampCodes = vue.ref(undefined);
+  const keepPeers = vue.ref(undefined);
   let current = true;
   const available = overrides.available ?? [
     circuit(1, 'screen', '大屏总闸'),
@@ -79,6 +80,12 @@ function harness(overrides = {}) {
   ];
   const service = {
     list: overrides.list ?? (async () => { calls.push(['list']); return available; }),
+    listFresh: overrides.listFresh ?? (async () => available),
+    switchOnByCode: overrides.switchOnByCode ?? (async (code) => {
+      const t = available.find((x) => x.code === code);
+      if (!t) throw new Error('not found');
+      return t.reading.on;
+    }),
     on: overrides.on ?? (async (id) => {
       calls.push(['on', id]);
       const target = available.find((item) => item.id === id);
@@ -101,6 +108,7 @@ function harness(overrides = {}) {
     powerCode: () => code.value,
     powerNameGroups: () => groups.value,
     powerAmpCodes: () => ampCodes.value,
+    powerKeepPeers: () => keepPeers.value,
     captureAction: () => () => current,
   }));
   return {
@@ -109,6 +117,7 @@ function harness(overrides = {}) {
     code,
     groups,
     ampCodes,
+    keepPeers,
     scope,
     state,
     setCurrent(value) { current = value; },
@@ -149,15 +158,30 @@ test('explicit amp codes bind by code and skip name matching even with duplicate
   assert.deepEqual(Array.from(result, (item) => item.id), [11, 10, 31]);
 });
 
-test('LED amp binds to seq-2 and projector amp to seq55-8 by code', () => {
+test('LED power-on also powers the audio matrix (seq-4) and the amp (seq-2)', () => {
   const service = { list() {}, on() {}, off() {} };
   const { resolvePlayerPowerCircuits } = moduleWith(service);
   const led = [
     circuit(4, '1f-led', '一层 LED 大屏', false, 'led'),
+    circuit(10, 'seq-4', '音频矩阵主机', false, 'display'),
     circuit(8, 'seq-2', 'LED大屏功放', false, 'audio-seq'),
   ];
-  const ledResult = resolvePlayerPowerCircuits(led, '1f-led', [], ['seq-2']);
-  assert.deepEqual(Array.from(ledResult, (item) => item.id), [4, 8]);
+  const ledResult = resolvePlayerPowerCircuits(led, '1f-led,seq-4', [], ['seq-2']);
+  assert.deepEqual(Array.from(ledResult, (item) => item.id), [4, 10, 8]);
+});
+
+test('projector amp binds to seq55-8 by code', () => {
+  const service = { list() {}, on() {}, off() {} };
+  const { resolvePlayerPowerCircuits } = moduleWith(service);
+  const projector = [
+    circuit(11, 'seq-5', '投影仪开关', false, 'display'),
+    circuit(10, 'seq-4', '音频矩阵主机', false, 'display'),
+    circuit(31, 'seq55-8', '投影功放', false, 'audio-seq'),
+  ];
+  const projectorResult = resolvePlayerPowerCircuits(
+    projector, 'seq-5,seq-4', [], ['seq55-8'],
+  );
+  assert.deepEqual(Array.from(projectorResult, (item) => item.id), [11, 10, 31]);
 });
 
 test('initial load projects authoritative circuit state and all-on requires every circuit', async () => {
@@ -209,6 +233,124 @@ test('power-on commands stay serial and update each response by circuit id', asy
 
   assert.equal(h.state.powerAllOn.value, true);
   assert.equal(h.messages.at(-1)[0], 'success');
+  h.scope.stop();
+});
+
+test('power-off keeps the shared matrix while the other screen is still on', async () => {
+  const offCalls = [];
+  const available = [
+    circuit(4, '1f-led', '一层 LED 大屏', true, 'led'),
+    circuit(10, 'seq-4', '音频矩阵主机', true, 'display'),
+    circuit(8, 'seq-2', 'LED大屏功放', true, 'audio-seq'),
+    circuit(11, 'seq-5', '投影仪开关', true, 'display'), // peer: 投影也开着
+  ];
+  const h = harness({
+    available,
+    off: async (id) => {
+      offCalls.push(id);
+      const t = available.find((x) => x.id === id);
+      return { ...t, reading: { on: false } };
+    },
+  });
+  h.code.value = '1f-led,seq-4';
+  h.ampCodes.value = ['seq-2'];
+  h.keepPeers.value = [{ code: 'seq-4', peers: ['seq-5'] }];
+  await flush();
+  assert.equal(h.state.powerAllOn.value, true);
+
+  await h.state.togglePower();
+
+  // 大屏、功放断电；矩阵因投影仪(seq-5)仍通电而保留
+  assert.deepEqual(offCalls, [4, 8]);
+  const matrix = h.state.powerCircuits.value.find((c) => c.id === 10);
+  assert.equal(matrix.reading.on, true);
+  assert.equal(h.messages.at(-1)[0], 'success');
+  assert.match(h.messages.at(-1)[1], /保持通电/);
+  h.scope.stop();
+});
+
+test('power-off turns off the shared matrix once the other screen is already off', async () => {
+  const offCalls = [];
+  const available = [
+    circuit(4, '1f-led', '一层 LED 大屏', true, 'led'),
+    circuit(10, 'seq-4', '音频矩阵主机', true, 'display'),
+    circuit(8, 'seq-2', 'LED大屏功放', true, 'audio-seq'),
+    circuit(11, 'seq-5', '投影仪开关', false, 'display'), // peer: 投影已关
+  ];
+  const h = harness({
+    available,
+    off: async (id) => {
+      offCalls.push(id);
+      const t = available.find((x) => x.id === id);
+      return { ...t, reading: { on: false } };
+    },
+  });
+  h.code.value = '1f-led,seq-4';
+  h.ampCodes.value = ['seq-2'];
+  h.keepPeers.value = [{ code: 'seq-4', peers: ['seq-5'] }];
+  await flush();
+
+  await h.state.togglePower();
+
+  assert.deepEqual(offCalls, [4, 10, 8]);
+  assert.equal(h.messages.at(-1)[1], 'LED 大屏电源已断开');
+  h.scope.stop();
+});
+
+test('power-off queries only the peer switch, never the full list', async () => {
+  const switchCalls = [];
+  const available = [
+    circuit(4, '1f-led', '一层 LED 大屏', true, 'led'),
+    circuit(10, 'seq-4', '音频矩阵主机', true, 'display'),
+    circuit(8, 'seq-2', 'LED大屏功放', true, 'audio-seq'),
+    circuit(11, 'seq-5', '投影仪开关', true, 'display'),
+  ];
+  const h = harness({
+    available,
+    switchOnByCode: async (code) => {
+      switchCalls.push(code);
+      return available.find((x) => x.code === code).reading.on;
+    },
+    listFresh: async () => { throw new Error('should not read the full list'); },
+    off: async (id) => { const t = available.find((x) => x.id === id); return { ...t, reading: { on: false } }; },
+  });
+  h.code.value = '1f-led,seq-4';
+  h.ampCodes.value = ['seq-2'];
+  h.keepPeers.value = [{ code: 'seq-4', peers: ['seq-5'], peerLabel: '投影仪' }];
+  await flush();
+
+  await h.state.togglePower();
+
+  assert.deepEqual(switchCalls, ['seq-5']); // 只回传一个开关位，不读全量
+  h.scope.stop();
+});
+
+test('power-off keeps the shared matrix when the peer query fails', async () => {
+  const offCalls = [];
+  const available = [
+    circuit(4, '1f-led', '一层 LED 大屏', true, 'led'),
+    circuit(10, 'seq-4', '音频矩阵主机', true, 'display'),
+    circuit(8, 'seq-2', 'LED大屏功放', true, 'audio-seq'),
+  ];
+  const h = harness({
+    available,
+    switchOnByCode: async () => { throw new Error('unreachable'); },
+    off: async (id) => {
+      offCalls.push(id);
+      const t = available.find((x) => x.id === id);
+      return { ...t, reading: { on: false } };
+    },
+  });
+  h.code.value = '1f-led,seq-4';
+  h.ampCodes.value = ['seq-2'];
+  h.keepPeers.value = [{ code: 'seq-4', peers: ['seq-5'] }];
+  await flush();
+
+  await h.state.togglePower();
+
+  assert.deepEqual(offCalls, [4, 8]); // 状态无法确认，矩阵保留
+  const matrix = h.state.powerCircuits.value.find((c) => c.id === 10);
+  assert.equal(matrix.reading.on, true);
   h.scope.stop();
 });
 

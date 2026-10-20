@@ -43,7 +43,7 @@ import { usePlayerInputSources } from '@/composables/usePlayerInputSources';
 import { usePlayerPlaylist } from '@/composables/usePlayerPlaylist';
 import { usePlayerDocumentControls } from '@/composables/usePlayerDocumentControls';
 import PlayerVideoControls from '@/components/PlayerVideoControls.vue';
-import { usePlayerPowerControls } from '@/composables/usePlayerPowerControls';
+import { usePlayerPowerControls, type PowerKeepRule } from '@/composables/usePlayerPowerControls';
 import { WELCOME_PICK_DEFAULT, detectPlayerInputSource } from '@/features/player-input-source';
 import { MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
 
@@ -79,6 +79,11 @@ const props = defineProps<{
    * 不传则退回 powerNameGroups 名称匹配（向后兼容）。
    */
   powerAmpCodes?: string[];
+  /**
+   * 共享回路（如音频矩阵）的「最后离开才关」规则（第三十轮）。LED 与投影仪共用音频矩阵：
+   * 关机时若另一台设备的主回路仍通电，该共享回路不断电。规则结构见 usePlayerPowerControls。
+   */
+  powerKeepPeers?: PowerKeepRule[];
 }>();
 const SLOT = computed(() => props.slot);
 
@@ -172,6 +177,7 @@ const {
   powerCode: () => props.powerCode,
   powerNameGroups: () => props.powerNameGroups,
   powerAmpCodes: () => props.powerAmpCodes,
+  powerKeepPeers: () => props.powerKeepPeers,
   captureAction: captureConsoleAction,
 });
 

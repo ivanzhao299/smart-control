@@ -59,12 +59,15 @@ useActivePolling(startPolling, stopPolling);
 </script>
 
 <template>
-  <!-- 电源: 时序器 5 路(投影仪) + 4 路(视频拼接/融合器) + 「投影功放」(seq55-8,
+  <!-- 电源: 时序器 5 路(投影仪) + 4 路(音频矩阵主机) + 「投影功放」(seq55-8,
        第三十轮确认已移到 SEQ55) 一个开关同开同关; 功放改用 code 精确绑定,
-       电源页各路仍单独控制 -->
+       电源页各路仍单独控制。
+       音频矩阵与 LED 共用，power-keep-peers 标注「最后离开才关」：投影关机时若 LED
+       主开关(1f-led)仍通电，矩阵保留给 LED。 -->
   <PlayerConsole
     :slot="2" title="投影仪" power-code="seq-5,seq-4"
     :power-amp-codes="['seq55-8']"
+    :power-keep-peers="[{ code: 'seq-4', peers: ['1f-led'], peerLabel: 'LED 大屏' }]"
   >
     <template #alert>
       <div v-if="showingHdmi !== true" class="out-bar" :class="showingHdmi === false ? 'warn' : 'unknown'">

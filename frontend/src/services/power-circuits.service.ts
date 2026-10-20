@@ -98,6 +98,11 @@ export const powerCircuitsService = {
   // 时序动作窗口期专用: 绕过 SWR / HTTP 短缓存与 in-flight 合并, 直读后端逐路快照
   listFresh: () =>
     api.get<PowerCircuitView[]>('/power-circuits', { refresh: true }),
+  // 超轻量开关位查询（共享回路「最后离开才关」）：只取一个布尔，不返回整回路、不读全量。
+  switchOnByCode: (code: string) =>
+    api
+      .get<{ on: boolean }>(`/power-circuits/by-code/${encodeURIComponent(code)}/switch`)
+      .then((r) => r.on),
   detail: (id: number) => api.get<PowerCircuitView>(`/power-circuits/${id}`),
   create: (dto: PowerCircuitUpsertDto) =>
     api.post<PowerCircuitView>('/power-circuits', dto).then((r) => { invalidate(PC); return r; }),
