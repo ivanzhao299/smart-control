@@ -14,6 +14,8 @@ interface PlayerPowerControlsOptions {
   title(): string;
   powerCode(): string | undefined;
   powerNameGroups(): string[][] | undefined;
+  /** 功放回路的精确 code 列表（第三十轮加固）：功放移位后按 code 锁定，不依赖名称。 */
+  powerAmpCodes(): string[] | undefined;
   captureAction(): () => boolean;
 }
 
@@ -22,17 +24,23 @@ export function resolvePlayerPowerCircuits(
   circuits: PowerCircuitView[],
   powerCode: string | undefined,
   powerNameGroups: string[][] | undefined,
+  powerAmpCodes?: string[] | undefined,
 ): PowerCircuitView[] {
   const codes = (powerCode ?? '').split(',').map((code) => code.trim()).filter(Boolean);
-  const byCode = codes
+  const ampCodes = (powerAmpCodes ?? []).map((code) => code.trim()).filter(Boolean);
+  const byCode = [...codes, ...ampCodes]
     .map((code) => circuits.find((circuit) => circuit.code === code))
     .filter((circuit): circuit is PowerCircuitView => !!circuit);
-  const byName = powerNameGroups?.length
-    ? circuits.filter((circuit) =>
-        circuit.category === 'audio-seq'
-        && powerNameGroups.some((keywords) =>
-          keywords.every((keyword) => circuit.name.includes(keyword))))
-    : [];
+  // 明确指定功放 code 后不再做名称匹配，避免重名/改名时误控旧回路；
+  // 未指定时保留「按名定位」兼容（业主改名即生效）。
+  const byName = ampCodes.length
+    ? []
+    : powerNameGroups?.length
+      ? circuits.filter((circuit) =>
+          circuit.category === 'audio-seq'
+          && powerNameGroups.some((keywords) =>
+            keywords.every((keyword) => circuit.name.includes(keyword))))
+      : [];
   const seen = new Set<number>();
   return [...byCode, ...byName].filter((circuit) => {
     if (seen.has(circuit.id)) return false;
@@ -55,6 +63,7 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
   const selectionKey = computed(() => JSON.stringify({
     codes: options.powerCode() ?? '',
     groups: options.powerNameGroups() ?? [],
+    ampCodes: options.powerAmpCodes() ?? [],
   }));
 
   let scopeDisposed = false;
@@ -76,7 +85,9 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
     const key = selectionKey.value;
     const action = options.captureAction();
     const revision = ++loadRevision;
-    if (!options.powerCode() && !options.powerNameGroups()?.length) {
+    if (!options.powerCode()
+        && !options.powerNameGroups()?.length
+        && !options.powerAmpCodes()?.length) {
       powerCircuits.value = [];
       return;
     }
@@ -87,6 +98,7 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
         circuits,
         options.powerCode(),
         options.powerNameGroups(),
+        options.powerAmpCodes(),
       );
     } catch {
       if (scopeDisposed || revision !== loadRevision || !action() || key !== selectionKey.value) return;

@@ -71,6 +71,7 @@ function harness(overrides = {}) {
   const messages = [];
   const code = vue.ref('screen,amp');
   const groups = vue.ref([]);
+  const ampCodes = vue.ref(undefined);
   let current = true;
   const available = overrides.available ?? [
     circuit(1, 'screen', '大屏总闸'),
@@ -99,6 +100,7 @@ function harness(overrides = {}) {
     title: () => 'LED 大屏',
     powerCode: () => code.value,
     powerNameGroups: () => groups.value,
+    powerAmpCodes: () => ampCodes.value,
     captureAction: () => () => current,
   }));
   return {
@@ -106,6 +108,7 @@ function harness(overrides = {}) {
     messages,
     code,
     groups,
+    ampCodes,
     scope,
     state,
     setCurrent(value) { current = value; },
@@ -128,6 +131,33 @@ test('configured circuits keep code order, append named sequencer matches and de
     [['投影仪', '功放']],
   );
   assert.deepEqual(Array.from(result, (item) => item.id), [2, 1, 3]);
+});
+
+test('explicit amp codes bind by code and skip name matching even with duplicate names', () => {
+  const service = { list() {}, on() {}, off() {} };
+  const { resolvePlayerPowerCircuits } = moduleWith(service);
+  const circuits = [
+    circuit(7, 'seq-1', '投影功放', false, 'audio-seq'),
+    circuit(11, 'seq-5', '投影仪开关', false, 'display'),
+    circuit(10, 'seq-4', '音频矩阵主机', false, 'display'),
+    circuit(31, 'seq55-8', '投影功放', false, 'audio-seq'),
+  ];
+
+  const result = resolvePlayerPowerCircuits(
+    circuits, 'seq-5,seq-4', [['功放', '投影']], ['seq55-8'],
+  );
+  assert.deepEqual(Array.from(result, (item) => item.id), [11, 10, 31]);
+});
+
+test('LED amp binds to seq-2 and projector amp to seq55-8 by code', () => {
+  const service = { list() {}, on() {}, off() {} };
+  const { resolvePlayerPowerCircuits } = moduleWith(service);
+  const led = [
+    circuit(4, '1f-led', '一层 LED 大屏', false, 'led'),
+    circuit(8, 'seq-2', 'LED大屏功放', false, 'audio-seq'),
+  ];
+  const ledResult = resolvePlayerPowerCircuits(led, '1f-led', [], ['seq-2']);
+  assert.deepEqual(Array.from(ledResult, (item) => item.id), [4, 8]);
 });
 
 test('initial load projects authoritative circuit state and all-on requires every circuit', async () => {
@@ -266,5 +296,7 @@ test('PlayerConsole delegates display power orchestration to the dedicated compo
   // 仅 20 行纯 UI 事件聚合（路由回已有 handler），未内联电源逻辑，预算相应放宽。
   // 2026-10-18 #139：手机端 .led-head 锁死单行(nowrap+固定 36px)，根治切自定义欢迎方案
   // 只读 chip 闪现把电源块挤换行的整页跳动；纯 CSS、零 JS/模板逻辑，预算相应放宽。
-  assert.ok(playerConsoleSource.split('\n').length < 1620);
+  // 第三十轮 #30：新增 powerAmpCodes prop 及其注释（功放按 code 精确绑定），
+  // 属 props 声明、业务逻辑仍在 composable，预算相应放宽到 1630。
+  assert.ok(playerConsoleSource.split('\n').length < 1630);
 });

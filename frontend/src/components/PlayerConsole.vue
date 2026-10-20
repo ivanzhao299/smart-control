@@ -72,6 +72,13 @@ const props = defineProps<{
    * 分组语义 = 同开同关, 仅作用于本页面这个开关; 电源页各路仍单独控制。
    */
   powerNameGroups?: string[][];
+  /**
+   * 功放回路的精确 code 列表（第三十轮加固）。功放移位后改用此项按 code 锁定:
+   * LED=seq-2（LED大屏功放，实测仍在第一台）/ 投影=seq55-8（投影功放已移到 SEQ55）。
+   * 传了它功放就按 code 精确匹配，不再按名定位，重名/改名都不会误控；
+   * 不传则退回 powerNameGroups 名称匹配（向后兼容）。
+   */
+  powerAmpCodes?: string[];
 }>();
 const SLOT = computed(() => props.slot);
 
@@ -164,6 +171,7 @@ const {
   title: () => props.title,
   powerCode: () => props.powerCode,
   powerNameGroups: () => props.powerNameGroups,
+  powerAmpCodes: () => props.powerAmpCodes,
   captureAction: captureConsoleAction,
 });
 

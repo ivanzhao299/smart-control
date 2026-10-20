@@ -8,10 +8,11 @@ import PlayerConsole from '@/components/PlayerConsole.vue';
 </script>
 
 <template>
-  <!-- 电源分组 (2026-07-28 业主): 页面开关 = LED 总闸 + 时序器「LED大屏功放」路
-       同开同关; 功放路按名定位 (名含 功放+LED 或 功放+大屏), 业主在电源页改名即生效 -->
+  <!-- 电源分组 (2026-07-28 业主；第三十轮加固): 页面开关 = LED 总闸(1f-led) +
+       「LED大屏功放」(seq-2，实测仍在第一台) 同开同关。功放改用 code 精确绑定,
+       若以后物理移到 SEQ55，只需把这里的 seq-2 换成新 code。 -->
   <PlayerConsole
     :slot="1" title="LED 大屏" device-id="LED-NOVA-1" power-code="1f-led"
-    :power-name-groups="[['功放', 'LED'], ['功放', '大屏']]"
+    :power-amp-codes="['seq-2']"
   />
 </template>
