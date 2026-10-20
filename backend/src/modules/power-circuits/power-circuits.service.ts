@@ -184,6 +184,12 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
    */
   private seq55Cache: { at: number; channels: boolean[] } | null = null;
   private seqCollecting = false;
+  /**
+   * 正在跑时序动作窗口期的设备 category（非 null）——窗口期内该台的合成逐路快照由
+   * runSeqWindow 独占维护，禁止 10s 定时采集 collectSequencer 读真实全目标去覆盖它
+   * （EPO 状态字节命令后立即回目标态，会把逐路合成一下冲成全目标）。
+   */
+  private seqWindowCategory: string | null = null;
   private seqTimer?: NodeJS.Timeout;
   private readonly SEQ_POLL_INTERVAL_MS = 10_000;
 
@@ -837,22 +843,26 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     this.seqCollecting = true;
     try {
       // 第一台: 得胜 EPO-802P (5A5A5A, COM1)
-      try {
-        const r = await this.epo.readStatus();
-        if (r.ok && r.data?.channels) {
-          this.seqCache = { at: Date.now(), channels: r.data.channels };
-        } else {
-          this.logger.warn(`EPO 时序器读状态失败: ${r.error ?? '无数据'}`, {
+      // 窗口期内合成逐路快照由 runSeqWindow 独占维护, 定时采集跳过、不覆盖。
+      if (this.seqWindowCategory !== 'audio-power') {
+        try {
+          const r = await this.epo.readStatus();
+          if (r.ok && r.data?.channels) {
+            this.seqCache = { at: Date.now(), channels: r.data.channels };
+          } else {
+            this.logger.warn(`EPO 时序器读状态失败: ${r.error ?? '无数据'}`, {
+              context: 'PowerCircuitsService',
+            });
+          }
+        } catch (err) {
+          this.logger.warn(`EPO 时序器采集异常: ${(err as Error).message}`, {
             context: 'PowerCircuitsService',
           });
         }
-      } catch (err) {
-        this.logger.warn(`EPO 时序器采集异常: ${(err as Error).message}`, {
-          context: 'PowerCircuitsService',
-        });
       }
       // 第二台: SEQ55 (55…AA, COM4)。适配器未注入(单测桩)/未配置硬件时跳过。
-      if (this.seq55) {
+      // 同样: SEQ55 窗口期内不覆盖（虽 SEQ55 用真实回读，避免与窗口期采集竞争串口）。
+      if (this.seq55 && this.seqWindowCategory !== 'power-seq55') {
         try {
           const s = await this.seq55.readStatus();
           if (s.ok && s.data?.channels) {
@@ -896,7 +906,11 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
    */
   private readonly EPO_DELAY_ON_SECONDS = [1, 3, 5, 7, 9, 11, 13, 15];
   private readonly EPO_DELAY_OFF_SECONDS = [15, 13, 11, 9, 7, 5, 3, 1];
-  private async runSeqWindow(gatewayCode: string, on: boolean): Promise<void> {
+  private async runSeqWindow(
+    gatewayCode: string,
+    on: boolean,
+    initChannels?: boolean[] | null,
+  ): Promise<void> {
     const rows = await this.repo.find({ where: { gatewayCode, enabled: true } });
     if (rows.length === 0) return;
     const hw = await this.hwRepo.findOne({ where: { code: gatewayCode } });
@@ -904,24 +918,30 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     const rounds = Math.round(this.SEQ_WINDOW_TOTAL_MS / this.SEQ_WINDOW_INTERVAL_MS);
     let prevChannels: boolean[] | null = null;
     const startedAt = Date.now();
-    for (let i = 0; i < rounds; i += 1) {
-      await new Promise<void>((resolve) => {
-        const t = setTimeout(resolve, this.SEQ_WINDOW_INTERVAL_MS);
-        t.unref?.();
-      });
-      const real = await this.readSeqChannels(category);
-      if (!real) continue;
-      // EPO 状态字节=命令目标态(立即全翻转)、读不到物理逐路; 用固定延时合成逐路,
-      // 末轮用真实回读做最终校正。SEQ55 状态字节=物理实际通路, 直接用真实回读。
-      const isLast = i === rounds - 1;
-      const channels =
-        category === 'audio-power' && !isLast
-          ? this.epoSyntheticChannels(on, (Date.now() - startedAt) / 1000)
-          : real;
-      if (category === 'audio-power') this.seqCache = { at: Date.now(), channels };
-      else if (category === 'power-seq55') this.seq55Cache = { at: Date.now(), channels };
-      this.publishSeqChannelChanges(rows, channels, prevChannels);
-      prevChannels = channels;
+    // 窗口期独占该台逐路快照: 置标志, 阻止 collectSequencer 定时采集读真实全目标覆盖
+    this.seqWindowCategory = category ?? null;
+    try {
+      for (let i = 0; i < rounds; i += 1) {
+        await new Promise<void>((resolve) => {
+          const t = setTimeout(resolve, this.SEQ_WINDOW_INTERVAL_MS);
+          t.unref?.();
+        });
+        const real = await this.readSeqChannels(category);
+        if (!real) continue;
+        // EPO 状态字节=命令目标态(立即全翻转)、读不到物理逐路; 用固定延时合成逐路,
+        // 末轮用真实回读做最终校正。SEQ55 状态字节=物理实际通路, 直接用真实回读。
+        const isLast = i === rounds - 1;
+        const channels =
+          category === 'audio-power' && !isLast
+            ? this.epoSyntheticChannels(on, (Date.now() - startedAt) / 1000, initChannels)
+            : real;
+        if (category === 'audio-power') this.seqCache = { at: Date.now(), channels };
+        else if (category === 'power-seq55') this.seq55Cache = { at: Date.now(), channels };
+        this.publishSeqChannelChanges(rows, channels, prevChannels);
+        prevChannels = channels;
+      }
+    } finally {
+      this.seqWindowCategory = null;
     }
   }
 
@@ -929,13 +949,21 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
    * EPO 窗口期逐路合成 —— 按厂家固定延时, 已到该路过期时刻就翻转:
    * 开机初始全关、到点开; 关机初始全开、到点关。与设备物理逐路通断同步(误差≤1s),
    * 让 EPO 与 SEQ55 一样逐路回显; 末轮用真实回读校正。
+   * 若 setAll 前读到真实初始态（现场可能手动开了某路），以它为准, 该路不会被错误闪关。
    */
-  private epoSyntheticChannels(on: boolean, elapsedSec: number): boolean[] {
+  private epoSyntheticChannels(
+    on: boolean,
+    elapsedSec: number,
+    initChannels?: boolean[] | null,
+  ): boolean[] {
     const delays = on ? this.EPO_DELAY_ON_SECONDS : this.EPO_DELAY_OFF_SECONDS;
     const channels: boolean[] = [];
     for (let n = 0; n < 8; n += 1) {
-      const flipped = elapsedSec >= delays[n];
-      channels.push(on ? flipped : !flipped);
+      // 标准初始态: 开机全关(false) / 关机全开(true)；读到真实初始态则覆盖
+      const init = initChannels ? initChannels[n] : !on;
+      const reached = elapsedSec >= delays[n];
+      // 开机: 初始已开 或 已到开机延时 → 开；关机: 初始仍开 且 未到关延时 → 开
+      channels.push(on ? init || reached : init && !reached);
     }
     return channels;
   }
@@ -1024,10 +1052,19 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException(`时序器设备 ${code} 不存在或已禁用`);
     }
     if (hw.category === 'audio-power') {
+      // setAll 前先读一次真实初始态（现场可能手动开了某路），供窗口期合成从该态出发、
+      // 不把已开路错误闪关；读失败则用标准极端态（开机全关 / 关机全开）。
+      let initChannels: boolean[] | null = null;
+      try {
+        const init = await this.epo.readStatus();
+        if (init.ok && init.data?.channels) initChannels = init.data.channels;
+      } catch {
+        initChannels = null;
+      }
       const r = await this.epo.setAll(on);
       if (!r.ok) throw new ConflictException(`时序器${on ? '开' : '关'}机失败: ${r.error ?? '未知'}`);
       // 八路按 1..15s 延时依次动作; 窗口期高频 readStatus, 逐路变化即 WS 广播(前端逐路点亮)
-      void this.runSeqWindow(code, on);
+      void this.runSeqWindow(code, on, initChannels);
       return;
     }
     if (hw.category === 'power-seq55') {

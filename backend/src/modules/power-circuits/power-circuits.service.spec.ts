@@ -562,9 +562,9 @@ describe('PowerCircuitsService · 第二台时序器 SEQ55 (双机独立采集/�
   });
 
   describe('EPO 窗口期逐路合成（EPO 状态字节只回目标态、读不到物理逐路，按固定延时合成）', () => {
-    const bitmap = (svc: any, on: boolean, t: number) =>
+    const bitmap = (svc: any, on: boolean, t: number, init?: boolean[]) =>
       svc
-        .epoSyntheticChannels(on, t)
+        .epoSyntheticChannels(on, t, init ?? null)
         .map((b: boolean) => (b ? '1' : '0'))
         .join('');
 
@@ -596,6 +596,37 @@ describe('PowerCircuitsService · 第二台时序器 SEQ55 (双机独立采集/�
       expect(f(9)).toBe('11100000');
       expect(f(10.5)).toBe('11100000');
       expect(f(12)).toBe('11000000');
+      expect(f(13.5)).toBe('10000000');
+      expect(f(15)).toBe('00000000');
+    });
+
+    it('开机非标准初始态（CH2 已被手动开）：CH2 全程保持开、不被错误闪关', async () => {
+      const { svc } = await build(allOff(), allOff());
+      // CH2(index1) 初始已开
+      const init = [false, true, false, false, false, false, false, false];
+      const f = (t: number) => bitmap(svc, true, t, init);
+      expect(f(0)).toBe('01000000');
+      expect(f(1.5)).toBe('11000000'); // CH1 到点开, CH2 保持开（非 10000000）
+      expect(f(3)).toBe('11000000');
+      expect(f(4.5)).toBe('11000000');
+      expect(f(6)).toBe('11100000');
+      expect(f(9)).toBe('11111000');
+      expect(f(12)).toBe('11111100');
+      expect(f(13.5)).toBe('11111110');
+      expect(f(15)).toBe('11111111');
+    });
+
+    it('关机非标准初始态（CH2 已被手动关）：CH2 全程保持关、不被错误点亮', async () => {
+      const { svc } = await build(allOff(), allOff());
+      // CH2(index1) 初始已关，其余全开
+      const init = [true, false, true, true, true, true, true, true];
+      const f = (t: number) => bitmap(svc, false, t, init);
+      expect(f(0)).toBe('10111111');
+      expect(f(1.5)).toBe('10111110'); // CH8 关, CH2 保持关
+      expect(f(3)).toBe('10111100');
+      expect(f(6)).toBe('10111000'); // CH5 关延时7 未到、仍开
+      expect(f(9)).toBe('10100000');
+      expect(f(12)).toBe('10000000');
       expect(f(13.5)).toBe('10000000');
       expect(f(15)).toBe('00000000');
     });
