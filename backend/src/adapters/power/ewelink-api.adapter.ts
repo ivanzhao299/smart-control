@@ -143,10 +143,12 @@ export class EwelinkApiAdapter extends BaseAdapter {
       const n = Number(v);
       return Number.isFinite(n) ? n : 0;
     };
-    const voltage = num(params.voltage);
-    const current = num(params.current);
-    const power = num(params.power);
-    const energy = num(params.kwh ?? params.totalKwh ?? params.powerKwh?.total ?? 0);
+    // 多数型号用 voltage/current/power；部分计量固件把单相放在 phase_0_v/c/p
+    // (totalPower 为瞬时功率)，标准字段优先、缺失时回落到别名，不影响其他型号。
+    const voltage = num(params.voltage ?? params.phase_0_v);
+    const current = num(params.current ?? params.phase_0_c);
+    const power = num(params.power ?? params.phase_0_p ?? params.totalPower);
+    const energy = num(params.kwh ?? params.totalKwh ?? params.powerKwh?.total);
     return {
       voltages: [voltage, 0, 0],
       currents: [current, 0, 0],
@@ -171,12 +173,17 @@ export class EwelinkApiAdapter extends BaseAdapter {
     };
   }
 
-  /** 读某通道开关态：单路 params.switch，多路 params.switches[channel].switch */
+  /** 读某通道开关态：单路 params.switch，多路 params.switches[channel].switch。
+   *  注意易微联回报口径不一致：控制命令接受字符串 'on'/'off'，但部分固件
+   *  (如计量开关 fw 1.2.1) 回报的是布尔 true/false；两种都必须识别，否则会
+   *  把实际 on 的设备误判成 off，导致电源页状态错乱、操作看似无效。 */
   private readSwitch(params: any, channel: number): boolean {
     if (typeof params.switch === 'string') return params.switch === 'on';
+    if (typeof params.switch === 'boolean') return params.switch;
     if (Array.isArray(params.switches)) {
       const hit = params.switches.find((s: any) => Number(s.outlet ?? 0) === channel);
-      return hit?.switch === 'on';
+      if (typeof hit?.switch === 'boolean') return hit.switch;
+      if (typeof hit?.switch === 'string') return hit.switch === 'on';
     }
     return false;
   }
