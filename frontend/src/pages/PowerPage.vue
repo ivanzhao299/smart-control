@@ -513,7 +513,16 @@ function handlePowerReading(e: WsEvent): void {
   const idx = circuits.value.findIndex(
     (c) => c.id === e.circuitId || (e.code !== '' && c.code === e.code),
   );
-  if (idx >= 0) circuits.value[idx] = { ...circuits.value[idx], reading: { ...e.reading } };
+  if (idx < 0) return;
+  circuits.value[idx] = { ...circuits.value[idx], reading: { ...e.reading } };
+  // 窗口期内: WS 实时点亮某路，立即同步组头进度 N/8，避免 chip 等下一个 tick 滞后约 1.5s
+  if (seqWindowGw.value && circuits.value[idx].gatewayCode === seqWindowGw.value) {
+    let n = 0;
+    for (const c of circuits.value) {
+      if (c.gatewayCode === seqWindowGw.value && c.reading.on === seqWindowOn.value) n += 1;
+    }
+    seqWindowCount.value = n;
+  }
 }
 
 function handleWsState(s: WsConnectionState): void {
