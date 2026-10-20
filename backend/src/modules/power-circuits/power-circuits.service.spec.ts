@@ -560,4 +560,44 @@ describe('PowerCircuitsService · 第二台时序器 SEQ55 (双机独立采集/�
     });
     await expect(svc.sequencerAll(true, 'PWR-SEQ55-1')).rejects.toThrow(ConflictException);
   });
+
+  describe('EPO 窗口期逐路合成（EPO 状态字节只回目标态、读不到物理逐路，按固定延时合成）', () => {
+    const bitmap = (svc: any, on: boolean, t: number) =>
+      svc
+        .epoSyntheticChannels(on, t)
+        .map((b: boolean) => (b ? '1' : '0'))
+        .join('');
+
+    it('开机: 按 1/3/5/…/15s 正序逐路开', async () => {
+      const { svc } = await build(allOff(), allOff());
+      const f = (t: number) => bitmap(svc, true, t);
+      expect(f(0)).toBe('00000000');
+      expect(f(1.5)).toBe('10000000');
+      expect(f(3)).toBe('11000000');
+      expect(f(4.5)).toBe('11000000');
+      expect(f(6)).toBe('11100000');
+      expect(f(7.5)).toBe('11110000');
+      expect(f(9)).toBe('11111000');
+      expect(f(10.5)).toBe('11111000');
+      expect(f(12)).toBe('11111100');
+      expect(f(13.5)).toBe('11111110');
+      expect(f(15)).toBe('11111111');
+    });
+
+    it('关机: 按 15/13/…/1s 倒序逐路关', async () => {
+      const { svc } = await build(allOff(), allOff());
+      const f = (t: number) => bitmap(svc, false, t);
+      expect(f(0)).toBe('11111111');
+      expect(f(1.5)).toBe('11111110');
+      expect(f(3)).toBe('11111100');
+      expect(f(4.5)).toBe('11111100');
+      expect(f(6)).toBe('11111000');
+      expect(f(7.5)).toBe('11110000');
+      expect(f(9)).toBe('11100000');
+      expect(f(10.5)).toBe('11100000');
+      expect(f(12)).toBe('11000000');
+      expect(f(13.5)).toBe('10000000');
+      expect(f(15)).toBe('00000000');
+    });
+  });
 });

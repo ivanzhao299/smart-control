@@ -888,25 +888,56 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
    */
   private readonly SEQ_WINDOW_INTERVAL_MS = 1_500;
   private readonly SEQ_WINDOW_TOTAL_MS = 19_500;
-  private async runSeqWindow(gatewayCode: string): Promise<void> {
+  /**
+   * EPO-802P 各路**固定**时序延时(真机 ac 回读钉死, 见 epo802p-protocol.ts):
+   * 开机 CH1→CH8 = 1,3,5,…,15s; 关机倒序 = 15,13,…,1s。
+   * 真机实测 EPO 串口状态字节在 b3 命令后**立即回目标态**(读不到物理逐路进度),
+   * 窗口期用这组固定延时合成逐路 bitmap(与物理逐路同步), 末轮再用真实回读校正。
+   */
+  private readonly EPO_DELAY_ON_SECONDS = [1, 3, 5, 7, 9, 11, 13, 15];
+  private readonly EPO_DELAY_OFF_SECONDS = [15, 13, 11, 9, 7, 5, 3, 1];
+  private async runSeqWindow(gatewayCode: string, on: boolean): Promise<void> {
     const rows = await this.repo.find({ where: { gatewayCode, enabled: true } });
     if (rows.length === 0) return;
     const hw = await this.hwRepo.findOne({ where: { code: gatewayCode } });
     const category = hw?.category;
     const rounds = Math.round(this.SEQ_WINDOW_TOTAL_MS / this.SEQ_WINDOW_INTERVAL_MS);
     let prevChannels: boolean[] | null = null;
+    const startedAt = Date.now();
     for (let i = 0; i < rounds; i += 1) {
       await new Promise<void>((resolve) => {
         const t = setTimeout(resolve, this.SEQ_WINDOW_INTERVAL_MS);
         t.unref?.();
       });
-      const channels = await this.readSeqChannels(category);
-      if (!channels) continue;
+      const real = await this.readSeqChannels(category);
+      if (!real) continue;
+      // EPO 状态字节=命令目标态(立即全翻转)、读不到物理逐路; 用固定延时合成逐路,
+      // 末轮用真实回读做最终校正。SEQ55 状态字节=物理实际通路, 直接用真实回读。
+      const isLast = i === rounds - 1;
+      const channels =
+        category === 'audio-power' && !isLast
+          ? this.epoSyntheticChannels(on, (Date.now() - startedAt) / 1000)
+          : real;
       if (category === 'audio-power') this.seqCache = { at: Date.now(), channels };
       else if (category === 'power-seq55') this.seq55Cache = { at: Date.now(), channels };
       this.publishSeqChannelChanges(rows, channels, prevChannels);
       prevChannels = channels;
     }
+  }
+
+  /**
+   * EPO 窗口期逐路合成 —— 按厂家固定延时, 已到该路过期时刻就翻转:
+   * 开机初始全关、到点开; 关机初始全开、到点关。与设备物理逐路通断同步(误差≤1s),
+   * 让 EPO 与 SEQ55 一样逐路回显; 末轮用真实回读校正。
+   */
+  private epoSyntheticChannels(on: boolean, elapsedSec: number): boolean[] {
+    const delays = on ? this.EPO_DELAY_ON_SECONDS : this.EPO_DELAY_OFF_SECONDS;
+    const channels: boolean[] = [];
+    for (let n = 0; n < 8; n += 1) {
+      const flipped = elapsedSec >= delays[n];
+      channels.push(on ? flipped : !flipped);
+    }
+    return channels;
   }
 
   /** 按设备类型读一台时序器的 8 路实时位图; 读失败返回 null(保留上一次好值)。 */
@@ -996,7 +1027,7 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
       const r = await this.epo.setAll(on);
       if (!r.ok) throw new ConflictException(`时序器${on ? '开' : '关'}机失败: ${r.error ?? '未知'}`);
       // 八路按 1..15s 延时依次动作; 窗口期高频 readStatus, 逐路变化即 WS 广播(前端逐路点亮)
-      void this.runSeqWindow(code);
+      void this.runSeqWindow(code, on);
       return;
     }
     if (hw.category === 'power-seq55') {
@@ -1004,7 +1035,7 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
       const r = await this.seq55.setAllSequential(on); // 0D 设备内部顺序时序
       if (!r.ok) throw new ConflictException(`时序器${on ? '开' : '关'}机失败: ${r.error ?? '未知'}`);
       // 与第一台 EPO 完全一致的窗口期采集/广播口径, 两台逐路回显体验相同
-      void this.runSeqWindow(code);
+      void this.runSeqWindow(code, on);
       return;
     }
     throw new ConflictException(`设备 ${code} 不是电源时序器, 无法时序开关机`);
