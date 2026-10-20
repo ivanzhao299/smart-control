@@ -9,7 +9,12 @@ import { AdapterContext, AdapterResult } from '../adapter.types';
 import { HardwareUnit } from '../../entities/hardware-unit.entity';
 import { TcpClient } from '../transports/tcp-client';
 import { HttpClient } from '../transports/http-client';
-import { classifyError, DeviceProtocolError } from '../errors';
+import {
+  classifyError,
+  DeviceConnectionError,
+  DeviceProtocolError,
+  DeviceTimeoutError,
+} from '../errors';
 import { AdapterConnectionRegistry } from '../connection-registry';
 import type { LedInput, LedState } from './mock-led.adapter';
 import {
@@ -56,6 +61,8 @@ const GATEWAY_KEY = 'led-nova-vx1000';
  *   LED_PRESET_WELCOME=1             welcome 对应预设号 (1-10)
  *   LED_PRESET_VIDEO=2               video 对应预设号
  *   LED_DEFAULT_BRIGHTNESS_PCT=80    powerOn 后默认亮度
+ *   LED_CMD_RETRIES=2                命令请求内总尝试次数（含首次），仅对瞬时网络错误
+ *   LED_RECONNECT_INTERVAL_MS=15000  断线后快速重连探测间隔
  */
 @Injectable()
 export class NovaLedAdapter extends BaseAdapter implements OnModuleInit, OnModuleDestroy {
@@ -96,6 +103,15 @@ export class NovaLedAdapter extends BaseAdapter implements OnModuleInit, OnModul
   private ensureIntervalTimer?: ReturnType<typeof setInterval>;
   private ensureInFlight = false;
   private presetSaved = false;
+
+  // ---- 断线快速重连：检测到离线后每 LED_RECONNECT_INTERVAL_MS 探一次，恢复立即自愈 ----
+  private fastReconnect = false;
+  private fastReconnectTimer?: ReturnType<typeof setInterval>;
+  private readonly fastReconnectIntervalMs =
+    Number.parseInt(process.env.LED_RECONNECT_INTERVAL_MS ?? '15000', 10) || 15000;
+  // ---- 命令请求内重试：瞬时网络错误自动重试（总尝试次数，含首次） ----
+  private readonly cmdAttempts =
+    Math.max(1, Number.parseInt(process.env.LED_CMD_RETRIES ?? '2', 10) || 2);
 
   constructor(
     config: ConfigService,
@@ -228,9 +244,13 @@ export class NovaLedAdapter extends BaseAdapter implements OnModuleInit, OnModul
       // ReadDeviceID 响应 VX1000=22 字节 / V2460=20 字节, 用宽松模式收到 ≥4 就算 OK
       await this.tcp.sendAndExpect(frame, 64, ctx?.signal, { minBytes: 4 });
       this.registry.markOnline(GATEWAY_KEY);
+      if (this.onConnectionRestored()) {
+        this.logger.warn('V2460 连接恢复，已停止快速重连探测', { context: 'NovaLedAdapter' });
+      }
     } catch (err) {
       const dErr = classifyError('led', err);
       this.registry.markFailure(GATEWAY_KEY, dErr.message, false);
+      this.scheduleFastReconnect();
       throw dErr;
     }
   }
@@ -263,6 +283,7 @@ export class NovaLedAdapter extends BaseAdapter implements OnModuleInit, OnModul
   onModuleDestroy(): void {
     if (this.ensureBootTimer) clearTimeout(this.ensureBootTimer);
     if (this.ensureIntervalTimer) clearInterval(this.ensureIntervalTimer);
+    this.stopFastReconnect();
   }
 
   /**
@@ -272,6 +293,8 @@ export class NovaLedAdapter extends BaseAdapter implements OnModuleInit, OnModul
    */
   async ensureFullscreenLayer(reason = 'manual'): Promise<boolean> {
     if (this.ensureInFlight) return false;
+    // 快速重连期间由 fastReconnectProbe 独占探测，周期自愈跳过（恢复后会立即补一次）
+    if (this.fastReconnect && reason !== 'network-restored') return false;
     this.ensureInFlight = true;
     try {
       await this.ping(); // 探活；设备不在线会抛错，进入 catch 安静跳过
@@ -305,10 +328,17 @@ export class NovaLedAdapter extends BaseAdapter implements OnModuleInit, OnModul
           );
         }
       }
-      this.logger.info(
-        `V2460 全屏图层已确保 (${reason}, ${this.cfg.width}x${this.cfg.height})`,
-        { context: 'NovaLedAdapter' },
-      );
+      if (reason === 'network-restored') {
+        this.logger.warn(
+          `V2460 全屏图层已恢复（网络恢复后自动校正，${this.cfg.width}x${this.cfg.height}）`,
+          { context: 'NovaLedAdapter' },
+        );
+      } else {
+        this.logger.info(
+          `V2460 全屏图层已确保 (${reason}, ${this.cfg.width}x${this.cfg.height})`,
+          { context: 'NovaLedAdapter' },
+        );
+      }
       return true;
     } catch (err) {
       this.logger.debug(
@@ -517,8 +547,55 @@ export class NovaLedAdapter extends BaseAdapter implements OnModuleInit, OnModul
 
   // ============ 内部工具 ============
 
-  /** 发送一帧给 V/VX 系列, 验证响应; 失败计入 registry */
+  /**
+   * 发送一帧给 V/VX 系列，验证响应。对瞬时网络错误（连接超时/重置、空帧、校验和
+   * 错误）在请求内有限重试（默认 2 次，退避 300ms），扛过网络半通/抖动；非瞬态
+   * 错误（参数非法等）立即抛出。重试帧都是幂等的（SetLayer/DisplayMode/Brightness）。
+   * 最终失败计入 registry 并启动断线快速重连。
+   */
   private async sendVx(frame: Buffer, signal?: AbortSignal): Promise<Buffer> {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < this.cmdAttempts; attempt += 1) {
+      try {
+        return await this.sendVxOnce(frame, signal);
+      } catch (err) {
+        lastErr = err;
+        if (
+          !this.isTransientVxError(err) ||
+          signal?.aborted ||
+          attempt === this.cmdAttempts - 1
+        ) {
+          throw err;
+        }
+        // 退避期间若已取消（请求被 abort）则不再重试
+        if (signal) {
+          await this.delayMsAbortable(300 * (attempt + 1), signal);
+        } else {
+          await this.delayMs(300 * (attempt + 1));
+        }
+      }
+    }
+    throw classifyError('led', lastErr);
+  }
+
+  /** 可被 abort 打断的延迟 */
+  private delayMsAbortable(ms: number, signal: AbortSignal): Promise<void> {
+    if (signal.aborted) return Promise.reject(new DeviceConnectionError('led', 'aborted'));
+    return new Promise((resolve, reject) => {
+      const t = setTimeout(() => {
+        signal.removeEventListener('abort', onAbort);
+        resolve();
+      }, ms);
+      const onAbort = (): void => {
+        clearTimeout(t);
+        reject(new DeviceConnectionError('led', 'aborted'));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+
+  /** sendVx 单次尝试：发帧、收变长响应、校验；失败计入 registry */
+  private async sendVxOnce(frame: Buffer, signal?: AbortSignal): Promise<Buffer> {
     await this.syncRuntime();
     try {
       // 不同型号响应长度不同 (VX1000 ReadDeviceID 22 字节, V2460 20 字节, 亮度/显示模式
@@ -536,12 +613,87 @@ export class NovaLedAdapter extends BaseAdapter implements OnModuleInit, OnModul
         }
       }
       this.registry.markOnline(GATEWAY_KEY);
+      if (this.onConnectionRestored()) {
+        this.logger.warn('V2460 连接随命令恢复，已停止快速重连探测', { context: 'NovaLedAdapter' });
+      }
       return resp;
     } catch (err) {
       const dErr = classifyError('led', err);
       this.registry.markFailure(GATEWAY_KEY, dErr.message, true);
+      this.scheduleFastReconnect();
       throw dErr;
     }
+  }
+
+  /** 判断错误是否为可重试的瞬时网络错误（连接超时/重置、空帧、校验和错误） */
+  private isTransientVxError(err: unknown): boolean {
+    if (err instanceof DeviceTimeoutError || err instanceof DeviceConnectionError) return true;
+    if (err instanceof DeviceProtocolError) {
+      return /bad nova response|too short|checksum|0b/i.test(err.message);
+    }
+    return false;
+  }
+
+  private delayMs(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const t = setTimeout(resolve, ms);
+      t.unref?.();
+    });
+  }
+
+  // ============ 断线快速重连探测 ============
+
+  /**
+   * 检测到 V2460 不可达后，进入快速重连：每 fastReconnectIntervalMs（默认 15s）
+   * 探一次，比常态 5min 自愈快得多；探测到网络恢复立即跑一次全屏图层自愈，
+   * 然后停止快速重连、回到 5min 常态。幂等，重复调用不会重复启动。
+   */
+  private scheduleFastReconnect(): void {
+    if (this.fastReconnect || this.isMock()) return;
+    if ((process.env.LED_ENSURE_LAYER ?? 'on').toLowerCase() === 'off') return;
+    this.fastReconnect = true;
+    this.fastReconnectTimer = setInterval(
+      () => { void this.fastReconnectProbe(); },
+      this.fastReconnectIntervalMs,
+    );
+    this.logger.warn(
+      `V2460 不可达，已启动快速重连探测（每 ${this.fastReconnectIntervalMs / 1000}s）`,
+      { context: 'NovaLedAdapter' },
+    );
+  }
+
+  /** 快速重连探测：单次 ping，成功则立即全屏自愈，失败则保持探测、下个周期继续 */
+  private async fastReconnectProbe(): Promise<void> {
+    try {
+      await this.syncRuntime();
+      const frame = frameReadDeviceId();
+      await this.tcp.sendAndExpect(frame, 64, undefined, { minBytes: 4 });
+      this.registry.markOnline(GATEWAY_KEY);
+      if (this.fastReconnect) {
+        this.stopFastReconnect();
+        this.logger.warn('V2460 网络已恢复，立即执行全屏图层自愈', { context: 'NovaLedAdapter' });
+        await this.ensureFullscreenLayer('network-restored');
+      }
+    } catch (err) {
+      const dErr = classifyError('led', err);
+      this.registry.markFailure(GATEWAY_KEY, dErr.message, false);
+      // 仍离线：保持快速重连，下个周期继续（不刷日志，避免泛滥）
+    }
+  }
+
+  /** 连接恢复：若在快速重连则停止探测并返回 true；否则返回 false */
+  private onConnectionRestored(): boolean {
+    if (!this.fastReconnect) return false;
+    this.stopFastReconnect();
+    return true;
+  }
+
+  private stopFastReconnect(): void {
+    if (this.fastReconnectTimer) {
+      clearInterval(this.fastReconnectTimer);
+      this.fastReconnectTimer = undefined;
+    }
+    this.fastReconnect = false;
   }
 
   private getState(deviceId: string): LedState {
