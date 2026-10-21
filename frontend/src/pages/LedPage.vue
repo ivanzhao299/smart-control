@@ -24,6 +24,7 @@ import PlayerConsole from '@/components/PlayerConsole.vue';
       timeoutSec: 60,
       initialDelaySec: 10,
       pollIntervalSec: 4,
+      settleSec: 8,
     }"
   />
 </template>

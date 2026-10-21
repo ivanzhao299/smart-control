@@ -186,9 +186,9 @@ const {
   powerAmpCodes: () => props.powerAmpCodes,
   powerKeepPeers: () => props.powerKeepPeers,
   powerBootPlan: () => props.powerBootPlan,
+  lockDisplay: () => ensureDisplayPath(),
   captureAction: captureConsoleAction,
 });
-
 onMounted(() => {
   void loadAll(); void refreshWelcomeSchemeOptions(); });
 
@@ -254,6 +254,7 @@ const {
 });
 
 const {
+  ensureDisplayPath,
   srcHint,
   welcomePickerBusy,
   welcomePickerValue,

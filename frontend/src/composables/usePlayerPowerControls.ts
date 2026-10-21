@@ -42,6 +42,7 @@ export interface PowerKeepRule {
  *   - `timeoutSec`     ：最大等待秒数（超时兜底）：LED=60 / 投影=120。
  *   - `initialDelaySec`：开始探活前的最小等待秒数（避免设备刚上电空探）：LED=10 / 投影=15。
  *   - `pollIntervalSec`：就绪轮询间隔（默认 4s）。
+ *   - `settleSec`     ：探活通过后、开显示回路前的额外稳定等待秒数（让视频引擎/输入锁定完全就绪），默认 0。
  */
 export interface PowerBootPlan {
   preheatCodes: string[];
@@ -49,6 +50,7 @@ export interface PowerBootPlan {
   timeoutSec: number;
   initialDelaySec?: number;
   pollIntervalSec?: number;
+  settleSec?: number;
 }
 
 interface PlayerPowerControlsOptions {
@@ -61,6 +63,8 @@ interface PlayerPowerControlsOptions {
   powerKeepPeers(): PowerKeepRule[] | undefined;
   /** 分阶段预热编排（开机先拉视频源、等就绪）；不传则开机/关机同开同关（向后兼容）。 */
   powerBootPlan(): PowerBootPlan | undefined;
+  /** 显示回路打开后固定显示（LED 切正全屏图层 / 投影清空窗口+全屏 HDMI），返回是否确认成功；不传则不固定（向后兼容）。 */
+  lockDisplay?(): Promise<boolean>;
   captureAction(): () => boolean;
 }
 
@@ -284,7 +288,23 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
         } catch {
           ready = false;
         }
-        if (ready) return true;
+        if (ready) {
+          // 探活通过后再稳定等待 settleSec（让视频引擎/输入锁定完全就绪），倒计时继续
+          const settleSec = plan.settleSec ?? 0;
+          if (settleSec > 0) {
+            clearInterval(countdownTimer);
+            const settleDeadline = Date.now() + settleSec * 1000;
+            while (Date.now() < settleDeadline) {
+              if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return false;
+              bootCountdown.value = Math.max(0, Math.ceil((settleDeadline - Date.now()) / 1000));
+              const left = settleDeadline - Date.now();
+              if (left <= 0) break;
+              await sleep(Math.min(500, left));
+            }
+            bootCountdown.value = 0;
+          }
+          return true;
+        }
         if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return false;
         const remaining = deadline - Date.now();
         if (remaining <= 0) break;
@@ -372,10 +392,18 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
         const r1 = await applyCircuits(displayTargets, true, ctx);
         if (r1.stopped) return;
         const failed = [...preheatFailed, ...r1.failed];
+        // 显示回路打开后固定显示（LED 切正全屏图层 / 投影清空窗口+全屏 HDMI），保证画面正确、不跳动
+        let displayLocked = true;
+        if (!failed.length && options.lockDisplay) {
+          displayLocked = await options.lockDisplay();
+          if (!isCurrent(key, action, revision)) return;
+        }
         if (failed.length) {
           ElMessage.error(`部分电源操作失败: ${failed.join('; ')}`);
         } else if (timedOut) {
           ElMessage.warning(`${options.title()}已接通；视频设备未在 ${plan?.timeoutSec}s 内确认就绪，若画面异常请检查视频设备`);
+        } else if (!displayLocked) {
+          ElMessage.warning(`${options.title()}已接通，但显示画面未确认，若画面异常请手动切换输入源`);
         } else {
           ElMessage.success(`${options.title()}电源已接通`);
         }

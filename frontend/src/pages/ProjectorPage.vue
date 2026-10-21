@@ -75,6 +75,7 @@ useActivePolling(startPolling, stopPolling);
       timeoutSec: 120,
       initialDelaySec: 15,
       pollIntervalSec: 4,
+      settleSec: 10,
     }"
   >
     <template #alert>
