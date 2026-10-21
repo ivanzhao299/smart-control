@@ -1,5 +1,20 @@
 
-## ★ 最新状态（2026-10-21，**第三十一轮「分阶段电源编排（预热视频源→应用层探活等就绪→显示回路）」已部署生产 GK9000**。方案 A（应用层探活轮询），commit `2d58e6f`（10 文件 +445/-58），已 push + SSH 手动部署，verify-deploy 全绿、生产真实探活回验通过）：
+## ★ 最新状态（2026-10-21，**第三十二轮「易微联 UIID 226 开关控制值口径（布尔 vs 字符串）+ token 续期头缺失」已部署生产 GK9000**。commit `25ac1f0`（后端 4 文件 +142/-30，新增 spec），已 push（f752013..25ac1f0）+ SSH 手动部署，verify-deploy 全绿、生产真实 off→on 回验通过、两设备 addressing 已写 switchFormat=boolean）：
+- **根因（生产真机实测，铁证）**：两台 UIID 226 计量开关（model CK-BL602-W102SW18-01，fwVersion 1.2.1）——「展厅灯带」1002b88e41（EWE-02b88e41，circuit id32）、「展厅筒灯射灯」1002b8942a（EWE-02b8942a，circuit id33），均 online:true，**控制接口要求开关值为布尔 true/false，而非标准字符串**。真机对比：`{switch:'on'}` 字符串→error 4002 控制失败；`{switch:true}` 布尔→error 0 成功；`{switch:1}`、`{switch:'toggle'}`→4002。
+- **为何昨天没修好（第二十九轮只修一半）**：第二十九轮（49c7639 DI 注入 + 3a21236 readSwitch 回读认布尔）只修了"回读"，**setSwitch 仍在第 88 行发 `const state = on ? 'on' : 'off'`（字符串）**，故每次控制被设备 4002 拒绝；昨天验证只核对"读数对不对"（设备本就开着、读到 on 即通过），没真实做"关掉再打开"，漏检控制环节。
+- **第二隐患（token 续期头缺失）**：EwelinkAuthService.refresh()（private，第 221 行）调 POST `/v2/user/refresh` 缺 `X-CK-Appid` 头，03:37 定时刷新报 `"x-ck-appid" is required`。生产实测：带 X-CK-Appid 后 refresh 返回 error 0、新 at/rt 落库（旧 at head f53b48→新 at head ae5ecf）。
+- **修复（commit 25ac1f0，最小化、向后兼容）**：
+  - ewelink-devices.service.ts：新增 `SwitchFormat='boolean'|'string'` 类型、`buildSwitchParams(channel,on,format)`（单路 params.switch；多路 params.switches[].outlet）、`detectSwitchFormat(params)`；`setSwitch(deviceId,uiid,channel,on,format?)` 改为**已知口径只试一次；未知口径先标准字符串，仅当返回 4002 才用布尔兜底重试**（非 4002 错误直接抛、不换口径）——标准字符串设备不受影响；新增 private `postThingStatus()`，控制请求补 X-CK-Appid（+X-CK-Nonce）；normalize() 返回 switchFormat；syncToCatalog() 把 switchFormat 写入 hardware_units.addressing。
+  - ewelink-api.adapter.ts：EwelinkAddressing 加 switchFormat?；turnOn/turnOff 从 addr.switchFormat 读并传给 setSwitch。
+  - ewelink-auth.service.ts：refresh() 补 X-CK-Appid（appId 从 getCredentials() 取）+ X-CK-Nonce。
+  - 新增 ewelink-devices.service.spec.ts（7 个 setSwitch 口径用例：布尔 true/false、字符串、多路 outlet、未知口径字符串 4002→布尔成功、双 4002 抛错、非 4002 不换口径）。
+- **门禁**：后端 nest build 通过；部署前全量 1048 测试全过（含新增 7）。
+- **生产回验（2026-10-21 10:34-10:37，全部通过）**：部署脚本输出 Deployment complete 25ac1f0、verify-deploy.js passed 全绿；PM2 backend online（uptime 35s 已重启）、frontend online（uptime 61m，本次无前端改动未重启）；ewelink-write-format 把两设备 addressing 更新为 switchFormat=boolean；通过修复后后端 HTTP 真实控制展厅灯带（id32）：POST /api/power-circuits/32/off→断电成功、再 /on→通电成功，随后 thing 回读两设备 switch=true（已恢复原状）。
+- **第三个设备**：/v2/device/thing total=3 但 thingList 只返回上述 2 个；仅一个家庭「我的家」（id 5e9d6f8446e0730008af91b5）；group 接口 407、旧 /v2/device 403、旧 /v2/device/status 403。第三设备不在台账、不被系统使用，不影响本次修复。
+- **临时脚本已清理**：生产 D:\smart-control-tools\ 根目录 58 个诊断文件（10-20/10-21 全部 ewelink-*/diag-*/query*/verify*/measure* 等）已送回收站（保留 downloads/ffmpeg/park-video 三个 9 月子目录）；本机 /tmp 同名脚本 + deploy-ewelink.log 已直接删除。
+- **待办**：①现场真机开关一次确认（或用户 PWA 自验）；②临时 operator 账号 id=28（__op_test__，users 表）删除属生产 DB 写入、删前需确认；③GitHub Actions 预算限制未解除（CI 2-4s 失败 "Actions budget"），继续 SSH 手动部署；④仓库根 untracked ewelink-timeline.html（10-20 排查临时产物）未处理。
+
+## 前一状态（2026-10-21，**第三十一轮「分阶段电源编排（预热视频源→应用层探活等就绪→显示回路）」**。方案 A（应用层探活轮询），commit `2d58e6f`（10 文件 +445/-58），已 push + SSH 手动部署，verify-deploy 全绿、生产真实探活回验通过）：
 - **开机一键时序（大屏一亮即有画面）**：
   - LED：先开视频服务器 seq55-6（id29）→ 应用层探活（诺瓦 ReadDeviceID，初始等 10s、每 4s 轮询、超时 60s）→ 就绪后开显示回路 1f-led(id4)+seq-4 矩阵(id10)+seq-2 功放(id8)。
   - 投影：先开融合器 seq55-4（id27）→ 探活（融合器 version，初始等 15s、每 4s 轮询、超时 120s）→ 就绪后开 seq-5 投影(id11)+seq-4 矩阵(id10)+seq55-8 功放(id31)。
