@@ -1,5 +1,18 @@
 
-## ★ 最新状态（2026-10-20，**第三十轮「功放开关移位后前端联动修复 + 显示链路设备启动时序审计」**。用户两组开机联动（开 LED 大屏带 LED 功放、开投影仪带投影功放），功放移位后前端对不上。审计报告已发布 app_id `app_17ge3wanhak`（手机可读，shot.py 0 问题）。用户现场把旧回路 seq-1（原"投影功放"）改名"空"后实测恢复；本轮按用户决策 **"对齐基线 + code 精确绑定加固"**：本地 6820feb 已 fast-forward 到 `origin/main=851b9ba`（未提交的诺瓦/易微联中间版本已在远程，stash@{0} 兜底）。**关键发现：LED 功放实际仍在第一台 seq-2（id8），未移到 SEQ55；只移了投影功放（→SEQ55-8 id31）**）：
+## ★ 最新状态（2026-10-21，**第三十一轮「分阶段电源编排（预热视频源→应用层探活等就绪→显示回路）」已部署生产 GK9000**。方案 A（应用层探活轮询），commit `2d58e6f`（10 文件 +445/-58），已 push + SSH 手动部署，verify-deploy 全绿、生产真实探活回验通过）：
+- **开机一键时序（大屏一亮即有画面）**：
+  - LED：先开视频服务器 seq55-6（id29）→ 应用层探活（诺瓦 ReadDeviceID，初始等 10s、每 4s 轮询、超时 60s）→ 就绪后开显示回路 1f-led(id4)+seq-4 矩阵(id10)+seq-2 功放(id8)。
+  - 投影：先开融合器 seq55-4（id27）→ 探活（融合器 version，初始等 15s、每 4s 轮询、超时 120s）→ 就绪后开 seq-5 投影(id11)+seq-4 矩阵(id10)+seq55-8 功放(id31)。
+  - 等待只显示"开机中 Xs"倒计时（bootCountdown 从 timeoutSec 倒数，无说明文案）；超时兜底仍开显示 + warning。
+- **关机逆向**：先关显示/功放/矩阵（矩阵 seq-4 仍按 keep-peers「最后离开才关」），最后关视频源（seq55-6/seq55-4）。
+- **后端探活接口（轻量、单次应用层命令）**：GET /api/led/ready（诺瓦 ReadDeviceID，一条 TCP+一条命令，返回 {ready}）、GET /api/projector/ready（融合器 version）；需登录（X-Client-Token/Bearer），不做全量探测。
+- **前端实现**：新建 device-ready.service.ts（deviceReadyService.led/projector）；usePlayerPowerControls 新增 PowerBootPlan 接口、resolveCircuitsByCodes（按 code 保序解析、忽略不存在）、preheatCircuits/booting/bootCountdown；togglePower 开机=applyCircuits(preheat,on)→waitForReady→applyCircuits(display,on)，关机=applyCircuits(display,off,keep-peers)→applyCircuits(preheat,off)；LedPage/ProjectorPage 配 power-boot-plan；PlayerConsole 新增 powerBootPlan prop + .np-state.booting 倒计时 UI。
+- **门禁**：前端 301 测试全绿（新增 6：分阶段顺序/倒计时/超时 warning/关机逆向/无 plan 兼容/按 code 解析）；后端 nest build、前端 vite build 通过。
+- **生产回验（2026-10-21 09:34，全部通过）**：生产 git HEAD=2d58e6f（fast-forward 3c3eb70→2d58e6f）；PM2 backend pid15980/frontend pid15872 均 online 跑最新代码（verify-deploy 全绿、bundle 指纹一致、无崩溃循环）；生产 MOCK_MODE=false 真实探活：设备未通电时 /api/led/ready、/api/projector/ready 均 200 返回 ready:false（power-circuits 确认 seq55-6/seq55-4 on=false），接口真实生效。
+- **临时脚本已清理**：生产 D:\smart-control-tools\sign-and-probe.cjs（本地签发 token+探活）、本机 /tmp/sign-and-probe.cjs、/tmp/verify_ready.sh、/tmp/op_test_pw.bak 均直接删除。
+- **待办**：①现场真机首次开机实测（确认视频服务器/融合器在初始延迟+轮询窗口内就绪、大屏一亮即有画面、倒计时符合预期）；②GitHub Actions 预算限制未解除（CI 仍 2-4s 失败），继续走 SSH 手动部署；③生产临时 operator 账号 id=28（__op_test__）删除前需确认。
+
+## 前一状态（2026-10-20，**第三十轮「功放开关移位后前端联动修复 + 显示链路设备启动时序审计」**。用户两组开机联动（开 LED 大屏带 LED 功放、开投影仪带投影功放），功放移位后前端对不上。审计报告已发布 app_id `app_17ge3wanhak`（手机可读，shot.py 0 问题）。用户现场把旧回路 seq-1（原"投影功放"）改名"空"后实测恢复；本轮按用户决策 **"对齐基线 + code 精确绑定加固"**：本地 6820feb 已 fast-forward 到 `origin/main=851b9ba`（未提交的诺瓦/易微联中间版本已在远程，stash@{0} 兜底）。**关键发现：LED 功放实际仍在第一台 seq-2（id8），未移到 SEQ55；只移了投影功放（→SEQ55-8 id31）**）：
 - **功放联动机制（已审计清楚，纯前端、无独立绑定表）**：两播放页共用 PlayerConsole，靠 props 配置。LedPage power-code="1f-led"、ProjectorPage power-code="seq-5,seq-4"，功放原按 power-name-groups 名称定位。核心 `resolvePlayerPowerCircuits()`（usePlayerPowerControls.ts）：byCode（powerCode 逗号拆分精确匹配）+ byName（category==='audio-seq' 且名含某组全部关键词）+ id 去重。togglePower 逐路串行 on/off（以设备 id 写回，避免目录变化错写下标），全开时再点先弹"断电确认"。
 - **功放新位置/旧回路（生产数据钉死，改名前后对比）**：SEQ55（PWR-SEQ55-1，COM4@9600）8 路：seq55-4 视频融合器、seq55-5 音频分离器、seq55-6 LED视频服务器、seq55-8 投影功放（id31）；第一台（AUDIO-PWR-SEQ-1，COM1@19200）：seq-1（id7）用户已改名"空"（原投影功放）、seq-2（id8）LED大屏功放、seq-4（id10）音频矩阵主机、seq-5（id11）投影仪开关。改名后复跑：**LED=id4+id8；投影=id11+id10+id31（旧 id7 不再命中）**。端到端真机（ampverify）：id8、id31 各 on→reading.on=true、off→false，已关回。
 - **开机时序实测（真机，API 控 SEQ55 单路 + node net 高频轮询）**：**诺瓦 LED-NOVA-1 首次 TCP 25.3s、首次命令响应（ReadDeviceID 有效）30.6s，建议提前 ≥45s/超时 60s**；**融合器 FUSION-PROJ-1 TCP=命令响应 74.6s，建议 ≥90s/超时 120s**。gotcha：诺瓦 ReadDeviceID 请求帧=55AA 头（`55aa…2005756`，20B）、响应=AA55 头（`aa55…62cb56`，22B）；任务给的"手动帧"是响应帧，当请求发会 TCP 建连但设备不回、4s 超时。一键场景：先上电→等"应用层就绪"（不只看 TCP）→再投屏；轮询启动前段稀疏、临近加密 250–500ms；超时断电再上电重试一次，仍失败中止报错、不静默继续。
