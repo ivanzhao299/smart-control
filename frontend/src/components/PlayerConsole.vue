@@ -31,7 +31,7 @@ import { useRouter } from 'vue-router';
 import {
   ArrowLeft, MonitorPlay, Play, Pause, Square, SkipBack, SkipForward,
   Upload, ListMusic, History, Pencil, Trash2, Plus, Repeat, Repeat1, AlertTriangle, GripVertical, FolderOpen, X,
-  Globe, Shuffle, Image,
+  Globe, Image,
   ChevronLeft, ChevronRight, Power, ZoomIn, ZoomOut, Maximize,
 } from 'lucide-vue-next';
 import { usePlaybackStore } from '@/stores/playback';
@@ -300,8 +300,8 @@ const isWelcomeSource = computed(() => activeSource.value === 'welcome-editable'
 const isDashboardSource = computed(() => activeSource.value === 'park-dashboard');
 const isContentSource = computed(() => activeSource.value === 'content');
 
-// 数据维护入口仅后台「品牌」分域权限可见。
-const canMaintainBranding = computed(() => perm.canAccessModule('branding'));
+// 数据维护入口仅后台「运营数据」分域权限可见。
+const canMaintainMetrics = computed(() => perm.canAccessModule('metrics'));
 
 // 欢迎方案明细表：上屏（静态默认 / 具体方案），复用 pickWelcomeSchemeById。
 function handleWelcomePick(id: string): void {
@@ -312,9 +312,9 @@ async function handleWelcomeEdit(id?: string): Promise<void> {
   if (id) selectWelcomeScheme(id);
   await openWelcomeEditor();
 }
-// 数据维护：跳后台品牌配置。
-function openBrandingAdmin(): void {
-  router.push({ name: 'admin-system-branding' });
+// 数据维护：跳运营数据维护（在园人员/在场车辆/企业数/运营文案），发布后约 15 秒同步大屏。
+function openOpsMetricsAdmin(): void {
+  router.push({ name: 'admin-park-ops-metrics' });
 }
 
 </script>
@@ -472,7 +472,6 @@ function openBrandingAdmin(): void {
          按钮点击路由回原有 selectWelcome('default') / selectParkDashboard / selectContent，
          不新增业务逻辑；选中态按源类型判定。 -->
     <section class="src-segment">
-      <span class="src-label"><Shuffle :size="14" :stroke-width="2.3" />输入源</span>
       <div class="seg-group">
         <button
           type="button"
@@ -528,10 +527,10 @@ function openBrandingAdmin(): void {
       :claim-by-me="parkOpsClaimByMe"
       :claim-name="parkOpsClaimName"
       :claim-remaining="parkOpsClaimRemaining"
-      :can-maintain="canMaintainBranding"
+      :can-maintain="canMaintainMetrics"
       @control="parkOpsControl"
       @release="releaseParkOps"
-      @maintain="openBrandingAdmin"
+      @maintain="openOpsMetricsAdmin"
     />
 
     <!-- 播放内容：播放列表 / 历史（手机端 tab 切换，桌面两栏并排） -->
@@ -1024,20 +1023,17 @@ function openBrandingAdmin(): void {
 .fit-select { width: 180px; }
 
 /* 输入源：三按钮分段选择（桌面/手机统一，去掉外框强调，仅分段控件） */
-.src-segment { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.src-label {
-  font-size: 13px; font-weight: 700; letter-spacing: 0.04em; color: var(--v2-text-2);
-  white-space: nowrap; display: inline-flex; align-items: center; gap: 5px;
-}
+.src-segment { display: block; min-width: 0; }
 .seg-group {
-  flex: 1 1 auto; min-width: 0; display: flex; gap: 4px;
+  width: 100%; min-width: 0; display: flex; gap: 4px;
   padding: 4px; border-radius: var(--v2-r-md); background: var(--v2-surf-2);
+  border: 1px solid var(--v2-border);
 }
 .seg-btn {
   flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center;
-  gap: 6px; padding: 9px 10px; min-height: 42px; border-radius: 9px; cursor: pointer;
-  font-size: 14px; color: var(--v2-text-2); background: transparent; border: 1px solid transparent;
-  white-space: nowrap;
+  gap: 6px; padding: 0 8px; height: 46px; border-radius: 9px; cursor: pointer;
+  font-size: 14px; font-family: inherit; color: var(--v2-text-2); background: transparent;
+  border: 1px solid transparent; white-space: nowrap; transition: background .15s, color .15s;
 }
 .seg-btn.on {
   color: var(--v2-on-primary); background: var(--v2-primary); border-color: var(--v2-primary);
@@ -1261,7 +1257,7 @@ function openBrandingAdmin(): void {
   .we-bg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .we-asset-delete { width: 44px; height: 44px; top: 4px; right: 4px; }
   /* 输入源分段按钮：手机端 16px 字号防 iOS 聚焦放大，触摸目标做足 */
-  .seg-btn { min-height: 44px; font-size: 16px; }
+  .seg-btn { font-size: 16px; }
 }
 
 /* align-items: start (不是默认的 stretch) —— 列表/历史内容短的时候(比如只有 2 条),
