@@ -100,9 +100,65 @@ function isSchemeActive(source: PlayerInputSource | null, publishedId: string | 
 </template>
 
 <style scoped>
-/* 复用 PlayerConsole 的 .panel / .pl-item 视觉语言（CSS 变量同源），仅补充本面板布局 */
-.wsp { min-width: 0; }
-.ws-item { gap: 8px; }
+/* 本组件是独立 scoped 组件，拿不到 PlayerConsole 的 scoped 样式，
+   因此把容器/列表/列表项/按钮样式完整定义为组件自包含（2026-10 列表化修复）。 */
+
+/* 容器卡片 */
+.panel.wsp {
+  display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  border-radius: var(--v2-r-lg); padding: 12px;
+  background: var(--v2-surf-1, #14161A); border: 1px solid var(--v2-border-soft);
+}
+.panel-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.panel-title {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 15px; font-weight: 700; color: var(--v2-text-1);
+}
+.panel-count {
+  font-size: 12px; color: var(--v2-text-2);
+  background: var(--v2-surf-2); border-radius: 20px; padding: 2px 8px;
+}
+.panel-head .v2-quick { margin-left: auto; }
+
+/* 列表：每行一个方案，纵向排列 */
+.pl-list {
+  display: flex; flex-direction: column; gap: 6px;
+  min-width: 0; min-height: 0;
+}
+.pl-item.ws-item {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  padding: 8px 10px; border-radius: var(--v2-r-md);
+  background: var(--v2-surf-2, #1A1D22); border: 1px solid transparent;
+}
+.pl-item.ws-item.playing {
+  border-color: var(--v2-primary);
+  background: color-mix(in srgb, var(--v2-primary) 14%, var(--v2-surf-1));
+}
+
+/* 上屏按钮（左） */
+.pl-play {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; flex: 0 0 auto; border-radius: var(--v2-r-sm);
+  cursor: pointer; background: transparent;
+  border: 1px solid var(--v2-border-soft); color: var(--v2-text-1);
+}
+.pl-play:hover:not(:disabled) { color: var(--v2-primary); border-color: var(--v2-primary); }
+.pl-play:disabled { opacity: .35; cursor: not-allowed; }
+.pl-item.playing .pl-play {
+  color: var(--v2-primary); background: var(--v2-primary-soft);
+  border-color: color-mix(in srgb, var(--v2-primary) 45%, var(--v2-border-soft));
+}
+
+/* 编辑按钮（右） */
+.pl-ico {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; flex: 0 0 auto; border-radius: var(--v2-r-sm);
+  cursor: pointer; background: transparent; border: none; color: var(--v2-text-2);
+}
+.pl-ico:hover:not(:disabled) { color: var(--v2-text-1); }
+.pl-ico:disabled { opacity: .3; cursor: not-allowed; }
+
+/* 静态默认欢迎页的图标 */
 .ws-ico {
   display: inline-flex; align-items: center; justify-content: center;
   width: 34px; height: 34px; flex: 0 0 auto; border-radius: var(--v2-r-sm);
@@ -122,6 +178,6 @@ function isSchemeActive(source: PlayerInputSource | null, publishedId: string | 
   color: #d9a441; background: rgba(217, 164, 65, .14);
 }
 .ws-state {
-  flex: 0 0 auto; font-size: 11px; color: var(--v2-primary); white-space: nowrap;
+  flex: 0 0 auto; font-size: 11px; color: var(--v2-primary); white-space:nowrap;
 }
 </style>
