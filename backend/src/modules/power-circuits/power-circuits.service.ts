@@ -972,6 +972,17 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
         this.publishSeqChannelChanges(rows, channels, prevChannels);
         prevChannels = channels;
       }
+      // 末轮最终校验（SEQ55）：0D 全开/关窗口结束后 8 路应全部到位。末轮已是真实位图并已
+      // 广播，前端不会显示假状态；此处只在不到位时记 error，供运维字节级追溯。
+      if (category === 'power-seq55' && prevChannels) {
+        const allMatch = prevChannels.length === 8 && prevChannels.every((c) => c === on);
+        if (!allMatch) {
+          this.logger.error(
+            `seq55 时序全${on ? '开' : '关'}窗口期结束仍有回路未到位: bitmap=[${prevChannels.map((c) => (c ? 1 : 0)).join('')}]`,
+            { context: 'PowerCircuitsService' },
+          );
+        }
+      }
     } finally {
       this.seqWindowCategory = null;
     }

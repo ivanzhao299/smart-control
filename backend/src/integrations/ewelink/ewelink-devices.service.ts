@@ -11,6 +11,14 @@ import { EwelinkAuthService } from './ewelink-auth.service';
 /** 开关值口径：标准协议为字符串 'on'/'off'；部分固件（如 UIID 226 fw 1.2.1）控制与回报均为布尔 */
 export type SwitchFormat = 'boolean' | 'string';
 
+/** 云端限流（HTTP 429 / 纯文本 "invoke too fast"）专用错误，便于上层退避与友好提示 */
+export class EwelinkRateLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'EwelinkRateLimitError';
+  }
+}
+
 /** 按口径构造一路开关参数（单路 params.switch；多路 params.switches[].outlet） */
 function buildSwitchParams(
   channel: number,
@@ -21,6 +29,25 @@ function buildSwitchParams(
   return channel === 0
     ? { switch: value }
     : { switches: [{ switch: value, outlet: channel }] };
+}
+
+/**
+ * 构造「整机总开关」参数：一次下发 outlets 0..count-1 全部同值。
+ * 用于 isSupportChannelSplit=false 的多路设备（官方 App 只显示一个总开关）。
+ * 该类设备 denyFeatures 含 allOnOff，禁止用全开全关快捷命令，必须显式列出每一路。
+ */
+function buildGroupSwitchParams(
+  outletCount: number,
+  on: boolean,
+  format: SwitchFormat,
+): Record<string, unknown> {
+  const value: boolean | string = format === 'boolean' ? on : on ? 'on' : 'off';
+  return {
+    switches: Array.from({ length: outletCount }, (_, outlet) => ({
+      switch: value,
+      outlet,
+    })),
+  };
 }
 
 /** 从设备 params 推断开关口径（布尔/字符串），无法判断时回落标准字符串 */
@@ -45,9 +72,19 @@ export interface EwelinkSwitchThing {
   uiid: number;
   online: boolean;
   familyId: string | null;
+  /**
+   * 逻辑开关通道。普通设备 = 物理路数（单路 1 个；支持拆分的多路每路 1 个）；
+   * 聚合设备（isSupportChannelSplit=false）只有 1 个「总开关」（channel=0，on=全部物理路闭合）。
+   */
   channels: EwelinkSwitchChannel[];
   /** 该设备控制值口径（同步时写入 addressing） */
   switchFormat: SwitchFormat;
+  /** 厂商是否支持把多路独立拆分成多个开关（itemData.isSupportChannelSplit） */
+  isSupportChannelSplit: boolean;
+  /** 是否聚合为一个总开关（物理多路、但官方 App 只呈现一个总开关） */
+  grouped: boolean;
+  /** 物理路数（outlet 数）；聚合整组下发时用到 */
+  outletCount: number;
 }
 
 export interface SyncResult {
@@ -69,13 +106,78 @@ export class EwelinkDevicesService {
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
+  // ============ 云端限流保护 ============
+  // 官方限流：同一 IP 任意两次请求间隔 ≥500ms、5 分钟 ≤300 次。
+  // 1) 全局串行队列 + 最小间隔，杜绝后台 10s 采集把同一物理设备 4 路并行打成 0ms 突发；
+  // 2) 每设备 params 短缓存，同一设备多个逻辑回路（聚合/多通道）在 TTL 内只拉一次云。
+  private readonly paramsCache = new Map<string, { at: number; params: any }>();
+  private static readonly PARAMS_CACHE_TTL_MS = 12_000;
+  private static readonly MIN_CLOUD_GAP_MS = 550;
+  private cloudChain: Promise<unknown> = Promise.resolve();
+  private lastCloudCallAt = 0;
+
+  /** 把云端调用排入全局串行队列，并保证相邻两次实际请求间隔 ≥550ms */
+  private async throughCloud<T>(fn: () => Promise<T>): Promise<T> {
+    const run = async (): Promise<T> => {
+      const gap = EwelinkDevicesService.MIN_CLOUD_GAP_MS - (Date.now() - this.lastCloudCallAt);
+      if (gap > 0) await new Promise((r) => setTimeout(r, gap));
+      this.lastCloudCallAt = Date.now();
+      return fn();
+    };
+    const queued = this.cloudChain.then(run, run);
+    this.cloudChain = queued.then(() => undefined, () => undefined);
+    return queued;
+  }
+
+  /** 清掉某设备缓存（控制后由乐观更新接管，不额外发请求） */
+  private invalidateCache(deviceId: string): void {
+    this.paramsCache.delete(deviceId);
+  }
+
+  /** 按原回报口径给 on 值（布尔设备给布尔，字符串设备给 'on'/'off'） */
+  private static onValueFor(existing: unknown, on: boolean): boolean | string {
+    return typeof existing === 'boolean' ? on : on ? 'on' : 'off';
+  }
+
+  /** 控制成功后乐观更新缓存（单路），保证 UI 即时回显且不额外触发云请求 */
+  private optimisticSingle(deviceId: string, channel: number, on: boolean): void {
+    const c = this.paramsCache.get(deviceId);
+    if (!c) return;
+    const p = c.params ?? {};
+    if (channel === 0 && p.switch !== undefined && p.switch !== null) {
+      p.switch = EwelinkDevicesService.onValueFor(p.switch, on);
+    } else if (Array.isArray(p.switches)) {
+      const hit = p.switches.find((s: any) => Number(s.outlet ?? 0) === channel);
+      if (hit) hit.switch = EwelinkDevicesService.onValueFor(hit.switch, on);
+    }
+    c.at = Date.now();
+    c.params = p;
+  }
+
+  /** 控制成功后乐观更新缓存（整组总开关，0..outletCount-1 全部同值） */
+  private optimisticGroup(deviceId: string, outletCount: number, on: boolean): void {
+    const c = this.paramsCache.get(deviceId);
+    if (!c) return;
+    const p = c.params ?? {};
+    if (Array.isArray(p.switches)) {
+      for (let i = 0; i < outletCount; i += 1) {
+        const hit = p.switches.find((s: any) => Number(s.outlet ?? 0) === i);
+        if (hit) hit.switch = EwelinkDevicesService.onValueFor(hit.switch, on);
+      }
+    }
+    c.at = Date.now();
+    c.params = p;
+  }
+
   // ============ 云端读取 ============
 
   /** 拉全部 Thing，筛出开关类（params 带 switch / switches） */
   async listSwitchThings(): Promise<EwelinkSwitchThing[]> {
     const { token, region, familyId } = await this.auth.ensureAccessToken();
     const query = new URLSearchParams({ num: '0' });
-    const json = await this.signedGet(region, '/v2/device/thing', query, token);
+    const json = await this.throughCloud(() =>
+      this.signedGet(region, '/v2/device/thing', query, token),
+    );
     if (json.error !== 0) throw new BadRequestException(`拉易微联设备失败: ${json.msg ?? json.error}`);
     const list: any[] = json.data?.thingList ?? [];
     return list
@@ -83,15 +185,38 @@ export class EwelinkDevicesService {
       .filter((t): t is EwelinkSwitchThing => t !== null);
   }
 
-  /** 读单台设备原始 params（/v2/device/thing/status type=1） */
-  async getRawParams(deviceId: string): Promise<{ params: any }> {
-    const { token, region } = await this.auth.ensureAccessToken();
-    const query = new URLSearchParams({ id: deviceId, type: '1' });
-    const json = await this.signedGet(region, '/v2/device/thing/status', query, token);
-    if (json.error !== 0) {
-      throw new BadRequestException(`读设备状态失败: ${json.msg ?? json.error}`);
-    }
-    return { params: json.data?.params ?? {} };
+  /**
+   * 读单台设备原始 params（/v2/device/thing/status type=1）。
+   * TTL 内命中缓存直接返回（同一物理设备多个逻辑回路共享，避免重复云请求）；
+   * 未命中则排入全局串行队列（≥550ms 间隔）。force=true 强制刷新。
+   */
+  async getRawParams(
+    deviceId: string,
+    opts: { force?: boolean } = {},
+  ): Promise<{ params: any }> {
+    const hit = (): { params: any } | null => {
+      const c = this.paramsCache.get(deviceId);
+      if (!opts.force && c && Date.now() - c.at < EwelinkDevicesService.PARAMS_CACHE_TTL_MS) {
+        return { params: c.params };
+      }
+      return null;
+    };
+    const cached = hit();
+    if (cached) return cached;
+    return this.throughCloud(async () => {
+      // 排队结束后二次确认：可能在等待期间已被其他请求刷新
+      const cached2 = hit();
+      if (cached2) return cached2;
+      const { token, region } = await this.auth.ensureAccessToken();
+      const query = new URLSearchParams({ id: deviceId, type: '1' });
+      const json = await this.signedGet(region, '/v2/device/thing/status', query, token);
+      if (json.error !== 0) {
+        throw new BadRequestException(`读设备状态失败: ${json.msg ?? json.error}`);
+      }
+      const params = json.data?.params ?? {};
+      this.paramsCache.set(deviceId, { at: Date.now(), params });
+      return { params };
+    });
   }
 
   /** 读单台设备的最新开关状态 */
@@ -122,19 +247,61 @@ export class EwelinkDevicesService {
     const { appId } = await this.auth.getCredentials();
     void uiid;
     const formats: SwitchFormat[] = format ? [format] : ['string', 'boolean'];
-    let last: { error: number; msg?: string } | null = null;
-    for (let i = 0; i < formats.length; i += 1) {
-      const body = {
-        type: 1,
-        id: deviceId,
-        params: buildSwitchParams(channel, on, formats[i]),
-      };
-      const json = await this.postThingStatus(region, body, token, appId);
-      if (json.error === 0) return;
-      last = json;
-      if (json.error !== 4002) break; // 非参数协议错误，不换口径
-    }
-    throw new BadRequestException(`易微联控制失败: ${last?.msg ?? last?.error}`);
+    await this.throughCloud(async () => {
+      let last: { error: number; msg?: string } | null = null;
+      for (let i = 0; i < formats.length; i += 1) {
+        const body = {
+          type: 1,
+          id: deviceId,
+          params: buildSwitchParams(channel, on, formats[i]),
+        };
+        const json = await this.postThingStatus(region, body, token, appId);
+        if (json.error === 0) {
+          this.optimisticSingle(deviceId, channel, on);
+          return;
+        }
+        last = json;
+        if (json.error !== 4002) break; // 非参数协议错误，不换口径
+      }
+      this.invalidateCache(deviceId);
+      throw new BadRequestException(`易微联控制失败: ${last?.msg ?? last?.error}`);
+    });
+  }
+
+  /**
+   * 控制整机总开关（聚合设备）：一次显式下发 0..outletCount-1 全部同值。
+   * 该类设备 denyFeatures 含 allOnOff，不能用全开全关快捷命令，必须逐路列出。
+   */
+  async setGroupSwitch(
+    deviceId: string,
+    uiid: number,
+    outletCount: number,
+    on: boolean,
+    format?: SwitchFormat,
+  ): Promise<void> {
+    const { token, region } = await this.auth.ensureAccessToken();
+    const { appId } = await this.auth.getCredentials();
+    void uiid;
+    const formats: SwitchFormat[] = format ? [format] : ['string', 'boolean'];
+    await this.throughCloud(async () => {
+      let last: { error: number; msg?: string } | null = null;
+      for (let i = 0; i < formats.length; i += 1) {
+        const body = {
+          type: 1,
+          id: deviceId,
+          params: buildGroupSwitchParams(outletCount, on, formats[i]),
+        };
+        const json = await this.postThingStatus(region, body, token, appId);
+        if (json.error === 0) {
+          this.optimisticGroup(deviceId, outletCount, on);
+          return;
+        }
+        last = json;
+        if (json.error !== 4002) break;
+      }
+      this.invalidateCache(deviceId);
+      throw new BadRequestException(`易微联总开关控制失败: ${last?.msg ?? last?.error}`);
+    });
   }
 
   /** POST /v2/device/thing/status（用户分类接口，带 X-CK-Appid；单次应用层命令） */
@@ -145,21 +312,62 @@ export class EwelinkDevicesService {
     appId: string,
   ): Promise<{ error: number; msg?: string }> {
     const host = apiHostForRegion(region);
-    const resp = await fetch(`${host}/v2/device/thing/status`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-        'X-CK-Appid': appId,
-        'X-CK-Nonce': makeNonce(8),
+    return this.cloudFetch(
+      `${host}/v2/device/thing/status`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'X-CK-Appid': appId,
+          'X-CK-Nonce': makeNonce(8),
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(12_000),
       },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(12_000),
-    });
-    return (await resp.json()) as { error: number; msg?: string };
+      '控制',
+    );
+  }
+
+  /**
+   * 统一云端 fetch：识别 HTTP 429 与纯文本 "invoke too fast"（非 JSON，旧代码直接
+   * JSON.parse 会抛 "Unexpected token 'i'" 导致整个控制失败）。限流时退避重试（最多 2 次），
+   * 仍失败抛 EwelinkRateLimitError；其他非 JSON 响应给清晰错误，不再裸崩。
+   */
+  private async cloudFetch(
+    url: string,
+    init: RequestInit,
+    action: string,
+  ): Promise<any> {
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    for (let attempt = 0; ; attempt += 1) {
+      const resp = await fetch(url, init);
+      const text = await resp.text();
+      const rateLimited =
+        resp.status === 429 || /invoke too fast/i.test(text);
+      if (rateLimited) {
+        if (attempt < 2) {
+          await sleep(700 * (attempt + 1) + Math.floor(Math.random() * 300));
+          continue;
+        }
+        throw new EwelinkRateLimitError(
+          `易微联云接口限流，请稍后再试（${text.trim().slice(0, 60) || resp.status}）`,
+        );
+      }
+      try {
+        return JSON.parse(text);
+      } catch {
+        throw new BadRequestException(
+          `易微联${action}返回异常（HTTP ${resp.status}）: ${text.trim().slice(0, 80) || '空响应'}`,
+        );
+      }
+    }
   }
 
   // ============ 同步进本地台账 ============
+
+  /** 易微联云开关统一归入「展贸中心 1F」分区（业主 2026-10-21 拍板：四路展厅灯不放户外） */
+  private static readonly CATALOG_FLOOR = '1F';
 
   /** 把云端开关设备 upsert 成 hardware_unit + power_circuit（幂等，按 deviceId/通道） */
   async syncToCatalog(): Promise<SyncResult> {
@@ -171,21 +379,28 @@ export class EwelinkDevicesService {
         continue;
       }
       const short = t.deviceId.slice(-8);
-      // 每通道一个硬件单元：gatewayCode 唯一确定 deviceId + channel，适配器无需额外参数
+      // 聚合设备（isSupportChannelSplit=false）只有 1 个总开关 → 1 个硬件单元/回路；
+      // 支持拆分的多路才每通道一个；单路 1 个。
       for (const ch of t.channels) {
-        const suffix = t.channels.length === 1 ? '' : `-${ch.channel + 1}`;
+        const grouped = t.grouped;
+        const suffix = grouped || t.channels.length === 1 ? '' : `-${ch.channel + 1}`;
         const unitCode = `EWE-${short}${suffix}`;
         const circuitCode = `ewelink-${short}${suffix}`;
-        const displayName = t.channels.length === 1 ? t.name : `${t.name} ${ch.channel + 1}`;
+        const displayName = grouped || t.channels.length === 1 ? t.name : `${t.name} ${ch.channel + 1}`;
 
         let unit = await this.hwRepo.findOne({ where: { code: unitCode } });
-        const addressing = JSON.stringify({
+        const addressingObj: Record<string, unknown> = {
           deviceId: t.deviceId,
           familyId: t.familyId,
           uiid: t.uiid,
           channel: ch.channel,
           switchFormat: t.switchFormat,
-        });
+        };
+        if (grouped) {
+          addressingObj.grouped = true;
+          addressingObj.outletCount = t.outletCount;
+        }
+        const addressing = JSON.stringify(addressingObj);
         if (!unit) {
           unit = this.hwRepo.create({
             code: unitCode,
@@ -195,7 +410,7 @@ export class EwelinkDevicesService {
             model: `UIID ${t.uiid}`,
             driverKind: 'ewelink-cloud',
             addressing,
-            floor: '户外',
+            floor: EwelinkDevicesService.CATALOG_FLOOR,
             enabled: true,
             status: 'normal',
           });
@@ -204,6 +419,7 @@ export class EwelinkDevicesService {
         } else {
           unit.name = displayName;
           unit.addressing = addressing;
+          unit.floor = EwelinkDevicesService.CATALOG_FLOOR;
           unit.status = 'normal';
           await this.hwRepo.save(unit);
         }
@@ -213,7 +429,7 @@ export class EwelinkDevicesService {
           circuit = this.circuitRepo.create({
             code: circuitCode,
             name: displayName,
-            floor: '户外',
+            floor: EwelinkDevicesService.CATALOG_FLOOR,
             category: 'lighting',
             gatewayCode: unitCode,
             relayChannel: ch.channel + 1,
@@ -231,6 +447,7 @@ export class EwelinkDevicesService {
           circuit.name = displayName;
           circuit.gatewayCode = unitCode;
           circuit.relayChannel = ch.channel + 1;
+          circuit.floor = EwelinkDevicesService.CATALOG_FLOOR;
           await this.circuitRepo.save(circuit);
         }
       }
@@ -253,31 +470,65 @@ export class EwelinkDevicesService {
     // 真实 thingList 结构为 {itemType, itemData:{...}}，兼容平铺写法
     const t = raw && raw.itemData ? raw.itemData : raw;
     const params = t.params ?? {};
-    const channels: EwelinkSwitchChannel[] = [];
-    // 多路优先用 switches[]；否则用单路 switch（顶层）
-    if (Array.isArray(params.switches) && params.switches.length > 0) {
-      for (const s of params.switches) {
-        channels.push({
-          channel: Number(s.outlet ?? 0),
-          on: EwelinkDevicesService.isOn(s.switch),
-        });
-      }
-    } else if (params.switch !== undefined && params.switch !== null) {
-      channels.push({ channel: 0, on: EwelinkDevicesService.isOn(params.switch) });
-    }
-    if (channels.length === 0) return null;
-    channels.sort((a, b) => a.channel - b.channel);
     const deviceId = String(t.deviceid ?? t.id ?? '');
-    return {
-      deviceId,
-      name: String(t.name ?? deviceId),
-      uiid: Number(t.extra?.uiid ?? t.uiid ?? 0),
-      online: !!t.online,
-      // 设备自带 family 优先，回落到当前家庭
-      familyId: (t.family?.familyid as string) ?? familyId,
-      channels,
-      switchFormat: detectSwitchFormat(params),
-    };
+    const name = String(t.name ?? deviceId);
+    const uiid = Number(t.extra?.uiid ?? t.uiid ?? 0);
+
+    // 厂商是否支持把多路独立拆成多个开关。字段缺失时按「支持拆分」处理（兼容旧设备）。
+    const splitRaw = t.isSupportChannelSplit;
+    const isSupportChannelSplit = splitRaw === undefined || splitRaw === null ? true : !!splitRaw;
+
+    // 单路设备（顶层 params.switch）
+    if (params.switch !== undefined && params.switch !== null) {
+      return {
+        deviceId, name, uiid,
+        online: !!t.online,
+        familyId: (t.family?.familyid as string) ?? familyId,
+        channels: [{ channel: 0, on: EwelinkDevicesService.isOn(params.switch) }],
+        switchFormat: detectSwitchFormat(params),
+        isSupportChannelSplit: true,
+        grouped: false,
+        outletCount: 1,
+      };
+    }
+
+    // 多路设备（params.switches[]）
+    if (Array.isArray(params.switches) && params.switches.length > 0) {
+      const physical: { outlet: number; on: boolean }[] = params.switches
+        .map((s: any) => ({
+          outlet: Number(s.outlet ?? 0),
+          on: EwelinkDevicesService.isOn(s.switch),
+        }))
+        .sort((a: { outlet: number }, b: { outlet: number }) => a.outlet - b.outlet);
+      const outletCount = physical.length;
+      if (!isSupportChannelSplit) {
+        // 聚合：官方 App 只呈现一个总开关。总开关 on = 所有物理路都闭合。
+        const allOn = physical.every((p) => p.on);
+        return {
+          deviceId, name, uiid,
+          online: !!t.online,
+          familyId: (t.family?.familyid as string) ?? familyId,
+          channels: [{ channel: 0, on: allOn }],
+          switchFormat: detectSwitchFormat(params),
+          isSupportChannelSplit: false,
+          grouped: true,
+          outletCount,
+        };
+      }
+      // 支持拆分：每个 outlet 一个独立逻辑通道（保持原行为）
+      return {
+        deviceId, name, uiid,
+        online: !!t.online,
+        familyId: (t.family?.familyid as string) ?? familyId,
+        channels: physical.map((p) => ({ channel: p.outlet, on: p.on })),
+        switchFormat: detectSwitchFormat(params),
+        isSupportChannelSplit: true,
+        grouped: false,
+        outletCount,
+      };
+    }
+
+    return null;
   }
 
   private async signedGet(
@@ -292,10 +543,13 @@ export class EwelinkDevicesService {
     const canonical = pairs.map(([k, v]) => `${k}=${v}`).join('&');
     query.set('sign', makeApiSign(appSecret, canonical));
     const host = apiHostForRegion(region);
-    const resp = await fetch(`${host}${path}?${query.toString()}`, {
-      headers: { Authorization: `Bearer ${token}`, 'X-CK-Appid': appId },
-      signal: AbortSignal.timeout(12_000),
-    });
-    return (await resp.json()) as any;
+    return this.cloudFetch(
+      `${host}${path}?${query.toString()}`,
+      {
+        headers: { Authorization: `Bearer ${token}`, 'X-CK-Appid': appId },
+        signal: AbortSignal.timeout(12_000),
+      },
+      '查询',
+    );
   }
 }

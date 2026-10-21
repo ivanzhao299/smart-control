@@ -23,6 +23,10 @@ interface EwelinkAddressing {
   channel: number;
   familyId?: string | null;
   switchFormat?: SwitchFormat;
+  /** 聚合总开关（isSupportChannelSplit=false 的多路设备）：控制时整组下发 */
+  grouped?: boolean;
+  /** 聚合设备物理路数（outlet 数） */
+  outletCount?: number;
 }
 
 /**
@@ -63,14 +67,7 @@ export class EwelinkApiAdapter extends BaseAdapter {
       if (this.isMock() || !this.devices) {
         return { on: true, switchState: 'closed' as SwitchState };
       }
-      const addr = await this.resolveAddressing(gatewayCode);
-      await this.devices.setSwitch(
-        addr.deviceId,
-        addr.uiid,
-        addr.channel,
-        true,
-        addr.switchFormat,
-      );
+      await this.apply(gatewayCode, true);
       return { on: true, switchState: 'closed' as SwitchState };
     });
   }
@@ -85,16 +82,31 @@ export class EwelinkApiAdapter extends BaseAdapter {
       if (this.isMock() || !this.devices) {
         return { on: false, switchState: 'open' as SwitchState };
       }
-      const addr = await this.resolveAddressing(gatewayCode);
-      await this.devices.setSwitch(
+      await this.apply(gatewayCode, false);
+      return { on: false, switchState: 'open' as SwitchState };
+    });
+  }
+
+  /** 下发开/关：聚合总开关整组下发，普通设备单路下发 */
+  private async apply(gatewayCode: string, on: boolean): Promise<void> {
+    const addr = await this.resolveAddressing(gatewayCode);
+    if (addr.grouped && (addr.outletCount ?? 0) > 1) {
+      await this.devices!.setGroupSwitch(
+        addr.deviceId,
+        addr.uiid,
+        addr.outletCount as number,
+        on,
+        addr.switchFormat,
+      );
+    } else {
+      await this.devices!.setSwitch(
         addr.deviceId,
         addr.uiid,
         addr.channel,
-        false,
+        on,
         addr.switchFormat,
       );
-      return { on: false, switchState: 'open' as SwitchState };
-    });
+    }
   }
 
   /** 读全量计量（开关态必有；电压/电流/功率/电量视型号而定） */
@@ -109,7 +121,7 @@ export class EwelinkApiAdapter extends BaseAdapter {
         return this.mockMeasurements(addr?.channel ?? 0);
       }
       const { params } = await this.devices.getRawParams(addr.deviceId);
-      return this.mapParams(params, addr.channel);
+      return this.mapParams(params, addr);
     });
   }
 
@@ -154,8 +166,8 @@ export class EwelinkApiAdapter extends BaseAdapter {
   }
 
   /** 原始 params → 统一 BreakerMeasurements */
-  private mapParams(params: any, channel: number): BreakerMeasurements {
-    const on = this.readSwitch(params, channel);
+  private mapParams(params: any, addr: EwelinkAddressing): BreakerMeasurements {
+    const on = this.readSwitch(params, addr);
     const num = (v: unknown): number => {
       const n = Number(v);
       return Number.isFinite(n) ? n : 0;
@@ -190,17 +202,31 @@ export class EwelinkApiAdapter extends BaseAdapter {
     };
   }
 
-  /** 读某通道开关态：单路 params.switch，多路 params.switches[channel].switch。
+  /** 开关值兼容：字符串 "on"/"off" 或布尔 true/false */
+  private static isOnValue(v: unknown): boolean {
+    return v === true || v === 'on';
+  }
+
+  /** 读开关态：单路 params.switch，多路 params.switches[channel].switch；
+   *  聚合总开关（grouped）要求所有物理路都闭合才算 on。
    *  注意易微联回报口径不一致：控制命令接受字符串 'on'/'off'，但部分固件
    *  (如计量开关 fw 1.2.1) 回报的是布尔 true/false；两种都必须识别，否则会
    *  把实际 on 的设备误判成 off，导致电源页状态错乱、操作看似无效。 */
-  private readSwitch(params: any, channel: number): boolean {
+  private readSwitch(params: any, addr: EwelinkAddressing): boolean {
+    if (addr.grouped && Array.isArray(params.switches)) {
+      const count = addr.outletCount ?? params.switches.length;
+      if (count <= 0) return false;
+      for (let i = 0; i < count; i += 1) {
+        const hit = params.switches.find((s: any) => Number(s.outlet ?? 0) === i);
+        if (!EwelinkApiAdapter.isOnValue(hit?.switch)) return false;
+      }
+      return true;
+    }
     if (typeof params.switch === 'string') return params.switch === 'on';
     if (typeof params.switch === 'boolean') return params.switch;
     if (Array.isArray(params.switches)) {
-      const hit = params.switches.find((s: any) => Number(s.outlet ?? 0) === channel);
-      if (typeof hit?.switch === 'boolean') return hit.switch;
-      if (typeof hit?.switch === 'string') return hit.switch === 'on';
+      const hit = params.switches.find((s: any) => Number(s.outlet ?? 0) === addr.channel);
+      return EwelinkApiAdapter.isOnValue(hit?.switch);
     }
     return false;
   }

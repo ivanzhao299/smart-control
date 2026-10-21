@@ -33,16 +33,26 @@ export interface PowerKeepRule {
 }
 
 /**
- * 分阶段电源编排（开机预热时序，方案 A）。
+ * 分阶段电源编排（开机严格时序，方案 A）。
  *
- * 开机：先开预热回路（启动慢的视频源设备）→ 应用层探活等就绪 → 再开显示回路（powerCode + ampCodes），
- * 保证大屏一亮画面即有；关机逆向（先关显示回路、再关预热回路）。
- *   - `preheatCodes`   ：阶段1 预热回路 code（视频源设备）：LED=seq55-6 / 投影=seq55-4。
- *   - `readyKind`      ：就绪探活类型（轮询对应接口）。
- *   - `timeoutSec`     ：最大等待秒数（超时兜底）：LED=60 / 投影=120。
- *   - `initialDelaySec`：开始探活前的最小等待秒数（避免设备刚上电空探）：LED=10 / 投影=15。
- *   - `pollIntervalSec`：就绪轮询间隔（默认 4s）。
- *   - `settleSec`     ：探活通过后、开显示回路前的额外稳定等待秒数（让视频引擎/输入锁定完全就绪），默认 0。
+ * 开机（严格顺序，视频源未就绪绝不送显示电）：
+ *   阶段1 预热回路（视频源）preheatCodes → 应用层探活等就绪（硬门控）；
+ *   阶段2 功放/矩阵 ampStageCodes（就绪后、屏之前）；
+ *   阶段3 显示屏/投影仪 screenStageCodes（最后送电，一亮即有画面）。
+ * 关机逆向：先关屏 screenStageCodes → 再关功放/矩阵 ampStageCodes（共享矩阵 keep-peers）→ 最后关视频源 preheatCodes。
+ *
+ * 未配置 ampStageCodes/screenStageCodes 时回退为「显示回路整段 powerCode+ampCodes」（向后兼容）。
+ *   - `preheatCodes`      ：阶段1 预热回路 code（视频源）：LED=seq55-6 / 投影=seq55-4。
+ *   - `ampStageCodes`     ：阶段2 功放/矩阵（视频源就绪后开）：LED=seq-2,seq-4 / 投影=seq55-8,seq-4。
+ *   - `screenStageCodes`  ：阶段3 最终显示（最后开）：LED=1f-led / 投影=seq-5。
+ *   - `readyKind`         ：就绪探活类型（轮询对应接口）。
+ *   - `timeoutSec`        ：最大等待秒数（LED=60 / 投影=120）；超时未就绪则阻断、不开屏。
+ *   - `initialDelaySec`   ：开始探活前的最小等待秒数（避免设备刚上电空探）：LED=10 / 投影=15。
+ *   - `pollIntervalSec`   ：就绪轮询间隔（默认 4s）。
+ *   - `settleSec`         ：首次探活通过后的「稳定确认窗」秒数：窗口内每隔 confirmIntervalSec 再探一次，
+ *                            必须全程在线才确认就绪（抗设备网络刚启动的单次假阳性，确保真正提供服务/找到地址）。
+ *   - `confirmIntervalSec`：稳定确认窗内的复检间隔（默认 2s）。
+ *   - `stageGapMs`        ：功放段与屏段之间的间隔（让功放稳定再送屏电，默认 1000ms）。
  */
 export interface PowerBootPlan {
   preheatCodes: string[];
@@ -51,6 +61,10 @@ export interface PowerBootPlan {
   initialDelaySec?: number;
   pollIntervalSec?: number;
   settleSec?: number;
+  ampStageCodes?: string[];
+  screenStageCodes?: string[];
+  confirmIntervalSec?: number;
+  stageGapMs?: number;
 }
 
 interface PlayerPowerControlsOptions {
@@ -118,14 +132,23 @@ export function resolveCircuitsByCodes(
 export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
   const powerCircuits = ref<PowerCircuitView[]>([]);
   const preheatCircuits = ref<PowerCircuitView[]>([]);
+  /** 阶段2 功放/矩阵回路（视频源就绪后、屏之前）。 */
+  const ampStageCircuits = ref<PowerCircuitView[]>([]);
+  /** 阶段3 最终显示回路（最后送电）。 */
+  const screenStageCircuits = ref<PowerCircuitView[]>([]);
   const powerBusy = ref(false);
   /** 开机预热等待中（阶段1 已上电、等就绪）：UI 显示「开机中」+ 倒计时。 */
   const booting = ref(false);
   /** 开机倒计时（距最大等待的剩余秒数）。 */
   const bootCountdown = ref(0);
-  // 「全部通电」= 显示回路与预热回路（若有）全部通电。
+  // 「全部通电」= 预热/功放/显示各段回路（若有）全部通电。
   const powerAllOn = computed(() => {
-    const all = [...powerCircuits.value, ...preheatCircuits.value];
+    const all = [
+      ...powerCircuits.value,
+      ...preheatCircuits.value,
+      ...ampStageCircuits.value,
+      ...screenStageCircuits.value,
+    ];
     return all.length > 0 && all.every((circuit) => circuit.reading.on);
   });
   const selectionKey = computed(() => JSON.stringify({
@@ -162,6 +185,8 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
         && !plan?.preheatCodes?.length) {
       powerCircuits.value = [];
       preheatCircuits.value = [];
+      ampStageCircuits.value = [];
+      screenStageCircuits.value = [];
       return;
     }
     try {
@@ -174,11 +199,15 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
         options.powerAmpCodes(),
       );
       preheatCircuits.value = resolveCircuitsByCodes(circuits, plan?.preheatCodes ?? []);
+      ampStageCircuits.value = resolveCircuitsByCodes(circuits, plan?.ampStageCodes ?? []);
+      screenStageCircuits.value = resolveCircuitsByCodes(circuits, plan?.screenStageCodes ?? []);
     } catch {
       if (scopeDisposed || revision !== loadRevision || !action() || key !== selectionKey.value) return;
       // 电源子系统不可达时保持原界面约定：隐藏播放器页电源开关。
       powerCircuits.value = [];
       preheatCircuits.value = [];
+      ampStageCircuits.value = [];
+      screenStageCircuits.value = [];
     }
   }
 
@@ -187,18 +216,22 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
     operationRevision += 1;
     powerCircuits.value = [];
     preheatCircuits.value = [];
+    ampStageCircuits.value = [];
+    screenStageCircuits.value = [];
     powerBusy.value = false;
     booting.value = false;
     bootCountdown.value = 0;
     void loadPowerCircuits();
   }, { immediate: true, flush: 'sync' });
 
-  /** 写回某个回路的最新状态（同时更新显示与预热两个列表，按 id 匹配）。 */
+  /** 写回某个回路的最新状态（同时更新各阶段列表，按 id 匹配）。 */
   function writeBack(updated: PowerCircuitView): void {
-    powerCircuits.value = powerCircuits.value
-      .map((c) => (c.id === updated.id ? updated : c));
-    preheatCircuits.value = preheatCircuits.value
-      .map((c) => (c.id === updated.id ? updated : c));
+    const patch = (list: PowerCircuitView[]): PowerCircuitView[] =>
+      list.map((c) => (c.id === updated.id ? updated : c));
+    powerCircuits.value = patch(powerCircuits.value);
+    preheatCircuits.value = patch(preheatCircuits.value);
+    ampStageCircuits.value = patch(ampStageCircuits.value);
+    screenStageCircuits.value = patch(screenStageCircuits.value);
   }
 
   /** 操作上下文（贯穿整个开机/关机序列）。 */
@@ -289,21 +322,26 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
           ready = false;
         }
         if (ready) {
-          // 探活通过后再稳定等待 settleSec（让视频引擎/输入锁定完全就绪），倒计时继续
+          // 稳定确认窗（settleSec）：窗口内每隔 confirmIntervalSec 再探一次，必须全程在线
+          // 才算真正就绪——抗设备网络刚启动时的单次假阳性，确保「已正常提供服务/找到地址」。
           const settleSec = plan.settleSec ?? 0;
-          if (settleSec > 0) {
-            clearInterval(countdownTimer);
-            const settleDeadline = Date.now() + settleSec * 1000;
-            while (Date.now() < settleDeadline) {
-              if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return false;
-              bootCountdown.value = Math.max(0, Math.ceil((settleDeadline - Date.now()) / 1000));
-              const left = settleDeadline - Date.now();
-              if (left <= 0) break;
-              await sleep(Math.min(500, left));
-            }
-            bootCountdown.value = 0;
+          if (settleSec <= 0) return true;
+          const confirmMs = (plan.confirmIntervalSec ?? 2) * 1000;
+          const settleDeadline = Date.now() + settleSec * 1000;
+          let stable = true;
+          while (Date.now() < settleDeadline) {
+            if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return false;
+            bootCountdown.value = Math.max(0, Math.ceil((settleDeadline - Date.now()) / 1000));
+            const left = settleDeadline - Date.now();
+            await sleep(Math.min(confirmMs, left));
+            if (Date.now() >= settleDeadline) break;
+            let recheck = false;
+            try { recheck = await probe(); } catch { recheck = false; }
+            if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return false;
+            if (!recheck) { stable = false; break; }
           }
-          return true;
+          if (stable) { bootCountdown.value = 0; return true; }
+          // 窗口内掉线（设备抖动）→ 回到轮询继续等就绪
         }
         if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return false;
         const remaining = deadline - Date.now();
@@ -357,25 +395,95 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
 
     powerBusy.value = true;
     const ctx: ApplyContext = { key, action, revision, peerOn, peerQueryFailed };
+    // 严格分段：boot-plan 配置了功放段/屏段时，开机按「视频源→就绪门控→功放/矩阵→显示屏」，
+    // 关机逆向「显示屏→功放/矩阵→视频源」；视频源未就绪绝不送功放/屏电。
+    const staged = !!plan
+      && (ampStageCircuits.value.length > 0 || screenStageCircuits.value.length > 0);
+    const stageGapMs = plan?.stageGapMs ?? 1000;
+    const reportShutdown = (failed: string[], kept: { name: string; by: string }[]): void => {
+      if (failed.length) {
+        ElMessage.error(`部分电源操作失败: ${failed.join('; ')}`);
+      } else if (kept.length) {
+        const keepDesc = kept.map((item) => `${item.name}仍由「${item.by}」使用`).join('；');
+        ElMessage.success(`${options.title()}已关闭；${keepDesc}，保持通电`);
+      } else {
+        ElMessage.success(`${options.title()}电源已断开`);
+      }
+    };
     try {
       if (turningOff) {
-        // 关机（逆向）：先关显示回路（大屏/投影/矩阵/功放，矩阵 keep-peers），再关预热回路。
-        const r1 = await applyCircuits(displayTargets, false, ctx);
-        if (r1.stopped) return;
-        const r2 = await applyCircuits(preheatTargets, false, ctx);
-        if (r2.stopped) return;
-        const failed = [...r1.failed, ...r2.failed];
-        const kept = [...r1.kept, ...r2.kept];
-        if (failed.length) {
-          ElMessage.error(`部分电源操作失败: ${failed.join('; ')}`);
-        } else if (kept.length) {
-          const keepDesc = kept.map((item) => `${item.name}仍由「${item.by}」使用`).join('；');
-          ElMessage.success(`${options.title()}已关闭；${keepDesc}，保持通电`);
+        if (staged) {
+          // 关机逆向：先关显示屏 → 再关功放/矩阵（共享矩阵 keep-peers）→ 最后关视频源
+          const rScreen = await applyCircuits(screenStageCircuits.value, false, ctx);
+          if (rScreen.stopped) return;
+          const rAmp = await applyCircuits(ampStageCircuits.value, false, ctx);
+          if (rAmp.stopped) return;
+          const rPre = await applyCircuits(preheatTargets, false, ctx);
+          if (rPre.stopped) return;
+          reportShutdown(
+            [...rScreen.failed, ...rAmp.failed, ...rPre.failed],
+            [...rScreen.kept, ...rAmp.kept, ...rPre.kept],
+          );
         } else {
-          ElMessage.success(`${options.title()}电源已断开`);
+          // 兼容旧路径：显示回路整段 → 预热回路
+          const r1 = await applyCircuits(displayTargets, false, ctx);
+          if (r1.stopped) return;
+          const r2 = await applyCircuits(preheatTargets, false, ctx);
+          if (r2.stopped) return;
+          reportShutdown([...r1.failed, ...r2.failed], [...r1.kept, ...r2.kept]);
+        }
+      } else if (staged && plan) {
+        // ===== 开机（严格顺序，视频源未就绪绝不开屏）=====
+        // 阶段1：第一时间开视频源（LED 诺瓦 V2460=seq55-6 / 投影融合器=seq55-4）
+        const alreadyOn = preheatTargets.every((t) => t.reading.on);
+        const p0 = await applyCircuits(preheatTargets, true, ctx);
+        if (p0.stopped) return;
+        if (p0.failed.length) {
+          ElMessage.error(`视频源上电失败，已暂缓后续开机：${p0.failed.join('; ')}`);
+          return;
+        }
+        // 硬门控：等视频源应用层就绪（找到地址、稳定提供服务），超时未就绪则阻断，不开功放/屏
+        const ready = await waitForReady(plan, ctx, alreadyOn);
+        if (!isCurrent(key, action, revision)) return;
+        booting.value = false;
+        bootCountdown.value = 0;
+        if (!ready) {
+          ElMessage.error(
+            `${options.title()}视频源未在 ${plan.timeoutSec}s 内确认就绪（未正常提供服务/找到地址），`
+            + '已暂缓开功放与显示屏。视频源已在上电，可稍后再次点开机继续等待。',
+          );
+          return;
+        }
+        // 阶段2：视频源就绪后开功放/矩阵（逐路串行）
+        const rAmp = await applyCircuits(ampStageCircuits.value, true, ctx);
+        if (rAmp.stopped) return;
+        if (rAmp.failed.length) {
+          ElMessage.error(`功放上电失败，已暂缓开显示屏：${rAmp.failed.join('; ')}`);
+          return;
+        }
+        // 功放稳定后再送屏电
+        await sleep(stageGapMs);
+        if (!isCurrent(key, action, revision)) return;
+        // 阶段3：最后开显示屏/投影仪（一亮即有画面）
+        const rScreen = await applyCircuits(screenStageCircuits.value, true, ctx);
+        if (rScreen.stopped) return;
+        if (rScreen.failed.length) {
+          ElMessage.error(`显示屏上电失败：${rScreen.failed.join('; ')}`);
+          return;
+        }
+        // 固定显示（LED 切正全屏图层 / 投影清空窗口+全屏 HDMI），保证画面正确、不跳动
+        let displayLocked = true;
+        if (options.lockDisplay) {
+          displayLocked = await options.lockDisplay();
+          if (!isCurrent(key, action, revision)) return;
+        }
+        if (!displayLocked) {
+          ElMessage.warning(`${options.title()}已开机，但显示画面未确认，若画面异常请手动切换输入源`);
+        } else {
+          ElMessage.success(`${options.title()}已开机（视频源→功放→显示屏，按序完成）`);
         }
       } else {
-        // 开机：先开预热回路（视频源）→ 应用层探活等就绪（倒计时）→ 再开显示回路。
+        // 兼容旧路径（无分段计划）：预热→等就绪→显示回路整段；该路径无视频源门控，保留超时兜底
         let timedOut = false;
         let preheatFailed: string[] = [];
         if (plan && preheatTargets.length) {
@@ -392,7 +500,7 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
         const r1 = await applyCircuits(displayTargets, true, ctx);
         if (r1.stopped) return;
         const failed = [...preheatFailed, ...r1.failed];
-        // 显示回路打开后固定显示（LED 切正全屏图层 / 投影清空窗口+全屏 HDMI），保证画面正确、不跳动
+        // 显示回路打开后固定显示，保证画面正确、不跳动
         let displayLocked = true;
         if (!failed.length && options.lockDisplay) {
           displayLocked = await options.lockDisplay();
@@ -421,6 +529,8 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
     operationRevision += 1;
     powerCircuits.value = [];
     preheatCircuits.value = [];
+    ampStageCircuits.value = [];
+    screenStageCircuits.value = [];
     powerBusy.value = false;
     booting.value = false;
     bootCountdown.value = 0;

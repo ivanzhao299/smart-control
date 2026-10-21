@@ -19,6 +19,17 @@ import {
 
 const GATEWAY_KEY = 'power-seq55';
 
+// 下发后回读校验（第三十五轮加固）：F0/F1 是 set 语义但设备对 set 不回帧，
+// 必须再发 FA 读位图确认目标通道真的动作，避免「写帧后即返回」的假成功。
+const SINGLE_VERIFY_ATTEMPTS = 3; // 单路：下发+回读最多尝试次数
+const SINGLE_VERIFY_WAIT_MS = 1200; // 单路：下发后等待继电器动作并匹配的窗口
+const SINGLE_VERIFY_POLL_MS = 300; // 单路：窗口内 FA 回读轮询间隔
+const ALL_SEQ_VERIFY_ATTEMPTS = 2; // 0D 时序全开/关：最多尝试次数
+const ALL_SEQ_VERIFY_WAIT_MS = 6000; // 0D 时序：8 路按内部时序逐路动作，留足窗口
+const ALL_SEQ_VERIFY_POLL_MS = 500;
+const ALL_SYNC_VERIFY_WAIT_MS = 1500; // 10 同步：几乎同时动作，窗口短
+const ALL_SYNC_VERIFY_POLL_MS = 300;
+
 /**
  * 第二台 8 路电源时序器 ("55…AA" 6 字节协议) 适配器 — 2026-07-29 业主计划加装,
  * **先写好等设备到货**。协议与在用的 EPO-802P 完全不同 (帧头 55 vs 5A5A5A,
@@ -160,28 +171,128 @@ export class Seq55Adapter extends BaseAdapter {
     return ch as Seq55Channel;
   }
 
-  /** 单路通断 */
+  private sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (signal?.aborted) { reject(signal.reason ?? new Error('aborted')); return; }
+      const t = setTimeout(resolve, ms);
+      signal?.addEventListener('abort', () => {
+        clearTimeout(t);
+        reject(signal.reason ?? new Error('aborted'));
+      }, { once: true });
+    });
+  }
+
+  /**
+   * 下发后轮询 FA 回读，直到 8 路位图满足 predicate（或超过 waitMs）。
+   * 走 this.send（cmdLock 串行队列 + 常驻短连接），不独立打开 COM4，避免与 10s 采集争用。
+   * 单次读失败不立即抛错（继电器动作中回帧可能不完整），在窗口内继续轮询。
+   */
+  private async pollStatusUntil(
+    predicate: (channels: boolean[]) => boolean,
+    waitMs: number,
+    pollMs: number,
+    ctx?: AdapterContext,
+  ): Promise<{ matched: boolean; reply: Buffer; channels?: boolean[] }> {
+    const deadline = Date.now() + waitMs;
+    let reply: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+    let channels: boolean[] | undefined;
+    while (Date.now() < deadline) {
+      if (ctx?.signal?.aborted) throw ctx.signal.reason ?? new Error('aborted');
+      try {
+        reply = await this.send(cmdReadStatus(this.devAddr), ctx?.signal, true);
+        const parsed = parseStatusReply(reply);
+        if (parsed.ok && parsed.channels) {
+          channels = parsed.channels;
+          if (predicate(channels)) return { matched: true, reply, channels };
+        }
+      } catch (err) {
+        // 轮询窗口内的读失败记一笔，继续读到 deadline；窗口结束仍未匹配再由调用方判定
+        this.logger.debug(`seq55 FA 回读异常(继续轮询): ${(err as Error).message}`, { context: 'Seq55Adapter' });
+      }
+      const left = deadline - Date.now();
+      if (left <= 0) break;
+      await this.sleep(Math.min(pollMs, left), ctx?.signal);
+    }
+    return { matched: false, reply, channels };
+  }
+
+  /** 字节级状态摘要，用于回读不符时的日志（set 帧 / FA 回帧 / 位图）。 */
+  private static describeChannels(channels?: boolean[]): string {
+    return channels ? channels.map((c) => (c ? 1 : 0)).join('') : 'n/a';
+  }
+
+  /** 单路通断：下发 F0/F1 → 轮询 FA 回读确认目标路位图，不符则重发，仍不符抛错。 */
   async setChannel(channel: number, on: boolean, ctx?: AdapterContext): Promise<AdapterResult<{ channel: number; on: boolean }>> {
     return this.run(`seq55-ch${channel}`, on ? 'channelOn' : 'channelOff', ctx, async () => {
       const ch = this.assertChannel(channel);
-      await this.send(cmdChannelSwitch(this.devAddr, ch, on), ctx?.signal);
-      return { channel, on };
+      let lastDetail = '';
+      for (let attempt = 1; attempt <= SINGLE_VERIFY_ATTEMPTS; attempt += 1) {
+        if (ctx?.signal?.aborted) throw ctx.signal.reason ?? new Error('aborted');
+        const setFrame = cmdChannelSwitch(this.devAddr, ch, on);
+        await this.send(setFrame, ctx?.signal, false);
+        const r = await this.pollStatusUntil(
+          (cs) => cs[ch - 1] === on,
+          SINGLE_VERIFY_WAIT_MS,
+          SINGLE_VERIFY_POLL_MS,
+          ctx,
+        );
+        if (r.matched) {
+          if (attempt > 1) {
+            this.logger.info(`seq55 ch${ch} ${on ? '开' : '关'} 第 ${attempt} 次回读确认成功`, { context: 'Seq55Adapter' });
+          }
+          return { channel, on };
+        }
+        lastDetail = `set=${setFrame.toString('hex')} reply=${r.reply.toString('hex')} `
+          + `bitmap=[${Seq55Adapter.describeChannels(r.channels)}] expect ch${ch}=${on ? 1 : 0}`;
+        this.logger.warn(`seq55 ch${ch} ${on ? '开' : '关'} 回读未确认(第 ${attempt} 次): ${lastDetail}`, { context: 'Seq55Adapter' });
+      }
+      this.logger.error(`seq55 ch${ch} ${on ? '开' : '关'} 下发后 ${SINGLE_VERIFY_ATTEMPTS} 次回读均未确认: ${lastDetail}`, { context: 'Seq55Adapter' });
+      throw new DeviceProtocolError(
+        'power',
+        `seq55 第 ${ch} 路${on ? '开' : '关'}后回读状态不符（${SINGLE_VERIFY_ATTEMPTS} 次）；`
+        + '请确认面板电源键处于关闭(受控)状态、该路接线正常。',
+      );
     });
   }
 
-  /** 8 路顺序开/关 (0D) — 时序保护, 全开全关优先用它 */
+  /** 8 路顺序开/关 (0D) — 时序保护, 全开全关优先用它；下发后轮询回读直到 8 路全部到位。 */
   async setAllSequential(on: boolean, ctx?: AdapterContext): Promise<AdapterResult<{ on: boolean }>> {
     return this.run('seq55-all', on ? 'seqAllOn' : 'seqAllOff', ctx, async () => {
-      await this.send(cmdSequentialAll(this.devAddr, on), ctx?.signal);
-      return { on };
+      let lastDetail = '';
+      for (let attempt = 1; attempt <= ALL_SEQ_VERIFY_ATTEMPTS; attempt += 1) {
+        if (ctx?.signal?.aborted) throw ctx.signal.reason ?? new Error('aborted');
+        const frame = cmdSequentialAll(this.devAddr, on);
+        await this.send(frame, ctx?.signal, false);
+        const r = await this.pollStatusUntil(
+          (cs) => cs.length === 8 && cs.every((c) => c === on),
+          ALL_SEQ_VERIFY_WAIT_MS,
+          ALL_SEQ_VERIFY_POLL_MS,
+          ctx,
+        );
+        if (r.matched) return { on };
+        lastDetail = `set=${frame.toString('hex')} reply=${r.reply.toString('hex')} bitmap=[${Seq55Adapter.describeChannels(r.channels)}]`;
+        this.logger.warn(`seq55 时序全${on ? '开' : '关'} 回读未全部到位(第 ${attempt} 次): ${lastDetail}`, { context: 'Seq55Adapter' });
+      }
+      this.logger.error(`seq55 时序全${on ? '开' : '关'} ${ALL_SEQ_VERIFY_ATTEMPTS} 次回读未全部到位: ${lastDetail}`, { context: 'Seq55Adapter' });
+      throw new DeviceProtocolError('power', `seq55 时序全${on ? '开' : '关'}后回读 8 路未全部到位（${ALL_SEQ_VERIFY_ATTEMPTS} 次）；请确认面板电源键处于关闭(受控)状态。`);
     });
   }
 
-  /** 8 路同步全开/全关 (10) — 无时序, 慎用 (浪涌) */
+  /** 8 路同步全开/全关 (10) — 无时序, 慎用 (浪涌)；同样回读确认。 */
   async setAllSync(on: boolean, ctx?: AdapterContext): Promise<AdapterResult<{ on: boolean }>> {
     return this.run('seq55-all', on ? 'syncAllOn' : 'syncAllOff', ctx, async () => {
-      await this.send(cmdSyncAll(this.devAddr, on), ctx?.signal);
-      return { on };
+      const frame = cmdSyncAll(this.devAddr, on);
+      await this.send(frame, ctx?.signal, false);
+      const r = await this.pollStatusUntil(
+        (cs) => cs.length === 8 && cs.every((c) => c === on),
+        ALL_SYNC_VERIFY_WAIT_MS,
+        ALL_SYNC_VERIFY_POLL_MS,
+        ctx,
+      );
+      if (r.matched) return { on };
+      const detail = `set=${frame.toString('hex')} reply=${r.reply.toString('hex')} bitmap=[${Seq55Adapter.describeChannels(r.channels)}]`;
+      this.logger.error(`seq55 同步全${on ? '开' : '关'} 回读未到位: ${detail}`, { context: 'Seq55Adapter' });
+      throw new DeviceProtocolError('power', `seq55 同步全${on ? '开' : '关'}后回读 8 路未全部到位。`);
     });
   }
 
