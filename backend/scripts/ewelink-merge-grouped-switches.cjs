@@ -107,7 +107,7 @@ async function main() {
   if (activeCircuits.length) {
     const ids = activeCircuits.map((c) => c.id);
     scheduleRefs = db.prepare(
-      `SELECT id, circuit_id FROM power_schedule WHERE circuit_id IN (${placeholders(ids.length)})`,
+      `SELECT id, circuit_id FROM power_schedules WHERE circuit_id IN (${placeholders(ids.length)})`,
     ).all(...ids);
   }
 
@@ -117,8 +117,8 @@ async function main() {
   console.log(`拆分单元: 共 ${units.length} 条，其中仍启用 ${activeUnits.length} 条`);
   console.log(`拆分回路: 共 ${circuits.length} 条，其中仍启用 ${activeCircuits.length} 条`);
   if (scheduleRefs.length) {
-    console.log(`⚠️  power_schedule 有 ${scheduleRefs.length} 条定时任务引用这些回路，停用后该定时不动作，请人工核对：`);
-    scheduleRefs.forEach((s) => console.log(`   - power_schedule#${s.id} -> circuit_id=${s.circuit_id}`));
+    console.log(`⚠️  power_schedules 有 ${scheduleRefs.length} 条定时任务引用这些回路，停用后该定时不动作，请人工核对：`);
+    scheduleRefs.forEach((s) => console.log(`   - power_schedules#${s.id} -> circuit_id=${s.circuit_id}`));
   } else {
     console.log('定时任务引用: 无');
   }
