@@ -11,7 +11,10 @@ import {
   BreakerMeasurements,
   SwitchState,
 } from './epa-breaker-registers';
-import { EwelinkDevicesService } from '../../integrations/ewelink/ewelink-devices.service';
+import {
+  EwelinkDevicesService,
+  SwitchFormat,
+} from '../../integrations/ewelink/ewelink-devices.service';
 
 /** addressing 结构（同步时写入） */
 interface EwelinkAddressing {
@@ -19,6 +22,7 @@ interface EwelinkAddressing {
   uiid: number;
   channel: number;
   familyId?: string | null;
+  switchFormat?: SwitchFormat;
 }
 
 /**
@@ -60,7 +64,13 @@ export class EwelinkApiAdapter extends BaseAdapter {
         return { on: true, switchState: 'closed' as SwitchState };
       }
       const addr = await this.resolveAddressing(gatewayCode);
-      await this.devices.setSwitch(addr.deviceId, addr.uiid, addr.channel, true);
+      await this.devices.setSwitch(
+        addr.deviceId,
+        addr.uiid,
+        addr.channel,
+        true,
+        addr.switchFormat,
+      );
       return { on: true, switchState: 'closed' as SwitchState };
     });
   }
@@ -76,7 +86,13 @@ export class EwelinkApiAdapter extends BaseAdapter {
         return { on: false, switchState: 'open' as SwitchState };
       }
       const addr = await this.resolveAddressing(gatewayCode);
-      await this.devices.setSwitch(addr.deviceId, addr.uiid, addr.channel, false);
+      await this.devices.setSwitch(
+        addr.deviceId,
+        addr.uiid,
+        addr.channel,
+        false,
+        addr.switchFormat,
+      );
       return { on: false, switchState: 'open' as SwitchState };
     });
   }

@@ -8,6 +8,29 @@ import { PowerCircuit } from '../../entities/power-circuit.entity';
 import { apiHostForRegion, makeApiSign, makeNonce } from './ewelink-crypto';
 import { EwelinkAuthService } from './ewelink-auth.service';
 
+/** 开关值口径：标准协议为字符串 'on'/'off'；部分固件（如 UIID 226 fw 1.2.1）控制与回报均为布尔 */
+export type SwitchFormat = 'boolean' | 'string';
+
+/** 按口径构造一路开关参数（单路 params.switch；多路 params.switches[].outlet） */
+function buildSwitchParams(
+  channel: number,
+  on: boolean,
+  format: SwitchFormat,
+): Record<string, unknown> {
+  const value: boolean | string = format === 'boolean' ? on : on ? 'on' : 'off';
+  return channel === 0
+    ? { switch: value }
+    : { switches: [{ switch: value, outlet: channel }] };
+}
+
+/** 从设备 params 推断开关口径（布尔/字符串），无法判断时回落标准字符串 */
+function detectSwitchFormat(params: any): SwitchFormat {
+  if (Array.isArray(params.switches) && params.switches.length > 0) {
+    return typeof params.switches[0].switch === 'boolean' ? 'boolean' : 'string';
+  }
+  return typeof params.switch === 'boolean' ? 'boolean' : 'string';
+}
+
 /** 标准化的一路开关 */
 export interface EwelinkSwitchChannel {
   /** outlet，单路为 0 */
@@ -23,6 +46,8 @@ export interface EwelinkSwitchThing {
   online: boolean;
   familyId: string | null;
   channels: EwelinkSwitchChannel[];
+  /** 该设备控制值口径（同步时写入 addressing） */
+  switchFormat: SwitchFormat;
 }
 
 export interface SyncResult {
@@ -81,33 +106,57 @@ export class EwelinkDevicesService {
     return normalized;
   }
 
-  /** 控制一路开关 */
-  async setSwitch(deviceId: string, uiid: number, channel: number, on: boolean): Promise<void> {
+  /**
+   * 控制一路开关。
+   * format 已知时按设备口径一次下发；未知时先标准字符串，仅当 4002（参数协议/设备控制失败）
+   * 才用布尔口径兜底重试，避免给标准设备造成多余请求。
+   */
+  async setSwitch(
+    deviceId: string,
+    uiid: number,
+    channel: number,
+    on: boolean,
+    format?: SwitchFormat,
+  ): Promise<void> {
     const { token, region } = await this.auth.ensureAccessToken();
+    const { appId } = await this.auth.getCredentials();
     void uiid;
-    const state = on ? 'on' : 'off';
-    // 单通道用 params.switch；多通道用 params.switches[].outlet
-    const params =
-      channel === 0
-        ? { switch: state }
-        : { switches: [{ switch: state, outlet: channel }] };
-    const body = { type: 1, id: deviceId, params };
-    const bodyJson = JSON.stringify(body);
+    const formats: SwitchFormat[] = format ? [format] : ['string', 'boolean'];
+    let last: { error: number; msg?: string } | null = null;
+    for (let i = 0; i < formats.length; i += 1) {
+      const body = {
+        type: 1,
+        id: deviceId,
+        params: buildSwitchParams(channel, on, formats[i]),
+      };
+      const json = await this.postThingStatus(region, body, token, appId);
+      if (json.error === 0) return;
+      last = json;
+      if (json.error !== 4002) break; // 非参数协议错误，不换口径
+    }
+    throw new BadRequestException(`易微联控制失败: ${last?.msg ?? last?.error}`);
+  }
+
+  /** POST /v2/device/thing/status（用户分类接口，带 X-CK-Appid；单次应用层命令） */
+  private async postThingStatus(
+    region: string,
+    body: Record<string, unknown>,
+    token: string,
+    appId: string,
+  ): Promise<{ error: number; msg?: string }> {
     const host = apiHostForRegion(region);
     const resp = await fetch(`${host}/v2/device/thing/status`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
+        'X-CK-Appid': appId,
         'X-CK-Nonce': makeNonce(8),
       },
-      body: bodyJson,
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(12_000),
     });
-    const json = (await resp.json()) as { error: number; msg?: string };
-    if (json.error !== 0) {
-      throw new BadRequestException(`易微联控制失败: ${json.msg ?? json.error}`);
-    }
+    return (await resp.json()) as { error: number; msg?: string };
   }
 
   // ============ 同步进本地台账 ============
@@ -135,6 +184,7 @@ export class EwelinkDevicesService {
           familyId: t.familyId,
           uiid: t.uiid,
           channel: ch.channel,
+          switchFormat: t.switchFormat,
         });
         if (!unit) {
           unit = this.hwRepo.create({
@@ -226,6 +276,7 @@ export class EwelinkDevicesService {
       // 设备自带 family 优先，回落到当前家庭
       familyId: (t.family?.familyid as string) ?? familyId,
       channels,
+      switchFormat: detectSwitchFormat(params),
     };
   }
 

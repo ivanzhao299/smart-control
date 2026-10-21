@@ -219,11 +219,15 @@ export class EwelinkAuthService implements OnApplicationBootstrap, OnModuleDestr
   }
 
   private async refresh(r: EwelinkAuth): Promise<{ token: string; region: string; familyId: string | null }> {
+    const { appId } = await this.getCredentials();
     const host = apiHostForRegion(r.region);
     const resp = await fetch(`${host}/v2/user/refresh`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        // 用户分类接口必须带 X-CK-Appid，否则服务端报 "x-ck-appid" is required
+        'X-CK-Appid': appId,
+        'X-CK-Nonce': makeNonce(8),
         Authorization: `Bearer ${r.accessToken as string}`,
       },
       body: JSON.stringify({ rt: r.refreshToken }),
