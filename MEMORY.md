@@ -1,5 +1,20 @@
 
-## ★ 最新状态（2026-10-21，**第三十二轮「易微联 UIID 226 开关控制值口径（布尔 vs 字符串）+ token 续期头缺失」已部署生产 GK9000**。commit `25ac1f0`（后端 4 文件 +142/-30，新增 spec），已 push（f752013..25ac1f0）+ SSH 手动部署，verify-deploy 全绿、生产真实 off→on 回验通过、两设备 addressing 已写 switchFormat=boolean）：
+## ★ 最新状态（2026-10-21，**第三十三轮「开机显示链路加固：就绪后稳定等待 + 显示回路通电后自动固定画面」已部署生产 GK9000**。commit `cc7aeab`（前端 5 文件 +38/-4），已 push（1beb69f..cc7aeab）+ SSH 手动部署，verify-deploy 全绿、前端新 chunk 已生效）：
+- **报修两问题**：① LED 开机线路显示"开机完成"后，推送节目仍提示"没有正常推送"（视频服务器服务未真正拉起）；② 投影仪开机播放时不满屏、节目跳动、输入源跳动，画面无法固定。
+- **根因（两问题同源：就绪判据太弱 + 开机后未自动固定画面）**：
+  - LED：`GET /api/led/ready`→`NovaLedAdapter.healthCheck()` 只发 `frameReadDeviceId()`（ReadDeviceID，设备最基础身份查询，宽松模式 ≥4 字节即 OK）。设备开机约 30s 网络/CPU 一启动就能响应，但视频服务器的节目解码/推流/图层渲染引擎尚未完全就绪；waitForReady 一看到 ready=true 就开显示回路，用户随即推送仍失败。
+  - 投影：`GET /api/projector/ready`→`ProjectorService.ready()`→`FusionPlayerAdapter.healthCheck()` 只发 `version`。version 能响应（约 75s）不代表已锁定 HDMI 输入、输出稳定；且 `showHdmiInput()`（enumWindows→关数字 id 窗口→openWindow('HDMI',0,0,1,1) 全屏）只被 ProjectorPage 手动按钮 switchToGk 调用，**开机编排 togglePower 不调用**，融合器停留在旧窗口配置（不满屏/内部媒体窗口在播→节目跳动/HDMI 未锁定→输入源跳动）。
+- **LED 同样会发生（回答追问）**：会。LED 就绪判据同样弱，且开机后没有显式固定图层；诺瓦虽有后端周期自愈 `ensureFullscreenLayer()`（ping→frameSetLayer 全屏 1:1→DisplayMode NORMAL→首次 SavePreset），但由 onModuleInit 调度（bootDelay 15s、interval 5min，LED_ENSURE_LAYER=off 可关），**不是开机流程的一部分**，开机后 15s 那一次可能在视频服务器还没就绪时跳过。
+- **修复（commit cc7aeab，仅前端、后端未动、向后兼容）**：
+  - `PowerBootPlan` 新增可选 `settleSec`：探活通过后再稳定等待（LED 8s / 投影 10s，让视频引擎/输入锁定完全就绪），倒计时继续；settle 不占用 timeout（ready 后额外等待）。
+  - `usePlayerPowerControls` options 新增可选 `lockDisplay(): Promise<boolean>`；显示回路通电后自动调用，固定成功才报"开机完成"，未确认提示"画面未确认请手动切换输入源"。
+  - 复用已有 `ensureDisplayPath()`（usePlayerInputSources.ts）：slot1 且有 deviceId→`ledService.switchInput(deviceId,'video')`（SetLayer 全屏）、slot2→`projectorService.showHdmi()`；ensureDisplayPath 由 void 改为返回 boolean（成功 true/失败 warning+false，调用方不使用返回值，兼容）并导出；PlayerConsole 解构后以 `lockDisplay: () => ensureDisplayPath()` 传入（箭头函数延迟解析，规避 composable 在前的前向引用）。
+  - LedPage boot plan settleSec=8、ProjectorPage settleSec=10；未配置 settle/lockDisplay 时保持现状。
+- **门禁**：前端 vue-tsc + vite build 通过（PWA 115 预缓存）；前端 301 测试全绿（PlayerConsole 行数守卫 1639 行，复用 ensureDisplayPath 后未新增独立函数）。
+- **生产回验（2026-10-21 11:17）**：deploy-from-ci.ps1 Deployment complete cc7aeab、verify-deploy.js passed 全绿；PM2 backend online（无后端改动未重启）、frontend online（静态服务器更新 dist 无需重启 uptime 不重置）；新 chunk PlayerConsole-BldLSxNi.js（11:17，HTTP 200、含 settle/lockDisplay 逻辑）、index.html 指向新入口 index-CiTer0HA.js。融合器当时离线（192.168.1.168:63426 TCP 超时，未开机）无法现场观察。
+- **待办**：①现场真机各做一次完整开机（LED、投影），确认"开机完成即可正常推送节目、画面满屏固定不跳动"（用户在手机端，需评估能否配合观察）；②临时 operator 账号 id=28（__op_test__）删除属生产 DB 写入、删前需确认；③GitHub Actions 预算限制未解除（CI 2-4s 失败 "Actions budget"），继续 SSH 手动部署；④仓库根 untracked ewelink-timeline.html 未处理；⑤docs/printable 下 xlsx→xlsm 是用户自己的 Excel 操作，提交时未碰。
+
+## 前一状态（2026-10-21，**第三十二轮「易微联 UIID 226 开关控制值口径（布尔 vs 字符串）+ token 续期头缺失」已部署生产 GK9000**。commit `25ac1f0`（后端 4 文件 +142/-30，新增 spec），已 push（f752013..25ac1f0）+ SSH 手动部署，verify-deploy 全绿、生产真实 off→on 回验通过、两设备 addressing 已写 switchFormat=boolean）：
 - **根因（生产真机实测，铁证）**：两台 UIID 226 计量开关（model CK-BL602-W102SW18-01，fwVersion 1.2.1）——「展厅灯带」1002b88e41（EWE-02b88e41，circuit id32）、「展厅筒灯射灯」1002b8942a（EWE-02b8942a，circuit id33），均 online:true，**控制接口要求开关值为布尔 true/false，而非标准字符串**。真机对比：`{switch:'on'}` 字符串→error 4002 控制失败；`{switch:true}` 布尔→error 0 成功；`{switch:1}`、`{switch:'toggle'}`→4002。
 - **为何昨天没修好（第二十九轮只修一半）**：第二十九轮（49c7639 DI 注入 + 3a21236 readSwitch 回读认布尔）只修了"回读"，**setSwitch 仍在第 88 行发 `const state = on ? 'on' : 'off'`（字符串）**，故每次控制被设备 4002 拒绝；昨天验证只核对"读数对不对"（设备本就开着、读到 on 即通过），没真实做"关掉再打开"，漏检控制环节。
 - **第二隐患（token 续期头缺失）**：EwelinkAuthService.refresh()（private，第 221 行）调 POST `/v2/user/refresh` 缺 `X-CK-Appid` 头，03:37 定时刷新报 `"x-ck-appid" is required`。生产实测：带 X-CK-Appid 后 refresh 返回 error 0、新 at/rt 落库（旧 at head f53b48→新 at head ae5ecf）。
