@@ -288,8 +288,12 @@ test('park dashboard commands update server-confirmed state and refresh cooldown
 test('PlayerConsole delegates input-source orchestration and park mutations use the shared client', () => {
   assert.match(playerConsole, /usePlayerInputSources\(\{/);
   assert.match(playerConsole, /@click="selectParkDashboard"/);
-  assert.match(playerConsole, /> 园区运营大屏<\/button>/);
+  // 输入源改造：三按钮分段控件（无外框），运营大屏段含 Globe 图标 + 文案
+  assert.match(playerConsole, /class="seg-group"/);
+  assert.match(playerConsole, /<Globe :size="14" \/> 运营大屏/);
   assert.match(playerConsole, /activeSource === 'park-dashboard'/);
+  // 运营大屏的翻页/刷新只在下方数据运营面板出现一次：播放卡片不再复用为大屏按钮
+  assert.doesNotMatch(playerConsole, /parkOpsControl\('prev'\)/);
   assert.doesNotMatch(playerConsole, /async function ensureDisplayPath/);
   assert.doesNotMatch(playerConsole, /parkOpsControlService\./);
   assert.match(inputSourcesComposableText, /parkOpsControlService\.(next|prev|setAuto|refresh)/);

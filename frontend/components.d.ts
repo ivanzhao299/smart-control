@@ -58,6 +58,7 @@ declare module 'vue' {
     FullscreenPrompt: typeof import('./src/components/FullscreenPrompt.vue')['default']
     MediaAdminPanel: typeof import('./src/components/MediaAdminPanel.vue')['default']
     MediaPickerDialog: typeof import('./src/components/admin/MediaPickerDialog.vue')['default']
+    ParkDashboardSourcePanel: typeof import('./src/components/ParkDashboardSourcePanel.vue')['default']
     PlayerConsole: typeof import('./src/components/PlayerConsole.vue')['default']
     PlayerVideoControls: typeof import('./src/components/PlayerVideoControls.vue')['default']
     PowerScheduleDrawer: typeof import('./src/components/admin/PowerScheduleDrawer.vue')['default']
@@ -68,6 +69,7 @@ declare module 'vue' {
     ServerSettingsDialog: typeof import('./src/components/ServerSettingsDialog.vue')['default']
     StatusBar: typeof import('./src/components/StatusBar.vue')['default']
     StatusCard: typeof import('./src/components/StatusCard.vue')['default']
+    WelcomeSourcePanel: typeof import('./src/components/WelcomeSourcePanel.vue')['default']
   }
   export interface ComponentCustomProperties {
     vLoading: typeof import('element-plus/es')['ElLoadingDirective']

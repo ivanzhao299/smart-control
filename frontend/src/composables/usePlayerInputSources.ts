@@ -175,39 +175,50 @@ export function usePlayerInputSources(options: PlayerInputSourceOptions) {
     }
   }
 
-  async function onWelcomeSchemePick(event: Event): Promise<void> {
-    const selectEl = event.target as HTMLSelectElement;
-    const value = selectEl.value;
-    const rollback = (): void => { selectEl.value = welcomePickerValue.value; };
-    if (welcomePickerBusy.value || options.busy.value) return;
+  /**
+   * 按 id 投放欢迎方案（核心逻辑，供输入源下拉与新的方案明细表共用）。
+   * id = WELCOME_PICK_DEFAULT 投放静态默认；其余为具体方案 id（发布 + 动态欢迎页）。
+   * 返回 'success'（成功或当前已非活动上下文，无需回滚）/ 'busy'（并发保护，未尝试）/
+   * 'failed'（尝试后失败，调用方应恢复选择器显示值）。
+   */
+  async function pickWelcomeSchemeById(id: string): Promise<'success' | 'busy' | 'failed'> {
+    if (welcomePickerBusy.value || options.busy.value) return 'busy';
     const isCurrent = options.captureAction();
     welcomePickerBusy.value = true;
     try {
-      if (value === WELCOME_PICK_DEFAULT) {
+      if (id === WELCOME_PICK_DEFAULT) {
         await selectWelcome('default');
       } else {
-        if (!(await ensureContentEditor('投放欢迎方案'))) { rollback(); return; }
-        if (!isCurrent()) return;
-        const scheme = options.welcomeSchemes.value.find((item) => item.id === value);
+        if (!(await ensureContentEditor('投放欢迎方案'))) return 'failed';
+        if (!isCurrent()) return 'success';
+        const scheme = options.welcomeSchemes.value.find((item) => item.id === id);
         if (!scheme) throw new Error('该欢迎方案不存在，请重新选择');
-        await publishWelcomeScheme(value, options.welcomeSchemesRevision.value);
-        if (!isCurrent()) return;
+        await publishWelcomeScheme(id, options.welcomeSchemesRevision.value);
+        if (!isCurrent()) return 'success';
         await refreshWelcomeSchemeOptions();
-        if (!isCurrent()) return;
+        if (!isCurrent()) return 'success';
         await selectWelcome('editable');
       }
       if (isCurrent()) void options.reloadLists();
+      return 'success';
     } catch (error) {
-      if (!isCurrent()) return;
+      if (!isCurrent()) return 'success';
       const message = (error as Error).message || String(error);
       await refreshWelcomeSchemeOptions();
-      rollback();
       ElMessage.error(/冲突|conflict|revision/i.test(message)
         ? '欢迎方案刚被其它终端修改，已刷新，请重新选择'
         : `投放欢迎页失败: ${message}`);
+      return 'failed';
     } finally {
       welcomePickerBusy.value = false;
     }
+  }
+
+  /** 输入源下拉选择：读 select 值后委托 pickWelcomeSchemeById，失败时恢复下拉显示。 */
+  async function onWelcomeSchemePick(event: Event): Promise<void> {
+    const selectEl = event.target as HTMLSelectElement;
+    const result = await pickWelcomeSchemeById(selectEl.value);
+    if (result === 'failed') selectEl.value = welcomePickerValue.value;
   }
 
   async function syncParkOpsState(): Promise<void> {
@@ -313,6 +324,7 @@ export function usePlayerInputSources(options: PlayerInputSourceOptions) {
     selectContent,
     selectWelcome,
     onWelcomeSchemePick,
+    pickWelcomeSchemeById,
     selectParkDashboard,
     parkOpsControl,
     syncParkOpsState,

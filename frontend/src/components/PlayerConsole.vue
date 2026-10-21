@@ -31,8 +31,8 @@ import { useRouter } from 'vue-router';
 import {
   ArrowLeft, MonitorPlay, Play, Pause, Square, SkipBack, SkipForward,
   Upload, ListMusic, History, Pencil, Trash2, Plus, Repeat, Repeat1, AlertTriangle, GripVertical, FolderOpen, X,
-  Globe, Shuffle,
-  ChevronLeft, ChevronRight, Power, ZoomIn, ZoomOut, Maximize, RefreshCw, RotateCcw,
+  Globe, Shuffle, Image,
+  ChevronLeft, ChevronRight, Power, ZoomIn, ZoomOut, Maximize,
 } from 'lucide-vue-next';
 import { usePlaybackStore } from '@/stores/playback';
 import { publishWelcome } from '@/services/playback.service';
@@ -43,8 +43,10 @@ import { usePlayerInputSources } from '@/composables/usePlayerInputSources';
 import { usePlayerPlaylist } from '@/composables/usePlayerPlaylist';
 import { usePlayerDocumentControls } from '@/composables/usePlayerDocumentControls';
 import PlayerVideoControls from '@/components/PlayerVideoControls.vue';
+import WelcomeSourcePanel from '@/components/WelcomeSourcePanel.vue';
+import ParkDashboardSourcePanel from '@/components/ParkDashboardSourcePanel.vue';
 import { usePlayerPowerControls, type PowerBootPlan, type PowerKeepRule } from '@/composables/usePlayerPowerControls';
-import { WELCOME_PICK_DEFAULT, detectPlayerInputSource } from '@/features/player-input-source';
+import { detectPlayerInputSource } from '@/features/player-input-source';
 import { MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
 
 const props = defineProps<{
@@ -255,9 +257,7 @@ const {
 
 const {
   ensureDisplayPath,
-  srcHint,
   welcomePickerBusy,
-  welcomePickerValue,
   parkOpsPage,
   parkOpsTotalPages,
   parkOpsAuto,
@@ -269,7 +269,8 @@ const {
   releaseParkOps,
   refreshWelcomeSchemeOptions,
   selectContent,
-  onWelcomeSchemePick,
+  selectWelcome,
+  pickWelcomeSchemeById,
   selectParkDashboard,
   parkOpsControl,
 } = usePlayerInputSources({
@@ -291,24 +292,29 @@ const {
 
 // 欢迎页编辑和输入源切换均已收敛到组合式用例；本组件保留模板与播放器编排。
 
-// 手机端「输入源」统一下拉（仅 UI 聚合，见 .src-bar-mobile）：把选中项路由回原有
-// selectContent / selectParkDashboard / onWelcomeSchemePick，不新增任何业务行为；
-// 桌面端仍使用按钮组（.src-bar）。value 用专用前缀，避免与欢迎方案 id / 默认值冲突。
-const UNIFIED_SRC_CONTENT = 'src-content';
-const UNIFIED_SRC_DASHBOARD = 'src-dashboard';
-const unifiedSourceValue = computed(() => {
-  const src = activeSource.value;
-  if (src === 'content') return UNIFIED_SRC_CONTENT;
-  if (src === 'park-dashboard') return UNIFIED_SRC_DASHBOARD;
-  // welcome-default / welcome-editable：与原欢迎页下拉一致（'__default__' 或当前方案 id）
-  return welcomePickerValue.value;
-});
-function onUnifiedSourceChange(event: Event): void {
-  const value = (event.target as HTMLSelectElement).value;
-  if (value === UNIFIED_SRC_CONTENT) { void selectContent(); return; }
-  if (value === UNIFIED_SRC_DASHBOARD) { void selectParkDashboard(); return; }
-  // 其余为静态默认欢迎页 / 具体方案 id：直接复用原欢迎页选择 handler（它读 event.target.value）
-  void onWelcomeSchemePick(event);
+// 输入源三按钮分段选择（桌面/手机统一，仅 UI 聚合）：按钮点击路由回原有
+// selectWelcome('default') / selectParkDashboard / selectContent，不新增业务行为。
+// 「欢迎页」选中态合并 welcome-editable / welcome-default 两种状态。
+const isWelcomeSource = computed(() => activeSource.value === 'welcome-editable'
+  || activeSource.value === 'welcome-default');
+const isDashboardSource = computed(() => activeSource.value === 'park-dashboard');
+const isContentSource = computed(() => activeSource.value === 'content');
+
+// 数据维护入口仅后台「品牌」分域权限可见。
+const canMaintainBranding = computed(() => perm.canAccessModule('branding'));
+
+// 欢迎方案明细表：上屏（静态默认 / 具体方案），复用 pickWelcomeSchemeById。
+function handleWelcomePick(id: string): void {
+  void pickWelcomeSchemeById(id);
+}
+// 欢迎方案明细表：编辑（有 id 先选中该方案；无 id 为新建，在编辑器内新建）。
+async function handleWelcomeEdit(id?: string): Promise<void> {
+  if (id) selectWelcomeScheme(id);
+  await openWelcomeEditor();
+}
+// 数据维护：跳后台品牌配置。
+function openBrandingAdmin(): void {
+  router.push({ name: 'admin-system-branding' });
 }
 
 </script>
@@ -357,46 +363,28 @@ function onUnifiedSourceChange(event: Event): void {
           {{ ch?.restricted ? '其他用户的内容正在使用此设备' : (currentInList?.title || ch?.currentMediaName || '— 待机中 —') }}
         </div>
         <div class="now-sub">
-          <!-- 2026-10-17 #135延伸: 两组小字 v-show 常驻、固定单行; 大屏无控制显页码·翻页, 被远程控制时互斥改显「控制中Ns/释放」, 均不换行。 -->
+          <!-- 2026-10-17 #135延伸: 各源小字 v-show 常驻、固定单行。运营大屏显页码·翻页/认领;
+               欢迎页显「已上屏」; 播放内容显循环/播一遍。均不换行。 -->
           <span class="now-sub-group" v-show="activeSource === 'park-dashboard'">
             <span class="v2-inter" v-show="!parkOpsClaimed">第 {{ parkOpsPage + 1 }} / {{ parkOpsTotalPages }} 页</span>
             <span v-show="!parkOpsClaimed">· {{ parkOpsAuto ? '自动轮播中' : '手动翻页' }}</span>
             <span v-show="parkOpsClaimed" class="claim-tag" :class="{ mine: parkOpsClaimByMe }">{{ parkOpsClaimByMe ? '您正在控制' : `${parkOpsClaimName || '远程终端'} 控制中` }} {{ Math.ceil(parkOpsClaimRemaining / 1000) }}s</span>
             <button v-show="parkOpsClaimByMe" class="claim-release" @click="releaseParkOps">释放</button>
           </span>
-          <span class="now-sub-group" v-show="activeSource !== 'park-dashboard'">
+          <span class="now-sub-group" v-show="isWelcomeSource">
+            <span class="onscreen-tag">已上屏</span>
+          </span>
+          <span class="now-sub-group" v-show="activeSource === 'content' || activeSource === null">
             <span v-if="ch?.currentMediaKind !== 'video' && ch?.loopMode === 'loop'"><Repeat :size="13" /> 循环</span>
             <span v-else-if="ch?.currentMediaKind !== 'video'"><Repeat1 :size="13" /> 播一遍</span>
           </span>
         </div>
       </div>
       <!-- 业主: "暂停、切换、上下内容等均可控制" + "随时可以点击终止" -->
-      <div class="now-ctrl">
-        <!-- 输入源=园区运营大屏时, 复用这四个主按钮为:
-             上一页 / 自动轮播(开关) / 下一页 / 强制刷新, 纯图标, 不再另弹控制条 (2026-09-15)
-             2026-10-17 切源稳定性(#135): 两套按钮改为 v-show 常驻同一组槽位, 不再 v-if/v-else
-             整组卸载重挂——切源时按钮容器与图标 SVG 不重建, 只切显隐, 消除一帧空窗/闪烁。
-             两套各 4 个槽位、互斥显示, 隐藏组 display:none 不占 flex 空间, 布局与原一致。 -->
-        <button class="pc-btn pc-nav" v-show="activeSource === 'park-dashboard'" :disabled="parkOpsBusy" title="运营大屏 · 上一页" @click="parkOpsControl('prev')">
-          <ChevronLeft :size="20" />
-        </button>
-        <button
-          class="pc-btn main"
-          v-show="activeSource === 'park-dashboard'"
-          :class="{ on: parkOpsAuto }"
-          :disabled="parkOpsBusy"
-          :title="parkOpsAuto ? '自动轮播：开（点击关闭）' : '自动轮播：关（点击开启）'"
-          @click="parkOpsControl('auto')"
-        >
-          <RefreshCw :size="20" />
-        </button>
-        <button class="pc-btn pc-nav" v-show="activeSource === 'park-dashboard'" :disabled="parkOpsBusy" title="运营大屏 · 下一页" @click="parkOpsControl('next')">
-          <ChevronRight :size="20" />
-        </button>
-        <button class="pc-btn refresh" v-show="activeSource === 'park-dashboard'" :disabled="parkOpsBusy" title="强制刷新：让大屏清缓存加载最新前端构建" @click="parkOpsControl('refresh')">
-          <RotateCcw :size="18" />
-        </button>
-        <button class="pc-btn" v-show="activeSource !== 'park-dashboard'" :disabled="busy || playlist.length === 0" title="上一首" @click="step('prev')">
+      <div class="now-ctrl" v-show="activeSource === 'content' || activeSource === null">
+        <!-- 只有「播放内容」是可暂停的媒体队列，保留 4 键；运营大屏的翻页/刷新移到下方
+             数据运营面板，欢迎页只显示状态。待机(null)保留媒体键，便于直接点播放。 -->
+        <button class="pc-btn" :disabled="busy || playlist.length === 0" title="上一首" @click="step('prev')">
           <SkipBack :size="20" />
         </button>
         <!-- 待机时必须是「播放」而不是一个被禁用的「暂停」(2026-07-17 业主:
@@ -405,7 +393,6 @@ function onUnifiedSourceChange(event: Event): void {
              口径对齐音响页 BGM 那个已验证好用的: disabled 只看列表空不空。 -->
         <button
           class="pc-btn main"
-          v-show="activeSource !== 'park-dashboard'"
           :disabled="busy || (!ch?.currentMediaId && playlist.length === 0)"
           :title="!ch?.currentMediaId ? '播放' : (ch.paused ? '继续' : '暂停')"
           @click="togglePause"
@@ -413,10 +400,10 @@ function onUnifiedSourceChange(event: Event): void {
           <Pause v-if="ch?.currentMediaId && !ch.paused" :size="22" />
           <Play v-else :size="22" />
         </button>
-        <button class="pc-btn" v-show="activeSource !== 'park-dashboard'" :disabled="busy || playlist.length === 0" title="下一首" @click="step('next')">
+        <button class="pc-btn" :disabled="busy || playlist.length === 0" title="下一首" @click="step('next')">
           <SkipForward :size="20" />
         </button>
-        <button class="pc-btn stop" v-show="activeSource !== 'park-dashboard'" :disabled="busy || !ch?.currentMediaId" title="终止播放, 回到待机" @click="stopPlayback()">
+        <button class="pc-btn stop" :disabled="busy || !ch?.currentMediaId" title="终止播放, 回到待机" @click="stopPlayback()">
           <Square :size="18" />
         </button>
       </div>
@@ -481,59 +468,74 @@ function onUnifiedSourceChange(event: Event): void {
            不再在切源后另弹一条控制按钮 (2026-09-15 应业主要求精简) -->
     </div><!-- /pc-sticky -->
 
-    <!-- 输入源 — LED/投影两页统一出现 (2026-07-28 业主), 按钮指向见 script 注释 -->
-    <section class="src-bar">
+    <!-- 输入源：三按钮分段选择（欢迎页 / 运营大屏 / 播放内容），桌面/手机统一。
+         按钮点击路由回原有 selectWelcome('default') / selectParkDashboard / selectContent，
+         不新增业务逻辑；选中态按源类型判定。 -->
+    <section class="src-segment">
       <span class="src-label"><Shuffle :size="14" :stroke-width="2.3" />输入源</span>
-      <button class="src-btn" :class="{ on: activeSource === 'content' }" :disabled="busy" @click="selectContent">播放内容</button>
-      <button class="src-btn dashboard" :class="{ on: activeSource === 'park-dashboard' }" :disabled="busy" @click="selectParkDashboard"><Globe :size="13" /> 园区运营大屏</button>
-      <select
-        class="src-welcome-select"
-        :class="{ on: activeSource === 'welcome-editable' || activeSource === 'welcome-default' }"
-        :value="welcomePickerValue"
-        :disabled="busy || welcomePickerBusy"
-        aria-label="选择欢迎页方案"
-        @change="onWelcomeSchemePick"
-      >
-        <option value="" disabled>欢迎页方案</option>
-        <option :value="WELCOME_PICK_DEFAULT">静态默认欢迎页</option>
-        <option v-for="s in welcomeSchemes" :key="s.id" :value="s.id">
-          {{ s.name }}{{ publishedWelcomeSchemeId === s.id ? ' · 使用中' : '' }}
-        </option>
-      </select>
-      <button class="src-btn edit" :disabled="busy" @click="openWelcomeEditor"><Pencil :size="13" /> 编辑欢迎页</button>
-      <span class="src-hint">{{ srcHint }}</span>
-    </section>
-
-    <!-- 手机端输入源：一个分组下拉 + 编辑欢迎页图标按钮，省一行（仅 ≤640px 显示，桌面隐藏）。
-         选中项经 onUnifiedSourceChange 分发回 selectContent / selectParkDashboard /
-         onWelcomeSchemePick，与上方桌面按钮组行为完全一致，不新增业务逻辑。 -->
-    <section class="src-bar-mobile">
-      <span class="src-label"><Shuffle :size="14" :stroke-width="2.3" />输入源</span>
-      <div class="src-unified-wrap">
-        <span class="src-unified-globe" aria-hidden="true"><Globe :size="15" :stroke-width="2.2" /></span>
-        <select
-          class="src-unified-select"
-          :value="unifiedSourceValue"
-          :disabled="busy || welcomePickerBusy"
-          aria-label="选择输入源"
-          @change="onUnifiedSourceChange"
+      <div class="seg-group">
+        <button
+          type="button"
+          class="seg-btn"
+          :class="{ on: isWelcomeSource }"
+          :disabled="busy"
+          @click="selectWelcome('default')"
         >
-        <option value="" disabled>选择输入源…</option>
-        <option :value="UNIFIED_SRC_CONTENT">播放内容（播放列表）</option>
-        <option :value="UNIFIED_SRC_DASHBOARD">园区运营大屏</option>
-        <optgroup label="欢迎页">
-          <option :value="WELCOME_PICK_DEFAULT">静态默认欢迎页</option>
-          <option v-for="s in welcomeSchemes" :key="s.id" :value="s.id">
-            {{ s.name }}{{ publishedWelcomeSchemeId === s.id ? ' · 使用中' : '' }}
-          </option>
-        </optgroup>
-        </select>
+          <Image :size="14" /> 欢迎页
+        </button>
+        <button
+          type="button"
+          class="seg-btn"
+          :class="{ on: isDashboardSource }"
+          :disabled="busy"
+          @click="selectParkDashboard"
+        >
+          <Globe :size="14" /> 运营大屏
+        </button>
+        <button
+          type="button"
+          class="seg-btn"
+          :class="{ on: isContentSource }"
+          :disabled="busy"
+          @click="selectContent"
+        >
+          <MonitorPlay :size="14" /> 播放内容
+        </button>
       </div>
-      <button class="src-edit-icon" :disabled="busy" title="编辑欢迎页" aria-label="编辑欢迎页" @click="openWelcomeEditor">
-        <Pencil :size="16" />
-      </button>
     </section>
 
+    <!-- ===== 下方详情区：随输入源切换，每类操作只在对应面板出现一次 ===== -->
+    <!-- 欢迎页：可编辑的欢迎方案明细表（静态默认 + 各方案） -->
+    <WelcomeSourcePanel
+      v-if="isWelcomeSource"
+      :schemes="welcomeSchemes"
+      :active-source="activeSource"
+      :published-scheme-id="publishedWelcomeSchemeId"
+      :busy="busy"
+      :picker-busy="welcomePickerBusy"
+      @pick="handleWelcomePick"
+      @edit="handleWelcomeEdit"
+    />
+
+    <!-- 运营大屏：数据运营 / 数据维护（数据维护仅后台品牌权限可见） -->
+    <ParkDashboardSourcePanel
+      v-if="isDashboardSource"
+      :page="parkOpsPage"
+      :total-pages="parkOpsTotalPages"
+      :auto="parkOpsAuto"
+      :busy="parkOpsBusy"
+      :claimed="parkOpsClaimed"
+      :claim-by-me="parkOpsClaimByMe"
+      :claim-name="parkOpsClaimName"
+      :claim-remaining="parkOpsClaimRemaining"
+      :can-maintain="canMaintainBranding"
+      @control="parkOpsControl"
+      @release="releaseParkOps"
+      @maintain="openBrandingAdmin"
+    />
+
+    <!-- 播放内容：播放列表 / 历史（手机端 tab 切换，桌面两栏并排） -->
+    <div v-if="isContentSource || activeSource === null" class="content-detail">
     <!-- 手机上把「播放列表 / 播放历史」做成切换页 (业主 2026-07-17: "播放列表和播放
          历史应该做成切换页, 因为手机端放不下太多内容" + "下方还有不少空间")。
          平板/主控机宽度够, 两栏并排, 这一行 tab 不出现。 -->
@@ -636,6 +638,8 @@ function onUnifiedSourceChange(event: Event): void {
         </div>
       </section>
     </div>
+    </div>
+    <!-- /播放内容详情 -->
 
     <!-- 媒体库选择器 — 不跳走, 就在本页选 -->
     <div v-if="pickerOpen" class="pick-mask" @click.self="pickerOpen = false">
@@ -1019,59 +1023,34 @@ function onUnifiedSourceChange(event: Event): void {
 }
 .fit-select { width: 180px; }
 
-.src-bar {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 14px; border-radius: var(--v2-r-md);
-  /* 主题色微染 + 主题色描边 + 左 4px 色条（inset 不占布局）+ 极弱柔光；边框仍 1px、padding 不变，零抖动。 */
-  background: linear-gradient(135deg, color-mix(in srgb, var(--v2-primary) 9%, transparent), transparent 55%), var(--v2-surf-1, #14161A);
-  border: 1px solid color-mix(in srgb, var(--v2-primary) 45%, var(--v2-border-soft));
-  box-shadow: inset 4px 0 0 var(--v2-primary), 0 0 22px -10px color-mix(in srgb, var(--v2-primary) 60%, transparent);
-}
+/* 输入源：三按钮分段选择（桌面/手机统一，去掉外框强调，仅分段控件） */
+.src-segment { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .src-label {
-  font-size: 13px; font-weight: 700; letter-spacing: 0.04em; color: var(--v2-primary); white-space: nowrap;
-  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 13px; font-weight: 700; letter-spacing: 0.04em; color: var(--v2-text-2);
+  white-space: nowrap; display: inline-flex; align-items: center; gap: 5px;
 }
-.src-btn {
-  padding: 9px 16px; min-height: 40px; border-radius: var(--v2-r-md); cursor: pointer;
-  font-size: 14px; color: var(--v2-text-1);
-  background: var(--v2-surf-2, #1A1D22); border: 1px solid var(--v2-border-soft, #23262C);
+.seg-group {
+  flex: 1 1 auto; min-width: 0; display: flex; gap: 4px;
+  padding: 4px; border-radius: var(--v2-r-md); background: var(--v2-surf-2);
 }
-.src-btn.on { border-color: var(--v2-primary); background: var(--v2-primary); color: var(--v2-on-primary); }
-.src-btn:disabled { opacity: .4; cursor: not-allowed; }
-.src-btn.dashboard { display: inline-flex; align-items: center; gap: 5px; }
-.src-btn.edit { display: inline-flex; align-items: center; gap: 5px; color: var(--v2-primary); border-style: dashed; }
-.src-hint { font-size: 11px; color: var(--v2-text-3); }
-.src-welcome-select {
-  padding: 9px 14px; min-height: 40px; border-radius: var(--v2-r-md); cursor: pointer;
-  font-size: 14px; color: var(--v2-text-1); font-family: inherit;
-  background: var(--v2-surf-2, #1A1D22); border: 1px solid var(--v2-border-soft, #23262C);
-  max-width: 220px;
+.seg-btn {
+  flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center;
+  gap: 6px; padding: 9px 10px; min-height: 42px; border-radius: 9px; cursor: pointer;
+  font-size: 14px; color: var(--v2-text-2); background: transparent; border: 1px solid transparent;
+  white-space: nowrap;
 }
-.src-welcome-select.on { border-color: var(--v2-primary); color: var(--v2-primary); }
-.src-welcome-select:disabled { opacity: .4; cursor: not-allowed; }
-.src-welcome-select option { color: #e8edf4; background: #14161A; }
+.seg-btn.on {
+  color: var(--v2-on-primary); background: var(--v2-primary); border-color: var(--v2-primary);
+  font-weight: 600;
+}
+.seg-btn:disabled { opacity: .4; cursor: not-allowed; }
 
 /* 画面铺放标签：桌面显示全称「画面铺放」，手机端只显示「铺放」（@media 640 切换） */
 .fit-label-short { display: none; }
-/* 手机端统一输入源行：默认隐藏（桌面用按钮组），≤640px 才显示；与 .src-bar 同源强调（主题色微染+描边+左色条+柔光，零尺寸变化）。 */
-.src-bar-mobile {
-  display: none; align-items: center; gap: 8px; padding: 8px 10px 8px 12px; border-radius: var(--v2-r-md);
-  background: linear-gradient(135deg, color-mix(in srgb, var(--v2-primary) 9%, transparent), transparent 55%), var(--v2-surf-1, #14161A);
-  border: 1px solid color-mix(in srgb, var(--v2-primary) 45%, var(--v2-border-soft));
-  box-shadow: inset 4px 0 0 var(--v2-primary), 0 0 22px -10px color-mix(in srgb, var(--v2-primary) 60%, transparent);
-}
-.src-unified-wrap { position: relative; flex: 1 1 auto; min-width: 0; }
-.src-unified-select { width: 100%; min-width: 0; min-height: 42px; padding: 8px 12px 8px 36px; border-radius: var(--v2-r-md); cursor: pointer; font-size: 16px; font-family: inherit; color: var(--v2-text-1); background-color: var(--v2-surf-2, #1A1D22); border: 1px solid color-mix(in srgb, var(--v2-primary) 55%, var(--v2-border-soft, #23262C)); }
-/* 左侧地球图标用真实 lucide 组件（currentColor），随主题/强调色变色。 */
-.src-unified-globe { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; pointer-events: none; color: var(--v2-primary); }
-.src-unified-select:disabled { opacity: .4; cursor: not-allowed; }
-.src-unified-select option, .src-unified-select optgroup { color: #e8edf4; background: #14161A; }
-.src-edit-icon {
-  flex: 0 0 auto; width: 42px; height: 42px; border-radius: var(--v2-r-md); cursor: pointer;
-  display: inline-flex; align-items: center; justify-content: center;
-  color: var(--v2-primary); background: var(--v2-surf-2, #1A1D22);
-  border: 1px dashed var(--v2-primary);
-}
-.src-edit-icon:disabled { opacity: .4; cursor: not-allowed; }
+/* 欢迎页播放卡片状态 */
+.onscreen-tag { color: var(--v2-primary); font-size: 12px; }
+/* 播放内容详情：不引入额外包裹层，子元素(mob-tabs/cols)直接参与页面布局 */
+.content-detail { display: contents; }
 
 /* 欢迎页编辑器 (2026-07-28) */
 .pick-box.we-box {
@@ -1280,9 +1259,9 @@ function onUnifiedSourceChange(event: Event): void {
   .we-scroll-content { padding-right: 10px; }
   .we-scroll :deep(.el-scrollbar__bar.is-vertical) { width: 7px; }
   .we-bg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  /* 44px 触摸目标 + 16px 字号, 防 iOS 聚焦自动放大; 与其它源按钮并排不撑乱 */
-  .src-welcome-select { min-height: 44px; font-size: 16px; max-width: 46vw; flex: 1 1 auto; }
   .we-asset-delete { width: 44px; height: 44px; top: 4px; right: 4px; }
+  /* 输入源分段按钮：手机端 16px 字号防 iOS 聚焦放大，触摸目标做足 */
+  .seg-btn { min-height: 44px; font-size: 16px; }
 }
 
 /* align-items: start (不是默认的 stretch) —— 列表/历史内容短的时候(比如只有 2 条),
@@ -1537,9 +1516,7 @@ function onUnifiedSourceChange(event: Event): void {
    只重排布局, 不改变任何功能/方法/权限/数据绑定。本块置于 @media(900) 之后以确保覆盖。
    桌面端(>640px)仍维持原有布局与按钮组。 ===== */
 @media (max-width: 640px) {
-  /* ① 输入源: 桌面按钮组整组隐藏, 换成一行分组下拉 + 编辑图标 (模板见 .src-bar-mobile) */
-  .src-bar { display: none; }
-  .src-bar-mobile { display: flex; }
+  /* ① 输入源：桌面/手机统一为三按钮分段控件，无需切换（分段按钮在上方 @media 内调字号） */
 
   /* ② 正在播放卡: 去固定最小高度; 名称与四个播放按钮同一行(左信息 / 右按钮);
         按钮收到 38~46px, 仍满足手指点按; 视频进度条在下方独占整行 */
