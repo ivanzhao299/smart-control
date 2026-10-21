@@ -91,6 +91,15 @@ export class ProjectorService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * 应用层就绪探活 — 开机预热时前端轮询: 调融合器 version (单次 TCP 命令),
+   * 不读快照、不做全量。设备未就绪返回 false (healthCheck 内部吞错, 不抛)。
+   */
+  async ready(): Promise<boolean> {
+    const result = await this.fusion.healthCheck();
+    return result.ok;
+  }
+
+  /**
    * 模型A 一键: 让投影显示 GK9000 的 HDMI 输入。
    * 关掉融合器所有内部媒体窗口, 开一个全屏 HDMI 窗口。之后投影 = GK9000 HDMI2 推来的画面
    * (边缘融合到两台投影)。内容切换走 GK9000 播控(slot2 播放列表), 融合器只管融合显示。

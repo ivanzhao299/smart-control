@@ -43,7 +43,7 @@ import { usePlayerInputSources } from '@/composables/usePlayerInputSources';
 import { usePlayerPlaylist } from '@/composables/usePlayerPlaylist';
 import { usePlayerDocumentControls } from '@/composables/usePlayerDocumentControls';
 import PlayerVideoControls from '@/components/PlayerVideoControls.vue';
-import { usePlayerPowerControls, type PowerKeepRule } from '@/composables/usePlayerPowerControls';
+import { usePlayerPowerControls, type PowerBootPlan, type PowerKeepRule } from '@/composables/usePlayerPowerControls';
 import { WELCOME_PICK_DEFAULT, detectPlayerInputSource } from '@/features/player-input-source';
 import { MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
 
@@ -84,6 +84,11 @@ const props = defineProps<{
    * 关机时若另一台设备的主回路仍通电，该共享回路不断电。规则结构见 usePlayerPowerControls。
    */
   powerKeepPeers?: PowerKeepRule[];
+  /**
+   * 分阶段预热编排（开机先拉视频源、应用层探活等就绪、再开显示设备）。
+   * LED=seq55-6（诺瓦）/ 投影=seq55-4（融合器）；不传则同开同关（向后兼容）。
+   */
+  powerBootPlan?: PowerBootPlan;
 }>();
 const SLOT = computed(() => props.slot);
 
@@ -171,6 +176,8 @@ const {
   powerCircuits,
   powerAllOn,
   powerBusy,
+  booting,
+  bootCountdown,
   togglePower,
 } = usePlayerPowerControls({
   title: () => props.title,
@@ -178,6 +185,7 @@ const {
   powerNameGroups: () => props.powerNameGroups,
   powerAmpCodes: () => props.powerAmpCodes,
   powerKeepPeers: () => props.powerKeepPeers,
+  powerBootPlan: () => props.powerBootPlan,
   captureAction: captureConsoleAction,
 });
 
@@ -331,8 +339,9 @@ function onUnifiedSourceChange(event: Event): void {
           :title="(powerAllOn ? '断开' : '接通') + powerCircuits.map((c) => c.name).join('+')"
           @click="togglePower"
         ></button>
-        <span class="np-state" :class="{ on: powerAllOn }">
-          {{ powerAllOn ? '已通电' : (powerCircuits.some((c) => c.reading.on) ? '部分通电' : '已断电') }}
+        <span class="np-state" :class="{ on: powerAllOn, booting }">
+          <template v-if="booting">开机中 {{ bootCountdown }}s</template>
+          <template v-else>{{ powerAllOn ? '已通电' : (powerCircuits.some((c) => c.reading.on) ? '部分通电' : '已断电') }}</template>
         </span>
       </div>
     </header>
@@ -1484,6 +1493,7 @@ function onUnifiedSourceChange(event: Event): void {
 .np-label { font-size: 13px; font-weight: 600; color: var(--v2-text-1); }
 .np-state { font-size: 12px; font-weight: 600; color: var(--v2-text-3); }
 .np-state.on { color: var(--v2-live-power, #48D597); }
+.np-state.booting { color: var(--v2-primary); white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 /* 拨动开关 —— 抄自电源页时序器 (.v2-toggle), 保持全站一致 */
 .v2-toggle {

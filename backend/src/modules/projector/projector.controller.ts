@@ -22,6 +22,12 @@ export class ProjectorController {
     return { message: '查询成功', data: await this.service.status() };
   }
 
+  /** 就绪探活 (应用层) — 开机预热时前端轮询: 调融合器 version, 单次 TCP 命令。 */
+  @Get('ready')
+  async ready() {
+    return { message: '查询成功', data: { ready: await this.service.ready() } };
+  }
+
   /** 模型A 一键: 让投影显示 GK9000 的 HDMI 输入 (关内部媒体窗 + 开 HDMI 全屏) */
   @Post('show-hdmi')
   @UseGuards(RateLimitGuard)

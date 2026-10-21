@@ -9,6 +9,12 @@ import {
   powerCircuitsService,
   type PowerCircuitView,
 } from '@/services/power-circuits.service';
+import { deviceReadyService } from '@/services/device-ready.service';
+
+/** 简单延时（可被操作切换通过 isCurrent 检查中断）。 */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /**
  * 共享回路的「最后离开才关」规则（第三十轮）。
@@ -26,6 +32,25 @@ export interface PowerKeepRule {
   peerLabel?: string;
 }
 
+/**
+ * 分阶段电源编排（开机预热时序，方案 A）。
+ *
+ * 开机：先开预热回路（启动慢的视频源设备）→ 应用层探活等就绪 → 再开显示回路（powerCode + ampCodes），
+ * 保证大屏一亮画面即有；关机逆向（先关显示回路、再关预热回路）。
+ *   - `preheatCodes`   ：阶段1 预热回路 code（视频源设备）：LED=seq55-6 / 投影=seq55-4。
+ *   - `readyKind`      ：就绪探活类型（轮询对应接口）。
+ *   - `timeoutSec`     ：最大等待秒数（超时兜底）：LED=60 / 投影=120。
+ *   - `initialDelaySec`：开始探活前的最小等待秒数（避免设备刚上电空探）：LED=10 / 投影=15。
+ *   - `pollIntervalSec`：就绪轮询间隔（默认 4s）。
+ */
+export interface PowerBootPlan {
+  preheatCodes: string[];
+  readyKind: 'led' | 'projector';
+  timeoutSec: number;
+  initialDelaySec?: number;
+  pollIntervalSec?: number;
+}
+
 interface PlayerPowerControlsOptions {
   title(): string;
   powerCode(): string | undefined;
@@ -34,6 +59,8 @@ interface PlayerPowerControlsOptions {
   powerAmpCodes(): string[] | undefined;
   /** 共享回路（如音频矩阵）的「最后离开才关」规则；不传则关机时全部断电（向后兼容）。 */
   powerKeepPeers(): PowerKeepRule[] | undefined;
+  /** 分阶段预热编排（开机先拉视频源、等就绪）；不传则开机/关机同开同关（向后兼容）。 */
+  powerBootPlan(): PowerBootPlan | undefined;
   captureAction(): () => boolean;
 }
 
@@ -73,16 +100,36 @@ export function resolvePlayerPowerCircuits(
  * 回路目录异步读取和逐路串行下发都绑定当前配置分组与身份边界。旧目录响应、确认框
  * 等待期间的配置变化以及中途失效的设备响应都不能写入新的播放器页面。
  */
+/** Resolve circuits by exact code list (in given order, no duplicates). */
+export function resolveCircuitsByCodes(
+  circuits: PowerCircuitView[],
+  codes: string[],
+): PowerCircuitView[] {
+  const clean = codes.map((code) => code.trim()).filter(Boolean);
+  return clean
+    .map((code) => circuits.find((circuit) => circuit.code === code))
+    .filter((circuit): circuit is PowerCircuitView => !!circuit);
+}
+
 export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
   const powerCircuits = ref<PowerCircuitView[]>([]);
+  const preheatCircuits = ref<PowerCircuitView[]>([]);
   const powerBusy = ref(false);
-  const powerAllOn = computed(() =>
-    powerCircuits.value.length > 0 && powerCircuits.value.every((circuit) => circuit.reading.on));
+  /** 开机预热等待中（阶段1 已上电、等就绪）：UI 显示「开机中」+ 倒计时。 */
+  const booting = ref(false);
+  /** 开机倒计时（距最大等待的剩余秒数）。 */
+  const bootCountdown = ref(0);
+  // 「全部通电」= 显示回路与预热回路（若有）全部通电。
+  const powerAllOn = computed(() => {
+    const all = [...powerCircuits.value, ...preheatCircuits.value];
+    return all.length > 0 && all.every((circuit) => circuit.reading.on);
+  });
   const selectionKey = computed(() => JSON.stringify({
     codes: options.powerCode() ?? '',
     groups: options.powerNameGroups() ?? [],
     ampCodes: options.powerAmpCodes() ?? [],
     keepPeers: options.powerKeepPeers() ?? [],
+    bootPlan: options.powerBootPlan() ?? null,
   }));
 
   let scopeDisposed = false;
@@ -104,10 +151,13 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
     const key = selectionKey.value;
     const action = options.captureAction();
     const revision = ++loadRevision;
+    const plan = options.powerBootPlan();
     if (!options.powerCode()
         && !options.powerNameGroups()?.length
-        && !options.powerAmpCodes()?.length) {
+        && !options.powerAmpCodes()?.length
+        && !plan?.preheatCodes?.length) {
       powerCircuits.value = [];
+      preheatCircuits.value = [];
       return;
     }
     try {
@@ -119,10 +169,12 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
         options.powerNameGroups(),
         options.powerAmpCodes(),
       );
+      preheatCircuits.value = resolveCircuitsByCodes(circuits, plan?.preheatCodes ?? []);
     } catch {
       if (scopeDisposed || revision !== loadRevision || !action() || key !== selectionKey.value) return;
       // 电源子系统不可达时保持原界面约定：隐藏播放器页电源开关。
       powerCircuits.value = [];
+      preheatCircuits.value = [];
     }
   }
 
@@ -130,17 +182,129 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
     loadRevision += 1;
     operationRevision += 1;
     powerCircuits.value = [];
+    preheatCircuits.value = [];
     powerBusy.value = false;
+    booting.value = false;
+    bootCountdown.value = 0;
     void loadPowerCircuits();
   }, { immediate: true, flush: 'sync' });
 
+  /** 写回某个回路的最新状态（同时更新显示与预热两个列表，按 id 匹配）。 */
+  function writeBack(updated: PowerCircuitView): void {
+    powerCircuits.value = powerCircuits.value
+      .map((c) => (c.id === updated.id ? updated : c));
+    preheatCircuits.value = preheatCircuits.value
+      .map((c) => (c.id === updated.id ? updated : c));
+  }
+
+  /** 操作上下文（贯穿整个开机/关机序列）。 */
+  interface ApplyContext {
+    key: string;
+    action: () => boolean;
+    revision: number;
+    peerOn: Map<string, boolean>;
+    peerQueryFailed: boolean;
+  }
+
+  /**
+   * 逐路切换一组回路（保持串行、以 id 写回）。
+   * 关机时（turningOn=false）对共享回路按 keep-peers 判定是否保留。
+   */  async function applyCircuits(
+    targets: PowerCircuitView[],
+    turningOn: boolean,
+    ctx: ApplyContext,
+  ): Promise<{ failed: string[]; kept: { name: string; by: string }[]; stopped: boolean }> {
+    const failed: string[] = [];
+    const kept: { name: string; by: string }[] = [];
+    for (const target of targets) {
+      if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return { failed, kept, stopped: true };
+      if (!turningOn) {
+        const keepRule = (options.powerKeepPeers() ?? [])
+          .find((rule) => rule.code === target.code);
+        if (keepRule) {
+          const active = keepRule.peers
+            .some((peerCode) => ctx.peerOn.get(peerCode) === true);
+          if (ctx.peerQueryFailed || active) {
+            kept.push({ name: target.name, by: keepRule.peerLabel ?? '另一台设备' });
+            continue; // 共享回路仍被使用（或状态无法确认），跳过断电
+          }
+        }
+      }
+      try {
+        const updated = turningOn
+          ? await powerCircuitsService.on(target.id)
+          : await powerCircuitsService.off(target.id);
+        if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return { failed, kept, stopped: true };
+        writeBack(updated);
+      } catch (error) {
+        if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return { failed, kept, stopped: true };
+        failed.push(`${target.name}: ${(error as Error).message}`);
+      }
+    }
+    return { failed, kept, stopped: false };
+  }
+
+  /**
+   * 开机预热：应用层探活等就绪，期间显示「开机中」+ 倒计时。
+   * `skipInitialDelay`：预热回路已通电（手动先开）时跳过初始等待，直接探活。
+   * 返回 true=就绪；false=超时（调用方按兜底继续）。
+   */
+  async function waitForReady(
+    plan: PowerBootPlan,
+    ctx: ApplyContext,
+    skipInitialDelay = false,
+  ): Promise<boolean> {
+    booting.value = true;
+    const timeoutMs = plan.timeoutSec * 1000;
+    const initialDelayMs = skipInitialDelay
+      ? 0
+      : Math.min((plan.initialDelaySec ?? 0) * 1000, timeoutMs);
+    const pollMs = (plan.pollIntervalSec ?? 4) * 1000;
+    const deadline = Date.now() + timeoutMs;
+    bootCountdown.value = plan.timeoutSec;
+
+    const countdownTimer = setInterval(() => {
+      bootCountdown.value = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    }, 1000);
+    countdownTimer.unref?.();
+
+    try {
+      if (initialDelayMs > 0) {
+        await sleep(initialDelayMs);
+        if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return false;
+      }
+      const probe = plan.readyKind === 'led'
+        ? deviceReadyService.led
+        : deviceReadyService.projector;
+      while (Date.now() < deadline) {
+        if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return false;
+        let ready = false;
+        try {
+          ready = await probe();
+        } catch {
+          ready = false;
+        }
+        if (ready) return true;
+        if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return false;
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break;
+        await sleep(Math.min(pollMs, remaining));
+      }
+      return false;
+    } finally {
+      clearInterval(countdownTimer);
+    }
+  }
+
   async function togglePower(): Promise<void> {
-    if (!powerCircuits.value.length || powerBusy.value) return;
+    const displayTargets = [...powerCircuits.value];
+    const preheatTargets = [...preheatCircuits.value];
+    if ((!displayTargets.length && !preheatTargets.length) || powerBusy.value) return;
     const turningOff = powerAllOn.value;
     const key = selectionKey.value;
     const action = options.captureAction();
     const revision = ++operationRevision;
-    const targets = [...powerCircuits.value];
+    const plan = options.powerBootPlan();
 
     if (turningOff) {
       try {
@@ -153,8 +317,8 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
     if (!isCurrent(key, action, revision)) return;
 
     // 共享回路「最后离开才关」：关机确认后只查「其他使用方主开关」这几个固定回路的开关位
-    // （每个仅回传一个布尔，后端读内存快照、不碰硬件、不做整回路组装），不读全量列表。
-    // 任一 peer 仍通电即保留；查询失败（peerQueryFailed）状态无法确认时按「保留」兜底，避免误关。
+    // （每个仅回传一个布尔，后端读内存快照、不碰硬件），不读全量列表。
+    // 任一 peer 通电即保留；查询失败（peerQueryFailed）按「保留」兜底，避免误关。
     const peerOn = new Map<string, boolean>();
     let peerQueryFailed = false;
     if (turningOff && options.powerKeepPeers()?.length) {
@@ -172,47 +336,53 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
     }
 
     powerBusy.value = true;
-    const failed: string[] = [];
-    const kept: { name: string; by: string }[] = [];
+    const ctx: ApplyContext = { key, action, revision, peerOn, peerQueryFailed };
     try {
-      // 多路设备共用串口链路，保持逐路下发；以设备 ID 写回，避免目录变化时错写下标。
-      for (const target of targets) {
-        if (!isCurrent(key, action, revision)) return;
-        if (turningOff) {
-          const keepRule = (options.powerKeepPeers() ?? [])
-            .find((rule) => rule.code === target.code);
-          if (keepRule) {
-            const active = keepRule.peers.some((peerCode) => peerOn.get(peerCode) === true);
-            if (peerQueryFailed || active) {
-              kept.push({ name: target.name, by: keepRule.peerLabel ?? '另一台设备' });
-              continue; // 共享回路仍被其他设备使用（或状态无法确认），跳过断电
-            }
-          }
+      if (turningOff) {
+        // 关机（逆向）：先关显示回路（大屏/投影/矩阵/功放，矩阵 keep-peers），再关预热回路。
+        const r1 = await applyCircuits(displayTargets, false, ctx);
+        if (r1.stopped) return;
+        const r2 = await applyCircuits(preheatTargets, false, ctx);
+        if (r2.stopped) return;
+        const failed = [...r1.failed, ...r2.failed];
+        const kept = [...r1.kept, ...r2.kept];
+        if (failed.length) {
+          ElMessage.error(`部分电源操作失败: ${failed.join('; ')}`);
+        } else if (kept.length) {
+          const keepDesc = kept.map((item) => `${item.name}仍由「${item.by}」使用`).join('；');
+          ElMessage.success(`${options.title()}已关闭；${keepDesc}，保持通电`);
+        } else {
+          ElMessage.success(`${options.title()}电源已断开`);
         }
-        try {
-          const updated = turningOff
-            ? await powerCircuitsService.off(target.id)
-            : await powerCircuitsService.on(target.id);
-          if (!isCurrent(key, action, revision)) return;
-          powerCircuits.value = powerCircuits.value.map((circuit) =>
-            circuit.id === target.id ? updated : circuit);
-        } catch (error) {
-          if (!isCurrent(key, action, revision)) return;
-          failed.push(`${target.name}: ${(error as Error).message}`);
-        }
-      }
-      if (!isCurrent(key, action, revision)) return;
-      if (failed.length) {
-        ElMessage.error(`部分电源操作失败: ${failed.join('; ')}`);
-      } else if (kept.length) {
-        const keepDesc = kept.map((item) => `${item.name}仍由「${item.by}」使用`).join('；');
-        ElMessage.success(`${options.title()}已关闭；${keepDesc}，保持通电`);
       } else {
-        ElMessage.success(turningOff
-          ? `${options.title()}电源已断开`
-          : `${options.title()}电源已接通`);
+        // 开机：先开预热回路（视频源）→ 应用层探活等就绪（倒计时）→ 再开显示回路。
+        let timedOut = false;
+        let preheatFailed: string[] = [];
+        if (plan && preheatTargets.length) {
+          const alreadyOn = preheatTargets.every((t) => t.reading.on);
+          const p0 = await applyCircuits(preheatTargets, true, ctx);
+          if (p0.stopped) return;
+          preheatFailed = p0.failed;
+          const ready = await waitForReady(plan, ctx, alreadyOn);
+          if (!isCurrent(key, action, revision)) return;
+          booting.value = false;
+          bootCountdown.value = 0;
+          if (!ready) timedOut = true;
+        }
+        const r1 = await applyCircuits(displayTargets, true, ctx);
+        if (r1.stopped) return;
+        const failed = [...preheatFailed, ...r1.failed];
+        if (failed.length) {
+          ElMessage.error(`部分电源操作失败: ${failed.join('; ')}`);
+        } else if (timedOut) {
+          ElMessage.warning(`${options.title()}已接通；视频设备未在 ${plan?.timeoutSec}s 内确认就绪，若画面异常请检查视频设备`);
+        } else {
+          ElMessage.success(`${options.title()}电源已接通`);
+        }
       }
     } finally {
+      booting.value = false;
+      bootCountdown.value = 0;
       if (operationRevision === revision) powerBusy.value = false;
     }
   }
@@ -222,13 +392,19 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
     loadRevision += 1;
     operationRevision += 1;
     powerCircuits.value = [];
+    preheatCircuits.value = [];
     powerBusy.value = false;
+    booting.value = false;
+    bootCountdown.value = 0;
   });
 
   return {
     powerCircuits,
+    preheatCircuits,
     powerAllOn,
     powerBusy,
+    booting,
+    bootCountdown,
     loadPowerCircuits,
     togglePower,
   };

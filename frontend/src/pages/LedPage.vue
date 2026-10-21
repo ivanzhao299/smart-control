@@ -8,14 +8,22 @@ import PlayerConsole from '@/components/PlayerConsole.vue';
 </script>
 
 <template>
-  <!-- 电源分组 (2026-07-28 业主；第三十轮加固；音频矩阵共享): 页面开关 = LED 总闸(1f-led)
-       + 音频矩阵主机(seq-4) + 「LED大屏功放」(seq-2，实测仍在第一台) 同开同关。
-       音频矩阵与投影仪共用，故 power-keep-peers 标注「最后离开才关」：LED 关机时若投影仪
-       主开关(seq-5)仍通电，矩阵保留给投影。功放改用 code 精确绑定，若以后物理移到 SEQ55，
-       只需把这里的 seq-2 换成新 code。 -->
+  <!-- 分阶段电源编排 (2026-07-28 业主；第三十轮加固；第三十一轮加视频源预热):
+       开机先开 LED 视频服务器(seq55-6，诺瓦) → 应用层探活等就绪(约30s，超时60s) →
+       再开 LED 总闸(1f-led) + 音频矩阵(seq-4) + LED功放(seq-2)，保证一亮即有画面；
+       关机逆向（先关显示/功放/矩阵，最后关视频服务器）。
+       音频矩阵与投影仪共用，power-keep-peers 标注「最后离开才关」：LED 关机时若投影仪
+       主开关(seq-5)仍通电，矩阵保留给投影。 -->
   <PlayerConsole
     :slot="1" title="LED 大屏" device-id="LED-NOVA-1" power-code="1f-led,seq-4"
     :power-amp-codes="['seq-2']"
     :power-keep-peers="[{ code: 'seq-4', peers: ['seq-5'], peerLabel: '投影仪' }]"
+    :power-boot-plan="{
+      preheatCodes: ['seq55-6'],
+      readyKind: 'led',
+      timeoutSec: 60,
+      initialDelaySec: 10,
+      pollIntervalSec: 4,
+    }"
   />
 </template>

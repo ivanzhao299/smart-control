@@ -20,6 +20,11 @@ function execute(source, customRequire) {
     require: customRequire,
     Promise,
     JSON,
+    Date,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
   });
   return module.exports;
 }
@@ -49,7 +54,12 @@ async function flush() {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
-function moduleWith(service, messages = [], confirm = async () => undefined) {
+function moduleWith(
+  service,
+  readyService = { led: async () => true, projector: async () => true },
+  messages = [],
+  confirm = async () => undefined,
+) {
   return execute(composableSource, (id) => {
     if (id === 'vue') return vue;
     if (id === 'element-plus') {
@@ -57,11 +67,13 @@ function moduleWith(service, messages = [], confirm = async () => undefined) {
         ElMessage: {
           success: (message) => messages.push(['success', message]),
           error: (message) => messages.push(['error', message]),
+          warning: (message) => messages.push(['warning', message]),
         },
         ElMessageBox: { confirm },
       };
     }
     if (id === '@/services/power-circuits.service') return { powerCircuitsService: service };
+    if (id === '@/services/device-ready.service') return { deviceReadyService: readyService };
     throw new Error(`unexpected import: ${id}`);
   });
 }
@@ -73,6 +85,9 @@ function harness(overrides = {}) {
   const groups = vue.ref([]);
   const ampCodes = vue.ref(undefined);
   const keepPeers = vue.ref(undefined);
+  const bootPlan = vue.ref(overrides.bootPlan ?? undefined);
+  const readyCalls = [];
+  let readyValue = overrides.ready ?? true;
   let current = true;
   const available = overrides.available ?? [
     circuit(1, 'screen', '大屏总闸'),
@@ -97,8 +112,13 @@ function harness(overrides = {}) {
       return { ...target, reading: { ...target.reading, on: false } };
     }),
   };
+  const readyService = {
+    led: async () => { readyCalls.push(['led']); return readyValue; },
+    projector: async () => { readyCalls.push(['projector']); return readyValue; },
+  };
   const exports = moduleWith(
     service,
+    readyService,
     messages,
     overrides.confirm ?? (async () => undefined),
   );
@@ -109,18 +129,22 @@ function harness(overrides = {}) {
     powerNameGroups: () => groups.value,
     powerAmpCodes: () => ampCodes.value,
     powerKeepPeers: () => keepPeers.value,
+    powerBootPlan: () => bootPlan.value,
     captureAction: () => () => current,
   }));
   return {
     calls,
     messages,
+    readyCalls,
     code,
     groups,
     ampCodes,
     keepPeers,
+    bootPlan,
     scope,
     state,
     setCurrent(value) { current = value; },
+    setReady(value) { readyValue = value; },
   };
 }
 
@@ -425,7 +449,8 @@ test('PlayerConsole delegates display power orchestration to the dedicated compo
   assert.doesNotMatch(playerConsoleSource, /powerCircuitsService|PowerCircuitView/);
   assert.doesNotMatch(playerConsoleSource, /async function togglePower|async function loadPowerCircuit/);
   assert.match(composableSource, /for \(const target of targets\)/);
-  assert.match(composableSource, /circuit\.id === target\.id/);
+  // 第三十一轮重构：写回统一走 writeBack（按 id 同时更新显示与预热两个列表）。
+  assert.match(composableSource, /c\.id === updated\.id/);
   // 欢迎编辑器新增场馆/落款四条同构输入(v-for)、“主标题效果”选择器, 以及
   // 2026-10-09 主标题/嘉宾行字号控件 (字号 number 框内联在对应文字框同一行右侧,
   // 清洗逻辑 setWelcomeSize 下沉在 useWelcomeEditor, 不再单独起标签行/子组件)。
@@ -440,5 +465,124 @@ test('PlayerConsole delegates display power orchestration to the dedicated compo
   // 只读 chip 闪现把电源块挤换行的整页跳动；纯 CSS、零 JS/模板逻辑，预算相应放宽。
   // 第三十轮 #30：新增 powerAmpCodes prop 及其注释（功放按 code 精确绑定），
   // 属 props 声明、业务逻辑仍在 composable，预算相应放宽到 1630。
-  assert.ok(playerConsoleSource.split('\n').length < 1630);
+  // 第三十一轮：新增 powerBootPlan prop（含注释）+ 开机倒计时 UI（.np-state.booting），
+  // 仅 props/模板/样式，业务逻辑仍在 composable，预算相应放宽到 1640。
+  assert.ok(playerConsoleSource.split('\n').length < 1640);
+});
+
+// ===== 第三十一轮：分阶段电源编排（预热视频源 → 等就绪 → 显示回路）=====
+
+const quickBootPlan = {
+  preheatCodes: ['preheat'],
+  readyKind: 'led',
+  timeoutSec: 5,
+  initialDelaySec: 0,
+  pollIntervalSec: 1,
+};
+
+function stagedCircuits(powered = false) {
+  return [
+    circuit(1, 'screen', '大屏总闸', powered),
+    circuit(2, 'amp', '大屏功放', powered),
+    circuit(3, 'preheat', '视频服务器', powered),
+  ];
+}
+
+test('resolveCircuitsByCodes resolves exact codes in given order and skips missing codes', () => {
+  const { resolveCircuitsByCodes } = moduleWith({ list() {}, on() {}, off() {} });
+  const result = resolveCircuitsByCodes(
+    [circuit(1, 'a', 'A'), circuit(2, 'b', 'B')],
+    ['b', 'missing', 'a'],
+  );
+  assert.deepEqual(result.map((c) => c.code), ['b', 'a']);
+});
+
+test('power-on preheats the video source first, waits for ready, then powers display circuits', async () => {
+  const h = harness({
+    bootPlan: quickBootPlan,
+    available: stagedCircuits(),
+    ready: true,
+  });
+  await flush();
+  await h.state.togglePower();
+  // 顺序：先开预热回路(id=3)，就绪探活后再开显示回路(id=1, id=2)。
+  assert.deepEqual(
+    h.calls.filter(([name]) => name === 'on'),
+    [['on', 3], ['on', 1], ['on', 2]],
+  );
+  assert.ok(h.readyCalls.some(([kind]) => kind === 'led'));
+  assert.equal(h.state.powerAllOn.value, true);
+  assert.equal(h.state.booting.value, false);
+  assert.equal(h.messages.at(-1)[0], 'success');
+  h.scope.stop();
+});
+
+test('booting flag and countdown are visible while waiting for the video source', async () => {
+  const h = harness({
+    bootPlan: { ...quickBootPlan, timeoutSec: 3 },
+    available: stagedCircuits(),
+    ready: false,
+  });
+  await flush();
+  const toggling = h.state.togglePower();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.equal(h.state.booting.value, true);
+  assert.ok(h.state.bootCountdown.value <= 3 && h.state.bootCountdown.value > 0);
+  await toggling;
+  assert.equal(h.state.booting.value, false);
+  assert.equal(h.state.bootCountdown.value, 0);
+  h.scope.stop();
+});
+
+test('power-on continues to display circuits with a warning when the source never confirms ready', async () => {
+  const h = harness({
+    bootPlan: { ...quickBootPlan, timeoutSec: 2 },
+    available: stagedCircuits(),
+    ready: false,
+  });
+  await flush();
+  await h.state.togglePower();
+  // 超时兜底：仍开显示回路，最后给 warning。
+  assert.deepEqual(
+    h.calls.filter(([name]) => name === 'on'),
+    [['on', 3], ['on', 1], ['on', 2]],
+  );
+  assert.equal(h.messages.at(-1)[0], 'warning');
+  h.scope.stop();
+});
+
+test('power-off shuts down display circuits first, then the preheat video source', async () => {
+  const h = harness({
+    bootPlan: quickBootPlan,
+    available: stagedCircuits(true),
+    confirm: async () => undefined,
+  });
+  await flush();
+  assert.equal(h.state.powerAllOn.value, true);
+  await h.state.togglePower();
+  // 逆向：先关显示回路(id=1, id=2)，再关预热回路(id=3)。
+  assert.deepEqual(
+    h.calls.filter(([name]) => name === 'off'),
+    [['off', 1], ['off', 2], ['off', 3]],
+  );
+  assert.equal(h.state.powerAllOn.value, false);
+  h.scope.stop();
+});
+
+test('power-on without a boot plan still powers all display circuits together', async () => {
+  const h = harness({
+    available: [
+      circuit(1, 'screen', '大屏总闸'),
+      circuit(2, 'amp', '大屏功放'),
+    ],
+  });
+  await flush();
+  await h.state.togglePower();
+  assert.deepEqual(
+    h.calls.filter(([name]) => name === 'on'),
+    [['on', 1], ['on', 2]],
+  );
+  assert.equal(h.readyCalls.length, 0);
+  assert.equal(h.messages.at(-1)[0], 'success');
+  h.scope.stop();
 });

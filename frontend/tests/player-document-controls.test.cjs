@@ -258,5 +258,7 @@ test('PlayerConsole delegates document controls to the dedicated composable', ()
   // 2026-10-17 手机端播放页 UI 优化（输入源统一下拉/进度条 seek/单次循环/紧凑样式）：
   // 增量为 template/style 视图层 + 少量 UI 事件聚合，文档控制逻辑仍全部委托 composable，
   // 上方委托断言不变，仅放宽行数预算。
-  assert.ok(playerConsoleSource.split('\n').length < 1620);
+  // 第三十一轮：新增 powerBootPlan prop + 开机倒计时 UI（仅 props/模板/样式），
+  // 文档控制仍全部委托 composable，预算相应放宽到 1640。
+  assert.ok(playerConsoleSource.split('\n').length < 1640);
 });

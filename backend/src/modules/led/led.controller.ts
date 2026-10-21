@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Post, UseGuards, Req, HttpException } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards, Req, HttpException } from '@nestjs/common';
 import { AuthenticatedRequest, requireActor } from '../../common/auth/actor';
 import { assertCanUpload } from '../../common/auth/resource-policy';
 import { LedAdapter } from '../../adapters/led/led.adapter';
@@ -27,6 +27,16 @@ export class LedController {
     private readonly branding: SystemBrandingService,
     private readonly playback: PlaybackService,
   ) {}
+
+  /**
+   * 就绪探活 (应用层) — 开机预热时前端轮询: 调诺瓦 ReadDeviceID (healthCheck 内部吞错,
+   * 设备未就绪返回 ready:false, 不抛 500)。单次 TCP 命令, 不做全量探测。
+   */
+  @Get('ready')
+  async ready() {
+    const result = await this.led.healthCheck();
+    return { message: '查询成功', data: { ready: result.ok } };
+  }
 
   @Post(':id/on')
   on(@Param('id') id: string) {
