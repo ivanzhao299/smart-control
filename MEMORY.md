@@ -1,5 +1,19 @@
 
-## ★ 最新状态（2026-10-21，**第三十三轮「开机显示链路加固：就绪后稳定等待 + 显示回路通电后自动固定画面」已部署生产 GK9000**。commit `cc7aeab`（前端 5 文件 +38/-4），已 push（1beb69f..cc7aeab）+ SSH 手动部署，verify-deploy 全绿、前端新 chunk 已生效）：
+## ★ 最新状态（2026-10-21，**第三十四轮「输入源改三按钮分段（欢迎页/运营大屏/播放内容）+ 下方按源显示详情」已部署生产 GK9000**。commit `4260c31`（前端 6 文件 +406/-171，rebase 合并第31–33轮），已 push（origin/main 同步）+ SSH 手动部署，verify-deploy 全绿、生产三源真实切换回验通过）：
+- **需求**：取消输入源下拉，改为三个可点选分段按钮（欢迎页/运营大屏/播放内容）；点哪个按钮，下方原"播放列表"位置显示对应详情。铁律：只做 UI 重新组合，不碰任何播控逻辑、视频进度条、提示；改动最小化、向后兼容。LED 开机首屏=静态默认欢迎页；点"欢迎页"默认也进入静态欢迎页。
+- **改造（动手前完整审计 PlayerConsole/usePlayerInputSources/usePlayerPowerControls/PlayerVideoControls/player-input-source）**：
+  - `usePlayerInputSources.ts`：把 onWelcomeSchemePick 核心抽为 `pickWelcomeSchemeById(id)`（返回 'success'|'busy'|'failed'，已导出）；ensureDisplayPath 为 Promise<boolean>（第31轮）。
+  - 新建 `WelcomeSourcePanel.vue`（127 行）：首项静态默认欢迎页（默认首屏，上屏 id=WELCOME_PICK_DEFAULT），其后各方案含名称/已发布/已上屏/上屏播放/编辑，头部"新建"。
+  - 新建 `ParkDashboardSourcePanel.vue`（113 行）：状态行+上一页/下一页/自动轮播/强制刷新+我接管时释放；数据维护仅 canMaintain 显示"打开后台配置"。
+  - `PlayerConsole.vue`：引入两面板+Image 图标，新增 isWelcomeSource/isDashboardSource/isContentSource/canMaintainBranding、handleWelcomePick/handleWelcomeEdit/openBrandingAdmin；桌面与手机 src-bar 统一替换为 `.src-segment`（src-label + `.seg-group` 三 `.seg-btn`，选中态 class `on`，@click 路由回 selectWelcome('default')/selectParkDashboard/selectContent）；播放卡片 now-ctrl 仅 content/null 显示 4 键（运营大屏/欢迎页只显示纯状态文字），now-sub 三组互斥；下方按源 v-if 渲染；配套样式清理旧 class。
+- **不碰的边界**：PlayerVideoControls.vue（循环/单次+可拖拽进度条）、usePlayerVideoControls.ts、features/player-input-source.ts（activeSource 4 态派生）、所有 composables 播控方法、ElMessage、now-sub 状态行、认领倒计时均未改。
+- **门禁**：vue-tsc 零错误、vite build 成功（PlayerConsole chunk 80.76 kB）、**301 测试全通过**（player-console-actions.test.cjs 第288测试断言已更新为分段控件：匹配 class="seg-group"、运营大屏 `<Globe :size="14" /> 运营大屏`、doesNotMatch parkOpsControl('prev')）；手机视口（390×844）三源截图正确；视频进度条用 kind=video 通道验证正常（本地 .mp4 多被历史测试数据错标 webpage，id=24 唯一 kind=video，是数据问题非代码问题）。
+- **生产回验（2026-10-21，三源全部通过）**：deploy-from-ci.ps1 Deployment complete 4260c31、verify-deploy.js passed 全绿；新 chunk PlayerConsole-C2P5o4Bn.js（80762 B）被新 index-DCwGF3SP.js/LedPage/ProjectorPage 引用、sw.js precache 含新 chunk（旧 chunk PlayerConsole-BldLSxNi.js 仅被旧 index-CiTer0HA.js 等残留文件引用、不被当前 index.html 引用、不被 sw precache）；PM2 backend+frontend 均 online。真实切换：运营大屏（无4键+数据运营四按钮+数据维护）、欢迎页（POST welcome 后通道=金湖欢迎页·LED大屏.png id83 kind=image，无4键+欢迎方案7项明细表）、播放内容（POST next 后通道=公司官网，4键显示+播放列表11/历史20）。
+- **排查记录（页面状态与后端不一致，已澄清非代码问题）**：验证中旧 CDP tab 即使 cache:'no-store'、reload 仍显示运营大屏，但 curl 同 token 查通道=欢迎页；根因是**该旧 tab 的 CDP 执行上下文异常混乱**（session 级 navigator.serviceWorker undefined、fetch 结果固定），新开干净 tab 后状态完全正确。后端权威状态（curl）始终准确。
+- **临时脚本已清理**：生产 D:\smart-control\tmp\ 本次 sc_verify/sc_ref/sc_log/sc_cleanup 已直接删除（历史 gk_*.py 等遗留脚本未动，需用户明确授权）；本机 /tmp sc_*.py 已删。
+- **待办**：①现场真机各做一次完整开机（第33轮 LED/投影 settle+lockDisplay）回验；②临时 operator 账号 id=28（__op_test__）删除属生产 DB 写入、删前需确认；③GitHub Actions 预算限制未解除（CI 2-4s 失败 "Actions budget"），继续 SSH 手动部署；④仓库根 untracked ewelink-timeline.html 未处理；⑤生产 tmp 历史遗留脚本（gk_*.py 等）是否清理待用户决定。
+
+## 前一状态（2026-10-21，**第三十三轮「开机显示链路加固：就绪后稳定等待 + 显示回路通电后自动固定画面」已部署生产 GK9000**。commit `cc7aeab`（前端 5 文件 +38/-4），已 push（1beb69f..cc7aeab）+ SSH 手动部署，verify-deploy 全绿、前端新 chunk 已生效）：
 - **报修两问题**：① LED 开机线路显示"开机完成"后，推送节目仍提示"没有正常推送"（视频服务器服务未真正拉起）；② 投影仪开机播放时不满屏、节目跳动、输入源跳动，画面无法固定。
 - **根因（两问题同源：就绪判据太弱 + 开机后未自动固定画面）**：
   - LED：`GET /api/led/ready`→`NovaLedAdapter.healthCheck()` 只发 `frameReadDeviceId()`（ReadDeviceID，设备最基础身份查询，宽松模式 ≥4 字节即 OK）。设备开机约 30s 网络/CPU 一启动就能响应，但视频服务器的节目解码/推流/图层渲染引擎尚未完全就绪；waitForReady 一看到 ready=true 就开显示回路，用户随即推送仍失败。
