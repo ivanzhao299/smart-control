@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LED 节目制作 · 效果图 v2（遵循 SmartCtrl Design System）</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='2' y='4' width='20' height='14' rx='2' fill='%234C9AFF'/%3E%3Cpath d='M8 21h8M12 18v3' stroke='%234C9AFF' stroke-width='2'/%3E%3C/svg%3E">
+<style>
+/* ============ SmartCtrl Design Tokens（取自 design-tokens.css v2 体系）============ */
+:root, [data-theme="dark"] {
+  --v2-bg-0: #06090F; --v2-bg-1: #0A0F18; --v2-surf-1: #242F44; --v2-surf-2: #2C3A55;
+  --v2-card-hairline: rgba(255,255,255,0.12); --v2-grid-line: rgba(255,255,255,0.025);
+  --v2-primary: #4C9AFF; --v2-primary-dark: #3B7FD4; --v2-primary-hover: #6BADFF; --v2-primary-soft: rgba(76,154,255,0.14);
+  --v2-success: #34D399; --v2-warning: #FBBF24; --v2-danger: #F87171;
+  --v2-success-soft: rgba(52,211,153,0.14); --v2-warning-soft: rgba(251,191,36,0.14); --v2-danger-soft: rgba(248,113,113,0.14);
+  --v2-elev-1: 0 1px 2px rgba(0,0,0,0.4), 0 4px 12px rgba(0,0,0,0.25);
+  --v2-elev-2: 0 2px 6px rgba(0,0,0,0.45), 0 12px 28px rgba(0,0,0,0.35);
+  --el-text-primary: #E6EDF6; --el-text-regular: #C6D2E2; --el-text-secondary: #8CA0B8; --el-text-placeholder: #5B6B82;
+  --el-border: rgba(255,255,255,0.12); --el-border-light: rgba(255,255,255,0.08);
+  --el-fill: rgba(255,255,255,0.06); --el-fill-light: rgba(255,255,255,0.04);
+  --el-mask: rgba(0,0,0,0.6);
+}
+[data-theme="light"] {
+  --v2-bg-0: #DFE6F0; --v2-bg-1: #D2DCE9; --v2-surf-1: #FFFFFF; --v2-surf-2: #F6F9FD;
+  --v2-card-hairline: rgba(255,255,255,0.9); --v2-grid-line: rgba(15,27,45,0.045);
+  --v2-primary: #2563EB; --v2-primary-dark: #1D4ED8; --v2-primary-hover: #1D4ED8; --v2-primary-soft: rgba(37,99,235,0.10);
+  --v2-elev-1: 0 1px 2px rgba(20,30,50,0.08), 0 4px 12px rgba(20,30,50,0.06);
+  --v2-elev-2: 0 2px 6px rgba(20,30,50,0.10), 0 12px 28px rgba(20,30,50,0.08);
+  --el-text-primary: #1A2536; --el-text-regular: #3D4C63; --el-text-secondary: #64748B; --el-text-placeholder: #94A3B8;
+  --el-border: rgba(15,27,45,0.12); --el-border-light: rgba(15,27,45,0.07);
+  --el-fill: rgba(15,27,45,0.05); --el-fill-light: rgba(15,27,45,0.03);
+  --el-mask: rgba(15,27,45,0.45);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { max-width: 100%; overflow-x: hidden; }
+body { max-width: 100%; }
+body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif; background: var(--v2-bg-0); color: var(--el-text-primary); -webkit-font-smoothing: antialiased; touch-action: manipulation; }
+.bg-grid { position: fixed; inset: 0; z-index: 0; pointer-events: none; background-image: linear-gradient(var(--v2-grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--v2-grid-line) 1px, transparent 1px); background-size: 44px 44px; }
+
+/* ============ 顶栏 ============ */
+.topbar { position: relative; z-index: 2; display: flex; align-items: center; justify-content: space-between; height: 52px; padding: 0 20px; background: var(--v2-bg-1); border-bottom: 1px solid var(--el-border-light); }
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-mark { width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(135deg, var(--v2-primary) 0%, var(--v2-primary-dark) 100%); display: flex; align-items: center; justify-content: center; color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), var(--v2-elev-1); }
+.brand-name { font-size: 15px; font-weight: 700; letter-spacing: .5px; }
+.brand-sub { font-size: 11px; color: var(--el-text-secondary); margin-left: 8px; padding: 2px 8px; border-radius: 999px; background: var(--v2-primary-soft); color: var(--v2-primary); }
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+.env-pill { font-size: 11px; color: var(--v2-success); border: 1px solid var(--v2-success-soft); background: var(--v2-success-soft); padding: 3px 10px; border-radius: 999px; }
+.role-wrap { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--el-text-secondary); }
+.role-pick { display: flex; gap: 2px; background: var(--el-fill); border: 1px solid var(--el-border); border-radius: 8px; padding: 2px; }
+.role-pick button { border: none; background: transparent; color: var(--el-text-secondary); font-size: 12px; padding: 5px 10px; border-radius: 6px; cursor: pointer; font-family: inherit; transition: all .15s; }
+.role-pick button.on { background: var(--v2-primary-soft); color: var(--v2-primary); font-weight: 600; }
+.theme-btn { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--el-border); background: var(--el-fill); color: var(--el-text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+
+/* ============ 页面框架 ============ */
+.page { position: relative; z-index: 1; max-width: 1280px; margin: 0 auto; padding: 18px 20px 28px; }
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.page-title { font-size: 20px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+.page-title .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--v2-success); box-shadow: 0 0 8px var(--v2-success); }
+.page-title .dot.off { background: var(--v2-danger); box-shadow: 0 0 8px var(--v2-danger); }
+.page-sub { font-size: 12px; color: var(--el-text-secondary); margin-top: 4px; }
+.page-actions { display: flex; gap: 8px; }
+.layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 14px; align-items: start; }
+
+/* ============ 卡片 ============ */
+.card { position: relative; background: var(--v2-surf-1); border-radius: 12px; box-shadow: inset 0 1px 0 var(--v2-card-hairline), var(--v2-elev-1); overflow: hidden; }
+.card::before { content: ""; position: absolute; top: 0; left: 6%; right: 6%; height: 1px; background: linear-gradient(90deg, transparent, var(--v2-card-hairline) 50%, transparent); }
+.card-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--el-border-light); }
+.card-title { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; color: var(--el-text-regular); }
+.card-title svg { width: 15px; height: 15px; color: var(--v2-primary); }
+.card-body { padding: 14px; }
+
+/* ============ 预览区 ============ */
+.preview-meta { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--el-border-light); }
+.meta-chip { font-size: 11px; color: var(--el-text-secondary); background: var(--el-fill); border: 1px solid var(--el-border-light); padding: 3px 9px; border-radius: 6px; display: flex; align-items: center; gap: 5px; }
+.meta-chip b { color: var(--el-text-regular); font-weight: 600; }
+
+/* LED 屏画布 —— 真实物理点阵 290×30（5 段，黑缝列 62-69/221-228/289） */
+.screen-stage { margin: 20px 14px 14px; position: relative; border-radius: 0; overflow: hidden; background: #04060A; }
+.screen-frame { position: relative; aspect-ratio: 290/30; display: flex; align-items: center; justify-content: center; transform-origin: center; }
+/* 290 列灯珠网格：px 列微光；黑缝独立顶层（盖文字/背景，还原真屏拼接遮挡） */
+.led-grid { position: absolute; inset: 0; z-index: 1; display: flex; }
+.led-cell { flex: 1 1 0; min-width: 0; background: #0C1B31; }
+.led-gaps { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
+.led-gap-bar { position: absolute; top: 0; bottom: 0; background: #000; border-left: 1px solid rgba(255,255,255,.06); }
+.screen-content { position: relative; z-index: 2; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+/* 背景动画层 —— 完全适配 290×30 屏：全部子元素按屏相对尺寸（%），overflow 硬裁，细腻光影 */
+.bg-anim { position: absolute; inset: 0; z-index: 1; pointer-events: none; overflow: hidden; }
+.bg-none { background: transparent; }
+.bg-flow { background: linear-gradient(180deg, #0B1B30, #0E2740); }
+/* 流光溢彩：细光带 5% 屏宽（≈15 灯珠），柔光贴屏流动 */
+.bg-flow::before, .bg-flow::after { content:""; position:absolute; top:0; bottom:0; width:5%; filter: blur(6px); border-radius:999px; }
+.bg-flow::before { left:-14%; background: linear-gradient(180deg, transparent, rgba(76,154,255,.78), transparent); animation: flowX 5s linear infinite; }
+.bg-flow::after { left:36%; background: linear-gradient(180deg, transparent, rgba(52,211,153,.6), transparent); animation: flowX 7s linear infinite; }
+.bg-breathe { background: radial-gradient(ellipse at 50% 50%, #1B446E 0%, #0A1526 70%); animation: breathe 3.4s ease-in-out infinite; }
+/* 星光闪烁：星点 1.5px 细密、光晕柔和 */
+.bg-stars { background: radial-gradient(ellipse at 50% 120%, #15304F 0%, #081020 70%); }
+.bg-stars .star { position:absolute; width:1.5px; height:1.5px; border-radius:50%; background:#D6E6FF; box-shadow:0 0 5px rgba(214,230,255,1); animation: twinkle 2.2s ease-in-out infinite; }
+/* 彩虹流动：鲜艳斜纹铺满全场（非黑场），6s 流动 */
+.bg-rainbow { background: linear-gradient(100deg, rgba(255,80,120,.75), rgba(251,191,36,.75), rgba(52,211,153,.75), rgba(76,154,255,.75), rgba(255,80,120,.75)); background-size: 200% 100%; animation: rainbowBg 7s linear infinite; }
+.bg-rainbow::after { content:""; position:absolute; inset:0; background: repeating-linear-gradient(115deg, rgba(255,255,255,.2) 0 6px, transparent 6px 12px); animation: rainbowMove 6s linear infinite; }
+/* 霓虹流光：细锐双扫描线 */
+.bg-scan { background: #071019; }
+.bg-scan::before, .bg-scan::after { content:""; position:absolute; left:10%; width:70%; height:2px; filter: blur(3px); }
+.bg-scan::before { top:30%; background: linear-gradient(90deg, transparent, #4C9AFF, transparent); animation: scanX 3.2s linear infinite; }
+.bg-scan::after { top:64%; background: linear-gradient(90deg, transparent, #34D399, transparent); animation: scanX 4.1s linear infinite; }
+/* 科技光斑：光斑按屏体比例缩小（9%/13% 宽 × 42%/58% 高），柔光漂移 */
+.bg-tech { background: radial-gradient(ellipse at 30% 60%, #0F2A4A 0%, #06090F 75%); }
+.bg-tech::before, .bg-tech::after { content:""; position:absolute; border-radius:50%; filter: blur(8px); }
+.bg-tech::before { width:9%; height:42%; top:26%; left:14%; background: radial-gradient(circle, rgba(52,211,153,.62), transparent 70%); animation: techDriftA 4.6s ease-in-out infinite alternate; }
+.bg-tech::after { width:13%; height:58%; top:18%; left:58%; background: radial-gradient(circle, rgba(76,154,255,.72), transparent 70%); animation: techDriftB 5.4s ease-in-out infinite alternate; }
+@keyframes flowX { from { transform: translateX(0);} to { transform: translateX(2480%);} }
+@keyframes breathe { 0%,100% { opacity:.55; transform: scale(1);} 50% { opacity:1; transform: scale(1.06);} }
+@keyframes twinkle { 0%,100% { opacity:.15; transform: scale(.6);} 50% { opacity:1; transform: scale(1.3);} }
+@keyframes rainbowMove { from { transform: translateX(0);} to { transform: translateX(-120%);} }
+@keyframes rainbowBg { from { background-position: 0% 0; } to { background-position: 100% 0; } }
+@keyframes scanX { from { transform: translateX(0);} to { transform: translateX(260%);} }
+@keyframes techDriftA { from { transform: translate(0,0);} to { transform: translate(140%,-18%);} }
+@keyframes techDriftB { from { transform: translate(0,0);} to { transform: translate(-70%,22%);} }
+
+/* 屏上文字 + 文字动画（多行：每行独立字号/动画，行高=灯珠行数） */
+.screen-text { position: relative; z-index: 3; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: visible; }
+.vid-placeholder { display: none; position: absolute; inset: 0; z-index: 3; align-items: center; justify-content: center; flex-direction: column; gap: 5px; background: linear-gradient(135deg, #0b1626 0%, #10233f 60%, #0e1e35 100%); }
+.vid-placeholder .vp-name, .vid-placeholder .vp-sub { position: relative; z-index: 1; background: rgba(4,6,10,.55); padding: 2px 8px; border-radius: 6px; }
+.vid-placeholder .vp-name { font-size: 14px; font-weight: 600; color: var(--v2-primary); letter-spacing: 1px; text-shadow: 0 0 8px rgba(76,154,255,.5); }
+.vid-placeholder .vp-sub { font-size: 9px; color: var(--el-text-secondary); }
+.text-line { font-weight: 800; letter-spacing: .12em; text-align: center; white-space: nowrap; padding: 0 4%; text-shadow: 0 1px 4px rgba(0,0,0,.6), 0 0 8px currentColor; line-height: 1; flex-shrink: 0; }
+.text-line.ta-scrollL, .text-line.ta-scrollR { animation: none; }
+.text-line.ta-blink { animation: taBlink 1.2s step-end infinite; }
+.text-line.ta-gradient { background: linear-gradient(90deg, #4C9AFF, #34D399, #FBBF24, #F87171, #4C9AFF); background-size: 300% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: taGrad var(--ta-speed, 5s) linear infinite; text-shadow: none; }
+/* 剪映式循环动画：打字机/弹跳/波浪/故障/霓虹呼吸/脉冲放大（适配 290×30 横条屏） */
+.text-line.ta-typing { overflow: hidden; white-space: nowrap; padding: 0 2%; animation: taTyping steps(24) var(--ta-speed, 6s) infinite; }
+.text-line.ta-bounce { animation: taBounce 2.4s ease-in-out infinite; }
+.text-line.ta-wave { animation: taWave 2.8s ease-in-out infinite; }
+.text-line.ta-glitch { animation: taGlitch 1.7s steps(2, end) infinite; }
+.text-line.ta-neon { animation: taNeon 2.6s ease-in-out infinite; }
+.text-line.ta-pulse { animation: taPulse 2.2s ease-in-out infinite; }
+/* 滚动真实速率：起终点由 JS 按行实测纯 px（--x0/--x1），首帧贴屏右缘可见，恒速滚至完全出屏左 */
+@keyframes taScrollL { from { transform: translateX(var(--x0, calc(var(--scrw, 700px) - 100%)));} to { transform: translateX(var(--x1, -100%));} }
+@keyframes taScrollR { from { transform: translateX(var(--x0r, -100%));} to { transform: translateX(var(--x1r, calc(var(--scrw, 700px) - 100%)));} }
+@keyframes taBlink { 0%,55% { opacity: 1;} 56%,100% { opacity: .08;} }
+@keyframes taGrad { from { background-position: 0% 50%;} to { background-position: 300% 50%;} }
+@keyframes taTyping { from { width: 0; } to { width: 100%; } }
+@keyframes taBounce { 0%,100% { transform: translateY(0);} 50% { transform: translateY(-4px);} }
+@keyframes taWave { 0%,100% { transform: translateY(0);} 25% { transform: translateY(-3px);} 50% { transform: translateY(0);} 75% { transform: translateY(3px);} }
+@keyframes taGlitch { 0% { transform: translate(0); text-shadow: none;} 20% { transform: translate(2px,0) skewX(-6deg); text-shadow: 2px 0 rgba(255,80,80,.7), -2px 0 rgba(80,200,255,.7);} 40% { transform: translate(-2px,1px); text-shadow: -2px 0 rgba(255,80,80,.7), 2px 0 rgba(80,200,255,.7);} 60% { transform: translate(1px,-1px) skewX(4deg); text-shadow: none;} 80% { transform: translate(-1px,0); text-shadow: 2px 0 rgba(255,80,80,.5);} 100% { transform: translate(0); text-shadow: none;} }
+@keyframes taNeon { 0%,100% { text-shadow: 0 0 4px currentColor, 0 0 12px currentColor, 0 0 22px currentColor; opacity: 1; } 50% { text-shadow: 0 0 2px currentColor, 0 0 6px currentColor, 0 0 10px currentColor; opacity: .72; } }
+@keyframes taPulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.08); opacity: .85; } }
+/* 招商信息页（recruit 模板） */
+.tpl-recruit { display: flex; align-items: center; justify-content: space-between; width: 100%; height: 100%; padding: 0 6%; z-index: 3; position: relative; }
+.tpl-recruit .rec-title { font-size: clamp(14px, 2.2vw, 24px); font-weight: 800; letter-spacing: .08em; }
+.tpl-recruit .rec-sub { font-size: clamp(10px, 1.4vw, 16px); color: rgba(255,255,255,.72); font-weight: 600; margin-top: 2px; }
+.tpl-recruit .rec-tel { font-size: clamp(11px, 1.5vw, 17px); color: var(--v2-warning); font-weight: 700; letter-spacing: .06em; white-space: nowrap; }
+.screen-badge { position: absolute; right: 10px; bottom: 8px; z-index: 4; font-size: 9px; color: rgba(255,255,255,.4); letter-spacing: .18em; }
+/* 预览控制条 */
+.pv-ctrl { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-top: 1px solid var(--el-border-light); font-size: 11px; color: var(--el-text-secondary); background: var(--el-fill-light); flex-wrap: wrap; }
+.zoom-pick { display: flex; gap: 2px; }
+.zoom-pick button { border: 1px solid var(--el-border); background: var(--el-fill); color: var(--el-text-secondary); font-size: 11px; padding: 3px 9px; border-radius: 6px; cursor: pointer; font-family: inherit; }
+.zoom-pick button.on { background: var(--v2-primary-soft); color: var(--v2-primary); font-weight: 600; }
+.pv-play { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--el-border); background: var(--el-fill); color: var(--el-text-regular); font-size: 11px; padding: 3px 10px; border-radius: 6px; cursor: pointer; font-family: inherit; }
+.pv-play.paused { color: var(--v2-warning); }
+.vid-tag { display: none; font-size: 10px; padding: 2px 8px; border-radius: 999px; background: var(--v2-warning-soft); color: var(--v2-warning); }
+.vid-tag.show { display: inline-block; }
+.screen-bar { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; border-top: 1px solid var(--el-border-light); font-size: 11px; color: var(--el-text-secondary); background: var(--el-fill-light); }
+.screen-bar .l { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.live-flag { color: var(--v2-success); display: flex; align-items: center; gap: 5px; }
+.live-flag::before { content:""; width: 6px; height: 6px; border-radius: 50%; background: var(--v2-success); animation: twinkle 1.6s infinite; }
+
+/* ============ 编辑面板 ============ */
+.field { margin-bottom: 16px; }
+.field:last-child { margin-bottom: 0; }
+.field-label { font-size: 12px; color: var(--el-text-secondary); margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
+.field-label b { color: var(--el-text-regular); font-weight: 600; }
+.el-input { width: 100%; background: var(--el-fill); border: 1px solid var(--el-border); border-radius: 8px; color: var(--el-text-primary); padding: 9px 12px; font-size: 13px; outline: none; transition: border-color .15s, box-shadow .15s; font-family: inherit; resize: vertical; }
+.el-input:focus { border-color: var(--v2-primary); box-shadow: 0 0 0 2px var(--v2-primary-soft); }
+.el-input::placeholder { color: var(--el-text-placeholder); }
+textarea.el-input { min-height: 56px; line-height: 1.5; }
+.tpl-grid-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.tpl-item { position: relative; border: 1px solid var(--el-border-light); border-radius: 8px; overflow: hidden; cursor: pointer; aspect-ratio: 16/9; background: var(--el-fill-light); transition: border-color .15s, box-shadow .15s; }
+.tpl-item:hover { border-color: var(--v2-primary); }
+.tpl-item.sel { border-color: var(--v2-primary); box-shadow: 0 0 0 2px var(--v2-primary-soft); }
+.tpl-item .thumb { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+.tpl-item .thumb .demo-txt { font-size: 12px; font-weight: 800; color: #fff; letter-spacing: .15em; white-space: nowrap; }
+.tpl-item .thumb .demo-txt.scrollL { animation: taScrollL 3s linear infinite; }
+.tpl-item .thumb .demo-txt.blink { animation: taBlink 1.2s step-end infinite; }
+.tpl-item .thumb .demo-txt.gradient { background: linear-gradient(90deg,#4C9AFF,#34D399,#FBBF24,#4C9AFF); background-size:300% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: taGrad 3s linear infinite; }
+.tpl-item .thumb.recruit { flex-direction: column; gap: 2px; }
+.tpl-item .thumb.recruit .demo-txt { font-size: 10px; }
+.tpl-item .thumb.recruit .demo-sub { font-size: 8px; color: rgba(255,255,255,.7); }
+.tpl-item .tname { position: absolute; left: 0; right: 0; bottom: 0; font-size: 10px; color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.75)); padding: 8px 6px 4px; text-align: center; letter-spacing: .05em; }
+.tpl-item.sel::after { content:""; position: absolute; top: 5px; right: 5px; width: 14px; height: 14px; border-radius: 50%; background: var(--v2-primary); box-shadow: inset 0 0 0 2px rgba(0,0,0,.35); }
+.slider-row { display: flex; align-items: center; gap: 12px; }
+input[type=range] { -webkit-appearance: none; appearance: none; flex: 1; height: 4px; border-radius: 999px; background: var(--el-fill); outline: none; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--v2-primary); border: 2px solid var(--v2-surf-1); box-shadow: var(--v2-elev-1); cursor: pointer; }
+.slider-val { font-size: 12px; color: var(--v2-primary); min-width: 40px; text-align: right; font-weight: 600; }
+/* 多行文字：行卡片 */
+.btn-mini { background: var(--v2-primary); color: #fff; border: none; border-radius: 6px; font-size: 11px; padding: 4px 10px; cursor: pointer; font-family: inherit; flex-shrink: 0; }
+.btn-mini:hover { filter: brightness(1.1); }
+.safe-hint { font-size: 11px; color: var(--v2-success); font-weight: 600; }
+.safe-hint.over { color: var(--v2-danger); }
+.line-item { border: 1px solid var(--el-border-light); border-radius: 8px; background: var(--el-fill-light); padding: 8px; margin-bottom: 8px; }
+.line-item:last-child { margin-bottom: 0; }
+.line-head { display: flex; gap: 6px; align-items: center; }
+.line-no { font-size: 10px; color: var(--el-text-placeholder); font-weight: 700; width: 16px; flex-shrink: 0; }
+.line-input { flex: 1; background: var(--el-fill); border: 1px solid var(--el-border); border-radius: 6px; color: var(--el-text-primary); padding: 7px 10px; font-size: 16px; outline: none; font-family: inherit; min-width: 0; }
+.line-input:focus { border-color: var(--v2-primary); }
+.line-del { border: none; background: transparent; color: var(--el-text-secondary); font-size: 15px; cursor: pointer; line-height: 1; padding: 2px 4px; flex-shrink: 0; }
+.line-del:hover { color: var(--v2-danger); }
+.line-body { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.line-body .ll { font-size: 10px; color: var(--el-text-placeholder); flex-shrink: 0; }
+.line-body input[type=range] { flex: 1; height: 3px; }
+.line-size-val { font-size: 11px; color: var(--v2-primary); min-width: 16px; text-align: center; font-weight: 600; }
+select.line-tpl { background: var(--el-fill); border: 1px solid var(--el-border); border-radius: 6px; color: var(--el-text-primary); font-size: 16px; padding: 5px 8px; font-family: inherit; outline: none; min-width: 88px; flex-shrink: 0; }
+.line-color { width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--el-border); background: var(--el-fill); flex-shrink: 0; cursor: pointer; position: relative; }
+.line-color i { position: absolute; inset: 4px; border-radius: 50%; background: currentColor; }
+.speed-note { font-size: 11px; color: var(--v2-primary); min-width: 64px; text-align: right; font-weight: 600; }
+/* 文字颜色弹框：预置 14 色 + 调色盘 */
+.color-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.color-cell { aspect-ratio: 1; border-radius: 10px; cursor: pointer; border: 1px solid rgba(255,255,255,.16); }
+.color-cell.sel { box-shadow: 0 0 0 2px var(--v2-surf-1), 0 0 0 4px var(--v2-primary); }
+.color-picker-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--el-border-light); }
+.color-picker-row input[type=color] { width: 46px; height: 34px; border: none; border-radius: 8px; background: none; padding: 0; cursor: pointer; }
+.color-picker-row .cp-tip { font-size: 12px; color: var(--el-text-secondary); }
+.el-switch { position: relative; width: 40px; height: 20px; border-radius: 999px; background: var(--el-fill); border: 1px solid var(--el-border); cursor: pointer; transition: background .2s; flex-shrink: 0; }
+.el-switch.on { background: var(--v2-primary); border-color: var(--v2-primary); }
+.el-switch::after { content:""; position: absolute; top: 2px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: var(--v2-elev-1); transition: left .2s; }
+.el-switch.on::after { left: 21px; }
+.el-select { display: block; width: 100%; background: var(--el-fill); border: 1px solid var(--el-border); border-radius: 8px; color: var(--el-text-primary); padding: 9px 12px; font-size: 16px; outline: none; appearance: none; -webkit-appearance: none; font-family: inherit; position: relative; }
+.el-select-wrap { position: relative; }
+.el-select-wrap::after { content:""; position:absolute; right:12px; top:50%; width:0; height:0; border-left:4px solid transparent; border-right:4px solid transparent; border-top:5px solid var(--el-text-secondary); transform: translateY(-40%); pointer-events:none; }
+details.collapse { border-top: 1px solid var(--el-border-light); }
+details.collapse summary { list-style: none; cursor: pointer; font-size: 12px; color: var(--el-text-secondary); padding: 10px 2px; display: flex; align-items: center; justify-content: space-between; }
+details.collapse summary::-webkit-details-marker { display: none; }
+details.collapse summary::after { content:"▾"; color: var(--el-text-placeholder); }
+details.collapse[open] summary::after { content:"▴"; }
+.kv { display: flex; justify-content: space-between; font-size: 12px; color: var(--el-text-regular); padding: 5px 2px; border-bottom: 1px dashed var(--el-border-light); }
+.kv span:last-child { color: var(--el-text-secondary); }
+
+/* 视频转 bin */
+.vid-pick { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1.5px dashed var(--el-border); border-radius: 10px; padding: 12px; cursor: pointer; transition: border-color .15s; background: var(--el-fill-light); }
+.vid-pick:hover { border-color: var(--v2-primary); }
+.vid-pick .vp-txt { font-size: 12px; color: var(--el-text-regular); }
+.vid-pick .vp-txt b { color: var(--v2-primary); }
+.vid-pick .vp-txt .hint { font-size: 11px; color: var(--el-text-placeholder); margin-top: 2px; }
+.vid-list { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.vid-item { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--el-text-regular); background: var(--el-fill-light); border: 1px solid var(--el-border-light); border-radius: 8px; padding: 7px 10px; }
+.vid-item .vi-l { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.vid-item .vi-l svg { width: 14px; height: 14px; color: var(--v2-warning); flex-shrink: 0; }
+.vid-item .vi-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vid-item .vi-seq { font-size: 10px; color: var(--v2-warning); background: var(--v2-warning-soft); padding: 1px 6px; border-radius: 999px; }
+.vid-item .vi-del { border: none; background: none; color: var(--el-text-placeholder); cursor: pointer; font-size: 12px; }
+.vid-item .vi-del:hover { color: var(--v2-danger); }
+
+/* 预览卡悬浮：编辑区滚动时固定在顶部，随时查看效果 */
+.card.sticky-preview { position: sticky; top: 12px; z-index: 5; }
+
+/* 节目编排 */
+.seg-add { display: flex; gap: 8px; }
+.seg-add .btn { flex: 1; }
+.seg-list { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.seg-item { display: flex; align-items: center; gap: 8px; background: var(--el-fill-light); border: 1px solid var(--el-border-light); border-radius: 8px; padding: 7px 10px; font-size: 12px; color: var(--el-text-regular); cursor: pointer; transition: border-color .15s; }
+.seg-item:hover, .seg-item.cur { border-color: var(--v2-primary); }
+.seg-item.cur { background: var(--v2-primary-soft); }
+.seg-ic { width: 22px; height: 22px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; }
+.seg-ic.t { background: var(--v2-primary-soft); color: var(--v2-primary); }
+.seg-ic.v { background: var(--v2-warning-soft); color: var(--v2-warning); }
+.seg-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seg-rep { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--el-text-secondary); }
+.seg-rep button { width: 18px; height: 18px; border-radius: 4px; border: 1px solid var(--el-border); background: var(--el-fill); color: var(--el-text-regular); cursor: pointer; font-size: 11px; line-height: 1; font-family: inherit; }
+.seg-op { display: flex; gap: 2px; }
+.seg-op button { width: 22px; height: 22px; border: none; background: none; color: var(--el-text-placeholder); cursor: pointer; font-size: 12px; border-radius: 4px; font-family: inherit; }
+.seg-op button:hover { color: var(--v2-primary); }
+.seg-op button.del:hover { color: var(--v2-danger); }
+.seg-actions { display: flex; gap: 8px; margin-top: 10px; }
+.seg-actions .btn { flex: 1; }
+
+/* 按钮 */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid transparent; font-family: inherit; transition: filter .15s, box-shadow .15s, opacity .15s; white-space: nowrap; }
+.btn svg { width: 15px; height: 15px; }
+.btn-primary { background: linear-gradient(135deg, var(--v2-primary) 0%, var(--v2-primary-dark) 100%); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.25), var(--v2-elev-1); }
+.btn-primary:hover { filter: brightness(1.08); box-shadow: inset 0 1px 0 rgba(255,255,255,.25), var(--v2-elev-2); }
+.btn-ghost { background: var(--el-fill); border-color: var(--el-border); color: var(--el-text-regular); }
+.btn-ghost:hover { border-color: var(--v2-primary); color: var(--v2-primary); }
+.btn-danger { background: linear-gradient(135deg, var(--v2-danger) 0%, #DC2626 100%); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.25), var(--v2-elev-1); }
+.btn-danger:hover { filter: brightness(1.08); }
+.btn:disabled, .btn.disabled { opacity: .38; cursor: not-allowed; filter: saturate(.4); }
+.btn[data-lock] { position: relative; }
+.btn .lock-tip { position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: var(--v2-surf-2); border: 1px solid var(--el-border); border-radius: 6px; padding: 5px 10px; font-size: 11px; color: var(--el-text-regular); white-space: nowrap; opacity: 0; transition: opacity .15s; pointer-events: none; box-shadow: var(--v2-elev-2); z-index: 5; }
+.btn[data-lock]:hover .lock-tip { opacity: 1; }
+
+.action-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+.action-btns { display: flex; gap: 8px; }
+.action-note { font-size: 11px; color: var(--el-text-secondary); display: flex; align-items: center; gap: 6px; }
+.perm-banner { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--el-text-secondary); background: var(--el-fill-light); border: 1px dashed var(--el-border); border-radius: 8px; padding: 9px 12px; margin-top: 12px; }
+.perm-banner b { color: var(--v2-warning); }
+.hist-list { display: flex; flex-direction: column; gap: 6px; }
+.hist-item { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--el-text-regular); background: var(--el-fill-light); border: 1px solid var(--el-border-light); border-radius: 8px; padding: 8px 10px; }
+.hist-item .h-l { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.hist-item .h-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hist-item .h-sub { font-size: 11px; color: var(--el-text-placeholder); }
+.hist-item .h-state { font-size: 11px; display: flex; align-items: center; gap: 5px; }
+.ok { color: var(--v2-success); } .run { color: var(--v2-warning); } .wait { color: var(--el-text-placeholder); }
+#toast { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 99; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
+.toast-item { background: var(--v2-surf-2); color: var(--el-text-primary); border: 1px solid var(--el-border); border-radius: 8px; padding: 10px 18px; font-size: 13px; box-shadow: var(--v2-elev-2); animation: toastIn .25s ease-out; display: flex; align-items: center; gap: 8px; }
+.toast-item.err { border-color: var(--v2-danger-soft); color: var(--v2-danger); }
+@keyframes toastIn { from { opacity: 0; transform: translateY(-8px);} to { opacity: 1; transform: translateY(0);} }
+.modal-mask { position: fixed; inset: 0; background: var(--el-mask); z-index: 90; display: none; align-items: center; justify-content: center; }
+.modal-mask.show { display: flex; }
+.modal { width: min(420px, 92vw); background: var(--v2-surf-1); border-radius: 12px; box-shadow: inset 0 1px 0 var(--v2-card-hairline), var(--v2-elev-2); overflow: hidden; }
+.modal-head { padding: 14px 16px; border-bottom: 1px solid var(--el-border-light); font-size: 14px; font-weight: 700; }
+.modal-body { padding: 16px; font-size: 13px; color: var(--el-text-regular); line-height: 1.7; }
+.modal-body .warn { color: var(--v2-danger); font-weight: 600; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--el-border-light); }
+
+@media (max-width: 860px) {
+  .layout { grid-template-columns: 1fr; }
+  .page { padding: 12px 12px 20px; }
+  .topbar { padding: 0 12px; }
+  .brand-sub { display: none; }
+  .page-actions { width: 100%; }
+  .page-actions .btn { flex: 1; }
+  .action-bar { flex-direction: column; align-items: stretch; }
+  .action-btns { width: 100%; }
+  .action-btns .btn { flex: 1; }
+  .screen-stage { margin: 16px 10px 10px; }
+}
+@media (max-width: 420px) {
+  .tpl-grid-pick { grid-template-columns: repeat(2, 1fr); }
+  .role-wrap .role-label { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="bg-grid"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="15" height="15"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9l6 6M15 9l-6 6"/></svg></div>
+    <span class="brand-name">SmartCtrl</span><span class="brand-sub">园区智能中控</span>
+  </div>
+  <div class="topbar-right">
+    <span class="env-pill">生产环境</span>
+    <div class="role-wrap"><span class="role-label">当前角色</span>
+      <div class="role-pick" id="rolePick">
+        <button data-role="admin" class="on">管理员</button><button data-role="operator">操作员</button><button data-role="viewer">访客</button>
+      </div>
+    </div>
+    <button class="theme-btn" id="themeBtn" title="切换明暗主题">◐</button>
+  </div>
+</header>
+
+<main class="page">
+  <div class="page-head">
+    <div>
+      <div class="page-title"><span>LED 节目制作</span><span class="dot" id="pveDot"></span></div>
+      <div class="page-sub">勇电灯珠屏 · 手机端创建节目 → 自动生成 bin → PVE 直推接收卡（224.1.1.1:65535）<b style="color:var(--v2-primary)"> · v23</b></div>
+    </div>
+    <div class="page-actions">
+      <button class="btn btn-ghost" onclick="toast('已打开 PVE 连接状态面板（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1010 10A10 10 0 0012 2zm0 6a4 4 0 11-4 4 4 4 0 014-4z"/><path d="M12 8v6l3 2"/></svg>PVE 状态</button>
+      <button class="btn btn-ghost" onclick="toast('已打开操作日志（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>操作日志</button>
+    </div>
+  </div>
+
+  <div class="layout">
+    <!-- ======== 左：实时预览（超宽横条屏，滚动时悬浮顶部） ======== -->
+    <section class="card sticky-preview">
+      <div class="card-head">
+        <div class="card-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="12" rx="1.5"/><path d="M8 21h8M12 18v3"/></svg>实时预览</div>
+        <span style="font-size:11px;color:var(--el-text-placeholder)">所见即所得 · 290×30 真实比例 · 黑缝分隔还原</span>
+      </div>
+      <div class="preview-meta">
+        <span class="meta-chip">屏体 <b>290×30 · 5 段</b></span>
+        <span class="meta-chip">播放 <b>25 fps</b></span>
+        <span class="meta-chip">目标 <b>224.1.1.1:65535</b></span>
+        <span class="meta-chip">通道 <b>vmbr1</b></span>
+        <span class="meta-chip">亮度 <b id="metaBright">100%</b></span>
+      </div>
+      <div class="screen-stage">
+        <div class="screen-frame" id="screenFrame">
+          <div class="led-grid" id="ledGrid"></div>
+          <div class="led-gaps" id="ledGaps"><div style="position:absolute;top:0;bottom:0;left:21.0345%;width:2.75862%;background:#000;"></div><div style="position:absolute;top:0;bottom:0;left:75.8621%;width:2.75862%;background:#000;"></div></div>
+          <div class="bg-anim" id="bgAnim"></div>
+          <div class="screen-content">
+            <!-- 文字模式 -->
+            <div class="screen-text" id="screenText" style="color:#4C9AFF">金湖科创产业园</div>
+            <!-- 招商信息页模板 -->
+            <div class="tpl-recruit" id="recruitBox" style="display:none">
+              <div><div class="rec-title" id="recTitle">金湖科创产业园 · 火热招商</div><div class="rec-sub">50-2000㎡ 独栋/分层 · 即租即用</div></div>
+              <span class="rec-tel">招商热线 0539-8888 666</span>
+            </div>
+            <!-- 视频段画面：真实视频播放（段预览/生成后抽到预览区） -->
+            <div class="vid-placeholder" id="vidPlaceholder">
+              <video id="vidPlayer" autoplay muted loop playsinline style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#04060A;"></video>
+              <div class="vp-name" id="vpName">园区宣传片.mp4</div>
+              <div class="vp-sub" id="vpSub">视频段预览 · 画面占位</div>
+            </div>
+          </div>
+          <div class="screen-badge">LED-01 · 勇电</div>
+        </div>
+        <div class="pv-ctrl">
+          <div class="zoom-pick" id="zoomPick">
+            <button data-z="2" class="on">2×</button><button data-z="1">1:1</button><button data-z="3">3×</button>
+          </div>
+          <button class="pv-play" id="btnPlay">⏸ 暂停预览</button>
+          <span class="vid-tag" id="vidTag">视频模式 · 背景动画仅文字模板生效</span>
+        </div>
+        <div class="screen-bar">
+          <div class="l"><span class="live-flag">PVE 在线</span><span id="tplName">文字动画：左滚动</span><span id="speedShow">速度 100ms/帧</span></div>
+          <span id="genStamp">未生成</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== 右：编辑 ======== -->
+    <section class="card">
+      <div class="card-head"><div class="card-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>节目编辑</div></div>
+      <div class="card-body">
+        <div class="field">
+          <div class="field-label"><b>多行文字</b><span class="safe-hint" id="safeHint">内容高 6/30 行 · 安全</span><button class="btn-mini" id="addLineBtn">+ 添加行</button></div>
+          <div id="lineList"></div>
+        </div>
+
+        <div class="field">
+          <div class="field-label"><b>动画速度</b><span style="font-size:11px;color:var(--el-text-placeholder)">统一调整 · 滚动按真实灯珠速率换算</span></div>
+          <div class="slider-row">
+            <input type="range" id="speedRange" min="1" max="10" value="5">
+            <span class="slider-val" id="speedVal">5</span>
+            <span class="speed-note" id="speedNote">≈30 灯珠/秒</span>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="field-label"><b>循环</b><label class="el-switch on" id="loopSwitch" onclick="toggleLoop()"></label></div>
+        </div>
+
+        <!-- 背景动画（原生成器 7 款） -->
+        <div class="field">
+          <div class="field-label"><b>背景动画</b><span style="font-size:11px;color:var(--el-text-placeholder)">叠加在文字下层，随帧运动</span></div>
+          <div class="tpl-grid-pick" id="bkgPick">
+            <div class="tpl-item" data-bkg="none"><div class="thumb" style="background:#04060A"></div><div class="tname">纯色</div></div>
+            <div class="tpl-item sel" data-bkg="flow"><div class="thumb bg-flow"></div><div class="tname">流光溢彩</div></div>
+            <div class="tpl-item" data-bkg="breathe"><div class="thumb bg-breathe"></div><div class="tname">光晕呼吸</div></div>
+            <div class="tpl-item" data-bkg="stars"><div class="thumb bg-stars"><span class="star" style="top:30%;left:25%"></span><span class="star" style="top:60%;left:60%;animation-delay:.6s"></span><span class="star" style="top:40%;left:82%;animation-delay:1.1s"></span></div><div class="tname">星光闪烁</div></div>
+            <div class="tpl-item" data-bkg="rainbow"><div class="thumb bg-rainbow"></div><div class="tname">彩虹流动</div></div>
+            <div class="tpl-item" data-bkg="scan"><div class="thumb bg-scan"></div><div class="tname">霓虹流光</div></div>
+            <div class="tpl-item" data-bkg="tech"><div class="thumb bg-tech"></div><div class="tname">科技光斑</div></div>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="field-label"><b>背景动画亮度</b></div>
+          <div class="slider-row">
+            <input type="range" id="bkgBright" min="30" max="160" value="100">
+            <span class="slider-val" id="bkgBrightVal">100%</span>
+          </div>
+        </div>
+
+        <!-- 视频转 bin（原生成器：多视频顺序拼接） -->
+        <div class="field">
+          <div class="field-label"><b>视频转 bin</b><span style="font-size:11px;color:var(--el-text-placeholder)">多视频顺序拼接</span></div>
+          <input type="file" id="videoInput" accept="video/*" multiple hidden>
+          <div class="vid-pick" onclick="document.getElementById('videoInput').click()">
+            <div class="vp-txt"><b>点击选择视频文件</b><div class="hint">支持 mp4 / avi / mov 等，多选按顺序拼接为节目</div></div>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22" style="color:var(--v2-primary)"><path d="M16.5 6v11.5a4 4 0 01-8 0V5a2.5 2.5 0 015 0v10.5a1 1 0 01-2 0V6"/><path d="M6 9a6 6 0 1112 0"/></svg>
+          </div>
+          <div class="vid-list" id="vidList">
+            <div class="vid-item" data-demo="0"><div class="vi-l"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9l5 3-5 3V9z"/></svg><span class="vi-name">园区宣传片.mp4</span></div><span class="vi-seq">第 1 段</span><button class="vi-del" onclick="this.parentElement.remove()">×</button></div>
+            <div class="vid-item" data-demo="1"><div class="vi-l"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9l5 3-5 3V9z"/></svg><span class="vi-name">招商专题.mp4</span></div><span class="vi-seq">第 2 段</span><button class="vi-del" onclick="this.parentElement.remove()">×</button></div>
+          </div>
+        </div>
+
+        <!-- 节目编排（原生成器：文字段 + 视频段按序合成单 bin） -->
+        <div class="field">
+          <div class="field-label"><b>节目编排</b><span style="font-size:11px;color:var(--el-text-placeholder)">文字 + 视频分段合成</span></div>
+          <div class="seg-add">
+            <button class="btn btn-ghost" onclick="addTextSeg()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h10M4 17h13"/></svg>添加文字段</button>
+            <button class="btn btn-ghost" onclick="addVideoSeg()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9l5 3-5 3V9z"/></svg>添加视频段</button>
+          </div>
+          <div style="font-size:11px;color:var(--el-text-placeholder);margin-top:8px;line-height:1.6">文字段 = 当前模板 + 文字生成的帧；视频段 = 已选视频。段按顺序合成单 bin 循环播放，段内可设重复次数。</div>
+          <div class="seg-list" id="segList"><!-- 段列表动态生成 --></div>
+          <div class="seg-actions">
+            <button class="btn btn-primary" onclick="genProgram()">生成节目 bin</button>
+            <button class="btn btn-ghost" onclick="clearSegs()">清空节目</button>
+          </div>
+        </div>
+
+        <details class="collapse">
+          <summary>屏幕参数（默认已配置，现场无需修改）</summary>
+          <div class="kv"><span>像素分辨率</span><span>290 × 30 物理点阵（8150 灯珠）</span></div>
+          <div class="kv"><span>屏体分段</span><span>5 段（组号 1~5，帧组 4 帧/段）</span></div>
+          <div class="kv"><span>黑缝列（1 基）</span><span>62-69 / 221-228 / 289</span></div>
+          <div class="kv"><span>播放帧率</span><span>25 循环/秒（25fps）</span></div>
+          <div class="kv"><span>帧格式</span><span>0x5001 · payload[0:1468]</span></div>
+          <div class="kv"><span>推流目标</span><span>224.1.1.1:65535</span></div>
+          <div class="kv"><span>网口</span><span>vmbr1 (192.168.1.250/24)</span></div>
+          <div class="kv"><span>灯珠映射</span><span>1 灯珠 = 1 物理点</span></div>
+        </details>
+      </div>
+    </section>
+  </div>
+
+  <div class="action-bar">
+    <div class="action-btns">
+      <button class="btn btn-primary" id="btnGen" onclick="genBin()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 8l5 5 5-5"/><path d="M4 21h16"/></svg>生成 bin 文件</button>
+      <button class="btn btn-danger" id="btnPush" onclick="pushShow()" data-lock><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>推流播出<span class="lock-tip">需「管理员」或「操作员」权限</span></button>
+    </div>
+    <div class="action-note" id="permNote">当前角色：管理员 —— 全部权限可用</div>
+  </div>
+
+  <div class="perm-banner">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg>
+    <span>RBAC 权限预览：<b>访客</b> 仅可查看与试播预览；<b>操作员</b> 可生成 bin；<b>管理员</b> 可生成 + 推流播出。</span>
+  </div>
+
+  <section class="card" style="margin-top:14px">
+    <div class="card-head"><div class="card-title">最近播出记录</div><span style="font-size:11px;color:var(--el-text-placeholder)">仅管理员可见全部，操作员可见本人</span></div>
+    <div class="card-body hist-list" id="histList">
+      <div class="hist-item"><div class="h-l"><span class="h-name">园区宣传 · 08:30</span><span class="h-sub">左滚动 · 流光 · 290×30</span></div><span class="h-state ok">已播出</span></div>
+      <div class="hist-item"><div class="h-l"><span class="h-name">招商信息页 · 07:00</span><span class="h-sub">招商模板 · 科技光斑 · 290×30</span></div><span class="h-state ok">已播出</span></div>
+      <div class="hist-item"><div class="h-l"><span class="h-name">视频节目 · 昨天 18:30</span><span class="h-sub">2 段视频拼接 · 290×30</span></div><span class="h-state wait">已归档</span></div>
+    </div>
+  </section>
+</main>
+
+<div class="modal-mask" id="confirmMask">
+  <div class="modal">
+    <div class="modal-head">确认推流播出</div>
+    <div class="modal-body">将把当前节目 <b id="cfName">金湖科创产业园</b> 推送到 LED 接收卡（<span class="warn">224.1.1.1:65535</span>），大屏将立即切换为该节目。<br>请确认节目内容与亮度无误。</div>
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeConfirm()">取消</button><button class="btn btn-danger" onclick="doPush()">确认播出</button></div>
+  </div>
+</div>
+<div class="modal-mask" id="colorMask">
+  <div class="modal">
+    <div class="modal-head">文字颜色 · <span id="cmLine" style="font-weight:600;color:var(--v2-primary)">L1</span></div>
+    <div class="modal-body">
+      <div class="color-grid" id="colorGrid"></div>
+      <div class="color-picker-row">
+        <input type="color" id="colorPicker" value="#4C9AFF">
+        <span class="cp-tip">点击色板自由调色</span>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeColorModal()">取消</button><button class="btn btn-primary" onclick="applyColorModal()">应用颜色</button></div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+/* ============ RBAC ============ */
+let role = 'admin';
+const ROLES = { admin: {gen:true,push:true}, operator: {gen:true,push:false}, viewer: {gen:false,push:false} };
+const ROLE_CN = { admin:'管理员', operator:'操作员', viewer:'访客' };
+function applyRole() {
+  const canGen = ROLES[role].gen, canPush = ROLES[role].push;
+  ['btnGen','btnPush'].forEach(id => document.getElementById(id).classList.toggle('disabled', id==='btnGen' ? !canGen : !canPush));
+  document.getElementById('btnGen').disabled = !canGen;
+  document.getElementById('btnPush').disabled = !canPush;
+  document.getElementById('permNote').textContent = '当前角色：' + ROLE_CN[role] + ' —— ' + (canPush ? '全部权限可用' : (canGen ? '可生成 bin，推流需管理员' : '只读预览，操作需切换更高权限'));
+  document.querySelectorAll('#rolePick button').forEach(b => b.classList.toggle('on', b.dataset.role === role));
+}
+document.querySelectorAll('#rolePick button').forEach(b => b.addEventListener('click', () => { role = b.dataset.role; applyRole(); toast('已切换为「'+ROLE_CN[role]+'」，权限已联动（演示）'); }));
+
+/* ============ 多行文字 ============ */
+const screenText = document.getElementById('screenText');
+const recruitBox = document.getElementById('recruitBox');
+const tplNames = { static:'静态显示', scrollL:'左滚动', scrollR:'右滚动', blink:'闪烁', gradient:'色彩渐变', typing:'打字机', bounce:'弹跳', wave:'波浪', glitch:'故障闪烁', neon:'霓虹呼吸', pulse:'脉冲放大', recruit:'招商信息页' };
+const bkgNames = { none:'纯色', flow:'流光溢彩', breathe:'光晕呼吸', stars:'星光闪烁', rainbow:'彩虹流动', scan:'霓虹流光', tech:'科技光斑' };
+let curTpl = 'static', curBkg = 'none', curColor = '#4C9AFF', animRunning = true, loopOn = true;
+let screenMode = 'lines';              // 'lines'=多行文字（默认） | 'recruit'=整屏模板
+let lineSeq = 1;
+let lines = [
+  { id: 0, text: '金湖科创产业园', size: 6, tpl: 'static', color: '#4C9AFF' },
+  { id: 1, text: '智慧园区 · 诚邀入驻', size: 4, tpl: 'scrollL', color: '#34D399' }
+];
+function linesTitle() { const t = lines.map(l => l.text.trim()).filter(Boolean).join(' + '); return t || '未命名节目'; }
+function esc(s) { return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+/* 生成 290×30 真实屏灯珠网格：黑缝列 62-69 / 221-228 / 289（1 基）纯黑分隔，与真屏拼接一致 */
+(function buildLedGrid() {
+  const grid = document.getElementById('ledGrid');
+  if (!grid || grid.childElementCount) return;
+  const frag = document.createDocumentFragment();
+  for (let c = 1; c <= 290; c++) {
+    const cell = document.createElement('div');
+    cell.className = 'led-cell';
+    frag.appendChild(cell);
+  }
+  grid.appendChild(frag);
+  // 黑缝层：两条真实段间分隔条（62-69 / 221-228；289 右缘缝在屏体最右端近乎不可见，不单独渲染）
+  const gaps = document.getElementById('ledGaps');
+  if (gaps && !gaps.childElementCount) {
+    const G = [[61, 8], [220, 8]];   // left(0基列)/width（列数）
+    G.forEach(g => {
+      const bar = document.createElement('div');
+      bar.className = 'led-gap-bar';
+      bar.style.left = (g[0] / 290 * 100) + '%';
+      bar.style.width = (g[1] / 290 * 100) + '%';
+      gaps.appendChild(bar);
+    });
+  }
+})();
+
+function applyTpl() {
+  const isRecruit = screenMode === 'recruit';
+  screenText.style.display = isRecruit ? 'none' : '';
+  recruitBox.style.display = isRecruit ? 'flex' : 'none';
+  if (isRecruit) {
+    document.getElementById('recTitle').textContent = (lines[0].text.trim() || '金湖科创产业园') + ' · 火热招商';
+  } else {
+    renderLines();
+  }
+  screenText.style.setProperty('--ta-speed', Math.max(2, 12 - speedRange.value) + 's');
+  screenText.style.setProperty('--scrw', Math.round(screenText.clientWidth) + 'px');
+  screenText.style.animationIterationCount = loopOn ? 'infinite' : '1';
+  document.getElementById('tplName').textContent = '文字模式：' + (isRecruit ? '整屏模板 · 招商信息页' : '多行文字 · ' + lines.length + ' 行');
+  document.getElementById('vidPlaceholder').style.display = 'none';
+  document.getElementById('vidTag').textContent = '实时预览 · 文字模式 · 背景动画仅文字段生效';
+}
+/* 通用帧绘制：多行、字号、颜色、动画、滚动真实时长（实时 lines 与段预览共用） */
+function paintFrames(host, frames) {
+  host.innerHTML = '';
+  const hPx = Math.round(host.clientHeight || 60);          // 屏体高度取整
+  const rowH = Math.max(1, Math.round(hPx / 30));           // 每灯珠行 ≈ 整数 px
+  const scrw = Math.round(host.clientWidth) || 700;         // 屏体宽度（px）
+  const pxPerLed = scrw / 290;                              // 每灯珠 ≈ px
+  const rate = Math.max(3, parseInt(speedRange.value, 10) || 5) * 6;  // 真实滚动速率：档位 ×6 灯珠/秒
+  host.style.setProperty('--scrw', scrw + 'px');
+  frames.forEach((f, i) => {
+    const d = document.createElement('div');
+    d.className = 'text-line' + (f.tpl === 'scrollL' || f.tpl === 'scrollR' ? '' : ' ta-' + f.tpl);
+    d.dataset.tpl = f.tpl;
+    d.textContent = f.text.trim() || '第' + (i + 1) + '行文字';
+    d.style.fontSize = Math.max(8, Math.round(hPx / 30 * f.size)) + 'px';  // 独立取整贴近真实比例
+    if (i > 0) d.style.marginTop = rowH + 'px';                             // 行距 1 灯珠 = 整数 px
+    d.style.color = f.tpl === 'gradient' ? '' : (f.color || curColor);
+    host.appendChild(d);
+  });
+  // 滚动行：按行实测文本宽度，起终点纯 px（消除 calc 混算在手机端的插值偏差），滚到完全出屏才循环；
+  // 变量全部就绪后再挂动画类，避免动画以默认值抢先启动导致滚不到位
+  host.querySelectorAll('.text-line[data-tpl="scrollL"], .text-line[data-tpl="scrollR"]').forEach(el => {
+    const tw = Math.max(1, Math.round(el.scrollWidth || el.getBoundingClientRect().width || scrw));
+    el.style.setProperty('--x0', Math.round(scrw - tw) + 'px');   // 左滚起点：文本右缘贴屏右缘（首帧可见）
+    el.style.setProperty('--x1', (-tw) + 'px');                    // 左滚终点：文本完全出屏左（滚到最左端）
+    el.style.setProperty('--x0r', '0px');                          // 右滚起点：文本左缘贴屏左缘（首帧可见）
+    el.style.setProperty('--x1r', Math.round(scrw) + 'px');        // 右滚终点：文本完全出屏右
+    el.style.setProperty('--ta-dur', (scrw / (rate * pxPerLed)).toFixed(2) + 's');
+    el.classList.add('ta-' + el.dataset.tpl);
+  });
+  startScrollDrive();
+}
+/* 滚动 JS 帧驱动：~60fps 逐帧平移（从右缘贴屏右缘 → 完全出屏左，循环），彻底摆脱浏览器 CSS 动画插值差异 */
+let scrollRaf = null;
+function scrollTick() {
+  const els = document.querySelectorAll('#screenText .ta-scrollL, #screenText .ta-scrollR');
+  if (!els.length) { clearInterval(scrollRaf); scrollRaf = null; return; }
+  const now = performance.now();
+  els.forEach(el => {
+    if (!el.isConnected) return;
+    if (!el._sc) {
+      const L = el.classList.contains('ta-scrollL');
+      el._sc = {
+        L,
+        x0: parseFloat(el.style.getPropertyValue('--x0')) || 0,
+        x1: parseFloat(el.style.getPropertyValue('--x1')) || -100,
+        x0r: 0,
+        x1r: parseFloat(el.style.getPropertyValue('--x1r')) || 100,
+        dur: (parseFloat(el.style.getPropertyValue('--ta-dur')) || 9.67) * 1000,
+        t: now
+      };
+    }
+    const s = el._sc;
+    const prog = Math.min(1, (now - s.t) / s.dur);
+    const x = s.L ? s.x0 + (s.x1 - s.x0) * prog : s.x0r + (s.x1r - s.x0r) * prog;
+    el.style.transform = 'translateX(' + x + 'px)';
+    if (prog >= 1) s.t = now;                                  // 滚到最左端（完全出屏）后循环回起点
+  });
+}
+function startScrollDrive() {
+  if (!scrollRaf) scrollRaf = setInterval(scrollTick, 16);      // ≈60fps；无 rAF/帧循环环境同样可用
+}
+/* 多行预览渲染：行高=字号(灯珠行)/30×屏高px，全部取整像素点对点；行间距 1 灯珠 */
+function renderLines() {
+  paintFrames(screenText, lines);
+  updateSafe();
+}
+function updateSafe() {
+  const n = lines.length;
+  const total = lines.reduce((s, l) => s + l.size, 0) + (n - 1);   // 行高 + 1 灯珠行距
+  const el = document.getElementById('safeHint');
+  el.classList.toggle('over', total > 30);
+  el.textContent = total > 30 ? '超出安全区 ' + (total - 30) + ' 行（内容高 ' + total + '/30）' : '内容高 ' + total + '/30 行 · 安全';
+}
+function renderLineList() {
+  const box = document.getElementById('lineList');
+  box.innerHTML = '';
+  const n = lines.length;
+  lines.forEach((ln, i) => {
+    const mx = lineMaxFor(i);
+    if (ln.size > mx) ln.size = mx;   // 防溢出：超限自动收敛
+    const el = document.createElement('div');
+    el.className = 'line-item';
+    el.innerHTML =
+      '<div class="line-head"><span class="line-no">L' + (i + 1) + '</span>' +
+      '<input class="line-input" value="' + esc(ln.text) + '" placeholder="第 ' + (i + 1) + ' 行文字…">' +
+      '<button class="line-color" title="设置文字颜色" style="color:' + (ln.color || curColor) + '"><i></i></button>' +
+      '<button class="line-del" title="删除此行">×</button></div>' +
+      '<div class="line-body"><span class="ll">字号</span>' +
+      '<input type="range" class="line-size" min="3" max="' + mx + '" value="' + ln.size + '">' +
+      '<span class="line-size-val">' + ln.size + '</span>' +
+      '<select class="line-tpl">' +
+        '<option value="static"' + (ln.tpl === 'static' ? ' selected' : '') + '>静态</option>' +
+        '<option value="scrollL"' + (ln.tpl === 'scrollL' ? ' selected' : '') + '>左滚动</option>' +
+        '<option value="scrollR"' + (ln.tpl === 'scrollR' ? ' selected' : '') + '>右滚动</option>' +
+        '<option value="blink"' + (ln.tpl === 'blink' ? ' selected' : '') + '>闪烁</option>' +
+        '<option value="gradient"' + (ln.tpl === 'gradient' ? ' selected' : '') + '>色彩渐变</option>' +
+        '<option value="typing"' + (ln.tpl === 'typing' ? ' selected' : '') + '>打字机</option>' +
+        '<option value="bounce"' + (ln.tpl === 'bounce' ? ' selected' : '') + '>弹跳</option>' +
+        '<option value="wave"' + (ln.tpl === 'wave' ? ' selected' : '') + '>波浪</option>' +
+        '<option value="glitch"' + (ln.tpl === 'glitch' ? ' selected' : '') + '>故障闪烁</option>' +
+        '<option value="neon"' + (ln.tpl === 'neon' ? ' selected' : '') + '>霓虹呼吸</option>' +
+        '<option value="pulse"' + (ln.tpl === 'pulse' ? ' selected' : '') + '>脉冲放大</option>' +
+      '</select></div>';
+    el.querySelector('.line-input').addEventListener('input', e => { ln.text = e.target.value; renderLines(); });
+    el.querySelector('.line-color').addEventListener('click', () => openColorModal(i));
+    const sz = el.querySelector('.line-size'), sv = el.querySelector('.line-size-val');
+    sz.addEventListener('input', () => {
+      ln.size = parseInt(sz.value, 10) || 4; sv.textContent = ln.size;
+      lines.forEach((l, j) => { const m = lineMaxFor(j); if (l.size > m) l.size = m; });
+      box.querySelectorAll('.line-size').forEach((el2, j) => {
+        el2.max = lineMaxFor(j); el2.value = lines[j].size;
+        el2.parentElement.querySelector('.line-size-val').textContent = lines[j].size;
+      });
+      renderLines();
+    });
+    el.querySelector('.line-tpl').addEventListener('change', e => { ln.tpl = e.target.value; renderLines(); });
+    el.querySelector('.line-del').addEventListener('click', () => {
+      if (lines.length === 1) { lines[0].text = ''; lines[0].size = 6; lines[0].tpl = 'static'; lines[0].color = '#4C9AFF'; }
+      else { lines.splice(i, 1); }
+      renderLineList(); renderLines(); toast('已删除第 ' + (i + 1) + ' 行');
+    });
+    box.appendChild(el);
+  });
+  updateSafe();
+}
+/* 每行字号上限 = 屏高30行 − 其他行占用 − (行数−1)行距，直至不溢出；单行最大可到 30 行(整屏高) */
+function lineMaxFor(j) {
+  const n = lines.length;
+  const used = lines.reduce((s, l, k) => s + (k === j ? 0 : l.size), 0);
+  return Math.max(3, Math.min(30, 30 - (n - 1) - used));
+}
+function addLine() {
+  if (!ROLES[role].gen) { toast('当前角色无「生成 bin」权限（需操作员/管理员）', true); return; }
+  lines.push({ id: ++lineSeq, text: '', size: 4, tpl: 'static' });
+  renderLineList(); renderLines();
+  toast('已添加第 ' + lines.length + ' 行，行内可选字号与动画');
+}
+document.getElementById('addLineBtn').addEventListener('click', addLine);
+function applyBkg() {
+  const bg = document.getElementById('bgAnim');
+  bg.className = 'bg-anim bg-' + curBkg;
+  bg.innerHTML = '';
+  if (curBkg === 'stars') {
+    for (let i = 0; i < 18; i++) {
+      const s = document.createElement('span'); s.className = 'star';
+      s.style.top = (Math.random() * 94 + 3) + '%';
+      s.style.left = (Math.random() * 94 + 3) + '%';
+      s.style.animationDelay = (Math.random() * 2.2) + 's';
+      bg.appendChild(s);
+    }
+  }
+}
+function renderColor() {
+  if (screenMode === 'recruit') return;
+  document.querySelectorAll('#screenText .text-line').forEach(d => {
+    if (d.classList.contains('ta-gradient')) { d.style.color = ''; return; }
+    d.style.color = curColor;
+    d.style.textShadow = '0 1px 4px rgba(0,0,0,.6), 0 0 8px ' + curColor;
+  });
+}
+document.querySelectorAll('#bkgPick .tpl-item').forEach(it => it.addEventListener('click', () => {
+  document.querySelectorAll('#bkgPick .tpl-item').forEach(x => x.classList.remove('sel'));
+  it.classList.add('sel'); curBkg = it.dataset.bkg; applyBkg();
+  toast('背景动画已切换为「' + bkgNames[curBkg] + '」');
+}));
+
+/* 速度/循环/背景亮度 */
+const speedRange = document.getElementById('speedRange');
+speedRange.addEventListener('input', () => {
+  document.getElementById('speedVal').textContent = speedRange.value;
+  document.getElementById('speedShow').textContent = '速度 ' + speedRange.value + ' 档';
+  document.getElementById('speedNote').textContent = '≈' + (speedRange.value * 6) + ' 灯珠/秒';
+  screenText.style.setProperty('--ta-speed', Math.max(2, 12 - speedRange.value) + 's');
+  renderLines();   // 滚动行按新速率重算真实时长
+});
+function toggleLoop() { loopOn = !loopOn; document.getElementById('loopSwitch').classList.toggle('on', loopOn); screenText.style.animationIterationCount = loopOn ? 'infinite' : '1'; }
+const bkgBright = document.getElementById('bkgBright');
+bkgBright.addEventListener('input', () => { document.getElementById('bkgBrightVal').textContent = bkgBright.value + '%'; document.getElementById('bgAnim').style.filter = 'brightness(' + (bkgBright.value/100) + ')'; });
+
+/* 预览控制：zoom / 播放暂停 */
+document.querySelectorAll('#zoomPick button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('#zoomPick button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  const z = parseFloat(b.dataset.z);
+  document.getElementById('screenFrame').style.transform = 'scale(' + (z/2) + ')';
+  document.getElementById('screenFrame').style.transformOrigin = 'left center';
+}));
+document.getElementById('btnPlay').addEventListener('click', () => {
+  animRunning = !animRunning;
+  const st = document.getElementById('screenText'), bg = document.getElementById('bgAnim');
+  st.style.animationPlayState = animRunning ? 'running' : 'paused';
+  bg.style.animationPlayState = animRunning ? 'running' : 'paused';
+  document.getElementById('btnPlay').textContent = animRunning ? '⏸ 暂停预览' : '▶ 播放预览';
+  document.getElementById('btnPlay').classList.toggle('paused', !animRunning);
+  toast(animRunning ? '预览播放中' : '预览已暂停');
+});
+
+/* 视频上传：保存文件对象（objectURL），视频段预览真实播放 */
+const DEMO_VIDEO_SRC = [
+  'https://media.w3.org/2010/05/sintel/trailer.mp4',
+  'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4'
+];
+window.__vidFiles = window.__vidFiles || [];
+document.getElementById('videoInput').addEventListener('change', e => {
+  const files = Array.from(e.target.files || []);
+  if (!files.length) return;
+  const list = document.getElementById('vidList');
+  const oldCount = list.children.length;
+  files.forEach((f, i) => {
+    const idx = window.__vidFiles.length;
+    window.__vidFiles.push({ name: f.name, src: URL.createObjectURL(f) });
+    const el = document.createElement('div');
+    el.className = 'vid-item';
+    el.setAttribute('data-fidx', idx);
+    el.innerHTML = '<div class="vi-l"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9l5 3-5 3V9z"/></svg><span class="vi-name">' + f.name + '</span></div><span class="vi-seq">第 ' + (oldCount + i + 1) + ' 段</span><button class="vi-del">×</button></div>';
+    el.querySelector('.vi-del').onclick = () => el.remove();
+    list.appendChild(el);
+  });
+  document.getElementById('vidTag').classList.add('show');
+  toast('已添加 ' + files.length + ' 个视频，按顺序拼接为节目（预览将真实播放）');
+});
+
+/* ============ 节目编排：文字段 + 视频段按序合成 ============ */
+let segs = [];   // [{type:'text'|'video', name, repeat, tpl?, color?}]
+let curSeg = -1;
+function renderSegs() {
+  const box = document.getElementById('segList');
+  if (!segs.length) { box.innerHTML = '<div style="font-size:11px;color:var(--el-text-placeholder);padding:4px 2px">尚未添加任何段 —— 点上方按钮添加文字段或视频段</div>'; return; }
+  box.innerHTML = '';
+  segs.forEach((s, i) => {
+    const el = document.createElement('div');
+    el.className = 'seg-item' + (i === curSeg ? ' cur' : '');
+    el.innerHTML = '<span class="seg-ic ' + s.type + '">' + (s.type === 'text' ? '文' : '视') + '</span>' +
+      '<span class="seg-name">' + s.name + '</span>' +
+      '<span class="seg-rep">重复 <button onclick="segRepeat(' + i + ',-1)">−</button><b>' + s.repeat + '</b><button onclick="segRepeat(' + i + ',1)">+</button></span>' +
+      '<span class="seg-op"><button title="上移" onclick="moveSeg(' + i + ',-1)">↑</button><button title="下移" onclick="moveSeg(' + i + ',1)">↓</button><button class="del" title="删除" onclick="delSeg(' + i + ')">×</button></span>';
+    el.onclick = () => { curSeg = i; renderSegs(); previewSeg(i); };
+    box.appendChild(el);
+  });
+}
+function addTextSeg() {
+  if (!ROLES[role].gen) { toast('当前角色无「生成 bin」权限（需操作员/管理员）', true); return; }
+  const name = '文字段 · ' + (lines[0].text.trim() || '未命名') + (lines.length > 1 ? ' 等 ' + lines.length + ' 行' : '');
+  segs.push({ type: 'text', name, repeat: 1, tpl: curTpl, color: curColor, content: lines.map(l => ({ text: l.text, size: l.size, tpl: l.tpl, color: l.color })) });
+  curSeg = segs.length - 1; renderSegs(); previewSeg(curSeg);
+  toast('已添加文字段 → 预览区已显示该段完整效果');
+}
+function addVideoSeg() {
+  if (!ROLES[role].gen) { toast('当前角色无「生成 bin」权限（需操作员/管理员）', true); return; }
+  const items = Array.from(document.querySelectorAll('#vidList .vid-item'));
+  if (!items.length) { toast('请先在「视频转 bin」选择视频文件', true); return; }
+  const vids = items.map(it => {
+    const nm = it.querySelector('.vi-name').textContent.trim();
+    const fd = it.getAttribute('data-fidx');
+    if (fd !== null) {
+      const rec = window.__vidFiles[+fd];
+      return rec ? { name: rec.name, src: rec.src } : { name: nm, src: '' };
+    }
+    const dm = it.getAttribute('data-demo');
+    return dm !== null ? { name: nm, src: DEMO_VIDEO_SRC[+dm] || '' } : { name: nm, src: '' };
+  });
+  const name = '视频段 · ' + vids.map(v => v.name).join(' + ');
+  segs.push({ type: 'video', name, repeat: 1, vids });
+  curSeg = segs.length - 1; renderSegs(); previewSeg(curSeg);
+  toast('已添加视频段 → 预览区正在播放该段视频');
+}
+function segRepeat(i, d) { segs[i].repeat = Math.max(1, segs[i].repeat + d); renderSegs(); }
+function moveSeg(i, d) { const j = i + d; if (j < 0 || j >= segs.length) return; [segs[i], segs[j]] = [segs[j], segs[i]]; curSeg = j; renderSegs(); }
+function delSeg(i) { segs.splice(i, 1); if (curSeg >= segs.length) curSeg = segs.length - 1; renderSegs(); if (!segs.length) { stopProgLoop(); applyTpl(); } else { previewSeg(Math.min(curSeg, segs.length - 1)); } toast('已删除该段'); }
+function clearSegs() { segs = []; curSeg = -1; stopProgLoop(); renderSegs(); applyTpl(); toast('已清空节目，预览已回到实时编辑'); }
+/* 把节目段「抽到」预览区：文字段渲染内容快照（真实文字+动画），视频段渲染视频画面占位；多段自动循环完整预览 */
+function previewSeg(i) {
+  const s = segs[i];
+  if (!s) return;
+  const st = document.getElementById('screenText');
+  const rb = document.getElementById('recruitBox');
+  const vp = document.getElementById('vidPlaceholder');
+  const vt = document.getElementById('vidTag');
+  rb.style.display = 'none';
+  if (s.type === 'video') {
+    st.style.display = 'none';
+    vp.style.display = 'flex';
+    const vv = document.getElementById('vidPlayer');
+    const vn = document.getElementById('vpName');
+    const vs = document.getElementById('vpSub');
+    const src = (s.vids && s.vids[0] && s.vids[0].src) || '';
+    if (src) {
+      vv.src = src;
+      vv.style.display = '';
+      const p = vv.play ? vv.play() : null;
+      if (p && p.catch) p.catch(() => {});
+      vn.textContent = s.name;
+      vs.textContent = '第 ' + (i + 1) + ' 段 / 共 ' + segs.length + ' 段 · 正在播放';
+    } else {
+      vv.style.display = 'none';
+      vn.textContent = s.name;
+      vs.textContent = '未找到视频源，请重新选择视频文件';
+    }
+    vt.textContent = '视频段预览中 · 正在播放';
+  } else {
+    vp.style.display = 'none';
+    st.style.display = '';
+    const frames = (s.content && s.content.length) ? s.content : [{ text: s.name, size: 12, tpl: s.tpl || 'static', color: s.color || curColor }];
+    paintFrames(st, frames);
+    vt.textContent = '文字段预览中 · ' + tplNames[(s.content && s.content[0]) ? s.content[0].tpl : s.tpl] + (frames.length > 1 ? ' · ' + frames.length + ' 行' : '');
+  }
+  document.getElementById('tplName').textContent = '预览第 ' + (i + 1) + ' 段：' + s.name + (s.type === 'text' ? '（文字段）' : '（视频段）');
+  stopProgLoop();
+}
+/* 节目连续播放：打包后的全部段按「段完整动画时长」依次循环播放（滚动段播完整周期才切段，不中途打断） */
+let progTimer = null;
+function playProgram() {
+  stopProgLoop();
+  if (segs.length < 2) return;
+  (function step() {
+    const s = segs[curSeg];
+    let hold = s.type === 'video' ? 5000 : 4000;                 // 视频段 5s；普通文字段 4s
+    if (s.type === 'text') {
+      const sc = document.querySelector('#screenText .ta-scrollL, #screenText .ta-scrollR');
+      if (sc) {
+        const d = parseFloat(sc.style.getPropertyValue('--ta-dur'));
+        if (d > 0.5) hold = Math.round(d * 1000) + 300;         // 滚动段：完整滚动周期 + 300ms
+      }
+    }
+    progTimer = setTimeout(() => {
+      curSeg = (curSeg + 1) % segs.length;
+      renderSegs(); previewSeg(curSeg);
+      step();
+    }, hold);
+  })();
+}
+function stopProgLoop() { if (progTimer) { clearTimeout(progTimer); progTimer = null; } }
+function genProgram() {
+  if (!ROLES[role].gen) { toast('当前角色无「生成 bin」权限（需操作员/管理员）', true); return; }
+  if (!segs.length) {
+    // 未编排段时：自动把当前实时多行设计封装为文字段（按设计生成）
+    const name = '文字段 · ' + (lines[0].text.trim() || '未命名') + (lines.length > 1 ? ' 等 ' + lines.length + ' 行' : '');
+    segs.push({ type: 'text', name, repeat: 1, tpl: curTpl, color: curColor, content: lines.map(l => ({ text: l.text, size: l.size, tpl: l.tpl, color: l.color })) });
+    curSeg = 0; renderSegs();
+    toast('未编排段 —— 已自动将当前多行设计封装为文字段');
+  }
+  const total = segs.reduce((a, s) => a + s.repeat, 0);
+  document.getElementById('genStamp').textContent = '编排生成中…';
+  setTimeout(() => {
+    document.getElementById('genStamp').textContent = '节目 bin 已生成 · ' + new Date().toTimeString().slice(0,5);
+    previewSeg(0);
+    playProgram();
+    toast('节目 bin 已生成：' + segs.length + ' 段已打包为连续播放文件，预览区正在完整循环播放全部段（文字+视频）——确认无误后可推流');
+    addHist('编排节目', segs.map(s => s.type === 'text' ? '文字' : '视频').join('+'), '待播出');
+  }, 900);
+}
+
+/* 生成 / 推流 */
+const genStamp = document.getElementById('genStamp');
+function genBin() {
+  if (!ROLES[role].gen) { toast('当前角色无「生成 bin」权限（需操作员/管理员）', true); return; }
+  const name = linesTitle();
+  genStamp.textContent = '生成中…';
+  const steps = ['生成帧数据', '封装 bin 文件头', '分段编码 (22×1536B)', '完成'];
+  let i = 0;
+  const iv = setInterval(() => {
+    genStamp.textContent = '生成中… ' + steps[Math.min(i, steps.length-1)];
+    if (++i > steps.length) { clearInterval(iv); genStamp.textContent = '已生成 · ' + new Date().toTimeString().slice(0,5); toast('bin 文件已生成：' + name + '（浏览器本地生成，未上传）'); addHist(name, tplNames[curTpl], '待播出'); }
+  }, 260);
+}
+function pushShow() {
+  if (!ROLES[role].push) { toast('当前角色无「推流播出」权限（需管理员）', true); return; }
+  document.getElementById('cfName').textContent = linesTitle();
+  document.getElementById('confirmMask').classList.add('show');
+}
+function closeConfirm() { document.getElementById('confirmMask').classList.remove('show'); }
+function doPush() { closeConfirm(); toast('已下发 PVE：正在推流至 224.1.1.1:65535…'); addHist(linesTitle(), tplNames[curTpl] + (screenMode === 'recruit' ? '（整屏）' : '·' + lines.length + '行'), '播出中'); }
+
+/* 文字颜色弹框：预置 14 色 + 调色盘（每行独立颜色） */
+const COLOR_PRESETS = ['#4C9AFF','#34D399','#FBBF24','#F87171','#A78BFA','#F472B6','#22D3EE','#FB923C','#FFFFFF','#FDE047','#E879F9','#5EEAD4','#94A3B8','#FF6B6B'];
+let colorTarget = -1;
+function openColorModal(i) {
+  colorTarget = i;
+  document.getElementById('cmLine').textContent = 'L' + (i + 1);
+  const cur = lines[i].color || curColor;
+  const picker = document.getElementById('colorPicker');
+  picker.value = cur;
+  const grid = document.getElementById('colorGrid');
+  grid.innerHTML = '';
+  COLOR_PRESETS.forEach(c => {
+    const cell = document.createElement('div');
+    cell.className = 'color-cell' + (c.toLowerCase() === cur.toLowerCase() ? ' sel' : '');
+    cell.style.background = c;
+    cell.addEventListener('click', () => { picker.value = c; applyColorModal(); });
+    grid.appendChild(cell);
+  });
+  document.getElementById('colorMask').classList.add('show');
+}
+function applyColorModal() {
+  if (colorTarget < 0) return;
+  lines[colorTarget].color = document.getElementById('colorPicker').value;
+  closeColorModal();
+  renderLineList(); renderLines();
+  toast('已设置 L' + (colorTarget + 1) + ' 文字颜色');
+}
+function closeColorModal() { document.getElementById('colorMask').classList.remove('show'); colorTarget = -1; }
+document.getElementById('colorPicker').addEventListener('input', () => {
+  if (colorTarget < 0) return;
+  lines[colorTarget].color = document.getElementById('colorPicker').value;   // 调色盘拖动实时预览
+  renderLines();
+});
+function addHist(name, tpl, state) {
+  const list = document.getElementById('histList');
+  const el = document.createElement('div'); el.className = 'hist-item';
+  const cls = { '已播出':'ok', '播出中':'run', '待播出':'wait' }[state] || 'wait';
+  el.innerHTML = '<div class="h-l"><span class="h-name">' + name + ' · ' + new Date().toTimeString().slice(0,5) + '</span><span class="h-sub">' + tpl + ' · 290×30</span></div><span class="h-state ' + cls + '">' + state + '</span>';
+  list.prepend(el); if (list.children.length > 5) list.removeChild(list.lastChild);
+}
+document.getElementById('confirmMask').addEventListener('click', e => { if (e.target.id === 'confirmMask') closeConfirm(); });
+
+/* 主题 */
+document.getElementById('themeBtn').addEventListener('click', () => {
+  const cur = document.documentElement.dataset.theme;
+  document.documentElement.dataset.theme = cur === 'dark' ? 'light' : 'dark';
+  toast('已切换' + (cur === 'dark' ? '亮色' : '暗色') + '主题（DS 双主题）');
+});
+function toast(msg, isErr) {
+  const box = document.getElementById('toast');
+  const el = document.createElement('div');
+  el.className = 'toast-item' + (isErr ? ' err' : '');
+  el.textContent = msg;
+  box.appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; setTimeout(() => el.remove(), 320); }, 2600);
+}
+applyRole(); renderLineList(); applyTpl(); applyBkg(); renderColor();
+</script>
+</body>
+</html>

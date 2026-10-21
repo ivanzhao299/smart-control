@@ -1,0 +1,427 @@
+{
+  "src": "http://127.0.0.1:5174/led-program",
+  "url": "http://127.0.0.1:5174/led-program",
+  "outdir": "/Users/mac/Documents/smart-control/docs/led-program/_shots",
+  "include": [
+    "lint",
+    "screenshots",
+    "structure"
+  ],
+  "shots": {
+    "mobile": {
+      "screenshot": "/Users/mac/Documents/smart-control/docs/led-program/_shots/127_0_0_1_mobile.png",
+      "screenshotBytes": 103338,
+      "truncated": false,
+      "structure": {
+        "title": "金湖展贸中心智能控制系统",
+        "firstH1": "",
+        "viewport": {
+          "w": 390,
+          "h": 844
+        },
+        "fullpage": {
+          "w": 390,
+          "h": 844
+        },
+        "counts": {
+          "section": 0,
+          "h1": 0,
+          "h2": 0,
+          "img": 0,
+          "canvas": 0,
+          "svg": 4,
+          "links": 0,
+          "buttons": 2
+        }
+      },
+      "consoleErrors": [
+        {
+          "type": "error",
+          "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+          "location": "http://127.0.0.1:5174/api/system/info"
+        },
+        {
+          "type": "error",
+          "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+          "location": "http://127.0.0.1:5174/api/system-branding"
+        },
+        {
+          "type": "error",
+          "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+          "location": "http://127.0.0.1:5174/api/client-auth/ping"
+        },
+        {
+          "type": "error",
+          "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+          "location": "http://127.0.0.1:5174/api/system-branding"
+        },
+        {
+          "type": "error",
+          "text": "[unhandledrejection] HttpError: Cannot GET /api/system/info\n    at request (http://127.0.0.1:5174/src/services/http.ts:195:11)\n    at async unwrap (http://127.0.0.1:5174/src/services/http.ts:200:20)\n    at async Proxy.fetchInfo (http://127.0.0.1:5174/src/stores/system.ts:17:18)",
+          "location": "http://127.0.0.1:5174/src/main.ts?t=1792587366750"
+        },
+        {
+          "type": "error",
+          "text": "HttpError: Cannot GET /api/system/info",
+          "location": "http://127.0.0.1:5174/src/services/http.ts",
+          "line": 195,
+          "column": 11
+        }
+      ],
+      "consoleWarnings": [],
+      "horizontalOverflow": [],
+      "resourceErrors": [
+        {
+          "url": "http://127.0.0.1:5174/api/system/info",
+          "resourceType": "Fetch",
+          "status": 404,
+          "reason": "http_4xx"
+        },
+        {
+          "url": "http://127.0.0.1:5174/api/system-branding",
+          "resourceType": "Fetch",
+          "status": 404,
+          "reason": "http_4xx"
+        },
+        {
+          "url": "http://127.0.0.1:5174/api/client-auth/ping",
+          "resourceType": "Fetch",
+          "status": 404,
+          "reason": "http_4xx"
+        },
+        {
+          "url": "http://127.0.0.1:5174/api/system-branding",
+          "resourceType": "Fetch",
+          "status": 404,
+          "reason": "http_4xx"
+        }
+      ],
+      "faviconWarning": {
+        "present": true,
+        "count": 2,
+        "externalRefs": [
+          "/icons/app.svg",
+          "/icons/pwa-192x192.png"
+        ],
+        "unencodedHash": []
+      },
+      "faviconHint": "warning · 含义：favicon 指向了外部文件（见 externalRefs），不是 data URI。 | 修法：用**内联 SVG data URI**，一行搞定、零额外文件：`<link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230F766E'/%3E%3Ctext x='32' y='44' font-size='36' text-anchor='middle' fill='white'%3EA%3C/text%3E%3C/svg%3E\">`。图形取产物主题里的一个符号（首字母、核心图标、品牌形状），配色沿用页面主色，别用无关的通用图标。 | **三个必须注意的编码细节**：外层 href 用双引号、SVG 内部属性用单引号；`<` `>` 写成 `%3C` `%3E`；**颜色的 `#` 必须写成 `%23`**——不编码会被当成 URL fragment，图标直接不显示。想做深浅色两版就写两个 link，加 `media=\"(prefers-color-scheme: dark)\"`。 | 为什么只能用 data URI：`link href` **不在发布链路的资源收集白名单里**（那里只认 `src` 属性和 CSS `url()`），指向 `assets/` 的图标文件发布后必然 404；而且额外文件破坏单文件自包含，用户拿到一个 html 就该能用。 | 会不会被平台图标覆盖：不会。发布平台把自己的默认 favicon 注入在 `<head>` 最前面，浏览器对多个 icon link **取最后一个**，模型写在后面的那个生效。 | 豁免：(1) 产物是页面片段（没有完整 `<head>`）时不适用；(2) externalRefs 指向 CDN 域名（`lf3-static.bytednsdoc.com` 之类）时，那是**发布平台注入的**默认图标，不是你写的——迭代已发布产物时会看到，忽略即可，自己另加一个 data URI 的 link 就行（浏览器对多个 icon link 取最后一个）。",
+      "viewportMetaWarning": {
+        "present": true,
+        "hasDeviceWidth": true,
+        "disablesZoom": true,
+        "content": "width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, viewport-fit=cover, user-scalable=no"
+      },
+      "viewportMetaHint": "warning · 含义：viewport meta 存在但设置了 user-scalable=no 或 maximum-scale=1，禁用了用户缩放。这是 anti-pattern：低视力用户依赖捏合放大读页面，禁用即等于把这批用户拒之门外。 | 修法：移除 user-scalable=no / maximum-scale=1，改成 `content=\"width=device-width, initial-scale=1\"`。 | 豁免：几乎没有正当理由——map 交互 / 3D 交互也不用禁 zoom，那些场景内嵌自己的手势处理即可，页面缩放不冲突。",
+      "mobileFontIssues": [
+        {
+          "kind": "input-under-16px",
+          "tag": "input[type=text]",
+          "fontSize": 13,
+          "text": "服务器地址 (e.g. http://192.168.124.11:3200)"
+        },
+        {
+          "kind": "input-under-16px",
+          "tag": "input[type=text]",
+          "fontSize": 14,
+          "text": "用户名（旧版访问密码可留空）"
+        },
+        {
+          "kind": "input-under-16px",
+          "tag": "input[type=password]",
+          "fontSize": 14,
+          "text": "密码"
+        }
+      ],
+      "mobileFontIssuesHint": "error · <input> / <textarea> font-size < 16px：iOS Safari 聚焦时会自动缩放页面，严重影响移动端表单体验。 | 修法：`input, textarea { font-size: 16px; }`；或在移动端断点里针对性调大。 | 豁免：目标环境只在 Android WebView 或桌面时可豁免（罕见）。",
+      "reportSource": "cdp"
+    }
+  },
+  "engine": "chrome_cli",
+  "chromiumExec": "/Users/mac/Library/Caches/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-mac-arm64/chrome-headless-shell",
+  "engineDegraded": true,
+  "engineDegradedReason": "playwright 未装",
+  "elapsedSec": 2.93,
+  "schemaVersion": 2,
+  "status": "fail",
+  "engineInfo": {
+    "name": "chrome_cli",
+    "degraded": true,
+    "degradedReasons": [
+      "playwright 未装"
+    ]
+  },
+  "input": {
+    "original": "http://127.0.0.1:5174/led-program",
+    "resolvedPath": null,
+    "baseUrl": "http://127.0.0.1:5174/led-program",
+    "protocol": "http",
+    "cwd": "/Users/mac/Doubao/chats/2026-10-21/new-chat-3",
+    "mediaMode": {
+      "reducedMotion": true
+    }
+  },
+  "artifacts": {
+    "screenshots": [
+      {
+        "viewport": "mobile",
+        "path": "/Users/mac/Documents/smart-control/docs/led-program/_shots/127_0_0_1_mobile.png",
+        "size": 103338,
+        "visualCoverage": {
+          "complete": true,
+          "reason": null
+        }
+      }
+    ]
+  },
+  "summary": {
+    "blocker": 0,
+    "error": 13,
+    "warning": 2,
+    "info": 0
+  },
+  "findings": [
+    {
+      "ruleId": "consoleErrors",
+      "severity": "error",
+      "kind": "console",
+      "viewport": "mobile",
+      "selector": null,
+      "evidence": {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "location": "http://127.0.0.1:5174/api/system/info"
+      },
+      "dedupeKey": "consoleErrors|mobile||0"
+    },
+    {
+      "ruleId": "consoleErrors",
+      "severity": "error",
+      "kind": "console",
+      "viewport": "mobile",
+      "selector": null,
+      "evidence": {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "location": "http://127.0.0.1:5174/api/system-branding"
+      },
+      "dedupeKey": "consoleErrors|mobile||1"
+    },
+    {
+      "ruleId": "consoleErrors",
+      "severity": "error",
+      "kind": "console",
+      "viewport": "mobile",
+      "selector": null,
+      "evidence": {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "location": "http://127.0.0.1:5174/api/client-auth/ping"
+      },
+      "dedupeKey": "consoleErrors|mobile||2"
+    },
+    {
+      "ruleId": "consoleErrors",
+      "severity": "error",
+      "kind": "console",
+      "viewport": "mobile",
+      "selector": null,
+      "evidence": {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "location": "http://127.0.0.1:5174/api/system-branding"
+      },
+      "dedupeKey": "consoleErrors|mobile||3"
+    },
+    {
+      "ruleId": "consoleErrors",
+      "severity": "error",
+      "kind": "console",
+      "viewport": "mobile",
+      "selector": null,
+      "evidence": {
+        "type": "error",
+        "text": "[unhandledrejection] HttpError: Cannot GET /api/system/info\n    at request (http://127.0.0.1:5174/src/services/http.ts:195:11)\n    at async unwrap (http://127.0.0.1:5174/src/services/http.ts:200:20)\n    at async Proxy.fetchInfo (http://127.0.0.1:5174/src/stores/system.ts:17:18)",
+        "location": "http://127.0.0.1:5174/src/main.ts?t=1792587366750"
+      },
+      "dedupeKey": "consoleErrors|mobile||4"
+    },
+    {
+      "ruleId": "consoleErrors",
+      "severity": "error",
+      "kind": "console",
+      "viewport": "mobile",
+      "selector": null,
+      "evidence": {
+        "type": "error",
+        "text": "HttpError: Cannot GET /api/system/info",
+        "location": "http://127.0.0.1:5174/src/services/http.ts",
+        "line": 195,
+        "column": 11
+      },
+      "dedupeKey": "consoleErrors|mobile||5"
+    },
+    {
+      "ruleId": "resourceErrors",
+      "severity": "error",
+      "kind": "network",
+      "viewport": "mobile",
+      "selector": null,
+      "evidence": {
+        "url": "http://127.0.0.1:5174/api/system/info",
+        "resourceType": "Fetch",
+        "status": 404,
+        "reason": "http_4xx"
+      },
+      "dedupeKey": "resourceErrors|mobile||0"
+    },
+    {
+      "ruleId": "resourceErrors",
+      "severity": "error",
+      "kind": "network",
+      "viewport": "mobile",
+      "selector": null,
+      "evidence": {
+        "url": "http://127.0.0.1:5174/api/system-branding",
+        "resourceType": "Fetch",
+        "status": 404,
+        "reason": "http_4xx"
+      },
+      "dedupeKey": "resourceErrors|mobile||1"
+    },
+    {
+      "ruleId": "resourceErrors",
+      "severity": "error",
+      "kind": "network",
+      "viewport": "mobile",
+      "selector": null,
+      "evidence": {
+        "url": "http://127.0.0.1:5174/api/client-auth/ping",
+        "resourceType": "Fetch",
+        "status": 404,
+        "reason": "http_4xx"
+      },
+      "dedupeKey": "resourceErrors|mobile||2"
+    },
+    {
+      "ruleId": "resourceErrors",
+      "severity": "error",
+      "kind": "network",
+      "viewport": "mobile",
+      "selector": null,
+      "evidence": {
+        "url": "http://127.0.0.1:5174/api/system-branding",
+        "resourceType": "Fetch",
+        "status": 404,
+        "reason": "http_4xx"
+      },
+      "dedupeKey": "resourceErrors|mobile||3"
+    },
+    {
+      "ruleId": "mobileFontIssues",
+      "severity": "error",
+      "kind": "typography",
+      "viewport": "mobile",
+      "selector": "input[type=text]",
+      "evidence": {
+        "kind": "input-under-16px",
+        "tag": "input[type=text]",
+        "fontSize": 13,
+        "text": "服务器地址 (e.g. http://192.168.124.11:3200)"
+      },
+      "dedupeKey": "mobileFontIssues|mobile|input[type=text]|0"
+    },
+    {
+      "ruleId": "mobileFontIssues",
+      "severity": "error",
+      "kind": "typography",
+      "viewport": "mobile",
+      "selector": "input[type=text]",
+      "evidence": {
+        "kind": "input-under-16px",
+        "tag": "input[type=text]",
+        "fontSize": 14,
+        "text": "用户名（旧版访问密码可留空）"
+      },
+      "dedupeKey": "mobileFontIssues|mobile|input[type=text]|1"
+    },
+    {
+      "ruleId": "mobileFontIssues",
+      "severity": "error",
+      "kind": "typography",
+      "viewport": "mobile",
+      "selector": "input[type=password]",
+      "evidence": {
+        "kind": "input-under-16px",
+        "tag": "input[type=password]",
+        "fontSize": 14,
+        "text": "密码"
+      },
+      "dedupeKey": "mobileFontIssues|mobile|input[type=password]|2"
+    },
+    {
+      "ruleId": "faviconWarning",
+      "severity": "warning",
+      "kind": "metadata",
+      "viewport": "mobile",
+      "selector": null,
+      "evidence": {
+        "present": true,
+        "count": 2,
+        "externalRefs": [
+          "/icons/app.svg",
+          "/icons/pwa-192x192.png"
+        ],
+        "unencodedHash": []
+      },
+      "dedupeKey": "faviconWarning|mobile||0"
+    },
+    {
+      "ruleId": "viewportMetaWarning",
+      "severity": "warning",
+      "kind": "metadata",
+      "viewport": "mobile",
+      "selector": null,
+      "evidence": {
+        "present": true,
+        "hasDeviceWidth": true,
+        "disablesZoom": true,
+        "content": "width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, viewport-fit=cover, user-scalable=no"
+      },
+      "dedupeKey": "viewportMetaWarning|mobile||0"
+    }
+  ],
+  "prioritizedActions": [
+    {
+      "ruleId": "consoleErrors",
+      "severity": "error",
+      "viewport": "mobile",
+      "selector": null
+    },
+    {
+      "ruleId": "resourceErrors",
+      "severity": "error",
+      "viewport": "mobile",
+      "selector": null
+    },
+    {
+      "ruleId": "mobileFontIssues",
+      "severity": "error",
+      "viewport": "mobile",
+      "selector": "input[type=text]"
+    },
+    {
+      "ruleId": "faviconWarning",
+      "severity": "warning",
+      "viewport": "mobile",
+      "selector": null
+    },
+    {
+      "ruleId": "viewportMetaWarning",
+      "severity": "warning",
+      "viewport": "mobile",
+      "selector": null
+    }
+  ],
+  "reportPath": "/Users/mac/Documents/smart-control/docs/led-program/_shots/report.json"
+}

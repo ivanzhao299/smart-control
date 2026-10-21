@@ -39,6 +39,7 @@ export const NAV_ICON: Record<string, LucideIcon> = {
   dashboard: Home,
   lighting: Lightbulb,
   led: MonitorPlay,
+  'led-program': Clapperboard,
   projector: Projector,
   audio: Volume2,
   hvac: Snowflake,

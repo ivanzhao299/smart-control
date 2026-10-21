@@ -14,6 +14,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'dali-lights', name: 'dali-lights', component: () => import('@/pages/DaliLightsPage.vue') },
       { path: 'dali-diagnose', name: 'dali-diagnose', component: () => import('@/pages/DaliDiagnosePage.vue') },
       { path: 'led', name: 'led', component: () => import('@/pages/LedPage.vue') },
+      // 勇电灯珠屏节目制作（290×30 真实点阵 · 编排→生成 bin→PVE 直推接收卡）
+      { path: 'led-program', name: 'led-program', component: () => import('@/pages/LedProgramPage.vue') },
       // 2026-07-17 业主: "把投影仪页面单独摘出来" —— 原来跟 LED 挤在一页, 容易推错屏
       { path: 'projector', name: 'projector', component: () => import('@/pages/ProjectorPage.vue') },
       { path: 'audio', name: 'audio', component: () => import('@/pages/AudioPage.vue') },
