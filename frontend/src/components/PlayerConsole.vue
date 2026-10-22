@@ -1,13 +1,10 @@
 <script setup lang="ts">
 /**
  * 播放控制台 — LED 大屏 / 投影仪**共用**这一个组件, 只有 slot 和标题不同。
- *
  * 为什么抽成组件而不是两个页面各写一份: 2026-07-17 在空调页刚吃过教训 ——
  * 同一个卡片写两遍, 必然改一处漏一处。这里两块屏的播放控制逻辑 100% 相同
  * (列表/历史/上下曲/暂停/终止/上传), 只是 slot 不一样, 没有任何理由抄两份。
- *
  * **所有操作都在本页完成, 不跳走**。
- *
  * 2026-07-17 业主原话:
  *   "播放页面不应该点击按钮跳转到其他页面, 应该在该页面固定不变"
  *   "平时经常播放的内容应该在播放列表里面, 随时可以切换播放列表内的内容"
@@ -21,7 +18,6 @@
  * 要换个片子得离开正在盯着的播放页, 这正是业主说的毛病。
  * 现在: 播放列表内嵌本页, 点一下就切; 上传也在本页 (传完只入媒体库, **不自动进列表**,
  * 要人工点"加入列表" —— 业主明确要求媒体库内容需确认后才进列表)。
- *
  * 投影仪 (slot2) 已拆到独立页 ProjectorPage, 本页只管 LED (slot1)。
  */
 import { computed, onMounted, onScopeDispose } from 'vue';
@@ -43,6 +39,7 @@ import { usePlayerInputSources } from '@/composables/usePlayerInputSources';
 import { usePlayerPlaylist } from '@/composables/usePlayerPlaylist';
 import { usePlayerDocumentControls } from '@/composables/usePlayerDocumentControls';
 import PlayerVideoControls from '@/components/PlayerVideoControls.vue';
+import PlayerVolumeControl from '@/components/PlayerVolumeControl.vue';
 import WelcomeSourcePanel from '@/components/WelcomeSourcePanel.vue';
 import ParkDashboardSourcePanel from '@/components/ParkDashboardSourcePanel.vue';
 import { usePlayerPowerControls, type PowerBootPlan, type PowerKeepRule } from '@/composables/usePlayerPowerControls';
@@ -91,15 +88,16 @@ const props = defineProps<{
    * LED=seq55-6（诺瓦）/ 投影=seq55-4（融合器）；不传则同开同关（向后兼容）。
    */
   powerBootPlan?: PowerBootPlan;
+  audioOutputPair?: readonly [number, number];
 }>();
 const SLOT = computed(() => props.slot);
 
 const router = useRouter(); const perm = usePermissionStore(); // 播控 admin/operator；viewer 只读
 function goBack(): void { router.push({ name: 'dashboard' }); }
-
 const { ensureAdmin, ensureContentEditor } = useAdminUnlock();
 const playbackStore = usePlaybackStore();
 const ch = computed(() => (props.slot === 1 ? playbackStore.slot1 : playbackStore.slot2));
+const showVolumeControl = computed(() => Boolean(props.audioOutputPair && ['video', 'audio'].includes(ch.value?.currentMediaKind ?? '')));
 
 let consoleDisposed = false;
 onScopeDispose(() => {
@@ -366,7 +364,11 @@ function openOpsMetricsAdmin(): void {
       <!-- 融合器/设备异常告警(slot, 见底部 .alert-slot): 桌面 absolute 浮于播放卡右上角;
            手机端在「铺放」同一行左侧做滚动字幕, 不占额外行、不顶动下方卡片, 播放卡恒 150 等高。 -->
       <div class="now-info">
-        <div class="now-label">正在播放</div>
+        <div class="now-label-row">
+          <div class="now-label">正在播放</div>
+          <PlayerVolumeControl v-if="showVolumeControl" :channels="audioOutputPair!"
+            :label="`${title}音量`" :disabled="!perm.canExecute" />
+        </div>
         <div class="now-name" :title="ch?.currentMediaName || ''">
           {{ ch?.restricted ? '其他用户的内容正在使用此设备' : (currentInList?.title || ch?.currentMediaName || '— 待机中 —') }}
         </div>
@@ -989,6 +991,7 @@ function openOpsMetricsAdmin(): void {
   min-height: 116px;
 }
 .now-info { flex: 1 1 240px; min-width: 0; }
+.now-label-row { display: flex; align-items: center; gap: 8px; min-height: 32px; }
 .now-label { font-size: 12px; color: var(--v2-text-2); }
 .now-name {
   font-size: 22px; font-weight: 700; color: var(--v2-text-1);

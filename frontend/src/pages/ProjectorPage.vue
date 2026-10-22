@@ -66,7 +66,7 @@ useActivePolling(startPolling, stopPolling);
        音频矩阵与 LED 共用，power-keep-peers 标注「最后离开才关」：投影关机时若 LED
        主开关(1f-led)仍通电，矩阵保留给 LED。 -->
   <PlayerConsole
-    :slot="2" title="投影仪" power-code="seq-5,seq-4"
+    :slot="2" title="投影仪" :audio-output-pair="[2, 3]" power-code="seq-5,seq-4"
     :power-amp-codes="['seq55-8']"
     :power-keep-peers="[{ code: 'seq-4', peers: ['1f-led'], peerLabel: 'LED 大屏' }]"
     :power-boot-plan="{

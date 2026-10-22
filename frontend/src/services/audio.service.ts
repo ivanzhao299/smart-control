@@ -4,6 +4,11 @@ import type { AdapterResult } from '@/types/api';
 export const audioService = {
   setVolume: (id: string, value: number, zone?: string) =>
     api.post<AdapterResult>(`/audio/${id}/volume`, { value, zone }),
+  /** 读取 EKX-808 当前 8 路真实输出音量；只在播放器音量浮层首次展开时按需调用。 */
+  getLiveOutputs: () =>
+    api.get<{ ok: boolean; data?: { channels: Array<{ ch: number; volume: number | null; muted: boolean | null }> }; error?: string }>(
+      '/audio/outputs/live',
+    ),
   mute: (id: string, zone?: string) =>
     api.post<AdapterResult>(`/audio/${id}/mute`, { muted: true, zone }),
   unmute: (id: string, zone?: string) =>

@@ -15,7 +15,7 @@ import PlayerConsole from '@/components/PlayerConsole.vue';
        音频矩阵与投影仪共用，power-keep-peers 标注「最后离开才关」：LED 关机时若投影仪
        主开关(seq-5)仍通电，矩阵保留给投影。 -->
   <PlayerConsole
-    :slot="1" title="LED 大屏" device-id="LED-NOVA-1" power-code="1f-led,seq-4"
+    :slot="1" title="LED 大屏" device-id="LED-NOVA-1" :audio-output-pair="[0, 1]" power-code="1f-led,seq-4"
     :power-amp-codes="['seq-2']"
     :power-keep-peers="[{ code: 'seq-4', peers: ['seq-5'], peerLabel: '投影仪' }]"
     :power-boot-plan="{
