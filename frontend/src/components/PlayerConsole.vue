@@ -994,10 +994,17 @@ function openOpsMetricsAdmin(): void {
   font-size: 22px; font-weight: 700; color: var(--v2-text-1);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.now-sub { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--v2-text-2); margin-top: 3px; }
+.now-sub {
+  display: flex; gap: 8px; align-items: center;
+  min-height: 18px; max-height: 18px; overflow: hidden;
+  font-size: 12px; color: var(--v2-text-2); margin-top: 3px;
+  flex-wrap: nowrap; line-height: 1.3;
+}
 /* 切源稳定性(#135): 大屏/普通两组小字各自是常驻的 inline-flex 槽位, v-show 只显隐不重挂 */
-.now-sub-group { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.now-sub-group > span { white-space: nowrap; }
+.now-sub-group { display: inline-flex; gap: 8px; align-items: center; flex-wrap: nowrap; min-width: 0; }
+.now-sub-group > span { white-space: nowrap; min-width: 0; }
+.now-sub-group .claim-tag { overflow: hidden; text-overflow: ellipsis; }
+.now-sub-group .claim-release { flex: 0 0 auto; }
 .now-sub .claim-tag { color: #D98A2B; } .now-sub .claim-tag.mine { color: #2FA36B; font-weight: 600; }
 .now-sub .claim-release { border:1px solid rgba(47,163,107,.45); background:rgba(47,163,107,.12); color:#2FA36B; border-radius:999px; font-size:11px; line-height:1; padding:3px 9px; cursor:pointer; } .now-sub .claim-release:hover { background:rgba(47,163,107,.22); }
 .now-ctrl { display: flex; align-items: center; gap: 10px; }
@@ -1475,9 +1482,16 @@ function openOpsMetricsAdmin(): void {
   color: var(--v2-text-2); flex-shrink: 0; white-space: nowrap;
 }
 .np-label { font-size: 13px; font-weight: 600; color: var(--v2-text-1); }
-.np-state { font-size: 12px; font-weight: 600; color: var(--v2-text-3); }
+.np-state {
+  display: inline-flex; align-items: center;
+  flex: 0 0 8em; width: 8em;
+  min-width: 8em; overflow: hidden;
+  white-space: nowrap; text-overflow: ellipsis;
+  font-size: 12px; font-weight: 600; color: var(--v2-text-3);
+  font-variant-numeric: tabular-nums;
+}
 .np-state.on { color: var(--v2-live-power, #48D597); }
-.np-state.booting { color: var(--v2-primary); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.np-state.booting { color: var(--v2-primary); }
 
 /* 拨动开关 —— 抄自电源页时序器 (.v2-toggle), 保持全站一致 */
 .v2-toggle {
@@ -1514,6 +1528,8 @@ function openOpsMetricsAdmin(): void {
   .v2-toggle { width: 48px; height: 28px; }
   .v2-toggle::after { width: 24px; height: 24px; }
   .v2-toggle.on::after { transform: translateX(20px); }
+  /* 手机顶栏空间更窄，仍保留固定槽位，但缩小槽宽避免挤压标题和状态徽标。 */
+  .np-state { flex-basis: 6.5em; width: 6.5em; min-width: 6.5em; }
 }
 
 /* ===== 手机竖屏 (≤640px) 播放控制区紧凑化 (2026-10-17 业主要求: 把顶部高度让给播放列表)
