@@ -113,8 +113,14 @@ function harness(overrides = {}) {
     }),
   };
   const readyService = {
-    led: async () => { readyCalls.push(['led']); return readyValue; },
-    projector: async () => { readyCalls.push(['projector']); return readyValue; },
+    led: async () => {
+      readyCalls.push(['led']);
+      return overrides.readyProbe ? overrides.readyProbe('led') : readyValue;
+    },
+    projector: async () => {
+      readyCalls.push(['projector']);
+      return overrides.readyProbe ? overrides.readyProbe('projector') : readyValue;
+    },
   };
   const exports = moduleWith(
     service,
@@ -130,6 +136,7 @@ function harness(overrides = {}) {
     powerAmpCodes: () => ampCodes.value,
     powerKeepPeers: () => keepPeers.value,
     powerBootPlan: () => bootPlan.value,
+    lockDisplay: overrides.lockDisplay,
     captureAction: () => () => current,
   }));
   return {
@@ -587,7 +594,7 @@ test('power-on without a boot plan still powers all display circuits together', 
   h.scope.stop();
 });
 
-// ===== 第三十五轮：严格分段（视频源就绪硬门控 → 功放/矩阵 → 最后开屏；关机逆向）=====
+// ===== 第三十五轮：严格屏幕门控（核心与音频并行预热 → 核心就绪 → 最后开屏；关机逆向）=====
 
 const strictStagedPlan = {
   preheatCodes: ['nova'],
@@ -610,7 +617,7 @@ function strictCircuits(powered = false) {
   ];
 }
 
-test('staged power-on: source -> ready gate -> amp/matrix -> screen last', async () => {
+test('staged power-on: core and amp/matrix preheat -> ready gate -> screen', async () => {
   const h = harness({
     bootPlan: strictStagedPlan,
     available: strictCircuits(),
@@ -620,7 +627,7 @@ test('staged power-on: source -> ready gate -> amp/matrix -> screen last', async
   h.ampCodes.value = ['amp'];
   await flush();
   await h.state.togglePower();
-  // 顺序：诺瓦(id3) → 功放(id2)+矩阵(id4) → 屏体(id1) 最后
+  // 顺序：诺瓦(id3) → 功放(id2)+矩阵(id4) → 屏体(id1)
   assert.deepEqual(
     h.calls.filter(([name]) => name === 'on'),
     [['on', 3], ['on', 2], ['on', 4], ['on', 1]],
@@ -631,7 +638,95 @@ test('staged power-on: source -> ready gate -> amp/matrix -> screen last', async
   h.scope.stop();
 });
 
-test('staged power-on BLOCKS amp and screen when the video source never becomes ready', async () => {
+test('staged power-on opens amp and matrix before locking the display path and reuses one operation id', async () => {
+  const phases = [];
+  const h = harness({
+    bootPlan: { ...strictStagedPlan, stageGapMs: 0 },
+    available: strictCircuits(),
+    ready: true,
+    lockDisplay: async (operationId) => {
+      phases.push(['lock', operationId]);
+      return true;
+    },
+    on: async (id, operationId) => {
+      phases.push(['on', id, operationId]);
+      const target = strictCircuits().find((item) => item.id === id);
+      return { ...target, reading: { ...target.reading, on: true } };
+    },
+  });
+  h.code.value = 'screen,matrix';
+  h.ampCodes.value = ['amp'];
+  await flush();
+  await h.state.togglePower();
+  assert.equal(phases[0][0], 'on');
+  assert.equal(phases[0][1], 3);
+  assert.equal(phases[1][1], 2);
+  assert.equal(phases[2][1], 4);
+  assert.equal(phases[3][0], 'lock');
+  assert.equal(phases[4][1], 1);
+  const operationIds = phases
+    .filter((phase) => phase[0] === 'on')
+    .map((phase) => phase[2]);
+  assert.ok(operationIds.length >= 3);
+  assert.ok(operationIds.every((id) => id && id === phases[3][1]));
+  h.scope.stop();
+});
+
+test('staged power-on preheats amp and matrix while core readiness is pending', async () => {
+  const readiness = deferred();
+  const phases = [];
+  const h = harness({
+    bootPlan: { ...strictStagedPlan, stageGapMs: 0 },
+    available: strictCircuits(),
+    readyProbe: async () => readiness.promise,
+    lockDisplay: async () => { phases.push(['lock']); return true; },
+    on: async (id) => {
+      phases.push(['on', id]);
+      const target = strictCircuits().find((item) => item.id === id);
+      return { ...target, reading: { ...target.reading, on: true } };
+    },
+  });
+  h.code.value = 'screen,matrix';
+  h.ampCodes.value = ['amp'];
+  await flush();
+  const pending = h.state.togglePower();
+  await flush();
+  assert.deepEqual(phases, [['on', 3], ['on', 2], ['on', 4]]);
+  readiness.resolve(true);
+  await pending;
+  assert.equal(phases.at(-2)[0], 'lock');
+  assert.deepEqual(phases.at(-1), ['on', 1]);
+  h.scope.stop();
+});
+
+test('staged power-on starts amp and matrix at the configured midpoint delay', async () => {
+  const readiness = deferred();
+  const phases = [];
+  const h = harness({
+    bootPlan: { ...strictStagedPlan, ampStartDelaySec: 0.03, stageGapMs: 0 },
+    available: strictCircuits(),
+    readyProbe: async () => readiness.promise,
+    on: async (id) => {
+      phases.push(['on', id]);
+      const target = strictCircuits().find((item) => item.id === id);
+      return { ...target, reading: { ...target.reading, on: true } };
+    },
+  });
+  h.code.value = 'screen,matrix';
+  h.ampCodes.value = ['amp'];
+  await flush();
+  const pending = h.state.togglePower();
+  await flush();
+  assert.deepEqual(phases, [['on', 3]]);
+  await new Promise((resolve) => setTimeout(resolve, 45));
+  assert.deepEqual(phases, [['on', 3], ['on', 2], ['on', 4]]);
+  readiness.resolve(true);
+  await pending;
+  assert.deepEqual(phases.at(-1), ['on', 1]);
+  h.scope.stop();
+});
+
+test('staged power-on keeps screen gated when the video source never becomes ready', async () => {
   const h = harness({
     bootPlan: { ...strictStagedPlan, timeoutSec: 2 },
     available: strictCircuits(),
@@ -641,15 +736,15 @@ test('staged power-on BLOCKS amp and screen when the video source never becomes 
   h.ampCodes.value = ['amp'];
   await flush();
   await h.state.togglePower();
-  // 硬门控：只开了视频源(id3)，功放/矩阵/屏一路都不开
+  // 核心设备等待期间功放/矩阵已错峰预热，但屏幕仍受核心就绪硬门控
   assert.deepEqual(
     h.calls.filter(([name]) => name === 'on'),
-    [['on', 3]],
+    [['on', 3], ['on', 2], ['on', 4]],
   );
-  // 屏与功放仍断电
+  // 屏幕仍断电
   assert.equal(h.state.powerAllOn.value, false);
   assert.equal(h.messages.at(-1)[0], 'error');
-  assert.match(h.messages.at(-1)[1], /未在 2s 内确认就绪|暂缓开功放与显示屏/);
+  assert.match(h.messages.at(-1)[1], /未在 2s 内确认就绪|暂缓开显示屏/);
   h.scope.stop();
 });
 

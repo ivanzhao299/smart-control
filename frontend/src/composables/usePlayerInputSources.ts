@@ -107,13 +107,16 @@ export function usePlayerInputSources(options: PlayerInputSourceOptions) {
   });
 
   /** 固定显示路径：LED 切正全屏图层 / 投影清空窗口+全屏 HDMI。返回是否确认成功（失败仅 warning）。 */
-  async function ensureDisplayPath(): Promise<boolean> {
+  async function ensureDisplayPath(operationId?: string): Promise<boolean> {
     try {
       if (options.slot.value === 1 && options.deviceId()) {
-        const result = await ledService.switchInput(options.deviceId()!, 'video');
+        const result = operationId
+          ? await ledService.switchInput(options.deviceId()!, 'video', operationId)
+          : await ledService.switchInput(options.deviceId()!, 'video');
         if (!result.ok) throw new Error(result.error || '设备未确认');
       } else if (options.slot.value === 2) {
-        await projectorService.showHdmi();
+        if (operationId) await projectorService.showHdmi(operationId);
+        else await projectorService.showHdmi();
       }
       return true;
     } catch (error) {

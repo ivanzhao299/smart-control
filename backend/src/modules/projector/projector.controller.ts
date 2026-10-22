@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Logger, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
 import { ProjectorService } from './projector.service';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { WriteRoleGuard } from '../../common/guards/write-role.guard';
@@ -15,6 +15,8 @@ import { WriteRoles } from '../../common/decorators/write-roles.decorator';
 @UseGuards(WriteRoleGuard)
 @WriteRoles('admin', 'operator')
 export class ProjectorController {
+  private readonly logger = new Logger(ProjectorController.name);
+
   constructor(private readonly service: ProjectorService) {}
 
   @Get('status')
@@ -24,16 +26,29 @@ export class ProjectorController {
 
   /** 就绪探活 (应用层) — 开机预热时前端轮询: 调融合器 version, 单次 TCP 命令。 */
   @Get('ready')
-  async ready() {
-    return { message: '查询成功', data: { ready: await this.service.ready() } };
+  async ready(@Headers('x-operation-id') operationId?: string) {
+    const startedAt = Date.now();
+    const ready = await this.service.ready();
+    this.logger.log(JSON.stringify({
+      event: 'playerBoot', phase: 'core-ready', device: 'projector-fusion',
+      operationId: operationId?.slice(0, 80) ?? null, ready,
+      durationMs: Date.now() - startedAt,
+    }));
+    return { message: '查询成功', data: { ready } };
   }
 
   /** 模型A 一键: 让投影显示 GK9000 的 HDMI 输入 (关内部媒体窗 + 开 HDMI 全屏) */
   @Post('show-hdmi')
   @UseGuards(RateLimitGuard)
   @RateLimit({ max: 2, windowMs: 2000 })
-  async showHdmi() {
+  async showHdmi(@Headers('x-operation-id') operationId?: string) {
+    const startedAt = Date.now();
     await this.service.showHdmiInput();
+    this.logger.log(JSON.stringify({
+      event: 'playerBoot', phase: 'display-path', device: 'projector-fusion',
+      operationId: operationId?.slice(0, 80) ?? null,
+      durationMs: Date.now() - startedAt,
+    }));
     return { message: '已切到 GK9000 HDMI 输入', data: null };
   }
 

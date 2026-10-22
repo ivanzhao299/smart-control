@@ -188,7 +188,7 @@ const {
   powerAmpCodes: () => props.powerAmpCodes,
   powerKeepPeers: () => props.powerKeepPeers,
   powerBootPlan: () => props.powerBootPlan,
-  lockDisplay: () => ensureDisplayPath(),
+  lockDisplay: (operationId?: string) => ensureDisplayPath(operationId),
   captureAction: captureConsoleAction,
 });
 onMounted(() => {

@@ -9,6 +9,8 @@ export const ledService = {
   play: (id: string, media?: string) =>
     api.post<AdapterResult>(`/led/${id}/play`, { media }),
   welcome: (id: string) => api.post<AdapterResult>(`/led/${id}/welcome`),
-  switchInput: (id: string, input: LedInput) =>
-    api.post<AdapterResult>(`/led/${id}/input`, { input }),
+  switchInput: (id: string, input: LedInput, operationId?: string) =>
+    api.post<AdapterResult>(`/led/${id}/input`, { input }, {
+      headers: operationId ? { 'X-Operation-Id': operationId } : undefined,
+    }),
 };

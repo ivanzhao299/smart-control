@@ -110,10 +110,14 @@ export const powerCircuitsService = {
     api.put<PowerCircuitView>(`/power-circuits/${id}`, dto).then((r) => { invalidate(PC); return r; }),
   remove: (id: number) =>
     api.del<null>(`/power-circuits/${id}`).then((r) => { invalidate(PC); return r; }),
-  on: (id: number) =>
-    api.post<PowerCircuitView>(`/power-circuits/${id}/on`).then((r) => { invalidate(PC); return r; }),
-  off: (id: number) =>
-    api.post<PowerCircuitView>(`/power-circuits/${id}/off`).then((r) => { invalidate(PC); return r; }),
+  on: (id: number, operationId?: string) =>
+    api.post<PowerCircuitView>(`/power-circuits/${id}/on`, undefined, {
+      headers: operationId ? { 'X-Operation-Id': operationId } : undefined,
+    }).then((r) => { invalidate(PC); return r; }),
+  off: (id: number, operationId?: string) =>
+    api.post<PowerCircuitView>(`/power-circuits/${id}/off`, undefined, {
+      headers: operationId ? { 'X-Operation-Id': operationId } : undefined,
+    }).then((r) => { invalidate(PC); return r; }),
   /** 空开专属: 三相分相 + 4 路温度 + 漏电 + 报警位 (只对 isBreaker 回路有意义) */
   breaker: (id: number) => api.get<BreakerMeasurements>(`/power-circuits/${id}/breaker`),
   /** 改名 (电源页行内编辑, 不需要 admin) */
