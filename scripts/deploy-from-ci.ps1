@@ -62,6 +62,7 @@ function Test-MutableRuntimePath([string]$RelativePath) {
   $normalized = $RelativePath.Replace('/', '\')
   if ($normalized -like 'logs\*' -or $normalized -like '.runtime\*') { return $true }
   if ($normalized -match '^database\.*\.(db|db-journal|db-wal|db-shm|sqlite)$') { return $true }
+  if ($normalized -eq 'frontend\components.d.ts') { return $true }
   return ($normalized -like 'backend\data\*.json') -and ($normalized -notlike '*.example.json')
 }
 
