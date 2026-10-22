@@ -66,6 +66,7 @@ export const useClientAuthStore = defineStore('client-auth', () => {
   async function testConnection(): Promise<{ ok: boolean; error?: string; serverTime?: string }> {
     try {
       const data = await api.get<{ ok: true; serverTime: string }>('/client-auth/ping', { timeout: 5000 });
+      if (data?.ok !== true) return { ok: false, error: '服务器返回无效响应' };
       return { ok: true, serverTime: data.serverTime };
     } catch (e) {
       return { ok: false, error: (e as Error).message };

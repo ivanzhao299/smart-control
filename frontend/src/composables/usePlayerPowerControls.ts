@@ -285,7 +285,9 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
         }
       } catch (error) {
         if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return { failed, kept, stopped: true };
-        failed.push(`${target.name}: ${(error as Error).message}`);
+        const detail = error as Error & { status?: number };
+        const message = detail.message || '未知错误';
+        failed.push(`${target.name}: ${detail.status === 0 ? `设备通信失败（${message}）` : message}`);
       }
     }
     return { failed, kept, stopped: false };

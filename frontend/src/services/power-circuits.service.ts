@@ -101,7 +101,9 @@ export const powerCircuitsService = {
   // 超轻量开关位查询（共享回路「最后离开才关」）：只取一个布尔，不返回整回路、不读全量。
   switchOnByCode: (code: string) =>
     api
-      .get<{ on: boolean }>(`/power-circuits/by-code/${encodeURIComponent(code)}/switch`)
+      .get<{ on: boolean }>(`/power-circuits/by-code/${encodeURIComponent(code)}/switch`, {
+        reportConnectivity: false,
+      })
       .then((r) => r.on),
   detail: (id: number) => api.get<PowerCircuitView>(`/power-circuits/${id}`),
   create: (dto: PowerCircuitUpsertDto) =>
@@ -113,10 +115,12 @@ export const powerCircuitsService = {
   on: (id: number, operationId?: string) =>
     api.post<PowerCircuitView>(`/power-circuits/${id}/on`, undefined, {
       headers: operationId ? { 'X-Operation-Id': operationId } : undefined,
+      reportConnectivity: false,
     }).then((r) => { invalidate(PC); return r; }),
   off: (id: number, operationId?: string) =>
     api.post<PowerCircuitView>(`/power-circuits/${id}/off`, undefined, {
       headers: operationId ? { 'X-Operation-Id': operationId } : undefined,
+      reportConnectivity: false,
     }).then((r) => { invalidate(PC); return r; }),
   /** 空开专属: 三相分相 + 4 路温度 + 漏电 + 报警位 (只对 isBreaker 回路有意义) */
   breaker: (id: number) => api.get<BreakerMeasurements>(`/power-circuits/${id}/breaker`),
@@ -129,12 +133,16 @@ export const powerCircuitsService = {
    */
   seqAllOn: (gatewayCode: string) =>
     api
-      .post<{ on: boolean }>('/power-circuits/sequencer/all-on', { gatewayCode })
+      .post<{ on: boolean }>('/power-circuits/sequencer/all-on', { gatewayCode }, {
+        reportConnectivity: false,
+      })
       .then((r) => { invalidate(PC); return r; }),
   /** 单台时序器时序关机 — 先开的后关, 按延时依次断电。 */
   seqAllOff: (gatewayCode: string) =>
     api
-      .post<{ on: boolean }>('/power-circuits/sequencer/all-off', { gatewayCode })
+      .post<{ on: boolean }>('/power-circuits/sequencer/all-off', { gatewayCode }, {
+        reportConnectivity: false,
+      })
       .then((r) => { invalidate(PC); return r; }),
 };
 

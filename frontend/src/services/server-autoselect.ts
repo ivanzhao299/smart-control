@@ -28,7 +28,16 @@ async function pingApiBase(apiBase: string): Promise<boolean> {
     const base = new URL(apiBase, window.location.href);
     const path = base.pathname.replace(/\/+$/, '') || '/api';
     const r = await fetch(`${base.origin}${path}/client-auth/ping`, { signal: ctrl.signal });
-    return r.ok;
+    if (!r.ok || !(r.headers.get('content-type') ?? '').includes('application/json')) return false;
+    const payload = await r.json() as {
+      success?: boolean;
+      ok?: boolean;
+      data?: { ok?: boolean };
+    };
+    // SPA fallback pages also return 200; only a real client-auth response counts.
+    return payload.success === true
+      ? payload.data?.ok === true
+      : payload.ok === true;
   } catch {
     return false;
   } finally {

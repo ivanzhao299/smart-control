@@ -321,6 +321,8 @@ export interface HttpRequestConfig {
   headers?: Record<string, string>;
   /** 超时, 默认 15s */
   timeout?: number;
+  /** 是否把网络层失败上报到全局连接状态；设备控制请求可关闭，避免现场设备超时误报服务器离线。 */
+  reportConnectivity?: boolean;
   /** 取消信号 (由调用方控制) */
   signal?: AbortSignal;
   /** GET 专用: 绕过短缓存与 in-flight 合并, 强制重新拉取 (诊断/手动刷新用) */
@@ -406,7 +408,7 @@ async function rawRequest<T>(
     trackApiCall(url, Math.round(performance.now() - startMs), 0);
     // 外部主动取消不算连不上; 超时/网络错误才报不可达
     const externallyAborted = cfg?.signal?.aborted === true;
-    if (!externallyAborted) reportConnectivity(false);
+    if (!externallyAborted && cfg?.reportConnectivity !== false) reportConnectivity(false);
     if (ctrl.signal.aborted) {
       const reason = ctrl.signal.reason as Error | string | undefined;
       throw new HttpError(
