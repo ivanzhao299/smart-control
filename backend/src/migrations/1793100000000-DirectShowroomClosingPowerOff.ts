@@ -54,6 +54,7 @@ export class DirectShowroomClosingPowerOff1793100000000 implements MigrationInte
   }
 
   async down(): Promise<void> {
-    throw new Error('DIRECT_SHOWROOM_CLOSING_POWER_OFF_ROLLBACK_REQUIRES_ARCHIVE');
+    // 与展厅照明链路迁移共用归档回滚门禁，避免生产回滚误删现场动作历史。
+    throw new Error('SHOWROOM_LIGHTING_SEQUENCE_ROLLBACK_REQUIRES_ARCHIVE');
   }
 }
