@@ -179,7 +179,7 @@ const {
   powerAllOn,
   powerBusy,
   booting,
-  bootCountdown,
+  bootElapsedSec,
   togglePower,
 } = usePlayerPowerControls({
   title: () => props.title,
@@ -347,7 +347,7 @@ function openOpsMetricsAdmin(): void {
           @click="togglePower"
         ></button>
         <span class="np-state" :class="{ on: powerAllOn, booting }">
-          <template v-if="booting">开机中 {{ bootCountdown }}s</template>
+          <template v-if="booting">开机中 {{ bootElapsedSec }}s</template>
           <template v-else>{{ powerAllOn ? '已通电' : (powerCircuits.some((c) => c.reading.on) ? '部分通电' : '已断电') }}</template>
         </span>
       </div>

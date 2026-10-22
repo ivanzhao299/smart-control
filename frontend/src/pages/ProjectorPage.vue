@@ -61,7 +61,7 @@ useActivePolling(startPolling, stopPolling);
 <template>
   <!-- 分阶段电源编排（第三十五轮按现场接线图严格定序，视频源未就绪绝不送显示电）:
        开机 ① 第一时间开视频融合器(seq55-4) → ② 约32s时错峰预热投影功放(seq55-8) + 音频矩阵(seq-4) →
-       ③ 应用层探活等核心设备就绪（现场实测约65s上线；硬门控，超时120s 未就绪则不开投影）→
+       ③ 应用层持续探活，直到核心设备真实上线并稳定响应；等待时间以现场实际为准，不设置固定超时 →
        ④ 锁定 HDMI 路径并开投影仪(seq-5)，确保投影一开就有图像和声音；关机逆向（投影→功放/矩阵→融合器）。
        音频矩阵与 LED 共用，power-keep-peers 标注「最后离开才关」：投影关机时若 LED
        主开关(1f-led)仍通电，矩阵保留给 LED。 -->
@@ -74,7 +74,6 @@ useActivePolling(startPolling, stopPolling);
       ampStageCodes: ['seq55-8', 'seq-4'],
       screenStageCodes: ['seq-5'],
       readyKind: 'projector',
-      timeoutSec: 120,
       initialDelaySec: 0,
       pollIntervalSec: 1,
       settleSec: 2,

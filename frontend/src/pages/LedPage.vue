@@ -10,7 +10,7 @@ import PlayerConsole from '@/components/PlayerConsole.vue';
 <template>
   <!-- 分阶段电源编排（第三十五轮按现场接线图严格定序，视频源未就绪绝不送屏电）:
        开机 ① 第一时间开 LED 视频服务器(seq55-6，诺瓦 V2460) → ② 约15s时错峰预热 LED功放(seq-2) + 音频矩阵(seq-4) →
-       ③ 应用层探活等核心设备就绪（现场实测约30s上线；硬门控，超时60s 未就绪则不开屏）→
+       ③ 应用层持续探活，直到核心设备真实上线并稳定响应；等待时间以现场实际为准，不设置固定超时 →
        ④ 锁定视频路径并开 LED 屏体总闸(1f-led)，
        确保屏体一开就有图像和声音；关机逆向（屏→功放/矩阵→诺瓦）。
        音频矩阵与投影仪共用，power-keep-peers 标注「最后离开才关」：LED 关机时若投影仪
@@ -24,7 +24,6 @@ import PlayerConsole from '@/components/PlayerConsole.vue';
       ampStageCodes: ['seq-2', 'seq-4'],
       screenStageCodes: ['1f-led'],
       readyKind: 'led',
-      timeoutSec: 60,
       initialDelaySec: 0,
       pollIntervalSec: 1,
       settleSec: 2,

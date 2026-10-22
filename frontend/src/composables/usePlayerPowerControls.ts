@@ -45,7 +45,8 @@ export interface PowerKeepRule {
  *   - `ampStageCodes`     ：错峰预热的功放/矩阵：LED=seq-2,seq-4 / 投影=seq55-8,seq-4。
  *   - `screenStageCodes`  ：阶段3 最终显示（最后开）：LED=1f-led / 投影=seq-5。
  *   - `readyKind`         ：就绪探活类型（轮询对应接口）。
- *   - `timeoutSec`        ：最大等待秒数（LED=60 / 投影=120）；超时未就绪则阻断、不开屏。
+ *   - `timeoutSec`        ：旧版最大等待秒数配置（已废弃，不再作为开机截止时间）。
+ *                            开机必须以设备真实就绪为准，等待期间由 UI 显示已用时。
  *   - `initialDelaySec`   ：开始探活前的最小等待秒数；现场方案设为 0，由应用层探活结果决定。
  *   - `pollIntervalSec`   ：就绪轮询间隔（现场方案为 1s）。
  *   - `settleSec`         ：首次探活通过后的「稳定确认窗」秒数：窗口内每隔 confirmIntervalSec 再探一次，
@@ -57,7 +58,8 @@ export interface PowerKeepRule {
 export interface PowerBootPlan {
   preheatCodes: string[];
   readyKind: 'led' | 'projector';
-  timeoutSec: number;
+  /** @deprecated 开机不再按固定秒数超时；保留可选字段兼容旧配置。 */
+  timeoutSec?: number;
   initialDelaySec?: number;
   pollIntervalSec?: number;
   settleSec?: number;
@@ -138,10 +140,10 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
   /** 阶段3 最终显示回路（最后送电）。 */
   const screenStageCircuits = ref<PowerCircuitView[]>([]);
   const powerBusy = ref(false);
-  /** 开机预热等待中（阶段1 已上电、等就绪）：UI 显示「开机中」+ 倒计时。 */
+  /** 开机预热等待中（阶段1 已上电、等就绪）：UI 显示「开机中」+ 实际已用时。 */
   const booting = ref(false);
-  /** 开机倒计时（距最大等待的剩余秒数）。 */
-  const bootCountdown = ref(0);
+  /** 开机等待已用秒数；不设固定上限，以设备真实就绪时间为准。 */
+  const bootElapsedSec = ref(0);
   // 「全部通电」= 预热/功放/显示各段回路（若有）全部通电。
   const powerAllOn = computed(() => {
     const all = [
@@ -221,7 +223,7 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
     screenStageCircuits.value = [];
     powerBusy.value = false;
     booting.value = false;
-    bootCountdown.value = 0;
+    bootElapsedSec.value = 0;
     void loadPowerCircuits();
   }, { immediate: true, flush: 'sync' });
 
@@ -284,9 +286,9 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
   }
 
   /**
-   * 开机预热：应用层探活等就绪，期间显示「开机中」+ 倒计时。
+   * 开机预热：应用层探活等就绪，期间显示「开机中」+ 正计时。
    * `skipInitialDelay`：预热回路已通电（手动先开）时跳过初始等待，直接探活。
-   * 返回 true=就绪；false=超时（调用方按兜底继续）。
+   * 返回 true=就绪；false=当前操作已失效/页面已离开。
    */
   async function waitForReady(
     plan: PowerBootPlan,
@@ -294,18 +296,17 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
     skipInitialDelay = false,
   ): Promise<boolean> {
     booting.value = true;
-    const timeoutMs = plan.timeoutSec * 1000;
     const initialDelayMs = skipInitialDelay
       ? 0
-      : Math.min((plan.initialDelaySec ?? 0) * 1000, timeoutMs);
+      : Math.max(0, (plan.initialDelaySec ?? 0) * 1000);
     const pollMs = (plan.pollIntervalSec ?? 4) * 1000;
-    const deadline = Date.now() + timeoutMs;
-    bootCountdown.value = plan.timeoutSec;
+    const startedAt = Date.now();
+    bootElapsedSec.value = 0;
 
-    const countdownTimer = setInterval(() => {
-      bootCountdown.value = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    const elapsedTimer = setInterval(() => {
+      bootElapsedSec.value = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
     }, 1000);
-    countdownTimer.unref?.();
+    elapsedTimer.unref?.();
 
     try {
       if (initialDelayMs > 0) {
@@ -315,7 +316,7 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
       const probe = plan.readyKind === 'led'
         ? deviceReadyService.led
         : deviceReadyService.projector;
-      while (Date.now() < deadline) {
+      for (;;) {
         if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return false;
         let ready = false;
         try {
@@ -333,7 +334,7 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
           let stable = true;
           while (Date.now() < settleDeadline) {
             if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return false;
-            bootCountdown.value = Math.max(0, Math.ceil((settleDeadline - Date.now()) / 1000));
+            bootElapsedSec.value = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
             const left = settleDeadline - Date.now();
             await sleep(Math.min(confirmMs, left));
             if (Date.now() >= settleDeadline) break;
@@ -342,17 +343,18 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
             if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return false;
             if (!recheck) { stable = false; break; }
           }
-          if (stable) { bootCountdown.value = 0; return true; }
+          if (stable) {
+            bootElapsedSec.value = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+            return true;
+          }
           // 窗口内掉线（设备抖动）→ 回到轮询继续等就绪
         }
         if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return false;
-        const remaining = deadline - Date.now();
-        if (remaining <= 0) break;
-        await sleep(Math.min(pollMs, remaining));
+        await sleep(pollMs);
       }
       return false;
     } finally {
-      clearInterval(countdownTimer);
+      clearInterval(elapsedTimer);
     }
   }
 
@@ -462,22 +464,13 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
           return;
         }
         // 阶段2：功放/矩阵在核心启动中段错峰预热；只有显示屏仍受核心就绪门控。
-        // 硬门控：等核心设备应用层就绪（找到地址、稳定提供服务），超时未就绪则不开显示屏。
+        // 硬门控：持续等待核心设备应用层就绪（找到地址、稳定提供服务），未就绪绝不开显示屏。
         const readyPromise = waitForReady(plan, ctx, alreadyOn);
         const [ready, rAmp] = await Promise.all([readyPromise, ampPromise]);
         if (!isCurrent(key, action, revision)) return;
         booting.value = false;
-        bootCountdown.value = 0;
-        if (!ready) {
-          const ampStatus = rAmp.failed.length
-            ? `功放/矩阵上电失败：${rAmp.failed.join('; ')}`
-            : '功放/矩阵已提前预热';
-          ElMessage.error(
-            `${options.title()}视频源未在 ${plan.timeoutSec}s 内确认就绪（未正常提供服务/找到地址），`
-            + `已暂缓开显示屏；${ampStatus}，视频源已在上电，可稍后再次点开机继续等待。`,
-          );
-          return;
-        }
+        bootElapsedSec.value = 0;
+        if (!ready) return;
         if (rAmp.stopped) return;
         if (rAmp.failed.length) {
           ElMessage.error(`功放上电失败，已暂缓开显示屏：${rAmp.failed.join('; ')}`);
@@ -503,8 +496,7 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
         }
         ElMessage.success(`${options.title()}已开机（核心设备与功放/矩阵并行预热→显示屏）`);
       } else {
-        // 兼容旧路径（无分段计划）：预热→等就绪→显示回路整段；该路径无视频源门控，保留超时兜底
-        let timedOut = false;
+        // 兼容旧路径（无分段计划）：预热→持续等就绪→显示回路整段。
         let preheatFailed: string[] = [];
         if (plan && preheatTargets.length) {
           const alreadyOn = preheatTargets.every((t) => t.reading.on);
@@ -514,8 +506,8 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
           const ready = await waitForReady(plan, ctx, alreadyOn);
           if (!isCurrent(key, action, revision)) return;
           booting.value = false;
-          bootCountdown.value = 0;
-          if (!ready) timedOut = true;
+          bootElapsedSec.value = 0;
+          if (!ready) return;
         }
         const r1 = await applyCircuits(displayTargets, true, ctx);
         if (r1.stopped) return;
@@ -528,8 +520,6 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
         }
         if (failed.length) {
           ElMessage.error(`部分电源操作失败: ${failed.join('; ')}`);
-        } else if (timedOut) {
-          ElMessage.warning(`${options.title()}已接通；视频设备未在 ${plan?.timeoutSec}s 内确认就绪，若画面异常请检查视频设备`);
         } else if (!displayLocked) {
           ElMessage.warning(`${options.title()}已接通，但显示画面未确认，若画面异常请手动切换输入源`);
         } else {
@@ -538,7 +528,7 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
       }
     } finally {
       booting.value = false;
-      bootCountdown.value = 0;
+      bootElapsedSec.value = 0;
       if (operationRevision === revision) powerBusy.value = false;
     }
   }
@@ -553,7 +543,7 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
     screenStageCircuits.value = [];
     powerBusy.value = false;
     booting.value = false;
-    bootCountdown.value = 0;
+    bootElapsedSec.value = 0;
   });
 
   return {
@@ -562,7 +552,7 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
     powerAllOn,
     powerBusy,
     booting,
-    bootCountdown,
+    bootElapsedSec,
     loadPowerCircuits,
     togglePower,
   };

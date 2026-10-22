@@ -472,7 +472,7 @@ test('PlayerConsole delegates display power orchestration to the dedicated compo
   // 只读 chip 闪现把电源块挤换行的整页跳动；纯 CSS、零 JS/模板逻辑，预算相应放宽。
   // 第三十轮 #30：新增 powerAmpCodes prop 及其注释（功放按 code 精确绑定），
   // 属 props 声明、业务逻辑仍在 composable，预算相应放宽到 1630。
-  // 第三十一轮：新增 powerBootPlan prop（含注释）+ 开机倒计时 UI（.np-state.booting），
+  // 第三十一轮：新增 powerBootPlan prop（含注释）+ 开机正计时 UI（.np-state.booting），
   // 仅 props/模板/样式，业务逻辑仍在 composable，预算相应放宽到 1640。
   assert.ok(playerConsoleSource.split('\n').length < 1640);
 });
@@ -482,7 +482,6 @@ test('PlayerConsole delegates display power orchestration to the dedicated compo
 const quickBootPlan = {
   preheatCodes: ['preheat'],
   readyKind: 'led',
-  timeoutSec: 5,
   initialDelaySec: 0,
   pollIntervalSec: 1,
 };
@@ -524,37 +523,44 @@ test('power-on preheats the video source first, waits for ready, then powers dis
   h.scope.stop();
 });
 
-test('booting flag and countdown are visible while waiting for the video source', async () => {
+test('booting flag and elapsed time are visible while waiting for the video source', async () => {
+  const readiness = deferred();
   const h = harness({
-    bootPlan: { ...quickBootPlan, timeoutSec: 3 },
+    bootPlan: { ...quickBootPlan, pollIntervalSec: 0.01 },
     available: stagedCircuits(),
-    ready: false,
+    readyProbe: async () => readiness.promise,
   });
   await flush();
   const toggling = h.state.togglePower();
   await new Promise((resolve) => setTimeout(resolve, 60));
   assert.equal(h.state.booting.value, true);
-  assert.ok(h.state.bootCountdown.value <= 3 && h.state.bootCountdown.value > 0);
+  assert.ok(h.state.bootElapsedSec.value >= 0);
+  readiness.resolve(true);
   await toggling;
   assert.equal(h.state.booting.value, false);
-  assert.equal(h.state.bootCountdown.value, 0);
+  assert.equal(h.state.bootElapsedSec.value, 0);
   h.scope.stop();
 });
 
-test('power-on continues to display circuits with a warning when the source never confirms ready', async () => {
+test('power-on waits past the old fixed window until the source confirms ready', async () => {
+  let probes = 0;
   const h = harness({
-    bootPlan: { ...quickBootPlan, timeoutSec: 2 },
+    // 旧字段即使存在，也不能再把真实开机流程截断。
+    bootPlan: { ...quickBootPlan, timeoutSec: 0.02, pollIntervalSec: 0.01 },
     available: stagedCircuits(),
-    ready: false,
+    readyProbe: async () => {
+      probes += 1;
+      return probes >= 4;
+    },
   });
   await flush();
   await h.state.togglePower();
-  // 超时兜底：仍开显示回路，最后给 warning。
+  // 不再按固定秒数失败；探活最终成功后才开显示回路。
   assert.deepEqual(
     h.calls.filter(([name]) => name === 'on'),
     [['on', 3], ['on', 1], ['on', 2]],
   );
-  assert.equal(h.messages.at(-1)[0], 'warning');
+  assert.equal(h.messages.at(-1)[0], 'success');
   h.scope.stop();
 });
 
@@ -601,7 +607,6 @@ const strictStagedPlan = {
   ampStageCodes: ['amp', 'matrix'],
   screenStageCodes: ['screen'],
   readyKind: 'led',
-  timeoutSec: 5,
   initialDelaySec: 0,
   pollIntervalSec: 1,
   settleSec: 0,
@@ -726,25 +731,29 @@ test('staged power-on starts amp and matrix at the configured midpoint delay', a
   h.scope.stop();
 });
 
-test('staged power-on keeps screen gated when the video source never becomes ready', async () => {
+test('staged power-on keeps screen gated until the video source becomes ready', async () => {
+  const readiness = deferred();
   const h = harness({
-    bootPlan: { ...strictStagedPlan, timeoutSec: 2 },
+    // 旧字段即使存在，也不能再把屏幕门控改成固定超时。
+    bootPlan: { ...strictStagedPlan, timeoutSec: 0.02, pollIntervalSec: 0.01 },
     available: strictCircuits(),
-    ready: false,
+    readyProbe: async () => readiness.promise,
   });
   h.code.value = 'screen,matrix';
   h.ampCodes.value = ['amp'];
   await flush();
-  await h.state.togglePower();
-  // 核心设备等待期间功放/矩阵已错峰预热，但屏幕仍受核心就绪硬门控
+  const pending = h.state.togglePower();
+  await flush();
+  // 核心设备等待期间功放/矩阵已错峰预热；就绪前屏幕仍受硬门控。
   assert.deepEqual(
     h.calls.filter(([name]) => name === 'on'),
     [['on', 3], ['on', 2], ['on', 4]],
   );
-  // 屏幕仍断电
-  assert.equal(h.state.powerAllOn.value, false);
-  assert.equal(h.messages.at(-1)[0], 'error');
-  assert.match(h.messages.at(-1)[1], /未在 2s 内确认就绪|暂缓开显示屏/);
+  readiness.resolve(true);
+  await pending;
+  // 真实就绪后才开屏。
+  assert.equal(h.state.powerAllOn.value, true);
+  assert.equal(h.messages.at(-1)[0], 'success');
   h.scope.stop();
 });
 
