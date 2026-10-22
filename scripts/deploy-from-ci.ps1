@@ -806,6 +806,14 @@ try {
         }
       }
 
+      # Auto-generated frontend type declarations must be restored before ff-merge.
+      # unplugin-vue-components rewrites this file on every build, so it always
+      # appears dirty on GK9000 and would block the merge otherwise. Safe to
+      # discard: the next build regenerates it deterministically.
+      if (Test-Path (Join-Path $projectRoot 'frontend\components.d.ts')) {
+        Invoke-Native 'git' @('restore', '--worktree', '--', 'frontend/components.d.ts')
+      }
+
       Invoke-Native 'git' @('merge', '--ff-only', $Commit)
       $worktreeUpdated = $true
 
