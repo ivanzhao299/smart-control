@@ -49,6 +49,17 @@ test('every navigable non-dashboard page is covered by idle and pointer prefetch
   assert.deepEqual([...moduleExports.mainRoutePrefetchApis('missing')], []);
 });
 
+test('operator main navigation stays limited to daily control entry points', () => {
+  const permissions = new Set([
+    'dashboard:view', 'lighting:view', 'led:view', 'projector:view',
+    'audio:view', 'hvac:view', 'power:view', 'media:view',
+  ]);
+  const navigation = moduleExports.mainNavigationItemsForRoleByPerms('operator', permissions);
+  assert.deepEqual(Array.from(navigation, item => item.name), [
+    'dashboard', 'led', 'projector', 'power', 'media',
+  ]);
+});
+
 test('router and layouts consume the manifest instead of maintaining page import lists', () => {
   const router = read('src/router/index.ts');
   const app = read('src/App.vue');

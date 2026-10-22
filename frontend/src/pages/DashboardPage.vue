@@ -134,7 +134,7 @@ async function fireScene(code: string): Promise<void> {
   toast.info(`场景【${name}】启动中…`); // 即时反馈: 转满瞬间就提示, 不干等多子系统串行下发完
   try {
     await sceneStore.execute(code);
-    toast.success(`场景【${name}】已启动`);
+    toast.success(`场景【${name}】已切换，正在执行`);
   } catch (err) {
     toast.error(`场景【${name}】启动失败: ${(err as Error).message}`);
   }
@@ -844,14 +844,47 @@ onBeforeUnmount(resetHold);
 .v2-sub[data-kind] { --sub-fg: var(--v2-text-2); --sub-bg: var(--v2-ov-1); }
 
 /* ============ 展厅操作员首页 ============
- * 操作员需要更大的场景触控目标，允许自然滚动，避免小屏内容被裁掉。
+ * 场景是轻量灯光组合，切换后立即接管当前执行；首页固定在一个视口内，
+ * 避免操作员在现场上下滑动寻找入口。
  */
 .v2-dash.mode-operator {
-  display: block;
-  height: auto;
-  min-height: 100%;
-  overflow: auto;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
+.role-home-operator {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: clamp(8px, 1.2vh, 14px);
+  overflow: hidden;
+}
+.role-home-operator .role-home-scenes {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.role-home-operator .role-home-scenes .role-scene-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  align-content: stretch;
+}
+.role-home-operator .role-scene-card { min-height: 0; }
+.role-home-operator .role-shortcut-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.role-home-operator .role-shortcut {
+  min-height: 0;
+  padding: 9px 12px;
+}
+.role-home-operator .role-home-status {
+  min-height: 0;
+  padding: 8px 12px;
+}
+.role-home-operator .role-status-item { padding: 4px 0; }
 .role-home {
   max-width: 1180px;
   min-width: 0;
@@ -1049,8 +1082,59 @@ onBeforeUnmount(resetHold);
 }
 
 @media (max-width: 760px) {
-  .role-scene-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .role-shortcut-grid { grid-template-columns: 1fr; }
+  .role-home-operator { gap: 8px; }
+  .role-home-operator .role-home-head { padding: 0; }
+  .role-home-operator .role-home-head h1 { font-size: 22px; margin: 2px 0; }
+  .role-home-operator .role-home-head p {
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .role-home-operator .role-home-section,
+  .role-home-operator .role-home-status { padding: 10px; }
+  .role-home-operator .role-scene-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .role-home-operator .role-scene-icon { width: 36px; height: 36px; }
+  .role-home-operator .role-scene-copy strong { font-size: var(--v2-fs-sm); }
+  .role-home-operator .role-scene-copy small {
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .role-home-operator .role-shortcut-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .role-home-operator .role-shortcut { padding: 8px; gap: 8px; }
+  .role-home-operator .role-shortcut-icon { width: 30px; height: 30px; }
+  .role-home-operator .role-shortcut strong {
+    font-size: var(--v2-fs-xs);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .role-home-operator .role-shortcut small { display: none; }
+  .role-home-operator .role-status-grid { gap: 4px 12px; }
+  .role-home-operator .role-status-item { padding: 3px 0; }
+}
+
+@media (max-height: 700px) {
+  .role-home-operator { gap: 6px; }
+  .role-home-operator .role-home-head p,
+  .role-home-operator .role-home-section-head span,
+  .role-home-operator .role-home-status-head span,
+  .role-home-operator .role-scene-copy small { display: none; }
+  .role-home-operator .role-home-section,
+  .role-home-operator .role-home-status { padding: 8px 10px; }
+  .role-home-operator .role-home-section:not(.role-home-scenes) .role-home-section-head,
+  .role-home-operator .role-home-status-head { margin-bottom: 4px; }
+  .role-home-operator .role-scene-icon { width: 32px; height: 32px; }
+  .role-home-operator .role-shortcut-icon { width: 28px; height: 28px; }
 }
 
 /* ============ 中宽屏 (≤960): 子系统行能横向滚, 保持单行不换 ============ */

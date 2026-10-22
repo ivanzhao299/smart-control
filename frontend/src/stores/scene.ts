@@ -37,6 +37,9 @@ export const useSceneStore = defineStore('scene', () => {
 
   /** Sprint-07: 当前执行 / 最近一次执行的完整状态 (来自 WS scene_execution_* 事件) */
   const activeExecution = ref<ActiveExecutionView | null>(null);
+  // 手动场景采用 latest-wins：旧执行的迟到响应/事件不能覆盖刚切换的新场景。
+  let executeRevision = 0;
+  let currentExecutionId: string | null = null;
 
   const orderedScenes = computed<SceneSummary[]>(() => {
     if (scenes.value.length === 0) return [];
@@ -84,18 +87,22 @@ export const useSceneStore = defineStore('scene', () => {
   }
 
   async function execute(code: string): Promise<SceneExecution> {
+    const revision = ++executeRevision;
     pendingCode.value = code;
     error.value = null;
     try {
       const exec = await sceneService.execute(code);
-      lastExecution.value = exec;
-      await refreshRunning();
+      if (revision === executeRevision) {
+        currentExecutionId = exec.executionId;
+        lastExecution.value = exec;
+        await refreshRunning();
+      }
       return exec;
     } catch (err) {
       error.value = (err as Error).message;
       throw err;
     } finally {
-      pendingCode.value = null;
+      if (revision === executeRevision) pendingCode.value = null;
     }
   }
 
@@ -146,6 +153,12 @@ export const useSceneStore = defineStore('scene', () => {
     ];
     if (!ALL.includes(event.type as SceneExecutionWsEvent['type'])) return;
     const ev = event as SceneExecutionWsEvent;
+    if (ev.type === 'scene_execution_started') {
+      currentExecutionId = ev.executionId;
+    } else if (currentExecutionId && ev.executionId !== currentExecutionId) {
+      // 场景被替换后，旧执行的取消/失败/进度事件可能晚到；忽略它们。
+      return;
+    }
     activeExecution.value = {
       executionId: ev.executionId,
       sceneCode: ev.sceneCode,
