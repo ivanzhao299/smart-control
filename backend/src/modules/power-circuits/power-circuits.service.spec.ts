@@ -129,6 +129,33 @@ async function makeService(opts: {
 }
 
 describe('PowerCircuitsService · 断路器回路路由', () => {
+  it('展厅操作员列表只返回现场确认的 7 路 1F 回路', async () => {
+    const { svc, repo } = await makeService({ skipCollect: true });
+
+    await svc.list({ role: 'operator' });
+
+    const query = repo.find.mock.calls[0]?.[0] as {
+      where?: { code?: { _value?: readonly string[] } };
+    };
+    expect(query.where?.code?._value).toEqual([
+      'ewelink-02b88e41', // 展厅灯带
+      'ewelink-02b8942a', // 展厅筒灯、射灯
+      '1f-showroom',      // 沙盘展位
+      'ewelink-02cbf4eb', // 金特夫展厅
+      'ewelink-02cbf4ef', // 无纺布展厅
+      'ewelink-02cbf50b', // 西展厅
+      '1f-led',           // 一层 LED 大屏远程总闸
+    ]);
+  });
+
+  it('展厅操作员不能通过直接传入 id 操作白名单外的展厅回路', async () => {
+    const { svc } = await makeService({
+      row: circuitRow({ code: 'hall-extra', domainCode: 'hall' }),
+    });
+
+    await expect(svc.turnOnForRole(4, 'operator')).rejects.toThrow('7 路 1F');
+  });
+
   it('gatewayCode 指向 power-breaker 硬件 → 打真闸, 不碰时序器', async () => {
     // 前置态 open (未合闸) 才会下发合闸; 轮询第一次给 closed 立即命中
     const gm = jest.fn()

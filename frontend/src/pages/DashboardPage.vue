@@ -20,8 +20,28 @@ const sceneStore = useSceneStore();
 const deviceStore = useDeviceStore();
 const sys = useSystemStore();
 const router = useRouter();
-// 首页场景执行：admin/operator 可操作；viewer 只读（按钮禁用）。
+// 首页场景执行：admin/operator 可操作；本轮只为 operator 提供独立展厅首页。
 const perm = usePermissionStore();
+
+type DashboardMode = 'admin' | 'operator';
+/**
+ * 首页按实际身份收敛，而不是只过滤底部导航：
+ * - admin 保留完整运行总览；
+ * - operator 进入展厅操作首页；
+ * - 其他角色暂不新增专属首页，深链仍保留管理员原有总览，路由守卫继续负责入口权限。
+ */
+const dashboardMode = computed<DashboardMode>(() => {
+  if (perm.isAdmin) return 'admin';
+  return perm.role === 'operator' ? 'operator' : 'admin';
+});
+
+const roleHomeTitle = computed(() => (dashboardMode.value === 'operator' ? '展厅控制' : '首页'));
+
+const roleShortcuts = computed(() => [
+  { name: 'led', label: 'LED 大屏', desc: '播放内容与电源', ico: MonitorPlay, permission: 'led:view' },
+  { name: 'projector', label: '投影仪', desc: '投影播放与切源', ico: Presentation, permission: 'projector:view' },
+  { name: 'media', label: '媒体库', desc: '选择与管理素材', ico: Calendar, permission: 'media:view' },
+].filter((item) => perm.hasPermission(item.permission)));
 
 // ============ KPI ============
 const onlineCount = computed(() => deviceStore.onlineCount);
@@ -210,6 +230,21 @@ const subsystems = computed(() => {
   ];
 });
 
+const ROLE_SCENE_ORDER = ['opening', 'reception', 'roadshow', 'closing'];
+const roleScenesView = computed(() => {
+  const order = new Map(ROLE_SCENE_ORDER.map((code, index) => [code, index]));
+  return sceneStore.scenes
+    .filter((scene) => scene.enabled && order.has(scene.code.toLowerCase()))
+    .sort((a, b) => (order.get(a.code.toLowerCase()) ?? 99) - (order.get(b.code.toLowerCase()) ?? 99))
+    .map((scene, index) => ({
+      ...scene,
+      color: colorForScene(scene.code, index),
+      active: sceneStore.activeSceneCode === scene.code,
+    }));
+});
+
+const roleSubsystems = computed(() => subsystems.value.filter((sub) => ['led', 'power'].includes(sub.kind)));
+
 function goTo(name: string): void {
   router.push({ name });
 }
@@ -220,7 +255,8 @@ onBeforeUnmount(resetHold);
 </script>
 
 <template>
-  <section class="v2-dash">
+  <section class="v2-dash" :class="`mode-${dashboardMode}`">
+    <template v-if="dashboardMode === 'admin'">
     <!-- KPI 行 -->
     <div class="v2-kpi-row">
       <!-- 设备在线: 颜色跟着实际在线率走, 不写死。
@@ -340,6 +376,81 @@ onBeforeUnmount(resetHold);
         </div>
       </button>
     </div>
+    </template>
+
+    <!-- 展厅操作员首页：只保留四个日常场景、播控入口和关键状态。 -->
+    <template v-else-if="dashboardMode === 'operator'">
+      <div class="role-home role-home-operator">
+        <header class="role-home-head">
+          <div>
+            <div class="role-home-eyebrow">SHOWROOM CONTROL</div>
+            <h1>{{ roleHomeTitle }}</h1>
+            <p>场景一键切换，屏幕与展厅设备集中操作</p>
+          </div>
+          <span class="role-home-badge">{{ perm.roleName || '展厅操作员' }}</span>
+        </header>
+
+        <section class="role-home-section role-home-scenes">
+          <div class="role-home-section-head">
+            <h2>一键场景</h2>
+            <span>按住卡片直到进度环走满</span>
+          </div>
+          <div class="role-scene-grid">
+            <button
+              v-for="s in roleScenesView"
+              :key="s.code"
+              class="role-scene-card"
+              :class="{ active: s.active, holding: holdCode === s.code }"
+              :disabled="!perm.canExecute"
+              @pointerdown="onHoldStart(s.code, $event)"
+              @pointermove="onHoldMove($event)"
+              @pointerup="onHoldEnd"
+              @pointerleave="onHoldEnd"
+              @pointercancel="onHoldEnd"
+              @contextmenu.prevent
+            >
+              <span class="role-scene-icon"><component :is="SCENE_META[s.color].ico" :size="24" :stroke-width="1.8" /></span>
+              <span class="role-scene-copy">
+                <strong>{{ s.name }}</strong>
+                <small>{{ s.description || '按住切换' }}</small>
+              </span>
+              <span v-show="holdCode === s.code" class="role-scene-hold" aria-hidden="true">
+                <svg class="hold-ring" viewBox="0 0 48 48">
+                  <circle class="ring-track" cx="24" cy="24" r="20" />
+                  <circle class="ring-fill" cx="24" cy="24" r="20" :stroke-dasharray="RING_C" :stroke-dashoffset="ringOffset" />
+                </svg>
+                <span class="hold-text">按住切换…</span>
+              </span>
+            </button>
+            <div v-if="roleScenesView.length === 0" class="role-home-empty">场景正在加载</div>
+          </div>
+        </section>
+
+        <section class="role-home-section">
+          <div class="role-home-section-head">
+            <h2>快捷入口</h2>
+            <span>仅显示当前角色可访问的功能</span>
+          </div>
+          <div class="role-shortcut-grid">
+            <button v-for="item in roleShortcuts" :key="item.name" class="role-shortcut" @click="goTo(item.name)">
+              <span class="role-shortcut-icon"><component :is="item.ico" :size="22" :stroke-width="1.8" /></span>
+              <span><strong>{{ item.label }}</strong><small>{{ item.desc }}</small></span>
+            </button>
+          </div>
+        </section>
+
+        <section class="role-home-status">
+          <div class="role-home-status-head"><h2>关键状态</h2><span>当前运行中 {{ runningCount }} 个场景</span></div>
+          <div class="role-status-grid">
+            <div v-for="sub in roleSubsystems" :key="sub.kind" class="role-status-item" :data-status="sub.status">
+              <span class="role-status-dot"></span>
+              <span><strong>{{ sub.name }}</strong><small>{{ sub.online }} / {{ sub.total }} 在线</small></span>
+            </div>
+          </div>
+        </section>
+      </div>
+    </template>
+
   </section>
 </template>
 
@@ -731,6 +842,216 @@ onBeforeUnmount(resetHold);
 /* v4: 子系统不再按品类分色(原来灯光黄/LED青/音响绿/空调蓝/电源紫)。
    图标一律中性 —— 这样"LED 大屏 0/2"掉线时, 琥珀色是整屏唯一的一处, 一眼可见。 */
 .v2-sub[data-kind] { --sub-fg: var(--v2-text-2); --sub-bg: var(--v2-ov-1); }
+
+/* ============ 展厅操作员首页 ============
+ * 操作员需要更大的场景触控目标，允许自然滚动，避免小屏内容被裁掉。
+ */
+.v2-dash.mode-operator {
+  display: block;
+  height: auto;
+  min-height: 100%;
+  overflow: auto;
+}
+.role-home {
+  max-width: 1180px;
+  min-width: 0;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--v2-sp-4);
+}
+.role-home-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--v2-sp-4);
+  padding: var(--v2-sp-2) 0;
+}
+.role-home-eyebrow {
+  color: var(--v2-primary);
+  font-size: 11px;
+  letter-spacing: 2px;
+  font-weight: 700;
+}
+.role-home-head h1 {
+  margin: 6px 0 4px;
+  color: var(--v2-text-1);
+  font-size: clamp(25px, 3vw, 34px);
+  letter-spacing: 0.4px;
+}
+.role-home-head p {
+  margin: 0;
+  color: var(--v2-text-2);
+  font-size: var(--v2-fs-sm);
+}
+.role-home-badge {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--v2-border-strong);
+  border-radius: 999px;
+  color: var(--v2-text-2);
+  background: var(--v2-ov-1);
+  font-size: var(--v2-fs-xs);
+}
+.role-home-section,
+.role-home-status {
+  min-width: 0;
+  padding: var(--v2-sp-4);
+  border: 1px solid var(--v2-border-soft);
+  border-radius: var(--v2-r-lg);
+  background: var(--v2-surf-1);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.role-home-section-head,
+.role-home-status-head {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--v2-sp-3);
+  margin-bottom: var(--v2-sp-3);
+}
+.role-home-section-head h2,
+.role-home-status-head h2 {
+  margin: 0;
+  color: var(--v2-text-1);
+  font-size: var(--v2-fs-md);
+  font-weight: 650;
+}
+.role-home-section-head span,
+.role-home-status-head span {
+  min-width: 0;
+  text-align: right;
+  color: var(--v2-text-3);
+  font-size: var(--v2-fs-xs);
+}
+.role-scene-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--v2-sp-3);
+}
+.role-scene-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 92px;
+  padding: 14px;
+  border: 1px solid var(--v2-border-soft);
+  border-radius: var(--v2-r-md);
+  background: var(--v2-surf-1-hover);
+  color: var(--v2-text-1);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+.role-scene-card:hover { border-color: var(--v2-border-strong); }
+.role-scene-card.active {
+  border-color: var(--v2-primary);
+  background: var(--v2-primary-soft);
+}
+.role-scene-card.holding { transform: scale(0.98); }
+.role-scene-card:disabled { cursor: default; opacity: 0.88; }
+.role-scene-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  border-radius: var(--v2-r-md);
+  color: var(--v2-primary);
+  background: var(--v2-ov-1);
+}
+.role-scene-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+.role-scene-copy strong { font-size: 16px; font-weight: 650; }
+.role-scene-copy small { color: var(--v2-text-3); font-size: var(--v2-fs-xs); line-height: 1.35; }
+.role-scene-hold {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(6, 8, 24, 0.66);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.role-shortcut-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--v2-sp-3);
+}
+.role-shortcut {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 68px;
+  padding: 12px 14px;
+  border: 1px solid var(--v2-border-soft);
+  border-radius: var(--v2-r-md);
+  background: transparent;
+  color: var(--v2-text-1);
+  text-align: left;
+  cursor: pointer;
+}
+.role-shortcut:hover { border-color: var(--v2-border-strong); background: var(--v2-ov-1); }
+.role-shortcut-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  color: var(--v2-primary);
+  border-radius: var(--v2-r-sm);
+  background: var(--v2-primary-soft);
+}
+.role-shortcut > span:last-child { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.role-shortcut strong { font-size: var(--v2-fs-sm); font-weight: 650; }
+.role-shortcut small { color: var(--v2-text-3); font-size: var(--v2-fs-xs); }
+.role-home-status-head { margin-bottom: var(--v2-sp-2); }
+.role-status-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 20px;
+}
+.role-status-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 9px 0;
+  color: var(--v2-text-2);
+}
+.role-status-item > span:last-child { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.role-status-item strong { color: var(--v2-text-1); font-size: var(--v2-fs-sm); font-weight: 600; }
+.role-status-item small { color: var(--v2-text-3); font-size: var(--v2-fs-xs); }
+.role-status-dot { width: 8px; height: 8px; flex-shrink: 0; border-radius: 50%; background: var(--v2-success); }
+.role-status-item[data-status="warn"] .role-status-dot { background: var(--v2-warning); }
+.role-status-item[data-status="danger"] .role-status-dot { background: var(--v2-danger); }
+.role-home-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 88px;
+  color: var(--v2-text-3);
+  font-size: var(--v2-fs-sm);
+}
+
+@media (max-width: 760px) {
+  .role-scene-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .role-shortcut-grid { grid-template-columns: 1fr; }
+}
 
 /* ============ 中宽屏 (≤960): 子系统行能横向滚, 保持单行不换 ============ */
 @media (max-width: 960px) {
