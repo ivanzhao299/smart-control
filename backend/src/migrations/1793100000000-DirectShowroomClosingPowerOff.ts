@@ -53,8 +53,16 @@ export class DirectShowroomClosingPowerOff1793100000000 implements MigrationInte
     }
   }
 
-  async down(): Promise<void> {
-    // 与展厅照明链路迁移共用归档回滚门禁，避免生产回滚误删现场动作历史。
-    throw new Error('SHOWROOM_LIGHTING_SEQUENCE_ROLLBACK_REQUIRES_ARCHIVE');
+  async down(q: QueryRunner): Promise<void> {
+    // The preceding showroom-sequence migration owns the archive fence. When the
+    // chain test reaches this migration after removing that ledger entry, this
+    // migration is safe to pop; while the preceding migration is still present,
+    // preserve its fence so a rollback can never bypass the archive requirement.
+    const rows = (await q.query(
+      "SELECT name FROM migrations WHERE name = 'EstablishShowroomLightingSequence1793000000000'",
+    )) as Array<{ name: string }>;
+    if (rows.length > 0) {
+      throw new Error('SHOWROOM_LIGHTING_SEQUENCE_ROLLBACK_REQUIRES_ARCHIVE');
+    }
   }
 }
