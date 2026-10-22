@@ -56,7 +56,15 @@ html .admin-login .field-input {
   -webkit-touch-callout: default !important;
 }
 
-/* Toasts stay below notches and status bars. */
+/* PWA 前台不显示 Element Plus 的瞬时顶部文字提示。
+   这些提示会压住页面顶部卡片；操作状态由页面状态与后端日志保留。
+   后台 /admin 不带该根类，确认弹窗 .el-message-box 不受影响。 */
+html.pwa-silent-messages .el-message,
+html.pwa-silent-messages .el-notification {
+  display: none !important;
+}
+
+/* Toasts stay below notches and status bars (后台仍可见). */
 .el-message {
   margin-top: env(safe-area-inset-top, 0px);
 }
