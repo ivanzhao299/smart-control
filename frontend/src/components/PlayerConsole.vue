@@ -87,7 +87,7 @@ const props = defineProps<{
    */
   powerKeepPeers?: PowerKeepRule[];
   /**
-   * 分阶段预热编排（开机先拉视频源、应用层探活等就绪、再开显示设备）。
+   * 分阶段预热编排（开机先拉视频源、应用层后台探活，同时按时序继续开显示设备）。
    * LED=seq55-6（诺瓦）/ 投影=seq55-4（融合器）；不传则同开同关（向后兼容）。
    */
   powerBootPlan?: PowerBootPlan;
