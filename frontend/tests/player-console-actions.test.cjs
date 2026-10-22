@@ -235,6 +235,30 @@ test('an unconfirmed display-path switch warns but does not block a requested pu
   h.scope.stop();
 });
 
+test('startup welcome publishes the LED default after power-on and is a no-op for projector', async () => {
+  const led = createHarness();
+  assert.equal(await led.state.startupWelcome('player-boot-test'), true);
+  assert.deepEqual(led.calls, [['welcome', 1, 'default']]);
+  led.scope.stop();
+
+  const projector = createHarness({ slot: 2 });
+  assert.equal(await projector.state.startupWelcome('player-boot-test'), true);
+  assert.deepEqual(projector.calls, []);
+  projector.scope.stop();
+});
+
+test('startup welcome failure is soft and does not become a power failure', async () => {
+  const h = createHarness({
+    playbackServices: {
+      publishWelcome: async () => { throw new Error('channel offline'); },
+    },
+  });
+  assert.equal(await h.state.startupWelcome(), false);
+  assert.deepEqual(h.calls, []);
+  assert.deepEqual(h.messages, []);
+  h.scope.stop();
+});
+
 test('projector publications restore the HDMI path without sending an LED command', async () => {
   const h = createHarness({ slot: 2 });
   await h.state.selectParkDashboard();
@@ -287,6 +311,8 @@ test('park dashboard commands update server-confirmed state and refresh cooldown
 
 test('PlayerConsole delegates input-source orchestration and park mutations use the shared client', () => {
   assert.match(playerConsole, /usePlayerInputSources\(\{/);
+  assert.match(playerConsole, /startupWelcome: \(operationId\?: string\) => startupWelcome\(operationId\)/);
+  assert.match(playerConsole, /startupWelcome,\n  welcomePickerBusy/);
   assert.match(playerConsole, /@click="selectParkDashboard"/);
   // 输入源改造：三按钮分段控件（无外框），运营大屏段含 Globe 图标 + 文案
   assert.match(playerConsole, /class="seg-group"/);

@@ -137,6 +137,7 @@ function harness(overrides = {}) {
     powerKeepPeers: () => keepPeers.value,
     powerBootPlan: () => bootPlan.value,
     lockDisplay: overrides.lockDisplay,
+    startupWelcome: overrides.startupWelcome,
     captureAction: () => () => current,
   }));
   return {
@@ -693,6 +694,53 @@ test('staged power-on opens amp and matrix before locking the display path and r
     .map((phase) => phase[2]);
   assert.ok(operationIds.length >= 3);
   assert.ok(operationIds.every((id) => id && id === phases[3][1]));
+  h.scope.stop();
+});
+
+test('staged power-on publishes the startup welcome only after the screen command', async () => {
+  const phases = [];
+  const h = harness({
+    bootPlan: { ...strictStagedPlan, stageGapMs: 0 },
+    available: strictCircuits(),
+    lockDisplay: async () => { phases.push(['lock']); return true; },
+    startupWelcome: async () => { phases.push(['welcome']); return true; },
+    on: async (id) => {
+      phases.push(['on', id]);
+      const target = strictCircuits().find((item) => item.id === id);
+      return { ...target, reading: { ...target.reading, on: true } };
+    },
+  });
+  h.code.value = 'screen,matrix';
+  h.ampCodes.value = ['amp'];
+  await flush();
+  await h.state.togglePower();
+  assert.deepEqual(phases, [
+    ['on', 3], ['on', 4], ['on', 2], ['lock'], ['on', 1], ['welcome'],
+  ]);
+  assert.equal(h.messages.at(-1)[1], 'LED 大屏已开机（默认欢迎页已投放）');
+  h.scope.stop();
+});
+
+test('startup welcome failure does not block the already-issued screen power command', async () => {
+  const phases = [];
+  const h = harness({
+    bootPlan: { ...strictStagedPlan, stageGapMs: 0 },
+    available: strictCircuits(),
+    startupWelcome: async () => { phases.push(['welcome']); return false; },
+    on: async (id) => {
+      phases.push(['on', id]);
+      const target = strictCircuits().find((item) => item.id === id);
+      return { ...target, reading: { ...target.reading, on: true } };
+    },
+  });
+  h.code.value = 'screen,matrix';
+  h.ampCodes.value = ['amp'];
+  await flush();
+  await h.state.togglePower();
+  assert.equal(phases.at(-2)[1], 1);
+  assert.deepEqual(phases.at(-1), ['welcome']);
+  assert.equal(h.state.powerAllOn.value, true);
+  assert.equal(h.messages.at(-1)[0], 'success');
   h.scope.stop();
 });
 

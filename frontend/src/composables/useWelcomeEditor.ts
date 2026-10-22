@@ -23,6 +23,10 @@ import {
   chooseWelcomeBackground,
   chooseWelcomeLogo,
 } from '@/features/welcome-scheme-draft';
+import {
+  WELCOME_DEFAULT_SCHEME_ID,
+  WELCOME_DEFAULT_SCHEME_NAME,
+} from '@/features/player-input-source';
 
 export interface WelcomeEditorOptions {
   ensureAdmin(action: string): Promise<boolean>;
@@ -404,6 +408,19 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
     applyWelcomeDisplay(scheme.welcomeOrg2 ?? null, 'welcomeOrg2', 'org2');
   }
 
+  function ensureDefaultWelcomeScheme(
+    schemes: WelcomeScheme[],
+    publishedId: string | null,
+  ): WelcomeScheme[] {
+    if (schemes.some((item) => item.id === WELCOME_DEFAULT_SCHEME_ID)) return schemes;
+    const source = schemes.find((item) => item.id === publishedId) ?? schemes[0];
+    if (!source) return schemes;
+    return [
+      { ...source, id: WELCOME_DEFAULT_SCHEME_ID, name: WELCOME_DEFAULT_SCHEME_NAME },
+      ...schemes,
+    ];
+  }
+
   function syncSelectedWelcomeDraft(): boolean {
     const index = welcomeSchemes.value.findIndex((item) => item.id === selectedWelcomeSchemeId.value);
     if (index < 0) return false;
@@ -450,7 +467,7 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
     applyWelcomeScheme(id);
   }
 
-  async function openWelcomeEditor(): Promise<void> {
+  async function openWelcomeEditor(preferredSchemeId?: string): Promise<void> {
     if (!(await ensureContentEditor('编辑欢迎页'))) return;
     welcomeEditOpen.value = true;
     welcomeLoading.value = true;
@@ -469,18 +486,22 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
         remark: media.remark,
         source: media.source,
       }));
-      const libraries = classifyWelcomeImageAssets(assets, snapshot.config.schemes);
+      const normalizedSchemes = ensureDefaultWelcomeScheme(
+        snapshot.config.schemes.map((item) => ({ ...item })),
+        snapshot.publishedSchemeId,
+      );
+      const libraries = classifyWelcomeImageAssets(assets, normalizedSchemes);
       bgAssets.value = libraries.backgrounds;
       logoAssets.value = libraries.logos;
-      welcomeSchemes.value = snapshot.config.schemes.map((item) => ({ ...item }));
+      welcomeSchemes.value = normalizedSchemes;
       welcomeSchemesRevision.value = snapshot.revision;
       publishedWelcomeSchemeId.value = snapshot.publishedSchemeId;
       const publishedFallback = snapshot.publishedSchemeId
-        && snapshot.config.schemes.some((item) => item.id === snapshot.publishedSchemeId)
+        && normalizedSchemes.some((item) => item.id === snapshot.publishedSchemeId)
         ? snapshot.publishedSchemeId
-        : snapshot.config.schemes[0].id;
-      const preferredId = selectedWelcomeSchemeId.value || rememberedWelcomeSchemeId();
-      const initialId = snapshot.config.schemes.some((item) => item.id === preferredId)
+        : normalizedSchemes[0].id;
+      const preferredId = preferredSchemeId || selectedWelcomeSchemeId.value || rememberedWelcomeSchemeId();
+      const initialId = normalizedSchemes.some((item) => item.id === preferredId)
         ? preferredId
         : publishedFallback;
       applyWelcomeScheme(initialId);
@@ -789,8 +810,8 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
 
   function duplicateWelcomeScheme(): void {
     if (!syncSelectedWelcomeDraft()) return;
-    if (welcomeSchemes.value.length >= 20) {
-      ElMessage.warning('最多保存 20 套欢迎方案');
+    if (welcomeSchemes.value.length >= 21) {
+      ElMessage.warning('默认欢迎页之外最多保存 20 套欢迎方案');
       return;
     }
     const source = welcomeSchemes.value.find((item) => item.id === selectedWelcomeSchemeId.value);
@@ -807,6 +828,10 @@ export function useWelcomeEditor(options: WelcomeEditorOptions) {
 
   async function deleteWelcomeScheme(): Promise<void> {
     if (!(await options.ensureAdmin('删除欢迎方案'))) return;
+    if (selectedWelcomeSchemeId.value === WELCOME_DEFAULT_SCHEME_ID) {
+      ElMessage.warning('默认欢迎页是系统保留方案，不能删除');
+      return;
+    }
     if (welcomeSchemes.value.length <= 1) {
       ElMessage.warning('至少保留一套欢迎方案');
       return;

@@ -14,6 +14,7 @@ import { User } from '../../entities/user.entity';
 import { MediaModule } from '../media/media.module';
 import { AdminAuthModule } from '../admin-auth/admin-auth.module';
 import { ServicesModule } from '../../services/services.module';
+import { SystemBrandingModule } from '../system-branding/system-branding.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { ServicesModule } from '../../services/services.module';
     MediaModule,        // 复用 MediaService 查 media
     AdminAuthModule,    // 给 controller 用 AdminGuard
     ServicesModule,     // 拿 ControlBus 推 WS 事件
+    SystemBrandingModule, // 默认欢迎页发布时复用可编辑欢迎方案
   ],
   controllers: [PlaybackController, PlayerDeviceController],
   providers: [PlaybackService, PersonalPlaylistService, PlayerDeviceAuthService, PlayerDeviceGuard, PlayerDeviceAccessService],

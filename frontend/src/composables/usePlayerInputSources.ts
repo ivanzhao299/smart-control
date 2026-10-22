@@ -125,6 +125,24 @@ export function usePlayerInputSources(options: PlayerInputSourceOptions) {
     }
   }
 
+  /** 屏体完成上电后投放本屏默认欢迎页；投影仪沿用 HDMI 输入，不发送欢迎页。 */
+  async function startupWelcome(operationId?: string): Promise<boolean> {
+    if (options.slot.value !== 1) return true;
+    try {
+      await publishWelcome(options.slot.value, 'default');
+      return true;
+    } catch (error) {
+      if (!disposed) {
+        console.warn('[player-input-sources] startup welcome publish failed', {
+          slot: options.slot.value,
+          operationId,
+          error,
+        });
+      }
+      return false;
+    }
+  }
+
   async function selectContent(): Promise<void> {
     const isCurrent = options.captureAction();
     if (!isCurrent()) return;
@@ -180,7 +198,7 @@ export function usePlayerInputSources(options: PlayerInputSourceOptions) {
 
   /**
    * 按 id 投放欢迎方案（核心逻辑，供输入源下拉与新的方案明细表共用）。
-   * id = WELCOME_PICK_DEFAULT 投放静态默认；其余为具体方案 id（发布 + 动态欢迎页）。
+   * id = WELCOME_PICK_DEFAULT 投放默认欢迎页；其余为具体方案 id（发布 + 动态欢迎页）。
    * 返回 'success'（成功或当前已非活动上下文，无需回滚）/ 'busy'（并发保护，未尝试）/
    * 'failed'（尝试后失败，调用方应恢复选择器显示值）。
    */
@@ -311,6 +329,7 @@ export function usePlayerInputSources(options: PlayerInputSourceOptions) {
   return {
     activeSource,
     ensureDisplayPath,
+    startupWelcome,
     srcHint,
     welcomePickerBusy,
     welcomePickerValue,

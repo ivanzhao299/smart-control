@@ -84,6 +84,8 @@ interface PlayerPowerControlsOptions {
   powerBootPlan(): PowerBootPlan | undefined;
   /** 核心设备就绪后固定显示路径（LED 切正全屏图层 / 投影清空窗口+全屏 HDMI），返回是否确认成功；不传则不固定（向后兼容）。 */
   lockDisplay?(operationId?: string): Promise<boolean>;
+  /** 屏体上电完成后投放启动画面；失败只作为软状态记录，不阻断电源开机。 */
+  startupWelcome?(operationId?: string): Promise<boolean>;
   captureAction(): () => boolean;
 }
 
@@ -511,13 +513,28 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
         booting.value = false;
         bootElapsedSec.value = 0;
         const failed = [...p0.failed, ...rAmp.failed, ...rScreen.failed];
+        let startupWelcomePublished = true;
+        if (options.startupWelcome && isCurrent(key, action, revision)) {
+          try {
+            startupWelcomePublished = await options.startupWelcome(operationId);
+          } catch (error) {
+            startupWelcomePublished = false;
+            console.warn('[player-power] startup welcome publish failed; continue power-on', {
+              title: options.title(),
+              error,
+            });
+          }
+          if (!isCurrent(key, action, revision)) return;
+        }
         if (failed.length) {
           ElMessage.error(`部分电源操作失败: ${failed.join('; ')}`);
         } else if (!displayLocked) {
           // 屏体电源已发出；显示路径确认属于独立的软状态，不把它误报成未开机。
           ElMessage.success(`${options.title()}开机指令已发送`);
+        } else if (!startupWelcomePublished) {
+          ElMessage.success(`${options.title()}已开机（默认欢迎页待重试）`);
         } else {
-          ElMessage.success(`${options.title()}已开机（核心设备与功放/矩阵并行预热→显示屏）`);
+          ElMessage.success(`${options.title()}已开机（默认欢迎页已投放）`);
         }
       } else {
         // 兼容旧路径（无分段计划）：预热→持续等就绪→显示回路整段。
@@ -542,12 +559,27 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
           displayLocked = await options.lockDisplay();
           if (!isCurrent(key, action, revision)) return;
         }
+        let startupWelcomePublished = true;
+        if (!failed.length && options.startupWelcome && isCurrent(key, action, revision)) {
+          try {
+            startupWelcomePublished = await options.startupWelcome();
+          } catch (error) {
+            startupWelcomePublished = false;
+            console.warn('[player-power] startup welcome publish failed; continue power-on', {
+              title: options.title(),
+              error,
+            });
+          }
+          if (!isCurrent(key, action, revision)) return;
+        }
         if (failed.length) {
           ElMessage.error(`部分电源操作失败: ${failed.join('; ')}`);
         } else if (!displayLocked) {
           ElMessage.warning(`${options.title()}已接通，但显示画面未确认，若画面异常请手动切换输入源`);
+        } else if (!startupWelcomePublished) {
+          ElMessage.success(`${options.title()}电源已接通（默认欢迎页待重试）`);
         } else {
-          ElMessage.success(`${options.title()}电源已接通`);
+          ElMessage.success(`${options.title()}电源已接通（默认欢迎页已投放）`);
         }
       }
     } finally {

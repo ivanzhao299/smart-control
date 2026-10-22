@@ -46,7 +46,7 @@ import PlayerVideoControls from '@/components/PlayerVideoControls.vue';
 import WelcomeSourcePanel from '@/components/WelcomeSourcePanel.vue';
 import ParkDashboardSourcePanel from '@/components/ParkDashboardSourcePanel.vue';
 import { usePlayerPowerControls, type PowerBootPlan, type PowerKeepRule } from '@/composables/usePlayerPowerControls';
-import { detectPlayerInputSource } from '@/features/player-input-source';
+import { detectPlayerInputSource, WELCOME_DEFAULT_SCHEME_ID } from '@/features/player-input-source';
 import { MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
 
 const props = defineProps<{
@@ -189,6 +189,7 @@ const {
   powerKeepPeers: () => props.powerKeepPeers,
   powerBootPlan: () => props.powerBootPlan,
   lockDisplay: (operationId?: string) => ensureDisplayPath(operationId),
+  startupWelcome: (operationId?: string) => startupWelcome(operationId),
   captureAction: captureConsoleAction,
 });
 onMounted(() => {
@@ -250,13 +251,20 @@ const {
   ensureAdmin,
   ensureContentEditor,
   captureAction: captureConsoleAction,
-  isEditableSourceActive: () => activeSource.value === 'welcome-editable',
+  isEditableSourceActive: () => activeSource.value === 'welcome-editable'
+    || activeSource.value === 'welcome-default',
   // 保持原发布语义：只重推当前动态欢迎页；错误继续抛给编辑器显示“已发布但重推失败”。
-  republishEditable: async () => { await publishWelcome(SLOT.value, 'editable'); },
+  republishEditable: async () => {
+    await publishWelcome(
+      SLOT.value,
+      selectedWelcomeSchemeId.value === WELCOME_DEFAULT_SCHEME_ID ? 'default' : 'editable',
+    );
+  },
 });
 
 const {
   ensureDisplayPath,
+  startupWelcome,
   welcomePickerBusy,
   parkOpsPage,
   parkOpsTotalPages,
@@ -303,14 +311,14 @@ const isContentSource = computed(() => activeSource.value === 'content');
 // 数据维护入口仅后台「运营数据」分域权限可见。
 const canMaintainMetrics = computed(() => perm.canAccessModule('metrics'));
 
-// 欢迎方案明细表：上屏（静态默认 / 具体方案），复用 pickWelcomeSchemeById。
+// 欢迎方案明细表：上屏（默认欢迎页 / 具体方案），复用 pickWelcomeSchemeById。
 function handleWelcomePick(id: string): void {
   void pickWelcomeSchemeById(id);
 }
 // 欢迎方案明细表：编辑（有 id 先选中该方案；无 id 为新建，在编辑器内新建）。
 async function handleWelcomeEdit(id?: string): Promise<void> {
-  if (id) selectWelcomeScheme(id);
-  await openWelcomeEditor();
+  if (id && id !== WELCOME_DEFAULT_SCHEME_ID) selectWelcomeScheme(id);
+  await openWelcomeEditor(id);
 }
 // 数据维护：跳运营数据维护（在园人员/在场车辆/企业数/运营文案），发布后约 15 秒同步大屏。
 function openOpsMetricsAdmin(): void {
@@ -504,7 +512,7 @@ function openOpsMetricsAdmin(): void {
     </section>
 
     <!-- ===== 下方详情区：随输入源切换，每类操作只在对应面板出现一次 ===== -->
-    <!-- 欢迎页：可编辑的欢迎方案明细表（静态默认 + 各方案） -->
+    <!-- 欢迎页：可编辑的欢迎方案明细表（默认欢迎页 + 各方案） -->
     <WelcomeSourcePanel
       v-if="isWelcomeSource"
       :schemes="welcomeSchemes"
@@ -706,7 +714,7 @@ function openOpsMetricsAdmin(): void {
                 <span>保存草稿不会改变大屏，点击发布后才正式上屏</span>
               </div>
               <div class="we-scheme-tools">
-                <button class="v2-quick" :disabled="welcomeSchemes.length >= 20" @click="duplicateWelcomeScheme">复制为新方案</button>
+                <button class="v2-quick" :disabled="welcomeSchemes.length >= 21" @click="duplicateWelcomeScheme">复制为新方案</button>
                 <button class="v2-quick danger" :disabled="welcomeSchemes.length <= 1" @click="deleteWelcomeScheme">删除</button>
               </div>
             </div>

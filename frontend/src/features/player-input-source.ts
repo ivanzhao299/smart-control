@@ -1,5 +1,7 @@
 export const WELCOME_EDITABLE_NAME = '金湖欢迎页·动态(称谓可编辑)';
 export const WELCOME_DEFAULT_NAMES = ['金湖欢迎页·LED大屏.png', '金湖欢迎页·投影.png'] as const;
+export const WELCOME_DEFAULT_SCHEME_ID = 'default';
+export const WELCOME_DEFAULT_SCHEME_NAME = '默认欢迎页';
 export const PARK_DASHBOARD_NAME = '金湖科创产业园·智慧运营总览(DEMO)';
 export const WELCOME_PICK_DEFAULT = '__default__';
 
@@ -18,7 +20,7 @@ const SOURCE_HINTS: Record<PlayerInputSource, string> = {
   content: '正在播放列表内容',
   'park-dashboard': '园区综合态势与运营指标 · 点击即可投放到当前屏幕',
   'welcome-editable': '动态欢迎页 · 点「编辑欢迎页」改文字/底图, 保存即生效',
-  'welcome-default': '内置静态欢迎页 (本屏专用尺寸, 不可编辑)',
+  'welcome-default': '默认欢迎页 · 可编辑并可设为开机首屏',
 };
 
 export function detectPlayerInputSource(
