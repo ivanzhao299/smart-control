@@ -55,10 +55,30 @@ describe('complete migration chain on an isolated database', () => {
     expect(await runner.hasTable('upload_instances')).toBe(true);
     expect((await runner.getTable('upload_reservations'))?.findColumnByName('target_media_id')).toBeDefined();
     expect(await db.query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'protect_last_administrator_%'")).toHaveLength(2);
+    // The showroom scene sequence is authoritative scene configuration. Verify its
+    // archive fence explicitly, then remove only the disposable fixture rows/ledger
+    // entry so the older rollback fences can still be exercised below.
+    const showroomLightingMigration = applied.find(
+      m => m.name === 'EstablishShowroomLightingSequence1793000000000',
+    );
+    if (showroomLightingMigration) {
+      await expect(db.undoLastMigration()).rejects.toThrow(
+        'SHOWROOM_LIGHTING_SEQUENCE_ROLLBACK_REQUIRES_ARCHIVE',
+      );
+      await db.query(
+        "DELETE FROM scene_actions WHERE device_type IN ('power-circuit', 'lighting-broadcast')",
+      );
+      await db.query(
+        "DELETE FROM migrations WHERE name = 'EstablishShowroomLightingSequence1793000000000'",
+      );
+    }
+
     // Optional feature tables appended after the forward-only catalog series (the latest
     // is the TestFlight invitation table) are ordinary, reversible migrations. Undo them
     // first so the fence walk below starts exactly at the bundled-media authority boundary.
-    const postCatalogMigrations = applied.filter(m => m.timestamp > 1789680000000);
+    const postCatalogMigrations = applied.filter(
+      m => m.timestamp > 1789680000000 && m.name !== 'EstablishShowroomLightingSequence1793000000000',
+    );
     for (const _migration of postCatalogMigrations) await db.undoLastMigration();
     // Bundled media, HVAC/playback and operational catalogs are forward-only: remove only their ledger
     // entries in this disposable fixture after proving the rollback fences, so earlier
