@@ -17,12 +17,17 @@ function originOf(apiBase: string): string | null {
   try { return new URL(apiBase).origin; } catch { return null; }
 }
 
-/** GET {origin}/api/client-auth/ping, 2.5s 超时 */
-async function pingOrigin(origin: string): Promise<boolean> {
+/**
+ * GET 当前实际 API base 下的 client-auth ping, 2.5s 超时。
+ * park.cnjinhu.com 的 API 在 /control/api；不能把所有入口都拼成 /api。
+ */
+async function pingApiBase(apiBase: string): Promise<boolean> {
   const ctrl = new AbortController();
   const timer = window.setTimeout(() => ctrl.abort(), 2500);
   try {
-    const r = await fetch(`${origin}/api/client-auth/ping`, { signal: ctrl.signal });
+    const base = new URL(apiBase, window.location.href);
+    const path = base.pathname.replace(/\/+$/, '') || '/api';
+    const r = await fetch(`${base.origin}${path}/client-auth/ping`, { signal: ctrl.signal });
     return r.ok;
   } catch {
     return false;
@@ -33,9 +38,10 @@ async function pingOrigin(origin: string): Promise<boolean> {
 
 export async function autoSelectServer(): Promise<void> {
   // kiosk 播放器页走 localhost, 永远通, 下面第一步就返回了 — 不用特判
-  const current = originOf(getApiBaseURL());
+  const currentBase = getApiBaseURL();
+  const current = originOf(currentBase);
   if (!current) return;
-  if (await pingOrigin(current)) {
+  if (await pingApiBase(currentBase)) {
     // 当前地址就是通的 → 记进历史 (老用户的存量地址也进历史, 换网后才有得切)
     addServerHistory(current);
     return;
@@ -46,7 +52,7 @@ export async function autoSelectServer(): Promise<void> {
   const candidates = getServerHistory().filter((o) => o !== current);
   for (const origin of candidates) {
     // eslint-disable-next-line no-await-in-loop
-    if (await pingOrigin(origin)) {
+    if (await pingApiBase(`${origin}/api`)) {
       setApiBaseURL(origin);
       try { sessionStorage.setItem(SWITCHED_FLAG, '1'); } catch { /* ignore */ }
       window.location.reload();

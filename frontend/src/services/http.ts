@@ -205,8 +205,8 @@ export async function detectLanConnection(): Promise<void> {
   }
   lanProbe.state = 'probing';
   try {
-    // 同源拿 lanBaseUrl (走 Nginx, 必然通)
-    const res = await fetch('/api/system/info', { cache: 'no-store' });
+    // 同源拿 lanBaseUrl (走当前实际 API base；park 入口是 /control/api)
+    const res = await fetch(`${getApiBaseURL()}/system/info`, { cache: 'no-store' });
     if (!res.ok) throw new Error('info ' + res.status);
     const j = await res.json();
     const lan = j?.data?.lanBaseUrl;
