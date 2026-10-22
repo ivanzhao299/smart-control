@@ -33,3 +33,4 @@ backups/
 # Android signing keys are materialized only in CI from encrypted secrets.
 android-app/signing/*
 !android-app/signing/README.md
+data/

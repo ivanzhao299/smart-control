@@ -127,6 +127,15 @@ export interface Em123Config {
   largeAmountThreshold: number;
 }
 
+export interface LedProgramConfig {
+  /** bin 文件落盘目录（非系统盘数据目录） */
+  storageDir: string;
+  /** PVE receiver 基地址（二层推流接收端） */
+  pveBaseUrl: string;
+  /** PVE bin 转发鉴权 token（可选） */
+  pveBinToken: string;
+}
+
 export interface RootConfig {
   app: AppConfig;
   database: DatabaseConfig;
@@ -136,6 +145,7 @@ export interface RootConfig {
   testflight: TestFlightConfig;
   ginlong: GinlongConfig;
   em123: Em123Config;
+  ledProgram: LedProgramConfig;
 }
 
 const parseBool = (v: string | undefined, fallback: boolean): boolean => {
@@ -287,4 +297,15 @@ export default (): RootConfig => ({
       largeAmountThreshold: parseInt10(process.env.EM123_LARGE_AMOUNT_THRESHOLD, 5_000),
     };
   })(),
+  ledProgram: {
+    // 优先级：LED_STORAGE_DIR（显式覆盖）> DATA_DIR（生产数据盘 D:\...\data\led-programs）> 本地 ../data/led-programs
+    storageDir: resolvePath(
+      process.env.LED_STORAGE_DIR,
+      process.env.DATA_DIR
+        ? `${process.env.DATA_DIR}/led-programs`
+        : '../data/led-programs',
+    ),
+    pveBaseUrl: (process.env.PVE_BIN_BASE_URL ?? 'http://192.168.77.10:8080').replace(/\/+$/, ''),
+    pveBinToken: firstNonEmpty(process.env.PVE_BIN_TOKEN),
+  },
 });

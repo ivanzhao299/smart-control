@@ -67,6 +67,8 @@ export const PERMISSION_CATALOG: readonly PermissionDef[] = [
   { code: 'scene:execute', name: '执行场景（一键播控）', group: 'front-play', kind: 'write', scope: 'front', sort: 20 },
   { code: 'led:view', name: 'LED 大屏状态查看', group: 'front-play', kind: 'view', scope: 'front', sort: 30 },
   { code: 'led:control', name: 'LED 大屏播控（开关/切源/播放）', group: 'front-play', kind: 'write', scope: 'front', sort: 40 },
+  { code: 'led-program:view', name: 'LED 节目制作（编排/查看/历史）', group: 'front-play', kind: 'view', scope: 'front', sort: 41 },
+  { code: 'led-program:control', name: 'LED 节目制作（生成 bin / 推流）', group: 'front-play', kind: 'write', scope: 'front', sort: 42 },
   { code: 'projector:view', name: '投影仪状态查看', group: 'front-play', kind: 'view', scope: 'front', sort: 50 },
   { code: 'projector:control', name: '投影仪播控（开关/切源/播放）', group: 'front-play', kind: 'write', scope: 'front', sort: 60 },
   { code: 'welcome:edit', name: '欢迎页内容编辑', group: 'front-play', kind: 'write', scope: 'front', sort: 70 },
@@ -217,11 +219,12 @@ export const BUILTIN_ROLE_PERMISSIONS: Record<string, string[]> = {
     'monitor:diagnose',
     'power-timing:manage',
   ],
-  // 运营配置员：前台园区电源（行级限定园区）+ 欢迎页编辑 + 后台自动开关。
+  // 运营配置员：前台园区电源（行级限定园区）+ 欢迎页编辑 + LED 节目制作（编排/生成 bin）+ 后台自动开关。
   config: [
     'power:view',
     'power:switch',
     'welcome:edit',
+    'led:view',
     'power-timing:manage',
   ],
   // 展厅操作员：前台首页/场景执行 + LED/投影播控 + 媒体查看上传改名 + 展厅电源（行级限定展厅）

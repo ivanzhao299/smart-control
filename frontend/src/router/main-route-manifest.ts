@@ -74,6 +74,14 @@ export const mainRouteManifest = [
     navigation: { label: 'LED 大屏', section: 'main' }, prefetchOnIdle: true,
     prefetchApis: ['/devices?category=led'],
   },
+  {
+    // 勇电灯珠屏节目制作：290×30 真实点阵，编排→生成 bin→PVE 直推接收卡
+    // 功能未完全上线，临时仅 admin 可见（admin 自动拥有 led-program:* 权限）
+    path: 'led-program', name: 'led-program', load: () => import('@/pages/LedProgramPage.vue'),
+    permission: 'led-program:view',
+    roles: ['admin'],
+    navigation: { label: '楼顶广告屏', section: 'main' },
+  },
   // 投影仪独立于 LED，避免误操作到另一块显示设备；播控开放给 operator。
   {
     path: 'projector', name: 'projector', load: () => import('@/pages/ProjectorPage.vue'),

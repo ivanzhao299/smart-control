@@ -56,6 +56,7 @@ import { PvModule } from './modules/pv/pv.module';
 import { Em123Module } from './modules/em123/em123.module';
 import { RbacModule } from './modules/rbac/rbac.module';
 import { RuntimeConfigModule } from './common/runtime-config/runtime-config.module';
+import { LedProgramModule } from './modules/led-program/led-program.module';
 
 @Module({
   imports: [
@@ -113,6 +114,7 @@ import { RuntimeConfigModule } from './common/runtime-config/runtime-config.modu
     LprModule,
     PvModule,
     Em123Module,
+    LedProgramModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
