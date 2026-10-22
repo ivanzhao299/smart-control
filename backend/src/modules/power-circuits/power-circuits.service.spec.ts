@@ -148,12 +148,41 @@ describe('PowerCircuitsService · 断路器回路路由', () => {
     ]);
   });
 
+  it('播放页范围返回完整 LED/投影电源链路，不污染操作员电源页范围', async () => {
+    const { svc, repo } = await makeService({ skipCollect: true });
+
+    await svc.list({ role: 'operator', scope: 'player' });
+
+    const query = repo.find.mock.calls[0]?.[0] as {
+      where?: { code?: { _value?: readonly string[] } };
+    };
+    expect(query.where?.code?._value).toEqual([
+      'seq55-6', 'seq-4', 'seq-2', '1f-led', 'seq55-4', 'seq55-8', 'seq-5',
+    ]);
+  });
+
   it('展厅操作员不能通过直接传入 id 操作白名单外的展厅回路', async () => {
     const { svc } = await makeService({
       row: circuitRow({ code: 'hall-extra', domainCode: 'hall' }),
     });
 
     await expect(svc.turnOnForRole(4, 'operator')).rejects.toThrow('7 路 1F');
+  });
+
+  it('展厅操作员通过播放器范围可以控制视频源回路', async () => {
+    const { svc, row } = await makeService({
+      row: circuitRow({ code: 'seq55-6', domainCode: 'hall', gatewayCode: null }),
+    });
+
+    await expect(svc.turnOnForRole(row.id, 'operator', 'player')).resolves.toBeDefined();
+  });
+
+  it('播放器范围不能越界控制未配置的回路', async () => {
+    const { svc } = await makeService({
+      row: circuitRow({ code: 'hall-extra', domainCode: 'hall' }),
+    });
+
+    await expect(svc.turnOnForRole(4, 'operator', 'player')).rejects.toThrow('显示设备电源链路');
   });
 
   it('gatewayCode 指向 power-breaker 硬件 → 打真闸, 不碰时序器', async () => {

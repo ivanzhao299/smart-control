@@ -87,6 +87,7 @@ export interface PowerCircuitUpsertDto {
 }
 
 const PC = 'power-circuits:list';
+type PowerCircuitScope = 'player';
 
 export const powerCircuitsService = {
   // SWR 缓存; on/off 也 invalidate (它们改 reading.on, 列表"状态"列要刷新)
@@ -94,6 +95,12 @@ export const powerCircuitsService = {
     queryOnce(`${PC}:${includeDisabled}`, () =>
       api.get<PowerCircuitView[]>('/power-circuits', {
         params: includeDisabled ? { includeDisabled: '1' } : {},
+      })),
+  /** 播放页专用清单：包含视频源、共享矩阵、功放和显示回路。 */
+  playerList: () =>
+    queryOnce(`${PC}:player`, () =>
+      api.get<PowerCircuitView[]>('/power-circuits', {
+        params: { scope: 'player' },
       })),
   // 时序动作窗口期专用: 绕过 SWR / HTTP 短缓存与 in-flight 合并, 直读后端逐路快照
   listFresh: () =>
@@ -117,8 +124,21 @@ export const powerCircuitsService = {
       headers: operationId ? { 'X-Operation-Id': operationId } : undefined,
       reportConnectivity: false,
     }).then((r) => { invalidate(PC); return r; }),
+  /** 播放页专用写入范围，与电源页 7 路范围分离。 */
+  playerOn: (id: number, operationId?: string) =>
+    api.post<PowerCircuitView>(`/power-circuits/${id}/on`, undefined, {
+      params: { scope: 'player' as PowerCircuitScope },
+      headers: operationId ? { 'X-Operation-Id': operationId } : undefined,
+      reportConnectivity: false,
+    }).then((r) => { invalidate(PC); return r; }),
   off: (id: number, operationId?: string) =>
     api.post<PowerCircuitView>(`/power-circuits/${id}/off`, undefined, {
+      headers: operationId ? { 'X-Operation-Id': operationId } : undefined,
+      reportConnectivity: false,
+    }).then((r) => { invalidate(PC); return r; }),
+  playerOff: (id: number, operationId?: string) =>
+    api.post<PowerCircuitView>(`/power-circuits/${id}/off`, undefined, {
+      params: { scope: 'player' as PowerCircuitScope },
       headers: operationId ? { 'X-Operation-Id': operationId } : undefined,
       reportConnectivity: false,
     }).then((r) => { invalidate(PC); return r; }),

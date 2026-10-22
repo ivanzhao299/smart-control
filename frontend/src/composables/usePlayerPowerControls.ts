@@ -197,7 +197,11 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
       return;
     }
     try {
-      const circuits = await powerCircuitsService.list();
+      // 播放页必须读取完整设备链路，不能复用操作员电源页的 7 路范围。
+      // 兼容旧测试桩/旧运行时时回退 list；正式 service 使用 playerList。
+      const circuits = await (powerCircuitsService.playerList
+        ? powerCircuitsService.playerList()
+        : powerCircuitsService.list());
       if (scopeDisposed || revision !== loadRevision || !action() || key !== selectionKey.value) return;
       powerCircuits.value = resolvePlayerPowerCircuits(
         circuits,
@@ -279,8 +283,12 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
       }
       try {
         const updated = turningOn
-          ? await powerCircuitsService.on(target.id, ctx.operationId)
-          : await powerCircuitsService.off(target.id, ctx.operationId);
+          ? await (powerCircuitsService.playerOn
+            ? powerCircuitsService.playerOn(target.id, ctx.operationId)
+            : powerCircuitsService.on(target.id, ctx.operationId))
+          : await (powerCircuitsService.playerOff
+            ? powerCircuitsService.playerOff(target.id, ctx.operationId)
+            : powerCircuitsService.off(target.id, ctx.operationId));
         if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return { failed, kept, stopped: true };
         writeBack(updated);
         if (turningOn && gapMsBetweenOn > 0 && target !== targets.at(-1)) {

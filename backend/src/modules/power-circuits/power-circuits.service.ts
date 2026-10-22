@@ -28,6 +28,9 @@ import { HardwareUnit } from '../../entities/hardware-unit.entity';
 import { ControlBus } from '../../services/control-bus';
 import { PowerDomainGrantService } from './power-domain-grant.service';
 import { isOperatorShowroomPowerCode, OPERATOR_SHOWROOM_POWER_CODES } from './operator-power-scope';
+import { isPlayerPowerCode, PLAYER_POWER_CODES } from './player-power-scope';
+
+export type PowerCircuitScope = 'player';
 
 export interface PowerCircuitView {
   id: number;
@@ -203,15 +206,21 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   private collecting = false;
   private readonly COLLECT_INTERVAL_MS = 10_000;
 
-  async list(opts: { includeDisabled?: boolean; role?: string } = {}): Promise<PowerCircuitView[]> {
+  async list(opts: { includeDisabled?: boolean; role?: string; scope?: PowerCircuitScope } = {}): Promise<PowerCircuitView[]> {
     const where: Record<string, unknown> = opts.includeDisabled ? {} : { enabled: true };
     // 数据范围（角色 × 域）：非 admin 只返回其所属域的回路（operator/viewer 仅展厅、
     // config 仅园区、hardware 全域）。readablePowerDomains 返回 null 时不限制。
     const domains = await this.readableDomainsForRole(opts.role);
     if (domains) where.domainCode = In(domains);
+    // 播放页使用独立的完整链路范围；不能复用展厅操作员电源页的 7 路白名单，
+    // 否则视频源/音频矩阵/功放会被过滤，播放器只剩一个显示总闸。
+    if (opts.scope === 'player') {
+      where.code = In([...PLAYER_POWER_CODES]);
     // 展厅操作员的电源页只显示现场确认过的 7 路 1F 回路；即使未来 hall 域新增
     // 二层/备用回路，也不能因为它们共享展厅域而出现在操作员页面。
-    if (opts.role === 'operator') where.code = In([...OPERATOR_SHOWROOM_POWER_CODES]);
+    } else if (opts.role === 'operator') {
+      where.code = In([...OPERATOR_SHOWROOM_POWER_CODES]);
+    }
     const rows = await this.repo.find({
       where,
       order: { domainCode: 'ASC', floor: 'ASC', sortOrder: 'ASC', id: 'ASC' },
@@ -281,15 +290,22 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** 读/写域校验之外的操作员固定回路白名单，防止直接改 id 绕过列表范围。 */
-  private assertOperatorCircuitScope(row: PowerCircuit, role?: string): void {
-    if (role === 'operator' && !isOperatorShowroomPowerCode(row.code)) {
-      throw new ForbiddenException('展厅操作员仅可访问已确认的 7 路 1F 电源回路');
+  private assertOperatorCircuitScope(row: PowerCircuit, role?: string, scope?: PowerCircuitScope): void {
+    if (scope === 'player' && !isPlayerPowerCode(row.code)) {
+      throw new ForbiddenException('播放器仅可访问已配置的显示设备电源链路');
+    }
+    if (role === 'operator' && !(scope === 'player'
+      ? isPlayerPowerCode(row.code)
+      : isOperatorShowroomPowerCode(row.code))) {
+      throw new ForbiddenException(scope === 'player'
+        ? '展厅操作员仅可访问已配置的显示设备电源链路'
+        : '展厅操作员仅可访问已确认的 7 路 1F 电源回路');
     }
   }
 
   /** 写域校验：非 admin 角色不能操作所属域外的开关（资源级，根治跨区误触）。 */
-  private async assertCanWriteDomain(row: PowerCircuit, role?: string): Promise<void> {
-    this.assertOperatorCircuitScope(row, role);
+  private async assertCanWriteDomain(row: PowerCircuit, role?: string, scope?: PowerCircuitScope): Promise<void> {
+    this.assertOperatorCircuitScope(row, role, scope);
     const ok = await this.canWriteDomainForRole(role, row.domainCode);
     if (!ok) {
       throw new ForbiddenException(`无权操作该区域的电源开关`);
@@ -615,20 +631,20 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
    * 定时任务（power-schedules）到点系统自动执行，无 HTTP actor，仍走 turnOn/
    * turnOff 不受此限（规则本身由有权限角色配置，且不应自动执行时被拦）。
    */
-  async turnOnForRole(id: number, role: string): Promise<PowerCircuitView> {
-    await this.assertCircuitWriteDomain(id, role);
+  async turnOnForRole(id: number, role: string, scope?: PowerCircuitScope): Promise<PowerCircuitView> {
+    await this.assertCircuitWriteDomain(id, role, scope);
     return this.switchCircuit(id, true);
   }
 
-  async turnOffForRole(id: number, role: string): Promise<PowerCircuitView> {
-    await this.assertCircuitWriteDomain(id, role);
+  async turnOffForRole(id: number, role: string, scope?: PowerCircuitScope): Promise<PowerCircuitView> {
+    await this.assertCircuitWriteDomain(id, role, scope);
     return this.switchCircuit(id, false);
   }
 
-  private async assertCircuitWriteDomain(id: number, role: string): Promise<void> {
+  private async assertCircuitWriteDomain(id: number, role: string, scope?: PowerCircuitScope): Promise<void> {
     const row = await this.repo.findOne({ where: { id } });
     if (!row) throw new NotFoundException(`power circuit #${id} 不存在`);
-    await this.assertCanWriteDomain(row, role);
+    await this.assertCanWriteDomain(row, role, scope);
   }
 
   /**
