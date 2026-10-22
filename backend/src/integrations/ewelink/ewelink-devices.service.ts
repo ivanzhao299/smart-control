@@ -91,6 +91,8 @@ export interface SyncResult {
   scanned: number;
   imported: number;
   circuits: number;
+  disabledUnits: number;
+  disabledCircuits: number;
   skipped: string[];
 }
 
@@ -180,9 +182,24 @@ export class EwelinkDevicesService {
     );
     if (json.error !== 0) throw new BadRequestException(`拉易微联设备失败: ${json.msg ?? json.error}`);
     const list: any[] = json.data?.thingList ?? [];
-    return list
+    const normalized = list
       .map((t) => this.normalize(t, familyId))
       .filter((t): t is EwelinkSwitchThing => t !== null);
+    // 某些家庭/设备列表响应会把同一 deviceid 返回多次；同一物理设备只保留一份，
+    // 否则管理页会重复呈现，后续同步还会反复覆盖同一条台账。
+    const unique = new Map<string, EwelinkSwitchThing>();
+    for (const thing of normalized) {
+      const previous = unique.get(thing.deviceId);
+      if (!previous) {
+        unique.set(thing.deviceId, thing);
+        continue;
+      }
+      // 同一设备重复返回时优先保留聚合视图，其次保留物理路数更多、在线的那份。
+      const score = (x: EwelinkSwitchThing): number =>
+        (x.grouped ? 1000 : 0) + (x.online ? 100 : 0) + x.outletCount;
+      if (score(thing) > score(previous)) unique.set(thing.deviceId, thing);
+    }
+    return [...unique.values()];
   }
 
   /**
@@ -372,7 +389,14 @@ export class EwelinkDevicesService {
   /** 把云端开关设备 upsert 成 hardware_unit + power_circuit（幂等，按 deviceId/通道） */
   async syncToCatalog(): Promise<SyncResult> {
     const things = await this.listSwitchThings();
-    const result: SyncResult = { scanned: things.length, imported: 0, circuits: 0, skipped: [] };
+    const result: SyncResult = {
+      scanned: things.length,
+      imported: 0,
+      circuits: 0,
+      disabledUnits: 0,
+      disabledCircuits: 0,
+      skipped: [],
+    };
     for (const t of things) {
       if (!t.online) {
         result.skipped.push(`${t.name}（离线，跳过）`);
@@ -450,13 +474,67 @@ export class EwelinkDevicesService {
           circuit.floor = EwelinkDevicesService.CATALOG_FLOOR;
           await this.circuitRepo.save(circuit);
         }
+
+        // 旧版本曾把不可拆分群组写成 -1/-2/-3/-4 多张卡。同步到新聚合卡后，
+        // 必须软禁用同一 deviceId 的旧记录，否则它们仍会出现在电源页且寻址不可控。
+        if (grouped) {
+          await this.disableStaleGroupedEntries(t.deviceId, unitCode, circuitCode, result);
+        }
       }
     }
     this.logger.info(
-      `[eWeLink] 同步完成: 设备${result.imported} 回路${result.circuits} 跳过${result.skipped.length}`,
+      `[eWeLink] 同步完成: 新增设备${result.imported} 新增回路${result.circuits} `
+        + `停用旧设备${result.disabledUnits} 停用旧回路${result.disabledCircuits} 跳过${result.skipped.length}`,
       { context: 'EwelinkDevicesService' },
     );
     return result;
+  }
+
+  /**
+   * 收敛同一易微联设备的旧拆分台账：只软禁用，不删除历史数据。
+   * 既按 addressing.deviceId 匹配，也按旧版稳定 code 前缀兜底，兼容早期缺失寻址的记录。
+   */
+  private async disableStaleGroupedEntries(
+    deviceId: string,
+    expectedUnitCode: string,
+    expectedCircuitCode: string,
+    result: SyncResult,
+  ): Promise<void> {
+    const short = deviceId.slice(-8);
+    const oldUnitPrefix = `EWE-${short}-`;
+    const oldCircuitPrefix = `ewelink-${short}-`;
+    const units = await this.hwRepo.find({ where: { category: 'power-breaker-ewelink' } });
+    const staleUnits = units.filter((unit) => {
+      if (!unit.enabled || unit.code === expectedUnitCode) return false;
+      if (unit.code.startsWith(oldUnitPrefix)) return true;
+      try {
+        const addressing = unit.addressing ? JSON.parse(unit.addressing) : null;
+        return addressing?.deviceId === deviceId;
+      } catch {
+        return false;
+      }
+    });
+    for (const unit of staleUnits) {
+      unit.enabled = false;
+      await this.hwRepo.save(unit);
+      result.disabledUnits += 1;
+      const circuits = await this.circuitRepo.find({ where: { gatewayCode: unit.code } });
+      for (const circuit of circuits) {
+        if (!circuit.enabled) continue;
+        circuit.enabled = false;
+        await this.circuitRepo.save(circuit);
+        result.disabledCircuits += 1;
+      }
+    }
+
+    // 兜底处理旧回路残留（例如硬件单元曾被人工删除，但回路仍在）。
+    const circuits = await this.circuitRepo.find({ where: { category: 'lighting' } });
+    for (const circuit of circuits) {
+      if (!circuit.enabled || circuit.code === expectedCircuitCode || !circuit.code.startsWith(oldCircuitPrefix)) continue;
+      circuit.enabled = false;
+      await this.circuitRepo.save(circuit);
+      result.disabledCircuits += 1;
+    }
   }
 
   // ============ 内部 ============
@@ -475,8 +553,13 @@ export class EwelinkDevicesService {
     const uiid = Number(t.extra?.uiid ?? t.uiid ?? 0);
 
     // 厂商是否支持把多路独立拆成多个开关。字段缺失时按「支持拆分」处理（兼容旧设备）。
-    const splitRaw = t.isSupportChannelSplit;
-    const isSupportChannelSplit = splitRaw === undefined || splitRaw === null ? true : !!splitRaw;
+    const splitRaw = t.isSupportChannelSplit ?? t.extra?.isSupportChannelSplit ?? params.isSupportChannelSplit;
+    const denyFeatures = t.denyFeatures ?? t.extra?.denyFeatures ?? params.denyFeatures;
+    const hasGroupedDenyFeature = Array.isArray(denyFeatures)
+      && denyFeatures.some((feature: unknown) => String(feature).toLowerCase() === 'allonoff');
+    const isSupportChannelSplit = splitRaw === undefined || splitRaw === null
+      ? !hasGroupedDenyFeature
+      : EwelinkDevicesService.parseBoolean(splitRaw, true);
 
     // 单路设备（顶层 params.switch）
     if (params.switch !== undefined && params.switch !== null) {
@@ -494,13 +577,18 @@ export class EwelinkDevicesService {
 
     // 多路设备（params.switches[]）
     if (Array.isArray(params.switches) && params.switches.length > 0) {
-      const physical: { outlet: number; on: boolean }[] = params.switches
-        .map((s: any) => ({
-          outlet: Number(s.outlet ?? 0),
-          on: EwelinkDevicesService.isOn(s.switch),
-        }))
-        .sort((a: { outlet: number }, b: { outlet: number }) => a.outlet - b.outlet);
+      const physicalByOutlet = new Map<number, boolean>();
+      for (const s of params.switches) {
+        const outlet = Number(s?.outlet);
+        if (!Number.isInteger(outlet) || outlet < 0) continue;
+        // 云端偶尔重复回报同一个 outlet，后出现的状态视为最新值。
+        physicalByOutlet.set(outlet, EwelinkDevicesService.isOn(s?.switch));
+      }
+      const physical: { outlet: number; on: boolean }[] = [...physicalByOutlet.entries()]
+        .map(([outlet, on]) => ({ outlet, on }))
+        .sort((a, b) => a.outlet - b.outlet);
       const outletCount = physical.length;
+      if (outletCount === 0) return null;
       if (!isSupportChannelSplit) {
         // 聚合：官方 App 只呈现一个总开关。总开关 on = 所有物理路都闭合。
         const allOn = physical.every((p) => p.on);
@@ -529,6 +617,17 @@ export class EwelinkDevicesService {
     }
 
     return null;
+  }
+
+  private static parseBoolean(value: unknown, fallback: boolean): boolean {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (['false', '0', 'no', 'off', 'n'].includes(normalized)) return false;
+      if (['true', '1', 'yes', 'on', 'y'].includes(normalized)) return true;
+    }
+    return fallback;
   }
 
   private async signedGet(
