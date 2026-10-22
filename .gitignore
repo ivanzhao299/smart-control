@@ -34,3 +34,4 @@ backups/
 android-app/signing/*
 !android-app/signing/README.md
 data/
+frontend/components.d.ts
