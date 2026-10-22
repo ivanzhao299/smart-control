@@ -415,12 +415,15 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
     const stageGapMs = plan?.stageGapMs ?? 1000;
     const reportShutdown = (failed: string[], kept: { name: string; by: string }[]): void => {
       if (failed.length) {
-        ElMessage.error(`部分电源操作失败: ${failed.join('; ')}`);
-      } else if (kept.length) {
-        const keepDesc = kept.map((item) => `${item.name}仍由「${item.by}」使用`).join('；');
-        ElMessage.success(`${options.title()}已关闭；${keepDesc}，保持通电`);
+        // 关机细节留在内部诊断日志，避免把底层网络/设备错误直接铺满操作界面。
+        console.warn('[player-power] shutdown incomplete', {
+          title: options.title(),
+          failed,
+          kept,
+        });
+        ElMessage.error(`${options.title()}关机未完成`);
       } else {
-        ElMessage.success(`${options.title()}电源已断开`);
+        ElMessage.success(`${options.title()}已关闭`);
       }
     };
     try {

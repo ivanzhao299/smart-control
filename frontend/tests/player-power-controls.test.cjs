@@ -296,7 +296,7 @@ test('power-off keeps the shared matrix while the other screen is still on', asy
   const matrix = h.state.powerCircuits.value.find((c) => c.id === 10);
   assert.equal(matrix.reading.on, true);
   assert.equal(h.messages.at(-1)[0], 'success');
-  assert.match(h.messages.at(-1)[1], /保持通电/);
+  assert.equal(h.messages.at(-1)[1], 'LED 大屏已关闭');
   h.scope.stop();
 });
 
@@ -324,7 +324,25 @@ test('power-off turns off the shared matrix once the other screen is already off
   await h.state.togglePower();
 
   assert.deepEqual(offCalls, [4, 10, 8]);
-  assert.equal(h.messages.at(-1)[1], 'LED 大屏电源已断开');
+  assert.equal(h.messages.at(-1)[1], 'LED 大屏已关闭');
+  h.scope.stop();
+});
+
+test('power-off keeps device details internal and reports a concise message', async () => {
+  const h = harness({
+    available: [
+      circuit(1, 'screen', '大屏总闸', true),
+      circuit(2, 'amp', '大屏功放', true),
+    ],
+    off: async () => { throw new Error('gateway unavailable'); },
+  });
+  await flush();
+
+  await h.state.togglePower();
+
+  assert.equal(h.messages.at(-1)[0], 'error');
+  assert.equal(h.messages.at(-1)[1], 'LED 大屏关机未完成');
+  assert.doesNotMatch(h.messages.at(-1)[1], /gateway unavailable|大屏总闸/);
   h.scope.stop();
 });
 
