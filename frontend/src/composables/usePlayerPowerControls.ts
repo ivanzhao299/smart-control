@@ -53,6 +53,7 @@ export interface PowerKeepRule {
  *                            必须全程在线才确认就绪（抗设备网络刚启动的单次假阳性，确保真正提供服务/找到地址）。
  *   - `confirmIntervalSec`：稳定确认窗内的复检间隔（现场方案为 1s）。
  *   - `ampStartDelaySec` ：核心设备上电后，功放/矩阵的错峰启动时间点；按现场实测启动周期取中段。
+ *   - `ampStageGapSec`   ：功放/矩阵阶段内各回路之间的错峰间隔；按配置顺序逐路上电。
  *   - `stageGapMs`        ：功放/矩阵与显示电源之间的可选稳定间隔（现场方案为 0）。
  */
 export interface PowerBootPlan {
@@ -67,6 +68,7 @@ export interface PowerBootPlan {
   screenStageCodes?: string[];
   confirmIntervalSec?: number;
   ampStartDelaySec?: number;
+  ampStageGapSec?: number;
   stageGapMs?: number;
 }
 
@@ -250,10 +252,11 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
   /**
    * 逐路切换一组回路（保持串行、以 id 写回）。
    * 关机时（turningOn=false）对共享回路按 keep-peers 判定是否保留。
-   */  async function applyCircuits(
+  */  async function applyCircuits(
     targets: PowerCircuitView[],
     turningOn: boolean,
     ctx: ApplyContext,
+    gapMsBetweenOn = 0,
   ): Promise<{ failed: string[]; kept: { name: string; by: string }[]; stopped: boolean }> {
     const failed: string[] = [];
     const kept: { name: string; by: string }[] = [];
@@ -277,6 +280,9 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
           : await powerCircuitsService.off(target.id, ctx.operationId);
         if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return { failed, kept, stopped: true };
         writeBack(updated);
+        if (turningOn && gapMsBetweenOn > 0 && target !== targets.at(-1)) {
+          await sleep(gapMsBetweenOn);
+        }
       } catch (error) {
         if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return { failed, kept, stopped: true };
         failed.push(`${target.name}: ${(error as Error).message}`);
@@ -421,7 +427,8 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
           // 关机逆向：先关显示屏 → 再关功放/矩阵（共享矩阵 keep-peers）→ 最后关视频源
           const rScreen = await applyCircuits(screenStageCircuits.value, false, ctx);
           if (rScreen.stopped) return;
-          const rAmp = await applyCircuits(ampStageCircuits.value, false, ctx);
+          // 关机按开机顺序反向：先断功放，再断矩阵，降低音频链路中断冲击。
+          const rAmp = await applyCircuits([...ampStageCircuits.value].reverse(), false, ctx);
           if (rAmp.stopped) return;
           const rPre = await applyCircuits(preheatTargets, false, ctx);
           if (rPre.stopped) return;
@@ -454,7 +461,12 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
           const waitMs = ampStartAt - Date.now();
           if (waitMs > 0) await sleep(waitMs);
           if (!isCurrent(key, action, revision)) return { failed: [], kept: [], stopped: true };
-          return applyCircuits(ampStageCircuits.value, true, ctx);
+          return applyCircuits(
+            ampStageCircuits.value,
+            true,
+            ctx,
+            Math.max(0, (plan.ampStageGapSec ?? 0) * 1000),
+          );
         })();
         const p0 = await preheatPromise;
         if (p0.stopped) { await ampPromise; return; }

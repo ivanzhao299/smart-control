@@ -604,7 +604,7 @@ test('power-on without a boot plan still powers all display circuits together', 
 
 const strictStagedPlan = {
   preheatCodes: ['nova'],
-  ampStageCodes: ['amp', 'matrix'],
+  ampStageCodes: ['matrix', 'amp'],
   screenStageCodes: ['screen'],
   readyKind: 'led',
   initialDelaySec: 0,
@@ -632,10 +632,10 @@ test('staged power-on: core and amp/matrix preheat -> ready gate -> screen', asy
   h.ampCodes.value = ['amp'];
   await flush();
   await h.state.togglePower();
-  // 顺序：诺瓦(id3) → 功放(id2)+矩阵(id4) → 屏体(id1)
+  // 顺序：诺瓦(id3) → 音频矩阵(id4) → 功放(id2) → 屏体(id1)
   assert.deepEqual(
     h.calls.filter(([name]) => name === 'on'),
-    [['on', 3], ['on', 2], ['on', 4], ['on', 1]],
+    [['on', 3], ['on', 4], ['on', 2], ['on', 1]],
   );
   assert.ok(h.readyCalls.some(([kind]) => kind === 'led'));
   assert.equal(h.state.powerAllOn.value, true);
@@ -665,8 +665,8 @@ test('staged power-on opens amp and matrix before locking the display path and r
   await h.state.togglePower();
   assert.equal(phases[0][0], 'on');
   assert.equal(phases[0][1], 3);
-  assert.equal(phases[1][1], 2);
-  assert.equal(phases[2][1], 4);
+  assert.equal(phases[1][1], 4);
+  assert.equal(phases[2][1], 2);
   assert.equal(phases[3][0], 'lock');
   assert.equal(phases[4][1], 1);
   const operationIds = phases
@@ -696,7 +696,7 @@ test('staged power-on preheats amp and matrix while core readiness is pending', 
   await flush();
   const pending = h.state.togglePower();
   await flush();
-  assert.deepEqual(phases, [['on', 3], ['on', 2], ['on', 4]]);
+  assert.deepEqual(phases, [['on', 3], ['on', 4], ['on', 2]]);
   readiness.resolve(true);
   await pending;
   assert.equal(phases.at(-2)[0], 'lock');
@@ -708,7 +708,7 @@ test('staged power-on starts amp and matrix at the configured midpoint delay', a
   const readiness = deferred();
   const phases = [];
   const h = harness({
-    bootPlan: { ...strictStagedPlan, ampStartDelaySec: 0.03, stageGapMs: 0 },
+    bootPlan: { ...strictStagedPlan, ampStartDelaySec: 0.03, ampStageGapSec: 0.03, stageGapMs: 0 },
     available: strictCircuits(),
     readyProbe: async () => readiness.promise,
     on: async (id) => {
@@ -723,8 +723,8 @@ test('staged power-on starts amp and matrix at the configured midpoint delay', a
   const pending = h.state.togglePower();
   await flush();
   assert.deepEqual(phases, [['on', 3]]);
-  await new Promise((resolve) => setTimeout(resolve, 45));
-  assert.deepEqual(phases, [['on', 3], ['on', 2], ['on', 4]]);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.deepEqual(phases, [['on', 3], ['on', 4], ['on', 2]]);
   readiness.resolve(true);
   await pending;
   assert.deepEqual(phases.at(-1), ['on', 1]);
@@ -747,7 +747,7 @@ test('staged power-on keeps screen gated until the video source becomes ready', 
   // 核心设备等待期间功放/矩阵已错峰预热；就绪前屏幕仍受硬门控。
   assert.deepEqual(
     h.calls.filter(([name]) => name === 'on'),
-    [['on', 3], ['on', 2], ['on', 4]],
+    [['on', 3], ['on', 4], ['on', 2]],
   );
   readiness.resolve(true);
   await pending;
@@ -790,7 +790,7 @@ test('staged power-on passes the settle stability window when the source stays r
   await h.state.togglePower();
   assert.deepEqual(
     h.calls.filter(([name]) => name === 'on'),
-    [['on', 3], ['on', 2], ['on', 4], ['on', 1]],
+    [['on', 3], ['on', 4], ['on', 2], ['on', 1]],
   );
   assert.equal(h.messages.at(-1)[0], 'success');
   h.scope.stop();
