@@ -51,6 +51,9 @@ export const createCorsOptions = (allowedOrigins: readonly string[]) => ({
     'Range',
     'X-Admin-Token',
     'X-Client-Token',
+    // Player power sequences carry an operation id so every circuit command
+    // can be correlated. Allow it on the 5173 -> 3200 cross-port preflight.
+    'X-Operation-Id',
     'X-Player-Token',
     'X-Requested-With',
     // Required by the existing authenticated upload quota precheck.
