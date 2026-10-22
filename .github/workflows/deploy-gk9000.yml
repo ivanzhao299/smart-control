@@ -130,6 +130,18 @@ jobs:
           printf '%s\n' "$JUMP_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/gk9000-deploy-jump" "$HOME/.ssh/known_hosts"
 
+      - name: Reset stale working-tree files on GK9000
+        run: |
+          ssh \
+            -i "$HOME/.ssh/gk9000-deploy-jump" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=4 \
+            root@123.57.220.65 \
+            'gk9000-exec "cd C:\\ProgramData\\Anksen\\smart-control && git checkout -- . && git clean -fd -- frontend/components.d.ts"'
+
       - name: Deploy requested commit through Aliyun
         env:
           COMMIT_SHA: ${{ github.sha }}
