@@ -78,7 +78,7 @@ interface PlayerPowerControlsOptions {
   powerNameGroups(): string[][] | undefined;
   /** 功放回路的精确 code 列表（第三十轮加固）：功放移位后按 code 锁定，不依赖名称。 */
   powerAmpCodes(): string[] | undefined;
-  /** 保留旧配置契约；关机时不再读取其他设备状态，配置回路全部直接下发关闭信号。 */
+  /** 共享回路（如音频矩阵）的「最后离开才关」规则；不传则关机时全部断电（向后兼容）。 */
   powerKeepPeers(): PowerKeepRule[] | undefined;
   /** 分阶段预热编排（开机先拉视频源、等就绪）；不传则开机/关机同开同关（向后兼容）。 */
   powerBootPlan(): PowerBootPlan | undefined;
@@ -244,39 +244,54 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
     key: string;
     action: () => boolean;
     revision: number;
+    peerOn: Map<string, boolean>;
+    peerQueryFailed: boolean;
     operationId: string;
   }
 
   /**
    * 逐路切换一组回路（保持串行、以 id 写回）。
-   * 关机只负责逐路下发关闭信号，不额外采集其他设备状态。
+   * 关机时（turningOn=false）对共享回路按 keep-peers 判定是否保留。
    */
   async function applyCircuits(
     targets: PowerCircuitView[],
     turningOn: boolean,
     ctx: ApplyContext,
     gapMsBetweenOn = 0,
-  ): Promise<{ failed: string[]; stopped: boolean }> {
+  ): Promise<{ failed: string[]; kept: { name: string; by: string }[]; stopped: boolean }> {
     const failed: string[] = [];
+    const kept: { name: string; by: string }[] = [];
     for (const target of targets) {
-      if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return { failed, stopped: true };
+      if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return { failed, kept, stopped: true };
+      if (!turningOn) {
+        const keepRule = (options.powerKeepPeers() ?? [])
+          .find((rule) => rule.code === target.code);
+        if (keepRule) {
+          const active = keepRule.peers
+            .some((peerCode) => ctx.peerOn.get(peerCode) === true);
+          if (ctx.peerQueryFailed || active) {
+            kept.push({ name: target.name, by: keepRule.peerLabel ?? '另一台设备' });
+            continue; // 共享回路仍被使用（或状态无法确认），跳过断电
+          }
+        }
+      }
       try {
         const updated = turningOn
           ? await powerCircuitsService.on(target.id, ctx.operationId)
           : await powerCircuitsService.off(target.id, ctx.operationId);
-        if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return { failed, stopped: true };
+        if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return { failed, kept, stopped: true };
         writeBack(updated);
         if (turningOn && gapMsBetweenOn > 0 && target !== targets.at(-1)) {
           await sleep(gapMsBetweenOn);
         }
       } catch (error) {
-        if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return { failed, stopped: true };
+        if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return { failed, kept, stopped: true };
         const detail = error as Error & { status?: number };
         const message = detail.message || '未知错误';
         failed.push(`${target.name}: ${detail.status === 0 ? `设备通信失败（${message}）` : message}`);
       }
     }
-    return { failed, stopped: false };
+    return { failed, kept, stopped: false };
   }
 
   /**
@@ -373,19 +388,39 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
     }
     if (!isCurrent(key, action, revision)) return;
 
+    // 共享回路「最后离开才关」：关机确认后只查「其他使用方主开关」这几个固定回路的开关位
+    // （每个仅回传一个布尔，后端读内存快照、不碰硬件），不读全量列表。
+    // 任一 peer 通电即保留；查询失败（peerQueryFailed）按「保留」兜底，避免误关。
+    const peerOn = new Map<string, boolean>();
+    let peerQueryFailed = false;
+    if (turningOff && options.powerKeepPeers()?.length) {
+      const peerCodes = [...new Set(
+        options.powerKeepPeers()!.flatMap((rule) => rule.peers),
+      )];
+      for (const peerCode of peerCodes) {
+        try {
+          peerOn.set(peerCode, await powerCircuitsService.switchOnByCode(peerCode));
+        } catch {
+          peerQueryFailed = true;
+        }
+      }
+      if (!isCurrent(key, action, revision)) return;
+    }
+
     powerBusy.value = true;
-    const ctx: ApplyContext = { key, action, revision, operationId };
+    const ctx: ApplyContext = { key, action, revision, peerOn, peerQueryFailed, operationId };
     // 严格分段：boot-plan 配置了功放段/屏段时，开机按「核心设备→中段错峰启动功放/矩阵→核心就绪门控→显示路径→显示屏」，
     // 关机逆向「显示屏→功放/矩阵→视频源」；核心设备未就绪绝不送屏电。
     const staged = !!plan
       && (ampStageCircuits.value.length > 0 || screenStageCircuits.value.length > 0);
     const stageGapMs = plan?.stageGapMs ?? 1000;
-    const reportShutdown = (failed: string[]): void => {
-      if (failed.length) {
-        // 关机只向用户确认已完成；逐路失败细节留在内部诊断日志。
-        console.warn('[player-power] shutdown incomplete', {
+    const reportShutdown = (failed: string[], kept: { name: string; by: string }[]): void => {
+      if (failed.length || kept.length) {
+        // 共享回路保护和逐路失败细节只留在内部诊断日志，界面不展开过程提示。
+        console.warn('[player-power] shutdown diagnostics', {
           title: options.title(),
           failed,
+          kept,
         });
       }
       ElMessage.success(`${options.title()}关机完成`);
@@ -403,6 +438,7 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
           if (rPre.stopped) return;
           reportShutdown(
             [...rScreen.failed, ...rAmp.failed, ...rPre.failed],
+            [...rScreen.kept, ...rAmp.kept, ...rPre.kept],
           );
         } else {
           // 兼容旧路径：显示回路整段 → 预热回路
@@ -410,7 +446,7 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
           if (r1.stopped) return;
           const r2 = await applyCircuits(preheatTargets, false, ctx);
           if (r2.stopped) return;
-          reportShutdown([...r1.failed, ...r2.failed]);
+          reportShutdown([...r1.failed, ...r2.failed], [...r1.kept, ...r2.kept]);
         }
       } else if (staged && plan) {
         // ===== 开机（严格顺序，视频源未就绪绝不开屏）=====
