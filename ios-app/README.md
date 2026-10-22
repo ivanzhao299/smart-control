@@ -24,7 +24,44 @@ open SmartControl.xcodeproj
 ## CI 构建 (GitHub Actions)
 
 `.github/workflows/ios-build.yml`:push 到 main 且 `ios-app/**` 有改动时自动跑
-(也可 Actions 页面手动触发),产物是 **SmartControl-unsigned.ipa**(未签名)。
+(也可 Actions 页面手动触发)。手动触发时选择 `unsigned` 会只生成未签名 IPA，
+选择 `testflight` 会在四个 App Store Connect secrets 齐全时直接归档、签名并上传
+TestFlight；缺少凭据会明确失败，不会把“未上传”误报为发布成功。
+
+## 本机一键入口
+
+仓库提供统一脚本 `scripts/ios-app-release.sh`，它不会自动提交或推送代码：
+
+```bash
+# 检查 Xcode、SDK、XcodeGen 和 Simulator Runtime
+scripts/ios-app-release.sh doctor
+
+# 安装与当前 Xcode 匹配的 iOS Simulator Runtime（约 8.5 GB）
+scripts/ios-app-release.sh install-runtime
+
+# 生成当前版本的未签名 IPA，产物在 ios-app/dist/
+scripts/ios-app-release.sh unsigned
+
+# 触发 GitHub Actions（代码必须已经在 main）
+scripts/ios-app-release.sh dispatch unsigned
+scripts/ios-app-release.sh dispatch testflight
+```
+
+TestFlight 本机归档上传需要设置以下环境变量；脚本不会打印密钥内容：
+
+```bash
+export APPSTORE_KEY_ID='...'
+export APPSTORE_ISSUER_ID='...'
+export APPSTORE_P8_PATH="$HOME/.private/AuthKey_XXXX.p8"
+export IOS_TEAM_ID='...'
+# 可选；不填时脚本按 UTC 时间生成唯一构建号
+export IOS_BUILD_NUMBER='202610221230'
+scripts/ios-app-release.sh testflight
+```
+
+首次使用前执行 `doctor`。本地模拟器验证需要在 Xcode → Settings → Components
+安装与当前 Xcode SDK 匹配的 iOS Simulator Runtime；没有 Runtime 时仍可以在 CI
+或真机目标上构建，但不能启动本地模拟器。
 
 ## 安装到 iPhone(未签名 IPA 怎么装)
 

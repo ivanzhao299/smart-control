@@ -16,6 +16,11 @@ struct WebView: UIViewRepresentable {
     /// 前端真正完成挂载（boot-splash 已移除且 #app 已有内容），不是仅 HTML 导航完成。
     let onReady: () -> Void
     let onError: (String) -> Void
+    /// WebKit 内容进程被系统终止时通知外层重建 WebView。外层只自动恢复一次，
+    /// 避免崩溃循环；第二次才把错误交给用户处理。
+    let onProcessTermination: () -> Void
+    /// 本次重建是否需要清理当前站点的 SW/HTTP 缓存。
+    let forceCacheReset: Bool
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -99,14 +104,14 @@ struct WebView: UIViewRepresentable {
         // WKWebView 仍会被旧离线缓存劫持。每个原生版本首次启动只清 SW + HTTP
         // cache，保留 localStorage/cookies（登录态不会丢）。
         let cacheResetKey = "web-cache-reset-\(UpdateChecker.localVersionName)"
-        if !UserDefaults.standard.bool(forKey: cacheResetKey) {
+        if forceCacheReset || !UserDefaults.standard.bool(forKey: cacheResetKey) {
             let types: Set<String> = [
                 WKWebsiteDataTypeServiceWorkerRegistrations,
                 WKWebsiteDataTypeDiskCache,
                 WKWebsiteDataTypeMemoryCache,
             ]
             config.websiteDataStore.removeData(ofTypes: types, modifiedSince: .distantPast) {
-                UserDefaults.standard.set(true, forKey: cacheResetKey)
+                if !forceCacheReset { UserDefaults.standard.set(true, forKey: cacheResetKey) }
                 DispatchQueue.main.async { wv.load(URLRequest(url: initialUrl)) }
             }
         } else {
@@ -186,7 +191,7 @@ struct WebView: UIViewRepresentable {
         }
 
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-            parent.onError("网页进程意外停止，请重试")
+            parent.onProcessTermination()
         }
 
         private func report(_ error: Error) {
