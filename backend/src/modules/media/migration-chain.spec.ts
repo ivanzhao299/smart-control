@@ -62,6 +62,13 @@ describe('complete migration chain on an isolated database', () => {
       m => m.name === 'EstablishShowroomLightingSequence1793000000000',
     );
     if (showroomLightingMigration) {
+      // Undo only the led-program feature migrations appended after the showroom fence chain,
+      // so undoLastMigration() below reaches DirectShowroomClosingPowerOff which owns the fence.
+      const postShowroom = applied.filter(m =>
+        m.name === 'GrantLedProgramToConfig1793300000000' ||
+        m.name === 'SeedPveReceiverDevice1793400000000',
+      );
+      for (const _ of postShowroom) await db.undoLastMigration();
       await expect(db.undoLastMigration()).rejects.toThrow(
         'SHOWROOM_LIGHTING_SEQUENCE_ROLLBACK_REQUIRES_ARCHIVE',
       );
@@ -77,7 +84,10 @@ describe('complete migration chain on an isolated database', () => {
     // is the TestFlight invitation table) are ordinary, reversible migrations. Undo them
     // first so the fence walk below starts exactly at the bundled-media authority boundary.
     const postCatalogMigrations = applied.filter(
-      m => m.timestamp > 1789680000000 && m.name !== 'EstablishShowroomLightingSequence1793000000000',
+      m => m.timestamp > 1789680000000
+        && m.name !== 'EstablishShowroomLightingSequence1793000000000'
+        && m.name !== 'GrantLedProgramToConfig1793300000000'
+        && m.name !== 'SeedPveReceiverDevice1793400000000',
     );
     for (const _migration of postCatalogMigrations) await db.undoLastMigration();
     // Bundled media, HVAC/playback and operational catalogs are forward-only: remove only their ledger

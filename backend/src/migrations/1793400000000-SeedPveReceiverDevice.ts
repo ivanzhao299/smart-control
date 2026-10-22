@@ -11,8 +11,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *
  * 幂等：按 name 唯一索引 ON CONFLICT DO NOTHING。改 IP 后由管理员在硬件明细页编辑。
  */
-export class SeedPveReceiverDevice1793200000000 implements MigrationInterface {
-  name = 'SeedPveReceiverDevice1793200000000';
+export class SeedPveReceiverDevice1793400000000 implements MigrationInterface {
+  name = 'SeedPveReceiverDevice1793400000000';
 
   private esc(v: string): string {
     return `'${v.replace(/'/g, "''")}'`;

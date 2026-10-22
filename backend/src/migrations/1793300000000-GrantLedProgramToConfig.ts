@@ -14,8 +14,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *
  * 纯增量、幂等 (INSERT OR IGNORE / ON CONFLICT DO NOTHING)。
  */
-export class GrantLedProgramToConfig1793100000000 implements MigrationInterface {
-  name = 'GrantLedProgramToConfig1793100000000';
+export class GrantLedProgramToConfig1793300000000 implements MigrationInterface {
+  name = 'GrantLedProgramToConfig1793300000000';
 
   private esc(v: string): string {
     return `'${v.replace(/'/g, "''")}'`;
