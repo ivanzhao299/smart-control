@@ -357,14 +357,17 @@ describe('SystemBrandingService welcome schemes', () => {
     );
     await subject.updateWelcomeSchemes(schemes, 0);
 
-    await expect(subject.removeWelcomeAsset(7, 1, {
+    const result = await subject.removeWelcomeAsset(7, 1, {
       kind: 'admin', userId: null, username: 'admin', role: 'admin',
-    })).resolves.toMatchObject({
+    });
+    expect(result).toMatchObject({
       removedId: 7,
       cleanupPending: false,
-      schemes: {
-        config: { schemes: [{ welcomeBgMediaId: null }] },
-      },
     });
+    // The editable default welcome scheme is always retained alongside user
+    // schemes; assert the idempotent delete without assuming a one-item document.
+    expect(result.schemes.config.schemes).toEqual(
+      expect.arrayContaining([expect.objectContaining({ welcomeBgMediaId: null })]),
+    );
   });
 });
