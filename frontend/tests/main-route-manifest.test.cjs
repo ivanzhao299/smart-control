@@ -20,17 +20,18 @@ test('main PWA manifest preserves every route and navigation entry exactly once'
   const routePaths = Array.from(routes, route => route.path);
 
   assert.deepEqual(routeNames, [
-    'dashboard', 'lighting', 'dali-lights', 'dali-diagnose', 'led',
+    'dashboard', 'lighting', 'dali-lights', 'dali-diagnose', 'led', 'led-program',
     'projector', 'audio', 'hvac', 'power', 'energy', 'media', 'status', 'barrier',
   ]);
   assert.deepEqual(routePaths, [
-    '', 'lighting', 'dali-lights', 'dali-diagnose', 'led',
+    '', 'lighting', 'dali-lights', 'dali-diagnose', 'led', 'led-program',
     'projector', 'audio', 'hvac', 'power', 'energy', 'media', 'status', 'barrier',
   ]);
   assert.equal(new Set(routeNames).size, routeNames.length);
   assert.equal(new Set(routePaths).size, routePaths.length);
   assert.deepEqual(Array.from(navigation, item => `${item.section}:${item.name}:${item.label}`), [
     'main:dashboard:首页', 'main:lighting:灯光', 'main:led:LED 大屏',
+    'main:led-program:楼顶广告屏',
     'main:projector:投影仪', 'main:audio:音响', 'main:hvac:空调',
     'main:power:电源',
     'tools:energy:水电', 'tools:media:媒体', 'tools:status:状态', 'tools:barrier:道闸',
@@ -68,7 +69,7 @@ test('router and layouts consume the manifest instead of maintaining page import
   assert.match(layout, /mainNavigationItems/);
   assert.match(layout, /idleMainRouteNames/);
   assert.match(layout, /loadMainRoute\(name\)/);
-  assert.doesNotMatch(`${router}\n${app}\n${layout}`, /import\('@\/pages\/(?:Dashboard|Lighting|DaliLights|DaliDiagnose|Led|Projector|Audio|Hvac|Power|Energy|Media|Status)Page\.vue'\)/);
+  assert.doesNotMatch(`${router}\n${app}\n${layout}`, /import\('@\/pages\/(?:Dashboard|Lighting|DaliLights|DaliDiagnose|Led|LedProgram|Projector|Audio|Hvac|Power|Energy|Media|Status)Page\.vue'\)/);
 });
 
 test('main PWA pages cannot be held blank by transition or permission refresh', () => {

@@ -80,7 +80,7 @@ export const mainRouteManifest = [
     path: 'led-program', name: 'led-program', load: () => import('@/pages/LedProgramPage.vue'),
     permission: 'led-program:view',
     roles: ['admin'],
-    navigation: { label: '楼顶广告屏', section: 'main' },
+    navigation: { label: '楼顶广告屏', section: 'main' }, prefetchOnIdle: true,
   },
   // 投影仪独立于 LED，避免误操作到另一块显示设备；播控开放给 operator。
   {

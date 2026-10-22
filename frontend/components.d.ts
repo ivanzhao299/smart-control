@@ -61,6 +61,7 @@ declare module 'vue' {
     ParkDashboardSourcePanel: typeof import('./src/components/ParkDashboardSourcePanel.vue')['default']
     PlayerConsole: typeof import('./src/components/PlayerConsole.vue')['default']
     PlayerVideoControls: typeof import('./src/components/PlayerVideoControls.vue')['default']
+    PlayerVolumeControl: typeof import('./src/components/PlayerVolumeControl.vue')['default']
     PowerScheduleDrawer: typeof import('./src/components/admin/PowerScheduleDrawer.vue')['default']
     PwaUpdateBanner: typeof import('./src/components/PwaUpdateBanner.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
