@@ -383,9 +383,7 @@ onBeforeUnmount(resetHold);
       <div class="role-home role-home-operator">
         <header class="role-home-head">
           <div>
-            <div class="role-home-eyebrow">SHOWROOM CONTROL</div>
             <h1>{{ roleHomeTitle }}</h1>
-            <p>场景一键切换，屏幕与展厅设备集中操作</p>
           </div>
           <span class="role-home-badge">{{ perm.roleName || '展厅操作员' }}</span>
         </header>
@@ -393,7 +391,7 @@ onBeforeUnmount(resetHold);
         <section class="role-home-section role-home-scenes">
           <div class="role-home-section-head">
             <h2>一键场景</h2>
-            <span>按住卡片直到进度环走满</span>
+            <span>长按执行</span>
           </div>
           <div class="role-scene-grid">
             <button
@@ -429,7 +427,6 @@ onBeforeUnmount(resetHold);
         <section class="role-home-section">
           <div class="role-home-section-head">
             <h2>快捷入口</h2>
-            <span>仅显示当前角色可访问的功能</span>
           </div>
           <div class="role-shortcut-grid">
             <button v-for="item in roleShortcuts" :key="item.name" class="role-shortcut" @click="goTo(item.name)">
@@ -872,7 +869,13 @@ onBeforeUnmount(resetHold);
   min-height: 0;
   align-content: stretch;
 }
-.role-home-operator .role-scene-card { min-height: 0; }
+.role-home-operator .role-scene-card {
+  min-height: clamp(112px, 16vh, 156px);
+  padding: 18px;
+  gap: 16px;
+}
+.role-home-operator .role-scene-icon { width: 56px; height: 56px; }
+.role-home-operator .role-scene-copy strong { font-size: 18px; }
 .role-home-operator .role-shortcut-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -880,6 +883,8 @@ onBeforeUnmount(resetHold);
   min-height: 0;
   padding: 9px 12px;
 }
+.role-home-operator .role-scene-copy small,
+.role-home-operator .role-shortcut small { display: none; }
 .role-home-operator .role-home-status {
   min-height: 0;
   padding: 8px 12px;
@@ -1098,7 +1103,12 @@ onBeforeUnmount(resetHold);
     grid-template-rows: repeat(2, minmax(0, 1fr));
     gap: 8px;
   }
-  .role-home-operator .role-scene-icon { width: 36px; height: 36px; }
+  .role-home-operator .role-scene-card {
+    min-height: clamp(96px, 15vh, 124px);
+    padding: 12px;
+    gap: 12px;
+  }
+  .role-home-operator .role-scene-icon { width: 46px; height: 46px; }
   .role-home-operator .role-scene-copy strong { font-size: var(--v2-fs-sm); }
   .role-home-operator .role-scene-copy small {
     font-size: 10px;
@@ -1133,7 +1143,8 @@ onBeforeUnmount(resetHold);
   .role-home-operator .role-home-status { padding: 8px 10px; }
   .role-home-operator .role-home-section:not(.role-home-scenes) .role-home-section-head,
   .role-home-operator .role-home-status-head { margin-bottom: 4px; }
-  .role-home-operator .role-scene-icon { width: 32px; height: 32px; }
+  .role-home-operator .role-scene-card { min-height: 84px; padding: 10px; gap: 9px; }
+  .role-home-operator .role-scene-icon { width: 38px; height: 38px; }
   .role-home-operator .role-shortcut-icon { width: 28px; height: 28px; }
 }
 
