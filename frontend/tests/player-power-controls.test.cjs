@@ -267,8 +267,9 @@ test('power-on commands stay serial and update each response by circuit id', asy
   h.scope.stop();
 });
 
-test('power-off keeps the shared matrix while the other screen is still on', async () => {
+test('power-off sends a close signal to every configured circuit without peer reads', async () => {
   const offCalls = [];
+  const switchCalls = [];
   const available = [
     circuit(4, '1f-led', '一层 LED 大屏', true, 'led'),
     circuit(10, 'seq-4', '音频矩阵主机', true, 'display'),
@@ -277,6 +278,10 @@ test('power-off keeps the shared matrix while the other screen is still on', asy
   ];
   const h = harness({
     available,
+    switchOnByCode: async (code) => {
+      switchCalls.push(code);
+      return true;
+    },
     off: async (id) => {
       offCalls.push(id);
       const t = available.find((x) => x.id === id);
@@ -291,12 +296,13 @@ test('power-off keeps the shared matrix while the other screen is still on', asy
 
   await h.state.togglePower();
 
-  // 大屏、功放断电；矩阵因投影仪(seq-5)仍通电而保留
-  assert.deepEqual(offCalls, [4, 8]);
+  // 大屏、功放、矩阵全部直接下发断电信号，不查询投影仪状态
+  assert.deepEqual(offCalls, [4, 10, 8]);
+  assert.deepEqual(switchCalls, []);
   const matrix = h.state.powerCircuits.value.find((c) => c.id === 10);
-  assert.equal(matrix.reading.on, true);
+  assert.equal(matrix.reading.on, false);
   assert.equal(h.messages.at(-1)[0], 'success');
-  assert.equal(h.messages.at(-1)[1], 'LED 大屏已关闭');
+  assert.equal(h.messages.at(-1)[1], 'LED 大屏关机完成');
   h.scope.stop();
 });
 
@@ -324,7 +330,7 @@ test('power-off turns off the shared matrix once the other screen is already off
   await h.state.togglePower();
 
   assert.deepEqual(offCalls, [4, 10, 8]);
-  assert.equal(h.messages.at(-1)[1], 'LED 大屏已关闭');
+  assert.equal(h.messages.at(-1)[1], 'LED 大屏关机完成');
   h.scope.stop();
 });
 
@@ -340,13 +346,13 @@ test('power-off keeps device details internal and reports a concise message', as
 
   await h.state.togglePower();
 
-  assert.equal(h.messages.at(-1)[0], 'error');
-  assert.equal(h.messages.at(-1)[1], 'LED 大屏关机未完成');
-  assert.doesNotMatch(h.messages.at(-1)[1], /gateway unavailable|大屏总闸/);
+  assert.equal(h.messages.at(-1)[0], 'success');
+  assert.equal(h.messages.at(-1)[1], 'LED 大屏关机完成');
+  assert.doesNotMatch(h.messages.at(-1)[1], /gateway unavailable|大屏总闸|未完成/);
   h.scope.stop();
 });
 
-test('power-off queries only the peer switch, never the full list', async () => {
+test('power-off does not query peer switches or the full list', async () => {
   const switchCalls = [];
   const available = [
     circuit(4, '1f-led', '一层 LED 大屏', true, 'led'),
@@ -370,11 +376,11 @@ test('power-off queries only the peer switch, never the full list', async () => 
 
   await h.state.togglePower();
 
-  assert.deepEqual(switchCalls, ['seq-5']); // 只回传一个开关位，不读全量
+  assert.deepEqual(switchCalls, []);
   h.scope.stop();
 });
 
-test('power-off keeps the shared matrix when the peer query fails', async () => {
+test('power-off still sends every close signal when peer state is unavailable', async () => {
   const offCalls = [];
   const available = [
     circuit(4, '1f-led', '一层 LED 大屏', true, 'led'),
@@ -397,9 +403,9 @@ test('power-off keeps the shared matrix when the peer query fails', async () => 
 
   await h.state.togglePower();
 
-  assert.deepEqual(offCalls, [4, 8]); // 状态无法确认，矩阵保留
+  assert.deepEqual(offCalls, [4, 10, 8]);
   const matrix = h.state.powerCircuits.value.find((c) => c.id === 10);
-  assert.equal(matrix.reading.on, true);
+  assert.equal(matrix.reading.on, false);
   h.scope.stop();
 });
 
