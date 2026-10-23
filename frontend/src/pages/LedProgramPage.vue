@@ -5,14 +5,14 @@
  * 真实物理规格（逆向结论）：
  *   - 290 列 × 30 行物理点阵，5 段组拼
  *   - 黑缝列（1 基）62-69 / 221-228（289 右缘缝近乎不可见不渲染）
- *   - 25 fps，帧格式 0x5001，推流 224.1.1.1:65535（PVE vmbr1）
+ *   - 25 fps，帧格式 0x5001，block 模式组播 224.1.1.1:1508（PVE vmbr1，frame 模式 5555）
  *
  * 本页 = v25 生成器移植进 SmartCtrl 真实前端，遵循 Design System（--v2-* tokens）。
  * 编排逻辑：多行文字 → 节目编排（文字段+视频段）→ 生成 bin → 推流播出。
  */
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { generateYongdianBin, downloadBin, decodeVideoFrames } from '@/lib/led-bin-builder';
+import { generateYongdianBin, downloadBin, decodeVideoFrames, probeVideoCodec } from '@/lib/led-bin-builder';
 import { ledProgramService } from '@/services/led-program.service';
 import type { Ref } from 'vue';
 
@@ -164,6 +164,13 @@ function onVideoPicked(e: Event) {
     (e.target as HTMLInputElement).value = '';
     return;
   }
+  // 前置编码检测：浏览器不支持的格式当场提示，不加入列表
+  const probe = probeVideoCodec(f);
+  if (!probe.supported) {
+    toast(probe.reason);
+    (e.target as HTMLInputElement).value = '';
+    return;
+  }
   const s: Seg = { id: segSeq++, kind: 'video', name: `视频段 · ${f.name}`, rep: 1, videoName: f.name, videoFile: f };
   segs.value.push(s);
   activeSegId.value = s.id;
@@ -188,6 +195,15 @@ function previewSeg(id: number) {
 // PVE 探活（真实后端 /led-program/status）
 const pveOnline = ref(false);
 const pveBase = ref('');
+// receiver /status 原始报文：online/streaming/current/mode/target/frames
+const pveDetail = ref<Record<string, any>>({});
+const pveTarget = computed(() => (pveDetail.value.target as string) || '—');
+const pveMode = computed(() => (pveDetail.value.mode as string) || '—');
+const pveStreaming = computed(() => pveDetail.value.streaming === true);
+const pveCurrentFrames = computed(() => {
+  const f = pveDetail.value.frames;
+  return typeof f === 'number' ? f : null;
+});
 const pveDotCls = computed(() => (pveOnline.value ? 'dot-on' : 'dot-off'));
 
 // 历史记录（后端 /led-program/history）
@@ -196,6 +212,8 @@ const histList = ref<HistItem[]>([]);
 
 // 最近一次入库的节目 id（用于"推流播出"）
 const lastProgramId = ref<number | null>(null);
+const lastBinBytes = ref<Uint8Array | null>(null);
+const lastBinName = ref('');
 const busyGen = ref(false);
 const busyPush = ref(false);
 
@@ -223,11 +241,18 @@ async function genBin() {
     // 按 segs 编排顺序构建段序列；空 segs 时默认一段文字
     const segList = segs.value.length > 0 ? segs.value : [{ kind: 'text' as const, rep: 1 }];
     const segments = [];
+    let skippedVideos = 0;
     for (const s of segList) {
       if (s.kind === 'video' && s.videoFile) {
-        toast(`正在解码视频：${s.videoName}…`);
-        const vf = await decodeVideoFrames(s.videoFile);
-        segments.push({ type: 'video' as const, videoFrames: vf, rep: s.rep });
+        try {
+          toast(`正在解码视频：${s.videoName}…`);
+          const vf = await decodeVideoFrames(s.videoFile);
+          segments.push({ type: 'video' as const, videoFrames: vf, rep: s.rep });
+        } catch (ve: any) {
+          skippedVideos++;
+          console.warn('[genBin] 视频段跳过', s.videoName, ve);
+          toast(`视频段「${s.videoName}」解码失败已跳过：${ve?.message || ve}`);
+        }
       } else {
         segments.push({
           type: 'text' as const,
@@ -237,8 +262,14 @@ async function genBin() {
         });
       }
     }
+    if (segments.length === 0) {
+      toast('所有段都失败了，无法生成 bin');
+      return;
+    }
 
     const bin = generateYongdianBin({ segments });
+    lastBinBytes.value = bin.bytes;
+    lastBinName.value = bin.fileName;
 
     // 1) 浏览器端下载一份（保留原行为，便于插 SD 卡测试）
     downloadBin(bin);
@@ -290,12 +321,29 @@ async function pushStream() {
   }
 }
 
+function downloadLastBin() {
+  if (!lastBinBytes.value || !lastBinName.value) {
+    toast('请先生成 bin 文件');
+    return;
+  }
+  const blob = new Blob([lastBinBytes.value as BlobPart], { type: 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = lastBinName.value;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast(`已下载：${lastBinName.value}`);
+}
+
 async function refreshPveStatus() {
   try {
     const s = await ledProgramService.status();
     pveOnline.value = s.reachable;
     pveBase.value = s.base || '';
-    toast(s.reachable ? `PVE 在线（${s.base || ''}）` : `PVE 离线：${s.error || '无响应'}`);
+    pveDetail.value = (s.detail as Record<string, any>) || {};
+    const extra = pveStreaming.value ? ` · 推流中 ${pveCurrentFrames.value ?? ''} 帧` : '';
+    toast(s.reachable ? `PVE 在线（${s.base || ''}）${extra}` : `PVE 离线：${s.error || '无响应'}`);
   } catch (e: any) {
     pveOnline.value = false;
     toast(`PVE 状态查询失败：${e?.message || e}`);
@@ -344,11 +392,11 @@ onUnmounted(() => {
           楼顶广告屏
           <span class="pve-dot" :class="pveDotCls" :title="pveOnline ? 'PVE 在线' : 'PVE 离线'"></span>
         </div>
-        <div class="page-sub">勇电灯珠屏 · 290×30 真实点阵 · 编排 → 生成 bin → PVE 直推接收卡（224.1.1.1:65535）</div>
+        <div class="page-sub">勇电灯珠屏 · 290×30 真实点阵 · 编排 → 生成 bin → PVE 直推接收卡（block 组播）</div>
       </div>
       <div class="page-actions">
         <button class="btn btn-ghost" @click="refreshPveStatus">PVE 状态</button>
-        <button class="btn btn-ghost" @click="router.push({ name: 'power-timing' })">定时开关</button>
+        <button class="btn btn-ghost" @click="router.push({ name: 'admin-auto-switch' })">定时开关</button>
       </div>
     </div>
 
@@ -362,7 +410,8 @@ onUnmounted(() => {
         <div class="preview-meta">
           <span class="meta-chip">屏体 <b>290×30 · 5 段</b></span>
           <span class="meta-chip">播放 <b>25 fps</b></span>
-          <span class="meta-chip">目标 <b>224.1.1.1:65535</b></span>
+          <span class="meta-chip">目标 <b>{{ pveTarget }}</b></span>
+          <span class="meta-chip">模式 <b>{{ pveMode }}</b></span>
           <span class="meta-chip">通道 <b>vmbr1</b></span>
         </div>
         <div class="screen-stage">
@@ -405,7 +454,9 @@ onUnmounted(() => {
           <!-- 屏底状态条 -->
           <div class="screen-bar">
             <span class="l">
-              <span class="live-flag">PVE 在线</span>
+              <span class="live-flag" :class="{ off: !pveOnline }">
+                {{ pveOnline ? (pveStreaming ? 'PVE 推流中' : 'PVE 在线') : 'PVE 离线' }}
+              </span>
               <span>{{ usedRows }}/30 行</span>
               <span>速度 {{ speedNote }}</span>
             </span>
@@ -459,14 +510,14 @@ onUnmounted(() => {
                   title="描边"
                   @click="l.stroke = !l.stroke"
                 ><span class="strike-s">S</span></button>
-                <!-- 颜色按钮：圆形色点，点击弹 14 色选择器 -->
+                <!-- 颜色按钮：色点+文字标签，点击弹 14 色选择器 -->
                 <button
                   class="line-color"
                   :style="{ color: l.color }"
                   :title="'文字颜色：' + l.color"
                   @click="openColorPicker(l.id)"
                 >
-                  <i></i>
+                  <i></i><em>颜色</em>
                 </button>
               </div>
             </div>
@@ -540,11 +591,14 @@ onUnmounted(() => {
         <button class="btn btn-primary" :disabled="busyGen" @click="genBin">
           {{ busyGen ? '生成中…' : '生成 bin 文件' }}
         </button>
+        <button class="btn btn-ghost" :disabled="!lastBinBytes" @click="downloadLastBin">
+          下载 bin
+        </button>
         <button class="btn btn-danger" :disabled="busyPush || !lastProgramId" @click="pushStream">
           {{ busyPush ? '推流中…' : '推流播出' }}
         </button>
       </div>
-      <div class="action-note">编排确认无误后生成 bin（自动入库），再推流到 PVE → 接收卡（224.1.1.1:65535）</div>
+      <div class="action-note">编排确认无误后生成 bin（自动入库），再推流到 PVE → 接收卡（block 组播，目标以 PVE 状态为准）</div>
     </div>
 
     <!-- 历史记录 -->
@@ -1100,6 +1154,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 5px;
 }
+.live-flag.off { color: #E05555; }
 .live-flag::before {
   content: "";
   width: 6px;
@@ -1108,6 +1163,7 @@ onUnmounted(() => {
   background: #3FBF87;
   animation: twinkle 1.6s infinite;
 }
+.live-flag.off::before { background: #E05555; animation: none; }
 
 /* ===== 编辑面板 ===== */
 .field { margin-bottom: 16px; }
@@ -1178,7 +1234,7 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 .line-del:hover { color: #E5645D; }
-.line-body { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.line-body { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
 .line-body .ll { font-size: 10px; color: var(--v2-text-3, #5B6B82); flex-shrink: 0; }
 .line-body input[type=range] { flex: 1; height: 3px; }
 .line-size-val {
@@ -1201,23 +1257,29 @@ select.line-tpl {
   flex-shrink: 0;
 }
 
-/* 每行颜色按钮（圆形色点） */
+/* 每行颜色按钮（色点+文字标签的胶囊） */
 .line-color {
-  width: 26px; height: 26px;
-  border-radius: 50%;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 13px;
   border: 1px solid var(--v2-border-soft, rgba(255,255,255,0.2));
   background: var(--v2-surf-2, rgba(255,255,255,0.06));
   flex-shrink: 0;
   cursor: pointer;
-  position: relative;
-  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 .line-color i {
-  position: absolute;
-  inset: 4px;
+  width: 11px; height: 11px;
   border-radius: 50%;
   background: currentColor;
   box-shadow: 0 0 6px currentColor;
+}
+.line-color em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--v2-text-2, #C7D2E0);
 }
 
 /* 颜色选择弹框 */

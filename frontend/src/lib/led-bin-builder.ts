@@ -59,13 +59,13 @@ function measureTextWidth(text: string, size: number): number {
 
 /** 计算文字段需要多少帧 */
 function textSegFrames(lines: BinLine[], scrollSpeed: number): number {
-  let maxF = FPS * 3;
+  let maxF = FPS * 10;
   for (const ln of lines) {
     const tw = measureTextWidth(ln.text, ln.size);
     if (ln.tpl === 'scrollL' || ln.tpl === 'scrollR') {
       maxF = Math.max(maxF, Math.ceil((W + tw) / scrollSpeed * FPS));
     } else if (ln.tpl === 'blink') {
-      maxF = Math.max(maxF, FPS * 4);
+      maxF = Math.max(maxF, FPS * 8);
     }
   }
   return maxF;
@@ -109,7 +109,37 @@ function renderTextFrame(lines: BinLine[], frameIdx: number, totalFrames: number
 }
 
 /** 异步解码视频文件为帧序列（加固版） */
-export async function decodeVideoFrames(file: File, maxFrames = 200): Promise<Uint8ClampedArray[]> {
+/** 检测浏览器能否播放该视频文件的编码 */
+export function probeVideoCodec(file: File): { supported: boolean; reason: string } {
+  const v = document.createElement('video');
+  const ext = file.name.split('.').pop()?.toLowerCase() || '';
+  const mimeMap: Record<string, string> = {
+    mp4: 'video/mp4; codecs="avc1.42E01E"',
+    m4v: 'video/mp4; codecs="avc1.42E01E"',
+    webm: 'video/webm; codecs="vp9"',
+    mov: 'video/mp4; codecs="avc1.42E01E"',
+    mkv: 'video/x-matroska',
+    avi: 'video/avi',
+  };
+  const mime = mimeMap[ext] || `video/${ext}`;
+  const canPlay = v.canPlayType(mime);
+  // canPlayType 返回 'probably' / 'maybe' / ''
+  if (canPlay === '') {
+    return {
+      supported: false,
+      reason: `浏览器不支持 .${ext} 格式（${file.name}），请转 H.264/MP4（可用 ffmpeg -i input.mp4 -c:v libx264 -an output.mp4）`,
+    };
+  }
+  return { supported: true, reason: canPlay };
+}
+
+export async function decodeVideoFrames(file: File, maxFrames = 600): Promise<Uint8ClampedArray[]> {
+  // 前置检测
+  const probe = probeVideoCodec(file);
+  if (!probe.supported) {
+    throw new Error(probe.reason);
+  }
+
   const url = URL.createObjectURL(file);
   const video = document.createElement('video');
   video.src = url;
@@ -122,27 +152,56 @@ export async function decodeVideoFrames(file: File, maxFrames = 200): Promise<Ui
   document.body.appendChild(video);
 
   const cleanup = () => {
+    video.onloadedmetadata = null;
+    video.oncanplay = null;
+    video.oncanplaythrough = null;
+    video.onerror = null;
+    video.onseeked = null;
     if (video.parentNode) document.body.removeChild(video);
     URL.revokeObjectURL(url);
   };
 
-  // 等待 metadata，带 10s 超时
+  // 等待视频可播放：同时监听 loadedmetadata / canplay / canplaythrough，任一就绪即可
   await new Promise<void>((resolve, reject) => {
+    let settled = false;
     const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
       cleanup();
-      reject(new Error('视频加载超时（10s），可能是 HEVC 编码不被浏览器支持，请转 H.264'));
-    }, 10000);
-    video.onloadedmetadata = () => { clearTimeout(timer); resolve(); };
+      reject(new Error(
+        `视频加载超时（8s）：${file.name}（${(file.size/1024/1024).toFixed(1)}MB）。` +
+        `常见原因：HEVC/H.265 编码不被浏览器支持，请转 H.264/MP4`
+      ));
+    }, 8000);
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    video.onloadedmetadata = done;
+    video.oncanplay = done;
+    video.oncanplaythrough = done;
     video.onerror = () => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
       cleanup();
-      reject(new Error(`视频解码失败（codec=${video.error?.code ?? 'unknown'}），请确认是 H.264/MP4 格式`));
+      const code = video.error?.code ?? 'unknown';
+      const msgs: Record<number, string> = {
+        1: '用户中止',
+        2: '网络错误导致视频下载中断',
+        3: '视频解码失败（文件损坏或编码不支持）',
+        4: '视频格式不被浏览器支持',
+      };
+      const msg = typeof code === 'number' ? (msgs[code] || '') : '';
+      reject(new Error(`视频加载失败（code=${code} ${msg}）：${file.name}，请转 H.264/MP4`));
     };
   });
 
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
-  const ctx = canvas.getContext('2d')!;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
 
   const frames: Uint8ClampedArray[] = [];
   const duration = video.duration || 3;
@@ -152,11 +211,19 @@ export async function decodeVideoFrames(file: File, maxFrames = 200): Promise<Ui
   try {
     for (let i = 0; i < total; i++) {
       video.currentTime = Math.min(i * frameInterval, duration - 0.05);
-      // seek 带 5s 超时
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`视频 seek 超时（帧 ${i}）`)), 5000);
-        video.onseeked = () => { clearTimeout(timer); resolve(); };
-      });
+      // seek 带 2s 超时，最多重试 2 次
+      let seekOk = false;
+      for (let retry = 0; retry < 3 && !seekOk; retry++) {
+        try {
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error('seek timeout')), 2000);
+            video.onseeked = () => { clearTimeout(timer); resolve(); };
+          });
+          seekOk = true;
+        } catch {
+          if (retry === 2) throw new Error(`视频第 ${i} 帧解码超时，视频可能损坏或编码异常`);
+        }
+      }
       ctx.drawImage(video, 0, 0, W, H);
       frames.push(ctx.getImageData(0, 0, W, H).data);
     }
