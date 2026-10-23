@@ -1087,6 +1087,7 @@ onBeforeUnmount(resetHold);
 }
 
 @media (max-width: 760px) {
+  .v2-dash { padding-left: 16px; padding-right: 16px; }
   .role-home-operator { gap: 8px; }
   .role-home-operator .role-home-head { padding: 0; }
   .role-home-operator .role-home-head h1 { font-size: 22px; margin: 2px 0; }

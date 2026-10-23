@@ -514,7 +514,7 @@ onMounted(refresh);
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="250" align="right">
+      <el-table-column label="操作" width="280" align="right">
         <template #default="{ row }">
           <button v-if="row.category === 'power-breaker'" class="row-btn" @click="openAddressChange(row)">
             修改485地址
@@ -849,6 +849,7 @@ onMounted(refresh);
   cursor: pointer;
   font-size: 12px;
   display: inline-flex; align-items: center; gap: 4px;
+  white-space: nowrap;
   transition: all 0.15s;
 }
 .row-btn:hover { color: var(--color-primary); border-color: var(--color-primary); }
@@ -867,5 +868,17 @@ onMounted(refresh);
 @media (max-width: 1280px) {
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
   .stat-card.stat-categories { grid-column: span 2; }
+}
+
+/* 手机端页头: 标题占左, 刷新/新增紧凑不换行不拉伸 */
+.page-head { flex-wrap: wrap; }
+.page-head button { flex: 0 0 auto; }
+@media (max-width: 600px) {
+  .page-head { gap: 10px; align-items: center; }
+  .page-head button {
+    min-height: 38px !important;
+    font-size: 14px;
+    padding: 0 14px !important;
+  }
 }
 </style>
