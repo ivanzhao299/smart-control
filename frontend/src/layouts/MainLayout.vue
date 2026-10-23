@@ -558,7 +558,7 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
     <header v-if="showHeader" class="v2-header">
       <div class="v2-brand">
         <!-- 手机端顶栏左上角 logo（桌面端 logo 在侧栏，这里隐藏） -->
-        <BrandLogo :height="33" class="v2-brand-logo" />
+        <BrandLogo :height="36" class="v2-brand-logo" />
         <div class="v2-brand-txt">
           <div class="v2-brand-title">{{ branding.systemName }}</div>
           <div class="v2-brand-sub">{{ dateLabel }}</div>
