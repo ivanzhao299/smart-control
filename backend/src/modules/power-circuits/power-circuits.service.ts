@@ -174,7 +174,12 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
    * 断路器读数快照 —— 由后台采集循环 (onModuleInit, 每 10s) 主动刷新; toView()
    * 只读快照、不打设备, 云慢/设备休眠/转换器掉线都不影响页面。读失败保留上一次好值。
    */
-  private breakerCache = new Map<number, { at: number; reading: PowerReading }>();
+  private breakerCache = new Map<number, {
+    at: number;
+    reading: PowerReading;
+    failCount: number;
+    nextProbeAt: number;
+  }>();
 
   /**
    * 时序器状态快照 —— 启动时读取一次，时序动作窗口内按进度读取；空闲时不反复开 COM
@@ -800,7 +805,7 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
       energy: m.energies[3],
       lastReadAt: new Date().toISOString(),
     };
-    this.breakerCache.set(row.id, { at: Date.now(), reading });
+    this.breakerCache.set(row.id, { at: Date.now(), reading, failCount: 0, nextProbeAt: 0 });
     return reading;
   }
 
@@ -812,11 +817,11 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
       on,
       lastReadAt: new Date().toISOString(),
     };
-    this.breakerCache.set(row.id, { at: Date.now(), reading });
+    this.breakerCache.set(row.id, { at: Date.now(), reading, failCount: 0, nextProbeAt: 0 });
     return reading;
   }
 
-  /** 后台采集: 真正 await 设备读数; 失败保留上一次快照, 不用 0 覆盖 */
+  /** 后台采集: 真正 await 设备读数; 失败保留上一次快照, 不用 0 覆盖; 失败退避不刷日志 */
   private async refreshBreakerReading(
     row: PowerCircuit,
     breakerAdapter:
@@ -827,12 +832,27 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   ): Promise<PowerReading | null> {
     const r = await breakerAdapter.getMeasurements(row.gatewayCode as string);
     if (!r.ok || !r.data) {
-      this.logger.warn(`空开读数失败 circuit=${row.code}: ${r.error ?? '无数据'}`, {
-        context: 'PowerCircuitsService',
+      const prev = this.breakerCache.get(row.id);
+      const failCount = (prev?.failCount ?? 0) + 1;
+      // 退避: 1次30s, 2次2min, 3+次5min; 仅首次和每3次打一条warn, 不刷屏
+      const delayMs = failCount === 1 ? 30_000 : failCount === 2 ? 120_000 : 300_000;
+      const nextProbeAt = Date.now() + delayMs;
+      if (failCount <= 2 || failCount % 3 === 0) {
+        this.logger.warn(`空开读数失败 circuit=${row.code} (第${failCount}次, ${Math.round(delayMs/1000)}s后重试): ${r.error ?? '无数据'}`, {
+          context: 'PowerCircuitsService',
+        });
+      }
+      this.breakerCache.set(row.id, {
+        at: prev?.at ?? Date.now(),
+        reading: prev?.reading ?? this.snapshotBreakerReading(row),
+        failCount,
+        nextProbeAt,
       });
-      return this.breakerCache.get(row.id)?.reading ?? null;
+      return prev?.reading ?? null;
     }
-    return this.storeMeasurements(row, r.data);
+    // 成功, 重置失败计数
+    const reading = this.storeMeasurements(row, r.data);
+    return reading;
   }
 
   /** 经事件总线 WS 广播读数 (业主/管理员电源页实时刷新) */
@@ -890,14 +910,9 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
       for (const row of rows) {
         const adapter = await this.resolveBreakerAdapter(row);
         if (!adapter) continue;
-        // 云平台开关不做后台轮询：状态只在控制成功后更新；ePa MQTT 由订阅消息更新。
-        // 华普云没有可验证的公开频控值，按保守口径同样不做周期查询。
-        if (
-          adapter instanceof EwelinkApiAdapter
-          || adapter instanceof HperforApiAdapter
-          || adapter instanceof EpaMqttBreakerAdapter
-        ) continue;
-        serial.push(row); // 本地 485 设备保守串行, 避免共享总线冲突
+        // DB 配置驱动: poll_enabled=0 的回路不轮询 (MQTT推送型/纯开关无计量)
+        if (!row.pollEnabled) continue;
+        serial.push(row);
       }
       for (const r of serial) await this.refreshAndPublish(r);
     } catch (err) {
@@ -909,11 +924,16 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** 读一台最新读数, 与上次快照比较, 首次/有变化才 WS 推送 */
+  /** 读一台最新读数, 与上次快照比较, 首次/有变化才 WS 推送; 按DB配置跳过/退避 */
   private async refreshAndPublish(row: PowerCircuit): Promise<void> {
     const adapter = await this.resolveBreakerAdapter(row);
     if (!adapter) return;
-    const prev = this.breakerCache.get(row.id)?.reading;
+    const cached = this.breakerCache.get(row.id);
+    // 退避期内跳过: 断路器断电/离线时不每 10s 撞一次总线/云
+    if (cached && cached.nextProbeAt > Date.now()) return;
+    // 已知关闭且配置了"关时不轮"(pollWhenOff=false) → 跳过; 断开回路无电流功率可读
+    if (cached && !row.pollWhenOff && !cached.reading.on && cached.failCount === 0) return;
+    const prev = cached?.reading;
     const reading = await this.refreshBreakerReading(row, adapter);
     if (!reading) return;
     if (!prev || this.readingChanged(prev, reading)) this.publishReading(row, reading);

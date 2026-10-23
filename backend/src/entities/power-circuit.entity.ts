@@ -94,6 +94,14 @@ export class PowerCircuit {
   @Column({ type: 'boolean', default: true })
   enabled!: boolean;
 
+  /** 后台是否轮询此回路 (1=轮, 0=不轮; MQTT推送型设备设0) */
+  @Column({ type: 'boolean', name: 'poll_enabled', default: true })
+  pollEnabled!: boolean;
+
+  /** 已知关闭时是否也轮询 (0=仅开时轮, 1=关也轮; 默认0: 断开回路无电流功率可读) */
+  @Column({ type: 'boolean', name: 'poll_when_off', default: false })
+  pollWhenOff!: boolean;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
