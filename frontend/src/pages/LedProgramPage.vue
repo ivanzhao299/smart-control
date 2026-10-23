@@ -219,6 +219,7 @@ const busyPush = ref(false);
 
 const toastMsg = ref('');
 let toastTimer: number | undefined;
+let pvePollTimer: number | undefined;
 function toast(t: string) {
   toastMsg.value = t;
   // 连续调用时清掉上一个 timer，避免后出的 toast 被前一个 timer 提前清掉
@@ -379,17 +380,21 @@ function downloadLastBin() {
   toast(`已下载：${lastBinName.value}`);
 }
 
-async function refreshPveStatus() {
+async function refreshPveStatus(opts: { silent?: boolean } = {}) {
   try {
     const s = await ledProgramService.status();
+    const wasOnline = pveOnline.value;
     pveOnline.value = s.reachable;
     pveBase.value = s.base || '';
     pveDetail.value = (s.detail as Record<string, any>) || {};
-    const extra = pveStreaming.value ? ` · 推流中 ${pveCurrentFrames.value ?? ''} 帧` : '';
-    toast(s.reachable ? `PVE 在线（${s.base || ''}）${extra}` : `PVE 离线：${s.error || '无响应'}`);
+    // 仅在初始加载或在线状态发生跳变时弹 toast，轮询时静默刷新
+    if (!opts.silent || wasOnline !== s.reachable) {
+      const extra = pveStreaming.value ? ` · 推流中 ${pveCurrentFrames.value ?? ''} 帧` : '';
+      toast(s.reachable ? `PVE 在线（${s.base || ''}）${extra}` : `PVE 离线：${s.error || '无响应'}`);
+    }
   } catch (e: any) {
     pveOnline.value = false;
-    toast(`PVE 状态查询失败：${e?.message || e}`);
+    if (!opts.silent) toast(`PVE 状态查询失败：${e?.message || e}`);
   }
 }
 
@@ -416,8 +421,11 @@ function clearSegs() {
 onMounted(() => {
   refreshHistory();
   refreshPveStatus();
+  // 每 15s 静默复探：后端重启/PVE 瞬断后自动恢复在线指示，不再定格在离线
+  pvePollTimer = window.setInterval(() => refreshPveStatus({ silent: true }), 15000);
 });
 onUnmounted(() => {
+  if (pvePollTimer !== undefined) { window.clearInterval(pvePollTimer); pvePollTimer = undefined; }
   // 卸载时清掉未触发的 toast timer，避免操作已卸载组件的 ref
   if (toastTimer !== undefined) {
     window.clearTimeout(toastTimer);
@@ -438,7 +446,7 @@ onUnmounted(() => {
         <div class="page-sub">勇电灯珠屏 · 290×30 · 25fps · block 组播</div>
       </div>
       <div class="page-actions">
-        <button class="btn btn-ghost" @click="refreshPveStatus">PVE 状态</button>
+        <button class="btn btn-ghost" @click="refreshPveStatus()">PVE 状态</button>
         <button class="btn btn-ghost" @click="router.push({ name: 'admin-auto-switch' })">定时开关</button>
       </div>
     </div>
