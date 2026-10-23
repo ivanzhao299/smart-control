@@ -196,6 +196,19 @@ onMounted(() => {
 // 输入源身份只从播放通道权威状态派生；切换与运营大屏控制由专用用例编排。
 const activeSource = computed(() => detectPlayerInputSource(ch.value));
 
+// 电源开关三态：off(灰左) / booting(琥珀右脉冲,开机中) / turning-off(琥珀左脉冲,断电中) / on(绿右)
+const toggleState = computed(() => {
+  if (booting.value) return 'booting';
+  if (powerBusy.value && powerAllOn.value) return 'turning-off';
+  if (powerAllOn.value) return 'on';
+  return 'off';
+});
+const powerIconState = computed(() => {
+  if (booting.value || (powerBusy.value && powerAllOn.value)) return 'amber';
+  if (powerAllOn.value) return 'green';
+  return 'red';
+});
+
 const {
   welcomeEditOpen,
   welcomeSaving,
@@ -343,17 +356,19 @@ function openOpsMetricsAdmin(): void {
       <!-- 屏幕电源开关 (放"待机"状态行末尾, 时序器拨动样式), 分组同开同关:
            LED=空开(1f-led)+LED大屏功放(按名) / 投影=seq-5+seq-4+投影仪功放(按名) -->
       <div v-if="powerCircuits.length" class="now-power">
-        <Power :size="15" :stroke-width="2" />
+        <span class="np-power-icon" :class="powerIconState">
+          <Power :size="15" :stroke-width="2.5" />
+        </span>
         <span class="np-label">电源</span>
         <button
           class="v2-toggle"
-          :class="{ on: powerAllOn }"
-          :disabled="powerBusy"
+          :class="toggleState"
           :title="(powerAllOn ? '断开' : '接通') + powerCircuits.map((c) => c.name).join('+')"
           @click="togglePower"
         ></button>
-        <span class="np-state" :class="{ on: powerAllOn, booting }">
-          <template v-if="booting">开机中 {{ bootElapsedSec }}s</template>
+        <span class="np-state" :class="toggleState">
+          <template v-if="booting">开机中 <span class="np-count">{{ bootElapsedSec }}</span>s</template>
+          <template v-else-if="powerBusy && powerAllOn">断电中…</template>
           <template v-else>{{ powerAllOn ? '已通电' : (powerCircuits.some((c) => c.reading.on) ? '部分通电' : '已断电') }}</template>
         </span>
       </div>
@@ -1485,28 +1500,43 @@ function openOpsMetricsAdmin(): void {
   color: var(--v2-text-2); flex-shrink: 0; white-space: nowrap;
 }
 .np-label { font-size: 13px; font-weight: 600; color: var(--v2-text-1); }
+.np-power-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%;
+  transition: all 0.3s ease;
+}
+.np-power-icon.red { color: #f85149; background: rgba(248,81,73,0.12); box-shadow: 0 0 8px rgba(248,81,73,0.3); }
+.np-power-icon.amber { color: #d29922; background: rgba(210,153,34,0.12); box-shadow: 0 0 8px rgba(210,153,34,0.3); }
+.np-power-icon.green { color: #3fb950; background: rgba(63,185,80,0.12); box-shadow: 0 0 8px rgba(63,185,80,0.3); }
 .np-state {
-  display: inline-flex; align-items: center;
+  display: inline-flex; align-items: center; gap: 3px;
   flex: 0 0 8em; width: 8em;
   min-width: 8em; overflow: hidden;
   white-space: nowrap; text-overflow: ellipsis;
-  font-size: 12px; font-weight: 600; color: var(--v2-text-3);
+  font-size: 12px; font-weight: 700; color: var(--v2-text-3);
   font-variant-numeric: tabular-nums;
+  transition: color 0.25s ease;
 }
-.np-state.on { color: var(--v2-live-power, #48D597); }
-.np-state.booting { color: var(--v2-primary); }
+.np-state.on { color: #3fb950; }
+.np-state.booting, .np-state.turning-off { color: #d29922; }
+.np-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: rgba(210,153,34,0.18);
+  font-size: 11px; font-weight: 800;
+}
 
-/* 拨动开关 —— 抄自电源页时序器 (.v2-toggle), 保持全站一致 */
+/* 三态拨动开关：off(灰左) / booting(琥珀右脉冲) / turning-off(琥珀左脉冲) / on(绿右) */
 .v2-toggle {
   position: relative;
-  width: 46px; height: 26px;
-  border-radius: var(--v2-r-md);
-  background: var(--v2-surf-2);
+  width: 48px; height: 28px;
+  border-radius: 14px;
   cursor: pointer;
-  transition: background 0.22s ease;
+  transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
   flex-shrink: 0;
-  border: none;
+  border: 1.5px solid transparent;
   padding: 0;
+  background: #21262d;
 }
 .v2-toggle::after {
   content: '';
@@ -1514,24 +1544,49 @@ function openOpsMetricsAdmin(): void {
   top: 2px; left: 2px;
   width: 22px; height: 22px;
   border-radius: 50%;
-  background: white;
+  background: #fff;
   box-shadow: 0 1px 4px rgba(0,0,0,0.4);
-  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
+/* off: 深灰, 旋钮左 */
+.v2-toggle.off { background: #21262d; border-color: #30363d; }
+/* on: 渐变绿, 旋钮右, 绿色光晕 */
 .v2-toggle.on {
-  background: linear-gradient(135deg, #9BA1A9, #9BA1A9);
-  box-shadow: 0 0 14px rgba(255, 255, 255, 0.08), 0 0 28px rgba(255, 255, 255, 0.08);
+  background: linear-gradient(135deg, #238636, #2ea043);
+  border-color: #3fb950;
+  box-shadow: 0 0 14px rgba(63,185,80,0.3);
 }
 .v2-toggle.on::after {
   transform: translateX(20px);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.4), 0 0 8px rgba(255, 255, 255, 0.6);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4), 0 0 8px rgba(63,185,80,0.5);
 }
-.v2-toggle:disabled { opacity: 0.5; cursor: not-allowed; }
+/* booting: 琥珀边框, 旋钮右, 呼吸脉冲 */
+.v2-toggle.booting {
+  background: #2d333b;
+  border-color: #d29922;
+  box-shadow: 0 0 12px rgba(210,153,34,0.25);
+}
+.v2-toggle.booting::after {
+  transform: translateX(20px);
+  animation: np-knob-pulse 1s ease-in-out infinite;
+}
+/* turning-off: 琥珀边框, 旋钮左, 呼吸脉冲 */
+.v2-toggle.turning-off {
+  background: #2d333b;
+  border-color: #d29922;
+  box-shadow: 0 0 12px rgba(210,153,34,0.25);
+}
+.v2-toggle.turning-off::after {
+  animation: np-knob-pulse 1s ease-in-out infinite;
+}
+@keyframes np-knob-pulse {
+  0%, 100% { box-shadow: 0 1px 4px rgba(0,0,0,0.4), 0 0 0 0 rgba(210,153,34,0.5); }
+  50% { box-shadow: 0 1px 4px rgba(0,0,0,0.4), 0 0 0 6px rgba(210,153,34,0); }
+}
 @media (max-width: 640px) {
-  .v2-toggle { width: 48px; height: 28px; }
+  .v2-toggle { width: 50px; height: 30px; }
   .v2-toggle::after { width: 24px; height: 24px; }
-  .v2-toggle.on::after { transform: translateX(20px); }
-  /* 手机顶栏空间更窄，仍保留固定槽位，但缩小槽宽避免挤压标题和状态徽标。 */
+  .v2-toggle.on::after, .v2-toggle.booting::after { transform: translateX(20px); }
   .np-state { flex-basis: 6.5em; width: 6.5em; min-width: 6.5em; }
 }
 

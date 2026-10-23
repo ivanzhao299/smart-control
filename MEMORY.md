@@ -1778,3 +1778,21 @@ pm2 僵尸守护根治（146→2，INCIDENTS #9）→ 部署误报根治（#10�
 - PVE 收进硬件清单：迁移 1793401000000-SeedPveReceiverHardwareUnit 把 PVE 以 code=PVE-REC-01/category=led-player 写 hardware_units（IP 192.168.77.10，addressing.url 存推流地址）；led-program.service.pveBaseUrl() 优先读 hardware_units，回退 devices/env。改硬件明细里的 IP/端口即生效。
 - PWA/手机端左上角 logo 回归：窄屏 .v2-nav-brand 被 display:none（侧栏变底栏），顶栏 .v2-brand 补 BrandLogo(30px)，仅 ≤600px 显示，桌面端不变。
 - 生产是 SQLite（非 Postgres）。首次 gk9000-deploy 在受控迁移 writer-fence 报 "Unexpected migration controller" 落下 RELEASE_HOLD；手动 typeorm migration:run 已落库。恢复路径：DELETE migrations 里该迁移的书记录（不动 hardware_units 数据）→ 跑 scripts/reconcile-held-gk9000-release.ps1 -Commit <sha> -TaskSnapshot logs/release-pause-*.json -Apply → 重建后端+受控迁移+回执+resume 激活，全绿，verify-deploy passed，HOLD 自动转为归档。禁止手删 RELEASE_HOLD。
+
+## 第八轮 6100e30（2026-10-23 上线 GK9000）：易微联限流根修
+- 根因：后台采集每 10s 撞云导致云持续限流（全天 14405 次 invoke too much），操作员首下就被云拒，5min 全局冷却把同域所有回路全锁；485/LED 成功而云开关全拒=操作员看到"部分接通"。
+- 后端 ewelink-devices.service.ts：RATE_COOLDOWN_MS 5min→60s；新增 paramsBadUntil Map + PARAMS_BAD_TTL_MS=30s，云读失败后 30s 内同设备直接走本地快照不发云；invalidateCache 同时清负缓存。
+- 前端 PowerPage.vue dispatchMany：失败回路自动退避重试两轮（3s+5s），全部成功才报完成；不人为加排队延迟（云开关靠后端 throughCloud 600ms 间隔，485 总线本就串行，RS232 时序器按设备独立）；仍有失败的列出具体回路名。
+- LED 开机链路（LedPage power-code="1f-led,seq-4" + power-amp-codes=['seq-2']）不动，不碰易微联。
+- 部署：push feat→main，GitHub Actions deploy-gk9000.yml 3m17s 成功；生产 dist 确认 RATE_COOLDOWN_MS=60_000 / PARAMS_BAD_TTL_MS=30_000 / paramsBadUntil 已加载；部署后日志零新增 ewelink invoke too much（最后一次失败 15:24:46，部署 16:12 后干净）。
+- 待观察：BREAKER-SHOWROOM-1（EPA 485 断路器）tcp read timed out 每 10s 一次，与易微联无关，是 485 总线设备离线/线序问题，下轮查。
+
+## 第九轮（2026-10-24）：PlayerConsole 电源开关三态视觉改造
+- 背景：业主反馈 LED/投影页右上角电源开关点完只跳数字、开关灰掉不动，状态不直观。
+- 改动 PlayerConsole.vue：模板去掉 :disabled="powerBusy"，新增 toggleState/ powerIconState computed；
+  - off：深灰底+灰边框，旋钮左，电源图标红底红光晕；
+  - booting（开机中）：琥珀边框+旋钮呼吸脉冲动画，旋钮右（点击即拨位），电源图标黄，倒计时数字改圆形琥珀底；
+  - turning-off（断电中）：琥珀边框+旋钮呼吸脉冲，旋钮左，显示"断电中…"；
+  - on：渐变绿底+绿色光晕，旋钮右，电源图标绿。
+- 双击防护仍由 togglePower 内部 powerBusy 判断兜底，不需要 disabled 属性。
+- 效果图：power-toggle-mockup.html（用户已确认方案）。
