@@ -1275,7 +1275,8 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   /* header 极简: 品牌 logo + 标题 + 时钟；左右 padding 与首页内容区统一为 16px，logo/标题与下方卡片左对齐 */
   .v2-header { padding: 0 16px; height: 48px; }
   .v2-brand { flex-direction: row; align-items: center; gap: 8px; }
-  .v2-brand-logo { display: inline-flex; }
+  .v2-brand-logo { display: inline-flex; aspect-ratio: auto; width: auto; }
+  .v2-brand-logo :deep(.logo-img) { width: auto; border-radius: 6px; }
   .v2-brand-title { font-size: 20px; letter-spacing: 0.6px; }
   .v2-brand-sub { display: none; }
   .v2-header-spacer { display: none; }
