@@ -428,20 +428,6 @@ onMounted(refresh);
         <div class="stat-label">故障</div>
         <div class="stat-value">{{ summary.fault }}</div>
       </div>
-      <div class="stat-card stat-categories">
-        <div class="stat-label">分类</div>
-        <div class="cat-chips">
-          <span
-            v-for="cat in HARDWARE_CATEGORIES"
-            :key="cat"
-            v-show="(summary.byCategory[cat] ?? 0) > 0"
-            class="cat-chip"
-          >
-            <component :is="categoryMeta[cat].icon" :size="13" :stroke-width="2" />
-            {{ categoryMeta[cat].label }} <b>{{ summary.byCategory[cat] }}</b>
-          </span>
-        </div>
-      </div>
     </div>
 
     <!-- 类别筛选 tab -->
@@ -869,9 +855,9 @@ onMounted(refresh);
 /* 页头: 标题占左, 刷新/新增用全局紧凑按钮, 不拉伸不换行 */
 .page-head { flex-wrap: wrap; align-items: center; }
 .page-head button { flex: 0 0 auto; height: 36px; padding: 0 14px; font-size: 13px; }
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .page-head { gap: 10px; }
-  /* 装饰图标块在手机端会被拉成无用通栏, 直接隐藏 */
+  /* 装饰图标块在窄屏会被拉成无用通栏, 直接隐藏（断点 600→768，兼容大手机/折叠屏） */
   .sc-head-ico { display: none; }
   .page-head button { height: 34px; padding: 0 12px; }
 }
