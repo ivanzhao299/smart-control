@@ -396,16 +396,35 @@ async function dispatchMany(targets: PowerCircuitView[], op: 'on' | 'off'): Prom
     ElMessage.success(`${verb}: ${skipped} 路均已处于该状态, 无需操作`);
     return;
   }
-  let okCount = 0;
-  let failCount = 0;
-  for (const c of pending) {
-    const ok = await dispatchOne(c, op, true); // 静默, 末尾统一汇总
-    if (ok) okCount += 1;
-    else failCount += 1;
+
+  /** 对一组回路逐路下发, 各协议按自身最高效速度执行 (后端 throughCloud 管云开关间隔,
+   *  485 总线本就串行, RS232 时序器按设备独立), 返回失败的回路 */
+  async function runBatch(rows: PowerCircuitView[]): Promise<PowerCircuitView[]> {
+    const failed: PowerCircuitView[] = [];
+    for (const c of rows) {
+      const ok = await dispatchOne(c, op, true);
+      if (!ok) failed.push(c);
+    }
+    return failed;
   }
+
+  let remaining = await runBatch(pending);
+  // 易微联云限流/瞬时网络失败: 退避重试两轮, 避免操作员看到"部分接通"
+  for (let round = 0; round < 2 && remaining.length > 0; round += 1) {
+    const waitMs = round === 0 ? 3000 : 5000;
+    ElMessage.warning(`${remaining.length} 路${verb}未接通, ${waitMs / 1000}s 后自动重试…`);
+    await new Promise((r) => setTimeout(r, waitMs));
+    remaining = await runBatch(remaining);
+  }
+
+  const okCount = pending.length - remaining.length;
   const skipPart = skipped > 0 ? `, ${skipped} 路已在该状态跳过` : '';
-  if (failCount === 0) ElMessage.success(`${verb}完成: ${okCount} 路成功${skipPart}`);
-  else ElMessage.warning(`${verb}: ${okCount} 路成功, ${failCount} 路失败${skipPart}`);
+  if (remaining.length === 0) {
+    ElMessage.success(`${verb}完成: ${okCount} 路全部成功${skipPart}`);
+  } else {
+    const names = remaining.map((c) => c.name).slice(0, 4).join('、');
+    ElMessage.error(`${verb}未完成: ${okCount} 路成功, ${remaining.length} 路仍未接通 (${names}${remaining.length > 4 ? '…' : ''})，请检查设备或稍后重试`);
+  }
 }
 
 /** 全场/整层通断电必须二次确认 (2026-07-25 生产级整改, 同空调页口径):

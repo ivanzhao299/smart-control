@@ -112,11 +112,17 @@ export class EwelinkDevicesService {
   // 官方限流：同一 IP 任意两次请求间隔 ≥500ms、5 分钟 ≤300 次。
   // 所有读写共用一个队列，并在 412 限流后进入冷却，避免多个页面/后台任务继续撞接口。
   private readonly paramsCache = new Map<string, { at: number; params: any }>();
+  /** 负缓存：云读失败（限流/设备离线）后短时间内不再重发，杜绝 10s 采集循环撞云风暴 */
+  private readonly paramsBadUntil = new Map<string, number>();
   private static readonly PARAMS_CACHE_TTL_MS = 12_000;
+  private static readonly PARAMS_BAD_TTL_MS = 30_000;
   private static readonly MIN_CLOUD_GAP_MS = 600;
   private static readonly RATE_WINDOW_MS = 5 * 60 * 1000;
   private static readonly MAX_CALLS_PER_WINDOW = 300;
-  private static readonly RATE_COOLDOWN_MS = 5 * 60 * 1000;
+  /** 全局冷却：从 5 分钟缩到 60 秒。eWeLink 限流窗口本身 5 分钟，但单次误撞后
+   *  把所有回路（含其他设备）全锁 5 分钟体验太差；60 秒足够让瞬时连点退避，
+   *  后续请求靠 600ms 串行间隔自然节流。 */
+  private static readonly RATE_COOLDOWN_MS = 60_000;
   private cloudChain: Promise<unknown> = Promise.resolve();
   private lastCloudCallAt = 0;
   private cloudCallTimes: number[] = [];
@@ -167,6 +173,7 @@ export class EwelinkDevicesService {
   /** 清掉某设备缓存（控制后由乐观更新接管，不额外发请求） */
   private invalidateCache(deviceId: string): void {
     this.paramsCache.delete(deviceId);
+    this.paramsBadUntil.delete(deviceId);
   }
 
   /** 按原回报口径给 on 值（布尔设备给布尔，字符串设备给 'on'/'off'） */
@@ -253,20 +260,32 @@ export class EwelinkDevicesService {
     };
     const cached = hit();
     if (cached) return cached;
-    return this.throughCloud(async () => {
-      // 排队结束后二次确认：可能在等待期间已被其他请求刷新
-      const cached2 = hit();
-      if (cached2) return cached2;
-      const { token, region } = await this.auth.ensureAccessToken();
-      const query = new URLSearchParams({ id: deviceId, type: '1' });
-      const json = await this.signedGet(region, '/v2/device/thing/status', query, token);
-      if (json.error !== 0) {
-        throw new BadRequestException(`读设备状态失败: ${json.msg ?? json.error}`);
-      }
-      const params = json.data?.params ?? {};
-      this.paramsCache.set(deviceId, { at: Date.now(), params });
-      return { params };
-    });
+    // 负缓存命中：上次云读失败（限流/离线）后短时间内不再重发，直接抛错让上层走快照
+    const badUntil = this.paramsBadUntil.get(deviceId);
+    if (!opts.force && badUntil && Date.now() < badUntil) {
+      throw new EwelinkRateLimitError(`设备 ${deviceId} 云读冷却中，请稍后再试`);
+    }
+    try {
+      return await this.throughCloud(async () => {
+        // 排队结束后二次确认：可能在等待期间已被其他请求刷新
+        const cached2 = hit();
+        if (cached2) return cached2;
+        const { token, region } = await this.auth.ensureAccessToken();
+        const query = new URLSearchParams({ id: deviceId, type: '1' });
+        const json = await this.signedGet(region, '/v2/device/thing/status', query, token);
+        if (json.error !== 0) {
+          throw new BadRequestException(`读设备状态失败: ${json.msg ?? json.error}`);
+        }
+        const params = json.data?.params ?? {};
+        this.paramsCache.set(deviceId, { at: Date.now(), params });
+        this.paramsBadUntil.delete(deviceId);
+        return { params };
+      });
+    } catch (err) {
+      // 云读失败：写 30s 负缓存，避免后台采集每 10s 重发撞云
+      this.paramsBadUntil.set(deviceId, Date.now() + EwelinkDevicesService.PARAMS_BAD_TTL_MS);
+      throw err;
+    }
   }
 
   /** 读单台设备的最新开关状态 */
