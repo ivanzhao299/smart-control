@@ -177,9 +177,8 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   private breakerCache = new Map<number, { at: number; reading: PowerReading }>();
 
   /**
-   * 时序器状态快照 —— 由后台采集循环 (onModuleInit, 每 SEQ_POLL_INTERVAL_MS)
-   * 主动发**一次** readStatus (0xac 一帧就带全部 8 路状态) 写回; toView() 只读快照、
-   * 不开 COM 口。串口慢/时序器掉线/端口被占都不影响页面, 读失败保留上一次好值。
+   * 时序器状态快照 —— 启动时读取一次，时序动作窗口内按进度读取；空闲时不反复开 COM
+   * 口。串口慢/时序器掉线/端口被占都不影响页面, 读失败保留上一次好值。
    */
   private seqCache: { at: number; channels: boolean[] } | null = null;
   /**
@@ -190,17 +189,15 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
   private seqCollecting = false;
   /**
    * 正在跑时序动作窗口期的设备 category（非 null）——窗口期内该台的合成逐路快照由
-   * runSeqWindow 独占维护，禁止 10s 定时采集 collectSequencer 读真实全目标去覆盖它
+   * runSeqWindow 独占维护，禁止后台补读 collectSequencer 读真实全目标去覆盖它
    * （EPO 状态字节命令后立即回目标态，会把逐路合成一下冲成全目标）。
    */
   private seqWindowCategory: string | null = null;
-  private seqTimer?: NodeJS.Timeout;
-  private readonly SEQ_POLL_INTERVAL_MS = 10_000;
 
   /**
-   * 后台主动采集 (彻底版): 不等到用户请求才读断路器。定时 (10s) 统一调度——
-   * 云断路器 HTTP 并行、485 共享串口串行, 结果写内存快照; 读数变化经 ControlBus
-   * WS 广播。list/detail 只读快照, 永不被云慢/设备休眠阻塞。
+   * 本地 485 断路器的低频快照采集。云平台开关不放进这里：它们只有开/关状态，
+   * 控制成功后直接保存最后一次正确状态；ePa MQTT 则由订阅消息更新。这样不会用
+   * 无意义的状态查询消耗平台额度，也不会让控制请求和后台查询互相竞争。
    */
   private collectTimer?: NodeJS.Timeout;
   private collecting = false;
@@ -661,36 +658,57 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
 
     const breakerAdapter = await this.resolveBreakerAdapter(row);
     if (breakerAdapter) {
-      const wanted = on ? 'closed' : 'open';
-      // 幂等 (2026-10-01 业主: 园区已通电再点"通电"会报错): 下发前先读当前态,
-      // 已处于目标态就不重复合/分闸 (设备/云平台对重复命令会拒), 按成功 no-op 处理。
-      const pre = await breakerAdapter.getMeasurements(row.gatewayCode as string);
-      const already = pre.ok && pre.data?.switchState === wanted;
-      let final: PowerReading | null = pre.ok && pre.data ? this.storeMeasurements(row, pre.data) : null;
-      if (!already) {
-        // 真·物理总闸: 失败必须抛出去, 绝不能让前端显示"断电成功"而闸没动
+      // 云平台/推送型开关只发一次控制命令：不先读状态，也不在请求路径轮询确认。
+      // 命令成功后用本地快照立即回显；后续以控制结果或显式同步为准。
+      if (
+        breakerAdapter instanceof EwelinkApiAdapter
+        || breakerAdapter instanceof HperforApiAdapter
+        || breakerAdapter instanceof EpaMqttBreakerAdapter
+      ) {
         const r = on
           ? await breakerAdapter.turnOn(row.gatewayCode as string)
           : await breakerAdapter.turnOff(row.gatewayCode as string);
         if (!r.ok) {
-          throw new ConflictException(`空开${on ? '合闸' : '分闸'}失败: ${r.error ?? '未知错误'}`);
+          throw new ConflictException(`远程开关${on ? '通电' : '断电'}失败: ${r.error ?? '未知错误'}`);
         }
-        this.breakerCache.delete(row.id); // 状态刚变, 别再拿旧读数糊弄前端
-        // 等物理闸走完再返回: 电机合/分闸 ~1s, 命令一回来读到的还是动作前状态。
-        // 轮询到 switchState 翻转为止 (上限 4s), 每帧都写快照; 超时不报错——命令已
-        // 确认成功, 状态让后台 10s 采集兜底。
-        for (let i = 0; i < 10; i += 1) {
-          await new Promise((res) => setTimeout(res, 400));
-          const m = await breakerAdapter.getMeasurements(row.gatewayCode as string);
-          if (m.ok && m.data) final = this.storeMeasurements(row, m.data);
-          if (m.ok && m.data?.switchState === wanted) break;
+        const reading = this.storeSwitchState(row, on);
+        this.publishReading(row, reading);
+        this.logger.info(
+          `远程开关${on ? '通电' : '断电'}命令已下发: circuit=${row.code}`,
+          { context: 'PowerCircuitsService' },
+        );
+      } else {
+        const wanted = on ? 'closed' : 'open';
+        // 幂等 (2026-10-01 业主: 园区已通电再点"通电"会报错): 下发前先读当前态,
+        // 已处于目标态就不重复合/分闸 (设备/云平台对重复命令会拒), 按成功 no-op 处理。
+        const pre = await breakerAdapter.getMeasurements(row.gatewayCode as string);
+        const already = pre.ok && pre.data?.switchState === wanted;
+        let final: PowerReading | null = pre.ok && pre.data ? this.storeMeasurements(row, pre.data) : null;
+        if (!already) {
+          // 真·物理总闸: 失败必须抛出去, 绝不能让前端显示"断电成功"而闸没动
+          const r = on
+            ? await breakerAdapter.turnOn(row.gatewayCode as string)
+            : await breakerAdapter.turnOff(row.gatewayCode as string);
+          if (!r.ok) {
+            throw new ConflictException(`空开${on ? '合闸' : '分闸'}失败: ${r.error ?? '未知错误'}`);
+          }
+          this.breakerCache.delete(row.id); // 状态刚变, 别再拿旧读数糊弄前端
+          // 等物理闸走完再返回: 电机合/分闸 ~1s, 命令一回来读到的还是动作前状态。
+          // 轮询到 switchState 翻转为止 (上限 4s), 每帧都写快照; 超时不报错——命令已
+          // 确认成功, 状态让后台 10s 采集兜底。
+          for (let i = 0; i < 10; i += 1) {
+            await new Promise((res) => setTimeout(res, 400));
+            const m = await breakerAdapter.getMeasurements(row.gatewayCode as string);
+            if (m.ok && m.data) final = this.storeMeasurements(row, m.data);
+            if (m.ok && m.data?.switchState === wanted) break;
+          }
         }
+        if (final) this.publishReading(row, final); // 操作/幂等后即时 WS 推送
+        this.logger.info(
+          `空开${on ? '合闸' : '分闸'}: circuit=${row.code}${already ? ' (幂等跳过)' : ''}`,
+          { context: 'PowerCircuitsService' },
+        );
       }
-      if (final) this.publishReading(row, final); // 操作/幂等后即时 WS 推送
-      this.logger.info(
-        `空开${on ? '合闸' : '分闸'}: circuit=${row.code}${already ? ' (幂等跳过)' : ''}`,
-        { context: 'PowerCircuitsService' },
-      );
     } else if (await this.isSeq55Circuit(row)) {
       // 第二台时序器 (55…AA 协议, COM4): 单路 F0/F1 立即动作, 乐观置位快照让 UI
       // 立即稳定; 不在请求路径读真机, 数秒后由后台 collectSequencer 以真机为准校正。
@@ -786,6 +804,18 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     return reading;
   }
 
+  /** 云开关命令成功后的本地状态回显，不触发额外云端读请求。 */
+  private storeSwitchState(row: PowerCircuit, on: boolean): PowerReading {
+    const previous = this.breakerCache.get(row.id)?.reading ?? this.snapshotBreakerReading(row);
+    const reading: PowerReading = {
+      ...previous,
+      on,
+      lastReadAt: new Date().toISOString(),
+    };
+    this.breakerCache.set(row.id, { at: Date.now(), reading });
+    return reading;
+  }
+
   /** 后台采集: 真正 await 设备读数; 失败保留上一次快照, 不用 0 覆盖 */
   private async refreshBreakerReading(
     row: PowerCircuit,
@@ -841,36 +871,34 @@ export class PowerCircuitsService implements OnModuleInit, OnModuleDestroy {
     this.collectTimer = timer;
     void this.collectOnce(); // 启动即采一次, 不等 10s
 
-    // 时序器后台采集: 定时一帧 readStatus 写快照, 页面只读快照不碰串口
-    const seqTimer = setInterval(() => { void this.collectSequencer(); }, this.SEQ_POLL_INTERVAL_MS);
-    seqTimer.unref?.();
-    this.seqTimer = seqTimer;
+    // 时序器只在启动和时序动作窗口读取；空闲时保持最后一次正确快照。
     void this.collectSequencer();
   }
 
   onModuleDestroy(): void {
     if (this.collectTimer) clearInterval(this.collectTimer);
     this.collectTimer = undefined;
-    if (this.seqTimer) clearInterval(this.seqTimer);
-    this.seqTimer = undefined;
   }
 
-  /** 一轮采集: 云断路器并行、485/MQTT 串行 (共享物理总线), 变化才广播 */
+  /** 一轮采集：仅本地 485 断路器，变化才广播；云平台与 MQTT 不在这里查询。 */
   private async collectOnce(): Promise<void> {
     if (this.collecting) return;
     this.collecting = true;
     try {
       const rows = await this.repo.find({ where: { enabled: true } });
       const serial: PowerCircuit[] = [];
-      const parallel: PowerCircuit[] = [];
       for (const row of rows) {
         const adapter = await this.resolveBreakerAdapter(row);
         if (!adapter) continue;
-        if (adapter instanceof HperforApiAdapter || adapter instanceof EwelinkApiAdapter) {
-          parallel.push(row); // 云 HTTP 设备可并行
-        } else serial.push(row); // 485 / MQTT: 保守串行, 避免共享总线冲突
+        // 云平台开关不做后台轮询：状态只在控制成功后更新；ePa MQTT 由订阅消息更新。
+        // 华普云没有可验证的公开频控值，按保守口径同样不做周期查询。
+        if (
+          adapter instanceof EwelinkApiAdapter
+          || adapter instanceof HperforApiAdapter
+          || adapter instanceof EpaMqttBreakerAdapter
+        ) continue;
+        serial.push(row); // 本地 485 设备保守串行, 避免共享总线冲突
       }
-      await Promise.all(parallel.map((r) => this.refreshAndPublish(r)));
       for (const r of serial) await this.refreshAndPublish(r);
     } catch (err) {
       this.logger.warn(`后台采集断路器异常: ${(err as Error).message}`, {

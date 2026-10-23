@@ -110,20 +110,53 @@ export class EwelinkDevicesService {
 
   // ============ 云端限流保护 ============
   // 官方限流：同一 IP 任意两次请求间隔 ≥500ms、5 分钟 ≤300 次。
-  // 1) 全局串行队列 + 最小间隔，杜绝后台 10s 采集把同一物理设备 4 路并行打成 0ms 突发；
-  // 2) 每设备 params 短缓存，同一设备多个逻辑回路（聚合/多通道）在 TTL 内只拉一次云。
+  // 所有读写共用一个队列，并在 412 限流后进入冷却，避免多个页面/后台任务继续撞接口。
   private readonly paramsCache = new Map<string, { at: number; params: any }>();
   private static readonly PARAMS_CACHE_TTL_MS = 12_000;
-  private static readonly MIN_CLOUD_GAP_MS = 550;
+  private static readonly MIN_CLOUD_GAP_MS = 600;
+  private static readonly RATE_WINDOW_MS = 5 * 60 * 1000;
+  private static readonly MAX_CALLS_PER_WINDOW = 300;
+  private static readonly RATE_COOLDOWN_MS = 5 * 60 * 1000;
   private cloudChain: Promise<unknown> = Promise.resolve();
   private lastCloudCallAt = 0;
+  private cloudCallTimes: number[] = [];
+  private cloudCooldownUntil = 0;
 
-  /** 把云端调用排入全局串行队列，并保证相邻两次实际请求间隔 ≥550ms */
+  private async waitForCloudBudget(): Promise<void> {
+    for (;;) {
+      const now = Date.now();
+      if (this.cloudCooldownUntil > now) {
+        throw new EwelinkRateLimitError('易微联云接口正在限流冷却，请稍后再试');
+      }
+      this.cloudCallTimes = this.cloudCallTimes.filter(
+        (at) => now - at < EwelinkDevicesService.RATE_WINDOW_MS,
+      );
+      const minGapUntil = this.lastCloudCallAt + EwelinkDevicesService.MIN_CLOUD_GAP_MS;
+      const windowUntil = this.cloudCallTimes.length >= EwelinkDevicesService.MAX_CALLS_PER_WINDOW
+        ? this.cloudCallTimes[0] + EwelinkDevicesService.RATE_WINDOW_MS
+        : 0;
+      const until = Math.max(minGapUntil, windowUntil);
+      if (until <= now) return;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(until - now, 1000)));
+    }
+  }
+
+  private markCloudRateLimited(message: string): void {
+    this.cloudCooldownUntil = Math.max(
+      this.cloudCooldownUntil,
+      Date.now() + EwelinkDevicesService.RATE_COOLDOWN_MS,
+    );
+    this.logger.warn(`易微联云接口进入限流冷却: ${message.slice(0, 120)}`, {
+      context: 'EwelinkDevicesService',
+    });
+  }
+
+  /** 把云端调用排入全局串行队列，并保证官方频率窗口不被突破。 */
   private async throughCloud<T>(fn: () => Promise<T>): Promise<T> {
     const run = async (): Promise<T> => {
-      const gap = EwelinkDevicesService.MIN_CLOUD_GAP_MS - (Date.now() - this.lastCloudCallAt);
-      if (gap > 0) await new Promise((r) => setTimeout(r, gap));
+      await this.waitForCloudBudget();
       this.lastCloudCallAt = Date.now();
+      this.cloudCallTimes.push(this.lastCloudCallAt);
       return fn();
     };
     const queued = this.cloudChain.then(run, run);
@@ -347,9 +380,8 @@ export class EwelinkDevicesService {
   }
 
   /**
-   * 统一云端 fetch：识别 HTTP 429 与纯文本 "invoke too fast"（非 JSON，旧代码直接
-   * JSON.parse 会抛 "Unexpected token 'i'" 导致整个控制失败）。限流时退避重试（最多 2 次），
-   * 仍失败抛 EwelinkRateLimitError；其他非 JSON 响应给清晰错误，不再裸崩。
+   * 统一云端 fetch：识别 HTTP 429、纯文本限流和 JSON error=412。
+   * 412 进入冷却后直接失败，不做立即重试，避免把云端限流窗口越撞越长。
    */
   private async cloudFetch(
     url: string,
@@ -367,17 +399,26 @@ export class EwelinkDevicesService {
           await sleep(700 * (attempt + 1) + Math.floor(Math.random() * 300));
           continue;
         }
-        throw new EwelinkRateLimitError(
-          `易微联云接口限流，请稍后再试（${text.trim().slice(0, 60) || resp.status}）`,
-        );
+        const message = text.trim().slice(0, 60) || String(resp.status);
+        this.markCloudRateLimited(message);
+        throw new EwelinkRateLimitError(`易微联云接口限流，请稍后再试（${message}）`);
       }
+      let json: any;
       try {
-        return JSON.parse(text);
+        json = JSON.parse(text);
       } catch {
         throw new BadRequestException(
           `易微联${action}返回异常（HTTP ${resp.status}）: ${text.trim().slice(0, 80) || '空响应'}`,
         );
       }
+      const jsonRateLimited = json?.error === 412
+        || /invoke too (much|fast)/i.test(String(json?.msg ?? ''));
+      if (jsonRateLimited) {
+        const message = String(json?.msg ?? 'error=412');
+        this.markCloudRateLimited(message);
+        throw new EwelinkRateLimitError(`易微联云接口限流，请稍后再试（${message.slice(0, 80)}）`);
+      }
+      return json;
     }
   }
 

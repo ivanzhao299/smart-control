@@ -477,8 +477,8 @@ const responseCache = new Map<string, CachedPayload>();
 const CACHE_TTL_MS = 30_000;
 
 /**
- * 各端点 GET 缓存 TTL(ms)。配置/清单类 30s；power-circuits 为后台 10s 采集的
- * 开关快照, 给 10s(与采集周期一致), 让多处共享、写操作后清缓存重读;
+ * 各端点 GET 缓存 TTL(ms)。配置/清单类 30s；power-circuits 为后端维护的
+ * 最后一次正确开关快照, 给 10s 让多处共享、写操作后清缓存重读;
  * 其余(实时/身份端点)不在表内 → 0, 仅做 in-flight 合并。
  *
  * 实时端点刻意不做 TTL: /playback/channels(播放状态)、/system-branding(欢迎页内容)

@@ -452,26 +452,6 @@ async function floorOff(): Promise<void> {
   await dispatchMany(floorPlainRows.value, 'off');
 }
 
-// 实时刷新 — 每 10 秒拉一次最新读数 (服务端读数缓存 10s, 轮询基本走缓存, 不打爆云)
-let refreshTimer: ReturnType<typeof setInterval> | null = null;
-function startRefresh(): void {
-  if (refreshTimer) return;
-  refreshTimer = setInterval(() => {
-  if (document.hidden) return; // C3: 页面在后台不打设备
-
-    if (!loading.value && busyIds.value.size === 0 && !seqWindowGw.value) {
-      void powerCircuitsService.list().then((rows) => {
-        circuits.value = rows;
-      }).catch(() => { /* 静默 */ });
-      // 展开着的空开详情也顺带刷新 (三相/温度实时变化)
-      if (expandedId.value != null) void loadBreaker(expandedId.value);
-    }
-  }, 10_000);
-}
-function stopRefresh(): void {
-  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
-}
-
 const router = useRouter();
 const perm = usePermissionStore();
 function goBack(): void { router.push({ name: 'dashboard' }); }
@@ -498,13 +478,12 @@ async function onScheduleChanged(): Promise<void> {
     const rows = await powerCircuitsService.list();
     circuits.value = rows;
     await loadNextRuns();
-  } catch { /* 静默：下次轮询自然刷新 */ }
+  } catch { /* 静默：回到页面时再读取一次快照 */ }
 }
 
-// 2026-07-27 切页卡顿根治: keep-alive 下 onUnmounted 不触发, 轮询切走后永续后台
-// 运行。改 useActivePolling — 在本页才刷新, 切走即停; 回页立即 loadCircuits。
-// 2026-10-01 彻底版: 优先走 WS 推送 (后台 10s 预采集, power_reading), WS 在线
-// 零轮询; 断线才用 10s setInterval 兜底。
+// 2026-07-27 切页卡顿根治: keep-alive 下 onUnmounted 不触发, 生命周期由
+// useActivePolling 管理。页面进入时读取一次快照，之后由 WS 或控制成功回显更新；
+// 不因 WS 断开而恢复定时状态查询，避免把“最后一次正确状态”反复打回设备/云平台。
 let unsubWs: (() => void) | null = null;
 let unsubState: (() => void) | null = null;
 
@@ -526,8 +505,8 @@ function handlePowerReading(e: WsEvent): void {
 }
 
 function handleWsState(s: WsConnectionState): void {
-  if (s === 'open') stopRefresh(); // WS 在线: 推送即可, 停轮询
-  else startRefresh(); // 断线/连接中: 轮询兜底
+  // WS 仅负责增量推送；断线时保留最后一次正确快照，不启动轮询兜底。
+  void s;
 }
 
 function startPolling(): void {
@@ -536,7 +515,6 @@ function startPolling(): void {
   if (!unsubState) unsubState = wsClient.onState(handleWsState); // 注册即按当前态决定
 }
 function stopPolling(): void {
-  stopRefresh();
   stopSeqWindow();
   unsubWs?.(); unsubWs = null;
   unsubState?.(); unsubState = null;

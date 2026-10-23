@@ -118,6 +118,13 @@ describe('EwelinkDevicesService.setSwitch 控制口径', () => {
     await svc.setSwitch('dev', 1, 0, true, 'string');
     expect(fetchCalls).toHaveLength(2);
   }, 10000);
+
+  it('JSON error=412 invoke too much：进入冷却并直接抛出限流错误，不重复撞接口', async () => {
+    responses = [{ error: 412, msg: 'invoke too much:rate-window' }];
+    await expect(svc.setSwitch('dev', 1, 0, true, 'string'))
+      .rejects.toThrow('易微联云接口限流');
+    expect(fetchCalls).toHaveLength(1);
+  });
 });
 
 /**
