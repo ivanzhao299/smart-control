@@ -22,6 +22,7 @@ const circuitRow = (over: Partial<PowerCircuit> = {}): PowerCircuit =>
     gatewayCode: 'BREAKER-LED-1', relayChannel: null, meterAddress: null,
     ratedVoltage: 380, ratedCurrent: 40, ratedPower: 19000,
     sortOrder: 30, icon: 'MonitorPlay', description: null, enabled: true,
+    pollEnabled: true, pollWhenOff: false,
     createdAt: new Date(), updatedAt: new Date(),
     ...over,
   }) as PowerCircuit;
