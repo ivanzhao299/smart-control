@@ -67,7 +67,8 @@ describe('complete migration chain on an isolated database', () => {
       const postShowroom = applied.filter(m =>
         m.name === 'GrantLedProgramToConfig1793300000000' ||
         m.name === 'SeedPveReceiverDevice1793400000000' ||
-        m.name === 'SeedPveReceiverHardwareUnit1793401000000',
+        m.name === 'SeedPveReceiverHardwareUnit1793401000000' ||
+        m.name === 'AddPowerCircuitPollConfig1793500000000',
       );
       for (const _ of postShowroom) await db.undoLastMigration();
       await expect(db.undoLastMigration()).rejects.toThrow(
@@ -89,7 +90,8 @@ describe('complete migration chain on an isolated database', () => {
         && m.name !== 'EstablishShowroomLightingSequence1793000000000'
         && m.name !== 'GrantLedProgramToConfig1793300000000'
         && m.name !== 'SeedPveReceiverDevice1793400000000'
-        && m.name !== 'SeedPveReceiverHardwareUnit1793401000000',
+        && m.name !== 'SeedPveReceiverHardwareUnit1793401000000'
+        && m.name !== 'AddPowerCircuitPollConfig1793500000000',
     );
     for (const _migration of postCatalogMigrations) await db.undoLastMigration();
     // Bundled media, HVAC/playback and operational catalogs are forward-only: remove only their ledger
