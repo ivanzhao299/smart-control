@@ -12,7 +12,7 @@
  */
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { generateYongdianBin, downloadBin, decodeVideoFrames, probeVideoCodec } from '@/lib/led-bin-builder';
+import { generateYongdianBin, downloadBin, decodeVideoFrames, probeVideoCodec, decodeBinFrames } from '@/lib/led-bin-builder';
 import { ledProgramService } from '@/services/led-program.service';
 import type { Ref } from 'vue';
 
@@ -232,36 +232,79 @@ function toast(t: string) {
 // ===== bin 文件生成（真生成器：块模板完整复制 + 动态帧数）=====
 const genStamp = ref('未生成');
 
+// 把编排好的段序列构建成生成器所需 segments（预览与生成共用同一条链路）
+async function buildSegments(): Promise<{ segments: any[]; skippedVideos: number }> {
+  const segList = segs.value.length > 0 ? segs.value : [{ kind: 'text' as const, rep: 1 }];
+  const segments: any[] = [];
+  let skippedVideos = 0;
+  for (const s of segList) {
+    if (s.kind === 'video' && s.videoFile) {
+      try {
+        toast(`正在解码视频：${s.videoName}…`);
+        const vf = await decodeVideoFrames(s.videoFile);
+        segments.push({ type: 'video' as const, videoFrames: vf, rep: s.rep });
+      } catch (ve: any) {
+        skippedVideos++;
+        console.warn('[buildSegments] 视频段跳过', s.videoName, ve);
+        toast(`视频段「${s.videoName}」解码失败已跳过：${ve?.message || ve}`);
+      }
+    } else {
+      segments.push({
+        type: 'text' as const,
+        lines: lines.value.map((l) => ({ text: l.text, size: l.size, tpl: l.tpl, color: l.color, bold: l.bold })),
+        scrollSpeed: speed.value * 6,
+        rep: s.rep,
+      });
+    }
+  }
+  return { segments, skippedVideos };
+}
+
+// ===== 节目预览：编码成 bin 字节 → 用大屏相同灯位映射解码 → 25fps 回放 =====
+const previewCanvas = ref<HTMLCanvasElement | null>(null);
+const previewPlaying = ref(false);
+let previewTimer: number | undefined;
+
+function stopPreview() {
+  if (previewTimer !== undefined) { window.clearInterval(previewTimer); previewTimer = undefined; }
+  previewPlaying.value = false;
+}
+
+async function previewProgram() {
+  if (previewPlaying.value) { stopPreview(); return; }
+  try {
+    toast('正在编码节目…');
+    const { segments, skippedVideos } = await buildSegments();
+    if (segments.length === 0) { toast('所有段都失败了，无法预览'); return; }
+    const bin = generateYongdianBin({ segments });
+    const frames = decodeBinFrames(bin.bytes);
+    if (!frames.length || !previewCanvas.value) { toast('预览解码为空'); return; }
+    const ctx = previewCanvas.value.getContext('2d');
+    if (!ctx) return;
+    // 内部 290×30，CSS 拉伸铺满屏体
+    previewCanvas.value.width = 290; previewCanvas.value.height = 30;
+    previewPlaying.value = true;
+    let i = 0;
+    const paint = () => {
+      const img = new ImageData(new Uint8ClampedArray(frames[i]), 290, 30);
+      ctx.putImageData(img, 0, 0);
+      i = (i + 1) % frames.length;
+    };
+    paint();
+    previewTimer = window.setInterval(paint, 1000 / 25);
+    toast(`节目预览：${bin.totalFrames} 帧 / ${(bin.sizeBytes/1024/1024).toFixed(1)}MB${skippedVideos ? `（跳过${skippedVideos}段视频）` : ''}，所见即大屏所得`);
+  } catch (e: any) {
+    toast(`预览失败：${e?.message || e}`);
+  }
+}
+
 async function genBin() {
   if (busyGen.value) return;
   try {
     busyGen.value = true;
     toast('正在解码节目段…');
 
-    // 按 segs 编排顺序构建段序列；空 segs 时默认一段文字
-    const segList = segs.value.length > 0 ? segs.value : [{ kind: 'text' as const, rep: 1 }];
-    const segments = [];
-    let skippedVideos = 0;
-    for (const s of segList) {
-      if (s.kind === 'video' && s.videoFile) {
-        try {
-          toast(`正在解码视频：${s.videoName}…`);
-          const vf = await decodeVideoFrames(s.videoFile);
-          segments.push({ type: 'video' as const, videoFrames: vf, rep: s.rep });
-        } catch (ve: any) {
-          skippedVideos++;
-          console.warn('[genBin] 视频段跳过', s.videoName, ve);
-          toast(`视频段「${s.videoName}」解码失败已跳过：${ve?.message || ve}`);
-        }
-      } else {
-        segments.push({
-          type: 'text' as const,
-          lines: lines.value.map((l) => ({ text: l.text, size: l.size, tpl: l.tpl, color: l.color, bold: l.bold })),
-          scrollSpeed: speed.value * 6,
-          rep: s.rep,
-        });
-      }
-    }
+    const { segments } = await buildSegments();
     if (segments.length === 0) {
       toast('所有段都失败了，无法生成 bin');
       return;
@@ -392,7 +435,7 @@ onUnmounted(() => {
           楼顶广告屏
           <span class="pve-dot" :class="pveDotCls" :title="pveOnline ? 'PVE 在线' : 'PVE 离线'"></span>
         </div>
-        <div class="page-sub">勇电灯珠屏 · 290×30 真实点阵 · 编排 → 生成 bin → PVE 直推接收卡（block 组播）</div>
+        <div class="page-sub">勇电灯珠屏 · 290×30 · 25fps · block 组播</div>
       </div>
       <div class="page-actions">
         <button class="btn btn-ghost" @click="refreshPveStatus">PVE 状态</button>
@@ -405,14 +448,6 @@ onUnmounted(() => {
       <section class="card sticky-preview">
         <div class="card-head">
           <div class="card-title">实时预览</div>
-          <span class="card-hint">所见即所得 · 290×30 真实比例 · 黑缝分隔还原</span>
-        </div>
-        <div class="preview-meta">
-          <span class="meta-chip">屏体 <b>290×30 · 5 段</b></span>
-          <span class="meta-chip">播放 <b>25 fps</b></span>
-          <span class="meta-chip">目标 <b>{{ pveTarget }}</b></span>
-          <span class="meta-chip">模式 <b>{{ pveMode }}</b></span>
-          <span class="meta-chip">通道 <b>vmbr1</b></span>
         </div>
         <div class="screen-stage">
           <div class="screen-frame">
@@ -450,6 +485,8 @@ onUnmounted(() => {
                 }"
               >{{ l.text }}</div>
             </div>
+            <!-- 节目预览层：真编码→大屏灯位映射解码回放（与大屏同源） -->
+            <canvas v-show="previewPlaying" ref="previewCanvas" class="preview-canvas"></canvas>
           </div>
           <!-- 屏底状态条 -->
           <div class="screen-bar">
@@ -525,7 +562,7 @@ onUnmounted(() => {
 
           <!-- 速度 -->
           <div class="field">
-            <div class="field-label"><b>动画速度</b><span class="hint-text">统一调整 · 滚动按真实灯珠速率换算</span></div>
+            <div class="field-label"><b>动画速度</b><span class="hint-text">滚动按真实灯珠速率换算</span></div>
             <div class="slider-row">
               <input type="range" min="1" max="10" v-model.number="speed" />
               <span class="slider-val">{{ speed }}</span>
@@ -535,7 +572,7 @@ onUnmounted(() => {
 
           <!-- 背景动画 -->
           <div class="field">
-            <div class="field-label"><b>背景动画</b><span class="hint-text">叠加在文字下层</span></div>
+            <div class="field-label"><b>背景动画</b></div>
             <div class="tpl-grid-pick">
               <div
                 v-for="b in BKG_LIST"
@@ -577,7 +614,7 @@ onUnmounted(() => {
             </div>
             <div class="seg-empty" v-else>尚未添加任何段 — 点上方按钮把当前设计封装为段</div>
             <div class="seg-actions">
-              <button class="btn btn-primary" @click="genBin">生成节目 bin</button>
+              <button class="btn btn-primary" @click="previewProgram">{{ previewPlaying ? '停止预览' : '节目预览' }}</button>
               <button class="btn btn-ghost" @click="clearSegs">清空节目</button>
             </div>
           </div>
@@ -598,7 +635,13 @@ onUnmounted(() => {
           {{ busyPush ? '推流中…' : '推流播出' }}
         </button>
       </div>
-      <div class="action-note">编排确认无误后生成 bin（自动入库），再推流到 PVE → 接收卡（block 组播，目标以 PVE 状态为准）</div>
+      <details class="action-note">
+        <summary>屏参数与操作说明</summary>
+        <div class="action-note-body">
+          <div>屏体 290×30 · 播放 25fps · 组播目标 {{ pveTarget }} · 模式 {{ pveMode }} · 通道 vmbr1</div>
+          <div>节目预览=编码后用大屏灯位映射回放（所见即大屏）；生成 bin 文件=下载并自动入库；再推流到 PVE → 接收卡。段可重复/删除，清空节目可重置编排。</div>
+        </div>
+      </details>
     </div>
 
     <!-- 历史记录 -->
@@ -762,6 +805,15 @@ onUnmounted(() => {
   /* 屏体滚出视口时跳过渲染，降低后台动画合成开销 */
   content-visibility: auto;
   contain-intrinsic-size: auto 74px;
+}
+.preview-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  z-index: 5;
+  background: #000;
 }
 .led-grid {
   position: absolute;
@@ -1530,7 +1582,10 @@ input[type=range]::-webkit-slider-thumb {
   flex-wrap: wrap;
 }
 .action-btns { display: flex; gap: 8px; }
-.action-note { font-size: 11px; color: var(--v2-text-2, #8CA0B8); }
+.action-note { font-size: 11px; color: var(--v2-text-2, #8CA0B8); margin-top: 8px; }
+.action-note summary { cursor: pointer; user-select: none; outline: none; }
+.action-note summary:hover { color: var(--v2-text-1, #B7C4D6); }
+.action-note-body { margin-top: 4px; line-height: 1.6; }
 
 /* 历史记录 */
 .hist-card {
@@ -1603,6 +1658,8 @@ input[type=range]::-webkit-slider-thumb {
     flex: none;
     width: 100%;
   }
+  /* 推流播出作为最终动作，跨整行突出 */
+  .action-btns .btn-danger { grid-column: 1 / -1; }
   .screen-stage { margin: 16px 10px 10px; }
   /* iOS Safari: input/select 字号 <16px focus 时会强制放大页面，抬到 16px  */
   .line-input { font-size: 16px; }
@@ -1641,6 +1698,7 @@ input[type=range]::-webkit-slider-thumb {
     font-size: 12px;
     height: 36px;
   }
+  .action-btns .btn-danger { grid-column: 1 / -1; }
   /* 颜色弹框在窄屏上更紧凑 */
   .cp-pop { padding: 12px; }
   .cp-grid { gap: 6px; }

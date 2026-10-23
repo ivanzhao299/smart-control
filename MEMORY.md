@@ -1761,3 +1761,9 @@ pm2 僵尸守护根治（146→2，INCIDENTS #9）→ 部署误报根治（#10�
 - 浏览器复测 /led-program：无弹窗，预览"金湖科创产业园"(蓝)/"智慧园区·诚邀入驻"(绿)清晰，每行"● 颜色"胶囊在，PVE 推流中。
 - be_dev.log 里 Cameras RTSP host down / COM1 EPO 读状态失败为既有环境告警，与 led-program 无关。
 - 待办：全部改动仍未 commit/push、未部署；本地验收经用户确认后才可推。
+
+## 2026-10-23 第五轮：最小循环兜底 + PVE真闭环复测 + 生产部署完成
+- led-bin-builder.ts 加 MIN_FRAMES=625（约25秒≈21MB）最小节目循环兜底：内容不足时整段 sources 循环重复补够，不写死每段帧数；内容多(视频/多段)自然更大。
+- 真闭环（全程网页UI，不绕API）：页面改字"真闭环验证"→加文字段→生成bin→推流播出。新bin 12e0315b=277帧/8.9MB（内容短故小）；加兜底后 f6373043/#12=831帧/26.8MB。
+- PVE现场 SSH pve-iptv join 224.1.1.1@192.168.90.250:1508 抓22秒11485块，按块号MD5归位重组：线上解帧 vs bin还原逐帧一致（蓝字"金湖科创产业园"静止、绿字左滚动），4抽帧18-22/22块。
+- git：rebase 到 origin/main(9b8db24)，push feat→main，GK9000 windows-ci-dispatch gk9000-deploy 854d58b；verify-deploy passed，两服务跑最新代码。三端对齐 commit=854d58b。

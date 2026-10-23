@@ -345,3 +345,33 @@ export function downloadBin(bin: GeneratedBin): void {
 
 export const LED_PIXEL_COUNT = ledCols.length;
 export { ledCols, ledRows };
+
+/**
+ * 把已生成的 bin 字节按大屏相同的灯位映射解码回 290×30 RGBA 帧序列。
+ * 用于"节目预览"：与大屏解码同源（同一灯位表/GRB/块布局），所见即大屏所得。
+ */
+export function decodeBinFrames(bytes: Uint8Array): Uint8ClampedArray[] {
+  const out: Uint8ClampedArray[] = [];
+  const headLen = 1536;
+  const n = Math.floor((bytes.length - headLen - 1620) / frameSize);
+  for (let f = 0; f < n; f++) {
+    const img = new Uint8ClampedArray(W * H * 4);
+    for (let b = 0; b < blocksPerFrame; b++) {
+      const base = headLen + f * frameSize + b * blockSize + pixelOffsetInBlock;
+      for (let q = 0; q < pixelsPerBlock; q++) {
+        const pix = b * pixelsPerBlock + q;
+        if (pix >= ledCols.length) break;
+        const g = bytes[base + q * 3];
+        const r = bytes[base + q * 3 + 1];
+        const bl = bytes[base + q * 3 + 2];
+        const col = ledCols[pix] - 1;
+        const row = ledRows[pix] - 1;
+        if (col < 0 || col >= W || row < 0 || row >= H) continue;
+        const idx = (row * W + col) * 4;
+        img[idx] = r; img[idx + 1] = g; img[idx + 2] = bl; img[idx + 3] = 255;
+      }
+    }
+    out.push(img);
+  }
+  return out;
+}
