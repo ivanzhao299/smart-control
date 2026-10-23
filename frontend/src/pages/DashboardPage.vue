@@ -1179,7 +1179,7 @@ onBeforeUnmount(resetHold);
  */
 @media (max-width: 480px) {
   .v2-dash {
-    padding: var(--v2-sp-3);
+    padding: var(--v2-sp-3) 16px;
     gap: var(--v2-sp-3);
   }
   /* KPI 紧凑: 2×2 + 字号小 */
