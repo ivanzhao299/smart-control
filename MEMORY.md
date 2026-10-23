@@ -1773,3 +1773,8 @@ pm2 僵尸守护根治（146→2，INCIDENTS #9）→ 部署误报根治（#10�
 - 原"生成节目bin"按钮改为"节目预览"：buildSegments共用→编码→decodeBinFrames→canvas 25fps回放（不下载不入库），与大屏同源；底部"生成bin文件"保留为下载+入库+推流。
 - 手机端按钮双列重排，推流播出跨整行；屏参数chips/长流程提示收进折叠"屏参数与操作说明"。
 - commit b830ae2，rebase到最新main，push feat→main，GK9000 gk9000-deploy成功，三端对齐 b830ae2。
+
+## 第七轮 73a05e5（2026-10-23 上线 GK9000）
+- PVE 收进硬件清单：迁移 1793401000000-SeedPveReceiverHardwareUnit 把 PVE 以 code=PVE-REC-01/category=led-player 写 hardware_units（IP 192.168.77.10，addressing.url 存推流地址）；led-program.service.pveBaseUrl() 优先读 hardware_units，回退 devices/env。改硬件明细里的 IP/端口即生效。
+- PWA/手机端左上角 logo 回归：窄屏 .v2-nav-brand 被 display:none（侧栏变底栏），顶栏 .v2-brand 补 BrandLogo(30px)，仅 ≤600px 显示，桌面端不变。
+- 生产是 SQLite（非 Postgres）。首次 gk9000-deploy 在受控迁移 writer-fence 报 "Unexpected migration controller" 落下 RELEASE_HOLD；手动 typeorm migration:run 已落库。恢复路径：DELETE migrations 里该迁移的书记录（不动 hardware_units 数据）→ 跑 scripts/reconcile-held-gk9000-release.ps1 -Commit <sha> -TaskSnapshot logs/release-pause-*.json -Apply → 重建后端+受控迁移+回执+resume 激活，全绿，verify-deploy passed，HOLD 自动转为归档。禁止手删 RELEASE_HOLD。
