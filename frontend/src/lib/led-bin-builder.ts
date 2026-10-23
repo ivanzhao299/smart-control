@@ -277,7 +277,20 @@ export function generateYongdianBin(opts: GenerateBinOptions): GeneratedBin {
     }
   }
 
-  const totalFrames = sources.reduce((s, src) => s + (src.kind === 'text' ? src.segFrames : src.videoFrames.length), 0);
+  // 最小节目循环长度兜底：约25秒(625帧)≈21MB。内容不足时整段循环重复补够，
+  // 不写死每段帧数——内容(视频/多段)多时自然更大。
+  const MIN_FRAMES = 625;
+  const expanded: Source[] = [];
+  let acc = 0;
+  while (acc < MIN_FRAMES) {
+    for (const src of sources) {
+      expanded.push(src);
+      acc += src.kind === 'text' ? src.segFrames : src.videoFrames.length;
+      if (acc >= MIN_FRAMES) break;
+    }
+  }
+  const used = expanded.length ? expanded : sources;
+  const totalFrames = used.reduce((s, src) => s + (src.kind === 'text' ? src.segFrames : src.videoFrames.length), 0);
 
   // 修改头
   const newHead = new Uint8Array(head);
@@ -293,7 +306,7 @@ export function generateYongdianBin(opts: GenerateBinOptions): GeneratedBin {
 
   const frameArea = new Uint8Array(totalFrames * frameSize);
   let f = 0;
-  for (const src of sources) {
+  for (const src of used) {
     const segLen = src.kind === 'text' ? src.segFrames : src.videoFrames.length;
     for (let i = 0; i < segLen; i++) {
       const frameOffset = f * frameSize;
