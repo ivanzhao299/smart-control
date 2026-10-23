@@ -13,6 +13,7 @@ import { Repository } from 'typeorm';
 import { LedProgram } from '../../entities/led-program.entity';
 import { LedProgramSegment } from '../../entities/led-program-segment.entity';
 import { Device } from '../../entities/device.entity';
+import { HardwareUnit } from '../../entities/hardware-unit.entity';
 import { LedProgramConfig } from '../../common/config/configuration';
 import type { Actor } from '../../common/auth/actor';
 
@@ -53,16 +54,31 @@ export class LedProgramService {
     private readonly segmentRepo: Repository<LedProgramSegment>,
     @InjectRepository(Device)
     private readonly deviceRepo: Repository<Device>,
+    @InjectRepository(HardwareUnit)
+    private readonly hwRepo: Repository<HardwareUnit>,
   ) {
     this.cfg = config.getOrThrow<LedProgramConfig>('ledProgram');
     mkdirSync(this.cfg.storageDir, { recursive: true });
   }
 
   /**
-   * 解析 PVE 接收端 base URL：优先读 devices 表里 adapter='pve-receiver' 的设备 address，
-   * 读不到再回退 env PVE_BIN_BASE_URL。这样在硬件明细页改 IP/端口即可，不必改 .env。
+   * 解析 PVE 接收端 base URL：优先硬件清单 hardware_units (code=PVE-REC-01, addressing.url)，
+   * 其次 devices 表 adapter='pve-receiver'，最后 env PVE_BIN_BASE_URL。
+   * 在硬件明细页改 IP/端口即生效，不必改 .env。
    */
   private async pveBaseUrl(): Promise<string> {
+    try {
+      const hw = await this.hwRepo.findOne({ where: { code: 'PVE-REC-01', enabled: true } });
+      if (hw?.addressing) {
+        try {
+          const addr = JSON.parse(hw.addressing);
+          if (addr?.url) return String(addr.url).replace(/\/+$/, '');
+        } catch { /* 忽略 JSON 解析失败，回退下一级 */ }
+      }
+      if (hw?.ip) return `http://${hw.ip}:8080`;
+    } catch (e) {
+      this.logger.warn(`读 PVE 硬件清单行失败: ${(e as Error).message}`);
+    }
     try {
       const dev = await this.deviceRepo.findOne({
         where: { adapter: 'pve-receiver', enabled: true },

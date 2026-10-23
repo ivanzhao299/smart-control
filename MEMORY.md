@@ -1767,3 +1767,9 @@ pm2 僵尸守护根治（146→2，INCIDENTS #9）→ 部署误报根治（#10�
 - 真闭环（全程网页UI，不绕API）：页面改字"真闭环验证"→加文字段→生成bin→推流播出。新bin 12e0315b=277帧/8.9MB（内容短故小）；加兜底后 f6373043/#12=831帧/26.8MB。
 - PVE现场 SSH pve-iptv join 224.1.1.1@192.168.90.250:1508 抓22秒11485块，按块号MD5归位重组：线上解帧 vs bin还原逐帧一致（蓝字"金湖科创产业园"静止、绿字左滚动），4抽帧18-22/22块。
 - git：rebase 到 origin/main(9b8db24)，push feat→main，GK9000 windows-ci-dispatch gk9000-deploy 854d58b；verify-deploy passed，两服务跑最新代码。三端对齐 commit=854d58b。
+
+## 2026-10-23 第六轮：节目预览同源解码+界面精简（已部署）
+- builder 新增 decodeBinFrames(bytes)：用大屏相同灯位表/GRB/块布局把bin字节解回290x30 RGBA帧。
+- 原"生成节目bin"按钮改为"节目预览"：buildSegments共用→编码→decodeBinFrames→canvas 25fps回放（不下载不入库），与大屏同源；底部"生成bin文件"保留为下载+入库+推流。
+- 手机端按钮双列重排，推流播出跨整行；屏参数chips/长流程提示收进折叠"屏参数与操作说明"。
+- commit b830ae2，rebase到最新main，push feat→main，GK9000 gk9000-deploy成功，三端对齐 b830ae2。

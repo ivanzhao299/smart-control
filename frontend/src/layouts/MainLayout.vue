@@ -20,6 +20,7 @@ import { useConnectionStore } from '@/stores/connection';
 import { useSystemStore } from '@/stores/system';
 import { useSceneStore } from '@/stores/scene';
 import { useSystemBrandingStore } from '@/stores/system-branding';
+import BrandLogo from '@/components/BrandLogo.vue';
 import { useToastStore } from '@/stores/toast';
 import { useClientAuthStore } from '@/stores/client-auth';
 import { useAdminAuthStore } from '@/stores/admin-auth';
@@ -556,8 +557,12 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
     <!-- 顶 Header (56px) - 仅首页显示 (功能页隐藏, 主区上移给功能区让空间); 集成 inline toast -->
     <header v-if="showHeader" class="v2-header">
       <div class="v2-brand">
-        <div class="v2-brand-title">{{ branding.systemName }}</div>
-        <div class="v2-brand-sub">{{ dateLabel }}</div>
+        <!-- 手机端顶栏左上角 logo（桌面端 logo 在侧栏，这里隐藏） -->
+        <BrandLogo :height="30" class="v2-brand-logo" />
+        <div class="v2-brand-txt">
+          <div class="v2-brand-title">{{ branding.systemName }}</div>
+          <div class="v2-brand-sub">{{ dateLabel }}</div>
+        </div>
       </div>
 
       <!-- inline toast — 5s 自动消失, 纯文字无框, 不挡左右两端 -->
@@ -836,6 +841,9 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   justify-content: center;
   gap: 2px;
 }
+.v2-brand-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* 顶栏 logo：桌面端 logo 在侧栏，这里隐藏 */
+.v2-brand-logo { display: none; flex: 0 0 auto; }
 /* .v2-logo 留着, 现在只被 .v2-nav-brand .v2-logo 用 (已覆盖尺寸) */
 .v2-logo {
   border-radius: var(--v2-r-sm);
@@ -1264,8 +1272,10 @@ const mockTag = computed(() => sys.info?.mockMode ?? false);
   }
   :root[data-theme='auto'] .v2-nav-item.is-active::before { display: none; }
 
-  /* header 极简: 只剩品牌 + 时钟 */
+  /* header 极简: 品牌 logo + 标题 + 时钟 */
   .v2-header { padding: 0 12px; height: 48px; }
+  .v2-brand { flex-direction: row; align-items: center; gap: 8px; }
+  .v2-brand-logo { display: inline-flex; }
   .v2-brand-title { font-size: 20px; letter-spacing: 0.6px; }
   .v2-brand-sub { display: none; }
   .v2-header-spacer { display: none; }
