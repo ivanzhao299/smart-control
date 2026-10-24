@@ -814,6 +814,12 @@ try {
         Invoke-Native 'git' @('restore', '--worktree', '--', 'frontend/components.d.ts')
       }
 
+      # .env.production 是环境配置文件，生产端本地修改会和仓库冲突。
+      # 部署前强制恢复成仓库版本，生产端需要改配置的话，部署后再改。
+      if (Test-Path (Join-Path $projectRoot 'frontend\.env.production')) {
+        Invoke-Native 'git' @('restore', '--worktree', '--', 'frontend/.env.production')
+      }
+
       Invoke-Native 'git' @('merge', '--ff-only', $Commit)
       $worktreeUpdated = $true
 
