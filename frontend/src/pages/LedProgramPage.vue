@@ -227,12 +227,7 @@ function delLine(id: number) {
   lines.value = lines.value.filter((l) => l.id !== id);
 }
 
-// 每行渲染字号（px）：屏高按 74px 设计基准，灯珠行 = 74/30
-const ROW_PX = 74 / 30;
-function lineSizePx(size: number) {
-  return Math.max(1, Math.round(size * ROW_PX));
-}
-
+// 每行渲染字号：使用cqi单位自适应（CSS容器查询），不再手动计算px
 // 滚动行动画时长：屏宽(px) / (速率 × pxPerLed) ≈ 290/(档×6) 秒
 const scrollDur = computed(() => (290 / (speed.value * 6)).toFixed(2) + 's');
 
