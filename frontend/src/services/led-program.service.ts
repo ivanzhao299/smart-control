@@ -60,9 +60,15 @@ export const ledProgramService = {
     if (clientTok) headers['X-Client-Token'] = clientTok;
     // 注意：不手动 set Content-Type，交给浏览器为 FormData 自动带 boundary。
     // 大文件上传优先走内网直连，不经过公网 nginx，避免上传大小/超时限制
-    // 配置项：VITE_INGEST_INTERNAL_BASE (如 http://192.168.77.54:3200/api)
-    const internalBase = import.meta.env.VITE_INGEST_INTERNAL_BASE as string | undefined;
-    const ingestBase = internalBase || getApiBaseURL();
+    // 公网页面自动切内网直连；内网开发环境保持默认
+    let ingestBase = getApiBaseURL();
+    try {
+      const hostname = window.location.hostname;
+      // 公网域名访问时，ingest上传直接走内网GK9000，绕过公网nginx大文件限制
+      if (hostname.includes('erp.cnjinhu.com') || hostname.includes('cnjinhu.top')) {
+        ingestBase = 'http://192.168.77.54:3200/api';
+      }
+    } catch { /* 非浏览器环境 */ }
     const res = await fetch(`${ingestBase}/led-program/ingest`, {
       method: 'POST',
       headers,
