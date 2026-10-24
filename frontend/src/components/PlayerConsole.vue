@@ -1588,9 +1588,9 @@ function openOpsMetricsAdmin(): void {
   .v2-toggle.on::after, .v2-toggle.booting::after { transform: translateX(18px); }
   /* 手机端：隐藏"电源"文字、压缩状态字宽，给左侧标题+播放状态让出空间 */
   .np-label { display: none; }
-  .np-state { flex-basis: 5em; width: 5em; min-width: 5em; font-size: 11px; }
+  .np-state { flex-basis: 4.5em; width: 4.5em; min-width: 4.5em; font-size: 11px; }
   .np-power-icon { width: 18px; height: 18px; }
-  .now-power { gap: 4px; }
+  .now-power { gap: 4px; margin-right: 8px; }
 }
 
 /* ===== 手机竖屏 (≤640px) 播放控制区紧凑化 (2026-10-17 业主要求: 把顶部高度让给播放列表)

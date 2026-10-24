@@ -564,6 +564,45 @@ async function genBin() {
   }
 }
 
+// ===== 一键生成全部模板 =====
+const busyGenAll = ref(false);
+async function generateAllTemplates() {
+  if (busyGenAll.value) return;
+  if (templateList.value.length === 0) { toast('模板列表为空'); return; }
+  if (!confirm(`将依次生成全部 ${templateList.value.length} 套模板BIN并入库，继续？`)) return;
+  busyGenAll.value = true;
+  let ok = 0, fail = 0;
+  for (let i = 0; i < templateList.value.length; i++) {
+    const tpl = templateList.value[i];
+    try {
+      toast(`[${i+1}/${templateList.value.length}] 正在生成「${tpl.name}」…`);
+      applyTemplate(tpl);
+      await new Promise(r => setTimeout(r, 100)); // 等Vue响应式更新
+      const { segments } = await buildSegments();
+      if (segments.length === 0) throw new Error('segments为空');
+      const bin = generateYongdianBin({ segments });
+      const segmentsPayload = segs.value.map((s) => ({
+        type: s.kind === 'video' ? ('video' as const) : ('text' as const),
+        text: s.kind === 'video' ? undefined : lines.value.map((l) => l.text).join(' / '),
+        template: s.kind === 'video' ? s.videoName : lines.value[0]?.tpl,
+        color: lines.value[0]?.color,
+        durationMs: s.rep * 4000,
+      }));
+      await ledProgramService.ingest(bin.bytes, bin.fileName, segmentsPayload, {
+        name: tpl.name,
+        templateType: tpl.type,
+      });
+      ok++;
+    } catch (e: any) {
+      console.error(`[genAll] ${tpl.name} 失败`, e);
+      fail++;
+    }
+  }
+  await refreshHistory();
+  busyGenAll.value = false;
+  toast(`批量完成：成功 ${ok} 套，失败 ${fail} 套`);
+}
+
 async function pushStream() {
   if (busyPush.value) return;
   if (!lastProgramId.value) {
@@ -726,12 +765,12 @@ onUnmounted(() => {
                 :class="`ta-${l.tpl}`"
                 :style="{
                   color: l.color,
-                  fontSize: lineSizePx(l.size) + 'px',
+                  fontSize: `calc(${l.size} * 100cqi / 290)`,
                   lineHeight: '1.15',
                   fontWeight: l.bold ? 800 : 500,
                   fontStyle: l.italic ? 'italic' : 'normal',
-                  WebkitTextStroke: l.stroke ? `1px #fff` : undefined,
-                  textShadow: l.stroke ? `0 0 6px ${l.color}` : undefined,
+                  WebkitTextStroke: l.stroke ? `0.3cqi #fff` : undefined,
+                  textShadow: l.stroke ? `0 0 1cqi ${l.color}` : undefined,
                   animationDuration: l.tpl === 'scrollL' || l.tpl === 'scrollR' ? scrollDur : undefined,
                 }"
               >{{ l.text }}</div>
@@ -899,9 +938,14 @@ onUnmounted(() => {
     <section class="card auto-card">
       <div class="card-head">
         <div class="card-title">自动编排</div>
-        <span class="card-hint" v-if="festivalToday.isFestival">
-          今日节日：{{ festivalTemplateName }}
-        </span>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span class="card-hint" v-if="festivalToday.isFestival">
+            今日节日：{{ festivalTemplateName }}
+          </span>
+          <button class="btn-mini" :disabled="busyGenAll" @click="generateAllTemplates">
+            {{ busyGenAll ? '生成中…' : '一键生成全部' }}
+          </button>
+        </div>
       </div>
       <div class="card-body">
         <div class="auto-grid">
@@ -1186,6 +1230,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  container-type: inline-size;
   /* 屏体滚出视口时跳过渲染，降低后台动画合成开销 */
   content-visibility: auto;
   contain-intrinsic-size: auto 74px;
