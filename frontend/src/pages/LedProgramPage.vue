@@ -599,7 +599,7 @@ async function generateAllTemplates() {
       });
       ok++;
       toast(`[${i+1}/${total}] ✅「${tpl.name}」完成`);
-      await new Promise(r => setTimeout(r, 500)); // 间隔500ms，让浏览器喘口气
+      await new Promise(r => setTimeout(r, 3000)); // 间隔3秒，避免后端限流和上传压力
     } catch (e: any) {
       console.error(`[genAll] ${tpl.name} 失败`, e);
       fail++;

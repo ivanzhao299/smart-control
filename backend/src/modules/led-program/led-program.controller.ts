@@ -39,7 +39,7 @@ export class LedProgramController {
   @Post('ingest')
   @RequirePermission('led-program:control')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 256 * 1024 * 1024 } }))
-  @RateLimit({ max: 6, windowMs: 60_000 })
+  @RateLimit({ max: 20, windowMs: 60_000 })
   async ingest(
     @Req() req: AuthenticatedRequest,
     @UploadedFile() file: Express.Multer.File,
