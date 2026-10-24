@@ -567,12 +567,13 @@ async function generateAllTemplates() {
   if (!confirm(`将依次生成全部 ${templateList.value.length} 套模板BIN并入库，继续？`)) return;
   busyGenAll.value = true;
   let ok = 0, fail = 0;
-  for (let i = 0; i < templateList.value.length; i++) {
+  const total = templateList.value.length;
+  for (let i = 0; i < total; i++) {
     const tpl = templateList.value[i];
     try {
-      toast(`[${i+1}/${templateList.value.length}] 正在生成「${tpl.name}」…`);
+      toast(`[${i+1}/${total}] 正在生成「${tpl.name}」…`);
       applyTemplate(tpl);
-      await new Promise(r => setTimeout(r, 100)); // 等Vue响应式更新
+      await new Promise(r => setTimeout(r, 200)); // 等Vue响应式更新+浏览器渲染
       const { segments } = await buildSegments();
       if (segments.length === 0) throw new Error('segments为空');
       const bin = generateYongdianBin({ segments });
@@ -588,9 +589,13 @@ async function generateAllTemplates() {
         templateType: tpl.type,
       });
       ok++;
+      toast(`[${i+1}/${total}] ✅「${tpl.name}」完成`);
+      await new Promise(r => setTimeout(r, 500)); // 间隔500ms，让浏览器喘口气
     } catch (e: any) {
       console.error(`[genAll] ${tpl.name} 失败`, e);
       fail++;
+      toast(`[${i+1}/${total}] ❌「${tpl.name}」失败: ${e?.message || e}`);
+      await new Promise(r => setTimeout(r, 300));
     }
   }
   await refreshHistory();
