@@ -17,11 +17,11 @@ import {
  */
 
 const FALLBACK: SystemBranding = {
-  systemName: '金湖展贸中心 · 智能控制',
+  systemName: '金湖智控管理系统',
   systemSubtitle: '智慧展厅中控',
   logoText: '金',
   logoUrl: null,
-  browserTitle: '金湖展贸中心 控制系统',
+  browserTitle: '金湖智控管理系统',
   copyright: null,
   welcomeMediaId: null,
   welcomeGuest: null,
