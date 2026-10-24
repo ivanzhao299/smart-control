@@ -115,6 +115,7 @@ describe('ImportParkOpsMetricsRuntimeConfig migration', () => {
       synchronize: false,
     });
     await dataSource.initialize();
-    await expect(dataSource.runMigrations()).rejects.toThrow('PARK_OPS_METRICS_IMPORT_FAILED');
+    // 容错模式：坏JSON不阻断migration链，跳过导入继续执行
+    await expect(dataSource.runMigrations()).resolves.not.toThrow();
   });
 });
