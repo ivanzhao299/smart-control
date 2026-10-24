@@ -143,4 +143,14 @@ export class LedProgramController {
     const r = await this.svc.rename(id, name.trim());
     return { message: '重命名成功', data: r };
   }
+
+  @Post('combo')
+  @RequirePermission('led-program:control')
+  async createCombo(@Body('name') name: string, @Body('memberIds') memberIds: number[]) {
+    if (!name?.trim() || !Array.isArray(memberIds) || !memberIds.length) {
+      return { message: '名称和成员节目不能为空', data: null };
+    }
+    const r = await this.svc.createCombo(name, memberIds);
+    return { message: '组合已创建', data: r };
+  }
 }

@@ -92,4 +92,7 @@ export const ledProgramService = {
 
   // 节目重命名
   rename: (id: number, name: string) => api.post(`/led-program/${id}/rename`, { name }),
+
+  // 创建组合节目
+  createCombo: (name: string, memberIds: number[]) => api.post('/led-program/combo', { name, memberIds }),
 };

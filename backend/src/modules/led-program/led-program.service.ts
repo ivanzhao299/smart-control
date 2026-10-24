@@ -248,4 +248,29 @@ export class LedProgramService {
     program.name = name.trim();
     return this.programRepo.save(program);
   }
+
+  /** 创建组合节目：选多个BIN按顺序轮播 */
+  async createCombo(name: string, memberIds: number[]): Promise<LedProgram> {
+    if (!memberIds.length) throw new BadRequestException('至少选1个节目');
+    const members = await this.programRepo.find({ where: memberIds.length === 1 ? { id: memberIds[0] } : undefined });
+    const validIds = memberIds.filter(id => members.some(m => m.id === id));
+    if (!validIds.length) throw new BadRequestException('所选节目不存在');
+    const totalSize = members.filter(m => validIds.includes(m.id)).reduce((s, m) => s + m.fileSize, 0);
+    const combo = this.programRepo.create({
+      name: name.trim(),
+      templateType: 'combo',
+      comboMembers: JSON.stringify(validIds),
+      binPath: '',
+      fileSize: totalSize,
+      md5: `combo_${Date.now()}`,
+      durationS: members.reduce((s, m) => s + (m.durationS || 30), 0),
+    });
+    return this.programRepo.save(combo);
+  }
+
+  /** 解析组合成员ID列表 */
+  getComboMembers(combo: LedProgram): number[] {
+    if (combo.templateType !== 'combo' || !combo.comboMembers) return [];
+    try { return JSON.parse(combo.comboMembers); } catch { return []; }
+  }
 }

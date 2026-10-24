@@ -422,6 +422,21 @@ const busyPush = ref(false);
 const toastMsg = ref('');
 let toastTimer: number | undefined;
 let pvePollTimer: number | undefined;
+
+// 新建组合
+const showComboCreator = ref(false);
+const comboName = ref('');
+const comboSelectedIds = ref<number[]>([]);
+async function doCreateCombo() {
+  try {
+    await ledProgramService.createCombo(comboName.value.trim(), comboSelectedIds.value);
+    toast('组合已创建');
+    showComboCreator.value = false;
+    comboName.value = '';
+    comboSelectedIds.value = [];
+    loadProgramList();
+  } catch (e: any) { toast(`创建失败：${e?.message || e}`); }
+}
 function toast(t: string) {
   toastMsg.value = t;
   // 连续调用时清掉上一个 timer，避免后出的 toast 被前一个 timer 提前清掉
@@ -939,7 +954,10 @@ onUnmounted(() => {
     <section class="card hist-card">
       <div class="card-head">
         <div class="card-title">节目列表</div>
-        <span class="card-hint">已生成 BIN 节目源，可重命名、推流、自动轮播</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span class="card-hint">已生成 BIN 节目源</span>
+          <button class="btn-mini" @click="showComboCreator = true">+ 新建组合</button>
+        </div>
       </div>
       <div class="card-body hist-list">
         <div v-if="!programList.length" class="hist-empty">暂无节目，先在上方编排并生成 BIN</div>
@@ -997,6 +1015,28 @@ onUnmounted(() => {
     <transition name="toast-fade">
       <div v-if="toastMsg" class="toast-item">{{ toastMsg }}</div>
     </transition>
+
+    <!-- 新建组合弹窗 -->
+    <div v-if="showComboCreator" class="cp-mask" @click.self="showComboCreator = false">
+      <div class="cp-pop" style="max-width:420px">
+        <div class="cp-head">新建节目组合</div>
+        <div style="padding:12px">
+          <input v-model="comboName" class="rename-input" placeholder="组合名称（如：日常轮播组合）" style="width:100%;margin-bottom:10px" />
+          <div style="font-size:12px;color:#7f8da3;margin-bottom:6px">选择要组合的节目（按顺序轮播）：</div>
+          <div style="max-height:260px;overflow-y:auto">
+            <label v-for="p in programList" :key="p.id" style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;border-bottom:1px solid #1e2a3a">
+              <input type="checkbox" :value="p.id" v-model="comboSelectedIds" />
+              <span style="font-size:13px;color:#e0e6ed">{{ p.name }}</span>
+              <span style="font-size:11px;color:#5d6b80;margin-left:auto">#{{ p.id }}</span>
+            </label>
+          </div>
+        </div>
+        <div class="cp-foot">
+          <button class="btn btn-ghost" @click="showComboCreator = false">取消</button>
+          <button class="btn btn-primary" @click="doCreateCombo" :disabled="!comboName.trim() || !comboSelectedIds.length">创建组合</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 

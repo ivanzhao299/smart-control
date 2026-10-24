@@ -28,6 +28,7 @@ export class LedAutoPlayService implements OnModuleInit {
   private lastPushedProgramId: number | null = null;
   private lastPushTime: Date | null = null;
   private wasPowerOn = false;
+  private comboMemberIdx = 0; // 当前组合内推到第几个成员
 
   constructor(
     @InjectRepository(LedProgram)
@@ -160,10 +161,33 @@ export class LedAutoPlayService implements OnModuleInit {
       return;
     }
 
+    // 组合节目：展开成员列表，依次推每个BIN
+    if (next.templateType === 'combo' && next.comboMembers) {
+      let memberIds: number[] = [];
+      try { memberIds = JSON.parse(next.comboMembers); } catch { /* ignore */ }
+      if (memberIds.length) {
+        const memberId = memberIds[this.comboMemberIdx % memberIds.length];
+        this.comboMemberIdx++;
+        const member = await this.programRepo.findOne({ where: { id: memberId } });
+        if (member) {
+          try {
+            await this.ledSvc.push(member.id);
+            this.lastPushedProgramId = next.id;
+            this.lastPushTime = now;
+            this.logger.log(`自动轮播[组合${next.name}]：推流成员 #${member.id}「${member.name}」(${this.comboMemberIdx}/${memberIds.length})`);
+          } catch (e) {
+            this.logger.warn(`组合成员推流失败 #${member.id}: ${(e as Error).message}`);
+          }
+          return;
+        }
+      }
+    }
+
     try {
       await this.ledSvc.push(next.id);
       this.lastPushedProgramId = next.id;
       this.lastPushTime = now;
+      this.comboMemberIdx = 0;
       this.logger.log(`自动轮播：推流节目 #${next.id}「${next.name}」`);
     } catch (e) {
       this.logger.warn(`自动推流失败 #${next.id}: ${(e as Error).message}`);

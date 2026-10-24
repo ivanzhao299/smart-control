@@ -44,6 +44,10 @@ export class LedProgram {
   @Column({ name: 'template_type', type: 'varchar', length: 32, default: 'custom' })
   templateType!: string;
 
+  /** 组合节目成员ID列表（JSON数组），templateType='combo'时生效 */
+  @Column({ name: 'combo_members', type: 'text', nullable: true })
+  comboMembers!: string | null;
+
   @Column({ type: 'integer', default: 0 })
   durationS!: number;
 
