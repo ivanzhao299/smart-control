@@ -164,7 +164,7 @@ jobs:
             -o ServerAliveInterval=15 \
             -o ServerAliveCountMax=4 \
             root@123.57.220.65 \
-            "${ACTION} ${COMMIT_SHA} ${DEPLOY_SCOPE}"
+            "${ACTION} ${COMMIT_SHA}"
 
       - name: Verify through the WireGuard jump host
         if: needs.scope.outputs.scope != 'twin'
