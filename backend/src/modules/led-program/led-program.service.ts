@@ -32,6 +32,7 @@ export interface IngestMeta {
   fps?: number;
   durationS?: number;
   autoPush?: boolean;
+  templateType?: string;
   segments?: SegmentInput[];
 }
 
@@ -142,6 +143,7 @@ export class LedProgramService {
       cycles,
       fps,
       durationS: meta.durationS ?? Math.round(info.frames / fps),
+      templateType: meta.templateType ?? 'custom',
       createdBy: actor.username,
     }));
 

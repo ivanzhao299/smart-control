@@ -101,6 +101,59 @@ const curBkg = ref<BkgKey>('flow');
 const speed = ref(5); // 1-10 档，档×6 灯珠/秒
 const speedNote = computed(() => `≈${speed.value * 6} 灯珠/秒`);
 
+// ===== 自动编排模板 =====
+interface TplInfo { type: string; name: string; description: string; segments: any[] }
+const templateList = ref<TplInfo[]>([]);
+const festivalToday = ref<{ templateType: string | null; isFestival: boolean }>({ templateType: null, isFestival: false });
+const festivalTemplateName = computed(() => {
+  const t = templateList.value.find(t => t.type === festivalToday.value.templateType);
+  return t?.name ?? '';
+});
+
+const ANIM_MAP: Record<string, TplKey> = {
+  'fade-in': 'zoomIn',
+  'scroll-left': 'scrollL',
+  'scroll-right': 'scrollR',
+};
+const BG_MAP: Record<string, BkgKey> = {
+  '#0B1A3A': 'tech',
+  '#0D1B3E': 'tech',
+  '#8B0000': 'fireworks',
+  '#B22222': 'fireworks',
+  '#1A1A4E': 'stars',
+};
+
+async function loadTemplates() {
+  try {
+    const [tplRes, festRes] = await Promise.all([
+      ledProgramService.templates(),
+      ledProgramService.festivalToday(),
+    ]);
+    templateList.value = tplRes ?? [];
+    festivalToday.value = festRes ?? { templateType: null, isFestival: false };
+  } catch { /* 静默，模板面板空也能用手动编排 */ }
+}
+
+function applyTemplate(tpl: TplInfo) {
+  lineSeq = 0;
+  lines.value = tpl.segments
+    .filter(s => s.kind === 'text' && s.text)
+    .map((s, i) => ({
+      id: i,
+      text: s.text!,
+      size: s.bold ? 6 : 4,
+      tpl: ANIM_MAP[s.animation] ?? (s.animation === 'fade-in' ? 'zoomIn' : 'static'),
+      color: s.color ?? '#FFFFFF',
+      bold: !!s.bold,
+    }));
+  lineSeq = lines.value.length;
+  if (tpl.segments[0]?.bgColor) {
+    const bg = BG_MAP[tpl.segments[0].bgColor];
+    if (bg) curBkg.value = bg;
+  }
+  toast(`已加载模板「${tpl.name}」，点「生成 bin 文件」出片`);
+}
+
 // 安全区提示：Σ行高+(n-1)行距 vs 30 行（防御空数组出现负值）
 const usedRows = computed(() => {
   const gap = 1; // 行距 1 灯珠
@@ -421,6 +474,7 @@ function clearSegs() {
 onMounted(() => {
   refreshHistory();
   refreshPveStatus();
+  loadTemplates();
   // 每 15s 静默复探：后端重启/PVE 瞬断后自动恢复在线指示，不再定格在离线
   pvePollTimer = window.setInterval(() => refreshPveStatus({ silent: true }), 15000);
 });
@@ -651,6 +705,32 @@ onUnmounted(() => {
         </div>
       </details>
     </div>
+
+    <!-- 自动编排：内置模板一键生成 -->
+    <section class="card auto-card">
+      <div class="card-head">
+        <div class="card-title">自动编排</div>
+        <span class="card-hint" v-if="festivalToday.isFestival">
+          今日节日：{{ festivalTemplateName }}
+        </span>
+      </div>
+      <div class="card-body">
+        <div class="auto-grid">
+          <div
+            v-for="t in templateList"
+            :key="t.type"
+            class="auto-tpl"
+            :class="{ active: festivalToday.templateType === t.type }"
+            @click="applyTemplate(t)"
+          >
+            <div class="tpl-name">{{ t.name }}</div>
+            <div class="tpl-desc">{{ t.description }}</div>
+            <button class="btn-mini" @click.stop="applyTemplate(t)">一键生成</button>
+          </div>
+        </div>
+        <div class="auto-hint">点击模板自动填入编排，再点「生成 bin 文件」即可</div>
+      </div>
+    </section>
 
     <!-- 历史记录 -->
     <section class="card hist-card">
@@ -1596,6 +1676,27 @@ input[type=range]::-webkit-slider-thumb {
 .action-note-body { margin-top: 4px; line-height: 1.6; }
 
 /* 历史记录 */
+/* ===== 自动编排面板 ===== */
+.auto-card { margin-top: 14px; }
+.auto-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+}
+.auto-tpl {
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--v2-surf-2, rgba(255,255,255,0.03));
+  border: 1px solid var(--v2-border-soft, rgba(255,255,255,0.08));
+  cursor: pointer;
+  transition: border-color .15s, transform .1s;
+}
+.auto-tpl:hover { border-color: var(--v2-accent, #4C9AFF); }
+.auto-tpl.active { border-color: #FBBF24; background: rgba(251,191,36,.08); }
+.tpl-name { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+.tpl-desc { font-size: 11px; color: var(--v2-text-2, #8B9BB4); margin-bottom: 8px; line-height: 1.4; }
+.auto-hint { margin-top: 10px; font-size: 11px; color: var(--v2-text-2, #8B9BB4); }
+
 .hist-card {
   margin-top: 14px;
   /* 首屏不可见，跳过渲染直到滚入视口 */

@@ -15,6 +15,7 @@ import { AuthenticatedRequest, requireActor } from '../../common/auth/actor';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { LedProgramService, IngestMeta, SegmentInput } from './led-program.service';
+import { listTemplates, getTemplate, getFestivalTemplate } from './led-templates';
 
 /**
  * LED 节目制作接口：
@@ -77,5 +78,26 @@ export class LedProgramController {
   async history() {
     const list = await this.svc.history(50);
     return { message: '查询成功', data: list };
+  }
+
+  @Get('templates')
+  @RequirePermission('led-program:view')
+  async templates() {
+    return { message: '查询成功', data: listTemplates() };
+  }
+
+  @Get('templates/:type')
+  @RequirePermission('led-program:view')
+  async templateDetail(@Param('type') type: string) {
+    const t = getTemplate(type);
+    if (!t) return { message: '模板不存在', data: null };
+    return { message: '查询成功', data: t };
+  }
+
+  @Get('festival/today')
+  @RequirePermission('led-program:view')
+  async todayFestival() {
+    const t = getFestivalTemplate(new Date());
+    return { message: '查询成功', data: { templateType: t, isFestival: !!t } };
   }
 }

@@ -75,4 +75,8 @@ export const ledProgramService = {
   status: () => api.get<LedProgramStatus>('/led-program/status'),
 
   history: () => api.get<LedProgramListItem[]>('/led-program/history'),
+
+  templates: () => api.get<Array<{ type: string; name: string; description: string; segments: any[] }>>('/led-program/templates'),
+
+  festivalToday: () => api.get<{ templateType: string | null; isFestival: boolean }>('/led-program/festival/today'),
 };

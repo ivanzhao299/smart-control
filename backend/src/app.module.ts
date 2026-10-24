@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import configuration from './common/config/configuration';
@@ -68,6 +69,7 @@ import { LedProgramModule } from './modules/led-program/led-program.module';
     }),
     LoggerModule,
     TypeOrmModule.forRootAsync({ useClass: TypeOrmConfigService }),
+    ScheduleModule.forRoot(),
     RuntimeConfigModule,
     AdaptersModule,
     ServicesModule,
