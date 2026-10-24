@@ -240,4 +240,12 @@ export class LedProgramService {
       return { reachable: false, error: (e as Error).message };
     }
   }
+
+  /** 重命名节目（用于节目列表管理） */
+  async rename(programId: number, name: string): Promise<LedProgram> {
+    const program = await this.programRepo.findOne({ where: { id: programId } });
+    if (!program) throw new NotFoundException('节目不存在');
+    program.name = name.trim();
+    return this.programRepo.save(program);
+  }
 }

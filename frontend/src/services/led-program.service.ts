@@ -79,4 +79,15 @@ export const ledProgramService = {
   templates: () => api.get<Array<{ type: string; name: string; description: string; segments: any[] }>>('/led-program/templates'),
 
   festivalToday: () => api.get<{ templateType: string | null; isFestival: boolean }>('/led-program/festival/today'),
+
+  // 全年播放日历计划
+  yearCalendar: (year: number) => api.get<{ year: number; days: Array<{ date: string; month: number; day: number; weekday: number; isWeekend: boolean; templateType: string; label: string }> }>(`/led-program/calendar/${year}`),
+
+  // PVE 主机电源控制
+  pvePowerStatus: () => api.get<{ online: boolean; method: string }>('/led-program/pve-power/status'),
+  pveWake: () => api.post<{ ok: boolean; message: string }>('/led-program/pve-power/wake'),
+  pveShutdown: () => api.post<{ ok: boolean; message: string }>('/led-program/pve-power/shutdown'),
+
+  // 节目重命名
+  rename: (id: number, name: string) => api.post(`/led-program/${id}/rename`, { name }),
 };

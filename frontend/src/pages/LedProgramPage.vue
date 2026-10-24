@@ -48,6 +48,7 @@ interface Line {
   bold?: boolean;
   italic?: boolean;
   stroke?: boolean;
+  bgColor?: string;
 }
 
 // v25 预置 14 色
@@ -94,6 +95,11 @@ const BKG_LIST = [
   { key: 'aurora', name: '极光渐变' },
   { key: 'particles', name: '粒子飘雪' },
   { key: 'fireworks', name: '烟花绽放' },
+  { key: 'chase', name: '金边流光' },
+  { key: 'comet', name: '蓝辉流光' },
+  { key: 'neonbeam', name: '青辉扫光' },
+  { key: 'pulse', name: '青绿呼吸' },
+  { key: 'burst', name: '金辉红底' },
 ] as const;
 type BkgKey = typeof BKG_LIST[number]['key'];
 const curBkg = ref<BkgKey>('flow');
@@ -116,11 +122,16 @@ const ANIM_MAP: Record<string, TplKey> = {
   'scroll-right': 'scrollR',
 };
 const BG_MAP: Record<string, BkgKey> = {
-  '#0B1A3A': 'tech',
-  '#0D1B3E': 'tech',
-  '#8B0000': 'fireworks',
-  '#B22222': 'fireworks',
+  '#001133': 'comet',
+  '#0B1A3A': 'comet',
+  '#0D1B3E': 'neonbeam',
+  '#CC0000': 'burst',
+  '#8B0000': 'burst',
+  '#B22222': 'burst',
+  '#000066': 'comet',
   '#1A1A4E': 'stars',
+  '#004422': 'pulse',
+  '#000044': 'comet',
 };
 
 async function loadTemplates() {
@@ -134,21 +145,61 @@ async function loadTemplates() {
   } catch { /* 静默，模板面板空也能用手动编排 */ }
 }
 
+// ===== 全年播放日历 =====
+interface DaySchedule { date: string; month: number; day: number; weekday: number; isWeekend: boolean; templateType: string; label: string; }
+const calendarYear = ref(new Date().getFullYear());
+const calendarDays = ref<DaySchedule[]>([]);
+const calendarMonth = ref(new Date().getMonth() + 1); // 当前展示月
+const templateColorMap: Record<string, string> = {
+  daily: '#4C9AFF', spring: '#FFD700', national: '#FF6B6B',
+  newyear: '#A78BFA', dragon: '#00FF88', midautumn: '#FBBF24',
+  welcome: '#FFFFFF', invest: '#34D399',
+};
+async function loadCalendar() {
+  try {
+    const r = await ledProgramService.yearCalendar(calendarYear.value);
+    calendarDays.value = r.days ?? [];
+  } catch { /* 静默 */ }
+}
+const monthDays = computed(() => {
+  return calendarDays.value.filter(d => d.month === calendarMonth.value);
+});
+// 月历网格：前面补空（1号是周几）
+const monthGrid = computed(() => {
+  if (!monthDays.value.length) return [];
+  const firstDay = monthDays.value[0];
+  const blanks = firstDay.weekday; // 0=周日
+  const cells: (DaySchedule | null)[] = [];
+  for (let i = 0; i < blanks; i++) cells.push(null);
+  cells.push(...monthDays.value);
+  // 补到7的倍数
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+});
+function changeMonth(delta: number) {
+  let m = calendarMonth.value + delta;
+  if (m < 1) { m = 12; calendarYear.value--; loadCalendar(); }
+  if (m > 12) { m = 1; calendarYear.value++; loadCalendar(); }
+  calendarMonth.value = m;
+}
+
 function applyTemplate(tpl: TplInfo) {
   lineSeq = 0;
+  const bgColor = tpl.segments[0]?.bgColor || '#000';
   lines.value = tpl.segments
     .filter(s => s.kind === 'text' && s.text)
     .map((s, i) => ({
       id: i,
       text: s.text!,
-      size: s.bold ? 6 : 4,
+      size: s.size ?? (s.bold ? 12 : 8),
       tpl: ANIM_MAP[s.animation] ?? (s.animation === 'fade-in' ? 'zoomIn' : 'static'),
       color: s.color ?? '#FFFFFF',
       bold: !!s.bold,
+      bgColor,
     }));
   lineSeq = lines.value.length;
-  if (tpl.segments[0]?.bgColor) {
-    const bg = BG_MAP[tpl.segments[0].bgColor];
+  if (bgColor && bgColor !== '#000') {
+    const bg = BG_MAP[bgColor];
     if (bg) curBkg.value = bg;
   }
   toast(`已加载模板「${tpl.name}」，点「生成 bin 文件」出片`);
@@ -259,6 +310,69 @@ const pveCurrentFrames = computed(() => {
 });
 const pveDotCls = computed(() => (pveOnline.value ? 'dot-on' : 'dot-off'));
 
+// PVE 主机电源控制（WOL 唤醒 + SSH 关机）
+const pveHostOnline = ref(false);
+const pvePowerBusy = ref<'wake' | 'shutdown' | null>(null);
+async function refreshPveHostStatus() {
+  try {
+    const r = await ledProgramService.pvePowerStatus();
+    pveHostOnline.value = r.online;
+  } catch { pveHostOnline.value = false; }
+}
+async function wakePve() {
+  pvePowerBusy.value = 'wake';
+  try {
+    const r = await ledProgramService.pveWake();
+    toast(r.message);
+    // 30秒后轮询一次状态
+    setTimeout(() => refreshPveHostStatus(), 30000);
+  } catch (e: any) { toast(`唤醒失败：${e?.message || e}`); }
+  finally { pvePowerBusy.value = null; }
+}
+async function shutdownPve() {
+  pvePowerBusy.value = 'shutdown';
+  try {
+    const r = await ledProgramService.pveShutdown();
+    toast(r.message);
+    setTimeout(() => refreshPveHostStatus(), 5000);
+  } catch (e: any) { toast(`关机失败：${e?.message || e}`); }
+  finally { pvePowerBusy.value = null; }
+}
+
+// 节目列表（后端 history，支持重命名）
+interface ProgramItem { id: number; name: string; fileSize: number; createdAt: string; templateType?: string; segments?: any[]; }
+const programList = ref<ProgramItem[]>([]);
+const renamingId = ref<number | null>(null);
+const renameText = ref('');
+async function loadProgramList() {
+  try {
+    const list = await ledProgramService.history();
+    programList.value = (list as any[]).map(p => ({
+      id: p.id, name: p.name, fileSize: p.fileSize || 0,
+      createdAt: p.createdAt || '', templateType: p.templateType,
+      segments: p.segments || [],
+    }));
+  } catch { /* 静默 */ }
+}
+async function doRename(id: number) {
+  const name = renameText.value.trim();
+  if (!name) { renamingId.value = null; return; }
+  try {
+    await ledProgramService.rename(id, name);
+    const item = programList.value.find(p => p.id === id);
+    if (item) item.name = name;
+    toast('已重命名');
+  } catch (e: any) { toast(`重命名失败：${e?.message || e}`); }
+  renamingId.value = null;
+  renameText.value = '';
+}
+async function pushProgram(id: number) {
+  try {
+    const r = await ledProgramService.push(id);
+    toast(r.ok ? '推流成功' : '推流失败');
+  } catch (e: any) { toast(`推流失败：${e?.message || e}`); }
+}
+
 // 历史记录（后端 /led-program/history）
 interface HistItem { name: string; sub: string; state: 'ok' | 'wait'; stateText: string; }
 const histList = ref<HistItem[]>([]);
@@ -305,7 +419,7 @@ async function buildSegments(): Promise<{ segments: any[]; skippedVideos: number
     } else {
       segments.push({
         type: 'text' as const,
-        lines: lines.value.map((l) => ({ text: l.text, size: l.size, tpl: l.tpl, color: l.color, bold: l.bold })),
+        lines: lines.value.map((l) => ({ text: l.text, size: l.size, tpl: l.tpl, color: l.color, bold: l.bold, bgColor: l.bgColor || '#000' })),
         scrollSpeed: speed.value * 6,
         rep: s.rep,
       });
@@ -475,8 +589,14 @@ onMounted(() => {
   refreshHistory();
   refreshPveStatus();
   loadTemplates();
+  refreshPveHostStatus();
+  loadProgramList();
+  loadCalendar();
   // 每 15s 静默复探：后端重启/PVE 瞬断后自动恢复在线指示，不再定格在离线
-  pvePollTimer = window.setInterval(() => refreshPveStatus({ silent: true }), 15000);
+  pvePollTimer = window.setInterval(() => {
+    refreshPveStatus({ silent: true });
+    refreshPveHostStatus();
+  }, 15000);
 });
 onUnmounted(() => {
   if (pvePollTimer !== undefined) { window.clearInterval(pvePollTimer); pvePollTimer = undefined; }
@@ -501,6 +621,12 @@ onUnmounted(() => {
       </div>
       <div class="page-actions">
         <button class="btn btn-ghost" @click="refreshPveStatus()">PVE 状态</button>
+        <button class="btn btn-ghost" :disabled="pvePowerBusy !== null" @click="wakePve" v-if="!pveHostOnline">
+          {{ pvePowerBusy === 'wake' ? '唤醒中…' : 'PVE 开机' }}
+        </button>
+        <button class="btn btn-ghost" :disabled="pvePowerBusy !== null" @click="shutdownPve" v-else>
+          {{ pvePowerBusy === 'shutdown' ? '关机中…' : 'PVE 关机' }}
+        </button>
         <button class="btn btn-ghost" @click="router.push({ name: 'admin-auto-switch' })">定时开关</button>
       </div>
     </div>
@@ -515,10 +641,10 @@ onUnmounted(() => {
           <div class="screen-frame">
             <!-- 灯珠底网格（纯色底，原 290 个同色 cell 冗余 DOM 已合并为单 div） -->
             <div class="led-grid"></div>
-            <!-- 黑缝层（盖文字/背景） -->
+            <!-- 黑缝层（盖文字/背景）：62-69列 + 221-228列 -->
             <div class="led-gaps">
-              <div class="led-gap-bar" style="left:21.0345%;width:2.75862%"></div>
-              <div class="led-gap-bar" style="left:75.8621%;width:2.75862%"></div>
+              <div class="led-gap-bar" style="left:21.38%;width:2.41%"></div>
+              <div class="led-gap-bar" style="left:76.21%;width:2.41%"></div>
             </div>
             <!-- 背景动画层 -->
             <div class="bg-anim" :class="`bg-${curBkg}`">
@@ -732,19 +858,59 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <!-- 历史记录 -->
+    <!-- 全年播放日历：每天自动匹配节日模板 -->
+    <section class="card calendar-card">
+      <div class="card-head">
+        <div class="card-title">播放日历 {{ calendarYear }}年{{ calendarMonth }}月</div>
+        <div class="cal-nav">
+          <button class="btn-mini" @click="changeMonth(-1)">‹ 上月</button>
+          <button class="btn-mini" @click="changeMonth(1)">下月 ›</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="cal-weekdays">
+          <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
+        </div>
+        <div class="cal-grid">
+          <div v-for="(cell, i) in monthGrid" :key="i" class="cal-cell" :class="{ empty: !cell, weekend: cell?.isWeekend }">
+            <template v-if="cell">
+              <span class="cal-day" :style="{ color: templateColorMap[cell.templateType] || '#4C9AFF' }">{{ cell.day }}</span>
+              <span class="cal-label">{{ cell.label }}</span>
+            </template>
+          </div>
+        </div>
+        <div class="cal-legend">
+          <span v-for="(color, type) in templateColorMap" :key="type" class="cal-legend-item">
+            <span class="dot" :style="{ background: color }"></span>{{ type }}
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 节目列表（已生成 BIN 节目源，可命名、推流、作为轮播源） -->
     <section class="card hist-card">
       <div class="card-head">
-        <div class="card-title">最近播出记录</div>
-        <span class="card-hint">仅管理员可见全部，操作员可见本人</span>
+        <div class="card-title">节目列表</div>
+        <span class="card-hint">已生成 BIN 节目源，可重命名、推流、自动轮播</span>
       </div>
       <div class="card-body hist-list">
-        <div class="hist-item" v-for="(h, i) in histList" :key="i">
+        <div v-if="!programList.length" class="hist-empty">暂无节目，先在上方编排并生成 BIN</div>
+        <div class="hist-item program-item" v-for="p in programList" :key="p.id">
           <div class="h-l">
-            <span class="h-name">{{ h.name }}</span>
-            <span class="h-sub">{{ h.sub }}</span>
+            <template v-if="renamingId === p.id">
+              <input v-model="renameText" class="rename-input" placeholder="输入节目名称" @keyup.enter="doRename(p.id)" @keyup.esc="renamingId = null" />
+              <button class="btn-mini" @click="doRename(p.id)">保存</button>
+              <button class="btn-mini" @click="renamingId = null">取消</button>
+            </template>
+            <template v-else>
+              <span class="h-name">{{ p.name }}</span>
+              <span class="h-sub">#{{ p.id }} · {{ (p.fileSize/1024).toFixed(1) }}KB · {{ p.createdAt?.slice(0,16) }}</span>
+            </template>
           </div>
-          <span class="h-state" :class="h.state">{{ h.stateText }}</span>
+          <div class="h-actions">
+            <button v-if="renamingId !== p.id" class="btn-mini" @click="renamingId = p.id; renameText = p.name">重命名</button>
+            <button class="btn-mini btn-primary" @click="pushProgram(p.id)">推流</button>
+          </div>
         </div>
       </div>
     </section>
@@ -908,6 +1074,9 @@ onUnmounted(() => {
   inset: 0;
   z-index: 1;
   background: #0C1B31;
+  /* 点阵颗粒纹理：模拟290×30颗LED灯珠 */
+  background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.04) 1px, transparent 1px);
+  background-size: calc(100% / 290) calc(100% / 30);
 }
 .led-gaps {
   position: absolute;
@@ -1112,6 +1281,122 @@ onUnmounted(() => {
   15% { opacity: 1; transform: scale(1); }
   60% { opacity: .4; transform: scale(2.5); }
   100% { opacity: 0; transform: scale(3); }
+}
+
+/* ===== 高冲击力户外大屏动效（远距离可见，专业克制） ===== */
+
+/* 跑马灯：金色柔光沿边缘缓缓流动，节日用 */
+.bg-chase { background: #1A0505; overflow: hidden; }
+.bg-chase::before, .bg-chase::after {
+  content: "";
+  position: absolute;
+  height: 3px;
+  border-radius: 2px;
+}
+.bg-chase::before {
+  top: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,215,0,.6), transparent);
+  animation: chaseTop 3s ease-in-out infinite;
+}
+.bg-chase::after {
+  bottom: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,215,0,.6), transparent);
+  animation: chaseBottom 3s ease-in-out infinite;
+}
+@keyframes chaseTop {
+  0%, 100% { left: -20%; opacity: .3; }
+  50% { left: 60%; opacity: .8; }
+}
+@keyframes chaseBottom {
+  0%, 100% { left: 60%; opacity: .8; }
+  50% { left: -20%; opacity: .3; }
+}
+
+/* 彗星拖尾：柔白光带缓缓划过，日常用 */
+.bg-comet { background: #050D1F; overflow: hidden; }
+.bg-comet::before {
+  content: "";
+  position: absolute;
+  top: 35%;
+  width: 40%; height: 3px;
+  background: linear-gradient(90deg, transparent, rgba(100,180,255,.4), transparent);
+  animation: cometFly 4s ease-in-out infinite;
+}
+.bg-comet::after {
+  content: "";
+  position: absolute;
+  top: 65%;
+  width: 30%; height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(100,255,200,.3), transparent);
+  animation: cometFly2 5s ease-in-out infinite;
+}
+@keyframes cometFly {
+  0% { left: -40%; opacity: 0; }
+  30% { opacity: .7; }
+  100% { left: 110%; opacity: 0; }
+}
+@keyframes cometFly2 {
+  0% { left: 110%; opacity: 0; }
+  30% { opacity: .6; }
+  100% { left: -30%; opacity: 0; }
+}
+
+/* 霓虹光束：青色柔光带缓缓扫过，科技感 */
+.bg-neonbeam { background: #050D1F; overflow: hidden; }
+.bg-neonbeam::before {
+  content: "";
+  position: absolute;
+  top: 20%;
+  width: 35%; height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(0,200,255,.5), transparent);
+  animation: neonSweep 4s ease-in-out infinite;
+}
+.bg-neonbeam::after {
+  content: "";
+  position: absolute;
+  top: 65%;
+  width: 25%; height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(100,255,200,.4), transparent);
+  animation: neonSweep2 5s ease-in-out infinite;
+}
+@keyframes neonSweep {
+  0%, 100% { left: -35%; opacity: 0; }
+  50% { left: 70%; opacity: .6; }
+}
+@keyframes neonSweep2 {
+  0%, 100% { left: 70%; opacity: .6; }
+  50% { left: -25%; opacity: 0; }
+}
+
+/* 电脉冲：整条屏柔和呼吸光带，端午青绿主题 */
+.bg-pulse { background: #051A10; overflow: hidden; }
+.bg-pulse::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 0; bottom: 0;
+  background: radial-gradient(ellipse at 50% 50%, rgba(0,255,150,.15), transparent 70%);
+  animation: pulseBreathe 4s ease-in-out infinite;
+}
+@keyframes pulseBreathe {
+  0%, 100% { opacity: .3; transform: scale(1); }
+  50% { opacity: .8; transform: scale(1.1); }
+}
+
+/* 节日光晕：深红底+金色柔和光晕，春节/国庆用，不闪烁 */
+.bg-burst { background: #8B0000; overflow: hidden; }
+.bg-burst::before, .bg-burst::after {
+  content: "";
+  position: absolute;
+  width: 30%; height: 100%;
+  top: 0;
+  background: radial-gradient(ellipse at center, rgba(255,215,0,.12), transparent 70%);
+  animation: burstGlow 5s ease-in-out infinite;
+}
+.bg-burst::before { left: -10%; }
+.bg-burst::after { right: -10%; animation-delay: 2.5s; }
+@keyframes burstGlow {
+  0%, 100% { opacity: .3; transform: scale(1); }
+  50% { opacity: .8; transform: scale(1.2); }
 }
 
 /* 样式切换按钮（B/I/S） */
@@ -1697,6 +1982,51 @@ input[type=range]::-webkit-slider-thumb {
 .tpl-desc { font-size: 11px; color: var(--v2-text-2, #8B9BB4); margin-bottom: 8px; line-height: 1.4; }
 .auto-hint { margin-top: 10px; font-size: 11px; color: var(--v2-text-2, #8B9BB4); }
 
+/* ===== 播放日历 ===== */
+.calendar-card { margin-top: 14px; }
+.cal-nav { display: flex; gap: 6px; }
+.cal-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  text-align: center;
+  font-size: 11px;
+  color: var(--v2-text-3, #5B6B82);
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--v2-border-soft, rgba(255,255,255,0.06));
+}
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+.cal-cell {
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--v2-surf-2, rgba(255,255,255,0.03));
+  border: 1px solid var(--v2-border-soft, rgba(255,255,255,0.04));
+  min-height: 44px;
+  padding: 2px;
+}
+.cal-cell.weekend { background: rgba(255,255,255,0.05); }
+.cal-cell.empty { background: transparent; border: none; }
+.cal-day { font-size: 13px; font-weight: 700; line-height: 1; }
+.cal-label { font-size: 9px; margin-top: 2px; color: var(--v2-text-3, #5B6B82); text-align: center; line-height: 1.1; }
+.cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--v2-border-soft, rgba(255,255,255,0.06));
+}
+.cal-legend-item { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--v2-text-2, #8B9BB4); }
+.cal-legend-item .dot { width: 8px; height: 8px; border-radius: 50%; }
+
 .hist-card {
   margin-top: 14px;
   /* 首屏不可见，跳过渲染直到滚入视口 */
@@ -1721,6 +2051,20 @@ input[type=range]::-webkit-slider-thumb {
 .hist-item .h-state { font-size: 11px; display: flex; align-items: center; gap: 5px; }
 .hist-item .h-state.ok { color: #3FBF87; }
 .hist-item .h-state.wait { color: var(--v2-text-3, #5B6B82); }
+.hist-empty { text-align: center; padding: 20px; color: var(--v2-text-3, #5B6B82); font-size: 12px; }
+.program-item { flex-wrap: wrap; gap: 6px; }
+.program-item .h-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.program-item .btn-mini.btn-primary { background: #4C9AFF; color: #fff; border: none; }
+.rename-input {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 12px;
+  color: #E6EDF6;
+  width: 160px;
+  outline: none;
+}
 
 /* toast */
 .toast-item {

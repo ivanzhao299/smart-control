@@ -15,7 +15,8 @@ import { AuthenticatedRequest, requireActor } from '../../common/auth/actor';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { LedProgramService, IngestMeta, SegmentInput } from './led-program.service';
-import { listTemplates, getTemplate, getFestivalTemplate } from './led-templates';
+import { PvePowerService } from './pve-power.service';
+import { listTemplates, getTemplate, getFestivalTemplate, getYearSchedule } from './led-templates';
 
 /**
  * LED 节目制作接口：
@@ -30,7 +31,10 @@ import { listTemplates, getTemplate, getFestivalTemplate } from './led-templates
 @Controller('led-program')
 @UseGuards(RateLimitGuard)
 export class LedProgramController {
-  constructor(private readonly svc: LedProgramService) {}
+  constructor(
+    private readonly svc: LedProgramService,
+    private readonly pvePower: PvePowerService,
+  ) {}
 
   @Post('ingest')
   @RequirePermission('led-program:control')
@@ -99,5 +103,44 @@ export class LedProgramController {
   async todayFestival() {
     const t = getFestivalTemplate(new Date());
     return { message: '查询成功', data: { templateType: t, isFestival: !!t } };
+  }
+
+  @Get('calendar/:year')
+  @RequirePermission('led-program:view')
+  async yearCalendar(@Param('year') year: string) {
+    const y = parseInt(year, 10) || new Date().getFullYear();
+    const schedule = getYearSchedule(y);
+    return { message: '查询成功', data: { year: y, days: schedule } };
+  }
+
+  // ===== PVE 主机电源控制 =====
+
+  @Get('pve-power/status')
+  @RequirePermission('led-program:view')
+  async pveStatus() {
+    const r = await this.pvePower.status();
+    return { message: '查询成功', data: r };
+  }
+
+  @Post('pve-power/wake')
+  @RequirePermission('led-program:control')
+  async pveWake() {
+    const r = await this.pvePower.wake();
+    return { message: r.ok ? 'WOL 唤醒包已发送' : '唤醒失败', data: r };
+  }
+
+  @Post('pve-power/shutdown')
+  @RequirePermission('led-program:control')
+  async pveShutdown() {
+    const r = await this.pvePower.shutdown();
+    return { message: r.ok ? '关机命令已发送' : '关机失败', data: r };
+  }
+
+  @Post(':id/rename')
+  @RequirePermission('led-program:control')
+  async rename(@Param('id', ParseIntPipe) id: number, @Body('name') name: string) {
+    if (!name || !name.trim()) return { message: '名称不能为空', data: null };
+    const r = await this.svc.rename(id, name.trim());
+    return { message: '重命名成功', data: r };
   }
 }

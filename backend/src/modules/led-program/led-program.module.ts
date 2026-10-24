@@ -9,11 +9,12 @@ import { PowerSchedule } from '../../entities/power-schedule.entity';
 import { LedProgramService } from './led-program.service';
 import { LedProgramController } from './led-program.controller';
 import { LedAutoPlayService } from './led-auto-play.service';
+import { PvePowerService } from './pve-power.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([LedProgram, LedProgramSegment, Device, HardwareUnit, PowerCircuit, PowerSchedule])],
-  providers: [LedProgramService, LedAutoPlayService],
+  providers: [LedProgramService, LedAutoPlayService, PvePowerService],
   controllers: [LedProgramController],
-  exports: [LedProgramService],
+  exports: [LedProgramService, PvePowerService],
 })
 export class LedProgramModule {}

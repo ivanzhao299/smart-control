@@ -27,6 +27,7 @@ function b64ToBytes(b64: string): Uint8Array {
 
 export interface BinLine {
   text: string; size: number; tpl: string; color: string; bold?: boolean;
+  bgColor?: string;
 }
 
 /** 一个节目段：文字段或预解码视频帧段 */
@@ -76,7 +77,7 @@ function renderTextFrame(lines: BinLine[], frameIdx: number, totalFrames: number
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = lines[0]?.bgColor || '#000'; ctx.fillRect(0, 0, W, H);
 
   const totalH = lines.reduce((s, l) => s + l.size, 0) + (lines.length - 1);
   let y = Math.max(0, Math.floor((H - totalH) / 2));
