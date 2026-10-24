@@ -1583,10 +1583,14 @@ function openOpsMetricsAdmin(): void {
   50% { box-shadow: 0 1px 4px rgba(0,0,0,0.4), 0 0 0 6px rgba(210,153,34,0); }
 }
 @media (max-width: 640px) {
-  .v2-toggle { width: 50px; height: 30px; }
-  .v2-toggle::after { width: 24px; height: 24px; }
-  .v2-toggle.on::after, .v2-toggle.booting::after { transform: translateX(20px); }
-  .np-state { flex-basis: 6.5em; width: 6.5em; min-width: 6.5em; }
+  .v2-toggle { width: 44px; height: 26px; }
+  .v2-toggle::after { width: 20px; height: 20px; }
+  .v2-toggle.on::after, .v2-toggle.booting::after { transform: translateX(18px); }
+  /* 手机端：隐藏"电源"文字、压缩状态字宽，给左侧标题+播放状态让出空间 */
+  .np-label { display: none; }
+  .np-state { flex-basis: 5em; width: 5em; min-width: 5em; font-size: 11px; }
+  .np-power-icon { width: 18px; height: 18px; }
+  .now-power { gap: 4px; }
 }
 
 /* ===== 手机竖屏 (≤640px) 播放控制区紧凑化 (2026-10-17 业主要求: 把顶部高度让给播放列表)
