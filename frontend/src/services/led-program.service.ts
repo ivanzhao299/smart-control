@@ -59,7 +59,11 @@ export const ledProgramService = {
     if (adminTok) headers['Authorization'] = `Bearer ${adminTok}`;
     if (clientTok) headers['X-Client-Token'] = clientTok;
     // 注意：不手动 set Content-Type，交给浏览器为 FormData 自动带 boundary。
-    const res = await fetch(`${getApiBaseURL()}/led-program/ingest`, {
+    // 大文件上传优先走内网直连，不经过公网 nginx，避免上传大小/超时限制
+    // 配置项：VITE_INGEST_INTERNAL_BASE (如 http://192.168.77.54:3200/api)
+    const internalBase = import.meta.env.VITE_INGEST_INTERNAL_BASE as string | undefined;
+    const ingestBase = internalBase || getApiBaseURL();
+    const res = await fetch(`${ingestBase}/led-program/ingest`, {
       method: 'POST',
       headers,
       body: fd,
