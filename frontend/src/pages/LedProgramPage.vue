@@ -298,6 +298,11 @@ function previewSeg(id: number) {
 
 // 灯珠底色（原 290 列 cell 已合并为单 div，避免冗余 DOM）
 
+// PVE 总开关：关闭后停止一切探活/推流
+const pveEnabled = ref(true);
+// 手工编辑区折叠（自动模式下收起）
+const manualEditCollapsed = ref(true);
+
 // PVE 探活（真实后端 /led-program/status）
 const pveOnline = ref(false);
 const pveBase = ref('');
@@ -341,11 +346,26 @@ async function shutdownPve() {
   finally { pvePowerBusy.value = null; }
 }
 
+function togglePveEnabled() {
+  pveEnabled.value = !pveEnabled.value;
+  if (pveEnabled.value) {
+    toast('PVE 已启用，正在唤醒…');
+    wakePve();
+  } else {
+    pveOnline.value = false;
+    pveHostOnline.value = false;
+    toast('PVE 已关闭，正在关机…');
+    shutdownPve();
+  }
+}
+
 // 节目列表（后端 history，支持重命名）
 interface ProgramItem { id: number; name: string; fileSize: number; createdAt: string; templateType?: string; segments?: any[]; }
 const programList = ref<ProgramItem[]>([]);
 const renamingId = ref<number | null>(null);
 const renameText = ref('');
+// 自动轮播：哪些节目参与日历自动轮播（template_type非custom默认参与，用户可关）
+const autoProgramSet = ref<Set<number>>(new Set());
 async function loadProgramList() {
   try {
     const list = await ledProgramService.history();
@@ -354,7 +374,20 @@ async function loadProgramList() {
       createdAt: p.createdAt || '', templateType: p.templateType,
       segments: p.segments || [],
     }));
+    // 有template_type的默认自动参与轮播，custom默认手动
+    autoProgramSet.value = new Set(
+      programList.value.filter(p => p.templateType && p.templateType !== 'custom').map(p => p.id)
+    );
   } catch { /* 静默 */ }
+}
+function toggleAutoProgram(id: number) {
+  if (autoProgramSet.value.has(id)) {
+    autoProgramSet.value.delete(id);
+    toast('已切换为手动模式（不参与自动轮播）');
+  } else {
+    autoProgramSet.value.add(id);
+    toast('已切换为自动模式（参与日历轮播）');
+  }
 }
 async function doRename(id: number) {
   const name = renameText.value.trim();
@@ -593,13 +626,16 @@ function clearSegs() {
 
 onMounted(() => {
   refreshHistory();
-  refreshPveStatus();
+  if (pveEnabled.value) {
+    refreshPveStatus();
+    refreshPveHostStatus();
+  }
   loadTemplates();
-  refreshPveHostStatus();
   loadProgramList();
   loadCalendar();
-  // 每 15s 静默复探：后端重启/PVE 瞬断后自动恢复在线指示，不再定格在离线
+  // 每 15s 静默复探（PVE总开关打开时才轮询）
   pvePollTimer = window.setInterval(() => {
+    if (!pveEnabled.value) return;
     refreshPveStatus({ silent: true });
     refreshPveHostStatus();
   }, 15000);
@@ -626,18 +662,24 @@ onUnmounted(() => {
         <div class="page-sub">勇电灯珠屏 · 290×30 · 25fps · block 组播</div>
       </div>
       <div class="page-actions">
-        <button class="btn btn-ghost" @click="refreshPveStatus()">PVE 状态</button>
-        <button class="btn btn-ghost" :disabled="pvePowerBusy !== null" @click="wakePve" v-if="!pveHostOnline">
-          {{ pvePowerBusy === 'wake' ? '唤醒中…' : 'PVE 开机' }}
-        </button>
-        <button class="btn btn-ghost" :disabled="pvePowerBusy !== null" @click="shutdownPve" v-else>
-          {{ pvePowerBusy === 'shutdown' ? '关机中…' : 'PVE 关机' }}
-        </button>
+        <div class="pve-toggle" :class="{ off: !pveEnabled }" @click="togglePveEnabled">
+          <span class="pve-toggle-label">PVE</span>
+          <span class="pve-toggle-switch">
+            <span class="pve-toggle-knob"></span>
+          </span>
+          <span class="pve-toggle-state">{{ pveEnabled ? (pveOnline ? '在线' : '离线') : '已关闭' }}</span>
+        </div>
         <button class="btn btn-ghost" @click="router.push({ name: 'admin-auto-switch' })">定时开关</button>
       </div>
     </div>
 
-    <div class="layout">
+    <!-- 手工编辑区（折叠） -->
+    <div class="manual-toggle-bar" @click="manualEditCollapsed = !manualEditCollapsed">
+      <span class="manual-toggle-icon">{{ manualEditCollapsed ? '▸' : '▾' }}</span>
+      <span>手工编排（临时插播 / 自定义节目）</span>
+      <span class="manual-toggle-hint">{{ manualEditCollapsed ? '展开编辑' : '收起' }}</span>
+    </div>
+    <div v-show="!manualEditCollapsed" class="layout">
       <!-- 左：实时预览（sticky） -->
       <section class="card sticky-preview">
         <div class="card-head">
@@ -914,7 +956,10 @@ onUnmounted(() => {
             </template>
           </div>
           <div class="h-actions">
-            <button v-if="renamingId !== p.id" class="btn-mini" @click="renamingId = p.id; renameText = p.name">重命名</button>
+            <button v-if="renamingId !== p.id" class="btn-mini" @click="renamingId = p.id; renameText = p.name">编辑</button>
+            <button class="btn-mini" :class="{ 'btn-on': autoProgramSet.has(p.id) }" @click="toggleAutoProgram(p.id)">
+              {{ autoProgramSet.has(p.id) ? '自动' : '手动' }}
+            </button>
             <button class="btn-mini btn-primary" @click="pushProgram(p.id)">推流</button>
           </div>
         </div>
@@ -960,6 +1005,45 @@ onUnmounted(() => {
   padding: 16px 18px 28px;
   max-width: 1280px;
   margin: 0 auto;
+}
+
+/* PVE 总开关 */
+.pve-toggle {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 12px; border-radius: 20px;
+  background: #1a2332; cursor: pointer;
+  border: 1px solid #2a3a4a;
+}
+.pve-toggle.off { opacity: 0.5; }
+.pve-toggle-label { font-size: 12px; color: #8ab4f8; font-weight: 600; }
+.pve-toggle-switch {
+  width: 32px; height: 18px; border-radius: 9px;
+  background: #37474f; position: relative; transition: background .2s;
+}
+.pve-toggle:not(.off) .pve-toggle-switch { background: #4caf50; }
+.pve-toggle-knob {
+  position: absolute; top: 2px; left: 2px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: #fff; transition: left .2s;
+}
+.pve-toggle:not(.off) .pve-toggle-knob { left: 16px; }
+.pve-toggle-state { font-size: 11px; color: #7f8da3; }
+
+/* 手工编辑区折叠条 */
+.manual-toggle-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px; margin: 12px 0;
+  background: #151d2b; border-radius: 8px;
+  cursor: pointer; border: 1px dashed #2a3a4a;
+  font-size: 13px; color: #8ab4f8;
+}
+.manual-toggle-bar:hover { background: #1a2535; }
+.manual-toggle-icon { font-size: 14px; }
+.manual-toggle-hint { margin-left: auto; font-size: 11px; color: #5d6b80; }
+
+/* 自动/手动按钮高亮 */
+.btn-mini.btn-on {
+  background: #2e7d32; color: #fff;
 }
 
 /* ===== 页头 ===== */
