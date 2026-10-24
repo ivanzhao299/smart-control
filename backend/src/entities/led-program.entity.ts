@@ -41,7 +41,7 @@ export class LedProgram {
   @Column({ type: 'integer', default: 25 })
   fps!: number;
 
-  @Column({ type: 'varchar', length: 32, default: 'custom' })
+  @Column({ name: 'template_type', type: 'varchar', length: 32, default: 'custom' })
   templateType!: string;
 
   @Column({ type: 'integer', default: 0 })
