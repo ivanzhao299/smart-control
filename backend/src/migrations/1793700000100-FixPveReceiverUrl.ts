@@ -36,3 +36,4 @@ export class FixPveReceiverUrl1793700000100 implements MigrationInterface {
     // 纯配置修正，不回滚
   }
 }
+// migration trigger
