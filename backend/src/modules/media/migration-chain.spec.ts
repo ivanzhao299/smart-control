@@ -70,7 +70,8 @@ describe('complete migration chain on an isolated database', () => {
         m.name === 'SeedPveReceiverHardwareUnit1793401000000' ||
         m.name === 'AddPowerCircuitPollConfig1793500000000' ||
         m.name === 'AddLedProgramTemplateType1793600000000' ||
-        m.name === 'AddLedProgramComboMembers1793700000000',
+        m.name === 'AddLedProgramComboMembers1793700000000' ||
+        m.name === 'FixPveReceiverUrl1793700000100',
       );
       for (const _ of postShowroom) await db.undoLastMigration();
       await expect(db.undoLastMigration()).rejects.toThrow(
