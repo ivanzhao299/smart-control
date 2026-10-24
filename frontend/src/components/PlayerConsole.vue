@@ -380,7 +380,6 @@ function openOpsMetricsAdmin(): void {
            手机端在「铺放」同一行左侧做滚动字幕, 不占额外行、不顶动下方卡片, 播放卡恒 150 等高。 -->
       <div class="now-info">
         <div class="now-label-row">
-          <div class="now-label">正在播放</div>
           <PlayerVolumeControl v-if="showVolumeControl" :channels="audioOutputPair!"
             :label="`${title}音量`" :disabled="!perm.canExecute" />
         </div>

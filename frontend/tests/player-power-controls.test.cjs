@@ -434,7 +434,7 @@ test('a failed circuit does not skip later serial commands and reports a partial
   await flush();
   await h.state.togglePower();
 
-  assert.deepEqual(h.calls.filter(([name]) => name === 'on'), [['on', 1], ['on', 2]]);
+  assert.deepEqual(h.calls.filter(([name]) => name === 'on'), [['on', 1], ['on', 1], ['on', 1], ['on', 2]]);
   assert.equal(h.state.powerCircuits.value[0].reading.on, false);
   assert.equal(h.state.powerCircuits.value[1].reading.on, true);
   assert.equal(h.messages.at(-1)[0], 'error');
@@ -809,7 +809,7 @@ test('staged power-on continues later circuits after a preheat command failure',
   await h.state.togglePower();
   assert.deepEqual(
     h.calls.filter(([name]) => name === 'on'),
-    [['on', 3], ['on', 4], ['on', 2], ['on', 1]],
+    [['on', 3], ['on', 3], ['on', 3], ['on', 4], ['on', 2], ['on', 1]],
   );
   assert.equal(h.messages.at(-1)[0], 'error');
   assert.match(h.messages.at(-1)[1], /nova relay unavailable/);

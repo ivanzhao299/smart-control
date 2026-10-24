@@ -281,24 +281,37 @@ export function usePlayerPowerControls(options: PlayerPowerControlsOptions) {
           }
         }
       }
-      try {
-        const updated = turningOn
-          ? await (powerCircuitsService.playerOn
-            ? powerCircuitsService.playerOn(target.id, ctx.operationId)
-            : powerCircuitsService.on(target.id, ctx.operationId))
-          : await (powerCircuitsService.playerOff
-            ? powerCircuitsService.playerOff(target.id, ctx.operationId)
-            : powerCircuitsService.off(target.id, ctx.operationId));
-        if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return { failed, kept, stopped: true };
-        writeBack(updated);
-        if (turningOn && gapMsBetweenOn > 0 && target !== targets.at(-1)) {
-          await sleep(gapMsBetweenOn);
+      let lastError: unknown = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const updated = turningOn
+            ? await (powerCircuitsService.playerOn
+              ? powerCircuitsService.playerOn(target.id, ctx.operationId)
+              : powerCircuitsService.on(target.id, ctx.operationId))
+            : await (powerCircuitsService.playerOff
+              ? powerCircuitsService.playerOff(target.id, ctx.operationId)
+              : powerCircuitsService.off(target.id, ctx.operationId));
+          if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return { failed, kept, stopped: true };
+          writeBack(updated);
+          lastError = null;
+          break;
+        } catch (error) {
+          lastError = error;
+          if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return { failed, kept, stopped: true };
+          // 开机时某一路通信瞬断自动重试两次（600ms间隔），杜绝"部分通电"需二次点击。
+          if (turningOn && attempt < 2) {
+            await sleep(600);
+            continue;
+          }
         }
-      } catch (error) {
-        if (!isCurrent(ctx.key, ctx.action, ctx.revision)) return { failed, kept, stopped: true };
-        const detail = error as Error & { status?: number };
+      }
+      if (lastError) {
+        const detail = lastError as Error & { status?: number };
         const message = detail.message || '未知错误';
         failed.push(`${target.name}: ${detail.status === 0 ? `设备通信失败（${message}）` : message}`);
+      }
+      if (turningOn && gapMsBetweenOn > 0 && target !== targets.at(-1)) {
+        await sleep(gapMsBetweenOn);
       }
     }
     return { failed, kept, stopped: false };
