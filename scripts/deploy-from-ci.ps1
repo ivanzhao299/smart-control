@@ -814,8 +814,9 @@ try {
         Invoke-Native 'git' @('restore', '--worktree', '--', 'frontend/components.d.ts')
       }
 
-      # .env.production is gitignored now, no longer tracked.
-      # Production keeps its own local copy, deployment won't overwrite it.
+      # Force discard all local changes before merge to avoid conflicts.
+      # .env.production and other runtime files are gitignored, safe to reset.
+      Invoke-Native 'git' @('checkout', '--', '.')
 
       Invoke-Native 'git' @('merge', '--ff-only', $Commit)
       $worktreeUpdated = $true
