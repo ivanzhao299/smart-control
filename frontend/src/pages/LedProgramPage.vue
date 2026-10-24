@@ -110,6 +110,7 @@ const speedNote = computed(() => `≈${speed.value * 6} 灯珠/秒`);
 // ===== 自动编排模板 =====
 interface TplInfo { type: string; name: string; description: string; segments: any[] }
 const templateList = ref<TplInfo[]>([]);
+const currentTemplate = ref<{ type: string; name: string } | null>(null);
 const festivalToday = ref<{ templateType: string | null; isFestival: boolean }>({ templateType: null, isFestival: false });
 const festivalTemplateName = computed(() => {
   const t = templateList.value.find(t => t.type === festivalToday.value.templateType);
@@ -185,6 +186,7 @@ function changeMonth(delta: number) {
 
 function applyTemplate(tpl: TplInfo) {
   lineSeq = 0;
+  currentTemplate.value = { type: tpl.type, name: tpl.name };
   const bgColor = tpl.segments[0]?.bgColor || '#000';
   lines.value = tpl.segments
     .filter(s => s.kind === 'text' && s.text)
@@ -493,7 +495,11 @@ async function genBin() {
       color: lines.value[0]?.color,
       durationMs: s.rep * 4000,
     }));
-    const ingested = await ledProgramService.ingest(bin.bytes, bin.fileName, segmentsPayload);
+    const friendlyName = currentTemplate.value?.name || bin.fileName.replace(/\.bin$/i, '');
+    const ingested = await ledProgramService.ingest(bin.bytes, bin.fileName, segmentsPayload, {
+      name: friendlyName,
+      templateType: currentTemplate.value?.type || 'custom',
+    });
     lastProgramId.value = ingested.program.id;
 
     const mb = (bin.sizeBytes / 1024 / 1024).toFixed(1);

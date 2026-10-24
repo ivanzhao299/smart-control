@@ -40,16 +40,18 @@ export const ledProgramService = {
     binBytes: Uint8Array,
     fileName: string,
     segments: Array<{ type: string; text?: string; template?: string; color?: string; durationMs?: number }>,
+    extra?: { name?: string; templateType?: string },
   ): Promise<LedProgramIngestResult> {
     const fd = new FormData();
     const blob = new Blob([binBytes as BlobPart], { type: 'application/octet-stream' });
     fd.append('file', blob, fileName);
     fd.append('meta', JSON.stringify({
-      name: fileName.replace(/\.bin$/i, ''),
+      name: extra?.name || fileName.replace(/\.bin$/i, ''),
       segments,
       autoPush: false,
       cycles: 1,
       fps: 25,
+      templateType: extra?.templateType || 'custom',
     }));
     const headers: Record<string, string> = {};
     const adminTok = getAdminToken();
