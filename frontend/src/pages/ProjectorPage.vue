@@ -78,9 +78,9 @@ useActivePolling(startPolling, stopPolling);
       pollIntervalSec: 1,
       settleSec: 2,
       confirmIntervalSec: 1,
-      ampStartDelaySec: 32,
-      ampStageGapSec: 3,
-      stageGapMs: 0,
+      ampStartDelaySec: 5,
+      ampStageGapSec: 1,
+      stageGapMs: 500,
     }"
   >
     <template #alert>

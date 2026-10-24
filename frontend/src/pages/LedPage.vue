@@ -27,9 +27,9 @@ import PlayerConsole from '@/components/PlayerConsole.vue';
       pollIntervalSec: 1,
       settleSec: 2,
       confirmIntervalSec: 1,
-      ampStartDelaySec: 15,
-      ampStageGapSec: 3,
-      stageGapMs: 0,
+      ampStartDelaySec: 5,
+      ampStageGapSec: 1,
+      stageGapMs: 500,
     }"
   />
 </template>
