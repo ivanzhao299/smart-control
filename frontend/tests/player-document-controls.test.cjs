@@ -260,5 +260,6 @@ test('PlayerConsole delegates document controls to the dedicated composable', ()
   // 上方委托断言不变，仅放宽行数预算。
   // 第三十一轮：新增 powerBootPlan prop + 开机倒计时 UI（仅 props/模板/样式），
   // 文档控制仍全部委托 composable，预算相应放宽到 1640。
-  assert.ok(playerConsoleSource.split('\n').length < 1640);
+  // 2026-10-24 电源开关三态视觉（纯 UI/CSS），预算放宽到 1710。
+  assert.ok(playerConsoleSource.split('\n').length < 1710);
 });

@@ -494,7 +494,9 @@ test('PlayerConsole delegates display power orchestration to the dedicated compo
   // 属 props 声明、业务逻辑仍在 composable，预算相应放宽到 1630。
   // 第三十一轮：新增 powerBootPlan prop（含注释）+ 开机正计时 UI（.np-state.booting），
   // 仅 props/模板/样式，业务逻辑仍在 composable，预算相应放宽到 1640。
-  assert.ok(playerConsoleSource.split('\n').length < 1640);
+  // 2026-10-24 电源开关三态视觉（toggleState/powerIconState computed + CSS 三态），
+  // 纯 UI/样式，业务逻辑仍在 composable，预算放宽到 1710。
+  assert.ok(playerConsoleSource.split('\n').length < 1710);
 });
 
 // ===== 第三十一轮：分阶段电源编排（预热视频源 → 等就绪 → 显示回路）=====
