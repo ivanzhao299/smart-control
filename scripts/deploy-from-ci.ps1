@@ -814,11 +814,8 @@ try {
         Invoke-Native 'git' @('restore', '--worktree', '--', 'frontend/components.d.ts')
       }
 
-      # .env.production may have local changes on production that conflict with repo.
-      # Force restore before merge to avoid blocking deployment.
-      if (Test-Path (Join-Path $projectRoot 'frontend\.env.production')) {
-        Invoke-Native 'git' @('restore', '--worktree', '--', 'frontend/.env.production')
-      }
+      # .env.production is gitignored now, no longer tracked.
+      # Production keeps its own local copy, deployment won't overwrite it.
 
       Invoke-Native 'git' @('merge', '--ff-only', $Commit)
       $worktreeUpdated = $true
