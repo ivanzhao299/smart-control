@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards, Req, HttpException } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Logger, Param, Post, UseGuards, Req, HttpException } from '@nestjs/common';
 import { AuthenticatedRequest, requireActor } from '../../common/auth/actor';
 import { assertCanUpload } from '../../common/auth/resource-policy';
 import { LedAdapter } from '../../adapters/led/led.adapter';
@@ -21,6 +21,8 @@ import { PlaybackService } from '../playback/playback.service';
 @WriteRoles('admin', 'operator')
 @RateLimit({ max: 4, windowMs: 1000 })
 export class LedController {
+  private readonly logger = new Logger(LedController.name);
+
   constructor(
     private readonly led: LedAdapter,
     private readonly logService: OperationLogService,
@@ -33,24 +35,30 @@ export class LedController {
    * 设备未就绪返回 ready:false, 不抛 500)。单次 TCP 命令, 不做全量探测。
    */
   @Get('ready')
-  async ready() {
+  async ready(@Headers('x-operation-id') operationId?: string) {
+    const startedAt = Date.now();
     const result = await this.led.healthCheck();
+    this.logger.log(JSON.stringify({
+      event: 'playerBoot', phase: 'core-ready', device: 'led-nova',
+      operationId: operationId?.slice(0, 80) ?? null, ready: result.ok,
+      durationMs: Date.now() - startedAt,
+    }));
     return { message: '查询成功', data: { ready: result.ok } };
   }
 
   @Post(':id/on')
-  on(@Param('id') id: string) {
-    return this.wrap(id, 'on', () => this.led.powerOn(id));
+  on(@Headers('x-operation-id') operationId: string | undefined, @Param('id') id: string) {
+    return this.wrap(id, 'on', () => this.led.powerOn(id), {}, operationId);
   }
 
   @Post(':id/off')
-  off(@Param('id') id: string) {
-    return this.wrap(id, 'off', () => this.led.powerOff(id));
+  off(@Headers('x-operation-id') operationId: string | undefined, @Param('id') id: string) {
+    return this.wrap(id, 'off', () => this.led.powerOff(id), {}, operationId);
   }
 
   @Post(':id/play')
-  play(@Param('id') id: string, @Body() dto: LedPlayDto) {
-    return this.wrap(id, 'play', () => this.led.playMedia(id, { media: dto.media }), { media: dto.media });
+  play(@Headers('x-operation-id') operationId: string | undefined, @Param('id') id: string, @Body() dto: LedPlayDto) {
+    return this.wrap(id, 'play', () => this.led.playMedia(id, { media: dto.media }), { media: dto.media }, operationId);
   }
 
   /**
@@ -100,8 +108,8 @@ export class LedController {
   }
 
   @Post(':id/input')
-  input(@Param('id') id: string, @Body() dto: LedInputDto) {
-    return this.wrap(id, 'input', () => this.led.switchInput(id, { input: dto.input }), { input: dto.input });
+  input(@Headers('x-operation-id') operationId: string | undefined, @Param('id') id: string, @Body() dto: LedInputDto) {
+    return this.wrap(id, 'input', () => this.led.switchInput(id, { input: dto.input }), { input: dto.input }, operationId);
   }
 
   private async wrap(
@@ -109,6 +117,7 @@ export class LedController {
     cmd: string,
     fn: () => Promise<AdapterResult>,
     extra: Record<string, unknown> = {},
+    operationId?: string,
   ) {
     const result = await fn();
     await this.logService.record({
@@ -117,7 +126,7 @@ export class LedController {
       targetType: 'led',
       targetId: id,
       result: result.ok ? 'success' : 'failure',
-      message: JSON.stringify({ id, cmd, ...extra, ok: result.ok, error: result.error, durationMs: result.durationMs, mock: result.mock }),
+      message: JSON.stringify({ id, cmd, ...extra, operationId: operationId?.slice(0, 80) ?? null, ok: result.ok, error: result.error, durationMs: result.durationMs, mock: result.mock }),
     });
     return { message: result.ok ? '执行成功' : '执行失败', data: result };
   }

@@ -50,6 +50,11 @@ export interface ExecuteOptions {
   triggerType?: TriggerType;
   triggerSource?: string;
   force?: boolean;
+  /**
+   * 前台手动切换场景时，当前选择立即接管：取消当前运行/排队项并直接启动。
+   * 定时任务和后台测试默认仍使用原有 FIFO 行为，避免改变其他调度语义。
+   */
+  replaceActive?: boolean;
 }
 
 interface RunningHandle {
@@ -122,7 +127,9 @@ export class SceneEngineService {
     if (!scene) throw new NotFoundException(`场景不存在: ${sceneCode}`);
     if (!scene.enabled) throw new ConflictException(`场景已禁用: ${sceneCode}`);
 
-    if (!opts.force) {
+    if (opts.replaceActive) {
+      await this.replaceActiveExecutions(triggerSource);
+    } else if (!opts.force) {
       if (this.running.has(sceneCode)) {
         throw new ConflictException(`该场景正在执行中: ${sceneCode}`);
       }
@@ -163,14 +170,22 @@ export class SceneEngineService {
       durationMs: 0,
     };
 
-    this.queue.push({
+    const item: QueueItem = {
       scene,
       record,
       controller,
       resolve: () => undefined,
       reject: () => undefined,
-    });
-    void this.kickQueue();
+    };
+
+    if (opts.replaceActive) {
+      // 操作员的手动切换不再进入 FIFO。旧场景已经发出 abort，新场景立即开始，
+      // 让灯光组合可以随时接管当前状态。
+      void this.runOne(item);
+    } else {
+      this.queue.push(item);
+      void this.kickQueue();
+    }
     return snap;
   }
 
@@ -403,8 +418,52 @@ export class SceneEngineService {
       { context: 'SceneEngine' },
     );
 
-    this.running.delete(scene.code);
+    // 同一场景可能在旧执行被取消后立即重新启动。只有当前 executionId 仍然
+    // 对应本次运行时才允许清理 running，避免旧任务的收尾覆盖新任务。
+    if (this.running.get(scene.code)?.record.executionId === record.executionId) {
+      this.running.delete(scene.code);
+    }
     item.resolve(snapshot);
+  }
+
+  /**
+   * 手动场景切换的 latest-wins 语义：取消当前运行项并清理等待队列。
+   * 取消运行项只发出 AbortSignal，不等待旧硬件请求返回；新场景随后立即启动。
+   */
+  private async replaceActiveExecutions(operator: string): Promise<void> {
+    for (const handle of this.running.values()) {
+      handle.controller.abort();
+      handle.snapshot.status = 'cancelled';
+      void this.logService.record({
+        operator,
+        action: 'scene.cancel',
+        targetType: 'scene',
+        targetId: String(handle.scene.id),
+        result: 'success',
+        message: `${handle.scene.code} (replaced)`,
+      });
+    }
+
+    const queued = this.queue.splice(0);
+    for (const item of queued) {
+      item.controller.abort();
+      item.record.status = 'cancelled';
+      item.record.finishedAt = new Date();
+      await this.executionRepo.save(item.record);
+      this.publishExecutionEvent('scene_execution_cancelled', item.scene, item.record, {
+        totalActions: item.record.totalActions,
+        successCount: 0,
+        failedCount: 0,
+      });
+      void this.logService.record({
+        operator,
+        action: 'scene.cancel',
+        targetType: 'scene',
+        targetId: String(item.scene.id),
+        result: 'success',
+        message: `${item.scene.code} (queued-replaced)`,
+      });
+    }
   }
 
   private async runGroup(handle: RunningHandle, group: SceneAction[]): Promise<void> {

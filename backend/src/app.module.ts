@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import configuration from './common/config/configuration';
@@ -56,6 +57,7 @@ import { PvModule } from './modules/pv/pv.module';
 import { Em123Module } from './modules/em123/em123.module';
 import { RbacModule } from './modules/rbac/rbac.module';
 import { RuntimeConfigModule } from './common/runtime-config/runtime-config.module';
+import { LedProgramModule } from './modules/led-program/led-program.module';
 
 @Module({
   imports: [
@@ -67,6 +69,7 @@ import { RuntimeConfigModule } from './common/runtime-config/runtime-config.modu
     }),
     LoggerModule,
     TypeOrmModule.forRootAsync({ useClass: TypeOrmConfigService }),
+    ScheduleModule.forRoot(),
     RuntimeConfigModule,
     AdaptersModule,
     ServicesModule,
@@ -113,6 +116,7 @@ import { RuntimeConfigModule } from './common/runtime-config/runtime-config.modu
     LprModule,
     PvModule,
     Em123Module,
+    LedProgramModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

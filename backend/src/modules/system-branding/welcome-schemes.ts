@@ -2,7 +2,10 @@ import { BadRequestException } from '@nestjs/common';
 
 export const WELCOME_SCHEMES_CONFIG_KEY = 'welcome.schemes';
 export const WELCOME_SCHEMES_SCHEMA_VERSION = 2;
-export const MAX_WELCOME_SCHEMES = 20;
+/** 保留 1 套系统默认方案，另允许用户维护最多 20 套方案。 */
+export const MAX_WELCOME_SCHEMES = 21;
+export const DEFAULT_WELCOME_SCHEME_ID = 'default';
+export const DEFAULT_WELCOME_SCHEME_NAME = '默认欢迎页';
 
 export const WELCOME_LAYOUTS = ['ceremony', 'editorial', 'minimal'] as const;
 export const WELCOME_TONES = ['light', 'dark'] as const;
@@ -224,6 +227,7 @@ export function buildDefaultWelcomeSchemes(
   return {
     version: 2,
     schemes: [
+      { ...current, id: DEFAULT_WELCOME_SCHEME_ID, name: DEFAULT_WELCOME_SCHEME_NAME },
       { id: 'current', name: '当前接待', ...current },
       {
         id: 'business-visit',
@@ -280,6 +284,26 @@ export function buildDefaultWelcomeSchemes(
         welcomeLogoMediaId: null,
         presentation: { ...DEFAULT_WELCOME_PRESENTATION, layout: 'minimal' },
       },
+    ],
+  };
+}
+
+/**
+ * 旧版本已保存的方案配置没有系统默认方案。读取时补入内存快照，用户下一次保存
+ * 即会把它持久化；不在 GET 路径写库，避免打开编辑器产生隐式配置变更。
+ */
+export function ensureDefaultWelcomeScheme(
+  document: WelcomeSchemesDocument,
+  current: PublishedWelcomeFields,
+): WelcomeSchemesDocument {
+  if (document.schemes.some((scheme) => scheme.id === DEFAULT_WELCOME_SCHEME_ID)) {
+    return document;
+  }
+  return {
+    version: 2,
+    schemes: [
+      { ...current, id: DEFAULT_WELCOME_SCHEME_ID, name: DEFAULT_WELCOME_SCHEME_NAME },
+      ...document.schemes,
     ],
   };
 }

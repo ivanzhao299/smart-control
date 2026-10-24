@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { serializedTransaction } from '../../common/utils/serialized-transaction';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -14,6 +14,8 @@ import { PlaybackHistory } from '../../entities/playback-history.entity';
 import { User } from '../../entities/user.entity';
 import { MediaAsset } from '../../entities/media-asset.entity';
 import { MediaService } from '../media/media.service';
+import { SystemBrandingService } from '../system-branding/system-branding.service';
+import { DEFAULT_WELCOME_SCHEME_ID } from '../system-branding/welcome-schemes';
 import { ControlBus } from '../../services/control-bus';
 
 export interface PlaybackChannelView {
@@ -63,6 +65,7 @@ export class PlaybackService implements OnModuleInit {
     private readonly mediaService: MediaService,
     private readonly bus: ControlBus,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
+    @Optional() private readonly systemBranding?: SystemBrandingService,
   ) {}
 
   /**
@@ -195,7 +198,7 @@ export class PlaybackService implements OnModuleInit {
   //   editable → 「金湖欢迎页·动态(称谓可编辑)」 (kind=webpage, 领导称谓在
   //              后台→系统品牌 编辑, 约 20s 自动生效) —— 两块屏共用一个网页素材,
   //              kiosk 按各自分辨率渲染。
-  //   default  → 本屏专用尺寸的内置静态图 (slot1=LED版 / slot2=投影版), 不可编辑,
+  //   default  → 默认欢迎页（已保存编辑方案时复用动态渲染，否则回退本屏内置图）
   //              作为兜底画面。
   // 素材是启动时自动入库的内置资源, 按 originalName 定位; 被改名/删除时报错并
   // 内置资料由受控发布清单建立；运行中的服务不会补写或重建目录。
@@ -208,9 +211,22 @@ export class PlaybackService implements OnModuleInit {
 
   async publishWelcome(slot: number, variant: 'editable' | 'default', actor: Actor): Promise<{ assetName: string; view: PlaybackChannelView }> {
     assertCanUpload(actor);
-    const name = variant === 'editable'
+    let name = variant === 'editable'
       ? PlaybackService.WELCOME_EDITABLE_NAME
       : (PlaybackService.WELCOME_DEFAULT_NAMES[slot] ?? PlaybackService.WELCOME_DEFAULT_NAMES[1]);
+    if (variant === 'default') {
+      // 默认欢迎页已纳入欢迎方案编辑器时，先把默认方案发布到品牌快照，
+      // 再复用动态欢迎页渲染器；尚未保存过默认方案的旧实例继续回退内置静态图。
+      const branding = this.systemBranding;
+      const schemes = branding
+        ? await branding.getWelcomeSchemes()
+        : null;
+      const defaultScheme = schemes?.config.schemes.find((item) => item.id === DEFAULT_WELCOME_SCHEME_ID);
+      if (schemes && defaultScheme && schemes.revision > 0) {
+        await branding!.publishWelcomeScheme(defaultScheme.id, schemes.revision);
+        name = PlaybackService.WELCOME_EDITABLE_NAME;
+      }
+    }
     const media = await this.mediaService.findByOriginalName(name);
     if (!media) {
       throw new NotFoundException(

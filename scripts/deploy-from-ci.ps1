@@ -62,6 +62,7 @@ function Test-MutableRuntimePath([string]$RelativePath) {
   $normalized = $RelativePath.Replace('/', '\')
   if ($normalized -like 'logs\*' -or $normalized -like '.runtime\*') { return $true }
   if ($normalized -match '^database\.*\.(db|db-journal|db-wal|db-shm|sqlite)$') { return $true }
+  if ($normalized -eq 'frontend\components.d.ts') { return $true }
   return ($normalized -like 'backend\data\*.json') -and ($normalized -notlike '*.example.json')
 }
 
@@ -803,6 +804,14 @@ try {
           Move-Item -Path $livePath -Destination $archivedPath -Force
           Write-DeployLog "Archived protected runtime file before Git merge: $relativePath"
         }
+      }
+
+      # Auto-generated frontend type declarations must be restored before ff-merge.
+      # unplugin-vue-components rewrites this file on every build, so it always
+      # appears dirty on GK9000 and would block the merge otherwise. Safe to
+      # discard: the next build regenerates it deterministically.
+      if (Test-Path (Join-Path $projectRoot 'frontend\components.d.ts')) {
+        Invoke-Native 'git' @('restore', '--worktree', '--', 'frontend/components.d.ts')
       }
 
       Invoke-Native 'git' @('merge', '--ff-only', $Commit)

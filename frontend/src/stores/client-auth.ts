@@ -66,6 +66,7 @@ export const useClientAuthStore = defineStore('client-auth', () => {
   async function testConnection(): Promise<{ ok: boolean; error?: string; serverTime?: string }> {
     try {
       const data = await api.get<{ ok: true; serverTime: string }>('/client-auth/ping', { timeout: 5000 });
+      if (data?.ok !== true) return { ok: false, error: '服务器返回无效响应' };
       return { ok: true, serverTime: data.serverTime };
     } catch (e) {
       return { ok: false, error: (e as Error).message };
@@ -163,7 +164,21 @@ export const useClientAuthStore = defineStore('client-auth', () => {
 
 function readToken(): string | null {
   if (!isBoundToCurrentServer()) return null;
-  try { return window.localStorage.getItem(TOKEN_STORAGE_KEY); } catch { return null; }
+  try {
+    const token = window.localStorage.getItem(TOKEN_STORAGE_KEY);
+    const expiry = window.localStorage.getItem(TOKEN_EXPIRY_KEY);
+    // 过期 token 不能继续注入 http.ts，否则路由守卫会把它当作客户端身份
+    // 去探测 /admin/auth/me，冷启动会被网络超时拖成“系统页面未能启动”。
+    if (token && expiry) {
+      const expMs = Date.parse(expiry);
+      if (Number.isFinite(expMs) && expMs <= Date.now()) {
+        window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+        window.localStorage.removeItem(TOKEN_EXPIRY_KEY);
+        return null;
+      }
+    }
+    return token;
+  } catch { return null; }
 }
 function readExpiry(): string | null {
   if (!isBoundToCurrentServer()) return null;

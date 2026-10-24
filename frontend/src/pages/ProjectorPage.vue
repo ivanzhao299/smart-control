@@ -59,27 +59,28 @@ useActivePolling(startPolling, stopPolling);
 </script>
 
 <template>
-  <!-- 分阶段电源编排（第三十五轮按现场接线图严格定序，视频源未就绪绝不送显示电）:
-       开机 ① 第一时间开视频融合器(seq55-4) → ② 应用层探活等就绪（硬门控，超时120s
-       未就绪则阻断不开投影）→ ③ 就绪后开投影功放(seq55-8) + 音频矩阵(seq-4) →
-       ④ 最后开投影仪(seq-5)，画面满屏固定；关机逆向（投影→功放/矩阵→融合器）。
+  <!-- 分阶段电源编排（第三十六轮按现场接线图严格定序，探活只观测不阻断送显示电）:
+       开机 ① 第一时间开视频融合器(seq55-4) → ② 约32s时先开音频矩阵(seq-4)，再间隔3s开投影功放(seq55-8) →
+       ③ 应用层后台探活，同时继续锁定 HDMI 路径并开投影仪(seq-5)，
+       确保投影一开就有图像和声音；探活慢或失败不阻断电源指令；关机逆向（投影→功放/矩阵→融合器）。
        音频矩阵与 LED 共用，power-keep-peers 标注「最后离开才关」：投影关机时若 LED
        主开关(1f-led)仍通电，矩阵保留给 LED。 -->
   <PlayerConsole
-    :slot="2" title="投影仪" power-code="seq-5,seq-4"
+    :slot="2" title="投影仪" :audio-output-pair="[2, 3]" power-code="seq-5,seq-4"
     :power-amp-codes="['seq55-8']"
     :power-keep-peers="[{ code: 'seq-4', peers: ['1f-led'], peerLabel: 'LED 大屏' }]"
     :power-boot-plan="{
       preheatCodes: ['seq55-4'],
-      ampStageCodes: ['seq55-8', 'seq-4'],
+      ampStageCodes: ['seq-4', 'seq55-8'],
       screenStageCodes: ['seq-5'],
       readyKind: 'projector',
-      timeoutSec: 120,
-      initialDelaySec: 15,
-      pollIntervalSec: 4,
-      settleSec: 10,
-      confirmIntervalSec: 2,
-      stageGapMs: 1000,
+      initialDelaySec: 0,
+      pollIntervalSec: 1,
+      settleSec: 2,
+      confirmIntervalSec: 1,
+      ampStartDelaySec: 5,
+      ampStageGapSec: 1,
+      stageGapMs: 500,
     }"
   >
     <template #alert>

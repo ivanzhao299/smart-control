@@ -205,8 +205,8 @@ export async function detectLanConnection(): Promise<void> {
   }
   lanProbe.state = 'probing';
   try {
-    // 同源拿 lanBaseUrl (走 Nginx, 必然通)
-    const res = await fetch('/api/system/info', { cache: 'no-store' });
+    // 同源拿 lanBaseUrl (走当前实际 API base；park 入口是 /control/api)
+    const res = await fetch(`${getApiBaseURL()}/system/info`, { cache: 'no-store' });
     if (!res.ok) throw new Error('info ' + res.status);
     const j = await res.json();
     const lan = j?.data?.lanBaseUrl;
@@ -321,6 +321,8 @@ export interface HttpRequestConfig {
   headers?: Record<string, string>;
   /** 超时, 默认 15s */
   timeout?: number;
+  /** 是否把网络层失败上报到全局连接状态；设备控制请求可关闭，避免现场设备超时误报服务器离线。 */
+  reportConnectivity?: boolean;
   /** 取消信号 (由调用方控制) */
   signal?: AbortSignal;
   /** GET 专用: 绕过短缓存与 in-flight 合并, 强制重新拉取 (诊断/手动刷新用) */
@@ -406,7 +408,7 @@ async function rawRequest<T>(
     trackApiCall(url, Math.round(performance.now() - startMs), 0);
     // 外部主动取消不算连不上; 超时/网络错误才报不可达
     const externallyAborted = cfg?.signal?.aborted === true;
-    if (!externallyAborted) reportConnectivity(false);
+    if (!externallyAborted && cfg?.reportConnectivity !== false) reportConnectivity(false);
     if (ctrl.signal.aborted) {
       const reason = ctrl.signal.reason as Error | string | undefined;
       throw new HttpError(
@@ -475,8 +477,8 @@ const responseCache = new Map<string, CachedPayload>();
 const CACHE_TTL_MS = 30_000;
 
 /**
- * 各端点 GET 缓存 TTL(ms)。配置/清单类 30s；power-circuits 为后台 10s 采集的
- * 开关快照, 给 10s(与采集周期一致), 让多处共享、写操作后清缓存重读;
+ * 各端点 GET 缓存 TTL(ms)。配置/清单类 30s；power-circuits 为后端维护的
+ * 最后一次正确开关快照, 给 10s 让多处共享、写操作后清缓存重读;
  * 其余(实时/身份端点)不在表内 → 0, 仅做 in-flight 合并。
  *
  * 实时端点刻意不做 TTL: /playback/channels(播放状态)、/system-branding(欢迎页内容)

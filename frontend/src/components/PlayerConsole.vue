@@ -1,13 +1,10 @@
 <script setup lang="ts">
 /**
  * 播放控制台 — LED 大屏 / 投影仪**共用**这一个组件, 只有 slot 和标题不同。
- *
  * 为什么抽成组件而不是两个页面各写一份: 2026-07-17 在空调页刚吃过教训 ——
  * 同一个卡片写两遍, 必然改一处漏一处。这里两块屏的播放控制逻辑 100% 相同
  * (列表/历史/上下曲/暂停/终止/上传), 只是 slot 不一样, 没有任何理由抄两份。
- *
  * **所有操作都在本页完成, 不跳走**。
- *
  * 2026-07-17 业主原话:
  *   "播放页面不应该点击按钮跳转到其他页面, 应该在该页面固定不变"
  *   "平时经常播放的内容应该在播放列表里面, 随时可以切换播放列表内的内容"
@@ -21,7 +18,6 @@
  * 要换个片子得离开正在盯着的播放页, 这正是业主说的毛病。
  * 现在: 播放列表内嵌本页, 点一下就切; 上传也在本页 (传完只入媒体库, **不自动进列表**,
  * 要人工点"加入列表" —— 业主明确要求媒体库内容需确认后才进列表)。
- *
  * 投影仪 (slot2) 已拆到独立页 ProjectorPage, 本页只管 LED (slot1)。
  */
 import { computed, onMounted, onScopeDispose } from 'vue';
@@ -43,10 +39,11 @@ import { usePlayerInputSources } from '@/composables/usePlayerInputSources';
 import { usePlayerPlaylist } from '@/composables/usePlayerPlaylist';
 import { usePlayerDocumentControls } from '@/composables/usePlayerDocumentControls';
 import PlayerVideoControls from '@/components/PlayerVideoControls.vue';
+import PlayerVolumeControl from '@/components/PlayerVolumeControl.vue';
 import WelcomeSourcePanel from '@/components/WelcomeSourcePanel.vue';
 import ParkDashboardSourcePanel from '@/components/ParkDashboardSourcePanel.vue';
 import { usePlayerPowerControls, type PowerBootPlan, type PowerKeepRule } from '@/composables/usePlayerPowerControls';
-import { detectPlayerInputSource } from '@/features/player-input-source';
+import { detectPlayerInputSource, WELCOME_DEFAULT_SCHEME_ID } from '@/features/player-input-source';
 import { MEDIA_UPLOAD_ACCEPT } from '@/services/media.service';
 
 const props = defineProps<{
@@ -87,19 +84,20 @@ const props = defineProps<{
    */
   powerKeepPeers?: PowerKeepRule[];
   /**
-   * 分阶段预热编排（开机先拉视频源、应用层探活等就绪、再开显示设备）。
+   * 分阶段预热编排（开机先拉视频源、应用层后台探活，同时按时序继续开显示设备）。
    * LED=seq55-6（诺瓦）/ 投影=seq55-4（融合器）；不传则同开同关（向后兼容）。
    */
   powerBootPlan?: PowerBootPlan;
+  audioOutputPair?: readonly [number, number];
 }>();
 const SLOT = computed(() => props.slot);
 
 const router = useRouter(); const perm = usePermissionStore(); // 播控 admin/operator；viewer 只读
 function goBack(): void { router.push({ name: 'dashboard' }); }
-
 const { ensureAdmin, ensureContentEditor } = useAdminUnlock();
 const playbackStore = usePlaybackStore();
 const ch = computed(() => (props.slot === 1 ? playbackStore.slot1 : playbackStore.slot2));
+const showVolumeControl = computed(() => Boolean(props.audioOutputPair && ['video', 'audio'].includes(ch.value?.currentMediaKind ?? '')));
 
 let consoleDisposed = false;
 onScopeDispose(() => {
@@ -179,7 +177,7 @@ const {
   powerAllOn,
   powerBusy,
   booting,
-  bootCountdown,
+  bootElapsedSec,
   togglePower,
 } = usePlayerPowerControls({
   title: () => props.title,
@@ -188,7 +186,8 @@ const {
   powerAmpCodes: () => props.powerAmpCodes,
   powerKeepPeers: () => props.powerKeepPeers,
   powerBootPlan: () => props.powerBootPlan,
-  lockDisplay: () => ensureDisplayPath(),
+  lockDisplay: (operationId?: string) => ensureDisplayPath(operationId),
+  startupWelcome: (operationId?: string) => startupWelcome(operationId),
   captureAction: captureConsoleAction,
 });
 onMounted(() => {
@@ -196,6 +195,19 @@ onMounted(() => {
 
 // 输入源身份只从播放通道权威状态派生；切换与运营大屏控制由专用用例编排。
 const activeSource = computed(() => detectPlayerInputSource(ch.value));
+
+// 电源开关三态：off(灰左) / booting(琥珀右脉冲,开机中) / turning-off(琥珀左脉冲,断电中) / on(绿右)
+const toggleState = computed(() => {
+  if (booting.value) return 'booting';
+  if (powerBusy.value && powerAllOn.value) return 'turning-off';
+  if (powerAllOn.value) return 'on';
+  return 'off';
+});
+const powerIconState = computed(() => {
+  if (booting.value || (powerBusy.value && powerAllOn.value)) return 'amber';
+  if (powerAllOn.value) return 'green';
+  return 'red';
+});
 
 const {
   welcomeEditOpen,
@@ -250,13 +262,20 @@ const {
   ensureAdmin,
   ensureContentEditor,
   captureAction: captureConsoleAction,
-  isEditableSourceActive: () => activeSource.value === 'welcome-editable',
+  isEditableSourceActive: () => activeSource.value === 'welcome-editable'
+    || activeSource.value === 'welcome-default',
   // 保持原发布语义：只重推当前动态欢迎页；错误继续抛给编辑器显示“已发布但重推失败”。
-  republishEditable: async () => { await publishWelcome(SLOT.value, 'editable'); },
+  republishEditable: async () => {
+    await publishWelcome(
+      SLOT.value,
+      selectedWelcomeSchemeId.value === WELCOME_DEFAULT_SCHEME_ID ? 'default' : 'editable',
+    );
+  },
 });
 
 const {
   ensureDisplayPath,
+  startupWelcome,
   welcomePickerBusy,
   parkOpsPage,
   parkOpsTotalPages,
@@ -303,14 +322,14 @@ const isContentSource = computed(() => activeSource.value === 'content');
 // 数据维护入口仅后台「运营数据」分域权限可见。
 const canMaintainMetrics = computed(() => perm.canAccessModule('metrics'));
 
-// 欢迎方案明细表：上屏（静态默认 / 具体方案），复用 pickWelcomeSchemeById。
+// 欢迎方案明细表：上屏（默认欢迎页 / 具体方案），复用 pickWelcomeSchemeById。
 function handleWelcomePick(id: string): void {
   void pickWelcomeSchemeById(id);
 }
 // 欢迎方案明细表：编辑（有 id 先选中该方案；无 id 为新建，在编辑器内新建）。
 async function handleWelcomeEdit(id?: string): Promise<void> {
-  if (id) selectWelcomeScheme(id);
-  await openWelcomeEditor();
+  if (id && id !== WELCOME_DEFAULT_SCHEME_ID) selectWelcomeScheme(id);
+  await openWelcomeEditor(id);
 }
 // 数据维护：跳运营数据维护（在园人员/在场车辆/企业数/运营文案），发布后约 15 秒同步大屏。
 function openOpsMetricsAdmin(): void {
@@ -337,17 +356,19 @@ function openOpsMetricsAdmin(): void {
       <!-- 屏幕电源开关 (放"待机"状态行末尾, 时序器拨动样式), 分组同开同关:
            LED=空开(1f-led)+LED大屏功放(按名) / 投影=seq-5+seq-4+投影仪功放(按名) -->
       <div v-if="powerCircuits.length" class="now-power">
-        <Power :size="15" :stroke-width="2" />
+        <span class="np-power-icon" :class="powerIconState">
+          <Power :size="15" :stroke-width="2.5" />
+        </span>
         <span class="np-label">电源</span>
         <button
           class="v2-toggle"
-          :class="{ on: powerAllOn }"
-          :disabled="powerBusy"
+          :class="toggleState"
           :title="(powerAllOn ? '断开' : '接通') + powerCircuits.map((c) => c.name).join('+')"
           @click="togglePower"
         ></button>
-        <span class="np-state" :class="{ on: powerAllOn, booting }">
-          <template v-if="booting">开机中 {{ bootCountdown }}s</template>
+        <span class="np-state" :class="toggleState">
+          <template v-if="booting">开机中 <span class="np-count">{{ bootElapsedSec }}</span>s</template>
+          <template v-else-if="powerBusy && powerAllOn">断电中…</template>
           <template v-else>{{ powerAllOn ? '已通电' : (powerCircuits.some((c) => c.reading.on) ? '部分通电' : '已断电') }}</template>
         </span>
       </div>
@@ -358,7 +379,10 @@ function openOpsMetricsAdmin(): void {
       <!-- 融合器/设备异常告警(slot, 见底部 .alert-slot): 桌面 absolute 浮于播放卡右上角;
            手机端在「铺放」同一行左侧做滚动字幕, 不占额外行、不顶动下方卡片, 播放卡恒 150 等高。 -->
       <div class="now-info">
-        <div class="now-label">正在播放</div>
+        <div class="now-label-row">
+          <PlayerVolumeControl v-if="showVolumeControl" :channels="audioOutputPair!"
+            :label="`${title}音量`" :disabled="!perm.canExecute" />
+        </div>
         <div class="now-name" :title="ch?.currentMediaName || ''">
           {{ ch?.restricted ? '其他用户的内容正在使用此设备' : (currentInList?.title || ch?.currentMediaName || '— 待机中 —') }}
         </div>
@@ -504,7 +528,7 @@ function openOpsMetricsAdmin(): void {
     </section>
 
     <!-- ===== 下方详情区：随输入源切换，每类操作只在对应面板出现一次 ===== -->
-    <!-- 欢迎页：可编辑的欢迎方案明细表（静态默认 + 各方案） -->
+    <!-- 欢迎页：可编辑的欢迎方案明细表（默认欢迎页 + 各方案） -->
     <WelcomeSourcePanel
       v-if="isWelcomeSource"
       :schemes="welcomeSchemes"
@@ -706,7 +730,7 @@ function openOpsMetricsAdmin(): void {
                 <span>保存草稿不会改变大屏，点击发布后才正式上屏</span>
               </div>
               <div class="we-scheme-tools">
-                <button class="v2-quick" :disabled="welcomeSchemes.length >= 20" @click="duplicateWelcomeScheme">复制为新方案</button>
+                <button class="v2-quick" :disabled="welcomeSchemes.length >= 21" @click="duplicateWelcomeScheme">复制为新方案</button>
                 <button class="v2-quick danger" :disabled="welcomeSchemes.length <= 1" @click="deleteWelcomeScheme">删除</button>
               </div>
             </div>
@@ -981,15 +1005,23 @@ function openOpsMetricsAdmin(): void {
   min-height: 116px;
 }
 .now-info { flex: 1 1 240px; min-width: 0; }
+.now-label-row { display: flex; align-items: center; gap: 8px; min-height: 32px; }
 .now-label { font-size: 12px; color: var(--v2-text-2); }
 .now-name {
   font-size: 22px; font-weight: 700; color: var(--v2-text-1);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.now-sub { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--v2-text-2); margin-top: 3px; }
+.now-sub {
+  display: flex; gap: 8px; align-items: center;
+  min-height: 18px; max-height: 18px; overflow: hidden;
+  font-size: 12px; color: var(--v2-text-2); margin-top: 3px;
+  flex-wrap: nowrap; line-height: 1.3;
+}
 /* 切源稳定性(#135): 大屏/普通两组小字各自是常驻的 inline-flex 槽位, v-show 只显隐不重挂 */
-.now-sub-group { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.now-sub-group > span { white-space: nowrap; }
+.now-sub-group { display: inline-flex; gap: 8px; align-items: center; flex-wrap: nowrap; min-width: 0; }
+.now-sub-group > span { white-space: nowrap; min-width: 0; }
+.now-sub-group .claim-tag { overflow: hidden; text-overflow: ellipsis; }
+.now-sub-group .claim-release { flex: 0 0 auto; }
 .now-sub .claim-tag { color: #D98A2B; } .now-sub .claim-tag.mine { color: #2FA36B; font-weight: 600; }
 .now-sub .claim-release { border:1px solid rgba(47,163,107,.45); background:rgba(47,163,107,.12); color:#2FA36B; border-radius:999px; font-size:11px; line-height:1; padding:3px 9px; cursor:pointer; } .now-sub .claim-release:hover { background:rgba(47,163,107,.22); }
 .now-ctrl { display: flex; align-items: center; gap: 10px; }
@@ -1467,21 +1499,43 @@ function openOpsMetricsAdmin(): void {
   color: var(--v2-text-2); flex-shrink: 0; white-space: nowrap;
 }
 .np-label { font-size: 13px; font-weight: 600; color: var(--v2-text-1); }
-.np-state { font-size: 12px; font-weight: 600; color: var(--v2-text-3); }
-.np-state.on { color: var(--v2-live-power, #48D597); }
-.np-state.booting { color: var(--v2-primary); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.np-power-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%;
+  transition: all 0.3s ease;
+}
+.np-power-icon.red { color: #f85149; background: rgba(248,81,73,0.12); box-shadow: 0 0 8px rgba(248,81,73,0.3); }
+.np-power-icon.amber { color: #d29922; background: rgba(210,153,34,0.12); box-shadow: 0 0 8px rgba(210,153,34,0.3); }
+.np-power-icon.green { color: #3fb950; background: rgba(63,185,80,0.12); box-shadow: 0 0 8px rgba(63,185,80,0.3); }
+.np-state {
+  display: inline-flex; align-items: center; gap: 3px;
+  flex: 0 0 8em; width: 8em;
+  min-width: 8em; overflow: hidden;
+  white-space: nowrap; text-overflow: ellipsis;
+  font-size: 12px; font-weight: 700; color: var(--v2-text-3);
+  font-variant-numeric: tabular-nums;
+  transition: color 0.25s ease;
+}
+.np-state.on { color: #3fb950; }
+.np-state.booting, .np-state.turning-off { color: #d29922; }
+.np-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: rgba(210,153,34,0.18);
+  font-size: 11px; font-weight: 800;
+}
 
-/* 拨动开关 —— 抄自电源页时序器 (.v2-toggle), 保持全站一致 */
+/* 三态拨动开关：off(灰左) / booting(琥珀右脉冲) / turning-off(琥珀左脉冲) / on(绿右) */
 .v2-toggle {
   position: relative;
-  width: 46px; height: 26px;
-  border-radius: var(--v2-r-md);
-  background: var(--v2-surf-2);
+  width: 48px; height: 28px;
+  border-radius: 14px;
   cursor: pointer;
-  transition: background 0.22s ease;
+  transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
   flex-shrink: 0;
-  border: none;
+  border: 1.5px solid transparent;
   padding: 0;
+  background: #21262d;
 }
 .v2-toggle::after {
   content: '';
@@ -1489,23 +1543,54 @@ function openOpsMetricsAdmin(): void {
   top: 2px; left: 2px;
   width: 22px; height: 22px;
   border-radius: 50%;
-  background: white;
+  background: #fff;
   box-shadow: 0 1px 4px rgba(0,0,0,0.4);
-  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
+/* off: 深灰, 旋钮左 */
+.v2-toggle.off { background: #21262d; border-color: #30363d; }
+/* on: 渐变绿, 旋钮右, 绿色光晕 */
 .v2-toggle.on {
-  background: linear-gradient(135deg, #9BA1A9, #9BA1A9);
-  box-shadow: 0 0 14px rgba(255, 255, 255, 0.08), 0 0 28px rgba(255, 255, 255, 0.08);
+  background: linear-gradient(135deg, #238636, #2ea043);
+  border-color: #3fb950;
+  box-shadow: 0 0 14px rgba(63,185,80,0.3);
 }
 .v2-toggle.on::after {
   transform: translateX(20px);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.4), 0 0 8px rgba(255, 255, 255, 0.6);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4), 0 0 8px rgba(63,185,80,0.5);
 }
-.v2-toggle:disabled { opacity: 0.5; cursor: not-allowed; }
+/* booting: 琥珀边框, 旋钮右, 呼吸脉冲 */
+.v2-toggle.booting {
+  background: #2d333b;
+  border-color: #d29922;
+  box-shadow: 0 0 12px rgba(210,153,34,0.25);
+}
+.v2-toggle.booting::after {
+  transform: translateX(20px);
+  animation: np-knob-pulse 1s ease-in-out infinite;
+}
+/* turning-off: 琥珀边框, 旋钮左, 呼吸脉冲 */
+.v2-toggle.turning-off {
+  background: #2d333b;
+  border-color: #d29922;
+  box-shadow: 0 0 12px rgba(210,153,34,0.25);
+}
+.v2-toggle.turning-off::after {
+  animation: np-knob-pulse 1s ease-in-out infinite;
+}
+@keyframes np-knob-pulse {
+  0%, 100% { box-shadow: 0 1px 4px rgba(0,0,0,0.4), 0 0 0 0 rgba(210,153,34,0.5); }
+  50% { box-shadow: 0 1px 4px rgba(0,0,0,0.4), 0 0 0 6px rgba(210,153,34,0); }
+}
 @media (max-width: 640px) {
-  .v2-toggle { width: 48px; height: 28px; }
-  .v2-toggle::after { width: 24px; height: 24px; }
-  .v2-toggle.on::after { transform: translateX(20px); }
+  .v2-toggle { width: 44px; height: 26px; }
+  .v2-toggle::after { width: 20px; height: 20px; }
+  .v2-toggle.on::after, .v2-toggle.booting::after { transform: translateX(18px); }
+  /* 手机端：隐藏"电源"文字、压缩状态字宽，给左侧标题+播放状态让出空间 */
+  .np-label { display: none; }
+  .np-state { flex-basis: 4.5em; width: 4.5em; min-width: 4.5em; font-size: 11px; }
+  .np-power-icon { width: 18px; height: 18px; }
+  .now-power { gap: 4px; margin-right: 8px; }
 }
 
 /* ===== 手机竖屏 (≤640px) 播放控制区紧凑化 (2026-10-17 业主要求: 把顶部高度让给播放列表)

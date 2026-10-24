@@ -8,7 +8,11 @@ import { api } from './http';
  */
 export const deviceReadyService = {
   /** LED 视频服务器（诺瓦）是否就绪：GET /led/ready。 */
-  led: () => api.get<{ ready: boolean }>('/led/ready').then((r) => r.ready),
+  led: (operationId?: string) => api.get<{ ready: boolean }>('/led/ready', {
+    headers: operationId ? { 'X-Operation-Id': operationId } : undefined,
+  }).then((r) => r.ready),
   /** 投影视频融合器是否就绪：GET /projector/ready。 */
-  projector: () => api.get<{ ready: boolean }>('/projector/ready').then((r) => r.ready),
+  projector: (operationId?: string) => api.get<{ ready: boolean }>('/projector/ready', {
+    headers: operationId ? { 'X-Operation-Id': operationId } : undefined,
+  }).then((r) => r.ready),
 };

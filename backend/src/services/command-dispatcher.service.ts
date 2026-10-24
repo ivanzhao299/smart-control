@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Optional } from '@nestjs/common';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Logger } from 'winston';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -12,6 +12,8 @@ import { AdapterContext, AdapterResult } from '../adapters/adapter.types';
 import { DeviceStatusService } from './device-status.service';
 import { HvacZone } from '../entities/hvac-zone.entity';
 import { HvacIndoor } from '../entities/hvac-indoor.entity';
+import { PowerCircuitsService } from '../modules/power-circuits/power-circuits.service';
+import { SceneLightingService } from './scene-lighting.service';
 import { DeviceStatus } from '../entities/device.entity';
 import {
   classifyError,
@@ -39,6 +41,8 @@ export class CommandDispatcherService {
     @InjectRepository(HvacZone) private readonly hvacZoneRepo: Repository<HvacZone>,
     @InjectRepository(HvacIndoor) private readonly hvacIndoorRepo: Repository<HvacIndoor>,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
+    @Optional() private readonly powerCircuits?: PowerCircuitsService,
+    @Optional() private readonly sceneLighting?: SceneLightingService,
   ) {}
 
   async dispatch(input: DispatchInput, ctx?: AdapterContext): Promise<AdapterResult> {
@@ -100,6 +104,10 @@ export class CommandDispatcherService {
         return this.callHvacZone(command, deviceId, params, ctx);
       case 'power':
         return this.callPower(command, deviceId, params, ctx);
+      case 'power-circuit':
+        return this.callPowerCircuit(command, deviceId, ctx);
+      case 'lighting-broadcast':
+        return this.callLightingBroadcast(command, params, ctx);
       default:
         throw new BadRequestException(`未知设备类型: ${deviceType}`);
     }
@@ -262,6 +270,43 @@ export class CommandDispatcherService {
       default:
         return this.unsupported('power', cmd, id);
     }
+  }
+
+  private async callPowerCircuit(
+    cmd: string,
+    code: string,
+    ctx?: AdapterContext,
+  ): Promise<AdapterResult> {
+    if (!this.powerCircuits) return this.unsupported('power-circuit', cmd, code);
+    try {
+      if (cmd === 'turnOn') {
+        const data = await this.powerCircuits.turnOnByCode(code);
+        return { ok: true, deviceId: code, command: cmd, mock: false, durationMs: 0, data };
+      }
+      if (cmd === 'turnOff') {
+        const data = await this.powerCircuits.turnOffByCode(code);
+        return { ok: true, deviceId: code, command: cmd, mock: false, durationMs: 0, data };
+      }
+      return this.unsupported('power-circuit', cmd, code);
+    } catch (error) {
+      return { ok: false, deviceId: code, command: cmd, mock: false, durationMs: 0, error: (error as Error).message };
+    }
+  }
+
+  private async callLightingBroadcast(
+    cmd: string,
+    params: Record<string, unknown>,
+    ctx?: AdapterContext,
+  ): Promise<AdapterResult> {
+    if (!this.sceneLighting || cmd !== 'setBrightness') {
+      return this.unsupported('lighting-broadcast', cmd, 'all-dali-groups');
+    }
+    const value = Number(params.value);
+    const fadeSec = params.fadeSec === undefined ? undefined : Number(params.fadeSec);
+    if (!Number.isFinite(value)) {
+      return { ok: false, deviceId: 'all-dali-groups', command: cmd, mock: false, durationMs: 0, error: '亮度值无效' };
+    }
+    return this.sceneLighting.setAllBrightness(value, fadeSec, ctx);
   }
 
   private unsupported(type: string, cmd: string, id: string): Promise<AdapterResult> {

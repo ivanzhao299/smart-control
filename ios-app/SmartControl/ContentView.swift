@@ -20,6 +20,8 @@ struct ContentView: View {
     @State private var reloadToken = 0
     @State private var pageReady = false
     @State private var pageLoadAttempt = UUID()
+    @State private var webViewGeneration = 0
+    @State private var processRestartCount = 0
     @State private var updatePrompt: UpdateChecker.Prompt?
     @StateObject private var netWatcher = NetWatcher()
 
@@ -111,12 +113,28 @@ struct ContentView: View {
                     },
                     onReady: {
                         pageReady = true
+                        processRestartCount = 0
                         pageLoadAttempt = UUID() // 使在途超时回调失效
                     },
                     onError: { msg in
                         errorText = msg
-                    }
+                    },
+                    onProcessTermination: {
+                        if processRestartCount < 1 {
+                            // WebKit 进程被系统回收后，旧 WKWebView 可能处于不可恢复状态。
+                            // 销毁并重建实例，同时清理一次当前站点缓存，绕开旧 SW/坏 chunk。
+                            processRestartCount += 1
+                            pageReady = false
+                            errorText = nil
+                            webViewGeneration += 1
+                            beginPageWatchdog()
+                        } else {
+                            errorText = "网页进程意外停止，请重试"
+                        }
+                    },
+                    forceCacheReset: processRestartCount > 0
                 )
+                .id(webViewGeneration)
                 .ignoresSafeArea()
                 .onAppear { beginPageWatchdog() }
                 .onChange(of: s) { _ in beginPageWatchdog() }
@@ -161,6 +179,8 @@ struct ContentView: View {
                         HStack(spacing: 14) {
                             Button("重试") {
                                 errorText = nil
+                                processRestartCount = 0
+                                webViewGeneration += 1
                                 reloadToken += 1
                                 beginPageWatchdog()
                             }

@@ -91,6 +91,8 @@ export interface SyncResult {
   scanned: number;
   imported: number;
   circuits: number;
+  disabledUnits: number;
+  disabledCircuits: number;
   skipped: string[];
 }
 
@@ -108,20 +110,59 @@ export class EwelinkDevicesService {
 
   // ============ 云端限流保护 ============
   // 官方限流：同一 IP 任意两次请求间隔 ≥500ms、5 分钟 ≤300 次。
-  // 1) 全局串行队列 + 最小间隔，杜绝后台 10s 采集把同一物理设备 4 路并行打成 0ms 突发；
-  // 2) 每设备 params 短缓存，同一设备多个逻辑回路（聚合/多通道）在 TTL 内只拉一次云。
+  // 所有读写共用一个队列，并在 412 限流后进入冷却，避免多个页面/后台任务继续撞接口。
   private readonly paramsCache = new Map<string, { at: number; params: any }>();
+  /** 负缓存：云读失败（限流/设备离线）后短时间内不再重发，杜绝 10s 采集循环撞云风暴 */
+  private readonly paramsBadUntil = new Map<string, number>();
   private static readonly PARAMS_CACHE_TTL_MS = 12_000;
-  private static readonly MIN_CLOUD_GAP_MS = 550;
+  private static readonly PARAMS_BAD_TTL_MS = 30_000;
+  private static readonly MIN_CLOUD_GAP_MS = 600;
+  private static readonly RATE_WINDOW_MS = 5 * 60 * 1000;
+  private static readonly MAX_CALLS_PER_WINDOW = 300;
+  /** 全局冷却：从 5 分钟缩到 60 秒。eWeLink 限流窗口本身 5 分钟，但单次误撞后
+   *  把所有回路（含其他设备）全锁 5 分钟体验太差；60 秒足够让瞬时连点退避，
+   *  后续请求靠 600ms 串行间隔自然节流。 */
+  private static readonly RATE_COOLDOWN_MS = 60_000;
   private cloudChain: Promise<unknown> = Promise.resolve();
   private lastCloudCallAt = 0;
+  private cloudCallTimes: number[] = [];
+  private cloudCooldownUntil = 0;
 
-  /** 把云端调用排入全局串行队列，并保证相邻两次实际请求间隔 ≥550ms */
+  private async waitForCloudBudget(): Promise<void> {
+    for (;;) {
+      const now = Date.now();
+      if (this.cloudCooldownUntil > now) {
+        throw new EwelinkRateLimitError('易微联云接口正在限流冷却，请稍后再试');
+      }
+      this.cloudCallTimes = this.cloudCallTimes.filter(
+        (at) => now - at < EwelinkDevicesService.RATE_WINDOW_MS,
+      );
+      const minGapUntil = this.lastCloudCallAt + EwelinkDevicesService.MIN_CLOUD_GAP_MS;
+      const windowUntil = this.cloudCallTimes.length >= EwelinkDevicesService.MAX_CALLS_PER_WINDOW
+        ? this.cloudCallTimes[0] + EwelinkDevicesService.RATE_WINDOW_MS
+        : 0;
+      const until = Math.max(minGapUntil, windowUntil);
+      if (until <= now) return;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(until - now, 1000)));
+    }
+  }
+
+  private markCloudRateLimited(message: string): void {
+    this.cloudCooldownUntil = Math.max(
+      this.cloudCooldownUntil,
+      Date.now() + EwelinkDevicesService.RATE_COOLDOWN_MS,
+    );
+    this.logger.warn(`易微联云接口进入限流冷却: ${message.slice(0, 120)}`, {
+      context: 'EwelinkDevicesService',
+    });
+  }
+
+  /** 把云端调用排入全局串行队列，并保证官方频率窗口不被突破。 */
   private async throughCloud<T>(fn: () => Promise<T>): Promise<T> {
     const run = async (): Promise<T> => {
-      const gap = EwelinkDevicesService.MIN_CLOUD_GAP_MS - (Date.now() - this.lastCloudCallAt);
-      if (gap > 0) await new Promise((r) => setTimeout(r, gap));
+      await this.waitForCloudBudget();
       this.lastCloudCallAt = Date.now();
+      this.cloudCallTimes.push(this.lastCloudCallAt);
       return fn();
     };
     const queued = this.cloudChain.then(run, run);
@@ -132,6 +173,7 @@ export class EwelinkDevicesService {
   /** 清掉某设备缓存（控制后由乐观更新接管，不额外发请求） */
   private invalidateCache(deviceId: string): void {
     this.paramsCache.delete(deviceId);
+    this.paramsBadUntil.delete(deviceId);
   }
 
   /** 按原回报口径给 on 值（布尔设备给布尔，字符串设备给 'on'/'off'） */
@@ -180,9 +222,24 @@ export class EwelinkDevicesService {
     );
     if (json.error !== 0) throw new BadRequestException(`拉易微联设备失败: ${json.msg ?? json.error}`);
     const list: any[] = json.data?.thingList ?? [];
-    return list
+    const normalized = list
       .map((t) => this.normalize(t, familyId))
       .filter((t): t is EwelinkSwitchThing => t !== null);
+    // 某些家庭/设备列表响应会把同一 deviceid 返回多次；同一物理设备只保留一份，
+    // 否则管理页会重复呈现，后续同步还会反复覆盖同一条台账。
+    const unique = new Map<string, EwelinkSwitchThing>();
+    for (const thing of normalized) {
+      const previous = unique.get(thing.deviceId);
+      if (!previous) {
+        unique.set(thing.deviceId, thing);
+        continue;
+      }
+      // 同一设备重复返回时优先保留聚合视图，其次保留物理路数更多、在线的那份。
+      const score = (x: EwelinkSwitchThing): number =>
+        (x.grouped ? 1000 : 0) + (x.online ? 100 : 0) + x.outletCount;
+      if (score(thing) > score(previous)) unique.set(thing.deviceId, thing);
+    }
+    return [...unique.values()];
   }
 
   /**
@@ -203,20 +260,32 @@ export class EwelinkDevicesService {
     };
     const cached = hit();
     if (cached) return cached;
-    return this.throughCloud(async () => {
-      // 排队结束后二次确认：可能在等待期间已被其他请求刷新
-      const cached2 = hit();
-      if (cached2) return cached2;
-      const { token, region } = await this.auth.ensureAccessToken();
-      const query = new URLSearchParams({ id: deviceId, type: '1' });
-      const json = await this.signedGet(region, '/v2/device/thing/status', query, token);
-      if (json.error !== 0) {
-        throw new BadRequestException(`读设备状态失败: ${json.msg ?? json.error}`);
-      }
-      const params = json.data?.params ?? {};
-      this.paramsCache.set(deviceId, { at: Date.now(), params });
-      return { params };
-    });
+    // 负缓存命中：上次云读失败（限流/离线）后短时间内不再重发，直接抛错让上层走快照
+    const badUntil = this.paramsBadUntil.get(deviceId);
+    if (!opts.force && badUntil && Date.now() < badUntil) {
+      throw new EwelinkRateLimitError(`设备 ${deviceId} 云读冷却中，请稍后再试`);
+    }
+    try {
+      return await this.throughCloud(async () => {
+        // 排队结束后二次确认：可能在等待期间已被其他请求刷新
+        const cached2 = hit();
+        if (cached2) return cached2;
+        const { token, region } = await this.auth.ensureAccessToken();
+        const query = new URLSearchParams({ id: deviceId, type: '1' });
+        const json = await this.signedGet(region, '/v2/device/thing/status', query, token);
+        if (json.error !== 0) {
+          throw new BadRequestException(`读设备状态失败: ${json.msg ?? json.error}`);
+        }
+        const params = json.data?.params ?? {};
+        this.paramsCache.set(deviceId, { at: Date.now(), params });
+        this.paramsBadUntil.delete(deviceId);
+        return { params };
+      });
+    } catch (err) {
+      // 云读失败：写 30s 负缓存，避免后台采集每 10s 重发撞云
+      this.paramsBadUntil.set(deviceId, Date.now() + EwelinkDevicesService.PARAMS_BAD_TTL_MS);
+      throw err;
+    }
   }
 
   /** 读单台设备的最新开关状态 */
@@ -330,9 +399,8 @@ export class EwelinkDevicesService {
   }
 
   /**
-   * 统一云端 fetch：识别 HTTP 429 与纯文本 "invoke too fast"（非 JSON，旧代码直接
-   * JSON.parse 会抛 "Unexpected token 'i'" 导致整个控制失败）。限流时退避重试（最多 2 次），
-   * 仍失败抛 EwelinkRateLimitError；其他非 JSON 响应给清晰错误，不再裸崩。
+   * 统一云端 fetch：识别 HTTP 429、纯文本限流和 JSON error=412。
+   * 412 进入冷却后直接失败，不做立即重试，避免把云端限流窗口越撞越长。
    */
   private async cloudFetch(
     url: string,
@@ -350,17 +418,26 @@ export class EwelinkDevicesService {
           await sleep(700 * (attempt + 1) + Math.floor(Math.random() * 300));
           continue;
         }
-        throw new EwelinkRateLimitError(
-          `易微联云接口限流，请稍后再试（${text.trim().slice(0, 60) || resp.status}）`,
-        );
+        const message = text.trim().slice(0, 60) || String(resp.status);
+        this.markCloudRateLimited(message);
+        throw new EwelinkRateLimitError(`易微联云接口限流，请稍后再试（${message}）`);
       }
+      let json: any;
       try {
-        return JSON.parse(text);
+        json = JSON.parse(text);
       } catch {
         throw new BadRequestException(
           `易微联${action}返回异常（HTTP ${resp.status}）: ${text.trim().slice(0, 80) || '空响应'}`,
         );
       }
+      const jsonRateLimited = json?.error === 412
+        || /invoke too (much|fast)/i.test(String(json?.msg ?? ''));
+      if (jsonRateLimited) {
+        const message = String(json?.msg ?? 'error=412');
+        this.markCloudRateLimited(message);
+        throw new EwelinkRateLimitError(`易微联云接口限流，请稍后再试（${message.slice(0, 80)}）`);
+      }
+      return json;
     }
   }
 
@@ -372,7 +449,14 @@ export class EwelinkDevicesService {
   /** 把云端开关设备 upsert 成 hardware_unit + power_circuit（幂等，按 deviceId/通道） */
   async syncToCatalog(): Promise<SyncResult> {
     const things = await this.listSwitchThings();
-    const result: SyncResult = { scanned: things.length, imported: 0, circuits: 0, skipped: [] };
+    const result: SyncResult = {
+      scanned: things.length,
+      imported: 0,
+      circuits: 0,
+      disabledUnits: 0,
+      disabledCircuits: 0,
+      skipped: [],
+    };
     for (const t of things) {
       if (!t.online) {
         result.skipped.push(`${t.name}（离线，跳过）`);
@@ -450,13 +534,67 @@ export class EwelinkDevicesService {
           circuit.floor = EwelinkDevicesService.CATALOG_FLOOR;
           await this.circuitRepo.save(circuit);
         }
+
+        // 旧版本曾把不可拆分群组写成 -1/-2/-3/-4 多张卡。同步到新聚合卡后，
+        // 必须软禁用同一 deviceId 的旧记录，否则它们仍会出现在电源页且寻址不可控。
+        if (grouped) {
+          await this.disableStaleGroupedEntries(t.deviceId, unitCode, circuitCode, result);
+        }
       }
     }
     this.logger.info(
-      `[eWeLink] 同步完成: 设备${result.imported} 回路${result.circuits} 跳过${result.skipped.length}`,
+      `[eWeLink] 同步完成: 新增设备${result.imported} 新增回路${result.circuits} `
+        + `停用旧设备${result.disabledUnits} 停用旧回路${result.disabledCircuits} 跳过${result.skipped.length}`,
       { context: 'EwelinkDevicesService' },
     );
     return result;
+  }
+
+  /**
+   * 收敛同一易微联设备的旧拆分台账：只软禁用，不删除历史数据。
+   * 既按 addressing.deviceId 匹配，也按旧版稳定 code 前缀兜底，兼容早期缺失寻址的记录。
+   */
+  private async disableStaleGroupedEntries(
+    deviceId: string,
+    expectedUnitCode: string,
+    expectedCircuitCode: string,
+    result: SyncResult,
+  ): Promise<void> {
+    const short = deviceId.slice(-8);
+    const oldUnitPrefix = `EWE-${short}-`;
+    const oldCircuitPrefix = `ewelink-${short}-`;
+    const units = await this.hwRepo.find({ where: { category: 'power-breaker-ewelink' } });
+    const staleUnits = units.filter((unit) => {
+      if (!unit.enabled || unit.code === expectedUnitCode) return false;
+      if (unit.code.startsWith(oldUnitPrefix)) return true;
+      try {
+        const addressing = unit.addressing ? JSON.parse(unit.addressing) : null;
+        return addressing?.deviceId === deviceId;
+      } catch {
+        return false;
+      }
+    });
+    for (const unit of staleUnits) {
+      unit.enabled = false;
+      await this.hwRepo.save(unit);
+      result.disabledUnits += 1;
+      const circuits = await this.circuitRepo.find({ where: { gatewayCode: unit.code } });
+      for (const circuit of circuits) {
+        if (!circuit.enabled) continue;
+        circuit.enabled = false;
+        await this.circuitRepo.save(circuit);
+        result.disabledCircuits += 1;
+      }
+    }
+
+    // 兜底处理旧回路残留（例如硬件单元曾被人工删除，但回路仍在）。
+    const circuits = await this.circuitRepo.find({ where: { category: 'lighting' } });
+    for (const circuit of circuits) {
+      if (!circuit.enabled || circuit.code === expectedCircuitCode || !circuit.code.startsWith(oldCircuitPrefix)) continue;
+      circuit.enabled = false;
+      await this.circuitRepo.save(circuit);
+      result.disabledCircuits += 1;
+    }
   }
 
   // ============ 内部 ============
@@ -475,8 +613,13 @@ export class EwelinkDevicesService {
     const uiid = Number(t.extra?.uiid ?? t.uiid ?? 0);
 
     // 厂商是否支持把多路独立拆成多个开关。字段缺失时按「支持拆分」处理（兼容旧设备）。
-    const splitRaw = t.isSupportChannelSplit;
-    const isSupportChannelSplit = splitRaw === undefined || splitRaw === null ? true : !!splitRaw;
+    const splitRaw = t.isSupportChannelSplit ?? t.extra?.isSupportChannelSplit ?? params.isSupportChannelSplit;
+    const denyFeatures = t.denyFeatures ?? t.extra?.denyFeatures ?? params.denyFeatures;
+    const hasGroupedDenyFeature = Array.isArray(denyFeatures)
+      && denyFeatures.some((feature: unknown) => String(feature).toLowerCase() === 'allonoff');
+    const isSupportChannelSplit = splitRaw === undefined || splitRaw === null
+      ? !hasGroupedDenyFeature
+      : EwelinkDevicesService.parseBoolean(splitRaw, true);
 
     // 单路设备（顶层 params.switch）
     if (params.switch !== undefined && params.switch !== null) {
@@ -494,13 +637,18 @@ export class EwelinkDevicesService {
 
     // 多路设备（params.switches[]）
     if (Array.isArray(params.switches) && params.switches.length > 0) {
-      const physical: { outlet: number; on: boolean }[] = params.switches
-        .map((s: any) => ({
-          outlet: Number(s.outlet ?? 0),
-          on: EwelinkDevicesService.isOn(s.switch),
-        }))
-        .sort((a: { outlet: number }, b: { outlet: number }) => a.outlet - b.outlet);
+      const physicalByOutlet = new Map<number, boolean>();
+      for (const s of params.switches) {
+        const outlet = Number(s?.outlet);
+        if (!Number.isInteger(outlet) || outlet < 0) continue;
+        // 云端偶尔重复回报同一个 outlet，后出现的状态视为最新值。
+        physicalByOutlet.set(outlet, EwelinkDevicesService.isOn(s?.switch));
+      }
+      const physical: { outlet: number; on: boolean }[] = [...physicalByOutlet.entries()]
+        .map(([outlet, on]) => ({ outlet, on }))
+        .sort((a, b) => a.outlet - b.outlet);
       const outletCount = physical.length;
+      if (outletCount === 0) return null;
       if (!isSupportChannelSplit) {
         // 聚合：官方 App 只呈现一个总开关。总开关 on = 所有物理路都闭合。
         const allOn = physical.every((p) => p.on);
@@ -529,6 +677,17 @@ export class EwelinkDevicesService {
     }
 
     return null;
+  }
+
+  private static parseBoolean(value: unknown, fallback: boolean): boolean {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (['false', '0', 'no', 'off', 'n'].includes(normalized)) return false;
+      if (['true', '1', 'yes', 'on', 'y'].includes(normalized)) return true;
+    }
+    return fallback;
   }
 
   private async signedGet(

@@ -2,13 +2,18 @@
 /**
  * 输入源 · 欢迎方案明细面板（2026-10 输入源改造）。
  *
- * 只做 UI 聚合：静态默认欢迎页（LED 开机首屏 / 点「欢迎页」默认进入）+ 各欢迎方案。
+ * 只做 UI 聚合：系统默认欢迎页（LED 开机首屏 / 点「欢迎页」默认进入）+ 各欢迎方案。
  * 点「上屏」emit pick（id 为 WELCOME_PICK_DEFAULT 或具体方案 id），
  * 由 PlayerConsole 路由回 pickWelcomeSchemeById，不新增任何业务逻辑；
  * 点「编辑」emit edit（无 id 为新建），打开现有欢迎页编辑器。
  */
 import { Play, Pencil, Plus, Image, Check, MonitorUp } from 'lucide-vue-next';
-import { WELCOME_PICK_DEFAULT, type PlayerInputSource } from '@/features/player-input-source';
+import {
+  WELCOME_DEFAULT_SCHEME_ID,
+  WELCOME_DEFAULT_SCHEME_NAME,
+  WELCOME_PICK_DEFAULT,
+  type PlayerInputSource,
+} from '@/features/player-input-source';
 import type { WelcomeScheme } from '@/services/system-branding.service';
 
 defineProps<{
@@ -24,11 +29,17 @@ const emit = defineEmits<{
   (e: 'edit', id?: string): void;
 }>();
 
-function isDefaultActive(source: PlayerInputSource | null): boolean {
-  return source === 'welcome-default';
+function isDefaultActive(source: PlayerInputSource | null, publishedId: string | null): boolean {
+  return source === 'welcome-default'
+    || (source === 'welcome-editable' && publishedId === WELCOME_DEFAULT_SCHEME_ID);
 }
 function isSchemeActive(source: PlayerInputSource | null, publishedId: string | null, id: string): boolean {
-  return source === 'welcome-editable' && publishedId === id;
+  return id !== WELCOME_DEFAULT_SCHEME_ID && source === 'welcome-editable' && publishedId === id;
+}
+function schemeCount(schemes: WelcomeScheme[]): number {
+  return schemes.some((scheme) => scheme.id === WELCOME_DEFAULT_SCHEME_ID)
+    ? schemes.length
+    : schemes.length + 1;
 }
 </script>
 
@@ -36,36 +47,45 @@ function isSchemeActive(source: PlayerInputSource | null, publishedId: string | 
   <section class="panel wsp">
     <div class="panel-head">
       <span class="panel-title"><MonitorUp :size="17" /> 欢迎方案</span>
-      <span class="panel-count">{{ schemes.length + 1 }} 项</span>
+      <span class="panel-count">{{ schemeCount(schemes) }} 项</span>
       <button type="button" class="v2-quick" :disabled="busy" @click="emit('edit')">
         <Plus :size="14" /> 新建
       </button>
     </div>
 
     <div class="pl-list">
-      <!-- 静态默认欢迎页：开机首屏 / 默认进入 -->
-      <div class="pl-item ws-item" :class="{ playing: isDefaultActive(activeSource) }">
+      <!-- 系统默认欢迎页：开机首屏 / 默认进入，可复用欢迎方案编辑器 -->
+      <div class="pl-item ws-item" :class="{ playing: isDefaultActive(activeSource, publishedSchemeId) }">
         <button
           type="button"
           class="pl-play"
           :disabled="busy || pickerBusy"
-          title="上屏静态默认欢迎页"
+          title="上屏默认欢迎页"
           @click="emit('pick', WELCOME_PICK_DEFAULT)"
         >
-          <Check v-if="isDefaultActive(activeSource)" :size="15" />
+          <Check v-if="isDefaultActive(activeSource, publishedSchemeId)" :size="15" />
           <Play v-else :size="15" />
         </button>
         <span class="ws-ico"><Image :size="16" /></span>
         <span class="ws-name">
-          <span class="ws-name-text">静态默认欢迎页</span>
-          <span class="ws-tag default">默认首屏</span>
+          <span class="ws-name-text">{{ WELCOME_DEFAULT_SCHEME_NAME }}</span>
+          <span class="ws-tag default">默认首屏 · 可编辑</span>
         </span>
-        <span class="ws-state" v-if="isDefaultActive(activeSource)">已上屏</span>
+        <span class="ws-state" v-if="isDefaultActive(activeSource, publishedSchemeId)">已上屏</span>
+        <button
+          type="button"
+          class="pl-ico"
+          :disabled="busy"
+          title="编辑默认欢迎页"
+          @click="emit('edit', WELCOME_DEFAULT_SCHEME_ID)"
+        >
+          <Pencil :size="15" />
+        </button>
       </div>
 
       <!-- 各欢迎方案 -->
       <div
-        v-for="scheme in schemes"
+        v-for="scheme in schemes.filter((item) => item.id !== WELCOME_DEFAULT_SCHEME_ID)"
         :key="scheme.id"
         class="pl-item ws-item"
         :class="{ playing: isSchemeActive(activeSource, publishedSchemeId, scheme.id) }"
@@ -158,7 +178,7 @@ function isSchemeActive(source: PlayerInputSource | null, publishedId: string | 
 .pl-ico:hover:not(:disabled) { color: var(--v2-text-1); }
 .pl-ico:disabled { opacity: .3; cursor: not-allowed; }
 
-/* 静态默认欢迎页的图标 */
+/* 系统默认欢迎页的图标 */
 .ws-ico {
   display: inline-flex; align-items: center; justify-content: center;
   width: 34px; height: 34px; flex: 0 0 auto; border-radius: var(--v2-r-sm);

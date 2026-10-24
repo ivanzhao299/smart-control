@@ -118,6 +118,13 @@ describe('EwelinkDevicesService.setSwitch 控制口径', () => {
     await svc.setSwitch('dev', 1, 0, true, 'string');
     expect(fetchCalls).toHaveLength(2);
   }, 10000);
+
+  it('JSON error=412 invoke too much：进入冷却并直接抛出限流错误，不重复撞接口', async () => {
+    responses = [{ error: 412, msg: 'invoke too much:rate-window' }];
+    await expect(svc.setSwitch('dev', 1, 0, true, 'string'))
+      .rejects.toThrow('易微联云接口限流');
+    expect(fetchCalls).toHaveLength(1);
+  });
 });
 
 /**
@@ -145,7 +152,7 @@ describe('EwelinkDevicesService.normalize 聚合（isSupportChannelSplit）', ()
     return svc;
   }
 
-  const fourWay = (id: string, name: string, split: boolean, allOn: boolean) => ({
+  const fourWay = (id: string, name: string, split: unknown, allOn: boolean, switches = [0, 1, 2, 3]) => ({
     itemType: 1,
     itemData: {
       deviceid: id,
@@ -155,7 +162,7 @@ describe('EwelinkDevicesService.normalize 聚合（isSupportChannelSplit）', ()
       isSupportChannelSplit: split,
       denyFeatures: ['allOnOff'],
       params: {
-        switches: [0, 1, 2, 3].map((outlet) => ({
+        switches: switches.map((outlet) => ({
           outlet,
           switch: allOn ? 'on' : 'off',
         })),
@@ -203,6 +210,34 @@ describe('EwelinkDevicesService.normalize 聚合（isSupportChannelSplit）', ()
     expect(things[0].channels).toHaveLength(4);
   });
 
+  it('云端以字符串 "false" 返回时仍聚合，不被 !! 字符串误判为可拆分', async () => {
+    const svc = makeService([fourWay('string-false', '字符串字段', 'false', false)]);
+    const things = await svc.listSwitchThings();
+    expect(things[0].grouped).toBe(true);
+    expect(things[0].channels).toHaveLength(1);
+    expect(things[0].outletCount).toBe(4);
+  });
+
+  it('字段缺失但 denyFeatures 含 allOnOff 时按不可拆分群组处理', async () => {
+    const raw = fourWay('deny-feature', '缺字段群组', true, false);
+    delete raw.itemData.isSupportChannelSplit;
+    const svc = makeService([raw]);
+    const things = await svc.listSwitchThings();
+    expect(things[0].grouped).toBe(true);
+    expect(things[0].channels).toHaveLength(1);
+  });
+
+  it('同一设备重复返回以及同一 outlet 重复回报时只保留一个逻辑设备和一路状态', async () => {
+    const first = fourWay('duplicate-device', '重复设备', true, false, [0, 0, 1, 2, 3]);
+    const second = fourWay('duplicate-device', '重复设备', false, true);
+    const svc = makeService([first, second]);
+    const things = await svc.listSwitchThings();
+    expect(things).toHaveLength(1);
+    expect(things[0].grouped).toBe(true);
+    expect(things[0].channels).toHaveLength(1);
+    expect(things[0].outletCount).toBe(4);
+  });
+
   it('3 台四路聚合 + 2 台单路 = 5 个逻辑设备（不再是 14 张卡）', async () => {
     const single = (id: string, name: string, on: boolean) => ({
       itemType: 1,
@@ -222,5 +257,76 @@ describe('EwelinkDevicesService.normalize 聚合（isSupportChannelSplit）', ()
     const things = await svc.listSwitchThings();
     expect(things).toHaveLength(5);
     expect(things.filter((t) => t.grouped)).toHaveLength(3);
+  });
+});
+
+describe('EwelinkDevicesService.syncToCatalog 旧拆分卡收敛', () => {
+  it('聚合设备同步时软禁用旧 -1/-2 卡及其回路，保留历史数据', async () => {
+    const oldUnit = {
+      code: 'EWE-02cbf50b-1',
+      enabled: true,
+      addressing: JSON.stringify({ deviceId: '1002cbf50b' }),
+    } as any;
+    const aggregateUnit = {
+      code: 'EWE-02cbf50b',
+      enabled: true,
+      addressing: JSON.stringify({ deviceId: '1002cbf50b', grouped: true }),
+    } as any;
+    const oldCircuit = {
+      code: 'ewelink-02cbf50b-1',
+      gatewayCode: oldUnit.code,
+      category: 'lighting',
+      enabled: true,
+    } as any;
+    const aggregateCircuit = {
+      code: 'ewelink-02cbf50b',
+      gatewayCode: aggregateUnit.code,
+      category: 'lighting',
+      enabled: true,
+    } as any;
+    const savedUnits: any[] = [];
+    const savedCircuits: any[] = [];
+    const hwRepo: any = {
+      find: jest.fn(async () => [oldUnit, aggregateUnit]),
+      findOne: jest.fn(async ({ where: { code } }: any) => code === aggregateUnit.code ? aggregateUnit : null),
+      create: jest.fn((x: any) => x),
+      save: jest.fn(async (x: any) => { savedUnits.push(x); return x; }),
+    };
+    const circuitRepo: any = {
+      find: jest.fn(async ({ where }: any) => {
+        if (where.gatewayCode === oldUnit.code) return [oldCircuit];
+        if (where.category === 'lighting') return [oldCircuit, aggregateCircuit];
+        return [];
+      }),
+      findOne: jest.fn(async ({ where: { code } }: any) => code === aggregateCircuit.code ? aggregateCircuit : null),
+      create: jest.fn((x: any) => x),
+      save: jest.fn(async (x: any) => { savedCircuits.push(x); return x; }),
+    };
+    const auth: any = {
+      ensureAccessToken: jest.fn(async () => ({ token: 'tok', region: 'cn', familyId: null })),
+      getCredentials: jest.fn(async () => ({ appId: 'appid', appSecret: 'sec' })),
+    };
+    const svc = new EwelinkDevicesService(
+      hwRepo,
+      circuitRepo,
+      auth,
+      { info() {}, warn() {}, error() {}, debug() {} } as any,
+    );
+    jest.spyOn(svc, 'listSwitchThings').mockResolvedValue([{
+      deviceId: '1002cbf50b', name: '群组', uiid: 138, online: true, familyId: null,
+      channels: [{ channel: 0, on: false }], switchFormat: 'string',
+      isSupportChannelSplit: false, grouped: true, outletCount: 4,
+    }]);
+
+    const result = await svc.syncToCatalog();
+
+    expect(result.disabledUnits).toBe(1);
+    expect(result.disabledCircuits).toBe(1);
+    expect(oldUnit.enabled).toBe(false);
+    expect(oldCircuit.enabled).toBe(false);
+    expect(aggregateUnit.enabled).toBe(true);
+    expect(aggregateCircuit.enabled).toBe(true);
+    expect(savedUnits).toContain(oldUnit);
+    expect(savedCircuits).toContain(oldCircuit);
   });
 });

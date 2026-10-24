@@ -74,8 +74,8 @@ export class ScenesController {
   @WriteRoles('admin', 'operator')
   @HttpCode(202)
   async execute(@Param('code') code: string) {
-    const data = await this.engine.execute(code);
-    return { message: '场景已开始执行', data };
+    const data = await this.engine.execute(code, 'system', { replaceActive: true });
+    return { message: '场景已切换并开始执行', data };
   }
 
   @Post(':code/stop')

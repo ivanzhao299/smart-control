@@ -74,6 +74,14 @@ export const mainRouteManifest = [
     navigation: { label: 'LED 大屏', section: 'main' }, prefetchOnIdle: true,
     prefetchApis: ['/devices?category=led'],
   },
+  {
+    // 勇电灯珠屏节目制作：290×30 真实点阵，编排→生成 bin→PVE 直推接收卡
+    // 功能未完全上线，临时仅 admin 可见（admin 自动拥有 led-program:* 权限）
+    path: 'led-program', name: 'led-program', load: () => import('@/pages/LedProgramPage.vue'),
+    permission: 'led-program:view',
+    roles: ['admin'],
+    navigation: { label: '楼顶广告屏', section: 'tools' }, prefetchOnIdle: true,
+  },
   // 投影仪独立于 LED，避免误操作到另一块显示设备；播控开放给 operator。
   {
     path: 'projector', name: 'projector', load: () => import('@/pages/ProjectorPage.vue'),
@@ -157,6 +165,10 @@ const mainRouteByName = new Map<string, MainRouteDefinition>(
   mainRouteManifest.map((route) => [route.name, route]),
 );
 
+// 操作员主导航固定为日常播控入口。即使动态权限误授了其他 view 权限，
+// 也不能把灯光/音响/空调等管理页重新塞回操作员底栏；媒体仍保留在「更多」中。
+const OPERATOR_MAIN_NAV = new Set(['dashboard', 'led', 'projector', 'power']);
+
 /**
  * 某前台角色能否进入该前台路由（admin 全通；未声明 roles 的路由默认仅 admin，白名单制）。
  * 用于导航过滤与前台路由守卫（深链/直接 URL 同样拦截）。
@@ -183,6 +195,13 @@ export function canAccessMainRouteByPerms(
   if (role === 'admin') return true;
   const route = mainRouteByName.get(name);
   if (!route) return false;
+  if (
+    role === 'operator' &&
+    route.navigation?.section === 'main' &&
+    !OPERATOR_MAIN_NAV.has(name)
+  ) {
+    return false;
+  }
   if (route.permission) return perms.has(route.permission);
   // 未声明权限点的路由：回退 roles 白名单（理论上无，仅兜底）。
   if (role && BUILTIN_MAIN_ROLES.includes(role)) {

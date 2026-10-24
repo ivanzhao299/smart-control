@@ -409,10 +409,10 @@ onMounted(refresh);
         <h2 class="sc-title">硬件清单</h2>
         <div class="sc-subtle">现场物理设备登记 · 故障定位 · 接线追踪</div>
       </div>
-      <button class="sc-touch sc-act sc-act-neutral" style="min-height:42px; padding:0 16px;" @click="refresh">
+      <button class="sc-act sc-act-neutral" @click="refresh">
         <RefreshCw :size="16" :stroke-width="2" /> 刷新
       </button>
-      <button class="sc-touch sc-act sc-act-primary" style="min-height:42px; padding:0 16px;" @click="openCreate">
+      <button class="sc-act sc-act-primary" @click="openCreate">
         <Plus :size="16" :stroke-width="2" /> 新增
       </button>
     </header>
@@ -427,24 +427,6 @@ onMounted(refresh);
       <div class="stat-card" :class="{ alert: summary.fault > 0 }">
         <div class="stat-label">故障</div>
         <div class="stat-value">{{ summary.fault }}</div>
-      </div>
-      <div class="stat-card" :class="{ alert: summary.offline > 0 }">
-        <div class="stat-label">离线</div>
-        <div class="stat-value">{{ summary.offline }}</div>
-      </div>
-      <div class="stat-card stat-categories">
-        <div class="stat-label">分类</div>
-        <div class="cat-chips">
-          <span
-            v-for="cat in HARDWARE_CATEGORIES"
-            :key="cat"
-            v-show="(summary.byCategory[cat] ?? 0) > 0"
-            class="cat-chip"
-          >
-            <component :is="categoryMeta[cat].icon" :size="13" :stroke-width="2" />
-            {{ categoryMeta[cat].label }} <b>{{ summary.byCategory[cat] }}</b>
-          </span>
-        </div>
       </div>
     </div>
 
@@ -514,7 +496,7 @@ onMounted(refresh);
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="250" align="right">
+      <el-table-column label="操作" width="280" align="right">
         <template #default="{ row }">
           <button v-if="row.category === 'power-breaker'" class="row-btn" @click="openAddressChange(row)">
             修改485地址
@@ -849,6 +831,7 @@ onMounted(refresh);
   cursor: pointer;
   font-size: 12px;
   display: inline-flex; align-items: center; gap: 4px;
+  white-space: nowrap;
   transition: all 0.15s;
 }
 .row-btn:hover { color: var(--color-primary); border-color: var(--color-primary); }
@@ -867,5 +850,15 @@ onMounted(refresh);
 @media (max-width: 1280px) {
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
   .stat-card.stat-categories { grid-column: span 2; }
+}
+
+/* 页头: 标题占左, 刷新/新增用全局紧凑按钮, 不拉伸不换行 */
+.page-head { flex-wrap: wrap; align-items: center; }
+.page-head button { flex: 0 0 auto; height: 36px; padding: 0 14px; font-size: 13px; }
+@media (max-width: 768px) {
+  .page-head { gap: 10px; }
+  /* 装饰图标块在窄屏会被拉成无用通栏, 直接隐藏（断点 600→768，兼容大手机/折叠屏） */
+  .sc-head-ico { display: none; }
+  .page-head button { height: 34px; padding: 0 12px; }
 }
 </style>

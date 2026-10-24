@@ -4,6 +4,8 @@ import {
   Delete,
   Get,
   HttpCode,
+  Headers,
+  Logger,
   Param,
   ParseIntPipe,
   Post,
@@ -14,6 +16,7 @@ import {
 } from '@nestjs/common';
 import {
   PowerCircuitsService,
+  type PowerCircuitScope,
   type PowerCircuitUpsertDto,
   type PowerDomainUpsertDto,
   type PowerFloorUpsertDto,
@@ -41,18 +44,25 @@ import { PowerDomainGrantService, type DomainGrantItem } from './power-domain-gr
  */
 @Controller()
 export class PowerCircuitsController {
+  private readonly logger = new Logger(PowerCircuitsController.name);
+
   constructor(
     private readonly service: PowerCircuitsService,
     private readonly grants: PowerDomainGrantService,
   ) {}
 
   @Get('power-circuits')
-  async list(@Req() req: AuthenticatedRequest, @Query('includeDisabled') includeDisabled?: string) {
+  async list(
+    @Req() req: AuthenticatedRequest,
+    @Query('includeDisabled') includeDisabled?: string,
+    @Query('scope') scopeParam?: string,
+  ) {
     const include = includeDisabled === '1' || includeDisabled === 'true';
     const role = requireActor(req).role;
+    const scope: PowerCircuitScope | undefined = scopeParam === 'player' ? 'player' : undefined;
     return {
       message: '查询成功',
-      data: await this.service.list({ includeDisabled: include, role }),
+      data: await this.service.list({ includeDisabled: include, role, scope }),
     };
   }
 
@@ -252,17 +262,41 @@ export class PowerCircuitsController {
   @UseGuards(RateLimitGuard, WriteRoleGuard)
   @WriteRoles('admin', 'hardware', 'config', 'operator')
   @RateLimit({ max: 4, windowMs: 1000 })
-  async on(@Req() req: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number) {
+  async on(
+    @Req() req: AuthenticatedRequest,
+    @Headers('x-operation-id') operationId: string | undefined,
+    @Param('id', ParseIntPipe) id: number,
+    @Query('scope') scopeParam?: string,
+  ) {
     const role = requireActor(req).role;
-    return { message: '通电成功', data: await this.service.turnOnForRole(id, role) };
+    const scope: PowerCircuitScope | undefined = scopeParam === 'player' ? 'player' : undefined;
+    const startedAt = Date.now();
+    const data = await this.service.turnOnForRole(id, role, scope);
+    this.logger.log(JSON.stringify({
+      event: 'playerBoot', phase: 'power-on', circuitId: id,
+      operationId: operationId?.slice(0, 80) ?? null, durationMs: Date.now() - startedAt,
+    }));
+    return { message: '通电成功', data };
   }
 
   @Post('power-circuits/:id/off')
   @UseGuards(RateLimitGuard, WriteRoleGuard)
   @WriteRoles('admin', 'hardware', 'config', 'operator')
   @RateLimit({ max: 4, windowMs: 1000 })
-  async off(@Req() req: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number) {
+  async off(
+    @Req() req: AuthenticatedRequest,
+    @Headers('x-operation-id') operationId: string | undefined,
+    @Param('id', ParseIntPipe) id: number,
+    @Query('scope') scopeParam?: string,
+  ) {
     const role = requireActor(req).role;
-    return { message: '断电成功', data: await this.service.turnOffForRole(id, role) };
+    const scope: PowerCircuitScope | undefined = scopeParam === 'player' ? 'player' : undefined;
+    const startedAt = Date.now();
+    const data = await this.service.turnOffForRole(id, role, scope);
+    this.logger.log(JSON.stringify({
+      event: 'playerBoot', phase: 'power-off', circuitId: id,
+      operationId: operationId?.slice(0, 80) ?? null, durationMs: Date.now() - startedAt,
+    }));
+    return { message: '断电成功', data };
   }
 }

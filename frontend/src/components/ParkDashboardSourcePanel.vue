@@ -96,15 +96,20 @@ const remainingText = computed(() => {
 <style scoped>
 .pd-grid { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .pd-state {
-  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  display: flex; align-items: center; gap: 7px; flex-wrap: nowrap;
+  min-height: 38px; overflow: hidden;
   padding: 9px 11px; border-radius: var(--v2-r-md);
   background: var(--v2-surf-2); margin-bottom: 10px;
 }
-.pd-state-text { font-size: 13px; color: var(--v2-text-2); }
+.pd-state-text {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; color: var(--v2-text-2);
+}
 .pd-state-text.ok { color: #2FA36B; }
 .pd-state-text.warn { color: #D98A2B; }
 .pd-state .ok { color: #2FA36B; }
 .pd-release {
+  flex: 0 0 auto;
   margin-left: auto; border: 1px solid rgba(47,163,107,.45); background: rgba(47,163,107,.12);
   color: #2FA36B; border-radius: 999px; font-size: 11px; line-height: 1; padding: 5px 11px; cursor: pointer;
 }

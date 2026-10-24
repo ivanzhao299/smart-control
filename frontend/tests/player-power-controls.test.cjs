@@ -113,8 +113,14 @@ function harness(overrides = {}) {
     }),
   };
   const readyService = {
-    led: async () => { readyCalls.push(['led']); return readyValue; },
-    projector: async () => { readyCalls.push(['projector']); return readyValue; },
+    led: async () => {
+      readyCalls.push(['led']);
+      return overrides.readyProbe ? overrides.readyProbe('led') : readyValue;
+    },
+    projector: async () => {
+      readyCalls.push(['projector']);
+      return overrides.readyProbe ? overrides.readyProbe('projector') : readyValue;
+    },
   };
   const exports = moduleWith(
     service,
@@ -130,6 +136,8 @@ function harness(overrides = {}) {
     powerAmpCodes: () => ampCodes.value,
     powerKeepPeers: () => keepPeers.value,
     powerBootPlan: () => bootPlan.value,
+    lockDisplay: overrides.lockDisplay,
+    startupWelcome: overrides.startupWelcome,
     captureAction: () => () => current,
   }));
   return {
@@ -289,7 +297,8 @@ test('power-off keeps the shared matrix while the other screen is still on', asy
   const matrix = h.state.powerCircuits.value.find((c) => c.id === 10);
   assert.equal(matrix.reading.on, true);
   assert.equal(h.messages.at(-1)[0], 'success');
-  assert.match(h.messages.at(-1)[1], /保持通电/);
+  assert.equal(h.messages.at(-1)[1], 'LED 大屏关机完成');
+  assert.doesNotMatch(h.messages.at(-1)[1], /保持通电|投影仪/);
   h.scope.stop();
 });
 
@@ -317,7 +326,25 @@ test('power-off turns off the shared matrix once the other screen is already off
   await h.state.togglePower();
 
   assert.deepEqual(offCalls, [4, 10, 8]);
-  assert.equal(h.messages.at(-1)[1], 'LED 大屏电源已断开');
+  assert.equal(h.messages.at(-1)[1], 'LED 大屏关机完成');
+  h.scope.stop();
+});
+
+test('power-off keeps device details internal and reports a concise message', async () => {
+  const h = harness({
+    available: [
+      circuit(1, 'screen', '大屏总闸', true),
+      circuit(2, 'amp', '大屏功放', true),
+    ],
+    off: async () => { throw new Error('gateway unavailable'); },
+  });
+  await flush();
+
+  await h.state.togglePower();
+
+  assert.equal(h.messages.at(-1)[0], 'success');
+  assert.equal(h.messages.at(-1)[1], 'LED 大屏关机完成');
+  assert.doesNotMatch(h.messages.at(-1)[1], /gateway unavailable|大屏总闸|未完成/);
   h.scope.stop();
 });
 
@@ -407,7 +434,7 @@ test('a failed circuit does not skip later serial commands and reports a partial
   await flush();
   await h.state.togglePower();
 
-  assert.deepEqual(h.calls.filter(([name]) => name === 'on'), [['on', 1], ['on', 2]]);
+  assert.deepEqual(h.calls.filter(([name]) => name === 'on'), [['on', 1], ['on', 1], ['on', 1], ['on', 2]]);
   assert.equal(h.state.powerCircuits.value[0].reading.on, false);
   assert.equal(h.state.powerCircuits.value[1].reading.on, true);
   assert.equal(h.messages.at(-1)[0], 'error');
@@ -465,9 +492,11 @@ test('PlayerConsole delegates display power orchestration to the dedicated compo
   // 只读 chip 闪现把电源块挤换行的整页跳动；纯 CSS、零 JS/模板逻辑，预算相应放宽。
   // 第三十轮 #30：新增 powerAmpCodes prop 及其注释（功放按 code 精确绑定），
   // 属 props 声明、业务逻辑仍在 composable，预算相应放宽到 1630。
-  // 第三十一轮：新增 powerBootPlan prop（含注释）+ 开机倒计时 UI（.np-state.booting），
+  // 第三十一轮：新增 powerBootPlan prop（含注释）+ 开机正计时 UI（.np-state.booting），
   // 仅 props/模板/样式，业务逻辑仍在 composable，预算相应放宽到 1640。
-  assert.ok(playerConsoleSource.split('\n').length < 1640);
+  // 2026-10-24 电源开关三态视觉（toggleState/powerIconState computed + CSS 三态），
+  // 纯 UI/样式，业务逻辑仍在 composable，预算放宽到 1710。
+  assert.ok(playerConsoleSource.split('\n').length < 1710);
 });
 
 // ===== 第三十一轮：分阶段电源编排（预热视频源 → 等就绪 → 显示回路）=====
@@ -475,7 +504,6 @@ test('PlayerConsole delegates display power orchestration to the dedicated compo
 const quickBootPlan = {
   preheatCodes: ['preheat'],
   readyKind: 'led',
-  timeoutSec: 5,
   initialDelaySec: 0,
   pollIntervalSec: 1,
 };
@@ -517,37 +545,44 @@ test('power-on preheats the video source first, waits for ready, then powers dis
   h.scope.stop();
 });
 
-test('booting flag and countdown are visible while waiting for the video source', async () => {
+test('booting flag and elapsed time are visible while waiting for the video source', async () => {
+  const readiness = deferred();
   const h = harness({
-    bootPlan: { ...quickBootPlan, timeoutSec: 3 },
+    bootPlan: { ...quickBootPlan, pollIntervalSec: 0.01 },
     available: stagedCircuits(),
-    ready: false,
+    readyProbe: async () => readiness.promise,
   });
   await flush();
   const toggling = h.state.togglePower();
   await new Promise((resolve) => setTimeout(resolve, 60));
   assert.equal(h.state.booting.value, true);
-  assert.ok(h.state.bootCountdown.value <= 3 && h.state.bootCountdown.value > 0);
+  assert.ok(h.state.bootElapsedSec.value >= 0);
+  readiness.resolve(true);
   await toggling;
   assert.equal(h.state.booting.value, false);
-  assert.equal(h.state.bootCountdown.value, 0);
+  assert.equal(h.state.bootElapsedSec.value, 0);
   h.scope.stop();
 });
 
-test('power-on continues to display circuits with a warning when the source never confirms ready', async () => {
+test('power-on waits past the old fixed window until the source confirms ready', async () => {
+  let probes = 0;
   const h = harness({
-    bootPlan: { ...quickBootPlan, timeoutSec: 2 },
+    // 旧字段即使存在，也不能再把真实开机流程截断。
+    bootPlan: { ...quickBootPlan, timeoutSec: 0.02, pollIntervalSec: 0.01 },
     available: stagedCircuits(),
-    ready: false,
+    readyProbe: async () => {
+      probes += 1;
+      return probes >= 4;
+    },
   });
   await flush();
   await h.state.togglePower();
-  // 超时兜底：仍开显示回路，最后给 warning。
+  // 不再按固定秒数失败；探活最终成功后才开显示回路。
   assert.deepEqual(
     h.calls.filter(([name]) => name === 'on'),
     [['on', 3], ['on', 1], ['on', 2]],
   );
-  assert.equal(h.messages.at(-1)[0], 'warning');
+  assert.equal(h.messages.at(-1)[0], 'success');
   h.scope.stop();
 });
 
@@ -587,14 +622,13 @@ test('power-on without a boot plan still powers all display circuits together', 
   h.scope.stop();
 });
 
-// ===== 第三十五轮：严格分段（视频源就绪硬门控 → 功放/矩阵 → 最后开屏；关机逆向）=====
+// ===== 第三十五轮：严格屏幕门控（核心与音频并行预热 → 核心就绪 → 最后开屏；关机逆向）=====
 
 const strictStagedPlan = {
   preheatCodes: ['nova'],
-  ampStageCodes: ['amp', 'matrix'],
+  ampStageCodes: ['matrix', 'amp'],
   screenStageCodes: ['screen'],
   readyKind: 'led',
-  timeoutSec: 5,
   initialDelaySec: 0,
   pollIntervalSec: 1,
   settleSec: 0,
@@ -610,7 +644,7 @@ function strictCircuits(powered = false) {
   ];
 }
 
-test('staged power-on: source -> ready gate -> amp/matrix -> screen last', async () => {
+test('staged power-on: core and amp/matrix preheat -> ready gate -> screen', async () => {
   const h = harness({
     bootPlan: strictStagedPlan,
     available: strictCircuits(),
@@ -620,10 +654,10 @@ test('staged power-on: source -> ready gate -> amp/matrix -> screen last', async
   h.ampCodes.value = ['amp'];
   await flush();
   await h.state.togglePower();
-  // 顺序：诺瓦(id3) → 功放(id2)+矩阵(id4) → 屏体(id1) 最后
+  // 顺序：诺瓦(id3) → 音频矩阵(id4) → 功放(id2) → 屏体(id1)
   assert.deepEqual(
     h.calls.filter(([name]) => name === 'on'),
-    [['on', 3], ['on', 2], ['on', 4], ['on', 1]],
+    [['on', 3], ['on', 4], ['on', 2], ['on', 1]],
   );
   assert.ok(h.readyCalls.some(([kind]) => kind === 'led'));
   assert.equal(h.state.powerAllOn.value, true);
@@ -631,25 +665,221 @@ test('staged power-on: source -> ready gate -> amp/matrix -> screen last', async
   h.scope.stop();
 });
 
-test('staged power-on BLOCKS amp and screen when the video source never becomes ready', async () => {
+test('staged power-on opens amp and matrix before locking the display path and reuses one operation id', async () => {
+  const phases = [];
   const h = harness({
-    bootPlan: { ...strictStagedPlan, timeoutSec: 2 },
+    bootPlan: { ...strictStagedPlan, stageGapMs: 0 },
     available: strictCircuits(),
-    ready: false,
+    ready: true,
+    lockDisplay: async (operationId) => {
+      phases.push(['lock', operationId]);
+      return true;
+    },
+    on: async (id, operationId) => {
+      phases.push(['on', id, operationId]);
+      const target = strictCircuits().find((item) => item.id === id);
+      return { ...target, reading: { ...target.reading, on: true } };
+    },
   });
   h.code.value = 'screen,matrix';
   h.ampCodes.value = ['amp'];
   await flush();
   await h.state.togglePower();
-  // 硬门控：只开了视频源(id3)，功放/矩阵/屏一路都不开
+  assert.equal(phases[0][0], 'on');
+  assert.equal(phases[0][1], 3);
+  assert.equal(phases[1][1], 4);
+  assert.equal(phases[2][1], 2);
+  assert.equal(phases[3][0], 'lock');
+  assert.equal(phases[4][1], 1);
+  const operationIds = phases
+    .filter((phase) => phase[0] === 'on')
+    .map((phase) => phase[2]);
+  assert.ok(operationIds.length >= 3);
+  assert.ok(operationIds.every((id) => id && id === phases[3][1]));
+  h.scope.stop();
+});
+
+test('staged power-on publishes the startup welcome only after the screen command', async () => {
+  const phases = [];
+  const h = harness({
+    bootPlan: { ...strictStagedPlan, stageGapMs: 0 },
+    available: strictCircuits(),
+    lockDisplay: async () => { phases.push(['lock']); return true; },
+    startupWelcome: async () => { phases.push(['welcome']); return true; },
+    on: async (id) => {
+      phases.push(['on', id]);
+      const target = strictCircuits().find((item) => item.id === id);
+      return { ...target, reading: { ...target.reading, on: true } };
+    },
+  });
+  h.code.value = 'screen,matrix';
+  h.ampCodes.value = ['amp'];
+  await flush();
+  await h.state.togglePower();
+  assert.deepEqual(phases, [
+    ['on', 3], ['on', 4], ['on', 2], ['lock'], ['on', 1], ['welcome'],
+  ]);
+  assert.equal(h.messages.at(-1)[1], 'LED 大屏已开机（默认欢迎页已投放）');
+  h.scope.stop();
+});
+
+test('startup welcome failure does not block the already-issued screen power command', async () => {
+  const phases = [];
+  const h = harness({
+    bootPlan: { ...strictStagedPlan, stageGapMs: 0 },
+    available: strictCircuits(),
+    startupWelcome: async () => { phases.push(['welcome']); return false; },
+    on: async (id) => {
+      phases.push(['on', id]);
+      const target = strictCircuits().find((item) => item.id === id);
+      return { ...target, reading: { ...target.reading, on: true } };
+    },
+  });
+  h.code.value = 'screen,matrix';
+  h.ampCodes.value = ['amp'];
+  await flush();
+  await h.state.togglePower();
+  assert.equal(phases.at(-2)[1], 1);
+  assert.deepEqual(phases.at(-1), ['welcome']);
+  assert.equal(h.state.powerAllOn.value, true);
+  assert.equal(h.messages.at(-1)[0], 'success');
+  h.scope.stop();
+});
+
+test('staged power-on still opens the screen while core readiness is pending', async () => {
+  const readiness = deferred();
+  const phases = [];
+  const h = harness({
+    bootPlan: { ...strictStagedPlan, stageGapMs: 0 },
+    available: strictCircuits(),
+    readyProbe: async () => readiness.promise,
+    lockDisplay: async () => { phases.push(['lock']); return true; },
+    on: async (id) => {
+      phases.push(['on', id]);
+      const target = strictCircuits().find((item) => item.id === id);
+      return { ...target, reading: { ...target.reading, on: true } };
+    },
+  });
+  h.code.value = 'screen,matrix';
+  h.ampCodes.value = ['amp'];
+  await flush();
+  const pending = h.state.togglePower();
+  await flush();
+  await pending;
+  // 探活请求仍未返回，屏体也必须已经收到上电指令。
+  assert.deepEqual(phases, [['on', 3], ['on', 4], ['on', 2], ['lock'], ['on', 1]]);
+  assert.equal(h.state.powerAllOn.value, true);
+  h.scope.stop();
+});
+
+test('staged power-on does not block when readiness probe never resolves', async () => {
+  const readiness = deferred();
+  const h = harness({
+    bootPlan: { ...strictStagedPlan, ampStartDelaySec: 0, stageGapMs: 0 },
+    available: strictCircuits(),
+    readyProbe: async () => readiness.promise,
+  });
+  h.code.value = 'screen,matrix';
+  h.ampCodes.value = ['amp'];
+  await flush();
+  await h.state.togglePower();
   assert.deepEqual(
     h.calls.filter(([name]) => name === 'on'),
-    [['on', 3]],
+    [['on', 3], ['on', 4], ['on', 2], ['on', 1]],
   );
-  // 屏与功放仍断电
-  assert.equal(h.state.powerAllOn.value, false);
+  assert.equal(h.state.powerAllOn.value, true);
+  assert.equal(h.messages.at(-1)[0], 'success');
+  h.scope.stop();
+});
+
+test('staged power-on continues later circuits after a preheat command failure', async () => {
+  const h = harness({
+    bootPlan: { ...strictStagedPlan, ampStartDelaySec: 0, stageGapMs: 0 },
+    available: strictCircuits(),
+    on: async (id) => {
+      h.calls.push(['on', id]);
+      if (id === 3) throw new Error('nova relay unavailable');
+      const target = strictCircuits().find((item) => item.id === id);
+      return { ...target, reading: { ...target.reading, on: true } };
+    },
+  });
+  h.code.value = 'screen,matrix';
+  h.ampCodes.value = ['amp'];
+  await flush();
+  await h.state.togglePower();
+  assert.deepEqual(
+    h.calls.filter(([name]) => name === 'on'),
+    [['on', 3], ['on', 3], ['on', 3], ['on', 4], ['on', 2], ['on', 1]],
+  );
   assert.equal(h.messages.at(-1)[0], 'error');
-  assert.match(h.messages.at(-1)[1], /未在 2s 内确认就绪|暂缓开功放与显示屏/);
+  assert.match(h.messages.at(-1)[1], /nova relay unavailable/);
+  h.scope.stop();
+});
+
+test('staged power-on keeps command order when the display path cannot be confirmed', async () => {
+  const phases = [];
+  const h = harness({
+    bootPlan: { ...strictStagedPlan, ampStartDelaySec: 0, stageGapMs: 0 },
+    available: strictCircuits(),
+    lockDisplay: async () => { phases.push(['lock']); return false; },
+    on: async (id) => {
+      phases.push(['on', id]);
+      const target = strictCircuits().find((item) => item.id === id);
+      return { ...target, reading: { ...target.reading, on: true } };
+    },
+  });
+  h.code.value = 'screen,matrix';
+  h.ampCodes.value = ['amp'];
+  await flush();
+  await h.state.togglePower();
+  assert.deepEqual(phases, [['on', 3], ['on', 4], ['on', 2], ['lock'], ['on', 1]]);
+  assert.equal(h.state.powerAllOn.value, true);
+  assert.equal(h.messages.at(-1)[0], 'success');
+  h.scope.stop();
+});
+
+test('staged power-on does not gate the screen on the video source readiness result', async () => {
+  const readiness = deferred();
+  const h = harness({
+    bootPlan: { ...strictStagedPlan, timeoutSec: 0.02, pollIntervalSec: 0.01, ampStartDelaySec: 0, stageGapMs: 0 },
+    available: strictCircuits(),
+    readyProbe: async () => readiness.promise,
+  });
+  h.code.value = 'screen,matrix';
+  h.ampCodes.value = ['amp'];
+  await flush();
+  await h.state.togglePower();
+  assert.deepEqual(
+    h.calls.filter(([name]) => name === 'on'),
+    [['on', 3], ['on', 4], ['on', 2], ['on', 1]],
+  );
+  assert.equal(h.state.powerAllOn.value, true);
+  h.scope.stop();
+});
+
+test('staged power-on starts amp and matrix at the configured midpoint delay', async () => {
+  const readiness = deferred();
+  const phases = [];
+  const h = harness({
+    bootPlan: { ...strictStagedPlan, ampStartDelaySec: 0.03, ampStageGapSec: 0.03, stageGapMs: 0 },
+    available: strictCircuits(),
+    readyProbe: async () => readiness.promise,
+    on: async (id) => {
+      phases.push(['on', id]);
+      const target = strictCircuits().find((item) => item.id === id);
+      return { ...target, reading: { ...target.reading, on: true } };
+    },
+  });
+  h.code.value = 'screen,matrix';
+  h.ampCodes.value = ['amp'];
+  await flush();
+  const pending = h.state.togglePower();
+  await flush();
+  assert.deepEqual(phases, [['on', 3]]);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.deepEqual(phases, [['on', 3], ['on', 4], ['on', 2], ['on', 1]]);
+  await pending;
+  assert.deepEqual(phases.at(-1), ['on', 1]);
   h.scope.stop();
 });
 
@@ -686,7 +916,7 @@ test('staged power-on passes the settle stability window when the source stays r
   await h.state.togglePower();
   assert.deepEqual(
     h.calls.filter(([name]) => name === 'on'),
-    [['on', 3], ['on', 2], ['on', 4], ['on', 1]],
+    [['on', 3], ['on', 4], ['on', 2], ['on', 1]],
   );
   assert.equal(h.messages.at(-1)[0], 'success');
   h.scope.stop();

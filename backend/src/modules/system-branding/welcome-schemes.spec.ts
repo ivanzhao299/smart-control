@@ -9,6 +9,8 @@ import { MediaService } from '../media/media.service';
 import { SystemBrandingService } from './system-branding.service';
 import {
   DEFAULT_WELCOME_PRESENTATION,
+  DEFAULT_WELCOME_SCHEME_ID,
+  ensureDefaultWelcomeScheme,
   normalizeWelcomeSchemes,
   WELCOME_SCHEMES_CONFIG_KEY,
   type WelcomeSchemesDocument,
@@ -183,6 +185,20 @@ describe('welcome scheme document', () => {
     expect([out.welcomeVenue, out.welcomeVenueEn, out.welcomeOrg1, out.welcomeOrg2])
       .toEqual([null, null, null, null]);
   });
+
+  it('adds the reserved default scheme without mutating the saved document', () => {
+    const out = ensureDefaultWelcomeScheme(schemes, {
+      ...current,
+      presentation: DEFAULT_WELCOME_PRESENTATION,
+    });
+    expect(out.schemes[0]).toMatchObject({
+      id: DEFAULT_WELCOME_SCHEME_ID,
+      name: '默认欢迎页',
+      welcomeTitle: current.welcomeTitle,
+    });
+    expect(schemes.schemes).toHaveLength(1);
+    expect(out.schemes).toHaveLength(2);
+  });
 });
 
 describe('SystemBrandingService welcome schemes', () => {
@@ -223,7 +239,7 @@ describe('SystemBrandingService welcome schemes', () => {
   it('offers defaults without writing and preserves the current published welcome page', async () => {
     const snapshot = await service.getWelcomeSchemes();
     expect(snapshot.revision).toBe(0);
-    expect(snapshot.publishedSchemeId).toBe('current');
+    expect(snapshot.publishedSchemeId).toBe(DEFAULT_WELCOME_SCHEME_ID);
     expect(snapshot.config.schemes[0]).toMatchObject({
       welcomeTitle: '原欢迎标题',
       welcomeGuest: '原接待嘉宾',
@@ -314,7 +330,7 @@ describe('SystemBrandingService welcome schemes', () => {
     expect(result.removedId).toBe(7);
     expect(result.schemes.revision).toBe(2);
     expect(result.schemes.config.schemes.every((item) => item.welcomeBgMediaId === null)).toBe(true);
-    expect(result.schemes.config.schemes.map((item) => item.welcomeLogoMediaId)).toEqual([8, null]);
+    expect(result.schemes.config.schemes.map((item) => item.welcomeLogoMediaId)).toEqual([8, 8, null]);
     expect(repositoryWithState.update).toHaveBeenCalledWith(
       { id: 1 },
       { welcomeBgMediaId: null },
@@ -341,14 +357,17 @@ describe('SystemBrandingService welcome schemes', () => {
     );
     await subject.updateWelcomeSchemes(schemes, 0);
 
-    await expect(subject.removeWelcomeAsset(7, 1, {
+    const result = await subject.removeWelcomeAsset(7, 1, {
       kind: 'admin', userId: null, username: 'admin', role: 'admin',
-    })).resolves.toMatchObject({
+    });
+    expect(result).toMatchObject({
       removedId: 7,
       cleanupPending: false,
-      schemes: {
-        config: { schemes: [{ welcomeBgMediaId: null }] },
-      },
     });
+    // The editable default welcome scheme is always retained alongside user
+    // schemes; assert the idempotent delete without assuming a one-item document.
+    expect(result.schemes.config.schemes).toEqual(
+      expect.arrayContaining([expect.objectContaining({ welcomeBgMediaId: null })]),
+    );
   });
 });

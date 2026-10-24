@@ -55,10 +55,52 @@ describe('complete migration chain on an isolated database', () => {
     expect(await runner.hasTable('upload_instances')).toBe(true);
     expect((await runner.getTable('upload_reservations'))?.findColumnByName('target_media_id')).toBeDefined();
     expect(await db.query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'protect_last_administrator_%'")).toHaveLength(2);
+    // The showroom scene sequence is authoritative scene configuration. Verify its
+    // archive fence explicitly, then remove only the disposable fixture rows/ledger
+    // entry so the older rollback fences can still be exercised below.
+    const showroomLightingMigration = applied.find(
+      m => m.name === 'EstablishShowroomLightingSequence1793000000000',
+    );
+    if (showroomLightingMigration) {
+      // Undo only the led-program feature migrations appended after the showroom fence chain,
+      // so undoLastMigration() below reaches DirectShowroomClosingPowerOff which owns the fence.
+      const postShowroom = applied.filter(m =>
+        m.name === 'GrantLedProgramToConfig1793300000000' ||
+        m.name === 'SeedPveReceiverDevice1793400000000' ||
+        m.name === 'SeedPveReceiverHardwareUnit1793401000000' ||
+        m.name === 'AddPowerCircuitPollConfig1793500000000' ||
+        m.name === 'AddLedProgramTemplateType1793600000000' ||
+        m.name === 'AddLedProgramComboMembers1793700000000' ||
+        m.name === 'FixPveReceiverUrl1793700000100' ||
+        m.name === 'EnsureComboMembersColumn1793700000200',
+      );
+      for (const _ of postShowroom) await db.undoLastMigration();
+      await expect(db.undoLastMigration()).rejects.toThrow(
+        'SHOWROOM_LIGHTING_SEQUENCE_ROLLBACK_REQUIRES_ARCHIVE',
+      );
+      await db.query(
+        "DELETE FROM scene_actions WHERE device_type IN ('power-circuit', 'lighting-broadcast')",
+      );
+      await db.query(
+        "DELETE FROM migrations WHERE name = 'EstablishShowroomLightingSequence1793000000000'",
+      );
+    }
+
     // Optional feature tables appended after the forward-only catalog series (the latest
     // is the TestFlight invitation table) are ordinary, reversible migrations. Undo them
     // first so the fence walk below starts exactly at the bundled-media authority boundary.
-    const postCatalogMigrations = applied.filter(m => m.timestamp > 1789680000000);
+    const postCatalogMigrations = applied.filter(
+      m => m.timestamp > 1789680000000
+        && m.name !== 'EstablishShowroomLightingSequence1793000000000'
+        && m.name !== 'GrantLedProgramToConfig1793300000000'
+        && m.name !== 'SeedPveReceiverDevice1793400000000'
+        && m.name !== 'SeedPveReceiverHardwareUnit1793401000000'
+        && m.name !== 'AddPowerCircuitPollConfig1793500000000'
+        && m.name !== 'AddLedProgramTemplateType1793600000000'
+        && m.name !== 'AddLedProgramComboMembers1793700000000'
+        && m.name !== 'FixPveReceiverUrl1793700000100'
+        && m.name !== 'EnsureComboMembersColumn1793700000200',
+    );
     for (const _migration of postCatalogMigrations) await db.undoLastMigration();
     // Bundled media, HVAC/playback and operational catalogs are forward-only: remove only their ledger
     // entries in this disposable fixture after proving the rollback fences, so earlier

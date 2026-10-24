@@ -6,6 +6,7 @@ import { PowerCircuit } from '../../entities/power-circuit.entity';
 import { InitialBaseline1784561601801 } from '../../migrations/1784561601801-InitialBaseline';
 import { EstablishPowerCircuitDefaults1789600000000 } from '../../migrations/1789600000000-EstablishPowerCircuitDefaults';
 import { CreatePowerDomains1792300000000 } from '../../migrations/1792300000000-CreatePowerDomains';
+import { AddPowerCircuitPollConfig1793500000000 } from '../../migrations/1793500000000-AddPowerCircuitPollConfig';
 
 describe('EstablishPowerCircuitDefaults migration', () => {
   let directory: string;
@@ -23,6 +24,7 @@ describe('EstablishPowerCircuitDefaults migration', () => {
         InitialBaseline1784561601801,
         EstablishPowerCircuitDefaults1789600000000,
         CreatePowerDomains1792300000000,
+        AddPowerCircuitPollConfig1793500000000,
       ],
       migrationsTableName: 'migrations',
       synchronize: false,

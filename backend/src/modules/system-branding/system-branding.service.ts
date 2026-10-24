@@ -18,6 +18,7 @@ import type { Actor } from '../../common/auth/actor';
 import {
   buildDefaultWelcomeSchemes,
   DEFAULT_WELCOME_PRESENTATION,
+  ensureDefaultWelcomeScheme,
   matchesPublishedWelcome,
   normalizeWelcomePresentation,
   normalizeWelcomeSchemes,
@@ -237,7 +238,9 @@ export class SystemBrandingService {
       this.get(),
     ]);
     const published = this.publishedWelcomeFields(branding);
-    const config = snapshot?.value ?? buildDefaultWelcomeSchemes(published);
+    const config = snapshot
+      ? ensureDefaultWelcomeScheme(snapshot.value, published)
+      : buildDefaultWelcomeSchemes(published);
     return {
       config,
       revision: snapshot?.revision ?? 0,
@@ -363,8 +366,10 @@ export class SystemBrandingService {
         });
       }
       const branding = await this.get();
-      const config =
-        snapshot?.value ?? buildDefaultWelcomeSchemes(this.publishedWelcomeFields(branding));
+      const published = this.publishedWelcomeFields(branding);
+      const config = snapshot
+        ? ensureDefaultWelcomeScheme(snapshot.value, published)
+        : buildDefaultWelcomeSchemes(published);
       const scheme = config.schemes.find((item) => item.id === schemeId);
       if (!scheme) throw new ConflictException('欢迎方案已被其他终端修改，请刷新后重试');
       const updated = await this.update({
@@ -423,9 +428,9 @@ export class SystemBrandingService {
           actualRevision,
         });
       }
-      const current = snapshot?.value ?? buildDefaultWelcomeSchemes(
-        this.publishedWelcomeFields(branding),
-      );
+      const current = snapshot
+        ? ensureDefaultWelcomeScheme(snapshot.value, this.publishedWelcomeFields(branding))
+        : buildDefaultWelcomeSchemes(this.publishedWelcomeFields(branding));
       const next: WelcomeSchemesDocument = {
         version: 2,
         schemes: current.schemes.map((scheme) => ({

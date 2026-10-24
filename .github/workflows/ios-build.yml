@@ -28,9 +28,22 @@ on:
       - 'ios-app/**'
       - '.github/workflows/ios-build.yml'
   workflow_dispatch:
+    inputs:
+      distribution:
+        description: '发布目标：生成未签名 IPA，或上传 TestFlight'
+        required: true
+        type: choice
+        options:
+          - unsigned
+          - testflight
+        default: unsigned
 
 permissions:
   contents: read
+
+concurrency:
+  group: ios-build
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -53,6 +66,17 @@ jobs:
         working-directory: ios-app
         run: xcodegen generate
 
+      - name: Read app version
+        id: version
+        run: |
+          set -euo pipefail
+          VN=$(awk -F'"' '/MARKETING_VERSION:/{print $2; exit}' ios-app/project.yml)
+          VC=$(awk -F'"' '/CURRENT_PROJECT_VERSION:/{print $2; exit}' ios-app/project.yml)
+          test -n "$VN" && test -n "$VC"
+          echo "version_name=$VN" >> "$GITHUB_OUTPUT"
+          echo "build_number=$VC" >> "$GITHUB_OUTPUT"
+          echo "iOS v$VN (build $VC)"
+
       - name: Build (unsigned)
         working-directory: ios-app
         run: |
@@ -67,6 +91,16 @@ jobs:
             SYMROOT=build \
             build
 
+      - name: Verify app bundle
+        working-directory: ios-app
+        run: |
+          set -euo pipefail
+          APP=build/Release-iphoneos/SmartControl.app
+          test -d "$APP"
+          test -f "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Info.plist"
+
       - name: Package IPA
         working-directory: ios-app
         run: |
@@ -78,7 +112,7 @@ jobs:
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v7
         with:
-          name: SmartControl-unsigned-ipa
+          name: SmartControl-v${{ steps.version.outputs.version_name }}-b${{ steps.version.outputs.build_number }}-unsigned-ipa
           path: ios-app/SmartControl-unsigned.ipa
           retention-days: 14
 
@@ -91,7 +125,7 @@ jobs:
     name: Sign & upload TestFlight
     runs-on: macos-26
     needs: build
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.distribution == 'testflight'))
     env:
       KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
       ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
@@ -101,7 +135,12 @@ jobs:
       - name: Check secrets
         id: gate
         run: |
+          set -euo pipefail
           if [ -z "$KEY_ID" ] || [ -z "$ISSUER_ID" ] || [ -z "$P8_B64" ] || [ -z "$TEAM_ID" ]; then
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.distribution }}" = "testflight" ]; then
+              echo "选择了 TestFlight，但四个 App Store Connect secrets 未配置" >&2
+              exit 1
+            fi
             echo "run=false" >> "$GITHUB_OUTPUT"
             echo "TestFlight secrets 未配置, 跳过 (只出未签名 IPA)"
           else

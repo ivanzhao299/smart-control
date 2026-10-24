@@ -23,7 +23,9 @@ export interface ProjectorStatus {
 export const projectorService = {
   status: () => api.get<ProjectorStatus>('/projector/status'),
   /** 模型A: 让投影显示 GK9000 的 HDMI 输入 */
-  showHdmi: () => api.post<null>('/projector/show-hdmi'),
+  showHdmi: (operationId?: string) => api.post<null>('/projector/show-hdmi', undefined, {
+    headers: operationId ? { 'X-Operation-Id': operationId } : undefined,
+  }),
   windows: () => api.get<FusionWindow[]>('/projector/windows'),
   open: (source: string, x: number, y: number, w: number, h: number) =>
     api.post<{ windowId: number }>('/projector/windows/open', { source, x, y, w, h }),

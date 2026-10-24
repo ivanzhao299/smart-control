@@ -56,6 +56,13 @@ jobs:
     needs: scope
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # 只在涉及前端变更时跑（frontend/static/full/twin）；纯后端变更跳过
+    if: >-
+      always() &&
+      (needs.scope.outputs.scope == 'frontend' ||
+       needs.scope.outputs.scope == 'static' ||
+       needs.scope.outputs.scope == 'twin' ||
+       needs.scope.outputs.scope == 'full')
     steps:
       - uses: actions/checkout@v7
 
@@ -85,6 +92,11 @@ jobs:
     needs: scope
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # 只在涉及后端变更时跑（backend/full）；纯前端/static/twin变更跳过
+    if: >-
+      always() &&
+      (needs.scope.outputs.scope == 'backend' ||
+       needs.scope.outputs.scope == 'full')
     steps:
       - uses: actions/checkout@v7
 
@@ -112,11 +124,13 @@ jobs:
   deploy:
     name: Deploy to GK9000
     needs: [scope, validate-frontend, validate-backend]
+    # scope=none 不部署；验证被跳过(skipped)视为通过，不阻塞
     if: >-
       always() &&
       needs.scope.result == 'success' &&
-      needs.validate-frontend.result == 'success' &&
-      needs.validate-backend.result == 'success'
+      needs.scope.outputs.scope != 'none' &&
+      (needs.validate-frontend.result == 'success' || needs.validate-frontend.result == 'skipped') &&
+      (needs.validate-backend.result == 'success' || needs.validate-backend.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -136,8 +150,12 @@ jobs:
           DEPLOY_SCOPE: ${{ needs.scope.outputs.scope }}
         run: |
           echo "Validated deployment scope: ${DEPLOY_SCOPE}"
-          if [ "${DEPLOY_SCOPE}" = "twin" ]; then ACTION="gk9000-twin-sync"; else ACTION="gk9000-deploy"; fi
-          echo "Routing to ${ACTION}"
+          if [ "${DEPLOY_SCOPE}" = "twin" ]; then
+            ACTION="gk9000-twin-sync"
+          else
+            ACTION="gk9000-deploy"
+          fi
+          echo "Routing to ${ACTION} (scope=${DEPLOY_SCOPE})"
           ssh \
             -i "$HOME/.ssh/gk9000-deploy-jump" \
             -o BatchMode=yes \

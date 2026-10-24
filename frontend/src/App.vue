@@ -41,6 +41,19 @@ const unsubscribeIdentity = onIdentityChange(() => {
   identityKey.value = identityGeneration();
 });
 
+/**
+ * PWA 前台操作提示静默化：
+ * Element Plus 的 ElMessage 会挂到 body 顶部，容易压住前台页面的首行卡片。
+ * 前台操作结果已经由设备状态和后端日志保留，因此默认隐藏这些瞬时文字；
+ * 后台管理页仍保留 ElMessage，登录页自己的 login-toast 也不受影响。
+ */
+function syncPwaMessageVisibility(): void {
+  const path = router.currentRoute.value.path;
+  const isPwaSurface = !path.startsWith('/admin') && path !== '/player';
+  document.documentElement.classList.toggle('pwa-silent-messages', isPwaSurface);
+}
+watch(() => router.currentRoute.value.path, syncPwaMessageVisibility, { immediate: true });
+
 let unsubscribeWs: (() => void) | null = null;
 let unsubscribeWsState: (() => void) | null = null;
 let wsWasOpen = false; // 区分首次连接 vs 重连, 只在重连时补对齐

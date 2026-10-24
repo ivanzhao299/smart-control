@@ -47,7 +47,7 @@ test('welcome editor uploads logo and background in place and remains scrollable
 
 test('welcome editor keeps uploaded logos and backgrounds in separate libraries and lets admins delete them', () => {
   assert.match(welcomeEditor, /const logoAssets = ref<WelcomeImageAsset\[]>\(\[]\)/);
-  assert.match(welcomeEditor, /classifyWelcomeImageAssets\(assets, snapshot\.config\.schemes\)/);
+  assert.match(welcomeEditor, /classifyWelcomeImageAssets\(assets, normalizedSchemes\)/);
   assert.match(welcomeEditor, /addWelcomeImageAsset\(/);
   assert.match(welcomeEditor, /removeWelcomeAsset\(asset\.id, welcomeSchemesRevision\.value\)/);
   assert.match(playerConsole, /deleteWelcomeImage\('logo', a\)/);
@@ -62,8 +62,8 @@ test('welcome editor keeps uploaded logos and backgrounds in separate libraries 
 
 test('welcome editor reopens the last edited saved scheme instead of hiding it behind the published scheme', () => {
   assert.match(welcomeEditor, /LAST_WELCOME_SCHEME_KEY/);
-  assert.match(welcomeEditor, /const preferredId = selectedWelcomeSchemeId\.value \|\| rememberedWelcomeSchemeId\(\)/);
-  assert.match(welcomeEditor, /snapshot\.config\.schemes\.some\(\(item\) => item\.id === preferredId\)/);
+  assert.match(welcomeEditor, /const preferredId = preferredSchemeId \|\| selectedWelcomeSchemeId\.value \|\| rememberedWelcomeSchemeId\(\)/);
+  assert.match(welcomeEditor, /normalizedSchemes\.some\(\(item\) => item\.id === preferredId\)/);
   assert.match(welcomeEditor, /rememberWelcomeSchemeId\(id\)/);
 });
 
@@ -97,7 +97,7 @@ test('welcome editor converts every new or legacy background before selection', 
 
 test('PlayerConsole delegates the welcome editing use case without duplicating persistence logic', () => {
   assert.match(playerConsole, /useWelcomeEditor\(\{/);
-  assert.match(playerConsole, /republishEditable:\s*async \(\) => \{ await publishWelcome\(SLOT\.value, 'editable'\); \}/);
+  assert.match(playerConsole, /republishEditable:\s*async \(\) => \{[\s\S]*selectedWelcomeSchemeId\.value === WELCOME_DEFAULT_SCHEME_ID/);
   assert.doesNotMatch(playerConsole, /async function persistWelcomeSchemes/);
   assert.doesNotMatch(playerConsole, /async function onWelcomeAssetPicked/);
 });

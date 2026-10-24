@@ -64,6 +64,12 @@ function loadComposable(runtime) {
         }),
       };
     }
+    if (id === '@/features/player-input-source') {
+      return {
+        WELCOME_DEFAULT_SCHEME_ID: 'default',
+        WELCOME_DEFAULT_SCHEME_NAME: '默认欢迎页',
+      };
+    }
     throw new Error(`unexpected import: ${id}`);
   };
   vm.runInNewContext(output, {

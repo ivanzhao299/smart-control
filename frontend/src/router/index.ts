@@ -89,16 +89,27 @@ router.beforeEach(async (to) => {
   // 显式公开页: client-login (输密码 + 配地址), player (kiosk 全屏播放, 无 UI)
   if (to.meta?.clientPublic || to.name === 'player') return true;
   const client = useClientAuthStore();
+  // 后台路由由下面独立的 admin guard 负责校验。不要在这里先探测一次，
+  // 否则手机冷启动会被重复的 /admin/auth/me 网络请求挡住。
+  if (typeof to.path === 'string' && to.path.startsWith('/admin')) return true;
   // Hydrate the saved administrator session on control pages too. Otherwise a
   // reload silently sends only the old read-only client token to device APIs.
   const admin = useAdminAuthStore();
+
+  // 冷启动没有任何有效会话时，登录页必须立即可见。
+  // 旧版 client token 可能仍在 localStorage，但 client store 已按过期时间判为无效；
+  // 这时不能再把旧 token 交给 admin.ensureChecked() 去等待网络超时。
+  if (!client.isAuthed && !admin.isAuthenticated) {
+    return { name: 'client-login', query: { redirect: to.fullPath } };
+  }
+
   const adminAuthenticated = await admin.ensureChecked();
-  if (typeof to.path === 'string' && to.path.startsWith('/admin')) return true;
   if (client.isAuthed && !adminAuthenticated) {
     // Old password-only sessions are valid but cannot identify a user. Migrate
     // them explicitly instead of silently restoring a read-only device session.
     try {
-      const actor = await api.get<{ kind: string }>('/client-auth/me');
+      // 启动鉴权不能占住启动画面；网络不通时让页面先出现，登录页/业务页再处理重试。
+      const actor = await api.get<{ kind: string }>('/client-auth/me', { timeout: 2500 });
       if (actor.kind === 'legacy') {
         client.logout();
         return { name: 'client-login', query: { redirect: to.fullPath, reason: 'account-required' } };

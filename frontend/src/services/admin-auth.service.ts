@@ -17,7 +17,9 @@ export async function adminLogin(username: string, password: string): Promise<Lo
 
 /** 检查当前 token 还有效. 如果不行 (401), 接口层会 throw HttpError */
 export async function adminMe(): Promise<{ authenticated: boolean }> {
-  return api.get<{ authenticated: boolean }>('/admin/auth/me');
+  // 启动路由守卫会调用此探测；后台暂时不可达时不能把 PWA 启动画面
+  // 卡到 10 秒以上，否则用户看到的是“系统页面未能启动”而不是登录页。
+  return api.get<{ authenticated: boolean }>('/admin/auth/me', { timeout: 2500 });
 }
 
 export async function adminLogout(): Promise<void> {

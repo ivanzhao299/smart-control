@@ -107,17 +107,38 @@ export function usePlayerInputSources(options: PlayerInputSourceOptions) {
   });
 
   /** 固定显示路径：LED 切正全屏图层 / 投影清空窗口+全屏 HDMI。返回是否确认成功（失败仅 warning）。 */
-  async function ensureDisplayPath(): Promise<boolean> {
+  async function ensureDisplayPath(operationId?: string): Promise<boolean> {
     try {
       if (options.slot.value === 1 && options.deviceId()) {
-        const result = await ledService.switchInput(options.deviceId()!, 'video');
+        const result = operationId
+          ? await ledService.switchInput(options.deviceId()!, 'video', operationId)
+          : await ledService.switchInput(options.deviceId()!, 'video');
         if (!result.ok) throw new Error(result.error || '设备未确认');
       } else if (options.slot.value === 2) {
-        await projectorService.showHdmi();
+        if (operationId) await projectorService.showHdmi(operationId);
+        else await projectorService.showHdmi();
       }
       return true;
     } catch (error) {
       if (!disposed) ElMessage.warning(`显示链路切换未确认: ${(error as Error).message}`);
+      return false;
+    }
+  }
+
+  /** 屏体完成上电后投放本屏默认欢迎页；投影仪沿用 HDMI 输入，不发送欢迎页。 */
+  async function startupWelcome(operationId?: string): Promise<boolean> {
+    if (options.slot.value !== 1) return true;
+    try {
+      await publishWelcome(options.slot.value, 'default');
+      return true;
+    } catch (error) {
+      if (!disposed) {
+        console.warn('[player-input-sources] startup welcome publish failed', {
+          slot: options.slot.value,
+          operationId,
+          error,
+        });
+      }
       return false;
     }
   }
@@ -177,7 +198,7 @@ export function usePlayerInputSources(options: PlayerInputSourceOptions) {
 
   /**
    * 按 id 投放欢迎方案（核心逻辑，供输入源下拉与新的方案明细表共用）。
-   * id = WELCOME_PICK_DEFAULT 投放静态默认；其余为具体方案 id（发布 + 动态欢迎页）。
+   * id = WELCOME_PICK_DEFAULT 投放默认欢迎页；其余为具体方案 id（发布 + 动态欢迎页）。
    * 返回 'success'（成功或当前已非活动上下文，无需回滚）/ 'busy'（并发保护，未尝试）/
    * 'failed'（尝试后失败，调用方应恢复选择器显示值）。
    */
@@ -308,6 +329,7 @@ export function usePlayerInputSources(options: PlayerInputSourceOptions) {
   return {
     activeSource,
     ensureDisplayPath,
+    startupWelcome,
     srcHint,
     welcomePickerBusy,
     welcomePickerValue,
