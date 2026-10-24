@@ -297,6 +297,7 @@ function previewSeg(id: number) {
 const pveEnabled = ref(true);
 // 手工编辑区折叠（自动模式下收起）
 const manualEditCollapsed = ref(true);
+const autoCollapsed = ref(false); // 自动编排卡片折叠状态
 
 // PVE 探活（真实后端 /led-program/status）
 const pveOnline = ref(false);
@@ -424,12 +425,20 @@ const comboName = ref('');
 const comboSelectedIds = ref<number[]>([]);
 async function doCreateCombo() {
   try {
-    await ledProgramService.createCombo(comboName.value.trim(), comboSelectedIds.value);
-    toast('组合已创建');
+    const r = await ledProgramService.createCombo(comboName.value.trim(), comboSelectedIds.value) as any;
     showComboCreator.value = false;
     comboName.value = '';
     comboSelectedIds.value = [];
     loadProgramList();
+    // 创建成功后询问是否立即推流
+    if (confirm(`组合「${comboName || '未命名'}」已创建成功，是否立即推流到PVE？`)) {
+      if (r?.id) {
+        lastProgramId.value = r.id;
+        pushStream();
+      }
+    } else {
+      toast('组合已创建');
+    }
   } catch (e: any) { toast(`创建失败：${e?.message || e}`); }
 }
 function toast(t: string) {
@@ -934,20 +943,23 @@ onUnmounted(() => {
       </details>
     </div>
 
-    <!-- 自动编排：内置模板一键生成 -->
+    <!-- 自动编排：内置模板一键生成（可折叠） -->
     <section class="card auto-card">
-      <div class="card-head">
-        <div class="card-title">自动编排</div>
+      <div class="card-head" @click="autoCollapsed = !autoCollapsed" style="cursor:pointer">
+        <div class="card-title">
+          <span style="margin-right:6px">{{ autoCollapsed ? '▸' : '▾' }}</span>
+          自动编排
+        </div>
         <div style="display:flex;gap:8px;align-items:center;">
-          <span class="card-hint" v-if="festivalToday.isFestival">
+          <span class="card-hint" v-if="festivalToday.isFestival && !autoCollapsed">
             今日节日：{{ festivalTemplateName }}
           </span>
-          <button class="btn-mini" :disabled="busyGenAll" @click="generateAllTemplates">
+          <button class="btn-mini" :disabled="busyGenAll" @click.stop="generateAllTemplates">
             {{ busyGenAll ? '生成中…' : '一键生成全部' }}
           </button>
         </div>
       </div>
-      <div class="card-body">
+      <div class="card-body" v-show="!autoCollapsed">
         <div class="auto-grid">
           <div
             v-for="t in templateList"
@@ -2292,14 +2304,19 @@ input[type=range]::-webkit-slider-thumb {
   /* iOS Safari: input/select 字号 <16px focus 时会强制放大页面，抬到 16px  */
   .line-input { font-size: 16px; }
   select.line-tpl { font-size: 16px; }
-  /* 手机端实时预览卡 sticky 悬浮：上下滑动时贴顶固定 */
+  /* 手机端实时预览卡 fixed 悬浮：不管滚到哪里都贴顶固定 */
   .card.sticky-preview {
-    position: sticky;
+    position: fixed;
     top: 0;
-    z-index: 20;
+    left: 0;
+    right: 0;
+    z-index: 100;
     border-radius: 0;
-    margin: 0 -12px;
+    margin: 0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
   }
+  /* 页面顶部加padding，给fixed预览卡让位 */
+  .led-page { padding-top: 220px; }
 }
 
 /* 手机 PWA（390×844）细化：双列按钮、紧凑、安全区 */
